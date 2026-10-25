@@ -4,6 +4,7 @@ import {
   addExcludeName,
   archiveSettingsDirty,
   draftFromSettings,
+  excludeNamesNote,
   removeExcludeName,
   validateExcludeNames,
   type ArchiveSettingsDraft,
@@ -68,17 +69,21 @@ export function useArchiveSettings() {
         return false;
       }
       setDraftState(next);
-      // 直前の保存エラー（不正名など）は編集で解消しうるので、操作のたびに注記を戻す
-      setNote({ text: MEMORY_NOTE, error: false });
+      // 直前の保存エラー（不正名など）は編集で解消しうるが、保存済みの案内に戻すと反映済みと読める
+      setNote(excludeNamesNote(next, settings));
       return true;
     },
     [draft, settings],
   );
 
-  const remove = useCallback((name: string): void => {
-    setDraftState((prev) => removeExcludeName(prev, name));
-    setNote({ text: MEMORY_NOTE, error: false });
-  }, []);
+  const remove = useCallback(
+    (name: string): void => {
+      const next = removeExcludeName(draft, name);
+      setDraftState(next);
+      setNote(excludeNamesNote(next, settings));
+    },
+    [draft, settings],
+  );
 
   const discard = useCallback((): void => {
     setDraftState(draftFromSettings(settings));

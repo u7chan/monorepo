@@ -98,3 +98,11 @@ test("描画: 読み込み中は待ち表示、失敗は上の再読み込みを
   assert.ok(failed.includes("公開の除外名を読み込めませんでした") && failed.includes(RELOAD_ABOVE_NOTE));
   assert.equal((failed.match(/>再読み込み<\/button>/g) ?? []).length, 0, "本文の枠に再読み込みを置かない");
 });
+
+test("描画: 保存値と違う下書きには未保存のバッジを出し、保存値に戻れば消す", () => {
+  // 追加しただけでは公開に反映されないことを、一覧の見出しで気づけるようにする
+  assert.equal(render().includes(">未保存<"), false, "保存値と同じなのに未保存を出す");
+  const added = render({ draft: { excludeNames: [...DEFAULTS, ".venv"] } });
+  assert.ok(added.includes(">未保存<"), "保存していない一覧に未保存のバッジが無い");
+  assert.ok(added.includes(".venv"), "下書きの名前が出ていない");
+});

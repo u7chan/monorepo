@@ -7,10 +7,12 @@ import {
   archiveSettingsDirty,
   draftFromSettings,
   EMPTY_ARCHIVE_DRAFT,
+  excludeNamesNote,
   removeExcludeName,
   validateExcludeName,
   validateExcludeNames,
 } from "../src/lib/archiveSettings";
+import { MEMORY_NOTE, UNSAVED_EDIT_NOTE } from "../src/lib/settingsNotes";
 import type { ArchiveSettingsResponse } from "../src/types";
 
 const DEFAULTS = ["node_modules", ".venv", "dist"];
@@ -66,6 +68,19 @@ test("追加は trim / 空 / 重複 / 上限を扱い、順序を保つ", () => 
   // 上限に達したら追加しない
   assert.equal(addExcludeName(draft, "vendor", 1), draft);
   assert.deepEqual(addExcludeName(draft, "vendor", 2), { excludeNames: ["dist", "vendor"] });
+});
+
+test("編集後の注記は、保存値と違う間だけ未保存を出す", () => {
+  const saved = settings();
+  const clean = { text: MEMORY_NOTE, error: false };
+  const unsaved = { text: UNSAVED_EDIT_NOTE, error: false };
+  assert.deepEqual(excludeNamesNote(draftFromSettings(saved), saved), clean);
+  const added = addExcludeName(draftFromSettings(saved), ".tmp", saved.maxNames);
+  assert.deepEqual(excludeNamesNote(added, saved), unsaved);
+  // 追加した名前を消して保存値に戻れば、保存済みの案内へ戻る
+  assert.deepEqual(excludeNamesNote(removeExcludeName(added, ".tmp"), saved), clean);
+  // 読み込み前は保存できないので未保存を出さない
+  assert.deepEqual(excludeNamesNote(added, null), clean);
 });
 
 test("削除は一致する名前だけを落とし、無い名前では何も変えない", () => {

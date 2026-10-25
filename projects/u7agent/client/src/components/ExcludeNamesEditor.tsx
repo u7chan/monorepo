@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ArchiveSettingsDraft } from "../lib/archiveSettings";
+import { archiveSettingsDirty, type ArchiveSettingsDraft } from "../lib/archiveSettings";
 import { RELOAD_ABOVE_NOTE } from "../lib/settingsNotes";
 import type { ArchiveSettingsResponse } from "../types";
 import { CollapsibleNotice } from "./CollapsibleNotice";
@@ -51,6 +51,8 @@ export function ExcludeNamesEditor({
   onRemove,
   hint,
 }: ExcludeNamesEditorProps) {
+  // 保存したかどうかは一覧の保存値との差で決める（フッターの注記と同じ判定を使う）
+  const dirty = settings ? archiveSettingsDirty(draft, settings) : false;
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
       <div className="mx-auto grid max-w-3xl gap-3">
@@ -65,8 +67,13 @@ export function ExcludeNamesEditor({
 
             <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                <h3 className="flex min-w-0 items-center gap-1.5 text-2xs font-semibold tracking-label text-ink-faint uppercase">
+                <h3 className="flex min-w-0 flex-wrap items-center gap-1.5 text-2xs font-semibold tracking-label text-ink-faint uppercase">
                   除外する名前
+                  {dirty ? (
+                    <span className="rounded border border-danger/50 px-1.5 py-0.5 text-2xs font-normal tracking-normal text-danger-text normal-case">
+                      未保存
+                    </span>
+                  ) : null}
                   <span className="rounded border border-line px-1.5 py-0.5 text-2xs font-normal tracking-normal text-ink-muted normal-case">
                     {settings.overridden ? "上書き中" : "既定の一覧を使用中"}
                   </span>

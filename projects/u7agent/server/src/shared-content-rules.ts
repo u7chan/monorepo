@@ -16,6 +16,12 @@ export const DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES: readonly string[] = [
   ".github",
   ".agents",
   "node_modules",
+  // 依存と作業用の一時ファイル。成果物ではないうえ容量が大きく、既定で残すと ZIP の上限超過で公開できない
+  ".venv",
+  ".tmp",
+  // テスト用のコードとフィクスチャ。配る中身ではないが、スナップショットなどで容量が大きくなりやすい
+  "test",
+  "tests",
   // エージェント向けの指示と説明。ドキュメントサイトを公開する用途では邪魔になるので既定で落とす
   "AGENTS.md",
   "CLAUDE.md",

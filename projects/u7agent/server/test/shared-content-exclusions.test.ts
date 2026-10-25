@@ -50,7 +50,21 @@ test("既定はアーカイブと別で、成果物の名前 (dist / build / out
   for (const name of ["dist", "build", "out"]) {
     assert.equal(DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES.includes(name), false, name);
   }
-  for (const name of [".git", "AGENTS.md", "README.md", ".env", ".env.local", ".env.production", ".npmrc"]) {
+  for (const name of [
+    ".git",
+    "AGENTS.md",
+    "README.md",
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".npmrc",
+    // 作業フォルダ直下の依存と一時ファイルは配る中身ではなく、残すと ZIP の上限超過で公開できない
+    ".venv",
+    ".tmp",
+    // テスト用のコードとフィクスチャも配る中身ではない
+    "test",
+    "tests",
+  ]) {
     assert.equal(DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES.includes(name), true, name);
   }
   // glob を持たないので `.env.*` は個別に列挙する

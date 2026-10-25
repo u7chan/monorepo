@@ -4,6 +4,7 @@
  * 長さの上限は API の `maxNameLength` を受けて二重持ちしない。
  */
 import type { ArchiveSettingsResponse } from "../types";
+import { MEMORY_NOTE, UNSAVED_EDIT_NOTE } from "./settingsNotes";
 
 export type ArchiveSettingsDraft = {
   /** 保存する一覧（順序そのまま。重複は追加時に畳む） */
@@ -26,6 +27,17 @@ export function archiveSettingsDirty(draft: ArchiveSettingsDraft, settings: Arch
 
 function sameNames(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((name, index) => name === b[index]);
+}
+
+/**
+ * 一覧を編集した直後の注記。保存済みと同じ一覧なら保存済みの案内、違うなら未保存の案内を返す
+ * （追加しただけの一覧を、保存済みの案内で「反映済み」と誤解させない）。
+ */
+export function excludeNamesNote(
+  draft: ArchiveSettingsDraft,
+  settings: ArchiveSettingsResponse | null,
+): { text: string; error: boolean } {
+  return { text: archiveSettingsDirty(draft, settings) ? UNSAVED_EDIT_NOTE : MEMORY_NOTE, error: false };
 }
 
 /**
