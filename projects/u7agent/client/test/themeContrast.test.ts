@@ -105,7 +105,28 @@ const TOKEN_SURFACES: Record<string, string[]> = {
   "danger-text": ["raised", "hover"],
 };
 
-const THEME_NAMES = ["midnight", "daylight", "mocha", "forest", "sakura", "sky"];
+const THEME_NAMES = [
+  "midnight",
+  "daylight",
+  "mocha",
+  "forest",
+  "sakura",
+  "sky",
+  "catppuccin-mocha",
+  "catppuccin-frappe",
+  "nord",
+  "tokyo-night",
+  "kanagawa",
+  "gruvbox-dark",
+  "everforest-dark",
+  "dracula",
+  "catppuccin-latte",
+  "gruvbox-light",
+  "rose-pine-dawn",
+  "everforest-light",
+  "one-light",
+  "solarized-light",
+];
 
 test("小さい文字の文字用トークンは、通常面 / hover 面 / 淡い面で 4.5:1 以上", () => {
   const themes = parseThemes(css);

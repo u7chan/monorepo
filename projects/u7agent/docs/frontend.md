@@ -16,7 +16,7 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 
 ## テーマシステム
 
-- テーマは `html` の `data-theme` で決まり、各プリセットが CSS 変数（`--c-*`）を定義する。`@theme inline` でセマンティックトークンにマップし、コンポーネントはトークンクラスだけで書く。**プリセットのセレクタは `html` に限定せず `[data-theme]` に当てる**（要素に置けばその配下だけを別テーマで描ける。設定 → 外観（/settings/appearance）の配色プレビューがこの仕組みを使う）
+- テーマは `html` の `data-theme` で決まり、各プリセットが CSS 変数（`--c-*`）を定義する。`@theme inline` でセマンティックトークンにマップし、コンポーネントはトークンクラスだけで書く。**プリセットのセレクタは `html` に限定せず `[data-theme]` に当てる**（要素に置けばその配下だけを別テーマで描ける。設定 → 外観（/settings/appearance）の配色プレビューがこの仕組みを使う）。一覧は registry の並びをダーク / ライトの 2 群に割り、各タイルには配色の帯（面と差し色の 10 色）を敷く
 - **テーマの追加は CSS 変数・`client/src/theme/themes.ts`・`client/public/theme-init.js` の 3 箇所**。初期化スクリプトの解決結果と CSS registry の対応は `client/test/themeSync.test.ts` が検査する
 - `theme-init.js` は React 初回描画より前に `data-theme` を当てる classic script。**React 側でやると初期化完了までテーマなしで点滅する**ため意図的に React の外に置く。ロジック（保存キーと system 追従の解決）は `ThemeProvider` と同じ結果になるよう同期を取る
 - 無効な保存値（削除済みのテーマ id など）は system 追従として解決し、**保存値は書き換えない**（新しく知るテーマを選び直したときに初めて上書きされる）
