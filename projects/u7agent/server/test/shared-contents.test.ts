@@ -22,6 +22,9 @@ import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
 import {
   SHARED_CONTENT_MAX_FILE_BYTES,
   SHARED_CONTENT_PROJECT_SESSION_ROOT,
+  SHARED_CONTENT_RECONCILE_FAILED,
+  SHARED_CONTENT_RESUME_UNPUBLISHED,
+  SHARED_CONTENT_STOP_UNPUBLISHED,
   SharedContentsService,
   resolveSharedContentSource,
   validateSharedAssetEntries,
@@ -401,6 +404,29 @@ test("初回公開の失敗は failed、結果不明で subdomain が有効な�
   } finally {
     timeoutZip.cleanup();
   }
+
+  // 結果不明で照会した subdomain が無効なら、一度も公開できていない行は stopped ではなく failed
+  const disabledZip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const third = setup({
+    zip: disabledZip,
+    cloudflare: {
+      publishAssets: async () => {
+        throw new CloudflareApiError("timeout");
+      },
+      getScriptSubdomain: async () => ({ enabled: false, previewsEnabled: false }),
+    },
+  });
+  try {
+    await third.service.create(payload());
+    await third.service.waitForIdle("id1");
+    const row = third.store.getSharedContent("id1");
+    assert.equal(row?.status, "failed", "初回公開の結果不明で無効な行を stopped にしない");
+    assert.equal(row?.publishedAt, null);
+    assert.equal(row?.stoppedAt, null);
+    assert.ok(row?.lastError);
+  } finally {
+    disabledZip.cleanup();
+  }
 });
 
 test("公開実績のある更新の照会で script が無ければ、failed ではなく停止中として残す", async () => {
@@ -699,7 +725,7 @@ test("エントリ検証は symlink・重複・個別サイズ超過を拒否す
 });
 
 test("起動時の復帰は subdomain で published / stopped / failed に寄せる", async () => {
-  const base = (id: string): SharedContentRow => ({
+  const base = (id: string, overrides: Partial<SharedContentRow> = {}): SharedContentRow => ({
     id,
     sessionId: "session-1",
     name: id,
@@ -714,87 +740,77 @@ test("起動時の復帰は subdomain で published / stopped / failed に寄せ
     publishedAt: null,
     stoppedAt: null,
     lastError: null,
+    ...overrides,
   });
-  for (const [enabled, expected] of [
-    [true, "published"],
-    [false, "stopped"],
-  ] as const) {
+  const recover = async (
+    row: Partial<SharedContentRow>,
+    cloudflare: Partial<CloudflareAssetsApi>,
+  ): Promise<SharedContentRow | undefined> => {
     const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
-    const { service, store } = setup({
-      zip,
-      cloudflare: { getScriptSubdomain: async () => ({ enabled, previewsEnabled: false }) },
-    });
+    const { service, store } = setup({ zip, cloudflare });
     try {
-      store.insertSharedContent(base("id1"));
+      store.insertSharedContent(base("id1", row));
       await service.recoverInterrupted();
-      assert.equal(store.getSharedContent("id1")?.status, expected);
+      return store.getSharedContent("id1");
     } finally {
       zip.cleanup();
     }
-  }
+  };
 
-  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
-  const missing = setup({
-    zip,
-    cloudflare: {
+  // 有効なら deployment の有無を確認できないため、publishedAt が無い行にも now を入れて公開中に戻す
+  const enabled = await recover({}, { getScriptSubdomain: async () => ({ enabled: true, previewsEnabled: false }) });
+  assert.equal(enabled?.status, "published");
+  assert.equal(typeof enabled?.publishedAt, "number");
+
+  // 無効は公開実績のある行だけ stopped。未公開の行は failed に寄せ、stoppedAt を入れない
+  const stopped = await recover(
+    { publishedAt: 2, stoppedAt: 2 },
+    { getScriptSubdomain: async () => ({ enabled: false, previewsEnabled: false }) },
+  );
+  assert.equal(stopped?.status, "stopped");
+  assert.equal(stopped?.publishedAt, 2);
+
+  const unpublished = await recover(
+    {},
+    { getScriptSubdomain: async () => ({ enabled: false, previewsEnabled: false }) },
+  );
+  assert.equal(unpublished?.status, "failed", "一度も公開できていない行を stopped にしない");
+  assert.equal(unpublished?.publishedAt, null);
+  assert.equal(unpublished?.stoppedAt, null);
+
+  const missing = await recover(
+    {},
+    {
       getScriptSubdomain: async () => {
         throw new CloudflareApiError("not_found");
       },
     },
-  });
-  try {
-    missing.store.insertSharedContent(base("id1"));
-    await missing.service.recoverInterrupted();
-    assert.equal(missing.store.getSharedContent("id1")?.status, "failed");
-  } finally {
-    zip.cleanup();
-  }
+  );
+  assert.equal(missing?.status, "failed");
 
   // 再公開の中断。公開実績がある行は 404 でも failed にせず、公開時刻を残して stopped にする
-  const resumedZip = zipFactory({ "index.html": "<h1>v1</h1>" });
-  const missingPublished = setup({
-    zip: resumedZip,
-    cloudflare: {
+  const missingPublished = await recover(
+    { publishedAt: 2, stoppedAt: 2 },
+    {
       getScriptSubdomain: async () => {
         throw new CloudflareApiError("not_found");
       },
     },
-  });
-  try {
-    missingPublished.store.insertSharedContent(base("id1"));
-    missingPublished.store.updateSharedContentState("id1", {
-      status: "publishing",
-      updatedAt: 3,
-      publishedAt: 2,
-      stoppedAt: 2,
-      lastError: null,
-    });
-    await missingPublished.service.recoverInterrupted();
-    const row = missingPublished.store.getSharedContent("id1");
-    assert.equal(row?.status, "stopped", "公開実績のある行を failed にしない");
-    assert.equal(row?.publishedAt, 2, "公開時刻を消さない");
-    assert.match(row?.lastError ?? "", /公開物が見つかりません/);
-  } finally {
-    resumedZip.cleanup();
-  }
+  );
+  assert.equal(missingPublished?.status, "stopped", "公開実績のある行を failed にしない");
+  assert.equal(missingPublished?.publishedAt, 2, "公開時刻を消さない");
+  assert.match(missingPublished?.lastError ?? "", /公開物が見つかりません/);
 
-  const checkZip = zipFactory({ "index.html": "<h1>v1</h1>" });
-  const checkFailed = setup({
-    zip: checkZip,
-    cloudflare: {
+  const checkFailed = await recover(
+    {},
+    {
       getScriptSubdomain: async () => {
         throw new CloudflareApiError("timeout");
       },
     },
-  });
-  try {
-    checkFailed.store.insertSharedContent(base("id1"));
-    await checkFailed.service.recoverInterrupted();
-    assert.equal(checkFailed.store.getSharedContent("id1")?.status, "publishing");
-    assert.ok(checkFailed.store.getSharedContent("id1")?.lastError);
-  } finally {
-    checkZip.cleanup();
-  }
+  );
+  assert.equal(checkFailed?.status, "publishing");
+  assert.ok(checkFailed?.lastError);
 });
 
 test("DB の保存失敗は 503 にし、202 / 200 を返さない", async () => {
@@ -1311,6 +1327,61 @@ test("停止が確定失敗なら前の状態 + lastError、結果不明は照�
   }
 });
 
+test("未公開の公開中の行を停止すると failed + 固定文言にし、stoppedAt を入れない", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const { service, store, cloudflare } = setup({ zip });
+  try {
+    store.insertSharedContent(
+      rowOf("stuck", {
+        status: "publishing",
+        publishedAt: null,
+        stoppedAt: null,
+        lastError: SHARED_CONTENT_RECONCILE_FAILED,
+      }),
+    );
+    assert.deepEqual(await service.stop("stuck"), { id: "stuck", status: "failed" });
+    const row = store.getSharedContent("stuck");
+    assert.equal(row?.status, "failed", "公開実績の無い行を stopped にしない");
+    assert.equal(row?.publishedAt, null);
+    assert.equal(row?.stoppedAt, null, "停止していないので stoppedAt を入れない");
+    assert.equal(row?.lastError, SHARED_CONTENT_STOP_UNPUBLISHED);
+    assert.deepEqual(cloudflare.subdomains, [{ script: "u7s-stuck", enabled: false }]);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("停止の照会で無効を確認した未公開の行も failed にする", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const { service, store } = setup({
+    zip,
+    cloudflare: {
+      setScriptSubdomain: async () => {
+        throw new CloudflareApiError("timeout");
+      },
+      getScriptSubdomain: async () => ({ enabled: false, previewsEnabled: false }),
+    },
+  });
+  try {
+    store.insertSharedContent(
+      rowOf("stuck", {
+        status: "publishing",
+        publishedAt: null,
+        stoppedAt: null,
+        lastError: SHARED_CONTENT_RECONCILE_FAILED,
+      }),
+    );
+    assert.deepEqual(await service.stop("stuck"), { id: "stuck", status: "failed" });
+    const row = store.getSharedContent("stuck");
+    assert.equal(row?.status, "failed");
+    assert.equal(row?.publishedAt, null);
+    assert.equal(row?.stoppedAt, null);
+    assert.equal(row?.lastError, SHARED_CONTENT_STOP_UNPUBLISHED);
+  } finally {
+    zip.cleanup();
+  }
+});
+
 test("再公開は同じ URL と publishedAt を保って published に戻す", async () => {
   const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
   const { service, store, cloudflare } = setup({ zip });
@@ -1333,6 +1404,170 @@ test("再公開は同じ URL と publishedAt を保って published に戻す", 
       [false, true],
     );
     assert.equal(cloudflare.published.length, 1, "再公開で成果物を送り直さない");
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("公開実績の無い stopped 行は再公開できず、固定文言の 409 にする", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const { service, store, cloudflare } = setup({ zip });
+  try {
+    store.insertSharedContent(rowOf("broken", { status: "stopped", publishedAt: null, stoppedAt: 2 }));
+    await assert.rejects(
+      () => service.resume("broken"),
+      (error: any) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.message, SHARED_CONTENT_RESUME_UNPUBLISHED);
+        return true;
+      },
+    );
+    const row = store.getSharedContent("broken");
+    assert.equal(row?.status, "stopped", "断った行の状態を変えない");
+    assert.deepEqual(cloudflare.subdomains, [], "断った要求では provider を呼ばない");
+  } finally {
+    zip.cleanup();
+  }
+});
+
+// What: 未公開の published 行を停止し、provider が確定失敗 / 結果不明（subdomain 有効）でも、
+// 停止操作のあとに published / stopped（publishedAt: null）を保存し直さないこと。
+test("未公開の published 行の停止が失敗しても、不整合な published を保存し直さない", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const invalid = setup({
+    zip,
+    cloudflare: {
+      setScriptSubdomain: async () => {
+        throw new CloudflareApiError("invalid");
+      },
+    },
+  });
+  try {
+    invalid.store.insertSharedContent(rowOf("legacy", { status: "published", publishedAt: null, stoppedAt: null }));
+    await assert.rejects(
+      () => invalid.service.stop("legacy"),
+      (error: any) => error.statusCode === 502,
+    );
+    const row = invalid.store.getSharedContent("legacy");
+    assert.equal(row?.status, "failed", "公開実績の無い行を published に戻さない");
+    assert.equal(row?.publishedAt, null);
+    assert.equal(row?.stoppedAt, null);
+    assert.ok(row?.lastError);
+  } finally {
+    zip.cleanup();
+  }
+
+  // timeout のあと subdomain が有効と照会できた場合（停止できていないので開始状態へ戻す）
+  const unknownZip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const unknown = setup({
+    zip: unknownZip,
+    cloudflare: {
+      setScriptSubdomain: async () => {
+        throw new CloudflareApiError("timeout");
+      },
+      getScriptSubdomain: async () => ({ enabled: true, previewsEnabled: false }),
+    },
+  });
+  try {
+    unknown.store.insertSharedContent(rowOf("legacy", { status: "published", publishedAt: null, stoppedAt: null }));
+    await assert.rejects(
+      () => unknown.service.stop("legacy"),
+      (error: any) => error.statusCode === 502,
+    );
+    const row = unknown.store.getSharedContent("legacy");
+    assert.equal(row?.status, "failed", "有効と照会できても未公開の行を published にしない");
+    assert.equal(row?.publishedAt, null);
+    assert.equal(row?.stoppedAt, null);
+    assert.ok(row?.lastError);
+  } finally {
+    unknownZip.cleanup();
+  }
+});
+
+test("停止中からの更新は 202 で受け付き、成功すると published + 新しい publishedAt にする", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const { service, store, cloudflare } = setup({ zip });
+  try {
+    const id = await publishNow(service);
+    const published = store.getSharedContent(id);
+    await service.stop(id);
+    const stopped = store.getSharedContent(id);
+    assert.equal(stopped?.status, "stopped");
+    assert.notEqual(stopped?.stoppedAt, null);
+
+    assert.deepEqual(await service.publish(id), { id, status: "publishing" });
+    assert.equal(store.getSharedContent(id)?.status, "publishing");
+    assert.equal(store.getSharedContent(id)?.stoppedAt, stopped?.stoppedAt, "受付では stoppedAt を消さない");
+
+    await service.waitForIdle(id);
+    const updated = store.getSharedContent(id);
+    assert.equal(updated?.status, "published");
+    assert.equal(updated?.publicUrl, published?.publicUrl, "停止中からの更新は URL を変えない");
+    assert.equal(updated?.stoppedAt, null, "公開の成功で stoppedAt を消す");
+    assert.equal(updated?.lastError, null);
+    assert.ok(
+      (updated?.publishedAt ?? 0) > (published?.publishedAt ?? 0),
+      "新しい deployment なので publishedAt を進める",
+    );
+    assert.equal(cloudflare.published.length, 2, "停止中からの更新は成果物を送り直す");
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("停止中からの更新が確定失敗したら、公開実績を保って stopped + lastError に戻す", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  let calls = 0;
+  const { service, store } = setup({
+    zip,
+    cloudflare: {
+      publishAssets: async () => {
+        calls += 1;
+        if (calls === 2) throw new CloudflareApiError("invalid");
+      },
+    },
+  });
+  try {
+    const id = await publishNow(service);
+    const published = store.getSharedContent(id);
+    await service.stop(id);
+    const stoppedAt = store.getSharedContent(id)?.stoppedAt;
+
+    await service.publish(id);
+    await service.waitForIdle(id);
+    const row = store.getSharedContent(id);
+    assert.equal(row?.status, "stopped", "公開実績のある停止中へ戻す");
+    assert.equal(row?.publishedAt, published?.publishedAt, "公開実績を消さない");
+    assert.equal(row?.stoppedAt, stoppedAt, "停止時刻を維持する");
+    assert.ok(row?.lastError);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("公開実績の無い published / stopped 行の更新が確定失敗したら failed にする", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const { service, store } = setup({
+    zip,
+    cloudflare: {
+      publishAssets: async () => {
+        throw new CloudflareApiError("invalid");
+      },
+    },
+  });
+  try {
+    for (const [id, status, stoppedAt] of [
+      ["broken-published", "published", null],
+      ["broken-stopped", "stopped", 2],
+    ] as const) {
+      store.insertSharedContent(rowOf(id, { status, publishedAt: null, stoppedAt }));
+      await service.publish(id);
+      await service.waitForIdle(id);
+      const row = store.getSharedContent(id);
+      assert.equal(row?.status, "failed", `${status} の壊れた行を published / stopped に戻さない`);
+      assert.equal(row?.publishedAt, null);
+      assert.ok(row?.lastError);
+    }
   } finally {
     zip.cleanup();
   }
@@ -1563,31 +1798,6 @@ test("再公開で script の不在が確定したら、停止と同じ規則で
   } finally {
     zip.cleanup();
   }
-
-  // 未公開のまま停止した行 (publishedAt なし) は failed に収束させる
-  const freshZip = zipFactory({ "index.html": "<h1>v1</h1>" });
-  const unpublished = setup({
-    zip: freshZip,
-    cloudflare: {
-      setScriptSubdomain: async (_script, enabled) => {
-        if (enabled) throw new CloudflareApiError("not_found");
-      },
-      getScriptSubdomain: async () => {
-        throw new CloudflareApiError("not_found");
-      },
-    },
-  });
-  try {
-    unpublished.store.insertSharedContent(rowOf("id1", { status: "stopped", publishedAt: null, stoppedAt: 2 }));
-    await unpublished.service.resume("id1");
-    await unpublished.service.waitForIdle("id1");
-    const row = unpublished.store.getSharedContent("id1");
-    assert.equal(row?.status, "failed", "一度も公開できていない行だけ failed にする");
-    assert.equal(row?.publishedAt, null);
-    assert.match(row?.lastError ?? "", /再公開してください/);
-  } finally {
-    freshZip.cleanup();
-  }
 });
 
 test("削除は provider の削除が成功してから行を消し、404 は成功扱いにする", async () => {
@@ -1800,6 +2010,66 @@ test("停止 / 再公開 / 削除は状態を保存できなければ成功扱�
     assert.equal(resumeCase.store.getSharedContent(id)?.status, "published");
   } finally {
     resumeZip.cleanup();
+  }
+});
+
+// What: 本 Issue の操作を経た行だけが、published / stopped ⇒ publishedAt !== null を満たすこと。
+// 未操作の既存不整合行（publishedAt 無しの published / stopped）は対象外で、自動修復もしない。
+test("本 Issue の操作を経た行は published / stopped に必ず publishedAt を持つ", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  let fails = false;
+  let subdomainEnabled = true;
+  const { service, store } = setup({
+    zip,
+    cloudflare: {
+      publishAssets: async () => {
+        if (fails) throw new CloudflareApiError("invalid");
+      },
+      setScriptSubdomain: async (_script, enabled) => {
+        subdomainEnabled = enabled;
+      },
+      getScriptSubdomain: async () => ({ enabled: subdomainEnabled, previewsEnabled: false }),
+    },
+  });
+  try {
+    const id = await publishNow(service);
+    await service.stop(id);
+    await service.publish(id);
+    await service.waitForIdle(id);
+    fails = true;
+    await service.publish(id);
+    await service.waitForIdle(id);
+    await service.stop(id);
+    await service.publish(id);
+    await service.waitForIdle(id);
+
+    store.insertSharedContent(
+      rowOf("unpublished", {
+        status: "publishing",
+        publishedAt: null,
+        stoppedAt: null,
+        lastError: SHARED_CONTENT_RECONCILE_FAILED,
+      }),
+    );
+    await service.stop("unpublished");
+
+    store.insertSharedContent(rowOf("recovered", { status: "publishing", lastError: null }));
+    await service.recoverInterrupted();
+
+    // 未操作の既存不整合行。操作の対象外なので状態も変えない
+    store.insertSharedContent(rowOf("legacy", { status: "published", publishedAt: null }));
+
+    for (const row of store.listSharedContents()) {
+      if (row.id === "legacy") continue;
+      if (row.status === "published" || row.status === "stopped") {
+        assert.notEqual(row.publishedAt, null, `${row.id}: ${row.status} は publishedAt を持つ`);
+      }
+    }
+    assert.equal(store.getSharedContent("unpublished")?.status, "failed");
+    assert.equal(store.getSharedContent("legacy")?.status, "published", "既存不整合行を勝手に直さない");
+    assert.equal(store.getSharedContent("legacy")?.publishedAt, null);
+  } finally {
+    zip.cleanup();
   }
 });
 

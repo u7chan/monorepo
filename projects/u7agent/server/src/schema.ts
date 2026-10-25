@@ -1143,10 +1143,10 @@ export const SharedContentMutationResponseSchema = z.object({
 });
 export type SharedContentMutationResponse = z.infer<typeof SharedContentMutationResponseSchema>;
 
-/** POST /api/shared-contents/:id/stop。停止は同期で確定する (200) */
+/** POST /api/shared-contents/:id/stop。停止は同期で確定する (200)。未公開の行は failed を返す */
 export const SharedContentStopResponseSchema = z.object({
   id: z.string(),
-  status: z.literal("stopped"),
+  status: z.union([z.literal("stopped"), z.literal("failed")]),
 });
 export type SharedContentStopResponse = z.infer<typeof SharedContentStopResponseSchema>;
 

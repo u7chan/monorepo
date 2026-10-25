@@ -780,9 +780,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | GET | `/api/shared-contents/preview` | 公開前のプレビュー（`?sessionId=&directory=`）。補助で、確定は公開ジョブ |
 | POST | `/api/shared-contents` | 作成して公開を開始（202） |
 | GET | `/api/shared-contents/:id` | 詳細と状態 |
-| POST | `/api/shared-contents/:id/publish` | 更新（同じ URL へ再公開、202）。`failed` からの再試行も同じ |
-| POST | `/api/shared-contents/:id/stop` | 停止（200）。workers.dev を無効にする。script の不在が確定したときは 502 と終端状態（`stopped` / `failed` + `lastError`） |
-| POST | `/api/shared-contents/:id/resume` | 再公開（202）。同じ URL を有効に戻す |
+| POST | `/api/shared-contents/:id/publish` | 更新（同じ URL へ再公開、202）。`failed` からの再試行と、停止中からの更新も同じ |
+| POST | `/api/shared-contents/:id/stop` | 停止（200）。workers.dev を無効にする。未公開の行は `failed` を返し、script の不在が確定したときは 502 と終端状態（`stopped` / `failed` + `lastError`） |
+| POST | `/api/shared-contents/:id/resume` | 再公開（202）。同じ URL を有効に戻す。公開実績の無い行は 409 |
 | DELETE | `/api/shared-contents/:id` | 削除（204）。provider 側の削除が成功してから行を消す |
 
 ```json
@@ -790,8 +790,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 { "sessionId": "…", "directory": "dist", "name": "デモ" }
 // 202 応答
 { "id": "…", "status": "publishing" }
-// POST /api/shared-contents/:id/stop の 200 応答
+// POST /api/shared-contents/:id/stop の 200 応答（公開実績のある行）
 { "id": "…", "status": "stopped" }
+// 公開実績の無い行は status が "failed" になり、lastError に固定文言が入る
 ```
 
 一覧・詳細は `{ id, sessionId, name, sourcePath, sourceKind, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`sourceKind` は公開元の種類で、`session-root` はセッションの作業フォルダ自身、`directory` はその配下のディレクトリ。`remoteId` / `providerAccount` は返さない。`status` の値は `SharedContentStatus`（`server/src/app-db.ts`）と schema を正とし、`lastError` は分類済みの固定文言だけを入れる。
@@ -810,7 +811,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - ソースは sandbox の `GET /v1/files/download?path=<dir>&exclude=…`（受付時に解決した公開の除外名。空でも明示）で全量 ZIP を取得し、`index.html` の存在、10,000 entries / 100 MiB / 1 ファイル 25 MiB、パス・symlink、既知の秘密値を検証する。違反は部分公開せず `failed`（更新なら前回の状態 + `lastError`）。
 - 資格情報が未登録なら 409。保存済みの `providerAccount` が現在の接続と違う場合も 409。
 - 停止・再公開・削除は `sourcePath` とセッションを必要としない（セッションを削除しても管理できる）。セッション / ソースが要るのは更新だけ。
-- 停止は `published` と、結果不明で `publishing` のまま残った行から受け付ける。`failed` / `stopped` と進行中の `publishing` は 409。再公開は `stopped` だけ。削除は `publishing` を一律で 409 にし、停止で状態を確定させてから行う。
+- 公開実績の無い行を停止しても `stopped` にはしない。応答は `200 { id, status: "failed" }` で、行の `lastError` に固定文言が入り、`stoppedAt` は入らない。再公開は `publishedAt === null` を 409 で拒否し、更新を促す固定文言を返す。更新の失敗も同じ規則で戻り先を決める（停止中からの更新の確定失敗は `stopped` + `lastError`、未公開の行なら `failed`）。
+- 停止は `published` と、結果不明で `publishing` のまま残った行から受け付ける。`failed` / `stopped` と進行中の `publishing` は 409。再公開は `stopped` のうち公開実績（`publishedAt !== null`）のある行だけ。更新は `published` / `failed` / `stopped` を受け付ける（停止中からの更新は成果物を送り直し、成功時に subdomain を有効へ戻す）。削除は `publishing` を一律で 409 にし、停止で状態を確定させてから行う。
 - script の不在が確定した場合（照会の 404、停止 / 再公開の要求自体の 404）は、一度も公開できていない行だけ `failed` にし、公開実績のある行は `stopped` + `lastError`（`publishedAt` は残す）にする。停止の場合は `502` を返し、行は `publishing` のまま残さない（削除できる）。照会できない間は `publishing` + `lastError` に留める。
 - 削除は provider が 404 を返したときも成功扱い（外部で既に消えている）。同じ id への 2 回目は行が無いので 404。
 - 同じ id の変更系が進行中なら 409。停止 / 再公開 / 削除の状態保存に失敗したときは provider の操作を成功として返さず 503（操作は冪等なので再試行で収束する）。
