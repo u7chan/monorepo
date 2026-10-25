@@ -154,7 +154,7 @@ Cloudflare Workers（workers.dev）
 共有は「配る成果物のディレクトリ」を対象にするため、ダウンロード ZIP の除外（設定 → ファイル（`/settings/files`）の「ダウンロードの除外」、`archive_settings`）とは既定も保存行も分ける。アーカイブの既定には `dist` / `build` / `out` が入っており、流用すると `dist/` を公開できなくなる（サンドボックスは対象ディレクトリ名が除外名と一致すると 400 を返す）。
 
 - 規則はダウンロードの除外と同じく**ベース名の完全一致・全階層**で、glob とパス指定は持たない。`.env.*` のようなパターンは使えないので、既定では個別に列挙する
-- 既定はリポジトリの管理情報（`.git` / `.github` / `.agents` / `node_modules`）、エージェント向けの指示と説明（`AGENTS.md` / `CLAUDE.md` / `README.md`）、秘密値を持ちやすい設定（`.env` / `.env.local` などの `.env` 系 / `.npmrc`）、`.DS_Store`。成果物の名前（`dist` / `build` / `out` など）は入れない
+- 既定の一覧は `server/src/shared-content-rules.ts` の `DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES` を正とする（ここには写さない）。成果物の名前（`dist` / `build` / `out` など）は入れない。対象そのものが `dist` のときに共有できなくなるため
 - `index.html` は保存を拒否する。名前は全階層一致なので、許可すると入れ子の `index.html`（サブディレクトリ直下の `index.html` など）も落とせてしまい、SPA の入口を守れない
 - **適用タイミングは受付時。** `create` / `publish` が実効値を解決してジョブへ渡すため、ジョブ実行中に設定が変わっても、走っている公開は受付時の一覧を使う。共有物ごとの除外は DB に記録しない（設定は 1 行で、次の公開から効く）
 - プレビューも同じ実効値を使う（見えたものと上がるものをずらさない）
@@ -289,10 +289,10 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 公開の除外名の API は 3 ルートとも同じ形を返す（204 にしないのは、画面が保存 / 既定に戻すの直後に新しい一覧をそのまま映すため）。`appData` ゲートを持ち、DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。
 
 ```json
-// GET /api/settings/shared-content-exclusions (200)
+// GET /api/settings/shared-content-exclusions (200)。一覧の中身は保存値 / 既定値で、正はコード
 {
-  "excludeNames": ["AGENTS.md", "README.md", ".env"],
-  "defaultExcludeNames": ["AGENTS.md", "README.md", ".env", "…"],
+  "excludeNames": ["…"],
+  "defaultExcludeNames": ["…"],
   "overridden": false,
   "maxNames": 100,
   "maxNameLength": 200
