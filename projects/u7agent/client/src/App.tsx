@@ -839,6 +839,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                 : DEFAULT_FILES_SUBSECTION
             }
             onSelectFilesSubsection={openFilesSubsection}
+            onOpenSharingExclusions={() => openSharingSubsection("exclusions")}
           />
         );
       case "appearance":
@@ -914,6 +915,10 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             {...pageProps}
             sessions={app.sessions}
             sessionsLoaded={app.sessionsLoaded && !app.sessionsFetch.failed}
+            sharedContentExclusions={app.sharedContentExclusions}
+            onOpenArchiveExclusions={() => {
+              openFilesSubsection("archive");
+            }}
             sharingSubsection={
               route.view === "settings" && route.section === "sharing"
                 ? (route.sharingSubsection ?? DEFAULT_SHARING_SUBSECTION)

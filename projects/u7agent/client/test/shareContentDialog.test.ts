@@ -272,3 +272,32 @@ test("プレビュー: 上限超過 (limited) は件数と index.html の有無�
   assert.equal(html.includes("index.html がありません"), false, "判定できない不在を出さない");
   assert.equal(actionTag(html, "共有する").includes("disabled"), false);
 });
+
+// 除外は「何件の設定か」と「実際に落ちた名前」を出す。件数だけでは、設定したのに効いていない場合を見分けられない
+test("プレビュー: 除外の件数（設定 → 共有 → 公開の除外）と、実際に落ちた名前を出す", () => {
+  const html = render(
+    controller({
+      preview: {
+        status: "ready",
+        preview: {
+          sourcePath: "projects/app/dist",
+          entries: 3,
+          bytes: 30,
+          files: [{ name: "index.html", size: 30 }],
+          truncated: false,
+          links: [],
+          linksTruncated: false,
+          oversizeFiles: [],
+          oversizeTruncated: false,
+          hasIndexHtml: true,
+          skipped: ["AGENTS.md", ".env"],
+          excludeNames: ["AGENTS.md", ".env", "README.md"],
+          limited: false,
+          problems: [],
+        },
+      },
+    }),
+  );
+  assert.match(html, /除外 3 件（設定 → 共有 → 公開の除外）/);
+  assert.match(html, /除外した名前: AGENTS\.md, \.env/);
+});

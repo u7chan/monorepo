@@ -40,6 +40,8 @@ import { CloudflareSettingsService } from "./cloudflare-settings";
 import { SecretKeyError, createSecretCipher, resolveMasterKeys, type SecretCipher } from "./secret-crypto";
 import { ServeService, sandboxHostFromUrl, type ServeProbe } from "./serve";
 import { SharedContentsService } from "./shared-contents";
+import { createSharedContentExclusions } from "./shared-content-exclusions";
+import type { SharedContentExclusions } from "./shared-content-exclusions";
 import { createServeToolHost } from "./serve-tool";
 import { SessionStore } from "./sessions";
 import { prepareSessionStore, resolveSessionStoreDir } from "./session-store";
@@ -164,6 +166,8 @@ export type BffContext = {
   cloudflareSettings: CloudflareSettingsService;
   /** 静的成果物の公開。sandbox の ZIP 取得と Cloudflare への送信を担う */
   sharedContents: SharedContentsService;
+  /** 共有の除外名。プレビューと公開が同じ実効値を取る */
+  sharedContentExclusions: SharedContentExclusions;
 };
 
 export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<BffContext> {
@@ -348,6 +352,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   });
   // アーカイブの除外名は設定ストアが唯一の決定点で、サンドボックスへはリクエストごとに渡す
   const archiveSettings = createArchiveSettings({ db: appDb });
+  // 共有の除外名はアーカイブとは別の既定を持ち、プレビューと公開の受付時にだけ読む
+  const sharedContentExclusions = createSharedContentExclusions({ db: appDb });
   // 作業領域の操作はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
   const sandboxClient = opts.workspace !== undefined ? undefined : createSandboxToolClientFromEnv(process.env);
   const workspace = opts.workspace !== undefined ? opts.workspace : (sandboxClient ?? null);
@@ -433,6 +439,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     rootCwd: cwd,
     maskError,
     secretValues: () => pi?.secretMasker.secrets ?? [],
+    exclusions: sharedContentExclusions,
   });
   // 中断した公開を起動時に回収する。失敗しても起動は止めず、行は publishing + lastError のまま残す
   await sharedContents.recoverInterrupted().catch((error) => {
@@ -462,6 +469,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     secrets,
     cloudflareSettings,
     sharedContents,
+    sharedContentExclusions,
   };
 }
 

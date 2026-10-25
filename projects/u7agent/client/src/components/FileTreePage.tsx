@@ -25,6 +25,8 @@ export type FileTreePageProps = SettingsPageProps & {
   /** URL が決めるタブ。既定はファイルツリー (lib/settingsNav.ts) */
   filesSubsection?: FilesSubsection;
   onSelectFilesSubsection: (subsection: FilesSubsection) => void;
+  /** 設定 → 共有「公開の除外」へ移る（ダウンロードの除外との違いを示す導線） */
+  onOpenSharingExclusions: () => void;
 };
 
 /**
@@ -43,6 +45,7 @@ export function FileTreePage({
   archiveSettings,
   filesSubsection = DEFAULT_FILES_SUBSECTION,
   onSelectFilesSubsection,
+  onOpenSharingExclusions,
   singleColumn = false,
   onBack,
   onOpenNav,
@@ -158,6 +161,7 @@ export function FileTreePage({
           input={excludeInput}
           onInputChange={setExcludeInput}
           onSubmit={submitExcludeInput}
+          onOpenSharingExclusions={onOpenSharingExclusions}
         />
       ) : (
         <FileBrowser

@@ -63,6 +63,7 @@ function render(
         filesSubsection,
         singleColumn,
         onSelectFilesSubsection: () => {},
+        onOpenSharingExclusions: () => {},
         onBack: () => {},
       }),
     ),

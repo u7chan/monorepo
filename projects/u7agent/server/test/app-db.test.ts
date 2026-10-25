@@ -395,6 +395,70 @@ test("archive settings keep an explicit empty list and reject a broken JSON valu
   }
 });
 
+test("shared content settings keep an explicit empty list and reject a broken JSON value", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    assert.equal(db.readSharedContentExcludeNames(), undefined);
+    db.saveSharedContentExcludeNames(["AGENTS.md", ".env"]);
+    assert.deepEqual(db.readSharedContentExcludeNames(), ["AGENTS.md", ".env"]);
+    // 明示空 ([]) は未設定 (undefined) と別の状態として残る
+    db.saveSharedContentExcludeNames([]);
+    assert.deepEqual(db.readSharedContentExcludeNames(), []);
+    assert.equal(db.resetSharedContentExcludeNames(), true);
+    assert.equal(db.readSharedContentExcludeNames(), undefined);
+    assert.equal(db.resetSharedContentExcludeNames(), false);
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(tableNames(check).includes("shared_content_settings"), true);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a broken shared content settings row is a 503 and survives a reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    // 既定へ黙って落とさない (利用者が除外したつもりの名前が公開対象へ戻る)
+    raw.prepare("INSERT INTO shared_content_settings (id, excludeNames) VALUES (1, ?)").run("not json");
+    raw.close();
+    const broken = AppDb.open({ storeDir: dir });
+    assert.throws(() => broken.readSharedContentExcludeNames(), isServiceUnavailable);
+    broken.probe();
+    const rawAgain = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    rawAgain.prepare("UPDATE shared_content_settings SET excludeNames = ?").run('{"a":1}');
+    rawAgain.close();
+    assert.throws(() => broken.readSharedContentExcludeNames(), isServiceUnavailable);
+    broken.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("recreating the schema keeps the shared content settings table (not in DROP_TABLES)", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveSharedContentExcludeNames(["AGENTS.md"]);
+    first.close();
+
+    // 古いビルド (このテーブルを知らない) が開いて作り直す経路を再現する
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION + 1}`);
+    raw.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.readSharedContentExcludeNames(), ["AGENTS.md"]);
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("unavailable() keeps the reason for health", () => {
   const dir = tempStoreDir();
   try {
@@ -1188,7 +1252,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 26);
+    assert.equal(APP_DB_SCHEMA_VERSION, 27);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });

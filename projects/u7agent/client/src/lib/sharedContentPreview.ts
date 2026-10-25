@@ -39,6 +39,15 @@ export function sharePreviewSummary(preview: SharedContentPreviewResponse): Shar
     .slice(0, SHARE_PREVIEW_ROWS)
     .map((file) => ({ name: file.name, size: formatByteSize(file.size) }));
   const notes: string[] = [];
+  // 除外は「何件落とす設定か」と「実際に落ちた名前」を分ける。skipped は走査で見つかった名前だけ
+  if (preview.excludeNames.length > 0) {
+    notes.push(`除外 ${preview.excludeNames.length} 件（設定 → 共有 → 公開の除外）`);
+  }
+  if (preview.skipped.length > 0) {
+    const shown = preview.skipped.slice(0, NOTE_PATHS).join(", ");
+    const rest = preview.skipped.length - NOTE_PATHS;
+    notes.push(`除外した名前: ${shown}${rest > 0 ? ` ほか ${rest} 件` : ""}`);
+  }
   if (preview.limited) {
     notes.push("上限を超えているため、一覧と index.html の有無を確認できませんでした。");
   }

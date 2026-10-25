@@ -64,6 +64,7 @@ import type {
   SessionSkillsResponse,
   SessionSummary,
   SessionTitleResponse,
+  SharedContentExclusionsResponse,
   SharedContentMutationResponse,
   SharedContentPreviewResponse,
   SharedContentResponse,
@@ -579,6 +580,31 @@ export const updateArchiveSettings = async (excludeNames: string[]): Promise<Arc
 /** 保存行を消して未設定へ戻す（既定名を保存し直さないので、将来の既定の追加に追随する） */
 export const resetArchiveSettings = async (): Promise<ArchiveSettingsResponse> => {
   const res = await client.api.settings.archive.$delete();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 設定 → 共有「公開の除外」の一覧。アーカイブの設定とは別の行で、プレビューと公開の両方に効く実効値。
+ * 形はアーカイブの設定と同じ（`overridden` / 上限を含む）。
+ */
+export const getSharedContentExclusions = async (): Promise<SharedContentExclusionsResponse> => {
+  const res = await client.api.settings["shared-content-exclusions"].$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const updateSharedContentExclusions = async (
+  excludeNames: string[],
+): Promise<SharedContentExclusionsResponse> => {
+  const res = await client.api.settings["shared-content-exclusions"].$put({ json: { excludeNames } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 保存行を消して未設定へ戻す（既定名を保存し直さないので、将来の既定の追加に追随する） */
+export const resetSharedContentExclusions = async (): Promise<SharedContentExclusionsResponse> => {
+  const res = await client.api.settings["shared-content-exclusions"].$delete();
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

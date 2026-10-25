@@ -132,6 +132,7 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings/sharing", settings("sharing")],
     ["/Settings/SHARING/", settings("sharing")],
     ["/settings/sharing/contents", settings("sharing")],
+    ["/settings/sharing/exclusions", sharingTab("exclusions")],
     ["/settings/sharing/connections", sharingTab("connections")],
     ["/settings/sharing/unknown", settings("sharing")],
     ["/settings/sharing/connections/extra", CHAT_ROUTE],
@@ -234,10 +235,12 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
     settings("runtime"),
     "既定タブはパスへ出さず、既定へ戻す",
   );
-  // 共有のタブも同じく、接続だけをパスへ出し、既定の共有コンテンツは出さない
+  // 共有のタブも同じく、公開の除外と接続だけをパスへ出し、既定の共有コンテンツは出さない
   assert.equal(routePath(sharingTab("connections")), "/settings/sharing/connections");
+  assert.equal(routePath(sharingTab("exclusions")), "/settings/sharing/exclusions");
   assert.equal(routePath(sharingTab("contents")), "/settings/sharing");
   assert.deepEqual(parseRoute(routePath(sharingTab("connections"))), sharingTab("connections"));
+  assert.deepEqual(parseRoute(routePath(sharingTab("exclusions"))), sharingTab("exclusions"));
   assert.deepEqual(
     parseRoute(routePath(sharingTab("contents"))),
     settings("sharing"),

@@ -11,6 +11,7 @@ import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "../src/s
 import { SandboxRequestError } from "../src/sandbox/client";
 import type { SandboxDownloadPlan } from "../src/sandbox/protocol";
 import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
+import { DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES } from "../src/shared-content-rules";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 const KEY = `1:${Buffer.alloc(SECRET_KEY_BYTES, 11).toString("base64")}`;
@@ -39,7 +40,10 @@ async function makeZip(dir: string): Promise<() => ReadableStream<Uint8Array>> {
   return () => createZipStream(entries);
 }
 
-function workspaceFor(zip: () => ReadableStream<Uint8Array>): SandboxWorkspaceClient {
+function workspaceFor(
+  zip: () => ReadableStream<Uint8Array>,
+  downloadCalls: { path: string; exclude: readonly string[] }[] = [],
+): SandboxWorkspaceClient {
   return {
     previewFile: async () => ({ text: "" }),
     statFile: async (path: string) => ({ path }),
@@ -52,11 +56,14 @@ function workspaceFor(zip: () => ReadableStream<Uint8Array>): SandboxWorkspaceCl
     deleteDirectory: async () => {},
     uploadFile: async ({ name }: { name: string }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
     rawFile: async () => ({ status: 200, contentType: "image/png", body: null }),
-    downloadEntry: async () => ({
-      contentType: "application/zip",
-      contentDisposition: "attachment",
-      body: zip(),
-    }),
+    downloadEntry: async (path: string, exclude: readonly string[]) => {
+      downloadCalls.push({ path, exclude });
+      return {
+        contentType: "application/zip",
+        contentDisposition: "attachment",
+        body: zip(),
+      };
+    },
     checkDownload: async () => ({ kind: "file", name: "a.txt", bytes: 0, entries: 0, skipped: [] }),
   } as unknown as SandboxWorkspaceClient;
 }
@@ -109,6 +116,7 @@ async function setup(options: SetupOptions = {}) {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-shared-api-"));
   const calls: string[] = [];
   const planCalls: { path: string; exclude: readonly string[]; maxFileBytes: number | undefined }[] = [];
+  const downloadCalls: { path: string; exclude: readonly string[] }[] = [];
   const pi = createStubPi();
   const planSandbox: SandboxDownloadPlanClient | null =
     options.planSandbox === undefined
@@ -125,7 +133,7 @@ async function setup(options: SetupOptions = {}) {
     cwd: "/workspace",
     sessionStoreDir: dir,
     pi: asPiBff(pi),
-    workspace: workspaceFor(await makeZip(dir)),
+    workspace: workspaceFor(await makeZip(dir), downloadCalls),
     previewSandbox: planSandbox,
     cloudflareFetch: cloudflareFetch(calls),
   });
@@ -138,6 +146,7 @@ async function setup(options: SetupOptions = {}) {
     bff,
     pi,
     sessionId: session.sessionId as string,
+    downloadCalls,
     calls,
     planCalls,
     restore: async () => {
@@ -346,12 +355,18 @@ test("preview は :id と衝突せず、資格情報なしでも公開前の一�
       oversizeTruncated: false,
       hasIndexHtml: true,
       skipped: [],
-      excludeNames: [],
+      excludeNames: [...DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES],
       limited: false,
       problems: [],
     });
-    // Phase 1 は公開と同じ「除外なし (明示空)」と 25 MiB の個別上限で計画を取る
-    assert.deepEqual(planCalls, [{ path: "projects/app/dist", exclude: [], maxFileBytes: 25 * 1024 * 1024 }]);
+    // 公開と同じ共有の除外名と 25 MiB の個別上限で計画を取る
+    assert.deepEqual(planCalls, [
+      {
+        path: "projects/app/dist",
+        exclude: [...DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES],
+        maxFileBytes: 25 * 1024 * 1024,
+      },
+    ]);
 
     // 同じ URL の detail は従来どおり id として 404 (preview が id を食っていない)
     assert.equal((await bff.app.request("/api/shared-contents/preview")).status, 404);
@@ -427,5 +442,38 @@ test("preview の異常系はセッションなし 404 / パス不正 400 / フ�
     assert.equal(response.status, 503);
   } finally {
     await unavailable.restore();
+  }
+});
+
+// 共有の除外名はアーカイブ設定とは別の行・別の既定を持ち、プレビューと公開の両方へ同じ実効値で効く。
+// 対象ディレクトリ自身の名前は落とすので、`dist` を除外した状態でも `dist/` を共有できる。
+test("共有の除外名は設定 API で保存し、プレビューと公開の両方へ効く", async () => {
+  const { bff, sessionId, planCalls, downloadCalls, restore } = await setup();
+  try {
+    const saved = await jsonBody(
+      await bff.app.request(
+        "/api/settings/shared-content-exclusions",
+        jsonPut({ excludeNames: ["AGENTS.md", "dist", ".env"] }),
+      ),
+    );
+    assert.deepEqual(saved.excludeNames, ["AGENTS.md", "dist", ".env"]);
+    assert.equal(saved.overridden, true);
+    // アーカイブ設定 (ダウンロードの除外) は別の行なので変わらない
+    const archive = await jsonBody(await bff.app.request("/api/settings/archive"));
+    assert.equal(archive.overridden, false);
+
+    const preview = await jsonBody(
+      await bff.app.request(`/api/shared-contents/preview?sessionId=${sessionId}&directory=dist`),
+    );
+    assert.deepEqual(preview.excludeNames, ["AGENTS.md", ".env"], "対象ディレクトリ自身の名前は落とす");
+    assert.deepEqual(planCalls.at(-1)?.exclude, ["AGENTS.md", ".env"]);
+
+    const created = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId, directory: "dist" })),
+    );
+    await waitForSettled(bff, created.id);
+    assert.deepEqual(downloadCalls.at(-1), { path: "projects/app/dist", exclude: ["AGENTS.md", ".env"] });
+  } finally {
+    await restore();
   }
 });
