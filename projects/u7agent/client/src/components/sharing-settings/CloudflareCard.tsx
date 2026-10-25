@@ -1,22 +1,57 @@
 import { useEffect, useRef, useState } from "react";
-import { cloudflareDeleteConfirmRequest, cloudflareDraftDirty, cloudflareSaveBody } from "../../lib/cloudflareSettings";
-import type { CloudflareSettingsResponse, UpdateCloudflareSettingsBody } from "../../types";
+import {
+  cloudflareCheckDisplay,
+  cloudflareCheckEnabled,
+  cloudflareDeleteConfirmRequest,
+  cloudflareDraftDirty,
+  cloudflareSaveBody,
+} from "../../lib/cloudflareSettings";
+import { cn } from "../../lib/cn";
+import type {
+  CloudflareConnectionCheckResponse,
+  CloudflareSettingsResponse,
+  UpdateCloudflareSettingsBody,
+} from "../../types";
 import { useConfirm } from "../ConfirmProvider";
 import { ExternalLinkIcon, TrashIcon } from "../icons";
+
+const CHECK_TONE: Record<"pending" | "success" | "failure" | "error", string> = {
+  pending: cn("text-ink-muted"),
+  success: cn("text-ok-text"),
+  failure: cn("text-warn-text"),
+  error: cn("text-danger-text"),
+};
 
 export type CloudflareCardProps = {
   settings: CloudflareSettingsResponse;
   /** 進行中の変更。保存 / 削除のどちらかを表示へ返す */
   saving: "save" | "delete" | null;
+  reloading: boolean;
+  /** 接続確認の進行中。押下中の二重実行を防ぐ */
+  checking: boolean;
+  /** 200 で返った確認結果。409 / 503 は `checkError` に入る */
+  checkResult: CloudflareConnectionCheckResponse | null;
+  checkError: string | null;
   onSave: (input: UpdateCloudflareSettingsBody) => Promise<boolean>;
   onDelete: () => Promise<boolean>;
+  onCheck: () => Promise<void>;
 };
 
 /**
  * Cloudflare の接続カード。トークンは write-only なので、登録済みでも入力欄は空から始める。
  * アカウント ID を変えない更新ではトークンを省略でき、保存済みの暗号文を維持する。
  */
-export function CloudflareCard({ settings, saving, onSave, onDelete }: CloudflareCardProps) {
+export function CloudflareCard({
+  settings,
+  saving,
+  reloading,
+  checking,
+  checkResult,
+  checkError,
+  onSave,
+  onDelete,
+  onCheck,
+}: CloudflareCardProps) {
   const confirm = useConfirm();
   const [accountId, setAccountId] = useState(settings.accountId ?? "");
   const [apiToken, setApiToken] = useState("");
@@ -37,6 +72,8 @@ export function CloudflareCard({ settings, saving, onSave, onDelete }: Cloudflar
     accountId.trim() !== "" &&
     (settings.configured || apiToken.trim() !== "") &&
     saving === null;
+  const canCheck = cloudflareCheckEnabled({ settings, dirty, saving, reloading, checking });
+  const checkDisplay = cloudflareCheckDisplay({ settings, dirty, checking, result: checkResult, error: checkError });
 
   const submit = async () => {
     if (!canSave) return;
@@ -110,7 +147,27 @@ export function CloudflareCard({ settings, saving, onSave, onDelete }: Cloudflar
               {saving === "delete" ? "削除中" : "削除"}
             </button>
           ) : null}
+          <button type="button" className="btn-quiet" disabled={!canCheck} onClick={() => void onCheck()}>
+            {checking ? "確認中" : "接続を確認"}
+          </button>
         </div>
+
+        {checkDisplay ? (
+          <p
+            role={checkDisplay.kind === "error" ? "alert" : "status"}
+            className={cn("grid min-w-0 gap-0.5 text-2xs leading-relaxed break-words", CHECK_TONE[checkDisplay.kind])}
+          >
+            <span>{checkDisplay.message}</span>
+            {checkDisplay.kind === "success" ? (
+              <time className="text-ink-faint" title={checkDisplay.fullTime}>
+                {checkDisplay.time}
+              </time>
+            ) : null}
+            {checkDisplay.kind === "failure" && checkDisplay.httpStatus ? (
+              <span className="text-3xs text-ink-faint">{checkDisplay.httpStatus}</span>
+            ) : null}
+          </p>
+        ) : null}
       </form>
 
       <div className="grid gap-1 text-2xs leading-relaxed text-ink-ghost">

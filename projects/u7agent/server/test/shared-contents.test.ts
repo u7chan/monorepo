@@ -10,16 +10,17 @@ import type { SharedContentRow, SharedContentStatus } from "../src/app-db";
 import {
   CloudflareApiClient,
   CloudflareApiError,
+  SHARED_CONTENT_NO_SUBDOMAIN,
   type CloudflareAsset,
   type CloudflareAssetsApi,
 } from "../src/cloudflare-api";
+import { SHARED_CONTENT_NO_CREDENTIALS } from "../src/cloudflare-settings";
 import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SandboxRequestError } from "../src/sandbox/client";
 import type { SandboxDownloadPlan } from "../src/sandbox/protocol";
 import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
 import {
   SHARED_CONTENT_MAX_FILE_BYTES,
-  SHARED_CONTENT_NO_CREDENTIALS,
   SharedContentsService,
   resolveSharedContentSource,
   validateSharedAssetEntries,
@@ -525,6 +526,26 @@ test("資格情報が無い / セッションが無い / アカウント不一�
     );
   } finally {
     mismatchZip.cleanup();
+  }
+});
+
+test("workers.dev サブドメインが空なら受付を 409 で止め、行を作らない", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const empty = setup({ zip, cloudflare: { getAccountSubdomain: async () => "" } });
+  try {
+    await assert.rejects(
+      () => empty.service.create(payload()),
+      (error: any) => {
+        assert.equal(error.statusCode, 409);
+        // 接続確認と同じ定数を使う (文を二重に持たない)
+        assert.equal(error.message, SHARED_CONTENT_NO_SUBDOMAIN);
+        return true;
+      },
+    );
+    assert.equal(empty.store.inserts, 0);
+    assert.deepEqual(empty.cloudflare.published, []);
+  } finally {
+    zip.cleanup();
   }
 });
 

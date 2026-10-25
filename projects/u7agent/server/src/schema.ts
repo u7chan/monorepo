@@ -1119,6 +1119,40 @@ export const CloudflareSettingsResponseSchema = z.object({
 });
 export type CloudflareSettingsResponse = z.infer<typeof CloudflareSettingsResponseSchema>;
 
+/**
+ * 接続確認の失敗の分類。`CloudflareFailureKind` に、workers.dev サブドメインが空だった場合だけを
+ * 接続確認側で足す（`CloudflareFailureKind` 自体は広げない）。
+ */
+export const CloudflareConnectionFailureSchema = z.enum([
+  "unauthorized",
+  "not_found",
+  "quota",
+  "rate_limited",
+  "invalid",
+  "transient",
+  "timeout",
+  "network",
+  "unverifiable",
+  "no_subdomain",
+]);
+export type CloudflareConnectionFailure = z.infer<typeof CloudflareConnectionFailureSchema>;
+
+/**
+ * POST /api/settings/cloudflare/check。保存済みの資格情報で Cloudflare へ届くかを確かめた結果で、
+ * 失敗も 200 で返す。成功は `failure === null` かつ `subdomain` が非空、失敗は `subdomain === null`
+ * かつ `message` が非 null。`httpStatus` は Cloudflare が返した 400 以上の status だけで、
+ * タイムアウト / 通信不能 / 空の subdomain は null。トークンと応答本文は載せない。
+ */
+export const CloudflareConnectionCheckResponseSchema = z.object({
+  checkedAt: z.number(),
+  accountId: z.string(),
+  subdomain: z.string().nullable(),
+  failure: CloudflareConnectionFailureSchema.nullable(),
+  httpStatus: z.number().nullable(),
+  message: z.string().nullable(),
+});
+export type CloudflareConnectionCheckResponse = z.infer<typeof CloudflareConnectionCheckResponseSchema>;
+
 /** 変更系 (PUT / DELETE) の応答。何も保存されなかった 503 は `state: "not_stored"` */
 export const CloudflareMutationResponseSchema = CloudflareSettingsResponseSchema.extend({
   state: z.literal("applied"),

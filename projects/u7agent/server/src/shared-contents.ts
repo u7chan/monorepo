@@ -9,9 +9,14 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, posix } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type { CloudflareCredential, CloudflareSettingsService } from "./cloudflare-settings";
+import {
+  SHARED_CONTENT_NO_CREDENTIALS,
+  type CloudflareCredential,
+  type CloudflareSettingsService,
+} from "./cloudflare-settings";
 import {
   CloudflareApiError,
+  SHARED_CONTENT_NO_SUBDOMAIN,
   cloudflareAssetHash,
   type CloudflareAsset,
   type CloudflareAssetsApi,
@@ -41,14 +46,11 @@ export const SHARED_CONTENT_MAX_NAME_LENGTH = 100;
 const PROVIDER = "cloudflare";
 const SCRIPT_PREFIX = "u7s-";
 
-export const SHARED_CONTENT_NO_CREDENTIALS = "Cloudflare の資格情報が未登録です。設定 → 共有 → 接続 で登録してください";
 export const SHARED_CONTENT_ACCOUNT_MISMATCH =
   "公開先の Cloudflare アカウントが現在の接続と一致しません。設定 → 共有 → 接続 を確認してください";
 export const SHARED_CONTENT_SESSION_REQUIRED = "セッションが削除されているため、この共有物は更新できません";
 export const SHARED_CONTENT_SOURCE_REQUIRED = "公開するディレクトリが見つかりません";
 export const SHARED_CONTENT_SANDBOX_UNAVAILABLE = "サンドボックスが利用できないため公開できません";
-export const SHARED_CONTENT_NO_SUBDOMAIN =
-  "Cloudflare アカウントの workers.dev サブドメインが未設定です。Cloudflare のダッシュボードで有効にしてください";
 /** 公開の検証とプレビューの problems が同じ文言を使う (SPA の入口はルートの index.html だけ) */
 export const SHARED_CONTENT_NO_INDEX_HTML = "公開するディレクトリに index.html がありません";
 export const SHARED_CONTENT_NOT_DIRECTORY = "公開するディレクトリではありません";

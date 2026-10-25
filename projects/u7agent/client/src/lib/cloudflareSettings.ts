@@ -1,9 +1,14 @@
 /**
- * 設定 → 共有 → 接続 の下書き。トークンは write-only なので、保存済みの値は常に空から始め、
+ * 設定 → 共有 → 接続 の下書きと接続確認。トークンは write-only なので、保存済みの値は常に空から始め、
  * 「変更するときだけ入力する」を型で表す。表示と保存の規則はこのファイルに閉じる。
  */
-import type { CloudflareSettingsResponse, UpdateCloudflareSettingsBody } from "../types";
+import type {
+  CloudflareConnectionCheckResponse,
+  CloudflareSettingsResponse,
+  UpdateCloudflareSettingsBody,
+} from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
+import { messageFullTimeLabel, messageTimeLabel } from "./messageTime";
 
 export interface CloudflareDraft {
   accountId: string;
@@ -41,4 +46,72 @@ export function cloudflareDeleteConfirmRequest(): ConfirmRequest {
     confirmLabel: "削除する",
     danger: true,
   };
+}
+
+export interface CloudflareCheckEnableInput {
+  settings: CloudflareSettingsResponse;
+  /** 下書きが保存値と違うか。下書きは入力欄の state なので呼び出し側が渡す */
+  dirty: boolean;
+  saving: "save" | "delete" | null;
+  reloading: boolean;
+  checking: boolean;
+}
+
+/** 「接続を確認」を押せるか。未登録・master key 不在・未保存の下書き・進行中の操作では押せない */
+export function cloudflareCheckEnabled({ settings, dirty, saving, reloading, checking }: CloudflareCheckEnableInput) {
+  return settings.configured && settings.available && !dirty && saving === null && !reloading && !checking;
+}
+
+/** カードに出す接続確認の結果。`pending` は確認中の 1 行だけを持つ */
+export type CloudflareCheckDisplay =
+  | { kind: "pending"; message: string }
+  | { kind: "success"; message: string; time: string; fullTime: string }
+  | { kind: "failure"; message: string; httpStatus: string | null }
+  | { kind: "error"; message: string };
+
+export interface CloudflareCheckDisplayInput {
+  settings: CloudflareSettingsResponse;
+  dirty: boolean;
+  checking: boolean;
+  result: CloudflareConnectionCheckResponse | null;
+  /** 409 / 503 の固定文言。200 の結果とは別に持つ */
+  error: string | null;
+  /** テスト用。省略時は Date.now */
+  now?: number;
+}
+
+/**
+ * 結果行の出し分け。下書きが保存値と違う間は何も出さず（前回値の結果を今の入力の結果に見せない）、
+ * 確認中に古い結果は出さない。アカウント ID が保存値と違う結果も捨てる。
+ */
+export function cloudflareCheckDisplay({
+  settings,
+  dirty,
+  checking,
+  result,
+  error,
+  now,
+}: CloudflareCheckDisplayInput): CloudflareCheckDisplay | null {
+  if (dirty) return null;
+  if (error !== null) return { kind: "error", message: error };
+  if (checking) return { kind: "pending", message: "接続を確認しています" };
+  if (!result || result.accountId !== settings.accountId) return null;
+  if (result.failure === null && result.subdomain) {
+    return {
+      kind: "success",
+      message: `接続を確認できました。公開先のサブドメインは ${result.subdomain}.workers.dev です`,
+      time: messageTimeLabel(result.checkedAt, { now }),
+      fullTime: messageFullTimeLabel(result.checkedAt),
+    };
+  }
+  return {
+    kind: "failure",
+    message: result.message ?? "Cloudflare へ接続できませんでした",
+    httpStatus: cloudflareHttpStatusLabel(result.httpStatus),
+  };
+}
+
+/** `HTTP <status>`。Cloudflare の 400 以上の status だけを添え、それ以外は出さない */
+export function cloudflareHttpStatusLabel(httpStatus: number | null): string | null {
+  return httpStatus !== null && httpStatus >= 400 ? `HTTP ${httpStatus}` : null;
 }

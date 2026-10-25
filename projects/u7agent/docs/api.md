@@ -808,6 +808,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | GET | `/api/settings/cloudflare` | 登録状態とアカウント ID |
 | PUT | `/api/settings/cloudflare` | 登録・更新 |
 | DELETE | `/api/settings/cloudflare` | 削除（冪等） |
+| POST | `/api/settings/cloudflare/check` | 保存済みの資格情報で接続を確認（何も保存しない） |
 
 ```json
 // GET / PUT / DELETE の応答
@@ -830,6 +831,42 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `available: false` は暗号化の master key が未設定 / 読めない状態。このとき PUT は 503 になり、トークンの復号も 503 になる。
 - 別アカウントで公開した共有物が残っているアカウントへの登録・切替は 409。資格情報を削除しても共有物の `providerAccount` は残るため、削除 → 別アカウント登録でも迂回できない。
 - エラー文言にはトークンを含めない。`GET` は `accountId` と登録状態だけを返す。
+
+### `POST /api/settings/cloudflare/check`
+
+保存済みの資格情報が Cloudflare へ届くかを、`GET /accounts/{account_id}/workers/subdomain` 1 本で確認する。未保存の下書きは確認しない（トークンの経路を 1 本に保つ）。結果は保存せず、応答にだけ載せる。`GET /api/settings/cloudflare` はこの確認に依存せず、外部通信しないまま。
+
+```json
+// 200（成功）
+{
+  "checkedAt": 1730000000000,
+  "accountId": "0123456789abcdef0123456789abcdef",
+  "subdomain": "demo",
+  "failure": null,
+  "httpStatus": null,
+  "message": null
+}
+```
+
+```json
+// 200（Cloudflare 側の失敗）
+{
+  "checkedAt": 1730000000000,
+  "accountId": "0123456789abcdef0123456789abcdef",
+  "subdomain": null,
+  "failure": "unauthorized",
+  "httpStatus": 403,
+  "message": "Cloudflare のアカウント ID または Workers Scripts の権限を確認してください"
+}
+```
+
+- **`failure === null` が成功**。成功は `subdomain` が非空・`message` が `null`、失敗は `subdomain` が `null`・`message` が非 null。`failure` は `unauthorized` / `not_found` / `quota` / `rate_limited` / `invalid` / `transient` / `timeout` / `network` / `unverifiable` に、空の subdomain を表す `no_subdomain` を加えた値（正は `server/src/schema.ts`）。
+- **Cloudflare 側の失敗も 200 で返す**。HTTP エラーにすると、分類（`failure`）と `httpStatus` がクライアントの汎用エラー経路へ落ちて結果として扱えなくなるため。
+- `httpStatus` は Cloudflare が返した 400 以上の status だけ。`unverifiable` は 2xx を持ち得るので、失敗行に `HTTP 200` を出さない。`timeout` / `network` / `no_subdomain` は `null`。
+- `message` は接続確認専用の固定文言。401 と 403 は status で分ける（401 はトークンの拒否、403 はアカウント / `Workers Scripts` の権限かアカウント ID の誤り）。404 はアカウント ID と workers.dev の設定へ寄せ、公開向けの Worker の文言を出さない。
+- 空の subdomain は workers.dev 未有効として失敗にし、公開の受付（409）と同じ文言を使う。
+- 未登録は 409、master key 不在・復号不可は 503。どちらも `state` を付けない（何も保存しない操作なので `not_stored` ではない）。
+- API トークンと Cloudflare の応答本文は、応答・ログ・例外へ載せない。
 
 ## セッションへのファイルアップロード
 

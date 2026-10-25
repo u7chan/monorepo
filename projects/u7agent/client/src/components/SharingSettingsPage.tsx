@@ -172,8 +172,13 @@ export function SharingSettingsView({
             <CloudflareCard
               settings={cloudflare.settings}
               saving={cloudflare.saving}
+              reloading={cloudflare.reloading}
+              checking={cloudflare.checking}
+              checkResult={cloudflare.checkResult}
+              checkError={cloudflare.checkError}
               onSave={cloudflare.save}
               onDelete={cloudflare.remove}
+              onCheck={cloudflare.check}
             />
           </div>
         </div>
