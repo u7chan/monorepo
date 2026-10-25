@@ -1,0 +1,9 @@
+node_modules/
+data/
+credentials/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+*.log

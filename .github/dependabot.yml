@@ -144,3 +144,24 @@ updates:
         update-types:
           - "minor"
           - "patch"
+
+  - package-ecosystem: "bun"
+    directory: "/projects/usage-portal"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
+    rebase-strategy: "disabled"
+    labels:
+      - "dependabot-auto-process"
+    # pi SDK は 0.x の minor でも破壊変更が入るため、u7agent と同じくルーチンの更新には混ぜず、
+    # migration とセットの専用 PR で手動更新する（Portal は 3 番目の PR で Pi SDK を入れる）
+    ignore:
+      - dependency-name: "@earendil-works/pi-*"
+    groups:
+      usage-portal-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
