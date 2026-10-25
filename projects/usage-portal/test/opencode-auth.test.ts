@@ -65,6 +65,23 @@ describe("createOpenCodeAuth", () => {
     expect(auth.state().configured).toBe(false);
   });
 
+  test("read で読んだ値を restore で書き戻せる", () => {
+    const credentialDir = join(tempDir(), "credentials");
+    const auth = createOpenCodeAuth({ credentialDir, now: () => NOW });
+
+    auth.save("sk-first");
+    const previous = auth.read();
+
+    auth.save("sk-second");
+    expect(auth.apiKey()).toBe("sk-second");
+
+    auth.restore(previous);
+    expect(auth.apiKey()).toBe("sk-first");
+
+    auth.restore(null);
+    expect(auth.state()).toEqual({ configured: false, savedAt: null });
+  });
+
   test("壊れた JSON・未知の version・空のキーは未登録として扱う", () => {
     const credentialDir = join(tempDir(), "credentials");
     const path = join(credentialDir, OPENCODE_KEY_FILE);

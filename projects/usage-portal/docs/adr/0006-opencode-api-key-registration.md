@@ -31,6 +31,9 @@ Codex は Portal 専用の `CREDENTIAL_DIR` に `auth.json` を置き、Web UI �
 - 未登録の provider error は `config` ではなく `not_connected` にし、状態ラベルは provider を問わず「未接続」にする。
 - 解除は `CREDENTIAL_DIR` のファイルと OpenCode Go の snapshot / error を削除する。sampler の排他区間で行い、
   先に始まっていた取得が古い値を書き戻さないようにする。
+- 排他区間は呼ばれた順に直列化する。前の変更に続く再取得が終わるまで次の変更を始めない
+  （解除の直後に前の取得が snapshot を書き戻す競合を防ぐ）。
+- キーと DB の更新が食い違わないよう、DB 更新に失敗したらキーを操作前の値へ戻して 503 を返す。解除も同じ。
 - API は PIN セッション必須とし、応答・ログ・DB にキーを出さない。
 
 | Method | Path | 内容 |
@@ -59,5 +62,5 @@ Codex は Portal 専用の `CREDENTIAL_DIR` に `auth.json` を置き、Web UI �
 - `self-hosted-runner` の `deploy/usage-portal.yml` から `env_file` を外し、`deploy/targets.json` の
   `requires_env_file` を false にできる（`PIN_HASH_B64` / `SESSION_SECRET` は先に廃止済み）。
 - API キーの再発行・失効時は、OpenCode Go を開いて新しいキーを貼り付けるだけで直る。
-- `/app/credentials` のバックアップ対象に `opencode-key.json` が増える。漏えい時は OpenCode Go 側でキーを失効させる。
+- `/app/credentials` に置く秘密が 1 つ増える。バックアップやログには出さず、漏えい時は OpenCode Go 側でキーを失効させる。
 - `docs/design.md` は親 checkout の写しのため更新しない。この ADR が非目的の該当項目を置き換える。

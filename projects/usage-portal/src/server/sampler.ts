@@ -36,6 +36,8 @@ export function createSampler(options: {
   let timer: ReturnType<typeof setInterval> | null = null;
   let pruneTimer: ReturnType<typeof setInterval> | null = null;
   let running: Promise<void> | null = null;
+  // exclusive を呼んだ順に直列化する。前の変更後の再取得が終わるまで、次の変更を始めない。
+  let exclusiveChain: Promise<void> = Promise.resolve();
 
   function executeOnce(): Promise<void> {
     return Promise.all(
@@ -102,16 +104,22 @@ export function createSampler(options: {
     }
   }
 
-  // 進行中の取得を待ってから fn を実行する。await の後に再開するのは microtask で、
-  // タイマーの runOnce より先に fn が走るため、間に新しい取得は挟まらない。
-  async function exclusive(fn: () => void): Promise<void> {
-    if (running) {
-      await running.catch(() => undefined);
-    }
+  // 進行中の取得を待ってから fn を実行する。待ったあとに running を再確認しないので、
+  // 同時に呼ばれた exclusive を鎖でつなぎ、先の変更後の取得が終わるまで次を始めない。
+  function exclusive(fn: () => void): Promise<void> {
+    const task = exclusiveChain.then(async () => {
+      if (running) {
+        await running.catch(() => undefined);
+      }
 
-    fn();
+      fn();
 
-    await runOnce();
+      await runOnce();
+    });
+
+    exclusiveChain = task.catch(() => undefined);
+
+    return task;
   }
 
   return { start, stop, kick: () => exclusive(() => {}), exclusive };

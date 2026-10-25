@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import {
   type CodexAuthState,
-  type OpenCodeAuthState,
   type ProviderId,
   type ProviderUsage,
   type UsagePayload,
@@ -18,6 +17,7 @@ import {
   startCodexLogin,
 } from "./api";
 import { LoginScreen } from "./components/LoginScreen";
+import type { OpenCodeConnection } from "./components/OpenCodeAuthPanel";
 import { ProviderCard } from "./components/ProviderCard";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { formatClock } from "./lib/format";
@@ -121,7 +121,7 @@ function Dashboard(props: {
 }) {
   const [usage, setUsage] = useState<UsagePayload | null>(null);
   const [codex, setCodex] = useState<CodexAuthState | null>(null);
-  const [opencode, setOpenCode] = useState<OpenCodeAuthState | null>(null);
+  const [opencode, setOpenCode] = useState<OpenCodeConnection>({ status: "loading" });
   const [clock, setClock] = useState(() => Date.now());
 
   // 「あと N 日」と期限バナーを操作なしでも進める。
@@ -174,20 +174,35 @@ function Dashboard(props: {
   }, [loadCodex]);
 
   const loadOpenCode = useCallback(async () => {
-    const result = await fetchOpenCodeAuth();
+    try {
+      const result = await fetchOpenCodeAuth();
 
-    if (result && "unauthorized" in result) {
-      onUnauthorized();
+      if (result && "unauthorized" in result) {
+        onUnauthorized();
 
-      return;
-    }
+        return;
+      }
 
-    if (result) {
-      setOpenCode(result);
+      // 一度でも登録状態を読めていれば、再取得の失敗で「未登録」に戻さない。
+      setOpenCode((current) =>
+        result ? { status: "ok", auth: result } : current.status === "ok" ? current : { status: "unavailable" },
+      );
+    } catch {
+      setOpenCode((current) => (current.status === "ok" ? current : { status: "unavailable" }));
     }
   }, [onUnauthorized]);
 
   useEffect(() => {
+    void loadOpenCode();
+
+    // 初回に読めなかったときの復帰と、別の端末からの登録を拾う。
+    const timer = setInterval(() => void loadOpenCode(), 60_000);
+
+    return () => clearInterval(timer);
+  }, [loadOpenCode]);
+
+  const retryOpenCode = useCallback(() => {
+    setOpenCode({ status: "loading" });
     void loadOpenCode();
   }, [loadOpenCode]);
 
@@ -249,7 +264,13 @@ function Dashboard(props: {
 
   const saveOpenCode = useCallback(
     async (apiKey: string): Promise<string | null> => {
-      const outcome = await saveOpenCodeKey(apiKey);
+      let outcome: Awaited<ReturnType<typeof saveOpenCodeKey>>;
+
+      try {
+        outcome = await saveOpenCodeKey(apiKey);
+      } catch {
+        return "unavailable";
+      }
 
       if (!outcome.ok) {
         if (outcome.error === "unauthorized") {
@@ -259,8 +280,10 @@ function Dashboard(props: {
         return outcome.error;
       }
 
-      setOpenCode(outcome.state);
-      await loadUsage();
+      setOpenCode({ status: "ok", auth: outcome.state });
+
+      // 保存は確定している。直後の取得が失敗しても登録失敗として扱わない（60 秒後に再試行される）。
+      void loadUsage().catch(() => undefined);
 
       return null;
     },
@@ -268,9 +291,20 @@ function Dashboard(props: {
   );
 
   const clearOpenCode = useCallback(async (): Promise<boolean> => {
-    const ok = await deleteOpenCodeKey();
+    let ok = false;
 
-    await Promise.all([loadOpenCode(), loadUsage()]);
+    try {
+      ok = await deleteOpenCodeKey();
+    } catch {
+      ok = false;
+    }
+
+    if (ok) {
+      setOpenCode({ status: "ok", auth: { configured: false, savedAt: null } });
+    }
+
+    void loadOpenCode();
+    void loadUsage().catch(() => undefined);
 
     return ok;
   }, [loadOpenCode, loadUsage]);
@@ -283,7 +317,7 @@ function Dashboard(props: {
     onCancel: cancelCodex,
     onLogout: signOutCodex,
   };
-  const openCodeActions = { onSave: saveOpenCode, onClear: clearOpenCode };
+  const openCodeActions = { onSave: saveOpenCode, onClear: clearOpenCode, onRetry: retryOpenCode };
 
   return (
     <>
@@ -316,7 +350,7 @@ function Dashboard(props: {
             provider={provider}
             now={clock}
             codex={provider.id === "codex" ? { auth: codex, actions: codexActions } : undefined}
-            opencode={provider.id === "opencode-go" ? { auth: opencode, actions: openCodeActions } : undefined}
+            opencode={provider.id === "opencode-go" ? { connection: opencode, actions: openCodeActions } : undefined}
           />
         ))}
       </div>

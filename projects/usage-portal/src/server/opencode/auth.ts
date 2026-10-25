@@ -6,14 +6,18 @@ const FILE_VERSION = 1;
 
 export type OpenCodeKeyState = { configured: boolean; savedAt: number | null };
 
+export type StoredOpenCodeKey = { apiKey: string; savedAt: number };
+
 export type OpenCodeAuth = {
   state: () => OpenCodeKeyState;
   apiKey: () => string | null;
+  read: () => StoredOpenCodeKey | null;
   save: (apiKey: string) => void;
+  restore: (stored: StoredOpenCodeKey | null) => void;
   clear: () => void;
 };
 
-type StoredKey = { apiKey: string; savedAt: number };
+type StoredKey = StoredOpenCodeKey;
 
 /**
  * OpenCode Go の API キーは秘密なので、Codex の `auth.json` と同じ `CREDENTIAL_DIR` に置く。
@@ -30,7 +34,17 @@ export function createOpenCodeAuth(options: { credentialDir: string; now?: () =>
       return { configured: stored !== null, savedAt: stored?.savedAt ?? null };
     },
     apiKey: () => readStoredKey(path)?.apiKey ?? null,
+    read: () => readStoredKey(path),
     save: (apiKey) => writeStoredKey(path, { apiKey, savedAt: now() }),
+    restore(stored) {
+      if (stored === null) {
+        rmSync(path, { force: true });
+
+        return;
+      }
+
+      writeStoredKey(path, stored);
+    },
     clear: () => rmSync(path, { force: true }),
   };
 }

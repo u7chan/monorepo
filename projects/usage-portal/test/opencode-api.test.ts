@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
-import { openDatabase, type DatabaseHandle } from "../src/server/db";
+import { loadProviderUsage, openDatabase, saveProviderSnapshot, type DatabaseHandle } from "../src/server/db";
 import { buildHealthReport } from "../src/server/health";
 import { createOpenCodeApi } from "../src/server/opencode/api";
 import { createOpenCodeAuth, OPENCODE_KEY_FILE } from "../src/server/opencode/auth";
+import { createSampler } from "../src/server/sampler";
 import { ProviderError, type ProviderSnapshot } from "../src/server/providers/types";
 import { createUsageReader, type UsagePayload } from "../src/server/usage";
 import { BASE_TIME, stubCodexApi, usageSnapshot } from "./support";
@@ -19,6 +20,15 @@ const INTERVAL = 300_000;
 const KEY = "sk-sentinel-opencode-key";
 const dirs: string[] = [];
 const handles: DatabaseHandle[] = [];
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve: () => void = () => {};
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+
+  return { promise, resolve };
+}
 
 type Harness = {
   app: ReturnType<typeof createApp>;
@@ -332,5 +342,124 @@ describe("DELETE /api/opencode/key", () => {
 
     expect((await request(h.app, "/api/opencode/key", { method: "DELETE" })).status).toBe(401);
     expect(h.auth.state().configured).toBe(true);
+  });
+});
+
+describe("キー変更と sampler の排他", () => {
+  test("PUT と DELETE が同時に来ても、解除後に snapshot を書き戻さない", async () => {
+    const root = mkdtempSync(join(tmpdir(), "usage-portal-opencode-race-"));
+    const dataDir = join(root, "data");
+    const credentialDir = join(root, "credentials");
+    const db = openDatabase(dataDir);
+    const auth = createOpenCodeAuth({ credentialDir, now: () => BASE_TIME });
+    const beforeFirst = deferred();
+    const beforeKeyedFetch = deferred();
+    let calls = 0;
+
+    dirs.push(root);
+    handles.push(db);
+
+    const snapshot = () => usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
+    const sampler = createSampler({
+      db,
+      intervalMs: INTERVAL,
+      now: () => BASE_TIME,
+      log: () => {},
+      fetchers: [
+        {
+          provider: { id: "opencode-go", name: "OpenCode Go" },
+          fetch: async () => {
+            calls += 1;
+            const apiKey = auth.apiKey();
+
+            if (calls === 1) {
+              await beforeFirst.promise;
+            }
+
+            if (apiKey === null) {
+              throw new ProviderError("not_connected", "OpenCode Go の API キーが登録されていません");
+            }
+
+            await beforeKeyedFetch.promise;
+
+            return snapshot();
+          },
+        },
+      ],
+    });
+    const opencode = createOpenCodeApi({ auth, db, sampler, fetchUsage: async () => snapshot() });
+
+    const initial = sampler.kick();
+    const put = opencode.save("sk-race-key");
+
+    // 検証を終えた PUT を先に exclusive へ積む。
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const del = opencode.clear();
+
+    beforeFirst.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    beforeKeyedFetch.resolve();
+
+    const [putResult] = await Promise.all([put, del, initial]);
+
+    expect(putResult).toMatchObject({ ok: true, state: { configured: true } });
+    expect(auth.state()).toEqual({ configured: false, savedAt: null });
+    expect(loadProviderUsage(db, ["opencode-go"]).get("opencode-go")?.snapshot).toBeNull();
+  });
+});
+
+describe("保存・解除に失敗したときの巻き戻し", () => {
+  test("DB に書けない PUT は 503 でキーと snapshot を操作前のまま残す", async () => {
+    const h = harness();
+    const cookieValue = await cookie(h.app);
+    const previous = usageSnapshot({
+      provider: "opencode-go",
+      name: "OpenCode Go",
+      capturedAt: BASE_TIME - 60_000,
+    });
+
+    h.auth.save("sk-existing");
+    saveProviderSnapshot(h.db, previous);
+    h.db.db.exec("PRAGMA query_only = ON");
+
+    const response = await request(h.app, "/api/opencode/key", {
+      method: "PUT",
+      cookie: cookieValue,
+      body: { apiKey: "sk-replacement" },
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "unavailable" });
+    expect(h.auth.apiKey()).toBe("sk-existing");
+
+    const stored = loadProviderUsage(h.db, ["opencode-go"]).get("opencode-go");
+
+    expect(stored?.snapshot?.capturedAt).toBe(BASE_TIME - 60_000);
+    expect(stored?.error).toBeNull();
+  });
+
+  test("DB から消せない DELETE は 503 でキーと snapshot を残す", async () => {
+    const h = harness();
+    const cookieValue = await cookie(h.app);
+
+    h.auth.save("sk-existing");
+    saveProviderSnapshot(
+      h.db,
+      usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME - 60_000 }),
+    );
+    h.db.db.exec("PRAGMA query_only = ON");
+
+    const response = await request(h.app, "/api/opencode/key", { method: "DELETE", cookie: cookieValue });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "unavailable" });
+    expect(h.auth.apiKey()).toBe("sk-existing");
+
+    const stored = loadProviderUsage(h.db, ["opencode-go"]).get("opencode-go");
+
+    expect(stored?.snapshot?.capturedAt).toBe(BASE_TIME - 60_000);
+
+    h.db.db.exec("PRAGMA query_only = OFF");
   });
 });
