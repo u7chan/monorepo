@@ -7,6 +7,7 @@ import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
 import { buildHealthReport } from "../src/server/health";
 import { SESSION_COOKIE_NAME } from "../src/server/session";
+import { EMPTY_USAGE, stubCodexApi } from "./support";
 
 const dirs: string[] = [];
 const PIN = "123456";
@@ -26,6 +27,8 @@ function harness(options: { clientKey?: boolean } = {}) {
   const app = createApp({
     auth,
     health: () => buildHealthReport("ok", auth.status()),
+    usage: () => EMPTY_USAGE,
+    codex: stubCodexApi(),
     now: () => clock,
     ...(options.clientKey === false ? {} : { clientKey: () => "test-client" }),
   });
@@ -337,6 +340,16 @@ describe("共通の防御", () => {
     const response = await app.request("/api/auth/session");
 
     expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  test("API の応答にセキュリティヘッダーを付ける", async () => {
+    const { app } = harness();
+    const response = await app.request("/api/health");
+
+    expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("permissions-policy")).toContain("camera=()");
   });
 });
 

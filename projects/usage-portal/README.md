@@ -5,18 +5,16 @@ Codex（ChatGPT サブスクリプション）と OpenCode Go の利用枠を 1 
 
 全体設計は [docs/design.md](docs/design.md)、決定の理由は [docs/adr/](docs/adr) を参照する。
 
-## この時点で入っているもの
+## 機能
 
-設計の「実装順と PR 分割」の 1 番目（最小構成）と 2 番目（PIN 認証）に対応する。
-
-- Bun + TypeScript + Preact + Hono の骨格と CSS トークン（`--up-` 接頭辞、`prefers-color-scheme` 追従）
-- `GET /api/health`（DB と認証状態だけを返す）
-- SQLite の open と migration（v1 の DDL まで。保存も取得もしない）
+- Bun + TypeScript + Preact + Hono。CSS トークンは `--up-` 接頭辞で、`prefers-color-scheme` に追従する
 - 初回アクセスの PIN 登録、PIN ログイン、署名付きセッション cookie（30 日）、試行制限、期限バナー
-- `Dockerfile`（`test` / `final`）
+- BFF が 5 分ごとに Codex と OpenCode Go の利用枠を取り、SQLite に snapshot と sample を保存する
+- 画面は 60 秒ごとに `/api/usage` を取得する。24 時間の推移は 30 分の bucket に丸めて描く
+- Codex は Web UI から Sign in with ChatGPT（デバイスコード / ブラウザ + 貼り付け）でサインインする
+- `GET /api/health` は DB と認証状態だけを返し、利用枠や利用者情報を含まない
 
-まだ無いもの: 利用枠の取得（`/api/usage`）、Codex のサインイン、provider カード、24 時間の推移。
-順番は design.md の「実装順と PR 分割」に従う。
+`docs/design.md` は親 checkout の設計ドラフトの写しで、このプロジェクトでは書き換えない。実装との差分や決定は [docs/adr/](docs/adr) に置く。
 
 ## 起動
 
@@ -60,17 +58,41 @@ rm data/pin-hash
 
 PIN の変更は「消して登録し直す」で行う。変更すると署名鍵の導出に使う PIN ハッシュが変わるため、全端末がログアウトする。
 
-## 認証 API
+## API
 
-| Method | Path | 内容 |
-| --- | --- | --- |
-| `GET` | `/api/auth/session` | `{ state: "setup_required" \| "unauthenticated" \| "authenticated", expiresAt? }`。常に 200 |
-| `POST` | `/api/auth/setup` | `{ "pin": "123456" }`。PIN 未設定のときだけ受け付け、成功で cookie を発行（201） |
-| `POST` | `/api/auth/login` | `{ "pin": "123456" }`。成功で cookie を発行（200）。失敗は 401、5 回失敗で 15 分ロック（429 + `Retry-After`） |
-| `POST` | `/api/auth/logout` | cookie を消す（204） |
+| Method | Path | 認証 | 内容 |
+| --- | --- | --- | --- |
+| `GET` | `/api/health` | 不要 | `{ ok, service, db, auth }`。常に 200 か 503（利用枠は返さない） |
+| `GET` | `/api/auth/session` | 不要 | `{ state: "setup_required" \| "unauthenticated" \| "authenticated", expiresAt? }`。常に 200 |
+| `POST` | `/api/auth/setup` | 不要 | `{ "pin": "123456" }`。PIN 未設定のときだけ受け付け、成功で cookie を発行（201） |
+| `POST` | `/api/auth/login` | 不要 | `{ "pin": "123456" }`。成功で cookie を発行（200）。失敗は 401、5 回失敗で 15 分ロック（429 + `Retry-After`） |
+| `POST` | `/api/auth/logout` | 不要 | cookie を消す（204） |
+| `GET` | `/api/usage` | 必要 | `{ generatedAt, sampleIntervalMs, providers[] }`。未認証は 401、認証設定が壊れていれば 503 |
+| `GET` | `/api/codex/auth` | 必要 | `{ signedIn, login }`。`login` は進行中・終端のサインイン状態 |
+| `POST` | `/api/codex/login` | 必要 | サインイン開始（202）。進行中の二重開始は 409 |
+| `POST` | `/api/codex/login/respond` | 必要 | `{ "value": "..." }`。`select` の選択肢 ID か、ブラウザの最後の URL（204） |
+| `DELETE` | `/api/codex/login` | 必要 | 進行中のサインインを中断（204、冪等） |
+| `POST` | `/api/codex/logout` | 必要 | 保存済み OAuth を削除し、Codex の snapshot を消す（204） |
 
-`POST` は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。応答はすべて `Cache-Control: no-store`。
-ログインの試行制限は接続元ごとに数え、同時に届いた要求も直列化して 5 回を超えて照合しない。
+状態を変える要求（`POST` / `DELETE`）は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。
+応答はすべて `Cache-Control: no-store`。ログインの試行制限は接続元ごとに数え、同時に届いた要求も直列化して 5 回を超えて照合しない。
+
+`providers[]` は provider ごとに独立して失敗する。`state` は `loading` / `ok` / `stale` / `error`、`error.code` は
+`not_connected` / `reauth_required` / `upstream` / `schema` / `config` の固定値で、上流の本文は含まない。
+
+## Codex のサインイン
+
+Codex の OAuth は自前実装せず、Pi SDK（`@earendil-works/pi-coding-agent`）の `ModelRuntime` を資格情報の
+読み取り・更新・サインインだけに使う。資格情報は `CREDENTIAL_DIR`（既定 `/app/credentials`）に置き、ホストの
+`~/.pi/agent` とは共有しない（同じ refresh token を 2 プロセスで更新すると片方が壊れるため）。
+
+1. Codex カードの「Sign in with ChatGPT」を押す
+2. サインイン方法を選ぶ（既定はデバイスコード。ブラウザを選んだ場合は最後の URL を貼り付けて完了する）
+3. 表示された URL とコードで承認する
+4. 成功すると `auth.json` に保存され、sampler が 1 回走って Codex カードが更新される
+
+コールバックポート（1455）は publish しない。コンテナ内の `127.0.0.1` に閉じるため、どのブラウザからでも
+デバイスコードか貼り付けで完了できるようにしてある。進行中の状態は BFF のメモリだけに置き、開始から 10 分で自動中断する。
 
 ## 環境変数
 
@@ -81,9 +103,12 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `HOST` | `0.0.0.0` | 待ち受けアドレス |
 | `PORT` | `3000` | 待ち受けポート |
 | `DATA_DIR` | `/app/data` | SQLite と認証状態（`pin-hash` / `session-key`）の置き場。起動時に 0700 で作り、配下のファイルを 0600 にする |
+| `CREDENTIAL_DIR` | `/app/credentials` | Codex の `auth.json` と `device-id` の置き場。起動時に 0700、配下のファイルを 0600 にする |
+| `OPENCODE_API_KEY` | なし | OpenCode Go の API キー。未設定なら OpenCode Go は「取得エラー（config）」になる |
+| `POLL_INTERVAL_MS` | `300000` | 上流を取りに行く間隔。1 分未満・非整数は起動しない |
 | `COMMIT_HASH` | なし | build 時に埋め込む。`User-Agent: usage-portal/<version>` の version になる |
 
-PIN とセッション鍵は環境変数では渡さない。`DATA_DIR` 配下のファイルと初回セットアップで完結する。
+`PI_CODING_AGENT_DIR` は Dockerfile で `CREDENTIAL_DIR` と同じ値にしている。PIN とセッション鍵は環境変数では渡さない。
 
 ## Docker
 
@@ -95,34 +120,49 @@ docker build --target final -t usage-portal-final ./projects/usage-portal
 
 docker run --rm -p 3000:3000 \
   -v "$PWD/data:/app/data" \
+  -v "$PWD/credentials:/app/credentials" \
+  -e OPENCODE_API_KEY \
   usage-portal-final
 ```
 
-`/app/data` はイメージ内で uid 1000 が書けるようにしてある。ホスト側のディレクトリをマウントするときは所有者を合わせる。
-`data/` には `usage.sqlite`、`session-key`、初回セットアップ後の `pin-hash` が入る。これらを消すと PIN と履歴が初期化される。
+`/app/data` と `/app/credentials` はイメージ内で uid 1000 が書けるようにしてある。ホスト側のディレクトリを
+マウントするときは所有者を合わせる（`install -d -m 700 -o 1000 -g 1000` 相当）。
+
+- `data/` には `usage.sqlite`、`session-key`、初回セットアップ後の `pin-hash` が入る。消すと PIN と履歴が初期化される
+- `credentials/` には Codex の `auth.json`（refresh token と account id）と `device-id` が入る。**バックアップやログに出さない**
 
 ## ディレクトリ構成
 
 ```text
 index.html                 HTML の入口（Bun が src/client/main.tsx をバンドルする）
-src/server.ts              Bun.serve。HTML と /api/* の振り分け、DB と認証の初期化
-src/server/app.ts          Hono app と AppType、認証 API と同一 origin 検査
-src/server/auth.ts         PIN の登録・照合とセッションの発行・検証
-src/server/auth-store.ts   pin-hash / session-key の読み書きと権限
-src/server/pin.ts          PIN の形式と Argon2id
-src/server/session.ts      署名付き cookie の形式と検証
-src/server/rate-limit.ts   ログイン試行の制限
-src/server/config.ts       HOST / PORT / DATA_DIR / COMMIT_HASH
-src/server/db.ts           SQLite の open / migration / 権限
-src/server/health.ts       /api/health の応答
-src/server/version.ts      version と User-Agent の組み立て
-src/client/main.tsx        セットアップ / ログイン / ダッシュボードの骨格
-src/client/api.ts          認証 API の呼び出しと応答の解釈
-src/client/styles.css      CSS トークンと最小のレイアウト
-test/                      bun:test
-scripts/docs-check.mjs     docs の相対リンクとパスの検査
-docs/design.md             設計（親 checkout からの写し）
-docs/adr/                  決定の記録
+src/server.ts                 Bun.serve。HTML と /api/* の振り分け、DB・認証・sampler の初期化
+src/server/app.ts             Hono app と AppType、認証 API・利用枠 API・同一 origin 検査
+src/server/auth.ts            PIN の登録・照合とセッションの発行・検証
+src/server/auth-store.ts      pin-hash / session-key の読み書きと権限
+src/server/pin.ts             PIN の形式と Argon2id
+src/server/session.ts         署名付き cookie の形式と検証
+src/server/rate-limit.ts      ログイン試行の制限
+src/server/config.ts          HOST / PORT / DATA_DIR / CREDENTIAL_DIR / OPENCODE_API_KEY / POLL_INTERVAL_MS
+src/server/db.ts              SQLite の open / migration / snapshot・error・sample の読み書き
+src/server/sampler.ts         5 分ごとの取得（single-flight）と 30 日保持
+src/server/usage.ts           /api/usage の応答（state と trend）の組み立て
+src/server/state.ts           snapshot と error から state を決める
+src/server/trend.ts           24 時間推移の対象選びと downsample
+src/server/health.ts          /api/health の応答
+src/server/version.ts         version と User-Agent の組み立て
+src/server/providers/         Codex / OpenCode Go の adapter と正規化モデル
+src/server/codex/             Pi SDK の資格情報、SiWC の状態機械、/api/codex/*
+src/client/main.tsx           Preact の描画入口
+src/client/App.tsx            セッション・利用枠・サインインのポーリングと画面の切り替え
+src/client/api.ts             API の呼び出しと応答の解釈
+src/client/lib/format.ts      残り時間・%・日時の整形
+src/client/lib/status.ts      状態ラベルとしきい値
+src/client/components/        ログイン、provider カード、meter、trend、接続パネル
+src/client/styles.css         CSS トークンとレイアウト
+test/                         bun:test
+scripts/docs-check.mjs        docs の相対リンクとパスの検査
+docs/design.md                設計（親 checkout からの写し）
+docs/adr/                     決定の記録
 ```
 
 ## 検証
@@ -142,7 +182,9 @@ bun run check
 - 画面は読み取り専用で、利用枠を変更する操作を持たない
 - 認証情報と DB の中身は API から返さない。`/api/health` は状態だけを返し、利用枠や利用者情報を含めない
 - SQLite と認証状態は `DATA_DIR`（0700）に置き、ファイルを 0600 にし、プロセスの先頭で `umask 077` を設定する
-- PIN、PIN ハッシュ、セッション鍵、cookie をログに出さない
+- Codex の token・account id・email、OpenCode の API key は応答・ログ・DB に残さない。上流の応答本文も保存しない
+- `/app/credentials` は 0700、`auth.json` / `device-id` は 0600。ホストの Pi 資格情報とは共有しない
+- PIN、PIN ハッシュ、セッション鍵、cookie、API key、token をログに出さない
 - セッション cookie は `HttpOnly; SameSite=Lax`。v1 は HTTP で LAN 内にだけ出すため `Secure` は付けない
 - 6 桁 PIN は総当たり耐性が低い。Argon2id とログイン試行の制限で補い、インターネット公開には使わない
 
@@ -154,3 +196,5 @@ bun run check
 - [docs/adr/0001-state-fetching.md](docs/adr/0001-state-fetching.md) — 状態の取得
 - [docs/adr/0002-authentication-and-exposure.md](docs/adr/0002-authentication-and-exposure.md) — 入口の認証と公開範囲
 - [docs/adr/0003-pin-storage-and-session-key.md](docs/adr/0003-pin-storage-and-session-key.md) — PIN とセッション鍵の保存
+- [docs/adr/0004-usage-sampling-and-storage.md](docs/adr/0004-usage-sampling-and-storage.md) — 利用枠の取得と保存
+- [docs/adr/0005-codex-credentials-and-sign-in.md](docs/adr/0005-codex-credentials-and-sign-in.md) — Codex の資格情報とサインイン

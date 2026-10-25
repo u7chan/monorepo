@@ -8,6 +8,7 @@
   --up-text: #1a1d21;
   --up-muted: #5c636e;
   --up-accent: #2f6fed;
+  --up-on-accent: #ffffff;
   --up-attention: #b45309;
   --up-success: #15803d;
 
@@ -40,6 +41,8 @@
     --up-text: #e8eaee;
     --up-muted: #a0a7b3;
     --up-accent: #7aa2ff;
+    /* 明るい accent の上に白を置くとコントラストが足りない。ボタンの文字は背景に合わせて反転する。 */
+    --up-on-accent: #14161a;
     --up-attention: #f0b45a;
     --up-success: #6fd08c;
   }
@@ -188,7 +191,7 @@ h2 {
   border: 1px solid var(--up-accent);
   border-radius: var(--up-radius-label);
   background: var(--up-accent);
-  color: #ffffff;
+  color: var(--up-on-accent);
   font: inherit;
   cursor: pointer;
 }
@@ -219,4 +222,277 @@ h2 {
   background: var(--up-surface);
   border: 1px solid var(--up-attention);
   border-radius: var(--up-radius-card);
+}
+
+.up-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--up-space-3);
+  margin-bottom: var(--up-space-4);
+}
+
+.up-toolbar-fetched {
+  color: var(--up-muted);
+}
+
+.up-auto {
+  color: var(--up-success);
+}
+
+.up-button-secondary {
+  border-color: var(--up-line);
+  background: transparent;
+  color: var(--up-text);
+}
+
+.up-providers {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--up-space-4);
+}
+
+@media (min-width: 900px) {
+  .up-providers {
+    grid-template-columns: 1fr 1fr;
+    align-items: stretch;
+  }
+}
+
+.up-provider {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-4);
+}
+
+.up-provider-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--up-space-3);
+}
+
+.up-provider-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--up-space-2);
+}
+
+.up-provider-name {
+  font-size: 1.25rem;
+}
+
+.up-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--up-space-1);
+  padding: 1px var(--up-space-2);
+  border: 1px solid var(--up-line);
+  border-radius: var(--up-radius-label);
+  font-size: var(--up-font-caption);
+  white-space: nowrap;
+}
+
+.up-status-success {
+  border-color: var(--up-success);
+  color: var(--up-success);
+}
+
+.up-status-attention {
+  border-color: var(--up-attention);
+  color: var(--up-attention);
+}
+
+.up-status-neutral {
+  color: var(--up-muted);
+}
+
+.up-status-symbol {
+  font-size: 0.75em;
+}
+
+.up-meters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-4);
+}
+
+.up-meter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-2);
+}
+
+.up-meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--up-space-2);
+}
+
+.up-meter-label {
+  font-weight: 600;
+}
+
+.up-meter-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.up-attention {
+  color: var(--up-attention);
+}
+
+.up-meter-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--up-raised);
+}
+
+.up-meter-fill {
+  height: 100%;
+  background: var(--up-accent);
+  transition: width 0.3s ease;
+}
+
+.up-meter-fill-attention {
+  background: var(--up-attention);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .up-meter-fill {
+    transition: none;
+  }
+}
+
+.up-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: var(--up-space-5);
+}
+
+.up-provider-foot {
+  margin-top: auto;
+}
+
+.up-trend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-1);
+}
+
+.up-trend-chart {
+  width: 100%;
+  height: 48px;
+  color: var(--up-accent);
+}
+
+.up-trend-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.up-trend-area {
+  fill: currentColor;
+  fill-opacity: 0.12;
+  stroke: none;
+}
+
+.up-codex {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-2);
+  padding-top: var(--up-space-4);
+  border-top: 1px solid var(--up-line);
+}
+
+.up-subheading {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.up-codex-instructions {
+  margin: 0;
+}
+
+.up-codex-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--up-space-2);
+}
+
+.up-code-string {
+  padding: 2px var(--up-space-2);
+  border: 1px solid var(--up-line);
+  border-radius: var(--up-radius-label);
+  background: var(--up-raised);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  user-select: all;
+}
+
+.up-codex-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-1);
+  margin: 0;
+}
+
+.up-codex-url {
+  word-break: break-all;
+  color: var(--up-muted);
+  font-size: var(--up-font-caption);
+}
+
+.up-link {
+  color: var(--up-accent);
+}
+
+.up-form-inline {
+  max-width: none;
+  margin-top: 0;
+}
+
+.up-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.up-radio {
+  display: flex;
+  align-items: center;
+  gap: var(--up-space-2);
+}
+
+.up-input-code {
+  letter-spacing: normal;
+}
+
+.up-notice {
+  margin: 0;
+  font-size: var(--up-font-caption);
+}
+
+.up-nowrap {
+  white-space: nowrap;
+}
+
+.up-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-1);
 }

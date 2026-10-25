@@ -63,7 +63,9 @@ ENV COMMIT_HASH=${COMMIT_HASH} \
     NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000 \
-    DATA_DIR=/app/data
+    DATA_DIR=/app/data \
+    CREDENTIAL_DIR=/app/credentials \
+    PI_CODING_AGENT_DIR=/app/credentials
 
 WORKDIR /app
 
@@ -71,7 +73,10 @@ COPY --from=production-dependencies --chown=bun:bun /app/node_modules ./node_mod
 COPY --chown=bun:bun package.json index.html tsconfig.json ./
 COPY --chown=bun:bun src ./src
 
-RUN mkdir -p /app/data && chown bun:bun /app/data && chmod 0700 /app/data
+# DATA_DIR と CREDENTIAL_DIR は volume の mount point。イメージ側でも 0700 にしておく。
+RUN mkdir -p /app/data /app/credentials \
+    && chown bun:bun /app/data /app/credentials \
+    && chmod 0700 /app/data /app/credentials
 
 USER bun
 

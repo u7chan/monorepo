@@ -14,8 +14,59 @@ export type AuthErrorCode =
 
 export type AuthOutcome = { ok: true } | { ok: false; error: AuthErrorCode; retryAfterSeconds?: number };
 
+export type UsageWindow = {
+  id: string;
+  label: string;
+  durationSeconds: number | null;
+  usedPercent: number;
+  resetsAt: number | null;
+};
+
+export type Trend = { windowId: string; points: { at: number; usedPercent: number }[] };
+
+export type ProviderId = "codex" | "opencode-go";
+export type ProviderState = "loading" | "ok" | "stale" | "error";
+
+export type ProviderUsage = {
+  id: ProviderId;
+  name: string;
+  plan: string | null;
+  state: ProviderState;
+  capturedAt: number | null;
+  error: { code: string; message: string; at: number } | null;
+  limitReached: boolean;
+  windows: UsageWindow[];
+  notes: string[];
+  trend: Trend | null;
+};
+
+export type UsagePayload = { generatedAt: number; sampleIntervalMs: number; providers: ProviderUsage[] };
+
+export type CodexLoginOption = { id: string; label: string };
+
+export type CodexLoginPrompt =
+  | { type: "select"; message: string; options: CodexLoginOption[] }
+  | { type: "manual_code"; message: string; placeholder: string | null };
+
+export type CodexLoginState = {
+  status: "running" | "succeeded" | "failed" | "cancelled";
+  instructions: string | null;
+  progress: string | null;
+  authUrl: string | null;
+  userCode: string | null;
+  prompt: CodexLoginPrompt | null;
+  error: string | null;
+};
+
+export type CodexAuthState = { signedIn: boolean; login: CodexLoginState | null };
+
+export type CodexLoginOutcome = { ok: true; state: CodexAuthState } | { ok: false; error: string };
+
+/** 認証切れは画面をログインへ戻す合図。通信失敗は `null` として区別する。 */
+export type Unauthorized = { unauthorized: true };
+
 /**
- * `hc` は validator を入れるまで POST body の型を共有できないため、auth の応答型はここで定義する。
+ * `hc` は validator を入れるまで POST body の型を共有できないため、応答型はここで定義する。
  * 代わりに、応答の解釈をこの module に閉じ込めて画面側から JSON を触らせない。
  */
 export async function fetchSession(): Promise<SessionState> {
@@ -56,6 +107,237 @@ export async function logout(): Promise<void> {
   await fetch("/api/auth/logout", { method: "POST" });
 }
 
+export async function fetchUsage(): Promise<UsagePayload | Unauthorized | null> {
+  const response = await fetch("/api/usage", { headers: { accept: "application/json" } });
+
+  if (response.status === 401) {
+    return { unauthorized: true };
+  }
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return parseUsage(await response.json().catch(() => null));
+}
+
+export async function fetchCodexAuth(): Promise<CodexAuthState | Unauthorized | null> {
+  const response = await fetch("/api/codex/auth", { headers: { accept: "application/json" } });
+
+  if (response.status === 401) {
+    return { unauthorized: true };
+  }
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return parseCodexAuth(await response.json().catch(() => null));
+}
+
+export async function startCodexLogin(): Promise<CodexLoginOutcome> {
+  const response = await fetch("/api/codex/login", { method: "POST" });
+  const body: unknown = await response.json().catch(() => null);
+
+  if (response.ok) {
+    const state = parseCodexAuth(body);
+
+    return state ? { ok: true, state } : { ok: false, error: "unavailable" };
+  }
+
+  return { ok: false, error: readString(body, "error") ?? "unavailable" };
+}
+
+export async function respondCodexLogin(value: string): Promise<string | null> {
+  const response = await fetch("/api/codex/login/respond", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+
+  if (response.ok) {
+    return null;
+  }
+
+  return readString(await response.json().catch(() => null), "error") ?? "unavailable";
+}
+
+export async function cancelCodexLogin(): Promise<void> {
+  await fetch("/api/codex/login", { method: "DELETE" });
+}
+
+export async function logoutCodex(): Promise<boolean> {
+  const response = await fetch("/api/codex/logout", { method: "POST" });
+
+  return response.ok;
+}
+
+export function parseUsage(body: unknown): UsagePayload | null {
+  const providers = readObjects(body, "providers")
+    .map(parseProvider)
+    .filter((provider) => provider !== null);
+
+  if (providers.length === 0) {
+    return null;
+  }
+
+  return {
+    generatedAt: readNumber(body, "generatedAt") ?? Date.now(),
+    sampleIntervalMs: readNumber(body, "sampleIntervalMs") ?? 300_000,
+    providers,
+  };
+}
+
+export function parseCodexAuth(body: unknown): CodexAuthState | null {
+  if (typeof body !== "object" || body === null || typeof (body as { signedIn?: unknown }).signedIn !== "boolean") {
+    return null;
+  }
+
+  const signedIn = (body as { signedIn: boolean }).signedIn;
+  const login = (body as { login?: unknown }).login;
+
+  return { signedIn, login: login === null || login === undefined ? null : parseLogin(login) };
+}
+
+function parseProvider(value: unknown): ProviderUsage | null {
+  const id = readString(value, "id");
+
+  if (id !== "codex" && id !== "opencode-go") {
+    return null;
+  }
+
+  const state = readString(value, "state");
+
+  if (state !== "loading" && state !== "ok" && state !== "stale" && state !== "error") {
+    return null;
+  }
+
+  const error = readObject(value, "error");
+
+  return {
+    id,
+    name: readString(value, "name") ?? id,
+    plan: readString(value, "plan"),
+    state,
+    capturedAt: readNumber(value, "capturedAt"),
+    error:
+      error && readString(error, "code")
+        ? {
+            code: readString(error, "code") ?? "",
+            message: readString(error, "message") ?? "",
+            at: readNumber(error, "at") ?? 0,
+          }
+        : null,
+    limitReached: (value as { limitReached?: unknown }).limitReached === true,
+    windows: readObjects(value, "windows")
+      .map(parseWindow)
+      .filter((window) => window !== null),
+    notes: readStrings(value, "notes"),
+    trend: parseTrend(readObject(value, "trend")),
+  };
+}
+
+function parseWindow(value: unknown): UsageWindow | null {
+  const id = readString(value, "id");
+  const label = readString(value, "label");
+  const usedPercent = readNumber(value, "usedPercent");
+
+  if (!id || !label || usedPercent === null) {
+    return null;
+  }
+
+  return {
+    id,
+    label,
+    durationSeconds: readNumber(value, "durationSeconds"),
+    usedPercent,
+    resetsAt: readNumber(value, "resetsAt"),
+  };
+}
+
+function parseTrend(value: Record<string, unknown> | null): Trend | null {
+  if (!value) {
+    return null;
+  }
+
+  const windowId = readString(value, "windowId");
+
+  if (!windowId) {
+    return null;
+  }
+
+  const points = readObjects(value, "points")
+    .map((point) => ({ at: readNumber(point, "at"), usedPercent: readNumber(point, "usedPercent") }))
+    .filter((point): point is { at: number; usedPercent: number } => point.at !== null && point.usedPercent !== null);
+
+  return points.length < 2 ? null : { windowId, points };
+}
+
+function parseLogin(value: unknown): CodexLoginState | null {
+  const status = readString(value, "status");
+
+  if (status !== "running" && status !== "succeeded" && status !== "failed" && status !== "cancelled") {
+    return null;
+  }
+
+  return {
+    status,
+    instructions: readString(value, "instructions"),
+    progress: readString(value, "progress"),
+    authUrl: readString(value, "authUrl"),
+    userCode: readString(value, "userCode"),
+    prompt: parsePrompt(readObject(value, "prompt")),
+    error: readString(value, "error"),
+  };
+}
+
+function parsePrompt(value: Record<string, unknown> | null): CodexLoginPrompt | null {
+  const type = readString(value, "type");
+  const message = readString(value, "message");
+
+  if (!value || !message) {
+    return null;
+  }
+
+  if (type === "select") {
+    const options = readObjects(value, "options")
+      .map((option) => ({ id: readString(option, "id"), label: readString(option, "label") }))
+      .filter((option): option is CodexLoginOption => option.id !== null && option.label !== null);
+
+    return options.length === 0 ? null : { type: "select", message, options };
+  }
+
+  if (type === "manual_code") {
+    return { type: "manual_code", message, placeholder: readString(value, "placeholder") };
+  }
+
+  return null;
+}
+
+function readObject(body: unknown, key: string): Record<string, unknown> | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+
+  const value = (body as Record<string, unknown>)[key];
+
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function readObjects(body: unknown, key: string): unknown[] {
+  if (typeof body !== "object" || body === null) {
+    return [];
+  }
+
+  const value = (body as Record<string, unknown>)[key];
+
+  return Array.isArray(value) ? value : [];
+}
+
+function readStrings(body: unknown, key: string): string[] {
+  return readObjects(body, key).filter((value): value is string => typeof value === "string");
+}
+
 function readString(body: unknown, key: string): string | null {
   if (typeof body !== "object" || body === null || !(key in body)) {
     return null;
@@ -63,7 +345,7 @@ function readString(body: unknown, key: string): string | null {
 
   const value = (body as Record<string, unknown>)[key];
 
-  return typeof value === "string" ? value : null;
+  return typeof value === "string" && value !== "" ? value : null;
 }
 
 function readNumber(body: unknown, key: string): number | null {

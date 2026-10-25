@@ -1,6 +1,6 @@
 // ロックの残り時間と期限バナーの境界を、時計を渡す純関数として固定する。
 import { describe, expect, test } from "bun:test";
-import { describeWait, expiryDaysLeft, EXPIRY_NOTICE_MS, lockSecondsLeft } from "../src/client/time";
+import { describeWait, expiryNotice, EXPIRY_NOTICE_MS, lockSecondsLeft } from "../src/client/time";
 
 const now = 1_800_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -14,17 +14,22 @@ describe("lockSecondsLeft", () => {
   });
 });
 
-describe("expiryDaysLeft", () => {
-  test("3 日以内だけ残り日数を返す", () => {
-    expect(expiryDaysLeft(now + EXPIRY_NOTICE_MS, now)).toBe(3);
-    expect(expiryDaysLeft(now + EXPIRY_NOTICE_MS + 1, now)).toBeNull();
-    expect(expiryDaysLeft(now + 2.5 * DAY, now)).toBe(3);
-    expect(expiryDaysLeft(now + 1, now)).toBe(1);
+describe("expiryNotice", () => {
+  test("3 日以内だけ「あと」の文言を返す", () => {
+    expect(expiryNotice(now + EXPIRY_NOTICE_MS, now)).toBe("3 日");
+    expect(expiryNotice(now + EXPIRY_NOTICE_MS + 1, now)).toBeNull();
+    expect(expiryNotice(now + 2.5 * DAY, now)).toBe("3 日");
+    expect(expiryNotice(now + 1, now)).toBe("まもなく");
+  });
+
+  test("1 日未満は時間、1 時間未満は分で出す", () => {
+    expect(expiryNotice(now + 23 * 60 * 60 * 1000, now)).toBe("23 時間");
+    expect(expiryNotice(now + 59 * 60 * 1000, now)).toBe("59 分");
   });
 
   test("期限切れは null", () => {
-    expect(expiryDaysLeft(now, now)).toBeNull();
-    expect(expiryDaysLeft(now - DAY, now)).toBeNull();
+    expect(expiryNotice(now, now)).toBeNull();
+    expect(expiryNotice(now - DAY, now)).toBeNull();
   });
 });
 
