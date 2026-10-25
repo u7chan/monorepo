@@ -6,6 +6,7 @@ import { useViewportWidth } from "../../hooks/useViewportWidth";
 import {
   filterSharedContents,
   sharedContentDeleteConfirm,
+  sharedContentSession,
   sharedContentSessionMissing,
   sharedContentUpdateConfirm,
   SHARED_CONTENT_NO_CREDENTIALS_NOTE,
@@ -29,6 +30,8 @@ export type SharedContentsTabProps = {
   sessionsLoaded: boolean;
   filter: SharedContentsFilter;
   onOpenConnections: () => void;
+  /** 公開元の会話を開く。設定を閉じて会話へ移る（スペースをまたぐときは切替を先に行う） */
+  onOpenSession?: (sessionId: string, spaceId?: string) => void;
 };
 
 export function SharedContentsTab({
@@ -38,6 +41,7 @@ export function SharedContentsTab({
   sessionsLoaded,
   filter,
   onOpenConnections,
+  onOpenSession,
 }: SharedContentsTabProps) {
   const confirm = useConfirm();
   const narrow = useViewportWidth() < NARROW_MAX_WIDTH;
@@ -83,6 +87,8 @@ export function SharedContentsTab({
                   item={item}
                   narrow={narrow}
                   sessionMissing={sessionMissing(item)}
+                  session={sharedContentSession(item, sessions, sessionsLoaded)}
+                  onOpenSession={onOpenSession}
                   busy={contents.busy.find((entry) => entry.id === item.id) ?? null}
                   error={contents.error?.id === item.id ? contents.error.message : undefined}
                   copied={copiedId === item.id}

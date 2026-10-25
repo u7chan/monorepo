@@ -652,6 +652,29 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     [navigate],
   );
 
+  /**
+   * 設定面のリンク（共有物の公開元 / ランタイムの起動元）から会話へ移る。所属が別スペースなら
+   * 会話を URL に載せてから切り替える (切替は App ごと作り直すため順序を入れ替えない)。
+   */
+  const openSettingsSession = useCallback(
+    (sessionId: string, spaceId?: string) => {
+      openOwnerSession(sessionId, spaceId, {
+        spaces: space.spaces,
+        currentSpaceId: space.selected.id,
+        navigate,
+        selectSpace: space.select,
+        openInPlace: (id) => {
+          void app.selectSession(id, undefined, { fallbackOnFailure: false }).then((result) => {
+            const note = missingLinkNote(true, result);
+            if (note) app.dispatch({ type: "setActivity", text: note });
+          });
+          backToChat();
+        },
+      });
+    },
+    [app, backToChat, navigate, space],
+  );
+
   // 会話の通知トグル。note は On で配信できない間は常に、Off では押した後だけ出す (Off へは常に戻せる)。
   // deliverable (色とラベルの根拠) と notifyCannotEnable (押下を止める根拠) を混ぜない
   const notifyToggle = {
@@ -897,21 +920,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             onRefreshHealth={app.refreshHealth}
             sessions={spaceSessions}
             openSessionId={app.sessionId}
-            onOpenSession={(sessionId, spaceId) =>
-              openOwnerSession(sessionId, spaceId, {
-                spaces: space.spaces,
-                currentSpaceId: space.selected.id,
-                navigate,
-                selectSpace: space.select,
-                openInPlace: (id) => {
-                  void app.selectSession(id, undefined, { fallbackOnFailure: false }).then((result) => {
-                    const note = missingLinkNote(true, result);
-                    if (note) app.dispatch({ type: "setActivity", text: note });
-                  });
-                  backToChat();
-                },
-              })
-            }
+            onOpenSession={openSettingsSession}
           />
         );
       case "sharing":
@@ -920,6 +929,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             {...pageProps}
             sessions={app.sessions}
             sessionsLoaded={app.sessionsLoaded && !app.sessionsFetch.failed}
+            onOpenSession={openSettingsSession}
             sharedContentExclusions={app.sharedContentExclusions}
             onOpenArchiveExclusions={() => {
               openFilesSubsection("archive");

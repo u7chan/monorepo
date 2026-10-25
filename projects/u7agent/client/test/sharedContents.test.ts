@@ -14,6 +14,7 @@ import {
   sharedContentFilterCounts,
   sharedContentMenuActions,
   sharedContentPrimaryAction,
+  sharedContentSession,
   sharedContentSessionMissing,
   sharedContentUpdateConfirm,
   sharedContentsPolling,
@@ -25,7 +26,7 @@ import {
   withSharedContent,
   type SharedContentBusyKind,
 } from "../src/lib/sharedContents";
-import type { SharedContentResponse } from "../src/types";
+import type { SessionSummary, SharedContentResponse } from "../src/types";
 
 const base: SharedContentResponse = {
   id: "abc123",
@@ -255,6 +256,31 @@ test("セッション削除済みの判定: 会話一覧を取得できてから
     sharedContentSessionMissing(item({ sessionId: "s2" }), sessionIds, false),
     false,
     "一覧が未取得の間に削除済みと言い切らない",
+  );
+});
+
+test("公開元の会話: 一覧が信頼でき、その id が居るときだけ返す", () => {
+  const sessions: SessionSummary[] = [
+    {
+      spaceId: "work",
+      sessionId: "s1",
+      title: "会話",
+      agentId: "default",
+      status: "idle",
+      queueDepth: 0,
+      messageCount: 1,
+      createdAt: 1,
+      lastUsedAt: 1,
+      serveCommand: null,
+      pinned: false,
+    },
+  ];
+  assert.deepEqual(sharedContentSession(item(), sessions, true), sessions[0]);
+  assert.equal(sharedContentSession(item(), sessions, false), undefined, "一覧が未取得の間は推測で飛ばさない");
+  assert.equal(
+    sharedContentSession(item({ sessionId: "gone" }), sessions, true),
+    undefined,
+    "一覧に載っていない会話は返さない",
   );
 });
 

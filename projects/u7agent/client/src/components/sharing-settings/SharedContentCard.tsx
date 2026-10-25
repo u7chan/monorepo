@@ -1,5 +1,6 @@
 import { cn } from "../../lib/cn";
 import { fileTimeLabel, messageFullTimeLabel } from "../../lib/messageTime";
+import { sessionEntryHref } from "../../lib/route";
 import {
   type SharedContentAction,
   type SharedContentBusyKind,
@@ -13,7 +14,7 @@ import {
   shareStatusView,
   type ShareStatusTone,
 } from "../../lib/sharedContents";
-import type { SharedContentResponse } from "../../types";
+import type { SessionSummary, SharedContentResponse } from "../../types";
 import {
   CheckIcon,
   CopyIcon,
@@ -33,6 +34,10 @@ export type SharedContentCardProps = {
   narrow: boolean;
   /** セッションが削除済み。更新だけを無効にする */
   sessionMissing: boolean;
+  /** 公開元の会話。会話一覧が信頼できて見つかったときだけ渡す（無い = リンクを出さない） */
+  session: SessionSummary | undefined;
+  /** 会話リンクの通常クリック。修飾キー付きはブラウザ既定（新規タブ）に任せる */
+  onOpenSession?: (sessionId: string, spaceId?: string) => void;
   /** この共有物の操作中。操作を止めて、何をしているかを出す */
   busy: { kind: SharedContentBusyKind } | null;
   /** この共有物の直前の操作失敗（BFF の固定文言） */
@@ -97,6 +102,8 @@ export function SharedContentCard({
   item,
   narrow,
   sessionMissing,
+  session,
+  onOpenSession,
   busy,
   error,
   copied,
@@ -205,6 +212,30 @@ export function SharedContentCard({
           <b className="font-medium text-ink-faint">公開元</b>
           <code className="min-w-0 font-mono break-all text-ink-soft">{sharedContentSourceLabel(item)}</code>
         </span>
+        {session === undefined ? null : (
+          <span className="flex min-w-0 items-baseline gap-1.5">
+            <b className="font-medium text-ink-faint">会話</b>
+            <a
+              href={sessionEntryHref(session.sessionId, session.spaceId)}
+              onClick={(event) => {
+                if (
+                  !onOpenSession ||
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                )
+                  return;
+                event.preventDefault();
+                onOpenSession(session.sessionId, session.spaceId);
+              }}
+              className="min-w-0 break-words text-accent underline underline-offset-2"
+            >
+              {session.title || "無題のセッション"}
+            </a>
+          </span>
+        )}
         <span className="flex items-baseline gap-1.5">
           <b className="font-medium text-ink-faint">{time.label}</b>
           <time
