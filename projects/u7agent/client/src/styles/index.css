@@ -416,6 +416,635 @@
   --c-syn-op: #5d7c8d;
 }
 
+/* カプチーノ モカ: Catppuccin Mocha。青紫の夜にパステルの差し色
+ * パレットの値のままで 4.5:1 を満たす (overlay0 だけ ink-ghost 用に沈めている) */
+[data-theme="catppuccin-mocha"] {
+  color-scheme: dark;
+  --c-base: #1e1e2e;
+  --c-panel: #222232;
+  --c-raised: #28283a;
+  --c-soft: #2b2b3c;
+  --c-hover: #313244;
+  --c-line: #36364a;
+  --c-line-strong: #45475a;
+  --c-ink: #cdd6f4;
+  --c-ink-strong: #eaeefc;
+  --c-ink-soft: #a6adc8;
+  --c-ink-muted: #9399b2;
+  --c-ink-faint: #7f849c;
+  --c-ink-ghost: #6c7086;
+  --c-accent: #cba6f7;
+  --c-accent-strong: #b487f0;
+  --c-accent-bright: #ddc1fb;
+  --c-on-accent: #1d1430;
+  --c-accent-wash: rgba(203, 166, 247, 0.12);
+  --c-accent-text: #ddc1fb;
+  --c-focus: #cba6f7;
+  --c-ok: #a6e3a1;
+  --c-ok-text: #b6e9b2;
+  --c-warn: #fab387;
+  --c-warn-text: #fab387;
+  --c-danger: #f38ba8;
+  --c-danger-text: #f7a8bf;
+  --c-glow: rgba(203, 166, 247, 0.1);
+  --c-backdrop: rgba(17, 17, 27, 0.78);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.3);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #cba6f7;
+  --c-syn-str: #a6e3a1;
+  --c-syn-num: #fab387;
+  --c-syn-com: #7f849c;
+  --c-syn-fn: #89b4fa;
+  --c-syn-type: #f5c2e7;
+  --c-syn-op: #9399b2;
+}
+
+/* カプチーノ フラペ: Catppuccin Frappé。モカより一段明るい灰青
+ * 面が明るく overlay0 / subtext0 は小さい文字で 4.5:1 を割るため、ink-soft を明るい側へ寄せる
+ * accent-wash は 0.12 だと選択行の 10px が 4.5:1 を割るので 0.10 にする */
+[data-theme="catppuccin-frappe"] {
+  color-scheme: dark;
+  --c-base: #303446;
+  --c-panel: #35384a;
+  --c-raised: #3a3e52;
+  --c-soft: #3d4155;
+  --c-hover: #414559;
+  --c-line: #474b60;
+  --c-line-strong: #51576d;
+  --c-ink: #c6d0f5;
+  --c-ink-strong: #e2e7fa;
+  --c-ink-soft: #b8bfdb;
+  --c-ink-muted: #949cbb;
+  --c-ink-faint: #838ba7;
+  --c-ink-ghost: #737994;
+  --c-accent: #ca9ee6;
+  --c-accent-strong: #b487d6;
+  --c-accent-bright: #dcbced;
+  --c-on-accent: #241b2f;
+  --c-accent-wash: rgba(202, 158, 230, 0.1);
+  --c-accent-text: #dcbced;
+  --c-focus: #ca9ee6;
+  --c-ok: #a6d189;
+  --c-ok-text: #b9e0a1;
+  --c-warn: #e5c890;
+  --c-warn-text: #e5c890;
+  --c-danger: #e78284;
+  --c-danger-text: #f0a4a6;
+  --c-glow: rgba(202, 158, 230, 0.1);
+  --c-backdrop: rgba(35, 38, 52, 0.78);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.28);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #ca9ee6;
+  --c-syn-str: #a6d189;
+  --c-syn-num: #ef9f76;
+  --c-syn-com: #838ba7;
+  --c-syn-fn: #8caaee;
+  --c-syn-type: #f4b8e4;
+  --c-syn-op: #949cbb;
+}
+
+/* ノルド: Nord。北極の寒色グレー
+ * nord3 は面に沈むため ink-faint 以降は明るい側で補間する
+ * nord11 (red) は hover 面で 3.4:1 しかないため danger-text は明るい側へ寄せる */
+[data-theme="nord"] {
+  color-scheme: dark;
+  --c-base: #2e3440;
+  --c-panel: #343b48;
+  --c-raised: #3b4252;
+  --c-soft: #3f4756;
+  --c-hover: #434c5e;
+  --c-line: #4c566a;
+  --c-line-strong: #5a6880;
+  --c-ink: #d8dee9;
+  --c-ink-strong: #eceff4;
+  --c-ink-soft: #c1cad8;
+  --c-ink-muted: #93a1b5;
+  --c-ink-faint: #8794a8;
+  --c-ink-ghost: #6d7a8f;
+  --c-accent: #88c0d0;
+  --c-accent-strong: #6aa5b8;
+  --c-accent-bright: #a5d5e0;
+  --c-on-accent: #16222b;
+  --c-accent-wash: rgba(136, 192, 208, 0.12);
+  --c-accent-text: #a5d5e0;
+  --c-focus: #88c0d0;
+  --c-ok: #a3be8c;
+  --c-ok-text: #c2d8af;
+  --c-warn: #ebcb8b;
+  --c-warn-text: #ebcc8d;
+  --c-danger: #bf616a;
+  --c-danger-text: #e8b0b4;
+  --c-glow: rgba(136, 192, 208, 0.1);
+  --c-backdrop: rgba(22, 26, 33, 0.78);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.3);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #b48ead;
+  --c-syn-str: #a3be8c;
+  --c-syn-num: #ebcb8b;
+  --c-syn-com: #7b8a9e;
+  --c-syn-fn: #88c0d0;
+  --c-syn-type: #8fbcbb;
+  --c-syn-op: #9aa7b8;
+}
+
+/* トーキョーナイト: Tokyo Night。深夜の街の青紫にネオン
+ * comment (grey) はコード上で沈むため syn-com だけ明るい側へ寄せる */
+[data-theme="tokyo-night"] {
+  color-scheme: dark;
+  --c-base: #1a1b26;
+  --c-panel: #1e1f2b;
+  --c-raised: #24283b;
+  --c-soft: #292e42;
+  --c-hover: #2f3549;
+  --c-line: #333a52;
+  --c-line-strong: #414868;
+  --c-ink: #c0caf5;
+  --c-ink-strong: #e3e8ff;
+  --c-ink-soft: #a9b1d6;
+  --c-ink-muted: #8b93b8;
+  --c-ink-faint: #7a83a8;
+  --c-ink-ghost: #565f89;
+  --c-accent: #7aa2f7;
+  --c-accent-strong: #5d87e8;
+  --c-accent-bright: #a9c2ff;
+  --c-on-accent: #0e1526;
+  --c-accent-wash: rgba(122, 162, 247, 0.12);
+  --c-accent-text: #a9c2ff;
+  --c-focus: #7aa2f7;
+  --c-ok: #9ece6a;
+  --c-ok-text: #b3dc88;
+  --c-warn: #e0af68;
+  --c-warn-text: #e0af68;
+  --c-danger: #f7768e;
+  --c-danger-text: #ff9aad;
+  --c-glow: rgba(122, 162, 247, 0.12);
+  --c-backdrop: rgba(13, 14, 22, 0.78);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.32);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #bb9af7;
+  --c-syn-str: #9ece6a;
+  --c-syn-num: #ff9e64;
+  --c-syn-com: #6b74a0;
+  --c-syn-fn: #7dcfff;
+  --c-syn-type: #f07f9b;
+  --c-syn-op: #8b93b8;
+}
+
+/* カナガワ: Kanagawa。墨色に藍と山吹を一点だけ
+ * fujiGray は 11px で沈むため ink-faint / syn-com は明るい側へ寄せる */
+[data-theme="kanagawa"] {
+  color-scheme: dark;
+  --c-base: #1f1f28;
+  --c-panel: #22222b;
+  --c-raised: #2a2a37;
+  --c-soft: #2e2e3b;
+  --c-hover: #363646;
+  --c-line: #3d3d52;
+  --c-line-strong: #54546d;
+  --c-ink: #dcd7ba;
+  --c-ink-strong: #e9e4cd;
+  --c-ink-soft: #b9b494;
+  --c-ink-muted: #a09b83;
+  --c-ink-faint: #888370;
+  --c-ink-ghost: #727169;
+  --c-accent: #7e9cd8;
+  --c-accent-strong: #5f80c4;
+  --c-accent-bright: #a3bce6;
+  --c-on-accent: #14192b;
+  --c-accent-wash: rgba(126, 156, 216, 0.12);
+  --c-accent-text: #a3bce6;
+  --c-focus: #7e9cd8;
+  --c-ok: #76946a;
+  --c-ok-text: #93b086;
+  --c-warn: #dca561;
+  --c-warn-text: #dca663;
+  --c-danger: #e46876;
+  --c-danger-text: #f28c98;
+  --c-glow: rgba(126, 156, 216, 0.1);
+  --c-backdrop: rgba(16, 16, 23, 0.78);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.3);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #957fb8;
+  --c-syn-str: #98bb6c;
+  --c-syn-num: #d27e99;
+  --c-syn-com: #7f7a70;
+  --c-syn-fn: #7e9cd8;
+  --c-syn-type: #e6c384;
+  --c-syn-op: #9cabca;
+}
+
+/* グルーヴボックス ダーク: Gruvbox Dark。レトロな暖色
+ * amber 系の差し色は面と分け、on-accent は暗い茶にする */
+[data-theme="gruvbox-dark"] {
+  color-scheme: dark;
+  --c-base: #1d2021;
+  --c-panel: #232323;
+  --c-raised: #282828;
+  --c-soft: #32302f;
+  --c-hover: #3c3836;
+  --c-line: #504945;
+  --c-line-strong: #665c54;
+  --c-ink: #ebdbb2;
+  --c-ink-strong: #fbf1c7;
+  --c-ink-soft: #d5c4a1;
+  --c-ink-muted: #bdae93;
+  --c-ink-faint: #a89984;
+  --c-ink-ghost: #7c6f64;
+  --c-accent: #fe8019;
+  --c-accent-strong: #e06c00;
+  --c-accent-bright: #ffa759;
+  --c-on-accent: #2b1300;
+  --c-accent-wash: rgba(254, 128, 25, 0.12);
+  --c-accent-text: #ffb070;
+  --c-focus: #fe8019;
+  --c-ok: #b8bb26;
+  --c-ok-text: #c9cf4a;
+  --c-warn: #fabd2f;
+  --c-warn-text: #fabd2f;
+  --c-danger: #fb4934;
+  --c-danger-text: #ff7b6a;
+  --c-glow: rgba(254, 128, 25, 0.1);
+  --c-backdrop: rgba(16, 16, 16, 0.78);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.32);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #fb4934;
+  --c-syn-str: #b8bb26;
+  --c-syn-num: #d3869b;
+  --c-syn-com: #928374;
+  --c-syn-fn: #fabd2f;
+  --c-syn-type: #83a598;
+  --c-syn-op: #a89984;
+}
+
+/* エバーフォレスト ダーク: Everforest。目に優しい低彩度の深緑
+ * 面が明るく ink-soft は 4.5:1 を割るため明るい側へ寄せ、accent-wash は 0.10 にする
+ * yellow は warn の 10% 面で沈むので warn-text だけ明るい側へ寄せる */
+[data-theme="everforest-dark"] {
+  color-scheme: dark;
+  --c-base: #272e33;
+  --c-panel: #2d353b;
+  --c-raised: #343f44;
+  --c-soft: #38434a;
+  --c-hover: #3d484d;
+  --c-line: #475258;
+  --c-line-strong: #4f585e;
+  --c-ink: #d3c6aa;
+  --c-ink-strong: #e8e0cf;
+  --c-ink-soft: #cec5b2;
+  --c-ink-muted: #9da9a0;
+  --c-ink-faint: #859289;
+  --c-ink-ghost: #7a8478;
+  --c-accent: #a7c080;
+  --c-accent-strong: #8aa86a;
+  --c-accent-bright: #bfd5a0;
+  --c-on-accent: #1b241a;
+  --c-accent-wash: rgba(167, 192, 128, 0.1);
+  --c-accent-text: #bfd5a0;
+  --c-focus: #a7c080;
+  --c-ok: #83c092;
+  --c-ok-text: #9dd0ab;
+  --c-warn: #dbbc7f;
+  --c-warn-text: #e2c894;
+  --c-danger: #e67e80;
+  --c-danger-text: #f0a0a1;
+  --c-glow: rgba(167, 192, 128, 0.1);
+  --c-backdrop: rgba(27, 32, 35, 0.78);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.3);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #e67e80;
+  --c-syn-str: #a7c080;
+  --c-syn-num: #d699b6;
+  --c-syn-com: #859289;
+  --c-syn-fn: #dbbc7f;
+  --c-syn-type: #7fbbb3;
+  --c-syn-op: #9da9a0;
+}
+
+/* ドラキュラ: Dracula。紫とピンクの高彩度
+ * comment / red は 11px で沈むため syn-com と danger-text は明るい側へ寄せる
+ * warn-text は warn 10% の hover 面で 4.5:1 にわずかに届かないため明るくする */
+[data-theme="dracula"] {
+  color-scheme: dark;
+  --c-base: #1e1f29;
+  --c-panel: #282a36;
+  --c-raised: #2f3140;
+  --c-soft: #343746;
+  --c-hover: #44475a;
+  --c-line: #4a4e66;
+  --c-line-strong: #5c6182;
+  --c-ink: #f8f8f2;
+  --c-ink-strong: #ffffff;
+  --c-ink-soft: #c5c8dd;
+  --c-ink-muted: #a8acc8;
+  --c-ink-faint: #8f94b5;
+  --c-ink-ghost: #6272a4;
+  --c-accent: #bd93f9;
+  --c-accent-strong: #a97cf5;
+  --c-accent-bright: #d7bdfb;
+  --c-on-accent: #1d1430;
+  --c-accent-wash: rgba(189, 147, 249, 0.12);
+  --c-accent-text: #d7bdfb;
+  --c-focus: #bd93f9;
+  --c-ok: #50fa7b;
+  --c-ok-text: #6ffa94;
+  --c-warn: #ffb86c;
+  --c-warn-text: #ffbc73;
+  --c-danger: #ff5555;
+  --c-danger-text: #ff9c9c;
+  --c-glow: rgba(189, 147, 249, 0.12);
+  --c-backdrop: rgba(15, 16, 22, 0.78);
+  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.32);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #ff79c6;
+  --c-syn-str: #f1fa8c;
+  --c-syn-num: #bd93f9;
+  --c-syn-com: #7c8bc0;
+  --c-syn-fn: #8be9fd;
+  --c-syn-type: #ffb86c;
+  --c-syn-op: #a8acc8;
+}
+
+/* カプチーノ ラテ: Catppuccin Latte。淡いパステル
+ * subtext0 (4.37) / green (2.96) / yellow (2.31) は小さい文字で 4.5:1 を割るため暗い側へ寄せる
+ * mauve はそのままだと wash 面で足りないので accent-text だけ暗くする
+ * accent-bright はユーザーの吹き出しの面 (13px の on-accent が載る) なので、白文字が 4.5:1 に届くまで暗くする */
+[data-theme="catppuccin-latte"] {
+  color-scheme: light;
+  --c-base: #eff1f5;
+  --c-panel: #f7f8fb;
+  --c-raised: #ffffff;
+  --c-soft: #f2f4f9;
+  --c-hover: #e6e9ef;
+  --c-line: #dde1ea;
+  --c-line-strong: #ccd0da;
+  --c-ink: #5c5f77;
+  --c-ink-strong: #4c4f69;
+  --c-ink-soft: #5f6278;
+  --c-ink-muted: #7c7f93;
+  --c-ink-faint: #82859a;
+  --c-ink-ghost: #9ca0b0;
+  --c-accent: #8839ef;
+  --c-accent-strong: #7526d9;
+  --c-accent-bright: #9346f0;
+  --c-on-accent: #ffffff;
+  --c-accent-wash: rgba(136, 57, 239, 0.1);
+  --c-accent-text: #7229d4;
+  --c-focus: #8839ef;
+  --c-ok: #40a02b;
+  --c-ok-text: #2a6f1c;
+  --c-warn: #df8e1d;
+  --c-warn-text: #895800;
+  --c-danger: #d20f39;
+  --c-danger-text: #b81336;
+  --c-glow: rgba(136, 57, 239, 0.09);
+  --c-backdrop: rgba(30, 30, 46, 0.42);
+  --c-shadow-panel: 0 24px 70px rgba(56, 49, 74, 0.12);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #7229d4;
+  --c-syn-str: #2f7d1f;
+  --c-syn-num: #95600a;
+  --c-syn-com: #82859a;
+  --c-syn-fn: #1557d6;
+  --c-syn-type: #c42e8d;
+  --c-syn-op: #6b6f80;
+}
+
+/* グルーヴボックス ライト: Gruvbox Light。生成り紙に濃いインク
+ * yellow / green は白背景の 11px で沈むため warn-text / ok-text を暗くする
+ * accent-bright は吹き出しの面なので、白文字が 4.5:1 に届くまで暗くする */
+[data-theme="gruvbox-light"] {
+  color-scheme: light;
+  --c-base: #f9f5d7;
+  --c-panel: #fbf1c7;
+  --c-raised: #fffbe8;
+  --c-soft: #f4eccd;
+  --c-hover: #ebdbb2;
+  --c-line: #d5c4a1;
+  --c-line-strong: #bdae93;
+  --c-ink: #3c3836;
+  --c-ink-strong: #282828;
+  --c-ink-soft: #504945;
+  --c-ink-muted: #665c54;
+  --c-ink-faint: #7c6f64;
+  --c-ink-ghost: #928374;
+  --c-accent: #af3a03;
+  --c-accent-strong: #8f2f00;
+  --c-accent-bright: #bb4f1b;
+  --c-on-accent: #fff9ef;
+  --c-accent-wash: rgba(175, 58, 3, 0.1);
+  --c-accent-text: #9c3200;
+  --c-focus: #af3a03;
+  --c-ok: #79740e;
+  --c-ok-text: #625e08;
+  --c-warn: #b57614;
+  --c-warn-text: #7e5100;
+  --c-danger: #9d0006;
+  --c-danger-text: #9d0006;
+  --c-glow: rgba(175, 58, 3, 0.1);
+  --c-backdrop: rgba(60, 56, 54, 0.42);
+  --c-shadow-panel: 0 24px 70px rgba(90, 70, 40, 0.12);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #9d0006;
+  --c-syn-str: #79740e;
+  --c-syn-num: #8f3f71;
+  --c-syn-com: #928374;
+  --c-syn-fn: #076678;
+  --c-syn-type: #b57614;
+  --c-syn-op: #7c6f64;
+}
+
+/* ローズパイン ドーン: Rosé Pine Dawn。朝もやのくすみローズ
+ * iris (4.4) / muted / gold は小さい文字で 4.5:1 を割るため暗い側へ寄せる
+ * ok は緑を持たないパレットなので foam (teal) を当てる
+ * accent / accent-bright は白い on-accent が 4.5:1 に届かないので、同じ色相のまま暗くする */
+[data-theme="rose-pine-dawn"] {
+  color-scheme: light;
+  --c-base: #faf4ed;
+  --c-panel: #fdf8f3;
+  --c-raised: #fffaf3;
+  --c-soft: #f6eee6;
+  --c-hover: #f2e9e1;
+  --c-line: #ecdcd3;
+  --c-line-strong: #dfcfc6;
+  --c-ink: #575279;
+  --c-ink-strong: #453d63;
+  --c-ink-soft: #66627b;
+  --c-ink-muted: #847f9b;
+  --c-ink-faint: #8f8aa0;
+  --c-ink-ghost: #a8a3b5;
+  --c-accent: #7f6798;
+  --c-accent-strong: #71598a;
+  --c-accent-bright: #81669f;
+  --c-on-accent: #fffaf3;
+  --c-accent-wash: rgba(127, 103, 152, 0.1);
+  --c-accent-text: #6f5a84;
+  --c-focus: #907aa9;
+  --c-ok: #56949f;
+  --c-ok-text: #376c75;
+  --c-warn: #ea9d34;
+  --c-warn-text: #8a590c;
+  --c-danger: #b4637a;
+  --c-danger-text: #a14f67;
+  --c-glow: rgba(127, 103, 152, 0.14);
+  --c-backdrop: rgba(87, 82, 121, 0.4);
+  --c-shadow-panel: 0 24px 70px rgba(122, 100, 110, 0.12);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #7a6494;
+  --c-syn-str: #3f7c86;
+  --c-syn-num: #96620e;
+  --c-syn-com: #9089a3;
+  --c-syn-fn: #286983;
+  --c-syn-type: #b4637a;
+  --c-syn-op: #847f9b;
+}
+
+/* エバーフォレスト ライト: Everforest Light。紙に草木の緑
+ * green (8da101) は 3.2:1 しかないため accent-text / focus は同じ色相のまま暗くする
+ * accent 面の文字は白ではなく暗い緑を載せる (白は 3:1 を割る) */
+[data-theme="everforest-light"] {
+  color-scheme: light;
+  --c-base: #f4f0d9;
+  --c-panel: #fdf6e3;
+  --c-raised: #fffdf5;
+  --c-soft: #f7f3e2;
+  --c-hover: #efebd4;
+  --c-line: #e0dcc7;
+  --c-line-strong: #d5cfb4;
+  --c-ink: #5c6a72;
+  --c-ink-strong: #414d53;
+  --c-ink-soft: #55636b;
+  --c-ink-muted: #6c7a82;
+  --c-ink-faint: #7d8b8c;
+  --c-ink-ghost: #a6b0a0;
+  --c-accent: #8da101;
+  --c-accent-strong: #6f8000;
+  --c-accent-bright: #a8bd20;
+  --c-on-accent: #1d2600;
+  --c-accent-wash: rgba(141, 161, 1, 0.12);
+  --c-accent-text: #5c6a00;
+  --c-focus: #6f8000;
+  --c-ok: #35a77c;
+  --c-ok-text: #1e7154;
+  --c-warn: #dfa000;
+  --c-warn-text: #845f00;
+  --c-danger: #f85552;
+  --c-danger-text: #bc2f2c;
+  --c-glow: rgba(141, 161, 1, 0.12);
+  --c-backdrop: rgba(92, 106, 114, 0.42);
+  --c-shadow-panel: 0 24px 70px rgba(80, 90, 50, 0.12);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #9b3f89;
+  --c-syn-str: #63761c;
+  --c-syn-num: #92620a;
+  --c-syn-com: #7d8b7b;
+  --c-syn-fn: #2b7093;
+  --c-syn-type: #b03a6b;
+  --c-syn-op: #6f7d74;
+}
+
+/* ワン ライト: One Light。無彩色ベースの業務向け
+ * blue (3.9) / green / yellow は小さい文字で沈むため暗い側へ寄せる
+ * accent / accent-bright は白い on-accent が 4.5:1 に届かないので暗くする */
+[data-theme="one-light"] {
+  color-scheme: light;
+  --c-base: #eaeaec;
+  --c-panel: #f7f7f8;
+  --c-raised: #ffffff;
+  --c-soft: #f2f2f4;
+  --c-hover: #e6e6e9;
+  --c-line: #dcdce0;
+  --c-line-strong: #c8c8ce;
+  --c-ink: #3f4149;
+  --c-ink-strong: #202127;
+  --c-ink-soft: #55575f;
+  --c-ink-muted: #6f7178;
+  --c-ink-faint: #8a8c93;
+  --c-ink-ghost: #a0a1a7;
+  --c-accent: #2c68ea;
+  --c-accent-strong: #2a5fd6;
+  --c-accent-bright: #2b69ea;
+  --c-on-accent: #ffffff;
+  --c-accent-wash: rgba(44, 104, 234, 0.1);
+  --c-accent-text: #2853ba;
+  --c-focus: #2f62d6;
+  --c-ok: #50a14f;
+  --c-ok-text: #376e36;
+  --c-warn: #c18401;
+  --c-warn-text: #825800;
+  --c-danger: #e45649;
+  --c-danger-text: #b9372b;
+  --c-glow: rgba(44, 104, 234, 0.09);
+  --c-backdrop: rgba(40, 42, 48, 0.42);
+  --c-shadow-panel: 0 24px 70px rgba(30, 32, 40, 0.12);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #a626a4;
+  --c-syn-str: #50a14f;
+  --c-syn-num: #986801;
+  --c-syn-com: #8b8d94;
+  --c-syn-fn: #4078f2;
+  --c-syn-type: #c2185b;
+  --c-syn-op: #6f7178;
+}
+
+/* ソラライズド ライト: Solarized Light。ベージュの紙とインク
+ * base1 (93a1a1) は ink-faint に沈むため明るさを詰め、blue / yellow は暗い側へ寄せる
+ * Solarized の段に合わせ、raised は base より暗い base2 にする
+ * accent / accent-bright は白い on-accent が 4.5:1 に届かないので暗くする */
+[data-theme="solarized-light"] {
+  color-scheme: light;
+  --c-base: #fdf6e3;
+  --c-panel: #f8f1dd;
+  --c-raised: #eee8d5;
+  --c-soft: #f4eeda;
+  --c-hover: #e6dfca;
+  --c-line: #ded8c2;
+  --c-line-strong: #cfc9b2;
+  --c-ink: #586e75;
+  --c-ink-strong: #3f5157;
+  --c-ink-soft: #4e646a;
+  --c-ink-muted: #71868c;
+  --c-ink-faint: #83959a;
+  --c-ink-ghost: #a8b3b3;
+  --c-accent: #1f76b2;
+  --c-accent-strong: #1a6aa2;
+  --c-accent-bright: #1e76ae;
+  --c-on-accent: #ffffff;
+  --c-accent-wash: rgba(31, 118, 178, 0.1);
+  --c-accent-text: #165f90;
+  --c-focus: #268bd2;
+  --c-ok: #859900;
+  --c-ok-text: #576700;
+  --c-warn: #b58900;
+  --c-warn-text: #755800;
+  --c-danger: #dc322f;
+  --c-danger-text: #b72724;
+  --c-glow: rgba(31, 118, 178, 0.09);
+  --c-backdrop: rgba(0, 43, 54, 0.4);
+  --c-shadow-panel: 0 24px 70px rgba(88, 110, 117, 0.12);
+
+  /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
+  --c-syn-key: #859900;
+  --c-syn-str: #2aa198;
+  --c-syn-num: #d33682;
+  --c-syn-com: #93a1a1;
+  --c-syn-fn: #268bd2;
+  --c-syn-type: #b58900;
+  --c-syn-op: #93a1a1;
+}
+
 /* ラン状態ドットの pulse (旧 @keyframes pulse 相当) */
 @keyframes dot-pulse {
   0%,
@@ -1791,6 +2420,62 @@
   .theme-swatch[data-theme-id="sky"] {
     background: #e9f4fb;
     box-shadow: 0 0 0 1.5px rgba(99, 198, 238, 0.9);
+  }
+  .theme-swatch[data-theme-id="catppuccin-mocha"] {
+    background: #1e1e2e;
+    box-shadow: 0 0 0 1.5px rgba(203, 166, 247, 0.75);
+  }
+  .theme-swatch[data-theme-id="catppuccin-frappe"] {
+    background: #303446;
+    box-shadow: 0 0 0 1.5px rgba(202, 158, 230, 0.75);
+  }
+  .theme-swatch[data-theme-id="nord"] {
+    background: #2e3440;
+    box-shadow: 0 0 0 1.5px rgba(136, 192, 208, 0.75);
+  }
+  .theme-swatch[data-theme-id="tokyo-night"] {
+    background: #1a1b26;
+    box-shadow: 0 0 0 1.5px rgba(122, 162, 247, 0.75);
+  }
+  .theme-swatch[data-theme-id="kanagawa"] {
+    background: #1f1f28;
+    box-shadow: 0 0 0 1.5px rgba(126, 156, 216, 0.75);
+  }
+  .theme-swatch[data-theme-id="gruvbox-dark"] {
+    background: #1d2021;
+    box-shadow: 0 0 0 1.5px rgba(254, 128, 25, 0.75);
+  }
+  .theme-swatch[data-theme-id="everforest-dark"] {
+    background: #272e33;
+    box-shadow: 0 0 0 1.5px rgba(167, 192, 128, 0.75);
+  }
+  .theme-swatch[data-theme-id="dracula"] {
+    background: #1e1f29;
+    box-shadow: 0 0 0 1.5px rgba(189, 147, 249, 0.75);
+  }
+  .theme-swatch[data-theme-id="catppuccin-latte"] {
+    background: #eff1f5;
+    box-shadow: 0 0 0 1.5px rgba(136, 57, 239, 0.65);
+  }
+  .theme-swatch[data-theme-id="gruvbox-light"] {
+    background: #f9f5d7;
+    box-shadow: 0 0 0 1.5px rgba(175, 58, 3, 0.65);
+  }
+  .theme-swatch[data-theme-id="rose-pine-dawn"] {
+    background: #faf4ed;
+    box-shadow: 0 0 0 1.5px rgba(144, 122, 169, 0.65);
+  }
+  .theme-swatch[data-theme-id="everforest-light"] {
+    background: #f4f0d9;
+    box-shadow: 0 0 0 1.5px rgba(141, 161, 1, 0.65);
+  }
+  .theme-swatch[data-theme-id="one-light"] {
+    background: #eaeaec;
+    box-shadow: 0 0 0 1.5px rgba(64, 120, 242, 0.65);
+  }
+  .theme-swatch[data-theme-id="solarized-light"] {
+    background: #fdf6e3;
+    box-shadow: 0 0 0 1.5px rgba(38, 139, 210, 0.65);
   }
 
   /* ===== Markdown 本文 (client/src/components/markdown) =====

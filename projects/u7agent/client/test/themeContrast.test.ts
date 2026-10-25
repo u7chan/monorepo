@@ -105,7 +105,28 @@ const TOKEN_SURFACES: Record<string, string[]> = {
   "danger-text": ["raised", "hover"],
 };
 
-const THEME_NAMES = ["midnight", "daylight", "mocha", "forest", "sakura", "sky"];
+const THEME_NAMES = [
+  "midnight",
+  "daylight",
+  "mocha",
+  "forest",
+  "sakura",
+  "sky",
+  "catppuccin-mocha",
+  "catppuccin-frappe",
+  "nord",
+  "tokyo-night",
+  "kanagawa",
+  "gruvbox-dark",
+  "everforest-dark",
+  "dracula",
+  "catppuccin-latte",
+  "gruvbox-light",
+  "rose-pine-dawn",
+  "everforest-light",
+  "one-light",
+  "solarized-light",
+];
 
 test("小さい文字の文字用トークンは、通常面 / hover 面 / 淡い面で 4.5:1 以上", () => {
   const themes = parseThemes(css);
@@ -123,6 +144,17 @@ test("小さい文字の文字用トークンは、通常面 / hover 面 / 淡�
         const ratio = contrast(color, surfaces[name]);
         assert.ok(ratio >= 4.5, `${theme.name}: ${token} on ${name} = ${ratio.toFixed(3)}:1 (4.5:1 以上が必要)`);
       }
+    }
+  }
+});
+
+// ユーザーの吹き出し・アバターは bg-accent-bright、送信ボタンや選択行は bg-accent に on-accent の
+// 文字を載せる。どちらの面も 13px 以下の文字が乗るため、両方を検査する (bright 側は見落としやすい)。
+test("on-accent の文字は accent / accent-bright のどちらの面でも 4.5:1 以上", () => {
+  for (const theme of parseThemes(css)) {
+    for (const surface of ["accent", "accent-bright"]) {
+      const ratio = contrast(theme.color["on-accent"], theme.color[surface]);
+      assert.ok(ratio >= 4.5, `${theme.name}: on-accent on ${surface} = ${ratio.toFixed(3)}:1 (4.5:1 以上が必要)`);
     }
   }
 });
