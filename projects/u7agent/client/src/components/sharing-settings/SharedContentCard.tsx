@@ -11,6 +11,7 @@ import {
   sharedContentPrimaryAction,
   sharedContentSourceLabel,
   SHARED_CONTENT_SESSION_DELETED_LABEL,
+  isSharedContentUndeployed,
   shareStatusView,
   type ShareStatusTone,
 } from "../../lib/sharedContents";
@@ -148,10 +149,12 @@ export function SharedContentCard({
 
   const desktopActions = sharedContentActions(item, { sessionMissing });
   const menuActions = sharedContentMenuActions(item, { sessionMissing });
-  const primary = sharedContentPrimaryAction(item);
+  const primary = sharedContentPrimaryAction(item, { sessionMissing });
+  const undeployed = isSharedContentUndeployed(item);
 
+  // 停止中も URL を見せる契約は `openUrl` (外部で開いてよい URL) と別なので、未デプロイの判定を足して消す
   const url =
-    item.publicUrl === null || item.status === "publishing" ? null : (
+    item.publicUrl === null || item.status === "publishing" || undeployed ? null : (
       <code
         className={cn(
           "block min-w-0 font-mono text-2xs break-all text-ink-soft select-all",
@@ -272,13 +275,22 @@ export function SharedContentCard({
         ) : null}
       </div>
 
-      {item.lastError === null ? null : (
+      {view.note === null ? null : (
         <p
           className={cn(
             "flex items-start gap-1.5 text-2xs break-words",
-            item.status === "failed" ? "text-danger-text" : "text-warn-text",
+            view.tone === "danger" ? "text-danger-text" : "text-warn-text",
           )}
         >
+          <span className="mt-0.5 shrink-0">
+            <WarningIcon />
+          </span>
+          <span className="min-w-0">{view.note}</span>
+        </p>
+      )}
+
+      {!undeployed || item.lastError === null ? null : (
+        <p className="flex items-start gap-1.5 text-2xs break-words text-ink-muted">
           <span className="mt-0.5 shrink-0">
             <WarningIcon />
           </span>
@@ -318,13 +330,15 @@ export function SharedContentCard({
             <button
               type="button"
               onClick={() => runAction(primary)}
+              disabled={primary.disabled === true}
+              title={primary.reason}
               className={cn("btn-quiet min-w-0 flex-1 singleColumn:min-h-11", actionToneClass(primary))}
             >
               <ActionIcon kind={primary.kind} />
               {primary.label}
             </button>
           )}
-          {item.status === "published" && item.publicUrl !== null ? (
+          {view.openUrl === null ? null : (
             <button
               type="button"
               onClick={() => onCopy(item.publicUrl ?? "", item.id)}
@@ -333,7 +347,7 @@ export function SharedContentCard({
               {copied ? <CheckIcon /> : <CopyIcon />}
               {copied ? "コピーしました" : "URL をコピー"}
             </button>
-          ) : null}
+          )}
           {menuActions.length === 0 ? null : (
             <SharedContentMenu name={item.name} actions={menuActions} onSelect={(kind) => handlers[kind]()} />
           )}

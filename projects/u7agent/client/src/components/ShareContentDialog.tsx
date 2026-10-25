@@ -10,6 +10,7 @@ import {
   SHARE_NAME_MAX_LENGTH,
   sharedContentPublishingWithSourcePath,
   sharedContentWithSourcePath,
+  isSharedContentUndeployed,
   shareStatusView,
   type ShareStatusView,
 } from "../lib/sharedContents";
@@ -335,6 +336,10 @@ function ShareListItem({ item }: { item: SharedContentResponse }) {
       {view.openUrl === null ? null : <ShareUrl url={view.openUrl} id={item.id} />}
       <ShareId id={item.id} />
       <ShareNote view={view} />
+      {/* 未デプロイの固定文言とは別に、BFF が分類した理由を表示だけに使う */}
+      {isSharedContentUndeployed(item) && item.lastError !== null ? (
+        <p className="text-1xs break-words text-ink-muted">{item.lastError}</p>
+      ) : null}
     </li>
   );
 }
@@ -371,7 +376,9 @@ function ShareStatusLine({ view }: { view: ShareStatusView }) {
 /** 失敗・結果不明の理由。BFF の固定文言をそのまま出し、生の応答は画面へ出さない */
 function ShareNote({ view }: { view: ShareStatusView }) {
   if (view.note === null) return null;
-  return <p className="text-1xs break-words text-warn">{view.note}</p>;
+  return (
+    <p className={cn("text-1xs break-words", view.tone === "danger" ? "text-danger-text" : "text-warn")}>{view.note}</p>
+  );
 }
 
 /** 公開 URL と、外部タブで開く / クリップボードへコピーの 2 操作。長い URL は折り返す */
