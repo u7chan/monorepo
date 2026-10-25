@@ -60,6 +60,12 @@ export type CodexLoginState = {
 
 export type CodexAuthState = { signedIn: boolean; login: CodexLoginState | null };
 
+export type OpenCodeAuthState = { configured: boolean; savedAt: number | null };
+
+export type OpenCodeKeyOutcome =
+  | { ok: true; state: OpenCodeAuthState }
+  | { ok: false; error: "invalid_key" | "unavailable" | "unauthorized" | "invalid_request" };
+
 export type CodexLoginOutcome = { ok: true; state: CodexAuthState } | { ok: false; error: string };
 
 /** 認証切れは画面をログインへ戻す合図。通信失敗は `null` として区別する。 */
@@ -172,6 +178,49 @@ export async function logoutCodex(): Promise<boolean> {
   return response.ok;
 }
 
+export async function fetchOpenCodeAuth(): Promise<OpenCodeAuthState | Unauthorized | null> {
+  const response = await fetch("/api/opencode/auth", { headers: { accept: "application/json" } });
+
+  if (response.status === 401) {
+    return { unauthorized: true };
+  }
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return parseOpenCodeAuth(await response.json().catch(() => null));
+}
+
+export async function saveOpenCodeKey(apiKey: string): Promise<OpenCodeKeyOutcome> {
+  const response = await fetch("/api/opencode/key", {
+    method: "PUT",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ apiKey }),
+  });
+  const body: unknown = await response.json().catch(() => null);
+
+  if (response.ok) {
+    const state = parseOpenCodeAuth(body);
+
+    return state ? { ok: true, state } : { ok: false, error: "unavailable" };
+  }
+
+  if (response.status === 401) {
+    return { ok: false, error: "unauthorized" };
+  }
+
+  const error = readString(body, "error");
+
+  return { ok: false, error: error === "invalid_key" || error === "invalid_request" ? error : "unavailable" };
+}
+
+export async function deleteOpenCodeKey(): Promise<boolean> {
+  const response = await fetch("/api/opencode/key", { method: "DELETE" });
+
+  return response.ok;
+}
+
 export function parseUsage(body: unknown): UsagePayload | null {
   const providers = readObjects(body, "providers")
     .map(parseProvider)
@@ -197,6 +246,16 @@ export function parseCodexAuth(body: unknown): CodexAuthState | null {
   const login = (body as { login?: unknown }).login;
 
   return { signedIn, login: login === null || login === undefined ? null : parseLogin(login) };
+}
+
+export function parseOpenCodeAuth(body: unknown): OpenCodeAuthState | null {
+  if (typeof body !== "object" || body === null || typeof (body as { configured?: unknown }).configured !== "boolean") {
+    return null;
+  }
+
+  const configured = (body as { configured: boolean }).configured;
+
+  return { configured, savedAt: readNumber(body, "savedAt") };
 }
 
 function parseProvider(value: unknown): ProviderUsage | null {

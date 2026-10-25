@@ -9,7 +9,7 @@ import { openDatabase, saveProviderError, saveProviderSnapshot, type DatabaseHan
 import { buildHealthReport } from "../src/server/health";
 import { parseCodexUsage } from "../src/server/providers/codex";
 import { createUsageReader, type UsagePayload } from "../src/server/usage";
-import { BASE_TIME, stubCodexApi, usageSnapshot } from "./support";
+import { BASE_TIME, stubCodexApi, stubOpenCodeApi, usageSnapshot } from "./support";
 
 const PIN = "123456";
 const ORIGIN = "http://localhost";
@@ -37,6 +37,7 @@ function harness(): Harness {
     auth,
     usage: createUsageReader({ db, sampleIntervalMs: INTERVAL, now: () => clock }),
     codex: stubCodexApi(),
+    opencode: stubOpenCodeApi(),
     health: () => buildHealthReport("ok", auth.status()),
     now: () => clock,
     clientKey: () => "test-client",

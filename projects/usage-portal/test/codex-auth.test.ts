@@ -3,7 +3,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createCodexAuth, prepareCredentialDir } from "../src/server/codex/auth";
+import { createCodexAuth } from "../src/server/codex/auth";
+import { prepareCredentialDir } from "../src/server/credential-dir";
 import { createDeviceIdStore } from "../src/server/codex/device-id";
 
 const dirs: string[] = [];
@@ -32,7 +33,7 @@ afterEach(() => {
 });
 
 describe("prepareCredentialDir", () => {
-  test("ディレクトリを 0700 で作り、既存の auth.json / device-id を 0600 に揃える", () => {
+  test("ディレクトリを 0700 で作り、既存の auth.json / device-id / opencode-key.json を 0600 に揃える", () => {
     const credentialDir = join(tempDir(), "credentials");
 
     prepareCredentialDir(credentialDir);
@@ -41,11 +42,13 @@ describe("prepareCredentialDir", () => {
 
     writeFileSync(join(credentialDir, "auth.json"), "{}", { mode: 0o644 });
     writeFileSync(join(credentialDir, "device-id"), "x", { mode: 0o644 });
+    writeFileSync(join(credentialDir, "opencode-key.json"), "{}", { mode: 0o644 });
 
     prepareCredentialDir(credentialDir);
 
     expect(mode(join(credentialDir, "auth.json"))).toBe(0o600);
     expect(mode(join(credentialDir, "device-id"))).toBe(0o600);
+    expect(mode(join(credentialDir, "opencode-key.json"))).toBe(0o600);
   });
 });
 

@@ -6,6 +6,7 @@ import type { AuthService } from "./auth";
 import type { CodexApi } from "./codex/api";
 import { CodexLoginError } from "./codex/login";
 import type { HealthReport } from "./health";
+import type { OpenCodeApi } from "./opencode/api";
 import { createRateLimiter, type RateLimiter } from "./rate-limit";
 import { clearSessionCookie, sessionCookie } from "./session";
 import type { UsagePayload } from "./usage";
@@ -32,6 +33,7 @@ export type AppDeps = {
   auth: AuthService;
   usage: () => UsagePayload;
   codex: CodexApi;
+  opencode: OpenCodeApi;
   rateLimiter?: RateLimiter;
   clientKey?: (c: Context) => string;
   now?: () => number;
@@ -220,6 +222,41 @@ export function createApp(deps: AppDeps) {
       await deps.codex.logout();
     } catch {
       return c.json({ error: "logout_failed" as const }, 503);
+    }
+
+    return c.body(null, 204);
+  });
+
+  app.get("/api/opencode/auth", requireSession, (c) => c.json(deps.opencode.auth()));
+
+  app.put("/api/opencode/key", requireSession, bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }), async (c) => {
+    const apiKey = await readStringBody(c, "apiKey");
+
+    if (apiKey === null) {
+      return c.json({ error: "invalid_request" as const }, 400);
+    }
+
+    try {
+      const result = await deps.opencode.save(apiKey);
+
+      if (result.ok) {
+        return c.json(result.state);
+      }
+
+      return result.reason === "invalid_key"
+        ? c.json({ error: "invalid_key" as const }, 400)
+        : c.json({ error: "unavailable" as const }, 503);
+    } catch {
+      // 保存に失敗した理由（ディスクなど）は外へ出さない。
+      return c.json({ error: "unavailable" as const }, 503);
+    }
+  });
+
+  app.delete("/api/opencode/key", requireSession, async (c) => {
+    try {
+      await deps.opencode.clear();
+    } catch {
+      return c.json({ error: "unavailable" as const }, 503);
     }
 
     return c.body(null, 204);

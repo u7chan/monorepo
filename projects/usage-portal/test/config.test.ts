@@ -9,21 +9,19 @@ describe("loadConfig", () => {
       port: 3000,
       dataDir: "/app/data",
       credentialDir: "/app/credentials",
-      opencodeApiKey: null,
       pollIntervalMs: 300_000,
       development: true,
       version: "0.1.0",
     });
   });
 
-  test("HOST / PORT / DATA_DIR / CREDENTIAL_DIR / OPENCODE_API_KEY を反映する", () => {
+  test("HOST / PORT / DATA_DIR / CREDENTIAL_DIR を反映する", () => {
     const config = loadConfig(
       {
         HOST: "127.0.0.1",
         PORT: "8080",
         DATA_DIR: "./data",
         CREDENTIAL_DIR: "./credentials",
-        OPENCODE_API_KEY: "  sk-test  ",
         POLL_INTERVAL_MS: "60000",
         NODE_ENV: "production",
         COMMIT_HASH: "abc123",
@@ -36,7 +34,6 @@ describe("loadConfig", () => {
       port: 8080,
       dataDir: "./data",
       credentialDir: "./credentials",
-      opencodeApiKey: "sk-test",
       pollIntervalMs: 60_000,
       development: false,
       version: "abc123",

@@ -2,11 +2,14 @@ import index from "../index.html";
 import { createApp } from "./server/app";
 import { createAuthService } from "./server/auth";
 import { createCodexApi } from "./server/codex/api";
-import { createCodexAuth, prepareCredentialDir } from "./server/codex/auth";
+import { createCodexAuth } from "./server/codex/auth";
 import { createCodexLoginService } from "./server/codex/login";
 import { loadConfig } from "./server/config";
+import { prepareCredentialDir } from "./server/credential-dir";
 import { openDatabase, verifyDatabase, type DatabaseHandle } from "./server/db";
 import { buildHealthReport } from "./server/health";
+import { createOpenCodeApi } from "./server/opencode/api";
+import { createOpenCodeAuth } from "./server/opencode/auth";
 import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "./server/providers";
 import { fetchCodexUsage } from "./server/providers/codex";
 import { fetchOpenCodeUsage } from "./server/providers/opencode-go";
@@ -49,6 +52,7 @@ try {
 }
 
 const codexAuth = createCodexAuth({ credentialDir: config.credentialDir, log });
+const openCodeAuth = createOpenCodeAuth({ credentialDir: config.credentialDir });
 const fetchers: UsageFetcher[] = [
   {
     provider: CODEX_PROVIDER,
@@ -56,16 +60,23 @@ const fetchers: UsageFetcher[] = [
   },
   {
     provider: OPENCODE_PROVIDER,
-    fetch: () => fetchOpenCodeUsage({ apiKey: config.opencodeApiKey, userAgent, now: Date.now }),
+    fetch: () => fetchOpenCodeUsage({ apiKey: openCodeAuth.apiKey(), userAgent, now: Date.now }),
   },
 ];
 const sampler = createSampler({ db: database, fetchers, intervalMs: config.pollIntervalMs, now: Date.now, log });
 const codexLogin = createCodexLoginService({ auth: codexAuth, onSuccess: () => sampler.kick(), log });
 const codex = createCodexApi({ auth: codexAuth, login: codexLogin, db: database, sampler });
+const opencode = createOpenCodeApi({
+  auth: openCodeAuth,
+  db: database,
+  sampler,
+  fetchUsage: (apiKey) => fetchOpenCodeUsage({ apiKey, userAgent, now: Date.now }),
+});
 
 const app = createApp({
   auth,
   codex,
+  opencode,
   usage: createUsageReader({ db: database, sampleIntervalMs: config.pollIntervalMs, now: Date.now }),
   health: () => buildHealthReport(verifyDatabase(database) ? "ok" : "error", auth.status()),
 });
@@ -96,7 +107,7 @@ console.log(
     : `認証の状態: ${authState}`,
 );
 console.log(`Codex: ${codexAuth.signedIn() ? "サインイン済み" : "未接続"}`);
-console.log(config.opencodeApiKey ? "OpenCode Go: API キーあり" : "OpenCode Go: API キー未設定");
+console.log(`OpenCode Go: ${openCodeAuth.state().configured ? "API キー登録済み" : "API キー未登録"}`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {

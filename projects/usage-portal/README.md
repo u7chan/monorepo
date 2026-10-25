@@ -74,11 +74,12 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `DELETE` | `/api/codex/login` | 必要 | 進行中のサインインを中断（204、冪等） |
 | `POST` | `/api/codex/logout` | 必要 | 保存済み OAuth を削除し、Codex の snapshot を消す（204） |
 
-状態を変える要求（`POST` / `DELETE`）は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。
+状態を変える要求（`POST` / `PUT` / `DELETE`）は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。
 応答はすべて `Cache-Control: no-store`。ログインの試行制限は接続元ごとに数え、同時に届いた要求も直列化して 5 回を超えて照合しない。
 
 `providers[]` は provider ごとに独立して失敗する。`state` は `loading` / `ok` / `stale` / `error`、`error.code` は
 `not_connected` / `reauth_required` / `upstream` / `schema` / `config` の固定値で、上流の本文は含まない。
+キー未登録の OpenCode Go は `not_connected` になり、画面では「未接続」と出す。
 
 ## Codex のサインイン
 
@@ -94,6 +95,19 @@ Codex の OAuth は自前実装せず、Pi SDK（`@earendil-works/pi-coding-agen
 コールバックポート（1455）は publish しない。コンテナ内の `127.0.0.1` に閉じるため、どのブラウザからでも
 デバイスコードか貼り付けで完了できるようにしてある。進行中の状態は BFF のメモリだけに置き、開始から 10 分で自動中断する。
 
+## OpenCode Go の接続
+
+OpenCode Go の API キーは `.env` ではなく画面から登録する。キーは `CREDENTIAL_DIR`（既定 `/app/credentials`）の
+`opencode-key.json` に 0600 で保存し、応答・ログ・DB には出さない。
+
+1. OpenCode Go カードの「OpenCode Go の接続」に API キーを貼り付ける
+2. 「登録する」を押す。BFF が上流の usage endpoint に 1 回問い合わせ、受け付けられたときだけ保存する
+3. 受け付けられなければ入力欄の下に理由が出る。キーは保存されない
+4. 置き換えるときは新しいキーを入れて「置き換える」、解除するときは「解除」→「解除する」
+
+未登録のときは「未接続」と表示し、5 分ごとの取得は `not_connected` を記録するだけで上流へは出ない。
+登録・解除は sampler の排他区間で行い、成功するとその場で 1 回取得してカードを更新する。
+
 ## 環境変数
 
 `bun run dev` / `bun run start` はカレントディレクトリの `.env` を自動で読む（Bun の挙動）。雛形は [.env.example](.env.example)。
@@ -103,8 +117,7 @@ Codex の OAuth は自前実装せず、Pi SDK（`@earendil-works/pi-coding-agen
 | `HOST` | `0.0.0.0` | 待ち受けアドレス |
 | `PORT` | `3000` | 待ち受けポート |
 | `DATA_DIR` | `/app/data` | SQLite と認証状態（`pin-hash` / `session-key`）の置き場。起動時に 0700 で作り、配下のファイルを 0600 にする |
-| `CREDENTIAL_DIR` | `/app/credentials` | Codex の `auth.json` と `device-id` の置き場。起動時に 0700、配下のファイルを 0600 にする |
-| `OPENCODE_API_KEY` | なし | OpenCode Go の API キー。未設定なら OpenCode Go は「取得エラー（config）」になる |
+| `CREDENTIAL_DIR` | `/app/credentials` | Codex の `auth.json` / `device-id` と OpenCode Go の `opencode-key.json` の置き場。起動時に 0700、配下のファイルを 0600 にする |
 | `POLL_INTERVAL_MS` | `300000` | 上流を取りに行く間隔。1 分未満・非整数は起動しない |
 | `COMMIT_HASH` | なし | build 時に埋め込む。`User-Agent: usage-portal/<version>` の version になる |
 
@@ -121,7 +134,6 @@ docker build --target final -t usage-portal-final ./projects/usage-portal
 docker run --rm -p 3000:3000 \
   -v "$PWD/data:/app/data" \
   -v "$PWD/credentials:/app/credentials" \
-  -e OPENCODE_API_KEY \
   usage-portal-final
 ```
 
@@ -129,7 +141,7 @@ docker run --rm -p 3000:3000 \
 マウントするときは所有者を合わせる（`install -d -m 700 -o 1000 -g 1000` 相当）。
 
 - `data/` には `usage.sqlite`、`session-key`、初回セットアップ後の `pin-hash` が入る。消すと PIN と履歴が初期化される
-- `credentials/` には Codex の `auth.json`（refresh token と account id）と `device-id` が入る。**バックアップやログに出さない**
+- `credentials/` には Codex の `auth.json`（refresh token と account id）、`device-id`、OpenCode Go の `opencode-key.json` が入る。**バックアップやログに出さない**
 
 ## ディレクトリ構成
 
@@ -142,7 +154,7 @@ src/server/auth-store.ts      pin-hash / session-key の読み書きと権限
 src/server/pin.ts             PIN の形式と Argon2id
 src/server/session.ts         署名付き cookie の形式と検証
 src/server/rate-limit.ts      ログイン試行の制限
-src/server/config.ts          HOST / PORT / DATA_DIR / CREDENTIAL_DIR / OPENCODE_API_KEY / POLL_INTERVAL_MS
+src/server/config.ts          HOST / PORT / DATA_DIR / CREDENTIAL_DIR / POLL_INTERVAL_MS
 src/server/db.ts              SQLite の open / migration / snapshot・error・sample の読み書き
 src/server/sampler.ts         5 分ごとの取得（single-flight）と 30 日保持
 src/server/usage.ts           /api/usage の応答（state と trend）の組み立て
@@ -152,6 +164,7 @@ src/server/health.ts          /api/health の応答
 src/server/version.ts         version と User-Agent の組み立て
 src/server/providers/         Codex / OpenCode Go の adapter と正規化モデル
 src/server/codex/             Pi SDK の資格情報、SiWC の状態機械、/api/codex/*
+src/server/opencode/          OpenCode Go の API キーの保存と /api/opencode/*
 src/client/main.tsx           Preact の描画入口
 src/client/App.tsx            セッション・利用枠・サインインのポーリングと画面の切り替え
 src/client/api.ts             API の呼び出しと応答の解釈
@@ -179,11 +192,11 @@ bun run check
 ## セキュリティの前提
 
 - 自宅 LAN または VPN の内側からだけ使う。インターネットへ公開しない。v1 は HTTP のままで、TLS 終端は置かない
-- 画面は読み取り専用で、利用枠を変更する操作を持たない
+- 画面は利用枠を変更しない。資格情報（Codex のサインイン、OpenCode Go のキー）の登録・解除だけを行う
 - 認証情報と DB の中身は API から返さない。`/api/health` は状態だけを返し、利用枠や利用者情報を含めない
 - SQLite と認証状態は `DATA_DIR`（0700）に置き、ファイルを 0600 にし、プロセスの先頭で `umask 077` を設定する
 - Codex の token・account id・email、OpenCode の API key は応答・ログ・DB に残さない。上流の応答本文も保存しない
-- `/app/credentials` は 0700、`auth.json` / `device-id` は 0600。ホストの Pi 資格情報とは共有しない
+- `/app/credentials` は 0700、`auth.json` / `device-id` / `opencode-key.json` は 0600。ホストの Pi 資格情報とは共有しない
 - PIN、PIN ハッシュ、セッション鍵、cookie、API key、token をログに出さない
 - セッション cookie は `HttpOnly; SameSite=Lax`。v1 は HTTP で LAN 内にだけ出すため `Secure` は付けない
 - 6 桁 PIN は総当たり耐性が低い。Argon2id とログイン試行の制限で補い、インターネット公開には使わない
@@ -198,3 +211,4 @@ bun run check
 - [docs/adr/0003-pin-storage-and-session-key.md](docs/adr/0003-pin-storage-and-session-key.md) — PIN とセッション鍵の保存
 - [docs/adr/0004-usage-sampling-and-storage.md](docs/adr/0004-usage-sampling-and-storage.md) — 利用枠の取得と保存
 - [docs/adr/0005-codex-credentials-and-sign-in.md](docs/adr/0005-codex-credentials-and-sign-in.md) — Codex の資格情報とサインイン
+- [docs/adr/0006-opencode-api-key-registration.md](docs/adr/0006-opencode-api-key-registration.md) — OpenCode Go の API キーの画面登録

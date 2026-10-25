@@ -1,6 +1,6 @@
 // OpenCode Go の応答を 3 窓へ正規化し、欠損を 0% と誤表示しないことを固定する。
 import { describe, expect, test } from "bun:test";
-import { parseOpenCodeUsage } from "../src/server/providers/opencode-go";
+import { fetchOpenCodeUsage, parseOpenCodeUsage } from "../src/server/providers/opencode-go";
 import { ProviderError } from "../src/server/providers/types";
 
 const CAPTURED = 1_800_000_000_000;
@@ -105,5 +105,18 @@ describe("parseOpenCodeUsage", () => {
     );
 
     expect(JSON.stringify(snapshot)).not.toContain("sentinel");
+  });
+});
+
+describe("fetchOpenCodeUsage", () => {
+  test("キー未登録は上流へ出ず not_connected になる", async () => {
+    const error: unknown = await fetchOpenCodeUsage({
+      apiKey: null,
+      userAgent: "usage-portal/test",
+      now: () => CAPTURED,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as ProviderError).code).toBe("not_connected");
   });
 });

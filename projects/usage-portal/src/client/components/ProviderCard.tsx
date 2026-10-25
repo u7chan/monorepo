@@ -1,7 +1,8 @@
-import type { CodexAuthState, ProviderUsage } from "../api";
+import type { CodexAuthState, OpenCodeAuthState, ProviderUsage } from "../api";
 import { formatClock } from "../lib/format";
 import { deriveProviderStatus, showsWindows } from "../lib/status";
 import { CodexAuthPanel, type CodexActions } from "./CodexAuthPanel";
+import { OpenCodeAuthPanel, type OpenCodeActions } from "./OpenCodeAuthPanel";
 import { StatusLabel } from "./StatusLabel";
 import { TrendChart } from "./Trend";
 import { UsageMeter } from "./UsageMeter";
@@ -10,6 +11,7 @@ export function ProviderCard(props: {
   provider: ProviderUsage;
   now: number;
   codex?: { auth: CodexAuthState | null; actions: CodexActions };
+  opencode?: { auth: OpenCodeAuthState | null; actions: OpenCodeActions };
 }) {
   const { provider } = props;
   const status = deriveProviderStatus({
@@ -84,6 +86,8 @@ export function ProviderCard(props: {
           needsSignIn={provider.error?.code === "not_connected" || provider.error?.code === "reauth_required"}
         />
       ) : null}
+
+      {props.opencode ? <OpenCodeAuthPanel auth={props.opencode.auth} actions={props.opencode.actions} /> : null}
     </article>
   );
 }

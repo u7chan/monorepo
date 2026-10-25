@@ -36,8 +36,13 @@ describe("deriveProviderStatus", () => {
     expect(status({ state: "error", usedPercents: [] }).symbol).toBe("■");
   });
 
-  test("Codex の未接続と再サインインは state より先に見る", () => {
+  test("未接続は provider を問わず state より先に見る", () => {
     expect(status({ state: "error", errorCode: "not_connected", usedPercents: [] })).toEqual({
+      label: "未接続",
+      tone: "neutral",
+      symbol: "○",
+    });
+    expect(status({ id: "opencode-go", state: "error", errorCode: "not_connected", usedPercents: [] })).toEqual({
       label: "未接続",
       tone: "neutral",
       symbol: "○",

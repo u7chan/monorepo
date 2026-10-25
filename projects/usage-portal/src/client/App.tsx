@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import {
   type CodexAuthState,
+  type OpenCodeAuthState,
   type ProviderId,
   type ProviderUsage,
   type UsagePayload,
   cancelCodexLogin,
+  deleteOpenCodeKey,
   fetchCodexAuth,
+  fetchOpenCodeAuth,
   fetchSession,
   fetchUsage,
   logout,
   logoutCodex,
   respondCodexLogin,
+  saveOpenCodeKey,
   startCodexLogin,
 } from "./api";
 import { LoginScreen } from "./components/LoginScreen";
@@ -117,6 +121,7 @@ function Dashboard(props: {
 }) {
   const [usage, setUsage] = useState<UsagePayload | null>(null);
   const [codex, setCodex] = useState<CodexAuthState | null>(null);
+  const [opencode, setOpenCode] = useState<OpenCodeAuthState | null>(null);
   const [clock, setClock] = useState(() => Date.now());
 
   // 「あと N 日」と期限バナーを操作なしでも進める。
@@ -167,6 +172,24 @@ function Dashboard(props: {
   useEffect(() => {
     void loadCodex();
   }, [loadCodex]);
+
+  const loadOpenCode = useCallback(async () => {
+    const result = await fetchOpenCodeAuth();
+
+    if (result && "unauthorized" in result) {
+      onUnauthorized();
+
+      return;
+    }
+
+    if (result) {
+      setOpenCode(result);
+    }
+  }, [onUnauthorized]);
+
+  useEffect(() => {
+    void loadOpenCode();
+  }, [loadOpenCode]);
 
   const loginStatus = codex?.login?.status ?? null;
 
@@ -224,6 +247,34 @@ function Dashboard(props: {
     return ok;
   }, [loadCodex, loadUsage]);
 
+  const saveOpenCode = useCallback(
+    async (apiKey: string): Promise<string | null> => {
+      const outcome = await saveOpenCodeKey(apiKey);
+
+      if (!outcome.ok) {
+        if (outcome.error === "unauthorized") {
+          onUnauthorized();
+        }
+
+        return outcome.error;
+      }
+
+      setOpenCode(outcome.state);
+      await loadUsage();
+
+      return null;
+    },
+    [loadUsage, onUnauthorized],
+  );
+
+  const clearOpenCode = useCallback(async (): Promise<boolean> => {
+    const ok = await deleteOpenCodeKey();
+
+    await Promise.all([loadOpenCode(), loadUsage()]);
+
+    return ok;
+  }, [loadOpenCode, loadUsage]);
+
   const expiry = expiryNotice(props.expiresAt, clock);
   const providers = usage?.providers ?? placeholders();
   const codexActions = {
@@ -232,6 +283,7 @@ function Dashboard(props: {
     onCancel: cancelCodex,
     onLogout: signOutCodex,
   };
+  const openCodeActions = { onSave: saveOpenCode, onClear: clearOpenCode };
 
   return (
     <>
@@ -264,6 +316,7 @@ function Dashboard(props: {
             provider={provider}
             now={clock}
             codex={provider.id === "codex" ? { auth: codex, actions: codexActions } : undefined}
+            opencode={provider.id === "opencode-go" ? { auth: opencode, actions: openCodeActions } : undefined}
           />
         ))}
       </div>

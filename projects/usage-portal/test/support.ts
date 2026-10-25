@@ -1,4 +1,5 @@
 import type { CodexApi } from "../src/server/codex/api";
+import type { OpenCodeApi } from "../src/server/opencode/api";
 import type { ProviderSnapshot } from "../src/server/providers/types";
 import type { UsagePayload } from "../src/server/usage";
 
@@ -12,6 +13,15 @@ export function stubCodexApi(overrides: Partial<CodexApi> = {}): CodexApi {
     respond: () => {},
     cancelLogin: () => {},
     logout: async () => {},
+    ...overrides,
+  };
+}
+
+export function stubOpenCodeApi(overrides: Partial<OpenCodeApi> = {}): OpenCodeApi {
+  return {
+    auth: () => ({ configured: false, savedAt: null }),
+    save: async () => ({ ok: true, state: { configured: true, savedAt: 1_800_000_000_000 } }),
+    clear: async () => {},
     ...overrides,
   };
 }
