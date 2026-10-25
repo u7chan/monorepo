@@ -3,9 +3,12 @@ import { useSharedContents, type SharePreviewState, type SharedContentsControlle
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { cn } from "../lib/cn";
 import {
+  SHARE_CLOSE_HINT,
   SHARE_CONFIRM_NOTES,
   SHARE_DUPLICATE_NOTE,
+  SHARE_DUPLICATE_PUBLISHING_NOTE,
   SHARE_NAME_MAX_LENGTH,
+  sharedContentPublishingWithSourcePath,
   sharedContentWithSourcePath,
   shareStatusView,
   type ShareStatusView,
@@ -62,7 +65,10 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
   const listed = share.activeId === null ? share.items : share.items.filter((item) => item.id !== share.activeId);
   // 受付した後は同じディレクトリをもう一度公開しない (Worker の枠と URL を無駄に増やさない)
   const started = share.activeId !== null || share.submitting;
-  const busy = share.submitting || active?.status === "publishing";
+  // 受付直後は一覧に active がまだ現れない (一覧の GET が遅延・失敗する)。その間も公開中として扱う
+  // (公開が終わったと確認できるまで、閉じても続く案内を消さない)
+  const busy =
+    share.submitting || (share.activeId !== null && (active === undefined || active.status === "publishing"));
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -81,16 +87,18 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
     cancelRef.current?.focus();
   }, []);
 
+  // 同じ公開元の共有物があれば、押す前に「更新は管理一覧から」と示す (公開済みの重複は作れる)。
+  // 公開中だけは、閉じて開き直して `started` が失われても再送させない (Worker と URL を二重に作らない)
+  const sourcePath = share.preview.status === "ready" ? share.preview.preview.sourcePath : null;
+  const duplicate = sharedContentWithSourcePath(sourcePath, share.items);
+  // 一覧の先頭は同じ公開元の別の共有物かもしれないので、「いずれかが公開中」で判定する
+  const publishing = sharedContentPublishingWithSourcePath(sourcePath, share.items);
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busy || started) return;
+    if (busy || started || publishing) return;
     void share.share(target.directory, name);
   };
-  // 同じ公開元の共有物があれば、押す前に「更新は管理一覧から」と示す (重複は作れるので拒否はしない)
-  const duplicate = sharedContentWithSourcePath(
-    share.preview.status === "ready" ? share.preview.preview.sourcePath : null,
-    share.items,
-  );
 
   return (
     <dialog
@@ -157,7 +165,11 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
                 {/* URL は共有物の id から作る script 名で決まり、表示名では変わらない */}
                 <span className="text-1xs text-ink-muted">表示名です。公開 URL は変わりません</span>
               </label>
-              {duplicate === undefined ? null : <p className="break-words text-warn">{SHARE_DUPLICATE_NOTE}</p>}
+              {duplicate === undefined ? null : (
+                <p className="break-words text-warn">
+                  {publishing ? SHARE_DUPLICATE_PUBLISHING_NOTE : SHARE_DUPLICATE_NOTE}
+                </p>
+              )}
               <SharePreview state={share.preview} />
               <ul className="grid gap-1.5">
                 {SHARE_CONFIRM_NOTES.map((note) => (
@@ -179,6 +191,9 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
           )}
 
           {started ? <ShareOutcome active={active} submitting={share.submitting} /> : null}
+
+          {/* 閉じると受付済みの表示は失われるが、公開はサーバー側で続く。閉じるは塞がない */}
+          {busy ? <p className="text-1xs break-words text-ink-muted">{SHARE_CLOSE_HINT}</p> : null}
 
           {/* 受付した 1 件は上の結果に出す。他に何も無いときは空の見出しを残さない */}
           {listed.length === 0 && active !== undefined && !share.failed ? null : (
@@ -212,7 +227,7 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
             <button ref={cancelRef} type="button" className="btn-quiet singleColumn:min-h-11" onClick={onClose}>
               キャンセル
             </button>
-            <button type="submit" className="btn-primary singleColumn:min-h-11" disabled={busy}>
+            <button type="submit" className="btn-primary singleColumn:min-h-11" disabled={busy || publishing}>
               <ShareIcon />
               共有する
             </button>

@@ -6,13 +6,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { SharedContentsController } from "../src/hooks/useSharedContents";
 import {
+  SHARE_CLOSE_HINT,
   SHARE_CONFIRM_NOTES,
   SHARE_DUPLICATE_NOTE,
+  SHARE_DUPLICATE_PUBLISHING_NOTE,
   SHARE_NAME_MAX_LENGTH,
   sharedContentCreateBody,
   sharedContentWithSourcePath,
 } from "../src/lib/sharedContents";
-import type { SharedContentResponse } from "../src/types";
+import type { SharedContentPreviewResponse, SharedContentResponse } from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { ShareContentDialogView } = await import("../src/components/ShareContentDialog");
@@ -48,6 +50,25 @@ function controller(overrides: Partial<SharedContentsController> = {}): SharedCo
     share: async () => {},
     reload: async () => {},
     ...overrides,
+  };
+}
+
+function readyPreview(sourcePath: string): SharedContentPreviewResponse {
+  return {
+    sourcePath,
+    entries: 2,
+    bytes: 20,
+    files: [{ name: "index.html", size: 20 }],
+    truncated: false,
+    links: [],
+    linksTruncated: false,
+    oversizeFiles: [],
+    oversizeTruncated: false,
+    hasIndexHtml: true,
+    skipped: [],
+    excludeNames: [],
+    limited: false,
+    problems: [],
   };
 }
 
@@ -118,30 +139,13 @@ test("同じ公開元の共有物があれば「共有済み（更新は 設定 
   const html = render(
     controller({
       items: [published],
-      preview: {
-        status: "ready",
-        preview: {
-          sourcePath: "projects/app/dist",
-          entries: 2,
-          bytes: 20,
-          files: [{ name: "index.html", size: 20 }],
-          truncated: false,
-          links: [],
-          linksTruncated: false,
-          oversizeFiles: [],
-          oversizeTruncated: false,
-          hasIndexHtml: true,
-          skipped: [],
-          excludeNames: [],
-          limited: false,
-          problems: [],
-        },
-      },
+      preview: { status: "ready", preview: readyPreview("projects/app/dist") },
     }),
   );
   assert.ok(html.includes(SHARE_DUPLICATE_NOTE));
   // 情報提供だけで、共有する操作は残す (サーバーは拒否しない)
   assert.ok(actionTag(html, "共有する"));
+  assert.equal(actionTag(html, "共有する").includes("disabled"), false);
   assert.equal(sharedContentWithSourcePath(null, [published]), undefined, "プレビュー失敗中は判定しない");
   assert.equal(sharedContentWithSourcePath("projects/app/dist", [published])?.id, published.id);
   assert.equal(sharedContentWithSourcePath("projects/app/site", [published]), undefined);
@@ -152,22 +156,64 @@ test("同じ公開元の共有物があれば「共有済み（更新は 設定 
   assert.equal(failed.includes(SHARE_DUPLICATE_NOTE), false);
 });
 
+test("再オープン: 同じ公開元が公開中の間は共有するを押せず、公開中であることを示す", () => {
+  // 公開中に閉じると `activeId` は失われるが、ジョブは続いている。同じディレクトリをもう一度公開しない
+  const html = render(
+    controller({ items: [item()], preview: { status: "ready", preview: readyPreview("projects/app/dist") } }),
+  );
+  assert.ok(html.includes(SHARE_DUPLICATE_PUBLISHING_NOTE));
+  assert.equal(html.includes(SHARE_DUPLICATE_NOTE), false, "公開中は「更新は管理一覧から」と書かない");
+  assert.ok(actionTag(html, "共有する").includes("disabled"));
+  // 同じ公開元が複数あるときも、一覧の先頭が公開済みなら通さない (一覧は作成日時降順)
+  const mixed = render(
+    controller({
+      items: [item({ id: "new", status: "published", createdAt: 2 }), item({ id: "old", createdAt: 1 })],
+      preview: { status: "ready", preview: readyPreview("projects/app/dist") },
+    }),
+  );
+  assert.ok(mixed.includes(SHARE_DUPLICATE_PUBLISHING_NOTE));
+  assert.ok(actionTag(mixed, "共有する").includes("disabled"));
+  // 別のディレクトリなら公開できる
+  const other = render(
+    controller({ items: [item()], preview: { status: "ready", preview: readyPreview("projects/app/site") } }),
+  );
+  assert.equal(actionTag(other, "共有する").includes("disabled"), false);
+});
+
+test("受付直後: 一覧に active がまだ無い間も、閉じても公開が続く案内を出す", () => {
+  // 202 の後、一覧の GET が遅延・失敗して items に active が無くても、公開が終わったと決めつけない
+  const html = render(controller({ activeId: "abc123" }));
+  assert.ok(html.includes(SHARE_CLOSE_HINT));
+});
+
+// 閉じるは塞がない (公開はサーバー側で続く)。ただし閉じたことでキャンセルされたと誤解させない
 test("受付中: 共有するを押せず、公開を受け付けたことを知らせる", () => {
   const html = render(controller({ submitting: true }));
   assert.match(html, /公開を受け付けています/);
+  assert.ok(html.includes(SHARE_CLOSE_HINT));
+  assert.equal(actionTag(html, "閉じる").includes("disabled"), false);
   // 受付中は確定のボタンごと出さない (二重送信の経路を作らない)
   assert.equal(html.includes(">共有する<"), false);
-  assert.ok(actionTag(html, "閉じる"));
   // 受付した後は確認の条件を出さない (同じディレクトリを二重に公開しない)
   assert.equal(html.includes(SHARE_CONFIRM_NOTES[0]), false);
 });
 
-test("公開中: 状態だけを出し、開く / コピーはまだ出さない", () => {
+test("公開中: 状態だけを出し、開く / コピーはまだ出さず、閉じても公開が続くことを示す", () => {
   const html = render(controller({ items: [item()], activeId: "abc123" }));
   assert.match(html, /公開中/);
   assert.ok(html.includes("共有 ID: "));
+  assert.ok(html.includes(SHARE_CLOSE_HINT));
+  assert.equal(actionTag(html, "閉じる").includes("disabled"), false);
   assert.equal(html.includes("URL をコピー"), false);
   assert.equal(html.includes(">開く<"), false);
+});
+
+test("完了・失敗: 閉じても公開が続く案内は出さない", () => {
+  const finished = [item({ status: "published" }), item({ status: "failed", publicUrl: null, lastError: "失敗" })];
+  for (const active of finished) {
+    const html = render(controller({ items: [active], activeId: "abc123" }));
+    assert.equal(html.includes(SHARE_CLOSE_HINT), false);
+  }
 });
 
 test("完了: URL と共有 ID と 開く / URL をコピー を結果に出す", () => {
