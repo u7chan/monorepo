@@ -58,9 +58,8 @@ export const SHARED_CONTENT_BUSY = "公開処理中です。完了してから�
 export const SHARED_CONTENT_NOT_UPDATABLE = "この状態からは公開できません";
 export const SHARED_CONTENT_NOT_STOPPABLE = "この状態からは停止できません";
 export const SHARED_CONTENT_NOT_RESUMABLE = "停止中の共有物だけを再公開できます";
-/** 公開実績が無い行は stopped にしない。再公開は subdomain を有効にするだけで deployment を伴わないため */
+/** 再公開は subdomain を有効にするだけで deployment を伴わないため、公開実績を代理指標にする */
 export const SHARED_CONTENT_RESUME_UNPUBLISHED = "公開の実績がないため再公開できません。更新で公開し直してください";
-/** 未公開の行を停止したときの終端。停止ではなく failed として記録する */
 export const SHARED_CONTENT_STOP_UNPUBLISHED = "公開の実績がないため失敗として記録しました。更新で公開し直してください";
 export const SHARED_CONTENT_DELETE_ERROR = "Cloudflare の公開物を削除できませんでした。時間をおいて再試行してください";
 /** 結果不明のまま放置された行。削除の前に停止で状態を確定させる */
@@ -300,7 +299,6 @@ export class SharedContentsService {
     return this.#mutate(id, async () => {
       const row = this.#requireRow(id);
       if (row.status === "publishing") throw httpError(409, SHARED_CONTENT_BUSY);
-      // 停止中からの更新は成果物を送り直す。`publishAssets` が最後に subdomain を有効へ戻す
       if (row.status !== "published" && row.status !== "failed" && row.status !== "stopped") {
         throw httpError(409, SHARED_CONTENT_NOT_UPDATABLE);
       }
@@ -310,7 +308,7 @@ export class SharedContentsService {
       await this.#requireSource(row.sourcePath);
       this.#requireRowCredential(row);
 
-      // 停止中からの更新は stoppedAt を進めない。公開の成功時だけ #run が null にする
+      // 受付で stoppedAt を消すと、更新が確定失敗したときに停止した事実まで失う
       this.#persistState(row, "publishing", null, { publishedAt: row.publishedAt, stoppedAt: row.stoppedAt });
       this.#start(
         row,
@@ -430,10 +428,7 @@ export class SharedContentsService {
     }
   }
 
-  /**
-   * 停止の終端。`publishedAt` の有無だけで決め、呼び出し側に規則を分けて持たせない。
-   * 公開実績が無い行を stopped にすると、subdomain を有効にするだけの再公開で `publishedAt: null` のまま公開中に戻る。
-   */
+  // 公開実績の無い行を stopped にすると、subdomain を有効にするだけの再公開で `publishedAt: null` のまま公開中に戻る
   #settleStop(row: SharedContentRow, lastError: string | null): SharedContentStopResponse["status"] {
     if (row.publishedAt === null) {
       this.#persistState(row, "failed", lastError ?? SHARED_CONTENT_STOP_UNPUBLISHED, {
@@ -708,7 +703,12 @@ export class SharedContentsService {
       });
       throw httpError(502, SHARED_CONTENT_RECONCILE_FAILED);
     }
-    this.#persistState(row, startStatus, message, { publishedAt: row.publishedAt, stoppedAt: row.stoppedAt });
+    if (startStatus === "published" && row.publishedAt === null) {
+      // 停止できていない未公開の行を published に戻すと、deployment の無い URL が公開済みとして残る
+      this.#settleStop(row, message);
+    } else {
+      this.#persistState(row, startStatus, message, { publishedAt: row.publishedAt, stoppedAt: row.stoppedAt });
+    }
     throw httpError(502, message);
   }
 

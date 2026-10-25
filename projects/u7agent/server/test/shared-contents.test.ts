@@ -1430,6 +1430,60 @@ test("公開実績の無い stopped 行は再公開できず、固定文言の 4
   }
 });
 
+// What: 未公開の published 行を停止し、provider が確定失敗 / 結果不明（subdomain 有効）でも、
+// 停止操作のあとに published / stopped（publishedAt: null）を保存し直さないこと。
+test("未公開の published 行の停止が失敗しても、不整合な published を保存し直さない", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const invalid = setup({
+    zip,
+    cloudflare: {
+      setScriptSubdomain: async () => {
+        throw new CloudflareApiError("invalid");
+      },
+    },
+  });
+  try {
+    invalid.store.insertSharedContent(rowOf("legacy", { status: "published", publishedAt: null, stoppedAt: null }));
+    await assert.rejects(
+      () => invalid.service.stop("legacy"),
+      (error: any) => error.statusCode === 502,
+    );
+    const row = invalid.store.getSharedContent("legacy");
+    assert.equal(row?.status, "failed", "公開実績の無い行を published に戻さない");
+    assert.equal(row?.publishedAt, null);
+    assert.equal(row?.stoppedAt, null);
+    assert.ok(row?.lastError);
+  } finally {
+    zip.cleanup();
+  }
+
+  // timeout のあと subdomain が有効と照会できた場合（停止できていないので開始状態へ戻す）
+  const unknownZip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const unknown = setup({
+    zip: unknownZip,
+    cloudflare: {
+      setScriptSubdomain: async () => {
+        throw new CloudflareApiError("timeout");
+      },
+      getScriptSubdomain: async () => ({ enabled: true, previewsEnabled: false }),
+    },
+  });
+  try {
+    unknown.store.insertSharedContent(rowOf("legacy", { status: "published", publishedAt: null, stoppedAt: null }));
+    await assert.rejects(
+      () => unknown.service.stop("legacy"),
+      (error: any) => error.statusCode === 502,
+    );
+    const row = unknown.store.getSharedContent("legacy");
+    assert.equal(row?.status, "failed", "有効と照会できても未公開の行を published にしない");
+    assert.equal(row?.publishedAt, null);
+    assert.equal(row?.stoppedAt, null);
+    assert.ok(row?.lastError);
+  } finally {
+    unknownZip.cleanup();
+  }
+});
+
 test("停止中からの更新は 202 で受け付き、成功すると published + 新しい publishedAt にする", async () => {
   const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
   const { service, store, cloudflare } = setup({ zip });
