@@ -746,6 +746,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/api/shared-contents` | 一覧（`?sessionId=` でその会話の共有物だけに絞れる） |
+| GET | `/api/shared-contents/preview` | 公開前のプレビュー（`?sessionId=&directory=`）。補助で、確定は公開ジョブ |
 | POST | `/api/shared-contents` | 作成して公開を開始（202） |
 | GET | `/api/shared-contents/:id` | 詳細と状態 |
 | POST | `/api/shared-contents/:id/publish` | 更新（同じ URL へ再公開、202）。`failed` からの再試行も同じ |
@@ -765,6 +766,15 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 一覧・詳細は `{ id, sessionId, name, sourcePath, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`remoteId` / `providerAccount` は返さない。`status` の値は `SharedContentStatus`（`server/src/app-db.ts`）と schema を正とし、`lastError` は分類済みの固定文言だけを入れる。
 
 - `directory` はセッションの作業ディレクトリ相対。root 自身・絶対パス・`..` は 400。
+
+プレビュー（`GET /api/shared-contents/preview`）は、公開と同じ対象解決と sandbox の計画（`GET /v1/files/download/plan`）を使い、公開したときに上がるものを先に見せる。応答は `{ sourcePath, entries, bytes, files, truncated, links, linksTruncated, oversizeFiles, oversizeTruncated, hasIndexHtml, skipped, excludeNames, limited, problems }`。
+
+- 件数はディレクトリも数える。`files` / `links` / `oversizeFiles` は先頭だけを返し、それぞれ打ち切りの印を持つ。`links` は symlink / 特殊ファイルで、公開されない
+- `excludeNames` は実効の除外名で、Phase 1 は共有の除外設定がまだ無いため空。公開も同じ空（明示 `exclude=`）で取得する
+- 合計サイズ・件数の上限超過（413）は `limited: true` にし、`entries` / `bytes` / `hasIndexHtml` は `null`、一覧は空、`problems` は上限超過の 1 件だけにする（走査が終わっていないので `index.html` の不在は判定しない）
+- `limited: false` のときだけ `index.html` 不在と 1 ファイル 25 MiB 超を `problems` に入れる。問題なしと言い切らない（秘密値の検査は ZIP を読むまでできない）
+- パス不正は 400、セッションなしは 404、`directory` がファイルなら 409、サンドボックス未設定は 503。Cloudflare の資格情報は使わない（接続未登録でも見られる）
+- `GET /api/shared-contents/:id` と衝突しないよう、専用のルートを先に登録する
 - 一覧は `sessionId` クエリで絞れる（共有ダイアログの「この会話の共有物」）。省略時は全件、空文字は指定なしとして扱う。
 - ソースは sandbox の `GET /v1/files/download?path=<dir>&exclude=`（明示空）で全量 ZIP を取得し、`index.html` の存在、10,000 entries / 100 MiB / 1 ファイル 25 MiB、パス・symlink、既知の秘密値を検証する。違反は部分公開せず `failed`（更新なら前回の状態 + `lastError`）。
 - 資格情報が未登録なら 409。保存済みの `providerAccount` が現在の接続と違う場合も 409。

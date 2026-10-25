@@ -845,6 +845,45 @@ test("downloadEntry / checkDownload は exclude を繰り返しで送り、空�
   assert.equal(check.calls[1].url, "http://sandbox.test/v1/files/download/check?path=src&exclude=");
 });
 
+test("planDownload は maxFileBytes を省略時に送らず、応答をそのまま返す", async () => {
+  const payload = {
+    kind: "archive",
+    name: "src.zip",
+    entries: 1,
+    bytes: 3,
+    files: [{ name: "a.txt", size: 3 }],
+    truncated: false,
+    links: [],
+    linksTruncated: false,
+    oversizeFiles: [],
+    oversizeTruncated: false,
+    hasIndexHtml: false,
+    skipped: [],
+  };
+  const { calls, impl } = stubFetch(
+    () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } }),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: impl });
+  assert.deepEqual(await client.planDownload("src", []), payload);
+  assert.equal(calls[0].url, "http://sandbox.test/v1/files/download/plan?path=src&exclude=");
+  await client.planDownload("src", ["dist", "node_modules"], 25 * 1024 * 1024);
+  assert.equal(
+    calls[1].url,
+    "http://sandbox.test/v1/files/download/plan?path=src&exclude=dist&exclude=node_modules&maxFileBytes=26214400",
+  );
+
+  // 413 は download / check と同じく status を保って透過する (プレビュー側が limited に写す)
+  const tooLarge = stubFetch(
+    () => new Response(JSON.stringify({ error: "Download is too large (max 10 bytes)" }), { status: 413 }),
+  );
+  const failing = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: tooLarge.impl });
+  await assert.rejects(failing.planDownload("src", []), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 413);
+    return true;
+  });
+});
+
 // 待受プロセスの観測は serve の所有者照合の唯一の入力なので、query の組み立てと応答の写像を固定する
 // (サンドボックス側の受け取りは sandbox-process-scan.test.ts が見る)。
 test("scanListeners は port と scan を query で送り、応答をそのまま写す", async () => {

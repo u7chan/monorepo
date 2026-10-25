@@ -431,6 +431,41 @@ export interface SandboxFilePreview {
   text: string;
 }
 
+/** 計画の一覧に載せる 1 ファイル。ディレクトリは件数だけを数え、ここには入れない */
+export interface SandboxDownloadPlanFile {
+  /** ZIP 内のパス (ディレクトリの前置きを含む) */
+  name: string;
+  size: number;
+}
+
+/**
+ * GET /v1/files/download/plan の応答。check と同じ走査に、公開前プレビューが使う一覧を足したもの。
+ * `files` / `links` / `oversizeFiles` は上限で打ち切り、全体の `entries` / `bytes` は常に走査した値。
+ */
+export interface SandboxDownloadPlan {
+  /** file = 単体ファイルの生配信、archive = ディレクトリの ZIP */
+  kind: "file" | "archive";
+  /** 保存名。ファイルはその名前、ZIP は `<フォルダ名>.zip` */
+  name: string;
+  /** ZIP のエントリ数 (ディレクトリも数える。単体ファイルは 0) */
+  entries: number;
+  /** 含まれるファイルの合計サイズ (単体ファイルはそのサイズ) */
+  bytes: number;
+  files: SandboxDownloadPlanFile[];
+  /** `files` を上限で打ち切ったか */
+  truncated: boolean;
+  /** symlink / 特殊ファイルのパス。公開されないので一覧と分けて返す */
+  links: string[];
+  linksTruncated: boolean;
+  /** `maxFileBytes` を超えたファイルのパス。全体の上限とは別で、公開は失敗する */
+  oversizeFiles: string[];
+  oversizeTruncated: boolean;
+  /** 最上位の `index.html` を走査中に見たか (一覧の打ち切りと無関係) */
+  hasIndexHtml: boolean;
+  /** 除外規則で落とした名前 (重複なし・規則の順) */
+  skipped: string[];
+}
+
 /**
  * GET /v1/files/download/check の応答。download と同じ走査（除外 / symlink / 上限）の結果を返し、
  * ブラウザに生 JSON を見せずに理由をツリー内へ出すための事前チェック。
@@ -505,6 +540,38 @@ export const SANDBOX_MAX_ARCHIVE_BYTES = SANDBOX_MAX_UPLOAD_BYTES;
 
 /** ZIP のエントリ数上限。EOCD の件数は 16bit (65,535) なので余裕をもって抑える */
 export const SANDBOX_MAX_ARCHIVE_ENTRIES = 10_000;
+
+/**
+ * 計画 (plan) が応答に載せるファイル数の上限。一覧 API の `SANDBOX_MAX_FILE_ENTRIES` とは用途が違う
+ * (こちらは ZIP 全量の先頭をプレビューへ見せるための値) ため、別の定数として持つ。
+ */
+export const SANDBOX_MAX_PLAN_FILES = 500;
+
+/** 計画が載せるパス一覧 (links / oversizeFiles) の上限 */
+export const SANDBOX_MAX_PLAN_PATHS = 100;
+
+/**
+ * GET /v1/files/download/plan の `maxFileBytes` の解釈結果。省略は「個別サイズを見ない」で、
+ * 0・負数・非整数・`SANDBOX_MAX_ARCHIVE_BYTES` 超は不正 (400)。
+ */
+export type MaxFileBytesQuery = { ok: true; value?: number } | { ok: false; message: string };
+
+export function maxFileBytesQueryError(): string {
+  return `maxFileBytes must be a positive integer up to ${SANDBOX_MAX_ARCHIVE_BYTES}`;
+}
+
+/** `maxFileBytes` は 1 つだけ受け、正の整数だけを認める (全体の上限を超える値も断る) */
+export function parseMaxFileBytesQuery(values: string[] | undefined): MaxFileBytesQuery {
+  if (!values || values.length === 0) return { ok: true };
+  if (values.length !== 1) return { ok: false, message: maxFileBytesQueryError() };
+  const raw = values[0];
+  if (!/^[0-9]+$/.test(raw)) return { ok: false, message: maxFileBytesQueryError() };
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0 || value > SANDBOX_MAX_ARCHIVE_BYTES) {
+    return { ok: false, message: maxFileBytesQueryError() };
+  }
+  return { ok: true, value };
+}
 
 /** 1 セグメントの名前の上限 (文字数)。アップロードの保存名とリネーム先に使う。 */
 export const SANDBOX_MAX_ENTRY_NAME_LENGTH = 200;

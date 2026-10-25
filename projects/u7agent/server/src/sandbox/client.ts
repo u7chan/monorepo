@@ -7,6 +7,7 @@ import {
   decodeSandboxEvent,
   type SandboxCreateDirResult,
   type SandboxDownloadCheck,
+  type SandboxDownloadPlan,
   type SandboxEvent,
   type SandboxFileListing,
   type SandboxFilePreview,
@@ -200,6 +201,8 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     readImageInput: (path, scope, signal) => readImageInput(path, scope, signal, baseUrl, token, fetchImpl),
     downloadEntry: (path, excludeNames) => downloadEntry(path, excludeNames, baseUrl, token, fetchImpl),
     checkDownload: (path, excludeNames) => checkDownload(path, excludeNames, baseUrl, token, fetchImpl),
+    planDownload: (path, excludeNames, maxFileBytes) =>
+      planDownload(path, excludeNames, maxFileBytes, baseUrl, token, fetchImpl),
     scanListeners: (port, options) => scanListeners(port, options, baseUrl, token, fetchImpl, listenerScanTimeoutMs),
     scanListenerRange: (from, to) => scanListenerRange(from, to, baseUrl, token, fetchImpl, listenerScanTimeoutMs),
   };
@@ -284,6 +287,11 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   /** download と同じ走査の見積り（除外名 / 合計サイズ / エントリ数）。上限超過は 413 で拒否される */
   checkDownload(path: string, excludeNames: readonly string[]): Promise<SandboxDownloadCheck>;
   /**
+   * download と同じ走査に、プレビュー用の一覧を足した計画。`maxFileBytes` は個別サイズの申告だけで、
+   * 合計 / 件数の上限超過は check と同じく 413 で拒否される。
+   */
+  planDownload(path: string, excludeNames: readonly string[], maxFileBytes?: number): Promise<SandboxDownloadPlan>;
+  /**
    * 指定ポートの待受 inode と、`scan: true` のときだけ所有 PID を返す。serve の所有者照合が使う。
    * bash 実行は Landlock の ptrace 制限で他ドメインの `/proc/<pid>/fd` を読めないため、service 本体が走査する。
    */
@@ -321,6 +329,12 @@ export type SandboxSkillFileClient = Pick<
   SandboxToolClient,
   "getSkillFile" | "createSkillFile" | "saveSkillFile" | "previewSkillDelete" | "deleteSkillFolder"
 >;
+
+/**
+ * 共有のプレビュー (plan) が使うサンドボックス機能。workspace の狭い IF を広げないよう型を分ける
+ * (preview を使わない既存のスタブへ planDownload を要求しない)。
+ */
+export type SandboxDownloadPlanClient = Pick<SandboxToolClient, "planDownload">;
 
 /**
  * スキルの持ち出し / 取り込みが使うサンドボックス機能。GUI CRUD の stub を広げないよう型を分ける
@@ -1053,6 +1067,29 @@ async function checkDownload(
   );
   if (!response.ok) throw await rawError(response, "ダウンロードの確認ができませんでした");
   return (await response.json()) as SandboxDownloadCheck;
+}
+
+/**
+ * 計画 (plan)。download / check と同じ 4xx (413 を含む) を文言ごと透過し、応答は JSON として読む。
+ * `maxFileBytes` は省略時は送らない (サンドボックスは「個別サイズを見ない」と解釈する)。
+ */
+async function planDownload(
+  path: string,
+  excludeNames: readonly string[],
+  maxFileBytes: number | undefined,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxDownloadPlan> {
+  const maxFileBytesQuery = maxFileBytes === undefined ? "" : `&maxFileBytes=${maxFileBytes}`;
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/files/download/plan?path=${encodeURIComponent(path)}&${archiveExcludeQuery(excludeNames)}${maxFileBytesQuery}`,
+    { headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await rawError(response, "公開される内容を確認できませんでした");
+  return (await response.json()) as SandboxDownloadPlan;
 }
 
 /**

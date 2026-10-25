@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createSharedContent, getSharedContent, getSharedContents } from "../api";
+import { createSharedContent, getSharedContent, getSharedContentPreview, getSharedContents } from "../api";
 import { SHARE_POLL_MS, sharePollPlan, withSharedContent } from "../lib/sharedContents";
-import type { SharedContentResponse } from "../types";
+import type { SharedContentPreviewResponse, SharedContentResponse } from "../types";
+
+/**
+ * 公開前のプレビューの状態。取得中 / 失敗 / 成功を分け、失敗しても公開は塞がない (補助情報として扱う)。
+ */
+export type SharePreviewState =
+  | { status: "loading" }
+  | { status: "failed"; message: string }
+  | { status: "ready"; preview: SharedContentPreviewResponse };
 
 /**
  * 共有ダイアログの state。この会話の共有物だけを扱い、全共有物の一覧は持たない。
@@ -34,8 +42,10 @@ function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function useSharedContents({ sessionId }: { sessionId: string }) {
+export function useSharedContents({ sessionId, directory }: { sessionId: string; directory: string }) {
   const [state, setState] = useState<SharedContentsState>(INITIAL);
+  // プレビューはダイアログを開いた時点の見え方。公開の成否とは別に持つ (画面は状態を持ち越さない)
+  const [preview, setPreview] = useState<SharePreviewState>({ status: "loading" });
   /** 発行した取得の通し番号。遅れて届いた古い応答を適用しない */
   const requestSeq = useRef(0);
   const appliedSeq = useRef(0);
@@ -77,6 +87,23 @@ export function useSharedContents({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     void loadList();
   }, [loadList]);
+
+  // ダイアログを開いた時点の見え方を取る。取り直しは開き直しで行う (公開中に古い一覧を混ぜない)
+  useEffect(() => {
+    const session = sessionId;
+    let cancelled = false;
+    setPreview({ status: "loading" });
+    getSharedContentPreview({ sessionId: session, directory })
+      .then((value) => {
+        if (!cancelled && sessionRef.current === session) setPreview({ status: "ready", preview: value });
+      })
+      .catch((error: unknown) => {
+        if (!cancelled && sessionRef.current === session) setPreview({ status: "failed", message: messageFor(error) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, directory]);
 
   /** 受付して公開を開始する。202 の後に一覧を取り直し、以降は状態をポーリングする */
   const share = useCallback(
@@ -133,7 +160,7 @@ export function useSharedContents({ sessionId }: { sessionId: string }) {
     };
   }, [pollDetailId, pollList, sessionId, loadList]);
 
-  return { ...state, share, reload: loadList };
+  return { ...state, preview, share, reload: loadList };
 }
 
 export type SharedContentsController = ReturnType<typeof useSharedContents>;
