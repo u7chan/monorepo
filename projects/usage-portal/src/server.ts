@@ -28,7 +28,12 @@ const server = Bun.serve({
   hostname: config.host,
   port: config.port,
   development: config.development,
-  routes: { "/": index },
+  routes: {
+    "/": index,
+    // アイコンは index.html の data URI に置く。ここに実体を置くとアイコンの定義が 2 か所になるため、
+    // /favicon.ico を無条件に要求するクライアントへは空の応答だけ返して 404 にしない。
+    "/favicon.ico": () => new Response(null, { status: 204 }),
+  },
   fetch: (request) => app.fetch(request),
 });
 

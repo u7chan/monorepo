@@ -4,14 +4,16 @@
  * `docs/design.md` は親リポジトリの設計ドラフトをそのまま写したもので、例示に他リポジトリのパスが
  * 含まれる。書き換えない前提なので検査対象から外す。
  *
- * project root の外を指すリンクは、monorepo の checkout でだけ検査する。Docker のビルドコンテキストには
- * project root しか入らないため、解決できないものは未検査として数える。
+ * project root の外を指すリンクも、monorepo の checkout では実在を確認する。Docker の test stage は
+ * project root だけをビルドコンテキストに入れるため、monorepo が無いときだけ未検査として数える。
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const monorepoRoot = resolve(root, "../..");
+const inMonorepo = existsSync(join(monorepoRoot, ".github")) && existsSync(join(monorepoRoot, "AGENTS.md"));
 
 const SCAN_TARGETS = ["README.md", "AGENTS.md", "docs"];
 const EXCLUDED = new Set(["docs/design.md"]);
@@ -43,8 +45,12 @@ function markdownFiles(target) {
   });
 }
 
-function withoutCode(text) {
-  return text.replace(/^```[\s\S]*?^```/gm, "").replace(/`[^`\n]*`/g, "");
+function withoutFencedCode(text) {
+  return text.replace(/^```[\s\S]*?^```/gm, "");
+}
+
+function isOutsideRoot(fromRoot) {
+  return fromRoot === ".." || fromRoot.startsWith(`..${sep}`);
 }
 
 function isExternal(target) {
@@ -60,9 +66,14 @@ function checkLink(file, target) {
 
   const resolved = resolve(dirname(file), decodeURIComponent(pathPart));
   const fromRoot = relative(root, resolved);
+  const label = `${relative(root, file)}: リンク先がありません: ${target}`;
 
-  if (fromRoot.startsWith("..")) {
-    if (!existsSync(resolved)) {
+  if (isOutsideRoot(fromRoot)) {
+    if (inMonorepo) {
+      if (!existsSync(resolved)) {
+        errors.push(label);
+      }
+    } else {
       unchecked += 1;
     }
 
@@ -70,7 +81,7 @@ function checkLink(file, target) {
   }
 
   if (!existsSync(resolved)) {
-    errors.push(`${relative(root, file)}: リンク先がありません: ${target}`);
+    errors.push(label);
   }
 }
 
@@ -89,9 +100,9 @@ function checkPathToken(file, token) {
 const files = SCAN_TARGETS.flatMap(markdownFiles).filter((file) => !EXCLUDED.has(relative(root, file)));
 
 for (const file of files) {
-  const text = readFileSync(file, "utf8");
+  const text = withoutFencedCode(readFileSync(file, "utf8"));
 
-  for (const match of withoutCode(text).matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+  for (const match of text.replace(/`[^`\n]*`/g, "").matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
     const target = match[1]?.replace(/^<|>$/g, "");
 
     if (target !== undefined) {
@@ -99,7 +110,7 @@ for (const file of files) {
     }
   }
 
-  for (const line of withoutCode(text).split("\n")) {
+  for (const line of text.split("\n")) {
     for (const match of line.matchAll(/`([^`\n]+)`/g)) {
       const token = match[1];
 
