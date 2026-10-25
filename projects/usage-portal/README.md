@@ -69,7 +69,8 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `POST` | `/api/auth/login` | `{ "pin": "123456" }`。成功で cookie を発行（200）。失敗は 401、5 回失敗で 15 分ロック（429 + `Retry-After`） |
 | `POST` | `/api/auth/logout` | cookie を消す（204） |
 
-`POST` は `Origin` が同じ host のときだけ受け付ける。応答はすべて `Cache-Control: no-store`。
+`POST` は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。応答はすべて `Cache-Control: no-store`。
+ログインの試行制限は接続元ごとに数え、同時に届いた要求も直列化して 5 回を超えて照合しない。
 
 ## 環境変数
 

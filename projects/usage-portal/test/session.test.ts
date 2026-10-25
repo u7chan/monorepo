@@ -11,7 +11,8 @@ import {
 } from "../src/server/session";
 
 const key = new Uint8Array(32).fill(3);
-const pinHash = "$argon2id$v=19$m=65536,t=2,p=1$c2FsdA$aGFzaA";
+const pinHash =
+  "$argon2id$v=19$m=65536,t=2,p=1$NrpScq+UTuqIPUCxtFHszoYp1osij+WlDiEfSyjn2gE$j/HAXbjNIyy4j025wwx7lX0k7Da0uzAq3Xt7oppNvRg";
 const now = 1_800_000_000_000;
 
 describe("createSessionToken / readSessionToken", () => {

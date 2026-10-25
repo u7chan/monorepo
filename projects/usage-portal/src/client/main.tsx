@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { type AuthOutcome, fetchSession, logout, submitPin } from "./api";
+import { describeWait, expiryDaysLeft, lockSecondsLeft } from "./time";
 import "./styles.css";
 
 type View =
@@ -9,8 +10,6 @@ type View =
   | { kind: "login" }
   | { kind: "dashboard"; expiresAt: number }
   | { kind: "unreachable" };
-
-const EXPIRY_NOTICE_MS = 3 * 24 * 60 * 60 * 1000;
 
 function App() {
   const [view, setView] = useState<View>({ kind: "loading" });
@@ -111,6 +110,23 @@ function PinForm(props: {
   const [confirmation, setConfirmation] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [lockedUntil, setLockedUntil] = useState(0);
+  const [clock, setClock] = useState(() => Date.now());
+
+  // ロック中は 1 秒ごとに再描画し、残り時間と送信可否を追随させる。
+  useEffect(() => {
+    if (lockedUntil === 0) {
+      return;
+    }
+
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+
+    return () => clearInterval(timer);
+  }, [lockedUntil]);
+
+  const lockSeconds = lockSecondsLeft(lockedUntil, clock);
+  const locked = lockSeconds > 0;
+  const shownMessage = locked ? `試行回数が多すぎます。あと ${describeWait(lockSeconds)} 待ってください。` : message;
 
   const submit = async (event: Event) => {
     event.preventDefault();
@@ -134,6 +150,12 @@ function PinForm(props: {
       }
 
       setMessage(describeFailure(outcome));
+
+      if (outcome.error === "rate_limited" && outcome.retryAfterSeconds) {
+        setLockedUntil(Date.now() + outcome.retryAfterSeconds * 1000);
+        setClock(Date.now());
+      }
+
       setPin("");
       setConfirmation("");
     } catch {
@@ -180,10 +202,10 @@ function PinForm(props: {
             />
           </label>
         ) : null}
-        <button class="up-button" type="submit" disabled={busy}>
+        <button class="up-button" type="submit" disabled={busy || locked}>
           {busy ? "送信中…" : props.submitLabel}
         </button>
-        {message ? <p class="up-error">{message}</p> : null}
+        {shownMessage ? <p class="up-error">{shownMessage}</p> : null}
       </form>
     </section>
   );
@@ -196,7 +218,16 @@ function Dashboard(props: {
   onCancelRelogin: () => void;
   onLoggedOut: () => void | Promise<void>;
 }) {
-  const remaining = props.expiresAt - Date.now();
+  const [clock, setClock] = useState(() => Date.now());
+
+  // 操作が無くても 3 日の境界を越えたらバナーを出せるように、時計を進める。
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 60_000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const expiryDays = expiryDaysLeft(props.expiresAt, clock);
 
   if (props.relogin) {
     return (
@@ -215,11 +246,9 @@ function Dashboard(props: {
 
   return (
     <>
-      {remaining > 0 && remaining <= EXPIRY_NOTICE_MS ? (
+      {expiryDays !== null ? (
         <div class="up-banner">
-          <p class="up-caption">
-            ログインの有効期限が近づいています（あと {Math.ceil(remaining / (24 * 60 * 60 * 1000))} 日）
-          </p>
+          <p class="up-caption">ログインの有効期限が近づいています（あと {expiryDays} 日）</p>
           <button class="up-button" type="button" onClick={props.onRelogin}>
             PIN を再入力
           </button>

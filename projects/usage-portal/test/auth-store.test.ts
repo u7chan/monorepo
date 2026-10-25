@@ -12,7 +12,8 @@ import {
 } from "../src/server/auth-store";
 
 const dirs: string[] = [];
-const PIN_HASH = "$argon2id$v=19$m=65536,t=2,p=1$c2FsdA$aGFzaA";
+const PIN_HASH =
+  "$argon2id$v=19$m=65536,t=2,p=1$NrpScq+UTuqIPUCxtFHszoYp1osij+WlDiEfSyjn2gE$j/HAXbjNIyy4j025wwx7lX0k7Da0uzAq3Xt7oppNvRg";
 
 function tempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "usage-portal-auth-"));
@@ -41,6 +42,11 @@ describe("readStoredPinHash", () => {
     writeFileSync(join(dir, "pin-hash"), "$argon2i$v=19$m=65536,t=2,p=1$c2FsdA$aGFzaA\n");
 
     expect(readStoredPinHash(dir)).toEqual({ status: "invalid" });
+
+    // prefix が残った切り詰めも設定破損として扱う。
+    writeFileSync(join(dir, "pin-hash"), "$argon2id$broken\n");
+
+    expect(readStoredPinHash(dir)).toEqual({ status: "invalid" });
   });
 
   test("書き込んだハッシュを前後の空白を落として返す", () => {
@@ -59,7 +65,10 @@ describe("readStoredPinHash", () => {
     let caught: unknown = null;
 
     try {
-      writeStoredPinHash(dir, "$argon2id$v=19$m=65536,t=2,p=1$c2FsZA$aGFzaA");
+      writeStoredPinHash(
+        dir,
+        "$argon2id$v=19$m=65536,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      );
     } catch (error) {
       caught = error;
     }

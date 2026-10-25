@@ -40,7 +40,8 @@ const server = Bun.serve({
     // /favicon.ico を無条件に要求するクライアントへは空の応答だけ返して 404 にしない。
     "/favicon.ico": () => new Response(null, { status: 204 }),
   },
-  fetch: (request) => app.fetch(request),
+  // Bun の server を env として渡す。connection info (レート制限のキー) はここからしか取れない。
+  fetch: (request, server) => app.fetch(request, { server }),
 });
 
 const authState = auth.status();

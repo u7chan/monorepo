@@ -27,19 +27,15 @@ export function createAuthService(options: { dataDir: string; now?: () => number
   const now = options.now ?? Date.now;
 
   return {
-    // 読み取りだけ。鍵が無い状態は setup で作れるので、PIN 未設定なら setup_required を優先する。
+    // 読み取りだけ。鍵の異常は PIN 未設定より先に見る。setup 後も cookie を発行できない状態を隠さないため。
     status() {
       const stored = readStoredPinHash(dataDir);
 
-      if (stored.status === "invalid") {
+      if (stored.status === "invalid" || !readSessionKey(dataDir)) {
         return "misconfigured";
       }
 
-      if (stored.status === "absent") {
-        return "setup_required";
-      }
-
-      return readSessionKey(dataDir) ? "ok" : "misconfigured";
+      return stored.status === "absent" ? "setup_required" : "ok";
     },
     ensureSessionKey() {
       ensureSessionKey(dataDir);
@@ -55,6 +51,16 @@ export function createAuthService(options: { dataDir: string; now?: () => number
         return { ok: false, reason: "already_configured" };
       }
 
+      let key: Uint8Array;
+
+      // pin-hash より先に鍵を確保する。逆順だと、鍵を作れない環境で PIN だけ設定済みになり、
+      // 以後 setup_required ではなく misconfigured に固定される。
+      try {
+        key = ensureSessionKey(dataDir);
+      } catch {
+        return { ok: false, reason: "misconfigured" };
+      }
+
       if (!isValidPin(pin)) {
         return { ok: false, reason: "invalid_pin" };
       }
@@ -68,14 +74,6 @@ export function createAuthService(options: { dataDir: string; now?: () => number
           return { ok: false, reason: "already_configured" };
         }
 
-        return { ok: false, reason: "misconfigured" };
-      }
-
-      let key: Uint8Array;
-
-      try {
-        key = ensureSessionKey(dataDir);
-      } catch {
         return { ok: false, reason: "misconfigured" };
       }
 

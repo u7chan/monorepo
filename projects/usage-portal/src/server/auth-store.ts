@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isArgon2idHash } from "./pin";
 
 const PIN_HASH_FILE = "pin-hash";
 const SESSION_KEY_FILE = "session-key";
-const PIN_HASH_PREFIX = "$argon2id$";
 const SESSION_KEY_BYTES = 32;
 
 export type StoredPinHash = { status: "absent" } | { status: "ok"; hash: string } | { status: "invalid" };
@@ -20,7 +20,7 @@ export function readStoredPinHash(dataDir: string): StoredPinHash {
 
   const hash = raw.trim();
 
-  return hash.startsWith(PIN_HASH_PREFIX) ? { status: "ok", hash } : { status: "invalid" };
+  return isArgon2idHash(hash) ? { status: "ok", hash } : { status: "invalid" };
 }
 
 export function writeStoredPinHash(dataDir: string, hash: string): void {

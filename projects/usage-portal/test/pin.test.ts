@@ -1,6 +1,6 @@
 // PIN の形式と、Argon2id によるハッシュ・照合の契約を固定する。
 import { describe, expect, test } from "bun:test";
-import { hashPin, isValidPin, verifyPin } from "../src/server/pin";
+import { hashPin, isArgon2idHash, isValidPin, verifyPin } from "../src/server/pin";
 
 describe("isValidPin", () => {
   test("6 桁の数字だけを受け付ける", () => {
@@ -8,6 +8,27 @@ describe("isValidPin", () => {
 
     for (const value of ["12345", "1234567", "12345a", " 123456", "", null, 123456]) {
       expect(isValidPin(value)).toBe(false);
+    }
+  });
+});
+
+describe("isArgon2idHash", () => {
+  test("生成したハッシュを受け付け、壊れた / 弱いパラメータのハッシュを拒否する", async () => {
+    const hash = await hashPin("123456");
+
+    expect(isArgon2idHash(hash)).toBe(true);
+
+    for (const value of [
+      "",
+      "$argon2id$",
+      "$argon2id$broken",
+      "$argon2i$v=19$m=65536,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaA",
+      // m を弱めたハッシュ (レインボーテーブル対策の下限を下回る)
+      "$argon2id$v=19$m=1024,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaA",
+      // hash 部分が短すぎる切り詰め
+      hash.slice(0, -30),
+    ]) {
+      expect(isArgon2idHash(value)).toBe(false);
     }
   });
 });

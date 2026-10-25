@@ -64,6 +64,14 @@ describe("status", () => {
 
     expect(auth.status()).toBe("misconfigured");
   });
+
+  test("PIN 未設定でもセッション鍵が壊れていれば misconfigured", () => {
+    const { auth, dataDir } = service();
+
+    writeFileSync(join(dataDir, "session-key"), Buffer.alloc(10));
+
+    expect(auth.status()).toBe("misconfigured");
+  });
 });
 
 describe("setup", () => {
@@ -75,6 +83,19 @@ describe("setup", () => {
     await setupWithPin(auth);
 
     expect(await auth.setup(PIN)).toEqual({ ok: false, reason: "already_configured" });
+  });
+
+  test("セッション鍵が無ければ setup が鍵を確保してから PIN を保存する", async () => {
+    const { auth, dataDir } = service();
+
+    rmSync(join(dataDir, "session-key"));
+
+    expect(auth.status()).toBe("misconfigured");
+
+    const token = await setupWithPin(auth);
+
+    expect(auth.status()).toBe("ok");
+    expect(auth.readSession(cookieHeader(token))).not.toBeNull();
   });
 
   test("発行した cookie でセッションを読める", async () => {

@@ -11,8 +11,9 @@ import { SESSION_COOKIE_NAME } from "../src/server/session";
 const dirs: string[] = [];
 const PIN = "123456";
 const BASE_NOW = 1_800_000_000_000;
+const ORIGIN = "http://localhost";
 
-function harness() {
+function harness(options: { clientKey?: boolean } = {}) {
   let clock = BASE_NOW;
   const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-app-"));
 
@@ -25,8 +26,8 @@ function harness() {
   const app = createApp({
     auth,
     health: () => buildHealthReport("ok", auth.status()),
-    clientKey: () => "test-client",
     now: () => clock,
+    ...(options.clientKey === false ? {} : { clientKey: () => "test-client" }),
   });
 
   return {
@@ -39,24 +40,25 @@ function harness() {
   };
 }
 
+function request(path: string, body: unknown, headers: Record<string, string> = {}) {
+  return new Request(`http://localhost${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
 function post(
   app: ReturnType<typeof harness>["app"],
   path: string,
   body: unknown,
   headers: Record<string, string> = {},
 ) {
-  return app.request(path, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: JSON.stringify(body),
-  });
+  return app.request(request(path, body, headers));
 }
 
 function cookieOf(response: Response): string {
-  const header = response.headers.get("set-cookie") ?? "";
-  const value = header.split(";")[0] ?? "";
-
-  return value;
+  return (response.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
 }
 
 async function setupPin(app: ReturnType<typeof harness>["app"]): Promise<string> {
@@ -129,20 +131,24 @@ describe("POST /api/auth/setup", () => {
     expect(await again.json()).toEqual({ error: "already_configured" });
   });
 
-  test("body が JSON でない / 大きすぎる場合は 400 / 413", async () => {
+  test("body が JSON でない場合は 400、1 KiB を超える場合は 413", async () => {
     const { app } = harness();
 
-    const broken = await app.request("/api/auth/setup", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{",
-    });
+    const broken = await app.request(
+      new Request("http://localhost/api/auth/setup", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN },
+        body: "{",
+      }),
+    );
 
     expect(broken.status).toBe(400);
 
-    const huge = await post(app, "/api/auth/setup", { pin: "1".repeat(2000) });
+    // 文字数ではなくバイト数で判定する (日本語は 1 文字 3 bytes)。
+    const huge = await post(app, "/api/auth/setup", { pin: "123456", padding: "あ".repeat(400) });
 
     expect(huge.status).toBe(413);
+    expect(await huge.json()).toEqual({ error: "invalid_request" });
   });
 });
 
@@ -190,27 +196,97 @@ describe("POST /api/auth/login", () => {
 
     expect((await post(app, "/api/auth/login", { pin: PIN })).status).toBe(200);
   });
+
+  test("同時に届いた誤 PIN でも 5 回を超えて照合しない", async () => {
+    const { app } = harness();
+
+    await setupPin(app);
+
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, () => post(app, "/api/auth/login", { pin: "654321" })),
+    );
+    const statuses = responses.map((response) => response.status);
+
+    expect(statuses.filter((status) => status === 401)).toHaveLength(5);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(5);
+  });
 });
 
 describe("POST /api/auth/logout", () => {
   test("cookie を消す応答を返す", async () => {
     const { app } = harness();
-    const response = await app.request("/api/auth/logout", { method: "POST" });
+    const response = await app.request(
+      new Request("http://localhost/api/auth/logout", { method: "POST", headers: { origin: ORIGIN } }),
+    );
 
     expect(response.status).toBe(204);
     expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 });
 
-describe("共通の防御", () => {
-  test("Origin が別 host の POST は 403", async () => {
+describe("同一 origin の検査", () => {
+  test("Origin が無い / 別 host / scheme 違いの POST は 403", async () => {
     const { app } = harness();
-    const response = await post(app, "/api/auth/setup", { pin: PIN }, { origin: "http://example.invalid" });
 
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "origin_mismatch" });
+    const cases: Array<Record<string, string>> = [
+      {},
+      { origin: "https://example.invalid" },
+      { origin: "https://localhost" },
+    ];
+
+    for (const headers of cases) {
+      const request = new Request("http://localhost/api/auth/setup", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: JSON.stringify({ pin: PIN }),
+      });
+      const response = await app.request(request);
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "origin_mismatch" });
+    }
   });
 
+  test("logout も別 origin からは受け付けない", async () => {
+    const { app } = harness();
+    const response = await app.request(
+      new Request("http://localhost/api/auth/logout", {
+        method: "POST",
+        headers: { origin: "https://example.invalid" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+});
+
+describe("レート制限のキー", () => {
+  test("Bun の server を env として渡すと接続元ごとに独立して数える", async () => {
+    const { app } = harness({ clientKey: false });
+    const serverFor = (address: string) => ({
+      requestIP: () => ({ address, family: "IPv4", port: 50000 }),
+    });
+    const login = (pin: string) => request("/api/auth/login", { pin });
+
+    await setupPin(app);
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await app.fetch(login("654321"), { server: serverFor("203.0.113.7") });
+
+      expect(response.status).toBe(401);
+    }
+
+    const sameClient = await app.fetch(login("654321"), { server: serverFor("203.0.113.7") });
+    const otherClient = await app.fetch(login("654321"), { server: serverFor("203.0.113.8") });
+
+    expect(sameClient.status).toBe(429);
+    // 接続元が違えば別のバケツ。ここが unknown に潰れると全端末が巻き添えになる。
+    expect(otherClient.status).toBe(401);
+  });
+});
+
+describe("共通の防御", () => {
   test("認証 API の応答に Cache-Control: no-store を付ける", async () => {
     const { app } = harness();
     const response = await app.request("/api/auth/session");
