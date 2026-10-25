@@ -112,6 +112,12 @@ test("登録したカスタム provider は公開カタログに available で�
     assert.equal(fake.requests[0].method, "POST");
     assert.equal(fake.requests[0].url, "/v1/chat/completions");
     assert.equal(fake.requests[0].authorization, `Bearer ${KEY}`, "runtime overlay のキーを Bearer で送る");
+    // What: 上流の `model` はモデル ID だけ。provider id を接頭しない (待ち受けはモデル名だけを受ける)
+    assert.equal(
+      (fake.requests[0].body as { model?: string }).model,
+      "qwen2.5-coder:7b",
+      "上流へは provider id を付けず、モデル ID をそのまま送る",
+    );
 
     // 削除後はカタログから外れ、同じ id の再登録に古い overlay が残らない
     const deleted = await bff.app.request("/api/settings/custom-providers/local-llm", { method: "DELETE" });
@@ -127,13 +133,32 @@ test("登録したカスタム provider は公開カタログに available で�
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id: "local-llm",
-        name: "Local LLM",
+        // What: 名前を空欄にすると provider の表示名は provider id になり、モデル ID には付かない
         baseUrl: fake.baseUrl,
         apiKey: KEY,
         model: { id: "qwen2.5-coder:7b", contextWindow: 32768 },
       }),
     });
     assert.equal(recreated.status, 200);
+    const unnamed = (await (await bff.app.request("/api/settings/models")).json()) as any;
+    assert.equal(
+      unnamed.providers.find((entry: any) => entry.provider === "local-llm")?.name,
+      "local-llm",
+      "名前が空欄なら provider id を表示名にする",
+    );
+    const unnamedModel = pi.modelRuntime.getModels().find((entry) => entry.provider === "local-llm");
+    assert.ok(unnamedModel);
+    assert.equal(unnamedModel.name, "qwen2.5-coder:7b", "モデルの表示名も provider id を付けない");
+    await pi.modelRuntime.completeSimple(
+      unnamedModel,
+      { messages: [{ role: "user", content: [{ type: "text", text: "こんにちは" }], timestamp: Date.now() }] },
+      { maxTokens: 16 },
+    );
+    assert.equal(
+      (fake.requests[1].body as { model?: string }).model,
+      "qwen2.5-coder:7b",
+      "名前が空欄でも上流の model はモデル ID のまま",
+    );
     assert.equal(
       pi.modelRuntime.getProviderAuthStatus("local-llm")?.source,
       "runtime",

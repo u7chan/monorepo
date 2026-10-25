@@ -5,6 +5,7 @@ import {
   CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE,
   CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS,
   CUSTOM_PROVIDER_NOTES,
+  CUSTOM_PROVIDER_NOTES_SUMMARY,
   customProviderBaseUrlError,
   customProviderCreateBody,
   customProviderDraftOf,
@@ -154,8 +155,8 @@ test("複数登録できる (下書きは独立し、provider ごとに別の本
 });
 
 test("常時の注意はオンメモリ・再起動後のカタログ外・既定モデル・キー必須・baseUrl の信頼を伝える", () => {
-  assert.equal(CUSTOM_PROVIDER_NOTES.length, 5);
-  const text = CUSTOM_PROVIDER_NOTES.join("\n");
+  assert.equal(CUSTOM_PROVIDER_NOTES.length, 4);
+  const text = [CUSTOM_PROVIDER_NOTES_SUMMARY, ...CUSTOM_PROVIDER_NOTES].join("\n");
   assert.ok(text.includes("メモリ"));
   assert.ok(text.includes("再起動"));
   assert.ok(text.includes("カタログ外"));

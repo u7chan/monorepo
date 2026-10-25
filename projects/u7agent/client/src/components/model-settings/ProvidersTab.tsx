@@ -4,6 +4,7 @@ import {
   CUSTOM_PROVIDER_ADD_LABEL,
   CUSTOM_PROVIDER_MEMORY_BADGE,
   CUSTOM_PROVIDER_NOTES,
+  CUSTOM_PROVIDER_NOTES_SUMMARY,
   CUSTOM_PROVIDER_SECTION_TITLE,
 } from "../../lib/customProviders";
 import { messageTimeLabel } from "../../lib/messageTime";
@@ -423,21 +424,18 @@ function SecurityNotice() {
 /**
  * カスタムプロバイダーの注意。専用セクション（一覧の見出し下）に常時出し、singleColumn で
  * 一覧を畳んだときだけ詳細側にも出す（同時には出さず、同じ文を二重に見せない）。
+ * 左列は幅が狭く、全部開いたままだと一覧が押し下げられるため、要点の 1 行だけを出して既定で畳む。
  * 短い注意だけを画面に置き、理由は docs が持つ。
  */
 function CustomProviderSectionNotes({ variant = "section" }: { variant?: "section" | "detail" }) {
   return (
-    <section
-      className={cn(
-        "grid gap-1 rounded-lg border border-warn/40 bg-raised leading-relaxed text-ink-soft",
-        variant === "detail" ? "px-2.5 py-2 text-2xs" : "mx-1.5 px-2 py-1.5 text-3xs",
-      )}
-    >
-      <p className="text-warn">{CUSTOM_PROVIDER_NOTES[0]}</p>
-      {CUSTOM_PROVIDER_NOTES.slice(1).map((note) => (
-        <p key={note}>{note}</p>
-      ))}
-    </section>
+    <div className={variant === "detail" ? undefined : "mx-1.5"}>
+      <CollapsibleNotice summary={CUSTOM_PROVIDER_NOTES_SUMMARY}>
+        {CUSTOM_PROVIDER_NOTES.map((note) => (
+          <p key={note}>{note}</p>
+        ))}
+      </CollapsibleNotice>
+    </div>
   );
 }
 

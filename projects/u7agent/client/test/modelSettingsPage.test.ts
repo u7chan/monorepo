@@ -344,6 +344,28 @@ test("カスタムプロバイダーは専用セクションに出し、通常�
   assert.equal(html.includes('aria-label="provider id"'), false, "カスタムを選ぶまではフォームを出さない");
 });
 
+test("カスタム注意は要点の 1 行だけを常時見せ、詳細は既定で畳む", () => {
+  const html = render(modelSettings(), { modelsSubsection: "providers", singleColumn: false });
+  const summary = html.indexOf("BFF のメモリにだけ保存されます");
+  assert.ok(summary >= 0, "要点の 1 行を出す");
+  // 要点は summary の中だけに置き、長い理由は同じ details の中へ入れて既定では閉じる
+  assert.ok(html.lastIndexOf("<summary", summary) > html.lastIndexOf("</summary>", summary));
+  const details = html.lastIndexOf("<details", summary);
+  assert.ok(details >= 0 && html.indexOf("</details>", summary) > summary, "同じ details の中に置く");
+  assert.ok(html.indexOf("同じ provider id とモデル id", details) > details);
+
+  // singleColumn は一覧を畳んで詳細側に同じ注意を出すが、これも同じ形で畳む
+  const single = render(
+    modelSettings({
+      settings: { ...SETTINGS, providers: [customProviderRow()], customProviders: [CUSTOM_PROVIDER] },
+    }),
+    { modelsSubsection: "providers", singleColumn: true },
+  );
+  const singleSummary = single.indexOf("BFF のメモリにだけ保存されます");
+  assert.ok(singleSummary >= 0);
+  assert.ok(single.lastIndexOf("<summary", singleSummary) > single.lastIndexOf("</summary>", singleSummary));
+});
+
 test("カスタム定義が無く通常 provider を選んでいても、専用セクションに注意を常時出す", () => {
   const html = render(modelSettings(), { modelsSubsection: "providers" });
   assert.ok(html.includes("カスタムプロバイダー"), "専用セクションは定義が無くても出す");
@@ -383,6 +405,7 @@ test("カスタムプロバイダーの詳細は専用フォームと注意を�
   assert.ok(html.includes('aria-label="provider id"') && html.includes('readOnly=""'), "provider id は編集できない");
   assert.ok(html.includes("空欄なら既存のAPIキーを維持"), "キーの空欄は既存の維持だと示す");
   assert.ok(html.includes("実モデルの context window より大きくしないでください"));
+  assert.ok(html.includes("表示名だけ"), "名前が表示用で、モデル ID に付かないことを出す");
   // 通常の認証・メモ・再同期・モデル導線は出さない
   assert.equal(html.includes("キーとメモは平文で保存されます"), false, "DB 保存の注意はカスタム詳細に出さない");
   assert.equal(html.includes("メモ（キー本体は書かないでください）"), false, "通常のメモ欄を出さない");

@@ -111,7 +111,7 @@ export function CustomProviderForm({
         }}
       >
         <div className="grid gap-2 sm:grid-cols-2">
-          <label className="grid gap-1 text-2xs text-ink-soft">
+          <label className="grid content-start gap-1 text-2xs text-ink-soft">
             provider id
             <input
               className="field min-w-0 text-xs"
@@ -129,7 +129,7 @@ export function CustomProviderForm({
             </span>
             {errors.id ? <span className="text-warn">{errors.id}</span> : null}
           </label>
-          <label className="grid gap-1 text-2xs text-ink-soft">
+          <label className="grid content-start gap-1 text-2xs text-ink-soft">
             名前（任意）
             <input
               className="field min-w-0 text-xs"
@@ -140,11 +140,12 @@ export function CustomProviderForm({
               aria-invalid={errors.name ? true : undefined}
               onChange={(event) => update({ name: event.currentTarget.value })}
             />
+            <span className="text-ink-ghost">表示名だけです。送信するモデル名はモデル ID のままです。</span>
             {errors.name ? <span className="text-warn">{errors.name}</span> : null}
           </label>
         </div>
 
-        <label className="grid gap-1 text-2xs text-ink-soft">
+        <label className="grid content-start gap-1 text-2xs text-ink-soft">
           baseUrl
           <input
             className="field min-w-0 text-xs"
@@ -160,7 +161,7 @@ export function CustomProviderForm({
           {errors.baseUrl ? <span className="text-warn">{errors.baseUrl}</span> : null}
         </label>
 
-        <label className="grid gap-1 text-2xs text-ink-soft">
+        <label className="grid content-start gap-1 text-2xs text-ink-soft">
           APIキー
           <input
             className="field min-w-0 text-xs"
@@ -180,7 +181,7 @@ export function CustomProviderForm({
         </label>
 
         <div className="grid gap-2 sm:grid-cols-2">
-          <label className="grid gap-1 text-2xs text-ink-soft">
+          <label className="grid content-start gap-1 text-2xs text-ink-soft">
             モデル ID
             <input
               className="field min-w-0 text-xs"
@@ -194,7 +195,7 @@ export function CustomProviderForm({
             />
             {errors.modelId ? <span className="text-warn">{errors.modelId}</span> : null}
           </label>
-          <label className="grid gap-1 text-2xs text-ink-soft">
+          <label className="grid content-start gap-1 text-2xs text-ink-soft">
             contextWindow
             <input
               className="field min-w-0 text-xs"
@@ -213,8 +214,8 @@ export function CustomProviderForm({
 
         <details className="rounded-lg border border-line bg-soft px-2.5 py-2">
           <summary className="cursor-pointer text-2xs text-ink-soft">詳細（maxTokens）</summary>
-          <div className="grid gap-1 pt-2 text-2xs text-ink-soft">
-            <label className="grid gap-1">
+          <div className="grid content-start gap-1 pt-2 text-2xs text-ink-soft">
+            <label className="grid content-start gap-1">
               maxTokens（任意）
               <input
                 className="field min-w-0 text-xs"
