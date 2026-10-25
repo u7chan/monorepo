@@ -16,6 +16,7 @@ import { createFileRoutes } from "./routes/files";
 import { createHealthRoutes } from "./routes/health";
 import { createCloudflareSettingsRoutes } from "./routes/cloudflare";
 import { createSharedContentRoutes } from "./routes/shared-contents";
+import { createSharedContentExclusionsRoutes } from "./routes/shared-content-exclusions";
 import { createContentSettingsRoutes } from "./routes/content";
 import { createNotificationRoutes } from "./routes/notifications";
 import { createModelSettingsRoutes } from "./routes/models";
@@ -63,6 +64,7 @@ import {
   UpdateWebSearchKeyBodySchema,
   UpdateWebSearchProviderBodySchema,
   UpdateProviderMemoBodySchema,
+  UpdateSharedContentExclusionsBodySchema,
   SubmitOAuthLoginCodeBodySchema,
   UpdateSecretBodySchema,
   UpdateSessionNotifyBodySchema,
@@ -130,6 +132,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     secrets,
     cloudflareSettings,
     sharedContents,
+    sharedContentExclusions,
     skillSandbox,
     skillArchiveSandbox,
   } = await createBffContext(opts);
@@ -164,6 +167,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const contentSettingsRoutes = createContentSettingsRoutes({ contentSettings });
   const cloudflareSettingsRoutes = createCloudflareSettingsRoutes({ cloudflareSettings });
   const sharedContentRoutes = createSharedContentRoutes({ sharedContents });
+  const sharedContentExclusionsRoutes = createSharedContentExclusionsRoutes({ sharedContentExclusions });
   const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings });
   const titleSummaryRoutes = createTitleSummaryRoutes({ titleSummarySettings });
   // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
@@ -484,6 +488,17 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => archiveRoutes.update(c, c.req.valid("json")),
     )
     .delete("/api/settings/archive", appData, archiveRoutes.reset)
+    // 共有の除外名。アーカイブの設定とは別の行・別の既定を持つ (docs/static-sharing.md)
+    .get("/api/settings/shared-content-exclusions", appData, sharedContentExclusionsRoutes.get)
+    .put(
+      "/api/settings/shared-content-exclusions",
+      appData,
+      jsonBodyValidator(UpdateSharedContentExclusionsBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => sharedContentExclusionsRoutes.update(c, c.req.valid("json")),
+    )
+    .delete("/api/settings/shared-content-exclusions", appData, sharedContentExclusionsRoutes.reset)
     .get("/api/settings/models", appData, modelSettingsRoutes.list)
     .put(
       "/api/settings/models/allowed",
@@ -686,6 +701,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     secrets,
     cloudflareSettings,
     sharedContents,
+    sharedContentExclusions,
     close: async () => {
       // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
       notifications.close();

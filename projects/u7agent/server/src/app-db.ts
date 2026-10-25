@@ -21,7 +21,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 26;
+export const APP_DB_SCHEMA_VERSION = 27;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -461,6 +461,21 @@ CREATE TABLE IF NOT EXISTS cloudflare_settings (
 );
 `;
 
+/**
+ * v26 -> v27 で足したテーブル。共有の除外名は JSON 配列テキストで、**行が無い = 未設定**（実効値は既定）。
+ * 明示空（`[]`）と区別するため、既定へ戻すときは行ごと消す。
+ *
+ * **`DROP_TABLES` に入れない**: 行が消えると利用者の除外が既定へ戻り、次の更新で公開範囲が意図せず変わる
+ * （`shared_contents` と同じ扱い。古いビルドへ戻したとき (#recreate) は放置され、新ビルドで
+ * `CREATE TABLE IF NOT EXISTS` が合流させる）。
+ */
+const SHARED_CONTENT_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS shared_content_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  excludeNames TEXT NOT NULL
+);
+`;
+
 const CREATE_TABLES = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -497,6 +512,7 @@ ${TITLE_SUMMARY_SETTINGS_TABLE}
 ${SECRETS_TABLE}
 ${SHARED_CONTENTS_TABLE}
 ${CLOUDFLARE_SETTINGS_TABLE}
+${SHARED_CONTENT_SETTINGS_TABLE}
 ${SPACES_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
@@ -517,7 +533,8 @@ DROP TABLE IF EXISTS web_search_settings;
 DROP TABLE IF EXISTS web_search_provider_keys;
 DROP TABLE IF EXISTS title_summary_settings;
 `;
-// secrets / shared_contents / cloudflare_settings は意図的に含めない (docs/secrets.md / docs/static-sharing.md)。
+// secrets / shared_contents / cloudflare_settings / shared_content_settings は意図的に含めない
+// (docs/secrets.md / docs/static-sharing.md)。
 // 列追加も #migrate() にだけ足し、既存行を書き換える移行はしない。
 
 /**
@@ -1073,6 +1090,7 @@ export class AppDb {
       this.#query((db) => db.exec(SECRETS_TABLE));
       this.#query((db) => db.exec(SHARED_CONTENTS_TABLE));
       this.#query((db) => db.exec(CLOUDFLARE_SETTINGS_TABLE));
+      this.#query((db) => db.exec(SHARED_CONTENT_SETTINGS_TABLE));
       this.#query((db) => db.exec(SPACES_TABLE));
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない
@@ -1172,6 +1190,35 @@ export class AppDb {
   /** 行を消して未設定へ戻す (既定名を保存し直すと、以後の既定の更新に追随しなくなる) */
   resetArchiveExcludeNames(): boolean {
     return this.#query((db) => db.prepare("DELETE FROM archive_settings WHERE id = 1").run().changes > 0);
+  }
+
+  // --- shared content settings (共有の除外名。1 行だけ。行が無い = 未設定) ---
+
+  readSharedContentExcludeNames(): string[] | undefined {
+    return this.#query((db) => {
+      const row = db.prepare("SELECT * FROM shared_content_settings WHERE id = 1").get() as Row | undefined;
+      if (!row) return undefined;
+      const names = jsonArrayColumn<string>("shared_content_settings", "excludeNames", row.excludeNames);
+      // 行がある以上は配列のはず。壊れた値は黙って既定へ落とさず、archive_settings と同じく 503 にする
+      if (!names) throw new Error("shared_content_settings.excludeNames is not a JSON array");
+      return names;
+    }, "shared_content_settings");
+  }
+
+  saveSharedContentExcludeNames(names: readonly string[]): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO shared_content_settings (id, excludeNames) VALUES (1, ?)
+           ON CONFLICT(id) DO UPDATE SET excludeNames = excluded.excludeNames`,
+        )
+        .run(JSON.stringify(names)),
+    );
+  }
+
+  /** 行を消して未設定へ戻す (既定名を保存し直すと、以後の既定の更新に追随しなくなる) */
+  resetSharedContentExcludeNames(): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM shared_content_settings WHERE id = 1").run().changes > 0);
   }
 
   // --- provider credentials (GUI から登録したプロバイダー API キー) ---

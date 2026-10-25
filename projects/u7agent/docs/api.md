@@ -27,12 +27,13 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/questions/:toolCallId/answer`、`/events`、`/settings`、`/title`、`/move`、`/stop`、`/compact` | [api-sessions.md](api-sessions.md) |
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
+| 共有の除外名（設定 → 共有 `/settings/sharing` の「公開の除外」） | `GET/PUT/DELETE /api/settings/shared-content-exclusions` | このファイル、[static-sharing.md](static-sharing.md#公開の除外) |
 | プロバイダーAPIキーとメモ（設定 → モデル `/settings/models`） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync`、`POST/DELETE /api/settings/models/:provider/login`、`POST /api/settings/models/:provider/login/code`、`POST /api/settings/models/:provider/logout`、`POST /api/settings/models/catalog/refresh` | このファイル、[model-settings.md](model-settings.md) |
 | コンテンツ生成（設定 → コンテンツ生成 `/settings/content`） | `GET/PUT /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`POST /api/settings/content/speech/preview`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
 | Web 検索の設定（設定 → Web 検索 `/settings/web-search`） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
 | 会話タイトルの設定（設定 → 会話タイトル `/settings/session-title`） | `GET/PUT /api/settings/session-title` | このファイル、[session-title.md](session-title.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
-| 共有コンテンツ（公開・更新・停止・再公開・削除）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare` | [static-sharing.md](static-sharing.md) |
+| 共有コンテンツ（公開・更新・停止・再公開・削除）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare`、`/api/settings/shared-content-exclusions` | [static-sharing.md](static-sharing.md) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview`・`/export`・`/export/check`・`/import` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
@@ -398,6 +399,18 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 400: 形が違う本文、または 1 セグメント名として不正な名前（空・`.`・`..`・`/`・`\`・制御文字・`maxNameLength` 超）と `maxNames` 超。文言は `除外名に使えない名前があります: <name>` / `除外名は 100 件までです` で、画面はそのまま出す
 - 保存 / リセットの応答も GET と同じ形で、`excludeNames` は保存後の実効値になる
 - 変更は次のダウンロードから効く（BFF はリクエストごとに実効値をサンドボックスへ渡す。[sandbox-api.md](sandbox-api.md#get-v1filesdownload)）
+
+## 共有の除外名
+
+設定 → 共有の「公開の除外」（`/settings/sharing/exclusions`）。Cloudflare へ公開するときに落とす名前で、ダウンロードの除外とは保存行も既定も別（[static-sharing.md](static-sharing.md#公開の除外)）。
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/settings/shared-content-exclusions` | 現在の一覧（実効値）と、未設定かどうか・上限を返す |
+| PUT | `/api/settings/shared-content-exclusions` | 一覧を丸ごと差し替える（空配列は「除外なし」） |
+| DELETE | `/api/settings/shared-content-exclusions` | 保存行を消して未設定へ戻す（既定名を保存し直さない） |
+
+3 ルートともアーカイブの除外名と同じ形を返す（`excludeNames` / `defaultExcludeNames` / `overridden` / `maxNames` / `maxNameLength`）。値の検証も同じで、追加で `index.html` を拒否する（名前は全階層一致なので、入れ子の `index.html` も落とせなくなる）。400 の文言は `index.html は公開に必要なため除外できません`。壊れた保存値（JSON 配列でない）は 503。
 
 ## 利用可能なモデルとプロバイダーAPIキー
 
@@ -770,13 +783,13 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 プレビュー（`GET /api/shared-contents/preview`）は、公開と同じ対象解決と sandbox の計画（`GET /v1/files/download/plan`）を使い、公開したときに上がるものを先に見せる。応答は `{ sourcePath, entries, bytes, files, truncated, links, linksTruncated, oversizeFiles, oversizeTruncated, hasIndexHtml, skipped, excludeNames, limited, problems }`。
 
 - 件数はディレクトリも数える。`files` / `links` / `oversizeFiles` は先頭だけを返し、それぞれ打ち切りの印を持つ。`links` は symlink / 特殊ファイルで、公開されない
-- `excludeNames` は実効の除外名で、Phase 1 は共有の除外設定がまだ無いため空。公開も同じ空（明示 `exclude=`）で取得する
+- `excludeNames` は実効の除外名（公開の除外の設定。対象ディレクトリ自身の名前は落とした後）。公開も同じ値（明示 `exclude=`）で取得する
 - 合計サイズ・件数の上限超過（413）は `limited: true` にし、`entries` / `bytes` / `hasIndexHtml` は `null`、一覧は空、`problems` は上限超過の 1 件だけにする（走査が終わっていないので `index.html` の不在は判定しない）
 - `limited: false` のときだけ `index.html` 不在と 1 ファイル 25 MiB 超を `problems` に入れる。問題なしと言い切らない（秘密値の検査は ZIP を読むまでできない）
 - パス不正は 400、セッションなしは 404、`directory` がファイルなら 409、サンドボックス未設定は 503。Cloudflare の資格情報は使わない（接続未登録でも見られる）
 - `GET /api/shared-contents/:id` と衝突しないよう、専用のルートを先に登録する
 - 一覧は `sessionId` クエリで絞れる（共有ダイアログの「この会話の共有物」）。省略時は全件、空文字は指定なしとして扱う。
-- ソースは sandbox の `GET /v1/files/download?path=<dir>&exclude=`（明示空）で全量 ZIP を取得し、`index.html` の存在、10,000 entries / 100 MiB / 1 ファイル 25 MiB、パス・symlink、既知の秘密値を検証する。違反は部分公開せず `failed`（更新なら前回の状態 + `lastError`）。
+- ソースは sandbox の `GET /v1/files/download?path=<dir>&exclude=…`（受付時に解決した公開の除外名。空でも明示）で全量 ZIP を取得し、`index.html` の存在、10,000 entries / 100 MiB / 1 ファイル 25 MiB、パス・symlink、既知の秘密値を検証する。違反は部分公開せず `failed`（更新なら前回の状態 + `lastError`）。
 - 資格情報が未登録なら 409。保存済みの `providerAccount` が現在の接続と違う場合も 409。
 - 停止・再公開・削除は `sourcePath` とセッションを必要としない（セッションを削除しても管理できる）。セッション / ソースが要るのは更新だけ。
 - 停止は `published` と、結果不明で `publishing` のまま残った行から受け付ける。`failed` / `stopped` と進行中の `publishing` は 409。再公開は `stopped` だけ。削除は `publishing` を一律で 409 にし、停止で状態を確定させてから行う。
