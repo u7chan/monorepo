@@ -51,8 +51,8 @@ export const SHARED_CONTENT_ACCOUNT_MISMATCH =
 export const SHARED_CONTENT_SESSION_REQUIRED = "セッションが削除されているため、この共有物は更新できません";
 export const SHARED_CONTENT_SOURCE_REQUIRED = "公開するディレクトリが見つかりません";
 export const SHARED_CONTENT_SANDBOX_UNAVAILABLE = "サンドボックスが利用できないため公開できません";
-/** 公開の検証とプレビューの problems が同じ文言を使う (SPA の入口はルートの index.html だけ) */ export const SHARED_CONTENT_NO_INDEX_HTML =
-  "公開するディレクトリに index.html がありません";
+/** 公開の検証とプレビューの problems が同じ文言を使う (SPA の入口はルートの index.html だけ) */
+export const SHARED_CONTENT_NO_INDEX_HTML = "公開するディレクトリに index.html がありません";
 export const SHARED_CONTENT_NOT_DIRECTORY = "公開するディレクトリではありません";
 export const SHARED_CONTENT_BUSY = "公開処理中です。完了してから操作してください";
 export const SHARED_CONTENT_NOT_UPDATABLE = "この状態からは公開できません";
