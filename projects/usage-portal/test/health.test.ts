@@ -1,9 +1,23 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { createApp } from "../src/server/app";
+import { createAuthService } from "../src/server/auth";
 import { buildHealthReport, type AuthStatus, type DatabaseStatus } from "../src/server/health";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const dirs: string[] = [];
 
 function appWith(db: DatabaseStatus, auth: AuthStatus) {
-  return createApp({ health: () => buildHealthReport(db, auth) });
+  const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-health-"));
+
+  dirs.push(dataDir);
+
+  const service = createAuthService({ dataDir });
+
+  service.ensureSessionKey();
+
+  return createApp({ auth: service, health: () => buildHealthReport(db, auth) });
 }
 
 describe("GET /api/health", () => {
@@ -12,6 +26,13 @@ describe("GET /api/health", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, service: "usage-portal", db: "ok", auth: "ok" });
+  });
+
+  test("PIN 未設定（setup_required）は故障ではないので 200 と ok: true を返す", async () => {
+    const res = await appWith("ok", "setup_required").request("/api/health");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, service: "usage-portal", db: "ok", auth: "setup_required" });
   });
 
   test("DB が error なら 503 と db: error を返す", async () => {
@@ -48,4 +69,10 @@ describe("GET /api/health", () => {
   test("利用枠の API はまだ公開していない", async () => {
     expect((await appWith("ok", "ok").request("/api/usage")).status).toBe(404);
   });
+});
+
+afterAll(() => {
+  for (const dir of dirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

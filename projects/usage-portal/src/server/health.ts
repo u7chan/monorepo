@@ -1,7 +1,7 @@
 export const SERVICE_NAME = "usage-portal";
 
 export type DatabaseStatus = "ok" | "error";
-export type AuthStatus = "ok" | "misconfigured";
+export type AuthStatus = "ok" | "setup_required" | "misconfigured";
 
 export type HealthReport = {
   ok: boolean;
@@ -11,5 +11,8 @@ export type HealthReport = {
 };
 
 export function buildHealthReport(db: DatabaseStatus, auth: AuthStatus): HealthReport {
-  return { ok: db === "ok" && auth === "ok", service: SERVICE_NAME, db, auth };
+  // PIN 未設定は初回セットアップ待ちであり、故障ではない。healthcheck で unhealthy にしない。
+  const ok = db === "ok" && auth !== "misconfigured";
+
+  return { ok, service: SERVICE_NAME, db, auth };
 }

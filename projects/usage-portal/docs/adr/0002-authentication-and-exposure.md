@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-25
+- Superseded by: [ADR 0003](./0003-pin-storage-and-session-key.md)（PIN ハッシュと署名鍵の保存方法。認証方式と公開範囲はこの ADR のまま）
 
 ## 背景
 
