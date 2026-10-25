@@ -122,7 +122,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
   const notifications = useNotifications();
   // アーカイブの除外名はツリーの行の出し分けにも使うため、同じく facade が持つ
   const archiveSettings = useArchiveSettings();
-  // 共有の除外名は 設定 → 共有「公開の除外」と共有ダイアログの件数が同じ実効値を見るよう facade が持つ
+  // 共有の除外名は 設定 → 共有「公開の除外」のタブへ App から prop で渡す（他の設定画面と同じく facade が 1 つ持つ）
   const sharedContentExclusions = useSharedContentExclusions();
   const {
     sessions,
