@@ -2,7 +2,7 @@
  * 共有ダイアログの文言と状態の見せ方。公開は非同期なので、`publishing` の間だけポーリングし、
  * 終端は `status` と `lastError` の組で読む（契約は docs/static-sharing.md）。
  */
-import type { CreateSharedContentBody, SharedContentResponse } from "../types";
+import type { CreateSharedContentBody, SessionSummary, SharedContentResponse } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
 
 /** 状態を読み直す間隔。公開ジョブの所要は数十秒なので、待ちすぎず叩きすぎない値にする */
@@ -313,6 +313,18 @@ export function sharedContentSessionMissing(
   sessionsLoaded: boolean,
 ): boolean {
   return sessionsLoaded && !sessionIds.has(item.sessionId);
+}
+
+/**
+ * 公開元の会話。削除済みと同じ材料で解決し、会話一覧が信頼できない間は見つからない扱いにする
+ * (推測の所属で別スペースへ飛ばさない)。
+ */
+export function sharedContentSession(
+  item: Pick<SharedContentResponse, "sessionId">,
+  sessions: readonly SessionSummary[],
+  sessionsLoaded: boolean,
+): SessionSummary | undefined {
+  return sessionsLoaded ? sessions.find((session) => session.sessionId === item.sessionId) : undefined;
 }
 
 /** 更新の確認。再公開する前に、対象の共有物と読み直す source_path を必ず見せる */

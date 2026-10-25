@@ -30,6 +30,8 @@ export type SharingSettingsPageProps = SettingsPageProps & {
   /** 会話一覧がいま信頼できるか（初回取得に成功し、直近の取得が失敗していない）。
    * 信頼できない間は「削除済み」と言い切らず、更新も無効にしない */
   sessionsLoaded: boolean;
+  /** 共有物の公開元の会話を開く。会話が見つからない共有物では呼ばれない */
+  onOpenSession?: (sessionId: string, spaceId?: string) => void;
 };
 
 /**
@@ -50,6 +52,7 @@ export function SharingSettingsView({
   onOpenArchiveExclusions,
   sessions,
   sessionsLoaded,
+  onOpenSession,
   sharingSubsection,
   onSelectSharingSubsection,
   singleColumn,
@@ -157,6 +160,7 @@ export function SharingSettingsView({
           sessionsLoaded={sessionsLoaded}
           filter={filter}
           onOpenConnections={() => onSelectSharingSubsection("connections")}
+          onOpenSession={onOpenSession}
         />
       ) : exclusionsTab ? (
         <SharedContentExclusionsTab
