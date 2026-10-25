@@ -4,13 +4,13 @@ import { useMessageCopy } from "../../hooks/useMessageCopy";
 import type { SharedContentsManager } from "../../hooks/useSharedContentsManager";
 import { useViewportWidth } from "../../hooks/useViewportWidth";
 import {
-  filterSharedContents,
   sharedContentDeleteConfirm,
   sharedContentSession,
   sharedContentSessionMissing,
   sharedContentUpdateConfirm,
   SHARED_CONTENT_NO_CREDENTIALS_NOTE,
   type SharedContentsFilter,
+  visibleSharedContents,
 } from "../../lib/sharedContents";
 import type { SessionSummary, SharedContentResponse } from "../../types";
 import { KeyIcon, ShareIcon, WarningIcon } from "../icons";
@@ -47,7 +47,7 @@ export function SharedContentsTab({
   const narrow = useViewportWidth() < NARROW_MAX_WIDTH;
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const sessionIds = useMemo(() => new Set(sessions.map((session) => session.sessionId)), [sessions]);
-  const visible = filterSharedContents(contents.items, filter);
+  const visible = visibleSharedContents(contents.items, filter);
   const sessionMissing = (item: SharedContentResponse) => sharedContentSessionMissing(item, sessionIds, sessionsLoaded);
 
   const update = async (item: SharedContentResponse) => {
