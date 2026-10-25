@@ -5,6 +5,7 @@ import { cn } from "../lib/cn";
 import {
   SHARE_CLOSE_HINT,
   SHARE_CONFIRM_NOTES,
+  SHARE_CONFIRM_SUMMARY,
   SHARE_DUPLICATE_NOTE,
   SHARE_DUPLICATE_PUBLISHING_NOTE,
   SHARE_NAME_MAX_LENGTH,
@@ -17,6 +18,7 @@ import {
 import { sharePreviewSummary } from "../lib/sharedContentPreview";
 import type { SharedContentResponse } from "../types";
 import { ExternalLinkIcon, RunSpinnerIcon, ShareIcon, WarningIcon } from "./icons";
+import { CollapsibleNotice } from "./CollapsibleNotice";
 import { LoadingMark } from "./LoadingMark";
 
 /** 行の ⋯ から渡す公開対象 */
@@ -55,12 +57,16 @@ export type ShareContentDialogViewProps = {
   onClose: () => void;
 };
 
+/** ダイアログの 2 タブ。開閉で捨てるローカル状態で、URL には載せない */
+type ShareTab = "publish" | "items";
+
 export function ShareContentDialogView({ target, share, singleColumn = false, onClose }: ShareContentDialogViewProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   // 表示名は作成時にだけ決める (既存の共有物の名前は 設定 → 共有 でも変えない)
   const [name, setName] = useState(target.defaultName);
+  const [tab, setTab] = useState<ShareTab>("publish");
   const active = share.activeId === null ? undefined : share.items.find((item) => item.id === share.activeId);
   // 受付した 1 件は上の結果に出す (同じ URL とボタンを一覧にも並べない)。閉じて開き直すと一覧だけになる
   const listed = share.activeId === null ? share.items : share.items.filter((item) => item.id !== share.activeId);
@@ -70,6 +76,8 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
   // (公開が終わったと確認できるまで、閉じても続く案内を消さない)
   const busy =
     share.submitting || (share.activeId !== null && (active === undefined || active.status === "publishing"));
+  // 受付後は結果と再送の導線を混ぜないため「公開」タブへ固定する (一覧は 設定 → 共有 で管理する)
+  const activeTab: ShareTab = started ? "publish" : tab;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -98,6 +106,8 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy || started || publishing) return;
+    // フッターは両タブに出すので、一覧側から確定しても結果は「公開」タブに出す
+    setTab("publish");
     void share.share(target.directory, name);
   };
 
@@ -124,7 +134,7 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
         "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
         singleColumn
           ? "m-0 h-dvh max-h-none w-screen max-w-none rounded-none border-0"
-          : "m-auto max-h-[min(88dvh,760px)] w-[min(420px,92vw)] rounded-xl border shadow-panel",
+          : "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] rounded-xl border shadow-panel",
       )}
     >
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
@@ -138,88 +148,116 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
       </header>
 
       <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-        <div className="grid min-h-0 flex-1 scrollbar-thin content-start gap-3.5 overflow-y-auto px-4 py-3.5 text-xs leading-relaxed">
-          <div className="grid gap-0.5">
-            <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
-              公開するディレクトリ
-            </span>
-            {/* 長いパスでも横に溢れないよう、折り返しは code の break-all に任せる */}
-            <code className="block min-w-0 rounded-md border border-line bg-soft px-2 py-1.5 text-2xs break-all text-ink-soft">
-              {target.directory}
-            </code>
-            <span className="text-1xs text-ink-muted">この会話の作業フォルダからの相対パスです。</span>
+        {/* タブは本文と外へ分けて固定する (切り替えてもヘッダ・フッターの位置が動かない) */}
+        <div role="tablist" aria-label="共有の表示" className="flex min-w-0 shrink-0 gap-1 border-b border-line px-4">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "publish"}
+            onClick={() => setTab("publish")}
+            className={cn("tab-item", activeTab === "publish" && "tab-item-active")}
+          >
+            公開
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "items"}
+            // 受付後は結果と一覧の導線を混ぜないため「公開」タブに固定する
+            disabled={started}
+            onClick={() => setTab("items")}
+            className={cn(
+              "tab-item disabled:cursor-not-allowed disabled:opacity-45",
+              activeTab === "items" && "tab-item-active",
+            )}
+          >
+            共有物（{share.items.length}）
+          </button>
+        </div>
+
+        {/* スクロールは本文にだけ残す。切り替えない面も描いたまま hidden で隠し、開閉で入力欄を作り直さない */}
+        <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto px-4 py-3.5 text-xs leading-relaxed">
+          <div hidden={activeTab !== "publish"} className="grid content-start gap-3.5">
+            <div className="grid gap-0.5">
+              <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
+                公開するディレクトリ
+              </span>
+              {/* 長いパスでも横に溢れないよう、折り返しは code の break-all に任せる */}
+              <code className="block min-w-0 rounded-md border border-line bg-soft px-2 py-1.5 text-2xs break-all text-ink-soft">
+                {target.directory}
+              </code>
+              <span className="text-1xs text-ink-muted">この会話の作業フォルダからの相対パスです。</span>
+            </div>
+
+            {started ? null : (
+              <>
+                <label className="grid gap-1">
+                  <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">表示名</span>
+                  <input
+                    type="text"
+                    value={name}
+                    maxLength={SHARE_NAME_MAX_LENGTH}
+                    // 空欄で送ると API がディレクトリ名へ落とす (root はセッション ID になる)
+                    placeholder="未入力ならディレクトリ名"
+                    onChange={(event) => setName(event.currentTarget.value)}
+                    className="field text-xs"
+                  />
+                  {/* URL は共有物の id から作る script 名で決まり、表示名では変わらない */}
+                  <span className="text-1xs text-ink-muted">表示名です。公開 URL は変わりません</span>
+                </label>
+                {duplicate === undefined ? null : (
+                  <p className="break-words text-warn">
+                    {publishing ? SHARE_DUPLICATE_PUBLISHING_NOTE : SHARE_DUPLICATE_NOTE}
+                  </p>
+                )}
+                <SharePreview state={share.preview} />
+                {/* 4 行は毎回読ませたい量ではないので畳み、summary だけで要点が読めるようにする */}
+                <CollapsibleNotice summary={SHARE_CONFIRM_SUMMARY}>
+                  {SHARE_CONFIRM_NOTES.map((note) => (
+                    <p key={note}>{note}</p>
+                  ))}
+                </CollapsibleNotice>
+              </>
+            )}
+
+            {share.error === undefined ? null : (
+              <p role="alert" className="break-words text-warn">
+                {share.error}
+              </p>
+            )}
+
+            {started ? <ShareOutcome active={active} submitting={share.submitting} /> : null}
+
+            {/* 閉じると受付済みの表示は失われるが、公開はサーバー側で続く。閉じるは塞がない */}
+            {busy ? <p className="text-1xs break-words text-ink-muted">{SHARE_CLOSE_HINT}</p> : null}
           </div>
 
-          {started ? null : (
-            <>
-              <label className="grid gap-1">
-                <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">表示名</span>
-                <input
-                  type="text"
-                  value={name}
-                  maxLength={SHARE_NAME_MAX_LENGTH}
-                  // 空欄で送ると API がディレクトリ名へ落とす (root はセッション ID になる)
-                  placeholder="未入力ならディレクトリ名"
-                  onChange={(event) => setName(event.currentTarget.value)}
-                  className="field text-xs"
-                />
-                {/* URL は共有物の id から作る script 名で決まり、表示名では変わらない */}
-                <span className="text-1xs text-ink-muted">表示名です。公開 URL は変わりません</span>
-              </label>
-              {duplicate === undefined ? null : (
-                <p className="break-words text-warn">
-                  {publishing ? SHARE_DUPLICATE_PUBLISHING_NOTE : SHARE_DUPLICATE_NOTE}
-                </p>
-              )}
-              <SharePreview state={share.preview} />
-              <ul className="grid gap-1.5">
-                {SHARE_CONFIRM_NOTES.map((note) => (
-                  <li key={note} className="flex min-w-0 gap-1.5 break-words text-ink-soft">
-                    <span className="shrink-0 text-warn">
-                      <WarningIcon />
-                    </span>
-                    <span className="min-w-0">{note}</span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {share.error === undefined ? null : (
-            <p role="alert" className="break-words text-warn">
-              {share.error}
-            </p>
-          )}
-
-          {started ? <ShareOutcome active={active} submitting={share.submitting} /> : null}
-
-          {/* 閉じると受付済みの表示は失われるが、公開はサーバー側で続く。閉じるは塞がない */}
-          {busy ? <p className="text-1xs break-words text-ink-muted">{SHARE_CLOSE_HINT}</p> : null}
-
-          {/* 受付した 1 件は上の結果に出す。他に何も無いときは空の見出しを残さない */}
-          {listed.length === 0 && active !== undefined && !share.failed ? null : (
-            <section className="grid gap-2 border-t border-line pt-3">
-              <h3 className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">この会話の共有物</h3>
-              {share.loading ? (
-                <p className="text-ink-muted">
-                  <LoadingMark />
-                </p>
-              ) : null}
-              {share.failed ? (
-                <p role="alert" className="break-words text-warn">
-                  共有物の一覧を取得できませんでした。
-                </p>
-              ) : null}
-              {!share.loading && !share.failed && listed.length === 0 ? (
-                <p className="text-ink-muted">この会話の共有物はまだありません。</p>
-              ) : null}
-              <ul className="grid gap-2">
-                {listed.map((item) => (
-                  <ShareListItem key={item.id} item={item} />
-                ))}
-              </ul>
-            </section>
-          )}
+          <div hidden={activeTab !== "items"} className="grid content-start gap-3.5">
+            {/* 受付した 1 件は「公開」タブの結果に出す。他に何も無いときは空の見出しを残さない */}
+            {listed.length === 0 && active !== undefined && !share.failed ? null : (
+              <section className="grid gap-2">
+                <h3 className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">この会話の共有物</h3>
+                {share.loading ? (
+                  <p className="text-ink-muted">
+                    <LoadingMark />
+                  </p>
+                ) : null}
+                {share.failed ? (
+                  <p role="alert" className="break-words text-warn">
+                    共有物の一覧を取得できませんでした。
+                  </p>
+                ) : null}
+                {!share.loading && !share.failed && listed.length === 0 ? (
+                  <p className="text-ink-muted">この会話の共有物はまだありません。</p>
+                ) : null}
+                <ul className="grid gap-2">
+                  {listed.map((item) => (
+                    <ShareListItem key={item.id} item={item} />
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
         </div>
 
         {/* 受付した後の閉じる導線はヘッダに 1 つだけにする (同じラベルのボタンを 2 つ並べない) */}

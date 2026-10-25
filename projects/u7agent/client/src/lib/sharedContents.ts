@@ -64,6 +64,12 @@ export function sharedContentPublishingWithSourcePath(
 }
 
 /**
+ * 確認画面の注意の summary。`SHARE_CONFIRM_NOTES` を畳んだままでも要点が読める 1 行にする
+ * （`client/src/components/CollapsibleNotice.tsx` の契約）。
+ */
+export const SHARE_CONFIRM_SUMMARY = "URL は誰でも見られます。ファイルに含めた秘密の値もそのまま公開されます。";
+
+/**
  * 確認画面に必ず出す条件。順序も含めて契約にする（公開は取り消しにくいので、押す前に全部読めるようにする）。
  * 確定した URL は受付時に決まるため、ここには URL を出さない。
  */
