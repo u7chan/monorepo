@@ -1,6 +1,6 @@
 import index from "../index.html";
 import { createApp } from "./server/app";
-import { loadAuthConfig } from "./server/auth-config";
+import { createAuthService } from "./server/auth";
 import { loadConfig } from "./server/config";
 import { openDatabase, verifyDatabase, type DatabaseHandle } from "./server/db";
 import { buildHealthReport } from "./server/health";
@@ -9,7 +9,13 @@ import { readPackageVersion, userAgentFor } from "./server/version";
 process.umask(0o077);
 
 const config = loadConfig(process.env, readPackageVersion());
-const auth = loadAuthConfig(process.env);
+const auth = createAuthService({ dataDir: config.dataDir });
+
+try {
+  auth.ensureSessionKey();
+} catch (error) {
+  console.error("セッション鍵を用意できませんでした:", error instanceof Error ? error.message : "unknown");
+}
 
 let database: DatabaseHandle | null = null;
 
@@ -20,8 +26,8 @@ try {
 }
 
 const app = createApp({
-  health: () =>
-    buildHealthReport(database && verifyDatabase(database) ? "ok" : "error", auth.ok ? "ok" : "misconfigured"),
+  auth,
+  health: () => buildHealthReport(database && verifyDatabase(database) ? "ok" : "error", auth.status()),
 });
 
 const server = Bun.serve({
@@ -34,11 +40,19 @@ const server = Bun.serve({
     // /favicon.ico を無条件に要求するクライアントへは空の応答だけ返して 404 にしない。
     "/favicon.ico": () => new Response(null, { status: 204 }),
   },
-  fetch: (request) => app.fetch(request),
+  // Bun の server を env として渡す。connection info (レート制限のキー) はここからしか取れない。
+  fetch: (request, server) => app.fetch(request, { server }),
 });
+
+const authState = auth.status();
 
 console.log(`usage-portal を起動しました: http://${config.host}:${server.port}`);
 console.log(`User-Agent: ${userAgentFor(config.version)}`);
+console.log(
+  authState === "setup_required"
+    ? "PIN は未設定です。初回アクセスでセットアップしてください。"
+    : `認証の状態: ${authState}`,
+);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {

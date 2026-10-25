@@ -8,7 +8,7 @@ Codex と OpenCode Go の利用枠を 1 ページで見る読み取り専用ダ�
 
 - Bun 1.3（runtime / package manager / bundler / test）
 - TypeScript（strict）+ Preact 11（client）
-- Hono（BFF）。`hc` で server の `AppType` を共有する
+- Hono（BFF）。`AppType` を server 側の型の正として export する
 - `bun:sqlite`（ORM なし）
 - 素の CSS（`--up-` 接頭辞の CSS 変数）
 - oxlint / oxfmt / tsc / bun:test
@@ -16,9 +16,10 @@ Codex と OpenCode Go の利用枠を 1 ページで見る読み取り専用ダ�
 ## 構成
 
 - `src/server.ts` が `Bun.serve` の入口。`index.html` の HTML import を `/` に、それ以外を Hono に渡す。
-- `src/server/app.ts` が API の Hono app。DB や認証設定は依存として注入し、テストは `app.request()` で叩く。
+- `src/server/app.ts` が API の Hono app。認証は `src/server/auth.ts` を依存として注入し、テストは `app.request()` で叩く。
+- 認証状態は環境変数ではなく `DATA_DIR` 配下のファイル（`pin-hash` / `session-key`）に持つ。理由は [docs/adr/0003-pin-storage-and-session-key.md](docs/adr/0003-pin-storage-and-session-key.md)。
 - `src/server/db.ts` は SQLite の open、migration、権限だけを持つ。取得（sampler）と provider adapter は後続の PR で足す。
-- client は `hc` で `AppType` を参照する。状態管理・UI コンポーネント・日付整形のライブラリは足さない（[docs/adr/0000-stack-and-style.md](docs/adr/0000-stack-and-style.md)）。
+- client は `src/client/api.ts` で API を呼ぶ。`hc` は validator を入れるまで request body の型を共有できないため使わない（ADR 0003）。状態管理・UI コンポーネント・日付整形のライブラリは足さない（[docs/adr/0000-stack-and-style.md](docs/adr/0000-stack-and-style.md)）。
 - `docs/design.md` は親 checkout の写し。このプロジェクトでは書き換えない。決定と背景は `docs/adr/` に足す。
 
 ## 検証
@@ -35,7 +36,7 @@ Docker は `docker build --target test -t usage-portal-test ./projects/usage-por
 ユーザーから見た振る舞いが同じなら、実装方法を変えてもテストが通る形にする。
 
 - 純関数（整形、判定、環境変数の検証）と BFF の契約（status、body、ヘッダー）を自動テストする。
-- SQLite は一時ディレクトリに本物を作り、DDL、`user_version`、権限を確認する。モックの DB は使わない。
+- SQLite と認証状態のファイルは一時ディレクトリに本物を作り、DDL、`user_version`、権限、排他を確認する。モックの DB は使わない。
 - DOM テストは書かない。見た目はブラウザで確認する。
 - lint と typecheck が保証する内容を unit test で重複して固定しない。
 
