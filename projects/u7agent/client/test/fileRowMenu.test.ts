@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
-import { fileRowActions, type FileRowAction } from "../src/lib/fileRowMenu";
+import { fileRowActions, fileRowShareTarget, type FileRowAction } from "../src/lib/fileRowMenu";
 import {
   nextRowMenuIndex,
   ROW_MENU_GAP,
@@ -49,6 +49,13 @@ const shareDir = {
   description: "Cloudflare へ静的公開（サービスは一時プレビュー）",
   descriptionKind: "disclosure",
 };
+/** root 直下の index.html 行の共有。ファイル行なのにフォルダ全体が上がることを 2 行目で開示する */
+const shareSessionRoot = {
+  kind: "share",
+  label: "このフォルダを共有",
+  description: "index.html と同じフォルダの成果物を公開",
+  descriptionKind: "disclosure",
+};
 const deleteDir = { kind: "delete", label: "削除", danger: true };
 
 test("出し分け: パスをコピー → ダウンロード → リネーム → 削除 を画面 / 種類 / symlink / 除外名どおりに返す", () => {
@@ -81,6 +88,59 @@ test("出し分け: 共有は共有できる面のディレクトリ行だけに
   // 設定 → ファイル は directory の基準が違うため共有を出さない (canShare を渡さない)
   assert.deepEqual(fileRowActions(base), [copyPath, downloadDir, deleteDir]);
   assert.equal(fileRowActions({ ...base, canShare: true, readOnly: true }), null);
+});
+
+// 作業フォルダ自身 (root 直下の index.html) の共有。ディレクトリ行の「共有」とは別の項目で、
+// プロジェクト会話では出さない (呼び出し側の canShareSessionRoot が判断する)。
+test("出し分け: root の index.html 行だけ「このフォルダを共有」を出し、対象は親 (.) になる", () => {
+  const rootIndex = { ...base, name: "index.html", type: "file" as const, depth: 0, canShare: true };
+  assert.deepEqual(fileRowActions({ ...rootIndex, canShareSessionRoot: true }), [
+    copyPath,
+    shareSessionRoot,
+    { kind: "download", label: "ダウンロード" },
+    deleteDir,
+  ]);
+  // canShareSessionRoot を渡さない / false の面では出さない (設定 → ファイル・プロジェクト会話・旧サーバー)
+  for (const canShareSessionRoot of [undefined, false]) {
+    const actions = fileRowActions({ ...rootIndex, canShareSessionRoot });
+    assert.equal(
+      actions?.some((action) => action.label === shareSessionRoot.label),
+      false,
+      String(canShareSessionRoot),
+    );
+  }
+  // サブディレクトリの index.html はディレクトリ行の「共有」で足りる (深さ 1 以上では出さない)
+  const nested = fileRowActions({ ...rootIndex, depth: 1, canShareSessionRoot: true });
+  assert.equal(
+    nested?.some((action) => action.label === shareSessionRoot.label),
+    false,
+  );
+  // index.html 以外のファイル、ディレクトリ行、symlink にも出さない
+  for (const props of [{ name: "app.html" }, { type: "dir" as const, name: "index.html" }, { symlink: true }]) {
+    const actions = fileRowActions({ ...rootIndex, ...props, canShareSessionRoot: true });
+    assert.equal(
+      actions?.some((action) => action.label === shareSessionRoot.label),
+      false,
+      JSON.stringify(props),
+    );
+  }
+  // 共有の対象: ファイル行は親 (root 直下は ".")、ディレクトリ行は自分自身
+  assert.equal(fileRowShareTarget({ type: "file", path: "index.html", parent: "." }), ".");
+  assert.equal(fileRowShareTarget({ type: "dir", path: "site", parent: "." }), "site");
+  assert.equal(fileRowShareTarget({ type: "file", path: "site/index.html", parent: "site" }), "site");
+});
+
+test("出し分け: ディレクトリ行の「共有」はセッション種別に関係なく出し続ける", () => {
+  // canShareSessionRoot (作業フォルダ自身の入口) はプロジェクト会話で false になるが、
+  // ディレクトリ行の「共有」は canShare だけで決まる (既存の共有をプロジェクト会話でも使えるままにする)
+  for (const canShareSessionRoot of [true, false]) {
+    assert.deepEqual(fileRowActions({ ...base, canShare: true, canShareSessionRoot }), [
+      copyPath,
+      shareDir,
+      downloadDir,
+      deleteDir,
+    ]);
+  }
 });
 
 test("出し分け: symlink はパスをコピーだけ、除外名はダウンロードを落とし、readOnly は領域ごと消す", () => {

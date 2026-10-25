@@ -46,3 +46,12 @@ export function sessionFilesDefaultOpen({ singleColumn, projectId }: SessionFile
  * 隠さない (見たいときの逃げ道。docs/file-preview.md)。
  */
 export const SESSION_FILES_HIDDEN_NAMES: readonly string[] = [".git"];
+
+/**
+ * ファイル行から作業フォルダ自身 (ルート直下の `index.html`) を共有できるか。
+ * プロジェクト会話の root はプロジェクト全体の公開になるため、一覧 DTO の `projectSession` が
+ * **明示的な false** のときだけ許可する (`undefined` = 旧サーバー / 未ロードは出さない側へ倒す)。
+ */
+export function canShareSessionRoot(input: { sessionId?: string; projectSession?: boolean }): boolean {
+  return (input.sessionId ?? "") !== "" && input.projectSession === false;
+}

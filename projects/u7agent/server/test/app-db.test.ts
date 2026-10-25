@@ -1252,7 +1252,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 27);
+    assert.equal(APP_DB_SCHEMA_VERSION, 28);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -2280,6 +2280,7 @@ test("migrates a v23 db additively and adds the sharing tables", () => {
       "sessionId",
       "name",
       "sourcePath",
+      "sourceKind",
       "provider",
       "providerAccount",
       "remoteId",
@@ -2333,6 +2334,85 @@ test("migrates a v23 db additively and adds the sharing tables", () => {
       5,
       "重複しなかった行だけが入る",
     );
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// v27 までの shared_contents には公開元の種類が無く、すべて配下ディレクトリの公開だった。
+// 移行で足す列は既存行を directory で埋め、新規行は書き込んだ値を再オープン後も読む。
+test("migrates a v27 db additively and round-trips shared_contents.sourceKind", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw
+      .prepare(
+        `INSERT INTO shared_contents
+           (id, sessionId, name, sourcePath, sourceKind, provider, providerAccount, remoteId, status, createdAt,
+            updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run("old", "0123456789", "old", "projects/app/dist", "directory", "cloudflare", "acc-a", null, "failed", 1, 1);
+    // v27 相当へ戻す (列を落とし、版を下げる)
+    raw.exec("ALTER TABLE shared_contents DROP COLUMN sourceKind");
+    raw.exec("PRAGMA user_version = 27");
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    assert.equal(db.getSharedContent("old")?.sourceKind, "directory", "移行前からある行は directory");
+    db.insertSharedContent({
+      id: "root",
+      sessionId: "0123456789",
+      name: "root",
+      sourcePath: ".u7agent/sessions/0123456789",
+      sourceKind: "session-root",
+      provider: "cloudflare",
+      providerAccount: "acc-a",
+      remoteId: "u7s-root",
+      publicUrl: "https://u7s-root.demo.workers.dev/",
+      status: "published",
+      createdAt: 2,
+      updatedAt: 2,
+      publishedAt: 2,
+      stoppedAt: null,
+      lastError: null,
+    });
+    // 省略時は列の既定 (directory) で入る
+    db.insertSharedContent({
+      id: "default",
+      sessionId: "0123456789",
+      name: "default",
+      sourcePath: "projects/app/site",
+      provider: "cloudflare",
+      providerAccount: "acc-a",
+      remoteId: "u7s-default",
+      publicUrl: "https://u7s-default.demo.workers.dev/",
+      status: "failed",
+      createdAt: 3,
+      updatedAt: 3,
+      publishedAt: null,
+      stoppedAt: null,
+      lastError: null,
+    });
+    db.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    const byId = new Map(reopened.listSharedContents().map((row) => [row.id, row.sourceKind]));
+    assert.deepEqual(
+      [...byId].sort(([a], [b]) => a.localeCompare(b)),
+      [
+        ["default", "directory"],
+        ["old", "directory"],
+        ["root", "session-root"],
+      ],
+    );
+    reopened.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.ok(columnNames(check, "shared_contents").includes("sourceKind"));
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
   } finally {

@@ -21,7 +21,7 @@ import {
   type CloudflareAsset,
   type CloudflareAssetsApi,
 } from "./cloudflare-api";
-import type { SharedContentRow, SharedContentStatus } from "./app-db";
+import type { SharedContentRow, SharedContentSourceKind, SharedContentStatus } from "./app-db";
 import { httpError, messageFor } from "./http";
 import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "./sandbox/client";
 import type { SandboxDownloadPlan } from "./sandbox/protocol";
@@ -64,6 +64,8 @@ export const SHARED_CONTENT_DELETE_UNSETTLED = "公開の状態が確定して�
 export const SHARED_CONTENT_RECONCILE_FAILED = "公開の結果を確認できませんでした。Cloudflare の状態を確認してください";
 export const SHARED_CONTENT_STORE_ERROR = "共有コンテンツを保存できませんでした";
 export const SHARED_CONTENT_READ_ERROR = "共有コンテンツを読み取れません";
+/** 作業フォルダ全体の公開はプロジェクト会話では受け付けない (公開範囲がプロジェクト全体になるため) */
+export const SHARED_CONTENT_PROJECT_SESSION_ROOT = "プロジェクトの会話では作業フォルダ全体を共有できません";
 
 /** ソースの検証・取得で止まったことを表す。message は利用者向けの固定文言だけ */
 class SharedContentSourceError extends Error {
@@ -114,7 +116,11 @@ export interface SharedContentStore {
 
 export interface SharedContentsOptions {
   store: SharedContentStore;
-  sessions: { workdirOfId(id: string): string | undefined };
+  /**
+   * `projectCwdOfId` は会話がプロジェクト配下かを `projectId` ではなく保存された `projectCwd` の有無で答える
+   * (登録解除で `projectId` は undefined に戻り、解除済みのプロジェクト会話が非プロジェクトに化けるため)
+   */
+  sessions: { workdirOfId(id: string): string | undefined; projectCwdOfId(id: string): string | undefined };
   workspace: SandboxWorkspaceClient | null;
   /**
    * プレビューの計画 (plan) を取るサンドボックス。workspace とは別の狭い IF で注入し、
@@ -138,7 +144,7 @@ export interface SharedContentsOptions {
 /** sandbox の ZIP を全量取得し、検証・展開して Cloudflare へ送る資産一覧を作る */
 export class SharedContentsService {
   #store: SharedContentStore;
-  #sessions: { workdirOfId(id: string): string | undefined };
+  #sessions: { workdirOfId(id: string): string | undefined; projectCwdOfId(id: string): string | undefined };
   #workspace: SandboxWorkspaceClient | null;
   #planSandbox: SandboxDownloadPlanClient | null;
   #credentials: Pick<CloudflareSettingsService, "credential">;
@@ -196,6 +202,7 @@ export class SharedContentsService {
   async preview(input: { sessionId: string; directory: string }): Promise<SharedContentPreviewResponse> {
     const sessionCwd = this.#sessions.workdirOfId(input.sessionId);
     if (!sessionCwd) throw httpError(404, "Session not found");
+    this.#assertSessionRootAllowed(input.sessionId, input.directory);
     const sourcePath = resolveSharedContentSource(this.#rootCwd, sessionCwd, input.directory);
     const sandbox = this.#planSandbox;
     if (!sandbox) throw httpError(503, SHARED_CONTENT_SANDBOX_UNAVAILABLE);
@@ -240,6 +247,7 @@ export class SharedContentsService {
     const credential = this.#requireCredentials();
     const sessionCwd = this.#sessions.workdirOfId(input.sessionId);
     if (!sessionCwd) throw httpError(404, "Session not found");
+    this.#assertSessionRootAllowed(input.sessionId, input.directory);
     const sourcePath = resolveSharedContentSource(this.#rootCwd, sessionCwd, input.directory);
     const name = normalizeSharedContentName(input.name, sourcePath);
     await this.#requireSource(sourcePath);
@@ -261,6 +269,7 @@ export class SharedContentsService {
       sessionId: input.sessionId,
       name,
       sourcePath,
+      sourceKind: this.#sourceKindOf(sourcePath, sessionCwd),
       provider: PROVIDER,
       providerAccount: credential.accountId,
       remoteId,
@@ -846,16 +855,40 @@ export class SharedContentsService {
   }
 
   #assertSourceUnderSession(sourcePath: string, sessionCwd: string): void {
+    const relative = this.#sourceRelativeToSession(sourcePath, sessionCwd);
+    // 等値 (作業フォルダ自身の公開) は許す。外へ出る指定だけを拒否する
+    if (relative.startsWith("..") || posix.isAbsolute(relative)) {
+      throw httpError(409, "公開元のディレクトリがセッションの作業フォルダ外へ移っています");
+    }
+  }
+
+  #sourceRelativeToSession(sourcePath: string, sessionCwd: string): string {
     const session = posix.isAbsolute(sessionCwd) ? sessionCwd : posix.join(this.#rootCwd, sessionCwd);
     const source = posix.join(this.#rootCwd, sourcePath);
-    const relative = posix.relative(session, source);
-    if (!relative || relative.startsWith("..") || posix.isAbsolute(relative)) {
-      throw httpError(409, "公開元のディレクトリがセッションの作業フォルダ外へ移っています");
+    return posix.relative(session, source);
+  }
+
+  #sourceKindOf(sourcePath: string, sessionCwd: string): SharedContentSourceKind {
+    return this.#sourceRelativeToSession(sourcePath, sessionCwd) === "" ? "session-root" : "directory";
+  }
+
+  #assertSessionRootAllowed(sessionId: string, directory: string): void {
+    if (!isSessionRootDirectory(directory)) return;
+    if (this.#sessions.projectCwdOfId(sessionId) !== undefined) {
+      throw httpError(409, SHARED_CONTENT_PROJECT_SESSION_ROOT);
     }
   }
 }
 
-/** session cwd + 入力ディレクトリを workspace root 相対へ解決する。root 自身は公開できない */
+/**
+ * `directory` がセッションの作業フォルダ自身を指すか。正規化の結果ではなく字面で判定する
+ * (`a/..` や `./.` も `.` に正規化されるため、正規化だけで見ると作業フォルダ全体を指せてしまう)。
+ */
+export function isSessionRootDirectory(raw: string): boolean {
+  return raw.trim().replace(/\/+$/, "") === ".";
+}
+
+/** session cwd + 入力ディレクトリを workspace root 相対へ解決する。ワークスペース root 自身は公開できない */
 export function resolveSharedContentSource(rootCwd: string, sessionCwd: string, raw: string): string {
   const directory = raw.trim();
   if (!directory) throw httpError(400, "公開するディレクトリを指定してください");
@@ -864,7 +897,11 @@ export function resolveSharedContentSource(rootCwd: string, sessionCwd: string, 
   }
   if (posix.isAbsolute(directory)) throw httpError(400, "公開するディレクトリは相対パスで指定してください");
   const normalized = posix.normalize(directory).replace(/\/+$/, "");
-  if (!normalized || normalized === "." || normalized === ".." || normalized.startsWith("../")) {
+  if (!normalized || normalized === ".." || normalized.startsWith("../")) {
+    throw httpError(400, "公開するディレクトリのパスが不正です");
+  }
+  // セッションの作業フォルダ自身を指せるのは、字面が `.` のときだけ (`.` と `./`)
+  if (normalized === "." && !isSessionRootDirectory(directory)) {
     throw httpError(400, "公開するディレクトリのパスが不正です");
   }
   // SessionStore は登録プロジェクトの cwd を root 相対で返す。絶対パスで来た場合だけ root から落とす
@@ -1076,6 +1113,8 @@ function toResponse(row: SharedContentRow): SharedContentResponse {
     sessionId: row.sessionId,
     name: row.name,
     sourcePath: row.sourcePath,
+    // 列が無い時代の行は配下ディレクトリの公開として返す (DTO では必須)
+    sourceKind: row.sourceKind ?? "directory",
     provider: row.provider,
     status: row.status,
     publicUrl: row.publicUrl,

@@ -794,9 +794,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 { "id": "…", "status": "stopped" }
 ```
 
-一覧・詳細は `{ id, sessionId, name, sourcePath, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`remoteId` / `providerAccount` は返さない。`status` の値は `SharedContentStatus`（`server/src/app-db.ts`）と schema を正とし、`lastError` は分類済みの固定文言だけを入れる。
+一覧・詳細は `{ id, sessionId, name, sourcePath, sourceKind, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`sourceKind` は公開元の種類で、`session-root` はセッションの作業フォルダ自身、`directory` はその配下のディレクトリ。`remoteId` / `providerAccount` は返さない。`status` の値は `SharedContentStatus`（`server/src/app-db.ts`）と schema を正とし、`lastError` は分類済みの固定文言だけを入れる。
 
-- `directory` はセッションの作業ディレクトリ相対。root 自身・絶対パス・`..` は 400。
+- `directory` はセッションの作業ディレクトリ相対。絶対パス・`..`・ワークスペース root 自身は 400。字面が `.`（`./` を含む）のときだけセッションの作業フォルダ自身を指し、`projectCwd` を持つプロジェクト会話では 409。`a/..` や `./.` は正規化すると `.` になるが、字面が `.` でないため 400（`foo/.` は従来どおり `foo`）。
 
 プレビュー（`GET /api/shared-contents/preview`）は、公開と同じ対象解決と sandbox の計画（`GET /v1/files/download/plan`）を使い、公開したときに上がるものを先に見せる。応答は `{ sourcePath, entries, bytes, files, truncated, links, linksTruncated, oversizeFiles, oversizeTruncated, hasIndexHtml, skipped, excludeNames, limited, problems }`。
 
@@ -804,7 +804,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `excludeNames` は実効の除外名（公開の除外の設定。対象ディレクトリ自身の名前は落とした後）。公開も同じ値（明示 `exclude=`）で取得する
 - 合計サイズ・件数の上限超過（413）は `limited: true` にし、`entries` / `bytes` / `hasIndexHtml` は `null`、一覧は空、`problems` は上限超過の 1 件だけにする（走査が終わっていないので `index.html` の不在は判定しない）
 - `limited: false` のときだけ `index.html` 不在と 1 ファイル 25 MiB 超を `problems` に入れる。問題なしと言い切らない（秘密値の検査は ZIP を読むまでできない）
-- パス不正は 400、セッションなしは 404、`directory` がファイルなら 409、サンドボックス未設定は 503。Cloudflare の資格情報は使わない（接続未登録でも見られる）
+- パス不正は 400、セッションなしは 404、`directory` がファイルなら 409、プロジェクト会話で `.` を指定したら 409（作成と同じゲート）、サンドボックス未設定は 503。Cloudflare の資格情報は使わない（接続未登録でも見られる）
 - `GET /api/shared-contents/:id` と衝突しないよう、専用のルートを先に登録する
 - 一覧は `sessionId` クエリで絞れる（共有ダイアログの「この会話の共有物」）。省略時は全件、空文字は指定なしとして扱う。
 - ソースは sandbox の `GET /v1/files/download?path=<dir>&exclude=…`（受付時に解決した公開の除外名。空でも明示）で全量 ZIP を取得し、`index.html` の存在、10,000 entries / 100 MiB / 1 ファイル 25 MiB、パス・symlink、既知の秘密値を検証する。違反は部分公開せず `failed`（更新なら前回の状態 + `lastError`）。

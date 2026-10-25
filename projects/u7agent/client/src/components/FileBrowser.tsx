@@ -44,7 +44,7 @@ import {
 import { fileKind } from "../lib/fileKind";
 import { FILE_TREE_STACK_BREAKPOINT } from "../lib/fileTreeWidth";
 import { FILE_MENTION_MIME, mentionText } from "../lib/fileMention";
-import { fileRowActions, type FileRowActionKind } from "../lib/fileRowMenu";
+import { fileRowActions, fileRowShareTarget, type FileRowActionKind } from "../lib/fileRowMenu";
 import { type FileRefRequest } from "../lib/fileRefRequest";
 import { filePreviewStore } from "../lib/filePreviewState";
 import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
@@ -117,6 +117,11 @@ export type FileBrowserProps = {
    * (ワークスペース root を指す設定 → ファイル には渡さない)
    */
   onShareDirectory?: (path: string) => void;
+  /**
+   * root 直下の `index.html` 行から作業フォルダ自身 (この面の root) を共有できるか。
+   * 非プロジェクト会話の作業フォルダ面だけ true (プロジェクト会話はサーバーが 409 で拒否する)
+   */
+  canShareSessionRoot?: boolean;
   /** プレビュー オリジン (別オリジン) のブラウザから見たポート。health から受け取り、未取得は undefined */
   filePreviewPort?: number;
 };
@@ -140,6 +145,7 @@ export function FileBrowser({
   openRequest,
   onHandled,
   onShareDirectory,
+  canShareSessionRoot = false,
   filePreviewPort,
 }: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
@@ -471,6 +477,7 @@ export function FileBrowser({
                   canRef={canRef}
                   excludeNames={excludeNames}
                   onShare={onShareDirectory}
+                  canShareSessionRoot={canShareSessionRoot}
                   onToggle={toggle}
                   onSelect={openTab}
                   onRename={renameRow}
@@ -553,6 +560,8 @@ type BranchProps = {
   excludeNames: readonly string[];
   /** 「共有」を出せる面のときだけ渡す (未指定は項目を出さない) */
   onShare?: (path: string) => void;
+  /** root 直下の `index.html` 行に「このフォルダを共有」を出すか */
+  canShareSessionRoot: boolean;
   /** reveal 対象のパス。一致する行だけ ref を付け、スクロールと一時ハイライトの対象にする */
   revealPath: string | null;
   revealRef: RefObject<HTMLDivElement | null>;
@@ -575,6 +584,7 @@ function Branch({
   canRef,
   excludeNames,
   onShare,
+  canShareSessionRoot,
   revealPath,
   revealRef,
   onToggle,
@@ -602,6 +612,7 @@ function Branch({
           canRef={canRef}
           excludeNames={excludeNames}
           onShare={onShare}
+          canShareSessionRoot={canShareSessionRoot}
           revealPath={revealPath}
           revealRef={revealRef}
           onToggle={onToggle}
@@ -644,6 +655,7 @@ function EntryRow({
   canRef,
   excludeNames,
   onShare,
+  canShareSessionRoot,
   revealPath,
   revealRef,
   onToggle,
@@ -663,6 +675,8 @@ function EntryRow({
   canRef: boolean;
   excludeNames: readonly string[];
   onShare?: (path: string) => void;
+  /** root 直下の `index.html` 行に「このフォルダを共有」を出すか */
+  canShareSessionRoot: boolean;
   revealPath: string | null;
   revealRef: RefObject<HTMLDivElement | null>;
   onToggle: (path: string) => void;
@@ -685,6 +699,8 @@ function EntryRow({
       excludeNames={excludeNames}
       absolutePath={absolutePath}
       canShare={onShare !== undefined}
+      canShareSessionRoot={canShareSessionRoot}
+      depth={depth}
       copied={copiedId === path}
       onCopyPath={() => void copyMessage(path, path)}
       onCopyAbsolutePath={() => {
@@ -694,7 +710,7 @@ function EntryRow({
       onRename={() => onRename(path, entry.name)}
       onDelete={() => onDelete(path, entry.type)}
       onDownload={() => onDownload(path, entry.name, entry.type)}
-      onShare={() => onShare?.(path)}
+      onShare={() => onShare?.(fileRowShareTarget({ type: entry.type, path, parent }))}
     />
   );
 
@@ -789,6 +805,7 @@ function EntryRow({
                 canRef={canRef}
                 excludeNames={excludeNames}
                 onShare={onShare}
+                canShareSessionRoot={canShareSessionRoot}
                 revealPath={revealPath}
                 revealRef={revealRef}
                 onToggle={onToggle}
@@ -870,6 +887,8 @@ export function EntryRowActions({
   excludeNames,
   absolutePath,
   canShare = false,
+  canShareSessionRoot = false,
+  depth,
   copied,
   onCopyPath,
   onCopyAbsolutePath,
@@ -889,6 +908,10 @@ export function EntryRowActions({
   absolutePath?: string;
   /** 「共有」(Cloudflare への静的公開) を出せる面か。未指定は出さない */
   canShare?: boolean;
+  /** root 直下の `index.html` 行に「このフォルダを共有」を出すか。未指定は出さない */
+  canShareSessionRoot?: boolean;
+  /** 行の深さ。0 = ツリーの root 直下 (root 専用の項目の出し分けに使う) */
+  depth?: number;
   /** 直前のパスコピーが成功した行。⋯ をチェックに替える */
   copied: boolean;
   /** パスをコピーする。失敗の表示は行 (EntryRow) が受け持つ */
@@ -900,7 +923,18 @@ export function EntryRowActions({
   onDownload: () => void;
   onShare?: () => void;
 }) {
-  const actions = fileRowActions({ name, type, symlink, canRename, readOnly, excludeNames, absolutePath, canShare });
+  const actions = fileRowActions({
+    name,
+    type,
+    symlink,
+    canRename,
+    readOnly,
+    excludeNames,
+    absolutePath,
+    canShare,
+    canShareSessionRoot,
+    depth,
+  });
   // null = 読み取り専用の面で行の操作ごと消す。空配列 = 領域は出すが項目が無い (空きスロット 1 個)
   if (actions === null) return null;
   if (actions.length === 0) return <EmptySlot />;

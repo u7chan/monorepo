@@ -21,7 +21,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 27;
+export const APP_DB_SCHEMA_VERSION = 28;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -169,6 +169,12 @@ export type SharedContentStatus = "publishing" | "published" | "stopped" | "fail
  * remoteId に閉じる。sourcePath はワークスペース root 相対で、作業フォルダが消えても行は残す
  * (docs/static-sharing.md)。
  */
+/**
+ * 公開元の種類。`session-root` はセッションの作業フォルダ自身、`directory` はその配下のディレクトリ。
+ * 公開元の表示と、作業フォルダ全体を公開したことの説明にだけ使う。
+ */
+export type SharedContentSourceKind = "directory" | "session-root";
+
 export interface SharedContentRow {
   id: string;
   /** 公開元のセッション。セッションを削除しても行は残す */
@@ -177,6 +183,8 @@ export interface SharedContentRow {
   name: string;
   /** ワークスペース root 相対のディレクトリ (`""` は root) */
   sourcePath: string;
+  /** 省略は `directory` (旧テストのリテラルと、列が無い時代の行を同じ形で読む) */
+  sourceKind?: SharedContentSourceKind;
   provider: string;
   /** 公開先のアカウント識別子。公開の受付時に確定して保存し、以後変えない。未受付なら null */
   providerAccount: string | null;
@@ -432,6 +440,7 @@ CREATE TABLE IF NOT EXISTS shared_contents (
   sessionId   TEXT NOT NULL,
   name        TEXT NOT NULL,
   sourcePath  TEXT NOT NULL,
+  sourceKind  TEXT NOT NULL DEFAULT 'directory',
   provider    TEXT NOT NULL,
   providerAccount TEXT,
   remoteId    TEXT,
@@ -616,12 +625,19 @@ function sharedContentStatusOf(value: unknown): SharedContentStatus {
   throw new Error("shared_contents.status is invalid");
 }
 
+/** 未知の種類は公開元の表示を誤らせないよう、行の破損として失敗させる */
+function sharedContentSourceKindOf(value: unknown): SharedContentSourceKind {
+  if (value === "session-root" || value === "directory") return value;
+  throw new Error("shared_contents.sourceKind is invalid");
+}
+
 function sharedContentOf(row: Row): SharedContentRow {
   return {
     id: text(row.id),
     sessionId: text(row.sessionId),
     name: text(row.name),
     sourcePath: text(row.sourcePath),
+    sourceKind: sharedContentSourceKindOf(row.sourceKind),
     provider: text(row.provider),
     providerAccount: optionalText(row.providerAccount) ?? null,
     remoteId: optionalText(row.remoteId) ?? null,
@@ -1115,6 +1131,8 @@ export class AppDb {
       // v21 以前に無い列 (表示順)。agents と同じく既存行は NULL のままで、listSpaces の rowid
       // タイブレークがそのまま作成順になる
       this.#addColumnIfMissing("spaces", "sortOrder", "INTEGER");
+      // v27 以前の共有物に無い列 (公開元の種類)。既存行は配下ディレクトリの公開として埋める
+      this.#addColumnIfMissing("shared_contents", "sourceKind", "TEXT NOT NULL DEFAULT 'directory'");
       // v19 以前に無い列 (質問通知)。既存行は既定 (ON) で埋める
       this.#addColumnIfMissing("notification_settings", "askUser", "INTEGER NOT NULL DEFAULT 1");
       // v22 -> v23: DB カタログの撤去。加算更新を通した後にだけ限定して消す
@@ -1434,15 +1452,16 @@ export class AppDb {
       db
         .prepare(
           `INSERT INTO shared_contents
-             (id, sessionId, name, sourcePath, provider, providerAccount, remoteId, publicUrl, status,
+             (id, sessionId, name, sourcePath, sourceKind, provider, providerAccount, remoteId, publicUrl, status,
               createdAt, updatedAt, publishedAt, stoppedAt, lastError)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           row.id,
           row.sessionId,
           row.name,
           row.sourcePath,
+          row.sourceKind ?? "directory",
           row.provider,
           row.providerAccount,
           row.remoteId,

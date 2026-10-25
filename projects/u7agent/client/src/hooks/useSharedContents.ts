@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createSharedContent, getSharedContent, getSharedContentPreview, getSharedContents } from "../api";
-import { SHARE_POLL_MS, sharePollPlan, withSharedContent } from "../lib/sharedContents";
+import { sharedContentCreateBody, SHARE_POLL_MS, sharePollPlan, withSharedContent } from "../lib/sharedContents";
 import type { SharedContentPreviewResponse, SharedContentResponse } from "../types";
 
 /**
@@ -107,11 +107,11 @@ export function useSharedContents({ sessionId, directory }: { sessionId: string;
 
   /** 受付して公開を開始する。202 の後に一覧を取り直し、以降は状態をポーリングする */
   const share = useCallback(
-    async (directory: string): Promise<void> => {
+    async (directory: string, name = ""): Promise<void> => {
       const session = sessionId;
       setState((prev) => ({ ...prev, submitting: true, error: undefined }));
       try {
-        const accepted = await createSharedContent({ sessionId: session, directory });
+        const accepted = await createSharedContent(sharedContentCreateBody({ sessionId: session, directory, name }));
         if (sessionRef.current !== session) return;
         setState((prev) => ({ ...prev, submitting: false, activeId: accepted.id }));
         await loadList();

@@ -1098,12 +1098,20 @@ export type ContentMutationResponse = z.infer<typeof ContentMutationResponseSche
 export const SharedContentStatusSchema = z.enum(["publishing", "published", "stopped", "failed"]);
 export type SharedContentStatusValue = z.infer<typeof SharedContentStatusSchema>;
 
+/**
+ * 公開元の種類。`session-root` はセッションの作業フォルダ自身 (GUI の `index.html` 行からの入口)、
+ * `directory` はその配下のディレクトリ。値の正は `server/src/app-db.ts` の `SharedContentSourceKind`
+ */
+export const SharedContentSourceKindSchema = z.enum(["directory", "session-root"]);
+export type SharedContentSourceKindValue = z.infer<typeof SharedContentSourceKindSchema>;
+
 /** GET /api/shared-contents と GET /api/shared-contents/:id。provider 固有の ID とアカウントは返さない */
 export const SharedContentResponseSchema = z.object({
   id: z.string(),
   sessionId: z.string(),
   name: z.string(),
   sourcePath: z.string(),
+  sourceKind: SharedContentSourceKindSchema,
   provider: z.string(),
   status: SharedContentStatusSchema,
   publicUrl: z.string().nullable(),
