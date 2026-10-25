@@ -97,6 +97,9 @@ export function ModelSettingsView({
     saveAvailability,
     remove,
     resync,
+    createCustom,
+    updateCustom,
+    removeCustom,
     startLogin,
     submitLoginCode,
     cancelLogin,
@@ -185,6 +188,9 @@ export function ModelSettingsView({
             onSubmitLoginCode={submitLoginCode}
             onCancelLogin={cancelLogin}
             onSignOut={signOut}
+            onCreateCustom={createCustom}
+            onUpdateCustom={updateCustom}
+            onDeleteCustom={removeCustom}
             drafts={providerDrafts}
             onChangeDraft={updateProviderDraft}
             onOpenModels={() => onSelectModelsSubsection?.(DEFAULT_MODELS_SUBSECTION)}

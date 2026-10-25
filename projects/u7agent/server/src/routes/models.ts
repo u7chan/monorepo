@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { ModelSettingsService } from "../model-settings";
 import type { OAuthLoginOutcome, OAuthLoginService } from "../oauth-login";
-import type { UpdateModelAvailabilityBody } from "../schema";
+import type { CreateCustomProviderBody, UpdateCustomProviderBody, UpdateModelAvailabilityBody } from "../schema";
 
 /**
  * 設定 → モデルのプロバイダー認証・利用可能なモデルの API。
@@ -55,6 +55,39 @@ export function createModelSettingsRoutes({
     resync: async (c: Context) => {
       const outcome = await modelSettings.resync(c.req.param("provider") ?? "");
       if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
+      return c.json(outcome.response, 200);
+    },
+
+    /**
+     * カスタムプロバイダー (オンメモリ)。DB へは何も書かないため `state` は常に `applied` で、
+     * 失敗は 400 / 503 の `{ error }` だけを返す (`not_stored` を付けない)。
+     */
+    createCustomProvider: async (c: Context, body: CreateCustomProviderBody) => {
+      const outcome = await modelSettings.createCustomProvider({
+        id: body.id,
+        name: body.name,
+        baseUrl: body.baseUrl,
+        apiKey: body.apiKey,
+        model: body.model,
+      });
+      if (outcome.status === 503) return c.json({ error: outcome.error }, 503);
+      return c.json(outcome.response, 200);
+    },
+
+    updateCustomProvider: async (c: Context, body: UpdateCustomProviderBody) => {
+      const outcome = await modelSettings.updateCustomProvider(c.req.param("provider") ?? "", {
+        name: body.name,
+        baseUrl: body.baseUrl,
+        apiKey: body.apiKey,
+        model: body.model,
+      });
+      if (outcome.status === 503) return c.json({ error: outcome.error }, 503);
+      return c.json(outcome.response, 200);
+    },
+
+    deleteCustomProvider: async (c: Context) => {
+      const outcome = await modelSettings.deleteCustomProvider(c.req.param("provider") ?? "");
+      if (outcome.status === 503) return c.json({ error: outcome.error }, 503);
       return c.json(outcome.response, 200);
     },
 

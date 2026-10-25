@@ -34,6 +34,7 @@ import {
   type ModelRef,
   type RuntimeModelsResponse,
 } from "../src/schema";
+import type { CustomProviderRuntimeConfig } from "../src/custom-providers";
 
 const KEY_A = "sk-ant-dummy-key-a-0123456789";
 const KEY_B = "sk-openai-dummy-key-b-0123456789";
@@ -105,6 +106,8 @@ function fakeRuntime(
   const catalogRefreshCalls: CatalogRefreshCall[] = [];
   /** auth.json の表示専用ビューを読んだ provider。runtime overlay があるときだけ読むことを検証する */
   const storedCredentialReads: string[] = [];
+  /** カスタムプロバイダーの登録内容。登録 API の検証に使う */
+  const registeredConfigs = new Map<string, CustomProviderRuntimeConfig>();
   const runtime: ProviderKeyRuntime = {
     list: () =>
       providers.map((entry) => ({
@@ -163,8 +166,16 @@ function fakeRuntime(
       if (commit.outcome === "applied") configured.set(provider, false);
       return commit;
     },
+    // カスタムプロバイダーの登録面。既存の provider_credentials の検証には使わないため、記録だけする
+    registerProvider: (provider, config) => {
+      registeredConfigs.set(provider, config);
+    },
+    unregisterProvider: (provider) => {
+      registeredConfigs.delete(provider);
+      configured.delete(provider);
+    },
   };
-  return { runtime, providers, calls, catalogRefreshCalls, storedCredentialReads, configured };
+  return { runtime, providers, calls, catalogRefreshCalls, storedCredentialReads, configured, registeredConfigs };
 }
 
 /** DB 面の fake。失敗フラグで AppDb の失敗経路を再現する */

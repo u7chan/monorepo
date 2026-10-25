@@ -8,6 +8,7 @@ import { MODEL_SETTINGS_NOTE, UNSET_DEFAULT_MODEL_LABEL } from "../src/lib/model
 import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 import type { ModelsSubsection } from "../src/lib/settingsNav";
 import type {
+  CustomProviderSummary,
   ModelsSettingsResponse,
   ModelMutationResponse,
   OAuthLoginState,
@@ -82,6 +83,7 @@ const SETTINGS: ModelsSettingsResponse = {
   allowedModels: ["anthropic/claude-sonnet"],
   defaultModel: null,
   ignoredEnvironmentVariables: [],
+  customProviders: [],
   providers: [
     provider({ auth: { configured: true, source: "environment", environmentVariables: ["ANTHROPIC_API_KEY"] } }),
     provider({ provider: "openai", name: "OpenAI", canSetApiKey: false, supportsOAuth: true, canSignInHere: true }),
@@ -114,6 +116,9 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
     saveAvailability: async () => SETTINGS,
     remove: async () => true,
     resync: async () => true,
+    createCustom: async () => true,
+    updateCustom: async () => true,
+    removeCustom: async () => true,
     startLogin: async () => true,
     submitLoginCode: async () => true,
     cancelLogin: async () => true,
@@ -296,6 +301,79 @@ test("プロバイダータブは一覧と詳細を分け、平文の注意を�
   assert.ok(html.includes("各項目の保存ボタンでその場で保存されます"), "キー・メモは即時保存だと区別する");
   assert.ok(html.includes("「モデルを選ぶ」タブを開く"));
   assert.ok(html.includes("モデル一覧を表示") === false, "ModelTable は削除した");
+});
+
+const CUSTOM_PROVIDER: CustomProviderSummary = {
+  id: "local-llm",
+  name: "自宅のLLM",
+  baseUrl: "http://192.0.2.10:11434/v1",
+  api: "openai-completions",
+  model: { id: "qwen2.5-coder:7b", contextWindow: 32768, maxTokens: 16384 },
+  hasKey: true,
+};
+
+function customProviderRow(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSetting {
+  return provider({
+    provider: CUSTOM_PROVIDER.id,
+    name: CUSTOM_PROVIDER.name,
+    custom: true,
+    auth: { configured: true, source: "runtime", environmentVariables: [] },
+    credentialKind: "api_key",
+    ...overrides,
+  });
+}
+
+test("カスタムプロバイダーは専用セクションに出し、通常の一覧と件数には混ぜない", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [...SETTINGS.providers, customProviderRow()],
+        customProviders: [CUSTOM_PROVIDER],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.ok(html.includes("カスタムプロバイダー"), "専用セクションの見出しを出す");
+  assert.ok(html.includes("カスタムプロバイダーを追加"), "追加の導線を出す");
+  assert.ok(html.includes("メモリのみ"), "オンメモリであることを一覧の行に出す");
+  assert.ok(html.includes("qwen2.5-coder:7b"), "一覧の行にモデル ID を出す");
+  assert.ok(html.includes("設定済み 3") && html.includes("未設定 2"), "件数にカスタムを含めない");
+  // 既定の選択は通常の provider なので、通常の詳細（キー・メモ）を出す
+  assert.ok(html.includes("メモ（キー本体は書かないでください）"), "通常の詳細はこれまでどおり");
+  assert.equal(html.includes('aria-label="provider id"'), false, "カスタムを選ぶまではフォームを出さない");
+});
+
+test("カスタムプロバイダーの詳細は専用フォームと注意を出し、通常のキー・メモ・再同期を出さない", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [customProviderRow()],
+        customProviders: [CUSTOM_PROVIDER],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.equal(html.includes("設定済み "), false, "カスタムは通常の一覧（設定済み）に入れない");
+  assert.equal(html.includes("未設定 "), false, "カスタムは通常の一覧（未設定）に入れない");
+  // 注意書きは追加・編集のどちらでも読めるように常時出す
+  assert.ok(html.includes("BFF のメモリにだけ保存されます"));
+  assert.ok(html.includes("同じ provider id とモデル id"));
+  assert.ok(html.includes("Authorization: Bearer"));
+  assert.ok(html.includes("信頼できる baseUrl"));
+  // 1 provider = 1 model のフォーム
+  for (const label of ["provider id", "baseUrl", "APIキー", "モデル ID", "contextWindow", "maxTokens"]) {
+    assert.ok(html.includes(`aria-label="${label}"`), `${label} の入力欄を出す`);
+  }
+  assert.ok(html.includes('aria-label="provider id"') && html.includes('readOnly=""'), "provider id は編集できない");
+  assert.ok(html.includes("空欄なら既存のAPIキーを維持"), "キーの空欄は既存の維持だと示す");
+  assert.ok(html.includes("実モデルの context window より大きくしないでください"));
+  // 通常の認証・メモ・再同期・モデル導線は出さない
+  assert.equal(html.includes("メモ（キー本体は書かないでください）"), false, "通常のメモ欄を出さない");
+  assert.equal(html.includes("再同期"), false, "再同期を出さない");
+  assert.equal(html.includes("サインイン"), false, "OAuth の操作を出さない");
+  assert.equal(html.includes("「モデルを選ぶ」タブを開く"), false, "通常のモデル導線を出さない");
 });
 
 test("プロバイダー詳細は保存済み認証の種別を出し、この画面のキーが OAuth を覆っているときだけ注記する", () => {

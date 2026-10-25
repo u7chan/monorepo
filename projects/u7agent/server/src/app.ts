@@ -38,6 +38,7 @@ import {
   CreateSharedContentBodySchema,
   CreateSpaceBodySchema,
   CreateAgentBodySchema,
+  CreateCustomProviderBodySchema,
   CreateProjectBodySchema,
   CreateSecretBodySchema,
   CreateSessionBodySchema,
@@ -56,6 +57,7 @@ import {
   UpdateContentKeyBodySchema,
   UpdateCloudflareSettingsBodySchema,
   UpdateContentSpeechBodySchema,
+  UpdateCustomProviderBodySchema,
   UpdateModelAvailabilityBodySchema,
   UpdateNotificationsBodySchema,
   UpdateProviderKeyBodySchema,
@@ -511,6 +513,23 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     // pi.dev への外向き通信だけで DB に触れないため appData のゲートは通さず、
     // `:provider` より先に置いて静的パスがパラメータへ食われないようにする
     .post("/api/settings/models/catalog/refresh", modelSettingsRoutes.catalogRefresh)
+    // カスタムプロバイダー (オンメモリ)。DB を触らないので appDataMutation は通さない。
+    // `/:provider/key` などのパラメータより先に登録し、`custom` が provider 名として食われないようにする
+    .post(
+      "/api/settings/models/custom",
+      jsonBodyValidator(CreateCustomProviderBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => modelSettingsRoutes.createCustomProvider(c, c.req.valid("json")),
+    )
+    .put(
+      "/api/settings/models/custom/:provider",
+      jsonBodyValidator(UpdateCustomProviderBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => modelSettingsRoutes.updateCustomProvider(c, c.req.valid("json")),
+    )
+    .delete("/api/settings/models/custom/:provider", modelSettingsRoutes.deleteCustomProvider)
     .put(
       "/api/settings/models/:provider/key",
       appDataMutation,

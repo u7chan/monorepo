@@ -8,6 +8,7 @@ import type { ModelCatalogRefreshAttempt, PiBff } from "../src/agent";
 import type { ModelSelection } from "../src/agent";
 import { MODEL_UNSET_MESSAGE } from "../src/agent";
 import type { AskUserHost } from "../src/ask-user-tool";
+import type { CustomProviderRuntimeConfig } from "../src/custom-providers";
 import type { ContentGenerationConfig } from "../src/images";
 import type { InvestigateHost } from "../src/investigate-tool";
 import type { ServeToolHost } from "../src/serve-tool";
@@ -1181,7 +1182,7 @@ export interface StubProvider {
 
 /** 設定 → モデルの API 用。認証変更の呼び出しを記録し、provider ごとの configured を書き換える */
 export interface StubModelRuntimeCall {
-  operation: "setRuntimeApiKey" | "removeRuntimeApiKey";
+  operation: "setRuntimeApiKey" | "removeRuntimeApiKey" | "registerProvider" | "unregisterProvider";
   provider: string;
   apiKey?: string;
 }
@@ -1214,6 +1215,8 @@ export interface StubModelRuntime {
   isUsingOAuth(provider: string): boolean;
   setRuntimeApiKey(provider: string, apiKey: string, options?: { signal?: AbortSignal }): Promise<void>;
   removeRuntimeApiKey(provider: string, options?: { signal?: AbortSignal }): Promise<void>;
+  registerProvider(provider: string, config: CustomProviderRuntimeConfig): void;
+  unregisterProvider(provider: string): void;
   login(provider: string, type: string, interaction: AuthInteraction, options?: LoginOptions): Promise<unknown>;
   logout(provider: string, options?: { signal?: AbortSignal }): Promise<void>;
 }
@@ -1229,13 +1232,15 @@ export function createStubModelRuntime(
   // runtime overlay は保存済み資格情報より優先される。実 SDK と同じく、overlay がある間は source / isUsingOAuth を
   // overlay へ切り替え、削除で宣言した状態へ戻す。
   const runtimeKeys = new Set<string>();
+  // 実行中に登録されたカスタムプロバイダー。実 SDK と同じく、登録解除では runtime overlay を消さない
+  const registeredProviders = new Map<string, string>();
   // サインインで OAuth になった provider。実 SDK の isUsingOAuth / provider 一覧と同じ向きに動かす
   const oauthProviders = new Set<string>(
     (options.providers ?? []).filter((provider) => provider.oauth === true).map((provider) => provider.provider),
   );
   return {
-    getProviders: () =>
-      (options.providers ?? []).map((provider) => ({
+    getProviders: () => [
+      ...(options.providers ?? []).map((provider) => ({
         id: provider.provider,
         name: provider.name ?? provider.provider,
         auth: {
@@ -1243,11 +1248,17 @@ export function createStubModelRuntime(
           oauth: provider.supportsOAuth ? { loginLabel: provider.oauthLoginLabel } : undefined,
         },
       })),
+      ...[...registeredProviders].map(([provider, name]) => ({
+        id: provider,
+        name,
+        auth: { apiKey: { login: () => {} }, oauth: undefined },
+      })),
+    ],
     getModels: () => options.catalogModels ?? [],
     getProviderAuthStatus: (provider) => {
       const entry = (options.providers ?? []).find((candidate) => candidate.provider === provider);
-      if (!entry) return { configured: false };
       if (runtimeKeys.has(provider)) return { configured: true, source: "runtime" };
+      if (!entry) return { configured: false };
       return configured.get(provider)
         ? { configured: true, source: entry.authSource ?? "environment" }
         : { configured: false };
@@ -1262,6 +1273,14 @@ export function createStubModelRuntime(
       calls.push({ operation: "removeRuntimeApiKey", provider });
       await options.onRemoveRuntimeApiKey?.(provider, callOptions?.signal);
       runtimeKeys.delete(provider);
+    },
+    registerProvider: (provider, config) => {
+      calls.push({ operation: "registerProvider", provider });
+      registeredProviders.set(provider, config.name);
+    },
+    unregisterProvider: (provider) => {
+      calls.push({ operation: "unregisterProvider", provider });
+      registeredProviders.delete(provider);
     },
     // OAuth ログインの SDK 面。呼び出し時の device id を記録し、振る舞いはテストが差し込む
     login: async (provider, type, interaction, loginOptions) => {

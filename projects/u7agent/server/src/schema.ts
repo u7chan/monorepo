@@ -862,6 +862,11 @@ export const ProviderAuthSettingSchema = z.object({
   /** 現在のカタログに provider が無い (DB 行にしか無い) */
   orphan: z.boolean(),
   /**
+   * 設定 → モデルで作ったカスタムプロバイダー (オンメモリ)。通常のプロバイダー一覧からは除外し、
+   * 専用セクションと「モデルを選ぶ」タブの候補だけが使う。未指定は false。
+   */
+  custom: z.boolean().optional(),
+  /**
    * OAuth サインインの進行状態。null = 進行中も直近の結果も無い。このプロセスのメモリだけが持ち、
    * 再起動で消える。認可 URL は running の間だけ載る。
    */
@@ -876,6 +881,31 @@ export const ProviderAuthSettingSchema = z.object({
 });
 export type ProviderAuthSetting = z.infer<typeof ProviderAuthSettingSchema>;
 
+/**
+ * カスタムプロバイダーのモデル。1 provider = 1 model で、contextWindow は入力を必須にする
+ * (OpenAI 互換 API からは取得できないため既定値を置かない)。
+ */
+export const CustomProviderModelSchema = z.object({
+  id: z.string(),
+  contextWindow: z.number().int(),
+  maxTokens: z.number().int(),
+});
+export type CustomProviderModel = z.infer<typeof CustomProviderModelSchema>;
+
+/**
+ * 設定 → モデルのカスタムプロバイダー 1 件。**キーは返さない** (有無だけを hasKey で表す)。
+ * api は v1 では openai-completions 固定。
+ */
+export const CustomProviderSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  baseUrl: z.string(),
+  api: z.literal("openai-completions"),
+  model: CustomProviderModelSchema,
+  hasKey: z.boolean(),
+});
+export type CustomProviderSummary = z.infer<typeof CustomProviderSummarySchema>;
+
 /** GET /api/settings/models。カタログ全件は載せず、利用可能なモデルは allowedModels だけが持つ */
 export const ModelsSettingsResponseSchema = z.object({
   runtimeAvailable: z.boolean(),
@@ -886,6 +916,11 @@ export const ModelsSettingsResponseSchema = z.object({
   /** 設定されていても無視する移行前の環境変数名 */
   ignoredEnvironmentVariables: z.array(z.string()),
   providers: z.array(ProviderAuthSettingSchema),
+  /**
+   * カスタムプロバイダーの定義 (このプロセスのメモリだけが持つ)。管理の正はこちらで、
+   * `providers[]` にも同じ id が `custom: true` で載る (モデル選択の候補が使う)。
+   */
+  customProviders: z.array(CustomProviderSummarySchema),
 });
 export type ModelsSettingsResponse = z.infer<typeof ModelsSettingsResponseSchema>;
 
@@ -922,6 +957,32 @@ export const UpdateProviderMemoBodySchema = z.object({
   memo: z.string().max(PROVIDER_MEMO_MAX_LENGTH),
 });
 export type UpdateProviderMemoBody = z.infer<typeof UpdateProviderMemoBodySchema>;
+
+/** カスタムプロバイダーのモデル入力。上限と正の整数の検証は service が固定文言で行う */
+export const CustomProviderModelBodySchema = z.object({
+  id: z.string(),
+  contextWindow: z.number(),
+  maxTokens: z.number().optional(),
+});
+
+/** カスタムプロバイダーの作成。id は作成後変更できない。キーは必須で、8..2048 文字 */
+export const CreateCustomProviderBodySchema = z.object({
+  id: z.string(),
+  name: z.string().optional(),
+  baseUrl: z.string(),
+  apiKey: z.string(),
+  model: CustomProviderModelBodySchema,
+});
+export type CreateCustomProviderBody = z.infer<typeof CreateCustomProviderBodySchema>;
+
+/** カスタムプロバイダーの更新。id は変更不可なので body に持たず、apiKey の空欄は既存の維持 */
+export const UpdateCustomProviderBodySchema = z.object({
+  name: z.string().optional(),
+  baseUrl: z.string(),
+  apiKey: z.string().optional(),
+  model: CustomProviderModelBodySchema,
+});
+export type UpdateCustomProviderBody = z.infer<typeof UpdateCustomProviderBodySchema>;
 
 /** OAuth サインインの貼り付け (ブラウザの最後の画面の URL / コード)。値は応答にもログにも載せない */
 export const SubmitOAuthLoginCodeBodySchema = z.object({

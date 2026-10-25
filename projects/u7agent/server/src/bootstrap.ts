@@ -577,6 +577,15 @@ export function createProviderKeyRuntime(pi: PiBff): ProviderKeyRuntime {
       commitCredential("removeRuntimeApiKey", provider, signal, () =>
         modelRuntime.removeRuntimeApiKey(provider, { signal }),
       ),
+    // SDK の検証は登録内容の反映前に行われるため、throw しても旧登録は残る (呼び出し側が 400 にする)
+    registerProvider: (provider, config) =>
+      modelRuntime.registerProvider(provider, {
+        name: config.name,
+        baseUrl: config.baseUrl,
+        api: config.api,
+        models: config.models.map((model) => ({ ...model, type: "chat" as const })),
+      }),
+    unregisterProvider: (provider) => modelRuntime.unregisterProvider(provider),
   };
 }
 

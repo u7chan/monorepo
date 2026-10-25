@@ -6,6 +6,26 @@
  */
 import type { ModelSettingsRow, ProviderCredentialRow, ProviderMemoRow } from "./app-db";
 import { sanitizeRuntimeAuth, type ModelCatalogRefreshAttempt, type RuntimeAuthStatusLike } from "./agent";
+import {
+  CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE,
+  CUSTOM_PROVIDER_KEY_TARGET_MESSAGE,
+  CUSTOM_PROVIDER_MEMO_TARGET_MESSAGE,
+  CUSTOM_PROVIDER_NOT_FOUND_MESSAGE,
+  CUSTOM_PROVIDER_REGISTER_FAILED_MESSAGE,
+  CUSTOM_PROVIDER_REMOVE_FAILED_MESSAGE,
+  CUSTOM_PROVIDER_RESYNC_TARGET_MESSAGE,
+  CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE,
+  CustomProviderStore,
+  assertCustomProviderIdAvailable,
+  customProviderRuntimeConfig,
+  parseCustomProviderInput,
+  parseCustomProviderUpdate,
+  type CustomProviderDefinition,
+  type CustomProviderInput,
+  type CustomProviderRuntimeConfig,
+  type CustomProviderSummary,
+  type CustomProviderUpdateInput,
+} from "./custom-providers";
 import { httpError, messageFor } from "./http";
 import {
   PROVIDER_API_KEY_MIN_LENGTH,
@@ -72,6 +92,13 @@ export interface ProviderKeyRuntime {
   catalogSnapshot(): RuntimeModelsResponse | undefined;
   applyApiKey(provider: string, apiKey: string, options: { signal: AbortSignal }): Promise<CredentialCommit>;
   removeApiKey(provider: string, options: { signal: AbortSignal }): Promise<CredentialCommit>;
+  /**
+   * SDK へ provider を登録する。SDK は変更前に検証するため、throw しても旧登録は残る
+   * (例外の文言は呼び出し側が固定文言へ寄せる)。SDK の型はここへ持ち込まない。
+   */
+  registerProvider(provider: string, config: CustomProviderRuntimeConfig): void;
+  /** SDK から provider を外す。runtime overlay (キー) は消さないので、削除時は removeApiKey を先に呼ぶ */
+  unregisterProvider(provider: string): void;
 }
 
 export interface ModelSettingsDb {
@@ -151,6 +178,12 @@ export const MODEL_CATALOG_ERROR_OFFLINE =
 export const MODEL_CATALOG_ERROR_UNKNOWN = "モデル一覧を取得できませんでした。表示中の一覧は変わりません。";
 
 export type MutationOutcome = { status: 200; response: ModelMutationResponse } | { status: 503; error: string };
+
+/**
+ * カスタムプロバイダーの変更結果。DB 書込が無いため `applied_unsynced` / `not_stored` は使わず、
+ * 検証失敗は 400、適用失敗は 503 の `{ error }` にする。
+ */
+export type CustomProviderOutcome = { status: 200; response: ModelMutationResponse } | { status: 503; error: string };
 
 /** カタログ更新の応答。503 は一覧そのものを返せないときだけで、取得失敗は 200 の `catalogError` に載せる */
 export type CatalogRefreshOutcome =
@@ -239,6 +272,8 @@ export class ModelSettingsService {
   #lock = new MutationLock();
   /** このプロセスのメモリだけが持つ未反映の印。再起動で消える */
   #degraded = new Map<string, "apply" | "remove">();
+  /** カスタムプロバイダーの定義。DB を持たず、再起動で空から始まる */
+  #customProviders = new CustomProviderStore();
 
   constructor(options: ModelSettingsOptions) {
     this.#db = options.db;
@@ -259,6 +294,11 @@ export class ModelSettingsService {
    */
   settings(): ModelsSettingsResponse {
     return this.#compose(this.#db.listProviderCredentials(), this.#db.listProviderMemos(), this.#readSelection());
+  }
+
+  /** カスタムプロバイダーの定義 (管理の正)。応答はキーを含まない要約だけを返す */
+  customProviders(): CustomProviderSummary[] {
+    return this.#customProviders.summaries();
   }
 
   /**
@@ -370,6 +410,7 @@ export class ModelSettingsService {
    */
   async putMemo(provider: string, memo: string): Promise<MutationOutcome> {
     return this.#lock.run(async () => {
+      this.#assertNotCustomProvider(provider, CUSTOM_PROVIDER_MEMO_TARGET_MESSAGE);
       // メモは SDK の認証状態に依存しないが、GET と揃えてランタイム無しでは受け付けない
       if (!this.#runtime) return this.#runtimeUnavailable(PROVIDER_MEMO_RUNTIME_UNAVAILABLE_MESSAGE);
       const inCatalog = this.#runtime.list().some((candidate) => candidate.provider === provider);
@@ -410,6 +451,7 @@ export class ModelSettingsService {
   /** APIキーの登録 (既存は上書き)。DB を先に確定し、SDK の反映失敗は degraded として返す */
   async putKey(provider: string, apiKey: string): Promise<MutationOutcome> {
     return this.#lock.run(async () => {
+      this.#assertNotCustomProvider(provider, CUSTOM_PROVIDER_KEY_TARGET_MESSAGE);
       if (!this.#runtime) return this.#runtimeUnavailable();
       const entry = this.#runtime.list().find((candidate) => candidate.provider === provider);
       if (!entry?.canSetApiKey) throw httpError(400, PROVIDER_KEY_TARGET_MESSAGE);
@@ -433,6 +475,7 @@ export class ModelSettingsService {
   /** この画面で登録したキーの削除。行が無ければ 400 (この画面の管理外は触らない) */
   async deleteKey(provider: string): Promise<MutationOutcome> {
     return this.#lock.run(async () => {
+      this.#assertNotCustomProvider(provider, CUSTOM_PROVIDER_KEY_TARGET_MESSAGE);
       if (!this.#runtime) return this.#runtimeUnavailable();
       let row: ProviderCredentialRow | undefined;
       try {
@@ -456,11 +499,88 @@ export class ModelSettingsService {
   }
 
   /**
+   * カスタムプロバイダーの作成。全か無かにする: 登録 (SDK の検証) の失敗は 400 で何も残さず、
+   * キーの適用失敗は登録と overlay を巻き戻して 503。DB へは書かないため degraded は作らない。
+   */
+  async createCustomProvider(input: CustomProviderInput): Promise<CustomProviderOutcome> {
+    return this.#lock.run(async () => {
+      if (!this.#runtime) return this.#runtimeUnavailable(CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE);
+      const definition = parseCustomProviderInput(input);
+      assertCustomProviderIdAvailable(definition.id, this.#takenProviderIds());
+      // マスカーへの登録は SDK / ログより先。ここが失敗しても保護対象だけは残す
+      this.#retainSecret(definition.apiKey);
+      this.#registerOrFail(definition);
+      const commit = await this.#applyCustomKey(definition.id, definition.apiKey);
+      if (!commitSucceeded(commit)) {
+        await this.#discardCustomProvider(definition.id);
+        return this.#notStored(CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE);
+      }
+      this.#customProviders.set(definition);
+      await this.#refresh();
+      return this.#appliedCustom();
+    });
+  }
+
+  /**
+   * カスタムプロバイダーの更新。id は変更不可。キーの空欄は既存の維持。
+   * 再登録は models を必ず渡すので置き換わり、失敗時は旧定義・旧キーへ戻す。
+   */
+  async updateCustomProvider(provider: string, input: CustomProviderUpdateInput): Promise<CustomProviderOutcome> {
+    return this.#lock.run(async () => {
+      if (!this.#runtime) return this.#runtimeUnavailable(CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE);
+      const current = this.#customProviders.get(provider);
+      if (!current) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
+      const next = parseCustomProviderUpdate(input, current);
+      assertCustomProviderIdAvailable(next.id, this.#takenProviderIds(), current.id);
+      const keyChanged = next.apiKey !== current.apiKey;
+      if (keyChanged) this.#retainSecret(next.apiKey);
+      this.#registerOrFail(next);
+      if (keyChanged) {
+        const commit = await this.#applyCustomKey(next.id, next.apiKey);
+        if (!commitSucceeded(commit)) {
+          await this.#restoreCustomProvider(current);
+          return this.#notStored(CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE);
+        }
+      }
+      this.#customProviders.set(next);
+      await this.#refresh();
+      return this.#appliedCustom();
+    });
+  }
+
+  /**
+   * カスタムプロバイダーの削除。runtime overlay (キー) を先に外してから登録を外す
+   * (この順でないと、同じ id を再登録したときに古いキーが復活する)。
+   * キーの削除に失敗したときは何も消さない。
+   */
+  async deleteCustomProvider(provider: string): Promise<CustomProviderOutcome> {
+    return this.#lock.run(async () => {
+      if (!this.#runtime) return this.#runtimeUnavailable(CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE);
+      const current = this.#customProviders.get(provider);
+      if (!current) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
+      const removed = await this.#removeCustomKey(provider);
+      if (!commitSucceeded(removed)) return this.#notStored(CUSTOM_PROVIDER_REMOVE_FAILED_MESSAGE);
+      try {
+        this.#runtime.unregisterProvider(provider);
+      } catch {
+        // 登録は残っているが overlay は消えている。旧キーを戻して、定義を消さずに 503 で終える
+        console.warn(`[u7agent] custom provider unregister failed: ${provider}`);
+        await this.#restoreCustomProvider(current);
+        return this.#notStored(CUSTOM_PROVIDER_REMOVE_FAILED_MESSAGE);
+      }
+      this.#customProviders.delete(provider);
+      await this.#refresh();
+      return this.#appliedCustom();
+    });
+  }
+
+  /**
    * degraded の回復。DB の希望状態を SDK へ再適用するだけで、冪等。
    * 対象はカタログにある provider か、degraded が remove の provider に限る (UI 外の overlay を消さない)。
    */
   async resync(provider: string): Promise<MutationOutcome> {
     return this.#lock.run(async () => {
+      this.#assertNotCustomProvider(provider, CUSTOM_PROVIDER_RESYNC_TARGET_MESSAGE);
       if (!this.#runtime) return this.#runtimeUnavailable();
       const inCatalog = this.#runtime.list().some((candidate) => candidate.provider === provider);
       if (!inCatalog && this.#degraded.get(provider) !== "remove") {
@@ -590,6 +710,82 @@ export class ModelSettingsService {
     return { status: 503, error };
   }
 
+  /** カスタムプロバイダーの変更応答。一覧を組めないときも変更は確定しているため GET と同じ形で返す */
+  #appliedCustom(): CustomProviderOutcome {
+    try {
+      return { status: 200, response: { ...this.settings(), state: "applied" } };
+    } catch {
+      return {
+        status: 200,
+        response: { ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset()), state: "applied" },
+      };
+    }
+  }
+
+  /** 登録済み (runtime) と自分の store の id。衝突判定の入力 */
+  #takenProviderIds(): string[] {
+    const ids = new Set(this.#runtime?.list().map((entry) => entry.provider) ?? []);
+    for (const id of this.#customProviders.ids()) ids.add(id);
+    return [...ids];
+  }
+
+  /** カスタムプロバイダーは専用の API だけで扱う (既存の key / memo / resync は 400) */
+  #assertNotCustomProvider(provider: string, error: string): void {
+    if (this.#customProviders.has(provider)) throw httpError(400, error);
+  }
+
+  #registerOrFail(definition: CustomProviderDefinition): void {
+    try {
+      this.#runtime!.registerProvider(definition.id, customProviderRuntimeConfig(definition));
+    } catch {
+      // SDK の例外文言は URL や provider 名を含み得るので、分類だけをログへ残す
+      console.warn(`[u7agent] custom provider register failed: ${definition.id}`);
+      throw httpError(400, CUSTOM_PROVIDER_REGISTER_FAILED_MESSAGE);
+    }
+  }
+
+  async #applyCustomKey(provider: string, apiKey: string): Promise<CredentialCommit> {
+    try {
+      return await applyWithRetry(() =>
+        this.#runtime!.applyApiKey(provider, apiKey, { signal: AbortSignal.timeout(this.#timeoutMs) }),
+      );
+    } catch {
+      return { outcome: "unknown" };
+    }
+  }
+
+  async #removeCustomKey(provider: string): Promise<CredentialCommit> {
+    try {
+      return await applyWithRetry(() =>
+        this.#runtime!.removeApiKey(provider, { signal: AbortSignal.timeout(this.#timeoutMs) }),
+      );
+    } catch {
+      return { outcome: "unknown" };
+    }
+  }
+
+  /** 作成失敗の巻き戻し。定義はまだ store に無いので、SDK の overlay と登録だけを外す */
+  async #discardCustomProvider(provider: string): Promise<void> {
+    const removed = await this.#removeCustomKey(provider);
+    if (!commitSucceeded(removed)) console.warn(`[u7agent] custom provider key rollback failed: ${provider}`);
+    try {
+      this.#runtime!.unregisterProvider(provider);
+    } catch {
+      console.warn(`[u7agent] custom provider register rollback failed: ${provider}`);
+    }
+  }
+
+  /** 更新失敗の巻き戻し。旧定義を登録し直し、旧キーを overlay へ戻す */
+  async #restoreCustomProvider(definition: CustomProviderDefinition): Promise<void> {
+    try {
+      this.#runtime!.registerProvider(definition.id, customProviderRuntimeConfig(definition));
+    } catch {
+      console.warn(`[u7agent] custom provider restore failed: ${definition.id}`);
+    }
+    const restored = await this.#applyCustomKey(definition.id, definition.apiKey);
+    if (!commitSucceeded(restored)) console.warn(`[u7agent] custom provider key restore failed: ${definition.id}`);
+  }
+
   #runtimeUnavailable(error: string = PROVIDER_KEY_RUNTIME_UNAVAILABLE_MESSAGE): { status: 503; error: string } {
     return this.#notStored(error);
   }
@@ -639,6 +835,7 @@ export class ModelSettingsService {
     const keyUpdatedAtOf = (provider: string): number | null =>
       managed.has(provider) ? (updatedAtOf.get(provider) ?? null) : null;
     const providers = new Map<string, ProviderAuthSetting>();
+    const customIds = new Set(this.#customProviders.ids());
     for (const entry of this.#runtime?.list() ?? []) {
       providers.set(
         entry.provider,
@@ -657,6 +854,7 @@ export class ModelSettingsService {
           memoOf.get(entry.provider),
           keyUpdatedAtOf(entry.provider),
           entry.oauthLoginLabel,
+          customIds.has(entry.provider),
         ),
       );
     }
@@ -680,6 +878,7 @@ export class ModelSettingsService {
           memoOf.get(row.provider),
           keyUpdatedAtOf(row.provider),
           null,
+          customIds.has(row.provider),
         ),
       );
     }
@@ -703,6 +902,7 @@ export class ModelSettingsService {
           row.memo,
           keyUpdatedAtOf(row.provider),
           null,
+          customIds.has(row.provider),
         ),
       );
     }
@@ -726,6 +926,7 @@ export class ModelSettingsService {
           memoOf.get(provider),
           keyUpdatedAtOf(provider),
           null,
+          customIds.has(provider),
         ),
       );
     }
@@ -736,6 +937,7 @@ export class ModelSettingsService {
       defaultModel: selection.defaultModel,
       ignoredEnvironmentVariables: this.#ignoredEnvironmentVariables,
       providers: [...providers.values()],
+      customProviders: this.#customProviders.summaries(),
     };
   }
 
@@ -756,6 +958,8 @@ export class ModelSettingsService {
     keyUpdatedAt: number | null,
     /** provider の `oauth.loginLabel`。カタログ外の provider は OAuth の表示名を知らないため null */
     oauthLoginLabel: string | null,
+    /** 設定 → モデルで作ったカスタムプロバイダー (OAuth の対象外) */
+    custom: boolean,
   ): ProviderAuthSetting {
     const degraded =
       flags.orphan && flags.appliable && !this.#degraded.has(provider) ? "apply" : this.#degraded.get(provider);
@@ -770,8 +974,10 @@ export class ModelSettingsService {
       canSignInHere: flags.canSignInHere,
       credentialKind: this.#credentialKindOf(provider, sanitized),
       oauthLoginLabel,
-      hiddenStoredOAuth: sanitized.source === "runtime" && this.#storedOAuthHidden(provider),
+      // カスタムプロバイダーは auth.json の OAuth を持たないので、表示専用の読取も行わない
+      hiddenStoredOAuth: sanitized.source === "runtime" && !custom && this.#storedOAuthHidden(provider),
       orphan: flags.orphan,
+      ...(custom ? { custom: true } : {}),
       login: this.#oauthLogin?.stateOf(provider) ?? null,
       ...(degraded ? { degraded } : {}),
       memo: memo ?? null,
