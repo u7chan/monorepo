@@ -21,8 +21,12 @@ export function sharedContentCreateBody(input: {
   return { sessionId: input.sessionId, directory: input.directory, ...(name === "" ? {} : { name }) };
 }
 
-/** 同じ公開元の共有物があるときに出す案内。情報提供だけで、サーバーは重複を拒否しない */
+/** 同じ公開元の共有物があるときに出す案内。公開中だけは再送を止めるので、その理由もここで示す */
 export const SHARE_DUPLICATE_NOTE = "共有済み（更新は 設定 → 共有 から）";
+export const SHARE_DUPLICATE_PUBLISHING_NOTE = "このディレクトリは公開中です。完了すると 設定 → 共有 に URL が出ます。";
+
+/** 公開中に閉じても公開が止まらないことと、結果の確認先。閉じる操作は塞がない */
+export const SHARE_CLOSE_HINT = "閉じても公開は続きます。結果は 設定 → 共有 で確認できます。";
 
 /** 表示名の上限。`server/src/shared-contents.ts` の `SHARED_CONTENT_MAX_NAME_LENGTH` と同じ値 */
 export const SHARE_NAME_MAX_LENGTH = 100;
