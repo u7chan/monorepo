@@ -111,6 +111,7 @@ export type {
   SessionSummary,
   SessionTitleResponse,
   SaveFileSkillBody,
+  SharedContentExclusionsResponse,
   SharedContentMutationResponse,
   SharedContentPreviewResponse,
   SharedContentResponse,

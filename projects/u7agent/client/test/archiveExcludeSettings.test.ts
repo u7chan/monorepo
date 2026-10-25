@@ -49,6 +49,7 @@ function render(props: Partial<ArchiveSettings> = {}, input = ""): string {
       input,
       onInputChange: () => {},
       onSubmit: () => {},
+      onOpenSharingExclusions: () => {},
     }),
   );
 }

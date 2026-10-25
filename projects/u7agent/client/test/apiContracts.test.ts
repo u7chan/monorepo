@@ -19,6 +19,9 @@ const {
   deleteSpace,
   updateArchiveSettings,
   resetArchiveSettings,
+  getSharedContentExclusions,
+  updateSharedContentExclusions,
+  resetSharedContentExclusions,
   getGitInfo,
   getSharedContentPreview,
   statFile,
@@ -202,6 +205,35 @@ test("アーカイブ設定は PUT で保存し、DELETE で既定へ戻して�
   );
   for (const request of requests) assert.equal(new URL(request.url).pathname, "/api/settings/archive");
   assert.deepEqual(await requests[0].json(), { excludeNames: ["dist"] });
+});
+
+// ダウンロードの除外とは別のパス・別の行であることを、パス名と本文で固定する
+test("共有の除外名は専用のパスで GET / PUT / DELETE する", async (t) => {
+  const requests: Request[] = [];
+  const settings = {
+    excludeNames: ["AGENTS.md"],
+    defaultExcludeNames: ["AGENTS.md"],
+    overridden: true,
+    maxNames: 100,
+    maxNameLength: 200,
+  };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return Response.json(settings);
+  });
+  assert.deepEqual(await getSharedContentExclusions(), settings);
+  assert.deepEqual(await updateSharedContentExclusions(["AGENTS.md"]), settings);
+  assert.deepEqual(await resetSharedContentExclusions(), settings);
+  assert.deepEqual(
+    requests.map((request) => request.method),
+    ["GET", "PUT", "DELETE"],
+  );
+  for (const request of requests) {
+    assert.equal(new URL(request.url).pathname, "/api/settings/shared-content-exclusions");
+  }
+  assert.deepEqual(await requests[1].json(), { excludeNames: ["AGENTS.md"] });
+  // アーカイブの設定とは別のパス (同じ画面の「ダウンロードの除外」を書き換えない)
+  assert.notEqual(new URL(requests[0].url).pathname, "/api/settings/archive");
 });
 
 test("セッション名は PATCH で送り、サーバーが確定した名前を返す", async (t) => {

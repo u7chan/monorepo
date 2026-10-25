@@ -26,6 +26,8 @@ import { httpError, messageFor } from "./http";
 import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "./sandbox/client";
 import type { SandboxDownloadPlan } from "./sandbox/protocol";
 import { extractZipEntry, readZipArchive, type ZipReadEntry } from "./sandbox/zip-read";
+import type { SharedContentExclusions } from "./shared-content-exclusions";
+import { effectiveSharedContentExcludeNames } from "./shared-content-rules";
 import type {
   CreateSharedContentBody,
   SharedContentMutationResponse,
@@ -126,6 +128,8 @@ export interface SharedContentsOptions {
   maskError: (text: string) => string;
   /** retainSecret が保持する既知の秘密値。成果物との完全一致検査に使う */
   secretValues: () => readonly string[];
+  /** 共有の除外名の実効値。プレビューと公開の受付時にだけ読み、ジョブ実行時には読み直さない */
+  exclusions: Pick<SharedContentExclusions, "effectiveNames">;
   now?: () => number;
   newId?: () => string;
   tempRoot?: string;
@@ -142,6 +146,7 @@ export class SharedContentsService {
   #rootCwd: string;
   #maskError: (text: string) => string;
   #secretValues: () => readonly string[];
+  #exclusions: Pick<SharedContentExclusions, "effectiveNames">;
   #now: () => number;
   #newId: () => string;
   #tempRoot: string;
@@ -159,6 +164,7 @@ export class SharedContentsService {
     this.#rootCwd = options.rootCwd;
     this.#maskError = options.maskError;
     this.#secretValues = options.secretValues;
+    this.#exclusions = options.exclusions;
     this.#now = options.now ?? Date.now;
     this.#newId = options.newId ?? (() => randomBytes(5).toString("hex"));
     this.#tempRoot = options.tempRoot ?? tmpdir();
@@ -184,8 +190,8 @@ export class SharedContentsService {
   }
 
   /**
-   * 公開前のプレビュー。対象の解決と sandbox の走査は作成と同じ経路を通し、除外は公開時と同じ実効値を渡す
-   * (Phase 1 は共有の除外設定がまだ無いため空)。上限超過 (413) は走査が終わっていないので limited に写す。
+   * 公開前のプレビュー。対象の解決と sandbox の走査は作成と同じ経路を通し、除外は公開時と同じ実効値を渡す。
+   * 上限超過 (413) は走査が終わっていないので limited に写す。
    */
   async preview(input: { sessionId: string; directory: string }): Promise<SharedContentPreviewResponse> {
     const sessionCwd = this.#sessions.workdirOfId(input.sessionId);
@@ -193,7 +199,7 @@ export class SharedContentsService {
     const sourcePath = resolveSharedContentSource(this.#rootCwd, sessionCwd, input.directory);
     const sandbox = this.#planSandbox;
     if (!sandbox) throw httpError(503, SHARED_CONTENT_SANDBOX_UNAVAILABLE);
-    const excludeNames: string[] = [];
+    const excludeNames = effectiveSharedContentExcludeNames(sourcePath, this.#exclusions.effectiveNames());
     let plan: SandboxDownloadPlan;
     try {
       plan = await sandbox.planDownload(sourcePath, excludeNames, SHARED_CONTENT_MAX_FILE_BYTES);
@@ -271,7 +277,8 @@ export class SharedContentsService {
     } catch {
       throw httpError(503, SHARED_CONTENT_STORE_ERROR);
     }
-    this.#start(row, null);
+    // 除外は受付時に確定してジョブへ渡す（実行中に設定が変わっても、見た目と上がるものをずらさない）
+    this.#start(row, null, effectiveSharedContentExcludeNames(sourcePath, this.#exclusions.effectiveNames()));
     return { id, status: "publishing" };
   }
 
@@ -290,7 +297,11 @@ export class SharedContentsService {
       this.#requireRowCredential(row);
 
       this.#persistState(row, "publishing", null, { publishedAt: row.publishedAt, stoppedAt: row.stoppedAt });
-      this.#start(row, row.status);
+      this.#start(
+        row,
+        row.status,
+        effectiveSharedContentExcludeNames(row.sourcePath, this.#exclusions.effectiveNames()),
+      );
       return { id, status: "publishing" as const };
     });
   }
@@ -449,9 +460,9 @@ export class SharedContentsService {
     while (this.#active.has(id)) await new Promise((resolve) => setTimeout(resolve, 10));
   }
 
-  #start(row: SharedContentRow, previousStatus: SharedContentStatus | null): void {
+  #start(row: SharedContentRow, previousStatus: SharedContentStatus | null, excludeNames: readonly string[]): void {
     this.#active.add(row.id);
-    void this.#run(row, previousStatus)
+    void this.#run(row, previousStatus, excludeNames)
       .catch((error) => {
         console.warn(`[u7agent] shared content job failed: ${this.#maskError(messageFor(error))}`);
       })
@@ -504,11 +515,15 @@ export class SharedContentsService {
     }
   }
 
-  async #run(row: SharedContentRow, previousStatus: SharedContentStatus | null): Promise<void> {
+  async #run(
+    row: SharedContentRow,
+    previousStatus: SharedContentStatus | null,
+    excludeNames: readonly string[],
+  ): Promise<void> {
     let tempDir: string | undefined;
     try {
       tempDir = await mkdtemp(join(this.#tempRoot, "u7agent-shared-"));
-      const { assets, config } = await this.#readAssets(row, tempDir);
+      const { assets, config } = await this.#readAssets(row, tempDir, excludeNames);
       const credential = this.#credentialFor(row);
       if (!credential) throw new SharedContentSourceError(SHARED_CONTENT_ACCOUNT_MISMATCH);
       await this.#createCloudflare(credential).publishAssets(row.remoteId ?? "", assets, config);
@@ -545,13 +560,14 @@ export class SharedContentsService {
   async #readAssets(
     row: SharedContentRow,
     tempDir: string,
+    excludeNames: readonly string[],
   ): Promise<{ assets: CloudflareAsset[]; config: { headers?: string; redirects?: string } }> {
     const workspace = this.#workspace;
     if (!workspace) throw new SharedContentSourceError(SHARED_CONTENT_SANDBOX_UNAVAILABLE);
     const zipPath = join(tempDir, "source.zip");
     let download: Awaited<ReturnType<SandboxWorkspaceClient["downloadEntry"]>>;
     try {
-      download = await workspace.downloadEntry(row.sourcePath, []);
+      download = await workspace.downloadEntry(row.sourcePath, excludeNames);
     } catch (error) {
       throw sourceErrorFor(error);
     }

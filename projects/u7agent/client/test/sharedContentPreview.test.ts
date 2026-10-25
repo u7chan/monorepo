@@ -107,3 +107,19 @@ test("上限超過 (limited) は件数を出さず、一覧も index.html の有
   assert.deepEqual(summary.rows, []);
   assert.deepEqual(summary.notes, ["上限を超えているため、一覧と index.html の有無を確認できませんでした。"]);
 });
+
+// 除外は件数と、実際に落ちた名前を分けて出す。件数だけでは「設定したのに効いていない」を見分けられない
+test("除外の件数と、実際に落ちた名前を注記に出す", () => {
+  const summary = sharePreviewSummary(
+    preview({ excludeNames: ["AGENTS.md", ".env", "README.md"], skipped: ["AGENTS.md", ".env"] }),
+  );
+  assert.deepEqual(summary.notes, ["除外 3 件（設定 → 共有 → 公開の除外）", "除外した名前: AGENTS.md, .env"]);
+  // 除外を空にすると注記は出ない (一覧がそのまま上がる)
+  assert.deepEqual(sharePreviewSummary(preview()).notes, []);
+});
+
+test("除外した名前が多いときは先頭だけを出し、残りは件数で示す", () => {
+  const skipped = ["a", "b", "c", "d", "e", "f", "g"];
+  const summary = sharePreviewSummary(preview({ excludeNames: skipped, skipped }));
+  assert.equal(summary.notes[1], "除外した名前: a, b, c, d, e ほか 2 件");
+});

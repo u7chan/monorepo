@@ -717,6 +717,13 @@ export const ArchiveSettingsResponseSchema = z.object({
 });
 export type ArchiveSettingsResponse = z.infer<typeof ArchiveSettingsResponseSchema>;
 
+/**
+ * GET / PUT / DELETE `/api/settings/shared-content-exclusions` の応答。形はアーカイブの設定と同じで、
+ * 一覧エディタも同じ部品を使う（既定値・適用範囲・保存先だけが違う）。
+ */
+export const SharedContentExclusionsResponseSchema = ArchiveSettingsResponseSchema;
+export type SharedContentExclusionsResponse = z.infer<typeof SharedContentExclusionsResponseSchema>;
+
 export const ModelOptionSchema = z.object({
   provider: z.string(),
   id: z.string(),
@@ -1091,7 +1098,7 @@ export const SharedContentPreviewResponseSchema = z.object({
   oversizeTruncated: z.boolean(),
   hasIndexHtml: z.boolean().nullable(),
   skipped: z.array(z.string()),
-  /** 実効の除外名。Phase 1 は共有の除外設定がまだ無いため常に空 */
+  /** 実効の除外名。プレビューと公開が同じ値を使い、対象ディレクトリ自身の名前は落とす */
   excludeNames: z.array(z.string()),
   /** 合計サイズ・件数の上限超過。このとき一覧と index.html の有無は判定しない */
   limited: z.boolean(),
@@ -2000,6 +2007,10 @@ export type UpdateNotificationsBody = z.infer<typeof UpdateNotificationsBodySche
 /** アーカイブ除外名の更新。一覧は丸ごと差し替える（空配列は「除外なし」を表す） */
 export const UpdateArchiveSettingsBodySchema = z.object({ excludeNames: z.array(z.string()) });
 export type UpdateArchiveSettingsBody = z.infer<typeof UpdateArchiveSettingsBodySchema>;
+
+/** 共有の除外名の更新。同じく丸ごと差し替える */
+export const UpdateSharedContentExclusionsBodySchema = z.object({ excludeNames: z.array(z.string()) });
+export type UpdateSharedContentExclusionsBody = z.infer<typeof UpdateSharedContentExclusionsBodySchema>;
 
 // 全キー任意にするのは、空 body の PATCH を no-op として通し、必須判定を catalog の文言のまま残すため。
 // null は「指定解除」、キー省略は「現在値の維持」で、どちらも catalog が解釈する。

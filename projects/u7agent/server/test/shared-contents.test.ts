@@ -190,6 +190,8 @@ interface SetupOptions {
   workspace?: SandboxWorkspaceClient;
   planSandbox?: SandboxDownloadPlanClient | null;
   plan?: SandboxDownloadPlan | Error;
+  /** 共有の除外名の実効値 (省略時は空 = 除外なし) */
+  exclusions?: { effectiveNames: () => string[] };
 }
 
 function setup(options: SetupOptions = {}) {
@@ -231,6 +233,7 @@ function setup(options: SetupOptions = {}) {
     rootCwd: ROOT,
     maskError: (text) => text,
     secretValues: () => options.secretValues ?? [],
+    exclusions: options.exclusions ?? { effectiveNames: () => [] },
     now: () => (clock += 1),
     newId: () => `id${++counter}`,
   });
@@ -515,6 +518,7 @@ test("資格情報が無い / セッションが無い / アカウント不一�
       rootCwd: ROOT,
       maskError: (text) => text,
       secretValues: () => [],
+      exclusions: { effectiveNames: () => [] },
     });
     await assert.rejects(
       () => other.publish("id1"),
@@ -907,6 +911,7 @@ test("sandbox の SandboxRequestError.status を 409 / 413 に写す", async () 
       rootCwd: ROOT,
       maskError: (text) => text,
       secretValues: () => [],
+      exclusions: { effectiveNames: () => [] },
     });
     await assert.rejects(
       () => service.publish("id1"),
@@ -968,6 +973,7 @@ test("subdomain 有効化の 200 本文が壊れても、照会して published 
     rootCwd: ROOT,
     maskError: (text) => text,
     secretValues: () => [],
+    exclusions: { effectiveNames: () => [] },
     now: () => 1_000,
     newId: () => "id1",
   });
@@ -1010,6 +1016,7 @@ test("有効化の 200 本文が壊れ、照会も壊れていたら publishing 
     rootCwd: ROOT,
     maskError: (text) => text,
     secretValues: () => [],
+    exclusions: { effectiveNames: () => [] },
     now: () => 1_000,
     newId: () => "id1",
   });
@@ -1701,6 +1708,7 @@ test("管理操作は記録した providerAccount と現在の接続が違えば
       rootCwd: ROOT,
       maskError: (text) => text,
       secretValues: () => [],
+      exclusions: { effectiveNames: () => [] },
     });
     for (const operation of [() => other.stop("id1"), () => other.resume("id1"), () => other.remove("id1")]) {
       await assert.rejects(operation, (error: any) => error.statusCode === 409);
@@ -1715,7 +1723,7 @@ test("管理操作は記録した providerAccount と現在の接続が違えば
 
 // プレビューは公開と同じ対象解決と計画を使い、上限超過 (413) を「走査が終わっていない」応答へ写す。
 // 資格情報と provider を使わないので、未登録でも応答が返ることをここで固定する。
-test("プレビューは公開と同じ除外 (空) と 25 MiB で計画を取り、index.html 不在を problems に出す", async () => {
+test("プレビューは公開と同じ 25 MiB で計画を取り、index.html 不在を problems に出す", async () => {
   const zip = zipFactory({ "index.html": "<h1>hi</h1>" });
   const { service, planCalls } = setup({
     zip,
@@ -1732,9 +1740,61 @@ test("プレビューは公開と同じ除外 (空) と 25 MiB で計画を取�
     assert.equal(preview.bytes, 20);
     assert.deepEqual(preview.files, [{ name: "index.html", size: 20 }]);
     assert.equal(preview.hasIndexHtml, false);
-    assert.deepEqual(preview.excludeNames, [], "Phase 1 は共有の除外設定がまだ無い");
+    assert.deepEqual(preview.excludeNames, [], "未設定のスタブは除外なしを表す");
     assert.equal(preview.limited, false);
     assert.deepEqual(preview.problems, ["公開するディレクトリに index.html がありません"]);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+// 除外はプレビューと公開で同じ実効値を使う。対象ディレクトリ自身の名前は落とすので、
+// `dist` を除外した状態でも `dist/` は共有できる (サンドボックスは対象名が除外名と一致すると 400)。
+test("プレビューと公開は同じ除外名を渡し、対象ディレクトリ自身の名前だけを落とす", async () => {
+  const zip = zipFactory({ "index.html": "<h1>hi</h1>", "AGENTS.md": "x" });
+  const names = ["AGENTS.md", ".env", "dist"];
+  const { service, downloadCalls, planCalls } = setup({ zip, exclusions: { effectiveNames: () => names } });
+  try {
+    const preview = await service.preview({ sessionId: "session-1", directory: "dist" });
+    assert.deepEqual(preview.excludeNames, ["AGENTS.md", ".env"]);
+    assert.deepEqual(planCalls, [
+      { path: "projects/app/dist", exclude: ["AGENTS.md", ".env"], maxFileBytes: SHARED_CONTENT_MAX_FILE_BYTES },
+    ]);
+
+    await service.create(payload());
+    await service.waitForIdle("id1");
+    assert.deepEqual(downloadCalls, [{ path: "projects/app/dist", exclude: ["AGENTS.md", ".env"] }]);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("除外名は受付時に確定してジョブへ渡し、実行中に設定が変わっても読み直さない", async () => {
+  const zip = zipFactory({ "index.html": "<h1>hi</h1>" });
+  let names = ["AGENTS.md"];
+  const { service, downloadCalls } = setup({ zip, exclusions: { effectiveNames: () => names } });
+  try {
+    await service.create(payload());
+    // 受付の後に設定が変わっても、走っているジョブは受付時の一覧を使う
+    names = ["dist"];
+    await service.waitForIdle("id1");
+    assert.deepEqual(downloadCalls, [{ path: "projects/app/dist", exclude: ["AGENTS.md"] }]);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("更新の受付も同じ実効値の除外名を使う", async () => {
+  const zip = zipFactory({ "index.html": "<h1>hi</h1>" });
+  const { service, downloadCalls } = setup({ zip, exclusions: { effectiveNames: () => [".env", "dist"] } });
+  try {
+    const id = await publishNow(service);
+    await service.publish(id);
+    await service.waitForIdle(id);
+    assert.deepEqual(downloadCalls, [
+      { path: "projects/app/dist", exclude: [".env"] },
+      { path: "projects/app/dist", exclude: [".env"] },
+    ]);
   } finally {
     zip.cleanup();
   }

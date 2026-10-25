@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { CloudflareSettings } from "../src/hooks/useCloudflareSettings";
+import type { SharedContentExclusionsSettings } from "../src/hooks/useSharedContentExclusions";
 import type { SharedContentsManager } from "../src/hooks/useSharedContentsManager";
 import { MEMORY_NOTE } from "../src/lib/settingsNotes";
 import type { CloudflareConnectionCheckResponse, CloudflareSettingsResponse } from "../src/types";
@@ -52,6 +53,30 @@ function checkResult(overrides: Partial<CloudflareConnectionCheckResponse> = {})
   };
 }
 
+function exclusions(overrides: Partial<SharedContentExclusionsSettings> = {}): SharedContentExclusionsSettings {
+  return {
+    settings: {
+      excludeNames: ["AGENTS.md"],
+      defaultExcludeNames: ["AGENTS.md"],
+      overridden: false,
+      maxNames: 100,
+      maxNameLength: 200,
+    },
+    draft: { excludeNames: ["AGENTS.md"] },
+    dirty: false,
+    saving: false,
+    reloading: false,
+    note: { text: MEMORY_NOTE, error: false },
+    add: () => true,
+    remove: () => {},
+    reload: async () => {},
+    save: async () => true,
+    reset: async () => true,
+    discard: () => {},
+    ...overrides,
+  };
+}
+
 function contents(overrides: Partial<SharedContentsManager> = {}): SharedContentsManager {
   return {
     items: [],
@@ -79,6 +104,8 @@ function render(value: CloudflareSettings): string {
       createElement(SharingSettingsView, {
         cloudflare: value,
         contents: contents(),
+        sharedContentExclusions: exclusions(),
+        onOpenArchiveExclusions: () => {},
         sessions: [],
         sessionsLoaded: false,
         sharingSubsection: "connections",
