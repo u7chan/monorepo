@@ -774,7 +774,8 @@
 
 /* カプチーノ ラテ: Catppuccin Latte。淡いパステル
  * subtext0 (4.37) / green (2.96) / yellow (2.31) は小さい文字で 4.5:1 を割るため暗い側へ寄せる
- * mauve はそのままだと wash 面で足りないので accent-text だけ暗くする */
+ * mauve はそのままだと wash 面で足りないので accent-text だけ暗くする
+ * accent-bright はユーザーの吹き出しの面 (13px の on-accent が載る) なので、白文字が 4.5:1 に届くまで暗くする */
 [data-theme="catppuccin-latte"] {
   color-scheme: light;
   --c-base: #eff1f5;
@@ -792,7 +793,7 @@
   --c-ink-ghost: #9ca0b0;
   --c-accent: #8839ef;
   --c-accent-strong: #7526d9;
-  --c-accent-bright: #a463f5;
+  --c-accent-bright: #9346f0;
   --c-on-accent: #ffffff;
   --c-accent-wash: rgba(136, 57, 239, 0.1);
   --c-accent-text: #7229d4;
@@ -818,7 +819,8 @@
 }
 
 /* グルーヴボックス ライト: Gruvbox Light。生成り紙に濃いインク
- * yellow / green は白背景の 11px で沈むため warn-text / ok-text を暗くする */
+ * yellow / green は白背景の 11px で沈むため warn-text / ok-text を暗くする
+ * accent-bright は吹き出しの面なので、白文字が 4.5:1 に届くまで暗くする */
 [data-theme="gruvbox-light"] {
   color-scheme: light;
   --c-base: #f9f5d7;
@@ -836,7 +838,7 @@
   --c-ink-ghost: #928374;
   --c-accent: #af3a03;
   --c-accent-strong: #8f2f00;
-  --c-accent-bright: #d05a1f;
+  --c-accent-bright: #bb4f1b;
   --c-on-accent: #fff9ef;
   --c-accent-wash: rgba(175, 58, 3, 0.1);
   --c-accent-text: #9c3200;
@@ -863,7 +865,8 @@
 
 /* ローズパイン ドーン: Rosé Pine Dawn。朝もやのくすみローズ
  * iris (4.4) / muted / gold は小さい文字で 4.5:1 を割るため暗い側へ寄せる
- * ok は緑を持たないパレットなので foam (teal) を当てる */
+ * ok は緑を持たないパレットなので foam (teal) を当てる
+ * accent / accent-bright は白い on-accent が 4.5:1 に届かないので、同じ色相のまま暗くする */
 [data-theme="rose-pine-dawn"] {
   color-scheme: light;
   --c-base: #faf4ed;
@@ -879,20 +882,20 @@
   --c-ink-muted: #847f9b;
   --c-ink-faint: #8f8aa0;
   --c-ink-ghost: #a8a3b5;
-  --c-accent: #907aa9;
-  --c-accent-strong: #7f6798;
-  --c-accent-bright: #a895bf;
+  --c-accent: #7f6798;
+  --c-accent-strong: #71598a;
+  --c-accent-bright: #81669f;
   --c-on-accent: #fffaf3;
-  --c-accent-wash: rgba(144, 122, 169, 0.1);
+  --c-accent-wash: rgba(127, 103, 152, 0.1);
   --c-accent-text: #6f5a84;
   --c-focus: #907aa9;
   --c-ok: #56949f;
   --c-ok-text: #376c75;
   --c-warn: #ea9d34;
-  --c-warn-text: #8c5b0d;
+  --c-warn-text: #8a590c;
   --c-danger: #b4637a;
   --c-danger-text: #a14f67;
-  --c-glow: rgba(144, 122, 169, 0.14);
+  --c-glow: rgba(127, 103, 152, 0.14);
   --c-backdrop: rgba(87, 82, 121, 0.4);
   --c-shadow-panel: 0 24px 70px rgba(122, 100, 110, 0.12);
 
@@ -952,7 +955,8 @@
 }
 
 /* ワン ライト: One Light。無彩色ベースの業務向け
- * blue (3.9) / green / yellow は小さい文字で沈むため暗い側へ寄せる */
+ * blue (3.9) / green / yellow は小さい文字で沈むため暗い側へ寄せる
+ * accent / accent-bright は白い on-accent が 4.5:1 に届かないので暗くする */
 [data-theme="one-light"] {
   color-scheme: light;
   --c-base: #eaeaec;
@@ -968,12 +972,12 @@
   --c-ink-muted: #6f7178;
   --c-ink-faint: #8a8c93;
   --c-ink-ghost: #a0a1a7;
-  --c-accent: #4078f2;
-  --c-accent-strong: #2f62d6;
-  --c-accent-bright: #6b98f6;
+  --c-accent: #2c68ea;
+  --c-accent-strong: #2a5fd6;
+  --c-accent-bright: #2b69ea;
   --c-on-accent: #ffffff;
-  --c-accent-wash: rgba(64, 120, 242, 0.1);
-  --c-accent-text: #2b59c3;
+  --c-accent-wash: rgba(44, 104, 234, 0.1);
+  --c-accent-text: #2853ba;
   --c-focus: #2f62d6;
   --c-ok: #50a14f;
   --c-ok-text: #376e36;
@@ -981,7 +985,7 @@
   --c-warn-text: #825800;
   --c-danger: #e45649;
   --c-danger-text: #b9372b;
-  --c-glow: rgba(64, 120, 242, 0.09);
+  --c-glow: rgba(44, 104, 234, 0.09);
   --c-backdrop: rgba(40, 42, 48, 0.42);
   --c-shadow-panel: 0 24px 70px rgba(30, 32, 40, 0.12);
 
@@ -997,7 +1001,8 @@
 
 /* ソラライズド ライト: Solarized Light。ベージュの紙とインク
  * base1 (93a1a1) は ink-faint に沈むため明るさを詰め、blue / yellow は暗い側へ寄せる
- * Solarized の段に合わせ、raised は base より暗い base2 にする */
+ * Solarized の段に合わせ、raised は base より暗い base2 にする
+ * accent / accent-bright は白い on-accent が 4.5:1 に届かないので暗くする */
 [data-theme="solarized-light"] {
   color-scheme: light;
   --c-base: #fdf6e3;
@@ -1013,11 +1018,11 @@
   --c-ink-muted: #71868c;
   --c-ink-faint: #83959a;
   --c-ink-ghost: #a8b3b3;
-  --c-accent: #268bd2;
-  --c-accent-strong: #1a6fa8;
-  --c-accent-bright: #4aa6e0;
+  --c-accent: #1f76b2;
+  --c-accent-strong: #1a6aa2;
+  --c-accent-bright: #1e76ae;
   --c-on-accent: #ffffff;
-  --c-accent-wash: rgba(38, 139, 210, 0.1);
+  --c-accent-wash: rgba(31, 118, 178, 0.1);
   --c-accent-text: #165f90;
   --c-focus: #268bd2;
   --c-ok: #859900;
@@ -1026,7 +1031,7 @@
   --c-warn-text: #755800;
   --c-danger: #dc322f;
   --c-danger-text: #b72724;
-  --c-glow: rgba(38, 139, 210, 0.09);
+  --c-glow: rgba(31, 118, 178, 0.09);
   --c-backdrop: rgba(0, 43, 54, 0.4);
   --c-shadow-panel: 0 24px 70px rgba(88, 110, 117, 0.12);
 

@@ -148,6 +148,17 @@ test("小さい文字の文字用トークンは、通常面 / hover 面 / 淡�
   }
 });
 
+// ユーザーの吹き出し・アバターは bg-accent-bright、送信ボタンや選択行は bg-accent に on-accent の
+// 文字を載せる。どちらの面も 13px 以下の文字が乗るため、両方を検査する (bright 側は見落としやすい)。
+test("on-accent の文字は accent / accent-bright のどちらの面でも 4.5:1 以上", () => {
+  for (const theme of parseThemes(css)) {
+    for (const surface of ["accent", "accent-bright"]) {
+      const ratio = contrast(theme.color["on-accent"], theme.color[surface]);
+      assert.ok(ratio >= 4.5, `${theme.name}: on-accent on ${surface} = ${ratio.toFixed(3)}:1 (4.5:1 以上が必要)`);
+    }
+  }
+});
+
 test("状態ラベルの面は hover で通常面と異なり、4.5:1 の検査から外れていない", () => {
   // hover を通常面と同じ色にすると検査は通るが、行の hover フィードバックが消える。
   // この画面の行は hover で背景を変えるため、遷移後の面も必ず検査対象にする。

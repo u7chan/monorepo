@@ -45,7 +45,7 @@ export function ThemePreview({ themeId }: { themeId: ThemeId }) {
         </div>
         {/* 会話: 吹き出し・本文・コード・状態ラベル・入力欄 */}
         <div className="flex min-w-0 flex-1 flex-col gap-1 px-1.5 py-1.5">
-          <span className="ml-auto rounded-md rounded-br-sm bg-accent px-1.5 py-0.5 text-3xs text-on-accent">
+          <span className="ml-auto rounded-md rounded-br-sm bg-accent-bright px-1.5 py-0.5 text-3xs text-on-accent">
             配色を見てます
           </span>
           <span className="text-3xs text-ink-soft">テーマを 1 つ足しました。</span>
