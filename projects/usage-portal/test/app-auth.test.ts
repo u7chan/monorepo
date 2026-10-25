@@ -1,6 +1,6 @@
 // 認証 API の HTTP 契約（status / body / cookie / ヘッダー）を固定する。
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/server/app";
@@ -366,15 +366,14 @@ describe("壊れた保存状態", () => {
   });
 
   test("1 文字切り詰めた pin-hash も misconfigured", async () => {
-    const { app, auth, dataDir } = harness();
+    const { app, dataDir } = harness();
+    // ソルトがランダムだと切り詰めが canonical になる場合があり、生成結果に依存すると不安定になる。
+    const hash =
+      "$argon2id$v=19$m=65536,t=2,p=1$y6eXe3E686k8eA0nXIhuHe9+Vxb6yCZaVVRDiOZ5Rug$gysjOYMPKtIkNzwpbC/ypxc38v4aR97rSWb+oK/NTAk";
 
-    await setupPin(app);
+    writeFileSync(join(dataDir, "pin-hash"), `${hash}\n`);
 
-    const stored = auth.status();
-
-    expect(stored).toBe("ok");
-
-    const hash = readFileSync(join(dataDir, "pin-hash"), "utf8").trim();
+    expect((await app.request("/api/health")).status).toBe(200);
 
     writeFileSync(join(dataDir, "pin-hash"), `${hash.slice(0, -1)}\n`);
 

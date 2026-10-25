@@ -7,10 +7,12 @@ const BASE64_PATTERN = /^[A-Za-z0-9+/]+$/;
 /** 弱いパラメータへ書き換えられたハッシュを受け入れない下限。Bun の既定は m=65536。 */
 const MIN_MEMORY_KIB = 8192;
 const MAX_PARALLELISM = 16;
-const MIN_SALT_BYTES = 8;
-const MAX_SALT_BYTES = 64;
-const MIN_TAG_BYTES = 16;
-const MAX_TAG_BYTES = 64;
+/**
+ * `Bun.password.hash` が書く長さに固定する。Bun は 31 bytes のタグも「別の正しいハッシュ」として
+ * 受理するため、範囲で許すと 1 文字の切り詰めを破損として検出できない。
+ */
+const SALT_BYTES = 32;
+const TAG_BYTES = 32;
 
 export function isValidPin(value: unknown): value is string {
   return typeof value === "string" && PIN_PATTERN.test(value);
@@ -41,12 +43,8 @@ export function isArgon2idHash(value: string): boolean {
     Number.isSafeInteger(parallelism) &&
     parallelism >= 1 &&
     parallelism <= MAX_PARALLELISM &&
-    saltBytes !== null &&
-    saltBytes >= MIN_SALT_BYTES &&
-    saltBytes <= MAX_SALT_BYTES &&
-    tagBytes !== null &&
-    tagBytes >= MIN_TAG_BYTES &&
-    tagBytes <= MAX_TAG_BYTES
+    saltBytes === SALT_BYTES &&
+    tagBytes === TAG_BYTES
   );
 }
 
@@ -65,7 +63,14 @@ function decodeBase64Bytes(segment: string): number | null {
 }
 
 export async function hashPin(pin: string): Promise<string> {
-  return Bun.password.hash(pin, { algorithm: "argon2id" });
+  const hash = await Bun.password.hash(pin, { algorithm: "argon2id" });
+
+  // Bun の既定が変わったら、書いた直後に気付けるようにする。読み出し側で初めて壊れるのを避ける。
+  if (!isArgon2idHash(hash)) {
+    throw new Error("生成した PIN ハッシュが保存形式を満たしません");
+  }
+
+  return hash;
 }
 
 export async function verifyPin(pin: string, hash: string): Promise<boolean> {
