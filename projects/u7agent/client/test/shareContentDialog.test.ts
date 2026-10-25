@@ -164,11 +164,26 @@ test("再オープン: 同じ公開元が公開中の間は共有するを押せ
   assert.ok(html.includes(SHARE_DUPLICATE_PUBLISHING_NOTE));
   assert.equal(html.includes(SHARE_DUPLICATE_NOTE), false, "公開中は「更新は管理一覧から」と書かない");
   assert.ok(actionTag(html, "共有する").includes("disabled"));
+  // 同じ公開元が複数あるときも、一覧の先頭が公開済みなら通さない (一覧は作成日時降順)
+  const mixed = render(
+    controller({
+      items: [item({ id: "new", status: "published", createdAt: 2 }), item({ id: "old", createdAt: 1 })],
+      preview: { status: "ready", preview: readyPreview("projects/app/dist") },
+    }),
+  );
+  assert.ok(mixed.includes(SHARE_DUPLICATE_PUBLISHING_NOTE));
+  assert.ok(actionTag(mixed, "共有する").includes("disabled"));
   // 別のディレクトリなら公開できる
   const other = render(
     controller({ items: [item()], preview: { status: "ready", preview: readyPreview("projects/app/site") } }),
   );
   assert.equal(actionTag(other, "共有する").includes("disabled"), false);
+});
+
+test("受付直後: 一覧に active がまだ無い間も、閉じても公開が続く案内を出す", () => {
+  // 202 の後、一覧の GET が遅延・失敗して items に active が無くても、公開が終わったと決めつけない
+  const html = render(controller({ activeId: "abc123" }));
+  assert.ok(html.includes(SHARE_CLOSE_HINT));
 });
 
 // 閉じるは塞がない (公開はサーバー側で続く)。ただし閉じたことでキャンセルされたと誤解させない

@@ -8,6 +8,7 @@ import {
   SHARE_DUPLICATE_NOTE,
   SHARE_DUPLICATE_PUBLISHING_NOTE,
   SHARE_NAME_MAX_LENGTH,
+  sharedContentPublishingWithSourcePath,
   sharedContentWithSourcePath,
   shareStatusView,
   type ShareStatusView,
@@ -64,7 +65,10 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
   const listed = share.activeId === null ? share.items : share.items.filter((item) => item.id !== share.activeId);
   // 受付した後は同じディレクトリをもう一度公開しない (Worker の枠と URL を無駄に増やさない)
   const started = share.activeId !== null || share.submitting;
-  const busy = share.submitting || active?.status === "publishing";
+  // 受付直後は一覧に active がまだ現れない (一覧の GET が遅延・失敗する)。その間も公開中として扱う
+  // (公開が終わったと確認できるまで、閉じても続く案内を消さない)
+  const busy =
+    share.submitting || (share.activeId !== null && (active === undefined || active.status === "publishing"));
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -85,11 +89,10 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
 
   // 同じ公開元の共有物があれば、押す前に「更新は管理一覧から」と示す (公開済みの重複は作れる)。
   // 公開中だけは、閉じて開き直して `started` が失われても再送させない (Worker と URL を二重に作らない)
-  const duplicate = sharedContentWithSourcePath(
-    share.preview.status === "ready" ? share.preview.preview.sourcePath : null,
-    share.items,
-  );
-  const publishing = duplicate?.status === "publishing";
+  const sourcePath = share.preview.status === "ready" ? share.preview.preview.sourcePath : null;
+  const duplicate = sharedContentWithSourcePath(sourcePath, share.items);
+  // 一覧の先頭は同じ公開元の別の共有物かもしれないので、「いずれかが公開中」で判定する
+  const publishing = sharedContentPublishingWithSourcePath(sourcePath, share.items);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

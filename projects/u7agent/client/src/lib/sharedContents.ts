@@ -48,6 +48,17 @@ export function sharedContentWithSourcePath(
 }
 
 /**
+ * 同じ公開元で公開中の共有物があるか。一覧は作成日時降順なので、同じ公開元が複数あるときに
+ * `sharedContentWithSourcePath` の先頭 1 件だけを見ると、古い共有物の更新中を公開済みと誤認する。
+ */
+export function sharedContentPublishingWithSourcePath(
+  sourcePath: string | null,
+  items: readonly SharedContentResponse[],
+): boolean {
+  return sourcePath !== null && items.some((item) => item.sourcePath === sourcePath && item.status === "publishing");
+}
+
+/**
  * 確認画面に必ず出す条件。順序も含めて契約にする（公開は取り消しにくいので、押す前に全部読めるようにする）。
  * 確定した URL は受付時に決まるため、ここには URL を出さない。
  */
