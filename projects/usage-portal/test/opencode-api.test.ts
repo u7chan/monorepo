@@ -5,11 +5,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
-import { loadProviderUsage, openDatabase, saveProviderSnapshot, type DatabaseHandle } from "../src/server/db";
+import {
+  deleteProviderUsage,
+  loadProviderUsage,
+  openDatabase,
+  saveProviderSnapshot,
+  type DatabaseHandle,
+} from "../src/server/db";
 import { buildHealthReport } from "../src/server/health";
 import { createOpenCodeApi } from "../src/server/opencode/api";
 import { createOpenCodeAuth, OPENCODE_KEY_FILE } from "../src/server/opencode/auth";
-import { createSampler } from "../src/server/sampler";
+import { createSampler, type UsageFetcher } from "../src/server/sampler";
 import { ProviderError, type ProviderSnapshot } from "../src/server/providers/types";
 import { createUsageReader, type UsagePayload } from "../src/server/usage";
 import { BASE_TIME, stubCodexApi, usageSnapshot } from "./support";
@@ -345,57 +351,86 @@ describe("DELETE /api/opencode/key", () => {
   });
 });
 
+function realHarness(
+  createFetchers: (deps: { auth: ReturnType<typeof createOpenCodeAuth>; db: DatabaseHandle }) => UsageFetcher[],
+): {
+  app: ReturnType<typeof createApp>;
+  db: DatabaseHandle;
+  auth: ReturnType<typeof createOpenCodeAuth>;
+  sampler: ReturnType<typeof createSampler>;
+  opencode: ReturnType<typeof createOpenCodeApi>;
+} {
+  const root = mkdtempSync(join(tmpdir(), "usage-portal-opencode-real-"));
+  const dataDir = join(root, "data");
+  const credentialDir = join(root, "credentials");
+  const auth = createAuthService({ dataDir });
+  const db = openDatabase(dataDir);
+  const openCodeAuth = createOpenCodeAuth({ credentialDir, now: () => BASE_TIME });
+
+  dirs.push(root);
+  handles.push(db);
+  auth.ensureSessionKey();
+
+  const sampler = createSampler({
+    db,
+    intervalMs: INTERVAL,
+    now: () => BASE_TIME,
+    log: () => {},
+    fetchers: createFetchers({ auth: openCodeAuth, db }),
+  });
+  const opencode = createOpenCodeApi({
+    auth: openCodeAuth,
+    db,
+    sampler,
+    fetchUsage: async () => usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME }),
+  });
+  const app = createApp({
+    auth,
+    usage: createUsageReader({ db, sampleIntervalMs: INTERVAL, now: () => BASE_TIME }),
+    codex: stubCodexApi(),
+    opencode,
+    health: () => buildHealthReport("ok", auth.status()),
+    now: () => BASE_TIME,
+    clientKey: () => "test-client",
+  });
+
+  return { app, db, auth: openCodeAuth, sampler, opencode };
+}
+
 describe("キー変更と sampler の排他", () => {
   test("PUT と DELETE が同時に来ても、解除後に snapshot を書き戻さない", async () => {
-    const root = mkdtempSync(join(tmpdir(), "usage-portal-opencode-race-"));
-    const dataDir = join(root, "data");
-    const credentialDir = join(root, "credentials");
-    const db = openDatabase(dataDir);
-    const auth = createOpenCodeAuth({ credentialDir, now: () => BASE_TIME });
     const beforeFirst = deferred();
     const beforeKeyedFetch = deferred();
     let calls = 0;
+    const h = realHarness(({ auth }) => [
+      {
+        provider: { id: "opencode-go", name: "OpenCode Go" },
+        fetch: async () => {
+          calls += 1;
+          const apiKey = auth.apiKey();
 
-    dirs.push(root);
-    handles.push(db);
+          if (calls === 1) {
+            await beforeFirst.promise;
+          }
 
-    const snapshot = () => usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
-    const sampler = createSampler({
-      db,
-      intervalMs: INTERVAL,
-      now: () => BASE_TIME,
-      log: () => {},
-      fetchers: [
-        {
-          provider: { id: "opencode-go", name: "OpenCode Go" },
-          fetch: async () => {
-            calls += 1;
-            const apiKey = auth.apiKey();
+          if (apiKey === null) {
+            throw new ProviderError("not_connected", "OpenCode Go の API キーが登録されていません");
+          }
 
-            if (calls === 1) {
-              await beforeFirst.promise;
-            }
+          await beforeKeyedFetch.promise;
 
-            if (apiKey === null) {
-              throw new ProviderError("not_connected", "OpenCode Go の API キーが登録されていません");
-            }
-
-            await beforeKeyedFetch.promise;
-
-            return snapshot();
-          },
+          return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
         },
-      ],
-    });
-    const opencode = createOpenCodeApi({ auth, db, sampler, fetchUsage: async () => snapshot() });
+      },
+    ]);
 
-    const initial = sampler.kick();
-    const put = opencode.save("sk-race-key");
+    const initial = h.sampler.kick();
+    const put = h.opencode.save("sk-race-key");
 
     // 検証を終えた PUT を先に exclusive へ積む。
     await new Promise((resolve) => setTimeout(resolve, 5));
 
-    const del = opencode.clear();
+    const del = h.opencode.clear();
 
     beforeFirst.resolve();
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -404,8 +439,102 @@ describe("キー変更と sampler の排他", () => {
     const [putResult] = await Promise.all([put, del, initial]);
 
     expect(putResult).toMatchObject({ ok: true, state: { configured: true } });
-    expect(auth.state()).toEqual({ configured: false, savedAt: null });
-    expect(loadProviderUsage(db, ["opencode-go"]).get("opencode-go")?.snapshot).toBeNull();
+    expect(h.auth.state()).toEqual({ configured: false, savedAt: null });
+    expect(loadProviderUsage(h.db, ["opencode-go"]).get("opencode-go")?.snapshot).toBeNull();
+  });
+
+  test("片方の provider の記録が失敗しても、他方の進行中の取得が終わるまで exclusive を進めない", async () => {
+    const gate = deferred();
+    let cleared = false;
+    const h = realHarness(({ auth }) => [
+      {
+        provider: { id: "codex", name: "Codex" },
+        fetch: async () => {
+          throw new ProviderError("upstream", "Codex の取得に失敗しました");
+        },
+      },
+      {
+        provider: { id: "opencode-go", name: "OpenCode Go" },
+        fetch: async () => {
+          const apiKey = auth.apiKey();
+
+          if (apiKey === null) {
+            throw new ProviderError("not_connected", "OpenCode Go の API キーが登録されていません");
+          }
+
+          await gate.promise;
+
+          return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
+        },
+      },
+    ]);
+
+    h.db.db.exec(
+      "CREATE TRIGGER fail_codex_error BEFORE INSERT ON provider_error WHEN NEW.provider = 'codex' BEGIN SELECT RAISE(ABORT, 'sentinel'); END",
+    );
+    h.auth.save("sk-old");
+
+    // Codex のエラー記録は失敗し、OpenCode の取得は保留されたまま。
+    const initial = h.sampler.kick();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const clear = h.sampler.exclusive(() => {
+      h.auth.clear();
+      deleteProviderUsage(h.db, "opencode-go");
+      cleared = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(cleared).toBe(false);
+
+    gate.resolve();
+    await Promise.allSettled([initial, clear]);
+
+    expect(h.auth.state().configured).toBe(false);
+    expect(loadProviderUsage(h.db, ["opencode-go"]).get("opencode-go")?.snapshot).toBeNull();
+  });
+});
+
+describe("変更後の再取得が失敗したとき", () => {
+  test("保存・解除は確定済みなので、後続の取得の DB エラーを 5xx にしない", async () => {
+    const h = realHarness(({ auth, db }) => [
+      {
+        provider: { id: "opencode-go", name: "OpenCode Go" },
+        fetch: async () => {
+          const apiKey = auth.apiKey();
+
+          // 変更後の再取得に入った時点で DB を読み取り専用にする。
+          db.db.exec("PRAGMA query_only = ON");
+
+          if (apiKey === null) {
+            throw new ProviderError("not_connected", "OpenCode Go の API キーが登録されていません");
+          }
+
+          return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
+        },
+      },
+    ]);
+    const cookieValue = await cookie(h.app);
+
+    const put = await request(h.app, "/api/opencode/key", {
+      method: "PUT",
+      cookie: cookieValue,
+      body: { apiKey: "sk-post-save" },
+    });
+
+    expect(put.status).toBe(200);
+    expect(await put.json()).toEqual({ configured: true, savedAt: BASE_TIME });
+    expect(h.auth.apiKey()).toBe("sk-post-save");
+
+    h.db.db.exec("PRAGMA query_only = OFF");
+
+    const del = await request(h.app, "/api/opencode/key", { method: "DELETE", cookie: cookieValue });
+
+    expect(del.status).toBe(204);
+    expect(h.auth.state()).toEqual({ configured: false, savedAt: null });
+
+    h.db.db.exec("PRAGMA query_only = OFF");
   });
 });
 

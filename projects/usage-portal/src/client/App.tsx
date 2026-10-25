@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import {
   type CodexAuthState,
   type ProviderId,
@@ -123,6 +123,8 @@ function Dashboard(props: {
   const [codex, setCodex] = useState<CodexAuthState | null>(null);
   const [opencode, setOpenCode] = useState<OpenCodeConnection>({ status: "loading" });
   const [clock, setClock] = useState(() => Date.now());
+  // 保存・解除より前に始まった GET の応答で、確定済みの状態を巻き戻さないための世代。
+  const authGeneration = useRef(0);
 
   // 「あと N 日」と期限バナーを操作なしでも進める。
   useEffect(() => {
@@ -174,8 +176,16 @@ function Dashboard(props: {
   }, [loadCodex]);
 
   const loadOpenCode = useCallback(async () => {
+    authGeneration.current += 1;
+
+    const generation = authGeneration.current;
+
     try {
       const result = await fetchOpenCodeAuth();
+
+      if (generation !== authGeneration.current) {
+        return;
+      }
 
       if (result && "unauthorized" in result) {
         onUnauthorized();
@@ -188,6 +198,10 @@ function Dashboard(props: {
         result ? { status: "ok", auth: result } : current.status === "ok" ? current : { status: "unavailable" },
       );
     } catch {
+      if (generation !== authGeneration.current) {
+        return;
+      }
+
       setOpenCode((current) => (current.status === "ok" ? current : { status: "unavailable" }));
     }
   }, [onUnauthorized]);
@@ -280,6 +294,8 @@ function Dashboard(props: {
         return outcome.error;
       }
 
+      // 保存より前に始まった GET の応答は捨てる。
+      authGeneration.current += 1;
       setOpenCode({ status: "ok", auth: outcome.state });
 
       // 保存は確定している。直後の取得が失敗しても登録失敗として扱わない（60 秒後に再試行される）。
@@ -300,6 +316,8 @@ function Dashboard(props: {
     }
 
     if (ok) {
+      // 解除より前に始まった GET の応答は捨てる。
+      authGeneration.current += 1;
       setOpenCode({ status: "ok", auth: { configured: false, savedAt: null } });
     }
 
