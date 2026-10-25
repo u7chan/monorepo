@@ -81,7 +81,7 @@ export async function fetchOpenCodeUsage(options: {
   timeoutMs?: number;
 }): Promise<ProviderSnapshot> {
   if (!options.apiKey) {
-    throw new ProviderError("config", "OpenCode Go の API キーが設定されていません");
+    throw new ProviderError("not_connected", "OpenCode Go の API キーが登録されていません");
   }
 
   const response = await fetchJson(OPENCODE_USAGE_URL, {
@@ -99,7 +99,10 @@ export async function fetchOpenCodeUsage(options: {
   }
 
   if (response.status === 401 || response.status === 403) {
-    throw new ProviderError("config", "OpenCode Go の API キーが受け付けられませんでした");
+    throw new ProviderError(
+      "config",
+      "OpenCode Go の API キーが受け付けられませんでした。画面から登録し直してください",
+    );
   }
 
   if (response.status !== 200) {

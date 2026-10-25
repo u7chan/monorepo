@@ -36,28 +36,38 @@ export function createSampler(options: {
   let timer: ReturnType<typeof setInterval> | null = null;
   let pruneTimer: ReturnType<typeof setInterval> | null = null;
   let running: Promise<void> | null = null;
+  // exclusive を呼んだ順に直列化する。前の変更後の再取得が終わるまで、次の変更を始めない。
+  let exclusiveChain: Promise<void> = Promise.resolve();
 
   function executeOnce(): Promise<void> {
-    return Promise.all(
-      options.fetchers.map(async ({ provider, fetch }) => {
-        try {
-          const snapshot = await fetch();
+    const tasks = options.fetchers.map(async ({ provider, fetch }) => {
+      try {
+        const snapshot = await fetch();
 
-          saveProviderSnapshot(options.db, snapshot);
-        } catch (error) {
-          const failure = toProviderError(error);
+        saveProviderSnapshot(options.db, snapshot);
+      } catch (error) {
+        const failure = toProviderError(error);
 
-          saveProviderError(options.db, provider.id, {
-            code: failure.code,
-            message: failure.message,
-            at: options.now(),
-          });
+        saveProviderError(options.db, provider.id, {
+          code: failure.code,
+          message: failure.message,
+          at: options.now(),
+        });
 
-          // 上流の本文や例外文は残さない。どの provider がどの分類で落ちたかだけを残す。
-          log(`${provider.id}: ${failure.code} (${failure.message})`);
-        }
-      }),
-    ).then(() => undefined);
+        // 上流の本文や例外文は残さない。どの provider がどの分類で落ちたかだけを残す。
+        log(`${provider.id}: ${failure.code} (${failure.message})`);
+      }
+    });
+
+    // 1 つの DB 書き込み失敗で他 provider の取得を打ち切らない。running が全 provider の
+    // 終了より先に解けると、exclusive がまだ進行中の取得を見落とす。
+    return Promise.allSettled(tasks).then((results) => {
+      const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+
+      if (rejected) {
+        throw rejected.reason;
+      }
+    });
   }
 
   function runOnce(): Promise<void> {
@@ -76,14 +86,18 @@ export function createSampler(options: {
     pruneSamples(options.db, options.now() - retentionMs);
   }
 
+  function runInBackground(): void {
+    void runOnce().catch(() => log("取得結果を保存できませんでした"));
+  }
+
   function start(): void {
     if (timer) {
       return;
     }
 
     prune();
-    void runOnce();
-    timer = setInterval(() => void runOnce(), options.intervalMs);
+    runInBackground();
+    timer = setInterval(runInBackground, options.intervalMs);
     pruneTimer = setInterval(prune, PRUNE_INTERVAL_MS);
     // 取得の待ちでプロセスを終了できなくしない。止めるのは stop() の役目。
     timer.unref?.();
@@ -102,16 +116,23 @@ export function createSampler(options: {
     }
   }
 
-  // 進行中の取得を待ってから fn を実行する。await の後に再開するのは microtask で、
-  // タイマーの runOnce より先に fn が走るため、間に新しい取得は挟まらない。
-  async function exclusive(fn: () => void): Promise<void> {
-    if (running) {
-      await running.catch(() => undefined);
-    }
+  // 進行中の取得を待ってから fn を実行する。待ったあとに running を再確認しないので、
+  // 同時に呼ばれた exclusive を鎖でつなぎ、先の変更後の取得が終わるまで次を始めない。
+  function exclusive(fn: () => void): Promise<void> {
+    const task = exclusiveChain.then(async () => {
+      if (running) {
+        await running.catch(() => undefined);
+      }
 
-    fn();
+      fn();
 
-    await runOnce();
+      // 変更は確定している。後続の取得や保存の失敗は操作の失敗として返さない。
+      await runOnce().catch(() => log("取得結果を保存できませんでした"));
+    });
+
+    exclusiveChain = task.catch(() => undefined);
+
+    return task;
   }
 
   return { start, stop, kick: () => exclusive(() => {}), exclusive };

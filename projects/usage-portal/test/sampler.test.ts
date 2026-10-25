@@ -203,6 +203,46 @@ describe("createSampler", () => {
 });
 
 describe("exclusive", () => {
+  test("積まれた exclusive を直列化し、前の変更後の取得が終わるまで次を始めない", async () => {
+    const handle = open();
+    const gate = deferred();
+    const order: string[] = [];
+    let calls = 0;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: [
+        {
+          provider: CODEX_PROVIDER,
+          fetch: async () => {
+            calls += 1;
+            order.push(`fetch${calls}`);
+
+            if (calls === 1) {
+              await gate.promise;
+            }
+
+            return usageSnapshot();
+          },
+        },
+      ],
+      intervalMs: 300_000,
+      now: () => BASE_TIME,
+      log: () => {},
+    });
+
+    const initial = sampler.kick();
+    const change1 = sampler.exclusive(() => order.push("change1"));
+    const change2 = sampler.exclusive(() => order.push("change2"));
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(order).toEqual(["fetch1"]);
+
+    gate.resolve();
+    await Promise.all([initial, change1, change2]);
+
+    expect(order).toEqual(["fetch1", "change1", "fetch2", "change2", "fetch3"]);
+  });
+
   test("進行中の取得が終わってから fn を実行し、その後の取得で古い snapshot を書き戻さない", async () => {
     const handle = open();
     const gate = deferred();

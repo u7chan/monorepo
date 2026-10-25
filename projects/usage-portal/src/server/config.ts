@@ -5,7 +5,6 @@ export type ServerConfig = {
   port: number;
   dataDir: string;
   credentialDir: string;
-  opencodeApiKey: string | null;
   pollIntervalMs: number;
   development: boolean;
   version: string;
@@ -25,7 +24,6 @@ export function loadConfig(env: Record<string, string | undefined>, packageVersi
     port: parsePort(env.PORT),
     dataDir: env.DATA_DIR?.trim() || DEFAULT_DATA_DIR,
     credentialDir: env.CREDENTIAL_DIR?.trim() || DEFAULT_CREDENTIAL_DIR,
-    opencodeApiKey: env.OPENCODE_API_KEY?.trim() || null,
     pollIntervalMs: parsePollInterval(env.POLL_INTERVAL_MS),
     development: env.NODE_ENV !== "production",
     version: resolveVersion(env.COMMIT_HASH, packageVersion),

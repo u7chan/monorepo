@@ -1,4 +1,3 @@
-import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
 import { CredentialSynchronizationError, ModelRuntime, readStoredCredential } from "@earendil-works/pi-coding-agent";
@@ -7,8 +6,8 @@ import { createDeviceIdStore } from "./device-id";
 
 export const CODEX_PROVIDER_ID = "openai-codex";
 export const CODEX_AGENT_NAME = "usage-portal";
-const AUTH_FILE = "auth.json";
-const DEVICE_ID_FILE = "device-id";
+export const CODEX_AUTH_FILE = "auth.json";
+export const CODEX_DEVICE_ID_FILE = "device-id";
 
 /** access token が切れる直前に refresh させる。取得の直後に 401 になる往復を減らす。 */
 const MIN_OAUTH_VALIDITY_MS = 15 * 60 * 1000;
@@ -23,29 +22,12 @@ export type CodexAuth = {
 };
 
 /**
- * 資格情報のディレクトリを 0700、既存の `auth.json` / `device-id` を 0600 に揃える。
- * 0600 にできない状態で動かすと token が他ユーザーから読めるため、呼び出し側は失敗で起動を止める。
- */
-export function prepareCredentialDir(credentialDir: string): void {
-  mkdirSync(credentialDir, { recursive: true, mode: 0o700 });
-  chmodSync(credentialDir, 0o700);
-
-  for (const file of [AUTH_FILE, DEVICE_ID_FILE]) {
-    const path = join(credentialDir, file);
-
-    if (existsSync(path)) {
-      chmodSync(path, 0o600);
-    }
-  }
-}
-
-/**
  * Pi SDK を資格情報の読み取り・更新・サインインにだけ使う。
  * `modelsPath: null` と `refreshOnCreate: false` で model catalog のネットワーク更新も保存もしない。
  */
 export function createCodexAuth(options: { credentialDir: string; log?: (message: string) => void }): CodexAuth {
-  const authPath = join(options.credentialDir, AUTH_FILE);
-  const deviceIds = createDeviceIdStore(join(options.credentialDir, DEVICE_ID_FILE), options.log);
+  const authPath = join(options.credentialDir, CODEX_AUTH_FILE);
+  const deviceIds = createDeviceIdStore(join(options.credentialDir, CODEX_DEVICE_ID_FILE), options.log);
   let runtime: Promise<ModelRuntime> | null = null;
 
   function getRuntime(): Promise<ModelRuntime> {

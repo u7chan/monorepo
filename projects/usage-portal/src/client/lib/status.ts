@@ -19,7 +19,7 @@ export type StatusInput = {
 };
 
 export function deriveProviderStatus(input: StatusInput): ProviderStatus {
-  if (input.id === "codex" && input.errorCode === "not_connected") {
+  if (input.errorCode === "not_connected") {
     return { label: "未接続", tone: "neutral", symbol: "○" };
   }
 
