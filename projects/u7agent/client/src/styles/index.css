@@ -477,7 +477,7 @@
 
   /* アイコン + ラベルの副次ボタン (全画面 dialog のヘッダ操作など) */
   .btn-quiet {
-    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text;
+    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text disabled:cursor-not-allowed disabled:opacity-45;
   }
 
   /* アイコンだけのボタン (singleColumn バーなど)。選択中の状態は呼び出し側の utilities で上書きする */
