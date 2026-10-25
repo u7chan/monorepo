@@ -272,7 +272,7 @@ function Dashboard(props: {
   );
 }
 
-function describeFailure(outcome: Extract<AuthOutcome, { ok: false }>): string {
+function describeFailure(outcome: Extract<AuthOutcome, { ok: false }>): string | null {
   switch (outcome.error) {
     case "invalid_pin":
       return "PIN が違います。";
@@ -280,11 +280,9 @@ function describeFailure(outcome: Extract<AuthOutcome, { ok: false }>): string {
       return "PIN は設定済みです。ログインしてください。";
     case "setup_required":
       return "PIN が未設定です。ページを再読み込みしてください。";
-    case "rate_limited": {
-      const minutes = Math.max(1, Math.ceil((outcome.retryAfterSeconds ?? 0) / 60));
-
-      return `試行回数が多すぎます。約 ${minutes} 分後に再試行してください。`;
-    }
+    case "rate_limited":
+      // 残り時間はロック期限から毎秒作り直す。固定文言を残すと解除後も古い待ち時間が出る。
+      return null;
     case "origin_mismatch":
       return "開いている URL が想定と違います。同じ URL から開き直してください。";
     default:

@@ -27,6 +27,10 @@ describe("isArgon2idHash", () => {
       "$argon2id$v=19$m=1024,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaA",
       // hash 部分が短すぎる切り詰め
       hash.slice(0, -30),
+      // 1〜2 文字の切り詰めは最小長を満たしたまま base64 として壊れる
+      hash.slice(0, -1),
+      hash.slice(0, -2),
+      `${hash}=`,
     ]) {
       expect(isArgon2idHash(value)).toBe(false);
     }

@@ -1,6 +1,6 @@
 // 認証 API の HTTP 契約（status / body / cookie / ヘッダー）を固定する。
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/server/app";
@@ -284,6 +284,51 @@ describe("レート制限のキー", () => {
     // 接続元が違えば別のバケツ。ここが unknown に潰れると全端末が巻き添えになる。
     expect(otherClient.status).toBe(401);
   });
+
+  test("Content-Length の無い要求でも同じ接続元として数える", async () => {
+    const { app } = harness({ clientKey: false });
+    const originals = new Set<Request>();
+    const server = {
+      // bodyLimit が Request を作り直すと、ここに来る実体は元の Request ではなくなる。
+      requestIP: (req: Request) =>
+        originals.has(req) ? { address: "203.0.113.9", family: "IPv4", port: 50000 } : null,
+    };
+    const streamed = (pin: string) => {
+      const request = new Request("http://localhost/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN },
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(JSON.stringify({ pin })));
+            controller.close();
+          },
+        }),
+        duplex: "half",
+      } as RequestInit);
+
+      originals.add(request);
+
+      return request;
+    };
+    const plain = (pin: string) => {
+      const plainRequest = request("/api/auth/login", { pin });
+
+      originals.add(plainRequest);
+
+      return plainRequest;
+    };
+
+    await setupPin(app);
+
+    // chunked (Content-Length なし) の誤 PIN 5 回。
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect((await app.fetch(streamed("654321"), { server })).status).toBe(401);
+    }
+
+    // 転送形式が違っても同じ接続元なら共有される。
+    expect((await app.fetch(plain("654321"), { server })).status).toBe(429);
+    expect((await app.fetch(streamed("654321"), { server })).status).toBe(429);
+  });
 });
 
 describe("共通の防御", () => {
@@ -318,5 +363,24 @@ describe("壊れた保存状態", () => {
 
     expect(health.status).toBe(503);
     expect((await health.json()) as Record<string, unknown>).toMatchObject({ ok: false, auth: "misconfigured" });
+  });
+
+  test("1 文字切り詰めた pin-hash も misconfigured", async () => {
+    const { app, auth, dataDir } = harness();
+
+    await setupPin(app);
+
+    const stored = auth.status();
+
+    expect(stored).toBe("ok");
+
+    const hash = readFileSync(join(dataDir, "pin-hash"), "utf8").trim();
+
+    writeFileSync(join(dataDir, "pin-hash"), `${hash.slice(0, -1)}\n`);
+
+    const health = await app.request("/api/health");
+
+    expect(health.status).toBe(503);
+    expect((await health.json()) as Record<string, unknown>).toMatchObject({ auth: "misconfigured" });
   });
 });

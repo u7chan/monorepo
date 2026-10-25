@@ -18,19 +18,26 @@ export type AppDeps = {
   now?: () => number;
 };
 
+type AppEnv = { Variables: { clientKey: string } };
+
 export function createApp(deps: AppDeps) {
   const now = deps.now ?? Date.now;
   const rateLimiter = deps.rateLimiter ?? createRateLimiter({ maxFailures: 5, windowMs: 15 * 60 * 1000, now });
   const clientKey = deps.clientKey ?? defaultClientKey;
   const tooLarge = (c: Context) => c.json({ error: "invalid_request" as const }, 413);
-  const app = new Hono();
+  const app = new Hono<AppEnv>();
 
   app.use("/api/*", async (c, next) => {
     c.header("Cache-Control", "no-store");
 
-    // 状態を変える入口は同一 origin からの POST だけ受け付ける。Origin が無い要求 (curl など) も拒否する。
-    if (c.req.method === "POST" && !isSameOrigin(c)) {
-      return c.json({ error: "origin_mismatch" as const }, 403);
+    if (c.req.method === "POST") {
+      // bodyLimit は Request を作り直すため、接続元は書き換え前の Request で確定させる。
+      c.set("clientKey", clientKey(c));
+
+      // 状態を変える入口は同一 origin からの POST だけ受け付ける。Origin が無い要求 (curl など) も拒否する。
+      if (!isSameOrigin(c)) {
+        return c.json({ error: "origin_mismatch" as const }, 403);
+      }
     }
 
     await next();
@@ -86,7 +93,7 @@ export function createApp(deps: AppDeps) {
       return c.json({ error: "invalid_request" as const }, 400);
     }
 
-    const key = clientKey(c);
+    const key = c.get("clientKey");
 
     return rateLimiter.exclusive(key, async () => {
       const retryAfterSeconds = rateLimiter.retryAfterSeconds(key);
