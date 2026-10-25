@@ -427,6 +427,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | DELETE | `/api/settings/models/:provider/login` | 進行中のサインインの中断と、終端した結果表示の消去（冪等）。body 無し |
 | POST | `/api/settings/models/:provider/logout` | サインアウト（`auth.json` の OAuth を削除。この画面で登録したキーは残す）。body 無し |
 | POST | `/api/settings/models/catalog/refresh` | pi.dev の provider 別モデルカタログを取り直す。body 無し。取得失敗でも 200 で、理由は `catalogError` にだけ載せる |
+| POST | `/api/settings/custom-providers` | カスタムプロバイダー（オンメモリ）を登録する。body は `{ "id": "…", "name": "…", "baseUrl": "http://…/v1", "apiKey": "…", "model": { "id": "…", "contextWindow": 32768, "maxTokens": 16384 } }`（`name` / `maxTokens` は任意） |
+| PUT | `/api/settings/custom-providers/:provider` | カスタムプロバイダーを更新する。body は `{ name?, baseUrl, apiKey?, model }` で、`id` は変更不可。`apiKey` の空欄 / 未送信は既存を維持する |
+| DELETE | `/api/settings/custom-providers/:provider` | カスタムプロバイダーを削除する。body 無し |
 
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。設計と残存リスクは [model-settings.md](model-settings.md) を正とする。
 
@@ -463,6 +466,16 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
       },
       "memo": "個人アカウントの本番キー"
     }
+  ],
+  "customProviders": [
+    {
+      "id": "local-llm",
+      "name": "自宅のLLM",
+      "baseUrl": "http://192.0.2.10:11434/v1",
+      "api": "openai-completions",
+      "model": { "id": "qwen2.5-coder:7b", "contextWindow": 32768, "maxTokens": 16384 },
+      "hasKey": true
+    }
   ]
 }
 ```
@@ -475,6 +488,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `managed` は `provider_credentials` に行がある（保存済みの希望状態）、`auth.source` は SDK の実効値（`runtime` / `environment` / `stored` …）、`degraded` はこのプロセスの SDK 反映が未完了（`apply` = 未適用 / `remove` = 削除未反映）を表す。3 つは独立で、混ぜて「使える」と見せない
 - `keyUpdatedAt` はこの画面で登録したキー（`managed`）の最終保存時刻（epoch ms）。`managed` が false の provider と、v6 以前から残る移行前の行は `null`。上書き保存のたびに更新し、`resync` / 削除はこの時刻を変えない（削除後は行が無いため `null`）。最終使用はサーバーで持たず、クライアントが `GET /api/sessions` の `model` + `lastUsedAt` から集計する（[model-settings.md](model-settings.md#キーの棚卸し最終保存と最終使用)）
 - `memo` は `provider_memos` の行と同じで、`null` = 未設定。**人間用の控えで、キーの登録有無（`managed`）とは独立**し、キーを削除しても残る。`canSetApiKey` が false の provider（ambient / keyless）にも書ける。メモだけの provider は `orphan: true` / `managed: false` として出る（カタログ外のバッジに落ちる）。メモは秘密情報ではないのでマスカーには登録しない（[secrets.md](secrets.md)）
+- `custom: true` は 設定 → モデルで作ったカスタムプロバイダー（オンメモリ）。`providers[]` にも載るが（「モデルを選ぶ」タブの候補とカタログ表示が使う）、通常のプロバイダー一覧と件数からは除外する。管理の正は `customProviders[]` で、同じ id が両方に載る
+- `customProviders[]` はカスタムプロバイダーの定義（`{ id, name, baseUrl, api, model: { id, contextWindow, maxTokens }, hasKey }`）。**キーは返さず、有無だけを `hasKey` で表す**。`api` は v1 では `openai-completions` 固定で、1 provider = 1 model。このプロセスのメモリだけが持ち、再起動すると空になる（DB / `models.json` / `auth.json` には書かない）
 - `canSetApiKey` は SDK の `auth.apiKey.login` の有無。false の provider（ambient / keyless）はこの画面からキーを登録できない
 - `canSignInHere` はこの画面で OAuth サインインを完了できる provider の印（**任意**。省略 = この画面ではサインインできない）。SDK の OAuth flow が求める対話は静的な metadata に現れず、`select` / `text` を求める flow も開始するまで分からないため、サーバーの許可リスト（「認可 URL + 貼り付け」と「デバイスコード」の方式）で判定する。`supportsOAuth`（OAuth を持つ印）とは別で、`POST /login` の対象判定と認証状態の解決には使わない（[model-settings.md](model-settings.md#oauth-サインイン)）
 - `credentialKind` は SDK（`ModelRuntime.isUsingOAuth`）が見ている資格情報の種別（`oauth` / `api_key`、`null` = 認証なし）。**runtime overlay があるときは overlay の `api_key` になり、`auth.json` の保存値の種別は見えない**
@@ -493,6 +508,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `DELETE /api/settings/models/:provider/login` は冪等。進行中なら中断（SDK のコールバックサーバーと通信を閉じ、公開 state を再計算）し、終端していれば結果表示を消し、進行中も結果も無ければ何もしない。どれも 200 で GET と同じ形を返す
 - `POST /api/settings/models/:provider/logout` は `auth.json` の OAuth を削除する（provider 側の失効はしない）。SDK は同じ provider の runtime overlay（この画面で登録したキー）も消すため、DB に残るキーの希望状態を公開 state の再計算前に写し直し、反映に失敗したときや復元の判断に使う DB の読取に失敗したときはカードの `degraded: "apply"` で [再同期] へ導く。`auth.json` に OAuth が無ければ 400、進行中のサインインがあれば 409。アプリ DB の `provider_credentials` は触らないので、この画面で登録したキーは残る。SDK の失敗は 503 `{ "error": "…" }`（固定文言）
 - この 4 つの応答は GET と同じ形で、`state` を持たない（資格情報を Pi が持つため、キーの操作のような応答単位の「保存済み・未反映」は作らない。未反映は provider ごとの `degraded` に出る）。device id の置き場所・コールバックの待受（固定 / 動的ポート）と別マシンのブラウザの経路・実行形態ごとの扱いは [model-settings.md](model-settings.md#oauth-サインイン)
+- `POST /api/settings/custom-providers` / `PUT` / `DELETE` はカスタムプロバイダー（オンメモリ）の登録・更新・削除（`/api/settings/models/:provider/...` とは別の名前空間に置き、`models` 配下の param ルートと衝突させない）。応答は `GET /api/settings/models` と同じ形 + `state: "applied"`（アプリ DB へは何も書かないため `applied_unsynced` は無い）。失敗は 400 `{ "error": "…" }`（id の形・id 衝突・baseUrl・モデル・キーの長さ・未登録）または 503 `{ "error": "…" }`（ランタイム無し・SDK へ反映できない）。この 503 には `state: "not_stored"` を付けない
+- カスタムプロバイダーの `id` は `^[a-z](?:[a-z0-9-]{0,62}[a-z0-9])?$` で作成後に変更できず、built-in / `models.json` / 登録済みの provider と衝突したら 400。カタログ外の provider に残った `provider_credentials` / `provider_memos` の行が同じ id にあるときも 400（作成すると `managed` / `keyUpdatedAt` の契約が崩れるため、先にその行を削除する）。`baseUrl` は `http` / `https` のみで userinfo・query・fragment を拒否し、末尾の `/` を落とす。`apiKey` は 8..2048 文字で、作成時は必須、更新時は空欄（未送信）なら既存を維持する。`model.contextWindow` は必須の正の整数、`model.maxTokens` は任意（既定 16384）
+- カスタムプロバイダーは既存の `PUT/DELETE /api/settings/models/:provider/key` / `PUT /:provider/memo` / `POST /:provider/resync` の対象外で、これらは 400 `{ "error": "…" }` を返す（`provider_credentials` / `provider_memos` に行を作らない）
 - `POST /api/settings/models/catalog/refresh` は body 無し。pi.dev の provider 別カタログを取り直し、キー変更と同じロックの内側で「取得 → 公開 state の再計算 → 応答の組み立て」を 1 回ずつ行う。取得と再計算は同じ期限を共有し、期限到達後は読み取りを中断して公開 state を差し替えない（一覧と available は現在値のまま。ロックも期限以上には保持しない）
 - 200 の応答は `GET /api/runtime/models` と同じ形 + `catalogError`（`null` なら今回の取得成功）。一部 provider の失敗・期限の abort・取得の例外・`PI_OFFLINE` でも 200 とし、一覧は更新できた範囲（期限で中断したときは更新前）を返す。設定を変えないため `state` を持たず、カタログそのものを返せないときだけ `GET /api/runtime/models` と同じ 503 を返す。失敗しても一覧は失わせない（分類と文言の契約は [model-settings.md](model-settings.md#モデルカタログの取得と更新)）
 

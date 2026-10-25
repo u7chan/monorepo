@@ -215,13 +215,17 @@ function hiddenFromProviderList(provider: ProviderAuthSetting): boolean {
   );
 }
 
-/** 設定済みを先頭に、未設定は畳めるよう後ろへ分ける。並びはサーバーが返した順を保つ */
+/**
+ * 設定済みを先頭に、未設定は畳めるよう後ろへ分ける。並びはサーバーが返した順を保つ。
+ * カスタムプロバイダーは専用セクションが持つため、通常の一覧には入れない（件数にも含めない）。
+ */
 export function groupProviders(
   settings: ModelsSettingsResponse,
   catalog: RuntimeModelsResponse | null,
 ): ProviderGroups {
   const groups: ProviderGroups = { configured: [], unconfigured: [] };
   for (const provider of settings.providers) {
+    if (provider.custom === true) continue;
     if (hiddenFromProviderList(provider)) continue;
     // メモは SDK に触れないため「認証済み」ではないが、折りたたみの中に隠れると見つけられない
     const settled =

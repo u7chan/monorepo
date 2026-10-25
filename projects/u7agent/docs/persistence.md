@@ -20,6 +20,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 | アーカイブの除外名（アプリデータの SQLite、上書きしたときだけ） | 残る（ストアを永続ボリュームに置いた場合） |
 | 設定 → モデルで登録したプロバイダーAPIキー（アプリデータの SQLite） | 残る（ストアを永続ボリュームに置いた場合。平文・[model-settings.md](model-settings.md)） |
 | 設定 → モデルで保存したプロバイダーのメモ（アプリデータの SQLite） | 残る（ストアを永続ボリュームに置いた場合。平文・[model-settings.md](model-settings.md#プロバイダーごとのメモ)） |
+| 設定 → モデルのカスタムプロバイダー（定義とAPIキー。BFF のメモリのみ） | 残らない（再起動で消える）。DB / `models.json` / `auth.json` には書かない。モデルの選択（`allowedModels` / `defaultModel`）は DB に残る（[model-settings.md](model-settings.md#カスタムプロバイダーオンメモリ)） |
 | コンテンツ生成の provider / 画像モデル / 音声モデルとボイス / 共有APIキー（アプリデータの SQLite、`content_settings`） | 残る（平文）。[BGM](bgm-generation.md) も同じキーを読み、専用列や移行は追加しない |
 | Web 検索の有効 / 無効と既定 provider（アプリデータの SQLite、`web_search_settings`） | 残る（ストアを永続ボリュームに置いた場合・[web-search.md](web-search.md#実行時トグル)） |
 | 会話タイトルの AI 要約の設定（アプリデータの SQLite、`title_summary_settings`） | 残る（ストアを永続ボリュームに置いた場合・[session-title.md](session-title.md#設定)） |

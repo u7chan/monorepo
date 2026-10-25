@@ -129,6 +129,7 @@ function settings(overrides: Partial<ModelsSettingsResponse> = {}): ModelsSettin
     defaultModel: null,
     ignoredEnvironmentVariables: [],
     providers: [],
+    customProviders: [],
     ...overrides,
   };
 }
@@ -358,6 +359,27 @@ test("設定済みを先頭に、未設定は後ろへ分ける (並びはサー
     memoOnly.configured.map((entry) => entry.provider),
     ["memo-only"],
   );
+});
+
+test("カスタムプロバイダーは専用セクションが持つため、通常の一覧には入れない", () => {
+  const response = settings({
+    providers: [
+      provider({ provider: "anthropic", auth: { configured: true, source: "runtime", environmentVariables: [] } }),
+      provider({
+        provider: "local-llm",
+        name: "自宅のLLM",
+        custom: true,
+        auth: { configured: true, source: "runtime", environmentVariables: [] },
+      }),
+    ],
+  });
+  const groups = groupProviders(response, null);
+  assert.deepEqual(
+    groups.configured.map((entry) => entry.provider),
+    ["anthropic"],
+    "custom: true の行は通常の一覧（と件数）に含めない",
+  );
+  assert.deepEqual(groups.unconfigured, []);
 });
 
 test("この画面でサインインできずキーも保存行も無い provider は一覧から落とす", () => {
@@ -995,6 +1017,7 @@ test("応答から provider のサインイン状態だけを取る", () => {
     allowedModels: null,
     defaultModel: null,
     ignoredEnvironmentVariables: [],
+    customProviders: [],
     providers: [provider({ provider: "openai", supportsOAuth: true, login: running }), provider()],
   };
   assert.equal(providerLoginState(response, "openai"), running);

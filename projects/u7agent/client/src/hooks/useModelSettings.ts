@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelOAuthLogin,
+  deleteCustomProvider,
   deleteProviderApiKey,
   getModelsSettings,
   getRuntimeModels,
   isNotStoredError,
   logoutOAuthProvider,
+  postCustomProvider,
+  putCustomProvider,
   putModelAvailability,
   putProviderApiKey,
   putProviderMemo,
@@ -14,6 +17,11 @@ import {
   startOAuthLogin,
   submitOAuthLoginCode,
 } from "../api";
+import {
+  CUSTOM_PROVIDER_CREATED_NOTE,
+  CUSTOM_PROVIDER_DELETED_NOTE,
+  CUSTOM_PROVIDER_UPDATED_NOTE,
+} from "../lib/customProviders";
 import {
   MODEL_SETTINGS_NOTE,
   mutationNote,
@@ -33,11 +41,13 @@ import {
 } from "../lib/modelSettings";
 import { messageFor, mutationErrorNote } from "../lib/settingsResource";
 import type {
+  CreateCustomProviderBody,
   Health,
   ModelMutationResponse,
   ModelsSettingsResponse,
   OAuthLoginState,
   RuntimeModelsResponse,
+  UpdateCustomProviderBody,
   UpdateModelAvailabilityBody,
 } from "../types";
 import { createLoadingTracker, createRequestGate } from "./requestGate";
@@ -254,6 +264,48 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
   );
 
   /**
+   * カスタムプロバイダーの変更。応答は GET と同じ形なのでそのまま次の状態にし、認証が変わるため
+   * health とカタログを取り直す（「モデルを選ぶ」タブの候補を追随させる）。
+   */
+  const runCustomMutation = useCallback(
+    async (provider: string, note: string, run: () => Promise<ModelMutationResponse>): Promise<boolean> => {
+      setSaving(provider);
+      try {
+        const canApply = beginLoad();
+        const response = await run();
+        setSettings(response);
+        setNote({ text: note, error: false });
+        await refreshModelsForAuthChange({ canApply, refreshHealth: onRefreshHealth, loadCatalog });
+        return true;
+      } catch (error) {
+        setNote({ text: mutationErrorNote(error, isNotStoredError(error)), error: true });
+        return false;
+      } finally {
+        setSaving(null);
+      }
+    },
+    [beginLoad, loadCatalog, onRefreshHealth],
+  );
+
+  const createCustom = useCallback(
+    (input: CreateCustomProviderBody): Promise<boolean> =>
+      runCustomMutation(input.id, CUSTOM_PROVIDER_CREATED_NOTE, () => postCustomProvider(input)),
+    [runCustomMutation],
+  );
+
+  const updateCustom = useCallback(
+    (provider: string, input: UpdateCustomProviderBody): Promise<boolean> =>
+      runCustomMutation(provider, CUSTOM_PROVIDER_UPDATED_NOTE, () => putCustomProvider(provider, input)),
+    [runCustomMutation],
+  );
+
+  const removeCustom = useCallback(
+    (provider: string): Promise<boolean> =>
+      runCustomMutation(provider, CUSTOM_PROVIDER_DELETED_NOTE, () => deleteCustomProvider(provider)),
+    [runCustomMutation],
+  );
+
+  /**
    * OAuth サインインの操作。応答は GET と同じ形なので、そのまま次の state にし、進行中 → 終端の
    * 遷移ではモデル候補も取り直す。進行中の完了はログイン中だけ回るポーリングが拾う。
    */
@@ -367,6 +419,9 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     saveAvailability,
     remove,
     resync,
+    createCustom,
+    updateCustom,
+    removeCustom,
     startLogin,
     submitLoginCode,
     cancelLogin,

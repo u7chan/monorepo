@@ -12,6 +12,7 @@ import type {
   CloudflareConnectionCheckResponse,
   CloudflareMutationResponse,
   CloudflareSettingsResponse,
+  CreateCustomProviderBody,
   ContentMutationResponse,
   ContentSettingsResponse,
   CreateAgentBody,
@@ -80,6 +81,7 @@ import type {
   UpdateCloudflareSettingsBody,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
+  UpdateCustomProviderBody,
   UpdateModelAvailabilityBody,
   UpdateNotificationsBody,
   UpdateTitleSummaryBody,
@@ -660,6 +662,33 @@ export const deleteProviderApiKey = async (provider: string): Promise<ModelMutat
  */
 export const putProviderMemo = async (provider: string, memo: string): Promise<ModelMutationResponse> => {
   const res = await client.api.settings.models[":provider"].memo.$put({ param: { provider }, json: { memo } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelMutationResponse;
+};
+
+/**
+ * カスタムプロバイダー（オンメモリ）の登録。DB へは書かないため常に `state: "applied"`。
+ * 検証失敗は 400、SDK へ反映できないときは 503 `{ error }`（`not_stored` は付かない）。
+ */
+export const postCustomProvider = async (input: CreateCustomProviderBody): Promise<ModelMutationResponse> => {
+  const res = await client.api.settings["custom-providers"].$post({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelMutationResponse;
+};
+
+/** カスタムプロバイダーの更新。provider id は変更できず、apiKey の空欄（未送信）は既存を維持する */
+export const putCustomProvider = async (
+  provider: string,
+  input: UpdateCustomProviderBody,
+): Promise<ModelMutationResponse> => {
+  const res = await client.api.settings["custom-providers"][":provider"].$put({ param: { provider }, json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelMutationResponse;
+};
+
+/** カスタムプロバイダーの削除。メモリ上の定義とキーを消す（DB には何も無い） */
+export const deleteCustomProvider = async (provider: string): Promise<ModelMutationResponse> => {
+  const res = await client.api.settings["custom-providers"][":provider"].$delete({ param: { provider } });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ModelMutationResponse;
 };

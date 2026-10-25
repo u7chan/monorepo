@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
+import {
+  CUSTOM_PROVIDER_ADD_LABEL,
+  CUSTOM_PROVIDER_MEMORY_BADGE,
+  CUSTOM_PROVIDER_NOTES,
+  CUSTOM_PROVIDER_SECTION_TITLE,
+} from "../../lib/customProviders";
 import { messageTimeLabel } from "../../lib/messageTime";
 import {
   API_KEY_MIN_LENGTH,
@@ -13,12 +19,20 @@ import {
   type CredentialTab,
   type ProviderDraft,
 } from "../../lib/modelSettings";
-import type { ModelsSettingsResponse, ProviderAuthSetting, RuntimeModelsResponse, SessionSummary } from "../../types";
+import type {
+  CreateCustomProviderBody,
+  ModelsSettingsResponse,
+  ProviderAuthSetting,
+  RuntimeModelsResponse,
+  SessionSummary,
+  UpdateCustomProviderBody,
+} from "../../types";
 import { CollapsibleNotice } from "../CollapsibleNotice";
 import { DisclosureChevronIcon, KeyIcon } from "../icons";
 import { ProviderIcon } from "../ProviderIcon";
 import { ApiKeySection } from "./ApiKeySection";
 import { CredentialTabs } from "./CredentialTabs";
+import { CustomProviderForm } from "./CustomProviderForm";
 import { MetaChip } from "./MetaChip";
 import { OAuthSignInSection } from "./OAuthSignInSection";
 import { ProviderBadgeTag } from "./ProviderBadgeTag";
@@ -40,6 +54,10 @@ export type ProvidersTabProps = {
   onSubmitLoginCode: (provider: string, code: string) => Promise<boolean>;
   onCancelLogin: (provider: string) => Promise<boolean>;
   onSignOut: (provider: string) => Promise<boolean>;
+  /** カスタムプロバイダー（オンメモリ）の作成・更新・削除 */
+  onCreateCustom: (body: CreateCustomProviderBody) => Promise<boolean>;
+  onUpdateCustom: (provider: string, body: UpdateCustomProviderBody) => Promise<boolean>;
+  onDeleteCustom: (provider: string) => Promise<boolean>;
   /** provider ごとの入力下書き (apiKey / memo)。両タブの親が保持する */
   drafts: Record<string, ProviderDraft>;
   /** 下書きのフィールド単位の更新。触っていないフィールドは親側の最新値を保つ */
@@ -69,14 +87,20 @@ export function ProvidersTab({
   onSubmitLoginCode,
   onCancelLogin,
   onSignOut,
+  onCreateCustom,
+  onUpdateCustom,
+  onDeleteCustom,
   drafts,
   onChangeDraft,
   onOpenModels,
 }: ProvidersTabProps) {
   const [query, setQuery] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  // 追加モード。既存の選択とは排他で、単独カラムでも一覧を閉じてフォームを出す
+  const [addingCustom, setAddingCustom] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const selectorRef = useRef<HTMLButtonElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
   const focusAfterSelection = useRef(false);
   useEffect(() => {
     if (!singleColumn || listOpen || !focusAfterSelection.current) return;
@@ -92,12 +116,32 @@ export function ProvidersTab({
     { label: `未設定 ${groups.unconfigured.length}`, providers: groups.unconfigured.filter(matched) },
   ];
   const visible = sections.flatMap((section) => section.providers);
-  const selected = settings.providers.find((provider) => provider.provider === selectedProvider);
+  const customMatched = settings.customProviders.filter(
+    (provider) => needle === "" || provider.id.includes(needle) || provider.name.toLowerCase().includes(needle),
+  );
+  const selected = settings.providers.find(
+    (provider) => provider.provider === selectedProvider && provider.custom !== true,
+  );
   // singleColumn では検索中も表示中の詳細を変えない。一覧を選び直したときだけ切り替える
   const active = singleColumn
     ? (selected ?? groups.configured[0] ?? groups.unconfigured[0])
     : (visible.find((provider) => provider.provider === selectedProvider) ?? visible[0]);
+  // カスタムプロバイダーは専用セクションが持つ。通常の詳細には流さない（id が同じでも管理の正が別）。
+  // 通常の provider が 1 件も無いときは、空の詳細ではなく先頭のカスタム定義を開く
+  const customSelected = addingCustom
+    ? undefined
+    : (settings.customProviders.find((provider) => provider.id === selectedProvider) ??
+      (selectedProvider === null && visible.length === 0 ? settings.customProviders[0] : undefined));
+  const activeName = addingCustom
+    ? CUSTOM_PROVIDER_ADD_LABEL
+    : (customSelected?.name ?? active?.name ?? "プロバイダーがありません");
+  const detailIsCustom = addingCustom || customSelected !== undefined;
   const busy = saving !== null;
+  // 詳細ペインのスクロールは provider を切り替えても残るため、切替・保存・削除のたびに先頭へ戻す
+  const [scrollReset, setScrollReset] = useState(0);
+  useEffect(() => {
+    if (detailRef.current) detailRef.current.scrollTop = 0;
+  }, [scrollReset, addingCustom, customSelected?.id, active?.provider]);
   const saveNote = (
     <div className="border-t border-line bg-soft px-4 py-2.5 text-2xs leading-relaxed text-ink-muted">
       このタブの変更は、各項目の保存ボタンでその場で保存されます（横断の一括保存はありません）。
@@ -114,8 +158,14 @@ export function ProvidersTab({
           onClick={() => setListOpen((open) => !open)}
           className="flex min-h-11 min-w-0 shrink-0 items-center gap-2 border-b border-line px-4 text-left text-xs text-ink-soft"
         >
-          {active ? <ProviderIcon provider={active.provider} name={active.name} variant="field" /> : null}
-          <span className="min-w-0 flex-1 truncate">{active?.name ?? "プロバイダーがありません"}</span>
+          {addingCustom ? null : (
+            <ProviderIcon
+              provider={customSelected?.id ?? active?.provider ?? ""}
+              name={customSelected?.name ?? active?.name ?? ""}
+              variant="field"
+            />
+          )}
+          <span className="min-w-0 flex-1 truncate">{activeName}</span>
           <span className="shrink-0 text-accent-text">{listOpen ? "詳細に戻る" : "プロバイダーを変更"}</span>
           <DisclosureChevronIcon />
         </button>
@@ -139,8 +189,69 @@ export function ProvidersTab({
               />
             </div>
             <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto p-2">
+              {/* 専用セクションの注意は、定義の有無・選択中の provider・検索語に依存させず常時出す */}
+              <div className="grid gap-0.5 pb-2">
+                <div className="px-1.5 pt-2 pb-0.5 text-3xs tracking-label text-ink-ghost uppercase">
+                  {CUSTOM_PROVIDER_SECTION_TITLE}
+                </div>
+                <CustomProviderSectionNotes />
+                {customMatched.map((provider) => {
+                  const isActive = !addingCustom && provider.id === customSelected?.id;
+                  return (
+                    <button
+                      key={provider.id}
+                      type="button"
+                      aria-current={isActive ? "true" : undefined}
+                      onClick={() => {
+                        setAddingCustom(false);
+                        setSelectedProvider(provider.id);
+                        if (singleColumn) {
+                          setQuery("");
+                          focusAfterSelection.current = true;
+                          setListOpen(false);
+                        }
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors",
+                        isActive ? "border-accent/40 bg-accent-wash" : "border-transparent hover:bg-hover",
+                      )}
+                    >
+                      <ProviderIcon provider={provider.id} name={provider.name} />
+                      <span className="grid min-w-0 flex-1 gap-0.5">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="min-w-0 flex-1 truncate text-xs text-ink">{provider.name}</span>
+                          <span className="text-2xs whitespace-nowrap text-ink-muted">
+                            {CUSTOM_PROVIDER_MEMORY_BADGE}
+                          </span>
+                        </span>
+                        <code className="truncate text-2xs text-ink-ghost">
+                          {provider.id} · {provider.model.id}
+                        </code>
+                      </span>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  className="mt-1 rounded-lg border border-dashed border-line-strong px-2 py-1.5 text-left text-2xs text-accent-text transition-colors hover:bg-hover"
+                  aria-expanded={addingCustom}
+                  onClick={() => {
+                    setAddingCustom(true);
+                    setSelectedProvider(null);
+                    if (singleColumn) {
+                      setQuery("");
+                      focusAfterSelection.current = true;
+                      setListOpen(false);
+                    }
+                  }}
+                >
+                  {CUSTOM_PROVIDER_ADD_LABEL}
+                </button>
+              </div>
               {visible.length === 0 ? (
-                <p className="px-1.5 py-1.5 text-2xs text-ink-muted">該当するプロバイダーがありません。</p>
+                customMatched.length === 0 ? (
+                  <p className="px-1.5 py-1.5 text-2xs text-ink-muted">該当するプロバイダーがありません。</p>
+                ) : null
               ) : (
                 sections.map((section) =>
                   section.providers.length === 0 ? null : (
@@ -196,20 +307,48 @@ export function ProvidersTab({
         ) : null}
 
         {!singleColumn || !listOpen ? (
-          <div className="min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
+          <div
+            ref={detailRef}
+            className="min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4"
+          >
             <div className="mx-auto grid max-w-3xl gap-3">
               {settings.runtimeAvailable ? null : (
                 <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
                   ランタイムが利用できないため、APIキーとメモの変更はできません。サーバーの起動ログを確認してください。
                 </p>
               )}
-              <SecurityNotice />
+              {detailIsCustom ? null : <SecurityNotice />}
               {catalogError ? (
                 <p role="alert" className="rounded-lg border border-line bg-soft px-2.5 py-2 text-2xs text-ink-muted">
                   モデル一覧を取得できませんでした。{catalogError}（認証状態の表示は保っています）
                 </p>
               ) : null}
-              {active ? (
+              {detailIsCustom ? (
+                <>
+                  {singleColumn ? <CustomProviderSectionNotes variant="detail" /> : null}
+                  <CustomProviderForm
+                    key={addingCustom ? "__new" : customSelected?.id}
+                    provider={customSelected ?? null}
+                    runtimeAvailable={settings.runtimeAvailable}
+                    saving={customSelected !== undefined && saving === customSelected.id}
+                    busy={busy}
+                    onCreate={onCreateCustom}
+                    onUpdate={onUpdateCustom}
+                    onDelete={onDeleteCustom}
+                    onSaved={(id) => {
+                      setAddingCustom(false);
+                      setSelectedProvider(id);
+                      setScrollReset((count) => count + 1);
+                    }}
+                    onDeleted={() => {
+                      setAddingCustom(false);
+                      setSelectedProvider(null);
+                      setScrollReset((count) => count + 1);
+                    }}
+                    onCancelAdd={() => setAddingCustom(false)}
+                  />
+                </>
+              ) : active ? (
                 <ProviderDetail
                   key={active.provider}
                   provider={active}
@@ -278,6 +417,27 @@ function SecurityNotice() {
         <code>auth.json</code> の認証はそのまま使われます。
       </p>
     </CollapsibleNotice>
+  );
+}
+
+/**
+ * カスタムプロバイダーの注意。専用セクション（一覧の見出し下）に常時出し、singleColumn で
+ * 一覧を畳んだときだけ詳細側にも出す（同時には出さず、同じ文を二重に見せない）。
+ * 短い注意だけを画面に置き、理由は docs が持つ。
+ */
+function CustomProviderSectionNotes({ variant = "section" }: { variant?: "section" | "detail" }) {
+  return (
+    <section
+      className={cn(
+        "grid gap-1 rounded-lg border border-warn/40 bg-raised leading-relaxed text-ink-soft",
+        variant === "detail" ? "px-2.5 py-2 text-2xs" : "mx-1.5 px-2 py-1.5 text-3xs",
+      )}
+    >
+      <p className="text-warn">{CUSTOM_PROVIDER_NOTES[0]}</p>
+      {CUSTOM_PROVIDER_NOTES.slice(1).map((note) => (
+        <p key={note}>{note}</p>
+      ))}
+    </section>
   );
 }
 
