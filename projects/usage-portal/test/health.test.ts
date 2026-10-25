@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
 import { buildHealthReport, type AuthStatus, type DatabaseStatus } from "../src/server/health";
+import { EMPTY_USAGE, stubCodexApi } from "./support";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +18,12 @@ function appWith(db: DatabaseStatus, auth: AuthStatus) {
 
   service.ensureSessionKey();
 
-  return createApp({ auth: service, health: () => buildHealthReport(db, auth) });
+  return createApp({
+    auth: service,
+    health: () => buildHealthReport(db, auth),
+    usage: () => EMPTY_USAGE,
+    codex: stubCodexApi(),
+  });
 }
 
 describe("GET /api/health", () => {
@@ -66,8 +72,11 @@ describe("GET /api/health", () => {
     expect(Object.keys((await res.json()) as Record<string, unknown>).sort()).toEqual(["auth", "db", "ok", "service"]);
   });
 
-  test("利用枠の API はまだ公開していない", async () => {
-    expect((await appWith("ok", "ok").request("/api/usage")).status).toBe(404);
+  test("利用枠の API は未認証なら 401", async () => {
+    const res = await appWith("ok", "ok").request("/api/usage");
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "unauthorized" });
   });
 });
 
