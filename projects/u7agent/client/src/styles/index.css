@@ -145,6 +145,8 @@
   --color-danger: var(--c-danger);
   --color-danger-text: var(--c-danger-text);
   --color-backdrop: var(--c-backdrop);
+  /* ダーク系だけ半径を 24px まで縮める。半径を残して濃さだけ落とす案は採らない: ぼかしの
+   * 裾が長いままで、1/255 の段が入力欄の角丸に沿った等高線として残る */
   --shadow-panel: var(--c-shadow-panel);
 }
 
@@ -185,7 +187,7 @@
   --c-danger-text: #ee9aaa;
   --c-glow: rgba(112, 79, 182, 0.12);
   --c-backdrop: rgba(4, 6, 10, 0.78);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.28);
+  --c-shadow-panel: 0 10px 24px rgba(0, 0, 0, 0.22);
 
   /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
   --c-syn-key: #c9a9ff;
@@ -273,7 +275,7 @@
   --c-danger-text: #eda094;
   --c-glow: rgba(224, 164, 88, 0.1);
   --c-backdrop: rgba(12, 9, 6, 0.78);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.32);
+  --c-shadow-panel: 0 10px 24px rgba(0, 0, 0, 0.22);
 
   /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
   --c-syn-key: #f2c185;
@@ -316,7 +318,7 @@
   --c-danger-text: #eb9fa2;
   --c-glow: rgba(111, 206, 143, 0.1);
   --c-backdrop: rgba(3, 8, 5, 0.78);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.3);
+  --c-shadow-panel: 0 10px 24px rgba(0, 0, 0, 0.22);
 
   /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
   --c-syn-key: #c3a6ff;
@@ -448,7 +450,7 @@
   --c-danger-text: #f7a8bf;
   --c-glow: rgba(203, 166, 247, 0.1);
   --c-backdrop: rgba(17, 17, 27, 0.78);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.3);
+  --c-shadow-panel: 0 10px 24px rgba(0, 0, 0, 0.22);
 
   /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
   --c-syn-key: #cba6f7;
@@ -493,7 +495,7 @@
   --c-danger-text: #f0a4a6;
   --c-glow: rgba(202, 158, 230, 0.1);
   --c-backdrop: rgba(35, 38, 52, 0.78);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.28);
+  --c-shadow-panel: 0 10px 24px rgba(0, 0, 0, 0.22);
 
   /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
   --c-syn-key: #ca9ee6;
@@ -538,7 +540,7 @@
   --c-danger-text: #e8b0b4;
   --c-glow: rgba(136, 192, 208, 0.1);
   --c-backdrop: rgba(22, 26, 33, 0.78);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.3);
+  --c-shadow-panel: 0 10px 24px rgba(0, 0, 0, 0.22);
 
   /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
   --c-syn-key: #b48ead;
@@ -582,7 +584,7 @@
   --c-danger-text: #ff9aad;
   --c-glow: rgba(122, 162, 247, 0.12);
   --c-backdrop: rgba(13, 14, 22, 0.78);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.32);
+  --c-shadow-panel: 0 10px 24px rgba(0, 0, 0, 0.22);
 
   /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
   --c-syn-key: #bb9af7;
@@ -626,7 +628,7 @@
   --c-danger-text: #f28c98;
   --c-glow: rgba(126, 156, 216, 0.1);
   --c-backdrop: rgba(16, 16, 23, 0.78);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.3);
+  --c-shadow-panel: 0 10px 24px rgba(0, 0, 0, 0.22);
 
   /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
   --c-syn-key: #957fb8;
@@ -670,7 +672,7 @@
   --c-danger-text: #ff7b6a;
   --c-glow: rgba(254, 128, 25, 0.1);
   --c-backdrop: rgba(16, 16, 16, 0.78);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.32);
+  --c-shadow-panel: 0 10px 24px rgba(0, 0, 0, 0.22);
 
   /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
   --c-syn-key: #fb4934;
@@ -715,7 +717,7 @@
   --c-danger-text: #f0a0a1;
   --c-glow: rgba(167, 192, 128, 0.1);
   --c-backdrop: rgba(27, 32, 35, 0.78);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.3);
+  --c-shadow-panel: 0 10px 24px rgba(0, 0, 0, 0.22);
 
   /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
   --c-syn-key: #e67e80;
@@ -760,7 +762,7 @@
   --c-danger-text: #ff9c9c;
   --c-glow: rgba(189, 147, 249, 0.12);
   --c-backdrop: rgba(15, 16, 22, 0.78);
-  --c-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.32);
+  --c-shadow-panel: 0 10px 24px rgba(0, 0, 0, 0.22);
 
   /* シンタックスハイライト (.tok-*)。key 紫 / str 緑 / num 橙 / com 灰 / fn 青 / type 桃 / op 灰青 */
   --c-syn-key: #ff79c6;
