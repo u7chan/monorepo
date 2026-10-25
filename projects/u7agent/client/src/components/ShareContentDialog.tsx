@@ -1,17 +1,26 @@
-import { useEffect, useRef, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSharedContents, type SharePreviewState, type SharedContentsController } from "../hooks/useSharedContents";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { cn } from "../lib/cn";
-import { SHARE_CONFIRM_NOTES, shareStatusView, type ShareStatusView } from "../lib/sharedContents";
+import {
+  SHARE_CONFIRM_NOTES,
+  SHARE_DUPLICATE_NOTE,
+  SHARE_NAME_MAX_LENGTH,
+  sharedContentWithSourcePath,
+  shareStatusView,
+  type ShareStatusView,
+} from "../lib/sharedContents";
 import { sharePreviewSummary } from "../lib/sharedContentPreview";
 import type { SharedContentResponse } from "../types";
 import { ExternalLinkIcon, RunSpinnerIcon, ShareIcon, WarningIcon } from "./icons";
 import { LoadingMark } from "./LoadingMark";
 
-/** 行の ⋯ から渡す公開対象。表示名は API がディレクトリ名を既定にするので、ここでは指定しない */
+/** 行の ⋯ から渡す公開対象 */
 export type ShareContentTarget = {
-  /** 作業フォルダ面の root 相対 (= セッションの作業ディレクトリ相対) のパス */
+  /** 作業フォルダ面の root 相対 (= セッションの作業ディレクトリ相対) のパス。`.` は作業フォルダ自身 */
   directory: string;
+  /** 表示名の入力欄の初期値。空なら未入力で始め、送信時に API がディレクトリ名へ落とす */
+  defaultName: string;
 };
 
 export type ShareContentDialogProps = {
@@ -46,6 +55,8 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  // 表示名は作成時にだけ決める (既存の共有物の名前は 設定 → 共有 でも変えない)
+  const [name, setName] = useState(target.defaultName);
   const active = share.activeId === null ? undefined : share.items.find((item) => item.id === share.activeId);
   // 受付した 1 件は上の結果に出す (同じ URL とボタンを一覧にも並べない)。閉じて開き直すと一覧だけになる
   const listed = share.activeId === null ? share.items : share.items.filter((item) => item.id !== share.activeId);
@@ -73,8 +84,13 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy || started) return;
-    void share.share(target.directory);
+    void share.share(target.directory, name);
   };
+  // 同じ公開元の共有物があれば、押す前に「更新は管理一覧から」と示す (重複は作れるので拒否はしない)
+  const duplicate = sharedContentWithSourcePath(
+    share.preview.status === "ready" ? share.preview.preview.sourcePath : null,
+    share.items,
+  );
 
   return (
     <dialog
@@ -127,6 +143,21 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
 
           {started ? null : (
             <>
+              <label className="grid gap-1">
+                <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">表示名</span>
+                <input
+                  type="text"
+                  value={name}
+                  maxLength={SHARE_NAME_MAX_LENGTH}
+                  // 空欄で送ると API がディレクトリ名へ落とす (root はセッション ID になる)
+                  placeholder="未入力ならディレクトリ名"
+                  onChange={(event) => setName(event.currentTarget.value)}
+                  className="field text-xs"
+                />
+                {/* URL は共有物の id から作る script 名で決まり、表示名では変わらない */}
+                <span className="text-1xs text-ink-muted">表示名です。公開 URL は変わりません</span>
+              </label>
+              {duplicate === undefined ? null : <p className="break-words text-warn">{SHARE_DUPLICATE_NOTE}</p>}
               <SharePreview state={share.preview} />
               <ul className="grid gap-1.5">
                 {SHARE_CONFIRM_NOTES.map((note) => (

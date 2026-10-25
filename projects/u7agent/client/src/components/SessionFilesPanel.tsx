@@ -46,6 +46,10 @@ export type SessionFilesPanelProps = {
   mode: FilesMode;
   /** スキル面から作業フォルダ面 (既定) へ戻す */
   onBackToWork: () => void;
+  /** 選択中セッションのタイトル。共有ダイアログの表示名の既定 (未取得は "" で未入力) */
+  sessionTitle?: string;
+  /** root 直下の index.html 行から作業フォルダ自身を共有できるか。非プロジェクト会話だけ true */
+  canShareSessionRoot?: boolean;
 };
 
 function SessionFilesContent({
@@ -58,6 +62,8 @@ function SessionFilesContent({
   onClose,
   openRequest,
   onHandled,
+  sessionTitle,
+  canShareSessionRoot,
   singleColumn,
 }: SessionFilesPanelProps & { singleColumn: boolean }) {
   const [manualReload, setManualReload] = useState(0);
@@ -149,8 +155,12 @@ function SessionFilesContent({
             canRef={!singleColumn}
             // 共有 API の directory はセッションの作業フォルダ相対なので、会話が決まっている面だけに出さす
             onShareDirectory={
-              envScope.sessionId === undefined ? undefined : (path) => setShareTarget({ directory: path })
+              envScope.sessionId === undefined
+                ? undefined
+                : (path) => setShareTarget({ directory: path, defaultName: sessionTitle ?? "" })
             }
+            // ディレクトリ行の「共有」はセッション種別で絞らない (root の入口だけを別の prop で出す)
+            canShareSessionRoot={canShareSessionRoot === true}
           />
         </div>
       ) : (

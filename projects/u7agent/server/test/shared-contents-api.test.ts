@@ -6,12 +6,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
+import { SESSION_DIR_REL } from "../src/app-paths";
 import { SECRET_KEY_BYTES, SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SandboxRequestError } from "../src/sandbox/client";
 import type { SandboxDownloadPlan } from "../src/sandbox/protocol";
 import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
 import { DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES } from "../src/shared-content-rules";
+import { SHARED_CONTENT_PROJECT_SESSION_ROOT } from "../src/shared-contents";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 const KEY = `1:${Buffer.alloc(SECRET_KEY_BYTES, 11).toString("base64")}`;
@@ -430,6 +432,12 @@ test("preview の異常系はセッションなし 404 / パス不正 400 / フ�
     const file = await bff.app.request(`/api/shared-contents/preview?sessionId=${sessionId}&directory=dist`);
     assert.equal(file.status, 409);
     assert.equal((await jsonBody(file)).error, "公開するディレクトリではありません");
+    // 作業フォルダ自身の共有は non-project 会話だけ (この session はプロジェクト配下)
+    const root = await bff.app.request(
+      `/api/shared-contents/preview?sessionId=${sessionId}&directory=${encodeURIComponent(".")}`,
+    );
+    assert.equal(root.status, 409);
+    assert.equal((await jsonBody(root)).error, SHARED_CONTENT_PROJECT_SESSION_ROOT);
   } finally {
     await restore();
   }
@@ -442,6 +450,54 @@ test("preview の異常系はセッションなし 404 / パス不正 400 / フ�
     assert.equal(response.status, 503);
   } finally {
     await unavailable.restore();
+  }
+});
+
+// 作業フォルダ自身の公開は非プロジェクト会話だけ。公開元はセッションの作業フォルダで、sourceKind で区別する。
+test("`.` はプロジェクト会話で 409、非プロジェクト会話で作業フォルダ自身を公開し sourceKind を返す", async () => {
+  const { bff, sessionId, restore } = await setup();
+  try {
+    const rejected = await bff.app.request("/api/shared-contents", jsonPost({ sessionId, directory: "." }));
+    assert.equal(rejected.status, 409);
+    assert.equal((await jsonBody(rejected)).error, SHARED_CONTENT_PROJECT_SESSION_ROOT);
+    assert.deepEqual((await jsonBody(await bff.app.request("/api/shared-contents"))).items, []);
+
+    const scratch = await jsonBody(await bff.app.request("/api/sessions", jsonPost({})));
+    const scratchId = scratch.sessionId as string;
+    const root = `${SESSION_DIR_REL}/${scratchId}`;
+    const preview = await jsonBody(
+      await bff.app.request(
+        `/api/shared-contents/preview?sessionId=${scratchId}&directory=${encodeURIComponent("./")}`,
+      ),
+    );
+    assert.equal(preview.sourcePath, root);
+
+    // 表示名は入力できる。空欄ならサーバーが basename (root ではセッション ID) へ落とす
+    const accepted = await jsonBody(
+      await bff.app.request(
+        "/api/shared-contents",
+        jsonPost({ sessionId: scratchId, directory: ".", name: "ルートの成果物" }),
+      ),
+    );
+    const published = await waitForSettled(bff, accepted.id);
+    assert.equal(published.status, "published", published.lastError ?? "");
+    assert.equal(published.sourcePath, root);
+    assert.equal(published.sourceKind, "session-root");
+    assert.equal(published.name, "ルートの成果物");
+
+    const unnamed = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId: scratchId, directory: "." })),
+    );
+    const fallback = await waitForSettled(bff, unnamed.id);
+    assert.equal(fallback.name, scratchId, "空欄の表示名はセッション ID (basename) になる");
+
+    // ディレクトリの共有は従来どおり directory
+    const directory = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId, directory: "dist" })),
+    );
+    assert.equal((await waitForSettled(bff, directory.id)).sourceKind, "directory");
+  } finally {
+    await restore();
   }
 });
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import test from "node:test";
+import { canShareSessionRoot } from "../src/lib/sessionFiles";
 import {
   canResizeSessionFilesPanel,
   clampSessionFilesPanelWidth,
@@ -104,6 +105,20 @@ test("保存値が今の bounds の外でも捨てない (表示側で clamp す
   // 狭い窓で読み込んでも値そのものは保つ (広げ直したときに選んだ幅へ戻す)
   const narrow = sessionFilesPanelBounds(900, dockedMainWidth(900));
   assert.equal(sessionFilesPanelWidth(stored, narrow), 328);
+});
+
+// 作業フォルダ自身 (ルート直下の index.html) の共有入口。一覧 DTO の projectSession は省略され得るため、
+// 明示的な false のときだけ出す (true / undefined / 未取得は出さない側へ倒す)。
+test("root 共有の入口は projectSession が明示的な false のときだけ出す", () => {
+  assert.equal(canShareSessionRoot({ sessionId: "s1", projectSession: false }), true);
+  assert.equal(canShareSessionRoot({ sessionId: "s1", projectSession: true }), false);
+  // 旧サーバー / 未ロードで projectSession が無い場合は出さない (undefined を false に潰さない)
+  assert.equal(canShareSessionRoot({ sessionId: "s1", projectSession: undefined }), false);
+  // 会話の一覧に選択中の会話がまだ無い (activeSession 未取得) ときも出さない
+  assert.equal(canShareSessionRoot({ sessionId: "s1" }), false);
+  // 新規会話 (sessionId が無い) は既存どおり出さない
+  assert.equal(canShareSessionRoot({ sessionId: "", projectSession: false }), false);
+  assert.equal(canShareSessionRoot({ sessionId: undefined, projectSession: false }), false);
 });
 
 class MemoryStorage implements SessionFilesPanelWidthStorage {

@@ -8,6 +8,7 @@ import {
   sharedContentBusyLabel,
   sharedContentMenuActions,
   sharedContentPrimaryAction,
+  sharedContentSourceLabel,
   SHARED_CONTENT_SESSION_DELETED_LABEL,
   shareStatusView,
   type ShareStatusTone,
@@ -202,7 +203,7 @@ export function SharedContentCard({
       <div className="flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-2xs text-ink-muted">
         <span className="flex min-w-0 items-baseline gap-1.5">
           <b className="font-medium text-ink-faint">公開元</b>
-          <code className="min-w-0 font-mono break-all text-ink-soft">{item.sourcePath}</code>
+          <code className="min-w-0 font-mono break-all text-ink-soft">{sharedContentSourceLabel(item)}</code>
         </span>
         <span className="flex items-baseline gap-1.5">
           <b className="font-medium text-ink-faint">{time.label}</b>

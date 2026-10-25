@@ -21,6 +21,7 @@ import type { SandboxDownloadPlan } from "../src/sandbox/protocol";
 import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
 import {
   SHARED_CONTENT_MAX_FILE_BYTES,
+  SHARED_CONTENT_PROJECT_SESSION_ROOT,
   SharedContentsService,
   resolveSharedContentSource,
   validateSharedAssetEntries,
@@ -186,6 +187,8 @@ interface SetupOptions {
   credentials?: { accountId: string; apiToken: string } | null;
   credentialError?: boolean;
   sessionCwd?: string | null;
+  /** セッションがプロジェクト配下なら、その cwd (省略 = 非プロジェクト会話) */
+  projectCwd?: string;
   secretValues?: readonly string[];
   workspace?: SandboxWorkspaceClient;
   planSandbox?: SandboxDownloadPlanClient | null;
@@ -206,6 +209,7 @@ function setup(options: SetupOptions = {}) {
     store,
     sessions: {
       workdirOfId: () => (options.sessionCwd === null ? undefined : (options.sessionCwd ?? SESSION_CWD)),
+      projectCwdOfId: () => options.projectCwd,
     },
     workspace: options.workspace ?? workspaceFor(zip, downloadCalls),
     planSandbox:
@@ -511,7 +515,7 @@ test("資格情報が無い / セッションが無い / アカウント不一�
     // 接続を別アカウントへ変えた service では、保存済みの providerAccount と一致しないため 409
     const other = new SharedContentsService({
       store: mismatch.store,
-      sessions: { workdirOfId: () => SESSION_CWD },
+      sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined },
       workspace: workspaceFor(mismatchZip),
       credentials: { credential: () => ({ accountId: "other", apiToken: TOKEN }) },
       createCloudflare: () => cloudflareStub().api,
@@ -555,7 +559,12 @@ test("パス解決は root 外・絶対パス・セッション外を拒否す�
     resolveSharedContentSource(ROOT, `${ROOT}/.u7agent/sessions/s1`, "./dist/"),
     ".u7agent/sessions/s1/dist",
   );
-  for (const value of ["", ".", "..", "../secret", "/etc", "a/../../b", "a\\b"]) {
+  // 字面が `.` のときだけセッションの作業フォルダ自身を指す (`.` と `./`)
+  assert.equal(resolveSharedContentSource(ROOT, SESSION_CWD, "."), "projects/app");
+  assert.equal(resolveSharedContentSource(ROOT, `${ROOT}/.u7agent/sessions/s1`, "./"), ".u7agent/sessions/s1");
+  // 非 root の正規化は変えない (`foo/.` は従来どおり `foo`)
+  assert.equal(resolveSharedContentSource(ROOT, SESSION_CWD, "foo/."), "projects/app/foo");
+  for (const value of ["", "..", "../secret", "/etc", "a/../../b", "a\\b", "a/..", "./."]) {
     assert.throws(
       () => resolveSharedContentSource(ROOT, SESSION_CWD, value),
       /ディレクトリ|パス|ワークスペース|セッション/,
@@ -563,6 +572,106 @@ test("パス解決は root 外・絶対パス・セッション外を拒否す�
     );
   }
   assert.throws(() => resolveSharedContentSource(ROOT, "/outside/app", "dist"));
+});
+
+// 作業フォルダ自身 (ルート直下の index.html) の共有。公開単位はディレクトリ全量のままで、
+test("`.` の作成は作業フォルダ自身を公開し、sourceKind を session-root にする", async () => {
+  const zip = zipFactory({ "index.html": "<h1>root</h1>", "assets/app.js": "console.log(1)" });
+  const { service, store, downloadCalls } = setup({ zip });
+  try {
+    const accepted = await service.create(payload({ directory: "." }));
+    await service.waitForIdle(accepted.id);
+    const row = store.getSharedContent(accepted.id);
+    assert.equal(row?.sourcePath, "projects/app");
+    assert.equal(row?.sourceKind, "session-root");
+    // 表示名の既定はディレクトリ名 (`basename`)。実際の root はセッション ID になる
+    assert.equal(row?.name, "app");
+    assert.deepEqual(downloadCalls, [{ path: "projects/app", exclude: [] }]);
+    // DTO でも必須で返す
+    assert.equal(service.list()[0].sourceKind, "session-root");
+
+    // ``./` も同じ対象。通常のディレクトリは directory のまま
+    await service.create(payload({ directory: "./" }));
+    await service.waitForIdle("id2");
+    const other = await service.create(payload({ directory: "dist" }));
+    await service.waitForIdle(other.id);
+    assert.equal(store.getSharedContent("id2")?.sourcePath, "projects/app");
+    assert.equal(store.getSharedContent(other.id)?.sourceKind, "directory");
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("`.` のプレビューは作業フォルダ自身を計画する", async () => {
+  const { service, planCalls } = setup();
+  const preview = await service.preview({ sessionId: "session-1", directory: "." });
+  assert.equal(preview.sourcePath, "projects/app");
+  assert.deepEqual(
+    planCalls.map((call) => call.path),
+    ["projects/app"],
+  );
+});
+
+test("root 共有の更新は作業フォルダ自身を対象にできる", async () => {
+  const zip = zipFactory({ "index.html": "<h1>root</h1>" });
+  const { service, store, downloadCalls } = setup({ zip });
+  try {
+    await service.create(payload({ directory: "." }));
+    await service.waitForIdle("id1");
+    await service.publish("id1");
+    await service.waitForIdle("id1");
+    assert.equal(store.getSharedContent("id1")?.status, "published", store.getSharedContent("id1")?.lastError ?? "");
+    // 等値 (作業フォルダ自身) の公開元は更新でも外れていない扱いにする
+    assert.deepEqual(
+      downloadCalls.map((call) => call.path),
+      ["projects/app", "projects/app"],
+    );
+    assert.equal(store.getSharedContent("id1")?.sourceKind, "session-root");
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("プロジェクト会話の `.` / `./` は 409 で拒否し、ディレクトリは受け付ける", async () => {
+  const zip = zipFactory({ "index.html": "<h1>root</h1>" });
+  const { service, store } = setup({ zip, projectCwd: SESSION_CWD });
+  try {
+    for (const directory of [".", "./"]) {
+      await assert.rejects(
+        () => service.create(payload({ directory })),
+        (error: any) => {
+          assert.equal(error.statusCode, 409, directory);
+          assert.equal(error.message, SHARED_CONTENT_PROJECT_SESSION_ROOT, directory);
+          return true;
+        },
+      );
+      await assert.rejects(
+        () => service.preview({ sessionId: "session-1", directory }),
+        (error: any) => error.statusCode === 409,
+        directory,
+      );
+    }
+    assert.equal(store.inserts, 0);
+    // ディレクトリの共有はセッション種別で制限しない (プロジェクト会話でも従来どおり)
+    const accepted = await service.create(payload());
+    await service.waitForIdle(accepted.id);
+    assert.equal(store.getSharedContent(accepted.id)?.status, "published");
+    assert.equal(store.getSharedContent(accepted.id)?.sourceKind, "directory");
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("作業フォルダが空文字のセッションは、`.` でも従来どおり 404", async () => {
+  const { service } = setup({ sessionCwd: "" });
+  await assert.rejects(
+    () => service.create(payload({ directory: "." })),
+    (error: any) => error.statusCode === 404,
+  );
+  await assert.rejects(
+    () => service.preview({ sessionId: "session-1", directory: "." }),
+    (error: any) => error.statusCode === 404,
+  );
 });
 
 test("エントリ検証は symlink・重複・個別サイズ超過を拒否する", () => {
@@ -904,7 +1013,7 @@ test("sandbox の SandboxRequestError.status を 409 / 413 に写す", async () 
     } as unknown as SandboxWorkspaceClient;
     const service = new SharedContentsService({
       store: published.store,
-      sessions: { workdirOfId: () => SESSION_CWD },
+      sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined },
       workspace: publishWorkspace,
       credentials: { credential: () => ({ accountId: ACCOUNT, apiToken: TOKEN }) },
       createCloudflare: () => cloudflareStub().api,
@@ -965,7 +1074,7 @@ test("subdomain 有効化の 200 本文が壊れても、照会して published 
   };
   const service = new SharedContentsService({
     store: new FakeStore(),
-    sessions: { workdirOfId: () => SESSION_CWD },
+    sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined },
     workspace: workspaceFor(zip),
     credentials: { credential: () => ({ accountId: ACCOUNT, apiToken: TOKEN }) },
     createCloudflare: (credential) =>
@@ -1008,7 +1117,7 @@ test("有効化の 200 本文が壊れ、照会も壊れていたら publishing 
   const store = new FakeStore();
   const service = new SharedContentsService({
     store,
-    sessions: { workdirOfId: () => SESSION_CWD },
+    sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined },
     workspace: workspaceFor(zip),
     credentials: { credential: () => ({ accountId: ACCOUNT, apiToken: TOKEN }) },
     createCloudflare: (credential) =>
@@ -1701,7 +1810,7 @@ test("管理操作は記録した providerAccount と現在の接続が違えば
     store.insertSharedContent(rowOf("id1"));
     const other = new SharedContentsService({
       store,
-      sessions: { workdirOfId: () => SESSION_CWD },
+      sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined },
       workspace: workspaceFor(zip),
       credentials: { credential: () => ({ accountId: "other", apiToken: TOKEN }) },
       createCloudflare: () => cloudflare.api,

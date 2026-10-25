@@ -2159,6 +2159,16 @@ export class SessionStore {
     return meta ? (meta.spaceId ?? "default") : undefined;
   }
 
+  /**
+   * 会話がプロジェクト配下か。保存値の `projectCwd` の有無で判定し、`projectId` の解決結果は使わない
+   * (登録解除で `projectId` が undefined に戻るため)。未知の会話は undefined。
+   */
+  projectCwdOfId(id: string): string | undefined {
+    const live = this.records.get(id);
+    if (live) return live.projectCwd;
+    return this.descriptors.get(id)?.projectCwd;
+  }
+
   /** SessionPayload.cwd は rootCwd 相対。所属があれば登録ディレクトリ、未所属は所属スペースのスクラッチ (root は永続化なしの既定スペースだけ) */
   cwdOf(record: SessionRecord): string {
     return record.workdir;

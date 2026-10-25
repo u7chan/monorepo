@@ -5,7 +5,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { SharedContentsController } from "../src/hooks/useSharedContents";
-import { SHARE_CONFIRM_NOTES } from "../src/lib/sharedContents";
+import {
+  SHARE_CONFIRM_NOTES,
+  SHARE_DUPLICATE_NOTE,
+  SHARE_NAME_MAX_LENGTH,
+  sharedContentCreateBody,
+  sharedContentWithSourcePath,
+} from "../src/lib/sharedContents";
 import type { SharedContentResponse } from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
@@ -18,6 +24,7 @@ const item = (overrides: Partial<SharedContentResponse> = {}): SharedContentResp
   sessionId: "s1",
   name: "dist",
   sourcePath: "projects/app/dist",
+  sourceKind: "directory",
   provider: "cloudflare",
   status: "publishing",
   publicUrl: URL_PUBLISHED,
@@ -44,10 +51,13 @@ function controller(overrides: Partial<SharedContentsController> = {}): SharedCo
   };
 }
 
-function render(share: SharedContentsController): string {
+function render(
+  share: SharedContentsController,
+  target: { directory: string; defaultName: string } = { directory: "dist", defaultName: "" },
+): string {
   return renderToStaticMarkup(
     createElement(ShareContentDialogView, {
-      target: { directory: "dist" },
+      target,
       share,
       onClose: () => {},
     }),
@@ -77,6 +87,69 @@ test("確認: 公開対象の path と 4 つの条件を出し、確定 URL と�
   assert.equal(actionTag(html, "共有する").includes("disabled"), false);
   assert.ok(actionTag(html, "キャンセル"));
   assert.match(html, /この会話の共有物はまだありません。/);
+});
+
+// 表示名は作成時にだけ決める。空欄は送らず、サーバーが basename (root はセッション ID) へ落とす。
+// 公開 URL は script 名 (共有物 id 由来) で決まるため、名前を変えても URL は変わらない。
+test("表示名: セッションタイトルを既定にし、最大長と「URL は変わらない」を出す", () => {
+  const html = render(controller(), { directory: "dist", defaultName: "見積デモ" });
+  assert.ok(html.includes('value="見積デモ"'), "セッションタイトルが既定値になっていない");
+  assert.ok(
+    html.includes(`maxLength="${SHARE_NAME_MAX_LENGTH}"`) || html.includes(`maxlength="${SHARE_NAME_MAX_LENGTH}"`),
+  );
+  assert.match(html, /表示名です。公開 URL は変わりません/);
+  // タイトルが空なら入力欄も空 (プレースホルダはサーバーの既定を示す)
+  const empty = render(controller(), { directory: "dist", defaultName: "" });
+  assert.ok(empty.includes('value=""'));
+  // 送信の本文: 空欄は name を送らず、root の "." はそのまま届く
+  assert.deepEqual(sharedContentCreateBody({ sessionId: "s1", directory: ".", name: "" }), {
+    sessionId: "s1",
+    directory: ".",
+  });
+  assert.deepEqual(sharedContentCreateBody({ sessionId: "s1", directory: ".", name: "  ルート  " }), {
+    sessionId: "s1",
+    directory: ".",
+    name: "ルート",
+  });
+});
+
+test("同じ公開元の共有物があれば「共有済み（更新は 設定 → 共有 から）」を出し、プレビュー失敗中は出さない", () => {
+  const published = item({ status: "published" });
+  const html = render(
+    controller({
+      items: [published],
+      preview: {
+        status: "ready",
+        preview: {
+          sourcePath: "projects/app/dist",
+          entries: 2,
+          bytes: 20,
+          files: [{ name: "index.html", size: 20 }],
+          truncated: false,
+          links: [],
+          linksTruncated: false,
+          oversizeFiles: [],
+          oversizeTruncated: false,
+          hasIndexHtml: true,
+          skipped: [],
+          excludeNames: [],
+          limited: false,
+          problems: [],
+        },
+      },
+    }),
+  );
+  assert.ok(html.includes(SHARE_DUPLICATE_NOTE));
+  // 情報提供だけで、共有する操作は残す (サーバーは拒否しない)
+  assert.ok(actionTag(html, "共有する"));
+  assert.equal(sharedContentWithSourcePath(null, [published]), undefined, "プレビュー失敗中は判定しない");
+  assert.equal(sharedContentWithSourcePath("projects/app/dist", [published])?.id, published.id);
+  assert.equal(sharedContentWithSourcePath("projects/app/site", [published]), undefined);
+  // プレビューが失敗している間は出さない
+  const failed = render(
+    controller({ items: [published], preview: { status: "failed", message: "公開するディレクトリが見つかりません" } }),
+  );
+  assert.equal(failed.includes(SHARE_DUPLICATE_NOTE), false);
 });
 
 test("受付中: 共有するを押せず、公開を受け付けたことを知らせる", () => {

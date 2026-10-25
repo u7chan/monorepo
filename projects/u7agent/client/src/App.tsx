@@ -64,7 +64,7 @@ import {
   notifyDeliverable,
   notifyUnavailableNote,
 } from "./lib/notifications";
-import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
+import { canShareSessionRoot, sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
 import { sessionEnvScope } from "./lib/sessionEnv";
 import { sessionsInSpace } from "./lib/spaceSessions";
 import { servedAppBusyKind, servedAppFocusRequest, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
@@ -476,6 +476,11 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
 
   // 表示中のセッション。エージェント切替で引き継ぐ作業先 (所属) の解決にも使う
   const activeSession = spaceSessions.find((item) => item.sessionId === app.sessionId);
+  // 作業フォルダ自身の共有は非プロジェクト会話だけ (projectSession が明示的な false のときだけ出す)
+  const sessionRootShareEnabled = canShareSessionRoot({
+    sessionId: app.sessionId,
+    projectSession: activeSession?.projectSession,
+  });
 
   // サービスの状態と操作。バーの表示条件は lib/servedApp が決める (会話ごとの値なので facade が持つ)
   const serve = app.serve;
@@ -1128,6 +1133,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             onHandled={app.ackFileRef}
             mode={filesMode}
             onBackToWork={backToWorkFiles}
+            sessionTitle={activeSession?.title}
+            canShareSessionRoot={sessionRootShareEnabled}
             resize={panelWidth}
           />
         ) : null}
@@ -1148,6 +1155,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           onHandled={app.ackFileRef}
           mode={sheetView.mode}
           onBackToWork={backToWorkFiles}
+          sessionTitle={activeSession?.title}
+          canShareSessionRoot={sessionRootShareEnabled}
           returnFocus={fileRefOriginRef.current}
         />
       ) : null}

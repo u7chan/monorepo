@@ -2,11 +2,46 @@
  * 共有ダイアログの文言と状態の見せ方。公開は非同期なので、`publishing` の間だけポーリングし、
  * 終端は `status` と `lastError` の組で読む（契約は docs/static-sharing.md）。
  */
-import type { SharedContentResponse } from "../types";
+import type { CreateSharedContentBody, SharedContentResponse } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
 
 /** 状態を読み直す間隔。公開ジョブの所要は数十秒なので、待ちすぎず叩きすぎない値にする */
 export const SHARE_POLL_MS = 2000;
+
+/**
+ * 共有の受付（POST）の本文。`directory` は入口のパスをそのまま渡し（root 直下は `.` で、空文字に置き換えない）、
+ * 空欄の表示名は送らない（サーバーがディレクトリ名 / root ではセッション ID へ落とす）。
+ */
+export function sharedContentCreateBody(input: {
+  sessionId: string;
+  directory: string;
+  name?: string;
+}): CreateSharedContentBody {
+  const name = (input.name ?? "").trim();
+  return { sessionId: input.sessionId, directory: input.directory, ...(name === "" ? {} : { name }) };
+}
+
+/** 同じ公開元の共有物があるときに出す案内。情報提供だけで、サーバーは重複を拒否しない */
+export const SHARE_DUPLICATE_NOTE = "共有済み（更新は 設定 → 共有 から）";
+
+/** 表示名の上限。`server/src/shared-contents.ts` の `SHARED_CONTENT_MAX_NAME_LENGTH` と同じ値 */
+export const SHARE_NAME_MAX_LENGTH = 100;
+
+/** 公開元の表示。root はセッション ID を含む生パスを出さない */
+export function sharedContentSourceLabel(item: Pick<SharedContentResponse, "sourceKind" | "sourcePath">): string {
+  return item.sourceKind === "session-root" ? "セッションの作業フォルダ" : item.sourcePath;
+}
+
+/**
+ * 同じ公開元の共有物。プレビューを取得できていない間（`sourcePath === null`）は判定しない
+ * （見えていない対象で「共有済み」と言い切らない）。
+ */
+export function sharedContentWithSourcePath(
+  sourcePath: string | null,
+  items: readonly SharedContentResponse[],
+): SharedContentResponse | undefined {
+  return sourcePath === null ? undefined : items.find((item) => item.sourcePath === sourcePath);
+}
 
 /**
  * 確認画面に必ず出す条件。順序も含めて契約にする（公開は取り消しにくいので、押す前に全部読めるようにする）。
@@ -271,7 +306,7 @@ export function sharedContentUpdateConfirm(item: SharedContentResponse): Confirm
     kind: "confirm",
     title: "共有物を更新",
     subject: { label: "共有物", value: item.name },
-    code: { label: "公開元", value: item.sourcePath },
+    code: { label: "公開元", value: sharedContentSourceLabel(item) },
     body: [
       "現在の公開元を読み直して、同じ URL へ再公開します。",
       "共有は公開時点のスナップショットです。ディレクトリを編集しただけでは反映されません。",

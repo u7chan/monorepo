@@ -434,7 +434,8 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 ディレクトリを Cloudflare へ外部公開する導線。ディレクトリ行の ⋯（[行の操作メニュー](#行の操作メニュー)）の「共有」から、共有ダイアログ（`client/src/components/ShareContentDialog.tsx`）を開く。
 
-- **出す面はチャット右パネル（作業フォルダ面）だけ**。項目の採否は `fileRowActions` の `canShare` で、`FileBrowser` に渡すのは作業フォルダ面だけ（共有 API の `directory` がセッションの作業フォルダ相対のため）。**設定 → ファイルには出さない**。会話が決まっていない面（プロジェクト起点の新規会話）・スキル面・読み取り専用の面と、symlink とファイルの行にも出さない
+- **出す面はチャット右パネル（作業フォルダ面）だけ**。項目の採否は `fileRowActions` の `canShare` で、`FileBrowser` に渡すのは作業フォルダ面だけ（共有 API の `directory` がセッションの作業フォルダ相対のため）。**設定 → ファイルには出さない**。会話が決まっていない面（プロジェクト起点の新規会話）・スキル面・読み取り専用の面と、symlink の行には出さない。ファイルの行にも出さない（`index.html` の例外を除く）
+- **例外はツリーの root 直下の `index.html` 行の「このフォルダを共有」**（ファイル行なのに同じフォルダ全体が上がるため、2 行目で開示する）。対象は作業フォルダ自身（`directory` は root 直下の行の `parent` = `.`）で、サブディレクトリの `index.html` 行には出さない（そのディレクトリ行の「共有」で足りる）。出し分けは `canShareSessionRoot` で、非プロジェクト会話（`SessionSummary.projectSession` が明示的な false）のときだけ true になる。ディレクトリ行の「共有」は `canShare` だけで決まり、セッション種別では絞らない
 - メニューの 2 行目は `serve`（一時プレビュー）との違いを開示する（押す前に知る条件なので `singleColumn` でも残す）
 - ダイアログの流れ・確認項目・ポーリング・既知の制限は [static-sharing.md](static-sharing.md#gui共有ダイアログ) を正とする
 

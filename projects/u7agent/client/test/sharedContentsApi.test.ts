@@ -20,6 +20,7 @@ const item: SharedContentResponse = {
   sessionId: "s1",
   name: "dist",
   sourcePath: "projects/app/dist",
+  sourceKind: "directory",
   provider: "cloudflare",
   status: "published",
   publicUrl: "https://u7s-abc123.demo.workers.dev/",
