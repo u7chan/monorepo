@@ -201,3 +201,50 @@ describe("createSampler", () => {
     expect(loadProviderUsage(handle, ["codex"]).get("codex")?.snapshot).toBeNull();
   });
 });
+
+describe("exclusive", () => {
+  test("進行中の取得が終わってから fn を実行し、その後の取得で古い snapshot を書き戻さない", async () => {
+    const handle = open();
+    const gate = deferred();
+    let signedIn = true;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: [
+        {
+          provider: CODEX_PROVIDER,
+          fetch: async () => {
+            if (!signedIn) {
+              throw new ProviderError("not_connected", "Codex にサインインしていません");
+            }
+
+            await gate.promise;
+
+            return usageSnapshot();
+          },
+        },
+      ],
+      intervalMs: 300_000,
+      now: () => BASE_TIME,
+      log: () => {},
+    });
+
+    // サインアウト前の資格情報で取得が始まり、応答を保留している状態を作る。
+    const inFlight = sampler.kick();
+
+    signedIn = false;
+
+    const logout = sampler.exclusive(() => deleteProviderUsage(handle, "codex"));
+
+    // 保留中の取得は排他区間の前には保存されない。
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(loadProviderUsage(handle, ["codex"]).get("codex")?.snapshot).toBeNull();
+
+    gate.resolve();
+    await Promise.all([inFlight, logout]);
+
+    const stored = loadProviderUsage(handle, ["codex"]).get("codex");
+
+    expect(stored?.snapshot).toBeNull();
+    expect(stored?.error?.code).toBe("not_connected");
+  });
+});

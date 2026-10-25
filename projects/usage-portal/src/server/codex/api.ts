@@ -18,7 +18,7 @@ export function createCodexApi(options: {
   auth: CodexAuth;
   login: CodexLoginService;
   db: DatabaseHandle;
-  sampler: Pick<Sampler, "kick">;
+  sampler: Pick<Sampler, "exclusive">;
 }): CodexApi {
   return {
     auth() {
@@ -28,10 +28,13 @@ export function createCodexApi(options: {
     respond: (value) => options.login.respond(value),
     cancelLogin: () => options.login.cancel(),
     async logout() {
+      // 進行中のサインインを止め、成功・失敗の表示も消す。残すとサインアウト後も開始ボタンが出ない。
+      options.login.cancel();
       await options.auth.logout();
-      // サインアウト後は前回の snapshot を出さない。残すと「サインイン済み」の数値が 5 分間見える。
-      deleteProviderUsage(options.db, "codex");
-      await options.sampler.kick();
+
+      // サインアウト後は前回の snapshot を出さない。先に始まっていた取得が書き戻さないよう、
+      // 削除は sampler の排他区間で行い、その後に取り直す（取り直しは未接続の error だけを書く）。
+      await options.sampler.exclusive(() => deleteProviderUsage(options.db, "codex"));
     },
   };
 }

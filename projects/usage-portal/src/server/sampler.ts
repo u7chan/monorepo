@@ -12,6 +12,11 @@ export type Sampler = {
   stop: () => void;
   /** 5 分の待ちを待たずに 1 回取り直す。進行中の取得があれば、その完了後にもう 1 回走らせる。 */
   kick: () => Promise<void>;
+  /**
+   * 進行中の取得と重ならない区間で `fn` を実行し、その後に 1 回取り直す。
+   * サインアウトで消した snapshot を、先に始まっていた取得が書き戻すのを防ぐための入口。
+   */
+  exclusive: (fn: () => void) => Promise<void>;
 };
 
 /**
@@ -97,16 +102,19 @@ export function createSampler(options: {
     }
   }
 
-  async function kick(): Promise<void> {
-    // サインイン直後の 1 回は、進行中の取得（未サインインで失敗した回）の完了を待ってから走らせる。
+  // 進行中の取得を待ってから fn を実行する。await の後に再開するのは microtask で、
+  // タイマーの runOnce より先に fn が走るため、間に新しい取得は挟まらない。
+  async function exclusive(fn: () => void): Promise<void> {
     if (running) {
       await running.catch(() => undefined);
     }
 
+    fn();
+
     await runOnce();
   }
 
-  return { start, stop, kick };
+  return { start, stop, kick: () => exclusive(() => {}), exclusive };
 }
 
 function toProviderError(error: unknown): ProviderError {

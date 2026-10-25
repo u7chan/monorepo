@@ -21,7 +21,7 @@ const handles: DatabaseHandle[] = [];
 type Harness = {
   app: ReturnType<typeof createApp>;
   db: DatabaseHandle;
-  kicks: number;
+  refreshes: number;
   cookie: () => Promise<string>;
 };
 
@@ -35,7 +35,7 @@ function harness(
   const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-codex-api-"));
   const auth = createAuthService({ dataDir, now: () => BASE_TIME });
   const db = openDatabase(join(dataDir, "usage.sqlite"));
-  const state: { kicks: number } = { kicks: 0 };
+  const state: { refreshes: number } = { refreshes: 0 };
 
   dirs.push(dataDir);
   handles.push(db);
@@ -58,8 +58,9 @@ function harness(
     login,
     db,
     sampler: {
-      kick: async () => {
-        state.kicks += 1;
+      exclusive: async (fn) => {
+        fn();
+        state.refreshes += 1;
       },
     },
   });
@@ -75,8 +76,8 @@ function harness(
   return {
     app,
     db,
-    get kicks() {
-      return state.kicks;
+    get refreshes() {
+      return state.refreshes;
     },
     async cookie() {
       const response = await app.request(
@@ -105,6 +106,24 @@ function selectScenario(interaction: AuthInteraction): Promise<void> {
       ],
     })
     .then(() => {});
+}
+
+function selectOnceScenario(interaction: AuthInteraction): Promise<void> {
+  return interaction
+    .prompt({ type: "select", message: "Select", options: [{ id: "device_code", label: "Device code" }] })
+    .then(() => {});
+}
+
+async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (!(await predicate())) {
+    if (Date.now() > deadline) {
+      throw new Error("状態が変わりませんでした");
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 function post(h: Harness, path: string, body: unknown, cookie: string) {
@@ -274,7 +293,7 @@ describe("DELETE /api/codex/login", () => {
 });
 
 describe("POST /api/codex/logout", () => {
-  test("snapshot を消して sampler を起こす", async () => {
+  test("snapshot を排他区間で消して取得し直す", async () => {
     const h = harness();
     const cookie = await h.cookie();
 
@@ -285,8 +304,32 @@ describe("POST /api/codex/logout", () => {
     );
 
     expect(response.status).toBe(204);
-    expect(h.kicks).toBe(1);
+    expect(h.refreshes).toBe(1);
     expect(h.db.db.query("SELECT COUNT(*) AS count FROM provider_snapshot").get()).toEqual({ count: 0 });
+  });
+
+  test("サインアウトで成功状態の表示も消し、すぐ開始し直せる", async () => {
+    const h = harness({ login: selectOnceScenario });
+    const cookie = await h.cookie();
+
+    await post(h, "/api/codex/login", {}, cookie);
+    await post(h, "/api/codex/login/respond", { value: "device_code" }, cookie);
+    await waitFor(async () => {
+      const state = await h.app.request("/api/codex/auth", { headers: { cookie } });
+      const body = (await state.json()) as { login: { status: string } | null };
+
+      return body.login?.status === "succeeded";
+    });
+
+    const loggedOut = await h.app.request(
+      new Request("http://localhost/api/codex/logout", { method: "POST", headers: { origin: ORIGIN, cookie } }),
+    );
+
+    expect(loggedOut.status).toBe(204);
+
+    const state = await h.app.request("/api/codex/auth", { headers: { cookie } });
+
+    expect(await state.json()).toEqual({ signedIn: false, login: null });
   });
 
   test("SDK の失敗は固定の分類だけを返す", async () => {
@@ -302,6 +345,6 @@ describe("POST /api/codex/logout", () => {
 
     expect(response.status).toBe(503);
     expect(await response.text()).toBe(JSON.stringify({ error: "logout_failed" }));
-    expect(h.kicks).toBe(0);
+    expect(h.refreshes).toBe(0);
   });
 });

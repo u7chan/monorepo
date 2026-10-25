@@ -1,5 +1,6 @@
 import { useState } from "preact/hooks";
 import type { CodexAuthState } from "../api";
+import { showsSignOutButton, showsStartButton } from "../lib/codex-signin";
 
 export type CodexActions = {
   onStart: () => Promise<string | null>;
@@ -28,12 +29,14 @@ export function CodexAuthPanel(props: {
   const [copied, setCopied] = useState(false);
   const login = props.auth?.login ?? null;
   const signedIn = props.auth?.signedIn ?? false;
-  const running = login?.status === "running";
-  // 認証状態の取得前は、未接続と決めつけずに操作を出さない。
-  const known = props.auth !== null;
-  const showStart =
-    known && !running && login?.status !== "succeeded" && (!signedIn || props.needsSignIn || login !== null);
-  const showSignOut = known && signedIn && !running && !props.needsSignIn;
+  const visibility = {
+    known: props.auth !== null,
+    needsSignIn: props.needsSignIn,
+    signedIn,
+    loginStatus: login?.status ?? null,
+  };
+  const showStart = showsStartButton(visibility);
+  const showSignOut = showsSignOutButton(visibility);
   const options = login?.prompt?.type === "select" ? login.prompt.options : [];
   // 既定はデバイスコード。props は非同期に届くので、選択値を props の初期値に固定しない。
   const choice = options.some((option) => option.id === selected)
@@ -172,7 +175,7 @@ export function CodexAuthPanel(props: {
         </>
       ) : null}
 
-      {login?.status === "succeeded" ? <p class="up-notice">サインインしました</p> : null}
+      {login?.status === "succeeded" && !props.needsSignIn ? <p class="up-notice">サインインしました</p> : null}
       {login?.status === "failed" ? (
         <p class="up-error" role="alert">
           {login.error ?? "サインインに失敗しました。もう一度試してください。"}
