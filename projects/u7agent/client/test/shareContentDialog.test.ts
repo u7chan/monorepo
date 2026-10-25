@@ -11,6 +11,7 @@ import {
   SHARE_DUPLICATE_NOTE,
   SHARE_DUPLICATE_PUBLISHING_NOTE,
   SHARE_NAME_MAX_LENGTH,
+  SHARED_CONTENT_UNDEPLOYED_NOTE,
   sharedContentCreateBody,
   sharedContentWithSourcePath,
 } from "../src/lib/sharedContents";
@@ -20,6 +21,8 @@ globalThis.location ??= { origin: "http://localhost" } as Location;
 const { ShareContentDialogView } = await import("../src/components/ShareContentDialog");
 
 const URL_PUBLISHED = "https://u7s-abc123.demo.workers.dev/";
+/** 公開が一度でも成功した時刻。`publishedAt` が無い published / stopped は未デプロイ（要更新） */
+const PUBLISHED_AT = 1_000;
 
 const item = (overrides: Partial<SharedContentResponse> = {}): SharedContentResponse => ({
   id: "abc123",
@@ -135,7 +138,7 @@ test("表示名: セッションタイトルを既定にし、最大長と「URL
 });
 
 test("同じ公開元の共有物があれば「共有済み（更新は 設定 → 共有 から）」を出し、プレビュー失敗中は出さない", () => {
-  const published = item({ status: "published" });
+  const published = item({ status: "published", publishedAt: PUBLISHED_AT });
   const html = render(
     controller({
       items: [published],
@@ -167,7 +170,10 @@ test("再オープン: 同じ公開元が公開中の間は共有するを押せ
   // 同じ公開元が複数あるときも、一覧の先頭が公開済みなら通さない (一覧は作成日時降順)
   const mixed = render(
     controller({
-      items: [item({ id: "new", status: "published", createdAt: 2 }), item({ id: "old", createdAt: 1 })],
+      items: [
+        item({ id: "new", status: "published", publishedAt: PUBLISHED_AT, createdAt: 2 }),
+        item({ id: "old", createdAt: 1 }),
+      ],
       preview: { status: "ready", preview: readyPreview("projects/app/dist") },
     }),
   );
@@ -209,7 +215,10 @@ test("公開中: 状態だけを出し、開く / コピーはまだ出さず、
 });
 
 test("完了・失敗: 閉じても公開が続く案内は出さない", () => {
-  const finished = [item({ status: "published" }), item({ status: "failed", publicUrl: null, lastError: "失敗" })];
+  const finished = [
+    item({ status: "published", publishedAt: PUBLISHED_AT }),
+    item({ status: "failed", publicUrl: null, lastError: "失敗" }),
+  ];
   for (const active of finished) {
     const html = render(controller({ items: [active], activeId: "abc123" }));
     assert.equal(html.includes(SHARE_CLOSE_HINT), false);
@@ -217,7 +226,9 @@ test("完了・失敗: 閉じても公開が続く案内は出さない", () => 
 });
 
 test("完了: URL と共有 ID と 開く / URL をコピー を結果に出す", () => {
-  const html = render(controller({ items: [item({ status: "published" })], activeId: "abc123" }));
+  const html = render(
+    controller({ items: [item({ status: "published", publishedAt: PUBLISHED_AT })], activeId: "abc123" }),
+  );
   assert.match(html, /公開済み/);
   assert.ok(html.includes("https://u7s-abc123.demo.workers.dev/"), "確定 URL を出す");
   assert.ok(html.includes(`href="${URL_PUBLISHED}"`));
@@ -231,8 +242,10 @@ test("完了: URL と共有 ID と 開く / URL をコピー を結果に出す"
 });
 
 test("一覧: 受付した 1 件を除いた他の共有物を並べ、共有 ID も出す", () => {
-  const other = item({ id: "def456", name: "site", status: "published" });
-  const html = render(controller({ items: [item({ status: "published" }), other], activeId: "abc123" }));
+  const other = item({ id: "def456", name: "site", status: "published", publishedAt: PUBLISHED_AT });
+  const html = render(
+    controller({ items: [item({ status: "published", publishedAt: PUBLISHED_AT }), other], activeId: "abc123" }),
+  );
   assert.match(html, /この会話の共有物/);
   assert.match(html, />site</, "他の共有物を一覧に出す");
   assert.ok(html.includes(`href="${URL_PUBLISHED}"`), "他の共有物の URL も出す");
@@ -240,7 +253,7 @@ test("一覧: 受付した 1 件を除いた他の共有物を並べ、共有 ID
 });
 
 test("再オープン: 受付していない状態でも一覧の各共有物に共有 ID と URL を出す", () => {
-  const published = item({ status: "published" });
+  const published = item({ status: "published", publishedAt: PUBLISHED_AT });
   // failed は URL が無く、同じディレクトリの再公開では名前が重なる。ID が無いと見分けられない
   const failed = item({ id: "def456", status: "failed", publicUrl: null, lastError: "index.html がありません" });
   const html = render(controller({ items: [published, failed] }));
@@ -264,10 +277,37 @@ test("失敗: BFF の固定文言だけを出し、URL も生の応答も出さ�
   assert.equal(html.includes("URL をコピー"), false);
 });
 
+// deployment が一度も成功していない行は、status が published / stopped でも外部に実体が無い。
+// 「公開済み」と言わず、URL・開く・コピーを出さずに更新へ案内する（理由は表示だけに使う）
+test("未デプロイ: 要更新として URL と 開く / コピー を出さず、lastError は別行で添える", () => {
+  for (const status of ["published", "stopped"] as const) {
+    const html = render(
+      controller({
+        items: [item({ status, lastError: "Worker の作成に失敗しました" })],
+      }),
+    );
+    assert.match(html, /要更新/, status);
+    assert.ok(html.includes(SHARED_CONTENT_UNDEPLOYED_NOTE), `${status}: 更新への案内が無い`);
+    assert.equal(html.includes("workers.dev/"), false, `${status}: URL を出さない`);
+    assert.equal(html.includes("URL をコピー"), false, `${status}: コピーを出さない`);
+    assert.equal(html.includes(">開く<"), false, `${status}: 開くを出さない`);
+    assert.equal(html.includes("公開済み"), false, `${status}: 公開済みと言わない`);
+    assert.match(html, /Worker の作成に失敗しました/, status);
+  }
+});
+
+test("停止中（公開実績あり）: 停止中として出し、URL のコピーと開くは出さない", () => {
+  const html = render(controller({ items: [item({ status: "stopped", publishedAt: PUBLISHED_AT })] }));
+  assert.match(html, /停止中/);
+  assert.equal(html.includes("公開済み"), false);
+  assert.equal(html.includes("URL をコピー"), false);
+  assert.equal(html.includes(">開く<"), false);
+});
+
 test("受付の拒否: サーバーの文言 (資格情報の未登録) をそのまま出し、一覧は残す", () => {
   const html = render(
     controller({
-      items: [item({ status: "published" })],
+      items: [item({ status: "published", publishedAt: PUBLISHED_AT })],
       error: "Cloudflare の資格情報が未登録です。設定 → 共有 → 接続 で登録してください",
     }),
   );

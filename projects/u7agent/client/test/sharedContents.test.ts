@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   SHARE_CONFIRM_NOTES,
+  SHARED_CONTENT_UNDEPLOYED_NOTE,
+  isSharedContentUndeployed,
   shareItemsPublishing,
   sharePollPlan,
   shareStatusView,
@@ -15,6 +17,7 @@ import {
   sharedContentPrimaryAction,
   sharedContentSession,
   sharedContentSessionMissing,
+  sharedContentUndeployedFilterCounts,
   sharedContentUpdateConfirm,
   sharedContentsPolling,
   settleAcceptedSharedContent,
@@ -44,42 +47,64 @@ const base: SharedContentResponse = {
   lastError: null,
 };
 
+/** 公開が一度でも成功した時刻。`publishedAt` が無い published / stopped は未デプロイ（要更新） */
+const PUBLISHED_AT = 1_000;
+
 const item = (overrides: Partial<SharedContentResponse> = {}): SharedContentResponse => ({ ...base, ...overrides });
 
-test("状態の見せ方: 公開中・公開済み・停止中・失敗と、結果不明を openUrl と note で区別する", () => {
-  assert.deepEqual(shareStatusView(item()), { label: "公開中", tone: "busy", openUrl: null, note: null });
-  assert.deepEqual(shareStatusView(item({ status: "published" })), {
-    label: "公開済み",
-    tone: "ok",
-    openUrl: base.publicUrl,
-    note: null,
-  });
-  // 再公開の失敗は前の版が生きている。URL は開かせ、理由も添える
-  assert.deepEqual(shareStatusView(item({ status: "published", lastError: "公開に失敗しました" })), {
-    label: "公開済み",
-    tone: "ok",
-    openUrl: base.publicUrl,
-    note: "公開に失敗しました",
-  });
-  assert.deepEqual(shareStatusView(item({ status: "stopped" })), {
-    label: "停止中",
-    tone: "warn",
-    openUrl: null,
-    note: null,
-  });
-  assert.deepEqual(shareStatusView(item({ status: "failed", lastError: "index.html がありません" })), {
-    label: "公開できませんでした",
-    tone: "danger",
-    openUrl: null,
-    note: "index.html がありません",
-  });
-  // 結果不明は「公開中」と言い切らない (外部が公開されているかを確定できていない)
-  assert.deepEqual(shareStatusView(item({ lastError: "公開の結果を確認できませんでした" })), {
-    label: "結果不明",
-    tone: "warn",
-    openUrl: null,
-    note: "公開の結果を確認できませんでした",
-  });
+// 状態 × 公開時刻。どれも `status` が同じでも、実体が外にあるかどうかで見せ方が変わる
+test("状態の見せ方: status だけでなく publishedAt を見て、未デプロイは「要更新」にする", () => {
+  const cases: { name: string; input: Partial<SharedContentResponse>; view: ReturnType<typeof shareStatusView> }[] = [
+    {
+      name: "公開中",
+      input: { status: "publishing" },
+      view: { label: "公開中", tone: "busy", openUrl: null, note: null },
+    },
+    {
+      name: "結果不明",
+      input: { status: "publishing", lastError: "公開の結果を確認できませんでした" },
+      view: { label: "結果不明", tone: "warn", openUrl: null, note: "公開の結果を確認できませんでした" },
+    },
+    // 公開済みでも publishedAt が無ければ外部に実体が無い。URL を持たせず、更新へ案内する
+    {
+      name: "公開済み + publishedAt なし",
+      input: { status: "published" },
+      view: { label: "要更新", tone: "warn", openUrl: null, note: SHARED_CONTENT_UNDEPLOYED_NOTE },
+    },
+    {
+      name: "停止中 + publishedAt なし",
+      input: { status: "stopped" },
+      view: { label: "要更新", tone: "warn", openUrl: null, note: SHARED_CONTENT_UNDEPLOYED_NOTE },
+    },
+    {
+      name: "公開済み",
+      input: { status: "published", publishedAt: PUBLISHED_AT },
+      view: { label: "公開済み", tone: "ok", openUrl: base.publicUrl, note: null },
+    },
+    // 再公開の失敗は前の版が生きている。URL は開かせ、理由も添える
+    {
+      name: "公開済み + 直近の失敗",
+      input: { status: "published", publishedAt: PUBLISHED_AT, lastError: "公開に失敗しました" },
+      view: { label: "公開済み", tone: "ok", openUrl: base.publicUrl, note: "公開に失敗しました" },
+    },
+    {
+      name: "停止中",
+      input: { status: "stopped", publishedAt: PUBLISHED_AT },
+      view: { label: "停止中", tone: "warn", openUrl: null, note: null },
+    },
+    {
+      name: "失敗",
+      input: { status: "failed", lastError: "index.html がありません" },
+      view: { label: "公開できませんでした", tone: "danger", openUrl: null, note: "index.html がありません" },
+    },
+  ];
+  for (const entry of cases) {
+    assert.deepEqual(shareStatusView(item(entry.input)), entry.view, entry.name);
+  }
+  // 判定は status と publishedAt だけ。lastError の文言では変わらない
+  assert.equal(isSharedContentUndeployed(item({ status: "published", lastError: "公開に失敗しました" })), true);
+  assert.equal(isSharedContentUndeployed(item({ status: "stopped", publishedAt: PUBLISHED_AT })), false);
+  assert.equal(isSharedContentUndeployed(item({ status: "failed", publishedAt: PUBLISHED_AT })), false);
 });
 
 test("確認の条件: 対象外の URL を出さず、外部公開・秘密値・URL 発行・serve との区別を含む", () => {
@@ -149,15 +174,31 @@ test("受付した 1 件の反映: 同じ id は差し替え、未取得なら�
   assert.deepEqual(withSharedContent([other], published), [published, other]);
 });
 
-test("管理一覧の操作: 状態ごとに受け付ける操作だけを並べ、結果不明は停止だけにする", () => {
-  const kinds = (status: SharedContentResponse["status"], lastError: string | null = null) =>
-    sharedContentActions(item({ status, lastError }), { sessionMissing: false }).map((action) => action.kind);
-  assert.deepEqual(kinds("published"), ["open", "copy", "update", "stop", "delete"]);
-  assert.deepEqual(kinds("published", "更新に失敗しました"), ["open", "copy", "update", "stop", "delete"]);
-  assert.deepEqual(kinds("stopped"), ["resume", "delete"]);
-  assert.deepEqual(kinds("failed"), ["retry", "delete"]);
-  assert.deepEqual(kinds("publishing"), []);
-  assert.deepEqual(kinds("publishing", "公開の結果を確認できませんでした"), ["stop"]);
+test("管理一覧の操作: 状態ごとに受け付ける操作だけを並べ、未デプロイは更新と削除だけにする", () => {
+  const kinds = (overrides: Partial<SharedContentResponse>) =>
+    sharedContentActions(item(overrides), { sessionMissing: false }).map((action) => action.kind);
+  assert.deepEqual(kinds({ status: "published", publishedAt: PUBLISHED_AT }), [
+    "open",
+    "copy",
+    "update",
+    "stop",
+    "delete",
+  ]);
+  assert.deepEqual(kinds({ status: "published", publishedAt: PUBLISHED_AT, lastError: "更新に失敗しました" }), [
+    "open",
+    "copy",
+    "update",
+    "stop",
+    "delete",
+  ]);
+  assert.deepEqual(kinds({ status: "stopped", publishedAt: PUBLISHED_AT }), ["resume", "delete"]);
+  assert.deepEqual(kinds({ status: "failed" }), ["retry", "delete"]);
+  assert.deepEqual(kinds({ status: "publishing" }), []);
+  assert.deepEqual(kinds({ status: "publishing", lastError: "公開の結果を確認できませんでした" }), ["stop"]);
+  // 実体が無いのに開かせたり再公開させたりしない。解消は更新（同じ URL へ上げ直す）と削除だけ
+  assert.deepEqual(kinds({ status: "published" }), ["update", "delete"]);
+  assert.deepEqual(kinds({ status: "stopped" }), ["update", "delete"]);
+  assert.deepEqual(kinds({ status: "published", lastError: "公開に失敗しました" }), ["update", "delete"]);
   assert.equal(
     sharedContentActions(item({ status: "published" }), { sessionMissing: false }).at(-1)?.danger,
     true,
@@ -166,7 +207,9 @@ test("管理一覧の操作: 状態ごとに受け付ける操作だけを並べ
 });
 
 test("セッション削除済み: 更新だけを理由付きで無効にし、停止・再公開・削除は残す", () => {
-  const published = sharedContentActions(item({ status: "published" }), { sessionMissing: true });
+  const published = sharedContentActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
+    sessionMissing: true,
+  });
   const update = published.find((action) => action.kind === "update");
   assert.equal(update?.disabled, true);
   assert.equal(update?.reason, SHARED_CONTENT_SESSION_MISSING_NOTE);
@@ -174,7 +217,9 @@ test("セッション削除済み: 更新だけを理由付きで無効にし、
     published.filter((action) => action.disabled !== true).map((action) => action.kind),
     ["open", "copy", "stop", "delete"],
   );
-  const menu = sharedContentMenuActions(item({ status: "published" }), { sessionMissing: true });
+  const menu = sharedContentMenuActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
+    sessionMissing: true,
+  });
   assert.deepEqual(
     menu.map((action) => [action.kind, action.disabled === true]),
     [
@@ -184,27 +229,58 @@ test("セッション削除済み: 更新だけを理由付きで無効にし、
     ],
   );
   assert.deepEqual(
-    sharedContentActions(item({ status: "stopped" }), { sessionMissing: true }).map((action) => action.kind),
+    sharedContentActions(item({ status: "stopped", publishedAt: PUBLISHED_AT }), { sessionMissing: true }).map(
+      (action) => action.kind,
+    ),
     ["resume", "delete"],
   );
 });
 
-test("狭い面の ⋯ と主操作: 公開中は更新 / 停止 / 削除、停止中と失敗は削除だけ、結果不明は主操作の停止だけ", () => {
-  const menu = (status: SharedContentResponse["status"], lastError: string | null = null) =>
-    sharedContentMenuActions(item({ status, lastError }), { sessionMissing: false }).map((action) => action.kind);
-  assert.deepEqual(menu("published"), ["update", "stop", "delete"]);
-  assert.deepEqual(menu("stopped"), ["delete"]);
-  assert.deepEqual(menu("failed"), ["delete"]);
-  assert.deepEqual(menu("publishing"), []);
-  assert.deepEqual(menu("publishing", "公開の結果を確認できませんでした"), []);
-  assert.equal(sharedContentPrimaryAction(item({ status: "published" }))?.kind, "open");
-  assert.equal(sharedContentPrimaryAction(item({ status: "stopped" }))?.kind, "resume");
-  assert.equal(sharedContentPrimaryAction(item({ status: "failed" }))?.kind, "retry");
-  assert.equal(sharedContentPrimaryAction(item({ status: "publishing" })), null);
-  assert.deepEqual(
-    sharedContentPrimaryAction(item({ status: "publishing", lastError: "公開の結果を確認できませんでした" })),
-    { kind: "stop", label: "停止" },
-  );
+test("未デプロイのセッション削除済み: 更新だけを理由付きで無効にし、削除は残す", () => {
+  for (const status of ["published", "stopped"] as const) {
+    const desktop = sharedContentActions(item({ status }), { sessionMissing: true });
+    assert.deepEqual(
+      desktop.map((action) => [action.kind, action.disabled === true]),
+      [
+        ["update", true],
+        ["delete", false],
+      ],
+      status,
+    );
+    assert.equal(desktop[0].reason, SHARED_CONTENT_SESSION_MISSING_NOTE);
+    const primary = sharedContentPrimaryAction(item({ status }), { sessionMissing: true });
+    assert.deepEqual(primary, {
+      kind: "update",
+      label: "更新",
+      disabled: true,
+      reason: SHARED_CONTENT_SESSION_MISSING_NOTE,
+    });
+  }
+});
+
+test("狭い面の ⋯ と主操作: 未デプロイは更新と削除、公開中は更新 / 停止 / 削除、停止中と失敗は削除だけ", () => {
+  const menu = (overrides: Partial<SharedContentResponse>) =>
+    sharedContentMenuActions(item(overrides), { sessionMissing: false }).map((action) => action.kind);
+  assert.deepEqual(menu({ status: "published", publishedAt: PUBLISHED_AT }), ["update", "stop", "delete"]);
+  assert.deepEqual(menu({ status: "published" }), ["update", "delete"]);
+  assert.deepEqual(menu({ status: "stopped" }), ["update", "delete"]);
+  assert.deepEqual(menu({ status: "stopped", publishedAt: PUBLISHED_AT }), ["delete"]);
+  assert.deepEqual(menu({ status: "failed" }), ["delete"]);
+  assert.deepEqual(menu({ status: "publishing" }), []);
+  assert.deepEqual(menu({ status: "publishing", lastError: "公開の結果を確認できませんでした" }), []);
+  const primary = (overrides: Partial<SharedContentResponse>) =>
+    sharedContentPrimaryAction(item(overrides), { sessionMissing: false });
+  assert.equal(primary({ status: "published", publishedAt: PUBLISHED_AT })?.kind, "open");
+  assert.equal(primary({ status: "stopped", publishedAt: PUBLISHED_AT })?.kind, "resume");
+  assert.equal(primary({ status: "failed" })?.kind, "retry");
+  assert.equal(primary({ status: "publishing" }), null);
+  // 未デプロイは「開く」も「再公開」も出さず、主操作を更新にする（セッションが生きていれば押せる）
+  assert.deepEqual(primary({ status: "published" }), { kind: "update", label: "更新" });
+  assert.deepEqual(primary({ status: "stopped" }), { kind: "update", label: "更新" });
+  assert.deepEqual(primary({ status: "publishing", lastError: "公開の結果を確認できませんでした" }), {
+    kind: "stop",
+    label: "停止",
+  });
 });
 
 test("操作中の表示: 何をしているかを種類ごとに出す", () => {
@@ -214,10 +290,10 @@ test("操作中の表示: 何をしているかを種類ごとに出す", () => 
 
 test("状態フィルタ: 件数は全件から数え、絞り込みは status だけを見る（結果不明は処理中）", () => {
   const items = [
-    item({ id: "a", status: "published" }),
+    item({ id: "a", status: "published", publishedAt: PUBLISHED_AT }),
     item({ id: "b", status: "publishing" }),
     item({ id: "c", status: "publishing", lastError: "公開の結果を確認できませんでした" }),
-    item({ id: "d", status: "stopped" }),
+    item({ id: "d", status: "stopped", publishedAt: PUBLISHED_AT }),
     item({ id: "e", status: "failed" }),
   ];
   assert.deepEqual(sharedContentFilterCounts(items), {
@@ -246,6 +322,38 @@ test("状態フィルタ: 件数は全件から数え、絞り込みは status �
     ["a", "b", "c", "e", "d"],
     "all は状態で固める（公開済み → 処理中 → 失敗 → 停止中）",
   );
+});
+
+test("未デプロイの件数: フィルタの絞り込みは status のまま、公開 / 停止のチップにだけ要更新を数える", () => {
+  const items = [
+    item({ id: "published", status: "published", publishedAt: PUBLISHED_AT }),
+    item({ id: "undeployed-published", status: "published" }),
+    item({ id: "undeployed-stopped", status: "stopped" }),
+    item({ id: "publishing", status: "publishing" }),
+    item({ id: "failed", status: "failed" }),
+  ];
+  assert.deepEqual(sharedContentUndeployedFilterCounts(items), {
+    all: 0,
+    published: 1,
+    publishing: 0,
+    stopped: 1,
+    failed: 0,
+  });
+  // 選択肢は増やさず、状態の件数も status のまま（要更新は別に添えるだけ）
+  assert.deepEqual(sharedContentFilterCounts(items), {
+    all: 5,
+    published: 2,
+    publishing: 1,
+    stopped: 1,
+    failed: 1,
+  });
+  assert.deepEqual(sharedContentUndeployedFilterCounts([]), {
+    all: 0,
+    published: 0,
+    publishing: 0,
+    stopped: 0,
+    failed: 0,
+  });
 });
 
 test("一覧の並び: 状態で固め、その中は更新の新しい順、同時刻は API の順を保つ", () => {

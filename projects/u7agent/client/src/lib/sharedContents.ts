@@ -85,9 +85,24 @@ export type ShareStatusView = {
   note: string | null;
 };
 
+/** 未デプロイの案内。`lastError` の文言では分岐せず、状態と公開時刻だけで決める */
+export const SHARED_CONTENT_UNDEPLOYED_NOTE =
+  "公開処理が完了していません。設定 → 共有 の「更新」で公開し直してください";
+
+/**
+ * 公開が一度も成功していない共有物。DB の不整合行は自動移行しないので、`status` が
+ * `published` / `stopped` でも `publishedAt` が無ければ外部に実体が無いものとして扱う。
+ */
+export function isSharedContentUndeployed(item: Pick<SharedContentResponse, "status" | "publishedAt">): boolean {
+  return (item.status === "published" || item.status === "stopped") && item.publishedAt === null;
+}
+
 /** 状態の見せ方。`published` + `lastError` は「前の版が生きている」ので、URL を出しつつ理由も添える */
 export function shareStatusView(item: SharedContentResponse): ShareStatusView {
   const url = item.publicUrl;
+  if (isSharedContentUndeployed(item)) {
+    return { label: "要更新", tone: "warn", openUrl: null, note: SHARED_CONTENT_UNDEPLOYED_NOTE };
+  }
   switch (item.status) {
     case "publishing":
       return item.lastError === null
@@ -186,6 +201,20 @@ export function sharedContentFilterCounts(
   return counts;
 }
 
+/**
+ * フィルタごとの未デプロイ件数。絞り込みは `status` のままなので、`published` / `stopped` の
+ * チップにだけ「要更新」を添える（`all` と他の状態は 0）。
+ */
+export function sharedContentUndeployedFilterCounts(
+  items: readonly SharedContentResponse[],
+): Record<SharedContentsFilter, number> {
+  const counts: Record<SharedContentsFilter, number> = { all: 0, published: 0, publishing: 0, stopped: 0, failed: 0 };
+  for (const item of items) {
+    if (isSharedContentUndeployed(item)) counts[item.status] += 1;
+  }
+  return counts;
+}
+
 /** 一覧の並びの重み。生きている共有物を先に置き、寝ている停止中を最後にする */
 const SHARED_CONTENT_STATUS_ORDER: Record<SharedContentStatusValue, number> = {
   published: 0,
@@ -249,6 +278,9 @@ export function sharedContentActions(
   item: SharedContentResponse,
   { sessionMissing }: { sessionMissing: boolean },
 ): SharedContentAction[] {
+  if (isSharedContentUndeployed(item)) {
+    return [updateAction(sessionMissing), { kind: "delete", label: "削除", danger: true }];
+  }
   switch (item.status) {
     case "published":
       return [
@@ -282,6 +314,9 @@ export function sharedContentMenuActions(
   item: SharedContentResponse,
   { sessionMissing }: { sessionMissing: boolean },
 ): (SharedContentAction & { kind: SharedContentMenuKind })[] {
+  if (isSharedContentUndeployed(item)) {
+    return [updateAction(sessionMissing), { kind: "delete", label: "削除", danger: true }];
+  }
   switch (item.status) {
     case "published":
       return [
@@ -297,8 +332,12 @@ export function sharedContentMenuActions(
   }
 }
 
-/** 狭い面の主操作。結果不明は停止、公開中は主操作なし（⋯ も出さない） */
-export function sharedContentPrimaryAction(item: SharedContentResponse): SharedContentAction | null {
+/** 狭い面の主操作。未デプロイは更新、結果不明は停止、公開中は主操作なし（⋯ も出さない） */
+export function sharedContentPrimaryAction(
+  item: SharedContentResponse,
+  { sessionMissing }: { sessionMissing: boolean },
+): SharedContentAction | null {
+  if (isSharedContentUndeployed(item)) return updateAction(sessionMissing);
   switch (item.status) {
     case "published":
       return { kind: "open", label: "開く" };

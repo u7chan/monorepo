@@ -4,15 +4,18 @@ import { SHARED_CONTENT_FILTERS, type SharedContentsFilter } from "../../lib/sha
 export type SharedContentsFiltersProps = {
   filter: SharedContentsFilter;
   counts: Record<SharedContentsFilter, number>;
+  /** 各フィルタのうち、公開が完了していない（要更新）件数。0 のときは添えない */
+  undeployedCounts: Record<SharedContentsFilter, number>;
   onSelect: (filter: SharedContentsFilter) => void;
 };
 
 /** 状態フィルタ。件数は絞り込みの外側の全件から数え、どの面に何件あるかを常に見せる */
-export function SharedContentsFilters({ filter, counts, onSelect }: SharedContentsFiltersProps) {
+export function SharedContentsFilters({ filter, counts, undeployedCounts, onSelect }: SharedContentsFiltersProps) {
   return (
     <div role="group" aria-label="共有コンテンツの状態" className="flex min-w-0 flex-wrap items-center gap-1">
       {SHARED_CONTENT_FILTERS.map((item) => {
         const active = item.key === filter;
+        const undeployed = undeployedCounts[item.key];
         return (
           <button
             key={item.key}
@@ -30,6 +33,8 @@ export function SharedContentsFilters({ filter, counts, onSelect }: SharedConten
             <span className={cn("tabular-nums", active ? "text-accent-text/75" : "text-ink-faint")}>
               {counts[item.key]}
             </span>
+            {/* 絞り込みは status のままなので、公開が止まっている行があることを件数の横で示す */}
+            {undeployed > 0 ? <span className="text-warn-text tabular-nums">要更新 {undeployed}</span> : null}
           </button>
         );
       })}

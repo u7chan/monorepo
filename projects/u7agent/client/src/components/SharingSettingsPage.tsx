@@ -2,7 +2,11 @@ import { useState } from "react";
 import { useCloudflareSettings } from "../hooks/useCloudflareSettings";
 import type { SharedContentExclusionsSettings } from "../hooks/useSharedContentExclusions";
 import { useSharedContentsManager, type SharedContentsManager } from "../hooks/useSharedContentsManager";
-import { sharedContentFilterCounts, type SharedContentsFilter } from "../lib/sharedContents";
+import {
+  sharedContentFilterCounts,
+  sharedContentUndeployedFilterCounts,
+  type SharedContentsFilter,
+} from "../lib/sharedContents";
 import { SHARING_SUBSECTIONS, type SharingSubsection } from "../lib/settingsNav";
 import { UNSAVED_RELOAD_NOTE } from "../lib/settingsNotes";
 import type { SessionSummary } from "../types";
@@ -68,6 +72,7 @@ export function SharingSettingsView({
   const contentsTab = sharingSubsection === "contents";
   const exclusionsTab = sharingSubsection === "exclusions";
   const counts = sharedContentFilterCounts(contents.items);
+  const undeployedCounts = sharedContentUndeployedFilterCounts(contents.items);
   const { settings, dirty, saving, reloading, save, reset, discard } = sharedContentExclusions;
   const submitExcludeInput = () => {
     // 追加できなかったときは入力を残す（上限や重複の理由をその場で直せるように）
@@ -130,7 +135,12 @@ export function SharingSettingsView({
           context={
             contentsTab && contents.items.length > 0 ? (
               // 空の一覧に 0 件のフィルタだけを並べない (空状態の案内を主にする)
-              <SharedContentsFilters filter={filter} counts={counts} onSelect={setFilter} />
+              <SharedContentsFilters
+                filter={filter}
+                counts={counts}
+                undeployedCounts={undeployedCounts}
+                onSelect={setFilter}
+              />
             ) : !singleColumn && unsavedReloadNote ? (
               <span className="text-2xs text-ink-muted">{unsavedReloadNote}</span>
             ) : undefined
