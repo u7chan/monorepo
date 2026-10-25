@@ -6,6 +6,7 @@ globalThis.location ??= { origin: "http://localhost" } as Location;
 const {
   ApiError,
   cancelOAuthLogin,
+  checkCloudflareConnection,
   deleteWebSearchApiKey,
   getTitleSummarySettings,
   getWebSearchSettings,
@@ -455,4 +456,25 @@ test("OAuth サインインの 409 は理由と HTTP status を保つ", async (t
     message: "このプロバイダーはサインインが進行中です",
     status: 409,
   });
+});
+
+test("Cloudflare の接続確認は POST で専用のパスを叩き、200 の結果をそのまま返す", async (t) => {
+  const requests: Request[] = [];
+  const result = {
+    checkedAt: 1_730_000_000_000,
+    accountId: "0123456789abcdef0123456789abcdef",
+    subdomain: "demo",
+    failure: null,
+    httpStatus: null,
+    message: null,
+  };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return Response.json(result);
+  });
+  assert.deepEqual(await checkCloudflareConnection(), result);
+  assert.deepEqual(
+    requests.map((request) => [request.method, new URL(request.url).pathname]),
+    [["POST", "/api/settings/cloudflare/check"]],
+  );
 });

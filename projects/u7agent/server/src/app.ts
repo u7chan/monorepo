@@ -129,6 +129,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     serve,
     secrets,
     cloudflareSettings,
+    cloudflareConnection,
     sharedContents,
     skillSandbox,
     skillArchiveSandbox,
@@ -162,7 +163,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const archiveRoutes = createArchiveRoutes({ archiveSettings });
   const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings, oauthLogin });
   const contentSettingsRoutes = createContentSettingsRoutes({ contentSettings });
-  const cloudflareSettingsRoutes = createCloudflareSettingsRoutes({ cloudflareSettings });
+  const cloudflareSettingsRoutes = createCloudflareSettingsRoutes({ cloudflareSettings, cloudflareConnection });
   const sharedContentRoutes = createSharedContentRoutes({ sharedContents });
   const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings });
   const titleSummaryRoutes = createTitleSummaryRoutes({ titleSummarySettings });
@@ -578,6 +579,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => cloudflareSettingsRoutes.update(c, c.req.valid("json")),
     )
     .delete("/api/settings/cloudflare", appDataMutation, cloudflareSettingsRoutes.remove)
+    // 接続確認は何も保存しないため appDataMutation を使わない (state: "not_stored" を返さない)
+    .post("/api/settings/cloudflare/check", appData, cloudflareSettingsRoutes.check)
     // preview は :id より前に置く (後に置くと id="preview" として 404 になる)
     .get("/api/shared-contents/preview", appData, sharedContentRoutes.preview)
     .get("/api/shared-contents", appData, sharedContentRoutes.list)
@@ -685,6 +688,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     serve,
     secrets,
     cloudflareSettings,
+    cloudflareConnection,
     sharedContents,
     close: async () => {
       // 未完了の送信結果は記録しない (プロセス終了時に破棄する)

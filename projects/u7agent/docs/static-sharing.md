@@ -48,6 +48,18 @@ Cloudflare Workers（workers.dev）
 - **`serve`（サービス）との違いを文言で示す。** 共有は Cloudflare への外部公開、サービスはアプリを開いている間だけの一時プレビュー
 - 失敗時も BFF が分類した固定文言（`lastError` / `error`）だけを出し、API トークン・Cloudflare の生レスポンス・内部識別子は画面へ出さない
 
+## GUI（接続）
+
+設定 → 共有 → 接続（`/settings/sharing/connections`）は、保存済みの資格情報が Cloudflare へ届くかを明示ボタンで確認できる。
+
+- 確認するのは**保存済みの値だけ**。未保存の下書きは確認しない（トークンの経路を 1 本に保つ）。保存直後にも自動で走らせず、利用者が押したときだけ動かす。
+- 確認は `GET /accounts/{account_id}/workers/subdomain` の 1 本だけ。公開の受付が最初に呼ぶのと同じなので、権限 / アカウント / workers.dev の失敗が同じ形で出る。副産物として workers.dev のサブドメインが分かり、公開先のドメインを公開前に見られる（script 名は共有物の id から作るので、URL 全体は公開まで確定しない）。
+- 結果は保存せず、その場で見せるだけ。再読み込み後は再確認が要る。設定画面の GET は外部通信に依存させない。
+- 確認の進行中も保存・削除は止めない。確認中に設定が変わったら、遅れて届いた結果だけを捨てる。公開の進行中でも確認は独立して実行できる。
+- 成功文言は「公開できます」と言わない。subdomain GET は `Workers Scripts Read` でも通るため、Write（Edit）権限の有無は保証できない。
+- 失敗は HTTP status を添えて切り分けられるようにする。文言は接続確認専用で、公開処理向けの文言（404 の「対象の Worker」など）を流用しない。
+- ボタンの無効条件・結果の出し分け・確認時刻の整形は `client/src/lib/cloudflareSettings.ts` を正とする。API 契約は [api.md](api.md#post-apisettingscloudflarecheck)。
+
 ## GUI（管理一覧）
 
 設定 → 共有（`/settings/sharing`）が、公開した共有物の管理一覧を持つ。同じセクションの「接続」は公開先の資格情報だけを扱う。
@@ -81,7 +93,7 @@ Cloudflare Workers（workers.dev）
 - `PUT /api/settings/cloudflare` は `{ accountId, apiToken? }`。初回はトークンが必須で、2 回目以降は省略できる（省略時は保存済みの暗号文を維持する）。アカウント ID は 32 桁の 16 進数へ正規化し、トークンは空白を含まない印字可能文字 20〜512 文字に限る。
 - `DELETE /api/settings/cloudflare` は行を消す（冪等）。共有物の `providerAccount` は消さない。
 - 別アカウントで公開した共有物が残っている間は、そのアカウントの登録・切替を 409 で拒否する。資格情報を消してから別アカウントを登録する経路も塞ぐ。
-- 保存・復号したトークンは `retainSecret()` へ渡し、例外やログに値が現れてもマスクする。平文を読むのは公開処理の `CloudflareSettingsService.credential()` だけで、応答・tool・sandbox へ渡す経路を持たない。
+- 保存・復号したトークンは `retainSecret()` へ渡し、例外やログに値が現れてもマスクする。平文を読むのは公開処理と接続確認の `CloudflareSettingsService.credential()` だけで、応答・tool・sandbox へ渡す経路を持たない。
 - サンドボックスの環境変数、agent tool の引数、`session.jsonl`、ログ、tool 出力へ渡さない。
 - 登録・読み込み時に `retainSecret()` へ渡し、例外やログに値が現れてもマスクする。
 - アセット送信に使うアップロード用 JWT は API トークンとは別物で、メモリ上だけで使う。
@@ -207,6 +219,10 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 
 - 却下: 数十 MB の送信で proxy やブラウザのタイムアウトに当たる。受付と状態取得を分ける。
 
+### `/user/tokens/verify` でトークンを検証する
+
+- 却下: account-owned token の検証は `/accounts/{account_id}/tokens/verify` と別 endpoint で、user 側の `/user/tokens/verify` は 401 になり得る。誤アカウントの切り分けのために 2 本目の確認を足すと、かえって失敗の意味が曖昧になる。接続確認は公開の受付と同じ subdomain GET 1 本にする。
+
 ## Cloudflare の現行値（Free）
 
 出典: [Limits](https://developers.cloudflare.com/workers/platform/limits/)、[Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/workers/)、[Direct Uploads](https://developers.cloudflare.com/workers/static-assets/direct-upload/)。
@@ -240,6 +256,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 | `GET` | `/api/settings/cloudflare` | 登録状態（トークンは返さない） |
 | `PUT` | `/api/settings/cloudflare` | 登録・更新 |
 | `DELETE` | `/api/settings/cloudflare` | 削除 |
+| `POST` | `/api/settings/cloudflare/check` | 保存済みの資格情報での接続確認（何も保存しない。詳細は [api.md](api.md#post-apisettingscloudflarecheck)） |
 
 作成の入力は `{ sessionId, directory, name? }`。`directory` はセッションの作業ディレクトリ相対で、BFF が root 相対の `sourcePath` へ解決して保存する。絶対パス・`..`・ワークスペース root 自身を指す指定は 400。`name` を省略したときはディレクトリ名を使う。
 
@@ -325,6 +342,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 - 停止した共有物の script が外部で削除されていると再公開できない（subdomain を有効にする先が無い）。その行は削除してから公開し直す。
 - セッションまたはソースの作業フォルダが消えた共有物は更新できない。停止・再公開・削除だけができる。
 - 公開先アカウントを変えるには、旧アカウントで既存の共有物を停止・削除する。接続を先に切り替える操作は `409` で止まる。
+- 接続確認では Write（Edit）権限を確かめられない。subdomain GET は `Workers Scripts Read` でも通るため、確認できたのは「接続できた」ところまでで、公開の可否は公開時に判定する。
 
 ## 実機で確認する項目
 
@@ -339,3 +357,5 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 - `GET /accounts/{account_id}/workers/subdomain` でアカウントの workers.dev サブドメインを取得でき、公開 URL を受付時に確定できる
 - 存在しない script の削除が 404 を返す（冪等扱いの確認）
 - 残枠が無いときの API エラー（Worker 数の上限）を分類できる
+- `GET /accounts/{account_id}/workers/subdomain` の応答（`result.subdomain`）と、workers.dev 未有効のアカウントでの status と `code`（空文字か 404 か）。接続確認の `no_subdomain` と 404 の文言のどちらに寄せるかを決める
+- 誤ったアカウント ID で接続確認したときの status と `code`（トークン種別で 403 と 404 のどちらになるか）

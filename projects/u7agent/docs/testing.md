@@ -67,7 +67,7 @@ done
 
 ## 静的共有の受入
 
-自動検証は `server/test/shared-contents-api.test.ts`（202 受付 → 状態 GET → `published`、`?sessionId=` の絞り込み、停止 200 → 再公開 202 → 削除 204 のライフサイクルと URL 維持、存在しない id の 404、トークン非漏洩、資格情報が未登録のときの 409、プレビューが `:id` と衝突しないことと 413 の写像・異常系の status）、`server/test/shared-contents.test.ts`（公開・更新・停止・再公開・削除の状態遷移と、provider / DB 障害、結果不明の照会、二重操作と共有物単位の排他、セッション削除後、providerAccount 不一致、プレビューの 413 / ファイル / sandbox 未設定の分類）、`server/test/sandbox-archive.test.ts` と `server/test/sandbox-client.test.ts`（計画の一覧・打ち切り・`hasIndexHtml`・`links`・`oversizeFiles`・413・`maxFileBytes` の検証と query の組み立て）、`client/test/sharedContents.test.ts`（状態の見せ方・確認項目・ポーリングの宛先・受付結果の反映）、`client/test/sharedContentPreview.test.ts`（件数とサイズの整形・打ち切り・公開されないもの・上限超過の見せ方）、`client/test/shareContentDialog.test.ts`（確認に確定 URL を出さないこと、受付中 / 公開中 / 完了 / 失敗の出し分け、受付拒否と一覧取得失敗の表示、プレビューの取得中 / 失敗 / 成功）、`client/test/apiContracts.test.ts`（プレビューのパスと query）、`client/test/fileRowMenu.test.ts`（共有を出す面と行の種類・並び）で行う。ネイティブ dialog の開閉とフォーカス、クリップボード、長い URL の折り返しはブラウザ受入で見る。
+自動検証は `server/test/shared-contents-api.test.ts`（202 受付 → 状態 GET → `published`、`?sessionId=` の絞り込み、停止 200 → 再公開 202 → 削除 204 のライフサイクルと URL 維持、存在しない id の 404、トークン非漏洩、資格情報が未登録のときの 409、プレビューが `:id` と衝突しないことと 413 の写像・異常系の status）、`server/test/shared-contents.test.ts`（公開・更新・停止・再公開・削除の状態遷移と、provider / DB 障害、結果不明の照会、二重操作と共有物単位の排他、セッション削除後、providerAccount 不一致、プレビューの 413 / ファイル / sandbox 未設定の分類）、`server/test/sandbox-archive.test.ts` と `server/test/sandbox-client.test.ts`（計画の一覧・打ち切り・`hasIndexHtml`・`links`・`oversizeFiles`・413・`maxFileBytes` の検証と query の組み立て）、`client/test/sharedContents.test.ts`（状態の見せ方・確認項目・ポーリングの宛先・受付結果の反映）、`client/test/sharedContentPreview.test.ts`（件数とサイズの整形・打ち切り・公開されないもの・上限超過の見せ方）、`client/test/shareContentDialog.test.ts`（確認に確定 URL を出さないこと、受付中 / 公開中 / 完了 / 失敗の出し分け、受付拒否と一覧取得失敗の表示、プレビューの取得中 / 失敗 / 成功）、`client/test/apiContracts.test.ts`（プレビューのパスと query）、`client/test/fileRowMenu.test.ts`（共有を出す面と行の種類・並び）、`server/test/cloudflare-connection.test.ts`（接続確認の分類・`httpStatus` は 400 以上だけ・409 / 503 を 200 の失敗に写さないこと）、`client/test/cloudflareSettings.test.ts` と `client/test/cloudflareSettingsPage.test.ts`（接続を確認の無効条件・下書き変更時の結果非表示・`httpStatus` の見せ方・確認時刻の整形・アカウント ID 不一致の破棄と、未登録 / master key 不在 / 確認中 / 成功 / 失敗 / 409・503 の描画）で行う。ネイティブ dialog の開閉とフォーカス、クリップボード、長い URL の折り返しはブラウザ受入で見る。
 
 GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の一時ストアとサンドボックスで、資格情報を登録しない状態から確認する。実公開は Cloudflare の実アカウントが要るため、資格情報を登録できる場合だけ完走させ、結果（公開 URL・所要・失敗時の文言）を PR に残す。
 
@@ -80,6 +80,8 @@ GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui
 - [ ] ダイアログを閉じて開き直すと、この会話の共有物・状態・URL・共有 ID が戻る。別の会話の共有物は並ばない。公開中に閉じても、開き直すと状態が進んでいる。`failed` の共有物も一覧の共有 ID で見分けられる。
 - [ ] Escape 1 回で共有ダイアログだけが閉じる。compact では背面の作業環境シートが残り、焦点は開いた ⋯ へ戻る。
 - [ ] 共有物 A が公開中の会話で B を共有すると、B の状態を追っている間も A の状態が進み、完了した A の URL が出る。会話を切り替える（同じ作業フォルダの別会話へ移る / 他タブで削除して自動選択される）と共有ダイアログは閉じ、前の会話の結果は残らない。
+- [ ] 接続タブの「接続を確認」は未登録・master key 不在・未保存の下書き・保存 / 削除 / 再読み込み / 確認中に無効になり、下書きを変えると前回の結果が消える。
+- [ ] 「接続を確認」の結果はカード内の結果行（`role="status"`）に出て、成功は workers.dev サブドメインと確認時刻、失敗は固定文言と `HTTP <status>` になる。409 / 503 は `role="alert"` に出る。desktop と 390x844 で入力欄・ヘルプ文を押し出さない。
 
 ## BGMの課金なし受入
 

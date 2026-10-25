@@ -31,6 +31,8 @@ export const CLOUDFLARE_DECRYPT_ERROR =
   "Cloudflare の API トークンを復号できません。master key の設定を確認し、トークンを再登録してください";
 export const CLOUDFLARE_ACCOUNT_SWITCH_ERROR =
   "別の Cloudflare アカウントで公開した共有コンテンツが残っています。先に旧アカウントで停止・削除してから登録してください";
+/** 未登録の案内。公開の受付と接続確認が同じ文を使う（二重に持たない） */
+export const SHARED_CONTENT_NO_CREDENTIALS = "Cloudflare の資格情報が未登録です。設定 → 共有 → 接続 で登録してください";
 
 /** サービスが要求する DB の読み書き。テストはこの形の stub を渡す */
 export interface CloudflareSettingsDb {
@@ -51,7 +53,10 @@ export interface CloudflareSettingsOptions {
   now?: () => number;
 }
 
-/** `credential` は BFF の公開処理だけが使う。API 応答へ載せる経路を作らない */
+/**
+ * `credential` は BFF の公開処理と接続確認だけが使う。API 応答へ載せる経路を作らない
+ * （接続確認もトークンを応答・ログ・例外へ出さない）。
+ */
 export interface CloudflareCredential {
   accountId: string;
   apiToken: string;

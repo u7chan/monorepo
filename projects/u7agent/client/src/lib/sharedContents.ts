@@ -157,7 +157,7 @@ export const SHARED_CONTENT_SESSION_MISSING_NOTE = "セッションが削除さ�
 export const SHARED_CONTENT_SESSION_DELETED_LABEL = "セッション（削除済み）";
 /**
  * 接続未登録の案内。操作を試す前に出すため、BFF の固定文言（表示にもそのまま使う）と同じ文を持つ。
- * 値の正は `server/src/shared-contents.ts` の `SHARED_CONTENT_NO_CREDENTIALS`。
+ * 値の正は `server/src/cloudflare-settings.ts` の `SHARED_CONTENT_NO_CREDENTIALS`。
  */
 export const SHARED_CONTENT_NO_CREDENTIALS_NOTE =
   "Cloudflare の資格情報が未登録です。設定 → 共有 → 接続 で登録してください";

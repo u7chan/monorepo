@@ -36,7 +36,8 @@ import type {
 } from "./sandbox/client";
 import { SecretService } from "./secrets";
 import { CloudflareApiClient } from "./cloudflare-api";
-import { CloudflareSettingsService } from "./cloudflare-settings";
+import { CloudflareConnectionService } from "./cloudflare-connection";
+import { CloudflareSettingsService, type CloudflareCredential } from "./cloudflare-settings";
 import { SecretKeyError, createSecretCipher, resolveMasterKeys, type SecretCipher } from "./secret-crypto";
 import { ServeService, sandboxHostFromUrl, type ServeProbe } from "./serve";
 import { SharedContentsService } from "./shared-contents";
@@ -160,8 +161,10 @@ export type BffContext = {
   serve: ServeService;
   /** 作業フォルダ単位の環境変数。GUI の API と serve / bash への注入が同じ実体を使う */
   secrets: SecretService;
-  /** Cloudflare の資格情報。BFF 専用で、公開バックエンドだけが平文を読む */
+  /** Cloudflare の資格情報。BFF 専用で、公開バックエンドと接続確認だけが平文を読む */
   cloudflareSettings: CloudflareSettingsService;
+  /** 保存済みの資格情報での接続確認。公開と同じ Cloudflare client を使い、結果は保存しない */
+  cloudflareConnection: CloudflareConnectionService;
   /** 静的成果物の公開。sandbox の ZIP 取得と Cloudflare への送信を担う */
   sharedContents: SharedContentsService;
 };
@@ -318,7 +321,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     retainSecret: pi ? pi.retainSecret : () => {},
   });
   // Cloudflare の資格情報も同じ鍵輪を使う。公開トークンは agent / sandbox へ渡さず、
-  // 公開バックエンドが credential() で読むまで BFF のメモリ外へ出さない。
+  // 公開バックエンドと接続確認が credential() で読むまで BFF のメモリ外へ出さない。
   const cloudflareSettings = new CloudflareSettingsService({
     db: appDb,
     cipher: secretCrypto.cipher,
@@ -418,21 +421,27 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   pi?.setAskUser(store.askUserHost());
   // investigate の子 runner も SessionStore が持つ。子は record に載せず、親 run の signal で止める
   pi?.setInvestigate(store.investigateHost());
+  // 公開と接続確認が同じ client 設定（base URL / timeout / fetch）を使うよう、factory はここ 1 箇所に置く
+  const createCloudflare = (credential: CloudflareCredential) =>
+    new CloudflareApiClient({
+      accountId: credential.accountId,
+      apiToken: credential.apiToken,
+      ...(opts.cloudflareFetch ? { fetchImpl: opts.cloudflareFetch } : {}),
+    });
   const sharedContents = new SharedContentsService({
     store: appDb,
     sessions: store,
     workspace,
     planSandbox: previewSandbox,
     credentials: cloudflareSettings,
-    createCloudflare: (credential) =>
-      new CloudflareApiClient({
-        accountId: credential.accountId,
-        apiToken: credential.apiToken,
-        ...(opts.cloudflareFetch ? { fetchImpl: opts.cloudflareFetch } : {}),
-      }),
+    createCloudflare,
     rootCwd: cwd,
     maskError,
     secretValues: () => pi?.secretMasker.secrets ?? [],
+  });
+  const cloudflareConnection = new CloudflareConnectionService({
+    credentials: cloudflareSettings,
+    createCloudflare,
   });
   // 中断した公開を起動時に回収する。失敗しても起動は止めず、行は publishing + lastError のまま残す
   await sharedContents.recoverInterrupted().catch((error) => {
@@ -461,6 +470,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     serve,
     secrets,
     cloudflareSettings,
+    cloudflareConnection,
     sharedContents,
   };
 }

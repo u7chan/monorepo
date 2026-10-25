@@ -9,6 +9,7 @@ import type {
   AskUserAnswer,
   CancelQueuedResult,
   CatalogResponse,
+  CloudflareConnectionCheckResponse,
   CloudflareMutationResponse,
   CloudflareSettingsResponse,
   ContentMutationResponse,
@@ -763,6 +764,16 @@ export const updateCloudflareSettings = async (
 
 export const deleteCloudflareSettings = async (): Promise<CloudflareMutationResponse> => {
   const res = await client.api.settings.cloudflare.$delete();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 保存済みの資格情報で Cloudflare へ届くかを確認する。何も保存せず、Cloudflare 側の失敗も 200 の
+ * 結果として返る。未登録（409）と master key 不在・復号不可（503）だけが失敗になる。
+ */
+export const checkCloudflareConnection = async (): Promise<CloudflareConnectionCheckResponse> => {
+  const res = await client.api.settings.cloudflare.check.$post();
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

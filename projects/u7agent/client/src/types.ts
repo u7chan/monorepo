@@ -16,6 +16,7 @@ export type {
   ChatMessage,
   CompactionInfo,
   CompactionReason,
+  CloudflareConnectionCheckResponse,
   CloudflareMutationResponse,
   CloudflareSettingsResponse,
   ContentImageSettings,

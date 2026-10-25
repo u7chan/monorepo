@@ -22,6 +22,10 @@ export type CloudflareFailureKind =
   | "network"
   | "unverifiable";
 
+/** workers.dev 未有効の文言。公開の受付と接続確認が同じ文を使う（二重に持たない） */
+export const SHARED_CONTENT_NO_SUBDOMAIN =
+  "Cloudflare アカウントの workers.dev サブドメインが未設定です。Cloudflare のダッシュボードで有効にしてください";
+
 const FAILURE_MESSAGES: Record<CloudflareFailureKind, string> = {
   unauthorized: "Cloudflare の認証に失敗しました。API トークンの権限を確認してください",
   not_found: "Cloudflare に対象の Worker が見つかりません",
