@@ -15,6 +15,8 @@ import {
   CUSTOM_PROVIDER_REMOVE_FAILED_MESSAGE,
   CUSTOM_PROVIDER_RESYNC_TARGET_MESSAGE,
   CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE,
+  CUSTOM_PROVIDER_STORED_ROWS_MESSAGE,
+  CUSTOM_PROVIDER_STORED_ROWS_UNAVAILABLE_MESSAGE,
   CustomProviderStore,
   assertCustomProviderIdAvailable,
   customProviderRuntimeConfig,
@@ -23,7 +25,6 @@ import {
   type CustomProviderDefinition,
   type CustomProviderInput,
   type CustomProviderRuntimeConfig,
-  type CustomProviderSummary,
   type CustomProviderUpdateInput,
 } from "./custom-providers";
 import { httpError, messageFor } from "./http";
@@ -296,11 +297,6 @@ export class ModelSettingsService {
     return this.#compose(this.#db.listProviderCredentials(), this.#db.listProviderMemos(), this.#readSelection());
   }
 
-  /** カスタムプロバイダーの定義 (管理の正)。応答はキーを含まない要約だけを返す */
-  customProviders(): CustomProviderSummary[] {
-    return this.#customProviders.summaries();
-  }
-
   /**
    * 起動時の適用。ロック 1 回・全行の SDK 適用後に refresh 1 回。
    * provider_credentials と model_settings の読取は独立に扱い、片方が失敗しても他方の適用と最後の
@@ -507,6 +503,7 @@ export class ModelSettingsService {
       if (!this.#runtime) return this.#runtimeUnavailable(CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE);
       const definition = parseCustomProviderInput(input);
       assertCustomProviderIdAvailable(definition.id, this.#takenProviderIds());
+      this.#assertNoStoredProviderRows(definition.id);
       // マスカーへの登録は SDK / ログより先。ここが失敗しても保護対象だけは残す
       this.#retainSecret(definition.apiKey);
       this.#registerOrFail(definition);
@@ -727,6 +724,22 @@ export class ModelSettingsService {
     const ids = new Set(this.#runtime?.list().map((entry) => entry.provider) ?? []);
     for (const id of this.#customProviders.ids()) ids.add(id);
     return [...ids];
+  }
+
+  /**
+   * 孤立した provider_credentials / provider_memos の行がある id では作らない。行があると DTO が
+   * managed: true / keyUpdatedAt 非 null になり、カスタム画面からその行を削除できなくなる。
+   */
+  #assertNoStoredProviderRows(provider: string): void {
+    let stored: boolean;
+    try {
+      stored =
+        this.#db.getProviderCredential(provider) !== undefined || this.#db.getProviderMemo(provider) !== undefined;
+    } catch {
+      console.warn(`[u7agent] provider stored rows read failed: ${provider}`);
+      throw httpError(503, CUSTOM_PROVIDER_STORED_ROWS_UNAVAILABLE_MESSAGE);
+    }
+    if (stored) throw httpError(400, CUSTOM_PROVIDER_STORED_ROWS_MESSAGE);
   }
 
   /** カスタムプロバイダーは専用の API だけで扱う (既存の key / memo / resync は 400) */

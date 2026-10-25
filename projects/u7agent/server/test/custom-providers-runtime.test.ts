@@ -71,7 +71,7 @@ test("登録したカスタム provider は公開カタログに available で�
     const pi = await createPiBff({ cwd });
     bff = await createBffApp({ cwd, sessionStoreDir, pi, workspace: null });
 
-    const created = await bff.app.request("/api/settings/models/custom", {
+    const created = await bff.app.request("/api/settings/custom-providers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -114,7 +114,7 @@ test("登録したカスタム provider は公開カタログに available で�
     assert.equal(fake.requests[0].authorization, `Bearer ${KEY}`, "runtime overlay のキーを Bearer で送る");
 
     // 削除後はカタログから外れ、同じ id の再登録に古い overlay が残らない
-    const deleted = await bff.app.request("/api/settings/models/custom/local-llm", { method: "DELETE" });
+    const deleted = await bff.app.request("/api/settings/custom-providers/local-llm", { method: "DELETE" });
     assert.equal(deleted.status, 200);
     const afterDelete = (await (await bff.app.request("/api/runtime/models")).json()) as any;
     assert.equal(
@@ -122,7 +122,7 @@ test("登録したカスタム provider は公開カタログに available で�
       undefined,
     );
 
-    const recreated = await bff.app.request("/api/settings/models/custom", {
+    const recreated = await bff.app.request("/api/settings/custom-providers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

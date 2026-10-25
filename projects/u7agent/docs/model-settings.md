@@ -180,11 +180,11 @@ Ollama / LM Studio / vLLM / llama.cpp などの OpenAI 互換エンドポイン�
 - **1 provider = 1 model**。1 台の PC で複数モデルを同時に動かさない前提なので、複数モデルを 1 provider で使うときは `models.json` の領域に委ねる。API は `openai-completions` 固定で、モデルは `input: ["text"]` / `reasoning: false` / `cost: 0` として登録する
 - **キーは必須**（8..2048 文字）。認証のないローカルサーバーにはダミーを入れる。ダミーも `Authorization: Bearer <キー>` として送られ、Ollama / LM Studio / vLLM などは無視する。キーは応答に返さず、更新時の空欄は既存を維持する
 - **contextWindow はモデルごとの必須入力**で既定を持たない。OpenAI 互換 API からは取得できず、ローカルモデルの窓は大きくないため、SDK の既定（128000）は使わない。`maxTokens` は任意で、既定は `server/src/custom-providers.ts` が持つ。実モデルより大きい値を入れると送信がコンテキスト超過で失敗するので、画面は保存を止めないが注意を出す
-- **provider id は作成後に変更できない**。built-in / `models.json` / 登録済みの provider と衝突したら 400。`baseUrl` は `http` / `https` のみで、userinfo・query・fragment を拒否し、末尾の `/` を落とす
+- **provider id は作成後に変更できない**。built-in / `models.json` / 登録済みの provider と衝突したら 400。カタログから外れた provider の `provider_credentials` / `provider_memos` の行（孤立行）が同じ id に残っているときも 400 にし、先にその行を削除させる（行があると `managed: true` / `keyUpdatedAt` の契約が崩れ、カスタム画面からは削除できないため）`baseUrl` は `http` / `https` のみで、userinfo・query・fragment を拒否し、末尾の `/` を落とす
 - 登録は `ModelRuntime.registerProvider()`、キーは `setRuntimeApiKey()`（runtime overlay）に置く。`ProviderConfigInput` にキーを入れないため `auth.source` は `runtime` になり、`credentialKind` は `api_key` になる。カスタム provider では `auth.json` の OAuth を読まない（`hiddenStoredOAuth` は常に false）
 - 削除は `removeRuntimeApiKey()` → `unregisterProvider()` の順に行う。`unregisterProvider()` は runtime overlay を消さないため、逆にすると同じ id を再登録したときに古いキーが復活する（SDK 1.4.0 まで確認）
 - 作成・更新は全か無か。登録の検証に失敗したら 400（SDK は変更前に検証するので旧登録は残る）、キーの適用に失敗したら登録と overlay を巻き戻して 503 にする。SDK の生の例外文言は応答へ出さない
-- 既存の `PUT/DELETE /:provider/key` / `PUT /:provider/memo` / `POST /:provider/resync` はカスタム provider を 400 にする。`provider_credentials` / `provider_memos` に行を作らないため、再起動後に孤立行が残らない
+- 管理 API は `/api/settings/custom-providers` に置き、`/api/settings/models/:provider/...` と同じ深さの param ルートを並べない（並べると provider id が `custom` の既存 provider のキー / メモ API を食う）。既存の `PUT/DELETE /:provider/key` / `PUT /:provider/memo` / `POST /:provider/resync` はカスタム provider を 400 にする。`provider_credentials` / `provider_memos` に行を作らないため、再起動後に孤立行が残らない
 - **再起動すると定義とキーは消える**が、`allowedModels` / `defaultModel` はアプリ DB に残る。残ったカスタムモデルはカタログ外になるため、外すまで利用可能なモデルを保存できない（未ロードの会話は復元時にアプリ既定へフォールバックする）。同じ provider id とモデル id で再登録すれば、選択は再び有効になる。既定モデルに指定していた場合、再起動後は既定を解決できず新しい会話を始められない
 - 将来の永続化は `models.json` ではなくアプリ DB を予定する（JSONC のコメント消失・手編集との競合・キーのファイル混入を避け、保存の正をアプリ DB に揃える）。今回はオンメモリのみで、`models.json` の GUI 編集・built-in の baseUrl 上書き・モデルの自動 discovery・`openai-completions` 以外の API・compat / sampling / vision / reasoning・OAuth / メモ・保存時の疎通テストは非ゴール
 - `PI_OFFLINE` は登録・削除に影響しない（ネットワークに出ない）
@@ -270,9 +270,9 @@ Ollama / LM Studio / vLLM / llama.cpp などの OpenAI 互換エンドポイン�
 | DELETE | `/api/settings/models/:provider/login` | 進行中のサインインの中断と、終端した結果表示の消去（冪等）。body 無し |
 | POST | `/api/settings/models/:provider/logout` | サインアウト（`auth.json` の OAuth を削除）。保存済み OAuth が無ければ 400、進行中は 409、この画面で登録したキーは残す。body 無し |
 | POST | `/api/settings/models/catalog/refresh` | pi.dev の provider 別カタログを取り直す。body 無し。取得失敗でも 200 で、理由は `catalogError` にだけ載せる |
-| POST | `/api/settings/models/custom` | カスタムプロバイダーを登録する（メモリのみ）。body は `{ id, name?, baseUrl, apiKey, model }` |
-| PUT | `/api/settings/models/custom/:provider` | カスタムプロバイダーを更新する。provider id は変更不可、`apiKey` の空欄は既存を維持 |
-| DELETE | `/api/settings/models/custom/:provider` | カスタムプロバイダーを削除する。body 無し。runtime overlay を先に外す |
+| POST | `/api/settings/custom-providers` | カスタムプロバイダーを登録する（メモリのみ）。body は `{ id, name?, baseUrl, apiKey, model }` |
+| PUT | `/api/settings/custom-providers/:provider` | カスタムプロバイダーを更新する。provider id は変更不可、`apiKey` の空欄は既存を維持 |
+| DELETE | `/api/settings/custom-providers/:provider` | カスタムプロバイダーを削除する。body 無し。runtime overlay を先に外す |
 
 `canSetApiKey` は SDK の `auth.apiKey.login` の有無で判定する（ambient / keyless provider は login を持たない）。詳細な DTO と応答は [api.md](api.md#利用可能なモデルとプロバイダーapiキー)。
 
@@ -296,7 +296,7 @@ Ollama / LM Studio / vLLM / llama.cpp などの OpenAI 互換エンドポイン�
 - プロバイダー詳細の認証方法は、2 経路とも使える provider（`canSetApiKey && supportsOAuth`）でだけタブ（`APIキー` / `サインイン`）に分ける（タブ名は provider 中立。カタログ外はサインインの中身が無いのでタブを作らない）。既定は実効側で、実効側に「使用中」、`サインイン` 側には進行中 / 失敗の印を出し、読み上げのラベルにも状態を含める。**「使用中」は実効が OAuth かこの画面のキーのときだけ付け、環境変数 / `models.json` / 認証なしでは付けない**（どちらを使っているかは認証バッジが示す）。タブの選択はこの画面のローカル状態にし（設定のタブは URL が正なので、その規則を持ち込まない）、provider を切り替えたら実効側で初期化する。切替ではサインインのパネルをアンマウントせず（進行中の表示と、自分が開いた空タブの参照を保つ）、非表示側のペインは `hidden` / `inert` でフォーカス対象から外す（[frontend.md](frontend.md#url-と画面の対応)、[OAuth サインイン](#oauth-サインイン)）
 - プロバイダー詳細の OAuth サインインは provider の `oauth.loginLabel` をボタン名にし（無ければ汎用の文言）、[サインアウト] は `auth.json` の OAuth があるときだけ**サインインのタブの中に**出す。未認証の説明と注意（期限 / 利用条件）はサインインの操作の面に常時出し、押す前に行き先と条件が読めるようにする。サインインの操作は DTO の `canSignInHere` が真のときだけ出し、未指定なら出さない（fail-closed）。false のときは理由（この画面では扱えない方式であることと、同じ agent dir を使う `pi /login` の案内）に置き換え、[サインアウト] は条件どおり残す。進行中は主文と補助行・認可 URL・貼り付け・[中断] を出し、終端した結果は [閉じる] で消す。進行中は `GET /api/settings/models` をポーリングし（間隔は `client/src/lib/modelSettings.ts`）、終端したら health とカタログも取り直す（[OAuth サインイン](#oauth-サインイン)）
 - メモ欄はキー入力とは別の `<form>` にした `<textarea rows={2} maxLength={500}>` と [メモを保存] で、Enter がキーの保存を走らせない。入力値は `provider.memo` が変わったときだけ同期し、dirty（`trim` 後の値が保存値と違う）のときだけ保存を有効にし、未保存の印を出す。保存に成功したら応答の `trim` 済みの値で入力値を戻す。メモの保存は SDK に触れないので health / カタログを取り直さず、進行中の `reload()` の応答で保存直後を上書きされないよう先行ロードの無効化だけ行う。`runtimeAvailable: false` のときは入力欄と保存を disable し、runtime 停止時の注意書きにメモも含める。カタログ外のメモだけの provider には「キーの登録はできません（メモは保存できます）」と案内し、キー入力は出さない
-- 「プロバイダー」タブのカスタムプロバイダーは、通常の一覧とは別のセクションに一覧・[カスタムプロバイダーを追加]・追加 / 編集フォーム・削除確認を置く。`custom: true` の行は通常の一覧（設定済み / 未設定とその件数）から除外し、判定は `groupProviders()` の 1 箇所にだけ置く。カスタムを選ぶと通常の `ApiKeySection` / メモ / OAuth / 再同期の代わりに専用フォームを出し、1 provider = 1 model の入力（provider id / 名前 / baseUrl / APIキー / モデル ID / contextWindow / maxTokens）と、オンメモリで再起動すると消えること・再起動後にカタログ外のモデルが残ること・同じ id とモデル id で再登録すれば戻ること・既定モデルの影響・キー必須 / ダミー / `Authorization` ヘッダ・信頼できる baseUrl だけを指定することを常時出す。フォーム検証・送信本文・注意文言・削除確認は `client/src/lib/customProviders.ts` の純関数が持ち、サーバーと同じ境界で保存前に止める
+- 「プロバイダー」タブのカスタムプロバイダーは、通常の一覧とは別のセクションに一覧・[カスタムプロバイダーを追加]・追加 / 編集フォーム・削除確認を置く。注意書きは定義の有無・選択中の provider・検索語に依存させず、専用セクションの見出し下に常時出す（singleColumn で一覧を畳んだときだけ詳細側に移し、同時には出さない）。`custom: true` の行は通常の一覧（設定済み / 未設定とその件数）から除外し、判定は `groupProviders()` の 1 箇所にだけ置く。カスタムを選ぶと通常の `ApiKeySection` / メモ / OAuth / 再同期の代わりに専用フォームを出し、1 provider = 1 model の入力（provider id / 名前 / baseUrl / APIキー / モデル ID / contextWindow / maxTokens）と、オンメモリで再起動すると消えること・再起動後にカタログ外のモデルが残ること・同じ id とモデル id で再登録すれば戻ること・既定モデルの影響・キー必須 / ダミー / `Authorization` ヘッダ・信頼できる baseUrl だけを指定することを常時出す。フォーム検証・送信本文・注意文言・削除確認は `client/src/lib/customProviders.ts` の純関数が持ち、サーバーと同じ境界で保存前に止める
 - コンテンツ生成（`/settings/content`）のAPIキーは画像・TTS・BGMのタブ外で共有する。取得前と未設定はタブ行を出さない（取得前からタブがある設定 → モデルとは異なる）。操作と注意書きは [image-generation.md](image-generation.md#設定画面)、[speech-generation.md](speech-generation.md#設定画面)、[bgm-generation.md](bgm-generation.md)。
 - APIキーの登録後は health と `GET /api/runtime/models` を取り直し、入力欄のモデル候補とモデル数を追随させる。カタログの取得失敗は設定 API の表示を壊さず、両タブで別の注記として出す
 - 8 文字未満は保存前に同じ理由で止める（サーバーも 400）。モデルの選択・既定で使う語彙は「利用可能（available）」と「選択」の 2 語に統一する

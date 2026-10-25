@@ -15,6 +15,7 @@ import {
   CUSTOM_PROVIDER_NOT_FOUND_MESSAGE,
   CUSTOM_PROVIDER_RESYNC_TARGET_MESSAGE,
   CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE,
+  CUSTOM_PROVIDER_STORED_ROWS_MESSAGE,
 } from "../src/custom-providers";
 import { asPiBff, createStubPi, type StubPiOptions } from "./stub-pi";
 
@@ -80,7 +81,7 @@ test("POST は登録して GET と同じ形 + applied を返し、キーを応�
     const pi = createStubPi(stubOptions());
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      const response = await bff.app.request("/api/settings/models/custom", jsonRequest("POST", bodyOf()));
+      const response = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
       assert.equal(response.status, 200);
       const body = await jsonBody(response);
       assert.equal(body.state, "applied");
@@ -128,9 +129,9 @@ test("POST は複数登録でき、通常一覧には混ぜない (custom: true 
     const pi = createStubPi(stubOptions());
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      await bff.app.request("/api/settings/models/custom", jsonRequest("POST", bodyOf()));
+      await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
       await bff.app.request(
-        "/api/settings/models/custom",
+        "/api/settings/custom-providers",
         jsonRequest(
           "POST",
           bodyOf({
@@ -169,7 +170,7 @@ test("POST の検証は 400 で、SDK を触らない", async () => {
         [bodyOf({ id: "anthropic" }), CUSTOM_PROVIDER_ID_CONFLICT_MESSAGE],
       ];
       for (const [body, expected] of cases) {
-        const response = await bff.app.request("/api/settings/models/custom", jsonRequest("POST", body));
+        const response = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", body));
         assert.equal(response.status, 400, JSON.stringify(body));
         const payload = await jsonBody(response);
         if (expected) assert.ok(String(payload.error).includes(expected), `${payload.error} に ${expected}`);
@@ -177,7 +178,7 @@ test("POST の検証は 400 で、SDK を触らない", async () => {
 
       // 形の違う本文 (キー欠落) は route の zod が 400 にする
       const missing = await bff.app.request(
-        "/api/settings/models/custom",
+        "/api/settings/custom-providers",
         jsonRequest("POST", { id: "x", baseUrl: "http://192.0.2.10/v1", model: { id: "m", contextWindow: 1 } }),
       );
       assert.equal(missing.status, 400);
@@ -197,12 +198,12 @@ test("PUT は id を変えずに再登録し、キーの空欄は既存を維持
     const pi = createStubPi(stubOptions());
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      await bff.app.request("/api/settings/models/custom", jsonRequest("POST", bodyOf()));
+      await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
       pi.modelRuntimeCalls.length = 0;
       pi.retainedSecrets.length = 0;
 
       const response = await bff.app.request(
-        "/api/settings/models/custom/local-llm",
+        "/api/settings/custom-providers/local-llm",
         jsonRequest("PUT", updateBodyOf({ name: "自宅のLLM", apiKey: "" })),
       );
       assert.equal(response.status, 200);
@@ -228,12 +229,15 @@ test("PUT は id を変えずに再登録し、キーの空欄は既存を維持
 
       // 新しいキーは適用する
       await bff.app.request(
-        "/api/settings/models/custom/local-llm",
+        "/api/settings/custom-providers/local-llm",
         jsonRequest("PUT", updateBodyOf({ apiKey: NEW_KEY })),
       );
       assert.equal(pi.modelRuntimeCalls.at(-1)?.apiKey, NEW_KEY);
 
-      const unknown = await bff.app.request("/api/settings/models/custom/missing", jsonRequest("PUT", updateBodyOf()));
+      const unknown = await bff.app.request(
+        "/api/settings/custom-providers/missing",
+        jsonRequest("PUT", updateBodyOf()),
+      );
       assert.equal(unknown.status, 400);
       assert.equal((await jsonBody(unknown)).error, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
     } finally {
@@ -247,10 +251,10 @@ test("DELETE はキーを外してから登録を外し、応答は GET と同�
     const pi = createStubPi(stubOptions());
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      await bff.app.request("/api/settings/models/custom", jsonRequest("POST", bodyOf()));
+      await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
       pi.modelRuntimeCalls.length = 0;
 
-      const response = await bff.app.request("/api/settings/models/custom/local-llm", jsonRequest("DELETE"));
+      const response = await bff.app.request("/api/settings/custom-providers/local-llm", jsonRequest("DELETE"));
       assert.equal(response.status, 200);
       const body = await jsonBody(response);
       assert.equal(body.state, "applied");
@@ -266,7 +270,7 @@ test("DELETE はキーを外してから登録を外し、応答は GET と同�
         "overlay を先に消す (逆だと再登録で古いキーが復活する)",
       );
 
-      const again = await bff.app.request("/api/settings/models/custom/local-llm", jsonRequest("DELETE"));
+      const again = await bff.app.request("/api/settings/custom-providers/local-llm", jsonRequest("DELETE"));
       assert.equal(again.status, 400);
       assert.equal((await jsonBody(again)).error, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
     } finally {
@@ -280,7 +284,7 @@ test("カスタム provider では既存の key / memo / resync API が 400 に�
     const pi = createStubPi(stubOptions());
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      await bff.app.request("/api/settings/models/custom", jsonRequest("POST", bodyOf()));
+      await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
       pi.modelRuntimeCalls.length = 0;
 
       const putKey = await bff.app.request(
@@ -325,7 +329,7 @@ test("キー適用に失敗したら 503 { error } を返し、not_stored を付
     );
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      const response = await bff.app.request("/api/settings/models/custom", jsonRequest("POST", bodyOf()));
+      const response = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
       assert.equal(response.status, 503);
       const body = await jsonBody(response);
       assert.deepEqual(body, { error: CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE }, "not_stored を付けない");
@@ -352,7 +356,7 @@ test("ランタイム無しのカスタム操作は 503 { error } で、GET は�
       assert.equal(get.runtimeAvailable, false);
       assert.deepEqual(get.customProviders, []);
 
-      const response = await bff.app.request("/api/settings/models/custom", jsonRequest("POST", bodyOf()));
+      const response = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
       assert.equal(response.status, 503);
       assert.deepEqual(await jsonBody(response), { error: CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE });
     } finally {
@@ -379,9 +383,9 @@ test("作成はロックで直列化され、後から来た作成はキー適�
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       let secondDone = false;
-      const first = bff.app.request("/api/settings/models/custom", jsonRequest("POST", bodyOf()));
+      const first = bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
       const second = Promise.resolve(
-        bff.app.request("/api/settings/models/custom", jsonRequest("POST", bodyOf({ id: "lab" }))),
+        bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf({ id: "lab" }))),
       ).then((response: Response) => {
         secondDone = true;
         return response;
@@ -395,6 +399,89 @@ test("作成はロックで直列化され、後から来た作成はキー適�
         pi.modelRuntimeCalls.map((call) => `${call.operation}:${call.provider}`),
         ["registerProvider:local-llm", "setRuntimeApiKey:local-llm", "registerProvider:lab", "setRuntimeApiKey:lab"],
       );
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("models.json の provider id が custom でも、既存のキー / メモ API がカスタム API に食われない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions({ providers: [{ provider: "custom", name: "Custom (models.json)" }] }));
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const putKey = await bff.app.request("/api/settings/models/custom/key", jsonRequest("PUT", { apiKey: KEY }));
+      assert.equal(putKey.status, 200, "generic key API に届く");
+      assert.equal((await jsonBody(putKey)).state, "applied");
+
+      const putMemo = await bff.app.request("/api/settings/models/custom/memo", jsonRequest("PUT", { memo: "メモ" }));
+      assert.equal(putMemo.status, 200, "generic memo API に届く");
+
+      const deleteKey = await bff.app.request("/api/settings/models/custom/key", jsonRequest("DELETE"));
+      assert.equal(deleteKey.status, 200, "generic key API の削除に届く");
+
+      assert.deepEqual(
+        pi.modelRuntimeCalls.map((call) => call.operation),
+        ["setRuntimeApiKey", "removeRuntimeApiKey"],
+      );
+
+      // 同じ id のカスタム定義は既存 provider との衝突で 400（カスタム API の名前空間とは別）
+      const created = await bff.app.request(
+        "/api/settings/custom-providers",
+        jsonRequest("POST", bodyOf({ id: "custom" })),
+      );
+      assert.equal(created.status, 400);
+      assert.equal((await jsonBody(created)).error, CUSTOM_PROVIDER_ID_CONFLICT_MESSAGE);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("孤立したキー / メモの行がある id では作成を 400 にし、その行は通常の API から削除できる", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+      try {
+        raw
+          .prepare("INSERT INTO provider_credentials (provider, apiKey, updatedAt) VALUES (?, ?, ?)")
+          .run("local-llm", KEY, Date.now());
+        raw.prepare("INSERT INTO provider_memos (provider, memo) VALUES (?, ?)").run("lab", "以前のメモ");
+      } finally {
+        raw.close();
+      }
+
+      for (const id of ["local-llm", "lab"]) {
+        const response = await bff.app.request(
+          "/api/settings/custom-providers",
+          jsonRequest("POST", bodyOf({ id, model: { id: "m", contextWindow: 1024 } })),
+        );
+        assert.equal(response.status, 400, `${id} は孤立行があるため作れない`);
+        assert.equal((await jsonBody(response)).error, CUSTOM_PROVIDER_STORED_ROWS_MESSAGE);
+      }
+      assert.deepEqual(pi.modelRuntimeCalls, [], "作成を拒否したら SDK を触らない");
+
+      // 孤立行は通常のプロバイダー一覧（カタログ外）から削除できる
+      const get = await jsonBody(await bff.app.request("/api/settings/models"));
+      const orphanKey = get.providers.find((entry: any) => entry.provider === "local-llm");
+      const orphanMemo = get.providers.find((entry: any) => entry.provider === "lab");
+      assert.equal(orphanKey?.orphan, true);
+      assert.equal(orphanKey?.managed, true);
+      assert.equal(orphanMemo?.memo, "以前のメモ");
+
+      const deleteKey = await bff.app.request("/api/settings/models/local-llm/key", jsonRequest("DELETE"));
+      assert.equal(deleteKey.status, 200, "孤立キー行を画面から削除できる");
+      const clearMemo = await bff.app.request("/api/settings/models/lab/memo", jsonRequest("PUT", { memo: "" }));
+      assert.equal(clearMemo.status, 200, "孤立メモ行を画面から削除できる");
+
+      // 行が消えたら同じ id で登録できる
+      const retried = await bff.app.request(
+        "/api/settings/custom-providers",
+        jsonRequest("POST", bodyOf({ id: "local-llm" })),
+      );
+      assert.equal(retried.status, 200);
     } finally {
       await bff.close();
     }

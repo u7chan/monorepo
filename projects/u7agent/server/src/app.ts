@@ -514,22 +514,23 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     // `:provider` より先に置いて静的パスがパラメータへ食われないようにする
     .post("/api/settings/models/catalog/refresh", modelSettingsRoutes.catalogRefresh)
     // カスタムプロバイダー (オンメモリ)。DB を触らないので appDataMutation は通さない。
-    // `/:provider/key` などのパラメータより先に登録し、`custom` が provider 名として食われないようにする
+    // `models/:provider/...` と同じ深さに param ルートを並べると、provider id がパス接頭辞と
+    // 同じ既存 provider の API を食うため、別の名前空間に置く
     .post(
-      "/api/settings/models/custom",
+      "/api/settings/custom-providers",
       jsonBodyValidator(CreateCustomProviderBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => modelSettingsRoutes.createCustomProvider(c, c.req.valid("json")),
     )
     .put(
-      "/api/settings/models/custom/:provider",
+      "/api/settings/custom-providers/:provider",
       jsonBodyValidator(UpdateCustomProviderBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => modelSettingsRoutes.updateCustomProvider(c, c.req.valid("json")),
     )
-    .delete("/api/settings/models/custom/:provider", modelSettingsRoutes.deleteCustomProvider)
+    .delete("/api/settings/custom-providers/:provider", modelSettingsRoutes.deleteCustomProvider)
     .put(
       "/api/settings/models/:provider/key",
       appDataMutation,

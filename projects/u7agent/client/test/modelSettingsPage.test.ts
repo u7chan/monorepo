@@ -344,6 +344,20 @@ test("カスタムプロバイダーは専用セクションに出し、通常�
   assert.equal(html.includes('aria-label="provider id"'), false, "カスタムを選ぶまではフォームを出さない");
 });
 
+test("カスタム定義が無く通常 provider を選んでいても、専用セクションに注意を常時出す", () => {
+  const html = render(modelSettings(), { modelsSubsection: "providers" });
+  assert.ok(html.includes("カスタムプロバイダー"), "専用セクションは定義が無くても出す");
+  assert.ok(html.includes("カスタムプロバイダーを追加"));
+  assert.ok(html.includes("BFF のメモリにだけ保存されます"), "オンメモリであることを常時出す");
+  assert.ok(html.includes("再起動すると定義とAPIキーは消えます"));
+  assert.ok(html.includes("同じ provider id とモデル id で再登録すれば"), "再登録で選択が戻ることを出す");
+  assert.ok(html.includes("アプリ既定モデルにカスタムモデルを指定している場合"));
+  assert.ok(html.includes("Authorization: Bearer"), "キー必須 / ダミーの要点を出す");
+  assert.ok(html.includes("信頼できる baseUrl"));
+  // 通常 provider の詳細はこれまでどおり DB 保存の注意を持つ
+  assert.ok(html.includes("キーとメモは平文で保存されます"));
+});
+
 test("カスタムプロバイダーの詳細は専用フォームと注意を出し、通常のキー・メモ・再同期を出さない", () => {
   const html = render(
     modelSettings({
@@ -370,10 +384,21 @@ test("カスタムプロバイダーの詳細は専用フォームと注意を�
   assert.ok(html.includes("空欄なら既存のAPIキーを維持"), "キーの空欄は既存の維持だと示す");
   assert.ok(html.includes("実モデルの context window より大きくしないでください"));
   // 通常の認証・メモ・再同期・モデル導線は出さない
+  assert.equal(html.includes("キーとメモは平文で保存されます"), false, "DB 保存の注意はカスタム詳細に出さない");
   assert.equal(html.includes("メモ（キー本体は書かないでください）"), false, "通常のメモ欄を出さない");
   assert.equal(html.includes("再同期"), false, "再同期を出さない");
   assert.equal(html.includes("サインイン"), false, "OAuth の操作を出さない");
   assert.equal(html.includes("「モデルを選ぶ」タブを開く"), false, "通常のモデル導線を出さない");
+
+  // singleColumn では一覧を畳むため、同じ注意を詳細側に出して常時読めるようにする
+  const single = render(
+    modelSettings({
+      settings: { ...SETTINGS, providers: [customProviderRow()], customProviders: [CUSTOM_PROVIDER] },
+    }),
+    { modelsSubsection: "providers", singleColumn: true },
+  );
+  assert.ok(single.includes("BFF のメモリにだけ保存されます"));
+  assert.equal((single.match(/BFF のメモリにだけ保存されます/g) ?? []).length, 1, "一覧と詳細で二重に出さない");
 });
 
 test("プロバイダー詳細は保存済み認証の種別を出し、この画面のキーが OAuth を覆っているときだけ注記する", () => {

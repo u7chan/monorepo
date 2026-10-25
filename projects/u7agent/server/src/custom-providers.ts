@@ -27,6 +27,10 @@ export const CUSTOM_PROVIDER_CONTEXT_WINDOW_MESSAGE =
 export const CUSTOM_PROVIDER_MAX_TOKENS_MESSAGE = "maxTokens は正の整数で指定してください";
 export const CUSTOM_PROVIDER_API_KEY_MESSAGE = `APIキーは ${PROVIDER_API_KEY_MIN_LENGTH}〜${PROVIDER_API_KEY_MAX_LENGTH} 文字で指定してください`;
 export const CUSTOM_PROVIDER_NOT_FOUND_MESSAGE = "このカスタムプロバイダーは登録されていません";
+export const CUSTOM_PROVIDER_STORED_ROWS_MESSAGE =
+  "この provider id には保存済みのキーまたはメモの行があります。設定 → モデルでその provider の行を削除してから登録してください";
+export const CUSTOM_PROVIDER_STORED_ROWS_UNAVAILABLE_MESSAGE =
+  "保存済みのキー行を確認できないため、カスタムプロバイダーを登録できません";
 export const CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE =
   "ランタイムが利用できないため、カスタムプロバイダーを変更できません";
 export const CUSTOM_PROVIDER_REGISTER_FAILED_MESSAGE = "この内容ではカスタムプロバイダーを登録できません";

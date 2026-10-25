@@ -670,7 +670,7 @@ export const putProviderMemo = async (provider: string, memo: string): Promise<M
  * 検証失敗は 400、SDK へ反映できないときは 503 `{ error }`（`not_stored` は付かない）。
  */
 export const postCustomProvider = async (input: CreateCustomProviderBody): Promise<ModelMutationResponse> => {
-  const res = await client.api.settings.models.custom.$post({ json: input });
+  const res = await client.api.settings["custom-providers"].$post({ json: input });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ModelMutationResponse;
 };
@@ -680,14 +680,14 @@ export const putCustomProvider = async (
   provider: string,
   input: UpdateCustomProviderBody,
 ): Promise<ModelMutationResponse> => {
-  const res = await client.api.settings.models.custom[":provider"].$put({ param: { provider }, json: input });
+  const res = await client.api.settings["custom-providers"][":provider"].$put({ param: { provider }, json: input });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ModelMutationResponse;
 };
 
 /** カスタムプロバイダーの削除。メモリ上の定義とキーを消す（DB には何も無い） */
 export const deleteCustomProvider = async (provider: string): Promise<ModelMutationResponse> => {
-  const res = await client.api.settings.models.custom[":provider"].$delete({ param: { provider } });
+  const res = await client.api.settings["custom-providers"][":provider"].$delete({ param: { provider } });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ModelMutationResponse;
 };

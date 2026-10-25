@@ -9,6 +9,7 @@ import {
   CUSTOM_PROVIDER_NOT_FOUND_MESSAGE,
   CUSTOM_PROVIDER_REMOVE_FAILED_MESSAGE,
   CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE,
+  CUSTOM_PROVIDER_STORED_ROWS_MESSAGE,
   CustomProviderStore,
   customProviderRuntimeConfig,
   normalizeCustomProviderBaseUrl,
@@ -364,6 +365,40 @@ test("作成は built-in / models.json の provider と id が衝突したら 40
     },
   );
   assert.deepEqual(runtime.calls, [], "衝突したら登録もキー適用もしない");
+});
+
+test("保存済みのキー / メモの行がある id では作成せず、行の削除を促す 400 にする", async () => {
+  const { service, runtime, db } = serviceWith();
+  db.credentials.set("local-llm", KEY);
+  await assert.rejects(
+    () => service.createCustomProvider(createInput()),
+    (error: unknown) => {
+      assert.equal((error as { statusCode?: number }).statusCode, 400);
+      assert.equal((error as Error).message, CUSTOM_PROVIDER_STORED_ROWS_MESSAGE);
+      return true;
+    },
+  );
+  assert.deepEqual(runtime.calls, [], "孤立行があるときは SDK を触らない");
+
+  db.credentials.clear();
+  db.memos.set("local-llm", "以前のメモ");
+  await assert.rejects(
+    () => service.createCustomProvider(createInput()),
+    (error: unknown) => (error as Error).message === CUSTOM_PROVIDER_STORED_ROWS_MESSAGE,
+  );
+  assert.deepEqual(service.settings().customProviders, [], "定義を残さない");
+});
+
+test("保存済みの行を読めないときは作成せず 503 にする", async () => {
+  const { service, runtime, db } = serviceWith();
+  db.getProviderCredential = () => {
+    throw new Error("db unavailable");
+  };
+  await assert.rejects(
+    () => service.createCustomProvider(createInput()),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 503,
+  );
+  assert.deepEqual(runtime.calls, []);
 });
 
 test("作成のキー適用に失敗したら登録と overlay を巻き戻し、503 で何も残さない", async () => {
