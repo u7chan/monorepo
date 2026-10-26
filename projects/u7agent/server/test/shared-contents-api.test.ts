@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
+import type { SharedContentRow } from "../src/app-db";
 import { SESSION_DIR_REL } from "../src/app-paths";
 import { SECRET_KEY_BYTES, SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "../src/sandbox/client";
@@ -13,7 +14,7 @@ import { SandboxRequestError } from "../src/sandbox/client";
 import type { SandboxDownloadPlan } from "../src/sandbox/protocol";
 import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
 import { DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES } from "../src/shared-content-rules";
-import { SHARED_CONTENT_PROJECT_SESSION_ROOT } from "../src/shared-contents";
+import { SHARED_CONTENT_PROJECT_SESSION_ROOT, SHARED_CONTENT_RECONCILE_FAILED } from "../src/shared-contents";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 const KEY = `1:${Buffer.alloc(SECRET_KEY_BYTES, 11).toString("base64")}`;
@@ -74,16 +75,45 @@ function cloudflareFetch(calls: string[]): typeof fetch {
   return async (input, init = {}) => {
     const url = new URL(String(input));
     calls.push(`${init.method ?? "GET"} ${url.pathname}`);
-    const ok = (result: unknown, status = 200) =>
-      new Response(JSON.stringify({ success: true, result, errors: [], messages: [] }), {
-        status,
-        headers: { "content-type": "application/json" },
-      });
-    if (url.pathname.endsWith("/workers/subdomain")) return ok({ subdomain: "demo" });
-    if (url.pathname.endsWith("/assets-upload-session")) return ok({ jwt: "upload", buckets: [] });
-    if (url.pathname.endsWith("/subdomain")) return ok({ enabled: true, previews_enabled: false });
-    if (url.pathname.includes("/workers/scripts/")) return ok({});
-    return ok({});
+    return cloudflareResponse(url);
+  };
+}
+
+function cloudflareResponse(url: URL): Response {
+  const ok = (result: unknown) =>
+    new Response(JSON.stringify({ success: true, result, errors: [], messages: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  if (url.pathname.endsWith("/workers/subdomain")) return ok({ subdomain: "demo" });
+  if (url.pathname.endsWith("/assets-upload-session")) return ok({ jwt: "upload", buckets: [] });
+  if (url.pathname.endsWith("/subdomain")) return ok({ enabled: true, previews_enabled: false });
+  return ok({});
+}
+
+/**
+ * subdomain の切替（POST）と照会（GET）、script の削除（DELETE）だけを失敗させる。
+ * 本文を持たない 4xx / 5xx を返し、client の分類（`not_found` / `unauthorized` / `transient`）をそのまま使う。
+ */
+function cloudflareFetchFailing(
+  calls: string[],
+  behavior: { set?: number; get?: number; remove?: number },
+): typeof fetch {
+  return async (input, init = {}) => {
+    const url = new URL(String(input));
+    const method = init.method ?? "GET";
+    calls.push(`${method} ${url.pathname}`);
+    const status = url.pathname.endsWith("/subdomain")
+      ? method === "POST"
+        ? behavior.set
+        : behavior.get
+      : method === "DELETE"
+        ? behavior.remove
+        : undefined;
+    if (status !== undefined) {
+      return new Response("{}", { status, headers: { "content-type": "application/json" } });
+    }
+    return cloudflareResponse(url);
   };
 }
 
@@ -106,10 +136,21 @@ function previewPlan(overrides: Partial<SandboxDownloadPlan> = {}): SandboxDownl
   };
 }
 
+/** 失敗の切替を持つ stub。公開を通したあとに `behavior` を書き換えて失敗を作る */
+function failingCloudflare(): {
+  behavior: { set?: number; get?: number; remove?: number };
+  cloudflareFetch: (calls: string[]) => typeof fetch;
+} {
+  const behavior: { set?: number; get?: number; remove?: number } = {};
+  return { behavior, cloudflareFetch: (calls) => cloudflareFetchFailing(calls, behavior) };
+}
+
 interface SetupOptions {
   planSandbox?: SandboxDownloadPlanClient | null;
   /** 既定の planSandbox が返す計画。Error を渡すと失敗させる */
   plan?: SandboxDownloadPlan | Error;
+  /** Cloudflare の応答を差し替える（省略時は公開まで通る既定の stub） */
+  cloudflareFetch?: (calls: string[]) => typeof fetch;
 }
 
 async function setup(options: SetupOptions = {}) {
@@ -137,7 +178,7 @@ async function setup(options: SetupOptions = {}) {
     pi: asPiBff(pi),
     workspace: workspaceFor(await makeZip(dir), downloadCalls),
     previewSandbox: planSandbox,
-    cloudflareFetch: cloudflareFetch(calls),
+    cloudflareFetch: (options.cloudflareFetch ?? cloudflareFetch)(calls),
   });
   const project = await jsonBody(
     await bff.app.request("/api/projects", jsonPost({ cwd: "projects/app", name: "app" })),
@@ -167,6 +208,46 @@ async function waitForSettled(bff: Awaited<ReturnType<typeof createBffApp>>, id:
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("shared content did not settle");
+}
+
+/**
+ * 202 のあとのジョブは lastError を書いても status を `publishing` のまま残す経路がある。
+ * その経路の完了を status ではなく lastError で待つ。
+ */
+async function waitForLastError(bff: Awaited<ReturnType<typeof createBffApp>>, id: string): Promise<any> {
+  for (let index = 0; index < 500; index += 1) {
+    const body = await jsonBody(await bff.app.request(`/api/shared-contents/${id}`));
+    if (body.lastError !== null) return body;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("shared content did not record lastError");
+}
+
+/** API からは作れない状態の行を直接置く（停止の失敗経路を組み立てるための前提） */
+function seedRow(
+  bff: Awaited<ReturnType<typeof createBffApp>>,
+  sessionId: string,
+  id: string,
+  overrides: Partial<SharedContentRow> = {},
+): void {
+  bff.appDb.insertSharedContent({
+    id,
+    sessionId,
+    name: id,
+    sourcePath: "projects/app/dist",
+    sourceKind: "directory",
+    provider: "cloudflare",
+    providerAccount: ACCOUNT,
+    remoteId: `u7s-${id}`,
+    publicUrl: `https://u7s-${id}.demo.workers.dev/`,
+    status: "published",
+    createdAt: 1,
+    updatedAt: 1,
+    publishedAt: 2,
+    stoppedAt: null,
+    lastError: null,
+    ...overrides,
+  });
 }
 
 test("202 受付 → 状態 GET → published。一覧と再公開で URL を維持する", async () => {
@@ -312,6 +393,210 @@ test("停止 200 → 再公開 202 → 削除 204 で URL と行のライフサ�
       calls.some((line) => line.startsWith("DELETE ") && line.endsWith(`/workers/scripts/u7s-${created.id}`)),
       "削除は provider の script 削除を通る",
     );
+  } finally {
+    await restore();
+  }
+});
+
+// What: 停止が script の不在を確定したときは終端状態を保存してから 502 を返す。
+// 保存済みなのに「何も保存していない」(`state: "not_stored"`) と伝えないこと。
+test("停止で script の不在が確定したら 502 に終端状態を保存し、応答に state を付けない", async () => {
+  const failing = failingCloudflare();
+  const { bff, sessionId, restore } = await setup({ cloudflareFetch: failing.cloudflareFetch });
+  try {
+    const created = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId, directory: "dist" })),
+    );
+    const before = await waitForSettled(bff, created.id);
+    assert.equal(before.status, "published");
+    failing.behavior.set = 404;
+
+    const response = await bff.app.request(`/api/shared-contents/${created.id}/stop`, { method: "POST" });
+    assert.equal(response.status, 502);
+    const body = await jsonBody(response);
+    assert.equal("state" in body, false, "保存した失敗に not_stored を付けない");
+    assert.match(body.error, /公開物が見つかりません/);
+
+    const after = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
+    assert.equal(after.status, "stopped", "公開実績のある行は stopped に収束する");
+    assert.equal(after.lastError, body.error, "応答と同じ文言を lastError に残す");
+    assert.equal(after.publishedAt, before.publishedAt, "公開時刻を消さない");
+  } finally {
+    await restore();
+  }
+});
+
+// What: 結果不明で照会もできない停止は `publishing` + lastError を保存する。応答に
+// `state: "not_stored"` を付けず、保存した状態は GET で読めること。
+test("停止の結果不明で照会できないときは publishing を保存し、応答に state を付けない", async () => {
+  const failing = failingCloudflare();
+  const { bff, sessionId, restore } = await setup({ cloudflareFetch: failing.cloudflareFetch });
+  try {
+    const created = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId, directory: "dist" })),
+    );
+    await waitForSettled(bff, created.id);
+    failing.behavior.set = 500;
+    failing.behavior.get = 500;
+    const before = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
+
+    const response = await bff.app.request(`/api/shared-contents/${created.id}/stop`, { method: "POST" });
+    assert.equal(response.status, 502);
+    const body = await jsonBody(response);
+    assert.equal("state" in body, false, "保存した失敗に not_stored を付けない");
+    assert.equal(body.error, SHARED_CONTENT_RECONCILE_FAILED);
+
+    const after = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
+    assert.equal(after.status, "publishing", "結果を確定させない");
+    assert.equal(after.lastError, SHARED_CONTENT_RECONCILE_FAILED);
+    assert.equal(after.publishedAt, before.publishedAt, "公開実績を消さない");
+  } finally {
+    await restore();
+  }
+});
+
+// What: 確定失敗の停止は、公開中なら開始状態、未公開なら failed へ戻して保存する。
+// どの分岐でも応答に `state: "not_stored"` を付けないこと。
+test("停止の確定失敗は開始状態 / failed を保存し、応答に state を付けない", async () => {
+  const failing = failingCloudflare();
+  const { bff, sessionId, restore } = await setup({ cloudflareFetch: failing.cloudflareFetch });
+  try {
+    const created = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId, directory: "dist" })),
+    );
+    await waitForSettled(bff, created.id);
+    failing.behavior.set = 401;
+    const publishedBefore = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
+    const published = await bff.app.request(`/api/shared-contents/${created.id}/stop`, { method: "POST" });
+    assert.equal(published.status, 502);
+    const publishedBody = await jsonBody(published);
+    assert.equal("state" in publishedBody, false);
+    const restored = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
+    assert.equal(restored.status, "published", "停止できていないので公開中へ戻す");
+    assert.equal(restored.lastError, publishedBody.error);
+    assert.equal(restored.publishedAt, publishedBefore.publishedAt, "公開実績を消さない");
+    assert.equal(restored.stoppedAt, publishedBefore.stoppedAt, "停止していないので stoppedAt を入れない");
+
+    // 未公開で結果不明のまま残った行 (停止だけを受け付ける) は publishing を保存し直す
+    seedRow(bff, sessionId, "stuck", { status: "publishing", publishedAt: null, lastError: "結果を確認できません" });
+    const stuckBefore = await jsonBody(await bff.app.request("/api/shared-contents/stuck"));
+    const unknownResponse = await bff.app.request("/api/shared-contents/stuck/stop", { method: "POST" });
+    assert.equal(unknownResponse.status, 502);
+    const unknownBody = await jsonBody(unknownResponse);
+    assert.equal("state" in unknownBody, false, "保存した失敗に not_stored を付けない");
+    const stuck = await jsonBody(await bff.app.request("/api/shared-contents/stuck"));
+    assert.equal(stuck.status, "publishing");
+    assert.equal(stuck.lastError, unknownBody.error);
+    assert.notEqual(stuck.lastError, stuckBefore.lastError, "応答の文言を行へ保存する");
+    assert.equal(stuck.publishedAt, null, "公開実績を捏造しない");
+
+    // 公開実績の無い published は failed に収束させ、deployment の無い URL を公開中扱いにしない
+    seedRow(bff, sessionId, "legacy", { status: "published", publishedAt: null });
+    const legacyResponse = await bff.app.request("/api/shared-contents/legacy/stop", { method: "POST" });
+    assert.equal(legacyResponse.status, 502);
+    assert.equal("state" in (await jsonBody(legacyResponse)), false);
+    const legacy = await jsonBody(await bff.app.request("/api/shared-contents/legacy"));
+    assert.equal(legacy.status, "failed");
+    assert.equal(legacy.publishedAt, null);
+    assert.ok(legacy.lastError);
+  } finally {
+    await restore();
+  }
+});
+
+// What: 202 で受け付けたあとの失敗は応答でなくジョブが状態を書く。202 応答は `state` を持たず、
+// 照会できない再公開は `publishing` + lastError を保存すること。
+test("再公開の 202 後に照会できなければ publishing を保存し、202 応答は state を持たない", async () => {
+  const failing = failingCloudflare();
+  const { bff, sessionId, restore } = await setup({ cloudflareFetch: failing.cloudflareFetch });
+  try {
+    const created = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId, directory: "dist" })),
+    );
+    await waitForSettled(bff, created.id);
+    await bff.app.request(`/api/shared-contents/${created.id}/stop`, { method: "POST" });
+    failing.behavior.set = 500;
+    failing.behavior.get = 500;
+
+    const resumed = await bff.app.request(`/api/shared-contents/${created.id}/resume`, { method: "POST" });
+    assert.equal(resumed.status, 202);
+    assert.equal("state" in (await jsonBody(resumed)), false, "202 の応答に not_stored を付けない");
+    const after = await waitForLastError(bff, created.id);
+    assert.equal(after.status, "publishing", "照会できるまで状態を確定しない");
+    assert.equal(after.lastError, SHARED_CONTENT_RECONCILE_FAILED);
+  } finally {
+    await restore();
+  }
+});
+
+// What: 何も保存しない失敗 (遷移の 409、削除の 502、DB 障害の 503) は従来どおり
+// `state: "not_stored"` を付け、行も変えないこと。
+test("何も保存しない失敗は state: not_stored のまま行を変えない", async () => {
+  const failing = failingCloudflare();
+  const target = await setup({ cloudflareFetch: failing.cloudflareFetch });
+  try {
+    const created = await jsonBody(
+      await target.bff.app.request(
+        "/api/shared-contents",
+        jsonPost({ sessionId: target.sessionId, directory: "dist" }),
+      ),
+    );
+    const before = await waitForSettled(target.bff, created.id);
+    failing.behavior.remove = 500;
+    const removed = await target.bff.app.request(`/api/shared-contents/${created.id}`, { method: "DELETE" });
+    assert.equal(removed.status, 502);
+    assert.equal((await jsonBody(removed)).state, "not_stored", "provider の削除失敗では行を消していない");
+    const after = await jsonBody(await target.bff.app.request(`/api/shared-contents/${created.id}`));
+    assert.equal(after.status, before.status);
+
+    // 進行中の publishing は更新を受け付けない (何も変えない)
+    seedRow(target.bff, target.sessionId, "running", { status: "publishing", lastError: null });
+    const busy = await target.bff.app.request("/api/shared-contents/running/publish", { method: "POST" });
+    assert.equal(busy.status, 409);
+    assert.equal((await jsonBody(busy)).state, "not_stored");
+    const running = await jsonBody(await target.bff.app.request("/api/shared-contents/running"));
+    assert.equal(running.status, "publishing");
+  } finally {
+    await target.restore();
+  }
+
+  // 状態を保存できない 503 は、行が変わっていないので not_stored のまま
+  const unsaved = await setup();
+  try {
+    const created = await jsonBody(
+      await unsaved.bff.app.request(
+        "/api/shared-contents",
+        jsonPost({ sessionId: unsaved.sessionId, directory: "dist" }),
+      ),
+    );
+    await waitForSettled(unsaved.bff, created.id);
+    const before = await jsonBody(await unsaved.bff.app.request(`/api/shared-contents/${created.id}`));
+    // provider の無効化は通るが、行の更新だけが失敗する状況を作る
+    unsaved.bff.appDb.updateSharedContentState = () => {
+      throw new Error("write failed");
+    };
+    const response = await unsaved.bff.app.request(`/api/shared-contents/${created.id}/stop`, { method: "POST" });
+    assert.equal(response.status, 503);
+    assert.equal((await jsonBody(response)).state, "not_stored");
+    const after = await jsonBody(await unsaved.bff.app.request(`/api/shared-contents/${created.id}`));
+    assert.deepEqual(after, before, "保存できていないので行は操作前のまま");
+  } finally {
+    await unsaved.restore();
+  }
+});
+
+// What: 一覧・詳細・プレビュー (GET) は読み取りで何も保存しないので、失敗応答に
+// `state` を付けないこと。
+test("一覧・詳細・プレビューの失敗応答に state を付けない", async () => {
+  const { bff, restore } = await setup();
+  try {
+    const detail = await bff.app.request("/api/shared-contents/nope");
+    assert.equal(detail.status, 404);
+    assert.deepEqual(await jsonBody(detail), { error: "Shared content not found" });
+
+    const preview = await bff.app.request("/api/shared-contents/preview?sessionId=unknown&directory=dist");
+    assert.equal(preview.status, 404);
+    assert.deepEqual(await jsonBody(preview), { error: "Session not found" });
   } finally {
     await restore();
   }

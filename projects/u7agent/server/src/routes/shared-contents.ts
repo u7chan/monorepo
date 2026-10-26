@@ -1,12 +1,13 @@
 import type { Context } from "hono";
 import { messageFor, statusCodeOf } from "../http";
 import type { CreateSharedContentBody } from "../schema";
-import type { SharedContentsService } from "../shared-contents";
+import { SharedContentStoredFailure, type SharedContentsService } from "../shared-contents";
 
 /**
  * 共有コンテンツの管理 API。作成・更新・再公開は 202 で受け付け、状態は GET で読む。
  * 停止は provider の結果を status で返すため 200、削除は本文なしの 204。
- * 受付に失敗した要求は何も保存していないため `state: "not_stored"` を付ける。
+ * 失敗応答の `state: "not_stored"` は、この要求で行を保存しなかったときだけ付ける
+ * (読み取りは何も保存しないので付けない)。
  */
 export function createSharedContentRoutes({ sharedContents }: { sharedContents: SharedContentsService }) {
   return {
@@ -16,7 +17,7 @@ export function createSharedContentRoutes({ sharedContents }: { sharedContents: 
         const sessionId = (c.req.query("sessionId") ?? "").trim();
         return c.json({ items: sharedContents.list(sessionId === "" ? undefined : sessionId) });
       } catch (error) {
-        return failure(c, error);
+        return readFailure(c, error);
       }
     },
 
@@ -24,7 +25,7 @@ export function createSharedContentRoutes({ sharedContents }: { sharedContents: 
       try {
         return c.json(sharedContents.get(c.req.param("id") ?? ""));
       } catch (error) {
-        return failure(c, error);
+        return readFailure(c, error);
       }
     },
 
@@ -38,7 +39,7 @@ export function createSharedContentRoutes({ sharedContents }: { sharedContents: 
         const directory = c.req.query("directory") ?? "";
         return c.json(await sharedContents.preview({ sessionId, directory }));
       } catch (error) {
-        return failure(c, error);
+        return readFailure(c, error);
       }
     },
 
@@ -85,7 +86,16 @@ export function createSharedContentRoutes({ sharedContents }: { sharedContents: 
   };
 }
 
+/** 変更系の失敗。行を保存した失敗だけ `state` を落とす (保存の有無は service が持つ事実を使う) */
 function failure(c: Context, error: unknown) {
-  const status = statusCodeOf(error) ?? 500;
-  return c.json({ error: messageFor(error), state: "not_stored" as const }, status as 400);
+  const status = (statusCodeOf(error) ?? 500) as 400;
+  const body = { error: messageFor(error) };
+  return error instanceof SharedContentStoredFailure
+    ? c.json(body, status)
+    : c.json({ ...body, state: "not_stored" as const }, status);
+}
+
+/** 一覧・詳細・プレビュー (GET) の失敗。読み取りは何も保存しないので `state` を付けない */
+function readFailure(c: Context, error: unknown) {
+  return c.json({ error: messageFor(error) }, (statusCodeOf(error) ?? 500) as 400);
 }
