@@ -22,7 +22,7 @@ export type UsageWindow = {
   resetsAt: number | null;
 };
 
-export type Trend = { windowId: string; points: { at: number; usedPercent: number }[] };
+export type Trend = { windowId: string; spanMs: number; points: { at: number; usedPercent: number }[] };
 
 export type ProviderId = "codex" | "opencode-go";
 export type ProviderState = "loading" | "ok" | "stale" | "error";
@@ -43,7 +43,8 @@ export type UsageSource = {
   limitReached: boolean;
   windows: UsageWindow[];
   notes: string[];
-  trend: Trend | null;
+  /** 窓ごとの推移。2 点未満の窓は含まれない。 */
+  trends: Trend[];
 };
 
 export type UsagePayload = { generatedAt: number; sampleIntervalMs: number; sources: UsageSource[] };
@@ -323,7 +324,9 @@ function parseSource(value: unknown): UsageSource | null {
       .map(parseWindow)
       .filter((window) => window !== null),
     notes: readStrings(value, "notes"),
-    trend: parseTrend(readObject(value, "trend")),
+    trends: readObjects(value, "trends")
+      .map(parseTrend)
+      .filter((trend) => trend !== null),
   };
 }
 
@@ -355,14 +358,11 @@ function parseWindow(value: unknown): UsageWindow | null {
   };
 }
 
-function parseTrend(value: Record<string, unknown> | null): Trend | null {
-  if (!value) {
-    return null;
-  }
-
+function parseTrend(value: unknown): Trend | null {
   const windowId = readString(value, "windowId");
+  const spanMs = readNumber(value, "spanMs");
 
-  if (!windowId) {
+  if (!windowId || spanMs === null || spanMs <= 0) {
     return null;
   }
 
@@ -370,7 +370,7 @@ function parseTrend(value: Record<string, unknown> | null): Trend | null {
     .map((point) => ({ at: readNumber(point, "at"), usedPercent: readNumber(point, "usedPercent") }))
     .filter((point): point is { at: number; usedPercent: number } => point.at !== null && point.usedPercent !== null);
 
-  return points.length < 2 ? null : { windowId, points };
+  return points.length < 2 ? null : { windowId, spanMs, points };
 }
 
 function parseLogin(value: unknown): CodexLoginState | null {

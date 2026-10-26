@@ -3,9 +3,7 @@ import { openCodeSourceId } from "./opencode/accounts";
 import { CODEX_PROVIDER } from "./providers";
 import type { ProviderId, UsageWindow } from "./providers/types";
 import { decideProviderState, type ProviderState, type UsageError } from "./state";
-import { buildTrend, selectTrendWindow, type Trend } from "./trend";
-
-export const TREND_WINDOW_MS = 24 * 60 * 60 * 1000;
+import { buildTrend, trendSpanMs, type Trend } from "./trend";
 
 const CODEX_SOURCE_ID = "codex";
 
@@ -26,7 +24,8 @@ export type UsageSource = {
   limitReached: boolean;
   windows: UsageWindow[];
   notes: string[];
-  trend: Trend | null;
+  /** 窓ごとの推移。sample が 2 点未満の窓は含めない。 */
+  trends: Trend[];
 };
 
 export type UsagePayload = {
@@ -80,7 +79,7 @@ export function createUsageReader(options: {
           limitReached: snapshot?.limitReached ?? false,
           windows: snapshot?.windows ?? [],
           notes: snapshot?.notes ?? [],
-          trend: snapshot ? readTrend(options.db, entry.sourceId, snapshot.windows, now) : null,
+          trends: snapshot ? readTrends(options.db, entry.sourceId, snapshot.windows, now) : [],
         };
       }),
     };
@@ -98,13 +97,14 @@ function collectSources(accounts: readonly UsageSourceAccount[]): SourceEntry[] 
   ];
 }
 
-/** 推移は最新 snapshot で最も使用率が高い枠の 1 本だけを返す。 */
-function readTrend(db: DatabaseHandle, sourceId: string, windows: UsageWindow[], now: number): Trend | null {
-  const target = selectTrendWindow(windows);
+/** 窓ごとに、その窓の期間ぶんの sample を読む。窓が 3 つでも 1 source あたり 3 クエリで済む。 */
+function readTrends(db: DatabaseHandle, sourceId: string, windows: UsageWindow[], now: number): Trend[] {
+  return windows
+    .map((window) => {
+      const spanMs = trendSpanMs(window);
+      const samples = loadSamples(db, sourceId, window.id, now - spanMs);
 
-  if (!target) {
-    return null;
-  }
-
-  return buildTrend(target.id, loadSamples(db, sourceId, target.id, now - TREND_WINDOW_MS));
+      return buildTrend(window.id, spanMs, samples);
+    })
+    .filter((trend): trend is Trend => trend !== null);
 }

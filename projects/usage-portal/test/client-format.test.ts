@@ -1,11 +1,14 @@
 // 画面に出す文言の境界（まもなく / 分 / 時間 / 日、% の丸め、日時）を固定する。
 import { describe, expect, test } from "bun:test";
 import {
+  describeCoverage,
   describeRemaining,
   describeReset,
   formatClock,
   formatDateTime,
+  formatMonthDay,
   formatPercent,
+  formatSpan,
   remainingPercent,
 } from "../src/client/lib/format";
 
@@ -47,8 +50,27 @@ describe("formatDateTime / formatClock", () => {
   test("ブラウザのローカル時刻で MM/DD HH:MM を出す", () => {
     const at = new Date(2026, 9, 31, 9, 5).getTime();
 
+    expect(formatMonthDay(at)).toBe("10/31");
     expect(formatDateTime(at)).toBe("10/31 09:05");
     expect(formatClock(at)).toBe("09:05");
+  });
+});
+
+describe("formatSpan / describeCoverage", () => {
+  test("推移の見出しは 1 つの単位へ丸める", () => {
+    expect(formatSpan(30 * MINUTE)).toBe("30分");
+    expect(formatSpan(5 * HOUR)).toBe("5時間");
+    expect(formatSpan(1.5 * HOUR)).toBe("2時間");
+    expect(formatSpan(7 * DAY)).toBe("7日");
+    expect(formatSpan(30 * DAY)).toBe("30日");
+    expect(formatSpan(Number.NaN)).toBe("0分");
+  });
+
+  test("履歴の長さは単位を 1 つだけ付ける", () => {
+    expect(describeCoverage(10 * MINUTE)).toBe("10 分");
+    expect(describeCoverage(5 * HOUR)).toBe("5 時間分");
+    expect(describeCoverage(3 * DAY + 2 * HOUR)).toBe("3 日分");
+    expect(describeCoverage(30 * 1000)).toBe("1 分");
   });
 });
 

@@ -1,68 +1,96 @@
-// 24 時間の推移の対象選びと downsample を固定する。
+// 推移の横軸の期間、間引き（bucket ごとの代表点）、点数上限を固定する。
 import { describe, expect, test } from "bun:test";
 import type { UsageWindow } from "../src/server/providers/types";
-import { buildTrend, selectTrendWindow, TREND_BUCKET_MS, TREND_MAX_POINTS } from "../src/server/trend";
+import { buildTrend, MAX_TREND_SPAN_MS, TREND_MAX_POINTS, trendSpanMs } from "../src/server/trend";
 
 const BASE = 1_800_000_000_000;
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 
-function window(id: string, usedPercent: number, durationSeconds: number | null = null): UsageWindow {
-  return { id, label: id, durationSeconds, usedPercent, resetsAt: null };
+function window(id: string, label: string, durationSeconds: number | null = null): UsageWindow {
+  return { id, label, durationSeconds, usedPercent: 10, resetsAt: null };
 }
 
-describe("selectTrendWindow", () => {
-  test("最も使用率が高い窓を選ぶ", () => {
-    expect(selectTrendWindow([window("a", 10), window("b", 80), window("c", 40)])?.id).toBe("b");
+describe("trendSpanMs", () => {
+  test("durationSeconds があればその期間を横軸にする", () => {
+    expect(trendSpanMs(window("primary", "週次", 18_000))).toBe(5 * HOUR);
   });
 
-  test("同値なら期間が短い窓を選ぶ", () => {
-    expect(selectTrendWindow([window("weekly", 50, 604_800), window("rolling", 50, 18_000)])?.id).toBe("rolling");
+  test("OpenCode Go は id から期間を決める", () => {
+    expect(trendSpanMs(window("rolling", "ローリング"))).toBe(6 * HOUR);
+    expect(trendSpanMs(window("weekly", "週次"))).toBe(7 * DAY);
+    expect(trendSpanMs(window("monthly", "月次"))).toBe(30 * DAY);
   });
 
-  test("窓が無ければ null", () => {
-    expect(selectTrendWindow([])).toBeNull();
+  test("id が未知でもラベルから決める", () => {
+    expect(trendSpanMs(window("primary", "週次"))).toBe(7 * DAY);
+    expect(trendSpanMs(window("secondary", "月次"))).toBe(30 * DAY);
+    expect(trendSpanMs(window("tertiary", "ローリング"))).toBe(6 * HOUR);
+  });
+
+  test("どちらも読めなければ 24 時間、保持期間の 30 日で頭打ち", () => {
+    expect(trendSpanMs(window("unknown", "不明"))).toBe(24 * HOUR);
+    expect(trendSpanMs(window("yearly", "月次", 365 * 24 * 3600))).toBe(MAX_TREND_SPAN_MS);
   });
 });
 
 describe("buildTrend", () => {
-  test("30 分の bucket へ平均し、古い順に返す", () => {
-    const trend = buildTrend("rolling", [
+  test("bucket 内は新しい sample を代表点にする", () => {
+    const trend = buildTrend("primary", 24 * HOUR, [
       { at: BASE, usedPercent: 10 },
-      { at: BASE + 5 * 60 * 1000, usedPercent: 20 },
-      { at: BASE + TREND_BUCKET_MS, usedPercent: 40 },
+      { at: BASE + 5 * MINUTE, usedPercent: 20 },
+      { at: BASE + 30 * MINUTE, usedPercent: 40 },
+      { at: BASE + 24 * HOUR, usedPercent: 50 },
     ]);
 
     expect(trend).toEqual({
-      windowId: "rolling",
+      windowId: "primary",
+      spanMs: 24 * HOUR,
       points: [
-        { at: BASE, usedPercent: 15 },
-        { at: BASE + TREND_BUCKET_MS, usedPercent: 40 },
+        { at: BASE + 5 * MINUTE, usedPercent: 20 },
+        { at: BASE + 30 * MINUTE, usedPercent: 40 },
+        { at: BASE + 24 * HOUR, usedPercent: 50 },
       ],
     });
   });
 
-  test("2 点未満なら推移を返さない", () => {
-    expect(buildTrend("rolling", [])).toBeNull();
-    expect(buildTrend("rolling", [{ at: BASE, usedPercent: 10 }])).toBeNull();
+  test("履歴が短いうちは 5 分単位まで細かく刻む", () => {
+    const trend = buildTrend("weekly", 7 * DAY, [
+      { at: BASE, usedPercent: 10 },
+      { at: BASE + 2 * MINUTE, usedPercent: 20 },
+      { at: BASE + 30 * MINUTE, usedPercent: 30 },
+    ]);
+
+    expect(trend?.points).toEqual([
+      { at: BASE + 2 * MINUTE, usedPercent: 20 },
+      { at: BASE + 30 * MINUTE, usedPercent: 30 },
+    ]);
   });
 
-  test("bucket が 48 を超えたら新しい側の 48 点に絞る", () => {
-    const samples = Array.from({ length: 60 }, (_, index) => ({
-      at: BASE + index * TREND_BUCKET_MS,
-      usedPercent: index,
-    }));
-    const trend = buildTrend("rolling", samples);
-
-    expect(trend?.points).toHaveLength(TREND_MAX_POINTS);
-    expect(trend?.points.at(-1)?.usedPercent).toBe(59);
+  test("2 点未満なら推移を返さない", () => {
+    expect(buildTrend("rolling", 6 * HOUR, [])).toBeNull();
+    expect(buildTrend("rolling", 6 * HOUR, [{ at: BASE, usedPercent: 10 }])).toBeNull();
   });
 
   test("数値でない点は捨てる", () => {
-    const trend = buildTrend("rolling", [
+    const trend = buildTrend("rolling", 6 * HOUR, [
       { at: BASE, usedPercent: 10 },
       { at: Number.NaN, usedPercent: 20 },
-      { at: BASE + TREND_BUCKET_MS, usedPercent: 30 },
+      { at: BASE + 30 * MINUTE, usedPercent: 30 },
     ]);
 
     expect(trend?.points).toHaveLength(2);
+  });
+
+  test("48 点を超えたら新しい側の 48 点に絞る", () => {
+    const samples = Array.from({ length: 60 }, (_, index) => ({
+      at: BASE + index * 30 * MINUTE,
+      usedPercent: index,
+    }));
+    const trend = buildTrend("rolling", 24 * HOUR, samples);
+
+    expect(trend?.points).toHaveLength(TREND_MAX_POINTS);
+    expect(trend?.points.at(-1)?.usedPercent).toBe(59);
   });
 });

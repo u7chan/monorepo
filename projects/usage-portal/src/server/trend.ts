@@ -1,56 +1,83 @@
-import type { UsageWindow } from "./providers/types";
+import { WINDOW_LABELS, type UsageWindow } from "./providers/types";
 
 export type SamplePoint = { at: number; usedPercent: number };
 
-export type Trend = { windowId: string; points: SamplePoint[] };
+export type Trend = { windowId: string; spanMs: number; points: SamplePoint[] };
 
-/** 5 分間隔の sample を 30 分の bucket に丸めると、24 時間がちょうど 48 点になる。 */
-export const TREND_BUCKET_MS = 30 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/** 1 本のグラフに載せる点の上限。bucket を広げてこれを超えないようにする。 */
 export const TREND_MAX_POINTS = 48;
+/** sampler は 5 分間隔。それより短い bucket に分けても点は増えない。 */
+const MIN_BUCKET_MS = 5 * MINUTE_MS;
+/** sample の保持期間（30 日）より長くさかのぼっても描くものは無い。 */
+export const MAX_TREND_SPAN_MS = 30 * DAY_MS;
+
+/** OpenCode Go は期間を返さないので、窓の id から横軸の長さを決める。 */
+const ID_SPANS_MS: Record<string, number> = {
+  rolling: 6 * HOUR_MS,
+  weekly: 7 * DAY_MS,
+  monthly: 30 * DAY_MS,
+};
 
 /**
- * 推移を描く枠を 1 つ選ぶ。使用率が最も高い枠を主役にし、同値なら短い枠を選ぶ
- * （同じ数値なら、より早くリセットされる枠の方が行動の判断に効く）。
+ * 推移の横軸に使う期間。Codex は上流の `limit_window_seconds` をそのまま使い、
+ * OpenCode Go は返らないので窓の id / ラベルから引く。
  */
-export function selectTrendWindow(windows: UsageWindow[]): UsageWindow | null {
-  let selected: UsageWindow | null = null;
+export function trendSpanMs(window: UsageWindow): number {
+  const seconds = window.durationSeconds;
+  const span =
+    seconds !== null && Number.isFinite(seconds) && seconds > 0
+      ? seconds * 1000
+      : (ID_SPANS_MS[window.id] ?? spanFromLabel(window.label) ?? 24 * HOUR_MS);
 
-  for (const window of windows) {
-    if (
-      selected === null ||
-      window.usedPercent > selected.usedPercent ||
-      (window.usedPercent === selected.usedPercent && shorter(window, selected))
-    ) {
-      selected = window;
+  return Math.min(span, MAX_TREND_SPAN_MS);
+}
+
+/**
+ * sample を 48 点以下へ間引く。bucket 内では新しい sample を残す。
+ * 平均にするとリセットをまたいだ bucket が実在しない値になるため、代表点を選ぶだけにする。
+ * bucket の幅は、履歴がまだ短いうちはその範囲に合わせる（7 日分たまるまで 1 本も描けない、を避ける）。
+ */
+export function buildTrend(windowId: string, spanMs: number, samples: SamplePoint[]): Trend | null {
+  const ordered = samples
+    .filter((sample) => Number.isFinite(sample.at) && Number.isFinite(sample.usedPercent))
+    .sort((a, b) => a.at - b.at);
+  const first = ordered[0];
+  const last = ordered.at(-1);
+
+  if (!first || !last) {
+    return null;
+  }
+
+  const coverage = Math.min(spanMs, last.at - first.at);
+  const bucketMs = Math.max(MIN_BUCKET_MS, Math.ceil(coverage / TREND_MAX_POINTS));
+  const buckets = new Map<number, SamplePoint>();
+
+  for (const sample of ordered) {
+    const bucket = Math.floor(sample.at / bucketMs) * bucketMs;
+    const current = buckets.get(bucket);
+
+    if (!current || sample.at > current.at) {
+      buckets.set(bucket, sample);
     }
   }
 
-  return selected;
+  const points = [...buckets.values()].sort((a, b) => a.at - b.at).slice(-TREND_MAX_POINTS);
+
+  return points.length < 2 ? null : { windowId, spanMs, points };
 }
 
-/** sample を bucket ごとに平均し、古い側から最大 48 点を返す。2 点未満なら推移として描かない。 */
-export function buildTrend(windowId: string, samples: SamplePoint[]): Trend | null {
-  const buckets = new Map<number, { sum: number; count: number }>();
-
-  for (const sample of samples) {
-    if (!Number.isFinite(sample.at) || !Number.isFinite(sample.usedPercent)) {
-      continue;
-    }
-
-    const bucket = Math.floor(sample.at / TREND_BUCKET_MS) * TREND_BUCKET_MS;
-    const current = buckets.get(bucket) ?? { sum: 0, count: 0 };
-
-    buckets.set(bucket, { sum: current.sum + sample.usedPercent, count: current.count + 1 });
+function spanFromLabel(label: string): number | null {
+  if (label.startsWith(WINDOW_LABELS.monthly)) {
+    return 30 * DAY_MS;
   }
 
-  const points = [...buckets.entries()]
-    .sort(([a], [b]) => a - b)
-    .slice(-TREND_MAX_POINTS)
-    .map(([at, bucket]) => ({ at, usedPercent: bucket.sum / bucket.count }));
+  if (label.startsWith(WINDOW_LABELS.weekly)) {
+    return 7 * DAY_MS;
+  }
 
-  return points.length < 2 ? null : { windowId, points };
-}
-
-function shorter(candidate: UsageWindow, current: UsageWindow): boolean {
-  return (candidate.durationSeconds ?? Number.MAX_SAFE_INTEGER) < (current.durationSeconds ?? Number.MAX_SAFE_INTEGER);
+  return label.startsWith(WINDOW_LABELS.rolling) ? 6 * HOUR_MS : null;
 }

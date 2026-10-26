@@ -3,6 +3,7 @@ import { describeReset, formatPercent, remainingPercent } from "../lib/format";
 import { ATTENTION_THRESHOLD } from "../lib/status";
 
 export function UsageMeter(props: { window: UsageWindow; now: number }) {
+  const remaining = remainingPercent(props.window.usedPercent);
   const attention = props.window.usedPercent >= ATTENTION_THRESHOLD;
   const reset = describeReset(props.window.resetsAt, props.now);
 
@@ -16,7 +17,7 @@ export function UsageMeter(props: { window: UsageWindow; now: number }) {
               ▲{" "}
             </span>
           ) : null}
-          {formatPercent(props.window.usedPercent)}
+          残り {formatPercent(remaining)}
         </span>
       </div>
       <div
@@ -24,21 +25,16 @@ export function UsageMeter(props: { window: UsageWindow; now: number }) {
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={Math.round(props.window.usedPercent)}
-        aria-label={`${props.window.label} の使用率`}
+        aria-valuenow={Math.round(remaining)}
+        aria-valuetext={`残り ${formatPercent(remaining)}`}
+        aria-label={`${props.window.label} の残り`}
       >
-        {/* 幅だけを style で渡す。CSP の style-src 'unsafe-inline' はこの用途に限る。 */}
+        {/* 幅だけを style で渡す。CSP の style-src 'unsafe-inline' は meter と trend の座標に限る。 */}
         <div
           class={attention ? "up-meter-fill up-meter-fill-attention" : "up-meter-fill"}
-          style={{ width: `${Math.min(100, Math.max(0, props.window.usedPercent))}%` }}
+          style={{ width: `${remaining}%` }}
         />
       </div>
-      {/* 390px 幅でも「あと 2 時 / 間」と割れないよう、残りとリセットを別の行にする。 */}
-      <p class="up-caption">
-        <span class="up-nowrap">
-          {attention ? "▲ " : ""}残り {formatPercent(remainingPercent(props.window.usedPercent))}
-        </span>
-      </p>
       <p class="up-caption">
         {reset ? (
           <>
