@@ -1188,6 +1188,12 @@ export const CreateSharedContentBodySchema = z.object({
 });
 export type CreateSharedContentBody = z.infer<typeof CreateSharedContentBodySchema>;
 
+/** PATCH /api/shared-contents/:id。表示名だけを変える (URL・状態・成果物は変えない) */
+export const RenameSharedContentBodySchema = z.object({
+  name: z.string().min(1).max(100),
+});
+export type RenameSharedContentBody = z.infer<typeof RenameSharedContentBodySchema>;
+
 /** 作成・更新・再試行の受付応答。状態は GET で読む */
 export const SharedContentMutationResponseSchema = z.object({
   id: z.string(),

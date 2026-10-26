@@ -8,7 +8,7 @@ import type {
   SharedContentResponse,
   SharedContentStatusValue,
 } from "../types";
-import type { ConfirmRequest } from "./confirmDialog";
+import type { ConfirmRequest, PromptRequest } from "./confirmDialog";
 
 /** 状態を読み直す間隔。公開ジョブの所要は数十秒なので、待ちすぎず叩きすぎない値にする */
 export const SHARE_POLL_MS = 2000;
@@ -102,8 +102,8 @@ export function shareUpdateNote(item: SharedContentResponse): string {
   }
 }
 
-/** 更新では表示名を変えない（API に改名が無い）。入力欄の代わりに理由を出す */
-export const SHARE_NAME_LOCKED_NOTE = "表示名は変わりません";
+/** 更新では表示名を変えない（URL と状態に影響しないラベル変更は、更新と別の操作として管理一覧の ⋯ に置く） */
+export const SHARE_NAME_LOCKED_NOTE = "更新しても表示名は変わりません。変更は 設定 → 共有 の ⋯ から行えます。";
 /** 副次の新規作成は取り消しにくい（Worker が増える）ので、押す前に 1 行だけ添える */
 export const SHARE_CREATE_SECONDARY_NOTE = "新しい URL が増えます（Worker が 1 つ増えます）。";
 /**
@@ -315,7 +315,7 @@ export function visibleSharedContents(
 }
 
 /** 一覧の操作種別。`retry` は failed からの再公開で、API は `update` と同じ publish 経路 */
-export type SharedContentActionKind = "open" | "copy" | "update" | "stop" | "resume" | "retry" | "delete";
+export type SharedContentActionKind = "open" | "rename" | "update" | "stop" | "resume" | "retry" | "delete";
 
 export type SharedContentAction = {
   kind: SharedContentActionKind;
@@ -343,62 +343,47 @@ function updateAction(sessionMissing: boolean): SharedContentAction & { kind: "u
     : { kind: "update", label: "更新" };
 }
 
-/** デスクトップのカードに並べる操作。API の状態遷移に合わせ、現状から受け付けない操作は出さない */
+/** デスクトップの操作行に並べる主操作。停止 / 削除と表示名の変更は ⋯ へ送り、行を増やさない */
 export function sharedContentActions(
   item: SharedContentResponse,
   { sessionMissing }: { sessionMissing: boolean },
 ): SharedContentAction[] {
-  if (isSharedContentUndeployed(item)) {
-    return [updateAction(sessionMissing), { kind: "delete", label: "削除", danger: true }];
-  }
+  if (isSharedContentUndeployed(item)) return [updateAction(sessionMissing)];
   switch (item.status) {
     case "published":
-      return [
-        { kind: "open", label: "開く" },
-        { kind: "copy", label: "URL をコピー" },
-        updateAction(sessionMissing),
-        { kind: "stop", label: "停止" },
-        { kind: "delete", label: "削除", danger: true },
-      ];
+      return [{ kind: "open", label: "開く" }, updateAction(sessionMissing)];
     case "stopped":
-      return [
-        { kind: "resume", label: "再公開" },
-        { kind: "delete", label: "削除", danger: true },
-      ];
+      return [{ kind: "resume", label: "再公開" }];
     case "failed":
-      return [
-        { kind: "retry", label: "公開を再試行" },
-        { kind: "delete", label: "削除", danger: true },
-      ];
+      return [{ kind: "retry", label: "公開を再試行" }];
     case "publishing":
       // 結果不明は停止だけを受け付ける。確定していない公開中には操作を出さない
       return item.lastError === null ? [] : [{ kind: "stop", label: "停止" }];
   }
 }
 
-/** ⋯ に入る操作。開く / コピーは主操作としてカード側に置く */
-export type SharedContentMenuKind = Extract<SharedContentActionKind, "update" | "stop" | "delete">;
+/** ⋯ に入る操作。開く / 更新は主操作としてカード側に置く */
+export type SharedContentMenuKind = Extract<SharedContentActionKind, "rename" | "update" | "stop" | "delete">;
 
-/** 狭い面の ⋯ に入れる操作。主操作と URL コピーはカード側に出す */
+/**
+ * ⋯ の操作。壊さない変更（名前を変更）を先頭、破壊的な削除を最後に置き、**行に出ていない操作だけ**を並べる。
+ * 公開中は状態が確定していないので何も出さない（名前を変えたいときは確定を待つ）。
+ */
 export function sharedContentMenuActions(
   item: SharedContentResponse,
-  { sessionMissing }: { sessionMissing: boolean },
+  { sessionMissing, narrow }: { sessionMissing: boolean; narrow: boolean },
 ): (SharedContentAction & { kind: SharedContentMenuKind })[] {
-  if (isSharedContentUndeployed(item)) {
-    return [updateAction(sessionMissing), { kind: "delete", label: "削除", danger: true }];
-  }
+  if (item.status === "publishing") return [];
+  const rename = { kind: "rename", label: "名前を変更" } as const;
+  const remove = { kind: "delete", label: "削除", danger: true } as const;
+  if (isSharedContentUndeployed(item)) return [rename, remove];
   switch (item.status) {
     case "published":
-      return [
-        updateAction(sessionMissing),
-        { kind: "stop", label: "停止" },
-        { kind: "delete", label: "削除", danger: true },
-      ];
+      // 狭い面の主操作は「開く」だけなので、更新もここに入れる
+      return [rename, ...(narrow ? [updateAction(sessionMissing)] : []), { kind: "stop", label: "停止" }, remove];
     case "stopped":
     case "failed":
-      return [{ kind: "delete", label: "削除", danger: true }];
-    case "publishing":
-      return [];
+      return [rename, remove];
   }
 }
 
@@ -421,10 +406,12 @@ export function sharedContentPrimaryAction(
 }
 
 /** 操作中の表示。カードの操作を全部止め、何をしているかを出す */
-export type SharedContentBusyKind = "update" | "stop" | "resume" | "retry" | "delete";
+export type SharedContentBusyKind = "rename" | "update" | "stop" | "resume" | "retry" | "delete";
 
 export function sharedContentBusyLabel(kind: SharedContentBusyKind): string {
   switch (kind) {
+    case "rename":
+      return "変更中";
     case "update":
       return "更新中";
     case "stop":
@@ -462,8 +449,9 @@ export function sharedContentSession(
   return sessionsLoaded ? sessions.find((session) => session.sessionId === item.sessionId) : undefined;
 }
 
-/** 更新の確認。再公開する前に、対象の共有物と読み直す source_path を必ず見せる */
-export function sharedContentUpdateConfirm(item: SharedContentResponse): ConfirmRequest {
+/** 更新の確認。再公開する前に、対象の共有物と読み直す source_path を必ず見せる */ export function sharedContentUpdateConfirm(
+  item: SharedContentResponse,
+): ConfirmRequest {
   return {
     kind: "confirm",
     title: "共有物を更新",
@@ -475,6 +463,21 @@ export function sharedContentUpdateConfirm(item: SharedContentResponse): Confirm
       "公開中の版は、更新が成功するまで残ります。",
     ],
     confirmLabel: "更新する",
+  };
+}
+
+/**
+ * 名前の変更。URL と公開状態が変わらないことを、対象と一緒に示す。
+ * 入力の空欄・未変更は `renameInputValue` が捨てる（設定 → ファイル のリネームと同じ規則）。
+ */
+export function sharedContentRenameRequest(item: Pick<SharedContentResponse, "name">): PromptRequest {
+  return {
+    kind: "prompt",
+    title: "名前を変更",
+    label: "共有物の名前",
+    defaultValue: item.name,
+    body: ["表示名だけを変えます。公開 URL と公開状態は変わりません。"],
+    confirmLabel: "変更する",
   };
 }
 

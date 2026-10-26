@@ -1,3 +1,4 @@
+import { Fragment, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { fileTimeLabel, messageFullTimeLabel } from "../../lib/messageTime";
 import { sessionEntryHref } from "../../lib/route";
@@ -20,6 +21,7 @@ import {
   CheckIcon,
   CopyIcon,
   ExternalLinkIcon,
+  PencilIcon,
   PowerIcon,
   RefreshIcon,
   RunSpinnerIcon,
@@ -31,7 +33,7 @@ import { SharedContentMenu } from "./SharedContentMenu";
 
 export type SharedContentCardProps = {
   item: SharedContentResponse;
-  /** 600px 未満。操作を主操作 + コピー + ⋯ に畳み、meta を絞る */
+  /** 600px 未満。操作を主操作 + ⋯ に畳み、meta を絞る */
   narrow: boolean;
   /** セッションが削除済み。更新だけを無効にする */
   sessionMissing: boolean;
@@ -46,6 +48,7 @@ export type SharedContentCardProps = {
   copied: boolean;
   copyFailure: string | undefined;
   onCopy: (url: string, id: string) => void;
+  onRename: () => void;
   onUpdate: () => void;
   onStop: () => void;
   onResume: () => void;
@@ -57,8 +60,8 @@ function ActionIcon({ kind }: { kind: SharedContentAction["kind"] }) {
   switch (kind) {
     case "open":
       return <ExternalLinkIcon />;
-    case "copy":
-      return <CopyIcon />;
+    case "rename":
+      return <PencilIcon />;
     case "update":
     case "retry":
       return <RefreshIcon />;
@@ -99,6 +102,16 @@ function actionToneClass(action: SharedContentAction): string {
     : "hover:border-accent/50 hover:text-accent-text";
 }
 
+/** meta の 1 項目。項目名は淡色、値は本文色にする（・で区切って 1 行に並べる） */
+function MetaItem({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="flex min-w-0 items-baseline gap-1.5">
+      <b className="font-medium text-ink-faint">{label}</b>
+      {children}
+    </span>
+  );
+}
+
 export function SharedContentCard({
   item,
   narrow,
@@ -110,6 +123,7 @@ export function SharedContentCard({
   copied,
   copyFailure,
   onCopy,
+  onRename,
   onUpdate,
   onStop,
   onResume,
@@ -118,14 +132,15 @@ export function SharedContentCard({
 }: SharedContentCardProps) {
   const view = shareStatusView(item);
   const handlers: Record<SharedContentMenuKind, () => void> = {
+    rename: onRename,
     update: onUpdate,
     stop: onStop,
     delete: onDelete,
   };
   const runAction = (action: SharedContentAction) => {
     switch (action.kind) {
-      case "copy":
-        if (item.publicUrl !== null) onCopy(item.publicUrl, item.id);
+      case "rename":
+        onRename();
         return;
       case "update":
         onUpdate();
@@ -147,23 +162,13 @@ export function SharedContentCard({
     }
   };
 
-  const desktopActions = sharedContentActions(item, { sessionMissing });
-  const menuActions = sharedContentMenuActions(item, { sessionMissing });
+  const rowActions = sharedContentActions(item, { sessionMissing });
+  const menuActions = sharedContentMenuActions(item, { sessionMissing, narrow });
   const primary = sharedContentPrimaryAction(item, { sessionMissing });
   const undeployed = isSharedContentUndeployed(item);
-
-  // 停止中も URL を見せる契約は `openUrl` (外部で開いてよい URL) と別なので、未デプロイの判定を足して消す
-  const url =
-    item.publicUrl === null || item.status === "publishing" || undeployed ? null : (
-      <code
-        className={cn(
-          "block min-w-0 font-mono text-2xs break-all text-ink-soft select-all",
-          item.status === "stopped" && "text-ink-faint",
-        )}
-      >
-        {item.publicUrl}
-      </code>
-    );
+  // 停止中も URL は見せる契約だが、開く・コピーは出さない（未デプロイは URL 自体を出さない）
+  const showUrl = item.publicUrl !== null && item.status !== "publishing" && !undeployed;
+  const copyable = showUrl && view.openUrl !== null;
 
   // 狭い面では「更新」を出さず、公開元と 1 つの時刻だけにする（停止中は停止時刻）
   const time =
@@ -172,6 +177,93 @@ export function SharedContentCard({
       : narrow && item.status === "stopped"
         ? { label: "停止", at: item.stoppedAt ?? item.updatedAt }
         : { label: "更新", at: item.updatedAt };
+
+  const meta: { key: string; node: ReactNode }[] = [
+    {
+      key: "source",
+      node: (
+        <MetaItem label="公開元">
+          <code className="min-w-0 font-mono break-all text-ink-soft">{sharedContentSourceLabel(item)}</code>
+        </MetaItem>
+      ),
+    },
+    ...(session === undefined
+      ? []
+      : [
+          {
+            key: "session",
+            node: (
+              <MetaItem label="会話">
+                <a
+                  href={sessionEntryHref(session.sessionId, session.spaceId)}
+                  onClick={(event) => {
+                    if (
+                      !onOpenSession ||
+                      event.button !== 0 ||
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey
+                    )
+                      return;
+                    event.preventDefault();
+                    onOpenSession(session.sessionId, session.spaceId);
+                  }}
+                  className="min-w-0 break-words text-accent underline underline-offset-2"
+                >
+                  {session.title || "無題のセッション"}
+                </a>
+              </MetaItem>
+            ),
+          },
+        ]),
+    {
+      key: "time",
+      node: (
+        <MetaItem label={time.label}>
+          <time
+            dateTime={new Date(time.at).toISOString()}
+            title={messageFullTimeLabel(time.at)}
+            className="tabular-nums"
+          >
+            {fileTimeLabel(time.at)}
+          </time>
+        </MetaItem>
+      ),
+    },
+  ];
+  if (!narrow && item.publishedAt !== null) {
+    meta.push({
+      key: "published",
+      node: (
+        <MetaItem label="公開">
+          <time
+            dateTime={new Date(item.publishedAt).toISOString()}
+            title={messageFullTimeLabel(item.publishedAt)}
+            className="tabular-nums"
+          >
+            {fileTimeLabel(item.publishedAt)}
+          </time>
+        </MetaItem>
+      ),
+    });
+  }
+  if (!narrow && item.stoppedAt !== null) {
+    meta.push({
+      key: "stopped",
+      node: (
+        <MetaItem label="停止">
+          <time
+            dateTime={new Date(item.stoppedAt).toISOString()}
+            title={messageFullTimeLabel(item.stoppedAt)}
+            className="tabular-nums"
+          >
+            {fileTimeLabel(item.stoppedAt)}
+          </time>
+        </MetaItem>
+      ),
+    });
+  }
 
   const hints: string[] = [];
   if (item.status === "publishing" && item.lastError === null) {
@@ -192,87 +284,68 @@ export function SharedContentCard({
         busy === null ? "border-line" : "border-accent/35",
       )}
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-        <h3 className="min-w-0 text-1sm font-semibold break-words text-ink-strong">{item.name}</h3>
-        <StatusBadge
-          label={busy === null ? view.label : sharedContentBusyLabel(busy.kind)}
-          tone={busy === null ? view.tone : "busy"}
-        />
-        {sessionMissing ? (
-          <span className="shrink-0 rounded-full border border-dashed border-line-strong px-2 py-0.5 text-2xs text-ink-faint">
-            {SHARED_CONTENT_SESSION_DELETED_LABEL}
-          </span>
-        ) : null}
+      <div className="flex min-w-0 items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          {/* 長い表示名でも操作行を押し下げすぎないよう 2 行で切る（全文は title で読める） */}
+          <h3 title={item.name} className="line-clamp-2 min-w-0 text-1sm font-semibold break-words text-ink-strong">
+            {item.name}
+          </h3>
+          <StatusBadge
+            label={busy === null ? view.label : sharedContentBusyLabel(busy.kind)}
+            tone={busy === null ? view.tone : "busy"}
+          />
+          {sessionMissing ? (
+            <span className="shrink-0 rounded-full border border-dashed border-line-strong px-2 py-0.5 text-2xs text-ink-faint">
+              {SHARED_CONTENT_SESSION_DELETED_LABEL}
+            </span>
+          ) : null}
+        </div>
+        {/* ⋯ は幅を問わず右上へ固定する。名前の長さで位置が動かず、行の主操作の幅も変わらない */}
+        {menuActions.length === 0 ? null : (
+          <SharedContentMenu name={item.name} actions={menuActions} onSelect={(kind) => handlers[kind]()} />
+        )}
       </div>
 
-      {url}
+      {showUrl ? (
+        copyable ? (
+          <div className="flex min-w-0 items-center gap-1 rounded-lg border border-line bg-raised py-0.5 pr-0.5 pl-2.5">
+            <code className="min-w-0 flex-1 font-mono text-2xs break-all text-ink-soft select-all">
+              {item.publicUrl}
+            </code>
+            <button
+              type="button"
+              onClick={() => onCopy(item.publicUrl ?? "", item.id)}
+              aria-label={copied ? "URL をコピーしました" : "URL をコピー"}
+              title={copied ? "URL をコピーしました" : "URL をコピー"}
+              className={cn(
+                "grid shrink-0 place-items-center rounded-md transition-colors",
+                narrow ? "size-10" : "size-7",
+                copied ? "text-ok" : "text-ink-faint hover:bg-hover hover:text-accent-text",
+              )}
+            >
+              {copied ? <CheckIcon /> : <CopyIcon />}
+            </button>
+          </div>
+        ) : (
+          // 停止中は URL を記録として残すが、開く・コピーは出さない（押しても 404 になる）
+          <code className="min-w-0 font-mono text-2xs break-all text-ink-faint select-all">{item.publicUrl}</code>
+        )
+      ) : null}
       {item.status === "publishing" ? (
         <p className="text-2xs text-ink-muted">公開が完了すると URL を表示します</p>
       ) : null}
 
-      <div className="flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-2xs text-ink-muted">
-        <span className="flex min-w-0 items-baseline gap-1.5">
-          <b className="font-medium text-ink-faint">公開元</b>
-          <code className="min-w-0 font-mono break-all text-ink-soft">{sharedContentSourceLabel(item)}</code>
-        </span>
-        {session === undefined ? null : (
-          <span className="flex min-w-0 items-baseline gap-1.5">
-            <b className="font-medium text-ink-faint">会話</b>
-            <a
-              href={sessionEntryHref(session.sessionId, session.spaceId)}
-              onClick={(event) => {
-                if (
-                  !onOpenSession ||
-                  event.button !== 0 ||
-                  event.metaKey ||
-                  event.ctrlKey ||
-                  event.shiftKey ||
-                  event.altKey
-                )
-                  return;
-                event.preventDefault();
-                onOpenSession(session.sessionId, session.spaceId);
-              }}
-              className="min-w-0 break-words text-accent underline underline-offset-2"
-            >
-              {session.title || "無題のセッション"}
-            </a>
-          </span>
-        )}
-        <span className="flex items-baseline gap-1.5">
-          <b className="font-medium text-ink-faint">{time.label}</b>
-          <time
-            dateTime={new Date(time.at).toISOString()}
-            title={messageFullTimeLabel(time.at)}
-            className="tabular-nums"
-          >
-            {fileTimeLabel(time.at)}
-          </time>
-        </span>
-        {!narrow && item.publishedAt !== null ? (
-          <span className="flex items-baseline gap-1.5">
-            <b className="font-medium text-ink-faint">公開</b>
-            <time
-              dateTime={new Date(item.publishedAt).toISOString()}
-              title={messageFullTimeLabel(item.publishedAt)}
-              className="tabular-nums"
-            >
-              {fileTimeLabel(item.publishedAt)}
-            </time>
-          </span>
-        ) : null}
-        {!narrow && item.stoppedAt !== null ? (
-          <span className="flex items-baseline gap-1.5">
-            <b className="font-medium text-ink-faint">停止</b>
-            <time
-              dateTime={new Date(item.stoppedAt).toISOString()}
-              title={messageFullTimeLabel(item.stoppedAt)}
-              className="tabular-nums"
-            >
-              {fileTimeLabel(item.stoppedAt)}
-            </time>
-          </span>
-        ) : null}
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 text-2xs text-ink-muted">
+        {meta.map((entry, index) => (
+          <Fragment key={entry.key}>
+            {index === 0 ? null : (
+              <span aria-hidden="true" className="text-ink-ghost">
+                ・
+              </span>
+            )}
+            {entry.node}
+          </Fragment>
+        ))}
       </div>
 
       {view.note === null ? null : (
@@ -315,46 +388,35 @@ export function SharedContentCard({
           {sharedContentBusyLabel(busy.kind)}…完了まで操作できません。
         </p>
       ) : narrow ? (
-        <div className="flex min-w-0 items-center gap-1.5">
-          {primary === null ? null : primary.kind === "open" && item.publicUrl !== null ? (
-            <a
-              href={item.publicUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="btn-quiet min-w-0 flex-1 singleColumn:min-h-11"
-            >
-              <ExternalLinkIcon />
-              {primary.label}
-            </a>
-          ) : (
-            <button
-              type="button"
-              onClick={() => runAction(primary)}
-              disabled={primary.disabled === true}
-              title={primary.reason}
-              className={cn("btn-quiet min-w-0 flex-1 singleColumn:min-h-11", actionToneClass(primary))}
-            >
-              <ActionIcon kind={primary.kind} />
-              {primary.label}
-            </button>
-          )}
-          {view.openUrl === null ? null : (
-            <button
-              type="button"
-              onClick={() => onCopy(item.publicUrl ?? "", item.id)}
-              className="btn-quiet min-w-0 flex-1 singleColumn:min-h-11"
-            >
-              {copied ? <CheckIcon /> : <CopyIcon />}
-              {copied ? "コピーしました" : "URL をコピー"}
-            </button>
-          )}
-          {menuActions.length === 0 ? null : (
-            <SharedContentMenu name={item.name} actions={menuActions} onSelect={(kind) => handlers[kind]()} />
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          {desktopActions.map((action) =>
+        primary === null ? null : (
+          <div role="group" aria-label="共有物の操作" className="flex min-w-0 items-center gap-1.5">
+            {primary.kind === "open" && item.publicUrl !== null ? (
+              <a
+                href={item.publicUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="btn-quiet min-w-0 flex-1 singleColumn:min-h-11"
+              >
+                <ExternalLinkIcon />
+                {primary.label}
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => runAction(primary)}
+                disabled={primary.disabled === true}
+                title={primary.reason}
+                className={cn("btn-quiet min-w-0 flex-1 singleColumn:min-h-11", actionToneClass(primary))}
+              >
+                <ActionIcon kind={primary.kind} />
+                {primary.label}
+              </button>
+            )}
+          </div>
+        )
+      ) : rowActions.length === 0 ? null : (
+        <div role="group" aria-label="共有物の操作" className="flex flex-wrap items-center gap-2">
+          {rowActions.map((action) =>
             action.kind === "open" && item.publicUrl !== null ? (
               <a
                 key={action.kind}
@@ -373,14 +435,10 @@ export function SharedContentCard({
                 onClick={() => runAction(action)}
                 disabled={action.disabled === true}
                 title={action.reason}
-                className={cn(
-                  "btn-quiet singleColumn:min-h-11",
-                  actionToneClass(action),
-                  action.danger === true && "ml-auto",
-                )}
+                className={cn("btn-quiet singleColumn:min-h-11", actionToneClass(action))}
               >
-                {action.kind === "copy" && copied ? <CheckIcon /> : <ActionIcon kind={action.kind} />}
-                {action.kind === "copy" && copied ? "コピーしました" : action.label}
+                <ActionIcon kind={action.kind} />
+                {action.label}
               </button>
             ),
           )}

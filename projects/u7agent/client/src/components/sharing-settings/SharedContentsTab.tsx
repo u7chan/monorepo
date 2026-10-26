@@ -1,10 +1,11 @@
 import { useMemo } from "react";
-import { useConfirm } from "../ConfirmProvider";
+import { useConfirm, usePrompt } from "../ConfirmProvider";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import type { SharedContentsManager } from "../../hooks/useSharedContentsManager";
 import { useViewportWidth } from "../../hooks/useViewportWidth";
 import {
   sharedContentDeleteConfirm,
+  sharedContentRenameRequest,
   sharedContentSession,
   sharedContentSessionMissing,
   sharedContentUpdateConfirm,
@@ -12,6 +13,7 @@ import {
   type SharedContentsFilter,
   visibleSharedContents,
 } from "../../lib/sharedContents";
+import { renameInputValue } from "../../lib/confirmDialog";
 import type { SessionSummary, SharedContentResponse } from "../../types";
 import { KeyIcon, ShareIcon, WarningIcon } from "../icons";
 import { LoadingMark } from "../LoadingMark";
@@ -44,6 +46,7 @@ export function SharedContentsTab({
   onOpenSession,
 }: SharedContentsTabProps) {
   const confirm = useConfirm();
+  const prompt = usePrompt();
   const narrow = useViewportWidth() < NARROW_MAX_WIDTH;
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const sessionIds = useMemo(() => new Set(sessions.map((session) => session.sessionId)), [sessions]);
@@ -54,6 +57,12 @@ export function SharedContentsTab({
     if (sessionMissing(item)) return;
     if (!(await confirm(sharedContentUpdateConfirm(item)))) return;
     await contents.update(item.id);
+  };
+  // 空欄・未変更は送らない（設定 → ファイル のリネームと同じ規則）
+  const rename = async (item: SharedContentResponse) => {
+    const name = renameInputValue(await prompt(sharedContentRenameRequest(item)), item.name);
+    if (name === undefined) return;
+    await contents.rename(item.id, name);
   };
   const remove = async (item: SharedContentResponse) => {
     if (!(await confirm(sharedContentDeleteConfirm(item)))) return;
@@ -98,6 +107,9 @@ export function SharedContentsTab({
                   }}
                   onUpdate={() => {
                     void update(item);
+                  }}
+                  onRename={() => {
+                    void rename(item);
                   }}
                   onStop={() => {
                     void contents.stop(item.id);

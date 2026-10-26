@@ -4,6 +4,7 @@ import {
   deleteSharedContent,
   getAllSharedContents,
   publishSharedContent,
+  renameSharedContent,
   resumeSharedContent,
   stopSharedContent,
 } from "../api";
@@ -139,6 +140,10 @@ export function useSharedContentsManager() {
   const retry = useCallback((id: string) => runAction(id, "retry", () => publishSharedContent(id)), [runAction]);
   const stop = useCallback((id: string) => runAction(id, "stop", () => stopSharedContent(id)), [runAction]);
   const resume = useCallback((id: string) => runAction(id, "resume", () => resumeSharedContent(id)), [runAction]);
+  const rename = useCallback(
+    (id: string, name: string) => runAction(id, "rename", () => renameSharedContent(id, name)),
+    [runAction],
+  );
 
   const remove = useCallback(
     (id: string) =>
@@ -174,6 +179,7 @@ export function useSharedContentsManager() {
     retry,
     stop,
     resume,
+    rename,
     remove,
   };
 }

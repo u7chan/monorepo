@@ -926,6 +926,16 @@ export const deleteSharedContent = async (id: string): Promise<void> => {
 };
 
 /**
+ * 表示名の変更。URL・状態・成果物は変わらない（200、変更後の DTO）。
+ * provider を呼ばないので、公開中でも送れるが、画面の導線は状態が確定してから出す。
+ */
+export const renameSharedContent = async (id: string, name: string): Promise<SharedContentResponse> => {
+  const res = await client.api["shared-contents"][":id"].$patch({ param: { id }, json: { name } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
  * 設定 → Web 検索。有効 / 無効の 1 つだけを返し、無効時にモデルへ返る固定文言も載せる。
  * 正はアプリ DB の `web_search_settings` で、行が無い = 既定（有効）。
  */

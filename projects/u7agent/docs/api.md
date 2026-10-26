@@ -792,6 +792,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | POST | `/api/shared-contents/:id/publish` | 更新（同じ URL へ再公開、202）。`failed` からの再試行と、停止中からの更新も同じ |
 | POST | `/api/shared-contents/:id/stop` | 停止（200）。workers.dev を無効にする。未公開の行は `failed` を返し、script の不在が確定したときは 502 と終端状態（`stopped` / `failed` + `lastError`） |
 | POST | `/api/shared-contents/:id/resume` | 再公開（202）。同じ URL を有効に戻す。公開実績の無い行は 409 |
+| PATCH | `/api/shared-contents/:id` | 表示名の変更（200、変更後の DTO）。URL・状態・時刻は変えない |
 | DELETE | `/api/shared-contents/:id` | 削除（204）。provider 側の削除が成功してから行を消す |
 
 ```json
@@ -799,12 +800,16 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 { "sessionId": "…", "directory": "dist", "name": "デモ" }
 // 202 応答
 { "id": "…", "status": "publishing" }
+// PATCH /api/shared-contents/:id の入力（前後の空白はサーバーで落とす）
+{ "name": "モンスト風" }
 // POST /api/shared-contents/:id/stop の 200 応答（公開実績のある行）
 { "id": "…", "status": "stopped" }
 // 公開実績の無い行は status が "failed" になり、lastError に固定文言が入る
 ```
 
 一覧・詳細は `{ id, sessionId, name, sourcePath, sourceKind, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`sourceKind` は公開元の種類で、`session-root` はセッションの作業フォルダ自身、`directory` はその配下のディレクトリ。`remoteId` / `providerAccount` は返さない。`status` の値は `SharedContentStatus`（`server/src/app-db.ts`）と schema を正とし、`lastError` は分類済みの固定文言だけを入れる。
+
+表示名の変更は空欄・制御文字・100 文字超を 400 にし、本文の検証失敗と同じく `state: "not_stored"` を付ける。存在しない id は 404、保存失敗は 503。provider を呼ばないので `publishing` の行にも送れるが、画面の導線は状態が確定してから出す（[static-sharing.md](static-sharing.md#gui管理一覧)）。
 
 - `directory` はセッションの作業ディレクトリ相対。絶対パス・`..`・ワークスペース root 自身は 400。字面が `.`（`./` を含む）のときだけセッションの作業フォルダ自身を指し、`projectCwd` を持つプロジェクト会話では 409。`a/..` や `./.` は正規化すると `.` になるが、字面が `.` でないため 400（`foo/.` は従来どおり `foo`）。
 
