@@ -10,6 +10,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ToolHistoryView } from "../src/components/chat/ToolHistory";
 import { chatReducer, initialChatState, type Bubble, type ChatState, type ToolCard } from "../src/hooks/chatReducer";
+import { pendingAskUserQuestionCount } from "../src/lib/askUser";
 import { chatRenderItems, isLiveTurnBubble } from "../src/lib/chatItems";
 import { isToolHostBubble } from "../src/lib/chatTypes";
 import { completedToolCards, historyPreview } from "../src/lib/toolSummary";
@@ -749,5 +750,139 @@ test("本文 item を引き取った host は run_end まで live のままで�
     settledBubble?.tools.map((card) => card.id),
     ["work-a", "work-c"],
     "止まったカードも確定後は並べる",
+  );
+});
+
+test("履歴照合の後も、本文 item を引き取った host は run_end まで live のまま", () => {
+  // What: tool 完了 → text(C) → assistantEnd(C) → C 自身のツール (実行中) → resyncHistory の順でも、
+  // C は run が終わるまで live (コピーも実行中の行も出さない)。履歴へ対応付けても host の印を落とさない
+  let state = startRun();
+  state = bodylessTool(state, 1, { id: "work-a" });
+  state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "work-c",
+    name: "grep",
+    args: "$ grep C",
+    at: 61,
+    assistantId: "run-1:2",
+  });
+
+  const page: HistoryPage = {
+    sessionId: "session-a",
+    items: [
+      {
+        kind: "message",
+        id: "a-u1",
+        context: "active",
+        role: "user",
+        text: "調べて",
+        sendId: "send-1",
+        runId: "run-1",
+      },
+      {
+        kind: "message",
+        id: "a-c",
+        context: "active",
+        role: "assistant",
+        text: "C",
+        assistantId: "run-1:2",
+        // 保存済みの履歴には完了したカードだけが載る (実行中の work-c はまだ結果が無い)
+        tools: completedRun(["work-a"]).toolCalls,
+      },
+    ],
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "a-u1",
+    messageCount: 2,
+    summarizedMessageCount: 0,
+  };
+  state = chatReducer(state, { type: "resyncHistory", page });
+
+  const adopted = state.bubbles.find((bubble) => bubble.entryId === "a-c");
+  assert.equal(state.runStatus, "running", "run はまだ実行中");
+  assert.equal(state.currentAssistantId, null, "assistant_end 済みで開いている応答は無い");
+  assert.equal(isToolHostBubble(adopted as Bubble), true, "履歴へ対応付いても host の印を落とさない");
+  assert.deepEqual(
+    adopted?.tools.map((card) => card.id),
+    ["work-a", "work-c"],
+    "履歴に無い実行中のカードも残す",
+  );
+
+  const live = isLiveTurnBubble(adopted as Bubble, {
+    currentAssistantId: state.currentAssistantId,
+    runInProgress: state.runStatus === "running",
+  });
+  assert.equal(live, true, "resync の後も run の終端までは live");
+  const liveHtml = renderHistory((adopted as Bubble).tools, live);
+  assert.equal(liveHtml.includes("ツール履歴をすべてコピー"), false, "run_end の前にコピーを出さない");
+  assert.equal(liveHtml.includes("実行中"), false, "実行中のカードは状態行に任せる");
+  assert.ok(liveHtml.includes("1件"), "完了したカードだけを数える");
+
+  // live を落とすとコピーも実行中の行も出る (印が効いていることの確認)
+  const settledHtml = renderHistory((adopted as Bubble).tools, false);
+  assert.ok(settledHtml.includes("ツール履歴をすべてコピー"));
+  assert.ok(settledHtml.includes("実行中"));
+
+  const ended = chatReducer(state, { runId: "run-1", type: "runEnd", status: "completed", queueDepth: 0 });
+  const endedBubble = ended.bubbles.find((bubble) => bubble.entryId === "a-c");
+  assert.equal(isToolHostBubble(endedBubble as Bubble), false, "run_end で印を落とす");
+  assert.equal(
+    isLiveTurnBubble(endedBubble as Bubble, { currentAssistantId: ended.currentAssistantId, runInProgress: false }),
+    false,
+  );
+});
+
+test("本文 item を引き取った host の ask_user は、その item に残して次へ繰り上げない", () => {
+  // What: 本文なし A の tool → 本文 C → assistantEnd(C) → C の ask_user → 回答 → 本文 D で、
+  // 質問・回答カードは C の item に残り、D へ繰り上がらない (確定履歴の投影と同じ境界)
+  const questions = [{ question: "進めますか" }];
+  let state = startRun();
+  state = bodylessTool(state, 1, { id: "work-a" });
+  state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "ask",
+    name: "ask_user",
+    args: "{}",
+    questions,
+    at: 61,
+    assistantId: "run-1:2",
+  });
+
+  const asked = state.bubbles.filter((bubble) => bubble.tools.some((card) => card.id === "ask"));
+  assert.equal(asked.length, 1, "質問カードのバブルを増やさない");
+  assert.equal(asked[0]?.text, "C", "表示できる本文 item に付ける");
+  assert.equal(asked[0]?.assistantId, "run-1:2");
+  assert.equal(
+    chatRenderItems({
+      bubbles: state.bubbles,
+      markers: [],
+      compactions: [],
+      activeContextStartId: null,
+      liveTurn: true,
+    }).some((item) => item.kind === "message" && item.bubble.tools.some((card) => card.id === "ask")),
+    true,
+    "回答待ちのカードは実行中のターンでも描画される",
+  );
+  assert.equal(pendingAskUserQuestionCount(state.runTools, state.runStatus), questions.length);
+
+  state = chatReducer(state, { type: "toolEnd", id: "ask", isError: false, output: "", answers: [] });
+  state = chatReducer(state, { type: "text", delta: "D", at: 62, assistantId: "run-1:3" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:3" });
+  const settled = chatReducer(state, { runId: "run-1", type: "runEnd", status: "completed", queueDepth: 0 });
+
+  assert.deepEqual(
+    settled.bubbles
+      .filter((bubble) => bubble.role === "assistant")
+      .map((bubble) => [bubble.text, bubble.tools.map((card) => card.id)]),
+    [
+      ["C", ["work-a", "ask"]],
+      ["D", []],
+    ],
+    "回答カードは C の item に残る (サーバー投影の C:[tool, ask_user] / D:[] と同じ)",
   );
 });

@@ -426,8 +426,9 @@ function mergeAssistantCard(live: Bubble, history: Bubble): Bubble {
     ...(live.assistantId === undefined && history.assistantId !== undefined
       ? { assistantId: history.assistantId }
       : {}),
-    // 取り込んだ先は確定履歴の item なので、ライブの host の印は残さない
-    host: undefined,
+    // ライブのターンの印 (host) は引き継ぐ。履歴へ対応付いた後も run が終わるまでは live として扱い、
+    // run_end / run_start で落とす。ここで外すと、resync のたびにコピーと実行中のカードが履歴へ出る
+    host: live.host,
     text: live.text.length >= history.text.length ? live.text : history.text,
     entryId: history.entryId,
     context: history.context ?? live.context,
@@ -2491,11 +2492,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const ended = closedToolTarget(state, action.assistantId);
       let base = state;
       let targetId = keyTarget?.id ?? ended;
-      // 回答待ちの ask_user は host へ入れない: host は「完了したカードだけを持つ 1 枚」として実行中だけ
-      // 描画しないため、質問カードを抱えると回答手段ごと見えなくなる
+      // 回答待ちの ask_user は**未採用の** host へ入れない: 完了したカードだけを持つ空の host は実行中だけ
+      // 描画しないため、質問カードを抱えると回答手段ごと見えなくなる。本文 item を引き取った host は
+      // 表示できる所有者なので、同じ応答のカードとしてその item に付ける (確定履歴の投影と同じ境界)
       if (targetId !== undefined && isPendingAskUser(call)) {
         const target = state.bubbles.find((bubble) => bubble.id === targetId);
-        if (target !== undefined && isToolHostBubble(target)) targetId = undefined;
+        if (target !== undefined && isToolHostBubble(target) && target.text === "") targetId = undefined;
       }
       // 旧サーバー (応答IDなし) は本文の補完先そのものへ足す
       if (targetId === undefined && action.assistantId === undefined) {
