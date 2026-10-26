@@ -2,10 +2,13 @@ import type { AgentSuggestion } from "../../types";
 import { PlusIcon, TrashIcon } from "../icons";
 
 /**
- * サーバー側の上限に合わせる。件数は見出しへ現在値と上限で出し、上限では「追加」を止める
- * 代わりに理由を説明行へ出す (止めた理由が読めないと、上限の存在に気づけない)。
+ * サーバー側の上限に合わせる。件数は見出しへ、文字数は各入力欄の隣へ現在値と上限で出し、
+ * 件数の上限では「追加」を止める代わりに理由を説明行へ出す (見えない上限は、止められた理由も
+ * 残り何文字なのかも読めない)。
  */
 const SUGGESTION_LIMIT = 6;
+const LABEL_MAX = 60;
+const PROMPT_MAX = 500;
 
 export function SuggestionsEditor({
   suggestions,
@@ -33,12 +36,15 @@ export function SuggestionsEditor({
             <div className="flex items-center gap-1.5">
               <input
                 className="field text-xs"
-                maxLength={60}
+                maxLength={LABEL_MAX}
                 placeholder="ラベル"
                 aria-label={`定型プロンプト${index + 1}のラベル`}
                 value={suggestion.label}
                 onChange={(e) => onChange(index, { label: e.currentTarget.value })}
               />
+              <span className="shrink-0 text-2xs text-ink-ghost tabular-nums">
+                {suggestion.label.trim().length} / {LABEL_MAX}
+              </span>
               <button
                 type="button"
                 onClick={() => onRemove(index)}
@@ -52,12 +58,15 @@ export function SuggestionsEditor({
             <textarea
               className="field field-sizing-content max-h-40 min-h-16 scrollbar-thin text-xs leading-relaxed"
               rows={2}
-              maxLength={500}
+              maxLength={PROMPT_MAX}
               placeholder="プロンプト"
               aria-label={`定型プロンプト${index + 1}のプロンプト`}
               value={suggestion.prompt}
               onChange={(e) => onChange(index, { prompt: e.currentTarget.value })}
             />
+            <div className="flex justify-end text-2xs text-ink-ghost tabular-nums">
+              {suggestion.prompt.trim().length} / {PROMPT_MAX}
+            </div>
           </div>
         ))}
       </div>

@@ -1,6 +1,7 @@
-// 定型プロンプトの編集面が上限をどう見せるか。見出しが現在値と上限 (n / max) を出し、上限では「追加」を
-// 無効にするだけでなく理由を説明行へ出すこと (上限の存在に気づけないまま保存できない状態を作らない) を
-// react-dom/server で固定する。クリックの動きは実 DOM が要るため、見た目と属性だけを見る。
+// 定型プロンプトの編集面が上限をどう見せるか。件数は見出し、文字数は入力欄の隣で、現在値と上限 (n / max) を
+// 出すこと、件数の上限では「追加」を無効にするだけでなく理由を説明行へ出すこと (上限の存在に気づけない
+// まま保存できない状態を作らない) を react-dom/server で固定する。クリックの動きは実 DOM が要るため、
+// 見た目と属性だけを見る。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
@@ -30,9 +31,12 @@ const addButtonTag = (html: string): string => {
   return html.slice(html.lastIndexOf("<button", label), html.indexOf(">", label) + 1);
 };
 
-test("描画: 見出しは件数だけでなく上限つきで出す", () => {
+test("描画: 見出しは件数を、入力欄は文字数を上限つきで出す", () => {
   const html = render(suggestionsOf(2));
   assert.match(textOf(html), /2 \/ 6/);
+  // ラベルは "案 1" の 3 文字、プロンプトは "依頼 1" の 4 文字
+  assert.match(textOf(html), /3 \/ 60/g);
+  assert.match(textOf(html), /4 \/ 500/g);
   assert.ok(!addButtonTag(html).includes(' disabled=""'), "上限未満では追加できる");
   assert.ok(!textOf(html).includes("上限の"), "上限未満では無効の理由を出さない");
 });
