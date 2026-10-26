@@ -11,6 +11,7 @@ import type { HistoryMergeResult } from "../lib/chatHistory";
 import { ASK_USER_WAITING_TEXT, isPendingAskUser, pendingAskUserQuestionCount } from "../lib/askUser";
 import { compactionDividerIndex } from "../lib/compaction";
 import type { Bubble, ChatHistoryState, CompactionMarker, ToolCard } from "../lib/chatTypes";
+import { isToolHostBubble } from "../lib/chatTypes";
 import { retryableRunError, runErrorFrom, type RunErrorInfo } from "../lib/runRetry";
 import { runOutcomeOf } from "../lib/turnEnd";
 import type {
@@ -420,6 +421,13 @@ function mergeAssistantCard(live: Bubble, history: Bubble): Bubble {
   const liveIds = new Set(live.tools.map((card) => card.id));
   return {
     ...live,
+    // 応答IDは履歴 item が持つ値を保つ。本文 item になっていないライブの host を
+    // 取り込んだときに、item の対応付けの根拠を落とさないため
+    ...(live.assistantId === undefined && history.assistantId !== undefined
+      ? { assistantId: history.assistantId }
+      : {}),
+    // 取り込んだ先は確定履歴の item なので、ライブの host の印は残さない
+    host: undefined,
     text: live.text.length >= history.text.length ? live.text : history.text,
     entryId: history.entryId,
     context: history.context ?? live.context,
@@ -1016,23 +1024,81 @@ function closedToolTarget(state: ChatState, assistantKey: string | undefined): n
   return sameOwner ? target.id : undefined;
 }
 
-function addToolCard(state: ChatState, card: ToolCard, at?: number, assistantKey?: string): ChatState {
-  const keyTarget =
-    assistantKey === undefined
-      ? undefined
-      : state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === assistantKey);
-  const ended = keyTarget?.id ?? closedToolTarget(state, assistantKey);
-  if (ended !== undefined) {
+function attachCardTo(state: ChatState, card: ToolCard, bubbleId: number): ChatState {
+  return {
+    ...updateBubble(state, bubbleId, (bubble) => ({ ...bubble, tools: [...bubble.tools, card] })),
+    toolBubbleIds: { ...state.toolBubbleIds, [card.id]: bubbleId },
+  };
+}
+
+/**
+ * 今ターンの「ツールだけの host」。確定履歴は本文を持たない応答のツールを同ターンの次の表示可能な
+ * 本文 item へ繰り上げるため、ライブもその本文 item が現れるまで 1 枚のカードに溜める。積む先は常に
+ * 末尾 (最後に作ったカード) なので、末尾が host かだけを見る。
+ */
+function toolHostOf(bubbles: Bubble[]): Bubble | undefined {
+  const last = bubbles[bubbles.length - 1];
+  return last !== undefined && isToolHostBubble(last) ? last : undefined;
+}
+
+/**
+ * ツールカードを溜める host を用意する (既にあれば同じカードへ積む)。host は本文 item ではないので
+ * 本文の補完先 (`currentAssistantId`) にはしない。代わりに `toolTargetAssistantId` を指し、以降の
+ * ツールを閉じた応答として受けられるようにする。本文を持たない応答の usage / metrics は表示する行が
+ * 無いため、ここで保留値を捨てて次の本文 item の数値と混ぜない。
+ */
+function ensureToolHost(state: ChatState, at?: number): { state: ChatState; id: number } {
+  const existing = toolHostOf(state.bubbles);
+  if (existing !== undefined) {
     return {
-      ...updateBubble(state, ended, (bubble) => ({ ...bubble, tools: [...bubble.tools, card] })),
-      toolBubbleIds: { ...state.toolBubbleIds, [card.id]: ended },
+      state: { ...state, toolTargetAssistantId: existing.id, pendingUsage: undefined, pendingMetrics: undefined },
+      id: existing.id,
     };
   }
-  const withBubble = ensureAssistant(state, at);
-  const bubbleId = withBubble.currentAssistantId as number;
+  const appended = appendBubble(state, "assistant", "", at);
+  const id = appended.nextId - 1;
+  // 本文を持たない応答の usage / metrics は表示する item が無いので、host へ写さない
   return {
-    ...updateBubble(withBubble, bubbleId, (b) => ({ ...b, tools: [...b.tools, card] })),
-    toolBubbleIds: { ...withBubble.toolBubbleIds, [card.id]: bubbleId },
+    state: {
+      ...appended,
+      bubbles: appended.bubbles.map((bubble) => (bubble.id === id ? { ...bubble, host: true as const } : bubble)),
+      toolTargetAssistantId: id,
+      pendingUsage: undefined,
+      pendingMetrics: undefined,
+    },
+    id,
+  };
+}
+
+/** assistant_end を取りこぼしても、次の応答のツールを前の応答へ混ぜない (本文の補完先も外す) */
+function closeCurrentAssistant(state: ChatState): ChatState {
+  if (state.currentAssistantId === null) return state;
+  const id = state.currentAssistantId;
+  return {
+    ...state,
+    bubbles: state.bubbles.map((bubble) => (bubble.id === id ? { ...bubble, settled: true } : bubble)),
+    currentAssistantId: null,
+    currentAssistantKey: undefined,
+    toolTargetAssistantId: id,
+  };
+}
+
+/**
+ * host を次の表示可能な本文 item にする。確定履歴の投影は本文を持つ item にツールを繰り上げるので、
+ * 同じカード (同じ id) のまま `assistantId` と本文だけを足せば、ライブと確定後でヘッダーの位置・
+ * 高さ・件数・プレビューが変わらない。
+ */
+function adoptToolHost(state: ChatState, assistantKey: string): ChatState | undefined {
+  const host = toolHostOf(state.bubbles);
+  if (host === undefined) return undefined;
+  return {
+    ...state,
+    bubbles: state.bubbles.map((bubble) =>
+      bubble.id === host.id ? { ...bubble, assistantId: assistantKey, host: undefined } : bubble,
+    ),
+    currentAssistantId: host.id,
+    currentAssistantKey: assistantKey,
+    toolTargetAssistantId: undefined,
   };
 }
 
@@ -1144,18 +1210,22 @@ function appendOwnedAssistant(state: ChatState, ownerKey: string | undefined): {
 function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
   const calls = Object.values(state.runTools);
   if (calls.length === 0) return state;
-  // 所有者が履歴にも payload にも無い応答 (本文なし) は、ここで ID 付きのカードを作って受ける
-  const owners = new Set(
-    state.bubbles.flatMap((bubble) =>
-      bubble.role === "assistant" && bubble.assistantId !== undefined ? [bubble.assistantId] : [],
-    ),
-  );
+  // 本文を持たない応答のカードは、所有者ごとの空カードを作らず今ターンの host へ溜める。確定履歴は
+  // 同じターンの次の表示可能な本文 item へ繰り上げるので、その item が現れるまで持ち主を決めない
   for (const call of calls) {
-    if (call.assistantId === undefined || owners.has(call.assistantId)) continue;
-    // 既にどこかのカードへ付いているツールのために空カードを足さない
-    if (state.toolBubbleIds[call.id] !== undefined) continue;
-    state = appendOwnedAssistant(state, call.assistantId).state;
-    owners.add(call.assistantId);
+    if (call.assistantId === undefined || state.toolBubbleIds[call.id] !== undefined) continue;
+    const owned = state.bubbles.some(
+      (bubble) => bubble.role === "assistant" && bubble.assistantId === call.assistantId,
+    );
+    if (owned) continue;
+    if (isPendingAskUser(call)) {
+      // 回答待ちの ask_user は本文も結果も無く履歴 item にならない。応答メタ (時刻 / usage) と
+      // 応答IDを持つ空のカードを合成し、回答できる状態を再接続でも保つ
+      state = appendOwnedAssistant(state, call.assistantId).state;
+      continue;
+    }
+    const host = ensureToolHost(state);
+    state = attachCardTo(host.state, toolCardOf(call), host.id);
   }
   // 開いている応答を優先し、無ければ assistant_end で閉じた応答へ付ける
   const existing = (id: number | null | undefined): id is number =>
@@ -1174,9 +1244,12 @@ function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
     targetId = appended.id;
   }
   const attached = attachToolCalls(state, targetId, calls);
-  // 閉じた応答を focus で開き直すと、次の delta がそのカードへ連結される
+  // 閉じた応答を focus で開き直すと、次の delta がそのカードへ連結される。host は本文 item ではないので
+  // 本文の補完先にしない (次の本文は host を引き取って同じカードを item にする)
   const target = state.bubbles.find((bubble) => bubble.id === targetId);
-  const focusable = targetId !== state.toolTargetAssistantId && target !== undefined && target.settled !== true;
+  const hostId = toolHostOf(state.bubbles)?.id;
+  const focusable =
+    targetId !== state.toolTargetAssistantId && target !== undefined && target.settled !== true && targetId !== hostId;
   return focus && focusable
     ? { ...attached, currentAssistantId: targetId, currentAssistantKey: target?.assistantId }
     : attached;
@@ -2066,6 +2139,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             : { ...next.runInitialSendIds, [action.runId]: action.initialSendId },
         currentAssistantId: null,
         currentAssistantKey: undefined,
+        // 前の run のツールだけの host は確定済みの item として扱う (本文 item が来ないまま run_end を
+        // 取りこぼしていても、次の run のカードを前のターンの host へ混ぜない)
+        bubbles: next.bubbles.map((bubble) =>
+          isToolHostBubble(bubble) ? { ...bubble, settled: true, host: undefined } : bubble,
+        ),
         toolBubbleIds: {},
         runTools: {},
         runStatus: "running",
@@ -2282,7 +2360,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           const withBubble = attachRunToolCards(withTarget, false);
           return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
         }
-        const withBubble = attachRunToolCards(openAssistantForKey(state, action.at, key), false);
+        // ツールだけの host があれば、そのカードをこの本文 item にする (確定履歴と同じ形)
+        const opened = adoptToolHost(closeCurrentAssistant(state), key) ?? openAssistantForKey(state, action.at, key);
+        const withBubble = attachRunToolCards(opened, false);
         return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
       }
       // 旧サーバーの delta は従来どおり開いている応答へ積む
@@ -2333,26 +2413,23 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...(action.skill ? { skill: action.skill } : {}),
         ...(action.questions ? { questions: action.questions } : {}),
       };
-      // 保留中の run 側カードを先に補ってから新しいカードを足す (逆順だと初回の assistant バブルで
-      // 新規が先頭になり、run 側の挿入順と逆のツール履歴になる)
+      // カードの置き場所: 同じ応答のバブル → assistant_end で閉じたばかりの応答 → 今ターンの host。
+      // 本文を持たない応答 (本文 item にならない) のツールは、確定履歴が同ターンの次の表示可能な
+      // 本文 item へ繰り上げるのと同じ持ち主になるまで 1 枚の host に溜める
       const keyTarget =
         action.assistantId === undefined
           ? undefined
           : state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === action.assistantId);
-      const ended = closedToolTarget(state, action.assistantId) !== undefined;
+      const ended = closedToolTarget(state, action.assistantId);
       let base = state;
-      if (keyTarget === undefined && !ended && action.assistantId !== undefined) {
-        // ツールだけの応答はカードを作るが、本文の補完先にはしない (次の text は自分のIDで開く)
-        const opened = openAssistantForKey(state, action.at, action.assistantId);
-        base = {
-          ...opened,
-          currentAssistantId: state.currentAssistantId,
-          currentAssistantKey: state.currentAssistantKey,
-          toolTargetAssistantId: opened.currentAssistantId ?? opened.toolTargetAssistantId,
-        };
-      } else if (keyTarget === undefined && !ended) {
+      let targetId = keyTarget?.id ?? ended;
+      // 旧サーバー (応答IDなし) は本文の補完先そのものへ足す
+      if (targetId === undefined && action.assistantId === undefined) {
         base = openAssistantForKey(state, action.at, undefined);
+        targetId = base.currentAssistantId ?? undefined;
       }
+      // 保留中の run 側カードを先に補ってから新しいカードを足す (逆順だと初回のカードで
+      // 新規が先頭になり、run 側の挿入順と逆のツール履歴になる)
       const withBubble = attachRunToolCards(base, false);
       const withRun = {
         ...withBubble,
@@ -2362,7 +2439,31 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           : [...withBubble.liveToolIds, action.id],
         runTools: { ...withBubble.runTools, [action.id]: call },
       };
-      return addToolCard(withRun, toolCardOf(call), action.at, action.assistantId);
+      if (targetId !== undefined) {
+        const placed = attachCardTo(withRun, toolCardOf(call), targetId);
+        // 本文を持たない応答 (item がまだ無い) の usage / metrics は表示する行が無いので捨てる
+        return action.assistantId === undefined || keyTarget !== undefined
+          ? placed
+          : { ...placed, pendingUsage: undefined, pendingMetrics: undefined };
+      }
+      // 本文を持たない応答なので本文の補完先にはしない。次の表示可能な本文 item まで host に溜める
+      if (action.assistantId === undefined) return withRun;
+      if (isPendingAskUser(call)) {
+        // 回答待ちの ask_user は本文も結果も無く履歴 item にならない。応答IDと応答メタを持つカードを
+        // 合成して回答できる状態を保つ (状態行とカードの契約は docs/ask-user.md)
+        const opened = openAssistantForKey(withRun, action.at, action.assistantId);
+        const bubbleId = opened.currentAssistantId;
+        const placed = bubbleId === null ? opened : attachCardTo(opened, toolCardOf(call), bubbleId);
+        return {
+          ...placed,
+          // 本文の補完先にはしない (回答後の本文は新しい応答のカードで開く)
+          currentAssistantId: withRun.currentAssistantId,
+          currentAssistantKey: withRun.currentAssistantKey,
+          toolTargetAssistantId: bubbleId ?? placed.toolTargetAssistantId,
+        };
+      }
+      const host = ensureToolHost(closeCurrentAssistant(withRun), action.at);
+      return attachCardTo(host.state, toolCardOf(call), host.id);
     }
 
     case "toolEnd": {
@@ -2610,10 +2711,21 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 件数はコンポーザー直上のブロックが正なので、活動の語だけで示す
       else activity = "完了";
       // 確定した応答のバブルは resync でも残す (履歴ページが届くまでの表示を維持する)
-      const settled =
+      const settledCurrent =
         state.currentAssistantId === null
           ? state
           : updateBubble(state, state.currentAssistantId, (bubble) => ({ ...bubble, settled: true }));
+      // 本文 item が現れないまま run が終わったターンは、ツールだけの host をそのターンの item として
+      // 確定する (ヘッダーの再投影はせず、resync は確定履歴を正として置き換える)
+      const hostBubble = toolHostOf(settledCurrent.bubbles);
+      const settled =
+        hostBubble === undefined
+          ? settledCurrent
+          : updateBubble(settledCurrent, hostBubble.id, (bubble) => ({
+              ...bubble,
+              settled: true,
+              host: undefined,
+            }));
       // run_end の所要時間と結末は、その run の user パブルへ写す (entryId の有無を問わず runId 一致)。
       // 未送信のターンは導出側が行を落とす。終端以外の status では値を付けない
       const outcome = runOutcomeOf(status);

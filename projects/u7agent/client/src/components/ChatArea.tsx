@@ -1,6 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { Bubble, CompactionMarker } from "../hooks/chatReducer";
+import { isToolHostBubble } from "../lib/chatTypes";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import {
   anchoredScrollTop,
@@ -127,8 +128,8 @@ export function ChatArea({
   const anchorRef = useRef<{ top: number; height: number } | null>(null);
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const items = useMemo(
-    () => chatRenderItems({ bubbles, markers: dividers, compactions, activeContextStartId }),
-    [bubbles, dividers, compactions, activeContextStartId],
+    () => chatRenderItems({ bubbles, markers: dividers, compactions, activeContextStartId, liveTurn: answerable }),
+    [bubbles, dividers, compactions, activeContextStartId, answerable],
   );
   // resync では run の toolCall が最後のバブルへまとまるため、全バブル横断で同じ呼び出しをバッジ 1 件に統合する
   const skillBadges = skillBadgesOf(bubbles);
@@ -311,8 +312,9 @@ export function ChatArea({
         onResend={unsentActions.onResend}
         onDiscard={unsentActions.onDiscard}
         answerable={answerable}
-        // 進行中のターンだけ、ツール履歴のコピーを出さない
-        live={bubble.id === currentAssistantId}
+        // 進行中のターンだけ、ツール履歴の実行中の行とコピーを出さない。ツールだけの host も
+        // 同じターンの一部で、本文 item が現れるまでカードを溜めている
+        live={bubble.id === currentAssistantId || (answerable && isToolHostBubble(bubble))}
         // 待機列から実行に移った瞬間だけ、リングを 1 回広げる
         queueStarted={startingRunId !== undefined && bubble.runId === startingRunId}
         onStartFlashEnd={onStartFlashEnd}

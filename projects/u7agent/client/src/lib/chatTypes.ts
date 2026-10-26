@@ -107,10 +107,22 @@ export type Bubble = {
    * resync で捨てずに残し、履歴ページが届いたら entryId 付きのバブルと置き換える
    */
   settled?: boolean;
+  /**
+   * 本文 item になっていないライブの「ツールだけの host」。確定履歴は本文を持たない応答のツールを
+   * 同ターンの次の表示可能な本文 item へ繰り上げるため、ライブもその本文 item が現れるまでカードを
+   * この 1 枚に溜める (集約は chatReducer の turn host が担う)。本文が届いた時点で同じバブルが
+   * 本文 item になり (`host` を外す)、本文が来ないまま run が終わればツールだけの item として確定する
+   */
+  host?: true;
   at?: number;
   usage?: Usage;
   metrics?: MessageMetrics;
 };
+
+/** 本文 item になっていないライブのツールだけの host か (`host` の立て外しは chatReducer が担う) */
+export function isToolHostBubble(bubble: Bubble): boolean {
+  return bubble.host === true;
+}
 
 /** 圧縮イベントの区切り。index は bubbles の何番目の手前に置くか */
 export type CompactionMarker = {

@@ -3733,8 +3733,9 @@ function askUserCardOwners(state: ChatState, callId: string) {
     .filter((entry) => entry.cards.length > 0);
 }
 
-test("本文のない別応答のツールは、その assistantId の所有者へ付く", () => {
-  // What: 「本文A＋work-1 → 本文なしの別ID応答＋work-2 → 本文B」で、work-2 が A の所有者へ縮退しない
+test("本文のない別応答のツールは、次の本文 item まで溜め、別の応答の所有者へは縮退しない", () => {
+  // What: 「本文A＋work-1 → 本文なしの別ID応答＋work-2 → 本文B」で、work-2 が A の所有者へ縮退せず、
+  // 確定履歴が繰り上げる先 (本文B) と同じ item に付く
   let state = chatReducer(initialChatState, {
     type: "runStart",
     runId: "run-1",
@@ -3768,9 +3769,9 @@ test("本文のない別応答のツールは、その assistantId の所有者�
     assistantCards(state),
     [
       ["A", "run-1:1", ["work-1"]],
-      ["", "run-1:2", ["work-2"]],
+      ["", undefined, ["work-2"]],
     ],
-    "異なる ID の旧所有者へ work-2 を付けない",
+    "異なる ID の旧所有者へ work-2 を付けず、本文 item が現れるまで host に溜める",
   );
 
   // 途中の再接続と履歴再取得でも所有者が変わらない
@@ -3828,10 +3829,9 @@ test("本文のない別応答のツールは、その assistantId の所有者�
     assistantCards(state),
     [
       ["A", "run-1:1", ["work-1"]],
-      ["", "run-1:2", ["work-2"]],
-      ["B", "run-1:3", []],
+      ["B", "run-1:3", ["work-2"]],
     ],
-    "再接続後もツールの所有者は要求元の応答のまま",
+    "再接続後も work-2 は次の表示可能な本文 item (履歴の繰り上げ先) に付く",
   );
 });
 
@@ -4695,8 +4695,8 @@ test("停止した本文なし応答のツールカードは、次の run と再
 });
 
 test("同じターンの本文なしツール応答が複数でも、所有者ごとにカードを 1 枚ずつ残す", () => {
-  // What: 停止したターンに本文なし応答 A → B が続くとき、live の a→A / b→B が履歴取得・次の run の
-  // 終端 resync・再読み込みの後も同じ所有者で 1 枚ずつ残る (A のツールを B へ寄せない)
+  // What: 停止したターンに本文なし応答 A → B が続くとき、live は 1 枚の host に溜め、履歴取得後は
+  // 履歴の item が所有者になり、次の run の終端 resync・再読み込みの後も 1 枚ずつ残る (重複も欠落もしない)
   const toolOf = (id: string, assistantId: string, output: string, isError: boolean): ToolCall => ({
     id,
     assistantId,
@@ -4847,20 +4847,26 @@ test("同じターンの本文なしツール応答が複数でも、所有者�
   assert.deepEqual(
     liveOwners,
     [
-      ["work-a", "run-1:1"],
-      ["work-b", "run-1:2"],
+      ["work-a", undefined],
+      ["work-b", undefined],
     ],
-    "live では A のツールが A、B のツールが B に付く",
+    "live は本文 item が無いので 1 枚の host に溜める",
+  );
+  assert.equal(
+    new Set(live.bubbles.filter((bubble) => bubble.tools.length > 0).map((bubble) => bubble.id)).size,
+    1,
+    "ツールごとに assistant バブルを作らない",
   );
 
   state = chatReducer(live, { type: "resyncHistory", page: stoppedPage });
+  const liveAfterHistory = state;
   assert.deepEqual(
     ownersOf(state).map(([id, owner, entry]) => [id, owner, entry]),
     [
       ["work-a", "run-1:1", "a-a1"],
       ["work-b", "run-1:2", "a-a2"],
     ],
-    "履歴取得で所有者が入れ替わらない",
+    "履歴取得で確定履歴の item が所有者になる (重複させない)",
   );
 
   // 同じ会話で次の run を完了する
@@ -4956,8 +4962,8 @@ test("同じターンの本文なしツール応答が複数でも、所有者�
   assertOwners(reloaded, "再読み込みの後");
   assert.deepEqual(
     ownersOf(reloaded).map(([id, owner]) => [id, owner]),
-    liveOwners,
-    "live と再読み込みで所有者が一致する",
+    ownersOf(liveAfterHistory).map(([id, owner]) => [id, owner]),
+    "live (履歴取得後) と再読み込みで所有者が一致する",
   );
 });
 
