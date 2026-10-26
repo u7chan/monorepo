@@ -79,6 +79,20 @@ class SharedContentSourceError extends Error {
 }
 
 /**
+ * この要求で行を保存したうえでの失敗。応答に `state: "not_stored"` を付けない根拠になる。
+ * 同じ 502 でも保存しない経路があるため、保存の有無は HTTP ステータスからは決められない。
+ */
+export class SharedContentStoredFailure extends Error {
+  constructor(
+    readonly statusCode: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SharedContentStoredFailure";
+  }
+}
+
+/**
  * 共有物 id 単位の排他。全共有物を 1 本のロックで直列化しない。
  * 待たせずに断るのは、二重操作を 409 で返す契約だから (待つと応答が provider の所要時間に引きずられる)。
  */
@@ -337,7 +351,9 @@ export class SharedContentsService {
       try {
         await client.setScriptSubdomain(row.remoteId, false);
       } catch (error) {
-        return await this.#settleStopFailure(row, startStatus, error);
+        const settled = await this.#settleStopFailure(row, startStatus, error);
+        if ("response" in settled) return settled.response;
+        throw new SharedContentStoredFailure(502, settled.message);
       }
       return { id, status: this.#settleStop(row, null) };
     });
@@ -679,21 +695,23 @@ export class SharedContentsService {
   /**
    * 停止の失敗。結果不明なら subdomain を照会し、確定できなければ publishing + lastError に留める。
    * script の不在が確定したときは、外部公開物が無いので公開実績に応じた終端状態へ収束させる。
+   * どの分岐も行を保存してから失敗するので、502 の生成は `stop` の 1 箇所に寄せる
+   * (保存できなかったときは `#persistState` が未保存の 503 を投げる)。
    */
   async #settleStopFailure(
     row: SharedContentRow,
     startStatus: SharedContentStatus,
     error: unknown,
-  ): Promise<SharedContentStopResponse> {
+  ): Promise<{ response: SharedContentStopResponse } | { message: string }> {
     const message = failureMessageFor(error);
     const unknown = isUnknownResult(error);
     const state = unknown ? await this.#subdomainStateOf(row) : null;
     if (state && "enabled" in state && !state.enabled) {
-      return { id: row.id, status: this.#settleStop(row, null) };
+      return { response: { id: row.id, status: this.#settleStop(row, null) } };
     }
     // 直接の 404 も照会の 404 も「外部に公開物が無い」の確定。結果不明と混ぜない
     if ((state && "missing" in state) || isMissingScript(error)) {
-      throw httpError(502, this.#markScriptMissing(row));
+      return { message: this.#markScriptMissing(row) };
     }
     if (unknown && state === null) {
       // 照会できない間は状態を確定させない。停止だけを受け付ける側に倒す
@@ -701,7 +719,7 @@ export class SharedContentsService {
         publishedAt: row.publishedAt,
         stoppedAt: row.stoppedAt,
       });
-      throw httpError(502, SHARED_CONTENT_RECONCILE_FAILED);
+      return { message: SHARED_CONTENT_RECONCILE_FAILED };
     }
     if (startStatus === "published" && row.publishedAt === null) {
       // 停止できていない未公開の行を published に戻すと、deployment の無い URL が公開済みとして残る
@@ -709,7 +727,7 @@ export class SharedContentsService {
     } else {
       this.#persistState(row, startStatus, message, { publishedAt: row.publishedAt, stoppedAt: row.stoppedAt });
     }
-    throw httpError(502, message);
+    return { message };
   }
 
   /**
