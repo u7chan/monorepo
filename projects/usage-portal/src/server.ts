@@ -6,10 +6,16 @@ import { createCodexAuth } from "./server/codex/auth";
 import { createCodexLoginService } from "./server/codex/login";
 import { loadConfig } from "./server/config";
 import { prepareCredentialDir } from "./server/credential-dir";
-import { openDatabase, verifyDatabase, type DatabaseHandle } from "./server/db";
+import {
+  deleteLegacyOpenCodeUsage,
+  openDatabase,
+  pruneOpenCodeUsage,
+  verifyDatabase,
+  type DatabaseHandle,
+} from "./server/db";
 import { buildHealthReport } from "./server/health";
+import { createOpenCodeAccounts, openCodeSourceId } from "./server/opencode/accounts";
 import { createOpenCodeApi } from "./server/opencode/api";
-import { createOpenCodeAuth } from "./server/opencode/auth";
 import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "./server/providers";
 import { fetchCodexUsage } from "./server/providers/codex";
 import { fetchOpenCodeUsage } from "./server/providers/opencode-go";
@@ -52,22 +58,42 @@ try {
 }
 
 const codexAuth = createCodexAuth({ credentialDir: config.credentialDir, log });
-const openCodeAuth = createOpenCodeAuth({ credentialDir: config.credentialDir });
-const fetchers: UsageFetcher[] = [
+const openCodeAccounts = createOpenCodeAccounts({ credentialDir: config.credentialDir, log });
+
+// 単一キー時代の行と、消えたアカウントの行を起動時に回収する。失敗しても取得は続けられる。
+try {
+  deleteLegacyOpenCodeUsage(database);
+} catch {
+  log("旧 OpenCode Go の履歴を削除できませんでした");
+}
+
+try {
+  pruneOpenCodeUsage(
+    database,
+    openCodeAccounts.list().map((account) => openCodeSourceId(account.id)),
+  );
+} catch {
+  log("登録の無い OpenCode Go の履歴を削除できませんでした");
+}
+
+// 取得のたびに評価する。アカウントの追加・削除が再起動なしで次の取得から反映される。
+const fetchers = (): UsageFetcher[] => [
   {
+    sourceId: CODEX_PROVIDER.id,
     provider: CODEX_PROVIDER,
     fetch: () => fetchCodexUsage({ source: codexAuth, userAgent, now: Date.now }),
   },
-  {
+  ...openCodeAccounts.list().map((account) => ({
+    sourceId: openCodeSourceId(account.id),
     provider: OPENCODE_PROVIDER,
-    fetch: () => fetchOpenCodeUsage({ apiKey: openCodeAuth.apiKey(), userAgent, now: Date.now }),
-  },
+    fetch: () => fetchOpenCodeUsage({ apiKey: openCodeAccounts.apiKey(account.id), userAgent, now: Date.now }),
+  })),
 ];
 const sampler = createSampler({ db: database, fetchers, intervalMs: config.pollIntervalMs, now: Date.now, log });
 const codexLogin = createCodexLoginService({ auth: codexAuth, onSuccess: () => sampler.kick(), log });
 const codex = createCodexApi({ auth: codexAuth, login: codexLogin, db: database, sampler });
 const opencode = createOpenCodeApi({
-  auth: openCodeAuth,
+  accounts: openCodeAccounts,
   db: database,
   sampler,
   fetchUsage: (apiKey) => fetchOpenCodeUsage({ apiKey, userAgent, now: Date.now }),
@@ -77,7 +103,12 @@ const app = createApp({
   auth,
   codex,
   opencode,
-  usage: createUsageReader({ db: database, sampleIntervalMs: config.pollIntervalMs, now: Date.now }),
+  usage: createUsageReader({
+    db: database,
+    sampleIntervalMs: config.pollIntervalMs,
+    now: Date.now,
+    accounts: () => openCodeAccounts.list(),
+  }),
   health: () => buildHealthReport(verifyDatabase(database) ? "ok" : "error", auth.status()),
 });
 
@@ -98,6 +129,7 @@ const server = Bun.serve({
 sampler.start();
 
 const authState = auth.status();
+const accountCount = openCodeAccounts.list().length;
 
 console.log(`usage-portal を起動しました: http://${config.host}:${server.port}`);
 console.log(`User-Agent: ${userAgent}`);
@@ -107,7 +139,7 @@ console.log(
     : `認証の状態: ${authState}`,
 );
 console.log(`Codex: ${codexAuth.signedIn() ? "サインイン済み" : "未接続"}`);
-console.log(`OpenCode Go: ${openCodeAuth.state().configured ? "API キー登録済み" : "API キー未登録"}`);
+console.log(`OpenCode Go: ${accountCount === 0 ? "アカウント未登録" : `アカウント ${accountCount} 件`}`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {

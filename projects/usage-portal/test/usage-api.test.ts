@@ -1,4 +1,4 @@
-// /api/usage の契約（認証必須、state、trend、provider の独立失敗）を固定する。
+// /api/usage の契約（認証必須、sources の並び、state、trend、source ごとの独立失敗）を固定する。
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,8 +7,9 @@ import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
 import { openDatabase, saveProviderError, saveProviderSnapshot, type DatabaseHandle } from "../src/server/db";
 import { buildHealthReport } from "../src/server/health";
+import { openCodeSourceId } from "../src/server/opencode/accounts";
 import { parseCodexUsage } from "../src/server/providers/codex";
-import { createUsageReader, type UsagePayload } from "../src/server/usage";
+import { createUsageReader, type UsagePayload, type UsageSourceAccount } from "../src/server/usage";
 import { BASE_TIME, stubCodexApi, stubOpenCodeApi, usageSnapshot } from "./support";
 
 const PIN = "123456";
@@ -16,6 +17,12 @@ const ORIGIN = "http://localhost";
 const INTERVAL = 300_000;
 const MINUTE = 60 * 1000;
 const dirs: string[] = [];
+const MAIN_ID = "11111111-1111-4111-8111-111111111111";
+const SUB_ID = "22222222-2222-4222-8222-222222222222";
+const ACCOUNTS: readonly UsageSourceAccount[] = [
+  { id: MAIN_ID, name: "メイン", icon: "🦊" },
+  { id: SUB_ID, name: "サブ", icon: "🐼" },
+];
 
 type Harness = {
   app: ReturnType<typeof createApp>;
@@ -24,7 +31,7 @@ type Harness = {
   advance: (ms: number) => void;
 };
 
-function harness(): Harness {
+function harness(accounts: readonly UsageSourceAccount[] = []): Harness {
   let clock = BASE_TIME;
   const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-usage-api-"));
   const auth = createAuthService({ dataDir, now: () => clock });
@@ -35,7 +42,7 @@ function harness(): Harness {
 
   const app = createApp({
     auth,
-    usage: createUsageReader({ db, sampleIntervalMs: INTERVAL, now: () => clock }),
+    usage: createUsageReader({ db, sampleIntervalMs: INTERVAL, now: () => clock, accounts: () => accounts }),
     codex: stubCodexApi(),
     opencode: stubOpenCodeApi(),
     health: () => buildHealthReport("ok", auth.status()),
@@ -90,28 +97,43 @@ describe("GET /api/usage", () => {
     expect(await response.json()).toEqual({ error: "unauthorized" });
   });
 
-  test("認証済みなら provider の行を常に 2 件返し、未取得は loading", async () => {
+  test("アカウント 0 件でも Codex だけを返し、未取得は loading", async () => {
     const h = harness();
     const payload = await readUsage(h, await sessionCookie(h.app));
 
-    expect(payload.providers.map((provider) => [provider.id, provider.name, provider.state])).toEqual([
-      ["codex", "Codex", "loading"],
-      ["opencode-go", "OpenCode Go", "loading"],
+    expect(payload.sources.map((source) => [source.id, source.provider, source.name, source.state])).toEqual([
+      ["codex", "codex", "Codex", "loading"],
     ]);
+    expect(payload.sources[0]?.account).toBeNull();
     expect(payload.sampleIntervalMs).toBe(INTERVAL);
     expect(payload.generatedAt).toBe(BASE_TIME);
+  });
+
+  test("Codex → 登録順のアカウントで並べ、アカウントの名前とアイコンを返す", async () => {
+    const h = harness(ACCOUNTS);
+    const payload = await readUsage(h, await sessionCookie(h.app));
+
+    expect(payload.sources.map((source) => [source.id, source.provider, source.name])).toEqual([
+      ["codex", "codex", "Codex"],
+      [MAIN_ID, "opencode-go", "メイン"],
+      [SUB_ID, "opencode-go", "サブ"],
+    ]);
+    expect(payload.sources[1]?.account).toEqual({ id: MAIN_ID, name: "メイン", icon: "🦊" });
+    expect(payload.sources[1]?.plan).toBeNull();
+    expect(payload.sources[1]?.state).toBe("loading");
   });
 
   test("snapshot を state ok として返し、24 時間の推移を付ける", async () => {
     const h = harness();
 
-    saveProviderSnapshot(h.db, usageSnapshot({ capturedAt: BASE_TIME - 30 * MINUTE }));
-    saveProviderSnapshot(h.db, usageSnapshot({ capturedAt: BASE_TIME }));
+    saveProviderSnapshot(h.db, "codex", usageSnapshot({ capturedAt: BASE_TIME - 30 * MINUTE }));
+    saveProviderSnapshot(h.db, "codex", usageSnapshot({ capturedAt: BASE_TIME }));
 
     const payload = await readUsage(h, await sessionCookie(h.app));
-    const codex = payload.providers.find((provider) => provider.id === "codex");
+    const codex = payload.sources.find((source) => source.provider === "codex");
 
     expect(codex?.state).toBe("ok");
+    expect(codex?.name).toBe("Codex");
     expect(codex?.plan).toBe("Plus");
     expect(codex?.windows[0]?.usedPercent).toBe(62);
     expect(codex?.error).toBeNull();
@@ -124,32 +146,77 @@ describe("GET /api/usage", () => {
     });
   });
 
-  test("片方が落ちても他方は返し、失敗した側だけ error にする", async () => {
-    const h = harness();
+  test("アカウントごとに source id で state と trend を出す", async () => {
+    const h = harness(ACCOUNTS);
     const cookie = await sessionCookie(h.app);
 
-    saveProviderSnapshot(h.db, usageSnapshot());
-    saveProviderError(h.db, "opencode-go", { code: "config", message: "API キーがありません", at: BASE_TIME });
+    saveProviderSnapshot(
+      h.db,
+      openCodeSourceId(MAIN_ID),
+      usageSnapshot({
+        provider: "opencode-go",
+        name: "OpenCode Go",
+        capturedAt: BASE_TIME - 30 * MINUTE,
+        windows: [{ id: "rolling", label: "ローリング", durationSeconds: null, usedPercent: 30, resetsAt: null }],
+      }),
+    );
+    saveProviderSnapshot(
+      h.db,
+      openCodeSourceId(MAIN_ID),
+      usageSnapshot({
+        provider: "opencode-go",
+        name: "OpenCode Go",
+        capturedAt: BASE_TIME,
+        windows: [{ id: "rolling", label: "ローリング", durationSeconds: null, usedPercent: 40, resetsAt: null }],
+      }),
+    );
+    saveProviderError(h.db, openCodeSourceId(SUB_ID), {
+      code: "upstream",
+      message: "OpenCode Go に接続できませんでした",
+      at: BASE_TIME,
+    });
 
     const payload = await readUsage(h, cookie);
-    const codex = payload.providers.find((provider) => provider.id === "codex");
-    const opencode = payload.providers.find((provider) => provider.id === "opencode-go");
+    const main = payload.sources[1];
+    const sub = payload.sources[2];
 
-    expect(codex?.state).toBe("ok");
-    expect(opencode?.state).toBe("error");
-    expect(opencode?.error).toEqual({ code: "config", message: "API キーがありません", at: BASE_TIME });
-    expect(opencode?.windows).toEqual([]);
-    expect(opencode?.trend).toBeNull();
+    expect(main?.name).toBe("メイン");
+    expect(main?.state).toBe("ok");
+    expect(main?.windows[0]?.usedPercent).toBe(40);
+    expect(main?.trend?.windowId).toBe("rolling");
+    expect(main?.trend?.points).toHaveLength(2);
+
+    expect(sub?.name).toBe("サブ");
+    expect(sub?.state).toBe("error");
+    expect(sub?.error?.code).toBe("upstream");
+    expect(sub?.windows).toEqual([]);
+    expect(sub?.trend).toBeNull();
+  });
+
+  test("片方が落ちても他方は返し、失敗した源だけ error にする", async () => {
+    const h = harness(ACCOUNTS);
+    const cookie = await sessionCookie(h.app);
+
+    saveProviderSnapshot(h.db, "codex", usageSnapshot());
+    saveProviderError(h.db, openCodeSourceId(MAIN_ID), {
+      code: "config",
+      message: "API キーが受け付けられませんでした",
+      at: BASE_TIME,
+    });
+
+    const payload = await readUsage(h, cookie);
+
+    expect(payload.sources.map((source) => source.state)).toEqual(["ok", "error", "loading"]);
   });
 
   test("snapshot と error が両方あれば前回の値を stale として返す", async () => {
     const h = harness();
     const cookie = await sessionCookie(h.app);
 
-    saveProviderSnapshot(h.db, usageSnapshot({ capturedAt: BASE_TIME - 10 * MINUTE }));
+    saveProviderSnapshot(h.db, "codex", usageSnapshot({ capturedAt: BASE_TIME - 10 * MINUTE }));
     saveProviderError(h.db, "codex", { code: "upstream", message: "HTTP 500", at: BASE_TIME });
 
-    const codex = (await readUsage(h, cookie)).providers.find((provider) => provider.id === "codex");
+    const codex = (await readUsage(h, cookie)).sources[0];
 
     expect(codex?.state).toBe("stale");
     expect(codex?.windows).toHaveLength(1);
@@ -160,10 +227,10 @@ describe("GET /api/usage", () => {
     const h = harness();
     const cookie = await sessionCookie(h.app);
 
-    saveProviderSnapshot(h.db, usageSnapshot());
+    saveProviderSnapshot(h.db, "codex", usageSnapshot());
     h.advance(2 * INTERVAL + 1);
 
-    expect((await readUsage(h, cookie)).providers[0]?.state).toBe("stale");
+    expect((await readUsage(h, cookie)).sources[0]?.state).toBe("stale");
   });
 
   test("認証設定が壊れていれば 503 でデータを返さない", async () => {
@@ -186,7 +253,7 @@ describe("GET /api/usage", () => {
   });
 
   test("上流の識別子と token を API 応答にも DB にも残さない", async () => {
-    const h = harness();
+    const h = harness(ACCOUNTS);
     const cookie = await sessionCookie(h.app);
     const snapshot = parseCodexUsage(
       {
@@ -202,8 +269,8 @@ describe("GET /api/usage", () => {
       BASE_TIME,
     );
 
-    saveProviderSnapshot(h.db, snapshot);
-    saveProviderError(h.db, "opencode-go", {
+    saveProviderSnapshot(h.db, "codex", snapshot);
+    saveProviderError(h.db, openCodeSourceId(MAIN_ID), {
       code: "config",
       message: "OpenCode Go の API キーが設定されていません",
       at: BASE_TIME,

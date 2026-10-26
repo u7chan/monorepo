@@ -298,7 +298,7 @@ describe("POST /api/codex/logout", () => {
     const h = harness();
     const cookie = await h.cookie();
 
-    saveProviderSnapshot(h.db, usageSnapshot());
+    saveProviderSnapshot(h.db, "codex", usageSnapshot());
 
     const response = await h.app.request(
       new Request("http://localhost/api/codex/logout", { method: "POST", headers: { origin: ORIGIN, cookie } }),

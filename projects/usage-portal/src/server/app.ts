@@ -6,7 +6,7 @@ import type { AuthService } from "./auth";
 import type { CodexApi } from "./codex/api";
 import { CodexLoginError } from "./codex/login";
 import type { HealthReport } from "./health";
-import type { OpenCodeApi } from "./opencode/api";
+import type { OpenCodeApi, OpenCodeApiError } from "./opencode/api";
 import { createRateLimiter, type RateLimiter } from "./rate-limit";
 import { clearSessionCookie, sessionCookie } from "./session";
 import type { UsagePayload } from "./usage";
@@ -227,39 +227,53 @@ export function createApp(deps: AppDeps) {
     return c.body(null, 204);
   });
 
-  app.get("/api/opencode/auth", requireSession, (c) => c.json(deps.opencode.auth()));
+  app.get("/api/opencode/accounts", requireSession, (c) => c.json({ accounts: deps.opencode.list() }));
 
-  app.put("/api/opencode/key", requireSession, bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }), async (c) => {
-    const apiKey = await readStringBody(c, "apiKey");
+  app.post(
+    "/api/opencode/accounts",
+    requireSession,
+    bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }),
+    async (c) => {
+      const body = await readJsonObject(c);
 
-    if (apiKey === null) {
-      return c.json({ error: "invalid_request" as const }, 400);
-    }
-
-    try {
-      const result = await deps.opencode.save(apiKey);
-
-      if (result.ok) {
-        return c.json(result.state);
+      if (!body) {
+        return c.json({ error: "invalid_request" as const }, 400);
       }
 
-      return result.reason === "invalid_key"
-        ? c.json({ error: "invalid_key" as const }, 400)
-        : c.json({ error: "unavailable" as const }, 503);
-    } catch {
-      // 保存に失敗した理由（ディスクなど）は外へ出さない。
-      return c.json({ error: "unavailable" as const }, 503);
-    }
-  });
+      const result = await deps.opencode.create({ name: body.name, icon: body.icon, apiKey: body.apiKey });
 
-  app.delete("/api/opencode/key", requireSession, async (c) => {
-    try {
-      await deps.opencode.clear();
-    } catch {
-      return c.json({ error: "unavailable" as const }, 503);
-    }
+      return result.ok ? c.json({ account: result.value }, 201) : openCodeError(c, result.error);
+    },
+  );
 
-    return c.body(null, 204);
+  app.put(
+    "/api/opencode/accounts/:id",
+    requireSession,
+    bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }),
+    async (c) => {
+      const body = await readJsonObject(c);
+
+      if (!body) {
+        return c.json({ error: "invalid_request" as const }, 400);
+      }
+
+      const patch = { name: body.name, icon: body.icon, apiKey: body.apiKey };
+
+      // 部分更新。どれも無い要求は、何を変えるのか決まらないので受け付けない。
+      if (patch.name === undefined && patch.icon === undefined && patch.apiKey === undefined) {
+        return c.json({ error: "invalid_request" as const }, 400);
+      }
+
+      const result = await deps.opencode.update(c.req.param("id"), patch);
+
+      return result.ok ? c.json({ account: result.value }, 200) : openCodeError(c, result.error);
+    },
+  );
+
+  app.delete("/api/opencode/accounts/:id", requireSession, async (c) => {
+    const result = await deps.opencode.remove(c.req.param("id") ?? "");
+
+    return result.ok ? c.body(null, 204) : openCodeError(c, result.error);
   });
 
   return app;
@@ -299,6 +313,25 @@ async function readStringBody(c: Context, key: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** 配列や null は body の形として受け付けない。値の検証は各 API の service が持つ。 */
+async function readJsonObject(c: Context): Promise<Record<string, unknown> | null> {
+  try {
+    const parsed: unknown = await c.req.json();
+
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function openCodeError(c: Context, error: OpenCodeApiError): Response {
+  const status = error === "not_found" ? 404 : error === "limit_reached" ? 409 : error === "unavailable" ? 503 : 400;
+
+  return c.json({ error }, status);
 }
 
 function codexError(c: Context, error: unknown): Response {

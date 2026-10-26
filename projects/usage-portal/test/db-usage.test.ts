@@ -1,13 +1,15 @@
-// snapshot / error / sample の保存と保持期間を固定する。
+// snapshot / error / sample の保存と、source id 単位の掃除を固定する。
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  deleteLegacyOpenCodeUsage,
   deleteProviderUsage,
   loadProviderUsage,
   loadSamples,
   openDatabase,
+  pruneOpenCodeUsage,
   pruneSamples,
   saveProviderError,
   saveProviderSnapshot,
@@ -17,6 +19,8 @@ import { BASE_TIME, usageSnapshot } from "./support";
 
 const dirs: string[] = [];
 const handles: DatabaseHandle[] = [];
+const MAIN_SOURCE_ID = "opencode-go:11111111-1111-4111-8111-111111111111";
+const SUB_SOURCE_ID = "opencode-go:22222222-2222-4222-8222-222222222222";
 
 function open(): DatabaseHandle {
   const dir = mkdtempSync(join(tmpdir(), "usage-portal-db-usage-"));
@@ -28,8 +32,8 @@ function open(): DatabaseHandle {
   return handle;
 }
 
-function snapshotRow(handle: DatabaseHandle, provider: string) {
-  return handle.db.query("SELECT provider, captured_at FROM provider_snapshot WHERE provider = ?").get(provider);
+function snapshotRow(handle: DatabaseHandle, sourceId: string) {
+  return handle.db.query("SELECT provider, captured_at FROM provider_snapshot WHERE provider = ?").get(sourceId);
 }
 
 afterEach(() => {
@@ -43,13 +47,14 @@ afterEach(() => {
 });
 
 describe("saveProviderSnapshot", () => {
-  test("snapshot を upsert し、窓ごとの sample を追記し、error を消す", () => {
+  test("source id ごとに snapshot を upsert し、窓ごとの sample を追記し、error を消す", () => {
     const handle = open();
 
     saveProviderError(handle, "codex", { code: "upstream", message: "HTTP 500", at: BASE_TIME - 1000 });
-    saveProviderSnapshot(handle, usageSnapshot());
+    saveProviderSnapshot(handle, "codex", usageSnapshot());
     saveProviderSnapshot(
       handle,
+      "codex",
       usageSnapshot({
         capturedAt: BASE_TIME + 300_000,
         windows: [
@@ -65,21 +70,36 @@ describe("saveProviderSnapshot", () => {
     expect(loadProviderUsage(handle, ["codex"]).get("codex")?.snapshot?.capturedAt).toBe(BASE_TIME + 300_000);
   });
 
+  test("同じ snapshot でも source id が違えば別の行として保存する", () => {
+    const handle = open();
+    const snapshot = usageSnapshot({ provider: "opencode-go", name: "OpenCode Go" });
+
+    saveProviderSnapshot(handle, MAIN_SOURCE_ID, snapshot);
+    saveProviderSnapshot(handle, SUB_SOURCE_ID, snapshot);
+
+    expect(handle.db.query("SELECT COUNT(*) AS count FROM provider_snapshot").get()).toEqual({ count: 2 });
+    expect(snapshotRow(handle, MAIN_SOURCE_ID)).not.toBeNull();
+    expect(snapshotRow(handle, SUB_SOURCE_ID)).not.toBeNull();
+    // JSON の中の provider は provider id のまま。列だけが source id を持つ。
+    expect(loadProviderUsage(handle, [MAIN_SOURCE_ID]).get(MAIN_SOURCE_ID)?.snapshot?.provider).toBe("opencode-go");
+  });
+
   test("sample の追記に失敗したら snapshot の更新ごと巻き戻す", () => {
     const handle = open();
 
     handle.db.exec("DROP TABLE usage_sample");
 
-    expect(() => saveProviderSnapshot(handle, usageSnapshot())).toThrow();
+    expect(() => saveProviderSnapshot(handle, "codex", usageSnapshot())).toThrow();
     expect(snapshotRow(handle, "codex")).toBeNull();
   });
 
   test("同じ取得時刻の sample は上書きする", () => {
     const handle = open();
 
-    saveProviderSnapshot(handle, usageSnapshot());
+    saveProviderSnapshot(handle, "codex", usageSnapshot());
     saveProviderSnapshot(
       handle,
+      "codex",
       usageSnapshot({
         windows: [{ id: "primary", label: "週次", durationSeconds: 604_800, usedPercent: 80, resetsAt: null }],
       }),
@@ -93,7 +113,7 @@ describe("saveProviderError", () => {
   test("error を upsert し、前回の snapshot を残す", () => {
     const handle = open();
 
-    saveProviderSnapshot(handle, usageSnapshot());
+    saveProviderSnapshot(handle, "codex", usageSnapshot());
     saveProviderError(handle, "codex", { code: "upstream", message: "HTTP 429", at: BASE_TIME + 1 });
     saveProviderError(handle, "codex", { code: "schema", message: "応答を解釈できませんでした", at: BASE_TIME + 2 });
 
@@ -105,12 +125,12 @@ describe("saveProviderError", () => {
 });
 
 describe("loadProviderUsage", () => {
-  test("行が無い provider も null として返す", () => {
+  test("行が無い source も null として返す", () => {
     const handle = open();
-    const stored = loadProviderUsage(handle, ["codex", "opencode-go"]);
+    const stored = loadProviderUsage(handle, ["codex", MAIN_SOURCE_ID]);
 
     expect(stored.get("codex")).toEqual({ snapshot: null, error: null });
-    expect(stored.get("opencode-go")).toEqual({ snapshot: null, error: null });
+    expect(stored.get(MAIN_SOURCE_ID)).toEqual({ snapshot: null, error: null });
   });
 
   test("壊れた snapshot_json は読めなかったものとして扱う", () => {
@@ -131,6 +151,7 @@ describe("loadSamples", () => {
     for (const offset of [0, 600_000, 1_200_000]) {
       saveProviderSnapshot(
         handle,
+        "codex",
         usageSnapshot({
           capturedAt: BASE_TIME + offset,
           windows: [
@@ -152,22 +173,68 @@ describe("pruneSamples / deleteProviderUsage", () => {
     const handle = open();
     const day = 24 * 60 * 60 * 1000;
 
-    saveProviderSnapshot(handle, usageSnapshot({ capturedAt: BASE_TIME - 40 * day }));
-    saveProviderSnapshot(handle, usageSnapshot({ capturedAt: BASE_TIME }));
+    saveProviderSnapshot(handle, "codex", usageSnapshot({ capturedAt: BASE_TIME - 40 * day }));
+    saveProviderSnapshot(handle, "codex", usageSnapshot({ capturedAt: BASE_TIME }));
 
     expect(pruneSamples(handle, BASE_TIME - 30 * day)).toBe(1);
     expect(loadSamples(handle, "codex", "primary", 0).map((point) => point.at)).toEqual([BASE_TIME]);
   });
 
-  test("サインアウトでは snapshot と error を消し、sample は残す", () => {
+  test("削除は snapshot・error・sample をまとめて消し、他の source は残す", () => {
     const handle = open();
 
-    saveProviderSnapshot(handle, usageSnapshot());
-    saveProviderError(handle, "codex", { code: "upstream", message: "HTTP 500", at: BASE_TIME });
+    saveProviderSnapshot(handle, "codex", usageSnapshot());
+    saveProviderSnapshot(handle, MAIN_SOURCE_ID, usageSnapshot({ provider: "opencode-go", name: "OpenCode Go" }));
+    saveProviderError(handle, MAIN_SOURCE_ID, { code: "upstream", message: "HTTP 500", at: BASE_TIME });
 
-    deleteProviderUsage(handle, "codex");
+    deleteProviderUsage(handle, MAIN_SOURCE_ID);
 
-    expect(loadProviderUsage(handle, ["codex"]).get("codex")).toEqual({ snapshot: null, error: null });
+    expect(loadProviderUsage(handle, [MAIN_SOURCE_ID]).get(MAIN_SOURCE_ID)).toEqual({ snapshot: null, error: null });
+    expect(loadSamples(handle, MAIN_SOURCE_ID, "primary", 0)).toEqual([]);
+    expect(loadProviderUsage(handle, ["codex"]).get("codex")?.snapshot?.windows).toHaveLength(1);
     expect(loadSamples(handle, "codex", "primary", 0)).toHaveLength(1);
+  });
+});
+
+describe("起動時の掃除", () => {
+  test("旧 opencode-go の行だけを消し、Codex の snapshot は残す", () => {
+    const handle = open();
+
+    saveProviderSnapshot(handle, "codex", usageSnapshot());
+    saveProviderSnapshot(handle, "opencode-go", usageSnapshot({ provider: "opencode-go", name: "OpenCode Go" }));
+    saveProviderError(handle, "opencode-go", { code: "config", message: "旧キー", at: BASE_TIME });
+
+    expect(deleteLegacyOpenCodeUsage(handle)).toBeGreaterThan(0);
+
+    expect(loadProviderUsage(handle, ["opencode-go"]).get("opencode-go")).toEqual({ snapshot: null, error: null });
+    expect(loadSamples(handle, "opencode-go", "primary", 0)).toEqual([]);
+    expect(loadProviderUsage(handle, ["codex"]).get("codex")?.snapshot?.windows).toHaveLength(1);
+  });
+
+  test("登録の無い source id の行だけを消す", () => {
+    const handle = open();
+
+    saveProviderSnapshot(handle, MAIN_SOURCE_ID, usageSnapshot({ provider: "opencode-go", name: "OpenCode Go" }));
+    saveProviderSnapshot(handle, SUB_SOURCE_ID, usageSnapshot({ provider: "opencode-go", name: "OpenCode Go" }));
+    saveProviderSnapshot(handle, "codex", usageSnapshot());
+
+    expect(pruneOpenCodeUsage(handle, [MAIN_SOURCE_ID])).toBeGreaterThan(0);
+
+    expect(loadProviderUsage(handle, [MAIN_SOURCE_ID]).get(MAIN_SOURCE_ID)?.snapshot).not.toBeNull();
+    expect(loadProviderUsage(handle, [SUB_SOURCE_ID]).get(SUB_SOURCE_ID)?.snapshot).toBeNull();
+    expect(loadSamples(handle, SUB_SOURCE_ID, "primary", 0)).toEqual([]);
+    expect(loadProviderUsage(handle, ["codex"]).get("codex")?.snapshot).not.toBeNull();
+  });
+
+  test("アカウントが 1 件も無ければ opencode-go: で始まる行を全部消す", () => {
+    const handle = open();
+
+    saveProviderSnapshot(handle, MAIN_SOURCE_ID, usageSnapshot({ provider: "opencode-go", name: "OpenCode Go" }));
+    saveProviderSnapshot(handle, "codex", usageSnapshot());
+
+    pruneOpenCodeUsage(handle, []);
+
+    expect(loadProviderUsage(handle, [MAIN_SOURCE_ID]).get(MAIN_SOURCE_ID)?.snapshot).toBeNull();
+    expect(loadProviderUsage(handle, ["codex"]).get("codex")?.snapshot).not.toBeNull();
   });
 });
