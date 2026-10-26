@@ -8,6 +8,7 @@ import type { SharedContentsController } from "../src/hooks/useSharedContents";
 import {
   SHARE_CLOSE_HINT,
   SHARE_CONFIRM_NOTES,
+  SHARE_CONFIRM_SUMMARY,
   SHARE_DUPLICATE_NOTE,
   SHARE_DUPLICATE_PUBLISHING_NOTE,
   SHARE_NAME_MAX_LENGTH,
@@ -96,6 +97,20 @@ function actionTag(html: string, label: string): string {
   return button.slice(0, button.indexOf(">") + 1);
 }
 
+/** ボタンの `disabled` 属性。className の `disabled:` と取り違えないよう属性として見る */
+function isDisabled(tag: string): boolean {
+  return / disabled(?:=""|\s|>)/.test(tag);
+}
+
+/** `role="tab"` のボタンを出現順に取り出す。切替の状態遷移は SSR では観測できないので、描画された契約だけを見る */
+function tabs(html: string): { tag: string; label: string }[] {
+  return (html.match(/<button[^>]*>[\s\S]*?<\/button>/g) ?? []).flatMap((markup) => {
+    const tag = markup.slice(0, markup.indexOf(">") + 1);
+    if (!tag.includes('role="tab"')) return [];
+    return [{ tag, label: markup.replace(/<[^>]*>/g, "").trim() }];
+  });
+}
+
 test("確認: 公開対象の path と 4 つの条件を出し、確定 URL と結果の操作は出さない", () => {
   const html = render(controller());
   assert.match(html, />共有</);
@@ -111,6 +126,76 @@ test("確認: 公開対象の path と 4 つの条件を出し、確定 URL と�
   assert.equal(actionTag(html, "共有する").includes("disabled"), false);
   assert.ok(actionTag(html, "キャンセル"));
   assert.match(html, /この会話の共有物はまだありません。/);
+});
+
+// What: 初期のタブは「公開」で、2 つ目は件数を添えたラベルで未選択（切替・フォーカスはブラウザ受入）
+test("タブ: 初期は「公開」が選択され、2 つ目は件数を添えた「共有物（N）」で未選択", () => {
+  const empty = tabs(render(controller()));
+  assert.deepEqual(
+    empty.map((tab) => tab.label),
+    ["公開", "共有物（0）"],
+  );
+  assert.match(empty[0].tag, /aria-selected="true"/);
+  assert.match(empty[1].tag, /aria-selected="false"/);
+  assert.ok(empty[0].tag.includes("tab-item-active"));
+  assert.equal(isDisabled(empty[1].tag), false, "受付前は 2 つ目のタブを選べる");
+  const many = tabs(render(controller({ items: [item({ id: "a" }), item({ id: "b" })] })));
+  assert.equal(many[1].label, "共有物（2）");
+});
+
+// What: 確認の 4 行は既定で畳んだ <details> の中に残し、summary だけで要点が読める
+test("注意: 既定で畳んだ details に入れ、summary の 1 行だけで要点が読める", () => {
+  const html = render(controller());
+  const details = html.match(/<details[^>]*>/);
+  assert.ok(details, "注意は details に入れる");
+  assert.equal(/\sopen(?:=|\s|>)/.test(details[0]), false, "既定は畳んだ状態");
+  assert.ok(html.includes(SHARE_CONFIRM_SUMMARY), "summary の 1 行を出す");
+  const notesAt = html.indexOf(SHARE_CONFIRM_NOTES[0]);
+  assert.ok(notesAt > html.indexOf("<details"), "4 行は畳んだ中に置く");
+  for (const note of SHARE_CONFIRM_NOTES) assert.ok(html.includes(note), `確認の条件が抜けている: ${note}`);
+});
+
+// What: 受付後は「公開」に固定して 2 つ目のタブを選べなくし、確定のボタンを出さない
+test("受付後: 「公開」タブが選択されたまま、2 つ目のタブは選べず、確定のボタンも出さない", () => {
+  for (const share of [
+    controller({ submitting: true }),
+    controller({ items: [item()], activeId: "abc123" }),
+    controller({ items: [item({ status: "published", publishedAt: PUBLISHED_AT })], activeId: "abc123" }),
+  ]) {
+    const html = render(share);
+    const list = tabs(html);
+    assert.match(list[0].tag, /aria-selected="true"/);
+    assert.equal(isDisabled(list[0].tag), false);
+    assert.match(list[1].tag, /aria-selected="false"/);
+    assert.ok(isDisabled(list[1].tag), "受付後は 2 つ目のタブを選べない");
+    assert.equal(html.includes(">共有する<"), false);
+    assert.equal(html.includes(">キャンセル<"), false);
+  }
+});
+
+// What: 2 つ目の面は初期表示では隠れているが、一覧・空・取得中・取得失敗の文言は今までどおり描く
+test("タブ 2: 一覧・空・取得中・取得失敗の文言を、隠した面に今までどおり出す", () => {
+  // 切り替えない面だけを hidden で隠す (公開の面は初期表示でそのまま見える)
+  const hiddenPanel = (html: string) => {
+    const at = html.indexOf('<div hidden=""');
+    assert.notEqual(at, -1, "切り替えていない面を hidden で隠す");
+    assert.ok(at > html.indexOf("公開される内容"), "隠すのは一覧の面");
+    return at;
+  };
+
+  const empty = render(controller());
+  assert.equal((empty.match(/<div hidden=""/g) ?? []).length, 1, "隠す面は 1 つだけ");
+  assert.ok(empty.indexOf("この会話の共有物はまだありません。") > hiddenPanel(empty));
+
+  const loading = render(controller({ loading: true }));
+  assert.ok(loading.indexOf("この会話の共有物") > hiddenPanel(loading));
+  assert.equal(loading.includes("この会話の共有物はまだありません。"), false, "取得中は空と言わない");
+
+  const failed = render(controller({ failed: true }));
+  assert.ok(failed.indexOf("共有物の一覧を取得できませんでした。") > hiddenPanel(failed));
+
+  const listed = render(controller({ items: [item({ status: "published", publishedAt: PUBLISHED_AT })] }));
+  assert.ok(listed.indexOf(">abc123<") > hiddenPanel(listed));
 });
 
 // 表示名は作成時にだけ決める。空欄は送らず、サーバーが basename (root はセッション ID) へ落とす。
