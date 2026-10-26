@@ -11,7 +11,43 @@ export const CUSTOM_PROVIDER_NAME_MAX_LENGTH = 64;
 export const CUSTOM_PROVIDER_BASE_URL_MAX_LENGTH = 2_048;
 export const CUSTOM_PROVIDER_MODEL_ID_MAX_LENGTH = 200;
 export const CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS = 16_384;
-export const CUSTOM_PROVIDER_CONTEXT_WINDOW_PLACEHOLDER = "32768";
+
+/** contextWindow の選択肢 (K = 1024)。実モデルの窓はこの刻みに乗ることが多いため、自由入力ではなく選択にする */
+export const CUSTOM_PROVIDER_CONTEXT_WINDOW_PRESETS: readonly number[] = [
+  8 * 1024,
+  16 * 1024,
+  32 * 1024,
+  64 * 1024,
+  128 * 1024,
+  256 * 1024,
+  384 * 1024,
+  512 * 1024,
+];
+
+/** 1234567 -> "1,234,567"。locale に依存させないため桁区切りだけを自前で入れる */
+function withThousands(value: number): string {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
+}
+
+/** 選択肢の表示。`128K (131,072)` の形にし、K で割り切れない値だけ素の数値で出す */
+export function contextWindowLabel(value: number): string {
+  const raw = withThousands(value);
+  return value % 1024 === 0 ? `${value / 1024}K (${raw})` : raw;
+}
+
+/**
+ * contextWindow の選択肢。保存済みの値がプリセットに無い場合 (以前の自由入力や外部で作られた定義) も
+ * 選べるよう、その値を 1 件だけ足す。勝手に近い刻みへ丸めると、実際の窓と違う値を保存してしまう。
+ */
+export function contextWindowOptions(current: string): { value: number; label: string }[] {
+  const values = [...CUSTOM_PROVIDER_CONTEXT_WINDOW_PRESETS];
+  const parsed = Number(current.trim());
+  if (current.trim() !== "" && Number.isInteger(parsed) && parsed > 0 && !values.includes(parsed)) {
+    values.push(parsed);
+    values.sort((a, b) => a - b);
+  }
+  return values.map((value) => ({ value, label: contextWindowLabel(value) }));
+}
 
 /** サーバーと同じ id の形。作成後は変更できない */
 export const CUSTOM_PROVIDER_ID_PATTERN = /^[a-z](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
@@ -37,7 +73,7 @@ export const CUSTOM_PROVIDER_NOTES: readonly string[] = [
   "BFF にはログインがないため、信頼できる baseUrl だけを指定してください。",
 ];
 
-/** contextWindow の入力の注意。実モデルより大きい値を入れると、送信がコンテキスト超過で失敗する */
+/** contextWindow の選択の注意。実モデルより大きい値を選ぶと、送信がコンテキスト超過で失敗する */
 export const CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE = "実モデルの context window より大きくしないでください。";
 
 /** フォームの下書き。数値は入力欄の文字列のまま持ち、保存前に検証する */
@@ -152,7 +188,7 @@ export function validateCustomProviderDraft(
     errors.modelId = `モデル ID は空白なしで ${CUSTOM_PROVIDER_MODEL_ID_MAX_LENGTH} 文字以内で入力してください。`;
   }
 
-  if (draft.contextWindow.trim() === "") errors.contextWindow = "contextWindow を入力してください。";
+  if (draft.contextWindow.trim() === "") errors.contextWindow = "contextWindow を選択してください。";
   else if (!isPositiveIntegerText(draft.contextWindow.trim())) {
     errors.contextWindow = "contextWindow は正の整数で入力してください。";
   }

@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE,
+  CUSTOM_PROVIDER_CONTEXT_WINDOW_PRESETS,
   CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS,
   CUSTOM_PROVIDER_NOTES,
   CUSTOM_PROVIDER_NOTES_SUMMARY,
+  contextWindowLabel,
+  contextWindowOptions,
   customProviderBaseUrlError,
   customProviderCreateBody,
   customProviderDraftOf,
@@ -98,6 +101,42 @@ test("モデル ID は空白なし・200 文字まで、contextWindow は必須�
   assert.equal(customProviderFormHasError({}), false);
   assert.equal(customProviderFormHasError({ baseUrl: "x" }), true);
   assert.ok(CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE.includes("context window"));
+});
+
+test("contextWindow の選択肢は 8K〜512K を `xxK (raw)` で並べる", () => {
+  assert.deepEqual(
+    CUSTOM_PROVIDER_CONTEXT_WINDOW_PRESETS.map((value) => contextWindowLabel(value)),
+    [
+      "8K (8,192)",
+      "16K (16,384)",
+      "32K (32,768)",
+      "64K (65,536)",
+      "128K (131,072)",
+      "256K (262,144)",
+      "384K (393,216)",
+      "512K (524,288)",
+    ],
+  );
+  assert.deepEqual(
+    contextWindowOptions("").map((option) => option.value),
+    [...CUSTOM_PROVIDER_CONTEXT_WINDOW_PRESETS],
+  );
+  assert.deepEqual(
+    contextWindowOptions("32768").map((option) => option.value),
+    [...CUSTOM_PROVIDER_CONTEXT_WINDOW_PRESETS],
+  );
+});
+
+test("プリセットに無い保存値は 1 件だけ足し、値の順に並べる (勝手に丸めない)", () => {
+  const values = contextWindowOptions("200000").map((option) => option.value);
+  assert.equal(values.length, CUSTOM_PROVIDER_CONTEXT_WINDOW_PRESETS.length + 1);
+  assert.deepEqual(
+    values,
+    [...values].sort((a, b) => a - b),
+  );
+  assert.ok(values.includes(200_000));
+  assert.equal(contextWindowLabel(200_000), "200,000", "1024 で割り切れない値は K に丸めない");
+  assert.equal(contextWindowOptions("0").length, CUSTOM_PROVIDER_CONTEXT_WINDOW_PRESETS.length);
 });
 
 test("保存値の下書きは id と同じ名前を空にし、キーは空にする (空欄 = 維持)", () => {
