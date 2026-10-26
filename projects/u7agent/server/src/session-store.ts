@@ -84,6 +84,7 @@ export interface SessionMeta {
     at: number;
     state: "pending" | "done" | "failed" | "skipped";
     model?: string;
+    thinkingLevel?: string;
     generation?: number;
     inputTokens?: number;
     outputTokens?: number;
@@ -271,6 +272,7 @@ function parseTitleAttempt(value: unknown): SessionMeta["titleAttempt"] | undefi
     at: attempt.at,
     state,
     ...(typeof attempt.model === "string" ? { model: attempt.model } : {}),
+    ...(typeof attempt.thinkingLevel === "string" ? { thinkingLevel: attempt.thinkingLevel } : {}),
     ...(typeof attempt.generation === "number" ? { generation: attempt.generation } : {}),
     ...(typeof attempt.inputTokens === "number" ? { inputTokens: attempt.inputTokens } : {}),
     ...(typeof attempt.outputTokens === "number" ? { outputTokens: attempt.outputTokens } : {}),

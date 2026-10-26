@@ -1,12 +1,12 @@
 /**
- * 設定 → 会話タイトル (AI 要約) のサービス。アプリ DB の 1 行を正として On/Off・要約モデル・定義を持ち、
- * 予約時の値と世代を会話ストアへ渡す。保存は自分のロックで直列化し、起動時の適用も同じロックを通す
- * (web-search-settings.ts と同じ契約)。方針は docs/session-title.md を正とする。
+ * 設定 → 会話タイトル (AI 要約) のサービス。アプリ DB の 1 行を正として On/Off・要約モデル・
+ * Effort・定義を持ち、予約時の値と世代を会話ストアへ渡す。保存は自分のロックで直列化し、
+ * 起動時の適用も同じロックを通す (web-search-settings.ts と同じ契約)。方針は docs/session-title.md を正とする。
  */
 import type { TitleSummarySettingsRow } from "./app-db";
 import { httpError, messageFor } from "./http";
 import { MutationLock } from "./model-settings";
-import type { ModelOption } from "./schema";
+import { ThinkingLevelSchema, type ModelOption, type ThinkingLevel } from "./schema";
 import { TITLE_DEFINITION_DEFAULT, TITLE_DEFINITION_MAX, type TitleSummaryModelChoice } from "./session-title";
 import type { UpdateTitleSummaryBody, TitleSummarySettingsResponse } from "./schema";
 
@@ -14,6 +14,8 @@ export const TITLE_SUMMARY_SETTINGS_NOT_STORED_MESSAGE =
   "会話タイトルの設定をアプリデータ（SQLite）へ保存できませんでした";
 export const TITLE_SUMMARY_MODEL_REQUIRED_MESSAGE = "AI要約を有効にするには要約モデルを選択してください";
 export const TITLE_SUMMARY_MODEL_UNAVAILABLE_MESSAGE = "選択したモデルは利用できません";
+export const TITLE_SUMMARY_EFFORT_MODEL_REQUIRED_MESSAGE = "Effortを選ぶには要約モデルを選択してください";
+export const TITLE_SUMMARY_EFFORT_UNAVAILABLE_MESSAGE = "選択したモデルではこのEffortを選べません";
 export const TITLE_SUMMARY_DEFINITION_EMPTY_MESSAGE = "要約の定義を入力してください";
 export const TITLE_SUMMARY_DEFINITION_TOO_LONG_MESSAGE = `要約の定義は${TITLE_DEFINITION_MAX}文字以内で入力してください`;
 
@@ -22,11 +24,13 @@ export interface TitleSummaryRuntimeSettings {
   enabled: boolean;
   model: { provider: string; id: string } | undefined;
   definition: string;
+  /** 実効 Effort。モデル不在は undefined */
+  thinkingLevel: ThinkingLevel | undefined;
   generation: number;
 }
 
 export interface TitleSummarySettingsDb {
-  /** 行が無ければ undefined = 既定 (Off / モデル未選択 / 既定の定義) */
+  /** 行が無ければ undefined = 既定 (Off / モデル未選択 / Effort 未指定 / 既定の定義) */
   readTitleSummarySettings(): TitleSummarySettingsRow | undefined;
   saveTitleSummarySettings(settings: TitleSummarySettingsRow): void;
 }
@@ -46,6 +50,8 @@ interface StoredState {
   enabled: boolean;
   /** `provider/id` または null */
   model: string | null;
+  /** 未指定は null。実効値はモデルの最小段階へフォールバックする */
+  thinkingLevel: ThinkingLevel | null;
   definition: string;
 }
 
@@ -53,7 +59,12 @@ export class TitleSummarySettingsService {
   #db: TitleSummarySettingsDb;
   #models: () => readonly ModelOption[];
   #lock = new MutationLock();
-  #state: StoredState = { enabled: false, model: null, definition: TITLE_DEFINITION_DEFAULT };
+  #state: StoredState = {
+    enabled: false,
+    model: null,
+    thinkingLevel: null,
+    definition: TITLE_DEFINITION_DEFAULT,
+  };
   #generation = 0;
   #listeners = new Set<() => void>();
 
@@ -66,7 +77,14 @@ export class TitleSummarySettingsService {
   settings(): TitleSummarySettingsResponse {
     const row = this.#readStoredOrThrow();
     return this.#response(
-      row ? { enabled: row.enabled, model: row.model, definition: definitionOf(row) } : this.#defaultState(),
+      row
+        ? {
+            enabled: row.enabled,
+            model: row.model,
+            thinkingLevel: parseThinkingLevel(row.thinkingLevel) ?? null,
+            definition: definitionOf(row),
+          }
+        : this.#defaultState(),
     );
   }
 
@@ -79,6 +97,7 @@ export class TitleSummarySettingsService {
       enabled: this.#state.enabled,
       model: parseModelRef(this.#state.model),
       definition: this.#state.definition,
+      thinkingLevel: effectiveThinkingLevel(this.#modelOption(this.#state.model), this.#state.thinkingLevel),
       generation: this.#generation,
     };
   }
@@ -98,30 +117,62 @@ export class TitleSummarySettingsService {
         console.warn("[u7agent] title summary settings unavailable");
       }
       this.#state = row
-        ? { enabled: row.enabled, model: row.model, definition: definitionOf(row) }
+        ? {
+            enabled: row.enabled,
+            model: row.model,
+            thinkingLevel: parseThinkingLevel(row.thinkingLevel) ?? null,
+            definition: definitionOf(row),
+          }
         : this.#defaultState();
     });
   }
 
   /**
-   * 3 項目の保存。省略した項目は保存値を保つ (Off から On へ戻したときにモデルを選び直させない)。
-   * 有効化には利用可能なモデルを要求し、未選択・利用不可は 400 にする (勝手に既定へ畳まない)。
+   * 4 項目の保存。省略した項目は保存値を保つ (Off から On へ戻したときにモデルを選び直させない)。
+   * Effort は選択中のモデルが対応する段階だけを保存する。モデルを変えて Effort を省略したときは、
+   * 新しいモデルが対応しない保存値を未指定へ戻す (未指定は実行時に最小段階へフォールバックする)。
    */
   async put(body: UpdateTitleSummaryBody): Promise<TitleSummaryMutationOutcome> {
     return this.#lock.run(async () => {
       const current = this.#state;
       let model = current.model;
-      if (body.model !== undefined) model = body.model === null ? null : body.model.trim();
+      if (body.model !== undefined) {
+        const requested = body.model?.trim() ?? "";
+        model = requested === "" ? null : requested;
+      }
       const definitionError = body.definition === undefined ? undefined : definitionInvalidReason(body.definition);
       if (definitionError !== undefined) return { status: 400, error: definitionError };
       const definition = body.definition === undefined ? current.definition : body.definition.trim();
+      const selected = this.#modelOption(model);
       if (body.model) {
-        if (!this.#models().some((option) => model === `${option.provider}/${option.id}`)) {
-          return { status: 400, error: TITLE_SUMMARY_MODEL_UNAVAILABLE_MESSAGE };
+        if (!selected) return { status: 400, error: TITLE_SUMMARY_MODEL_UNAVAILABLE_MESSAGE };
+      }
+      // 明示された Effort は必ず検証する。モデルを変えて Effort を省略したときだけ、新しいモデルが
+      // 対応しない保存値を未指定へ戻す。モデルも Effort も変えない更新 (Off など) では、モデル候補の
+      // 消失や能力変更で保存値が一時的に使えなくても、保存値を保持して更新を通す。
+      let thinkingLevel = current.thinkingLevel;
+      if (body.thinkingLevel !== undefined) {
+        thinkingLevel = parseThinkingLevel(body.thinkingLevel) ?? null;
+        if (thinkingLevel !== null) {
+          if (!selected) {
+            return {
+              status: 400,
+              error:
+                model === null ? TITLE_SUMMARY_EFFORT_MODEL_REQUIRED_MESSAGE : TITLE_SUMMARY_MODEL_UNAVAILABLE_MESSAGE,
+            };
+          }
+          if (!selected.thinkingLevels.includes(thinkingLevel)) {
+            return { status: 400, error: TITLE_SUMMARY_EFFORT_UNAVAILABLE_MESSAGE };
+          }
+        }
+      } else if (body.model !== undefined) {
+        if (model === null) thinkingLevel = null;
+        else if (thinkingLevel !== null && (!selected || !selected.thinkingLevels.includes(thinkingLevel))) {
+          thinkingLevel = null;
         }
       }
       if (body.enabled && !model) return { status: 400, error: TITLE_SUMMARY_MODEL_REQUIRED_MESSAGE };
-      const next: StoredState = { enabled: body.enabled, model, definition };
+      const next: StoredState = { enabled: body.enabled, model, thinkingLevel, definition };
       try {
         this.#db.saveTitleSummarySettings(next);
       } catch (error) {
@@ -144,7 +195,13 @@ export class TitleSummarySettingsService {
   }
 
   #defaultState(): StoredState {
-    return { enabled: false, model: null, definition: TITLE_DEFINITION_DEFAULT };
+    return { enabled: false, model: null, thinkingLevel: null, definition: TITLE_DEFINITION_DEFAULT };
+  }
+
+  #modelOption(model: string | null): ModelOption | undefined {
+    const ref = parseModelRef(model);
+    if (!ref) return undefined;
+    return this.#models().find((option) => option.provider === ref.provider && option.id === ref.id);
   }
 
   #response(state: StoredState): TitleSummarySettingsResponse {
@@ -152,18 +209,22 @@ export class TitleSummarySettingsService {
       provider: option.provider,
       id: option.id,
       name: option.name,
+      thinkingLevels: option.thinkingLevels,
     })) satisfies TitleSummaryModelChoice[];
     const selected = parseModelRef(state.model);
+    const selectedOption = models.find(
+      (option) => selected !== undefined && option.provider === selected.provider && option.id === selected.id,
+    );
+    const effective = effectiveThinkingLevel(selectedOption, state.thinkingLevel);
     return {
       enabled: state.enabled,
       model: state.model,
+      thinkingLevel: state.thinkingLevel,
+      effectiveThinkingLevel: effective ?? null,
       definition: definitionOf(state),
       defaultDefinition: TITLE_DEFINITION_DEFAULT,
       models,
-      modelAvailable:
-        selected === undefined
-          ? false
-          : models.some((option) => option.provider === selected.provider && option.id === selected.id),
+      modelAvailable: selected !== undefined && selectedOption !== undefined,
     };
   }
 }
@@ -178,6 +239,21 @@ function definitionInvalidReason(definition: string): string | undefined {
   if (trimmed === "") return TITLE_SUMMARY_DEFINITION_EMPTY_MESSAGE;
   if (trimmed.length > TITLE_DEFINITION_MAX) return TITLE_SUMMARY_DEFINITION_TOO_LONG_MESSAGE;
   return undefined;
+}
+
+/** 保存済み Effort がそのモデルで使えるならそれ、使えなければ最小段階、モデル不在なら undefined */
+function effectiveThinkingLevel(
+  option: Pick<ModelOption, "thinkingLevels"> | undefined,
+  stored: ThinkingLevel | null,
+): ThinkingLevel | undefined {
+  if (!option) return undefined;
+  if (stored !== null && option.thinkingLevels.includes(stored)) return stored;
+  return option.thinkingLevels[0];
+}
+
+function parseThinkingLevel(value: unknown): ThinkingLevel | undefined {
+  const parsed = ThinkingLevelSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 export function parseModelRef(model: string | null): { provider: string; id: string } | undefined {

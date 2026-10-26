@@ -215,6 +215,7 @@ export type DiagnosticsTitleAttempt = {
   at: number;
   state: "pending" | "done" | "failed" | "skipped";
   model?: string;
+  thinkingLevel?: string;
   generation?: number;
   inputTokens?: number;
   outputTokens?: number;

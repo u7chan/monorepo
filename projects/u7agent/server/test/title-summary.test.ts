@@ -8,6 +8,7 @@ import test from "node:test";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { createSecretMasker } from "../src/redact";
 import { createTitleSummaryGenerate, type TitleSummaryCompletion } from "../src/title-summary";
+import { TITLE_OUTPUT_MAX_CHARS } from "../src/session-title";
 import { STUB_MODEL, STUB_USAGE } from "./stub-pi";
 
 const KEY = "sk-ant-dummy-key-0123456789abcdef";
@@ -17,12 +18,21 @@ const input = {
   definition: "日本語20文字程度で。",
   request: "ログイン画面のエラー表示を改善したい",
   response: "エラー表示を整理します。",
+  sessionId: "pi-session-test",
+  thinkingLevel: "low" as const,
   signal: new AbortController().signal,
 };
 
 function completionWith(
   message: Partial<AssistantMessage>,
-  recorded: { systemPrompt?: string; userText?: string; signal?: AbortSignal }[] = [],
+  recorded: {
+    systemPrompt?: string;
+    userText?: string;
+    signal?: AbortSignal;
+    sessionId?: string;
+    maxTokens?: number;
+    reasoning?: string;
+  }[] = [],
 ): TitleSummaryCompletion {
   return {
     resolveModel: (model) => (model.id === STUB_MODEL.id ? STUB_MODEL : undefined),
@@ -32,6 +42,9 @@ function completionWith(
         ...(context.systemPrompt === undefined ? {} : { systemPrompt: context.systemPrompt }),
         userText: userTextOf(user),
         signal: options.signal,
+        sessionId: options.sessionId,
+        maxTokens: options.maxTokens,
+        reasoning: options.reasoning,
       });
       return {
         role: "assistant",
@@ -58,12 +71,35 @@ test("入力全体（編集可能な定義を含む）の既知の秘密値を�
   assert.match(sent, /\[REDACTED\]/);
 });
 
+test("sessionId・推論込みの出力予算・Effort をモデル呼び出しへ渡す", async () => {
+  const recorded: { sessionId?: string; maxTokens?: number; reasoning?: string }[] = [];
+  const generate = createTitleSummaryGenerate(completionWith({}, recorded as never), createSecretMasker([]));
+  await generate({ ...input, thinkingLevel: "high" });
+  assert.equal(recorded[0]?.sessionId, "pi-session-test");
+  assert.equal(recorded[0]?.maxTokens, 1024);
+  assert.equal(recorded[0]?.reasoning, "high");
+
+  // off は pi-ai の reasoning では未指定として渡す (プロバイダーの既定推論を有効にしない)
+  await generate({ ...input, thinkingLevel: "off" });
+  assert.equal(recorded[1]?.reasoning, undefined);
+});
+
 test("取消の signal をモデル呼び出しまで渡す", async () => {
   const recorded: { signal?: AbortSignal }[] = [];
   const generate = createTitleSummaryGenerate(completionWith({}, recorded as never), createSecretMasker([]));
   const controller = new AbortController();
   await generate({ ...input, signal: controller.signal });
   assert.equal(recorded[0]?.signal, controller.signal);
+});
+
+test("長すぎる 1 行はタイトルとして採用しない", async () => {
+  const generate = createTitleSummaryGenerate(
+    completionWith({ content: [{ type: "text", text: "あ".repeat(TITLE_OUTPUT_MAX_CHARS + 1) }] }),
+    createSecretMasker([]),
+  );
+  const result = await generate(input);
+  assert.equal(result.ok, false);
+  assert.equal(result.usage?.inputTokens, STUB_USAGE.input);
 });
 
 test("複数行の不正な出力は採用しないが、usage は失敗として返す", async () => {

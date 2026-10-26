@@ -11,6 +11,7 @@ const {
   getTitleSummarySettings,
   getWebSearchSettings,
   isNotStoredError,
+  probeCustomProvider,
   putWebSearchApiKey,
   putWebSearchProvider,
   putWebSearchSettings,
@@ -404,7 +405,7 @@ test("Web 検索の設定は GET / PUT / DELETE の往復で、キーは provide
   assert.deepEqual(await requests[3].json(), { apiKey: "tvly-secret" });
 });
 
-test("会話タイトルの設定は GET / PUT の往復で、3 項目をまとめて送る", async (t) => {
+test("会話タイトルの設定は GET / PUT の往復で、Effort を含めてまとめて送る", async (t) => {
   const requests: Request[] = [];
   t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const request = new Request(input, init);
@@ -412,6 +413,8 @@ test("会話タイトルの設定は GET / PUT の往復で、3 項目をまと�
     return Response.json({
       enabled: true,
       model: "stub/stub-model",
+      thinkingLevel: "high",
+      effectiveThinkingLevel: "high",
       definition: "定義",
       defaultDefinition: "既定",
       models: [],
@@ -420,7 +423,14 @@ test("会話タイトルの設定は GET / PUT の往復で、3 項目をまと�
   });
   assert.equal((await getTitleSummarySettings()).enabled, true);
   assert.equal(
-    (await putTitleSummarySettings({ enabled: true, model: "stub/stub-model", definition: "定義" })).model,
+    (
+      await putTitleSummarySettings({
+        enabled: true,
+        model: "stub/stub-model",
+        thinkingLevel: "high",
+        definition: "定義",
+      })
+    ).model,
     "stub/stub-model",
   );
   assert.deepEqual(
@@ -430,7 +440,12 @@ test("会話タイトルの設定は GET / PUT の往復で、3 項目をまと�
       ["PUT", "/api/settings/session-title"],
     ],
   );
-  assert.deepEqual(await requests[1].json(), { enabled: true, model: "stub/stub-model", definition: "定義" });
+  assert.deepEqual(await requests[1].json(), {
+    enabled: true,
+    model: "stub/stub-model",
+    thinkingLevel: "high",
+    definition: "定義",
+  });
 });
 
 test("送信は定型プロンプトを結合する前の本文を titleSource として送る", async (t) => {
@@ -509,4 +524,33 @@ test("Cloudflare の接続確認は POST で専用のパスを叩き、200 の�
     requests.map((request) => [request.method, new URL(request.url).pathname]),
     [["POST", "/api/settings/cloudflare/check"]],
   );
+});
+
+test("カスタムプロバイダーの probe は POST で body を送り、200 の分類をそのまま返す", async (t) => {
+  const requests: Request[] = [];
+  const result = {
+    checkedAt: 1,
+    baseUrl: "http://192.0.2.10:11434/v1",
+    failure: null,
+    httpStatus: null,
+    models: [{ id: "llama3:8b" }],
+    truncated: false,
+    message: null,
+  };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return Response.json(result);
+  });
+  assert.deepEqual(
+    await probeCustomProvider({ provider: "local-llm", baseUrl: "http://192.0.2.10:11434/v1", apiKey: "" }),
+    result,
+  );
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]!.method, "POST");
+  assert.equal(new URL(requests[0]!.url).pathname, "/api/settings/custom-providers/probe");
+  assert.deepEqual(await requests[0]!.json(), {
+    provider: "local-llm",
+    baseUrl: "http://192.0.2.10:11434/v1",
+    apiKey: "",
+  });
 });

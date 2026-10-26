@@ -13,6 +13,8 @@ import type {
   CloudflareMutationResponse,
   CloudflareSettingsResponse,
   CreateCustomProviderBody,
+  CustomProviderProbeBody,
+  CustomProviderProbeResponse,
   ContentMutationResponse,
   ContentSettingsResponse,
   CreateAgentBody,
@@ -691,6 +693,16 @@ export const deleteCustomProvider = async (provider: string): Promise<ModelMutat
   const res = await client.api.settings["custom-providers"][":provider"].$delete({ param: { provider } });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ModelMutationResponse;
+};
+
+/**
+ * カスタムプロバイダーの `/models` を取得する。接続できない場合も 200 の分類で返るため、
+ * ここが失敗するのは body 不正 (400) だけ。`settings` は変えない。
+ */
+export const probeCustomProvider = async (input: CustomProviderProbeBody): Promise<CustomProviderProbeResponse> => {
+  const res = await client.api.settings["custom-providers"].probe.$post({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as CustomProviderProbeResponse;
 };
 
 /** degraded（保存済み・未反映）の回復。DB の希望状態を SDK へ再適用するだけで、冪等 */

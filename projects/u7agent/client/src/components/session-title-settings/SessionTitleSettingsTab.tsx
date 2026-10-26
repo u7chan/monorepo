@@ -2,6 +2,10 @@ import { useState } from "react";
 import { cn } from "../../lib/cn";
 import {
   sessionTitleDefinitionError,
+  sessionTitleEffortForModel,
+  sessionTitleEffortNotice,
+  sessionTitleEffortOptions,
+  sessionTitleEffortValue,
   sessionTitleModelOptions,
   sessionTitleModelUnavailableNotice,
   sessionTitleModelValue,
@@ -9,7 +13,7 @@ import {
   TITLE_DEFINITION_MAX,
   type SessionTitleSavingAction,
 } from "../../lib/sessionTitleSettings";
-import type { TitleSummarySettingsResponse } from "../../types";
+import type { ThinkingLevel, TitleSummarySettingsResponse } from "../../types";
 import { MetaChip } from "../model-settings/MetaChip";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
 import { SelectMenu, type SelectMenuOption } from "../SelectMenu";
@@ -20,13 +24,14 @@ export type SessionTitleSettingsTabProps = {
   /** 実行中の操作。null なら操作なし */
   saving: SessionTitleSavingAction | null;
   onSetEnabled: (enabled: boolean) => Promise<boolean>;
-  onSelectModel: (model: string) => Promise<boolean>;
+  onSelectModel: (model: string, thinkingLevel: ThinkingLevel | null) => Promise<boolean>;
+  onSelectEffort: (thinkingLevel: ThinkingLevel) => Promise<boolean>;
   onSaveDefinition: (definition: string) => Promise<boolean>;
   onResetDefinition: () => Promise<boolean>;
 };
 
 /**
- * 設定 → 会話タイトルの本文。AI 要約の On/Off・要約モデル・定義を 1 面にまとめる。
+ * 設定 → 会話タイトルの本文。AI 要約の On/Off・要約モデル・Effort・定義を 1 面にまとめる。
  * 生成のタイミングと回数は固定 (初回の本文あり正常完了後に最大 1 試行) で、この画面では変えられない。
  */
 export function SessionTitleSettingsTab({
@@ -34,6 +39,7 @@ export function SessionTitleSettingsTab({
   saving,
   onSetEnabled,
   onSelectModel,
+  onSelectEffort,
   onSaveDefinition,
   onResetDefinition,
 }: SessionTitleSettingsTabProps) {
@@ -54,6 +60,18 @@ export function SessionTitleSettingsTab({
     ...(modelValue === "" ? [{ value: "", label: "未選択", detail: "", disabled: true }] : []),
     ...sessionTitleModelOptions(settings.models),
   ];
+  const effortValue = sessionTitleEffortValue(settings);
+  const effortOptions: SelectMenuOption<ThinkingLevel | "">[] = [
+    ...(effortValue === "" ? [{ value: "" as const, label: "モデルを選択してください", disabled: true }] : []),
+    ...sessionTitleEffortOptions(settings).map((option) => ({
+      value: option.value,
+      label: option.label,
+      description: option.description,
+      disabled: option.disabled,
+    })),
+  ];
+  const effortNotice = sessionTitleEffortNotice(settings);
+  const hasEffortChoices = effortOptions.some((option) => option.value !== "");
 
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
@@ -99,29 +117,54 @@ export function SessionTitleSettingsTab({
           )}
         </section>
 
-        <section className="grid gap-1.5">
-          <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">要約モデル</div>
-          <SelectMenu
-            label="要約モデル"
-            value={modelValue}
-            options={modelOptions}
-            note="AI要約だけに使うモデルです。選んだ時点で保存されます。"
-            disabled={busy}
-            onChange={(next) => {
-              if (next !== "") void onSelectModel(next);
-            }}
-          />
-          {settings.models.length === 0 ? (
-            <p className="text-2xs leading-relaxed text-ink-muted">
-              選択できるモデルがありません。設定 → モデル でプロバイダーの認証を済ませてください。
-            </p>
-          ) : null}
-          {unavailable ? (
-            <p className="rounded border border-warn/50 bg-raised px-2 py-1.5 text-2xs leading-relaxed text-ink">
-              {unavailable}
-            </p>
-          ) : null}
-        </section>
+        <div className="grid gap-3 wide:grid-cols-2">
+          <section className="grid gap-1.5">
+            <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">要約モデル</div>
+            <SelectMenu
+              label="要約モデル"
+              value={modelValue}
+              options={modelOptions}
+              note="AI要約だけに使うモデルです。選んだ時点で保存されます。"
+              disabled={busy}
+              onChange={(next) => {
+                if (next === "") return;
+                void onSelectModel(next, sessionTitleEffortForModel(settings, next, settings.effectiveThinkingLevel));
+              }}
+            />
+            {settings.models.length === 0 ? (
+              <p className="text-2xs leading-relaxed text-ink-muted">
+                選択できるモデルがありません。設定 → モデル でプロバイダーの認証を済ませてください。
+              </p>
+            ) : null}
+            {unavailable ? (
+              <p className="rounded border border-warn/50 bg-raised px-2 py-1.5 text-2xs leading-relaxed text-ink">
+                {unavailable}
+              </p>
+            ) : null}
+          </section>
+
+          <section className="grid gap-1.5">
+            <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">Effort</div>
+            <SelectMenu
+              label="Effort"
+              value={effortValue}
+              options={effortOptions}
+              note="要約モデルが対応する段階だけを選べます。未指定のときはモデルの最小段階を使います。"
+              disabled={busy || !settings.model || !settings.modelAvailable || !hasEffortChoices}
+              onChange={(next) => {
+                if (next !== "") void onSelectEffort(next);
+              }}
+            />
+            {settings.model ? null : (
+              <p className="text-2xs leading-relaxed text-ink-muted">先に要約モデルを選ぶと Effort を選べます。</p>
+            )}
+            {effortNotice ? (
+              <p className="rounded border border-warn/50 bg-raised px-2 py-1.5 text-2xs leading-relaxed text-ink">
+                {effortNotice}
+              </p>
+            ) : null}
+          </section>
+        </div>
 
         <section className="grid gap-1.5">
           <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">要約の定義</div>

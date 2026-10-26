@@ -2964,6 +2964,7 @@ export class SessionStore {
     const settings = host.settings();
     const modelRef = settings.model;
     const model = modelLabel(modelRef);
+    const thinkingLevel = settings.thinkingLevel;
     const request = record.titleRequest ?? record.title;
     const eligible =
       settings.enabled && modelRef !== undefined && record.titleOrigin !== "manual" && request.trim() !== "";
@@ -2972,6 +2973,7 @@ export class SessionStore {
       at: Date.now(),
       state: eligible ? "pending" : "skipped",
       ...(model ? { model } : {}),
+      ...(thinkingLevel ? { thinkingLevel } : {}),
       generation: settings.generation,
     };
     if (!eligible || !modelRef) {
@@ -3012,7 +3014,15 @@ export class SessionStore {
             !record.compacting,
         },
         () =>
-          host.generate({ model: modelRef, definition: settings.definition, request, response, signal: abort.signal }),
+          host.generate({
+            model: modelRef,
+            definition: settings.definition,
+            request,
+            response,
+            sessionId: record.session.sessionId,
+            thinkingLevel,
+            signal: abort.signal,
+          }),
       );
     } catch {
       // 補助呼び出しの想定外の失敗はタイトルを変えず、試行だけ消費する (自動再試行しない)

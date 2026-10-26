@@ -100,6 +100,7 @@ export function ModelSettingsView({
     createCustom,
     updateCustom,
     removeCustom,
+    probeCustom,
     startLogin,
     submitLoginCode,
     cancelLogin,
@@ -191,6 +192,7 @@ export function ModelSettingsView({
             onCreateCustom={createCustom}
             onUpdateCustom={updateCustom}
             onDeleteCustom={removeCustom}
+            onProbeCustom={probeCustom}
             drafts={providerDrafts}
             onChangeDraft={updateProviderDraft}
             onOpenModels={() => onSelectModelsSubsection?.(DEFAULT_MODELS_SUBSECTION)}

@@ -430,6 +430,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | POST | `/api/settings/custom-providers` | カスタムプロバイダー（オンメモリ）を登録する。body は `{ "id": "…", "name": "…", "baseUrl": "http://…/v1", "apiKey": "…", "model": { "id": "…", "contextWindow": 32768, "maxTokens": 16384 } }`（`name` / `maxTokens` は任意） |
 | PUT | `/api/settings/custom-providers/:provider` | カスタムプロバイダーを更新する。body は `{ name?, baseUrl, apiKey?, model }` で、`id` は変更不可。`apiKey` の空欄 / 未送信は既存を維持する |
 | DELETE | `/api/settings/custom-providers/:provider` | カスタムプロバイダーを削除する。body 無し |
+| POST | `/api/settings/custom-providers/probe` | カスタムプロバイダーの `GET {baseUrl}/models` を 1 回叩く。body は `{ provider?, baseUrl, apiKey? }`。接続できない場合も 200 の分類で返す |
 
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。設計と残存リスクは [model-settings.md](model-settings.md) を正とする。
 
@@ -511,6 +512,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `POST /api/settings/custom-providers` / `PUT` / `DELETE` はカスタムプロバイダー（オンメモリ）の登録・更新・削除（`/api/settings/models/:provider/...` とは別の名前空間に置き、`models` 配下の param ルートと衝突させない）。応答は `GET /api/settings/models` と同じ形 + `state: "applied"`（アプリ DB へは何も書かないため `applied_unsynced` は無い）。失敗は 400 `{ "error": "…" }`（id の形・id 衝突・baseUrl・モデル・キーの長さ・未登録）または 503 `{ "error": "…" }`（ランタイム無し・SDK へ反映できない）。この 503 には `state: "not_stored"` を付けない
 - カスタムプロバイダーの `id` は `^[a-z](?:[a-z0-9-]{0,62}[a-z0-9])?$` で作成後に変更できず、built-in / `models.json` / 登録済みの provider と衝突したら 400。カタログ外の provider に残った `provider_credentials` / `provider_memos` の行が同じ id にあるときも 400（作成すると `managed` / `keyUpdatedAt` の契約が崩れるため、先にその行を削除する）。`baseUrl` は `http` / `https` のみで userinfo・query・fragment を拒否し、末尾の `/` を落とす。`apiKey` は 8..2048 文字で、作成時は必須、更新時は空欄（未送信）なら既存を維持する。`model.contextWindow` は必須の正の整数、`model.maxTokens` は任意（既定 16384）
 - カスタムプロバイダーは既存の `PUT/DELETE /api/settings/models/:provider/key` / `PUT /:provider/memo` / `POST /:provider/resync` の対象外で、これらは 400 `{ "error": "…" }` を返す（`provider_credentials` / `provider_memos` に行を作らない）
+- `POST /api/settings/custom-providers/probe` は `GET {baseUrl}/models` を 1 回だけ叩き、**200 の同じ形**で成功と失敗を返す（HTTP エラーにすると分類と `httpStatus` がクライアントの汎用エラー経路へ落ちる）。body の `provider` は保存済みの定義を指し、`apiKey` が空欄なら保存済みのキーを使う（どちらも無ければ 400）。`provider` が未登録・`baseUrl` が不正・キーが 8..2048 の外・body が不正なら 400。応答は `{ checkedAt, baseUrl, failure, httpStatus, models: [{ id }], truncated, message }` で、`failure === null` が成功（`message` / `httpStatus` も null）、失敗は `models: []` で `failure` が `unauthorized` / `not_found` / `http_error` / `redirected` / `invalid_response` / `timeout` / `unreachable` のいずれか。`httpStatus` は接続先の 400 以上だけ。`models` は保存検証と同じ境界を通った ID だけを重複除去・昇順で最大 200 件（超過は `truncated: true`）。**キー・応答本文・ヘッダは返さず、ログにも出さない**。設定も DB も変えないため `state` を持たず、`GET /api/settings/models` もこの通信を行わない
 - `POST /api/settings/models/catalog/refresh` は body 無し。pi.dev の provider 別カタログを取り直し、キー変更と同じロックの内側で「取得 → 公開 state の再計算 → 応答の組み立て」を 1 回ずつ行う。取得と再計算は同じ期限を共有し、期限到達後は読み取りを中断して公開 state を差し替えない（一覧と available は現在値のまま。ロックも期限以上には保持しない）
 - 200 の応答は `GET /api/runtime/models` と同じ形 + `catalogError`（`null` なら今回の取得成功）。一部 provider の失敗・期限の abort・取得の例外・`PI_OFFLINE` でも 200 とし、一覧は更新できた範囲（期限で中断したときは更新前）を返す。設定を変えないため `state` を持たず、カタログそのものを返せないときだけ `GET /api/runtime/models` と同じ 503 を返す。失敗しても一覧は失わせない（分類と文言の契約は [model-settings.md](model-settings.md#モデルカタログの取得と更新)）
 
@@ -549,8 +551,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/session-title` | `enabled` / `model`（`provider/id` または null）/ `definition` / `defaultDefinition` / `models[]`（認証済みで選択できるモデル）/ `modelAvailable`。純粋読取で、行が無ければ Off・モデル未選択・既定の定義 |
-| PUT | `/api/settings/session-title` | `{ enabled, model?, definition? }`。省略した項目は保存値を保つ（Off への変更でモデルを消さない）。On には利用可能なモデルの選択が要り、未選択・不明なモデルは 400。空白だけ・上限超過の定義も 400 |
+| GET | `/api/settings/session-title` | `enabled` / `model`（`provider/id` または null）/ `thinkingLevel`（保存値または null）/ `effectiveThinkingLevel`（実行時の実効値）/ `definition` / `defaultDefinition` / `models[]`（認証済みで選択できるモデルと各モデルの `thinkingLevels`）/ `modelAvailable`。純粋読取で、行が無ければ Off・モデル未選択・Effort 未指定・既定の定義 |
+| PUT | `/api/settings/session-title` | `{ enabled, model?, thinkingLevel?, definition? }`。省略した項目は保存値を保つ（Off への変更でモデルを消さない）。On には利用可能なモデルの選択が要り、未選択・不明なモデルは 400。Effort は選択モデルが対応する段階だけを保存でき、未対応は 400。モデルを変えて Effort を省略した場合、新モデルが対応しない保存値は未指定へ戻る。空白だけ・上限超過の定義も 400 |
 
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。変更系は 503 に `state: "not_stored"` を付ける（コンテンツ生成 / Web 検索と同じ契約）。保存済みモデルが候補から消えた場合は `modelAvailable: false` で警告し、保存値は書き換えない。実行のタイミング・試行上限・手動改名との競合は [session-title.md](session-title.md) を正とする。
 
@@ -559,14 +561,21 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 {
   "enabled": false,
   "model": null,
+  "thinkingLevel": null,
+  "effectiveThinkingLevel": null,
   "definition": "利用者の依頼の対象と目的が伝わる会話タイトルを、日本語20〜30文字程度で作成してください。…",
   "defaultDefinition": "利用者の依頼の対象と目的が伝わる会話タイトルを、日本語20〜30文字程度で作成してください。…",
-  "models": [{ "provider": "stub", "id": "stub-model", "name": "Stub Model" }],
+  "models": [
+    { "provider": "stub", "id": "stub-model", "name": "Stub Model", "thinkingLevels": ["off", "minimal", "low", "medium", "high"] }
+  ],
   "modelAvailable": false
 }
 
 // PUT /api/settings/session-title (400。On にモデルが無い)
 { "error": "AI要約を有効にするには要約モデルを選択してください" }
+
+// PUT /api/settings/session-title (400。モデルが対応しない Effort)
+{ "error": "選択したモデルではこのEffortを選べません" }
 ```
 
 ## コンテンツ生成
