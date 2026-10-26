@@ -12,6 +12,7 @@ import {
   SHARED_CONTENT_UNDEPLOYED_NOTE,
   isSharedContentUndeployed,
   shareItemsPublishing,
+  settleAcceptedDetail,
   sharePollDetailId,
   sharePrimaryAction,
   shareStatusView,
@@ -202,6 +203,31 @@ test("受付済みの追跡: 202 の直後の一覧取得が失敗しても、�
   assert.deepEqual(settleAcceptedSharedContent(["gone"], [published]), []);
   // 同じ id を重ねて追跡しない
   assert.deepEqual(trackAcceptedSharedContent(["abc123"], "abc123"), ["abc123"]);
+});
+
+// What: 詳細で終端を確認した id は、一覧が失敗し続けても追跡を終え、詳細・一覧の要求を続けない
+test("詳細の精算: 詳細の終端で追跡を終える（他の id は落とさない）", () => {
+  const stale = [item({ id: "abc123", status: "published", publishedAt: PUBLISHED_AT })];
+  const tracked = trackAcceptedSharedContent([], "abc123");
+  // 詳細が publishing の間は追跡を続ける (一覧の古い行で終端と誤認しない)
+  const publishing = settleAcceptedDetail(tracked, item({ id: "abc123", status: "publishing" }));
+  assert.deepEqual(publishing, ["abc123"]);
+  assert.equal(sharePollDetailId(null, stale, publishing), "abc123");
+  assert.equal(sharedContentsPolling(stale, publishing), true);
+  // 詳細が終端を返したら、一覧が古い published のままでも詳細・一覧とも止める
+  for (const terminal of [
+    item({ id: "abc123", status: "published", publishedAt: PUBLISHED_AT, lastError: "更新に失敗しました" }),
+    item({ id: "abc123", status: "failed", lastError: "index.html がありません" }),
+    item({ id: "abc123", status: "stopped", publishedAt: PUBLISHED_AT }),
+  ]) {
+    const settled = settleAcceptedDetail(tracked, terminal);
+    assert.deepEqual(settled, [], terminal.status);
+    assert.equal(sharePollDetailId(null, stale, settled), null, terminal.status);
+    assert.equal(sharedContentsPolling(stale, settled), false, terminal.status);
+  }
+  // 一覧にまだ現れていない他の id は終端扱いにしない (一覧を受け取る settleAcceptedSharedContent との違い)
+  const both = trackAcceptedSharedContent(trackAcceptedSharedContent([], "abc123"), "def456");
+  assert.deepEqual(settleAcceptedDetail(both, item({ id: "abc123", status: "published" })), ["def456"]);
 });
 
 test("受付した 1 件の反映: 同じ id は差し替え、未取得なら先頭へ足す", () => {

@@ -7,6 +7,7 @@ import {
   publishSharedContent,
 } from "../api";
 import {
+  settleAcceptedDetail,
   settleAcceptedSharedContent,
   SHARE_POLL_MS,
   sharePollDetailId,
@@ -68,8 +69,12 @@ export function useSharedContents({ sessionId, directory }: { sessionId: string;
   /** 発行した取得の通し番号。遅れて届いた古い応答を適用しない */
   const requestSeq = useRef(0);
   const appliedSeq = useRef(0);
-  /** ポーリングを重ねない（応答が間隔より遅いときに要求が積み上がらない） */
-  const inFlight = useRef(false);
+  /**
+   * ポーリングの要求を重ねない（応答が間隔より遅いときに要求が積み上がらない）。詳細と一覧は互いの完了を
+   * 待たないので、フラグも別にする（一覧の保留で詳細の次の tick を止めない）。
+   */
+  const detailInFlight = useRef(false);
+  const listInFlight = useRef(false);
   /**
    * 応答を適用してよい会話。同じ作業フォルダの別会話へ移っても `activeId` を持ち越すと、
    * 新しい会話の一覧に前の会話の結果が混ざるため、切替で状態ごと捨てる。
@@ -82,7 +87,8 @@ export function useSharedContents({ sessionId, directory }: { sessionId: string;
     setAcceptedPublishing([]);
     requestSeq.current = 0;
     appliedSeq.current = 0;
-    inFlight.current = false;
+    detailInFlight.current = false;
+    listInFlight.current = false;
   }
   sessionRef.current = sessionId;
 
@@ -181,28 +187,37 @@ export function useSharedContents({ sessionId, directory }: { sessionId: string;
     if (pollDetailId === "" && !pollList) return;
     const session = sessionId;
     let cancelled = false;
-    const tick = async (): Promise<void> => {
-      if (inFlight.current) return;
-      inFlight.current = true;
+
+    const pollDetail = async (): Promise<void> => {
+      if (detailInFlight.current) return;
+      detailInFlight.current = true;
       try {
-        if (pollDetailId !== "") {
-          try {
-            const item = await getSharedContent(pollDetailId);
-            if (!cancelled && sessionRef.current === session) {
-              setState((prev) => ({ ...prev, items: withSharedContent(prev.items, item) }));
-            }
-          } catch {
-            // 次のティックで再試行する。失敗は一覧側の表示（failed）に閉じる
-          }
-        }
-        // 受付した 1 件の詳細を追っている間も、一覧の他の進行中を止めたままにしない
-        if (pollList) await loadList();
+        const item = await getSharedContent(pollDetailId);
+        if (cancelled || sessionRef.current !== session) return;
+        // 詳細で終端を確認できたら、一覧が失敗し続けても追跡をやめる（要求を続けない）
+        setAcceptedPublishing((prev) => settleAcceptedDetail(prev, item));
+        setState((prev) => ({ ...prev, items: withSharedContent(prev.items, item) }));
+      } catch {
+        // 次のティックで再試行する。失敗は一覧側の表示（failed）に閉じる
       } finally {
-        inFlight.current = false;
+        detailInFlight.current = false;
       }
     };
+
+    const pollListOnce = async (): Promise<void> => {
+      if (listInFlight.current) return;
+      listInFlight.current = true;
+      try {
+        await loadList();
+      } finally {
+        listInFlight.current = false;
+      }
+    };
+
     const timer = setInterval(() => {
-      void tick();
+      // 一覧の保留が詳細の次の tick を止めないよう、同じ tick で両方を投げて互いを待たない
+      if (pollDetailId !== "") void pollDetail();
+      if (pollList) void pollListOnce();
     }, SHARE_POLL_MS);
     return () => {
       cancelled = true;

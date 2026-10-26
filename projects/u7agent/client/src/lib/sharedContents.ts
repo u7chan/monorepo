@@ -231,6 +231,15 @@ export function settleAcceptedSharedContent(
   return tracked.filter((id) => publishing.has(id));
 }
 
+/**
+ * 詳細の 1 件で終端を確認できた id を追跡から外す。一覧の取得が失敗し続けても、詳細が終端を返した時点で
+ * その id のポーリングは終えられる。一覧にまだ現れていない他の id は落とさないので、
+ * 一覧を受け取る `settleAcceptedSharedContent` とは使い分ける。
+ */
+export function settleAcceptedDetail(tracked: readonly string[], item: SharedContentResponse): string[] {
+  return tracked.filter((id) => id !== item.id || item.status === "publishing");
+}
+
 /** 一覧を取り直し続ける必要があるか。受付済みで未確認の id があれば、items が古くても追跡を続ける */
 export function sharedContentsPolling(items: readonly SharedContentResponse[], tracked: readonly string[]): boolean {
   return tracked.length > 0 || shareItemsPublishing(items);
