@@ -1,26 +1,20 @@
-// 入力欄の上のライブ表示 (実行中のツール) の表示条件と、ツール履歴のコピーを完了まで出さない契約。
+// 状態行に出すライブのツール表示と、ツール履歴のコピーを完了まで出さない契約。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ToolHistoryView } from "../src/components/chat/ToolHistory";
-import { LiveToolCall } from "../src/components/composer/LiveToolCall";
 import type { ToolCard } from "../src/lib/chatTypes";
 import {
-  initialLiveTracker,
   LIVE_PROGRESS_BODY_LINES,
   LIVE_PROGRESS_BODY_MAX,
-  LIVE_ROW_MIN_VISIBLE_MS,
-  LIVE_ROW_SLOTS,
-  liveToolHoldRemainingMs,
-  liveToolPhase,
+  LIVE_TOOL_TEXT_THROTTLE_MS,
+  liveToolDisplayPlan,
   liveToolProgress,
-  liveToolState,
-  liveToolWindow,
-  trackLiveHolds,
-  type LiveToolTracker,
+  liveToolRows,
+  liveToolStatus,
+  liveToolStatusView,
 } from "../src/lib/liveToolCall";
-import type { LiveToolCallView } from "../src/hooks/useLiveToolCall";
 import type { RunStatus, ToolCall } from "../src/types";
 
 function call(id: string, name: string, args: string, done: boolean, extra: Partial<ToolCall> = {}): ToolCall {
@@ -31,7 +25,7 @@ function card(id: string, name: string, phase: ToolCard["phase"], timing: Partia
   return { id, name, args: "", phase, output: "", ...timing };
 }
 
-test("ライブは実行中のカードだけを走査順に返し、番号は完了分も含めて数える", () => {
+test("行は走査順に返し、番号は完了分も含めて数える", () => {
   const runTools = {
     t1: call("t1", "bash", "curl -fsSL https://example.test/a.json", true),
     t2: call("t2", "bash", "jq -r '.areas[0]' a.json", false),
@@ -39,19 +33,20 @@ test("ライブは実行中のカードだけを走査順に返し、番号は�
     t4: call("t4", "grep", "-n osaka /work/a.json", false),
   };
 
-  const state = liveToolState(runTools, "running");
-  assert.equal(state.visible, true);
+  const rows = liveToolRows(runTools);
   assert.deepEqual(
-    state.rows.map((row) => [row.id, row.index]),
+    rows.map((row) => [row.id, row.index]),
     [
+      ["t1", 1],
       ["t2", 2],
+      ["t3", 3],
       ["t4", 4],
     ],
   );
-  assert.equal(state.rows[0].summary, "bash — jq -r '.areas[0]' a.json");
+  assert.equal(rows[1].summary, "bash — jq -r '.areas[0]' a.json");
 });
 
-test("スキル読み込みと ask_user はライブに出さない (ツール履歴と同じ除外)", () => {
+test("スキル読み込みと ask_user は状態行に出さない (ツール履歴と同じ除外)", () => {
   const skill = { id: "s1", name: "a", path: "skills/a/SKILL.md" };
   const runTools = {
     t1: call("t1", "read", "skills/a/SKILL.md", false, { skill }),
@@ -59,30 +54,13 @@ test("スキル読み込みと ask_user はライブに出さない (ツール�
     t3: call("t3", "bash", "ls", false),
   };
 
-  const state = liveToolState(runTools, "running");
+  const rows = liveToolRows(runTools);
   assert.deepEqual(
-    state.rows.map((row) => row.id),
+    rows.map((row) => row.id),
     ["t3"],
   );
   // 外した分は番号を詰める (履歴の行番号と同じ数え方)
-  assert.equal(state.rows[0].index, 1);
-});
-
-test("run が実行中でなければ出さない (停止で done が来なかったカードを残さない)", () => {
-  const runTools = { t1: call("t1", "bash", "sleep 100", false) };
-  // queued は run が動いていない状態 (次の run のツールは run_start まで runTools に入らない)
-  for (const status of ["idle", "queued", "compacting", "completed", "stopped", "error"] as RunStatus[]) {
-    const state = liveToolState(runTools, status);
-    assert.equal(state.visible, false, `${status} の表示`);
-    assert.deepEqual(
-      state.allRows.map((row) => row.id),
-      ["t1"],
-      `${status} でも全行は返す (畳む判定と本文に使う)`,
-    );
-  }
-  const empty = liveToolState({}, "running");
-  assert.equal(empty.visible, false, "実行中でもツールが無ければ出さない");
-  assert.deepEqual(empty.allRows, [], "実行中でもツールが無ければ全行も空");
+  assert.equal(rows[0].index, 1);
 });
 
 test("全行には完了した行も入り、実行時間と履歴と同じ番号を持つ", () => {
@@ -93,203 +71,188 @@ test("全行には完了した行も入り、実行時間と履歴と同じ番�
     t3: call("t3", "read", "skills/a/SKILL.md", false, { skill }),
   };
 
-  const state = liveToolState(runTools, "running");
   assert.deepEqual(
-    state.allRows.map((row) => [row.id, row.index, row.done, row.durationMs]),
+    liveToolRows(runTools).map((row) => [row.id, row.index, row.done, row.durationMs]),
     [
       ["t1", 1, true, 1_200],
       ["t2", 2, false, undefined],
     ],
   );
-  assert.deepEqual(
-    state.rows.map((row) => row.id),
-    ["t2"],
-  );
 });
 
-/** liveToolState と tracker を続けて呼ぶ (コンポーネントの 1 描画ぶん) */
-function track(
-  tracker: LiveToolTracker,
-  runTools: Record<string, ToolCall>,
-  runStatus: RunStatus,
-  now: number,
-  liveIds: string[] = [],
-): ReturnType<typeof trackLiveHolds> {
-  const state = liveToolState(runTools, runStatus);
-  return trackLiveHolds(tracker, { rows: state.rows, allRows: state.allRows, liveIds: new Set(liveIds), now });
-}
-
-test("ライブのツールイベントで現れた完了カードは、最短表示時間だけ出してから畳む", () => {
-  // React が toolStart / toolEnd を同じ描画にまとめると実行中の行として一度も出ない。run の終了が
-  // 同じ描画にまとまっても (status が completed でも) 出さないと、一瞬のツールが本当に見えなくなる
-  const done = { t1: call("t1", "bash", "ls", true, { startedAt: 1_000, endedAt: 1_005 }) };
-  for (const status of ["running", "completed", "stopped"] as RunStatus[]) {
-    const { holds } = track(initialLiveTracker({}), done, status, 2_000, ["t1"]);
-    assert.deepEqual(
-      holds.map((hold) => [hold.row.id, hold.row.index, hold.row.summary, hold.row.durationMs]),
-      [["t1", 1, "bash — ls", 5]],
-      `${status} の描画`,
-    );
-    assert.equal(liveToolHoldRemainingMs(holds[0], 2_000), LIVE_ROW_MIN_VISIBLE_MS);
-    assert.equal(liveToolHoldRemainingMs(holds[0], 2_000 + LIVE_ROW_MIN_VISIBLE_MS), 0, "ホールドが切れたら畳める");
-  }
-});
-
-test("実行中として出ていた行は、出ていた時間の残りだけ畳む前に残す", () => {
-  const running = { t1: call("t1", "bash", "sleep 3", false, { startedAt: 1_000 }) };
-  const first = track(initialLiveTracker({}), running, "running", 1_000, ["t1"]);
-  assert.deepEqual(first.holds, [], "実行中の行はまだ畳まない");
-
-  const finished = { t1: call("t1", "bash", "sleep 3", true, { startedAt: 1_000, endedAt: 4_000 }) };
-  const short = track(first.tracker, finished, "running", 1_400, ["t1"]);
-  assert.deepEqual(
-    short.holds.map((hold) => [hold.row.id, hold.row.durationMs]),
-    [["t1", 3_000]],
-  );
-  assert.equal(liveToolHoldRemainingMs(short.holds[0], 1_400), 500, "出てから 400ms で終わったので、残り 500ms を残す");
-
-  const long = track(first.tracker, finished, "running", 3_000, ["t1"]);
-  assert.equal(liveToolHoldRemainingMs(long.holds[0], 3_000), 0, "最短表示時間より長く出ていた行はその場で畳む");
-});
-
-test("同じ描画に復元カードとライブのカードが混ざっても、復元カードは抱えない", () => {
-  // resync が持ち込んだ完了カード old と、別 ID の toolStart (new) が同じ描画にまとまった場合。
-  // ライブ観測の目印は ID ごとに持つので、old を新規のツールとして出さない
-  const restored = call("old", "bash", "ls", true, { startedAt: 1_000, endedAt: 1_005 });
-  const runningNew = call("new", "read", "a.md", false, { startedAt: 2_000 });
-  assert.deepEqual(
-    track(initialLiveTracker({}), { old: restored, new: runningNew }, "running", 3_000, ["new"]).holds,
-    [],
-    "new は実行中の行として出るだけ",
-  );
-
-  const doneNew = call("new", "read", "a.md", true, { startedAt: 2_000, endedAt: 2_005 });
-  const { holds } = track(initialLiveTracker({}), { old: restored, new: doneNew }, "running", 3_000, ["new"]);
-  assert.deepEqual(
-    holds.map((hold) => [hold.row.id, hold.row.durationMs]),
-    [["new", 5]],
-    "ライブで観測した ID だけを保持する",
-  );
-});
-
-test("mount 時の完了カードと、resync が持ち込んだ完了カードは畳む対象にしない", () => {
-  const done = { t1: call("t1", "bash", "ls", true, { startedAt: 1_000, endedAt: 1_005 }) };
-  assert.deepEqual(
-    track(initialLiveTracker(done), done, "completed", 2_000, ["t1"]).holds,
-    [],
-    "mount 時からあるカードは観測済みとして扱う",
-  );
-
-  // 非実行中の resync が持ち込んだカード。たとえ次の送信で setRun (running) に変わっても、
-  // ツールイベントを観測していないので抱えない
-  const tracker = track(initialLiveTracker({}), done, "completed", 2_000).tracker;
-  assert.deepEqual(track(tracker, done, "running", 2_100, ["t1"]).holds, [], "送信応答の setRun では出さない");
-});
-
-test("同じカードを2度抱えない (別のツールのイベントで古い完了カードを出さない)", () => {
-  const first = track(initialLiveTracker({}), { t1: call("t1", "bash", "ls", true) }, "running", 1_000, ["t1"]);
-  assert.equal(first.holds.length, 1, "初回は出す");
-
+test("状態行は実行中の行だけを返し、最新を末尾にする", () => {
   const runTools = {
     t1: call("t1", "bash", "ls", true),
-    t2: call("t2", "read", "a.md", false, { startedAt: 1_100 }),
+    t2: call("t2", "read", "a.md", false),
+    t3: call("t3", "grep", "-n foo a.md", false),
   };
-  const second = track(first.tracker, runTools, "running", 1_100, ["t1", "t2"]);
-  assert.deepEqual(second.holds, [], "観測済みの完了カードを再表示しない");
+
+  const status = liveToolStatus(runTools, "running");
+  assert.deepEqual(
+    status.running.map((row) => row.id),
+    ["t2", "t3"],
+  );
+  assert.equal(status.latest?.id, "t3");
+  assert.equal(status.totalCount, 3, "完了分も含めた件数を持つ");
 });
 
-test("run ごと入れ替わって消えた実行中の行も畳む (実行時間は出せない)", () => {
-  const first = track(initialLiveTracker({}), { t1: call("t1", "bash", "sleep 5", false) }, "running", 1_000, ["t1"]);
-  const replaced = track(first.tracker, { t2: call("t2", "read", "a.md", false) }, "running", 1_300, ["t1", "t2"]);
-  assert.deepEqual(
-    replaced.holds.map((hold) => [hold.row.id, hold.row.index, hold.row.durationMs]),
-    [["t1", 1, undefined]],
-  );
-  assert.equal(liveToolHoldRemainingMs(replaced.holds[0], 1_300), 600);
+test("run が実行中でなければ状態行に出さない (停止で done が来なかったカードを残さない)", () => {
+  const runTools = { t1: call("t1", "bash", "sleep 100", false) };
+  // queued は run が動いていない状態 (次の run のツールは run_start まで runTools に入らない)
+  for (const status of ["idle", "queued", "compacting", "completed", "stopped", "error"] as RunStatus[]) {
+    const live = liveToolStatus(runTools, status);
+    assert.deepEqual(live.running, [], `${status} の表示`);
+    assert.equal(live.latest, undefined, `${status} の最新行`);
+    assert.equal(live.totalCount, 1, `${status} でも全行数は返す`);
+  }
+  const empty = liveToolStatus({}, "running");
+  assert.deepEqual(empty.running, [], "実行中でもツールが無ければ出さない");
+  assert.equal(empty.totalCount, 0);
 });
 
-// --- 枠の選択・集約と、箱の段 ---
+test("状態行は最新ツールのサマリーを出し、並列は件数を添える", () => {
+  const one = liveToolStatus({ t1: call("t1", "bash", "ls -la", false) }, "running");
+  assert.deepEqual(liveToolStatusView(one), {
+    text: "実行中 · bash — ls -la",
+    title: "bash — ls -la\n実行中のツール",
+    latestId: "t1",
+  });
 
-function rowsOf(count: number) {
-  return Array.from({ length: count }, (_, index) => ({
-    id: `t${index + 1}`,
-    index: index + 1,
-    summary: `read — file-${index + 1}.md`,
-    done: false,
-  }));
-}
-
-test("枠は最新の行だけを残し、溢れた件数を返す", () => {
-  assert.deepEqual(liveToolWindow([], []), { rows: [], hidden: 0 });
-
-  const few = liveToolWindow(rowsOf(2), []);
-  assert.deepEqual(
-    few.rows.map((row) => row.id),
-    ["t1", "t2"],
+  const two = liveToolStatus(
+    {
+      t1: call("t1", "bash", "ls", false),
+      t2: call("t2", "read", "a.md", false),
+    },
+    "running",
   );
-  assert.equal(few.hidden, 0, "枠に収まる間は畳まない");
-
-  const many = liveToolWindow(rowsOf(LIVE_ROW_SLOTS + 2), []);
-  assert.deepEqual(
-    many.rows.map((row) => row.id),
-    ["t3", "t4", "t5"],
-    "古い行から落とす",
-  );
-  assert.equal(many.hidden, 2, "落とした件数は「…他 N 件」に使う");
+  assert.equal(liveToolStatusView(two)?.text, "2件実行中 · read — a.md", "最新の行を件数の後ろに出す");
 });
 
-test("実行中の行とホールド中の行は走査順に並べ、同じ行は実行中として出す", () => {
-  const held = { id: "t1", index: 1, summary: "bash — ls", done: true };
-  const running = { id: "t2", index: 2, summary: "read — a.md", done: false };
-  // 同じ id がホールドにも実行中にもある場合は、実行中の見た目 (実行時間なし) を優先する
-  const window = liveToolWindow([running], [held, { ...running, done: true }]);
+test("状態行は investigate の現在の活動を優先し、本文末尾は title に残す", () => {
+  const status = liveToolStatus(
+    {
+      t1: call("t1", "investigate", "docs を調べて", false, {
+        progress: "bash rg -n foo\n結論: docs にある",
+      }),
+    },
+    "running",
+  );
+  const view = liveToolStatusView(status);
+  assert.equal(view?.text, "実行中 · investigate — bash rg -n foo", "現在の子の活動を優先する");
+  assert.equal(
+    view?.title,
+    "investigate — docs を調べて\nbash rg -n foo\n結論: docs にある\n実行中のツール",
+    "本文末尾は title に残す",
+  );
+  assert.equal(view?.latestId, "t1");
+});
+
+test("title は省略前のサマリーを使い、長い引数の末尾も残す", () => {
+  const args = `printf ${"a".repeat(120)} MUST_BE_VISIBLE`;
+  const view = liveToolStatusView(liveToolStatus({ t1: call("t1", "bash", args, false) }, "running"));
+
+  assert.ok(view);
+  assert.ok(view.text.endsWith("…"), "状態行の表示は1行に省略する");
+  assert.ok(view.title.startsWith(`bash — ${args}`), "title は省略前の全文を使う");
+  assert.ok(view.title.includes("MUST_BE_VISIBLE"));
+});
+
+const statusView = (latestId: string, text = `実行中 · ${latestId}`) => ({
+  latestId,
+  text,
+  title: `${latestId}\n実行中のツール`,
+});
+
+test("新規ツールは前回表示から時間が経っていても120ms待つ", () => {
+  // 前回表示から十分経っていても、新規ツールの id を観測してから待つ。
+  // ここを lastShownAt だけで判定すると、並列に加わる短命ツールを即時表示してしまう
   assert.deepEqual(
-    window.rows.map((row) => [row.id, row.done]),
-    [
-      ["t1", true],
-      ["t2", false],
-    ],
+    liveToolDisplayPlan({
+      view: statusView("b"),
+      display: statusView("a"),
+      lastShownAt: 1_000,
+      pendingNewId: undefined,
+      now: 10_000,
+    }),
+    { type: "hold", id: "b", delayMs: LIVE_TOOL_TEXT_THROTTLE_MS },
   );
 });
 
-test("枠が埋まっていても実行中の行は残し、残りの枠を新しい完了行で埋める", () => {
-  // 並列実行では完了行の index が大きくなるため、走査順の末尾だけを取ると実行中の行が窓から消える
-  const running = { id: "t1", index: 1, summary: "investigate — docs を調べて", done: false };
-  const held = [2, 3, 4, 5].map((index) => ({
-    id: `t${index}`,
-    index,
-    summary: `read — file-${index}.md`,
-    done: true,
-  }));
-  const window = liveToolWindow([running], held);
+test("新規ツールの保留中は同じ id でタイマーを引き直さない", () => {
   assert.deepEqual(
-    window.rows.map((row) => row.id),
-    ["t1", "t4", "t5"],
-    "実行中の行を先に確保し、残りの枠は新しい完了行で埋める",
+    liveToolDisplayPlan({
+      view: statusView("b", "2件実行中 · b"),
+      display: statusView("a"),
+      lastShownAt: 1_000,
+      pendingNewId: "b",
+      now: 10_000,
+    }),
+    { type: "noop" },
   );
-  assert.equal(window.rows[0].done, false, "実行中の行は実行中のまま出す");
-  assert.equal(window.hidden, 2, "枠から落ちた件数は「…他 N 件」に使う");
-
-  // 並列が枠を超えるときだけ、古い実行中の行から落とす (箱を予約した高さに収める)
-  const parallel = liveToolWindow(
-    [1, 2, 3, 4].map((index) => ({ id: `r${index}`, index, summary: `bash — run ${index}`, done: false })),
-    [{ id: "h5", index: 5, summary: "read — e.md", done: true }],
-  );
-  assert.deepEqual(
-    parallel.rows.map((row) => row.id),
-    ["r2", "r3", "r4"],
-  );
-  assert.equal(parallel.hidden, 2);
 });
 
-test("ホールドが切れるまで箱を開き、全部切れたら閉じはじめる", () => {
-  const row = { id: "t1", index: 1, summary: "bash — ls", done: true };
-  const hold = { row, holdUntilMs: 1_900 };
-  assert.equal(liveToolPhase([row], [], 1_000), "open", "実行中の行があれば開く");
-  assert.equal(liveToolPhase([], [hold], 1_800), "open", "ホールドの残りがある間は開いたまま");
-  assert.equal(liveToolPhase([], [hold], 1_900), "closing", "ホールドが全部切れたら畳みはじめる");
-  assert.equal(liveToolPhase([], [], 1_900), "hidden", "行が無ければ箱ごと消える");
-  assert.equal(liveToolPhase([row], [hold], 2_500), "open", "畳みはじめに次のツールが動いたら畳まない");
+test("同じツールの進捗は間隔で更新し、間隔内は待つ", () => {
+  const shown = liveToolDisplayPlan({
+    view: statusView("b", "実行中 · b — 進捗2"),
+    display: statusView("b", "実行中 · b — 進捗1"),
+    lastShownAt: 10_000,
+    pendingNewId: undefined,
+    now: 10_500,
+  });
+  assert.deepEqual(shown, { type: "show" });
+
+  const waited = liveToolDisplayPlan({
+    view: statusView("b", "実行中 · b — 進捗2"),
+    display: statusView("b", "実行中 · b — 進捗1"),
+    lastShownAt: 10_000,
+    pendingNewId: undefined,
+    now: 10_050,
+  });
+  assert.deepEqual(waited, { type: "wait", delayMs: 70 });
+});
+
+test("表示が消えたら待たずにクリアする", () => {
+  assert.deepEqual(
+    liveToolDisplayPlan({
+      view: undefined,
+      display: statusView("a"),
+      lastShownAt: 1_000,
+      pendingNewId: undefined,
+      now: 10_000,
+    }),
+    { type: "clear" },
+  );
+});
+
+test("完了した行だけなら状態行は何も出さない (サーバーの活動文言へ戻す)", () => {
+  const status = liveToolStatus({ t1: call("t1", "bash", "ls", true) }, "running");
+  assert.equal(liveToolStatusView(status), undefined);
+});
+
+test("進捗の本文は先頭行を活動、末尾の 1 行を title 用の本文として読む", () => {
+  assert.deepEqual(liveToolProgress("bash rg -n foo\n結論: docs にある"), {
+    activity: "bash rg -n foo",
+    body: "結論: docs にある",
+  });
+  // 1 行だけの進捗 (活動だけ / 本文だけ) は活動として出す。分けられない以上、1 行として見せれば足りる
+  assert.deepEqual(liveToolProgress("生成中です"), { activity: "生成中です", body: "" });
+  const multi = liveToolProgress("bash ls\n\n本文 1\n本文 2");
+  assert.deepEqual(multi, { activity: "bash ls", body: "本文 2" }, "title に載せる本文は 1 行だけ残す");
+});
+
+test("子の本文末尾は行数の上限まで残し、末尾を優先する", () => {
+  const body = Array.from({ length: LIVE_PROGRESS_BODY_LINES + 2 }, (_, index) => `本文${index + 1}`).join("\n");
+  const result = liveToolProgress(`bash ls\n${body}`);
+
+  assert.equal(result.body.split("\n").length, LIVE_PROGRESS_BODY_LINES, "行数の上限まで残す");
+  assert.ok(result.body.endsWith(`本文${LIVE_PROGRESS_BODY_LINES + 2}`), "末尾を優先する");
+  assert.equal(result.body.includes("本文1"), false, "先頭の行は落とす");
+
+  const long = `bash ls\n${"あ".repeat(LIVE_PROGRESS_BODY_MAX + 20)}`;
+  const { body: clipped } = liveToolProgress(long);
+  assert.equal(clipped.length, LIVE_PROGRESS_BODY_MAX + 1, "長さの上限まで残す");
+  assert.ok(clipped.startsWith("…"), "切ったことを示す");
+  assert.ok(clipped.endsWith("あ"));
 });
 
 function renderHistory(cards: ToolCard[], live: boolean): string {
@@ -319,7 +282,7 @@ test("進行中のターンでは実行中のカードを履歴に出さず、�
 
   const live = renderHistory(cards, true);
   assert.ok(live.includes("1件"), "実行中のカードは件数に数えない");
-  assert.equal(live.includes("実行中"), false, "実行中はライブ表示が受け持つ");
+  assert.equal(live.includes("実行中"), false, "実行中は状態行が受け持つ");
 
   // 停止・中断で tool_end が来なかったカードは、ターンを抜けた後もここに残す
   const finished = renderHistory(cards, false);
@@ -506,98 +469,4 @@ test("生成モデルと provider のチップは同じターンに同居する"
   );
   assert.deepEqual(chips(html), ["openai/gpt-image-2", "openai/gpt-image-2"]);
   assert.deepEqual(webSearchChips(html), ["Exa", "Exa"]);
-});
-
-/** 実行中のカードから表示を組み立てる (コンポーネントは表示だけを持ち、段と行は純関数が決める) */
-function liveView(runTools: Record<string, ToolCall>, runStatus: RunStatus): LiveToolCallView {
-  const state = liveToolState(runTools, runStatus);
-  const { rows, hidden } = liveToolWindow(state.rows, []);
-  return { rows, hidden, phase: liveToolPhase(state.rows, [], 1_000) };
-}
-
-function renderLive(view: LiveToolCallView): string {
-  return renderToStaticMarkup(createElement(LiveToolCall, view));
-}
-
-test("ライブ表示は実行中のツールを行サマリーで出し、行が無ければ畳む", () => {
-  const running = renderLive(liveView({ t1: call("t1", "bash", "ls -la", false) }, "running"));
-  assert.match(running, /data-visible="true"/);
-  assert.ok(running.includes("bash — ls -la"), "引数まで見える (名前だけでは何をしているか分からない)");
-
-  const finished = renderLive(liveView({ t1: call("t1", "bash", "ls -la", true) }, "running"));
-  assert.match(finished, /data-visible="false"/);
-  assert.equal(finished.includes("ls -la"), false, "完了した行は履歴へ移る");
-
-  const stopped = renderLive(liveView({ t1: call("t1", "bash", "sleep 100", false) }, "stopped"));
-  assert.match(stopped, /data-visible="false"/, "停止で done が来なかったカードは出さない");
-});
-
-test("枠から溢れた行は落とし、読めなかったことを 1 行で示す", () => {
-  const runTools = Object.fromEntries(
-    rowsOf(LIVE_ROW_SLOTS + 2).map((_row, index) => [
-      `t${index + 1}`,
-      call(`t${index + 1}`, "read", `file-${index + 1}.md`, false),
-    ]),
-  );
-  const html = renderLive(liveView(runTools, "running"));
-  assert.ok(html.includes("…他 2 件"), "溢れた件数を出す");
-  assert.equal(html.includes("file-1.md"), false, "古い行は出さない");
-  assert.equal(html.includes("file-2.md"), false, "古い行は出さない");
-  for (const kept of ["file-3.md", "file-4.md", "file-5.md"]) assert.ok(html.includes(kept), `${kept} は残る`);
-});
-
-test("閉じはじめは箱を畳みながら行を残す", () => {
-  const [row] = liveToolState({ t1: call("t1", "bash", "ls", true) }, "running").allRows;
-  const closing = renderLive({ rows: [row], hidden: 0, phase: "closing" });
-  assert.match(closing, /data-visible="false"/);
-  assert.match(closing, /data-closing="true"/);
-  assert.ok(closing.includes("bash — ls"), "畳みの間は行を残す (空になった箱を畳まない)");
-
-  const empty = renderLive({ rows: [], hidden: 0, phase: "hidden" });
-  assert.match(empty, /data-closing="false"/);
-  assert.equal(empty.includes("bash"), false);
-});
-
-// --- investigate の進捗 (live 専用) ---
-
-test("進捗の本文は先頭行を活動、末尾の 1 行を子の本文として読む (ライブは 1 行)", () => {
-  assert.deepEqual(liveToolProgress("bash rg -n foo\n結論: docs にある"), {
-    activity: "bash rg -n foo",
-    body: "結論: docs にある",
-  });
-  // 1 行だけの進捗 (活動だけ / 本文だけ) は活動として出す。分けられない以上、1 行として見せれば足りる
-  assert.deepEqual(liveToolProgress("生成中です"), { activity: "生成中です", body: "" });
-  const multi = liveToolProgress("bash ls\n\n本文 1\n本文 2");
-  assert.deepEqual(multi, { activity: "bash ls", body: "本文 2" }, "行の高さを予約するため 1 行だけ残す");
-});
-
-test("子の本文末尾は行数の上限まで残し、末尾を優先する", () => {
-  const body = Array.from({ length: LIVE_PROGRESS_BODY_LINES + 2 }, (_, index) => `本文${index + 1}`).join("\n");
-  const result = liveToolProgress(`bash ls\n${body}`);
-
-  assert.equal(result.body.split("\n").length, LIVE_PROGRESS_BODY_LINES, "行数の上限まで残す");
-  assert.ok(result.body.endsWith(`本文${LIVE_PROGRESS_BODY_LINES + 2}`), "末尾を優先する");
-  assert.equal(result.body.includes("本文1"), false, "先頭の行は落とす");
-
-  const long = `bash ls\n${"あ".repeat(LIVE_PROGRESS_BODY_MAX + 20)}`;
-  const { body: clipped } = liveToolProgress(long);
-  assert.equal(clipped.length, LIVE_PROGRESS_BODY_MAX + 1, "長さの上限まで残す");
-  assert.ok(clipped.startsWith("…"), "切ったことを示す");
-  assert.ok(clipped.endsWith("あ"));
-});
-
-test("ライブ行は investigate の活動と子の本文末尾を出し、進捗が無ければ出さない", () => {
-  const running = renderLive(
-    liveView(
-      { t1: call("t1", "investigate", "docs を調べて", false, { progress: "bash rg -n foo\n結論: docs にある" }) },
-      "running",
-    ),
-  );
-  assert.match(running, /data-visible="true"/);
-  assert.ok(running.includes("investigate — docs を調べて"));
-  assert.ok(running.includes("bash rg -n foo"), "現在の活動が出る");
-  assert.ok(running.includes("結論: docs にある"), "子の本文末尾が出る");
-
-  const withoutProgress = renderLive(liveView({ t1: call("t1", "investigate", "docs を調べて", false) }, "running"));
-  assert.equal(withoutProgress.includes("結論:"), false);
 });

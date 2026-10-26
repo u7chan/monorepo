@@ -38,7 +38,6 @@ const props: ComposerProps = {
   suggestion: null,
   rootCwd: "/workspace",
   skills: { status: "unavailable" },
-  liveTools: { rows: [], hidden: 0, phase: "hidden" },
   onReloadSkills: () => {},
   onSend: () => {},
   onStop: () => {},

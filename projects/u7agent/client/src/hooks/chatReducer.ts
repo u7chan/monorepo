@@ -81,9 +81,8 @@ export type ChatState = {
    */
   sendSeq: number;
   /**
-   * ライブのツールイベント (`tool_start` / `tool_end`) で観測した toolCallId (古い→新しい)。入力欄の上の
-   * ライブ表示が「この描画で新しく観測したツール」を、payload (resync) が持ち込んだ復元カードと
-   * 区別するために使う。両者は runTools の形では区別できない (docs/frontend.md)。
+   * ライブのツールイベント (`tool_start` / `tool_end`) で観測した toolCallId (古い→新しい)。
+   * 診断スナップショットで、payload (resync) が持ち込んだ復元カードとライブ観測を区別する。
    */
   liveToolIds: string[];
   /**
@@ -178,9 +177,9 @@ export type ChatState = {
    */
   runInitialSendIds: Record<string, string>;
   /**
-   * 待機列の先頭が実行に移った直後の run id。アバターのリングを外へ 1 回広げる演出 (`liveToolIds` と
-   * 同じライブ専用の一時状態) だけに使い、終端は DOM 側 (`startFlashEnd`) が受ける。run_end /
-   * queue_cleared / resync でも落とし、演出が残らないようにする
+   * 待機列の先頭が実行に移った直後の run id。アバターのリングを外へ 1 回広げるライブ専用の演出だけに
+   * 使い、終端は DOM 側 (`startFlashEnd`) が受ける。run_end / queue_cleared / resync でも落とし、
+   * 演出が残らないようにする
    */
   startingRunId?: string;
 };
@@ -2357,7 +2356,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const withBubble = attachRunToolCards(base, false);
       const withRun = {
         ...withBubble,
-        // ライブ表示が「今観測したツール」を見分けるための控え (payload 経由の復元カードと区別する)
+        // 診断用に、今観測したツールを控える (payload 経由の復元カードと区別する)
         liveToolIds: withBubble.liveToolIds.includes(action.id)
           ? withBubble.liveToolIds
           : [...withBubble.liveToolIds, action.id],

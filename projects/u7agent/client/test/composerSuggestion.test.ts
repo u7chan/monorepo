@@ -44,8 +44,6 @@ const props: ComposerProps = {
   suggestion: null,
   rootCwd: "/workspace",
   skills: { status: "unavailable" },
-  // ライブのツール行は出さない (実行中のカードが無い状態)
-  liveTools: { rows: [], hidden: 0, phase: "hidden" },
   onReloadSkills: () => {},
   onSend: () => {},
   onStop: () => {},

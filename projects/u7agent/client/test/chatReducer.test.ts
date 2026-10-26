@@ -1122,7 +1122,7 @@ test("runTools は runStart / newChat / セッション切替で初期化し、r
 });
 
 test("liveToolIds はライブのイベントでだけ増え、セッション切替 / 新規チャットで消える", () => {
-  // payload が持ち込んだカードはライブ観測ではない (ライブ表示が復元カードを抱えない根拠)
+  // payload が持ち込んだカードはライブ観測ではない (診断の控えの根拠)
   const restored = chatReducer(initialChatState, {
     type: "resync",
     payload: payloadWithRunTools([{ role: "user", text: "聞いて" }], [toolCall("t1")]),
@@ -1276,7 +1276,7 @@ test("tool_progress は該当 ID の progress だけを更新し、カードや�
   const next = chatReducer(state, { type: "toolProgress", id: "tool-1", text: "bash rg -n investigate" });
 
   assert.equal(next.runTools["tool-1"]?.progress, "bash rg -n investigate");
-  // バブル側 (履歴寄りの状態) へは写さない。進捗は live 行だけが読む
+  // バブル側 (履歴寄りの状態) へは写さない。進捗は状態行だけが読む
   assert.deepEqual(next.bubbles, state.bubbles);
   assert.deepEqual(next.toolBubbleIds, state.toolBubbleIds);
   assert.equal("progress" in (state.runTools["tool-1"] ?? {}), false, "元の状態を書き換えている");

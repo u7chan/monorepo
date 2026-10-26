@@ -174,17 +174,17 @@ export interface StubSessionOptions {
   manualCompactions?: StubCompactionOptions[];
   /**
    * 本文キーワードで起こす preflight (自動) compaction。option 未設定なら完全に no-op。
-   * キーワードは既存のトリガー (`連続ツール` / `畳み窓` / investigate の依頼文) と衝突しない語にする
+   * キーワードは既存のトリガー (`連続ツール` / `高速ツール` / investigate の依頼文) と衝突しない語にする
    */
   preflightCompaction?: StubKeywordCompaction;
   /**
    * investigate の呼び出しと進捗。実モデルの代わりに、prompt 中へ tool_execution_start →
-   * tool_execution_update ×N → tool_execution_end を流し、live 行の配信経路だけを再現する
+   * tool_execution_update ×N → tool_execution_end を流し、状態行の配信経路だけを再現する
    */
   investigateProgress?: StubInvestigateProgress;
   /**
    * 連続するツール呼び出し (ライブ表示の受入用)。速い順次と並列を実 SDK と同じ順序で流す。
-   * 本文 (reply) は最後の呼び出しの後に流すため、本文が出ている間にホールドと畳みが見える。
+   * 本文 (reply) は最後の呼び出しの後に流す。
    * 配列で渡すと prompt ごとに 1 つ選ぶ (最初に一致したものだけ流す)
    */
   toolBurst?: StubToolBurst | StubToolBurst[];
@@ -284,14 +284,14 @@ export interface StubToolBurst {
    */
   reply?: string;
   /**
-   * 最後のツール (investigate) が終わった後に届く一瞬の行。start と end を同じ時刻で流すため、
-   * 実行中として一度も出ず、ホールドだけが積まれる。畳みはじめの窓へ入れて受入に使う
+   * 最後のツールが終わった後に届く一瞬の行。start と end を同じ時刻で流すため、実行中として
+   * 一度も出ない。状態行の高速更新 (one-shot) の受入に使う
    */
-  closingWindow?: StubToolBurstClosingRow;
+  trailingOneShot?: StubToolBurstTrailingRow;
 }
 
-export interface StubToolBurstClosingRow {
-  /** 最後のツールが終わってから流すまでの待ち (ms)。畳みの時間の中へ入れる */
+export interface StubToolBurstTrailingRow {
+  /** 最後のツールが終わってから流すまでの待ち (ms) */
   afterMs?: number;
   name?: string;
   args?: unknown;
@@ -793,7 +793,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           return;
         }
         session.emit({ type: "message_start", message: { role: "assistant" } });
-        // investigate の呼び出しを模す (live 行の配信経路を作る)。tool_end は本文の後で出す
+        // investigate の呼び出しを模す (状態行の配信経路を作る)。tool_end は本文の後で出す
         promptSeq += 1;
         const investigate = options.investigateProgress;
         const investigateToolCallId = investigate?.toolCallId ?? `call-investigate-${promptSeq}`;
@@ -813,10 +813,10 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
         const body = burst?.reply ?? reply;
         const burstCalls = burst?.calls ?? [];
         const burstEvents = toolBurstTimeline(burstCalls, burstIdPrefix);
-        const closingRow = burst?.closingWindow;
-        const closingToolCallId = `${burstIdPrefix}tail`;
-        const closingToolName = closingRow?.name ?? "bash";
-        const closingArgs = closingRow?.args ?? {};
+        const trailingRow = burst?.trailingOneShot;
+        const trailingToolCallId = `${burstIdPrefix}tail`;
+        const trailingToolName = trailingRow?.name ?? "bash";
+        const trailingArgs = trailingRow?.args ?? {};
         // 実 SDK と同じく toolCall は assistant の本文へ入る (リロード後もカードが履歴から復元される)
         const assistantText = { type: "text", text: "" };
         const assistant = {
@@ -831,8 +831,8 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
               name: toolBurstName(call),
               arguments: call.args ?? {},
             })),
-            ...(closingRow
-              ? [{ type: "toolCall", id: closingToolCallId, name: closingToolName, arguments: closingArgs }]
+            ...(trailingRow
+              ? [{ type: "toolCall", id: trailingToolCallId, name: trailingToolName, arguments: trailingArgs }]
               : []),
             assistantText,
           ],
@@ -954,21 +954,21 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             timestamp: Date.now(),
           });
         }
-        // 畳みはじめの窓の再現: 最後のツールが終わった後、箱が畳みはじめた頃に start と end が同じ時刻の
-        // 行を 1 本だけ流す (実行中として出ないため、900ms のホールドが積まれなければ読めない)
-        if (closingRow && !session.abortRequested) {
-          await sleep(closingRow.afterMs ?? 100);
-          const resultText = closingRow.result ?? `${closingToolName} の結果`;
+        // 高速ツールの再現: 最後のツールが終わった後、start と end が同じ時刻の行を 1 本だけ流す
+        // (実行中として一度も出ない one-shot を、状態行が取りこぼさないかの受入に使う)
+        if (trailingRow && !session.abortRequested) {
+          await sleep(trailingRow.afterMs ?? 100);
+          const resultText = trailingRow.result ?? `${trailingToolName} の結果`;
           session.emit({
             type: "tool_execution_start",
-            toolCallId: closingToolCallId,
-            toolName: closingToolName,
-            args: closingArgs,
+            toolCallId: trailingToolCallId,
+            toolName: trailingToolName,
+            args: trailingArgs,
           });
           session.emit({
             type: "tool_execution_end",
-            toolCallId: closingToolCallId,
-            toolName: closingToolName,
+            toolCallId: trailingToolCallId,
+            toolName: trailingToolName,
             isError: false,
             result: { content: [{ type: "text", text: resultText }] },
           });
@@ -976,7 +976,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           session.appendMessage({
             role: "toolResult",
             content: [{ type: "text", text: resultText }],
-            toolCallId: closingToolCallId,
+            toolCallId: trailingToolCallId,
             isError: false,
             timestamp: Date.now(),
           });
@@ -1103,7 +1103,7 @@ export interface StubPiOptions {
   manualCompactions?: StubCompactionOptions[];
   /** 本文キーワードで起こす preflight (自動) compaction (StubSessionOptions と同じ) */
   preflightCompaction?: StubKeywordCompaction;
-  /** investigate の live 行を fixture で見るための進捗 (StubSessionOptions と同じ) */
+  /** investigate の状態行を fixture で見るための進捗 (StubSessionOptions と同じ) */
   investigateProgress?: StubInvestigateProgress;
   /** 連続するツール呼び出しの live 受入 (StubSessionOptions と同じ) */
   toolBurst?: StubToolBurst | StubToolBurst[];

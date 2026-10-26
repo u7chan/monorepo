@@ -55,7 +55,7 @@ compaction（[compaction.md](compaction.md)）は会話全体を要約に置き�
 - 子 runner は `onUpdate` に「現在の活動（直近のツール実行の要約）」と「生成中の本文末尾」を渡し、本文 delta は間引いて流す（量と間隔はコードが正。ツール境界では間引かない）
 - 文字列は runner 側で `maskSafe` を通し、**本文上限で切る前に**累積原文の末尾（秘密値の先頭に一致し得る分）を保留する。切った後では、先頭を失った断片を完全一致でも先頭部分一致でも検出できない。ツール定義側の `wrapToolDefinitionWithSecretMasker` と `run-events` の送出層でも重ねてマスクする
 - SDK はこれを親ランの `tool_execution_update` として配る。`run-events.ts` は **`investigate` のときだけ** SSE の `tool_progress` へ変換する（他のツールが `onUpdate` を出しても live 表示には使わない。イベントログをトークン単位の進捗で埋めないため）
-- `tool_progress` は `tool_start` / `tool_end` と同じ toolCallId をキーにした **live 専用**の値で、payload（`resync`）には載らない。リロード / SSE 再接続では進捗が消え、完了した要約カードだけが残る（親の live 行の表示は [frontend.md](frontend.md#チャット状態とレンダリング)）
+- `tool_progress` は `tool_start` / `tool_end` と同じ toolCallId をキーにした **live 専用**の値で、payload（`resync`）には載らない。リロード / SSE 再接続では進捗が消え、完了した要約カードだけが残る（親の状態行の表示は [frontend.md](frontend.md#チャット状態とレンダリング)）
 
 ## 記録に残らないこと
 
