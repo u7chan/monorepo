@@ -605,10 +605,6 @@ export function modelKeyProvider(key: string): string {
   return slash > 0 ? key.slice(0, slash) : key;
 }
 
-/**
- * "provider/model" からモデル ID を取り出す。区切りは最初の `/` だけ
- * (model id に `/` を含み得る。`modelKeyProvider()` の対)。
- */
 export function modelKeyId(key: string): string {
   const slash = key.indexOf("/");
   return slash > 0 ? key.slice(slash + 1) : key;
@@ -866,10 +862,6 @@ export function availabilitySaveConfirmMessage(
 /** モデル候補の 1 行。checkbox / モデル名 / ID / 利用可能 の 4 列の材料 */
 export interface CandidateRow {
   key: string;
-  /**
-   * 行の ID 列に出すモデル ID。上流へ送る `model` と同じ値で、provider は接頭しない
-   * (provider は折りたたみ見出しに出る)。`key` は検索と操作の識別子として残す。
-   */
   id: string;
   /** カタログの表示名。カタログ外のエントリは key をそのまま出す */
   name: string;
