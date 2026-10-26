@@ -290,6 +290,7 @@ function SessionFilesResizeHandle({
  */
 export function SkillFilesContent({
   root,
+  rootCwd,
   singleColumn,
   runEndSeq,
   filePreviewPort,
@@ -300,6 +301,8 @@ export function SkillFilesContent({
 }: {
   /** スキルディレクトリ (ワークスペース root 相対) */
   root: string;
+  /** ワークスペース root の絶対パス (health.cwd)。行の絶対パスをコピーする導線に使う */
+  rootCwd?: string;
   singleColumn: boolean;
   /** run の終了回数。作業フォルダ面と同じく、増えるたびに一覧と本文を取り直す */
   runEndSeq: number;
@@ -341,10 +344,12 @@ export function SkillFilesContent({
             {root}
           </code>
         </div>
-        {/* 読み取り専用の面なので行の操作ごと出さない (除外名も使われない)。.git は隠さず、参照ドラッグも付けない */}
+        {/* 読み取り専用の面なので実体を移す / 変える操作は出さない (除外名も使われない)。パスのコピーは残す。
+            .git は隠さず、参照ドラッグも付けない */}
         <FileBrowser
           key={root}
           root={root}
+          rootCwd={rootCwd}
           reloadToken={runEndSeq}
           readOnly
           excludeNames={[]}
@@ -363,6 +368,7 @@ function SessionFilesFace({ singleColumn, ...props }: SessionFilesPanelProps & {
     return (
       <SkillFilesContent
         root={props.mode.root}
+        rootCwd={props.rootCwd}
         singleColumn={singleColumn}
         runEndSeq={props.runEndSeq}
         filePreviewPort={props.filePreviewPort}

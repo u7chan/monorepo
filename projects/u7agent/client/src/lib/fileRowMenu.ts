@@ -48,8 +48,9 @@ export function fileRowShareTarget(input: { type: "file" | "dir"; path: string; 
 
 /**
  * 行に出す操作を パスをコピー → 絶対パスをコピー → 共有 (ディレクトリ行と root 直下の `index.html` 行だけ) → ダウンロード → リネーム → 削除 の順で返す。
- * `null` = 行の操作領域ごと出さない (読み取り専用)、`[]` = 領域は出すが項目が無い (= 空きスロット 1 個) と契約を
- * 分ける (呼び出し側で `readOnly` と区別できないため)。パスはどの行でも取れるので、現在の出し分けは `[]` を返さない。
+ * 読み取り専用の面でも、字面を取るだけのコピーは残す (スキル配下を絶対パスで貼り付けられる)。
+ * `null` = 行の操作領域ごと出さない、`[]` = 領域は出すが項目が無い (= 空きスロット 1 個) と契約を
+ * 分ける (呼び出し側で `readOnly` と区別できないため)。パスはどの行でも取れるので、現在の出し分けは `null` / `[]` を返さない。
  */
 export function fileRowActions({
   name,
@@ -63,7 +64,6 @@ export function fileRowActions({
   canShareSessionRoot = false,
   depth,
 }: FileRowActionsInput): FileRowAction[] | null {
-  if (readOnly) return null;
   // 相対パスはファイル / ディレクトリ / symlink のどれでも取れる (危険な削除は末尾に残す)
   const actions: FileRowAction[] = [
     // コピーする字面の基準はラベルだけで決まるため singleColumn では隠す
@@ -73,6 +73,8 @@ export function fileRowActions({
   if (absolutePath !== undefined) {
     actions.push({ kind: "copy-absolute-path", label: "絶対パスをコピー" });
   }
+  // ダウンロード以下は実体を移す / 変える導線なので、読み取り専用の面では出さない
+  if (readOnly) return actions;
   // 共有はディレクトリ単位 (index.html の確認は公開ジョブが行うのでクライアントでは見ない)。
   // サービス (一時プレビュー) との違いは押す前に知る条件なので singleColumn でも残す
   if (canShare && type === "dir" && !symlink) {

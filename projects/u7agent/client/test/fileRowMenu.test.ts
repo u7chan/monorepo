@@ -87,7 +87,7 @@ test("出し分け: 共有は共有できる面のディレクトリ行だけに
   assert.deepEqual(fileRowActions({ ...base, symlink: true, canShare: true }), [copyPath]);
   // 設定 → ファイル は directory の基準が違うため共有を出さない (canShare を渡さない)
   assert.deepEqual(fileRowActions(base), [copyPath, downloadDir, deleteDir]);
-  assert.equal(fileRowActions({ ...base, canShare: true, readOnly: true }), null);
+  assert.deepEqual(fileRowActions({ ...base, canShare: true, readOnly: true }), [copyPath]);
 });
 
 // 作業フォルダ自身 (root 直下の index.html) の共有。ディレクトリ行の「共有」とは別の項目で、
@@ -143,7 +143,7 @@ test("出し分け: ディレクトリ行の「共有」はセッション種別
   }
 });
 
-test("出し分け: symlink はパスをコピーだけ、除外名はダウンロードを落とし、readOnly は領域ごと消す", () => {
+test("出し分け: symlink はパスをコピーだけ、除外名はダウンロードを落とし、readOnly はコピーだけ残す", () => {
   // symlink はサンドボックスが 400 で拒否するため、ダウンロードも削除も出さない。相対パスは取れるのでコピーだけ残す
   for (const type of ["file", "dir"] as const) {
     assert.deepEqual(fileRowActions({ ...base, type, symlink: true, canRename: true }), [copyPath], type);
@@ -158,9 +158,9 @@ test("出し分け: symlink はパスをコピーだけ、除外名はダウン�
     copyPath,
     { kind: "delete", label: "削除", danger: true },
   ]);
-  // readOnly (スキルのファイルタブ) は null。[] (項目 0) と区別できないと呼び出し側が空きスロットを置けない
+  // readOnly (スキルのファイルタブ) はダウンロード以下を落とし、どの行もパスをコピーを残す
   for (const props of [{ canRename: true }, { type: "file" as const }, { symlink: true }]) {
-    assert.equal(fileRowActions({ ...base, ...props, readOnly: true }), null, JSON.stringify(props));
+    assert.deepEqual(fileRowActions({ ...base, ...props, readOnly: true }), [copyPath], JSON.stringify(props));
   }
 });
 
@@ -176,12 +176,15 @@ test("出し分け: 絶対パスのコピーは絶対パスを渡した行だけ
   for (const action of fileRowActions(base) ?? []) {
     assert.notEqual(action.kind, "copy-absolute-path", "絶対パスが無い行に出ている");
   }
-  // symlink は相対と絶対のコピーだけ。読み取り専用の面は絶対パスを渡しても ⋯ ごと出さない
+  // symlink は相対と絶対のコピーだけ。読み取り専用の面も絶対パスを受け取れば両方残す
   assert.deepEqual(
     fileRowActions({ ...base, symlink: true, absolutePath: "/srv/workspace/link" })?.map((action) => action.kind),
     ["copy-path", "copy-absolute-path"],
   );
-  assert.equal(fileRowActions({ ...base, readOnly: true, absolutePath: "/srv/workspace/docs" }), null);
+  assert.deepEqual(fileRowActions({ ...base, readOnly: true, absolutePath: "/srv/workspace/docs" }), [
+    copyPath,
+    copyAbsolutePath,
+  ]);
 });
 
 test("描画: 絶対パスを渡した行は ⋯ に パスをコピー → 絶対パスをコピー の順で並べる", () => {
@@ -259,7 +262,7 @@ test("描画: ⋯ は aria-haspopup / aria-expanded を持ち、本体は role=m
   assert.equal(items.length, 4, "項目数が違う");
 });
 
-test("描画: symlink は パスをコピー 1 項目、readOnly は何も出さない", () => {
+test("描画: symlink は パスをコピー 1 項目、readOnly は パスをコピー (絶対パスがあれば 2 項目) を出す", () => {
   const symlinkRow = renderToStaticMarkup(
     createElement(EntryRowActions, {
       name: "link",
@@ -297,7 +300,29 @@ test("描画: symlink は パスをコピー 1 項目、readOnly は何も出さ
       onDownload: () => {},
     }),
   );
-  assert.equal(readOnly, "", "readOnly に行の操作が出ている");
+  assert.ok(readOnly.includes("パスをコピー"), "readOnly の行にパスをコピーが出ていない");
+  assert.ok(!readOnly.includes("ダウンロード"), "readOnly の行にダウンロードが出ている");
+  assert.ok(!readOnly.includes("削除"), "readOnly の行に削除が出ている");
+  assert.equal((readOnly.match(/role="menuitem"/g) ?? []).length, 1, "readOnly の項目数が違う");
+
+  const readOnlyAbsolute = renderToStaticMarkup(
+    createElement(EntryRowActions, {
+      name: "docs",
+      type: "dir",
+      canRename: true,
+      readOnly: true,
+      excludeNames: [],
+      absolutePath: "/srv/workspace/.agents/skills/demo",
+      copied: false,
+      onCopyPath: () => {},
+      onCopyAbsolutePath: () => {},
+      onRename: () => {},
+      onDelete: () => {},
+      onDownload: () => {},
+    }),
+  );
+  assert.ok(readOnlyAbsolute.includes("絶対パスをコピー"), "readOnly の行に絶対パスをコピーが出ていない");
+  assert.equal((readOnlyAbsolute.match(/role="menuitem"/g) ?? []).length, 2, "readOnly の絶対パスを含む項目数が違う");
 });
 
 test("描画: パスコピーの失敗は ⋯ ではなく行に 1 行で出し、選択の導線を付けない", () => {

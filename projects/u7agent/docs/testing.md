@@ -162,7 +162,7 @@ source scan を消しただけではイベント伝播・実 DOM の焦点・hoo
 
 自動検証は `server/test/skill-edit.test.ts`（frontmatter の境界 / 変更した値だけの差し替え / 未知キー・コメント・キー順の保持 / LF・CRLF・CR・BOM / 本文の前後空白 / name の欠落と不一致 / 未変更の長い説明 / 非破壊的な拒否 / no-op のバイト列）、`server/test/sandbox-skill-crud.test.ts`（実ファイルでの保存・版照合・ツリー版・削除・境界・走査上限・IO 失敗・abort・SDK `edit` / `write` との競合・フォルダの rename / move / 削除後の旧パス）、`server/test/skill-files-api.test.ts`（偽クライアントでの要求 / 応答 / 上限 / 失敗の写像 / 既存ルートとの共存）、`client/test/fileSkillEditor.test.ts`（状態遷移・下書きの保持と破棄・対象切替）、`client/test/fileSkillApi.test.ts`（method / query / body / エラー）、`client/test/fileSkillArchive.test.ts`（plan の分類・選択の状態遷移・送信の二重防止・失敗の理由・適用後の一覧取り直し）、`client/test/skillImportDialog.test.ts`（選択できる行と適用後の結果の描画）、`client/test/fileSkillEditorForm.test.ts`（入力欄・必須・名前の固定・競合の導線）、`client/test/settingsConfirm.test.ts`（削除の確認の対象と件数）で行う。
 
-GUI は有料 API を使わない一時ストアと実ファイル fixture で、共通スキルの新規作成 → 一覧への反映 → 本文の編集と保存 → 再読み込み → ファイルタブの確認 → 取消 → 削除を desktop と singleColumn の両方で確認する。競合 (409) は同じスキルを外部から書き換えてから保存し、下書きが残って `再読み込み` が出ることを見る。64 KiB を超える本文と、特殊な frontmatter の保存できないスキルは、拒否の理由が出てファイルが変わらないことを見る。
+GUI は有料 API を使わない一時ストアと実ファイル fixture で、共通スキルの新規作成 → 一覧への反映 → 本文の編集と保存 → 再読み込み → ファイルタブの確認（行の ⋯ のパスをコピー（相対 / 絶対）） → 取消 → 削除を desktop と singleColumn の両方で確認する。競合 (409) は同じスキルを外部から書き換えてから保存し、下書きが残って `再読み込み` が出ることを見る。64 KiB を超える本文と、特殊な frontmatter の保存できないスキルは、拒否の理由が出てファイルが変わらないことを見る。
 
 持ち出し / 取り込みも同じ環境で確認する。持ち出しは ZIP が保存され、共通行が 0 件のときと `.agents/skills` が無いときは理由が出ることを見る。取り込みは plan の状態が一覧に出て、何も選ばなければ既存のスキルが変わらず、選んだ同名だけが置き換わることを、適用後の一覧の取り直しと選択まで含めて見る。拡張子違いは plan を送る前に理由が出て、壊れた ZIP と上限超過はサーバーの理由が出ることを見る。一覧と編集を並べる幅では一覧の列が狭いので、見出しの持ち出し / 取り込み / 再読み込みが折り返して見え、列の外へはみ出さないことも見る。
 
