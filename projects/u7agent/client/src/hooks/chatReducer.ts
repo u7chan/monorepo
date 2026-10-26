@@ -173,6 +173,12 @@ export type ChatState = {
    */
   liveHostAssistantIds: string[];
   /**
+   * `liveHostAssistantIds` を採用した run の id。切断中に前の run が終わり次の run が始まると
+   * (`run_start` のリプレイなしで) `resync` だけが届くため、run が変わったら前ターンの host を
+   * 復元しない。どちらかが不明 (旧サーバー) なときは run の変更を判定できないので保持する
+   */
+  liveHostRunId?: string;
+  /**
    * run_start で観測した run id -> 展開済みの本文。送信応答 (`echoSendId`) が run_start より遅れて
    * 届いたときに、ローカルエコーを注記込み / `/skill:` 展開済みの本文へ差し替えるために使う。
    * 直近の数件だけ持ち、対応が取れたら消す (別 run の本文を自分のエコーへ入れない)
@@ -344,6 +350,7 @@ export const initialChatState: ChatState = {
   closedAssistantTexts: [],
   toolTargetAssistantId: undefined,
   liveHostAssistantIds: [],
+  liveHostRunId: undefined,
 };
 
 /** retryAt と serverNow の差を残り時間として控える。どちらか欠けたら undefined (推測で時刻を合成しない) */
@@ -1126,14 +1133,52 @@ function closeCurrentAssistant(state: ChatState): ChatState {
 function adoptToolHost(state: ChatState, assistantKey: string): ChatState | undefined {
   const host = toolHostOf(state.bubbles);
   if (host === undefined) return undefined;
+  // run が変わっていたら (断絶中の run 切替を resync で知らないまま採用した)
+  // 前の run の控えは引き継がない。同じ run の採用なら積む
+  const runId = state.currentRunId ?? runIdOfAssistantId(assistantKey);
+  const kept = state.liveHostRunId === runId ? state.liveHostAssistantIds : [];
   return {
     ...state,
     bubbles: state.bubbles.map((bubble) => (bubble.id === host.id ? { ...bubble, assistantId: assistantKey } : bubble)),
     currentAssistantId: host.id,
     currentAssistantKey: assistantKey,
     toolTargetAssistantId: undefined,
-    liveHostAssistantIds: [...new Set([...state.liveHostAssistantIds, assistantKey])],
+    liveHostAssistantIds: [...new Set([...kept, assistantKey])],
+    liveHostRunId: runId,
   };
+}
+
+/** 応答ID (`<runId>:<seq>`) から run id を引く。形式が違う旧データは undefined */
+function runIdOfAssistantId(assistantId: string): string | undefined {
+  const separator = assistantId.lastIndexOf(":");
+  return separator > 0 ? assistantId.slice(0, separator) : undefined;
+}
+
+/**
+ * host の控えが payload の run のものか。どちらかが不明 (旧サーバー / run を持たない payload) な
+ * ときは run の変更を判定できないため保持する。判定できるときに違えば、前の run の完了済み host を
+ * live に戻さない
+ */
+function hostLedgerBelongsToRun(ledgerRunId: string | undefined, runId: string | undefined): boolean {
+  return ledgerRunId === undefined || runId === undefined || ledgerRunId === runId;
+}
+
+/**
+ * run が変わったときに、前の run の host を確定する。live の印を外さないと、履歴ページが届くまでの
+ * 間だけ古いターンのコピーと実行中の行が隠れたままになる
+ */
+function settleDroppedHosts(bubbles: Bubble[], assistantIds: readonly string[]): Bubble[] {
+  if (assistantIds.length === 0) return bubbles;
+  const dropped = new Set(assistantIds);
+  let changed = false;
+  const next = bubbles.map((bubble) => {
+    if (!isToolHostBubble(bubble) || bubble.assistantId === undefined || !dropped.has(bubble.assistantId)) {
+      return bubble;
+    }
+    changed = true;
+    return { ...bubble, host: undefined, settled: true };
+  });
+  return changed ? next : bubbles;
 }
 
 /**
@@ -1649,6 +1694,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentAssistantKey: undefined,
         // 履歴ごと入れ替わるので、前の履歴の host を復元しない
         liveHostAssistantIds: [],
+        liveHostRunId: undefined,
         history: initialChatState.history,
         activity: "",
         activityState: undefined,
@@ -2015,12 +2061,21 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           state.currentAssistantId,
         );
       }
+      // host の控えは同じ run の再同期だけで使う。切断中に前の run が終わり次の run が始まると
+      // `run_start` のリプレイなしで `resync` だけが届くため、run が変わっていたら前ターンの
+      // 完了済み host を live に戻さない (コピーと実行中の行を隠したままにしない)
+      const retainedHostIds =
+        status === "running" && !switchedSession && hostLedgerBelongsToRun(state.liveHostRunId, payload.run?.id)
+          ? state.liveHostAssistantIds
+          : [];
+      const droppedHostIds = state.liveHostAssistantIds.filter((id) => !retainedHostIds.includes(id));
+      const hostSettled = settleDroppedHosts(settledBubbles, droppedHostIds);
       // run が終わっているターンの host は、確定履歴の item 境界 (本文なし応答ごと) へ揃えておく。
       // 実行中は本文 item が現れるかもしれないので、溜めたままにする
       const finalized =
         status === "running"
-          ? { bubbles: settledBubbles, nextId: applied.nextId, toolBubbleIds: next.toolBubbleIds }
-          : settleToolHosts({ ...next, bubbles: settledBubbles, nextId: applied.nextId });
+          ? { bubbles: hostSettled, nextId: applied.nextId, toolBubbleIds: next.toolBubbleIds }
+          : settleToolHosts({ ...next, bubbles: hostSettled, nextId: applied.nextId });
       return {
         ...next,
         bubbles: finalized.bubbles,
@@ -2031,7 +2086,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         stateSeq: state.stateSeq + 1,
         closedAssistantTexts: switchedSession ? [] : state.closedAssistantTexts,
         // 実行中でなければ host は確定済み (settleToolHosts) なので、次のページ再構築で戻さない
-        liveHostAssistantIds: status === "running" && !switchedSession ? state.liveHostAssistantIds : [],
+        liveHostAssistantIds: retainedHostIds,
+        liveHostRunId: retainedHostIds.length === 0 ? undefined : state.liveHostRunId,
         toolTargetAssistantId:
           !switchedSession &&
           state.toolTargetAssistantId !== undefined &&
@@ -2278,6 +2334,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         toolTargetAssistantId: undefined,
         // 前の run の host を次の run のページ再構築で復元しない
         liveHostAssistantIds: [],
+        liveHostRunId: undefined,
         closedAssistantTexts:
           action.runId !== undefined && action.runId === state.currentRunId ? state.closedAssistantTexts : [],
         stateSeq: state.stateSeq + 1,
@@ -2874,6 +2931,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         toolTargetAssistantId: undefined,
         // ターンが終われば host は確定済みの item になる (次の resync で印を戻さない)
         liveHostAssistantIds: [],
+        liveHostRunId: undefined,
         toolBubbleIds: {},
         activity,
         activityState: undefined,

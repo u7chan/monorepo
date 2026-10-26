@@ -1049,3 +1049,152 @@ test("2回目の resync でページを組み直しても、本文 item を引�
   assert.equal(settledHtml.includes("実行中"), false, "実行中の行は残らない");
   assert.ok(settledHtml.includes("2件"), "件数は 2 件");
 });
+
+test("run が変わった resync では、前ターンの完了済み host を live に戻さない", () => {
+  // What: r1 で host C を採用して履歴 item になった後、切断中に r1 が終わり r2 が始まる (run_start の
+  // リプレイなし)。`resync(status=running, run.id=r2)` と最新履歴を適用しても、r1 の C は host なし /
+  // live=false でコピーが出る。同じ resync の後、r2 の host は従来どおり live のまま扱える
+  let state = startRun();
+  state = bodylessTool(state, 1, { id: "work-a" });
+  state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  const r1Page: HistoryPage = {
+    sessionId: "session-a",
+    items: [
+      {
+        kind: "message",
+        id: "a-u1",
+        context: "active",
+        role: "user",
+        text: "調べて",
+        sendId: "send-1",
+        runId: "run-1",
+      },
+      {
+        kind: "message",
+        id: "a-c",
+        context: "active",
+        role: "assistant",
+        text: "C",
+        assistantId: "run-1:2",
+        tools: completedRun(["work-a"]).toolCalls,
+      },
+    ],
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "a-u1",
+    messageCount: 2,
+    summarizedMessageCount: 0,
+  };
+  state = chatReducer(state, { type: "resyncHistory", page: r1Page });
+  assert.equal(isToolHostBubble(state.bubbles.find((bubble) => bubble.entryId === "a-c") as Bubble), true);
+  assert.deepEqual(state.liveHostAssistantIds, ["run-1:2"], "r1 の host を控える");
+
+  // 切断中に r1 が終わり r2 が始まった。run_start はリプレイされず、実行中の resync だけが届く
+  const snapshot: SessionPayload = {
+    ...idlePayload(1),
+    status: "running",
+    run: {
+      id: "run-2",
+      initialSendId: "send-2",
+      status: "running",
+      startedAt: 100,
+      prompt: "もう一度",
+      toolCalls: [],
+      totalRetryCount: 0,
+    },
+    messages: [
+      { role: "user", text: "調べて", sendId: "send-1", runId: "run-1" },
+      { role: "assistant", assistantId: "run-1:2", text: "C", tools: completedRun(["work-a"]).toolCalls },
+      { role: "user", text: "もう一度", sendId: "send-2", runId: "run-2" },
+    ],
+  };
+  state = chatReducer(state, { type: "resync", payload: snapshot });
+  const afterSnapshot = state.bubbles.find((bubble) => bubble.entryId === "a-c") as Bubble;
+  assert.deepEqual(state.liveHostAssistantIds, [], "run が変わったら前の run の控えを捨てる");
+  assert.equal(state.currentRunId, "run-2");
+  assert.equal(isToolHostBubble(afterSnapshot), false, "前ターンの host の印を外す");
+  assert.equal(afterSnapshot.settled, true, "前ターンの host は確定済みにする");
+
+  // 最新履歴を適用しても、r1 の C は live に戻らない
+  const page: HistoryPage = {
+    sessionId: "session-a",
+    items: [
+      ...r1Page.items,
+      {
+        kind: "message",
+        id: "a-u2",
+        context: "active",
+        role: "user",
+        text: "もう一度",
+        sendId: "send-2",
+        runId: "run-2",
+      },
+      {
+        kind: "message",
+        id: "a-d",
+        context: "active",
+        role: "assistant",
+        text: "D",
+        assistantId: "run-2:1",
+      },
+    ],
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "a-u1",
+    messageCount: 4,
+    summarizedMessageCount: 0,
+  };
+  state = chatReducer(state, { type: "resyncHistory", page });
+  const doneC = state.bubbles.find((bubble) => bubble.entryId === "a-c") as Bubble;
+  assert.equal(state.runStatus, "running", "r2 は実行中");
+  assert.equal(isToolHostBubble(doneC), false, "完了済みの C を host として復元しない");
+  assert.equal(
+    isLiveTurnBubble(doneC, { currentAssistantId: state.currentAssistantId, runInProgress: true }),
+    false,
+    "r2 が実行中でも r1 の C は live にしない",
+  );
+  const doneHtml = renderHistory(doneC.tools, false);
+  assert.ok(doneHtml.includes("ツール履歴をすべてコピー"), "完了済みの前ターンにはコピーを出す");
+  assert.ok(doneHtml.includes("1件"));
+
+  // r2 の host は従来どおり扱える (実行中のツールは状態行、本文が来たら同じバブルを本文 item にする)
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "work-b",
+    name: "grep",
+    args: "$ grep B",
+    at: 101,
+    startedAt: 101,
+    assistantId: "run-2:2",
+  });
+  state = chatReducer(state, { type: "toolEnd", id: "work-b", isError: false, output: "out b", endedAt: 102 });
+  state = chatReducer(state, { type: "text", delta: "E", at: 103, assistantId: "run-2:2" });
+  const adoptedE = state.bubbles.find((bubble) => bubble.text === "E") as Bubble;
+  assert.deepEqual(state.liveHostAssistantIds, ["run-2:2"], "控えは現在の run の host だけになる");
+  assert.equal(isToolHostBubble(adoptedE), true);
+  assert.deepEqual(
+    adoptedE.tools.map((card) => card.id),
+    ["work-b"],
+  );
+  assert.equal(
+    isLiveTurnBubble(adoptedE, { currentAssistantId: state.currentAssistantId, runInProgress: true }),
+    true,
+    "r2 の host は run の終端まで live",
+  );
+  const liveEHtml = renderHistory(adoptedE.tools, true);
+  assert.equal(liveEHtml.includes("ツール履歴をすべてコピー"), false, "r2 の host はコピーを出さない");
+  assert.ok(liveEHtml.includes("1件"));
+  const stillDoneC = state.bubbles.find((bubble) => bubble.entryId === "a-c") as Bubble;
+  assert.equal(isToolHostBubble(stillDoneC), false, "r2 の本文が来ても前ターンの C は確定したまま");
+
+  // r2 が終われば、r2 の host も同じバブルのまま確定する
+  const ended = chatReducer(state, { runId: "run-2", type: "runEnd", status: "completed", queueDepth: 0 });
+  const settledE = ended.bubbles.find((bubble) => bubble.text === "E") as Bubble;
+  assert.equal(settledE.id, adoptedE.id);
+  assert.equal(isToolHostBubble(settledE), false);
+  assert.deepEqual(ended.liveHostAssistantIds, []);
+  assert.ok(renderHistory(settledE.tools, false).includes("ツール履歴をすべてコピー"));
+});
