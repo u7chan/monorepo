@@ -3,7 +3,13 @@
  * 保存前の検証と、オンメモリであることの注意書きを DOM なしで固定できるようにする。
  * サーバーの検証 (server/src/custom-providers.ts) と同じ境界を、保存前に同じ理由で止めるために持つ。
  */
-import type { CreateCustomProviderBody, CustomProviderSummary, UpdateCustomProviderBody } from "../types";
+import type {
+  CreateCustomProviderBody,
+  CustomProviderProbeBody,
+  CustomProviderProbeResponse,
+  CustomProviderSummary,
+  UpdateCustomProviderBody,
+} from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
 
 export const CUSTOM_PROVIDER_ID_MAX_LENGTH = 64;
@@ -75,6 +81,14 @@ export const CUSTOM_PROVIDER_NOTES: readonly string[] = [
 
 /** contextWindow の選択の注意。実モデルより大きい値を選ぶと、送信がコンテキスト超過で失敗する */
 export const CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE = "実モデルの context window より大きくしないでください。";
+
+export const CUSTOM_PROVIDER_PROBE_LABEL = "モデル一覧から選ぶ";
+export const CUSTOM_PROVIDER_PROBE_PENDING_LABEL = "一覧を取得中";
+export const CUSTOM_PROVIDER_PROBE_PENDING_NOTE = "モデル一覧を取得しています";
+export const CUSTOM_PROVIDER_PROBE_EMPTY_MESSAGE =
+  "接続できましたが、モデル一覧は空でした。モデル ID を直接入力してください。";
+export const CUSTOM_PROVIDER_PROBE_MISSING_NOTE = "このモデル ID は取得した一覧にありません。";
+export const CUSTOM_PROVIDER_PROBE_EMPTY_LIST = "該当するモデルがありません。";
 
 /** フォームの下書き。数値は入力欄の文字列のまま持ち、保存前に検証する */
 export interface CustomProviderFormDraft {
@@ -237,6 +251,109 @@ export function customProviderUpdateBody(draft: CustomProviderFormDraft): Update
     baseUrl: draft.baseUrl.trim(),
     ...(draft.apiKey === "" ? {} : { apiKey: draft.apiKey }),
     model: modelBodyOf(draft),
+  };
+}
+
+/** probe の本文。編集時は provider を渡して保存済みのキーを使えるようにし、空欄のキーは送らない */
+export function customProviderProbeBody(draft: CustomProviderFormDraft, editing: boolean): CustomProviderProbeBody {
+  return {
+    ...(editing ? { provider: draft.id.trim() } : {}),
+    baseUrl: draft.baseUrl.trim(),
+    ...(draft.apiKey === "" ? {} : { apiKey: draft.apiKey }),
+  };
+}
+
+/**
+ * probe を押せるか。保存と同じ境界 (baseUrl / キーの形式) に加え、編集時の空欄キーは保存済みの
+ * キーがあるときだけ許す。取得中・他の変更中・ランタイム停止時も押せない。
+ */
+export function customProviderProbeEnabled(input: {
+  draft: CustomProviderFormDraft;
+  editing: boolean;
+  hasStoredKey: boolean;
+  runtimeAvailable: boolean;
+  busy: boolean;
+  probing: boolean;
+}): boolean {
+  if (!input.runtimeAvailable || input.busy || input.probing) return false;
+  if (customProviderBaseUrlError(input.draft.baseUrl) !== undefined) return false;
+  if (input.draft.apiKey !== "") return customProviderApiKeyError(input.draft.apiKey, false) === undefined;
+  return input.editing && input.hasStoredKey;
+}
+
+/** 一覧の絞り込み。大小無視の部分一致で、並びはサーバーが決めた順を保つ */
+export function filterModelIds(ids: readonly string[], query: string): string[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return [...ids];
+  return ids.filter((id) => id.toLowerCase().includes(needle));
+}
+
+/** 今のモデル ID が取得した一覧に無いか。空の入力と空の一覧では警告しない */
+export function modelIdMissingFromList(modelId: string, ids: readonly string[]): boolean {
+  const current = modelId.trim();
+  if (current === "" || ids.length === 0) return false;
+  return !ids.includes(current);
+}
+
+/** 結果行の表示。失敗の文言はサーバーが正で、成功の件数だけをここで組む */
+export function customProviderProbeDisplay(result: CustomProviderProbeResponse): {
+  kind: "success" | "failure";
+  message: string;
+  detail: string | null;
+} {
+  if (result.failure === null) {
+    const count = result.models.length;
+    return {
+      kind: "success",
+      message:
+        count === 0
+          ? CUSTOM_PROVIDER_PROBE_EMPTY_MESSAGE
+          : `接続できました。モデル ${count} 件${result.truncated ? `（先頭 ${count} 件のみ）` : ""}`,
+      detail: null,
+    };
+  }
+  return {
+    kind: "failure",
+    message: result.message ?? "モデル一覧を取得できませんでした",
+    detail: result.httpStatus !== null && result.httpStatus >= 400 ? `HTTP ${result.httpStatus}` : null,
+  };
+}
+
+/** probe の一時状態。baseUrl / APIキーの編集で revision が進み、その前の結果は使わない */
+export interface CustomProviderProbeState {
+  revision: number;
+  result: CustomProviderProbeResponse | null;
+  error: string | null;
+}
+
+/**
+ * baseUrl / APIキーを編集したら、その前に取った probe の結果は捨てる。
+ * キーを文字列で複製せず、編集のたびに進む revision だけで判定する。
+ */
+export function currentCustomProviderProbe(
+  state: CustomProviderProbeState | null,
+  revision: number,
+): CustomProviderProbeState | null {
+  return state !== null && state.revision === revision ? state : null;
+}
+
+/**
+ * 遅れて届いた probe の結果を今の入力へ適用してよいか決める。revision が進んでいたら、状態は
+ * 残しても表示には使わず、picker へも ID を返さない (古い endpoint の一覧を開かせない)。
+ */
+export function customProviderProbeOutcome(input: {
+  startedAt: number;
+  currentRevision: number;
+  result: CustomProviderProbeResponse | null;
+  error: string | null;
+}): { state: CustomProviderProbeState; ids: string[] } {
+  const stale = input.currentRevision !== input.startedAt;
+  return {
+    state: { revision: input.startedAt, result: input.result, error: input.error },
+    ids:
+      stale || input.result === null || input.result.failure !== null
+        ? []
+        : input.result.models.map((model) => model.id),
   };
 }
 

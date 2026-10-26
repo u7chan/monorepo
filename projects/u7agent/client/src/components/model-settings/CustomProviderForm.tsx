@@ -1,22 +1,39 @@
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import {
   CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE,
   CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS,
+  CUSTOM_PROVIDER_PROBE_MISSING_NOTE,
+  CUSTOM_PROVIDER_PROBE_PENDING_NOTE,
   contextWindowOptions,
+  currentCustomProviderProbe,
   customProviderCreateBody,
   customProviderDraftOf,
   customProviderFormHasError,
+  customProviderProbeBody,
+  customProviderProbeDisplay,
+  customProviderProbeEnabled,
+  customProviderProbeOutcome,
   customProviderUpdateBody,
   deleteCustomProviderConfirm,
   emptyCustomProviderDraft,
+  modelIdMissingFromList,
   validateCustomProviderDraft,
   type CustomProviderFormDraft,
   type CustomProviderFormErrors,
+  type CustomProviderProbeState,
 } from "../../lib/customProviders";
-import type { CreateCustomProviderBody, CustomProviderSummary, UpdateCustomProviderBody } from "../../types";
+import { messageFor } from "../../lib/settingsResource";
+import type {
+  CreateCustomProviderBody,
+  CustomProviderProbeBody,
+  CustomProviderProbeResponse,
+  CustomProviderSummary,
+  UpdateCustomProviderBody,
+} from "../../types";
 import { useConfirm } from "../ConfirmProvider";
 import { CheckIcon, TrashIcon } from "../icons";
 import { SelectField } from "../SelectField";
+import { ModelIdPicker } from "./ModelIdPicker";
 
 export type CustomProviderFormProps = {
   /** null = 追加。定義があれば編集（provider id は読み取り専用） */
@@ -29,6 +46,8 @@ export type CustomProviderFormProps = {
   onCreate: (body: CreateCustomProviderBody) => Promise<boolean>;
   onUpdate: (provider: string, body: UpdateCustomProviderBody) => Promise<boolean>;
   onDelete: (provider: string) => Promise<boolean>;
+  /** `/models` の probe。設定は変えず、結果だけを返す */
+  onProbe: (input: CustomProviderProbeBody) => Promise<CustomProviderProbeResponse>;
   /** 保存できたら、その provider を選択状態にする */
   onSaved: (provider: string) => void;
   /** 削除できたら選択を解除する */
@@ -49,17 +68,82 @@ export function CustomProviderForm({
   onCreate,
   onUpdate,
   onDelete,
+  onProbe,
   onSaved,
   onDeleted,
   onCancelAdd,
 }: CustomProviderFormProps) {
   const editing = provider !== null;
   const confirm = useConfirm();
+  const modelIdInputId = useId();
+  const contextWindowRef = useRef<HTMLSpanElement | null>(null);
   const [draft, setDraft] = useState<CustomProviderFormDraft>(() =>
     provider ? customProviderDraftOf(provider) : emptyCustomProviderDraft(),
   );
   const [errors, setErrors] = useState<CustomProviderFormErrors>({});
-  const update = (patch: Partial<CustomProviderFormDraft>) => setDraft((current) => ({ ...current, ...patch }));
+  const [revision, setRevision] = useState(0);
+  // 遅れて届いた応答を、レンダー前でも現在の入力と比べられるように ref でも持つ
+  const revisionRef = useRef(0);
+  const [probe, setProbe] = useState<CustomProviderProbeState | null>(null);
+  const [probing, setProbing] = useState(false);
+  const update = (patch: Partial<CustomProviderFormDraft>) => {
+    setDraft((current) => ({ ...current, ...patch }));
+    // 接続先かキーが変わったら、その前に取った一覧は今の入力の結果ではない
+    if ("baseUrl" in patch || "apiKey" in patch) {
+      revisionRef.current += 1;
+      setRevision(revisionRef.current);
+    }
+  };
+
+  const currentProbe = currentCustomProviderProbe(probe, revision);
+  const probeResult = currentProbe?.result ?? null;
+  const probeError = currentProbe?.error ?? null;
+  const modelIds =
+    probeResult !== null && probeResult.failure === null ? probeResult.models.map((model) => model.id) : [];
+  const probeView = probeResult === null ? null : customProviderProbeDisplay(probeResult);
+  const missingFromList =
+    probeResult !== null && probeResult.failure === null && modelIdMissingFromList(draft.modelId, modelIds);
+
+  /**
+   * 一覧を取りに行く。新しく取れた成功結果は使い回し、失敗は空配列で返す (文言は結果行が持つ)。
+   * 遅れて届いた結果は revision で捨て、編集後の入力の結果として見せない。
+   */
+  const probeModels = async (): Promise<readonly string[]> => {
+    const fresh = currentCustomProviderProbe(probe, revisionRef.current);
+    if (fresh !== null && fresh.result !== null && fresh.result.failure === null) {
+      return fresh.result.models.map((model) => model.id);
+    }
+    const startedAt = revisionRef.current;
+    setProbing(true);
+    try {
+      const result = await onProbe(customProviderProbeBody(draft, editing));
+      const outcome = customProviderProbeOutcome({
+        startedAt,
+        currentRevision: revisionRef.current,
+        result,
+        error: null,
+      });
+      setProbe(outcome.state);
+      return outcome.ids;
+    } catch (error) {
+      const outcome = customProviderProbeOutcome({
+        startedAt,
+        currentRevision: revisionRef.current,
+        result: null,
+        error: messageFor(error),
+      });
+      setProbe(outcome.state);
+      return outcome.ids;
+    } finally {
+      setProbing(false);
+    }
+  };
+
+  // 選択で popover が閉じ、native がトリガーへ焦点を戻す。次の入力へ進めるよう contextWindow へ移す
+  const pickModelId = (id: string) => {
+    update({ modelId: id });
+    window.setTimeout(() => contextWindowRef.current?.querySelector("select")?.focus(), 0);
+  };
 
   const submit = async () => {
     const next = validateCustomProviderDraft(draft, { editing });
@@ -82,6 +166,14 @@ export function CustomProviderForm({
   };
 
   const disabled = !runtimeAvailable || saving || busy;
+  const probeEnabled = customProviderProbeEnabled({
+    draft,
+    editing,
+    hasStoredKey: provider?.hasKey ?? false,
+    runtimeAvailable,
+    busy,
+    probing,
+  });
 
   return (
     <section className="grid gap-4">
@@ -181,11 +273,12 @@ export function CustomProviderForm({
           {errors.apiKey ? <span className="text-warn">{errors.apiKey}</span> : null}
         </label>
 
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="grid content-start gap-1 text-2xs text-ink-soft">
-            モデル ID
+        <div className="grid content-start gap-1 text-2xs text-ink-soft">
+          <label htmlFor={modelIdInputId}>モデル ID</label>
+          <div className="flex min-w-0 items-start gap-1.5">
             <input
-              className="field min-w-0 text-xs"
+              id={modelIdInputId}
+              className="field min-w-0 flex-1 text-xs"
               value={draft.modelId}
               placeholder="qwen2.5-coder:7b"
               aria-label="モデル ID"
@@ -194,10 +287,41 @@ export function CustomProviderForm({
               aria-invalid={errors.modelId ? true : undefined}
               onChange={(event) => update({ modelId: event.currentTarget.value })}
             />
-            {errors.modelId ? <span className="text-warn">{errors.modelId}</span> : null}
-          </label>
-          <label className="grid content-start gap-1 text-2xs text-ink-soft">
-            contextWindow
+            <ModelIdPicker
+              value={draft.modelId}
+              loading={probing}
+              disabled={!probeEnabled}
+              onRequest={probeModels}
+              onPick={pickModelId}
+            />
+          </div>
+          {probing ? (
+            <span role="status" className="text-2xs text-ink-muted">
+              {CUSTOM_PROVIDER_PROBE_PENDING_NOTE}
+            </span>
+          ) : null}
+          {!probing && probeError !== null ? (
+            <span role="alert" className="text-2xs text-warn">
+              {probeError}
+            </span>
+          ) : null}
+          {!probing && probeError === null && probeView !== null ? (
+            <span role={probeView.kind === "success" ? "status" : "alert"} className="grid gap-0.5">
+              <span className={probeView.kind === "success" ? "text-ink-muted" : "text-warn"}>{probeView.message}</span>
+              {probeView.detail ? <span className="text-3xs text-ink-faint">{probeView.detail}</span> : null}
+            </span>
+          ) : null}
+          {!probing && missingFromList ? (
+            <span role="status" className="text-2xs text-warn">
+              {CUSTOM_PROVIDER_PROBE_MISSING_NOTE}
+            </span>
+          ) : null}
+          {errors.modelId ? <span className="text-warn">{errors.modelId}</span> : null}
+        </div>
+
+        <label className="grid content-start gap-1 text-2xs text-ink-soft">
+          contextWindow
+          <span ref={contextWindowRef} className="contents">
             <SelectField
               wrapperClassName="w-full"
               value={draft.contextWindow}
@@ -213,10 +337,10 @@ export function CustomProviderForm({
                 </option>
               ))}
             </SelectField>
-            <span className="text-ink-ghost">{CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE}</span>
-            {errors.contextWindow ? <span className="text-warn">{errors.contextWindow}</span> : null}
-          </label>
-        </div>
+          </span>
+          <span className="text-ink-ghost">{CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE}</span>
+          {errors.contextWindow ? <span className="text-warn">{errors.contextWindow}</span> : null}
+        </label>
 
         <details className="rounded-lg border border-line bg-soft px-2.5 py-2">
           <summary className="cursor-pointer text-2xs text-ink-soft">詳細（maxTokens）</summary>

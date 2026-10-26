@@ -6,8 +6,10 @@
  */
 import type { ModelSettingsRow, ProviderCredentialRow, ProviderMemoRow } from "./app-db";
 import { sanitizeRuntimeAuth, type ModelCatalogRefreshAttempt, type RuntimeAuthStatusLike } from "./agent";
+import { CUSTOM_PROVIDER_PROBE_TIMEOUT_MS, probeCustomProviderModels } from "./custom-provider-probe";
 import {
   CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE,
+  CUSTOM_PROVIDER_API_KEY_MESSAGE,
   CUSTOM_PROVIDER_KEY_TARGET_MESSAGE,
   CUSTOM_PROVIDER_MEMO_TARGET_MESSAGE,
   CUSTOM_PROVIDER_NOT_FOUND_MESSAGE,
@@ -20,6 +22,7 @@ import {
   CustomProviderStore,
   assertCustomProviderIdAvailable,
   customProviderRuntimeConfig,
+  parseCustomProviderApiKey,
   parseCustomProviderInput,
   parseCustomProviderUpdate,
   type CustomProviderDefinition,
@@ -32,6 +35,7 @@ import {
   PROVIDER_API_KEY_MIN_LENGTH,
   RUNTIME_MODELS_UNAVAILABLE_MESSAGE,
   type CredentialKind,
+  type CustomProviderProbeResponse,
   type ModelCatalogRefreshResponse,
   type ModelRef,
   type ModelsSettingsResponse,
@@ -150,6 +154,10 @@ export interface ModelSettingsOptions {
   ignoredEnvironmentVariables: string[];
   /** SDK 操作の期限。timeout は「未適用」と断定せず unknown に倒す */
   timeoutMs?: number;
+  /** カスタムプロバイダーの `/models` probe の期限。一覧取得は短く閉じる */
+  probeTimeoutMs?: number;
+  /** `/models` probe の fetch (テスト用)。省略時は globalThis.fetch */
+  probeFetch?: typeof fetch;
   /** pi.dev へのカタログ取得の総時間の上限。provider ごとの試行より外側の期限 */
   catalogTimeoutMs?: number;
 }
@@ -268,6 +276,8 @@ export class ModelSettingsService {
   #setModelSelection: ModelSettingsOptions["setModelSelection"];
   #ignoredEnvironmentVariables: string[];
   #timeoutMs: number;
+  #probeTimeoutMs: number;
+  #probeFetch: typeof fetch | undefined;
   #catalogTimeoutMs: number;
   #oauthLogin: { stateOf(provider: string): OAuthLoginState | null } | null;
   #lock = new MutationLock();
@@ -285,6 +295,8 @@ export class ModelSettingsService {
     this.#setModelSelection = options.setModelSelection;
     this.#ignoredEnvironmentVariables = options.ignoredEnvironmentVariables;
     this.#timeoutMs = options.timeoutMs ?? PROVIDER_KEY_SYNC_TIMEOUT_MS;
+    this.#probeTimeoutMs = options.probeTimeoutMs ?? CUSTOM_PROVIDER_PROBE_TIMEOUT_MS;
+    this.#probeFetch = options.probeFetch;
     this.#catalogTimeoutMs = options.catalogTimeoutMs ?? MODEL_CATALOG_REFRESH_TIMEOUT_MS;
     this.#oauthLogin = options.oauthLogin ?? null;
   }
@@ -569,6 +581,32 @@ export class ModelSettingsService {
       await this.#refresh();
       return this.#appliedCustom();
     });
+  }
+
+  /**
+   * カスタムプロバイダーの `/models` を 1 回だけ叩いて、接続の分類と選べるモデル ID を返す。
+   * 状態を変えないのでミューテーションロックを取らず、DB / SDK / auth.json にも触らない
+   * (probe を 5 秒の通信でロックへ入れない)。キーは保存済みを使えるが、応答には載せない。
+   */
+  async probeCustomProvider(input: {
+    provider?: string;
+    baseUrl: string;
+    apiKey?: string;
+  }): Promise<CustomProviderProbeResponse> {
+    const stored = input.provider === undefined ? undefined : this.#customProviders.get(input.provider);
+    if (input.provider !== undefined && !stored) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
+    const typed =
+      input.apiKey === undefined || input.apiKey === "" ? undefined : parseCustomProviderApiKey(input.apiKey);
+    const apiKey = typed ?? stored?.apiKey;
+    if (apiKey === undefined) throw httpError(400, CUSTOM_PROVIDER_API_KEY_MESSAGE);
+    if (typed !== undefined) this.#retainSecret(typed);
+    return probeCustomProviderModels(
+      { baseUrl: input.baseUrl, apiKey },
+      {
+        ...(this.#probeFetch === undefined ? {} : { fetchImpl: this.#probeFetch }),
+        timeoutMs: this.#probeTimeoutMs,
+      },
+    );
   }
 
   /**

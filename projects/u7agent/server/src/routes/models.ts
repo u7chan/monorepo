@@ -1,7 +1,12 @@
 import type { Context } from "hono";
 import type { ModelSettingsService } from "../model-settings";
 import type { OAuthLoginOutcome, OAuthLoginService } from "../oauth-login";
-import type { CreateCustomProviderBody, UpdateCustomProviderBody, UpdateModelAvailabilityBody } from "../schema";
+import type {
+  CreateCustomProviderBody,
+  CustomProviderProbeBody,
+  UpdateCustomProviderBody,
+  UpdateModelAvailabilityBody,
+} from "../schema";
 
 /**
  * 設定 → モデルのプロバイダー認証・利用可能なモデルの API。
@@ -89,6 +94,18 @@ export function createModelSettingsRoutes({
       const outcome = await modelSettings.deleteCustomProvider(c.req.param("provider") ?? "");
       if (outcome.status === 503) return c.json({ error: outcome.error }, 503);
       return c.json(outcome.response, 200);
+    },
+
+    /**
+     * モデル一覧の probe。状態を変えないので `state` を持たず、接続できない場合も 200 の分類で返す。
+     */
+    probeCustomProvider: async (c: Context, body: CustomProviderProbeBody) => {
+      const response = await modelSettings.probeCustomProvider({
+        ...(body.provider === undefined ? {} : { provider: body.provider }),
+        baseUrl: body.baseUrl,
+        ...(body.apiKey === undefined ? {} : { apiKey: body.apiKey }),
+      });
+      return c.json(response, 200);
     },
 
     /**

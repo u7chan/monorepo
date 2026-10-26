@@ -75,6 +75,8 @@ export type CreateBffAppOptions = {
   imageCatalogFetch?: typeof fetch;
   /** 音声モデル一覧取得のテスト用。省略時は globalThis.fetch */
   speechCatalogFetch?: typeof fetch;
+  /** カスタムプロバイダーの `/models` probe のテスト用。省略時は globalThis.fetch */
+  customProviderProbeFetch?: typeof fetch;
   /**
    * 会話タイトルの AI 要約の生成。未指定なら pi のモデルランタイムから組み立てる (テストは差し替える)。
    * null を渡すと要約しない (呼び出しの配線だけを検証するとき)。
@@ -246,6 +248,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     maskError,
     refreshModelState: pi ? pi.refreshModelState : async () => {},
     setModelSelection: pi ? pi.setModelSelection : () => {},
+    probeFetch: opts.customProviderProbeFetch,
     ignoredEnvironmentVariables,
   });
   reapplyStoredKey = (provider) => modelSettings.reapplyStoredKey(provider);

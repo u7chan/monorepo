@@ -8,6 +8,7 @@ import {
   isNotStoredError,
   logoutOAuthProvider,
   postCustomProvider,
+  probeCustomProvider,
   putCustomProvider,
   putModelAvailability,
   putProviderApiKey,
@@ -42,6 +43,8 @@ import {
 import { messageFor, mutationErrorNote } from "../lib/settingsResource";
 import type {
   CreateCustomProviderBody,
+  CustomProviderProbeBody,
+  CustomProviderProbeResponse,
   Health,
   ModelMutationResponse,
   ModelsSettingsResponse,
@@ -306,6 +309,15 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
   );
 
   /**
+   * モデル一覧の probe。設定は変えず（応答も GET と同じ形ではない）、注記・保存中フラグにも触れない。
+   * 呼び出し側 (フォーム) が一時状態として結果を持つ。
+   */
+  const probeCustom = useCallback(
+    (input: CustomProviderProbeBody): Promise<CustomProviderProbeResponse> => probeCustomProvider(input),
+    [],
+  );
+
+  /**
    * OAuth サインインの操作。応答は GET と同じ形なので、そのまま次の state にし、進行中 → 終端の
    * 遷移ではモデル候補も取り直す。進行中の完了はログイン中だけ回るポーリングが拾う。
    */
@@ -422,6 +434,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     createCustom,
     updateCustom,
     removeCustom,
+    probeCustom,
     startLogin,
     submitLoginCode,
     cancelLogin,

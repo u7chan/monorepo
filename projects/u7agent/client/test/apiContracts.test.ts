@@ -11,6 +11,7 @@ const {
   getTitleSummarySettings,
   getWebSearchSettings,
   isNotStoredError,
+  probeCustomProvider,
   putWebSearchApiKey,
   putWebSearchProvider,
   putWebSearchSettings,
@@ -523,4 +524,33 @@ test("Cloudflare の接続確認は POST で専用のパスを叩き、200 の�
     requests.map((request) => [request.method, new URL(request.url).pathname]),
     [["POST", "/api/settings/cloudflare/check"]],
   );
+});
+
+test("カスタムプロバイダーの probe は POST で body を送り、200 の分類をそのまま返す", async (t) => {
+  const requests: Request[] = [];
+  const result = {
+    checkedAt: 1,
+    baseUrl: "http://192.0.2.10:11434/v1",
+    failure: null,
+    httpStatus: null,
+    models: [{ id: "llama3:8b" }],
+    truncated: false,
+    message: null,
+  };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return Response.json(result);
+  });
+  assert.deepEqual(
+    await probeCustomProvider({ provider: "local-llm", baseUrl: "http://192.0.2.10:11434/v1", apiKey: "" }),
+    result,
+  );
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]!.method, "POST");
+  assert.equal(new URL(requests[0]!.url).pathname, "/api/settings/custom-providers/probe");
+  assert.deepEqual(await requests[0]!.json(), {
+    provider: "local-llm",
+    baseUrl: "http://192.0.2.10:11434/v1",
+    apiKey: "",
+  });
 });

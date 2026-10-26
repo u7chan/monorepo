@@ -22,6 +22,8 @@ import {
 } from "../../lib/modelSettings";
 import type {
   CreateCustomProviderBody,
+  CustomProviderProbeBody,
+  CustomProviderProbeResponse,
   ModelsSettingsResponse,
   ProviderAuthSetting,
   RuntimeModelsResponse,
@@ -59,6 +61,8 @@ export type ProvidersTabProps = {
   onCreateCustom: (body: CreateCustomProviderBody) => Promise<boolean>;
   onUpdateCustom: (provider: string, body: UpdateCustomProviderBody) => Promise<boolean>;
   onDeleteCustom: (provider: string) => Promise<boolean>;
+  /** カスタムプロバイダーの `/models` probe。設定は変えない */
+  onProbeCustom: (input: CustomProviderProbeBody) => Promise<CustomProviderProbeResponse>;
   /** provider ごとの入力下書き (apiKey / memo)。両タブの親が保持する */
   drafts: Record<string, ProviderDraft>;
   /** 下書きのフィールド単位の更新。触っていないフィールドは親側の最新値を保つ */
@@ -91,6 +95,7 @@ export function ProvidersTab({
   onCreateCustom,
   onUpdateCustom,
   onDeleteCustom,
+  onProbeCustom,
   drafts,
   onChangeDraft,
   onOpenModels,
@@ -336,6 +341,7 @@ export function ProvidersTab({
                     onCreate={onCreateCustom}
                     onUpdate={onUpdateCustom}
                     onDelete={onDeleteCustom}
+                    onProbe={onProbeCustom}
                     onSaved={(id) => {
                       setAddingCustom(false);
                       setSelectedProvider(id);

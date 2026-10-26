@@ -136,7 +136,11 @@ function fakeDb(): ModelSettingsDb & { credentials: Map<string, string>; memos: 
 
 function serviceWith(
   runtimeOptions: Parameters<typeof fakeRuntime>[0] = {},
-  options: { runtime?: ProviderKeyRuntime | null } = {},
+  options: {
+    runtime?: ProviderKeyRuntime | null;
+    probeFetch?: typeof fetch;
+    probeTimeoutMs?: number;
+  } = {},
 ) {
   const runtime = fakeRuntime(runtimeOptions);
   const db = fakeDb();
@@ -149,6 +153,8 @@ function serviceWith(
     refreshModelState: async () => {},
     setModelSelection: () => {},
     ignoredEnvironmentVariables: [],
+    ...(options.probeFetch === undefined ? {} : { probeFetch: options.probeFetch }),
+    ...(options.probeTimeoutMs === undefined ? {} : { probeTimeoutMs: options.probeTimeoutMs }),
   });
   return { service, runtime, db, retained };
 }
@@ -582,4 +588,66 @@ test("ランタイム無しの GET は customProviders を空配列で返し、�
     status: 503,
     error: MODEL_SELECTION_RUNTIME_UNAVAILABLE_MESSAGE,
   });
+});
+
+test("probe は保存済みのキーを使え、入力キーを上書きに使えばマスカーへ登録する", async () => {
+  const seen: string[] = [];
+  const fakeFetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    seen.push((init?.headers as Record<string, string> | undefined)?.Authorization ?? "");
+    return Response.json({ data: [{ id: "qwen2.5-coder:7b" }] });
+  }) as typeof fetch;
+  const { service, retained } = serviceWith({}, { probeFetch: fakeFetch });
+  assert.equal((await service.createCustomProvider(createInput())).status, 200);
+  retained.length = 0;
+
+  const stored = await service.probeCustomProvider({
+    provider: "local-llm",
+    baseUrl: "http://192.0.2.10:11434/v1",
+    apiKey: "",
+  });
+  assert.equal(stored.failure, null);
+  assert.deepEqual(stored.models, [{ id: "qwen2.5-coder:7b" }]);
+  assert.deepEqual(seen, [`Bearer ${KEY}`]);
+  assert.deepEqual(retained, [], "保存済みキーの再利用では入れ直さない");
+
+  const typedKey = "sk-typed-key-0123456789";
+  await service.probeCustomProvider({
+    provider: "local-llm",
+    baseUrl: "http://192.0.2.10:11434/v1",
+    apiKey: typedKey,
+  });
+  assert.deepEqual(seen[1], `Bearer ${typedKey}`);
+  assert.deepEqual(retained, [typedKey]);
+});
+
+test("probe は未知の provider・キー無し・短いキーを 400 にする", async () => {
+  const { service } = serviceWith();
+  for (const run of [
+    () => service.probeCustomProvider({ provider: "ghost", baseUrl: "http://192.0.2.10:11434/v1", apiKey: KEY }),
+    () => service.probeCustomProvider({ baseUrl: "http://192.0.2.10:11434/v1" }),
+    () => service.probeCustomProvider({ baseUrl: "http://192.0.2.10:11434/v1", apiKey: "short" }),
+  ]) {
+    await assert.rejects(run, (error: unknown) => (error as { statusCode?: number }).statusCode === 400);
+  }
+});
+
+test("probe はミューテーションロックを取らず、キー・メモの変更を待たせない", async () => {
+  let release: ((response: Response) => void) | undefined;
+  const gate = new Promise<Response>((resolve) => {
+    release = resolve;
+  });
+  const fakeFetch = (async () => gate) as typeof fetch;
+  const { service, db } = serviceWith({}, { probeFetch: fakeFetch, probeTimeoutMs: 1_000 });
+
+  const probing = service.probeCustomProvider({ baseUrl: "http://192.0.2.10:11434/v1", apiKey: KEY });
+  const memo = await Promise.race([
+    service.putMemo("anthropic", "probe-lock"),
+    new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100)),
+  ]);
+  if (memo === "timeout") assert.fail("probe がロックを保持しているとメモ保存が待たされる");
+  assert.equal(memo.status, 200);
+  assert.equal(db.memos.get("anthropic"), "probe-lock");
+
+  release?.(Response.json({ data: [{ id: "a" }] }));
+  assert.equal((await probing).failure, null);
 });
