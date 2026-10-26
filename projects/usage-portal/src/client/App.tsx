@@ -122,8 +122,9 @@ function Dashboard(props: {
   const [codex, setCodex] = useState<CodexAuthState | null>(null);
   const [accounts, setAccounts] = useState<OpenCodeAccountsState>({ status: "loading", accounts: [] });
   const [clock, setClock] = useState(() => Date.now());
-  // 保存・削除より前に始まった GET の応答で、確定済みの一覧を巻き戻さないための世代。
+  // 保存・削除より前に始まった GET の応答で、確定済みの一覧・カードを巻き戻さないための世代。
   const accountsGeneration = useRef(0);
+  const usageGeneration = useRef(0);
 
   // 「あと N 日」と期限バナーを操作なしでも進める。
   useEffect(() => {
@@ -135,7 +136,15 @@ function Dashboard(props: {
   const { onUnauthorized } = props;
 
   const loadUsage = useCallback(async () => {
+    usageGeneration.current += 1;
+
+    const generation = usageGeneration.current;
     const result = await fetchUsage();
+
+    // 一覧と同じく、操作より前の応答は捨てる。後着で削除済みのカードが戻らないようにする。
+    if (generation !== usageGeneration.current) {
+      return;
+    }
 
     if (result && "unauthorized" in result) {
       onUnauthorized();

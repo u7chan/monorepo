@@ -153,6 +153,12 @@ export function createOpenCodeApi(options: {
         }
       }
 
+      // 未知 id は上流を叩く前に返す。キー検証の結果を先に返すと、存在しない id でも
+      // 400 / 503 になり、承認済みの「未知 id は PUT も 404」から外れる。
+      if (options.accounts.get(id) === null) {
+        return { ok: false, error: "not_found" };
+      }
+
       let snapshot: ProviderSnapshot | null = null;
 
       if (apiKey !== null) {
@@ -168,32 +174,36 @@ export function createOpenCodeApi(options: {
       const updated: { account: OpenCodeAccount | null } = { account: null };
 
       try {
-        await options.sampler.exclusive(() => {
-          const previous = options.accounts.read();
+        await options.sampler.exclusive(
+          () => {
+            const previous = options.accounts.read();
 
-          try {
-            // 検証待ちの間に他が消したアカウントを、古い snapshot で復活させない。
-            const account = options.accounts.update(id, {
-              ...(name === null ? {} : { name }),
-              ...(icon === null ? {} : { icon }),
-              ...(apiKey === null ? {} : { apiKey }),
-            });
+            try {
+              // 検証待ちの間に他が消したアカウントを、古い snapshot で復活させない。
+              const account = options.accounts.update(id, {
+                ...(name === null ? {} : { name }),
+                ...(icon === null ? {} : { icon }),
+                ...(apiKey === null ? {} : { apiKey }),
+              });
 
-            if (account === null) {
-              throw new AccountMissingError();
+              if (account === null) {
+                throw new AccountMissingError();
+              }
+
+              updated.account = account;
+
+              if (snapshot !== null) {
+                saveProviderSnapshot(options.db, openCodeSourceId(id), snapshot);
+              }
+            } catch (error) {
+              restoreQuietly(options.accounts, previous);
+
+              throw error;
             }
-
-            updated.account = account;
-
-            if (snapshot !== null) {
-              saveProviderSnapshot(options.db, openCodeSourceId(id), snapshot);
-            }
-          } catch (error) {
-            restoreQuietly(options.accounts, previous);
-
-            throw error;
-          }
-        });
+          },
+          // 名前とアイコンだけの更新では上流も取り直さない（表示名の変更で全 source を叩かない）。
+          { refresh: snapshot !== null },
+        );
       } catch (error) {
         return { ok: false, error: error instanceof AccountMissingError ? "not_found" : "unavailable" };
       }

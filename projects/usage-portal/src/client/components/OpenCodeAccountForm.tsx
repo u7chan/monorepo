@@ -3,6 +3,7 @@ import {
   MAX_OPENCODE_ACCOUNTS,
   MAX_OPENCODE_ACCOUNT_NAME_LENGTH,
   OPENCODE_ACCOUNT_ICONS,
+  normalizeAccountName,
 } from "../../shared/opencode-account";
 import type { OpenCodeAccountInput, OpenCodeAccountPatch } from "../api";
 
@@ -44,11 +45,13 @@ export function OpenCodeAccountForm(props: {
   const editing = props.mode === "edit";
 
   const submit = async (): Promise<void> => {
-    const trimmedName = name.trim();
+    // 名前の規則は server と同じ 1 つだけを使う。HTML の maxLength はコードポイントではなく
+    // UTF-16 単位なので、絵文字を含む名前を入力中に切ってしまう。
+    const normalizedName = normalizeAccountName(name);
     const trimmedKey = apiKey.trim();
 
-    if (trimmedName === "") {
-      setMessage("名前を入力してください。");
+    if (normalizedName === null) {
+      setMessage(openCodeAccountErrorMessage("invalid_name"));
 
       return;
     }
@@ -63,7 +66,7 @@ export function OpenCodeAccountForm(props: {
     setMessage(null);
 
     try {
-      const error = await props.onSubmit({ name: trimmedName, icon, apiKey: trimmedKey });
+      const error = await props.onSubmit({ name: normalizedName, icon, apiKey: trimmedKey });
 
       if (error === null) {
         // 入力したキーを画面に残さない。閉じるまで平文で保持しない。
@@ -94,7 +97,6 @@ export function OpenCodeAccountForm(props: {
           type="text"
           name={`${groupName}-name`}
           autocomplete="off"
-          maxLength={MAX_OPENCODE_ACCOUNT_NAME_LENGTH}
           value={name}
           onInput={(event) => setName((event.currentTarget as HTMLInputElement).value)}
         />

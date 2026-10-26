@@ -14,6 +14,7 @@ import {
   type OpenCodeAccount,
 } from "../src/server/opencode/accounts";
 import { createOpenCodeApi } from "../src/server/opencode/api";
+import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "../src/server/providers";
 import { ProviderError } from "../src/server/providers/types";
 import { createSampler, type UsageFetcher } from "../src/server/sampler";
 import { createUsageReader, type UsagePayload } from "../src/server/usage";
@@ -76,9 +77,12 @@ function harness(
           kick: async () => {},
           stop: () => {},
           start: () => {},
-          exclusive: async (fn: () => void) => {
+          exclusive: async (fn: () => void, exclusiveOptions?: { refresh?: boolean }) => {
             fn();
-            refreshes += 1;
+
+            if (exclusiveOptions?.refresh ?? true) {
+              refreshes += 1;
+            }
           },
         } satisfies ReturnType<typeof createSampler>)
       : createSampler({
@@ -436,7 +440,8 @@ describe("PUT /api/opencode/accounts/:id", () => {
     });
     expect(h.keys).toHaveLength(1);
     expect(h.accounts.apiKey(account.id)).toBe(KEY);
-    expect(h.refreshes).toBe(2);
+    // 名前だけの更新では取り直さない。
+    expect(h.refreshes).toBe(1);
   });
 
   test("キーを置き換えると検証してから保存し、snapshot も更新する", async () => {
@@ -502,6 +507,29 @@ describe("PUT /api/opencode/accounts/:id", () => {
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "not_found" });
     expect(h.accounts.list()).toEqual([account]);
+  });
+
+  test("未知の id はキー検証より先に 404 を返し、上流を叩かない", async () => {
+    const verified: string[] = [];
+    const h = harness({
+      fetchUsage: async (apiKey) => {
+        verified.push(apiKey);
+
+        throw new ProviderError("config", "OpenCode Go の API キーが受け付けられませんでした");
+      },
+    });
+    const cookieValue = await cookie(h.app);
+
+    const response = await request(h.app, "/api/opencode/accounts/00000000-0000-4000-8000-000000000000", {
+      method: "PUT",
+      cookie: cookieValue,
+      body: { apiKey: "sk-placeholder" },
+    });
+
+    // キーが受け付けられない場合（400）でも、通信失敗（503）でもなく 404 になる。
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
+    expect(verified).toEqual([]);
   });
 });
 
@@ -639,5 +667,109 @@ describe("削除と進行中の取得の競合", () => {
 
     expect(h.accounts.list()).toEqual([]);
     expect(loadProviderUsage(h.db, [sourceId]).get(sourceId)?.snapshot).toBeNull();
+  });
+});
+
+describe("変更後の再取得", () => {
+  test("名前とアイコンだけの更新では実 sampler の fetcher を呼ばず、キー更新と削除では 1 回だけ取り直す", async () => {
+    const calls: string[] = [];
+    const h = harness({
+      fetchers: ({ accounts }) => [
+        {
+          sourceId: CODEX_PROVIDER.id,
+          provider: CODEX_PROVIDER,
+          fetch: async () => {
+            calls.push("codex");
+
+            return usageSnapshot();
+          },
+        },
+        ...accounts.list().map((account) => ({
+          sourceId: openCodeSourceId(account.id),
+          provider: OPENCODE_PROVIDER,
+          fetch: async () => {
+            calls.push(`account:${account.id}`);
+
+            return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
+          },
+        })),
+      ],
+    });
+    const cookieValue = await cookie(h.app);
+    const account = await createAccount(h, cookieValue);
+
+    // 作成は、変更後の再取得で全 source を 1 回ずつ叩く。
+    expect(calls).toEqual(["codex", `account:${account.id}`]);
+
+    calls.length = 0;
+
+    const renamed = await request(h.app, `/api/opencode/accounts/${account.id}`, {
+      method: "PUT",
+      cookie: cookieValue,
+      body: { name: "サブ", icon: "🐼" },
+    });
+
+    expect(renamed.status).toBe(200);
+    expect(h.keys).toEqual([KEY]);
+    expect(calls).toEqual([]);
+
+    calls.length = 0;
+
+    const rekeyed = await request(h.app, `/api/opencode/accounts/${account.id}`, {
+      method: "PUT",
+      cookie: cookieValue,
+      body: { apiKey: "sk-second" },
+    });
+
+    expect(rekeyed.status).toBe(200);
+    expect(calls).toEqual(["codex", `account:${account.id}`]);
+
+    calls.length = 0;
+
+    const removed = await request(h.app, `/api/opencode/accounts/${account.id}`, {
+      method: "DELETE",
+      cookie: cookieValue,
+    });
+
+    expect(removed.status).toBe(204);
+    expect(calls).toEqual(["codex"]);
+  });
+});
+
+describe("排他区間内の存在確認", () => {
+  test("検証の後に消されたアカウントは not_found にし、snapshot を書き戻さない", async () => {
+    const root = mkdtempSync(join(tmpdir(), "usage-portal-opencode-race-"));
+    const db = openDatabase(join(root, "data"));
+    const accounts = createOpenCodeAccounts({
+      credentialDir: join(root, "credentials"),
+      now: () => BASE_TIME,
+      log: () => {},
+    });
+    const account = accounts.create({ name: "メイン", icon: "🦊", apiKey: KEY });
+
+    dirs.push(root);
+    handles.push(db);
+
+    const api = createOpenCodeApi({
+      accounts,
+      db,
+      sampler: {
+        exclusive: async (fn: () => void) => {
+          // キー検証を終えた直後に、別の要求が削除した状態を作る。
+          accounts.remove(account.id);
+          fn();
+        },
+      },
+      fetchUsage: async () => usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME }),
+    });
+
+    expect(await api.update(account.id, { name: "サブ", apiKey: "sk-second" })).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+    expect(accounts.list()).toEqual([]);
+    expect(
+      loadProviderUsage(db, [openCodeSourceId(account.id)]).get(openCodeSourceId(account.id))?.snapshot,
+    ).toBeNull();
   });
 });

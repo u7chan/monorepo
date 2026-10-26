@@ -12,6 +12,14 @@ export type UsageFetcher = {
   fetch: () => Promise<ProviderSnapshot>;
 };
 
+export type ExclusiveOptions = {
+  /**
+   * 変更後に取り直すか（既定は true）。表示名だけの更新のように、上流の値を変えない操作を
+   * 全 source の追加取得につなげないための入口。排他区間そのものは常に保つ。
+   */
+  refresh?: boolean;
+};
+
 export type Sampler = {
   start: () => void;
   stop: () => void;
@@ -21,7 +29,7 @@ export type Sampler = {
    * 進行中の取得と重ならない区間で `fn` を実行し、その後に 1 回取り直す。
    * サインアウトで消した snapshot を、先に始まっていた取得が書き戻すのを防ぐための入口。
    */
-  exclusive: (fn: () => void) => Promise<void>;
+  exclusive: (fn: () => void, options?: ExclusiveOptions) => Promise<void>;
 };
 
 /**
@@ -127,13 +135,18 @@ export function createSampler(options: {
 
   // 進行中の取得を待ってから fn を実行する。待ったあとに running を再確認しないので、
   // 同時に呼ばれた exclusive を鎖でつなぎ、先の変更後の取得が終わるまで次を始めない。
-  function exclusive(fn: () => void): Promise<void> {
+  function exclusive(fn: () => void, exclusiveOptions: ExclusiveOptions = {}): Promise<void> {
+    const refresh = exclusiveOptions.refresh ?? true;
     const task = exclusiveChain.then(async () => {
       if (running) {
         await running.catch(() => undefined);
       }
 
       fn();
+
+      if (!refresh) {
+        return;
+      }
 
       // 変更は確定している。後続の取得や保存の失敗は操作の失敗として返さない。
       await runOnce().catch(() => log("取得結果を保存できませんでした"));

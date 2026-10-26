@@ -249,13 +249,14 @@ h2 {
 
 .up-providers {
   display: grid;
-  grid-template-columns: 1fr;
+  /* 1fr の最小幅は内容に依存する。折り返せない名前 1 つで列が広がらないよう 0 を下限にする。 */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--up-space-4);
 }
 
 @media (min-width: 900px) {
   .up-providers {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: stretch;
   }
 }
@@ -279,10 +280,13 @@ h2 {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--up-space-2);
+  min-width: 0;
 }
 
 .up-provider-name {
   font-size: 1.25rem;
+  /* 名前は自由入力。空白の無い長い名前でもカード内で折り返す。 */
+  overflow-wrap: anywhere;
 }
 
 .up-status {
