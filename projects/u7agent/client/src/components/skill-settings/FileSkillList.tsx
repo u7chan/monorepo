@@ -38,11 +38,11 @@ export type FileSkillListProps = {
   onSelect: (skill: FileSkillInfo) => void;
   /** 共通スキルの新規作成。未指定なら追加行を出さない */
   onAdd?: () => void;
-  /** 持ち出し / 取り込み。未指定なら操作を出さない (一覧だけを見せる面) */
+  /** エクスポート / インポート。未指定なら操作を出さない (一覧だけを見せる面) */
   archive?: {
-    /** 持ち出しの check を送っている間は二重に送らない */
+    /** エクスポートの check を送っている間は二重に送らない */
     exporting: boolean;
-    /** 取り込みの plan / apply を送っている間は二重に送らない */
+    /** インポートの plan / apply を送っている間は二重に送らない */
     importing: boolean;
     onExport: () => void;
     onImportFile: (file: File) => void;

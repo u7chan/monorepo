@@ -6,7 +6,7 @@ import { createSkillArchive, type SkillArchiveState } from "../lib/skillArchive"
 export type FileSkillArchiveOptions = {
   /** 一覧 (GET /api/skills/files) の取り直し */
   reloadSkills: () => void;
-  /** 取り込んだスキルを開く (選択と本文の取得) */
+  /** インポートしたスキルを開く (選択と本文の取得) */
   selectSkill: (relativePath: string) => void;
   note: (text: string, error?: boolean) => void;
 };
@@ -21,7 +21,7 @@ export type FileSkillArchive = SkillArchiveState & {
 };
 
 /**
- * 持ち出し / 取り込みの流れを画面へ繋ぐ。流れと判定は lib/skillArchive.ts が持ち、ここは API と DOM の
+ * エクスポート / インポートの流れを画面へ繋ぐ。流れと判定は lib/skillArchive.ts が持ち、ここは API と DOM の
  * 入口を注入して、購読した状態を返すだけにする。画面のコールバックは最新の props を使う。
  */
 export function useFileSkillArchive({ reloadSkills, selectSkill, note }: FileSkillArchiveOptions): FileSkillArchive {

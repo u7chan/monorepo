@@ -33,7 +33,7 @@ export type SkillImportDialogProps = {
 };
 
 /**
- * 取り込みの plan を見て、置き換えるスキルを選ぶ専用ダイアログ。共有の `DialogRequest` は confirm / prompt の
+ * インポートの plan を見て、置き換えるスキルを選ぶ専用ダイアログ。共有の `DialogRequest` は confirm / prompt の
  * 2 種なので、選択を持つこの画面は `ProjectDialog` と同じ専用部品にする。モーダルの標準挙動 (背面の inert 化 /
  * Tab の拘束 / Escape での終了) と焦点の復帰に任せる。
  */
@@ -69,7 +69,7 @@ export function SkillImportDialog({
     return () => previousFocusRef.current?.focus();
   }, []);
 
-  // 初期焦点は取り消し側に置く (取り込む量を確認してから押させる)
+  // 初期焦点は取り消し側に置く (インポートする量を確認してから押させる)
   useEffect(() => {
     closeRef.current?.focus();
   }, []);

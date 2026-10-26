@@ -10,8 +10,8 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
 | GET | `/v1/files/git` | 作業フォルダが属する repo のブランチ（JSON）。`?path=<root 相対>` |
 | GET | `/v1/skills` | ファイルスキル（`SKILL.md`）の発見（JSON）。`?dir=<root 相対>` |
-| GET | `/v1/skills/export` | `.agents/skills` の ZIP 持ち出し（ストリーム）。[スキルの持ち出し / 取り込み](#スキルの持ち出し--取り込み) |
-| GET | `/v1/skills/export/check` | 持ち出しの見積り（JSON）。上限と `.git` の除外は export と同じ |
+| GET | `/v1/skills/export` | `.agents/skills` の ZIP エクスポート（ストリーム）。[スキルのエクスポート / インポート](#スキルのエクスポート--インポート) |
+| GET | `/v1/skills/export/check` | エクスポートの見積り（JSON）。上限と `.git` の除外は export と同じ |
 | POST | `/v1/skills/import` | `.agents/skills` の ZIP 取り込み（raw 本文）。`?dryRun=true` / `?replace=<名前>`（繰り返し可） |
 | GET | `/v1/skills/file` | 共通スキル 1 件の編集内容（JSON）。`?relativePath=<root 相対>` |
 | POST | `/v1/skills/file` | 共通スキルの新規作成。`{ name, description, body }` |
@@ -409,9 +409,9 @@ GET /v1/skills?dir=.agents/skills
 - 公開は同じディレクトリの一時ファイルからの `rename` で行う。**任意の bash と外部エディタはこの gate に参加しない**ため、版の再確認で観測した変更は拒否するが、比較と書き込みの間の外部プロセスによる競合まで完全な CAS としては保証しない
 - 要求の上限は既存の JSON body の上限（`SANDBOX_MAX_BODY_BYTES`）で、超過は 413。GUI の保存経路は BFF 側の 64 KiB が先に効く
 
-## スキルの持ち出し / 取り込み
+## スキルのエクスポート / インポート
 
-`.agents/skills` 全体を 1 本の ZIP として持ち出し / 取り込みする。形式は既存のストリーミング ZIP ライタ（`server/src/sandbox/zip.ts`）に揃え、エントリ名は `.agents/skills` 相対（直下がスキルフォルダ）。manifest / version ファイルは置かず、frontmatter の未知キーも解釈せずバイトのまま運ぶ。BFF の API は [api-catalog.md](api-catalog.md#ファイルスキルagentsskills) を正とする。
+`.agents/skills` 全体を 1 本の ZIP としてエクスポート / インポートする。形式は既存のストリーミング ZIP ライタ（`server/src/sandbox/zip.ts`）に揃え、エントリ名は `.agents/skills` 相対（直下がスキルフォルダ）。manifest / version ファイルは置かず、frontmatter の未知キーも解釈せずバイトのまま運ぶ。BFF の API は [api-catalog.md](api-catalog.md#ファイルスキルagentsskills) を正とする。
 
 ### `GET /v1/skills/export`
 

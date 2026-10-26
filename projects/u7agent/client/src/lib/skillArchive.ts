@@ -1,5 +1,5 @@
 /**
- * 共通スキル (`.agents/skills`) の持ち出し / 取り込みの流れ。plan の分類と選択の状態遷移をここへ閉じ、
+ * 共通スキル (`.agents/skills`) のエクスポート / インポートの流れ。plan の分類と選択の状態遷移をここへ閉じ、
  * 通信と DOM (保存の開始) は注入された deps だけを触る。画面は購読した状態を描画するだけにする
  * (docs/api-catalog.md)。
  */
@@ -11,7 +11,7 @@ import {
 } from "./fileSkills";
 import type { FileDownloadCheck, SandboxSkillsImportApply, SandboxSkillsImportPlan } from "../types";
 
-/** 取り込みの段階。plan は何も変更せず、適用するのは review で選んだ分だけ */
+/** インポートの段階。plan は何も変更せず、適用するのは review で選んだ分だけ */
 export type SkillImportFlow =
   | { status: "idle" }
   | { status: "planning"; fileName: string }
@@ -20,14 +20,14 @@ export type SkillImportFlow =
   | { status: "applied"; fileName: string; result: SandboxSkillsImportApply };
 
 export type SkillArchiveState = {
-  /** 持ち出しの check を送っている間だけ true (二重に送らない) */
+  /** エクスポートの check を送っている間だけ true (二重に送らない) */
   exporting: boolean;
   import: SkillImportFlow;
 };
 
 export type SkillArchiveDeps = {
   checkExport: () => Promise<FileDownloadCheck>;
-  /** 持ち出しの URL (`<a download>` の href) */
+  /** エクスポートの URL (`<a download>` の href) */
   exportUrl: string;
   /** 保存の開始 (DOM を触る唯一の場所) */
   startDownload: (url: string, name: string) => void;
@@ -36,7 +36,7 @@ export type SkillArchiveDeps = {
   applyImport: (file: File, replace: readonly string[]) => Promise<SandboxSkillsImportApply>;
   /** 一覧 (GET /api/skills/files) の取り直し */
   reloadSkills: () => void;
-  /** 取り込んだスキルを開く。ダイアログの下で開かないよう、閉じてから呼ぶ */
+  /** インポートしたスキルを開く。ダイアログの下で開かないよう、閉じてから呼ぶ */
   selectSkill: (relativePath: string) => void;
   note: (text: string, error: boolean) => void;
 };
@@ -65,7 +65,7 @@ export function replaceableSkillNames(plan: SandboxSkillsImportPlan): string[] {
   return plan.skills.filter((skill) => skill.status === "conflict").map((skill) => skill.name);
 }
 
-/** new は常に取り込み、identical / invalid は常に対象外で、conflict は選択された分だけ取り込む */
+/** new は常にインポートし、identical / invalid は常に対象外で、conflict は選択された分だけインポートする */
 export function skillImportCounts(
   plan: SandboxSkillsImportPlan,
   replace: readonly string[],
@@ -87,7 +87,7 @@ export function createSkillArchive(deps: SkillArchiveDeps): SkillArchive {
   let current: SkillArchiveState = { exporting: false, import: { status: "idle" } };
   // plan と apply で同じ ZIP を送るため、選ばれた File をここに保持する (画面の状態には載せない)
   let file: File | null = null;
-  // 閉じた / 次の取り込みが始まったあとに届いた応答を捨てる世代
+  // 閉じた / 次のインポートが始まったあとに届いた応答を捨てる世代
   let generation = 0;
   const listeners = new Set<() => void>();
   const publish = (next: SkillArchiveState) => {

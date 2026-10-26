@@ -97,7 +97,7 @@ export function SkillSettingsPage({
   const creatingFileSkill = fileSkillEditor.status === "create" ? fileSkillEditor : null;
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
-  /** 取り込んだ共通スキルを選択して開く。一覧は適用後に取り直しているので、応答が届けば選択は戻る */
+  /** インポートした共通スキルを選択して開く。一覧は適用後に取り直しているので、応答が届けば選択は戻る */
   const selectImportedFileSkill = (relativePath: string) => {
     setSelectedFileSkillRel(relativePath);
     setSelectedFileSkillSeq((seq) => seq + 1);
@@ -298,7 +298,7 @@ export function SkillSettingsPage({
           </SettingsDetailSheet>
         ) : null}
       </SettingsPageLayout>
-      {/* 取り込みの面は一覧の下に重ねる (背面の一覧は inert になり、二重のモーダルにしない) */}
+      {/* インポートの面は一覧の下に重ねる (背面の一覧は inert になり、二重のモーダルにしない) */}
       {archive.import.status === "idle" ? null : (
         <SkillImportDialog
           flow={archive.import}

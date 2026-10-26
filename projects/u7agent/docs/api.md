@@ -893,7 +893,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 `POST /api/sessions/:id/files?name=<ファイル名>` は選択時の即時アップロードで、保存先は所属スペースの添付置き場（既定スペースは `<appdir>/uploads/<sessionId>/`。置き場は [session-files.md](session-files.md#スペースごとの配置)）で、プロジェクトのリポジトリ内には作らない。JSON ではなく raw ストリームで受け、`bodyGuard`（既定 64 KiB の body 上限と text 化）より前に登録する。仕様と上限は [api-sessions.md](api-sessions.md#post-apisessionsidfiles)、保存の規則は [session-files.md](session-files.md#添付ファイルチャットからのアップロード) を参照する。
 
-`POST /api/skills/files/import?dryRun=true&replace=<名前>` はスキル（`.agents/skills`）の ZIP 取り込みで、これも raw ストリームで受け、`bodyGuard` より前に登録する。申告された `content-length` が上限を超えるときは本文を送らずに 413 にし、本文の上限はサンドボックス側でも数える（同じ値）。応答はサンドボックスの plan / apply の形を検証してそのまま返し、`dryRun` / `replace` は解釈せず query のままサンドボックスへ渡す。契約は [api-catalog.md](api-catalog.md#ファイルスキルagentsskills)、検証と排他は [sandbox-api.md](sandbox-api.md#スキルの持ち出し--取り込み) を参照する。
+`POST /api/skills/files/import?dryRun=true&replace=<名前>` はスキル（`.agents/skills`）の ZIP インポートで、これも raw ストリームで受け、`bodyGuard` より前に登録する。申告された `content-length` が上限を超えるときは本文を送らずに 413 にし、本文の上限はサンドボックス側でも数える（同じ値）。応答はサンドボックスの plan / apply の形を検証してそのまま返し、`dryRun` / `replace` は解釈せず query のままサンドボックスへ渡す。契約は [api-catalog.md](api-catalog.md#ファイルスキルagentsskills)、検証と排他は [sandbox-api.md](sandbox-api.md#スキルのエクスポート--インポート) を参照する。
 
 ## プロジェクト
 

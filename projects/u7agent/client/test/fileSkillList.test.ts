@@ -84,10 +84,10 @@ function hasButton(html: string, label: string): boolean {
   return new RegExp(`<button[^>]*>${label}</button>`).test(html);
 }
 
-test("持ち出し / 取り込みは一覧に渡したときだけ見出しに出し、送信中は押せない", () => {
+test("エクスポート / インポートは一覧に渡したときだけ見出しに出し、送信中は押せない", () => {
   const ready = render({ status: "ready", skills: [common] });
-  assert.ok(!hasButton(ready, SKILL_EXPORT_LABEL), "archive を渡していないのに持ち出しが出ている");
-  assert.ok(!hasButton(ready, SKILL_IMPORT_LABEL), "archive を渡していないのに取り込みが出ている");
+  assert.ok(!hasButton(ready, SKILL_EXPORT_LABEL), "archive を渡していないのにエクスポートが出ている");
+  assert.ok(!hasButton(ready, SKILL_IMPORT_LABEL), "archive を渡していないのにインポートが出ている");
 
   const idle = renderWithArchive(false, false);
   assert.ok(hasButton(idle, SKILL_EXPORT_LABEL));
