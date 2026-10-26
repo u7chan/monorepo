@@ -51,6 +51,8 @@ async function postAndSettle(bff: Awaited<ReturnType<typeof createBffApp>>, id: 
   const record = bff.store.get(id);
   assert.ok(record, "live な record が無い");
   await waitFor(() => bff.store.statusOf(record) === "completed", 3000, "run_end");
+  // タイトルの試行も fire-and-forget で走る。判定 (Off でも skipped) が保存されてから読む
+  await waitFor(() => record.titleAttempt !== undefined, 3000, "title attempt");
   // run_end の保存は非同期に続くため、ファイルを読む前に確定させる
   await bff.store.flush(record);
 }
@@ -90,8 +92,12 @@ test("diagnostics returns the masked server view of a live session", async () =>
       assert.equal(body.events.available, body.events.items.length, "上限内なのに available と件数がずれている");
       assert.equal(body.events.dropped, 0);
       assert.equal(body.events.truncated, 0);
-      // 直近の run_end が最後に並ぶ (古い→新しい順)
-      assert.equal(body.events.items.at(-1)?.type, "run_end");
+      // run_end より後に run のイベントは並ばない (タイトル試行の resync だけは後ろに付く)
+      const lastRunEnd = types.lastIndexOf("run_end");
+      assert.ok(
+        types.slice(lastRunEnd + 1).every((type) => type === "resync"),
+        "run_end の後に run のイベントがある",
+      );
     } finally {
       await bff.close();
     }

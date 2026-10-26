@@ -34,6 +34,7 @@ export function SessionRow({
   onDelete,
   onTogglePin,
   onHandoff,
+  onOpenTitleSummary,
 }: {
   item: SessionSummary;
   /** アイコンはカタログから live 解決する (定義を編集すると既存セッションの表示も変わる) */
@@ -45,6 +46,8 @@ export function SessionRow({
   onTogglePin: () => void;
   /** 未指定の呼び出し側には引き継ぎの項目を出さない (操作の受け取りと表示を揃える) */
   onHandoff?: () => void;
+  /** AI要約のダイアログ。未指定の呼び出し側には項目を出さない */
+  onOpenTitleSummary?: () => void;
 }) {
   const status = sidebarStatus(item.status, item.awaitingAnswer === true);
   const bits = [
@@ -56,6 +59,7 @@ export function SessionRow({
   const handlers: Record<SessionRowKind, (() => void) | undefined> = {
     pin: onTogglePin,
     rename: onRename,
+    "title-summary": onOpenTitleSummary,
     handoff: onHandoff,
     delete: onDelete,
   };
@@ -122,6 +126,8 @@ export function SessionRow({
             pinned: item.pinned === true,
             canHandoff: onHandoff !== undefined,
             ...(onHandoff === undefined ? {} : { handoffBlockedReason: handoffBlockedReason(item) }),
+            ...(item.titleSummary ? { titleSummary: item.titleSummary } : {}),
+            canTitleSummary: onOpenTitleSummary !== undefined,
           })}
           onSelect={(kind) => handlers[kind]?.()}
         />

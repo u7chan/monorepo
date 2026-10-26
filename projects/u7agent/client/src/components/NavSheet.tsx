@@ -127,6 +127,10 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
           handoffSession={closeAfter(sidebarProps.handoffSession)}
           onNewProject={closeAfter(sidebarProps.onNewProject)}
           onOpenSettingsSection={closeThen(sidebarProps.onOpenSettingsSection)}
+          // ダイアログはドロワーの外側 (App) に出すため、先に閉じてから開く
+          {...(sidebarProps.onOpenTitleSummary
+            ? { onOpenTitleSummary: closeAfter(sidebarProps.onOpenTitleSummary) }
+            : {})}
           // ドロワーの入口から開いたときは、遷移と同時にドロワーを閉じる
           activity={
             sidebarProps.activity

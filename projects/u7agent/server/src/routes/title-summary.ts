@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { TitleSummaryMutationOutcome, TitleSummarySettingsService } from "../title-summary-settings";
+import type { TitleSummaryTest } from "../title-summary";
 import type { UpdateTitleSummaryBody } from "../schema";
 
 /**
@@ -8,13 +9,24 @@ import type { UpdateTitleSummaryBody } from "../schema";
  */
 export function createTitleSummaryRoutes({
   titleSummarySettings,
+  test,
 }: {
   titleSummarySettings: TitleSummarySettingsService;
+  test: TitleSummaryTest | null;
 }) {
   return {
     list: (c: Context) => c.json(titleSummarySettings.settings()),
 
     put: async (c: Context, body: UpdateTitleSummaryBody) => respond(c, await titleSummarySettings.put(body)),
+
+    /**
+     * 保存済みの設定で 1 回だけ生成する。生成の失敗も 200 の `ok: false` で返し、
+     * 画面が理由をそのまま出せるようにする (設定の保存状態は変えない)。
+     */
+    test: async (c: Context) => {
+      if (!test) return c.json({ ok: false, error: "AI要約を利用できません", durationMs: 0 }, 503);
+      return c.json(await test());
+    },
   };
 }
 

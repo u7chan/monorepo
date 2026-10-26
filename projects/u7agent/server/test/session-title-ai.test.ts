@@ -13,6 +13,7 @@ import test from "node:test";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { createBffApp } from "../src/app";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
+import { SessionTitleSummaryResponseSchema, TitleSummaryTestResponseSchema } from "../src/schema";
 import { sessionMetaPath } from "../src/session-store";
 // 実 client の結合関数 (Composer が送信本文を組み立てるのと同じ関数) を通して再現する
 import { suggestionSendText } from "../../client/src/lib/suggestion";
@@ -780,12 +781,303 @@ test("再起動をまたいでも試行を重複させない", async () => {
     try {
       const opened = await jsonBody(second.app.request(`/api/sessions/${sessionId}`));
       assert.equal(opened.title, "ログイン画面のエラー表示を改善したい");
+      // 予約のまま落ちた試行は再起動で終端にし、永久に「実行中」にしない
+      assert.equal(opened.titleSummary.attempt.state, "skipped");
+      assert.ok(["cancelled", "interrupted"].includes(opened.titleSummary.attempt.skipReason));
       await sendTitleMessage(second, sessionId, "続きをお願いします");
       await waitCompleted(second, sessionId);
       await new Promise((resolveTick) => setTimeout(resolveTick, 100));
       assert.equal(secondGenerator.calls.length, 0);
     } finally {
       await second.close();
+    }
+  });
+});
+
+test("予約 (pending) のまま落ちた試行は再起動で interrupted として残す", async () => {
+  await withStoreDir(async (dir) => {
+    const firstGenerator = createControlledGenerator();
+    const first = await openBff(dir, firstGenerator.generate);
+    let sessionId: string;
+    try {
+      await enableSummary(first);
+      const created = await jsonBody(first.app.request("/api/sessions", jsonPost({})));
+      sessionId = created.sessionId as string;
+      await sendTitleMessage(first, sessionId, "ログイン画面のエラー表示を改善したい");
+      await waitCompleted(first, sessionId);
+      await waitFor(() => firstGenerator.calls.length === 1, 3000, "generate called");
+      await waitFor(
+        () => first.store.descriptors.get(sessionId)?.titleAttempt?.state === "pending",
+        3000,
+        "attempt persisted",
+      );
+    } finally {
+      await first.close();
+    }
+
+    // close の取消で終端になった meta を、クラッシュ相当の pending に戻してから開き直す
+    const metaPath = sessionMetaPath(sessionId, dir);
+    const meta = JSON.parse(await readFile(metaPath, "utf8"));
+    meta.titleAttempt = { ...meta.titleAttempt, state: "pending" };
+    delete meta.titleAttempt.skipReason;
+    delete meta.titleAttempt.error;
+    await writeFile(metaPath, JSON.stringify(meta));
+
+    const second = await openBff(dir, createControlledGenerator().generate);
+    try {
+      // 起動時に meta 自体を interrupted へ保存し直す
+      const initializedMeta = JSON.parse(await readFile(sessionMetaPath(sessionId, dir), "utf8"));
+      assert.equal(initializedMeta.titleAttempt.state, "skipped");
+      assert.equal(initializedMeta.titleAttempt.skipReason, "interrupted");
+      // 未ロードの一覧も、読み込む前から pending を見せない
+      const list = await jsonBody(second.app.request("/api/sessions"));
+      const listed = list.sessions.find((item: { sessionId: string }) => item.sessionId === sessionId);
+      assert.equal(listed.titleSummary.attempt.state, "skipped");
+      assert.equal(listed.titleSummary.attempt.skipReason, "interrupted");
+
+      const opened = await jsonBody(second.app.request(`/api/sessions/${sessionId}`));
+      assert.equal(opened.titleSummary.attempt.state, "skipped");
+      assert.equal(opened.titleSummary.attempt.skipReason, "interrupted");
+      assert.equal(second.store.descriptors.get(sessionId)?.titleAttempt?.state, "skipped");
+    } finally {
+      await second.close();
+    }
+  });
+});
+
+test("再要約の生成中は idle sweep が会話を破棄せず、結果を保存する", async () => {
+  await withStoreDir(async (dir) => {
+    const generator = createControlledGenerator();
+    const bff = await openBff(dir, generator.generate);
+    try {
+      await enableSummary(bff);
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      const sessionId = created.sessionId as string;
+      await sendTitleMessage(bff, sessionId, "ログイン画面のエラー表示を改善したい");
+      await waitCompleted(bff, sessionId);
+      await waitFor(() => generator.calls.length === 1, 3000, "auto generate");
+      generator.calls[0]!.settle({ ok: true, title: "自動のタイトル", usage: undefined });
+      const record = bff.store.records.get(sessionId)!;
+      await waitFor(() => record.title === "自動のタイトル", 3000, "auto title");
+
+      // 加入者なし・TTL 切れの古い会話にして、sweep の対象にする
+      record.lastUsedAt = 0;
+      record.run = null;
+
+      const pending = bff.app.request(`/api/sessions/${sessionId}/title/summarize`, jsonPost({}));
+      await waitFor(() => generator.calls.length === 2, 3000, "manual generate");
+      await bff.store.sweep();
+      assert.equal(bff.store.records.get(sessionId), record, "再要約中に sweep が会話を破棄した");
+
+      generator.calls[1]!.settle({ ok: true, title: "掃除中でも残るタイトル", usage: undefined });
+      const response = await pending;
+      assert.equal(response.status, 200);
+      assert.equal(bff.store.descriptors.get(sessionId)?.title, "掃除中でも残るタイトル");
+      assert.equal(bff.store.descriptors.get(sessionId)?.titleAttempt?.state, "done");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("会話メニューの再要約は保存した依頼本文を使い、再起動後も同じ入力で実行できる", async () => {
+  await withStoreDir(async (dir) => {
+    const generator = createControlledGenerator();
+    const first = await openBff(dir, generator.generate);
+    let sessionId: string;
+    try {
+      await enableSummary(first, { definition: "最初の定義。", thinkingLevel: "low" });
+      const created = await jsonBody(first.app.request("/api/sessions", jsonPost({})));
+      sessionId = created.sessionId as string;
+      await sendTitleMessage(first, sessionId, "ログイン画面のエラー表示を改善したい");
+      await waitCompleted(first, sessionId);
+      await waitFor(() => generator.calls.length === 1, 3000, "auto generate");
+      generator.calls[0]!.settle({ ok: true, title: "自動のタイトル", usage: undefined });
+      const record = first.store.records.get(sessionId)!;
+      await waitFor(() => record.title === "自動のタイトル", 3000, "auto title");
+
+      // 再要約のために依頼本文の先頭を meta へ残す (タイトルより長い利用者の文)
+      assert.equal(record.meta.titleRequest, "ログイン画面のエラー表示を改善したい");
+      const payload = await jsonBody(first.app.request(`/api/sessions/${sessionId}`));
+      assert.equal(payload.titleSummary.origin, "ai");
+      assert.equal(payload.titleSummary.attempt.state, "done");
+    } finally {
+      await first.close();
+    }
+
+    const second = await openBff(dir, generator.generate);
+    try {
+      const before = await jsonBody(second.app.request(`/api/sessions/${sessionId}`));
+      assert.equal(before.titleSummary.attempt.state, "done");
+
+      const pending = second.app.request(`/api/sessions/${sessionId}/title/summarize`, jsonPost({}));
+      await waitFor(() => generator.calls.length === 2, 3000, "manual generate");
+      const call = generator.calls[1]!;
+      assert.equal(call.input.request, "ログイン画面のエラー表示を改善したい");
+      assert.equal(call.input.definition, "最初の定義。");
+      assert.equal(call.input.thinkingLevel, "low");
+      assert.match(call.input.sessionId, /^/);
+      call.settle({
+        ok: true,
+        title: "再要約のタイトル",
+        usage: { inputTokens: 44, outputTokens: 8, costTotal: 0.0003 },
+      });
+
+      const response = await pending;
+      assert.equal(response.status, 200);
+      const body = SessionTitleSummaryResponseSchema.parse(await response.json());
+      assert.equal(body.sessionId, sessionId);
+      assert.equal(body.title, "再要約のタイトル");
+      assert.ok(body.titleSummary.attempt);
+      assert.equal(body.titleSummary.origin, "ai");
+      assert.equal(body.titleSummary.attempt.state, "done");
+      assert.equal(body.titleSummary.attempt.trigger, "manual");
+      assert.equal(body.titleSummary.attempt.inputTokens, 44);
+      assert.ok(body.titleSummary.attempt.durationMs !== undefined, "durationMs が無い");
+      assert.ok(body.titleSummary.attempt.durationMs >= 0);
+
+      const payload = await jsonBody(second.app.request(`/api/sessions/${sessionId}`));
+      assert.equal(payload.title, "再要約のタイトル");
+      assert.equal(payload.titleSummary.attempt.trigger, "manual");
+      const list = await jsonBody(second.app.request("/api/sessions"));
+      assert.equal(list.sessions[0].titleSummary.attempt.trigger, "manual");
+      assert.equal(second.store.descriptors.get(sessionId)?.titleAttempt?.trigger, "manual");
+    } finally {
+      await second.close();
+    }
+  });
+});
+
+test("Off で判定だけ残った会話も、On にした後に会話メニューから再要約できる", async () => {
+  await withStoreDir(async (dir) => {
+    const generator = createControlledGenerator();
+    const bff = await openBff(dir, generator.generate);
+    try {
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      const sessionId = created.sessionId as string;
+      await sendTitleMessage(bff, sessionId, "商品検索の絞り込み操作を改善したい");
+      await waitCompleted(bff, sessionId);
+      await waitFor(() => bff.store.records.get(sessionId)?.titleAttempt !== undefined, 3000, "skipped attempt");
+      const before = await jsonBody(bff.app.request(`/api/sessions/${sessionId}`));
+      assert.equal(before.titleSummary.attempt.state, "skipped");
+      assert.equal(before.titleSummary.attempt.skipReason, "disabled");
+
+      await enableSummary(bff, { thinkingLevel: "low" });
+      const pending = bff.app.request(`/api/sessions/${sessionId}/title/summarize`, jsonPost({}));
+      await waitFor(() => generator.calls.length === 1, 3000, "manual generate");
+      generator.calls[0]!.settle({ ok: true, title: "検索の絞り込み改善", usage: undefined });
+      const response = await pending;
+      assert.equal(response.status, 200);
+      const body = SessionTitleSummaryResponseSchema.parse(await response.json());
+      assert.equal(body.title, "検索の絞り込み改善");
+      assert.ok(body.titleSummary.attempt);
+      assert.equal(body.titleSummary.attempt.state, "done");
+      assert.equal(body.titleSummary.attempt.trigger, "manual");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("手動のタイトルも確認済みの再要約では置き換え、失敗は現在のタイトルを保って理由を返す", async () => {
+  await withStoreDir(async (dir) => {
+    const generator = createControlledGenerator();
+    const bff = await openBff(dir, generator.generate);
+    try {
+      await enableSummary(bff);
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      const sessionId = created.sessionId as string;
+      await sendTitleMessage(bff, sessionId, "ログイン画面のエラー表示を改善したい");
+      await waitCompleted(bff, sessionId);
+      await waitFor(() => generator.calls.length === 1, 3000, "auto generate");
+      generator.calls[0]!.settle({ ok: true, title: "自動のタイトル", usage: undefined });
+      const record = bff.store.records.get(sessionId)!;
+      await waitFor(() => record.title === "自動のタイトル", 3000, "auto title");
+
+      const renamed = await bff.app.request(`/api/sessions/${sessionId}/title`, jsonPatch({ title: "手動の名前" }));
+      assert.equal(renamed.status, 200);
+
+      const firstManual = bff.app.request(`/api/sessions/${sessionId}/title/summarize`, jsonPost({}));
+      await waitFor(() => generator.calls.length === 2, 3000, "first manual generate");
+      generator.calls[1]!.settle({ ok: true, title: "手動を置き換えたタイトル", usage: undefined });
+      const firstResponse = await firstManual;
+      assert.equal(firstResponse.status, 200);
+      const firstBody = SessionTitleSummaryResponseSchema.parse(await firstResponse.json());
+      assert.equal(firstBody.title, "手動を置き換えたタイトル");
+      assert.equal(firstBody.titleSummary.origin, "ai");
+
+      const renamedAgain = await bff.app.request(
+        `/api/sessions/${sessionId}/title`,
+        jsonPatch({ title: "もう一度手動の名前" }),
+      );
+      assert.equal(renamedAgain.status, 200);
+      const secondManual = bff.app.request(`/api/sessions/${sessionId}/title/summarize`, jsonPost({}));
+      await waitFor(() => generator.calls.length === 3, 3000, "second manual generate");
+      generator.calls[2]!.settle({ ok: false, error: "rate limited", usage: undefined });
+      const secondResponse = await secondManual;
+      assert.equal(secondResponse.status, 200);
+      const secondBody = SessionTitleSummaryResponseSchema.parse(await secondResponse.json());
+      assert.equal(secondBody.title, "もう一度手動の名前");
+      assert.ok(secondBody.titleSummary.attempt);
+      assert.equal(secondBody.titleSummary.attempt.state, "failed");
+      assert.equal(secondBody.titleSummary.attempt.error, "rate limited");
+      assert.equal(record.title, "もう一度手動の名前");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("設定の動作確認は固定のサンプルだけを送り、会話もタイトルも保存しない", async () => {
+  await withStoreDir(async (dir) => {
+    const generator = createControlledGenerator();
+    const bff = await openBff(dir, generator.generate);
+    try {
+      await enableSummary(bff, { definition: "確認用の定義。", thinkingLevel: "low" });
+      const pending = bff.app.request("/api/settings/session-title/test", { method: "POST" });
+      await waitFor(() => generator.calls.length === 1, 3000, "test generate");
+      const call = generator.calls[0]!;
+      assert.equal(call.input.request, "ログイン画面のエラー表示が分かりにくいので改善したい");
+      assert.match(call.input.sessionId, /^title-test-/);
+      assert.equal(call.input.definition, "確認用の定義。");
+      assert.equal(call.input.thinkingLevel, "low");
+      call.settle({
+        ok: true,
+        title: "エラー表示の改善",
+        usage: { inputTokens: 31, outputTokens: 9, costTotal: 0.0002 },
+      });
+
+      const response = await pending;
+      assert.equal(response.status, 200);
+      const body = TitleSummaryTestResponseSchema.parse(await response.json());
+      assert.equal(body.ok, true);
+      assert.equal(body.title, "エラー表示の改善");
+      assert.equal(body.model, MODEL);
+      assert.equal(body.thinkingLevel, "low");
+      assert.equal(body.inputTokens, 31);
+      assert.equal(body.outputTokens, 9);
+      assert.equal(body.costTotal, 0.0002);
+      assert.ok(body.durationMs >= 0);
+      assert.deepEqual((await jsonBody(bff.app.request("/api/sessions"))).sessions, []);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("Off の動作確認はモデルを呼ばず、理由を返す", async () => {
+  await withStoreDir(async (dir) => {
+    const generator = createControlledGenerator();
+    const bff = await openBff(dir, generator.generate);
+    try {
+      const response = await bff.app.request("/api/settings/session-title/test", { method: "POST" });
+      assert.equal(response.status, 200);
+      const body = TitleSummaryTestResponseSchema.parse(await response.json());
+      assert.equal(body.ok, false);
+      assert.equal(body.error, "AI要約は Off です");
+      assert.equal(generator.calls.length, 0);
+    } finally {
+      await bff.close();
     }
   });
 });

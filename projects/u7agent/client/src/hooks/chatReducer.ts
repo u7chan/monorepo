@@ -29,6 +29,7 @@ import type {
   RunStatus,
   SessionHandoffState,
   SessionPayload,
+  SessionTitleSummary,
   SkillLoad,
   ThinkingLevel,
   ToolCall,
@@ -56,6 +57,10 @@ export type ChatState = {
   assistantMeta: Record<string, AssistantMeta>;
   /** 表示中のセッション。切替 (resync の sessionId 変化) で履歴ページを捨てる */
   sessionId: string;
+  /** ヘッダ / お知らせに出す現在のタイトル。一覧の取得を待たず payload の値を正にする */
+  title: string;
+  /** タイトルの由来と AI 要約の試行 (旧サーバーは載せない) */
+  titleSummary?: SessionTitleSummary;
   /** 圧縮イベントの区切り位置。復元は全履歴の entry 順、旧 payload では beforeMessageIndex */
   dividers: CompactionMarker[];
   /** 古いページを前置きした回数。ChatArea がスクロールアンカーの補正に使う */
@@ -301,6 +306,8 @@ export const initialChatState: ChatState = {
   runTools: {},
   assistantMeta: {},
   sessionId: "",
+  title: "",
+  titleSummary: undefined,
   dividers: [],
   prependSeq: 0,
   history: {
@@ -1966,6 +1973,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // ライブで観測したツール id も持ち越さない (古い id を新しい会話のライブ観測と誤読させない)
         liveToolIds: sessionChanged ? [] : state.liveToolIds,
         sessionId: payload.sessionId,
+        title: payload.title,
+        titleSummary: payload.titleSummary,
         runStatus: status,
         runStartedAt: status === "running" ? payload.run?.startedAt : undefined,
         // 圧縮の起点は payload の値だけ。終端 resync で status が抜ければ解除される

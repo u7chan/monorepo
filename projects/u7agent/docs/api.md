@@ -24,14 +24,14 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 画像配信（raw） | `GET /api/files/raw` | このファイル |
 | ダウンロード（ファイル / ZIP） | `GET /api/files/download`、`GET /api/files/download/check` | このファイル |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
-| セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/questions/:toolCallId/answer`、`/events`、`/settings`、`/title`、`/move`、`/stop`、`/compact` | [api-sessions.md](api-sessions.md) |
+| セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/questions/:toolCallId/answer`、`/events`、`/settings`、`/title`、`/title/summarize`、`/move`、`/stop`、`/compact` | [api-sessions.md](api-sessions.md) |
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
 | 共有の除外名（設定 → 共有 `/settings/sharing` の「公開の除外」） | `GET/PUT/DELETE /api/settings/shared-content-exclusions` | このファイル、[static-sharing.md](static-sharing.md#公開の除外) |
 | プロバイダーAPIキーとメモ（設定 → モデル `/settings/models`） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync`、`POST/DELETE /api/settings/models/:provider/login`、`POST /api/settings/models/:provider/login/code`、`POST /api/settings/models/:provider/logout`、`POST /api/settings/models/catalog/refresh` | このファイル、[model-settings.md](model-settings.md) |
 | コンテンツ生成（設定 → コンテンツ生成 `/settings/content`） | `GET/PUT /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`POST /api/settings/content/speech/preview`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
 | Web 検索の設定（設定 → Web 検索 `/settings/web-search`） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
-| 会話タイトルの設定（設定 → 会話タイトル `/settings/session-title`） | `GET/PUT /api/settings/session-title` | このファイル、[session-title.md](session-title.md) |
+| 会話タイトルの設定（設定 → 会話タイトル `/settings/session-title`） | `GET/PUT /api/settings/session-title`、`POST /api/settings/session-title/test` | このファイル、[session-title.md](session-title.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 共有コンテンツ（公開・更新・停止・再公開・削除）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare`、`/api/settings/shared-content-exclusions` | [static-sharing.md](static-sharing.md) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数) |
@@ -552,6 +552,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/api/settings/session-title` | `enabled` / `model`（`provider/id` または null）/ `thinkingLevel`（保存値または null）/ `effectiveThinkingLevel`（実行時の実効値）/ `definition` / `defaultDefinition` / `models[]`（認証済みで選択できるモデルと各モデルの `thinkingLevels`）/ `modelAvailable`。純粋読取で、行が無ければ Off・モデル未選択・Effort 未指定・既定の定義 |
+| POST | `/api/settings/session-title/test` | 保存済みのモデル / Effort / 定義と固定のサンプル入力で 1 回だけ生成する動作確認。結果は `{ ok, title?, error?, model?, thinkingLevel?, inputTokens?, outputTokens?, costTotal?, durationMs }` で、会話にもタイトルにも保存しない。Off / モデル未選択は生成せず `ok: false` と理由を返す。生成の失敗も 200 の `ok: false` で、pi が無い環境は 503 |
 | PUT | `/api/settings/session-title` | `{ enabled, model?, thinkingLevel?, definition? }`。省略した項目は保存値を保つ（Off への変更でモデルを消さない）。On には利用可能なモデルの選択が要り、未選択・不明なモデルは 400。Effort は選択モデルが対応する段階だけを保存でき、未対応は 400。モデルを変えて Effort を省略した場合、新モデルが対応しない保存値は未指定へ戻る。空白だけ・上限超過の定義も 400 |
 
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。変更系は 503 に `state: "not_stored"` を付ける（コンテンツ生成 / Web 検索と同じ契約）。保存済みモデルが候補から消えた場合は `modelAvailable: false` で警告し、保存値は書き換えない。実行のタイミング・試行上限・手動改名との競合は [session-title.md](session-title.md) を正とする。

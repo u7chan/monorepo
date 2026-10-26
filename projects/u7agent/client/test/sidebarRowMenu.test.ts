@@ -36,7 +36,11 @@ function renderProjectRow(): string {
   );
 }
 
-function renderSessionRow(overrides: Partial<SessionSummary> = {}, onHandoff?: () => void): string {
+function renderSessionRow(
+  overrides: Partial<SessionSummary> = {},
+  onHandoff?: () => void,
+  onOpenTitleSummary?: () => void,
+): string {
   const item: SessionSummary = {
     sessionId: "s-1",
     title: "テスト",
@@ -61,6 +65,7 @@ function renderSessionRow(overrides: Partial<SessionSummary> = {}, onHandoff?: (
       onDelete: () => {},
       onTogglePin: () => {},
       ...(onHandoff ? { onHandoff } : {}),
+      ...(onOpenTitleSummary ? { onOpenTitleSummary } : {}),
     }),
   );
 }
@@ -206,4 +211,36 @@ test("終端と idle の行は実行状態のラベルも title も出さない"
 
     assert.ok(html.includes("汎用アシスタント"), `${status}: エージェント名まで消えている`);
   }
+});
+
+test("AI要約の項目は状態の文字を添え、操作を渡した行だけに出る", () => {
+  // 状態を渡さない呼び出し (既存の一覧) は項目ごと出さない
+  assert.ok(!sessionRowActions().some((action) => action.kind === "title-summary"));
+
+  const done = { origin: "ai" as const, attempt: { runId: "r-1", at: 1, state: "done" as const } };
+  const withTitle = sessionRowActions({ canTitleSummary: true, titleSummary: done });
+  assert.deepEqual(withTitle[2], {
+    kind: "title-summary",
+    label: "AI要約",
+    status: { text: "済み", tone: "accent" },
+    descriptionKind: "note",
+  });
+
+  const html = renderSessionRow({ titleSummary: done }, undefined, () => {});
+  assert.ok(html.includes("AI要約"), "AI要約の項目が無い");
+  assert.ok(html.includes("済み"), "状態の文字が無い");
+  assert.match(html, /AI要約[\s\S]*済み/);
+
+  const disabled = renderSessionRow(
+    {
+      titleSummary: {
+        origin: "auto",
+        attempt: { runId: "r-2", at: 1, state: "skipped", skipReason: "disabled" },
+      },
+    },
+    undefined,
+    () => {},
+  );
+  assert.ok(disabled.includes("無効"), "Off の状態が無効にならない");
+  assert.ok(!renderSessionRow({ titleSummary: done }).includes("AI要約"), "操作を渡していないのに項目が出る");
 });

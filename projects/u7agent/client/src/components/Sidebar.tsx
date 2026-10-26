@@ -51,6 +51,8 @@ export type SidebarProps = Omit<
   deleteSession: (sessionId: string) => void;
   deleteProject: (projectId: string) => void;
   togglePinned: (sessionId: string) => void;
+  /** AI要約の状態 / 再要約を開く。未指定の呼び出し側は行メニューに項目を出さない */
+  onOpenTitleSummary?: (sessionId: string) => void;
   /** 実行状況 (全スペース横断) の入口。nav モードで「新しい会話」の直下に置く */
   activity?: ActivityEntryProps;
   onNewProject: () => void;
@@ -70,6 +72,7 @@ export function Sidebar({
   activity,
   onNewProject,
   onOpenSettingsSection,
+  onOpenTitleSummary,
   onClose,
   variant = "sidebar",
   resize,
@@ -232,6 +235,7 @@ export function Sidebar({
                               onDeleteSession={deleteSession}
                               onTogglePinnedSession={togglePinned}
                               onHandoffSession={handoffSession}
+                              {...(onOpenTitleSummary ? { onOpenTitleSummary } : {})}
                             />
                           ))}
                         </div>
@@ -279,6 +283,7 @@ export function Sidebar({
                         onDelete={deleteSession}
                         onTogglePin={togglePinned}
                         onHandoff={handoffSession}
+                        {...(onOpenTitleSummary ? { onOpenTitleSummary } : {})}
                       />
                     )}
                   </div>

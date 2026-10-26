@@ -67,6 +67,7 @@ import type {
   SessionSkillsPreview,
   SessionSkillsResponse,
   SessionSummary,
+  SessionTitleSummaryResponse,
   SessionTitleResponse,
   SharedContentExclusionsResponse,
   SharedContentMutationResponse,
@@ -79,6 +80,7 @@ import type {
   StopResult,
   ThinkingLevel,
   TitleSummarySettingsResponse,
+  TitleSummaryTestResponse,
   UpdateAgentBody,
   UpdateCloudflareSettingsBody,
   UpdateContentImageBody,
@@ -155,6 +157,8 @@ export function createSpaceApi(spaceId: string) {
       read<SessionPinnedResponse>(session.pin.$patch({ param: { id }, json: { pinned } })),
     updateSessionTitle: (id: string, title: string) =>
       read<SessionTitleResponse>(session.title.$patch({ param: { id }, json: { title } })),
+    summarizeSessionTitle: (id: string) =>
+      read<SessionTitleSummaryResponse>(session.title.summarize.$post({ param: { id } })),
     stopSession: (id: string) => read<StopResult>(session.stop.$post({ param: { id } })),
     compactSession: (id: string) => read<SessionCompactionResult>(session.compact.$post({ param: { id } })),
     postMessage: (id: string, text: string, attachments: string[] = [], titleSource?: string) =>
@@ -994,6 +998,13 @@ export const getTitleSummarySettings = async (): Promise<TitleSummarySettingsRes
 /** 3 項目の保存。省略した項目はサーバーが保存値を保つ (Off への変更でもモデルを消さない) */
 export const putTitleSummarySettings = async (body: UpdateTitleSummaryBody): Promise<TitleSummarySettingsResponse> => {
   const res = await client.api.settings["session-title"].$put({ json: body });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 保存済みの設定で 1 回だけ生成する。タイトルは保存しない。生成の失敗も 200 の `ok: false` で返る */
+export const postTitleSummaryTest = async (): Promise<TitleSummaryTestResponse> => {
+  const res = await client.api.settings["session-title"].test.$post();
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

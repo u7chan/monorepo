@@ -11,6 +11,7 @@ export type RowMenuActionKind =
   | "share"
   | "download"
   | "rename"
+  | "title-summary"
   | "pin"
   | "move"
   | "handoff"
@@ -28,6 +29,11 @@ export type RowMenuAction<K extends RowMenuActionKind = RowMenuActionKind> = {
    */
   descriptionKind?: RowMenuDescriptionKind;
   danger?: boolean;
+  /**
+   * 右端の短い状態。面 (チップ) にせず文字だけで出す。色は状態の意味だけを表す
+   * (未指定は補足の文字色)。
+   */
+  status?: { text: string; tone?: "accent" | "danger" | "warn" | "muted" };
   /** 押せない行。できない理由は `description` に出す (項目ごと隠すと理由が分からない) */
   disabled?: boolean;
 };

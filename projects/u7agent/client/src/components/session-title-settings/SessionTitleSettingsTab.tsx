@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { cn } from "../../lib/cn";
+import { effortLabel } from "../../lib/composerSettings";
+import { formatCost } from "../../lib/usageFormat";
 import {
   sessionTitleDefinitionError,
   sessionTitleEffortForModel,
@@ -13,11 +15,12 @@ import {
   TITLE_DEFINITION_MAX,
   type SessionTitleSavingAction,
 } from "../../lib/sessionTitleSettings";
-import type { ThinkingLevel, TitleSummarySettingsResponse } from "../../types";
+import type { ThinkingLevel, TitleSummarySettingsResponse, TitleSummaryTestResponse } from "../../types";
 import { MetaChip } from "../model-settings/MetaChip";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
 import { SelectMenu, type SelectMenuOption } from "../SelectMenu";
 import { ToggleSwitch } from "../ToggleSwitch";
+import { CheckIcon, RunSpinnerIcon, SparkleIcon, WarningIcon } from "../icons";
 
 export type SessionTitleSettingsTabProps = {
   settings: TitleSummarySettingsResponse;
@@ -28,6 +31,10 @@ export type SessionTitleSettingsTabProps = {
   onSelectEffort: (thinkingLevel: ThinkingLevel) => Promise<boolean>;
   onSaveDefinition: (definition: string) => Promise<boolean>;
   onResetDefinition: () => Promise<boolean>;
+  /** 保存済みの設定で 1 回だけ生成する */
+  testing: boolean;
+  testResult: TitleSummaryTestResponse | null;
+  onTest: () => void;
 };
 
 /**
@@ -42,8 +49,11 @@ export function SessionTitleSettingsTab({
   onSelectEffort,
   onSaveDefinition,
   onResetDefinition,
+  testing,
+  testResult,
+  onTest,
 }: SessionTitleSettingsTabProps) {
-  const busy = saving !== null;
+  const busy = saving !== null || testing;
   const { enabled } = settings;
   const [draft, setDraft] = useState(settings.definition);
   const [draftFor, setDraftFor] = useState(settings.definition);
@@ -72,6 +82,14 @@ export function SessionTitleSettingsTab({
   ];
   const effortNotice = sessionTitleEffortNotice(settings);
   const hasEffortChoices = effortOptions.some((option) => option.value !== "");
+  const testDisabled = busy || testing || !settings.enabled || !settings.model || !settings.modelAvailable;
+  const testHint = !settings.enabled
+    ? "AI要約を On にすると動作確認できます。"
+    : !settings.model
+      ? "要約モデルを選ぶと動作確認できます。"
+      : !settings.modelAvailable
+        ? "選択したモデルが現在利用できないため、動作確認できません。"
+        : undefined;
 
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
@@ -166,6 +184,23 @@ export function SessionTitleSettingsTab({
           </section>
         </div>
 
+        <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="min-w-0 flex-1">
+              <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">動作確認</div>
+              <p className="mt-0.5 text-xs text-ink">
+                保存済みのモデル / Effort / 定義で 1 回だけ生成します。会話にもタイトルにも保存しません。
+              </p>
+            </div>
+            <button type="button" className="btn-quiet" disabled={testDisabled} onClick={onTest}>
+              {testing ? <RunSpinnerIcon /> : <SparkleIcon />}
+              {testing ? "確認中…" : "動作確認"}
+            </button>
+          </div>
+          {testHint ? <p className="text-2xs leading-relaxed text-ink-muted">{testHint}</p> : null}
+          {testResult ? <TestResultCard result={testResult} /> : null}
+        </section>
+
         <section className="grid gap-1.5">
           <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">要約の定義</div>
           <p className="text-2xs leading-relaxed text-ink-muted">
@@ -206,6 +241,45 @@ export function SessionTitleSettingsTab({
           {invalid && dirty ? <p className="text-2xs text-danger-text">{invalid}</p> : null}
         </section>
       </div>
+    </div>
+  );
+}
+
+/** 設定画面の動作確認の結果。成功 / 失敗は面ではなく、アイコン + 文字 + 枠で示す */
+function TestResultCard({ result }: { result: TitleSummaryTestResponse }) {
+  const usage =
+    result.inputTokens === undefined && result.outputTokens === undefined
+      ? undefined
+      : `入力 ${result.inputTokens ?? 0} / 出力 ${result.outputTokens ?? 0}${
+          result.costTotal === undefined ? "" : ` ・ ${formatCost(result.costTotal)}`
+        }`;
+  const seconds = result.durationMs > 0 ? `${(result.durationMs / 1000).toFixed(1)} 秒` : undefined;
+  return (
+    <div
+      role={result.ok ? "status" : "alert"}
+      className={cn(
+        "grid gap-1.5 rounded-lg border px-3 py-2.5 text-xs",
+        result.ok ? "border-accent/35 bg-accent-wash" : "border-danger/40 bg-raised",
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className={result.ok ? "text-accent-text" : "text-danger-text"}>
+          {result.ok ? <CheckIcon /> : <WarningIcon />}
+        </span>
+        <span className={cn("font-semibold", result.ok ? "text-accent-text" : "text-danger-text")}>
+          {result.ok ? "成功" : "失敗"}
+        </span>
+        {seconds ? <span className="text-2xs text-ink-faint">{seconds}</span> : null}
+      </div>
+      {result.ok ? (
+        <p className="text-sm break-words text-ink-strong">{result.title}</p>
+      ) : (
+        <p className="leading-relaxed break-words text-danger-text">{result.error ?? "生成に失敗しました"}</p>
+      )}
+      <p className="text-2xs break-words text-ink-muted">
+        {result.model ?? "モデル不明"} ・ {result.thinkingLevel ? effortLabel(result.thinkingLevel) : "Effort 不明"}
+        {usage ? ` ・ ${usage}` : ""}
+      </p>
     </div>
   );
 }

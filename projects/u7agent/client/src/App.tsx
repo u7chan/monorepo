@@ -21,6 +21,8 @@ import { Sidebar } from "./components/Sidebar";
 import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesPanel";
 import { SharingSettingsPage } from "./components/SharingSettingsPage";
 import { SessionHandoffDialog, type SessionHandoffRequest } from "./components/SessionHandoffDialog";
+import { SessionTitleDialog } from "./components/SessionTitleDialog";
+import { SessionTitleNotice } from "./components/SessionTitleNotice";
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { WebSearchSettingsPage } from "./components/WebSearchSettingsPage";
@@ -34,6 +36,7 @@ import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useMarkdownImageRawUrl } from "./hooks/useMarkdownImageRawUrl";
 import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
+import { useSessionTitleNotice } from "./hooks/useSessionTitleNotice";
 import { useSidebarWidth } from "./hooks/useSidebarWidth";
 import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
@@ -272,6 +275,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   const [notifyAttempted, setNotifyAttempted] = useState(false);
   // 押して On にした回数 (ベルの演出の世代)。会話の切替 / リロードで値が On に上がるだけでは進めない
   const [notifyRing, setNotifyRing] = useState(0);
+  // AI要約のダイアログを開いている会話。行のメニューから開く (会話の選択は変えない)
+  const [titleSummaryTargetId, setTitleSummaryTargetId] = useState<string | null>(null);
   const sidebarMode: SidebarMode = route.view === "settings" ? "settings" : "nav";
   // URL にセクションが無いときだけ「最後に開いていたセクション」を見せる (URL の指定を上書きしない)
   const settingsSection: SettingsSection = route.view === "settings" ? route.section : lastSettingsSection;
@@ -583,6 +588,10 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     [navigate],
   );
 
+  const openTitleSummary = useCallback((sessionId: string) => {
+    setTitleSummaryTargetId(sessionId);
+  }, []);
+
   // モデルのタブ切替も URL へ集約する。既定タブはパスへ出さない (正準形は lib/route.ts が決める)
   const openModelsSubsection = useCallback(
     (subsection: ModelsSubsection) => {
@@ -767,6 +776,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       });
     },
     togglePinned: (sessionId: string) => app.togglePinned(sessionId),
+    onOpenTitleSummary: openTitleSummary,
     deleteProject: (projectId: string) => {
       void app.deleteProject(projectId);
     },
@@ -807,6 +817,19 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   // 会話が無いときだけ「新しい会話」と言い切る (一覧が未取得でも sessionId は確定している)
   const barTitle = app.sessionId ? activeSession?.title || "無題のセッション" : "新しい会話";
   const barAgentName = activeSession?.agentName || app.selectedAgent?.name;
+  const titleSummaryTarget = titleSummaryTargetId
+    ? spaceSessions.find((item) => item.sessionId === titleSummaryTargetId)
+    : undefined;
+  // 会話の削除 / スペース切替で対象が消えたらダイアログを閉じる
+  useEffect(() => {
+    if (titleSummaryTargetId && !titleSummaryTarget) setTitleSummaryTargetId(null);
+  }, [titleSummaryTarget, titleSummaryTargetId]);
+  // 会話の AI 要約が終わった瞬間だけ、チャット上に 1 回だけ知らせる (常設のバッジは置かない)
+  const { notice: sessionTitleNotice, dismiss: dismissSessionTitleNotice } = useSessionTitleNotice({
+    sessionId: app.sessionId,
+    title: app.chat.title,
+    titleSummary: app.chat.titleSummary,
+  });
   // 吹き出しの名前はセッションのスナップショット (resync が持つ)、アイコンはカタログから live 解決する。
   // 未作成チャットでは選択中のエージェントを出し、作成後に payload の値へ切り替わる
   const chatAgentName = app.chat.sessionAgentName || app.selectedAgent?.name;
@@ -982,30 +1005,41 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
               emptyPortrait ? "chat-empty-portrait" : "grid-rows-[auto_minmax(0,1fr)_auto]",
             )}
           >
-            {singleColumnMode ? (
-              <SingleColumnBar
-                serve={serveProps}
-                mode={singleColumnMode}
-                title={barTitle}
-                agentName={barAgentName}
-                scope={scope}
-                runtimeStatus={app.runtimeStatus}
-                notify={notifyToggle}
-                sessionFiles={filesRoot ? { open: filesSheetOpen, onToggle: toggleSessionFiles } : undefined}
-                activity={activityEntry}
-                onOpenNav={openNav}
-              />
-            ) : (
-              <Topbar
-                serve={serveProps}
-                scope={scope}
-                runtimeStatus={app.runtimeStatus}
-                notify={notifyToggle}
-                sessionFiles={filesRoot ? { open: filesPanelOpen, onToggle: toggleSessionFiles } : undefined}
-                nav={sidebarDocked ? undefined : { onOpen: openNav }}
-                activity={sidebarDocked ? undefined : activityEntry}
-              />
-            )}
+            <div>
+              {singleColumnMode ? (
+                <SingleColumnBar
+                  serve={serveProps}
+                  mode={singleColumnMode}
+                  title={barTitle}
+                  agentName={barAgentName}
+                  scope={scope}
+                  runtimeStatus={app.runtimeStatus}
+                  notify={notifyToggle}
+                  sessionFiles={filesRoot ? { open: filesSheetOpen, onToggle: toggleSessionFiles } : undefined}
+                  activity={activityEntry}
+                  onOpenNav={openNav}
+                />
+              ) : (
+                <Topbar
+                  serve={serveProps}
+                  scope={scope}
+                  runtimeStatus={app.runtimeStatus}
+                  notify={notifyToggle}
+                  sessionFiles={filesRoot ? { open: filesPanelOpen, onToggle: toggleSessionFiles } : undefined}
+                  nav={sidebarDocked ? undefined : { onOpen: openNav }}
+                  activity={sidebarDocked ? undefined : activityEntry}
+                />
+              )}
+              {sessionTitleNotice ? (
+                <div className="px-6 pb-3 singleColumn:px-3">
+                  <SessionTitleNotice
+                    notice={sessionTitleNotice}
+                    onOpen={() => openTitleSummary(app.sessionId)}
+                    onDismiss={dismissSessionTitleNotice}
+                  />
+                </div>
+              ) : null}
+            </div>
             <FileRefProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} onOpen={openFileRef}>
               <MarkdownImageProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} rawUrl={markdownImageRawUrl}>
                 <ChatArea
@@ -1166,6 +1200,27 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       {navOpen && !sidebarDocked ? <NavSheet {...navProps} onClose={closeNav} /> : null}
       {projectDialogOpen ? (
         <ProjectDialog singleColumn={singleColumn} onClose={closeProjectDialog} onCreate={handleCreateProject} />
+      ) : null}
+      {titleSummaryTarget ? (
+        <SessionTitleDialog
+          sessionId={titleSummaryTarget.sessionId}
+          title={
+            titleSummaryTarget.sessionId === app.sessionId
+              ? app.chat.title || titleSummaryTarget.title
+              : titleSummaryTarget.title
+          }
+          titleSummary={
+            titleSummaryTarget.sessionId === app.sessionId
+              ? (app.chat.titleSummary ?? titleSummaryTarget.titleSummary)
+              : titleSummaryTarget.titleSummary
+          }
+          onClose={() => setTitleSummaryTargetId(null)}
+          onOpenSettings={() => {
+            setTitleSummaryTargetId(null);
+            openSettingsSection("session-title");
+          }}
+          onUpdated={() => void app.refreshSessions()}
+        />
       ) : null}
       {handoffTarget ? (
         <SessionHandoffDialog

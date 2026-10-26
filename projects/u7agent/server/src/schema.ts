@@ -22,6 +22,79 @@ export type RunOutcome = z.infer<typeof RunOutcomeSchema>;
 export const ThinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export type ThinkingLevel = z.infer<typeof ThinkingLevelSchema>;
 
+/** 会話タイトルの由来。auto = 依頼本文、ai = AI 要約、manual = 手動改名 */
+export const TitleOriginSchema = z.enum(["auto", "ai", "manual"]);
+export type TitleOrigin = z.infer<typeof TitleOriginSchema>;
+
+export const TitleAttemptStateSchema = z.enum(["pending", "done", "failed", "skipped"]);
+export type TitleAttemptState = z.infer<typeof TitleAttemptStateSchema>;
+
+/** AI 要約を実行しなかった理由。画面の文言は client 側で写す */
+export const TitleSkipReasonSchema = z.enum([
+  "disabled",
+  "model-unset",
+  "manual",
+  "no-request",
+  "cancelled",
+  "settings-changed",
+  "not-ready",
+  "interrupted",
+]);
+export type TitleSkipReason = z.infer<typeof TitleSkipReasonSchema>;
+
+export const TitleAttemptSchema = z.object({
+  runId: z.string().min(1),
+  at: z.number().finite(),
+  state: TitleAttemptStateSchema,
+  /** 自動要約 / 会話メニューからの明示的な再要約 */
+  trigger: z.enum(["auto", "manual"]).optional(),
+  /** 予約時に確定したモデル (`provider/id`) */
+  model: z.string().optional(),
+  /** 予約時に確定した実効 Effort */
+  thinkingLevel: ThinkingLevelSchema.optional(),
+  /** 予約時の設定世代。保存後に設定が変わった結果は適用しない */
+  generation: z.number().optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  costTotal: z.number().optional(),
+  /** 生成にかかった時間 (順番待ちを含む)。画面の確認用 */
+  durationMs: z.number().optional(),
+  /** 失敗理由 (マスク済み・長さ上限あり)。依頼本文と生成タイトルは含めない */
+  error: z.string().optional(),
+  /** 実行しなかった理由 (skipped のとき) */
+  skipReason: TitleSkipReasonSchema.optional(),
+});
+export type TitleAttempt = z.infer<typeof TitleAttemptSchema>;
+
+/** 会話タイトルの由来と最新の AI 要約試行。タイトル本文は `title` が持つ */
+export const SessionTitleSummarySchema = z.object({
+  origin: TitleOriginSchema,
+  attempt: TitleAttemptSchema.optional(),
+});
+export type SessionTitleSummary = z.infer<typeof SessionTitleSummarySchema>;
+
+/** 設定画面の「動作確認」の結果。タイトルは保存しない */
+export const TitleSummaryTestResponseSchema = z.object({
+  ok: z.boolean(),
+  title: z.string().optional(),
+  error: z.string().optional(),
+  model: z.string().optional(),
+  thinkingLevel: ThinkingLevelSchema.optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  costTotal: z.number().optional(),
+  durationMs: z.number(),
+});
+export type TitleSummaryTestResponse = z.infer<typeof TitleSummaryTestResponseSchema>;
+
+/** 会話メニューからの再要約の結果。生成に失敗しても現在のタイトルと試行を返す */
+export const SessionTitleSummaryResponseSchema = z.object({
+  sessionId: z.string(),
+  title: z.string(),
+  titleSummary: SessionTitleSummarySchema,
+});
+export type SessionTitleSummaryResponse = z.infer<typeof SessionTitleSummaryResponseSchema>;
+
 /** 認証済みモデルの provider/id 参照 (SDK の Model そのものではない) */
 export const ModelRefSchema = z.object({
   provider: z.string().min(1),
@@ -584,6 +657,8 @@ export const SessionPayloadSchema = z.object({
   availableThinkingLevels: z.array(ThinkingLevelSchema).optional(),
   status: RunStatusSchema,
   title: z.string(),
+  /** 会話タイトルの由来と AI 要約の試行。旧サーバーは載せない */
+  titleSummary: SessionTitleSummarySchema.optional(),
   createdAt: z.number(),
   lastUsedAt: z.number(),
   /** この payload を組み立てた時刻 (epoch ms)。retry.retryAt との差でクライアントが残り時間を出す */
@@ -629,6 +704,8 @@ export const SessionSummarySchema = z.object({
   spaceId: z.string().optional(),
   sessionId: z.string(),
   title: z.string(),
+  /** 会話タイトルの由来と AI 要約の試行。旧サーバーは載せない */
+  titleSummary: SessionTitleSummarySchema.optional(),
   agentId: z.string(),
   agentName: z.string().optional(),
   status: RunStatusSchema,
@@ -2379,23 +2456,7 @@ export const SessionDiagnosticsSchema = z.object({
    * タイトルの由来と AI 要約の試行 (状態・モデル・usage)。依頼本文と生成タイトルは載せない
    * (診断 JSON が本文を含まない契約の一部)。旧サーバーは載せないため省略可。
    */
-  title: z
-    .object({
-      origin: z.enum(["auto", "ai", "manual"]),
-      attempt: z
-        .object({
-          runId: z.string(),
-          at: z.number(),
-          state: z.enum(["pending", "done", "failed", "skipped"]),
-          model: z.string().optional(),
-          generation: z.number().optional(),
-          inputTokens: z.number().optional(),
-          outputTokens: z.number().optional(),
-          costTotal: z.number().optional(),
-        })
-        .optional(),
-    })
-    .optional(),
+  title: SessionTitleSummarySchema.optional(),
   events: z.object({
     /** 件数の上限 (これより古い分は返さない) */
     limit: z.number(),
