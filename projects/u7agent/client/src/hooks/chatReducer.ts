@@ -167,6 +167,12 @@ export type ChatState = {
    */
   toolTargetAssistantId?: number;
   /**
+   * 本文 item を引き取った host の応答ID。resyncHistory は履歴 item からバブルを組み直すため、
+   * entryId 付きになった host は live の突き合わせ対象から外れ、印 (host) が写らない。run の終端まで
+   * これらを host として戻し、再構築の後に実行中の行とコピーを出さない (1 run に複数の host が並び得る)
+   */
+  liveHostAssistantIds: string[];
+  /**
    * run_start で観測した run id -> 展開済みの本文。送信応答 (`echoSendId`) が run_start より遅れて
    * 届いたときに、ローカルエコーを注記込み / `/skill:` 展開済みの本文へ差し替えるために使う。
    * 直近の数件だけ持ち、対応が取れたら消す (別 run の本文を自分のエコーへ入れない)
@@ -337,6 +343,7 @@ export const initialChatState: ChatState = {
   currentAssistantKey: undefined,
   closedAssistantTexts: [],
   toolTargetAssistantId: undefined,
+  liveHostAssistantIds: [],
 };
 
 /** retryAt と serverNow の差を残り時間として控える。どちらか欠けたら undefined (推測で時刻を合成しない) */
@@ -864,7 +871,7 @@ function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: H
   const deduped = dedupeToolCards(carried.bubbles, streaming.currentAssistantId);
   return {
     ...state,
-    bubbles: restoreUserTurnEnds(state, deduped.bubbles),
+    bubbles: restoreLiveHost(state, restoreUserTurnEnds(state, deduped.bubbles)),
     nextId: merged.nextId,
     toolBubbleIds: deduped.toolBubbleIds,
     currentAssistantId: streaming.currentAssistantId,
@@ -1049,6 +1056,17 @@ function toolHostOf(bubbles: Bubble[]): Bubble | undefined {
 }
 
 /**
+ * run 中の host (本文 item を引き取った後も含む)。溜め先 (`toolHostOf`) と違い本文の有無を問わず、
+ * 本文の補完先にしない対象を引く
+ */
+function markedToolHostOf(bubbles: Bubble[]): Bubble | undefined {
+  for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+    if (isToolHostBubble(bubbles[index])) return bubbles[index];
+  }
+  return undefined;
+}
+
+/**
  * ツールカードを溜める host を用意する (既にあれば同じカードへ積む)。host は本文 item ではないので
  * 本文の補完先 (`currentAssistantId`) にはしない。代わりに `toolTargetAssistantId` を指し、以降の
  * ツールを閉じた応答として受けられるようにする。本文を持たない応答の usage / metrics は表示する行が
@@ -1114,7 +1132,27 @@ function adoptToolHost(state: ChatState, assistantKey: string): ChatState | unde
     currentAssistantId: host.id,
     currentAssistantKey: assistantKey,
     toolTargetAssistantId: undefined,
+    liveHostAssistantIds: [...new Set([...state.liveHostAssistantIds, assistantKey])],
   };
+}
+
+/**
+ * ページ再構築の後に、本文 item を引き取った host の印を戻す。mergeHistoryPage は履歴 item から
+ * バブルを組み直し、host は履歴に載らないため、対応付けが済んだ host は live の照合対象から外れて
+ * 印を失う。run の終端 (run_end / run_start) までは同じ応答を host として扱い、実行中の行とコピーを
+ * 再構築の後に出さない。応答が履歴から消えていれば何もしない。
+ */
+function restoreLiveHost(state: ChatState, bubbles: Bubble[]): Bubble[] {
+  if (state.liveHostAssistantIds.length === 0) return bubbles;
+  const hosts = new Set(state.liveHostAssistantIds);
+  let changed = false;
+  const next = bubbles.map((bubble) => {
+    if (bubble.role !== "assistant" || bubble.assistantId === undefined) return bubble;
+    if (!hosts.has(bubble.assistantId) || isToolHostBubble(bubble)) return bubble;
+    changed = true;
+    return { ...bubble, host: true as const };
+  });
+  return changed ? next : bubbles;
 }
 
 /** host のカードを所有者 (本文を持たない応答) ごとに分ける。順序はカードが届いた順 */
@@ -1311,7 +1349,7 @@ function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
   // 閉じた応答を focus で開き直すと、次の delta がそのカードへ連結される。host は本文 item ではないので
   // 本文の補完先にしない (次の本文は host を引き取って同じカードを item にする)
   const target = state.bubbles.find((bubble) => bubble.id === targetId);
-  const hostId = toolHostOf(state.bubbles)?.id;
+  const hostId = markedToolHostOf(state.bubbles)?.id;
   const focusable =
     targetId !== state.toolTargetAssistantId && target !== undefined && target.settled !== true && targetId !== hostId;
   return focus && focusable
@@ -1609,6 +1647,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         liveToolIds: [],
         currentAssistantId: null,
         currentAssistantKey: undefined,
+        // 履歴ごと入れ替わるので、前の履歴の host を復元しない
+        liveHostAssistantIds: [],
         history: initialChatState.history,
         activity: "",
         activityState: undefined,
@@ -1990,6 +2030,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         clearedSendIds: applied.clearedSendIds,
         stateSeq: state.stateSeq + 1,
         closedAssistantTexts: switchedSession ? [] : state.closedAssistantTexts,
+        // 実行中でなければ host は確定済み (settleToolHosts) なので、次のページ再構築で戻さない
+        liveHostAssistantIds: status === "running" && !switchedSession ? state.liveHostAssistantIds : [],
         toolTargetAssistantId:
           !switchedSession &&
           state.toolTargetAssistantId !== undefined &&
@@ -2234,6 +2276,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         startingRunId: started?.queued === true ? action.runId : undefined,
         currentRunId: action.runId,
         toolTargetAssistantId: undefined,
+        // 前の run の host を次の run のページ再構築で復元しない
+        liveHostAssistantIds: [],
         closedAssistantTexts:
           action.runId !== undefined && action.runId === state.currentRunId ? state.closedAssistantTexts : [],
         stateSeq: state.stateSeq + 1,
@@ -2828,6 +2872,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentRunId: undefined,
         closedAssistantTexts: [],
         toolTargetAssistantId: undefined,
+        // ターンが終われば host は確定済みの item になる (次の resync で印を戻さない)
+        liveHostAssistantIds: [],
         toolBubbleIds: {},
         activity,
         activityState: undefined,

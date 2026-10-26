@@ -886,3 +886,166 @@ test("本文 item を引き取った host の ask_user は、その item に残�
     "回答カードは C の item に残る (サーバー投影の C:[tool, ask_user] / D:[] と同じ)",
   );
 });
+
+test("2回目の resync でページを組み直しても、本文 item を引き取った host は run_end まで live のまま", () => {
+  // What: tool 完了 → text(C) → assistantEnd(C) → C 自身のツール (実行中) → resyncHistory (C に entryId) →
+  // 2回目の実行中スナップショット + 履歴適用 → C の tool 完了 → text(D) と進んでも、C は run_end まで
+  // host (live) のまま。run_end の前に C のコピーも実行中の行も出さず、run_end で同じバブルのまま確定する
+  let state = startRun();
+  state = bodylessTool(state, 1, { id: "work-a" });
+  state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "work-c",
+    name: "grep",
+    args: "$ grep C",
+    at: 61,
+    startedAt: 61,
+    assistantId: "run-1:2",
+  });
+
+  const page: HistoryPage = {
+    sessionId: "session-a",
+    items: [
+      {
+        kind: "message",
+        id: "a-u1",
+        context: "active",
+        role: "user",
+        text: "調べて",
+        sendId: "send-1",
+        runId: "run-1",
+      },
+      {
+        kind: "message",
+        id: "a-c",
+        context: "active",
+        role: "assistant",
+        text: "C",
+        assistantId: "run-1:2",
+        // 保存済みの履歴には完了したカードだけが載る (実行中の work-c はまだ結果が無い)
+        tools: completedRun(["work-a"]).toolCalls,
+      },
+    ],
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "a-u1",
+    messageCount: 2,
+    summarizedMessageCount: 0,
+  };
+
+  // 1回目の resync。C は entryId を得ても host のまま (live の突き合わせで印を引き継ぐ)
+  state = chatReducer(state, { type: "resyncHistory", page });
+  const entryHost = state.bubbles.find((bubble) => bubble.entryId === "a-c") as Bubble;
+  assert.equal(isToolHostBubble(entryHost), true, "1回目の resync で entryId が付いても host のまま");
+
+  // 2回目の実行中スナップショット。C は entryId 付きなので live の突き合わせ対象から外れる
+  const workC = {
+    id: "work-c",
+    assistantId: "run-1:2",
+    name: "grep",
+    args: "$ grep C",
+    isError: false,
+    done: false,
+    output: "",
+    startedAt: 61,
+  };
+  const calls = [...completedRun(["work-a"]).toolCalls, workC];
+  const snapshot: SessionPayload = {
+    ...idlePayload(1),
+    status: "running",
+    run: {
+      ...completedRun(["work-a"]),
+      status: "running",
+      toolCalls: calls,
+    },
+    messages: [
+      { role: "user", text: "調べて", sendId: "send-1", runId: "run-1" },
+      { role: "assistant", assistantId: "run-1:2", text: "C", at: 60, tools: calls },
+    ],
+  };
+  state = chatReducer(state, { type: "resync", payload: snapshot });
+  const afterSnapshot = state.bubbles.find((bubble) => bubble.entryId === "a-c") as Bubble;
+  assert.equal(isToolHostBubble(afterSnapshot), true, "実行中スナップショットで host を落とさない");
+
+  // 2回目の履歴適用。ページからバブルを組み直すため、印は live の突き合わせでは写らない
+  state = chatReducer(state, { type: "resyncHistory", page });
+  const rebooted = state.bubbles.find((bubble) => bubble.entryId === "a-c") as Bubble;
+  assert.equal(isToolHostBubble(rebooted), true, "ページを組み直しても host として復元する");
+  assert.equal(state.runStatus, "running", "run はまだ実行中");
+  assert.equal(state.currentAssistantId, null, "host を開いている応答 (本文の補完先) へ戻さない");
+  assert.deepEqual(
+    rebooted.tools.map((card) => [card.id, card.phase]),
+    [
+      ["work-a", "done"],
+      ["work-c", "running"],
+    ],
+    "履歴に無い実行中のカードも残す",
+  );
+
+  // 実行中はコピーも実行中の行も出さない。印が効いていることは live を落とした描画との差で確かめる
+  const runningHtml = renderHistory(
+    rebooted.tools,
+    isLiveTurnBubble(rebooted, { currentAssistantId: state.currentAssistantId, runInProgress: true }),
+  );
+  assert.equal(runningHtml.includes("ツール履歴をすべてコピー"), false, "run_end の前にコピーを出さない");
+  assert.equal(runningHtml.includes("実行中"), false, "実行中のカードは状態行に任せる");
+  assert.ok(runningHtml.includes("1件"), "完了したカードだけを数える");
+  const openedHtml = renderHistory(rebooted.tools, false);
+  assert.ok(openedHtml.includes("ツール履歴をすべてコピー"), "live でなければコピーを出す");
+  assert.ok(openedHtml.includes("実行中"), "live でなければ実行中の行を出す");
+
+  // C 自身のツールが完了し、次の本文 D が届いても C は host のまま (コピーは出ない)
+  state = chatReducer(state, { type: "toolEnd", id: "work-c", isError: false, output: "out c", endedAt: 62 });
+  state = chatReducer(state, { type: "text", delta: "D", at: 63, assistantId: "run-1:3" });
+  const withD = state.bubbles.find((bubble) => bubble.text === "C") as Bubble;
+  assert.equal(isToolHostBubble(withD), true, "C 自身のツールが完了して D が来ても host のまま");
+  assert.equal(
+    isLiveTurnBubble(withD, {
+      currentAssistantId: state.currentAssistantId,
+      runInProgress: state.runStatus === "running",
+    }),
+    true,
+    "run が続く間は live として扱う",
+  );
+  assert.deepEqual(
+    toolBubbles(state).map((bubble) => [bubble.text, bubble.tools.map((card) => card.id)]),
+    [["C", ["work-a", "work-c"]]],
+    "C のツール履歴が別バブル (コピーになる複製) に増えない",
+  );
+  const before = liveHeader(state);
+  assert.equal(before.count, 2, "完了した 2 件を数える");
+  assert.equal(before.bubbles, 1, "ヘッダーは C の 1 つだけ");
+
+  // run_end で同じバブルのまま確定し、コピーと実行時間の行がそろう
+  const ended = chatReducer(state, {
+    runId: "run-1",
+    type: "runEnd",
+    status: "completed",
+    queueDepth: 0,
+    durationMs: 3000,
+  });
+  const settledC = ended.bubbles.find((bubble) => bubble.text === "C") as Bubble;
+  assert.equal(settledC.id, withD.id, "同じバブル (同じ DOM の位置) のまま確定する");
+  assert.equal(isToolHostBubble(settledC), false, "run_end で host の印を外す");
+  assert.equal(settledC.settled, true);
+  assert.equal(
+    isLiveTurnBubble(settledC, { currentAssistantId: ended.currentAssistantId, runInProgress: false }),
+    false,
+  );
+  assert.deepEqual(
+    settledC.tools.map((card) => [card.id, card.phase]),
+    [
+      ["work-a", "done"],
+      ["work-c", "done"],
+    ],
+    "C の 2 件がそろって確定する",
+  );
+  assert.deepEqual(settledHeader(ended), before, "run_end で件数・プレビュー・ヘッダーの数が変わらない");
+  const settledHtml = renderHistory(settledC.tools, false);
+  assert.ok(settledHtml.includes("ツール履歴をすべてコピー"), "確定後にコピーを出す");
+  assert.equal(settledHtml.includes("実行中"), false, "実行中の行は残らない");
+  assert.ok(settledHtml.includes("2件"), "件数は 2 件");
+});
