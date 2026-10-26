@@ -252,9 +252,10 @@ test("受付した 1 件の反映: 同じ id は差し替え、未取得なら�
 test("操作行: 状態ごとの主操作だけを並べ、停止 / 削除は行に出さない", () => {
   const kinds = (overrides: Partial<SharedContentResponse>) =>
     sharedContentActions(item(overrides), { sessionMissing: false }).map((action) => action.kind);
-  assert.deepEqual(kinds({ status: "published", publishedAt: PUBLISHED_AT }), ["open", "update"]);
+  assert.deepEqual(kinds({ status: "published", publishedAt: PUBLISHED_AT }), ["open", "qr", "update"]);
   assert.deepEqual(kinds({ status: "published", publishedAt: PUBLISHED_AT, lastError: "更新に失敗しました" }), [
     "open",
+    "qr",
     "update",
   ]);
   assert.deepEqual(kinds({ status: "stopped", publishedAt: PUBLISHED_AT }), ["resume"]);
@@ -276,7 +277,7 @@ test("セッション削除済み: 更新だけを理由付きで無効にし、
   assert.equal(update?.reason, SHARED_CONTENT_SESSION_MISSING_NOTE);
   assert.deepEqual(
     published.filter((action) => action.disabled !== true).map((action) => action.kind),
-    ["open"],
+    ["open", "qr"],
   );
   // ⋯ の更新も同じ理由で無効にする（狭い面の主操作は開くだけなので、更新はここにしかない）
   const menu = sharedContentMenuActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
@@ -288,6 +289,7 @@ test("セッション削除済み: 更新だけを理由付きで無効にし、
     [
       ["rename", false],
       ["update", true],
+      ["qr", false],
       ["stop", false],
       ["delete", false],
     ],
@@ -330,7 +332,7 @@ test("⋯ の操作: 名前を変更を先頭に置き、行に出ていない�
   const published = { status: "published", publishedAt: PUBLISHED_AT } as const;
   // PC は行に更新があるので ⋯ には重ねない。狭い面は主操作が開くだけなので更新も入れる
   assert.deepEqual(menu(published, false), ["rename", "stop", "delete"]);
-  assert.deepEqual(menu(published, true), ["rename", "update", "stop", "delete"]);
+  assert.deepEqual(menu(published, true), ["rename", "update", "qr", "stop", "delete"]);
   assert.deepEqual(menu({ status: "published" }, false), ["rename", "delete"]);
   assert.deepEqual(menu({ status: "stopped" }, false), ["rename", "delete"]);
   assert.deepEqual(menu({ status: "stopped", publishedAt: PUBLISHED_AT }, true), ["rename", "delete"]);
@@ -356,6 +358,29 @@ test("⋯ の操作: 名前を変更を先頭に置き、行に出ていない�
     kind: "stop",
     label: "停止",
   });
+});
+
+test("QR: 公開済みで URL があるときだけ行と ⋯ に出す", () => {
+  const live = { status: "published", publishedAt: PUBLISHED_AT } as const;
+  const row = (overrides: Partial<SharedContentResponse>) =>
+    sharedContentActions(item(overrides), { sessionMissing: false }).map((action) => action.kind);
+  const menu = (overrides: Partial<SharedContentResponse>, narrow: boolean) =>
+    sharedContentMenuActions(item(overrides), { sessionMissing: false, narrow }).map((action) => action.kind);
+
+  assert.deepEqual(row(live), ["open", "qr", "update"]);
+  assert.deepEqual(menu(live, true), ["rename", "update", "qr", "stop", "delete"]);
+  // PC の ⋯ には行と重ねない
+  assert.deepEqual(menu(live, false), ["rename", "stop", "delete"]);
+
+  // 公開済みでも URL が無い / 外部に実体が無い（未デプロイ）なら QR を出さない
+  assert.deepEqual(row({ ...live, publicUrl: null }), ["open", "update"]);
+  assert.deepEqual(menu({ ...live, publicUrl: null }, true), ["rename", "update", "stop", "delete"]);
+  assert.deepEqual(row({ ...live, publishedAt: null }), ["update"]);
+
+  for (const status of ["stopped", "failed", "publishing"] as const) {
+    assert.equal(row({ status, publishedAt: PUBLISHED_AT }).includes("qr"), false, status);
+    assert.equal(menu({ status, publishedAt: PUBLISHED_AT }, true).includes("qr"), false, status);
+  }
 });
 
 test("名前の変更: 対象と現在値を入れ、URL と状態が変わらないことを示す", () => {
