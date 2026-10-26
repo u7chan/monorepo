@@ -323,6 +323,8 @@ export interface SandboxSkillFileDetail {
   relativePath: string;
   /** 元ファイルのバイト列の SHA-256 (hex)。保存はこの値の一致を要求する */
   fileVersion: string;
+  /** SKILL.md の mtime (epoch ms)。画面に出す目安で、保存の照合には使わない */
+  mtime: number;
   editable: boolean;
   reason?: string;
 }

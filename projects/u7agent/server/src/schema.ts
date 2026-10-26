@@ -1722,6 +1722,8 @@ export const SandboxSkillFileDetailSchema = z.object({
   relativePath: z.string(),
   /** 元ファイルのバイト列の SHA-256。保存はこの値の一致を要求する */
   fileVersion: z.string(),
+  /** SKILL.md の mtime (epoch ms)。画面に出す目安で、保存の照合には使わない */
+  mtime: z.number(),
   /** false のときは保存できない (reason に理由が入る) */
   editable: z.boolean(),
   reason: z.string().optional(),

@@ -9,6 +9,7 @@ import {
   FILE_SKILL_PANEL_HEADING,
   fileSkillDir,
 } from "../../lib/fileSkills";
+import { fileTimeLabel, messageFullTimeLabel } from "../../lib/messageTime";
 import type { FileSkillInfo, SandboxSkillFileDetail } from "../../types";
 import { FileBrowser } from "../FileBrowser";
 import { SkillDetailPanel, type SkillBodyState } from "./SkillDetailPanel";
@@ -26,7 +27,7 @@ function errorText(error: unknown): string {
 
 /**
  * ファイルスキル (共通 / プロジェクト / 組み込み) の本文ビュー。編集フォームの代わりに、
- * 何が使われるか (名前 / 説明 / 置き場 / スコープ / 版) と本文を出す。
+ * 何が使われるか (名前 / 説明 / 置き場 / 最終更新) と本文を出す。
  * 共通スキルは編集内容 (`detail`) を渡すと、その本文と保存可否をそのまま表示する (編集中の内容と一致させる)。
  * 組み込みは一覧の `body` をそのまま使い、それ以外はファイルプレビューから取り直す
  * (docs/api-catalog.md。反映タイミングは本文の取得時点)。ファイルスキルは本文の隣の補助ファイル
@@ -132,8 +133,16 @@ export function FileSkillPanel({
         { label: "名前", value: detail?.name ?? skill.name, tone: "strong" },
         { label: "説明", value: (detail?.description ?? skill.description) || "説明なし" },
         { label: "置き場", value: detail?.relativePath ?? skill.relativePath, mono: true },
-        ...((detail?.fileVersion ?? skill.version)
-          ? [{ label: "版", value: detail?.fileVersion ?? skill.version ?? "" }]
+        // 最終更新は SKILL.md の mtime で、保存の競合検出に使う版 (fileVersion) は出さない。
+        // 組み込みは実体が無く、他のスコープは詳細を取得しないため、行ごと出さない
+        ...(detail
+          ? [
+              {
+                label: "最終更新",
+                value: fileTimeLabel(detail.mtime),
+                title: `SKILL.md の更新時刻（目安）: ${messageFullTimeLabel(detail.mtime)}`,
+              },
+            ]
           : []),
       ]}
       note={note}
