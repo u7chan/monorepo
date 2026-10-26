@@ -18,6 +18,7 @@ import {
   customProviderProbeBody,
   customProviderProbeDisplay,
   customProviderProbeEnabled,
+  customProviderProbeOutcome,
   customProviderUpdateBody,
   deleteCustomProviderConfirm,
   emptyCustomProviderDraft,
@@ -325,6 +326,37 @@ test("結果行は成功の件数と失敗のサーバー文言・HTTP status �
     customProviderProbeDisplay({ ...PROBE_OK, failure: "timeout", httpStatus: null, models: [], message: null }).detail,
     null,
   );
+});
+
+test("取得中に入力が変わったら、遅れて届いた一覧を picker に返さない", () => {
+  const current = customProviderProbeOutcome({
+    startedAt: 1,
+    currentRevision: 1,
+    result: PROBE_OK,
+    error: null,
+  });
+  assert.deepEqual(current.ids, ["llama3:8b", "qwen2.5-coder:7b"]);
+  assert.equal(current.state.revision, 1);
+
+  const stale = customProviderProbeOutcome({
+    startedAt: 1,
+    currentRevision: 2,
+    result: PROBE_OK,
+    error: null,
+  });
+  assert.deepEqual(stale.ids, [], "変更後の入力へ古い endpoint の一覧を返さない");
+  assert.equal(stale.state.result, PROBE_OK, "状態は revision 付きで残し、表示側で失効させる");
+
+  const failed = customProviderProbeOutcome({
+    startedAt: 1,
+    currentRevision: 1,
+    result: { ...PROBE_OK, failure: "unauthorized", httpStatus: 401, models: [], message: "no" },
+    error: null,
+  });
+  assert.deepEqual(failed.ids, []);
+  const error = customProviderProbeOutcome({ startedAt: 1, currentRevision: 1, result: null, error: "400" });
+  assert.deepEqual(error.ids, []);
+  assert.equal(error.state.error, "400");
 });
 
 test("baseUrl / APIキーを編集したら前の probe 結果は捨てる", () => {

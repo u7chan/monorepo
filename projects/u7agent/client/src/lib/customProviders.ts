@@ -319,15 +319,42 @@ export function customProviderProbeDisplay(result: CustomProviderProbeResponse):
   };
 }
 
+/** probe の一時状態。baseUrl / APIキーの編集で revision が進み、その前の結果は使わない */
+export interface CustomProviderProbeState {
+  revision: number;
+  result: CustomProviderProbeResponse | null;
+  error: string | null;
+}
+
 /**
  * baseUrl / APIキーを編集したら、その前に取った probe の結果は捨てる。
  * キーを文字列で複製せず、編集のたびに進む revision だけで判定する。
  */
-export function currentCustomProviderProbe<T extends { revision: number }>(
-  state: T | null,
+export function currentCustomProviderProbe(
+  state: CustomProviderProbeState | null,
   revision: number,
-): T | null {
+): CustomProviderProbeState | null {
   return state !== null && state.revision === revision ? state : null;
+}
+
+/**
+ * 遅れて届いた probe の結果を今の入力へ適用してよいか決める。revision が進んでいたら、状態は
+ * 残しても表示には使わず、picker へも ID を返さない (古い endpoint の一覧を開かせない)。
+ */
+export function customProviderProbeOutcome(input: {
+  startedAt: number;
+  currentRevision: number;
+  result: CustomProviderProbeResponse | null;
+  error: string | null;
+}): { state: CustomProviderProbeState; ids: string[] } {
+  const stale = input.currentRevision !== input.startedAt;
+  return {
+    state: { revision: input.startedAt, result: input.result, error: input.error },
+    ids:
+      stale || input.result === null || input.result.failure !== null
+        ? []
+        : input.result.models.map((model) => model.id),
+  };
 }
 
 /** 削除の確認。既存の会話への影響と、モデル選択が外れることを先に伝える */

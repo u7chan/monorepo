@@ -86,6 +86,35 @@ test("HTTP の失敗は status 付きの分類にし、分類ごとの固定文�
   }
 });
 
+test("HTTP エラーでも応答本文を破棄し、接続を開いたままにしない", async () => {
+  let closed = false;
+  const server = createServer((_request, response) => {
+    response.writeHead(401, { "content-type": "application/json" });
+    // 本文を読み切らないと接続が残るよう、end せずにチャンクだけ送る
+    response.write('{"error":"no"}');
+    response.on("close", () => {
+      closed = true;
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const result = await probeCustomProviderModels(
+      { baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: KEY },
+      { timeoutMs: 500 },
+    );
+    assert.equal(result.failure, "unauthorized");
+    for (let index = 0; index < 40 && !closed; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(closed, true, "エラー応答の本文を破棄して接続を閉じる");
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("3xx は実 fetch でも追わず、転送先へ要求を出さない", async () => {
   const hits: string[] = [];
   const server = createServer((request, response) => {

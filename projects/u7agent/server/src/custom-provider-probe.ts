@@ -63,17 +63,28 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
   const decoder = new TextDecoder();
   let text = "";
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > maxBytes) {
-      await reader.cancel().catch(() => {});
-      return undefined;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return undefined;
+      }
+      text += decoder.decode(value, { stream: true });
     }
-    text += decoder.decode(value, { stream: true });
+    return text + decoder.decode();
+  } catch (error) {
+    // abort 以外の読み取り失敗でも、ストリームを残して接続を開いたままにしない
+    await reader.cancel().catch(() => {});
+    throw error;
   }
-  return text + decoder.decode();
+}
+
+/** 本文を使わない経路の応答を破棄する。cancel しないと接続がプールに残り、期限後も開いたままになる */
+async function discardBody(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => {});
 }
 
 /**
@@ -129,14 +140,21 @@ export async function probeCustomProviderModels(
       return classified(baseUrl, checkedAt, timedOut ? "timeout" : "unreachable");
     }
     if (response.status >= 300 && response.status < 400) {
-      await response.body?.cancel().catch(() => {});
+      await discardBody(response);
       return classified(baseUrl, checkedAt, "redirected");
     }
     if (response.status === 401 || response.status === 403) {
+      await discardBody(response);
       return classified(baseUrl, checkedAt, "unauthorized", response.status);
     }
-    if (response.status === 404) return classified(baseUrl, checkedAt, "not_found", 404);
-    if (!response.ok) return classified(baseUrl, checkedAt, "http_error", response.status);
+    if (response.status === 404) {
+      await discardBody(response);
+      return classified(baseUrl, checkedAt, "not_found", 404);
+    }
+    if (!response.ok) {
+      await discardBody(response);
+      return classified(baseUrl, checkedAt, "http_error", response.status);
+    }
     let text: string | undefined;
     try {
       text = await readBoundedText(response, CUSTOM_PROVIDER_PROBE_BODY_MAX_BYTES);

@@ -12,6 +12,7 @@ import {
   customProviderProbeBody,
   customProviderProbeDisplay,
   customProviderProbeEnabled,
+  customProviderProbeOutcome,
   customProviderUpdateBody,
   deleteCustomProviderConfirm,
   emptyCustomProviderDraft,
@@ -19,6 +20,7 @@ import {
   validateCustomProviderDraft,
   type CustomProviderFormDraft,
   type CustomProviderFormErrors,
+  type CustomProviderProbeState,
 } from "../../lib/customProviders";
 import { messageFor } from "../../lib/settingsResource";
 import type {
@@ -32,13 +34,6 @@ import { useConfirm } from "../ConfirmProvider";
 import { CheckIcon, TrashIcon } from "../icons";
 import { SelectField } from "../SelectField";
 import { ModelIdPicker } from "./ModelIdPicker";
-
-/** probe の一時状態。baseUrl / APIキーの編集で revision が進み、その前の結果は使わない */
-type ProbeState = {
-  revision: number;
-  result: CustomProviderProbeResponse | null;
-  error: string | null;
-};
 
 export type CustomProviderFormProps = {
   /** null = 追加。定義があれば編集（provider id は読み取り専用） */
@@ -87,12 +82,17 @@ export function CustomProviderForm({
   );
   const [errors, setErrors] = useState<CustomProviderFormErrors>({});
   const [revision, setRevision] = useState(0);
-  const [probe, setProbe] = useState<ProbeState | null>(null);
+  // 遅れて届いた応答を、レンダー前でも現在の入力と比べられるように ref でも持つ
+  const revisionRef = useRef(0);
+  const [probe, setProbe] = useState<CustomProviderProbeState | null>(null);
   const [probing, setProbing] = useState(false);
   const update = (patch: Partial<CustomProviderFormDraft>) => {
     setDraft((current) => ({ ...current, ...patch }));
     // 接続先かキーが変わったら、その前に取った一覧は今の入力の結果ではない
-    if ("baseUrl" in patch || "apiKey" in patch) setRevision((current) => current + 1);
+    if ("baseUrl" in patch || "apiKey" in patch) {
+      revisionRef.current += 1;
+      setRevision(revisionRef.current);
+    }
   };
 
   const currentProbe = currentCustomProviderProbe(probe, revision);
@@ -109,19 +109,31 @@ export function CustomProviderForm({
    * 遅れて届いた結果は revision で捨て、編集後の入力の結果として見せない。
    */
   const probeModels = async (): Promise<readonly string[]> => {
-    const fresh = currentCustomProviderProbe(probe, revision);
+    const fresh = currentCustomProviderProbe(probe, revisionRef.current);
     if (fresh !== null && fresh.result !== null && fresh.result.failure === null) {
       return fresh.result.models.map((model) => model.id);
     }
-    const startedAt = revision;
+    const startedAt = revisionRef.current;
     setProbing(true);
     try {
       const result = await onProbe(customProviderProbeBody(draft, editing));
-      setProbe({ revision: startedAt, result, error: null });
-      return result.failure === null ? result.models.map((model) => model.id) : [];
+      const outcome = customProviderProbeOutcome({
+        startedAt,
+        currentRevision: revisionRef.current,
+        result,
+        error: null,
+      });
+      setProbe(outcome.state);
+      return outcome.ids;
     } catch (error) {
-      setProbe({ revision: startedAt, result: null, error: messageFor(error) });
-      return [];
+      const outcome = customProviderProbeOutcome({
+        startedAt,
+        currentRevision: revisionRef.current,
+        result: null,
+        error: messageFor(error),
+      });
+      setProbe(outcome.state);
+      return outcome.ids;
     } finally {
       setProbing(false);
     }
