@@ -457,6 +457,13 @@ test("serve ツールは会話へ束縛した BFF ローカルの customTool と
       builtinSkillNames: ["skill-creator"],
     });
     assert.doesNotMatch(otherBuiltin.description, /bundled `serve` skill/);
+    const [manualOnly] = createServeToolDefinitions({
+      enabled: true,
+      sessionId: first,
+      host,
+      allowNaturalInvocation: false,
+    });
+    assert.doesNotMatch(manualOnly.description, /bundled `serve` skill/);
 
     // 未設定・会話 id 無しでは公開しない
     assert.deepEqual(createServeToolDefinitions({ enabled: false, sessionId: first, host }), []);

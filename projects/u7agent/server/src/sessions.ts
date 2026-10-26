@@ -29,7 +29,7 @@ import { composePromptSnapshot } from "./agent";
 import { buildHandoffSection, HANDOFF_FILE_NAME, type HandoffMemoSection } from "./handoff-memo";
 import type { CwdKeyStore } from "./app-db";
 import { sandboxFailureStatus } from "./http";
-import type { AgentCatalog } from "./agents";
+import { allowsNaturalInvocation, type AgentCatalog } from "./agents";
 import { createInvestigateRunner, type InvestigateRunner } from "./investigate-runner";
 import type { InvestigateHost } from "./investigate-tool";
 import { validateAskUserAnswers, type AskUserHost } from "./ask-user-tool";
@@ -298,6 +298,7 @@ export function resolveAgentSkills(
       // 未指定のときはキーを省略する (`[]` = すべて OFF は落とさない)
       ...(agent.commonSkillNames === undefined ? {} : { commonSkillNames: [...agent.commonSkillNames] }),
       ...(agent.builtinSkillNames === undefined ? {} : { builtinSkillNames: [...agent.builtinSkillNames] }),
+      ...(agent.allowNaturalInvocation === false ? { allowNaturalInvocation: false } : {}),
       ...(agent.toolNames === undefined ? {} : { toolNames: [...agent.toolNames] }),
     },
     promptSnapshot: composePromptSnapshot(agent),
@@ -493,6 +494,8 @@ export class SessionStore {
       ...(agentInfo.commonSkillNames === undefined ? {} : { commonSkillNames: agentInfo.commonSkillNames }),
       // 組み込みスキルの許可リストも同じく注入経路・read の横取り・system prompt の案内へ渡す
       ...(agentInfo.builtinSkillNames === undefined ? {} : { builtinSkillNames: agentInfo.builtinSkillNames }),
+      // 自然文での発火を許さないエージェントは、解決した全スキルの索引を落とす (ビルトインは常に false)
+      allowNaturalInvocation: allowsNaturalInvocation(agentInfo),
       // ツールの許可リストも作成時に確定して meta へ保存する (復元はこれをスナップショットとして使う)
       ...(agentInfo.toolNames === undefined ? {} : { toolNames: agentInfo.toolNames }),
       model: model ?? agent.model,
@@ -724,6 +727,8 @@ export class SessionStore {
       ...(current.agent.commonSkillNames === undefined ? {} : { commonSkillNames: current.agent.commonSkillNames }),
       // 組み込みスキルの許可リストも同じく meta のスナップショットから渡す
       ...(current.agent.builtinSkillNames === undefined ? {} : { builtinSkillNames: current.agent.builtinSkillNames }),
+      // 自然文での発火もスナップショットから決める (旧 meta に値が無いビルトインは id で false に倒す)
+      allowNaturalInvocation: allowsNaturalInvocation(current.agent),
       // ツールの許可リストも定義を引き直さず、セッションのスナップショットから渡す
       ...(current.agent.toolNames === undefined ? {} : { toolNames: current.agent.toolNames }),
       model: restored.model,

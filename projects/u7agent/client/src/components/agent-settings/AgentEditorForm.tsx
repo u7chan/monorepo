@@ -37,6 +37,11 @@ export type AgentForm = {
    */
   builtinSkillNames?: string[] | null;
   /**
+   * 自然文での発火を許すか。true = 現行どおり (既定)、false = 使用中のスキルを `/skill:` と
+   * スキルボタンからのみ起動する。ビルトインは常に false (このフォームは出ない)。
+   */
+  allowNaturalInvocation: boolean;
+  /**
    * ツールの許可リスト。意味は `commonSkillNames` と同じ (undefined = 未指定で全部 ON、null = 解除、
    * 配列 = 明示リストで [] はすべて OFF)。実効はアプリ側の可否との積 (docs/api-catalog.md)。
    */
@@ -58,6 +63,7 @@ export function agentFormOf(agent: AgentDef | undefined): AgentForm {
     // [] は「すべて OFF」なので、undefined (未指定 = 全可視) へ潰さない
     commonSkillNames: agent?.commonSkillNames === undefined ? undefined : [...agent.commonSkillNames],
     builtinSkillNames: agent?.builtinSkillNames === undefined ? undefined : [...agent.builtinSkillNames],
+    allowNaturalInvocation: agent?.allowNaturalInvocation !== false,
     toolNames: agent?.toolNames === undefined ? undefined : [...agent.toolNames],
     icon: agent?.icon ?? null,
     model: agent?.model ? { ...agent.model } : null,
@@ -86,6 +92,7 @@ export function agentPayloadOf(form: AgentForm): CreateAgentBody {
     systemPrompt: form.systemPrompt,
     commonSkillNames: form.commonSkillNames,
     builtinSkillNames: form.builtinSkillNames,
+    allowNaturalInvocation: form.allowNaturalInvocation,
     toolNames: form.toolNames,
     // null はサーバー側で「指定解除」に正規化される。suggestions は空配列で解除
     icon: form.icon,
@@ -434,6 +441,10 @@ export function AgentEditorForm({
                   onToggleBuiltinSkill={toggleBuiltinSkill}
                   onShowAllBuiltinSkills={() => setForm(withAllBuiltinSkillsEnabled)}
                   onDisableAllBuiltinSkills={() => setForm(withAllBuiltinSkillsDisabled)}
+                  allowNaturalInvocation={form.allowNaturalInvocation}
+                  onToggleNaturalInvocation={(allowNaturalInvocation) =>
+                    setForm((prev) => ({ ...prev, allowNaturalInvocation }))
+                  }
                 />
                 <div className="min-w-0 @3xl:col-span-2">
                   <SuggestionsEditor

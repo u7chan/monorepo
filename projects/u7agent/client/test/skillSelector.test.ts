@@ -13,6 +13,12 @@ import {
   SkillSelector,
 } from "../src/components/agent-settings/SkillSelector";
 import { DefinitionList } from "../src/components/DefinitionList";
+import {
+  MANUAL_ONLY_LABEL,
+  NATURAL_INVOCATION_LABEL,
+  NATURAL_INVOCATION_OFF_NOTE,
+  NATURAL_INVOCATION_ON_NOTE,
+} from "../src/components/agent-settings/InvocationModeRow";
 import type { FileSkillsState } from "../src/hooks/useFileSkills";
 import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 import {
@@ -43,11 +49,13 @@ function renderSelector({
   fileSkills = { status: "ready", skills: [commonSkill("alpha"), commonSkill("beta")] },
   commonSkillNames,
   builtinSkillNames,
+  allowNaturalInvocation = true,
 }: {
   builtinSkills?: BuiltinSkillInfo[];
   fileSkills?: FileSkillsState;
   commonSkillNames?: string[] | null;
   builtinSkillNames?: string[] | null;
+  allowNaturalInvocation?: boolean;
 } = {}): string {
   return renderToStaticMarkup(
     createElement(SkillSelector, {
@@ -61,6 +69,8 @@ function renderSelector({
       onToggleBuiltinSkill: () => {},
       onShowAllBuiltinSkills: () => {},
       onDisableAllBuiltinSkills: () => {},
+      allowNaturalInvocation,
+      onToggleNaturalInvocation: () => {},
     }),
   );
 }
@@ -98,6 +108,22 @@ test("共通スキルは未指定なら全チェックで出て、明示リス�
   const explicit = renderSelector({ builtinSkills: [], commonSkillNames: ["alpha"] });
   assert.deepEqual(checkboxes(explicit), [true, false]);
   assert.ok(explicit.includes("使用 1 / 全 2"));
+});
+
+test("自然文での発火は使用チェックとは別のスイッチで、OFF なら手動のみと出る", () => {
+  const on = renderSelector({ builtinSkills: [] });
+  assert.ok(on.includes(NATURAL_INVOCATION_LABEL));
+  assert.ok(on.includes(NATURAL_INVOCATION_ON_NOTE));
+  assert.equal(on.includes(MANUAL_ONLY_LABEL), false);
+  assert.ok(on.includes('aria-checked="true"'), "既定は自然文でも発火する");
+  assert.deepEqual(checkboxes(on), [true, true], "使用チェックは変わらない");
+
+  const off = renderSelector({ builtinSkills: [], allowNaturalInvocation: false });
+  assert.ok(off.includes(MANUAL_ONLY_LABEL));
+  assert.ok(off.includes(NATURAL_INVOCATION_OFF_NOTE));
+  assert.ok(off.includes('aria-checked="false"'));
+  assert.equal(off.includes(NATURAL_INVOCATION_ON_NOTE), false);
+  assert.deepEqual(checkboxes(off), [true, true], "OFF にしても使用中の一覧は残る");
 });
 
 test("空の明示リストはすべて OFF で出る", () => {

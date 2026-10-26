@@ -20,8 +20,11 @@ export const SERVE_TOOL_DESCRIPTION =
  * モデルへ渡す説明。ビルトイン skill を外したセッションでは、存在しない skill を指さない
  * (system prompt の serveSkillClause と同じ判定に揃える)。
  */
-function serveToolDescription(builtinSkillNames: readonly string[] | undefined): string {
-  return builtinSkillEnabled("serve", builtinSkillNames)
+function serveToolDescription(
+  builtinSkillNames: readonly string[] | undefined,
+  allowNaturalInvocation: boolean | undefined,
+): string {
+  return builtinSkillEnabled("serve", builtinSkillNames) && allowNaturalInvocation !== false
     ? `${SERVE_TOOL_DESCRIPTION} Follow the bundled \`serve\` skill for the command and verification loop.`
     : SERVE_TOOL_DESCRIPTION;
 }
@@ -175,13 +178,15 @@ export function createServeToolDefinitions(options: {
   host: ServeToolHost;
   /** エージェント定義の組み込みスキル許可リスト。undefined = 全部 ON（既定） */
   builtinSkillNames?: readonly string[] | undefined;
+  /** false なら自然文では発火しないので、skill への案内を落とす (既定 true) */
+  allowNaturalInvocation?: boolean | undefined;
 }): ToolDefinition[] {
   const sessionId = options.sessionId;
   if (!options.enabled || !sessionId) return [];
   const definition: ToolDefinition<typeof serveSchema> = {
     name: SERVE_TOOL_NAME,
     label: SERVE_TOOL_NAME,
-    description: serveToolDescription(options.builtinSkillNames),
+    description: serveToolDescription(options.builtinSkillNames, options.allowNaturalInvocation),
     promptSnippet: "Start, stop, or check the app served to the user's browser",
     promptGuidelines: [...SERVE_TOOL_GUIDELINES],
     parameters: serveSchema,

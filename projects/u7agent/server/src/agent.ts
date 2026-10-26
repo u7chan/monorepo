@@ -110,13 +110,15 @@ export function appendSystemPrompt(
     bgmGeneration?: boolean;
     /** エージェント定義の組み込みスキル許可リスト。外したスキルへの案内文はここで落とす */
     builtinSkillNames?: readonly string[] | undefined;
+    /** false なら自然文では発火しない (索引に載らない) ので、組み込みスキルへの案内文も落とす */
+    allowNaturalInvocation?: boolean | undefined;
   } = {},
 ): string {
-  // 外した組み込みスキルを system prompt が指したままだと、存在しないスキルを読みに行く (docs/api-catalog.md)
-  const serveSkillClause = builtinSkillEnabled("serve", options.builtinSkillNames)
-    ? " and follow the bundled `serve` skill"
-    : "";
-  const skillCreatorClause = builtinSkillEnabled("skill-creator", options.builtinSkillNames)
+  // 外した / 索引に載らない組み込みスキルを system prompt が指したままだと、存在しないスキルを読みに行く
+  const builtinSkillVisible = (name: string) =>
+    builtinSkillEnabled(name, options.builtinSkillNames) && options.allowNaturalInvocation !== false;
+  const serveSkillClause = builtinSkillVisible("serve") ? " and follow the bundled `serve` skill" : "";
+  const skillCreatorClause = builtinSkillVisible("skill-creator")
     ? ", and follow the bundled `skill-creator` skill for the location, layout, frontmatter and verification"
     : "";
   return `
@@ -206,6 +208,11 @@ export interface CreateSessionInput {
    * `read` の横取り・system prompt の案内で同じ値にする (作成 / 復元ではスナップショットから渡す)。
    */
   builtinSkillNames?: string[];
+  /**
+   * 自然文での発火を許すか。false なら解決した全スキルを索引から外す (既定 true)。
+   * 作成 / 復元ではエージェントのスナップショットから渡す。
+   */
+  allowNaturalInvocation?: boolean;
   /**
    * ツールの許可リスト。undefined = 全部 ON、`[]` = すべて OFF。実効はアプリ側の可否との積で、
    * セッション作成時に確定する (復元は meta のスナップショットで、定義の編集を遡及させない)。
@@ -958,10 +965,12 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     uploadsDirRel,
     commonSkillNames,
     builtinSkillNames,
+    allowNaturalInvocation,
     toolNames,
     mode = "chat",
   }: CreateSessionInput = {}): Promise<{ session: unknown; promptSnapshot: PromptSnapshot }> {
     const investigation = mode === "investigation";
+    const naturalInvocation = allowNaturalInvocation !== false;
     // 不正な cwd はモデル解決より先に 400 にする (実行できない指定を 503 の裏に隠さない)
     const { relative: relativeCwd, absolute: sessionCwd } = resolveWorkspaceCwd(rootCwd, requestedCwd);
     // 明示されたモデルは利用可能一覧と厳密照合する
@@ -1011,6 +1020,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           relativeCwd,
           ...(commonSkillNames === undefined ? {} : { commonSkillNames }),
           ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
+          allowNaturalInvocation: naturalInvocation,
         });
     const resourceLoader = createSessionResourceLoader({
       cwd: sessionCwd,
@@ -1025,6 +1035,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
               speechGeneration: appTool(SPEECH_TOOL_NAME),
               bgmGeneration: appTool(BGM_TOOL_NAME),
               ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
+              allowNaturalInvocation: naturalInvocation,
             }),
         snapshot.agent,
       ].filter(Boolean),
@@ -1120,8 +1131,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 enabled: appTool(SERVE_TOOL_NAME),
                 sessionId: ownerSessionId ?? sessionId,
                 host: serveHost.value as ServeToolHost,
-                // 外した skill を説明が指したままだと、モデルが読めない skill を探す
+                // 外した / 自然文では発火しない skill を説明が指したままだと、モデルが読めない skill を探す
                 ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
+                allowNaturalInvocation: naturalInvocation,
               }),
               ...createAskUserToolDefinitions({
                 enabled: appTool(ASK_USER_TOOL_NAME),

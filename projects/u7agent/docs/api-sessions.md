@@ -156,7 +156,7 @@
 }
 ```
 
-`model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショット（スキル許可リストと `toolNames` を含む）なので、定義を編集・削除しても既存チャットの表示とツールの実効は変わらない。
+`model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショット（スキル許可リスト・`allowNaturalInvocation`・`toolNames` を含む）なので、定義を編集・削除しても既存チャットの表示とツールの実効は変わらない。
 
 `status` は `idle` / `running` / `queued` / `compacting` / `completed` / `stopped` / `error`。`compacting` は手動圧縮の実行中で、SDK の実行中だけでなく**保存待ち**も含む（排他の正は BFF のフラグ。詳細は [compaction.md](compaction.md#手動圧縮)）。`compactionStartedAt` はその開始時刻（epoch ms）で、`status` が `compacting` のときだけ載る（終端の `resync` では載せない）。経過時間の起点はこの値を使い、`run.startedAt` は再利用しない。
 
@@ -398,7 +398,7 @@ References are relative to /workspace/.agents/skills/writer.
 
 - 形式は SDK の `_expandSkillCommand` と同じ（`parseSkillBlock` で読み直せる）。`location` は `read` に渡す値と同じ絶対パス（組み込みは `<root>/.u7agent/builtin-skills/...` の仮想パス）。引数はブロックの後に空行を挟んでそのまま渡す
 - 本文の取得元はスコープ別: ファイル（共通 / プロジェクト）→ サンドボックスの `GET /v1/files/preview`、組み込み → BFF の registry。どちらも**送信時点**の内容を読む
-- 名前は優先順位 `プロジェクト > 共通 > 組み込み` で一意に解決する（[一覧 API](#get-apisessionsidskills) と同じ解決を共有）。共通 / 組み込みスキルはセッションのエージェントスナップショットの `commonSkillNames` / `builtinSkillNames`（[api-catalog.md](api-catalog.md#エージェント定義のスキル許可リスト)）で絞られ、外した名前は未知の名前と同じに素通しする（エラーにしない）。未知の名前、`/skill:` で始まらない本文も素通しする（SDK と同じ挙動）
+- 名前は優先順位 `プロジェクト > 共通 > 組み込み` で一意に解決する（[一覧 API](#get-apisessionsidskills) と同じ解決を共有）。共通 / 組み込みスキルはセッションのエージェントスナップショットの `commonSkillNames` / `builtinSkillNames`（[api-catalog.md](api-catalog.md#エージェント定義のスキル許可リスト)）で絞られ、外した名前は未知の名前と同じに素通しする（エラーにしない）。`allowNaturalInvocation: false` は索引から外すだけで、展開は止めない（[api-catalog.md](api-catalog.md#自然文での発火)）。未知の名前、`/skill:` で始まらない本文も素通しする（SDK と同じ挙動）
 - **本文は送信時点の内容**。ファイルが削除されていれば 404、2 MiB 超 / UTF-8 でない / バイナリは 400、サンドボックスへ到達できなければ 502 を返し、**メッセージは送らない**（切り詰めて黙って送るとモデルが読む本文が変わるため）
 - 実行中（キュー / steering）に送った場合も同じ経路で展開する（`postMessage` が展開してから `SessionStore` へ渡す）
 - 一覧のタイトルは展開前の入力（`/skill:writer 3 行で書いて`）から作る。履歴（`messages[].text`）と `run_start.prompt` には展開後の本文が入り、クライアントは user バブルでブロックを畳んで表示する（引数だけを吹き出しに残す）
@@ -479,6 +479,7 @@ References are relative to /workspace/.agents/skills/writer.
 ```
 
 - `scope` は `project` / `user`（共通）/ `builtin`。並びは優先順位 `project > user > builtin`。`user` はセッションのエージェントスナップショットの `commonSkillNames`、`builtin` は `builtinSkillNames` で絞られ、どちらも未指定なら全件、`[]` なら 0 件になる（[api-catalog.md](api-catalog.md#エージェント定義のスキル許可リスト)）
+- `disableModelInvocation` は実効値で、スキルファイルの `disable-model-invocation` か、エージェントスナップショットの `allowNaturalInvocation: false` のどちらかで true になる（[api-catalog.md](api-catalog.md#自然文での発火)）
 - `cwd` はセッションの作業ディレクトリ（root 相対）。`projectSkills` はプロジェクトスキルを探索するセッションか（未所属のスクラッチと root 直下は `false`）
 - `location` は `read` に渡す値（組み込みは実体の無い仮想パス `.u7agent/builtin-skills/<name>/SKILL.md`）。`relativePath` は root の外のみ `null`
 - 同名は優先順位で一意化する。負けた行（上書きされた組み込み）は `shadowed: true` と `shadowedBy`（優先される側の `location`）で示し、採用された行は `shadows`（隠している側の `location`）を持つ。`shadows` に入るのは**ファイルスキル同士の重複**。許可リストは一意化の**前**に当てるため、外した共通 / 組み込みスキルと同名の下位側（プロジェクト / 共通）は浮上して有効になる（影の組み合わせ自体が消える）。**ファイルの改名・削除・マージはしない**

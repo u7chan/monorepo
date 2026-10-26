@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { appendSystemPrompt, composePromptSnapshot, investigationSystemPrompt, investigationTools } from "../src/agent";
-import { createAgentCatalog } from "../src/agents";
+import { allowsNaturalInvocation, createAgentCatalog } from "../src/agents";
 import { SKILL_NAME_MAX, SKILL_NAMES_MAX, TOOL_NAME_MAX, TOOL_NAMES_MAX } from "../src/schema";
 
 const DEFAULT_SUGGESTIONS = [
@@ -24,6 +24,7 @@ test("ships the generic agent as the built-in and the zundamon sample as a user 
   assert.equal(agent.name, "汎用アシスタント");
   // 既定のエージェント自身は役割もスキル割り当てを持たない (口調のサンプルはユーザー定義側に置く)
   assert.equal(agent.systemPrompt, "");
+  assert.equal(agent.allowNaturalInvocation, false, "既定のエージェントは自然文で発火しない");
   assert.equal(Object.hasOwn(agent, "skillIds"), false);
 
   const samples = catalog.listAgents();
@@ -536,6 +537,39 @@ test("rejects malformed common skill lists with 400", () => {
   assert.deepEqual(catalog.getAgent(agent.id)?.commonSkillNames, ["writer"]);
 });
 
+test("自然文での発火は既定で ON、false だけを保存し、ビルトインは常に OFF", () => {
+  const catalog = createAgentCatalog();
+  assert.equal(catalog.builtinAgent().allowNaturalInvocation, false);
+  assert.equal(allowsNaturalInvocation(catalog.builtinAgent()), false);
+
+  const user = catalog.createAgent({ name: "ユーザー" });
+  assert.equal(Object.hasOwn(user, "allowNaturalInvocation"), false, "既定はキーを省略する");
+  assert.equal(allowsNaturalInvocation(user), true);
+
+  const manual = catalog.createAgent({ name: "手動", allowNaturalInvocation: false });
+  assert.equal(manual.allowNaturalInvocation, false);
+  assert.equal(allowsNaturalInvocation(manual), false);
+
+  // true / null は既定 (ON) に戻る。true は保存しない
+  assert.equal(
+    Object.hasOwn(catalog.updateAgent(manual.id, { allowNaturalInvocation: true }) ?? {}, "allowNaturalInvocation"),
+    false,
+  );
+  assert.equal(allowsNaturalInvocation(catalog.getAgent(manual.id) ?? manual), true);
+  assert.equal(
+    Object.hasOwn(catalog.updateAgent(manual.id, { allowNaturalInvocation: null }) ?? {}, "allowNaturalInvocation"),
+    false,
+  );
+
+  // 不正な値は 400 (既存値は保持)
+  const stillManual = catalog.createAgent({ name: "手動のまま", allowNaturalInvocation: false });
+  assert.throws(
+    () => catalog.updateAgent(stillManual.id, { allowNaturalInvocation: "on" }),
+    (error: Error & { statusCode?: number }) => error.statusCode === 400,
+  );
+  assert.equal(catalog.getAgent(stillManual.id)?.allowNaturalInvocation, false);
+});
+
 test("normalizes the builtin skill allowlist independently from the common one", () => {
   const catalog = createAgentCatalog();
 
@@ -710,6 +744,12 @@ test("appendSystemPrompt は外した組み込みスキルの案内を出さな�
   const skillCreatorOnly = appendSystemPrompt("/workspace", { builtinSkillNames: ["skill-creator"] });
   assert.doesNotMatch(skillCreatorOnly, /bundled `serve` skill/);
   assert.match(skillCreatorOnly, /follow the bundled `skill-creator` skill/);
+
+  // 自然文で発火しない = 索引に載らないので、スキルへの案内も出さない
+  const manualOnly = appendSystemPrompt("/workspace", { allowNaturalInvocation: false });
+  assert.doesNotMatch(manualOnly, /bundled `serve` skill/);
+  assert.doesNotMatch(manualOnly, /bundled `skill-creator` skill/);
+  assert.match(manualOnly, /drive it with the `serve` tool/);
 });
 
 test("appendSystemPrompt は環境変数の契約文を持たない (正は同梱の serve スキル)", () => {

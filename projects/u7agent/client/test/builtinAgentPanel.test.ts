@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import {
+  BUILTIN_PANEL_INVOCATION_FIXED_NOTE,
   BUILTIN_PANEL_SKILLS_NOTE,
   BUILTIN_PANEL_SKILLS_READONLY_LABEL,
   BUILTIN_PANEL_TOOLS_READONLY_LABEL,
@@ -16,6 +17,7 @@ import {
   FILE_SKILL_LOADING_NOTE,
 } from "../src/lib/fileSkills";
 import { TOOL_CATALOG_UNAVAILABLE_NOTE } from "../src/lib/tools";
+import { MANUAL_ONLY_LABEL, NATURAL_INVOCATION_LABEL } from "../src/components/agent-settings/InvocationModeRow";
 import type { AgentDef, BuiltinSkillInfo, FileSkillInfo, ToolCatalogEntry } from "../src/types";
 
 const AGENT: AgentDef = {
@@ -23,6 +25,7 @@ const AGENT: AgentDef = {
   name: "汎用アシスタント",
   description: "役割や口調を設定していない既定のエージェント",
   systemPrompt: "",
+  allowNaturalInvocation: false,
 };
 
 function commonSkill(name: string, overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {
@@ -81,6 +84,14 @@ test("ビルトインは共通スキルと組み込みを、操作できない�
   assert.equal(html.includes("<input"), false);
   assert.equal(html.includes("すべて外す"), false);
   assert.ok(html.includes(BUILTIN_PANEL_SKILLS_READONLY_LABEL));
+
+  // 自然文では発火しない。OFF のスイッチは読み取り専用で、手動のみのチップを出す
+  const switchTag = html.match(/<button[^>]*role="switch"[^>]*>/)?.[0] ?? "";
+  assert.ok(switchTag.includes('aria-checked="false"'));
+  assert.ok(switchTag.includes('disabled=""'));
+  assert.ok(html.includes(NATURAL_INVOCATION_LABEL));
+  assert.ok(html.includes(MANUAL_ONLY_LABEL));
+  assert.ok(html.includes(BUILTIN_PANEL_INVOCATION_FIXED_NOTE));
 
   // 共通スキルは全部使用中で、件数と行が出る
   assert.ok(hasCommonGroup(html));

@@ -9,6 +9,7 @@ import { httpError, sandboxFailure, sandboxNotConfigured } from "../http";
 import { HISTORY_PAGE_LIMIT_MAX, type HistoryPageResult } from "../history-projection";
 import { isValidEntryName } from "../sandbox/protocol";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
+import { allowsNaturalInvocation } from "../agents";
 import { expandSkillCommand, hasProjectSkills, listSessionSkills, type SessionSkillsInput } from "../session-skills";
 import { titleSkillCommandRecognized } from "../session-title";
 import { resolveAgentSkills } from "../sessions";
@@ -74,6 +75,8 @@ export function createSessionRoutes({
     // 作成時に固定したエージェントのスナップショットから渡す (定義編集を遡及させない)
     commonSkillNames: record.agent.commonSkillNames,
     builtinSkillNames: record.agent.builtinSkillNames,
+    // ビルトインは旧スナップショットに値が無くても常に手動専用にする
+    allowNaturalInvocation: allowsNaturalInvocation(record.agent),
   });
 
   const stop = async (c: Context) => {
@@ -251,6 +254,7 @@ export function createSessionRoutes({
           // セッション作成と同じ選択を反映する (新規チャットのピッカーと作成後の一覧を一致させる)
           commonSkillNames: agentInfo.commonSkillNames,
           builtinSkillNames: agentInfo.builtinSkillNames,
+          allowNaturalInvocation: allowsNaturalInvocation(agentInfo),
           strict: true,
         });
         return c.json({ cwd: relativeCwd, projectSkills: hasProjectSkills(relativeCwd), skills });

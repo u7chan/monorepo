@@ -374,6 +374,40 @@ test("composeFileSkills は上書きが無ければ組み込みを SDK の Skill
   );
 });
 
+test("allowNaturalInvocation=false は全スコープのスキルを索引から外す", () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-manual-skills-"));
+  const projectPath = join(root, "proj/.agents/skills/project-only/SKILL.md");
+  const commonPath = join(root, ".agents/skills/user-only/SKILL.md");
+  const sources: FileSkillSource[] = [
+    { scope: "project", entries: [skillEntry(projectPath, { name: "project-only" })] },
+    { scope: "user", entries: [skillEntry(commonPath, { name: "user-only" })] },
+    { scope: "builtin", entries: builtinSkillEntries(root) },
+  ];
+
+  // 既定はファイル側の指定だけに従う
+  const on = composeFileSkills(sources, root);
+  assert.deepEqual(fileSkillNamesForPrompt(on), [
+    "project-only",
+    "user-only",
+    ...BUILTIN_SKILLS.map((skill) => skill.name),
+  ]);
+
+  // false ならプロジェクト / 共通 / 組み込みのすべてが索引から外れる
+  const off = composeFileSkills(sources, root, { allowNaturalInvocation: false });
+  assert.deepEqual(fileSkillNamesForPrompt(off), []);
+  assert.ok(off.skills.every((skill) => skill.disableModelInvocation));
+  assert.ok(off.response.skills.every((row) => row.disableModelInvocation));
+
+  // ファイル側の disable-model-invocation とは OR で、false でも true のまま
+  const locked = composeFileSkills(
+    [{ scope: "user", entries: [skillEntry(commonPath, { name: "user-only", disableModelInvocation: true })] }],
+    root,
+    { allowNaturalInvocation: false },
+  );
+  assert.equal(locked.skills[0].disableModelInvocation, true);
+  assert.equal(locked.response.skills[0].disableModelInvocation, true);
+});
+
 /** SDK の system prompt 一覧に入る名前 (disable-model-invocation は入らない) */
 function fileSkillNamesForPrompt(composed: ReturnType<typeof composeFileSkills>): string[] {
   const skills = composed.skills.filter((skill) => !skill.disableModelInvocation);
