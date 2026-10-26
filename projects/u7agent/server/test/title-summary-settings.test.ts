@@ -11,8 +11,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
+import type { TitleSummarySettingsRow } from "../src/app-db";
 import { TITLE_DEFINITION_DEFAULT, TITLE_DEFINITION_MAX } from "../src/session-title";
-import { asPiBff, createStubPi, STUB_MODEL, STUB_PLAIN_MODEL } from "./stub-pi";
+import { TitleSummarySettingsService } from "../src/title-summary-settings";
+import { asPiBff, createStubPi, modelOptionOf, STUB_MODEL, STUB_PLAIN_MODEL } from "./stub-pi";
 
 const jsonPut = (payload: unknown): RequestInit => ({
   method: "PUT",
@@ -216,6 +218,58 @@ test("Effort はモデルが対応する段階だけ保存でき、未指定な�
       await bff.close();
     }
   });
+});
+
+test("モデル消失・能力変更後の Off 保存は、保存済み Effort を保持して取消通知を出す", async () => {
+  let row: TitleSummarySettingsRow | undefined;
+  let models = [modelOptionOf(STUB_MODEL)];
+  const service = new TitleSummarySettingsService({
+    db: {
+      readTitleSummarySettings: () => row,
+      saveTitleSummarySettings: (next) => {
+        row = next;
+      },
+    },
+    models: () => models,
+  });
+  await service.applyStored();
+  let changes = 0;
+  service.onChange(() => {
+    changes += 1;
+  });
+
+  const label = `${STUB_MODEL.provider}/${STUB_MODEL.id}`;
+  const saved = await service.put({ enabled: true, model: label, thinkingLevel: "high" });
+  assert.equal(saved.status, 200);
+  assert.equal(changes, 1);
+
+  // モデルが候補から消えても、model / Effort を変えない Off 保存は通る
+  models = [];
+  const off = await service.put({ enabled: false });
+  assert.equal(off.status, 200);
+  if (off.status !== 200) return;
+  assert.equal(off.response.thinkingLevel, "high");
+  assert.equal(off.response.effectiveThinkingLevel, null);
+  assert.equal(off.response.modelAvailable, false);
+  assert.equal(row?.thinkingLevel, "high");
+  assert.equal(changes, 2);
+
+  // 同じモデルが残っていても、能力から保存値が消えたら実効値だけ最小段階へ落とす
+  models = [{ ...modelOptionOf(STUB_MODEL), thinkingLevels: ["off"] }];
+  const changed = await service.put({ enabled: false });
+  assert.equal(changed.status, 200);
+  if (changed.status !== 200) return;
+  assert.equal(changed.response.thinkingLevel, "high");
+  assert.equal(changed.response.effectiveThinkingLevel, "off");
+  assert.equal(changed.response.modelAvailable, true);
+  assert.equal(row?.thinkingLevel, "high");
+  assert.equal(changes, 3);
+
+  // 明示された未対応 Effort は従来どおり拒否し、保存も通知もしない
+  const invalid = await service.put({ enabled: false, thinkingLevel: "high" });
+  assert.equal(invalid.status, 400);
+  assert.match(invalid.status === 400 ? invalid.error : "", /Effort/);
+  assert.equal(changes, 3);
 });
 
 test("保存済みモデルが候補から消えたら modelAvailable=false で警告し、保存値は書き換えない", async () => {

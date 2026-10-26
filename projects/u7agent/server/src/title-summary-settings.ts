@@ -147,16 +147,28 @@ export class TitleSummarySettingsService {
       if (body.model) {
         if (!selected) return { status: 400, error: TITLE_SUMMARY_MODEL_UNAVAILABLE_MESSAGE };
       }
-      let thinkingLevel =
-        body.thinkingLevel === undefined ? current.thinkingLevel : (parseThinkingLevel(body.thinkingLevel) ?? null);
-      if (body.model === null && body.thinkingLevel === undefined) thinkingLevel = null;
-      if (body.model !== undefined && body.thinkingLevel === undefined && thinkingLevel !== null) {
-        if (!selected || !selected.thinkingLevels.includes(thinkingLevel)) thinkingLevel = null;
-      }
-      if (thinkingLevel !== null) {
-        if (!selected) return { status: 400, error: TITLE_SUMMARY_EFFORT_MODEL_REQUIRED_MESSAGE };
-        if (!selected.thinkingLevels.includes(thinkingLevel)) {
-          return { status: 400, error: TITLE_SUMMARY_EFFORT_UNAVAILABLE_MESSAGE };
+      // 明示された Effort は必ず検証する。モデルを変えて Effort を省略したときだけ、新しいモデルが
+      // 対応しない保存値を未指定へ戻す。モデルも Effort も変えない更新 (Off など) では、モデル候補の
+      // 消失や能力変更で保存値が一時的に使えなくても、保存値を保持して更新を通す。
+      let thinkingLevel = current.thinkingLevel;
+      if (body.thinkingLevel !== undefined) {
+        thinkingLevel = parseThinkingLevel(body.thinkingLevel) ?? null;
+        if (thinkingLevel !== null) {
+          if (!selected) {
+            return {
+              status: 400,
+              error:
+                model === null ? TITLE_SUMMARY_EFFORT_MODEL_REQUIRED_MESSAGE : TITLE_SUMMARY_MODEL_UNAVAILABLE_MESSAGE,
+            };
+          }
+          if (!selected.thinkingLevels.includes(thinkingLevel)) {
+            return { status: 400, error: TITLE_SUMMARY_EFFORT_UNAVAILABLE_MESSAGE };
+          }
+        }
+      } else if (body.model !== undefined) {
+        if (model === null) thinkingLevel = null;
+        else if (thinkingLevel !== null && (!selected || !selected.thinkingLevels.includes(thinkingLevel))) {
+          thinkingLevel = null;
         }
       }
       if (body.enabled && !model) return { status: 400, error: TITLE_SUMMARY_MODEL_REQUIRED_MESSAGE };
