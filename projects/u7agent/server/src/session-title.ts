@@ -3,9 +3,12 @@
  * AI要約の応答の検証が同じ規則を使うよう、純関数だけをここへ置く。
  * 設定の保存と API は title-summary-settings.ts / routes/title-summary.ts が持つ。
  */
-import type { ThinkingLevel } from "./schema";
+import type { SecretMasker } from "./redact";
+import type { SessionTitleSummary, ThinkingLevel, TitleAttempt, TitleOrigin } from "./schema";
 import { truncate } from "./session-projection";
 import { parseSkillCommand } from "./session-skills";
+
+export type { SessionTitleSummary, TitleAttempt, TitleAttemptState, TitleOrigin, TitleSkipReason } from "./schema";
 
 /** 一覧・ヘッダーへ出すタイトルの長さ。超過分は truncate が `…` を付けて切る */
 export const TITLE_MAX = 60;
@@ -24,7 +27,8 @@ export const TITLE_DEFINITION_DEFAULT = `利用者の依頼の対象と目的が
  * (長い応答が先に予算を使い切って個別依頼を落とさないため)。
  */
 export const TITLE_INPUT_BUDGET_CHARS = 2000;
-const TITLE_REQUEST_BUDGET_CHARS = 600;
+/** 依頼本文を meta に残す上限。手動再要約の入力に使う (マスク済み) */
+export const TITLE_REQUEST_MAX = 600;
 const TITLE_DEFINITION_BUDGET_CHARS = TITLE_DEFINITION_MAX;
 const TITLE_RESPONSE_BUDGET_CHARS = 800;
 /**
@@ -34,6 +38,8 @@ const TITLE_RESPONSE_BUDGET_CHARS = 800;
 export const TITLE_MAX_OUTPUT_TOKENS = 1024;
 /** 可視テキストの上限。推論の余りを長い説明文に使わせず、1 行のタイトルとして棄却する */
 export const TITLE_OUTPUT_MAX_CHARS = 200;
+/** 失敗理由を画面・診断へ載せる上限。プロバイダの長いエラー本文をそのまま保存しない */
+export const TITLE_ATTEMPT_ERROR_MAX = 300;
 
 /**
  * 展開済みスキルブロック (`<skill name="…" location="…">…</skill>`)。形式の正は
@@ -122,7 +128,7 @@ export interface TitlePrompt {
  * ツールは渡さず、画像・添付の中身・全履歴は含めない (入力費用を会話の長さに比例させない)。
  */
 export function buildTitlePrompt(input: { definition: string; request: string; response: string }): TitlePrompt {
-  const request = truncate(input.request.trim(), TITLE_REQUEST_BUDGET_CHARS);
+  const request = truncate(input.request.trim(), TITLE_REQUEST_MAX);
   const definition = truncate(input.definition.trim(), TITLE_DEFINITION_BUDGET_CHARS);
   const remaining = Math.max(0, TITLE_INPUT_BUDGET_CHARS - request.length - definition.length);
   const response = truncate(input.response.trim(), Math.min(TITLE_RESPONSE_BUDGET_CHARS, remaining));
@@ -141,23 +147,18 @@ export interface TitleSummaryModelChoice {
   thinkingLevels: ThinkingLevel[];
 }
 
-export type TitleOrigin = "auto" | "ai" | "manual";
-
-/** AI要約の判定と試行。state は 1 会話 1 回の判定結果で、pending 以外は再試行しない */
-export interface TitleAttempt {
-  runId: string;
-  at: number;
-  state: "pending" | "done" | "failed" | "skipped";
-  /** 予約時に確定したモデル (`provider/id`)。結果の適用時に設定と突き合わせる */
-  model?: string;
-  /** 予約時に確定した実効 Effort。診断と再現用に残す */
-  thinkingLevel?: string;
-  /** 予約時の設定世代。保存後に設定が変わった結果は適用しない */
-  generation?: number;
-  /** 補助呼び出しの usage (診断と費用の確認用。本文とタイトルは残さない) */
-  inputTokens?: number;
-  outputTokens?: number;
-  costTotal?: number;
+/** 試行の公開形。失敗理由はマスクし、長さを抑えてから payload / 診断へ載せる */
+export function titleSummaryOf(
+  source: { origin?: TitleOrigin; attempt?: TitleAttempt },
+  masker?: SecretMasker,
+): SessionTitleSummary {
+  const origin = source.origin ?? "auto";
+  const attempt = source.attempt;
+  if (!attempt) return { origin };
+  const error = attempt.error
+    ? truncate(masker ? masker.mask(attempt.error) : attempt.error, TITLE_ATTEMPT_ERROR_MAX)
+    : undefined;
+  return { origin, attempt: { ...attempt, ...(error ? { error } : {}) } };
 }
 
 /** 保存されたタイトルの由来。旧 meta は欠落しており、既存タイトルは手動として保護する */

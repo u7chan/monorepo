@@ -244,8 +244,17 @@ export function useSessions({
       // 一覧とずれたときだけ取り直す (毎回叩かない)
       const listed = sessionsRef.current.find((item) => item.sessionId === payload.sessionId);
       const listedCompacting = listed?.status === "compacting";
-      // AI 要約でタイトルが後から変わると一覧の行だけが古いままになるため、ずれたときは取り直す
-      if ((payload.status === "compacting") !== listedCompacting || (listed && listed.title !== payload.title)) {
+      // AI 要約でタイトル / 試行が後から変わると一覧の行だけが古いままになるため、ずれたときは取り直す
+      const listedAttempt = listed?.titleSummary?.attempt;
+      const payloadAttempt = payload.titleSummary?.attempt;
+      const attemptChanged =
+        listed !== undefined &&
+        (listedAttempt?.at !== payloadAttempt?.at || listedAttempt?.state !== payloadAttempt?.state);
+      if (
+        (payload.status === "compacting") !== listedCompacting ||
+        (listed && listed.title !== payload.title) ||
+        attemptChanged
+      ) {
         void refreshSessions();
       }
     },

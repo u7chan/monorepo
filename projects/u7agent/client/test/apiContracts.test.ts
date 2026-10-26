@@ -16,6 +16,7 @@ const {
   putWebSearchProvider,
   putWebSearchSettings,
   putTitleSummarySettings,
+  postTitleSummaryTest,
   createSpaceApi,
   deleteSpace,
   updateArchiveSettings,
@@ -35,7 +36,7 @@ const {
   stopRuntimeServe,
   submitOAuthLoginCode,
 } = await import("../src/api");
-const { getSessionHistory, updateSessionTitle, postMessage } = createSpaceApi("default");
+const { getSessionHistory, updateSessionTitle, postMessage, summarizeSessionTitle } = createSpaceApi("default");
 
 const page: HistoryPage = {
   sessionId: "session-a",
@@ -553,4 +554,26 @@ test("カスタムプロバイダーの probe は POST で body を送り、200 
     baseUrl: "http://192.0.2.10:11434/v1",
     apiKey: "",
   });
+});
+
+test("会話の再要約と設定の動作確認は専用の POST エンドポイントへ送る", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return Response.json(
+      requests.length === 1
+        ? { sessionId: "s-1", title: "タイトル", titleSummary: { origin: "ai" } }
+        : { ok: true, title: "タイトル", durationMs: 1 },
+    );
+  });
+  const result = await summarizeSessionTitle("s-1");
+  assert.equal(result.title, "タイトル");
+  assert.equal((await postTitleSummaryTest()).ok, true);
+  assert.deepEqual(
+    requests.map((request) => [request.method, new URL(request.url).pathname, new URL(request.url).search]),
+    [
+      ["POST", "/api/sessions/s-1/title/summarize", "?spaceId=default"],
+      ["POST", "/api/settings/session-title/test", ""],
+    ],
+  );
 });

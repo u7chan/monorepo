@@ -16,7 +16,13 @@ import { createImageCatalog } from "./image-catalog";
 import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
 import { TitleSummarySettingsService } from "./title-summary-settings";
-import { createTitleSummaryGenerate, type TitleSummaryGenerate, type TitleSummaryHost } from "./title-summary";
+import {
+  createTitleSummaryGenerate,
+  createTitleSummaryTest,
+  type TitleSummaryGenerate,
+  type TitleSummaryHost,
+  type TitleSummaryTest,
+} from "./title-summary";
 import { TitleSummaryQueue } from "./title-summary-queue";
 import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
 import { OAuthLoginService, canSignInHere, type OAuthLoginRuntime } from "./oauth-login";
@@ -160,6 +166,8 @@ export type BffContext = {
   webSearchSettings: WebSearchSettingsService;
   /** 会話タイトルの AI 要約の設定 (On/Off・要約モデル・定義)。保存はサーバー側だけで行う */
   titleSummarySettings: TitleSummarySettingsService;
+  /** 設定画面の「動作確認」。生成できない環境 (pi なし) は null */
+  titleSummaryTest: TitleSummaryTest | null;
   /** serve (サービス) の状態と起動・停止。GUI とエージェントの serve ツールが同じ実体を使う */
   serve: ServeService;
   /** 作業フォルダ単位の環境変数。GUI の API と serve / bash への注入が同じ実体を使う */
@@ -297,6 +305,9 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
             pi.secretMasker,
           )
         : null;
+  const titleSummaryTest: TitleSummaryTest | null = titleSummaryGenerate
+    ? createTitleSummaryTest(() => titleSummarySettings.runtime(), titleSummaryGenerate)
+    : null;
   // シークレットは master key をホスト側 (環境変数 / 鍵ファイル) から受け取り、アプリ DB とは別経路で管理する。
   // 未設定 / 壊れた宣言では「秘密の利用」だけを拒否し、変数 (平文) と起動は続行する。
   const secretCrypto = (() => {
@@ -471,6 +482,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     contentSettings,
     webSearchSettings,
     titleSummarySettings,
+    titleSummaryTest,
     serve,
     secrets,
     cloudflareSettings,

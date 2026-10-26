@@ -6,6 +6,7 @@
  * (何が欠けたか分からないダンプは切り分けの役に立たない)。
  */
 import type { SecretMasker } from "./redact";
+import { titleSummaryOf, type SessionTitleSummary } from "./session-title";
 import type {
   DiagnosticsEvent,
   EventEntry,
@@ -209,19 +210,6 @@ export function collectDiagnosticsEvents(events: readonly EventEntry[]): {
   return { available, items, dropped, truncated };
 }
 
-/** 投影へ渡す、記録の出所に依存しない値。live な record と保存済み descriptor のどちらからも組める */
-export type DiagnosticsTitleAttempt = {
-  runId: string;
-  at: number;
-  state: "pending" | "done" | "failed" | "skipped";
-  model?: string;
-  thinkingLevel?: string;
-  generation?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  costTotal?: number;
-};
-
 export type DiagnosticsInput = {
   sessionId: string;
   /** SSE の世代。未ロードの会話は空文字 (live な record が無い) */
@@ -242,7 +230,7 @@ export type DiagnosticsInput = {
   } | null;
   questions: readonly { toolCallId: string; questionCount: number; settled: boolean }[];
   /** タイトルの由来と AI 要約の試行。本文・生成タイトルは持たない (試行状態と usage だけ) */
-  title?: { origin: "auto" | "ai" | "manual"; attempt?: DiagnosticsTitleAttempt };
+  title?: SessionTitleSummary;
   meta: {
     spaceId: string;
     agentId: string;
@@ -319,14 +307,7 @@ export function projectSessionDiagnostics({
         }
       : null,
     questions: input.questions.map((question) => ({ ...question })),
-    ...(input.title
-      ? {
-          title: {
-            origin: input.title.origin,
-            ...(input.title.attempt ? { attempt: { ...input.title.attempt } } : {}),
-          },
-        }
-      : {}),
+    ...(input.title ? { title: titleSummaryOf(input.title, masker) } : {}),
     events: {
       limit: DIAGNOSTICS_EVENT_LIMIT,
       maxBytes: DIAGNOSTICS_RESPONSE_MAX_BYTES,

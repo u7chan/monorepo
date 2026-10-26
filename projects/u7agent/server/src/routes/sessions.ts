@@ -177,6 +177,17 @@ export function createSessionRoutes({
     },
 
     /**
+     * 会話メニューからの AI 要約の再実行。生成を待って現在のタイトルと試行を返す。
+     * 生成に失敗しても 200 で試行 (failed) を返し、画面が理由を出せるようにする。
+     */
+    summarizeTitle: async (c: Context) => {
+      const record = await resolveRecord(c);
+      if (!record) return c.json({ error: "Session not found" }, 404);
+      const result = await store.manualSummarizeTitle(record);
+      return c.json({ sessionId: record.id, ...result });
+    },
+
+    /**
      * 会話の引き継ぎ (引っ越しの拡張)。エージェントとスペースを選び直し、履歴は破棄され、
      * 作業フォルダ / 添付 / cwd キーの行は移動先へ移る。同一スペースへの引き継ぎも許し、
      * プロジェクト所属は同一スペースだけを許す。移動先の検証はスペース側の規則 (未知は 404) に任せ、

@@ -18,6 +18,10 @@
     {
       "sessionId": "…",
       "title": "README をレビューして",
+      "titleSummary": {
+        "origin": "ai",
+        "attempt": { "runId": "…", "at": 1700000009000, "state": "done", "trigger": "auto", "model": "<provider>/<id>", "thinkingLevel": "low" }
+      },
       "agentId": "agent-general",
       "agentName": "汎用アシスタント",
       "status": "running",
@@ -41,6 +45,14 @@
   ]
 }
 ```
+
+`titleSummary` は会話タイトルの由来 (`origin`: `auto` / `ai` / `manual`) と最新の AI 要約の試行
+(`attempt`: `runId` / `at` / `state` / `trigger` / `model` / `thinkingLevel` / `generation` / `usage` /
+`durationMs` / `error` / `skipReason`) を表す。タイトル本文は `title` が持つ。`attempt` はまだ試行が無ければ
+省略し、旧サーバーは `titleSummary` 自体を省略する (クライアントは未対応として扱う)。`state` は `pending` /
+`done` / `failed` / `skipped`、`skipReason` は `disabled` / `model-unset` / `manual` / `no-request` /
+`cancelled` / `settings-changed` / `not-ready` / `interrupted`。`error` はマスク済み・長さ上限つきで、依頼本文と生成タイトルは
+載せない (詳細は [session-title.md](session-title.md#実行のタイミングと試行))。
 
 `runStartedAt` / `finishedAt` は live な実行の開始・終了、`compactionStartedAt` は圧縮の開始、`awaitingSince` は未 settle の質問のうち最も古い開始時刻、`lastRunDurationMs` は直近のランの所要時間（`runOutcomes` にあるときだけ）で、どれも該当が無ければキーを省略する。未ロードの会話は `idle` でこれらの時刻を載せない（`lastUsedAt` を開始時刻の代用にしない）。終了済みの live レコードは終了から 120 分の間だけ sweep の対象外になる。
 
@@ -78,6 +90,10 @@
   "lastSeq": 42,
   "eventGeneration": "a1b2c3d4",
   "title": "…",
+  "titleSummary": {
+    "origin": "ai",
+    "attempt": { "runId": "…", "at": 1700000009000, "state": "done", "trigger": "auto", "model": "<provider>/<id>", "thinkingLevel": "low" }
+  },
   "model": "<provider>/<id>",
   "thinkingLevel": "high",
   "supportsThinking": true,
@@ -293,6 +309,43 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - 改名した会話は、以降のメッセージから自動タイトルを作り直さない（自動タイトルは `title` が空のときだけ最初のメッセージで作る。[session-files.md](session-files.md#metajson)）。改名で由来は手動になり、進行中の AI 要約は取り消す（後から届いた結果も適用しない。抽出と AI 要約は [session-title.md](session-title.md)）。
 - 保存に失敗したら 500 を返し、成功扱いにしない（in-memory の表示は新しい値のまま）。
 - 一覧とチャットのヘッダは一覧 API を正とするため、クライアントは応答の `title` を手元の一覧へ反映する（他タブは一覧のポーリングで追随する。notify と同じ）。
+
+## `POST /api/sessions/:id/title/summarize`
+
+会話メニューからの AI 要約の再実行。保存済みのモデル / Effort / 定義で 1 回だけ生成し、現在のタイトルと
+試行を返す。自動の 1 会話 1 試行とは独立で、`pending` / `failed` / `skipped` の後でも実行できる。
+
+```json
+// request: 本文なし
+// response (200): 生成に失敗しても試行を返す
+{
+  "sessionId": "…",
+  "title": "ログイン画面のエラー表示改善",
+  "titleSummary": {
+    "origin": "ai",
+    "attempt": {
+      "runId": "manual-…",
+      "at": 1700000010000,
+      "state": "done",
+      "trigger": "manual",
+      "model": "<provider>/<id>",
+      "thinkingLevel": "low",
+      "inputTokens": 180,
+      "outputTokens": 20,
+      "costTotal": 0.0002,
+      "durationMs": 1200
+    }
+  }
+}
+```
+
+- 実行中・圧縮中・別の AI 要約の実行中は 409。AI 要約が Off・モデル未選択・依頼本文なし・要約できる応答なしも 409。
+- 生成に失敗した場合も 200 で `attempt.state: "failed"` と `error` を返し、`title` は変更しない。画面は
+  この試行を表示して一覧を取り直す (HTTP の失敗と生成の失敗を混ぜない)。
+- 手動で変更したタイトルも、この明示的な操作では置き換える (自動要約は置き換えない)。確認はクライアントが行う。
+- 依頼本文は送信時にマスクした先頭 600 文字を `meta.titleRequest` に保存し、再起動後も同じ入力を使う。
+  旧 meta で欠落している会話だけ最初の user メッセージから作る。応答は最後の完了した assistant テキストを使う。
+- 入力の組み立て・マスク・出力検証・取消は自動要約と同じ経路を通す。予約と終端は `resync` で配る。
 
 ## `PATCH /api/sessions/:id/pin`
 

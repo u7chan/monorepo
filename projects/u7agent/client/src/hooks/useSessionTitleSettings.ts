@@ -1,5 +1,5 @@
-import { useCallback } from "react";
-import { getTitleSummarySettings, putTitleSummarySettings } from "../api";
+import { useCallback, useEffect, useState } from "react";
+import { ApiError, getTitleSummarySettings, postTitleSummaryTest, putTitleSummarySettings } from "../api";
 import {
   SESSION_TITLE_DEFINITION_RESET_NOTE,
   SESSION_TITLE_DEFINITION_SAVED_NOTE,
@@ -10,7 +10,7 @@ import {
   sessionTitleSavedNote,
   type SessionTitleSavingAction,
 } from "../lib/sessionTitleSettings";
-import type { ThinkingLevel, TitleSummarySettingsResponse } from "../types";
+import type { ThinkingLevel, TitleSummarySettingsResponse, TitleSummaryTestResponse } from "../types";
 import { useSettingsResource } from "./useSettingsResource";
 
 /**
@@ -27,6 +27,30 @@ export function useSessionTitleSettings() {
     loadErrorLabel: "会話タイトルの設定を読み込めませんでした。",
     load: getTitleSummarySettings,
   });
+
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TitleSummaryTestResponse | null>(null);
+
+  const test = useCallback(async (): Promise<void> => {
+    if (!settings?.enabled || !settings.model || !settings.modelAvailable) return;
+    setTesting(true);
+    try {
+      setTestResult(await postTitleSummaryTest());
+    } catch (error) {
+      setTestResult({
+        ok: false,
+        error: error instanceof ApiError ? error.message : error instanceof Error ? error.message : String(error),
+        durationMs: 0,
+      });
+    } finally {
+      setTesting(false);
+    }
+  }, [settings?.enabled, settings?.model, settings?.modelAvailable]);
+
+  // 設定を変えたら前の結果は現在の設定の証拠にならないため消す
+  useEffect(() => {
+    setTestResult(null);
+  }, [settings?.enabled, settings?.model, settings?.thinkingLevel, settings?.definition]);
 
   const setEnabled = useCallback(
     (enabled: boolean): Promise<boolean> => {
@@ -104,6 +128,9 @@ export function useSessionTitleSettings() {
     saving,
     reloading,
     reload,
+    testing,
+    testResult,
+    test,
     setEnabled,
     setModel,
     setEffort,

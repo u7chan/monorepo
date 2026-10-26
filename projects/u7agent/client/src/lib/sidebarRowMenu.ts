@@ -9,6 +9,8 @@
  */
 import type { ConfirmRequest, PromptRequest } from "./confirmDialog";
 import type { RowMenuAction } from "./rowMenu";
+import { sessionTitleStatusOf } from "./sessionTitleStatus";
+import type { SessionTitleSummary } from "../types";
 
 /** プロジェクト行の ⋯ の種別 (開閉は行のボタン、通知はベルが持つ) */
 export type ProjectRowKind = "new-chat" | "delete";
@@ -22,7 +24,7 @@ export function projectRowActions(): RowMenuAction<ProjectRowKind>[] {
 }
 
 /** セッション行の ⋯ の種別 (通知のベルとピンは状態の印として行にも残す) */
-export type SessionRowKind = "pin" | "rename" | "handoff" | "delete";
+export type SessionRowKind = "pin" | "rename" | "title-summary" | "handoff" | "delete";
 
 /** セッション行の ⋯ の出し分けに使う状態。省略は「ピン無し / 引き継ぎ不可」 */
 export type SessionRowMenuOptions = {
@@ -31,6 +33,10 @@ export type SessionRowMenuOptions = {
   canHandoff?: boolean;
   /** 引き継ぎを止める理由。空なら実行できる (項目ごと隠さず、理由を説明行へ出す) */
   handoffBlockedReason?: string;
+  /** AI要約の状態。状態を出せる呼び出し側だけ項目を出す (旧呼び出しは出さない) */
+  titleSummary?: SessionTitleSummary;
+  /** AI要約のダイアログを開けるか。false の呼び出し側は項目を出さない */
+  canTitleSummary?: boolean;
 };
 
 /**
@@ -38,7 +44,24 @@ export type SessionRowMenuOptions = {
  * 実行中・圧縮中・片付け中は無効にして理由を説明行へ出す (項目ごと隠さない)。
  */
 export function sessionRowActions(options: SessionRowMenuOptions = {}): RowMenuAction<SessionRowKind>[] {
-  const { pinned = false, canHandoff = false, handoffBlockedReason = "" } = options;
+  const {
+    pinned = false,
+    canHandoff = false,
+    handoffBlockedReason = "",
+    titleSummary,
+    canTitleSummary = false,
+  } = options;
+  const titleStatus = sessionTitleStatusOf(titleSummary);
+  const titleSummaryAction: RowMenuAction<SessionRowKind>[] = canTitleSummary
+    ? [
+        {
+          kind: "title-summary",
+          label: "AI要約",
+          status: { text: titleStatus.text, tone: titleStatus.tone },
+          descriptionKind: "note",
+        },
+      ]
+    : [];
   const handoff: RowMenuAction<SessionRowKind>[] = canHandoff
     ? [
         {
@@ -53,6 +76,7 @@ export function sessionRowActions(options: SessionRowMenuOptions = {}): RowMenuA
   return [
     { kind: "pin", label: pinned ? "ピン留めを解除" : "ピン留め" },
     { kind: "rename", label: "名前を変更" },
+    ...titleSummaryAction,
     ...handoff,
     { kind: "delete", label: "セッションを削除", danger: true },
   ];

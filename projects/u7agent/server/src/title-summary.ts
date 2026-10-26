@@ -3,10 +3,17 @@
  * 要約モデルへの独立した短いリクエストとして送る (ツール無し・入出力の上限つき)。
  * いつ・何回呼ぶかは会話ストアが決め、ここは 1 回の生成と結果の検証だけを持つ。
  */
+import { randomUUID } from "node:crypto";
 import type { Api, AssistantMessage, Context, Model as PiAiModel } from "@earendil-works/pi-ai";
-import type { ModelRef, ThinkingLevel } from "./schema";
+import type { ModelRef, ThinkingLevel, TitleSummaryTestResponse } from "./schema";
 import type { SecretMasker } from "./redact";
-import { TITLE_MAX_OUTPUT_TOKENS, buildTitlePrompt, parseGeneratedTitle } from "./session-title";
+import { truncate } from "./session-projection";
+import {
+  TITLE_ATTEMPT_ERROR_MAX,
+  TITLE_MAX_OUTPUT_TOKENS,
+  buildTitlePrompt,
+  parseGeneratedTitle,
+} from "./session-title";
 import type { TitleSummaryRuntimeSettings } from "./title-summary-settings";
 
 export interface TitleSummaryUsage {
@@ -79,7 +86,7 @@ export function createTitleSummaryGenerate(
 ): TitleSummaryGenerate {
   return async (input) => {
     const model = completion.resolveModel(input.model);
-    if (!model) return { ok: false, error: "選択したモデルは利用できません", usage: undefined };
+    if (!model) return errorResult("選択したモデルは利用できません");
     // 編集可能な定義・応答・再登録された秘密値を含む実送信入力の全体を、外部へ出す直前にマスクする
     const prompt = buildTitlePrompt(input);
     const systemPrompt = masker.mask(prompt.system);
@@ -100,24 +107,83 @@ export function createTitleSummaryGenerate(
       );
       const usage = usageOf(message);
       if (message.stopReason === "error" || message.stopReason === "aborted") {
-        return {
-          ok: false,
-          error: message.errorMessage ?? "要約モデルの呼び出しに失敗しました",
-          usage,
-        };
+        return errorResult(message.errorMessage ?? "要約モデルの呼び出しに失敗しました", usage);
       }
       // 出力トークンの上限で切れた応答は、1 行に見えても予算超過として採用しない
       if (message.stopReason === "length") {
-        return { ok: false, error: "要約モデルの出力が上限に達しました", usage };
+        return errorResult("要約モデルの出力が上限に達しました", usage);
       }
       const raw = textOf(message);
       // モデルが秘密値をそのまま返しても、既知の値はタイトルにも usage 記録にも残さない
       const title = parseGeneratedTitle(masker.mask(raw));
-      if (!title) return { ok: false, error: "要約モデルの出力をタイトルとして使えません", usage };
+      if (!title) return errorResult("要約モデルの出力をタイトルとして使えません", usage);
       return { ok: true, title, usage };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error), usage: undefined };
+      return errorResult(error instanceof Error ? error.message : String(error));
     }
+
+    /** 失敗理由は外部由来の文字列を含むため、保存・表示の前にマスクして長さを抑える */
+    function errorResult(
+      message: string,
+      usage?: TitleSummaryUsage,
+    ): {
+      ok: false;
+      error: string;
+      usage: TitleSummaryUsage | undefined;
+    } {
+      return { ok: false, error: truncate(masker.mask(message), TITLE_ATTEMPT_ERROR_MAX), usage };
+    }
+  };
+}
+
+/** 設定画面の動作確認に使う固定の依頼 / 応答。利用者の会話は送らない */
+const TITLE_SUMMARY_TEST_REQUEST = "ログイン画面のエラー表示が分かりにくいので改善したい";
+const TITLE_SUMMARY_TEST_RESPONSE =
+  "ログイン画面のエラー表示を整理し、入力漏れと認証失敗で文言を分けます。あわせて支援技術へエラーを通知するようにします。";
+
+export type TitleSummaryTest = () => Promise<TitleSummaryTestResponse>;
+
+/**
+ * 設定画面の「動作確認」。保存済みのモデル / Effort / 定義で 1 回だけ生成し、結果を返す。
+ * 会話にもタイトルにも保存せず、入力は固定のサンプルだけを使う。Off / モデル未選択は生成しない。
+ */
+export function createTitleSummaryTest(
+  settings: () => TitleSummaryRuntimeSettings,
+  generate: TitleSummaryGenerate,
+): TitleSummaryTest {
+  return async () => {
+    const runtime = settings();
+    const startedAt = Date.now();
+    const model = runtime.model;
+    const base = {
+      ...(model ? { model: `${model.provider}/${model.id}` } : {}),
+      ...(runtime.thinkingLevel ? { thinkingLevel: runtime.thinkingLevel } : {}),
+    };
+    if (!runtime.enabled) {
+      return { ok: false, error: "AI要約は Off です", ...base, durationMs: Date.now() - startedAt };
+    }
+    if (!model) {
+      return { ok: false, error: "要約モデルが選択されていません", ...base, durationMs: Date.now() - startedAt };
+    }
+    const result = await generate({
+      model,
+      definition: runtime.definition,
+      request: TITLE_SUMMARY_TEST_REQUEST,
+      response: TITLE_SUMMARY_TEST_RESPONSE,
+      sessionId: `title-test-${randomUUID()}`,
+      thinkingLevel: runtime.thinkingLevel,
+      signal: AbortSignal.timeout(60_000),
+    });
+    const usage = result.usage;
+    return {
+      ok: result.ok,
+      ...(result.ok ? { title: result.title } : { error: result.error }),
+      ...base,
+      ...(usage
+        ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costTotal: usage.costTotal }
+        : {}),
+      durationMs: Date.now() - startedAt,
+    };
   };
 }
 

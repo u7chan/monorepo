@@ -20,7 +20,15 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { CURRENT_SESSION_VERSION, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { SESSION_DIR_REL, assertSessionId, isSessionId, sessionWorkdirRel } from "./app-paths";
-import type { AgentPayloadInfo, ThinkingLevel } from "./schema";
+import {
+  TitleAttemptSchema,
+  type AgentPayloadInfo,
+  type ThinkingLevel,
+  type TitleAttempt,
+  type TitleOrigin,
+} from "./schema";
+import { truncate } from "./session-projection";
+import { TITLE_REQUEST_MAX } from "./session-title";
 import { isSpaceId } from "./spaces";
 
 // 配置 (appdir / スクラッチ / 添付) の正は app-paths。既存の import 先を保つため再輸出する
@@ -77,19 +85,14 @@ export interface SessionMeta {
    * タイトルの由来 (自動 / AI / 手動)。旧 meta は欠落しており、既存タイトルは手動として保護する
    * (session-title.ts の titleOriginOf)。
    */
-  titleOrigin?: "auto" | "ai" | "manual";
+  titleOrigin?: TitleOrigin;
   /** AI 要約の判定と試行 (1 会話 1 回)。欠落 = 未判定で、既存の会話には遡及しない */
-  titleAttempt?: {
-    runId: string;
-    at: number;
-    state: "pending" | "done" | "failed" | "skipped";
-    model?: string;
-    thinkingLevel?: string;
-    generation?: number;
-    inputTokens?: number;
-    outputTokens?: number;
-    costTotal?: number;
-  };
+  titleAttempt?: TitleAttempt;
+  /**
+   * AI 要約の元にした依頼本文の先頭 (マスク済み・TITLE_REQUEST_MAX 文字まで)。会話メニューからの
+   * 再要約を再起動後も同じ入力で行うために保存する。タイトル本文より長い利用者の文が残る点に注意。
+   */
+  titleRequest?: string;
 }
 
 /** 引き継ぎごとの操作 ID。セッション ID と同じ 8 hex 文字 */
@@ -256,28 +259,16 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
       ? { titleOrigin: meta.titleOrigin }
       : {}),
     ...(titleAttempt ? { titleAttempt } : {}),
+    ...(typeof meta.titleRequest === "string" && meta.titleRequest.trim() !== ""
+      ? { titleRequest: truncate(meta.titleRequest, TITLE_REQUEST_MAX) }
+      : {}),
   };
 }
 
 /** 試行の保存値。必須項目が欠けた記録は落とす (欠落 = 未判定として安全側に倒す) */
-function parseTitleAttempt(value: unknown): SessionMeta["titleAttempt"] | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const attempt = value as Record<string, unknown>;
-  const state = attempt.state;
-  if (typeof attempt.runId !== "string" || attempt.runId === "") return undefined;
-  if (typeof attempt.at !== "number" || !Number.isFinite(attempt.at)) return undefined;
-  if (state !== "pending" && state !== "done" && state !== "failed" && state !== "skipped") return undefined;
-  return {
-    runId: attempt.runId,
-    at: attempt.at,
-    state,
-    ...(typeof attempt.model === "string" ? { model: attempt.model } : {}),
-    ...(typeof attempt.thinkingLevel === "string" ? { thinkingLevel: attempt.thinkingLevel } : {}),
-    ...(typeof attempt.generation === "number" ? { generation: attempt.generation } : {}),
-    ...(typeof attempt.inputTokens === "number" ? { inputTokens: attempt.inputTokens } : {}),
-    ...(typeof attempt.outputTokens === "number" ? { outputTokens: attempt.outputTokens } : {}),
-    ...(typeof attempt.costTotal === "number" ? { costTotal: attempt.costTotal } : {}),
-  };
+function parseTitleAttempt(value: unknown): TitleAttempt | undefined {
+  const parsed = TitleAttemptSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function parseHandoff(value: unknown): SessionHandoffRecord | undefined {

@@ -34,6 +34,9 @@ export function SessionTitleSettingsView({
     saving,
     reloading,
     reload,
+    testing,
+    testResult,
+    test,
     setEnabled,
     setModel,
     setEffort,
@@ -68,6 +71,9 @@ export function SessionTitleSettingsView({
           onSelectEffort={setEffort}
           onSaveDefinition={saveDefinition}
           onResetDefinition={resetDefinition}
+          testing={testing}
+          testResult={testResult}
+          onTest={() => void test()}
         />
       ) : (
         <SettingsPlaceholder label="会話タイトルの設定" note={note} />

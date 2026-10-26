@@ -8,6 +8,7 @@ import { contextUsageOf } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
 import type { SessionRecord } from "./session-record";
 import { displayableMessages, projectMessages, truncate, unprojectedAssistantMeta } from "./session-projection";
+import { titleSummaryOf } from "./session-title";
 import { batchesSteering, sdkQueueLength, takenSendIdsOf } from "./session-steering";
 import type { PendingSend, RunStatus, ServeCommand, SessionPayload, SessionSummary, ThinkingLevel } from "./schema";
 
@@ -123,6 +124,7 @@ export function projectSessionPayload({
     availableThinkingLevels,
     status,
     title: record.title,
+    titleSummary: titleSummaryOf({ origin: record.titleOrigin, attempt: record.titleAttempt }, masker),
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
     // retryAt との差でクライアントが残り時間を出す基準時刻 (ブラウザ時計と比較しない)
@@ -205,6 +207,7 @@ export function projectSessionSummary({
     sessionId: record.id,
     spaceId: record.meta.spaceId ?? "default",
     title: record.title || "無題のセッション",
+    titleSummary: titleSummaryOf({ origin: record.titleOrigin, attempt: record.titleAttempt }, masker),
     agentId: record.agentId,
     agentName: record.agent.name,
     status,

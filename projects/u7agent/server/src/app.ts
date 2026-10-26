@@ -131,6 +131,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     contentSettings,
     webSearchSettings,
     titleSummarySettings,
+    titleSummaryTest,
     serve,
     secrets,
     cloudflareSettings,
@@ -173,7 +174,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const sharedContentRoutes = createSharedContentRoutes({ sharedContents });
   const sharedContentExclusionsRoutes = createSharedContentExclusionsRoutes({ sharedContentExclusions });
   const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings });
-  const titleSummaryRoutes = createTitleSummaryRoutes({ titleSummarySettings });
+  const titleSummaryRoutes = createTitleSummaryRoutes({ titleSummarySettings, test: titleSummaryTest });
   // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
   const secretRoutes = createSecretRoutes({
     secrets,
@@ -353,6 +354,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       ),
       (c) => sessionRoutes.updateTitle(c, c.req.valid("json")),
     )
+    // 会話メニューからの再要約。設定の保存済みモデル / Effort で 1 回生成し、現在のタイトルと試行を返す
+    .post("/api/sessions/:id/title/summarize", appDataMutation, (c) => sessionRoutes.summarizeTitle(c))
     // セッションの引っ越し。履歴は破棄され、作業フォルダ / 添付 / cwd キーの行が移動先へ移る
     .post(
       "/api/sessions/:id/move",
@@ -678,6 +681,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       webSearchSettingsRoutes.deleteKey(c, c.req.param("provider")),
     )
     .get("/api/settings/session-title", appData, titleSummaryRoutes.list)
+    .post("/api/settings/session-title/test", appData, titleSummaryRoutes.test)
     .put(
       "/api/settings/session-title",
       appDataMutation,

@@ -33,6 +33,7 @@ import {
   PinIcon,
   PlusIcon,
   ShareIcon,
+  SparkleIcon,
   TrashIcon,
 } from "./icons";
 
@@ -43,6 +44,7 @@ const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
   share: <ShareIcon />,
   download: <DownloadIcon small />,
   rename: <PencilIcon />,
+  "title-summary": <SparkleIcon />,
   pin: <PinIcon />,
   move: <MoveIcon />,
   handoff: <MoveIcon />,
@@ -243,6 +245,7 @@ export function RowMenu<K extends RowMenuActionKind>({ name, actions, copied = f
               label={action.label}
               description={action.description}
               descriptionKind={rowMenuDescriptionKind(action)}
+              status={action.status}
               danger={action.danger}
               disabled={action.disabled === true}
               onClick={() => {

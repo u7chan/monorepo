@@ -30,6 +30,8 @@ export type MenuItemProps = {
    * (選択中の行では塗りの上で読める on-accent へ切り替える)。
    */
   trailing?: ReactNode;
+  /** 右端の短い状態。面にはせず、読み上げはラベルの後に続ける */
+  status?: { text: string; tone?: "accent" | "danger" | "warn" | "muted" };
   /** 破壊的な操作の行。ホバーを待たず文字色で示す */
   danger?: boolean;
   /** 押せない行。できない理由は `description` に出し、項目ごと隠さない */
@@ -78,6 +80,7 @@ export function MenuItem({
   selected = false,
   current,
   descriptionKind = "disclosure",
+  status,
   trailing,
   danger = false,
   disabled = false,
@@ -128,6 +131,22 @@ export function MenuItem({
           </span>
         ) : null}
       </span>
+      {status ? (
+        <span
+          className={cn(
+            "shrink-0 text-2xs tabular-nums",
+            status.tone === "accent"
+              ? "text-accent-text"
+              : status.tone === "danger"
+                ? "text-danger-text"
+                : status.tone === "warn"
+                  ? "text-warn-text"
+                  : "text-ink-faint",
+          )}
+        >
+          {status.text}
+        </span>
+      ) : null}
       {/* 選択のチェックは添えるだけなので読み上げない (選択は aria-current が伝える) */}
       {active && variant === "choice" ? (
         <span className={cn("grid size-4 shrink-0 place-items-center singleColumn:size-5", slotAlign, ICON_TONE[tone])}>

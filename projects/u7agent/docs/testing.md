@@ -4,6 +4,33 @@
 
 サービスの公開経路は server 側の振る舞いテストで固定する。`server/test/service-proxy.test.ts` が、3 本目のリスナーからサンドボックスの 8080 への転送（メソッド / パス / クエリ / ボディ / ストリーミング / `Range` / `Content-Encoding` の透過、ホップバイホップ ヘッダの除去）、キャッシュ ヘッダの `Cache-Control: no-store` への正規化、GET / HEAD の再検証ヘッダの遮断、`Location` の書き換え、上流停止時の 502 を検査する。ポートの解決（`PI_SERVICE_LISTEN_PORT` / `PI_PREVIEW_PORT`）と `pnpm dev` が同じ値を渡すことは `server/test/preview-port.test.ts` が検査する。
 
+## 会話タイトルの受入
+
+自動検証は `server/test/session-title-ai.test.ts`（自動要約の判定・予約・再起動・設定変更との競合・
+会話メニューからの再要約・手動タイトルの置き換え・失敗理由の公開・`titleRequest` の復元・設定の動作確認）、
+`server/test/title-summary.test.ts`（入力のマスク・出力検証・usage・Effort / sessionId の伝播）、
+`server/test/title-summary-settings.test.ts`（保存値と設定 API）、`server/test/diagnostics.test.ts`
+（`title` の形と本文を載せないこと）、client の `client/test/sessionTitleStatus.test.ts`（状態 / 理由 / 確認文言）、
+`client/test/sessionTitleSettings.test.ts`（設定の表示変換）、`client/test/sidebarRowMenu.test.ts`（行メニューの
+状態文字と項目の出し分け）、`client/test/apiContracts.test.ts`（再要約 / 動作確認の POST 先）で行う。
+
+GUI は有料 API を使わない一時ストア / ポート / stub pi で、次を desktop と singleColumn の両方で確認する。
+
+- 左バーの会話行の ⋯ に「AI要約」と状態 (未実行 / 実行中 / 済み / 失敗 / 無効 / スキップ) が文字で出る。
+  **常設のバッジ / チップは出ない。** 押すと desktop はダイアログ、singleColumn は下からのボトムシートになり、
+  現在のタイトル・モデル・Effort・トークン・所要時間・失敗理由が出る。背景の操作は inert で、Escape で閉じ、
+  閉じた後に元の ⋯ へ焦点が戻る。
+- 再要約を押すと確認が出て、キャンセルでは生成しない。実行すると「要約中…」になり、完了後にタイトル・状態・
+  usage・所要時間が更新され、サイドバーの行とヘッダのタイトルも追随する。手動で付けた名前では確認本文が
+  「手動で変更したタイトルを…」に変わる。
+- 会話を開いたまま自動要約が成功 / 失敗すると、チャット上に 1 回だけお知らせが出て「詳細」で同じダイアログが
+  開く。会話を開き直しただけでは再表示されず、Off のままの会話で毎回「スキップ」も出ない。F5 / BFF 再起動後も
+  行メニューとダイアログの状態・使用モデル・Effort・失敗理由が残る。
+- 設定 → 会話タイトルの「動作確認」は、保存済みの設定で固定のサンプルだけを送り、結果 (成功 / 失敗・生成タイトル・
+  モデル・Effort・トークン・所要時間) を出す。会話一覧は増えず、どのタイトルも変わらない。Off / モデル未選択 /
+  モデル利用不可ではボタンが押せず、理由が出る。設定を変えると前の結果は消える。この操作は本文を外部へ送るが、
+  利用者の会話は送らない。
+
 ## 追加入力 (steering) の受入
 
 自動検証は server の `server/test/session-steering.test.ts`（BFF の配送状態機械・受付済みの待機の一括配送・取消・停止・終端の回収）と `server/test/sdk-steering.test.ts`（実 SDK の AgentSession と BFF をつなぎ、`agent_settled` を待たずに次のモデル要求へ修正指示が入ること、複数の追加入力が 1 回のモデル要求にまとまること、組み込み provider adapter の要求本文）、`server/test/session-sends.test.ts`（送信ID / 実行ID の保存と旧データの補完）、client の `client/test/queueWait.test.ts` / `queuedSends.test.ts`（`queued` / `steering` の表示と取消可否）/ `chatReducer.test.ts` / `unsentMessages.test.ts`（送信IDでの照合・未送信の復旧）で行う。GUI は実行中の送信・待機から実行への遷移・1 件取消・停止後の未送信・別タブ / 再読み込みを [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) で確認する。
