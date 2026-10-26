@@ -6,13 +6,16 @@ import {
   SHARE_CLOSE_HINT,
   SHARE_CONFIRM_NOTES,
   SHARE_CONFIRM_SUMMARY,
-  SHARE_DUPLICATE_NOTE,
-  SHARE_DUPLICATE_PUBLISHING_NOTE,
+  SHARE_CREATE_SECONDARY_NOTE,
+  SHARE_NAME_LOCKED_NOTE,
   SHARE_NAME_MAX_LENGTH,
-  sharedContentPublishingWithSourcePath,
-  sharedContentWithSourcePath,
+  SHARE_PREVIEW_FAILED_UPDATE_HINT,
+  SHARE_PUBLISHING_NOTE,
+  SHARE_UPDATE_CONFIRM_NOTES,
   isSharedContentUndeployed,
+  sharePrimaryAction,
   shareStatusView,
+  shareUpdateNote,
   type ShareStatusView,
 } from "../lib/sharedContents";
 import { sharePreviewSummary } from "../lib/sharedContentPreview";
@@ -37,7 +40,7 @@ export type ShareContentDialogProps = {
 };
 
 /**
- * 行の ⋯ から 1 ディレクトリを公開するダイアログ。停止・削除・更新をここへ足さないのは、取り消しにくい操作の確認と結果だけを 1 画面に閉じるため
+ * 行の ⋯ から 1 ディレクトリを公開するダイアログ。停止・削除をここへ足さないのは、取り消しにくい操作の確認と結果だけを 1 画面に閉じるため
  * （一覧の管理は 設定 → 共有）。振る舞いは `docs/static-sharing.md#gui共有ダイアログ` を正とする。
  */
 export function ShareContentDialog({ sessionId, target, ...props }: ShareContentDialogProps) {
@@ -96,17 +99,23 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
     cancelRef.current?.focus();
   }, []);
 
-  // 同じ公開元の共有物があれば、押す前に「更新は管理一覧から」と示す (公開済みの重複は作れる)。
+  // 同じ公開元の共有物があれば、主操作を「更新する」にして新しい URL を増やさない。
   // 公開中だけは、閉じて開き直して `started` が失われても再送させない (Worker と URL を二重に作らない)
   const sourcePath = share.preview.status === "ready" ? share.preview.preview.sourcePath : null;
-  const duplicate = sharedContentWithSourcePath(sourcePath, share.items);
-  // 一覧の先頭は同じ公開元の別の共有物かもしれないので、「いずれかが公開中」で判定する
-  const publishing = sharedContentPublishingWithSourcePath(sourcePath, share.items);
+  const primary = sharePrimaryAction(sourcePath, share.items);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busy || started || publishing) return;
+    if (busy || started || primary.kind === "publishing") return;
     // フッターは両タブに出すので、一覧側から確定しても結果は「公開」タブに出す
+    setTab("publish");
+    if (primary.kind === "update") void share.update(primary.item.id);
+    else void share.share(target.directory, name);
+  };
+
+  // 副次の新規作成は、押したときだけ実行する (同じ公開元の更新がある間の既定は更新)
+  const createNew = () => {
+    if (busy || started || primary.kind === "publishing") return;
     setTab("publish");
     void share.share(target.directory, name);
   };
@@ -191,29 +200,34 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
 
             {started ? null : (
               <>
-                <label className="grid gap-1">
-                  <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">表示名</span>
-                  <input
-                    type="text"
-                    value={name}
-                    maxLength={SHARE_NAME_MAX_LENGTH}
-                    // 空欄で送ると API がディレクトリ名へ落とす (root はセッション ID になる)
-                    placeholder="未入力ならディレクトリ名"
-                    onChange={(event) => setName(event.currentTarget.value)}
-                    className="field text-xs"
-                  />
-                  {/* URL は共有物の id から作る script 名で決まり、表示名では変わらない */}
-                  <span className="text-1xs text-ink-muted">表示名です。公開 URL は変わりません</span>
-                </label>
-                {duplicate === undefined ? null : (
-                  <p className="break-words text-warn">
-                    {publishing ? SHARE_DUPLICATE_PUBLISHING_NOTE : SHARE_DUPLICATE_NOTE}
-                  </p>
-                )}
+                {primary.kind === "update" ? <ShareUpdateTarget item={primary.item} /> : null}
+                {primary.kind === "publishing" ? (
+                  <p className="break-words text-warn">{SHARE_PUBLISHING_NOTE}</p>
+                ) : null}
+                {primary.kind === "create" ? (
+                  <label className="grid gap-1">
+                    <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">表示名</span>
+                    <input
+                      type="text"
+                      value={name}
+                      maxLength={SHARE_NAME_MAX_LENGTH}
+                      // 空欄で送ると API がディレクトリ名へ落とす (root はセッション ID になる)
+                      placeholder="未入力ならディレクトリ名"
+                      onChange={(event) => setName(event.currentTarget.value)}
+                      className="field text-xs"
+                    />
+                    {/* URL は共有物の id から作る script 名で決まり、表示名では変わらない */}
+                    <span className="text-1xs text-ink-muted">表示名です。公開 URL は変わりません</span>
+                  </label>
+                ) : null}
                 <SharePreview state={share.preview} />
+                {/* プレビューが失敗すると公開元が分からない。存在を断定せず、更新する逃げ道だけを案内する */}
+                {share.preview.status === "failed" ? (
+                  <p className="text-1xs break-words text-ink-muted">{SHARE_PREVIEW_FAILED_UPDATE_HINT}</p>
+                ) : null}
                 {/* 4 行は毎回読ませたい量ではないので畳み、summary だけで要点が読めるようにする */}
                 <CollapsibleNotice summary={SHARE_CONFIRM_SUMMARY}>
-                  {SHARE_CONFIRM_NOTES.map((note) => (
+                  {(primary.kind === "update" ? SHARE_UPDATE_CONFIRM_NOTES : SHARE_CONFIRM_NOTES).map((note) => (
                     <p key={note}>{note}</p>
                   ))}
                 </CollapsibleNotice>
@@ -262,18 +276,48 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
 
         {/* 受付した後の閉じる導線はヘッダに 1 つだけにする (同じラベルのボタンを 2 つ並べない) */}
         {started ? null : (
-          <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-3">
-            <button ref={cancelRef} type="button" className="btn-quiet singleColumn:min-h-11" onClick={onClose}>
-              キャンセル
-            </button>
-            <button type="submit" className="btn-primary singleColumn:min-h-11" disabled={busy || publishing}>
-              <ShareIcon />
-              共有する
-            </button>
+          <footer className="grid shrink-0 gap-1.5 border-t border-line px-4 py-3">
+            {/* 副次の新規作成は Worker を 1 つ増やすので、押す前に行を添える */}
+            {primary.kind === "update" ? (
+              <p className="text-right text-1xs break-words text-ink-muted">{SHARE_CREATE_SECONDARY_NOTE}</p>
+            ) : null}
+            <div className="flex items-center justify-end gap-2">
+              <button ref={cancelRef} type="button" className="btn-quiet singleColumn:min-h-11" onClick={onClose}>
+                キャンセル
+              </button>
+              {primary.kind === "update" ? (
+                <button type="button" className="btn-quiet singleColumn:min-h-11" disabled={busy} onClick={createNew}>
+                  新しく共有
+                </button>
+              ) : null}
+              {/* 公開中は主操作を出さず、理由だけを本文に出す */}
+              {primary.kind === "publishing" ? null : (
+                <button type="submit" className="btn-primary singleColumn:min-h-11" disabled={busy}>
+                  <ShareIcon />
+                  {primary.kind === "update" ? "更新する" : "共有する"}
+                </button>
+              )}
+            </div>
           </footer>
         )}
       </form>
     </dialog>
+  );
+}
+
+/** 更新の対象。更新先の URL は既に決まっているので、開く / コピーを添えずに表示だけする */
+function ShareUpdateTarget({ item }: { item: SharedContentResponse }) {
+  return (
+    <section aria-label="更新する共有物" className="grid gap-1.5 rounded-lg border border-line bg-soft px-3 py-2.5">
+      <h3 className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">更新する共有物</h3>
+      <p className="break-words text-ink-soft">{item.name}</p>
+      <p className="break-words text-ink-soft">{shareUpdateNote(item)}</p>
+      {/* 受付時に確定した URL。未デプロイ / failed でも、記録がある限り更新先として見せる */}
+      {item.publicUrl === null ? null : (
+        <code className="block min-w-0 text-2xs break-all text-ink-soft select-all">{item.publicUrl}</code>
+      )}
+      <p className="text-1xs break-words text-ink-muted">{SHARE_NAME_LOCKED_NOTE}</p>
+    </section>
   );
 }
 

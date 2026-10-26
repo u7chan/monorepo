@@ -1,5 +1,5 @@
 // 共有ダイアログの描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
-// 確認 → 受付 → 結果の出し分け、確認画面に URL を出さないこと、失敗理由が固定文言だけであることを固定する。
+// 確認 → 受付 → 結果の出し分け、確認画面の URL の有無、失敗理由が固定文言だけであることを固定する。
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -9,9 +9,15 @@ import {
   SHARE_CLOSE_HINT,
   SHARE_CONFIRM_NOTES,
   SHARE_CONFIRM_SUMMARY,
-  SHARE_DUPLICATE_NOTE,
-  SHARE_DUPLICATE_PUBLISHING_NOTE,
+  SHARE_CREATE_SECONDARY_NOTE,
+  SHARE_NAME_LOCKED_NOTE,
   SHARE_NAME_MAX_LENGTH,
+  SHARE_PREVIEW_FAILED_UPDATE_HINT,
+  SHARE_PUBLISHING_NOTE,
+  SHARE_UPDATE_CONFIRM_NOTES,
+  SHARE_UPDATE_NOTE_INCOMPLETE,
+  SHARE_UPDATE_NOTE_LIVE,
+  SHARE_UPDATE_NOTE_STOPPED,
   SHARED_CONTENT_UNDEPLOYED_NOTE,
   sharedContentCreateBody,
   sharedContentWithSourcePath,
@@ -52,6 +58,7 @@ function controller(overrides: Partial<SharedContentsController> = {}): SharedCo
     submitting: false,
     preview: { status: "loading" },
     share: async () => {},
+    update: async () => {},
     reload: async () => {},
     ...overrides,
   };
@@ -95,6 +102,19 @@ function actionTag(html: string, label: string): string {
     ?.find((markup) => markup.replace(/<[^>]*>/g, "").trim() === label);
   assert.ok(button, `${label} ボタンが無い`);
   return button.slice(0, button.indexOf(">") + 1);
+}
+
+/** ボタンの有無。無いことを固定するときに使う（`actionTag` は無ければ落ちる） */
+function hasAction(html: string, label: string): boolean {
+  return (html.match(/<button[^>]*>[\s\S]*?<\/button>/g) ?? []).some(
+    (markup) => markup.replace(/<[^>]*>/g, "").trim() === label,
+  );
+}
+
+/** 初期表示の「公開」タブだけを取り出す（「共有物」タブの行も同じ URL を出すため） */
+function publishTab(html: string): string {
+  const at = html.indexOf('<div hidden=""');
+  return at === -1 ? html : html.slice(0, at);
 }
 
 /** ボタンの `disabled` 属性。className の `disabled:` と取り違えないよう属性として見る */
@@ -222,36 +242,83 @@ test("表示名: セッションタイトルを既定にし、最大長と「URL
   });
 });
 
-test("同じ公開元の共有物があれば「共有済み（更新は 設定 → 共有 から）」を出し、プレビュー失敗中は出さない", () => {
+// What: 同じ公開元の生きた共有物があれば、主操作を更新にして同一 URL を出し、新規作成を副次へ下げる
+// (更新では表示名を変えない。確認画面は確定 URL を出さない条件ではなく更新先 URL を出す)
+test("更新（公開済み）: 主操作が「更新する」になり、更新先 URL と文言を出して新規作成を副次にする", () => {
   const published = item({ status: "published", publishedAt: PUBLISHED_AT });
   const html = render(
+    controller({ items: [published], preview: { status: "ready", preview: readyPreview("projects/app/dist") } }),
+  );
+  assert.ok(actionTag(html, "更新する"), "主操作が更新になっていない");
+  assert.equal(actionTag(html, "更新する").includes("disabled"), false);
+  assert.equal(hasAction(html, "共有する"), false, "既存があるときの主操作は更新だけ");
+  // 「共有物」タブの行も URL を出すので、確認画面としては「公開」タブだけを見る
+  const publish = publishTab(html);
+  assert.ok(publish.includes(SHARE_UPDATE_NOTE_LIVE));
+  assert.ok(publish.includes(URL_PUBLISHED), "更新先の URL を出す");
+  assert.equal(publish.includes("URL をコピー"), false, "開く / コピーは確認画面に出さない");
+  assert.equal(publish.includes(">開く<"), false);
+  // 新規作成は副次。押す前に Worker が増えることを 1 行で示す
+  assert.ok(actionTag(html, "新しく共有"));
+  assert.ok(html.includes(SHARE_CREATE_SECONDARY_NOTE));
+  // 表示名は更新で変えられない
+  assert.ok(html.includes(SHARE_NAME_LOCKED_NOTE));
+  assert.equal(html.includes("<input"), false, "更新では表示名の入力欄を出さない");
+  // 確認の注意は経路で入れ替える (確定 URL を出さないのは新規作成の条件)
+  for (const note of SHARE_UPDATE_CONFIRM_NOTES) assert.ok(html.includes(note), note);
+  assert.equal(html.includes(SHARE_CONFIRM_NOTES[2]), false);
+  assert.ok(html.includes(SHARE_CONFIRM_SUMMARY));
+  // 判定はプレビューの sourcePath。別の公開元なら新規作成のまま
+  assert.equal(sharedContentWithSourcePath(null, [published]), undefined, "プレビュー未取得中は判定しない");
+  assert.equal(sharedContentWithSourcePath("projects/app/dist", [published])?.id, published.id);
+  assert.equal(sharedContentWithSourcePath("projects/app/site", [published]), undefined);
+});
+
+// What: 停止中・未デプロイ・failed のときも、状態に合わせて更新で何が起きるかを出して同じ URL を示す
+test("更新（停止中）: 停止中からの更新で公開することを示し、URL を出す", () => {
+  const html = render(
     controller({
-      items: [published],
+      items: [item({ status: "stopped", publishedAt: PUBLISHED_AT })],
       preview: { status: "ready", preview: readyPreview("projects/app/dist") },
     }),
   );
-  assert.ok(html.includes(SHARE_DUPLICATE_NOTE));
-  // 情報提供だけで、共有する操作は残す (サーバーは拒否しない)
-  assert.ok(actionTag(html, "共有する"));
-  assert.equal(actionTag(html, "共有する").includes("disabled"), false);
-  assert.equal(sharedContentWithSourcePath(null, [published]), undefined, "プレビュー失敗中は判定しない");
-  assert.equal(sharedContentWithSourcePath("projects/app/dist", [published])?.id, published.id);
-  assert.equal(sharedContentWithSourcePath("projects/app/site", [published]), undefined);
-  // プレビューが失敗している間は出さない
-  const failed = render(
-    controller({ items: [published], preview: { status: "failed", message: "公開するディレクトリが見つかりません" } }),
-  );
-  assert.equal(failed.includes(SHARE_DUPLICATE_NOTE), false);
+  assert.ok(html.includes(SHARE_UPDATE_NOTE_STOPPED));
+  assert.ok(publishTab(html).includes(URL_PUBLISHED));
+  assert.ok(actionTag(html, "更新する"));
+  assert.equal(html.includes(SHARE_UPDATE_NOTE_LIVE), false);
 });
 
-test("再オープン: 同じ公開元が公開中の間は共有するを押せず、公開中であることを示す", () => {
-  // 公開中に閉じると `activeId` は失われるが、ジョブは続いている。同じディレクトリをもう一度公開しない
+test("更新（未デプロイ / failed）: 前回の公開が未完了であることと、更新で同じ URL へ戻せることを出す", () => {
+  const undeployed = [
+    item({ status: "published", publishedAt: null, lastError: "Worker の作成に失敗しました" }),
+    item({ status: "stopped", publishedAt: null }),
+    item({ status: "failed", lastError: "index.html がありません" }),
+  ];
+  for (const existing of undeployed) {
+    const html = render(
+      controller({ items: [existing], preview: { status: "ready", preview: readyPreview("projects/app/dist") } }),
+    );
+    assert.ok(html.includes(SHARE_UPDATE_NOTE_INCOMPLETE), existing.status);
+    const publish = publishTab(html);
+    assert.ok(publish.includes(URL_PUBLISHED), `${existing.status}: 更新先の URL を出す`);
+    assert.ok(actionTag(html, "更新する"), existing.status);
+    assert.equal(html.includes(SHARE_UPDATE_NOTE_LIVE), false);
+    // 未デプロイの行でも、確認画面には開く / コピーを出さない (押しても 404 になる)
+    assert.equal(publish.includes("URL をコピー"), false);
+    assert.equal(publish.includes(">開く<"), false);
+  }
+});
+
+// What: 同じ公開元が公開中の間は主操作を出さず、理由だけを出す (押す前の再送を塞ぐ)
+test("公開中: 主操作を出さず、公開処理中である理由を出す", () => {
   const html = render(
     controller({ items: [item()], preview: { status: "ready", preview: readyPreview("projects/app/dist") } }),
   );
-  assert.ok(html.includes(SHARE_DUPLICATE_PUBLISHING_NOTE));
-  assert.equal(html.includes(SHARE_DUPLICATE_NOTE), false, "公開中は「更新は管理一覧から」と書かない");
-  assert.ok(actionTag(html, "共有する").includes("disabled"));
+  assert.ok(html.includes(SHARE_PUBLISHING_NOTE));
+  assert.equal(hasAction(html, "更新する"), false);
+  assert.equal(hasAction(html, "共有する"), false);
+  assert.equal(hasAction(html, "新しく共有"), false, "公開中は Worker を増やす導線も出さない");
+  assert.ok(actionTag(html, "キャンセル"));
   // 同じ公開元が複数あるときも、一覧の先頭が公開済みなら通さない (一覧は作成日時降順)
   const mixed = render(
     controller({
@@ -262,13 +329,26 @@ test("再オープン: 同じ公開元が公開中の間は共有するを押せ
       preview: { status: "ready", preview: readyPreview("projects/app/dist") },
     }),
   );
-  assert.ok(mixed.includes(SHARE_DUPLICATE_PUBLISHING_NOTE));
-  assert.ok(actionTag(mixed, "共有する").includes("disabled"));
-  // 別のディレクトリなら公開できる
+  assert.ok(mixed.includes(SHARE_PUBLISHING_NOTE));
+  assert.equal(hasAction(mixed, "更新する"), false);
+  // 別の公開元なら今までどおり作れる
   const other = render(
     controller({ items: [item()], preview: { status: "ready", preview: readyPreview("projects/app/site") } }),
   );
   assert.equal(actionTag(other, "共有する").includes("disabled"), false);
+});
+
+// What: プレビューが失敗したら更新の対象を特定できないので新規のみにし、断定しない案内だけを出す
+test("プレビュー失敗: 新規のみに戻し、断定しない案内を出す（共有済みと言い切らない）", () => {
+  const published = item({ status: "published", publishedAt: PUBLISHED_AT });
+  const html = render(
+    controller({ items: [published], preview: { status: "failed", message: "公開するディレクトリが見つかりません" } }),
+  );
+  assert.ok(actionTag(html, "共有する"));
+  assert.ok(html.includes(SHARE_PREVIEW_FAILED_UPDATE_HINT));
+  assert.equal(html.includes("共有済み"), false, "見えていない公開元で共有済みと言わない");
+  assert.equal(html.includes(SHARE_NAME_LOCKED_NOTE), false);
+  for (const note of SHARE_CONFIRM_NOTES) assert.ok(html.includes(note), note);
 });
 
 test("受付直後: 一覧に active がまだ無い間も、閉じても公開が続く案内を出す", () => {
