@@ -825,12 +825,57 @@ test("予約 (pending) のまま落ちた試行は再起動で interrupted と�
 
     const second = await openBff(dir, createControlledGenerator().generate);
     try {
+      // 起動時に meta 自体を interrupted へ保存し直す
+      const initializedMeta = JSON.parse(await readFile(sessionMetaPath(sessionId, dir), "utf8"));
+      assert.equal(initializedMeta.titleAttempt.state, "skipped");
+      assert.equal(initializedMeta.titleAttempt.skipReason, "interrupted");
+      // 未ロードの一覧も、読み込む前から pending を見せない
+      const list = await jsonBody(second.app.request("/api/sessions"));
+      const listed = list.sessions.find((item: { sessionId: string }) => item.sessionId === sessionId);
+      assert.equal(listed.titleSummary.attempt.state, "skipped");
+      assert.equal(listed.titleSummary.attempt.skipReason, "interrupted");
+
       const opened = await jsonBody(second.app.request(`/api/sessions/${sessionId}`));
       assert.equal(opened.titleSummary.attempt.state, "skipped");
       assert.equal(opened.titleSummary.attempt.skipReason, "interrupted");
       assert.equal(second.store.descriptors.get(sessionId)?.titleAttempt?.state, "skipped");
     } finally {
       await second.close();
+    }
+  });
+});
+
+test("再要約の生成中は idle sweep が会話を破棄せず、結果を保存する", async () => {
+  await withStoreDir(async (dir) => {
+    const generator = createControlledGenerator();
+    const bff = await openBff(dir, generator.generate);
+    try {
+      await enableSummary(bff);
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      const sessionId = created.sessionId as string;
+      await sendTitleMessage(bff, sessionId, "ログイン画面のエラー表示を改善したい");
+      await waitCompleted(bff, sessionId);
+      await waitFor(() => generator.calls.length === 1, 3000, "auto generate");
+      generator.calls[0]!.settle({ ok: true, title: "自動のタイトル", usage: undefined });
+      const record = bff.store.records.get(sessionId)!;
+      await waitFor(() => record.title === "自動のタイトル", 3000, "auto title");
+
+      // 加入者なし・TTL 切れの古い会話にして、sweep の対象にする
+      record.lastUsedAt = 0;
+      record.run = null;
+
+      const pending = bff.app.request(`/api/sessions/${sessionId}/title/summarize`, jsonPost({}));
+      await waitFor(() => generator.calls.length === 2, 3000, "manual generate");
+      await bff.store.sweep();
+      assert.equal(bff.store.records.get(sessionId), record, "再要約中に sweep が会話を破棄した");
+
+      generator.calls[1]!.settle({ ok: true, title: "掃除中でも残るタイトル", usage: undefined });
+      const response = await pending;
+      assert.equal(response.status, 200);
+      assert.equal(bff.store.descriptors.get(sessionId)?.title, "掃除中でも残るタイトル");
+      assert.equal(bff.store.descriptors.get(sessionId)?.titleAttempt?.state, "done");
+    } finally {
+      await bff.close();
     }
   });
 });

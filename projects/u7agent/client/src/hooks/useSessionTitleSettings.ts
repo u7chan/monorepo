@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, getTitleSummarySettings, postTitleSummaryTest, putTitleSummarySettings } from "../api";
 import {
   SESSION_TITLE_DEFINITION_RESET_NOTE,
@@ -30,27 +30,35 @@ export function useSessionTitleSettings() {
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TitleSummaryTestResponse | null>(null);
+  // 動作確認の実行中に設定が変わったら、古い設定の結果を新しい設定の証拠として出さない
+  const settingsKey = settings
+    ? `${settings.enabled}|${settings.model ?? ""}|${settings.thinkingLevel ?? ""}|${settings.definition}`
+    : "";
+  const settingsKeyRef = useRef(settingsKey);
+  useEffect(() => {
+    settingsKeyRef.current = settingsKey;
+    setTestResult(null);
+  }, [settingsKey]);
 
   const test = useCallback(async (): Promise<void> => {
     if (!settings?.enabled || !settings.model || !settings.modelAvailable) return;
+    const startedKey = settingsKeyRef.current;
     setTesting(true);
     try {
-      setTestResult(await postTitleSummaryTest());
+      const result = await postTitleSummaryTest();
+      if (settingsKeyRef.current === startedKey) setTestResult(result);
     } catch (error) {
-      setTestResult({
-        ok: false,
-        error: error instanceof ApiError ? error.message : error instanceof Error ? error.message : String(error),
-        durationMs: 0,
-      });
+      if (settingsKeyRef.current === startedKey) {
+        setTestResult({
+          ok: false,
+          error: error instanceof ApiError ? error.message : error instanceof Error ? error.message : String(error),
+          durationMs: 0,
+        });
+      }
     } finally {
       setTesting(false);
     }
   }, [settings?.enabled, settings?.model, settings?.modelAvailable]);
-
-  // 設定を変えたら前の結果は現在の設定の証拠にならないため消す
-  useEffect(() => {
-    setTestResult(null);
-  }, [settings?.enabled, settings?.model, settings?.thinkingLevel, settings?.definition]);
 
   const setEnabled = useCallback(
     (enabled: boolean): Promise<boolean> => {

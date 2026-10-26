@@ -7,7 +7,8 @@
 ## 会話タイトルの受入
 
 自動検証は `server/test/session-title-ai.test.ts`（自動要約の判定・予約・再起動・設定変更との競合・
-会話メニューからの再要約・手動タイトルの置き換え・失敗理由の公開・`titleRequest` の復元・設定の動作確認）、
+会話メニューからの再要約・手動タイトルの置き換え・失敗理由の公開・`titleRequest` の復元・設定の動作確認・
+未ロード一覧の interrupted 復旧・再要約中の idle sweep 除外）、
 `server/test/title-summary.test.ts`（入力のマスク・出力検証・usage・Effort / sessionId の伝播）、
 `server/test/title-summary-settings.test.ts`（保存値と設定 API）、`server/test/diagnostics.test.ts`
 （`title` の形と本文を載せないこと）、client の `client/test/sessionTitleStatus.test.ts`（状態 / 理由 / 確認文言）、

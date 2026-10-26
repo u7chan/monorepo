@@ -53,7 +53,7 @@ export function SessionTitleSettingsTab({
   testResult,
   onTest,
 }: SessionTitleSettingsTabProps) {
-  const busy = saving !== null;
+  const busy = saving !== null || testing;
   const { enabled } = settings;
   const [draft, setDraft] = useState(settings.definition);
   const [draftFor, setDraftFor] = useState(settings.definition);

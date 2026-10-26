@@ -147,6 +147,15 @@ export interface TitleSummaryModelChoice {
   thinkingLevels: ThinkingLevel[];
 }
 
+/**
+ * 未ロードの meta に残った pending は、実行中の task を持たない (プロセスが落ちた予約)。
+ * 表示と診断だけ先に終端へ倒し、読み込み時に meta を保存し直す (永久に「実行中」と見せない)。
+ */
+export function settledTitleAttemptOf(attempt: TitleAttempt | undefined): TitleAttempt | undefined {
+  if (attempt?.state !== "pending") return attempt;
+  return { ...attempt, state: "skipped", skipReason: "interrupted", error: undefined };
+}
+
 /** 試行の公開形。失敗理由はマスクし、長さを抑えてから payload / 診断へ載せる */
 export function titleSummaryOf(
   source: { origin?: TitleOrigin; attempt?: TitleAttempt },

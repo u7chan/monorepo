@@ -249,7 +249,7 @@ export function useSessions({
       const payloadAttempt = payload.titleSummary?.attempt;
       const attemptChanged =
         listed !== undefined &&
-        (listedAttempt?.at !== payloadAttempt?.at || listedAttempt?.state !== payloadAttempt?.state);
+        (listedAttempt?.runId !== payloadAttempt?.runId || listedAttempt?.state !== payloadAttempt?.state);
       if (
         (payload.status === "compacting") !== listedCompacting ||
         (listed && listed.title !== payload.title) ||

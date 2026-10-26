@@ -27,7 +27,8 @@ export const INITIAL_SESSION_TITLE_NOTICE_TRACKER: SessionTitleNoticeTracker = {
 
 export function sessionTitleAttemptKey(summary: SessionTitleSummary | undefined): string {
   const attempt = summary?.attempt;
-  return attempt ? `${attempt.at}:${attempt.state}` : "";
+  // 同じミリ秒に 2 回予約しても取り違えないよう、表示用の時刻ではなく試行 ID で区別する
+  return attempt ? `${attempt.runId}:${attempt.state}` : "";
 }
 
 /**

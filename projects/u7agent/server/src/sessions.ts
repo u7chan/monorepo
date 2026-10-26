@@ -66,6 +66,7 @@ import {
   titleOriginOf,
   titleRequestOf,
   titleSummaryOf,
+  settledTitleAttemptOf,
   type SessionTitleSummary,
   type TitleAttempt,
   type TitleOrigin,
@@ -465,6 +466,30 @@ export class SessionStore {
         console.warn(`[u7agent] セッションの meta.json を読めません: ${id}`);
       }
     }
+    await this.recoverInterruptedTitleAttempts();
+  }
+
+  /**
+   * 前のプロセスが予約 (pending) のまま落ちた試行を、起動時に interrupted として保存し直す。
+   * 未ロードの一覧だけを見ても「実行中」が残らないようにする (summaryOfMeta の投影と二重の防御)。
+   */
+  private async recoverInterruptedTitleAttempts(): Promise<void> {
+    const storeDir = this.storeDir;
+    if (!storeDir) return;
+    for (const [id, meta] of this.descriptors) {
+      if (meta.titleAttempt?.state !== "pending") continue;
+      const settled = settledTitleAttemptOf(meta.titleAttempt);
+      if (!settled) continue;
+      const updated = { ...meta, titleAttempt: settled };
+      this.descriptors.set(id, updated);
+      try {
+        await writeSessionMeta(storeDir, updated);
+      } catch (error) {
+        console.warn(
+          `[u7agent] 中断したタイトル試行の保存に失敗しました (${id}): ${this.masker.mask(messageFor(error))}`,
+        );
+      }
+    }
   }
 
   async create({
@@ -803,13 +828,9 @@ export class SessionStore {
     this.records.set(id, record);
     // 予約 (pending) のまま落ちたプロセスを再開した場合、実行中の task は存在しない。
     // 永久に「実行中」と見せず、再起動で中断したことを残す (自動の再試行はしない)
-    if (record.titleAttempt?.state === "pending") {
-      record.titleAttempt = {
-        ...record.titleAttempt,
-        state: "skipped",
-        skipReason: "interrupted",
-        error: undefined,
-      };
+    const settledAttempt = settledTitleAttemptOf(record.titleAttempt);
+    if (record.titleAttempt?.state === "pending" && settledAttempt) {
+      record.titleAttempt = settledAttempt;
       await this.persist(record, { jsonl: false });
     }
     // 突き合わせの結果を書き直す (書けなければ dirty のまま残り、次の persist / flush で再試行する)
@@ -2104,6 +2125,7 @@ export class SessionStore {
     }
     const meta = this.descriptors.get(id);
     if (!meta) return undefined;
+    const metaAttempt = settledTitleAttemptOf(meta.titleAttempt);
     return projectSessionDiagnostics({
       masker: this.masker,
       input: {
@@ -2115,7 +2137,7 @@ export class SessionStore {
         queueSendIds: [],
         run: null,
         questions: [],
-        title: { origin: titleOriginOf(meta), ...(meta.titleAttempt ? { attempt: meta.titleAttempt } : {}) },
+        title: { origin: titleOriginOf(meta), ...(metaAttempt ? { attempt: metaAttempt } : {}) },
         meta: {
           spaceId: meta.spaceId ?? "default",
           agentId: meta.agentId,
@@ -2142,7 +2164,10 @@ export class SessionStore {
       sessionId: meta.id,
       spaceId: meta.spaceId ?? "default",
       title: meta.title || "無題のセッション",
-      titleSummary: titleSummaryOf({ origin: titleOriginOf(meta), attempt: meta.titleAttempt }, this.masker),
+      titleSummary: titleSummaryOf(
+        { origin: titleOriginOf(meta), attempt: settledTitleAttemptOf(meta.titleAttempt) },
+        this.masker,
+      ),
       agentId: meta.agentId,
       agentName: meta.agent.name,
       status: "idle",
@@ -2716,7 +2741,13 @@ export class SessionStore {
       const cutoff = Date.now() - SESSION_TTL_MS;
       // 破棄中に records を変更するため、走査対象は先に固める
       for (const [id, record] of Array.from(this.records)) {
-        if (this.isBusy(record) || record.subscribers.size > 0 || record.changingSettings) continue;
+        if (
+          this.isBusy(record) ||
+          record.titleTask !== undefined ||
+          record.subscribers.size > 0 ||
+          record.changingSettings
+        )
+          continue;
         if (this.deleting.has(id) || this.lifecycle.has(id) || this.metaUpdates.has(id) || this.pinUpdates.has(id))
           continue;
         if (record.lastUsedAt >= cutoff) continue;
