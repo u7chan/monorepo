@@ -438,6 +438,7 @@ test("停止の結果不明で照会できないときは publishing を保存�
     await waitForSettled(bff, created.id);
     failing.behavior.set = 500;
     failing.behavior.get = 500;
+    const before = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
 
     const response = await bff.app.request(`/api/shared-contents/${created.id}/stop`, { method: "POST" });
     assert.equal(response.status, 502);
@@ -448,6 +449,7 @@ test("停止の結果不明で照会できないときは publishing を保存�
     const after = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
     assert.equal(after.status, "publishing", "結果を確定させない");
     assert.equal(after.lastError, SHARED_CONTENT_RECONCILE_FAILED);
+    assert.equal(after.publishedAt, before.publishedAt, "公開実績を消さない");
   } finally {
     await restore();
   }
@@ -464,6 +466,7 @@ test("停止の確定失敗は開始状態 / failed を保存し、応答に sta
     );
     await waitForSettled(bff, created.id);
     failing.behavior.set = 401;
+    const publishedBefore = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
     const published = await bff.app.request(`/api/shared-contents/${created.id}/stop`, { method: "POST" });
     assert.equal(published.status, 502);
     const publishedBody = await jsonBody(published);
@@ -471,13 +474,21 @@ test("停止の確定失敗は開始状態 / failed を保存し、応答に sta
     const restored = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
     assert.equal(restored.status, "published", "停止できていないので公開中へ戻す");
     assert.equal(restored.lastError, publishedBody.error);
+    assert.equal(restored.publishedAt, publishedBefore.publishedAt, "公開実績を消さない");
+    assert.equal(restored.stoppedAt, publishedBefore.stoppedAt, "停止していないので stoppedAt を入れない");
 
     // 未公開で結果不明のまま残った行 (停止だけを受け付ける) は publishing を保存し直す
     seedRow(bff, sessionId, "stuck", { status: "publishing", publishedAt: null, lastError: "結果を確認できません" });
-    const unknownBody = await jsonBody(await bff.app.request("/api/shared-contents/stuck/stop", { method: "POST" }));
+    const stuckBefore = await jsonBody(await bff.app.request("/api/shared-contents/stuck"));
+    const unknownResponse = await bff.app.request("/api/shared-contents/stuck/stop", { method: "POST" });
+    assert.equal(unknownResponse.status, 502);
+    const unknownBody = await jsonBody(unknownResponse);
+    assert.equal("state" in unknownBody, false, "保存した失敗に not_stored を付けない");
     const stuck = await jsonBody(await bff.app.request("/api/shared-contents/stuck"));
     assert.equal(stuck.status, "publishing");
     assert.equal(stuck.lastError, unknownBody.error);
+    assert.notEqual(stuck.lastError, stuckBefore.lastError, "応答の文言を行へ保存する");
+    assert.equal(stuck.publishedAt, null, "公開実績を捏造しない");
 
     // 公開実績の無い published は failed に収束させ、deployment の無い URL を公開中扱いにしない
     seedRow(bff, sessionId, "legacy", { status: "published", publishedAt: null });
@@ -559,6 +570,7 @@ test("何も保存しない失敗は state: not_stored のまま行を変えな�
       ),
     );
     await waitForSettled(unsaved.bff, created.id);
+    const before = await jsonBody(await unsaved.bff.app.request(`/api/shared-contents/${created.id}`));
     // provider の無効化は通るが、行の更新だけが失敗する状況を作る
     unsaved.bff.appDb.updateSharedContentState = () => {
       throw new Error("write failed");
@@ -566,6 +578,8 @@ test("何も保存しない失敗は state: not_stored のまま行を変えな�
     const response = await unsaved.bff.app.request(`/api/shared-contents/${created.id}/stop`, { method: "POST" });
     assert.equal(response.status, 503);
     assert.equal((await jsonBody(response)).state, "not_stored");
+    const after = await jsonBody(await unsaved.bff.app.request(`/api/shared-contents/${created.id}`));
+    assert.deepEqual(after, before, "保存できていないので行は操作前のまま");
   } finally {
     await unsaved.restore();
   }
