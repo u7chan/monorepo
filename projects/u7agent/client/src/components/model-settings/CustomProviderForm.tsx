@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
   CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE,
-  CUSTOM_PROVIDER_CONTEXT_WINDOW_PLACEHOLDER,
   CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS,
+  contextWindowOptions,
   customProviderCreateBody,
   customProviderDraftOf,
   customProviderFormHasError,
@@ -16,6 +16,7 @@ import {
 import type { CreateCustomProviderBody, CustomProviderSummary, UpdateCustomProviderBody } from "../../types";
 import { useConfirm } from "../ConfirmProvider";
 import { CheckIcon, TrashIcon } from "../icons";
+import { SelectField } from "../SelectField";
 
 export type CustomProviderFormProps = {
   /** null = 追加。定義があれば編集（provider id は読み取り専用） */
@@ -197,16 +198,21 @@ export function CustomProviderForm({
           </label>
           <label className="grid content-start gap-1 text-2xs text-ink-soft">
             contextWindow
-            <input
-              className="field min-w-0 text-xs"
-              inputMode="numeric"
+            <SelectField
+              wrapperClassName="w-full"
               value={draft.contextWindow}
-              placeholder={CUSTOM_PROVIDER_CONTEXT_WINDOW_PLACEHOLDER}
               aria-label="contextWindow"
               autoComplete="off"
               aria-invalid={errors.contextWindow ? true : undefined}
               onChange={(event) => update({ contextWindow: event.currentTarget.value })}
-            />
+            >
+              <option value="">選択してください</option>
+              {contextWindowOptions(draft.contextWindow).map((option) => (
+                <option key={option.value} value={String(option.value)}>
+                  {option.label}
+                </option>
+              ))}
+            </SelectField>
             <span className="text-ink-ghost">{CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE}</span>
             {errors.contextWindow ? <span className="text-warn">{errors.contextWindow}</span> : null}
           </label>
