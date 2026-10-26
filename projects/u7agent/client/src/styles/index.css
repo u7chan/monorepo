@@ -32,10 +32,9 @@
   --text-1sm: 13px;
   --text-md: 16px;
 
-  /* 待機中の送信の一覧 (QueuedSends) の上限。低い viewport では、上へ浮くライブ表示の箱の最大高 +
-   * 状態行・入力欄・見出し (24rem) を引いた高さまで詰める。1.25rem の下限は 1 行を必ず見せるための
-   * 床で、これを下回る高さでは箱が viewport の外へ出る側を受け入れる (行を詰めると `取り消し` に届かない)。
-   * ライブ表示の寸法を変えるときはここも直す */
+  /* 待機中の送信の一覧 (QueuedSends) の上限。低い viewport では、状態行・入力欄・見出しと余裕の分
+   * (24rem) を引いた高さまで詰める。1.25rem の下限は 1 行を必ず見せるための床で、これを下回る高さでは
+   * 状態行・入力欄を残す側を優先する (行を詰めると `取り消し` に届かない)。 */
   --queued-sends-max-height: max(1.25rem, min(35dvh, calc(100dvh - 24rem)));
 
   /* uppercase の小見出し (eyebrow) の字間。tracking-widest (0.1em) より広く取る */
@@ -1269,35 +1268,6 @@
     transform: translateY(var(--virtual-start));
   }
 
-  /* 入力欄の上に浮かぶライブ表示が占める高さ。箱は composer のフローから外れているため、
-   * 最後の本文が箱に隠れないよう、チャットの内容の下端へこの固定値だけを確保する。
-   * 箱の実測には追従させない (毎フレーム動くと浮かせた意味が消える)。各値は同じ index.css の
-   * ライブ表示の寸法を写したもので、箱の余白 (py-*) と行間 (leading-4) を変えるときはここも直す */
-  .chat-live-reserve {
-    --live-tool-line-height: 1rem; /* leading-4 */
-    --live-tool-border-height: 2px; /* 箱の border (上下 1px) */
-    --live-tool-header-height: calc(1px + 0.5rem + var(--live-tool-line-height)); /* border-b + py-1 + 1 行 */
-    --live-tool-row-height: calc(var(--live-tool-line-height) + 0.25rem); /* 行 = 1 行 + py-0.5 */
-    --live-tool-progress-height: calc(var(--live-tool-line-height) * 2 + 0.375rem); /* 進捗 = 2 行 + gap-0.5 + py-0.5 */
-    /* 箱の最大高 = border + ヘッダ + ol の py-0.5 + (行 3 + 溢れ 1 行) + 進捗。畳むときは箱と同じ
-     * 時間をかけ、読み返し中は即時で放す */
-    --live-tool-reserve-height: calc(
-      var(--live-tool-border-height) + var(--live-tool-header-height) + 0.25rem + var(--live-tool-row-height) * 4 +
-        var(--live-tool-progress-height)
-    );
-  }
-  .chat-live-reserve[data-live-reserve="true"] {
-    padding-bottom: var(--live-tool-reserve-height);
-  }
-  .chat-live-reserve[data-live-closing="true"] {
-    transition: padding-bottom 180ms ease-out;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .chat-live-reserve[data-live-closing="true"] {
-      transition: none;
-    }
-  }
-
   /* 「最新のメッセージへ移動」ボタンの出入り (下からふわっと出て、下へふわっと消える)。退場の終わりを
    * 待って unmount する state を持たなくて済むよう、ボタンは常に置いて状態だけを切り替える。隠れている
    * 間は visibility で押せなくし、フォーカスと読み上げから外す。呼び出し側の -translate-x-1/2 は
@@ -2039,59 +2009,7 @@
     }
   }
 
-  /* 入力欄の直上のライブ表示 (実行中のツール)。箱の出入りと行の出現を CSS が持ち、
-   * 表示条件と演出の意図は docs/frontend.md が正。行は最新の枠だけを出し (溢れた分は 1 行に畳む)、
-   * 箱は composer のフローへ参加しない (高さが動いてもチャットの最下部が動かない)。
-   * 視覚専用なのでクリックは通し、下のチャットをホイールでスクロールできるようにする */
-  .live-tool {
-    display: grid;
-    grid-template-rows: 0fr;
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      grid-template-rows 180ms ease-out,
-      opacity 180ms ease-out;
-  }
-  .live-tool[data-visible="true"] {
-    grid-template-rows: 1fr;
-    opacity: 1;
-  }
-  /* 閉じは 1 段。行・箱・余白を同じ 180ms で畳み、不透明度だけ 120ms で先に落とす */
-  .live-tool[data-closing="true"] {
-    transition:
-      grid-template-rows 180ms ease-out,
-      opacity 120ms ease-out;
-  }
-  .live-tool > * {
-    min-height: 0;
-    overflow: hidden;
-  }
-  .live-tool-row {
-    animation: live-tool-row-in 180ms ease-out;
-  }
-  @keyframes live-tool-row-in {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    /* 閉じる側の transition は .live-tool[data-closing="true"] が持つため、詳細度を揃えないと
-     * 上の .live-tool の transition: none が負ける (余白側 [data-live-closing] と同じ形にそろえる) */
-    .live-tool,
-    .live-tool[data-closing="true"] {
-      transition: none;
-    }
-    .live-tool-row {
-      animation: none;
-    }
-  }
-
-  /* ライブからツール履歴へ 1 件差し込まれた合図。畳んだままでも見えるよう、見出しを一瞬光らせる。
+  /* ツール履歴に 1 件差し込まれた合図。畳んだままでも見えるよう、見出しを一瞬光らせる。
    * 差し込まれるたびに要素ごと作り直されるので、連続でも毎回最初から光る */
   .tool-history-flash {
     position: absolute;

@@ -13,7 +13,6 @@ import {
 } from "react";
 import { useExitPhase } from "../hooks/useExitPhase";
 import type { Attachment, ComposerSettings } from "../hooks/useU7Agent";
-import type { LiveToolCallView } from "../hooks/useLiveToolCall";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
 import { pastedImageFiles } from "../lib/clipboardImages";
 import { cn } from "../lib/cn";
@@ -30,7 +29,6 @@ import type { AgentDef, AgentSuggestion, ContextUsage, ModelRef, RunStatus, Thin
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
-import { LiveToolCall } from "./composer/LiveToolCall";
 import { ModelEffortPicker } from "./composer/ModelEffortControls";
 import { QueuedSends } from "./composer/QueuedSends";
 import { SkillPicker } from "./composer/SkillPicker";
@@ -60,8 +58,6 @@ export type ComposerProps = {
   onCompact?: () => void;
   /** ランがエラーで終わったか (再実行カードの表示条件) */
   runStatus?: RunStatus;
-  /** 直近 run のライブ表示 (実行中と、ホールド中のツール)。App が作る (余白をチャットと共有するため) */
-  liveTools: LiveToolCallView;
   /** 最後に失敗したランの分類コードと、BFF が合成した文言 */
   runError?: RunErrorInfo;
   /** 利用者の操作の結果 (待機の取り消しに失敗した理由など)。状態行の下の 1 行に出す */
@@ -164,7 +160,6 @@ export function Composer({
   onCompact,
   onRetry,
   runStatus,
-  liveTools,
   runError,
   notice,
   onReloadSkills,
@@ -547,7 +542,6 @@ export function Composer({
           onDragLeave={() => setDropKind(null)}
           onDrop={handleDrop}
         >
-          <LiveToolCall {...liveTools} className="absolute inset-x-0 bottom-full z-10" />
           <QueuedSends sends={queuedSends ?? []} singleColumn={singleColumn} onCancel={onCancelQueued} />
           <ComposerStatus
             activity={activity}

@@ -27,6 +27,71 @@ const pendingQuestion = (): ToolCall => ({
   questions: [{ question: "どちらで進めますか" }],
 });
 
+const runningTool = (id: string, name: string, args: string, extra: Partial<ToolCall> = {}): ToolCall => ({
+  id,
+  name,
+  args,
+  isError: false,
+  done: false,
+  output: "",
+  ...extra,
+});
+
+test("描画: 実行中のツールは状態行に最新1件を出し、サーバーの汎用文言を上書きする", () => {
+  const html = render({
+    activity: "実行中…",
+    runStatus: "running",
+    runTools: {
+      t1: runningTool("t1", "bash", "ls", { done: true, output: "ok" }),
+      t2: runningTool("t2", "read", "docs/frontend.md"),
+    },
+  });
+
+  assert.ok(html.includes("実行中 · read — docs/frontend.md"), "最新の実行中ツールを出す");
+  assert.equal(html.includes("実行中…"), false, "汎用の活動文言ではなくツールを出す");
+  assert.ok(html.includes('title="read — docs/frontend.md'), "全文を title に残す");
+});
+
+test("描画: 実行中ツールの文言は読み上げの連発を避けて aria-live の対象から外す", () => {
+  const html = render({
+    activity: "考え中…",
+    runStatus: "running",
+    runTools: { t1: runningTool("t1", "bash", "ls") },
+  });
+
+  const liveStart = html.indexOf('aria-live="off"');
+  assert.ok(liveStart >= 0, "ツール文言は live の対象から外す");
+  assert.ok(html.slice(liveStart, html.indexOf("</span>", liveStart)).includes("実行中 · bash — ls"));
+  assert.equal(html.includes('aria-live="polite"'), false, "ツール名を polite で読み上げない");
+});
+
+test("描画: 並列実行は件数を出し、investigate の進捗を優先する", () => {
+  const html = render({
+    activity: "実行中…",
+    runStatus: "running",
+    runTools: {
+      t1: runningTool("t1", "read", "a.md"),
+      t2: runningTool("t2", "investigate", "docs を調べて", {
+        progress: "bash rg -n foo\n結論: docs にある",
+      }),
+    },
+  });
+
+  assert.ok(html.includes("2件実行中 · investigate — bash rg -n foo"), "件数と現在の活動を出す");
+  assert.ok(html.includes("結論: docs にある"), "本文末尾は title に残す");
+});
+
+test("描画: 実行中の行が無ければツール文言を出さず、サーバーの活動へ戻す", () => {
+  const html = render({
+    activity: "考え中…",
+    runStatus: "running",
+    runTools: { t1: runningTool("t1", "bash", "ls", { done: true, output: "ok" }) },
+  });
+
+  assert.equal(html.includes("bash — ls"), false, "完了した行だけなら出さない");
+  assert.ok(html.includes("考え中…"));
+});
+
 test("描画: 回答待ちで待機キューがあるとき、回答してもすぐ実行されない理由を状態行の下に出す", () => {
   // What: 回答待ちの run が終わらないと待機中の送信が始まらないことを、可視の 1 文で示す。
   // 状態行の中に置くと、幅が足りないときに活動ラベルと折り返しを奪い合うため、行の外に出す
@@ -37,9 +102,6 @@ test("描画: 回答待ちで待機キューがあるとき、回答してもす
     queueDepth: 1,
     context,
     modelSlot: slot(),
-    onCompact: () => {},
-    compactDisabled: true,
-    compactDisabledReason: "実行中",
   });
 
   const reason = html.indexOf("回答後、この応答とツールが終わった時点で待機中の送信が反映されます");
@@ -51,13 +113,11 @@ test("描画: 回答待ちで待機キューがあるとき、回答してもす
     "件数の増減で読み上げ直さないよう aria-live の外に置く",
   );
   assert.ok(reason > liveEnd, "活動ラベルと同じ span に置かない (折り返しを奪い合わない)");
-  // 状態行 (ゲージ) と説明の行を先に出しておく。無いまま indexOf を比較すると常に真になり、
+  // 状態行 (ゲージ) を先に出しておく。無いまま indexOf を比較すると常に真になり、
   // 理由を状態行の中へ戻す退行を検知できない
   const gauge = html.indexOf('role="progressbar"');
-  const notice = html.indexOf("今は圧縮できません");
-  assert.ok(gauge >= 0 && notice >= 0, "ゲージと押せない理由を出す (下の 2 つの比較の前提)");
+  assert.ok(gauge >= 0, "ゲージを出す (下の比較の前提)");
   assert.ok(reason > gauge, "状態行より後ろ = 行の外に出す");
-  assert.ok(reason < notice, "押せない理由と同じ行に、待機の理由を先に出す");
 
   const singleColumn = render({
     activity: "回答を待っています…",
@@ -301,12 +361,12 @@ test("描画: 押せないときは disabled にし、理由を状態行の下�
     modelSlot: slot(),
     onCompact: () => {},
     compactDisabled: true,
-    compactDisabledReason: "圧縮中",
+    compactDisabledReason: "設定の変更中",
   });
 
   assert.ok(html.includes('disabled=""'));
   // 理由は hover や読み上げだけに閉じず、画面上に出す (設定の変更中など活動テキストが理由を示さない状態がある)
-  const paragraph = /<p id="[^"]+" class="([^"]*)">今は圧縮できません（圧縮中）<\/p>/.exec(html);
+  const paragraph = /<p id="[^"]+" class="([^"]*)">今は圧縮できません（設定の変更中）<\/p>/.exec(html);
   assert.ok(paragraph, "理由の文を状態行の下に出す");
   assert.ok(!paragraph[1].includes("sr-only"), "読み上げ専用にしない (タッチ端末でも読める)");
   // 小さい文字で右寄せにする体裁は、待機の理由と共有する説明の行が持つ
@@ -316,6 +376,20 @@ test("描画: 押せないときは disabled にし、理由を状態行の下�
   const described = /aria-describedby="([^"]+)"/.exec(html)?.[1];
   assert.ok(described, "押せない理由を読み上げへ渡す");
   assert.ok(html.includes(`id="${described}"`), "describedby の参照先が存在する");
+});
+
+test("描画: 実行中は状態行が理由を兼ね、圧縮の理由行で高さを動かさない", () => {
+  const html = render({
+    activity: "実行中…",
+    runStatus: "running",
+    modelSlot: slot(),
+    onCompact: () => {},
+    compactDisabled: true,
+    compactDisabledReason: "実行中",
+  });
+
+  assert.ok(html.includes('disabled=""'), "圧縮ボタンは引き続き無効");
+  assert.equal(html.includes("今は圧縮できません"), false, "実行中の理由行を出さない");
 });
 
 // --- 最終失敗の再実行カード ---

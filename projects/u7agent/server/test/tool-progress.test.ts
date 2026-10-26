@@ -74,7 +74,7 @@ test("investigate の途中結果だけを tool_progress へ変換する", () =>
   assert.equal(events.filter((event) => event.type === "tool_progress").length, 2);
 });
 
-test("本文を持たない途中結果は配らない (空の進捗を live 行に流さない)", () => {
+test("本文を持たない途中結果は配らない (空の進捗を状態行に流さない)", () => {
   const { bridge, events } = createProgressBridge();
   bridge.listener({
     type: "tool_execution_update",

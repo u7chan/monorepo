@@ -1,8 +1,15 @@
-import { useId, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useElapsedMs } from "../../hooks/useElapsedMs";
 import { pendingAskUserQuestionCount } from "../../lib/askUser";
 import { cn } from "../../lib/cn";
+import { compactionBusy } from "../../lib/composerSettings";
 import { elapsedBeatIndex, formatElapsed, isElapsedTier, runElapsedMs } from "../../lib/elapsed";
+import {
+  LIVE_TOOL_TEXT_THROTTLE_MS,
+  liveToolStatus,
+  liveToolStatusView,
+  type LiveToolStatusView,
+} from "../../lib/liveToolCall";
 import { answerWaitQueueReason } from "../../lib/queueWait";
 import {
   blockedButtonsNotice,
@@ -16,6 +23,65 @@ import { contextGauge } from "../../lib/usageFormat";
 import type { ContextUsage, RunStatus, ToolCall } from "../../types";
 import { CompactIcon, RunSpinnerIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
+
+/**
+ * 状態行のツール文言を短い間隔で間引く。表示中にツールが消えたら即座にサーバーの活動文言へ戻す。
+ * 出現も同じ間隔だけ待ち、それより短い one-shot は出さない (状態行の文言を明滅させない)。
+ */
+function useLiveToolView(view: LiveToolStatusView | undefined): LiveToolStatusView | undefined {
+  const [display, setDisplay] = useState(view);
+  const latest = useRef(view);
+  const lastShownAt = useRef(0);
+  const timer = useRef<number | null>(null);
+  latest.current = view;
+
+  const viewKey = view === undefined ? "" : `${view.text}\u0000${view.title}`;
+  const displayKey = display === undefined ? "" : `${display.text}\u0000${display.title}`;
+
+  useEffect(() => {
+    if (viewKey === "") {
+      if (timer.current !== null) {
+        window.clearTimeout(timer.current);
+        timer.current = null;
+      }
+      lastShownAt.current = 0;
+      setDisplay(undefined);
+      return;
+    }
+    if (viewKey === displayKey) {
+      if (timer.current !== null) {
+        window.clearTimeout(timer.current);
+        timer.current = null;
+      }
+      return;
+    }
+    if (timer.current !== null) return;
+    const now = Date.now();
+    const wait =
+      lastShownAt.current === 0
+        ? LIVE_TOOL_TEXT_THROTTLE_MS
+        : Math.max(0, LIVE_TOOL_TEXT_THROTTLE_MS - (now - lastShownAt.current));
+    if (wait === 0) {
+      lastShownAt.current = now;
+      setDisplay(latest.current);
+      return;
+    }
+    timer.current = window.setTimeout(() => {
+      timer.current = null;
+      lastShownAt.current = Date.now();
+      setDisplay(latest.current);
+    }, wait);
+  }, [viewKey, displayKey]);
+
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  return display;
+}
 
 /**
  * 入力欄の上の状態行 (活動 / モデル - Effort の入口 / Context ゲージ)。
@@ -55,7 +121,7 @@ export function ComposerStatus({
   activityState?: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
-  /** 回答待ち (ask_user の実行区間) を経過時間から除く入力。run が実行中のときだけ使う */
+  /** 回答待ちの控除と、実行中ツールの 1 行表示に使う */
   runTools?: Record<string, ToolCall>;
   /** サーバーの待機キュー件数 (status payload と同じ値)。回答待ちの理由を出すかの根拠 */
   queueDepth?: number;
@@ -69,7 +135,7 @@ export function ComposerStatus({
   compactDisabledReason?: string;
   /** 幅の狭いレイアウト。再実行カードのボタンを全幅にする */
   singleColumn?: boolean;
-  /** ランがエラーで終わったか。再実行カードの表示条件 (`runStatus === "error"`) に使う */
+  /** 実行中ツールの表示条件と、エラー時の再実行カードの条件 (`runStatus === "error"`) に使う */
   runStatus?: RunStatus;
   /** 最後に失敗したランの分類コードと文言。runEnd / resync から保持したもの */
   runError?: RunErrorInfo;
@@ -90,6 +156,9 @@ export function ComposerStatus({
   const shimmer = activityState === "thinking";
   const gauge = contextGauge(context);
   const elapsedMs = useElapsedMs(runningSince);
+  // 実行中のツールは状態行の 1 行に出す。文言は短い間隔で間引き、消えたらサーバーの活動へ戻す
+  const liveView = useLiveToolView(liveToolStatusView(liveToolStatus(runTools, runStatus)));
+  const activityText = liveView?.text ?? activity;
   // 実行中の経過。ms と表示文を組で持つ (演出の判定は ms、表示は文)
   let elapsed: { ms: number; text: string } | null = null;
   if (runningSince !== undefined && elapsedMs !== undefined) {
@@ -105,7 +174,7 @@ export function ComposerStatus({
   // 活動が無いときは活動欄ごと出さない (空の欄が折り返して空行が残るのを避ける)。回答待ちの理由は
   // 出どころが別 (キュー) なので、活動の文言が変わっても表示を落とさない
   const queueReason = answerWaitQueueReason(pendingAskUserQuestionCount(runTools, runStatus), queueDepth);
-  const showActivity = activity !== "" || elapsed !== null || queueReason !== undefined;
+  const showActivity = activityText !== "" || elapsed !== null || queueReason !== undefined;
   // 再実行カードは時間をおけば回復し得る失敗だけに出す (停止・成功・キュー待ちでは出さない)
   const card = retryableRunError(runStatus, runError);
   const showRetry = card !== undefined && onRetry !== undefined;
@@ -117,9 +186,11 @@ export function ComposerStatus({
   // 押せない理由は状態行の下に 1 行で出す (押せない間の説明を hover だけに閉じると、タッチ端末で読めない)
   const compactBlocked = onCompact !== undefined && compactDisabled && compactDisabledReason !== undefined;
   const retryBlocked = showRetry && retryDisabled && retryDisabledReason !== undefined;
+  // 実行中・待機中・圧縮中は状態行が実行状態を示すため、圧縮の理由行を出さない (出し入れで composer の高さを動かさない)
+  const compactReasonVisible = compactBlocked && !compactionBusy(runStatus);
   // 無効な操作と実際の理由だけを並べる (再実行だけが無効なときに圧縮の文言を出さない)
   const blockedNotice = blockedButtonsNotice({
-    compact: compactBlocked ? compactDisabledReason : undefined,
+    compact: compactReasonVisible ? compactDisabledReason : undefined,
     retry: retryBlocked ? retryDisabledReason : undefined,
   });
 
@@ -157,9 +228,19 @@ export function ComposerStatus({
         {elapsed === null ? null : <RunSpinnerIcon tone="focus" />}
         {showActivity ? (
           // 活動テキストがあるときは下限幅を置き、0 幅まで潰れる前に組を折り返させる
-          <span className={cn("flex flex-1 items-baseline gap-1.5", activity ? "min-w-40" : "min-w-0")}>
-            <span aria-live="polite" className={cn("min-w-0 break-words", shimmer && "activity-shimmer")}>
-              {activity}
+          <span className={cn("flex flex-1 items-baseline gap-1.5", activityText ? "min-w-40" : "min-w-0")}>
+            <span
+              // ツール名は短い間隔で変わるため、読み上げの連発を避けて live の対象から外す。
+              // 活動の語 (考え中 / 応答を書いています) だけを polite で読む
+              aria-live={liveView === undefined ? "polite" : "off"}
+              title={liveView?.title}
+              className={cn(
+                "min-w-0",
+                liveView === undefined ? "break-words" : "flex-1 truncate",
+                shimmer && liveView === undefined && "activity-shimmer",
+              )}
+            >
+              {activityText}
             </span>
             {/* 毎秒変わる数字は aria-live の外に置く (読み上げの連発を避ける) */}
             {elapsed === null ? null : (
@@ -208,7 +289,7 @@ export function ComposerStatus({
               onClick={onCompact}
               disabled={compactDisabled}
               aria-label="会話を圧縮"
-              aria-describedby={compactBlocked ? reasonId : undefined}
+              aria-describedby={compactReasonVisible ? reasonId : undefined}
               className="composer-status-icon"
             >
               <CompactIcon />

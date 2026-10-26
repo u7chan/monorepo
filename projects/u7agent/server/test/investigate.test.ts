@@ -540,7 +540,7 @@ test("進捗は親の live イベントとしてだけ配り、payload の run.t
     store.postMessage(record, "調べて");
     await waitFor(() => store.statusOf(record) === "completed", 3000, "parent run");
 
-    // tool_start / tool_progress / tool_end が同じ id で並ぶ (live 行とカードが同じキーで対応する)
+    // tool_start / tool_progress / tool_end が同じ id で並ぶ (状態行とカードが同じキーで対応する)
     const types = record.events
       .filter((event) => "id" in event.data && event.data.id === "call-investigate-1")
       .map((event) => event.type);

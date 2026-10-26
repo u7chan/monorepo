@@ -160,8 +160,8 @@ function ToolCallRow({
 }
 
 /**
- * ツール履歴。進行中のターンでは実行中のカードを出さず (ライブ表示が受け持つ)、「すべてコピー」も
- * 出さない (伸びている途中の断片をコピらせない)。表示条件の根拠は docs/frontend.md が正。
+ * ツール履歴。進行中のターンでは実行中のカードを出さず (入力欄の上の状態行が最新を出す)、
+ * 「すべてコピー」も出さない (伸びている途中の断片をコピらせない)。表示条件の根拠は docs/frontend.md が正。
  */
 export function ToolHistoryView({
   cards,
@@ -198,10 +198,14 @@ export function ToolHistoryView({
   const providerChip = historyProviderChip(shown);
 
   // 1 件増えた瞬間だけ見出しを光らせる。key を変えて要素ごと作り直すので、連続で差し込まれても
-  // 毎回最初から光る
+  // 毎回最初から光る。実行中は件数とプレビューが更新されるため、高速ツールで明滅させない
   const [flashKey, setFlashKey] = useState(0);
   const previousCount = useRef(shown.length);
   useEffect(() => {
+    if (live) {
+      previousCount.current = shown.length;
+      return;
+    }
     if (shown.length <= previousCount.current) {
       previousCount.current = shown.length;
       return;
@@ -210,7 +214,7 @@ export function ToolHistoryView({
     setFlashKey(shown.length);
     const timer = setTimeout(() => setFlashKey(0), SLOT_FLASH_MS);
     return () => clearTimeout(timer);
-  }, [shown.length]);
+  }, [shown.length, live]);
 
   // ライブ側が同内容を出している間は、空の見出し (「ツール履歴 0件」) を残さない
   if (shown.length === 0) return null;

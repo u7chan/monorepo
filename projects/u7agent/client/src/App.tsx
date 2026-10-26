@@ -31,7 +31,6 @@ import { useU7Agent, type SendMessageOptions } from "./hooks/useU7Agent";
 import { useElapsedMs } from "./hooks/useElapsedMs";
 import { useExitPhase } from "./hooks/useExitPhase";
 import { useLayoutMode } from "./hooks/useLayoutMode";
-import { useLiveToolCall } from "./hooks/useLiveToolCall";
 import { useMarkdownImageRawUrl } from "./hooks/useMarkdownImageRawUrl";
 import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
@@ -160,14 +159,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     compact: compactTapTargets,
     onOpen: () => navigate({ view: "activity" }),
   };
-  // 入力欄の上に浮かぶライブ表示。箱が浮いている間はチャットの下端にも余白を確保するため、
-  // 両方を持つここで導出して渡す (段と行の決め方は hooks/useLiveToolCall)
-  const liveTools = useLiveToolCall({
-    runTools: app.chat.runTools,
-    runStatus: app.chat.runStatus,
-    liveToolIds: app.chat.liveToolIds,
-    sessionId: app.sessionId,
-  });
   // 再試行待機の残り時間表示。受信後の経過だけを毎秒測る (retryReceivedAt が無ければ tick しない)
   const retryElapsed = useElapsedMs(app.chat.retryReceivedAt);
   // 状態行に出す活動の文言と由来。再試行の文言で上書きしている間は run の由来を渡さない
@@ -1044,7 +1035,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                   currentAssistantId={app.chat.currentAssistantId}
                   startingRunId={app.chat.startingRunId}
                   onStartFlashEnd={handleStartFlashEnd}
-                  liveToolsPhase={liveTools.phase}
                 />
               </MarkdownImageProvider>
             </FileRefProvider>
@@ -1079,7 +1069,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
               onStop={handleStop}
               onCompact={app.sessionId ? handleCompact : undefined}
               runStatus={app.chat.runStatus}
-              liveTools={liveTools}
               runError={app.chat.runError}
               onRetry={handleRetry}
               onAttachFiles={app.attachFiles}

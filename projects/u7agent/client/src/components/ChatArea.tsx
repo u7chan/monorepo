@@ -13,7 +13,6 @@ import { resolveScrollFollow, shouldLoadOlder } from "../lib/chatScroll";
 import type { ChatScope } from "../lib/chatScope";
 import { cn } from "../lib/cn";
 import { generationCaptionsOf } from "../lib/generationInfo";
-import type { LiveToolPhase } from "../lib/liveToolCall";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
 import { nonSkillToolCards, skillBadgesOf } from "../lib/skillLoad";
 import type { AgentSuggestion, AskUserAnswer, CompactionInfo } from "../types";
@@ -79,8 +78,6 @@ export type ChatAreaProps = {
   startingRunId?: string;
   /** 開始の Flash (リングの広がり) が終わった。ライブ専用の合図を落とす根拠 */
   onStartFlashEnd?: () => void;
-  /** 入力欄の上に浮かぶライブ表示の段。箱が浮いている間だけ、内容の下端に固定の余白を確保する */
-  liveToolsPhase?: LiveToolPhase;
 };
 
 export function ChatArea({
@@ -112,7 +109,6 @@ export function ChatArea({
   currentAssistantId = null,
   startingRunId,
   onStartFlashEnd,
-  liveToolsPhase = "hidden",
 }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
   // 本文ブロック。ストリーミングで bubbles が増えない伸び (行の折り返し) は resize 側で拾う
@@ -325,10 +321,6 @@ export function ChatArea({
     );
   }
 
-  // 浮かせたライブ表示の余白。箱が閉じる 1 段に合わせて畳み、読み返し中は即時解放する (docs/frontend.md)。
-  // 箱の実測に追従させないため、値は CSS が持ち、ここは確保するかどうかだけを渡す
-  const reserveLiveTool = liveToolsPhase === "open" && follow;
-
   return (
     <div className="relative flex min-h-0 min-w-0">
       <section
@@ -344,12 +336,10 @@ export function ChatArea({
         <div
           ref={contentRef}
           className={cn(
-            "chat-live-reserve mx-auto w-full min-w-0",
+            "mx-auto w-full min-w-0",
             singleColumn ? null : "max-w-220",
             centerEmpty && items.length === 0 ? "flex min-h-full flex-col justify-end" : null,
           )}
-          data-live-reserve={reserveLiveTool}
-          data-live-closing={liveToolsPhase === "closing"}
         >
           {items.length === 0 ? (
             <div
@@ -407,7 +397,6 @@ export function ChatArea({
       <ScrollToBottomButton
         visible={!follow && items.length > 0}
         onClick={snapToBottom}
-        // 浮かせたライブ表示 (z-10) より上へ出す。箱が開いている間も押せるようにするため
         className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2"
       />
     </div>
