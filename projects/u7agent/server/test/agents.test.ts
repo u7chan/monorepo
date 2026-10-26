@@ -234,7 +234,7 @@ test("normalizes agent suggestions on create", () => {
   assert.equal(Object.hasOwn(empty, "suggestions"), false);
 });
 
-test("trims, truncates and deduplicates suggestions before the 6 item cap", () => {
+test("trims, truncates and deduplicates suggestions, and rejects a 7th unique item", () => {
   const catalog = createAgentCatalog();
 
   const trimmed = catalog.createAgent({
@@ -259,9 +259,9 @@ test("trims, truncates and deduplicates suggestions before the 6 item cap", () =
     { label: "別", prompt: "別のプロンプト" },
   ]);
 
-  // 重複排除が先なので、重複は 6 件の枠を消費せず 7 件目のユニークが残る
-  const capped = catalog.createAgent({
-    name: "上限",
+  // 重複排除が先なので、重複は 6 件の枠を消費しない (ユニーク 6 件までは保存できる)
+  const full = catalog.createAgent({
+    name: "上限ちょうど",
     suggestions: [
       { label: "A", prompt: "A" },
       { label: "A の重複", prompt: "A" },
@@ -270,12 +270,31 @@ test("trims, truncates and deduplicates suggestions before the 6 item cap", () =
       { label: "D", prompt: "D" },
       { label: "E", prompt: "E" },
       { label: "F", prompt: "F" },
-      { label: "G", prompt: "G" },
     ],
   });
   assert.deepEqual(
-    capped.suggestions?.map((suggestion) => suggestion.prompt),
+    full.suggestions?.map((suggestion) => suggestion.prompt),
     ["A", "B", "C", "D", "E", "F"],
+  );
+
+  // ユニーク 7 件は黙って 6 件に切らず、保存を 400 で断る (保存できたと誤認させない)
+  assert.throws(
+    () =>
+      catalog.createAgent({
+        name: "上限超過",
+        suggestions: [
+          { label: "A", prompt: "A" },
+          { label: "A の重複", prompt: "A" },
+          { label: "B", prompt: "B" },
+          { label: "C", prompt: "C" },
+          { label: "D", prompt: "D" },
+          { label: "E", prompt: "E" },
+          { label: "F", prompt: "F" },
+          { label: "G", prompt: "G" },
+        ],
+      }),
+    (error: Error & { statusCode?: number }) =>
+      error.statusCode === 400 && error.message === "Agent suggestions must have at most 6 items",
   );
 });
 
