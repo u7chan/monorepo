@@ -26,9 +26,8 @@ export function sharedContentCreateBody(input: {
   return { sessionId: input.sessionId, directory: input.directory, ...(name === "" ? {} : { name }) };
 }
 
-/** 同じ公開元の共有物があるときに出す案内。公開中だけは再送を止めるので、その理由もここで示す */
-export const SHARE_DUPLICATE_NOTE = "共有済み（更新は 設定 → 共有 から）";
-export const SHARE_DUPLICATE_PUBLISHING_NOTE = "このディレクトリは公開中です。完了すると 設定 → 共有 に URL が出ます。";
+/** 同じ公開元が公開中のときの理由。再送を止め、完了後に URL がどこへ出るかだけを示す */
+export const SHARE_PUBLISHING_NOTE = "公開処理中です。完了すると 設定 → 共有 に URL が出ます。";
 
 /** 公開中に閉じても公開が止まらないことと、結果の確認先。閉じる操作は塞がない */
 export const SHARE_CLOSE_HINT = "閉じても公開は続きます。結果は 設定 → 共有 で確認できます。";
@@ -64,19 +63,80 @@ export function sharedContentPublishingWithSourcePath(
 }
 
 /**
+ * 共有ダイアログの主操作。同じ公開元の共有物があれば更新を主にし、新規作成は副次へ下げる。
+ * 公開中だけは、閉じて開き直して `activeId` が失われても再送させない（Worker と URL を二重に作らない）。
+ */
+export type SharePrimaryAction =
+  | { kind: "create" }
+  | { kind: "update"; item: SharedContentResponse }
+  | { kind: "publishing" };
+
+/** 公開元の同一性はプレビューの `sourcePath` の文字列だけで見る（`directory` の字面はサーバーの解決規則と二重になる） */
+export function sharePrimaryAction(
+  sourcePath: string | null,
+  items: readonly SharedContentResponse[],
+): SharePrimaryAction {
+  if (sharedContentPublishingWithSourcePath(sourcePath, items)) return { kind: "publishing" };
+  const item = sharedContentWithSourcePath(sourcePath, items);
+  return item === undefined ? { kind: "create" } : { kind: "update", item };
+}
+
+/**
+ * 更新で何が起きるか。更新は成果物を上げ直すので、未デプロイ・失敗からの復帰も同じ経路。
+ * 管理一覧の停止中の「再公開」は版を変えないので、同じ「停止中」でも意味が違う。
+ */
+export const SHARE_UPDATE_NOTE_LIVE = "この URL を更新します。";
+export const SHARE_UPDATE_NOTE_STOPPED = "停止中の共有物を更新して公開します。";
+export const SHARE_UPDATE_NOTE_INCOMPLETE = "前回の公開は完了していません。更新で同じ URL に公開し直せます。";
+
+/** 更新する対象の状態を、押す前に読める 1 行にする */
+export function shareUpdateNote(item: SharedContentResponse): string {
+  if (isSharedContentUndeployed(item) || item.status === "failed") return SHARE_UPDATE_NOTE_INCOMPLETE;
+  switch (item.status) {
+    case "published":
+      return SHARE_UPDATE_NOTE_LIVE;
+    case "stopped":
+      return SHARE_UPDATE_NOTE_STOPPED;
+    case "publishing":
+      return SHARE_PUBLISHING_NOTE;
+  }
+}
+
+/** 更新では表示名を変えない（API に改名が無い）。入力欄の代わりに理由を出す */
+export const SHARE_NAME_LOCKED_NOTE = "表示名は変わりません";
+/** 副次の新規作成は取り消しにくい（Worker が増える）ので、押す前に 1 行だけ添える */
+export const SHARE_CREATE_SECONDARY_NOTE = "新しい URL が増えます（Worker が 1 つ増えます）。";
+/**
+ * プレビューが失敗して公開元が分からないときの案内。更新の対象を特定できないので、存在を断定しない
+ * （同じフォルダの共有物があっても、ここからは更新へ進めない）。
+ */
+export const SHARE_PREVIEW_FAILED_UPDATE_HINT = "同じフォルダの共有物がある場合、更新は 設定 → 共有 から行えます。";
+
+/**
  * 確認画面の注意の summary。`SHARE_CONFIRM_NOTES` を畳んだままでも要点が読める 1 行にする
  * （`client/src/components/CollapsibleNotice.tsx` の契約）。
  */
 export const SHARE_CONFIRM_SUMMARY = "URL は誰でも見られます。ファイルに含めた秘密の値もそのまま公開されます。";
 
 /**
- * 確認画面に必ず出す条件。順序も含めて契約にする（公開は取り消しにくいので、押す前に全部読めるようにする）。
- * 確定した URL は受付時に決まるため、ここには URL を出さない。
+ * 新規作成の確認画面に必ず出す条件。順序も含めて契約にする（公開は取り消しにくいので、押す前に全部読めるようにする）。
+ * 確定した URL は受付時に決まるため、ここには URL を出さない（この条件は新規作成だけのもの）。
  */
 export const SHARE_CONFIRM_NOTES: readonly string[] = [
   "URL を知っていれば誰でも見られます（認証・期限はありません）。",
   "静的ファイルに含めた秘密値（API キー・トークンなど）も、そのまま公開されます。",
   "公開すると確定した URL が発行されます。URL は受付時に決まるため、公開前には表示できません。",
+  "Cloudflare（workers.dev）へ公開します。サービス（一時プレビュー）とは別で、この画面からは停止・削除ができません。",
+];
+
+/**
+ * 更新の確認画面に出す条件。更新は URL が既に決まっているので、確認画面に更新先として出す
+ * （「公開前に確定 URL を出さない」は新規作成の条件に限定される）。
+ */
+export const SHARE_UPDATE_CONFIRM_NOTES: readonly string[] = [
+  "URL を知っていれば誰でも見られます（認証・期限はありません）。",
+  "静的ファイルに含めた秘密値（API キー・トークンなど）も、そのまま公開されます。",
+  "更新しても URL は変わりません。公開中の版は、更新が成功するまで残ります。",
   "Cloudflare（workers.dev）へ公開します。サービス（一時プレビュー）とは別で、この画面からは停止・削除ができません。",
 ];
 
@@ -123,29 +183,24 @@ export function shareStatusView(item: SharedContentResponse): ShareStatusView {
   }
 }
 
-/** 公開がまだ進行中の共有物があるか。`exceptId` を渡すとその 1 件は数えない */
-export function shareItemsPublishing(items: readonly SharedContentResponse[], exceptId: string | null = null): boolean {
-  return items.some((item) => item.status === "publishing" && item.id !== exceptId);
+/** 公開がまだ進行中の共有物があるか */
+export function shareItemsPublishing(items: readonly SharedContentResponse[]): boolean {
+  return items.some((item) => item.status === "publishing");
 }
 
-/** 次の tick で読む対象。両方 true なら 1 tick で両方を読む */
-export type SharePollPlan = {
-  /** 受付した 1 件の詳細。null = 追う必要が無い */
-  detailId: string | null;
-  /** 一覧の取り直し。受付した 1 件とは別に進行中の共有物があるときだけ要る */
-  list: boolean;
-};
-
 /**
- * 詳細だけにすると受付後に一覧の他の進行中が止まったままになるため、両方を 1 tick で追う。
- * 受付した 1 件は一覧にまだ載っていない間も詳細で追う。
+ * 次の tick で詳細を読む 1 件。`tracked` は受付（202）済みで終端をまだ確認できていない id。
+ * 受付直後の一覧取得が失敗すると items は操作前のままなので、これが無いと `activeId` の詳細も読まれず、
+ * 更新前の結果を出したままポーリングが止まる。
  */
-export function sharePollPlan(activeId: string | null, items: readonly SharedContentResponse[]): SharePollPlan {
+export function sharePollDetailId(
+  activeId: string | null,
+  items: readonly SharedContentResponse[],
+  tracked: readonly string[] = [],
+): string | null {
   const active = activeId === null ? undefined : items.find((item) => item.id === activeId);
-  return {
-    detailId: activeId !== null && (active === undefined || active.status === "publishing") ? activeId : null,
-    list: shareItemsPublishing(items, activeId),
-  };
+  if (activeId !== null && (active === undefined || active.status === "publishing")) return activeId;
+  return tracked[0] ?? null;
 }
 
 /** 受付した 1 件を一覧へ差し替える（未取得なら先頭に足す）。詳細のポーリング結果を反映する 1 箇所 */

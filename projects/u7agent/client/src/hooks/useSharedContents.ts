@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createSharedContent, getSharedContent, getSharedContentPreview, getSharedContents } from "../api";
-import { sharedContentCreateBody, SHARE_POLL_MS, sharePollPlan, withSharedContent } from "../lib/sharedContents";
+import {
+  createSharedContent,
+  getSharedContent,
+  getSharedContentPreview,
+  getSharedContents,
+  publishSharedContent,
+} from "../api";
+import {
+  settleAcceptedSharedContent,
+  SHARE_POLL_MS,
+  sharePollDetailId,
+  sharedContentCreateBody,
+  sharedContentsPolling,
+  trackAcceptedSharedContent,
+  withSharedContent,
+} from "../lib/sharedContents";
 import type { SharedContentPreviewResponse, SharedContentResponse } from "../types";
 
 /**
@@ -44,6 +58,11 @@ function messageFor(error: unknown): string {
 
 export function useSharedContents({ sessionId, directory }: { sessionId: string; directory: string }) {
   const [state, setState] = useState<SharedContentsState>(INITIAL);
+  /**
+   * 202 を受けたが終端をまだ確認できていない id。受付直後の一覧取得が失敗すると `items` は
+   * 操作前のままなので、これが空だと詳細のポーリングが始まらない（更新前の結果で止まる）。
+   */
+  const [acceptedPublishing, setAcceptedPublishing] = useState<string[]>([]);
   // プレビューはダイアログを開いた時点の見え方。公開の成否とは別に持つ (画面は状態を持ち越さない)
   const [preview, setPreview] = useState<SharePreviewState>({ status: "loading" });
   /** 発行した取得の通し番号。遅れて届いた古い応答を適用しない */
@@ -56,10 +75,11 @@ export function useSharedContents({ sessionId, directory }: { sessionId: string;
    * 新しい会話の一覧に前の会話の結果が混ざるため、切替で状態ごと捨てる。
    */
   const sessionRef = useRef(sessionId);
-  const [tracked, setTracked] = useState(sessionId);
-  if (tracked !== sessionId) {
-    setTracked(sessionId);
+  const [activeSession, setActiveSession] = useState(sessionId);
+  if (activeSession !== sessionId) {
+    setActiveSession(sessionId);
     setState(INITIAL);
+    setAcceptedPublishing([]);
     requestSeq.current = 0;
     appliedSeq.current = 0;
     inFlight.current = false;
@@ -74,6 +94,8 @@ export function useSharedContents({ sessionId, directory }: { sessionId: string;
       if (sessionRef.current !== session) return;
       if (seq < appliedSeq.current) return;
       appliedSeq.current = seq;
+      // 終端を確認できた id は追跡をやめる。一覧が古い応答で上書きされても追跡は次の成功で揃う
+      setAcceptedPublishing((prev) => settleAcceptedSharedContent(prev, items));
       setState((prev) => ({ ...prev, items, loading: false, failed: false }));
     } catch {
       if (sessionRef.current !== session) return;
@@ -105,6 +127,16 @@ export function useSharedContents({ sessionId, directory }: { sessionId: string;
     };
   }, [sessionId, directory]);
 
+  /**
+   * 受付（202）を状態へ反映する。操作より前に発行した一覧取得は操作前の状態を返すので、
+   * 成功応答のあとに適用させない（`appliedSeq` を前進させる）。以降は追跡 id で詳細を読む。
+   */
+  const accept = useCallback((id: string): void => {
+    appliedSeq.current = ++requestSeq.current;
+    setState((prev) => ({ ...prev, submitting: false, activeId: id }));
+    setAcceptedPublishing((prev) => trackAcceptedSharedContent(prev, id));
+  }, []);
+
   /** 受付して公開を開始する。202 の後に一覧を取り直し、以降は状態をポーリングする */
   const share = useCallback(
     async (directory: string, name = ""): Promise<void> => {
@@ -113,19 +145,37 @@ export function useSharedContents({ sessionId, directory }: { sessionId: string;
       try {
         const accepted = await createSharedContent(sharedContentCreateBody({ sessionId: session, directory, name }));
         if (sessionRef.current !== session) return;
-        setState((prev) => ({ ...prev, submitting: false, activeId: accepted.id }));
+        accept(accepted.id);
         await loadList();
       } catch (error) {
         if (sessionRef.current !== session) return;
         setState((prev) => ({ ...prev, submitting: false, error: messageFor(error) }));
       }
     },
-    [sessionId, loadList],
+    [sessionId, accept, loadList],
   );
 
-  const plan = sharePollPlan(state.activeId, state.items);
-  const pollDetailId = plan.detailId ?? "";
-  const pollList = plan.list;
+  /** 同じ URL への更新。受付の形は新規作成と同じで、結果の出し方も共通にする */
+  const update = useCallback(
+    async (id: string): Promise<void> => {
+      const session = sessionId;
+      setState((prev) => ({ ...prev, submitting: true, error: undefined }));
+      try {
+        const accepted = await publishSharedContent(id);
+        if (sessionRef.current !== session) return;
+        accept(accepted.id);
+        await loadList();
+      } catch (error) {
+        if (sessionRef.current !== session) return;
+        setState((prev) => ({ ...prev, submitting: false, error: messageFor(error) }));
+      }
+    },
+    [sessionId, accept, loadList],
+  );
+
+  // 一覧は追跡 id が残っている間も取り直す（追跡を終える材料は一覧の成功だけ）
+  const pollDetailId = sharePollDetailId(state.activeId, state.items, acceptedPublishing) ?? "";
+  const pollList = sharedContentsPolling(state.items, acceptedPublishing);
 
   useEffect(() => {
     if (pollDetailId === "" && !pollList) return;
@@ -160,7 +210,7 @@ export function useSharedContents({ sessionId, directory }: { sessionId: string;
     };
   }, [pollDetailId, pollList, sessionId, loadList]);
 
-  return { ...state, preview, share, reload: loadList };
+  return { ...state, preview, share, update, reload: loadList };
 }
 
 export type SharedContentsController = ReturnType<typeof useSharedContents>;

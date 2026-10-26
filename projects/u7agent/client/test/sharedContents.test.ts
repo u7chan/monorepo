@@ -1,14 +1,21 @@
-// 共有ダイアログの純関数。公開の状態は status と lastError の組で読み、確認画面に確定 URL を出さないこと、
-// ポーリングの宛先 (受付した 1 件は詳細、他は一覧) を固定する。
+// 共有ダイアログの純関数。公開の状態は status と lastError の組で読み、主操作の切り替えと
+// 202 後の追跡（詳細の宛先・一覧の要否）を固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
   SHARE_CONFIRM_NOTES,
+  SHARE_PUBLISHING_NOTE,
+  SHARE_UPDATE_CONFIRM_NOTES,
+  SHARE_UPDATE_NOTE_INCOMPLETE,
+  SHARE_UPDATE_NOTE_LIVE,
+  SHARE_UPDATE_NOTE_STOPPED,
   SHARED_CONTENT_UNDEPLOYED_NOTE,
   isSharedContentUndeployed,
   shareItemsPublishing,
-  sharePollPlan,
+  sharePollDetailId,
+  sharePrimaryAction,
   shareStatusView,
+  shareUpdateNote,
   sharedContentActions,
   sharedContentBusyLabel,
   sharedContentDeleteConfirm,
@@ -107,43 +114,70 @@ test("状態の見せ方: status だけでなく publishedAt を見て、未デ�
   assert.equal(isSharedContentUndeployed(item({ status: "failed", publishedAt: PUBLISHED_AT })), false);
 });
 
-test("確認の条件: 対象外の URL を出さず、外部公開・秘密値・URL 発行・serve との区別を含む", () => {
-  const all = SHARE_CONFIRM_NOTES.join("\n");
-  assert.match(all, /誰でも見られます/);
-  assert.match(all, /秘密値/);
-  assert.match(all, /公開前には表示できません/);
-  assert.match(all, /サービス（一時プレビュー）とは別/);
+test("確認の条件: 新規は確定 URL を出さず、更新は URL を出す（契約は経路で分かれる）", () => {
+  const create = SHARE_CONFIRM_NOTES.join("\n");
+  assert.match(create, /誰でも見られます/);
+  assert.match(create, /秘密値/);
+  assert.match(create, /公開前には表示できません/);
+  assert.match(create, /サービス（一時プレビュー）とは別/);
   assert.equal(
     SHARE_CONFIRM_NOTES.some((note) => /https?:\/\//.test(note)),
     false,
-    "確認画面に確定 URL を出さない",
+    "新規の確認画面に確定 URL を出さない",
+  );
+  const update = SHARE_UPDATE_CONFIRM_NOTES.join("\n");
+  assert.match(update, /誰でも見られます/);
+  assert.match(update, /秘密値/);
+  assert.match(update, /サービス（一時プレビュー）とは別/);
+  // 更新は URL が決まっているので、「公開前には見せられない」と言わない
+  assert.match(update, /更新しても URL は変わりません/);
+  assert.equal(
+    SHARE_UPDATE_CONFIRM_NOTES.some((note) => /公開前には表示できません/.test(note)),
+    false,
   );
 });
 
-test("ポーリングの宛先: 受付した 1 件は詳細、他の進行中は一覧、両方あるときは同じ tick で両方読む", () => {
+// What: 同じ公開元の共有物があれば更新を主操作にし、公開中だけは再送させない
+test("主操作: 同じ公開元があれば更新、なければ新規、公開中は主操作なし", () => {
+  const sourcePath = "projects/app/dist";
+  const published = item({ status: "published", publishedAt: PUBLISHED_AT });
+  assert.deepEqual(sharePrimaryAction(sourcePath, []), { kind: "create" });
+  assert.deepEqual(sharePrimaryAction(null, [published]), { kind: "create" }, "公開元が分からなければ新規だけ");
+  assert.deepEqual(sharePrimaryAction("projects/app/site", [published]), { kind: "create" });
+  assert.deepEqual(sharePrimaryAction(sourcePath, [published]), { kind: "update", item: published });
+  // 同じ公開元が公開中なら、公開済みの別行があっても再送しない
+  const publishing = item({ id: "old" });
+  assert.deepEqual(sharePrimaryAction(sourcePath, [published, publishing]), { kind: "publishing" });
+});
+
+// What: 更新の文言を状態ごとに出し分け、未デプロイと失敗は同じ復帰の文にする
+test("更新の文言: 生きた / 停止中 / 未デプロイ・失敗 を分ける", () => {
+  assert.equal(shareUpdateNote(item({ status: "published", publishedAt: PUBLISHED_AT })), SHARE_UPDATE_NOTE_LIVE);
+  assert.equal(shareUpdateNote(item({ status: "stopped", publishedAt: PUBLISHED_AT })), SHARE_UPDATE_NOTE_STOPPED);
+  assert.equal(shareUpdateNote(item({ status: "published", publishedAt: null })), SHARE_UPDATE_NOTE_INCOMPLETE);
+  assert.equal(shareUpdateNote(item({ status: "stopped", publishedAt: null })), SHARE_UPDATE_NOTE_INCOMPLETE);
+  assert.equal(shareUpdateNote(item({ status: "failed" })), SHARE_UPDATE_NOTE_INCOMPLETE);
+  assert.equal(shareUpdateNote(item({ status: "publishing" })), SHARE_PUBLISHING_NOTE);
+});
+
+test("ポーリングの宛先: 受付した 1 件と追跡中の id を詳細で追い、一覧の要否は sharedContentsPolling が決める", () => {
   // 受付した 1 件が一覧に載っていない間も詳細で追う
-  assert.deepEqual(sharePollPlan("abc123", []), { detailId: "abc123", list: false });
-  assert.deepEqual(sharePollPlan("abc123", [item()]), { detailId: "abc123", list: false });
-  // 受付した 1 件を詳細で追っている間も、他の進行中は一覧の取り直しで更新する (止まったままにしない)
-  assert.deepEqual(sharePollPlan("abc123", [item(), item({ id: "def456" })]), {
-    detailId: "abc123",
-    list: true,
-  });
-  assert.deepEqual(sharePollPlan("abc123", [item({ status: "published" }), item({ id: "def456" })]), {
-    detailId: null,
-    list: true,
-  });
-  assert.deepEqual(sharePollPlan("abc123", [item({ status: "published" })]), { detailId: null, list: false });
-  assert.deepEqual(sharePollPlan(null, [item()]), { detailId: null, list: true });
-  assert.deepEqual(sharePollPlan(null, [item({ status: "published" }), item({ id: "def456" })]), {
-    detailId: null,
-    list: true,
-  });
-  assert.deepEqual(sharePollPlan(null, [item({ status: "published" })]), { detailId: null, list: false });
+  assert.equal(sharePollDetailId("abc123", []), "abc123");
+  assert.equal(sharePollDetailId("abc123", [item()]), "abc123");
+  // 一覧の同じ id が終端なら詳細は要らない (一覧の取り直しで十分)
+  assert.equal(sharePollDetailId("abc123", [item({ status: "published" })]), null);
+  assert.equal(sharePollDetailId(null, [item()]), null);
+  // 追跡中の id は、一覧が古い published 行のままでも詳細で追う
+  const stale = [item({ id: "abc123", status: "published", publishedAt: PUBLISHED_AT })];
+  assert.equal(sharePollDetailId(null, stale, ["abc123"]), "abc123");
+  // 受付した 1 件がまだ一覧に無い間は、そちらを優先する (追跡 id は一覧の取り直しで揃う)
+  assert.equal(sharePollDetailId("abc123", [], ["def456"]), "abc123");
+  // 一覧の要否は状態と追跡の両方で決める。追跡が残っている間は止めない
+  assert.equal(shareItemsPublishing(stale), false);
+  assert.equal(sharedContentsPolling(stale, []), false);
+  assert.equal(sharedContentsPolling(stale, ["abc123"]), true);
   assert.equal(shareItemsPublishing([item({ status: "published" })]), false);
   assert.equal(shareItemsPublishing([item({ status: "published" }), item({ id: "def456" })]), true);
-  // 受付した 1 件だけが進行中なら、一覧の取り直しは要らない
-  assert.equal(shareItemsPublishing([item()], "abc123"), false);
 });
 
 test("受付済みの追跡: 202 の直後の一覧取得が失敗しても、終端を取得するまでポーリングを続ける", () => {
@@ -153,6 +187,8 @@ test("受付済みの追跡: 202 の直後の一覧取得が失敗しても、�
   assert.deepEqual(tracked, ["abc123"]);
   // 受付直後の一覧 GET が失敗した場合、items は操作前 (published) のまま。それでも追跡が残るので続ける
   assert.equal(sharedContentsPolling([published], tracked), true);
+  // 一覧が古い published のままでも詳細を読む (更新前の結果を出したまま止まらない)
+  assert.equal(sharePollDetailId(null, [published], tracked), "abc123");
   // 一覧が取れて publishing を確認できた: 追跡を続ける
   tracked = settleAcceptedSharedContent(tracked, [item({ id: "abc123", status: "publishing" })]);
   assert.deepEqual(tracked, ["abc123"]);
@@ -161,6 +197,7 @@ test("受付済みの追跡: 202 の直後の一覧取得が失敗しても、�
   tracked = settleAcceptedSharedContent(tracked, [item({ id: "abc123", status: "stopped" })]);
   assert.deepEqual(tracked, []);
   assert.equal(sharedContentsPolling([published], tracked), false);
+  assert.equal(sharePollDetailId(null, [published], tracked), null, "終端を確かめたら詳細も止める");
   // 一覧から消えた id も追跡をやめる
   assert.deepEqual(settleAcceptedSharedContent(["gone"], [published]), []);
   // 同じ id を重ねて追跡しない
