@@ -4,7 +4,8 @@ import { PlusIcon, TrashIcon } from "../icons";
 /**
  * サーバー側の上限に合わせる。件数は見出しへ、文字数は各入力欄の隣へ現在値と上限で出し、
  * 件数の上限では「追加」を止める代わりに理由を説明行へ出す (見えない上限は、止められた理由も
- * 残り何文字なのかも読めない)。
+ * 残り何文字なのかも読めない)。文字数は入力制限 (`maxLength`) と同じ生の長さで数える
+ * (trim 後で数えると、空白を含むときに残量があるように見えて入力が止まる)。
  */
 const SUGGESTION_LIMIT = 6;
 const LABEL_MAX = 60;
@@ -43,7 +44,7 @@ export function SuggestionsEditor({
                 onChange={(e) => onChange(index, { label: e.currentTarget.value })}
               />
               <span className="shrink-0 text-2xs text-ink-ghost tabular-nums">
-                {suggestion.label.trim().length} / {LABEL_MAX}
+                {suggestion.label.length} / {LABEL_MAX}
               </span>
               <button
                 type="button"
@@ -65,7 +66,7 @@ export function SuggestionsEditor({
               onChange={(e) => onChange(index, { prompt: e.currentTarget.value })}
             />
             <div className="flex justify-end text-2xs text-ink-ghost tabular-nums">
-              {suggestion.prompt.trim().length} / {PROMPT_MAX}
+              {suggestion.prompt.length} / {PROMPT_MAX}
             </div>
           </div>
         ))}

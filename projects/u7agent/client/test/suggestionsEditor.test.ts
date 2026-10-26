@@ -41,6 +41,14 @@ test("描画: 見出しは件数を、入力欄は文字数を上限つきで出
   assert.ok(!textOf(html).includes("上限の"), "上限未満では無効の理由を出さない");
 });
 
+test("描画: 文字数は入力制限と同じく trim 前の長さで数える", () => {
+  // 入力制限 (maxLength) は生の文字列を数える。trim 後で数えると、前後の空白があるときに
+  // 「まだ入る」と読めるのに次の文字が拒否される
+  const html = render([{ label: " 案", prompt: "依頼  " }]);
+  assert.match(textOf(html), /2 \/ 60/);
+  assert.match(textOf(html), /4 \/ 500/);
+});
+
 test("描画: 上限では追加を無効にし、理由を説明行へ出す", () => {
   const html = render(suggestionsOf(6));
   assert.match(textOf(html), /6 \/ 6/);
