@@ -51,8 +51,11 @@ test("ダウンロード: 除外名 / symlink / readOnly には出さない", ()
       type,
     );
   }
-  // 読み取り専用の面 (スキルのファイルタブ) は行の操作ごと出さない
-  assert.equal(fileRowActions({ ...base, readOnly: true }), null);
+  // 読み取り専用の面 (スキルのファイルタブ) はダウンロードを出さず、パスをコピーだけ残す
+  assert.deepEqual(
+    fileRowActions({ ...base, readOnly: true })?.map((action) => action.kind),
+    ["copy-path"],
+  );
 });
 
 test("確認文言: 除外があるフォルダのときだけ出し、除外名と件数を示す", () => {

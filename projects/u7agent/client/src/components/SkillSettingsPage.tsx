@@ -27,6 +27,8 @@ import { PencilIcon, TrashIcon } from "./icons";
 export type SkillSettingsPageProps = SettingsPageProps & {
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
   filePreviewPort?: number;
+  /** ワークスペース root の絶対パス (health.cwd)。ファイルタブの行の絶対パスをコピーする導線に使う */
+  rootCwd?: string;
 };
 
 function errorText(error: unknown): string {
@@ -55,6 +57,7 @@ export function fileSkillPaneNote(state: FileSkillsState): string {
 
 export function SkillSettingsPage({
   filePreviewPort,
+  rootCwd,
   singleColumn = false,
   onBack,
   onOpenNav,
@@ -251,6 +254,7 @@ export function SkillSettingsPage({
       actions={fileSkillActions}
       variant={sheetMode ? "sheet" : "page"}
       filePreviewPort={filePreviewPort}
+      rootCwd={rootCwd}
     />
   ) : (
     <section className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">

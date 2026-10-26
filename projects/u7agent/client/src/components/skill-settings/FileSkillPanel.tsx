@@ -38,6 +38,7 @@ export function FileSkillPanel({
   actions,
   variant,
   filePreviewPort,
+  rootCwd,
 }: {
   skill: FileSkillInfo;
   /** 共通スキルの編集内容。渡したときは本文と保存可否をここから出す (エディターと同じ取得結果) */
@@ -47,6 +48,8 @@ export function FileSkillPanel({
   variant: "page" | "sheet";
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
   filePreviewPort?: number;
+  /** ワークスペース root の絶対パス (health.cwd)。行の絶対パスをコピーする導線に使う */
+  rootCwd?: string;
 }) {
   const bodySource = detail?.body ?? skill.body;
   const [body, setBody] = useState<SkillBodyState>(() =>
@@ -147,8 +150,15 @@ export function FileSkillPanel({
             >
               {skillDir}
             </code>
-            {/* 読み取り専用の面なので行の操作ごと出さない（除外名は使われない） */}
-            <FileBrowser root={skillDir} reloadToken={0} readOnly excludeNames={[]} filePreviewPort={filePreviewPort} />
+            {/* 読み取り専用の面なので実体を移す / 変える操作は出さない（除外名は使われない）。パスのコピーは残す */}
+            <FileBrowser
+              root={skillDir}
+              rootCwd={rootCwd}
+              reloadToken={0}
+              readOnly
+              excludeNames={[]}
+              filePreviewPort={filePreviewPort}
+            />
           </div>
         ) : undefined
       }

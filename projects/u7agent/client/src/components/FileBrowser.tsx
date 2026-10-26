@@ -93,7 +93,7 @@ export type FileBrowserProps = {
   reloadToken: number;
   /** フォルダ行の ⋯ メニューにリネームを出すか。既定 false (チャット右パネルでは出さない) */
   canRename?: boolean;
-  /** 行の操作 (パスをコピー / ダウンロード / リネーム / 削除) の ⋯ ごと出さない (読み取り専用の面)。既定 false (既存 2 画面は不変) */
+  /** 行の ⋯ から実体を移す / 変える操作 (共有 / ダウンロード / リネーム / 削除) を出さない。パスのコピーは残す。既定 false */
   readOnly?: boolean;
   /** ファイル行を参照としてドラッグできるようにする。ドロップ先 (入力欄) と同じ root の面だけ true */
   canRef?: boolean;
@@ -935,7 +935,7 @@ export function EntryRowActions({
     canShareSessionRoot,
     depth,
   });
-  // null = 読み取り専用の面で行の操作ごと消す。空配列 = 領域は出すが項目が無い (空きスロット 1 個)
+  // null = 行の操作領域ごと消す (現在返す面は無い)。空配列 = 領域は出すが項目が無い (空きスロット 1 個)
   if (actions === null) return null;
   if (actions.length === 0) return <EmptySlot />;
   const handlers: Record<FileRowActionKind, () => void> = {
