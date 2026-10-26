@@ -4,9 +4,9 @@
  * いつ・何回呼ぶかは会話ストアが決め、ここは 1 回の生成と結果の検証だけを持つ。
  */
 import type { Api, AssistantMessage, Context, Model as PiAiModel } from "@earendil-works/pi-ai";
-import type { ModelRef } from "./schema";
+import type { ModelRef, ThinkingLevel } from "./schema";
 import type { SecretMasker } from "./redact";
-import { buildTitlePrompt, parseGeneratedTitle } from "./session-title";
+import { TITLE_MAX_OUTPUT_TOKENS, buildTitlePrompt, parseGeneratedTitle } from "./session-title";
 import type { TitleSummaryRuntimeSettings } from "./title-summary-settings";
 
 export interface TitleSummaryUsage {
@@ -30,6 +30,13 @@ export interface TitleSummaryGenerateInput {
   request: string;
   /** 判定点のランで確定した最終応答 */
   response: string;
+  /**
+   * 会話の SDK セッション ID。opencode-go のように x-opencode-session を要求する
+   * プロバイダーは、この値が無いと要約リクエストをルーティングできない。
+   */
+  sessionId: string;
+  /** 実効 Effort。モデルが推論に対応しない場合は off */
+  thinkingLevel?: ThinkingLevel;
   /** 取消 (Off への変更・停止)。実際の HTTP 呼び出しまで伝播させる */
   signal: AbortSignal;
 }
@@ -42,10 +49,24 @@ export interface TitleSummaryHost {
   generate: TitleSummaryGenerate;
 }
 
+/** pi-ai の reasoning は off を取らない (未指定 = off)。保存値の off は省略へ写す */
+export type TitleSummaryReasoningLevel = Exclude<ThinkingLevel, "off">;
+
+export interface TitleSummaryCompletionOptions {
+  signal: AbortSignal;
+  sessionId: string;
+  maxTokens: number;
+  reasoning?: TitleSummaryReasoningLevel;
+}
+
 /** 生成に渡るモデルの呼び出し。`completeSimple` は認証を ModelRuntime 側で解決する */
 export interface TitleSummaryCompletion {
   resolveModel: (model: ModelRef) => PiAiModel<Api> | undefined;
-  complete: (model: PiAiModel<Api>, context: Context, options: { signal: AbortSignal }) => Promise<AssistantMessage>;
+  complete: (
+    model: PiAiModel<Api>,
+    context: Context,
+    options: TitleSummaryCompletionOptions,
+  ) => Promise<AssistantMessage>;
 }
 
 /**
@@ -70,7 +91,12 @@ export function createTitleSummaryGenerate(
           systemPrompt,
           messages: [{ role: "user", content: [{ type: "text", text: userText }], timestamp: Date.now() }],
         },
-        { signal: input.signal },
+        {
+          signal: input.signal,
+          sessionId: input.sessionId,
+          maxTokens: model.maxTokens > 0 ? Math.min(TITLE_MAX_OUTPUT_TOKENS, model.maxTokens) : TITLE_MAX_OUTPUT_TOKENS,
+          ...(input.thinkingLevel && input.thinkingLevel !== "off" ? { reasoning: input.thinkingLevel } : {}),
+        },
       );
       const usage = usageOf(message);
       if (message.stopReason === "error" || message.stopReason === "aborted") {

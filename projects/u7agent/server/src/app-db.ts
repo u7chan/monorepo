@@ -21,7 +21,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 28;
+export const APP_DB_SCHEMA_VERSION = 29;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -82,6 +82,8 @@ export interface TitleSummarySettingsRow {
   enabled: boolean;
   /** `provider/id`。null は未選択 */
   model: string | null;
+  /** 保存済みの Effort。null は未指定 (実行時にモデルの最小段階へフォールバックする) */
+  thinkingLevel: string | null;
   definition: string;
 }
 
@@ -409,10 +411,11 @@ CREATE TABLE IF NOT EXISTS web_search_provider_keys (
  */
 const TITLE_SUMMARY_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS title_summary_settings (
-  id         INTEGER PRIMARY KEY CHECK (id = 1),
-  enabled    INTEGER NOT NULL,
-  model      TEXT,
-  definition TEXT NOT NULL
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled       INTEGER NOT NULL,
+  model         TEXT,
+  thinkingLevel TEXT,
+  definition    TEXT NOT NULL
 );
 `;
 
@@ -1113,6 +1116,8 @@ export class AppDb {
       this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");
       // v12 以前の web_search_settings は id と enabled だけ。既存行は既定 (exa) で埋める
       this.#addColumnIfMissing("web_search_settings", "provider", "TEXT NOT NULL DEFAULT 'exa'");
+      // v28 以前の title_summary_settings に無い Effort。既存行は NULL = 未指定として読む
+      this.#addColumnIfMissing("title_summary_settings", "thinkingLevel", "TEXT");
       // v15 以前の content_settings に無い音声の 2 列。既存行は NULL = 既定へのフォールバック
       this.#addColumnIfMissing("content_settings", "speechModel", "TEXT");
       this.#addColumnIfMissing("content_settings", "speechVoice", "TEXT");
@@ -1567,6 +1572,7 @@ export class AppDb {
     return {
       enabled: Number(row.enabled) !== 0,
       model: typeof row.model === "string" && row.model !== "" ? row.model : null,
+      thinkingLevel: typeof row.thinkingLevel === "string" && row.thinkingLevel !== "" ? row.thinkingLevel : null,
       definition: typeof row.definition === "string" ? row.definition : "",
     };
   }
@@ -1576,11 +1582,11 @@ export class AppDb {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO title_summary_settings (id, enabled, model, definition) VALUES (1, ?, ?, ?)
+          `INSERT INTO title_summary_settings (id, enabled, model, thinkingLevel, definition) VALUES (1, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, model = excluded.model,
-             definition = excluded.definition`,
+             thinkingLevel = excluded.thinkingLevel, definition = excluded.definition`,
         )
-        .run(settings.enabled ? 1 : 0, settings.model, settings.definition),
+        .run(settings.enabled ? 1 : 0, settings.model, settings.thinkingLevel, settings.definition),
     );
   }
 

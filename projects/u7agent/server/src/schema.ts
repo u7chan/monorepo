@@ -2416,13 +2416,16 @@ export const WebSearchMutationErrorSchema = z.object({
 export type WebSearchMutationError = z.infer<typeof WebSearchMutationErrorSchema>;
 
 /**
- * GET / PUT `/api/settings/session-title`。会話タイトルの AI 要約 (On/Off・要約モデル・定義) を持つ。
- * 行が無い = 既定 (Off・モデル未選択・既定の定義)。モデルは本会話のモデルと独立で、`provider/id` で表す。
+ * GET / PUT `/api/settings/session-title`。会話タイトルの AI 要約 (On/Off・要約モデル・Effort・定義) を持つ。
+ * 行が無い = 既定 (Off・モデル未選択・Effort 未指定・既定の定義)。モデルは本会話のモデルと独立で、
+ * `provider/id` で表す。Effort はモデルが対応する段階だけを保存できる。
  */
 export const TitleSummaryModelChoiceSchema = z.object({
   provider: z.string(),
   id: z.string(),
   name: z.string(),
+  /** そのモデルが選べる Effort。推論非対応は ["off"] */
+  thinkingLevels: z.array(ThinkingLevelSchema),
 });
 export type TitleSummaryModelChoice = z.infer<typeof TitleSummaryModelChoiceSchema>;
 
@@ -2430,6 +2433,10 @@ export const TitleSummarySettingsResponseSchema = z.object({
   enabled: z.boolean(),
   /** 選択中のモデル (`provider/id`)。未選択は null */
   model: z.string().nullable(),
+  /** 保存済みの Effort。null は未指定 (実効値は effectiveThinkingLevel) */
+  thinkingLevel: ThinkingLevelSchema.nullable(),
+  /** 実際の要約に使う Effort。未指定ならモデルの最小段階、モデル不在なら null */
+  effectiveThinkingLevel: ThinkingLevelSchema.nullable(),
   definition: z.string(),
   /** 既定の定義 (画面の「既定に戻す」が使う) */
   defaultDefinition: z.string(),
@@ -2440,10 +2447,15 @@ export const TitleSummarySettingsResponseSchema = z.object({
 });
 export type TitleSummarySettingsResponse = z.infer<typeof TitleSummarySettingsResponseSchema>;
 
-/** 3 項目をまとめて保存する。省略した項目は保存値を保つ (Off から On への切替でモデルを消さない) */
+/**
+ * 4 項目をまとめて保存する。省略した項目は保存値を保つ (Off から On への切替でモデルを消さない)。
+ * thinkingLevel は null で未指定へ戻せる。モデルを変えて Effort を省略した場合、新しいモデルが
+ * 対応しない保存値は未指定へ戻す。
+ */
 export const UpdateTitleSummaryBodySchema = z.object({
   enabled: z.boolean(),
   model: z.string().nullable().optional(),
+  thinkingLevel: ThinkingLevelSchema.nullable().optional(),
   definition: z.string().optional(),
 });
 export type UpdateTitleSummaryBody = z.infer<typeof UpdateTitleSummaryBodySchema>;

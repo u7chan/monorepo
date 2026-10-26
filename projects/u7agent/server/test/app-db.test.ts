@@ -1252,7 +1252,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 28);
+    assert.equal(APP_DB_SCHEMA_VERSION, 29);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -2334,6 +2334,52 @@ test("migrates a v23 db additively and adds the sharing tables", () => {
       5,
       "重複しなかった行だけが入る",
     );
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// v28 までの title_summary_settings には Effort が無く、既存行は NULL = 未指定として読む。
+// 移行後は保存した値を再オープンしても読める。
+test("migrates a v28 db additively and round-trips title_summary_settings.thinkingLevel", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw
+      .prepare(
+        `INSERT INTO title_summary_settings (id, enabled, model, thinkingLevel, definition)
+         VALUES (1, 1, 'stub/stub-model', 'high', '短く')`,
+      )
+      .run();
+    // v28 相当へ戻す (列を落とし、版を下げる)
+    raw.exec("ALTER TABLE title_summary_settings DROP COLUMN thinkingLevel");
+    raw.exec("PRAGMA user_version = 28");
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    assert.equal(db.readTitleSummarySettings()?.thinkingLevel, null, "移行前からある行は未指定");
+    db.saveTitleSummarySettings({
+      enabled: true,
+      model: "stub/stub-model",
+      thinkingLevel: "high",
+      definition: "短く",
+    });
+    db.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.readTitleSummarySettings(), {
+      enabled: true,
+      model: "stub/stub-model",
+      thinkingLevel: "high",
+      definition: "短く",
+    });
+    reopened.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.ok(columnNames(check, "title_summary_settings").includes("thinkingLevel"));
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
   } finally {

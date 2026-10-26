@@ -404,7 +404,7 @@ test("Web 検索の設定は GET / PUT / DELETE の往復で、キーは provide
   assert.deepEqual(await requests[3].json(), { apiKey: "tvly-secret" });
 });
 
-test("会話タイトルの設定は GET / PUT の往復で、3 項目をまとめて送る", async (t) => {
+test("会話タイトルの設定は GET / PUT の往復で、Effort を含めてまとめて送る", async (t) => {
   const requests: Request[] = [];
   t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const request = new Request(input, init);
@@ -412,6 +412,8 @@ test("会話タイトルの設定は GET / PUT の往復で、3 項目をまと�
     return Response.json({
       enabled: true,
       model: "stub/stub-model",
+      thinkingLevel: "high",
+      effectiveThinkingLevel: "high",
       definition: "定義",
       defaultDefinition: "既定",
       models: [],
@@ -420,7 +422,14 @@ test("会話タイトルの設定は GET / PUT の往復で、3 項目をまと�
   });
   assert.equal((await getTitleSummarySettings()).enabled, true);
   assert.equal(
-    (await putTitleSummarySettings({ enabled: true, model: "stub/stub-model", definition: "定義" })).model,
+    (
+      await putTitleSummarySettings({
+        enabled: true,
+        model: "stub/stub-model",
+        thinkingLevel: "high",
+        definition: "定義",
+      })
+    ).model,
     "stub/stub-model",
   );
   assert.deepEqual(
@@ -430,7 +439,12 @@ test("会話タイトルの設定は GET / PUT の往復で、3 項目をまと�
       ["PUT", "/api/settings/session-title"],
     ],
   );
-  assert.deepEqual(await requests[1].json(), { enabled: true, model: "stub/stub-model", definition: "定義" });
+  assert.deepEqual(await requests[1].json(), {
+    enabled: true,
+    model: "stub/stub-model",
+    thinkingLevel: "high",
+    definition: "定義",
+  });
 });
 
 test("送信は定型プロンプトを結合する前の本文を titleSource として送る", async (t) => {

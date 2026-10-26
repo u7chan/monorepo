@@ -549,8 +549,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/session-title` | `enabled` / `model`（`provider/id` または null）/ `definition` / `defaultDefinition` / `models[]`（認証済みで選択できるモデル）/ `modelAvailable`。純粋読取で、行が無ければ Off・モデル未選択・既定の定義 |
-| PUT | `/api/settings/session-title` | `{ enabled, model?, definition? }`。省略した項目は保存値を保つ（Off への変更でモデルを消さない）。On には利用可能なモデルの選択が要り、未選択・不明なモデルは 400。空白だけ・上限超過の定義も 400 |
+| GET | `/api/settings/session-title` | `enabled` / `model`（`provider/id` または null）/ `thinkingLevel`（保存値または null）/ `effectiveThinkingLevel`（実行時の実効値）/ `definition` / `defaultDefinition` / `models[]`（認証済みで選択できるモデルと各モデルの `thinkingLevels`）/ `modelAvailable`。純粋読取で、行が無ければ Off・モデル未選択・Effort 未指定・既定の定義 |
+| PUT | `/api/settings/session-title` | `{ enabled, model?, thinkingLevel?, definition? }`。省略した項目は保存値を保つ（Off への変更でモデルを消さない）。On には利用可能なモデルの選択が要り、未選択・不明なモデルは 400。Effort は選択モデルが対応する段階だけを保存でき、未対応は 400。モデルを変えて Effort を省略した場合、新モデルが対応しない保存値は未指定へ戻る。空白だけ・上限超過の定義も 400 |
 
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。変更系は 503 に `state: "not_stored"` を付ける（コンテンツ生成 / Web 検索と同じ契約）。保存済みモデルが候補から消えた場合は `modelAvailable: false` で警告し、保存値は書き換えない。実行のタイミング・試行上限・手動改名との競合は [session-title.md](session-title.md) を正とする。
 
@@ -559,14 +559,21 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 {
   "enabled": false,
   "model": null,
+  "thinkingLevel": null,
+  "effectiveThinkingLevel": null,
   "definition": "利用者の依頼の対象と目的が伝わる会話タイトルを、日本語20〜30文字程度で作成してください。…",
   "defaultDefinition": "利用者の依頼の対象と目的が伝わる会話タイトルを、日本語20〜30文字程度で作成してください。…",
-  "models": [{ "provider": "stub", "id": "stub-model", "name": "Stub Model" }],
+  "models": [
+    { "provider": "stub", "id": "stub-model", "name": "Stub Model", "thinkingLevels": ["off", "minimal", "low", "medium", "high"] }
+  ],
   "modelAvailable": false
 }
 
 // PUT /api/settings/session-title (400。On にモデルが無い)
 { "error": "AI要約を有効にするには要約モデルを選択してください" }
+
+// PUT /api/settings/session-title (400。モデルが対応しない Effort)
+{ "error": "選択したモデルではこのEffortを選べません" }
 ```
 
 ## コンテンツ生成

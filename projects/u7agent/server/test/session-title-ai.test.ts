@@ -114,11 +114,16 @@ async function openBffWithRealGenerate(dir: string, pi: ReturnType<typeof create
 
 async function enableSummary(
   bff: Awaited<ReturnType<typeof openBff>>,
-  overrides: { definition?: string } = {},
+  overrides: { definition?: string; thinkingLevel?: string } = {},
 ): Promise<void> {
   const res = await bff.app.request(
     "/api/settings/session-title",
-    jsonPut({ enabled: true, model: MODEL, definition: overrides.definition ?? "日本語で短く。" }),
+    jsonPut({
+      enabled: true,
+      model: MODEL,
+      definition: overrides.definition ?? "日本語で短く。",
+      ...(overrides.thinkingLevel ? { thinkingLevel: overrides.thinkingLevel } : {}),
+    }),
   );
   assert.equal(res.status, 200);
 }
@@ -158,6 +163,7 @@ test("初回の本文あり正常完了後に 1 回だけ生成し、成功し�
       await enableSummary(bff, { definition: "日本語20文字程度で。" });
       const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
       const sessionId = created.sessionId as string;
+      const piSessionId = created.piSessionId as string;
 
       await sendTitleMessage(bff, sessionId, "ログイン画面のエラー表示を改善したい");
       await waitCompleted(bff, sessionId);
@@ -173,6 +179,8 @@ test("初回の本文あり正常完了後に 1 回だけ生成し、成功し�
       assert.equal(call.input.definition, "日本語20文字程度で。");
       assert.equal(call.input.request, "ログイン画面のエラー表示を改善したい");
       assert.equal(call.input.response, "スタブの返答です");
+      assert.equal(call.input.sessionId, piSessionId);
+      assert.equal(call.input.thinkingLevel, "off");
 
       call.settle({
         ok: true,
@@ -707,7 +715,10 @@ test("本番の生成器経路でも入力全体をマスクし、Off で model 
   await withStoreDir(async (dir) => {
     const pi = createStubPi();
     pi.retainSecret(KEY);
-    const calls: { options: { signal?: AbortSignal; maxTokens?: number; reasoning?: string }; context: unknown }[] = [];
+    const calls: {
+      options: { signal?: AbortSignal; sessionId?: string; maxTokens?: number; reasoning?: string };
+      context: unknown;
+    }[] = [];
     const runtime = pi.modelRuntime as unknown as {
       completeSimple: (model: unknown, context: unknown, options: unknown) => Promise<AssistantMessage>;
     };
@@ -717,7 +728,7 @@ test("本番の生成器経路でも入力全体をマスクし、Off で model 
       });
     const bff = await openBffWithRealGenerate(dir, pi);
     try {
-      await enableSummary(bff, { definition: `定義に鍵 ${KEY} を含めた` });
+      await enableSummary(bff, { definition: `定義に鍵 ${KEY} を含めた`, thinkingLevel: "high" });
       const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
       const sessionId = created.sessionId as string;
       await sendTitleMessage(bff, sessionId, `鍵 ${KEY} の画面を改善したい`);
@@ -727,8 +738,9 @@ test("本番の生成器経路でも入力全体をマスクし、Off で model 
       const sent = JSON.stringify(calls[0]!.context);
       assert.ok(!sent.includes(KEY), sent);
       assert.match(sent, /\[REDACTED\]/);
-      assert.equal(calls[0]!.options.maxTokens, 96);
-      assert.equal(calls[0]!.options.reasoning, "minimal");
+      assert.equal(calls[0]!.options.maxTokens, 1024);
+      assert.equal(calls[0]!.options.reasoning, "high");
+      assert.equal(calls[0]!.options.sessionId, bff.store.records.get(sessionId)?.session.sessionId);
       assert.ok(calls[0]!.options.signal instanceof AbortSignal);
       assert.equal(calls[0]!.options.signal?.aborted, false);
 
