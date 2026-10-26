@@ -29,6 +29,7 @@ import {
   sharedContentUndeployedFilterCounts,
   sharedContentUpdateConfirm,
   sharedContentsPolling,
+  settleAcceptedAfterMutation,
   settleAcceptedSharedContent,
   trackAcceptedSharedContent,
   SHARED_CONTENT_FILTERS,
@@ -229,6 +230,16 @@ test("詳細の精算: 詳細の終端で追跡を終える（他の id は落�
   // 一覧にまだ現れていない他の id は終端扱いにしない (一覧を受け取る settleAcceptedSharedContent との違い)
   const both = trackAcceptedSharedContent(trackAcceptedSharedContent([], "abc123"), "def456");
   assert.deepEqual(settleAcceptedDetail(both, item({ id: "abc123", status: "published" })), ["def456"]);
+});
+
+test("操作後の 202 追跡: 受付は追跡へ入れ、終端は外し、表示名の変更は触らない", () => {
+  assert.deepEqual(settleAcceptedAfterMutation([], "id1", "update"), ["id1"]);
+  assert.deepEqual(settleAcceptedAfterMutation(["id1"], "id2", "retry"), ["id1", "id2"]);
+  assert.deepEqual(settleAcceptedAfterMutation(["id1"], "id1", "resume"), ["id1"]);
+  assert.deepEqual(settleAcceptedAfterMutation(["id1"], "id1", "stop"), []);
+  assert.deepEqual(settleAcceptedAfterMutation(["id1"], "id1", "delete"), []);
+  // 表示名の変更は終端を持たない。一覧の取得に失敗している間に受けた公開の追跡を消さない
+  assert.deepEqual(settleAcceptedAfterMutation(["id1"], "id1", "rename"), ["id1"]);
 });
 
 test("受付した 1 件の反映: 同じ id は差し替え、未取得なら先頭へ足す", () => {

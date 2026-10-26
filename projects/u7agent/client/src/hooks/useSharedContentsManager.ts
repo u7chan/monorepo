@@ -9,10 +9,10 @@ import {
   stopSharedContent,
 } from "../api";
 import {
+  settleAcceptedAfterMutation,
   settleAcceptedSharedContent,
   SHARE_POLL_MS,
   sharedContentsPolling,
-  trackAcceptedSharedContent,
   type SharedContentBusyKind,
 } from "../lib/sharedContents";
 import type { SharedContentResponse } from "../types";
@@ -116,13 +116,9 @@ export function useSharedContentsManager() {
         await run();
         // 操作より前に発行した一覧取得は操作前の状態を返す。成功応答のあとに適用させない
         appliedSeq.current = ++requestSeq.current;
-        // 202 を受けた経路は、一覧を取り直せるまで items に publishing が現れない。追跡対象へ入れる
-        if (kind === "update" || kind === "retry" || kind === "resume") {
-          setAcceptedPublishing((prev) => trackAcceptedSharedContent(prev, id));
-        } else {
-          // 停止・削除の成功応答は終端。追跡を続ける理由が無い
-          setAcceptedPublishing((prev) => prev.filter((entry) => entry !== id));
-        }
+        // 202 を受けた経路は、一覧を取り直せるまで items に publishing が現れない。追跡対象へ入れる。
+        // 表示名の変更は終端を持たないので、追跡を消さない（消すと公開結果を読めなくなる）
+        setAcceptedPublishing((prev) => settleAcceptedAfterMutation(prev, id, kind));
         after?.();
       } catch (error) {
         setState((prev) => ({ ...prev, error: { id, message: messageFor(error) } }));

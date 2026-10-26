@@ -221,6 +221,21 @@ export function trackAcceptedSharedContent(tracked: readonly string[], id: strin
   return tracked.includes(id) ? [...tracked] : [...tracked, id];
 }
 
+/**
+ * 1 件の操作が成功したあとの 202 追跡。受付を返す操作は追跡へ入れ、終端を返す操作（停止・削除）は外す。
+ * 表示名の変更は provider を呼ばず終端も受付も返さないので、追跡をそのまま残す
+ * （ここで外すと、一覧の取得に失敗している間に受けた公開の結果を読めなくなる）。
+ */
+export function settleAcceptedAfterMutation(
+  tracked: readonly string[],
+  id: string,
+  kind: SharedContentBusyKind,
+): string[] {
+  if (kind === "update" || kind === "retry" || kind === "resume") return trackAcceptedSharedContent(tracked, id);
+  if (kind === "stop" || kind === "delete") return tracked.filter((entry) => entry !== id);
+  return [...tracked];
+}
+
 /** 取得できた一覧で publishing のままの id だけを残す。終端・消失した id は追跡をやめる */
 export function settleAcceptedSharedContent(
   tracked: readonly string[],

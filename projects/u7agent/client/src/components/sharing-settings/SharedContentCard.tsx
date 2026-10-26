@@ -300,8 +300,9 @@ export function SharedContentCard({
             </span>
           ) : null}
         </div>
-        {/* ⋯ は幅を問わず右上へ固定する。名前の長さで位置が動かず、行の主操作の幅も変わらない */}
-        {menuActions.length === 0 ? null : (
+        {/* ⋯ は幅を問わず右上へ固定する。名前の長さで位置が動かず、行の主操作の幅も変わらない。
+            操作中は出さない（出すと、二重操作のガードが後からの要求を黙って捨てて画面が無反応に見える） */}
+        {busy !== null || menuActions.length === 0 ? null : (
           <SharedContentMenu name={item.name} actions={menuActions} onSelect={(kind) => handlers[kind]()} />
         )}
       </div>

@@ -33,14 +33,21 @@ const item = (overrides: Partial<SharedContentResponse> = {}): SharedContentResp
   ...overrides,
 });
 
-function render(content: SharedContentResponse, { narrow = false, sessionMissing = false } = {}): string {
+function render(
+  content: SharedContentResponse,
+  {
+    narrow = false,
+    sessionMissing = false,
+    busy = null,
+  }: { narrow?: boolean; sessionMissing?: boolean; busy?: { kind: "rename" } | null } = {},
+): string {
   return renderToStaticMarkup(
     createElement(SharedContentCard, {
       item: content,
       narrow,
       sessionMissing,
       session: undefined,
-      busy: null,
+      busy,
       error: undefined,
       copied: false,
       copyFailure: undefined,
@@ -137,6 +144,13 @@ test("狭い面の公開済み: 主操作は開くだけで、更新も ⋯ に�
   assert.ok(html.includes('aria-label="URL をコピー"'), "コピーは URL バーに残す");
   assert.deepEqual(rowLabels(html), ["開く"]);
   assert.deepEqual(menuLabels(html), ["名前を変更", "更新", "停止", "削除"]);
+});
+
+test("操作中: ⋯ を出さず、二度目の操作を始められない", () => {
+  const html = render(item(), { busy: { kind: "rename" } });
+  assert.equal(html.includes("のその他の操作"), false);
+  assert.match(html, /変更中…完了まで操作できません。/);
+  assert.deepEqual(rowLabels(html), []);
 });
 
 test("コピー成功: アイコンのラベルをコピー済みへ変える", () => {

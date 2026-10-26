@@ -2102,9 +2102,12 @@ test("表示名の変更: 公開中でも受け付け、同じ名前なら書き
   store.insertSharedContent(rowOf("id1", { status: "publishing", publishedAt: null }));
   assert.equal(service.rename("id1", { name: "公開中の名前" }).name, "公開中の名前");
   assert.equal(store.getSharedContent("id1")?.status, "publishing", "公開中でも 409 にしない");
-  // 同名の指定は no-op（書き込みも時刻の変更もしない）
+  // 同名の指定は no-op。書き込みを失敗させる writer でも成功する = 書いていない
   store.insertSharedContent(rowOf("id2", { name: "同じ名前" }));
+  store.failNameUpdate = true;
   assert.equal(service.rename("id2", { name: "同じ名前" }).name, "同じ名前");
+  assert.equal(store.getSharedContent("id2")?.name, "同じ名前");
+  store.failNameUpdate = false;
 });
 
 test("表示名の変更の検証: 空・長すぎ・制御文字は 400、存在しない id は 404、保存失敗は 503", () => {
