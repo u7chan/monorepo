@@ -354,6 +354,30 @@ export function ExternalLinkIcon() {
   );
 }
 
+/** QR コード。3 つの位置検出パターンとデータモジュールで、コード自体の形を示す */
+export function QrCodeIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <rect x="2.5" y="2.5" width="4" height="4" rx="1" />
+      <rect x="9.5" y="2.5" width="4" height="4" rx="1" />
+      <rect x="2.5" y="9.5" width="4" height="4" rx="1" />
+      <path d="M9.5 9.5h1.5v1.5H9.5z" />
+      <path d="M13.5 9.5V11" />
+      <path d="M9.5 13v.5" />
+      <path d="M12 12h1.5v1.5" />
+    </svg>
+  );
+}
+
 export function PowerIcon() {
   return (
     <svg

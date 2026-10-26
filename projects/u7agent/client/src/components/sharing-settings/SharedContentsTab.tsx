@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useConfirm, usePrompt } from "../ConfirmProvider";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import type { SharedContentsManager } from "../../hooks/useSharedContentsManager";
@@ -8,6 +8,7 @@ import {
   sharedContentRenameRequest,
   sharedContentSession,
   sharedContentSessionMissing,
+  sharedContentQrTarget,
   sharedContentUpdateConfirm,
   SHARED_CONTENT_NO_CREDENTIALS_NOTE,
   type SharedContentsFilter,
@@ -17,6 +18,7 @@ import { renameInputValue } from "../../lib/confirmDialog";
 import type { SessionSummary, SharedContentResponse } from "../../types";
 import { KeyIcon, ShareIcon, WarningIcon } from "../icons";
 import { LoadingMark } from "../LoadingMark";
+import { QrCodeDialog } from "../QrCodeDialog";
 import { SharedContentCard } from "./SharedContentCard";
 
 /** 操作をカード内に並べるか、主操作 + コピー + ⋯ に畳むかの境界。モックの狭い面に合わせる */
@@ -49,6 +51,7 @@ export function SharedContentsTab({
   const prompt = usePrompt();
   const narrow = useViewportWidth() < NARROW_MAX_WIDTH;
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
+  const [qrId, setQrId] = useState<string | null>(null);
   const sessionIds = useMemo(() => new Set(sessions.map((session) => session.sessionId)), [sessions]);
   const visible = visibleSharedContents(contents.items, filter);
   const sessionMissing = (item: SharedContentResponse) => sharedContentSessionMissing(item, sessionIds, sessionsLoaded);
@@ -105,6 +108,9 @@ export function SharedContentsTab({
                   onCopy={(url, id) => {
                     void copyMessage(url, id);
                   }}
+                  onQr={() => {
+                    setQrId(item.id);
+                  }}
                   onUpdate={() => {
                     void update(item);
                   }}
@@ -129,6 +135,10 @@ export function SharedContentsTab({
           </ul>
         )}
       </div>
+
+      {qrId === null ? null : (
+        <QrCodeDialog item={sharedContentQrTarget(contents.items, qrId)} onClose={() => setQrId(null)} />
+      )}
     </div>
   );
 }

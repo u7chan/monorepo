@@ -23,6 +23,7 @@ import {
   ExternalLinkIcon,
   PencilIcon,
   PowerIcon,
+  QrCodeIcon,
   RefreshIcon,
   RunSpinnerIcon,
   StopIcon,
@@ -48,6 +49,7 @@ export type SharedContentCardProps = {
   copied: boolean;
   copyFailure: string | undefined;
   onCopy: (url: string, id: string) => void;
+  onQr: () => void;
   onRename: () => void;
   onUpdate: () => void;
   onStop: () => void;
@@ -60,6 +62,8 @@ function ActionIcon({ kind }: { kind: SharedContentAction["kind"] }) {
   switch (kind) {
     case "open":
       return <ExternalLinkIcon />;
+    case "qr":
+      return <QrCodeIcon />;
     case "rename":
       return <PencilIcon />;
     case "update":
@@ -123,6 +127,7 @@ export function SharedContentCard({
   copied,
   copyFailure,
   onCopy,
+  onQr,
   onRename,
   onUpdate,
   onStop,
@@ -135,12 +140,16 @@ export function SharedContentCard({
     rename: onRename,
     update: onUpdate,
     stop: onStop,
+    qr: onQr,
     delete: onDelete,
   };
   const runAction = (action: SharedContentAction) => {
     switch (action.kind) {
       case "rename":
         onRename();
+        return;
+      case "qr":
+        onQr();
         return;
       case "update":
         onUpdate();

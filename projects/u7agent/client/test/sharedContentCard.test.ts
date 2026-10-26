@@ -51,6 +51,7 @@ function render(
       error: undefined,
       copied: false,
       copyFailure: undefined,
+      onQr: () => {},
       onCopy: () => {},
       onRename: () => {},
       onUpdate: () => {},
@@ -121,13 +122,13 @@ function buttonTag(html: string, label: string): string {
   return button.slice(0, button.indexOf(">") + 1);
 }
 
-test("公開済み: URL バーにコピーを置き、行は開く / 更新、⋯ に名前を変更 / 停止 / 削除を出す", () => {
+test("公開済み: URL バーにコピーを置き、行は開く / QR コード / 更新、⋯ に名前を変更 / 停止 / 削除を出す", () => {
   const html = render(item());
   assert.match(html, /公開済み/);
   assert.ok(html.includes(URL_PUBLISHED), "URL を出す");
   assert.ok(html.includes(`href="${URL_PUBLISHED}"`), "開くは外部リンクとして出す");
   assert.ok(html.includes('aria-label="URL をコピー"'), "コピーは URL の右端のアイコンボタン");
-  assert.deepEqual(rowLabels(html), ["開く", "更新"]);
+  assert.deepEqual(rowLabels(html), ["開く", "QR コード", "更新"]);
   assert.deepEqual(menuLabels(html), ["名前を変更", "停止", "削除"]);
   assert.equal(html.includes(SHARED_CONTENT_UNDEPLOYED_NOTE), false);
 });
@@ -138,12 +139,12 @@ test("公開済みの ⋯: 名前の変更が先頭で、破壊的な削除は�
   assert.equal(labels.at(-1), "削除");
 });
 
-test("狭い面の公開済み: 主操作は開くだけで、更新も ⋯ に入れる", () => {
+test("狭い面の公開済み: 主操作は開くだけで、更新と QR も ⋯ に入れる", () => {
   const html = render(item(), { narrow: true });
   assert.ok(html.includes(`href="${URL_PUBLISHED}"`), "主操作の開くをリンクで出す");
   assert.ok(html.includes('aria-label="URL をコピー"'), "コピーは URL バーに残す");
   assert.deepEqual(rowLabels(html), ["開く"]);
-  assert.deepEqual(menuLabels(html), ["名前を変更", "更新", "停止", "削除"]);
+  assert.deepEqual(menuLabels(html), ["名前を変更", "更新", "QR コード", "停止", "削除"]);
 });
 
 test("操作中: ⋯ を出さず、二度目の操作を始められない", () => {
@@ -164,6 +165,7 @@ test("コピー成功: アイコンのラベルをコピー済みへ変える", 
       error: undefined,
       copied: true,
       copyFailure: undefined,
+      onQr: () => {},
       onCopy: () => {},
       onRename: () => {},
       onUpdate: () => {},
@@ -188,6 +190,7 @@ test("メタ情報: 公開元・会話・時刻を ・ で区切って 1 行に�
       error: undefined,
       copied: false,
       copyFailure: undefined,
+      onQr: () => {},
       onCopy: () => {},
       onRename: () => {},
       onUpdate: () => {},
@@ -294,6 +297,7 @@ test("コピー失敗: URL を選択してコピーする逃げ道を示す", ()
       error: undefined,
       copied: false,
       copyFailure: "denied",
+      onQr: () => {},
       onCopy: () => {},
       onRename: () => {},
       onUpdate: () => {},

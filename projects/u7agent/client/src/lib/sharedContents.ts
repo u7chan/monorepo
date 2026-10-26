@@ -330,7 +330,7 @@ export function visibleSharedContents(
 }
 
 /** 一覧の操作種別。`retry` は failed からの再公開で、API は `update` と同じ publish 経路 */
-export type SharedContentActionKind = "open" | "rename" | "update" | "stop" | "resume" | "retry" | "delete";
+export type SharedContentActionKind = "open" | "qr" | "rename" | "update" | "stop" | "resume" | "retry" | "delete";
 
 export type SharedContentAction = {
   kind: SharedContentActionKind;
@@ -358,6 +358,20 @@ function updateAction(sessionMissing: boolean): SharedContentAction & { kind: "u
     : { kind: "update", label: "更新" };
 }
 
+/**
+ * 公開 URL を渡せる状態か。QR は開く・コピーと同じ条件に揃える
+ * （未デプロイは URL の記録だけがあり、外部に実体が無いので含めない）。
+ */
+export function sharedContentUrlLive(
+  item: Pick<SharedContentResponse, "status" | "publicUrl" | "publishedAt">,
+): boolean {
+  return item.status === "published" && item.publicUrl !== null && !isSharedContentUndeployed(item);
+}
+
+function qrAction(): SharedContentAction & { kind: "qr" } {
+  return { kind: "qr", label: "QR コード" };
+}
+
 /** デスクトップの操作行に並べる主操作。停止 / 削除と表示名の変更は ⋯ へ送り、行を増やさない */
 export function sharedContentActions(
   item: SharedContentResponse,
@@ -366,7 +380,11 @@ export function sharedContentActions(
   if (isSharedContentUndeployed(item)) return [updateAction(sessionMissing)];
   switch (item.status) {
     case "published":
-      return [{ kind: "open", label: "開く" }, updateAction(sessionMissing)];
+      return [
+        { kind: "open", label: "開く" },
+        ...(sharedContentUrlLive(item) ? [qrAction()] : []),
+        updateAction(sessionMissing),
+      ];
     case "stopped":
       return [{ kind: "resume", label: "再公開" }];
     case "failed":
@@ -378,7 +396,7 @@ export function sharedContentActions(
 }
 
 /** ⋯ に入る操作。開く / 更新は主操作としてカード側に置く */
-export type SharedContentMenuKind = Extract<SharedContentActionKind, "rename" | "update" | "stop" | "delete">;
+export type SharedContentMenuKind = Extract<SharedContentActionKind, "qr" | "rename" | "update" | "stop" | "delete">;
 
 /**
  * ⋯ の操作。壊さない変更（名前を変更）を先頭、破壊的な削除を最後に置き、**行に出ていない操作だけ**を並べる。
@@ -394,12 +412,31 @@ export function sharedContentMenuActions(
   if (isSharedContentUndeployed(item)) return [rename, remove];
   switch (item.status) {
     case "published":
-      // 狭い面の主操作は「開く」だけなので、更新もここに入れる
-      return [rename, ...(narrow ? [updateAction(sessionMissing)] : []), { kind: "stop", label: "停止" }, remove];
+      // 狭い面の主操作は「開く」だけなので、更新と QR もここに入れる（PC の行には QR がある）
+      return [
+        rename,
+        ...(narrow ? [updateAction(sessionMissing)] : []),
+        ...(narrow && sharedContentUrlLive(item) ? [qrAction()] : []),
+        { kind: "stop", label: "停止" },
+        remove,
+      ];
     case "stopped":
     case "failed":
       return [rename, remove];
   }
+}
+
+/**
+ * QR を表示する 1 件。表示対象は id で持ち、一覧の更新のたびに引き直す
+ * （公開済みでなくなった / URL が消えた / 一覧から消えたら null）。
+ */
+export function sharedContentQrTarget(
+  items: readonly SharedContentResponse[],
+  id: string | null,
+): SharedContentResponse | null {
+  if (id === null) return null;
+  const item = items.find((entry) => entry.id === id);
+  return item !== undefined && sharedContentUrlLive(item) ? item : null;
 }
 
 /** 狭い面の主操作。未デプロイは更新、結果不明は停止、公開中は主操作なし（⋯ も出さない） */

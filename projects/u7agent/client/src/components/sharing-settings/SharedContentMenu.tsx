@@ -14,9 +14,10 @@ import { nextRowMenuIndex, ROW_MENU_MARGIN } from "../../lib/rowMenu";
 import { sharedContentMenuPosition } from "../../lib/sharedContentMenu";
 import type { SharedContentAction, SharedContentMenuKind } from "../../lib/sharedContents";
 import { MenuItem } from "../MenuItem";
-import { PencilIcon, MoreIcon, RefreshIcon, StopIcon, TrashIcon } from "../icons";
+import { PencilIcon, MoreIcon, QrCodeIcon, RefreshIcon, StopIcon, TrashIcon } from "../icons";
 
 function iconFor(kind: SharedContentMenuKind) {
+  if (kind === "qr") return <QrCodeIcon />;
   if (kind === "rename") return <PencilIcon />;
   if (kind === "update") return <RefreshIcon />;
   if (kind === "stop") return <StopIcon />;
