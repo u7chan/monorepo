@@ -26,6 +26,7 @@ import {
   MEMO_MAX_LENGTH,
   modelCatalogRefreshNote,
   MODEL_CATALOG_REFRESH_NOTE,
+  modelKeyId,
   modelKeyProvider,
   modelRefKey,
   MODEL_SETTINGS_NOTE,
@@ -674,6 +675,8 @@ test("明示リストの正規化は空だけを null へ寄せ、全選択で�
   );
   assert.equal(modelRefKey({ provider: "anthropic", id: "a" }), KEY_A);
   assert.equal(modelKeyProvider("openrouter/anthropic/claude"), "openrouter", "provider は最初の / まで");
+  assert.equal(modelKeyId("openrouter/anthropic/claude"), "anthropic/claude", "モデル ID の / は残す");
+  assert.equal(modelKeyId("no-slash"), "no-slash", "区切りの無いキーはそのまま返す");
 });
 
 test("カタログ外の残存エントリを分ける", () => {
@@ -727,6 +730,24 @@ test("候補は認証済み provider のカタログ全件とカタログ外の�
   assert.equal(
     groups.some((group) => group.provider === "unknown"),
     false,
+  );
+});
+
+test("行の ID は provider を付けないモデル ID にし、検索と操作は full キーを使う", () => {
+  const groups = candidateGroups({ allowed: [KEY_GHOST], defaultModel: null }, CATALOG, settings());
+  assert.deepEqual(
+    groups[0].rows.map((row) => [row.key, row.id]),
+    [
+      [KEY_A, "a"],
+      [KEY_B, "b"],
+      [KEY_GHOST, "ghost"],
+    ],
+    "カタログ行もカタログ外の残存も、行に出すのはモデル ID だけ (provider は見出しが持つ)",
+  );
+  assert.deepEqual(
+    filterCandidateGroups(groups, "anthropic/ghost", false).map((group) => group.rows.map((row) => row.key)),
+    [[KEY_GHOST]],
+    "表示から provider を外しても、検索は full キーに当たる",
   );
 });
 
