@@ -1,6 +1,6 @@
-// グラフの縦軸の自動レンジ、横軸の目盛り位置、リセット判定を固定する。
+// グラフの縦軸の自動レンジと横軸の目盛り位置を固定する。
 import { describe, expect, test } from "bun:test";
-import { buildTimeTicks, buildValueAxis, findResets } from "../src/client/lib/chart";
+import { buildTimeTicks, buildValueAxis } from "../src/client/lib/chart";
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -48,23 +48,5 @@ describe("buildTimeTicks", () => {
   test("範囲が無効なら空", () => {
     expect(buildTimeTicks(Number.NaN, 0)).toEqual([]);
     expect(buildTimeTicks(100, 100)).toEqual([]);
-  });
-});
-
-describe("findResets", () => {
-  test("使用率が 5 ポイント以上下がった点をリセットとして返す", () => {
-    expect(
-      findResets([
-        { at: 1, usedPercent: 10 },
-        { at: 2, usedPercent: 12 },
-        { at: 3, usedPercent: 0 },
-      ]),
-    ).toEqual([3]);
-    expect(
-      findResets([
-        { at: 1, usedPercent: 10 },
-        { at: 2, usedPercent: 6 },
-      ]),
-    ).toEqual([]);
   });
 });

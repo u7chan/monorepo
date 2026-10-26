@@ -22,7 +22,12 @@ export type UsageWindow = {
   resetsAt: number | null;
 };
 
-export type Trend = { windowId: string; spanMs: number; points: { at: number; usedPercent: number }[] };
+export type Trend = {
+  windowId: string;
+  spanMs: number;
+  points: { at: number; usedPercent: number }[];
+  resets: number[];
+};
 
 export type ProviderId = "codex" | "opencode-go";
 export type ProviderState = "loading" | "ok" | "stale" | "error";
@@ -370,7 +375,7 @@ function parseTrend(value: unknown): Trend | null {
     .map((point) => ({ at: readNumber(point, "at"), usedPercent: readNumber(point, "usedPercent") }))
     .filter((point): point is { at: number; usedPercent: number } => point.at !== null && point.usedPercent !== null);
 
-  return points.length < 2 ? null : { windowId, spanMs, points };
+  return points.length < 2 ? null : { windowId, spanMs, points, resets: readNumbers(value, "resets") };
 }
 
 function parseLogin(value: unknown): CodexLoginState | null {
@@ -436,6 +441,10 @@ function readObjects(body: unknown, key: string): unknown[] {
 
 function readStrings(body: unknown, key: string): string[] {
   return readObjects(body, key).filter((value): value is string => typeof value === "string");
+}
+
+function readNumbers(body: unknown, key: string): number[] {
+  return readObjects(body, key).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 
 function readString(body: unknown, key: string): string | null {

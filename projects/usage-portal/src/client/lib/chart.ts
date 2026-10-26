@@ -108,22 +108,6 @@ export function buildTimeTicks(startAt: number, endAt: number): TimeTick[] {
   return ticks;
 }
 
-/** 使用率が大きく下がった点はリセット。0 付近まで戻るため、通常の増減とは区別できる。 */
-export function findResets(points: readonly { at: number; usedPercent: number }[]): number[] {
-  const resets: number[] = [];
-
-  for (let index = 1; index < points.length; index += 1) {
-    const previous = points[index - 1];
-    const current = points[index];
-
-    if (previous && current && current.usedPercent - previous.usedPercent <= -5) {
-      resets.push(current.at);
-    }
-  }
-
-  return resets;
-}
-
 function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value));
 }

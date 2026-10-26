@@ -1,4 +1,4 @@
-// 推移の横軸の期間、間引き（bucket ごとの代表点）、点数上限を固定する。
+// 推移の横軸の期間、間引き（bucket ごとの代表点）、リセット検出、点数上限を固定する。
 import { describe, expect, test } from "bun:test";
 import type { UsageWindow } from "../src/server/providers/types";
 import { buildTrend, MAX_TREND_SPAN_MS, TREND_MAX_POINTS, trendSpanMs } from "../src/server/trend";
@@ -23,10 +23,10 @@ describe("trendSpanMs", () => {
     expect(trendSpanMs(window("monthly", "月次"))).toBe(30 * DAY);
   });
 
-  test("id が未知でもラベルから決める", () => {
-    expect(trendSpanMs(window("primary", "週次"))).toBe(7 * DAY);
-    expect(trendSpanMs(window("secondary", "月次"))).toBe(30 * DAY);
-    expect(trendSpanMs(window("tertiary", "ローリング"))).toBe(6 * HOUR);
+  test("id が未知なら、ラベルが週次でも 24 時間にする", () => {
+    expect(trendSpanMs(window("primary", "ローリング"))).toBe(24 * HOUR);
+    expect(trendSpanMs(window("primary", "週次"))).toBe(24 * HOUR);
+    expect(trendSpanMs(window("secondary", "月次"))).toBe(24 * HOUR);
   });
 
   test("どちらも読めなければ 24 時間、保持期間の 30 日で頭打ち", () => {
@@ -52,7 +52,30 @@ describe("buildTrend", () => {
         { at: BASE + 30 * MINUTE, usedPercent: 40 },
         { at: BASE + 24 * HOUR, usedPercent: 50 },
       ],
+      resets: [],
     });
+  });
+
+  test("同じ bucket 内で使用率が戻ってもリセットを resets に残す", () => {
+    const trend = buildTrend("primary", 24 * HOUR, [
+      { at: BASE - 25 * MINUTE, usedPercent: 20 },
+      { at: BASE - 10 * MINUTE, usedPercent: 0 },
+      { at: BASE - 5 * MINUTE, usedPercent: 20 },
+      { at: BASE + 24 * HOUR, usedPercent: 20 },
+    ]);
+
+    // 代表点は 20% のままなので、点列だけではリセットを検出できない。
+    expect(trend?.points.map((point) => point.usedPercent)).toEqual([20, 20]);
+    expect(trend?.resets).toEqual([BASE - 10 * MINUTE]);
+  });
+
+  test("使用率が下がらなければ resets は空", () => {
+    const trend = buildTrend("rolling", 6 * HOUR, [
+      { at: BASE, usedPercent: 10 },
+      { at: BASE + 30 * MINUTE, usedPercent: 20 },
+    ]);
+
+    expect(trend?.resets).toEqual([]);
   });
 
   test("履歴が短いうちは 5 分単位まで細かく刻む", () => {

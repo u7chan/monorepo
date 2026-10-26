@@ -145,8 +145,35 @@ describe("GET /api/usage", () => {
           { at: BASE_TIME - 30 * MINUTE, usedPercent: 62 },
           { at: BASE_TIME, usedPercent: 62 },
         ],
+        resets: [],
       },
     ]);
+  });
+
+  test("間引きで点列から消えるリセットも trends[].resets に残す", async () => {
+    const h = harness();
+    const snapshotAt = (capturedAt: number, usedPercent: number) =>
+      usageSnapshot({
+        capturedAt,
+        windows: [{ id: "primary", label: "週次", durationSeconds: 604_800, usedPercent, resetsAt: null }],
+      });
+
+    for (const [capturedAt, usedPercent] of [
+      [BASE_TIME - 24 * 60 * MINUTE, 20],
+      [BASE_TIME - 25 * MINUTE, 20],
+      [BASE_TIME - 10 * MINUTE, 0],
+      [BASE_TIME - 5 * MINUTE, 20],
+      [BASE_TIME, 20],
+    ] as const) {
+      saveProviderSnapshot(h.db, "codex", snapshotAt(capturedAt, usedPercent));
+    }
+
+    const payload = await readUsage(h, await sessionCookie(h.app));
+    const trend = payload.sources[0]?.trends[0];
+
+    // bucket の代表点はすべて 20% になり、点列だけではリセットを検出できない。
+    expect(trend?.points.map((point) => point.usedPercent)).toEqual([20, 20, 20]);
+    expect(trend?.resets).toEqual([BASE_TIME - 10 * MINUTE]);
   });
 
   test("アカウントごとに source id で state と trends を出す", async () => {

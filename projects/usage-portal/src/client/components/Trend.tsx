@@ -1,5 +1,5 @@
 import type { Trend, UsageWindow } from "../api";
-import { buildTimeTicks, buildValueAxis, findResets } from "../lib/chart";
+import { buildTimeTicks, buildValueAxis } from "../lib/chart";
 import { describeCoverage, formatSpan, remainingPercent } from "../lib/format";
 
 /** 線が枠に貼り付かないよう、上下に少し余白を残す（viewBox の %）。 */
@@ -64,7 +64,7 @@ function Chart(props: { trend: Trend; generatedAt: number | null }) {
   const line = `M${coordinates.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" L")}`;
   const area = `${line} L${lastX.toFixed(2)},100 L${firstX.toFixed(2)},100 Z`;
   const timeTicks = buildTimeTicks(startAt, endAt);
-  const resets = findResets(points);
+  const resets = props.trend.resets;
   const notes: string[] = [];
 
   if (resets.length > 0) {

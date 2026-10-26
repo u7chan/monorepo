@@ -1,8 +1,14 @@
-import { WINDOW_LABELS, type UsageWindow } from "./providers/types";
+import type { UsageWindow } from "./providers/types";
 
 export type SamplePoint = { at: number; usedPercent: number };
 
-export type Trend = { windowId: string; spanMs: number; points: SamplePoint[] };
+export type Trend = {
+  windowId: string;
+  spanMs: number;
+  points: SamplePoint[];
+  /** 間引き前の sample で検出したリセット時刻。点列からは消えるリセットを残すために別で持つ。 */
+  resets: number[];
+};
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -24,14 +30,15 @@ const ID_SPANS_MS: Record<string, number> = {
 
 /**
  * 推移の横軸に使う期間。Codex は上流の `limit_window_seconds` をそのまま使い、
- * OpenCode Go は返らないので窓の id / ラベルから引く。
+ * OpenCode Go は返らないので窓の id から引く。id が既知でない場合は 24 時間にする。
+ * ラベルは期間欠損を rolling に寄せた結果でもあるため、期間の根拠にしない。
  */
 export function trendSpanMs(window: UsageWindow): number {
   const seconds = window.durationSeconds;
   const span =
     seconds !== null && Number.isFinite(seconds) && seconds > 0
       ? seconds * 1000
-      : (ID_SPANS_MS[window.id] ?? spanFromLabel(window.label) ?? 24 * HOUR_MS);
+      : (ID_SPANS_MS[window.id] ?? 24 * HOUR_MS);
 
   return Math.min(span, MAX_TREND_SPAN_MS);
 }
@@ -67,17 +74,24 @@ export function buildTrend(windowId: string, spanMs: number, samples: SamplePoin
 
   const points = [...buckets.values()].sort((a, b) => a.at - b.at).slice(-TREND_MAX_POINTS);
 
-  return points.length < 2 ? null : { windowId, spanMs, points };
+  return points.length < 2 ? null : { windowId, spanMs, points, resets: findResets(ordered) };
 }
 
-function spanFromLabel(label: string): number | null {
-  if (label.startsWith(WINDOW_LABELS.monthly)) {
-    return 30 * DAY_MS;
+/**
+ * リセットは間引き前の sample で検出する。bucket の代表点だけを見ると、
+ * 同じ bucket 内で使用率が 20 → 0 → 20% と戻ったリセットが代表点から消えるため。
+ */
+function findResets(samples: readonly SamplePoint[]): number[] {
+  const resets: number[] = [];
+
+  for (let index = 1; index < samples.length; index += 1) {
+    const previous = samples[index - 1];
+    const current = samples[index];
+
+    if (previous && current && current.usedPercent - previous.usedPercent <= -5) {
+      resets.push(current.at);
+    }
   }
 
-  if (label.startsWith(WINDOW_LABELS.weekly)) {
-    return 7 * DAY_MS;
-  }
-
-  return label.startsWith(WINDOW_LABELS.rolling) ? 6 * HOUR_MS : null;
+  return resets;
 }
