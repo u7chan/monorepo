@@ -132,6 +132,8 @@ test("編集内容は SDK の name / description と trim していない本文�
   assert.equal(body.body, "元の本文\n");
   assert.equal(body.relativePath, SKILL_PATH);
   assert.match(body.fileVersion, /^[0-9a-f]{64}$/);
+  // 最終更新は表示用の目安として、実ファイルの mtime をそのまま返す
+  assert.equal(body.mtime, Math.round((await stat(join(root, SKILL_PATH))).mtimeMs));
   assert.equal(body.editable, true);
   assert.equal(body.reason, undefined);
 });
@@ -151,6 +153,7 @@ test("保存は説明と本文だけを差し替え、同じ内容の再保存�
   assert.equal(noop.body.fileVersion, before.fileVersion);
   // 変更なしの保存は write を起こさない (バイト列も mtime も変わらない)
   assert.equal((await stat(join(root, SKILL_PATH))).mtimeMs, mtimeBefore);
+  assert.equal((await detail(app)).mtime, before.mtime);
 
   const changed = await save(app, {
     relativePath: SKILL_PATH,
@@ -162,8 +165,11 @@ test("保存は説明と本文だけを差し替え、同じ内容の再保存�
   assert.notEqual(changed.body.fileVersion, before.fileVersion);
   const text = await readFile(join(root, SKILL_PATH), "utf8");
   assert.equal(text, '---\nname: alpha\ndescription: "新しい説明"\n# コメント\nx-extra: 1\n---\n新しい本文\n');
-  // 保存成功時の fileVersion は公開した内容の版
-  assert.equal((await detail(app)).fileVersion, changed.body.fileVersion);
+  // 保存成功時の fileVersion は公開した内容の版で、最終更新も書き換わった実ファイルに追従する
+  const after = await detail(app);
+  assert.equal(after.fileVersion, changed.body.fileVersion);
+  assert.equal(after.mtime, Math.round((await stat(join(root, SKILL_PATH))).mtimeMs));
+  assert.ok(after.mtime >= before.mtime, "変更した保存で最終更新が巻き戻っている");
 });
 
 test("版が一致しない保存は 409 で、name の変更要求は受け付けない", async () => {

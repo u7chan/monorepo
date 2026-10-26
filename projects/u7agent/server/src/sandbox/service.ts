@@ -1277,6 +1277,8 @@ async function touchesCommonSkills(input: {
 interface CommonSkillFileContent {
   text: string;
   version: string;
+  /** mtime (epoch ms)。画面に出す目安で、保存の照合には使わない */
+  mtime: number;
 }
 
 async function readCommonSkillContent(
@@ -1284,12 +1286,17 @@ async function readCommonSkillContent(
   signal?: AbortSignal,
 ): Promise<CommonSkillFileContent> {
   throwIfAborted(signal);
-  const bytes = await readFile(target.lexical).catch((error: unknown) => {
+  // 読めない理由は read / stat で揃える (消えていれば 404、それ以外は 400)
+  const fail = (error: unknown): never => {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target.lexical}`);
     throw pathError(400, `Cannot read the skill file: ${messageFor(error)}`);
-  });
-  return { text: decodeUtf8(bytes), version: skillFileVersion(bytes) };
+  };
+  const bytes = await readFile(target.lexical).catch(fail);
+  // 表示用の目安。read とは別の syscall なので直後の更新は取りこぼしうるが、保存の照合は
+  // 内容そのもの (fileVersion) で行うため、表示のずれが競合検出を弱めることはない
+  const stats = await stat(target.lexical).catch(fail);
+  return { text: decodeUtf8(bytes), version: skillFileVersion(bytes), mtime: Math.round(stats.mtimeMs) };
 }
 
 /** UTF-8 のテキストだけを受け付ける (GUI はテキストを編集する) */
@@ -1338,6 +1345,7 @@ async function readCommonSkillDetail(
     body: info.body,
     relativePath,
     fileVersion: content.version,
+    mtime: content.mtime,
     editable,
     ...(reason === undefined ? {} : { reason }),
   };

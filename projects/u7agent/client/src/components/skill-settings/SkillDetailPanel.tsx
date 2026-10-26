@@ -12,7 +12,7 @@ export type SkillBodyState =
   | { status: "error"; message: string };
 
 /** メタの 1 行。mono は置き場のような等幅で出す値、strong は名前のような主語に使う */
-export type SkillMetaItem = { label: string; value: string; tone?: "strong"; mono?: boolean };
+export type SkillMetaItem = { label: string; value: string; tone?: "strong"; mono?: boolean; title?: string };
 
 export type SkillDetailPanelProps = {
   /** 操作行の左 (SKILL eyebrow + 見出し)。singleColumn のシートはヘッダに同じ見出しが出るため null (操作だけを残す) */
@@ -74,6 +74,7 @@ export function SkillDetailPanel({
                 <div key={item.label} className="grid gap-1.5">
                   <dt className="text-2xs font-semibold tracking-label text-ink-faint uppercase">{item.label}</dt>
                   <dd
+                    title={item.title}
                     className={cn(
                       "wrap-anywhere",
                       item.mono ? "text-2xs" : "text-xs",

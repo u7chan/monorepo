@@ -23,6 +23,7 @@ const DETAIL = {
   body: "\n本文\n",
   relativePath: ".agents/skills/alpha/SKILL.md",
   fileVersion: "a".repeat(64),
+  mtime: 1760000000000,
   editable: true,
 };
 

@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
-import type { FileSkillInfo } from "../src/types";
+import { fileTimeLabel } from "../src/lib/messageTime";
+import type { FileSkillInfo, SandboxSkillFileDetail } from "../src/types";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
@@ -23,8 +24,8 @@ function fileSkill(overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {
   };
 }
 
-function renderPanel(skill: FileSkillInfo): string {
-  return renderToStaticMarkup(createElement(FileSkillPanel, { skill, variant: "page" }));
+function renderPanel(skill: FileSkillInfo, detail?: SandboxSkillFileDetail): string {
+  return renderToStaticMarkup(createElement(FileSkillPanel, { skill, variant: "page", detail }));
 }
 
 test("描画: ファイルタブは共通スキルに出し、組み込みには出さない", () => {
@@ -45,4 +46,32 @@ test("描画: ファイルタブは共通スキルに出し、組み込みには
   assert.ok(!builtin.includes(">ファイル<"), "組み込みにファイルタブが出ている");
   assert.ok(builtin.includes(">本文<"), "組み込みの本文が出ていない");
   assert.ok(builtin.includes("本文\n"), "組み込みの本文が一覧の応答と違う");
+});
+
+test("描画: 最終更新は編集内容 (detail) があるときだけ出し、保存の照合に使う版は出さない", () => {
+  const mtime = 1760000000000;
+  const shown = renderPanel(fileSkill(), {
+    name: "alpha",
+    description: "アルファの説明",
+    body: "本文\n",
+    relativePath: ".agents/skills/alpha/SKILL.md",
+    fileVersion: "a".repeat(64),
+    mtime,
+    editable: true,
+  });
+  assert.ok(shown.includes(">最終更新<"), "最終更新が出ていない");
+  assert.ok(shown.includes(fileTimeLabel(mtime)), "最終更新が時刻の表示と違う");
+  assert.ok(shown.includes("SKILL.md の更新時刻（目安）"), "目安であることの補足が無い");
+  assert.ok(!shown.includes(">版<"), "保存の照合に使う版が画面に出ている");
+
+  // 組み込みは実体が無く、他のスコープは詳細を取得しないので、時刻の出どころが無い
+  const builtin = renderPanel(
+    fileSkill({
+      scope: "builtin",
+      relativePath: ".u7agent/builtin-skills/alpha/SKILL.md",
+      body: "本文\n",
+      version: "1",
+    }),
+  );
+  assert.ok(!builtin.includes("最終更新"), "組み込みに最終更新が出ている");
 });
