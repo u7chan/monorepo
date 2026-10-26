@@ -179,7 +179,8 @@ export function useSharedContents({ sessionId, directory }: { sessionId: string;
     [sessionId, accept, loadList],
   );
 
-  // 一覧は追跡 id が残っている間も取り直す（追跡を終える材料は一覧の成功だけ）
+  // 一覧も取り直すのは、一覧に載る他の進行中を止めないためと、追跡 id を取得できた一覧で精算するため。
+  // 追跡は詳細が終端を返した時点でも終わる（一覧が失敗し続けても要求を続けない）。
   const pollDetailId = sharePollDetailId(state.activeId, state.items, acceptedPublishing) ?? "";
   const pollList = sharedContentsPolling(state.items, acceptedPublishing);
 
