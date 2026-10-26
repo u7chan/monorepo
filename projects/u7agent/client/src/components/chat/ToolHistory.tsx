@@ -161,7 +161,9 @@ function ToolCallRow({
 
 /**
  * ツール履歴。進行中のターンでは実行中のカードを出さず (入力欄の上の状態行が最新を出す)、
- * 「すべてコピー」も出さない (伸びている途中の断片をコピらせない)。表示条件の根拠は docs/frontend.md が正。
+ * 「すべてコピー」も出さない (伸びている途中の断片をコピらせない)。ただしコピーの枠は常に確保し、
+ * run_end でボタンが現れても summary の高さ・プレビューの幅が変わらないようにする。
+ * 表示条件の根拠は docs/frontend.md が正。
  */
 export function ToolHistoryView({
   cards,
@@ -243,7 +245,11 @@ export function ToolHistoryView({
         <span className="min-w-0 flex-1 truncate">{historyPreview(shown)}</span>
         {flashKey === 0 ? null : <span key={flashKey} aria-hidden="true" className="tool-history-flash" />}
         {running ? <PhaseLabel phase="running" /> : null}
-        {live ? null : (
+        {/* コピーは進行中のターンでは出さないが、枠は常に確保する。出現で summary の高さ (コピーボタンの
+            size-6 だけ行が高くなる) とプレビューの幅が変わると、run_end で本文の位置がずれる */}
+        {live ? (
+          <span aria-hidden="true" data-tool-history-copy-slot="reserved" className="size-6 shrink-0" />
+        ) : (
           <CopyButton
             copied={copiedAll}
             failure={failureAll}

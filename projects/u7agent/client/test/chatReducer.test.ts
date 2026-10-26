@@ -4847,15 +4847,10 @@ test("同じターンの本文なしツール応答が複数でも、所有者�
   assert.deepEqual(
     liveOwners,
     [
-      ["work-a", undefined],
-      ["work-b", undefined],
+      ["work-a", "run-1:1"],
+      ["work-b", "run-1:2"],
     ],
-    "live は本文 item が無いので 1 枚の host に溜める",
-  );
-  assert.equal(
-    new Set(live.bubbles.filter((bubble) => bubble.tools.length > 0).map((bubble) => bubble.id)).size,
-    1,
-    "ツールごとに assistant バブルを作らない",
+    "本文 item が無いまま run が終わったターンは、確定履歴と同じく本文なし応答ごとの item に分かれる",
   );
 
   state = chatReducer(live, { type: "resyncHistory", page: stoppedPage });

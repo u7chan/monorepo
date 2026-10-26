@@ -10,7 +10,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ToolHistoryView } from "../src/components/chat/ToolHistory";
 import { chatReducer, initialChatState, type Bubble, type ChatState, type ToolCard } from "../src/hooks/chatReducer";
-import { chatRenderItems } from "../src/lib/chatItems";
+import { chatRenderItems, isLiveTurnBubble } from "../src/lib/chatItems";
 import { isToolHostBubble } from "../src/lib/chatTypes";
 import { completedToolCards, historyPreview } from "../src/lib/toolSummary";
 import type { HistoryPage, MessageMetrics, RunPayload, SessionPayload, Usage } from "../src/types";
@@ -212,8 +212,12 @@ test("3ツールの間に assistant_end が入っても、ライブは 1 枚の 
 });
 
 test("run_end はライブの印を落とすだけで、ヘッダーの位置・件数・プレビューを変えない", () => {
+  // What: 本文 item が現れたターン (ツールだけの応答 3 通 → 本文) では、run_end はライブの印を落とす
+  // だけで、ヘッダーのバブル・位置・件数・プレビューを変えない
   let live = startRun();
   for (const seq of [1, 2, 3]) live = bodylessTool(live, seq);
+  live = chatReducer(live, { type: "text", delta: "調べました", at: 40, assistantId: "run-1:4" });
+  live = chatReducer(live, { type: "assistantEnd", assistantId: "run-1:4" });
   const before = liveHeader(live);
   const [host] = toolBubbles(live);
   const position = live.bubbles.findIndex((bubble) => bubble.id === host.id);
@@ -235,6 +239,87 @@ test("run_end はライブの印を落とすだけで、ヘッダーの位置・
     "並び順も変えない",
   );
   assert.deepEqual(after, before, "件数・プレビュー・ヘッダーの数が変わらない");
+});
+
+test("本文が来ないまま run_end したターンは、確定履歴の item 境界 (本文なし応答ごと) に揃える", () => {
+  // What: r1:1 → tool-1 → r1:2 → tool-2 → r1:3 → tool-3 → runEnd (本文なし) で、ライブの 1 枚の host を
+  // 確定履歴の投影と同じ 3 item に分ける (1 枚にまとめたままだと resync / F5 でヘッダーが変わる)
+  let live = startRun();
+  for (const seq of [1, 2, 3]) live = bodylessTool(live, seq);
+  assert.equal(toolBubbles(live).length, 1, "実行中は 1 枚の host に溜める");
+
+  const settled = chatReducer(live, { runId: "run-1", type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.deepEqual(
+    toolBubbles(settled).map((bubble) => [bubble.assistantId, bubble.tools.map((card) => card.id)]),
+    [
+      ["run-1:1", ["tool-1"]],
+      ["run-1:2", ["tool-2"]],
+      ["run-1:3", ["tool-3"]],
+    ],
+    "本文なし応答ごとに 1 item (投影と同じ境界) になる",
+  );
+  assert.deepEqual(
+    toolBubbles(settled).map((bubble) => bubble.text),
+    ["", "", ""],
+    "本文は催造しない",
+  );
+  assert.ok(
+    toolBubbles(settled).every((bubble) => bubble.settled === true),
+    "すべて確定済みにする",
+  );
+  assert.equal(settledHeader(settled).count, 3, "件数は 3 (合計は各 item の 1 件ずつ)");
+  assert.equal(settledHeader(settled).bubbles, 3, "ヘッダーは 3 つ");
+
+  // 確定履歴 (本文なし応答がそれぞれ item になる) を重ねても、card は 1 枚ずつ同じ item に残る
+  const page: HistoryPage = {
+    sessionId: "session-a",
+    items: [
+      {
+        kind: "message",
+        id: "a-u1",
+        context: "active",
+        role: "user",
+        text: "調べて",
+        sendId: "send-1",
+        runId: "run-1",
+      },
+      ...completedRun(["tool-1", "tool-2", "tool-3"]).toolCalls.map((call, index) => ({
+        kind: "message" as const,
+        id: `a-a${index + 1}`,
+        context: "active" as const,
+        role: "assistant" as const,
+        text: "",
+        ...(call.assistantId === undefined ? {} : { assistantId: call.assistantId }),
+        tools: [call],
+      })),
+    ],
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "a-u1",
+    messageCount: 4,
+    summarizedMessageCount: 0,
+  };
+  const merged = chatReducer(settled, { type: "resyncHistory", page });
+  assert.deepEqual(
+    cardsOf(merged).map(({ card, entryId }) => [card.id, entryId]),
+    [
+      ["tool-1", "a-a1"],
+      ["tool-2", "a-a2"],
+      ["tool-3", "a-a3"],
+    ],
+    "履歴取得後も同じ item に 1 枚ずつ残る",
+  );
+  assert.deepEqual(
+    chatRenderItems({
+      bubbles: merged.bubbles,
+      markers: [],
+      compactions: [],
+      activeContextStartId: null,
+    }).flatMap((item) => (item.kind === "message" ? item.bubble.tools.map((card) => card.id) : [])),
+    ["tool-1", "tool-2", "tool-3"],
+    "表示は F5 後も 3 ヘッダー・3 カードのまま",
+  );
 });
 
 test("次の本文 item が届くと、host のカードは同じバブルのまま本文 item にまとまる", () => {
@@ -321,7 +406,7 @@ test("次の本文 item が届くと、host のカードは同じバブルのま
   );
 });
 
-test("ライブ中と確定後でヘッダーの件数・合計・プレビューが一致する (DOM)", () => {
+test("ライブ中と確定後でヘッダーの件数・合計・プレビュー・占有幅が一致する (DOM)", () => {
   let live = startRun();
   for (const seq of [1, 2, 3]) live = bodylessTool(live, seq);
   const [host] = toolBubbles(live);
@@ -336,6 +421,12 @@ test("ライブ中と確定後でヘッダーの件数・合計・プレビュ�
   // コピーは進行中のターンでは出さない (live の印を落としたときだけ出る)
   assert.equal(liveHtml.includes("ツール履歴をすべてコピー"), false);
   assert.ok(settledHtml.includes("ツール履歴をすべてコピー"));
+  // コピーの枠は live 中も確保する: 出現で summary の高さ (size-6 の分だけ行が高くなる) とプレビューの
+  // 幅が変わり、run_end で本文の位置がずれるのを防ぐ
+  const summaryOf = (html: string): string => html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
+  assert.ok(summaryOf(liveHtml).includes('data-tool-history-copy-slot="reserved"'), "ライブ中もコピーの枠を確保する");
+  assert.equal((summaryOf(liveHtml).match(/size-6 shrink-0/g) ?? []).length, 1, "枠は copy ボタンと同じ footprint");
+  assert.equal((summaryOf(settledHtml).match(/size-6 shrink-0/g) ?? []).length, 1, "確定後のボタンも同じ footprint");
 });
 
 test("本文が来ないまま run_end したターンは、ツールだけの host を item として確定する", () => {
@@ -399,14 +490,12 @@ test("停止で tool_end が来なかったカードは、ターンが終わる�
   );
 
   const stopped = chatReducer(live, { runId: "run-1", type: "runEnd", status: "stopped", queueDepth: 0 });
-  const [settledHost] = toolBubbles(stopped);
   assert.deepEqual(
-    settledHost.tools.map((card) => card.id),
-    ["tool-1", "tool-2"],
-    "止まったツールも残す",
+    toolBubbles(stopped).map((bubble) => bubble.tools.map((card) => [card.id, card.phase])),
+    [[["tool-1", "done"]], [["tool-2", "running"]]],
+    "止まったツールも本文なし応答ごとの item に残す",
   );
   assert.equal(settledHeader(stopped).count, 2, "ターンが終われば結果の無いカードも並べる");
-  assert.equal(settledHeader(stopped).bubbles, 1, "ヘッダーは 1 つのまま");
 });
 
 test("assistant_end を取りこぼしても、本文の応答へ次のツールを混ぜず 1 枚の host に溜める", () => {
@@ -466,4 +555,199 @@ test("ツールだけの応答がターン途中でも、確定履歴どおり�
 
   const settled = chatReducer(state, { runId: "run-1", type: "runEnd", status: "completed", queueDepth: 0 });
   assert.deepEqual(settledHeader(settled), header, "run_end でヘッダーが動かない");
+});
+
+test("本文を持たない host は、初回の履歴照合で前ターンの空本文 item に吸収されない", () => {
+  // What: 履歴取得前に「r1 の本文なし tool a 完了 → runEnd → r2 開始 → 本文なし tool b 実行中」と進み、
+  // [user(r1), assistant(r1:1, text="", tools=[a]), user(r2)] のページを適用しても、b が r1:1 の
+  // item へ混ざらない (空文字の一致だけで別ターンへ対応付けない)
+  let state = startRun();
+  state = bodylessTool(state, 1, { id: "work-a" });
+  state = chatReducer(state, { runId: "run-1", type: "runEnd", status: "completed", queueDepth: 0 });
+  state = chatReducer(state, {
+    type: "runStart",
+    runId: "run-2",
+    initialSendId: "send-2",
+    prompt: "もう一度",
+    at: 40,
+    startedAt: 40,
+  });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "work-b",
+    name: "bash",
+    args: "$ ls",
+    at: 41,
+    assistantId: "run-2:1",
+  });
+
+  const page: HistoryPage = {
+    sessionId: "session-a",
+    items: [
+      {
+        kind: "message",
+        id: "a-u1",
+        context: "active",
+        role: "user",
+        text: "調べて",
+        sendId: "send-1",
+        runId: "run-1",
+      },
+      {
+        kind: "message",
+        id: "a-a1",
+        context: "active",
+        role: "assistant",
+        text: "",
+        assistantId: "run-1:1",
+        tools: completedRun(["work-a"]).toolCalls,
+      },
+      {
+        kind: "message",
+        id: "a-u2",
+        context: "active",
+        role: "user",
+        text: "もう一度",
+        sendId: "send-2",
+        runId: "run-2",
+      },
+    ],
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "a-u1",
+    messageCount: 3,
+    summarizedMessageCount: 0,
+  };
+
+  const merged = chatReducer(state, { type: "resyncHistory", page });
+  assert.deepEqual(
+    cardsOf(merged)
+      .filter(({ card, entryId }) => card.id === "work-b" || entryId !== undefined)
+      .map(({ card, entryId }) => [card.id, entryId]),
+    [
+      ["work-a", "a-a1"],
+      ["work-b", undefined],
+    ],
+    "work-b を前ターンの item へ吸収しない (a は履歴 item のまま)",
+  );
+  const host = merged.bubbles.find((bubble) => bubble.tools.some((card) => card.id === "work-b"));
+  assert.equal(host?.runId, "run-2", "host は run の同一性を保つ");
+  assert.notEqual(host?.entryId, "a-a1");
+});
+
+test("待機エコーが host の後ろに積まれても、次の本文は host を引き取ってツールを残す", () => {
+  // What: tool a 完了 → 追加入力 (待機) → 本文 C の順でも、C がツールを抱えたまま 1 バブルになり、
+  // ツールだけの host が取り残されない (配列の末尾ではなく host の印で引く)
+  let state = startRun();
+  state = bodylessTool(state, 1, { id: "work-a" });
+  state = chatReducer(state, { type: "localUser", text: "次の確認", at: 50 });
+  state = chatReducer(state, {
+    type: "echoSendId",
+    sendId: "send-2",
+    runId: "run-1",
+    queuePosition: 1,
+    stateSeq: state.stateSeq,
+  });
+  state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  const settled = chatReducer(state, { runId: "run-1", type: "runEnd", status: "completed", queueDepth: 0 });
+
+  assert.deepEqual(
+    settled.bubbles
+      .filter((bubble) => bubble.role === "assistant")
+      .map((bubble) => [bubble.text, bubble.tools.map((card) => card.id), isToolHostBubble(bubble)]),
+    [["C", ["work-a"], false]],
+    "本文 C がツールを抱え、host は残らない",
+  );
+  assert.deepEqual(
+    chatRenderItems({
+      bubbles: settled.bubbles,
+      markers: [],
+      compactions: [],
+      activeContextStartId: null,
+    }).flatMap((item) => (item.kind === "message" ? item.bubble.tools.map((card) => card.id) : [])),
+    ["work-a"],
+    "表示は C のヘッダー 1 つ",
+  );
+});
+
+test("同じ応答の並列 ask_user は host に入らず、回答カードが非表示にならない", () => {
+  // What: 本文なし応答の bash (実行中) と並列の ask_user が届いても、質問カードは自分のバブルに載り、
+  // 実行中の host を隠す条件に巻き込まれない (回答手段が消えない)
+  const questions = [{ question: "進めますか" }];
+  let state = startRun();
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "shell",
+    name: "bash",
+    args: "$ sleep 30",
+    at: 20,
+    assistantId: "run-1:1",
+  });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "ask",
+    name: "ask_user",
+    args: "{}",
+    questions,
+    at: 21,
+    assistantId: "run-1:1",
+  });
+
+  const questionBubble = state.bubbles.find((bubble) => bubble.tools.some((card) => card.id === "ask"));
+  assert.ok(questionBubble !== undefined, "質問カードを抱えるバブルがある");
+  assert.equal(isToolHostBubble(questionBubble), false, "host へ入れない");
+  const rendered = chatRenderItems({
+    bubbles: state.bubbles,
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+    liveTurn: true,
+  }).flatMap((item) => (item.kind === "message" ? item.bubble.tools.map((card) => card.id) : []));
+  assert.ok(rendered.includes("ask"), "実行中のターンでも回答カードは描画される");
+  assert.equal(rendered.includes("shell"), false, "実行中の bash は状態行が受け持つ");
+});
+
+test("本文 item を引き取った host は run_end まで live のままで、実行中のカードとコピーを出さない", () => {
+  // What: tool 完了 → 本文 C → assistant_end → C 自身のツール、の順でも、run が終わるまで C は live
+  // (assistant_end で currentAssistantId が外れても、コピーと実行中の行を出さない)
+  let state = startRun();
+  state = bodylessTool(state, 1, { id: "work-a" });
+  state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "work-c",
+    name: "grep",
+    args: "$ grep C",
+    at: 61,
+    assistantId: "run-1:2",
+  });
+
+  const adopted = state.bubbles.find((bubble) => bubble.text === "C");
+  assert.equal(state.currentAssistantId, null, "assistant_end で開いている応答は外れる");
+  assert.equal(
+    isLiveTurnBubble(adopted as Bubble, { currentAssistantId: state.currentAssistantId, runInProgress: true }),
+    true,
+    "run が続く間は live として扱う",
+  );
+  assert.deepEqual(
+    completedToolCards((adopted as Bubble).tools).map((card) => card.id),
+    ["work-a"],
+    "実行中のカードは件数に数えない",
+  );
+
+  const settled = chatReducer(state, { runId: "run-1", type: "runEnd", status: "completed", queueDepth: 0 });
+  const settledBubble = settled.bubbles.find((bubble) => bubble.text === "C");
+  assert.equal(
+    isLiveTurnBubble(settledBubble as Bubble, { currentAssistantId: settled.currentAssistantId, runInProgress: false }),
+    false,
+    "run_end で live を落とす",
+  );
+  assert.deepEqual(
+    settledBubble?.tools.map((card) => card.id),
+    ["work-a", "work-c"],
+    "止まったカードも確定後は並べる",
+  );
 });

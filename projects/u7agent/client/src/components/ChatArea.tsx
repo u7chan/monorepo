@@ -1,7 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { Bubble, CompactionMarker } from "../hooks/chatReducer";
-import { isToolHostBubble } from "../lib/chatTypes";
+import { isLiveTurnBubble } from "../lib/chatItems";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import {
   anchoredScrollTop,
@@ -312,9 +312,9 @@ export function ChatArea({
         onResend={unsentActions.onResend}
         onDiscard={unsentActions.onDiscard}
         answerable={answerable}
-        // 進行中のターンだけ、ツール履歴の実行中の行とコピーを出さない。ツールだけの host も
-        // 同じターンの一部で、本文 item が現れるまでカードを溜めている
-        live={bubble.id === currentAssistantId || (answerable && isToolHostBubble(bubble))}
+        // 進行中のターンだけ、ツール履歴の実行中の行とコピーを出さない。本文だけの応答に加えて、
+        // ツールだけの host とそれを引き取った本文 item も run の終端まで進行中として扱う
+        live={isLiveTurnBubble(bubble, { currentAssistantId, runInProgress: answerable })}
         // 待機列から実行に移った瞬間だけ、リングを 1 回広げる
         queueStarted={startingRunId !== undefined && bubble.runId === startingRunId}
         onStartFlashEnd={onStartFlashEnd}

@@ -86,12 +86,28 @@ export function chatRenderItems({
 }
 
 /**
+ * 進行中のターンのバブルか (ツール履歴の実行中の行とコピーを出さない根拠)。開いている応答に加え、
+ * 本文 item を引き取った host も run の終端までは進行中として扱う: `assistant_end` で開いている応答が
+ * 外れても、run_end より前に実行中のカードとコピーを履歴へ出さない。
+ */
+export function isLiveTurnBubble(
+  bubble: Bubble,
+  { currentAssistantId, runInProgress }: { currentAssistantId: number | null; runInProgress: boolean },
+): boolean {
+  if (bubble.id === currentAssistantId) return true;
+  return runInProgress && isToolHostBubble(bubble);
+}
+
+/**
  * 進行中のターンで、完了したツールがまた無い host。ツール履歴の見出しも本文も出せないため
  * 描画しない (実行中のツールは入力欄の上の状態行が受け持つ)。run が終われば host は確定し、
- * 結果の無いカードも並べる (何が走っていたかを後から確かめられなくしない)。
+ * 結果の無いカードも並べる (何が走っていたかを後から確かめられなくしない)。本文 item を引き取った
+ * host (text あり) と、回答待ちのカードを抱える host は隠さない (回答手段を消さない)。
  */
 function pendingToolHost(bubble: Bubble): boolean {
-  return isToolHostBubble(bubble) && bubble.tools.every((card) => card.phase === "running");
+  if (!isToolHostBubble(bubble) || bubble.text !== "") return false;
+  if (bubble.tools.some((card) => card.questions !== undefined && card.answers === undefined)) return false;
+  return bubble.tools.every((card) => card.phase === "running");
 }
 
 /** 追加入力が進行中のターンと同じ実行へ注入されたか (run id が分かる場合だけ同一視する) */

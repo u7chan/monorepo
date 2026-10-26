@@ -575,7 +575,9 @@ function restoreSettledTools(
       );
     }
     if (match === -1 && live.assistantId === undefined) {
-      // 応答IDが片方にしか無い旧データだけ、同一ターン内の本文一致へ縮退する
+      // 応答IDが片方にしか無い旧データだけ、同一ターン内の本文一致へ縮退する。本文を持たない
+      // バブル (ツールだけの host) は空文字の一致だけで別の item へ載せない
+      if (live.text === "") continue;
       const turnIndex = turnIndexOf(state, live.id, next);
       if (turnIndex === -1) continue;
       for (let index = next.length - 1; index > turnIndex; index -= 1) {
@@ -1032,13 +1034,17 @@ function attachCardTo(state: ChatState, card: ToolCard, bubbleId: number): ChatS
 }
 
 /**
- * 今ターンの「ツールだけの host」。確定履歴は本文を持たない応答のツールを同ターンの次の表示可能な
- * 本文 item へ繰り上げるため、ライブもその本文 item が現れるまで 1 枚のカードに溜める。積む先は常に
- * 末尾 (最後に作ったカード) なので、末尾が host かだけを見る。
+ * 今の run の「ツールだけの host」(まだ本文 item を引き取っていないカード)。確定履歴は本文を持たない
+ * 応答のツールを同ターンの次の表示可能な本文 item へ繰り上げるため、ライブもその本文 item が現れる
+ * まで 1 枚のカードに溜める。待機・未送信のエコーは host の後ろに積まれることがあるので、配列の
+ * 末尾ではなく host の印で引く (配列の位置をターン境界にしない)。
  */
 function toolHostOf(bubbles: Bubble[]): Bubble | undefined {
-  const last = bubbles[bubbles.length - 1];
-  return last !== undefined && isToolHostBubble(last) ? last : undefined;
+  for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+    const bubble = bubbles[index];
+    if (isToolHostBubble(bubble) && bubble.text === "") return bubble;
+  }
+  return undefined;
 }
 
 /**
@@ -1057,11 +1063,20 @@ function ensureToolHost(state: ChatState, at?: number): { state: ChatState; id: 
   }
   const appended = appendBubble(state, "assistant", "", at);
   const id = appended.nextId - 1;
-  // 本文を持たない応答の usage / metrics は表示する item が無いので、host へ写さない
+  // 本文を持たない応答の usage / metrics は表示する item が無いので、host へ写さない。
+  // run id は履歴の照合で使う (本文を持たないので、空文字の一致だけで別ターンへ対応付けさせない)
   return {
     state: {
       ...appended,
-      bubbles: appended.bubbles.map((bubble) => (bubble.id === id ? { ...bubble, host: true as const } : bubble)),
+      bubbles: appended.bubbles.map((bubble) =>
+        bubble.id === id
+          ? {
+              ...bubble,
+              host: true as const,
+              ...(state.currentRunId === undefined ? {} : { runId: state.currentRunId }),
+            }
+          : bubble,
+      ),
       toolTargetAssistantId: id,
       pendingUsage: undefined,
       pendingMetrics: undefined,
@@ -1086,20 +1101,68 @@ function closeCurrentAssistant(state: ChatState): ChatState {
 /**
  * host を次の表示可能な本文 item にする。確定履歴の投影は本文を持つ item にツールを繰り上げるので、
  * 同じカード (同じ id) のまま `assistantId` と本文だけを足せば、ライブと確定後でヘッダーの位置・
- * 高さ・件数・プレビューが変わらない。
+ * 高さ・件数・プレビューが変わらない。host の印は run が終わるまで残す: 本文 item を引き取った後も
+ * そのターンの一部で、`run_end` までは実行中のカードとコピーを出さない。
  */
 function adoptToolHost(state: ChatState, assistantKey: string): ChatState | undefined {
   const host = toolHostOf(state.bubbles);
   if (host === undefined) return undefined;
   return {
     ...state,
-    bubbles: state.bubbles.map((bubble) =>
-      bubble.id === host.id ? { ...bubble, assistantId: assistantKey, host: undefined } : bubble,
-    ),
+    bubbles: state.bubbles.map((bubble) => (bubble.id === host.id ? { ...bubble, assistantId: assistantKey } : bubble)),
     currentAssistantId: host.id,
     currentAssistantKey: assistantKey,
     toolTargetAssistantId: undefined,
   };
+}
+
+/** host のカードを所有者 (本文を持たない応答) ごとに分ける。順序はカードが届いた順 */
+function toolCardGroups(
+  tools: readonly ToolCard[],
+  runTools: ChatState["runTools"],
+): { assistantId?: string; cards: ToolCard[] }[] {
+  const groups: { assistantId?: string; cards: ToolCard[] }[] = [];
+  for (const card of tools) {
+    const owner = runTools[card.id]?.assistantId;
+    const group = groups.find((entry) => entry.assistantId === owner);
+    if (group === undefined) groups.push({ assistantId: owner, cards: [card] });
+    else group.cards.push(card);
+  }
+  return groups.length === 0 ? [{ cards: [] }] : groups;
+}
+
+/**
+ * run が終わったターンの host を、確定履歴の item 境界へ揃えて確定する。投影は本文を持たない応答を
+ * それぞれ 1 item (自分のツールだけを持つ) にするため、複数応答のツールを 1 枚にまとめたまま残すと
+ * resync / F5 でヘッダーの数・件数・位置が変わってしまう。本文 item を引き取った host はそのまま
+ * 1 item として確定し、ライブの印 (host) を外す。
+ */
+function settleToolHosts(state: ChatState): ChatState {
+  if (!state.bubbles.some(isToolHostBubble)) return state;
+  const bubbles: Bubble[] = [];
+  let nextId = state.nextId;
+  for (const bubble of state.bubbles) {
+    if (!isToolHostBubble(bubble)) {
+      bubbles.push(bubble);
+      continue;
+    }
+    const groups =
+      bubble.text === ""
+        ? toolCardGroups(bubble.tools, state.runTools)
+        : [{ assistantId: bubble.assistantId, cards: bubble.tools }];
+    groups.forEach((group, index) => {
+      bubbles.push({
+        ...bubble,
+        // 1 枚目は元のバブル (DOM の位置) をそのまま使う
+        id: index === 0 ? bubble.id : nextId++,
+        settled: true,
+        host: undefined,
+        assistantId: group.assistantId,
+        tools: group.cards,
+      });
+    });
+  }
+  return { ...state, bubbles, nextId, toolBubbleIds: toolBubbleIdsOf(bubbles) };
 }
 
 /** 履歴の導出値を写し忘れると resync でツール履歴やバッジが黙って消える */
@@ -1911,11 +1974,18 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           state.currentAssistantId,
         );
       }
+      // run が終わっているターンの host は、確定履歴の item 境界 (本文なし応答ごと) へ揃えておく。
+      // 実行中は本文 item が現れるかもしれないので、溜めたままにする
+      const finalized =
+        status === "running"
+          ? { bubbles: settledBubbles, nextId: applied.nextId, toolBubbleIds: next.toolBubbleIds }
+          : settleToolHosts({ ...next, bubbles: settledBubbles, nextId: applied.nextId });
       return {
         ...next,
-        bubbles: settledBubbles,
+        bubbles: finalized.bubbles,
         pendingEchoIds: applied.pendingEchoIds,
-        nextId: applied.nextId,
+        nextId: finalized.nextId,
+        toolBubbleIds: finalized.toolBubbleIds,
         clearedSendIds: applied.clearedSendIds,
         stateSeq: state.stateSeq + 1,
         closedAssistantTexts: switchedSession ? [] : state.closedAssistantTexts,
@@ -2125,8 +2195,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           base.bubbles.some((bubble) => pending.has(bubble.id) && canonicalUserText(bubble.text) === promptBody);
         next = known ? base : insertRunUser(base, action.prompt, action.at, action.runId, action.initialSendId);
       }
+      // 前の run のツールだけの host は確定履歴の item 境界へ揃えて確定する (本文 item が来ないまま
+      // run_end を取りこぼしていても、次の run のカードを前のターンの host へ混ぜない)
+      const settled = settleToolHosts(next);
       return {
-        ...next,
+        ...settled,
         pendingEchoIds,
         // run_start の本文を控えておく。応答が遅れて届いたエコーを展開後の本文へ差し替えるのに使う
         runPrompts:
@@ -2139,11 +2212,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             : { ...next.runInitialSendIds, [action.runId]: action.initialSendId },
         currentAssistantId: null,
         currentAssistantKey: undefined,
-        // 前の run のツールだけの host は確定済みの item として扱う (本文 item が来ないまま run_end を
-        // 取りこぼしていても、次の run のカードを前のターンの host へ混ぜない)
-        bubbles: next.bubbles.map((bubble) =>
-          isToolHostBubble(bubble) ? { ...bubble, settled: true, host: undefined } : bubble,
-        ),
         toolBubbleIds: {},
         runTools: {},
         runStatus: "running",
@@ -2423,6 +2491,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const ended = closedToolTarget(state, action.assistantId);
       let base = state;
       let targetId = keyTarget?.id ?? ended;
+      // 回答待ちの ask_user は host へ入れない: host は「完了したカードだけを持つ 1 枚」として実行中だけ
+      // 描画しないため、質問カードを抱えると回答手段ごと見えなくなる
+      if (targetId !== undefined && isPendingAskUser(call)) {
+        const target = state.bubbles.find((bubble) => bubble.id === targetId);
+        if (target !== undefined && isToolHostBubble(target)) targetId = undefined;
+      }
       // 旧サーバー (応答IDなし) は本文の補完先そのものへ足す
       if (targetId === undefined && action.assistantId === undefined) {
         base = openAssistantForKey(state, action.at, undefined);
@@ -2715,17 +2789,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         state.currentAssistantId === null
           ? state
           : updateBubble(state, state.currentAssistantId, (bubble) => ({ ...bubble, settled: true }));
-      // 本文 item が現れないまま run が終わったターンは、ツールだけの host をそのターンの item として
-      // 確定する (ヘッダーの再投影はせず、resync は確定履歴を正として置き換える)
-      const hostBubble = toolHostOf(settledCurrent.bubbles);
-      const settled =
-        hostBubble === undefined
-          ? settledCurrent
-          : updateBubble(settledCurrent, hostBubble.id, (bubble) => ({
-              ...bubble,
-              settled: true,
-              host: undefined,
-            }));
+      // 本文 item が現れないまま run が終わったターンは、host を確定履歴の item 境界へ揃えて確定する
+      // (本文を持たない応答ごとに 1 item。投影と同じ形にして、resync / F5 でヘッダーが動かないようにする)
+      const settled = settleToolHosts(settledCurrent);
       // run_end の所要時間と結末は、その run の user パブルへ写す (entryId の有無を問わず runId 一致)。
       // 未送信のターンは導出側が行を落とす。終端以外の status では値を付けない
       const outcome = runOutcomeOf(status);
