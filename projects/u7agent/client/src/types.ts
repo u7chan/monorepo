@@ -29,6 +29,8 @@ export type {
   ContextUsage,
   CreateAgentBody,
   CreateCustomProviderBody,
+  CustomProviderProbeBody,
+  CustomProviderProbeResponse,
   CreateFileSkillBody,
   CreateSecretBody,
   CreateSharedContentBody,

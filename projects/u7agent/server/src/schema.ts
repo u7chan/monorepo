@@ -906,6 +906,37 @@ export const CustomProviderSummarySchema = z.object({
 });
 export type CustomProviderSummary = z.infer<typeof CustomProviderSummarySchema>;
 
+/**
+ * `/models` の probe の失敗分類。失敗も 200 の結果として返す (HTTP エラーにすると分類と
+ * `httpStatus` がクライアントの汎用エラー経路へ落ちる)。
+ */
+export const CustomProviderProbeFailureSchema = z.enum([
+  "unauthorized",
+  "not_found",
+  "http_error",
+  "redirected",
+  "invalid_response",
+  "timeout",
+  "unreachable",
+]);
+export type CustomProviderProbeFailure = z.infer<typeof CustomProviderProbeFailureSchema>;
+
+/**
+ * カスタムプロバイダーのモデル一覧取得の結果。`failure === null` が成功で、`message` も `httpStatus` も
+ * null になる。失敗は `models: []` で `message` が非 null。**キーは載せない**。
+ */
+export const CustomProviderProbeResponseSchema = z.object({
+  checkedAt: z.number(),
+  baseUrl: z.string(),
+  failure: CustomProviderProbeFailureSchema.nullable(),
+  /** 接続先が返した HTTP status のうち 400 以上だけ (3xx / 2xx は null) */
+  httpStatus: z.number().nullable(),
+  models: z.array(z.object({ id: z.string() })),
+  truncated: z.boolean(),
+  message: z.string().nullable(),
+});
+export type CustomProviderProbeResponse = z.infer<typeof CustomProviderProbeResponseSchema>;
+
 /** GET /api/settings/models。カタログ全件は載せず、利用可能なモデルは allowedModels だけが持つ */
 export const ModelsSettingsResponseSchema = z.object({
   runtimeAvailable: z.boolean(),
@@ -983,6 +1014,17 @@ export const UpdateCustomProviderBodySchema = z.object({
   model: CustomProviderModelBodySchema,
 });
 export type UpdateCustomProviderBody = z.infer<typeof UpdateCustomProviderBodySchema>;
+
+/**
+ * モデル一覧の probe。`provider` を渡すと保存済みのキーを使えて (キーは応答に返らない)、
+ * `apiKey` が空欄なら保存済みを維持する。どちらも無ければ service が 400 にする。
+ */
+export const CustomProviderProbeBodySchema = z.object({
+  provider: z.string().optional(),
+  baseUrl: z.string(),
+  apiKey: z.string().optional(),
+});
+export type CustomProviderProbeBody = z.infer<typeof CustomProviderProbeBodySchema>;
 
 /** OAuth サインインの貼り付け (ブラウザの最後の画面の URL / コード)。値は応答にもログにも載せない */
 export const SubmitOAuthLoginCodeBodySchema = z.object({

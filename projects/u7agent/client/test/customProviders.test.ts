@@ -7,19 +7,26 @@ import {
   CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS,
   CUSTOM_PROVIDER_NOTES,
   CUSTOM_PROVIDER_NOTES_SUMMARY,
+  CUSTOM_PROVIDER_PROBE_EMPTY_MESSAGE,
   contextWindowLabel,
   contextWindowOptions,
+  currentCustomProviderProbe,
   customProviderBaseUrlError,
   customProviderCreateBody,
   customProviderDraftOf,
   customProviderFormHasError,
+  customProviderProbeBody,
+  customProviderProbeDisplay,
+  customProviderProbeEnabled,
   customProviderUpdateBody,
   deleteCustomProviderConfirm,
   emptyCustomProviderDraft,
+  filterModelIds,
+  modelIdMissingFromList,
   validateCustomProviderDraft,
   type CustomProviderFormDraft,
 } from "../src/lib/customProviders";
-import type { CustomProviderSummary } from "../src/types";
+import type { CustomProviderProbeResponse, CustomProviderSummary } from "../src/types";
 
 const SUMMARY: CustomProviderSummary = {
   id: "local-llm",
@@ -215,4 +222,114 @@ test("削除の確認はメモリのみ・会話への影響・モデル選択�
   assert.ok(text.includes("メモリ"));
   assert.ok(text.includes("次回の送信"));
   assert.ok(text.includes("カタログ外"));
+});
+
+const PROBE_OK: CustomProviderProbeResponse = {
+  checkedAt: 1,
+  baseUrl: "http://192.0.2.10:11434/v1",
+  failure: null,
+  httpStatus: null,
+  models: [{ id: "llama3:8b" }, { id: "qwen2.5-coder:7b" }],
+  truncated: false,
+  message: null,
+};
+
+test("probe の本文は編集時だけ provider を載せ、空欄のキーは送らない", () => {
+  assert.deepEqual(customProviderProbeBody(draft(), false), {
+    baseUrl: "http://192.0.2.10:11434/v1",
+    apiKey: "sk-custom-dummy-key-0123456789",
+  });
+  assert.deepEqual(customProviderProbeBody(draft({ apiKey: " " }), true), {
+    provider: "local-llm",
+    baseUrl: "http://192.0.2.10:11434/v1",
+    apiKey: " ",
+  });
+  assert.deepEqual(customProviderProbeBody(draft({ apiKey: "" }), true), {
+    provider: "local-llm",
+    baseUrl: "http://192.0.2.10:11434/v1",
+  });
+});
+
+test("probe は保存と同じ境界に加え、編集時の空欄キーは保存済みキーがあるときだけ押せる", () => {
+  const base = {
+    draft: draft(),
+    editing: false,
+    hasStoredKey: false,
+    runtimeAvailable: true,
+    busy: false,
+    probing: false,
+  };
+  assert.equal(customProviderProbeEnabled(base), true);
+  assert.equal(customProviderProbeEnabled({ ...base, draft: draft({ baseUrl: "" }) }), false);
+  assert.equal(customProviderProbeEnabled({ ...base, draft: draft({ apiKey: "short" }) }), false);
+  assert.equal(
+    customProviderProbeEnabled({ ...base, editing: true, draft: draft({ apiKey: "" }), hasStoredKey: true }),
+    true,
+  );
+  assert.equal(
+    customProviderProbeEnabled({ ...base, editing: true, draft: draft({ apiKey: "" }), hasStoredKey: false }),
+    false,
+  );
+  assert.equal(customProviderProbeEnabled({ ...base, editing: false, draft: draft({ apiKey: "" }) }), false);
+  assert.equal(customProviderProbeEnabled({ ...base, runtimeAvailable: false }), false);
+  assert.equal(customProviderProbeEnabled({ ...base, busy: true }), false);
+  assert.equal(customProviderProbeEnabled({ ...base, probing: true }), false);
+});
+
+test("一覧の絞り込みは大小を無視し、並びを保つ", () => {
+  const ids = ["llama3:8b", "Qwen2.5-Coder:7b", "nomic-embed-text"];
+  assert.deepEqual(filterModelIds(ids, ""), ids);
+  assert.deepEqual(filterModelIds(ids, "QWEN"), ["Qwen2.5-Coder:7b"]);
+  assert.deepEqual(filterModelIds(ids, "  embed  "), ["nomic-embed-text"]);
+  assert.deepEqual(filterModelIds(ids, "missing"), []);
+});
+
+test("一覧に無いモデル ID は、空の入力と空の一覧では警告しない", () => {
+  assert.equal(modelIdMissingFromList("llama3:8b", ["llama3:8b"]), false);
+  assert.equal(modelIdMissingFromList(" other ", ["llama3:8b"]), true);
+  assert.equal(modelIdMissingFromList("", ["llama3:8b"]), false);
+  assert.equal(modelIdMissingFromList("other", []), false);
+});
+
+test("結果行は成功の件数と失敗のサーバー文言・HTTP status を出す", () => {
+  assert.deepEqual(customProviderProbeDisplay(PROBE_OK), {
+    kind: "success",
+    message: "接続できました。モデル 2 件",
+    detail: null,
+  });
+  assert.deepEqual(customProviderProbeDisplay({ ...PROBE_OK, truncated: true }), {
+    kind: "success",
+    message: "接続できました。モデル 2 件（先頭 2 件のみ）",
+    detail: null,
+  });
+  assert.deepEqual(customProviderProbeDisplay({ ...PROBE_OK, models: [] }), {
+    kind: "success",
+    message: CUSTOM_PROVIDER_PROBE_EMPTY_MESSAGE,
+    detail: null,
+  });
+  assert.deepEqual(
+    customProviderProbeDisplay({
+      ...PROBE_OK,
+      failure: "unauthorized",
+      httpStatus: 401,
+      models: [],
+      message: "接続先がAPIキーを拒否しました。キーを確認してください",
+    }),
+    {
+      kind: "failure",
+      message: "接続先がAPIキーを拒否しました。キーを確認してください",
+      detail: "HTTP 401",
+    },
+  );
+  assert.equal(
+    customProviderProbeDisplay({ ...PROBE_OK, failure: "timeout", httpStatus: null, models: [], message: null }).detail,
+    null,
+  );
+});
+
+test("baseUrl / APIキーを編集したら前の probe 結果は捨てる", () => {
+  const result = { revision: 2, result: PROBE_OK, error: null };
+  assert.equal(currentCustomProviderProbe(result, 2), result);
+  assert.equal(currentCustomProviderProbe(result, 3), null);
+  assert.equal(currentCustomProviderProbe(null, 0), null);
 });

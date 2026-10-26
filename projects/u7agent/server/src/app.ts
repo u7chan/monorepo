@@ -39,6 +39,7 @@ import {
   CreateSpaceBodySchema,
   CreateAgentBodySchema,
   CreateCustomProviderBodySchema,
+  CustomProviderProbeBodySchema,
   CreateProjectBodySchema,
   CreateSecretBodySchema,
   CreateSessionBodySchema,
@@ -523,6 +524,14 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => modelSettingsRoutes.createCustomProvider(c, c.req.valid("json")),
+    )
+    // 状態を変えないため state を持たず、接続できない場合も 200 の分類で返す
+    .post(
+      "/api/settings/custom-providers/probe",
+      jsonBodyValidator(CustomProviderProbeBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => modelSettingsRoutes.probeCustomProvider(c, c.req.valid("json")),
     )
     .put(
       "/api/settings/custom-providers/:provider",

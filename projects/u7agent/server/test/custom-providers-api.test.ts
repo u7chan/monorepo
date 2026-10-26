@@ -487,3 +487,113 @@ test("孤立したキー / メモの行がある id では作成を 400 にし�
     }
   });
 });
+
+test("probe は 200 で分類とモデル一覧を返し、state もキーも載せない", async () => {
+  await withStoreDir(async (dir) => {
+    const requests: Request[] = [];
+    const probeFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push(new Request(input, init));
+      return Response.json({ data: [{ id: "qwen2.5-coder:7b" }, { id: "llama3:8b" }] });
+    }) as typeof fetch;
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(pi),
+      workspace: null,
+      customProviderProbeFetch: probeFetch,
+    });
+    try {
+      const created = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
+      assert.equal(created.status, 200);
+
+      // 作成済みの provider は、キーの空欄で保存済みのキーを使える
+      const storedKey = await bff.app.request(
+        "/api/settings/custom-providers/probe",
+        jsonRequest("POST", { provider: "local-llm", baseUrl: "http://192.0.2.10:11434/v1", apiKey: "" }),
+      );
+      assert.equal(storedKey.status, 200);
+      const storedBody = await jsonBody(storedKey);
+      assert.deepEqual(storedBody.models, [{ id: "llama3:8b" }, { id: "qwen2.5-coder:7b" }]);
+      assert.equal(storedBody.failure, null);
+      assert.equal(storedBody.message, null);
+      assert.equal("state" in storedBody, false, "probe は設定を変えないので state を持たない");
+      assert.ok(!JSON.stringify(storedBody).includes(KEY), "probe の応答にキーを載せない");
+      assert.equal(requests[0]?.headers.get("authorization"), `Bearer ${KEY}`);
+
+      // 未保存の下書きも、キーを渡せば同じ経路で確認できる
+      const draft = await bff.app.request(
+        "/api/settings/custom-providers/probe",
+        jsonRequest("POST", { baseUrl: "http://192.0.2.10:11434/v1/", apiKey: NEW_KEY }),
+      );
+      assert.equal(draft.status, 200);
+      assert.equal(requests[1]?.headers.get("authorization"), `Bearer ${NEW_KEY}`);
+      assert.equal(new URL(requests[1]!.url).pathname, "/v1/models");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("probe の失敗は 200 の分類で返し、入力の誤りだけ 400 にする", async () => {
+  await withStoreDir(async (dir) => {
+    const probeFetch = (async () => Response.json({ error: "no" }, { status: 401 })) as typeof fetch;
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(pi),
+      workspace: null,
+      customProviderProbeFetch: probeFetch,
+    });
+    try {
+      const unauthorized = await bff.app.request(
+        "/api/settings/custom-providers/probe",
+        jsonRequest("POST", { baseUrl: "http://192.0.2.10:11434/v1", apiKey: KEY }),
+      );
+      assert.equal(unauthorized.status, 200);
+      const body = await jsonBody(unauthorized);
+      assert.equal(body.failure, "unauthorized");
+      assert.equal(body.httpStatus, 401);
+      assert.deepEqual(body.models, []);
+      assert.ok(typeof body.message === "string" && body.message.length > 0);
+
+      for (const payload of [
+        { provider: "ghost", baseUrl: "http://192.0.2.10:11434/v1", apiKey: KEY },
+        { baseUrl: "http://192.0.2.10:11434/v1" },
+        { baseUrl: "file:///etc/passwd", apiKey: KEY },
+        { baseUrl: 42, apiKey: KEY },
+      ]) {
+        const response = await bff.app.request("/api/settings/custom-providers/probe", jsonRequest("POST", payload));
+        assert.equal(response.status, 400, JSON.stringify(payload));
+      }
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("GET /api/settings/models は probe の fetch を呼ばない", async () => {
+  await withStoreDir(async (dir) => {
+    let calls = 0;
+    const probeFetch = (async () => {
+      calls += 1;
+      return Response.json({ data: [] });
+    }) as typeof fetch;
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(pi),
+      workspace: null,
+      customProviderProbeFetch: probeFetch,
+    });
+    try {
+      const response = await bff.app.request("/api/settings/models");
+      assert.equal(response.status, 200);
+      assert.equal(calls, 0);
+    } finally {
+      await bff.close();
+    }
+  });
+});

@@ -165,6 +165,16 @@ function parseModelId(value: string): string {
   return id;
 }
 
+/** `parseModelId` と同じ境界を例外なしで判定する。probe は選べる ID だけを一覧へ載せる */
+export function isCustomProviderModelId(value: string): boolean {
+  try {
+    parseModelId(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function parsePositiveInteger(value: number, error: string): number {
   if (!Number.isInteger(value) || value <= 0) throw httpError(400, error);
   return value;
