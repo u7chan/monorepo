@@ -13,9 +13,9 @@ export const WEB_SEARCH_TOOL_NAME = "web_search";
 /** 読み込み時の注記。再起動後も残ることを最初に伝える */
 export const WEB_SEARCH_SETTINGS_NOTE = "Web 検索の設定はサーバーに保存され、再起動後も残ります。";
 
-/** キーの保存方式。コンテンツ生成と同じで、保存時に暗号化しないことを隠さない */
-export const WEB_SEARCH_KEY_PLAINTEXT_NOTE =
-  "APIキーはアプリのデータベース（SQLite）へ平文で保存し、再起動後も使われます。保存したキーは再表示しません。";
+/** キーの保存方式。master key が無いと復号できず、利用できないことも伝える */
+export const WEB_SEARCH_KEY_ENCRYPTED_NOTE =
+  "APIキーは暗号化してアプリのデータベース（SQLite）へ保存し、再起動後も使われます。保存したキーは再表示しません。master key（U7AGENT_SECRET_MASTER_KEY）が未設定の間は、保存済みのキーを使えません。";
 
 export const WEB_SEARCH_NO_LOGIN_NOTE =
   "この GUI にはログインがありません。BFF をインターネットや LAN へ公開しないでください。";
@@ -55,16 +55,26 @@ export function webSearchProviderOptions(providers: readonly WebSearchProvider[]
     detail: provider.host,
     description: provider.keyless
       ? "キー不要（keyless の共有エンドポイント）"
-      : provider.configured
-        ? "APIキー設定済み（平文で保存）"
-        : "APIキーが必要（平文で保存）",
+      : provider.keyStored
+        ? "APIキー設定済み（暗号化して保存）"
+        : "APIキーが必要（暗号化して保存）",
   }));
 }
 
-/** provider ごとのキー状態。keyless の provider は「キー不要」で固定する */
+/**
+ * provider ごとのキー状態。keyless の provider は「キー不要」で固定する。
+ * 保存の有無 (`keyStored`) と利用可否 (`keyAvailable`) を分け、復号できないキーを「設定済み」と出さない。
+ */
 export function webSearchKeyBadge(provider: WebSearchProvider): ProviderBadge {
   if (provider.keyless) return { label: "キー不要", tone: "muted" };
-  return provider.configured ? { label: "設定済み", tone: "ok" } : { label: "未設定", tone: "muted" };
+  if (!provider.keyStored) return { label: "未設定", tone: "muted" };
+  return provider.keyAvailable ? { label: "設定済み", tone: "ok" } : { label: "利用不可", tone: "warn" };
+}
+
+/** 保存済みのキーを使えない理由。未評価 / 復号失敗の文言はサーバーが返したものをそのまま出す */
+export function webSearchKeyErrorNotice(provider: WebSearchProvider): string | null {
+  if (provider.keyless || !provider.keyStored || provider.keyAvailable) return null;
+  return provider.keyErrorMessage;
 }
 
 /**
@@ -80,7 +90,7 @@ export function webSearchDataFlowNotice(provider: WebSearchProvider, enabled: bo
 /** 注意書きを畳んだときの 1 行。送信先は展開前から読めるようにし、切り替えで見落とさないようにする */
 export function webSearchNoticeSummary(provider: WebSearchProvider, enabled: boolean): string {
   if (!enabled) return `検索は無効です。クエリは ${provider.name}（${provider.host}）へ送信されません。`;
-  const key = provider.keyless ? "" : "キーは平文で保存されます。";
+  const key = provider.keyless ? "" : "キーは暗号化して保存されます。";
   return `${WEB_SEARCH_TOOL_NAME} ツールの実行時にだけ、クエリは ${provider.name}（${provider.host}）へ送信されます。${key}`;
 }
 
@@ -89,7 +99,10 @@ export function webSearchNoticeSummary(provider: WebSearchProvider, enabled: boo
  * 「選んだだけで検索できる」と誤解されたまま保存されるのを防ぐ。
  */
 export function webSearchKeyMissingNotice(provider: WebSearchProvider): string | null {
-  if (provider.keyless || provider.configured) return null;
+  if (provider.keyless) return null;
+  // 保存済みだが使えない状態は、未設定と混同せずサーバーの固定文言を出す
+  if (provider.keyStored && !provider.keyAvailable) return provider.keyErrorMessage;
+  if (provider.keyStored) return null;
   return `既定の ${provider.name} のAPIキーが未設定です。この状態で検索するとキー無効エラーになります。`;
 }
 

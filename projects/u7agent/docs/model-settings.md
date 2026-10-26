@@ -20,13 +20,15 @@
 
 ## 保存先とスキーマ
 
-`PI_SESSION_STORE/u7agent.db` の `provider_credentials`（`APP_DB_SCHEMA_VERSION` 3 → 4、`updatedAt` は 6 → 7 の列追加）、`model_settings`（4 → 5）、`provider_memos`（5 → 6）。この DB では初めて `ALTER TABLE ... ADD COLUMN` で既存テーブルへ列を足す。
+`PI_SESSION_STORE/u7agent.db` の `provider_credentials`（`APP_DB_SCHEMA_VERSION` 30 → 31 で APIキーを暗号文の列へ移した）、`model_settings`（4 → 5）、`provider_memos`（5 → 6）。この DB では初めて `ALTER TABLE ... ADD COLUMN` で既存テーブルへ列を足した。
 
 ```sql
 CREATE TABLE IF NOT EXISTS provider_credentials (
-  provider  TEXT PRIMARY KEY,
-  apiKey    TEXT NOT NULL,
-  updatedAt INTEGER  -- epoch ms。上書き保存のたびに更新。NULL = 移行前の行で不明
+  provider   TEXT PRIMARY KEY,
+  ciphertext BLOB NOT NULL,   -- AEAD の暗号文 (認証タグを末尾に含む)
+  nonce      BLOB NOT NULL,
+  keyVersion INTEGER NOT NULL,
+  updatedAt  INTEGER NOT NULL -- epoch ms。上書き保存のたびに更新
 );
 
 CREATE TABLE IF NOT EXISTS model_settings (
@@ -41,7 +43,9 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 );
 ```
 
-- 値は必ずバインドして渡す。保存行は**平文**で、Webhook URL と同じトラストレベル（[persistence.md](persistence.md#アプリデータsqlite)）
+- 値は必ずバインドして渡す。保存行は**暗号文**で、AAD は `u7agent-app-secret:provider_credentials:<provider>`（[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。暗号化・復号に master key（`U7AGENT_SECRET_MASTER_KEY` / `_FILE`）が要り、未設定 / 不正の間は保存を 503、利用を未設定表示にする。既存の平文キーは v30 → v31 の移行で破棄し、再入力で復旧する（[persistence.md](persistence.md#アプリデータsqlite)）
+- 復号は起動時・保存 / 置換時・`resync` のときだけ行い、GET は暗号文を復号しない。復号の成否はプロセスのメモリだけに持ち、DTO は `keyAvailable` / `keyEvaluated` / `keyErrorMessage` で表す。`managed: true` / `keyEvaluated: false` は「保存済みだが復号をまだ確認していない」で、誤鍵・破損と断定しない。復号できない行は `degraded: "apply"` として削除 / 再同期の導線を残す
+- キーの削除は復号が要らないため master key 無しでも通す。新規保存・置換だけが master key を要求する
 - `managed`（DB 行 = 永続化された希望状態）と `auth.source`（SDK の実効値。`runtime` / `environment` / `stored` …）は**別物**として画面に出す
 - `keyUpdatedAt`（DTO の `providers[].keyUpdatedAt`）はこの画面で登録したキーの最終保存時刻（epoch ms）。`managed` が false の provider は常に `null`。上書き保存のたびに `Date.now()` で更新し、`resync` / 削除では変えない（削除は行ごと消えるため以後 `null`）。移行前の行も `null`（保存日不明）で、起動時に `Date.now()` を書き戻さない
 - 最終使用は保存しない。クライアントが `GET /api/sessions` の `model` + `lastUsedAt` から provider ごとに集計する派生値で、サーバーの DTO / health には足さない
@@ -323,7 +327,8 @@ Ollama / LM Studio / vLLM / llama.cpp などの OpenAI 互換エンドポイン�
 
 ## 残存リスク
 
-- DB は平文。WAL・バックアップ・ボリュームの読み取り権限を持つ者はキーを読める。ファイルのアクセス権を管理し、**ログイン認証のない BFF をインターネットや LAN へ公開しない**。保存時暗号化は別スコープ
+- APIキーは AEAD で保存する（[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。master key を持つ者・稼働中の BFF は復号できるため、鍵はアプリ DB と別経路で管理し、**ログイン認証のない BFF をインターネットや LAN へ公開しない**。master key を失うと保存済みのキーは復号できず、再入力が必要
+- 既存の平文キーは移行で一度失われる（再入力で復旧する）
 - 削除・上書きした旧キーはプロセス生存中のみ保護される。再起動後、チャットへ貼り付けた生の入力（`session.jsonl` に raw で残る）が再投影で見える可能性がある。恒久対策（tombstone の保持）は将来課題
 - キーの有効性は保存時に検証しない（プロバイダーへの実リクエストを送らない）。カスタムプロバイダーの `/models` 取得は利用者が明示的に押したときだけで、保存時の検証ではない
 - カタログ外の残存エントリがある間は利用可能なモデルを保存できない（400）。画面に削除導線は出すが 1 手間残る

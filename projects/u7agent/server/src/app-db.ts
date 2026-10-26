@@ -9,24 +9,46 @@ import { spaceDirRel } from "./app-paths";
 import { httpError, messageFor } from "./http";
 import type { ImageInputDeclaration } from "./images";
 import type { SecretKind } from "./secret-crypto";
-import type {
-  AgentDef,
-  AgentSuggestion,
-  ModelRef,
-  NotificationResult,
-  NotificationSettings,
-  Project,
-  Space,
-} from "./schema";
+import type { AgentDef, AgentSuggestion, ModelRef, NotificationResult, Project, Space } from "./schema";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 30;
+export const APP_DB_SCHEMA_VERSION = 31;
 
-/** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
-export interface ProviderCredentialRow {
+/**
+ * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
+ * 方式と AAD の規約は docs/secrets.md を正とする。
+ */
+export interface StoredAppSecret {
+  ciphertext: Uint8Array;
+  nonce: Uint8Array;
+  keyVersion: number;
+}
+
+/** 列がすべて揃っているときだけ保存形へ写す (欠けた行は「未保存」と読み違えないよう例外にする) */
+function storedAppSecretOf(
+  row: Row,
+  table: string,
+  columns: { ciphertext: string; nonce: string; keyVersion: string } = {
+    ciphertext: "ciphertext",
+    nonce: "nonce",
+    keyVersion: "keyVersion",
+  },
+): StoredAppSecret | null {
+  const ciphertext = optionalBlob(row[columns.ciphertext]);
+  const nonce = optionalBlob(row[columns.nonce]);
+  const keyVersion = optionalNumber(row[columns.keyVersion]);
+  const present = [ciphertext !== null, nonce !== null, keyVersion !== null];
+  if (present.every((value) => !value)) return null;
+  if (!ciphertext || !nonce || keyVersion === null || !Number.isInteger(keyVersion)) {
+    throw new Error(`${table} secret columns are incomplete`);
+  }
+  return { ciphertext, nonce, keyVersion };
+}
+
+/** プロバイダー API キーの保存行。値は AEAD の暗号文で、復号は docs/secrets.md の契約に従う */
+export interface ProviderCredentialRow extends StoredAppSecret {
   provider: string;
-  apiKey: string;
   /** 最終保存時刻 (epoch ms)。NULL は移行前の行で不明 */
   updatedAt: number | null;
 }
@@ -47,8 +69,8 @@ export interface ModelSettingsRow {
 }
 
 /**
- * コンテンツ生成の保存行。**行が無い = 未設定**で、キー削除は行ごと消す。apiKey は平文
- * (アクセス権の管理と残存リスクは docs/secrets.md / docs/image-generation.md を正とする)。
+ * コンテンツ生成の保存行。**行が無い = 未設定**で、キー削除は行ごと消す。APIキーは AEAD の暗号文で、
+ * 3 列がすべて NULL = キー未設定 (契約は docs/secrets.md / docs/image-generation.md)。
  * `enabled` はアプリ全体の有効 / 無効で、v25 -> v26 で足した列（既存行は ON）。OFF でも行は残すため、
  * キーと選択は消えない（削除は別操作）。
  * 音声の 2 列は v15 -> v16 で足した nullable 列で、NULL は既定（モデル）と「宣言する先頭ボイス」
@@ -60,7 +82,20 @@ export interface ContentSettingsRow {
   speechModel: string | null;
   speechVoice: string | null;
   enabled: boolean;
-  apiKey: string;
+  /** APIキーの暗号文。null = キー未設定 */
+  ciphertext: Uint8Array | null;
+  nonce: Uint8Array | null;
+  keyVersion: number | null;
+}
+
+/** アプリデータの SQLite に保存する通知設定。Webhook URL は AEAD の暗号文で、応答へは出さない (write-only) */
+export interface NotificationSettingsRow {
+  enabled: boolean;
+  askUser: boolean;
+  /** Webhook URL の暗号文。null = 未設定 (通知は送らない) */
+  webhook: StoredAppSecret | null;
+  baseUrl: string | null;
+  lastResult: NotificationResult | null;
 }
 
 /**
@@ -238,13 +273,16 @@ export interface OpenAppDbOptions {
 /**
  * v1 -> v2 で足したテーブル。`IF NOT EXISTS` で定義を 1 つに保ち、新規作成と加算移行の両方から使う
  * (加算移行では既存の projects / agents / skills を消さない)。
+ * Webhook URL は v30 -> v31 で `webhookCiphertext` / `webhookNonce` / `webhookKeyVersion` へ移した。
  */
 const NOTIFICATION_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS notification_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   enabled INTEGER NOT NULL,
   askUser INTEGER NOT NULL DEFAULT 1,
-  webhookUrl TEXT,
+  webhookCiphertext BLOB,
+  webhookNonce BLOB,
+  webhookKeyVersion INTEGER,
   baseUrl TEXT,
   mention TEXT NOT NULL,
   lastResult TEXT
@@ -264,14 +302,17 @@ CREATE TABLE IF NOT EXISTS archive_settings (
 
 /**
  * v3 -> v4 で足したテーブル。GUI から登録したプロバイダー API キーを 1 行 1 プロバイダーで持つ。
- * `updatedAt` (epoch ms) は v6 -> v7 で足した列で、NULL は移行前の行 = 保存日不明。
+ * APIキーは v30 -> v31 で AEAD の暗号文 (`ciphertext` / `nonce` / `keyVersion`) だけを持つキー専用テーブルへ
+ * 作り直した (v6 -> v7 で足した `updatedAt` も作り直しで NOT NULL へ揃えた)。
  * 値は必ずバインドして渡す (SQL 文字列へ埋め込まない)。
  */
 const PROVIDER_CREDENTIALS_TABLE = `
 CREATE TABLE IF NOT EXISTS provider_credentials (
-  provider TEXT PRIMARY KEY,
-  apiKey TEXT NOT NULL,
-  updatedAt INTEGER
+  provider   TEXT PRIMARY KEY,
+  ciphertext BLOB NOT NULL,
+  nonce      BLOB NOT NULL,
+  keyVersion INTEGER NOT NULL,
+  updatedAt  INTEGER NOT NULL
 );
 `;
 
@@ -300,9 +341,10 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 /**
  * v7 -> v8 で足したテーブル。v14 -> v15 で `image_settings`（provider / model / apiKey）から
- * コンテンツ生成の `content_settings`（provider / imageModel / apiKey）へ改名した。
+ * コンテンツ生成の `content_settings`（provider / imageModel / ...）へ改名した。
  * 1 行だけ持ち、**行が無い = 未設定**（キー削除は行ごと消す）。provider_credentials とは別管理にし、
  * プロバイダー登録キーを生成へ流用しない（docs/image-generation.md）。
+ * APIキーは v30 -> v31 で平文列から AEAD の暗号文へ移し、3 列 NULL = キー未設定にした。
  * 音声の `speechModel` / `speechVoice` は v15 -> v16 の列追加で、既存行は NULL になる
  * （NULL は既定へフォールバックする。docs/speech-generation.md）。
  */
@@ -314,7 +356,9 @@ CREATE TABLE IF NOT EXISTS content_settings (
   speechModel TEXT,
   speechVoice TEXT,
   enabled     INTEGER NOT NULL DEFAULT 1,
-  apiKey      TEXT NOT NULL
+  ciphertext  BLOB,
+  nonce       BLOB,
+  keyVersion  INTEGER
 );
 `;
 
@@ -396,12 +440,14 @@ CREATE TABLE IF NOT EXISTS web_search_settings (
  * v12 -> v13 で足したテーブル。provider ごとの APIキーを 1 行 1 provider で持ち、
  * **行が無い = キー未設定**（削除は行ごと消す）。できれば 1 列にまとめたくない理由は、
  * キー付きの provider が増えたときに「このキーはどの provider のものか」を列が表せないため。
- * 値は平文（アクセス権の管理と残存リスクは docs/secrets.md / docs/web-search.md）。
+ * v30 -> v31 で AEAD の暗号文 (`ciphertext` / `nonce` / `keyVersion`) だけを持つ形へ作り直した。
  */
 const WEB_SEARCH_PROVIDER_KEYS_TABLE = `
 CREATE TABLE IF NOT EXISTS web_search_provider_keys (
-  provider TEXT PRIMARY KEY,
-  apiKey   TEXT NOT NULL
+  provider   TEXT PRIMARY KEY,
+  ciphertext BLOB NOT NULL,
+  nonce      BLOB NOT NULL,
+  keyVersion INTEGER NOT NULL
 );
 `;
 
@@ -424,6 +470,12 @@ CREATE TABLE IF NOT EXISTS title_summary_settings (
  * ログ・health・503 へは、この値を含まない固定文言だけを渡す。
  */
 const PROVIDER_MEMO_QUERY_FAILED = "provider memo query failed";
+
+/**
+ * 暗号文を読むクエリの失敗文言。暗号文・平文を例外文言へ反射させられても、ログ・health・503 へは
+ * この固定文言だけを渡す (可変マスカーは暗号文の hex / base64 を守れない)。
+ */
+const APP_SECRET_QUERY_FAILED = "app secret query failed";
 
 const SPACES_TABLE = `CREATE TABLE IF NOT EXISTS spaces (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, createdAt INTEGER NOT NULL, sortOrder INTEGER
@@ -614,7 +666,10 @@ function projectOf(row: Row): Project {
 }
 
 function providerCredentialOf(row: Row): ProviderCredentialRow {
-  return { provider: text(row.provider), apiKey: text(row.apiKey), updatedAt: optionalNumber(row.updatedAt) };
+  const secret = storedAppSecretOf(row, "provider_credentials");
+  // 暗号文の欠けた行を「未登録」と読み違えて上書きしない (サービスが 503 へ変換し、削除だけは通す)
+  if (!secret) throw new Error("provider_credentials row is incomplete");
+  return { provider: text(row.provider), ...secret, updatedAt: optionalNumber(row.updatedAt) };
 }
 
 /** 空文字の行は未設定として落とす (手編集された DB を「メモあり」と読み違えない) */
@@ -655,12 +710,13 @@ function sharedContentOf(row: Row): SharedContentRow {
   };
 }
 
-/** 列は NOT NULL だが、手編集で空文字にされた行は未設定として読む (メモと同じ規約) */
+/** 手編集で空文字にされた provider / imageModel の行は未設定として読む (メモと同じ規約) */
 function contentSettingsOf(row: Row): ContentSettingsRow | undefined {
   const provider = optionalText(row.provider);
   const imageModel = optionalText(row.imageModel);
-  const apiKey = optionalText(row.apiKey);
-  if (!provider || !imageModel || !apiKey) return undefined;
+  if (!provider || !imageModel) return undefined;
+  // 暗号文が NULL = キー未設定。3 列の片方だけが埋まった行は保存値の破損として失敗させる
+  const secret = storedAppSecretOf(row, "content_settings");
   return {
     provider,
     imageModel,
@@ -669,7 +725,9 @@ function contentSettingsOf(row: Row): ContentSettingsRow | undefined {
     speechVoice: optionalText(row.speechVoice) ?? null,
     // 足した列なので、手編集で NULL にされた行も既定 (ON) として読む
     enabled: Number(row.enabled) !== 0,
-    apiKey,
+    ciphertext: secret?.ciphertext ?? null,
+    nonce: secret?.nonce ?? null,
+    keyVersion: secret?.keyVersion ?? null,
   };
 }
 
@@ -791,19 +849,22 @@ function secretOf(row: Row): SecretRow {
   };
 }
 
-function notificationSettingsOf(row: Row): NotificationSettings {
-  const settings: NotificationSettings = {
+function notificationSettingsOf(row: Row): NotificationSettingsRow {
+  const baseUrl = optionalText(row.baseUrl);
+  const lastResult = jsonObject<NotificationResult>(row.lastResult);
+  return {
     enabled: Number(row.enabled) === 1,
     // 列の無い旧 DB と NULL は既定 (ON) として読む
     askUser: row.askUser === null || row.askUser === undefined ? true : Number(row.askUser) === 1,
+    // URL は暗号文だけを持ち、GET では復号しない (復号は起動時と保存 / 置換のときだけ)
+    webhook: storedAppSecretOf(row, "notification_settings", {
+      ciphertext: "webhookCiphertext",
+      nonce: "webhookNonce",
+      keyVersion: "webhookKeyVersion",
+    }),
+    baseUrl: baseUrl ?? null,
+    lastResult: lastResult ?? null,
   };
-  const webhookUrl = optionalText(row.webhookUrl);
-  const baseUrl = optionalText(row.baseUrl);
-  const lastResult = jsonObject<NotificationResult>(row.lastResult);
-  if (webhookUrl) settings.webhookUrl = webhookUrl;
-  if (baseUrl) settings.baseUrl = baseUrl;
-  if (lastResult) settings.lastResult = lastResult;
-  return settings;
 }
 
 function agentOf(row: Row): AgentDef {
@@ -993,6 +1054,21 @@ export class AppDb {
     });
   }
 
+  /**
+   * 暗号文を読む / 書くクエリ専用の入口。`#query` がログ・health・503 へ値を渡す前に、
+   * 操作の分類だけを表す固定文言へ置き換える。SQLite のトリガーなどで `hex(NEW.ciphertext)` を
+   * 例外へ反射させても、値はここより外へ出ない。
+   */
+  #secretQuery<T>(fn: (db: DatabaseSync) => T): T {
+    return this.#query((db) => {
+      try {
+        return fn(db);
+      } catch {
+        throw new Error(APP_SECRET_QUERY_FAILED);
+      }
+    });
+  }
+
   #schemaVersion(): number {
     const row = this.#handle().prepare("PRAGMA user_version").get() as Row | undefined;
     return Number(row?.user_version ?? 0);
@@ -1050,11 +1126,60 @@ export class AppDb {
     });
   }
 
+  /** 列の存在確認。SQLite に `IF EXISTS` が無いため、テーブル名と同じくコード側の定数だけを渡す */
+  #hasColumn(db: DatabaseSync, table: string, column: string): boolean {
+    const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+    if (!exists) return false;
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Row[];
+    return columns.some((row) => row.name === column);
+  }
+
   /** テーブル名は sqlite_master で確かめる (PRAGMA と違い、値はバインドで渡せる) */
   #tableExists(table: string): boolean {
     return Boolean(
       this.#query((db) => db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)),
     );
+  }
+
+  /**
+   * v30 -> v31 の移行。既存の平文 APIキー / Webhook URL は移行せずに破棄し、暗号文の列だけを持つ形へ揃える。
+   * 判定は user_version ではなく **平文列の有無** で行う: 後続のスキーマ変更で移行が再実行されても、
+   * 暗号化済みの値を消さない。改ざん・破損した値の断片が例外文言へ写っても外へ出さないよう、
+   * 値に触る文はすべて #secretQuery の内側で実行する。
+   */
+  #migrateAppSecrets(): void {
+    this.#secretQuery((db) => {
+      // キー専用テーブルは平文列があるときだけ作り直す (行はすべて破棄する)
+      if (this.#hasColumn(db, "provider_credentials", "apiKey")) {
+        db.exec("DROP TABLE provider_credentials");
+        db.exec(PROVIDER_CREDENTIALS_TABLE);
+      }
+      if (this.#hasColumn(db, "web_search_provider_keys", "apiKey")) {
+        db.exec("DROP TABLE web_search_provider_keys");
+        db.exec(WEB_SEARCH_PROVIDER_KEYS_TABLE);
+      }
+      // content_settings は設定行と非キーの列を残し、キーだけを暗号文の列へ移す
+      if (this.#hasColumn(db, "content_settings", "apiKey")) {
+        db.exec("ALTER TABLE content_settings ADD COLUMN ciphertext BLOB");
+        db.exec("ALTER TABLE content_settings ADD COLUMN nonce BLOB");
+        db.exec("ALTER TABLE content_settings ADD COLUMN keyVersion INTEGER");
+        // 旧キーと一致・包含する音声の値は、キー破棄後も応答へ出さないため NULL にする
+        db.exec(
+          `UPDATE content_settings
+              SET speechModel = CASE WHEN instr(speechModel, apiKey) > 0 THEN NULL ELSE speechModel END,
+                  speechVoice = CASE WHEN instr(speechVoice, apiKey) > 0 THEN NULL ELSE speechVoice END
+            WHERE apiKey IS NOT NULL AND apiKey <> ''`,
+        );
+        db.exec("ALTER TABLE content_settings DROP COLUMN apiKey");
+      }
+      // notification_settings も設定行と非 Webhook の列を残し、URL だけを暗号文の列へ移す
+      if (this.#hasColumn(db, "notification_settings", "webhookUrl")) {
+        db.exec("ALTER TABLE notification_settings ADD COLUMN webhookCiphertext BLOB");
+        db.exec("ALTER TABLE notification_settings ADD COLUMN webhookNonce BLOB");
+        db.exec("ALTER TABLE notification_settings ADD COLUMN webhookKeyVersion INTEGER");
+        db.exec("ALTER TABLE notification_settings DROP COLUMN webhookUrl");
+      }
+    });
   }
 
   /** DROP → CREATE → user_version → (未初期化なら) seed を 1 トランザクションで行う */
@@ -1145,6 +1270,8 @@ export class AppDb {
       this.#addColumnIfMissing("shared_contents", "sourceKind", "TEXT NOT NULL DEFAULT 'directory'");
       // v19 以前に無い列 (質問通知)。既存行は既定 (ON) で埋める
       this.#addColumnIfMissing("notification_settings", "askUser", "INTEGER NOT NULL DEFAULT 1");
+      // v30 -> v31: 平文の APIキー / Webhook URL を落とし、暗号文の列だけを持つ形へ移す
+      this.#migrateAppSecrets();
       // v22 -> v23: DB カタログの撤去。加算更新を通した後にだけ限定して消す
       this.#dropTableIfExists("skills");
       this.#dropColumnIfExists("agents", "skillIds");
@@ -1164,28 +1291,33 @@ export class AppDb {
 
   // --- notification settings (1 行だけ) ---
 
-  getNotificationSettings(): NotificationSettings | undefined {
-    const row = this.#query(
+  getNotificationSettings(): NotificationSettingsRow | undefined {
+    const row = this.#secretQuery(
       (db) => db.prepare("SELECT * FROM notification_settings WHERE id = 1").get() as Row | undefined,
     );
     return row ? notificationSettingsOf(row) : undefined;
   }
 
-  saveNotificationSettings(settings: NotificationSettings): void {
-    this.#query((db) =>
+  /** Webhook URL は暗号文だけを書く。平文の列は持たない (値は呼び出し側が暗号化して渡す) */
+  saveNotificationSettings(settings: NotificationSettingsRow): void {
+    this.#secretQuery((db) =>
       db
         .prepare(
-          `INSERT INTO notification_settings (id, enabled, askUser, webhookUrl, baseUrl, mention, lastResult)
-           VALUES (1, ?, ?, ?, ?, 'none', ?)
+          `INSERT INTO notification_settings
+             (id, enabled, askUser, webhookCiphertext, webhookNonce, webhookKeyVersion, baseUrl, mention, lastResult)
+           VALUES (1, ?, ?, ?, ?, ?, ?, 'none', ?)
            ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, askUser = excluded.askUser,
-             webhookUrl = excluded.webhookUrl, baseUrl = excluded.baseUrl, mention = 'none',
+             webhookCiphertext = excluded.webhookCiphertext, webhookNonce = excluded.webhookNonce,
+             webhookKeyVersion = excluded.webhookKeyVersion, baseUrl = excluded.baseUrl, mention = 'none',
              lastResult = excluded.lastResult`,
         )
         .run(
           settings.enabled ? 1 : 0,
           settings.askUser ? 1 : 0,
-          settings.webhookUrl ?? null,
-          settings.baseUrl ?? null,
+          settings.webhook?.ciphertext ?? null,
+          settings.webhook?.nonce ?? null,
+          settings.webhook?.keyVersion ?? null,
+          settings.baseUrl,
           settings.lastResult ? JSON.stringify(settings.lastResult) : null,
         ),
     );
@@ -1252,13 +1384,13 @@ export class AppDb {
   // --- provider credentials (GUI から登録したプロバイダー API キー) ---
 
   listProviderCredentials(): ProviderCredentialRow[] {
-    return this.#query((db) =>
+    return this.#secretQuery((db) =>
       (db.prepare("SELECT * FROM provider_credentials ORDER BY rowid").all() as Row[]).map(providerCredentialOf),
     );
   }
 
   getProviderCredential(provider: string): ProviderCredentialRow | undefined {
-    const row = this.#query(
+    const row = this.#secretQuery(
       (db) => db.prepare("SELECT * FROM provider_credentials WHERE provider = ?").get(provider) as Row | undefined,
     );
     return row ? providerCredentialOf(row) : undefined;
@@ -1267,21 +1399,24 @@ export class AppDb {
   /**
    * 登録と上書きで同じ (provider が主キー)。単一ステートメントなので自動コミットで確定し、
    * ここが成功して返れば行は永続化されている (呼び出し側の not_stored 判定の根拠)。
-   * `updatedAt` (epoch ms) は呼び出し側が渡す (移行で既存行を書き戻さない)。
+   * 値は暗号化済みの保存形だけを受け取り、`updatedAt` (epoch ms) は呼び出し側が渡す。
    */
-  saveProviderCredential(provider: string, apiKey: string, updatedAt: number): void {
-    this.#query((db) =>
+  saveProviderCredential(provider: string, secret: StoredAppSecret, updatedAt: number): void {
+    this.#secretQuery((db) =>
       db
         .prepare(
-          `INSERT INTO provider_credentials (provider, apiKey, updatedAt) VALUES (?, ?, ?)
-           ON CONFLICT(provider) DO UPDATE SET apiKey = excluded.apiKey, updatedAt = excluded.updatedAt`,
+          `INSERT INTO provider_credentials (provider, ciphertext, nonce, keyVersion, updatedAt)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(provider) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce,
+             keyVersion = excluded.keyVersion, updatedAt = excluded.updatedAt`,
         )
-        .run(provider, apiKey, updatedAt),
+        .run(provider, secret.ciphertext, secret.nonce, secret.keyVersion, updatedAt),
     );
   }
 
+  /** 復号せずに行を消す (master key が無くても削除できる) */
   deleteProviderCredential(provider: string): boolean {
-    return this.#query(
+    return this.#secretQuery(
       (db) => db.prepare("DELETE FROM provider_credentials WHERE provider = ?").run(provider).changes > 0,
     );
   }
@@ -1366,22 +1501,25 @@ export class AppDb {
 
   // --- content settings (1 行だけ。行が無い = 未設定) ---
 
-  /** 行が無ければ undefined。空文字へ手編集された行も未設定として読む */
+  /** 行が無ければ undefined。空文字へ手編集された行も未設定として読む (キーは暗号文だけを返す) */
   readContentSettings(): ContentSettingsRow | undefined {
-    const row = this.#query((db) => db.prepare("SELECT * FROM content_settings WHERE id = 1").get() as Row | undefined);
+    const row = this.#secretQuery(
+      (db) => db.prepare("SELECT * FROM content_settings WHERE id = 1").get() as Row | undefined,
+    );
     return row ? contentSettingsOf(row) : undefined;
   }
 
   /** 登録と上書きで同じ (id = 1 の upsert)。単一ステートメントなので自動コミットで確定する */
   saveContentSettings(settings: ContentSettingsRow): void {
-    this.#query((db) =>
+    this.#secretQuery((db) =>
       db
         .prepare(
-          `INSERT INTO content_settings (id, provider, imageModel, speechModel, speechVoice, enabled, apiKey)
-           VALUES (1, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO content_settings
+             (id, provider, imageModel, speechModel, speechVoice, enabled, ciphertext, nonce, keyVersion)
+           VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, imageModel = excluded.imageModel,
              speechModel = excluded.speechModel, speechVoice = excluded.speechVoice, enabled = excluded.enabled,
-             apiKey = excluded.apiKey`,
+             ciphertext = excluded.ciphertext, nonce = excluded.nonce, keyVersion = excluded.keyVersion`,
         )
         .run(
           settings.provider,
@@ -1389,14 +1527,16 @@ export class AppDb {
           settings.speechModel,
           settings.speechVoice,
           settings.enabled ? 1 : 0,
-          settings.apiKey,
+          settings.ciphertext,
+          settings.nonce,
+          settings.keyVersion,
         ),
     );
   }
 
-  /** 行を消して未設定へ戻す (キー削除は provider / imageModel も含めて行ごと消す) */
+  /** 行を消して未設定へ戻す (キー削除は provider / imageModel も含めて行ごと消す)。復号は不要 */
   deleteContentSettings(): boolean {
-    return this.#query((db) => db.prepare("DELETE FROM content_settings WHERE id = 1").run().changes > 0);
+    return this.#secretQuery((db) => db.prepare("DELETE FROM content_settings WHERE id = 1").run().changes > 0);
   }
 
   // --- cloudflare settings (1 行だけ。行が無い = 未登録) ---
@@ -1604,31 +1744,33 @@ export class AppDb {
   }
 
   // --- web search provider keys (1 行 1 provider。行が無い = キー未設定) ---
-  /** 行が無ければ undefined。空文字へ手編集された行も未設定として読む */
-  readWebSearchProviderKey(provider: string): string | undefined {
-    const row = this.#query(
-      (db) =>
-        db.prepare("SELECT apiKey FROM web_search_provider_keys WHERE provider = ?").get(provider) as Row | undefined,
+  /** 行が無ければ undefined。値は暗号文だけで、復号はサービス側が行う */
+  readWebSearchProviderKey(provider: string): StoredAppSecret | undefined {
+    const row = this.#secretQuery(
+      (db) => db.prepare("SELECT * FROM web_search_provider_keys WHERE provider = ?").get(provider) as Row | undefined,
     );
-    const apiKey = row?.apiKey;
-    return typeof apiKey === "string" && apiKey !== "" ? apiKey : undefined;
+    if (!row) return undefined;
+    const secret = storedAppSecretOf(row, "web_search_provider_keys");
+    if (!secret) throw new Error("web_search_provider_keys row is incomplete");
+    return secret;
   }
 
-  /** 登録と上書きで同じ (provider 主キーの upsert)。鍵の値はマスカーへ登録してから渡す */
-  saveWebSearchProviderKey(provider: string, apiKey: string): void {
-    this.#query((db) =>
+  /** 登録と上書きで同じ (provider 主キーの upsert)。値は暗号化済みの保存形だけを受け取る */
+  saveWebSearchProviderKey(provider: string, secret: StoredAppSecret): void {
+    this.#secretQuery((db) =>
       db
         .prepare(
-          `INSERT INTO web_search_provider_keys (provider, apiKey) VALUES (?, ?)
-           ON CONFLICT(provider) DO UPDATE SET apiKey = excluded.apiKey`,
+          `INSERT INTO web_search_provider_keys (provider, ciphertext, nonce, keyVersion) VALUES (?, ?, ?, ?)
+           ON CONFLICT(provider) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce,
+             keyVersion = excluded.keyVersion`,
         )
-        .run(provider, apiKey),
+        .run(provider, secret.ciphertext, secret.nonce, secret.keyVersion),
     );
   }
 
-  /** 行を消して未設定へ戻す。未設定でも false を返すだけで失敗にはしない */
+  /** 行を消して未設定へ戻す。未設定でも false を返すだけで失敗にはしない (復号不要) */
   deleteWebSearchProviderKey(provider: string): boolean {
-    return this.#query(
+    return this.#secretQuery(
       (db) => db.prepare("DELETE FROM web_search_provider_keys WHERE provider = ?").run(provider).changes > 0,
     );
   }

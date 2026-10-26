@@ -18,9 +18,25 @@ import {
   WEBHOOK_URL_ERROR,
 } from "../src/notifications";
 import { createSecretMasker } from "../src/redact";
+import { SECRET_KEY_BYTES, SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import type { NotificationResult } from "../src/schema";
+import { testAppCipher } from "./app-secret-fixture";
+import { APP_SECRET_DECRYPT_FAILED_MESSAGE, APP_SECRET_MASTER_KEY_MESSAGE } from "../src/app-secrets";
 
 const WEBHOOK = "https://discord.com/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz";
+const TEST_KEY = Buffer.alloc(SECRET_KEY_BYTES, 5).toString("base64");
+
+/** IPC をまたぐ API テスト用に master key を立て、終わったら元へ戻す */
+async function withMasterKey<T>(run: () => Promise<T>): Promise<T> {
+  const previous = process.env[SECRET_MASTER_KEY_ENV];
+  process.env[SECRET_MASTER_KEY_ENV] = `1:${TEST_KEY}`;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) delete process.env[SECRET_MASTER_KEY_ENV];
+    else process.env[SECRET_MASTER_KEY_ENV] = previous;
+  }
+}
 const OTHER_WEBHOOK = "https://discord.com/api/webhooks/999/zyxwvutsrqponmlkjihgfedcba";
 
 const jsonPut = (payload: unknown): RequestInit => ({
@@ -75,6 +91,7 @@ function createService(
     masker: options.masker,
     fetchImpl: options.fetchImpl,
     timeoutMs: options.timeoutMs,
+    cipher: testAppCipher(),
   });
   return { db, service };
 }
@@ -185,7 +202,15 @@ test("a test send posts an embed and stores the shared last result", async () =>
   const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
   const { db, service } = createService({ fetchImpl: impl });
   try {
-    assert.deepEqual(service.settings(), { enabled: false, askUser: true, provider: "discord", configured: false });
+    assert.deepEqual(service.settings(), {
+      enabled: false,
+      askUser: true,
+      provider: "discord",
+      configured: false,
+      webhookAvailable: false,
+      webhookEvaluated: true,
+      webhookErrorMessage: null,
+    });
     // 設定の保存では送信しない
     assert.equal(calls.length, 0);
 
@@ -195,7 +220,8 @@ test("a test send posts an embed and stores the shared last result", async () =>
       baseUrl: "http://127.0.0.1:5173",
     });
     assert.equal(saved.configured, true);
-    assert.equal(saved.webhookHint, "wxyz");
+    assert.equal(saved.webhookAvailable, true, "保存した URL はすぐ使える");
+    assert.equal(saved.webhookErrorMessage, null);
     assert.equal(saved.baseUrl, "http://127.0.0.1:5173");
     assert.equal(calls.length, 0);
 
@@ -350,7 +376,7 @@ test("changing the webhook URL clears the last result and keeps masking the old 
 
     const saved = service.save({ webhookUrl: OTHER_WEBHOOK });
     assert.equal(saved.lastResult, undefined);
-    assert.equal(saved.webhookHint, "dcba");
+    assert.equal(saved.webhookAvailable, true);
 
     // 変更後も旧 URL をマスクできる (直前に保存した値をメモリに持つ)
     const result = await service.test();
@@ -531,117 +557,201 @@ test("a session notification is skipped when disabled or without a webhook", asy
 });
 
 test("the notifications API keeps the webhook URL write-only", async () => {
-  await withStoreDir(async (dir) => {
-    const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
-    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, notificationFetch: impl });
-    try {
-      assert.deepEqual(await jsonBody(bff.app.request("/api/notifications")), {
-        enabled: false,
-        askUser: true,
-        provider: "discord",
-        configured: false,
-      });
+  await withMasterKey(() =>
+    withStoreDir(async (dir) => {
+      const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+      const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, notificationFetch: impl });
+      try {
+        assert.deepEqual(await jsonBody(bff.app.request("/api/notifications")), {
+          enabled: false,
+          askUser: true,
+          provider: "discord",
+          configured: false,
+          webhookAvailable: false,
+          webhookEvaluated: true,
+          webhookErrorMessage: null,
+        });
 
-      const rejected = await bff.app.request(
-        "/api/notifications",
-        jsonPut({ webhookUrl: "https://evil.example/api/webhooks/1/secret-token" }),
-      );
-      assert.equal(rejected.status, 400);
-      const rejectedText = await rejected.text();
-      assert.equal(rejectedText.includes("evil.example"), false);
-      assert.equal(rejectedText.includes("secret-token"), false);
-
-      const saved = await jsonBody(
-        bff.app.request(
+        const rejected = await bff.app.request(
           "/api/notifications",
-          jsonPut({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173", mention: "here" }),
-        ),
-      );
-      assert.equal(saved.configured, true);
-      assert.equal("mention" in saved, false);
-      assert.equal(saved.webhookHint, "wxyz");
-      assert.equal(JSON.stringify(saved).includes("discord.com/api/webhooks"), false);
-      assert.equal(JSON.stringify(saved).includes("abcdefghijklmnopqrstuv"), false);
+          jsonPut({ webhookUrl: "https://evil.example/api/webhooks/1/secret-token" }),
+        );
+        assert.equal(rejected.status, 400);
+        const rejectedText = await rejected.text();
+        assert.equal(rejectedText.includes("evil.example"), false);
+        assert.equal(rejectedText.includes("secret-token"), false);
 
-      const listed = await jsonBody(bff.app.request("/api/notifications"));
-      assert.equal(JSON.stringify(listed).includes("discord.com/api/webhooks"), false);
-      assert.equal(listed.baseUrl, "http://127.0.0.1:5173");
+        const saved = await jsonBody(
+          bff.app.request(
+            "/api/notifications",
+            jsonPut({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173", mention: "here" }),
+          ),
+        );
+        assert.equal(saved.configured, true);
+        assert.equal("mention" in saved, false);
+        assert.equal(saved.webhookAvailable, true);
+        assert.equal("webhookHint" in saved, false);
+        assert.equal(JSON.stringify(saved).includes("discord.com/api/webhooks"), false);
+        assert.equal(JSON.stringify(saved).includes("abcdefghijklmnopqrstuv"), false);
 
-      const tested = await jsonBody(bff.app.request("/api/notifications/test", { method: "POST" }));
-      assert.equal(tested.ok, true);
-      assert.equal(tested.status, 204);
-      assert.equal(calls.length, 1);
-      assert.deepEqual((await jsonBody(bff.app.request("/api/notifications"))).lastResult, tested);
+        const listed = await jsonBody(bff.app.request("/api/notifications"));
+        assert.equal(JSON.stringify(listed).includes("discord.com/api/webhooks"), false);
+        assert.equal(listed.baseUrl, "http://127.0.0.1:5173");
 
-      // URL を解除すると configured が落ち、テスト送信は 400 になる
-      const cleared = await jsonBody(bff.app.request("/api/notifications", jsonPut({ webhookUrl: null })));
-      assert.deepEqual(cleared, {
-        enabled: true,
-        askUser: true,
-        provider: "discord",
-        configured: false,
-        baseUrl: "http://127.0.0.1:5173",
-      });
-      assert.equal((await bff.app.request("/api/notifications/test", { method: "POST" })).status, 400);
-    } finally {
-      await bff.close();
-    }
-  });
+        const tested = await jsonBody(bff.app.request("/api/notifications/test", { method: "POST" }));
+        assert.equal(tested.ok, true);
+        assert.equal(tested.status, 204);
+        assert.equal(calls.length, 1);
+        assert.deepEqual((await jsonBody(bff.app.request("/api/notifications"))).lastResult, tested);
+
+        // URL を解除すると configured が落ち、テスト送信は 400 になる
+        const cleared = await jsonBody(bff.app.request("/api/notifications", jsonPut({ webhookUrl: null })));
+        assert.deepEqual(cleared, {
+          enabled: true,
+          askUser: true,
+          provider: "discord",
+          configured: false,
+          webhookAvailable: false,
+          webhookEvaluated: true,
+          webhookErrorMessage: null,
+          baseUrl: "http://127.0.0.1:5173",
+        });
+        assert.equal((await bff.app.request("/api/notifications/test", { method: "POST" })).status, 400);
+      } finally {
+        await bff.close();
+      }
+    }),
+  );
 });
 
 test("DB と API をまたいで askUser を保存し、省略した PUT では現在値を維持する", async () => {
-  await withStoreDir(async (dir) => {
-    const first = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null });
-    try {
-      // 既定は ON
-      assert.equal((await jsonBody(first.app.request("/api/notifications"))).askUser, true);
-      const saved = await jsonBody(
-        first.app.request("/api/notifications", jsonPut({ askUser: false, enabled: true, webhookUrl: WEBHOOK })),
-      );
-      assert.equal(saved.askUser, false);
-      assert.equal((await jsonBody(first.app.request("/api/notifications"))).askUser, false);
-      // 旧クライアントと同じく askUser を省略した PUT では保存値を維持する
-      const unrelated = await jsonBody(
-        first.app.request("/api/notifications", jsonPut({ baseUrl: "http://127.0.0.1:5173" })),
-      );
-      assert.equal(unrelated.askUser, false);
-    } finally {
-      await first.close();
-    }
+  await withMasterKey(() =>
+    withStoreDir(async (dir) => {
+      const first = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null });
+      try {
+        // 既定は ON
+        assert.equal((await jsonBody(first.app.request("/api/notifications"))).askUser, true);
+        const saved = await jsonBody(
+          first.app.request("/api/notifications", jsonPut({ askUser: false, enabled: true, webhookUrl: WEBHOOK })),
+        );
+        assert.equal(saved.askUser, false);
+        assert.equal((await jsonBody(first.app.request("/api/notifications"))).askUser, false);
+        // 旧クライアントと同じく askUser を省略した PUT では保存値を維持する
+        const unrelated = await jsonBody(
+          first.app.request("/api/notifications", jsonPut({ baseUrl: "http://127.0.0.1:5173" })),
+        );
+        assert.equal(unrelated.askUser, false);
+      } finally {
+        await first.close();
+      }
 
-    // 再起動後も false のまま
-    const second = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null });
-    try {
-      assert.equal((await jsonBody(second.app.request("/api/notifications"))).askUser, false);
-    } finally {
-      await second.close();
-    }
-  });
+      // 再起動後も false のまま
+      const second = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null });
+      try {
+        assert.equal((await jsonBody(second.app.request("/api/notifications"))).askUser, false);
+      } finally {
+        await second.close();
+      }
+    }),
+  );
 });
 
 test("notification settings and the last result survive a restart", async () => {
-  await withStoreDir(async (dir) => {
-    const { impl } = fakeFetch(
-      () => new Response(JSON.stringify({ message: "Unknown Webhook", code: 10015 }), { status: 404 }),
-    );
-    const first = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, notificationFetch: impl });
-    const tested = await (async () => {
-      await first.app.request("/api/notifications", jsonPut({ webhookUrl: WEBHOOK, enabled: true }));
-      const result = await jsonBody(first.app.request("/api/notifications/test", { method: "POST" }));
-      await first.close();
-      return result as NotificationResult;
-    })();
+  await withMasterKey(() =>
+    withStoreDir(async (dir) => {
+      const { impl } = fakeFetch(
+        () => new Response(JSON.stringify({ message: "Unknown Webhook", code: 10015 }), { status: 404 }),
+      );
+      const first = await createBffApp({
+        cwd: "/tmp/project",
+        sessionStoreDir: dir,
+        pi: null,
+        notificationFetch: impl,
+      });
+      const tested = await (async () => {
+        await first.app.request("/api/notifications", jsonPut({ webhookUrl: WEBHOOK, enabled: true }));
+        const result = await jsonBody(first.app.request("/api/notifications/test", { method: "POST" }));
+        await first.close();
+        return result as NotificationResult;
+      })();
 
-    const second = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null });
-    try {
-      const restored = await jsonBody(second.app.request("/api/notifications"));
-      assert.equal(restored.enabled, true);
-      assert.equal(restored.configured, true);
-      assert.equal(restored.webhookHint, "wxyz");
-      assert.equal("mention" in restored, false);
-      assert.deepEqual(restored.lastResult, tested);
-    } finally {
-      await second.close();
-    }
+      const second = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null });
+      try {
+        const restored = await jsonBody(second.app.request("/api/notifications"));
+        assert.equal(restored.enabled, true);
+        assert.equal(restored.configured, true);
+        // pi 無しの起動では復号しない。保存済みでも「未評価」として返し、失敗と断定しない
+        assert.equal(restored.webhookEvaluated, false);
+        assert.equal(restored.webhookAvailable, false);
+        assert.equal(restored.webhookErrorMessage.length > 0, true);
+        assert.equal("mention" in restored, false);
+        assert.equal("webhookHint" in restored, false, "末尾 4 文字は返さない");
+        assert.deepEqual(restored.lastResult, tested);
+      } finally {
+        await second.close();
+      }
+    }),
+  );
+});
+
+test("復号できない Webhook URL では送信せず、固定文言を直近結果に残す", async () => {
+  const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+  const db = AppDb.open({ storeDir: null });
+  // 未知の鍵版の暗号文を直接置く (誤鍵・破損と同じ分類)
+  db.saveNotificationSettings({
+    enabled: true,
+    askUser: true,
+    webhook: { ciphertext: new Uint8Array([1, 2, 3, 4]), nonce: new Uint8Array(12), keyVersion: 42 },
+    baseUrl: null,
+    lastResult: null,
   });
+  const service = new NotificationService({ db, fetchImpl: impl, cipher: testAppCipher() });
+  try {
+    const settings = service.settings();
+    assert.equal(settings.configured, true);
+    assert.equal(settings.webhookAvailable, false);
+    assert.equal(settings.webhookEvaluated, true);
+    assert.equal(settings.webhookErrorMessage, APP_SECRET_DECRYPT_FAILED_MESSAGE);
+
+    // テスト送信は 503 で止め、URL を送らない
+    await assert.rejects(
+      () => service.test(),
+      (error: unknown) => statusOf(error) === 503,
+    );
+    assert.equal(calls.length, 0);
+
+    // 通常通知は送らず、固定文言を直近結果に残す
+    service.notifySession({ sessionId: "s1", title: "t", agentName: "a", body: "b", durationMs: 1, toolCalls: 0 });
+    await waitFor(() => service.settings().lastResult !== undefined);
+    const lastResult = service.settings().lastResult;
+    assert.equal(lastResult?.ok, false);
+    assert.equal(lastResult?.message, APP_SECRET_DECRYPT_FAILED_MESSAGE);
+    assert.equal(calls.length, 0);
+  } finally {
+    db.close();
+  }
+});
+
+test("master key が無い起動では Webhook URL を保存・利用できず、クリアはできる", () => {
+  const db = AppDb.open({ storeDir: null });
+  const saved = new NotificationService({ db, cipher: testAppCipher() }).save({ webhookUrl: WEBHOOK });
+  assert.equal(saved.webhookAvailable, true);
+
+  const service = new NotificationService({ db, cipher: null });
+  const settings = service.settings();
+  assert.equal(settings.configured, true);
+  assert.equal(settings.webhookAvailable, false);
+  assert.equal(settings.webhookEvaluated, true);
+  assert.equal(settings.webhookErrorMessage, APP_SECRET_MASTER_KEY_MESSAGE);
+  assert.throws(
+    () => service.save({ webhookUrl: OTHER_WEBHOOK }),
+    (error: unknown) => statusOf(error) === 503,
+    "master key 無しで新しい URL は保存しない",
+  );
+
+  // クリアは復号が要らない
+  const cleared = service.save({ webhookUrl: null });
+  assert.equal(cleared.configured, false);
+  assert.equal(cleared.webhookAvailable, false);
+  db.close();
 });

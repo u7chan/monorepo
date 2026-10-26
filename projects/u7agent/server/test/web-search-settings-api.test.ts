@@ -4,11 +4,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import { TEST_MASTER_KEY } from "./app-secret-fixture";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { DatabaseSync } from "node:sqlite";
 import { createBffApp } from "../src/app";
 import { WEB_SEARCH_DISABLED_MESSAGE } from "../src/web-search-tool";
 import { asPiBff, createStubPi } from "./stub-pi";
+
+// アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
+process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const SECRET = "tvly-secret-value-0123456789";
 
@@ -32,8 +37,28 @@ const defaultSettings = (tavilyConfigured = false) => ({
   enabled: true,
   provider: "exa",
   providers: [
-    { id: "exa", name: "Exa", host: "mcp.exa.ai", keyless: true, configured: true },
-    { id: "tavily", name: "Tavily", host: "api.tavily.com", keyless: false, configured: tavilyConfigured },
+    {
+      id: "exa",
+      name: "Exa",
+      host: "mcp.exa.ai",
+      keyless: true,
+      configured: true,
+      keyStored: false,
+      keyAvailable: true,
+      keyEvaluated: true,
+      keyErrorMessage: null,
+    },
+    {
+      id: "tavily",
+      name: "Tavily",
+      host: "api.tavily.com",
+      keyless: false,
+      configured: tavilyConfigured,
+      keyStored: tavilyConfigured,
+      keyAvailable: tavilyConfigured,
+      keyEvaluated: true,
+      keyErrorMessage: null,
+    },
   ],
   disabledMessage: WEB_SEARCH_DISABLED_MESSAGE,
 });
@@ -170,14 +195,19 @@ test("保存したキーは再起動後も読め、保護対象へ入る", async
     }
 
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
-    const rows = check.prepare("SELECT provider, apiKey FROM web_search_provider_keys").all() as {
-      provider: string;
-      apiKey: string;
-    }[];
+    const columns = check.prepare("PRAGMA table_info(web_search_provider_keys)").all() as { name: string }[];
     assert.deepEqual(
-      rows.map((row) => ({ ...row })),
-      [{ provider: "tavily", apiKey: SECRET }],
+      columns.map((column) => column.name),
+      ["provider", "ciphertext", "nonce", "keyVersion"],
+      "平文の列を残さない",
     );
+    const rows = check.prepare("SELECT provider, ciphertext FROM web_search_provider_keys").all() as {
+      provider: string;
+      ciphertext: Uint8Array;
+    }[];
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.provider, "tavily");
+    assert.equal(Buffer.from(rows[0]!.ciphertext).toString("latin1").includes(SECRET), false, "値は暗号文だけ");
     check.close();
   });
 });

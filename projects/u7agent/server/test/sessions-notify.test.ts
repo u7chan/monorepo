@@ -5,11 +5,16 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import { TEST_MASTER_KEY } from "./app-secret-fixture";
 import { createBffApp } from "../src/app";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionNotifyResponseSchema } from "../src/schema";
 import { sessionMetaPath } from "../src/session-store";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
+
+// アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
+process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const WEBHOOK = "https://discord.com/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz";
 

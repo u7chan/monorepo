@@ -4,7 +4,7 @@ import type { UpdateNotificationsBody } from "../schema";
 
 export function createNotificationRoutes({ notifications }: { notifications: NotificationService }) {
   return {
-    /** 保存済み URL は返さない (configured と末尾 4 文字だけ) */
+    /** 保存済み URL とその断片は返さない (保存の有無と復号の状態だけ) */
     get: (c: Context) => c.json(notifications.settings()),
 
     update: (c: Context, body: UpdateNotificationsBody) => c.json(notifications.save(body)),

@@ -73,7 +73,7 @@ export type ProvidersTabProps = {
 
 /**
  * 「プロバイダー」タブ。左の一覧（全 provider）と右の詳細（キー・メモ・削除・再同期）を
- * 分け、singleColumn では一覧と詳細を切り替える。平文保存の注意は詳細ペインの上部に
+ * 分け、singleColumn では一覧と詳細を切り替える。キー暗号化（メモは平文）の注意は詳細ペインの上部に
  * 常時出し、provider を切り替えても消えない。
  */
 export function ProvidersTab({
@@ -324,6 +324,12 @@ export function ProvidersTab({
                 </p>
               )}
               {detailIsCustom ? null : <SecurityNotice />}
+              {detailIsCustom || !active?.keyErrorMessage ? null : (
+                // 未評価 / 復号失敗 / master key 未設定の文言はサーバーが返したものをそのまま出す
+                <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
+                  {active.keyErrorMessage}
+                </p>
+              )}
               {catalogError ? (
                 <p role="alert" className="rounded-lg border border-line bg-soft px-2.5 py-2 text-2xs text-ink-muted">
                   モデル一覧を取得できませんでした。{catalogError}（認証状態の表示は保っています）
@@ -409,14 +415,17 @@ function providerListMeta(
   return { text: `${availableCountOf(catalog, provider.provider)}/${entry.models.length}`, warn: false };
 }
 
-/** キーが平文で保存されることと、BFF を公開しない注意。詳細ペインの共通位置に既定で畳んで出す */
+/** キーは暗号化・メモは平文で保存されることと、BFF を公開しない注意。詳細ペインの共通位置に既定で畳んで出す */
 function SecurityNotice() {
   return (
-    <CollapsibleNotice summary="キーとメモは平文で保存されます。ログインがないため公開しないでください。">
+    <CollapsibleNotice summary="キーは暗号化・メモは平文で保存されます。ログインがないため公開しないでください。">
       <p>
-        登録したキーはアプリのデータベース（SQLite）へ平文で保存され、再起動後も使われます。保存したキーは再表示しません。
+        登録したキーは暗号化してアプリのデータベース（SQLite）へ保存され、再起動後も使われます。保存したキーは再表示しません。
+        master key（<code>U7AGENT_SECRET_MASTER_KEY</code>
+        ）が未設定・不正の間は、保存済みのキーを復号できないため使えません。再入力するか、master key
+        を設定してください。
       </p>
-      <p>メモも平文で保存され、この画面と API 応答に表示されます。キー本体は書かないでください。</p>
+      <p>メモは平文で保存され、この画面と API 応答に表示されます。キー本体は書かないでください。</p>
       <p>この GUI にはログインがありません。BFF をインターネットや LAN へ公開しないでください。</p>
       <p>キーの有効性は保存時に確認しません。「利用可能」なモデル数の増加を目安にしてください。</p>
       <p>

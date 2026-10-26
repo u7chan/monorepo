@@ -4,6 +4,15 @@
  * SDK への認証反映が無いため degraded は持たず、変更系の応答は常に `applied` になる。
  * 契約は docs/image-generation.md / docs/speech-generation.md を正とする。
  */
+import {
+  APP_SECRET_NOT_STORED_MESSAGE,
+  appSecretAvailable,
+  appSecretFailed,
+  appSecretMasterKeyMissing,
+  appSecretNotStored,
+  appSecretUnevaluated,
+  type AppSecretState,
+} from "./app-secrets";
 import { messageFor } from "./http";
 import { bgmSettings, BGM_MODEL } from "./bgm";
 import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
@@ -11,6 +20,7 @@ import { MutationLock } from "./model-settings";
 import type { ProviderFailureCode } from "./provider-failure";
 import { REDACTED } from "./redact";
 import type { ContentSettingsRow } from "./app-db";
+import type { AppSecretCipher } from "./secret-crypto";
 import type { ImageCatalog } from "./image-catalog";
 import { IMAGE_PROVIDER_ID, type ContentGenerationConfig, type ImageGenerationSettings } from "./images";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "./speech-catalog";
@@ -31,6 +41,9 @@ import {
 /** キー登録で作る行の既定モデル（直後に画面から変更できる） */
 export const DEFAULT_IMAGE_MODEL = "openai/gpt-image-2";
 
+/** 復号した APIキーを AAD に結び付ける所有者。変更すると保存済みのキーを復号できなくなる */
+const CONTENT_SECRET_OWNER = "apiKey";
+
 export const CONTENT_SETTINGS_RUNTIME_UNAVAILABLE_MESSAGE =
   "ランタイムが利用できないため、コンテンツ生成のAPIキーを登録できません";
 export const CONTENT_KEY_NOT_STORED_MESSAGE = "コンテンツ生成のAPIキーをアプリデータ（SQLite）へ保存できませんでした";
@@ -40,6 +53,11 @@ export const CONTENT_PROVIDER_UNSUPPORTED_MESSAGE = "コンテンツ生成のプ
 export const CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE = "カタログに無い画像モデルは指定できません";
 export const CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE = "カタログに無い音声モデルは指定できません";
 export const CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE = "この音声モデルが対応していない声は指定できません";
+/** 音声の値に APIキーを混ぜた保存要求。値を伏せたまま拒否し、黙って消して保存しない */
+export const CONTENT_SPEECH_KEY_INCLUDED_MESSAGE = "APIキーと同じ値を音声の設定には指定できません";
+/** 保存済みのキーを復号できないため、キーとの照合が要る操作を進められない */
+export const CONTENT_KEY_UNAVAILABLE_MESSAGE =
+  "保存済みのAPIキーを復号できないため、音声の設定を変更できません。APIキーを再入力してください";
 
 export const CONTENT_SPEECH_PREVIEW_RUNTIME_UNAVAILABLE_MESSAGE =
   "ランタイムが利用できないため、音声のお試し再生を実行できません";
@@ -66,6 +84,8 @@ export interface ContentSettingsOptions {
   runtimeAvailable: boolean;
   /** SDK / DB へ触る前に保護対象へ足す（マスカーの swap は同期） */
   retainSecret: (value: string) => void;
+  /** アプリ DB のキー用の AEAD。master key が無い / 不正なときは null で、保存と復号を拒否する */
+  appCipher?: AppSecretCipher | null;
   /** 公開する選択肢と、live 取得の状態。カタログの取得自体はサービスではなくこの実装が行う */
   catalog: ImageCatalog;
   /** 音声の選択肢と話者の宣言。画像とは別の一覧を引く */
@@ -99,7 +119,15 @@ export class ContentSettingsService {
   #setContentGeneration: (config: ContentGenerationConfig) => void;
   #maskError: (text: string) => string;
   #generateSpeech: ((input: SpeechGenerationInput) => Promise<SpeechGenerationResult>) | undefined;
+  #appCipher: AppSecretCipher | null;
   #lock = new MutationLock();
+  /**
+   * 復号済みの APIキー。画像 / 音声 / BGM / お試し再生へ渡すためにメモリだけに持ち、
+   * GET では復号しない。null は「復号できていない」で、保存値の有無とは別。
+   */
+  #apiKey: string | null = null;
+  /** 保存済みキーの復号結果。起動時と保存 / 置換のときだけ更新する */
+  #keyState: AppSecretState = appSecretUnevaluated();
 
   constructor(options: ContentSettingsOptions) {
     this.#db = options.db;
@@ -110,6 +138,7 @@ export class ContentSettingsService {
     this.#setContentGeneration = options.setContentGeneration;
     this.#maskError = options.maskError;
     this.#generateSpeech = options.generateSpeech;
+    this.#appCipher = options.appCipher ?? null;
   }
 
   /**
@@ -118,9 +147,9 @@ export class ContentSettingsService {
    * 安全と判定できないため、同梱の照合を実行時のマスカーの状態に依存させない。マスク済みの文字列もそのまま
    * 使わない。保存値そのものは消さない。
    */
-  #usableSpeechValue(value: string | null, apiKey: string): string | null {
+  #usableSpeechValue(value: string | null, apiKey: string | null): string | null {
     if (value === null || value === "") return null;
-    if (apiKey !== "" && value.includes(apiKey)) return null;
+    if (apiKey && value.includes(apiKey)) return null;
     return this.#maskError(value) === value ? value : null;
   }
 
@@ -128,7 +157,7 @@ export class ContentSettingsService {
   #speechSelection(
     speechModel: string | null,
     speechVoice: string | null,
-    apiKey: string,
+    apiKey: string | null,
   ): { model: string; voice: string } {
     const model = this.#usableSpeechValue(speechModel, apiKey) ?? DEFAULT_SPEECH_MODEL;
     return {
@@ -141,17 +170,59 @@ export class ContentSettingsService {
    * 400 の文言へ入力を反射するときの値。同じ行の APIキーと一致・包含する値は、実行時のマスカーが
    * identity（`pi: null` の起動）でも伏せ字にして返す。どの値が不正かという形は残し、値そのものは返さない。
    */
-  #reflectedValue(value: string, apiKey: string): string {
+  #reflectedValue(value: string, apiKey: string | null): string {
     const masked = this.#maskError(value);
-    return apiKey !== "" && masked.includes(apiKey) ? masked.split(apiKey).join(REDACTED) : masked;
+    return apiKey && masked.includes(apiKey) ? masked.split(apiKey).join(REDACTED) : masked;
+  }
+
+  /** 行に暗号文があるか。復号できるかは #keyState が表す */
+  #keyStored(row: ContentSettingsRow | undefined): boolean {
+    return row !== undefined && row.ciphertext !== null && row.nonce !== null && row.keyVersion !== null;
+  }
+
+  /**
+   * 保存行の暗号文から APIキーを復号し、結果をメモリへ残す。runtime が無いときは復号しない
+   * (復号した値を使う経路が無い)。平文へは落とさない。
+   */
+  #evaluateKey(row: ContentSettingsRow | undefined): void {
+    const secret =
+      row && row.ciphertext !== null && row.nonce !== null && row.keyVersion !== null
+        ? { ciphertext: row.ciphertext, nonce: row.nonce, keyVersion: row.keyVersion }
+        : null;
+    if (!secret) {
+      this.#apiKey = null;
+      this.#keyState = appSecretNotStored();
+      return;
+    }
+    if (!this.#runtimeAvailable) {
+      this.#apiKey = null;
+      this.#keyState = appSecretUnevaluated();
+      return;
+    }
+    if (!this.#appCipher) {
+      this.#apiKey = null;
+      this.#keyState = appSecretMasterKeyMissing();
+      return;
+    }
+    try {
+      const apiKey = this.#appCipher.decrypt("content_settings", CONTENT_SECRET_OWNER, secret);
+      // ツール・応答・ログへ渡す前に保護対象へ入れる
+      this.#retainSecret(apiKey);
+      this.#apiKey = apiKey;
+      this.#keyState = appSecretAvailable();
+    } catch {
+      this.#apiKey = null;
+      this.#keyState = appSecretFailed();
+    }
   }
 
   /** 音声ツールの語彙（`model` / `voice`）へ写す。応答と同じ解決を使い、表示と実行時を食い違わせない */
   #currentSpeechSettings(): SpeechGenerationSettings | undefined {
     const row = this.#db.readContentSettings();
-    if (!row) return undefined;
-    const speech = this.#speechSelection(row.speechModel, row.speechVoice, row.apiKey);
-    return { provider: row.provider, model: speech.model, voice: speech.voice, apiKey: row.apiKey };
+    const apiKey = this.#apiKey;
+    if (!row || apiKey === null) return undefined;
+    const speech = this.#speechSelection(row.speechModel, row.speechVoice, apiKey);
+    return { provider: row.provider, model: speech.model, voice: speech.voice, apiKey };
   }
 
   /** GET。純粋読取で、キー値は返さない（DB の失敗は 503 のまま伝える） */
@@ -159,8 +230,9 @@ export class ContentSettingsService {
     const row = this.#db.readContentSettings();
     const catalog = this.#catalog.snapshot();
     const speechCatalog = this.#speechCatalog.snapshot();
-    const speech = row ? this.#speechSelection(row.speechModel, row.speechVoice, row.apiKey) : null;
+    const speech = row ? this.#speechSelection(row.speechModel, row.speechVoice, this.#apiKey) : null;
     return {
+      ...this.#keyStatus(row),
       configured: row !== undefined,
       provider: row?.provider ?? null,
       // 行が無い = 未設定。トグルの既定は ON（Web 検索の「行が無い = 有効」と同じ読み替え）
@@ -237,13 +309,23 @@ export class ContentSettingsService {
       }
       // マスカーへの登録は DB より前。ここが失敗しても保護対象だけは残す
       this.#retainSecret(apiKey);
+      let encrypted: { ciphertext: Uint8Array; nonce: Uint8Array; keyVersion: number };
+      try {
+        encrypted = this.#requireCipher().encrypt("content_settings", CONTENT_SECRET_OWNER, apiKey);
+      } catch {
+        // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
+        console.warn("[u7agent] content key encryption failed");
+        return { status: 503, error: APP_SECRET_NOT_STORED_MESSAGE };
+      }
       const next: ContentSettingsRow = {
         provider: existing?.provider ?? IMAGE_PROVIDER_ID,
         imageModel: existing?.imageModel ?? DEFAULT_IMAGE_MODEL,
         speechModel: existing?.speechModel ?? null,
         speechVoice: existing?.speechVoice ?? null,
         enabled: existing?.enabled ?? true,
-        apiKey,
+        ciphertext: encrypted.ciphertext,
+        nonce: encrypted.nonce,
+        keyVersion: encrypted.keyVersion,
       };
       try {
         this.#db.saveContentSettings(next);
@@ -252,6 +334,9 @@ export class ContentSettingsService {
         console.warn("[u7agent] content key save failed");
         return { status: 503, error: CONTENT_KEY_NOT_STORED_MESSAGE };
       }
+      // 保存が確定した値は復号し直さず、手元の状態をそのまま使える状態へ揃える
+      this.#apiKey = apiKey;
+      this.#keyState = appSecretAvailable();
       this.#apply(next);
       return { status: 200, response: this.#applied(next) };
     });
@@ -298,11 +383,15 @@ export class ContentSettingsService {
       const inCatalog = this.#catalog
         .snapshot()
         .entries.some((entry) => entry.provider === input.provider && entry.id === input.model);
-      // 入力を反射する文言はマスカーを通す（model にキーを誤って渡されたとき、400 応答から再露出させない）
-      if (!inCatalog)
-        throw badRequest(
-          `${CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflectedValue(input.model, existing.apiKey)}`,
-        );
+      // 入力を反射する文言はマスカーを通す（model にキーを誤って渡されたとき、400 応答から再露出させない）。
+      // キーを復号できていないときは保存値と比較できないため、入力そのものを伏せる
+      if (!inCatalog) {
+        const reflected =
+          this.#keyStored(existing) && this.#apiKey === null
+            ? REDACTED
+            : this.#reflectedValue(input.model, this.#apiKey);
+        throw badRequest(`${CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE}: ${reflected}`);
+      }
       const next: ContentSettingsRow = { ...existing, provider: input.provider, imageModel: input.model };
       try {
         this.#db.saveContentSettings(next);
@@ -330,19 +419,27 @@ export class ContentSettingsService {
         return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
       }
       if (!existing) throw badRequest(CONTENT_SETTINGS_UNCONFIGURED_MESSAGE);
+      // キーを復号できていない状態で照合を飛ばして保存しない (キー入りの値を残さない)
+      if (this.#keyStored(existing) && !this.#keyState.keyAvailable) {
+        return { status: 503, error: CONTENT_KEY_UNAVAILABLE_MESSAGE };
+      }
+      // キーと同じ値を音声の語彙へ保存させない (黙って消さず、値を伏せて 400 にする)
+      if (this.#apiKey && (input.model.includes(this.#apiKey) || input.voice.includes(this.#apiKey))) {
+        throw badRequest(CONTENT_SPEECH_KEY_INCLUDED_MESSAGE);
+      }
       const catalog = this.#speechCatalog.snapshot();
       if (catalog.source !== "default") {
         const entry = catalog.entries.find((candidate) => candidate.id === input.model);
         // 入力を反射する文言はマスカーを通す（model / voice にキーを誤って渡されても 400 から再露出させない）
         if (!entry) {
           throw badRequest(
-            `${CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflectedValue(input.model, existing.apiKey)}`,
+            `${CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflectedValue(input.model, this.#apiKey)}`,
           );
         }
         // 宣言が無いモデルは任意の声を許す（空文字は「指定なし」として常に許す）
         if (entry.voices && input.voice !== "" && !entry.voices.includes(input.voice)) {
           throw badRequest(
-            `${CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE}: ${this.#reflectedValue(input.voice, existing.apiKey)}`,
+            `${CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE}: ${this.#reflectedValue(input.voice, this.#apiKey)}`,
           );
         }
       }
@@ -380,6 +477,8 @@ export class ContentSettingsService {
       return { status: 503, error: CONTENT_SPEECH_PREVIEW_READ_FAILED_MESSAGE };
     }
     if (!row) return { status: 400, error: CONTENT_SETTINGS_UNCONFIGURED_MESSAGE };
+    // 復号できないキーで provider を叩かない (平文の代用もしない)
+    if (this.#apiKey === null) return { status: 503, error: CONTENT_KEY_UNAVAILABLE_MESSAGE };
     // OFF は「課金も止める」。ツールへ返すのと同じ文言で止め、画面はこの間だけ主ボタンを無効にする
     if (!row.enabled) return { status: 400, error: CONTENT_DISABLED_MESSAGE };
 
@@ -389,14 +488,14 @@ export class ContentSettingsService {
     if (catalog.source !== "default" && !catalog.entries.some((entry) => entry.id === input.model)) {
       return {
         status: 400,
-        error: `${CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflectedValue(input.model, row.apiKey)}`,
+        error: `${CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflectedValue(input.model, this.#apiKey)}`,
       };
     }
     const declared = this.#speechCatalog.voicesOf(input.model);
     if (declared && input.voice !== "" && !declared.includes(input.voice)) {
       return {
         status: 400,
-        error: `${CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE}: ${this.#reflectedValue(input.voice, row.apiKey)}`,
+        error: `${CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE}: ${this.#reflectedValue(input.voice, this.#apiKey)}`,
       };
     }
     if (input.text.trim() === "") return { status: 400, error: CONTENT_SPEECH_PREVIEW_TEXT_EMPTY_MESSAGE };
@@ -419,7 +518,7 @@ export class ContentSettingsService {
       voice: input.voice,
       instructions,
       speed: input.speed,
-      apiKey: row.apiKey,
+      apiKey: this.#apiKey,
       signal: options.signal,
     });
     if (!result.ok) return { status: 502, error: result.message, code: result.code };
@@ -445,6 +544,9 @@ export class ContentSettingsService {
         console.warn("[u7agent] content key delete failed");
         return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
       }
+      // 復号は不要 (暗号文を読まない)。メモリのキーも消す
+      this.#apiKey = null;
+      this.#keyState = appSecretNotStored();
       this.#apply(undefined);
       return { status: 200, response: this.#applied(undefined) };
     });
@@ -465,8 +567,8 @@ export class ContentSettingsService {
         console.error(`[u7agent] content settings unavailable: ${this.#maskError(messageFor(error))}`);
         row = undefined;
       }
-      // SDK へ渡す前に保護対象へ入れる（削除・上書き後もプロセス生存中は外さない）
-      if (row) this.#retainSecret(row.apiKey);
+      // 起動時に 1 回だけ復号し、SDK / ツールへ渡す前に保護対象へ入れる
+      this.#evaluateKey(row);
       // キーの有無で一覧の表示は変わらないが、未設定では一覧を出す画面が無いので取得しない
       if (row) {
         await this.#catalog.refresh();
@@ -482,20 +584,45 @@ export class ContentSettingsService {
    */
   #apply(row: ContentSettingsRow | undefined): void {
     this.#setContentGeneration({
-      enabled: row !== undefined && row.enabled,
+      // 「設定行がある」「enabled」「キーを使える」の積。行や enabled だけでツールを開かない
+      enabled: row !== undefined && row.enabled && this.#keyState.keyAvailable,
       configured: row !== undefined,
       disabled: row !== undefined && !row.enabled,
-      read: () => currentImageSettings(this.#db),
+      read: () => (this.#apiKey === null ? undefined : currentImageSettings(this.#db, this.#apiKey)),
       // 実行のたびに現在のカタログを引く。形式の宣言を一覧から絞り込んだあとも、保存済みの選択はここで拾える
       readOutputFormats: (model) => this.#catalog.outputFormatsOf(model),
       checkImageInput: (model, signal) => this.#catalog.checkImageInput(model, signal),
       readSpeech: () => this.#currentSpeechSettings(),
       readBgm: () => {
         const row = this.#db.readContentSettings();
-        return row ? { model: BGM_MODEL, apiKey: row.apiKey } : undefined;
+        return row && this.#apiKey !== null ? { model: BGM_MODEL, apiKey: this.#apiKey } : undefined;
       },
       readVoices: (model) => this.#speechCatalog.voicesOf(model),
     });
+  }
+
+  #requireCipher(): AppSecretCipher {
+    if (!this.#appCipher) throw new Error(APP_SECRET_NOT_STORED_MESSAGE);
+    return this.#appCipher;
+  }
+
+  /**
+   * 保存の有無と利用可否を分けて返す。`configured`（行の有無）だけでキー登録済みと読ませず、
+   * 未評価と復号失敗も別の軸として返す。
+   */
+  #keyStatus(row: ContentSettingsRow | undefined): {
+    keyStored: boolean;
+    keyAvailable: boolean;
+    keyEvaluated: boolean;
+    keyErrorMessage: string | null;
+  } {
+    const keyStored = this.#keyStored(row);
+    return {
+      keyStored,
+      keyAvailable: keyStored && this.#keyState.keyAvailable,
+      keyEvaluated: keyStored ? this.#keyState.keyEvaluated : true,
+      keyErrorMessage: keyStored ? this.#keyState.keyErrorMessage : null,
+    };
   }
 
   /**
@@ -508,9 +635,10 @@ export class ContentSettingsService {
     const speechCatalog = this.#speechCatalog.snapshot();
     // 未設定の行を「音声の既定」へ寄せないため、キーの有無で分ける
     const speech = row
-      ? this.#speechSelection(row.speechModel, row.speechVoice, row.apiKey)
+      ? this.#speechSelection(row.speechModel, row.speechVoice, this.#apiKey)
       : { model: null, voice: "" };
     return {
+      ...this.#keyStatus(row),
       configured: row !== undefined,
       provider: row?.provider ?? null,
       enabled: row?.enabled ?? true,
@@ -536,9 +664,9 @@ export class ContentSettingsService {
 }
 
 /** 画像ツールの語彙（`model`）へ写す。DB の列名 `imageModel` は設定面の語彙なので、対応はこの 1 箇所に閉じる */
-function currentImageSettings(db: ContentSettingsDb): ImageGenerationSettings | undefined {
+function currentImageSettings(db: ContentSettingsDb, apiKey: string): ImageGenerationSettings | undefined {
   const row = db.readContentSettings();
-  return row ? { provider: row.provider, model: row.imageModel, apiKey: row.apiKey } : undefined;
+  return row ? { provider: row.provider, model: row.imageModel, apiKey } : undefined;
 }
 
 function badRequest(message: string): Error & { statusCode: number } {

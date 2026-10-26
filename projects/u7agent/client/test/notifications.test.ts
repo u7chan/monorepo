@@ -11,6 +11,10 @@ import {
   missingLinkNote,
   notificationHasFailure,
   notificationPreviewLines,
+  notifyCannotEnable,
+  notifyDeliverable,
+  notifyUnavailableNote,
+  notifyUnavailableReason,
   notificationResultView,
   previewLink,
   resultMetaLabel,
@@ -26,7 +30,9 @@ const SETTINGS: NotificationsResponse = {
   askUser: true,
   provider: "discord",
   configured: true,
-  webhookHint: "a1b2",
+  webhookAvailable: true,
+  webhookEvaluated: true,
+  webhookErrorMessage: null,
   baseUrl: "http://127.0.0.1:5173",
 };
 
@@ -107,7 +113,7 @@ test("syncDraft は未編集のフィールドだけ新しい保存値へ追従�
 
 test("syncDraft は「変更」で入力中の Webhook URL を残す", () => {
   const base = draftFromSettings(SETTINGS);
-  const next: NotificationsResponse = { ...SETTINGS, configured: false, webhookHint: undefined };
+  const next: NotificationsResponse = { ...SETTINGS, configured: false, webhookAvailable: false };
   const synced = syncDraft({ ...base, webhookUrl: "https://discord.com/api/webhooks/1/token" }, SETTINGS, next);
   assert.equal(synced.webhookUrl, "https://discord.com/api/webhooks/1/token");
   assert.equal(synced.enabled, next.enabled);
@@ -123,7 +129,7 @@ test("テスト送信の可否は保存後の URL の有無で決める", () => 
   assert.equal(testNeedsSave({ ...base, webhookUrl: "  " }), false);
 
   assert.equal(testAvailable(base, SETTINGS), true);
-  assert.equal(testAvailable(base, { ...SETTINGS, configured: false, webhookHint: undefined }), false);
+  assert.equal(testAvailable(base, { ...SETTINGS, configured: false, webhookAvailable: false }), false);
   assert.equal(testAvailable({ ...base, webhookUrl: "https://discord.com/api/webhooks/1/token" }, SETTINGS), true);
   assert.equal(testAvailable({ ...base, webhookUrl: "" }, SETTINGS), false);
   assert.equal(testAvailable(base, null), false);
@@ -284,4 +290,23 @@ test("リンク先を開けなかったときだけ理由を出す", () => {
   // 待機中にユーザーが別の会話を選んでいたら、その選択を壊さず何も出さない
   assert.equal(missingLinkNote(true, "superseded"), undefined);
   assert.equal(missingLinkNote(false, "superseded"), undefined);
+});
+
+test("保存済みでも復号できない Webhook は、未設定と混同せず理由を出す", () => {
+  // 保存はあるが復号を評価できていない / 失敗した状態を、未設定と同じ扱いにしない
+  const unavailable: NotificationsResponse = {
+    ...SETTINGS,
+    configured: true,
+    webhookAvailable: false,
+    webhookEvaluated: false,
+    webhookErrorMessage: "保存済みの Webhook URL を復号できるかまだ確認できていません",
+  };
+  assert.equal(notifyUnavailableReason(unavailable), "unavailable");
+  assert.equal(notifyUnavailableNote(true, unavailable), unavailable.webhookErrorMessage);
+  assert.equal(notifyDeliverable(unavailable), false);
+  assert.equal(notifyCannotEnable(false, unavailable), true);
+  assert.equal(testAvailable(draftFromSettings(unavailable), unavailable), false, "復号できない URL では送らない");
+
+  // 未設定 (configured: false) は今までどおり「未設定」として案内する
+  assert.equal(notifyUnavailableReason({ ...SETTINGS, configured: false, webhookAvailable: false }), "unconfigured");
 });

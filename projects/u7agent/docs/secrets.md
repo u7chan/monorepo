@@ -2,7 +2,7 @@
 
 プロバイダーAPIキーを環境変数や 設定 → モデルの GUI（[model-settings.md](model-settings.md)）で BFF へ渡す運用でも、キーが LLM・ブラウザ・ログへ流れにくくする多層防御。ツール実行自体はサンドボックスへ分離済み（[sandbox.md](sandbox.md)）で、ここで述べるのは BFF 内での出力マスク（キーが作業領域のファイル等へ現れた場合の二次漏洩対策）と、SDK の公開 API だけで実装する縛り。
 
-後半の[作業フォルダの環境変数](#作業フォルダの環境変数)（作業環境 → 環境変数）は、**保存時暗号化と実行時注入**で同じ目的を別の層から支える仕組み。暗号化の対象はこの機能で登録したシークレットだけで、プロバイダー / コンテンツ生成（画像 / 音声） / Web 検索の APIキーは従来どおり平文である（[平文で残るもの](#平文で残るもの)）。
+後半の[作業フォルダの環境変数](#作業フォルダの環境変数)（作業環境 → 環境変数）は、**保存時暗号化と実行時注入**で同じ目的を別の層から支える仕組み。同じ master key を使い、[アプリ DB の APIキー / Webhook URL](#アプリ-db-に保存する-apiキーと-webhook-url) も保存時に暗号化する。暗号化しないのは種別 = 変数の値と、人間用メモ（`provider_memos`）だけである（[平文で残るもの](#平文で残るもの)）。
 
 ## 保護対象
 
@@ -57,7 +57,8 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - `server/test/model-settings.test.ts` / `server/test/model-settings-api.test.ts` — GUI 登録キーのマスカー登録順序、DB 例外にキーが載っても応答・health・ログに出ないこと
 - `server/test/content-settings.test.ts` / `server/test/content-settings-api.test.ts` — 画像キーのマスカー登録順序（DB より前・起動時）、DB 例外にキーが載っても応答・health・ログに出ないこと、ローカル定義（`generate_image`）の throw のマスク（`server/test/image-tools.test.ts`）。`web_search` も切り詰めの前のマスクと throw のマスクを `server/test/web-search-tool.test.ts` で、Web 検索キーの登録順序（DB より前・起動時）と応答に値を載せないことを `server/test/web-search-settings.test.ts` / `server/test/web-search-settings-api.test.ts` で固定する
 - `server/test/app-db.test.ts` — `sanitizeError` が `#query` のログ・`#error`・`open()` の失敗の両方に効くこと。secrets の加算移行、新しい schema での作り直しでも秘密が消えないこと、並びと値列の排他
-- `server/test/secret-crypto.test.ts` — AEAD の往復、nonce を再利用しないこと、AAD 不一致 / 改ざん / 誤鍵 / 未知の鍵版の拒否、master key の書式と解決
+- `server/test/secret-crypto.test.ts` — AEAD の往復、nonce を再利用しないこと、AAD 不一致 / 改ざん / 誤鍵 / 未知の鍵版の拒否、master key の書式と解決、アプリ DB 用 AAD（用途 / 所有者の取り違えと、環境変数シークレットとの相互復号の拒否）
+- `server/test/app-secrets-api.test.ts` — master key 未設定 / 壊れた宣言でも起動し、DB 保存キーを使う機能だけが 503 / 未設定になり、env / auth.json の認証は使えること
 - `server/test/secrets.test.ts` — 名前と値の規則、cwd スコープの照合 (他会話の `secret_id` は 404)、一覧が名前・種別・更新時刻だけを返すこと、世代、並べ替えの正規化と永続、起動 env の解決とマスカー登録 (8 文字未満は登録しない)
 - `server/test/secrets-api.test.ts` — API の往復、シークレットの値がどの応答にも載らないこと、別 cwd の参照 / 変更 / 削除の拒否、並べ替えの保存と別 cwd の id の無視、master key 未設定の 503 `not_stored`
 - `server/test/serve.test.ts` — 起動時の環境変数がコマンド文字列へ入らず exec の env として渡ること、`secretGeneration` が記録に載り値は載らないこと、解決失敗で起動しないこと
@@ -71,7 +72,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - 分割・エンコードされたキーや未登録の秘密情報は検出できない。OAuth トークンは対象外
 - bash ツールの出力が切り詰められた場合、フル出力はサンドボックス内の一時ファイルへ書かれる。ファイル自体はマスクされない
 - サンドボックス・作業領域側のリスクは [sandbox.md](sandbox.md) を参照する
-- 設定 → モデルで登録したキーは `PI_SESSION_STORE/u7agent.db` に**平文**で残る。WAL・バックアップ・ボリュームの読み取り権限を持つ者は読める。ログイン認証がないため BFF を LAN / インターネットへ公開しない（詳細は [model-settings.md](model-settings.md#残存リスク)）
+- アプリ DB に保存した APIキー / Webhook URL は暗号文（AEAD）で残り、master key は DB に無い。ただし master key を持つ者・稼働中の BFF は復号できる。保存時暗号化は DB・WAL・バックアップの読み取りに対する防御で、実行環境の保護ではない。ログイン認証がないため BFF を LAN / インターネットへ公開しない（詳細は [model-settings.md](model-settings.md#残存リスク)）
 - 削除・上書きした旧キーの保護は**プロセス生存中だけ**。再起動後はチャットへ貼り付けた生の入力が再投影で見えうる（tombstone は将来課題）
 - ランタイム初期化に失敗したとき（`pi` が null）は可変マスカー自体が作られないため、この状態で起動したプロセスでは DB のキーを新たにマスク対象へ足せない。この場合も認証変更 API と画像キー登録 API は 503 で、キーは新規登録されない
 
@@ -124,14 +125,39 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - master key 未設定 / 宣言が壊れている / 未知の鍵版 / 復号失敗 / 保存値の欠落では、シークレットの登録と利用を 503 で拒否する。既存の行を新規鍵で上書きしたり、行を消したりはしない（変数は平文なので影響しない）
 - 保存時（BFF が値を受け取った直後）と起動時の復号時に、8 文字以上の値を `retainSecret()` で出力マスカーへ足す（削除・上書き後もプロセス生存中は外さない）。8 文字未満は登録せず、UI に「短い値は自動マスクされません」を出す（短い値を保護すると会話本文が軒並み `[REDACTED]` になるため）。**変数は登録しない**（エージェントに見えてよい値なので `NODE_ENV=production` などで誤爆する）
 
+### アプリ DB に保存する APIキーと Webhook URL
+
+作業フォルダのシークレットと同じ鍵輪・同じ AES-256-GCM で、アプリ DB の秘密値も保存時に暗号化する。**新しい鍵体系は増やさない**（`U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE` の 1 つだけ）。
+
+| 対象 | 列 | AAD の所有者 |
+| --- | --- | --- |
+| `provider_credentials`（設定 → モデル） | `ciphertext` / `nonce` / `keyVersion` | provider id |
+| `content_settings`（設定 → コンテンツ生成。画像 / 音声 / BGM で共有） | 同上（3 列 NULL = キー未設定） | `apiKey` |
+| `web_search_provider_keys`（設定 → Web 検索） | 同上 | provider id |
+| `notification_settings`（Discord Webhook URL） | `webhookCiphertext` / `webhookNonce` / `webhookKeyVersion` | `webhookUrl` |
+
+- AAD は `u7agent-app-secret:<scope>:<owner>` で、環境変数シークレットの `u7agent-secret:<kind>:<name>` とはラベルを分ける。用途（テーブル）と所有者を AAD に含めるため、別の用途・別の行へ差し替えた暗号文は復号できない
+- nonce は保存のたびに作り直し、認証タグは暗号文の末尾に付ける。保存形式は `secrets` / `cloudflare_settings` と同じ
+- 復号した値は、SDK / DB / ログへ渡す前に `retainSecret()` でマスカーへ登録する。GET は暗号文を復号しない（起動時と保存 / 置換 / 再同期のときだけ評価する）
+- 復号の成否はプロセスのメモリだけに持ち、応答は `keyStored`（暗号文がある）/ `keyAvailable`（復号できて使える）/ `keyEvaluated`（復号を試したか）/ `keyErrorMessage`（サーバーの固定文言）で表す。`configured`（行の有無）だけで「キー登録済み」と読ませない
+- master key 未設定 / 宣言が壊れているときは、アプリは起動し、DB 保存キーを使う機能だけを 503 / 未設定表示にする。`env` / `auth.json` のプロバイダー認証は影響を受けない。復号を試せない既知の失敗として `keyEvaluated: true` / `keyAvailable: false` / 「master key が未設定」固定文言を返す
+- runtime（`pi`）が無い起動では復号しない。暗号文があっても `keyEvaluated: false` の未評価として返し、誤鍵・破損と断定しない。変更系は 503 にし、復号した値をメモリへ残さない
+- キーの削除・クリアは復号が要らないため master key 無しでも通す。新規保存・置換・利用だけを master key に依存させる
+- キーローテーション UI / 自動再暗号化は非ゴール。`keyVersion` の形だけ既存と同じく持つ
+- **既存の平文キーは移行しない**。`APP_DB_SCHEMA_VERSION` 30 → 31 の移行で平文の列を落として値を破棄し、再入力で復旧する。dual-read・平文フォールバック・エクスポート・移行 UI は作らない（[persistence.md](persistence.md#アプリデータsqlite)）
+- 移行は「平文の列があるか」で判定する（`user_version` だけで判定しない）。後続のスキーマ変更で移行が再実行されても、暗号化済みの値を消さない
+- `content_settings` は旧 `apiKey` と一致・包含する `speechModel` / `speechVoice` を移行時に NULL にする（キー破棄後も応答へキーを出さないため）。保存時もキーと同じ値を音声の語彙へ入れさせない（値を伏せた 400）
+- 暗号文を読むクエリは `AppDb.#secretQuery` を通し、SQLite のトリガーなどで例外文言へ値が写っても、ログ・health・503 へは「操作の分類だけ」を渡す（可変マスカーは暗号文の hex / base64 を守れない）
+
 ### 平文で残るもの
 
-DB 全体が暗号化されるわけではない。暗号化されるのは今回のシークレットだけで、以下は従来どおり平文である。
+DB 全体が暗号化されるわけではない。暗号化されるのは環境変数のシークレットと上記の APIキー / Webhook URL だけで、以下は従来どおり平文である。
 
 - カスタムプロバイダーのAPIキー（BFF のメモリのみ。DB・`models.json`・`auth.json` には残らない）
-- `provider_credentials.apiKey` / `content_settings.apiKey`（画像 / TTS / BGMで共有） / `web_search_provider_keys.apiKey`（[model-settings.md](model-settings.md#残存リスク)、[image-generation.md](image-generation.md#キーの扱い)、[web-search.md](web-search.md#設定既定-provider-と-apiキー)）
 - `provider_memos.memo`（秘密情報として扱わない人間用メモ。マスカーへも登録しない）
 - `secrets.plaintext`（種別 = 変数）と、変数の値が現れる詳細 API（`GET /api/secrets/:secretId`）と画面
+- `models.json` / `auth.json` / `.env`（アプリ DB の外。SDK / デプロイ設定が持つ）
+- セッションの `session.jsonl` / `meta.json`、`agents.systemPrompt`、`serve_commands.command`
 
 ### 保証範囲と残存リスク
 

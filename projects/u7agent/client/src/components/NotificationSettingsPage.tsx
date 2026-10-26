@@ -68,7 +68,9 @@ export function NotificationSettingsPage({
               <DiscordCard
                 enabled={draft.enabled}
                 configured={settings.configured}
-                webhookHint={settings.webhookHint}
+                webhookAvailable={settings.webhookAvailable}
+                webhookEvaluated={settings.webhookEvaluated}
+                webhookErrorMessage={settings.webhookErrorMessage}
                 webhookUrl={draft.webhookUrl}
                 onChangeEnabled={(enabled) => setDraft({ enabled })}
                 onChangeWebhookUrl={(webhookUrl) => setDraft({ webhookUrl })}

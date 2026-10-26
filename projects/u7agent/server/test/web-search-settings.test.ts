@@ -1,7 +1,7 @@
 // Web 検索の設定（DB を正とした 1 行 + provider ごとのキーの CRUD と PiBff への注入）。実 API は呼ばず fake db で検証する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { WebSearchSettingsRow } from "../src/app-db";
+import type { StoredAppSecret, WebSearchSettingsRow } from "../src/app-db";
 import {
   WEB_SEARCH_KEYLESS_UNSUPPORTED_MESSAGE,
   WEB_SEARCH_KEY_NOT_STORED_MESSAGE,
@@ -11,10 +11,17 @@ import {
   type WebSearchSettingsDb,
 } from "../src/web-search-settings";
 import { WEB_SEARCH_DISABLED_MESSAGE, type WebSearchRuntimeConfig } from "../src/web-search-tool";
+import { testAppCipher } from "./app-secret-fixture";
+import {
+  APP_SECRET_DECRYPT_FAILED_MESSAGE,
+  APP_SECRET_MASTER_KEY_MESSAGE,
+  APP_SECRET_NOT_STORED_MESSAGE,
+  APP_SECRET_UNEVALUATED_MESSAGE,
+} from "../src/app-secrets";
 
 class FakeWebSearchDb implements WebSearchSettingsDb {
   row: WebSearchSettingsRow | undefined;
-  keys = new Map<string, string>();
+  keys = new Map<string, StoredAppSecret>();
   failRead = false;
   failSave = false;
   failKeyRead = false;
@@ -34,14 +41,14 @@ class FakeWebSearchDb implements WebSearchSettingsDb {
     if (this.failReadAfterSave) this.failRead = true;
   }
 
-  readWebSearchProviderKey(provider: string): string | undefined {
+  readWebSearchProviderKey(provider: string): StoredAppSecret | undefined {
     if (this.failKeyRead) throw new Error("db key read boom");
     return this.keys.get(provider);
   }
 
-  saveWebSearchProviderKey(provider: string, apiKey: string): void {
+  saveWebSearchProviderKey(provider: string, secret: StoredAppSecret): void {
     if (this.failKeySave) throw new Error("db key save boom");
-    this.keys.set(provider, apiKey);
+    this.keys.set(provider, secret);
   }
 
   deleteWebSearchProviderKey(provider: string): boolean {
@@ -52,7 +59,28 @@ class FakeWebSearchDb implements WebSearchSettingsDb {
 
 const SECRET = "tvly-secret-value-0123456789";
 
-function openService(db: FakeWebSearchDb, maskError: (text: string) => string = (text) => text) {
+const CIPHER = testAppCipher();
+
+/** 平文キーを暗号化した保存形。web_search_provider_keys の AAD は provider ごとに分かれる */
+function secretOf(plaintext: string, provider = "tavily"): StoredAppSecret {
+  return CIPHER.encrypt("web_search_provider_keys", provider, plaintext);
+}
+
+/** 保存行の平文キー。暗号文は毎回変わるため、値の比較は復号してから行う */
+function storedKey(secret: StoredAppSecret | undefined, provider = "tavily"): string | undefined {
+  return secret === undefined ? undefined : CIPHER.decrypt("web_search_provider_keys", provider, secret);
+}
+
+/** 復号できない保存行 (誤鍵・改ざん相当)。値は使わない */
+function brokenSecret(): StoredAppSecret {
+  return { ciphertext: new Uint8Array([1, 2, 3, 4]), nonce: new Uint8Array(12), keyVersion: 99 };
+}
+
+function openService(
+  db: FakeWebSearchDb,
+  maskError: (text: string) => string = (text) => text,
+  options: { cipher?: ReturnType<typeof testAppCipher> | null; runtimeAvailable?: boolean } = {},
+) {
   const injected: WebSearchRuntimeConfig[] = [];
   const retained: string[] = [];
   const service = new WebSearchSettingsService({
@@ -60,15 +88,37 @@ function openService(db: FakeWebSearchDb, maskError: (text: string) => string = 
     setWebSearch: (config) => injected.push(config),
     retainSecret: (value) => retained.push(value),
     maskError,
+    cipher: options.cipher === undefined ? CIPHER : options.cipher,
+    runtimeAvailable: options.runtimeAvailable ?? true,
   });
   return { service, injected, retained, current: () => injected.at(-1) };
 }
 
-/** 応答の providers。keyless は常に configured、キー付きは行の有無に追随する */
+/** 応答の providers。keyless は「キー無しで使える」を明示し、キー付きは保存 / 復号の状態に追随する */
 function providers(tavilyConfigured: boolean) {
   return [
-    { id: "exa", name: "Exa", host: "mcp.exa.ai", keyless: true, configured: true },
-    { id: "tavily", name: "Tavily", host: "api.tavily.com", keyless: false, configured: tavilyConfigured },
+    {
+      id: "exa",
+      name: "Exa",
+      host: "mcp.exa.ai",
+      keyless: true,
+      configured: true,
+      keyStored: false,
+      keyAvailable: true,
+      keyEvaluated: true,
+      keyErrorMessage: null,
+    },
+    {
+      id: "tavily",
+      name: "Tavily",
+      host: "api.tavily.com",
+      keyless: false,
+      configured: tavilyConfigured,
+      keyStored: tavilyConfigured,
+      keyAvailable: tavilyConfigured,
+      keyEvaluated: true,
+      keyErrorMessage: null,
+    },
   ];
 }
 
@@ -141,9 +191,10 @@ test("キーの登録はマスカー登録が先で、応答にも写しにも�
   const outcome = await service.putKey("tavily", SECRET);
   assert.equal(outcome.status, 200);
   assert.deepEqual(retained, [SECRET], "DB より先に保護対象へ足す");
-  assert.equal(db.keys.get("tavily"), SECRET);
+  assert.equal(storedKey(db.keys.get("tavily")), SECRET, "DB には暗号文だけを置く");
   assert.equal(current()?.readApiKey("tavily"), SECRET);
   assert.equal(service.settings().providers[1].configured, true);
+  assert.equal(service.settings().providers[1].keyAvailable, true);
   // 応答はキー値を含まない
   assert.equal(JSON.stringify(outcome).includes(SECRET), false);
   assert.equal(JSON.stringify(service.settings()).includes(SECRET), false);
@@ -153,6 +204,7 @@ test("キーの登録はマスカー登録が先で、応答にも写しにも�
   assert.equal(db.keys.has("tavily"), false);
   assert.equal(current()?.readApiKey("tavily"), undefined);
   assert.equal(service.settings().providers[1].configured, false);
+  assert.equal(service.settings().providers[1].keyAvailable, false);
   // 未設定の削除も 200（冪等）
   assert.equal((await service.deleteKey("tavily")).status, 200);
 });
@@ -250,7 +302,7 @@ test("起動時に DB を読めないときは既定（有効 / Exa）で立ち�
 test("起動時に保存済みの provider とキーを写し、キーは保護対象へ入れる", async () => {
   const db = new FakeWebSearchDb();
   db.row = { enabled: false, provider: "tavily" };
-  db.keys.set("tavily", SECRET);
+  db.keys.set("tavily", secretOf(SECRET));
   const { service, retained, current } = openService(db);
 
   await service.applyStored();
@@ -269,4 +321,68 @@ test("保存値の provider が未知でも既定へ畳んで立ち、検索は�
   assert.equal(service.settings().provider, "exa");
   await service.applyStored();
   assert.equal(current()?.readProvider(), "exa");
+});
+
+test("キー不要の provider はキー行も master key も無い状態で利用可能と出る", async () => {
+  const db = new FakeWebSearchDb();
+  const { service } = openService(db, (text) => text, { cipher: null });
+
+  const [exa, tavily] = service.settings().providers;
+  assert.deepEqual(
+    { configured: exa?.configured, keyStored: exa?.keyStored, keyAvailable: exa?.keyAvailable },
+    { configured: true, keyStored: false, keyAvailable: true },
+    "キー不要を未設定と同じ見た目にしない",
+  );
+  assert.equal(exa?.keyEvaluated, true);
+  assert.equal(exa?.keyErrorMessage, null);
+  assert.equal(tavily?.keyAvailable, false);
+});
+
+test("master key が無い起動でも、保存済みキーは未設定と混同せず削除できる", async () => {
+  const db = new FakeWebSearchDb();
+  db.keys.set("tavily", secretOf(SECRET));
+  const { service, current } = openService(db, (text) => text, { cipher: null });
+  await service.applyStored();
+
+  const tavily = service.settings().providers[1];
+  assert.equal(tavily?.configured, true);
+  assert.equal(tavily?.keyStored, true);
+  assert.equal(tavily?.keyAvailable, false);
+  assert.equal(tavily?.keyEvaluated, true);
+  assert.equal(tavily?.keyErrorMessage, APP_SECRET_MASTER_KEY_MESSAGE);
+  assert.equal(current()?.readApiKey("tavily"), undefined, "復号できない値を写しへ渡さない");
+
+  // 利用は 503、削除は master key 無しでも通る
+  assert.deepEqual(await service.putKey("tavily", SECRET), { status: 503, error: APP_SECRET_NOT_STORED_MESSAGE });
+  assert.equal((await service.deleteKey("tavily")).status, 200);
+  assert.equal(db.keys.has("tavily"), false);
+  assert.equal(service.settings().providers[1]?.configured, false);
+});
+
+test("誤鍵・破損した暗号文は平文へ落とさず、固定文言で利用不可にする", async () => {
+  const db = new FakeWebSearchDb();
+  db.keys.set("tavily", brokenSecret());
+  const { service, current } = openService(db);
+  await service.applyStored();
+
+  const tavily = service.settings().providers[1];
+  assert.equal(tavily?.keyStored, true);
+  assert.equal(tavily?.keyAvailable, false);
+  assert.equal(tavily?.keyEvaluated, true);
+  assert.equal(tavily?.keyErrorMessage, APP_SECRET_DECRYPT_FAILED_MESSAGE);
+  assert.equal(current()?.readApiKey("tavily"), undefined);
+});
+
+test("runtime が無い起動では暗号文を復号せず、未評価として返す", async () => {
+  const db = new FakeWebSearchDb();
+  db.keys.set("tavily", secretOf(SECRET));
+  const { service, current } = openService(db, (text) => text, { runtimeAvailable: false });
+  await service.applyStored();
+
+  const tavily = service.settings().providers[1];
+  assert.equal(tavily?.keyStored, true);
+  assert.equal(tavily?.keyAvailable, false);
+  assert.equal(tavily?.keyEvaluated, false);
+  assert.equal(tavily?.keyErrorMessage, APP_SECRET_UNEVALUATED_MESSAGE);
+  assert.equal(current()?.readApiKey("tavily"), undefined);
 });

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createAppSecretCipher,
   createSecretCipher,
   parseMasterKeys,
   resolveMasterKeys,
@@ -99,6 +100,70 @@ test("誤鍵・改ざん・AAD 不一致・未知の版は復号を拒否する"
   // 長さが足りない保存値 (手編集 / 破損) も復号できない
   assert.throws(
     () => cipher.decrypt("secret", "API_KEY", { ciphertext: new Uint8Array(4), nonce: stored.nonce, keyVersion: 1 }),
+    (error: unknown) => error instanceof SecretKeyError && error.reason === "decrypt_failed",
+  );
+});
+
+test("アプリ DB 用の AAD は用途と所有者を含み、往復と nonce の作り直しを満たす", () => {
+  const cipher = createAppSecretCipher(ringOf(`1:${keyOf(1)}`));
+  const first = cipher.encrypt("provider_credentials", "anthropic", "sk-ant-dummy-0123456789");
+  const second = cipher.encrypt("provider_credentials", "anthropic", "sk-ant-dummy-0123456789");
+
+  assert.equal(first.nonce.length, SECRET_NONCE_BYTES);
+  assert.equal(first.keyVersion, 1);
+  assert.notEqual(
+    Buffer.from(first.nonce).toString("hex"),
+    Buffer.from(second.nonce).toString("hex"),
+    "保存のたびに nonce を作り直す",
+  );
+  assert.equal(cipher.decrypt("provider_credentials", "anthropic", first), "sk-ant-dummy-0123456789");
+  // 平文は暗号文に現れない
+  assert.equal(Buffer.from(first.ciphertext).includes(Buffer.from("sk-ant")), false);
+});
+
+test("アプリ DB 用の AAD は用途 / 所有者の取り違えと、環境変数シークレットとの相互復号を拒否する", () => {
+  const ring = ringOf(`1:${keyOf(1)}`);
+  const app = createAppSecretCipher(ring);
+  const stored = app.encrypt("content_settings", "apiKey", "sk-image-dummy-0123456789");
+
+  // 同じ値でも用途 (テーブル) と所有者が違えば復号できない
+  assert.throws(
+    () => app.decrypt("provider_credentials", "apiKey", stored),
+    (error: unknown) => error instanceof SecretKeyError && error.reason === "decrypt_failed",
+  );
+  assert.throws(() => app.decrypt("content_settings", "webhookUrl", stored), SecretKeyError);
+
+  // 環境変数シークレットの暗号文を APIキーとして復号できない (ラベルが別)
+  const envCipher = createSecretCipher(ring);
+  const envStored = envCipher.encrypt("secret", "apiKey", "sk-image-dummy-0123456789");
+  assert.throws(() => app.decrypt("content_settings", "apiKey", envStored), SecretKeyError);
+  assert.throws(() => envCipher.decrypt("secret", "apiKey", stored), SecretKeyError);
+});
+
+test("アプリ DB 用の復号も未知の版・誤鍵・改ざん・nonce 長不正を拒否する", () => {
+  const ring = ringOf(`1:${keyOf(1)}`);
+  const cipher = createAppSecretCipher(ring);
+  const stored = cipher.encrypt("notification_settings", "webhookUrl", "https://discord.com/api/webhooks/1/t");
+
+  assert.throws(
+    () => cipher.decrypt("notification_settings", "webhookUrl", { ...stored, keyVersion: 9 }),
+    (error: unknown) => error instanceof SecretKeyError && error.reason === "unknown_version",
+  );
+
+  const tampered = { ...stored, ciphertext: Buffer.from(stored.ciphertext) };
+  tampered.ciphertext[0] ^= 0xff;
+  assert.throws(() => cipher.decrypt("notification_settings", "webhookUrl", tampered), SecretKeyError);
+
+  const other = createAppSecretCipher(ringOf(`1:${keyOf(2)}`));
+  assert.throws(() => other.decrypt("notification_settings", "webhookUrl", stored), SecretKeyError);
+
+  assert.throws(
+    () =>
+      cipher.decrypt("notification_settings", "webhookUrl", {
+        ciphertext: stored.ciphertext,
+        nonce: new Uint8Array(4),
+        keyVersion: 1,
+      }),
     (error: unknown) => error instanceof SecretKeyError && error.reason === "decrypt_failed",
   );
 });

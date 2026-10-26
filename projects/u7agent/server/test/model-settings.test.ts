@@ -35,9 +35,29 @@ import {
   type RuntimeModelsResponse,
 } from "../src/schema";
 import type { CustomProviderRuntimeConfig } from "../src/custom-providers";
+import type { StoredAppSecret } from "../src/app-db";
+import {
+  APP_SECRET_DECRYPT_FAILED_MESSAGE,
+  APP_SECRET_MASTER_KEY_MESSAGE,
+  APP_SECRET_NOT_STORED_MESSAGE,
+  APP_SECRET_UNEVALUATED_MESSAGE,
+} from "../src/app-secrets";
+import { testAppCipher } from "./app-secret-fixture";
 
 const KEY_A = "sk-ant-dummy-key-a-0123456789";
 const KEY_B = "sk-openai-dummy-key-b-0123456789";
+
+const CIPHER = testAppCipher();
+
+/** 平文キーを暗号化した保存形 (fake DB へ入れる値)。復号は provider 名を AAD に含めるため、行ごとに作る */
+function secretOf(plaintext: string, provider = "anthropic"): StoredAppSecret {
+  return CIPHER.encrypt("provider_credentials", provider, plaintext);
+}
+
+/** 保存行の平文キー。暗号文は毎回変わるため、値の比較は復号してから行う */
+function storedKey(secret: StoredAppSecret | undefined, provider = "anthropic"): string | undefined {
+  return secret === undefined ? undefined : CIPHER.decrypt("provider_credentials", provider, secret);
+}
 
 interface FakeProvider {
   provider: string;
@@ -178,9 +198,12 @@ function fakeRuntime(
   return { runtime, providers, calls, catalogRefreshCalls, storedCredentialReads, configured, registeredConfigs };
 }
 
-/** DB 面の fake。失敗フラグで AppDb の失敗経路を再現する */
+/**
+ * DB 面の fake。失敗フラグで AppDb の失敗経路を再現する。
+ * 呼び出し側は平文で渡し、行は provider ごとの AAD で暗号化して持つ (DB に平文を置かない)。
+ */
 function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelection) {
-  const store = new Map(Object.entries(rows));
+  const store = new Map(Object.entries(rows).map(([provider, apiKey]) => [provider, secretOf(apiKey, provider)]));
   // API キーの行と保存日時を分ける。移行前の既存行は日時不明 (null) で始まる
   const updatedAtStore = new Map<string, number | null>(Object.keys(rows).map((provider) => [provider, null]));
   const memos = new Map<string, string>();
@@ -208,20 +231,22 @@ function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelect
   const db: ModelSettingsDb = {
     listProviderCredentials: () => {
       if (state.failList) throw state.error;
-      return [...store].map(([provider, apiKey]) => ({
+      return [...store].map(([provider, secret]) => ({
         provider,
-        apiKey,
+        ...secret,
         updatedAt: updatedAtStore.get(provider) ?? null,
       }));
     },
     getProviderCredential: (provider) => {
       if (state.failGet) throw state.error;
-      const apiKey = store.get(provider);
-      return apiKey === undefined ? undefined : { provider, apiKey, updatedAt: updatedAtStore.get(provider) ?? null };
+      const secret = store.get(provider);
+      return secret === undefined
+        ? undefined
+        : { provider, ...secret, updatedAt: updatedAtStore.get(provider) ?? null };
     },
-    saveProviderCredential: (provider, apiKey, updatedAt) => {
+    saveProviderCredential: (provider, secret, updatedAt) => {
       if (state.failSave) throw state.error;
-      store.set(provider, apiKey);
+      store.set(provider, secret);
       updatedAtStore.set(provider, updatedAt);
       if (state.armListFailureOnSave) state.failList = true;
     },
@@ -279,6 +304,8 @@ function createService(options: {
   masker?: (text: string) => string;
   ignoredEnvironmentVariables?: string[];
   catalogTimeoutMs?: number;
+  /** null は master key 未設定の起動を表す */
+  cipher?: ReturnType<typeof testAppCipher> | null;
 }) {
   const retained = options.retained ?? [];
   const refreshes: number[] = [];
@@ -304,6 +331,7 @@ function createService(options: {
       selections.push(selection);
     },
     ignoredEnvironmentVariables: options.ignoredEnvironmentVariables ?? [],
+    appCipher: options.cipher === undefined ? CIPHER : options.cipher,
     ...(options.catalogTimeoutMs !== undefined ? { catalogTimeoutMs: options.catalogTimeoutMs } : {}),
   });
   return { service, retained, refreshCount: () => refreshes.length, selections, events };
@@ -363,6 +391,10 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     login: null,
     memo: null,
     keyUpdatedAt: null,
+    // 行はあるが、このサービスでは復号を試していない (= GET だけでは評価しない)
+    keyAvailable: false,
+    keyEvaluated: false,
+    keyErrorMessage: APP_SECRET_UNEVALUATED_MESSAGE,
   });
   assert.equal(byProvider.get("openai")?.managed, false);
   assert.equal(byProvider.get("openai")?.canSetApiKey, false);
@@ -391,6 +423,9 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     memo: null,
     // 移行前の行は日時不明
     keyUpdatedAt: null,
+    keyAvailable: false,
+    keyEvaluated: false,
+    keyErrorMessage: APP_SECRET_UNEVALUATED_MESSAGE,
   });
   const serialized = JSON.stringify(response);
   assert.ok(!serialized.includes(KEY_A) && !serialized.includes(KEY_B), "キー値は応答に載せない");
@@ -500,7 +535,7 @@ test("PUT は DB を先に確定し、SDK が成功すれば applied になる",
 
   const response = okBody(await service.putKey("anthropic", KEY_A));
   assert.equal(response.state, "applied");
-  assert.equal(db.store.get("anthropic"), KEY_A, "DB が希望状態として先に確定する");
+  assert.equal(storedKey(db.store.get("anthropic")), KEY_A, "DB が希望状態として先に確定する");
   assert.deepEqual(
     runtime.calls.map((call) => call.operation),
     ["apply"],
@@ -700,7 +735,7 @@ test("DB 書き込み後に DTO を組めなくても not_stored ではなく ap
   assert.equal(response.state, "applied_unsynced");
   assert.equal(response.providers.find((provider) => provider.provider === "anthropic")?.managed, true);
   assert.equal(response.providers.find((provider) => provider.provider === "anthropic")?.degraded, "apply");
-  assert.equal(db.store.get("anthropic"), KEY_A);
+  assert.equal(storedKey(db.store.get("anthropic")), KEY_A);
 });
 
 test("DELETE 直後に一覧を読めなくても、削除した provider を保存済みとして返さない", async () => {
@@ -934,7 +969,7 @@ test("1 回の例外で後続の変更が永久に止まらない", async () => 
   await assert.rejects(() => service.putKey("anthropic", KEY_A));
   const response = okBody(await service.putKey("openai", KEY_B));
   assert.equal(response.state, "applied");
-  assert.equal(db.store.get("openai"), KEY_B);
+  assert.equal(storedKey(db.store.get("openai"), "openai"), KEY_B);
 });
 
 test("起動適用は全キーを SDK より前にマスカーへ登録する", async () => {
@@ -1053,6 +1088,10 @@ test("メモだけの provider を GET の 4 経路目として出し、degraded
     login: null,
     memo: "無料枠の控え",
     keyUpdatedAt: null,
+    keyAvailable: false,
+    // 行が無い provider は評価の対象が無いので「評価済み・エラーなし」
+    keyEvaluated: true,
+    keyErrorMessage: null,
   });
 });
 
@@ -1621,4 +1660,45 @@ test("期限は状態再計算にも伝播し、期限後は現在の一覧を�
   assert.equal(refreshSignals.length, 1);
   assert.equal(stateSignals[0], refreshSignals[0], "取得と再計算で同じ期限を共有する");
   assert.ok(elapsed < 2_000, `期限 (20ms) で閉じる (elapsed=${elapsed}ms)`);
+});
+
+test("master key が無い起動では復号せず、保存行を degraded / 固定文言で残して削除できる", async () => {
+  const db = fakeDb({ anthropic: KEY_A });
+  const runtime = fakeRuntime();
+  const { service } = createService({ db: db.db, runtime: runtime.runtime, cipher: null });
+  await service.applyStored();
+
+  const entry = service.settings().providers.find((provider) => provider.provider === "anthropic");
+  assert.equal(entry?.managed, true);
+  assert.equal(entry?.keyAvailable, false);
+  assert.equal(entry?.keyEvaluated, true);
+  assert.equal(entry?.keyErrorMessage, APP_SECRET_MASTER_KEY_MESSAGE);
+  assert.equal(entry?.degraded, "apply", "復号できない行は未反映として回復導線を残す");
+  assert.deepEqual(runtime.calls, [], "復号できないキーを SDK へ渡さない");
+
+  // 新規保存は 503 で、平文のまま書かない
+  const put = await service.putKey("anthropic", KEY_B);
+  assert.deepEqual(put, { status: 503, error: APP_SECRET_NOT_STORED_MESSAGE });
+  assert.equal(storedKey(db.store.get("anthropic")), KEY_A, "保存済みの暗号文を変えない");
+
+  // 復号が要らない削除は master key 無しでも通る
+  const removed = okBody(await service.deleteKey("anthropic"));
+  assert.equal(removed.state, "applied");
+  assert.equal(db.store.has("anthropic"), false);
+});
+
+test("誤鍵・破損した暗号文は平文へ落とさず、固定文言で利用不可にする", async () => {
+  const db = fakeDb();
+  // 鍵版が鍵輪に無い行 (未知の版) を直接置く
+  db.store.set("anthropic", { ciphertext: new Uint8Array([1, 2, 3, 4]), nonce: new Uint8Array(12), keyVersion: 42 });
+  const runtime = fakeRuntime();
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+  await service.applyStored();
+
+  const entry = service.settings().providers.find((provider) => provider.provider === "anthropic");
+  assert.equal(entry?.keyAvailable, false);
+  assert.equal(entry?.keyEvaluated, true);
+  assert.equal(entry?.keyErrorMessage, APP_SECRET_DECRYPT_FAILED_MESSAGE);
+  assert.equal(entry?.degraded, "apply");
+  assert.deepEqual(runtime.calls, []);
 });

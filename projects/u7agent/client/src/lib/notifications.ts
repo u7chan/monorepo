@@ -86,7 +86,7 @@ export function testNeedsSave(draft: NotificationDraft): boolean {
 /** テスト送信できるか。未保存の変更があるときは保存後の値で判定する (解除したらテストできない) */
 export function testAvailable(draft: NotificationDraft, settings: NotificationsResponse | null): boolean {
   if (draft.webhookUrl !== null) return draft.webhookUrl.trim() !== "";
-  return settings?.configured === true;
+  return settings?.webhookAvailable === true;
 }
 
 /** ナビの ⚠ を出す条件。直近の送信が失敗しているときだけ */
@@ -97,9 +97,11 @@ export function notificationHasFailure(settings: NotificationsResponse | null): 
 /** 配信できない理由ごとの注記。色では表さず、バーの下へ文字で出す (導線は画面側が添える) */
 export const NOTIFY_DISABLED_NOTE = "通知は設定で無効です";
 export const NOTIFY_UNCONFIGURED_NOTE = "Webhook が未設定です";
+/** 保存済みだが復号できない / まだ評価できていない。原因の文言はサーバーが返す */
+export const NOTIFY_UNAVAILABLE_NOTE = "保存済みの Webhook を利用できません";
 
-/** 配信できない理由。disabled はグローバル無効、unconfigured は Webhook 未登録 */
-export type NotifyUnavailableReason = "disabled" | "unconfigured";
+/** 配信できない理由。disabled はグローバル無効、unconfigured は Webhook 未登録、unavailable は復号できない */
+export type NotifyUnavailableReason = "disabled" | "unconfigured" | "unavailable";
 
 /**
  * 配信できない理由。設定が未取得 (null) の間は判定できないため undefined を返し、注記も切替の禁止もしない
@@ -108,7 +110,8 @@ export type NotifyUnavailableReason = "disabled" | "unconfigured";
 export function notifyUnavailableReason(settings: NotificationsResponse | null): NotifyUnavailableReason | undefined {
   if (!settings) return undefined;
   if (!settings.enabled) return "disabled";
-  return settings.configured ? undefined : "unconfigured";
+  if (!settings.configured) return "unconfigured";
+  return settings.webhookAvailable ? undefined : "unavailable";
 }
 
 /**
@@ -123,7 +126,10 @@ export function notifyUnavailableNote(
   if (!on && !attempted) return undefined;
   const reason = notifyUnavailableReason(settings);
   if (!reason) return undefined;
-  return reason === "disabled" ? NOTIFY_DISABLED_NOTE : NOTIFY_UNCONFIGURED_NOTE;
+  if (reason === "disabled") return NOTIFY_DISABLED_NOTE;
+  if (reason === "unconfigured") return NOTIFY_UNCONFIGURED_NOTE;
+  // 未評価 / 復号失敗の固定文言はサーバーが返したものをそのまま出す
+  return settings?.webhookErrorMessage ?? NOTIFY_UNAVAILABLE_NOTE;
 }
 
 /**

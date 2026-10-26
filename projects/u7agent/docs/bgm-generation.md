@@ -21,10 +21,10 @@
 
 ## キー・公開ゲート・設定
 
-- `content_settings.apiKey` を画像・TTSと共有する。会話モデルの認証とは別管理。BGM専用キー、DB列、カタログ、新規保存APIは持たない。
+- `content_settings` の暗号化したキー（`ciphertext` / `nonce` / `keyVersion`）を画像・TTSと共有する。会話モデルの認証とは別管理。BGM専用キー、DB列、カタログ、新規保存APIは持たない。
 - 公開条件はコンテンツ生成のゲート（キーの行と `enabled`）とエージェントの `toolNames` の積。登録名・定義・カタログは同じ判定にし、公開時だけBGM用promptを追加する。調査子セッションや `PI_AGENT_TOOLS` のremoteには追加しない。有効 / 無効は画像・TTSと共通の1つで、BGMだけを止めるトグルは持たない。
 - 公開状態はセッション作成・復元時に固定する。キー後付けは新しい会話から。実行時は `ContentGenerationConfig.readBgm()` で現在キーを読み、回転へ追随し、削除後に始める生成は送信前に止める。設定でOFFにした場合も `readEnabled()` を実行のたびに見て、送信前に固定文言で止める。
-- キーは `retainSecret()` とツール定義の既存マスカーで保護し、応答・履歴・ログ・health・サンドボックスへ渡さない。SQLite平文保存の制約は [secrets.md](secrets.md) のまま。
+- キーは `retainSecret()` とツール定義の既存マスカーで保護し、応答・履歴・ログ・health・サンドボックスへ渡さない。保存時の暗号化と master key の制約は [secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url) のまま。
 - 設定 → コンテンツ生成の音楽（BGM）（`/settings/content/bgm`）は固定モデルの読取専用面。モデル仕様の尺、課金、promptの外部送信、無保証の条件を説明し、お試し生成ボタンは作らない。
 - `GET /api/settings/content` と既存の設定変更応答の `bgm` は表示専用。キー未設定ならmodelはnull。DTOの正は `server/src/schema.ts`、値の解決は `server/src/bgm.ts`。取得では生成APIを呼ばない。
 

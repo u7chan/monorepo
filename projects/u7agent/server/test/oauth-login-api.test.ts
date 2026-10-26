@@ -16,6 +16,11 @@ import {
 } from "../src/oauth-login";
 import type { ModelsSettingsResponse, ModelMutationResponse, ProviderAuthSetting } from "../src/schema";
 import { asPiBff, createStubPi, waitFor, type StubPiOptions } from "./stub-pi";
+import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import { TEST_MASTER_KEY } from "./app-secret-fixture";
+
+// プロバイダー APIキーは暗号化して保存する。このファイルの BFF には master key を立てて起動する
+process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const AUTH_URL = "https://auth.example.test/api/accounts/authorize?state=dummy";
 const PASTED_URL = "http://127.0.0.1:1455/auth/callback?code=dummy-code&state=dummy";

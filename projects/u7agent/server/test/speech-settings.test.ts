@@ -6,7 +6,7 @@ import type { ContentSettingsRow } from "../src/app-db";
 import {
   CONTENT_SETTINGS_NOT_STORED_MESSAGE,
   CONTENT_SETTINGS_UNCONFIGURED_MESSAGE,
-  CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE,
+  CONTENT_SPEECH_KEY_INCLUDED_MESSAGE,
   CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE,
   ContentSettingsService,
   type ContentSettingsDb,
@@ -21,8 +21,27 @@ import { SPEECH_PROVIDER_ID } from "../src/speech";
 import type { SpeechGenerationInput, SpeechGenerationResult } from "../src/speech";
 import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog, type SpeechCatalogSnapshot } from "../src/speech-catalog";
+import { testAppCipher } from "./app-secret-fixture";
 
 const KEY = "sk-speech-dummy-key-0123456789abcdef";
+
+const CIPHER = testAppCipher();
+
+/** 平文キーを暗号化した保存形。content_settings のキーは AAD で列に結び付く */
+function secretOf(plaintext: string): Pick<ContentSettingsRow, "ciphertext" | "nonce" | "keyVersion"> {
+  const encrypted = CIPHER.encrypt("content_settings", "apiKey", plaintext);
+  return { ciphertext: encrypted.ciphertext, nonce: encrypted.nonce, keyVersion: encrypted.keyVersion };
+}
+
+/** 行の平文キー。暗号文は毎回変わるため、値の比較は復号してから行う */
+function storedKey(row: ContentSettingsRow | undefined): string | undefined {
+  if (!row || row.ciphertext === null || row.nonce === null || row.keyVersion === null) return undefined;
+  return CIPHER.decrypt("content_settings", "apiKey", {
+    ciphertext: row.ciphertext,
+    nonce: row.nonce,
+    keyVersion: row.keyVersion,
+  });
+}
 
 class FakeContentDb implements ContentSettingsDb {
   row: ContentSettingsRow | undefined;
@@ -137,6 +156,7 @@ function createService(
       db.events.push(`inject:${config.enabled ? "on" : "off"}`);
     },
     maskError: options.identityMasker ? (text) => text : (text) => text.split(KEY).join("[REDACTED]"),
+    appCipher: CIPHER,
     ...(options.generateSpeech
       ? {
           generateSpeech: (input: SpeechGenerationInput) => {
@@ -160,7 +180,7 @@ function rowWith(speechModel: string | null, speechVoice: string | null, enabled
     speechModel,
     speechVoice,
     enabled,
-    apiKey: KEY,
+    ...secretOf(KEY),
   };
 }
 
@@ -187,6 +207,8 @@ test("GET は音声列が NULL の既存行を既定モデルと先頭ボイス�
 test("PUT はモデル / ボイスを保存し、キーと画像の選択を保つ", async () => {
   const { db, service, latest } = createService();
   db.row = rowWith(null, null);
+  // 起動時の適用を通して、キーを復号済みにする (音声の保存はキーとの照合を含む)
+  await service.applyStored();
   const outcome = await service.putSpeechSelection({ model: "fish/audio", voice: "any-voice-id" });
   assert.equal(outcome.status, 200);
   if (outcome.status !== 200) return;
@@ -199,14 +221,9 @@ test("PUT はモデル / ボイスを保存し、キーと画像の選択を保�
     catalogSource: "live",
     fetchedAt: null,
   });
-  assert.deepEqual(db.row, {
-    provider: IMAGE_PROVIDER_ID,
-    imageModel: "openai/gpt-image-2",
-    speechModel: "fish/audio",
-    speechVoice: "any-voice-id",
-    enabled: true,
-    apiKey: KEY,
-  });
+  assert.equal(db.row?.speechModel, "fish/audio");
+  assert.equal(db.row?.speechVoice, "any-voice-id");
+  assert.equal(storedKey(db.row), KEY, "キーは暗号文のまま保つ");
   assert.equal(latest()?.enabled, true, "保存で注入を更新する");
   assert.deepEqual(
     latest()?.readSpeech(),
@@ -218,6 +235,7 @@ test("PUT はモデル / ボイスを保存し、キーと画像の選択を保�
 test("空文字のボイスは未指定として NULL で保存し、実効値は先頭ボイスへ戻る", async () => {
   const { db, service } = createService();
   db.row = rowWith(null, null);
+  await service.applyStored();
   const outcome = await service.putSpeechSelection({ model: DEFAULT_SPEECH_MODEL, voice: "" });
   assert.equal(outcome.status, 200);
   if (outcome.status !== 200) return;
@@ -239,6 +257,7 @@ test("行が無い / カタログ外モデル / 宣言外の声は 400 にする
 
   const { db, service } = createService();
   db.row = rowWith(null, null);
+  await service.applyStored();
   for (const input of [
     { model: "ghost/model", voice: "" },
     { model: DEFAULT_SPEECH_MODEL, voice: "Ghost" },
@@ -249,29 +268,25 @@ test("行が無い / カタログ外モデル / 宣言外の声は 400 にする
     );
     assert.equal(statusOf(error), 400, JSON.stringify(input));
   }
-  // 入力を反射する 400 文言はマスカーを通す（model / voice にキーを誤って渡されても再露出させない）
-  const reflectedModel = (await service.putSpeechSelection({ model: KEY, voice: "" }).then(
-    () => undefined,
-    (thrown: unknown) => thrown,
-  )) as Error;
-  assert.equal(statusOf(reflectedModel), 400);
-  assert.ok(reflectedModel.message.startsWith(CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE));
-  assert.ok(!reflectedModel.message.includes(KEY), `400 の文言にキーが残っている: ${reflectedModel.message}`);
-  assert.ok(reflectedModel.message.includes("[REDACTED]"));
-
-  const reflectedVoice = (await service.putSpeechSelection({ model: DEFAULT_SPEECH_MODEL, voice: KEY }).then(
-    () => undefined,
-    (thrown: unknown) => thrown,
-  )) as Error;
-  assert.equal(statusOf(reflectedVoice), 400);
-  assert.ok(reflectedVoice.message.startsWith(CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE));
-  assert.ok(!reflectedVoice.message.includes(KEY), `400 の文言にキーが残っている: ${reflectedVoice.message}`);
-  assert.ok(reflectedVoice.message.includes("[REDACTED]"));
+  // キーと同じ値を音声の語彙へ渡す要求は、値を伏せた固定文言で 400 にする (反射もしない)
+  for (const input of [
+    { model: KEY, voice: "" },
+    { model: DEFAULT_SPEECH_MODEL, voice: KEY },
+  ]) {
+    const included = (await service.putSpeechSelection(input).then(
+      () => undefined,
+      (thrown: unknown) => thrown,
+    )) as Error;
+    assert.equal(statusOf(included), 400, JSON.stringify(input).replaceAll(KEY, "<key>"));
+    assert.equal(included.message, CONTENT_SPEECH_KEY_INCLUDED_MESSAGE);
+    assert.ok(!included.message.includes(KEY), `400 の文言にキーが残っている: ${included.message}`);
+  }
 });
 
 test("カタログが default（live に一度も成功していない）のときは照合しない", async () => {
   const { db, service } = createService({ speechSource: "default", speechFetchedAt: null });
   db.row = rowWith(null, null);
+  await service.applyStored();
   const outcome = await service.putSpeechSelection({ model: "ghost/model", voice: "free" });
   assert.equal(outcome.status, 200, "同梱の 1 件しか無い状態で保存済みの選択を再保存できなくしない");
   if (outcome.status !== 200) return;
@@ -282,6 +297,7 @@ test("カタログが default（live に一度も成功していない）のと�
 test("DB 失敗は 503 not_stored にして、理由の分類だけを残す", async () => {
   const { db, service } = createService();
   db.row = rowWith(null, null);
+  await service.applyStored();
   db.failSave = true;
   assert.deepEqual(await service.putSpeechSelection({ model: DEFAULT_SPEECH_MODEL, voice: "Zephyr" }), {
     status: 503,
@@ -364,106 +380,56 @@ test("キーの登録は音声の選択を巻き戻さない", async () => {
   if (outcome.status !== 200) return;
   assert.equal(outcome.response.speech.model, DEFAULT_SPEECH_MODEL);
   assert.equal(outcome.response.speech.voice, "Kore");
-  assert.equal(db.row?.apiKey, "sk-speech-new-key-0123456789");
+  assert.equal(storedKey(db.row), "sk-speech-new-key-0123456789");
 });
 
-test("ボイス / モデルに保護済みキーがあっても、応答と実行時の解決はどちらも未設定として扱う", async () => {
-  // 宣言が無いモデルは自由記述を許すため、キーを誤ってボイス欄へ貼ると保存は成功する
+test("ボイス / モデルにキーを混ぜた保存要求は 400 で拒否し、保存値を書き換えない", async () => {
+  // 宣言が無いモデルは自由記述を許すため、キーを誤ってボイス欄へ貼る操作自体は通り得る。
+  // 黙って消して保存せず、値を伏せた 400 で止める
   const free = createService();
   free.db.row = rowWith(null, null);
-  const saved = await free.service.putSpeechSelection({ model: "fish/audio", voice: KEY });
-  assert.equal(saved.status, 200);
-  if (saved.status !== 200) return;
-  assert.equal(saved.response.speech.voice, "", "マスク済みの文字列もそのまま返さない");
-  assert.ok(!JSON.stringify(saved.response).includes(KEY), "成功応答にキーを出さない");
-  assert.equal(free.service.settings().speech.voice, "");
+  await free.service.applyStored();
+  const before = free.db.row;
+  await assert.rejects(async () => {
+    try {
+      await free.service.putSpeechSelection({ model: "fish/audio", voice: KEY });
+    } catch (error) {
+      assert.equal(statusOf(error), 400);
+      assert.equal((error as Error).message, CONTENT_SPEECH_KEY_INCLUDED_MESSAGE);
+      assert.ok(!(error as Error).message.includes(KEY), "文言にキーを出さない");
+      throw error;
+    }
+  }, "キーを含むボイスを受け付けている");
+  assert.equal(free.db.row, before, "拒否した要求で保存値を書き換えない");
   assert.ok(!JSON.stringify(free.service.settings()).includes(KEY), "GET にキーを出さない");
-  assert.equal(
-    free.latest()?.readSpeech()?.voice,
-    free.service.settings().speech.voice,
-    "実行時の解決も表示と同じ（保存値のキーをボイスとして送らない）",
-  );
-  assert.equal(free.db.row?.speechVoice, KEY, "保存値そのものは消さない");
 
-  // 別の成功 mutation（キー登録）の応答も同じ境界を通る
-  const rotated = await free.service.putKey("sk-speech-rotated-key-0123456789");
-  assert.equal(rotated.status, 200);
-  if (rotated.status === 200) {
-    assert.ok(!JSON.stringify(rotated.response).includes(KEY), "キー登録の成功応答にも出さない");
-  }
-
-  // default はカタログ照合をしないため、モデルにもキーを保存できる
+  // default はカタログ照合をしないため、モデルにもキーを保存できてしまう。同じ境界で 400 にする
   const defaulted = createService({ speechSource: "default", speechFetchedAt: null });
   defaulted.db.row = rowWith(null, null);
-  const savedModel = await defaulted.service.putSpeechSelection({ model: KEY, voice: "" });
-  assert.equal(savedModel.status, 200);
-  if (savedModel.status !== 200) return;
-  assert.equal(savedModel.response.speech.model, DEFAULT_SPEECH_MODEL, "キーは既定モデルへ落とす");
-  assert.ok(!JSON.stringify(savedModel.response).includes(KEY));
-  assert.equal(defaulted.service.settings().speech.model, DEFAULT_SPEECH_MODEL);
+  await defaulted.service.applyStored();
+  await assert.rejects(async () => {
+    await defaulted.service.putSpeechSelection({ model: KEY, voice: "" });
+  }, "キーを含むモデルを受け付けている");
   assert.ok(!JSON.stringify(defaulted.service.settings()).includes(KEY));
-  assert.equal(defaulted.latest()?.readSpeech()?.model, DEFAULT_SPEECH_MODEL);
-  assert.equal(defaulted.db.row?.speechModel, KEY, "保存値そのものは消さない");
 });
 
-test("マスカーがキーを知らない起動でも、400 の文言へキーを反射しない", async () => {
-  const { db, service } = createService({ identityMasker: true });
-  db.row = rowWith(null, null);
-
-  const voiceError = (await service.putSpeechSelection({ model: DEFAULT_SPEECH_MODEL, voice: KEY }).then(
-    () => undefined,
-    (error: unknown) => error,
-  )) as Error;
-  assert.equal(statusOf(voiceError), 400);
-  assert.ok(voiceError.message.startsWith(CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE), "分類の文言は残す");
-  assert.ok(!voiceError.message.includes(KEY), `400 の文言にキーが残っている: ${voiceError.message}`);
-  assert.ok(voiceError.message.includes("[REDACTED]"));
-
-  const modelError = (await service.putSpeechSelection({ model: KEY, voice: "" }).then(
-    () => undefined,
-    (error: unknown) => error,
-  )) as Error;
-  assert.equal(statusOf(modelError), 400);
-  assert.ok(modelError.message.startsWith(CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE));
-  assert.ok(!modelError.message.includes(KEY), `400 の文言にキーが残っている: ${modelError.message}`);
-  assert.ok(modelError.message.includes("[REDACTED]"));
-
-  // 画像モデルの反射も同じ境界を通る
-  const imageError = (await service.putSelection({ provider: IMAGE_PROVIDER_ID, model: KEY }).then(
-    () => undefined,
-    (error: unknown) => error,
-  )) as Error;
-  assert.equal(statusOf(imageError), 400);
-  assert.ok(!imageError.message.includes(KEY), `400 の文言にキーが残っている: ${imageError.message}`);
-  assert.ok(imageError.message.includes("[REDACTED]"));
-});
-
-test("マスカーがキーを知らない起動でも、同じ行の APIキーをボイス / モデルとして出さない", async () => {
-  // pi: null の起動（bootstrap が identity masker を渡す経路）。マスカーだけに頼ると保存値が再露出する
+test("マスカーがキーを知らない起動でも、キーを混ぜた音声の保存は 400 で拒否する", async () => {
+  // pi: null の起動（bootstrap が identity masker を渡す経路）。マスカーだけに頼らず AAD で復号した値と比べる
   const free = createService({ identityMasker: true });
   free.db.row = rowWith(null, null);
-  const saved = await free.service.putSpeechSelection({ model: "fish/audio", voice: KEY });
-  assert.equal(saved.status, 200);
-  if (saved.status !== 200) return;
-  assert.equal(saved.response.speech.voice, "", "成功応答にキーを出さない");
-  assert.ok(!JSON.stringify(saved.response).includes(KEY));
-  assert.equal(free.service.settings().speech.voice, "", "GET にもキーを出さない");
-  assert.ok(!JSON.stringify(free.service.settings()).includes(KEY));
-  assert.equal(free.latest()?.readSpeech()?.voice, "", "実行時解決にもキーを出さない");
-  assert.equal(free.db.row?.speechVoice, KEY, "保存値そのものは消さない");
+  await free.service.applyStored();
+  await assert.rejects(async () => {
+    await free.service.putSpeechSelection({ model: "fish/audio", voice: KEY });
+  });
+  assert.ok(!JSON.stringify(free.service.settings()).includes(KEY), "GET にもキーを出さない");
 
-  // default の自由なモデル指定も同じ境界を通る
   const defaulted = createService({ identityMasker: true, speechSource: "default", speechFetchedAt: null });
   defaulted.db.row = rowWith(null, null);
-  const savedModel = await defaulted.service.putSpeechSelection({ model: KEY, voice: "" });
-  assert.equal(savedModel.status, 200);
-  if (savedModel.status !== 200) return;
-  assert.equal(savedModel.response.speech.model, DEFAULT_SPEECH_MODEL);
-  assert.ok(!JSON.stringify(savedModel.response).includes(KEY));
-  assert.equal(defaulted.service.settings().speech.model, DEFAULT_SPEECH_MODEL);
+  await defaulted.service.applyStored();
+  await assert.rejects(async () => {
+    await defaulted.service.putSpeechSelection({ model: KEY, voice: "" });
+  });
   assert.ok(!JSON.stringify(defaulted.service.settings()).includes(KEY));
-  assert.equal(defaulted.latest()?.readSpeech()?.model, DEFAULT_SPEECH_MODEL);
-  assert.equal(defaulted.db.row?.speechModel, KEY, "保存値そのものは消さない");
 });
 
 test("ボイスが NULL の行はカタログの並びが変われば、応答も実行時も同じ先頭ボイスへ寄る", async () => {
@@ -525,6 +491,7 @@ test("お試し再生は行なし 400 / 未注入 503 / DB 不通 503 で provid
 test("お試し再生は有効 / 無効が OFF なら課金前に 400 で止め、生成器を呼ばない", async () => {
   const { db, service, previewCalls } = createService({ generateSpeech: async () => speechResult() });
   db.row = rowWith(DEFAULT_SPEECH_MODEL, "Zephyr", false);
+  await service.applyStored();
   assert.deepEqual(await service.previewSpeech({ model: DEFAULT_SPEECH_MODEL, voice: "Zephyr", text: "こんにちは" }), {
     status: 400,
     error: CONTENT_DISABLED_MESSAGE,
@@ -547,6 +514,7 @@ test("お試し再生は pcm を RIFF 付きの wav にし、指定した演技�
       }),
   });
   db.row = rowWith(DEFAULT_SPEECH_MODEL, "Zephyr");
+  await service.applyStored();
   const outcome = await service.previewSpeech({
     model: DEFAULT_SPEECH_MODEL,
     voice: "Zephyr",
@@ -576,6 +544,7 @@ test("お試し再生は pcm を RIFF 付きの wav にし、指定した演技�
     generateSpeech: async () => ({ ok: false, code: "rate_limited", message: "音声生成が混雑しています" }),
   });
   failing.db.row = rowWith(DEFAULT_SPEECH_MODEL, "Zephyr");
+  await failing.service.applyStored();
   assert.deepEqual(
     await failing.service.previewSpeech({ model: DEFAULT_SPEECH_MODEL, voice: "Zephyr", text: "こんにちは" }),
     { status: 502, error: "音声生成が混雑しています", code: "rate_limited" },
@@ -590,6 +559,7 @@ test("お試し再生はカタログの出どころに関係なく宣言があ�
     speechFetchedAt: null,
   });
   defaulted.db.row = rowWith(DEFAULT_SPEECH_MODEL, "Zephyr");
+  await defaulted.service.applyStored();
   assert.deepEqual(
     await defaulted.service.previewSpeech({ model: DEFAULT_SPEECH_MODEL, voice: "Ghost", text: "こんにちは" }),
     {

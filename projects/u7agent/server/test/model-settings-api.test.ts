@@ -5,6 +5,8 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import { encryptedSecret, TEST_MASTER_KEY } from "./app-secret-fixture";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
 import {
@@ -20,6 +22,9 @@ import {
   type RuntimeModelsResponse,
 } from "../src/schema";
 import { asPiBff, createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, waitFor, type StubPiOptions } from "./stub-pi";
+
+// アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
+process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const KEY = "sk-ant-dummy-key-0123456789abcdef";
 const OTHER_KEY = "sk-openai-dummy-key-0123456789";
@@ -93,28 +98,38 @@ test("GET はプロバイダーの認証状態と managed を返し、キー値�
   });
 });
 
-test("移行前のキー行は keyUpdatedAt: null で返り、上書き保存で日時が入る", async () => {
+test("keyUpdatedAt は保存行の updatedAt を返し、上書き保存で更新される", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi(stubOptions());
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      // v6 からの移行直後と同じ形 (updatedAt が NULL) を DB へ直接作る
+      // 暗号文だけを持つ現在の形で、保存日時を持つ行を DB へ直接作る
+      const secret = encryptedSecret("provider_credentials", "anthropic", KEY);
       const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
       raw
-        .prepare("INSERT INTO provider_credentials (provider, apiKey, updatedAt) VALUES (?, ?, NULL)")
-        .run("anthropic", KEY);
+        .prepare(
+          "INSERT INTO provider_credentials (provider, ciphertext, nonce, keyVersion, updatedAt) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run("anthropic", secret.ciphertext, secret.nonce, secret.keyVersion, 1_600_000_000_000);
       raw.close();
 
       const before = await jsonBody(await bff.app.request("/api/settings/models"));
-      const migrated = before.providers.find((provider: any) => provider.provider === "anthropic");
-      assert.equal(migrated.managed, true);
-      assert.equal(migrated.keyUpdatedAt, null, "移行前の行は保存日不明");
+      const stored = before.providers.find((provider: any) => provider.provider === "anthropic");
+      assert.equal(stored.managed, true);
+      assert.equal(stored.keyUpdatedAt, 1_600_000_000_000);
+      // 起動後に現れた行は GET では復号しない。未評価として返し、誤鍵・破損と断定しない
+      assert.equal(stored.keyAvailable, false);
+      assert.equal(stored.keyEvaluated, false);
+      assert.equal(typeof stored.keyErrorMessage, "string");
 
       const at = Date.now();
       const put = await jsonBody(await bff.app.request("/api/settings/models/anthropic/key", jsonPut({ apiKey: KEY })));
       const saved = put.providers.find((provider: any) => provider.provider === "anthropic")?.keyUpdatedAt;
       assert.equal(typeof saved, "number", "上書き保存で日時が入る");
       assert.ok(saved >= at);
+      const after = put.providers.find((provider: any) => provider.provider === "anthropic");
+      assert.equal(after?.keyAvailable, true, "保存したキーは復号済みとして返す");
+      assert.equal(after?.keyEvaluated, true);
       assert.ok(!JSON.stringify(put).includes(KEY));
     } finally {
       await bff.close();
@@ -309,11 +324,11 @@ test("登録済みキーを含む DB 例外が応答・health・ログに現れ�
     console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
     try {
       await bff.app.request("/api/settings/models/anthropic/key", jsonPut({ apiKey: KEY }));
-      // SQLite の例外文言にキーが載る経路を作り、DB エラー境界を通す
+      // SQLite の例外文言に暗号文 (hex) が載る経路を作り、値なし境界を通す
       const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
       raw.exec(
         `CREATE TRIGGER leak BEFORE DELETE ON provider_credentials
-         BEGIN SELECT RAISE(ABORT, 'boom ' || OLD.apiKey); END`,
+         BEGIN SELECT RAISE(ABORT, 'boom ' || hex(OLD.ciphertext)); END`,
       );
       raw.close();
 
@@ -326,10 +341,10 @@ test("登録済みキーを含む DB 例外が応答・health・ログに現れ�
       const health = await jsonBody(await bff.app.request("/api/health"));
       assert.equal(health.appDb.ok, false);
       assert.ok(!health.appDb.error.includes(KEY), `health にキーを出さない: ${health.appDb.error}`);
-      assert.ok(health.appDb.error.includes("[REDACTED]"), "health ではマスク済みの文言を出す");
+      assert.equal(health.appDb.error, "app secret query failed", "操作の分類だけを health に出す");
 
       assert.ok(!logged.join("\n").includes(KEY), `ログにもキーを出さない: ${logged.join("\n")}`);
-      assert.ok(logged.join("\n").includes("[REDACTED]"));
+      assert.ok(logged.join("\n").includes("app secret query failed"));
     } finally {
       console.warn = original.warn;
       console.error = original.error;

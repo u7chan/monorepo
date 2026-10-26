@@ -5,13 +5,18 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import { encryptedSecret, TEST_MASTER_KEY } from "./app-secret-fixture";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
-import { DEFAULT_IMAGE_MODEL } from "../src/content-settings";
+import { CONTENT_SPEECH_KEY_INCLUDED_MESSAGE, DEFAULT_IMAGE_MODEL } from "../src/content-settings";
 import { IMAGE_PROVIDER_ID } from "../src/images";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
 import { DEFAULT_SPEECH_MODEL } from "../src/speech-catalog";
 import { asPiBff, createStubPi } from "./stub-pi";
+
+// アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
+process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const KEY = "sk-speech-dummy-key-0123456789abcdef";
 const OTHER_MODEL = "fish/audio";
@@ -140,37 +145,32 @@ test("キー登録後の GET / PUT は音声の既定へフォールバックし
   });
 });
 
-test("宣言が無いモデルへキーをボイスとして保存しても、成功応答 / GET にキーを出さない", async () => {
+test("宣言が無いモデルでも、キーをボイスとして保存する要求は 400 で拒否する", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi();
     const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      // live の一覧を読み込んでから、宣言が無い fish/audio にキーをボイスとして保存する
+      // live の一覧を読み込んでから、宣言が無い fish/audio へキーをボイスとして送る
       await bff.app.request("/api/settings/content/speech/catalog/refresh", { method: "POST" });
       await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
       const put = await bff.app.request("/api/settings/content/speech", jsonPut({ model: OTHER_MODEL, voice: KEY }));
-      assert.equal((await put).status, 200, "自由記述のボイスは保存自体は成功する");
+      assert.equal((await put).status, 400, "キーと同じ値は音声の設定に保存しない");
       const body = await jsonBody(put);
-      assert.equal(body.speech.voice, "", "マスク済みの文字列もそのまま返さない");
-      assert.ok(!JSON.stringify(body).includes(KEY), "成功応答にキーを出さない");
+      assert.equal(body.error, CONTENT_SPEECH_KEY_INCLUDED_MESSAGE);
+      assert.ok(!JSON.stringify(body).includes(KEY), "応答にキーを出さない");
 
       const after = await jsonBody(await bff.app.request("/api/settings/content"));
-      assert.equal(after.speech.voice, "");
-      assert.ok(!JSON.stringify(after).includes(KEY), "GET にキーを出さない");
-      assert.equal(
-        pi.contentGenerationConfigs.at(-1)?.readSpeech()?.voice,
-        after.speech.voice,
-        "実行時の解決も表示と同じにする",
-      );
+      assert.notEqual(after.speech.voice, KEY, "GET にキーを出さない");
+      assert.ok(!JSON.stringify(after).includes(KEY));
     } finally {
       await bff.close();
     }
   });
 });
 
-test("ランタイムなしで再起動しても、保存済みキーをボイスとして GET に出さない", async () => {
+test("ランタイムなしで再起動すると、保存済みキーは未評価として GET に出る", async () => {
   await withStoreDir(async (dir) => {
-    // 1) ランタイムありで、宣言が無いモデルのボイスへキーと同じ文字列を保存する
+    // 1) ランタイムありでキーを保存する
     const first = await openBff({
       cwd: "/tmp/project",
       sessionStoreDir: dir,
@@ -180,31 +180,28 @@ test("ランタイムなしで再起動しても、保存済みキーをボイ�
     try {
       await first.app.request("/api/settings/content/speech/catalog/refresh", { method: "POST" });
       await first.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
-      const saved = await first.app.request(
-        "/api/settings/content/speech",
-        jsonPut({ model: OTHER_MODEL, voice: KEY }),
-      );
-      assert.equal((await saved).status, 200, "自由記述のボイスは保存自体は成功する");
     } finally {
       await first.close();
     }
 
-    // 2) 同じ DB をランタイムなし（マスカーが保存済みキーを知らない）で開き直す
+    // 2) 同じ DB をランタイムなし（復号しない起動）で開き直す
     const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
     try {
       const body = await jsonBody(await bff.app.request("/api/settings/content"));
       assert.equal(body.runtimeAvailable, false);
       assert.equal(body.configured, true);
-      assert.equal(body.speech.model, OTHER_MODEL);
-      assert.equal(body.speech.voice, "", "保存済みキーをボイスとして返さない");
-      assert.ok(!JSON.stringify(body).includes(KEY), `GET にキーを出さない: ${JSON.stringify(body.speech)}`);
+      assert.equal(body.keyStored, true, "暗号文は残っている");
+      assert.equal(body.keyAvailable, false);
+      assert.equal(body.keyEvaluated, false, "ランタイムが無い起動では復号しない");
+      assert.equal(typeof body.keyErrorMessage, "string");
+      assert.ok(!JSON.stringify(body).includes(KEY), "GET にキーを出さない");
     } finally {
       await bff.close();
     }
   });
 });
 
-test("ランタイムなしでも 400 の文言にキーを反射しない", async () => {
+test("ランタイムなしでも、キーを含む入力の 400 から値を反射しない", async () => {
   await withStoreDir(async (dir) => {
     // 1) キーを登録し、live の一覧をキャッシュへ残す
     const first = await openBff({
@@ -220,19 +217,21 @@ test("ランタイムなしでも 400 の文言にキーを反射しない", asy
       await first.close();
     }
 
-    // 2) マスカーが保存済みキーを知らない構成で、宣言ありモデル + キーを反射させる
+    // 2) キーを復号しない構成（pi: null）で開き直す。音声の更新は照合できないため 503 で止める
     const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
     try {
       const voice = await bff.app.request(
         "/api/settings/content/speech",
         jsonPut({ model: DEFAULT_SPEECH_MODEL, voice: KEY }),
       );
-      assert.equal(voice.status, 400);
-      const voiceBody = await jsonBody(voice);
-      assert.ok(!JSON.stringify(voiceBody).includes(KEY), `400 の文言にキーが出ている: ${voiceBody.error}`);
-      assert.ok(String(voiceBody.error).includes("[REDACTED]"));
+      assert.equal(voice.status, 503, "キーを復号できない状態では音声の設定を変えない");
+      assert.ok(!JSON.stringify(await jsonBody(voice)).includes(KEY), "503 の文言にキーを出さない");
 
-      const model = await bff.app.request("/api/settings/content/speech", jsonPut({ model: KEY, voice: "" }));
+      // 画像モデルの 400 は、保存値と比較できないときに入力そのものを伏せる
+      const model = await bff.app.request(
+        "/api/settings/content/image",
+        jsonPut({ provider: IMAGE_PROVIDER_ID, model: KEY }),
+      );
       assert.equal(model.status, 400);
       const modelBody = await jsonBody(model);
       assert.ok(!JSON.stringify(modelBody).includes(KEY), `400 の文言にキーが出ている: ${modelBody.error}`);
@@ -360,10 +359,13 @@ test("起動時に音声列が NULL の保存行があれば、既定モデル�
     });
     await first.close();
 
+    const secret = encryptedSecret("content_settings", "apiKey", KEY);
     const seed = new DatabaseSync(join(dir, APP_DB_FILENAME));
     seed
-      .prepare("INSERT INTO content_settings (id, provider, imageModel, apiKey) VALUES (1, ?, ?, ?)")
-      .run(IMAGE_PROVIDER_ID, DEFAULT_IMAGE_MODEL, KEY);
+      .prepare(
+        "INSERT INTO content_settings (id, provider, imageModel, ciphertext, nonce, keyVersion) VALUES (1, ?, ?, ?, ?, ?)",
+      )
+      .run(IMAGE_PROVIDER_ID, DEFAULT_IMAGE_MODEL, secret.ciphertext, secret.nonce, secret.keyVersion);
     seed.close();
 
     const pi = createStubPi();

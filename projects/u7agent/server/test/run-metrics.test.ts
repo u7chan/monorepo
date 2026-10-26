@@ -5,6 +5,7 @@ import test from "node:test";
 import { createAgentCatalog } from "../src/agents";
 import { AppDb } from "../src/app-db";
 import { NotificationService } from "../src/notifications";
+import { testAppCipher } from "./app-secret-fixture";
 import { createSecretMasker } from "../src/redact";
 import { askUserWaitTotalMs, runDurationMs } from "../src/run-metrics";
 import type { PiSessionEntryLike } from "../src/pi-runtime";
@@ -238,7 +239,7 @@ test("run_end / runOutcomes / 履歴 / 通知は同じ所要時間になり、�
   });
   const { impl, calls } = fakeFetch();
   const db = AppDb.open({ storeDir: null });
-  const notifications = new NotificationService({ db, fetchImpl: impl });
+  const notifications = new NotificationService({ db, fetchImpl: impl, cipher: testAppCipher() });
   notifications.save({ webhookUrl: WEBHOOK, enabled: true });
   const store = createStore(session, notifications);
   try {

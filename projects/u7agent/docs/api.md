@@ -416,7 +416,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel`）と provider 一覧（auth 状態 / credentialKind / oauthLoginLabel / hiddenStoredOAuth / canSignInHere / managed / keyUpdatedAt / canSetApiKey / orphan / degraded / login）。純粋読取 |
+| GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel`）と provider 一覧（auth 状態 / credentialKind / oauthLoginLabel / hiddenStoredOAuth / canSignInHere / managed / keyUpdatedAt / keyAvailable / keyEvaluated / keyErrorMessage / canSetApiKey / orphan / degraded / login）。純粋読取 |
 | PUT | `/api/settings/models/allowed` | 利用可能なモデルとアプリ既定モデルの一括保存。body は `{ "allowedModels": ["<provider>/<id>"], "defaultModel": "<provider>/<id>" }`（どちらも `null` 可） |
 | PUT | `/api/settings/models/:provider/key` | APIキーを登録（既存は上書き）。body は `{ "apiKey": "…" }` |
 | PUT | `/api/settings/models/:provider/memo` | provider のメモを保存（`trim` して空なら行を削除）。body は `{ "memo": "…" }`（0..500 文字） |
@@ -448,6 +448,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
       "auth": { "configured": true, "source": "runtime", "environmentVariables": [] },
       "managed": true,
       "keyUpdatedAt": 1730000000000,
+      "keyAvailable": true,
+      "keyEvaluated": true,
+      "keyErrorMessage": null,
       "canSetApiKey": true,
       "supportsOAuth": true,
       "canSignInHere": true,
@@ -501,7 +504,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 変更系の本文は `{ "apiKey": "…" }` で、8..2048 文字。形が違う場合は 400（SDK / DB へ要求を出さない）
 - `PUT /api/settings/models/:provider/memo` の本文は `{ "memo": "…" }` で、500 文字まで。`trim` して空なら行を消して `memo: null` に戻す。SDK 呼び出しを含まないため応答は常に `state: "applied"`。カタログに無い provider は credential 行かメモ行が既にあるときだけ受け付け、それ以外は 400（`このプロバイダーのメモは保存できません`）。500 文字超と形の違う本文は route の zod が 400 にする
 - 200 の応答は GET と同じ形 + 必須の `state`。`applied` は反映まで成功、`applied_unsynced` は「保存済み・反映未完了」で、再同期 / 次回の変更 / 再起動で収束する
-- 503 は `{ "error": "…", "state": "not_stored" }` で、何も保存されていないことを示す（DB 書込前の失敗、ランタイム初期化失敗など）。400 は `{ "error": "…" }` だけ。`PUT /api/settings/models/allowed` もランタイムが無いときは 503 `not_stored`（カタログ検証ができないため）
+- 503 は `{ "error": "…", "state": "not_stored" }` で、何も保存されていないことを示す（DB 書込前の失敗、ランタイム初期化失敗、master key 未設定で暗号化できないなど）。400 は `{ "error": "…" }` だけ。`PUT /api/settings/models/allowed` もランタイムが無いときは 503 `not_stored`（カタログ検証ができないため）
+- 保存済みのキーは AEAD の暗号文で、GET は復号しない。`managed`（行の有無）に加えて `keyAvailable`（復号できて SDK へ適用できる）/ `keyEvaluated`（復号を評価したか）/ `keyErrorMessage`（サーバーの固定文言）を返し、`managed: true` / `keyEvaluated: false` は「保存済みだが復号をまだ確認していない」で誤鍵・破損と断定しない。復号できない行は `degraded: "apply"` として [削除] / [再同期] の導線を残す。DELETE は復号が要らないため master key 無しでも通る（[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）
 - 400: 未知の provider / `canSetApiKey` が false の provider への PUT、登録行が無い provider の DELETE、再同期の対象外（カタログに無く degraded も `remove` でない）、メモの対象外 provider。サンドボックスは使わない
 - `POST /:provider/resync` は冪等。degraded でない provider に送っても現在の DB 希望状態を再適用して 200 を返す
 - `POST /api/settings/models/:provider/login` は OAuth サインイン（Sign in with ChatGPT など）を開始し、`providers[].login` に進行状態を載せた GET と同じ形を返す（アプリ DB を触らないため `state` は持たない）。`login.status` は `running` / `succeeded` / `failed` / `cancelled` で、`authUrl` は **`running` の間だけ**載る。`instructions` は進行中の**主文**、`progress` は**補助行**で、`progress` は `instructions` を置き換えない（両方載り得る）。`input` は貼り付け待ちの入力欄、`userCode` はデバイスコード方式のコードで、それ以外は `null`。失敗の理由は画面用の固定文言で `error` にだけ載せ、SDK / provider の生のメッセージは返さない。すでに `running` の provider への再開始は 409 `{ "error": "…" }` で、OAuth を持たない / カタログ外の provider は 400。`canSignInHere` が false の provider（この画面にサインインの操作を出さない provider）でも開始は受け付け、扱えない対話で固定文言の失敗になる（表示だけを制御する）。`succeeded` は公開 state の再計算が終わってから公開し、再計算を待つ間も認可 URL と入力欄は載らない（クライアントは成功を観測すると health / カタログの取り直しを止めるため）
@@ -534,8 +538,14 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
   "enabled": true,
   "provider": "exa",
   "providers": [
-    { "id": "exa", "name": "Exa", "host": "mcp.exa.ai", "keyless": true, "configured": true },
-    { "id": "tavily", "name": "Tavily", "host": "api.tavily.com", "keyless": false, "configured": false }
+    {
+      "id": "exa", "name": "Exa", "host": "mcp.exa.ai", "keyless": true,
+      "configured": true, "keyStored": false, "keyAvailable": true, "keyEvaluated": true, "keyErrorMessage": null
+    },
+    {
+      "id": "tavily", "name": "Tavily", "host": "api.tavily.com", "keyless": false,
+      "configured": false, "keyStored": false, "keyAvailable": false, "keyEvaluated": true, "keyErrorMessage": null
+    }
   ],
   "disabledMessage": "Web 検索は無効化されています。有効にするには 設定 → Web 検索 を開いてください。"
 }
@@ -596,10 +606,14 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。`enabled` は行が無いとき（未設定）も既定の `true` を返し、ツールの公開可否は `configured` との積で決まる。OFF の間、モデルへは `disabledMessage` の固定文言だけが返る（[image-generation.md](image-generation.md#有効化ゲート)）。モデル、保存先、ゲート、失敗分類は [image-generation.md](image-generation.md) / [speech-generation.md](speech-generation.md) / [bgm-generation.md](bgm-generation.md) を参照する。
 
 ```json
-// GET /api/settings/content (200)
+// GET /api/settings/content (200。キーは返さず、保存と利用可否だけを分けて返す)
 {
   "configured": true,
   "provider": "openrouter",
+  "keyStored": true,
+  "keyAvailable": true,
+  "keyEvaluated": true,
+  "keyErrorMessage": null,
   "enabled": true,
   "disabledMessage": "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
   "runtimeAvailable": true,
@@ -667,6 +681,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 - 502 の `code` は `invalid_key` / `insufficient_credit` / `rate_limited` / `timeout` / `aborted` / `unknown` で、正は `server/src/provider-failure.ts`（[speech-generation.md](speech-generation.md#失敗の分類)）
 - 課金前の検証（行なし / カタログ外モデル / 宣言外ボイス / 本文と `instructions` の長さ / 空本文 / `speed` の型）は provider を叩かず 400 にする。文言は「クレジットを消費していない」ことを伝えるプレビュー用のものを返す（分割を促すツール向け文言は使わない）。`speed` の範囲は provider の制約なのでアプリでは縛らない
+
+`configured`（設定行の有無）と `keyStored`（暗号文の有無）・`keyAvailable`（復号できて生成ツールへ渡せる）・`keyEvaluated` / `keyErrorMessage` は別の軸で、実効の公開ゲートは「行がある」「`enabled`」「`keyAvailable`」の積。`configured: true` / `keyStored: true` / `keyAvailable: false` でも画面はキーの削除・置換を出す。未評価（runtime 無し / 起動時に DB を読めなかった）は `keyEvaluated: false` と「まだ確認できていない」固定文言で、誤鍵・破損と断定しない（[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。
 
 ## サービス（serve）の状態と起動・停止
 

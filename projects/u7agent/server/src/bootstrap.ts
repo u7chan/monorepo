@@ -43,7 +43,14 @@ import { SecretService } from "./secrets";
 import { CloudflareApiClient } from "./cloudflare-api";
 import { CloudflareConnectionService } from "./cloudflare-connection";
 import { CloudflareSettingsService, type CloudflareCredential } from "./cloudflare-settings";
-import { SecretKeyError, createSecretCipher, resolveMasterKeys, type SecretCipher } from "./secret-crypto";
+import {
+  SecretKeyError,
+  createAppSecretCipher,
+  createSecretCipher,
+  resolveMasterKeys,
+  type AppSecretCipher,
+  type SecretCipher,
+} from "./secret-crypto";
 import { ServeService, sandboxHostFromUrl, type ServeProbe } from "./serve";
 import { SharedContentsService } from "./shared-contents";
 import { createSharedContentExclusions } from "./shared-content-exclusions";
@@ -231,6 +238,26 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // 失敗しても起動は続け、degraded として設定画面から回復できるようにする。
   // 利用可能なモデルとアプリ既定モデルは DB を正とし、起動時に pi の実行時選択へ写す。
   // provider キーとは別の読取なので、片方が読めなくても他方の適用と最後の再計算を行う。
+  // シークレットとアプリ DB のキー / Webhook URL は同じ鍵輪を使い、host 側 (環境変数 / 鍵ファイル) から受け取る。
+  // 未設定 / 壊れた宣言では「秘密の利用」だけを拒否し、変数 (平文) と起動は続行する。
+  const secretCrypto = (() => {
+    let cipher: SecretCipher | null = null;
+    let appCipher: AppSecretCipher | null = null;
+    let unavailableReason: string | undefined;
+    try {
+      const ring = resolveMasterKeys(process.env);
+      cipher = ring ? createSecretCipher(ring) : null;
+      appCipher = ring ? createAppSecretCipher(ring) : null;
+      if (!ring) unavailableReason = "シークレットの master key が未設定です (U7AGENT_SECRET_MASTER_KEY)";
+    } catch (error) {
+      unavailableReason =
+        error instanceof SecretKeyError
+          ? error.message
+          : `シークレットの master key を読み込めません: ${messageFor(error)}`;
+      console.error(`[u7agent] secret master key unavailable: ${unavailableReason}`);
+    }
+    return { cipher, appCipher, unavailableReason };
+  })();
   const ignoredEnvironmentVariables = ignoredModelEnvironmentVariables();
   if (ignoredEnvironmentVariables.length > 0) {
     console.warn(
@@ -258,6 +285,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     setModelSelection: pi ? pi.setModelSelection : () => {},
     probeFetch: opts.customProviderProbeFetch,
     ignoredEnvironmentVariables,
+    appCipher: secretCrypto.appCipher,
   });
   reapplyStoredKey = (provider) => modelSettings.reapplyStoredKey(provider);
   await modelSettings.applyStored();
@@ -276,6 +304,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     speechCatalog,
     setContentGeneration: pi ? pi.setContentGeneration : () => {},
     maskError,
+    appCipher: secretCrypto.appCipher,
     // 生成器の口は任意。未注入（ランタイムなしで起動）はお試し再生を 503 にする
     generateSpeech: pi ? pi.generateSpeech : undefined,
   });
@@ -287,6 +316,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     setWebSearch: pi ? pi.setWebSearch : () => {},
     retainSecret: pi ? pi.retainSecret : () => {},
     maskError,
+    cipher: secretCrypto.appCipher,
+    runtimeAvailable: pi !== null,
   });
   await webSearchSettings.applyStored();
   // 会話タイトルの AI 要約はモデル / 定義を DB で持つ。生成は会話ストアが判定し、ここは設定と 1 回の呼び出しだけ。
@@ -308,24 +339,6 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   const titleSummaryTest: TitleSummaryTest | null = titleSummaryGenerate
     ? createTitleSummaryTest(() => titleSummarySettings.runtime(), titleSummaryGenerate)
     : null;
-  // シークレットは master key をホスト側 (環境変数 / 鍵ファイル) から受け取り、アプリ DB とは別経路で管理する。
-  // 未設定 / 壊れた宣言では「秘密の利用」だけを拒否し、変数 (平文) と起動は続行する。
-  const secretCrypto = (() => {
-    let cipher: SecretCipher | null = null;
-    let unavailableReason: string | undefined;
-    try {
-      const ring = resolveMasterKeys(process.env);
-      cipher = ring ? createSecretCipher(ring) : null;
-      if (!ring) unavailableReason = "シークレットの master key が未設定です (U7AGENT_SECRET_MASTER_KEY)";
-    } catch (error) {
-      unavailableReason =
-        error instanceof SecretKeyError
-          ? error.message
-          : `シークレットの master key を読み込めません: ${messageFor(error)}`;
-      console.error(`[u7agent] secret master key unavailable: ${unavailableReason}`);
-    }
-    return { cipher, unavailableReason };
-  })();
   const secrets = new SecretService({
     store: appDb,
     cipher: secretCrypto.cipher,
@@ -360,6 +373,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     db: appDb,
     masker: pi?.secretMasker,
     fetchImpl: opts.notificationFetch,
+    cipher: secretCrypto.appCipher,
+    runtimeAvailable: pi !== null,
   });
   // アーカイブの除外名は設定ストアが唯一の決定点で、サンドボックスへはリクエストごとに渡す
   const archiveSettings = createArchiveSettings({ db: appDb });

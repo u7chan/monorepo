@@ -5,6 +5,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import { TEST_MASTER_KEY } from "./app-secret-fixture";
 import { createBffApp } from "../src/app";
 import {
   CONTENT_SETTINGS_UNCONFIGURED_MESSAGE,
@@ -20,6 +22,9 @@ import { SPEECH_ABORTED_MESSAGE, SPEECH_TEXT_MAX_LENGTH, SPEECH_TIMEOUT_MESSAGE 
 import type { SpeechGenerationResult } from "../src/speech";
 import { DEFAULT_SPEECH_MODEL } from "../src/speech-catalog";
 import { asPiBff, createStubPi, stubSpeechAudio, waitFor, type StubPiOptions } from "./stub-pi";
+
+// アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
+process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const PREVIEW_PATH = "/api/settings/content/speech/preview";
 const KEY = "sk-speech-preview-dummy-key-0123456789";

@@ -14,6 +14,7 @@ import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SessionPayload, Space } from "../src/schema";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
 import { createServeSandboxStub, publicListener } from "./serve-stub";
+import { encryptedSecret, testAppCipher } from "./app-secret-fixture";
 
 const json = (body: unknown, method = "POST"): RequestInit => ({
   method,
@@ -240,7 +241,7 @@ test("並べ替えの入力不正は 400 にし、更新の失敗は 503 で 1 �
 test("v13 DB と所属欠落の会話は加算移行し、既存のカタログ・キー・プロジェクトを保持する", async (t) => {
   const f = await setup(t);
   f.bff.appDb.insertProject({ id: "p", name: "既存", cwd: "proj", createdAt: 1 });
-  f.bff.appDb.saveProviderCredential("stub", "existing-test-key", 1);
+  f.bff.appDb.saveProviderCredential("stub", encryptedSecret("provider_credentials", "stub", "existing-test-key"), 1);
   const session = await f.session();
   await f.bff.close();
   const meta = JSON.parse(await readFile(sessionMetaPath(session.sessionId, f.dir), "utf8"));
@@ -251,7 +252,13 @@ test("v13 DB と所属欠落の会話は加算移行し、既存のカタログ�
   db.close();
   await f.restart();
   assert.equal(f.bff.appDb.getProject("p")?.cwd, "proj");
-  assert.equal(f.bff.appDb.getProviderCredential("stub")?.apiKey, "existing-test-key");
+  const credential = f.bff.appDb.getProviderCredential("stub");
+  assert.ok(credential, "暗号化済みのキーは移行で消さない");
+  assert.equal(
+    testAppCipher().decrypt("provider_credentials", "stub", credential),
+    "existing-test-key",
+    "暗号文を保ったまま復号できる",
+  );
   assert.equal(f.bff.appDb.getAgent("agent-zundamon")?.name, "ずんだもん");
   const list = await jsonBody(f.bff.app.request("/api/sessions"));
   assert.equal(list.sessions[0].spaceId, "default");

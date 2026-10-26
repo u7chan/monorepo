@@ -3,7 +3,7 @@ import { cn } from "../../lib/cn";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import {
   deleteWebSearchKeyConfirmRequest,
-  WEB_SEARCH_KEY_PLAINTEXT_NOTE,
+  WEB_SEARCH_KEY_ENCRYPTED_NOTE,
   WEB_SEARCH_NO_LOGIN_NOTE,
   WEB_SEARCH_SETTINGS_NOTE,
   WEB_SEARCH_TOOL_NAME,
@@ -165,7 +165,7 @@ export function WebSearchSettingsTab({
                   className="field min-w-0 flex-1 text-xs"
                   type="password"
                   value={keyDraft}
-                  placeholder={providerDef.configured ? "新しいAPIキー（上書き）" : `${providerDef.name} のAPIキー`}
+                  placeholder={providerDef.keyStored ? "新しいAPIキー（上書き）" : `${providerDef.name} のAPIキー`}
                   aria-label={`${providerDef.name} のAPIキー`}
                   autoComplete="off"
                   spellCheck={false}
@@ -177,9 +177,9 @@ export function WebSearchSettingsTab({
                 />
                 <button type="submit" className="btn-primary" disabled={busy || keyDraft.length === 0}>
                   <KeyIcon />
-                  {providerDef.configured ? "上書き保存" : "保存"}
+                  {providerDef.keyStored ? "上書き保存" : "保存"}
                 </button>
-                {providerDef.configured ? (
+                {providerDef.keyStored ? (
                   <button type="button" className="btn-quiet" disabled={busy} onClick={() => void removeKey()}>
                     <TrashIcon />
                     削除
@@ -187,7 +187,7 @@ export function WebSearchSettingsTab({
                 ) : null}
               </form>
               <p className="text-2xs leading-relaxed text-ink-muted">
-                {WEB_SEARCH_KEY_PLAINTEXT_NOTE} {API_KEY_MIN_LENGTH} 文字以上で入力します。
+                {WEB_SEARCH_KEY_ENCRYPTED_NOTE} {API_KEY_MIN_LENGTH} 文字以上で入力します。
               </p>
             </>
           )}
@@ -201,7 +201,9 @@ export function WebSearchSettingsTab({
         {/* 外部送信とキーの保存は、設定を変える前に読める位置へ既定で畳んで出す（コンテンツ生成と同じ作法） */}
         <CollapsibleNotice summary={webSearchNoticeSummary(providerDef, enabled)}>
           <p>{webSearchDataFlowNotice(providerDef, enabled)}</p>
-          {providerDef.keyless ? null : <p>選んだ provider のAPIキーは平文で保存し、保存したキーは再表示しません。</p>}
+          {providerDef.keyless ? null : (
+            <p>選んだ provider のAPIキーは暗号化して保存し、保存したキーは再表示しません。</p>
+          )}
           <p>{WEB_SEARCH_NO_LOGIN_NOTE}</p>
         </CollapsibleNotice>
 

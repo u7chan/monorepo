@@ -37,6 +37,10 @@ function settings(
   return {
     configured: true,
     provider: "openrouter",
+    keyStored: true,
+    keyAvailable: true,
+    keyEvaluated: true,
+    keyErrorMessage: null,
     enabled: true,
     disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
     runtimeAvailable: true,
@@ -91,6 +95,8 @@ function render(
 test("未設定ではキー入力だけを出し、モデル選択と削除は出さない", () => {
   const html = render({
     configured: false,
+    keyStored: false,
+    keyAvailable: false,
     provider: null,
     image: { model: null, catalogSource: "sdk", fetchedAt: null },
   });
@@ -155,6 +161,8 @@ test("見出しに provider のロゴ・名前・id とキーの登録状態を�
 test("未設定でも、これから登録するキーの provider の見出しは出す", () => {
   const html = render({
     configured: false,
+    keyStored: false,
+    keyAvailable: false,
     provider: null,
     image: { model: null, catalogSource: "sdk", fetchedAt: null },
   });
@@ -322,11 +330,14 @@ test("平文の注意は既定で畳み、1 行の要点を出す", () => {
   const html = render();
   assert.match(
     html,
-    /<summary[^>]*>[\s\S]*キーは平文で保存されます。ログインがないため公開しないでください。[\s\S]*<\/summary>/,
+    /<summary[^>]*>[\s\S]*キーは暗号化して保存されます。ログインがないため公開しないでください。[\s\S]*<\/summary>/,
     "畳んだ 1 行にキーの保存と公開の注意を出す",
   );
   assert.doesNotMatch(html, /<details\b[^>]*\sopen(?:[\s=>])/, "既定は畳む");
-  assert.ok(html.includes("登録したキーはアプリのデータベース（SQLite）へ平文で保存され"), "展開で元の本文を読める");
+  assert.ok(
+    html.includes("登録したキーは暗号化してアプリのデータベース（SQLite）へ保存され"),
+    "展開で元の本文を読める",
+  );
 });
 
 test("runtimeAvailable: false ではキー操作だけを無効化し、モデル変更は残す", () => {
@@ -380,4 +391,17 @@ test("runtimeAvailable: false ではお試し再生の主ボタンも無効に�
     render({ subsection: "speech", speechSynced: false }),
     /<button(?![^>]*\sdisabled=)[^>]*>音声を生成<\/button>/,
   );
+});
+
+test("保存済みでも復号できないキーは、利用不可として理由と削除・再入力を出す", () => {
+  const html = render({
+    keyStored: true,
+    keyAvailable: false,
+    keyEvaluated: false,
+    keyErrorMessage: "保存済みのキーを復号できるかまだ確認できていません",
+  });
+  assert.ok(html.includes(">利用不可<"), "復号できないキーを設定済みと出さない");
+  assert.ok(html.includes("保存済みのキーを復号できるかまだ確認できていません"), "固定文言をそのまま出す");
+  assert.ok(html.includes("上書き保存"), "再入力の導線を残す");
+  assert.ok(html.includes(">削除</button>"), "削除の導線を残す");
 });

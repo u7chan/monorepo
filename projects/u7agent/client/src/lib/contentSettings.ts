@@ -45,9 +45,24 @@ export function contentEnabledNote(enabled: boolean): string {
     : "コンテンツ生成を無効にしました。既存の会話でも次の呼び出しから固定の文言で失敗します（キーと選択は残ります）。";
 }
 
-/** APIキーの登録状態バッジ。同じ意味の表示をプロバイダータブと同じ見た目で揃える */
-export function contentKeyStatusBadge(configured: boolean): ProviderBadge {
-  return configured ? { label: "設定済み", tone: "ok" } : { label: "未設定", tone: "muted" };
+/**
+ * APIキーの登録状態バッジ。`configured`（設定行の有無）ではなく `keyStored`（暗号文の有無）で出し、
+ * 保存済みでも復号できないキーを「設定済み」と誤表示しない。同じ意味の表示をプロバイダータブと揃える。
+ */
+export function contentKeyStatusBadge(keyStored: boolean, keyAvailable = true): ProviderBadge {
+  if (!keyStored) return { label: "未設定", tone: "muted" };
+  return keyAvailable ? { label: "設定済み", tone: "ok" } : { label: "利用不可", tone: "warn" };
+}
+
+/**
+ * 保存済みのキーを使えない理由。未評価 / 復号失敗の固定文言はサーバーが返したものをそのまま出し、
+ * クライアントで原因を推測しない。
+ */
+export function contentKeyErrorNotice(
+  settings: Pick<ContentSettingsResponse, "keyStored" | "keyAvailable" | "keyErrorMessage">,
+): string | null {
+  if (!settings.keyStored || settings.keyAvailable) return null;
+  return settings.keyErrorMessage;
 }
 
 /** 未設定 (行が無い) のときに見せる provider。画像 / 音声で共有し、サーバーが既定行を作る provider と同じにする */

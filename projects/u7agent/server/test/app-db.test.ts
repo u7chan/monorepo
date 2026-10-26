@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { AppDb, APP_DB_FILENAME, APP_DB_SCHEMA_VERSION, type SecretRow } from "../src/app-db";
 import type { AgentDef, Project } from "../src/schema";
+import { storedSecret } from "./app-secret-fixture";
 
 function tempStoreDir(): string {
   return mkdtempSync(join(tmpdir(), "u7agent-app-db-"));
@@ -282,7 +283,13 @@ test("migrates a v1 db additively, then drops only the catalog", () => {
     assert.deepEqual(db.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(db.listAgents(), [agent("a1")]);
     assert.equal(db.getNotificationSettings(), undefined);
-    db.saveNotificationSettings({ enabled: true, askUser: true, webhookUrl: "https://discord.com/api/webhooks/1/t" });
+    db.saveNotificationSettings({
+      enabled: true,
+      askUser: true,
+      webhook: storedSecret(1),
+      baseUrl: null,
+      lastResult: null,
+    });
     db.close();
 
     // 版が上がり、カタログの行と列は物理的に消えている
@@ -299,7 +306,9 @@ test("migrates a v1 db additively, then drops only the catalog", () => {
     assert.deepEqual(second.getNotificationSettings(), {
       enabled: true,
       askUser: true,
-      webhookUrl: "https://discord.com/api/webhooks/1/t",
+      webhook: storedSecret(1),
+      baseUrl: null,
+      lastResult: null,
     });
     second.close();
   } finally {
@@ -315,21 +324,22 @@ test("notification settings round-trip through the sqlite row", () => {
     const settings = {
       enabled: true,
       askUser: false,
-      webhookUrl: "https://discord.com/api/webhooks/1/t",
+      webhook: storedSecret(2),
       baseUrl: "http://127.0.0.1:5173",
       lastResult: { ok: false, status: 404, latencyMs: 98, message: "Unknown Webhook", code: 10015, at: 1 },
     };
     first.saveNotificationSettings(settings);
     // 設定は 1 行を上書きする
-    first.saveNotificationSettings({ ...settings, enabled: false, lastResult: undefined });
+    first.saveNotificationSettings({ ...settings, enabled: false, lastResult: null });
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
     assert.deepEqual(second.getNotificationSettings(), {
       enabled: false,
       askUser: false,
-      webhookUrl: "https://discord.com/api/webhooks/1/t",
+      webhook: storedSecret(2),
       baseUrl: "http://127.0.0.1:5173",
+      lastResult: null,
     });
     second.close();
   } finally {
@@ -364,10 +374,16 @@ test("migrates a v2 db additively and keeps archive settings across reopen", () 
     const first = AppDb.open({ storeDir: dir });
     // 加算移行なので既存 4 テーブルは消えない。行が無い = 未設定
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
-    // 旧行には askUser 列が無いため既定 (ON) で読む
-    assert.deepEqual(first.getNotificationSettings(), { enabled: true, askUser: true });
+    // 旧行には askUser 列が無いため既定 (ON) で読む。Webhook URL の列も無いので未設定
+    assert.deepEqual(first.getNotificationSettings(), {
+      enabled: true,
+      askUser: true,
+      webhook: null,
+      baseUrl: null,
+      lastResult: null,
+    });
     assert.equal(first.readArchiveExcludeNames(), undefined);
-    first.saveNotificationSettings({ enabled: true, askUser: false });
+    first.saveNotificationSettings({ enabled: true, askUser: false, webhook: null, baseUrl: null, lastResult: null });
     first.saveArchiveExcludeNames(["node_modules", "dist"]);
     first.close();
 
@@ -508,7 +524,7 @@ CREATE TABLE archive_settings (
 );
 `;
 
-test("migrates a v3 db additively and keeps provider credentials across reopen", () => {
+test("migrates a v3 db additively and stores provider credentials as ciphertext", () => {
   const dir = tempStoreDir();
   try {
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
@@ -523,20 +539,20 @@ test("migrates a v3 db additively and keeps provider credentials across reopen",
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.readArchiveExcludeNames(), ["dist"]);
     assert.deepEqual(first.listProviderCredentials(), []);
-    first.saveProviderCredential("anthropic", "sk-ant-1", 100);
+    first.saveProviderCredential("anthropic", storedSecret(1), 100);
     // 同じ provider への保存は上書き (行を増やさず、保存日時も更新する)
-    first.saveProviderCredential("anthropic", "sk-ant-2", 200);
-    first.saveProviderCredential("openai", "sk-openai-1", 300);
+    first.saveProviderCredential("anthropic", storedSecret(2), 200);
+    first.saveProviderCredential("openai", storedSecret(3), 300);
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
     assert.deepEqual(second.listProviderCredentials(), [
-      { provider: "anthropic", apiKey: "sk-ant-2", updatedAt: 200 },
-      { provider: "openai", apiKey: "sk-openai-1", updatedAt: 300 },
+      { provider: "anthropic", ...storedSecret(2), updatedAt: 200 },
+      { provider: "openai", ...storedSecret(3), updatedAt: 300 },
     ]);
     assert.deepEqual(second.getProviderCredential("anthropic"), {
       provider: "anthropic",
-      apiKey: "sk-ant-2",
+      ...storedSecret(2),
       updatedAt: 200,
     });
     assert.equal(second.getProviderCredential("ghost"), undefined);
@@ -574,7 +590,7 @@ test("migrates a v4 db additively and keeps model settings across reopen", () =>
     const first = AppDb.open({ storeDir: dir });
     // 加算移行なので既存テーブルは消えない。新しいテーブルは空 (行が無い = 未設定) で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
-    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1", updatedAt: null }]);
+    assert.deepEqual(first.listProviderCredentials(), [], "平文の行は移行で破棄する");
     assert.equal(first.readModelSettings(), undefined);
     first.saveModelSettings({
       allowedModels: [
@@ -676,8 +692,8 @@ test("migrates a v5 db additively and keeps provider memos across reopen", () =>
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    // 加算移行なので既存のキーは消えない。メモのテーブルは空 (行が無い = 未設定) で始まる
-    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1", updatedAt: null }]);
+    // 平文のキーは移行で破棄する。メモのテーブルは空 (行が無い = 未設定) で始まる
+    assert.deepEqual(first.listProviderCredentials(), []);
     assert.deepEqual(first.listProviderMemos(), []);
     assert.equal(first.getProviderMemo("anthropic"), undefined);
     first.saveProviderMemo("anthropic", "個人アカウントの本番キー");
@@ -687,17 +703,15 @@ test("migrates a v5 db additively and keeps provider memos across reopen", () =>
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
-    assert.deepEqual(second.listProviderCredentials(), [
-      { provider: "anthropic", apiKey: "sk-ant-1", updatedAt: null },
-    ]);
+    assert.deepEqual(second.listProviderCredentials(), [], "平文の行は移行で破棄する");
     assert.deepEqual(second.listProviderMemos(), [
       { provider: "anthropic", memo: "会社アカウント" },
       { provider: "openai", memo: "無料枠" },
     ]);
     assert.deepEqual(second.getProviderMemo("anthropic"), { provider: "anthropic", memo: "会社アカウント" });
     assert.equal(second.getProviderMemo("ghost"), undefined);
-    // キーの行を消すだけではメモは消えない (メモを消すにはメモ自体を空で保存する)
-    assert.equal(second.deleteProviderCredential("anthropic"), true);
+    // キー行とメモは独立する (移行でキーが消えてもメモは残り、キー削除の 1 操作でメモも消したりしない)
+    assert.equal(second.deleteProviderCredential("anthropic"), false, "移行で消えた行の削除は false");
     assert.deepEqual(second.getProviderMemo("anthropic"), { provider: "anthropic", memo: "会社アカウント" });
     assert.equal(second.deleteProviderMemo("anthropic"), true);
     assert.equal(second.deleteProviderMemo("anthropic"), false, "無い行の削除は false");
@@ -720,7 +734,7 @@ CREATE TABLE provider_memos (
 );
 `;
 
-test("migrates a v6 db additively and adds provider credential timestamps", () => {
+test("migrates a v6 db, discards the plaintext provider key and keeps the key-only table", () => {
   const dir = tempStoreDir();
   try {
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
@@ -731,35 +745,40 @@ test("migrates a v6 db additively and adds provider credential timestamps", () =
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    // 加算移行なので既存のキーは消えない。既存行の日時は不明 (NULL) のままで、移行で書き戻さない
+    // 平文キーは移行で破棄する (再入力で復旧する)。projects は残る
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
-    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1", updatedAt: null }]);
-    first.saveProviderCredential("anthropic", "sk-ant-2", 1234);
+    assert.deepEqual(first.listProviderCredentials(), [], "平文の行は残さない");
+    first.saveProviderCredential("anthropic", storedSecret(2), 1234);
     assert.deepEqual(first.getProviderCredential("anthropic"), {
       provider: "anthropic",
-      apiKey: "sk-ant-2",
+      ...storedSecret(2),
       updatedAt: 1234,
     });
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
     assert.deepEqual(second.listProviderCredentials(), [
-      { provider: "anthropic", apiKey: "sk-ant-2", updatedAt: 1234 },
+      { provider: "anthropic", ...storedSecret(2), updatedAt: 1234 },
     ]);
     second.close();
 
-    // user_version を戻して再 open しても列は 1 つのまま (addColumnIfMissing が冪等)
+    // user_version を戻して再 open しても、暗号化済みの行は消さない (判定は平文列の有無)
     const rawAgain = new DatabaseSync(join(dir, APP_DB_FILENAME));
     rawAgain.exec("PRAGMA user_version = 6");
     rawAgain.close();
 
     const third = AppDb.open({ storeDir: dir });
-    assert.deepEqual(third.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-2", updatedAt: 1234 }]);
+    assert.deepEqual(third.listProviderCredentials(), [{ provider: "anthropic", ...storedSecret(2), updatedAt: 1234 }]);
     third.close();
 
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
     const columns = check.prepare("PRAGMA table_info(provider_credentials)").all() as { name: string }[];
     assert.equal(columns.filter((column) => column.name === "updatedAt").length, 1, "列は重複しない");
+    assert.equal(
+      columns.some((column) => column.name === "apiKey"),
+      false,
+      "平文の列を残さない",
+    );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
   } finally {
@@ -773,7 +792,7 @@ ${V6_TABLES}
 ALTER TABLE provider_credentials ADD COLUMN updatedAt INTEGER;
 `;
 
-test("migrates a v7 db additively and keeps content settings across reopen", () => {
+test("migrates a v7 db, discards the plaintext content key and keeps the selection", () => {
   const dir = tempStoreDir();
   try {
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
@@ -786,9 +805,9 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    // 加算移行なので既存の定義とキーは消えない。content_settings は行が無い = 未設定で始まる
+    // 平文キーは移行で破棄する。projects は残り、content_settings は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
-    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1", updatedAt: 10 }]);
+    assert.deepEqual(first.listProviderCredentials(), [], "平文の行は残さない");
     assert.equal(first.readContentSettings(), undefined);
     first.saveContentSettings({
       provider: "openrouter",
@@ -796,7 +815,9 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
       speechModel: null,
       speechVoice: null,
       enabled: true,
-      apiKey: "sk-image-1",
+      ciphertext: storedSecret(1).ciphertext,
+      nonce: storedSecret(1).nonce,
+      keyVersion: 1,
     });
     // id = 1 の upsert なので上書きしても行は増えない
     first.saveContentSettings({
@@ -805,7 +826,9 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
       enabled: true,
-      apiKey: "sk-image-2",
+      ciphertext: storedSecret(2).ciphertext,
+      nonce: storedSecret(2).nonce,
+      keyVersion: 2,
     });
     assert.deepEqual(first.readContentSettings(), {
       provider: "openrouter",
@@ -813,7 +836,9 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
       enabled: true,
-      apiKey: "sk-image-2",
+      ciphertext: storedSecret(2).ciphertext,
+      nonce: storedSecret(2).nonce,
+      keyVersion: 2,
     });
     first.close();
 
@@ -824,7 +849,9 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
       enabled: true,
-      apiKey: "sk-image-2",
+      ciphertext: storedSecret(2).ciphertext,
+      nonce: storedSecret(2).nonce,
+      keyVersion: 2,
     });
     assert.equal(second.deleteContentSettings(), true);
     assert.equal(second.readContentSettings(), undefined);
@@ -835,7 +862,7 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
     const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
-      ["id", "provider", "imageModel", "speechModel", "speechVoice", "enabled", "apiKey"],
+      ["id", "provider", "imageModel", "speechModel", "speechVoice", "enabled", "ciphertext", "nonce", "keyVersion"],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -868,14 +895,20 @@ test("migrates a v8 db additively and keeps the image catalog cache across reope
 
     const first = AppDb.open({ storeDir: dir });
     // 既存の設定は改名して残り、カタログは行が無い = 未取得で始まる
-    assert.deepEqual(first.readContentSettings(), {
-      provider: "openrouter",
-      imageModel: "openai/gpt-image-2",
-      speechModel: null,
-      speechVoice: null,
-      enabled: true,
-      apiKey: "sk-image-1",
-    });
+    assert.deepEqual(
+      first.readContentSettings(),
+      {
+        provider: "openrouter",
+        imageModel: "openai/gpt-image-2",
+        speechModel: null,
+        speechVoice: null,
+        enabled: true,
+        ciphertext: null,
+        nonce: null,
+        keyVersion: null,
+      },
+      "平文のキーは移行で破棄し、選択だけを残す",
+    );
     assert.equal(first.readImageCatalog(), undefined);
     first.saveImageCatalog({ fetchedAt: 1000, models: [{ id: "openai/gpt-image-2", name: "GPT Image 2" }] });
     // id = 1 の upsert なので、保存し直すと行は増えずに置き換わる
@@ -1047,7 +1080,9 @@ test("a content settings row with empty values reads as unset", () => {
       speechModel: null,
       speechVoice: null,
       enabled: true,
-      apiKey: "",
+      ciphertext: null,
+      nonce: null,
+      keyVersion: null,
     });
     assert.equal(db.readContentSettings(), undefined);
     db.close();
@@ -1056,21 +1091,24 @@ test("a content settings row with empty values reads as unset", () => {
   }
 });
 
-test("a new db creates provider_credentials with updatedAt from the start", () => {
+test("a new db creates provider_credentials as a key-only table", () => {
   const dir = tempStoreDir();
   try {
     const db = AppDb.open({ storeDir: dir });
-    db.saveProviderCredential("anthropic", "sk-ant-1", 42);
+    db.saveProviderCredential("anthropic", storedSecret(1), 42);
     assert.deepEqual(db.getProviderCredential("anthropic"), {
       provider: "anthropic",
-      apiKey: "sk-ant-1",
+      ...storedSecret(1),
       updatedAt: 42,
     });
     db.close();
 
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
     const columns = check.prepare("PRAGMA table_info(provider_credentials)").all() as { name: string }[];
-    assert.ok(columns.some((column) => column.name === "updatedAt"));
+    assert.deepEqual(
+      columns.map((column) => column.name),
+      ["provider", "ciphertext", "nonce", "keyVersion", "updatedAt"],
+    );
     check.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1098,17 +1136,18 @@ test("a hand-edited empty memo row reads as unset", () => {
   }
 });
 
-test("sanitizeError masks both the query log and the error kept for health", () => {
+test("ciphertext reflected into a sqlite error never reaches the log, health or 503", () => {
   const dir = tempStoreDir();
-  const key = "sk-ant-dummy-key-0123456789abcdef";
+  const secret = storedSecret(0xab);
+  const ciphertextHex = Buffer.from(secret.ciphertext).toString("hex");
   try {
-    const db = AppDb.open({ storeDir: dir, sanitizeError: (text) => text.split(key).join("[REDACTED]") });
-    db.saveProviderCredential("anthropic", key, 1);
-    // SQLite の例外文言にキーが載る経路を作り、境界を通す (#query は成功でエラーを解除する)
+    // マスカーは暗号文の hex を守れない。値なし境界 (#secretQuery) だけで外へ出さないことを確かめる
+    const db = AppDb.open({ storeDir: dir });
+    db.saveProviderCredential("anthropic", secret, 1);
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
     raw.exec(
       `CREATE TRIGGER leak BEFORE UPDATE ON provider_credentials
-       BEGIN SELECT RAISE(ABORT, 'boom ' || NEW.apiKey); END`,
+       BEGIN SELECT RAISE(ABORT, 'boom ' || hex(NEW.ciphertext)); END`,
     );
     raw.close();
 
@@ -1116,19 +1155,21 @@ test("sanitizeError masks both the query log and the error kept for health", () 
     const originalError = console.error;
     console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
     try {
-      assert.throws(() => db.saveProviderCredential("anthropic", key, 2), isServiceUnavailable);
+      assert.throws(() => db.saveProviderCredential("anthropic", storedSecret(0xcd), 2), isServiceUnavailable);
     } finally {
       console.error = originalError;
     }
     const status = db.status();
     assert.equal(status.ok, false);
-    assert.ok(status.error && !status.error.includes(key), `status.error をマスクする: ${status.error}`);
-    assert.ok(status.error?.includes("[REDACTED]"));
-    assert.ok(logged.length > 0 && !logged.join("\n").includes(key), "ログにも生のキーを出さない");
+    assert.ok(
+      status.error && !status.error.includes(ciphertextHex),
+      `status.error を暗号文で汚さない: ${status.error}`,
+    );
+    assert.ok(!logged.join("\n").includes(ciphertextHex), "ログにも生の暗号文を出さない");
     assert.throws(
-      () => db.saveProviderCredential("anthropic", key, 3),
-      (error: unknown) => !String((error as Error).message).includes(key),
-      "503 の本文にもキーを出さない",
+      () => db.saveProviderCredential("anthropic", storedSecret(0xef), 3),
+      (error: unknown) => !String((error as Error).message).includes(ciphertextHex),
+      "503 の本文にも暗号文を出さない",
     );
     db.close();
   } finally {
@@ -1276,7 +1317,6 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 30);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1525,7 +1565,7 @@ test("migrates a v11 db additively and keeps the web search toggle across reopen
   }
 });
 
-test("migrates a v12 db additively and keeps the web search provider and keys across reopen", () => {
+test("migrates a v12 db additively and keeps the web search provider with ciphertext keys", () => {
   const dir = tempStoreDir();
   try {
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
@@ -1544,16 +1584,16 @@ test("migrates a v12 db additively and keeps the web search provider and keys ac
       "既存行は既定 provider で読む",
     );
     assert.equal(first.readWebSearchProviderKey("tavily"), undefined);
-    first.saveWebSearchProviderKey("tavily", "tvly-secret");
+    first.saveWebSearchProviderKey("tavily", storedSecret(1));
     first.saveWebSearchSettings({ enabled: false, provider: "tavily" });
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
     assert.deepEqual(second.readWebSearchSettings(), { enabled: false, provider: "tavily" });
-    assert.equal(second.readWebSearchProviderKey("tavily"), "tvly-secret");
+    assert.deepEqual(second.readWebSearchProviderKey("tavily"), storedSecret(1));
     // provider 主キーの upsert なので上書きしても行は増えず、削除で未設定へ戻る
-    second.saveWebSearchProviderKey("tavily", "tvly-rotated");
-    assert.equal(second.readWebSearchProviderKey("tavily"), "tvly-rotated");
+    second.saveWebSearchProviderKey("tavily", storedSecret(2));
+    assert.deepEqual(second.readWebSearchProviderKey("tavily"), storedSecret(2));
     assert.equal(second.deleteWebSearchProviderKey("tavily"), true);
     assert.equal(second.deleteWebSearchProviderKey("tavily"), false);
     assert.equal(second.readWebSearchProviderKey("tavily"), undefined);
@@ -1568,7 +1608,7 @@ test("migrates a v12 db additively and keeps the web search provider and keys ac
     const keyColumns = check.prepare("PRAGMA table_info(web_search_provider_keys)").all() as { name: string }[];
     assert.deepEqual(
       keyColumns.map((column) => column.name),
-      ["provider", "apiKey"],
+      ["provider", "ciphertext", "nonce", "keyVersion"],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -1623,14 +1663,16 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    // 改名してもキーと選択は読める (列名は imageModel になる)
+    // 改名しても選択は読める (列名は imageModel になる)。平文のキーは移行で破棄する
     assert.deepEqual(first.readContentSettings(), {
       provider: "openrouter",
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
       enabled: true,
-      apiKey: "sk-image-1",
+      ciphertext: null,
+      nonce: null,
+      keyVersion: null,
     });
     first.saveContentSettings({
       provider: "openrouter",
@@ -1638,7 +1680,9 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
       speechModel: null,
       speechVoice: null,
       enabled: true,
-      apiKey: "sk-image-2",
+      ciphertext: storedSecret(3).ciphertext,
+      nonce: storedSecret(3).nonce,
+      keyVersion: 3,
     });
     first.close();
 
@@ -1649,7 +1693,7 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
       speechModel: null,
       speechVoice: null,
       enabled: true,
-      apiKey: "sk-image-2",
+      ...storedSecret(3),
     });
     reopened.close();
 
@@ -1659,8 +1703,8 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
     const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
-      // 加算移行の列追加は末尾に付く（新規作成の定義順とは異なる。読み書きは名前で行う）
-      ["id", "provider", "imageModel", "apiKey", "speechModel", "speechVoice", "enabled"],
+      // 加算移行の列追加は末尾に付き、平文の apiKey は消える (読み書きは名前で行う)
+      ["id", "provider", "imageModel", "speechModel", "speechVoice", "enabled", "ciphertext", "nonce", "keyVersion"],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -1692,14 +1736,16 @@ CREATE TABLE content_settings (
     raw.close();
 
     const db = AppDb.open({ storeDir: dir });
-    // 併存時は content_settings を正とし、image_settings の行は読まない
+    // 併存時は content_settings を正とし、image_settings の行は読まない。平文のキーは破棄する
     assert.deepEqual(db.readContentSettings(), {
       provider: "openrouter",
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
       enabled: true,
-      apiKey: "sk-content-1",
+      ciphertext: null,
+      nonce: null,
+      keyVersion: null,
     });
     db.close();
 
@@ -1721,11 +1767,13 @@ test("a round trip through the v14 schema keeps content settings readable", () =
       speechModel: null,
       speechVoice: null,
       enabled: true,
-      apiKey: "sk-image-1",
+      ciphertext: storedSecret(4).ciphertext,
+      nonce: storedSecret(4).nonce,
+      keyVersion: 4,
     });
     first.close();
 
-    // 古いビルド (v14) が開いて #recreate する経路。content_settings は知られないため行が残る
+    // 古いビルド (v14) が開いて #recreate する経路。content_settings は知られないため暗号文の行が残る
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
     raw.exec(V14_RECREATE);
     raw.exec("PRAGMA user_version = 14");
@@ -1738,7 +1786,7 @@ test("a round trip through the v14 schema keeps content settings readable", () =
       speechModel: null,
       speechVoice: null,
       enabled: true,
-      apiKey: "sk-image-1",
+      ...storedSecret(4),
     });
     assert.deepEqual(second.listProjects(), [], "既知のテーブルは作り直される");
     second.close();
@@ -1766,14 +1814,16 @@ test("migrates a v15 db additively by adding the speech columns", () => {
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    // 音声の列は NULL で足され、既存行は未設定として読める
+    // 音声の列は NULL で足され、既存行は未設定として読める。平文のキーは破棄する
     assert.deepEqual(first.readContentSettings(), {
       provider: "openrouter",
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
       enabled: true,
-      apiKey: "sk-image-1",
+      ciphertext: null,
+      nonce: null,
+      keyVersion: null,
     });
     first.saveContentSettings({
       provider: "openrouter",
@@ -1781,7 +1831,9 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
       enabled: true,
-      apiKey: "sk-image-1",
+      ciphertext: storedSecret(5).ciphertext,
+      nonce: storedSecret(5).nonce,
+      keyVersion: 5,
     });
     first.close();
 
@@ -1789,8 +1841,8 @@ test("migrates a v15 db additively by adding the speech columns", () => {
     const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
-      // 加算移行の列追加は末尾に付く（新規作成の定義順とは異なる。読み書きは名前で行う）
-      ["id", "provider", "imageModel", "apiKey", "speechModel", "speechVoice", "enabled"],
+      // 加算移行の列追加は末尾に付き、平文の apiKey は消える (読み書きは名前で行う)
+      ["id", "provider", "imageModel", "speechModel", "speechVoice", "enabled", "ciphertext", "nonce", "keyVersion"],
     );
     assert.equal(check.prepare("SELECT count(*) AS n FROM speech_catalog").get()?.n, 0, "キャッシュは未取得で始まる");
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
@@ -1803,7 +1855,7 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
       enabled: true,
-      apiKey: "sk-image-1",
+      ...storedSecret(5),
     });
     reopened.close();
   } finally {
@@ -2610,6 +2662,126 @@ test("shared_contents と cloudflare_settings は未知の版での作り直し�
     assert.equal(settings?.updatedAt, 3);
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** v30 相当のスキーマ。APIキー / Webhook URL が平文の列にある最後の版 */
+const V30_TABLES = `
+CREATE TABLE provider_credentials (
+  provider TEXT PRIMARY KEY,
+  apiKey TEXT NOT NULL,
+  updatedAt INTEGER
+);
+CREATE TABLE content_settings (
+  id          INTEGER PRIMARY KEY CHECK (id = 1),
+  provider    TEXT NOT NULL,
+  imageModel  TEXT NOT NULL,
+  speechModel TEXT,
+  speechVoice TEXT,
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  apiKey      TEXT NOT NULL
+);
+CREATE TABLE web_search_provider_keys (
+  provider TEXT PRIMARY KEY,
+  apiKey   TEXT NOT NULL
+);
+CREATE TABLE notification_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL,
+  askUser INTEGER NOT NULL DEFAULT 1,
+  webhookUrl TEXT,
+  baseUrl TEXT,
+  mention TEXT NOT NULL,
+  lastResult TEXT
+);
+`;
+
+test("migrates a v30 db by discarding plaintext keys and keeping the non-key columns", () => {
+  const dir = tempStoreDir();
+  const plainKey = "sk-image-plain-0123456789abcdef";
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V30_TABLES);
+    raw.exec("PRAGMA user_version = 30");
+    raw
+      .prepare("INSERT INTO provider_credentials (provider, apiKey, updatedAt) VALUES (?, ?, ?)")
+      .run("anthropic", "sk-ant-plain-0123456789", 1);
+    raw
+      .prepare(
+        `INSERT INTO content_settings (id, provider, imageModel, speechModel, speechVoice, enabled, apiKey)
+         VALUES (1, ?, ?, ?, ?, 0, ?)`,
+      )
+      .run("openrouter", "openai/gpt-image-2", plainKey, "Kore", plainKey);
+    raw.prepare("INSERT INTO web_search_provider_keys (provider, apiKey) VALUES (?, ?)").run("tavily", "tvly-plain");
+    raw
+      .prepare(
+        `INSERT INTO notification_settings (id, enabled, askUser, webhookUrl, baseUrl, mention, lastResult)
+         VALUES (1, 0, 0, ?, ?, 'none', ?)`,
+      )
+      .run(
+        "https://discord.com/api/webhooks/1/plain-token",
+        "http://127.0.0.1:5173",
+        JSON.stringify({ ok: false, status: 404, latencyMs: 10, at: 1 }),
+      );
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    // 平文のキー / Webhook URL は移行で破棄する (再入力で復旧する)
+    assert.deepEqual(db.listProviderCredentials(), []);
+    assert.equal(db.readWebSearchProviderKey("tavily"), undefined);
+    // キー以外の列は残す。旧キーを含む音声の値だけは NULL にする
+    assert.deepEqual(db.readContentSettings(), {
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      speechModel: null,
+      speechVoice: "Kore",
+      enabled: false,
+      ciphertext: null,
+      nonce: null,
+      keyVersion: null,
+    });
+    assert.deepEqual(db.getNotificationSettings(), {
+      enabled: false,
+      askUser: false,
+      webhook: null,
+      baseUrl: "http://127.0.0.1:5173",
+      lastResult: { ok: false, status: 404, latencyMs: 10, at: 1 },
+    });
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(columnNames(check, "provider_credentials").includes("apiKey"), false);
+    assert.equal(columnNames(check, "content_settings").includes("apiKey"), false);
+    assert.equal(columnNames(check, "web_search_provider_keys").includes("apiKey"), false);
+    assert.equal(columnNames(check, "notification_settings").includes("webhookUrl"), false);
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+
+    // 暗号化して保存した行は、移行の再実行で消さない (判定は平文列の有無)
+    const saved = AppDb.open({ storeDir: dir });
+    saved.saveProviderCredential("anthropic", storedSecret(1), 2);
+    saved.saveContentSettings({
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      speechModel: null,
+      speechVoice: null,
+      enabled: true,
+      ciphertext: storedSecret(2).ciphertext,
+      nonce: storedSecret(2).nonce,
+      keyVersion: 2,
+    });
+    saved.close();
+
+    const rerun = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    rerun.exec("PRAGMA user_version = 30");
+    rerun.close();
+
+    const again = AppDb.open({ storeDir: dir });
+    assert.deepEqual(again.getProviderCredential("anthropic")?.ciphertext, storedSecret(1).ciphertext);
+    assert.deepEqual(again.readContentSettings()?.ciphertext, storedSecret(2).ciphertext);
+    again.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -20,6 +20,10 @@ const { ConfirmProvider } = await import("../src/components/ConfirmProvider");
 const CONTENT_SETTINGS: ContentSettingsResponse = {
   configured: true,
   provider: "openrouter",
+  keyStored: true,
+  keyAvailable: true,
+  keyEvaluated: true,
+  keyErrorMessage: null,
   enabled: true,
   disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
   runtimeAvailable: true,

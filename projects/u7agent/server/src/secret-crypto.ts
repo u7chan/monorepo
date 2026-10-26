@@ -23,6 +23,11 @@ export const SECRET_TAG_BYTES = 16;
  * 名前と種別は変更できないため固定しても破綻しない。
  */
 const AAD_LABEL = "u7agent-secret";
+/**
+ * アプリ DB の APIキー / Webhook URL 用のラベル。環境変数シークレットとは別のラベルにして、
+ * 片方の暗号文をもう片方の用途で復号できないようにする。
+ */
+const APP_AAD_LABEL = "u7agent-app-secret";
 
 export type SecretKeyFailure = "missing" | "malformed" | "unknown_version" | "decrypt_failed";
 
@@ -122,6 +127,21 @@ function additionalData(kind: SecretKind, name: string): Buffer {
   return Buffer.from(`${AAD_LABEL}:${kind}:${name}`, "utf8");
 }
 
+/**
+ * アプリ DB のキー / Webhook の用途。値はテーブル (内容が同じでも用途の違う `content_settings` など) を
+ * 表し、AAD の 2 要素目になる。保存済みの値を復号できなくなるため変更できない。
+ */
+export type AppSecretScope =
+  | "provider_credentials"
+  | "content_settings"
+  | "web_search_provider_keys"
+  | "notification_settings";
+
+/** AAD はラベル + 用途 + 所有者。所有者は provider id や固定の列名で、行を別の用途へ差し替えると復号できない */
+function appAdditionalData(scope: AppSecretScope, owner: string): Buffer {
+  return Buffer.from(`${APP_AAD_LABEL}:${scope}:${owner}`, "utf8");
+}
+
 export interface SecretCipher {
   encrypt(kind: SecretKind, name: string, plaintext: string): EncryptedSecret;
   decrypt(
@@ -131,53 +151,89 @@ export interface SecretCipher {
   ): string;
 }
 
+/** 鍵輪から 1 回ぶんの AEAD を組み立てる。AAD だけを差し替えて、用途ごとの暗号を作る */
+function seal(ring: MasterKeyRing, aad: Buffer, plaintext: string): EncryptedSecret {
+  const key = ring.get(ring.currentVersion);
+  if (!key) throw new SecretKeyError(`版 ${ring.currentVersion} の鍵がありません`, "unknown_version");
+  const nonce = randomBytes(SECRET_NONCE_BYTES);
+  const cipher = createCipheriv("aes-256-gcm", key, nonce);
+  cipher.setAAD(aad);
+  const ciphertext = Buffer.concat([
+    cipher.update(Buffer.from(plaintext, "utf8")),
+    cipher.final(),
+    cipher.getAuthTag(),
+  ]);
+  return { ciphertext, nonce, keyVersion: ring.currentVersion };
+}
+
+/**
+ * 復号の失敗はすべて SecretKeyError へ寄せ、例外の詳細 (Node の文言) を上位へ出さない。
+ * `message` は保存値の種類を言い分けるためだけに使い、値そのものは含めない。
+ */
+function open(
+  ring: MasterKeyRing,
+  aad: Buffer,
+  stored: { ciphertext: Uint8Array; nonce: Uint8Array; keyVersion: number },
+  message: string,
+): string {
+  const key = ring.get(stored.keyVersion);
+  if (!key) {
+    throw new SecretKeyError(
+      `${message}の鍵バージョン ${stored.keyVersion} に対応する master key がありません`,
+      "unknown_version",
+    );
+  }
+  const ciphertext = Buffer.from(stored.ciphertext);
+  const nonce = Buffer.from(stored.nonce);
+  if (nonce.length !== SECRET_NONCE_BYTES || ciphertext.length < SECRET_TAG_BYTES) {
+    throw new SecretKeyError(`${message}を復号できません`, "decrypt_failed");
+  }
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key, nonce);
+    decipher.setAAD(aad);
+    decipher.setAuthTag(ciphertext.subarray(ciphertext.length - SECRET_TAG_BYTES));
+    return Buffer.concat([
+      decipher.update(ciphertext.subarray(0, ciphertext.length - SECRET_TAG_BYTES)),
+      decipher.final(),
+    ]).toString("utf8");
+  } catch {
+    // 誤鍵・改ざん・AAD 不一致は区別しない (どれも「復号できない」で利用を拒否する)
+    throw new SecretKeyError(
+      `${message}を復号できません (master key が違うか、保存値が壊れています)`,
+      "decrypt_failed",
+    );
+  }
+}
+
 /**
  * 鍵輪から AEAD を組み立てる。復号の失敗はすべて SecretKeyError("decrypt_failed") へ寄せ、
  * 例外の詳細 (Node の文言) を上位へ出さない。
  */
 export function createSecretCipher(ring: MasterKeyRing): SecretCipher {
   return {
-    encrypt(kind, name, plaintext) {
-      const key = ring.get(ring.currentVersion);
-      if (!key) throw new SecretKeyError(`版 ${ring.currentVersion} の鍵がありません`, "unknown_version");
-      const nonce = randomBytes(SECRET_NONCE_BYTES);
-      const cipher = createCipheriv("aes-256-gcm", key, nonce);
-      cipher.setAAD(additionalData(kind, name));
-      const ciphertext = Buffer.concat([
-        cipher.update(Buffer.from(plaintext, "utf8")),
-        cipher.final(),
-        cipher.getAuthTag(),
-      ]);
-      return { ciphertext, nonce, keyVersion: ring.currentVersion };
-    },
-    decrypt(kind, name, stored) {
-      const key = ring.get(stored.keyVersion);
-      if (!key) {
-        throw new SecretKeyError(
-          `保存されたシークレットの鍵バージョン ${stored.keyVersion} に対応する master key がありません`,
-          "unknown_version",
-        );
-      }
-      const ciphertext = Buffer.from(stored.ciphertext);
-      const nonce = Buffer.from(stored.nonce);
-      if (nonce.length !== SECRET_NONCE_BYTES || ciphertext.length < SECRET_TAG_BYTES) {
-        throw new SecretKeyError("保存されたシークレットを復号できません", "decrypt_failed");
-      }
-      try {
-        const decipher = createDecipheriv("aes-256-gcm", key, nonce);
-        decipher.setAAD(additionalData(kind, name));
-        decipher.setAuthTag(ciphertext.subarray(ciphertext.length - SECRET_TAG_BYTES));
-        return Buffer.concat([
-          decipher.update(ciphertext.subarray(0, ciphertext.length - SECRET_TAG_BYTES)),
-          decipher.final(),
-        ]).toString("utf8");
-      } catch {
-        // 誤鍵・改ざん・AAD 不一致は区別しない (どれも「復号できない」で利用を拒否する)
-        throw new SecretKeyError(
-          "保存されたシークレットを復号できません (master key が違うか、保存値が壊れています)",
-          "decrypt_failed",
-        );
-      }
-    },
+    encrypt: (kind, name, plaintext) => seal(ring, additionalData(kind, name), plaintext),
+    decrypt: (kind, name, stored) => open(ring, additionalData(kind, name), stored, "保存されたシークレット"),
+  };
+}
+
+/**
+ * アプリ DB の APIキー / Webhook URL 用の AEAD。用途 (テーブル) と所有者を AAD に含め、
+ * 環境変数シークレットの暗号文を APIキーとして復号するような取り違えを検出する。
+ * カスタムプロバイダーなど後から足すテーブルも、scope を増やして同じ形で保存する。
+ */
+export interface AppSecretCipher {
+  encrypt(scope: AppSecretScope, owner: string, plaintext: string): EncryptedSecret;
+  decrypt(
+    scope: AppSecretScope,
+    owner: string,
+    stored: { ciphertext: Uint8Array; nonce: Uint8Array; keyVersion: number },
+  ): string;
+}
+
+export function createAppSecretCipher(ring: MasterKeyRing): AppSecretCipher {
+  return {
+    encrypt: (scope, owner, plaintext) => seal(ring, appAdditionalData(scope, owner), plaintext),
+    decrypt: (scope, owner, stored) =>
+      open(ring, appAdditionalData(scope, owner), stored, "保存された APIキーまたは Webhook URL"),
   };
 }

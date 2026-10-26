@@ -24,6 +24,10 @@ function settings(speech: Partial<ContentSpeechSettings> = {}): ContentSettingsR
   return {
     configured: true,
     provider: "openrouter",
+    keyStored: true,
+    keyAvailable: true,
+    keyEvaluated: true,
+    keyErrorMessage: null,
     enabled: true,
     disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
     runtimeAvailable: true,
