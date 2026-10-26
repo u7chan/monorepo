@@ -3,6 +3,7 @@
  * AI要約の応答の検証が同じ規則を使うよう、純関数だけをここへ置く。
  * 設定の保存と API は title-summary-settings.ts / routes/title-summary.ts が持つ。
  */
+import type { ThinkingLevel } from "./schema";
 import { truncate } from "./session-projection";
 import { parseSkillCommand } from "./session-skills";
 
@@ -26,8 +27,13 @@ export const TITLE_INPUT_BUDGET_CHARS = 2000;
 const TITLE_REQUEST_BUDGET_CHARS = 600;
 const TITLE_DEFINITION_BUDGET_CHARS = TITLE_DEFINITION_MAX;
 const TITLE_RESPONSE_BUDGET_CHARS = 800;
-/** 出力の上限。1 行のタイトルには十分で、説明を書き始める余地を残さない */
-export const TITLE_OUTPUT_TOKENS = 96;
+/**
+ * 出力の上限。推論トークンも maxTokens に含まれるモデルがあるため、可視テキストの上限とは分ける。
+ * 1024 は長い応答の生成を許すための値ではなく、推論のぶんの余白を確保するための値。
+ */
+export const TITLE_MAX_OUTPUT_TOKENS = 1024;
+/** 可視テキストの上限。推論の余りを長い説明文に使わせず、1 行のタイトルとして棄却する */
+export const TITLE_OUTPUT_MAX_CHARS = 200;
 
 /**
  * 展開済みスキルブロック (`<skill name="…" location="…">…</skill>`)。形式の正は
@@ -83,7 +89,10 @@ export function normalizeTitleText(text: string): string {
  * (説明を書き始めた出力をそのまま一覧へ出さない)。飾りの引用符・見出し・`タイトル:` は落とす。
  */
 export function parseGeneratedTitle(raw: string): string | undefined {
-  const lines = raw
+  const trimmed = raw.trim();
+  // 推論込みの出力予算を広げたぶん、長い 1 行をタイトルとして切り詰めない
+  if (trimmed === "" || trimmed.length > TITLE_OUTPUT_MAX_CHARS) return undefined;
+  const lines = trimmed
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line !== "");
@@ -128,6 +137,8 @@ export interface TitleSummaryModelChoice {
   provider: string;
   id: string;
   name: string;
+  /** そのモデルが選べる Effort。推論非対応は ["off"] */
+  thinkingLevels: ThinkingLevel[];
 }
 
 export type TitleOrigin = "auto" | "ai" | "manual";
@@ -139,6 +150,8 @@ export interface TitleAttempt {
   state: "pending" | "done" | "failed" | "skipped";
   /** 予約時に確定したモデル (`provider/id`)。結果の適用時に設定と突き合わせる */
   model?: string;
+  /** 予約時に確定した実効 Effort。診断と再現用に残す */
+  thinkingLevel?: string;
   /** 予約時の設定世代。保存後に設定が変わった結果は適用しない */
   generation?: number;
   /** 補助呼び出しの usage (診断と費用の確認用。本文とタイトルは残さない) */

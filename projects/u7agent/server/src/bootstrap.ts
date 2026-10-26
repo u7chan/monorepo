@@ -18,7 +18,6 @@ import { WebSearchSettingsService } from "./web-search-settings";
 import { TitleSummarySettingsService } from "./title-summary-settings";
 import { createTitleSummaryGenerate, type TitleSummaryGenerate, type TitleSummaryHost } from "./title-summary";
 import { TitleSummaryQueue } from "./title-summary-queue";
-import { TITLE_OUTPUT_TOKENS } from "./session-title";
 import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
 import { OAuthLoginService, canSignInHere, type OAuthLoginRuntime } from "./oauth-login";
 import { NotificationService } from "./notifications";
@@ -289,13 +288,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
         ? createTitleSummaryGenerate(
             {
               resolveModel: (model) => pi.resolveModel(model),
-              // 取消 (Off / 手動改名 / 停止) を HTTP 呼び出しまで伝播させる
-              complete: (model, context, options) =>
-                pi.modelRuntime.completeSimple(model, context, {
-                  maxTokens: TITLE_OUTPUT_TOKENS,
-                  reasoning: "minimal",
-                  signal: options.signal,
-                }),
+              // sessionId (プロバイダーのルーティング)・出力予算・Effort・取消をそのまま渡す
+              complete: (model, context, options) => pi.modelRuntime.completeSimple(model, context, options),
             },
             pi.secretMasker,
           )

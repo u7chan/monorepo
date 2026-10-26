@@ -49,10 +49,14 @@ test("既定は Off・モデル未選択で、選択できるモデルを返す"
       assert.equal(settings.definition, TITLE_DEFINITION_DEFAULT);
       assert.equal(settings.defaultDefinition, TITLE_DEFINITION_DEFAULT);
       assert.equal(settings.modelAvailable, false);
+      assert.equal(settings.thinkingLevel, null);
+      assert.equal(settings.effectiveThinkingLevel, null);
       assert.deepEqual(
         settings.models.map((model: { provider: string; id: string }) => `${model.provider}/${model.id}`),
         [`${STUB_MODEL.provider}/${STUB_MODEL.id}`, `${STUB_PLAIN_MODEL.provider}/${STUB_PLAIN_MODEL.id}`],
       );
+      assert.deepEqual(settings.models[0].thinkingLevels, ["off", "minimal", "low", "medium", "high"]);
+      assert.deepEqual(settings.models[1].thinkingLevels, ["off"]);
     } finally {
       await bff.close();
     }
@@ -131,7 +135,7 @@ test("Off に戻してもモデルと定義を保持し、再起動後も同じ�
     try {
       const saved = await first.app.request(
         "/api/settings/session-title",
-        jsonPut({ enabled: true, model: label, definition }),
+        jsonPut({ enabled: true, model: label, thinkingLevel: "high", definition }),
       );
       assert.equal(saved.status, 200);
       const off = await first.app.request("/api/settings/session-title", jsonPut({ enabled: false }));
@@ -139,6 +143,8 @@ test("Off に戻してもモデルと定義を保持し、再起動後も同じ�
       const body = await jsonBody(off);
       assert.equal(body.enabled, false);
       assert.equal(body.model, label);
+      assert.equal(body.thinkingLevel, "high");
+      assert.equal(body.effectiveThinkingLevel, "high");
       assert.equal(body.definition, definition);
     } finally {
       await first.close();
@@ -151,8 +157,63 @@ test("Off に戻してもモデルと定義を保持し、再起動後も同じ�
       assert.equal(settings.model, label);
       assert.equal(settings.definition, definition);
       assert.equal(settings.modelAvailable, true);
+      assert.equal(settings.thinkingLevel, "high");
+      assert.equal(settings.effectiveThinkingLevel, "high");
     } finally {
       await restarted.close();
+    }
+  });
+});
+
+test("Effort はモデルが対応する段階だけ保存でき、未指定なら最小段階を実効値にする", async () => {
+  await withStoreDir(async (dir) => {
+    const label = `${STUB_MODEL.provider}/${STUB_MODEL.id}`;
+    const plain = `${STUB_PLAIN_MODEL.provider}/${STUB_PLAIN_MODEL.id}`;
+    const bff = await openBff(dir);
+    try {
+      const noModel = await bff.app.request(
+        "/api/settings/session-title",
+        jsonPut({ enabled: false, thinkingLevel: "high" }),
+      );
+      assert.equal(noModel.status, 400);
+      assert.match((await jsonBody(noModel)).error, /要約モデル/);
+
+      const saved = await bff.app.request(
+        "/api/settings/session-title",
+        jsonPut({ enabled: true, model: label, thinkingLevel: "high" }),
+      );
+      assert.equal(saved.status, 200);
+      const body = await jsonBody(saved);
+      assert.equal(body.thinkingLevel, "high");
+      assert.equal(body.effectiveThinkingLevel, "high");
+
+      // 対応しない段階は保存しない
+      const unsupported = await bff.app.request(
+        "/api/settings/session-title",
+        jsonPut({ enabled: false, model: plain, thinkingLevel: "high" }),
+      );
+      assert.equal(unsupported.status, 400);
+      assert.match((await jsonBody(unsupported)).error, /Effort/);
+
+      // モデルを変えて Effort を省略したら、新モデルが対応しない保存値は未指定へ戻す
+      const switched = await bff.app.request("/api/settings/session-title", jsonPut({ enabled: false, model: plain }));
+      assert.equal(switched.status, 200);
+      const switchedBody = await jsonBody(switched);
+      assert.equal(switchedBody.model, plain);
+      assert.equal(switchedBody.thinkingLevel, null);
+      assert.equal(switchedBody.effectiveThinkingLevel, "off");
+
+      // 明示的に戻せばモデルの最小段階が実効値になる
+      const reset = await bff.app.request(
+        "/api/settings/session-title",
+        jsonPut({ enabled: false, model: label, thinkingLevel: null }),
+      );
+      assert.equal(reset.status, 200);
+      const resetBody = await jsonBody(reset);
+      assert.equal(resetBody.thinkingLevel, null);
+      assert.equal(resetBody.effectiveThinkingLevel, "off");
+    } finally {
+      await bff.close();
     }
   });
 });

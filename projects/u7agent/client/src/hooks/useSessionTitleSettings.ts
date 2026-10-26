@@ -3,12 +3,14 @@ import { getTitleSummarySettings, putTitleSummarySettings } from "../api";
 import {
   SESSION_TITLE_DEFINITION_RESET_NOTE,
   SESSION_TITLE_DEFINITION_SAVED_NOTE,
+  SESSION_TITLE_EFFORT_SAVED_NOTE,
+  SESSION_TITLE_MODEL_SAVED_NOTE,
   SESSION_TITLE_SETTINGS_NOTE,
   sessionTitleDefinitionError,
   sessionTitleSavedNote,
   type SessionTitleSavingAction,
 } from "../lib/sessionTitleSettings";
-import type { TitleSummarySettingsResponse } from "../types";
+import type { ThinkingLevel, TitleSummarySettingsResponse } from "../types";
 import { useSettingsResource } from "./useSettingsResource";
 
 /**
@@ -42,11 +44,26 @@ export function useSessionTitleSettings() {
   );
 
   const setModel = useCallback(
-    (model: string): Promise<boolean> =>
+    (model: string, thinkingLevel?: ThinkingLevel | null): Promise<boolean> =>
       runMutation(
         "model",
-        (response) => sessionTitleSavedNote(response),
-        () => putTitleSummarySettings({ enabled: settings?.enabled ?? false, model }),
+        () => SESSION_TITLE_MODEL_SAVED_NOTE,
+        () =>
+          putTitleSummarySettings({
+            enabled: settings?.enabled ?? false,
+            model,
+            ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+          }),
+      ),
+    [runMutation, settings?.enabled],
+  );
+
+  const setEffort = useCallback(
+    (thinkingLevel: ThinkingLevel): Promise<boolean> =>
+      runMutation(
+        "effort",
+        () => SESSION_TITLE_EFFORT_SAVED_NOTE,
+        () => putTitleSummarySettings({ enabled: settings?.enabled ?? false, thinkingLevel }),
       ),
     [runMutation, settings?.enabled],
   );
@@ -81,7 +98,18 @@ export function useSessionTitleSettings() {
     [runMutation, settings?.defaultDefinition, settings?.enabled],
   );
 
-  return { settings, note, saving, reloading, reload, setEnabled, setModel, saveDefinition, resetDefinition };
+  return {
+    settings,
+    note,
+    saving,
+    reloading,
+    reload,
+    setEnabled,
+    setModel,
+    setEffort,
+    saveDefinition,
+    resetDefinition,
+  };
 }
 
 export type SessionTitleSettings = ReturnType<typeof useSessionTitleSettings>;

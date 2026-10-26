@@ -28,8 +28,18 @@ export function SessionTitleSettingsView({
   onBack,
   onOpenNav,
 }: SettingsPageProps & { sessionTitleSettings: SessionTitleSettings }) {
-  const { settings, note, saving, reloading, reload, setEnabled, setModel, saveDefinition, resetDefinition } =
-    sessionTitleSettings;
+  const {
+    settings,
+    note,
+    saving,
+    reloading,
+    reload,
+    setEnabled,
+    setModel,
+    setEffort,
+    saveDefinition,
+    resetDefinition,
+  } = sessionTitleSettings;
   return (
     <SettingsPageLayout
       eyebrow="SESSION TITLE"
@@ -55,6 +65,7 @@ export function SessionTitleSettingsView({
           saving={saving}
           onSetEnabled={setEnabled}
           onSelectModel={setModel}
+          onSelectEffort={setEffort}
           onSaveDefinition={saveDefinition}
           onResetDefinition={resetDefinition}
         />
