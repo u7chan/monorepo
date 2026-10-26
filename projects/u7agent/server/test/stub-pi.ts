@@ -189,6 +189,10 @@ export interface StubSessionOptions {
    */
   toolBurst?: StubToolBurst | StubToolBurst[];
   /**
+   * ツール 1 件につき本文を持たない応答を 1 通積むターン (ライブのツール履歴のターン集約の受入用)
+   */
+  bodylessToolRounds?: StubBodylessToolRounds;
+  /**
    * prompt が user message を履歴へ積む前に失敗する (認証エラー等)。BFF は user entry の無いまま
    * error で終端するため、受理済みの送信が未送信として残る経路を再現できる
    */
@@ -288,6 +292,23 @@ export interface StubToolBurst {
    * 一度も出ない。状態行の高速更新 (one-shot) の受入に使う
    */
   trailingOneShot?: StubToolBurstTrailingRow;
+}
+
+/**
+ * ツール 1 件につき本文を持たない assistant 応答を 1 通積むターンの再現。実 SDK のツールループ
+ * (応答の message_end → ツール実行 → 次の応答) と同じ形になるため、ライブのツール履歴が 1 ターンに
+ * 1 ヘッダーへまとまることの受入に使う。`toolBurst` は全呼び出しを 1 通の応答に載せるため、応答境界を
+ * またぐ形 (ツールごとに assistant バブルが分かれる形) はこちらで作る
+ */
+export interface StubBodylessToolRounds {
+  /** この語を本文に含む送信のときだけ流す */
+  prompt: string;
+  /** 1 通ずつ流すツール (各応答は本文を持たない) */
+  calls: StubToolBurstCall[];
+  /** 最後に流す本文 (完了したツールの繰り上げ先になる本文 item) */
+  reply: string;
+  /** 1 件のツールにかける時間 (ms)。省略は chunkDelayMs */
+  callDelayMs?: number;
 }
 
 export interface StubToolBurstTrailingRow {
@@ -792,6 +813,77 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           }
           return;
         }
+        // ツール 1 件につき本文を持たない応答 1 通を積む (ライブのツール履歴のターン集約の受入用)
+        const rounds = options.bodylessToolRounds;
+        if (rounds && text.includes(rounds.prompt)) {
+          promptSeq += 1;
+          for (const [index, call] of rounds.calls.entries()) {
+            const toolCallId = `call-rounds-${promptSeq}-${index + 1}`;
+            const toolName = toolBurstName(call);
+            const args = call.args ?? {};
+            // 実 SDK と同じく、ツール呼び出しだけの応答を message_end まで流してから実行する
+            session.emit({ type: "message_start", message: { role: "assistant" } });
+            const assistant = {
+              role: "assistant",
+              content: [{ type: "toolCall", id: toolCallId, name: toolName, arguments: args }],
+              stopReason: "toolUse",
+              timestamp: Date.now(),
+              ...(options.usage === null ? {} : { usage: options.usage ?? STUB_USAGE }),
+            };
+            session.appendMessage(assistant);
+            historyUpdated = false;
+            try {
+              session.emit({ type: "message_end", message: assistant });
+            } finally {
+              historyUpdated = true;
+            }
+            if (session.abortRequested) break;
+            session.emit({ type: "tool_execution_start", toolCallId, toolName, args });
+            await sleep(rounds.callDelayMs ?? chunkDelayMs);
+            if (session.abortRequested) break;
+            const isError = call.isError ?? false;
+            const resultText = call.result ?? `${toolName} の結果`;
+            session.emit({
+              type: "tool_execution_end",
+              toolCallId,
+              toolName,
+              isError,
+              result: { content: [{ type: "text", text: resultText }] },
+            });
+            session.appendMessage({
+              role: "toolResult",
+              content: [{ type: "text", text: resultText }],
+              toolCallId,
+              isError,
+              timestamp: Date.now(),
+            });
+          }
+          // 最後に本文を 1 通流す (完了したツールの繰り上げ先になる本文 item)
+          if (!session.abortRequested) {
+            session.emit({ type: "message_start", message: { role: "assistant" } });
+            const body = { type: "text", text: rounds.reply };
+            const assistant = {
+              role: "assistant",
+              content: [body],
+              stopReason: "stop",
+              timestamp: Date.now(),
+              ...(options.usage === null ? {} : { usage: options.usage ?? STUB_USAGE }),
+            };
+            session.appendMessage(assistant);
+            await sleep(chunkDelayMs);
+            session.emit({
+              type: "message_update",
+              assistantMessageEvent: { type: "text_delta", delta: rounds.reply },
+            });
+            historyUpdated = false;
+            try {
+              session.emit({ type: "message_end", message: assistant });
+            } finally {
+              historyUpdated = true;
+            }
+          }
+          return;
+        }
         session.emit({ type: "message_start", message: { role: "assistant" } });
         // investigate の呼び出しを模す (状態行の配信経路を作る)。tool_end は本文の後で出す
         promptSeq += 1;
@@ -1107,6 +1199,8 @@ export interface StubPiOptions {
   investigateProgress?: StubInvestigateProgress;
   /** 連続するツール呼び出しの live 受入 (StubSessionOptions と同じ) */
   toolBurst?: StubToolBurst | StubToolBurst[];
+  /** ツールごとに本文なしの応答を積むターン (StubSessionOptions と同じ) */
+  bodylessToolRounds?: StubBodylessToolRounds;
   /** prompt が user message を積む前に失敗する (StubSessionOptions と同じ) */
   promptFailureBeforeUser?: string;
   /** `promptFailureBeforeUser` を失敗させる回数 (StubSessionOptions と同じ) */

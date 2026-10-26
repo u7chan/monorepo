@@ -28,6 +28,18 @@ const pi = Object.assign(
       result: "結論: 索引は docs/README.md、契約は docs/subagent.md にあります",
     },
     // 状態行のツール表示の受入用: 速い順次 + 並列の連続ツール呼び出し (本文に「連続ツール」で発動)
+    // ライブのツール履歴のターン集約の受入用: ツールごとに本文を持たない応答を 1 通積む
+    // (本文に「応答ごとツール」で発動。最後に本文を 1 通だけ流す)
+    bodylessToolRounds: {
+      prompt: "応答ごとツール",
+      calls: [
+        { name: "read", args: { path: "client/src/hooks/chatReducer.ts" }, result: "チャット状態の reducer" },
+        { name: "bash", args: { command: "pnpm -C client test:unit" }, result: "テストは成功しました" },
+        { name: "grep", args: { command: "grep -rn TurnHost client/src" }, result: "一致はありませんでした" },
+      ],
+      reply: "3 つのツールを順に実行しました。結果は上のツール履歴にまとまっています。",
+      callDelayMs: 600,
+    },
     toolBurst: [
       {
         prompt: "BGMバッジ",

@@ -1,6 +1,7 @@
 // チャットの描画順と仮想スクロールの見積り・スクロールアンカー補正。
 // DOM を使わない純関数だけをここに置き、配線 (virtualizer / scroll ハンドラ) は ChatArea が持つ。
 import type { Bubble, CompactionMarker } from "./chatTypes";
+import { isToolHostBubble } from "./chatTypes";
 import type { CompactionInfo } from "../types";
 import { generationBadgesOf } from "./generationInfo";
 import type { TurnEnd } from "./turnEnd";
@@ -22,11 +23,14 @@ export function chatRenderItems({
   markers,
   compactions,
   activeContextStartId,
+  liveTurn = false,
 }: {
   bubbles: Bubble[];
   markers: CompactionMarker[];
   compactions: CompactionInfo[];
   activeContextStartId: string | null;
+  /** 進行中のターンか。完了したカードがまた無いツールだけの host を描画しない根拠 */
+  liveTurn?: boolean;
 }): ChatRenderItem[] {
   const compactionIndexById = new Map(compactions.map((compaction, index) => [compaction.id, index]));
   const markersByPosition = new Map<number, CompactionMarker[]>();
@@ -67,7 +71,7 @@ export function chatRenderItems({
       // 待機中の送信は transcript に出さない (コンポーザー直上のブロックが担う)。配列を filter せず
       // ここで push だけを見送るのは、marker.index / boundaryPosition / ターンの結末の位置算術を
       // 1 つもずらさないため
-      if (bubble.queued !== true) {
+      if (bubble.queued !== true && !(liveTurn && pendingToolHost(bubble))) {
         items.push({
           kind: "message",
           key: `message:${bubble.entryId ?? bubble.id}`,
@@ -79,6 +83,31 @@ export function chatRenderItems({
     }
   }
   return items;
+}
+
+/**
+ * 進行中のターンのバブルか (ツール履歴の実行中の行とコピーを出さない根拠)。開いている応答に加え、
+ * 本文 item を引き取った host も run の終端までは進行中として扱う: `assistant_end` で開いている応答が
+ * 外れても、run_end より前に実行中のカードとコピーを履歴へ出さない。
+ */
+export function isLiveTurnBubble(
+  bubble: Bubble,
+  { currentAssistantId, runInProgress }: { currentAssistantId: number | null; runInProgress: boolean },
+): boolean {
+  if (bubble.id === currentAssistantId) return true;
+  return runInProgress && isToolHostBubble(bubble);
+}
+
+/**
+ * 進行中のターンで、完了したツールがまた無い host。ツール履歴の見出しも本文も出せないため
+ * 描画しない (実行中のツールは入力欄の上の状態行が受け持つ)。run が終われば host は確定し、
+ * 結果の無いカードも並べる (何が走っていたかを後から確かめられなくしない)。本文 item を引き取った
+ * host (text あり) と、回答待ちのカードを抱える host は隠さない (回答手段を消さない)。
+ */
+function pendingToolHost(bubble: Bubble): boolean {
+  if (!isToolHostBubble(bubble) || bubble.text !== "") return false;
+  if (bubble.tools.some((card) => card.questions !== undefined && card.answers === undefined)) return false;
+  return bubble.tools.every((card) => card.phase === "running");
 }
 
 /** 追加入力が進行中のターンと同じ実行へ注入されたか (run id が分かる場合だけ同一視する) */

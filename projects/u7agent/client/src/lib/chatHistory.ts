@@ -212,6 +212,9 @@ function matchesLive(bubble: Bubble, item: HistoryItem): boolean {
   // 未送信 / 受理済み (まだ entry になっていない送信) は本文の縮退に使わない。別クライアントの
   // 同一文面 entry へ黙って吸収させず、自分の run の entry が現れたときだけ runId 一致で置き換える
   if (bubble.unsent || bubble.accepted) return false;
+  // 本文を持たないライブのバブル (ツールだけの host) は、空文字の一致だけで別ターンの item へ
+  // 対応付けしない。本文 item の同一性は assistantId / run id でしか判定しない
+  if (bubble.text === "" || item.text === "") return false;
   return canonicalUserText(item.text) === canonicalUserText(bubble.text);
 }
 
