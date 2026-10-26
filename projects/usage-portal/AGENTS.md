@@ -20,7 +20,8 @@ Codex と OpenCode Go の利用枠を 1 ページで見る読み取り専用ダ�
 - 認証状態は環境変数ではなく `DATA_DIR` 配下のファイル（`pin-hash` / `session-key`）に持つ。理由は [docs/adr/0003-pin-storage-and-session-key.md](docs/adr/0003-pin-storage-and-session-key.md)。
 - 利用枠は `src/server/providers/` の adapter で `ProviderSnapshot` に正規化し、`src/server/sampler.ts` が 5 分ごとに取得して `src/server/db.ts` へ書く。応答は `src/server/usage.ts` が組み立てる（[docs/adr/0004-usage-sampling-and-storage.md](docs/adr/0004-usage-sampling-and-storage.md)）。
 - Codex の資格情報とサインインは `src/server/codex/`。OAuth は実装せず、Pi SDK の `ModelRuntime` を認証の境界としてだけ使う（[docs/adr/0005-codex-credentials-and-sign-in.md](docs/adr/0005-codex-credentials-and-sign-in.md)）。
-- OpenCode Go の API キーは `src/server/opencode/` が `CREDENTIAL_DIR` の `opencode-key.json` に保存し、`/api/opencode/*` から登録・解除する。`.env` は使わない（[docs/adr/0006-opencode-api-key-registration.md](docs/adr/0006-opencode-api-key-registration.md)）。
+- OpenCode Go のアカウント（名前 / アイコン / API キー）は `src/server/opencode/accounts.ts` が `CREDENTIAL_DIR` の `opencode-accounts.json` に保存し、`/api/opencode/accounts` から登録・変更・削除する。入力規則は `src/shared/opencode-account.ts` を server と client で共有する。`.env` は使わない（[docs/adr/0006-opencode-api-key-registration.md](docs/adr/0006-opencode-api-key-registration.md), [docs/adr/0007-opencode-multiple-accounts.md](docs/adr/0007-opencode-multiple-accounts.md)）。
+- DB の `provider` 列は provider id ではなく source id（`codex` / `opencode-go:<account uuid>`）を持つ。テーブル定義と `user_version` は v1 のまま（ADR 0007）。
 - `@earendil-works/pi-*` は u7agent と同じバージョンに固定する。マイナーでも破壊変更が入るため、Dependabot の自動更新には乗せず、migration とセットで手動更新する。
 - client は `src/client/api.ts` で API を呼ぶ。`hc` は validator を入れるまで request body の型を共有できないため使わない（ADR 0003）。状態管理・UI コンポーネント・日付整形のライブラリは足さない（[docs/adr/0000-stack-and-style.md](docs/adr/0000-stack-and-style.md)）。
 - `docs/design.md` は親 checkout の写し。このプロジェクトでは書き換えない。決定と背景は `docs/adr/` に足す。
@@ -53,4 +54,4 @@ Docker は `docker build --target test -t usage-portal-test ./projects/usage-por
 
 - [README.md](README.md) — 起動方法、環境変数、Docker、セキュリティの前提
 - [docs/design.md](docs/design.md) — 設計（親 checkout からの写し）
-- [docs/adr/](docs/adr) — スタック、状態取得、認証と公開範囲、利用枠の保存、Codex のサインイン、OpenCode Go のキー登録の決定
+- [docs/adr/](docs/adr) — スタック、状態取得、認証と公開範囲、利用枠の保存、Codex のサインイン、OpenCode Go のアカウントの決定

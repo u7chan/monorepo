@@ -1,23 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import {
   type CodexAuthState,
-  type ProviderId,
-  type ProviderUsage,
+  type OpenCodeAccount,
+  type OpenCodeAccountInput,
+  type OpenCodeAccountPatch,
   type UsagePayload,
+  type UsageSource,
   cancelCodexLogin,
-  deleteOpenCodeKey,
+  createOpenCodeAccount,
+  deleteOpenCodeAccount,
   fetchCodexAuth,
-  fetchOpenCodeAuth,
+  fetchOpenCodeAccounts,
   fetchSession,
   fetchUsage,
   logout,
   logoutCodex,
   respondCodexLogin,
-  saveOpenCodeKey,
   startCodexLogin,
+  updateOpenCodeAccount,
 } from "./api";
 import { LoginScreen } from "./components/LoginScreen";
-import type { OpenCodeConnection } from "./components/OpenCodeAuthPanel";
+import type { OpenCodeAccountActions } from "./components/OpenCodeAccountForm";
+import { OpenCodeAccountsSection, type OpenCodeAccountsState } from "./components/OpenCodeAccountsSection";
 import { ProviderCard } from "./components/ProviderCard";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { formatClock } from "./lib/format";
@@ -28,11 +32,6 @@ type View =
   | { kind: "unreachable" }
   | { kind: "login"; mode: "setup" | "login"; notice: string | null }
   | { kind: "dashboard"; expiresAt: number };
-
-const PLACEHOLDERS: readonly { id: ProviderId; name: string }[] = [
-  { id: "codex", name: "Codex" },
-  { id: "opencode-go", name: "OpenCode Go" },
-];
 
 export function App() {
   const [view, setView] = useState<View>({ kind: "loading" });
@@ -121,10 +120,10 @@ function Dashboard(props: {
 }) {
   const [usage, setUsage] = useState<UsagePayload | null>(null);
   const [codex, setCodex] = useState<CodexAuthState | null>(null);
-  const [opencode, setOpenCode] = useState<OpenCodeConnection>({ status: "loading" });
+  const [accounts, setAccounts] = useState<OpenCodeAccountsState>({ status: "loading", accounts: [] });
   const [clock, setClock] = useState(() => Date.now());
-  // 保存・解除より前に始まった GET の応答で、確定済みの状態を巻き戻さないための世代。
-  const authGeneration = useRef(0);
+  // 保存・削除より前に始まった GET の応答で、確定済みの一覧を巻き戻さないための世代。
+  const accountsGeneration = useRef(0);
 
   // 「あと N 日」と期限バナーを操作なしでも進める。
   useEffect(() => {
@@ -163,6 +162,42 @@ function Dashboard(props: {
     }
   }, [onUnauthorized]);
 
+  const loadAccounts = useCallback(async () => {
+    accountsGeneration.current += 1;
+
+    const generation = accountsGeneration.current;
+
+    try {
+      const result = await fetchOpenCodeAccounts();
+
+      if (generation !== accountsGeneration.current) {
+        return;
+      }
+
+      if (result && "unauthorized" in result) {
+        onUnauthorized();
+
+        return;
+      }
+
+      // 一度でも一覧を読めていれば、再取得の失敗で「未登録」に戻さない。
+      setAccounts((current) =>
+        result
+          ? { status: "ok", accounts: result }
+          : { status: current.status === "ok" ? "ok" : "unavailable", accounts: current.accounts },
+      );
+    } catch {
+      if (generation !== accountsGeneration.current) {
+        return;
+      }
+
+      setAccounts((current) => ({
+        status: current.status === "ok" ? "ok" : "unavailable",
+        accounts: current.accounts,
+      }));
+    }
+  }, [onUnauthorized]);
+
   useEffect(() => {
     void loadUsage();
 
@@ -175,50 +210,15 @@ function Dashboard(props: {
     void loadCodex();
   }, [loadCodex]);
 
-  const loadOpenCode = useCallback(async () => {
-    authGeneration.current += 1;
-
-    const generation = authGeneration.current;
-
-    try {
-      const result = await fetchOpenCodeAuth();
-
-      if (generation !== authGeneration.current) {
-        return;
-      }
-
-      if (result && "unauthorized" in result) {
-        onUnauthorized();
-
-        return;
-      }
-
-      // 一度でも登録状態を読めていれば、再取得の失敗で「未登録」に戻さない。
-      setOpenCode((current) =>
-        result ? { status: "ok", auth: result } : current.status === "ok" ? current : { status: "unavailable" },
-      );
-    } catch {
-      if (generation !== authGeneration.current) {
-        return;
-      }
-
-      setOpenCode((current) => (current.status === "ok" ? current : { status: "unavailable" }));
-    }
-  }, [onUnauthorized]);
-
+  // アカウントの一覧は初回だけ取る。追加・削除・名前の変更のあとにだけ取り直す。
   useEffect(() => {
-    void loadOpenCode();
+    void loadAccounts();
+  }, [loadAccounts]);
 
-    // 初回に読めなかったときの復帰と、別の端末からの登録を拾う。
-    const timer = setInterval(() => void loadOpenCode(), 60_000);
-
-    return () => clearInterval(timer);
-  }, [loadOpenCode]);
-
-  const retryOpenCode = useCallback(() => {
-    setOpenCode({ status: "loading" });
-    void loadOpenCode();
-  }, [loadOpenCode]);
+  /** 保存・削除のあとは一覧と利用枠を取り直す。片方が失敗しても操作の成否は変えない。 */
+  const refreshAfterChange = useCallback(async () => {
+    await Promise.allSettled([loadAccounts(), loadUsage()]);
+  }, [loadAccounts, loadUsage]);
 
   const loginStatus = codex?.login?.status ?? null;
 
@@ -276,12 +276,12 @@ function Dashboard(props: {
     return ok;
   }, [loadCodex, loadUsage]);
 
-  const saveOpenCode = useCallback(
-    async (apiKey: string): Promise<string | null> => {
-      let outcome: Awaited<ReturnType<typeof saveOpenCodeKey>>;
+  const createAccount = useCallback(
+    async (input: OpenCodeAccountInput): Promise<string | null> => {
+      let outcome: Awaited<ReturnType<typeof createOpenCodeAccount>>;
 
       try {
-        outcome = await saveOpenCodeKey(apiKey);
+        outcome = await createOpenCodeAccount(input);
       } catch {
         return "unavailable";
       }
@@ -294,48 +294,68 @@ function Dashboard(props: {
         return outcome.error;
       }
 
-      // 保存より前に始まった GET の応答は捨てる。
-      authGeneration.current += 1;
-      setOpenCode({ status: "ok", auth: outcome.state });
-
-      // 保存は確定している。直後の取得が失敗しても登録失敗として扱わない（60 秒後に再試行される）。
-      void loadUsage().catch(() => undefined);
+      await refreshAfterChange();
 
       return null;
     },
-    [loadUsage, onUnauthorized],
+    [onUnauthorized, refreshAfterChange],
   );
 
-  const clearOpenCode = useCallback(async (): Promise<boolean> => {
-    let ok = false;
+  const updateAccount = useCallback(
+    async (id: string, patch: OpenCodeAccountPatch): Promise<string | null> => {
+      let outcome: Awaited<ReturnType<typeof updateOpenCodeAccount>>;
 
-    try {
-      ok = await deleteOpenCodeKey();
-    } catch {
-      ok = false;
-    }
+      try {
+        outcome = await updateOpenCodeAccount(id, patch);
+      } catch {
+        return "unavailable";
+      }
 
-    if (ok) {
-      // 解除より前に始まった GET の応答は捨てる。
-      authGeneration.current += 1;
-      setOpenCode({ status: "ok", auth: { configured: false, savedAt: null } });
-    }
+      if (!outcome.ok) {
+        if (outcome.error === "unauthorized") {
+          onUnauthorized();
+        }
 
-    void loadOpenCode();
-    void loadUsage().catch(() => undefined);
+        return outcome.error;
+      }
 
-    return ok;
-  }, [loadOpenCode, loadUsage]);
+      await refreshAfterChange();
+
+      return null;
+    },
+    [onUnauthorized, refreshAfterChange],
+  );
+
+  const removeAccount = useCallback(
+    async (id: string): Promise<boolean> => {
+      let ok = false;
+
+      try {
+        ok = await deleteOpenCodeAccount(id);
+      } catch {
+        ok = false;
+      }
+
+      await refreshAfterChange();
+
+      return ok;
+    },
+    [refreshAfterChange],
+  );
 
   const expiry = expiryNotice(props.expiresAt, clock);
-  const providers = usage?.providers ?? placeholders();
+  const sources = usage?.sources ?? placeholderSources(accounts.accounts);
   const codexActions = {
     onStart: startCodex,
     onRespond: respondCodex,
     onCancel: cancelCodex,
     onLogout: signOutCodex,
   };
-  const openCodeActions = { onSave: saveOpenCode, onClear: clearOpenCode, onRetry: retryOpenCode };
+  const openCodeActions: OpenCodeAccountActions = {
+    onCreate: createAccount,
+    onUpdate: updateAccount,
+    onDelete: removeAccount,
+  };
 
   return (
     <>
@@ -362,31 +382,42 @@ function Dashboard(props: {
         </button>
       </div>
       <div class="up-providers">
-        {providers.map((provider) => (
+        {sources.map((source) => (
           <ProviderCard
-            key={provider.id}
-            provider={provider}
+            key={source.id}
+            source={source}
             now={clock}
-            codex={provider.id === "codex" ? { auth: codex, actions: codexActions } : undefined}
-            opencode={provider.id === "opencode-go" ? { connection: opencode, actions: openCodeActions } : undefined}
+            codex={source.provider === "codex" ? { auth: codex, actions: codexActions } : undefined}
+            opencode={source.provider === "opencode-go" ? { actions: openCodeActions } : undefined}
           />
         ))}
       </div>
+      <OpenCodeAccountsSection state={accounts} actions={openCodeActions} />
     </>
   );
 }
 
-function placeholders(): ProviderUsage[] {
-  return PLACEHOLDERS.map(({ id, name }) => ({
-    id,
-    name,
-    plan: null,
-    state: "loading",
+/** `/api/usage` がまだ返っていない間の骨格。アカウントは登録済みの数だけ並べる。 */
+function placeholderSources(accounts: readonly OpenCodeAccount[]): UsageSource[] {
+  const placeholder = {
+    state: "loading" as const,
     capturedAt: null,
     error: null,
     limitReached: false,
     windows: [],
     notes: [],
     trend: null,
-  }));
+  };
+
+  return [
+    { id: "codex", provider: "codex", name: "Codex", plan: null, account: null, ...placeholder },
+    ...accounts.map((account) => ({
+      id: account.id,
+      provider: "opencode-go" as const,
+      name: account.name,
+      plan: null,
+      account: { id: account.id, name: account.name, icon: account.icon },
+      ...placeholder,
+    })),
+  ];
 }

@@ -1,113 +1,238 @@
+import {
+  MAX_OPENCODE_ACCOUNTS,
+  isOpenCodeAccountIcon,
+  normalizeAccountName,
+  normalizeApiKey,
+  type OpenCodeAccountIcon,
+} from "../../shared/opencode-account";
 import { deleteProviderUsage, saveProviderSnapshot, type DatabaseHandle } from "../db";
 import { ProviderError, type ProviderSnapshot } from "../providers/types";
 import type { Sampler } from "../sampler";
-import type { OpenCodeAuth, OpenCodeKeyState, StoredOpenCodeKey } from "./auth";
+import { openCodeSourceId, type OpenCodeAccount, type OpenCodeAccountRecord, type OpenCodeAccounts } from "./accounts";
 
-export type OpenCodeAuthState = OpenCodeKeyState;
+export type OpenCodeApiError =
+  | "invalid_name"
+  | "invalid_icon"
+  | "invalid_key"
+  | "invalid_request"
+  | "not_found"
+  | "limit_reached"
+  | "unavailable";
 
-export type OpenCodeSaveResult =
-  | { ok: true; state: OpenCodeAuthState }
-  | { ok: false; reason: "invalid_key" | "unavailable" };
+export type OpenCodeApiResult<T> = { ok: true; value: T } | { ok: false; error: OpenCodeApiError };
+
+/** body の生の値。検証はこの module が持つ（route は形だけを見る）。 */
+export type OpenCodeInput = { name?: unknown; icon?: unknown; apiKey?: unknown };
 
 export type OpenCodeApi = {
-  auth: () => OpenCodeAuthState;
-  save: (apiKey: string) => Promise<OpenCodeSaveResult>;
-  clear: () => Promise<void>;
+  list: () => OpenCodeAccount[];
+  create: (input: OpenCodeInput) => Promise<OpenCodeApiResult<OpenCodeAccount>>;
+  update: (id: string, input: OpenCodeInput) => Promise<OpenCodeApiResult<OpenCodeAccount>>;
+  remove: (id: string) => Promise<OpenCodeApiResult<null>>;
 };
 
-/** 1 KiB の body 制限に収まる上限。現実のキーはこれより十分短い。 */
-const MAX_KEY_LENGTH = 512;
+class AccountMissingError extends Error {}
 
-/** 改行や制御文字を Authorization ヘッダーへ通さない。空白入りはコピー時の混入として弾く。 */
-export function normalizeApiKey(value: string): string | null {
-  const key = value.trim();
-
-  if (key === "" || key.length > MAX_KEY_LENGTH) {
-    return null;
-  }
-
-  for (const char of key) {
-    const code = char.codePointAt(0) ?? 0;
-
-    if (code <= 0x20 || code === 0x7f) {
-      return null;
-    }
-  }
-
-  return key;
-}
+class AccountLimitError extends Error {}
 
 export function createOpenCodeApi(options: {
-  auth: OpenCodeAuth;
+  accounts: OpenCodeAccounts;
   db: DatabaseHandle;
   sampler: Pick<Sampler, "exclusive">;
   fetchUsage: (apiKey: string) => Promise<ProviderSnapshot>;
 }): OpenCodeApi {
-  return {
-    auth: () => options.auth.state(),
-    async save(apiKey) {
-      const key = normalizeApiKey(apiKey);
+  async function verifyKey(
+    apiKey: string,
+  ): Promise<{ ok: true; snapshot: ProviderSnapshot } | { ok: false; error: OpenCodeApiError }> {
+    try {
+      return { ok: true, snapshot: await options.fetchUsage(apiKey) };
+    } catch (error) {
+      // 通信断を「キーが違う」と出すと、正しいキーを入れ直し続けることになる。
+      return {
+        ok: false,
+        error: error instanceof ProviderError && error.code === "config" ? "invalid_key" : "unavailable",
+      };
+    }
+  }
 
-      if (key === null) {
-        return { ok: false, reason: "invalid_key" };
+  return {
+    list: () => options.accounts.list(),
+    async create(input) {
+      if (typeof input.name !== "string" || typeof input.icon !== "string" || typeof input.apiKey !== "string") {
+        return { ok: false, error: "invalid_request" };
       }
 
-      let snapshot: ProviderSnapshot;
+      const name = normalizeAccountName(input.name);
+
+      if (name === null) {
+        return { ok: false, error: "invalid_name" };
+      }
+
+      if (!isOpenCodeAccountIcon(input.icon)) {
+        return { ok: false, error: "invalid_icon" };
+      }
+
+      const apiKey = normalizeApiKey(input.apiKey);
+
+      if (apiKey === null) {
+        return { ok: false, error: "invalid_key" };
+      }
+
+      const icon: OpenCodeAccountIcon = input.icon;
+      // 上流の検証は排他区間の外で行う。待っている間に他の要求を止めない。
+      const verified = await verifyKey(apiKey);
+
+      if (!verified.ok) {
+        return verified;
+      }
+
+      const created: { account: OpenCodeAccount | null } = { account: null };
 
       try {
-        snapshot = await options.fetchUsage(key);
+        // 上限と重複の判定は区間の内側でやり直す。検証中に増えたアカウントを数え落とさない。
+        await options.sampler.exclusive(() => {
+          if (options.accounts.list().length >= MAX_OPENCODE_ACCOUNTS) {
+            throw new AccountLimitError();
+          }
+
+          const previous = options.accounts.read();
+
+          try {
+            const account = options.accounts.create({ name, icon, apiKey });
+
+            created.account = account;
+            saveProviderSnapshot(options.db, openCodeSourceId(account.id), verified.snapshot);
+          } catch (error) {
+            // DB に書けないなら、503 を返したのにアカウントだけ増える状態を残さない。
+            restoreQuietly(options.accounts, previous);
+
+            throw error;
+          }
+        });
       } catch (error) {
-        // 通信断を「キーが違う」と出すと、正しいキーを入れ直し続けることになる。
-        return {
-          ok: false,
-          reason: error instanceof ProviderError && error.code === "config" ? "invalid_key" : "unavailable",
-        };
+        return { ok: false, error: error instanceof AccountLimitError ? "limit_reached" : "unavailable" };
       }
 
-      let savedAt: number | null = null;
-
-      // 検証済みの snapshot も一緒に書く。直後の再取得が一時的に失敗しても、保存したキーの値が出る。
-      await options.sampler.exclusive(() => {
-        const previous = options.auth.read();
-
-        options.auth.save(key);
-        savedAt = options.auth.state().savedAt;
-
-        try {
-          saveProviderSnapshot(options.db, snapshot);
-        } catch (error) {
-          // DB に書けないなら、503 を返したのにキーだけ変わる状態を残さない。
-          restoreQuietly(options.auth, previous);
-
-          throw error;
-        }
-      });
-
-      return { ok: true, state: { configured: true, savedAt } };
+      return created.account ? { ok: true, value: created.account } : { ok: false, error: "unavailable" };
     },
-    async clear() {
-      // 直前の取得が古い snapshot を書き戻さないよう、削除は排他区間で行う。
-      await options.sampler.exclusive(() => {
-        const previous = options.auth.read();
+    async update(id, input) {
+      const provided = (["name", "icon", "apiKey"] as const).filter((key) => input[key] !== undefined);
 
-        options.auth.clear();
+      if (provided.length === 0 || provided.some((key) => typeof input[key] !== "string")) {
+        return { ok: false, error: "invalid_request" };
+      }
 
-        try {
-          deleteProviderUsage(options.db, "opencode-go");
-        } catch (error) {
-          restoreQuietly(options.auth, previous);
+      let name: string | null = null;
 
-          throw error;
+      if (input.name !== undefined) {
+        name = normalizeAccountName(input.name as string);
+
+        if (name === null) {
+          return { ok: false, error: "invalid_name" };
         }
-      });
+      }
+
+      let icon: OpenCodeAccountIcon | null = null;
+
+      if (input.icon !== undefined) {
+        if (!isOpenCodeAccountIcon(input.icon)) {
+          return { ok: false, error: "invalid_icon" };
+        }
+
+        icon = input.icon;
+      }
+
+      let apiKey: string | null = null;
+
+      if (input.apiKey !== undefined) {
+        apiKey = normalizeApiKey(input.apiKey as string);
+
+        // 未変更のときクライアントは apiKey を送らない。空の送信は入力ミスとして弾く。
+        if (apiKey === null) {
+          return { ok: false, error: "invalid_key" };
+        }
+      }
+
+      let snapshot: ProviderSnapshot | null = null;
+
+      if (apiKey !== null) {
+        const verified = await verifyKey(apiKey);
+
+        if (!verified.ok) {
+          return verified;
+        }
+
+        snapshot = verified.snapshot;
+      }
+
+      const updated: { account: OpenCodeAccount | null } = { account: null };
+
+      try {
+        await options.sampler.exclusive(() => {
+          const previous = options.accounts.read();
+
+          try {
+            // 検証待ちの間に他が消したアカウントを、古い snapshot で復活させない。
+            const account = options.accounts.update(id, {
+              ...(name === null ? {} : { name }),
+              ...(icon === null ? {} : { icon }),
+              ...(apiKey === null ? {} : { apiKey }),
+            });
+
+            if (account === null) {
+              throw new AccountMissingError();
+            }
+
+            updated.account = account;
+
+            if (snapshot !== null) {
+              saveProviderSnapshot(options.db, openCodeSourceId(id), snapshot);
+            }
+          } catch (error) {
+            restoreQuietly(options.accounts, previous);
+
+            throw error;
+          }
+        });
+      } catch (error) {
+        return { ok: false, error: error instanceof AccountMissingError ? "not_found" : "unavailable" };
+      }
+
+      return updated.account ? { ok: true, value: updated.account } : { ok: false, error: "unavailable" };
+    },
+    async remove(id) {
+      const removed = { done: false };
+
+      try {
+        await options.sampler.exclusive(() => {
+          const previous = options.accounts.read();
+
+          try {
+            if (!options.accounts.remove(id)) {
+              throw new AccountMissingError();
+            }
+
+            removed.done = true;
+            deleteProviderUsage(options.db, openCodeSourceId(id));
+          } catch (error) {
+            restoreQuietly(options.accounts, previous);
+
+            throw error;
+          }
+        });
+      } catch (error) {
+        return { ok: false, error: error instanceof AccountMissingError ? "not_found" : "unavailable" };
+      }
+
+      return { ok: true, value: null };
     },
   };
 }
 
-/** 元の失敗を 503 として返すため、巻き戻し自体の失敗は握る。次の登録・解除で上書きできる。 */
-function restoreQuietly(auth: OpenCodeAuth, stored: StoredOpenCodeKey | null): void {
+/** 元の失敗を 503 として返すため、巻き戻し自体の失敗は握る。次の書き込みで上書きできる。 */
+function restoreQuietly(accounts: OpenCodeAccounts, previous: readonly OpenCodeAccountRecord[] | null): void {
   try {
-    auth.restore(stored);
+    accounts.restore(previous);
   } catch {
     // 何もしない。
   }

@@ -1,12 +1,19 @@
 import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { ProviderId, ProviderSnapshot } from "./providers/types";
+import type { ProviderSnapshot } from "./providers/types";
 import type { SamplePoint } from "./trend";
 import type { UsageError } from "./state";
 
 export const SCHEMA_VERSION = 1;
 
+/** 単一キー時代の OpenCode Go の source id。起動時の掃除でだけ使う。 */
+const LEGACY_OPENCODE_SOURCE_ID = "opencode-go";
+
+/**
+ * 3 つのテーブルの `provider` 列は provider id ではなく source id を持つ。
+ * `codex` と `opencode-go:<account uuid>` が入り、列名だけが v1 のまま残っている。
+ */
 const MIGRATIONS: readonly string[] = [
   `
   CREATE TABLE provider_snapshot (
@@ -73,7 +80,7 @@ export function verifyDatabase(handle: DatabaseHandle): boolean {
 export type StoredProviderUsage = { snapshot: ProviderSnapshot | null; error: UsageError | null };
 
 /** 成功した 1 回分を 1 transaction で書く。snapshot と sample と error が食い違う中間状態を残さない。 */
-export function saveProviderSnapshot(handle: DatabaseHandle, snapshot: ProviderSnapshot): void {
+export function saveProviderSnapshot(handle: DatabaseHandle, sourceId: string, snapshot: ProviderSnapshot): void {
   const upsert = handle.db.query(`
     INSERT INTO provider_snapshot (provider, captured_at, snapshot_json) VALUES (?, ?, ?)
     ON CONFLICT(provider) DO UPDATE SET captured_at = excluded.captured_at, snapshot_json = excluded.snapshot_json
@@ -85,37 +92,52 @@ export function saveProviderSnapshot(handle: DatabaseHandle, snapshot: ProviderS
   const clearError = handle.db.query("DELETE FROM provider_error WHERE provider = ?");
 
   handle.db.transaction(() => {
-    upsert.run(snapshot.provider, snapshot.capturedAt, JSON.stringify(snapshot));
+    upsert.run(sourceId, snapshot.capturedAt, JSON.stringify(snapshot));
 
     for (const window of snapshot.windows) {
-      insertSample.run(snapshot.provider, window.id, snapshot.capturedAt, window.usedPercent, window.resetsAt);
+      insertSample.run(sourceId, window.id, snapshot.capturedAt, window.usedPercent, window.resetsAt);
     }
 
-    clearError.run(snapshot.provider);
+    clearError.run(sourceId);
   })();
 }
 
 /** snapshot は触らない。取得できなかった間も最後に成功した値を出し続ける。 */
-export function saveProviderError(handle: DatabaseHandle, provider: ProviderId, error: UsageError): void {
+export function saveProviderError(handle: DatabaseHandle, sourceId: string, error: UsageError): void {
   handle.db
     .query(`
       INSERT INTO provider_error (provider, failed_at, code, message) VALUES (?, ?, ?, ?)
       ON CONFLICT(provider) DO UPDATE SET failed_at = excluded.failed_at, code = excluded.code, message = excluded.message
     `)
-    .run(provider, error.at, error.code, error.message);
+    .run(sourceId, error.at, error.code, error.message);
 }
 
-export function deleteProviderUsage(handle: DatabaseHandle, provider: ProviderId): void {
-  handle.db.transaction(() => {
-    handle.db.query("DELETE FROM provider_snapshot WHERE provider = ?").run(provider);
-    handle.db.query("DELETE FROM provider_error WHERE provider = ?").run(provider);
-  })();
+/** source を消すと sample も消す。残すと、同じ uuid で作り直したときに前の履歴が混ざる。 */
+export function deleteProviderUsage(handle: DatabaseHandle, sourceId: string): void {
+  deleteUsageRows(handle, "provider = ?", [sourceId]);
+}
+
+/**
+ * 単一キー時代の `opencode-go` 行を消す。Codex の行は残す。
+ * 旧キーは `CREDENTIAL_DIR` に残るが、読み手がもう居ないので同じ行を引き継がない。
+ */
+export function deleteLegacyOpenCodeUsage(handle: DatabaseHandle): number {
+  return deleteUsageRows(handle, "provider = ?", [LEGACY_OPENCODE_SOURCE_ID]);
+}
+
+/** アカウントを消したあとに残った `opencode-go:<uuid>` の行を掃除する（プロセスが落ちた場合の回収）。 */
+export function pruneOpenCodeUsage(handle: DatabaseHandle, validSourceIds: readonly string[]): number {
+  const placeholders = validSourceIds.map(() => "?").join(", ");
+  const condition =
+    validSourceIds.length === 0 ? "provider LIKE ?" : `provider LIKE ? AND provider NOT IN (${placeholders})`;
+
+  return deleteUsageRows(handle, condition, ["opencode-go:%", ...validSourceIds]);
 }
 
 export function loadProviderUsage(
   handle: DatabaseHandle,
-  providers: readonly ProviderId[],
-): Map<ProviderId, StoredProviderUsage> {
+  sourceIds: readonly string[],
+): Map<string, StoredProviderUsage> {
   const snapshots = new Map<string, ProviderSnapshot>();
   const errors = new Map<string, UsageError>();
 
@@ -140,24 +162,19 @@ export function loadProviderUsage(
   }
 
   return new Map(
-    providers.map((provider) => [
-      provider,
-      { snapshot: snapshots.get(provider) ?? null, error: errors.get(provider) ?? null },
+    sourceIds.map((sourceId) => [
+      sourceId,
+      { snapshot: snapshots.get(sourceId) ?? null, error: errors.get(sourceId) ?? null },
     ]),
   );
 }
 
-export function loadSamples(
-  handle: DatabaseHandle,
-  provider: ProviderId,
-  windowId: string,
-  since: number,
-): SamplePoint[] {
+export function loadSamples(handle: DatabaseHandle, sourceId: string, windowId: string, since: number): SamplePoint[] {
   const rows = handle.db
     .query(
       "SELECT captured_at, used_percent FROM usage_sample WHERE provider = ? AND window_id = ? AND captured_at >= ? ORDER BY captured_at",
     )
-    .all(provider, windowId, since) as { captured_at: number; used_percent: number }[];
+    .all(sourceId, windowId, since) as { captured_at: number; used_percent: number }[];
 
   return rows.map((row) => ({ at: row.captured_at, usedPercent: row.used_percent }));
 }
@@ -165,6 +182,16 @@ export function loadSamples(
 /** 保持期間を過ぎた sample だけを消す。snapshot と error は最新 1 行なので対象外。 */
 export function pruneSamples(handle: DatabaseHandle, olderThan: number): number {
   return handle.db.query("DELETE FROM usage_sample WHERE captured_at < ?").run(olderThan).changes;
+}
+
+function deleteUsageRows(handle: DatabaseHandle, condition: string, values: readonly string[]): number {
+  const statements = ["provider_snapshot", "provider_error", "usage_sample"].map((table) =>
+    handle.db.query(`DELETE FROM ${table} WHERE ${condition}`),
+  );
+
+  return handle.db.transaction(() =>
+    statements.reduce((total, statement) => total + statement.run(...values).changes, 0),
+  )();
 }
 
 function parseSnapshot(json: string): ProviderSnapshot | null {

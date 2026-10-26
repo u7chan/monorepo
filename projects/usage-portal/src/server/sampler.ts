@@ -5,7 +5,12 @@ import { ProviderError, type ProviderSnapshot } from "./providers/types";
 export const SAMPLE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-export type UsageFetcher = { provider: ProviderDefinition; fetch: () => Promise<ProviderSnapshot> };
+/** source id は `codex` または `opencode-go:<uuid>`。1 つの provider に複数の source がぶら下がる。 */
+export type UsageFetcher = {
+  sourceId: string;
+  provider: ProviderDefinition;
+  fetch: () => Promise<ProviderSnapshot>;
+};
 
 export type Sampler = {
   start: () => void;
@@ -25,7 +30,8 @@ export type Sampler = {
  */
 export function createSampler(options: {
   db: DatabaseHandle;
-  fetchers: readonly UsageFetcher[];
+  /** 取得のたびに評価する。アカウントの追加・削除を再起動なしで次の取得から反映するため。 */
+  fetchers: () => readonly UsageFetcher[];
   intervalMs: number;
   retentionMs?: number;
   now: () => number;
@@ -40,22 +46,25 @@ export function createSampler(options: {
   let exclusiveChain: Promise<void> = Promise.resolve();
 
   function executeOnce(): Promise<void> {
-    const tasks = options.fetchers.map(async ({ provider, fetch }) => {
+    // 1 回の取得で 1 回だけ評価する。途中でアカウントが増減しても、この回の対象は変えない。
+    const fetchers = options.fetchers();
+    const tasks = fetchers.map(async (fetcher) => {
       try {
-        const snapshot = await fetch();
+        const snapshot = await fetcher.fetch();
 
-        saveProviderSnapshot(options.db, snapshot);
+        saveProviderSnapshot(options.db, fetcher.sourceId, snapshot);
       } catch (error) {
         const failure = toProviderError(error);
 
-        saveProviderError(options.db, provider.id, {
+        saveProviderError(options.db, fetcher.sourceId, {
           code: failure.code,
           message: failure.message,
           at: options.now(),
         });
 
-        // 上流の本文や例外文は残さない。どの provider がどの分類で落ちたかだけを残す。
-        log(`${provider.id}: ${failure.code} (${failure.message})`);
+        // 上流の本文や例外文は残さない。どの source がどの分類で落ちたかだけを残す。
+        // source id は account の uuid を含むが、キーも名前も含まない。
+        log(`${describeFetcher(fetcher)}: ${failure.code} (${failure.message})`);
       }
     });
 
@@ -136,6 +145,10 @@ export function createSampler(options: {
   }
 
   return { start, stop, kick: () => exclusive(() => {}), exclusive };
+}
+
+function describeFetcher(fetcher: UsageFetcher): string {
+  return fetcher.sourceId === fetcher.provider.id ? fetcher.provider.id : `${fetcher.provider.id} ${fetcher.sourceId}`;
 }
 
 function toProviderError(error: unknown): ProviderError {

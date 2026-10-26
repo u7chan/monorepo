@@ -4,7 +4,7 @@ import { deriveProviderStatus, type StatusInput } from "../src/client/lib/status
 
 function status(overrides: Partial<StatusInput> = {}) {
   return deriveProviderStatus({
-    id: "codex",
+    provider: "codex",
     state: "ok",
     errorCode: null,
     limitReached: false,
@@ -42,7 +42,7 @@ describe("deriveProviderStatus", () => {
       tone: "neutral",
       symbol: "○",
     });
-    expect(status({ id: "opencode-go", state: "error", errorCode: "not_connected", usedPercents: [] })).toEqual({
+    expect(status({ provider: "opencode-go", state: "error", errorCode: "not_connected", usedPercents: [] })).toEqual({
       label: "未接続",
       tone: "neutral",
       symbol: "○",
@@ -55,7 +55,7 @@ describe("deriveProviderStatus", () => {
   });
 
   test("OpenCode Go の config エラーは取得エラーとして出す", () => {
-    expect(status({ id: "opencode-go", state: "error", errorCode: "config", usedPercents: [] }).label).toBe(
+    expect(status({ provider: "opencode-go", state: "error", errorCode: "config", usedPercents: [] }).label).toBe(
       "取得エラー",
     );
   });

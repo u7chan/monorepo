@@ -27,10 +27,16 @@ export type Trend = { windowId: string; points: { at: number; usedPercent: numbe
 export type ProviderId = "codex" | "opencode-go";
 export type ProviderState = "loading" | "ok" | "stale" | "error";
 
-export type ProviderUsage = {
-  id: ProviderId;
+/** 画面のヘッダーに出すアカウントの識別情報。キーは受け取らない。 */
+export type UsageSourceAccount = { id: string; name: string; icon: string };
+
+export type UsageSource = {
+  /** `codex` または account の uuid。 */
+  id: string;
+  provider: ProviderId;
   name: string;
   plan: string | null;
+  account: UsageSourceAccount | null;
   state: ProviderState;
   capturedAt: number | null;
   error: { code: string; message: string; at: number } | null;
@@ -40,7 +46,7 @@ export type ProviderUsage = {
   trend: Trend | null;
 };
 
-export type UsagePayload = { generatedAt: number; sampleIntervalMs: number; providers: ProviderUsage[] };
+export type UsagePayload = { generatedAt: number; sampleIntervalMs: number; sources: UsageSource[] };
 
 export type CodexLoginOption = { id: string; label: string };
 
@@ -60,11 +66,13 @@ export type CodexLoginState = {
 
 export type CodexAuthState = { signedIn: boolean; login: CodexLoginState | null };
 
-export type OpenCodeAuthState = { configured: boolean; savedAt: number | null };
+export type OpenCodeAccount = { id: string; name: string; icon: string; savedAt: number };
 
-export type OpenCodeKeyOutcome =
-  | { ok: true; state: OpenCodeAuthState }
-  | { ok: false; error: "invalid_key" | "unavailable" | "unauthorized" | "invalid_request" };
+export type OpenCodeAccountInput = { name: string; icon: string; apiKey: string };
+
+export type OpenCodeAccountPatch = { name?: string; icon?: string; apiKey?: string };
+
+export type OpenCodeAccountOutcome<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export type CodexLoginOutcome = { ok: true; state: CodexAuthState } | { ok: false; error: string };
 
@@ -178,8 +186,8 @@ export async function logoutCodex(): Promise<boolean> {
   return response.ok;
 }
 
-export async function fetchOpenCodeAuth(): Promise<OpenCodeAuthState | Unauthorized | null> {
-  const response = await fetch("/api/opencode/auth", { headers: { accept: "application/json" } });
+export async function fetchOpenCodeAccounts(): Promise<OpenCodeAccount[] | Unauthorized | null> {
+  const response = await fetch("/api/opencode/accounts", { headers: { accept: "application/json" } });
 
   if (response.status === 401) {
     return { unauthorized: true };
@@ -189,51 +197,69 @@ export async function fetchOpenCodeAuth(): Promise<OpenCodeAuthState | Unauthori
     return null;
   }
 
-  return parseOpenCodeAuth(await response.json().catch(() => null));
+  const body: unknown = await response.json().catch(() => null);
+
+  return readObjects(body, "accounts")
+    .map(parseOpenCodeAccount)
+    .filter((account) => account !== null);
 }
 
-export async function saveOpenCodeKey(apiKey: string): Promise<OpenCodeKeyOutcome> {
-  const response = await fetch("/api/opencode/key", {
-    method: "PUT",
+export async function createOpenCodeAccount(
+  input: OpenCodeAccountInput,
+): Promise<OpenCodeAccountOutcome<OpenCodeAccount>> {
+  return requestOpenCodeAccount("/api/opencode/accounts", { method: "POST", body: input });
+}
+
+export async function updateOpenCodeAccount(
+  id: string,
+  patch: OpenCodeAccountPatch,
+): Promise<OpenCodeAccountOutcome<OpenCodeAccount>> {
+  return requestOpenCodeAccount(`/api/opencode/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: patch });
+}
+
+export async function deleteOpenCodeAccount(id: string): Promise<boolean> {
+  const response = await fetch(`/api/opencode/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+  return response.ok;
+}
+
+async function requestOpenCodeAccount(
+  path: string,
+  request: { method: "POST" | "PUT"; body: unknown },
+): Promise<OpenCodeAccountOutcome<OpenCodeAccount>> {
+  const response = await fetch(path, {
+    method: request.method,
     headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({ apiKey }),
+    body: JSON.stringify(request.body),
   });
   const body: unknown = await response.json().catch(() => null);
 
   if (response.ok) {
-    const state = parseOpenCodeAuth(body);
+    const account = parseOpenCodeAccount(readObject(body, "account"));
 
-    return state ? { ok: true, state } : { ok: false, error: "unavailable" };
+    return account ? { ok: true, value: account } : { ok: false, error: "unavailable" };
   }
 
   if (response.status === 401) {
     return { ok: false, error: "unauthorized" };
   }
 
-  const error = readString(body, "error");
-
-  return { ok: false, error: error === "invalid_key" || error === "invalid_request" ? error : "unavailable" };
-}
-
-export async function deleteOpenCodeKey(): Promise<boolean> {
-  const response = await fetch("/api/opencode/key", { method: "DELETE" });
-
-  return response.ok;
+  return { ok: false, error: readString(body, "error") ?? "unavailable" };
 }
 
 export function parseUsage(body: unknown): UsagePayload | null {
-  const providers = readObjects(body, "providers")
-    .map(parseProvider)
-    .filter((provider) => provider !== null);
+  const sources = readObjects(body, "sources")
+    .map(parseSource)
+    .filter((source) => source !== null);
 
-  if (providers.length === 0) {
+  if (sources.length === 0) {
     return null;
   }
 
   return {
     generatedAt: readNumber(body, "generatedAt") ?? Date.now(),
     sampleIntervalMs: readNumber(body, "sampleIntervalMs") ?? 300_000,
-    providers,
+    sources,
   };
 }
 
@@ -248,20 +274,23 @@ export function parseCodexAuth(body: unknown): CodexAuthState | null {
   return { signedIn, login: login === null || login === undefined ? null : parseLogin(login) };
 }
 
-export function parseOpenCodeAuth(body: unknown): OpenCodeAuthState | null {
-  if (typeof body !== "object" || body === null || typeof (body as { configured?: unknown }).configured !== "boolean") {
+export function parseOpenCodeAccount(body: unknown): OpenCodeAccount | null {
+  const id = readString(body, "id");
+  const name = readString(body, "name");
+  const icon = readString(body, "icon");
+
+  if (!id || !name || !icon) {
     return null;
   }
 
-  const configured = (body as { configured: boolean }).configured;
-
-  return { configured, savedAt: readNumber(body, "savedAt") };
+  return { id, name, icon, savedAt: readNumber(body, "savedAt") ?? 0 };
 }
 
-function parseProvider(value: unknown): ProviderUsage | null {
+function parseSource(value: unknown): UsageSource | null {
   const id = readString(value, "id");
+  const provider = readString(value, "provider");
 
-  if (id !== "codex" && id !== "opencode-go") {
+  if (!id || (provider !== "codex" && provider !== "opencode-go")) {
     return null;
   }
 
@@ -275,8 +304,10 @@ function parseProvider(value: unknown): ProviderUsage | null {
 
   return {
     id,
+    provider,
     name: readString(value, "name") ?? id,
     plan: readString(value, "plan"),
+    account: parseSourceAccount(readObject(value, "account")),
     state,
     capturedAt: readNumber(value, "capturedAt"),
     error:
@@ -294,6 +325,16 @@ function parseProvider(value: unknown): ProviderUsage | null {
     notes: readStrings(value, "notes"),
     trend: parseTrend(readObject(value, "trend")),
   };
+}
+
+function parseSourceAccount(value: Record<string, unknown> | null): UsageSourceAccount | null {
+  const id = readString(value, "id");
+
+  if (!id) {
+    return null;
+  }
+
+  return { id, name: readString(value, "name") ?? "", icon: readString(value, "icon") ?? "" };
 }
 
 function parseWindow(value: unknown): UsageWindow | null {

@@ -1,6 +1,6 @@
 # ADR 0006: OpenCode Go の API キーを Web UI から登録する
 
-- Status: accepted
+- Status: superseded by [0007](0007-opencode-multiple-accounts.md)
 - Date: 2026-10-25
 
 ## 背景
