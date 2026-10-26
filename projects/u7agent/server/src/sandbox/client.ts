@@ -142,7 +142,7 @@ export interface SandboxUploadInput {
 }
 
 /**
- * スキル取り込みの要求。`dryRun` / `replace` は受信した query の生の値・一覧をそのまま渡し、
+ * スキルインポートの要求。`dryRun` / `replace` は受信した query の生の値・一覧をそのまま渡し、
  * 解釈と検証はサンドボックスに任せる (BFF は raw を中継するだけ)。
  */
 export interface SandboxSkillsImportInput {
@@ -245,11 +245,11 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   previewSkillDelete(relativePath: string): Promise<SandboxSkillDeletePreview>;
   /** 専用フォルダを配下ごと削除する。treeVersion の不一致は 409 */
   deleteSkillFolder(relativePath: string, treeVersion: string): Promise<void>;
-  /** `.agents/skills` の ZIP 持ち出し。保存名と `Content-Disposition` はサンドボックスが決める */
+  /** `.agents/skills` の ZIP エクスポート。保存名と `Content-Disposition` はサンドボックスが決める */
   exportSkills(): Promise<SandboxDownloadFile>;
-  /** 持ち出しの見積り (件数 / 合計サイズ / `.git` の除外)。上限超過は 413 */
+  /** エクスポートの見積り (件数 / 合計サイズ / `.git` の除外)。上限超過は 413 */
   checkSkillsExport(): Promise<SandboxDownloadCheck>;
-  /** `.agents/skills` の ZIP 取り込み。plan / apply で応答の形が違い、両方の検証を通す */
+  /** `.agents/skills` の ZIP インポート。plan / apply で応答の形が違い、両方の検証を通す */
   importSkills(input: SandboxSkillsImportInput): Promise<SandboxSkillsImportResult>;
   createDir(path: string): Promise<SandboxCreateDirResult>;
   /**
@@ -337,8 +337,8 @@ export type SandboxSkillFileClient = Pick<
 export type SandboxDownloadPlanClient = Pick<SandboxToolClient, "planDownload">;
 
 /**
- * スキルの持ち出し / 取り込みが使うサンドボックス機能。GUI CRUD の stub を広げないよう型を分ける
- * (取り込みは raw body を中継するため、bodyGuard より前のルートからだけ使う)。
+ * スキルのエクスポート / インポートが使うサンドボックス機能。GUI CRUD の stub を広げないよう型を分ける
+ * (インポートは raw body を中継するため、bodyGuard より前のルートからだけ使う)。
  */
 export type SandboxSkillArchiveClient = Pick<SandboxToolClient, "exportSkills" | "checkSkillsExport" | "importSkills">;
 
@@ -837,10 +837,10 @@ async function deleteSkillFolder(
   if (!response.ok) throw await jsonError(response, "スキルを削除できませんでした");
 }
 
-/** スキルの持ち出し。保存名・Content-Type・長さはサンドボックスが決め、BFF はヘッダを付け直して中継する */
+/** スキルのエクスポート。保存名・Content-Type・長さはサンドボックスが決め、BFF はヘッダを付け直して中継する */
 async function exportSkills(baseUrl: string, token: string, fetchImpl: typeof fetch): Promise<SandboxDownloadFile> {
   const response = await fetchJson(fetchImpl, `${baseUrl}/v1/skills/export`, { headers: jsonHeaders(token) }, baseUrl);
-  if (!response.ok) throw await rawError(response, "スキルを持ち出せませんでした");
+  if (!response.ok) throw await rawError(response, "スキルをエクスポートできませんでした");
   const contentLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
   return {
     contentType: response.headers.get("content-type") ?? "application/zip",
@@ -850,7 +850,7 @@ async function exportSkills(baseUrl: string, token: string, fetchImpl: typeof fe
   };
 }
 
-/** 持ち出しの事前チェック (404 / 413 は文言ごと透過する) */
+/** エクスポートの事前チェック (404 / 413 は文言ごと透過する) */
 async function checkSkillsExport(
   baseUrl: string,
   token: string,
@@ -862,12 +862,12 @@ async function checkSkillsExport(
     { headers: jsonHeaders(token) },
     baseUrl,
   );
-  if (!response.ok) throw await rawError(response, "持ち出しの確認ができませんでした");
+  if (!response.ok) throw await rawError(response, "エクスポートの確認ができませんでした");
   return (await response.json()) as SandboxDownloadCheck;
 }
 
 /**
- * スキルの取り込み。raw の ZIP をストリームで送り、bodyGuard を通さない。
+ * スキルのインポート。raw の ZIP をストリームで送り、bodyGuard を通さない。
  * 400 / 404 / 413 は文言ごと透過し、接続失敗・サンドボックス側障害は 502 に寄せる。
  */
 async function importSkills(
