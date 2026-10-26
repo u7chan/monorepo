@@ -129,12 +129,15 @@ function iconOf(value: unknown): string | undefined {
   return value;
 }
 
-/** 上限は 6 件。UI もこの値に合わせて「＋ 追加」を止める。 */
+/**
+ * 上限は 6 件。編集面は現在値と上限を `3 / 6` で出して「＋ 追加」を止め、
+ * 保存の経路は超過を 400 で断る (黙って切ると保存できたように見える)。
+ */
 const SUGGESTION_LIMIT = 6;
 
 /**
- * 配列以外は未指定として空を返す。prompt の重複は先に除いてから上限で切るので、
- * 重複が 6 件の枠を消費しない。
+ * 配列以外は未指定として空を返す。prompt の重複と空の要素は先に除いてから数えるので、
+ * 重複が 6 件の枠を消費しない (同じ prompt を並べた行は保存時に落ちる)。
  */
 function normalizeSuggestions(value: unknown): AgentSuggestion[] {
   if (!Array.isArray(value)) return [];
@@ -147,7 +150,9 @@ function normalizeSuggestions(value: unknown): AgentSuggestion[] {
     if (!label || !prompt || seen.has(prompt)) continue;
     seen.add(prompt);
     result.push({ label, prompt });
-    if (result.length === SUGGESTION_LIMIT) break;
+  }
+  if (result.length > SUGGESTION_LIMIT) {
+    throw invalid(`Agent suggestions must have at most ${SUGGESTION_LIMIT} items`);
   }
   return result;
 }

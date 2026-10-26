@@ -1138,6 +1138,20 @@ test("catalog endpoints expose and update agent suggestions", async () => {
       { label: "足した", prompt: "追加のプロンプト" },
     ]);
 
+    // ユニーク 7 件は黙って 6 件に切らず 400 で断り、保存済みの定義を変えない
+    const tooMany = await app.request(
+      `/api/agents/${createdAgent.id}`,
+      jsonPatch({
+        suggestions: Array.from({ length: 7 }, (_, index) => ({ label: `案 ${index}`, prompt: `案 ${index}` })),
+      }),
+    );
+    assert.equal(tooMany.status, 400);
+    assert.equal((await jsonBody(tooMany)).error, "Agent suggestions must have at most 6 items");
+    const afterReject = await jsonBody(app.request("/api/agents"));
+    assert.deepEqual(afterReject.agents.find((agent: { id: string }) => agent.id === createdAgent.id).suggestions, [
+      { label: "足した", prompt: "追加のプロンプト" },
+    ]);
+
     // 空配列で解除すると応答からもキーが消える
     const cleared = await app.request(`/api/agents/${createdAgent.id}`, jsonPatch({ suggestions: [] }));
     assert.equal(cleared.status, 200);
