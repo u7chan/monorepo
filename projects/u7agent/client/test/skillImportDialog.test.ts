@@ -48,13 +48,16 @@ function checkboxes(html: string): string[] {
   return [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((match) => match[0]);
 }
 
-test("plan の確認中は理由だけを出し、取り込むボタンは押せない", () => {
+/** 取り込みの主ボタン (ラベルは SKILL_IMPORT_APPLY_LABEL) が disabled で出ていることを見る */
+const disabledApplyButton = () => new RegExp(`<button[^>]*disabled=""[^>]*>${SKILL_IMPORT_APPLY_LABEL}</button>`);
+
+test("plan の確認中は理由だけを出し、インポートのボタンは押せない", () => {
   const html = render({ status: "planning", fileName: "skills.zip" });
   assert.ok(html.includes("skills.zip"));
   assert.ok(html.includes(SKILL_IMPORT_PLANNING_NOTE));
   assert.deepEqual(checkboxes(html), []);
   assert.match(html, new RegExp(`${SKILL_IMPORT_APPLY_LABEL}</button>`));
-  assert.match(html, /<button[^>]*disabled=""[^>]*>取り込む<\/button>/);
+  assert.match(html, disabledApplyButton());
 });
 
 test("plan は既定で 1 つも置き換えず、選べるのは同名 (conflict) の行だけ", () => {
@@ -93,7 +96,7 @@ test("plan は既定で 1 つも置き換えず、選べるのは同名 (conflic
   assert.ok(selected.includes(skillImportSummary(2, 1)));
 });
 
-test("取り込むスキルが 1 つも無いときは理由を出し、取り込むボタンを押せない", () => {
+test("インポートするスキルが 1 つも無いときは理由を出し、インポートのボタンを押せない", () => {
   const plan: SandboxSkillsImportPlan = {
     skills: [
       { name: "beta", status: "identical" },
@@ -104,16 +107,16 @@ test("取り込むスキルが 1 つも無いときは理由を出し、取り�
   };
   const html = render({ status: "review", fileName: "skills.zip", plan, replace: [] });
   assert.ok(html.includes(SKILL_IMPORT_NOTHING_NOTE));
-  assert.match(html, /<button[^>]*disabled=""[^>]*>取り込む<\/button>/);
+  assert.match(html, disabledApplyButton());
 });
 
-test("適用中は閉じるボタンも取り込みも押せない", () => {
+test("適用中は閉じるボタンもインポートも押せない", () => {
   const html = render({ status: "applying", fileName: "skills.zip", plan: PLAN, replace: ["gamma"] });
   assert.ok(html.includes(SKILL_IMPORT_APPLYING_LABEL));
   assert.match(html, /<button[^>]*disabled=""[^>]*>閉じる<\/button>/);
 });
 
-test("適用後は取り込んだスキルと省略した理由を出し、取り込みの操作を消す", () => {
+test("適用後はインポートしたスキルと省略した理由を出し、インポートの操作を消す", () => {
   const result: SandboxSkillsImportApply = {
     applied: [
       { name: "alpha", relativePath: ".agents/skills/alpha/SKILL.md", fileVersion: "a".repeat(64), replaced: false },

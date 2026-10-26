@@ -93,7 +93,7 @@ async function assertUntouched(root: string): Promise<void> {
 
 /** 取り込みの失敗の本文が、内部パスを含まない固定文言か (apply と前提処理で共通) */
 function assertImportFailureBody(error: string | undefined, root: string): void {
-  assert.equal(error, "スキルを取り込めませんでした");
+  assert.equal(error, "スキルをインポートできませんでした");
   assert.ok(!(error ?? "").includes(root), "ワークスペースの絶対パスが本文に載っている");
   for (const fragment of [".agents", "mkdir", "rename", "EEXIST", "ENOTDIR", "ENOENT", "staging", ".import-"]) {
     assert.ok(!(error ?? "").includes(fragment), `本文に ${fragment} が載っている`);
@@ -242,7 +242,7 @@ test("apply は決定 3 の表どおりに applied / skipped を返す", async (
       skipped.map((item) => item.name),
       ["diff", "same", "broken"],
     );
-    assert.equal(skipped[0]?.reason, "同名のため取り込まない");
+    assert.equal(skipped[0]?.reason, "同名のためインポートしない");
     assert.equal(skipped[1]?.reason, "内容が同一");
     assert.ok(skipped[2]?.reason && skipped[2].reason.length > 0);
     assert.deepEqual(first.body.applied, [
@@ -488,7 +488,7 @@ test("既存スキルの同一判定は上限で打ち切り、超過は conflic
     const applied = await importArchive(service.app, zip);
     assert.equal(applied.status, 200);
     assert.deepEqual(applied.body.applied, []);
-    assert.equal((applied.body.skipped as { reason: string }[])[0]?.reason, "同名のため取り込まない");
+    assert.equal((applied.body.skipped as { reason: string }[])[0]?.reason, "同名のためインポートしない");
   } finally {
     service.close();
   }
@@ -673,7 +673,7 @@ test(
       ]);
       const result = await importArchive(service.app, zip, "?replace=alpha&replace=beta");
       assert.equal(result.status, 500);
-      assert.equal(result.body.error, "スキルを取り込めませんでした");
+      assert.equal(result.body.error, "スキルをインポートできませんでした");
 
       // 適用済みの alpha は消え、beta は元の内容へ戻る
       assert.equal(await readFile(join(root, ".agents/skills/beta/SKILL.md"), "utf8"), originalBeta);

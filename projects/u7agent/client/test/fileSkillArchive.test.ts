@@ -1,4 +1,4 @@
-// スキルの持ち出し / 取り込みの流れ。plan の分類・選択の状態遷移・送信の二重防止・失敗時の理由表示・
+// スキルのエクスポート / インポートの流れ。plan の分類・選択の状態遷移・送信の二重防止・失敗時の理由表示・
 // 成功後の一覧取り直しを、通信と DOM を注入した fake で固定する (HTTP は fileSkillApi.test.ts)。
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -236,7 +236,7 @@ test("適用の失敗は理由をそのまま出し、部分適用は出さず�
   assert.deepEqual(calls.selected, []);
 });
 
-test("持ち出し: 0 件は案内だけを出し、問題なければ保存を開始する", async () => {
+test("エクスポート: 0 件は案内だけを出し、問題なければ保存を開始する", async () => {
   const empty = setup({ checkExport: async () => ({ ...EXPORT_CHECK, entries: 0 }) });
   await empty.archive.exportSkills();
   assert.deepEqual(empty.calls.downloads, []);
@@ -248,7 +248,7 @@ test("持ち出し: 0 件は案内だけを出し、問題なければ保存を�
   assert.deepEqual(ready.calls.notes, [{ text: SKILL_EXPORT_STARTED_NOTE, error: false }]);
 });
 
-test("持ち出しの失敗は理由をそのまま出し、送信中の 2 回目は送らない", async () => {
+test("エクスポートの失敗は理由をそのまま出し、送信中の 2 回目は送らない", async () => {
   const pending = deferred<FileDownloadCheck>();
   let checks = 0;
   const { archive, calls } = setup({

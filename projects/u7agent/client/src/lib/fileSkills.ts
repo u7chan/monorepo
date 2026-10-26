@@ -61,39 +61,42 @@ export const FILE_SKILL_PANE_LOADING_NOTE = "一覧からスキルを選ぶと�
 export const FILE_SKILL_PANE_ERROR_NOTE =
   "一覧からスキルを選ぶと、説明と本文を表示します。一覧を取得できていないため、新しいスキルは作成できません。";
 
-/** 持ち出し / 取り込み (`.agents/skills` の ZIP)。一覧の見出し行に並べる操作 (docs/api-catalog.md) */
-export const SKILL_EXPORT_LABEL = "持ち出し";
-export const SKILL_IMPORT_LABEL = "取り込み";
-export const SKILL_EXPORT_EMPTY_NOTE = "持ち出せるスキルがありません。";
+/**
+ * エクスポート / インポート (`.agents/skills` の ZIP)。一覧の見出し行に並べる操作 (docs/api-catalog.md)。
+ * 操作の対象 (ZIP の出入り) がラベルだけで読めるよう、画面の語は 持ち出し / 取り込み ではなくこの対で揃える。
+ */
+export const SKILL_EXPORT_LABEL = "エクスポート";
+export const SKILL_IMPORT_LABEL = "インポート";
+export const SKILL_EXPORT_EMPTY_NOTE = "エクスポートできるスキルがありません。";
 export const SKILL_EXPORT_STARTED_NOTE = "ZIP の保存を開始しました。";
 export const SKILL_IMPORT_NOT_ZIP_NOTE = "ZIP ファイル（.zip）を選んでください。";
-export const SKILL_IMPORT_DIALOG_TITLE = "ZIP を取り込む";
-export const SKILL_IMPORT_FILE_LABEL = "取り込む ZIP";
+export const SKILL_IMPORT_DIALOG_TITLE = "ZIP をインポート";
+export const SKILL_IMPORT_FILE_LABEL = "インポートする ZIP";
 export const SKILL_IMPORT_PLANNING_NOTE = "ZIP の内容を確認しています…";
-export const SKILL_IMPORT_APPLY_LABEL = "取り込む";
-export const SKILL_IMPORT_APPLYING_LABEL = "取り込んでいます…";
+export const SKILL_IMPORT_APPLY_LABEL = "インポート";
+export const SKILL_IMPORT_APPLYING_LABEL = "インポートしています…";
 export const SKILL_IMPORT_CLOSE_LABEL = "閉じる";
-export const SKILL_IMPORT_NOTHING_NOTE = "取り込むスキルがありません。";
-export const SKILL_IMPORT_PLAN_HEADING = "取り込む内容";
+export const SKILL_IMPORT_NOTHING_NOTE = "インポートするスキルがありません。";
+export const SKILL_IMPORT_PLAN_HEADING = "インポートする内容";
 export const SKILL_IMPORT_SELECT_ALL_LABEL = "同名をすべて選ぶ";
-export const SKILL_IMPORT_APPLIED_HEADING = "取り込んだスキル";
-export const SKILL_IMPORT_SKIPPED_HEADING = "取り込まなかったスキル";
+export const SKILL_IMPORT_APPLIED_HEADING = "インポートしたスキル";
+export const SKILL_IMPORT_SKIPPED_HEADING = "インポートしなかったスキル";
 export const SKILL_IMPORT_APPLIED_NEW_NOTE = "追加しました。";
 export const SKILL_IMPORT_APPLIED_REPLACED_NOTE = "同名のスキルを置き換えました。";
 
-/** plan の 1 行の状態。取り込む / 書き込まない / 選べる / 選べないの別をここに閉じる */
+/** plan の 1 行の状態。インポートする / 書き込まない / 選べる / 選べないの別をここに閉じる */
 export type SkillImportStatus = SandboxSkillImportPlanEntry["status"];
 export const SKILL_IMPORT_STATUS_LABEL: Record<SkillImportStatus, string> = {
   new: "新規",
   identical: "内容が同一",
   conflict: "同名あり",
-  invalid: "取り込まない",
+  invalid: "インポートしない",
 };
 export const SKILL_IMPORT_STATUS_NOTE: Record<SkillImportStatus, string> = {
-  new: "取り込みます。",
+  new: "インポートします。",
   identical: "内容が同じなので書き込みません。",
   conflict: "同名のスキルがあります。",
-  invalid: "取り込みません。",
+  invalid: "インポートしません。",
 };
 
 /** plan の見積り。件数はディレクトリを含む ZIP のエントリ数で、サイズは展開後 (上限の判定と同じ値) */
@@ -101,16 +104,16 @@ export function skillImportPlanNote(entries: number, bytes: number): string {
   return `ZIP のエントリ数 ${entries} 件 / 展開後 ${formatBytes(bytes)}`;
 }
 
-/** 実行前に示す件数。new は常に取り込み、identical / invalid は常に対象外で、conflict は選択分だけ */
+/** 実行前に示す件数。new は常にインポートし、identical / invalid は常に対象外で、conflict は選択分だけ */
 export function skillImportSummary(imported: number, replaced: number): string {
   return replaced > 0
-    ? `取り込むスキル ${imported} 件（うち同名の置き換え ${replaced} 件）`
-    : `取り込むスキル ${imported} 件`;
+    ? `インポートするスキル ${imported} 件（うち同名の置き換え ${replaced} 件）`
+    : `インポートするスキル ${imported} 件`;
 }
 
 /** 適用後の結果。部分適用の有無は出さず、件数だけを示す (スキルごとの内訳はダイアログの一覧) */
 export function skillImportDoneNote(applied: number, skipped: number): string {
-  return `スキルを取り込みました（${applied} 件 / 省略 ${skipped} 件）。`;
+  return `スキルをインポートしました（${applied} 件 / 省略 ${skipped} 件）。`;
 }
 
 /**
