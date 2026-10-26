@@ -87,6 +87,30 @@ test("keeps projects and agents across reopen", () => {
   }
 });
 
+test("persists allowNaturalInvocation=false and normalizes true to the default", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.deleteAgent("agent-zundamon");
+    first.saveAgent({ ...agent("manual"), allowNaturalInvocation: false });
+    first.saveAgent(agent("default"));
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.equal(second.getAgent("manual")?.allowNaturalInvocation, false);
+    assert.equal(Object.hasOwn(second.getAgent("default") ?? {}, "allowNaturalInvocation"), false);
+
+    // true は既定へ戻す (NULL) ので、読み直すとキーごと省略される
+    const manual = second.getAgent("manual");
+    assert.ok(manual);
+    second.saveAgent({ ...manual, allowNaturalInvocation: true });
+    assert.equal(Object.hasOwn(second.getAgent("manual") ?? {}, "allowNaturalInvocation"), false);
+    second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("recreates the tables without the seed when the schema version differs", () => {
   const dir = tempStoreDir();
   try {
@@ -1252,7 +1276,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 28);
+    assert.equal(APP_DB_SCHEMA_VERSION, 29);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1844,6 +1868,7 @@ test("migrates a v16 db additively and keeps NULL and [] of the skill allowlists
         "commonSkillNames",
         "builtinSkillNames",
         "toolNames",
+        "allowNaturalInvocation",
         "sortOrder",
       ],
     );

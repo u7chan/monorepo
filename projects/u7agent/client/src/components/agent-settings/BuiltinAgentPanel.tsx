@@ -9,6 +9,7 @@ import {
 } from "../../lib/fileSkills";
 import { TOOL_CATALOG_UNAVAILABLE_NOTE, TOOL_GROUP_LABELS, groupTools, unavailableToolNote } from "../../lib/tools";
 import type { AgentDef, BuiltinSkillInfo, ToolCatalogEntry } from "../../types";
+import { InvocationModeRow } from "./InvocationModeRow";
 import { BUILTIN_SECTION_LABEL } from "./SkillSelector";
 import { SkillGroup, SkillRow } from "./SkillRow";
 
@@ -22,6 +23,8 @@ export const BUILTIN_PANEL_SKILLS_NOTE =
   "ビルトインは外す設定を持たないため、共通スキルと組み込みスキルは常にすべて使用されます。共通スキルはワークスペース直下の .agents/skills にあり、増減してもこの画面を開き直せば反映されます。プロジェクトのスキル（会話の作業ディレクトリ配下の .agents/skills）は会話ごとに決まり、この画面には出ません。";
 /** ツール節の断り。ビルトインは `toolNames` を持たないので、ここでもチェックは出さない */
 export const BUILTIN_PANEL_TOOLS_READONLY_LABEL = "このエージェントでは外せません";
+/** ビルトインは自然文では発火しない (定義側も false)。行の OFF と合わせて理由をここで伝える */
+export const BUILTIN_PANEL_INVOCATION_FIXED_NOTE = "ビルトインは常に OFF です（自然文では発火しません）。";
 
 /**
  * ビルトインはサーバー所有で編集も削除もできないので、
@@ -56,6 +59,8 @@ export function BuiltinAgentPanel({
       : [],
   );
   const usedBuiltinCount = builtinSkills.filter((skill) => !overriddenBuiltins.has(skill.name)).length;
+  // ビルトインは常に OFF。値が無い旧 API でも ON に倒さない (サーバー側も id で false に固定する)
+  const allowNaturalInvocation = agent.allowNaturalInvocation === true;
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
@@ -79,6 +84,8 @@ export function BuiltinAgentPanel({
                 {BUILTIN_PANEL_SKILLS_READONLY_LABEL}
               </span>
             </div>
+            <InvocationModeRow allowNaturalInvocation={allowNaturalInvocation} readOnly />
+            <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_PANEL_INVOCATION_FIXED_NOTE}</p>
             {fileSkills.status === "loading" ? (
               <p className="text-2xs leading-4 break-words text-ink-muted">{FILE_SKILL_LOADING_NOTE}</p>
             ) : null}

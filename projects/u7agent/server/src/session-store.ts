@@ -204,6 +204,8 @@ function parseAgentPayload(value: unknown): AgentPayloadInfo | undefined {
     description: typeof agent.description === "string" ? agent.description : "",
     ...(commonSkillNames ? { commonSkillNames } : {}),
     ...(builtinSkillNames ? { builtinSkillNames } : {}),
+    // 既定 (true / 未指定) はキーを省略し、false だけを残す
+    ...(agent.allowNaturalInvocation === false ? { allowNaturalInvocation: false } : {}),
     ...(toolNames ? { toolNames } : {}),
   };
 }

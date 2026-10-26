@@ -36,6 +36,8 @@ const BUILTIN_AGENT: AgentRecord = {
   name: "汎用アシスタント",
   description: "役割や口調を設定していない既定のエージェント",
   systemPrompt: "",
+  // 既定のエージェントは自然文では発火させない。スキルが増えても誤発火しないための固定値
+  allowNaturalInvocation: false,
   suggestions: [
     { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
     { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
@@ -73,8 +75,19 @@ function publicAgent(agent: AgentRecord): AgentDef {
   // `[]` は「すべて OFF」なので真偽で落とさない (未指定のときだけキーを省略する)
   if (agent.commonSkillNames) result.commonSkillNames = [...agent.commonSkillNames];
   if (agent.builtinSkillNames) result.builtinSkillNames = [...agent.builtinSkillNames];
+  // 既定 (true) はキーを省略し、false だけを載せる
+  if (agent.allowNaturalInvocation === false) result.allowNaturalInvocation = false;
   if (agent.toolNames) result.toolNames = [...agent.toolNames];
   return result;
+}
+
+/**
+ * セッションのスキルを自然文で発火させてよいか。ビルトインは定義の値に依らず常に許さない
+ * (このフィールドが無い旧スナップショットから復元しても誤発火に戻さない)。
+ */
+export function allowsNaturalInvocation(agent: Pick<AgentDef, "id" | "allowNaturalInvocation">): boolean {
+  if (agent.id === BUILTIN_AGENT.id) return false;
+  return agent.allowNaturalInvocation !== false;
 }
 
 /**
@@ -199,6 +212,7 @@ function makeAgent(input: DefinitionInput, id: string = randomUUID()): AgentReco
     systemPrompt?: unknown;
     commonSkillNames?: unknown;
     builtinSkillNames?: unknown;
+    allowNaturalInvocation?: unknown;
     toolNames?: unknown;
     icon?: unknown;
     model?: unknown;
@@ -223,6 +237,14 @@ function makeAgent(input: DefinitionInput, id: string = randomUUID()): AgentReco
   const suggestions = normalizeSuggestions(record?.suggestions);
   const commonSkillNames = allowlistOf(record?.commonSkillNames, "Common skill", SKILL_LIMITS);
   const builtinSkillNames = allowlistOf(record?.builtinSkillNames, "Builtin skill", SKILL_LIMITS);
+  const allowNaturalInvocation = record?.allowNaturalInvocation;
+  if (
+    allowNaturalInvocation !== undefined &&
+    allowNaturalInvocation !== null &&
+    typeof allowNaturalInvocation !== "boolean"
+  ) {
+    throw invalid("allowNaturalInvocation must be a boolean");
+  }
   // 一覧に無い名前も保存する (改名・削除・同梱の入れ替えで保存値を書き換えない。docs/api-catalog.md)
   const toolNames = allowlistOf(record?.toolNames, "Agent tool", TOOL_LIMITS);
   if (icon) agent.icon = icon;
@@ -233,6 +255,8 @@ function makeAgent(input: DefinitionInput, id: string = randomUUID()): AgentReco
   // `[]` は「すべて OFF」なので真偽で落とさない (未指定のときだけキーを省略する)
   if (commonSkillNames) agent.commonSkillNames = commonSkillNames;
   if (builtinSkillNames) agent.builtinSkillNames = builtinSkillNames;
+  // true は既定なので保存せず、false のときだけ持つ (null は解除 = 既定の true)
+  if (allowNaturalInvocation === false) agent.allowNaturalInvocation = false;
   if (toolNames) agent.toolNames = toolNames;
   return agent;
 }

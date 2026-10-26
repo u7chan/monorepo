@@ -344,6 +344,33 @@ test("expandSkillCommand は本文が取れないときだけ 4xx / 502 で止�
   }
 });
 
+test("allowNaturalInvocation=false は索引から外すが /skill: の展開は残す", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-manual-session-skills-"));
+  const commonPath = join(root, ".agents/skills/alpha/SKILL.md");
+  const { workspace } = stubWorkspace({
+    skills: { ".agents/skills": [skillEntry(commonPath, "alpha")] },
+    bodies: { [commonPath]: "---\nname: alpha\ndescription: アルファ\n---\n本文" },
+  });
+  const input: SessionSkillsInput = {
+    rootCwd: root,
+    relativeCwd: "",
+    client: workspace,
+    allowNaturalInvocation: false,
+  };
+
+  const listed = await listSessionSkills(input);
+  assert.ok(listed.length > 1, "共通 + 組み込みを返す");
+  assert.ok(
+    listed.every((item) => item.disableModelInvocation),
+    "一覧の全行が索引から外れた値になる",
+  );
+
+  const expanded = await expandSkillCommand("/skill:alpha 追加", input);
+  assert.match(expanded, /<skill name="alpha"/);
+  assert.match(expanded, /本文/);
+  assert.match(expanded, /追加/);
+});
+
 test("expandSkillCommand は disable-model-invocation のスキルも展開する (一覧にしか出ない設定)", async () => {
   const root = mkdtempSync(join(tmpdir(), "u7agent-expand-disabled-"));
   const path = join(root, "proj/.agents/skills/manual/SKILL.md");

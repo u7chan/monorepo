@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createAgentCatalog } from "../src/agents";
+import { allowsNaturalInvocation, createAgentCatalog } from "../src/agents";
 import { sessionUploadsRel } from "../src/app-paths";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { ProjectStore } from "../src/projects";
@@ -92,6 +92,7 @@ function skillsInputOf(record: SessionRecord, workspace: SandboxWorkspaceClient)
     client: workspace,
     commonSkillNames: record.agent.commonSkillNames,
     builtinSkillNames: record.agent.builtinSkillNames,
+    allowNaturalInvocation: allowsNaturalInvocation(record.agent),
   };
 }
 
@@ -406,6 +407,64 @@ test("共通スキルの許可リストは作成時に固定され、定義を�
       created,
     );
     await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("自然文での発火はスナップショットで固定し、ビルトインは旧 meta でも常に許可しない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-natural-invocation-"));
+  const workspace = commonSkillWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const agent = catalog.createAgent({ name: "手動専用", allowNaturalInvocation: false });
+    const pi1 = createStubPi();
+    const store1 = createStore(storeDir, { pi: pi1, workspace, catalog });
+    const record = await store1.create({ agentId: agent.id });
+    assert.equal(pi1.createInputs.at(-1)?.allowNaturalInvocation, false, "注入経路にも渡す");
+    const listed = await listSessionSkills(skillsInputOf(record, workspace));
+    assert.ok(listed.length > 0);
+    assert.ok(
+      listed.every((skill) => skill.disableModelInvocation),
+      "全スキルが索引から外れる",
+    );
+    await store1.flush(record);
+    await store1.close();
+
+    // 定義を true に戻しても、復元は meta のスナップショット (false) を使う
+    catalog.updateAgent(agent.id, { allowNaturalInvocation: true });
+    const pi2 = createStubPi();
+    const store2 = createStore(storeDir, { pi: pi2, workspace, catalog });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.equal(pi2.createInputs.at(-1)?.allowNaturalInvocation, false, "復元でも同じ値を渡す");
+    await store2.close();
+
+    // ビルトインは作成時から false で、値を持たない旧 meta から復元しても id で false に倒す
+    const builtinPi = createStubPi();
+    const builtinStore = createStore(storeDir, { pi: builtinPi, workspace, catalog });
+    const builtinRecord = await builtinStore.create();
+    assert.equal(builtinPi.createInputs.at(-1)?.allowNaturalInvocation, false);
+    await builtinStore.flush(builtinRecord);
+    await builtinStore.close();
+
+    const meta = await readMeta(builtinRecord.id, storeDir);
+    delete (meta.agent as Record<string, unknown>).allowNaturalInvocation;
+    await writeFile(sessionMetaPath(builtinRecord.id, storeDir), `${JSON.stringify(meta, null, 2)}\n`);
+
+    const restoredPi = createStubPi();
+    const restoredStore = createStore(storeDir, { pi: restoredPi, workspace, catalog });
+    await restoredStore.init();
+    const restoredBuiltin = await restoredStore.resolve(builtinRecord.id);
+    assert.ok(restoredBuiltin);
+    assert.equal(
+      restoredPi.createInputs.at(-1)?.allowNaturalInvocation,
+      false,
+      "旧 meta でもビルトインは自然文で発火させない",
+    );
+    assert.equal(Object.hasOwn(restoredBuiltin.agent, "allowNaturalInvocation"), false);
+    await restoredStore.close();
   } finally {
     await rm(storeDir, { recursive: true, force: true });
   }

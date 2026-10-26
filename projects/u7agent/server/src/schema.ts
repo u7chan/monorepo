@@ -97,6 +97,11 @@ export const AgentDefSchema = z.object({
    */
   builtinSkillNames: z.array(z.string()).optional(),
   /**
+   * 自然文での発火を許すか。未指定 = 許す (既定)。false なら共通 / 組み込み / プロジェクトの
+   * 全スキルを `/skill:` とスキルボタンからのみ起動する (docs/api-catalog.md)。
+   */
+  allowNaturalInvocation: z.boolean().optional(),
+  /**
    * ツールの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (この 2 つは混同しない)。実効は
    * アプリ側の可否との積で、アプリ側が止めているツールは許可リストに入れても使えない
    * (docs/api-catalog.md#ツール許可リスト)。
@@ -150,6 +155,11 @@ export const AgentPayloadInfoSchema = z.object({
   commonSkillNames: z.array(z.string()).optional(),
   /** 組み込みスキルの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (未指定のときはキーを省略する) */
   builtinSkillNames: z.array(z.string()).optional(),
+  /**
+   * 自然文での発火を許すか。未指定 = 許す (既定)。false のときだけキーを載せる。
+   * セッション作成時のスナップショットで、定義を編集しても復元後の会話は変わらない
+   */
+  allowNaturalInvocation: z.boolean().optional(),
   /**
    * ツールの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (未指定のときはキーを省略する)。
    * セッション作成時のスナップショットで、定義を編集しても復元後の会話は変わらない
@@ -2095,6 +2105,7 @@ const agentBodyShape = {
   skillIds: z.unknown().optional(),
   commonSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
   builtinSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
+  allowNaturalInvocation: z.boolean().nullish(),
   toolNames: z.array(z.string().max(TOOL_NAME_MAX)).max(TOOL_NAMES_MAX).nullish(),
   icon: z.string().nullish(),
   model: ModelRefSchema.nullish(),

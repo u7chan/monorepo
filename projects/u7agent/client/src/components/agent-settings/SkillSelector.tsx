@@ -11,6 +11,7 @@ import {
 import { RELOAD_ABOVE_NOTE } from "../../lib/settingsNotes";
 import type { BuiltinSkillInfo, FileSkillInfo } from "../../types";
 import { ReloadButton } from "../ReloadButton";
+import { InvocationModeRow } from "./InvocationModeRow";
 import { SkillGroup, SkillRow } from "./SkillRow";
 
 /** 組み込み行の見出し。チェックでエージェント別に外せる (既定は全部 ON)。ビルトインの閲覧ビューも同じ語で出す */
@@ -59,6 +60,8 @@ export function SkillSelector({
   onToggleBuiltinSkill,
   onShowAllBuiltinSkills,
   onDisableAllBuiltinSkills,
+  allowNaturalInvocation,
+  onToggleNaturalInvocation,
 }: {
   /** アプリに同梱する組み込みスキル。エージェント定義の許可リストで外せるので、チェック可能な行で出す */
   builtinSkills: BuiltinSkillInfo[];
@@ -74,6 +77,9 @@ export function SkillSelector({
   onToggleBuiltinSkill: (name: string, checked: boolean) => void;
   onShowAllBuiltinSkills: () => void;
   onDisableAllBuiltinSkills: () => void;
+  /** true = 自然文でも発火する (既定)。false なら使用中のスキルは /skill: とスキルボタンだけ */
+  allowNaturalInvocation: boolean;
+  onToggleNaturalInvocation: (allowed: boolean) => void;
 }) {
   // 一覧 API は共通 (user) と組み込みだけを返すので、組み込みを除いた側がそのまま共通スキル
   const commonSkills = fileSkills.status === "ready" ? groupFileSkills(fileSkills.skills).common : [];
@@ -125,6 +131,8 @@ export function SkillSelector({
           </ReloadButton>
         ) : null}
       </div>
+      {/* 行の「使用」とは別の軸。ON = 自然文でも発火、OFF = /skill: とスキルボタンだけ */}
+      <InvocationModeRow allowNaturalInvocation={allowNaturalInvocation} onChange={onToggleNaturalInvocation} />
       {fileSkills.status === "loading" ? (
         <p className="text-2xs leading-4 break-words text-ink-muted">{FILE_SKILL_LOADING_NOTE}</p>
       ) : null}

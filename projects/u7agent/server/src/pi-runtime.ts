@@ -141,6 +141,14 @@ export interface PiRuntimeLike {
     promptSnapshot?: PromptSnapshot;
     /** この会話の添付置き場 (root 相対)。参照画像の許可範囲に使う */
     uploadsDirRel?: string;
+    /** 共通スキルの許可リスト。undefined = 全可視、`[]` = すべて OFF */
+    commonSkillNames?: string[];
+    /** 組み込みスキルの許可リスト。undefined = 全部 ON、`[]` = すべて OFF */
+    builtinSkillNames?: string[];
+    /** false なら解決した全スキルを索引から外す (既定 true) */
+    allowNaturalInvocation?: boolean;
+    /** ツールの許可リスト。undefined = 全部 ON、`[]` = すべて OFF */
+    toolNames?: string[];
     /** 子モード。読み取り専用ツールだけを公開し、常時有効群とスキル発見を落とす (既定 "chat") */
     mode?: "chat" | "investigation";
   }): Promise<{ session: unknown; promptSnapshot?: PromptSnapshot }>;

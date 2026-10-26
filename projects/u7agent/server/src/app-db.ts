@@ -21,7 +21,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 28;
+export const APP_DB_SCHEMA_VERSION = 29;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -504,6 +504,7 @@ CREATE TABLE agents (
   commonSkillNames TEXT,
   builtinSkillNames TEXT,
   toolNames TEXT,
+  allowNaturalInvocation INTEGER,
   sortOrder INTEGER
 );
 ${NOTIFICATION_SETTINGS_TABLE}
@@ -824,6 +825,8 @@ function agentOf(row: Row): AgentDef {
   if (commonSkillNames) agent.commonSkillNames = commonSkillNames;
   if (builtinSkillNames) agent.builtinSkillNames = builtinSkillNames;
   if (toolNames) agent.toolNames = toolNames;
+  // NULL = 既定 (自然文でも発火する)、0 = false。1 は保存しない (true は NULL へ正規化する)
+  if (row.allowNaturalInvocation === 0) agent.allowNaturalInvocation = false;
   return agent;
 }
 
@@ -1125,6 +1128,8 @@ export class AppDb {
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "builtinSkillNames", "TEXT");
       // v18 以前に無い列 (ツールの許可リスト)。既存行は NULL = 未指定 (全部 ON) として読む
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "toolNames", "TEXT");
+      // v28 以前に無い列 (自然文での発火)。既存行は NULL = 既定 (発火する) として読む
+      if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "allowNaturalInvocation", "INTEGER");
       // v20 以前に無い列 (表示順)。既存行は NULL のままで、listAgents の rowid タイブレークが
       // そのまま作成順になる (移行で既存行を書き換えない)
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "sortOrder", "INTEGER");
@@ -1776,13 +1781,13 @@ export class AppDb {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, suggestions, commonSkillNames, builtinSkillNames, toolNames, sortOrder)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM agents))
+          `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, suggestions, commonSkillNames, builtinSkillNames, toolNames, allowNaturalInvocation, sortOrder)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM agents))
            ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
              systemPrompt = excluded.systemPrompt, icon = excluded.icon, model = excluded.model,
              thinkingLevel = excluded.thinkingLevel, suggestions = excluded.suggestions,
              commonSkillNames = excluded.commonSkillNames, builtinSkillNames = excluded.builtinSkillNames,
-             toolNames = excluded.toolNames`,
+             toolNames = excluded.toolNames, allowNaturalInvocation = excluded.allowNaturalInvocation`,
         )
         .run(
           agent.id,
@@ -1797,6 +1802,8 @@ export class AppDb {
           agent.commonSkillNames === undefined ? null : JSON.stringify(agent.commonSkillNames),
           agent.builtinSkillNames === undefined ? null : JSON.stringify(agent.builtinSkillNames),
           agent.toolNames === undefined ? null : JSON.stringify(agent.toolNames),
+          // false だけ 0 を書き、true / 未指定は NULL (既定) へ寄せる
+          agent.allowNaturalInvocation === false ? 0 : null,
         ),
     );
   }

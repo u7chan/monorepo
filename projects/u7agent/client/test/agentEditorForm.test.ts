@@ -6,6 +6,7 @@ import type { AgentDef } from "../src/types";
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const {
+  agentFormKey,
   agentFormOf,
   agentPayloadOf,
   withAllBuiltinSkillsDisabled,
@@ -36,6 +37,15 @@ test("下書きは未指定 / 空の許可リスト / 明示リストを区別�
   // カタログの配列を直接編集しないようコピーして持つ
   const catalogNames = ["writer"];
   assert.notEqual(agentFormOf(agent({ commonSkillNames: catalogNames })).commonSkillNames, catalogNames);
+});
+
+test("自然文での発火は既定 ON、OFF もそのまま保存し、下書きの初期化キーに含める", () => {
+  assert.equal(agentFormOf(agent()).allowNaturalInvocation, true);
+  assert.equal(agentFormOf(undefined).allowNaturalInvocation, true);
+  assert.equal(agentFormOf(agent({ allowNaturalInvocation: false })).allowNaturalInvocation, false);
+  assert.equal(sent(agentFormOf(agent())).allowNaturalInvocation, true);
+  assert.equal(sent(agentFormOf(agent({ allowNaturalInvocation: false }))).allowNaturalInvocation, false);
+  assert.notEqual(agentFormKey(agent()), agentFormKey(agent({ allowNaturalInvocation: false })));
 });
 
 test("保存ペイロードは未指定ならキーが落ち、null は解除として送られる", () => {
