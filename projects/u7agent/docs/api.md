@@ -792,6 +792,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | POST | `/api/shared-contents/:id/publish` | 更新（同じ URL へ再公開、202）。`failed` からの再試行と、停止中からの更新も同じ |
 | POST | `/api/shared-contents/:id/stop` | 停止（200）。workers.dev を無効にする。未公開の行は `failed` を返し、script の不在が確定したときは 502 と終端状態（`stopped` / `failed` + `lastError`） |
 | POST | `/api/shared-contents/:id/resume` | 再公開（202）。同じ URL を有効に戻す。公開実績の無い行は 409 |
+| PATCH | `/api/shared-contents/:id` | 表示名の変更（200、変更後の DTO）。URL・状態・時刻は変えない |
 | DELETE | `/api/shared-contents/:id` | 削除（204）。provider 側の削除が成功してから行を消す |
 
 ```json
@@ -799,12 +800,16 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 { "sessionId": "…", "directory": "dist", "name": "デモ" }
 // 202 応答
 { "id": "…", "status": "publishing" }
+// PATCH /api/shared-contents/:id の入力（前後の空白はサーバーで落とす）
+{ "name": "モンスト風" }
 // POST /api/shared-contents/:id/stop の 200 応答（公開実績のある行）
 { "id": "…", "status": "stopped" }
 // 公開実績の無い行は status が "failed" になり、lastError に固定文言が入る
 ```
 
 一覧・詳細は `{ id, sessionId, name, sourcePath, sourceKind, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`sourceKind` は公開元の種類で、`session-root` はセッションの作業フォルダ自身、`directory` はその配下のディレクトリ。`remoteId` / `providerAccount` は返さない。`status` の値は `SharedContentStatus`（`server/src/app-db.ts`）と schema を正とし、`lastError` は分類済みの固定文言だけを入れる。
+
+表示名の変更は空欄・制御文字・100 文字超を 400 にし、本文の検証失敗と同じく `state: "not_stored"` を付ける。存在しない id は 404、保存失敗は 503。provider を呼ばないので `publishing` の行にも送れるが、画面の導線は状態が確定してから出す（[static-sharing.md](static-sharing.md#gui管理一覧)）。
 
 - `directory` はセッションの作業ディレクトリ相対。絶対パス・`..`・ワークスペース root 自身は 400。字面が `.`（`./` を含む）のときだけセッションの作業フォルダ自身を指し、`projectCwd` を持つプロジェクト会話では 409。`a/..` や `./.` は正規化すると `.` になるが、字面が `.` でないため 400（`foo/.` は従来どおり `foo`）。
 
@@ -824,7 +829,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 停止は `published` と、結果不明で `publishing` のまま残った行から受け付ける。`failed` / `stopped` と進行中の `publishing` は 409。再公開は `stopped` のうち公開実績（`publishedAt !== null`）のある行だけ。更新は `published` / `failed` / `stopped` を受け付ける（停止中からの更新は成果物を送り直し、成功時に subdomain を有効へ戻す）。削除は `publishing` を一律で 409 にし、停止で状態を確定させてから行う。
 - script の不在が確定した場合（照会の 404、停止 / 再公開の要求自体の 404）は、一度も公開できていない行だけ `failed` にし、公開実績のある行は `stopped` + `lastError`（`publishedAt` は残す）にする。停止の場合は `502` を返し、行は `publishing` のまま残さない（削除できる）。照会できない間は `publishing` + `lastError` に留める。
 - 削除は provider が 404 を返したときも成功扱い（外部で既に消えている）。同じ id への 2 回目は行が無いので 404。
-- 同じ id の変更系が進行中なら 409。停止 / 再公開 / 削除の状態保存に失敗したときは provider の操作を成功として返さず 503（操作は冪等なので再試行で収束する）。
+- 同じ id の変更系が進行中なら 409（表示名の変更は provider を呼ばず状態も変えないので対象外）。停止 / 再公開 / 削除の状態保存に失敗したときは provider の操作を成功として返さず 503（操作は冪等なので再試行で収束する）。
 - 変更系の失敗は `{ error }`。`state: "not_stored"` は「この要求で行を保存しなかった」ときだけ付き、`published` になったかは GET で確認する。停止の `502` は終端状態 / `publishing` / 開始状態のいずれかを保存してから返すため `state` を付けない（状態保存に失敗した `503` は未保存なので付く）。
 - 一覧・詳細・プレビュー（GET）の失敗応答は `{ error }` だけで、`state` を付けない（読み取りは何も保存しない）。
 - Cloudflare の応答本文と API トークンは応答・ログ・`lastError` に載せない。

@@ -25,6 +25,7 @@ const {
   resetSharedContentExclusions,
   getGitInfo,
   getSharedContentPreview,
+  renameSharedContent,
   statFile,
   getRuntimeDebugServeStatus,
   getRuntimeServeStatus,
@@ -369,6 +370,42 @@ test("共有のプレビューは sessionId と directory を query で送り、
   await assert.rejects(getSharedContentPreview({ sessionId: "session-a", directory: "dist" }), {
     message: "公開するディレクトリではありません",
     status: 409,
+  });
+});
+
+test("共有物の名前の変更は PATCH で id と名前だけを送り、失敗は理由と status を保つ", async (t) => {
+  const requests: Request[] = [];
+  let answer: () => Response = () =>
+    Response.json({
+      id: "abc123",
+      sessionId: "session-a",
+      name: "新しい名前",
+      sourcePath: "projects/app/dist",
+      sourceKind: "directory",
+      provider: "cloudflare",
+      status: "published",
+      publicUrl: "https://u7s-abc123.demo.workers.dev/",
+      createdAt: 1,
+      updatedAt: 1,
+      publishedAt: 1,
+      stoppedAt: null,
+      lastError: null,
+    });
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return answer();
+  });
+  const renamed = await renameSharedContent("abc123", "新しい名前");
+  assert.equal(renamed.name, "新しい名前");
+  const request = requests[0];
+  assert.equal(request.method, "PATCH");
+  assert.equal(new URL(request.url).pathname, "/api/shared-contents/abc123");
+  assert.deepEqual(await request.json(), { name: "新しい名前" });
+
+  answer = () => Response.json({ error: "表示名を入力してください", state: "not_stored" }, { status: 400 });
+  await assert.rejects(renameSharedContent("abc123", ""), {
+    message: "表示名を入力してください",
+    status: 400,
   });
 });
 

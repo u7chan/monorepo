@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import { messageFor, statusCodeOf } from "../http";
-import type { CreateSharedContentBody } from "../schema";
+import type { CreateSharedContentBody, RenameSharedContentBody } from "../schema";
 import { SharedContentStoredFailure, type SharedContentsService } from "../shared-contents";
 
 /**
@@ -70,6 +70,15 @@ export function createSharedContentRoutes({ sharedContents }: { sharedContents: 
     resume: async (c: Context) => {
       try {
         return c.json(await sharedContents.resume(c.req.param("id") ?? ""), 202);
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    /** 表示名だけの変更。provider を呼ばず、状態も変えないので 200 で確定する */
+    rename: (c: Context, body: RenameSharedContentBody) => {
+      try {
+        return c.json(sharedContents.rename(c.req.param("id") ?? "", body), 200);
       } catch (error) {
         return failure(c, error);
       }

@@ -30,6 +30,7 @@ import type { SharedContentExclusions } from "./shared-content-exclusions";
 import { effectiveSharedContentExcludeNames } from "./shared-content-rules";
 import type {
   CreateSharedContentBody,
+  RenameSharedContentBody,
   SharedContentMutationResponse,
   SharedContentPreviewResponse,
   SharedContentResponse,
@@ -67,6 +68,8 @@ export const SHARED_CONTENT_DELETE_UNSETTLED = "公開の状態が確定して�
 export const SHARED_CONTENT_RECONCILE_FAILED = "公開の結果を確認できませんでした。Cloudflare の状態を確認してください";
 export const SHARED_CONTENT_STORE_ERROR = "共有コンテンツを保存できませんでした";
 export const SHARED_CONTENT_READ_ERROR = "共有コンテンツを読み取れません";
+/** 改名で空欄を送ったとき。作成と違い、ディレクトリ名へ黙って落とさない */
+export const SHARED_CONTENT_NAME_REQUIRED = "表示名を入力してください";
 /** 作業フォルダ全体の公開はプロジェクト会話では受け付けない (公開範囲がプロジェクト全体になるため) */
 export const SHARED_CONTENT_PROJECT_SESSION_ROOT = "プロジェクトの会話では作業フォルダ全体を共有できません";
 
@@ -127,6 +130,8 @@ export interface SharedContentStore {
   /** `sessionId` を渡すと、その会話で作った共有物だけを返す (GUI の「この会話の共有物」) */
   listSharedContents(sessionId?: string): SharedContentRow[];
   listPublishingSharedContents(): SharedContentRow[];
+  /** 表示名だけを変える。状態と時刻 (`updatedAt` / `publishedAt` / `stoppedAt`) は変えない */
+  updateSharedContentName(id: string, name: string): void;
   /** provider 側の削除が成功したあとにだけ呼ぶ */
   deleteSharedContent(id: string): void;
 }
@@ -210,6 +215,22 @@ export class SharedContentsService {
     }
     if (!row) throw httpError(404, "Shared content not found");
     return toResponse(row);
+  }
+
+  /**
+   * 表示名の変更。URL・状態・成果物に触らないので、状態を問わず受け付け、id 単位のロックにも乗せない
+   * (公開ジョブと重なっても、書き込む列が違う)。`updatedAt` も変えない。
+   */
+  rename(id: string, input: RenameSharedContentBody): SharedContentResponse {
+    const row = this.#requireRow(id);
+    const name = parseSharedContentName(input.name);
+    if (name === row.name) return toResponse(row);
+    try {
+      this.#store.updateSharedContentName(id, name);
+    } catch {
+      throw httpError(503, SHARED_CONTENT_STORE_ERROR);
+    }
+    return toResponse({ ...row, name });
   }
 
   /**
@@ -956,7 +977,16 @@ export function resolveSharedContentSource(rootCwd: string, sessionCwd: string, 
 }
 
 export function normalizeSharedContentName(raw: string | undefined, sourcePath: string): string {
-  const name = (raw ?? "").trim() || basename(sourcePath) || "共有コンテンツ";
+  return parseSharedContentName((raw ?? "").trim() || basename(sourcePath) || "共有コンテンツ");
+}
+
+/**
+ * 利用者が入力した表示名の検証。作成 (空欄はディレクトリ名へ落とす) と改名 (空欄は 400) で
+ * 入口だけが違うので、検証そのものはこの 1 箇所に置く。
+ */
+function parseSharedContentName(raw: string): string {
+  const name = raw.trim();
+  if (name === "") throw httpError(400, SHARED_CONTENT_NAME_REQUIRED);
   if (name.length > SHARED_CONTENT_MAX_NAME_LENGTH || hasControlChars(name)) {
     throw httpError(400, `表示名は ${SHARED_CONTENT_MAX_NAME_LENGTH} 文字以内で指定してください`);
   }

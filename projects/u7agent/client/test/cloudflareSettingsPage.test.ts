@@ -91,6 +91,7 @@ function contents(overrides: Partial<SharedContentsManager> = {}): SharedContent
     retry: async () => {},
     stop: async () => {},
     resume: async () => {},
+    rename: async () => {},
     remove: async () => {},
     ...overrides,
   };

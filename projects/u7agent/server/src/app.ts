@@ -36,6 +36,7 @@ import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
   AnswerQuestionBodySchema,
   CreateSharedContentBodySchema,
+  RenameSharedContentBodySchema,
   CreateSpaceBodySchema,
   CreateAgentBodySchema,
   CreateCustomProviderBodySchema,
@@ -642,6 +643,20 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => sharedContentRoutes.create(c, c.req.valid("json")),
     )
     .get("/api/shared-contents/:id", appData, sharedContentRoutes.detail)
+    // 表示名だけの変更。行を保存するので、本文の検証失敗は state: "not_stored" を付ける
+    .patch(
+      "/api/shared-contents/:id",
+      appDataMutation,
+      jsonBodyValidator(
+        RenameSharedContentBodySchema,
+        (result, c) =>
+          result.success ? undefined : c.json({ error: "Invalid request body", state: "not_stored" as const }, 400),
+        {
+          invalidJson: (c) => c.json({ error: "Request body must be valid JSON", state: "not_stored" as const }, 400),
+        },
+      ),
+      (c) => sharedContentRoutes.rename(c, c.req.valid("json")),
+    )
     .post("/api/shared-contents/:id/publish", appDataMutation, sharedContentRoutes.publish)
     .post("/api/shared-contents/:id/stop", appDataMutation, sharedContentRoutes.stop)
     .post("/api/shared-contents/:id/resume", appDataMutation, sharedContentRoutes.resume)

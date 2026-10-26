@@ -31,6 +31,11 @@ const jsonPut = (payload: unknown): RequestInit => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(payload),
 });
+const jsonPatch = (payload: unknown): RequestInit => ({
+  method: "PATCH",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload),
+});
 const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 /** ZIP の元ファイルを作り、呼ばれるたびに新しいストリームを返す */
@@ -814,6 +819,77 @@ test("共有の除外名は設定 API で保存し、プレビューと公開の
     );
     await waitForSettled(bff, created.id);
     assert.deepEqual(downloadCalls.at(-1), { path: "projects/app/dist", exclude: ["AGENTS.md", ".env"] });
+  } finally {
+    await restore();
+  }
+});
+
+test("表示名の変更: 公開中でも受け付け、URL・状態・時刻を変えずに名前だけを差し替える", async () => {
+  const { bff, sessionId, restore } = await setup();
+  try {
+    const created = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId, directory: "dist", name: "最初の名前" })),
+    );
+    // 公開ジョブと重なっても、書き込む列が違うので 409 にしない
+    const duringPublish = await bff.app.request(
+      `/api/shared-contents/${created.id}`,
+      jsonPatch({ name: "  公開中の名前  " }),
+    );
+    assert.equal(duringPublish.status, 200);
+    const renamedWhilePublishing = await jsonBody(duringPublish);
+    assert.equal(renamedWhilePublishing.name, "公開中の名前", "前後の空白は落とす");
+    assert.equal(renamedWhilePublishing.status, "publishing");
+
+    const settled = await waitForSettled(bff, created.id);
+    assert.equal(settled.status, "published");
+    assert.equal(settled.name, "公開中の名前", "公開の完了で名前が戻らない");
+
+    const renamed = await jsonBody(
+      await bff.app.request(`/api/shared-contents/${created.id}`, jsonPatch({ name: "あとから変えた名前" })),
+    );
+    assert.equal(renamed.name, "あとから変えた名前");
+    assert.equal(renamed.publicUrl, settled.publicUrl, "URL は変えない");
+    assert.equal(renamed.publishedAt, settled.publishedAt, "公開の実績を変えない");
+    assert.equal(renamed.updatedAt, settled.updatedAt, "一覧の並びと「更新」の時刻を変えない");
+    assert.equal(renamed.status, "published");
+
+    const detail = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
+    assert.equal(detail.name, "あとから変えた名前", "GET でも変わっている");
+  } finally {
+    await restore();
+  }
+});
+
+test("表示名の変更の検証: 空・空白だけ・長すぎる名前と不正な本文は 400、存在しない id は 404", async () => {
+  const { bff, sessionId, restore } = await setup();
+  try {
+    const created = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId, directory: "dist" })),
+    );
+    const rename = (payload: unknown) => bff.app.request(`/api/shared-contents/${created.id}`, jsonPatch(payload));
+
+    for (const payload of [{ name: "" }, { name: "   " }, { name: "a".repeat(101) }]) {
+      const response = await rename(payload);
+      assert.equal(response.status, 400, JSON.stringify(payload));
+      const body = await jsonBody(response);
+      assert.equal(body.state, "not_stored", "保存していない失敗には state を付ける");
+      assert.equal(typeof body.error, "string");
+    }
+
+    const broken = await bff.app.request(`/api/shared-contents/${created.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: "{",
+    });
+    assert.equal(broken.status, 400);
+    assert.equal((await jsonBody(broken)).state, "not_stored");
+
+    const missing = await bff.app.request("/api/shared-contents/nope", jsonPatch({ name: "x" }));
+    assert.equal(missing.status, 404);
+
+    // 拒否した要求で名前が変わっていない
+    const detail = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
+    assert.equal(detail.name, "dist");
   } finally {
     await restore();
   }

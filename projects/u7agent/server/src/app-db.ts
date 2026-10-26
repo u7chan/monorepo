@@ -1508,6 +1508,14 @@ export class AppDb {
     );
   }
 
+  /**
+   * 表示名だけを変える。`updatedAt` は触らない: 一覧の「更新」は公開ライフサイクルの時刻で、
+   * 名前の変更で並びや時刻が動くと「成果物が変わった」と誤読される。
+   */
+  updateSharedContentName(id: string, name: string): void {
+    this.#query((db) => db.prepare("UPDATE shared_contents SET name = ? WHERE id = ?").run(name, id));
+  }
+
   getSharedContent(id: string): SharedContentRow | undefined {
     const row = this.#query(
       (db) => db.prepare("SELECT * FROM shared_contents WHERE id = ?").get(id) as Row | undefined,

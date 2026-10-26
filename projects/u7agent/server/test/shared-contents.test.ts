@@ -45,6 +45,7 @@ class FakeStore implements SharedContentStore {
   failPublishedOnce = false;
   failAcceptanceUpdate = false;
   failAnyUpdate = false;
+  failNameUpdate = false;
   failDeleteRow = false;
 
   insertSharedContent(row: SharedContentRow): void {
@@ -73,6 +74,13 @@ class FakeStore implements SharedContentStore {
     const row = this.rows.get(id);
     if (!row) throw new Error("missing row");
     this.rows.set(id, { ...row, ...patch });
+  }
+
+  updateSharedContentName(id: string, name: string): void {
+    if (this.failNameUpdate) throw new Error("db name boom");
+    const row = this.rows.get(id);
+    if (!row) throw new Error("missing row");
+    this.rows.set(id, { ...row, name });
   }
 
   getSharedContent(id: string): SharedContentRow | undefined {
@@ -2071,6 +2079,57 @@ test("本 Issue の操作を経た行は published / stopped に必ず published
   } finally {
     zip.cleanup();
   }
+});
+
+test("表示名の変更: 前後の空白を落として保存し、状態と時刻は変えない", () => {
+  const { service, store, cloudflare } = setup();
+  store.insertSharedContent(rowOf("id1", { status: "stopped", stoppedAt: 2_000 }));
+  const before = store.getSharedContent("id1");
+  const renamed = service.rename("id1", { name: "  経歴 LP  " });
+  assert.equal(renamed.name, "経歴 LP");
+  const row = store.getSharedContent("id1");
+  assert.equal(row?.name, "経歴 LP");
+  assert.equal(row?.status, before?.status, "状態は変えない");
+  assert.equal(row?.updatedAt, before?.updatedAt, "一覧の「更新」と並びを変えない");
+  assert.equal(row?.publishedAt, before?.publishedAt, "公開の実績を変えない");
+  assert.equal(row?.stoppedAt, before?.stoppedAt, "停止の時刻を変えない");
+  assert.deepEqual(cloudflare.subdomains, [], "provider を呼ばない");
+  assert.deepEqual(cloudflare.published, [], "成果物を送らない");
+});
+
+test("表示名の変更: 公開中でも受け付け、同じ名前なら書き込まない", () => {
+  const { service, store } = setup();
+  store.insertSharedContent(rowOf("id1", { status: "publishing", publishedAt: null }));
+  assert.equal(service.rename("id1", { name: "公開中の名前" }).name, "公開中の名前");
+  assert.equal(store.getSharedContent("id1")?.status, "publishing", "公開中でも 409 にしない");
+  // 同名の指定は no-op。書き込みを失敗させる writer でも成功する = 書いていない
+  store.insertSharedContent(rowOf("id2", { name: "同じ名前" }));
+  store.failNameUpdate = true;
+  assert.equal(service.rename("id2", { name: "同じ名前" }).name, "同じ名前");
+  assert.equal(store.getSharedContent("id2")?.name, "同じ名前");
+  store.failNameUpdate = false;
+});
+
+test("表示名の変更の検証: 空・長すぎ・制御文字は 400、存在しない id は 404、保存失敗は 503", () => {
+  const { service, store } = setup();
+  store.insertSharedContent(rowOf("id1"));
+  for (const name of ["", "   ", "a".repeat(101), "改行\n入り"]) {
+    assert.throws(
+      () => service.rename("id1", { name }),
+      (error: any) => error.statusCode === 400,
+      JSON.stringify(name),
+    );
+  }
+  assert.throws(
+    () => service.rename("nope", { name: "x" }),
+    (error: any) => error.statusCode === 404,
+  );
+  store.failNameUpdate = true;
+  assert.throws(
+    () => service.rename("id1", { name: "保存できない" }),
+    (error: any) => error.statusCode === 503,
+  );
+  assert.equal(store.getSharedContent("id1")?.name, "id1", "失敗した名前は残らない");
 });
 
 test("管理操作は記録した providerAccount と現在の接続が違えば 409", async () => {

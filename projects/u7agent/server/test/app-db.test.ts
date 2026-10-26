@@ -2282,6 +2282,45 @@ test("カタログの限定削除が失敗したら部分適用を残さない",
   }
 });
 
+test("renaming a shared content keeps its state and timestamps", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    db.insertSharedContent({
+      id: "sc1",
+      sessionId: "s1",
+      name: "最初の名前",
+      sourcePath: "projects/app/dist",
+      sourceKind: "directory",
+      provider: "cloudflare",
+      providerAccount: "acc-a",
+      remoteId: "u7s-sc1",
+      publicUrl: "https://u7s-sc1.demo.workers.dev/",
+      status: "published",
+      createdAt: 1,
+      updatedAt: 2,
+      publishedAt: 2,
+      stoppedAt: null,
+      lastError: null,
+    });
+    db.updateSharedContentName("sc1", "あとから変えた名前");
+    const row = db.getSharedContent("sc1");
+    assert.equal(row?.name, "あとから変えた名前");
+    // 名前はラベルなので、公開ライフサイクルの時刻と状態は動かさない
+    assert.equal(row?.updatedAt, 2);
+    assert.equal(row?.publishedAt, 2);
+    assert.equal(row?.status, "published");
+    db.close();
+
+    // 再オープンしても残る
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.equal(reopened.getSharedContent("sc1")?.name, "あとから変えた名前");
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("migrates a v23 db additively and adds the sharing tables", () => {
   const dir = tempStoreDir();
   try {
