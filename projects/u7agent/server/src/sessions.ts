@@ -3106,8 +3106,12 @@ export class SessionStore {
         this.records.get(record.id) === record &&
         record.titleTask === task &&
         !this.runInProgress(record) &&
+        record.queue.length === 0 &&
         !record.compacting,
     });
+    // 終端の保存は settle が非同期に始める。応答を見た直後の一覧が古いタイトルを返さないよう、
+    // 同じ record の保存列 (persistTail) の最後まで待ってから返す
+    await this.persist(record, { jsonl: false });
     return {
       title: record.title,
       titleSummary: titleSummaryOf({ origin: record.titleOrigin, attempt: record.titleAttempt }, this.masker),
