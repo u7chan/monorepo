@@ -208,6 +208,26 @@ test("描画: モデル / Effort の入口とゲージは aria-live の外へ置
   assert.ok(html.includes("(実行 0s)"), "経過時間は run の経過だと分かる形で aria-hidden の別スパンに出す");
 });
 
+test("描画: 活動欄はツールの有無で折り返しを変えず、常に1行に切る", () => {
+  const activity = "investigate を実行中…".repeat(12);
+  const idle = render({ activity, modelSlot: slot() });
+  const live = render({
+    activity,
+    runStatus: "running",
+    modelSlot: slot(),
+    runTools: { t1: runningTool("t1", "investigate", activity) },
+  });
+
+  for (const html of [idle, live]) {
+    const span = /<span aria-live="(?:polite|off)" title="([^"]*)" class="([^"]*)">/.exec(html);
+    assert.ok(span);
+    assert.ok(span[2].includes("truncate"), "1行に切る");
+    assert.equal(span[2].includes("break-words"), false, "ツールの有無で折り返しを変えない");
+  }
+  const idleTitle = /<span aria-live="polite" title="([^"]*)"/.exec(idle)?.[1];
+  assert.ok(idleTitle?.includes(activity), "切った全文は title で読める");
+});
+
 test("描画: 活動が空なら活動欄ごと出さない (空行を残さない)", () => {
   // 合計時間は会話のメタ行が担うため、状態行に残るのは活動の語だけ
   const html = render({ activity: "完了", modelSlot: slot() });

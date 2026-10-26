@@ -5,9 +5,10 @@ import { cn } from "../../lib/cn";
 import { compactionBusy } from "../../lib/composerSettings";
 import { elapsedBeatIndex, formatElapsed, isElapsedTier, runElapsedMs } from "../../lib/elapsed";
 import {
-  LIVE_TOOL_TEXT_THROTTLE_MS,
+  liveToolDisplayPlan,
   liveToolStatus,
   liveToolStatusView,
+  liveToolViewKey,
   type LiveToolStatusView,
 } from "../../lib/liveToolCall";
 import { answerWaitQueueReason } from "../../lib/queueWait";
@@ -25,57 +26,100 @@ import { CompactIcon, RunSpinnerIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
 
 /**
- * 状態行のツール文言を短い間隔で間引く。表示中にツールが消えたら即座にサーバーの活動文言へ戻す。
- * 出現も同じ間隔だけ待ち、それより短い one-shot は出さない (状態行の文言を明滅させない)。
+ * 状態行のツール文言を短い間隔で間引く。新規ツールは id を観測してから同じ間隔だけ待ち、
+ * それより短い one-shot を出さない。同じツールの進捗だけを既存の間隔で更新する
+ * (docs/frontend.md)。
  */
 function useLiveToolView(view: LiveToolStatusView | undefined): LiveToolStatusView | undefined {
   const [display, setDisplay] = useState(view);
   const latest = useRef(view);
   const lastShownAt = useRef(0);
-  const timer = useRef<number | null>(null);
+  const throttleTimer = useRef<number | null>(null);
+  const pendingNewId = useRef<string | undefined>(undefined);
+  const newIdTimer = useRef<number | null>(null);
   latest.current = view;
 
-  const viewKey = view === undefined ? "" : `${view.text}\u0000${view.title}`;
-  const displayKey = display === undefined ? "" : `${display.text}\u0000${display.title}`;
+  const viewKey = liveToolViewKey(view);
+  const displayKey = liveToolViewKey(display);
 
   useEffect(() => {
-    if (viewKey === "") {
-      if (timer.current !== null) {
-        window.clearTimeout(timer.current);
-        timer.current = null;
+    const clearThrottle = () => {
+      if (throttleTimer.current !== null) {
+        window.clearTimeout(throttleTimer.current);
+        throttleTimer.current = null;
       }
-      lastShownAt.current = 0;
-      setDisplay(undefined);
-      return;
-    }
-    if (viewKey === displayKey) {
-      if (timer.current !== null) {
-        window.clearTimeout(timer.current);
-        timer.current = null;
+    };
+    const clearNewId = () => {
+      if (newIdTimer.current !== null) {
+        window.clearTimeout(newIdTimer.current);
+        newIdTimer.current = null;
       }
-      return;
+      pendingNewId.current = undefined;
+    };
+    const plan = liveToolDisplayPlan({
+      view: latest.current,
+      display,
+      lastShownAt: lastShownAt.current,
+      pendingNewId: pendingNewId.current,
+      now: Date.now(),
+    });
+    switch (plan.type) {
+      case "clear":
+        clearThrottle();
+        clearNewId();
+        lastShownAt.current = 0;
+        setDisplay(undefined);
+        return;
+      case "hold":
+        clearThrottle();
+        if (pendingNewId.current === plan.id) return;
+        clearNewId();
+        pendingNewId.current = plan.id;
+        newIdTimer.current = window.setTimeout(() => {
+          newIdTimer.current = null;
+          const current = latest.current;
+          if (current === undefined || current.latestId !== plan.id) {
+            if (pendingNewId.current === plan.id) pendingNewId.current = undefined;
+            return;
+          }
+          pendingNewId.current = undefined;
+          lastShownAt.current = Date.now();
+          setDisplay(current);
+        }, plan.delayMs);
+        return;
+      case "show":
+        clearThrottle();
+        clearNewId();
+        lastShownAt.current = Date.now();
+        setDisplay(latest.current);
+        return;
+      case "wait":
+        clearNewId();
+        if (throttleTimer.current !== null) return;
+        {
+          const shownId = display?.latestId;
+          throttleTimer.current = window.setTimeout(() => {
+            throttleTimer.current = null;
+            const current = latest.current;
+            if (current === undefined || current.latestId !== shownId) return;
+            lastShownAt.current = Date.now();
+            setDisplay(current);
+          }, plan.delayMs);
+        }
+        return;
+      case "noop":
+        if (pendingNewId.current !== undefined && latest.current?.latestId !== pendingNewId.current) {
+          clearNewId();
+        }
+        if (viewKey === displayKey) clearThrottle();
+        return;
     }
-    if (timer.current !== null) return;
-    const now = Date.now();
-    const wait =
-      lastShownAt.current === 0
-        ? LIVE_TOOL_TEXT_THROTTLE_MS
-        : Math.max(0, LIVE_TOOL_TEXT_THROTTLE_MS - (now - lastShownAt.current));
-    if (wait === 0) {
-      lastShownAt.current = now;
-      setDisplay(latest.current);
-      return;
-    }
-    timer.current = window.setTimeout(() => {
-      timer.current = null;
-      lastShownAt.current = Date.now();
-      setDisplay(latest.current);
-    }, wait);
   }, [viewKey, displayKey]);
 
   useEffect(
     () => () => {
-      if (timer.current !== null) window.clearTimeout(timer.current);
+      if (throttleTimer.current !== null) window.clearTimeout(throttleTimer.current);
+      if (newIdTimer.current !== null) window.clearTimeout(newIdTimer.current);
     },
     [],
   );
@@ -227,18 +271,15 @@ export function ComposerStatus({
       <div className="flex min-h-5.25 flex-wrap items-center justify-end gap-x-2 gap-y-0.5 px-1 pb-1.5 text-1xs text-ink-muted">
         {elapsed === null ? null : <RunSpinnerIcon tone="focus" />}
         {showActivity ? (
-          // 活動テキストがあるときは下限幅を置き、0 幅まで潰れる前に組を折り返させる
+          // 活動テキストがあるときは下限幅を置き、0 幅まで潰れる前に組を折り返させる。
+          // 活動欄はツールの有無で折り返し方を変えず、常に1行に切る (状態行の高さを動かさない)
           <span className={cn("flex flex-1 items-baseline gap-1.5", activityText ? "min-w-40" : "min-w-0")}>
             <span
               // ツール名は短い間隔で変わるため、読み上げの連発を避けて live の対象から外す。
               // 活動の語 (考え中 / 応答を書いています) だけを polite で読む
               aria-live={liveView === undefined ? "polite" : "off"}
-              title={liveView?.title}
-              className={cn(
-                "min-w-0",
-                liveView === undefined ? "break-words" : "flex-1 truncate",
-                shimmer && liveView === undefined && "activity-shimmer",
-              )}
+              title={liveView?.title ?? activity}
+              className={cn("min-w-0 flex-1 truncate", shimmer && liveView === undefined && "activity-shimmer")}
             >
               {activityText}
             </span>

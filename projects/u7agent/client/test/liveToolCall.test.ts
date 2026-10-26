@@ -8,6 +8,8 @@ import type { ToolCard } from "../src/lib/chatTypes";
 import {
   LIVE_PROGRESS_BODY_LINES,
   LIVE_PROGRESS_BODY_MAX,
+  LIVE_TOOL_TEXT_THROTTLE_MS,
+  liveToolDisplayPlan,
   liveToolProgress,
   liveToolRows,
   liveToolStatus,
@@ -113,6 +115,7 @@ test("状態行は最新ツールのサマリーを出し、並列は件数を�
   assert.deepEqual(liveToolStatusView(one), {
     text: "実行中 · bash — ls -la",
     title: "bash — ls -la\n実行中のツール",
+    latestId: "t1",
   });
 
   const two = liveToolStatus(
@@ -140,6 +143,84 @@ test("状態行は investigate の現在の活動を優先し、本文末尾は 
     view?.title,
     "investigate — docs を調べて\nbash rg -n foo\n結論: docs にある\n実行中のツール",
     "本文末尾は title に残す",
+  );
+  assert.equal(view?.latestId, "t1");
+});
+
+test("title は省略前のサマリーを使い、長い引数の末尾も残す", () => {
+  const args = `printf ${"a".repeat(120)} MUST_BE_VISIBLE`;
+  const view = liveToolStatusView(liveToolStatus({ t1: call("t1", "bash", args, false) }, "running"));
+
+  assert.ok(view);
+  assert.ok(view.text.endsWith("…"), "状態行の表示は1行に省略する");
+  assert.ok(view.title.startsWith(`bash — ${args}`), "title は省略前の全文を使う");
+  assert.ok(view.title.includes("MUST_BE_VISIBLE"));
+});
+
+const statusView = (latestId: string, text = `実行中 · ${latestId}`) => ({
+  latestId,
+  text,
+  title: `${latestId}\n実行中のツール`,
+});
+
+test("新規ツールは前回表示から時間が経っていても120ms待つ", () => {
+  // 前回表示から十分経っていても、新規ツールの id を観測してから待つ。
+  // ここを lastShownAt だけで判定すると、並列に加わる短命ツールを即時表示してしまう
+  assert.deepEqual(
+    liveToolDisplayPlan({
+      view: statusView("b"),
+      display: statusView("a"),
+      lastShownAt: 1_000,
+      pendingNewId: undefined,
+      now: 10_000,
+    }),
+    { type: "hold", id: "b", delayMs: LIVE_TOOL_TEXT_THROTTLE_MS },
+  );
+});
+
+test("新規ツールの保留中は同じ id でタイマーを引き直さない", () => {
+  assert.deepEqual(
+    liveToolDisplayPlan({
+      view: statusView("b", "2件実行中 · b"),
+      display: statusView("a"),
+      lastShownAt: 1_000,
+      pendingNewId: "b",
+      now: 10_000,
+    }),
+    { type: "noop" },
+  );
+});
+
+test("同じツールの進捗は間隔で更新し、間隔内は待つ", () => {
+  const shown = liveToolDisplayPlan({
+    view: statusView("b", "実行中 · b — 進捗2"),
+    display: statusView("b", "実行中 · b — 進捗1"),
+    lastShownAt: 10_000,
+    pendingNewId: undefined,
+    now: 10_500,
+  });
+  assert.deepEqual(shown, { type: "show" });
+
+  const waited = liveToolDisplayPlan({
+    view: statusView("b", "実行中 · b — 進捗2"),
+    display: statusView("b", "実行中 · b — 進捗1"),
+    lastShownAt: 10_000,
+    pendingNewId: undefined,
+    now: 10_050,
+  });
+  assert.deepEqual(waited, { type: "wait", delayMs: 70 });
+});
+
+test("表示が消えたら待たずにクリアする", () => {
+  assert.deepEqual(
+    liveToolDisplayPlan({
+      view: undefined,
+      display: statusView("a"),
+      lastShownAt: 1_000,
+      pendingNewId: undefined,
+      now: 10_000,
+    }),
+    { type: "clear" },
   );
 });
 

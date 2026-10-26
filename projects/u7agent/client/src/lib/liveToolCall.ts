@@ -3,7 +3,7 @@
  * (スキル読み込み・ask_user を外す規則も履歴と同じ)。表示条件と文言の規則の根拠は docs/frontend.md が正。
  */
 import type { RunStatus, ToolCall } from "../types";
-import { abbreviatedToolSummary } from "./toolSummary";
+import { abbreviatedToolSummary, toolSummary } from "./toolSummary";
 import { toolDurationMs } from "./toolTiming";
 
 /**
@@ -33,6 +33,8 @@ export type LiveToolRow = {
   index: number;
   /** `name — args` の 1 行。切り方は履歴の行サマリーと同じ */
   summary: string;
+  /** 省略前の `name — args`。状態行の title 用 */
+  fullSummary: string;
   done: boolean;
   /** 終了済みの行だけ入る (BFF 計測)。開始 / 終了が揃わない行は undefined */
   durationMs?: number;
@@ -64,6 +66,7 @@ export function liveToolRows(runTools: Readonly<Record<string, ToolCall>>): Live
         name: call.name,
         index: index + 1,
         summary: abbreviatedToolSummary(call),
+        fullSummary: toolSummary(call),
         done: call.done,
         ...(durationMs === undefined ? {} : { durationMs }),
         ...(call.progress === undefined ? {} : { progress: liveToolProgress(call.progress) }),
@@ -94,8 +97,10 @@ export function liveToolStatus(runTools: Readonly<Record<string, ToolCall>>, run
 export type LiveToolStatusView = {
   /** 状態行の 1 行に出す文言 */
   text: string;
-  /** hover で読む全文 (サマリーと進捗の本文末尾) */
+  /** hover で読む全文 (省略前のサマリーと進捗の本文末尾) */
   title: string;
+  /** 最新の実行中ツールの id。短命ツールを出さない判定に使う */
+  latestId: string;
 };
 
 /**
@@ -110,8 +115,44 @@ export function liveToolStatusView(status: LiveToolStatus): LiveToolStatusView |
   const activity = progress?.activity.trim() ?? "";
   const current = activity ? (latest.name ? `${latest.name} — ${activity}` : activity) : latest.summary;
   const prefix = status.running.length > 1 ? `${status.running.length}件実行中 · ` : "実行中 · ";
-  const title = [latest.summary, progress?.activity, progress?.body, "実行中のツール"]
+  const title = [latest.fullSummary, progress?.activity, progress?.body, "実行中のツール"]
     .filter((part): part is string => typeof part === "string" && part.trim() !== "")
     .join("\n");
-  return { text: `${prefix}${current}`, title };
+  return { text: `${prefix}${current}`, title, latestId: latest.id };
+}
+
+/** 表示の同一性。latestId を混ぜ、同じ文言の別ツールを同じ表示として扱わない */
+export function liveToolViewKey(view: LiveToolStatusView | undefined): string {
+  return view === undefined ? "" : `${view.latestId}\u0000${view.text}\u0000${view.title}`;
+}
+
+export type LiveToolDisplayPlan =
+  | { type: "clear" }
+  | { type: "hold"; id: string; delayMs: number }
+  | { type: "show" }
+  | { type: "wait"; delayMs: number }
+  | { type: "noop" };
+
+/**
+ * 状態行の次の表示を決める。新規ツールは前回の表示時刻ではなく、その id を観測してから
+ * 同じ間隔だけ待つ。短命な並列ツールを、直前の表示から時間が経っていても出さないため。
+ * 同じツールの進捗だけを既存の間隔で間引く (docs/frontend.md)。
+ */
+export function liveToolDisplayPlan(input: {
+  view: LiveToolStatusView | undefined;
+  display: LiveToolStatusView | undefined;
+  lastShownAt: number;
+  pendingNewId: string | undefined;
+  now: number;
+}): LiveToolDisplayPlan {
+  const { view, display, lastShownAt, pendingNewId, now } = input;
+  if (view === undefined) return { type: "clear" };
+  if (view.latestId !== display?.latestId) {
+    if (pendingNewId === view.latestId) return { type: "noop" };
+    return { type: "hold", id: view.latestId, delayMs: LIVE_TOOL_TEXT_THROTTLE_MS };
+  }
+  if (liveToolViewKey(view) === liveToolViewKey(display)) return { type: "noop" };
+  const wait =
+    lastShownAt === 0 ? LIVE_TOOL_TEXT_THROTTLE_MS : Math.max(0, LIVE_TOOL_TEXT_THROTTLE_MS - (now - lastShownAt));
+  return wait === 0 ? { type: "show" } : { type: "wait", delayMs: wait };
 }

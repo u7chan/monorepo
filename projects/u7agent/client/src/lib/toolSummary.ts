@@ -11,9 +11,14 @@ function truncateSummary(summary: string): string {
   return `${summary.slice(0, TOOL_SUMMARY_MAX_LENGTH - 1)}…`;
 }
 
-export function abbreviatedToolSummary(card: Pick<ToolCard, "name" | "args">): string {
+/** 省略前の `name — args`。title など、全文を読ませたい場所で使う */
+export function toolSummary(card: Pick<ToolCard, "name" | "args">): string {
   const summary = `${card.name}${card.args ? ` — ${card.args}` : ""}`.replace(/\s+/g, " ").trim();
-  return truncateSummary(summary || "ツール");
+  return summary || "ツール";
+}
+
+export function abbreviatedToolSummary(card: Pick<ToolCard, "name" | "args">): string {
+  return truncateSummary(toolSummary(card));
 }
 
 export function historyPreview(cards: ToolCard[]): string {
