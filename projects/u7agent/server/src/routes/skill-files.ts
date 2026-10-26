@@ -1,7 +1,7 @@
 /**
  * 共通ファイルスキル (`<root>/.agents/skills`) の GUI 編集 API。一覧 (`GET /api/skills/files`) は
  * 既存の読み取り専用経路のまま (catalog のルート)、ここは編集内容・作成・保存・削除確認・削除と、
- * 持ち出し / 取り込みを扱う。パス・版・スキルとしての検証はサンドボックス側で完結させ、
+ * エクスポート / インポートを扱う。パス・版・スキルとしての検証はサンドボックス側で完結させ、
  * BFF は応答の形を検証してそのまま返す。
  */
 import type { Context } from "hono";
@@ -24,7 +24,7 @@ export function createSkillFileRoutes({
   archive,
 }: {
   sandbox: SandboxSkillFileClient | null;
-  /** 持ち出し / 取り込み。GUI CRUD のスタブを広げないよう別の狭い IF で受ける */
+  /** エクスポート / インポート。GUI CRUD のスタブを広げないよう別の狭い IF で受ける */
   archive: SandboxSkillArchiveClient | null;
 }) {
   return {
@@ -94,7 +94,7 @@ export function createSkillFileRoutes({
       }
     },
 
-    /** `.agents/skills` の ZIP 持ち出し。保存名とヘッダはサンドボックスが決め、本文をストリーム中継する */
+    /** `.agents/skills` の ZIP エクスポート。保存名とヘッダはサンドボックスが決め、本文をストリーム中継する */
     export: async (c: Context) => {
       if (!archive) return sandboxNotConfigured(c);
       try {
@@ -112,12 +112,12 @@ export function createSkillFileRoutes({
       }
     },
 
-    /** 持ち出しの事前チェック。download の check と同じ形を返し、413 の理由を先に出せる */
+    /** エクスポートの事前チェック。download の check と同じ形を返し、413 の理由を先に出せる */
     exportCheck: async (c: Context) => {
       if (!archive) return sandboxNotConfigured(c);
       try {
         const parsed = FileDownloadCheckSchema.safeParse(await archive.checkSkillsExport());
-        if (!parsed.success) return c.json({ error: "サンドボックスの持ち出し確認応答が不正です" }, 502);
+        if (!parsed.success) return c.json({ error: "サンドボックスのエクスポート確認応答が不正です" }, 502);
         return c.json(parsed.data);
       } catch (error) {
         return sandboxFailure(c, error);
@@ -125,7 +125,7 @@ export function createSkillFileRoutes({
     },
 
     /**
-     * `.agents/skills` の取り込み。`bodyGuard` (64 KiB / text 化) より前に登録し、raw の ZIP を
+     * `.agents/skills` のインポート。`bodyGuard` (64 KiB / text 化) より前に登録し、raw の ZIP を
      * ストリーム中継する。`dryRun` / `replace` は解釈せず query のままサンドボックスへ渡す。
      */
     import: async (c: Context) => {
@@ -144,7 +144,7 @@ export function createSkillFileRoutes({
             signal: c.req.raw.signal,
           }),
         );
-        if (!parsed.success) return c.json({ error: "サンドボックスの取り込み応答が不正です" }, 502);
+        if (!parsed.success) return c.json({ error: "サンドボックスのインポート応答が不正です" }, 502);
         return c.json(parsed.data);
       } catch (error) {
         return sandboxFailure(c, error);

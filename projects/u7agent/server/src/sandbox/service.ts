@@ -2071,7 +2071,7 @@ function importFailure(error: unknown): Error & { statusCode: number } {
   console.warn(`[u7agent-sandbox] スキルの取り込みに失敗しました: ${messageFor(error)}`);
   const statusCode = (error as { statusCode?: number }).statusCode;
   const status = statusCode !== undefined && statusCode >= 400 && statusCode < 500 ? statusCode : 500;
-  return pathError(status, "スキルを取り込めませんでした");
+  return pathError(status, "スキルをインポートできませんでした");
 }
 
 /**
@@ -2124,7 +2124,7 @@ async function applySkillsImport(input: {
         continue;
       }
       if (plan.status === "conflict" && !input.replace.has(plan.name)) {
-        skipped.push({ name: plan.name, reason: "同名のため取り込まない" });
+        skipped.push({ name: plan.name, reason: "同名のためインポートしない" });
         continue;
       }
       const destination = join(await destinationRootOf(), plan.name);

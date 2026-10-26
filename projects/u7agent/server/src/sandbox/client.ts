@@ -893,7 +893,7 @@ async function importSkills(
     } as RequestInit,
     baseUrl,
   );
-  if (!response.ok) throw await rawError(response, "スキルを取り込めませんでした");
+  if (!response.ok) throw await rawError(response, "スキルをインポートできませんでした");
   return (await response.json()) as SandboxSkillsImportResult;
 }
 
