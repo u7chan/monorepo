@@ -1,11 +1,21 @@
-// ContainerCard Component - 個別のコンテナ情報を表示するカード
+// ContainerCard Component - 1 つのコンテナを「ポートの入口」として見せるカード / 行
 
-import type { Container } from "../types/container";
+import { useEffect, useRef, useState } from "react";
+import type { Container, PortMapping } from "../types/container";
 import { useConfig } from "../hooks/useConfig";
 import { useCopy } from "../hooks/useCopy";
 import { CopyButton, REVEAL_CARD } from "./CopyButton";
+import { ConfirmPopover } from "./ConfirmPopover";
+import { buildPortUrl, describePort } from "../lib/ports";
+import {
+  getContainerAction,
+  getStatusTone,
+  isPortReachable,
+  type ContainerAction,
+  type StatusTone,
+} from "../lib/containerState";
 
-export type ContainerAction = "start" | "stop";
+export type { ContainerAction };
 
 interface ContainerCardProps {
   container: Container;
@@ -13,86 +23,181 @@ interface ContainerCardProps {
   onAction?: (container: Container, action: ContainerAction) => void;
 }
 
-/**
- * ステータスに応じたバッジのスタイルを取得
- */
-function getStatusBadgeClass(state: Container["state"]): string {
-  const baseClasses =
-    "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border";
+const TONE_DOT: Record<StatusTone, string> = {
+  live: "bg-live",
+  warn: "bg-warn",
+  dead: "bg-dead",
+  info: "bg-info",
+  idle: "bg-fg-3",
+};
 
-  switch (state) {
-    case "running":
-      return `${baseClasses} bg-emerald-500/10 text-emerald-400 border-emerald-500/30`;
-    case "exited":
-    case "dead":
-      return `${baseClasses} bg-red-500/10 text-red-400 border-red-500/30`;
-    case "paused":
-      return `${baseClasses} bg-yellow-500/10 text-yellow-400 border-yellow-500/30`;
-    case "restarting":
-      return `${baseClasses} bg-blue-500/10 text-blue-400 border-blue-500/30`;
-    default:
-      return `${baseClasses} bg-gray-500/10 text-gray-400 border-gray-500/30`;
-  }
+const TONE_TEXT: Record<StatusTone, string> = {
+  live: "text-live",
+  warn: "text-warn",
+  dead: "text-dead",
+  info: "text-info",
+  idle: "text-fg-3",
+};
+
+const TILE_BASE = "group/port flex rounded-lg border transition-colors duration-150";
+const TILE_LIVE = "border-live/50 bg-ink-850 text-live hover:border-live/70 hover:bg-live/[0.09]";
+const TILE_DORMANT = "border-line bg-ink-850 text-fg-3";
+
+function ArrowIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0 transition-transform duration-150 group-hover/port:translate-x-0.5 group-hover/port:-translate-y-0.5"
+    >
+      <path d="M4.5 11.5 11.5 4.5" />
+      <path d="M6 4.5h5.5V10" />
+    </svg>
+  );
 }
 
 /**
- * ステータスに応じたドットのスタイルを取得
+ * ステータス表示。色だけで意味を運ばないよう、必ず Docker の状態文言も添える。
+ * "Up 3 days" のような人間向け文言を優先し、空のときだけ state に落とす。
  */
-function getStatusDotClass(state: Container["state"]): string {
-  switch (state) {
-    case "running":
-      return "bg-emerald-400 animate-pulse";
-    case "exited":
-    case "dead":
-      return "bg-red-400";
-    case "paused":
-      return "bg-yellow-400";
-    case "restarting":
-      return "bg-blue-400 animate-pulse";
-    default:
-      return "bg-gray-400";
-  }
+function StatusLabel({ container }: { container: Container }) {
+  const tone = getStatusTone(container.state);
+  const label = container.status || container.state;
+
+  return (
+    <p className="flex shrink-0 items-center gap-1.5 text-[11.5px] whitespace-nowrap">
+      <span
+        aria-hidden="true"
+        className={[
+          "size-1.5 shrink-0 rounded-full",
+          TONE_DOT[tone],
+          isPortReachable(container.state) ? "motion-safe:animate-pulse" : "",
+        ].join(" ")}
+      />
+      <span className={TONE_TEXT[tone]}>{label}</span>
+    </p>
+  );
 }
 
 /**
- * ポートリンクをレンダリング
+ * ポート 1 件。
+ * 起動中のコンテナのポートだけをリンクにする。停止中のポートは docker 上に
+ * 公開設定が残っていても接続できないため、押しても失敗するリンクを出さない
+ * (点灯 = 押せる、の 1 対 1 対応を崩さない)。
  */
-function PortLinks({ ports, host }: { ports: Container["ports"]; host: string }) {
+function PortLink({
+  port,
+  host,
+  reachable,
+  dense,
+}: {
+  port: PortMapping;
+  host: string;
+  reachable: boolean;
+  dense: boolean;
+}) {
+  const detail = describePort(port);
+
+  const className = [
+    TILE_BASE,
+    reachable ? TILE_LIVE : TILE_DORMANT,
+    dense
+      ? "h-9 flex-none items-center gap-1.5 px-2.5"
+      : "flex-1 basis-[104px] flex-col justify-center px-3 py-2.5",
+  ].join(" ");
+
+  const content = (withArrow: boolean) =>
+    dense ? (
+      <>
+        <span className="font-mono text-[15px] leading-none font-medium tabular-nums tracking-[-0.02em]">
+          {port.publicPort}
+        </span>
+        <span
+          className={[
+            "font-mono text-[11px] leading-none tracking-[0.03em]",
+            reachable ? "text-fg-2" : "text-fg-3",
+          ].join(" ")}
+        >
+          {detail}
+        </span>
+        {withArrow && <ArrowIcon />}
+      </>
+    ) : (
+      <>
+        <span className="flex items-center justify-between gap-2">
+          <span className="font-mono text-[21px] leading-none font-medium tabular-nums tracking-[-0.02em]">
+            {port.publicPort}
+          </span>
+          {withArrow && <ArrowIcon />}
+        </span>
+        <span
+          className={[
+            "mt-auto font-mono text-[11px] leading-none tracking-[0.03em]",
+            reachable ? "text-fg-2" : "text-fg-3",
+          ].join(" ")}
+        >
+          {detail}
+        </span>
+      </>
+    );
+
+  if (!reachable) {
+    return (
+      <span
+        title={`${host}:${port.publicPort} is offline until the container starts`}
+        className={className}
+      >
+        {content(false)}
+      </span>
+    );
+  }
+
+  const url = buildPortUrl(host, port.publicPort);
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={url}
+      aria-label={`Open ${host}:${port.publicPort} (container port ${port.privatePort}/${port.protocol})`}
+      className={className}
+    >
+      {content(true)}
+    </a>
+  );
+}
+
+function PortLinks({
+  ports,
+  host,
+  reachable,
+  dense = false,
+}: {
+  ports: PortMapping[];
+  host: string;
+  reachable: boolean;
+  dense?: boolean;
+}) {
   if (ports.length === 0) {
-    return <span className="text-xs text-slate-500 italic">No exposed ports</span>;
+    return <p className="text-[11.5px] text-fg-3">No published ports</p>;
   }
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className={dense ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"}>
       {ports.map((port, index) => (
-        <a
+        <PortLink
           key={`${port.publicPort}-${index}`}
-          href={`http://${host}:${port.publicPort}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center px-2 py-1 rounded text-xs font-mono
-                     bg-cyan-500/10 text-cyan-400 border border-cyan-500/30
-                     hover:bg-cyan-500/20 hover:border-cyan-400/50
-                     transition-all duration-200 group"
-        >
-          <span className="mr-1 opacity-70">{port.publicPort}</span>
-          <span className="text-slate-500">→</span>
-          <span className="ml-1 opacity-70">{port.privatePort}</span>
-          <span className="ml-1 text-[10px] uppercase opacity-50">{port.protocol}</span>
-          <svg
-            className="ml-1 w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-            />
-          </svg>
-        </a>
+          port={port}
+          host={host}
+          reachable={reachable}
+          dense={dense}
+        />
       ))}
     </div>
   );
@@ -100,231 +205,222 @@ function PortLinks({ ports, host }: { ports: Container["ports"]; host: string })
 
 /**
  * イメージ名とコピーボタン。
- * イメージ名は区切り文字のない長い文字列になり得るため、カード幅で折り返す
- * (親の overflow-hidden に隠れて、はみ出しが見えなくなるのを防ぐ)。
+ * イメージ名は区切り文字のない長い文字列になり得るため、折り返さず省略する。
+ * 折り返すとカードごとの高さが読めなくなり、ポートの位置が揃わなくなるため
+ * (全文は title と、コピーボタンのクリップボードで拾える)。
  */
-function ImageField({ image, truncate = false }: { image: string; truncate?: boolean }) {
+function ImageField({ image }: { image: string }) {
   const { copied, copy } = useCopy();
 
   return (
     <div className="flex min-w-0 items-center gap-1">
-      <p className={`min-w-0 flex-1 text-sm text-slate-400 ${truncate ? "truncate" : ""}`}>
-        <span className="text-slate-500">Image:</span>{" "}
-        <span className="font-mono text-slate-300 wrap-anywhere" title={image}>
-          {image}
-        </span>
+      <p className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-3" title={image}>
+        {image}
       </p>
       <CopyButton
         copied={copied}
         onClick={() => void copy(image)}
-        label="イメージ名をコピー"
+        label="Copy image name"
         revealClass={REVEAL_CARD}
       />
     </div>
   );
 }
 
-function getContainerAction(container: Container): ContainerAction | null {
-  if (container.state === "exited") {
-    return "start";
-  }
-
-  if (container.state === "running") {
-    return "stop";
-  }
-
-  return null;
-}
-
-function ContainerActionButton({
-  action,
-  pending,
-  onClick,
-}: {
-  action: ContainerAction;
-  pending: boolean;
-  onClick: () => void;
-}) {
-  const isStart = action === "start";
-  const label = isStart ? "Start" : "Stop";
-  const pendingLabel = isStart ? "Starting" : "Stopping";
-
-  return (
-    <button
-      type="button"
-      disabled={pending}
-      onClick={onClick}
-      className={`
-        inline-flex h-9 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-medium
-        transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-60
-        ${
-          isStart
-            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:border-emerald-400/50 hover:bg-emerald-500/20"
-            : "border-red-500/30 bg-red-500/10 text-red-300 hover:border-red-400/50 hover:bg-red-500/20"
-        }
-      `}
-    >
-      {isStart ? (
-        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M8 5v14l11-7z" />
-        </svg>
-      ) : (
-        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M7 7h10v10H7z" />
-        </svg>
-      )}
-      <span>{pending ? pendingLabel : label}</span>
-    </button>
+function ActionButtonIcon({ action }: { action: ContainerAction }) {
+  return action === "start" ? (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-3">
+      <path d="M5 3.2v9.6L13 8z" />
+    </svg>
+  ) : (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-3">
+      <rect x="4" y="4" width="8" height="8" rx="1.2" />
+    </svg>
   );
 }
 
 /**
- * コンテナカードコンポーネント
+ * 起動 / 停止ボタン。停止だけは不可逆なので、押した場で確認ポップオーバーを出す。
+ * window.confirm をやめた理由は、ダイアログが対象のコンテナから切り離されて
+ * 「何を止めるのか」が読み返せないこと。
+ */
+function ContainerActionButton({
+  action,
+  container,
+  pending,
+  onAction,
+}: {
+  action: ContainerAction;
+  container: Container;
+  pending: boolean;
+  onAction: (action: ContainerAction) => void;
+}) {
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const isStart = action === "start";
+
+  // ポーリングでコンテナの状態が変わると action が入れ替わる。開いたままの確認が
+  // 次に running へ戻ったとき勝手に開かないよう、action が変わったら閉じる。
+  useEffect(() => {
+    setConfirmOpen(false);
+  }, [action]);
+
+  const label = isStart ? "Start" : "Stop";
+  const pendingLabel = isStart ? "Starting" : "Stopping";
+
+  const handleClick = () => {
+    if (isStart) {
+      onAction("start");
+      return;
+    }
+    setConfirmOpen((open) => !open);
+  };
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        ref={anchorRef}
+        type="button"
+        disabled={pending}
+        aria-haspopup={isStart ? undefined : "dialog"}
+        aria-expanded={isStart ? undefined : confirmOpen}
+        onClick={handleClick}
+        className={[
+          "inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-line px-2.5",
+          "text-[11.5px] font-medium transition-colors duration-150",
+          "hover:border-line-strong hover:bg-ink-800",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+          pending ? "text-fg-3" : isStart ? "text-fg-2 hover:text-fg" : "text-fg-2 hover:text-dead",
+        ].join(" ")}
+      >
+        {pending ? (
+          <span
+            aria-hidden="true"
+            className="size-3 animate-spin rounded-full border border-current border-t-transparent"
+          />
+        ) : (
+          <ActionButtonIcon action={action} />
+        )}
+        <span>{pending ? pendingLabel : label}</span>
+      </button>
+
+      {/* 状態が変わって Start に切り替わったら、停止確認は残さない */}
+      {!isStart && (
+        <ConfirmPopover
+          open={confirmOpen}
+          anchorRef={anchorRef}
+          title={`Stop ${container.name}?`}
+          description="Its ports close immediately and open connections are dropped."
+          confirmLabel="Stop"
+          pending={pending}
+          onConfirm={() => {
+            setConfirmOpen(false);
+            onAction("stop");
+          }}
+          onClose={() => setConfirmOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ContainerActionSlot({ container, pendingAction, onAction }: ContainerCardProps) {
+  const action = getContainerAction(container.state);
+
+  if (!action || !onAction) {
+    return null;
+  }
+
+  return (
+    <ContainerActionButton
+      action={action}
+      container={container}
+      pending={pendingAction === action}
+      onAction={(next) => onAction(container, next)}
+    />
+  );
+}
+
+/**
+ * コンテナカード。上部が個体の識別、中央がポート (この画面の主役)、下部が補助情報。
  */
 export function ContainerCard({ container, pendingAction, onAction }: ContainerCardProps) {
   const { config } = useConfig();
   const host = config?.host || "localhost";
-  const shortId = container.id.slice(0, 12);
-  const action = getContainerAction(container);
+  const reachable = isPortReachable(container.state);
 
   return (
-    <div
-      className="relative group/card rounded-xl border border-slate-700/50 bg-slate-800/50
-                 backdrop-blur-sm overflow-hidden
-                 hover:border-cyan-500/50 hover:shadow-[0_0_30px_rgba(6,182,212,0.15)]
-                 transition-all duration-300"
+    <article
+      className="group/card flex flex-col rounded-xl border border-line bg-ink-900
+                 transition-colors duration-150 hover:border-line-strong"
     >
-      {/* グロー効果 */}
-      <div
-        className="absolute inset-0 bg-linear-to-br from-cyan-500/5 via-purple-500/5 to-pink-500/5
-                   opacity-0 group-hover/card:opacity-100 transition-opacity duration-500"
-      />
-
-      <div className="relative p-5">
-        {/* ヘッダー: 名前とステータス */}
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex-1 min-w-0 mr-3">
-            <h3
-              className="text-lg font-semibold text-slate-100 truncate
-                         group-hover/card:text-cyan-400 transition-colors"
-              title={container.name}
-            >
-              {container.name}
-            </h3>
-            <p className="text-xs text-slate-500 font-mono mt-0.5">{shortId}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={getStatusDotClass(container.state)}>
-              <span className="block w-2 h-2 rounded-full" />
-            </span>
-            <span className={getStatusBadgeClass(container.state)}>{container.state}</span>
-          </div>
-        </div>
-
-        {/* イメージ情報 */}
-        <div className="mb-4">
-          <ImageField image={container.image} />
-          <p className="text-sm text-slate-400 mt-1">
-            <span className="text-slate-500">Status:</span> <span>{container.status}</span>
-          </p>
-        </div>
-
-        {/* ポート情報 */}
-        <div className="border-t border-slate-700/50 pt-4">
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Ports</p>
-          <PortLinks ports={container.ports} host={host} />
-        </div>
-
-        {action && onAction && (
-          <div className="mt-4 border-t border-slate-700/50 pt-4">
-            <ContainerActionButton
-              action={action}
-              pending={pendingAction === action}
-              onClick={() => onAction(container, action)}
-            />
-          </div>
-        )}
+      <div className="flex items-start justify-between gap-3 px-4 pt-4">
+        <h3
+          className="min-w-0 truncate text-[15px] leading-5 font-semibold tracking-[-0.01em] text-fg"
+          title={container.name}
+        >
+          {container.name}
+        </h3>
+        <StatusLabel container={container} />
       </div>
-    </div>
+
+      <div className="flex-1 px-4 py-4">
+        <PortLinks ports={container.ports} host={host} reachable={reachable} />
+      </div>
+
+      <div className="flex items-center gap-2 border-t border-line px-4 py-2">
+        <div className="min-w-0 flex-1">
+          <ImageField image={container.image} />
+        </div>
+        <ContainerActionSlot
+          container={container}
+          pendingAction={pendingAction}
+          onAction={onAction}
+        />
+      </div>
+    </article>
   );
 }
 
 /**
- * コンテナリスト行コンポーネント
+ * コンテナリスト行。列幅を固定して、縦に並んだときポートの数字が揃うようにする。
  */
 export function ContainerListItem({ container, pendingAction, onAction }: ContainerCardProps) {
   const { config } = useConfig();
   const host = config?.host || "localhost";
-  const shortId = container.id.slice(0, 12);
-  const action = getContainerAction(container);
+  const reachable = isPortReachable(container.state);
 
   return (
-    <div
-      className="relative group/card rounded-xl border border-slate-700/50 bg-slate-800/50
-                 backdrop-blur-sm overflow-hidden
-                 hover:border-cyan-500/50 hover:shadow-[0_0_24px_rgba(6,182,212,0.12)]
-                 transition-all duration-300"
+    <article
+      className="group/card rounded-xl border border-line bg-ink-900 p-4
+                 transition-colors duration-150 hover:border-line-strong
+                 md:flex md:items-center md:gap-6 md:py-3"
     >
-      <div
-        className="absolute inset-0 bg-linear-to-r from-cyan-500/5 via-transparent to-purple-500/5
-                   opacity-0 group-hover/card:opacity-100 transition-opacity duration-500"
-      />
-
-      <div className="relative p-4">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(220px,1.2fr)_minmax(260px,1fr)_minmax(220px,1fr)_auto] lg:items-center">
-          <div className="flex min-w-0 items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3
-                className="truncate text-base font-semibold text-slate-100
-                           group-hover/card:text-cyan-400 transition-colors"
-                title={container.name}
-              >
-                {container.name}
-              </h3>
-              <p className="mt-0.5 text-xs font-mono text-slate-500">{shortId}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2 lg:hidden">
-              <span className={getStatusDotClass(container.state)}>
-                <span className="block w-2 h-2 rounded-full" />
-              </span>
-              <span className={getStatusBadgeClass(container.state)}>{container.state}</span>
-            </div>
-          </div>
-
-          <div className="min-w-0 space-y-1">
-            <ImageField image={container.image} truncate />
-            <p className="truncate text-sm text-slate-400">
-              <span className="text-slate-500">Status:</span> <span>{container.status}</span>
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500 lg:hidden">
-                Ports
-              </p>
-              <PortLinks ports={container.ports} host={host} />
-            </div>
-            <div className="hidden shrink-0 items-center gap-2 lg:flex">
-              <span className={getStatusDotClass(container.state)}>
-                <span className="block w-2 h-2 rounded-full" />
-              </span>
-              <span className={getStatusBadgeClass(container.state)}>{container.state}</span>
-            </div>
-          </div>
-
-          {action && onAction && (
-            <div className="flex justify-start lg:justify-end">
-              <ContainerActionButton
-                action={action}
-                pending={pendingAction === action}
-                onClick={() => onAction(container, action)}
-              />
-            </div>
-          )}
+      <div className="min-w-0 md:w-[27%] md:shrink-0">
+        <h3
+          className="truncate text-[14px] leading-5 font-semibold tracking-[-0.01em] text-fg"
+          title={container.name}
+        >
+          {container.name}
+        </h3>
+        <div className="mt-1">
+          <ImageField image={container.image} />
         </div>
       </div>
-    </div>
+
+      <div className="mt-3 min-w-0 md:mt-0 md:flex-1">
+        <PortLinks ports={container.ports} host={host} reachable={reachable} dense />
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-4 md:mt-0 md:shrink-0 md:justify-end">
+        <StatusLabel container={container} />
+        <ContainerActionSlot
+          container={container}
+          pendingAction={pendingAction}
+          onAction={onAction}
+        />
+      </div>
+    </article>
   );
 }
 
