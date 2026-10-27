@@ -1,7 +1,7 @@
 import type { MutableRefObject } from 'react'
 import { hasAssistantOutput } from '#/client/features/chat/lib/chat-response-result'
 import { clearActiveSession, saveActiveSession } from '#/client/features/chat/lib/chat-session-storage'
-import { unavailableChatError } from '#/client/shared/lib/chat-error'
+import { unavailableChatError, signInRequiredChatError } from '#/client/shared/lib/chat-error'
 import type { ChatStreamState } from '#/client/shared/lib/chat-stream'
 import { updateChatStream } from '#/client/shared/lib/chat-stream'
 import type { Conversation } from '#/types'
@@ -215,7 +215,11 @@ export const receiveSessionEvents = ({
     async function checkTerminalSession() {
       try {
         const response = await fetch(`/api/chat/sessions/${encodeURIComponent(sessionId)}`)
-        if (!response.ok) return
+        if (!response.ok) {
+          // 401 は再接続でも回復しない。15 秒のタイマーで上流障害と誤表示せず、ログイン案内で終了する
+          if (response.status === 401) finish(null, signInRequiredChatError())
+          return
+        }
 
         const payload = (await response.json()) as { session?: unknown }
         const parsed = ChatSessionMetaSchema.safeParse(payload.session)

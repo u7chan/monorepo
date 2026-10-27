@@ -25,6 +25,7 @@ export function ChatCompare() {
     modelSelectorRef,
     canFetchModels,
     models,
+    modelsError,
     modelsQuery,
     handleModelChange,
     confirmModelChange,
@@ -96,7 +97,7 @@ export function ChatCompare() {
                   models={models}
                   selectedModels={selectedModels}
                   loading={canFetchModels && modelsQuery.isLoading}
-                  error={modelsQuery.isError ? 'モデル一覧の取得に失敗しました' : null}
+                  error={modelsError}
                   disabled={isSubmitting}
                   onChange={handleModelChange}
                 />

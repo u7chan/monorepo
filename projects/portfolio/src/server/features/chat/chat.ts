@@ -1,5 +1,5 @@
-import OpenAI from 'openai'
 import type * as ResponsesAPI from 'openai/resources/responses/responses'
+import { createUpstreamClient } from '#/server/lib/upstream-client'
 import type { ApiChatMessage, ApiMode } from '#/types'
 import type { Completions, ResponsesCompletion, ResponsesStreamChunk } from './transport'
 
@@ -60,10 +60,7 @@ export const chat: Chat = {
       includeUsage?: boolean
     }
   ): Promise<Completions> {
-    const openai = new OpenAI({
-      apiKey,
-      baseURL,
-    })
+    const openai = createUpstreamClient({ apiKey, baseURL })
 
     if (apiMode === 'responses') {
       return (await openai.responses.create({

@@ -737,6 +737,51 @@ describe('useStreamProcessor', () => {
     expect(result.current.loading).toBe(false)
   })
 
+  it('EventSource の切断時に session 状態取得が 401 ならログイン案内で終了する', async () => {
+    const { useStreamProcessor, chatSessionPostMock } = await importSubject()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }))
+    const eventSources = stubEventSource()
+    chatSessionPostMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ sessionId: 'session-1' }),
+    })
+
+    const { result } = renderHook(() => useStreamProcessor())
+    const submitChatCompletion = result.current.submitChatCompletion
+    let responsePromise: ReturnType<typeof submitChatCompletion> | undefined
+    act(() => {
+      responsePromise = submitChatCompletion({
+        ...request,
+        streamMode: true,
+        conversation: {
+          id: 'conversation-1',
+          title: 'hello',
+          messages: [],
+        },
+        assistantMessageId: 'message-assistant-1',
+      })
+    })
+
+    await waitFor(() => expect(eventSources).toHaveLength(1))
+    act(() => {
+      eventSources[0].onerror?.()
+    })
+
+    await act(async () => {
+      await expect(responsePromise).resolves.toMatchObject({
+        result: null,
+        error: {
+          code: 'AUTHENTICATION_FAILED',
+          retryable: false,
+        },
+      })
+    })
+    await expect(responsePromise).resolves.toMatchObject({
+      error: { message: expect.stringContaining('ログインしてください') },
+    })
+    expect(result.current.loading).toBe(false)
+  })
+
   it('session stream の cancel は RPC で通知し、ローカルでも null 完了する', async () => {
     const { useStreamProcessor, chatSessionPostMock, chatSessionCancelPostMock } = await importSubject()
     const conversation = {

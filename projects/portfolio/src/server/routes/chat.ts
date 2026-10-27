@@ -27,6 +27,8 @@ import {
   validationError,
 } from '#/server/lib/chat-error'
 import { logger } from '#/server/lib/logger'
+import { UpstreamBaseUrlSchema } from '#/server/lib/upstream-base-url'
+import { requireAuth } from '#/server/middleware/auth'
 import { ApiChatMessageSchema, type ApiMode } from '#/types'
 import {
   ChatApiRequestSchema,
@@ -36,7 +38,7 @@ import {
 } from '#/types/chat-api'
 import { ImageGenerationRequestSchema } from '#/types/image-generation-api'
 import type { HonoEnv } from './shared'
-import { getServerEnv, getSignedInEmail } from './shared'
+import { getServerEnv } from './shared'
 
 const ChatHeaderSchema = z.object({
   'api-key': z.string().min(1),
@@ -72,17 +74,24 @@ const chatHeaderValidator = validator('header', (value, c) => {
 
   const headers = parsed.data
   const fakeMode = headers['api-key'] === 'fakemode'
-
-  if (!fakeMode && !z.string().url().safeParse(headers['base-url']).success) {
-    return c.json(validationError(`Invalid url 'base-url'`), 400)
-  }
-
   const { SERVER_PORT: port } = getServerEnv(c)
   const fakeBaseURL = `http://localhost:${port || 3000}/api`
 
+  if (fakeMode) {
+    return {
+      'api-key': headers['api-key'],
+      'base-url': fakeBaseURL,
+    }
+  }
+
+  const baseURL = UpstreamBaseUrlSchema.safeParse(headers['base-url'])
+  if (!baseURL.success) {
+    return c.json(validationError(`Invalid url 'base-url'`), 400)
+  }
+
   return {
     'api-key': headers['api-key'],
-    'base-url': fakeMode ? fakeBaseURL : headers['base-url'],
+    'base-url': baseURL.data,
   }
 })
 
@@ -231,7 +240,7 @@ const streamStubCompletion = (
   })
 
 const chatRoutes = new Hono<HonoEnv>()
-  .post('/api/image/generations', chatHeaderValidator, imageGenerationBodyValidator, async (c) => {
+  .post('/api/image/generations', requireAuth, chatHeaderValidator, imageGenerationBodyValidator, async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
     const fileServerConfig = resolveFileServerConfig(getServerEnv(c))
@@ -294,7 +303,7 @@ const chatRoutes = new Hono<HonoEnv>()
     }
   })
   // 非ストリーム専用
-  .post('/api/chat', chatHeaderValidator, chatBodyValidator, async (c) => {
+  .post('/api/chat', requireAuth, chatHeaderValidator, chatBodyValidator, async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
     const apiMode = normalizeApiMode(req.apiMode)
@@ -338,7 +347,7 @@ const chatRoutes = new Hono<HonoEnv>()
     }
   })
   // SSE ストリーム専用
-  .post('/api/chat/stream', chatHeaderValidator, chatBodyValidator, async (c) => {
+  .post('/api/chat/stream', requireAuth, chatHeaderValidator, chatBodyValidator, async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
     const apiMode = normalizeApiMode(req.apiMode)
@@ -412,13 +421,13 @@ const chatRoutes = new Hono<HonoEnv>()
       }
     })
   })
-  .post('/api/chat/sessions', chatHeaderValidator, chatSessionStartBodyValidator, async (c) => {
+  .post('/api/chat/sessions', requireAuth, chatHeaderValidator, chatSessionStartBodyValidator, async (c) => {
     const header = c.req.valid('header')
     const req = c.req.valid('json')
     const apiMode = normalizeApiMode(req.apiMode)
     const requestLogger = c.var.logger ?? logger
     const { DATABASE_URL } = getServerEnv(c)
-    const email = await getSignedInEmail(c)
+    const email = c.get('email')
 
     requestLogger.debug(
       {
@@ -448,7 +457,7 @@ const chatRoutes = new Hono<HonoEnv>()
 
     return c.json({ sessionId: session.id, status: session.status })
   })
-  .get('/api/chat/sessions/:sessionId', async (c) => {
+  .get('/api/chat/sessions/:sessionId', requireAuth, async (c) => {
     const sessionId = c.req.param('sessionId')
     const session = await chatSessionManager.getSession(sessionId)
 
@@ -458,7 +467,7 @@ const chatRoutes = new Hono<HonoEnv>()
 
     return c.json({ session })
   })
-  .get('/api/chat/sessions/:sessionId/events', async (c) => {
+  .get('/api/chat/sessions/:sessionId/events', requireAuth, async (c) => {
     const sessionId = c.req.param('sessionId')
     const session = await chatSessionManager.getSession(sessionId)
 
@@ -528,7 +537,7 @@ const chatRoutes = new Hono<HonoEnv>()
       close()
     })
   })
-  .post('/api/chat/sessions/:sessionId/cancel', async (c) => {
+  .post('/api/chat/sessions/:sessionId/cancel', requireAuth, async (c) => {
     const sessionId = c.req.param('sessionId')
     const session = await chatSessionManager.cancelSession(sessionId, 'user_requested')
 
@@ -538,7 +547,7 @@ const chatRoutes = new Hono<HonoEnv>()
 
     return c.json({ status: session.status })
   })
-  // Stub endpoint (OpenAI 互換、変更なし)
+  // Stub endpoint (OpenAI 互換)。fakemode はサーバー自身が cookie なしで叩くため、このスタブだけは requireAuth を付けない
   .post('/api/chat/completions', sValidator('json', StubChatRequestSchema), async (c) => {
     const req = c.req.valid('json')
     const requestLogger = c.var.logger ?? logger

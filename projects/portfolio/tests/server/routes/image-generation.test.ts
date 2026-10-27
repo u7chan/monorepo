@@ -1,5 +1,18 @@
 import { APIError } from 'openai'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { getSignedCookieMock } = vi.hoisted(() => ({ getSignedCookieMock: vi.fn() }))
+
+vi.mock('hono/cookie', async () => {
+  const actual = await vi.importActual<typeof import('hono/cookie')>('hono/cookie')
+
+  return {
+    ...actual,
+    getSignedCookie: getSignedCookieMock,
+    deleteCookie: vi.fn(),
+  }
+})
+
 import { chatRoutes } from '#/server/routes/chat'
 
 const mocks = vi.hoisted(() => ({
@@ -56,10 +69,22 @@ const request = (body: Record<string, unknown> = {}) =>
 
 describe('画像生成専用 API', () => {
   beforeEach(() => {
+    getSignedCookieMock.mockResolvedValue('test@example.com')
     mocks.generate.mockReset()
     mocks.save.mockReset()
     mocks.resolveConfig.mockReset()
     mocks.error.mockReset()
+  })
+
+  describe('認証', () => {
+    it('未ログインでは 401 を返し、生成しない', async () => {
+      getSignedCookieMock.mockResolvedValue(null)
+
+      const res = await chatRoutes.request(request(), undefined, env)
+
+      expect(res.status).toBe(401)
+      expect(mocks.generate).not.toHaveBeenCalled()
+    })
   })
 
   describe('成功', () => {

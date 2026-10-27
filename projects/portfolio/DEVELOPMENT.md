@@ -163,3 +163,5 @@ order by display_order, id;
 - `db:user:add` は平文パスワードを対話入力または標準入力で受け取り、ハッシュ化して登録します
 - `COOKIE_SECURE` は認証Cookieの `Secure` 属性を制御します。HTTPで直接公開する場合は `false`、HTTPSまたはTLS終端プロキシ経由で公開する場合は `true` に設定します。未設定時は `false` です
 - チャット設定の `apiKey` はブラウザの `localStorage` に保存されます。安全な秘密情報ストアではありません
+- `/api/chat`, `/api/chat/stream`, `/api/chat/sessions*`, `/api/image/generations`, `/api/fetch-models`, `/api/fetch-image-models` はログイン必須です。未ログインでは 401 を返し、クライアントはサイドバーの Chat / Compare を隠して `/chat` 系のルートを Home へ戻します
+- `base-url` は `http` / `https` のみ受け付け、末尾スラッシュを除去して上流へ渡します。上流が 30x を返しても追従しません

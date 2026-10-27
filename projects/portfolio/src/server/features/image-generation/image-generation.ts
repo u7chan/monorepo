@@ -1,4 +1,4 @@
-import OpenAI from 'openai'
+import { createUpstreamClient } from '#/server/lib/upstream-client'
 import type { ImageGenerationUsage } from '#/types/image-generation-api'
 
 export const IMAGE_GENERATION_SIZE = '1024x1024'
@@ -24,7 +24,7 @@ export async function generateImage({
   model: string
   prompt: string
 }): Promise<GeneratedImagePayload> {
-  const openai = new OpenAI({ apiKey, baseURL })
+  const openai = createUpstreamClient({ apiKey, baseURL })
   const response = await openai.images.generate({
     model,
     prompt,
