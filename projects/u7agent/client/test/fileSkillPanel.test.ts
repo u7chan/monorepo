@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { fileTimeLabel } from "../src/lib/messageTime";
 import { SKILL_USAGE_EMPTY_NOTE, SKILL_USAGE_TAB_NOTE } from "../src/lib/fileSkills";
-import { SKILL_USAGE_UNAVAILABLE_NOTE, skillUsageByPath } from "../src/lib/skillUsage";
+import { SKILL_USAGE_NOTE, SKILL_USAGE_UNAVAILABLE_NOTE, skillUsageByPath } from "../src/lib/skillUsage";
 import type { AgentDef, FileSkillInfo, SandboxSkillFileDetail } from "../src/types";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
@@ -109,6 +109,8 @@ test("描画: 使用中タブは実効で使うエージェントだけを読み
   });
   const html = renderPanel(skill, { usage });
   assert.ok(html.includes(SKILL_USAGE_TAB_NOTE));
+  // 集計の基準と対象外を件数の近くに出す (上書きされた組み込みが 0 体でも理由を補える)
+  assert.ok(html.includes(SKILL_USAGE_NOTE));
   assert.ok(html.includes(">a1<"));
   assert.ok(html.includes("a1 の説明"));
   assert.ok(!html.includes(">a2<"), "外したエージェントまで並べている");

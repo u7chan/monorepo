@@ -3,7 +3,7 @@
 // 一覧の `overridden` だけで一律 0 にすると「共通を外して組み込みを使う」反例を取り違える。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { effectiveSkills, skillUsageByPath, skillUsageCount, skillUsageCountLabel } from "../src/lib/skillUsage";
+import { effectiveSkills, skillUsageByPath, skillUsageCount } from "../src/lib/skillUsage";
 import type { AgentDef, FileSkillInfo } from "../src/types";
 
 /** 定義の null (解除) も作れるようにする。AgentDef 自体は null を持たない (フォームの送信専用の値) */
@@ -145,5 +145,4 @@ test("件数は未取得なら表示せず、行が無いスキルは 0 体", ()
   const usage = skillUsageByPath({ agents: [], skills: [alpha] });
   assert.equal(skillUsageCount(usage, alpha.relativePath), 0);
   assert.equal(skillUsageCount(undefined, alpha.relativePath), undefined);
-  assert.equal(skillUsageCountLabel(2), "2 体");
 });

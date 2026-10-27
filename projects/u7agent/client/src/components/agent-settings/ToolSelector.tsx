@@ -23,7 +23,6 @@ import { SettingsSearchField } from "../SettingsSearchField";
 import { SkillGroup } from "./SkillRow";
 import { SwitchRow } from "./SwitchRow";
 
-export const TOOL_PANEL_HEADING = "ツール";
 export const TOOL_SEARCH_PLACEHOLDER = "ツール名・説明で絞り込む";
 export const TOOL_SEARCH_ARIA_LABEL = "ツールを絞り込む";
 

@@ -14,7 +14,10 @@ export type DefinitionListProps = {
    * 渡さない (できない理由は一覧側の注記が出す)
    */
   footer?: ReactNode;
-  /** count が 0 のとき行の下に出す文言。未指定なら何も出さない */
+  /**
+   * 行が無いときに出す文言。出すかは呼び出し側が決める (検索で絞った結果が 0 件のときも出すため、
+   * 未絞込の `count` では判定しない)
+   */
   emptyLabel?: string;
   children: ReactNode;
 };
@@ -37,7 +40,7 @@ export function DefinitionList({ title, count, tabs, search, footer, emptyLabel,
       {search ? <div className="shrink-0 px-3 py-2">{search}</div> : null}
       <div className="min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-2.5">
         <div className="grid min-w-0 content-start gap-1">
-          {count === 0 && emptyLabel ? <p className="px-2 text-1xs leading-4 text-ink-faint">{emptyLabel}</p> : null}
+          {emptyLabel ? <p className="px-2 text-1xs leading-4 text-ink-faint">{emptyLabel}</p> : null}
           {children}
         </div>
       </div>

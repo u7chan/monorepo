@@ -84,10 +84,6 @@ export function skillUsageCount(usage: SkillUsage | undefined, relativePath: str
   return usage.get(relativePath)?.length ?? 0;
 }
 
-export function skillUsageCountLabel(count: number): string {
-  return `${count} 体`;
-}
-
 /** 一覧と詳細に出す集計の注記。何を数えていないかをここ 1 箇所で伝える */
 export const SKILL_USAGE_NOTE =
   "ユーザー定義エージェントの定義から集計。既定の汎用アシスタントと既存セッションは対象外です。";

@@ -82,3 +82,20 @@ test("DefinitionList は見出しを省いてもタブ・検索・固定フッ�
   assert.ok(hasAddRow(html));
   assert.equal(html.includes("スキル一覧"), false, "見出しを省いたのに見出しが出ている");
 });
+
+test("DefinitionList の空状態は未絞込の count に依らず、渡されたら出す (検索外れ 0 件)", () => {
+  // 検索で絞った結果が 0 件でも、全件は 5 件のまま。count で判定すると文言が消える
+  const html = renderToStaticMarkup(
+    createElement(DefinitionList, {
+      title: "エージェント一覧",
+      count: 5,
+      emptyLabel: "条件に合うエージェントがありません。",
+      children: null,
+    }),
+  );
+  assert.ok(html.includes("条件に合うエージェントがありません。"));
+  const withoutLabel = renderToStaticMarkup(
+    createElement(DefinitionList, { title: "エージェント一覧", count: 0, children: null }),
+  );
+  assert.ok(!withoutLabel.includes("条件に合うエージェントがありません。"), "空状態を渡していないのに文言が出ている");
+});

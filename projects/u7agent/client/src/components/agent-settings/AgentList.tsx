@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useAgentDrag } from "../../hooks/useAgentDrag";
+import { AGENT_LIST_SEARCH_ARIA_LABEL, AGENT_LIST_SEARCH_PLACEHOLDER } from "../../lib/allowlistText";
 import { cn } from "../../lib/cn";
 import { filterBySearch } from "../../lib/settingsSearch";
 import type { AgentDef } from "../../types";
@@ -62,8 +63,8 @@ export function AgentList({
         <SettingsSearchField
           value={query}
           onChange={setQuery}
-          placeholder="名前・説明で絞り込む"
-          ariaLabel="エージェントを絞り込む"
+          placeholder={AGENT_LIST_SEARCH_PLACEHOLDER}
+          ariaLabel={AGENT_LIST_SEARCH_ARIA_LABEL}
         />
       }
       footer={
@@ -76,6 +77,7 @@ export function AgentList({
           新しいエージェント
         </button>
       }
+      // 行が 1 件も無いときは、全件 0 件でも検索外れでも空状態を出す (未絞込の count では判定しない)
       emptyLabel={visible.length === 0 ? "条件に合うエージェントがありません。" : undefined}
     >
       <div ref={containerRef} className="grid min-w-0 content-start gap-1" {...drag.containerHandlers}>

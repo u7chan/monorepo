@@ -15,7 +15,7 @@ import {
   fileSkillUsageLabel,
 } from "../../lib/fileSkills";
 import { fileTimeLabel, messageFullTimeLabel } from "../../lib/messageTime";
-import { SKILL_USAGE_UNAVAILABLE_NOTE, skillUsageCount, type SkillUsage } from "../../lib/skillUsage";
+import { SKILL_USAGE_NOTE, SKILL_USAGE_UNAVAILABLE_NOTE, skillUsageCount, type SkillUsage } from "../../lib/skillUsage";
 import type { AgentDef, FileSkillInfo, SandboxSkillFileDetail } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { FileBrowser } from "../FileBrowser";
@@ -137,7 +137,11 @@ export function FileSkillPanel({
       activeTab={tab}
       usage={
         <div className="grid gap-2">
-          <p className="text-1xs leading-relaxed text-ink-muted">{SKILL_USAGE_TAB_NOTE}</p>
+          <div className="grid gap-0.5">
+            <p className="text-1xs leading-relaxed text-ink-muted">{SKILL_USAGE_TAB_NOTE}</p>
+            {/* 何を数えていないかは件数のすぐ近くに出す (0 体の理由を読み手が補えるように) */}
+            <p className="text-2xs leading-4 text-ink-faint">{SKILL_USAGE_NOTE}</p>
+          </div>
           {usage === undefined ? (
             <p className="text-2xs leading-4 text-ink-faint">{SKILL_USAGE_UNAVAILABLE_NOTE}</p>
           ) : users.length === 0 ? (

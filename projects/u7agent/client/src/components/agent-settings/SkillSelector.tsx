@@ -28,7 +28,6 @@ import { SwitchRow } from "./SwitchRow";
 
 /** 組み込み行の見出し。ビルトインの閲覧ビューも同じ語で出す */
 export const BUILTIN_SECTION_LABEL = "組み込み";
-export const SKILL_PANEL_HEADING = "スキル";
 export const SKILL_SEARCH_PLACEHOLDER = "スキル名・説明で絞り込む";
 export const SKILL_SEARCH_ARIA_LABEL = "スキルを絞り込む";
 /**
@@ -40,8 +39,6 @@ export const BUILTIN_SECTION_NOTE =
 /** 明示リストは対象の名前だけを使う。同梱物が増えても勝手に有効にしないことを注記で知らせる */
 export const BUILTIN_SKILL_EXPLICIT_NOTE =
   "選んだ組み込みスキルだけを使います。あとから同梱された分は自動では選ばれません。";
-export const BUILTIN_SKILL_SHOW_ALL_LABEL = "すべて使用に戻す";
-export const BUILTIN_SKILL_DISABLE_ALL_LABEL = "すべて外す";
 
 /**
  * 共通スキルの注記。行に出る「自動起動なし」(`disable-model-invocation` = モデルが自分からは起動しない) とは
@@ -52,7 +49,6 @@ export const COMMON_SKILL_SECTION_NOTE =
   "外してもファイルは消えません。このエージェントの会話でだけ読み込まれなくなります。";
 /** 明示リストは対象の名前だけを使う。一覧が後から増えても勝手に有効にしないことを注記で知らせる */
 export const COMMON_SKILL_EXPLICIT_NOTE = "選んだ名前だけを使います。あとから増えた共通スキルは自動では選ばれません。";
-export const COMMON_SKILL_SHOW_ALL_LABEL = "すべて表示に戻す";
 
 /** 保存名のうち一覧に無いもの (ファイルの削除・改名)。落とさず残すので、自動では直らないことを知らせる */
 function commonSkillMissingNote(names: string[]): string {
