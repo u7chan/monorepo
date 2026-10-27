@@ -33,6 +33,8 @@ interface MessageItemDescriptor {
   entryIndex: number;
   message: HistoryMessage;
   context: HistoryContextState;
+  /** 本文ありの応答か。item 化の可否とは別で、ターン結末を付ける先の判定に使う */
+  hasText: boolean;
   assistantId?: string;
 }
 
@@ -54,19 +56,14 @@ function messageOf(entry: PiSessionEntryLike): HistoryMessage | undefined {
 }
 
 /** 表示対象 (user / 本文のある assistant / ツールの行き先を失う応答) と compaction だけを時系列に並べる */
-function describeEntries(
-  entries: PiSessionEntryLike[],
-  session: PiSessionLike,
-  masker: SecretMasker,
-  cwd: string,
-): ItemDescriptor[] {
+function describeEntries(entries: PiSessionEntryLike[], session: PiSessionLike, cwd: string): ItemDescriptor[] {
   const inContext = new Set<object>(session.messages);
   const displayable = displayableMessageSet(
     entries.flatMap((entry) => {
       const message = messageOf(entry);
       return message === undefined ? [] : [message];
     }),
-    { masker, cwd },
+    { cwd },
   );
   let latestCompactionIndex = -1;
   entries.forEach((entry, index) => {
@@ -103,6 +100,7 @@ function describeEntries(
       entryIndex: index,
       message,
       context,
+      hasText: isDisplayableMessage(message),
       ...(assistantId === undefined ? {} : { assistantId }),
     });
   });
@@ -152,11 +150,7 @@ function sendIdsOf(
  * 全体の descriptor 列で先に決める: 選択範囲だけで決めると、古いページの末尾で切れたターンの item に
  * も載ってしまう。run の結末を持たないターン (未終端 / 再起動後) と user entry を持たないターンは載せない。
  */
-function turnEndsByLastAnswer(
-  descriptors: ItemDescriptor[],
-  record: SessionRecord,
-  masker: SecretMasker,
-): Map<string, TurnEnd> {
+function turnEndsByLastAnswer(descriptors: ItemDescriptor[], record: SessionRecord): Map<string, TurnEnd> {
   const ends = new Map<string, TurnEnd>();
   let runId: string | undefined;
   let lastAnswerId: string | undefined;
@@ -177,7 +171,7 @@ function turnEndsByLastAnswer(
     }
     // 本文の無い応答 (繰り上げ先を失ったツールの item) に結末を移すと、表示側が本文の有無で
     // 落とすため Done / Stopped が消える。本文のある最後の応答を付け先にする
-    if (!isDisplayableMessage(descriptor.message, masker)) continue;
+    if (!descriptor.hasText) continue;
     lastAnswerId = descriptor.id;
   }
   closeTurn();
@@ -307,8 +301,8 @@ export function projectHistoryPage({
 }): HistoryPageResult {
   const { session } = record;
   const entries = branchEntriesOf(session);
-  const descriptors = describeEntries(entries, session, masker, cwd);
-  const turnEnds = turnEndsByLastAnswer(descriptors, record, masker);
+  const descriptors = describeEntries(entries, session, cwd);
+  const turnEnds = turnEndsByLastAnswer(descriptors, record);
   const messages = descriptors.filter((descriptor) => descriptor.kind === "message");
   const summarizedMessageCount = messages.filter((descriptor) => descriptor.context === "summarized").length;
   const active = messages.find((descriptor) => descriptor.context === "active");

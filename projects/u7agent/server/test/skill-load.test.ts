@@ -157,7 +157,7 @@ test("projectMessages は本文を持たない read だけのターンを次の�
     ],
     "表示集合は変わらない (本文を持たないメッセージはバブルにしない)",
   );
-  assert.equal(projected.length, displayableMessages(messagesOf(messages), masker, CWD).length);
+  assert.equal(projected.length, displayableMessages(messagesOf(messages), CWD).length);
   assert.deepEqual(projected[1].skillLoads, [{ id: "call-1", name: "gh", path: `${CWD}/.agents/skills/gh/SKILL.md` }]);
   assert.equal(projected[0].skillLoads, undefined, "user バブルには載せない");
 });
