@@ -443,7 +443,7 @@ function Dashboard(props: {
       ) : null}
       {adding ? (
         <Modal title="OpenCode Go のアカウントを追加" onClose={() => setAdding(false)}>
-          <OpenCodeAccountForm mode="create" onSubmit={createAccount} onClose={() => setAdding(false)} />
+          {(close) => <OpenCodeAccountForm mode="create" onSubmit={createAccount} onClose={close} />}
         </Modal>
       ) : null}
     </Layout>
