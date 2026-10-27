@@ -3,10 +3,12 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { WebSearchProvider } from "../src/types";
+import type { WebSearchProvider, WebSearchTestResponse } from "../src/types";
 import {
   deleteWebSearchKeyConfirmRequest,
   WEB_SEARCH_KEY_ENCRYPTED_NOTE,
+  WEB_SEARCH_TEST_DEFAULT_QUERY,
+  WEB_SEARCH_TEST_QUERY_MAX_LENGTH,
   WEB_SEARCH_NO_LOGIN_NOTE,
   WEB_SEARCH_SETTINGS_NOTE,
   WEB_SEARCH_TOOL_NAME,
@@ -21,7 +23,17 @@ import {
   webSearchProviderOptions,
   webSearchProviderSavedNote,
   webSearchSavedNote,
+  createSettingsGeneration,
   webSearchStatusBadge,
+  webSearchTestCountLabel,
+  webSearchTestDisabledReason,
+  webSearchTestDurationLabel,
+  webSearchTestElapsedLabel,
+  webSearchTestFailure,
+  webSearchTestNotice,
+  webSearchTestOutputSizeLabel,
+  webSearchTestQueryError,
+  runWebSearchTest,
 } from "../src/lib/webSearchSettings";
 
 const EXA: WebSearchProvider = {
@@ -94,22 +106,22 @@ test("キーの状態バッジは keyless を固定にし、キー付きは保�
 test("データの流れは、実行したときだけ外へ出ることを明示する", () => {
   assert.equal(
     webSearchDataFlowNotice(EXA, true),
-    "web_search ツールを実行したときだけ、クエリは既定の Exa（mcp.exa.ai）へ送信され、取得した抜粋はモデル（LLM プロバイダー）へ渡ります。",
+    "web_search ツールかテスト検索を実行したときだけ、クエリは既定の Exa（mcp.exa.ai）へ送信されます。取得した抜粋は、ツールならモデル（LLM プロバイダー）へ、テスト検索ならこの画面にだけ渡ります。",
   );
   assert.equal(
     webSearchDataFlowNotice(TAVILY, false),
-    "検索は無効です。検索のクエリは Tavily（api.tavily.com）へ送信されません。",
+    "検索は無効です。web_search もテスト検索も実行できず、クエリは Tavily（api.tavily.com）へ送信されません。",
   );
 });
 
 test("折りたたみの 1 行は、そのまま送信先とキーの保存を見せる", () => {
   assert.equal(
     webSearchNoticeSummary(EXA, true),
-    "web_search ツールの実行時にだけ、クエリは Exa（mcp.exa.ai）へ送信されます。",
+    "web_search ツールかテスト検索の実行時にだけ、クエリは Exa（mcp.exa.ai）へ送信されます。",
   );
   assert.equal(
     webSearchNoticeSummary(TAVILY, true),
-    "web_search ツールの実行時にだけ、クエリは Tavily（api.tavily.com）へ送信されます。キーは暗号化して保存されます。",
+    "web_search ツールかテスト検索の実行時にだけ、クエリは Tavily（api.tavily.com）へ送信されます。キーは暗号化して保存されます。",
   );
   assert.equal(
     webSearchNoticeSummary(TAVILY, false),
@@ -164,4 +176,104 @@ test("キー削除の確認は、対象と結果が分かる文言にする", ()
   assert.deepEqual(request.subject, { label: "検索プロバイダー", value: "Tavily" });
   assert.equal(request.confirmLabel, "削除する");
   assert.equal(request.danger, undefined, "再登録できる操作なので danger にはしない");
+});
+
+test("テスト検索の既定値と入力の規則", () => {
+  assert.equal(WEB_SEARCH_TEST_DEFAULT_QUERY, "今日は何の日？");
+  assert.equal(WEB_SEARCH_TEST_QUERY_MAX_LENGTH, 500);
+  assert.equal(webSearchTestQueryError("   "), "検索するテキストを入力してください。");
+  assert.equal(webSearchTestQueryError(" 今日は何の日？ "), undefined);
+  assert.equal(webSearchTestQueryError("あ".repeat(WEB_SEARCH_TEST_QUERY_MAX_LENGTH)), undefined);
+  assert.ok(webSearchTestQueryError("あ".repeat(WEB_SEARCH_TEST_QUERY_MAX_LENGTH + 1))?.includes("500 文字以内"));
+});
+
+test("テスト検索は OFF のとき押せず、押す前に送信先と課金対象を見せる", () => {
+  assert.equal(webSearchTestDisabledReason({ enabled: true }), undefined);
+  assert.equal(webSearchTestDisabledReason({ enabled: false }), "Web 検索を有効にするとテスト検索できます。");
+  assert.ok(webSearchTestNotice(EXA).includes("Exa（mcp.exa.ai）"));
+  assert.ok(webSearchTestNotice(EXA).includes("課金対象"), "押す前に課金を伝える");
+});
+
+test("テスト検索の結果は、通信の失敗も同じ形に畳んで秒・件数・文字数を出す", () => {
+  assert.deepEqual(webSearchTestFailure("HTTP 503"), {
+    ok: false,
+    output: "HTTP 503",
+    provider: null,
+    resultCount: 0,
+    durationMs: 0,
+  });
+  assert.equal(webSearchTestDurationLabel(0), undefined, "測っていない 0 は出さない");
+  assert.equal(webSearchTestDurationLabel(1234), "1.2 秒");
+  assert.equal(webSearchTestElapsedLabel(12_800), "12 秒");
+  assert.equal(webSearchTestCountLabel(0), "0 件");
+  assert.equal(webSearchTestOutputSizeLabel("abc"), "3 文字");
+});
+
+const TEST_RESULT: WebSearchTestResponse = {
+  ok: true,
+  output: "現在日時: 2026-02-11 (Asia/Tokyo)\n検索プロバイダー: Exa\n出典:",
+  provider: { id: "exa", name: "Exa", host: "mcp.exa.ai" },
+  resultCount: 1,
+  durationMs: 12,
+};
+
+/** 送信を保留して、検索待ちの間に設定を変える状況を作る */
+function pending<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void } {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+test("テスト検索は検索待ちの間に設定が変わったら、成功も失敗も採用しない", async () => {
+  const generation = createSettingsGeneration();
+
+  // 応答が返る前に OFF / provider / キーが変わった (onApply が世代を進める)
+  const success = pending<WebSearchTestResponse>();
+  const successRun = runWebSearchTest("q", { generation, request: () => success.promise });
+  generation.invalidate();
+  success.resolve(TEST_RESULT);
+  assert.equal(await successRun, null, "旧設定の成功を新しい設定の証拠にしない");
+
+  const failure = pending<WebSearchTestResponse>();
+  const failureRun = runWebSearchTest("q", { generation, request: () => failure.promise });
+  generation.invalidate();
+  failure.reject(new Error("HTTP 503"));
+  assert.equal(await failureRun, null, "旧設定の失敗も出さない");
+
+  // 設定が変わった後の検索は採用する (捨てるのは跨いだ応答だけ)
+  assert.deepEqual(await runWebSearchTest(" q ", { generation, request: async () => TEST_RESULT }), {
+    query: "q",
+    result: TEST_RESULT,
+  });
+});
+
+test("テスト検索は設定が変わらなければ、成功も失敗も採用する", async () => {
+  const generation = createSettingsGeneration();
+  assert.deepEqual(await runWebSearchTest(" 今日は何の日？ ", { generation, request: async () => TEST_RESULT }), {
+    query: "今日は何の日？",
+    result: TEST_RESULT,
+  });
+
+  const failed = await runWebSearchTest("q", {
+    generation,
+    request: async () => {
+      throw new Error("HTTP 503");
+    },
+  });
+  assert.deepEqual(failed, { query: "q", result: webSearchTestFailure("HTTP 503") });
+});
+
+test("空のテスト検索は送らない", async () => {
+  let calls = 0;
+  const generation = createSettingsGeneration();
+  const request = async (): Promise<WebSearchTestResponse> => {
+    calls += 1;
+    return TEST_RESULT;
+  };
+  assert.equal(await runWebSearchTest("   ", { generation, request }), null);
+  assert.equal(calls, 0);
 });

@@ -39,7 +39,20 @@ export function WebSearchSettingsView({
   /** ツールの `available` を取り直す (エージェント編集のツール欄が取得時点のスナップショットを見るため) */
   refreshCatalog?: () => Promise<unknown>;
 }) {
-  const { settings, note, saving, reloading, reload, setEnabled, setProvider, saveKey, removeKey } = webSearchSettings;
+  const {
+    settings,
+    note,
+    saving,
+    reloading,
+    reload,
+    setEnabled,
+    setProvider,
+    saveKey,
+    removeKey,
+    testing,
+    testOutcome,
+    test,
+  } = webSearchSettings;
   // 実行時トグルを保存すると web_search の available が変わるので、成功後にカタログを取り直す
   const setEnabledAndRefresh = async (enabled: boolean): Promise<boolean> => {
     const saved = await setEnabled(enabled);
@@ -73,6 +86,9 @@ export function WebSearchSettingsView({
           onSelectProvider={setProvider}
           onSaveKey={saveKey}
           onDeleteKey={removeKey}
+          testing={testing}
+          testOutcome={testOutcome}
+          onTest={(query) => void test(query)}
         />
       ) : (
         <SettingsPlaceholder label="Web 検索の設定" note={note} />

@@ -131,11 +131,34 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 - 常時公開だが、エージェント定義の `toolNames` からは外せる（外すと新しい会話でこのツールが公開されない）。エージェントの変更は既存の会話に遡及しない
 - 検索前の確認ダイアログは持たない。SDK の `ctx.ui.confirm()` は BFF（`noExtensions: true`）では使えない（`ask_user` の待機機構が入ってから別途）
 
+## テスト検索（設定画面）
+
+設定 → Web 検索（`/settings/web-search`）から、保存済みの設定で 1 回だけ検索して結果を確かめられる。目的は
+「キーが通るか」「整形はどう見えるか」を、会話を作らずに確認すること。
+
+- ツールと同じ runner（`createWebSearchRunner`）を共有する。整形・失敗の固定文言・マスク・期限（60 秒）は
+  ツール側の 1 実装だけで、画面とチャットで結果が食い違わない
+- 応答の `output` は **モデルへ返る本文（成功）/ throw する文言（失敗）そのもの**で、画面はコードブロック風の
+  枠にそのまま出す（コピー付き）。出典を別のリンク一覧へ解釈し直さない（整形の二重実装を作らない）
+- `provider`（実際に送った id / 表示名 / 送信先）・`resultCount`・`durationMs` は応答が返す。画面の選択ではなく
+  **送った時点の provider** を出す（チャットのチップと同じ方針）
+- 無効の間は **送らない**。画面はボタンを押せなくし、API も上流へ送らずに `WEB_SEARCH_DISABLED_MESSAGE` を
+  `ok: false` で返す（kill switch をテストだけ迂回させない）。キー未設定も provider 側で止まり、上流へは送らない
+- 会話・履歴・設定・DB へは何も書かない。失敗も 200 の `ok: false` で返し、`state` は持たない
+- クエリは自由文なので URL ではなく本文で受ける（アクセスログに残さない）。上限は 500 文字で、これは GUI の
+  入力欄のための制限。モデルへ公開する `web_search` の引数には上限を置かない
+- タイムアウトはツールと同じ 60 秒。画面は経過秒数を出す（テストだけ短い期限にすると、チャットとの差が
+  そのまま「テストは通るのに失敗する」に見える）
+- 保存していない APIキーの下書きがあるときは、保存してから試すよう画面で促す（自動保存はしない）
+- 結果は画面の state だけで、再読み込み・設定変更で消える（古い設定の結果を新しい設定の証拠にしない）。
+  検索待ちの間に設定が変わった場合も、遅れて届いた応答は採用しない
+
 ## 非ゴール
 
 - provider ごとの詳細検索オプション（`search_depth` / 期間 / ドメイン絞り込みなど）
 - チップへの送信先ホスト（`mcp.exa.ai`）の表示（チップは provider の表示名だけを持つ）
 - provider の自動選択・自動 fallback・セッション単位の override
+- テスト検索の結果から出典のリンク一覧を組み立てること・実行のキャンセル・履歴への保存
 - 検索品質・料金・利用量による自動ルーティング、Tavily の credit 使用量表示
 - キー付き provider を複数同時に使うこと（`web_search_provider_keys` は provider ごとの行を持つため、キー自体は複数登録できる）
 - 現在日時の精度を上げること（時刻・秒）と、タイムゾーンの設定化（`Asia/Tokyo` 固定）
@@ -151,9 +174,10 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 | `server/test/web-search-tool.test.ts` | 引数 `query`（空文字・空白のみを拒否）/ 結果の整形（先頭の現在日時行と provider 行（既定 Exa / 切り替え後 Tavily / 0 件 / 失敗文言 / 設定読取失敗・無効化では無し / 投影の切詰め内に残る）・JST 境界・公開日の JST 変換と欠落 / parse 不能 / 非文字列 / 空文字・出典一覧・highlights の採用）/ 1 件と合計の切り詰め（日時行込み）/ 既定は Exa / 既定 provider の実行時切り替え / provider が失敗しても別 provider へ fallback しない / キー未設定・拒否の固定文言 / 失敗の種類 → 日時行付きの固定文言 / ネットワーク例外（マスクして 500 字まで）/ タイムアウト / ユーザー中断 / `results: []` が正常系（日時行付き）/ 切り詰め前のマスク / 指針の文言 / 無効の間は送らず、ON に戻ると同じ定義で検索する / 設定の読取失敗も日時行付きで送らずに固定文言 / `web_search` がサンドボックスの allowlist に入らないこと |
 | `server/test/web-search-settings.test.ts` | 行が無い = 既定（有効 / Exa）/ PUT の往復と写しの差し替え（enabled / provider / キー）/ 未知の provider とキー不要 provider へのキー操作が 400 / マスカー登録が DB より前 / 応答にキー値を載せない / キー削除の冪等 / 保存できないときは 503 で写しも変えない / 保存後の読取失敗でも 200 / 起動時に DB を読めないときは既定で立つ / 起動時に保存済みのキーを保護対象へ入れる |
 | `server/test/web-search-settings-api.test.ts` | `GET` / `PUT /api/settings/web-search`、`PUT /provider`、`PUT`・`DELETE /providers/:provider/key` の往復、`state: "applied"`、再起動後も残ること、Zod 検証での 400、応答にキー値を出さないこと |
+| `server/test/web-search-test-api.test.ts` | `POST /api/settings/web-search/test` の本文（日時行・provider 行・出典・抜粋）と `provider` / `resultCount` / `durationMs`、クエリの trim、会話も設定も変えないこと、無効・キー未設定は上流へ送らないこと、失敗も 200 の固定文言、応答にキー値を出さないこと、空 / 空白 / 上限超過 / JSON でない本文の 400（上限ちょうどは 200）、実行環境が無いときの 503 |
 | `server/test/app-db.test.ts` | v11 → v12 → v13 の加算移行、`web_search_settings.provider` の既定、`web_search_provider_keys` の往復と upsert・削除 |
 | `client/test/webSearchInfo.test.ts` / `client/test/liveToolCall.test.ts` | provider 行の抽出（あり / なし / 空白のみ / 改行で終わらない断片は採らない / 先頭 3 行より後ろは読まない / 対象外ツール / 失敗カードでも読む / `output` が空）/ 行とヘッダのチップ（同一 provider は 1 つ・混在は `複数プロバイダー` と内訳・provider 行の無いカードでは出さない・生成モデルのチップとの同居） |
-| `client/test/selectMenu.test.ts` / `client/test/webSearchSettings.test.ts` / `client/test/webSearchSettingsTab.test.ts` / `client/test/webSearchSettingsPage.test.ts` | 自前 select の位置とキーボード移動、provider 一覧・送信先・キー状態の文言、有効 / 無効と provider 切替の描画、キー未設定の警告、保存中の disable、ページの見出しと取得前の出し分け、セクションの語彙と URL |
+| `client/test/selectMenu.test.ts` / `client/test/webSearchSettings.test.ts` / `client/test/webSearchSettingsTab.test.ts` / `client/test/webSearchSettingsPage.test.ts` | 自前 select の位置とキーボード移動、provider 一覧・送信先・キー状態の文言、有効 / 無効と provider 切替の描画、キー未設定の警告、保存中の disable、ページの見出しと取得前の出し分け、セクションの語彙と URL、テスト検索の既定クエリと入力の規則、OFF で押せないこと、結果（成功 / 失敗）の状態行とコピー |
 
 実セッション（GUI）での受入は手動で 1 回行う。`mcp.exa.ai` / `api.tavily.com` への実到達とデプロイ先コンテナからの到達性、GUI の停止ボタンで中断できること、ツール履歴の先頭 900 字に現在日時行と provider 行と出典一覧が入ることを確かめる。チップの見た目は有料 API を使わない GUI fixture（[testing.md](testing.md#有料-api-を使わない-gui-fixture)）で見る。
 

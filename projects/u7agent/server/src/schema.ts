@@ -2566,6 +2566,39 @@ export const UpdateWebSearchKeyBodySchema = z.object({
 });
 export type UpdateWebSearchKeyBody = z.infer<typeof UpdateWebSearchKeyBodySchema>;
 
+/**
+ * テスト検索の入力。空白だけは 400 にし、上限は GUI の入力欄に合わせる
+ * (チャットの `web_search` は provider 側の上限に任せていて、こことは独立)。
+ */
+export const WEB_SEARCH_TEST_QUERY_MAX_LENGTH = 500;
+
+export const WebSearchTestBodySchema = z.object({
+  query: z.string().trim().min(1).max(WEB_SEARCH_TEST_QUERY_MAX_LENGTH),
+});
+export type WebSearchTestBody = z.infer<typeof WebSearchTestBodySchema>;
+
+/** テスト検索が実際に送った provider。解決できなかった / 無効のときは null */
+export const WebSearchTestProviderSchema = z.object({
+  id: WebSearchProviderIdSchema,
+  name: z.string(),
+  host: z.string(),
+});
+export type WebSearchTestProvider = z.infer<typeof WebSearchTestProviderSchema>;
+
+/**
+ * テスト検索の応答。`output` は成功ならモデルへ返る本文、失敗なら throw する文言 (どちらもマスク済み) で、
+ * 画面はそのまま出す。失敗も 200 で返し、保存状態は変えない (会話タイトルの動作確認と同じ契約)。
+ */
+export const WebSearchTestResponseSchema = z.object({
+  ok: z.boolean(),
+  output: z.string(),
+  provider: WebSearchTestProviderSchema.nullable(),
+  /** 出典の件数。失敗時は 0 */
+  resultCount: z.number(),
+  durationMs: z.number(),
+});
+export type WebSearchTestResponse = z.infer<typeof WebSearchTestResponseSchema>;
+
 /** 変更系の失敗応答（何も変わっていない） */
 export const WebSearchMutationErrorSchema = z.object({
   error: z.string(),

@@ -67,6 +67,7 @@ import {
   UpdateWebSearchBodySchema,
   UpdateWebSearchKeyBodySchema,
   UpdateWebSearchProviderBodySchema,
+  WebSearchTestBodySchema,
   UpdateProviderMemoBodySchema,
   UpdateSharedContentExclusionsBodySchema,
   SubmitOAuthLoginCodeBodySchema,
@@ -131,6 +132,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     oauthLogin,
     contentSettings,
     webSearchSettings,
+    webSearchTest,
     titleSummarySettings,
     titleSummaryTest,
     serve,
@@ -174,7 +176,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const cloudflareSettingsRoutes = createCloudflareSettingsRoutes({ cloudflareSettings, cloudflareConnection });
   const sharedContentRoutes = createSharedContentRoutes({ sharedContents });
   const sharedContentExclusionsRoutes = createSharedContentExclusionsRoutes({ sharedContentExclusions });
-  const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings });
+  const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings, test: webSearchTest });
   const titleSummaryRoutes = createTitleSummaryRoutes({ titleSummarySettings, test: titleSummaryTest });
   // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
   const secretRoutes = createSecretRoutes({
@@ -695,6 +697,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .delete("/api/settings/web-search/providers/:provider/key", appDataMutation, (c) =>
       webSearchSettingsRoutes.deleteKey(c, c.req.param("provider")),
     )
+    .post(
+      "/api/settings/web-search/test",
+      appData,
+      jsonBodyValidator(WebSearchTestBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      // クエリは自由文なので、ログや履歴に残る URL ではなく本文で受け取る
+      (c) => webSearchSettingsRoutes.test(c, c.req.valid("json")),
+    )
     .get("/api/settings/session-title", appData, titleSummaryRoutes.list)
     .post("/api/settings/session-title/test", appData, titleSummaryRoutes.test)
     .put(
@@ -747,6 +758,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     oauthLogin,
     contentSettings,
     webSearchSettings,
+    webSearchTest,
     titleSummarySettings,
     serve,
     secrets,

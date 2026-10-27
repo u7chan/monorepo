@@ -15,6 +15,7 @@ import {
   webSearchProviderOptions,
   webSearchStatusBadge,
   type WebSearchSavingAction,
+  type WebSearchTestOutcome,
 } from "../../lib/webSearchSettings";
 import type { WebSearchProviderId, WebSearchSettingsResponse } from "../../types";
 import { CollapsibleNotice } from "../CollapsibleNotice";
@@ -25,6 +26,7 @@ import { SelectMenu, type SelectMenuOption } from "../SelectMenu";
 import { ToggleSwitch } from "../ToggleSwitch";
 import { MetaChip } from "../model-settings/MetaChip";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
+import { WebSearchTestCard } from "./WebSearchTestCard";
 
 export type WebSearchSettingsTabProps = {
   settings: WebSearchSettingsResponse;
@@ -34,6 +36,11 @@ export type WebSearchSettingsTabProps = {
   onSelectProvider: (provider: WebSearchProviderId) => Promise<boolean>;
   onSaveKey: (provider: WebSearchProviderId, apiKey: string) => Promise<boolean>;
   onDeleteKey: (provider: WebSearchProviderId) => Promise<boolean>;
+  /** テスト検索の実行中 */
+  testing: boolean;
+  /** 直近のテスト検索。設定が変わると消える */
+  testOutcome: WebSearchTestOutcome | null;
+  onTest: (query: string) => void;
 };
 
 /**
@@ -50,6 +57,9 @@ export function WebSearchSettingsTab({
   onSelectProvider,
   onSaveKey,
   onDeleteKey,
+  testing,
+  testOutcome,
+  onTest,
 }: WebSearchSettingsTabProps) {
   const confirm = useConfirm();
   const { enabled, provider } = settings;
@@ -197,6 +207,16 @@ export function WebSearchSettingsTab({
             </p>
           ) : null}
         </section>
+
+        {/* キーを保存した直後に試せるよう、provider の設定のすぐ下に置く */}
+        <WebSearchTestCard
+          settings={settings}
+          busy={busy}
+          testing={testing}
+          outcome={testOutcome}
+          unsavedKey={keyDraft.length > 0}
+          onTest={onTest}
+        />
 
         {/* 外部送信とキーの保存は、設定を変える前に読める位置へ既定で畳んで出す（コンテンツ生成と同じ作法） */}
         <CollapsibleNotice summary={webSearchNoticeSummary(providerDef, enabled)}>
