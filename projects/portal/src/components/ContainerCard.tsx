@@ -1,6 +1,6 @@
 // ContainerCard Component - 1 つのコンテナを「ポートの入口」として見せるカード / 行
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Container, PortMapping } from "../types/container";
 import { useConfig } from "../hooks/useConfig";
 import { useCopy } from "../hooks/useCopy";
@@ -258,6 +258,13 @@ function ContainerActionButton({
   const anchorRef = useRef<HTMLButtonElement | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const isStart = action === "start";
+
+  // ポーリングでコンテナの状態が変わると action が入れ替わる。開いたままの確認が
+  // 次に running へ戻ったとき勝手に開かないよう、action が変わったら閉じる。
+  useEffect(() => {
+    setConfirmOpen(false);
+  }, [action]);
+
   const label = isStart ? "Start" : "Stop";
   const pendingLabel = isStart ? "Starting" : "Stopping";
 
