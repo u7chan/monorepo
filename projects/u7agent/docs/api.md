@@ -30,7 +30,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 共有の除外名（設定 → 共有 `/settings/sharing` の「公開の除外」） | `GET/PUT/DELETE /api/settings/shared-content-exclusions` | このファイル、[static-sharing.md](static-sharing.md#公開の除外) |
 | プロバイダーAPIキーとメモ（設定 → モデル `/settings/models`） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync`、`POST/DELETE /api/settings/models/:provider/login`、`POST /api/settings/models/:provider/login/code`、`POST /api/settings/models/:provider/logout`、`POST /api/settings/models/catalog/refresh` | このファイル、[model-settings.md](model-settings.md) |
 | コンテンツ生成（設定 → コンテンツ生成 `/settings/content`） | `GET/PUT /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`POST /api/settings/content/speech/preview`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
-| Web 検索の設定（設定 → Web 検索 `/settings/web-search`） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
+| Web 検索の設定（設定 → Web 検索 `/settings/web-search`） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key`、`POST /api/settings/web-search/test` | このファイル、[web-search.md](web-search.md) |
 | 会話タイトルの設定（設定 → 会話タイトル `/settings/session-title`） | `GET/PUT /api/settings/session-title`、`POST /api/settings/session-title/test` | このファイル、[session-title.md](session-title.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 共有コンテンツ（公開・更新・停止・再公開・削除）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare`、`/api/settings/shared-content-exclusions` | [static-sharing.md](static-sharing.md) |
@@ -529,6 +529,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | PUT | `/api/settings/web-search/provider` | `{ provider }`。既定の provider を差し替える（`enabled` は保持）。未知の provider は 400 |
 | PUT | `/api/settings/web-search/providers/:provider/key` | `{ apiKey }`。provider のキーを登録・上書き。キー不要 / 未知の provider は 400 |
 | DELETE | `/api/settings/web-search/providers/:provider/key` | 行ごと削除して未設定へ戻す（冪等） |
+| POST | `/api/settings/web-search/test` | `{ query }`。保存済みの設定で 1 回だけ検索し、モデルへ返る本文をそのまま返す。無効 / 検索の失敗も 200 の `ok: false` |
 
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。変更系は 503 に `state: "not_stored"` を付け、何も保存していないことを示す。トグルの意味、provider の抽象化、失敗時の契約は [web-search.md](web-search.md) を正とする。
 
@@ -555,6 +556,21 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 // PUT /api/settings/web-search (503。何も保存していない)
 { "error": "Web 検索の設定をアプリデータ（SQLite）へ保存できませんでした", "state": "not_stored" }
+```
+
+`POST /api/settings/web-search/test` は本文 `{ "query": "…" }`（trim 後 1〜500 文字、外れたら 400）。応答の `output` は
+`web_search` が返す / throw する本文と同じで、`provider` は実際に送った provider（解決できなければ `null`）。
+`durationMs` は所要時間、`resultCount` は出典の件数。会話にも設定にも何も保存しない。ランタイムを作れない起動は 503。
+
+```json
+// POST /api/settings/web-search/test (200。検索の失敗も 200)
+{
+  "ok": true,
+  "output": "現在日時: 2026-02-11 (Asia/Tokyo)\n検索プロバイダー: Exa\n出典:\n[1] … — https://… (2026-02-11)\n\n…",
+  "provider": { "id": "exa", "name": "Exa", "host": "mcp.exa.ai" },
+  "resultCount": 5,
+  "durationMs": 1234
+}
 ```
 
 ## 会話タイトルの設定

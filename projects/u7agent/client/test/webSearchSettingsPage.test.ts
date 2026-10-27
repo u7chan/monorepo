@@ -56,6 +56,9 @@ function webSearchSettings(overrides: Partial<WebSearchSettings> = {}): WebSearc
     setProvider: async () => true,
     saveKey: async () => true,
     removeKey: async () => true,
+    testing: false,
+    testOutcome: null,
+    test: async () => {},
     ...overrides,
   };
 }
@@ -78,7 +81,7 @@ test("ページは Web 検索の見出しと実行時トグルの状態を出し
   assert.ok(html.includes('role="switch"'), "有効 / 無効のスイッチを出す");
   assert.ok(html.includes("mcp.exa.ai"), "送信先のホストを出す");
   assert.ok(html.includes("キー登録は不要です"), "keyless であることを書く");
-  assert.ok(html.includes("web_search ツールを実行したときだけ"), "実行したときだけ送ることを書く");
+  assert.ok(html.includes("web_search ツールかテスト検索を実行したときだけ"), "実行したときだけ送ることを書く");
   assert.equal(html.includes("モデル候補を保存"), false, "モデルの保存バーは出さない");
 });
 

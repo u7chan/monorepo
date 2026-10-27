@@ -78,12 +78,12 @@ const webSearchSchema = Type.Object({
 type WebSearchParams = Static<typeof webSearchSchema>;
 
 /**
- * 検索の結末。`providerName` は provider を解決できた呼び出しだけが持ち、設定読取失敗では付かない
+ * 検索の結末。`provider` は provider を解決できた呼び出しだけが持ち、設定読取失敗では付かない
  * （本文と失敗文言へ provider 行を足すかどうかがここで決まる）。
  */
 type WebSearchOutcome =
-  | { ok: true; items: WebSearchResultItem[]; providerName: string }
-  | { ok: false; message: string; providerName?: string };
+  | { ok: true; items: WebSearchResultItem[]; provider: WebSearchProviderRef }
+  | { ok: false; message: string; provider?: WebSearchProviderRef };
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -174,7 +174,31 @@ export interface WebSearchToolOptions {
   now?: () => Date;
 }
 
-export function createWebSearchToolDefinitions(options: WebSearchToolOptions): ToolDefinition[] {
+/** 実際に送った provider。解決できなかった呼び出しでは付かない */
+export interface WebSearchProviderRef {
+  id: WebSearchProviderId;
+  name: string;
+  host: string;
+}
+
+/**
+ * 1 回の検索の結末。`text` は成功ならツールが返す本文、失敗なら throw する文言で、
+ * 設定画面のテスト検索も同じ値・同じ整形をそのまま出す (docs/web-search.md)。
+ */
+export type WebSearchRunResult =
+  | { ok: true; text: string; provider: WebSearchProviderRef; resultCount: number }
+  | { ok: false; text: string; provider?: WebSearchProviderRef; resultCount: 0 };
+
+export interface WebSearchRunner {
+  /** OFF の間は上流へ送らず、日時行を付けない固定文言を返す */
+  run(query: string, signal?: AbortSignal): Promise<WebSearchRunResult>;
+}
+
+/**
+ * ツールと設定画面のテスト検索が共有する実行部。整形・失敗の写し・期限・マスクをここだけが持ち、
+ * 2 経路で結果が食い違わないようにする。
+ */
+export function createWebSearchRunner(options: WebSearchToolOptions): WebSearchRunner {
   const baseFetch = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? WEB_SEARCH_TIMEOUT_MS;
   const readEnabled = options.readEnabled ?? ((): boolean => true);
@@ -194,10 +218,14 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
     }
   }
 
+  function providerRef(provider: ReturnType<typeof webSearchProvider>): WebSearchProviderRef {
+    return { id: provider.id, name: provider.name, host: provider.host };
+  }
+
   async function search(query: string, signal: AbortSignal | undefined): Promise<WebSearchOutcome> {
     const target = readTarget();
     if (target === undefined) return { ok: false, message: WEB_SEARCH_SETTINGS_UNAVAILABLE_MESSAGE };
-    const providerName = target.provider.name;
+    const ref = providerRef(target.provider);
     // 期限はここでのみ掛ける。fetch へ渡す signal を共有すると timeout とユーザー中断を区別できない
     const controller = new AbortController();
     let timedOut = false;
@@ -217,18 +245,18 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
         signal: controller.signal,
       });
       // provider が応答を返した後でも、期限・中断が先に起きていればそちらを固定文言にする
-      if (timedOut) return { ok: false, message: WEB_SEARCH_TIMEOUT_MESSAGE, providerName };
-      if (aborted()) return { ok: false, message: WEB_SEARCH_ABORTED_MESSAGE, providerName };
-      if (outcome.ok) return { ok: true, items: outcome.items, providerName };
-      return { ok: false, message: WEB_SEARCH_FAILURE_MESSAGES[outcome.kind], providerName };
+      if (timedOut) return { ok: false, message: WEB_SEARCH_TIMEOUT_MESSAGE, provider: ref };
+      if (aborted()) return { ok: false, message: WEB_SEARCH_ABORTED_MESSAGE, provider: ref };
+      if (outcome.ok) return { ok: true, items: outcome.items, provider: ref };
+      return { ok: false, message: WEB_SEARCH_FAILURE_MESSAGES[outcome.kind], provider: ref };
     } catch (error) {
-      if (timedOut) return { ok: false, message: WEB_SEARCH_TIMEOUT_MESSAGE, providerName };
-      if (aborted()) return { ok: false, message: WEB_SEARCH_ABORTED_MESSAGE, providerName };
+      if (timedOut) return { ok: false, message: WEB_SEARCH_TIMEOUT_MESSAGE, provider: ref };
+      if (aborted()) return { ok: false, message: WEB_SEARCH_ABORTED_MESSAGE, provider: ref };
       const detail = options.masker.mask(errorMessage(error)).slice(0, WEB_SEARCH_DETAIL_MAX_LENGTH);
       return {
         ok: false,
         message: detail === "" ? WEB_SEARCH_NETWORK_ERROR_MESSAGE : `${WEB_SEARCH_NETWORK_ERROR_MESSAGE}: ${detail}`,
-        providerName,
+        provider: ref,
       };
     } finally {
       clearTimeout(timer);
@@ -236,6 +264,37 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
     }
   }
 
+  return {
+    async run(query, signal) {
+      // 判定を実行の直前に読まないと、OFF が既存セッションの次の呼び出しに効かない
+      if (!readEnabled()) return { ok: false, text: WEB_SEARCH_DISABLED_MESSAGE, resultCount: 0 };
+      const now = readNow();
+      const outcome = await search(query, signal);
+      // 検索に失敗したときこそモデルは記憶で答えるため、日付が最も要る
+      if (!outcome.ok) {
+        const text = `${currentDateLine(now)}\n${providerLine(outcome.provider?.name)}${outcome.message}`;
+        return {
+          ok: false,
+          text: options.masker.maskSafe(text),
+          ...(outcome.provider === undefined ? {} : { provider: outcome.provider }),
+          resultCount: 0,
+        };
+      }
+      const text = formatWebSearchResults(outcome.items, outcome.provider.name, options.masker, now);
+      // 設定画面のテストはツールのラッパー (wrapToolDefinitionWithSecretMasker) を通らないため、同じ本文に
+      // する最終マスクをここで掛ける。mask ではなく maskSafe を使うのは、切り詰めで欠けた断片もラッパーが拾うため
+      return {
+        ok: true,
+        text: options.masker.maskSafe(text),
+        provider: outcome.provider,
+        resultCount: outcome.items.length,
+      };
+    },
+  };
+}
+
+export function createWebSearchToolDefinitions(options: WebSearchToolOptions): ToolDefinition[] {
+  const runner = createWebSearchRunner(options);
   const definition: ToolDefinition<typeof webSearchSchema> = {
     name: WEB_SEARCH_TOOL_NAME,
     label: WEB_SEARCH_TOOL_NAME,
@@ -245,19 +304,9 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
     parameters: webSearchSchema,
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     async execute(_toolCallId, params: WebSearchParams, signal) {
-      // 判定を execute まで遅らせないと、OFF が既存セッションの次の呼び出しに効かない
-      if (!readEnabled()) throw new Error(WEB_SEARCH_DISABLED_MESSAGE);
-      const now = readNow();
-      const outcome = await search(params.query, signal);
-      // 検索に失敗したときこそモデルは記憶で答えるため、日付が最も要る
-      if (!outcome.ok)
-        throw new Error(`${currentDateLine(now)}\n${providerLine(outcome.providerName)}${outcome.message}`);
-      return {
-        content: [
-          { type: "text", text: formatWebSearchResults(outcome.items, outcome.providerName, options.masker, now) },
-        ],
-        details: undefined,
-      };
+      const result = await runner.run(params.query, signal);
+      if (!result.ok) throw new Error(result.text);
+      return { content: [{ type: "text", text: result.text }], details: undefined };
     },
   };
   return [wrapToolDefinitionWithSecretMasker(definition, options.masker)];

@@ -17,6 +17,7 @@ import {
 } from "../../lib/sessionTitleSettings";
 import type { ThinkingLevel, TitleSummarySettingsResponse, TitleSummaryTestResponse } from "../../types";
 import { MetaChip } from "../model-settings/MetaChip";
+import { OutputPanel } from "../OutputPanel";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
 import { SelectMenu, type SelectMenuOption } from "../SelectMenu";
 import { ToggleSwitch } from "../ToggleSwitch";
@@ -122,11 +123,11 @@ export function SessionTitleSettingsTab({
           </div>
           {/* On にする前に、送信先・費用・試行回数の方針を同じ面で確認できるようにする */}
           <ul className="grid gap-1 text-2xs leading-relaxed text-ink-muted">
-            <li>・送信先は下で選んだ要約モデルのプロバイダーです。本会話のモデルとは独立しています。</li>
-            <li>・短い入力と出力でも、プロバイダーの課金対象になります（費用は診断の usage で確認できます）。</li>
-            <li>・自動実行は会話ごとに最大 1 試行です。失敗しても仮タイトルのまま、再試行しません。</li>
-            <li>・会話の送信・保存・次の送信は、タイトル生成の完了を待ちません。</li>
-            <li>・手動で変えたタイトルは上書きしません。タイトルのためだけにモデルへ送る本文は変えません。</li>
+            <li>・送信先は要約モデルのプロバイダー（本会話とは別）</li>
+            <li>・短い入出力でも課金対象（usage は診断で確認）</li>
+            <li>・自動実行は会話ごとに 1 回だけ（失敗しても再試行しない）</li>
+            <li>・会話の送信・保存はタイトル生成を待たない</li>
+            <li>・手動で変えたタイトルは上書きしない</li>
           </ul>
           {enabled ? null : (
             <p className="rounded border border-line bg-base px-2 py-1.5 text-2xs leading-relaxed text-ink-muted">
@@ -184,23 +185,6 @@ export function SessionTitleSettingsTab({
           </section>
         </div>
 
-        <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <div className="min-w-0 flex-1">
-              <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">動作確認</div>
-              <p className="mt-0.5 text-xs text-ink">
-                保存済みのモデル / Effort / 定義で 1 回だけ生成します。会話にもタイトルにも保存しません。
-              </p>
-            </div>
-            <button type="button" className="btn-quiet" disabled={testDisabled} onClick={onTest}>
-              {testing ? <RunSpinnerIcon /> : <SparkleIcon />}
-              {testing ? "確認中…" : "動作確認"}
-            </button>
-          </div>
-          {testHint ? <p className="text-2xs leading-relaxed text-ink-muted">{testHint}</p> : null}
-          {testResult ? <TestResultCard result={testResult} /> : null}
-        </section>
-
         <section className="grid gap-1.5">
           <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">要約の定義</div>
           <p className="text-2xs leading-relaxed text-ink-muted">
@@ -240,13 +224,31 @@ export function SessionTitleSettingsTab({
           </div>
           {invalid && dirty ? <p className="text-2xs text-danger-text">{invalid}</p> : null}
         </section>
+
+        {/* 定義を確認してから試せるよう、動作確認は定義の直後に置く。枠は出力パネル 1 枚だけにする */}
+        <section className="grid gap-2 border-t border-line pt-3.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="min-w-0 flex-1">
+              <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">動作確認</div>
+              <p className="mt-0.5 text-xs text-ink">
+                保存済みのモデル / Effort / 定義で 1 回だけ生成します。会話にもタイトルにも保存しません。
+              </p>
+            </div>
+            <button type="button" className="btn-quiet" disabled={testDisabled} onClick={onTest}>
+              {testing ? <RunSpinnerIcon /> : <SparkleIcon />}
+              {testing ? "確認中…" : "動作確認"}
+            </button>
+          </div>
+          {testHint ? <p className="text-2xs leading-relaxed text-ink-muted">{testHint}</p> : null}
+          {testResult ? <TestResult result={testResult} /> : null}
+        </section>
       </div>
     </div>
   );
 }
 
-/** 設定画面の動作確認の結果。成功 / 失敗は面ではなく、アイコン + 文字 + 枠で示す */
-function TestResultCard({ result }: { result: TitleSummaryTestResponse }) {
+/** 動作確認の結果。成功 / 失敗は 1 行のアイコン + 文字で示し、枠は出力パネル 1 枚だけにする */
+function TestResult({ result }: { result: TitleSummaryTestResponse }) {
   const usage =
     result.inputTokens === undefined && result.outputTokens === undefined
       ? undefined
@@ -254,32 +256,26 @@ function TestResultCard({ result }: { result: TitleSummaryTestResponse }) {
           result.costTotal === undefined ? "" : ` ・ ${formatCost(result.costTotal)}`
         }`;
   const seconds = result.durationMs > 0 ? `${(result.durationMs / 1000).toFixed(1)} 秒` : undefined;
+  const title = result.title ?? "";
   return (
-    <div
-      role={result.ok ? "status" : "alert"}
-      className={cn(
-        "grid gap-1.5 rounded-lg border px-3 py-2.5 text-xs",
-        result.ok ? "border-accent/35 bg-accent-wash" : "border-danger/40 bg-raised",
-      )}
-    >
+    <div className="grid gap-1" role={result.ok ? "status" : "alert"}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className={result.ok ? "text-accent-text" : "text-danger-text"}>
           {result.ok ? <CheckIcon /> : <WarningIcon />}
         </span>
-        <span className={cn("font-semibold", result.ok ? "text-accent-text" : "text-danger-text")}>
+        <span className={cn("text-2xs font-semibold", result.ok ? "text-accent-text" : "text-danger-text")}>
           {result.ok ? "成功" : "失敗"}
         </span>
+        {result.model ? <MetaChip>{result.model}</MetaChip> : null}
+        {result.thinkingLevel ? <MetaChip>Effort {effortLabel(result.thinkingLevel)}</MetaChip> : null}
+        {usage ? <MetaChip>{usage}</MetaChip> : null}
         {seconds ? <span className="text-2xs text-ink-faint">{seconds}</span> : null}
       </div>
       {result.ok ? (
-        <p className="text-sm break-words text-ink-strong">{result.title}</p>
+        <OutputPanel label="title" meta={`${title.length} 文字`} text={title} copyLabel="タイトルをコピー" />
       ) : (
-        <p className="leading-relaxed break-words text-danger-text">{result.error ?? "生成に失敗しました"}</p>
+        <OutputPanel label="error" text={result.error ?? "生成に失敗しました"} />
       )}
-      <p className="text-2xs break-words text-ink-muted">
-        {result.model ?? "モデル不明"} ・ {result.thinkingLevel ? effortLabel(result.thinkingLevel) : "Effort 不明"}
-        {usage ? ` ・ ${usage}` : ""}
-      </p>
     </div>
   );
 }

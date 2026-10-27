@@ -17,6 +17,7 @@ const {
   putWebSearchSettings,
   putTitleSummarySettings,
   postTitleSummaryTest,
+  postWebSearchTest,
   createSpaceApi,
   deleteSpace,
   updateArchiveSettings,
@@ -613,4 +614,28 @@ test("会話の再要約と設定の動作確認は専用の POST エンドポ�
       ["POST", "/api/settings/session-title/test", ""],
     ],
   );
+});
+
+test("Web 検索のテスト検索はクエリを本文で送り、失敗も応答のまま返す", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    return Response.json({
+      ok: false,
+      output: "現在日時: 2026-02-11 (Asia/Tokyo)\n検索プロバイダー: Exa\n検索が混雑しています（レート制限）",
+      provider: { id: "exa", name: "Exa", host: "mcp.exa.ai" },
+      resultCount: 0,
+      durationMs: 812,
+    });
+  });
+  const result = await postWebSearchTest("今日は何の日？");
+  assert.equal(result.ok, false);
+  assert.equal(result.durationMs, 812);
+  assert.deepEqual(
+    requests.map((request) => [request.method, new URL(request.url).pathname]),
+    [["POST", "/api/settings/web-search/test"]],
+    "クエリは URL ではなく本文へ載せる (ログに自由文を残さない)",
+  );
+  assert.deepEqual(await requests[0]!.json(), { query: "今日は何の日？" });
 });

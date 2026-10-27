@@ -11,7 +11,9 @@ import { UnknownRemoteToolError, createRemoteToolDefinitions } from "../src/sand
 import { toolResultSummary } from "../src/session-projection";
 import { SANDBOX_TOOL_NAMES } from "../src/sandbox/service";
 import { EXA_ENDPOINT, TAVILY_ENDPOINT, type WebSearchProviderId } from "../src/web-search-providers";
+import { createWebSearchTest } from "../src/web-search-test";
 import {
+  createWebSearchRunner,
   createWebSearchToolDefinitions,
   formatWebSearchResults,
   WEB_SEARCH_ABORTED_MESSAGE,
@@ -519,4 +521,51 @@ test("設定を読めないときは上流へ送らずに固定文言で失敗�
   assert.ok(error.message.endsWith(WEB_SEARCH_SETTINGS_UNAVAILABLE_MESSAGE), error.message);
   assert.ok(!error.message.includes("検索プロバイダー"), "provider を解決していないので行を出さない");
   assert.equal(stub.calls.length, 0);
+});
+
+test("runner はツールと同じ本文と、送った provider / 件数を返す（設定画面のテスト検索が使う）", async () => {
+  const stub = stubFetch(() =>
+    exaResults([
+      { title: "A", url: "https://example.com/a", highlights: ["a"] },
+      { title: "B", url: "https://example.com/b", highlights: ["b"] },
+    ]),
+  );
+  const runner = createWebSearchRunner({
+    fetchImpl: stub.fetchImpl,
+    masker: createMutableSecretMasker([]),
+    now: () => FIXED_NOW,
+  });
+  const result = await runner.run("q");
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.provider, { id: "exa", name: "Exa", host: "mcp.exa.ai" });
+  assert.equal(result.resultCount, 2);
+  assert.ok(result.text.startsWith(`${FIXED_DATE_LINE}\n${EXA_PROVIDER_LINE}\n出典:`), result.text);
+
+  // OFF は上流へ送らず、日時行を付けない固定文言 (ツールの throw と同じ文字列)
+  const disabled = await createWebSearchRunner({
+    fetchImpl: stub.fetchImpl,
+    masker: createMutableSecretMasker([]),
+    readEnabled: () => false,
+  }).run("q");
+  assert.deepEqual(disabled, { ok: false, text: WEB_SEARCH_DISABLED_MESSAGE, resultCount: 0 });
+});
+
+test("テスト検索はツールがモデルへ返す本文と同じ最終マスクを通す（切り詰めの断片も残さない）", async () => {
+  const secret = "review-dummy-api-key-0123456789";
+  const masker = createMutableSecretMasker([secret]);
+  // 上流が行の切り詰めマーカー付きで返した本文には、秘密値の先頭部分だけが残り得る
+  const fragment = `${secret.slice(0, 24)}... [truncated]`;
+  const stub = stubFetch(() => exaResults([{ title: "T", url: "https://example.com", text: fragment }]));
+  const toolText = await run(tool({ fetchImpl: stub.fetchImpl, masker }), { query: "q" });
+  const tested = await createWebSearchTest({
+    masker,
+    fetchImpl: stub.fetchImpl,
+    now: () => FIXED_NOW,
+    runtime: () => ({ readEnabled: () => true, readProvider: () => "exa", readApiKey: () => undefined }),
+  })("q");
+  assert.equal(tested.ok, true);
+  assert.equal(tested.output, toolText, "画面とチャットで同じ本文を返す");
+  assert.equal(tested.output.includes(secret.slice(0, 12)), false, "秘密値の断片を残さない");
+  assert.ok(tested.output.includes("[REDACTED]"));
 });

@@ -386,3 +386,13 @@ test("runtime が無い起動では暗号文を復号せず、未評価として
   assert.equal(tavily?.keyErrorMessage, APP_SECRET_UNEVALUATED_MESSAGE);
   assert.equal(current()?.readApiKey("tavily"), undefined);
 });
+
+test("runtime() は PiBff へ渡したのと同じ写しを返す（テスト検索が同じ設定を読む）", async () => {
+  const db = new FakeWebSearchDb();
+  const { service, current } = openService(db);
+  await service.applyStored();
+  assert.equal(service.runtime(), current(), "注入した写しと同じ関数の組を返す");
+  await service.putProvider("tavily");
+  assert.equal(service.runtime(), current(), "保存のたびに同じ組を差し替える");
+  assert.equal(service.runtime().readProvider(), "tavily");
+});
