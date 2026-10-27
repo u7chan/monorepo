@@ -159,13 +159,20 @@ export function displayableMessageSet(
   return displayable;
 }
 
-/** 優先順位を呼び出し側にも書くと経路ごとにずれるため、metrics の解決順はこの関数だけが持つ */
+/**
+ * 優先順位を呼び出し側にも書くと経路ごとにずれるため、metrics の解決順はこの関数だけが持つ。
+ * メモリ実測 → DB 実測 → SDK 記録値の順で、DB 実測にも `recorded` 用の tok/s ゲートは掛けない。
+ */
 function resolveMessageMetrics(
   message: PiSessionLike["messages"][number],
   messageMetrics: WeakMap<object, MessageMetrics>,
+  savedMetrics?: ReadonlyMap<string, MessageMetrics>,
+  assistantId?: string,
 ): MessageMetrics | undefined {
   const measured = messageMetrics.get(message);
   if (measured !== undefined) return measured;
+  const saved = assistantId === undefined ? undefined : savedMetrics?.get(assistantId);
+  if (saved !== undefined) return saved;
   const durationMs = message.durationMs;
   if (typeof durationMs !== "number" || durationMs <= 0) return undefined;
   const recorded = computeMessageMetrics({ durationMs, outputTokens: parseUsage(message.usage)?.output });
@@ -182,7 +189,12 @@ function resolveMessageMetrics(
  */
 export function unprojectedAssistantMeta(
   messages: PiSessionLike["messages"],
-  context: { messageMetrics: WeakMap<object, MessageMetrics>; assistantIds?: WeakMap<object, string> },
+  context: {
+    messageMetrics: WeakMap<object, MessageMetrics>;
+    assistantIds?: WeakMap<object, string>;
+    /** 応答ID -> DB に保存した実測 (再起動後の引き当て) */
+    savedMetrics?: ReadonlyMap<string, MessageMetrics>;
+  },
   owners: ReadonlySet<string>,
 ): AssistantMeta[] {
   const assistantIds = context.assistantIds;
@@ -194,7 +206,7 @@ export function unprojectedAssistantMeta(
     if (assistantId === undefined || !owners.has(assistantId)) continue;
     const at = typeof message.timestamp === "number" ? message.timestamp : undefined;
     const usage = parseUsage(message.usage);
-    const metrics = resolveMessageMetrics(message, context.messageMetrics);
+    const metrics = resolveMessageMetrics(message, context.messageMetrics, context.savedMetrics, assistantId);
     // 値の無い項目はキーごと省く (0 や現在時刻で埋めると別の応答の数値に見える)
     if (at === undefined && usage === undefined && metrics === undefined) continue;
     projected.push({
@@ -216,6 +228,8 @@ export interface MessageProjectionContext {
   toolTimings: ReadonlyMap<string, ToolTiming>;
   /** SDK の assistant メッセージ -> 応答ID (旧データ / 未注記では引けない) */
   assistantIds?: WeakMap<object, string>;
+  /** 応答ID -> DB に保存した実測 (メモリ実測の無い再起動後だけ引ける) */
+  savedMetrics?: ReadonlyMap<string, MessageMetrics>;
   /** SDK の user メッセージ -> 送信ID / 実行ID */
   userSends?: WeakMap<object, { sendId: string; runId?: string }>;
   masker: SecretMasker;
@@ -232,6 +246,7 @@ export function messageProjectionContext(
   toolTimings: ReadonlyMap<string, ToolTiming> = new Map(),
   assistantIds?: WeakMap<object, string>,
   userSends?: WeakMap<object, { sendId: string; runId?: string }>,
+  savedMetrics?: ReadonlyMap<string, MessageMetrics>,
 ): MessageProjectionContext {
   const { errors, results } = toolResultsOf(messages);
   return {
@@ -240,6 +255,7 @@ export function messageProjectionContext(
     messageMetrics,
     toolTimings,
     assistantIds,
+    savedMetrics,
     userSends,
     masker,
     cwd,
@@ -259,7 +275,7 @@ export function projectMessagesRange(
 ): { index: number; message: ChatMessage }[] {
   const from = Math.max(0, Math.min(messages.length, range.from ?? 0));
   const to = Math.max(from, Math.min(messages.length, range.to ?? messages.length));
-  const { messageMetrics, toolTimings, assistantIds, userSends, masker, cwd } = context;
+  const { messageMetrics, savedMetrics, toolTimings, assistantIds, userSends, masker, cwd } = context;
   const displayable = displayableMessageSet(messages, { masker, cwd });
   const projected: { index: number; message: ChatMessage }[] = [];
   let carried: SkillLoad[] = [];
@@ -284,7 +300,7 @@ export function projectMessagesRange(
     }
     const text = masker.mask(contentText(message.content));
     const usage = message.role === "assistant" ? parseUsage(message.usage) : undefined;
-    const metrics = resolveMessageMetrics(message, messageMetrics);
+    const metrics = resolveMessageMetrics(message, messageMetrics, savedMetrics, assistantId);
     const skillLoads = [...carried, ...loads];
     const projectedTools = [...carriedTools, ...tools];
     carried = [];
@@ -324,6 +340,7 @@ export function projectMessages(
   toolTimings: ReadonlyMap<string, ToolTiming> = new Map(),
   assistantIds?: WeakMap<object, string>,
   userSends?: WeakMap<object, { sendId: string; runId?: string }>,
+  savedMetrics?: ReadonlyMap<string, MessageMetrics>,
 ): ChatMessage[] {
   const context = messageProjectionContext(
     session.messages,
@@ -333,6 +350,7 @@ export function projectMessages(
     toolTimings,
     assistantIds,
     userSends,
+    savedMetrics,
   );
   return projectMessagesRange(session.messages, context).map(({ message }) => message);
 }

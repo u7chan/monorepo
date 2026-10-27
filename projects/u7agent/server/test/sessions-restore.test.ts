@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { allowsNaturalInvocation, createAgentCatalog } from "../src/agents";
+import { AppDb, type AssistantMetricsStore } from "../src/app-db";
 import { sessionUploadsRel } from "../src/app-paths";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { ProjectStore } from "../src/projects";
@@ -68,6 +69,7 @@ function createStore(
     workspace: SandboxWorkspaceClient;
     catalog?: ReturnType<typeof createAgentCatalog>;
     projects?: ProjectStore;
+    assistantMetrics?: AssistantMetricsStore | null;
   },
 ): SessionStore {
   return new SessionStore({
@@ -77,6 +79,7 @@ function createStore(
     storeDir,
     workspace: options.workspace,
     rootCwd: "/tmp/project",
+    assistantMetrics: options.assistantMetrics ?? null,
   });
 }
 
@@ -1624,6 +1627,123 @@ test("未所属セッションは従来どおりスクラッチを作る", async
     assert.deepEqual(dirs, [record.workdir]);
     await store.close();
   } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+// --- 応答メトリクスの復元 (アプリ DB) ---
+
+test("restores the measured metrics from the app db and deletes them with the session", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-metrics-"));
+  const { workspace } = stubWorkspace();
+  const appDb = AppDb.open({ storeDir });
+  try {
+    const catalog = createAgentCatalog();
+    const store1 = createStore(storeDir, {
+      pi: createStubPi({ chunkDelayMs: 5 }),
+      workspace,
+      catalog,
+      assistantMetrics: appDb,
+    });
+    await store1.init();
+    const record = await store1.create();
+    store1.postMessage(record, "実測を残す");
+    await waitFor(() => record.run?.status === "completed", 3000, "run completed");
+    await store1.flush(record);
+    // 保存は message_end の後に 1 拍外れる
+    await waitFor(() => appDb.loadAssistantMetrics(record.id).length === 1, 3000, "metrics row");
+    const live = store1.payload(record).messages[1]?.metrics;
+    assert.ok(live, "live の応答時間は BFF が測る");
+    await store1.close();
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog, assistantMetrics: appDb });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    const restoredMetrics = store2.payload(restored).messages[1]?.metrics;
+    assert.deepEqual(restoredMetrics, live, "再起動後も同じ実測を出す");
+    assert.equal(restoredMetrics?.source, undefined, "DB 実測は recorded ではない (≈ を付けない)");
+
+    // セッションを削除すると行も消える
+    assert.equal(await store2.deleteSession(record.id), true);
+    assert.deepEqual(appDb.loadAssistantMetrics(record.id), []);
+    await store2.close();
+  } finally {
+    appDb.close();
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("restores the response time from the app db even when the provider reported no usage", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-metrics-no-usage-"));
+  const { workspace } = stubWorkspace();
+  const appDb = AppDb.open({ storeDir });
+  try {
+    const catalog = createAgentCatalog();
+    const store1 = createStore(storeDir, {
+      pi: createStubPi({ chunkDelayMs: 5, usage: null }),
+      workspace,
+      catalog,
+      assistantMetrics: appDb,
+    });
+    await store1.init();
+    const record = await store1.create();
+    store1.postMessage(record, "usage 非対応のプロバイダ");
+    await waitFor(() => record.run?.status === "completed", 3000, "run completed");
+    await store1.flush(record);
+    await waitFor(() => appDb.loadAssistantMetrics(record.id).length === 1, 3000, "metrics row");
+    const [row] = appDb.loadAssistantMetrics(record.id);
+    assert.equal(row.outputTokens, null, "未報告は NULL で保存する");
+    assert.equal(row.ttftMs !== null, true, "TTFT は usage と独立に保存する");
+    await store1.close();
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog, assistantMetrics: appDb });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    const metrics = store2.payload(restored).messages[1]?.metrics;
+    assert.ok(metrics, "usage が無くても再起動後に応答時間が出る");
+    assert.ok(metrics.durationMs > 0);
+    assert.equal(metrics.ttftMs, row.ttftMs, "TTFT も復元する");
+    assert.equal(Object.hasOwn(metrics, "tokensPerSecond"), false, "output が無いので tok/s は出さない (0 で埋めない)");
+    await store2.close();
+  } finally {
+    appDb.close();
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("an old session without metrics rows opens as before", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-metrics-legacy-"));
+  const { workspace } = stubWorkspace();
+  const appDb = AppDb.open({ storeDir });
+  try {
+    const catalog = createAgentCatalog();
+    // 保存先を注入しない = 行を持たない旧セッションと同じ状態
+    const store1 = createStore(storeDir, { pi: createStubPi({ chunkDelayMs: 1 }), workspace, catalog });
+    await store1.init();
+    const record = await store1.create();
+    store1.postMessage(record, "行の無い会話");
+    await waitFor(() => record.run?.status === "completed", 3000, "run completed");
+    await store1.flush(record);
+    await store1.close();
+    assert.deepEqual(appDb.loadAssistantMetrics(record.id), []);
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog, assistantMetrics: appDb });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    const payload = store2.payload(restored);
+    assert.deepEqual(
+      payload.messages.map((message) => message.role),
+      ["user", "assistant"],
+      "行が無くても会話は開ける",
+    );
+    // SDK が durationMs を残していない履歴なので、従来どおり metrics は載らない
+    assert.equal(payload.messages[1]?.metrics, undefined);
+    await store2.close();
+  } finally {
+    appDb.close();
     await rm(storeDir, { recursive: true, force: true });
   }
 });

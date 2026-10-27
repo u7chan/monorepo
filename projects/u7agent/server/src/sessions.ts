@@ -49,7 +49,7 @@ import {
 import type { ProjectStore } from "./projects";
 import { createSecretMasker, type SecretMasker } from "./redact";
 import { classifyRunError, composeRunError, retryWaitingText } from "./error-classify";
-import { createRunEventBridge, type RunSettlement } from "./run-events";
+import { computeMessageMetrics, createRunEventBridge, type RunSettlement } from "./run-events";
 import { runDurationMs } from "./run-metrics";
 import type {
   CreateSessionOptions,
@@ -850,6 +850,8 @@ export class SessionStore {
     record.projectCwd = current.projectCwd;
     record.projectName = current.projectName;
     record.projectId = this.projectIdOfCwd(current.projectCwd);
+    // 実測は再起動・sweep でメモリから消えるため、DB に写した行を応答IDで引き当てる
+    record.savedMetrics = this.loadSavedMetrics(id);
     // 送信対応は JSONL の entry へ写した注記を正とする (entry の存在が証跡なので、本文や時刻での
     // 推測をしない)。未送信の記録は、その注記に載っている送信だけを保存済みとして外す
     const sends = this.storeDir ? readSessionSends(this.storeDir, id) : emptySessionSends();
@@ -937,6 +939,29 @@ export class SessionStore {
     if (!manager?.appendModelChange) return false;
     manager.appendModelChange(effective.provider, effective.id);
     return true;
+  }
+
+  /**
+   * DB に写した実測を、応答ID -> 復元値の Map へ読む。読めないときに空で済ませるのは、
+   * メタが出ないだけで会話は開けるため (復元は概算表示へ戻る)。
+   */
+  private loadSavedMetrics(id: string): Map<string, MessageMetrics> {
+    const saved = new Map<string, MessageMetrics>();
+    const store = this.assistantMetrics;
+    if (!store) return saved;
+    try {
+      for (const row of store.loadAssistantMetrics(id)) {
+        const metrics = computeMessageMetrics({
+          durationMs: row.durationMs,
+          ...(row.ttftMs === null ? {} : { ttftMs: row.ttftMs }),
+          outputTokens: row.outputTokens ?? undefined,
+        });
+        if (metrics) saved.set(row.assistantId, metrics);
+      }
+    } catch {
+      saved.clear();
+    }
+    return saved;
   }
 
   /**
