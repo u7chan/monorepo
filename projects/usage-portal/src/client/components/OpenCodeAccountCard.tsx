@@ -11,6 +11,7 @@ export function OpenCodeAccountCard(props: {
   source: UsageSource;
   now: number;
   generatedAt: number | null;
+  compact?: boolean;
   actions: OpenCodeAccountActions;
 }) {
   const [panel, setPanel] = useState<Panel>("closed");
@@ -20,7 +21,9 @@ export function OpenCodeAccountCard(props: {
 
   // アカウントが無いカードは操作の対象にならない。メニューもパネルも出さない。
   if (!account) {
-    return <ProviderCard source={props.source} now={props.now} generatedAt={props.generatedAt} />;
+    return (
+      <ProviderCard source={props.source} now={props.now} generatedAt={props.generatedAt} compact={props.compact} />
+    );
   }
 
   const update = (input: OpenCodeAccountInput): Promise<string | null> =>
@@ -65,6 +68,7 @@ export function OpenCodeAccountCard(props: {
       source={props.source}
       now={props.now}
       generatedAt={props.generatedAt}
+      compact={props.compact}
       headerMenu={<OverflowMenu label="このアカウントの操作" items={items} />}
     >
       {panel === "closed" ? null : (

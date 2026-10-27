@@ -11,6 +11,7 @@ Codex（ChatGPT サブスクリプション）と OpenCode Go の利用枠を 1 
 - 初回アクセスの PIN 登録、PIN ログイン、署名付きセッション cookie（30 日）、試行制限、期限バナー
 - BFF が 5 分ごとに Codex と OpenCode Go の利用枠を取り、SQLite に snapshot と sample を保存する
 - 画面は 60 秒ごとに `/api/usage` を取得する。推移は窓ごとに描き、ローリング・週次・月次をタブで切り替える
+- 表示は「簡易」と「標準」を切り替えられる。簡易は推移と補足を省いて 3 件程度を 1 画面に収め、選択は localStorage に残す（[ADR 0011](docs/adr/0011-view-mode-toggle.md)）
 - 窓は月次 ⊃ 週次 ⊃ ローリングの入れ子で、外側が上限なら内側は「使用不可」と赤で出す（[ADR 0009](docs/adr/0009-window-blocking-and-five-hour-rolling.md)）
 - Codex は Web UI から Sign in with ChatGPT（デバイスコード / ブラウザ + 貼り付け）でサインインする
 - OpenCode Go はアカウント（API キー）を最大 10 件登録でき、1 アカウント = 1 カードで並べる
@@ -189,9 +190,10 @@ src/client/api.ts             API の呼び出しと応答の解釈
 src/client/lib/format.ts      残り時間・%・日時の整形
 src/client/lib/chart.ts       推移の縦軸レンジと横軸の目盛り
 src/client/lib/windows.ts     推移の初期表示に選ぶ窓
+src/client/lib/view-mode.ts  簡易 / 標準の保存値（localStorage）
 src/client/lib/status.ts      状態ラベルとしきい値
 src/client/lib/account-color.ts  アカウントのアイコン背景色（id のハッシュから選ぶ）
-src/client/components/        ログイン、source カード、meter、trend、アカウントの編集
+src/client/components/        ログイン、source カード、meter、trend、アカウントの編集、表示の切り替え
 src/client/styles.css         CSS トークンとレイアウト
 test/                         bun:test
 scripts/docs-check.mjs        docs の相対リンクとパスの検査

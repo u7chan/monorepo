@@ -28,7 +28,9 @@ import { OpenCodeAccountForm, type OpenCodeAccountActions } from "./components/O
 import { OverflowMenu, type MenuItem } from "./components/OverflowMenu";
 import { ProviderCard } from "./components/ProviderCard";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
+import { ViewModeToggle } from "./components/ViewModeToggle";
 import { formatClock } from "./lib/format";
+import { type ViewMode, browserStorage, readViewMode, writeViewMode } from "./lib/view-mode";
 import { expiryNotice } from "./time";
 
 type View =
@@ -109,13 +111,18 @@ export function App() {
   return <Layout>{content}</Layout>;
 }
 
-function Layout(props: { children: ComponentChildren; menu?: ComponentChildren }) {
+function Layout(props: { children: ComponentChildren; tools?: ComponentChildren; menu?: ComponentChildren }) {
   return (
     <>
       <header class="up-header">
         <span class="up-brand">Usage</span>
         <span class="up-caption">Codex / OpenCode Go</span>
-        {props.menu}
+        {props.tools || props.menu ? (
+          <div class="up-header-actions">
+            {props.tools}
+            {props.menu}
+          </div>
+        ) : null}
       </header>
       <main class="up-main">{props.children}</main>
       <footer class="up-footer">
@@ -136,6 +143,11 @@ function Dashboard(props: {
   const [accounts, setAccounts] = useState<AccountsState>({ status: "loading", accounts: [] });
   const [clock, setClock] = useState(() => Date.now());
   const [adding, setAdding] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>(() => readViewMode(browserStorage()));
+  const changeViewMode = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    writeViewMode(browserStorage(), mode);
+  }, []);
   // 保存・削除より前に始まった GET の応答で、確定済みの一覧・カードを巻き戻さないための世代。
   const accountsGeneration = useRef(0);
   const usageGeneration = useRef(0);
@@ -394,8 +406,13 @@ function Dashboard(props: {
     { label: "ログアウト", onSelect: () => void signOut(), danger: true },
   ];
 
+  const compact = viewMode === "compact";
+
   return (
-    <Layout menu={<OverflowMenu label="メニュー" items={menu} />}>
+    <Layout
+      tools={<ViewModeToggle mode={viewMode} onChange={changeViewMode} />}
+      menu={<OverflowMenu label="メニュー" items={menu} />}
+    >
       {expiry ? <SessionExpiryBanner remaining={expiry} onRelogin={props.onRelogin} /> : null}
       <div class="up-toolbar">
         <p class="up-caption">
@@ -408,7 +425,7 @@ function Dashboard(props: {
           </span>
         </p>
       </div>
-      <div class="up-providers">
+      <div class="up-providers" data-density={viewMode}>
         {sources.map((source) =>
           source.provider === "codex" ? (
             <ProviderCard
@@ -416,6 +433,7 @@ function Dashboard(props: {
               source={source}
               now={clock}
               generatedAt={usage?.generatedAt ?? null}
+              compact={compact}
               codex={{ auth: codex, actions: codexActions }}
             />
           ) : (
@@ -424,6 +442,7 @@ function Dashboard(props: {
               source={source}
               now={clock}
               generatedAt={usage?.generatedAt ?? null}
+              compact={compact}
               actions={openCodeActions}
             />
           ),

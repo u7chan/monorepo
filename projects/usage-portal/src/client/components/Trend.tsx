@@ -19,11 +19,11 @@ export function TrendChart(props: {
       <div class="up-trend-head">
         <p class="up-caption">{title}</p>
         {props.windows.length > 1 ? (
-          <div class="up-trend-tabs" role="group" aria-label="推移を表示する枠">
+          <div class="up-segmented" role="group" aria-label="推移を表示する枠">
             {props.windows.map((window) => (
               <button
                 key={window.id}
-                class="up-trend-tab"
+                class="up-segment"
                 type="button"
                 aria-pressed={window.id === props.activeWindowId ? "true" : "false"}
                 onClick={() => props.onSelect(window.id)}
