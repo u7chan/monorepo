@@ -78,6 +78,11 @@ export class WebSearchSettingsService {
   #maskError: (text: string) => string;
   #lock = new MutationLock();
   #state: WebSearchState = { enabled: true, provider: DEFAULT_WEB_SEARCH_PROVIDER, keys: new Map() };
+  #runtime: WebSearchRuntimeConfig = {
+    readEnabled: () => true,
+    readProvider: () => DEFAULT_WEB_SEARCH_PROVIDER,
+    readApiKey: () => undefined,
+  };
   #cipher: AppSecretCipher | null;
   #runtimeAvailable: boolean;
   /** 保存済みキーの復号結果。起動時と保存 / 置換のときだけ更新し、GET では復号しない */
@@ -233,12 +238,21 @@ export class WebSearchSettingsService {
     return this.#cipher;
   }
 
+  /**
+   * ツールと設定画面のテスト検索が読む写し。差し替えはロックの内側で行い、
+   * PiBff へ渡したものと同じ関数の組を返す (2 経路で設定が食い違わない)。
+   */
+  runtime(): WebSearchRuntimeConfig {
+    return this.#runtime;
+  }
+
   #apply(): void {
-    this.#setWebSearch({
+    this.#runtime = {
       readEnabled: () => this.#state.enabled,
       readProvider: () => this.#state.provider,
       readApiKey: (provider) => this.#state.keys.get(provider),
-    });
+    };
+    this.#setWebSearch(this.#runtime);
   }
 
   /** 読取の失敗は「保存できなかった」と同じ分類にし、503 の理由へ写す */

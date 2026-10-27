@@ -17,8 +17,8 @@ describe("trendSpanMs", () => {
     expect(trendSpanMs(window("primary", "週次", 18_000))).toBe(5 * HOUR);
   });
 
-  test("OpenCode Go は id から期間を決める", () => {
-    expect(trendSpanMs(window("rolling", "ローリング"))).toBe(6 * HOUR);
+  test("OpenCode Go は id から期間を決める（ローリングは 5 時間）", () => {
+    expect(trendSpanMs(window("rolling", "ローリング"))).toBe(5 * HOUR);
     expect(trendSpanMs(window("weekly", "週次"))).toBe(7 * DAY);
     expect(trendSpanMs(window("monthly", "月次"))).toBe(30 * DAY);
   });
@@ -70,7 +70,7 @@ describe("buildTrend", () => {
   });
 
   test("使用率が下がらなければ resets は空", () => {
-    const trend = buildTrend("rolling", 6 * HOUR, [
+    const trend = buildTrend("rolling", 5 * HOUR, [
       { at: BASE, usedPercent: 10 },
       { at: BASE + 30 * MINUTE, usedPercent: 20 },
     ]);
@@ -97,7 +97,7 @@ describe("buildTrend", () => {
   });
 
   test("数値でない点は捨てる", () => {
-    const trend = buildTrend("rolling", 6 * HOUR, [
+    const trend = buildTrend("rolling", 5 * HOUR, [
       { at: BASE, usedPercent: 10 },
       { at: Number.NaN, usedPercent: 20 },
       { at: BASE + 30 * MINUTE, usedPercent: 30 },

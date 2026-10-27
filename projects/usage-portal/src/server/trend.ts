@@ -21,9 +21,12 @@ const MIN_BUCKET_MS = 5 * MINUTE_MS;
 /** sample の保持期間（30 日）より長くさかのぼっても描くものは無い。 */
 export const MAX_TREND_SPAN_MS = 30 * DAY_MS;
 
-/** OpenCode Go は期間を返さないので、窓の id から横軸の長さを決める。 */
+/**
+ * OpenCode Go は期間を返さないので、窓の id から横軸の長さを決める。
+ * 5 時間 / 7 日 / 30 日は OpenCode Go の利用枠の定義（月次に対して 20% / 50% / 100%）に合わせる。
+ */
 const ID_SPANS_MS: Record<string, number> = {
-  rolling: 6 * HOUR_MS,
+  rolling: 5 * HOUR_MS,
   weekly: 7 * DAY_MS,
   monthly: 30 * DAY_MS,
 };

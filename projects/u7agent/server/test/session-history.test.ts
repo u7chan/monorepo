@@ -8,6 +8,7 @@ import { createAgentCatalog } from "../src/agents";
 import { createBffApp } from "../src/app";
 import { HISTORY_PAGE_LIMIT_DEFAULT, HISTORY_PAGE_LIMIT_MAX, projectHistoryPage } from "../src/history-projection";
 import { createSecretMasker, REDACTED } from "../src/redact";
+import { isDisplayableMessage } from "../src/session-projection";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionStore } from "../src/sessions";
 import type { HistoryItem, HistoryPage } from "../src/schema";
@@ -16,6 +17,13 @@ import { asPiBff, createStubPi, waitFor, type StubSession } from "./stub-pi";
 function text(value: string): unknown {
   return [{ type: "text", text: value }];
 }
+
+test("表示可否は本文の有無だけで決まり、画像だけの応答は item にしない", () => {
+  assert.equal(isDisplayableMessage({ role: "assistant", content: text("secret-value") }), true);
+  assert.equal(isDisplayableMessage({ role: "assistant", content: text("") }), false);
+  assert.equal(isDisplayableMessage({ role: "assistant", content: [{ type: "image", data: "..." }] }), false);
+  assert.equal(isDisplayableMessage({ role: "user", content: [] }), true);
+});
 
 /** 履歴ページの全 item を古い→新しいで集める。重複・欠落の検出に使う */
 async function collectAllPages(
@@ -743,5 +751,34 @@ test("同じターンの後に本文の応答があるとき、本文なし応�
   );
   assert.equal(store.summary(record).messageCount, page.messageCount);
 
+  await store.close();
+});
+
+test("ターン末尾の本文なしツール応答ではなく、最後の本文あり応答に結末を載せる", async () => {
+  const store = new SessionStore({ pi: createStubPi(), catalog: createAgentCatalog() });
+  const record = await store.create();
+  const session = record.session as unknown as StubSession;
+  const userMessage = { role: "user", content: "依頼" };
+  session.appendMessage(userMessage);
+  session.appendMessage({ role: "assistant", content: text("本文あり"), stopReason: "stop" });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "call-stopped", name: "read", arguments: { path: "a.txt" } }],
+    stopReason: "aborted",
+  });
+  session.appendMessage({ role: "toolResult", content: text("結果"), toolCallId: "call-stopped", isError: false });
+  record.userMessageSends.set(userMessage, { sendId: "send-stopped", runId: "run-stopped" });
+  record.runInitialSends.set("run-stopped", "send-stopped");
+  record.runOutcomes.set("run-stopped", { durationMs: 123, outcome: "stopped" });
+
+  const result = store.history(record, {});
+  assert.ok(result.ok);
+  assert.deepEqual(
+    messageItems(result.page)
+      .filter((item) => item.turnEnd !== undefined)
+      .map((item) => item.text),
+    ["本文あり"],
+    "本文の無い item へ結末を移すとクライアントが Stopped を落とす",
+  );
   await store.close();
 });

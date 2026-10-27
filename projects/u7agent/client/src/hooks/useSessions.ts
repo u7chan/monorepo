@@ -166,6 +166,8 @@ export function useSessions({
    */
   const historyGenerationRef = useRef(createGenerationTracker());
   const historyLoadingRef = useRef(false);
+  /** 履歴 API が無いときの組み直しに使う直近 payload。セッションを離れるたびに捨てる */
+  const latestPayloadRef = useRef<SessionPayload | undefined>(undefined);
 
   /** 最新ページを取り直す。resync (再接続 / 圧縮 / context_edit) のたびに呼び、取得済みの古いページは残す */
   const refreshHistory = useCallback(
@@ -182,7 +184,13 @@ export function useSessions({
         if (!isCurrent() || sessionIdRef.current !== targetId || !historyGenerationRef.current.holds(generation))
           return;
         // 履歴 API を持たない旧サーバーは 404 (未知ルート)。payload.messages での表示に戻す
-        if (error instanceof ApiError && error.status === 404) dispatch({ type: "historyUnsupported" });
+        if (error instanceof ApiError && error.status === 404) {
+          const fallback = latestPayloadRef.current;
+          dispatch({
+            type: "historyUnsupported",
+            ...(fallback?.sessionId === targetId ? { payload: fallback } : {}),
+          });
+        }
       }
     },
     [dispatch],
@@ -237,6 +245,7 @@ export function useSessions({
       // 権威ある状態が届いた。圧縮を抜けたなら、進行中の同期応答は古いので捨てる
       if (payload.status !== "compacting") sessionOpsRef.current += 1;
       snapshotSeqRef.current += 1;
+      latestPayloadRef.current = payload;
       dispatch({ type: "resync", payload, receivedAt: Date.now() });
       // 表示の正は全履歴ページ。ここでは状態だけを同期し、最新ページを別途取り直す
       void refreshHistory(payload.sessionId);
@@ -306,6 +315,7 @@ export function useSessions({
       // 旧セッションのカーソルを持ち越さない (in-flight の応答も世代で無効化する)
       historyGenerationRef.current.invalidate();
       historyLoadingRef.current = false;
+      latestPayloadRef.current = undefined;
       sessionIdRef.current = payload.sessionId;
       setSessionId(payload.sessionId);
       // 復元したセッションの agent はカタログに無いことがある (削除済み / ID 変更)。
@@ -383,6 +393,7 @@ export function useSessions({
       if (discardHistory) {
         historyGenerationRef.current.invalidate();
         historyLoadingRef.current = false;
+        latestPayloadRef.current = undefined;
         dispatch({ type: "resetHistory" });
       }
       // 破損した候補が互いを指して往復するため、フォールバックも一覧 1 周で止める
@@ -438,6 +449,7 @@ export function useSessions({
       // 全履歴のカーソルも持ち越さない (in-flight の応答は世代で無効化する)
       historyGenerationRef.current.invalidate();
       historyLoadingRef.current = false;
+      latestPayloadRef.current = undefined;
       // 新規チャットの通知の先行選択と Model / Effort の手動選択も持ち越さない
       // (作成中の古い応答でこの選択を消させない)
       notifyCarry.reset();

@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-10-27
 - 置き換え: [ADR 0004](0004-usage-sampling-and-storage.md) の「24 時間の推移」の部分
+- 一部置き換え: [ADR 0009](0009-window-blocking-and-five-hour-rolling.md)（OpenCode Go のローリングの期間は 5 時間）
 
 ## 背景
 

@@ -15,6 +15,7 @@ import { ContentSettingsService } from "./content-settings";
 import { createImageCatalog } from "./image-catalog";
 import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
+import { createWebSearchTest, type WebSearchTest } from "./web-search-test";
 import { TitleSummarySettingsService } from "./title-summary-settings";
 import {
   createTitleSummaryGenerate,
@@ -82,6 +83,8 @@ export type CreateBffAppOptions = {
   sessionStoreDir?: string | null;
   /** 通知送信のテスト用。省略時は globalThis.fetch */
   notificationFetch?: typeof fetch;
+  /** 設定画面のテスト検索用。省略時は globalThis.fetch */
+  webSearchTestFetch?: typeof fetch;
   /** Cloudflare API のテスト用。省略時は globalThis.fetch */
   cloudflareFetch?: typeof fetch;
   /** 画像モデル一覧取得のテスト用。省略時は globalThis.fetch */
@@ -171,6 +174,8 @@ export type BffContext = {
   contentSettings: ContentSettingsService;
   /** Web 検索の実行時トグル (設定 → Web 検索)。行が無い = 既定 (有効) を execute のたびに読む */
   webSearchSettings: WebSearchSettingsService;
+  /** 設定画面のテスト検索。実行環境を作れない起動 (pi なし) は null */
+  webSearchTest: WebSearchTest | null;
   /** 会話タイトルの AI 要約の設定 (On/Off・要約モデル・定義)。保存はサーバー側だけで行う */
   titleSummarySettings: TitleSummarySettingsService;
   /** 設定画面の「動作確認」。生成できない環境 (pi なし) は null */
@@ -320,6 +325,14 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     runtimeAvailable: pi !== null,
   });
   await webSearchSettings.applyStored();
+  // テスト検索はツールと同じ runner と同じ設定の写しを使う (画面とチャットで結果が食い違わない)
+  const webSearchTest: WebSearchTest | null = pi
+    ? createWebSearchTest({
+        runtime: () => webSearchSettings.runtime(),
+        masker: pi.secretMasker,
+        ...(opts.webSearchTestFetch === undefined ? {} : { fetchImpl: opts.webSearchTestFetch }),
+      })
+    : null;
   // 会話タイトルの AI 要約はモデル / 定義を DB で持つ。生成は会話ストアが判定し、ここは設定と 1 回の呼び出しだけ。
   const titleSummarySettings = new TitleSummarySettingsService({ db: appDb, models: () => pi?.modelOptions ?? [] });
   await titleSummarySettings.applyStored();
@@ -498,6 +511,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     oauthLogin,
     contentSettings,
     webSearchSettings,
+    webSearchTest,
     titleSummarySettings,
     titleSummaryTest,
     serve,

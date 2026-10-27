@@ -288,7 +288,7 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - `messageCount` / `summarizedMessageCount` はページではなく現行ブランチ全体の値。クライアントは保持済みの古いページの `summarized` を更新するのに使う（この 2 つだけがページ外の全体量を表す）
 - `activeContextStartId` は現在有効なコンテキストの先頭 message item。要約で置き換わった範囲が無いときは `null`
 - 本文 / 要約 / ツール出力は他の経路と同じマスカーを通す（[secrets.md](secrets.md)）。JSONL の保存形式は変えない
-- 投影はページ範囲を選んでからその範囲にだけ掛ける（全エントリーを DTO 化してから切らない）
+- 投影はページ範囲を選んでからその範囲にだけ掛ける（全エントリーを DTO 化してから切らない）。表示可否（本文の有無）の判定も全文のマスクを通さず、text part の有無だけで行う
 
 ## `PATCH /api/sessions/:id/settings`
 

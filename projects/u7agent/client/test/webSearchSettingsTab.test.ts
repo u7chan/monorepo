@@ -7,7 +7,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import { WebSearchSettingsTab } from "../src/components/web-search-settings/WebSearchSettingsTab";
-import type { WebSearchSavingAction } from "../src/lib/webSearchSettings";
+import {
+  webSearchTestFailure,
+  type WebSearchSavingAction,
+  type WebSearchTestOutcome,
+} from "../src/lib/webSearchSettings";
 import type { WebSearchProvider, WebSearchSettingsResponse } from "../src/types";
 
 /** API が返す文言（正は server/src/web-search-tool.ts）。画面は受け取った文字列をそのまま出す */
@@ -46,7 +50,11 @@ function settings(overrides: Partial<WebSearchSettingsResponse> = {}): WebSearch
   };
 }
 
-function render(value: WebSearchSettingsResponse, saving: WebSearchSavingAction | null = null): string {
+function render(
+  value: WebSearchSettingsResponse,
+  saving: WebSearchSavingAction | null = null,
+  outcome: WebSearchTestOutcome | null = null,
+): string {
   // 確認ダイアログの provider は app の root が持つ (main.tsx)。ここでは描画だけを検査する
   return renderToStaticMarkup(
     createElement(
@@ -59,6 +67,9 @@ function render(value: WebSearchSettingsResponse, saving: WebSearchSavingAction 
         onSelectProvider: async () => true,
         onSaveKey: async () => true,
         onDeleteKey: async () => true,
+        testing: false,
+        testOutcome: outcome,
+        onTest: () => {},
       }),
     ),
   );
@@ -81,7 +92,10 @@ test("無効のときはスイッチが切り、モデルへ返る固定文言�
   assert.ok(html.includes(">停止中<"), "停止中は warn のバッジで出す");
   assert.ok(html.includes(WEB_SEARCH_DISABLED_MESSAGE), "モデルへ返る文言をそのまま出す");
   assert.ok(html.includes("既存のセッション"), "既存の会話にも効くことを書く");
-  assert.ok(html.includes("検索のクエリは Exa（mcp.exa.ai）へ送信されません"), "無効時は送らない旨に切り替える");
+  assert.ok(
+    html.includes("テスト検索も実行できず、クエリは Exa（mcp.exa.ai）へ送信されません"),
+    "無効時は送らない旨に切り替える",
+  );
 });
 
 test("保存中はスイッチと provider の選択を押せなくする", () => {
@@ -157,13 +171,64 @@ test("データの流れと、無効でもツールが残ることを既定で�
   const html = render(settings());
   assert.match(
     html,
-    /<summary[^>]*>[\s\S]*web_search ツールの実行時にだけ、クエリは Exa（mcp.exa.ai）へ送信されます。[\s\S]*<\/summary>/,
+    /<summary[^>]*>[\s\S]*web_search ツールかテスト検索の実行時にだけ、クエリは Exa（mcp.exa.ai）へ送信されます。[\s\S]*<\/summary>/,
     "畳んだ 1 行に送信先を出す",
   );
   assert.doesNotMatch(html, /<details\b[^>]*\sopen(?:[\s=>])/, "既定は畳む");
-  assert.ok(html.includes("web_search ツールを実行したときだけ"), "実行したときだけ送ることを書く");
-  assert.ok(html.includes("モデル（LLM プロバイダー）へ渡ります"));
+  assert.ok(html.includes("web_search ツールかテスト検索を実行したときだけ"), "実行したときだけ送ることを書く");
+  assert.ok(html.includes("ツールならモデル（LLM プロバイダー）へ、テスト検索ならこの画面にだけ渡ります"));
   assert.ok(html.includes("BFF をインターネットや LAN へ公開しないでください"));
   assert.ok(html.includes("ツール一覧に残り"), "ツールを消さない理由を書く");
   assert.ok(html.includes("Web 検索の設定はサーバーに保存され、再起動後も残ります。"));
+});
+
+test("テスト検索は既定のクエリを入れ、OFF の間は押せない", () => {
+  const on = render(settings());
+  assert.ok(on.includes('value="今日は何の日？"'), "既定のクエリを入れておく");
+  assert.ok(on.includes("テスト検索も実際の検索なので"), "押す前に課金と送信先を伝える");
+  assert.equal(on.includes("Web 検索を有効にするとテスト検索できます。"), false);
+
+  const off = render(settings({ enabled: false }));
+  assert.ok(off.includes("Web 検索を有効にするとテスト検索できます。"), "押せない理由を出す");
+  // 入力欄より後ろ (同じ節) のボタンは押せない
+  const card = off.slice(off.indexOf('aria-label="テスト検索のクエリ"'));
+  assert.match(card, /<button[^>]*disabled=""/);
+});
+
+test("テスト検索の成功は、送った provider と件数・秒・クエリを 1 行で出し、本文をそのまま出す", () => {
+  const outcome: WebSearchTestOutcome = {
+    query: "今日は何の日？",
+    result: {
+      ok: true,
+      output:
+        "現在日時: 2026-02-11 (Asia/Tokyo)\n検索プロバイダー: Exa\n出典:\n[1] 今日は何の日 — https://example.com/today\n\n建国記念の日。",
+      provider: { id: "exa", name: "Exa", host: "mcp.exa.ai" },
+      resultCount: 5,
+      durationMs: 1234,
+    },
+  };
+  const html = render(settings(), null, outcome);
+  assert.ok(html.includes(">成功<"));
+  assert.ok(html.includes(">Exa<"), "provider のチップを出す");
+  assert.ok(html.includes("mcp.exa.ai"), "送信先を出す");
+  assert.ok(html.includes(">5 件<"));
+  assert.ok(html.includes("1.2 秒"));
+  assert.ok(html.includes("クエリ「今日は何の日？」"), "入力の編集後もどのクエリの結果か分かる");
+  assert.ok(html.includes("検索プロバイダー: Exa"), "モデルへ返る本文をそのまま出す");
+  assert.ok(html.includes('aria-label="出力をコピー"'), "コピーを出す");
+});
+
+test("テスト検索の失敗も、同じ出力パネルに固定文言を出す", () => {
+  const html = render(settings(), null, {
+    query: "q",
+    result: webSearchTestFailure("Web 検索を利用できません"),
+  });
+  assert.ok(html.includes(">失敗<"));
+  assert.ok(html.includes("Web 検索を利用できません"));
+  assert.equal(html.includes(">成功<"), false);
+  // 状態の行だけを見る (本文の後ろには注意書きがあり、上の provider カードは常に送信先を出す)
+  const afterStatus = html.slice(html.indexOf(">失敗<"));
+  const statusRow = afterStatus.slice(0, afterStatus.indexOf('class="group/code'));
+  assert.equal(statusRow.includes("mcp.exa.ai"), false, "通信の失敗は送っていないので provider を出さない");
+  assert.equal(statusRow.includes(">Exa<"), false);
 });

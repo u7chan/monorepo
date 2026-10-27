@@ -214,7 +214,7 @@ describe("GET /api/usage", () => {
     expect(main?.state).toBe("ok");
     expect(main?.windows[0]?.usedPercent).toBe(40);
     expect(main?.trends[0]?.windowId).toBe("rolling");
-    expect(main?.trends[0]?.spanMs).toBe(6 * 60 * 60 * 1000);
+    expect(main?.trends[0]?.spanMs).toBe(5 * 60 * 60 * 1000);
     expect(main?.trends[0]?.points).toHaveLength(2);
 
     expect(sub?.name).toBe("サブ");

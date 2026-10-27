@@ -92,6 +92,7 @@ import type {
   WebSearchMutationResponse,
   WebSearchProviderId,
   WebSearchSettingsResponse,
+  WebSearchTestResponse,
 } from "./types";
 
 export class ApiError extends Error {
@@ -974,6 +975,16 @@ export const putWebSearchApiKey = async (
   });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as WebSearchMutationResponse;
+};
+
+/**
+ * 設定 → Web 検索のテスト検索。保存済みの設定で 1 回だけ検索し、モデルへ返る本文をそのまま返す。
+ * 検索の失敗も 200 の `ok: false` で返る（会話にも設定にも残らない）。
+ */
+export const postWebSearchTest = async (query: string): Promise<WebSearchTestResponse> => {
+  const res = await client.api.settings["web-search"].test.$post({ json: { query } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
 };
 
 /** provider の APIキーの削除（行ごと消して未設定へ戻す）。未設定でも 200 の冪等 */
