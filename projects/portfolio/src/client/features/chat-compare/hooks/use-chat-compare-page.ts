@@ -24,7 +24,7 @@ export function useChatComparePage() {
     resetAllConversations,
   } = useCompareState()
   const { submitCompare, submitModel, cancelModel, cancelAll } = useCompareStream()
-  const { canFetchModels, models, modelsQuery } = useCompareModelsQuery(settings)
+  const { canFetchModels, models, modelsError, modelsQuery } = useCompareModelsQuery(settings)
 
   const [input, setInput] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -210,6 +210,7 @@ export function useChatComparePage() {
     modelSelectorRef,
     canFetchModels,
     models,
+    modelsError,
     modelsQuery,
     handleModelChange,
     confirmModelChange,
