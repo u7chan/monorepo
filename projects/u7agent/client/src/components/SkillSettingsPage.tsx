@@ -401,6 +401,10 @@ export function SkillSettingsPage({
     : editingFileSkill && selectedFileSkill
       ? `${selectedFileSkill.name} を編集`
       : undefined;
+  // 選択が無い間は切り替え先が無いので、空のピッカー (名前も印も無い 1 つの chevron) を出さない。
+  // 中身が何も無いヘッダだけが残らないよう、見出しも選択も無いときは行ごと落とす
+  const showPicker = heading === undefined && selectedFileSkill !== undefined;
+  const showDetailHeader = heading !== undefined || selectedFileSkill !== undefined;
 
   const detailContent = creatingFileSkill ? (
     <FileSkillEditorForm
@@ -441,39 +445,54 @@ export function SkillSettingsPage({
   );
 
   const detail = (
-    <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto]">
-      <SettingsDetailHeader
-        ref={detailRef}
-        back={split ? undefined : { label: "スキル一覧へ", onClick: () => setView("list") }}
-        leading={
-          selectedFileSkill?.scope === "builtin" ? <SparkleIcon /> : selectedFileSkill ? <SkillListIcon /> : undefined
-        }
-        title={
-          heading ? (
-            <span className="truncate text-sm font-semibold text-ink-strong">{heading}</span>
-          ) : (
-            <SelectMenu
-              options={pickerOptions}
-              value={selectedFileSkill?.relativePath ?? ""}
-              label="スキルを切り替える"
-              triggerClassName="min-h-11"
-              onChange={(value) => {
-                const next = pickerSkills.find((skill) => skill.relativePath === value);
-                if (next) selectFileSkill(next);
-              }}
-            />
-          )
-        }
-        badge={
-          // 版はピッカーの detail に 1 箇所だけ出す (ヘッダの badge と二重にしない)
-          selectedFileSkill ? (
-            <span className="rounded border border-accent/50 bg-accent-wash px-1.5 text-2xs leading-4 text-accent-text">
-              {FILE_SKILL_SCOPE_LABEL[selectedFileSkill.scope]}
-            </span>
-          ) : undefined
-        }
-        actions={actions}
-      />
+    <div
+      className={
+        showDetailHeader
+          ? "grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto]"
+          : "grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto]"
+      }
+    >
+      {showDetailHeader ? (
+        <SettingsDetailHeader
+          ref={detailRef}
+          back={split ? undefined : { label: "スキル一覧へ", onClick: () => setView("list") }}
+          // ピッカーは選択肢と同じ印をトリガーにも出すので、その左に重ねない (狭い幅で名前の幅を削る)
+          leading={
+            !showPicker && selectedFileSkill ? (
+              selectedFileSkill.scope === "builtin" ? (
+                <SparkleIcon />
+              ) : (
+                <SkillListIcon />
+              )
+            ) : undefined
+          }
+          title={
+            heading ? (
+              <span className="truncate text-sm font-semibold text-ink-strong">{heading}</span>
+            ) : showPicker && selectedFileSkill ? (
+              <SelectMenu
+                options={pickerOptions}
+                value={selectedFileSkill.relativePath}
+                label="スキルを切り替える"
+                triggerClassName="min-h-11"
+                onChange={(value) => {
+                  const next = pickerSkills.find((skill) => skill.relativePath === value);
+                  if (next) selectFileSkill(next);
+                }}
+              />
+            ) : undefined
+          }
+          badge={
+            // 版はピッカーの detail に 1 箇所だけ出す (ヘッダの badge と二重にしない)
+            selectedFileSkill ? (
+              <span className="rounded border border-accent/50 bg-accent-wash px-1.5 text-2xs leading-4 text-accent-text">
+                {FILE_SKILL_SCOPE_LABEL[selectedFileSkill.scope]}
+              </span>
+            ) : undefined
+          }
+          actions={actions}
+        />
+      ) : null}
       {detailContent}
       {split ? null : <SettingsNoteRow note={note} />}
     </div>

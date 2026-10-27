@@ -99,3 +99,15 @@ test("DefinitionList の空状態は未絞込の count に依らず、渡され�
   );
   assert.ok(!withoutLabel.includes("条件に合うエージェントがありません。"), "空状態を渡していないのに文言が出ている");
 });
+
+test("並列表示で何も選んでいない間は、空のピッカーと詳細ヘッダを出さない", () => {
+  // window.innerWidth は 1440 なので、この描画は一覧と詳細を並べる (split) 側になる
+  const html = renderToStaticMarkup(
+    createElement(ConfirmProvider, null, createElement(SkillSettingsPage, { onBack: () => {}, onOpenNav: () => {} })),
+  );
+  // 選択肢が無いと名前も印も無い chevron だけが残るため、ピッカーごと出さない
+  assert.ok(!html.includes("スキルを切り替える"), "選択が無いのに空のピッカーが出ている");
+  // ヘッダはページ自身の 1 つだけ。中身の無い詳細ヘッダの帯を残さない
+  assert.equal(html.match(/<header/g)?.length, 1, "選択が無いのに詳細ヘッダの帯が出ている");
+  assert.ok(html.includes(FILE_SKILL_PANE_LOADING_NOTE), "選択が無いときの案内が無い");
+});
