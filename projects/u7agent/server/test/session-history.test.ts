@@ -753,3 +753,32 @@ test("同じターンの後に本文の応答があるとき、本文なし応�
 
   await store.close();
 });
+
+test("ターン末尾の本文なしツール応答ではなく、最後の本文あり応答に結末を載せる", async () => {
+  const store = new SessionStore({ pi: createStubPi(), catalog: createAgentCatalog() });
+  const record = await store.create();
+  const session = record.session as unknown as StubSession;
+  const userMessage = { role: "user", content: "依頼" };
+  session.appendMessage(userMessage);
+  session.appendMessage({ role: "assistant", content: text("本文あり"), stopReason: "stop" });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "call-stopped", name: "read", arguments: { path: "a.txt" } }],
+    stopReason: "aborted",
+  });
+  session.appendMessage({ role: "toolResult", content: text("結果"), toolCallId: "call-stopped", isError: false });
+  record.userMessageSends.set(userMessage, { sendId: "send-stopped", runId: "run-stopped" });
+  record.runInitialSends.set("run-stopped", "send-stopped");
+  record.runOutcomes.set("run-stopped", { durationMs: 123, outcome: "stopped" });
+
+  const result = store.history(record, {});
+  assert.ok(result.ok);
+  assert.deepEqual(
+    messageItems(result.page)
+      .filter((item) => item.turnEnd !== undefined)
+      .map((item) => item.text),
+    ["本文あり"],
+    "本文の無い item へ結末を移すとクライアントが Stopped を落とす",
+  );
+  await store.close();
+});

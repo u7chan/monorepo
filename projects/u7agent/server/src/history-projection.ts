@@ -13,7 +13,12 @@ import type { SecretMasker } from "./redact";
 import type { ChatMessage, HistoryContextState, HistoryItem, HistoryPage, TurnEnd } from "./schema";
 import type { SessionRecord } from "./session-record";
 import { ASSISTANT_ID_FIELD } from "./session-store";
-import { displayableMessageSet, messageProjectionContext, projectMessagesRange } from "./session-projection";
+import {
+  displayableMessageSet,
+  isDisplayableMessage,
+  messageProjectionContext,
+  projectMessagesRange,
+} from "./session-projection";
 
 export const HISTORY_PAGE_LIMIT_DEFAULT = 50;
 export const HISTORY_PAGE_LIMIT_MAX = 200;
@@ -28,7 +33,8 @@ interface MessageItemDescriptor {
   entryIndex: number;
   message: HistoryMessage;
   context: HistoryContextState;
-  displayable: boolean;
+  /** 本文ありの応答か。item 化の可否とは別で、ターン結末を付ける先の判定に使う */
+  hasText: boolean;
   assistantId?: string;
 }
 
@@ -94,7 +100,7 @@ function describeEntries(entries: PiSessionEntryLike[], session: PiSessionLike, 
       entryIndex: index,
       message,
       context,
-      displayable: displayable.has(message),
+      hasText: isDisplayableMessage(message),
       ...(assistantId === undefined ? {} : { assistantId }),
     });
   });
@@ -165,7 +171,7 @@ function turnEndsByLastAnswer(descriptors: ItemDescriptor[], record: SessionReco
     }
     // 本文の無い応答 (繰り上げ先を失ったツールの item) に結末を移すと、表示側が本文の有無で
     // 落とすため Done / Stopped が消える。本文のある最後の応答を付け先にする
-    if (!descriptor.displayable) continue;
+    if (!descriptor.hasText) continue;
     lastAnswerId = descriptor.id;
   }
   closeTurn();

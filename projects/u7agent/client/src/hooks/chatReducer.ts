@@ -204,8 +204,7 @@ export type ChatState = {
 
 export type ChatAction =
   | { type: "newChat" }
-  /** fullLegacy は履歴 API が使えないと判明したときの組み直しで、初期表示の上限を外す */
-  | { type: "resync"; payload: SessionPayload; receivedAt?: number; fullLegacy?: boolean }
+  | { type: "resync"; payload: SessionPayload; receivedAt?: number }
   /** 全履歴の最新ページ。取得済みの古いページを残して新しい側だけを差し替える */
   | { type: "resyncHistory"; page: HistoryPage }
   /** 欠落区間の取得結果。保留中の最新ページと合わせて適用する */
@@ -313,6 +312,7 @@ export const initialChatState: ChatState = {
   prependSeq: 0,
   history: {
     supported: false,
+    unsupported: false,
     hasMore: false,
     nextCursor: null,
     loading: false,
@@ -942,6 +942,7 @@ function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: H
     sessionId: page.sessionId,
     history: {
       supported: true,
+      unsupported: false,
       hasMore: page.hasMore,
       nextCursor: page.nextCursor,
       loading: state.history.loading,
@@ -1323,6 +1324,7 @@ export function historyToBubbles(
     for (const card of tools) toolBubbleIds[card.id] = id;
     return {
       id,
+      legacy: true,
       role: message.role,
       text: message.text,
       ...(message.assistantId !== undefined ? { assistantId: message.assistantId } : {}),
@@ -1770,8 +1772,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 取得済みの古いページを消さないため、ここでは表示を組み直さない (最新ページは resyncHistory が届く)。
       // ページ取得に一時的に失敗しても、取り込み済みの履歴がある間は payload.messages で組み直さない
       // (messages は有効コンテキストの投影で、圧縮後の残りが tool 呼び出しだけなら空にもなる)
-      const keepHistory =
-        !action.fullLegacy && !sessionChanged && (state.history.supported || holdsFetchedHistory(state));
+      const keepHistory = !sessionChanged && (state.history.supported || holdsFetchedHistory(state));
       // 未確定の assistant を捨てるのは失敗試行の取り消し (context_edit) だけ。同じ run の継続
       // (追加入力の注入・保存確定など) で捨てると、続く delta が別カードになり live と履歴が食い違う
       const currentLive =
@@ -1807,9 +1808,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ? null
         : historyToBubbles(
             state.nextId,
-            action.fullLegacy ? legacyMessages : legacyMessages.slice(-LEGACY_INITIAL_MAX_MESSAGES),
+            state.history.unsupported ? legacyMessages : legacyMessages.slice(-LEGACY_INITIAL_MAX_MESSAGES),
           );
-      const live = state.bubbles.filter((bubble) => bubble.entryId === undefined);
+      // 初期 legacy を組み直すときは、旧 legacy をライブとして持ち越さない (全量復元で重複させる)
+      const live = state.bubbles.filter(
+        (bubble) => bubble.entryId === undefined && (legacy === null || bubble.legacy !== true),
+      );
       // 失敗試行は payload.messages の投影から外れている。残す応答をテキストで判断できない
       // ときは取り消しを優先する (投影に無い閉じたカードを残さない)
       const projectedAssistants = (payload.messages ?? [])
@@ -2280,16 +2284,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, history: { ...state.history, loading: action.loading } };
 
     case "historyUnsupported": {
-      const next = { ...state, history: { ...state.history, supported: false } };
-      // 旧サーバーでは履歴ページが永久に来ないため、保持している payload から全量を組み直す。
-      // 直近だけの legacy 表示を残すと payload.messages と重複するので、先に表示を捨てる
-      return action.payload === undefined
+      const next = { ...state, history: { ...state.history, supported: false, unsupported: true } };
+      if (action.payload === undefined) return next;
+      // ライブの本文・送信エコーや取得済みページがある間は、payload からの組み直しで消さない。
+      // 未取得の legacy 表示だけを全量へ差し替える（次の resync でも unsupported を見て全量を組む）
+      const hasLive = state.bubbles.some((bubble) => bubble.entryId === undefined && bubble.legacy !== true);
+      return hasLive || holdsFetchedHistory(state)
         ? next
-        : chatReducer(chatReducer(next, { type: "resetHistory" }), {
-            type: "resync",
-            payload: action.payload,
-            fullLegacy: true,
-          });
+        : chatReducer(next, { type: "resync", payload: action.payload });
     }
 
     case "runStart": {

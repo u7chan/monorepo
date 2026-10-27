@@ -33,6 +33,11 @@ export type ToolCard = {
 
 export type Bubble = {
   id: number;
+  /**
+   * payload.messages から組んだ初期表示のバブル。履歴 API のページが適用されたら、未対応分は
+   * 全量復元の組み直しで置き換える対象になる (ライブのバブルとは区別する)
+   */
+  legacy?: true;
   /** 履歴 item の安定 ID (SDK entry id)。ライブ (ストリーミング / ローカルエコー) は持たない */
   entryId?: string;
   /** サーバーが割り当てた assistant 応答ID。同じ応答の delta / ツール / 履歴を対応付ける */
@@ -136,6 +141,8 @@ export type CompactionMarker = {
 /** 全履歴ページの取得状態。supported=false は旧サーバー (履歴 API 無し) の表示 */
 export type ChatHistoryState = {
   supported: boolean;
+  /** 履歴 API が無い旧サーバー。初期表示を payload.messages の全量で組み直す */
+  unsupported: boolean;
   hasMore: boolean;
   nextCursor: string | null;
   loading: boolean;

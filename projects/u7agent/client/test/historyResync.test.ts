@@ -1604,3 +1604,33 @@ test("履歴 API を前提に長い初期 payload は直近だけを legacy 表�
   assert.equal(fallback.bubbles.length, messages.length);
   assert.equal(fallback.bubbles[0].text, "m0");
 });
+
+test("404 フォールバックはライブ本文と取得済み履歴を捨てない", () => {
+  const running = chatReducer(initialChatState, {
+    type: "resync",
+    payload: runningPayloadWithTools([{ role: "user", text: "依頼" }], []),
+  });
+  const half = chatReducer(running, { type: "text", delta: "前半", at: 2 });
+  const fallback = chatReducer(half, {
+    type: "historyUnsupported",
+    payload: runningPayloadWithTools([{ role: "user", text: "依頼" }], []),
+  });
+  assert.equal(fallback.bubbles.at(-1)?.text, "前半", "ライブ本文を捨てない");
+  const after = chatReducer(fallback, { type: "text", delta: "後半", at: 3 });
+  assert.equal(after.bubbles.at(-1)?.text, "前半後半", "ストリーミングを継続する");
+
+  const withHistory = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([msg("m1", "active", "履歴")], { hasMore: true, nextCursor: "m1", messageCount: 1 }),
+  });
+  const kept = chatReducer(withHistory, {
+    type: "historyUnsupported",
+    payload: payload([{ role: "assistant", text: "payload 側" }]),
+  });
+  assert.deepEqual(
+    kept.bubbles.map((bubble) => [bubble.entryId, bubble.text]),
+    [["m1", "履歴"]],
+    "取得済みページを payload.messages で置き換えない",
+  );
+  assert.equal(kept.history.nextCursor, "m1");
+});
