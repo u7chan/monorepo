@@ -2289,9 +2289,18 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // ライブの本文・送信エコーや取得済みページがある間は、payload からの組み直しで消さない。
       // 未取得の legacy 表示だけを全量へ差し替える（次の resync でも unsupported を見て全量を組む）
       const hasLive = state.bubbles.some((bubble) => bubble.entryId === undefined && bubble.legacy !== true);
-      return hasLive || holdsFetchedHistory(state)
-        ? next
-        : chatReducer(next, { type: "resync", payload: action.payload });
+      if (hasLive || holdsFetchedHistory(state)) return next;
+      // payload は古い実行状態を含み得るため、resync として適用せず表示に必要な分だけを写す
+      const bundle = historyToBubbles(state.nextId, action.payload.messages ?? []);
+      return {
+        ...next,
+        bubbles: bundle.bubbles,
+        nextId: bundle.nextId,
+        toolBubbleIds: bundle.toolBubbleIds,
+        dividers: legacyMarkers(action.payload.compactions ?? []),
+        compactions: action.payload.compactions ?? [],
+        context: action.payload.context,
+      };
     }
 
     case "runStart": {

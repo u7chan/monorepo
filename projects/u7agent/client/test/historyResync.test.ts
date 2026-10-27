@@ -1634,3 +1634,16 @@ test("404 フォールバックはライブ本文と取得済み履歴を捨て�
   );
   assert.equal(kept.history.nextCursor, "m1");
 });
+
+test("404 の全量復元は古い payload の実行状態を再適用しない", () => {
+  const running = runningPayloadWithTools([{ role: "user", text: "依頼" }], []);
+  const started = chatReducer(initialChatState, { type: "resync", payload: running });
+  const ended = chatReducer(started, { type: "runEnd", status: "stopped", queueDepth: 0 });
+  assert.equal(ended.runStatus, "stopped");
+
+  const fallback = chatReducer(ended, { type: "historyUnsupported", payload: running });
+  assert.equal(fallback.runStatus, "stopped", "古い running payload で実行状態を巻き戻さない");
+  assert.equal(fallback.currentRunId, ended.currentRunId);
+  assert.equal(fallback.runStartedAt, ended.runStartedAt);
+  assert.equal(fallback.history.unsupported, true);
+});
