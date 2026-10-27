@@ -59,6 +59,21 @@ export function OverflowMenu(props: { label: string; items: readonly MenuItem[] 
       return;
     }
 
+    // 閉じる操作は項目の状態に依らない。全項目が通信中で disabled でも閉じられないと詰まる。
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close(true);
+
+      return;
+    }
+
+    if (event.key === "Tab") {
+      // フォーカスはそのまま次の要素へ進める。戻すとメニューから出られなくなる。
+      close(false);
+
+      return;
+    }
+
     const items = enabledItems(list.current);
 
     if (items.length === 0) {
@@ -83,14 +98,6 @@ export function OverflowMenu(props: { label: string; items: readonly MenuItem[] 
       case "End":
         event.preventDefault();
         items.at(-1)?.focus();
-        break;
-      case "Escape":
-        event.preventDefault();
-        close(true);
-        break;
-      case "Tab":
-        // フォーカスはそのまま次の要素へ進める。戻すとメニューから出られなくなる。
-        close(false);
         break;
       default:
         break;
