@@ -3,9 +3,12 @@
 import { afterEach, test, expect, mock, describe } from "bun:test";
 import {
   ContainerActionError,
+  excludePortalContainers,
   filterContainers,
+  isPortalContainer,
   normalizeName,
   parseContainer,
+  parseContainerList,
   parsePorts,
   runContainerAction,
   validateContainerAction,
@@ -287,6 +290,116 @@ describe("filterContainers", () => {
   test("空の配列に対しても動作する", () => {
     const result = filterContainers([], "all");
     expect(result).toEqual([]);
+  });
+});
+
+describe("excludePortalContainers", () => {
+  const baseContainer: Container = {
+    id: "a1b2c3d4e5f6",
+    name: "some-app",
+    image: "nginx:latest",
+    state: "running",
+    status: "Up",
+    ports: [],
+  };
+
+  test("portal のイメージ（タグ付き）は除外する", () => {
+    const portal: Container = {
+      ...baseContainer,
+      id: "111111111111",
+      name: "portal",
+      image: "ghcr.io/u7chan/monorepo/portal:latest",
+    };
+
+    expect(excludePortalContainers([portal, baseContainer], "ubuntu-host")).toEqual([
+      baseContainer,
+    ]);
+  });
+
+  test("portal のイメージ（ダイジェスト指定）も除外する", () => {
+    const portal: Container = {
+      ...baseContainer,
+      id: "222222222222",
+      image: "ghcr.io/u7chan/monorepo/portal@sha256:abc123",
+    };
+
+    expect(isPortalContainer(portal, "ubuntu-host")).toBe(true);
+  });
+
+  test("同じレジストリでも別イメージは除外しない", () => {
+    const other: Container = {
+      ...baseContainer,
+      image: "ghcr.io/u7chan/monorepo/portal-admin:latest",
+    };
+
+    expect(isPortalContainer(other, "ubuntu-host")).toBe(false);
+  });
+
+  test("コンテナ ID と一致する HOSTNAME のコンテナは除外する", () => {
+    expect(isPortalContainer(baseContainer, "a1b2c3d4e5f6")).toBe(true);
+  });
+
+  test("コンテナ ID 形式でない HOSTNAME では自己判定しない", () => {
+    const container: Container = { ...baseContainer, id: "abccompany0001" };
+
+    expect(isPortalContainer(container, "abc")).toBe(false);
+  });
+
+  test("空の配列に対しても動作する", () => {
+    expect(excludePortalContainers([], "ubuntu-host")).toEqual([]);
+  });
+});
+
+describe("parseContainerList", () => {
+  function rawLine(id: string, name: string, image: string): string {
+    return JSON.stringify({
+      ID: id,
+      Names: `/${name}`,
+      Image: image,
+      State: "running",
+      Status: "Up 1 hour",
+      Ports: "",
+    });
+  }
+
+  test("portal 自身（HOSTNAME がコンテナ ID）は結果に含めない", () => {
+    const output = [
+      rawLine("abc123def456", "portal", "ghcr.io/u7chan/monorepo/portal:latest"),
+      rawLine("def789ghi012", "my-app", "nginx:latest"),
+    ].join("\n");
+
+    expect(parseContainerList(output, "abc123def456").map((c) => c.name)).toEqual(["my-app"]);
+  });
+
+  test("portal のイメージも結果から除く", () => {
+    const output = [
+      rawLine("111111111111", "portal", "ghcr.io/u7chan/monorepo/portal@sha256:abc123"),
+      rawLine("def789ghi012", "my-app", "nginx:latest"),
+    ].join("\n");
+
+    expect(parseContainerList(output, "ubuntu-host").map((c) => c.name)).toEqual(["my-app"]);
+  });
+
+  test("ホスト上のプロセスとして動く場合は全て返す", () => {
+    const output = [
+      rawLine("abc123def456", "my-app", "nginx:latest"),
+      rawLine("def789ghi012", "stopped-app", "redis:latest"),
+    ].join("\n");
+
+    expect(parseContainerList(output, "ubuntu-host").map((c) => c.name)).toEqual([
+      "my-app",
+      "stopped-app",
+    ]);
+  });
+
+  test("壊れた行は無視して残りを返す", () => {
+    const output = ["not-json", rawLine("def789ghi012", "my-app", "nginx:latest")].join("\n");
+
+    expect(parseContainerList(output, "ubuntu-host").map((c) => c.name)).toEqual(["my-app"]);
+  });
+
+  test("出力が空なら空配列を返す", () => {
+    expect(parseContainerList("", "ubuntu-host")).toEqual([]);
   });
 });
 

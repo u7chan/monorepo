@@ -64,6 +64,50 @@ export function normalizeName(name: string): string {
   return name.replace(/^\//, "");
 }
 
+// portal 自身を表すイメージリポジトリ。タグやダイジェストは含めない。
+const PORTAL_IMAGE_REPOSITORY = "ghcr.io/u7chan/monorepo/portal";
+
+// docker はコンテナの HOSTNAME に短縮コンテナ ID（12 桁の hex）を入れる。
+// ホスト上で bun dev しているときの HOSTNAME はマシン名なので、その形のときだけ自己判定に使う。
+const CONTAINER_ID_HOSTNAME = /^[0-9a-f]{12}$/i;
+
+/**
+ * イメージ参照からタグとダイジェストを落としてリポジトリだけにする
+ */
+function imageRepository(image: string): string {
+  const withoutDigest = image.split("@")[0] ?? "";
+  const tagIndex = withoutDigest.lastIndexOf(":");
+  const slashIndex = withoutDigest.lastIndexOf("/");
+  return tagIndex > slashIndex ? withoutDigest.slice(0, tagIndex) : withoutDigest;
+}
+
+/**
+ * portal 自身のコンテナかどうか
+ *
+ * Why not: ラベル（`com.docker.compose.service` など）で判定しないのは、deploy 側の
+ * compose 定義を portal の都合に合わせたくないため。イメージ名と HOSTNAME だけで判定する。
+ */
+export function isPortalContainer(
+  container: Container,
+  hostname: string = process.env.HOSTNAME ?? "",
+): boolean {
+  if (imageRepository(container.image) === PORTAL_IMAGE_REPOSITORY) {
+    return true;
+  }
+
+  return CONTAINER_ID_HOSTNAME.test(hostname) && container.id.startsWith(hostname);
+}
+
+/**
+ * portal 自身を一覧から除く
+ */
+export function excludePortalContainers(
+  containers: Container[],
+  hostname: string = process.env.HOSTNAME ?? "",
+): Container[] {
+  return containers.filter((container) => !isPortalContainer(container, hostname));
+}
+
 /**
  * Dockerの生データをContainer型に変換
  */
@@ -90,6 +134,31 @@ export function parseContainer(raw: DockerContainerRaw): Container {
 }
 
 /**
+ * docker ps の JSON Lines 出力を Container に変換し、portal 自身を除く
+ */
+export function parseContainerList(
+  output: string,
+  hostname: string = process.env.HOSTNAME ?? "",
+): Container[] {
+  const lines = output
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0);
+
+  const containers: Container[] = [];
+
+  for (const line of lines) {
+    try {
+      containers.push(parseContainer(JSON.parse(line) as DockerContainerRaw));
+    } catch (parseError) {
+      console.error("Failed to parse container JSON:", line, parseError);
+    }
+  }
+
+  return excludePortalContainers(containers, hostname);
+}
+
+/**
  * Dockerコンテナ一覧を取得
  */
 export async function fetchContainers(all: boolean = false): Promise<Container[]> {
@@ -98,7 +167,7 @@ export async function fetchContainers(all: boolean = false): Promise<Container[]
     console.log("[MOCK MODE] Returning mock container data");
     // 大量データテストが必要な場合はこちら
     // return generateManyContainers(20);
-    return mockContainers;
+    return excludePortalContainers(mockContainers);
   }
 
   try {
@@ -106,30 +175,8 @@ export async function fetchContainers(all: boolean = false): Promise<Container[]
     const cmd = all ? "docker ps --all --format json" : "docker ps --format json";
 
     const result = await Bun.$`${cmd.split(" ")}`;
-    const output = result.text();
 
-    // JSON Lines形式で複数行のJSONが返ってくる場合がある
-    const lines = output
-      .trim()
-      .split("\n")
-      .filter((line) => line.length > 0);
-
-    if (lines.length === 0) {
-      return [];
-    }
-
-    const containers: Container[] = [];
-
-    for (const line of lines) {
-      try {
-        const raw: DockerContainerRaw = JSON.parse(line);
-        containers.push(parseContainer(raw));
-      } catch (parseError) {
-        console.error("Failed to parse container JSON:", line, parseError);
-      }
-    }
-
-    return containers;
+    return parseContainerList(result.text());
   } catch (error) {
     console.error("Failed to fetch containers:", error);
     throw new Error(
