@@ -11,6 +11,12 @@ type Props = Parameters<typeof ComposerStatus>[0];
 
 const render = (props: Props): string => renderToStaticMarkup(createElement(ComposerStatus, props));
 
+/**
+ * 経過時間のテスト用の基準時刻。描画側は `useElapsedMs` で描画時の `Date.now()` を読み、fixture も
+ * `Date.now()` から作るので、テスト中はこの値に時計を固定して両者を同じ瞬間にする。
+ */
+const NOW = Date.now();
+
 /** モデル / Effort の入口のスタブ。中身の描画はピッカーのテストが受け持つ */
 const slot = (text = "GLM-5.3 Flash"): Props["modelSlot"] => createElement("span", null, text);
 
@@ -191,7 +197,8 @@ test("描画: 入口も活動もコンテキストも無ければ何も出さな
   assert.equal(render({ activity: "" }), "");
 });
 
-test("描画: モデル / Effort の入口とゲージは aria-live の外へ置く", () => {
+test("描画: モデル / Effort の入口とゲージは aria-live の外へ置く", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOW });
   const html = render({
     activity: "実行中…（タブを閉じても処理は続きます）",
     runningSince: Date.now(),
@@ -235,7 +242,8 @@ test("描画: 活動が空なら活動欄ごと出さない (空行を残さな�
   assert.equal(render({ activity: "" }), "");
 });
 
-test("描画: 実行中の経過時間は 10 秒の拍の枠に出し、1 分以降だけ色を残す", () => {
+test("描画: 実行中の経過時間は 10 秒の拍の枠に出し、1 分以降だけ色を残す", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOW });
   const fresh = render({
     activity: "実行中…",
     runningSince: Date.now(),
@@ -255,7 +263,8 @@ test("描画: 実行中の経過時間は 10 秒の拍の枠に出し、1 分以
 });
 
 // What: 状態行の数字は run 全体の経過で、直前のツールの所要時間ではない。
-test("描画: 経過時間は直近ツールの所要時間ではなく run 全体の経過を出す", () => {
+test("描画: 経過時間は直近ツールの所要時間ではなく run 全体の経過を出す", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOW });
   const now = Date.now();
   const html = render({
     activity: "bash を実行中…",
@@ -270,7 +279,8 @@ test("描画: 経過時間は直近ツールの所要時間ではなく run 全�
   assert.ok(!html.includes("(実行 2s)"), "ツールの所要時間を run の経過として出さない");
 });
 
-test("描画: 実行中の経過時間は回答待ち (ask_user の区間) を除く", () => {
+test("描画: 実行中の経過時間は回答待ち (ask_user の区間) を除く", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOW });
   const now = Date.now();
   const runningSince = now - 70_000;
   const open = (id: string, startedAt: number) => ({
@@ -294,7 +304,8 @@ test("描画: 実行中の経過時間は回答待ち (ask_user の区間) を�
   assert.ok(!html.includes("elapsed-beat-tier"), "待機を引いた値で色を判定する");
 });
 
-test("描画: 回答が届いたカードは待機の続きから数え、開始の無いカードは従来どおり数える", () => {
+test("描画: 回答が届いたカードは待機の続きから数え、開始の無いカードは従来どおり数える", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOW });
   const now = Date.now();
   const runningSince = now - 70_000;
   const base = { name: "ask_user", args: "", isError: false, done: false, output: "" };
@@ -315,7 +326,8 @@ test("描画: 回答が届いたカードは待機の続きから数え、開始
   assert.match(noStart, /\(実行 1m 1[01]s\)/, "startedAt が無ければ待機を含めて数える");
 });
 
-test("描画: 圧縮中の経過時間は前の run の回答待ちを引かない", () => {
+test("描画: 圧縮中の経過時間は前の run の回答待ちを引かない", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOW });
   const now = Date.now();
   const html = render({
     activity: "会話を整理中…",
