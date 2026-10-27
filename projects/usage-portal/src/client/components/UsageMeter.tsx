@@ -2,23 +2,30 @@ import type { UsageWindow } from "../api";
 import { describeReset, formatPercent, remainingPercent } from "../lib/format";
 import { ATTENTION_THRESHOLD } from "../lib/status";
 
-export function UsageMeter(props: { window: UsageWindow; now: number }) {
+export function UsageMeter(props: { window: UsageWindow; now: number; blockedBy: string | null }) {
   const remaining = remainingPercent(props.window.usedPercent);
-  const attention = props.window.usedPercent >= ATTENTION_THRESHOLD;
+  const reached = props.window.usedPercent >= 100;
+  const stopped = props.blockedBy !== null || reached;
+  const attention = !stopped && props.window.usedPercent >= ATTENTION_THRESHOLD;
+  // 停止と注意は色だけが違うため、修飾子を 1 つに畳んで 3 箇所で使い回す。
+  const tone = stopped ? "blocked" : attention ? "attention" : null;
   const reset = describeReset(props.window.resetsAt, props.now);
+  const value = (
+    <>
+      {stopped || attention ? (
+        <span class="up-meter-warning" aria-hidden="true">
+          ▲{" "}
+        </span>
+      ) : null}
+      {stopped ? "使用不可" : `残り ${formatPercent(remaining)}`}
+    </>
+  );
 
   return (
     <div class="up-meter">
       <div class="up-meter-head">
         <span class="up-meter-label">{props.window.label}</span>
-        <span class={attention ? "up-meter-value up-attention" : "up-meter-value"}>
-          {attention ? (
-            <span class="up-meter-warning" aria-hidden="true">
-              ▲{" "}
-            </span>
-          ) : null}
-          残り {formatPercent(remaining)}
-        </span>
+        <span class={tone ? `up-meter-value up-${tone}` : "up-meter-value"}>{value}</span>
       </div>
       <div
         class="up-meter-track"
@@ -26,17 +33,21 @@ export function UsageMeter(props: { window: UsageWindow; now: number }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(remaining)}
-        aria-valuetext={`残り ${formatPercent(remaining)}`}
+        aria-valuetext={
+          props.blockedBy ? `${props.blockedBy}が上限のため使用できません` : `残り ${formatPercent(remaining)}`
+        }
         aria-label={`${props.window.label} の残り`}
       >
         {/* 幅だけを style で渡す。CSP の style-src 'unsafe-inline' は meter と trend の座標に限る。 */}
         <div
-          class={attention ? "up-meter-fill up-meter-fill-attention" : "up-meter-fill"}
+          class={tone ? `up-meter-fill up-meter-fill-${tone}` : "up-meter-fill"}
           style={{ width: `${remaining}%` }}
         />
       </div>
       <p class="up-caption">
-        {reset ? (
+        {props.blockedBy ? (
+          `${props.blockedBy}が上限のため使えません`
+        ) : reset ? (
           <>
             <span class="up-nowrap">{reset.at}</span> <span class="up-nowrap">· {reset.remaining}</span>
           </>

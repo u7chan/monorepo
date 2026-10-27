@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import type { ComponentChildren } from "preact";
+import { MAX_OPENCODE_ACCOUNTS } from "../shared/opencode-account";
 import {
   type CodexAuthState,
   type OpenCodeAccount,
@@ -20,8 +22,10 @@ import {
   updateOpenCodeAccount,
 } from "./api";
 import { LoginScreen } from "./components/LoginScreen";
-import type { OpenCodeAccountActions } from "./components/OpenCodeAccountForm";
-import { OpenCodeAccountsSection, type OpenCodeAccountsState } from "./components/OpenCodeAccountsSection";
+import { Modal } from "./components/Modal";
+import { OpenCodeAccountCard } from "./components/OpenCodeAccountCard";
+import { OpenCodeAccountForm, type OpenCodeAccountActions } from "./components/OpenCodeAccountForm";
+import { OverflowMenu, type MenuItem } from "./components/OverflowMenu";
 import { ProviderCard } from "./components/ProviderCard";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { formatClock } from "./lib/format";
@@ -32,6 +36,8 @@ type View =
   | { kind: "unreachable" }
   | { kind: "login"; mode: "setup" | "login"; notice: string | null }
   | { kind: "dashboard"; expiresAt: number };
+
+type AccountsState = { status: "loading" | "ok" | "unavailable"; accounts: OpenCodeAccount[] };
 
 export function App() {
   const [view, setView] = useState<View>({ kind: "loading" });
@@ -69,6 +75,18 @@ export function App() {
   );
   const handleRelogin = useCallback(() => showLogin("PIN を再入力すると 30 日間延長されます。"), [showLogin]);
 
+  // ダッシュボードはヘッダーにメニューを持つため、レイアウトごと自分で描く。
+  if (view.kind === "dashboard") {
+    return (
+      <Dashboard
+        expiresAt={view.expiresAt}
+        onUnauthorized={handleUnauthorized}
+        onRelogin={handleRelogin}
+        onLoggedOut={load}
+      />
+    );
+  }
+
   let content;
 
   switch (view.kind) {
@@ -86,25 +104,20 @@ export function App() {
     case "login":
       content = <LoginScreen mode={view.mode} notice={view.notice} onSuccess={load} />;
       break;
-    case "dashboard":
-      content = (
-        <Dashboard
-          expiresAt={view.expiresAt}
-          onUnauthorized={handleUnauthorized}
-          onRelogin={handleRelogin}
-          onLoggedOut={load}
-        />
-      );
-      break;
   }
 
+  return <Layout>{content}</Layout>;
+}
+
+function Layout(props: { children: ComponentChildren; menu?: ComponentChildren }) {
   return (
     <>
       <header class="up-header">
         <span class="up-brand">Usage</span>
         <span class="up-caption">Codex / OpenCode Go</span>
+        {props.menu}
       </header>
-      <main class="up-main">{content}</main>
+      <main class="up-main">{props.children}</main>
       <footer class="up-footer">
         <span class="up-caption">5 分ごとに取得 · 表示専用</span>
       </footer>
@@ -120,8 +133,9 @@ function Dashboard(props: {
 }) {
   const [usage, setUsage] = useState<UsagePayload | null>(null);
   const [codex, setCodex] = useState<CodexAuthState | null>(null);
-  const [accounts, setAccounts] = useState<OpenCodeAccountsState>({ status: "loading", accounts: [] });
+  const [accounts, setAccounts] = useState<AccountsState>({ status: "loading", accounts: [] });
   const [clock, setClock] = useState(() => Date.now());
+  const [adding, setAdding] = useState(false);
   // 保存・削除より前に始まった GET の応答で、確定済みの一覧・カードを巻き戻さないための世代。
   const accountsGeneration = useRef(0);
   const usageGeneration = useRef(0);
@@ -133,7 +147,7 @@ function Dashboard(props: {
     return () => clearInterval(timer);
   }, []);
 
-  const { onUnauthorized } = props;
+  const { onLoggedOut, onUnauthorized } = props;
 
   const loadUsage = useCallback(async () => {
     usageGeneration.current += 1;
@@ -352,6 +366,11 @@ function Dashboard(props: {
     [refreshAfterChange],
   );
 
+  const signOut = useCallback(async (): Promise<void> => {
+    await logout();
+    await onLoggedOut();
+  }, [onLoggedOut]);
+
   const expiry = expiryNotice(props.expiresAt, clock);
   const sources = usage?.sources ?? placeholderSources(accounts.accounts);
   const codexActions = {
@@ -365,9 +384,18 @@ function Dashboard(props: {
     onUpdate: updateAccount,
     onDelete: removeAccount,
   };
+  const atLimit = accounts.accounts.length >= MAX_OPENCODE_ACCOUNTS;
+  const menu: MenuItem[] = [
+    {
+      label: atLimit ? `アカウントを追加（上限 ${MAX_OPENCODE_ACCOUNTS} 件）` : "アカウントを追加",
+      onSelect: () => setAdding(true),
+      disabled: atLimit,
+    },
+    { label: "ログアウト", onSelect: () => void signOut(), danger: true },
+  ];
 
   return (
-    <>
+    <Layout menu={<OverflowMenu label="メニュー" items={menu} />}>
       {expiry ? <SessionExpiryBanner remaining={expiry} onRelogin={props.onRelogin} /> : null}
       <div class="up-toolbar">
         <p class="up-caption">
@@ -379,31 +407,46 @@ function Dashboard(props: {
             {usage ? ` · 最終取得 ${formatClock(usage.generatedAt)}` : " · 取得中…"}
           </span>
         </p>
-        <button
-          class="up-button up-button-secondary"
-          type="button"
-          onClick={async () => {
-            await logout();
-            await props.onLoggedOut();
-          }}
-        >
-          ログアウト
-        </button>
       </div>
       <div class="up-providers">
-        {sources.map((source) => (
-          <ProviderCard
-            key={source.id}
-            source={source}
-            now={clock}
-            generatedAt={usage?.generatedAt ?? null}
-            codex={source.provider === "codex" ? { auth: codex, actions: codexActions } : undefined}
-            opencode={source.provider === "opencode-go" ? { actions: openCodeActions } : undefined}
-          />
-        ))}
+        {sources.map((source) =>
+          source.provider === "codex" ? (
+            <ProviderCard
+              key={source.id}
+              source={source}
+              now={clock}
+              generatedAt={usage?.generatedAt ?? null}
+              codex={{ auth: codex, actions: codexActions }}
+            />
+          ) : (
+            <OpenCodeAccountCard
+              key={source.id}
+              source={source}
+              now={clock}
+              generatedAt={usage?.generatedAt ?? null}
+              actions={openCodeActions}
+            />
+          ),
+        )}
+        {accounts.status === "ok" && accounts.accounts.length === 0 ? (
+          <section class="up-card up-empty-provider">
+            <h2 class="up-subheading">OpenCode Go</h2>
+            <p class="up-caption">アカウントが未登録です。API キーを登録するとカードが増えます。</p>
+            <button class="up-button" type="button" disabled={atLimit} onClick={() => setAdding(true)}>
+              アカウントを追加
+            </button>
+          </section>
+        ) : null}
       </div>
-      <OpenCodeAccountsSection state={accounts} actions={openCodeActions} />
-    </>
+      {accounts.status === "unavailable" ? (
+        <p class="up-caption">アカウントの一覧を取得できませんでした。ページを再読み込みしてください。</p>
+      ) : null}
+      {adding ? (
+        <Modal title="OpenCode Go のアカウントを追加" onClose={() => setAdding(false)}>
+          <OpenCodeAccountForm mode="create" onSubmit={createAccount} onClose={() => setAdding(false)} />
+        </Modal>
+      ) : null}
+    </Layout>
   );
 }
 

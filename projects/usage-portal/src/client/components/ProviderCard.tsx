@@ -1,12 +1,11 @@
+import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
 import type { CodexAuthState, UsageSource } from "../api";
 import { formatClock } from "../lib/format";
 import { deriveProviderStatus, showsWindows } from "../lib/status";
-import { pickTrendWindow } from "../lib/windows";
+import { findBlockedWindows, pickTrendWindow } from "../lib/windows";
 import { AccountIcon } from "./AccountIcon";
 import { CodexAuthPanel, type CodexActions } from "./CodexAuthPanel";
-import { OpenCodeAccountPanel } from "./OpenCodeAccountPanel";
-import type { OpenCodeAccountActions } from "./OpenCodeAccountForm";
 import { StatusLabel } from "./StatusLabel";
 import { TrendChart } from "./Trend";
 import { UsageMeter } from "./UsageMeter";
@@ -16,8 +15,11 @@ export function ProviderCard(props: {
   now: number;
   /** 推移の右端。再取得のたびにグラフが横にずれないよう、描画時刻ではなく応答時刻を使う。 */
   generatedAt: number | null;
+  /** provider ごとの操作（編集・削除など）。見出しの右に置く。 */
+  headerMenu?: ComponentChildren;
   codex?: { auth: CodexAuthState | null; actions: CodexActions };
-  opencode?: { actions: OpenCodeAccountActions };
+  /** provider ごとの詳細。フッターの下に開く。 */
+  children?: ComponentChildren;
 }) {
   const { source } = props;
   const status = deriveProviderStatus({
@@ -29,6 +31,7 @@ export function ProviderCard(props: {
   });
   const showMeters = showsWindows(source.state) && source.windows.length > 0;
   const chartWindows = showMeters ? source.windows : [];
+  const blocked = findBlockedWindows(chartWindows);
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const activeWindow = chartWindows.find((window) => window.id === selectedWindowId) ?? pickTrendWindow(chartWindows);
   const activeTrend = activeWindow ? (source.trends.find((trend) => trend.windowId === activeWindow.id) ?? null) : null;
@@ -45,7 +48,10 @@ export function ProviderCard(props: {
             <span class="up-caption">{source.plan}</span>
           ) : null}
         </div>
-        <StatusLabel status={status} />
+        <div class="up-provider-actions">
+          <StatusLabel status={status} />
+          {props.headerMenu}
+        </div>
       </header>
 
       {source.state === "loading" ? <p class="up-caption">利用枠を取得しています。</p> : null}
@@ -53,7 +59,12 @@ export function ProviderCard(props: {
       {showMeters ? (
         <div class="up-meters">
           {source.windows.map((window) => (
-            <UsageMeter key={window.id} window={window} now={props.now} />
+            <UsageMeter
+              key={window.id}
+              window={window}
+              now={props.now}
+              blockedBy={blocked.get(window.id)?.byLabel ?? null}
+            />
           ))}
         </div>
       ) : null}
@@ -107,9 +118,7 @@ export function ProviderCard(props: {
         />
       ) : null}
 
-      {props.opencode && source.account ? (
-        <OpenCodeAccountPanel account={source.account} actions={props.opencode.actions} />
-      ) : null}
+      {props.children}
     </article>
   );
 }
