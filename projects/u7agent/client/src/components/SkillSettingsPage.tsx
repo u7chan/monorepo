@@ -30,6 +30,8 @@ import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
 import { SettingsSearchField } from "./SettingsSearchField";
 import { SettingsTabs } from "./SettingsTabs";
+import { TabToolbar } from "./TabToolbar";
+import { ReloadButton } from "./ReloadButton";
 import { FileSkillEditorForm } from "./skill-settings/FileSkillEditorForm";
 import { FileSkillList } from "./skill-settings/FileSkillList";
 import { FileSkillPanel } from "./skill-settings/FileSkillPanel";
@@ -263,6 +265,48 @@ export function SkillSettingsPage({
 
   const counts = fileSkills.state.status === "ready" ? fileSkillScopeCounts(fileSkills.state.skills) : undefined;
   const add = fileSkillAddRow(fileSkills.state, startNewFileSkill);
+  const listErrorNote = fileSkills.state.status === "error" ? RELOAD_ABOVE_NOTE : null;
+
+  // 一覧に属するファイル操作は、一覧を見ている間だけヘッダ直下の帯の右端に出す (設定 → モデルと同じ形)。
+  // 詳細を開いている間と、隠れた一覧の上には出さない
+  const fileOps =
+    split || view === "list" ? (
+      <>
+        <button
+          type="button"
+          onClick={() => void archive.exportSkills()}
+          disabled={archive.exporting}
+          className="btn-quiet"
+        >
+          {SKILL_EXPORT_LABEL}
+        </button>
+        <button
+          type="button"
+          onClick={() => archiveImportRef.current?.click()}
+          disabled={archive.import.status === "planning" || archive.import.status === "applying"}
+          className="btn-quiet"
+        >
+          {SKILL_IMPORT_LABEL}
+        </button>
+        <ReloadButton onClick={fileSkills.reload} aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}>
+          {FILE_SKILL_RELOAD_LABEL}
+        </ReloadButton>
+        <input
+          ref={archiveImportRef}
+          type="file"
+          accept=".zip,application/zip"
+          tabIndex={-1}
+          aria-hidden="true"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            // 選択の取消 (files が空) では何もしない
+            if (file) void archive.selectImportFile(file);
+          }}
+        />
+      </>
+    ) : undefined;
 
   const list = (
     <DefinitionList
@@ -288,63 +332,21 @@ export function SkillSettingsPage({
         />
       }
       footer={
-        <div className="grid gap-1.5">
-          {add ? (
-            <button
-              type="button"
-              onClick={add.onAdd}
-              className="flex min-h-11 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-3 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
-            >
-              <PlusIcon />
-              {add.label}
-            </button>
-          ) : null}
-          {/* 固定フッターの操作は 1 つの塊にする。狭い幅で取り直しだけが右端に浮くと、他の操作から
-              切り離された別段に見える (帯の右端へ置く規則は、ヘッダ直下のツールバーの話) */}
-          <div className="flex min-w-0 flex-wrap items-center gap-1">
-            <button
-              type="button"
-              onClick={() => void archive.exportSkills()}
-              disabled={archive.exporting}
-              className="btn-quiet min-h-9 px-2 text-2xs"
-            >
-              {SKILL_EXPORT_LABEL}
-            </button>
-            <button
-              type="button"
-              onClick={() => archiveImportRef.current?.click()}
-              disabled={archive.import.status === "planning" || archive.import.status === "applying"}
-              className="btn-quiet min-h-9 px-2 text-2xs"
-            >
-              {SKILL_IMPORT_LABEL}
-            </button>
-            <button
-              type="button"
-              onClick={fileSkills.reload}
-              aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}
-              className="btn-quiet min-h-9 px-2 text-2xs"
-            >
-              {FILE_SKILL_RELOAD_LABEL}
-            </button>
-            <input
-              ref={archiveImportRef}
-              type="file"
-              accept=".zip,application/zip"
-              tabIndex={-1}
-              aria-hidden="true"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                event.currentTarget.value = "";
-                // 選択の取消 (files が空) では何もしない
-                if (file) void archive.selectImportFile(file);
-              }}
-            />
+        add || listErrorNote ? (
+          <div className="grid gap-1.5">
+            {add ? (
+              <button
+                type="button"
+                onClick={add.onAdd}
+                className="flex min-h-11 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-3 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
+              >
+                <PlusIcon />
+                {add.label}
+              </button>
+            ) : null}
+            {listErrorNote ? <p className="text-2xs leading-4 text-ink-muted">{listErrorNote}</p> : null}
           </div>
-          {fileSkills.state.status === "error" ? (
-            <p className="text-2xs leading-4 text-ink-muted">{RELOAD_ABOVE_NOTE}</p>
-          ) : null}
-        </div>
+        ) : undefined
       }
     >
       <FileSkillList
@@ -516,6 +518,7 @@ export function SkillSettingsPage({
         singleColumn={singleColumn}
         onOpenNav={onOpenNav}
         onBack={onBack}
+        toolbar={fileOps ? <TabToolbar actions={fileOps} /> : undefined}
         note={split || view === "list" ? note : undefined}
       >
         {split ? (

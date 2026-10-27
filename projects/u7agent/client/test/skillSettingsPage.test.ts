@@ -114,13 +114,16 @@ test("並列表示で何も選んでいない間は、空のピッカーと詳�
   assert.ok(html.includes(FILE_SKILL_PANE_LOADING_NOTE), "選択が無いときの案内が無い");
 });
 
-test("固定フッターの操作は 1 つの塊にし、取り直しだけを右端へ浮かせない", () => {
+test("エクスポート / インポート / 再読み込みは一覧の頭の帯へ置き、フッターには追加だけを残す", () => {
   const html = renderToStaticMarkup(
     createElement(ConfirmProvider, null, createElement(SkillSettingsPage, { onBack: () => {}, onOpenNav: () => {} })),
   );
-  assert.ok(html.includes(FILE_SKILL_RELOAD_LABEL));
+  const reloadAt = html.indexOf(FILE_SKILL_RELOAD_LABEL);
+  assert.ok(reloadAt > 0);
+  assert.ok(html.includes(SKILL_EXPORT_LABEL));
+  assert.ok(html.includes(SKILL_IMPORT_LABEL));
   // 何を取り直すのかが読み上げで分かるようにする
   assert.match(html, new RegExp(`aria-label="${FILE_SKILL_RELOAD_ARIA_LABEL}"`));
-  // ml-auto で右端へ寄せると、狭い幅で取り直しだけが他の操作から切り離される
-  assert.ok(!html.includes("ml-auto"), "取り直しが右端へ浮いている");
+  // 帯は一覧より上にある (スコープタブ・検索欄より前に出る)
+  assert.ok(reloadAt < html.indexOf("スキルの種類"), "帯が一覧より下にある");
 });
