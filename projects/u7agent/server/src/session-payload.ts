@@ -98,12 +98,17 @@ export function projectSessionPayload({
     record.toolTimings,
     record.assistantMessageIds,
     record.userMessageSends,
+    record.savedMetrics,
   );
   // 表示 item にならない応答のメタ情報は、この payload が載せるツールカードの所有者だけに絞る
   // (履歴 item が持つ値を二重に載せず、長い会話でも payload を大きくしない)
   const assistantMeta = unprojectedAssistantMeta(
     session.messages,
-    { messageMetrics: record.messageMetrics, assistantIds: record.assistantMessageIds },
+    {
+      messageMetrics: record.messageMetrics,
+      assistantIds: record.assistantMessageIds,
+      savedMetrics: record.savedMetrics,
+    },
     unprojectedOwners(
       record,
       new Set(messages.flatMap((message) => (message.assistantId === undefined ? [] : [message.assistantId]))),

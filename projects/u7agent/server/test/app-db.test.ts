@@ -6,7 +6,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { AppDb, APP_DB_FILENAME, APP_DB_SCHEMA_VERSION, type CustomProviderRow, type SecretRow } from "../src/app-db";
+import {
+  AppDb,
+  APP_DB_FILENAME,
+  APP_DB_SCHEMA_VERSION,
+  type AssistantMetricsRow,
+  type CustomProviderRow,
+  type SecretRow,
+} from "../src/app-db";
 import type { AgentDef, Project } from "../src/schema";
 import { storedSecret } from "./app-secret-fixture";
 
@@ -2985,6 +2992,194 @@ test("a hand-edited invalid definition is read structurally so other rows and de
       ["lab"],
     );
     reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- 応答メトリクス (assistant_metrics) ---
+
+function metricsRow(overrides: Partial<AssistantMetricsRow> = {}): AssistantMetricsRow {
+  return {
+    sessionId: "0123456789",
+    assistantId: "run-1:1",
+    at: 1_700_000_000_000,
+    provider: "anthropic",
+    model: "claude-3-5-sonnet",
+    durationMs: 1800,
+    ttftMs: 900,
+    inputTokens: 1234,
+    outputTokens: 56,
+    cacheRead: 789,
+    cacheWrite: 12,
+    reasoningTokens: 21,
+    costUsd: 0.0034,
+    stopReason: "stop",
+    ...overrides,
+  };
+}
+
+test("a new db creates assistant_metrics and round-trips the numeric rows", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    assert.deepEqual(db.loadAssistantMetrics("0123456789"), [], "行が無い = 実測なし");
+
+    db.recordAssistantMetrics(metricsRow());
+    // 同じ応答の再保存は行を増やさず上書きする (再試行の取り直し)
+    db.recordAssistantMetrics(metricsRow({ durationMs: 1500, stopReason: "aborted" }));
+    // usage を報告しないプロバイダは NULL のままにする (0 を書かない)
+    db.recordAssistantMetrics(
+      metricsRow({
+        assistantId: "run-1:2",
+        at: 1_700_000_001_000,
+        durationMs: 2400,
+        ttftMs: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheRead: null,
+        cacheWrite: null,
+        reasoningTokens: null,
+        costUsd: null,
+        stopReason: null,
+      }),
+    );
+    // 別セッションの行は混ざらない
+    db.recordAssistantMetrics(metricsRow({ sessionId: "9876543210" }));
+    db.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.loadAssistantMetrics("0123456789"), [
+      metricsRow({ durationMs: 1500, stopReason: "aborted" }),
+      metricsRow({
+        assistantId: "run-1:2",
+        at: 1_700_000_001_000,
+        durationMs: 2400,
+        ttftMs: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheRead: null,
+        cacheWrite: null,
+        reasoningTokens: null,
+        costUsd: null,
+        stopReason: null,
+      }),
+    ]);
+    reopened.deleteAssistantMetrics("0123456789");
+    assert.deepEqual(reopened.loadAssistantMetrics("0123456789"), []);
+    assert.equal(reopened.loadAssistantMetrics("9876543210").length, 1, "別セッションの行は残す");
+    reopened.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.deepEqual(columnNames(check, "assistant_metrics"), [
+      "session_id",
+      "assistant_id",
+      "at",
+      "provider",
+      "model",
+      "duration_ms",
+      "ttft_ms",
+      "input_tokens",
+      "output_tokens",
+      "cache_read",
+      "cache_write",
+      "reasoning_tokens",
+      "cost_usd",
+      "stop_reason",
+    ]);
+    const indexes = (check.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[])
+      .map((row) => row.name)
+      .filter((name) => name.startsWith("assistant_metrics_"));
+    assert.deepEqual(indexes.sort(), ["assistant_metrics_at", "assistant_metrics_model"]);
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("migrates a v32 db additively by adding assistant_metrics and keeping the existing rows", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.insertProject(project("p1", "proj-a"));
+    first.saveAgent(agent("a1"));
+    first.recordAssistantMetrics(metricsRow());
+    first.close();
+
+    // v32 相当にする (assistant_metrics を持たない最後の版)
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE assistant_metrics");
+    raw.exec("PRAGMA user_version = 32");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.deepEqual(migrated.loadAssistantMetrics("0123456789"), [], "新しいテーブルは空で始まる");
+    assert.deepEqual(migrated.listProjects(), [project("p1", "proj-a")], "アプリデータは消さない");
+    assert.ok(
+      migrated.listAgents().some((entry) => entry.id === "a1"),
+      "移行でエージェントを消さない",
+    );
+    migrated.recordAssistantMetrics(metricsRow({ assistantId: "run-2:1" }));
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(
+      reopened.loadAssistantMetrics("0123456789").map((row) => row.assistantId),
+      ["run-2:1"],
+    );
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("recreating the schema drops assistant_metrics along with the other app-owned tables", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.recordAssistantMetrics(metricsRow());
+    first.close();
+
+    // 未知の新しい版を開くと #recreate(false) でアプリ所有のテーブルだけを作り直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("PRAGMA user_version = 999");
+    raw.close();
+
+    const recreated = AppDb.open({ storeDir: dir });
+    assert.deepEqual(recreated.loadAssistantMetrics("0123456789"), [], "派生データは作り直しで残さない");
+    recreated.recordAssistantMetrics(metricsRow({ assistantId: "run-2:1" }));
+    recreated.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("assistant_metrics の失敗は status() を落とさず、呼び出し側へも例外を出さない", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    // テーブルを外から消して、書き込み / 読み取り / 削除を失敗させる
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE assistant_metrics");
+    raw.close();
+
+    db.recordAssistantMetrics(metricsRow());
+    assert.deepEqual(db.loadAssistantMetrics("0123456789"), []);
+    db.deleteAssistantMetrics("0123456789");
+    assert.deepEqual(db.status(), { path: join(dir, APP_DB_FILENAME), ok: true }, "メタの失敗で 503 へ倒さない");
+    db.close();
+
+    // 開けていない DB でも同じ (会話は開けるがメタだけ出ない)
+    const unavailable = AppDb.unavailable({ storeDir: null, error: "boom" });
+    unavailable.recordAssistantMetrics(metricsRow());
+    assert.deepEqual(unavailable.loadAssistantMetrics("0123456789"), []);
+    unavailable.deleteAssistantMetrics("0123456789");
+    assert.deepEqual(unavailable.status(), { path: null, ok: false, error: "boom" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

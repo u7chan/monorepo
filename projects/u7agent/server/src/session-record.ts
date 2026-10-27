@@ -154,6 +154,11 @@ export interface SessionRecord {
   /** SDK のメッセージオブジェクト -> BFF 計測の応答時間 (履歴へ写すときに同じ参照で引く) */
   messageMetrics: WeakMap<object, MessageMetrics>;
   /**
+   * 応答ID -> アプリ DB に保存した実測 (このロード世代の開始時に `session_id` で一括で読む)。
+   * `messageMetrics` と違い参照ではなく ID で引くため、再起動後のメッセージでも当たる
+   */
+  savedMetrics: Map<string, MessageMetrics>;
+  /**
    * SDK の user メッセージ -> それを送信した送信IDと実行ID。履歴 item に写し、クライアントが
    * 自分の送信エコーを他クライアントの同一文面 entry と取り違えないようにする
    */

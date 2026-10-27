@@ -11,10 +11,23 @@ export interface PiCompactionResult {
   estimatedTokensAfter?: unknown;
 }
 
+/** message_start / message_end で届くメッセージ (BFF が読むフィールドだけ) */
+export interface PiSessionMessageLike {
+  role?: string;
+  content?: unknown;
+  /** 生成に使ったモデル。usage と同じく、報告しない SDK / スタブでは欠ける */
+  provider?: string;
+  model?: string;
+  /** ログの時刻。SDK は epoch ms (number) で、旧 SDK・スタブでは欠ける / 別型もあり得る */
+  timestamp?: unknown;
+  stopReason?: string;
+  usage?: unknown;
+}
+
 /** pi SDK から届くランタイムイベントの緩い形 (必要なフィールドのみ) */
 export interface PiSessionEvent {
   type?: string;
-  message?: { role?: string; usage?: unknown } | null;
+  message?: PiSessionMessageLike | null;
   assistantMessageEvent?: { type?: string; delta?: string } | null;
   toolCallId?: string;
   toolName?: string;
@@ -67,6 +80,9 @@ export interface PiSessionLike {
     errorMessage?: string;
     timestamp?: number;
     usage?: unknown;
+    /** SDK の AssistantMessage が持つ生成元モデル。旧 SDK・スタブでは欠ける */
+    provider?: string;
+    model?: string;
     /** SDK が記録した応答 / ツール実行の所要時間。0 を取り得るので、0 は未記録として扱う */
     durationMs?: number;
     /** role "toolResult" のとき: 対応する toolCall の id と成否 (スキル読み込みの導出に使う) */

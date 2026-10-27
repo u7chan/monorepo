@@ -202,17 +202,20 @@ JSONL が破損している（SDK が追記する entry type / message role を 
 
 `messages[].metrics` は応答時間のメタ。`durationMs` は応答の所要時間、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 以下なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
 
-由来は `source` が持つ。解決順は「BFF がメモリ上で計測した値 → SDK が履歴に記録した `durationMs` からの導出 → 無し」で、この順序は `server/src/session-projection.ts` の解決関数だけが持つ（DB に保存した実測を挟むときもそこへ足す）。`source` の省略は `measured` として扱い、`recorded` のときだけ表示側が概算の印を付ける（正は `client/src/lib/usageFormat.ts`）。
+由来は `source` が持つ。解決順は「BFF がメモリ上で計測した値 → アプリ DB に保存した実測（`assistant_metrics`）→ SDK が履歴に記録した `durationMs` からの導出 → 無し」で、この順序は `server/src/session-projection.ts` の解決関数だけが持つ。`source` の省略は `measured` として扱い、`recorded` のときだけ表示側が概算の印を付ける（正は `client/src/lib/usageFormat.ts`）。
 
 | 由来 | 条件 | 表示 |
 | --- | --- | --- |
 | `measured`（`source` 省略） | BFF が `message_start` から `message_end` までの到着時刻で計測した | `1.8s · 42.3 tok/s` |
-| `recorded` | 計測値が無く、SDK の `durationMs` が 1 以上かつ usage の `output` が 1 以上 | `≈1.8s · ≈42 tok/s` |
-| 未記録 | どちらも無い（旧セッション・deferred の結果・`durationMs` が 0・usage 未報告） | 時間と tok/s を出さない |
+| `measured`（`source` 省略） | 再起動・アイドル sweep の後、アプリ DB の `assistant_metrics` を `assistantId` で引き当てた | `1.8s · 42.3 tok/s`（tok/s は算出できたときだけ） |
+| `recorded` | メモリ実測も DB 実測も無く、SDK の `durationMs` が 1 以上かつ usage の `output` が 1 以上 | `≈1.8s · ≈42 tok/s` |
+| 未記録 | どれも無い（旧セッション・DB の行が無い・deferred の結果・`durationMs` が 0・usage 未報告） | 時間と tok/s を出さない |
 
-`recorded` の `durationMs` は SDK がリクエスト送信前から測った値なので、BFF の計測（`message_start` = レスポンスヘッダ受信後から）より接続待ちのぶん**大きく**なる。同じ応答では tok/s の分母にもその待ちが乗るため、BFF の計測より**小さく**出る。TTFT は復元できない（最初の delta の時刻が JSONL に残らない）ため `ttftMs` を載せない。`recorded` の metrics は `messages[].metrics` と `assistantMeta[].metrics` の両方に載り得る。
+DB から復元した実測には、`recorded` に掛けている「tok/s が揃わなければ出さない」ゲートを掛けない。usage を報告しないプロバイダでも、再起動後に応答時間まで消えないようにするため。tok/s は `duration_ms` / `ttft_ms` / `output_tokens` から live と同じ規則で導出し、算出できなければキーを省略する（0 で埋めない）。つまり usage 未報告の会話でも、再起動後に時間は出て tok/s だけが出ない。集計（プロバイダ / モデルごとの生成速度の推移）はこの DB の実測だけを使い、SDK 記録値（`recorded`）は使わない。
 
-`assistantMeta` は `messages` に現れない assistant 応答の `{ assistantId, at?, usage?, metrics? }`（配列）。表示 item にならない応答（本文が無く、確定したツールカードも持たない応答）でも、未回答の ask_user カードは復帰のために assistant バブルを合成するため、元の応答の時刻と応答時間を `assistantId` で引き当てられるようにする。載るのはこの payload の `run.toolCalls[].assistantId` が指す応答のうち `messages` に入らないものだけに限り、値の無い項目はキーごと省略する（run の開始時刻・ツール実行時刻・再読み込み時刻で代用しない）。**値の解決は `messages[].metrics` と同じ順序**（BFF のメモリ実測 → SDK 記録値からの概算）なので、再起動・アイドル sweep のあとでも、SDK 履歴に `durationMs` と usage が残っていれば時刻・usage・応答時間は載る。どれも持たない応答と旧サーバーはキー自体を省く（[ask-user.md](ask-user.md#回答待ちカードの復帰)）。
+`recorded` の `durationMs` は SDK がリクエスト送信前から測った値なので、BFF の計測（`message_start` = レスポンスヘッダ受信後から）より接続待ちのぶん**大きく**なる。同じ応答では tok/s の分母にもその待ちが乗るため、BFF の計測より**小さく**出る。TTFT は SDK の記録値からは復元できない（最初の delta の時刻が JSONL に残らない）ため `ttftMs` を載せない（DB 実測は `ttft_ms` を保存するので載る）。`recorded` の metrics は `messages[].metrics` と `assistantMeta[].metrics` の両方に載り得る。
+
+`assistantMeta` は `messages` に現れない assistant 応答の `{ assistantId, at?, usage?, metrics? }`（配列）。表示 item にならない応答（本文が無く、確定したツールカードも持たない応答）でも、未回答の ask_user カードは復帰のために assistant バブルを合成するため、元の応答の時刻と応答時間を `assistantId` で引き当てられるようにする。載るのはこの payload の `run.toolCalls[].assistantId` が指す応答のうち `messages` に入らないものだけに限り、値の無い項目はキーごと省略する（run の開始時刻・ツール実行時刻・再読み込み時刻で代用しない）。**値の解決は `messages[].metrics` と同じ順序**（BFF のメモリ実測 → アプリ DB の実測 → SDK 記録値からの概算）なので、再起動・アイドル sweep のあとでも、SDK 履歴に `durationMs` と usage が残っていれば時刻・usage・応答時間は載る。どれも持たない応答と旧サーバーはキー自体を省く（[ask-user.md](ask-user.md#回答待ちカードの復帰)）。
 
 `ToolCall.assistantId` はそのツールを要求した assistant 応答のID。ライブの `tool_start` / `run.toolCalls` / `messages[].tools` で同じ値になり、再接続後もカードの所有者を応答IDで決められる。
 

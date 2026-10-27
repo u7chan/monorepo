@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AUTH_REQUIRED_MESSAGE } from "../src/agent";
 import { createAgentCatalog } from "../src/agents";
+import type { AssistantMetricsRow, AssistantMetricsStore } from "../src/app-db";
 import { composeRunError } from "../src/error-classify";
 import { ProjectStore } from "../src/projects";
 import { computeMessageMetrics, SessionStore } from "../src/sessions";
@@ -807,6 +808,122 @@ test("assistant 応答IDを SSE / payload / 履歴で同じ値にする", async 
     ? history.page.items.find((entry) => entry.kind === "message" && entry.role === "assistant")
     : undefined;
   assert.equal(item?.kind === "message" ? item.assistantId : undefined, assistantId, "履歴 item にも同じID");
+
+  await store.close();
+});
+
+// --- 応答メトリクスの永続化 (書き込み) ---
+
+/** 保存された行を控えるだけの AssistantMetricsStore (復元は扱わない) */
+function captureMetricsStore(rows: AssistantMetricsRow[]): AssistantMetricsStore & {
+  deleted: string[];
+  failRecord?: boolean;
+} {
+  const store = {
+    deleted: [] as string[],
+    failRecord: false,
+    recordAssistantMetrics(row: AssistantMetricsRow) {
+      if (store.failRecord) throw new Error("disk full");
+      rows.push(row);
+    },
+    loadAssistantMetrics() {
+      return [];
+    },
+    deleteAssistantMetrics(sessionId: string) {
+      store.deleted.push(sessionId);
+    },
+  };
+  return store;
+}
+
+test("writes one row per assistant message with provider, model, usage and stop_reason", async () => {
+  const rows: AssistantMetricsRow[] = [];
+  const metricsStore = captureMetricsStore(rows);
+  const store = new SessionStore({
+    pi: createStubPi({ chunkDelayMs: 5 }),
+    catalog: createAgentCatalog(),
+    assistantMetrics: metricsStore,
+  });
+  const record = await store.create();
+
+  store.postMessage(record, "実測を保存して");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+  await waitFor(() => rows.length === 1, 3000, "metrics row");
+
+  const [row] = rows;
+  assert.equal(row.sessionId, record.id);
+  assert.equal(row.assistantId, `${record.run?.id}:1`);
+  assert.equal(row.provider, "stub");
+  assert.equal(row.model, "stub-model");
+  assert.ok(row.at > 0, "assistant の timestamp を書く");
+  assert.ok(row.durationMs >= 5, "BFF が測った応答時間を書く");
+  assert.ok((row.ttftMs ?? -1) >= 0, "最初の delta までの時間を書く");
+  assert.deepEqual(
+    [row.inputTokens, row.outputTokens, row.cacheRead, row.cacheWrite, row.reasoningTokens, row.costUsd],
+    [
+      STUB_USAGE.input,
+      STUB_USAGE.output,
+      STUB_USAGE.cacheRead,
+      STUB_USAGE.cacheWrite,
+      STUB_USAGE.reasoning,
+      STUB_USAGE.cost.total,
+    ],
+  );
+  assert.equal(row.stopReason, "stop");
+
+  await store.close();
+});
+
+test("keeps the reported usage NULL when the provider reports none", async () => {
+  const rows: AssistantMetricsRow[] = [];
+  const store = new SessionStore({
+    pi: createStubPi({ chunkDelayMs: 1, usage: null }),
+    catalog: createAgentCatalog(),
+    assistantMetrics: captureMetricsStore(rows),
+  });
+  const record = await store.create();
+
+  store.postMessage(record, "usage 非対応のプロバイダ");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+  await waitFor(() => rows.length === 1, 3000, "metrics row");
+
+  const [row] = rows;
+  assert.deepEqual(
+    [row.inputTokens, row.outputTokens, row.cacheRead, row.cacheWrite, row.reasoningTokens, row.costUsd],
+    [null, null, null, null, null, null],
+    "未報告は 0 ではなく NULL",
+  );
+  assert.ok(row.durationMs >= 0, "応答時間は usage が無くても残す");
+  assert.equal(row.stopReason, "stop");
+
+  await store.close();
+});
+
+test("does not save metrics when no store is injected", async () => {
+  const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 1 }), catalog: createAgentCatalog() });
+  const record = await store.create();
+
+  store.postMessage(record, "保存先なし");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+  assert.equal(store.payload(record).status, "completed", "保存先が無くても会話は動く");
+
+  await store.close();
+});
+
+test("keeps the run successful when the metrics store throws", async () => {
+  const metricsStore = captureMetricsStore([]);
+  metricsStore.failRecord = true;
+  const store = new SessionStore({
+    pi: createStubPi({ chunkDelayMs: 1 }),
+    catalog: createAgentCatalog(),
+    assistantMetrics: metricsStore,
+  });
+  const record = await store.create();
+
+  store.postMessage(record, "保存に失敗しても続行");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+  assert.equal(store.statusOf(record), "completed");
+  assert.equal(store.payload(record).messages.at(-1)?.metrics?.durationMs !== undefined, true, "表示は実測のまま");
 
   await store.close();
 });
