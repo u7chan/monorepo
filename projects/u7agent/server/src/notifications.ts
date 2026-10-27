@@ -29,6 +29,8 @@ export const BASE_URL_ERROR = "Base URL は http(s) の origin だけを受け�
 /** Webhook URL は保存済みだが復号できないときの、送信を止める文言 (応答にもそのまま載せる) */
 export const WEBHOOK_UNAVAILABLE_MESSAGE =
   "保存済みの Webhook URL を復号できないため通知を送信できません。URL を再入力してください";
+/** runtime が無い起動で URL を保存・置換しようとしたときの文言 (復号した値を使う経路が無い) */
+export const WEBHOOK_RUNTIME_UNAVAILABLE_MESSAGE = "ランタイムが利用できないため、Webhook URL を変更できません";
 /** 復号した URL を AAD に結び付ける所有者。変更すると保存済みの URL を復号できなくなる */
 const WEBHOOK_SECRET_OWNER = "webhookUrl";
 /** 変更前の URL もマスクできるよう、置換対象は直近の数件だけメモリに持つ */
@@ -50,9 +52,14 @@ export interface NotificationServiceOptions {
   cipher?: AppSecretCipher | null;
   /**
    * SDK ランタイムを初期化できたか。false のときは復号せず、保存済みの URL を「未評価」にする
-   * (復号した値を使う経路が無いため、メモリにも残さない)。
+   * (復号した値を使う経路が無いため、メモリにも残さない)。URL の保存・置換も 503 にする。
    */
   runtimeAvailable?: boolean;
+  /**
+   * 復号・暗号化した URL を共通マスカーへ登録する。通知層の `#mask` だけでは、他機能の 400 / 503 応答や
+   * ログへ値が広がる経路を覆えない。
+   */
+  retainSecret?: (value: string) => void;
 }
 
 /** ラン完了通知の中身 (マスク前の生値) */
@@ -199,6 +206,7 @@ export class NotificationService {
   #knownUrls: string[];
   #cipher: AppSecretCipher | null;
   #runtimeAvailable: boolean;
+  #retainSecret: (value: string) => void;
   /** 復号済みの Webhook URL。GET では復号しないため、起動時と保存 / 置換の結果だけを持つ */
   #webhookUrl: string | null = null;
   #webhookState: AppSecretState = appSecretNotStored();
@@ -206,13 +214,22 @@ export class NotificationService {
   #generation = 0;
   #closed = false;
 
-  constructor({ db, masker, fetchImpl, timeoutMs, cipher, runtimeAvailable }: NotificationServiceOptions) {
+  constructor({
+    db,
+    masker,
+    fetchImpl,
+    timeoutMs,
+    cipher,
+    runtimeAvailable,
+    retainSecret,
+  }: NotificationServiceOptions) {
     this.#db = db;
     this.#masker = masker ?? createSecretMasker([]);
     this.#fetch = fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
     this.#timeoutMs = timeoutMs ?? NOTIFICATION_TIMEOUT_MS;
     this.#cipher = cipher ?? null;
     this.#runtimeAvailable = runtimeAvailable ?? true;
+    this.#retainSecret = retainSecret ?? (() => {});
     this.#knownUrls = [];
     // 再起動直後も送信とマスクができるように、起動時に 1 回だけ復号する (DB が使えないときは health が理由を持つ)
     try {
@@ -238,6 +255,8 @@ export class NotificationService {
     }
     try {
       const webhookUrl = this.#cipher.decrypt("notification_settings", WEBHOOK_SECRET_OWNER, secret);
+      // 他機能の応答・ログへ広がらないよう、共通マスカーへも登録してから使う
+      this.#retainSecret(webhookUrl);
       this.#webhookUrl = webhookUrl;
       this.#webhookState = appSecretAvailable();
       this.#remember(webhookUrl);
@@ -265,33 +284,33 @@ export class NotificationService {
     };
   }
 
-  /** 設定の保存。宛先とベース URL を検証し、URL は暗号化してから書き、保存時に送信テストはしない */
+  /**
+   * 設定の保存。宛先とベース URL を検証し、URL は暗号化してから書く。保存時に送信テストはしない。
+   * 実効 URL の更新は DB 確定後だけ行う (検証や DB で失敗した要求が送信先を変えないようにする)。
+   */
   save(input: UpdateNotificationsBody): NotificationsResponse {
     const current = this.#read();
     const next: NotificationSettingsRow = { ...current };
+    let pendingUrl: { url: string | null } | undefined;
     if (input.enabled !== undefined) next.enabled = input.enabled;
     // 旧クライアントの PUT (askUser 省略) は保存値を維持し、既定の補完は読み取り側だけで行う
     if (input.askUser !== undefined) next.askUser = input.askUser;
     if (input.webhookUrl !== undefined) {
-      const webhookUrl = input.webhookUrl === null ? undefined : normalizeWebhookUrl(input.webhookUrl);
       // 復号できない保存値は「別の URL がある」として扱い、直近結果を捨てる
-      const changed = webhookUrl === undefined ? current.webhook !== null : webhookUrl !== this.#webhookUrl;
-      // URL を変えたら直近結果を捨てる。進行中の送信結果も世代で採用しない
-      if (changed) {
-        this.#generation += 1;
-        if (this.#webhookUrl) this.#remember(this.#webhookUrl);
-        if (webhookUrl) this.#remember(webhookUrl);
-        next.lastResult = null;
-      }
-      if (webhookUrl) {
-        const encrypted = this.#requireCipher().encrypt("notification_settings", WEBHOOK_SECRET_OWNER, webhookUrl);
-        next.webhook = encrypted;
-        this.#webhookUrl = webhookUrl;
-        this.#webhookState = appSecretAvailable();
-      } else {
+      if (input.webhookUrl === null) {
         next.webhook = null;
-        this.#webhookUrl = null;
-        this.#webhookState = appSecretNotStored();
+        next.lastResult = current.webhook !== null ? null : next.lastResult;
+        pendingUrl = { url: null };
+      } else {
+        const webhookUrl = normalizeWebhookUrl(input.webhookUrl);
+        // runtime が無い起動では復号した値を使う経路が無いため、新しい URL を保持しない
+        if (!this.#runtimeAvailable) throw httpError(503, WEBHOOK_RUNTIME_UNAVAILABLE_MESSAGE);
+        const encrypted = this.#requireCipher().encrypt("notification_settings", WEBHOOK_SECRET_OWNER, webhookUrl);
+        // 他の応答・ログへ広がらないよう、DB へ書く前に共通マスカーへ登録する
+        this.#retainSecret(webhookUrl);
+        next.webhook = encrypted;
+        next.lastResult = webhookUrl !== this.#webhookUrl ? null : next.lastResult;
+        pendingUrl = { url: webhookUrl };
       }
     }
     if (input.baseUrl !== undefined) {
@@ -299,7 +318,20 @@ export class NotificationService {
       next.baseUrl = baseUrl ?? null;
     }
     this.#db.saveNotificationSettings(next);
+    if (pendingUrl) this.#commitWebhook(pendingUrl.url);
     return this.settings();
+  }
+
+  /** DB 確定後に実効 URL と評価状態を差し替える。変わったときだけ世代を進めて直近結果を捨てる */
+  #commitWebhook(webhookUrl: string | null): void {
+    const changed = webhookUrl !== this.#webhookUrl;
+    if (changed) {
+      this.#generation += 1;
+      if (this.#webhookUrl) this.#remember(this.#webhookUrl);
+      if (webhookUrl) this.#remember(webhookUrl);
+    }
+    this.#webhookUrl = webhookUrl;
+    this.#webhookState = webhookUrl ? appSecretAvailable() : appSecretNotStored();
   }
 
   /** 保存済み設定で 1 通送る (通知の有効 / 無効に関係なく実行できる) */

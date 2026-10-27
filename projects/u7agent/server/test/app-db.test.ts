@@ -1138,12 +1138,15 @@ test("a hand-edited empty memo row reads as unset", () => {
 
 test("ciphertext reflected into a sqlite error never reaches the log, health or 503", () => {
   const dir = tempStoreDir();
-  const secret = storedSecret(0xab);
-  const ciphertextHex = Buffer.from(secret.ciphertext).toString("hex");
+  // SQLite の hex() は大文字。トリガーが実際に反射する「更新後の暗号文」を同じ表現で検査する
+  const reflectedHex = (fill: number): string =>
+    Buffer.from(storedSecret(fill).ciphertext).toString("hex").toUpperCase();
+  const firstHex = reflectedHex(0xcd);
+  const secondHex = reflectedHex(0xef);
   try {
     // マスカーは暗号文の hex を守れない。値なし境界 (#secretQuery) だけで外へ出さないことを確かめる
     const db = AppDb.open({ storeDir: dir });
-    db.saveProviderCredential("anthropic", secret, 1);
+    db.saveProviderCredential("anthropic", storedSecret(0xab), 1);
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
     raw.exec(
       `CREATE TRIGGER leak BEFORE UPDATE ON provider_credentials
@@ -1161,14 +1164,11 @@ test("ciphertext reflected into a sqlite error never reaches the log, health or 
     }
     const status = db.status();
     assert.equal(status.ok, false);
-    assert.ok(
-      status.error && !status.error.includes(ciphertextHex),
-      `status.error を暗号文で汚さない: ${status.error}`,
-    );
-    assert.ok(!logged.join("\n").includes(ciphertextHex), "ログにも生の暗号文を出さない");
+    assert.ok(status.error && !status.error.includes(firstHex), `status.error を暗号文で汚さない: ${status.error}`);
+    assert.ok(!logged.join("\n").includes(firstHex), "ログにも生の暗号文を出さない");
     assert.throws(
       () => db.saveProviderCredential("anthropic", storedSecret(0xef), 3),
-      (error: unknown) => !String((error as Error).message).includes(ciphertextHex),
+      (error: unknown) => !String((error as Error).message).includes(secondHex),
       "503 の本文にも暗号文を出さない",
     );
     db.close();

@@ -21,6 +21,7 @@ import { createSecretMasker } from "../src/redact";
 import { SECRET_KEY_BYTES, SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import type { NotificationResult } from "../src/schema";
 import { testAppCipher } from "./app-secret-fixture";
+import { asPiBff, createStubPi } from "./stub-pi";
 import { APP_SECRET_DECRYPT_FAILED_MESSAGE, APP_SECRET_MASTER_KEY_MESSAGE } from "../src/app-secrets";
 
 const WEBHOOK = "https://discord.com/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz";
@@ -83,17 +84,25 @@ function fakeFetch(handler: (url: string, init: RequestInit | undefined) => Resp
 }
 
 function createService(
-  options: { fetchImpl?: typeof fetch; timeoutMs?: number; masker?: ReturnType<typeof createSecretMasker> } = {},
+  options: {
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    masker?: ReturnType<typeof createSecretMasker>;
+    runtimeAvailable?: boolean;
+  } = {},
 ) {
   const db = AppDb.open({ storeDir: null });
+  const retained: string[] = [];
   const service = new NotificationService({
     db,
     masker: options.masker,
     fetchImpl: options.fetchImpl,
     timeoutMs: options.timeoutMs,
     cipher: testAppCipher(),
+    runtimeAvailable: options.runtimeAvailable ?? true,
+    retainSecret: (value) => retained.push(value),
   });
-  return { db, service };
+  return { db, service, retained };
 }
 
 const payloadOf = (call: FetchCall | undefined): any => JSON.parse(String(call?.init?.body));
@@ -560,7 +569,13 @@ test("the notifications API keeps the webhook URL write-only", async () => {
   await withMasterKey(() =>
     withStoreDir(async (dir) => {
       const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
-      const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, notificationFetch: impl });
+      // URL の保存・置換は runtime を要求するため、stub の runtime で起動する
+      const bff = await createBffApp({
+        cwd: "/tmp/project",
+        sessionStoreDir: dir,
+        pi: asPiBff(createStubPi()),
+        notificationFetch: impl,
+      });
       try {
         assert.deepEqual(await jsonBody(bff.app.request("/api/notifications")), {
           enabled: false,
@@ -627,7 +642,11 @@ test("the notifications API keeps the webhook URL write-only", async () => {
 test("DB と API をまたいで askUser を保存し、省略した PUT では現在値を維持する", async () => {
   await withMasterKey(() =>
     withStoreDir(async (dir) => {
-      const first = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null });
+      const first = await createBffApp({
+        cwd: "/tmp/project",
+        sessionStoreDir: dir,
+        pi: asPiBff(createStubPi()),
+      });
       try {
         // 既定は ON
         assert.equal((await jsonBody(first.app.request("/api/notifications"))).askUser, true);
@@ -646,7 +665,11 @@ test("DB と API をまたいで askUser を保存し、省略した PUT では�
       }
 
       // 再起動後も false のまま
-      const second = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null });
+      const second = await createBffApp({
+        cwd: "/tmp/project",
+        sessionStoreDir: dir,
+        pi: asPiBff(createStubPi()),
+      });
       try {
         assert.equal((await jsonBody(second.app.request("/api/notifications"))).askUser, false);
       } finally {
@@ -665,7 +688,7 @@ test("notification settings and the last result survive a restart", async () => 
       const first = await createBffApp({
         cwd: "/tmp/project",
         sessionStoreDir: dir,
-        pi: null,
+        pi: asPiBff(createStubPi()),
         notificationFetch: impl,
       });
       const tested = await (async () => {
@@ -675,15 +698,19 @@ test("notification settings and the last result survive a restart", async () => 
         return result as NotificationResult;
       })();
 
-      const second = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null });
+      const second = await createBffApp({
+        cwd: "/tmp/project",
+        sessionStoreDir: dir,
+        pi: asPiBff(createStubPi()),
+      });
       try {
         const restored = await jsonBody(second.app.request("/api/notifications"));
         assert.equal(restored.enabled, true);
         assert.equal(restored.configured, true);
-        // pi 無しの起動では復号しない。保存済みでも「未評価」として返し、失敗と断定しない
-        assert.equal(restored.webhookEvaluated, false);
-        assert.equal(restored.webhookAvailable, false);
-        assert.equal(restored.webhookErrorMessage.length > 0, true);
+        // 起動時に復号できた URL は利用可として返す
+        assert.equal(restored.webhookEvaluated, true);
+        assert.equal(restored.webhookAvailable, true);
+        assert.equal(restored.webhookErrorMessage, null);
         assert.equal("mention" in restored, false);
         assert.equal("webhookHint" in restored, false, "末尾 4 文字は返さない");
         assert.deepEqual(restored.lastResult, tested);
@@ -754,4 +781,67 @@ test("master key が無い起動では Webhook URL を保存・利用できず�
   assert.equal(cleared.configured, false);
   assert.equal(cleared.webhookAvailable, false);
   db.close();
+});
+
+test("拒否された PUT は保存済みの送信先を変えない", async () => {
+  const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+  const { db, service } = createService({ fetchImpl: impl });
+  try {
+    service.save({ webhookUrl: WEBHOOK });
+
+    // baseUrl が不正な要求は 400。DB は A のままなので、テスト送信も A へ送る
+    assert.throws(
+      () => service.save({ webhookUrl: OTHER_WEBHOOK, baseUrl: "https://example.com/invalid-path" }),
+      (error: unknown) => statusOf(error) === 400,
+    );
+    const stored = db.getNotificationSettings()?.webhook;
+    assert.ok(stored);
+    assert.equal(testAppCipher().decrypt("notification_settings", "webhookUrl", stored), WEBHOOK);
+
+    await service.test();
+    assert.equal(calls.at(-1)?.url, WEBHOOK, "保存していない宛先へ送らない");
+  } finally {
+    db.close();
+  }
+});
+
+test("runtime が無い起動では Webhook URL を保存・置換できず、送信もしない", async () => {
+  const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+  const { db, service, retained } = createService({ fetchImpl: impl, runtimeAvailable: false });
+  try {
+    assert.throws(
+      () => service.save({ webhookUrl: WEBHOOK }),
+      (error: unknown) => statusOf(error) === 503,
+      "復号した値を使う経路が無い構成では新しい URL を保持しない",
+    );
+    assert.equal(db.getNotificationSettings(), undefined, "DB にも書かない");
+    assert.deepEqual(retained, [], "マスカーにも登録しない");
+    await assert.rejects(
+      () => service.test(),
+      (error: unknown) => statusOf(error) === 400,
+    );
+    assert.equal(calls.length, 0);
+  } finally {
+    db.close();
+  }
+});
+
+test("復号・暗号化した Webhook URL は共通のマスカーへ登録する", async () => {
+  const { db, service, retained } = createService();
+  try {
+    service.save({ webhookUrl: WEBHOOK });
+    assert.ok(retained.includes(WEBHOOK), "保存した URL を登録する");
+
+    // 再起動相当: 別インスタンスの起動時復号でも登録する
+    const restarted: string[] = [];
+    new NotificationService({
+      db,
+      cipher: testAppCipher(),
+      retainSecret: (value) => restarted.push(value),
+      fetchImpl: async () => new Response(null, { status: 204 }),
+    });
+    assert.deepEqual(restarted, [WEBHOOK], "起動時に復号した URL を登録する");
+  } finally {
+    db.close();
+  }
 });

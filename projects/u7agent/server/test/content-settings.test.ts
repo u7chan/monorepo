@@ -8,6 +8,7 @@ import {
   CONTENT_KEY_NOT_STORED_MESSAGE,
   CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE,
   CONTENT_PROVIDER_UNSUPPORTED_MESSAGE,
+  CONTENT_SPEECH_KEY_CONFLICT_MESSAGE,
   CONTENT_SETTINGS_NOT_STORED_MESSAGE,
   CONTENT_SETTINGS_RUNTIME_UNAVAILABLE_MESSAGE,
   CONTENT_SETTINGS_UNCONFIGURED_MESSAGE,
@@ -699,5 +700,53 @@ test("runtime が無い起動では暗号文を復号せず、未評価として
   assert.equal(settings.keyStored, true);
   assert.equal(settings.keyAvailable, false);
   assert.equal(settings.keyEvaluated, false, "誤鍵・破損と断定しない");
+  assert.equal(settings.keyErrorMessage, APP_SECRET_UNEVALUATED_MESSAGE);
+});
+
+test("保存済みの音声値が新しいキーを含むなら、キーの置換を拒否して平文を残さない", async () => {
+  const { service, db } = createService();
+  await service.putKey(KEY);
+  // 宣言が無いモデルなので自由記述を許す。次のキーと同じ値をボイスとして残す
+  const nextKey = "sk-image-rotated-key-0123456789";
+  assert.equal((await service.putSpeechSelection({ model: "fish/audio", voice: nextKey })).status, 200);
+
+  const before = db.row;
+  const rejected = await service.putKey(nextKey);
+  assert.equal(rejected.status, 400, "音声値に含まれるキーへは置換できない");
+  if (rejected.status === 400) {
+    assert.equal(rejected.error, CONTENT_SPEECH_KEY_CONFLICT_MESSAGE);
+    assert.ok(!rejected.error.includes(nextKey), "文言にキーを出さない");
+  }
+  assert.equal(db.row, before, "拒否した要求で保存値を書き換えない");
+  assert.equal(storedKey(db.row), KEY, "保存済みのキーは元のまま");
+});
+
+test("起動時の DB 読取に失敗したら未評価のまま残し、復旧後の GET で案内を出す", async () => {
+  const { service, db } = createService();
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    enabled: true,
+    ...secretOf(KEY),
+  };
+  db.failRead = true;
+  const logged: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+  try {
+    await service.applyStored();
+  } finally {
+    console.error = original;
+  }
+  assert.ok(logged.join("\n").includes("content settings unavailable"));
+
+  // DB が復旧しても、GET で復号はせず「まだ確認できていない」のまま返す
+  db.failRead = false;
+  const settings = service.settings();
+  assert.equal(settings.keyStored, true);
+  assert.equal(settings.keyAvailable, false);
+  assert.equal(settings.keyEvaluated, false);
   assert.equal(settings.keyErrorMessage, APP_SECRET_UNEVALUATED_MESSAGE);
 });

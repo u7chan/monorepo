@@ -131,6 +131,8 @@ test("保存済みでも復号できない Webhook は、末尾の断片では�
   assert.ok(html.includes("登録済み（利用できません）"), "登録済みかどうかだけを出す");
   assert.ok(html.includes("保存済みの Webhook URL を復号できません"), "サーバーの固定文言をそのまま出す");
   assert.doesNotMatch(html, /末尾 [A-Za-z0-9]{4}/, "URL の断片は出さない");
+  // 保存済みを「未登録」と誤読させない (未設定の注記は未保存のときだけ)
+  assert.equal(html.includes("Webhook URL が未設定です"), false);
   // テスト送信は押せない (保存後に送れる状態ではない)
   assert.match(actionTag(html, "テスト送信"), /disabled="/);
 });

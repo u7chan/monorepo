@@ -55,6 +55,12 @@ export const CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE = "カタログに無�
 export const CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE = "この音声モデルが対応していない声は指定できません";
 /** 音声の値に APIキーを混ぜた保存要求。値を伏せたまま拒否し、黙って消して保存しない */
 export const CONTENT_SPEECH_KEY_INCLUDED_MESSAGE = "APIキーと同じ値を音声の設定には指定できません";
+/**
+ * 保存済みの音声設定が新しいキーを含むため、キーを置き換えられない。黙って音声値を消さず、
+ * 先に音声の設定を変えてもらう (キーが分かる操作では必ず照合する)。
+ */
+export const CONTENT_SPEECH_KEY_CONFLICT_MESSAGE =
+  "保存済みの音声の設定に新しいAPIキーと同じ値が含まれるため、キーを保存できません。先に音声の設定を変更してください";
 /** 保存済みのキーを復号できないため、キーとの照合が要る操作を進められない */
 export const CONTENT_KEY_UNAVAILABLE_MESSAGE =
   "保存済みのAPIキーを復号できないため、音声の設定を変更できません。APIキーを再入力してください";
@@ -100,6 +106,7 @@ export interface ContentSettingsOptions {
 
 export type ContentMutationOutcome =
   | { status: 200; response: ContentMutationResponse }
+  | { status: 400; error: string }
   | { status: 503; error: string };
 
 /**
@@ -173,6 +180,12 @@ export class ContentSettingsService {
   #reflectedValue(value: string, apiKey: string | null): string {
     const masked = this.#maskError(value);
     return apiKey && masked.includes(apiKey) ? masked.split(apiKey).join(REDACTED) : masked;
+  }
+
+  /** 保存済みの音声の値がキーを含むか (キーが分かる操作では常に照合する) */
+  #speechValuesInclude(row: ContentSettingsRow | undefined, apiKey: string): boolean {
+    if (!row || apiKey === "") return false;
+    return (row.speechModel?.includes(apiKey) ?? false) || (row.speechVoice?.includes(apiKey) ?? false);
   }
 
   /** 行に暗号文があるか。復号できるかは #keyState が表す */
@@ -306,6 +319,10 @@ export class ContentSettingsService {
         // 行の有無を確定できないまま既定へ寄せない（provider / model を黙って巻き戻さない）
         console.warn(`[u7agent] content settings read failed: ${this.#maskError(messageFor(error))}`);
         return { status: 503, error: CONTENT_KEY_NOT_STORED_MESSAGE };
+      }
+      // 引き継ぐ音声値が新しいキーを含むなら、平文のまま残さず保存を拒否する
+      if (this.#speechValuesInclude(existing, apiKey)) {
+        return { status: 400, error: CONTENT_SPEECH_KEY_CONFLICT_MESSAGE };
       }
       // マスカーへの登録は DB より前。ここが失敗しても保護対象だけは残す
       this.#retainSecret(apiKey);
@@ -561,14 +578,21 @@ export class ContentSettingsService {
       this.#catalog.loadStored();
       this.#speechCatalog.loadStored();
       let row: ContentSettingsRow | undefined;
+      let readFailed = false;
       try {
         row = this.#db.readContentSettings();
       } catch (error) {
         console.error(`[u7agent] content settings unavailable: ${this.#maskError(messageFor(error))}`);
-        row = undefined;
+        readFailed = true;
       }
-      // 起動時に 1 回だけ復号し、SDK / ツールへ渡す前に保護対象へ入れる
-      this.#evaluateKey(row);
+      // 読取に失敗しただけなら「未保存」と断定せず未評価のまま残す (復旧後の GET で案内を失わない)
+      if (readFailed) {
+        this.#apiKey = null;
+        this.#keyState = appSecretUnevaluated();
+      } else {
+        // 起動時に 1 回だけ復号し、SDK / ツールへ渡す前に保護対象へ入れる
+        this.#evaluateKey(row);
+      }
       // キーの有無で一覧の表示は変わらないが、未設定では一覧を出す画面が無いので取得しない
       if (row) {
         await this.#catalog.refresh();

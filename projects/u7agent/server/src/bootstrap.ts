@@ -375,6 +375,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     fetchImpl: opts.notificationFetch,
     cipher: secretCrypto.appCipher,
     runtimeAvailable: pi !== null,
+    retainSecret: pi ? pi.retainSecret : () => {},
   });
   // アーカイブの除外名は設定ストアが唯一の決定点で、サンドボックスへはリクエストごとに渡す
   const archiveSettings = createArchiveSettings({ db: appDb });

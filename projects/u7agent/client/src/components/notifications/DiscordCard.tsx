@@ -94,7 +94,8 @@ export function DiscordCard({
           エージェント名・応答本文の先頭 200 文字が Discord へ送られます。機微な会話では会話の通知を Off
           にしてください。
         </p>
-        {enabled && !sendable ? (
+        {enabled && !sendable && !configured ? (
+          // 未保存のときだけ「未設定」と言う。保存済みで使えない理由はサーバーの固定文言で示す
           <p className="text-2xs leading-relaxed text-warn">
             Webhook URL が未設定です。このままでは通知は送られません。
           </p>
