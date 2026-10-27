@@ -42,6 +42,27 @@ test("確認は見出し・対象の行・等幅の行・補足・ボタンを�
   assert.match(html, />停止して起動</);
 });
 
+test("対象の一覧: 名前と状態を並べ、省略した件数を最後に出す", () => {
+  const request: ConfirmRequest = {
+    ...confirmRequest,
+    targets: {
+      items: [
+        { label: "portfolio-2026", note: "公開済み" },
+        { label: "docs-preview", note: "結果不明" },
+      ],
+      more: 3,
+    },
+  };
+  const html = renderToStaticMarkup(createElement(ConfirmDialog, { request, onConfirm: () => {}, onCancel: () => {} }));
+
+  assert.match(html, /<ul[^>]*divide-y/);
+  assert.ok(html.includes("portfolio-2026"));
+  assert.ok(html.includes("公開済み"));
+  assert.ok(html.includes("docs-preview"));
+  assert.ok(html.includes("結果不明"));
+  assert.match(html, /ほか 3 件/);
+});
+
 test("prompt は入力欄に現在値を入れ、ラベルと確定ボタンを持つ", () => {
   const request: PromptRequest = {
     kind: "prompt",

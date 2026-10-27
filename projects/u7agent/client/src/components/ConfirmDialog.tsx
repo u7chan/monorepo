@@ -98,6 +98,24 @@ export function ConfirmDialog({ request, onConfirm, onCancel }: ConfirmDialogPro
             </div>
           ) : null}
 
+          {request.kind === "confirm" && request.targets && request.targets.items.length > 0 ? (
+            <ul className="grid divide-y divide-line overflow-hidden rounded-lg border border-line bg-soft">
+              {request.targets.items.map((target, index) => (
+                <li key={`${target.label}-${index}`} className="flex min-w-0 items-baseline gap-2 px-2.5 py-1.5">
+                  <span className="min-w-0 flex-1 truncate text-ink-soft" title={target.label}>
+                    {target.label}
+                  </span>
+                  {target.note === undefined ? null : (
+                    <span className="shrink-0 text-2xs text-ink-muted">{target.note}</span>
+                  )}
+                </li>
+              ))}
+              {request.targets.more === undefined || request.targets.more === 0 ? null : (
+                <li className="px-2.5 py-1.5 text-2xs text-ink-muted">ほか {request.targets.more} 件</li>
+              )}
+            </ul>
+          ) : null}
+
           {request.kind === "prompt" ? (
             <div className="grid gap-1">
               <label htmlFor={inputId} className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">

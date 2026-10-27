@@ -300,6 +300,27 @@ export function sharedContentUndeployedFilterCounts(
   return counts;
 }
 
+/**
+ * 一括停止の対象か。外部に実体のある公開済みと、停止だけを受け付ける結果不明だけを対象にする。
+ * 公開処理中（結果待ち）は 202 をキャンセルできず、完了後に公開され得るので含めない。
+ */
+export function isSharedContentStoppable(
+  item: Pick<SharedContentResponse, "status" | "publishedAt" | "lastError">,
+): boolean {
+  if (item.status === "published") return item.publishedAt !== null;
+  return item.status === "publishing" && item.lastError !== null;
+}
+
+/** 一括停止の対象（フィルタの外側の全件から数える。表示中の部分集合とは一致しない） */
+export function stoppableSharedContents(items: readonly SharedContentResponse[]): SharedContentResponse[] {
+  return items.filter(isSharedContentStoppable);
+}
+
+/** 結果待ちで停止できない件数。確認と結果で「対象外」として示す */
+export function sharedContentInFlightCount(items: readonly SharedContentResponse[]): number {
+  return items.filter((item) => item.status === "publishing" && item.lastError === null).length;
+}
+
 /** 一覧の並びの重み。生きている共有物を先に置き、寝ている停止中を最後にする */
 const SHARED_CONTENT_STATUS_ORDER: Record<SharedContentStatusValue, number> = {
   published: 0,
@@ -467,7 +488,8 @@ export function sharedContentBusyLabel(kind: SharedContentBusyKind): string {
     case "update":
       return "更新中";
     case "stop":
-      return "停止中";
+      // 停止済みの「停止中」と混ざらないよう、操作中は処理中と書く
+      return "停止処理中";
     case "resume":
       return "再公開中";
     case "retry":
@@ -545,4 +567,64 @@ export function sharedContentDeleteConfirm(item: SharedContentResponse): Confirm
     confirmLabel: "削除する",
     danger: true,
   };
+}
+
+/** 確認に並べる対象名の上限。超えた分は「ほか n 件」に畳む */
+export const SHARED_CONTENT_STOP_ALL_TARGET_LIMIT = 5;
+
+/**
+ * 一括停止の確認。件数だけでは対象を確かめられないので、上から数件の名前と状態を並べる。
+ * 公開処理中は止められないことを、対象外の件数とあわせて押す前に示す。
+ */
+export function sharedContentStopAllConfirm(items: readonly SharedContentResponse[]): ConfirmRequest {
+  const targets = stoppableSharedContents(items);
+  const inFlight = sharedContentInFlightCount(items);
+  const shown = targets.slice(0, SHARED_CONTENT_STOP_ALL_TARGET_LIMIT);
+  return {
+    kind: "confirm",
+    title: "稼働中の共有物をすべて停止",
+    subject: { label: "対象", value: `稼働中の共有物 ${targets.length} 件` },
+    body: ["Cloudflare（workers.dev）を無効にして、公開 URL を開けない状態にします。"],
+    targets: {
+      items: shown.map((item) => ({ label: item.name, note: shareStatusView(item).label })),
+      ...(targets.length > shown.length ? { more: targets.length - shown.length } : {}),
+    },
+    notes: [
+      "URL と一覧の記録は残ります。再公開すると同じ URL を有効に戻せます。",
+      ...(inFlight > 0 ? [`公開処理中の ${inFlight} 件は対象外です。完了すると公開されます。`] : []),
+    ],
+    confirmLabel: "すべて停止する",
+    danger: true,
+  };
+}
+
+/** 一括停止の集計。`done` は試行数なので、成功数は `stopped` で別に持つ */
+export type SharedContentStopAllResult = {
+  total: number;
+  stopped: number;
+  failures: readonly { name: string }[];
+  /** 確認時点で結果待ちだった件数（停止の対象外） */
+  excludedPublishing: number;
+};
+
+/**
+ * 一括停止の結果。一覧は最後に取り直すので、ここでは再読み込みを促さない。
+ * 1 件でも失敗したらエラーのトーンにし、失敗した全件の名前を出す（理由はカード側の error が持つ）。
+ */
+export function sharedContentStopAllNote(result: SharedContentStopAllResult): { text: string; error: boolean } | null {
+  if (result.total === 0 || (result.stopped === 0 && result.failures.length === 0)) return null;
+  // ノートは 1 行のログなので理由はカードへ配り、ここでは全件の名前を落とさずに出す
+  const failureNames = result.failures.map((failure) => failure.name).join("、");
+  const failureSuffix = result.failures.length === 0 ? "" : `理由は各カードに表示しています。`;
+  const stoppedPart =
+    result.failures.length === 0
+      ? `稼働中 ${result.stopped} 件をすべて停止しました。`
+      : result.stopped === 0
+        ? `${result.total} 件を停止できませんでした（${failureNames}）。${failureSuffix}`
+        : `${result.total} 件中 ${result.stopped} 件を停止しました。${result.failures.length} 件は停止できませんでした（${failureNames}）。${failureSuffix}`;
+  const excludedPart =
+    result.excludedPublishing > 0
+      ? `公開処理中の ${result.excludedPublishing} 件は対象外です。完了すると公開されます。`
+      : "";
+  return { text: `${stoppedPart}${excludedPart}`, error: result.failures.length > 0 };
 }

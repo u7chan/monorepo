@@ -36,7 +36,23 @@ export interface SharedContentsManagerState {
   busy: { id: string; kind: SharedContentBusyKind }[];
   /** 直前に失敗した 1 件の操作。成功するか次の操作を始めるまで残す */
   error: { id: string; message: string } | null;
+  /** 一括停止の進行と結果。null は未実行。`running` が false でも次の一括停止か個別操作まで残す */
+  bulkStop: SharedContentStopAllState | null;
 }
+
+/** `message` が null の失敗は、停止 API が 200 で `failed` を返したもの。理由は再読み込み後の lastError が持つ */
+export type SharedContentStopAllFailure = { id: string; name: string; message: string | null };
+
+export type SharedContentStopAllState = {
+  /** 確認時点の対象件数 */
+  total: number;
+  /** 試行済みの件数（成功 + 失敗） */
+  done: number;
+  failures: SharedContentStopAllFailure[];
+  /** 確認時点で結果待ちだった件数（停止の対象外） */
+  excluded: number;
+  running: boolean;
+};
 
 const INITIAL: SharedContentsManagerState = {
   items: [],
@@ -46,6 +62,7 @@ const INITIAL: SharedContentsManagerState = {
   reloading: false,
   busy: [],
   error: null,
+  bulkStop: null,
 };
 
 function messageFor(error: unknown): string {
@@ -66,6 +83,8 @@ export function useSharedContentsManager() {
   const pollInFlight = useRef(false);
   /** 同じ id の二重操作を同期的に止める（state の反映は 1 render 遅れる） */
   const busyIds = useRef(new Set<string>());
+  /** 一括停止の二重開始を同期的に止める */
+  const bulkStopRunning = useRef(false);
 
   const loadList = useCallback(async (): Promise<void> => {
     const seq = (requestSeq.current += 1);
@@ -109,9 +128,11 @@ export function useSharedContentsManager() {
    */
   const runAction = useCallback(
     async (id: string, kind: SharedContentBusyKind, run: () => Promise<unknown>, after?: () => void): Promise<void> => {
-      if (busyIds.current.has(id)) return;
+      // 一括停止中は個別操作を始めない（一覧のロックと二重の防御。bulkStop を消さない）
+      if (bulkStopRunning.current || busyIds.current.has(id)) return;
       busyIds.current.add(id);
-      setState((prev) => ({ ...prev, busy: [...prev.busy, { id, kind }], error: null }));
+      // 新しい個別操作で前の一括停止の結果と各カードのエラーを消す
+      setState((prev) => ({ ...prev, busy: [...prev.busy, { id, kind }], error: null, bulkStop: null }));
       try {
         await run();
         // 操作より前に発行した一覧取得は操作前の状態を返す。成功応答のあとに適用させない
@@ -155,7 +176,85 @@ export function useSharedContentsManager() {
     [runAction],
   );
 
-  const publishing = sharedContentsPolling(state.items, acceptedPublishing);
+  /**
+   * 一括停止。対象は確認した時点の id / 名前で固定し、1 件ずつ順に止める。
+   * 1 件の失敗で残りを止めない（部分失敗を許し、最後に一覧を取り直して実態へ合わせる）。
+   * 途中の一覧取得は操作前の状態を返し得るため、各操作の成功で通し番号を進めて捨てる。
+   */
+  const stopAll = useCallback(
+    async (targets: readonly Pick<SharedContentResponse, "id" | "name">[], excluded: number): Promise<void> => {
+      if (bulkStopRunning.current || targets.length === 0) return;
+      // 個別操作が同じ id を持っている間に始めると、busy の解放が二重になってしまう（UI は先に無効化する）
+      if (targets.some((target) => busyIds.current.has(target.id))) return;
+      bulkStopRunning.current = true;
+      const failures: SharedContentStopAllFailure[] = [];
+      setState((prev) => ({
+        ...prev,
+        error: null,
+        bulkStop: { total: targets.length, done: 0, failures: [], excluded, running: true },
+      }));
+      try {
+        for (const target of targets) {
+          busyIds.current.add(target.id);
+          setState((prev) => ({ ...prev, busy: [...prev.busy, { id: target.id, kind: "stop" }] }));
+          try {
+            const result = await stopSharedContent(target.id);
+            appliedSeq.current = ++requestSeq.current;
+            setAcceptedPublishing((prev) => settleAcceptedAfterMutation(prev, target.id, "stop"));
+            // 200 でも failed は停止できていない（script の不在など）。一覧の取り直しで理由を読む
+            if (result.status === "failed") {
+              failures.push({ id: target.id, name: target.name, message: null });
+            }
+            const now = Date.now();
+            // 停止の応答は status だけなので、最後の一覧取得までは楽観的に状態を進める
+            setState((prev) => ({
+              ...prev,
+              items: prev.items.map((item) =>
+                item.id === target.id
+                  ? {
+                      ...item,
+                      status: result.status,
+                      lastError: result.status === "stopped" ? null : item.lastError,
+                      stoppedAt: result.status === "stopped" ? now : item.stoppedAt,
+                      updatedAt: now,
+                    }
+                  : item,
+              ),
+            }));
+          } catch (error) {
+            failures.push({ id: target.id, name: target.name, message: messageFor(error) });
+          } finally {
+            busyIds.current.delete(target.id);
+            setState((prev) => ({
+              ...prev,
+              busy: prev.busy.filter((entry) => entry.id !== target.id),
+              bulkStop:
+                prev.bulkStop === null
+                  ? null
+                  : { ...prev.bulkStop, done: prev.bulkStop.done + 1, failures: [...failures] },
+            }));
+          }
+        }
+        for (const failure of failures) {
+          if (failure.message === null) continue;
+          const message = failure.message;
+          setState((prev) => ({ ...prev, error: { id: failure.id, message } }));
+          break;
+        }
+        await loadList();
+      } finally {
+        setState((prev) =>
+          prev.bulkStop === null
+            ? prev
+            : { ...prev, bulkStop: { ...prev.bulkStop, running: false, failures: [...failures] } },
+        );
+        bulkStopRunning.current = false;
+      }
+    },
+    [loadList],
+  );
+
+  const publishing = !state.bulkStop?.running && sharedContentsPolling(state.items, acceptedPublishing);
   useEffect(() => {
     if (!publishing) return;
     const timer = setInterval(() => {
@@ -177,6 +276,7 @@ export function useSharedContentsManager() {
     resume,
     rename,
     remove,
+    stopAll,
   };
 }
 

@@ -39,7 +39,8 @@ function render(
     narrow = false,
     sessionMissing = false,
     busy = null,
-  }: { narrow?: boolean; sessionMissing?: boolean; busy?: { kind: "rename" } | null } = {},
+    bulkActive = false,
+  }: { narrow?: boolean; sessionMissing?: boolean; busy?: { kind: "rename" } | null; bulkActive?: boolean } = {},
 ): string {
   return renderToStaticMarkup(
     createElement(SharedContentCard, {
@@ -48,6 +49,7 @@ function render(
       sessionMissing,
       session: undefined,
       busy,
+      bulkActive,
       error: undefined,
       copied: false,
       copyFailure: undefined,
@@ -152,6 +154,15 @@ test("操作中: ⋯ を出さず、二度目の操作を始められない", ()
   assert.equal(html.includes("のその他の操作"), false);
   assert.match(html, /変更中…完了まで操作できません。/);
   assert.deepEqual(rowLabels(html), []);
+});
+
+test("一括停止中: 個別の操作と ⋯ を止め、外部リンクは残す", () => {
+  const html = render(item(), { bulkActive: true });
+  assert.equal(html.includes("その他の操作"), false, "⋯ を出さない");
+  assert.ok(buttonTag(html, "更新").includes("disabled"), "更新を押せない");
+  const copy = buttonMarkup(html).find((markup) => markup.includes('aria-label="URL をコピー"')) ?? "";
+  assert.ok(copy.includes("disabled"), "URL コピーを押せない");
+  assert.ok(html.includes(`href="${URL_PUBLISHED}"`), "外部リンクの閲覧は残す");
 });
 
 test("コピー成功: アイコンのラベルをコピー済みへ変える", () => {

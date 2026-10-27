@@ -44,6 +44,8 @@ export type SharedContentCardProps = {
   onOpenSession?: (sessionId: string, spaceId?: string) => void;
   /** この共有物の操作中。操作を止めて、何をしているかを出す */
   busy: { kind: SharedContentBusyKind } | null;
+  /** 一括停止の実行中。一覧全体の操作と ⋯ を止める（閲覧と外部リンクは残す） */
+  bulkActive?: boolean;
   /** この共有物の直前の操作失敗（BFF の固定文言） */
   error: string | undefined;
   copied: boolean;
@@ -123,6 +125,7 @@ export function SharedContentCard({
   session,
   onOpenSession,
   busy,
+  bulkActive = false,
   error,
   copied,
   copyFailure,
@@ -311,7 +314,7 @@ export function SharedContentCard({
         </div>
         {/* ⋯ は幅を問わず右上へ固定する。名前の長さで位置が動かず、行の主操作の幅も変わらない。
             操作中は出さない（出すと、二重操作のガードが後からの要求を黙って捨てて画面が無反応に見える） */}
-        {busy !== null || menuActions.length === 0 ? null : (
+        {busy !== null || bulkActive || menuActions.length === 0 ? null : (
           <SharedContentMenu name={item.name} actions={menuActions} onSelect={(kind) => handlers[kind]()} />
         )}
       </div>
@@ -325,10 +328,11 @@ export function SharedContentCard({
             <button
               type="button"
               onClick={() => onCopy(item.publicUrl ?? "", item.id)}
+              disabled={busy !== null || bulkActive}
               aria-label={copied ? "URL をコピーしました" : "URL をコピー"}
               title={copied ? "URL をコピーしました" : "URL をコピー"}
               className={cn(
-                "grid shrink-0 place-items-center rounded-md transition-colors",
+                "grid shrink-0 place-items-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-45",
                 narrow ? "size-10" : "size-7",
                 copied ? "text-ok" : "text-ink-faint hover:bg-hover hover:text-accent-text",
               )}
@@ -414,7 +418,7 @@ export function SharedContentCard({
               <button
                 type="button"
                 onClick={() => runAction(primary)}
-                disabled={primary.disabled === true}
+                disabled={primary.disabled === true || bulkActive}
                 title={primary.reason}
                 className={cn("btn-quiet min-w-0 flex-1 singleColumn:min-h-11", actionToneClass(primary))}
               >
@@ -443,7 +447,7 @@ export function SharedContentCard({
                 key={action.kind}
                 type="button"
                 onClick={() => runAction(action)}
-                disabled={action.disabled === true}
+                disabled={action.disabled === true || bulkActive}
                 title={action.reason}
                 className={cn("btn-quiet singleColumn:min-h-11", actionToneClass(action))}
               >
