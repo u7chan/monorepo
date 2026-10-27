@@ -139,6 +139,8 @@ function fakeDb(initial: { custom?: CustomProviderRow[]; credentials?: Record<st
     failGetCustom: false,
     failSaveCustom: false,
     failDeleteCustom: false,
+    /** 保存は成功させるが、以後の一覧読みを失敗させる (DB 確定後に応答を組めない経路) */
+    armListFailureOnSaveCustom: false,
     error: new Error("sqlite failure"),
   };
   const db: ModelSettingsDb & { credentials: typeof credentials; memos: typeof memos; custom: typeof custom } = {
@@ -177,6 +179,7 @@ function fakeDb(initial: { custom?: CustomProviderRow[]; credentials?: Record<st
     saveCustomProvider: (row) => {
       if (state.failSaveCustom) throw state.error;
       custom.set(row.provider, row);
+      if (state.armListFailureOnSaveCustom) state.failListCustom = true;
     },
     deleteCustomProvider: (provider) => {
       if (state.failDeleteCustom) throw state.error;
@@ -807,6 +810,66 @@ test("起動時に保存済みの定義を検証できない行は register し�
   assert.equal(service.settings().customProviders[0].degradedMessage, CUSTOM_PROVIDER_INVALID_STORED_MESSAGE);
 });
 
+test("保存済みの 1 行が不正でも、正常な行の復元と一覧を止めない", async () => {
+  const runtime = fakeRuntime();
+  // contextWindow = 0 はサービス側の検証で弾く (DB の行読取は構造だけを見る)
+  const db = fakeDb({
+    custom: [customRowOf("local-llm", KEY, { contextWindow: 0 }), customRowOf("lab", NEW_KEY)],
+  });
+  const { service } = serviceWith({}, { runtimeService: runtime.service, db });
+  await service.applyStored();
+  assert.deepEqual(
+    runtime.calls.filter((call) => call.startsWith("register:")),
+    ["register:lab"],
+    "不正な行だけを飛ばして正常な行は登録する",
+  );
+  const settings = service.settings();
+  assert.deepEqual(
+    settings.customProviders.map((row) => row.id),
+    ["local-llm", "lab"],
+    "壊れた行も黙って捨てず一覧に残す",
+  );
+  assert.equal(settings.customProviders[0].degraded, "apply");
+  assert.equal(settings.customProviders[0].degradedMessage, CUSTOM_PROVIDER_INVALID_STORED_MESSAGE);
+  assert.equal(settings.customProviders[1].degraded, undefined);
+
+  // 壊れた行も削除できる (1 行の異常で設定 API 全体を止めない)
+  assert.equal((await service.deleteCustomProvider("local-llm")).status, 200);
+  assert.equal(db.custom.has("local-llm"), false);
+});
+
+test("DB 確定後に一覧を読めなくても、確定した行を応答から落とさない", async () => {
+  const { service, db } = serviceWith({ apply: () => failed });
+  db.state.armListFailureOnSaveCustom = true;
+  const created = await service.createCustomProvider(createInput());
+  assert.ok(created.status === 200);
+  assert.equal(created.response.state, "applied_unsynced");
+  assert.deepEqual(
+    created.response.customProviders.map((row) => row.id),
+    ["local-llm"],
+    "既知の行を返し、編集・削除・再同期の導線を消さない",
+  );
+  assert.equal(created.response.customProviders[0].degraded, "apply");
+  assert.equal(created.response.customProviders[0].hasKey, true);
+  assert.ok(db.custom.has("local-llm"), "行は保存されている");
+
+  // 更新も同じ (保存で一覧読取が壊れても、確定した新しい定義が応答に載る)
+  db.state.failListCustom = false;
+  db.state.armListFailureOnSaveCustom = true;
+  const updated = await service.updateCustomProvider("local-llm", {
+    baseUrl: "http://192.0.2.11:11434/v1",
+    model: { id: "llama3:8b", contextWindow: 8192 },
+  });
+  assert.ok(updated.status === 200);
+  assert.equal(updated.response.state, "applied_unsynced");
+  assert.equal(updated.response.customProviders[0].baseUrl, "http://192.0.2.11:11434/v1");
+  assert.deepEqual(updated.response.customProviders[0].model, {
+    id: "llama3:8b",
+    contextWindow: 8192,
+    maxTokens: 16384,
+  });
+});
+
 test("GET は復号しない (master key が無くても一覧を返す)", () => {
   const { service } = serviceWith(
     { apply: () => applied },
@@ -826,6 +889,7 @@ test("カスタム行と同じ id の provider_credentials は適用せず、cus
     custom: [customRowOf("local-llm", KEY)],
     credentials: { "local-llm": "sk-shadowed-dummy-key-01", anthropic: "sk-ant-dummy-key-a-0123456789" },
   });
+  db.memos.set("local-llm", "通常行のメモ");
   const { service } = serviceWith({}, { runtimeService: runtime.service, db });
   await service.applyStored();
   assert.deepEqual(
@@ -834,6 +898,22 @@ test("カスタム行と同じ id の provider_credentials は適用せず、cus
     "同じ id の通常キー行は適用しない (行は消さない)",
   );
   assert.equal(db.credentials.has("local-llm"), true);
+
+  // 同じ id の通常キー / メモは DTO へ混ぜない (custom 側の管理状態を二重にしない)
+  const settings = service.settings();
+  const entry = settings.providers.filter((row) => row.provider === "local-llm");
+  assert.equal(entry.length, 1);
+  assert.equal(entry[0].custom, true);
+  assert.equal(entry[0].managed, false, "provider_credentials の行を managed にしない");
+  assert.equal(entry[0].keyUpdatedAt, null);
+  assert.equal(entry[0].keyAvailable, false);
+  assert.equal(entry[0].keyErrorMessage, null, "通常キー行の未評価エラーを出さない");
+  assert.equal(entry[0].memo, null, "同じ id のメモを出さない");
+  assert.equal(entry[0].orphan, false);
+  assert.deepEqual(
+    settings.customProviders.map((row) => row.id),
+    ["local-llm"],
+  );
 });
 
 test("起動時はカスタム provider → モデルの選択 → provider_credentials → 再計算の順に適用する", async () => {

@@ -715,21 +715,23 @@ function providerMemoOf(row: Row): ProviderMemoRow | undefined {
 }
 
 /**
- * カスタムプロバイダーの行。欠けた列を「未登録」と読み違えて上書きしないよう、不完全な行は例外にする
- * (天端の #secretQuery が値の断片を古いしない固定文言へ置き換える)。
+ * カスタムプロバイダーの行。暗号文の欠けた行は「未登録」と読み違えて上書きしないよう例外にする
+ * (#secretQuery が値の断片を漏らさない固定文言へ置き換える)。
+ * 一方で定義の妥当性はここで判定しない: 1 行の不正値 (contextWindow = 0 など) で一覧全体を止めると、
+ * 正常な行の復元もその行の削除もできなくなる。行単位の検証はサービス側が degraded として扱う。
  */
 function customProviderOf(row: Row): CustomProviderRow {
   const secret = storedAppSecretOf(row, "custom_providers");
-  const provider = optionalText(row.provider);
-  const name = optionalText(row.name);
-  const baseUrl = optionalText(row.baseUrl);
-  const modelId = optionalText(row.modelId);
-  const contextWindow = optionalNumber(row.contextWindow);
-  const maxTokens = optionalNumber(row.maxTokens);
-  if (!secret || !provider || !name || !baseUrl || !modelId || !contextWindow || !maxTokens) {
-    throw new Error("custom_providers row is incomplete");
-  }
-  return { provider, name, baseUrl, modelId, contextWindow, maxTokens, ...secret };
+  if (!secret) throw new Error("custom_providers row is incomplete");
+  return {
+    provider: text(row.provider),
+    name: text(row.name),
+    baseUrl: text(row.baseUrl),
+    modelId: text(row.modelId),
+    contextWindow: optionalNumber(row.contextWindow) ?? 0,
+    maxTokens: optionalNumber(row.maxTokens) ?? 0,
+    ...secret,
+  };
 }
 
 /** 未知の状態は公開中 / 公開済みへ寄せず、行の破損として失敗させる */

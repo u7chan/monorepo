@@ -2958,3 +2958,34 @@ test("recreating the schema drops custom_providers along with the other app-owne
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a hand-edited invalid definition is read structurally so other rows and delete still work", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    db.saveCustomProvider(customRow("broken", 1));
+    db.saveCustomProvider(customRow("lab", 2));
+    db.close();
+
+    // contextWindow = 0 はサービス側の検証で弾く。DB の行読取は構造だけを見て例外にしない
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("UPDATE custom_providers SET contextWindow = 0 WHERE provider = ?").run("broken");
+    raw.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(
+      reopened.listCustomProviders().map((row) => row.provider),
+      ["broken", "lab"],
+      "不正な 1 行で一覧全体を止めない",
+    );
+    assert.equal(reopened.getCustomProvider("broken")?.contextWindow, 0);
+    assert.equal(reopened.deleteCustomProvider("broken"), true);
+    assert.deepEqual(
+      reopened.listCustomProviders().map((row) => row.provider),
+      ["lab"],
+    );
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

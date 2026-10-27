@@ -904,3 +904,108 @@ test("事前の DB 読取が 503 になるときも route が not_stored に揃�
     }
   });
 });
+
+test("同じ ID の通常キー / メモ行が DB にあっても providers[] へ混ぜない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      assert.equal(
+        (await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()))).status,
+        200,
+      );
+    } finally {
+      await bff.close();
+    }
+
+    // 同じ id の通常キー / メモ行を手で足す (既存 DB の異常状態)
+    const secret = encryptedSecret("provider_credentials", "local-llm", "sk-shadowed-dummy-key-01");
+    execSql(
+      dir,
+      `INSERT INTO provider_credentials (provider, ciphertext, nonce, keyVersion, updatedAt)
+       VALUES ('local-llm', x'${Buffer.from(secret.ciphertext).toString("hex")}', x'${Buffer.from(secret.nonce).toString("hex")}', ${secret.keyVersion}, 1);
+       INSERT INTO provider_memos (provider, memo) VALUES ('local-llm', '通常行のメモ');`,
+    );
+
+    const restartedPi = createStubPi(stubOptions());
+    const restarted = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(restartedPi),
+      workspace: null,
+    });
+    try {
+      const settings = await jsonBody(await restarted.app.request("/api/settings/models"));
+      const entries = settings.providers.filter((entry: any) => entry.provider === "local-llm");
+      assert.equal(entries.length, 1, "同じ id の行を二重に出さない");
+      assert.equal(entries[0].custom, true);
+      assert.equal(entries[0].managed, false, "provider_credentials の行を managed にしない");
+      assert.equal(entries[0].keyUpdatedAt, null);
+      assert.equal(entries[0].keyErrorMessage, null);
+      assert.equal(entries[0].memo, null, "同じ id のメモを出さない");
+      assert.equal(settings.customProviders[0].degraded, undefined, "custom 側は反映済み");
+      assert.equal(countRows(dir, "provider_credentials"), 1, "異常な行は自動削除しない");
+      assert.equal(countRows(dir, "provider_memos"), 1);
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+
+test("保存済みの 1 行が不正でも、他の行の復元・設定 GET・削除を止めない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      for (const id of ["broken", "lab"]) {
+        const response = await bff.app.request(
+          "/api/settings/custom-providers",
+          jsonRequest("POST", bodyOf({ id, model: { id: "m", contextWindow: 1024 } })),
+        );
+        assert.equal(response.status, 200);
+      }
+    } finally {
+      await bff.close();
+    }
+
+    // 1 行だけ手編集で不正値にする (contextWindow = 0)
+    execSql(dir, "UPDATE custom_providers SET contextWindow = 0 WHERE provider = 'broken'");
+
+    const restartedPi = createStubPi(stubOptions());
+    const restarted = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(restartedPi),
+      workspace: null,
+    });
+    try {
+      const response = await restarted.app.request("/api/settings/models");
+      assert.equal(response.status, 200, "1 行の異常で設定 GET を止めない");
+      const settings = await jsonBody(response);
+      assert.deepEqual(
+        settings.customProviders.map((entry: any) => entry.id),
+        ["broken", "lab"],
+        "壊れた行も黙って捨てず一覧に残す",
+      );
+      assert.equal(settings.customProviders[0].degraded, "apply");
+      assert.ok(settings.customProviders[0].degradedMessage, "原因の固定文言を載せる");
+      assert.equal(settings.customProviders[1].degraded, undefined);
+      assert.ok(
+        restartedPi.modelRuntimeCalls.some((call) => call.provider === "lab"),
+        "正常な行は登録される",
+      );
+      assert.equal(
+        restartedPi.modelRuntimeCalls.some((call) => call.provider === "broken"),
+        false,
+        "不正な行は register しない",
+      );
+
+      // 壊れた行も画面から削除できる
+      const removed = await restarted.app.request("/api/settings/custom-providers/broken", jsonRequest("DELETE"));
+      assert.equal(removed.status, 200);
+      assert.equal(countRows(dir, "custom_providers"), 1);
+    } finally {
+      await restarted.close();
+    }
+  });
+});

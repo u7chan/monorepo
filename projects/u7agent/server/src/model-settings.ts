@@ -689,7 +689,7 @@ export class ModelSettingsService {
       }
       const synced = await this.#applyCustomDefinition(definition, { needsKey: true, apiKey: definition.apiKey });
       await this.#refresh();
-      return this.#customOutcome(synced);
+      return this.#customOutcome(synced, row);
     });
   }
 
@@ -750,7 +750,7 @@ export class ModelSettingsService {
         apiKey: typedKey,
       });
       await this.#refresh();
-      return this.#customOutcome(synced);
+      return this.#customOutcome(synced, stored);
     });
   }
 
@@ -853,7 +853,7 @@ export class ModelSettingsService {
       if (customRow) {
         const synced = await this.#resyncCustomRow(customRow);
         await this.#refresh();
-        return this.#customSettled(provider, synced);
+        return this.#customSettled(provider, synced, customRow);
       }
       const tombstone = this.#tombstones.get(provider);
       if (tombstone) {
@@ -991,13 +991,19 @@ export class ModelSettingsService {
    * DTO を組めない / 復号できないときに、変更を not_stored と言わず未同期として回復導線を残す。
    * managed (= DB に行がある) を補えるのは apply だけ。remove は削除が確定済みなので補わない。
    */
-  #appliedUnsynced(provider: string, operation: "apply" | "remove"): MutationOutcome {
+  #appliedUnsynced(provider: string, operation: "apply" | "remove", known?: CustomProviderRow): MutationOutcome {
     this.#degraded.set(provider, operation);
-    const assumedManaged = operation === "apply" ? provider : undefined;
+    const assumedManaged = operation === "apply" && known === undefined ? provider : undefined;
     return {
       status: 200,
       response: {
-        ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), this.#customRowsOrEmpty(), assumedManaged),
+        ...this.#compose(
+          [],
+          this.#memosOrEmpty(),
+          this.#selectionOrUnset(),
+          this.#customRowsOrEmpty(known),
+          assumedManaged,
+        ),
         state: "applied_unsynced",
       },
     };
@@ -1019,8 +1025,10 @@ export class ModelSettingsService {
   /**
    * カスタムプロバイダーの変更応答。一覧を組めないときも変更は確定しているため、
    * `applied` / `applied_unsynced` を保って GET と同じ形で返し、次の GET に追随させる。
+   * `known` はこの操作で確定した行で、一覧を読めないときも応答から落とさない
+   * (空配列を返すとクライアントが一覧を置き換え、編集・削除・再同期の導線が消える)。
    */
-  #customOutcome(synced: boolean): CustomProviderOutcome {
+  #customOutcome(synced: boolean, known?: CustomProviderRow): CustomProviderOutcome {
     const state = synced ? "applied" : "applied_unsynced";
     try {
       return { status: 200, response: { ...this.settings(), state } };
@@ -1028,35 +1036,38 @@ export class ModelSettingsService {
       return {
         status: 200,
         response: {
-          ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), this.#customRowsOrEmpty()),
+          ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), this.#customRowsOrEmpty(known)),
           state,
         },
       };
     }
   }
 
-  /** カスタムの再同期の応答。一覧を組めないときも `state` を保つ */
-  #customSettled(provider: string, synced: boolean): MutationOutcome {
-    if (!synced) return this.#appliedUnsynced(provider, this.#degraded.get(provider) ?? "apply");
+  /** カスタムの再同期の応答。一覧を組めないときも `state` を保ち、対象の行を落とさない */
+  #customSettled(provider: string, synced: boolean, known?: CustomProviderRow): MutationOutcome {
+    if (!synced) return this.#appliedUnsynced(provider, this.#degraded.get(provider) ?? "apply", known);
     try {
       return { status: 200, response: { ...this.settings(), state: "applied" } };
     } catch {
       return {
         status: 200,
         response: {
-          ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), this.#customRowsOrEmpty()),
+          ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), this.#customRowsOrEmpty(known)),
           state: "applied",
         },
       };
     }
   }
 
-  /** 一覧のフォールバック用。読めないときに空で縮退し、次の GET の 503 で気付けるようにする */
-  #customRowsOrEmpty(): CustomProviderRow[] {
+  /**
+   * 一覧のフォールバック用。読めないときは空で縮退し、次の GET の 503 で気付けるようにする。
+   * `known` を渡すと、その行だけは読取失敗に巻き込まずに応答へ残す。
+   */
+  #customRowsOrEmpty(known?: CustomProviderRow): CustomProviderRow[] {
     try {
       return this.#db.listCustomProviders();
     } catch {
-      return [];
+      return known ? [known] : [];
     }
   }
 
@@ -1312,6 +1323,8 @@ export class ModelSettingsService {
    * `assumedManaged` は一覧を読めず rows が空のときだけ渡せる「行があると確定している」provider の補正で、
    * 呼び出し側が書込/読取の成功で保証できる apply のときだけ使う (DELETE では渡さない)。
    * customRows は `custom_providers` の生きた行で、一覧 (`customProviders[]`) の正はこちらだけにする。
+   * 同じ id の `provider_credentials` / `provider_memos` は DB に残っていても DTO へ混ぜない
+   * (カスタム側が正で、通常行の `managed` / メモを持たせると同じ id の管理状態が二重になる)。
    */
   #compose(
     rows: ProviderCredentialRow[],
@@ -1320,10 +1333,13 @@ export class ModelSettingsService {
     customRows: CustomProviderRow[],
     assumedManaged?: string,
   ): ModelsSettingsResponse {
-    const managed = new Set(rows.map((row) => row.provider));
+    const customRowIds = new Set(customRows.map((row) => row.provider));
+    const credentialRows = rows.filter((row) => !customRowIds.has(row.provider));
+    const memoRows = memos.filter((row) => !customRowIds.has(row.provider));
+    const managed = new Set(credentialRows.map((row) => row.provider));
     if (assumedManaged) managed.add(assumedManaged);
-    const memoOf = new Map(memos.map((row) => [row.provider, row.memo]));
-    const updatedAtOf = new Map(rows.map((row) => [row.provider, row.updatedAt]));
+    const memoOf = new Map(memoRows.map((row) => [row.provider, row.memo]));
+    const updatedAtOf = new Map(credentialRows.map((row) => [row.provider, row.updatedAt]));
     // 行が無い (= managed でない) provider は保存日時も不明として null にする
     const keyUpdatedAtOf = (provider: string): number | null =>
       managed.has(provider) ? (updatedAtOf.get(provider) ?? null) : null;
@@ -1355,7 +1371,7 @@ export class ModelSettingsService {
         ),
       );
     }
-    for (const row of rows) {
+    for (const row of credentialRows) {
       if (providers.has(row.provider)) continue;
       // カタログに無い行 (orphan) は SDK へ適用できないため、未反映として復旧・削除の導線を出す
       providers.set(
@@ -1380,7 +1396,7 @@ export class ModelSettingsService {
         ),
       );
     }
-    for (const row of memos) {
+    for (const row of memoRows) {
       if (providers.has(row.provider)) continue;
       // メモだけの provider。キーの行ではないので managed / degraded を付けず、メモ欄と消去の導線だけを残す
       providers.set(
