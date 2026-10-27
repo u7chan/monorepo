@@ -21,12 +21,16 @@ import {
   sharedContentBusyLabel,
   sharedContentDeleteConfirm,
   sharedContentFilterCounts,
+  sharedContentInFlightCount,
   sharedContentMenuActions,
   sharedContentPrimaryAction,
   sharedContentRenameRequest,
   sharedContentSession,
   sharedContentSessionMissing,
+  sharedContentStopAllConfirm,
+  sharedContentStopAllNote,
   sharedContentUndeployedFilterCounts,
+  stoppableSharedContents,
   sharedContentUpdateConfirm,
   sharedContentsPolling,
   settleAcceptedAfterMutation,
@@ -396,7 +400,14 @@ test("名前の変更: 対象と現在値を入れ、URL と状態が変わら�
 
 test("操作中の表示: 何をしているかを種類ごとに出す", () => {
   const kinds: SharedContentBusyKind[] = ["rename", "update", "stop", "resume", "retry", "delete"];
-  assert.deepEqual(kinds.map(sharedContentBusyLabel), ["変更中", "更新中", "停止中", "再公開中", "公開中", "削除中"]);
+  assert.deepEqual(kinds.map(sharedContentBusyLabel), [
+    "変更中",
+    "更新中",
+    "停止処理中",
+    "再公開中",
+    "公開中",
+    "削除中",
+  ]);
 });
 
 test("状態フィルタ: 件数は全件から数え、絞り込みは status だけを見る（結果不明は処理中）", () => {
@@ -545,4 +556,103 @@ test("接続未登録の案内は BFF の固定文言と同じで、接続タブ
     SHARED_CONTENT_NO_CREDENTIALS_NOTE,
     "Cloudflare の資格情報が未登録です。設定 → 共有 → 接続 で登録してください",
   );
+});
+
+// 一括停止は「外部に実体があり、止められる行」だけを対象にする。フィルタの件数とは一致しない。
+test("一括停止の対象: 公開済み（公開実績あり）と結果不明だけを止める", () => {
+  const items = [
+    item({ id: "live", status: "published", publishedAt: PUBLISHED_AT }),
+    item({ id: "undeployed", status: "published", publishedAt: null }),
+    item({ id: "in-flight", status: "publishing", lastError: null }),
+    item({ id: "unknown", status: "publishing", lastError: "公開の結果を確認できませんでした" }),
+    item({ id: "stopped", status: "stopped", publishedAt: PUBLISHED_AT }),
+    item({ id: "failed", status: "failed" }),
+  ];
+
+  assert.deepEqual(
+    stoppableSharedContents(items).map((entry) => entry.id),
+    ["live", "unknown"],
+    "未デプロイ・結果待ち・停止中・失敗は止めない",
+  );
+  assert.equal(sharedContentInFlightCount(items), 1, "結果待ちだけを対象外として数える");
+  assert.equal(sharedContentInFlightCount([item({ status: "publishing", lastError: "結果不明" })]), 0);
+});
+
+test("一括停止の確認: 対象の名前と状態を並べ、結果待ちは対象外として件数を出す", () => {
+  const items = [
+    item({ id: "a", name: "portfolio", status: "published", publishedAt: PUBLISHED_AT }),
+    item({ id: "b", name: "lp", status: "published", publishedAt: PUBLISHED_AT }),
+    item({ id: "c", name: "docs", status: "publishing", lastError: "結果不明" }),
+    item({ id: "d", name: "in-flight", status: "publishing" }),
+    item({ id: "e", name: "old", status: "stopped", publishedAt: PUBLISHED_AT }),
+    item({ id: "f", name: "undeployed", status: "published" }),
+  ];
+
+  const request = sharedContentStopAllConfirm(items);
+  assert.equal(request.kind, "confirm");
+  if (request.kind !== "confirm") return;
+  assert.equal(request.title, "稼働中の共有物をすべて停止");
+  assert.equal(request.subject?.value, "稼働中の共有物 3 件");
+  assert.deepEqual(
+    request.targets?.items.map((target) => [target.label, target.note]),
+    [
+      ["portfolio", "公開済み"],
+      ["lp", "公開済み"],
+      ["docs", "結果不明"],
+    ],
+  );
+  assert.equal(request.targets?.more, undefined);
+  assert.ok(
+    request.notes?.includes("公開処理中の 1 件は対象外です。完了すると公開されます。"),
+    "停止できない結果待ちを押す前に示す",
+  );
+  assert.equal(request.danger, true);
+});
+
+test("一括停止の確認: 対象が多いときは名前を 5 件までにして残りを件数へ畳む", () => {
+  const items = Array.from({ length: 7 }, (_, index) =>
+    item({
+      id: `site-${index}`,
+      name: `site-${index}`,
+      status: "published",
+      publishedAt: PUBLISHED_AT,
+    }),
+  );
+  const request = sharedContentStopAllConfirm(items);
+  if (request.kind !== "confirm") return;
+  assert.equal(request.targets?.items.length, 5);
+  assert.equal(request.targets?.more, 2);
+});
+
+test("一括停止の結果: 成功・一部失敗・全失敗・対象外を 1 行にまとめる", () => {
+  assert.deepEqual(sharedContentStopAllNote({ total: 3, stopped: 3, failures: [], excludedPublishing: 0 }), {
+    text: "稼働中 3 件をすべて停止しました。",
+    error: false,
+  });
+  assert.deepEqual(sharedContentStopAllNote({ total: 3, stopped: 3, failures: [], excludedPublishing: 1 }), {
+    text: "稼働中 3 件をすべて停止しました。公開処理中の 1 件は対象外です。完了すると公開されます。",
+    error: false,
+  });
+
+  const partial = sharedContentStopAllNote({
+    total: 3,
+    stopped: 2,
+    failures: [{ name: "docs" }],
+    excludedPublishing: 0,
+  });
+  assert.deepEqual(partial, {
+    text: "3 件中 2 件を停止しました。1 件は停止できませんでした（docs）。",
+    error: true,
+  });
+
+  assert.deepEqual(
+    sharedContentStopAllNote({
+      total: 3,
+      stopped: 0,
+      failures: [{ name: "docs" }],
+      excludedPublishing: 0,
+    }),
+    { text: "3 件を停止できませんでした（docs）。", error: true },
+  );
+  assert.equal(sharedContentStopAllNote({ total: 0, stopped: 0, failures: [], excludedPublishing: 0 }), null);
 });

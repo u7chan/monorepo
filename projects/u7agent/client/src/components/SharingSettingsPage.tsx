@@ -4,13 +4,19 @@ import type { SharedContentExclusionsSettings } from "../hooks/useSharedContentE
 import { useSharedContentsManager, type SharedContentsManager } from "../hooks/useSharedContentsManager";
 import {
   sharedContentFilterCounts,
+  sharedContentInFlightCount,
+  sharedContentStopAllConfirm,
+  sharedContentStopAllNote,
   sharedContentUndeployedFilterCounts,
+  stoppableSharedContents,
+  SHARED_CONTENT_NO_CREDENTIALS_NOTE,
   type SharedContentsFilter,
 } from "../lib/sharedContents";
 import { SHARING_SUBSECTIONS, type SharingSubsection } from "../lib/settingsNav";
 import { UNSAVED_RELOAD_NOTE } from "../lib/settingsNotes";
 import type { SessionSummary } from "../types";
-import { CheckIcon } from "./icons";
+import { CheckIcon, RunSpinnerIcon, StopIcon } from "./icons";
+import { useConfirm } from "./ConfirmProvider";
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
@@ -66,6 +72,7 @@ export function SharingSettingsView({
   cloudflare: ReturnType<typeof useCloudflareSettings>;
   contents: SharedContentsManager;
 }) {
+  const confirm = useConfirm();
   const [filter, setFilter] = useState<SharedContentsFilter>("all");
   // 追加前の入力はタブの親が持つ（本文はタブ切替で unmount されるため、子に置くと入力中の名前が消える）
   const [excludeInput, setExcludeInput] = useState("");
@@ -80,11 +87,76 @@ export function SharingSettingsView({
   };
   /** 下書きを捨てる再読み込みが押せない理由。変更が無い間は出さない */
   const unsavedReloadNote = exclusionsTab && dirty ? UNSAVED_RELOAD_NOTE : null;
-  // 操作はタブごとに変える (一覧は取り直し、除外は下書きの保存、接続は登録状態の取り直し)
+  // 一括停止はフィルタの外側（全件）から対象を決める。表示中の部分集合だけを止めると「すべて」が画面状態で変わる
+  const bulkStop = contents.bulkStop;
+  const bulkRunning = bulkStop?.running === true;
+  const stopTargets = stoppableSharedContents(contents.items);
+  const stopInFlight = sharedContentInFlightCount(contents.items);
+  const stopDisabledReason = bulkRunning
+    ? null
+    : contents.failed
+      ? "共有物の一覧を取得できていないため、停止する対象を確定できません"
+      : cloudflare.settings?.configured === false
+        ? SHARED_CONTENT_NO_CREDENTIALS_NOTE
+        : contents.busy.length > 0
+          ? "ほかの操作が完了するまで待ってください"
+          : null;
+  /** 押した時点の対象で確認を出し、確定後も同じ id を止める（確認中に一覧が変わっても対象をずらさない） */
+  const requestStopAll = async () => {
+    if (stopTargets.length === 0 || bulkRunning) return;
+    if (!(await confirm(sharedContentStopAllConfirm(contents.items)))) return;
+    await contents.stopAll(stopTargets, stopInFlight);
+  };
+  const stopAllNote =
+    contentsTab && bulkStop !== null && !bulkRunning
+      ? sharedContentStopAllNote({
+          total: bulkStop.total,
+          stopped: bulkStop.done - bulkStop.failures.length,
+          failures: bulkStop.failures,
+          excludedPublishing: bulkStop.excluded,
+        })
+      : null;
+  // 操作はタブごとに変える (一覧は取り直し + 一括停止、除外は下書きの保存、接続は登録状態の取り直し)
   const actions = contentsTab ? (
-    <ReloadButton onClick={() => void contents.reload()} disabled={contents.reloading}>
-      再読み込み
-    </ReloadButton>
+    <>
+      <ReloadButton
+        onClick={() => void contents.reload()}
+        disabled={contents.reloading || bulkRunning}
+        className="singleColumn:min-h-11"
+      >
+        再読み込み
+      </ReloadButton>
+      {bulkRunning || stopTargets.length > 0 ? (
+        <>
+          <span aria-hidden="true" className="h-4 w-px bg-line" />
+          <button
+            type="button"
+            className="btn-quiet border-danger/45 text-danger-text hover:bg-danger/10 singleColumn:min-h-11"
+            disabled={bulkRunning || stopDisabledReason !== null}
+            title={stopDisabledReason ?? undefined}
+            aria-label={
+              bulkRunning
+                ? `共有物を停止しています。${bulkStop?.done ?? 0} / ${bulkStop?.total ?? 0} 件完了`
+                : `稼働中の共有物 ${stopTargets.length} 件をすべて停止`
+            }
+            onClick={() => void requestStopAll()}
+          >
+            {bulkRunning ? <RunSpinnerIcon tone="danger" /> : <StopIcon />}
+            {bulkRunning ? `停止中 ${bulkStop?.done ?? 0}/${bulkStop?.total ?? 0}` : "すべて停止"}
+            {bulkRunning ? null : (
+              <span className="inline-flex min-w-4.5 items-center justify-center rounded-full border border-current px-1.5 text-2xs leading-4 tabular-nums">
+                {stopTargets.length}
+              </span>
+            )}
+          </button>
+          {bulkRunning ? (
+            <span role="status" className="sr-only">
+              共有物を停止しています。{bulkStop?.done ?? 0} / {bulkStop?.total ?? 0} 件完了
+            </span>
+          ) : null}
+        </>
+      ) : null}
+    </>
   ) : exclusionsTab ? (
     <>
       {/* 再読み込みは下書きを捨てるので、変更がある間は押せない (理由の置き場は下の caption / context) */}
@@ -132,6 +204,7 @@ export function SharingSettingsView({
       }
       toolbar={
         <TabToolbar
+          stack={contentsTab}
           context={
             contentsTab && contents.items.length > 0 ? (
               // 空の一覧に 0 件のフィルタだけを並べない (空状態の案内を主にする)
@@ -157,7 +230,7 @@ export function SharingSettingsView({
           singleColumn={singleColumn}
         />
       }
-      note={contentsTab ? undefined : exclusionsTab ? sharedContentExclusions.note : cloudflare.note}
+      note={stopAllNote ?? (contentsTab ? undefined : exclusionsTab ? sharedContentExclusions.note : cloudflare.note)}
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}

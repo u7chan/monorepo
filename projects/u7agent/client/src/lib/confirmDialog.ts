@@ -20,6 +20,12 @@ export type ConfirmRequest = DialogBase & {
   kind: "confirm";
   /** 等幅で独立した行に出す値（起動コマンドなど） */
   code?: { label: string; value: string };
+  /** 一括操作の対象一覧。件数だけでは対象を確かめられないときに名前を並べる */
+  targets?: {
+    items: readonly { label: string; note?: string }[];
+    /** 一覧に載せずに省略した件数 */
+    more?: number;
+  };
   /** 本文の後に出す補足（実行中など、判断が変わる注意） */
   notes?: readonly string[];
   /** 実行する側のボタン。何をするかを書く（OK / はい に意味を載せない） */

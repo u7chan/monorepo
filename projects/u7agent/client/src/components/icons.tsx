@@ -21,14 +21,20 @@ const RUN_SPINNER_ARCS: {
 
 /** 実行中スピナー。点に閉じた 4 本の弧が開いて回るのを 2 秒で 2 回繰り返す (styles/index.css)。
  * 色は置いた場所の用途で選ぶ。focus は線・リング用のトークン (各プリセットで隣接面に 3:1 以上) */
-export function RunSpinnerIcon({ tone = "soft" }: { tone?: "soft" | "focus" | "on-accent" } = {}) {
+export function RunSpinnerIcon({ tone = "soft" }: { tone?: "soft" | "focus" | "on-accent" | "danger" } = {}) {
   return (
     <svg
       aria-hidden="true"
       viewBox="0 0 240 240"
       className={cn(
         "run-spinner size-3.5 shrink-0",
-        tone === "on-accent" ? "text-on-accent" : tone === "focus" ? "text-focus" : "text-ink-soft",
+        tone === "on-accent"
+          ? "text-on-accent"
+          : tone === "focus"
+            ? "text-focus"
+            : tone === "danger"
+              ? "text-danger-text"
+              : "text-ink-soft",
       )}
     >
       {RUN_SPINNER_ARCS.map((arc) => (

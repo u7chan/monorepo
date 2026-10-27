@@ -54,6 +54,8 @@ export function SharedContentsTab({
   const [qrId, setQrId] = useState<string | null>(null);
   const sessionIds = useMemo(() => new Set(sessions.map((session) => session.sessionId)), [sessions]);
   const visible = visibleSharedContents(contents.items, filter);
+  // 一括停止中は一覧全体の操作を止める（現在の 1 件は busy が別に持つ）
+  const bulkActive = contents.bulkStop?.running === true;
   const sessionMissing = (item: SharedContentResponse) => sharedContentSessionMissing(item, sessionIds, sessionsLoaded);
 
   const update = async (item: SharedContentResponse) => {
@@ -102,6 +104,7 @@ export function SharedContentsTab({
                   session={sharedContentSession(item, sessions, sessionsLoaded)}
                   onOpenSession={onOpenSession}
                   busy={contents.busy.find((entry) => entry.id === item.id) ?? null}
+                  bulkActive={bulkActive}
                   error={contents.error?.id === item.id ? contents.error.message : undefined}
                   copied={copiedId === item.id}
                   copyFailure={copyFailure(item.id)}

@@ -8,9 +8,20 @@ import type { CloudflareSettings } from "../src/hooks/useCloudflareSettings";
 import type { SharedContentExclusionsSettings } from "../src/hooks/useSharedContentExclusions";
 import type { SharedContentsManager } from "../src/hooks/useSharedContentsManager";
 import { MEMORY_NOTE } from "../src/lib/settingsNotes";
-import type { CloudflareConnectionCheckResponse, CloudflareSettingsResponse } from "../src/types";
+import type { SharingSubsection } from "../src/lib/settingsNav";
+import type {
+  CloudflareConnectionCheckResponse,
+  CloudflareSettingsResponse,
+  SharedContentResponse,
+} from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
+// 共有コンテンツのタブは useViewportWidth が初回描画で window.innerWidth を読む
+globalThis.window ??= {
+  innerWidth: 1024,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+} as unknown as Window & typeof globalThis;
 const { SharingSettingsView } = await import("../src/components/SharingSettingsPage");
 const { ConfirmProvider } = await import("../src/components/ConfirmProvider");
 
@@ -86,6 +97,7 @@ function contents(overrides: Partial<SharedContentsManager> = {}): SharedContent
     reloading: false,
     busy: [],
     error: null,
+    bulkStop: null,
     reload: async () => {},
     update: async () => {},
     retry: async () => {},
@@ -93,23 +105,48 @@ function contents(overrides: Partial<SharedContentsManager> = {}): SharedContent
     resume: async () => {},
     rename: async () => {},
     remove: async () => {},
+    stopAll: async () => {},
     ...overrides,
   };
 }
 
-function render(value: CloudflareSettings): string {
+/** 一括停止の対象・対象外を作るための最小の共有物。既定は公開実績のある公開済み */
+function contentItem(overrides: Partial<SharedContentResponse> = {}): SharedContentResponse {
+  return {
+    id: "a",
+    sessionId: "s1",
+    name: "site",
+    sourcePath: "dist",
+    sourceKind: "directory",
+    provider: "cloudflare",
+    status: "published",
+    publicUrl: "https://site.account.workers.dev/",
+    createdAt: 1,
+    updatedAt: 1,
+    publishedAt: 1_000,
+    stoppedAt: null,
+    lastError: null,
+    ...overrides,
+  };
+}
+
+function render(
+  value: CloudflareSettings,
+  contentsOverrides: Partial<SharedContentsManager> = {},
+  sharingSubsection: SharingSubsection = "connections",
+): string {
   return renderToStaticMarkup(
     createElement(
       ConfirmProvider,
       null,
       createElement(SharingSettingsView, {
         cloudflare: value,
-        contents: contents(),
+        contents: contents(contentsOverrides),
         sharedContentExclusions: exclusions(),
         onOpenArchiveExclusions: () => {},
         sessions: [],
         sessionsLoaded: false,
-        sharingSubsection: "connections",
+        sharingSubsection,
         onSelectSharingSubsection: () => {},
         onBack: () => {},
       }),
@@ -218,4 +255,106 @@ test('描画: 409 / 503 はカード内の結果行に role="alert" で出す', 
   assert.match(html, /role="alert"/);
   assert.match(html, /資格情報が未登録/);
   assert.equal(html.includes("接続を確認しています"), false);
+});
+
+function stopAllButton(html: string): string {
+  return html.match(/<button[^>]*aria-label="[^"]*停止[^"]*"[^>]*>/)?.[0] ?? "";
+}
+
+test("共有コンテンツ: 一括停止は稼働中の件数を出し、押せる状態にする", () => {
+  const html = render(
+    cloudflare(),
+    {
+      items: [
+        contentItem({ id: "a", name: "portfolio" }),
+        contentItem({ id: "b", name: "lp" }),
+        contentItem({ id: "c", name: "old", status: "stopped" }),
+      ],
+    },
+    "contents",
+  );
+
+  assert.ok(html.includes('aria-label="稼働中の共有物 2 件をすべて停止"'), "稼働中の 2 件を数える");
+  assert.ok(html.includes("すべて停止"));
+  assert.equal(stopAllButton(html).includes("disabled"), false);
+});
+
+test("共有コンテンツ: 対象が 0 件なら一括停止を出さない", () => {
+  const html = render(
+    cloudflare(),
+    { items: [contentItem({ status: "stopped" }), contentItem({ id: "b", publishedAt: null })] },
+    "contents",
+  );
+  assert.equal(html.includes("すべて停止"), false);
+});
+
+test("共有コンテンツ: 一括停止中は進捗を出し、ボタンと一覧の操作を止める", () => {
+  const html = render(
+    cloudflare(),
+    {
+      items: [contentItem({ id: "a", name: "portfolio" }), contentItem({ id: "b", name: "lp" })],
+      busy: [{ id: "b", kind: "stop" }],
+      bulkStop: { total: 2, done: 1, failures: [], excluded: 0, running: true },
+    },
+    "contents",
+  );
+
+  assert.match(html, /停止中 1\/2/);
+  assert.ok(stopAllButton(html).includes("disabled"), "二重実行させない");
+  assert.match(html, /role="status"/);
+  assert.equal(html.includes("その他の操作"), false, "一括停止中は ⋯ を出さない");
+});
+
+test("共有コンテンツ: 一括停止の結果をノートに出し、失敗は danger のトーンにする", () => {
+  const success = render(
+    cloudflare(),
+    {
+      items: [contentItem({ status: "stopped" })],
+      bulkStop: { total: 1, done: 1, failures: [], excluded: 1, running: false },
+    },
+    "contents",
+  );
+  assert.match(success, /稼働中 1 件をすべて停止しました。/);
+  assert.match(success, /公開処理中の 1 件は対象外です。完了すると公開されます。/);
+
+  const partial = render(
+    cloudflare(),
+    {
+      items: [contentItem()],
+      bulkStop: {
+        total: 2,
+        done: 2,
+        failures: [{ id: "b", name: "docs", message: "Cloudflare への接続がタイムアウトしました" }],
+        excluded: 0,
+        running: false,
+      },
+    },
+    "contents",
+  );
+  assert.match(partial, /2 件中 1 件を停止しました。1 件は停止できませんでした（docs）。/);
+  assert.match(partial, /text-danger-text/);
+});
+
+test("共有コンテンツ: 一覧の取得に失敗している間は一括停止を押せない", () => {
+  const html = render(
+    cloudflare(),
+    {
+      items: [contentItem()],
+      failed: true,
+      listError: "共有物の一覧を取得できませんでした",
+    },
+    "contents",
+  );
+  assert.ok(stopAllButton(html).includes("disabled"));
+  assert.ok(stopAllButton(html).includes("停止する対象を確定できません"));
+});
+
+test("共有コンテンツ: Cloudflare 未登録では一括停止を押せない", () => {
+  const html = render(
+    cloudflare({ settings: settings({ configured: false, accountId: null }) }),
+    { items: [contentItem()] },
+    "contents",
+  );
+  assert.ok(stopAllButton(html).includes("disabled"));
+  assert.ok(stopAllButton(html).includes("Cloudflare の資格情報が未登録です"));
 });
