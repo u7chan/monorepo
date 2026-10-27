@@ -43,6 +43,7 @@ export function createContentSettingsRoutes({ contentSettings }: { contentSettin
 }
 
 function respond(c: Context, outcome: ContentMutationOutcome) {
+  if (outcome.status === 400) return c.json({ error: outcome.error }, 400);
   if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
   return c.json(outcome.response, 200);
 }

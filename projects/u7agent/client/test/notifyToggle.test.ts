@@ -29,7 +29,9 @@ const SETTINGS: NotificationsResponse = {
   askUser: true,
   provider: "discord",
   configured: true,
-  webhookHint: "a1b2",
+  webhookAvailable: true,
+  webhookEvaluated: true,
+  webhookErrorMessage: null,
   baseUrl: "http://127.0.0.1:5173",
 };
 
@@ -254,7 +256,7 @@ test("作成の完了で先行選択を消費し、既に Off なら購読者へ
 
 test("配信できない理由ごとに注記を返し、On の間は常に / Off では押した後だけ出す", () => {
   const disabled = { ...SETTINGS, enabled: false };
-  const unconfigured = { ...SETTINGS, configured: false, webhookHint: undefined };
+  const unconfigured = { ...SETTINGS, configured: false, webhookAvailable: false };
   // 配信できる設定 (有効 + Webhook 登録済み) では何も出さない
   assert.equal(notifyUnavailableNote(true, SETTINGS), undefined);
   assert.equal(notifyUnavailableNote(false, SETTINGS), undefined);

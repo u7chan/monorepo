@@ -1,6 +1,6 @@
 # 画像生成（generate_image ツール）
 
-チャットから画像を生成し、セッションの作業フォルダへ保存する。生成そのものは BFF が provider（v1 は OpenRouter）の画像専用 API（`POST {baseUrl}/images`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。既存の画像を渡しての編集（image-to-image）は同じ `generate_image` の任意引数 `input_images` で行う（[参照画像による編集](#参照画像による編集)）。provider の APIキーは 設定 → コンテンツ生成（`/settings/content`）で登録し、アプリ DB の `content_settings` に**平文**で保存する。モデルの選択肢は OpenRouter の画像モデル API（`GET /api/v1/images/models`）を正とし、取得できないときは前回の成功（アプリ DB のキャッシュ）→ SDK 同梱の順に落ちる。保存名を決められない形式（svg など）しか返さないモデルは選択肢から外し、生成前にも止める（[保存できない形式のモデル](#保存できない形式のモデル)）。
+チャットから画像を生成し、セッションの作業フォルダへ保存する。生成そのものは BFF が provider（v1 は OpenRouter）の画像専用 API（`POST {baseUrl}/images`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。既存の画像を渡しての編集（image-to-image）は同じ `generate_image` の任意引数 `input_images` で行う（[参照画像による編集](#参照画像による編集)）。provider の APIキーは 設定 → コンテンツ生成（`/settings/content`）で登録し、アプリ DB の `content_settings` に**暗号化して**保存する（AEAD。AAD は `u7agent-app-secret:content_settings:apiKey`。[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。モデルの選択肢は OpenRouter の画像モデル API（`GET /api/v1/images/models`）を正とし、取得できないときは前回の成功（アプリ DB のキャッシュ）→ SDK 同梱の順に落ちる。保存名を決められない形式（svg など）しか返さないモデルは選択肢から外し、生成前にも止める（[保存できない形式のモデル](#保存できない形式のモデル)）。
 
 - コンテンツ生成の共有キーと画像モデルを `provider_credentials` とは別に管理する。キーはTTS・[BGM](bgm-generation.md) と共有するが、会話プロバイダー登録済みキーは流用しない（別 provider のキーへ黙って切り替えない）。
 - コンテンツ生成のゲートとエージェントの `toolNames` の積が有効なときだけ、モデルへ `generate_image` を見せる。未設定ならツール一覧に現れない。
@@ -182,7 +182,7 @@ SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが�
 - ツール定義（BFF ローカル）は `wrapToolDefinitionWithSecretMasker` で包み、execute が throw する文言もマスカーを通す。DB の例外文言は `AppDb` の `sanitizeError` 境界でマスクしてから health / 503 へ出す
 - キーの長さは 8..2048 文字（`provider_credentials` と同じ）。カタログ外のモデルと `openrouter` 以外の provider は 400
 
-残存リスクは model-settings と同様で、キーはアプリ DB に平文で残る。ログイン認証のない BFF を LAN / インターネットへ公開しない。
+残存リスクは model-settings と同様で、キーは暗号文でアプリ DB に残るが、master key（`U7AGENT_SECRET_MASTER_KEY` / `_FILE`）を持つ者と稼働中の BFF は復号できる。master key をアプリ DB と別経路で管理し、ログイン認証のない BFF を LAN / インターネットへ公開しない。master key 未設定 / 不正の間は保存済みのキーを使えず、画面はキーの状態（保存済み / 利用可否 / 未評価）を固定文言で示す。キーが NULL（未設定）の行は `enabled` が ON でも生成ツールを開かない。既存の平文キーは v30 → v31 の移行で破棄され、再入力が必要。
 
 ## 設定画面
 
@@ -193,7 +193,7 @@ SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが�
 - 登録状態バッジ（設定済み / 未設定）は上部の見出しに出す（プロバイダータブと同じ見た目。`contentKeyStatusBadge()`）。キー欄の補足には provider 名（OpenRouter）を添え、モデル欄に出る `OpenAI: …` と混同させない
 - キーは `type="password"` / `autoComplete="off"` で、保存値を再表示しない（常に空から入力する）。[上書き保存] は成功したときだけ入力を消し、[削除] は共通の確認ダイアログ（`deleteContentKeyConfirmRequest()`。対象の provider は clamp した行に出す）の後に行ごと消して未設定へ戻す
 - モデルは native `<select>`（`SelectField`）でカタログから 1 件選ぶ。保存済みのモデルがカタログに無いときは「（カタログ外）」として現在の id を先頭に足す（何が保存されているかを見失わせない）。サイズ / 品質 / 出力形式の UI は持たず、本文にはその理由（provider の既定を使う）だけを書く。provider 名は見出しにあるため繰り返さない
-- 注意書きは詳細の上部で既定に畳んで出す（1 行の要点 + 展開で全文。平文保存・再表示しない・ログイン無しで公開しない・有効性は保存時に見ない・キーは 8 文字以上・プロバイダー登録キーとは別管理）。下部に「保存したキーは新しい会話から使える（ツール一覧はセッション作成時に固定）」と、生成物の保存先（作業フォルダの `generated/`）を注記する
+- 注意書きは詳細の上部で既定に畳んで出す（1 行の要点 + 展開で全文。暗号化して保存・再表示しない・master key 未設定では使えない・ログイン無しで公開しない・有効性は保存時に見ない・キーは 8 文字以上・プロバイダー登録キーとは別管理）。下部に「保存したキーは新しい会話から使える（ツール一覧はセッション作成時に固定）」と、生成物の保存先（作業フォルダの `generated/`）を注記する
 - `runtimeAvailable: false` のときはキー登録・上書き・削除を disable し、プロバイダータブと同じ理由（サーバーの起動ログ）を出す。モデルの変更は SDK に触れないため残す。変更系の 503 `state: "not_stored"` は「変更は保存されていません。」を付けて画面の注記へ出す
 - 画面の [再読み込み] はこの画面の設定だけを取り直す（設定 → モデルの [再読み込み] はモデル側だけを取り直す）。キーの登録・削除は再起動を待たず、次に作るセッションから効く
 - 有効 / 無効のトグルは**タブの外に 1 つだけ**置く（画像・音声・BGM のどのタブでも同じカードが出る）。ラベルは「アプリ全体の生成を止めます（画像・音声・BGM で共通）」で、OFF の間は API が返す `disabledMessage` をその場に出す。未設定（キーが無い）では止める対象が無いため出さない。保存に成功したらエージェントのツール一覧を取り直す（エージェント編集のツール欄が取得時点のスナップショットを見るため）

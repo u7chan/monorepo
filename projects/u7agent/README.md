@@ -42,7 +42,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 設定できる変数の一覧と説明は [.env.example](.env.example) が正です（`cp .env.example .env` で読み込まれ、`.env` を読むのは BFF だけ）。サンドボックス側は [docs/sandbox-api.md](docs/sandbox-api.md)、BFF の待受とオリジンの契約は [docs/api.md](docs/api.md) を参照してください。
 
 - 利用可能なモデル、アプリ既定モデル、プロバイダーAPIキーは起動後に **設定 → モデル** から設定するのが既定です（アプリのデータベースへ保存し、再起動せずにモデル候補へ反映します）。選択の入口は GUI に一本化したため、`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読みません（移行は [docs/model-settings.md](docs/model-settings.md)）
-- 作業フォルダごとの環境変数（**作業環境 → 環境変数**）は GUI から登録します。変数は平文で保存し、エージェントの `bash` とサービスの両方から見えます。シークレットは保存時に暗号化し、サービスの起動時だけ注入します（エージェントの `bash` の env には入りません。master key は `U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE` でアプリ DB とは別経路。値の規則と残存リスクは [docs/secrets.md](docs/secrets.md#作業フォルダの環境変数)）
+- 作業フォルダごとの環境変数（**作業環境 → 環境変数**）は GUI から登録します。変数は平文で保存し、エージェントの `bash` とサービスの両方から見えます。シークレットは保存時に暗号化し、サービスの起動時だけ注入します（エージェントの `bash` の env には入りません。APIキー / Webhook URL も同じ master key を使います。master key は `U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE` でアプリ DB とは別経路。値の規則と残存リスクは [docs/secrets.md](docs/secrets.md#作業フォルダの環境変数)）
 - ポートを変えると、プレビューの `localStorage` の保存領域も別になります。`pnpm dev` をもう 1 つ並行して起動するときはプレビュー以外のポートも分けてください（[docs/frontend.md](docs/frontend.md#開発フローと配信)）
 
 ## セキュリティ
@@ -50,9 +50,9 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 - **ログイン認証はありません。インターネットや LAN へ公開しないでください**（BFF の待受は既定で `127.0.0.1`）。プレビュー オリジン（既定 4318）とサービス オリジン（既定 4319）も無認証で、公開するのは信頼できる閉域 LAN に限ります
 - `pnpm dev` の Vite だけは実機確認のため LAN へも待受けます（`0.0.0.0:3000`）。同じ LAN の端末からは、認証なしの GUI と `/api` が開けます（サンドボックスでの `bash` 実行に到達します）。開発用途に限ってください。プレビュー オリジンとサービス オリジンは Vite を通さずブラウザが直接開くため、LAN / 別端末から使うときは `HOST=0.0.0.0` に加えてそれらのポートの到達（WSL2 なら portproxy の追加）が要ります（届かないとプレビューは真っ白になります。[docs/frontend.md](docs/frontend.md#開発フローと配信)）
 - ツールはサンドボックスの作業領域でコマンド実行やファイル変更ができます。`write` / `edit` はセッションの作業ディレクトリと `<workspace root>/.agents/skills` に限られ、`bash` とその子プロセスも、Landlock により、作業ディレクトリ・共通スキル・`/tmp`・ホーム配下のキャッシュ・デバイスファイル以外でのファイルの作成・書き込み・削除・rename・truncate が `EACCES` になります（カーネル 6.2 以上が必要。満たさない環境では `bash` を実行できません）。Landlock は `chmod` / `chown` / `utime` などの属性変更や読み取りまでは制限できないため、信頼できる環境だけで使ってください（[docs/sandbox.md](docs/sandbox.md#残存リスク)）
-- LLM の APIキーは BFF が持ち、サンドボックスへは共有トークンしか渡しません。設定 → モデルで登録したキーはアプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）へ**平文**で保存されるため、DB・WAL・バックアップのアクセス権を管理してください（[docs/model-settings.md](docs/model-settings.md#残存リスク)）。ツール出力に現れた既知のキーは、LLM・SSE・ログへ渡す前に `[REDACTED]` へ置換します
+- LLM の APIキーは BFF が持ち、サンドボックスへは共有トークンしか渡しません。設定 → モデルで登録したキーはアプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）へ**暗号化して**保存されます（AEAD。master key は `U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE` でアプリ DB とは別経路で管理し、DB と一緒にバックアップしてください。master key 未設定 / 不正の間は保存済みのキーを使えません）。DB・WAL・バックアップのアクセス権も管理してください（[docs/model-settings.md](docs/model-settings.md#残存リスク)）。ツール出力に現れた既知のキーは、LLM・SSE・ログへ渡す前に `[REDACTED]` へ置換します
 - `pnpm dev` のサンドボックスはホスト上の別プロセスで、BFF と同一ユーザー・同一環境です（親シェルから export した APIキーや、同一ユーザーが読める `~/.pi/agent/auth.json` も見えます）。コンテナ分離の設計と残存リスクは [docs/sandbox.md](docs/sandbox.md) を参照してください
-- 作業環境 → 環境変数 のシークレットだけが保存時に暗号化されます（AEAD）。プロバイダー / 画像 / Web 検索の APIキー、provider メモ、種別 = 変数の値は `u7agent.db` へ平文で残るため、「DB 全体が暗号化された」わけではありません。シークレットはエージェントの `bash` の env に入りませんが、同一サンドボックス・同一 Unix user でサービスが動くため `/proc/<pid>/environ` などを読める可能性は残ります（[docs/secrets.md](docs/secrets.md#保証範囲と残存リスク)）
+- 保存時に暗号化するのは、作業環境 → 環境変数 のシークレット、プロバイダー / 画像・音声・BGM / Web 検索の APIキー、Discord の Webhook URL、Cloudflare の API トークンです（AEAD。いずれも同じ master key を使います）。provider メモと種別 = 変数の値は `u7agent.db` へ平文で残るため、「DB 全体が暗号化された」わけではありません。master key を持つ者と稼働中の BFF は復号できるため、鍵の管理と DB のアクセス権の両方が必要です（[docs/secrets.md](docs/secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)、[保証範囲と残存リスク](docs/secrets.md#保証範囲と残存リスク)）。シークレットはエージェントの `bash` の env に入りませんが、同一サンドボックス・同一 Unix user でサービスが動くため `/proc/<pid>/environ` などを読める可能性は残ります
 
 ## ドキュメント
 

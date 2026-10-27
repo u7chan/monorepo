@@ -5,6 +5,8 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import { encryptedSecret, TEST_MASTER_KEY } from "./app-secret-fixture";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
 import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
@@ -12,6 +14,9 @@ import { DEFAULT_IMAGE_MODEL } from "../src/content-settings";
 import { IMAGE_PROVIDER_ID } from "../src/images";
 import { bgmSettings } from "../src/bgm";
 import { asPiBff, createStubPi } from "./stub-pi";
+
+// アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
+process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const KEY = "sk-image-dummy-key-0123456789abcdef";
 const OTHER_KEY = "sk-image-other-key-0123456789";
@@ -279,10 +284,14 @@ test("起動時に保存行があればツールを有効化し、行が無け�
     });
     await first.close();
 
+    // 保存済みの行は暗号文だけを持つ (平文の列は無い)
+    const secret = encryptedSecret("content_settings", "apiKey", KEY);
     const seed = new DatabaseSync(join(dir, APP_DB_FILENAME));
     seed
-      .prepare("INSERT INTO content_settings (id, provider, imageModel, apiKey) VALUES (1, ?, ?, ?)")
-      .run(IMAGE_PROVIDER_ID, DEFAULT_IMAGE_MODEL, KEY);
+      .prepare(
+        "INSERT INTO content_settings (id, provider, imageModel, ciphertext, nonce, keyVersion) VALUES (1, ?, ?, ?, ?, ?)",
+      )
+      .run(IMAGE_PROVIDER_ID, DEFAULT_IMAGE_MODEL, secret.ciphertext, secret.nonce, secret.keyVersion);
     seed.close();
 
     const pi = createStubPi();
@@ -311,11 +320,11 @@ test("登録済みキーを含む DB 例外が応答・health・ログに現れ�
     console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
     try {
       await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
-      // SQLite の例外文言にキーが載る経路を作り、DB エラー境界を通す
+      // SQLite の例外文言に暗号文 (hex) が載る経路を作り、値なし境界を通す
       const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
       raw.exec(
         `CREATE TRIGGER leak BEFORE DELETE ON content_settings
-         BEGIN SELECT RAISE(ABORT, 'boom ' || OLD.apiKey); END`,
+         BEGIN SELECT RAISE(ABORT, 'boom ' || hex(OLD.ciphertext)); END`,
       );
       raw.close();
 
@@ -328,10 +337,10 @@ test("登録済みキーを含む DB 例外が応答・health・ログに現れ�
       const health = await jsonBody(await bff.app.request("/api/health"));
       assert.equal(health.appDb.ok, false);
       assert.ok(!health.appDb.error.includes(KEY), `health にキーを出さない: ${health.appDb.error}`);
-      assert.ok(health.appDb.error.includes("[REDACTED]"), "health ではマスク済みの文言を出す");
+      assert.equal(health.appDb.error, "app secret query failed");
 
       assert.ok(!logged.join("\n").includes(KEY), `ログにもキーを出さない: ${logged.join("\n")}`);
-      assert.ok(logged.join("\n").includes("[REDACTED]"));
+      assert.ok(logged.join("\n").includes("app secret query failed"), "操作の分類だけを残す");
     } finally {
       console.warn = original.warn;
       console.error = original.error;

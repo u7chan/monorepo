@@ -56,7 +56,7 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定し�
 
 | メソッド | パス | 内容 |
 | --- | --- | --- |
-| GET | `/api/notifications` | `{ enabled, askUser, provider: "discord", configured, webhookHint?, baseUrl?, lastResult? }` |
+| GET | `/api/notifications` | `{ enabled, askUser, provider: "discord", configured, webhookAvailable, webhookEvaluated, webhookErrorMessage, baseUrl?, lastResult? }` |
 | PUT | `/api/notifications` | `{ enabled?, askUser?, webhookUrl?（null で解除）, baseUrl?（null で解除） }`。宛先とベース URL を検証し、保存時に送信テストはしない。旧クライアントの `mention` は無視する |
 | POST | `/api/notifications/test` | 保存済み設定で 1 通。`{ ok, status, latencyMs, message?, code?, retryAfter?, at }` を 200 で返す（アプリ側のエラーだけ 4xx）。タイムアウトは 5 秒 |
 | PATCH | `/api/sessions/:id/notify` | `{ notify: boolean }` → `{ sessionId, notify }` を 200 で返す |
@@ -73,7 +73,8 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定し�
 
 ### Webhook URL は write-only
 
-- `GET /api/notifications` は `configured` と `webhookHint`（末尾 4 文字）だけを返し、保存済み URL は API 応答にも画面にも再表示しない。変更するときは空の入力から入れ直す
+- `GET /api/notifications` は URL の断片も返さない。`configured`（暗号文の有無）/ `webhookAvailable`（復号できて送信に使える）/ `webhookEvaluated`（復号を評価したか）/ `webhookErrorMessage`（サーバーの固定文言）だけを返し、保存済み URL は API 応答にも画面にも再表示しない。末尾 4 文字の `webhookHint` は廃止した（「GET で復号しない」と両立しないため）。変更するときは空の入力から入れ直す
+- Webhook URL は AEAD で保存する（AAD は `u7agent-app-secret:notification_settings:webhookUrl`。[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。復号は起動時と保存 / 置換のときだけで、GET では復号しない。保存済みでも復号できない（誤鍵・未知の鍵版・改ざん・master key 未設定）ときは送信せず、`webhookAvailable: false` と固定文言で利用不可にし、固定の失敗分類を `lastResult` に残す。テスト送信は 503。URL のクリアは復号が要らないため master key 無しでも通す。runtime（`pi`）が無い起動では、復号した URL を使う経路が無いため新規保存・置換を 503 にする。復号直後と暗号化直後の URL は共通の `retainSecret()` へ登録し、通知以外の応答・ログにも平文を広げない。実効 URL の差し替えは入力検証と DB 保存が成功した後だけ行う
 - URL 全体と `/api/webhooks/…` 以降を `[REDACTED]` へ置換する専用マスクを `server/src/notifications.ts` に置き、API 応答・ログ・エラー本文・fetch 例外へ通す。変更直後も旧 URL をマスクできるよう、メモリ上に直前の値を数件保持する
 
 ### 宛先の制限（SSRF / リダイレクト）
@@ -85,12 +86,12 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定し�
 ## 保存先と再起動後
 
 - 会話ごとの `notify` は `SessionMeta`（`meta.json`）に保存する。`version: 1` のまま optional フィールドとして足し、boolean 以外は無視する。live な record は in-memory の meta を更新し、既存の書込みキューで永続化する。一覧（live / 未ロードの descriptor）・`SessionPayload`・`resync` は同じ値を使う。保存に失敗したら 500 を返し、成功扱いにしない
-- グローバル設定はアプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）の `notification_settings`（1 行）に保存する。移行は `server/src/app-db.ts` の `APP_DB_SCHEMA_VERSION` を上げ、`CREATE TABLE IF NOT EXISTS` + 列追加 + `user_version` 更新で行う**加算的**なもの。既存のエージェント / プロジェクトは消えない（[persistence.md](persistence.md)）
+- グローバル設定はアプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）の `notification_settings`（1 行）に保存する。`APP_DB_SCHEMA_VERSION` 30 → 31 の移行で、Webhook URL は平文の `webhookUrl` から暗号文の `webhookCiphertext` / `webhookNonce` / `webhookKeyVersion` へ移し、既存の URL は破棄する（再入力で復旧する）。`enabled` / `askUser` / `baseUrl` / `lastResult` は残す（[persistence.md](persistence.md#アプリデータsqlite)）
 - どちらも会話ストアと同じ永続ボリュームに載るため、再起動後も復元される
 
 ## 設定画面
 
-- **Discord カード**: 有効トグルと Webhook URL。保存済みなら「登録済み（末尾 xxxx）」+ `[変更]` を出し、`[変更]` を押したときだけ入力欄を出す（保存済みの値は入れない）。`[取り消し]` で編集をやめる
+- **Discord カード**: 有効トグルと Webhook URL。保存済みなら「登録済み」+ `[変更]` を出し（URL の断片は出さない）、`[変更]` を押したときだけ入力欄を出す（保存済みの値は入れない）。復号できない・未評価のときは「登録済み（利用できません）」とサーバーの固定文言を出し、`[変更]` で再入力を導く。`[取り消し]` で編集をやめる
 - **質問の通知カード**: 質問が発生したことを送るかどうかの全体トグル。全体通知が Off のときは On でも送らない
 - **テスト送信カード**: 未設定なら無効 + 「Webhook URL を保存するとテストできます。」。URL に未保存の変更があるときはラベルが「保存してテスト」になり、保存してから送る。直近結果（日時 / status / latencyMs）と失敗理由を出す。429 のときは `retryAfter` があれば「Retry-After N 秒待ってから再試行してください。」、無ければ「時間を置いて再試行してください。」を出す
 - **リンクカード**: 通知から会話を開く URL のベース。`[今開いている URL を使う]` で `location.origin` を入れる。空にするとリンク行を載せない

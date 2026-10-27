@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   catalogRefreshNote,
   contentEnabledNote,
+  contentKeyErrorNotice,
   contentKeyStatusBadge,
   contentProviderId,
   contentProviderLabel,
@@ -56,6 +57,10 @@ function settings(
   return {
     configured: true,
     provider: "openrouter",
+    keyStored: true,
+    keyAvailable: true,
+    keyEvaluated: true,
+    keyErrorMessage: null,
     enabled: true,
     disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
     runtimeAvailable: true,
@@ -598,4 +603,30 @@ test("有効 / 無効の注記は、既存の会話にも効くこととキー�
   assert.ok(off.includes("無効にしました"));
   assert.ok(off.includes("固定の文言で失敗します"));
   assert.ok(off.includes("キーと選択は残ります"), "キー削除と混同させない");
+});
+
+test("キーのバッジは保存済み (keyStored) を見て、復号できないキーを設定済みと出さない", () => {
+  assert.deepEqual(contentKeyStatusBadge(false), { label: "未設定", tone: "muted" });
+  assert.deepEqual(contentKeyStatusBadge(true), { label: "設定済み", tone: "ok" });
+  assert.deepEqual(
+    contentKeyStatusBadge(true, false),
+    { label: "利用不可", tone: "warn" },
+    "configured は true でもキーが無い / 復号できないときは設定済みと言わない",
+  );
+});
+
+test("キーが使えない理由は、サーバーの固定文言をそのまま出す", () => {
+  assert.equal(contentKeyErrorNotice(settings({}, { keyStored: false })), null, "未設定では警告を出さない");
+  assert.equal(
+    contentKeyErrorNotice(settings({}, { keyStored: true, keyAvailable: true })),
+    null,
+    "使えるキーには警告を出さない",
+  );
+  assert.equal(
+    contentKeyErrorNotice(
+      settings({}, { keyStored: true, keyAvailable: false, keyErrorMessage: "master key が未設定です" }),
+    ),
+    "master key が未設定です",
+    "原因は推測せずサーバーの文言を渡す",
+  );
 });

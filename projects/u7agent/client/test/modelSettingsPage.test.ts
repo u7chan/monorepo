@@ -29,6 +29,9 @@ function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSet
     auth: { configured: false, environmentVariables: [] },
     managed: false,
     keyUpdatedAt: null,
+    keyAvailable: false,
+    keyEvaluated: true,
+    keyErrorMessage: null,
     canSetApiKey: true,
     supportsOAuth: false,
     credentialKind: null,
@@ -289,7 +292,7 @@ test("無限に無視される環境変数を注記する", () => {
   assert.ok(html.includes("デプロイ設定からは削除"), "環境変数の削除を促す");
 });
 
-test("プロバイダータブは一覧と詳細を分け、平文の注意を既定で畳んで出す", () => {
+test("プロバイダータブは一覧と詳細を分け、キー暗号化の注意を既定で畳んで出す", () => {
   const html = render(modelSettings(), { modelsSubsection: "providers" });
   assert.ok(html.includes("設定済み 3") && html.includes("未設定 2"), "全件を設定済み / 未設定に分けて出す");
   for (const name of ["Anthropic", "OpenAI", "Local", "ghost", "Stale"]) {
@@ -300,10 +303,10 @@ test("プロバイダータブは一覧と詳細を分け、平文の注意を�
   assert.ok(html.includes('type="password"'), "キー入力はマスクする");
   assert.match(
     html,
-    /<summary[^>]*>[\s\S]*キーとメモは平文で保存されます。ログインがないため公開しないでください。[\s\S]*<\/summary>/,
+    /<summary[^>]*>[\s\S]*キーは暗号化・メモは平文で保存されます。ログインがないため公開しないでください。[\s\S]*<\/summary>/,
     "畳んだ 1 行にキー・メモの保存と公開の注意を出す",
   );
-  assert.doesNotMatch(html, /<details\b[^>]*\sopen(?:[\s=>])/, "平文の注意は既定で畳む");
+  assert.doesNotMatch(html, /<details\b[^>]*\sopen(?:[\s=>])/, "注意は既定で畳む");
   assert.ok(html.includes("BFF をインターネットや LAN へ公開しないでください"), "展開で公開しない注意を読める");
   assert.ok(html.includes("キーの有効性は保存時に確認しません"));
   assert.ok(html.includes("キーを保存して「モデルを選ぶ」タブに戻ると"));
@@ -386,7 +389,7 @@ test("カスタム定義が無く通常 provider を選んでいても、専用�
   assert.ok(html.includes("Authorization: Bearer"), "キー必須 / ダミーの要点を出す");
   assert.ok(html.includes("信頼できる baseUrl"));
   // 通常 provider の詳細はこれまでどおり DB 保存の注意を持つ
-  assert.ok(html.includes("キーとメモは平文で保存されます"));
+  assert.ok(html.includes("キーは暗号化・メモは平文で保存されます"));
 });
 
 test("カスタムプロバイダーの詳細は専用フォームと注意を出し、通常のキー・メモ・再同期を出さない", () => {
@@ -816,7 +819,7 @@ test("provider 行にメモ欄と保存ボタンを出し、runtime 不可では
     html.includes("例: 個人アカウントの本番キー（2026-01 発行）"),
     "placeholder でキー本体を書かないよう誘導する",
   );
-  assert.ok(html.includes("メモも平文で保存され"), "メモが画面と API 応答に出ることを注記する");
+  assert.ok(html.includes("メモは平文で保存され"), "メモが画面と API 応答に出ることを注記する");
   assert.equal(html.includes("メモに未保存の変更があります"), false, "変更がなければ未保存の印を出さない");
   // キー入力の form と別にして、Enter がキーの保存を走らせないようにする
   assert.ok((html.match(/<form/g) ?? []).length >= 2, "メモは専用の form に分ける");
@@ -1081,4 +1084,29 @@ test("カタログ更新は両タブに出し、更新中・runtime 不可・カ
 
   const providers = render(modelSettings(), { modelsSubsection: "providers" });
   assert.ok(providers.includes("カタログ更新"), "プロバイダータブにも出す");
+});
+
+test("保存済みのキーを復号できないときは、サーバーの固定文言を詳細に出す", () => {
+  const message = "master key（U7AGENT_SECRET_MASTER_KEY）が未設定または不正なため、保存済みのキーを復号できません";
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [
+          provider({
+            managed: true,
+            keyAvailable: false,
+            keyEvaluated: true,
+            keyErrorMessage: message,
+            degraded: "apply",
+            auth: { configured: true, source: "runtime", environmentVariables: [] },
+          }),
+          ...SETTINGS.providers.slice(1),
+        ],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.ok(html.includes(message), "原因は推測せずサーバーの文言をそのまま出す");
+  assert.match(html, /role="alert"[^>]*>[^<]*master key/, "注意領域に出す");
 });

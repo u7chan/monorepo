@@ -251,7 +251,8 @@ export function ModelsTab({
           <section className="grid gap-1.5">
             <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">保存について</h3>
             <p className="text-2xs leading-relaxed text-ink-muted">
-              登録したキーはアプリのデータベース（SQLite）へ平文で保存され、「プロバイダー」タブからのみ変更できます。保存したキーは再表示しません。保存しても開いている会話のモデルは切り替わりません。
+              登録したキーは暗号化してアプリのデータベース（SQLite）へ保存され、「プロバイダー」タブからのみ変更できます。保存したキーは再表示しません。master
+              key（U7AGENT_SECRET_MASTER_KEY）が未設定の間は、保存済みのキーを使えません。保存しても開いている会話のモデルは切り替わりません。
             </p>
           </section>
         </div>

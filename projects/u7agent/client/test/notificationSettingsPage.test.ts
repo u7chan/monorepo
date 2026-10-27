@@ -22,7 +22,9 @@ const SETTINGS: NotificationsResponse = {
   askUser: true,
   provider: "discord",
   configured: true,
-  webhookHint: "a1b2",
+  webhookAvailable: true,
+  webhookEvaluated: true,
+  webhookErrorMessage: null,
   baseUrl: "http://localhost:5173",
 };
 
@@ -113,4 +115,24 @@ test("描画: 読み込みに失敗した枠には再読み込みを置かず、
   assert.ok(html.includes(RELOAD_ABOVE_NOTE), "上の [再読み込み] を案内する");
   assert.equal((html.match(/>再読み込み<\/button>/g) ?? []).length, 1, "再読み込みは帯に 1 つだけ");
   assert.equal(actionTag(html, "再読み込み").includes("disabled"), false, "未編集では押せる");
+});
+
+test("保存済みでも復号できない Webhook は、末尾の断片ではなく理由を出す", () => {
+  const html = render(
+    notifications({
+      settings: {
+        ...SETTINGS,
+        webhookAvailable: false,
+        webhookEvaluated: true,
+        webhookErrorMessage: "保存済みの Webhook URL を復号できません",
+      },
+    }),
+  );
+  assert.ok(html.includes("登録済み（利用できません）"), "登録済みかどうかだけを出す");
+  assert.ok(html.includes("保存済みの Webhook URL を復号できません"), "サーバーの固定文言をそのまま出す");
+  assert.doesNotMatch(html, /末尾 [A-Za-z0-9]{4}/, "URL の断片は出さない");
+  // 保存済みを「未登録」と誤読させない (未設定の注記は未保存のときだけ)
+  assert.equal(html.includes("Webhook URL が未設定です"), false);
+  // テスト送信は押せない (保存後に送れる状態ではない)
+  assert.match(actionTag(html, "テスト送信"), /disabled="/);
 });

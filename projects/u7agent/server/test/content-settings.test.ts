@@ -8,6 +8,7 @@ import {
   CONTENT_KEY_NOT_STORED_MESSAGE,
   CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE,
   CONTENT_PROVIDER_UNSUPPORTED_MESSAGE,
+  CONTENT_SPEECH_KEY_CONFLICT_MESSAGE,
   CONTENT_SETTINGS_NOT_STORED_MESSAGE,
   CONTENT_SETTINGS_RUNTIME_UNAVAILABLE_MESSAGE,
   CONTENT_SETTINGS_UNCONFIGURED_MESSAGE,
@@ -19,6 +20,13 @@ import { IMAGE_PROVIDER_ID, type ContentGenerationConfig } from "../src/images";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "../src/speech-catalog";
 import { bgmSettings, BGM_MODEL } from "../src/bgm";
+import { testAppCipher } from "./app-secret-fixture";
+import {
+  APP_SECRET_DECRYPT_FAILED_MESSAGE,
+  APP_SECRET_MASTER_KEY_MESSAGE,
+  APP_SECRET_NOT_STORED_MESSAGE,
+  APP_SECRET_UNEVALUATED_MESSAGE,
+} from "../src/app-secrets";
 
 const SPEECH_STUB = {
   provider: SPEECH_PROVIDER_ID,
@@ -41,6 +49,45 @@ function stubSpeechCatalog(): SpeechCatalog {
 }
 
 const KEY = "sk-image-dummy-key-0123456789abcdef";
+
+const CIPHER = testAppCipher();
+
+/** 平文キーを暗号化した保存形。保存値に平文が残っていないことを確かめるために使う */
+function secretOf(plaintext: string): Pick<ContentSettingsRow, "ciphertext" | "nonce" | "keyVersion"> {
+  const encrypted = CIPHER.encrypt("content_settings", "apiKey", plaintext);
+  return { ciphertext: encrypted.ciphertext, nonce: encrypted.nonce, keyVersion: encrypted.keyVersion };
+}
+
+/** 行の平文キー。暗号文は毎回変わるため、値の比較は復号してから行う */
+function storedKey(row: ContentSettingsRow | undefined): string | undefined {
+  if (!row || row.ciphertext === null || row.nonce === null || row.keyVersion === null) return undefined;
+  return CIPHER.decrypt("content_settings", "apiKey", {
+    ciphertext: row.ciphertext,
+    nonce: row.nonce,
+    keyVersion: row.keyVersion,
+  });
+}
+
+/** 行を期待値と比べる。暗号文 (nonce) は保存のたびに変わるので、復号した値と他の列だけを見る */
+function assertRow(
+  row: ContentSettingsRow | undefined,
+  expected: {
+    provider: string;
+    imageModel: string;
+    speechModel: string | null;
+    speechVoice: string | null;
+    enabled: boolean;
+    apiKey: string;
+  },
+): void {
+  assert.ok(row, "行が保存されている");
+  assert.equal(row.provider, expected.provider);
+  assert.equal(row.imageModel, expected.imageModel);
+  assert.equal(row.speechModel, expected.speechModel);
+  assert.equal(row.speechVoice, expected.speechVoice);
+  assert.equal(row.enabled, expected.enabled);
+  assert.equal(storedKey(row), expected.apiKey, "平文ではなく暗号文で保存する");
+}
 
 class FakeContentDb implements ContentSettingsDb {
   row: ContentSettingsRow | undefined;
@@ -115,6 +162,8 @@ function createService(
   options: {
     db?: FakeContentDb;
     runtimeAvailable?: boolean;
+    /** null は master key 未設定の起動を表す */
+    cipher?: ReturnType<typeof testAppCipher> | null;
     models?: { provider: string; id: string; name: string }[];
     outputFormats?: Record<string, string[]>;
     source?: ImageCatalogSnapshot["source"];
@@ -140,6 +189,7 @@ function createService(
       db.events.push(`inject:${config.enabled ? "on" : "off"}`);
     },
     maskError: (text) => text.split(KEY).join("[REDACTED]"),
+    appCipher: options.cipher === undefined ? CIPHER : options.cipher,
   });
   return { db, service, retained, configs, catalog: fake.state, latest: () => configs.at(-1) };
 }
@@ -153,6 +203,10 @@ test("GET は行が無いとき未設定を返し、キーを載せない", () =
   assert.deepEqual(service.settings(), {
     bgm: bgmSettings(false),
     configured: false,
+    keyStored: false,
+    keyAvailable: false,
+    keyEvaluated: true,
+    keyErrorMessage: null,
     provider: null,
     enabled: true,
     disabledMessage: CONTENT_DISABLED_MESSAGE,
@@ -206,7 +260,7 @@ test("キー登録はマスカー → DB → 注入の順に通し、行が無�
   assert.equal(outcome.response.provider, IMAGE_PROVIDER_ID);
   assert.equal(outcome.response.image.model, DEFAULT_IMAGE_MODEL);
   assert.equal(outcome.response.image.catalogSource, "live");
-  assert.deepEqual(db.row, {
+  assertRow(db.row, {
     provider: IMAGE_PROVIDER_ID,
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
@@ -265,11 +319,11 @@ test("キー上書きは選択済みの provider / model と有効 / 無効を�
     speechModel: null,
     speechVoice: null,
     enabled: false,
-    apiKey: "old-key",
+    ...secretOf("old-key"),
   };
   const outcome = await service.putKey(KEY);
   assert.equal(outcome.status, 200);
-  assert.deepEqual(db.row, {
+  assertRow(db.row, {
     provider: IMAGE_PROVIDER_ID,
     imageModel: "black-forest-labs/flux.2-max",
     speechModel: null,
@@ -289,8 +343,10 @@ test("有効 / 無効は行の 1 列で、キーと選択を保ったまま切�
     speechModel: null,
     speechVoice: null,
     enabled: true,
-    apiKey: KEY,
+    ...secretOf(KEY),
   };
+  // 起動時の適用を通して、メモリ上の復号結果を利用可にする
+  await service.applyStored();
 
   const off = await service.putEnabled(false);
   assert.equal(off.status, 200);
@@ -299,7 +355,7 @@ test("有効 / 無効は行の 1 列で、キーと選択を保ったまま切�
   assert.equal(off.response.enabled, false);
   assert.equal(off.response.configured, true, "OFF でも未設定にはしない");
   assert.equal(off.response.image.model, DEFAULT_IMAGE_MODEL, "モデルの選択を保つ");
-  assert.deepEqual(db.row, {
+  assertRow(db.row, {
     provider: IMAGE_PROVIDER_ID,
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
@@ -344,7 +400,7 @@ test("有効 / 無効の変更は行が無ければ 400、保存できなけれ�
     speechModel: null,
     speechVoice: null,
     enabled: true,
-    apiKey: KEY,
+    ...secretOf(KEY),
   };
   failing.db.failSave = true;
   assert.deepEqual(await failing.service.putEnabled(false), {
@@ -370,7 +426,7 @@ test("GET は有効 / 無効と、OFF の間にモデルへ返す固定文言を
     speechModel: null,
     speechVoice: null,
     enabled: false,
-    apiKey: KEY,
+    ...secretOf(KEY),
   };
   assert.equal(service.settings().enabled, false);
   assert.equal(service.settings().disabledMessage, CONTENT_DISABLED_MESSAGE);
@@ -395,8 +451,9 @@ test("provider / model の変更はキーを保持し、行が無い / provider 
     speechModel: null,
     speechVoice: null,
     enabled: true,
-    apiKey: KEY,
+    ...secretOf(KEY),
   };
+  await service.applyStored();
   await assert.rejects(async () => {
     try {
       await service.putSelection({ provider: "openai", model: DEFAULT_IMAGE_MODEL });
@@ -429,18 +486,14 @@ test("provider / model の変更はキーを保持し、行が無い / provider 
   assert.equal(outcome.status, 200);
   if (outcome.status !== 200) return;
   assert.equal(outcome.response.state, "applied");
-  assert.deepEqual(
-    db.row,
-    {
-      provider: IMAGE_PROVIDER_ID,
-      imageModel: DEFAULT_IMAGE_MODEL,
-      speechModel: null,
-      speechVoice: null,
-      enabled: true,
-      apiKey: KEY,
-    },
-    "キーを保つ",
-  );
+  assertRow(db.row, {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    enabled: true,
+    apiKey: KEY,
+  });
 });
 
 test("キー削除は行ごと消して注入を無効にし、未設定でも 200 を返す", async () => {
@@ -451,7 +504,7 @@ test("キー削除は行ごと消して注入を無効にし、未設定でも 2
     speechModel: null,
     speechVoice: null,
     enabled: true,
-    apiKey: KEY,
+    ...secretOf(KEY),
   };
   const first = await service.deleteKey();
   assert.equal(first.status, 200);
@@ -490,7 +543,7 @@ test("DB 失敗は 503 not_stored にして理由の分類だけを残す", asyn
     speechModel: null,
     speechVoice: null,
     enabled: true,
-    apiKey: KEY,
+    ...secretOf(KEY),
   };
   db.failRead = true;
   assert.deepEqual(await service.putKey(KEY), { status: 503, error: CONTENT_KEY_NOT_STORED_MESSAGE });
@@ -520,7 +573,7 @@ test("書込成功後の読取失敗でも applied を返す（not_stored と誤
   assert.equal(outcome.response.state, "applied");
   assert.equal(outcome.response.configured, true);
   assert.equal(outcome.response.provider, IMAGE_PROVIDER_ID);
-  assert.deepEqual(db.row, {
+  assertRow(db.row, {
     provider: IMAGE_PROVIDER_ID,
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
@@ -538,7 +591,7 @@ test("起動時の適用は行の有無を注入し、読めないときは無�
     speechModel: null,
     speechVoice: null,
     enabled: true,
-    apiKey: KEY,
+    ...secretOf(KEY),
   };
   await configured.service.applyStored();
   assert.equal(configured.latest()?.enabled, true);
@@ -577,4 +630,123 @@ test("起動時の適用は行の有無を注入し、読めないときは無�
   assert.equal(broken.latest()?.enabled, false, "読めないときは無効で立つ");
   assert.equal(broken.catalog.refreshes, 0, "行を確定できないときは取得しない");
   assert.ok(logged.join("\n").includes("content settings unavailable"), logged.join("\n"));
+});
+
+test("master key が無い起動でも、保存済みキーは「未設定」と混同せず、削除はできる", async () => {
+  const { service, db } = createService({ cipher: null });
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    enabled: true,
+    ...secretOf(KEY),
+  };
+  await service.applyStored();
+
+  const settings = service.settings();
+  assert.equal(settings.keyStored, true);
+  assert.equal(settings.keyAvailable, false);
+  assert.equal(settings.keyEvaluated, true, "復号を試せない既知の失敗として評価済みにする");
+  assert.equal(settings.keyErrorMessage, APP_SECRET_MASTER_KEY_MESSAGE);
+  assert.ok(!JSON.stringify(settings).includes(KEY));
+
+  // ツールは開かない (平文の代用もしない)
+  assert.equal(service.settings().configured, true);
+  const outcome = await service.putKey(KEY);
+  assert.deepEqual(outcome, { status: 503, error: APP_SECRET_NOT_STORED_MESSAGE });
+
+  // 復号が要らない削除は master key 無しでも通る
+  assert.equal((await service.deleteKey()).status, 200);
+  assert.equal(db.row, undefined);
+  assert.equal(service.settings().keyStored, false);
+});
+
+test("誤鍵・破損した暗号文は平文へ落とさず、固定文言で利用不可にする", async () => {
+  const { service, db } = createService();
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    enabled: true,
+    ciphertext: new Uint8Array([1, 2, 3, 4]),
+    nonce: new Uint8Array(12),
+    keyVersion: 1,
+  };
+  await service.applyStored();
+
+  const settings = service.settings();
+  assert.equal(settings.keyStored, true);
+  assert.equal(settings.keyAvailable, false);
+  assert.equal(settings.keyEvaluated, true);
+  assert.equal(settings.keyErrorMessage, APP_SECRET_DECRYPT_FAILED_MESSAGE);
+  assert.ok(!JSON.stringify(service.settings()).includes(KEY), "応答にキーを出さない");
+});
+
+test("runtime が無い起動では暗号文を復号せず、未評価として返す", async () => {
+  const { service, db } = createService({ runtimeAvailable: false });
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    enabled: true,
+    ...secretOf(KEY),
+  };
+  await service.applyStored();
+
+  const settings = service.settings();
+  assert.equal(settings.keyStored, true);
+  assert.equal(settings.keyAvailable, false);
+  assert.equal(settings.keyEvaluated, false, "誤鍵・破損と断定しない");
+  assert.equal(settings.keyErrorMessage, APP_SECRET_UNEVALUATED_MESSAGE);
+});
+
+test("保存済みの音声値が新しいキーを含むなら、キーの置換を拒否して平文を残さない", async () => {
+  const { service, db } = createService();
+  await service.putKey(KEY);
+  // 宣言が無いモデルなので自由記述を許す。次のキーと同じ値をボイスとして残す
+  const nextKey = "sk-image-rotated-key-0123456789";
+  assert.equal((await service.putSpeechSelection({ model: "fish/audio", voice: nextKey })).status, 200);
+
+  const before = db.row;
+  const rejected = await service.putKey(nextKey);
+  assert.equal(rejected.status, 400, "音声値に含まれるキーへは置換できない");
+  if (rejected.status === 400) {
+    assert.equal(rejected.error, CONTENT_SPEECH_KEY_CONFLICT_MESSAGE);
+    assert.ok(!rejected.error.includes(nextKey), "文言にキーを出さない");
+  }
+  assert.equal(db.row, before, "拒否した要求で保存値を書き換えない");
+  assert.equal(storedKey(db.row), KEY, "保存済みのキーは元のまま");
+});
+
+test("起動時の DB 読取に失敗したら未評価のまま残し、復旧後の GET で案内を出す", async () => {
+  const { service, db } = createService();
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    enabled: true,
+    ...secretOf(KEY),
+  };
+  db.failRead = true;
+  const logged: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+  try {
+    await service.applyStored();
+  } finally {
+    console.error = original;
+  }
+  assert.ok(logged.join("\n").includes("content settings unavailable"));
+
+  // DB が復旧しても、GET で復号はせず「まだ確認できていない」のまま返す
+  db.failRead = false;
+  const settings = service.settings();
+  assert.equal(settings.keyStored, true);
+  assert.equal(settings.keyAvailable, false);
+  assert.equal(settings.keyEvaluated, false);
+  assert.equal(settings.keyErrorMessage, APP_SECRET_UNEVALUATED_MESSAGE);
 });

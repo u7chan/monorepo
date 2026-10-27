@@ -13,13 +13,27 @@ import type { WebSearchProvider, WebSearchSettingsResponse } from "../src/types"
 /** API が返す文言（正は server/src/web-search-tool.ts）。画面は受け取った文字列をそのまま出す */
 const WEB_SEARCH_DISABLED_MESSAGE = "Web 検索は無効化されています。有効にするには 設定 → Web 検索 を開いてください。";
 
-const EXA: WebSearchProvider = { id: "exa", name: "Exa", host: "mcp.exa.ai", keyless: true, configured: true };
+const EXA: WebSearchProvider = {
+  id: "exa",
+  name: "Exa",
+  host: "mcp.exa.ai",
+  keyless: true,
+  configured: true,
+  keyStored: false,
+  keyAvailable: true,
+  keyEvaluated: true,
+  keyErrorMessage: null,
+};
 const TAVILY: WebSearchProvider = {
   id: "tavily",
   name: "Tavily",
   host: "api.tavily.com",
   keyless: false,
   configured: false,
+  keyStored: false,
+  keyAvailable: false,
+  keyEvaluated: true,
+  keyErrorMessage: null,
 };
 
 function settings(overrides: Partial<WebSearchSettingsResponse> = {}): WebSearchSettingsResponse {
@@ -82,7 +96,7 @@ test("provider は選択肢を一覧に出し、選んだ時点で既定にな�
   assert.match(html, /<button[^>]*aria-haspopup="listbox"/);
   assert.equal((html.match(/role="option"/g) ?? []).length, 2, "一覧に 2 つ並べる");
   assert.ok(html.includes("キー不要（keyless の共有エンドポイント）"), "行の説明にキーの要否を出す");
-  assert.ok(html.includes("APIキーが必要（平文で保存）"));
+  assert.ok(html.includes("APIキーが必要（暗号化して保存）"));
   assert.ok(html.includes("api.tavily.com"), "選択していない provider の送信先も一覧に出す");
   assert.ok(html.includes("選んだ時点で既定になり、保存されます。"));
   assert.ok(html.includes("他の provider へは自動で切り替えません"));
@@ -97,18 +111,46 @@ test("キー付きで未設定の provider では、キー入力と警告を出�
   assert.ok(html.includes("既定の Tavily のAPIキーが未設定です。"), "role=alert の警告文を出す");
   assert.match(html, /role="alert"[^>]*>既定の Tavily のAPIキーが未設定です。/);
   assert.ok(html.includes("8 文字以上で入力します"), "長さの下限を書く");
-  assert.ok(html.includes("平文で保存"), "保存方式を隠さない");
+  assert.ok(html.includes("暗号化して保存"), "保存方式を隠さない");
   assert.equal(html.includes("キー登録は不要です"), false, "keyless の説明は出さない");
   assert.equal(html.includes("削除"), false, "未設定では削除ボタンを出さない");
   assert.ok(html.includes("クエリは既定の Tavily（api.tavily.com）へ送信され"), "送信先を選択に追随させる");
 });
 
 test("キー付きで設定済みの provider では、上書きと削除を出す", () => {
-  const html = render(settings({ provider: "tavily", providers: [EXA, { ...TAVILY, configured: true }] }));
+  const html = render(
+    settings({
+      provider: "tavily",
+      providers: [EXA, { ...TAVILY, configured: true, keyStored: true, keyAvailable: true }],
+    }),
+  );
   assert.ok(html.includes(">設定済み<"));
   assert.ok(html.includes("上書き保存"));
   assert.ok(html.includes(">削除<"));
   assert.equal(html.includes("既定の Tavily のAPIキーが未設定です。"), false, "警告は出さない");
+});
+
+test("保存済みでも復号できないキーは、未設定と混同せず削除・再入力を出す", () => {
+  const html = render(
+    settings({
+      provider: "tavily",
+      providers: [
+        EXA,
+        {
+          ...TAVILY,
+          configured: true,
+          keyStored: true,
+          keyAvailable: false,
+          keyEvaluated: false,
+          keyErrorMessage: "保存済みのキーを復号できるかまだ確認できていません",
+        },
+      ],
+    }),
+  );
+  assert.ok(html.includes(">利用不可<"), "復号できないキーを設定済みと出さない");
+  assert.ok(html.includes("上書き保存"), "再入力の導線を残す");
+  assert.ok(html.includes(">削除<"), "削除の導線を残す");
+  assert.ok(html.includes("保存済みのキーを復号できるかまだ確認できていません"), "固定文言をそのまま出す");
 });
 
 test("データの流れと、無効でもツールが残ることを既定で畳んで出す", () => {

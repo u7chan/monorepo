@@ -549,7 +549,7 @@ export type SessionFileUpload = {
 };
 
 /**
- * 通知設定。Webhook URL は write-only で、応答には `configured` と末尾 4 文字しか載らない。
+ * 通知設定。Webhook URL は write-only で、応答には保存の有無（`configured`）と復号の状態（`webhookAvailable` / `webhookEvaluated` / `webhookErrorMessage`）だけを載せる。
  * テスト送信は保存済み設定で 1 通送り、Discord 側の失敗も結果 (ok: false) として 200 で返る。
  */
 export const getNotifications = async (): Promise<NotificationsResponse> => {

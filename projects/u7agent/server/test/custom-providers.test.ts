@@ -27,6 +27,8 @@ import {
 } from "../src/model-settings";
 import type { ModelRef } from "../src/schema";
 import { createSecretMasker } from "../src/redact";
+import type { StoredAppSecret } from "../src/app-db";
+import { testAppCipher } from "./app-secret-fixture";
 
 const KEY = "sk-custom-dummy-key-0123456789";
 
@@ -105,19 +107,20 @@ function fakeRuntime(
   return { service, calls, registered, builtins };
 }
 
-function fakeDb(): ModelSettingsDb & { credentials: Map<string, string>; memos: Map<string, string> } {
-  const credentials = new Map<string, string>();
+function fakeDb(): ModelSettingsDb & { credentials: Map<string, StoredAppSecret>; memos: Map<string, string> } {
+  const credentials = new Map<string, StoredAppSecret>();
   const memos = new Map<string, string>();
   return {
     credentials,
     memos,
-    listProviderCredentials: () => [...credentials].map(([provider, apiKey]) => ({ provider, apiKey, updatedAt: 1 })),
+    listProviderCredentials: () =>
+      [...credentials].map(([provider, secret]) => ({ provider, ...secret, updatedAt: 1 })),
     getProviderCredential: (provider) => {
-      const apiKey = credentials.get(provider);
-      return apiKey === undefined ? undefined : { provider, apiKey, updatedAt: 1 };
+      const secret = credentials.get(provider);
+      return secret === undefined ? undefined : { provider, ...secret, updatedAt: 1 };
     },
-    saveProviderCredential: (provider, apiKey) => {
-      credentials.set(provider, apiKey);
+    saveProviderCredential: (provider, secret) => {
+      credentials.set(provider, secret);
     },
     deleteProviderCredential: (provider) => credentials.delete(provider),
     listProviderMemos: () => [...memos].map(([provider, memo]) => ({ provider, memo })),
@@ -153,6 +156,7 @@ function serviceWith(
     refreshModelState: async () => {},
     setModelSelection: () => {},
     ignoredEnvironmentVariables: [],
+    appCipher: testAppCipher(),
     ...(options.probeFetch === undefined ? {} : { probeFetch: options.probeFetch }),
     ...(options.probeTimeoutMs === undefined ? {} : { probeTimeoutMs: options.probeTimeoutMs }),
   });
@@ -375,7 +379,7 @@ test("作成は built-in / models.json の provider と id が衝突したら 40
 
 test("保存済みのキー / メモの行がある id では作成せず、行の削除を促す 400 にする", async () => {
   const { service, runtime, db } = serviceWith();
-  db.credentials.set("local-llm", KEY);
+  db.credentials.set("local-llm", testAppCipher().encrypt("provider_credentials", "local-llm", KEY));
   await assert.rejects(
     () => service.createCustomProvider(createInput()),
     (error: unknown) => {

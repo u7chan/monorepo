@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   deleteContentKeyConfirmRequest,
   imageCatalogNotice,
+  contentKeyErrorNotice,
   contentKeyStatusBadge,
   imageModelOptions,
   imageModelSelection,
@@ -90,6 +91,7 @@ export function ContentSettingsTab({
   const busy = saving !== null;
   const runtimeAvailable = settings.runtimeAvailable;
   const providerName = contentProviderLabel(settings.provider);
+  const keyError = contentKeyErrorNotice(settings);
 
   // 未設定へ戻ったら下書きを捨てる。面の unmount で消えていた挙動を持ち上げた側で明示的に保つ
   if (!settings.configured && (imageDraft !== null || speechDraft.model !== null || speechDraft.voice !== null)) {
@@ -116,7 +118,7 @@ export function ContentSettingsTab({
           <ProviderIcon provider={contentProviderId(settings.provider)} name={providerName} variant="heading" />
           <h2 className="text-md font-semibold text-ink-strong">{providerName}</h2>
           <code className="text-2xs text-ink-ghost">{contentProviderId(settings.provider)}</code>
-          <ProviderBadgeTag badge={contentKeyStatusBadge(settings.configured)} />
+          <ProviderBadgeTag badge={contentKeyStatusBadge(settings.keyStored, settings.keyAvailable)} />
           <MetaChip>画像 {settings.image.models.length}</MetaChip>
           <MetaChip>音声 {settings.speech.models.length}</MetaChip>
         </section>
@@ -126,6 +128,12 @@ export function ContentSettingsTab({
           </p>
         )}
         <SecurityNotice />
+        {keyError ? (
+          // 未評価 / 復号失敗 / master key 未設定の文言はサーバーが返したものをそのまま出す
+          <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
+            {keyError}
+          </p>
+        ) : null}
 
         {/* 実行時トグルはタブの外に置く。画像・音声・BGM は同じキー / 課金を共有するので 1 つに閉じる */}
         {settings.configured ? (
@@ -176,9 +184,7 @@ export function ContentSettingsTab({
                 className="field min-w-0 flex-1 text-xs"
                 type="password"
                 value={apiKey}
-                placeholder={
-                  settings.configured ? "新しいコンテンツ生成のAPIキー（上書き）" : "コンテンツ生成のAPIキー"
-                }
+                placeholder={settings.keyStored ? "新しいコンテンツ生成のAPIキー（上書き）" : "コンテンツ生成のAPIキー"}
                 aria-label="コンテンツ生成のAPIキー"
                 autoComplete="off"
                 spellCheck={false}
@@ -187,10 +193,10 @@ export function ContentSettingsTab({
               />
               <button type="submit" className="btn-primary" disabled={!runtimeAvailable || busy || apiKey.length === 0}>
                 <CheckIcon />
-                {settings.configured ? "上書き保存" : "保存"}
+                {settings.keyStored ? "上書き保存" : "保存"}
               </button>
             </form>
-            {settings.configured ? (
+            {settings.keyStored ? (
               <button
                 type="button"
                 className="btn-quiet"
@@ -490,12 +496,13 @@ function SpeechSection({
   );
 }
 
-/** キーが平文で保存されることと、BFF を公開しない注意。詳細の上部に既定で畳んで出す */
+/** キーを暗号化して保存することと、BFF を公開しない注意。詳細の上部に既定で畳んで出す */
 function SecurityNotice() {
   return (
-    <CollapsibleNotice summary="キーは平文で保存されます。ログインがないため公開しないでください。">
+    <CollapsibleNotice summary="キーは暗号化して保存されます。ログインがないため公開しないでください。">
       <p>
-        登録したキーはアプリのデータベース（SQLite）へ平文で保存され、再起動後も使われます。保存したキーは再表示しません。
+        登録したキーは暗号化してアプリのデータベース（SQLite）へ保存され、再起動後も使われます。保存したキーは再表示しません。
+        master key（U7AGENT_SECRET_MASTER_KEY）が未設定の間は、保存済みのキーを使えません。
       </p>
       <p>この GUI にはログインがありません。BFF をインターネットや LAN へ公開しないでください。</p>
       <p>キーの有効性は保存時に確認しません。生成に失敗したときは、キーの誤りや残高不足の可能性があります。</p>

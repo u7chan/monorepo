@@ -4,7 +4,16 @@
  * degraded (保存済み・未反映) として記録して resync / 次回変更 / 再起動で収束させる (補償ロールバックは持たない)。
  * 契約と残存リスクは docs/model-settings.md を正とする。
  */
-import type { ModelSettingsRow, ProviderCredentialRow, ProviderMemoRow } from "./app-db";
+import type { ModelSettingsRow, ProviderCredentialRow, ProviderMemoRow, StoredAppSecret } from "./app-db";
+import {
+  APP_SECRET_NOT_STORED_MESSAGE,
+  appSecretAvailable,
+  appSecretFailed,
+  appSecretMasterKeyMissing,
+  appSecretNotStored,
+  appSecretUnevaluated,
+  type AppSecretState,
+} from "./app-secrets";
 import { sanitizeRuntimeAuth, type ModelCatalogRefreshAttempt, type RuntimeAuthStatusLike } from "./agent";
 import { CUSTOM_PROVIDER_PROBE_TIMEOUT_MS, probeCustomProviderModels } from "./custom-provider-probe";
 import {
@@ -31,6 +40,7 @@ import {
   type CustomProviderUpdateInput,
 } from "./custom-providers";
 import { httpError, messageFor } from "./http";
+import type { AppSecretCipher } from "./secret-crypto";
 import {
   PROVIDER_API_KEY_MIN_LENGTH,
   RUNTIME_MODELS_UNAVAILABLE_MESSAGE,
@@ -109,7 +119,8 @@ export interface ProviderKeyRuntime {
 export interface ModelSettingsDb {
   listProviderCredentials(): ProviderCredentialRow[];
   getProviderCredential(provider: string): ProviderCredentialRow | undefined;
-  saveProviderCredential(provider: string, apiKey: string, updatedAt: number): void;
+  /** 値は暗号化済みの保存形だけを渡す (平文は DB へ書かない) */
+  saveProviderCredential(provider: string, secret: StoredAppSecret, updatedAt: number): void;
   deleteProviderCredential(provider: string): boolean;
   /** 行が無ければ undefined = 未設定。空文字の行も未設定として返す */
   listProviderMemos(): ProviderMemoRow[];
@@ -140,6 +151,8 @@ export interface ModelSettingsOptions {
   retainSecret: (value: string) => void;
   /** health / ログへ出す前の文言境界 (可変マスカー) */
   maskError: (text: string) => string;
+  /** アプリ DB のキー用の AEAD。master key が無い / 不正なときは null で、保存と復号を拒否する */
+  appCipher?: AppSecretCipher | null;
   /**
    * 公開 state の再計算。例外を出さない契約。`signal` は取得と同じ期限で、期限切れの結果で state を差し替えない
    * (取得の失敗と読み取りの中断を混ぜず、一覧を現在値のまま保つため)。
@@ -280,9 +293,15 @@ export class ModelSettingsService {
   #probeFetch: typeof fetch | undefined;
   #catalogTimeoutMs: number;
   #oauthLogin: { stateOf(provider: string): OAuthLoginState | null } | null;
+  #appCipher: AppSecretCipher | null;
   #lock = new MutationLock();
   /** このプロセスのメモリだけが持つ未反映の印。再起動で消える */
   #degraded = new Map<string, "apply" | "remove">();
+  /**
+   * 保存済みキーの復号結果。起動時と保存 / 置換 / 再同期のときだけ更新し、GET では復号しない。
+   * 行があるのに載っていない provider は「未評価」として返す (起動時に DB を読めなかった場合)。
+   */
+  #secretStates = new Map<string, AppSecretState>();
   /** カスタムプロバイダーの定義。DB を持たず、再起動で空から始まる */
   #customProviders = new CustomProviderStore();
 
@@ -299,6 +318,7 @@ export class ModelSettingsService {
     this.#probeFetch = options.probeFetch;
     this.#catalogTimeoutMs = options.catalogTimeoutMs ?? MODEL_CATALOG_REFRESH_TIMEOUT_MS;
     this.#oauthLogin = options.oauthLogin ?? null;
+    this.#appCipher = options.appCipher ?? null;
   }
 
   /**
@@ -340,24 +360,36 @@ export class ModelSettingsService {
         await this.#refresh();
         return;
       }
-      // SDK へ渡す前に全行を保護対象へ入れる (orphan / 不正値 / 適用失敗でも保持する)
-      for (const row of rows) this.#retainSecret(row.apiKey);
+      // 復号は SDK 適用より先に全行を済ませる (マスカーへ登録してから SDK へ渡す順序を崩さない)
       const catalog = new Set(this.#runtime.list().map((entry) => entry.provider));
+      const applyable: { provider: string; apiKey: string }[] = [];
       for (const row of rows) {
-        if (row.apiKey.length < PROVIDER_API_KEY_MIN_LENGTH || !catalog.has(row.provider)) {
+        // 復号に成功した行だけを SDK へ渡す。復号できない行は平文で代用せず、復号結果をメモリに残す
+        const { apiKey, state } = this.#decryptRow(row);
+        if (!apiKey) {
+          this.#degraded.set(row.provider, "apply");
+          console.warn(
+            `[u7agent] provider key unavailable: ${row.provider} (${state.keyEvaluated ? "failed" : "unevaluated"})`,
+          );
+          continue;
+        }
+        if (apiKey.length < PROVIDER_API_KEY_MIN_LENGTH || !catalog.has(row.provider)) {
           this.#degraded.set(row.provider, "apply");
           continue;
         }
+        applyable.push({ provider: row.provider, apiKey });
+      }
+      for (const { provider, apiKey } of applyable) {
         const commit = await applyWithRetry(() =>
-          this.#runtime!.applyApiKey(row.provider, row.apiKey, { signal: AbortSignal.timeout(this.#timeoutMs) }),
+          this.#runtime!.applyApiKey(provider, apiKey, { signal: AbortSignal.timeout(this.#timeoutMs) }),
         );
         if (commitSucceeded(commit)) {
-          this.#degraded.delete(row.provider);
+          this.#degraded.delete(provider);
           continue;
         }
-        this.#degraded.set(row.provider, "apply");
+        this.#degraded.set(provider, "apply");
         // 値・cause は出さず、provider id と分類だけを残す
-        console.warn(`[u7agent] provider key apply deferred: ${row.provider} (${commit.outcome})`);
+        console.warn(`[u7agent] provider key apply deferred: ${provider} (${commit.outcome})`);
       }
       await this.#refresh();
     });
@@ -465,14 +497,23 @@ export class ModelSettingsService {
       if (!entry?.canSetApiKey) throw httpError(400, PROVIDER_KEY_TARGET_MESSAGE);
       // マスカーへの登録は SDK / DB より前。ここが失敗しても保護対象だけは残す
       this.#retainSecret(apiKey);
+      let secret: StoredAppSecret;
+      try {
+        secret = this.#requireCipher().encrypt("provider_credentials", provider, apiKey);
+      } catch {
+        // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
+        console.warn(`[u7agent] provider key encryption failed: ${provider}`);
+        return this.#notStored(APP_SECRET_NOT_STORED_MESSAGE);
+      }
       try {
         // 保存日時は DB を持つ (最終使用は保存しない)。projects.createdAt と同じく呼び出し側で作る
-        this.#db.saveProviderCredential(provider, apiKey, Date.now());
+        this.#db.saveProviderCredential(provider, secret, Date.now());
       } catch {
         // DB の理由は AppDb の境界がマスクして記録する。ここは provider と操作の分類だけに絞る
         console.warn(`[u7agent] provider key save failed: ${provider}`);
         return this.#notStored();
       }
+      this.#secretStates.set(provider, appSecretAvailable());
       const commit = await applyWithRetry(() =>
         this.#runtime!.applyApiKey(provider, apiKey, { signal: AbortSignal.timeout(this.#timeoutMs) }),
       );
@@ -499,6 +540,8 @@ export class ModelSettingsService {
         console.warn(`[u7agent] provider key delete failed: ${provider}`);
         return this.#notStored();
       }
+      // 復号は不要 (暗号文を読まない)。キャッシュは「未保存」へ戻す
+      this.#secretStates.delete(provider);
       const commit = await applyWithRetry(() =>
         this.#runtime!.removeApiKey(provider, { signal: AbortSignal.timeout(this.#timeoutMs) }),
       );
@@ -628,12 +671,22 @@ export class ModelSettingsService {
         console.warn(`[u7agent] provider credential read failed: ${provider}`);
         return this.#notStored();
       }
+      if (row) {
+        // 再同期は復号を評価し直す機会でもある (GET は復号しない)
+        const { apiKey } = this.#decryptRow(row);
+        if (!apiKey) {
+          this.#degraded.set(provider, "apply");
+          return this.#appliedUnsynced(provider, "apply");
+        }
+        const commit = await applyWithRetry(() =>
+          this.#runtime!.applyApiKey(provider, apiKey, { signal: AbortSignal.timeout(this.#timeoutMs) }),
+        );
+        return this.#settle(provider, commit, "apply");
+      }
       const commit = await applyWithRetry(() =>
-        row
-          ? this.#runtime!.applyApiKey(provider, row.apiKey, { signal: AbortSignal.timeout(this.#timeoutMs) })
-          : this.#runtime!.removeApiKey(provider, { signal: AbortSignal.timeout(this.#timeoutMs) }),
+        this.#runtime!.removeApiKey(provider, { signal: AbortSignal.timeout(this.#timeoutMs) }),
       );
-      return this.#settle(provider, commit, row ? "apply" : "remove");
+      return this.#settle(provider, commit, "remove");
     });
   }
 
@@ -656,8 +709,13 @@ export class ModelSettingsService {
         return;
       }
       if (!row) return;
+      const { apiKey } = this.#decryptRow(row);
+      if (!apiKey) {
+        this.#degraded.set(provider, "apply");
+        return;
+      }
       const commit = await applyWithRetry(() =>
-        this.#runtime!.applyApiKey(provider, row.apiKey, { signal: AbortSignal.timeout(this.#timeoutMs) }),
+        this.#runtime!.applyApiKey(provider, apiKey, { signal: AbortSignal.timeout(this.#timeoutMs) }),
       );
       if (commitSucceeded(commit)) this.#degraded.delete(provider);
       else this.#degraded.set(provider, "apply");
@@ -717,19 +775,24 @@ export class ModelSettingsService {
     try {
       return { status: 200, response: { ...this.settings(), state: succeeded ? "applied" : "applied_unsynced" } };
     } catch {
-      // DTO を組めない = クライアントへ反映を確認できない。not_stored とは言わず、未同期として回復導線を残す
-      this.#degraded.set(provider, operation);
-      // managed (= DB に行がある) を補えるのは apply だけ。apply は直前の書込/読取で行の存在が確定しているが、
-      // remove は削除が確定済みなので、ここで保存済みとして返すと [削除] が残り再削除が 400 になる。
-      const assumedManaged = operation === "apply" ? provider : undefined;
-      return {
-        status: 200,
-        response: {
-          ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), assumedManaged),
-          state: "applied_unsynced",
-        },
-      };
+      return this.#appliedUnsynced(provider, operation);
     }
+  }
+
+  /**
+   * DTO を組めない / 復号できないときに、変更を not_stored と言わず未同期として回復導線を残す。
+   * managed (= DB に行がある) を補えるのは apply だけ。remove は削除が確定済みなので補わない。
+   */
+  #appliedUnsynced(provider: string, operation: "apply" | "remove"): MutationOutcome {
+    this.#degraded.set(provider, operation);
+    const assumedManaged = operation === "apply" ? provider : undefined;
+    return {
+      status: 200,
+      response: {
+        ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), assumedManaged),
+        state: "applied_unsynced",
+      },
+    };
   }
 
   /** refresh は例外を出さない契約だが、実装差で lock を壊さないようここでも囲む */
@@ -841,6 +904,34 @@ export class ModelSettingsService {
     return this.#notStored(error);
   }
 
+  #requireCipher(): AppSecretCipher {
+    if (!this.#appCipher) throw new Error(APP_SECRET_NOT_STORED_MESSAGE);
+    return this.#appCipher;
+  }
+
+  /**
+   * 保存行を復号し、結果をメモリのキャッシュへ残す。復号した値は SDK へ渡す前に保護対象へ入れる。
+   * 平文へは落とさず、失敗は固定文言の状態として返す。
+   */
+  #decryptRow(row: ProviderCredentialRow): { apiKey: string | null; state: AppSecretState } {
+    if (!this.#appCipher) {
+      const state = appSecretMasterKeyMissing();
+      this.#secretStates.set(row.provider, state);
+      return { apiKey: null, state };
+    }
+    try {
+      const apiKey = this.#appCipher.decrypt("provider_credentials", row.provider, row);
+      this.#retainSecret(apiKey);
+      const state = appSecretAvailable();
+      this.#secretStates.set(row.provider, state);
+      return { apiKey, state };
+    } catch {
+      const state = appSecretFailed();
+      this.#secretStates.set(row.provider, state);
+      return { apiKey: null, state };
+    }
+  }
+
   /** 保存値の読取。行が無ければ未設定 (制限なし・既定なし) */
   #readSelection(): StoredModelSelection {
     const row = this.#db.readModelSettings();
@@ -887,6 +978,9 @@ export class ModelSettingsService {
       managed.has(provider) ? (updatedAtOf.get(provider) ?? null) : null;
     const providers = new Map<string, ProviderAuthSetting>();
     const customIds = new Set(this.#customProviders.ids());
+    // 行があるのにキャッシュに無い provider は「保存済みだが復号をまだ確認していない」= 未評価
+    const keyStateOf = (provider: string): AppSecretState =>
+      managed.has(provider) ? (this.#secretStates.get(provider) ?? appSecretUnevaluated()) : appSecretNotStored();
     for (const entry of this.#runtime?.list() ?? []) {
       providers.set(
         entry.provider,
@@ -904,6 +998,7 @@ export class ModelSettingsService {
           },
           memoOf.get(entry.provider),
           keyUpdatedAtOf(entry.provider),
+          keyStateOf(entry.provider),
           entry.oauthLoginLabel,
           customIds.has(entry.provider),
         ),
@@ -928,6 +1023,7 @@ export class ModelSettingsService {
           },
           memoOf.get(row.provider),
           keyUpdatedAtOf(row.provider),
+          keyStateOf(row.provider),
           null,
           customIds.has(row.provider),
         ),
@@ -952,6 +1048,7 @@ export class ModelSettingsService {
           },
           row.memo,
           keyUpdatedAtOf(row.provider),
+          keyStateOf(row.provider),
           null,
           customIds.has(row.provider),
         ),
@@ -976,6 +1073,7 @@ export class ModelSettingsService {
           },
           memoOf.get(provider),
           keyUpdatedAtOf(provider),
+          keyStateOf(provider),
           null,
           customIds.has(provider),
         ),
@@ -1007,6 +1105,8 @@ export class ModelSettingsService {
     },
     memo: string | undefined,
     keyUpdatedAt: number | null,
+    /** 保存済みキーの復号結果。行が無い provider は未保存として扱う */
+    secretState: AppSecretState,
     /** provider の `oauth.loginLabel`。カタログ外の provider は OAuth の表示名を知らないため null */
     oauthLoginLabel: string | null,
     /** 設定 → モデルで作ったカスタムプロバイダー (OAuth の対象外) */
@@ -1033,6 +1133,9 @@ export class ModelSettingsService {
       ...(degraded ? { degraded } : {}),
       memo: memo ?? null,
       keyUpdatedAt,
+      keyAvailable: flags.managed && secretState.keyAvailable,
+      keyEvaluated: flags.managed ? secretState.keyEvaluated : true,
+      keyErrorMessage: flags.managed ? secretState.keyErrorMessage : null,
     };
   }
 

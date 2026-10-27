@@ -768,24 +768,22 @@ export const NotificationResultSchema = z.object({
 });
 export type NotificationResult = z.infer<typeof NotificationResultSchema>;
 
-/** アプリデータの SQLite に保存する通知設定。webhookUrl は API 応答へ出さない (write-only) */
-export const NotificationSettingsSchema = z.object({
-  enabled: z.boolean(),
-  /** 質問通知。全体通知が ON のときだけ効く (会話ごとの notify は本文の有無を決める) */
-  askUser: z.boolean(),
-  webhookUrl: z.string().optional(),
-  baseUrl: z.string().optional(),
-  lastResult: NotificationResultSchema.optional(),
-});
-export type NotificationSettings = z.infer<typeof NotificationSettingsSchema>;
-
-/** GET / PUT `/api/notifications` の応答。保存済み URL は `configured` と末尾 4 文字だけを返す */
+/**
+ * GET / PUT `/api/notifications` の応答。保存済み URL もその断片も返さない (write-only)。
+ * `configured` は暗号文の有無、`webhookAvailable` は復号できて送信に使えるかで、`webhookEvaluated` は
+ * 「復号を試したか」を表す (未評価を誤鍵・破損と断定しない)。
+ */
 export const NotificationsResponseSchema = z.object({
   enabled: z.boolean(),
   askUser: z.boolean(),
   provider: z.literal("discord"),
   configured: z.boolean(),
-  webhookHint: z.string().optional(),
+  /** Webhook URL を復号でき、送信に使える */
+  webhookAvailable: z.boolean(),
+  /** 復号を評価済みか。false は「まだ確認できていない」で、失敗とは区別する */
+  webhookEvaluated: z.boolean(),
+  /** 未評価 / 復号失敗の固定文言。使えるときと未設定のときは null */
+  webhookErrorMessage: z.string().nullable(),
   baseUrl: z.string().optional(),
   lastResult: NotificationResultSchema.optional(),
 });
@@ -922,6 +920,15 @@ export const ProviderAuthSettingSchema = z.object({
   managed: z.boolean(),
   /** provider_credentials.updatedAt (epoch ms)。null = 行が無い / 移行前の行で不明 */
   keyUpdatedAt: z.number().nullable(),
+  /** 保存済みのキーを復号でき、SDK へ適用できる。managed でも false になり得る */
+  keyAvailable: z.boolean(),
+  /**
+   * 復号を評価済みか。`managed: true` / `keyEvaluated: false` は「保存済みだが復号をまだ確認していない」で、
+   * 誤鍵・破損と断定しない。評価は起動・保存 / 置換・再同期・再起動でだけ行い、GET では行わない。
+   */
+  keyEvaluated: z.boolean(),
+  /** 未評価 / 復号失敗の固定文言。使えるときと未保存のときは null */
+  keyErrorMessage: z.string().nullable(),
   /** auth.apiKey.login を持ち、この画面からキーを登録できる */
   canSetApiKey: z.boolean(),
   supportsOAuth: z.boolean(),
@@ -1205,6 +1212,14 @@ export type ContentBgmSettings = z.infer<typeof ContentBgmSettingsSchema>;
 export const ContentSettingsResponseSchema = z.object({
   configured: z.boolean(),
   provider: z.string().nullable(),
+  /** キーの暗号文がある (復号できるかは keyAvailable) */
+  keyStored: z.boolean(),
+  /** キーを復号でき、生成ツールへ渡せる。「設定行がある」「enabled」「keyAvailable」の積が公開ゲート */
+  keyAvailable: z.boolean(),
+  /** 復号を評価済みか。false は未評価で、失敗とは区別する */
+  keyEvaluated: z.boolean(),
+  /** 未評価 / 復号失敗の固定文言。使えるときと未設定のときは null */
+  keyErrorMessage: z.string().nullable(),
   /** 画像・音声・BGM の 3 ツール共通の実行時トグル。行が無ければ true（既定） */
   enabled: z.boolean(),
   /** 画面が同じ文言を出すため、ツールが OFF の間に返す固定文言も応答に載せる */
@@ -2493,6 +2508,14 @@ export const WebSearchProviderSchema = z.object({
   keyless: z.boolean(),
   /** キーが登録済みか。keyless の provider は常に true */
   configured: z.boolean(),
+  /** APIキーの暗号文がある。keyless は常に false */
+  keyStored: z.boolean(),
+  /** キーを復号でき、検索に使える。keyless は常に true */
+  keyAvailable: z.boolean(),
+  /** 復号を評価済みか。keyless は常に true */
+  keyEvaluated: z.boolean(),
+  /** 未評価 / 復号失敗の固定文言。使えるときと未保存のときは null */
+  keyErrorMessage: z.string().nullable(),
 });
 export type WebSearchProvider = z.infer<typeof WebSearchProviderSchema>;
 

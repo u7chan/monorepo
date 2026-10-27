@@ -5,6 +5,8 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import { encryptedSecret, TEST_MASTER_KEY } from "./app-secret-fixture";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
 import {
@@ -18,6 +20,9 @@ import {
   CUSTOM_PROVIDER_STORED_ROWS_MESSAGE,
 } from "../src/custom-providers";
 import { asPiBff, createStubPi, type StubPiOptions } from "./stub-pi";
+
+// アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
+process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const KEY = "sk-custom-dummy-key-0123456789";
 const NEW_KEY = "sk-custom-dummy-key-new-0123456789";
@@ -445,9 +450,12 @@ test("孤立したキー / メモの行がある id では作成を 400 にし�
     try {
       const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
       try {
+        const secret = encryptedSecret("provider_credentials", "local-llm", KEY);
         raw
-          .prepare("INSERT INTO provider_credentials (provider, apiKey, updatedAt) VALUES (?, ?, ?)")
-          .run("local-llm", KEY, Date.now());
+          .prepare(
+            "INSERT INTO provider_credentials (provider, ciphertext, nonce, keyVersion, updatedAt) VALUES (?, ?, ?, ?, ?)",
+          )
+          .run("local-llm", secret.ciphertext, secret.nonce, secret.keyVersion, Date.now());
         raw.prepare("INSERT INTO provider_memos (provider, memo) VALUES (?, ?)").run("lab", "以前のメモ");
       } finally {
         raw.close();

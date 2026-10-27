@@ -6,12 +6,13 @@ import test from "node:test";
 import type { WebSearchProvider } from "../src/types";
 import {
   deleteWebSearchKeyConfirmRequest,
-  WEB_SEARCH_KEY_PLAINTEXT_NOTE,
+  WEB_SEARCH_KEY_ENCRYPTED_NOTE,
   WEB_SEARCH_NO_LOGIN_NOTE,
   WEB_SEARCH_SETTINGS_NOTE,
   WEB_SEARCH_TOOL_NAME,
   webSearchDataFlowNotice,
   webSearchKeyBadge,
+  webSearchKeyErrorNotice,
   webSearchKeyDeletedNote,
   webSearchKeyMissingNotice,
   webSearchKeySavedNote,
@@ -23,13 +24,27 @@ import {
   webSearchStatusBadge,
 } from "../src/lib/webSearchSettings";
 
-const EXA: WebSearchProvider = { id: "exa", name: "Exa", host: "mcp.exa.ai", keyless: true, configured: true };
+const EXA: WebSearchProvider = {
+  id: "exa",
+  name: "Exa",
+  host: "mcp.exa.ai",
+  keyless: true,
+  configured: true,
+  keyStored: false,
+  keyAvailable: true,
+  keyEvaluated: true,
+  keyErrorMessage: null,
+};
 const TAVILY: WebSearchProvider = {
   id: "tavily",
   name: "Tavily",
   host: "api.tavily.com",
   keyless: false,
   configured: false,
+  keyStored: false,
+  keyAvailable: false,
+  keyEvaluated: true,
+  keyErrorMessage: null,
 };
 
 const BASE = { provider: "exa" as const, providers: [EXA, TAVILY] };
@@ -53,18 +68,27 @@ test("表示する provider は既定に追随し、未知の値でも先頭へ�
 test("選択肢は送信先とキーの要否を選ぶ前に読ませる", () => {
   assert.deepEqual(webSearchProviderOptions([EXA, TAVILY]), [
     { value: "exa", label: "Exa", detail: "mcp.exa.ai", description: "キー不要（keyless の共有エンドポイント）" },
-    { value: "tavily", label: "Tavily", detail: "api.tavily.com", description: "APIキーが必要（平文で保存）" },
+    { value: "tavily", label: "Tavily", detail: "api.tavily.com", description: "APIキーが必要（暗号化して保存）" },
   ]);
   assert.deepEqual(
-    webSearchProviderOptions([{ ...TAVILY, configured: true }])[0].description,
-    "APIキー設定済み（平文で保存）",
+    webSearchProviderOptions([{ ...TAVILY, configured: true, keyStored: true, keyAvailable: true }])[0].description,
+    "APIキー設定済み（暗号化して保存）",
   );
 });
 
-test("キーの状態バッジは keyless を固定にし、キー付きは設定済み / 未設定を分ける", () => {
+test("キーの状態バッジは keyless を固定にし、キー付きは保存と利用可否を分ける", () => {
   assert.deepEqual(webSearchKeyBadge(EXA), { label: "キー不要", tone: "muted" });
   assert.deepEqual(webSearchKeyBadge(TAVILY), { label: "未設定", tone: "muted" });
-  assert.deepEqual(webSearchKeyBadge({ ...TAVILY, configured: true }), { label: "設定済み", tone: "ok" });
+  assert.deepEqual(webSearchKeyBadge({ ...TAVILY, configured: true, keyStored: true, keyAvailable: true }), {
+    label: "設定済み",
+    tone: "ok",
+  });
+  // 保存済みでも復号できないキーは「設定済み」と出さない
+  assert.deepEqual(
+    webSearchKeyBadge({ ...TAVILY, configured: true, keyStored: true, keyAvailable: false }),
+    { label: "利用不可", tone: "warn" },
+    "復号できないキーを設定済みと表示しない",
+  );
 });
 
 test("データの流れは、実行したときだけ外へ出ることを明示する", () => {
@@ -85,7 +109,7 @@ test("折りたたみの 1 行は、そのまま送信先とキーの保存を�
   );
   assert.equal(
     webSearchNoticeSummary(TAVILY, true),
-    "web_search ツールの実行時にだけ、クエリは Tavily（api.tavily.com）へ送信されます。キーは平文で保存されます。",
+    "web_search ツールの実行時にだけ、クエリは Tavily（api.tavily.com）へ送信されます。キーは暗号化して保存されます。",
   );
   assert.equal(
     webSearchNoticeSummary(TAVILY, false),
@@ -95,10 +119,29 @@ test("折りたたみの 1 行は、そのまま送信先とキーの保存を�
 
 test("キー未設定の警告は、キー付きで未設定のときだけ出す", () => {
   assert.equal(webSearchKeyMissingNotice(EXA), null);
-  assert.equal(webSearchKeyMissingNotice({ ...TAVILY, configured: true }), null);
+  assert.equal(webSearchKeyMissingNotice({ ...TAVILY, configured: true, keyStored: true, keyAvailable: true }), null);
   assert.equal(
     webSearchKeyMissingNotice(TAVILY),
     "既定の Tavily のAPIキーが未設定です。この状態で検索するとキー無効エラーになります。",
+  );
+  // 保存済みだが復号できないときは、未設定と混同せずサーバーの固定文言を出す
+  assert.equal(
+    webSearchKeyMissingNotice({ ...TAVILY, keyStored: true, keyAvailable: false, keyErrorMessage: "復号できません" }),
+    "復号できません",
+  );
+});
+
+test("保存済みのキーを使えない理由は、サーバーの固定文言をそのまま出す", () => {
+  assert.equal(webSearchKeyErrorNotice(EXA), null);
+  assert.equal(webSearchKeyErrorNotice(TAVILY), null);
+  assert.equal(
+    webSearchKeyErrorNotice({ ...TAVILY, keyStored: true, keyAvailable: true, keyErrorMessage: "使えない" }),
+    null,
+    "使えるキーには警告を出さない",
+  );
+  assert.equal(
+    webSearchKeyErrorNotice({ ...TAVILY, keyStored: true, keyAvailable: false, keyErrorMessage: "使えない" }),
+    "使えない",
   );
 });
 
@@ -110,7 +153,7 @@ test("保存の文言は、既存の会話にも効くことと暗黙に切り�
   assert.match(webSearchKeySavedNote("Tavily"), /保存しました/);
   assert.match(webSearchKeyDeletedNote("Tavily"), /削除しました/);
   assert.match(WEB_SEARCH_SETTINGS_NOTE, /再起動後も残ります/);
-  assert.match(WEB_SEARCH_KEY_PLAINTEXT_NOTE, /平文で保存/);
+  assert.match(WEB_SEARCH_KEY_ENCRYPTED_NOTE, /暗号化して/);
   assert.match(WEB_SEARCH_NO_LOGIN_NOTE, /公開しないでください/);
 });
 
