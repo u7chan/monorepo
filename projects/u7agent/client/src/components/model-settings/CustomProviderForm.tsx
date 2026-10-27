@@ -7,7 +7,9 @@ import {
   contextWindowOptions,
   currentCustomProviderProbe,
   customProviderCreateBody,
+  customProviderDegradedNotice,
   customProviderDraftOf,
+  customProviderEditable,
   customProviderFormHasError,
   customProviderProbeBody,
   customProviderProbeDisplay,
@@ -48,6 +50,8 @@ export type CustomProviderFormProps = {
   onDelete: (provider: string) => Promise<boolean>;
   /** `/models` の probe。設定は変えず、結果だけを返す */
   onProbe: (input: CustomProviderProbeBody) => Promise<CustomProviderProbeResponse>;
+  /** 反映待ちの定義を DB から SDK へ写し直す */
+  onResync: (provider: string) => Promise<boolean>;
   /** 保存できたら、その provider を選択状態にする */
   onSaved: (provider: string) => void;
   /** 削除できたら選択を解除する */
@@ -69,6 +73,7 @@ export function CustomProviderForm({
   onUpdate,
   onDelete,
   onProbe,
+  onResync,
   onSaved,
   onDeleted,
   onCancelAdd,
@@ -166,6 +171,14 @@ export function CustomProviderForm({
   };
 
   const disabled = !runtimeAvailable || saving || busy;
+  // 反映待ちは編集・削除を残し (id 衝突や master key 未設定から削除で抜けられる)、
+  // 削除待ちの tombstone は再同期だけを出す
+  const degradedNotice = provider === null ? null : customProviderDegradedNotice(provider);
+  const editable = provider === null || customProviderEditable(provider);
+  const resync = async () => {
+    if (provider === null) return;
+    await onResync(provider.id);
+  };
   const probeEnabled = customProviderProbeEnabled({
     draft,
     editing,
@@ -196,190 +209,218 @@ export function CustomProviderForm({
         </p>
       )}
 
-      <form
-        className="grid gap-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="grid content-start gap-1 text-2xs text-ink-soft">
-            provider id
-            <input
-              className="field min-w-0 text-xs"
-              value={draft.id}
-              readOnly={editing}
-              placeholder="local-llm"
-              aria-label="provider id"
-              autoComplete="off"
-              spellCheck={false}
-              aria-invalid={errors.id ? true : undefined}
-              onChange={(event) => update({ id: event.currentTarget.value })}
-            />
-            <span className="text-ink-ghost">
-              {editing ? "provider id は作成後に変更できません。" : "英小文字で始まり、英小文字・数字・ハイフン。"}
-            </span>
-            {errors.id ? <span className="text-warn">{errors.id}</span> : null}
-          </label>
-          <label className="grid content-start gap-1 text-2xs text-ink-soft">
-            名前（任意）
-            <input
-              className="field min-w-0 text-xs"
-              value={draft.name}
-              placeholder="空欄なら provider id"
-              aria-label="名前"
-              autoComplete="off"
-              aria-invalid={errors.name ? true : undefined}
-              onChange={(event) => update({ name: event.currentTarget.value })}
-            />
-            <span className="text-ink-ghost">表示名だけです。送信するモデル名はモデル ID のままです。</span>
-            {errors.name ? <span className="text-warn">{errors.name}</span> : null}
-          </label>
-        </div>
-
-        <label className="grid content-start gap-1 text-2xs text-ink-soft">
-          baseUrl
-          <input
-            className="field min-w-0 text-xs"
-            value={draft.baseUrl}
-            placeholder="http://192.0.2.10:11434/v1"
-            aria-label="baseUrl"
-            autoComplete="off"
-            spellCheck={false}
-            aria-invalid={errors.baseUrl ? true : undefined}
-            onChange={(event) => update({ baseUrl: event.currentTarget.value })}
-          />
-          <span className="text-ink-ghost">`/v1` まで含めます。userinfo・query・fragment は指定できません。</span>
-          {errors.baseUrl ? <span className="text-warn">{errors.baseUrl}</span> : null}
-        </label>
-
-        <label className="grid content-start gap-1 text-2xs text-ink-soft">
-          APIキー
-          <input
-            className="field min-w-0 text-xs"
-            type="password"
-            value={draft.apiKey}
-            placeholder={editing && provider.hasKey ? "空欄なら既存のAPIキーを維持" : "APIキー（8 文字以上）"}
-            aria-label="APIキー"
-            autoComplete="off"
-            spellCheck={false}
-            aria-invalid={errors.apiKey ? true : undefined}
-            onChange={(event) => update({ apiKey: event.currentTarget.value })}
-          />
-          <span className="text-ink-ghost">
-            認証のないローカルサーバーにはダミーを入れます（送信時に Authorization: Bearer として付きます）。
-          </span>
-          {errors.apiKey ? <span className="text-warn">{errors.apiKey}</span> : null}
-        </label>
-
-        <div className="grid content-start gap-1 text-2xs text-ink-soft">
-          <label htmlFor={modelIdInputId}>モデル ID</label>
-          <div className="flex min-w-0 items-start gap-1.5">
-            <input
-              id={modelIdInputId}
-              className="field min-w-0 flex-1 text-xs"
-              value={draft.modelId}
-              placeholder="qwen2.5-coder:7b"
-              aria-label="モデル ID"
-              autoComplete="off"
-              spellCheck={false}
-              aria-invalid={errors.modelId ? true : undefined}
-              onChange={(event) => update({ modelId: event.currentTarget.value })}
-            />
-            <ModelIdPicker
-              value={draft.modelId}
-              loading={probing}
-              disabled={!probeEnabled}
-              onRequest={probeModels}
-              onPick={pickModelId}
-            />
-          </div>
-          {probing ? (
-            <span role="status" className="text-2xs text-ink-muted">
-              {CUSTOM_PROVIDER_PROBE_PENDING_NOTE}
-            </span>
-          ) : null}
-          {!probing && probeError !== null ? (
-            <span role="alert" className="text-2xs text-warn">
-              {probeError}
-            </span>
-          ) : null}
-          {!probing && probeError === null && probeView !== null ? (
-            <span role={probeView.kind === "success" ? "status" : "alert"} className="grid gap-0.5">
-              <span className={probeView.kind === "success" ? "text-ink-muted" : "text-warn"}>{probeView.message}</span>
-              {probeView.detail ? <span className="text-3xs text-ink-faint">{probeView.detail}</span> : null}
-            </span>
-          ) : null}
-          {!probing && missingFromList ? (
-            <span role="status" className="text-2xs text-warn">
-              {CUSTOM_PROVIDER_PROBE_MISSING_NOTE}
-            </span>
-          ) : null}
-          {errors.modelId ? <span className="text-warn">{errors.modelId}</span> : null}
-        </div>
-
-        <label className="grid content-start gap-1 text-2xs text-ink-soft">
-          contextWindow
-          <span ref={contextWindowRef} className="contents">
-            <SelectField
-              wrapperClassName="w-full"
-              value={draft.contextWindow}
-              aria-label="contextWindow"
-              autoComplete="off"
-              aria-invalid={errors.contextWindow ? true : undefined}
-              onChange={(event) => update({ contextWindow: event.currentTarget.value })}
+      {degradedNotice ? (
+        <div className="grid gap-2 rounded-lg border border-warn/40 bg-raised px-2.5 py-2">
+          <p role="alert" className="text-2xs leading-relaxed text-warn">
+            {degradedNotice}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn-quiet"
+              disabled={busy || !runtimeAvailable}
+              onClick={() => void resync()}
             >
-              <option value="">選択してください</option>
-              {contextWindowOptions(draft.contextWindow).map((option) => (
-                <option key={option.value} value={String(option.value)}>
-                  {option.label}
-                </option>
-              ))}
-            </SelectField>
-          </span>
-          <span className="text-ink-ghost">{CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE}</span>
-          {errors.contextWindow ? <span className="text-warn">{errors.contextWindow}</span> : null}
-        </label>
+              再同期
+            </button>
+          </div>
+        </div>
+      ) : null}
 
-        <details className="rounded-lg border border-line bg-soft px-2.5 py-2">
-          <summary className="cursor-pointer text-2xs text-ink-soft">詳細（maxTokens）</summary>
-          <div className="grid content-start gap-1 pt-2 text-2xs text-ink-soft">
-            <label className="grid content-start gap-1">
-              maxTokens（任意）
+      {editable ? null : (
+        <p className="text-2xs leading-relaxed text-ink-muted">
+          削除の後始末が終わるまで、この定義は編集も削除もできません。[再同期] を実行してください。
+        </p>
+      )}
+
+      {editable ? (
+        <form
+          className="grid gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="grid content-start gap-1 text-2xs text-ink-soft">
+              provider id
               <input
                 className="field min-w-0 text-xs"
-                inputMode="numeric"
-                value={draft.maxTokens}
-                placeholder={String(CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS)}
-                aria-label="maxTokens"
+                value={draft.id}
+                readOnly={editing}
+                placeholder="local-llm"
+                aria-label="provider id"
                 autoComplete="off"
-                aria-invalid={errors.maxTokens ? true : undefined}
-                onChange={(event) => update({ maxTokens: event.currentTarget.value })}
+                spellCheck={false}
+                aria-invalid={errors.id ? true : undefined}
+                onChange={(event) => update({ id: event.currentTarget.value })}
               />
+              <span className="text-ink-ghost">
+                {editing ? "provider id は作成後に変更できません。" : "英小文字で始まり、英小文字・数字・ハイフン。"}
+              </span>
+              {errors.id ? <span className="text-warn">{errors.id}</span> : null}
             </label>
-            <span className="text-ink-ghost">空欄なら {CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS} を使います。</span>
-            {errors.maxTokens ? <span className="text-warn">{errors.maxTokens}</span> : null}
+            <label className="grid content-start gap-1 text-2xs text-ink-soft">
+              名前（任意）
+              <input
+                className="field min-w-0 text-xs"
+                value={draft.name}
+                placeholder="空欄なら provider id"
+                aria-label="名前"
+                autoComplete="off"
+                aria-invalid={errors.name ? true : undefined}
+                onChange={(event) => update({ name: event.currentTarget.value })}
+              />
+              <span className="text-ink-ghost">表示名だけです。送信するモデル名はモデル ID のままです。</span>
+              {errors.name ? <span className="text-warn">{errors.name}</span> : null}
+            </label>
           </div>
-        </details>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="submit" className="btn-primary" disabled={disabled}>
-            <CheckIcon />
-            {editing ? "保存" : "登録"}
-          </button>
-          {editing ? (
-            <button type="button" className="btn-quiet" disabled={disabled} onClick={() => void remove()}>
-              <TrashIcon />
-              削除
+          <label className="grid content-start gap-1 text-2xs text-ink-soft">
+            baseUrl
+            <input
+              className="field min-w-0 text-xs"
+              value={draft.baseUrl}
+              placeholder="http://192.0.2.10:11434/v1"
+              aria-label="baseUrl"
+              autoComplete="off"
+              spellCheck={false}
+              aria-invalid={errors.baseUrl ? true : undefined}
+              onChange={(event) => update({ baseUrl: event.currentTarget.value })}
+            />
+            <span className="text-ink-ghost">`/v1` まで含めます。userinfo・query・fragment は指定できません。</span>
+            {errors.baseUrl ? <span className="text-warn">{errors.baseUrl}</span> : null}
+          </label>
+
+          <label className="grid content-start gap-1 text-2xs text-ink-soft">
+            APIキー
+            <input
+              className="field min-w-0 text-xs"
+              type="password"
+              value={draft.apiKey}
+              placeholder={editing && provider.hasKey ? "空欄なら既存のAPIキーを維持" : "APIキー（8 文字以上）"}
+              aria-label="APIキー"
+              autoComplete="off"
+              spellCheck={false}
+              aria-invalid={errors.apiKey ? true : undefined}
+              onChange={(event) => update({ apiKey: event.currentTarget.value })}
+            />
+            <span className="text-ink-ghost">
+              認証のないローカルサーバーにはダミーを入れます（送信時に Authorization: Bearer として付きます）。
+            </span>
+            {errors.apiKey ? <span className="text-warn">{errors.apiKey}</span> : null}
+          </label>
+
+          <div className="grid content-start gap-1 text-2xs text-ink-soft">
+            <label htmlFor={modelIdInputId}>モデル ID</label>
+            <div className="flex min-w-0 items-start gap-1.5">
+              <input
+                id={modelIdInputId}
+                className="field min-w-0 flex-1 text-xs"
+                value={draft.modelId}
+                placeholder="qwen2.5-coder:7b"
+                aria-label="モデル ID"
+                autoComplete="off"
+                spellCheck={false}
+                aria-invalid={errors.modelId ? true : undefined}
+                onChange={(event) => update({ modelId: event.currentTarget.value })}
+              />
+              <ModelIdPicker
+                value={draft.modelId}
+                loading={probing}
+                disabled={!probeEnabled}
+                onRequest={probeModels}
+                onPick={pickModelId}
+              />
+            </div>
+            {probing ? (
+              <span role="status" className="text-2xs text-ink-muted">
+                {CUSTOM_PROVIDER_PROBE_PENDING_NOTE}
+              </span>
+            ) : null}
+            {!probing && probeError !== null ? (
+              <span role="alert" className="text-2xs text-warn">
+                {probeError}
+              </span>
+            ) : null}
+            {!probing && probeError === null && probeView !== null ? (
+              <span role={probeView.kind === "success" ? "status" : "alert"} className="grid gap-0.5">
+                <span className={probeView.kind === "success" ? "text-ink-muted" : "text-warn"}>
+                  {probeView.message}
+                </span>
+                {probeView.detail ? <span className="text-3xs text-ink-faint">{probeView.detail}</span> : null}
+              </span>
+            ) : null}
+            {!probing && missingFromList ? (
+              <span role="status" className="text-2xs text-warn">
+                {CUSTOM_PROVIDER_PROBE_MISSING_NOTE}
+              </span>
+            ) : null}
+            {errors.modelId ? <span className="text-warn">{errors.modelId}</span> : null}
+          </div>
+
+          <label className="grid content-start gap-1 text-2xs text-ink-soft">
+            contextWindow
+            <span ref={contextWindowRef} className="contents">
+              <SelectField
+                wrapperClassName="w-full"
+                value={draft.contextWindow}
+                aria-label="contextWindow"
+                autoComplete="off"
+                aria-invalid={errors.contextWindow ? true : undefined}
+                onChange={(event) => update({ contextWindow: event.currentTarget.value })}
+              >
+                <option value="">選択してください</option>
+                {contextWindowOptions(draft.contextWindow).map((option) => (
+                  <option key={option.value} value={String(option.value)}>
+                    {option.label}
+                  </option>
+                ))}
+              </SelectField>
+            </span>
+            <span className="text-ink-ghost">{CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE}</span>
+            {errors.contextWindow ? <span className="text-warn">{errors.contextWindow}</span> : null}
+          </label>
+
+          <details className="rounded-lg border border-line bg-soft px-2.5 py-2">
+            <summary className="cursor-pointer text-2xs text-ink-soft">詳細（maxTokens）</summary>
+            <div className="grid content-start gap-1 pt-2 text-2xs text-ink-soft">
+              <label className="grid content-start gap-1">
+                maxTokens（任意）
+                <input
+                  className="field min-w-0 text-xs"
+                  inputMode="numeric"
+                  value={draft.maxTokens}
+                  placeholder={String(CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS)}
+                  aria-label="maxTokens"
+                  autoComplete="off"
+                  aria-invalid={errors.maxTokens ? true : undefined}
+                  onChange={(event) => update({ maxTokens: event.currentTarget.value })}
+                />
+              </label>
+              <span className="text-ink-ghost">空欄なら {CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS} を使います。</span>
+              {errors.maxTokens ? <span className="text-warn">{errors.maxTokens}</span> : null}
+            </div>
+          </details>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="submit" className="btn-primary" disabled={disabled}>
+              <CheckIcon />
+              {editing ? "保存" : "登録"}
             </button>
-          ) : (
-            <button type="button" className="btn-quiet" onClick={onCancelAdd}>
-              キャンセル
-            </button>
-          )}
-        </div>
-      </form>
+            {editing ? (
+              <button type="button" className="btn-quiet" disabled={disabled} onClick={() => void remove()}>
+                <TrashIcon />
+                削除
+              </button>
+            ) : (
+              <button type="button" className="btn-quiet" onClick={onCancelAdd}>
+                キャンセル
+              </button>
+            )}
+          </div>
+        </form>
+      ) : null}
     </section>
   );
 }

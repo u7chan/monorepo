@@ -8,8 +8,13 @@ import { join } from "node:path";
 import test from "node:test";
 import { createPiBff } from "../src/agent";
 import { createBffApp } from "../src/app";
+import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import { TEST_MASTER_KEY } from "./app-secret-fixture";
 
 const KEY = "sk-custom-dummy-key-0123456789";
+
+// カスタムプロバイダーのキーはアプリ DB に暗号化して保存する。このファイルの BFF には master key を立てる
+process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 interface RecordedRequest {
   method: string;
@@ -166,6 +171,94 @@ test("登録したカスタム provider は公開カタログに available で�
     );
   } finally {
     await bff?.close();
+    fake.server.close();
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    for (const dir of [agentDir, cwd, sessionStoreDir]) rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("BFF を作り直しても定義とキーが復号されて復元され、available と Bearer が保たれる", async () => {
+  const fake = await startFakeOpenAi();
+  const agentDir = mkdtempSync(join(tmpdir(), "u7agent-custom-restart-agent-"));
+  const cwd = mkdtempSync(join(tmpdir(), "u7agent-custom-restart-cwd-"));
+  const sessionStoreDir = mkdtempSync(join(tmpdir(), "u7agent-custom-restart-store-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  try {
+    const first = await createPiBff({ cwd });
+    const bff = await createBffApp({ cwd, sessionStoreDir, pi: first, workspace: null });
+    try {
+      const created = await bff.app.request("/api/settings/custom-providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "local-llm",
+          name: "Local LLM",
+          baseUrl: fake.baseUrl,
+          apiKey: KEY,
+          model: { id: "qwen2.5-coder:7b", contextWindow: 32768 },
+        }),
+      });
+      assert.equal(created.status, 200);
+    } finally {
+      await bff.close();
+    }
+
+    // 同じ PI_SESSION_STORE と agent dir で BFF を作り直す (プロセスの再起動に相当)
+    const restarted = await createPiBff({ cwd });
+    const restartedBff = await createBffApp({ cwd, sessionStoreDir, pi: restarted, workspace: null });
+    try {
+      const settings = (await (await restartedBff.app.request("/api/settings/models")).json()) as any;
+      assert.deepEqual(
+        settings.customProviders.map((entry: any) => entry.id),
+        ["local-llm"],
+      );
+      assert.equal(settings.customProviders[0].hasKey, true);
+      assert.equal(settings.customProviders[0].degraded, undefined, "起動時に反映済みになる");
+      assert.equal(settings.providers.find((entry: any) => entry.provider === "local-llm")?.custom, true);
+
+      const catalog = (await (await restartedBff.app.request("/api/runtime/models")).json()) as any;
+      const provider = catalog.providers.find((entry: any) => entry.provider === "local-llm");
+      assert.ok(provider, "GET /api/runtime/models に provider が載る");
+      assert.deepEqual(provider.models, [{ id: "qwen2.5-coder:7b", name: "qwen2.5-coder:7b", available: true }]);
+
+      const model = restarted.modelRuntime.getModels().find((entry) => entry.provider === "local-llm");
+      assert.ok(model);
+      await restarted.modelRuntime.completeSimple(
+        model,
+        { messages: [{ role: "user", content: [{ type: "text", text: "こんにちは" }], timestamp: Date.now() }] },
+        { maxTokens: 16 },
+      );
+      assert.equal(fake.requests.at(-1)?.authorization, `Bearer ${KEY}`, "復号したキーを Bearer で送る");
+
+      // 削除してから作り直すと、行も runtime の provider も残らない (幽霊 provider を作らない)
+      assert.equal(
+        (await restartedBff.app.request("/api/settings/custom-providers/local-llm", { method: "DELETE" })).status,
+        200,
+      );
+    } finally {
+      await restartedBff.close();
+    }
+
+    const third = await createPiBff({ cwd });
+    const thirdBff = await createBffApp({ cwd, sessionStoreDir, pi: third, workspace: null });
+    try {
+      const settings = (await (await thirdBff.app.request("/api/settings/models")).json()) as any;
+      assert.deepEqual(settings.customProviders, []);
+      assert.equal(
+        settings.providers.find((entry: any) => entry.provider === "local-llm"),
+        undefined,
+      );
+      const catalog = (await (await thirdBff.app.request("/api/runtime/models")).json()) as any;
+      assert.equal(
+        catalog.providers.find((entry: any) => entry.provider === "local-llm"),
+        undefined,
+      );
+    } finally {
+      await thirdBff.close();
+    }
+  } finally {
     fake.server.close();
     if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = previous;

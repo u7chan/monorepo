@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { AppDb, APP_DB_FILENAME, APP_DB_SCHEMA_VERSION, type SecretRow } from "../src/app-db";
+import { AppDb, APP_DB_FILENAME, APP_DB_SCHEMA_VERSION, type CustomProviderRow, type SecretRow } from "../src/app-db";
 import type { AgentDef, Project } from "../src/schema";
 import { storedSecret } from "./app-secret-fixture";
 
@@ -2836,6 +2836,124 @@ test("cloudflare_settings の読み書き・削除と、別アカウントの共
     assert.equal(db.readCloudflareSettings(), undefined);
     assert.equal(db.deleteCloudflareSettings(), false);
     db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const customRow = (provider: string, fill = 1): CustomProviderRow => ({
+  provider,
+  name: `name-${provider}`,
+  baseUrl: `https://${provider}.example.test/v1`,
+  modelId: "qwen2.5-coder:7b",
+  contextWindow: 32768,
+  maxTokens: 8192,
+  ...storedSecret(fill),
+});
+
+test("a new db creates custom_providers with the ciphertext columns and keeps the insert order", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    assert.deepEqual(db.listCustomProviders(), [], "行が無い = カスタムプロバイダーなし");
+    db.saveCustomProvider(customRow("local-llm", 1));
+    db.saveCustomProvider(customRow("lab", 2));
+    // 同じ provider への保存は上書き (行を増やさない)
+    db.saveCustomProvider(customRow("local-llm", 3));
+    assert.deepEqual(
+      db.listCustomProviders().map((row) => row.provider),
+      ["local-llm", "lab"],
+      "追加順 (rowid) を保つ",
+    );
+    assert.deepEqual(db.getCustomProvider("local-llm"), customRow("local-llm", 3));
+    assert.equal(db.getCustomProvider("ghost"), undefined);
+    db.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.getCustomProvider("lab"), customRow("lab", 2));
+    assert.equal(reopened.deleteCustomProvider("lab"), true);
+    assert.equal(reopened.deleteCustomProvider("lab"), false, "無い行の削除は false");
+    reopened.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.deepEqual(columnNames(check, "custom_providers"), [
+      "provider",
+      "name",
+      "baseUrl",
+      "modelId",
+      "contextWindow",
+      "maxTokens",
+      "ciphertext",
+      "nonce",
+      "keyVersion",
+    ]);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("migrates a v31 db additively by adding custom_providers and keeping the existing rows", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.insertProject(project("p1", "proj-a"));
+    first.saveAgent(agent("a1"));
+    first.saveProviderCredential("anthropic", storedSecret(4), 400);
+    first.close();
+
+    // v31 相当にする (custom_providers を持たない最后の版)
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE custom_providers");
+    raw.exec("PRAGMA user_version = 31");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.deepEqual(migrated.listCustomProviders(), [], "新しいテーブルは空で始まる");
+    assert.deepEqual(migrated.listProjects(), [project("p1", "proj-a")], "アプリデータは消さない");
+    assert.ok(
+      migrated.listAgents().some((entry) => entry.id === "a1"),
+      "移行でエージェントを消さない",
+    );
+    assert.deepEqual(migrated.getProviderCredential("anthropic"), {
+      provider: "anthropic",
+      ...storedSecret(4),
+      updatedAt: 400,
+    });
+    migrated.saveCustomProvider(customRow("local-llm"));
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.getCustomProvider("local-llm"), customRow("local-llm"));
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("recreating the schema drops custom_providers along with the other app-owned tables", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveCustomProvider(customRow("local-llm"));
+    first.close();
+
+    // 未知の新しい版を開くと #recreate(false) でアプリ所有のテーブルだけを作り直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("PRAGMA user_version = 999");
+    raw.close();
+
+    const recreated = AppDb.open({ storeDir: dir });
+    assert.deepEqual(recreated.listCustomProviders(), [], "作り直しで行は残さない");
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(tableNames(check).includes("custom_providers"), true);
+    check.close();
+    recreated.saveCustomProvider(customRow("lab"));
+    recreated.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

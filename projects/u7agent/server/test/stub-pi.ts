@@ -1245,6 +1245,9 @@ export interface StubPiOptions {
   /** テストからツールする SDK 操作の模倣。throw すると CredentialCommit の分類を検証できる */
   onSetRuntimeApiKey?: (provider: string, apiKey: string, signal: AbortSignal | undefined) => Promise<void> | void;
   onRemoveRuntimeApiKey?: (provider: string, signal: AbortSignal | undefined) => Promise<void> | void;
+  /** provider の登録 / 解除の模倣。throw すると所有境界と degraded の分類を検証できる */
+  onRegisterProvider?: (provider: string) => void;
+  onUnregisterProvider?: (provider: string) => void;
   /**
    * OAuth サインインの模倣。`interaction.notify` / `interaction.prompt` を呼べば、UI が見る状態遷移
    * (認可 URL・貼り付け待ち・中断) を再現できる。throw すると失敗系 (port 競合など) を検証できる。
@@ -1372,10 +1375,12 @@ export function createStubModelRuntime(
     },
     registerProvider: (provider, config) => {
       calls.push({ operation: "registerProvider", provider });
+      options.onRegisterProvider?.(provider);
       registeredProviders.set(provider, config.name);
     },
     unregisterProvider: (provider) => {
       calls.push({ operation: "unregisterProvider", provider });
+      options.onUnregisterProvider?.(provider);
       registeredProviders.delete(provider);
     },
     // OAuth ログインの SDK 面。呼び出し時の device id を記録し、振る舞いはテストが差し込む

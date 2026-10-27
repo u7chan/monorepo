@@ -1,5 +1,6 @@
 import type { Context } from "hono";
-import type { ModelSettingsService } from "../model-settings";
+import { messageFor, statusCodeOf } from "../http";
+import type { CustomProviderOutcome, ModelSettingsService, MutationOutcome } from "../model-settings";
 import type { OAuthLoginOutcome, OAuthLoginService } from "../oauth-login";
 import type {
   CreateCustomProviderBody,
@@ -27,74 +28,68 @@ export function createModelSettingsRoutes({
     if (outcome.status === 503) return c.json({ error: outcome.error }, 503);
     return c.json(modelSettings.settings(), 200);
   };
+  /**
+   * 変更系の応答。DB に何も保存されなかったときだけ 503 `{ error, state: "not_stored" }` を返す。
+   * サービスは DB 確定前の失敗を戻り値で返すが、事前の DB 読取は httpError(503) を投げるため、
+   * ここで同じ形へ揃える (`app.ts` の共通 onError に `not_stored` の補完を期待しない)。
+   */
+  const mutation = async (c: Context, run: () => Promise<MutationOutcome | CustomProviderOutcome>) => {
+    let outcome: MutationOutcome | CustomProviderOutcome;
+    try {
+      outcome = await run();
+    } catch (error) {
+      if (statusCodeOf(error) !== 503) throw error;
+      return c.json({ error: messageFor(error), state: "not_stored" as const }, 503);
+    }
+    if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
+    return c.json(outcome.response, 200);
+  };
   return {
     list: (c: Context) => c.json(modelSettings.settings()),
 
     /** 利用可能なモデルとアプリ既定モデルの一括保存。両方 null は「未設定へ戻す」 */
-    putAllowed: async (c: Context, body: UpdateModelAvailabilityBody) => {
-      const outcome = await modelSettings.putModelSelection(body);
-      if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
-      return c.json(outcome.response, 200);
-    },
+    putAllowed: (c: Context, body: UpdateModelAvailabilityBody) =>
+      mutation(c, () => modelSettings.putModelSelection(body)),
 
-    putKey: async (c: Context, apiKey: string) => {
-      const outcome = await modelSettings.putKey(c.req.param("provider") ?? "", apiKey);
-      if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
-      return c.json(outcome.response, 200);
-    },
+    putKey: (c: Context, apiKey: string) =>
+      mutation(c, () => modelSettings.putKey(c.req.param("provider") ?? "", apiKey)),
 
     /** provider に紐づく人間用メモ。SDK に触れないため応答は常に applied (長さは route の zod が見る) */
-    putMemo: async (c: Context, memo: string) => {
-      const outcome = await modelSettings.putMemo(c.req.param("provider") ?? "", memo);
-      if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
-      return c.json(outcome.response, 200);
-    },
+    putMemo: (c: Context, memo: string) =>
+      mutation(c, () => modelSettings.putMemo(c.req.param("provider") ?? "", memo)),
 
-    deleteKey: async (c: Context) => {
-      const outcome = await modelSettings.deleteKey(c.req.param("provider") ?? "");
-      if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
-      return c.json(outcome.response, 200);
-    },
+    deleteKey: (c: Context) => mutation(c, () => modelSettings.deleteKey(c.req.param("provider") ?? "")),
 
-    /** body なし。DB の希望状態を SDK へ再適用するだけで、冪等 */
-    resync: async (c: Context) => {
-      const outcome = await modelSettings.resync(c.req.param("provider") ?? "");
-      if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
-      return c.json(outcome.response, 200);
-    },
+    /** body なし。DB の希望状態を SDK へ再適用するだけで、冪等。カスタム provider も対象にする */
+    resync: (c: Context) => mutation(c, () => modelSettings.resync(c.req.param("provider") ?? "")),
 
     /**
-     * カスタムプロバイダー (オンメモリ)。DB へは何も書かないため `state` は常に `applied` で、
-     * 失敗は 400 / 503 の `{ error }` だけを返す (`not_stored` を付けない)。
+     * カスタムプロバイダー。定義と暗号化したAPIキーをアプリ DB へ保存してから SDK へ写す。
+     * DB 確定前の失敗は 503 `not_stored`、DB 確定後の反映失敗は 200 `applied_unsynced`。
      */
-    createCustomProvider: async (c: Context, body: CreateCustomProviderBody) => {
-      const outcome = await modelSettings.createCustomProvider({
-        id: body.id,
-        name: body.name,
-        baseUrl: body.baseUrl,
-        apiKey: body.apiKey,
-        model: body.model,
-      });
-      if (outcome.status === 503) return c.json({ error: outcome.error }, 503);
-      return c.json(outcome.response, 200);
-    },
+    createCustomProvider: (c: Context, body: CreateCustomProviderBody) =>
+      mutation(c, () =>
+        modelSettings.createCustomProvider({
+          id: body.id,
+          name: body.name,
+          baseUrl: body.baseUrl,
+          apiKey: body.apiKey,
+          model: body.model,
+        }),
+      ),
 
-    updateCustomProvider: async (c: Context, body: UpdateCustomProviderBody) => {
-      const outcome = await modelSettings.updateCustomProvider(c.req.param("provider") ?? "", {
-        name: body.name,
-        baseUrl: body.baseUrl,
-        apiKey: body.apiKey,
-        model: body.model,
-      });
-      if (outcome.status === 503) return c.json({ error: outcome.error }, 503);
-      return c.json(outcome.response, 200);
-    },
+    updateCustomProvider: (c: Context, body: UpdateCustomProviderBody) =>
+      mutation(c, () =>
+        modelSettings.updateCustomProvider(c.req.param("provider") ?? "", {
+          name: body.name,
+          baseUrl: body.baseUrl,
+          apiKey: body.apiKey,
+          model: body.model,
+        }),
+      ),
 
-    deleteCustomProvider: async (c: Context) => {
-      const outcome = await modelSettings.deleteCustomProvider(c.req.param("provider") ?? "");
-      if (outcome.status === 503) return c.json({ error: outcome.error }, 503);
-      return c.json(outcome.response, 200);
-    },
+    deleteCustomProvider: (c: Context) =>
+      mutation(c, () => modelSettings.deleteCustomProvider(c.req.param("provider") ?? "")),
 
     /**
      * モデル一覧の probe。状態を変えないので `state` を持たず、接続できない場合も 200 の分類で返す。

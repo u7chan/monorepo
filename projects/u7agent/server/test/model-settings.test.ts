@@ -35,7 +35,7 @@ import {
   type RuntimeModelsResponse,
 } from "../src/schema";
 import type { CustomProviderRuntimeConfig } from "../src/custom-providers";
-import type { StoredAppSecret } from "../src/app-db";
+import type { CustomProviderRow, StoredAppSecret } from "../src/app-db";
 import {
   APP_SECRET_DECRYPT_FAILED_MESSAGE,
   APP_SECRET_MASTER_KEY_MESSAGE,
@@ -202,11 +202,13 @@ function fakeRuntime(
  * DB 面の fake。失敗フラグで AppDb の失敗経路を再現する。
  * 呼び出し側は平文で渡し、行は provider ごとの AAD で暗号化して持つ (DB に平文を置かない)。
  */
-function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelection) {
+function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelection, custom?: CustomProviderRow[]) {
   const store = new Map(Object.entries(rows).map(([provider, apiKey]) => [provider, secretOf(apiKey, provider)]));
   // API キーの行と保存日時を分ける。移行前の既存行は日時不明 (null) で始まる
   const updatedAtStore = new Map<string, number | null>(Object.keys(rows).map((provider) => [provider, null]));
   const memos = new Map<string, string>();
+  // カスタム provider の行は暗号文のまま持つ (サービス側で復号して AAD の正しさまで見る)
+  const customRows = new Map<string, CustomProviderRow>((custom ?? []).map((row) => [row.provider, row]));
   const state = {
     failList: false,
     failGet: false,
@@ -224,6 +226,10 @@ function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelect
     armListFailureOnDelete: false,
     /** メモ保存は成功させるが、以後のメモ一覧読みを失敗させる */
     armListFailureOnSaveMemo: false,
+    failListCustom: false,
+    failGetCustom: false,
+    failSaveCustom: false,
+    failDeleteCustom: false,
     error: new Error("sqlite failure"),
   };
   // 行の有無 = 未設定を保つため、両方 null の保存は行ごと消す (AppDb と同じ正規化)
@@ -283,12 +289,29 @@ function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelect
       if (state.failSaveSelection) throw state.error;
       saved = next.allowedModels || next.defaultModel ? next : undefined;
     },
+    listCustomProviders: () => {
+      if (state.failListCustom) throw state.error;
+      return [...customRows.values()];
+    },
+    getCustomProvider: (provider) => {
+      if (state.failGetCustom) throw state.error;
+      return customRows.get(provider);
+    },
+    saveCustomProvider: (row) => {
+      if (state.failSaveCustom) throw state.error;
+      customRows.set(row.provider, row);
+    },
+    deleteCustomProvider: (provider) => {
+      if (state.failDeleteCustom) throw state.error;
+      return customRows.delete(provider);
+    },
   };
   return {
     db,
     store,
     updatedAtStore,
     memos,
+    customRows,
     state,
     readSelection: () => saved,
   };

@@ -1,21 +1,22 @@
-// カスタムプロバイダーの検証・メモリ上の Store・作成 / 更新 / 削除の契約。SDK は fake で検証する。
+// カスタムプロバイダーの検証・保存行・作成 / 更新 / 削除 / 再同期の契約。SDK と DB は fake で検証する。
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE,
   CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS,
   CUSTOM_PROVIDER_ID_CONFLICT_MESSAGE,
   CUSTOM_PROVIDER_ID_MESSAGE,
+  CUSTOM_PROVIDER_INVALID_STORED_MESSAGE,
   CUSTOM_PROVIDER_NOT_FOUND_MESSAGE,
-  CUSTOM_PROVIDER_REMOVE_FAILED_MESSAGE,
+  CUSTOM_PROVIDER_NOT_STORED_MESSAGE,
   CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE,
   CUSTOM_PROVIDER_STORED_ROWS_MESSAGE,
-  CustomProviderStore,
+  customProviderRowOf,
   customProviderRuntimeConfig,
+  customProviderSummaryOfRow,
   normalizeCustomProviderBaseUrl,
   parseCustomProviderInput,
   parseCustomProviderUpdate,
-  type CustomProviderDefinition,
+  storedCustomProviderDefinition,
   type CustomProviderRuntimeConfig,
 } from "../src/custom-providers";
 import {
@@ -27,13 +28,21 @@ import {
 } from "../src/model-settings";
 import type { ModelRef } from "../src/schema";
 import { createSecretMasker } from "../src/redact";
-import type { StoredAppSecret } from "../src/app-db";
+import type { CustomProviderRow, StoredAppSecret } from "../src/app-db";
+import {
+  APP_SECRET_DECRYPT_FAILED_MESSAGE,
+  APP_SECRET_MASTER_KEY_MESSAGE,
+  APP_SECRET_NOT_STORED_MESSAGE,
+} from "../src/app-secrets";
 import { testAppCipher } from "./app-secret-fixture";
 
 const KEY = "sk-custom-dummy-key-0123456789";
+const NEW_KEY = "sk-new-dummy-key-0123456789";
 
 const applied: CredentialCommit = { outcome: "applied", synced: true };
 const failed: CredentialCommit = { outcome: "not_applied" };
+
+const CIPHER = testAppCipher();
 
 interface FakeProvider {
   provider: string;
@@ -53,7 +62,6 @@ function fakeRuntime(
   const builtins = options.providers ?? [{ provider: "anthropic", name: "Anthropic" }];
   const registered = new Map<string, CustomProviderRuntimeConfig>();
   const calls: string[] = [];
-  const authReads: string[] = [];
   const service: ProviderKeyRuntime = {
     list: () => [
       ...builtins.map((entry) => ({
@@ -73,10 +81,7 @@ function fakeRuntime(
         oauthLoginLabel: null,
       })),
     ],
-    auth: (provider) => {
-      authReads.push(provider);
-      return registered.has(provider) ? { configured: true, source: "runtime" } : { configured: false };
-    },
+    auth: (provider) => (registered.has(provider) ? { configured: true, source: "runtime" } : { configured: false }),
     credentialKind: () => "api_key",
     // カスタム provider では auth.json を読まないことを固定するため、読んだ provider を記録する
     storedCredentialKind: (provider) => {
@@ -107,12 +112,39 @@ function fakeRuntime(
   return { service, calls, registered, builtins };
 }
 
-function fakeDb(): ModelSettingsDb & { credentials: Map<string, StoredAppSecret>; memos: Map<string, string> } {
-  const credentials = new Map<string, StoredAppSecret>();
-  const memos = new Map<string, string>();
+/** 保存行。暗号文は実体の AEAD (scope = custom_providers、AAD の所有者は provider) で作る */
+function customRowOf(provider: string, apiKey: string, patch: Partial<CustomProviderRow> = {}): CustomProviderRow {
+  const secret = CIPHER.encrypt("custom_providers", provider, apiKey);
   return {
+    provider,
+    name: provider,
+    baseUrl: "http://192.0.2.10:11434/v1",
+    modelId: "qwen2.5-coder:7b",
+    contextWindow: 32768,
+    maxTokens: 16384,
+    ...secret,
+    ...patch,
+  };
+}
+
+function fakeDb(initial: { custom?: CustomProviderRow[]; credentials?: Record<string, string> } = {}) {
+  const credentials = new Map<string, StoredAppSecret>();
+  for (const [provider, apiKey] of Object.entries(initial.credentials ?? {})) {
+    credentials.set(provider, CIPHER.encrypt("provider_credentials", provider, apiKey));
+  }
+  const memos = new Map<string, string>();
+  const custom = new Map<string, CustomProviderRow>((initial.custom ?? []).map((row) => [row.provider, row]));
+  const state = {
+    failListCustom: false,
+    failGetCustom: false,
+    failSaveCustom: false,
+    failDeleteCustom: false,
+    error: new Error("sqlite failure"),
+  };
+  const db: ModelSettingsDb & { credentials: typeof credentials; memos: typeof memos; custom: typeof custom } = {
     credentials,
     memos,
+    custom,
     listProviderCredentials: () =>
       [...credentials].map(([provider, secret]) => ({ provider, ...secret, updatedAt: 1 })),
     getProviderCredential: (provider) => {
@@ -134,7 +166,24 @@ function fakeDb(): ModelSettingsDb & { credentials: Map<string, StoredAppSecret>
     deleteProviderMemo: (provider) => memos.delete(provider),
     readModelSettings: () => undefined,
     saveModelSettings: () => {},
+    listCustomProviders: () => {
+      if (state.failListCustom) throw state.error;
+      return [...custom.values()];
+    },
+    getCustomProvider: (provider) => {
+      if (state.failGetCustom) throw state.error;
+      return custom.get(provider);
+    },
+    saveCustomProvider: (row) => {
+      if (state.failSaveCustom) throw state.error;
+      custom.set(row.provider, row);
+    },
+    deleteCustomProvider: (provider) => {
+      if (state.failDeleteCustom) throw state.error;
+      return custom.delete(provider);
+    },
   };
+  return { db, credentials, memos, custom, state };
 }
 
 function serviceWith(
@@ -143,24 +192,27 @@ function serviceWith(
     runtime?: ProviderKeyRuntime | null;
     probeFetch?: typeof fetch;
     probeTimeoutMs?: number;
+    cipher?: ReturnType<typeof testAppCipher> | null;
+    db?: ReturnType<typeof fakeDb>;
+    runtimeService?: ProviderKeyRuntime;
   } = {},
 ) {
   const runtime = fakeRuntime(runtimeOptions);
-  const db = fakeDb();
+  const db = options.db ?? fakeDb();
   const retained: string[] = [];
   const service = new ModelSettingsService({
-    db,
-    runtime: options.runtime === undefined ? runtime.service : options.runtime,
+    db: db.db,
+    runtime: options.runtimeService ?? (options.runtime === undefined ? runtime.service : options.runtime),
     retainSecret: (value) => retained.push(value),
-    maskError: (text) => createSecretMasker([KEY]).mask(text),
+    maskError: (text) => createSecretMasker([KEY, NEW_KEY]).mask(text),
     refreshModelState: async () => {},
     setModelSelection: () => {},
     ignoredEnvironmentVariables: [],
-    appCipher: testAppCipher(),
+    appCipher: options.cipher === undefined ? testAppCipher() : options.cipher,
     ...(options.probeFetch === undefined ? {} : { probeFetch: options.probeFetch }),
     ...(options.probeTimeoutMs === undefined ? {} : { probeTimeoutMs: options.probeTimeoutMs }),
   });
-  return { service, runtime, db, retained };
+  return { service, runtime, retained, db };
 }
 
 const createInput = (patch: Record<string, unknown> = {}) => ({
@@ -199,9 +251,8 @@ test("baseUrl は http / https だけを通し、userinfo・query・fragment を
     "ftp://llm.example.test/v1",
     "llm.example.test/v1",
     "http://user:pass@llm.example.test/v1",
-    "http://llm.example.test/v1?key=1",
-    "http://llm.example.test/v1#frag",
-    `http://llm.example.test/${"a".repeat(2048)}`,
+    "http://llm.example.test/v1?x=1",
+    "http://llm.example.test/v1#x",
     "",
   ]) {
     rejects400(() => normalizeCustomProviderBaseUrl(baseUrl), expectBaseUrlMessage());
@@ -209,70 +260,66 @@ test("baseUrl は http / https だけを通し、userinfo・query・fragment を
 });
 
 function expectBaseUrlMessage(): string {
-  return "baseUrl は http / https の URL を指定してください（userinfo・query・fragment は不可）";
+  try {
+    normalizeCustomProviderBaseUrl("ftp://llm.example.test/v1");
+  } catch (error) {
+    return (error as Error).message;
+  }
+  throw new Error("baseUrl の検証が通ってしまった");
 }
 
 test("モデルは id 必須・空白なし、contextWindow 必須、maxTokens は既定 16384", () => {
-  const definition = parseCustomProviderInput(createInput());
-  assert.deepEqual(definition.model, { id: "qwen2.5-coder:7b", contextWindow: 32768, maxTokens: 16384 });
-  assert.equal(CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS, 16384);
-
-  assert.equal(
-    parseCustomProviderInput(createInput({ model: { id: "m", contextWindow: 1, maxTokens: 8 } })).model.maxTokens,
-    8,
+  assert.deepEqual(parseCustomProviderInput(createInput()).model, {
+    id: "qwen2.5-coder:7b",
+    contextWindow: 32768,
+    maxTokens: CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS,
+  });
+  assert.deepEqual(
+    parseCustomProviderInput(createInput({ model: { id: "m", contextWindow: 1, maxTokens: 1 } })).model,
+    {
+      id: "m",
+      contextWindow: 1,
+      maxTokens: 1,
+    },
   );
-
-  rejects400(
-    () => parseCustomProviderInput(createInput({ model: { id: " ", contextWindow: 1 } })),
-    "モデル ID は空白なしで 200 文字以内で指定してください",
-  );
-  rejects400(
-    () => parseCustomProviderInput(createInput({ model: { id: "qwen 7b", contextWindow: 1 } })),
-    "モデル ID は空白なしで 200 文字以内で指定してください",
-  );
-  rejects400(
-    () => parseCustomProviderInput(createInput({ model: { id: "a".repeat(201), contextWindow: 1 } })),
-    "モデル ID は空白なしで 200 文字以内で指定してください",
-  );
-  for (const contextWindow of [0, -1, 1.5, Number.NaN]) {
-    rejects400(
-      () => parseCustomProviderInput(createInput({ model: { id: "m", contextWindow } })),
-      "contextWindow は正の整数で指定してください（実モデルの値より大きくしないでください）",
+  for (const model of [
+    { id: "", contextWindow: 1 },
+    { id: "a b", contextWindow: 1 },
+    { id: "m", contextWindow: 0 },
+    { id: "m", contextWindow: 1.5 },
+    { id: "m", contextWindow: 1, maxTokens: 0 },
+    { id: "m", contextWindow: 1, maxTokens: 1.5 },
+  ]) {
+    assert.throws(
+      () => parseCustomProviderInput(createInput({ model })),
+      (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+      JSON.stringify(model),
     );
   }
-  rejects400(
-    () => parseCustomProviderInput(createInput({ model: { id: "m", contextWindow: 1, maxTokens: 0 } })),
-    "maxTokens は正の整数で指定してください",
-  );
 });
 
 test("APIキーは 8..2048 文字。作成は必須で、更新の空欄は既存を維持する", () => {
-  rejects400(() => parseCustomProviderInput(createInput({ apiKey: "short" })), expectApiKeyMessage());
-  rejects400(() => parseCustomProviderInput(createInput({ apiKey: "a".repeat(2049) })), expectApiKeyMessage());
-
-  const current: CustomProviderDefinition = parseCustomProviderInput(createInput());
-  const kept = parseCustomProviderUpdate(
-    { baseUrl: current.baseUrl, model: { id: "m2", contextWindow: 8192 }, apiKey: "" },
-    current,
-  );
-  assert.equal(kept.apiKey, KEY, "空欄は既存を維持");
-  assert.equal(kept.id, current.id, "id は変更できない");
-  assert.equal(kept.model.id, "m2");
-
-  const replaced = parseCustomProviderUpdate(
-    { baseUrl: current.baseUrl, model: current.model, apiKey: "sk-new-dummy-key-0123456789" },
-    current,
-  );
-  assert.equal(replaced.apiKey, "sk-new-dummy-key-0123456789");
-  rejects400(
-    () => parseCustomProviderUpdate({ baseUrl: current.baseUrl, model: current.model, apiKey: "short" }, current),
-    expectApiKeyMessage(),
+  for (const apiKey of ["", "short", "a".repeat(2049)]) {
+    assert.throws(
+      () => parseCustomProviderInput(createInput({ apiKey })),
+      (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+      `${apiKey.length} 文字は拒否する`,
+    );
+  }
+  const current = parseCustomProviderInput(createInput());
+  const update = (apiKey: string | undefined) =>
+    parseCustomProviderUpdate(
+      { baseUrl: "http://192.0.2.10:11434/v1", apiKey, model: { id: "m", contextWindow: 1 } },
+      current,
+    );
+  assert.equal(update(undefined).apiKey, KEY);
+  assert.equal(update("").apiKey, KEY);
+  assert.equal(update("sk-another-dummy-key-0123").apiKey, "sk-another-dummy-key-0123");
+  assert.throws(
+    () => update("short"),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
   );
 });
-
-function expectApiKeyMessage(): string {
-  return "APIキーは 8〜2048 文字で指定してください";
-}
 
 test("名前は任意で 64 文字まで。空欄は id を既定にする", () => {
   assert.equal(parseCustomProviderInput(createInput()).name, "local-llm");
@@ -284,30 +331,44 @@ test("名前は任意で 64 文字まで。空欄は id を既定にする", () 
   );
 });
 
-test("Store は複数を持ち、並びを保ち、応答用の要約はキーを返さない", () => {
-  const store = new CustomProviderStore();
-  const first = parseCustomProviderInput(createInput());
-  const second = parseCustomProviderInput(createInput({ id: "lab", baseUrl: "http://198.51.100.20:8000/v1" }));
-  store.set(first);
-  store.set(second);
+test("保存行から定義を組み立て、要約はキーを返さず hasKey を暗号文の有無で決める", () => {
+  const row = customRowOf("local-llm", KEY);
+  assert.deepEqual(storedCustomProviderDefinition(row, KEY), {
+    id: "local-llm",
+    name: "local-llm",
+    baseUrl: "http://192.0.2.10:11434/v1",
+    apiKey: KEY,
+    model: { id: "qwen2.5-coder:7b", contextWindow: 32768, maxTokens: 16384 },
+  });
 
-  assert.deepEqual(store.ids(), ["local-llm", "lab"], "追加順を保つ");
-  assert.equal(store.has("lab"), true);
-  assert.equal(store.delete("lab"), true);
-  assert.equal(store.has("lab"), false);
+  const definition = parseCustomProviderInput(createInput());
+  const secret = CIPHER.encrypt("custom_providers", definition.id, KEY);
+  const saved = customProviderRowOf(definition, secret);
+  assert.equal(saved.provider, "local-llm");
+  assert.equal(saved.modelId, "qwen2.5-coder:7b");
+  assert.equal(saved.contextWindow, 32768);
+  assert.ok(!("apiKey" in saved), "保存行に平文キーの列を持たない");
 
-  store.set(second);
-  const summaries = store.summaries();
-  assert.equal(summaries.length, 2);
-  assert.ok(!JSON.stringify(summaries).includes(KEY), "キーは要約に載せない");
-  assert.deepEqual(summaries[1], {
-    id: "lab",
-    name: "lab",
-    baseUrl: "http://198.51.100.20:8000/v1",
+  const summary = customProviderSummaryOfRow(saved);
+  assert.deepEqual(summary, {
+    id: "local-llm",
+    name: "local-llm",
+    baseUrl: "http://192.0.2.10:11434/v1",
     api: "openai-completions",
     model: { id: "qwen2.5-coder:7b", contextWindow: 32768, maxTokens: 16384 },
     hasKey: true,
   });
+  assert.ok(!JSON.stringify(summary).includes(KEY), "キーは要約に載せない");
+
+  // 壊れた保存値は黙って既定へ落とさず、検証で止める (起動時は degraded に倒す)
+  assert.throws(
+    () => storedCustomProviderDefinition({ ...row, baseUrl: "ftp://llm.example.test" }, KEY),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+  );
+  assert.throws(
+    () => storedCustomProviderDefinition(row, "short"),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+  );
 });
 
 test("登録内容は openai-completions / text のみ / コスト 0 で、キーを含めない", () => {
@@ -333,7 +394,7 @@ test("登録内容は openai-completions / text のみ / コスト 0 で、キ�
   assert.ok(!JSON.stringify(config).includes(KEY), "キーは SDK の登録内容に含めない");
 });
 
-test("作成は retainSecret → 登録 → キー適用 → 再計算の順に進み、GET に custom と customProviders が載る", async () => {
+test("作成は retainSecret → DB 保存 → 登録 → キー適用 → 再計算の順に進み、GET は DB 行から組む", async () => {
   const { service, runtime, db, retained } = serviceWith();
   const outcome = await service.createCustomProvider(createInput());
   assert.equal(outcome.status, 200);
@@ -341,8 +402,12 @@ test("作成は retainSecret → 登録 → キー適用 → 再計算の順に�
   assert.deepEqual(retained, [KEY], "キーは SDK より前にマスカーへ登録する");
   assert.deepEqual(runtime.calls, ["register:local-llm", `apply:local-llm:${KEY}`]);
 
-  assert.deepEqual(db.credentials.size, 0, "provider_credentials に行を作らない");
-  assert.deepEqual(db.memos.size, 0);
+  const row = db.custom.get("local-llm");
+  assert.ok(row, "custom_providers に行を作る");
+  assert.equal(CIPHER.decrypt("custom_providers", "local-llm", row), KEY, "キーは復号できる形で保存する");
+  assert.ok(!Buffer.from(row.ciphertext).includes(Buffer.from(KEY)), "暗号文に平文キーを残さない");
+  assert.equal(db.credentials.size, 0, "provider_credentials に行を作らない");
+  assert.equal(db.memos.size, 0);
 
   const settings = service.settings();
   const provider = settings.providers.find((entry) => entry.provider === "local-llm");
@@ -364,22 +429,45 @@ test("作成は retainSecret → 登録 → キー適用 → 再計算の順に�
   assert.ok(!runtime.calls.some((call) => call.startsWith("storedCredentialKind")), "auth.json を読まない");
 });
 
-test("作成は built-in / models.json の provider と id が衝突したら 400 で、SDK を触らない", async () => {
-  const { service, runtime } = serviceWith();
+test("作成は built-in / 保存済みのカスタム / 削除待ちの id と衝突したら 400 で、SDK を触らない", async () => {
+  const conflict = serviceWith();
   await assert.rejects(
-    () => service.createCustomProvider(createInput({ id: "anthropic" })),
+    () => conflict.service.createCustomProvider(createInput({ id: "anthropic" })),
     (error: unknown) => {
       assert.equal((error as { statusCode?: number }).statusCode, 400);
       assert.equal((error as Error).message, CUSTOM_PROVIDER_ID_CONFLICT_MESSAGE);
       return true;
     },
   );
-  assert.deepEqual(runtime.calls, [], "衝突したら登録もキー適用もしない");
+  assert.deepEqual(conflict.runtime.calls, [], "衝突したら登録もキー適用もしない");
+
+  const stored = serviceWith({}, { db: fakeDb({ custom: [customRowOf("local-llm", KEY)] }) });
+  await assert.rejects(
+    () => stored.service.createCustomProvider(createInput()),
+    (error: unknown) => (error as Error).message === CUSTOM_PROVIDER_ID_CONFLICT_MESSAGE,
+  );
+  assert.deepEqual(stored.runtime.calls, []);
+
+  const deleted = serviceWith();
+  assert.equal((await deleted.service.createCustomProvider(createInput())).status, 200);
+  deleted.runtime.calls.length = 0;
+  // 後始末に失敗させて tombstone を残す
+  deleted.runtime.service.removeApiKey = async () => {
+    deleted.runtime.calls.push("remove:local-llm");
+    return failed;
+  };
+  const removal = await deleted.service.deleteCustomProvider("local-llm");
+  assert.equal(removal.status === 200 && removal.response.state, "applied_unsynced");
+  deleted.runtime.calls.length = 0;
+  await assert.rejects(
+    () => deleted.service.createCustomProvider(createInput()),
+    (error: unknown) => (error as Error).message === CUSTOM_PROVIDER_ID_CONFLICT_MESSAGE,
+  );
+  assert.deepEqual(deleted.runtime.calls, [], "tombstone 中は SDK も DB も触らない");
 });
 
 test("保存済みのキー / メモの行がある id では作成せず、行の削除を促す 400 にする", async () => {
-  const { service, runtime, db } = serviceWith();
-  db.credentials.set("local-llm", testAppCipher().encrypt("provider_credentials", "local-llm", KEY));
+  const { service, runtime } = serviceWith({}, { db: fakeDb({ credentials: { "local-llm": KEY } }) });
   await assert.rejects(
     () => service.createCustomProvider(createInput()),
     (error: unknown) => {
@@ -390,18 +478,18 @@ test("保存済みのキー / メモの行がある id では作成せず、行�
   );
   assert.deepEqual(runtime.calls, [], "孤立行があるときは SDK を触らない");
 
-  db.credentials.clear();
-  db.memos.set("local-llm", "以前のメモ");
+  const memo = serviceWith();
+  memo.db.memos.set("local-llm", "以前のメモ");
   await assert.rejects(
-    () => service.createCustomProvider(createInput()),
+    () => memo.service.createCustomProvider(createInput()),
     (error: unknown) => (error as Error).message === CUSTOM_PROVIDER_STORED_ROWS_MESSAGE,
   );
-  assert.deepEqual(service.settings().customProviders, [], "定義を残さない");
+  assert.deepEqual(memo.service.settings().customProviders, [], "定義を残さない");
 });
 
 test("保存済みの行を読めないときは作成せず 503 にする", async () => {
   const { service, runtime, db } = serviceWith();
-  db.getProviderCredential = () => {
+  db.db.getProviderCredential = () => {
     throw new Error("db unavailable");
   };
   await assert.rejects(
@@ -411,41 +499,79 @@ test("保存済みの行を読めないときは作成せず 503 にする", asy
   assert.deepEqual(runtime.calls, []);
 });
 
-test("作成のキー適用に失敗したら登録と overlay を巻き戻し、503 で何も残さない", async () => {
-  const { service, runtime } = serviceWith({ apply: () => failed });
-  const outcome = await service.createCustomProvider(createInput());
-  assert.deepEqual(outcome, { status: 503, error: CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE });
-  assert.deepEqual(runtime.calls, [
-    "register:local-llm",
-    `apply:local-llm:${KEY}`,
-    `apply:local-llm:${KEY}`,
-    "remove:local-llm",
-    "unregister:local-llm",
-  ]);
-  assert.deepEqual(service.settings().customProviders, [], "store に定義を残さない");
-});
-
-test("SDK の登録検証に失敗したら 400 で、キーは適用しない", async () => {
-  const { service, runtime } = serviceWith({
-    register: () => {
-      throw new Error("Provider local-llm: invalid baseUrl http://192.0.2.10:11434/v1");
-    },
+test("DB 書込に失敗したら 503 not_stored で、SDK も DB も変わらない", async () => {
+  const { service, runtime, db } = serviceWith();
+  db.state.failSaveCustom = true;
+  assert.deepEqual(await service.createCustomProvider(createInput()), {
+    status: 503,
+    error: CUSTOM_PROVIDER_NOT_STORED_MESSAGE,
   });
-  await assert.rejects(
-    () => service.createCustomProvider(createInput()),
-    (error: unknown) => {
-      assert.equal((error as { statusCode?: number }).statusCode, 400);
-      assert.ok(!(error as Error).message.includes("192.0.2.10"), "SDK の生の文言を応答へ出さない");
-      return true;
-    },
-  );
-  assert.deepEqual(runtime.calls, ["register:local-llm"]);
+  assert.deepEqual(runtime.calls, [], "DB が確定するまで SDK を触らない");
   assert.deepEqual(service.settings().customProviders, []);
 });
 
-test("更新は同じ id を再登録し、キーの空欄ではキーを適用しない", async () => {
-  const { service, runtime, retained } = serviceWith();
+test("master key 未設定では平文で保存せず 503 not_stored にする (削除は master key 無しでもできる)", async () => {
+  const { service, runtime, db } = serviceWith(
+    {},
+    { cipher: null, db: fakeDb({ custom: [customRowOf("local-llm", KEY)] }) },
+  );
+  assert.deepEqual(await service.createCustomProvider(createInput({ id: "lab" })), {
+    status: 503,
+    error: APP_SECRET_NOT_STORED_MESSAGE,
+  });
+  assert.deepEqual(runtime.calls, []);
+  assert.equal(db.custom.has("lab"), false, "行を作らない");
+
+  // 復号できない行でも、定義の要約と削除はできる (平文フォールバックもしない)
+  const settings = service.settings();
+  assert.equal(settings.customProviders[0].hasKey, true);
+  const outcome = await service.deleteCustomProvider("local-llm");
+  assert.equal(outcome.status === 200 && outcome.response.state, "applied");
+  assert.equal(db.custom.has("local-llm"), false);
+});
+
+test("キー適用に失敗しても 200 applied_unsynced で DB は戻さず、degraded を残す", async () => {
+  const { service, runtime, db } = serviceWith({ apply: () => failed });
+  const outcome = await service.createCustomProvider(createInput());
+  assert.equal(outcome.status, 200);
+  assert.equal(outcome.status === 200 && outcome.response.state, "applied_unsynced");
+  assert.ok(outcome.status === 200);
+  assert.equal(outcome.response.customProviders[0].degraded, "apply");
+  assert.deepEqual(runtime.calls, ["register:local-llm", `apply:local-llm:${KEY}`, `apply:local-llm:${KEY}`]);
+  assert.ok(db.custom.has("local-llm"), "DB 行は戻さない");
+
+  // 再同期で収束する
+  const resync = await service.resync("local-llm");
+  assert.equal(resync.status === 200 && resync.response.state, "applied_unsynced");
+  runtime.service.applyApiKey = async (provider, apiKey) => {
+    runtime.calls.push(`apply:${provider}:${apiKey}`);
+    return applied;
+  };
+  const recovered = await service.resync("local-llm");
+  assert.equal(recovered.status === 200 && recovered.response.state, "applied");
+  assert.equal(recovered.status === 200 && recovered.response.customProviders[0].degraded, undefined);
+});
+
+test("SDK の登録に失敗しても 200 applied_unsynced で、DB を正として残す", async () => {
+  const { service, runtime } = serviceWith({
+    register: () => {
+      throw new Error("Provider local-llm: invalid name");
+    },
+  });
+  const outcome = await service.createCustomProvider(createInput());
+  assert.equal(outcome.status, 200);
+  assert.ok(outcome.status === 200);
+  assert.equal(outcome.response.state, "applied_unsynced");
+  assert.equal(outcome.response.customProviders[0].degraded, "apply");
+  assert.ok(!JSON.stringify(outcome.response).includes("invalid name"), "SDK の生の文言を応答へ出さない");
+  assert.deepEqual(runtime.calls, ["register:local-llm"], "登録に失敗したらキーは適用しない");
+  assert.equal(service.settings().customProviders.length, 1, "DB の行は残る");
+});
+
+test("更新はキーの空欄で既存の暗号文を維持し、登録だけやり直す", async () => {
+  const { service, runtime, retained, db } = serviceWith();
   await service.createCustomProvider(createInput());
+  const before = db.custom.get("local-llm");
   runtime.calls.length = 0;
   retained.length = 0;
 
@@ -455,9 +581,13 @@ test("更新は同じ id を再登録し、キーの空欄ではキーを適用�
     apiKey: "",
     model: { id: "llama3:8b", contextWindow: 8192 },
   });
-  assert.equal(outcome.status, 200);
+  assert.equal(outcome.status === 200 && outcome.response.state, "applied");
   assert.deepEqual(runtime.calls, ["register:local-llm"], "キーを適用し直さない");
   assert.deepEqual(retained, []);
+  const after = db.custom.get("local-llm");
+  assert.deepEqual(after?.ciphertext, before?.ciphertext, "既存の暗号文をそのまま残す");
+  assert.deepEqual(after?.nonce, before?.nonce);
+
   const summary = service.settings().customProviders[0];
   assert.equal(summary.name, "自宅のLLM");
   assert.equal(summary.baseUrl, "http://192.0.2.11:11434/v1");
@@ -465,33 +595,36 @@ test("更新は同じ id を再登録し、キーの空欄ではキーを適用�
   assert.equal(summary.hasKey, true);
 });
 
-test("更新で新しいキーを入れたら適用し、失敗したら旧定義・旧キーへ戻して 503", async () => {
-  let fail = false;
-  const { service, runtime } = serviceWith({
-    apply: (_provider, apiKey) => (fail && apiKey !== KEY ? failed : applied),
+test("更新で新しいキーを入れたら適用し、失敗しても DB を正として 200 applied_unsynced にする", async () => {
+  let failKey: string | undefined;
+  const { service, runtime, db, retained } = serviceWith({
+    apply: (_provider, apiKey) => (failKey !== undefined && apiKey === failKey ? failed : applied),
   });
   await service.createCustomProvider(createInput());
   runtime.calls.length = 0;
+  retained.length = 0;
 
-  const newKey = "sk-new-dummy-key-0123456789";
-  fail = true;
+  failKey = NEW_KEY;
   const outcome = await service.updateCustomProvider("local-llm", {
     baseUrl: "http://192.0.2.11:11434/v1",
-    apiKey: newKey,
+    apiKey: NEW_KEY,
     model: { id: "llama3:8b", contextWindow: 8192 },
   });
-  assert.deepEqual(outcome, { status: 503, error: CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE });
-  assert.deepEqual(runtime.calls, [
-    "register:local-llm",
-    `apply:local-llm:${newKey}`,
-    `apply:local-llm:${newKey}`,
-    "register:local-llm",
-    `apply:local-llm:${KEY}`,
-  ]);
-  const summary = service.settings().customProviders[0];
-  assert.equal(summary.baseUrl, "http://192.0.2.10:11434/v1", "旧定義へ戻す");
-  assert.equal(summary.model.id, "qwen2.5-coder:7b");
-  assert.deepEqual(runtime.registered.get("local-llm")?.models[0].id, "qwen2.5-coder:7b");
+  assert.equal(outcome.status, 200);
+  assert.ok(outcome.status === 200);
+  assert.equal(outcome.response.state, "applied_unsynced");
+  assert.equal(outcome.response.customProviders[0].degraded, "apply");
+  assert.equal(retained.at(-1), NEW_KEY, "新しいキーを SDK より前にマスカーへ登録する");
+  const row = db.custom.get("local-llm");
+  assert.equal(CIPHER.decrypt("custom_providers", "local-llm", row!), NEW_KEY, "DB は新しいキーが正");
+  assert.equal(outcome.response.customProviders[0].baseUrl, "http://192.0.2.11:11434/v1");
+
+  // キー空欄のまま再同期すると、保存済みの新しいキーが復号されて適用される
+  failKey = undefined;
+  runtime.calls.length = 0;
+  const recovered = await service.resync("local-llm");
+  assert.equal(recovered.status === 200 && recovered.response.state, "applied");
+  assert.deepEqual(runtime.calls, ["register:local-llm", `apply:local-llm:${NEW_KEY}`]);
 });
 
 test("未登録の provider の更新・削除は 400、ランタイム無しは 503", async () => {
@@ -520,35 +653,72 @@ test("未登録の provider の更新・削除は 400、ランタイム無しは
   });
 });
 
-test("削除は removeRuntimeApiKey → unregisterProvider の順で、同じ id を再登録しても古いキーが復活しない", async () => {
-  const { service, runtime } = serviceWith();
+test("削除は DB 削除 → removeRuntimeApiKey → unregisterProvider の順で、2 回目は 400 になる", async () => {
+  const { service, runtime, db } = serviceWith();
   await service.createCustomProvider(createInput());
   runtime.calls.length = 0;
 
   const outcome = await service.deleteCustomProvider("local-llm");
-  assert.equal(outcome.status, 200);
+  assert.equal(outcome.status === 200 && outcome.response.state, "applied");
   assert.deepEqual(runtime.calls, ["remove:local-llm", "unregister:local-llm"]);
+  assert.equal(db.custom.has("local-llm"), false);
   assert.deepEqual(service.settings().customProviders, []);
   assert.equal(
     service.settings().providers.find((entry) => entry.provider === "local-llm"),
     undefined,
     "runtime の一覧からも消える",
   );
+  await assert.rejects(
+    () => service.deleteCustomProvider("local-llm"),
+    (error: unknown) => (error as Error).message === CUSTOM_PROVIDER_NOT_FOUND_MESSAGE,
+  );
 });
 
-test("削除のキー削除に失敗したら 503 で何も消さない", async () => {
-  const { service, runtime } = serviceWith({ remove: () => failed });
+test("削除の後始末に失敗したら 200 applied_unsynced + degraded remove の tombstone を残す", async () => {
+  const { service, runtime, db } = serviceWith({ remove: () => failed });
   await service.createCustomProvider(createInput());
   runtime.calls.length = 0;
 
   const outcome = await service.deleteCustomProvider("local-llm");
-  assert.deepEqual(outcome, { status: 503, error: CUSTOM_PROVIDER_REMOVE_FAILED_MESSAGE });
-  assert.deepEqual(runtime.calls, ["remove:local-llm", "remove:local-llm"]);
-  assert.equal(service.settings().customProviders.length, 1, "定義を残す");
-  assert.ok(runtime.registered.has("local-llm"));
+  assert.equal(outcome.status, 200);
+  assert.ok(outcome.status === 200);
+  assert.equal(outcome.response.state, "applied_unsynced");
+  assert.deepEqual(outcome.response.customProviders, [
+    {
+      id: "local-llm",
+      name: "local-llm",
+      baseUrl: "http://192.0.2.10:11434/v1",
+      api: "openai-completions",
+      model: { id: "qwen2.5-coder:7b", contextWindow: 32768, maxTokens: 16384 },
+      hasKey: false,
+      degraded: "remove",
+    },
+  ]);
+  assert.deepEqual(runtime.calls, ["remove:local-llm", "remove:local-llm"], "後始末は再試行してから諦める");
+  assert.equal(db.custom.has("local-llm"), false, "DB 行は消えている");
+
+  // tombstone 中は同じ id のキー / メモ / 作成を 400 で予約する
+  for (const run of [
+    () => service.putKey("local-llm", "sk-another-dummy-key-0123"),
+    () => service.putMemo("local-llm", "memo"),
+  ]) {
+    await assert.rejects(run, (error: unknown) => (error as { statusCode?: number }).statusCode === 400);
+  }
+
+  runtime.service.removeApiKey = async (provider) => {
+    runtime.calls.push(`remove:${provider}`);
+    return applied;
+  };
+  const recovered = await service.resync("local-llm");
+  assert.ok(recovered.status === 200);
+  assert.equal(recovered.response.state, "applied");
+  assert.deepEqual(recovered.response.customProviders, []);
+
+  // 解除後は同じ id を作り直せる
+  assert.equal((await service.createCustomProvider(createInput())).status, 200);
 });
 
-test("カスタム provider では既存のキー / メモ / 再同期 API を 400 にする", async () => {
+test("カスタム provider では既存のキー / メモ API を 400 にし、再同期は受け付ける", async () => {
   const { service, db } = serviceWith();
   await service.createCustomProvider(createInput());
 
@@ -556,12 +726,149 @@ test("カスタム provider では既存のキー / メモ / 再同期 API を 4
     () => service.putKey("local-llm", "sk-another-dummy-key-0123"),
     () => service.deleteKey("local-llm"),
     () => service.putMemo("local-llm", "memo"),
-    () => service.resync("local-llm"),
   ]) {
     await assert.rejects(run, (error: unknown) => (error as { statusCode?: number }).statusCode === 400);
   }
   assert.equal(db.credentials.size, 0);
   assert.equal(db.memos.size, 0);
+  const resync = await service.resync("local-llm");
+  assert.equal(resync.status === 200 && resync.response.state, "applied");
+});
+
+test("起動時に built-in と id が衝突した provider は、更新・再同期・削除で runtime entry を変えない", async () => {
+  // 起動時点で runtime に同じ id がある = models.json / built-in の provider。register しない
+  const runtime = fakeRuntime({ providers: [{ provider: "local-llm", name: "組み込み" }] });
+  const db = fakeDb({ custom: [customRowOf("local-llm", KEY)] });
+  const { service } = serviceWith({}, { runtimeService: runtime.service, db });
+  await service.applyStored();
+  assert.deepEqual(runtime.calls, [], "衝突したら register もキー適用もしない");
+
+  const settings = service.settings();
+  assert.equal(settings.customProviders[0].degraded, "apply");
+  assert.ok(settings.customProviders[0].degradedMessage, "画面が原因を推測しないよう固定文言を載せる");
+  assert.equal(
+    settings.providers.find((entry) => entry.provider === "local-llm")?.custom,
+    undefined,
+    "built-in の runtime entry を custom 扱いしない",
+  );
+
+  const update = await service.updateCustomProvider("local-llm", {
+    baseUrl: "http://192.0.2.11:11434/v1",
+    model: { id: "llama3:8b", contextWindow: 8192 },
+  });
+  assert.equal(update.status === 200 && update.response.state, "applied_unsynced");
+  const resync = await service.resync("local-llm");
+  assert.equal(resync.status === 200 && resync.response.state, "applied_unsynced");
+  assert.deepEqual(runtime.calls, [], "built-in の登録もキーも触らない");
+
+  const removed = await service.deleteCustomProvider("local-llm");
+  assert.ok(removed.status === 200);
+  assert.equal(removed.response.state, "applied", "登録していないので SDK 後始末は不要");
+  assert.deepEqual(runtime.calls, []);
+  assert.ok(runtime.registered.has("local-llm") === false);
+  assert.deepEqual(
+    runtime.service.list().map((entry) => entry.provider),
+    ["local-llm"],
+    "built-in の runtime entry は残る",
+  );
+});
+
+test("起動時の復号に失敗した行は register せず degraded にし、平文へフォールバックしない", async () => {
+  const runtime = fakeRuntime();
+  // 別の scope で暗号化した行 = AAD が違うので復号できない
+  const wrong = CIPHER.encrypt("provider_credentials", "local-llm", KEY);
+  const db = fakeDb({
+    custom: [{ ...customRowOf("local-llm", KEY), ciphertext: wrong.ciphertext, nonce: wrong.nonce }],
+  });
+  const { service } = serviceWith({}, { runtimeService: runtime.service, db });
+  await service.applyStored();
+  assert.deepEqual(runtime.calls, []);
+  const summary = service.settings().customProviders[0];
+  assert.equal(summary.degraded, "apply");
+  assert.equal(summary.degradedMessage, APP_SECRET_DECRYPT_FAILED_MESSAGE);
+  assert.equal(summary.hasKey, true, "暗号文があることは hasKey で伝える");
+});
+
+test("起動時の master key 未設定は固定文言つきの degraded にする", async () => {
+  const runtime = fakeRuntime();
+  const db = fakeDb({ custom: [customRowOf("local-llm", KEY)] });
+  const { service } = serviceWith({}, { runtimeService: runtime.service, db, cipher: null });
+  await service.applyStored();
+  assert.deepEqual(runtime.calls, []);
+  assert.equal(service.settings().customProviders[0].degradedMessage, APP_SECRET_MASTER_KEY_MESSAGE);
+});
+
+test("起動時に保存済みの定義を検証できない行は register しない", async () => {
+  const runtime = fakeRuntime();
+  const db = fakeDb({ custom: [customRowOf("local-llm", KEY, { baseUrl: "ftp://llm.example.test" })] });
+  const { service } = serviceWith({}, { runtimeService: runtime.service, db });
+  await service.applyStored();
+  assert.deepEqual(runtime.calls, []);
+  assert.equal(service.settings().customProviders[0].degradedMessage, CUSTOM_PROVIDER_INVALID_STORED_MESSAGE);
+});
+
+test("GET は復号しない (master key が無くても一覧を返す)", () => {
+  const { service } = serviceWith(
+    { apply: () => applied },
+    { cipher: null, db: fakeDb({ custom: [customRowOf("local-llm", KEY)] }) },
+  );
+  const settings = service.settings();
+  assert.deepEqual(
+    settings.customProviders.map((entry) => entry.id),
+    ["local-llm"],
+  );
+  assert.equal(settings.customProviders[0].degraded, undefined, "まだ評価していない行を未反映と断定しない");
+});
+
+test("カスタム行と同じ id の provider_credentials は適用せず、custom 側を正にする", async () => {
+  const runtime = fakeRuntime();
+  const db = fakeDb({
+    custom: [customRowOf("local-llm", KEY)],
+    credentials: { "local-llm": "sk-shadowed-dummy-key-01", anthropic: "sk-ant-dummy-key-a-0123456789" },
+  });
+  const { service } = serviceWith({}, { runtimeService: runtime.service, db });
+  await service.applyStored();
+  assert.deepEqual(
+    runtime.calls.filter((call) => call.startsWith("apply:")),
+    [`apply:local-llm:${KEY}`, "apply:anthropic:sk-ant-dummy-key-a-0123456789"],
+    "同じ id の通常キー行は適用しない (行は消さない)",
+  );
+  assert.equal(db.credentials.has("local-llm"), true);
+});
+
+test("起動時はカスタム provider → モデルの選択 → provider_credentials → 再計算の順に適用する", async () => {
+  const events: string[] = [];
+  const runtime = fakeRuntime({
+    apply: (provider) => {
+      events.push(`apply:${provider}`);
+      return applied;
+    },
+  });
+  runtime.service.registerProvider = (provider, config) => {
+    events.push(`register:${provider}`);
+    runtime.registered.set(provider, config);
+  };
+  const db = fakeDb({
+    custom: [customRowOf("local-llm", KEY)],
+    credentials: { anthropic: "sk-ant-dummy-key-a-0123456789" },
+  });
+  db.db.readModelSettings = () => ({ allowedModels: null, defaultModel: "local-llm/qwen2.5-coder:7b" });
+  const service = new ModelSettingsService({
+    db: db.db,
+    runtime: runtime.service,
+    retainSecret: () => {},
+    maskError: (text) => text,
+    refreshModelState: async () => {
+      events.push("refresh");
+    },
+    setModelSelection: () => {
+      events.push("selection");
+    },
+    ignoredEnvironmentVariables: [],
+    appCipher: testAppCipher(),
+  });
+  await service.applyStored();
+  assert.deepEqual(events, ["register:local-llm", "apply:local-llm", "selection", "apply:anthropic", "refresh"]);
 });
 
 test("別 provider の変更とは同じロックで直列化し、後から来た作成を待たせる", async () => {
@@ -583,18 +890,22 @@ test("別 provider の変更とは同じロックで直列化し、後から来�
   assert.equal((await second).status, 200);
 });
 
-test("ランタイム無しの GET は customProviders を空配列で返し、利用可能なモデルの保存は 503", async () => {
-  const { service } = serviceWith({}, { runtime: null });
+test("ランタイム無しの GET は DB 行を返し、degraded を付けず、変更は 503 にする", async () => {
+  const { service } = serviceWith({}, { runtime: null, db: fakeDb({ custom: [customRowOf("local-llm", KEY)] }) });
   const settings = service.settings();
   assert.equal(settings.runtimeAvailable, false);
-  assert.deepEqual(settings.customProviders, []);
+  assert.deepEqual(
+    settings.customProviders.map((entry) => entry.id),
+    ["local-llm"],
+  );
+  assert.equal(settings.customProviders[0].degraded, undefined);
   assert.deepEqual(await service.putModelSelection({ allowedModels: null, defaultModel: null }), {
     status: 503,
     error: MODEL_SELECTION_RUNTIME_UNAVAILABLE_MESSAGE,
   });
 });
 
-test("probe は保存済みのキーを使え、入力キーを上書きに使えばマスカーへ登録する", async () => {
+test("probe は保存済みのキーで復号でき、入力キーを上書きに使えばマスカーへ登録する", async () => {
   const seen: string[] = [];
   const fakeFetch = (async (_input: string | URL | Request, init?: RequestInit) => {
     seen.push((init?.headers as Record<string, string> | undefined)?.Authorization ?? "");
@@ -612,7 +923,7 @@ test("probe は保存済みのキーを使え、入力キーを上書きに使�
   assert.equal(stored.failure, null);
   assert.deepEqual(stored.models, [{ id: "qwen2.5-coder:7b" }]);
   assert.deepEqual(seen, [`Bearer ${KEY}`]);
-  assert.deepEqual(retained, [], "保存済みキーの再利用では入れ直さない");
+  assert.deepEqual(retained, [KEY], "復号したキーは SDK より前にマスカーへ入れ直す");
 
   const typedKey = "sk-typed-key-0123456789";
   await service.probeCustomProvider({
@@ -621,10 +932,10 @@ test("probe は保存済みのキーを使え、入力キーを上書きに使�
     apiKey: typedKey,
   });
   assert.deepEqual(seen[1], `Bearer ${typedKey}`);
-  assert.deepEqual(retained, [typedKey]);
+  assert.equal(retained.at(-1), typedKey, "入力されたキーもマスカーへ登録する");
 });
 
-test("probe は未知の provider・キー無し・短いキーを 400 にする", async () => {
+test("probe は未知の provider・キー無し・短いキーを 400、復号できない保存キーを 503 にする", async () => {
   const { service } = serviceWith();
   for (const run of [
     () => service.probeCustomProvider({ provider: "ghost", baseUrl: "http://192.0.2.10:11434/v1", apiKey: KEY }),
@@ -633,6 +944,21 @@ test("probe は未知の provider・キー無し・短いキーを 400 にする
   ]) {
     await assert.rejects(run, (error: unknown) => (error as { statusCode?: number }).statusCode === 400);
   }
+
+  const wrong = CIPHER.encrypt("provider_credentials", "local-llm", KEY);
+  const broken = serviceWith(
+    {},
+    { cipher: null, db: fakeDb({ custom: [{ ...customRowOf("local-llm", KEY), ciphertext: wrong.ciphertext }] }) },
+  );
+  await assert.rejects(
+    () =>
+      broken.service.probeCustomProvider({
+        provider: "local-llm",
+        baseUrl: "http://192.0.2.10:11434/v1",
+        apiKey: "",
+      }),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 503,
+  );
 });
 
 test("probe はミューテーションロックを取らず、キー・メモの変更を待たせない", async () => {

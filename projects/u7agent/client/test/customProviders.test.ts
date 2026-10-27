@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   CUSTOM_PROVIDER_CONTEXT_WINDOW_NOTE,
+  CUSTOM_PROVIDER_CREATED_NOTE,
+  CUSTOM_PROVIDER_DEGRADED_APPLY_LABEL,
+  CUSTOM_PROVIDER_DEGRADED_APPLY_NOTE,
+  CUSTOM_PROVIDER_DEGRADED_REMOVE_LABEL,
+  CUSTOM_PROVIDER_DEGRADED_REMOVE_NOTE,
+  CUSTOM_PROVIDER_UNSYNCED_NOTE,
   CUSTOM_PROVIDER_CONTEXT_WINDOW_PRESETS,
   CUSTOM_PROVIDER_DEFAULT_MAX_TOKENS,
   CUSTOM_PROVIDER_NOTES,
@@ -10,6 +16,12 @@ import {
   CUSTOM_PROVIDER_PROBE_EMPTY_MESSAGE,
   contextWindowLabel,
   contextWindowOptions,
+  customProviderBadge,
+  customProviderDegradedNotice,
+  customProviderEditable,
+  customProviderMutationNote,
+  customProviderSelectionKey,
+  providerSelectionKey,
   currentCustomProviderProbe,
   customProviderBaseUrlError,
   customProviderCreateBody,
@@ -201,28 +213,76 @@ test("複数登録できる (下書きは独立し、provider ごとに別の本
   assert.equal(customProviderCreateBody(second).model.contextWindow, 16384, "1 provider = 1 model");
 });
 
-test("常時の注意はオンメモリ・再起動後のカタログ外・既定モデル・キー必須・baseUrl の信頼を伝える", () => {
-  assert.equal(CUSTOM_PROVIDER_NOTES.length, 4);
+test("常時の注意は DB 保存・暗号化・再起動後も残る・カタログ外・master key・キー必須を伝える", () => {
   const text = [CUSTOM_PROVIDER_NOTES_SUMMARY, ...CUSTOM_PROVIDER_NOTES].join("\n");
-  assert.ok(text.includes("メモリ"));
-  assert.ok(text.includes("再起動"));
+  assert.ok(text.includes("アプリ DB"), "保存先がアプリ DB であることを伝える");
+  assert.ok(text.includes("暗号化"), "APIキーを暗号化して保存することを伝える");
+  assert.ok(text.includes("再起動後も残ります"));
+  assert.ok(text.includes("master key"), "復号できないときの扱いを伝える");
   assert.ok(text.includes("カタログ外"));
-  assert.ok(text.includes("同じ provider id とモデル id"));
-  assert.ok(text.includes("既定モデル"));
   assert.ok(text.includes("ダミー"));
   assert.ok(text.includes("Authorization: Bearer"));
   assert.ok(text.includes("信頼できる baseUrl"));
+  // メモリのみ・再起動で消える、という旧仕様の説明を残さない
+  for (const phrase of ["メモリにだけ保存", "メモリのみ", "再起動すると定義とAPIキーは消えます"]) {
+    assert.ok(!text.includes(phrase), `${phrase} を残さない`);
+  }
 });
 
-test("削除の確認はメモリのみ・会話への影響・モデル選択の扱いを示す", () => {
+test("削除の確認は DB と runtime の両方から消えること・会話への影響・モデル選択の扱いを示す", () => {
   const request = deleteCustomProviderConfirm("自宅のLLM");
   assert.equal(request.kind, "confirm");
   assert.equal(request.danger, true);
   assert.deepEqual(request.subject, { label: "削除する provider", value: "自宅のLLM" });
   const text = (request.body ?? []).join("\n");
-  assert.ok(text.includes("メモリ"));
+  assert.ok(text.includes("アプリ DB"));
+  assert.ok(text.includes("実行中のランタイム"));
   assert.ok(text.includes("次回の送信"));
   assert.ok(text.includes("カタログ外"));
+  for (const phrase of ["メモリから消えます", "DB には保存していません"]) {
+    assert.ok(!text.includes(phrase), `${phrase} を残さない`);
+  }
+});
+
+test("反映待ちのバッジと案内は degraded だけに出し、サーバーの固定文言を優先する", () => {
+  const applied = { ...SUMMARY };
+  assert.equal(customProviderBadge(applied), null, "反映済みはバッジを出さない");
+  assert.equal(customProviderDegradedNotice(applied), null);
+  assert.equal(customProviderEditable(applied), true);
+
+  const pending = { ...SUMMARY, degraded: "apply" as const };
+  assert.deepEqual(customProviderBadge(pending), { text: CUSTOM_PROVIDER_DEGRADED_APPLY_LABEL, warn: true });
+  assert.equal(customProviderDegradedNotice(pending), CUSTOM_PROVIDER_DEGRADED_APPLY_NOTE);
+  assert.equal(customProviderEditable(pending), true, "未反映でも編集・削除はできる (削除で抜けられる)");
+
+  const serverMessage = "master key（U7AGENT_SECRET_MASTER_KEY）が未設定または不正です";
+  assert.equal(
+    customProviderDegradedNotice({ ...SUMMARY, degraded: "apply", degradedMessage: serverMessage }),
+    serverMessage,
+    "画面の既定文言ではなくサーバーの固定文言を優先する",
+  );
+
+  const removed = { ...SUMMARY, degraded: "remove" as const, degradedMessage: "ignored" };
+  assert.deepEqual(customProviderBadge(removed), { text: CUSTOM_PROVIDER_DEGRADED_REMOVE_LABEL, warn: true });
+  assert.equal(customProviderDegradedNotice(removed), CUSTOM_PROVIDER_DEGRADED_REMOVE_NOTE);
+  assert.equal(customProviderEditable(removed), false, "削除待ちは再同期だけを出す");
+});
+
+test("一覧の選択キーは種別込みで、同じ id の built-in とカスタムを区別する", () => {
+  assert.notEqual(providerSelectionKey("local-llm"), customProviderSelectionKey("local-llm"));
+  assert.equal(providerSelectionKey("local-llm"), "provider:local-llm");
+  assert.equal(customProviderSelectionKey("local-llm"), "custom:local-llm");
+});
+
+test("変更の注記は applied_unsynced のときだけ未反映の案内を出す", () => {
+  assert.deepEqual(customProviderMutationNote(CUSTOM_PROVIDER_CREATED_NOTE, "applied"), {
+    text: CUSTOM_PROVIDER_CREATED_NOTE,
+    error: false,
+  });
+  assert.deepEqual(customProviderMutationNote(CUSTOM_PROVIDER_CREATED_NOTE, "applied_unsynced"), {
+    text: CUSTOM_PROVIDER_UNSYNCED_NOTE,
+    error: true,
+  });
 });
 
 const PROBE_OK: CustomProviderProbeResponse = {

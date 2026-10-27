@@ -1,8 +1,10 @@
 /**
- * 設定 → モデルの「カスタムプロバイダー」の型・入力検証・メモリ上の Store。
- * オンメモリで、DB / models.json / auth.json へは書かない (再起動で定義とキーは消える)。
+ * 設定 → モデルの「カスタムプロバイダー」の型・入力検証・保存行との変換。
+ * 定義と暗号化した APIキーはアプリ DB (`custom_providers`) に保存し、この module は暗号文を扱わない
+ * (暗号化 / 復号は AppSecretCipher とサービス側の責務)。
  * 1 provider = 1 model、API は openai-completions 固定。契約と残存リスクは docs/model-settings.md を正とする。
  */
+import type { CustomProviderRow, StoredAppSecret } from "./app-db";
 import { httpError } from "./http";
 import { PROVIDER_API_KEY_MAX_LENGTH, PROVIDER_API_KEY_MIN_LENGTH } from "./schema";
 
@@ -33,15 +35,17 @@ export const CUSTOM_PROVIDER_STORED_ROWS_UNAVAILABLE_MESSAGE =
   "保存済みのキー行を確認できないため、カスタムプロバイダーを登録できません";
 export const CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE =
   "ランタイムが利用できないため、カスタムプロバイダーを変更できません";
-export const CUSTOM_PROVIDER_REGISTER_FAILED_MESSAGE = "この内容ではカスタムプロバイダーを登録できません";
-export const CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE =
-  "カスタムプロバイダーのAPIキーを実行中のランタイムへ反映できなかったため、登録を取り消しました";
-export const CUSTOM_PROVIDER_REMOVE_FAILED_MESSAGE =
-  "カスタムプロバイダーのAPIキーを削除できなかったため、変更していません";
+/** 保存済みの定義を DB へ書けない (DB 失敗・暗号化失敗で、行が確定していない) */
+export const CUSTOM_PROVIDER_NOT_STORED_MESSAGE = "カスタムプロバイダーをアプリデータ（SQLite）へ保存できませんでした";
+/** 保存済みの行を register できなかったときの案内 (built-in / models.json と同じ id のとき) */
+export const CUSTOM_PROVIDER_ID_CONFLICT_DEGRADED_MESSAGE =
+  "同じ id のプロバイダーが既にあるため、このカスタムプロバイダーを登録できていません。不要なら削除してください";
+/** 保存済みの行の定義が保存時の検証を通らない。古い / 手編集された行を SDK へ渡さない */
+export const CUSTOM_PROVIDER_INVALID_STORED_MESSAGE =
+  "保存済みのカスタムプロバイダーの定義を検証できないため、実行中のランタイムへ反映していません";
 export const CUSTOM_PROVIDER_KEY_TARGET_MESSAGE =
   "カスタムプロバイダーのAPIキーはカスタムプロバイダーの画面で変更してください";
 export const CUSTOM_PROVIDER_MEMO_TARGET_MESSAGE = "カスタムプロバイダーにはメモを保存できません";
-export const CUSTOM_PROVIDER_RESYNC_TARGET_MESSAGE = "カスタムプロバイダーは再同期できません";
 
 export interface CustomProviderModelInput {
   id: string;
@@ -70,23 +74,27 @@ export interface CustomProviderModel {
   maxTokens: number;
 }
 
-/** メモリ上の定義。apiKey は応答 (CustomProviderSummary) へ出さない */
-export interface CustomProviderDefinition {
+/** 一覧・詳細の元になる定義。キーを持たず、応答 (CustomProviderSummary) の材料になる */
+export interface CustomProviderSummarySource {
   id: string;
   name: string;
   baseUrl: string;
-  apiKey: string;
   model: CustomProviderModel;
 }
 
+/** 復号済みのキーを持つ定義。SDK へ渡す直前だけこの形にする (応答には出さない) */
+export interface CustomProviderDefinition extends CustomProviderSummarySource {
+  apiKey: string;
+}
+
 /** GET / 変更系の応答に載せる形。キーは返さず、有無だけを hasKey で表す */
-export interface CustomProviderSummary {
-  id: string;
-  name: string;
-  baseUrl: string;
+export interface CustomProviderSummary extends CustomProviderSummarySource {
   api: "openai-completions";
-  model: CustomProviderModel;
   hasKey: boolean;
+  /** このプロセスの SDK 反映が未完了 (apply = DB 行はあるが未登録 / remove = 削除未反映) */
+  degraded?: "apply" | "remove";
+  /** degraded の固定文言。原因はサーバーが決め、クライアントは推測しない */
+  degradedMessage?: string | null;
 }
 
 /** SDK の型を持ち込まない BFF 側の登録内容。bootstrap が SDK の ProviderConfigInput へ写す */
@@ -257,49 +265,75 @@ export function customProviderRuntimeConfig(definition: CustomProviderDefinition
   };
 }
 
-export function customProviderSummary(definition: CustomProviderDefinition): CustomProviderSummary {
+export function customProviderSummary(
+  definition: CustomProviderSummarySource,
+  options: {
+    /** 暗号文の有無。省略時は復号済みのキー (CustomProviderDefinition) から導出する */
+    hasKey?: boolean;
+    degraded?: "apply" | "remove";
+    degradedMessage?: string | null;
+  } = {},
+): CustomProviderSummary {
+  const hasKey =
+    options.hasKey ?? ("apiKey" in definition ? (definition as CustomProviderDefinition).apiKey.length > 0 : false);
   return {
     id: definition.id,
     name: definition.name,
     baseUrl: definition.baseUrl,
     api: CUSTOM_PROVIDER_API,
     model: { ...definition.model },
-    hasKey: definition.apiKey.length > 0,
+    hasKey,
+    ...(options.degraded ? { degraded: options.degraded } : {}),
+    ...(options.degradedMessage ? { degradedMessage: options.degradedMessage } : {}),
+  };
+}
+
+/** 保存行から応答の材料を作る。行はキーの平文を持たない */
+export function customProviderSummarySourceOfRow(row: CustomProviderRow): CustomProviderSummarySource {
+  return {
+    id: row.provider,
+    name: row.name,
+    baseUrl: row.baseUrl,
+    model: { id: row.modelId, contextWindow: row.contextWindow, maxTokens: row.maxTokens },
+  };
+}
+
+/** 保存行の要約。GET は復号しないため、hasKey は暗号文の有無だけで決める */
+export function customProviderSummaryOfRow(
+  row: CustomProviderRow,
+  options: { degraded?: "apply" | "remove"; degradedMessage?: string | null } = {},
+): CustomProviderSummary {
+  return customProviderSummary(customProviderSummarySourceOfRow(row), {
+    hasKey: row.ciphertext.length > 0,
+    ...options,
+  });
+}
+
+/** 定義と暗号文を保存行へ。キーの平文は列に持たない */
+export function customProviderRowOf(definition: CustomProviderDefinition, secret: StoredAppSecret): CustomProviderRow {
+  return {
+    provider: definition.id,
+    name: definition.name,
+    baseUrl: definition.baseUrl,
+    modelId: definition.model.id,
+    contextWindow: definition.model.contextWindow,
+    maxTokens: definition.model.maxTokens,
+    ciphertext: secret.ciphertext,
+    nonce: secret.nonce,
+    keyVersion: secret.keyVersion,
   };
 }
 
 /**
- * このプロセスのメモリだけが持つ定義の集合。複数登録でき、並びは追加順を保つ。
- * 永続化しないため、再起動で空から始まる (起動時に読む処理は持たない)。
+ * 保存行を復号済みのキーと合わせて定義へ。保存済みの値も保存時と同じ境界で読み直し、
+ * 手編集・旧実装で書かれた行をそのまま SDK へ渡さない。検証エラーは httpError (400) のまま投げる。
  */
-export class CustomProviderStore {
-  #entries = new Map<string, CustomProviderDefinition>();
-
-  list(): CustomProviderDefinition[] {
-    return [...this.#entries.values()];
-  }
-
-  ids(): string[] {
-    return [...this.#entries.keys()];
-  }
-
-  has(id: string): boolean {
-    return this.#entries.has(id);
-  }
-
-  get(id: string): CustomProviderDefinition | undefined {
-    return this.#entries.get(id);
-  }
-
-  set(definition: CustomProviderDefinition): void {
-    this.#entries.set(definition.id, { ...definition, model: { ...definition.model } });
-  }
-
-  delete(id: string): boolean {
-    return this.#entries.delete(id);
-  }
-
-  summaries(): CustomProviderSummary[] {
-    return this.list().map(customProviderSummary);
-  }
+export function storedCustomProviderDefinition(row: CustomProviderRow, apiKey: string): CustomProviderDefinition {
+  return {
+    id: parseProviderId(row.provider),
+    name: parseName(row.name, row.provider),
+    baseUrl: normalizeCustomProviderBaseUrl(row.baseUrl),
+    apiKey: parseCustomProviderApiKey(apiKey),
+    model: parseModel({ id: row.modelId, contextWindow: row.contextWindow, maxTokens: row.maxTokens }),
+  };
 }
