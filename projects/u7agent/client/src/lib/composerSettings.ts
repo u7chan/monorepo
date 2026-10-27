@@ -21,6 +21,44 @@ export function effortLabel(level: string): string {
   return EFFORT_LABELS[level as ThinkingLevel] ?? level;
 }
 
+const effortRank = (level: string): number => ALL_THINKING_LEVELS.indexOf(level as ThinkingLevel);
+
+/** 段階として知らない値は末端へ置きたいので、順位の無いものは最大段階より後ろへ寄せる */
+const orderRank = (level: string): number => {
+  const rank = effortRank(level);
+  return rank === -1 ? ALL_THINKING_LEVELS.length : rank;
+};
+
+/**
+ * そのモデルが扱えない段階を、扱える段階へ寄せる。規則は pi-ai の clampThinkingLevel と同じ
+ * (要求より上へ探し、見つからなければ下へ探す) で、未作成チャットの表示を作成時の実効値に先に揃える。
+ * ブラウザにはモデルの実体が無く候補の段階だけを受け取るため、SDK の clampThinkingLevel は使えない。
+ */
+export function clampEffortLevel(level: ThinkingLevel | undefined, levels: ThinkingLevel[]): ThinkingLevel | undefined {
+  if (!level || levels.includes(level)) return level;
+  const requested = effortRank(level);
+  if (requested === -1) return levels[0] ?? level;
+  for (let i = requested; i < ALL_THINKING_LEVELS.length; i++) {
+    const candidate = ALL_THINKING_LEVELS[i];
+    if (levels.includes(candidate)) return candidate;
+  }
+  for (let i = requested - 1; i >= 0; i--) {
+    const candidate = ALL_THINKING_LEVELS[i];
+    if (levels.includes(candidate)) return candidate;
+  }
+  return levels[0] ?? level;
+}
+
+/**
+ * Effort の選択肢。候補に無い現在値も表示できるようにするが、段階順は崩さない
+ * (末尾へ足すと Max より後ろに別の段階が並び、最上段が Max でなくなる)。
+ */
+export function effortChoices(levels: ThinkingLevel[], current?: string): ThinkingLevel[] {
+  const list =
+    current && !levels.includes(current as ThinkingLevel) ? [...levels, current as ThinkingLevel] : [...levels];
+  return list.sort((a, b) => orderRank(a) - orderRank(b));
+}
+
 /** 入力欄付近の Model / Effort ピッカーに渡す状態 */
 export type ComposerSettings = {
   modelOptions: ModelOption[];
@@ -97,11 +135,17 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
   // 作成済みセッションの実効値は resync で chat に入る。runtimeStatus は health の再取得で上書きされるため使わない。
   // 未作成チャットはサーバーと同じ優先順位 (作成前の選択 → 定義 → アプリ既定) で表示する
   const pendingModel = modelLabel(preselection.model) ?? modelLabel(selectedAgent?.model) ?? health?.model;
-  const pendingThinkingLevel =
-    preselection.thinkingLevel ?? selectedAgent?.thinkingLevel ?? health?.defaultThinkingLevel;
 
   const model = inSession ? chat.sessionModel : pendingModel;
   const option = findOption(model);
+  const pendingLevels = option?.thinkingLevels ?? ALL_THINKING_LEVELS;
+  // 情報源 (作成前の選択 → 定義 → アプリ既定) の値がモデルの段階に無いことがある。作成時に SDK が
+  // 寄せる値と同じものを見せるため clamp し、選べない段階を Effort の候補へ混ぜない。
+  // セッションの実効値は SDK が補正済みなので触らない。
+  const pendingThinkingLevel = clampEffortLevel(
+    preselection.thinkingLevel ?? selectedAgent?.thinkingLevel ?? health?.defaultThinkingLevel,
+    pendingLevels,
+  );
   const thinkingLevel = inSession ? chat.sessionThinkingLevel : pendingThinkingLevel;
   const supportsThinking = inSession ? chat.supportsThinking : (option?.supportsThinking ?? true);
   // 推論に対応しないモデルの実効 Effort は SDK が常に "off" を返し、モデル名が未解決のときは付ける相手が無い
@@ -119,7 +163,7 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
     effortLabel: statusEffort,
     thinkingLevel,
     supportsThinking,
-    thinkingLevels: inSession ? chat.availableThinkingLevels : (option?.thinkingLevels ?? ALL_THINKING_LEVELS),
+    thinkingLevels: inSession ? chat.availableThinkingLevels : pendingLevels,
     modelWarning: model && !option ? `${model} は現在利用できません。別のモデルを選択してください。` : undefined,
     effortNotice: option ? undefined : "使用モデルに応じて補正されます",
     disabled: stopVisible || sending || settingsChanging,

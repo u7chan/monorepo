@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   ALL_THINKING_LEVELS,
+  clampEffortLevel,
   deriveComposerSettings,
+  effortChoices,
   effortLabel,
   type ComposerSettingsInput,
 } from "../src/lib/composerSettings";
@@ -85,7 +87,7 @@ test("derives the status row effort from the effective value", () => {
   const unsent = deriveComposerSettings(
     input({
       preselection: { model: { provider: "pre", id: "selected" }, thinkingLevel: "medium" },
-      health: health({ modelOptions: [option("pre", "selected")] }),
+      health: health({ modelOptions: [option("pre", "selected", ["low", "medium", "high"])] }),
     }),
   );
   assert.equal(unsent.effortLabel, "Medium", "未作成のチャットも「これから使う」Effort を出す");
@@ -123,7 +125,68 @@ test("resolves an unsent chat in the server order: preselection, agent, app defa
     input({ health: health({ model: "app/default", defaultThinkingLevel: "medium", modelOptions }) }),
   );
   assert.equal(fromAppDefault.model, "app/default");
-  assert.equal(fromAppDefault.thinkingLevel, "medium");
+  assert.equal(fromAppDefault.thinkingLevel, "high", "モデルが扱えないアプリ既定は clamp して表示する");
+});
+
+test("clamps the effort level the way the SDK does", () => {
+  assert.equal(clampEffortLevel("medium", ["low", "high", "max"]), "high", "上へ寄せる");
+  assert.equal(clampEffortLevel("xhigh", ["off", "low", "medium", "high"]), "high", "上に無ければ下へ寄せる");
+  assert.equal(clampEffortLevel("medium", ["low", "medium"]), "medium", "候補にあるなら触らない");
+  assert.equal(clampEffortLevel("zzz" as ThinkingLevel, ["low", "high"]), "low", "段階として知らない値は先頭へ");
+  assert.equal(clampEffortLevel(undefined, ["low"]), undefined);
+  assert.equal(clampEffortLevel("medium", []), "medium", "候補が無いときは表示できる値を残す");
+});
+
+test("an unsent chat shows the effort the session will actually use", () => {
+  const modelOptions = [option("deep", "flash", ["low", "high", "max"])];
+  const fromAppDefault = deriveComposerSettings(
+    input({ health: health({ model: "deep/flash", defaultThinkingLevel: "medium", modelOptions }) }),
+  );
+  assert.equal(fromAppDefault.thinkingLevel, "high", "アプリ既定がモデルの段階に無いときも作成後の実効値に揃える");
+  assert.equal(fromAppDefault.effortLabel, "High", "トリガーの表示も同じ値から出す");
+  assert.deepEqual(fromAppDefault.thinkingLevels, ["low", "high", "max"], "選べない段階は候補へ混ぜない");
+
+  const fromAgent = deriveComposerSettings(
+    input({
+      selectedAgent: agent({ model: { provider: "deep", id: "flash" }, thinkingLevel: "xhigh" }),
+      health: health({ modelOptions }),
+    }),
+  );
+  assert.equal(fromAgent.thinkingLevel, "max", "定義の値が上に無ければ上の段階へ寄せる");
+
+  const fromPreselection = deriveComposerSettings(
+    input({
+      preselection: { model: { provider: "deep", id: "flash" }, thinkingLevel: "medium" },
+      health: health({ modelOptions }),
+    }),
+  );
+  assert.equal(fromPreselection.thinkingLevel, "high", "作成前の選択も同じ規則で clamp する");
+});
+
+test("keeps the in-session effort as the SDK reports it", () => {
+  const settings = deriveComposerSettings(
+    input({
+      sessionId: "s-1",
+      chat: {
+        sessionModel: "deep/flash",
+        sessionThinkingLevel: "medium",
+        supportsThinking: true,
+        availableThinkingLevels: ["low", "high", "max"],
+        runStatus: "idle",
+        runTools: {},
+      },
+      health: health({ modelOptions: [option("deep", "flash", ["low", "high", "max"])] }),
+    }),
+  );
+  assert.equal(settings.thinkingLevel, "medium", "セッションの実効値は SDK が補正済みなので BFF 側で触らない");
+  assert.deepEqual(settings.thinkingLevels, ["low", "high", "max"]);
+});
+
+test("orders the effort choices by level even when the current value is not offered", () => {
+  assert.deepEqual(effortChoices(["low", "high", "max"], "medium"), ["low", "medium", "high", "max"]);
+  assert.deepEqual(effortChoices(["low", "high", "max"], "max"), ["low", "high", "max"], "候補の並びを保つ");
+  assert.deepEqual(effortChoices(["low", "high"], "zzz"), ["low", "high", "zzz"], "知らない値は末端へ置く");
+  assert.deepEqual(effortChoices(["off"], undefined), ["off"]);
 });
 
 test("falls back to all effort levels when the model cannot be resolved", () => {

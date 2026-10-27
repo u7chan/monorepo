@@ -64,6 +64,12 @@ const trigger = (html: string): string => /<button[\s\S]*?<\/button>/.exec(html)
 const triggerTag = (html: string): string => trigger(html).split(">")[0];
 /** popover の中身 (トリガーのクラスと混ぜない) */
 const popover = (html: string): string => html.slice(html.indexOf('popover="auto"'));
+/** Effort の select が持つ option の value を描画順に並べる */
+const effortOptions = (html: string): string[] => {
+  const start = html.indexOf('aria-label="Effort を選択"');
+  const select = html.slice(start, html.indexOf("</select>", start));
+  return [...select.matchAll(/<option value="([^"]*)"/g)].map((match) => match[1]);
+};
 
 test("描画: トリガーは現在値を可視テキストと aria-label に持ち、popover を指す", () => {
   const closed = render();
@@ -140,4 +146,17 @@ test("描画: 注意文はモデルが使えない警告を優先し、無いと
 
 test("描画: 注意文が無いときは popover の中に警告の段落を出さない", () => {
   assert.ok(!popover(render()).includes("text-warn"), "空の段落を残さない");
+});
+
+test("描画: Effort の選択肢は段階順に並び、Max が最後に残る", () => {
+  const html = render({
+    settings: { ...settings, thinkingLevel: "medium", thinkingLevels: ["low", "high", "max"] },
+  });
+
+  assert.deepEqual(
+    effortOptions(html),
+    ["low", "medium", "high", "max"],
+    "候補に無い実効値も段階の位置に入れ、Max の後ろへは置かない",
+  );
+  assert.deepEqual(effortOptions(render()), ["off", "low", "medium", "high"], "候補にあるときは候補の並び");
 });

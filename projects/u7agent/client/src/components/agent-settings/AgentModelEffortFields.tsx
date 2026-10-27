@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { ALL_THINKING_LEVELS, effortLabel } from "../../hooks/useU7Agent";
+import { ALL_THINKING_LEVELS, effortChoices, effortLabel } from "../../lib/composerSettings";
 import { modelChoices, unavailableModelChoice } from "../../lib/modelChoices";
 import { modelRefKey } from "../../lib/modelSettings";
 import type { ModelOption, ModelRef, ThinkingLevel } from "../../types";
@@ -43,11 +43,11 @@ export function AgentModelEffortFields({
     return list;
   }, [modelOptions, model]);
 
-  const effortChoices = useMemo(() => {
-    const levels = [...thinkingLevels];
-    if (thinkingLevel && !levels.includes(thinkingLevel)) levels.push(thinkingLevel);
-    return levels;
-  }, [thinkingLevels, thinkingLevel]);
+  // 保存値が候補に無くても表示できるようにする (順番は段階順のまま)
+  const effortLevels = useMemo(
+    () => effortChoices(thinkingLevels, thinkingLevel ?? undefined),
+    [thinkingLevels, thinkingLevel],
+  );
 
   const changeModel = (value: string) => {
     if (!value) {
@@ -91,7 +91,7 @@ export function AgentModelEffortFields({
             <option value="">
               {defaultThinkingLevel ? `未指定（アプリ既定: ${effortLabel(defaultThinkingLevel)}）` : "未指定"}
             </option>
-            {effortChoices.map((level) => (
+            {effortLevels.map((level) => (
               <option key={level} value={level} disabled={!supportsThinking}>
                 {effortLabel(level)}
               </option>

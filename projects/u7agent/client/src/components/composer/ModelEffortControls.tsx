@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import { effortLabel, type ComposerSettings } from "../../hooks/useU7Agent";
+import { effortChoices, effortLabel, type ComposerSettings } from "../../lib/composerSettings";
 import { cn } from "../../lib/cn";
 import { modelChoices, unavailableModelChoice } from "../../lib/modelChoices";
 import {
@@ -218,16 +218,14 @@ export function ModelEffortFields({
     }
     return list;
   }, [settings.modelOptions, settings.model]);
-  // SDK が補正した実効値が候補に無くても表示できるようにする
-  const effortChoices = useMemo(() => {
-    const levels = [...settings.thinkingLevels];
-    const current = settings.thinkingLevel;
-    if (current && !levels.includes(current as ThinkingLevel)) levels.push(current as ThinkingLevel);
-    return levels;
-  }, [settings.thinkingLevels, settings.thinkingLevel]);
+  // SDK が補正した実効値が候補に無くても表示できるようにする (順番は段階順のまま)
+  const effortLevels = useMemo(
+    () => effortChoices(settings.thinkingLevels, settings.thinkingLevel),
+    [settings.thinkingLevels, settings.thinkingLevel],
+  );
 
   const modelDisabled = settings.disabled || settings.modelOptions.length === 0;
-  const effortDisabled = settings.disabled || !settings.supportsThinking || effortChoices.length === 0;
+  const effortDisabled = settings.disabled || !settings.supportsThinking || effortLevels.length === 0;
 
   const handleModelChange = (next: string) => {
     const choice = choices.find((candidate) => candidate.value === next);
@@ -268,7 +266,7 @@ export function ModelEffortFields({
           onChange={(event) => onChangeThinkingLevel(event.currentTarget.value as ThinkingLevel)}
         >
           {settings.thinkingLevel ? null : <option value="">未選択</option>}
-          {effortChoices.map((level) => (
+          {effortLevels.map((level) => (
             <option key={level} value={level}>
               {effortLabel(level)}
             </option>
