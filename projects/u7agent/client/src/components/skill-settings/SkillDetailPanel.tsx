@@ -59,12 +59,13 @@ export function SkillDetailPanel({
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       {tabs}
       <div className="shrink-0 border-b border-line px-4 py-1.5">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 text-2xs">
+        {/* コピーのボタンは字の中心に合わせる (baseline だと、文字を持たないボタンが行の下側へずれる) */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-2xs">
           {meta.map((item) => {
             // コピーの状態は項目ごとに持つ (本文のコピーと同じ hook を共有し、成功 / 失敗の表示を混ぜない)
             const copyId = `meta:${item.label}`;
             return (
-              <span key={item.label} className="flex min-w-0 items-baseline gap-1">
+              <span key={item.label} className="flex min-w-0 items-center gap-1">
                 <span className="shrink-0 text-ink-faint">{item.label}</span>
                 {item.mono ? (
                   <code className="min-w-0 truncate text-ink-soft" title={item.title ?? item.value}>
@@ -76,7 +77,7 @@ export function SkillDetailPanel({
                   </span>
                 )}
                 {item.copy ? (
-                  <span className="shrink-0 self-center">
+                  <span className="shrink-0">
                     <CopyButton
                       compact
                       copied={copiedId === copyId}
