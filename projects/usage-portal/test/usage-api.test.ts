@@ -1,4 +1,4 @@
-// /api/usage の契約（認証必須、sources の並び、state、trend、source ごとの独立失敗）を固定する。
+// /api/usage の契約（認証必須、sources の並び、state、trends、source ごとの独立失敗）を固定する。
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -123,7 +123,7 @@ describe("GET /api/usage", () => {
     expect(payload.sources[1]?.state).toBe("loading");
   });
 
-  test("snapshot を state ok として返し、24 時間の推移を付ける", async () => {
+  test("snapshot を state ok として返し、窓の期間ぶんの推移を付ける", async () => {
     const h = harness();
 
     saveProviderSnapshot(h.db, "codex", usageSnapshot({ capturedAt: BASE_TIME - 30 * MINUTE }));
@@ -137,16 +137,46 @@ describe("GET /api/usage", () => {
     expect(codex?.plan).toBe("Plus");
     expect(codex?.windows[0]?.usedPercent).toBe(62);
     expect(codex?.error).toBeNull();
-    expect(codex?.trend).toEqual({
-      windowId: "primary",
-      points: [
-        { at: BASE_TIME - 30 * MINUTE, usedPercent: 62 },
-        { at: BASE_TIME, usedPercent: 62 },
-      ],
-    });
+    expect(codex?.trends).toEqual([
+      {
+        windowId: "primary",
+        spanMs: 7 * 24 * 60 * 60 * 1000,
+        points: [
+          { at: BASE_TIME - 30 * MINUTE, usedPercent: 62 },
+          { at: BASE_TIME, usedPercent: 62 },
+        ],
+        resets: [],
+      },
+    ]);
   });
 
-  test("アカウントごとに source id で state と trend を出す", async () => {
+  test("間引きで点列から消えるリセットも trends[].resets に残す", async () => {
+    const h = harness();
+    const snapshotAt = (capturedAt: number, usedPercent: number) =>
+      usageSnapshot({
+        capturedAt,
+        windows: [{ id: "primary", label: "週次", durationSeconds: 604_800, usedPercent, resetsAt: null }],
+      });
+
+    for (const [capturedAt, usedPercent] of [
+      [BASE_TIME - 24 * 60 * MINUTE, 20],
+      [BASE_TIME - 25 * MINUTE, 20],
+      [BASE_TIME - 10 * MINUTE, 0],
+      [BASE_TIME - 5 * MINUTE, 20],
+      [BASE_TIME, 20],
+    ] as const) {
+      saveProviderSnapshot(h.db, "codex", snapshotAt(capturedAt, usedPercent));
+    }
+
+    const payload = await readUsage(h, await sessionCookie(h.app));
+    const trend = payload.sources[0]?.trends[0];
+
+    // bucket の代表点はすべて 20% になり、点列だけではリセットを検出できない。
+    expect(trend?.points.map((point) => point.usedPercent)).toEqual([20, 20, 20]);
+    expect(trend?.resets).toEqual([BASE_TIME - 10 * MINUTE]);
+  });
+
+  test("アカウントごとに source id で state と trends を出す", async () => {
     const h = harness(ACCOUNTS);
     const cookie = await sessionCookie(h.app);
 
@@ -183,14 +213,15 @@ describe("GET /api/usage", () => {
     expect(main?.name).toBe("メイン");
     expect(main?.state).toBe("ok");
     expect(main?.windows[0]?.usedPercent).toBe(40);
-    expect(main?.trend?.windowId).toBe("rolling");
-    expect(main?.trend?.points).toHaveLength(2);
+    expect(main?.trends[0]?.windowId).toBe("rolling");
+    expect(main?.trends[0]?.spanMs).toBe(6 * 60 * 60 * 1000);
+    expect(main?.trends[0]?.points).toHaveLength(2);
 
     expect(sub?.name).toBe("サブ");
     expect(sub?.state).toBe("error");
     expect(sub?.error?.code).toBe("upstream");
     expect(sub?.windows).toEqual([]);
-    expect(sub?.trend).toBeNull();
+    expect(sub?.trends).toEqual([]);
   });
 
   test("片方が落ちても他方は返し、失敗した源だけ error にする", async () => {

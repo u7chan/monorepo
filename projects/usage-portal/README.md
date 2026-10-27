@@ -10,7 +10,7 @@ Codex（ChatGPT サブスクリプション）と OpenCode Go の利用枠を 1 
 - Bun + TypeScript + Preact + Hono。CSS トークンは `--up-` 接頭辞で、`prefers-color-scheme` に追従する
 - 初回アクセスの PIN 登録、PIN ログイン、署名付きセッション cookie（30 日）、試行制限、期限バナー
 - BFF が 5 分ごとに Codex と OpenCode Go の利用枠を取り、SQLite に snapshot と sample を保存する
-- 画面は 60 秒ごとに `/api/usage` を取得する。24 時間の推移は 30 分の bucket に丸めて描く
+- 画面は 60 秒ごとに `/api/usage` を取得する。推移は窓ごとに描き、ローリング・週次・月次をタブで切り替える
 - Codex は Web UI から Sign in with ChatGPT（デバイスコード / ブラウザ + 貼り付け）でサインインする
 - OpenCode Go はアカウント（API キー）を最大 10 件登録でき、1 アカウント = 1 カードで並べる
 - `GET /api/health` は DB と認証状態だけを返し、利用枠や利用者情報を含まない
@@ -173,9 +173,9 @@ src/server/rate-limit.ts      ログイン試行の制限
 src/server/config.ts          HOST / PORT / DATA_DIR / CREDENTIAL_DIR / POLL_INTERVAL_MS
 src/server/db.ts              SQLite の open / migration / snapshot・error・sample の読み書き
 src/server/sampler.ts         5 分ごとの取得（single-flight）と 30 日保持
-src/server/usage.ts           /api/usage の応答（state と trend）の組み立て
+src/server/usage.ts           /api/usage の応答（state と trends）の組み立て
 src/server/state.ts           snapshot と error から state を決める
-src/server/trend.ts           24 時間推移の対象選びと downsample
+src/server/trend.ts           窓の期間と、推移の downsample
 src/server/health.ts          /api/health の応答
 src/server/version.ts         version と User-Agent の組み立て
 src/server/providers/         Codex / OpenCode Go の adapter と正規化モデル
@@ -186,6 +186,8 @@ src/client/main.tsx           Preact の描画入口
 src/client/App.tsx            セッション・利用枠・アカウントの取得と画面の切り替え
 src/client/api.ts             API の呼び出しと応答の解釈
 src/client/lib/format.ts      残り時間・%・日時の整形
+src/client/lib/chart.ts       推移の縦軸レンジと横軸の目盛り
+src/client/lib/windows.ts     推移の初期表示に選ぶ窓
 src/client/lib/status.ts      状態ラベルとしきい値
 src/client/lib/account-color.ts  アカウントのアイコン背景色（id のハッシュから選ぶ）
 src/client/components/        ログイン、source カード、meter、trend、アカウントの編集

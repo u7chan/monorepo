@@ -1,6 +1,8 @@
+import { useState } from "preact/hooks";
 import type { CodexAuthState, UsageSource } from "../api";
 import { formatClock } from "../lib/format";
 import { deriveProviderStatus, showsWindows } from "../lib/status";
+import { pickTrendWindow } from "../lib/windows";
 import { AccountIcon } from "./AccountIcon";
 import { CodexAuthPanel, type CodexActions } from "./CodexAuthPanel";
 import { OpenCodeAccountPanel } from "./OpenCodeAccountPanel";
@@ -12,6 +14,8 @@ import { UsageMeter } from "./UsageMeter";
 export function ProviderCard(props: {
   source: UsageSource;
   now: number;
+  /** 推移の右端。再取得のたびにグラフが横にずれないよう、描画時刻ではなく応答時刻を使う。 */
+  generatedAt: number | null;
   codex?: { auth: CodexAuthState | null; actions: CodexActions };
   opencode?: { actions: OpenCodeAccountActions };
 }) {
@@ -24,9 +28,10 @@ export function ProviderCard(props: {
     usedPercents: source.windows.map((window) => window.usedPercent),
   });
   const showMeters = showsWindows(source.state) && source.windows.length > 0;
-  const trendLabel = source.trend
-    ? (source.windows.find((window) => window.id === source.trend?.windowId)?.label ?? source.trend.windowId)
-    : null;
+  const chartWindows = showMeters ? source.windows : [];
+  const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
+  const activeWindow = chartWindows.find((window) => window.id === selectedWindowId) ?? pickTrendWindow(chartWindows);
+  const activeTrend = activeWindow ? (source.trends.find((trend) => trend.windowId === activeWindow.id) ?? null) : null;
 
   return (
     <article class="up-card up-provider">
@@ -78,7 +83,15 @@ export function ProviderCard(props: {
         </ul>
       ) : null}
 
-      {source.trend && trendLabel && showMeters ? <TrendChart trend={source.trend} label={trendLabel} /> : null}
+      {activeWindow ? (
+        <TrendChart
+          windows={chartWindows}
+          activeWindowId={activeWindow.id}
+          trend={activeTrend}
+          generatedAt={props.generatedAt}
+          onSelect={setSelectedWindowId}
+        />
+      ) : null}
 
       <footer class="up-provider-foot">
         <p class="up-caption">

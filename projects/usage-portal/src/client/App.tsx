@@ -396,6 +396,7 @@ function Dashboard(props: {
             key={source.id}
             source={source}
             now={clock}
+            generatedAt={usage?.generatedAt ?? null}
             codex={source.provider === "codex" ? { auth: codex, actions: codexActions } : undefined}
             opencode={source.provider === "opencode-go" ? { actions: openCodeActions } : undefined}
           />
@@ -415,7 +416,7 @@ function placeholderSources(accounts: readonly OpenCodeAccount[]): UsageSource[]
     limitReached: false,
     windows: [],
     notes: [],
-    trend: null,
+    trends: [],
   };
 
   return [

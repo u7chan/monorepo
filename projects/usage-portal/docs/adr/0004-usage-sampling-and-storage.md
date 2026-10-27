@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-25
+- 一部置き換え: [ADR 0008](0008-remaining-gauge-and-window-trend.md)（24 時間の推移）
 
 ## 背景
 
