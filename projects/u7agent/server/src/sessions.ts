@@ -838,8 +838,7 @@ export class SessionStore {
     // 実効モデルのフォールバックは model_change の追記ごと保存する。件数の補正だけなら履歴は同じ
     // なので、writer を通さず meta だけを書き戻す (履歴が同じでも writer は全量を書き直す)
     const backfillCount =
-      current.messageCount !==
-      displayableMessages(session, this.masker, workspaceAbs(this.rootCwd, record.workdir)).length;
+      current.messageCount !== displayableMessages(session, workspaceAbs(this.rootCwd, record.workdir)).length;
     if (modelRecorded) await this.persist(record);
     else if (backfillCount || meta.handoffCleanup) await this.persist(record, { jsonl: false });
     return record;
@@ -2661,7 +2660,7 @@ export class SessionStore {
         id: record.id,
         title: record.title,
         lastUsedAt: record.lastUsedAt,
-        messageCount: displayableMessages(session, this.masker, workspaceAbs(this.rootCwd, record.workdir)).length,
+        messageCount: displayableMessages(session, workspaceAbs(this.rootCwd, record.workdir)).length,
         agentId: record.agentId,
         agent: record.agent,
         promptSnapshot: record.promptSnapshot,
@@ -2883,7 +2882,7 @@ export class SessionStore {
       if (run.status === "error" && error) run.errorCode = error.code;
       // 一覧 API / meta と同じ表示メッセージ数。ここを履歴の生件数 (session.messages.length) へ
       // 戻すと同名フィールドの定義が 2 つに戻る
-      const messages = displayableMessages(session, this.masker, workspaceAbs(this.rootCwd, record.workdir));
+      const messages = displayableMessages(session, workspaceAbs(this.rootCwd, record.workdir));
       this.emit(record, "run_end", {
         runId: run.id,
         status: run.status,

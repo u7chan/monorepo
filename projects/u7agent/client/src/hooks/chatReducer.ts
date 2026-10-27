@@ -204,7 +204,8 @@ export type ChatState = {
 
 export type ChatAction =
   | { type: "newChat" }
-  | { type: "resync"; payload: SessionPayload; receivedAt?: number }
+  /** fullLegacy は履歴 API が使えないと判明したときの組み直しで、初期表示の上限を外す */
+  | { type: "resync"; payload: SessionPayload; receivedAt?: number; fullLegacy?: boolean }
   /** 全履歴の最新ページ。取得済みの古いページを残して新しい側だけを差し替える */
   | { type: "resyncHistory"; page: HistoryPage }
   /** 欠落区間の取得結果。保留中の最新ページと合わせて適用する */
@@ -216,7 +217,7 @@ export type ChatAction =
   | { type: "prependHistory"; cursor: string; page: HistoryPage }
   | { type: "historyLoading"; loading: boolean }
   /** 旧サーバー (履歴 API 無し) / セッション消滅。payload.messages ベースの表示へ戻す */
-  | { type: "historyUnsupported" }
+  | { type: "historyUnsupported"; payload?: SessionPayload }
   | { type: "runStart"; runId?: string; initialSendId?: string; prompt: string; at: number; startedAt: number }
   | { type: "localUser"; text: string; at: number }
   /** 送信応答。未対応付けの最古のエコーへ送信IDを結び付け、実行へ割り当て済みなら run id も写す。
@@ -579,40 +580,79 @@ function restoreSettledTools(
   let next = bubbles;
   // 使った履歴 item を控えないと、同文の別応答へ同じ item のツールを複製する
   const used = new Set<number>();
+  const indexById = new Map<number, number>();
+  const indicesByEntryId = new Map<string, number[]>();
+  const indicesByAssistantId = new Map<string, number[]>();
+  const indicesByText = new Map<string, number[]>();
+  const indexByUserSendId = new Map<string, number>();
+  bubbles.forEach((bubble, index) => {
+    indexById.set(bubble.id, index);
+    if (bubble.role === "user" && bubble.sendId !== undefined && !indexByUserSendId.has(bubble.sendId)) {
+      indexByUserSendId.set(bubble.sendId, index);
+    }
+    if (bubble.entryId === undefined) return;
+    const entryIndices = indicesByEntryId.get(bubble.entryId) ?? [];
+    entryIndices.push(index);
+    indicesByEntryId.set(bubble.entryId, entryIndices);
+    if (bubble.role !== "assistant") return;
+    if (bubble.assistantId !== undefined) {
+      const assistantIndices = indicesByAssistantId.get(bubble.assistantId) ?? [];
+      assistantIndices.push(index);
+      indicesByAssistantId.set(bubble.assistantId, assistantIndices);
+    }
+    const textIndices = indicesByText.get(bubble.text) ?? [];
+    textIndices.push(index);
+    indicesByText.set(bubble.text, textIndices);
+  });
+  // turnIndexOf を live ごとに走査しないための表。各 assistant の直前の user 送信IDを控える
+  const turnSendIdByLiveId = new Map<number, string | undefined>();
+  let currentTurnSendId: string | undefined;
+  for (const bubble of state.bubbles) {
+    if (bubble.role === "user") currentTurnSendId = bubble.sendId;
+    else turnSendIdByLiveId.set(bubble.id, currentTurnSendId);
+  }
+  const firstUnused = (indices: number[] | undefined, fromEnd: boolean): number => {
+    if (indices === undefined) return -1;
+    if (fromEnd) {
+      for (let i = indices.length - 1; i >= 0; i -= 1) {
+        const index = indices[i];
+        if (!used.has(index)) return index;
+      }
+      return -1;
+    }
+    for (const index of indices) {
+      if (!used.has(index)) return index;
+    }
+    return -1;
+  };
   for (const live of state.bubbles) {
     if (live.role !== "assistant" || live.entryId !== undefined || live.id === liveId) continue;
-    if (next.some((bubble) => bubble.id === live.id)) continue;
+    if (indexById.has(live.id)) continue;
     const paired = pairs.get(live.id);
-    let match = -1;
-    if (paired !== undefined) {
-      match = next.findIndex((bubble) => bubble.entryId === paired && !used.has(bubble.id));
-    }
+    let match = paired === undefined ? -1 : firstUnused(indicesByEntryId.get(paired), false);
     if (match === -1 && live.assistantId !== undefined) {
-      match = next.findIndex(
-        (bubble) =>
-          bubble.role === "assistant" &&
-          bubble.entryId !== undefined &&
-          bubble.assistantId === live.assistantId &&
-          !used.has(bubble.id),
-      );
+      match = firstUnused(indicesByAssistantId.get(live.assistantId), false);
     }
     if (match === -1 && live.assistantId === undefined) {
       // 応答IDが片方にしか無い旧データだけ、同一ターン内の本文一致へ縮退する。本文を持たない
       // バブル (ツールだけの host) は空文字の一致だけで別の item へ載せない
       if (live.text === "") continue;
-      const turnIndex = turnIndexOf(state, live.id, next);
+      const turnSendId = turnSendIdByLiveId.get(live.id);
+      const turnIndex = turnSendId === undefined ? -1 : (indexByUserSendId.get(turnSendId) ?? -1);
       if (turnIndex === -1) continue;
-      for (let index = next.length - 1; index > turnIndex; index -= 1) {
-        const bubble = next[index];
-        if (bubble.role !== "assistant" || bubble.entryId === undefined || used.has(bubble.id)) continue;
-        if (bubble.text === live.text) {
+      const candidates = indicesByText.get(live.text);
+      if (candidates !== undefined) {
+        for (let i = candidates.length - 1; i >= 0; i -= 1) {
+          const index = candidates[i];
+          if (index <= turnIndex) break;
+          if (used.has(index)) continue;
           match = index;
           break;
         }
       }
     }
     if (match === -1) continue;
-    used.add(next[match].id);
+    used.add(match);
     next = next.map((bubble, index) => (index === match ? mergeAssistantCard(live, bubble) : bubble));
   }
   return next;
@@ -761,17 +801,18 @@ function carryToolCardsToAnswers(
   }
   if (targets.size === 0) return { bubbles, dropped: new Set() };
   const carried = new Map<number, ToolCard[]>();
+  const bubbleById = new Map(bubbles.map((bubble) => [bubble.id, bubble]));
   // 移し先に既にある call は足さない (履歴が assistant_end を追い越すと履歴由来のカードが先に載る)
   const knownOf = new Map<number, Set<string>>();
   const knownOn = (targetId: number): Set<string> => {
     const known = knownOf.get(targetId);
     if (known !== undefined) return known;
-    const ids = new Set(bubbles.find((bubble) => bubble.id === targetId)?.tools.map((card) => card.id) ?? []);
+    const ids = new Set(bubbleById.get(targetId)?.tools.map((card) => card.id) ?? []);
     knownOf.set(targetId, ids);
     return ids;
   };
   for (const [ownerId, targetId] of targets) {
-    const owner = bubbles.find((bubble) => bubble.id === ownerId);
+    const owner = bubbleById.get(ownerId);
     if (owner === undefined) continue;
     const known = knownOn(targetId);
     const moved = owner.tools.filter((card) => {
@@ -1256,6 +1297,13 @@ function settleToolHosts(state: ChatState): ChatState {
   return { ...state, bubbles, nextId, toolBubbleIds: toolBubbleIdsOf(bubbles) };
 }
 
+/**
+ * 履歴 API の最新ページが届くまでの初期表示に使う payload.messages の上限。全量を組むと長い会話で
+ * バブル数と merge が履歴長に比例して増え、最初のページ適用が固まるため、直近だけを即時表示する。
+ * 古い側はスクロール時のページ取得に委ね、履歴 API が無いときだけ全量で組み直す。
+ */
+export const LEGACY_INITIAL_MAX_MESSAGES = 200;
+
 /** 履歴の導出値を写し忘れると resync でツール履歴やバッジが黙って消える */
 export function historyToBubbles(
   nextId: number,
@@ -1722,7 +1770,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 取得済みの古いページを消さないため、ここでは表示を組み直さない (最新ページは resyncHistory が届く)。
       // ページ取得に一時的に失敗しても、取り込み済みの履歴がある間は payload.messages で組み直さない
       // (messages は有効コンテキストの投影で、圧縮後の残りが tool 呼び出しだけなら空にもなる)
-      const keepHistory = !sessionChanged && (state.history.supported || holdsFetchedHistory(state));
+      const keepHistory =
+        !action.fullLegacy && !sessionChanged && (state.history.supported || holdsFetchedHistory(state));
       // 未確定の assistant を捨てるのは失敗試行の取り消し (context_edit) だけ。同じ run の継続
       // (追加入力の注入・保存確定など) で捨てると、続く delta が別カードになり live と履歴が食い違う
       const currentLive =
@@ -1753,7 +1802,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentLive?.role === "assistant"
           ? currentLive
           : undefined;
-      const legacy = keepHistory ? null : historyToBubbles(state.nextId, payload.messages ?? []);
+      const legacyMessages = payload.messages ?? [];
+      const legacy = keepHistory
+        ? null
+        : historyToBubbles(
+            state.nextId,
+            action.fullLegacy ? legacyMessages : legacyMessages.slice(-LEGACY_INITIAL_MAX_MESSAGES),
+          );
       const live = state.bubbles.filter((bubble) => bubble.entryId === undefined);
       // 失敗試行は payload.messages の投影から外れている。残す応答をテキストで判断できない
       // ときは取り消しを優先する (投影に無い閉じたカードを残さない)
@@ -2224,8 +2279,18 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "historyLoading":
       return { ...state, history: { ...state.history, loading: action.loading } };
 
-    case "historyUnsupported":
-      return { ...state, history: { ...state.history, supported: false } };
+    case "historyUnsupported": {
+      const next = { ...state, history: { ...state.history, supported: false } };
+      // 旧サーバーでは履歴ページが永久に来ないため、保持している payload から全量を組み直す。
+      // 直近だけの legacy 表示を残すと payload.messages と重複するので、先に表示を捨てる
+      return action.payload === undefined
+        ? next
+        : chatReducer(chatReducer(next, { type: "resetHistory" }), {
+            type: "resync",
+            payload: action.payload,
+            fullLegacy: true,
+          });
+    }
 
     case "runStart": {
       // 自分の送信を実行する run は run id で厳密に照合する。run id が分からないエコー (応答待ち) は

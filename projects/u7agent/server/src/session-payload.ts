@@ -219,7 +219,7 @@ export function projectSessionSummary({
     projectSession: record.projectCwd !== undefined,
     ...(record.meta.handoffCleanup ? { handoffCleanup: true } : {}),
     hasRawLog,
-    messageCount: displayableMessages(record.session, masker, cwd).length,
+    messageCount: displayableMessages(record.session, cwd).length,
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
     serveCommand,

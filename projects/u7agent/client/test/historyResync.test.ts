@@ -2,7 +2,7 @@
 // 初回 (旧 payload) → resyncHistory → 以降の resync は取得済みの古いページを消さない、を固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
+import { chatReducer, initialChatState, LEGACY_INITIAL_MAX_MESSAGES } from "../src/hooks/chatReducer";
 import { createGenerationTracker } from "../src/hooks/requestGate";
 import type { TurnEnd } from "../src/lib/turnEnd";
 import type { CompactionInfo, HistoryMessageItem, HistoryPage, SessionPayload, ToolCall, Usage } from "../src/types";
@@ -1587,4 +1587,20 @@ test("同じ会話 id でも引き継ぎの再読込では旧バブルと履歴�
   assert.equal(page.history.messageCount, 0);
   // bubble id は再利用しない (古いイベントと衝突させない)
   assert.equal(page.nextId, reset.nextId);
+});
+
+test("履歴 API を前提に長い初期 payload は直近だけを legacy 表示し、404 では全量へ戻す", () => {
+  const messages = Array.from({ length: LEGACY_INITIAL_MAX_MESSAGES + 50 }, (_, index) => ({
+    role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+    text: `m${index}`,
+  }));
+  const state = chatReducer(initialChatState, { type: "resync", payload: payload(messages) });
+  assert.equal(state.bubbles.length, LEGACY_INITIAL_MAX_MESSAGES, "全量を legacy バブルとして抱えない");
+  assert.equal(state.bubbles[0].text, `m${messages.length - LEGACY_INITIAL_MAX_MESSAGES}`);
+
+  // 履歴 API が無い旧サーバーでは payload.messages を正として全量を組み直す
+  const fallback = chatReducer(state, { type: "historyUnsupported", payload: payload(messages) });
+  assert.equal(fallback.history.supported, false);
+  assert.equal(fallback.bubbles.length, messages.length);
+  assert.equal(fallback.bubbles[0].text, "m0");
 });

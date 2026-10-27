@@ -83,24 +83,35 @@ export function toolResultSummary(result: unknown, masker: SecretMasker): string
 }
 
 /**
+ * 本文として数える text part があるか。表示可否は本文の有無だけで決まり、マスクは非空の本文を
+ * 空へ変えないため、判定のために全文を連結・マスクしない (長い履歴の走査を軽くする)。
+ */
+function hasTextContent(content: unknown): boolean {
+  if (typeof content === "string") return content !== "";
+  if (!Array.isArray(content)) return false;
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const textPart = part as { type?: unknown; text?: unknown };
+    if (textPart.type === "text" && typeof textPart.text === "string" && textPart.text !== "") return true;
+  }
+  return false;
+}
+
+/**
  * session.messages の表示条件。compaction の区切り位置も同じ集合を数えるため、
  * 位置を数える側と必ず共有する (片方だけ変えると区切りがずれる)。
  */
-export function isDisplayableMessage(message: { role: string; content: unknown }, masker: SecretMasker): boolean {
+export function isDisplayableMessage(message: { role: string; content: unknown }): boolean {
   if (message.role !== "user" && message.role !== "assistant") return false;
-  return Boolean(masker.mask(contentText(message.content))) || message.role === "user";
+  return message.role === "user" || hasTextContent(message.content);
 }
 
 /**
  * 表示対象のメッセージを履歴順に返す。本文 (projectMessages) と件数 (一覧 API / 永続化 meta) で
  * 集合が食い違わないよう、判定は displayableMessageSet だけに持たせる。
  */
-export function displayableMessages(
-  session: PiSessionLike,
-  masker: SecretMasker,
-  cwd: string,
-): PiSessionLike["messages"] {
-  const displayable = displayableMessageSet(session.messages, { masker, cwd });
+export function displayableMessages(session: PiSessionLike, cwd: string): PiSessionLike["messages"] {
+  const displayable = displayableMessageSet(session.messages, { cwd });
   return session.messages.filter((message) => displayable.has(message));
 }
 
@@ -126,10 +137,7 @@ function carriesToolCard(
  * 実行を含む) が履歴と再読み込みで表示から消える。判定をここ 1 か所に置き、item の列挙と件数が
  * 食い違わないようにする。
  */
-export function displayableMessageSet(
-  messages: PiSessionLike["messages"],
-  { masker, cwd }: { masker: SecretMasker; cwd: string },
-): Set<object> {
+export function displayableMessageSet(messages: PiSessionLike["messages"], { cwd }: { cwd: string }): Set<object> {
   const settled = new Set<string>();
   for (const message of messages) {
     if (message.role === "toolResult" && typeof message.toolCallId === "string") settled.add(message.toolCallId);
@@ -148,7 +156,7 @@ export function displayableMessageSet(
       displayable.add(message);
       continue;
     }
-    if (isDisplayableMessage(message, masker)) {
+    if (isDisplayableMessage(message)) {
       owners = [];
       displayable.add(message);
       continue;
@@ -260,7 +268,7 @@ export function projectMessagesRange(
   const from = Math.max(0, Math.min(messages.length, range.from ?? 0));
   const to = Math.max(from, Math.min(messages.length, range.to ?? messages.length));
   const { messageMetrics, toolTimings, assistantIds, userSends, masker, cwd } = context;
-  const displayable = displayableMessageSet(messages, { masker, cwd });
+  const displayable = displayableMessageSet(messages, { cwd });
   const projected: { index: number; message: ChatMessage }[] = [];
   let carried: SkillLoad[] = [];
   let carriedTools: ToolCall[] = [];

@@ -8,6 +8,7 @@ import { createAgentCatalog } from "../src/agents";
 import { createBffApp } from "../src/app";
 import { HISTORY_PAGE_LIMIT_DEFAULT, HISTORY_PAGE_LIMIT_MAX, projectHistoryPage } from "../src/history-projection";
 import { createSecretMasker, REDACTED } from "../src/redact";
+import { isDisplayableMessage } from "../src/session-projection";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionStore } from "../src/sessions";
 import type { HistoryItem, HistoryPage } from "../src/schema";
@@ -16,6 +17,13 @@ import { asPiBff, createStubPi, waitFor, type StubSession } from "./stub-pi";
 function text(value: string): unknown {
   return [{ type: "text", text: value }];
 }
+
+test("表示可否は本文の有無だけで決まり、画像だけの応答は item にしない", () => {
+  assert.equal(isDisplayableMessage({ role: "assistant", content: text("secret-value") }), true);
+  assert.equal(isDisplayableMessage({ role: "assistant", content: text("") }), false);
+  assert.equal(isDisplayableMessage({ role: "assistant", content: [{ type: "image", data: "..." }] }), false);
+  assert.equal(isDisplayableMessage({ role: "user", content: [] }), true);
+});
 
 /** 履歴ページの全 item を古い→新しいで集める。重複・欠落の検出に使う */
 async function collectAllPages(

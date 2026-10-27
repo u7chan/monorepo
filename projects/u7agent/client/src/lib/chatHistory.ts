@@ -198,7 +198,12 @@ function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
  * (別クライアントの同一文面 entry を自分のエコーと誤認しない)。どちらかに run id が無いときは
  * 従来どおり role + 正規形の本文で突き合わせる (旧サーバー / 対応を失った履歴への縮退)。
  */
-function matchesLive(bubble: Bubble, item: HistoryItem): boolean {
+function matchesLive(
+  bubble: Bubble,
+  item: HistoryItem,
+  itemCanonicalText: string,
+  bubbleCanonicalText: () => string,
+): boolean {
   if (item.kind !== "message" || item.role !== bubble.role) return false;
   // 応答IDが双方にあれば、本文や位置に依らず同じ応答として対応付ける
   if (bubble.assistantId !== undefined && item.assistantId !== undefined) {
@@ -215,7 +220,24 @@ function matchesLive(bubble: Bubble, item: HistoryItem): boolean {
   // 本文を持たないライブのバブル (ツールだけの host) は、空文字の一致だけで別ターンの item へ
   // 対応付けしない。本文 item の同一性は assistantId / run id でしか判定しない
   if (bubble.text === "" || item.text === "") return false;
-  return canonicalUserText(item.text) === canonicalUserText(bubble.text);
+  return itemCanonicalText === bubbleCanonicalText();
+}
+
+type LiveCandidate = {
+  item: Extract<HistoryItem, { kind: "message" }>;
+  canonicalText: string;
+};
+
+/** role ごとの item を、現在の並びのまま後ろから突き合わせられる形にする */
+function liveCandidatesOf(items: HistoryItem[]): Map<Bubble["role"], LiveCandidate[]> {
+  const byRole = new Map<Bubble["role"], LiveCandidate[]>();
+  for (const item of items) {
+    if (item.kind !== "message") continue;
+    const candidates = byRole.get(item.role) ?? [];
+    candidates.push({ item, canonicalText: canonicalUserText(item.text) });
+    byRole.set(item.role, candidates);
+  }
+  return byRole;
 }
 
 /**
@@ -230,11 +252,16 @@ function reconcileLive(
 ): { kept: Bubble[]; consumed: Set<number>; pairs: Map<number, string> } {
   const consumed = new Set<number>();
   const pairs = new Map<number, string>();
+  const byRole = liveCandidatesOf(items);
   for (let index = live.length - 1; index >= 0; index -= 1) {
     const bubble = live[index];
-    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
-      const item = items[itemIndex];
-      if (usedItemIds.has(item.id) || !matchesLive(bubble, item)) continue;
+    const candidates = byRole.get(bubble.role);
+    if (candidates === undefined) continue;
+    let canonicalBubbleText: string | undefined;
+    const bubbleCanonicalText = (): string => (canonicalBubbleText ??= canonicalUserText(bubble.text));
+    for (let itemIndex = candidates.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const { item, canonicalText } = candidates[itemIndex];
+      if (usedItemIds.has(item.id) || !matchesLive(bubble, item, canonicalText, bubbleCanonicalText)) continue;
       consumed.add(bubble.id);
       usedItemIds.add(item.id);
       pairs.set(bubble.id, item.id);
@@ -341,12 +368,16 @@ export function applyHistoryCounts(bubbles: Bubble[], messageCount: number, summ
  * 回答待ちの ask_user カードも末尾へ固定する: 待機中は次のイベントが来ず、先頭へ繰り上げると
  * 長い会話でカードが画面外に消える (本文を持たない assistant は履歴 item に現れず突き合わせもされない)。
  */
-function splitLive(prev: HistoryBundle, live: Bubble[]): { front: Bubble[]; tail: Bubble[] } {
+function splitLive(
+  prev: HistoryBundle,
+  live: Bubble[],
+  positions: ReadonlyMap<number, number>,
+): { front: Bubble[]; tail: Bubble[] } {
   const firstHistory = prev.bubbles.findIndex((bubble) => bubble.entryId !== undefined);
   const front: Bubble[] = [];
   const tail: Bubble[] = [];
   for (const bubble of live) {
-    const index = prev.bubbles.indexOf(bubble);
+    const index = positions.get(bubble.id) ?? -1;
     if (bubble.unsent === true || bubble.accepted === true || bubble.tools.some(isPendingAskUserCard))
       tail.push(bubble);
     else if (firstHistory !== -1 && index > firstHistory) tail.push(bubble);
@@ -382,21 +413,20 @@ export function mergeHistoryPage(
   const otherLives = live.filter((bubble) => !pending.has(bubble.id));
   const consumedPending = absorbPendingEchoes(pendingLives, newItems);
   const keptPending = pendingLives.filter((bubble) => !consumedPending.has(bubble.id));
-  const { front, tail } = splitLive(prev, otherLives);
+  const positions = new Map<number, number>();
+  prev.bubbles.forEach((bubble, index) => positions.set(bubble.id, index));
+  const { front, tail } = splitLive(prev, otherLives, positions);
   // 同じ item を front と tail の両方の live へ対にしない (1 item = 1 live 応答)
   const usedItemIds = new Set<string>();
   const frontLive = reconcileLive(front, newItems, usedItemIds);
   const tailLive = reconcileLive(tail, newItems, usedItemIds);
   // 対にならなかった front の live のうち、対になった live より後ろにあるものは末尾へ回す。
   // 無条件に前へ置くと、履歴より新しい本文なし応答のカードがページより手前に出る。
-  const lastPaired = Math.max(
-    -1,
-    ...[...frontLive.pairs.keys()].map((id) => prev.bubbles.findIndex((bubble) => bubble.id === id)),
-  );
+  const lastPaired = Math.max(-1, ...[...frontLive.pairs.keys()].map((id) => positions.get(id) ?? -1));
   const carried: Bubble[] = [];
   const newer: Bubble[] = [];
   for (const bubble of frontLive.kept) {
-    const index = prev.bubbles.findIndex((item) => item.id === bubble.id);
+    const index = positions.get(bubble.id) ?? -1;
     (index === -1 || index < lastPaired ? carried : newer).push(bubble);
   }
   const { kept: remainingTail } = tailLive;

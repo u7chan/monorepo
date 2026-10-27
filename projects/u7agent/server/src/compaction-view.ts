@@ -29,10 +29,9 @@ function keptMessageCount(
   messages: PiSessionLike["messages"],
   entries: PiSessionEntryLike[],
   compactionIndex: number,
-  masker: SecretMasker,
   cwd: string,
 ): number {
-  const displayable = displayableMessageSet(messages, { masker, cwd });
+  const displayable = displayableMessageSet(messages, { cwd });
   const entryIndexByMessage = new Map<object, number>();
   entries.forEach((entry, index) => {
     if (entry.type === "message" && entry.message) entryIndexByMessage.set(entry.message, index);
@@ -75,7 +74,7 @@ export function compactionsFromEntries(
       ...(usage ? { usage } : {}),
       ...(entry.fromHook === true ? { fromHook: true } : {}),
       ...(entryIndex === latestIndex
-        ? { beforeMessageIndex: keptMessageCount(messages, entries, entryIndex, masker, cwd) }
+        ? { beforeMessageIndex: keptMessageCount(messages, entries, entryIndex, cwd) }
         : {}),
       ...(meta?.reason ? { reason: meta.reason } : {}),
       ...(meta?.estimatedTokensAfter !== undefined ? { estimatedTokensAfter: meta.estimatedTokensAfter } : {}),
