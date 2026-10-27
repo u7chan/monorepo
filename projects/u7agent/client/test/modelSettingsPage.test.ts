@@ -1180,3 +1180,50 @@ test("同じ id の built-in とカスタム行が併存しても、両方の行
   assert.ok(html.includes("自宅のLLM (カスタム)"), "カスタムの行を出す");
   assert.equal(html.includes("設定済み 0"), false, "built-in は設定済みに数える");
 });
+
+test("登録できなかったカスタム行は専用セクションだけに出し、通常一覧の幽霊行を出さない", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [],
+        customProviders: [{ ...CUSTOM_PROVIDER, degraded: "apply" }],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.ok(html.includes("カスタムプロバイダー"), "専用セクションは出す");
+  assert.ok(html.includes("自宅のLLM"), "カスタム行は出す");
+  assert.ok(html.includes("保存済み（未反映）"), "未反映の状態を出す");
+  assert.ok(html.includes("再同期"), "回復の導線を出す");
+  assert.equal(html.includes("設定済み "), false, "通常一覧の設定済みを作らない");
+  assert.equal(html.includes("未設定 "), false, "通常一覧の未設定を作らない");
+  // 幽霊詳細 (カタログ外の provider として開く) の案内・メモ欄を出さない
+  assert.equal(html.includes("現在のカタログに無い provider です"), false);
+  assert.equal(html.includes("メモ（キー本体は書かないでください）"), false);
+  assert.equal(html.includes("キーの登録はできません"), false);
+});
+
+test("同じ id の built-in が実体としてあるときは、その entry を通常一覧に残す", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [
+          provider({
+            provider: "local-llm",
+            name: "Local (models.json)",
+            auth: { configured: true, source: "environment", environmentVariables: ["LOCAL_LLM_KEY"] },
+          }),
+        ],
+        customProviders: [{ ...CUSTOM_PROVIDER, degraded: "apply" }],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.ok(html.includes("Local (models.json)"), "実体のある built-in は通常一覧に残す");
+  assert.ok(html.includes("設定済み 1"), "built-in は設定済みに数える");
+  assert.ok(html.includes("自宅のLLM"), "カスタム行も専用セクションに出す");
+  assert.ok(html.includes("保存済み（未反映）"));
+  assert.equal(html.includes("現在のカタログに無い provider です"), false, "built-in を orphan として出さない");
+});

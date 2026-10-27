@@ -17,7 +17,11 @@ import {
   CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE,
   CUSTOM_PROVIDER_STORED_ROWS_MESSAGE,
 } from "../src/custom-providers";
-import { APP_SECRET_DECRYPT_FAILED_MESSAGE, APP_SECRET_NOT_STORED_MESSAGE } from "../src/app-secrets";
+import {
+  APP_SECRET_DECRYPT_FAILED_MESSAGE,
+  APP_SECRET_MASTER_KEY_MESSAGE,
+  APP_SECRET_NOT_STORED_MESSAGE,
+} from "../src/app-secrets";
 import { asPiBff, createStubPi, type StubPiOptions } from "./stub-pi";
 
 // アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
@@ -990,6 +994,16 @@ test("保存済みの 1 行が不正でも、他の行の復元・設定 GET・�
       assert.equal(settings.customProviders[0].degraded, "apply");
       assert.ok(settings.customProviders[0].degradedMessage, "原因の固定文言を載せる");
       assert.equal(settings.customProviders[1].degraded, undefined);
+      assert.deepEqual(
+        settings.providers.filter((entry: any) => entry.provider === "broken"),
+        [],
+        "登録できなかったカスタム行を通常一覧の幽霊行として出さない",
+      );
+      assert.equal(
+        settings.providers.filter((entry: any) => entry.provider === "lab").length,
+        1,
+        "正常な行は custom として 1 行だけ出る",
+      );
       assert.ok(
         restartedPi.modelRuntimeCalls.some((call) => call.provider === "lab"),
         "正常な行は登録される",
@@ -1006,6 +1020,66 @@ test("保存済みの 1 行が不正でも、他の行の復元・設定 GET・�
       assert.equal(countRows(dir, "custom_providers"), 1);
     } finally {
       await restarted.close();
+    }
+  });
+});
+
+test("master key 未設定で復号できないカスタム行は customProviders[] だけに出し、providers[] を汚さない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      for (const id of ["ok-custom", "broken-row"]) {
+        const response = await bff.app.request(
+          "/api/settings/custom-providers",
+          jsonRequest("POST", bodyOf({ id, model: { id: "m", contextWindow: 1024 } })),
+        );
+        assert.equal(response.status, 200);
+      }
+    } finally {
+      await bff.close();
+    }
+
+    // master key 無しで再起動する = 保存済みのキーを復号できない
+    const saved = process.env[SECRET_MASTER_KEY_ENV];
+    delete process.env[SECRET_MASTER_KEY_ENV];
+    try {
+      const restartedPi = createStubPi(stubOptions());
+      const restarted = await createBffApp({
+        cwd: "/tmp/project",
+        sessionStoreDir: dir,
+        pi: asPiBff(restartedPi),
+        workspace: null,
+      });
+      try {
+        const settings = await jsonBody(await restarted.app.request("/api/settings/models"));
+        assert.deepEqual(
+          settings.customProviders.map((entry: any) => `${entry.id}:${entry.degraded}`),
+          ["ok-custom:apply", "broken-row:apply"],
+          "カスタムセクションにだけ未反映として出す",
+        );
+        for (const entry of settings.customProviders) {
+          assert.equal(entry.degradedMessage, APP_SECRET_MASTER_KEY_MESSAGE);
+        }
+        const ghosts = settings.providers.filter(
+          (entry: any) => entry.provider === "ok-custom" || entry.provider === "broken-row",
+        );
+        assert.deepEqual(ghosts, [], "通常一覧に幽霊行を出さない");
+        assert.deepEqual(
+          settings.providers.map((entry: any) => entry.provider).sort(),
+          ["anthropic", "local"],
+          "built-in の一覧は変えない",
+        );
+        assert.ok(
+          settings.providers.every((entry: any) => entry.orphan === false),
+          "orphan の幽霊行を足さない",
+        );
+        assert.deepEqual(restartedPi.modelRuntimeCalls, [], "復号できない行は register しない");
+      } finally {
+        await restarted.close();
+      }
+    } finally {
+      process.env[SECRET_MASTER_KEY_ENV] = saved;
     }
   });
 });

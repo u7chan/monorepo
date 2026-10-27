@@ -1421,8 +1421,11 @@ export class ModelSettingsService {
         ),
       );
     }
-    // 削除に失敗した overlay は DB 行が無く、カタログからも消えていることがある。行が無くても再同期の導線を残す
+    // 削除に失敗した overlay は DB 行が無く、カタログからも消えていることがある。行が無くても再同期の導線を残す。
+    // カスタム行と削除待ち tombstone は `customProviders[]` だけに出す: runtime に実体が無い行をここで足すと、
+    // 通常一覧に同じ id の幽霊行が出る (built-in / models.json と衝突して未登録の行も同じ)。
     for (const provider of this.#degraded.keys()) {
+      if (customRowIds.has(provider) || this.#tombstones.has(provider)) continue;
       if (providers.has(provider)) continue;
       providers.set(
         provider,

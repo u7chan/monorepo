@@ -749,11 +749,11 @@ test("起動時に built-in と id が衝突した provider は、更新・再�
   const settings = service.settings();
   assert.equal(settings.customProviders[0].degraded, "apply");
   assert.ok(settings.customProviders[0].degradedMessage, "画面が原因を推測しないよう固定文言を載せる");
-  assert.equal(
-    settings.providers.find((entry) => entry.provider === "local-llm")?.custom,
-    undefined,
-    "built-in の runtime entry を custom 扱いしない",
-  );
+  const runtimeEntries = settings.providers.filter((entry) => entry.provider === "local-llm");
+  assert.equal(runtimeEntries.length, 1, "built-in の entry を重複させない");
+  assert.equal(runtimeEntries[0].custom, undefined, "built-in の runtime entry を custom 扱いしない");
+  assert.equal(runtimeEntries[0].orphan, false, "実体のある runtime entry は通常一覧に残す");
+  assert.equal(runtimeEntries[0].name, "組み込み", "built-in の名前を保つ");
 
   const update = await service.updateCustomProvider("local-llm", {
     baseUrl: "http://192.0.2.11:11434/v1",
@@ -832,6 +832,11 @@ test("保存済みの 1 行が不正でも、正常な行の復元と一覧を�
   assert.equal(settings.customProviders[0].degraded, "apply");
   assert.equal(settings.customProviders[0].degradedMessage, CUSTOM_PROVIDER_INVALID_STORED_MESSAGE);
   assert.equal(settings.customProviders[1].degraded, undefined);
+  assert.deepEqual(
+    settings.providers.filter((row) => row.provider === "local-llm"),
+    [],
+    "登録できなかったカスタム行を通常一覧の幽霊行として出さない",
+  );
 
   // 壊れた行も削除できる (1 行の異常で設定 API 全体を止めない)
   assert.equal((await service.deleteCustomProvider("local-llm")).status, 200);
@@ -914,6 +919,50 @@ test("カスタム行と同じ id の provider_credentials は適用せず、cus
     settings.customProviders.map((row) => row.id),
     ["local-llm"],
   );
+});
+
+test("master key 未設定で復号できないカスタム行も providers[] に幽霊行として出さない", async () => {
+  const runtime = fakeRuntime();
+  const db = fakeDb({ custom: [customRowOf("local-llm", KEY), customRowOf("lab", NEW_KEY)] });
+  const { service } = serviceWith({}, { runtimeService: runtime.service, db, cipher: null });
+  await service.applyStored();
+
+  const settings = service.settings();
+  assert.deepEqual(
+    settings.customProviders.map((row) => `${row.id}:${row.degraded}:${row.degradedMessage}`),
+    [`local-llm:apply:${APP_SECRET_MASTER_KEY_MESSAGE}`, `lab:apply:${APP_SECRET_MASTER_KEY_MESSAGE}`],
+    "カスタムセクションだけに出す",
+  );
+  assert.deepEqual(
+    settings.providers.filter((row) => row.provider === "local-llm" || row.provider === "lab"),
+    [],
+    "通常一覧に orphan の重複行を作らない",
+  );
+  assert.deepEqual(
+    settings.providers.map((row) => row.provider),
+    ["anthropic"],
+    "built-in の一覧は変えない",
+  );
+});
+
+test("削除待ち tombstone は providers[] に幽霊行を増やさない", async () => {
+  const { service, runtime } = serviceWith({ remove: () => failed });
+  await service.createCustomProvider(createInput());
+  const removed = await service.deleteCustomProvider("local-llm");
+  assert.equal(removed.status === 200 && removed.response.customProviders[0].degraded, "remove");
+
+  const settings = service.settings();
+  const entries = settings.providers.filter((row) => row.provider === "local-llm");
+  assert.ok(entries.length <= 1, "同じ id の行を重複させない");
+  for (const entry of entries) {
+    assert.equal(entry.orphan, false, "孤児の幽霊行を足さない");
+    assert.equal(entry.custom, true, "残っている runtime entry だけを custom として出す");
+  }
+  assert.deepEqual(
+    settings.customProviders.map((row) => `${row.id}:${row.degraded}`),
+    ["local-llm:remove"],
+  );
+  assert.ok(runtime.calls.includes("remove:local-llm"));
 });
 
 test("起動時はカスタム provider → モデルの選択 → provider_credentials → 再計算の順に適用する", async () => {
