@@ -12,7 +12,6 @@ import {
   SKILL_USAGE_EMPTY_NOTE,
   SKILL_USAGE_TAB_NOTE,
   fileSkillDir,
-  fileSkillUsageLabel,
 } from "../../lib/fileSkills";
 import { fileTimeLabel, messageFullTimeLabel } from "../../lib/messageTime";
 import { SKILL_USAGE_NOTE, SKILL_USAGE_UNAVAILABLE_NOTE, skillUsageCount, type SkillUsage } from "../../lib/skillUsage";
@@ -94,10 +93,7 @@ export function FileSkillPanel({
     {
       subsection: "usage" as const,
       label: usageCount === undefined ? SKILL_TAB_USAGE_LABEL : `${SKILL_TAB_USAGE_LABEL} ${usageCount}`,
-      ariaLabel:
-        usageCount === undefined
-          ? SKILL_TAB_USAGE_LABEL
-          : `${SKILL_TAB_USAGE_LABEL}（${fileSkillUsageLabel(usageCount)}）`,
+      ariaLabel: usageCount === undefined ? SKILL_TAB_USAGE_LABEL : `${SKILL_TAB_USAGE_LABEL}（${usageCount} 体）`,
     },
   ];
 
@@ -123,7 +119,8 @@ export function FileSkillPanel({
           },
         ]
       : []),
-    ...(usageCount === undefined ? [] : [{ label: "使用中", value: fileSkillUsageLabel(usageCount) }]),
+    // メタ行のラベルが「使用中」なので、値は件数だけにする (「使用中 使用中 3 体」にしない)
+    ...(usageCount === undefined ? [] : [{ label: "使用中", value: `${usageCount} 体` }]),
   ];
 
   return (

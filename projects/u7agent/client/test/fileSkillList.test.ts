@@ -7,11 +7,14 @@ import test from "node:test";
 import { FileSkillList } from "../src/components/skill-settings/FileSkillList";
 import type { FileSkillsState } from "../src/hooks/useFileSkills";
 import {
+  BUILTIN_SKILL_EMPTY_NOTE,
   BUILTIN_SKILL_OVERRIDE_NOTE,
   FILE_SKILL_ERROR_PREFIX,
+  FILE_SKILL_LIST_COMMON_EMPTY_NOTE,
   FILE_SKILL_LOADING_NOTE,
   SKILL_USAGE_EMPTY_NOTE,
 } from "../src/lib/fileSkills";
+import { ALLOWLIST_SEARCH_EMPTY_NOTE } from "../src/lib/allowlistText";
 import { skillUsageByPath } from "../src/lib/skillUsage";
 import type { AgentDef, FileSkillInfo } from "../src/types";
 
@@ -109,6 +112,24 @@ test("検索は表示だけを絞り、一致しなければ案内を出す", ()
   const empty = render({ query: "zzz" });
   assert.ok(empty.includes("条件に合う行がありません"));
   assert.equal(empty.includes("aria-pressed"), false);
+});
+
+test("スコープに 1 件も無いときはスコープの空文言、検索外れは検索の文言を出す", () => {
+  // 共通 0 件 + 組み込み 1 件の「共通」タブ: 検索外れではないので、作成導線を示す共通の案内を出す
+  const commonEmpty = render({ state: { status: "ready", skills: [builtin] }, scope: "common" });
+  assert.ok(commonEmpty.includes(FILE_SKILL_LIST_COMMON_EMPTY_NOTE));
+  assert.ok(commonEmpty.includes("新しいスキル"));
+  assert.ok(!commonEmpty.includes(ALLOWLIST_SEARCH_EMPTY_NOTE));
+
+  // 組み込み 0 件の「組み込み」タブ
+  const builtinEmpty = render({ state: { status: "ready", skills: [common] }, scope: "builtin" });
+  assert.ok(builtinEmpty.includes(BUILTIN_SKILL_EMPTY_NOTE));
+  assert.ok(!builtinEmpty.includes(ALLOWLIST_SEARCH_EMPTY_NOTE));
+
+  // 件数はあるが検索で 0 件のときは検索外れの文言
+  const searchMiss = render({ query: "zzz" });
+  assert.ok(searchMiss.includes(ALLOWLIST_SEARCH_EMPTY_NOTE));
+  assert.ok(!searchMiss.includes(FILE_SKILL_LIST_COMMON_EMPTY_NOTE));
 });
 
 test("使用中エージェント数は渡したときだけ行の右に出す", () => {

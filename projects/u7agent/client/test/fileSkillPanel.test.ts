@@ -114,8 +114,11 @@ test("描画: 使用中タブは実効で使うエージェントだけを読み
   assert.ok(html.includes(">a1<"));
   assert.ok(html.includes("a1 の説明"));
   assert.ok(!html.includes(">a2<"), "外したエージェントまで並べている");
-  // 件数はタブとメタの両方に出る
-  assert.match(html, />使用中 1</);
+  // 件数はタブとメタの両方に出る。メタのラベルが「使用中」なので、値は件数だけにする
+  assert.match(html, /aria-label="使用中（1 体）"/);
+  assert.match(html, />使用中</);
+  assert.match(html, />1 体</);
+  assert.ok(!html.includes("使用中 使用中"), "メタ行で「使用中」が二重になっている");
 
   const none = renderPanel(skill, { usage: skillUsageByPath({ agents: [], skills: [skill] }) });
   assert.ok(none.includes(SKILL_USAGE_EMPTY_NOTE));

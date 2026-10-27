@@ -5,7 +5,6 @@ import { useWideLayout } from "../hooks/useLayoutMode";
 import {
   FILE_SKILL_ADD_LABEL,
   FILE_SKILL_CREATE_HEADING,
-  FILE_SKILL_DELETE_LABEL,
   FILE_SKILL_EDIT_LABEL,
   FILE_SKILL_PANE_ERROR_NOTE,
   FILE_SKILL_PANE_LOADING_NOTE,
@@ -33,7 +32,7 @@ import { FileSkillEditorForm } from "./skill-settings/FileSkillEditorForm";
 import { FileSkillList } from "./skill-settings/FileSkillList";
 import { FileSkillPanel } from "./skill-settings/FileSkillPanel";
 import { SkillImportDialog } from "./skill-settings/SkillImportDialog";
-import { PencilIcon, PlusIcon, SparkleIcon, SkillListIcon, TrashIcon } from "./icons";
+import { PencilIcon, PlusIcon, SparkleIcon, SkillListIcon } from "./icons";
 
 export type SkillSettingsPageProps = SettingsPageProps & {
   /**
@@ -351,26 +350,20 @@ export function SkillSettingsPage({
   );
 
   const canEditSelected = selectedFileSkill?.scope === "user" && selectedFileSkillDetail?.editable === true;
-  const actions =
-    selectedFileSkill?.scope === "user" && selectedFileSkillDetail && !editingFileSkill ? (
-      <>
-        {canEditSelected ? (
-          <button type="button" onClick={fileSkills.startEdit} className="btn-quiet min-h-11">
-            <PencilIcon />
-            {FILE_SKILL_EDIT_LABEL}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={removeFileSkill}
-          aria-label={`${selectedFileSkill.name} を${FILE_SKILL_DELETE_LABEL}`}
-          className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-danger/50 px-2 text-2xs text-danger-text transition-colors hover:bg-danger/10"
-        >
-          <TrashIcon />
-          {FILE_SKILL_DELETE_LABEL}
-        </button>
-      </>
-    ) : undefined;
+  // 削除は編集フォームの操作行に 1 箇所だけ置く。狭い幅では編集もアイコンだけにして、
+  // 現在名 (ピッカー) の幅を残す
+  const actions = canEditSelected ? (
+    <button
+      type="button"
+      onClick={fileSkills.startEdit}
+      aria-label={FILE_SKILL_EDIT_LABEL}
+      title={FILE_SKILL_EDIT_LABEL}
+      className="btn-quiet min-h-11"
+    >
+      <PencilIcon />
+      {singleColumn ? null : FILE_SKILL_EDIT_LABEL}
+    </button>
+  ) : undefined;
 
   // ピッカーはスコープ / 検索で絞り込んだ一覧ではなく全件を使う (検索中でも切り替え先を探せる)。
   // 選択中の行が一覧に無くても現在名は出す
@@ -472,17 +465,11 @@ export function SkillSettingsPage({
           )
         }
         badge={
+          // 版はピッカーの detail に 1 箇所だけ出す (ヘッダの badge と二重にしない)
           selectedFileSkill ? (
-            <>
-              {selectedFileSkill.version ? (
-                <span className="rounded border border-line bg-soft px-1.5 text-2xs leading-4 text-ink-ghost">
-                  v{selectedFileSkill.version}
-                </span>
-              ) : null}
-              <span className="rounded border border-accent/50 bg-accent-wash px-1.5 text-2xs leading-4 text-accent-text">
-                {FILE_SKILL_SCOPE_LABEL[selectedFileSkill.scope]}
-              </span>
-            </>
+            <span className="rounded border border-accent/50 bg-accent-wash px-1.5 text-2xs leading-4 text-accent-text">
+              {FILE_SKILL_SCOPE_LABEL[selectedFileSkill.scope]}
+            </span>
           ) : undefined
         }
         actions={actions}

@@ -7,8 +7,8 @@ import {
   BUILTIN_SKILL_GROUP_LABEL,
   BUILTIN_SKILL_OVERRIDE_NOTE,
   COMMON_SKILL_SECTION_LABEL,
-  FILE_SKILL_EMPTY_NOTE,
   FILE_SKILL_ERROR_PREFIX,
+  FILE_SKILL_LIST_COMMON_EMPTY_NOTE,
   FILE_SKILL_LOADING_NOTE,
   FILE_SKILL_SCOPE_LABEL,
   fileSkillScopeCounts,
@@ -80,13 +80,12 @@ export function FileSkillList({
     />
   );
   if (visible.length === 0) {
-    const empty =
-      state.skills.length === 0
-        ? scope === "builtin"
-          ? BUILTIN_SKILL_EMPTY_NOTE
-          : FILE_SKILL_EMPTY_NOTE
-        : ALLOWLIST_SEARCH_EMPTY_NOTE;
-    return <ListNote>{empty}</ListNote>;
+    // 選択中のスコープに 1 件も無いときは「検索外れ」と区別し、そのスコープの案内を出す
+    // (共通 0 件 + 組み込み 3 件の「共通」タブを検索外れの文言にしない)
+    if (counts[scope] === 0) {
+      return <ListNote>{scope === "builtin" ? BUILTIN_SKILL_EMPTY_NOTE : FILE_SKILL_LIST_COMMON_EMPTY_NOTE}</ListNote>;
+    }
+    return <ListNote>{ALLOWLIST_SEARCH_EMPTY_NOTE}</ListNote>;
   }
   if (scope !== "all") {
     return <div className="grid min-w-0 content-start gap-1">{visible.map(row)}</div>;

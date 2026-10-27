@@ -127,6 +127,8 @@ export function SkillSelector({
       description={skill.description || ""}
       checked={usedName(commonSkillNames, commonVisible, skill.name)}
       onToggle={(checked) => onToggleCommonSkill(skill.name, checked)}
+      // 同名の組み込みと共通行が並ぶので、読み上げ名にスコープを付ける (表示は変えない)
+      toggleLabel={`${COMMON_SKILL_SECTION_LABEL}スキル ${skill.name} を使う`}
       // モデルが自分からは起動しないというスキル側の性質。外すスイッチとは別物なので語を分ける
       badge={skill.disableModelInvocation ? "自動起動なし" : undefined}
     />
@@ -185,6 +187,8 @@ export function SkillSelector({
                 badge={skill.version ? `v${skill.version}` : undefined}
                 checked={usedName(builtinSkillNames, builtinVisible, skill.name)}
                 onToggle={(checked) => onToggleBuiltinSkill(skill.name, checked)}
+                // 同名の共通行と並ぶので、読み上げ名にスコープを付ける (表示は変えない)
+                toggleLabel={`${BUILTIN_SECTION_LABEL}スキル ${skill.name} を使う`}
               />
             ))
           )}

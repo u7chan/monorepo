@@ -38,6 +38,8 @@ export const FILE_SKILL_CONFLICT_NOTE =
   "他の変更と競合しました。入力した内容はこのまま残しています。再読み込みしてから、もう一度保存してください。";
 export const FILE_SKILL_EDIT_LABEL = "編集";
 export const FILE_SKILL_ADD_LABEL = "新しいスキル";
+/** 一覧の「共通」が 0 件のときの案内。作成導線は一覧の固定フッターにあるため、そこを指す */
+export const FILE_SKILL_LIST_COMMON_EMPTY_NOTE = `共通スキルはまだありません。「${FILE_SKILL_ADD_LABEL}」から作成できます。`;
 export const FILE_SKILL_CREATE_HEADING = "新しいスキル";
 export const FILE_SKILL_SAVE_LABEL = "保存";
 export const FILE_SKILL_CANCEL_LABEL = "キャンセル";

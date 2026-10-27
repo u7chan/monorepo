@@ -98,21 +98,21 @@ test("組み込みを先頭に、共通を後に並べる", () => {
   });
   assert.deepEqual(
     skillSwitches(html).map((row) => row.label),
-    ["browser を使う", "serve を使う", "alpha を使う"],
+    ["組み込みスキル browser を使う", "組み込みスキル serve を使う", "共通スキル alpha を使う"],
   );
   assert.ok(html.indexOf(BUILTIN_SECTION_LABEL) < html.indexOf(COMMON_SKILL_SECTION_LABEL));
 });
 
 test("未指定と解除は全部 ON、明示リストは選んだ名前だけ ON、空の明示リストはすべて OFF", () => {
   const allOn = renderSelector({ fileSkills: { status: "ready", skills: [] } });
-  assert.deepEqual(skillSwitches(allOn), [{ label: "builtin を使う", checked: true }]);
+  assert.deepEqual(skillSwitches(allOn), [{ label: "組み込みスキル builtin を使う", checked: true }]);
   assert.deepEqual(
     skillSwitches(renderSelector({ builtinSkillNames: null, fileSkills: { status: "ready", skills: [] } })),
-    [{ label: "builtin を使う", checked: true }],
+    [{ label: "組み込みスキル builtin を使う", checked: true }],
   );
   assert.deepEqual(
     skillSwitches(renderSelector({ builtinSkillNames: [], fileSkills: { status: "ready", skills: [] } })),
-    [{ label: "builtin を使う", checked: false }],
+    [{ label: "組み込みスキル builtin を使う", checked: false }],
   );
 });
 
