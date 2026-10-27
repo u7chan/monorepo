@@ -222,13 +222,20 @@ export function AgentSettingsPage({
         ref={detailRef}
         back={split ? undefined : { label: "エージェント一覧へ", onClick: () => setView("list") }}
         title={
-          <SelectMenu
-            options={pickerOptions}
-            value={editingId ?? ""}
-            label="エージェントを切り替える"
-            triggerClassName="min-h-11"
-            onChange={(value) => selectAgent(value || null)}
-          />
+          // 一覧を並べて見せている間は、切り替えは一覧の行が担うのでピッカーを出さない (現在名だけを見出しにする)
+          split ? (
+            <span className="block truncate text-sm font-semibold text-ink-strong">
+              {editingAgent?.name ?? "新しいエージェント"}
+            </span>
+          ) : (
+            <SelectMenu
+              options={pickerOptions}
+              value={editingId ?? ""}
+              label="エージェントを切り替える"
+              triggerClassName="min-h-11"
+              onChange={(value) => selectAgent(value || null)}
+            />
+          )
         }
         badge={
           dirty ? (

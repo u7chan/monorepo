@@ -321,6 +321,8 @@ export function SkillSettingsPage({
           onSelect={setScope}
           ariaLabel="スキルの種類"
           singleColumn={singleColumn}
+          // 並列表示の一覧列は 248px で、既定の余白だと 3 つのタブが 10px はみ出す
+          dense={split}
         />
       }
       search={
@@ -412,9 +414,10 @@ export function SkillSettingsPage({
     : editingFileSkill && selectedFileSkill
       ? `${selectedFileSkill.name} を編集`
       : undefined;
-  // 選択が無い間は切り替え先が無いので、空のピッカー (名前も印も無い 1 つの chevron) を出さない。
+  // ピッカーは一覧が隠れているときだけ出す (並べて見えている間は行の選択で切り替えられる)。
+  // 選択が無い間も、切り替え先が無いので空のピッカー (名前も印も無い 1 つの chevron) を出さない。
   // 中身が何も無いヘッダだけが残らないよう、見出しも選択も無いときは行ごと落とす
-  const showPicker = heading === undefined && selectedFileSkill !== undefined;
+  const showPicker = !split && heading === undefined && selectedFileSkill !== undefined;
   const showDetailHeader = heading !== undefined || selectedFileSkill !== undefined;
 
   const detailContent = creatingFileSkill ? (
@@ -469,7 +472,7 @@ export function SkillSettingsPage({
           back={split ? undefined : { label: "スキル一覧へ", onClick: () => setView("list") }}
           // ピッカーは選択肢と同じ印をトリガーにも出すので、その左に重ねない (狭い幅で名前の幅を削る)
           leading={
-            !showPicker && selectedFileSkill ? (
+            heading && selectedFileSkill ? (
               selectedFileSkill.scope === "builtin" ? (
                 <SparkleIcon />
               ) : (
@@ -480,6 +483,8 @@ export function SkillSettingsPage({
           title={
             heading ? (
               <span className="truncate text-sm font-semibold text-ink-strong">{heading}</span>
+            ) : selectedFileSkill && !showPicker ? (
+              <span className="block truncate text-sm font-semibold text-ink-strong">{selectedFileSkill.name}</span>
             ) : showPicker && selectedFileSkill ? (
               <SelectMenu
                 options={pickerOptions}
