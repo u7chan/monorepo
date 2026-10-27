@@ -283,11 +283,7 @@ function ContainerActionButton({
           "text-[11.5px] font-medium transition-colors duration-150",
           "hover:border-line-strong hover:bg-ink-800",
           "disabled:cursor-not-allowed disabled:opacity-50",
-          pending
-            ? "text-fg-3"
-            : isStart
-              ? "text-fg-2 hover:text-live"
-              : "text-fg-2 hover:text-dead",
+          pending ? "text-fg-3" : isStart ? "text-fg-2 hover:text-fg" : "text-fg-2 hover:text-dead",
         ].join(" ")}
       >
         {pending ? (

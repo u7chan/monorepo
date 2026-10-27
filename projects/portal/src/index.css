@@ -51,12 +51,13 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-live);
+    /* 緑は「いま接続できる」専用なので、フォーカスリングは無彩色で出す */
+    outline: 2px solid var(--color-fg);
     outline-offset: 2px;
   }
 
   ::selection {
-    background: color-mix(in oklab, var(--color-live) 32%, transparent);
+    background: color-mix(in oklab, var(--color-fg) 22%, transparent);
     color: var(--color-fg);
   }
 

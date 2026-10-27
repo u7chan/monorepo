@@ -62,7 +62,7 @@ export function CopyButton({
       onClick={onClick}
       className={[
         "grid size-7 shrink-0 place-items-center rounded-md transition-[opacity,color] duration-200",
-        copied ? "text-live opacity-100" : ["text-fg-3 hover:text-fg", revealClass].join(" "),
+        copied ? "text-fg opacity-100" : ["text-fg-3 hover:text-fg", revealClass].join(" "),
       ].join(" ")}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}

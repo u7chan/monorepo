@@ -117,7 +117,7 @@ export function ConfirmPopover({
     };
   }, [open, onClose, anchorRef]);
 
-  // 開いたら安全側 (キャンセル) にフォーカスを移し、閉じたら元のボタンへ返す
+  // 開いた時点でフォーカスしていた要素を覚え、閉じたらそこへ返す
   useEffect(() => {
     if (!open) {
       return;
@@ -125,13 +125,23 @@ export function ConfirmPopover({
 
     restoreFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    cancelRef.current?.focus();
 
     return () => {
       const restoreTarget = restoreFocusRef.current ?? anchorRef.current;
       restoreTarget?.focus();
     };
   }, [open, anchorRef]);
+
+  // パネルは位置が決まるまで visibility: hidden なので、その間の focus() は無視される。
+  // position が入って可視になった後にフォーカスを移す (先に移すと role=dialog が
+  // 読み上げられず、Shift+Tab で外へ抜ける)。
+  useEffect(() => {
+    if (!open || !position) {
+      return;
+    }
+
+    cancelRef.current?.focus();
+  }, [open, position]);
 
   const measure = useCallback(() => {
     const panel = panelRef.current;
