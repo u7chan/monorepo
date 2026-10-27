@@ -74,7 +74,7 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定し�
 ### Webhook URL は write-only
 
 - `GET /api/notifications` は URL の断片も返さない。`configured`（暗号文の有無）/ `webhookAvailable`（復号できて送信に使える）/ `webhookEvaluated`（復号を評価したか）/ `webhookErrorMessage`（サーバーの固定文言）だけを返し、保存済み URL は API 応答にも画面にも再表示しない。末尾 4 文字の `webhookHint` は廃止した（「GET で復号しない」と両立しないため）。変更するときは空の入力から入れ直す
-- Webhook URL は AEAD で保存する（AAD は `u7agent-app-secret:notification_settings:webhookUrl`。[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。復号は起動時と保存 / 置換のときだけで、GET では復号しない。保存済みでも復号できない（誤鍵・未知の鍵版・改ざん・master key 未設定）ときは送信せず、`webhookAvailable: false` と固定文言で利用不可にし、固定の失敗分類を `lastResult` に残す。テスト送信は 503。URL のクリアは復号が要らないため master key 無しでも通す
+- Webhook URL は AEAD で保存する（AAD は `u7agent-app-secret:notification_settings:webhookUrl`。[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。復号は起動時と保存 / 置換のときだけで、GET では復号しない。保存済みでも復号できない（誤鍵・未知の鍵版・改ざん・master key 未設定）ときは送信せず、`webhookAvailable: false` と固定文言で利用不可にし、固定の失敗分類を `lastResult` に残す。テスト送信は 503。URL のクリアは復号が要らないため master key 無しでも通す。runtime（`pi`）が無い起動では、復号した URL を使う経路が無いため新規保存・置換を 503 にする。復号直後と暗号化直後の URL は共通の `retainSecret()` へ登録し、通知以外の応答・ログにも平文を広げない。実効 URL の差し替えは入力検証と DB 保存が成功した後だけ行う
 - URL 全体と `/api/webhooks/…` 以降を `[REDACTED]` へ置換する専用マスクを `server/src/notifications.ts` に置き、API 応答・ログ・エラー本文・fetch 例外へ通す。変更直後も旧 URL をマスクできるよう、メモリ上に直前の値を数件保持する
 
 ### 宛先の制限（SSRF / リダイレクト）
