@@ -14,6 +14,8 @@ import {
   FILE_SKILL_PANE_ERROR_NOTE,
   FILE_SKILL_PANE_LOADING_NOTE,
   FILE_SKILL_PANE_NOTE,
+  FILE_SKILL_RELOAD_ARIA_LABEL,
+  FILE_SKILL_RELOAD_LABEL,
   SKILL_EXPORT_LABEL,
   SKILL_IMPORT_LABEL,
 } from "../src/lib/fileSkills";
@@ -110,4 +112,15 @@ test("並列表示で何も選んでいない間は、空のピッカーと詳�
   // ヘッダはページ自身の 1 つだけ。中身の無い詳細ヘッダの帯を残さない
   assert.equal(html.match(/<header/g)?.length, 1, "選択が無いのに詳細ヘッダの帯が出ている");
   assert.ok(html.includes(FILE_SKILL_PANE_LOADING_NOTE), "選択が無いときの案内が無い");
+});
+
+test("固定フッターの操作は 1 つの塊にし、取り直しだけを右端へ浮かせない", () => {
+  const html = renderToStaticMarkup(
+    createElement(ConfirmProvider, null, createElement(SkillSettingsPage, { onBack: () => {}, onOpenNav: () => {} })),
+  );
+  assert.ok(html.includes(FILE_SKILL_RELOAD_LABEL));
+  // 何を取り直すのかが読み上げで分かるようにする
+  assert.match(html, new RegExp(`aria-label="${FILE_SKILL_RELOAD_ARIA_LABEL}"`));
+  // ml-auto で右端へ寄せると、狭い幅で取り直しだけが他の操作から切り離される
+  assert.ok(!html.includes("ml-auto"), "取り直しが右端へ浮いている");
 });

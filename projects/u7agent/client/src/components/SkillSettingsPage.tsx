@@ -9,6 +9,8 @@ import {
   FILE_SKILL_PANE_ERROR_NOTE,
   FILE_SKILL_PANE_LOADING_NOTE,
   FILE_SKILL_PANE_NOTE,
+  FILE_SKILL_RELOAD_ARIA_LABEL,
+  FILE_SKILL_RELOAD_LABEL,
   FILE_SKILL_SCOPE_LABEL,
   FILE_SKILL_SCOPE_TABS,
   SKILL_EXPORT_LABEL,
@@ -297,6 +299,8 @@ export function SkillSettingsPage({
               {add.label}
             </button>
           ) : null}
+          {/* 固定フッターの操作は 1 つの塊にする。狭い幅で取り直しだけが右端に浮くと、他の操作から
+              切り離された別段に見える (帯の右端へ置く規則は、ヘッダ直下のツールバーの話) */}
           <div className="flex min-w-0 flex-wrap items-center gap-1">
             <button
               type="button"
@@ -314,8 +318,13 @@ export function SkillSettingsPage({
             >
               {SKILL_IMPORT_LABEL}
             </button>
-            <button type="button" onClick={fileSkills.reload} className="btn-quiet ml-auto min-h-9 px-2 text-2xs">
-              再読み込み
+            <button
+              type="button"
+              onClick={fileSkills.reload}
+              aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}
+              className="btn-quiet min-h-9 px-2 text-2xs"
+            >
+              {FILE_SKILL_RELOAD_LABEL}
             </button>
             <input
               ref={archiveImportRef}
