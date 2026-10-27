@@ -57,14 +57,12 @@ export function CopyButton({
   return (
     <button
       type="button"
-      aria-label={copied ? "コピーしました" : label}
-      title={copied ? "コピーしました" : label}
+      aria-label={copied ? "Copied" : label}
+      title={copied ? "Copied" : label}
       onClick={onClick}
       className={[
-        "grid size-6 shrink-0 place-items-center rounded-md transition-[opacity,color] duration-200",
-        copied
-          ? "text-emerald-400 opacity-100"
-          : ["text-slate-500 hover:text-cyan-400", revealClass].join(" "),
+        "grid size-7 shrink-0 place-items-center rounded-md transition-[opacity,color] duration-200",
+        copied ? "text-live opacity-100" : ["text-fg-3 hover:text-fg", revealClass].join(" "),
       ].join(" ")}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}

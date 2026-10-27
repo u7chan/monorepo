@@ -1,11 +1,11 @@
-// ContainerList Component - コンテナ一覧をグリッド/リストで表示
+// ContainerList Component - コンテナ一覧・絞り込み・表示形式の切り替え
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Container, ContainerFilter } from "../types/container";
 import { ContainerCard, ContainerListItem, type ContainerAction } from "./ContainerCard";
+import { isPortReachable } from "../lib/containerState";
 
 interface ContainerListProps {
-  filter?: ContainerFilter;
   refreshInterval?: number;
 }
 
@@ -21,6 +21,12 @@ type ViewMode = "grid" | "list";
 
 const VIEW_MODE_STORAGE_KEY = "portal.containerViewMode";
 
+const FILTERS: { value: ContainerFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "running", label: "Running" },
+  { value: "stopped", label: "Stopped" },
+];
+
 function matchesFilter(container: Container, filter: ContainerFilter): boolean {
   if (filter === "running") {
     return container.state === "running";
@@ -33,48 +39,62 @@ function matchesFilter(container: Container, filter: ContainerFilter): boolean {
   return true;
 }
 
-function applyMockAction(
-  containers: Container[],
-  containerId: string,
-  action: ContainerAction,
-  filter: ContainerFilter,
-): Container[] {
-  const updatedContainers = containers.map((container) => {
-    if (container.id !== containerId) {
-      return container;
-    }
-
-    if (action === "start") {
-      return {
-        ...container,
-        state: "running" as const,
-        status: "Up just now",
-      };
-    }
-
-    return {
-      ...container,
-      state: "exited" as const,
-      status: "Exited (0) just now",
-    };
-  });
-
-  return updatedContainers.filter((container) => matchesFilter(container, filter));
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-/**
- * 表示切り替えボタンコンポーネント
- */
+function FilterBar({
+  filter,
+  counts,
+  onChange,
+}: {
+  filter: ContainerFilter;
+  counts: Record<ContainerFilter, number>;
+  onChange: (filter: ContainerFilter) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Filter containers"
+      className="inline-flex items-center gap-0.5 rounded-lg border border-line bg-ink-900 p-0.5"
+    >
+      {FILTERS.map(({ value, label }) => {
+        const active = filter === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(value)}
+            className={[
+              "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium transition-colors duration-150",
+              active ? "bg-ink-700 text-fg" : "text-fg-3 hover:text-fg-2",
+            ].join(" ")}
+          >
+            {label}
+            <span
+              className={[
+                "font-mono text-[11px] tabular-nums",
+                active ? "text-fg-2" : "text-fg-3",
+              ].join(" ")}
+            >
+              {counts[value]}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ViewModeButton({
   active,
   label,
-  title,
   onClick,
   children,
 }: {
   active: boolean;
   label: string;
-  title: string;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -83,26 +103,93 @@ function ViewModeButton({
       type="button"
       aria-label={label}
       aria-pressed={active}
-      title={title}
+      title={label}
       onClick={onClick}
-      className={`
-        inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-all duration-200
-        ${
-          active
-            ? "border-cyan-500/50 bg-cyan-500/20 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.22)]"
-            : "border-slate-700/50 bg-slate-800/50 text-slate-500 hover:border-slate-600 hover:text-slate-300"
-        }
-      `}
+      className={[
+        "inline-flex size-7 items-center justify-center rounded-md transition-colors duration-150",
+        active ? "bg-ink-700 text-fg" : "text-fg-3 hover:text-fg-2",
+      ].join(" ")}
     >
       {children}
     </button>
   );
 }
 
+function GridIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      className="size-3.5"
+    >
+      <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" />
+      <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" />
+      <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" />
+      <rect x="9" y="9" width="4.5" height="4.5" rx="1" />
+    </svg>
+  );
+}
+
+function ListIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      className="size-3.5"
+    >
+      <path d="M6 4h7.5M6 8h7.5M6 12h7.5" />
+      <path d="M2.75 4h.01M2.75 8h.01M2.75 12h.01" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+/**
+ * 初回読み込み中のプレースホルダ。スピナーより、これから出る形を見せるほうが
+ * レイアウトの跳ねが少なく、待ち時間の見積もりもしやすい。
+ */
+function CardSkeleton() {
+  return (
+    <div className="rounded-xl border border-line bg-ink-900 p-4">
+      <div className="h-3 w-2/5 rounded-sm bg-ink-800" />
+      <div className="mt-4 flex gap-2">
+        <div className="h-[62px] flex-1 rounded-lg bg-ink-850" />
+        <div className="h-[62px] flex-1 rounded-lg bg-ink-850" />
+      </div>
+      <div className="mt-4 h-2.5 w-1/3 rounded-sm bg-ink-800" />
+    </div>
+  );
+}
+
+function StatePanel({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center rounded-xl border border-dashed border-line py-16 text-center">
+      <p className="text-[14px] font-semibold text-fg">{title}</p>
+      <p className="mt-1.5 max-w-sm text-[12.5px] leading-relaxed text-fg-3">{description}</p>
+      {action && <div className="mt-4">{action}</div>}
+    </div>
+  );
+}
+
 /**
  * コンテナ一覧コンポーネント
  */
-export function ContainerList({ filter = "all", refreshInterval = 30000 }: ContainerListProps) {
+export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
+  const [filter, setFilter] = useState<ContainerFilter>("all");
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     if (typeof window === "undefined") {
       return "grid";
@@ -123,11 +210,13 @@ export function ContainerList({ filter = "all", refreshInterval = 30000 }: Conta
     action: ContainerAction;
   } | null>(null);
 
-  const fetchContainers = async () => {
+  // 絞り込みはクライアント側で行う。フィルタごとの件数を出すには全件が要るのと、
+  // 切り替えのたびに docker ps を叩き直さずに済むため。
+  const load = useCallback(async () => {
     try {
       setState((prev) => ({ ...prev, loading: true, error: null }));
 
-      const response = await fetch(`/api/containers?filter=${filter}`);
+      const response = await fetch("/api/containers");
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -150,239 +239,216 @@ export function ContainerList({ filter = "all", refreshInterval = 30000 }: Conta
         error: error instanceof Error ? error.message : "Failed to fetch containers",
       }));
     }
-  };
+  }, []);
 
-  const runContainerAction = async (container: Container, action: ContainerAction) => {
-    const actionLabel = action === "start" ? "start" : "stop";
-    const confirmed = window.confirm(`Are you sure you want to ${actionLabel} ${container.name}?`);
+  const runContainerAction = useCallback(
+    async (container: Container, action: ContainerAction) => {
+      try {
+        setPendingAction({ containerId: container.id, action });
+        setState((prev) => ({ ...prev, actionError: null }));
 
-    if (!confirmed) {
-      return;
-    }
+        const response = await fetch(`/api/containers/${container.id}/${action}`, {
+          method: "POST",
+        });
+        const data = await response.json();
 
-    try {
-      setPendingAction({ containerId: container.id, action });
-      setState((prev) => ({ ...prev, actionError: null }));
+        if (!response.ok) {
+          throw new Error(data.message || `HTTP error! status: ${response.status}`);
+        }
 
-      const response = await fetch(`/api/containers/${container.id}/${action}`, {
-        method: "POST",
-      });
-      const data = await response.json();
+        if (data.mock) {
+          setState((prev) => ({
+            ...prev,
+            containers: prev.containers.map((item) =>
+              item.id === container.id
+                ? {
+                    ...item,
+                    state: action === "start" ? ("running" as const) : ("exited" as const),
+                    status: action === "start" ? "Up just now" : "Exited (0) just now",
+                  }
+                : item,
+            ),
+            lastUpdated: new Date(),
+          }));
+          return;
+        }
 
-      if (!response.ok) {
-        throw new Error(data.message || `HTTP error! status: ${response.status}`);
-      }
-
-      if (data.mock) {
+        await load();
+      } catch (error) {
+        console.error(`Failed to ${action} container:`, error);
         setState((prev) => ({
           ...prev,
-          containers: applyMockAction(prev.containers, container.id, action, filter),
-          lastUpdated: new Date(),
+          actionError: error instanceof Error ? error.message : `Failed to ${action} container`,
         }));
-        return;
+      } finally {
+        setPendingAction(null);
       }
-
-      await fetchContainers();
-    } catch (error) {
-      console.error(`Failed to ${action} container:`, error);
-      setState((prev) => ({
-        ...prev,
-        actionError: error instanceof Error ? error.message : `Failed to ${action} container`,
-      }));
-    } finally {
-      setPendingAction(null);
-    }
-  };
+    },
+    [load],
+  );
 
   // 初回読み込みと定期更新
   useEffect(() => {
-    fetchContainers();
+    void load();
 
     if (refreshInterval > 0) {
-      const interval = setInterval(fetchContainers, refreshInterval);
+      const interval = setInterval(() => void load(), refreshInterval);
       return () => clearInterval(interval);
     }
-  }, [filter, refreshInterval]);
+  }, [load, refreshInterval]);
 
   useEffect(() => {
     window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
   }, [viewMode]);
 
-  // ローディング状態
-  if (state.loading && state.containers.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <div className="relative">
-          <div className="w-12 h-12 border-4 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin" />
-          <div
-            className="absolute inset-0 w-12 h-12 border-4 border-transparent border-t-purple-500/30
-                       rounded-full animate-spin"
-            style={{ animationDuration: "1.5s" }}
-          />
-        </div>
-        <p className="mt-4 text-slate-400 animate-pulse">Loading containers...</p>
-      </div>
-    );
-  }
+  const counts = useMemo<Record<ContainerFilter, number>>(
+    () => ({
+      all: state.containers.length,
+      running: state.containers.filter((item) => matchesFilter(item, "running")).length,
+      stopped: state.containers.filter((item) => matchesFilter(item, "stopped")).length,
+    }),
+    [state.containers],
+  );
 
-  // エラー状態
-  if (state.error && state.containers.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <div
-          className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30
-                     flex items-center justify-center mb-4"
-        >
-          <svg
-            className="w-8 h-8 text-red-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
-        </div>
-        <h3 className="text-lg font-semibold text-slate-200 mb-2">Failed to load containers</h3>
-        <p className="text-slate-400 text-center max-w-md mb-4">{state.error}</p>
-        <button
-          onClick={fetchContainers}
-          className="px-4 py-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/30
-                     hover:bg-cyan-500/20 transition-colors"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
+  const visibleContainers = useMemo(
+    () => state.containers.filter((item) => matchesFilter(item, filter)),
+    [state.containers, filter],
+  );
 
-  // 空の状態
-  if (state.containers.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <div
-          className="w-16 h-16 rounded-full bg-slate-700/30 border border-slate-600/30
-                     flex items-center justify-center mb-4"
-        >
-          <svg
-            className="w-8 h-8 text-slate-500"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-            />
-          </svg>
-        </div>
-        <h3 className="text-lg font-semibold text-slate-300 mb-2">No containers found</h3>
-        <p className="text-slate-500 text-center">
-          {filter === "all"
-            ? "No Docker containers are running or stopped."
-            : filter === "running"
-              ? "No running containers found."
-              : "No stopped containers found."}
-        </p>
-      </div>
-    );
-  }
+  const livePortCount = useMemo(
+    () =>
+      state.containers
+        .filter((item) => isPortReachable(item.state))
+        .reduce((total, item) => total + item.ports.length, 0),
+    [state.containers],
+  );
+
+  const isInitialLoading = state.loading && state.containers.length === 0;
 
   return (
-    <div className="space-y-4">
-      {/* ヘッダー: カウントと最終更新 */}
-      <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-slate-400">
-          <span className="font-semibold text-slate-200">{state.containers.length}</span>{" "}
-          {state.containers.length === 1 ? "container" : "containers"}
-          {filter !== "all" && <span className="text-slate-500"> ({filter})</span>}
-        </p>
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <FilterBar filter={filter} counts={counts} onChange={setFilter} />
+
         <div className="flex items-center gap-3">
+          <p className="flex items-center gap-1.5 text-[11.5px] text-fg-3">
+            <span
+              aria-hidden="true"
+              className={[
+                "size-1.5 rounded-full",
+                livePortCount > 0 ? "bg-live" : "bg-line-strong",
+              ].join(" ")}
+            />
+            <span className="text-fg-2 tabular-nums">{livePortCount}</span>
+            {livePortCount === 1 ? "live port" : "live ports"}
+          </p>
+
           {state.lastUpdated && (
-            <p className="text-xs text-slate-500">
-              Updated{" "}
-              {state.lastUpdated.toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })}
+            <p
+              className="hidden text-[11.5px] text-fg-3 tabular-nums sm:block"
+              title={`Refreshes every ${Math.round(refreshInterval / 1000)} seconds`}
+            >
+              Updated {formatTime(state.lastUpdated)}
             </p>
           )}
-          <div className="flex items-center gap-1 rounded-xl border border-slate-700/50 bg-slate-900/40 p-1">
+
+          <div className="flex items-center gap-0.5 rounded-lg border border-line bg-ink-900 p-0.5">
             <ViewModeButton
               active={viewMode === "grid"}
               label="Grid view"
-              title="カード表示"
               onClick={() => setViewMode("grid")}
             >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 0h6v6h-6v-6z"
-                />
-              </svg>
+              <GridIcon />
             </ViewModeButton>
             <ViewModeButton
               active={viewMode === "list"}
               label="List view"
-              title="リスト表示"
               onClick={() => setViewMode("list")}
             >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"
-                />
-              </svg>
+              <ListIcon />
             </ViewModeButton>
           </div>
         </div>
       </div>
 
       {state.actionError && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <div
+          role="alert"
+          className="rounded-lg border border-dead/30 bg-dead/10 px-3 py-2 text-[12px] text-dead"
+        >
           {state.actionError}
         </div>
       )}
 
-      {viewMode === "grid" ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {state.containers.map((container) => (
-            <ContainerCard
-              key={container.id}
-              container={container}
-              pendingAction={
-                pendingAction?.containerId === container.id ? pendingAction.action : null
-              }
-              onAction={runContainerAction}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {state.containers.map((container) => (
-            <ContainerListItem
-              key={container.id}
-              container={container}
-              pendingAction={
-                pendingAction?.containerId === container.id ? pendingAction.action : null
-              }
-              onAction={runContainerAction}
-            />
-          ))}
+      {isInitialLoading && (
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading containers</span>
+          <div className="grid animate-pulse grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <CardSkeleton />
+            <CardSkeleton />
+            <CardSkeleton />
+          </div>
         </div>
       )}
-    </div>
+
+      {!isInitialLoading && state.error && state.containers.length === 0 && (
+        <StatePanel
+          title="Can't reach Docker"
+          description={state.error}
+          action={
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="inline-flex h-8 items-center rounded-md border border-line-strong px-3 text-[12px] font-medium text-fg transition-colors hover:bg-ink-800"
+            >
+              Try again
+            </button>
+          }
+        />
+      )}
+
+      {!isInitialLoading && !state.error && visibleContainers.length === 0 && (
+        <StatePanel
+          title={filter === "all" ? "No containers" : `No ${filter} containers`}
+          description={
+            filter === "all"
+              ? "Nothing is running on this host yet."
+              : filter === "running"
+                ? "Start a container, or switch the filter to All."
+                : "Everything that exists here is still running."
+          }
+        />
+      )}
+
+      {visibleContainers.length > 0 &&
+        (viewMode === "grid" ? (
+          <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {visibleContainers.map((container) => (
+              <ContainerCard
+                key={container.id}
+                container={container}
+                pendingAction={
+                  pendingAction?.containerId === container.id ? pendingAction.action : null
+                }
+                onAction={runContainerAction}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {visibleContainers.map((container) => (
+              <ContainerListItem
+                key={container.id}
+                container={container}
+                pendingAction={
+                  pendingAction?.containerId === container.id ? pendingAction.action : null
+                }
+                onAction={runContainerAction}
+              />
+            ))}
+          </div>
+        ))}
+    </section>
   );
 }
 
