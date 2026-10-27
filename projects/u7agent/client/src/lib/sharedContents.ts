@@ -609,7 +609,7 @@ export type SharedContentStopAllResult = {
 
 /**
  * 一括停止の結果。一覧は最後に取り直すので、ここでは再読み込みを促さない。
- * 1 件でも失敗したらエラーのトーンにし、名前だけは先頭 1 件を出す（全文はカード側の error が持つ）。
+ * 1 件でも失敗したらエラーのトーンにし、失敗した全件の名前を出す（理由はカード側の error が持つ）。
  */
 export function sharedContentStopAllNote(result: SharedContentStopAllResult): { text: string; error: boolean } | null {
   if (result.total === 0 || (result.stopped === 0 && result.failures.length === 0)) return null;

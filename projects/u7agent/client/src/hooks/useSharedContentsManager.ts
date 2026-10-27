@@ -36,7 +36,7 @@ export interface SharedContentsManagerState {
   busy: { id: string; kind: SharedContentBusyKind }[];
   /** 直前に失敗した 1 件の操作。成功するか次の操作を始めるまで残す */
   error: { id: string; message: string } | null;
-  /** 一括停止の進行と結果。null は未実行。`running` が false でも結果を次の一括停止まで残す */
+  /** 一括停止の進行と結果。null は未実行。`running` が false でも次の一括停止か個別操作まで残す */
   bulkStop: SharedContentStopAllState | null;
 }
 
