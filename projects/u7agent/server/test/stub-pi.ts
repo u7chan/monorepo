@@ -241,6 +241,8 @@ export interface StubSessionEntry {
     errorMessage?: string;
     timestamp?: number;
     usage?: unknown;
+    provider?: string;
+    model?: string;
     /** role "toolResult" のとき: 対応する toolCall の id と成否 */
     toolCallId?: string;
     isError?: boolean;
@@ -449,6 +451,11 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
   let steeringInjected = 0;
   // 実 SDK はリスナーへ message_end を配った後に SessionManager へ入れるため、その間だけ context が古い
   let historyUpdated = true;
+  // 実 SDK の AssistantMessage と同じく、応答に生成元の provider / model を持たせる (応答メトリクスの保存先が使う)
+  const assistantModel = () => ({
+    provider: session.model?.provider ?? "stub",
+    model: session.model?.id ?? "stub-model",
+  });
   // 実 SDK の isCompacting / abortCompaction に対応する状態 (BFF の保存待ちは含まない)
   let compacting = false;
   // 呼び出し id は prompt ごとに変える。ライブ表示は同じ id を再び観測した行を「復元カード」とみなして
@@ -788,6 +795,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             };
             const assistant = {
               role: "assistant",
+              ...assistantModel(),
               content: [assistantText],
               stopReason: "stop",
               timestamp: Date.now(),
@@ -825,6 +833,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             session.emit({ type: "message_start", message: { role: "assistant" } });
             const assistant = {
               role: "assistant",
+              ...assistantModel(),
               content: [{ type: "toolCall", id: toolCallId, name: toolName, arguments: args }],
               stopReason: "toolUse",
               timestamp: Date.now(),
@@ -864,6 +873,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             const body = { type: "text", text: rounds.reply };
             const assistant = {
               role: "assistant",
+              ...assistantModel(),
               content: [body],
               stopReason: "stop",
               timestamp: Date.now(),
@@ -913,6 +923,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
         const assistantText = { type: "text", text: "" };
         const assistant = {
           role: "assistant",
+          ...assistantModel(),
           content: [
             ...(investigate
               ? [{ type: "toolCall", id: investigateToolCallId, name: "investigate", arguments: investigateArgs }]
@@ -1103,6 +1114,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           };
           const steeringAssistant = {
             role: "assistant",
+            ...assistantModel(),
             content: [textBlock],
             stopReason: "stop",
             timestamp: Date.now(),

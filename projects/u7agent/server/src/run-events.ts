@@ -7,7 +7,7 @@
 import { recordCompactionOutcome } from "./compaction-view";
 import { classifyRunError, type RunErrorClassification } from "./error-classify";
 import { INVESTIGATE_TOOL_NAME } from "./investigate-tool";
-import type { PiSessionEventListener, PiSessionLike } from "./pi-runtime";
+import type { PiSessionEventListener, PiSessionLike, PiSessionMessageLike } from "./pi-runtime";
 import { contextUsageOf, lastAssistantMessage, parseUsage } from "./pi-runtime";
 import { createStreamingSecretMasker, type SecretMasker } from "./redact";
 import type { CompactionMeta } from "./session-record";
@@ -89,6 +89,11 @@ export interface RunEventBridgeDeps {
   onPromptMessage?: (message: object) => void;
   /** assistant の message_end。応答IDを保存注記へ対応付けるために同じ参照を控える */
   onAssistantMessage?: (message: object, assistantId: string) => void;
+  /**
+   * assistant の message_end で実測を作れたとき。本文の確定 (`onAssistantMessage`) と独立させ、
+   * 保存を本文の順序に巻き込まない
+   */
+  onAssistantMetrics?: (message: PiSessionMessageLike, assistantId: string, metrics: MessageMetrics) => void;
   /** 再試行のスケジュール / 再実行開始 / 解除を run へ反映する */
   onRetryScheduled: (event: RetryScheduledEvent) => void;
   onRetryAttemptStart: () => void;
@@ -123,6 +128,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     onPersist,
     onPromptMessage,
     onAssistantMessage,
+    onAssistantMetrics,
     onRetryScheduled,
     onRetryAttemptStart,
     onRetryEnd,
@@ -286,6 +292,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
                     outputTokens: usage?.output,
                   });
             if (metrics) messageMetrics.set(event.message, metrics);
+            if (metrics) onAssistantMetrics?.(event.message, currentAssistantId, metrics);
             if (usage || metrics) {
               emit("usage", {
                 usage,

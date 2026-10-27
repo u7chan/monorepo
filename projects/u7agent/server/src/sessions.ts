@@ -27,7 +27,7 @@ import { sessionUploadsRel, workspaceAbs } from "./app-paths";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
 import { buildHandoffSection, HANDOFF_FILE_NAME, type HandoffMemoSection } from "./handoff-memo";
-import type { CwdKeyStore } from "./app-db";
+import type { AssistantMetricsRow, AssistantMetricsStore, CwdKeyStore } from "./app-db";
 import { sandboxFailureStatus } from "./http";
 import { allowsNaturalInvocation, type AgentCatalog } from "./agents";
 import { createInvestigateRunner, type InvestigateRunner } from "./investigate-runner";
@@ -38,7 +38,14 @@ import { compactionsOf, recordCompactionOutcome } from "./compaction-view";
 import { projectSessionDiagnostics } from "./diagnostics";
 import { projectHistoryPage } from "./history-projection";
 import type { NotificationService } from "./notifications";
-import { contextUsageOf, type PiRuntimeLike, type PiSessionEvent, type PiSessionLike } from "./pi-runtime";
+import {
+  contextUsageOf,
+  parseUsage,
+  type PiRuntimeLike,
+  type PiSessionEvent,
+  type PiSessionLike,
+  type PiSessionMessageLike,
+} from "./pi-runtime";
 import type { ProjectStore } from "./projects";
 import { createSecretMasker, type SecretMasker } from "./redact";
 import { classifyRunError, composeRunError, retryWaitingText } from "./error-classify";
@@ -113,6 +120,7 @@ import type {
   AskUserQuestion,
   CompactionInfo,
   EventEntry,
+  MessageMetrics,
   ModelRef,
   Project,
   ResyncReason,
@@ -216,6 +224,11 @@ export interface SessionStoreOptions {
   cwdKeys?: CwdKeyStore | null;
   /** serve の成功実績の参照。未指定は一覧の `serveCommand` を常に null にする (テスト) */
   serveCommands?: ServeCommandLookup | null;
+  /**
+   * 応答メトリクスの保存先。未指定は保存も読み戻しもしない (テスト)。
+   * 読み書きは best-effort で、失敗してもランとセッションの操作は止めない
+   */
+  assistantMetrics?: AssistantMetricsStore | null;
   /** BFF 側のワークスペース root (作業フォルダの絶対パス解決用) */
   rootCwd?: string;
   /** 完了通知の送信先。未指定なら通知しない (テスト・未設定のデプロイ) */
@@ -244,6 +257,40 @@ function messageFor(error: unknown): string {
 function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
   if (!model) return undefined;
   return `${model.provider}/${model.id}`;
+}
+
+/**
+ * 応答 1 件分の保存行。metrics を観測できた応答だけを渡す前提で、行にできない応答は undefined を返す。
+ * provider / model が無い応答を落とすのは、列が NOT NULL で、どのモデルの速度か言えない行は集計できないため。
+ */
+function assistantMetricsRowOf(
+  sessionId: string,
+  assistantId: string,
+  message: PiSessionMessageLike,
+  metrics: MessageMetrics,
+): AssistantMetricsRow | undefined {
+  const { provider, model } = message;
+  if (typeof provider !== "string" || provider === "" || typeof model !== "string" || model === "") {
+    return undefined;
+  }
+  const usage = parseUsage(message.usage);
+  return {
+    sessionId,
+    assistantId,
+    // timestamp を持たない履歴でも行を落とさない: at は期間で絞る集計の索引として使う
+    at: typeof message.timestamp === "number" ? message.timestamp : Date.now(),
+    provider,
+    model,
+    durationMs: metrics.durationMs,
+    ttftMs: metrics.ttftMs ?? null,
+    inputTokens: usage?.input ?? null,
+    outputTokens: usage?.output ?? null,
+    cacheRead: usage?.cacheRead ?? null,
+    cacheWrite: usage?.cacheWrite ?? null,
+    reasoningTokens: usage?.reasoning ?? null,
+    costUsd: usage?.cost.total ?? null,
+    stopReason: typeof message.stopReason === "string" && message.stopReason !== "" ? message.stopReason : null,
+  };
 }
 
 /** 補助呼び出しの usage を試行の記録へ写す (タイトルを採用できなくても消費した分を残す) */
@@ -344,6 +391,8 @@ export class SessionStore {
   cwdKeys: CwdKeyStore | null;
   /** serve の成功実績。null は一覧の `serveCommand` を常に null にする */
   serveCommands: ServeCommandLookup | null;
+  /** 応答メトリクスの保存先。null は保存も読み戻しもしない */
+  assistantMetrics: AssistantMetricsStore | null;
   rootCwd: string;
   /** ストア上のメタデータ。live な record の分も持つ */
   descriptors: Map<string, SessionMeta>;
@@ -394,6 +443,7 @@ export class SessionStore {
     handoffSandbox,
     cwdKeys,
     serveCommands,
+    assistantMetrics,
     rootCwd,
     notifications,
     writeSends,
@@ -412,6 +462,7 @@ export class SessionStore {
     this.handoffSandbox = handoffSandbox ?? null;
     this.cwdKeys = cwdKeys ?? null;
     this.serveCommands = serveCommands ?? null;
+    this.assistantMetrics = assistantMetrics ?? null;
     this.rootCwd = rootCwd ?? process.cwd();
     this.notifications = notifications ?? null;
     this.titleSummary = titleSummary ?? null;
@@ -645,6 +696,7 @@ export class SessionStore {
       toolTimings: new Map(),
       questions: new Map(),
       messageMetrics: new WeakMap(),
+      savedMetrics: new Map(),
       assistantMessageIds: new WeakMap(),
       userMessageSends: new WeakMap(),
       entrySends: new Map(),
@@ -732,6 +784,7 @@ export class SessionStore {
       } catch (error) {
         throw httpError(409, `引き継ぎの片付けが残っています。会話履歴を削除できませんでした: ${messageFor(error)}`);
       }
+      this.deleteAssistantMetrics(id);
       current = { ...meta };
       delete current.handoffCleanup;
       this.descriptors.set(id, current);
@@ -884,6 +937,41 @@ export class SessionStore {
     if (!manager?.appendModelChange) return false;
     manager.appendModelChange(effective.provider, effective.id);
     return true;
+  }
+
+  /**
+   * 応答 1 件分の実測を DB へ写す。message_end の通知中に書かないのは、JSONL の保存と同じく
+   * 履歴の確定と順序を合わせる必要がないため。失敗してもランは止めず、status にも載せない。
+   */
+  private queueAssistantMetrics(
+    record: SessionRecord,
+    assistantId: string,
+    message: PiSessionMessageLike,
+    metrics: MessageMetrics,
+  ): void {
+    const store = this.assistantMetrics;
+    if (!store) return;
+    const row = assistantMetricsRowOf(record.id, assistantId, message, metrics);
+    if (!row) return;
+    queueMicrotask(() => {
+      // 削除済みの会話へ書き戻さない (行だけが孤児として残る)
+      if (this.deleting.has(record.id) || this.records.get(record.id) !== record) return;
+      try {
+        store.recordAssistantMetrics(row);
+      } catch (error) {
+        console.warn(`[u7agent] assistant metrics save failed: ${this.masker.mask(messageFor(error))}`);
+      }
+    });
+  }
+
+  /** 履歴の削除が成功した後にだけ呼ぶ。先に消すと、残った履歴から引けない行だけが消える */
+  private deleteAssistantMetrics(id: string): void {
+    try {
+      this.assistantMetrics?.deleteAssistantMetrics(id);
+    } catch (error) {
+      // 孤児行は残り得るが、セッションの削除を失敗にしない
+      console.warn(`[u7agent] assistant metrics delete failed: ${this.masker.mask(messageFor(error))}`);
+    }
   }
 
   private async queueMetaUpdate<T>(id: string, update: () => Promise<T>): Promise<T> {
@@ -2294,6 +2382,7 @@ export class SessionStore {
         this.notifyDeleted(record);
       }
       if (this.storeDir) await removeSessionDir(this.storeDir, id);
+      this.deleteAssistantMetrics(id);
       this.descriptors.delete(id);
       return true;
     } finally {
@@ -2558,6 +2647,7 @@ export class SessionStore {
       cleanupPending = true;
     }
     if (!cleanupPending) {
+      this.deleteAssistantMetrics(id);
       const cleared: SessionMeta = { ...updated };
       delete cleared.handoffCleanup;
       try {
@@ -2944,6 +3034,9 @@ export class SessionStore {
       onPersist: () => queueMicrotask(() => void this.persist(record)),
       onAssistantMessage: (message, assistantId) => {
         record.assistantMessageIds.set(message, assistantId);
+      },
+      onAssistantMetrics: (message, assistantId, metrics) => {
+        this.queueAssistantMetrics(record, assistantId, message, metrics);
       },
       // 履歴 item に送信ID / 実行ID を写すための控え。SDK は listener の後に entry を append するが、
       // entry と session.messages は同じメッセージ参照を共有するので、投影時に参照で引ける

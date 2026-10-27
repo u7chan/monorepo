@@ -13,7 +13,7 @@ import type { AgentDef, AgentSuggestion, ModelRef, NotificationResult, Project, 
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 32;
+export const APP_DB_SCHEMA_VERSION = 33;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -272,6 +272,39 @@ export interface AppDbStatus {
 /** セッションの引っ越しが使う、cwd をキーにする行の付け替えだけの狭い IF */
 export type CwdKeyStore = Pick<AppDb, "moveCwd">;
 
+/**
+ * 応答 1 件分の実測。**正は JSONL** で、このテーブルは再起動・アイドル sweep をまたいで実測を
+ * 読み戻すための派生データ。保存するのは数値とモデル識別子だけで、本文・ツール引数・プロンプトは持たない。
+ * tok/s は保存しない (`durationMs` / `ttftMs` / `outputTokens` から導出し、分母の定義を変えたときに
+ * 再計算できるようにする)。NULL は「プロバイダが報告していない」で、0 と区別する。
+ */
+export interface AssistantMetricsRow {
+  sessionId: string;
+  /** JSONL の entry へ写した応答ID (`<runId>:<seq>`)。復元時の引き当てキー */
+  assistantId: string;
+  /** assistant の timestamp (epoch ms) */
+  at: number;
+  provider: string;
+  model: string;
+  durationMs: number;
+  /** 最初の delta が出なかった応答は null */
+  ttftMs: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+  reasoningTokens: number | null;
+  costUsd: number | null;
+  /** `stopReason` が無いメッセージは null */
+  stopReason: string | null;
+}
+
+/** 応答メトリクスの読み書きだけの狭い IF。会話ストアが構造的に満たす (docs/persistence.md) */
+export type AssistantMetricsStore = Pick<
+  AppDb,
+  "recordAssistantMetrics" | "loadAssistantMetrics" | "deleteAssistantMetrics"
+>;
+
 export interface OpenAppDbOptions {
   /** 会話ストアと同じディレクトリ。null ならメモリ DB (テスト) */
   storeDir: string | null;
@@ -486,6 +519,34 @@ CREATE TABLE IF NOT EXISTS web_search_provider_keys (
 `;
 
 /**
+ * v32 -> v33 で足したテーブル。応答時間 / TTFT / usage の実測を 1 行 1 応答で持つ。
+ *
+ * 正は JSONL で、ここは派生データ。本文は保存しないので、行が消えても表示が SDK 記録値の概算へ
+ * 戻るだけで会話は壊れない。そのため `DROP_TABLES` に入れて作り直しでは消す (`secrets` とは逆)。
+ */
+const ASSISTANT_METRICS_TABLE = `
+CREATE TABLE IF NOT EXISTS assistant_metrics (
+  session_id      TEXT NOT NULL,
+  assistant_id    TEXT NOT NULL,
+  at              INTEGER NOT NULL,
+  provider        TEXT NOT NULL,
+  model           TEXT NOT NULL,
+  duration_ms     INTEGER NOT NULL,
+  ttft_ms         INTEGER,
+  input_tokens    INTEGER,
+  output_tokens   INTEGER,
+  cache_read      INTEGER,
+  cache_write     INTEGER,
+  reasoning_tokens INTEGER,
+  cost_usd        REAL,
+  stop_reason     TEXT,
+  PRIMARY KEY (session_id, assistant_id)
+);
+CREATE INDEX IF NOT EXISTS assistant_metrics_model ON assistant_metrics (provider, model, at);
+CREATE INDEX IF NOT EXISTS assistant_metrics_at ON assistant_metrics (at);
+`;
+
+/**
  * v24 -> v25 で足したテーブル。会話タイトルの AI 要約の設定を 1 行だけ持つ。
  * **行が無い = 既定 (Off / モデル未選択 / 既定の定義)**。本会話のモデルや compaction の要約とは別の設定。
  */
@@ -613,7 +674,8 @@ ${SECRETS_TABLE}
 ${SHARED_CONTENTS_TABLE}
 ${CLOUDFLARE_SETTINGS_TABLE}
 ${SHARED_CONTENT_SETTINGS_TABLE}
-${SPACES_TABLE}`;
+${SPACES_TABLE}
+${ASSISTANT_METRICS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
@@ -633,9 +695,11 @@ DROP TABLE IF EXISTS serve_commands;
 DROP TABLE IF EXISTS web_search_settings;
 DROP TABLE IF EXISTS web_search_provider_keys;
 DROP TABLE IF EXISTS title_summary_settings;
+DROP TABLE IF EXISTS assistant_metrics;
 `;
 // secrets / shared_contents / cloudflare_settings / shared_content_settings は意図的に含めない
-// (docs/secrets.md / docs/static-sharing.md)。
+// (docs/secrets.md / docs/static-sharing.md)。assistant_metrics は JSONL から引き直せる派生データなので
+// 含める (行が消えても、再起動後の表示が SDK 記録値の概算へ戻るだけ)。
 // 列追加も #migrate() にだけ足し、既存行を書き換える移行はしない。
 
 /**
@@ -883,6 +947,25 @@ function serveCommandOf(row: Row): ServeCommandRow {
   return { cwd: text(row.cwd), command: text(row.command), updatedAt: Number(row.updatedAt) };
 }
 
+function assistantMetricsOf(row: Row): AssistantMetricsRow {
+  return {
+    sessionId: text(row.session_id),
+    assistantId: text(row.assistant_id),
+    at: Number(row.at),
+    provider: text(row.provider),
+    model: text(row.model),
+    durationMs: Number(row.duration_ms),
+    ttftMs: optionalNumber(row.ttft_ms),
+    inputTokens: optionalNumber(row.input_tokens),
+    outputTokens: optionalNumber(row.output_tokens),
+    cacheRead: optionalNumber(row.cache_read),
+    cacheWrite: optionalNumber(row.cache_write),
+    reasoningTokens: optionalNumber(row.reasoning_tokens),
+    costUsd: optionalNumber(row.cost_usd),
+    stopReason: optionalText(row.stop_reason) ?? null,
+  };
+}
+
 /** BLOB 列は Uint8Array。手編集で TEXT にされた行は「保存値が欠けている」として null で読む */
 function optionalBlob(value: unknown): Uint8Array | null {
   return value instanceof Uint8Array ? value : null;
@@ -1125,6 +1208,20 @@ export class AppDb {
     });
   }
 
+  /**
+   * 応答メトリクス専用の入口。失敗しても `#error` を立てず、health / アプリデータ API を 503 に
+   * 巻き込まない: メタを保存できないことで会話を止めないため (#query の catch は 503 へ倒す)。
+   * 値は数値とモデル識別子だけなので、例外文言のマスクは `sanitizeError` に任せる。
+   */
+  #metricsQuery<T>(fn: (db: DatabaseSync) => T): T | undefined {
+    try {
+      return fn(this.#handle());
+    } catch (error) {
+      console.warn(`[u7agent] app db assistant metrics failed: ${this.#sanitizeError(messageFor(error))}`);
+      return undefined;
+    }
+  }
+
   #schemaVersion(): number {
     const row = this.#handle().prepare("PRAGMA user_version").get() as Row | undefined;
     return Number(row?.user_version ?? 0);
@@ -1296,6 +1393,7 @@ export class AppDb {
       this.#query((db) => db.exec(CLOUDFLARE_SETTINGS_TABLE));
       this.#query((db) => db.exec(SHARED_CONTENT_SETTINGS_TABLE));
       this.#query((db) => db.exec(SPACES_TABLE));
+      this.#query((db) => db.exec(ASSISTANT_METRICS_TABLE));
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない
       this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");
@@ -2198,6 +2296,62 @@ export class AppDb {
 
   deleteSecret(secretId: string): boolean {
     return this.#query((db) => db.prepare("DELETE FROM secrets WHERE secretId = ?").run(secretId).changes > 0);
+  }
+
+  // --- assistant metrics (応答 1 件ごとの実測。派生データ) ---
+
+  /**
+   * 保存は (session_id, assistant_id) の upsert。**best-effort** で、失敗しても例外を投げない
+   * (呼び出し側はランを止めない)。単一ステートメントなので自動コミットで確定する。
+   */
+  recordAssistantMetrics(row: AssistantMetricsRow): void {
+    this.#metricsQuery((db) =>
+      db
+        .prepare(
+          `INSERT INTO assistant_metrics
+             (session_id, assistant_id, at, provider, model, duration_ms, ttft_ms, input_tokens, output_tokens,
+              cache_read, cache_write, reasoning_tokens, cost_usd, stop_reason)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(session_id, assistant_id) DO UPDATE SET at = excluded.at, provider = excluded.provider,
+             model = excluded.model, duration_ms = excluded.duration_ms, ttft_ms = excluded.ttft_ms,
+             input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
+             cache_read = excluded.cache_read, cache_write = excluded.cache_write,
+             reasoning_tokens = excluded.reasoning_tokens, cost_usd = excluded.cost_usd,
+             stop_reason = excluded.stop_reason`,
+        )
+        .run(
+          row.sessionId,
+          row.assistantId,
+          row.at,
+          row.provider,
+          row.model,
+          row.durationMs,
+          row.ttftMs,
+          row.inputTokens,
+          row.outputTokens,
+          row.cacheRead,
+          row.cacheWrite,
+          row.reasoningTokens,
+          row.costUsd,
+          row.stopReason,
+        ),
+    );
+  }
+
+  /** 読めないときは空で返す (メタが出ないだけで会話は開ける)。行は `at` の昇順 */
+  loadAssistantMetrics(sessionId: string): AssistantMetricsRow[] {
+    const rows = this.#metricsQuery(
+      (db) =>
+        db
+          .prepare("SELECT * FROM assistant_metrics WHERE session_id = ? ORDER BY at, assistant_id")
+          .all(sessionId) as Row[],
+    );
+    return rows?.map(assistantMetricsOf) ?? [];
+  }
+
+  /** セッションの行をまとめて消す。失敗しても孤児行が残るだけで、セッションの削除は成功させる */
+  deleteAssistantMetrics(sessionId: string): void {
+    this.#metricsQuery((db) => db.prepare("DELETE FROM assistant_metrics WHERE session_id = ?").run(sessionId));
   }
 
   // --- 複数テーブルにまたがる更新 (部分適用を残さない) ---

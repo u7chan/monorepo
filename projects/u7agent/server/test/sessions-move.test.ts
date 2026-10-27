@@ -264,6 +264,8 @@ test("moves a session to another space with its workdir and uploads, and drops t
       await bff.app.request(`/api/sessions/${id}/pin`, jsonPatch({ pinned: true }));
       await bff.app.request(`/api/sessions/${id}/notify`, jsonPatch({ notify: true }));
       const before = await jsonBody(bff.app.request(`/api/sessions/${id}`));
+      // 応答メトリクスの行は履歴と同じく引っ越しで消す (会話 id は残るため、消さないと孤児行になる)
+      await waitFor(() => bff.appDb.loadAssistantMetrics(id).length === 1, 3000, "metrics row");
       await mkdir(join(paths.root, sessionUploadsRel(id)), { recursive: true });
       await writeFile(join(paths.root, sessionUploadsRel(id), "note.txt"), "添付");
 
@@ -284,6 +286,7 @@ test("moves a session to another space with its workdir and uploads, and drops t
       assert.equal(existsSync(join(paths.root, sessionUploadsRel(id, space), "note.txt")), true);
       assert.equal(existsSync(sessionJsonlPath(id, paths.store)), false);
       assert.equal(existsSync(sessionSendsPath(id, paths.store)), false);
+      assert.deepEqual(bff.appDb.loadAssistantMetrics(id), []);
 
       // 所属は meta / 一覧 / payload のすべてで移動先になる
       const meta = await readMeta(id, paths.store);
@@ -1661,6 +1664,7 @@ test("answers success with cleanupPending when the history removal fails, and cl
       const id = created.sessionId as string;
       await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "履歴" }));
       await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+      await waitFor(() => bff.appDb.loadAssistantMetrics(id).length === 1, 3000, "metrics row");
       // session.jsonl をディレクトリに差し替え、rm (force・非再帰) を失敗させる
       const jsonl = sessionJsonlPath(id, paths.store);
       await rm(jsonl);
@@ -1672,6 +1676,8 @@ test("answers success with cleanupPending when the history removal fails, and cl
       assert.equal(result.cleanupPending, true);
       const meta = await readMeta(id, paths.store);
       assert.equal(meta.handoffCleanup, true);
+      // 履歴が残っている間はメタの行も消さない (履歴から引ける実測を失わない)
+      assert.equal(bff.appDb.loadAssistantMetrics(id).length, 1);
 
       // 片付けが残っている間は開けない (一覧には残る)。DELETE は可能
       assert.equal((await bff.app.request(`/api/sessions/${id}`)).status, 409);
@@ -1690,6 +1696,7 @@ test("answers success with cleanupPending when the history removal fails, and cl
       assert.equal((await readMeta(id, paths.store)).handoffCleanup, undefined);
       // 古い履歴は残らず、空の履歴で開き直せる
       assert.deepEqual((await jsonBody(bff.app.request(`/api/sessions/${id}`))).messages, []);
+      assert.deepEqual(bff.appDb.loadAssistantMetrics(id), [], "片付けで履歴を消したらメタの行も消す");
     } finally {
       await bff.close();
     }
