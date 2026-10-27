@@ -271,7 +271,7 @@ h2 {
 
   /* 簡易表示は 3 枚程度を 1 段に並べる。標準表示は推移を読める幅を優先して 2 列に留める。 */
   .up-providers[data-density="compact"] {
-    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
   }
 }
 
