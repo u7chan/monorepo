@@ -4,8 +4,15 @@
  * degraded (保存済み・未反映) として記録して resync / 次回変更 / 再起動で収束させる (補償ロールバックは持たない)。
  * 契約と残存リスクは docs/model-settings.md を正とする。
  */
-import type { ModelSettingsRow, ProviderCredentialRow, ProviderMemoRow, StoredAppSecret } from "./app-db";
+import type {
+  CustomProviderRow,
+  ModelSettingsRow,
+  ProviderCredentialRow,
+  ProviderMemoRow,
+  StoredAppSecret,
+} from "./app-db";
 import {
+  APP_SECRET_DECRYPT_FAILED_MESSAGE,
   APP_SECRET_NOT_STORED_MESSAGE,
   appSecretAvailable,
   appSecretFailed,
@@ -17,26 +24,30 @@ import {
 import { sanitizeRuntimeAuth, type ModelCatalogRefreshAttempt, type RuntimeAuthStatusLike } from "./agent";
 import { CUSTOM_PROVIDER_PROBE_TIMEOUT_MS, probeCustomProviderModels } from "./custom-provider-probe";
 import {
-  CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE,
   CUSTOM_PROVIDER_API_KEY_MESSAGE,
+  CUSTOM_PROVIDER_ID_CONFLICT_DEGRADED_MESSAGE,
+  CUSTOM_PROVIDER_INVALID_STORED_MESSAGE,
   CUSTOM_PROVIDER_KEY_TARGET_MESSAGE,
   CUSTOM_PROVIDER_MEMO_TARGET_MESSAGE,
   CUSTOM_PROVIDER_NOT_FOUND_MESSAGE,
-  CUSTOM_PROVIDER_REGISTER_FAILED_MESSAGE,
-  CUSTOM_PROVIDER_REMOVE_FAILED_MESSAGE,
-  CUSTOM_PROVIDER_RESYNC_TARGET_MESSAGE,
+  CUSTOM_PROVIDER_NOT_STORED_MESSAGE,
   CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE,
   CUSTOM_PROVIDER_STORED_ROWS_MESSAGE,
   CUSTOM_PROVIDER_STORED_ROWS_UNAVAILABLE_MESSAGE,
-  CustomProviderStore,
   assertCustomProviderIdAvailable,
+  customProviderRowOf,
   customProviderRuntimeConfig,
+  customProviderSummary,
+  customProviderSummaryOfRow,
   parseCustomProviderApiKey,
   parseCustomProviderInput,
   parseCustomProviderUpdate,
+  storedCustomProviderDefinition,
   type CustomProviderDefinition,
   type CustomProviderInput,
   type CustomProviderRuntimeConfig,
+  type CustomProviderSummary,
+  type CustomProviderSummarySource,
   type CustomProviderUpdateInput,
 } from "./custom-providers";
 import { httpError, messageFor } from "./http";
@@ -130,6 +141,12 @@ export interface ModelSettingsDb {
   /** 行が無ければ undefined = 未設定 */
   readModelSettings(): ModelSettingsRow | undefined;
   saveModelSettings(settings: ModelSettingsRow): void;
+  /** 追加順 (rowid)。行が無ければ「カスタムプロバイダーなし」 */
+  listCustomProviders(): CustomProviderRow[];
+  getCustomProvider(provider: string): CustomProviderRow | undefined;
+  /** 定義と暗号文を 1 行で upsert する (キーの平文は受け取らない) */
+  saveCustomProvider(row: CustomProviderRow): void;
+  deleteCustomProvider(provider: string): boolean;
 }
 
 /** 保存値としての利用可能なモデル / アプリ既定モデル。allowedModels の null は制限なし、defaultModel の null は既定なし */
@@ -202,8 +219,8 @@ export const MODEL_CATALOG_ERROR_UNKNOWN = "モデル一覧を取得できませ
 export type MutationOutcome = { status: 200; response: ModelMutationResponse } | { status: 503; error: string };
 
 /**
- * カスタムプロバイダーの変更結果。DB 書込が無いため `applied_unsynced` / `not_stored` は使わず、
- * 検証失敗は 400、適用失敗は 503 の `{ error }` にする。
+ * カスタムプロバイダーの変更結果。DB を先に確定し、SDK への反映失敗は 200 `applied_unsynced`（degraded）で返す。
+ * 503 は **DB 確定前**（読取 / 書込失敗、入力キーの暗号化失敗、ランタイム未初期化）だけに使う。
  */
 export type CustomProviderOutcome = { status: 200; response: ModelMutationResponse } | { status: 503; error: string };
 
@@ -302,8 +319,18 @@ export class ModelSettingsService {
    * 行があるのに載っていない provider は「未評価」として返す (起動時に DB を読めなかった場合)。
    */
   #secretStates = new Map<string, AppSecretState>();
-  /** カスタムプロバイダーの定義。DB を持たず、再起動で空から始まる */
-  #customProviders = new CustomProviderStore();
+  /**
+   * このプロセスで `registerProvider()` に成功したカスタム provider の id。
+   * 更新 / 再同期 / 削除の SDK 操作はこの集合の内側だけに限り、built-in / `models.json` を上書きしない。
+   */
+  #customRegistered = new Set<string>();
+  /**
+   * 削除の後始末が未完了の定義。DB 行は消えており、再同期で SDK から外し終わるまで id を予約する。
+   * メモリだけが持ち、再起動で消える (再起動後は DB が空から SDK を組むため幽霊 provider は残らない)。
+   */
+  #tombstones = new Map<string, CustomProviderSummarySource>();
+  /** degraded の固定文言。原因はサーバーが決め、クライアントに推測させない */
+  #degradedMessages = new Map<string, string>();
 
   constructor(options: ModelSettingsOptions) {
     this.#db = options.db;
@@ -326,17 +353,25 @@ export class ModelSettingsService {
    * runtime overlay があるときだけ行う auth.json の表示専用読取から組む。
    */
   settings(): ModelsSettingsResponse {
-    return this.#compose(this.#db.listProviderCredentials(), this.#db.listProviderMemos(), this.#readSelection());
+    return this.#compose(
+      this.#db.listProviderCredentials(),
+      this.#db.listProviderMemos(),
+      this.#readSelection(),
+      this.#db.listCustomProviders(),
+    );
   }
 
   /**
    * 起動時の適用。ロック 1 回・全行の SDK 適用後に refresh 1 回。
-   * provider_credentials と model_settings の読取は独立に扱い、片方が失敗しても他方の適用と最後の
-   * 再計算を行う。読めなかったときは空 DB として黙って続行しない (警告だけ出し、設定 API は 503 のまま)。
+   * 順序はカスタム provider → モデルの選択 → provider_credentials で、選択より先にカスタム provider を
+   * カタログへ載せる (許可リストの行が未登録 provider として落ちないようにする)。
+   * 3 つの読取は独立に扱い、片方が失敗しても他方の適用と最後の再計算を行う。読めなかったときは
+   * 空 DB として黙って続行しない (警告だけ出し、設定 API は 503 のまま)。
    */
   async applyStored(): Promise<void> {
     await this.#lock.run(async () => {
       if (!this.#runtime) return;
+      const customRows = await this.#applyStoredCustomProviders();
       // 許可リストを読めないときは「未設定 (制限なし)」で続行する (気付けるのはログ / health / 設定 API)
       let selection: StoredModelSelection | undefined;
       try {
@@ -364,6 +399,11 @@ export class ModelSettingsService {
       const catalog = new Set(this.#runtime.list().map((entry) => entry.provider));
       const applyable: { provider: string; apiKey: string }[] = [];
       for (const row of rows) {
+        // 同じ id のカスタム行がある場合はカスタム側を正とし、通常キー行は適用しない (行は消さない)
+        if (customRows.has(row.provider)) {
+          console.warn(`[u7agent] provider key shadowed by custom provider: ${row.provider}`);
+          continue;
+        }
         // 復号に成功した行だけを SDK へ渡す。復号できない行は平文で代用せず、復号結果をメモリに残す
         const { apiKey, state } = this.#decryptRow(row);
         if (!apiKey) {
@@ -393,6 +433,65 @@ export class ModelSettingsService {
       }
       await this.#refresh();
     });
+  }
+
+  /**
+   * 起動時のカスタム provider の適用。復号 → retainSecret → 検証 → register → key 適用の順を守る。
+   * 復号 / 検証に失敗した行は register せず degraded として残し (平文へフォールバックしない)、
+   * キーの適用に失敗しても register 済みの ID は外さない (定義は使え、再同期でキーだけ戻せる)。
+   */
+  async #applyStoredCustomProviders(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    let rows: CustomProviderRow[];
+    try {
+      rows = this.#db.listCustomProviders();
+    } catch (error) {
+      // 行が読めないと「どの provider_credentials を抑えるか」も分からない。ログだけで続行する
+      console.error(`[u7agent] custom providers unavailable: ${this.#maskError(messageFor(error))}`);
+      return ids;
+    }
+    const applyable: { definition: CustomProviderDefinition }[] = [];
+    for (const row of rows) {
+      ids.add(row.provider);
+      const { apiKey, state } = this.#decryptCustomKey(row);
+      if (!apiKey) {
+        this.#markCustomDegraded(row.provider, state.keyErrorMessage);
+        console.warn(
+          `[u7agent] custom provider key unavailable: ${row.provider} (${state.keyEvaluated ? "failed" : "unevaluated"})`,
+        );
+        continue;
+      }
+      let definition: CustomProviderDefinition;
+      try {
+        definition = storedCustomProviderDefinition(row, apiKey);
+      } catch {
+        this.#markCustomDegraded(row.provider, CUSTOM_PROVIDER_INVALID_STORED_MESSAGE);
+        console.warn(`[u7agent] custom provider definition invalid: ${row.provider}`);
+        continue;
+      }
+      applyable.push({ definition });
+    }
+    const runtimeProviders = new Set(this.#runtime!.list().map((entry) => entry.provider));
+    for (const { definition } of applyable) {
+      // 起動時点で built-in / models.json と同じ id がある = 上書きしない。画面は削除を案内する
+      if (runtimeProviders.has(definition.id) && !this.#customRegistered.has(definition.id)) {
+        this.#markCustomDegraded(definition.id, CUSTOM_PROVIDER_ID_CONFLICT_DEGRADED_MESSAGE);
+        console.warn(`[u7agent] custom provider id conflict: ${definition.id}`);
+        continue;
+      }
+      if (!this.#registerCustom(definition)) {
+        this.#markCustomDegraded(definition.id, CUSTOM_PROVIDER_ID_CONFLICT_DEGRADED_MESSAGE);
+        continue;
+      }
+      const commit = await this.#applyCustomKey(definition.id, definition.apiKey);
+      if (commitSucceeded(commit)) {
+        this.#clearCustomDegraded(definition.id);
+        continue;
+      }
+      this.#markCustomDegraded(definition.id);
+      console.warn(`[u7agent] custom provider key apply deferred: ${definition.id} (${commit.outcome})`);
+    }
+    return ids;
   }
 
   /**
@@ -439,7 +538,13 @@ export class ModelSettingsService {
         return { status: 200, response: { ...this.settings(), state: "applied" } };
       } catch {
         // DB への保存は確定している。一覧を組めない応答でも保存済みを伝え、次の GET で追随させる
-        return { status: 200, response: { ...this.#compose([], this.#memosOrEmpty(), stored), state: "applied" } };
+        return {
+          status: 200,
+          response: {
+            ...this.#compose([], this.#memosOrEmpty(), stored, this.#customRowsOrEmpty()),
+            state: "applied",
+          },
+        };
       }
     });
   }
@@ -482,7 +587,10 @@ export class ModelSettingsService {
         // 保存は確定している。一覧を組めない応答でも applied を返し、次の GET で追随させる
         return {
           status: 200,
-          response: { ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset()), state: "applied" },
+          response: {
+            ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), this.#customRowsOrEmpty()),
+            state: "applied",
+          },
         };
       }
     });
@@ -550,8 +658,8 @@ export class ModelSettingsService {
   }
 
   /**
-   * カスタムプロバイダーの作成。全か無かにする: 登録 (SDK の検証) の失敗は 400 で何も残さず、
-   * キーの適用失敗は登録と overlay を巻き戻して 503。DB へは書かないため degraded は作らない。
+   * カスタムプロバイダーの作成。入力検証 → 暗号化 → DB 確定 → SDK 反映の順で行い、
+   * SDK の失敗は DB を戻さず degraded (保存済み・未反映) として 200 で返す。
    */
   async createCustomProvider(input: CustomProviderInput): Promise<CustomProviderOutcome> {
     return this.#lock.run(async () => {
@@ -559,88 +667,163 @@ export class ModelSettingsService {
       const definition = parseCustomProviderInput(input);
       assertCustomProviderIdAvailable(definition.id, this.#takenProviderIds());
       this.#assertNoStoredProviderRows(definition.id);
-      // マスカーへの登録は SDK / ログより先。ここが失敗しても保護対象だけは残す
+      // マスカーへの登録は SDK / DB / ログより先。ここが失敗しても保護対象だけは残す
       this.#retainSecret(definition.apiKey);
-      this.#registerOrFail(definition);
-      const commit = await this.#applyCustomKey(definition.id, definition.apiKey);
-      if (!commitSucceeded(commit)) {
-        await this.#discardCustomProvider(definition.id);
-        return this.#notStored(CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE);
+      let row: CustomProviderRow;
+      try {
+        row = customProviderRowOf(
+          definition,
+          this.#requireCipher().encrypt("custom_providers", definition.id, definition.apiKey),
+        );
+      } catch {
+        // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
+        console.warn(`[u7agent] custom provider key encryption failed: ${definition.id}`);
+        return this.#notStored(APP_SECRET_NOT_STORED_MESSAGE);
       }
-      this.#customProviders.set(definition);
+      try {
+        this.#db.saveCustomProvider(row);
+      } catch {
+        // DB の理由は AppDb の境界がマスクして記録する。ここは操作の分類だけに絞る
+        console.warn(`[u7agent] custom provider save failed: ${definition.id}`);
+        return this.#notStored(CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
+      }
+      const synced = await this.#applyCustomDefinition(definition, { needsKey: true, apiKey: definition.apiKey });
       await this.#refresh();
-      return this.#appliedCustom();
+      return this.#customOutcome(synced, row);
     });
   }
 
   /**
-   * カスタムプロバイダーの更新。id は変更不可。キーの空欄は既存の維持。
-   * 再登録は models を必ず渡すので置き換わり、失敗時は旧定義・旧キーへ戻す。
+   * カスタムプロバイダーの更新。id は変更不可、キーの空欄は既存の暗号文の維持。
+   * 定義の置き換えとキーの再適用は別の失敗単位で、どちらも DB 確定後の失敗は 200 `applied_unsynced` にする。
    */
   async updateCustomProvider(provider: string, input: CustomProviderUpdateInput): Promise<CustomProviderOutcome> {
     return this.#lock.run(async () => {
       if (!this.#runtime) return this.#runtimeUnavailable(CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE);
-      const current = this.#customProviders.get(provider);
-      if (!current) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
+      let row: CustomProviderRow | undefined;
+      try {
+        row = this.#db.getCustomProvider(provider);
+      } catch {
+        console.warn(`[u7agent] custom provider read failed: ${provider}`);
+        return this.#notStored(CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
+      }
+      if (!row) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
+      const typedKey =
+        input.apiKey === undefined || input.apiKey === "" ? undefined : parseCustomProviderApiKey(input.apiKey);
+      // 現在のキーは、新しく入力されたキーとの比較にだけ使う (変換した値は保存しない)
+      const storedKey = typedKey === undefined ? undefined : this.#decryptCustomKey(row).apiKey;
+      const current: CustomProviderDefinition = {
+        id: row.provider,
+        name: row.name,
+        baseUrl: row.baseUrl,
+        apiKey: storedKey ?? "",
+        model: { id: row.modelId, contextWindow: row.contextWindow, maxTokens: row.maxTokens },
+      };
       const next = parseCustomProviderUpdate(input, current);
       assertCustomProviderIdAvailable(next.id, this.#takenProviderIds(), current.id);
-      const keyChanged = next.apiKey !== current.apiKey;
-      if (keyChanged) this.#retainSecret(next.apiKey);
-      this.#registerOrFail(next);
-      if (keyChanged) {
-        const commit = await this.#applyCustomKey(next.id, next.apiKey);
-        if (!commitSucceeded(commit)) {
-          await this.#restoreCustomProvider(current);
-          return this.#notStored(CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE);
-        }
+      if (typedKey !== undefined) this.#retainSecret(typedKey);
+      let stored: CustomProviderRow;
+      try {
+        const secret =
+          typedKey === undefined
+            ? { ciphertext: row.ciphertext, nonce: row.nonce, keyVersion: row.keyVersion }
+            : this.#requireCipher().encrypt("custom_providers", next.id, typedKey);
+        stored = customProviderRowOf({ ...next, apiKey: typedKey ?? "" }, secret);
+      } catch {
+        console.warn(`[u7agent] custom provider key encryption failed: ${provider}`);
+        return this.#notStored(APP_SECRET_NOT_STORED_MESSAGE);
       }
-      this.#customProviders.set(next);
+      try {
+        this.#db.saveCustomProvider(stored);
+      } catch {
+        console.warn(`[u7agent] custom provider save failed: ${provider}`);
+        return this.#notStored(CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
+      }
+      // キーの適用は「変わったとき」か「まだ反映できていないとき」だけ。同しキーの再適用で無駄に待たせない
+      const needsKey =
+        (typedKey !== undefined && typedKey !== storedKey) ||
+        !this.#customRegistered.has(provider) ||
+        this.#degraded.get(provider) === "apply";
+      const synced = await this.#applyCustomDefinition(next, {
+        needsKey,
+        row: stored,
+        apiKey: typedKey,
+      });
       await this.#refresh();
-      return this.#appliedCustom();
+      return this.#customOutcome(synced, stored);
     });
   }
 
   /**
-   * カスタムプロバイダーの削除。runtime overlay (キー) を先に外してから登録を外す
-   * (この順でないと、同じ id を再登録したときに古いキーが復活する)。
-   * キーの削除に失敗したときは何も消さない。
+   * カスタムプロバイダーの削除。DB を先に消し、SDK は overlay (キー) → 登録の順に外す。
+   * 後始末に失敗したら行は戻さず、削除待ちの tombstone をメモリに残して degraded `remove` にする。
    */
   async deleteCustomProvider(provider: string): Promise<CustomProviderOutcome> {
     return this.#lock.run(async () => {
       if (!this.#runtime) return this.#runtimeUnavailable(CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE);
-      const current = this.#customProviders.get(provider);
-      if (!current) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
-      const removed = await this.#removeCustomKey(provider);
-      if (!commitSucceeded(removed)) return this.#notStored(CUSTOM_PROVIDER_REMOVE_FAILED_MESSAGE);
+      let row: CustomProviderRow | undefined;
       try {
-        this.#runtime.unregisterProvider(provider);
+        row = this.#db.getCustomProvider(provider);
       } catch {
-        // 登録は残っているが overlay は消えている。旧キーを戻して、定義を消さずに 503 で終える
-        console.warn(`[u7agent] custom provider unregister failed: ${provider}`);
-        await this.#restoreCustomProvider(current);
-        return this.#notStored(CUSTOM_PROVIDER_REMOVE_FAILED_MESSAGE);
+        console.warn(`[u7agent] custom provider read failed: ${provider}`);
+        return this.#notStored(CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
       }
-      this.#customProviders.delete(provider);
+      if (!row) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
+      const tombstone: CustomProviderSummarySource = {
+        id: row.provider,
+        name: row.name,
+        baseUrl: row.baseUrl,
+        model: { id: row.modelId, contextWindow: row.contextWindow, maxTokens: row.maxTokens },
+      };
+      try {
+        this.#db.deleteCustomProvider(provider);
+      } catch {
+        console.warn(`[u7agent] custom provider delete failed: ${provider}`);
+        return this.#notStored(CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
+      }
+      const synced = await this.#removeCustomDefinition(provider);
+      if (synced) {
+        this.#tombstones.delete(provider);
+        this.#clearCustomDegraded(provider);
+      } else {
+        this.#tombstones.set(provider, tombstone);
+        this.#markCustomDegraded(provider, undefined, "remove");
+      }
       await this.#refresh();
-      return this.#appliedCustom();
+      return this.#customOutcome(synced);
     });
   }
 
   /**
    * カスタムプロバイダーの `/models` を 1 回だけ叩いて、接続の分類と選べるモデル ID を返す。
-   * 状態を変えないのでミューテーションロックを取らず、DB / SDK / auth.json にも触らない
-   * (probe を 5 秒の通信でロックへ入れない)。キーは保存済みを使えるが、応答には載せない。
+   * 状態を変えないのでミューテーションロックを取らず、DB も書かない。master key 未設定 / 復号失敗は
+   * 保存を変えないので 503 で閉じる。保存済みキーは応答に載せない。
    */
   async probeCustomProvider(input: {
     provider?: string;
     baseUrl: string;
     apiKey?: string;
   }): Promise<CustomProviderProbeResponse> {
-    const stored = input.provider === undefined ? undefined : this.#customProviders.get(input.provider);
-    if (input.provider !== undefined && !stored) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
     const typed =
       input.apiKey === undefined || input.apiKey === "" ? undefined : parseCustomProviderApiKey(input.apiKey);
-    const apiKey = typed ?? stored?.apiKey;
+    let storedKey: string | undefined;
+    if (input.provider !== undefined) {
+      let row: CustomProviderRow | undefined;
+      try {
+        row = this.#db.getCustomProvider(input.provider);
+      } catch {
+        console.warn(`[u7agent] custom provider read failed: ${input.provider}`);
+        throw httpError(503, CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
+      }
+      if (!row) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
+      if (typed === undefined) {
+        const stored = this.#decryptCustomKey(row);
+        if (stored.apiKey === null)
+          throw httpError(503, stored.state.keyErrorMessage ?? APP_SECRET_DECRYPT_FAILED_MESSAGE);
+        storedKey = stored.apiKey;
+      }
+    }
+    const apiKey = typed ?? storedKey;
     if (apiKey === undefined) throw httpError(400, CUSTOM_PROVIDER_API_KEY_MESSAGE);
     if (typed !== undefined) this.#retainSecret(typed);
     return probeCustomProviderModels(
@@ -654,13 +837,37 @@ export class ModelSettingsService {
 
   /**
    * degraded の回復。DB の希望状態を SDK へ再適用するだけで、冪等。
-   * 対象はカタログにある provider か、degraded が remove の provider に限る (UI 外の overlay を消さない)。
+   * カスタム provider は DB 行 → 削除待ち tombstone → 通常の provider_credentials の順で対象を決める
+   * (行と tombstone が同じ id に併存する異常状態では行を優先する)。
    */
   async resync(provider: string): Promise<MutationOutcome> {
     return this.#lock.run(async () => {
-      this.#assertNotCustomProvider(provider, CUSTOM_PROVIDER_RESYNC_TARGET_MESSAGE);
       if (!this.#runtime) return this.#runtimeUnavailable();
-      const inCatalog = this.#runtime.list().some((candidate) => candidate.provider === provider);
+      let customRow: CustomProviderRow | undefined;
+      try {
+        customRow = this.#db.getCustomProvider(provider);
+      } catch {
+        console.warn(`[u7agent] custom provider read failed: ${provider}`);
+        return this.#notStored(CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
+      }
+      if (customRow) {
+        const synced = await this.#resyncCustomRow(customRow);
+        await this.#refresh();
+        return this.#customSettled(provider, synced, customRow);
+      }
+      const tombstone = this.#tombstones.get(provider);
+      if (tombstone) {
+        const synced = await this.#removeCustomDefinition(provider);
+        if (synced) {
+          this.#tombstones.delete(provider);
+          this.#clearCustomDegraded(provider);
+        } else {
+          this.#markCustomDegraded(provider, undefined, "remove");
+        }
+        await this.#refresh();
+        return this.#customSettled(provider, synced);
+      }
+      const inCatalog = this.#runtime.list().some((entry) => entry.provider === provider);
       if (!inCatalog && this.#degraded.get(provider) !== "remove") {
         throw httpError(400, PROVIDER_RESYNC_TARGET_MESSAGE);
       }
@@ -676,6 +883,7 @@ export class ModelSettingsService {
         const { apiKey } = this.#decryptRow(row);
         if (!apiKey) {
           this.#degraded.set(provider, "apply");
+
           return this.#appliedUnsynced(provider, "apply");
         }
         const commit = await applyWithRetry(() =>
@@ -783,13 +991,19 @@ export class ModelSettingsService {
    * DTO を組めない / 復号できないときに、変更を not_stored と言わず未同期として回復導線を残す。
    * managed (= DB に行がある) を補えるのは apply だけ。remove は削除が確定済みなので補わない。
    */
-  #appliedUnsynced(provider: string, operation: "apply" | "remove"): MutationOutcome {
+  #appliedUnsynced(provider: string, operation: "apply" | "remove", known?: CustomProviderRow): MutationOutcome {
     this.#degraded.set(provider, operation);
-    const assumedManaged = operation === "apply" ? provider : undefined;
+    const assumedManaged = operation === "apply" && known === undefined ? provider : undefined;
     return {
       status: 200,
       response: {
-        ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), assumedManaged),
+        ...this.#compose(
+          [],
+          this.#memosOrEmpty(),
+          this.#selectionOrUnset(),
+          this.#customRowsOrEmpty(known),
+          assumedManaged,
+        ),
         state: "applied_unsynced",
       },
     };
@@ -808,22 +1022,67 @@ export class ModelSettingsService {
     return { status: 503, error };
   }
 
-  /** カスタムプロバイダーの変更応答。一覧を組めないときも変更は確定しているため GET と同じ形で返す */
-  #appliedCustom(): CustomProviderOutcome {
+  /**
+   * カスタムプロバイダーの変更応答。一覧を組めないときも変更は確定しているため、
+   * `applied` / `applied_unsynced` を保って GET と同じ形で返し、次の GET に追随させる。
+   * `known` はこの操作で確定した行で、一覧を読めないときも応答から落とさない
+   * (空配列を返すとクライアントが一覧を置き換え、編集・削除・再同期の導線が消える)。
+   */
+  #customOutcome(synced: boolean, known?: CustomProviderRow): CustomProviderOutcome {
+    const state = synced ? "applied" : "applied_unsynced";
+    try {
+      return { status: 200, response: { ...this.settings(), state } };
+    } catch {
+      return {
+        status: 200,
+        response: {
+          ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), this.#customRowsOrEmpty(known)),
+          state,
+        },
+      };
+    }
+  }
+
+  /** カスタムの再同期の応答。一覧を組めないときも `state` を保ち、対象の行を落とさない */
+  #customSettled(provider: string, synced: boolean, known?: CustomProviderRow): MutationOutcome {
+    if (!synced) return this.#appliedUnsynced(provider, this.#degraded.get(provider) ?? "apply", known);
     try {
       return { status: 200, response: { ...this.settings(), state: "applied" } };
     } catch {
       return {
         status: 200,
-        response: { ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset()), state: "applied" },
+        response: {
+          ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), this.#customRowsOrEmpty(known)),
+          state: "applied",
+        },
       };
     }
   }
 
-  /** 登録済み (runtime) と自分の store の id。衝突判定の入力 */
+  /**
+   * 一覧のフォールバック用。読めないときは空で縮退し、次の GET の 503 で気付けるようにする。
+   * `known` を渡すと、その行だけは読取失敗に巻き込まずに応答へ残す。
+   */
+  #customRowsOrEmpty(known?: CustomProviderRow): CustomProviderRow[] {
+    try {
+      return this.#db.listCustomProviders();
+    } catch {
+      return known ? [known] : [];
+    }
+  }
+
+  /** 登録済み (runtime) / DB 行 / 削除待ち tombstone の id。衝突判定の入力 */
   #takenProviderIds(): string[] {
     const ids = new Set(this.#runtime?.list().map((entry) => entry.provider) ?? []);
-    for (const id of this.#customProviders.ids()) ids.add(id);
+    for (const id of this.#tombstones.keys()) ids.add(id);
+    let rows: CustomProviderRow[];
+    try {
+      rows = this.#db.listCustomProviders();
+    } catch {
+      console.warn("[u7agent] custom provider ids read failed");
+      throw httpError(503, CUSTOM_PROVIDER_STORED_ROWS_UNAVAILABLE_MESSAGE);
+    }
+    for (const row of rows) ids.add(row.provider);
     return [...ids];
   }
 
@@ -843,19 +1102,116 @@ export class ModelSettingsService {
     if (stored) throw httpError(400, CUSTOM_PROVIDER_STORED_ROWS_MESSAGE);
   }
 
-  /** カスタムプロバイダーは専用の API だけで扱う (既存の key / memo / resync は 400) */
+  /**
+   * カスタムプロバイダーのキー・メモは専用の API だけで扱う。削除待ち tombstone の id も予約済みとして
+   * 拒否し、後始末が終わるまで同じ id の行を作らせない。
+   */
   #assertNotCustomProvider(provider: string, error: string): void {
-    if (this.#customProviders.has(provider)) throw httpError(400, error);
+    if (this.#tombstones.has(provider)) throw httpError(400, error);
+    let row: CustomProviderRow | undefined;
+    try {
+      row = this.#db.getCustomProvider(provider);
+    } catch {
+      console.warn(`[u7agent] custom provider read failed: ${provider}`);
+      throw httpError(503, CUSTOM_PROVIDER_STORED_ROWS_UNAVAILABLE_MESSAGE);
+    }
+    if (row) throw httpError(400, error);
   }
 
-  #registerOrFail(definition: CustomProviderDefinition): void {
+  /**
+   * SDK へ登録する。成功したときだけ「このプロセスが所有する ID」に加え、失敗しても throw しない
+   * (呼び出し側が degraded に倒す)。SDK の例外文言は URL や provider 名を含み得るのでログにも残さない。
+   */
+  #registerCustom(definition: CustomProviderDefinition): boolean {
     try {
       this.#runtime!.registerProvider(definition.id, customProviderRuntimeConfig(definition));
     } catch {
-      // SDK の例外文言は URL や provider 名を含み得るので、分類だけをログへ残す
       console.warn(`[u7agent] custom provider register failed: ${definition.id}`);
-      throw httpError(400, CUSTOM_PROVIDER_REGISTER_FAILED_MESSAGE);
+      return false;
     }
+    this.#customRegistered.add(definition.id);
+    return true;
+  }
+
+  /**
+   * 定義を SDK へ写してキーまで適用する。所有境界 (このプロセスで register した ID だけを触る) を通し、
+   * built-in / models.json と同じ id には register もキー適用もしない。
+   * `row` / `apiKey` を渡すと保存済みの暗号文を復号し直さずにその値を使う。
+   */
+  async #applyCustomDefinition(
+    definition: CustomProviderDefinition,
+    options: { needsKey: boolean; row?: CustomProviderRow; apiKey?: string } = { needsKey: true },
+  ): Promise<boolean> {
+    const runtimeHas = this.#runtime!.list().some((entry) => entry.provider === definition.id);
+    if (!this.#customRegistered.has(definition.id) && runtimeHas) {
+      this.#markCustomDegraded(definition.id, CUSTOM_PROVIDER_ID_CONFLICT_DEGRADED_MESSAGE);
+      return false;
+    }
+    if (!this.#registerCustom(definition)) {
+      this.#markCustomDegraded(definition.id, CUSTOM_PROVIDER_ID_CONFLICT_DEGRADED_MESSAGE);
+      return false;
+    }
+    if (!options.needsKey) {
+      this.#clearCustomDegraded(definition.id);
+      return true;
+    }
+    let apiKey = options.apiKey;
+    if (apiKey === undefined) {
+      const stored = options.row === undefined ? undefined : this.#decryptCustomKey(options.row).apiKey;
+      if (stored === null || stored === undefined) {
+        this.#markCustomDegraded(definition.id);
+        return false;
+      }
+      apiKey = stored;
+    }
+    const commit = await this.#applyCustomKey(definition.id, apiKey);
+    if (!commitSucceeded(commit)) {
+      this.#markCustomDegraded(definition.id);
+      return false;
+    }
+    this.#clearCustomDegraded(definition.id);
+    return true;
+  }
+
+  /**
+   * 削除の後始末。overlay (キー) → 登録の順で外す (逆順だと同し id の再登録で古いキーが復活する)。
+   * 登録していない id には SDK を触らず、built-in / models.json の runtime entry を消さない。
+   */
+  async #removeCustomDefinition(provider: string): Promise<boolean> {
+    if (!this.#customRegistered.has(provider)) return true;
+    const removed = await this.#removeCustomKey(provider);
+    if (!commitSucceeded(removed)) {
+      console.warn(`[u7agent] custom provider key remove deferred: ${provider} (${removed.outcome})`);
+      return false;
+    }
+    try {
+      this.#runtime!.unregisterProvider(provider);
+    } catch {
+      // overlay は消えているが登録は残る。再同期で同じ手順を繰り返せるよう未反映として残す
+      console.warn(`[u7agent] custom provider unregister failed: ${provider}`);
+      return false;
+    }
+    this.#customRegistered.delete(provider);
+    return true;
+  }
+
+  /** 保存済みの DB 行を SDK へ写し直す (再同期)。成功したら degraded / tombstone を解除する */
+  async #resyncCustomRow(row: CustomProviderRow): Promise<boolean> {
+    const { apiKey, state } = this.#decryptCustomKey(row);
+    if (apiKey === null) {
+      this.#markCustomDegraded(row.provider, state.keyErrorMessage);
+      return false;
+    }
+    let definition: CustomProviderDefinition;
+    try {
+      definition = storedCustomProviderDefinition(row, apiKey);
+    } catch {
+      this.#markCustomDegraded(row.provider, CUSTOM_PROVIDER_INVALID_STORED_MESSAGE);
+      return false;
+    }
+    const synced = await this.#applyCustomDefinition(definition, { needsKey: true, apiKey });
+    if (synced) this.#tombstones.delete(row.provider);
+    return synced;
   }
 
   async #applyCustomKey(provider: string, apiKey: string): Promise<CredentialCommit> {
@@ -878,26 +1234,15 @@ export class ModelSettingsService {
     }
   }
 
-  /** 作成失敗の巻き戻し。定義はまだ store に無いので、SDK の overlay と登録だけを外す */
-  async #discardCustomProvider(provider: string): Promise<void> {
-    const removed = await this.#removeCustomKey(provider);
-    if (!commitSucceeded(removed)) console.warn(`[u7agent] custom provider key rollback failed: ${provider}`);
-    try {
-      this.#runtime!.unregisterProvider(provider);
-    } catch {
-      console.warn(`[u7agent] custom provider register rollback failed: ${provider}`);
-    }
+  /** degraded の記録。`message` を渡したときだけ原因の固定文言を差し替え、省略時は既存を保つ */
+  #markCustomDegraded(provider: string, message?: string | null, operation: "apply" | "remove" = "apply"): void {
+    this.#degraded.set(provider, operation);
+    if (message) this.#degradedMessages.set(provider, message);
   }
 
-  /** 更新失敗の巻き戻し。旧定義を登録し直し、旧キーを overlay へ戻す */
-  async #restoreCustomProvider(definition: CustomProviderDefinition): Promise<void> {
-    try {
-      this.#runtime!.registerProvider(definition.id, customProviderRuntimeConfig(definition));
-    } catch {
-      console.warn(`[u7agent] custom provider restore failed: ${definition.id}`);
-    }
-    const restored = await this.#applyCustomKey(definition.id, definition.apiKey);
-    if (!commitSucceeded(restored)) console.warn(`[u7agent] custom provider key restore failed: ${definition.id}`);
+  #clearCustomDegraded(provider: string): void {
+    this.#degraded.delete(provider);
+    this.#degradedMessages.delete(provider);
   }
 
   #runtimeUnavailable(error: string = PROVIDER_KEY_RUNTIME_UNAVAILABLE_MESSAGE): { status: 503; error: string } {
@@ -932,6 +1277,21 @@ export class ModelSettingsService {
     }
   }
 
+  /**
+   * カスタム provider の保存行の復号。GET とは別で、SDK へ渡す直前と probe / 再同期のときだけ呼ぶ。
+   * 復号した値は返す前に保護対象へ入れ、平文へは落とさない。
+   */
+  #decryptCustomKey(row: CustomProviderRow): { apiKey: string | null; state: AppSecretState } {
+    if (!this.#appCipher) return { apiKey: null, state: appSecretMasterKeyMissing() };
+    try {
+      const apiKey = this.#appCipher.decrypt("custom_providers", row.provider, row);
+      this.#retainSecret(apiKey);
+      return { apiKey, state: appSecretAvailable() };
+    } catch {
+      return { apiKey: null, state: appSecretFailed() };
+    }
+  }
+
   /** 保存値の読取。行が無ければ未設定 (制限なし・既定なし) */
   #readSelection(): StoredModelSelection {
     const row = this.#db.readModelSettings();
@@ -962,22 +1322,29 @@ export class ModelSettingsService {
    * orphan として出す (managed は false のままで、バッジは既存の「カタログ外」に落ちる)。
    * `assumedManaged` は一覧を読めず rows が空のときだけ渡せる「行があると確定している」provider の補正で、
    * 呼び出し側が書込/読取の成功で保証できる apply のときだけ使う (DELETE では渡さない)。
+   * customRows は `custom_providers` の生きた行で、一覧 (`customProviders[]`) の正はこちらだけにする。
+   * 同じ id の `provider_credentials` / `provider_memos` は DB に残っていても DTO へ混ぜない
+   * (カスタム側が正で、通常行の `managed` / メモを持たせると同じ id の管理状態が二重になる)。
    */
   #compose(
     rows: ProviderCredentialRow[],
     memos: ProviderMemoRow[],
     selection: StoredModelSelection,
+    customRows: CustomProviderRow[],
     assumedManaged?: string,
   ): ModelsSettingsResponse {
-    const managed = new Set(rows.map((row) => row.provider));
+    const customRowIds = new Set(customRows.map((row) => row.provider));
+    const credentialRows = rows.filter((row) => !customRowIds.has(row.provider));
+    const memoRows = memos.filter((row) => !customRowIds.has(row.provider));
+    const managed = new Set(credentialRows.map((row) => row.provider));
     if (assumedManaged) managed.add(assumedManaged);
-    const memoOf = new Map(memos.map((row) => [row.provider, row.memo]));
-    const updatedAtOf = new Map(rows.map((row) => [row.provider, row.updatedAt]));
+    const memoOf = new Map(memoRows.map((row) => [row.provider, row.memo]));
+    const updatedAtOf = new Map(credentialRows.map((row) => [row.provider, row.updatedAt]));
     // 行が無い (= managed でない) provider は保存日時も不明として null にする
     const keyUpdatedAtOf = (provider: string): number | null =>
       managed.has(provider) ? (updatedAtOf.get(provider) ?? null) : null;
     const providers = new Map<string, ProviderAuthSetting>();
-    const customIds = new Set(this.#customProviders.ids());
+    const customIds = new Set(this.#customRegistered);
     // 行があるのにキャッシュに無い provider は「保存済みだが復号をまだ確認していない」= 未評価
     const keyStateOf = (provider: string): AppSecretState =>
       managed.has(provider) ? (this.#secretStates.get(provider) ?? appSecretUnevaluated()) : appSecretNotStored();
@@ -1004,7 +1371,7 @@ export class ModelSettingsService {
         ),
       );
     }
-    for (const row of rows) {
+    for (const row of credentialRows) {
       if (providers.has(row.provider)) continue;
       // カタログに無い行 (orphan) は SDK へ適用できないため、未反映として復旧・削除の導線を出す
       providers.set(
@@ -1029,7 +1396,7 @@ export class ModelSettingsService {
         ),
       );
     }
-    for (const row of memos) {
+    for (const row of memoRows) {
       if (providers.has(row.provider)) continue;
       // メモだけの provider。キーの行ではないので managed / degraded を付けず、メモ欄と消去の導線だけを残す
       providers.set(
@@ -1054,8 +1421,11 @@ export class ModelSettingsService {
         ),
       );
     }
-    // 削除に失敗した overlay は DB 行が無く、カタログからも消えていることがある。行が無くても再同期の導線を残す
+    // 削除に失敗した overlay は DB 行が無く、カタログからも消えていることがある。行が無くても再同期の導線を残す。
+    // カスタム行と削除待ち tombstone は `customProviders[]` だけに出す: runtime に実体が無い行をここで足すと、
+    // 通常一覧に同じ id の幽霊行が出る (built-in / models.json と衝突して未登録の行も同じ)。
     for (const provider of this.#degraded.keys()) {
+      if (customRowIds.has(provider) || this.#tombstones.has(provider)) continue;
       if (providers.has(provider)) continue;
       providers.set(
         provider,
@@ -1086,8 +1456,31 @@ export class ModelSettingsService {
       defaultModel: selection.defaultModel,
       ignoredEnvironmentVariables: this.#ignoredEnvironmentVariables,
       providers: [...providers.values()],
-      customProviders: this.#customProviders.summaries(),
+      customProviders: this.#customSummaries(customRows),
     };
+  }
+
+  /**
+   * カスタムプロバイダーの一覧。順序は DB 行の追加順で、削除待ち tombstone は行の無いものだけを
+   * 末尾に足す (未反映のまま画面から漏れないようにする)。GET は復号しないので、hasKey は暗号文の有無で決める。
+   */
+  #customSummaries(rows: CustomProviderRow[]): CustomProviderSummary[] {
+    const listed = new Set(rows.map((row) => row.provider));
+    const summaries = rows.map((row) => this.#customSummaryOf(row));
+    for (const [id, tombstone] of this.#tombstones) {
+      if (listed.has(id)) continue;
+      summaries.push(customProviderSummary(tombstone, { hasKey: false, degraded: "remove" }));
+    }
+    return summaries;
+  }
+
+  #customSummaryOf(row: CustomProviderRow): CustomProviderSummary {
+    // runtime の無い構成は保存内容だけを返す (反映済み / 未反映の区別はランタイム警告に任せる)
+    if (!this.#runtime) return customProviderSummaryOfRow(row);
+    return customProviderSummaryOfRow(row, {
+      degraded: this.#degraded.get(row.provider),
+      degradedMessage: this.#degradedMessages.get(row.provider) ?? null,
+    });
   }
 
   #settingOf(

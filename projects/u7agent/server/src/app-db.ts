@@ -13,7 +13,7 @@ import type { AgentDef, AgentSuggestion, ModelRef, NotificationResult, Project, 
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 31;
+export const APP_DB_SCHEMA_VERSION = 32;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -57,6 +57,19 @@ export interface ProviderCredentialRow extends StoredAppSecret {
 export interface ProviderMemoRow {
   provider: string;
   memo: string;
+}
+
+/**
+ * 設定 → モデルのカスタムプロバイダーの保存行。1 provider = 1 model の定義と AEAD の暗号文を
+ * 同じ行に持ち、キーの平文列は持たない (復号はサービス側で行う)。
+ */
+export interface CustomProviderRow extends StoredAppSecret {
+  provider: string;
+  name: string;
+  baseUrl: string;
+  modelId: string;
+  contextWindow: number;
+  maxTokens: number;
 }
 
 /**
@@ -340,6 +353,27 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 `;
 
 /**
+ * v31 -> v32 で足したテーブル。設定 → モデルで作ったカスタムプロバイダーを 1 行 1 provider で持つ。
+ * 定義と APIキーの暗号文を同じ行に置き、**行が無い = 未登録** (削除は行ごと消す)。
+ * モデルは 1 provider = 1 model の現行仕様に合わせて 3 列で持つ (JSON の配列にはしない)。
+ * `provider_credentials` と同じくアプリ所有なので `DROP_TABLES` に入れるが、
+ * 加算移行では他テーブルの行を消さずに `CREATE TABLE IF NOT EXISTS` だけで合流させる。
+ */
+const CUSTOM_PROVIDERS_TABLE = `
+CREATE TABLE IF NOT EXISTS custom_providers (
+  provider      TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  baseUrl       TEXT NOT NULL,
+  modelId       TEXT NOT NULL,
+  contextWindow INTEGER NOT NULL,
+  maxTokens     INTEGER NOT NULL,
+  ciphertext    BLOB NOT NULL,
+  nonce         BLOB NOT NULL,
+  keyVersion    INTEGER NOT NULL
+);
+`;
+
+/**
  * v7 -> v8 で足したテーブル。v14 -> v15 で `image_settings`（provider / model / apiKey）から
  * コンテンツ生成の `content_settings`（provider / imageModel / ...）へ改名した。
  * 1 行だけ持ち、**行が無い = 未設定**（キー削除は行ごと消す）。provider_credentials とは別管理にし、
@@ -567,6 +601,7 @@ ${ARCHIVE_SETTINGS_TABLE}
 ${PROVIDER_CREDENTIALS_TABLE}
 ${MODEL_SETTINGS_TABLE}
 ${PROVIDER_MEMOS_TABLE}
+${CUSTOM_PROVIDERS_TABLE}
 ${CONTENT_SETTINGS_TABLE}
 ${IMAGE_CATALOG_TABLE}
 ${SPEECH_CATALOG_TABLE}
@@ -590,6 +625,7 @@ DROP TABLE IF EXISTS archive_settings;
 DROP TABLE IF EXISTS provider_credentials;
 DROP TABLE IF EXISTS model_settings;
 DROP TABLE IF EXISTS provider_memos;
+DROP TABLE IF EXISTS custom_providers;
 DROP TABLE IF EXISTS content_settings;
 DROP TABLE IF EXISTS image_catalog;
 DROP TABLE IF EXISTS speech_catalog;
@@ -676,6 +712,26 @@ function providerCredentialOf(row: Row): ProviderCredentialRow {
 function providerMemoOf(row: Row): ProviderMemoRow | undefined {
   const memo = optionalText(row.memo);
   return memo === undefined ? undefined : { provider: text(row.provider), memo };
+}
+
+/**
+ * カスタムプロバイダーの行。暗号文の欠けた行は「未登録」と読み違えて上書きしないよう例外にする
+ * (#secretQuery が値の断片を漏らさない固定文言へ置き換える)。
+ * 一方で定義の妥当性はここで判定しない: 1 行の不正値 (contextWindow = 0 など) で一覧全体を止めると、
+ * 正常な行の復元もその行の削除もできなくなる。行単位の検証はサービス側が degraded として扱う。
+ */
+function customProviderOf(row: Row): CustomProviderRow {
+  const secret = storedAppSecretOf(row, "custom_providers");
+  if (!secret) throw new Error("custom_providers row is incomplete");
+  return {
+    provider: text(row.provider),
+    name: text(row.name),
+    baseUrl: text(row.baseUrl),
+    modelId: text(row.modelId),
+    contextWindow: optionalNumber(row.contextWindow) ?? 0,
+    maxTokens: optionalNumber(row.maxTokens) ?? 0,
+    ...secret,
+  };
 }
 
 /** 未知の状態は公開中 / 公開済みへ寄せず、行の破損として失敗させる */
@@ -1224,6 +1280,7 @@ export class AppDb {
       this.#query((db) => db.exec(PROVIDER_CREDENTIALS_TABLE));
       this.#query((db) => db.exec(MODEL_SETTINGS_TABLE));
       this.#query((db) => db.exec(PROVIDER_MEMOS_TABLE));
+      this.#query((db) => db.exec(CUSTOM_PROVIDERS_TABLE));
       // 改名は CREATE より先。順序を逆にすると v14 の DB で RENAME が失敗し、DB を使えないまま起動する
       this.#renameTableIfNeeded("image_settings", "content_settings");
       this.#renameColumnIfNeeded("content_settings", "model", "imageModel");
@@ -1453,6 +1510,58 @@ export class AppDb {
   deleteProviderMemo(provider: string): boolean {
     return this.#memoQuery(
       (db) => db.prepare("DELETE FROM provider_memos WHERE provider = ?").run(provider).changes > 0,
+    );
+  }
+
+  // --- custom providers (定義と暗号化したAPIキー。行が無い = 未登録) ---
+
+  listCustomProviders(): CustomProviderRow[] {
+    return this.#secretQuery((db) =>
+      (db.prepare("SELECT * FROM custom_providers ORDER BY rowid").all() as Row[]).map(customProviderOf),
+    );
+  }
+
+  getCustomProvider(provider: string): CustomProviderRow | undefined {
+    const row = this.#secretQuery(
+      (db) => db.prepare("SELECT * FROM custom_providers WHERE provider = ?").get(provider) as Row | undefined,
+    );
+    return row ? customProviderOf(row) : undefined;
+  }
+
+  /**
+   * 作成と更新で同じ (provider が主キー)。単一ステートメントなので自動コミットで確定し、
+   * ここが成功して返れば行は永続化されている (呼び出し側の not_stored 判定の根拠)。
+   * 値は暗号化済みの保存形だけを受け取る (平文キーは書かない)。
+   */
+  saveCustomProvider(row: CustomProviderRow): void {
+    this.#secretQuery((db) =>
+      db
+        .prepare(
+          `INSERT INTO custom_providers
+             (provider, name, baseUrl, modelId, contextWindow, maxTokens, ciphertext, nonce, keyVersion)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(provider) DO UPDATE SET name = excluded.name, baseUrl = excluded.baseUrl,
+             modelId = excluded.modelId, contextWindow = excluded.contextWindow, maxTokens = excluded.maxTokens,
+             ciphertext = excluded.ciphertext, nonce = excluded.nonce, keyVersion = excluded.keyVersion`,
+        )
+        .run(
+          row.provider,
+          row.name,
+          row.baseUrl,
+          row.modelId,
+          row.contextWindow,
+          row.maxTokens,
+          row.ciphertext,
+          row.nonce,
+          row.keyVersion,
+        ),
+    );
+  }
+
+  /** 復号せずに行を消す (master key が無くても削除できる) */
+  deleteCustomProvider(provider: string): boolean {
+    return this.#secretQuery(
+      (db) => db.prepare("DELETE FROM custom_providers WHERE provider = ?").run(provider).changes > 0,
     );
   }
 

@@ -10,15 +10,18 @@ import { encryptedSecret, TEST_MASTER_KEY } from "./app-secret-fixture";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
 import {
-  CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE,
   CUSTOM_PROVIDER_ID_CONFLICT_MESSAGE,
   CUSTOM_PROVIDER_KEY_TARGET_MESSAGE,
   CUSTOM_PROVIDER_MEMO_TARGET_MESSAGE,
   CUSTOM_PROVIDER_NOT_FOUND_MESSAGE,
-  CUSTOM_PROVIDER_RESYNC_TARGET_MESSAGE,
   CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE,
   CUSTOM_PROVIDER_STORED_ROWS_MESSAGE,
 } from "../src/custom-providers";
+import {
+  APP_SECRET_DECRYPT_FAILED_MESSAGE,
+  APP_SECRET_MASTER_KEY_MESSAGE,
+  APP_SECRET_NOT_STORED_MESSAGE,
+} from "../src/app-secrets";
 import { asPiBff, createStubPi, type StubPiOptions } from "./stub-pi";
 
 // アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
@@ -71,7 +74,7 @@ const updateBodyOf = (patch: Record<string, unknown> = {}) => ({
   ...patch,
 });
 
-function countRows(dir: string, table: "provider_credentials" | "provider_memos"): number {
+function countRows(dir: string, table: "provider_credentials" | "provider_memos" | "custom_providers"): number {
   const db = new DatabaseSync(join(dir, APP_DB_FILENAME));
   try {
     const row = db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
@@ -81,7 +84,28 @@ function countRows(dir: string, table: "provider_credentials" | "provider_memos"
   }
 }
 
-test("POST は登録して GET と同じ形 + applied を返し、キーを応答に載せず DB に行を作らない", async () => {
+/** 保存済みの行を直接読む (暗号文のまま。復号は BFF の起動時だけが行う) */
+function readCustomRow(dir: string, provider: string): Record<string, any> {
+  const db = new DatabaseSync(join(dir, APP_DB_FILENAME));
+  try {
+    const row = db.prepare("SELECT * FROM custom_providers WHERE provider = ?").get(provider) as any;
+    assert.ok(row, `${provider} の行がある`);
+    return row;
+  } finally {
+    db.close();
+  }
+}
+
+function execSql(dir: string, sql: string): void {
+  const db = new DatabaseSync(join(dir, APP_DB_FILENAME));
+  try {
+    db.exec(sql);
+  } finally {
+    db.close();
+  }
+}
+
+test("POST は定義とAPIキーを暗号化してアプリ DB へ保存し、GET と同じ形 + applied を返す", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi(stubOptions());
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
@@ -123,6 +147,12 @@ test("POST は登録して GET と同じ形 + applied を返し、キーを応�
 
       assert.equal(countRows(dir, "provider_credentials"), 0, "provider_credentials に行を作らない");
       assert.equal(countRows(dir, "provider_memos"), 0, "provider_memos に行を作らない");
+      assert.equal(countRows(dir, "custom_providers"), 1, "custom_providers に 1 行作る");
+      const saved = readCustomRow(dir, "local-llm");
+      assert.equal(saved.name, "local-llm");
+      assert.equal(saved.baseUrl, "http://192.0.2.10:11434/v1");
+      assert.equal(saved.modelId, "qwen2.5-coder:7b");
+      assert.ok(!Buffer.from(saved.ciphertext).includes(Buffer.from(KEY)), "暗号文に平文キーを残さない");
     } finally {
       await bff.close();
     }
@@ -309,21 +339,20 @@ test("カスタム provider では既存の key / memo / resync API が 400 に�
       );
       assert.equal(putMemo.status, 400);
       assert.equal((await jsonBody(putMemo)).error, CUSTOM_PROVIDER_MEMO_TARGET_MESSAGE);
-
-      const resync = await bff.app.request("/api/settings/models/local-llm/resync", jsonRequest("POST"));
-      assert.equal(resync.status, 400);
-      assert.equal((await jsonBody(resync)).error, CUSTOM_PROVIDER_RESYNC_TARGET_MESSAGE);
-
       assert.deepEqual(pi.modelRuntimeCalls, [], "拒否したら SDK を触らない");
       assert.equal(countRows(dir, "provider_credentials"), 0);
       assert.equal(countRows(dir, "provider_memos"), 0);
+
+      const resync = await bff.app.request("/api/settings/models/local-llm/resync", jsonRequest("POST"));
+      assert.equal(resync.status, 200, "カスタム provider も再同期できる");
+      assert.equal((await jsonBody(resync)).state, "applied");
     } finally {
       await bff.close();
     }
   });
 });
 
-test("キー適用に失敗したら 503 { error } を返し、not_stored を付けず登録も残さない", async () => {
+test("キー適用に失敗しても 200 applied_unsynced + degraded apply で、DB の行を戻さない", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi(
       stubOptions({
@@ -335,25 +364,22 @@ test("キー適用に失敗したら 503 { error } を返し、not_stored を付
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       const response = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
-      assert.equal(response.status, 503);
+      assert.equal(response.status, 200);
       const body = await jsonBody(response);
-      assert.deepEqual(body, { error: CUSTOM_PROVIDER_APPLY_FAILED_MESSAGE }, "not_stored を付けない");
+      assert.equal(body.state, "applied_unsynced", "DB は確定しているので not_stored にしない");
+      assert.equal(body.customProviders[0].degraded, "apply");
       assert.ok(!JSON.stringify(body).includes(KEY), "SDK の生の文言を応答へ出さない");
 
       const get = await jsonBody(await bff.app.request("/api/settings/models"));
-      assert.deepEqual(get.customProviders, []);
-      assert.equal(
-        pi.modelRuntimeCalls.some((call) => call.operation === "unregisterProvider"),
-        true,
-        "登録を巻き戻す",
-      );
+      assert.equal(get.customProviders.length, 1, "保存済みの定義は残す");
+      assert.equal(get.customProviders[0].degraded, "apply");
     } finally {
       await bff.close();
     }
   });
 });
 
-test("ランタイム無しのカスタム操作は 503 { error } で、GET は空の customProviders を返す", async () => {
+test("ランタイム無しのカスタム操作は 503 not_stored で、GET は DB の内容を返す", async () => {
   await withStoreDir(async (dir) => {
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
     try {
@@ -363,7 +389,10 @@ test("ランタイム無しのカスタム操作は 503 { error } で、GET は�
 
       const response = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
       assert.equal(response.status, 503);
-      assert.deepEqual(await jsonBody(response), { error: CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE });
+      assert.deepEqual(await jsonBody(response), {
+        error: CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE,
+        state: "not_stored",
+      });
     } finally {
       await bff.close();
     }
@@ -602,6 +631,455 @@ test("GET /api/settings/models は probe の fetch を呼ばない", async () =>
       assert.equal(calls, 0);
     } finally {
       await bff.close();
+    }
+  });
+});
+
+test("同じ PI_SESSION_STORE で BFF を作り直すと定義が読み戻され、キーが復号されて復元される", async () => {
+  await withStoreDir(async (dir) => {
+    const first = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(first), workspace: null });
+    try {
+      for (const [id, key] of [
+        ["local-llm", KEY],
+        ["lab", NEW_KEY],
+      ]) {
+        const response = await bff.app.request(
+          "/api/settings/custom-providers",
+          jsonRequest("POST", bodyOf({ id, apiKey: key })),
+        );
+        assert.equal(response.status, 200);
+      }
+    } finally {
+      await bff.close();
+    }
+
+    const second = createStubPi(stubOptions());
+    const restarted = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(second),
+      workspace: null,
+    });
+    try {
+      const settings = await jsonBody(await restarted.app.request("/api/settings/models"));
+      assert.deepEqual(
+        settings.customProviders.map((entry: any) => entry.id),
+        ["local-llm", "lab"],
+        "追加順のまま読み戻す",
+      );
+      for (const entry of settings.customProviders) assert.equal(entry.degraded, undefined, "反映済み");
+      assert.ok(!JSON.stringify(settings).includes(KEY), "GET にキーを載せない");
+
+      assert.deepEqual(
+        second.modelRuntimeCalls.map((call) => `${call.operation}:${call.provider}`),
+        ["registerProvider:local-llm", "setRuntimeApiKey:local-llm", "registerProvider:lab", "setRuntimeApiKey:lab"],
+        "起動時に register → キー適用を行う",
+      );
+      assert.deepEqual(second.retainedSecrets, [KEY, NEW_KEY], "復号したキーは SDK より前にマスク対象へ入れる");
+      for (const id of ["local-llm", "lab"]) {
+        assert.equal(
+          settings.providers.find((entry: any) => entry.provider === id)?.custom,
+          true,
+          "起動後もモデル候補の custom として載る",
+        );
+      }
+
+      // 保存されたキーが上流へ送られる (ダミーキーの往復だけで、実 API は呼ばない)
+      const resync = await restarted.app.request("/api/settings/models/lab/resync", jsonRequest("POST"));
+      assert.equal(resync.status, 200);
+      assert.equal(second.modelRuntimeCalls.at(-1)?.apiKey, NEW_KEY);
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+
+test("DB 書込に失敗すると 503 not_stored で、部分的な行を残さず暗号文も反射しない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const logs: string[] = [];
+    const originalError = console.error;
+    console.error = (...values: unknown[]) => {
+      logs.push(values.map((value) => String(value)).join(" "));
+    };
+    try {
+      // トリガーで例外文言へ暗号文を反射させ、ログ / 503 に値が出ないことを固定する
+      execSql(
+        dir,
+        `CREATE TRIGGER leak_custom BEFORE INSERT ON custom_providers
+         BEGIN SELECT RAISE(ABORT, 'insert failed: ' || hex(NEW.ciphertext)); END;`,
+      );
+      const response = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
+      assert.equal(response.status, 503);
+      const body = await jsonBody(response);
+      assert.equal(body.state, "not_stored");
+      assert.ok(!JSON.stringify(body).includes(KEY), "平文キーを応答へ出さない");
+      assert.equal(countRows(dir, "custom_providers"), 0, "部分的な行を残さない");
+      const all = [...logs, JSON.stringify(body)].join("\n");
+      assert.ok(!/[0-9a-f]{24,}/iu.test(all), "暗号文の hex をログ / 応答へ反射させない");
+      assert.deepEqual(pi.modelRuntimeCalls, [], "DB が確定するまで SDK を触らない");
+
+      execSql(dir, "DROP TRIGGER leak_custom");
+      const retried = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
+      assert.equal(retried.status, 200, "原因が消えれば登録できる");
+    } finally {
+      console.error = originalError;
+      await bff.close();
+    }
+  });
+});
+
+test("master key 未設定では 503 not_stored で、平文の行を作らない", async () => {
+  await withStoreDir(async (dir) => {
+    const saved = process.env[SECRET_MASTER_KEY_ENV];
+    delete process.env[SECRET_MASTER_KEY_ENV];
+    try {
+      const pi = createStubPi(stubOptions());
+      const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+      try {
+        const response = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
+        assert.equal(response.status, 503);
+        assert.deepEqual(await jsonBody(response), { error: APP_SECRET_NOT_STORED_MESSAGE, state: "not_stored" });
+        assert.equal(countRows(dir, "custom_providers"), 0, "暗号化できない値を平文で保存しない");
+        assert.deepEqual(pi.modelRuntimeCalls, [], "SDK も触らない");
+      } finally {
+        await bff.close();
+      }
+    } finally {
+      process.env[SECRET_MASTER_KEY_ENV] = saved;
+    }
+  });
+});
+
+test("キー空欄の定義更新で既存の暗号文を復号できなくても 200 applied_unsynced にする", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      assert.equal(
+        (await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()))).status,
+        200,
+      );
+    } finally {
+      await bff.close();
+    }
+
+    // 別の master key で起動する = 保存済みの暗号文は復号できない
+    const previous = process.env[SECRET_MASTER_KEY_ENV];
+    process.env[SECRET_MASTER_KEY_ENV] = `1:${Buffer.alloc(32, 9).toString("base64")}`;
+    try {
+      const other = createStubPi(stubOptions());
+      const restarted = await createBffApp({
+        cwd: "/tmp/project",
+        sessionStoreDir: dir,
+        pi: asPiBff(other),
+        workspace: null,
+      });
+      try {
+        const get = await jsonBody(await restarted.app.request("/api/settings/models"));
+        assert.equal(get.customProviders[0].degraded, "apply");
+        assert.equal(get.customProviders[0].degradedMessage, APP_SECRET_DECRYPT_FAILED_MESSAGE);
+
+        other.modelRuntimeCalls.length = 0;
+        const response = await restarted.app.request(
+          "/api/settings/custom-providers/local-llm",
+          jsonRequest("PUT", updateBodyOf({ apiKey: "" })),
+        );
+        assert.equal(response.status, 200, "DB 更新が確定していれば not_stored にしない");
+        const body = await jsonBody(response);
+        assert.equal(body.state, "applied_unsynced");
+        assert.equal(body.customProviders[0].degraded, "apply");
+        assert.equal(body.customProviders[0].baseUrl, "http://192.0.2.11:11434/v1", "定義は更新されている");
+        assert.equal(body.customProviders[0].degradedMessage, APP_SECRET_DECRYPT_FAILED_MESSAGE);
+        assert.deepEqual(
+          other.modelRuntimeCalls.map((call) => call.operation),
+          ["registerProvider"],
+          "復号できないキーは適用しない",
+        );
+        assert.equal(readCustomRow(dir, "local-llm").baseUrl, "http://192.0.2.11:11434/v1");
+      } finally {
+        await restarted.close();
+      }
+    } finally {
+      process.env[SECRET_MASTER_KEY_ENV] = previous;
+    }
+  });
+});
+
+test("削除の後始末に失敗すると tombstone が返り、同 ID の作成 / キー / メモを 400 で予約して再同期で消える", async () => {
+  await withStoreDir(async (dir) => {
+    let failRemove = false;
+    const pi = createStubPi(
+      stubOptions({
+        onRemoveRuntimeApiKey: () => {
+          if (failRemove) throw new Error(`remove failed with ${KEY}`);
+        },
+      }),
+    );
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      assert.equal(
+        (await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()))).status,
+        200,
+      );
+      failRemove = true;
+      const removed = await bff.app.request("/api/settings/custom-providers/local-llm", jsonRequest("DELETE"));
+      assert.equal(removed.status, 200);
+      const body = await jsonBody(removed);
+      assert.equal(body.state, "applied_unsynced");
+      assert.deepEqual(body.customProviders, [
+        {
+          id: "local-llm",
+          name: "local-llm",
+          baseUrl: "http://192.0.2.10:11434/v1",
+          api: "openai-completions",
+          model: { id: "qwen2.5-coder:7b", contextWindow: 32768, maxTokens: 16384 },
+          hasKey: false,
+          degraded: "remove",
+        },
+      ]);
+      assert.equal(countRows(dir, "custom_providers"), 0, "DB 行は消えている");
+
+      // tombstone 中は同じ id を予約する
+      const create = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
+      assert.equal(create.status, 400);
+      assert.equal((await jsonBody(create)).error, CUSTOM_PROVIDER_ID_CONFLICT_MESSAGE);
+      const putKey = await bff.app.request(
+        "/api/settings/models/local-llm/key",
+        jsonRequest("PUT", { apiKey: NEW_KEY }),
+      );
+      assert.equal(putKey.status, 400);
+      const putMemo = await bff.app.request("/api/settings/models/local-llm/memo", jsonRequest("PUT", { memo: "m" }));
+      assert.equal(putMemo.status, 400);
+
+      failRemove = false;
+      const resync = await bff.app.request("/api/settings/models/local-llm/resync", jsonRequest("POST"));
+      assert.equal(resync.status, 200);
+      const settled = await jsonBody(resync);
+      assert.equal(settled.state, "applied");
+      assert.deepEqual(settled.customProviders, [], "再同期で tombstone が消える");
+      assert.equal(countRows(dir, "provider_credentials"), 0);
+      assert.equal(countRows(dir, "provider_memos"), 0);
+
+      const recreated = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
+      assert.equal(recreated.status, 200, "後始末の完了後は同じ id を登録できる");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("DB 書込は成功したが応答の GET を組めないときは not_stored に戻さない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      // model_settings を落として settings() だけを失敗させる (custom_providers の書込は成功する)
+      execSql(dir, "DROP TABLE model_settings");
+      const response = await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()));
+      assert.equal(response.status, 200);
+      const body = await jsonBody(response);
+      assert.equal(body.state, "applied", "保存は確定しているので not_stored にしない");
+      assert.equal(body.customProviders.length, 1, "書いた行から最小の GET 形を返す");
+      assert.equal(countRows(dir, "custom_providers"), 1);
+      assert.equal((await bff.app.request("/api/settings/models")).status, 503, "次の GET で追随させる");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("事前の DB 読取が 503 になるときも route が not_stored に揃える", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      // custom_providers を読めない = その id がカスタムかどうかを判定できない
+      execSql(dir, "DROP TABLE custom_providers");
+      const putKey = await bff.app.request("/api/settings/models/anthropic/key", jsonRequest("PUT", { apiKey: KEY }));
+      assert.equal(putKey.status, 503);
+      const body = await jsonBody(putKey);
+      assert.equal(body.state, "not_stored");
+      assert.deepEqual(pi.modelRuntimeCalls, [], "判定できないときは SDK を触らない");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("同じ ID の通常キー / メモ行が DB にあっても providers[] へ混ぜない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      assert.equal(
+        (await bff.app.request("/api/settings/custom-providers", jsonRequest("POST", bodyOf()))).status,
+        200,
+      );
+    } finally {
+      await bff.close();
+    }
+
+    // 同じ id の通常キー / メモ行を手で足す (既存 DB の異常状態)
+    const secret = encryptedSecret("provider_credentials", "local-llm", "sk-shadowed-dummy-key-01");
+    execSql(
+      dir,
+      `INSERT INTO provider_credentials (provider, ciphertext, nonce, keyVersion, updatedAt)
+       VALUES ('local-llm', x'${Buffer.from(secret.ciphertext).toString("hex")}', x'${Buffer.from(secret.nonce).toString("hex")}', ${secret.keyVersion}, 1);
+       INSERT INTO provider_memos (provider, memo) VALUES ('local-llm', '通常行のメモ');`,
+    );
+
+    const restartedPi = createStubPi(stubOptions());
+    const restarted = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(restartedPi),
+      workspace: null,
+    });
+    try {
+      const settings = await jsonBody(await restarted.app.request("/api/settings/models"));
+      const entries = settings.providers.filter((entry: any) => entry.provider === "local-llm");
+      assert.equal(entries.length, 1, "同じ id の行を二重に出さない");
+      assert.equal(entries[0].custom, true);
+      assert.equal(entries[0].managed, false, "provider_credentials の行を managed にしない");
+      assert.equal(entries[0].keyUpdatedAt, null);
+      assert.equal(entries[0].keyErrorMessage, null);
+      assert.equal(entries[0].memo, null, "同じ id のメモを出さない");
+      assert.equal(settings.customProviders[0].degraded, undefined, "custom 側は反映済み");
+      assert.equal(countRows(dir, "provider_credentials"), 1, "異常な行は自動削除しない");
+      assert.equal(countRows(dir, "provider_memos"), 1);
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+
+test("保存済みの 1 行が不正でも、他の行の復元・設定 GET・削除を止めない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      for (const id of ["broken", "lab"]) {
+        const response = await bff.app.request(
+          "/api/settings/custom-providers",
+          jsonRequest("POST", bodyOf({ id, model: { id: "m", contextWindow: 1024 } })),
+        );
+        assert.equal(response.status, 200);
+      }
+    } finally {
+      await bff.close();
+    }
+
+    // 1 行だけ手編集で不正値にする (contextWindow = 0)
+    execSql(dir, "UPDATE custom_providers SET contextWindow = 0 WHERE provider = 'broken'");
+
+    const restartedPi = createStubPi(stubOptions());
+    const restarted = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(restartedPi),
+      workspace: null,
+    });
+    try {
+      const response = await restarted.app.request("/api/settings/models");
+      assert.equal(response.status, 200, "1 行の異常で設定 GET を止めない");
+      const settings = await jsonBody(response);
+      assert.deepEqual(
+        settings.customProviders.map((entry: any) => entry.id),
+        ["broken", "lab"],
+        "壊れた行も黙って捨てず一覧に残す",
+      );
+      assert.equal(settings.customProviders[0].degraded, "apply");
+      assert.ok(settings.customProviders[0].degradedMessage, "原因の固定文言を載せる");
+      assert.equal(settings.customProviders[1].degraded, undefined);
+      assert.deepEqual(
+        settings.providers.filter((entry: any) => entry.provider === "broken"),
+        [],
+        "登録できなかったカスタム行を通常一覧の幽霊行として出さない",
+      );
+      assert.equal(
+        settings.providers.filter((entry: any) => entry.provider === "lab").length,
+        1,
+        "正常な行は custom として 1 行だけ出る",
+      );
+      assert.ok(
+        restartedPi.modelRuntimeCalls.some((call) => call.provider === "lab"),
+        "正常な行は登録される",
+      );
+      assert.equal(
+        restartedPi.modelRuntimeCalls.some((call) => call.provider === "broken"),
+        false,
+        "不正な行は register しない",
+      );
+
+      // 壊れた行も画面から削除できる
+      const removed = await restarted.app.request("/api/settings/custom-providers/broken", jsonRequest("DELETE"));
+      assert.equal(removed.status, 200);
+      assert.equal(countRows(dir, "custom_providers"), 1);
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+
+test("master key 未設定で復号できないカスタム行は customProviders[] だけに出し、providers[] を汚さない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      for (const id of ["ok-custom", "broken-row"]) {
+        const response = await bff.app.request(
+          "/api/settings/custom-providers",
+          jsonRequest("POST", bodyOf({ id, model: { id: "m", contextWindow: 1024 } })),
+        );
+        assert.equal(response.status, 200);
+      }
+    } finally {
+      await bff.close();
+    }
+
+    // master key 無しで再起動する = 保存済みのキーを復号できない
+    const saved = process.env[SECRET_MASTER_KEY_ENV];
+    delete process.env[SECRET_MASTER_KEY_ENV];
+    try {
+      const restartedPi = createStubPi(stubOptions());
+      const restarted = await createBffApp({
+        cwd: "/tmp/project",
+        sessionStoreDir: dir,
+        pi: asPiBff(restartedPi),
+        workspace: null,
+      });
+      try {
+        const settings = await jsonBody(await restarted.app.request("/api/settings/models"));
+        assert.deepEqual(
+          settings.customProviders.map((entry: any) => `${entry.id}:${entry.degraded}`),
+          ["ok-custom:apply", "broken-row:apply"],
+          "カスタムセクションにだけ未反映として出す",
+        );
+        for (const entry of settings.customProviders) {
+          assert.equal(entry.degradedMessage, APP_SECRET_MASTER_KEY_MESSAGE);
+        }
+        const ghosts = settings.providers.filter(
+          (entry: any) => entry.provider === "ok-custom" || entry.provider === "broken-row",
+        );
+        assert.deepEqual(ghosts, [], "通常一覧に幽霊行を出さない");
+        assert.deepEqual(
+          settings.providers.map((entry: any) => entry.provider).sort(),
+          ["anthropic", "local"],
+          "built-in の一覧は変えない",
+        );
+        assert.ok(
+          settings.providers.every((entry: any) => entry.orphan === false),
+          "orphan の幽霊行を足さない",
+        );
+        assert.deepEqual(restartedPi.modelRuntimeCalls, [], "復号できない行は register しない");
+      } finally {
+        await restarted.close();
+      }
+    } finally {
+      process.env[SECRET_MASTER_KEY_ENV] = saved;
     }
   });
 });

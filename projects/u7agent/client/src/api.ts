@@ -692,7 +692,7 @@ export const putCustomProvider = async (
   return (await res.json()) as ModelMutationResponse;
 };
 
-/** カスタムプロバイダーの削除。メモリ上の定義とキーを消す（DB には何も無い） */
+/** カスタムプロバイダーの削除。アプリ DB の行を消してから、実行中のランタイムの定義とキーを外す */
 export const deleteCustomProvider = async (provider: string): Promise<ModelMutationResponse> => {
   const res = await client.api.settings["custom-providers"][":provider"].$delete({ param: { provider } });
   if (!res.ok) throw await apiError(res);

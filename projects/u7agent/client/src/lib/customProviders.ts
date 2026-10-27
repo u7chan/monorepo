@@ -60,23 +60,34 @@ export const CUSTOM_PROVIDER_ID_PATTERN = /^[a-z](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 
 export const CUSTOM_PROVIDER_SECTION_TITLE = "カスタムプロバイダー";
 export const CUSTOM_PROVIDER_ADD_LABEL = "カスタムプロバイダーを追加";
-export const CUSTOM_PROVIDER_MEMORY_BADGE = "メモリのみ";
 export const CUSTOM_PROVIDER_CREATED_NOTE = "カスタムプロバイダーを登録しました。モデル候補を更新しています。";
 export const CUSTOM_PROVIDER_UPDATED_NOTE = "カスタムプロバイダーを更新しました。モデル候補を更新しています。";
 export const CUSTOM_PROVIDER_DELETED_NOTE = "カスタムプロバイダーを削除しました。モデル候補を更新しています。";
+/** 保存は確定したが SDK へ写せていないときの注記 (応答の `state` で分ける) */
+export const CUSTOM_PROVIDER_UNSYNCED_NOTE =
+  "保存しましたが、実行中のランタイムへは未反映です。[再同期] で再適用してください。";
+/** 一覧・詳細の状態表示。`apply` は保存済みで未反映、`remove` は削除の後始末が未完了 */
+export const CUSTOM_PROVIDER_DEGRADED_APPLY_LABEL = "保存済み（未反映）";
+export const CUSTOM_PROVIDER_DEGRADED_REMOVE_LABEL = "削除が未反映";
+/** 実行中の状態をまだ確認できていない (runtime 無しの構成) ときの既定の案内 */
+export const CUSTOM_PROVIDER_DEGRADED_APPLY_NOTE =
+  "保存済みですが、実行中のランタイムへ反映されていません。[再同期] で再適用してください。";
+export const CUSTOM_PROVIDER_DEGRADED_REMOVE_NOTE =
+  "保存行は削除済みですが、実行中のランタイムに前の定義とキーが残っています。[再同期] で削除を再試行できます。";
 
 /**
- * 専用セクションに常時出す注意。オンメモリであることと、再起動後に残るモデル選択の扱いを先に伝える。
+ * 専用セクションに常時出す注意。保存先と暗号化、再起動後も残ること、削除時の影響を先に伝える。
  * 長い理由は docs/model-settings.md に置き、画面は短い注意だけを持つ。
  * 一覧の左列では場所を取るため既定で畳み、この 1 行だけを出しておく。
  */
-export const CUSTOM_PROVIDER_NOTES_SUMMARY = "BFF のメモリにだけ保存されます。再起動すると定義とAPIキーは消えます。";
+export const CUSTOM_PROVIDER_NOTES_SUMMARY =
+  "定義はアプリ DB に保存され、APIキーは暗号化して保存されます。再起動後も残ります。";
 
 export const CUSTOM_PROVIDER_NOTES: readonly string[] = [
-  "再起動後、利用可能なモデルに残ったカスタムモデルはカタログ外になり、外すまでモデルの選択を保存できません。同じ provider id とモデル id で再登録すれば、選択は再び有効になります。",
-  "アプリ既定モデルにカスタムモデルを指定している場合、再起動後は既定モデルを解決できないため、新しい会話を始められません。",
-  "APIキーは必須です。認証のないローカルサーバーには 8 文字以上のダミーを入れてください（Authorization: Bearer <キー> として送られます）。",
+  "APIキーは再表示しません。master key（U7AGENT_SECRET_MASTER_KEY）を失うと復号できなくなり、キーの再入力が必要です。",
+  "削除するとモデル候補から外れます。利用可能なモデルに残ったカスタムモデルはカタログ外になるため、外すまでモデルの選択を保存できません。",
   "BFF にはログインがないため、信頼できる baseUrl だけを指定してください。",
+  "APIキーは必須です。認証のないローカルサーバーには 8 文字以上のダミーを入れてください（Authorization: Bearer <キー> として送られます）。",
 ];
 
 /** contextWindow の選択の注意。実モデルより大きい値を選ぶと、送信がコンテキスト超過で失敗する */
@@ -364,11 +375,57 @@ export function deleteCustomProviderConfirm(name: string): ConfirmRequest {
     title: "カスタムプロバイダーを削除",
     subject: { label: "削除する provider", value: name },
     body: [
-      "この定義とAPIキーは BFF のメモリから消えます（DB には保存していません）。",
+      "この定義とAPIキーをアプリ DB と実行中のランタイムの両方から削除します。",
       "この provider のモデルを使っている会話は、次回の送信が失敗することがあります。",
       "利用可能なモデルに残ったカスタムモデルはカタログ外になるため、「モデルを選ぶ」タブで外すまで保存できません。",
     ],
     confirmLabel: "削除する",
     danger: true,
   };
+}
+
+/**
+ * 一覧・詳細のバッジ。反映済みの行には何も出さず (常時の注意書きが保存先を伝える)、
+ * 未反映の行だけ状態を示す。`degradedMessage` があればそちらを優先する。
+ */
+export function customProviderBadge(summary: CustomProviderSummary): { text: string; warn: boolean } | null {
+  if (summary.degraded === "apply") return { text: CUSTOM_PROVIDER_DEGRADED_APPLY_LABEL, warn: true };
+  if (summary.degraded === "remove") return { text: CUSTOM_PROVIDER_DEGRADED_REMOVE_LABEL, warn: true };
+  return null;
+}
+
+/** 未反映の理由。サーバーが返した固定文言を優先し、無ければ画面の既定文言を使う */
+export function customProviderDegradedNotice(summary: CustomProviderSummary): string | null {
+  if (summary.degraded === "apply") {
+    return summary.degradedMessage ?? CUSTOM_PROVIDER_DEGRADED_APPLY_NOTE;
+  }
+  if (summary.degraded === "remove") return CUSTOM_PROVIDER_DEGRADED_REMOVE_NOTE;
+  return null;
+}
+
+/** 編集できるか。削除待ちの定義は再同期だけを出し、編集・削除を無効にする */
+export function customProviderEditable(summary: CustomProviderSummary): boolean {
+  return summary.degraded !== "remove";
+}
+
+/**
+ * 一覧の選択キー。通常の provider と同じ id が併存し得るため、種別込みの文字列で選ぶ
+ * (id だけで選ぶと同じ id の built-in とカスタム行が互いを開いてしまう)。
+ */
+export function providerSelectionKey(provider: string): string {
+  return `provider:${provider}`;
+}
+
+export function customProviderSelectionKey(provider: string): string {
+  return `custom:${provider}`;
+}
+
+/** 変更の注記。反映待ち (`applied_unsynced`) は完了文言ではなく未反映の案内を出す */
+export function customProviderMutationNote(
+  note: string,
+  state: "applied" | "applied_unsynced",
+): { text: string; error: boolean } {
+  return state === "applied_unsynced"
+    ? { text: CUSTOM_PROVIDER_UNSYNCED_NOTE, error: true }
+    : { text: note, error: false };
 }

@@ -133,6 +133,7 @@ function additionalData(kind: SecretKind, name: string): Buffer {
  */
 export type AppSecretScope =
   | "provider_credentials"
+  | "custom_providers"
   | "content_settings"
   | "web_search_provider_keys"
   | "notification_settings";

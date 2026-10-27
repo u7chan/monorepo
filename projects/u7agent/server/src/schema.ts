@@ -956,8 +956,9 @@ export const ProviderAuthSettingSchema = z.object({
   /** 現在のカタログに provider が無い (DB 行にしか無い) */
   orphan: z.boolean(),
   /**
-   * 設定 → モデルで作ったカスタムプロバイダー (オンメモリ)。通常のプロバイダー一覧からは除外し、
-   * 専用セクションと「モデルを選ぶ」タブの候補だけが使う。未指定は false。
+   * 設定 → モデルで作ったカスタムプロバイダー。通常のプロバイダー一覧からは除外し、
+   * 専用セクションと「モデルを選ぶ」タブの候補だけが使う。**このプロセスで register した id だけ**に付け、
+   * built-in / `models.json` と衝突して登録できなかった行の runtime entry には付けない。未指定は false。
    */
   custom: z.boolean().optional(),
   /**
@@ -988,7 +989,7 @@ export type CustomProviderModel = z.infer<typeof CustomProviderModelSchema>;
 
 /**
  * 設定 → モデルのカスタムプロバイダー 1 件。**キーは返さない** (有無だけを hasKey で表す)。
- * api は v1 では openai-completions 固定。
+ * api は v1 では openai-completions 固定。定義はアプリ DB が正で、GET は復号しない。
  */
 export const CustomProviderSummarySchema = z.object({
   id: z.string(),
@@ -997,6 +998,13 @@ export const CustomProviderSummarySchema = z.object({
   api: z.literal("openai-completions"),
   model: CustomProviderModelSchema,
   hasKey: z.boolean(),
+  /**
+   * このプロセスの SDK 反映が未完了の印。`apply` は DB 行はあるが register / キー適用が済んでいない、
+   * `remove` は削除待ち tombstone。未指定は「反映済み」。
+   */
+  degraded: z.enum(["apply", "remove"]).optional(),
+  /** degraded の固定文言 (master key 未設定 / 復号不能 / id 衝突)。クライアントは原因を推測しない */
+  degradedMessage: z.string().nullable().optional(),
 });
 export type CustomProviderSummary = z.infer<typeof CustomProviderSummarySchema>;
 
@@ -1042,7 +1050,7 @@ export const ModelsSettingsResponseSchema = z.object({
   ignoredEnvironmentVariables: z.array(z.string()),
   providers: z.array(ProviderAuthSettingSchema),
   /**
-   * カスタムプロバイダーの定義 (このプロセスのメモリだけが持つ)。管理の正はこちらで、
+   * カスタムプロバイダーの定義。管理の正はこちら (アプリ DB の `custom_providers`) で、
    * `providers[]` にも同じ id が `custom: true` で載る (モデル選択の候補が使う)。
    */
   customProviders: z.array(CustomProviderSummarySchema),

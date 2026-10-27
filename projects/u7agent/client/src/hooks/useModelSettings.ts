@@ -22,6 +22,7 @@ import {
   CUSTOM_PROVIDER_CREATED_NOTE,
   CUSTOM_PROVIDER_DELETED_NOTE,
   CUSTOM_PROVIDER_UPDATED_NOTE,
+  customProviderMutationNote,
 } from "../lib/customProviders";
 import {
   MODEL_SETTINGS_NOTE,
@@ -268,7 +269,8 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
 
   /**
    * カスタムプロバイダーの変更。応答は GET と同じ形なのでそのまま次の状態にし、認証が変わるため
-   * health とカタログを取り直す（「モデルを選ぶ」タブの候補を追随させる）。
+   * health とカタログを取り直す（「モデルを選ぶ」タブの候補を追随させる）。DB 保存済みで未反映の
+   * `applied_unsynced` は完了文言ではなく [再同期] を案内する。
    */
   const runCustomMutation = useCallback(
     async (provider: string, note: string, run: () => Promise<ModelMutationResponse>): Promise<boolean> => {
@@ -277,7 +279,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
         const canApply = beginLoad();
         const response = await run();
         setSettings(response);
-        setNote({ text: note, error: false });
+        setNote(customProviderMutationNote(note, response.state));
         await refreshModelsForAuthChange({ canApply, refreshHealth: onRefreshHealth, loadCatalog });
         return true;
       } catch (error) {

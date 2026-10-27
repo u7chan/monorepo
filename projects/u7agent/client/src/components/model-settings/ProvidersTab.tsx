@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 import {
   CUSTOM_PROVIDER_ADD_LABEL,
-  CUSTOM_PROVIDER_MEMORY_BADGE,
   CUSTOM_PROVIDER_NOTES,
   CUSTOM_PROVIDER_NOTES_SUMMARY,
   CUSTOM_PROVIDER_SECTION_TITLE,
+  customProviderBadge,
+  customProviderSelectionKey,
+  providerSelectionKey,
 } from "../../lib/customProviders";
 import { messageTimeLabel } from "../../lib/messageTime";
 import {
@@ -125,18 +127,19 @@ export function ProvidersTab({
   const customMatched = settings.customProviders.filter(
     (provider) => needle === "" || provider.id.includes(needle) || provider.name.toLowerCase().includes(needle),
   );
+  // 選択キーは種別込み (同じ id の built-in とカスタム行が併存しても正しい詳細を開く)
   const selected = settings.providers.find(
-    (provider) => provider.provider === selectedProvider && provider.custom !== true,
+    (provider) => providerSelectionKey(provider.provider) === selectedProvider && provider.custom !== true,
   );
   // singleColumn では検索中も表示中の詳細を変えない。一覧を選び直したときだけ切り替える
   const active = singleColumn
     ? (selected ?? groups.configured[0] ?? groups.unconfigured[0])
-    : (visible.find((provider) => provider.provider === selectedProvider) ?? visible[0]);
+    : (visible.find((provider) => providerSelectionKey(provider.provider) === selectedProvider) ?? visible[0]);
   // カスタムプロバイダーは専用セクションが持つ。通常の詳細には流さない（id が同じでも管理の正が別）。
   // 通常の provider が 1 件も無いときは、空の詳細ではなく先頭のカスタム定義を開く
   const customSelected = addingCustom
     ? undefined
-    : (settings.customProviders.find((provider) => provider.id === selectedProvider) ??
+    : (settings.customProviders.find((provider) => customProviderSelectionKey(provider.id) === selectedProvider) ??
       (selectedProvider === null && visible.length === 0 ? settings.customProviders[0] : undefined));
   const activeName = addingCustom
     ? CUSTOM_PROVIDER_ADD_LABEL
@@ -203,6 +206,7 @@ export function ProvidersTab({
                 <CustomProviderSectionNotes />
                 {customMatched.map((provider) => {
                   const isActive = !addingCustom && provider.id === customSelected?.id;
+                  const badge = customProviderBadge(provider);
                   return (
                     <button
                       key={provider.id}
@@ -210,7 +214,7 @@ export function ProvidersTab({
                       aria-current={isActive ? "true" : undefined}
                       onClick={() => {
                         setAddingCustom(false);
-                        setSelectedProvider(provider.id);
+                        setSelectedProvider(customProviderSelectionKey(provider.id));
                         if (singleColumn) {
                           setQuery("");
                           focusAfterSelection.current = true;
@@ -226,9 +230,13 @@ export function ProvidersTab({
                       <span className="grid min-w-0 flex-1 gap-0.5">
                         <span className="flex min-w-0 items-center gap-2">
                           <span className="min-w-0 flex-1 truncate text-xs text-ink">{provider.name}</span>
-                          <span className="text-2xs whitespace-nowrap text-ink-muted">
-                            {CUSTOM_PROVIDER_MEMORY_BADGE}
-                          </span>
+                          {badge ? (
+                            <span
+                              className={cn("text-2xs whitespace-nowrap", badge.warn ? "text-warn" : "text-ink-muted")}
+                            >
+                              {badge.text}
+                            </span>
+                          ) : null}
                         </span>
                         <code className="truncate text-2xs text-ink-ghost">
                           {provider.id} · {provider.model.id}
@@ -274,7 +282,7 @@ export function ProvidersTab({
                             type="button"
                             aria-current={isActive ? "true" : undefined}
                             onClick={() => {
-                              setSelectedProvider(provider.provider);
+                              setSelectedProvider(providerSelectionKey(provider.provider));
                               if (singleColumn) {
                                 setQuery("");
                                 focusAfterSelection.current = true;
@@ -348,9 +356,10 @@ export function ProvidersTab({
                     onUpdate={onUpdateCustom}
                     onDelete={onDeleteCustom}
                     onProbe={onProbeCustom}
+                    onResync={onResync}
                     onSaved={(id) => {
                       setAddingCustom(false);
-                      setSelectedProvider(id);
+                      setSelectedProvider(customProviderSelectionKey(id));
                       setScrollReset((count) => count + 1);
                     }}
                     onDeleted={() => {

@@ -348,7 +348,8 @@ test("カスタムプロバイダーは専用セクションに出し、通常�
   );
   assert.ok(html.includes("カスタムプロバイダー"), "専用セクションの見出しを出す");
   assert.ok(html.includes("カスタムプロバイダーを追加"), "追加の導線を出す");
-  assert.ok(html.includes("メモリのみ"), "オンメモリであることを一覧の行に出す");
+  assert.equal(html.includes("メモリのみ"), false, "旧仕様の「メモリのみ」バッジは出さない");
+  assert.ok(html.includes("定義はアプリ DB に保存され"), "保存先を注意書きで伝える");
   assert.ok(html.includes("qwen2.5-coder:7b"), "一覧の行にモデル ID を出す");
   assert.ok(html.includes("設定済み 3") && html.includes("未設定 2"), "件数にカスタムを含めない");
   // 既定の選択は通常の provider なので、通常の詳細（キー・メモ）を出す
@@ -358,13 +359,13 @@ test("カスタムプロバイダーは専用セクションに出し、通常�
 
 test("カスタム注意は要点の 1 行だけを常時見せ、詳細は既定で畳む", () => {
   const html = render(modelSettings(), { modelsSubsection: "providers", singleColumn: false });
-  const summary = html.indexOf("BFF のメモリにだけ保存されます");
+  const summary = html.indexOf("定義はアプリ DB に保存され");
   assert.ok(summary >= 0, "要点の 1 行を出す");
   // 要点は summary の中だけに置き、長い理由は同じ details の中へ入れて既定では閉じる
   assert.ok(html.lastIndexOf("<summary", summary) > html.lastIndexOf("</summary>", summary));
   const details = html.lastIndexOf("<details", summary);
   assert.ok(details >= 0 && html.indexOf("</details>", summary) > summary, "同じ details の中に置く");
-  assert.ok(html.indexOf("同じ provider id とモデル id", details) > details);
+  assert.ok(html.indexOf("master key", details) > details);
 
   // singleColumn は一覧を畳んで詳細側に同じ注意を出すが、これも同じ形で畳む
   const single = render(
@@ -373,7 +374,7 @@ test("カスタム注意は要点の 1 行だけを常時見せ、詳細は既�
     }),
     { modelsSubsection: "providers", singleColumn: true },
   );
-  const singleSummary = single.indexOf("BFF のメモリにだけ保存されます");
+  const singleSummary = single.indexOf("定義はアプリ DB に保存され");
   assert.ok(singleSummary >= 0);
   assert.ok(single.lastIndexOf("<summary", singleSummary) > single.lastIndexOf("</summary>", singleSummary));
 });
@@ -382,10 +383,10 @@ test("カスタム定義が無く通常 provider を選んでいても、専用�
   const html = render(modelSettings(), { modelsSubsection: "providers" });
   assert.ok(html.includes("カスタムプロバイダー"), "専用セクションは定義が無くても出す");
   assert.ok(html.includes("カスタムプロバイダーを追加"));
-  assert.ok(html.includes("BFF のメモリにだけ保存されます"), "オンメモリであることを常時出す");
-  assert.ok(html.includes("再起動すると定義とAPIキーは消えます"));
-  assert.ok(html.includes("同じ provider id とモデル id で再登録すれば"), "再登録で選択が戻ることを出す");
-  assert.ok(html.includes("アプリ既定モデルにカスタムモデルを指定している場合"));
+  assert.ok(html.includes("定義はアプリ DB に保存され"), "保存先を常時出す");
+  assert.ok(html.includes("再起動後も残ります"));
+  assert.ok(html.includes("APIキーは再表示しません"));
+  assert.ok(html.includes("カタログ外"), "削除時のカタログ外の扱いを出す");
   assert.ok(html.includes("Authorization: Bearer"), "キー必須 / ダミーの要点を出す");
   assert.ok(html.includes("信頼できる baseUrl"));
   // 通常 provider の詳細はこれまでどおり DB 保存の注意を持つ
@@ -406,8 +407,8 @@ test("カスタムプロバイダーの詳細は専用フォームと注意を�
   assert.equal(html.includes("設定済み "), false, "カスタムは通常の一覧（設定済み）に入れない");
   assert.equal(html.includes("未設定 "), false, "カスタムは通常の一覧（未設定）に入れない");
   // 注意書きは追加・編集のどちらでも読めるように常時出す
-  assert.ok(html.includes("BFF のメモリにだけ保存されます"));
-  assert.ok(html.includes("同じ provider id とモデル id"));
+  assert.ok(html.includes("定義はアプリ DB に保存され"));
+  assert.ok(html.includes("APIキーは再表示しません"));
   assert.ok(html.includes("Authorization: Bearer"));
   assert.ok(html.includes("信頼できる baseUrl"));
   // 1 provider = 1 model のフォーム
@@ -421,7 +422,7 @@ test("カスタムプロバイダーの詳細は専用フォームと注意を�
   // 通常の認証・メモ・再同期・モデル導線は出さない
   assert.equal(html.includes("キーとメモは平文で保存されます"), false, "DB 保存の注意はカスタム詳細に出さない");
   assert.equal(html.includes("メモ（キー本体は書かないでください）"), false, "通常のメモ欄を出さない");
-  assert.equal(html.includes("再同期"), false, "再同期を出さない");
+  assert.equal(html.includes("再同期"), false, "反映済みなら再同期を出さない");
   assert.equal(html.includes("サインイン"), false, "OAuth の操作を出さない");
   assert.equal(html.includes("「モデルを選ぶ」タブを開く"), false, "通常のモデル導線を出さない");
 
@@ -432,8 +433,8 @@ test("カスタムプロバイダーの詳細は専用フォームと注意を�
     }),
     { modelsSubsection: "providers", singleColumn: true },
   );
-  assert.ok(single.includes("BFF のメモリにだけ保存されます"));
-  assert.equal((single.match(/BFF のメモリにだけ保存されます/g) ?? []).length, 1, "一覧と詳細で二重に出さない");
+  assert.ok(single.includes("定義はアプリ DB に保存され"));
+  assert.equal((single.match(/定義はアプリ DB に保存され/g) ?? []).length, 1, "一覧と詳細で二重に出さない");
 });
 
 test("プロバイダー詳細は保存済み認証の種別を出し、この画面のキーが OAuth を覆っているときだけ注記する", () => {
@@ -1109,4 +1110,120 @@ test("保存済みのキーを復号できないときは、サーバーの固�
   );
   assert.ok(html.includes(message), "原因は推測せずサーバーの文言をそのまま出す");
   assert.match(html, /role="alert"[^>]*>[^<]*master key/, "注意領域に出す");
+});
+
+test("未反映のカスタム定義は一覧に状態を出し、詳細で案内と [再同期] を出す (編集・削除は残す)", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [customProviderRow()],
+        customProviders: [{ ...CUSTOM_PROVIDER, degraded: "apply" }],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.ok(html.includes("保存済み（未反映）"), "一覧に未反映を出す");
+  assert.ok(html.includes("実行中のランタイムへ反映されていません"), "詳細で理由を出す");
+  assert.ok(html.includes("再同期"), "回復の導線を出す");
+  assert.ok(html.includes('aria-label="provider id"'), "未反映でも編集できる (削除で抜けられる)");
+  assert.ok(html.includes("削除する"), "未反映でも削除できる");
+});
+
+test("degradedMessage があれば画面の既定文言より優先し、削除待ちは再同期だけを出す", () => {
+  const message = "master key（U7AGENT_SECRET_MASTER_KEY）が未設定または不正です";
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [customProviderRow()],
+        customProviders: [{ ...CUSTOM_PROVIDER, degraded: "apply", degradedMessage: message }],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.ok(html.includes(message), "サーバーの固定文言を出す");
+  assert.equal(html.includes("実行中のランタイムへ反映されていません"), false, "既定文言で上書きしない");
+
+  const tombstone = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [],
+        customProviders: [{ ...CUSTOM_PROVIDER, hasKey: false, degraded: "remove" }],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.ok(tombstone.includes("削除が未反映"), "削除待ちを一覧に出す");
+  assert.ok(tombstone.includes("前の定義とキーが残っています"));
+  assert.ok(tombstone.includes("再同期"));
+  assert.equal(tombstone.includes('aria-label="provider id"'), false, "削除待ちは編集できない");
+  assert.equal(tombstone.includes("削除</button>"), false, "削除待ちは削除できない");
+});
+
+test("同じ id の built-in とカスタム行が併存しても、両方の行を別々に出す", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [
+          provider({ provider: "local-llm", name: "Local (models.json)" }),
+          customProviderRow({ name: "自宅のLLM (カスタム)" }),
+        ],
+        customProviders: [{ ...CUSTOM_PROVIDER, name: "自宅のLLM (カスタム)" }],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.ok(html.includes("Local (models.json)"), "built-in の行を出す");
+  assert.ok(html.includes("自宅のLLM (カスタム)"), "カスタムの行を出す");
+  assert.equal(html.includes("設定済み 0"), false, "built-in は設定済みに数える");
+});
+
+test("登録できなかったカスタム行は専用セクションだけに出し、通常一覧の幽霊行を出さない", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [],
+        customProviders: [{ ...CUSTOM_PROVIDER, degraded: "apply" }],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.ok(html.includes("カスタムプロバイダー"), "専用セクションは出す");
+  assert.ok(html.includes("自宅のLLM"), "カスタム行は出す");
+  assert.ok(html.includes("保存済み（未反映）"), "未反映の状態を出す");
+  assert.ok(html.includes("再同期"), "回復の導線を出す");
+  assert.equal(html.includes("設定済み "), false, "通常一覧の設定済みを作らない");
+  assert.equal(html.includes("未設定 "), false, "通常一覧の未設定を作らない");
+  // 幽霊詳細 (カタログ外の provider として開く) の案内・メモ欄を出さない
+  assert.equal(html.includes("現在のカタログに無い provider です"), false);
+  assert.equal(html.includes("メモ（キー本体は書かないでください）"), false);
+  assert.equal(html.includes("キーの登録はできません"), false);
+});
+
+test("同じ id の built-in が実体としてあるときは、その entry を通常一覧に残す", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [
+          provider({
+            provider: "local-llm",
+            name: "Local (models.json)",
+            auth: { configured: true, source: "environment", environmentVariables: ["LOCAL_LLM_KEY"] },
+          }),
+        ],
+        customProviders: [{ ...CUSTOM_PROVIDER, degraded: "apply" }],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.ok(html.includes("Local (models.json)"), "実体のある built-in は通常一覧に残す");
+  assert.ok(html.includes("設定済み 1"), "built-in は設定済みに数える");
+  assert.ok(html.includes("自宅のLLM"), "カスタム行も専用セクションに出す");
+  assert.ok(html.includes("保存済み（未反映）"));
+  assert.equal(html.includes("現在のカタログに無い provider です"), false, "built-in を orphan として出さない");
 });

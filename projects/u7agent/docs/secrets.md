@@ -9,7 +9,7 @@
 - `createRuntimeSecretMasker()`（`server/src/secret-guard.ts`）が `ModelRuntime.getProviders()` の各プロバイダーに対し pi-ai の公開ヘルパー `findEnvKeys()` で「設定済みのキー変数」を解決し、その非空値を保護対象にする。findEnvKeys が解決しない既知プロバイダーのキー変数（Bedrock の `AWS_BEARER_TOKEN_BEDROCK`）は補完テーブルで埋める。独自プロバイダー分は `PI_SECRET_ENV_VARS` で変数名を追加する
 - 自動解決された値は 8 文字未満を通常出力の過剰改変防止のため対象外にする。`PI_SECRET_ENV_VARS` で明示指定された変数は運用者の意図なので長さに関係なく保護する。重複・包含する値は長い順に置換する
 - 設定 → モデルで登録したキーは `createMutableSecretMasker` の `setSecrets` で保護対象へ足す。登録は **SDK / DB へ渡す前**に行い、起動時は DB から読めた全行（orphan・不正値・適用失敗を含む）を適用前に登録する。削除・上書き後も**プロセス生存中は保護対象から外さない**（`session.jsonl` の raw 入力を再投影しても旧キーを出さないため。入力は 8..2048 文字で、これより短いキーは GUI の対象外）
-- 設定 → モデルのカスタムプロバイダーのAPIキーも、SDK / ログへ渡す前に `retainSecret()` で保護対象へ足す。ただし保存先は BFF のメモリだけで、プロセス生存中はマスクし、再起動すると消える。8 文字以上を必須にし、認証のないローカルサーバーにはダミーを使う（`Authorization: Bearer <キー>` として送られる。[model-settings.md](model-settings.md#カスタムプロバイダーオンメモリ)）
+- 設定 → モデルのカスタムプロバイダーのAPIキーも、SDK / ログへ渡す前に `retainSecret()` で保護対象へ足す。保存先はアプリ DB の `custom_providers` で、同じ master key で暗号化する（復号は起動時・保存 / 更新 / 再同期 / probe のときだけで、GET は復号しない）。8 文字以上を必須にし、認証のないローカルサーバーにはダミーを使う（`Authorization: Bearer <キー>` として送られる。[model-settings.md](model-settings.md#カスタムプロバイダー)）
 - コンテンツ生成のAPIキー（`content_settings`。画像・TTS・[BGM](bgm-generation.md) で共有）も同じ扱いで、`PUT /api/settings/content/key` がDBへ書く前に `retainSecret()` で登録し、起動時の `ContentSettingsService.applyStored()` も保存行のキーを登録する。provider呼出しはBFF内で完結し、キーはサンドボックスへ渡らない。BGMのproviderエラーもマスク後に長さを制限し、ツール定義は `wrapToolDefinitionWithSecretMasker()` を通す。
 - SQLite の失敗文言にキーが載る経路（`AppDb.#query` と `open()`）は `AppDb.open({ sanitizeError })` でマスカーを通してからログ・`#error`（health / 503）へ渡す。`model-settings.ts` は固定文言だけを応答へ返し、ログには provider id と分類だけを残す
 - 設定 → モデルの provider メモは秘密情報ではないため保護対象へ足さない（`retainSecret` に渡さない）。任意の自由文を登録すると、短いメモでも `createMutableSecretMasker` が値をマスクし、よくある単語が会話表示で赤塗りされる誤爆の方が実害より大きい。代わりに `model-settings.ts` はログ・health・エラー文言のどの経路にもメモ値を載せない（値は API 応答と画面にだけ出す）
@@ -132,6 +132,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 | 対象 | 列 | AAD の所有者 |
 | --- | --- | --- |
 | `provider_credentials`（設定 → モデル） | `ciphertext` / `nonce` / `keyVersion` | provider id |
+| `custom_providers`（設定 → モデルのカスタムプロバイダー。定義と同じ行） | 同上 | provider id |
 | `content_settings`（設定 → コンテンツ生成。画像 / 音声 / BGM で共有） | 同上（3 列 NULL = キー未設定） | `apiKey` |
 | `web_search_provider_keys`（設定 → Web 検索） | 同上 | provider id |
 | `notification_settings`（Discord Webhook URL） | `webhookCiphertext` / `webhookNonce` / `webhookKeyVersion` | `webhookUrl` |
@@ -147,13 +148,13 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - **既存の平文キーは移行しない**。`APP_DB_SCHEMA_VERSION` 30 → 31 の移行で平文の列を落として値を破棄し、再入力で復旧する。dual-read・平文フォールバック・エクスポート・移行 UI は作らない（[persistence.md](persistence.md#アプリデータsqlite)）
 - 移行は「平文の列があるか」で判定する（`user_version` だけで判定しない）。後続のスキーマ変更で移行が再実行されても、暗号化済みの値を消さない
 - `content_settings` は旧 `apiKey` と一致・包含する `speechModel` / `speechVoice` を移行時に NULL にする（キー破棄後も応答へキーを出さないため）。保存時もキーと同じ値を音声の語彙へ入れさせない（値を伏せた 400）
+- カスタムプロバイダーは `retainSecret()` より前に復号できない行を SDK へ渡さない。復号 / 検証に失敗した行は平文へフォールバックせず、応答の `customProviders[].degraded: "apply"` と `degradedMessage`（master key 未設定 / 復号不能 / id 衝突の固定文言）で伝える。保存（暗号化）に失敗したときだけ 503 `state: "not_stored"` にし、DB 確定後の復号失敗は 200 `applied_unsynced` にする
 - 暗号文を読むクエリは `AppDb.#secretQuery` を通し、SQLite のトリガーなどで例外文言へ値が写っても、ログ・health・503 へは「操作の分類だけ」を渡す（可変マスカーは暗号文の hex / base64 を守れない）
 
 ### 平文で残るもの
 
 DB 全体が暗号化されるわけではない。暗号化されるのは環境変数のシークレットと上記の APIキー / Webhook URL だけで、以下は従来どおり平文である。
 
-- カスタムプロバイダーのAPIキー（BFF のメモリのみ。DB・`models.json`・`auth.json` には残らない）
 - `provider_memos.memo`（秘密情報として扱わない人間用メモ。マスカーへも登録しない）
 - `secrets.plaintext`（種別 = 変数）と、変数の値が現れる詳細 API（`GET /api/secrets/:secretId`）と画面
 - `models.json` / `auth.json` / `.env`（アプリ DB の外。SDK / デプロイ設定が持つ）
