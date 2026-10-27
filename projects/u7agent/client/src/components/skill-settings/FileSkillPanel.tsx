@@ -107,7 +107,8 @@ export function FileSkillPanel({
           : `${FILE_SKILL_LOCKED_PREFIX}: ${detail.reason ?? ""}`;
 
   const meta = [
-    { label: "置き場", value: skill.relativePath, mono: true },
+    // 置き場は会話や支援に貼り返すことが多いので、表示している値を 1 クリックでコピーできるようにする
+    { label: "置き場", value: skill.relativePath, mono: true, copy: true },
     // 最終更新は SKILL.md の mtime で、保存の競合検出に使う版 (fileVersion) は出さない。
     // 組み込みは実体が無く、他のスコープは詳細を取得しないため、行ごと出さない
     ...(detail

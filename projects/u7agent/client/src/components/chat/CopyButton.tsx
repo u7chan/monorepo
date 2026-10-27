@@ -58,6 +58,7 @@ export function CopyButton({
   onClick,
   label,
   reveal,
+  compact = false,
 }: {
   copied: boolean;
   /** 失敗の内訳。未指定は「失敗していない」(通知を出すかどうかの根拠) */
@@ -68,6 +69,8 @@ export function CopyButton({
   label: string;
   /** 省略すると常に表示する */
   reveal?: CopyReveal;
+  /** メタ行のような小さい字の中に置くときの小さい寸法 (アイコンはそのまま) */
+  compact?: boolean;
 }) {
   const failed = failure !== undefined;
   // summary の中に置くため、クリックを既定動作 (details の開閉) と親へ伝えない
@@ -85,7 +88,8 @@ export function CopyButton({
         title={stateLabel}
         onClick={handleClick(onClick)}
         className={cn(
-          "grid size-6 shrink-0 place-items-center rounded-md transition-[opacity,color] duration-200",
+          "grid shrink-0 place-items-center rounded-md transition-[opacity,color] duration-200",
+          compact ? "size-5" : "size-6",
           copied
             ? "text-ok opacity-100"
             : failed

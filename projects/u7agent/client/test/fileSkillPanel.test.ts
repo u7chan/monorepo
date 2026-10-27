@@ -128,3 +128,13 @@ test("描画: 使用中タブは実効で使うエージェントだけを読み
   assert.ok(unknown.includes(SKILL_USAGE_UNAVAILABLE_NOTE));
   assert.ok(!unknown.includes(SKILL_USAGE_EMPTY_NOTE));
 });
+
+test("描画: 置き場の値をその場でコピーできる", () => {
+  const html = renderPanel(fileSkill());
+  // 表示している値 (root 相対) をそのままコピーする。絶対パスは画面に出ていないので導線を出さない
+  assert.match(html, /aria-label="置き場をコピー"/);
+  assert.match(html, /title="置き場をコピー"/);
+  // パスでない値 (更新 / 使用中) にはコピーを付けない
+  assert.ok(!html.includes("更新をコピー"));
+  assert.ok(!html.includes("使用中をコピー"));
+});

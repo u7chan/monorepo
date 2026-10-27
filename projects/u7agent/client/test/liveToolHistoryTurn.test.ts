@@ -423,11 +423,11 @@ test("ライブ中と確定後でヘッダーの件数・合計・プレビュ�
   assert.equal(liveHtml.includes("ツール履歴をすべてコピー"), false);
   assert.ok(settledHtml.includes("ツール履歴をすべてコピー"));
   // コピーの枠は live 中も確保する: 出現で summary の高さ (size-6 の分だけ行が高くなる) とプレビューの
-  // 幅が変わり、run_end で本文の位置がずれるのを防ぐ
+  // 幅が変わり、run_end で本文の位置がずれるのを防ぐ。class の並び順に依らず、寸法の class だけで数える
   const summaryOf = (html: string): string => html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
   assert.ok(summaryOf(liveHtml).includes('data-tool-history-copy-slot="reserved"'), "ライブ中もコピーの枠を確保する");
-  assert.equal((summaryOf(liveHtml).match(/size-6 shrink-0/g) ?? []).length, 1, "枠は copy ボタンと同じ footprint");
-  assert.equal((summaryOf(settledHtml).match(/size-6 shrink-0/g) ?? []).length, 1, "確定後のボタンも同じ footprint");
+  assert.equal((summaryOf(liveHtml).match(/size-6/g) ?? []).length, 1, "枠は copy ボタンと同じ footprint");
+  assert.equal((summaryOf(settledHtml).match(/size-6/g) ?? []).length, 1, "確定後のボタンも同じ footprint");
 });
 
 test("本文が来ないまま run_end したターンは、ツールだけの host を item として確定する", () => {

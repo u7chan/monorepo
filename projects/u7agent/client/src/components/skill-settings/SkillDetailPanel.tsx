@@ -11,8 +11,8 @@ export type SkillBodyState =
   | { status: "ready"; text: string }
   | { status: "error"; message: string };
 
-/** メタの 1 項目。mono は置き場のような等幅で出す値 */
-export type SkillMetaItem = { label: string; value: string; mono?: boolean; title?: string };
+/** メタの 1 項目。mono は置き場のような等幅で出す値、copy は値のコピーボタンを添えるか */
+export type SkillMetaItem = { label: string; value: string; mono?: boolean; title?: string; copy?: boolean };
 
 /** 詳細の面。ファイルは root を導けるスキルだけ、使用中は読み取り専用の一覧 */
 export type SkillDetailTab = "body" | "files" | "usage";
@@ -60,20 +60,35 @@ export function SkillDetailPanel({
       {tabs}
       <div className="shrink-0 border-b border-line px-4 py-1.5">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 text-2xs">
-          {meta.map((item) => (
-            <span key={item.label} className="flex min-w-0 items-baseline gap-1">
-              <span className="shrink-0 text-ink-faint">{item.label}</span>
-              {item.mono ? (
-                <code className="min-w-0 truncate text-ink-soft" title={item.title ?? item.value}>
-                  {item.value}
-                </code>
-              ) : (
-                <span className="min-w-0 truncate text-ink-soft" title={item.title}>
-                  {item.value}
-                </span>
-              )}
-            </span>
-          ))}
+          {meta.map((item) => {
+            // コピーの状態は項目ごとに持つ (本文のコピーと同じ hook を共有し、成功 / 失敗の表示を混ぜない)
+            const copyId = `meta:${item.label}`;
+            return (
+              <span key={item.label} className="flex min-w-0 items-baseline gap-1">
+                <span className="shrink-0 text-ink-faint">{item.label}</span>
+                {item.mono ? (
+                  <code className="min-w-0 truncate text-ink-soft" title={item.title ?? item.value}>
+                    {item.value}
+                  </code>
+                ) : (
+                  <span className="min-w-0 truncate text-ink-soft" title={item.title}>
+                    {item.value}
+                  </span>
+                )}
+                {item.copy ? (
+                  <span className="shrink-0 self-center">
+                    <CopyButton
+                      compact
+                      copied={copiedId === copyId}
+                      failure={copyFailure(copyId)}
+                      onClick={() => void copyMessage(item.value, copyId)}
+                      label={`${item.label}をコピー`}
+                    />
+                  </span>
+                ) : null}
+              </span>
+            );
+          })}
         </div>
         {warning ? <p className="mt-1 text-2xs leading-4 text-warn">{warning}</p> : null}
         {note ? <p className="mt-1 text-2xs leading-4 text-ink-muted">{note}</p> : null}
