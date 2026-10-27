@@ -60,7 +60,7 @@
 本文を持たない assistant メッセージ（tool call だけ）は本文を根拠にした表示対象にはならず（`isDisplayableMessage()`）、`resync` は未確定の空 assistant バブルを落とす。ask_user は「run が止まって次のイベントが来ない」ため、他ツールと違って自己回復しない。
 
 - `attachRunToolCards()` は補完先が無く、`runTools` に未回答の ask_user（`questions` があり `answers` が無く `phase === "running"`）があるときだけ、`ensureAssistant()` と同じ規則で assistant バブルを合成してからカードを補完する。他のツールは復元しない（表示バブル数 / `messageCount` を維持する既存契約を変えない）
-- 合成したバブルの時刻 / usage / 応答時間は payload の `assistantMeta`（応答単位の任意項目）から `assistantId` で引く。元の応答が SDK 履歴にある間だけ載る値で、run の開始時刻・ツールの待機時間・再読み込み時刻では埋めない。値の無い項目は表示しない（旧 payload では従来どおりメタ行ごと出ない）
+- 合成したバブルの時刻 / usage / 応答時間は payload の `assistantMeta`（応答単位の任意項目）から `assistantId` で引く。値は BFF のメモリ実測、無ければ SDK が履歴に記録した所要時間と usage からの概算（`source: "recorded"`）で、run の開始時刻・ツールの待機時間・再読み込み時刻では埋めない。値の無い項目は表示しない（旧 payload と、記録値を残さない旧セッションでは従来どおりメタ行ごと出ない）
 - 合成したバブルは `entryId` を持たないライブバブルと同じ扱いで、回答の本文や履歴ページの適用で既存の突き合わせに乗る
 - 履歴ページのマージ（`splitLive()`）は、回答待ちのカードを持つバブルを**末尾へ固定**する。待機中は次のイベントが来ず、先頭へ繰り上げると長い会話でカードが画面外に消える（本文を持たない assistant は履歴 item に現れず、突き合わせもされない）。判定は表示側と同じ `isPendingAskUserCard()` を使う
 - 回答済み / 停止済みのカードは合成しない（`run.toolCalls` からのライブの復元は未回答のカードだけ）。結果が保存されていれば、停止・回答済みの記録は読み込み直後にもその応答自身の本文なし item として出る（[api-sessions.md](api-sessions.md#get-apisessionsid)）

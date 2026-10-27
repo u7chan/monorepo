@@ -1,7 +1,8 @@
 /**
  * ラン 1 回ぶんの pi イベント → SSE イベント変換。ストリーミング中の一時状態 (差分の保留・
  * 応答時間・送信メッセージの観測) だけをここが持ち、run / queue / subscriber のライフサイクルは
- * SessionStore に残す。SDK は完了時刻を持たないため、応答時間はイベントの到着時刻で測る。
+ * SessionStore に残す。SDK はメッセージを保存するときに所要時間を記録するが完了時刻は持たないため、
+ * 応答時間はイベントの到着時刻で測る。
  */
 import { recordCompactionOutcome } from "./compaction-view";
 import { classifyRunError, type RunErrorClassification } from "./error-classify";
@@ -22,29 +23,25 @@ import {
 } from "./session-projection";
 
 /**
- * 応答時間のうち BFF が測れる分を組む。tok/s は最初の delta からのスパンで割り、
- * スパンが無ければ全体の duration で割る。
+ * 応答時間 / TTFT / tok/s の計算の唯一の入口。live の実測も SDK 記録値からの復元も、時刻の
+ * 測り方の違いを持ち込まずこの形に揃えて通す。tok/s は最初の delta からのスパンで割り、
+ * スパンが 0 以下なら全体の duration で割る。
  */
 export function computeMessageMetrics({
-  startedAt,
-  firstTokenAt,
-  endedAt,
+  durationMs,
+  ttftMs,
   outputTokens,
 }: {
-  startedAt: number | undefined;
-  firstTokenAt: number | undefined;
-  endedAt: number;
+  durationMs: number;
+  /** 最初の delta までの時間。最初の delta の時刻が残らない経路 (復元) では渡さない */
+  ttftMs?: number;
   outputTokens: number | undefined;
 }): MessageMetrics | undefined {
-  if (startedAt === undefined) return undefined;
-  const durationMs = endedAt - startedAt;
   if (durationMs < 0) return undefined;
   const metrics: MessageMetrics = { durationMs };
-  if (firstTokenAt !== undefined) {
-    const ttftMs = firstTokenAt - startedAt;
-    if (ttftMs >= 0) metrics.ttftMs = ttftMs;
-  }
-  const streamSpan = firstTokenAt === undefined ? durationMs : endedAt - firstTokenAt;
+  // 負の TTFT は時計のずれでしか作れないため、未記録として全体の duration で割る
+  if (ttftMs !== undefined && ttftMs >= 0) metrics.ttftMs = ttftMs;
+  const streamSpan = metrics.ttftMs === undefined ? durationMs : durationMs - metrics.ttftMs;
   const span = streamSpan > 0 ? streamSpan : durationMs;
   if (span > 0 && outputTokens !== undefined && outputTokens > 0) {
     metrics.tokensPerSecond = (outputTokens * 1000) / span;
@@ -279,12 +276,16 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             // 最終本文だけを message_end で返すプロバイダでも、カードを閉じる前に末尾まで配る
             settleAssistantText((event.message as { content?: unknown }).content);
             const usage = parseUsage(event.message.usage);
-            const metrics = computeMessageMetrics({
-              startedAt: assistantStartedAt,
-              firstTokenAt,
-              endedAt: Date.now(),
-              outputTokens: usage?.output,
-            });
+            const endedAt = Date.now();
+            // live は到着時刻を入口の形へ揃えるだけにして、計算の規則は 1 箇所に閉じ込める
+            const metrics =
+              assistantStartedAt === undefined
+                ? undefined
+                : computeMessageMetrics({
+                    durationMs: endedAt - assistantStartedAt,
+                    ttftMs: firstTokenAt === undefined ? undefined : firstTokenAt - assistantStartedAt,
+                    outputTokens: usage?.output,
+                  });
             if (metrics) messageMetrics.set(event.message, metrics);
             if (usage || metrics) {
               emit("usage", {

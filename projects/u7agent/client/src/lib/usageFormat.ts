@@ -32,16 +32,26 @@ export function formatCost(total: number): string {
   return `$${total.toFixed(4)}`;
 }
 
+/** 復元した応答の計測区間。TTFT の代わりに tooltip へ出す */
+const RECORDED_METRICS_TITLE = "SDK 記録値（リクエスト開始から応答終了まで。接続待ちと TTFT を含む）";
+
+/** 実測と同じ行に並ぶため、値そのものへ概算の印を付ける (トークン数は実測なので巻き込まない) */
+function withRecordedMark(value: string, recorded: boolean): string {
+  return recorded ? `≈${value}` : value;
+}
+
 export function messageMetaLine(
   usage: Usage | undefined,
   metrics: MessageMetrics | undefined,
   singleColumn: boolean,
 ): string {
   const parts: string[] = [];
+  // 由来でだけ分岐する: metrics の有無で分岐すると、source を付け忘れた経路が概算扱いになる
+  const recorded = metrics?.source === "recorded";
   if (metrics) {
-    parts.push(formatDurationMs(metrics.durationMs));
+    parts.push(withRecordedMark(formatDurationMs(metrics.durationMs), recorded));
     if (metrics.tokensPerSecond !== undefined) {
-      parts.push(formatTokensPerSecond(metrics.tokensPerSecond));
+      parts.push(withRecordedMark(formatTokensPerSecond(metrics.tokensPerSecond), recorded));
     }
   }
   // singleColumn は metrics の有無で分岐させない (metrics が無ければトークンだけを出すのではなく何も出さない)
@@ -58,7 +68,12 @@ export function messageMetaLine(
 
 export function messageMetaTitle(usage: Usage | undefined, metrics: MessageMetrics | undefined): string | undefined {
   const details: string[] = [];
-  if (metrics?.ttftMs !== undefined) details.push(`TTFT ${formatDurationMs(metrics.ttftMs)}`);
+  // 復元した応答は最初の delta の時刻が残らないため、TTFT ではなく計測区間の説明を出す
+  if (metrics?.source === "recorded") {
+    details.push(RECORDED_METRICS_TITLE);
+  } else if (metrics?.ttftMs !== undefined) {
+    details.push(`TTFT ${formatDurationMs(metrics.ttftMs)}`);
+  }
   if (usage) {
     const cache: string[] = [];
     if (usage.cacheRead > 0) cache.push(`R ${formatTokens(usage.cacheRead)}`);
