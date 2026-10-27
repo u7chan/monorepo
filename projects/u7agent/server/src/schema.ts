@@ -408,12 +408,17 @@ export const UsageSchema = z.object({
 });
 export type Usage = z.infer<typeof UsageSchema>;
 
-/** BFF がイベントの到着時刻で測る応答時間。SDK は生成開始時刻しか持たない。 */
+/**
+ * 応答時間のメタ。BFF がイベントの到着時刻で測った実測か、SDK が履歴へ記録した所要時間からの概算。
+ * 由来は `source` で表し、未指定は実測として扱う (足し忘れた経路を概算扱いにしないため)。
+ */
 export const MessageMetricsSchema = z.object({
   durationMs: z.number(),
   /** 最初の delta までの時間。delta が無かった (非ストリーミング) メッセージでは省略する */
   ttftMs: z.number().optional(),
   tokensPerSecond: z.number().optional(),
+  /** 由来。省略時は measured。recorded は SDK 記録値からの導出で、表示側が ≈ を付ける */
+  source: z.enum(["measured", "recorded"]).optional(),
 });
 export type MessageMetrics = z.infer<typeof MessageMetricsSchema>;
 
@@ -427,7 +432,7 @@ export const AssistantMetaSchema = z.object({
   /** SDK が持つメッセージの作成時刻 (epoch ms)。時刻を持たない履歴ではキーを省略する */
   at: z.number().optional(),
   usage: UsageSchema.optional(),
-  /** BFF 計測の応答時間 (メッセージ生成の時間で、回答待ちの時間は含まない) */
+  /** 応答時間 (メッセージ生成の時間で、回答待ちの時間は含まない)。由来は source を見る */
   metrics: MessageMetricsSchema.optional(),
 });
 export type AssistantMeta = z.infer<typeof AssistantMetaSchema>;

@@ -527,47 +527,48 @@ test("omits the at key for histories without a timestamp", async () => {
 
 // --- 応答メタ情報 ---
 
-test("derives the response metrics from the observed event times", () => {
-  assert.deepEqual(computeMessageMetrics({ startedAt: 1000, firstTokenAt: 1900, endedAt: 2800, outputTokens: 45 }), {
+test("computes the response metrics from the duration, TTFT and output tokens", () => {
+  assert.deepEqual(computeMessageMetrics({ durationMs: 1800, ttftMs: 900, outputTokens: 45 }), {
     durationMs: 1800,
     ttftMs: 900,
     tokensPerSecond: 50,
   });
 
   // スパンが 0 以下なら全体の duration で割る
-  assert.deepEqual(computeMessageMetrics({ startedAt: 1000, firstTokenAt: 2000, endedAt: 2000, outputTokens: 20 }), {
+  assert.deepEqual(computeMessageMetrics({ durationMs: 1000, ttftMs: 1000, outputTokens: 20 }), {
     durationMs: 1000,
     ttftMs: 1000,
     tokensPerSecond: 20,
   });
 
   // duration も 0 なら tok/s は出さない (ゼロ除算や Infinity を配信しない)
-  assert.deepEqual(computeMessageMetrics({ startedAt: 1000, firstTokenAt: 1000, endedAt: 1000, outputTokens: 20 }), {
+  assert.deepEqual(computeMessageMetrics({ durationMs: 0, ttftMs: 0, outputTokens: 20 }), {
     durationMs: 0,
     ttftMs: 0,
   });
 
   // delta を 1 度も観測していない (非ストリーミング) メッセージは TTFT 無しで平均を出す
-  assert.deepEqual(
-    computeMessageMetrics({ startedAt: 1000, firstTokenAt: undefined, endedAt: 2000, outputTokens: 30 }),
-    { durationMs: 1000, tokensPerSecond: 30 },
-  );
+  assert.deepEqual(computeMessageMetrics({ durationMs: 1000, outputTokens: 30 }), {
+    durationMs: 1000,
+    tokensPerSecond: 30,
+  });
 
   // usage が無い / 0 のときは tok/s を出さない
-  assert.deepEqual(computeMessageMetrics({ startedAt: 0, firstTokenAt: 500, endedAt: 1500, outputTokens: 0 }), {
+  assert.deepEqual(computeMessageMetrics({ durationMs: 1500, ttftMs: 500, outputTokens: 0 }), {
     durationMs: 1500,
     ttftMs: 500,
   });
-  assert.deepEqual(computeMessageMetrics({ startedAt: 0, firstTokenAt: 500, endedAt: 1500, outputTokens: undefined }), {
+  assert.deepEqual(computeMessageMetrics({ durationMs: 1500, ttftMs: 500, outputTokens: undefined }), {
     durationMs: 1500,
     ttftMs: 500,
   });
 
-  // message_start を観測していないときは何も出さない
-  assert.equal(
-    computeMessageMetrics({ startedAt: undefined, firstTokenAt: 10, endedAt: 20, outputTokens: 5 }),
-    undefined,
-  );
+  // 負の所要時間 / TTFT は時計のずれでしか作れない。前者は出さず、後者は未記録として扱う
+  assert.equal(computeMessageMetrics({ durationMs: -1, ttftMs: 10, outputTokens: 5 }), undefined);
+  assert.deepEqual(computeMessageMetrics({ durationMs: 2000, ttftMs: -100, outputTokens: 40 }), {
+    durationMs: 2000,
+    tokensPerSecond: 20,
+  });
 });
 
 test("emits usage per assistant message and keeps it in the payload for resync", async () => {

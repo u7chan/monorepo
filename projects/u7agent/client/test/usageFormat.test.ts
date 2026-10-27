@@ -106,11 +106,41 @@ test("tok/s が無ければ応答時間だけを出す", () => {
   assert.equal(messageMetaLine(USAGE, { durationMs: 1800 }, true), "1.8s");
 });
 
+test("復元した記録値は応答時間と tok/s にだけ ≈ を付ける", () => {
+  const recorded: MessageMetrics = { durationMs: 2400, tokensPerSecond: 23.3, source: "recorded" };
+  // ↑↓ はプロバイダの実測なので概算の印を巻き込まない
+  assert.equal(messageMetaLine(USAGE, recorded, false), "≈2.4s · ≈23.3 tok/s · ↑8.2k ↓512");
+  assert.equal(messageMetaLine(USAGE, recorded, true), "≈2.4s · ≈23.3 tok/s");
+});
+
+test("記録値でも tok/s が欠けていれば時間だけを ≈ 付きで出す", () => {
+  assert.equal(messageMetaLine(USAGE, { durationMs: 2400, source: "recorded" }, false), "≈2.4s · ↑8.2k ↓512");
+});
+
+test("source 省略は実測として ≈ を付けない", () => {
+  assert.equal(messageMetaLine(USAGE, { ...METRICS, source: "measured" }, false), "1.8s · 42.3 tok/s · ↑8.2k ↓512");
+  assert.equal(messageMetaLine(USAGE, METRICS, false), "1.8s · 42.3 tok/s · ↑8.2k ↓512");
+});
+
 test("ホバー詳細は TTFT / cache / thinking / cost を並べる", () => {
   assert.equal(
     messageMetaTitle(USAGE, METRICS),
     // 1s 未満は ms のまま出す (丸めで 0.0s に見せない)
     "TTFT 900ms / cache R 7.9k W 300 / thinking 128 tok / $0.0021",
+  );
+});
+
+test("復元した記録値の tooltip は TTFT の代わりに計測区間の説明を出す", () => {
+  const recorded: MessageMetrics = { durationMs: 2400, tokensPerSecond: 23.3, source: "recorded" };
+  assert.equal(
+    messageMetaTitle(USAGE, recorded),
+    // 復元値は duration が大きく tok/s が小さい。区間に接続待ちと TTFT が含まれることをここで示す
+    "SDK 記録値（リクエスト開始から応答終了まで。接続待ちと TTFT を含む） / cache R 7.9k W 300 / thinking 128 tok / $0.0021",
+  );
+  // 記録値に ttftMs が混ざっても TTFT は出さない (復元した値として扱う)
+  assert.equal(
+    messageMetaTitle(undefined, { ...recorded, ttftMs: 900 }),
+    "SDK 記録値（リクエスト開始から応答終了まで。接続待ちと TTFT を含む）",
   );
 });
 

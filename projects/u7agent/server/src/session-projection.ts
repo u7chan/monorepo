@@ -9,6 +9,7 @@ import { SKILL_FILE_NAME } from "./builtin-skills";
 import type { PiSessionLike } from "./pi-runtime";
 import { parseUsage } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
+import { computeMessageMetrics } from "./run-events";
 import type {
   AskUserAnswer,
   AskUserQuestion,
@@ -158,6 +159,21 @@ export function displayableMessageSet(
   return displayable;
 }
 
+/** 優先順位を呼び出し側にも書くと経路ごとにずれるため、metrics の解決順はこの関数だけが持つ */
+function resolveMessageMetrics(
+  message: PiSessionLike["messages"][number],
+  messageMetrics: WeakMap<object, MessageMetrics>,
+): MessageMetrics | undefined {
+  const measured = messageMetrics.get(message);
+  if (measured !== undefined) return measured;
+  const durationMs = message.durationMs;
+  if (typeof durationMs !== "number" || durationMs <= 0) return undefined;
+  const recorded = computeMessageMetrics({ durationMs, outputTokens: parseUsage(message.usage)?.output });
+  // tok/s まで揃わない記録値は出さない: 時間だけの概算は、tok/s の欠損を実測の欠損と見分けられなくする
+  if (recorded?.tokensPerSecond === undefined) return undefined;
+  return { ...recorded, source: "recorded" };
+}
+
 /**
  * payload.messages に入らない assistant 応答の時刻 / usage / 応答時間。クライアントは未回答の ask_user
  * カードのために空の assistant バブルを合成するので、元の応答の値だけを `assistantId` で引き当てられる
@@ -178,7 +194,7 @@ export function unprojectedAssistantMeta(
     if (assistantId === undefined || !owners.has(assistantId)) continue;
     const at = typeof message.timestamp === "number" ? message.timestamp : undefined;
     const usage = parseUsage(message.usage);
-    const metrics = context.messageMetrics.get(message);
+    const metrics = resolveMessageMetrics(message, context.messageMetrics);
     // 値の無い項目はキーごと省く (0 や現在時刻で埋めると別の応答の数値に見える)
     if (at === undefined && usage === undefined && metrics === undefined) continue;
     projected.push({
@@ -268,7 +284,7 @@ export function projectMessagesRange(
     }
     const text = masker.mask(contentText(message.content));
     const usage = message.role === "assistant" ? parseUsage(message.usage) : undefined;
-    const metrics = messageMetrics.get(message);
+    const metrics = resolveMessageMetrics(message, messageMetrics);
     const skillLoads = [...carried, ...loads];
     const projectedTools = [...carriedTools, ...tools];
     carried = [];

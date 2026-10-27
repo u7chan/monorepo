@@ -21,7 +21,7 @@ import {
   sessionMetaPath,
 } from "../src/session-store";
 import type { EventEntry, SessionPayload } from "../src/schema";
-import { createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, waitFor, type StubSession } from "./stub-pi";
+import { createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, STUB_USAGE, waitFor, type StubSession } from "./stub-pi";
 
 function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; listings: string[] } {
   const dirs: string[] = [];
@@ -288,6 +288,79 @@ test("永続化したセッションを新しい store が復元し、続きか�
       assert.equal(resumed.entries.length, 5, "追記が連結しない");
       assert.equal(resumed.entries.at(-1)?.type, "message");
     }
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("復元した会話は SDK 記録値から応答時間を概算し、由来を recorded にする", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-restore-metrics-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, { pi: createStubPi({ chunkDelayMs: 5 }), workspace, catalog });
+    await store1.init();
+    const record = await store1.create();
+    store1.postMessage(record, "こんにちは");
+    await waitFor(() => record.run?.status === "completed", 3000, "run completed");
+    await store1.flush(record);
+    const measured = store1.payload(record).messages[1]?.metrics;
+    assert.ok(measured, "live の応答時間は BFF が測る");
+    assert.equal(measured.source, undefined, "実測は source を省略する");
+    await store1.close();
+
+    const file = sessionJsonlPath(record.id, storeDir);
+    const parsed = parseSessionFile(await readFile(file, "utf8"), record.id);
+    assert.equal(parsed.kind, "ok");
+    if (parsed.kind !== "ok") return;
+    // SDK が保存する durationMs を模す (リクエスト送信前からの計測なので、BFF の実測より長い)
+    for (const entry of parsed.entries) {
+      const message = (entry as { message?: { role?: string; durationMs?: number } }).message;
+      if (message?.role === "assistant") message.durationMs = 2600;
+    }
+    const at = new Date().toISOString();
+    const turn = [
+      {
+        type: "message",
+        id: "entry-no-duration-user",
+        parentId: parsed.entries.at(-1)?.id ?? null,
+        timestamp: at,
+        message: { role: "user", content: "記録値なし", timestamp: Date.now() },
+      },
+      {
+        type: "message",
+        id: "entry-no-duration-answer",
+        parentId: "entry-no-duration-user",
+        timestamp: at,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "記録値なしの応答" }],
+          stopReason: "stop",
+          timestamp: Date.now(),
+          usage: STUB_USAGE,
+        },
+      },
+    ];
+    await writeFile(file, serializeSession(parsed.header, [...parsed.entries, ...turn]));
+
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    const messages = store2.payload(restored).messages;
+    const recorded = messages[1]?.metrics;
+    assert.deepEqual(recorded, {
+      durationMs: 2600,
+      tokensPerSecond: (STUB_USAGE.output * 1000) / 2600,
+      source: "recorded",
+    });
+    assert.equal(recorded?.ttftMs, undefined, "復元した値に TTFT を出さない");
+    // 計測区間の始まりが違うため、duration は大きく、tok/s は小さく出る
+    assert.ok((recorded?.durationMs ?? 0) > measured.durationMs, "復元値の duration が実測以下");
+    assert.ok((recorded?.tokensPerSecond ?? 0) < (measured.tokensPerSecond ?? 0), "復元値の tok/s が実測以上");
+    // durationMs を持たない応答は従来どおり時間も tok/s も出さない
+    assert.equal(messages[3]?.metrics, undefined);
     await store2.close();
   } finally {
     await rm(storeDir, { recursive: true, force: true });

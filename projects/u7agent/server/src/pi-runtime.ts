@@ -67,6 +67,8 @@ export interface PiSessionLike {
     errorMessage?: string;
     timestamp?: number;
     usage?: unknown;
+    /** SDK が記録した応答 / ツール実行の所要時間。0 を取り得るので、0 は未記録として扱う */
+    durationMs?: number;
     /** role "toolResult" のとき: 対応する toolCall の id と成否 (スキル読み込みの導出に使う) */
     toolCallId?: string;
     isError?: boolean;

@@ -200,13 +200,23 @@ JSONL が破損している（SDK が追記する entry type / message role を 
 
 `messages[].usage` は SDK の `AssistantMessage.usage` をそのまま通したもの（`cost` は pi-ai の `calculateCost` 済み。料金表が無いモデルは 0）。`cacheWrite1h` / `reasoning` は報告するプロバイダだけが返す。プロバイダが usage を報告しないときはキーを省略し、0 に置き換えない（受け手は数字を出さない）。
 
-`messages[].metrics` は BFF がイベントの到着時刻で測った応答時間。SDK は完了時刻を持たないため BFF 側でしか作れない。`durationMs` は `message_start`(assistant) から `message_end` まで、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
+`messages[].metrics` は応答時間のメタ。`durationMs` は応答の所要時間、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 以下なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
 
-`assistantMeta` は `messages` に現れない assistant 応答の `{ assistantId, at?, usage?, metrics? }`（配列）。表示 item にならない応答（本文が無く、確定したツールカードも持たない応答）でも、未回答の ask_user カードは復帰のために assistant バブルを合成するため、元の応答の時刻と応答時間を `assistantId` で引き当てられるようにする。載るのはこの payload の `run.toolCalls[].assistantId` が指す応答のうち `messages` に入らないものだけに限り、値の無い項目はキーごと省略する（run の開始時刻・ツール実行時刻・再読み込み時刻で代用しない）。**同じ BFF プロセスが SDK 履歴と `messageMetrics` を保持している間だけ**の値で、再起動・アイドル sweep の後の payload と旧サーバーはキー自体を省く（[ask-user.md](ask-user.md#回答待ちカードの復帰)）。
+由来は `source` が持つ。解決順は「BFF がメモリ上で計測した値 → SDK が履歴に記録した `durationMs` からの導出 → 無し」で、この順序は `server/src/session-projection.ts` の解決関数だけが持つ（DB に保存した実測を挟むときもそこへ足す）。`source` の省略は `measured` として扱い、`recorded` のときだけ表示側が概算の印を付ける（正は `client/src/lib/usageFormat.ts`）。
+
+| 由来 | 条件 | 表示 |
+| --- | --- | --- |
+| `measured`（`source` 省略） | BFF が `message_start` から `message_end` までの到着時刻で計測した | `1.8s · 42.3 tok/s` |
+| `recorded` | 計測値が無く、SDK の `durationMs` が 1 以上かつ usage の `output` が 1 以上 | `≈1.8s · ≈42 tok/s` |
+| 未記録 | どちらも無い（旧セッション・deferred の結果・`durationMs` が 0・usage 未報告） | 時間と tok/s を出さない |
+
+`recorded` の `durationMs` は SDK がリクエスト送信前から測った値なので、BFF の計測（`message_start` = レスポンスヘッダ受信後から）より接続待ちのぶん**大きく**なる。同じ応答では tok/s の分母にもその待ちが乗るため、BFF の計測より**小さく**出る。TTFT は復元できない（最初の delta の時刻が JSONL に残らない）ため `ttftMs` を載せない。`recorded` の metrics は `messages[].metrics` と `assistantMeta[].metrics` の両方に載り得る。
+
+`assistantMeta` は `messages` に現れない assistant 応答の `{ assistantId, at?, usage?, metrics? }`（配列）。表示 item にならない応答（本文が無く、確定したツールカードも持たない応答）でも、未回答の ask_user カードは復帰のために assistant バブルを合成するため、元の応答の時刻と応答時間を `assistantId` で引き当てられるようにする。載るのはこの payload の `run.toolCalls[].assistantId` が指す応答のうち `messages` に入らないものだけに限り、値の無い項目はキーごと省略する（run の開始時刻・ツール実行時刻・再読み込み時刻で代用しない）。**値の解決は `messages[].metrics` と同じ順序**（BFF のメモリ実測 → SDK 記録値からの概算）なので、再起動・アイドル sweep のあとでも、SDK 履歴に `durationMs` と usage が残っていれば時刻・usage・応答時間は載る。どれも持たない応答と旧サーバーはキー自体を省く（[ask-user.md](ask-user.md#回答待ちカードの復帰)）。
 
 `ToolCall.assistantId` はそのツールを要求した assistant 応答のID。ライブの `tool_start` / `run.toolCalls` / `messages[].tools` で同じ値になり、再接続後もカードの所有者を応答IDで決められる。
 
-`ToolCall.startedAt` / `endedAt` は BFF が `tool_execution_start` / `tool_execution_end` の到着時刻で測ったツール実行の開始 / 終了（epoch ms）。`metrics` と同じく SDK は実行時刻を持たないため BFF 側でしか作れず、run を跨いで控えた値を `messages[].tools` / `run.toolCalls` / `tool_start` / `tool_end` の同じ toolCall に同じ値で載せる（クライアントは差分を実行時間として出す）。片方でも欠けたカードは実行時間を出さない（停止・中止で `tool_execution_end` が来なかったカードは `endedAt` が無い）。**この 2 つは BFF のメモリにしか無く、再起動とアイドル sweep で消える**（pi entry はツール実行の開始時刻を持たず、同じ assistant メッセージの複数ツールを `toolResult` の `timestamp` から区別できない。[persistence.md](persistence.md#会話履歴の扱い)）。
+`ToolCall.startedAt` / `endedAt` は BFF が `tool_execution_start` / `tool_execution_end` の到着時刻で測ったツール実行の開始 / 終了（epoch ms）。`metrics` と同じく SDK は実行時刻を持たないため BFF 側でしか作れず、run を跨いで控えた値を `messages[].tools` / `run.toolCalls` / `tool_start` / `tool_end` の同じ toolCall に同じ値で載せる（クライアントは差分を実行時間として出す）。片方でも欠けたカードは実行時間を出さない（停止・中止で `tool_execution_end` が来なかったカードは `endedAt` が無い）。**この 2 つは BFF のメモリにしか無く、再起動とアイドル sweep で消える**（pi entry に残るのは `toolResult` の `durationMs` / `toolCallId` と結果作成時の `timestamp` だけで、BFF が観測した `startedAt` / `endedAt` そのものは残らない。[persistence.md](persistence.md#会話履歴の扱い)）。
 
 `messages[].tools` は表示対象の assistant バブルに属する確定済みツール履歴。対応する `toolResult` がある toolCall だけを `ToolCall` DTO（`done: true`）で投影し、結果が無い call は含めない。`args` / `output` はライブイベントと同じマスク・要約関数を通し、**マスクの後に**、ツール契約で値がパスと決まっている引数（`path` / `file_path` / `filePath`）だけを `./` 付きの cwd 相対へ畳む（先に畳むと cwd をまたぐ秘密値が完全一致しなくなり、後段のマスクをすり抜ける）。`command` / `output` / `path` を持たないツールの JSON 引数（本文）は畳まない: 本文の `<cwd>/…` に見える語はパスとは限らず（grep の検索語、`case` のパターン、`[ ]` の照合語）、`./…` へ書き換えるとコピーしたコマンドの挙動が変わる（表示文字列はコピーにもそのまま使う）。cwd の外は絶対のまま残し、root 相対と基準を混ぜない。`skill` はライブ専用で、スキル読み込み（`read` で basename が `SKILL.md`）はここに含めず `skillLoads` のバッジだけに出す。ask_user の `questions` / `answers` は逆に**ライブと履歴の両方で同じ `ToolCall` に載る**（`tool_start` / `tool_end` / `run.toolCalls` と `messages[].tools` が同じ値）。本文の無い assistant に属するツール履歴は同じ user ターン内の次の表示 assistant へ part 順で繰り上げる。繰り上げ先がそのターンに無いとき（停止・中断した応答、ツールだけの最終応答）は、その応答自身を本文の空な表示 item にしてツールをそこへ残す（同じターンに本文なし応答が複数あれば所有者ごとに item にし、1 つの item へ寄せない。表示の正は `displayableMessageSet()`、件数も同じ集合で数える）。ターンを越えて運ぶことはしない。ask_user は回答待ちの間だけ resync が assistant バブルを合成する（[ask-user.md](ask-user.md#回答待ちカードの復帰)）。
 
@@ -601,7 +611,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `queue_cleared` | `{ sendIds? }`（停止で回収した送信のID。クライアントは該当する送信を「未送信」へ切り替える。旧サーバーは載せない） |
 | `run_retry` | `{ retry, totalRetryCount, serverNow }`（自動再試行の開始 / 再実行開始 / 解除。`retry` は payload の `run.retry` と同じ形で、解除時は `null`） |
 | `run_end` | `{ runId, status, durationMs?, error, errorCode?, messageCount, queueDepth, totalRetryCount?, context? }`（同じ SDK 実行で 1 回だけ。`runId` は retry / steering で変わらない）（`messageCount` は一覧 API と同じ表示メッセージ数。`durationMs` は BFF 計測のラン全体の所要時間で、キュー待ちと回答待ち（`ask_user` の実行区間）は含めず `startRun()` から `finish()` までを測る。完了 / 停止 / エラーのいずれでも載り、クライアントは同じ値と `status` をその run の user パブルへ写してターン最後の応答のメタ行（`Done · 1m 20s`）に残す（履歴経路は `history` の `turnEnd` と `runDurationMs` / `runOutcome` が正）。状態行には活動の語（`完了`）だけを残し、時間は会話側と二重に出さない。`errorCode` は `status === "error"` のときだけ載る最終失敗の分類コードで、`error` と組になる） |
-| `usage` | `{ usage?, metrics?, context?, assistantId? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
+| `usage` | `{ usage?, metrics?, context?, assistantId? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測（復元した会話では SDK 記録値からの概算）、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
 | `assistant_end` | `{ assistantId? }`（assistant の `message_end` ごとに 1 件。その応答の本文（`message_end` でのみ届く末尾を含む）と `usage` を配った後に届き、クライアントは開いている応答カードを閉じて、続く `text` を次の応答のカードへ入れる。usage / metrics は載せない。未知のイベントは購読側で無視できる） |
 | `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。run の自動圧縮では続けて同じ状態を持つ `resync` が届く（送信メッセージを履歴へ入れる前に圧縮が走った場合は、そのメッセージが入ってから届く）。手動圧縮では resync を配らず、保存の完了後に終端 `resync` が 1 回届く。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
 | `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合と、手動圧縮の開始 / 終端、追加入力の注入・保存確定）。失敗試行の取り消し（`context_edit`）では `resyncReason: "attempt_discarded"` を載せ、それ以外は省略する。省略は同じ実行の継続を表し、クライアントはストリーミング中の assistant を捨てない |
