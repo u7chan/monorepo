@@ -139,7 +139,10 @@ test("行は全スペースの入口リンクで、accessible name に会話タ�
   assertNoNestedInteractive(markup);
 });
 
-test("経過時間は状態ごとに出し分け、終了行は終了時刻と所要時間を出す", () => {
+test("経過時間は状態ごとに出し分け、終了行は終了時刻と所要時間を出す", (t) => {
+  // 実時計のままだと fixture 作成から描画までの遅れが 500ms を超えたときに経過秒が 1 つ進む
+  // (負荷時に再現する)。NOW に固定して、表示の組み立てだけを検査する。
+  t.mock.timers.enable({ apis: ["Date"], now: NOW });
   const text = renderedText(render([RUNNING, WAITING, FINISHED]));
   assert.ok(text.includes("12:38"), "実行中は runStartedAt から mm:ss");
   assert.ok(text.includes("04:12 待ち"), "回答待ちは「待ち」を付ける");
