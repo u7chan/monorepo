@@ -70,6 +70,59 @@ describe('chatRoutes', () => {
     vi.useRealTimers()
   })
 
+  describe('認証', () => {
+    const chatBody = JSON.stringify({ model: 'gpt-test', messages: [] })
+
+    it('未ログインでは /api/chat が 401 を返し、上流を呼ばない', async () => {
+      const { chatRoutes, completionsMock, getSignedCookieMock } = await importSubject()
+      getSignedCookieMock.mockResolvedValue(null)
+
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: chatBody,
+      })
+
+      expect(res.status).toBe(401)
+      expect(completionsMock).not.toHaveBeenCalled()
+    })
+
+    it('未ログインでは session の有無を返さない', async () => {
+      const { chatRoutes, getSignedCookieMock } = await importSubject()
+      getSignedCookieMock.mockResolvedValue(null)
+
+      const res = await chatRoutes.request('/api/chat/sessions/not-found')
+
+      expect(res.status).toBe(401)
+    })
+
+    it('未ログインでは /api/image/generations が 401 を返す', async () => {
+      const { chatRoutes, getSignedCookieMock } = await importSubject()
+      getSignedCookieMock.mockResolvedValue(null)
+
+      const res = await chatRoutes.request('/api/image/generations', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com',
+        },
+        body: JSON.stringify({
+          prompt: 'a blue house',
+          model: 'openai/gpt-image-2',
+          conversationId: 'conversation-1',
+          assistantMessageId: 'assistant-1',
+        }),
+      })
+
+      expect(res.status).toBe(401)
+    })
+  })
+
   describe('POST /api/chat', () => {
     it('必須 header がない場合は 400 を返す', async () => {
       const { chatRoutes } = await importSubject()
@@ -133,6 +186,69 @@ describe('chatRoutes', () => {
           model: 'gpt-test',
           stream: false,
         })
+      )
+    })
+
+    it('http/https 以外の scheme の base-url は 400 を返し、上流を呼ばない', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'file:///etc/passwd',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(400)
+      await expect(res.json()).resolves.toEqual({
+        code: 'VALIDATION_ERROR',
+        message: "Invalid url 'base-url'",
+        retryable: false,
+      })
+      expect(completionsMock).not.toHaveBeenCalled()
+    })
+
+    it('base-url の末尾スラッシュを除去して上流へ渡す', async () => {
+      const { chatRoutes, completionsMock } = await importSubject()
+      completionsMock.mockResolvedValue({
+        id: 'completion-1',
+        created: 1700000000,
+        model: 'gpt-test',
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'answer', refusal: null },
+            finish_reason: 'stop',
+            logprobs: null,
+          },
+        ],
+      })
+
+      const res = await chatRoutes.request('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'api-key': 'api-key',
+          'base-url': 'https://example.com/v1///',
+        },
+        body: JSON.stringify({
+          model: 'gpt-test',
+          messages: [],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect(completionsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baseURL: 'https://example.com/v1',
+        }),
+        expect.anything()
       )
     })
 
@@ -924,38 +1040,6 @@ describe('chatRoutes', () => {
       expect(body).toContain('"code":"UPSTREAM_UNAVAILABLE"')
       expect(body).not.toContain('event: done')
       expect(body).not.toContain('raw provider error')
-      expect(upsertConversationMock).not.toHaveBeenCalled()
-    })
-
-    it('未ログイン時は terminal 後に会話を保存しない', async () => {
-      vi.stubEnv('DATABASE_URL', 'postgres://example')
-      const { chatRoutes, completionsMock, getSignedCookieMock, upsertConversationMock } = await importSubject()
-      getSignedCookieMock.mockResolvedValue(null)
-      completionsMock.mockResolvedValue({
-        controller: { abort: vi.fn() },
-        [Symbol.asyncIterator]: createStreamChunk,
-      })
-
-      const startRes = await chatRoutes.request('/api/chat/sessions', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'api-key': 'api-key',
-          'base-url': 'https://example.com',
-        },
-        body: JSON.stringify({
-          conversation,
-          assistantMessageId: 'message-assistant-1',
-          model: 'gpt-test',
-          messages: [{ role: 'user', content: 'hello' }],
-        }),
-      })
-      const { sessionId } = (await startRes.json()) as { sessionId: string }
-
-      await waitForCompletedSession(chatRoutes, sessionId)
-      const eventsRes = await chatRoutes.request(`/api/chat/sessions/${sessionId}/events`)
-      await eventsRes.text()
-
       expect(upsertConversationMock).not.toHaveBeenCalled()
     })
   })

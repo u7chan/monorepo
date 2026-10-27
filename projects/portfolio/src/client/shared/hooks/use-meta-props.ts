@@ -1,23 +1,6 @@
 import { useMemo } from 'react'
+import { readMetaProps, type MetaProps } from '#/client/shared/lib/meta-props'
 
-type Props = {
-  email?: string
-  loginExpiresLabel?: string | null
-}
-
-export function useMetaProps(): Props {
-  return useMemo(() => {
-    const meta = document.querySelector('meta[name="props"]')
-    if (!meta) return {}
-
-    const content = meta.getAttribute('content')
-    if (!content) return {}
-
-    try {
-      return JSON.parse(content)
-    } catch (error) {
-      console.error('Failed to parse meta props content', error)
-      return {}
-    }
-  }, [])
+export function useMetaProps(): MetaProps {
+  return useMemo(readMetaProps, [])
 }

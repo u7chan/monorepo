@@ -3,6 +3,7 @@ import type { AppType } from '#/server/app'
 
 const client = hc<AppType>('/')
 const FETCH_TIMEOUT_MS = 10000
+const SIGN_IN_REQUIRED_MESSAGE = 'ログインしてください'
 
 export interface ModelsFetchResult {
   models: string[]
@@ -20,6 +21,9 @@ async function fetchModelsWithTimeout(request: () => Promise<Response>): Promise
       const data = await response.json()
       const models = Array.isArray(data) ? data.filter((model): model is string => typeof model === 'string') : []
       return { models, error: null }
+    }
+    if (response.status === 401) {
+      return { models: [], error: SIGN_IN_REQUIRED_MESSAGE }
     }
     return { models: [], error: 'Failed to fetch models' }
   } catch (error) {
