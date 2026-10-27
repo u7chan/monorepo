@@ -31,7 +31,7 @@ portal 自身が一覧に出ると、開いても portal に戻るだけの項�
 - イメージのリポジトリが `ghcr.io/u7chan/monorepo/portal`（タグ・ダイジェストは問わない）
 - `HOSTNAME` が自分のコンテナ ID と一致する（docker がコンテナのホスト名に短縮コンテナ ID を入れるため）
 
-除外は API（`/api/containers`）の返却時に行うので、件数表示も除外後の値になる。
+除外は `fetchContainers` が Docker から取得した時点で行う。このため一覧 API の件数は除外後になり、操作 API（`/api/containers/:id/:action`）も同じ経路で portal 自身を見つけられず、`start` / `stop` は 404 を返す。portal が自分自身を停止して画面ごと消えるのを避けるための挙動なので、この 404 は仕様とする。
 
 ## 技術スタック
 
