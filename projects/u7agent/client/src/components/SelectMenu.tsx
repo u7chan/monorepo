@@ -43,6 +43,8 @@ export type SelectMenuProps<TValue extends string = string> = {
   note?: ReactNode;
   disabled?: boolean;
   onChange: (value: TValue) => void;
+  /** トリガーの寸法だけを呼び出し側で足す (見た目は field のまま)。未指定は今までどおり */
+  triggerClassName?: string;
 };
 
 /**
@@ -56,6 +58,7 @@ export function SelectMenu<TValue extends string = string>({
   note,
   disabled = false,
   onChange,
+  triggerClassName,
 }: SelectMenuProps<TValue>) {
   const menuId = useId();
   const triggerId = useId();
@@ -216,7 +219,10 @@ export function SelectMenu<TValue extends string = string>({
         disabled={disabled}
         onClick={toggle}
         onKeyDown={onTriggerKeyDown}
-        className="field flex min-w-0 cursor-pointer items-center gap-2 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-55"
+        className={cn(
+          "field flex min-w-0 cursor-pointer items-center gap-2 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-55",
+          triggerClassName,
+        )}
       >
         {selected?.leading ? <span className="shrink-0">{selected.leading}</span> : null}
         <span className="min-w-0 flex-1 truncate text-xs text-ink">{selected?.label ?? ""}</span>

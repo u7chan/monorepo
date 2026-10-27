@@ -1,153 +1,113 @@
-import { useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import type { FileSkillsState } from "../../hooks/useFileSkills";
+import { ALLOWLIST_SEARCH_EMPTY_NOTE } from "../../lib/allowlistText";
 import {
   BUILTIN_SKILL_EMPTY_NOTE,
   BUILTIN_SKILL_GROUP_LABEL,
   BUILTIN_SKILL_OVERRIDE_NOTE,
-  FILE_SKILL_ADD_LABEL,
+  COMMON_SKILL_SECTION_LABEL,
   FILE_SKILL_EMPTY_NOTE,
   FILE_SKILL_ERROR_PREFIX,
-  FILE_SKILL_GROUP_LABEL,
   FILE_SKILL_LOADING_NOTE,
-  FILE_SKILL_RELOAD_ARIA_LABEL,
-  FILE_SKILL_RELOAD_LABEL,
   FILE_SKILL_SCOPE_LABEL,
-  FILE_SKILL_SECTION_LABEL,
-  SKILL_EXPORT_LABEL,
-  SKILL_IMPORT_LABEL,
+  fileSkillScopeCounts,
+  fileSkillUsageLabel,
   fileSkillWarning,
+  filterFileSkills,
   groupFileSkills,
+  type FileSkillScopeTab,
 } from "../../lib/fileSkills";
+import { skillUsageCount, type SkillUsage } from "../../lib/skillUsage";
 import type { FileSkillInfo } from "../../types";
-import { MenuItem } from "../MenuItem";
-import { PlusIcon } from "../icons";
-import { ReloadButton } from "../ReloadButton";
-
-/** 一覧の見出しに並べる小さいボタンの寸法 (ReloadButton の sm と同じ) */
-const HEADING_BUTTON_CLASS = cn("btn-quiet shrink-0 gap-1 px-1.5 py-0.5");
 
 export type FileSkillListProps = {
   state: FileSkillsState;
-  onReload: () => void;
+  /** スコープタブ。「すべて」では組み込みを先頭に並べる */
+  scope: FileSkillScopeTab;
+  /** 検索語。表示だけを絞る */
+  query: string;
+  /** 使用中エージェント数。カタログ未取得のときは渡さない (0 と断定しない) */
+  usage?: SkillUsage;
   /**
    * 選択中のファイルスキル。上書きされた組み込みは同名の共通行と並ぶため、名前では 1 件に定まらない。
    * 行固有の path で照合する
    */
   selectedRelativePath?: string | null;
   onSelect: (skill: FileSkillInfo) => void;
-  /** 共通スキルの新規作成。未指定なら追加行を出さない */
-  onAdd?: () => void;
-  /** エクスポート / インポート。未指定なら操作を出さない (一覧だけを見せる面) */
-  archive?: {
-    /** エクスポートの check を送っている間は二重に送らない */
-    exporting: boolean;
-    /** インポートの plan / apply を送っている間は二重に送らない */
-    importing: boolean;
-    onExport: () => void;
-    onImportFile: (file: File) => void;
-  };
 };
+
+/** 行の右端に出す使用中エージェント数。未取得なら何も出さない */
+function usageText(usage: SkillUsage | undefined, skill: FileSkillInfo): string | undefined {
+  const count = skillUsageCount(usage, skill.relativePath);
+  return count === undefined ? undefined : fileSkillUsageLabel(count);
+}
 
 /**
  * 共通スキル (`.agents/skills`) と組み込みスキルの一覧。共通行は本文ビューから編集・削除でき、
  * 組み込みは読み取り専用のままにする。同じ名前の行が残ることがあり (上書きされた組み込み)、
- * 影になった側 / 上書きされた組み込みを警告として出す。
+ * 影になった側 / 上書きされた組み込みを警告として出す。相対パスは詳細へ譲り、行は名前・版・説明・
+ * 使用中エージェント数だけにする。
  */
 export function FileSkillList({
   state,
-  onReload,
+  scope,
+  query,
+  usage,
   selectedRelativePath = null,
   onSelect,
-  onAdd,
-  archive,
 }: FileSkillListProps) {
-  // 同じ ZIP を選び直しても change が飛ぶよう、選択のたびに値を戻す
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const groups = state.status === "ready" ? groupFileSkills(state.skills) : { common: [], builtin: [] };
-  // 共通行も組み込み行も同じ形 (押すと本文ビューが開く) なので、行の組み立ては 1 箇所に閉じる
-  const rows = (skills: FileSkillInfo[]) =>
-    skills.map((skill) => (
-      <FileSkillRow
-        key={skill.path}
-        skill={skill}
-        selected={selectedRelativePath === skill.relativePath}
-        onOpen={() => onSelect(skill)}
-      />
-    ));
+  if (state.status === "loading") {
+    return <ListNote>{FILE_SKILL_LOADING_NOTE}</ListNote>;
+  }
+  if (state.status === "error") {
+    return (
+      <ListNote tone="warn">
+        {FILE_SKILL_ERROR_PREFIX}: {state.message}
+      </ListNote>
+    );
+  }
+  const groups = groupFileSkills(state.skills);
+  const counts = fileSkillScopeCounts(state.skills);
+  const visible = filterFileSkills(state.skills, scope, query);
+  const row = (skill: FileSkillInfo) => (
+    <FileSkillRow
+      key={skill.path}
+      skill={skill}
+      usage={usageText(usage, skill)}
+      selected={selectedRelativePath === skill.relativePath}
+      onOpen={() => onSelect(skill)}
+    />
+  );
+  if (visible.length === 0) {
+    const empty =
+      state.skills.length === 0
+        ? scope === "builtin"
+          ? BUILTIN_SKILL_EMPTY_NOTE
+          : FILE_SKILL_EMPTY_NOTE
+        : ALLOWLIST_SEARCH_EMPTY_NOTE;
+    return <ListNote>{empty}</ListNote>;
+  }
+  if (scope !== "all") {
+    return <div className="grid min-w-0 content-start gap-1">{visible.map(row)}</div>;
+  }
+  const builtin = visible.filter((skill) => skill.scope === "builtin");
+  const common = visible.filter((skill) => skill.scope !== "builtin");
   return (
-    <section className="mt-3 grid min-w-0 content-start gap-1 border-t border-line pt-3">
-      {/* 再読み込みは両グループを包む見出しにだけ置く (グループ側に置くと片方だけ更新するように見える) */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 pb-1">
-        <h3 className="min-w-0 truncate text-2xs font-semibold tracking-widest text-ink-faint uppercase">
-          {FILE_SKILL_SECTION_LABEL}
-        </h3>
-        {/* 操作を 1 行に固定しない (折り返さないと、見出しが潰れるか操作が列の外で切れる) */}
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
-          {archive ? (
-            <>
-              <button
-                type="button"
-                onClick={archive.onExport}
-                disabled={archive.exporting}
-                className={HEADING_BUTTON_CLASS}
-              >
-                {SKILL_EXPORT_LABEL}
-              </button>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={archive.importing}
-                className={HEADING_BUTTON_CLASS}
-              >
-                {SKILL_IMPORT_LABEL}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".zip,application/zip"
-                tabIndex={-1}
-                aria-hidden="true"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  event.currentTarget.value = "";
-                  // 選択の取消 (files が空) では何もしない
-                  if (file) archive.onImportFile(file);
-                }}
-              />
-            </>
-          ) : null}
-          <ReloadButton size="sm" onClick={onReload} aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}>
-            {FILE_SKILL_RELOAD_LABEL}
-          </ReloadButton>
-        </div>
-      </div>
-      {state.status === "loading" ? <FileSkillNote>{FILE_SKILL_LOADING_NOTE}</FileSkillNote> : null}
-      {state.status === "error" ? (
-        <FileSkillNote tone="warn">
-          {FILE_SKILL_ERROR_PREFIX}: {state.message}
-        </FileSkillNote>
+    <div className="grid min-w-0 content-start gap-1">
+      {groups.builtin.length > 0 ? (
+        <FileSkillGroup title={`${BUILTIN_SKILL_GROUP_LABEL} ${counts.builtin}`}>{builtin.map(row)}</FileSkillGroup>
       ) : null}
-      {state.status === "ready" ? (
-        <>
-          <FileSkillGroup title={FILE_SKILL_GROUP_LABEL}>
-            {onAdd ? <MenuItem variant="add" icon={<PlusIcon />} label={FILE_SKILL_ADD_LABEL} onClick={onAdd} /> : null}
-            {groups.common.length === 0 ? <FileSkillNote>{FILE_SKILL_EMPTY_NOTE}</FileSkillNote> : null}
-            {rows(groups.common)}
-          </FileSkillGroup>
-          {/* 組み込みは取得できたときだけ出す (失敗時はエラー表示だけで十分で、空のグループ見出しを増やさない) */}
-          <FileSkillGroup title={BUILTIN_SKILL_GROUP_LABEL} divided>
-            {groups.builtin.length === 0 ? <FileSkillNote>{BUILTIN_SKILL_EMPTY_NOTE}</FileSkillNote> : null}
-            {rows(groups.builtin)}
-          </FileSkillGroup>
-        </>
+      {groups.common.length > 0 ? (
+        <FileSkillGroup title={`${COMMON_SKILL_SECTION_LABEL} ${counts.common}`} divided={groups.builtin.length > 0}>
+          {common.map(row)}
+        </FileSkillGroup>
       ) : null}
-    </section>
+    </div>
   );
 }
 
-/** 読み取り専用ブロックの中のグループ (共通 / 組み込み)。段は入れ子と字間で表し、色は親と揃える */
+/** 読み取り専用ブロックの中のグループ。段は入れ子と字間で表し、色は親と揃える */
 function FileSkillGroup({
   title,
   divided = false,
@@ -158,7 +118,7 @@ function FileSkillGroup({
   children: ReactNode;
 }) {
   return (
-    <div className={cn("grid min-w-0 content-start gap-1", divided && "mt-1 border-t border-line/60 pt-2")}>
+    <div className={cn("grid min-w-0 content-start gap-1", divided && "mt-1 border-t border-line pt-2")}>
       {/* ink-ghost は eyebrow 用で、10px の見出しでは実測でも各テーマの 3:1 を下回る */}
       <h4 className="px-2 text-2xs font-semibold tracking-label text-ink-faint uppercase">{title}</h4>
       {children}
@@ -166,7 +126,7 @@ function FileSkillGroup({
   );
 }
 
-function FileSkillNote({ tone = "muted", children }: { tone?: "muted" | "warn"; children: ReactNode }) {
+function ListNote({ tone = "muted", children }: { tone?: "muted" | "warn"; children: ReactNode }) {
   return (
     <p className={cn("px-2 text-2xs leading-4 break-words", tone === "warn" ? "text-warn" : "text-ink-muted")}>
       {children}
@@ -174,8 +134,21 @@ function FileSkillNote({ tone = "muted", children }: { tone?: "muted" | "warn"; 
   );
 }
 
-/** 行全体が本文ビューを開く button になる (共通 / プロジェクトも読み取り専用で、押しても何も起きない行は作らない)。 */
-function FileSkillRow({ skill, selected, onOpen }: { skill: FileSkillInfo; selected: boolean; onOpen: () => void }) {
+/**
+ * 行全体が本文ビューを開く button になる。読み上げ名は名前行 (名前 / スコープ / 版) に閉じ、
+ * 説明・警告・使用中エージェント数は button の外へ出して行全体のクリックは overlay で保つ。
+ */
+function FileSkillRow({
+  skill,
+  usage,
+  selected,
+  onOpen,
+}: {
+  skill: FileSkillInfo;
+  usage: string | undefined;
+  selected: boolean;
+  onOpen: () => void;
+}) {
   const warning = fileSkillWarning(skill);
   const identity = (
     <span className="flex min-w-0 items-baseline gap-1.5">
@@ -187,35 +160,35 @@ function FileSkillRow({ skill, selected, onOpen }: { skill: FileSkillInfo; selec
       ) : null}
     </span>
   );
-  const details = (
-    <>
-      <span className="truncate text-2xs leading-4 text-ink-soft">{skill.description || "説明なし"}</span>
-      <code className="truncate text-2xs leading-4 text-ink-ghost">{skill.relativePath}</code>
+  return (
+    <div
+      data-skill-row={skill.relativePath}
+      className={cn(
+        "relative grid min-w-0 gap-1 rounded-lg px-2 py-1.5 transition-colors",
+        selected ? "bg-accent-wash text-accent-text" : "text-ink hover:bg-hover",
+      )}
+    >
+      <div className="flex min-w-0 items-start gap-2">
+        <div className="grid min-w-0 flex-1 gap-0.5">
+          <button
+            type="button"
+            aria-pressed={selected}
+            onClick={onOpen}
+            className="min-w-0 text-left after:absolute after:inset-0"
+          >
+            {identity}
+          </button>
+          <span className="truncate text-2xs leading-4 text-ink-soft" title={skill.description}>
+            {skill.description || "説明なし"}
+          </span>
+        </div>
+        {usage ? <span className="shrink-0 text-2xs leading-4 text-ink-muted">{usage}</span> : null}
+      </div>
       {warning ? (
         <span className={cn("text-2xs leading-4 break-words", warning === BUILTIN_SKILL_OVERRIDE_NOTE && "text-warn")}>
           {warning}
         </span>
       ) : null}
-    </>
-  );
-  // 本文ビューを開ける (読み取り専用なので編集フォームは出さない)。説明・パス・警告は button の
-  // 外へ出して読み上げ名を名前行に閉じ、クリック領域は overlay で行全体のまま保つ (docs/api-catalog.md)
-  return (
-    <div
-      className={cn(
-        "relative grid min-w-0 gap-1 rounded-lg px-2 py-1 transition-colors",
-        selected ? "bg-accent-wash text-accent-text" : "text-ink hover:bg-hover",
-      )}
-    >
-      <button
-        type="button"
-        aria-pressed={selected}
-        onClick={onOpen}
-        className="min-w-0 text-left after:absolute after:inset-0"
-      >
-        {identity}
-      </button>
-      {details}
     </div>
   );
 }

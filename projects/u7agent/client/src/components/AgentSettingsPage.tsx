@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { reorderAgents } from "../api";
 import { useFileSkills } from "../hooks/useFileSkills";
 import { useWideLayout } from "../hooks/useLayoutMode";
@@ -7,10 +7,18 @@ import { createAgentOrderFlow, type AgentOrderNoteKind, type AgentOrderState } f
 import { reorderRows } from "../lib/agentReorder";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
-import { AgentEditorForm, agentFormKey, agentFormOf, type AgentForm } from "./agent-settings/AgentEditorForm";
+import {
+  AgentEditorForm,
+  agentFormKey,
+  agentFormOf,
+  isAgentFormDirty,
+  type AgentForm,
+} from "./agent-settings/AgentEditorForm";
 import { AgentList } from "./agent-settings/AgentList";
 import { BuiltinAgentPanel } from "./agent-settings/BuiltinAgentPanel";
-import { SettingsDetailSheet } from "./SettingsDetailSheet";
+import { AgentIcon } from "./AgentIcon";
+import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
+import { SettingsDetailHeader } from "./SettingsDetailHeader";
 import type { CatalogResponse, ModelOption, ThinkingLevel } from "../types";
 
 export type AgentSettingsPageProps = SettingsPageProps & {
@@ -25,6 +33,9 @@ export type AgentSettingsPageProps = SettingsPageProps & {
   defaultThinkingLevel?: ThinkingLevel;
 };
 
+/** 一覧と詳細のどちらを見せるか。並列表示では使わない */
+type AgentView = "list" | "detail";
+
 /** 並べ替えの失敗の文言。保存されたかどうかで伝えることを分ける（client/src/lib/agentOrder.ts） */
 function orderNoteText(kind: AgentOrderNoteKind, message: string): string {
   if (kind === "rejected") return `並び順を保存できませんでした。${message}`;
@@ -34,7 +45,11 @@ function orderNoteText(kind: AgentOrderNoteKind, message: string): string {
   return `並び順は保存しましたが、一覧を取り直せませんでした。${message}`;
 }
 
-/** エージェント定義の管理ページ。dialog を被せないので、サイドバーの設定ナビと同時に見える */
+/**
+ * エージェント定義の管理ページ。900px 以上の desktop では一覧と編集面を並べ、
+ * それ以外 (singleColumn / 狭い desktop / 低い窓) では同じページの中で一覧 ⇄ 詳細を切り替える
+ * (docs/ui-layout.md の「設定の一覧と編集の境界」)。
+ */
 export function AgentSettingsPage({
   catalog,
   agentId,
@@ -48,15 +63,14 @@ export function AgentSettingsPage({
   onOpenNav,
 }: AgentSettingsPageProps) {
   const agents = selectableAgents(catalog);
-  // 一覧と編集を並べるのは 900px 以上だけ。狭い desktop と singleColumn は「一覧ページ + 全画面シート」に統一する
-  // (一覧が何件でも編集面を削られない。docs/ui-layout.md の「設定の編集フォーム」)
+  // 並べるのは 900px 以上だけ。狭いときはページ内の view state で一覧と詳細を切り替える
   const wide = useWideLayout();
-  const sheetMode = singleColumn || !wide;
+  const split = !singleColumn && wide;
+  const [view, setView] = useState<AgentView>("list");
   const [editingId, setEditingId] = useState<string | null>(() => agentId || catalog.agents[0]?.id || null);
   // 共通スキル (`.agents/skills`) の一覧。エージェントへ割り当てる値の編集にだけ使う (読み取り専用)
   const fileSkills = useFileSkills();
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
-  const [sheetOpen, setSheetOpen] = useState(false);
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
   // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/agentOrder が持ち、
@@ -100,11 +114,12 @@ export function AgentSettingsPage({
     setFormSource({ editingId, key: nextFormKey });
     setAgentForm(agentFormOf(editingAgent));
   }
+  const dirty = !builtinEditing && isAgentFormDirty(agentForm, editingAgent);
 
   const selectAgent = (nextId: string | null) => {
     setEditingId(nextId);
-    // 並べて見られないときだけシートを開く (900px 以上はページ内のフォームをそのまま使う)
-    if (sheetMode) setSheetOpen(true);
+    // 並べて見られないときだけ詳細へ切り替える (900px 以上はページ内のフォームをそのまま使う)
+    if (!split) setView("detail");
   };
 
   const startNewAgent = () => {
@@ -112,9 +127,44 @@ export function AgentSettingsPage({
     selectAgent(null);
   };
 
+  // 一覧 ⇄ 詳細の焦点。詳細では見出し (ヘッダ) へ、戻ったときは選択中の行へ移す (docs/ui-layout.md)
+  const listRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+  const previousView = useRef<AgentView>(view);
+  useEffect(() => {
+    const previous = previousView.current;
+    previousView.current = view;
+    if (split || previous === view) return;
+    if (view === "detail") {
+      detailRef.current?.focus();
+      return;
+    }
+    const row = editingId
+      ? listRef.current?.querySelector<HTMLButtonElement>(`[data-agent-row="${CSS.escape(editingId)}"] button`)
+      : undefined;
+    (row ?? listRef.current?.querySelector<HTMLButtonElement>("button"))?.focus();
+  }, [view, split, editingId]);
+
+  // 詳細の Escape は一覧へ戻す。capture で受けるのは、焦点が詳細の外へ落ちていても
+  // App の「設定 → チャット」の Escape (window の bubble) より先に消費するため
+  useEffect(() => {
+    if (split || view !== "detail") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // モーダル / popover が開いている間は、そちらの標準の閉じ方に任せる
+      if (document.querySelector("dialog[open], :popover-open")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setView("list");
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [split, view]);
+
   const list = (
     <AgentList
       agents={visibleAgents}
+      builtinId={builtinId}
       reorderIds={reorderIds}
       editingId={editingId}
       onSelect={selectAgent}
@@ -129,7 +179,6 @@ export function AgentSettingsPage({
   const editor = builtinEditing ? (
     <BuiltinAgentPanel
       agent={builtinEditing}
-      variant={sheetMode ? "sheet" : "page"}
       builtinSkills={catalog.builtinSkills}
       tools={catalog.tools}
       fileSkills={fileSkills.state}
@@ -143,7 +192,6 @@ export function AgentSettingsPage({
       agent={editingAgent}
       form={agentForm}
       setForm={setAgentForm}
-      variant={sheetMode ? "sheet" : "page"}
       selectedAgentId={agentId}
       modelOptions={modelOptions}
       defaultModel={defaultModel}
@@ -151,38 +199,78 @@ export function AgentSettingsPage({
       refreshCatalog={refreshCatalog}
       onSelectAgent={selectAgent}
       onNote={setNoteText}
-      onDone={() => setSheetOpen(false)}
+      onDone={() => {
+        if (!split) setView("list");
+      }}
+      note={split ? undefined : note}
     />
+  );
+
+  // 現在名 + ▾ のピッカー。戻る矢印だけが一覧へ戻り、ピッカーの選択は詳細の対象を切り替える
+  const pickerOptions: SelectMenuOption[] = visibleAgents.map((agent) => ({
+    value: agent.id,
+    label: agent.name,
+    description: agent.description || undefined,
+    leading: <AgentIcon icon={agent.icon} variant="list" />,
+  }));
+  if (!editingAgent) {
+    pickerOptions.unshift({ value: "", label: "新しいエージェント" });
+  }
+  const detail = (
+    <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
+      <SettingsDetailHeader
+        ref={detailRef}
+        back={split ? undefined : { label: "エージェント一覧へ", onClick: () => setView("list") }}
+        title={
+          <SelectMenu
+            options={pickerOptions}
+            value={editingId ?? ""}
+            label="エージェントを切り替える"
+            triggerClassName="min-h-11"
+            onChange={(value) => selectAgent(value || null)}
+          />
+        }
+        badge={
+          dirty ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-warn/50 px-1.5 text-2xs leading-5 text-warn-text">
+              <span aria-hidden className="size-1.5 rounded-full bg-warn" />
+              未保存
+            </span>
+          ) : builtinEditing ? (
+            <span className="rounded border border-line bg-soft px-1.5 text-2xs leading-4 text-ink-ghost">
+              ビルトイン
+            </span>
+          ) : undefined
+        }
+      />
+      {editor}
+    </div>
   );
 
   return (
     <SettingsPageLayout
       eyebrow="AGENTS"
       title="エージェント"
-      caption="会話の役割と、割り当てるスキルを定義します。"
+      caption="会話の役割と、割り当てるスキルとツールを定義します。"
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
-      note={note}
+      note={split || view === "list" ? note : undefined}
     >
-      {sheetMode ? (
-        <div className="grid min-h-0 min-w-0 grid-rows-1">{list}</div>
-      ) : (
+      {split ? (
         <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">
           {list}
-          {editor}
+          {detail}
+        </div>
+      ) : (
+        <div className="grid min-h-0 min-w-0 grid-rows-1">
+          {/* 一覧は隠れている間も mount したままにする (検索語とスクロールを詳細との往復で失わない) */}
+          <div ref={listRef} hidden={view === "detail"} inert={view === "detail"} className="grid min-h-0 grid-rows-1">
+            {list}
+          </div>
+          {view === "detail" ? detail : null}
         </div>
       )}
-      {sheetMode && sheetOpen ? (
-        <SettingsDetailSheet
-          eyebrow="AGENT"
-          title={builtinEditing ? "ビルトインエージェント" : editingAgent ? "エージェントを編集" : "新しいエージェント"}
-          note={note}
-          onClose={() => setSheetOpen(false)}
-        >
-          {editor}
-        </SettingsDetailSheet>
-      ) : null}
     </SettingsPageLayout>
   );
 }

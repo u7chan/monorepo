@@ -141,3 +141,43 @@ test("組み込みと root の外を指すパスにはファイルタブの root
   // .. はセグメント全体のときだけ親参照 (release..notes のような名前は巻き込まない)
   assert.equal(fileSkillDir(fileSkill({ relativePath: "skills/release..notes/SKILL.md" })), "skills/release..notes");
 });
+
+// スコープタブと検索で一覧を絞る。件数は検索で絞る前のスコープ単位で数える。
+test("スコープタブの件数は組み込みと共通に分け、すべては合計を出す", async () => {
+  const { fileSkillScopeCounts } = await import("../src/lib/fileSkills");
+  const counts = fileSkillScopeCounts([
+    fileSkill({ scope: "user" }),
+    fileSkill({ scope: "project", name: "beta" }),
+    fileSkill({ scope: "builtin", name: "gamma" }),
+  ]);
+  assert.deepEqual(counts, { all: 3, builtin: 1, common: 2 });
+});
+
+test("スコープと検索の絞り込みは組み込みを先頭にし、取得順を保つ", async () => {
+  const { filterFileSkills } = await import("../src/lib/fileSkills");
+  const alpha = fileSkill({ name: "alpha", description: "共通の説明" });
+  const beta = fileSkill({ name: "beta", description: "組み込みの説明", scope: "builtin" });
+  const gamma = fileSkill({ name: "gamma", description: "共通の説明" });
+  const skills = [alpha, beta, gamma];
+
+  assert.deepEqual(
+    filterFileSkills(skills, "all", "").map((skill) => skill.name),
+    ["beta", "alpha", "gamma"],
+  );
+  assert.deepEqual(
+    filterFileSkills(skills, "builtin", "").map((skill) => skill.name),
+    ["beta"],
+  );
+  assert.deepEqual(
+    filterFileSkills(skills, "common", "").map((skill) => skill.name),
+    ["alpha", "gamma"],
+  );
+  assert.deepEqual(
+    filterFileSkills(skills, "all", "説明").map((skill) => skill.name),
+    ["beta", "alpha", "gamma"],
+  );
+  assert.deepEqual(
+    filterFileSkills(skills, "common", "gamma").map((skill) => skill.name),
+    ["gamma"],
+  );
+});

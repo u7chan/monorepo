@@ -1,30 +1,46 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useFileSkills, type FileSkillsState } from "../hooks/useFileSkills";
 import { useFileSkillArchive } from "../hooks/useFileSkillArchive";
 import { useWideLayout } from "../hooks/useLayoutMode";
 import {
   FILE_SKILL_ADD_LABEL,
+  FILE_SKILL_CREATE_HEADING,
   FILE_SKILL_DELETE_LABEL,
   FILE_SKILL_EDIT_LABEL,
   FILE_SKILL_PANE_ERROR_NOTE,
   FILE_SKILL_PANE_LOADING_NOTE,
   FILE_SKILL_PANE_NOTE,
-  FILE_SKILL_PANEL_HEADING,
+  FILE_SKILL_SCOPE_LABEL,
+  FILE_SKILL_SCOPE_TABS,
+  SKILL_EXPORT_LABEL,
+  SKILL_IMPORT_LABEL,
+  type FileSkillScopeTab,
+  fileSkillScopeCounts,
 } from "../lib/fileSkills";
-import { MEMORY_NOTE } from "../lib/settingsNotes";
+import { MEMORY_NOTE, RELOAD_ABOVE_NOTE } from "../lib/settingsNotes";
 import { fileSkillDeleteConfirmRequest, skillDiscardConfirmRequest } from "../lib/settingsConfirm";
-import type { FileSkillInfo } from "../types";
-import { DefinitionList } from "./DefinitionList";
+import { skillUsageByPath, type SkillUsage } from "../lib/skillUsage";
+import type { CatalogResponse, FileSkillInfo } from "../types";
 import { useConfirm } from "./ConfirmProvider";
-import { SettingsDetailSheet } from "./SettingsDetailSheet";
+import { DefinitionList } from "./DefinitionList";
+import { SettingsDetailHeader } from "./SettingsDetailHeader";
+import { SettingsNoteRow } from "./SettingsNoteRow";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
+import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
+import { SettingsSearchField } from "./SettingsSearchField";
+import { SettingsTabs } from "./SettingsTabs";
 import { FileSkillEditorForm } from "./skill-settings/FileSkillEditorForm";
 import { FileSkillList } from "./skill-settings/FileSkillList";
 import { FileSkillPanel } from "./skill-settings/FileSkillPanel";
 import { SkillImportDialog } from "./skill-settings/SkillImportDialog";
-import { PencilIcon, TrashIcon } from "./icons";
+import { PencilIcon, PlusIcon, SparkleIcon, SkillListIcon, TrashIcon } from "./icons";
 
 export type SkillSettingsPageProps = SettingsPageProps & {
+  /**
+   * 使用中エージェント数の導出に使う共有カタログ。未取得 (ビルトインもユーザー定義も空) のときは
+   * 0 と断定せず、件数を出さない
+   */
+  catalog?: CatalogResponse;
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
   filePreviewPort?: number;
   /** ワークスペース root の絶対パス (health.cwd)。ファイルタブの行の絶対パスをコピーする導線に使う */
@@ -47,7 +63,7 @@ export function fileSkillAddRow(
 }
 
 /**
- * 選択が無いときの右ペインの案内。一覧を取得できていない間は「新しいスキル」からの作成を案内しない
+ * 選択が無いときの案内。一覧を取得できていない間は「新しいスキル」からの作成を案内しない
  * (追加行も出ないため、案内だけが残るとできない操作を促すことになる)。
  */
 export function fileSkillPaneNote(state: FileSkillsState): string {
@@ -55,20 +71,29 @@ export function fileSkillPaneNote(state: FileSkillsState): string {
   return state.status === "loading" ? FILE_SKILL_PANE_LOADING_NOTE : FILE_SKILL_PANE_ERROR_NOTE;
 }
 
+/** 一覧と詳細のどちらを見せるか。並列表示では使わない */
+type SkillView = "list" | "detail";
+
+/**
+ * スキルの管理ページ。900px 以上の desktop では一覧と詳細を並べ、それ以外では同じページの中で
+ * 一覧 ⇄ 詳細を切り替える (docs/ui-layout.md の「設定の一覧と編集の境界」)。
+ */
 export function SkillSettingsPage({
+  catalog,
   filePreviewPort,
   rootCwd,
   singleColumn = false,
   onBack,
   onOpenNav,
 }: SkillSettingsPageProps) {
-  // 一覧と編集を並べるのは 900px 以上だけ。狭い desktop と singleColumn は「一覧ページ + 全画面シート」に統一する
-  // (一覧が何件でも編集面を削られない。docs/ui-layout.md の「設定の一覧と編集の境界」)
   const wide = useWideLayout();
-  const sheetMode = singleColumn || !wide;
+  const split = !singleColumn && wide;
   const confirm = useConfirm();
+  const [view, setView] = useState<SkillView>("list");
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // スコープタブと検索は表示だけを絞る (個別の選択と詳細の対象は変えない)
+  const [scope, setScope] = useState<FileSkillScopeTab>("all");
+  const [query, setQuery] = useState("");
   // ファイルスキルの選択は一覧の root 相対 relativePath で持つ (変更要求のキーと同じ。上書きされた
   // 組み込みは同名の共通行と並ぶため、名前では 1 件に定まらない)
   const [selectedFileSkillRel, setSelectedFileSkillRel] = useState<string | null>(null);
@@ -97,33 +122,42 @@ export function SkillSettingsPage({
   const creatingFileSkill = fileSkillEditor.status === "create" ? fileSkillEditor : null;
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
+  // 使用中エージェント数。カタログ未取得のときは渡さず、0 と断定しない
+  const catalogReady = catalog !== undefined && (catalog.builtinAgent !== null || catalog.agents.length > 0);
+  const usage: SkillUsage | undefined =
+    catalogReady && fileSkills.state.status === "ready"
+      ? skillUsageByPath({
+          agents: catalog.agents,
+          skills: fileSkills.state.skills,
+          builtinAgentId: catalog.builtinAgent?.id,
+        })
+      : undefined;
+
+  const focusDetail = () => {
+    if (!split) setView("detail");
+  };
+
   /** インポートした共通スキルを選択して開く。一覧は適用後に取り直しているので、応答が届けば選択は戻る */
   const selectImportedFileSkill = (relativePath: string) => {
     setSelectedFileSkillRel(relativePath);
     setSelectedFileSkillSeq((seq) => seq + 1);
     fileSkills.openDetail(relativePath);
-    if (sheetMode) setSheetOpen(true);
+    focusDetail();
   };
-
-  const archive = useFileSkillArchive({
-    reloadSkills: fileSkills.reload,
-    selectSkill: selectImportedFileSkill,
-    note: setNoteText,
-  });
 
   const selectFileSkill = (skill: FileSkillInfo) => {
     setSelectedFileSkillRel(skill.relativePath);
     // 同じ行の押し直しでも本文を取り直す (ファイルは選択の外で書き換わる)
     setSelectedFileSkillSeq((seq) => seq + 1);
     if (skill.scope === "user") fileSkills.openDetail(skill.relativePath);
-    if (sheetMode) setSheetOpen(true);
+    focusDetail();
   };
 
   /** 共通スキルの新規作成。名前と説明はサーバー側でも検証され、同名は 409 で止まる */
   const startNewFileSkill = () => {
     setSelectedFileSkillRel(null);
     fileSkills.startCreate();
-    if (sheetMode) setSheetOpen(true);
+    focusDetail();
   };
 
   const saveFileSkill = (event: FormEvent<HTMLFormElement>) => {
@@ -137,7 +171,8 @@ export function SkillSettingsPage({
       }
       setSelectedFileSkillRel(result.relativePath);
       setNoteText(created ? "共通スキルを作成しました。" : "共通スキルを保存しました。");
-      if (created) setSheetOpen(false);
+      // 新規は保存後に一覧へ戻る (作成した行が選択された状態で見える)
+      if (created && !split) setView("list");
     })();
   };
 
@@ -152,7 +187,7 @@ export function SkillSettingsPage({
       if (dirty && !(await confirm(skillDiscardConfirmRequest()))) return;
       if (creatingFileSkill) {
         setSelectedFileSkillRel(null);
-        setSheetOpen(false);
+        if (!split) setView("list");
       }
       fileSkills.cancelEdit();
     })();
@@ -172,7 +207,7 @@ export function SkillSettingsPage({
           return;
         }
         setSelectedFileSkillRel(null);
-        setSheetOpen(false);
+        if (!split) setView("list");
         setNoteText("共通スキルを削除しました。");
       } catch (error) {
         setNoteText(errorText(error), true);
@@ -180,32 +215,147 @@ export function SkillSettingsPage({
     })();
   };
 
+  /*
+   * 一覧 ⇄ 詳細の焦点。詳細では見出し (ヘッダ) へ、戻ったときは選択中の行へ移す (docs/ui-layout.md)
+   */
+  const listRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+  const previousView = useRef<SkillView>(view);
+  useEffect(() => {
+    const previous = previousView.current;
+    previousView.current = view;
+    if (split || previous === view) return;
+    if (view === "detail") {
+      detailRef.current?.focus();
+      return;
+    }
+    const row = selectedFileSkillRel
+      ? listRef.current?.querySelector<HTMLButtonElement>(
+          `[data-skill-row="${CSS.escape(selectedFileSkillRel)}"] button`,
+        )
+      : undefined;
+    (row ?? listRef.current?.querySelector<HTMLButtonElement>("button"))?.focus();
+  }, [view, split, selectedFileSkillRel]);
+
+  // 詳細の Escape は一覧へ戻す。capture で受けるのは、焦点が詳細の外へ落ちていても
+  // App の「設定 → チャット」の Escape (window の bubble) より先に消費するため
+  useEffect(() => {
+    if (split || view !== "detail") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // モーダル / popover が開いている間は、そちらの標準の閉じ方に任せる
+      if (document.querySelector("dialog[open], :popover-open")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setView("list");
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [split, view]);
+
+  const archive = useFileSkillArchive({
+    reloadSkills: fileSkills.reload,
+    selectSkill: selectImportedFileSkill,
+    note: setNoteText,
+  });
+  const archiveImportRef = useRef<HTMLInputElement>(null);
+
+  const counts = fileSkills.state.status === "ready" ? fileSkillScopeCounts(fileSkills.state.skills) : undefined;
+  const add = fileSkillAddRow(fileSkills.state, startNewFileSkill);
+
   const list = (
     <DefinitionList
-      title="スキル一覧"
-      count={fileSkills.state.status === "ready" ? fileSkills.state.skills.length : 0}
-      add={fileSkillAddRow(fileSkills.state, startNewFileSkill)}
+      tabs={
+        <SettingsTabs
+          items={FILE_SKILL_SCOPE_TABS.map((tab) => ({
+            subsection: tab.value,
+            label: counts ? `${tab.label} ${counts[tab.value]}` : tab.label,
+            ariaLabel: counts ? `${tab.label}（${counts[tab.value]} 件）` : tab.label,
+          }))}
+          active={scope}
+          onSelect={setScope}
+          ariaLabel="スキルの種類"
+          singleColumn={singleColumn}
+        />
+      }
+      search={
+        <SettingsSearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="名前・説明で絞り込む"
+          ariaLabel="スキルを絞り込む"
+        />
+      }
+      footer={
+        <div className="grid gap-1.5">
+          {add ? (
+            <button
+              type="button"
+              onClick={add.onAdd}
+              className="flex min-h-11 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-3 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
+            >
+              <PlusIcon />
+              {add.label}
+            </button>
+          ) : null}
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void archive.exportSkills()}
+              disabled={archive.exporting}
+              className="btn-quiet min-h-9 px-2 text-2xs"
+            >
+              {SKILL_EXPORT_LABEL}
+            </button>
+            <button
+              type="button"
+              onClick={() => archiveImportRef.current?.click()}
+              disabled={archive.import.status === "planning" || archive.import.status === "applying"}
+              className="btn-quiet min-h-9 px-2 text-2xs"
+            >
+              {SKILL_IMPORT_LABEL}
+            </button>
+            <button type="button" onClick={fileSkills.reload} className="btn-quiet ml-auto min-h-9 px-2 text-2xs">
+              再読み込み
+            </button>
+            <input
+              ref={archiveImportRef}
+              type="file"
+              accept=".zip,application/zip"
+              tabIndex={-1}
+              aria-hidden="true"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                // 選択の取消 (files が空) では何もしない
+                if (file) void archive.selectImportFile(file);
+              }}
+            />
+          </div>
+          {fileSkills.state.status === "error" ? (
+            <p className="text-2xs leading-4 text-ink-muted">{RELOAD_ABOVE_NOTE}</p>
+          ) : null}
+        </div>
+      }
     >
       <FileSkillList
         state={fileSkills.state}
-        onReload={fileSkills.reload}
+        scope={scope}
+        query={query}
+        usage={usage}
         selectedRelativePath={selectedFileSkillRel}
         onSelect={selectFileSkill}
-        archive={{
-          exporting: archive.exporting,
-          importing: archive.import.status === "planning" || archive.import.status === "applying",
-          onExport: () => void archive.exportSkills(),
-          onImportFile: (file) => void archive.selectImportFile(file),
-        }}
       />
     </DefinitionList>
   );
 
-  const fileSkillActions =
-    selectedFileSkill?.scope === "user" && selectedFileSkillDetail ? (
+  const canEditSelected = selectedFileSkill?.scope === "user" && selectedFileSkillDetail?.editable === true;
+  const actions =
+    selectedFileSkill?.scope === "user" && selectedFileSkillDetail && !editingFileSkill ? (
       <>
-        {selectedFileSkillDetail.editable ? (
-          <button type="button" onClick={fileSkills.startEdit} className="btn-quiet">
+        {canEditSelected ? (
+          <button type="button" onClick={fileSkills.startEdit} className="btn-quiet min-h-11">
             <PencilIcon />
             {FILE_SKILL_EDIT_LABEL}
           </button>
@@ -213,7 +363,8 @@ export function SkillSettingsPage({
         <button
           type="button"
           onClick={removeFileSkill}
-          className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg border border-danger/50 px-2 text-2xs text-danger-text transition-colors hover:bg-danger/10"
+          aria-label={`${selectedFileSkill.name} を${FILE_SKILL_DELETE_LABEL}`}
+          className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-danger/50 px-2 text-2xs text-danger-text transition-colors hover:bg-danger/10"
         >
           <TrashIcon />
           {FILE_SKILL_DELETE_LABEL}
@@ -221,14 +372,50 @@ export function SkillSettingsPage({
       </>
     ) : undefined;
 
-  const editor = creatingFileSkill ? (
+  // ピッカーはスコープ / 検索で絞り込んだ一覧ではなく全件を使う (検索中でも切り替え先を探せる)。
+  // 選択中の行が一覧に無くても現在名は出す
+  const pickerSkills = fileSkills.state.status === "ready" ? fileSkills.state.skills : [];
+  const orderedPickerSkills = [
+    ...pickerSkills.filter((skill) => skill.scope === "builtin"),
+    ...pickerSkills.filter((skill) => skill.scope !== "builtin"),
+  ];
+  const pickerOptions: SelectMenuOption[] = orderedPickerSkills.map((skill): SelectMenuOption => ({
+    value: skill.relativePath,
+    label: skill.name,
+    detail: skill.version ? `v${skill.version}` : undefined,
+    description: skill.description || undefined,
+    leading:
+      skill.scope === "builtin" ? (
+        <span className="text-ink-muted">
+          <SparkleIcon />
+        </span>
+      ) : (
+        <span className="text-accent-text">
+          <SkillListIcon />
+        </span>
+      ),
+  }));
+  if (selectedFileSkill && !pickerOptions.some((option) => option.value === selectedFileSkill.relativePath)) {
+    pickerOptions.unshift({
+      value: selectedFileSkill.relativePath,
+      label: selectedFileSkill.name,
+      detail: selectedFileSkill.version ? `v${selectedFileSkill.version}` : undefined,
+    });
+  }
+
+  const heading = creatingFileSkill
+    ? FILE_SKILL_CREATE_HEADING
+    : editingFileSkill && selectedFileSkill
+      ? `${selectedFileSkill.name} を編集`
+      : undefined;
+
+  const detailContent = creatingFileSkill ? (
     <FileSkillEditorForm
       mode="create"
       draft={creatingFileSkill.draft}
       setDraft={fileSkills.setDraft}
       conflict={false}
       notice={creatingFileSkill.notice}
-      variant={sheetMode ? "sheet" : "page"}
       onSave={saveFileSkill}
       onCancel={cancelFileSkillEdit}
     />
@@ -239,7 +426,6 @@ export function SkillSettingsPage({
       setDraft={fileSkills.setDraft}
       conflict={editingFileSkill.conflict}
       notice={null}
-      variant={sheetMode ? "sheet" : "page"}
       onSave={saveFileSkill}
       onCancel={cancelFileSkillEdit}
       onReload={() => fileSkills.openDetail(editingFileSkill.relativePath)}
@@ -251,52 +437,91 @@ export function SkillSettingsPage({
       key={`${selectedFileSkill.relativePath}:${selectedFileSkillSeq}`}
       skill={selectedFileSkill}
       detail={selectedFileSkillDetail}
-      actions={fileSkillActions}
-      variant={sheetMode ? "sheet" : "page"}
+      usage={usage}
       filePreviewPort={filePreviewPort}
       rootCwd={rootCwd}
     />
   ) : (
-    <section className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
-      <div className="mx-auto grid max-w-3xl gap-3">
-        <p className="text-xs leading-relaxed text-ink-muted">{fileSkillPaneNote(fileSkills.state)}</p>
-      </div>
-    </section>
+    <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
+      <p className="mx-auto max-w-3xl text-1xs leading-relaxed text-ink-muted">{fileSkillPaneNote(fileSkills.state)}</p>
+    </div>
   );
 
-  // シートの見出しは表示中の面に合わせる
-  const sheetTitle = creatingFileSkill
-    ? "新しい共通スキル"
-    : editingFileSkill && selectedFileSkill
-      ? `${FILE_SKILL_PANEL_HEADING[selectedFileSkill.scope]}を編集`
-      : selectedFileSkill
-        ? FILE_SKILL_PANEL_HEADING[selectedFileSkill.scope]
-        : "スキル";
+  const detail = (
+    <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto]">
+      <SettingsDetailHeader
+        ref={detailRef}
+        back={split ? undefined : { label: "スキル一覧へ", onClick: () => setView("list") }}
+        leading={
+          selectedFileSkill?.scope === "builtin" ? <SparkleIcon /> : selectedFileSkill ? <SkillListIcon /> : undefined
+        }
+        title={
+          heading ? (
+            <span className="truncate text-sm font-semibold text-ink-strong">{heading}</span>
+          ) : (
+            <SelectMenu
+              options={pickerOptions}
+              value={selectedFileSkill?.relativePath ?? ""}
+              label="スキルを切り替える"
+              triggerClassName="min-h-11"
+              onChange={(value) => {
+                const next = pickerSkills.find((skill) => skill.relativePath === value);
+                if (next) selectFileSkill(next);
+              }}
+            />
+          )
+        }
+        badge={
+          selectedFileSkill ? (
+            <>
+              {selectedFileSkill.version ? (
+                <span className="rounded border border-line bg-soft px-1.5 text-2xs leading-4 text-ink-ghost">
+                  v{selectedFileSkill.version}
+                </span>
+              ) : null}
+              <span className="rounded border border-accent/50 bg-accent-wash px-1.5 text-2xs leading-4 text-accent-text">
+                {FILE_SKILL_SCOPE_LABEL[selectedFileSkill.scope]}
+              </span>
+            </>
+          ) : undefined
+        }
+        actions={actions}
+      />
+      {detailContent}
+      {split ? null : <SettingsNoteRow note={note} />}
+    </div>
+  );
 
   return (
     <>
       <SettingsPageLayout
         eyebrow="SKILLS"
         title="スキル"
-        caption="エージェントの会話で使うスキルを管理します。"
+        caption="会話で使う手順書のライブラリ。共通スキルはファイル、組み込みはアプリ同梱です。"
         singleColumn={singleColumn}
         onOpenNav={onOpenNav}
         onBack={onBack}
-        note={note}
+        note={split || view === "list" ? note : undefined}
       >
-        {sheetMode ? (
-          <div className="grid min-h-0 min-w-0 grid-rows-1">{list}</div>
-        ) : (
+        {split ? (
           <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">
             {list}
-            {editor}
+            {detail}
+          </div>
+        ) : (
+          <div className="grid min-h-0 min-w-0 grid-rows-1">
+            {/* 一覧は隠れている間も mount したままにする (検索語とスクロールを詳細との往復で失わない) */}
+            <div
+              ref={listRef}
+              hidden={view === "detail"}
+              inert={view === "detail"}
+              className="grid min-h-0 grid-rows-1"
+            >
+              {list}
+            </div>
+            {view === "detail" ? detail : null}
           </div>
         )}
-        {sheetMode && sheetOpen ? (
-          <SettingsDetailSheet eyebrow="SKILL" title={sheetTitle} note={note} onClose={() => setSheetOpen(false)}>
-            {editor}
-          </SettingsDetailSheet>
-        ) : null}
       </SettingsPageLayout>
       {/* インポートの面は一覧の下に重ねる (背面の一覧は inert になり、二重のモーダルにしない) */}
       {archive.import.status === "idle" ? null : (

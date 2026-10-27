@@ -864,7 +864,12 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
         );
       case "skills":
         return (
-          <SkillSettingsPage {...pageProps} filePreviewPort={app.health?.filePreviewPort} rootCwd={app.health?.cwd} />
+          <SkillSettingsPage
+            {...pageProps}
+            catalog={app.catalog}
+            filePreviewPort={app.health?.filePreviewPort}
+            rootCwd={app.health?.cwd}
+          />
         );
       case "files":
         // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。

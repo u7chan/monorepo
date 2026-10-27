@@ -2,7 +2,15 @@ import { useRef, useState, type Dispatch, type FormEvent, type SetStateAction } 
 import { createAgent, deleteAgent, updateAgent } from "../../api";
 import type { FileSkillsState } from "../../hooks/useFileSkills";
 import { fileToAgentIcon } from "../../lib/agentIconFile";
+import { allowlistCount, disableGroup, toggleAllowed } from "../../lib/agentAllowlist";
+import {
+  AGENT_TABS_ARIA_LABEL,
+  AGENT_TAB_ASSIGN_LABEL,
+  AGENT_TAB_LABELS,
+  type AgentSettingsTab,
+} from "../../lib/allowlistText";
 import { groupFileSkills } from "../../lib/fileSkills";
+import { groupTools } from "../../lib/tools";
 import { agentDeleteConfirmRequest } from "../../lib/settingsConfirm";
 import type {
   AgentDef,
@@ -12,10 +20,13 @@ import type {
   ModelOption,
   ModelRef,
   ThinkingLevel,
+  ToolGroup,
 } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { useConfirm } from "../ConfirmProvider";
 import { CheckIcon, TrashIcon } from "../icons";
+import { SettingsNoteRow } from "../SettingsNoteRow";
+import { SettingsTabs } from "../SettingsTabs";
 import { AgentModelEffortFields } from "./AgentModelEffortFields";
 import { SkillSelector } from "./SkillSelector";
 import { SuggestionsEditor } from "./SuggestionsEditor";
@@ -28,7 +39,7 @@ export type AgentForm = {
   /**
    * 共通スキル (`.agents/skills`) の許可リスト。undefined = 未指定 (全可視で、保存ではキーを送らない)、
    * null = 全可視へ戻す送信専用の解除、配列 = 明示リスト ([] はすべて OFF)。
-   * `agentFormOf` は null を作らない (解除は「すべて表示に戻す」の 1 経路だけ)。
+   * `agentFormOf` は null を作らない (解除は「すべて既定に戻す」の 1 経路だけ)。
    */
   commonSkillNames?: string[] | null;
   /**
@@ -81,6 +92,11 @@ export function agentFormKey(agent: AgentDef | undefined): string {
   return JSON.stringify(agentFormOf(agent));
 }
 
+/** 下書きが保存値と違うか (未保存チップ)。新規は空のフォームから離れたら未保存 */
+export function isAgentFormDirty(form: AgentForm, agent: AgentDef | undefined): boolean {
+  return JSON.stringify(form) !== agentFormKey(agent);
+}
+
 /**
  * 保存ペイロード。`commonSkillNames` / `builtinSkillNames` / `toolNames` の undefined は `JSON.stringify` で
  * キーごと落ちて現状維持 (作成では未指定 = 全部 ON) になり、null は解除として送られる。これらは混同しない。
@@ -102,50 +118,81 @@ export function agentPayloadOf(form: AgentForm): CreateAgentBody {
   };
 }
 
-/**
- * 許可リストのチェック切替。未指定 / 解除 (どちらも全部 ON) から外すときは「いま見えている一覧 − 対象」を
- * 明示リストへ固定する (あとから増えたスキルを勝手に許可しないため)。明示リストでは対象の名前だけを
- * 増減し、一覧に無い保存名 (削除・改名済み) は落とさない。
- */
-function withAllowlistToggled(
-  current: string[] | null | undefined,
-  name: string,
-  checked: boolean,
-  visibleNames: string[],
-): string[] {
-  const names = current === undefined || current === null ? visibleNames : current;
-  return checked ? (names.includes(name) ? names : [...names, name]) : names.filter((saved) => saved !== name);
-}
-
-/** 共通スキルのチェック切替。 */
+/** 共通スキルの切替。規則は lib/agentAllowlist.ts が正 */
 export function withCommonSkillToggled(
   form: AgentForm,
   name: string,
   checked: boolean,
   visibleNames: string[],
 ): AgentForm {
-  return { ...form, commonSkillNames: withAllowlistToggled(form.commonSkillNames, name, checked, visibleNames) };
+  return { ...form, commonSkillNames: toggleAllowed(form.commonSkillNames, name, checked, visibleNames) };
 }
 
-/** 組み込みスキルのチェック切替。 */
+/** 組み込みスキルの切替 */
 export function withBuiltinSkillToggled(
   form: AgentForm,
   name: string,
   checked: boolean,
   visibleNames: string[],
 ): AgentForm {
-  return { ...form, builtinSkillNames: withAllowlistToggled(form.builtinSkillNames, name, checked, visibleNames) };
+  return { ...form, builtinSkillNames: toggleAllowed(form.builtinSkillNames, name, checked, visibleNames) };
+}
+
+/** ツールの切替 */
+export function withToolToggled(form: AgentForm, name: string, checked: boolean, visibleNames: string[]): AgentForm {
+  return { ...form, toolNames: toggleAllowed(form.toolNames, name, checked, visibleNames) };
 }
 
 /**
- * 「すべて表示に戻す」。null を送って解除する (undefined はキーごと落ちて現状維持になるため、
+ * スキルタブの「すべて既定に戻す」。null を送って解除する (undefined はキーごと落ちて現状維持になるため、
  * 保存済みの明示リストは戻せない)。
  */
+export function withAllSkillsReset(form: AgentForm): AgentForm {
+  return { ...form, commonSkillNames: null, builtinSkillNames: null };
+}
+
+/** ツールタブの「すべて既定に戻す」 */
+export function withAllToolsReset(form: AgentForm): AgentForm {
+  return { ...form, toolNames: null };
+}
+
+/**
+ * スキルのグループ単位「すべて外す」。対象グループの visible 名だけを除き、
+ * 一覧に無い保存名と他グループ (組み込み ⇄ 共通) は残す。
+ */
+export function withSkillGroupDisabled(
+  form: AgentForm,
+  group: "builtin" | "common",
+  visible: { common: readonly string[]; builtin: readonly string[] },
+): AgentForm {
+  if (group === "builtin") {
+    return {
+      ...form,
+      builtinSkillNames: disableGroup(form.builtinSkillNames, visible.builtin, visible.builtin),
+    };
+  }
+  return { ...form, commonSkillNames: disableGroup(form.commonSkillNames, visible.common, visible.common) };
+}
+
+/**
+ * ツールのグループ単位「すべて外す」。`toolNames` は 1 本なので、開始集合は全ツールの visible 全件
+ * (未指定のとき)。作業ツールを全 OFF にしてもアプリのツールは ON のまま残る。
+ */
+export function withToolGroupDisabled(
+  form: AgentForm,
+  group: ToolGroup,
+  groups: { group: ToolGroup; names: readonly string[] }[],
+  allVisibleNames: readonly string[],
+): AgentForm {
+  const target = groups.find((entry) => entry.group === group)?.names ?? [];
+  return { ...form, toolNames: disableGroup(form.toolNames, target, allVisibleNames) };
+}
+
+/** テストと SkillSelector のために残す旧 API。すべて既定へ戻す (両方の許可リスト) */
 export function withAllCommonSkillsVisible(form: AgentForm): AgentForm {
   return { ...form, commonSkillNames: null };
 }
 
-/** 「すべて使用に戻す」。null を送って解除する (undefined は現状維持なので明示リストは戻せない) */
 export function withAllBuiltinSkillsEnabled(form: AgentForm): AgentForm {
   return { ...form, builtinSkillNames: null };
 }
@@ -158,12 +205,6 @@ export function withAllBuiltinSkillsDisabled(form: AgentForm): AgentForm {
   return { ...form, builtinSkillNames: [] };
 }
 
-/** ツールのチェック切替。規則はスキルの許可リストと同じ (未指定からは見えている一覧を固定する)。 */
-export function withToolToggled(form: AgentForm, name: string, checked: boolean, visibleNames: string[]): AgentForm {
-  return { ...form, toolNames: withAllowlistToggled(form.toolNames, name, checked, visibleNames) };
-}
-
-/** 「すべて使用に戻す」。null を送って解除する */
 export function withAllToolsEnabled(form: AgentForm): AgentForm {
   return { ...form, toolNames: null };
 }
@@ -171,6 +212,11 @@ export function withAllToolsEnabled(form: AgentForm): AgentForm {
 /** 「すべて外す」。`[]` の明示リストにして、あとから増えたツールも自動では入れない */
 export function withAllToolsDisabled(form: AgentForm): AgentForm {
   return { ...form, toolNames: [] };
+}
+
+/** 件数の表示 (タブのラベル)。検索中も未絞込の visible 行を数える */
+function assignLabel(count: { used: number; total: number }): string {
+  return `${AGENT_TAB_ASSIGN_LABEL} ${count.used}/${count.total}`;
 }
 
 export function AgentEditorForm({
@@ -181,7 +227,6 @@ export function AgentEditorForm({
   agent,
   form,
   setForm,
-  variant,
   selectedAgentId,
   modelOptions,
   defaultModel,
@@ -190,6 +235,7 @@ export function AgentEditorForm({
   onSelectAgent,
   onNote,
   onDone,
+  note,
 }: {
   catalog: CatalogResponse;
   /** 共通スキル (`.agents/skills`) の取得状態。取得できないときは共通スキルの欄を出さず、下書きも変えない */
@@ -200,8 +246,6 @@ export function AgentEditorForm({
   agent: AgentDef | undefined;
   form: AgentForm;
   setForm: Dispatch<SetStateAction<AgentForm>>;
-  /** page = ページ内の編集列、sheet = singleColumn のシート (docs/ui-layout.md) */
-  variant: "page" | "sheet";
   selectedAgentId: string;
   modelOptions: ModelOption[];
   defaultModel?: string;
@@ -211,9 +255,11 @@ export function AgentEditorForm({
   onNote: (text: string, error?: boolean) => void;
   /** 保存 / 削除が成功したときに呼ぶ */
   onDone?: () => void;
+  /** 並列表示ではページ下部に出すため渡さない (二重に積まない) */
+  note?: { text: string; error: boolean };
 }) {
-  const showHeading = variant === "page";
   const confirm = useConfirm();
+  const [tab, setTab] = useState<AgentSettingsTab>("basic");
   const iconInputRef = useRef<HTMLInputElement>(null);
   const [iconBusy, setIconBusy] = useState(false);
   // 変換中に編集対象が変わるかを await の後に判定する (新しい下書きを古い選択の結果で汚さない)
@@ -265,26 +311,19 @@ export function AgentEditorForm({
   };
 
   // 取得前・取得失敗では一覧が空になるが、欄を出さないのでこのハンドラは呼ばれない (下書きは変わらない)
-  const visibleCommonNames =
-    fileSkills.status === "ready" ? groupFileSkills(fileSkills.skills).common.map((skill) => skill.name) : [];
-
-  const toggleCommonSkill = (name: string, checked: boolean) => {
-    setForm((prev) => withCommonSkillToggled(prev, name, checked, visibleCommonNames));
-  };
-
+  const commonSkills = fileSkills.status === "ready" ? groupFileSkills(fileSkills.skills).common : [];
+  const visibleCommonNames = commonSkills.map((skill) => skill.name);
   // 組み込みはカタログ応答 (BFF の registry) から来るので、サンドボックスの取得に依らず一覧が揃う
   const visibleBuiltinNames = catalog.builtinSkills.map((skill) => skill.name);
-
-  const toggleBuiltinSkill = (name: string, checked: boolean) => {
-    setForm((prev) => withBuiltinSkillToggled(prev, name, checked, visibleBuiltinNames));
-  };
-
   // ツールもカタログ応答から来る。実効の可否 (available) は保存値に影響させない (行の注記で伝える)
   const visibleToolNames = catalog.tools.map((tool) => tool.name);
-
-  const toggleTool = (name: string, checked: boolean) => {
-    setForm((prev) => withToolToggled(prev, name, checked, visibleToolNames));
+  const skillCount = {
+    used:
+      allowlistCount(form.commonSkillNames, visibleCommonNames).used +
+      allowlistCount(form.builtinSkillNames, visibleBuiltinNames).used,
+    total: visibleCommonNames.length + visibleBuiltinNames.length,
   };
+  const toolCount = allowlistCount(form.toolNames, visibleToolNames);
 
   const addSuggestion = () => {
     setForm((prev) => ({ ...prev, suggestions: [...prev.suggestions, { label: "", prompt: "" }] }));
@@ -306,170 +345,225 @@ export function AgentEditorForm({
     }));
   };
 
+  const tabs = [
+    { subsection: "basic" as const, label: AGENT_TAB_LABELS.basic },
+    {
+      subsection: "skills" as const,
+      label: `${AGENT_TAB_LABELS.skills} ${assignLabel(skillCount)}`,
+      ariaLabel: `スキル（${assignLabel(skillCount)}）`,
+    },
+    {
+      subsection: "tools" as const,
+      label: `${AGENT_TAB_LABELS.tools} ${assignLabel(toolCount)}`,
+      ariaLabel: `ツール（${assignLabel(toolCount)}）`,
+    },
+    {
+      subsection: "suggestions" as const,
+      label: `${AGENT_TAB_LABELS.suggestions} ${form.suggestions.length}`,
+      ariaLabel: `定型プロンプト（${form.suggestions.length} 件）`,
+    },
+  ];
+
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <form onSubmit={saveAgent} className="flex min-h-0 flex-1 flex-col">
+        <SettingsTabs items={tabs} active={tab} onSelect={setTab} ariaLabel={AGENT_TABS_ARIA_LABEL} />
         <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
           <div className="@container">
-            <div className="mx-auto grid max-w-5xl gap-2.5">
-              {showHeading ? (
-                <div>
-                  <div className="text-2xs font-semibold tracking-label text-accent-text uppercase">AGENT</div>
-                  <h3 className="text-sm font-semibold text-ink-strong">
-                    {agent ? "エージェントを編集" : "新しいエージェント"}
-                  </h3>
-                </div>
-              ) : null}
-              <div className="grid gap-2.5 @3xl:grid-cols-[minmax(0,1fr)_minmax(400px,460px)] @3xl:gap-x-6">
-                {/* content-start: 列の高さは隣の列に合わせて伸びるが、中の行まで伸ばすと入力欄の高さが変わってしまう */}
-                <div className="grid min-w-0 content-start gap-3">
-                  <label className="grid gap-1 text-1xs text-ink-soft">
-                    名前
-                    <input
-                      className="field text-xs"
-                      required
-                      maxLength={80}
-                      value={form.name}
-                      // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
-                      onChange={(e) => {
-                        const name = e.currentTarget.value;
-                        setForm((p) => ({ ...p, name }));
-                      }}
-                    />
-                  </label>
-                  <label className="grid gap-1 text-1xs text-ink-soft">
-                    説明
-                    <input
-                      className="field text-xs"
-                      maxLength={300}
-                      value={form.description}
-                      onChange={(e) => {
-                        const description = e.currentTarget.value;
-                        setForm((p) => ({ ...p, description }));
-                      }}
-                    />
-                  </label>
-                  <div className="grid gap-1 text-1xs text-ink-soft">
-                    アイコン
-                    <div className="flex items-center gap-3">
-                      <AgentIcon icon={form.icon ?? undefined} variant="preview" />
-                      <div className="grid gap-1.5">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            className="btn-quiet"
-                            disabled={iconBusy}
-                            onClick={() => iconInputRef.current?.click()}
-                          >
-                            {iconBusy ? "変換中…" : "画像を選ぶ"}
-                          </button>
-                          {form.icon ? (
+            <div className="mx-auto grid max-w-3xl content-start gap-3">
+              {tab === "basic" ? (
+                <div className="grid gap-3">
+                  <section className="grid gap-2">
+                    <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">プロフィール</h3>
+                    <div className="grid gap-2 @2xl:grid-cols-2">
+                      <label className="grid gap-1 text-1xs text-ink-soft">
+                        名前
+                        <input
+                          className="field text-xs"
+                          required
+                          maxLength={80}
+                          value={form.name}
+                          // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
+                          onChange={(e) => {
+                            const name = e.currentTarget.value;
+                            setForm((p) => ({ ...p, name }));
+                          }}
+                        />
+                      </label>
+                      <label className="grid gap-1 text-1xs text-ink-soft">
+                        説明
+                        <input
+                          className="field text-xs"
+                          maxLength={300}
+                          value={form.description}
+                          onChange={(e) => {
+                            const description = e.currentTarget.value;
+                            setForm((p) => ({ ...p, description }));
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <div className="grid gap-1 text-1xs text-ink-soft">
+                      アイコン
+                      <div className="flex items-center gap-3">
+                        <AgentIcon icon={form.icon ?? undefined} variant="preview" />
+                        <div className="grid gap-1.5">
+                          <div className="flex items-center gap-2">
                             <button
                               type="button"
                               className="btn-quiet"
                               disabled={iconBusy}
-                              onClick={() => setForm((prev) => ({ ...prev, icon: null }))}
+                              onClick={() => iconInputRef.current?.click()}
                             >
-                              解除
+                              {iconBusy ? "変換中…" : "画像を選ぶ"}
                             </button>
-                          ) : null}
+                            {form.icon ? (
+                              <button
+                                type="button"
+                                className="btn-quiet"
+                                disabled={iconBusy}
+                                onClick={() => setForm((prev) => ({ ...prev, icon: null }))}
+                              >
+                                解除
+                              </button>
+                            ) : null}
+                          </div>
+                          <p className="text-2xs leading-relaxed text-ink-faint">
+                            256×256 に縮小して保存します。未設定なら星のマークで表示します。
+                          </p>
                         </div>
-                        <p className="text-2xs leading-relaxed text-ink-ghost">
-                          256×256 に縮小して保存します。未設定なら星のマークで表示します。
-                        </p>
                       </div>
+                      <input
+                        ref={iconInputRef}
+                        type="file"
+                        accept="image/*"
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0];
+                          // 同じファイルを選び直せるよう、選択を毎回リセットする
+                          event.currentTarget.value = "";
+                          if (file) void pickIcon(file);
+                        }}
+                      />
                     </div>
-                    <input
-                      ref={iconInputRef}
-                      type="file"
-                      accept="image/*"
-                      tabIndex={-1}
-                      aria-hidden="true"
-                      className="hidden"
-                      onChange={(event) => {
-                        const file = event.currentTarget.files?.[0];
-                        // 同じファイルを選び直せるよう、選択を毎回リセットする
-                        event.currentTarget.value = "";
-                        if (file) void pickIcon(file);
+                  </section>
+                  <hr className="border-line" />
+                  <section className="grid gap-2">
+                    <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">モデル</h3>
+                    <AgentModelEffortFields
+                      model={form.model}
+                      thinkingLevel={form.thinkingLevel}
+                      modelOptions={modelOptions}
+                      defaultModel={defaultModel}
+                      defaultThinkingLevel={defaultThinkingLevel}
+                      onChangeModel={(model) => setForm((prev) => ({ ...prev, model }))}
+                      onChangeThinkingLevel={(thinkingLevel) => setForm((prev) => ({ ...prev, thinkingLevel }))}
+                    />
+                  </section>
+                  <hr className="border-line" />
+                  <section className="grid gap-2">
+                    <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">役割 / 基本指示</h3>
+                    <textarea
+                      className="field min-h-36 text-xs leading-relaxed"
+                      rows={6}
+                      maxLength={8000}
+                      aria-label="役割 / 基本指示"
+                      placeholder="空なら役割の指示なし (素の状態) で動きます"
+                      value={form.systemPrompt}
+                      onChange={(e) => {
+                        const systemPrompt = e.currentTarget.value;
+                        setForm((p) => ({ ...p, systemPrompt }));
                       }}
                     />
-                  </div>
+                    <p className="text-2xs leading-relaxed text-ink-faint">
+                      空にすると役割の指示なしで動きます。長い手順はスキルに分けると再利用できます。
+                    </p>
+                  </section>
                 </div>
-                <div className="min-w-0">
-                  <AgentModelEffortFields
-                    model={form.model}
-                    thinkingLevel={form.thinkingLevel}
-                    modelOptions={modelOptions}
-                    defaultModel={defaultModel}
-                    defaultThinkingLevel={defaultThinkingLevel}
-                    onChangeModel={(model) => setForm((prev) => ({ ...prev, model }))}
-                    onChangeThinkingLevel={(thinkingLevel) => setForm((prev) => ({ ...prev, thinkingLevel }))}
-                  />
-                </div>
-                {/* 全幅にする。半幅では長い基本指示を書くのに狭い */}
-                <label className="grid gap-1 text-1xs text-ink-soft @3xl:col-span-2">
-                  役割 / 基本指示
-                  <textarea
-                    className="field min-h-36 text-xs leading-relaxed"
-                    rows={6}
-                    maxLength={8000}
-                    placeholder="空なら役割の指示なし (素の状態) で動きます"
-                    value={form.systemPrompt}
-                    onChange={(e) => {
-                      const systemPrompt = e.currentTarget.value;
-                      setForm((p) => ({ ...p, systemPrompt }));
-                    }}
-                  />
-                </label>
-              </div>
-              <div className="grid gap-2.5 @3xl:grid-cols-2">
-                <ToolSelector
-                  tools={catalog.tools}
-                  toolNames={form.toolNames}
-                  onToggleTool={toggleTool}
-                  onShowAllTools={() => setForm(withAllToolsEnabled)}
-                  onDisableAllTools={() => setForm(withAllToolsDisabled)}
-                />
+              ) : null}
+              {tab === "skills" ? (
                 <SkillSelector
                   builtinSkills={catalog.builtinSkills}
                   fileSkills={fileSkills}
                   onReloadFileSkills={onReloadFileSkills}
                   commonSkillNames={form.commonSkillNames}
-                  onToggleCommonSkill={toggleCommonSkill}
-                  onShowAllCommonSkills={() => setForm(withAllCommonSkillsVisible)}
+                  onToggleCommonSkill={(name, checked) =>
+                    setForm((prev) => withCommonSkillToggled(prev, name, checked, visibleCommonNames))
+                  }
+                  onDisableCommonSkills={() =>
+                    setForm((prev) =>
+                      withSkillGroupDisabled(prev, "common", {
+                        common: visibleCommonNames,
+                        builtin: visibleBuiltinNames,
+                      }),
+                    )
+                  }
                   builtinSkillNames={form.builtinSkillNames}
-                  onToggleBuiltinSkill={toggleBuiltinSkill}
-                  onShowAllBuiltinSkills={() => setForm(withAllBuiltinSkillsEnabled)}
-                  onDisableAllBuiltinSkills={() => setForm(withAllBuiltinSkillsDisabled)}
+                  onToggleBuiltinSkill={(name, checked) =>
+                    setForm((prev) => withBuiltinSkillToggled(prev, name, checked, visibleBuiltinNames))
+                  }
+                  onDisableBuiltinSkills={() =>
+                    setForm((prev) =>
+                      withSkillGroupDisabled(prev, "builtin", {
+                        common: visibleCommonNames,
+                        builtin: visibleBuiltinNames,
+                      }),
+                    )
+                  }
+                  onResetSkills={() => setForm(withAllSkillsReset)}
                   allowNaturalInvocation={form.allowNaturalInvocation}
                   onToggleNaturalInvocation={(allowNaturalInvocation) =>
                     setForm((prev) => ({ ...prev, allowNaturalInvocation }))
                   }
                 />
-                <div className="min-w-0 @3xl:col-span-2">
-                  <SuggestionsEditor
-                    suggestions={form.suggestions}
-                    onChange={changeSuggestion}
-                    onRemove={removeSuggestion}
-                    onAdd={addSuggestion}
-                  />
-                </div>
-              </div>
+              ) : null}
+              {tab === "tools" ? (
+                <ToolSelector
+                  tools={catalog.tools}
+                  toolNames={form.toolNames}
+                  onToggleTool={(name, checked) =>
+                    setForm((prev) => withToolToggled(prev, name, checked, visibleToolNames))
+                  }
+                  onDisableToolGroup={(group) =>
+                    setForm((prev) =>
+                      withToolGroupDisabled(
+                        prev,
+                        group,
+                        groupTools(catalog.tools).map((entry) => ({
+                          group: entry.group,
+                          names: entry.tools.map((tool) => tool.name),
+                        })),
+                        visibleToolNames,
+                      ),
+                    )
+                  }
+                  onResetTools={() => setForm(withAllToolsReset)}
+                />
+              ) : null}
+              {tab === "suggestions" ? (
+                <SuggestionsEditor
+                  suggestions={form.suggestions}
+                  onChange={changeSuggestion}
+                  onRemove={removeSuggestion}
+                  onAdd={addSuggestion}
+                />
+              ) : null}
             </div>
           </div>
         </div>
+        {note ? <SettingsNoteRow note={note} inset /> : null}
         <div className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-3">
           {agent ? (
-            <>
-              <button
-                type="button"
-                onClick={() => void removeCurrentAgent()}
-                className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-danger/50 px-3 text-xs text-danger-text transition-colors hover:bg-danger/10"
-              >
-                <TrashIcon />
-                削除
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => void removeCurrentAgent()}
+              className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-danger/50 px-3 text-xs text-danger-text transition-colors hover:bg-danger/10"
+            >
+              <TrashIcon />
+              削除
+            </button>
           ) : null}
           <button type="submit" className="btn-primary ml-auto" disabled={iconBusy}>
             <CheckIcon />

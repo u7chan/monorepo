@@ -3,11 +3,14 @@
  * コンポーネントは結果を描画するだけにする (docs/api-catalog.md)。
  */
 import { formatBytes } from "./attachments";
+import { filterBySearch } from "./settingsSearch";
 import type { FileSkillInfo, SandboxSkillImportPlanEntry } from "../types";
 
 /** ファイルスキル (共通 + 組み込み) のブロック見出し。共通は編集でき、組み込みは読み取り専用 */
 export const FILE_SKILL_SECTION_LABEL = "ファイルスキル";
 export const FILE_SKILL_GROUP_LABEL = "共通スキル";
+/** スキル詳細 / スキル一覧の見出しで使う短い語。組み込みを先頭に固定するので、こちらは後に置く */
+export const COMMON_SKILL_SECTION_LABEL = "共通";
 export const BUILTIN_SKILL_GROUP_LABEL = "組み込みスキル";
 /** 再読み込みは共通 + 組み込みを同時に取り直すので、読み上げ名でも両方を挙げる */
 export const FILE_SKILL_RELOAD_LABEL = "再読み込み";
@@ -35,7 +38,6 @@ export const FILE_SKILL_CONFLICT_NOTE =
   "他の変更と競合しました。入力した内容はこのまま残しています。再読み込みしてから、もう一度保存してください。";
 export const FILE_SKILL_EDIT_LABEL = "編集";
 export const FILE_SKILL_ADD_LABEL = "新しいスキル";
-export const FILE_SKILL_EDIT_HEADING = "スキルを編集";
 export const FILE_SKILL_CREATE_HEADING = "新しいスキル";
 export const FILE_SKILL_SAVE_LABEL = "保存";
 export const FILE_SKILL_CANCEL_LABEL = "キャンセル";
@@ -50,9 +52,56 @@ export const FILE_SKILL_PANEL_HEADING: Record<FileSkillInfo["scope"], string> = 
   project: "プロジェクトスキル",
   builtin: "組み込みスキル",
 };
+/** 詳細のタブ。ファイルは root を導けるスキルだけ、使用中は読み取り専用の一覧 */
+export const SKILL_TAB_BODY_LABEL = "本文";
+export const SKILL_TAB_FILES_LABEL = "ファイル";
+export const SKILL_TAB_USAGE_LABEL = "使用中";
+/** 詳細のタブ行の読み上げ名 */
+export const SKILL_DETAIL_TABS_ARIA_LABEL = "スキルの面";
+/** 使用中タブの前置き。ここから割り当ては変えない (読み取り専用) */
+export const SKILL_USAGE_TAB_NOTE = "このスキルを使うエージェント。切り替えは「エージェント」画面で行います。";
+/** 使用中タブが空のときの案内 */
+export const SKILL_USAGE_EMPTY_NOTE = "このスキルを使うユーザー定義エージェントはありません。";
+/** 一覧の行に出す「使用中エージェント数」の読み上げ名。件数の意味は skillUsage.ts が正 */
+export function fileSkillUsageLabel(count: number): string {
+  return `使用中 ${count} 体`;
+}
 /** 本文の取得中 / 失敗の表示。組み込みは一覧の応答に本文が載るため、ファイルスキルだけが通る */
 export const FILE_SKILL_BODY_LOADING_NOTE = "本文を読み込んでいます…";
 export const FILE_SKILL_BODY_ERROR_PREFIX = "本文を取得できませんでした";
+
+/** 一覧のスコープタブ。「すべて」では組み込みを先頭に並べる */
+export type FileSkillScopeTab = "all" | "builtin" | "common";
+export const FILE_SKILL_SCOPE_TABS: { value: FileSkillScopeTab; label: string }[] = [
+  { value: "all", label: "すべて" },
+  { value: "builtin", label: "組み込み" },
+  { value: "common", label: "共通" },
+];
+
+/** 一覧の件数。スコープタブの数字は検索で絞る前の件数を出す */
+export function fileSkillScopeCounts(skills: readonly FileSkillInfo[]): Record<FileSkillScopeTab, number> {
+  const builtin = skills.filter((skill) => skill.scope === "builtin").length;
+  return { all: skills.length, builtin, common: skills.length - builtin };
+}
+
+/**
+ * 一覧の絞り込み。**表示だけ**を絞る (個別の選択や詳細の対象には使わない)。
+ * 「すべて」は組み込みを先頭にし、各スコープの中では取得順を保つ。名前と説明で探す。
+ */
+export function filterFileSkills(
+  skills: readonly FileSkillInfo[],
+  scope: FileSkillScopeTab,
+  query: string,
+): FileSkillInfo[] {
+  const byScope = skills.filter((skill) =>
+    scope === "all" ? true : scope === "builtin" ? skill.scope === "builtin" : skill.scope !== "builtin",
+  );
+  const ordered =
+    scope === "all"
+      ? [...byScope].sort((a, b) => Number(a.scope !== "builtin") - Number(b.scope !== "builtin"))
+      : byScope;
+  return filterBySearch(ordered, query, (skill) => [skill.name, skill.description]);
+}
 
 /** 選択が無いときの右ペインの案内。作成できない状態では「新しいスキル」を案内しない (追加行も出ない) */
 export const FILE_SKILL_PANE_NOTE =

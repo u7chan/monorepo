@@ -1110,6 +1110,11 @@
     @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text disabled:cursor-not-allowed disabled:opacity-45;
   }
 
+  /* 見出し行の補助リンク。文字は小さくてもタップ領域は 36px 確保する */
+  .link-quiet {
+    @apply inline-flex min-h-9 items-center rounded-md px-1 text-2xs text-accent-text underline underline-offset-2 transition-colors hover:text-ink;
+  }
+
   /* アイコンだけのボタン (singleColumn バーなど)。選択中の状態は呼び出し側の utilities で上書きする */
   .icon-button {
     @apply grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-raised text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text;

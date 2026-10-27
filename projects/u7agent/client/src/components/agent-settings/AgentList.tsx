@@ -1,14 +1,17 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useAgentDrag } from "../../hooks/useAgentDrag";
 import { cn } from "../../lib/cn";
+import { filterBySearch } from "../../lib/settingsSearch";
 import type { AgentDef } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { DefinitionList } from "../DefinitionList";
 import { MenuItem } from "../MenuItem";
-import { GripIcon } from "../icons";
+import { SettingsSearchField } from "../SettingsSearchField";
+import { GripIcon, PlusIcon } from "../icons";
 
 export function AgentList({
   agents,
+  builtinId,
   reorderIds,
   editingId,
   onSelect,
@@ -19,6 +22,8 @@ export function AgentList({
   reorderDisabled = false,
 }: {
   agents: AgentDef[];
+  /** ビルトインの id。先頭固定で並べ替えの対象にしない (バッジも出す) */
+  builtinId?: string;
   /** グリップで動かせる行の id（表示順）。ビルトインは含めない */
   reorderIds: readonly string[];
   editingId: string | null;
@@ -34,24 +39,47 @@ export function AgentList({
   reorderDisabled?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  const searching = query.trim() !== "";
+  // 検索中は並べ替えを開かない: 非表示の行との順序を決められず、確定すると見えていない行まで動く
+  const dragDisabled = reorderDisabled || searching;
   const drag = useAgentDrag({
     containerRef,
     ids: reorderIds,
     onMove: onReorder,
     onCommit: onCommitOrder,
     onCancel: onCancelOrder,
-    disabled: reorderDisabled,
+    disabled: dragDisabled,
   });
-  const reorderable = new Set(reorderIds);
+  const reorderable = new Set(searching ? [] : reorderIds);
+  const visible = filterBySearch(agents, query, (agent) => [agent.name, agent.description]);
 
   return (
     <DefinitionList
       title="エージェント一覧"
       count={agents.length}
-      add={{ label: "新しいエージェント", onAdd: onStartNew }}
+      search={
+        <SettingsSearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="名前・説明で絞り込む"
+          ariaLabel="エージェントを絞り込む"
+        />
+      }
+      footer={
+        <button
+          type="button"
+          onClick={onStartNew}
+          className="flex min-h-11 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-3 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
+        >
+          <PlusIcon />
+          新しいエージェント
+        </button>
+      }
+      emptyLabel={visible.length === 0 ? "条件に合うエージェントがありません。" : undefined}
     >
       <div ref={containerRef} className="grid min-w-0 content-start gap-1" {...drag.containerHandlers}>
-        {agents.map((agent) => (
+        {visible.map((agent) => (
           <div
             key={agent.id}
             data-agent-row={agent.id}
@@ -62,6 +90,7 @@ export function AgentList({
                 icon={<AgentIcon icon={agent.icon} variant="list" />}
                 label={agent.name}
                 description={agent.description || "説明なし"}
+                status={agent.id === builtinId ? { text: "ビルトイン", tone: "muted" } : undefined}
                 selected={editingId === agent.id}
                 current="true"
                 onClick={() => onSelect(agent.id)}

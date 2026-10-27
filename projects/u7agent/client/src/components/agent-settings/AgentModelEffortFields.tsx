@@ -59,8 +59,7 @@ export function AgentModelEffortFields({
   };
 
   return (
-    <div className="grid gap-2 rounded-lg border border-line bg-soft px-2.5 py-2.5">
-      <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">Model / Effort</div>
+    <div className="grid gap-2">
       <div className="grid gap-2 wide:grid-cols-2">
         <label className="grid gap-1 text-1xs text-ink-soft">
           Model
@@ -99,7 +98,7 @@ export function AgentModelEffortFields({
           </SelectField>
         </label>
       </div>
-      <p className="text-2xs leading-relaxed text-ink-ghost">
+      <p className="text-2xs leading-relaxed text-ink-faint">
         {modelMissing
           ? "保存済みモデルは現在利用できません。別の候補を選ぶか未指定にすると回復できます。"
           : !effortOption

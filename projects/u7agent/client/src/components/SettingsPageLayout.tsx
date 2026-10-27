@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { ArrowLeftIcon, MenuIcon } from "./icons";
+import { SettingsNoteRow } from "./SettingsNoteRow";
 
 export type SettingsPageProps = {
   onBack: () => void;
@@ -102,17 +103,7 @@ export function SettingsPageLayout({
       {children}
 
       {/* ノートが無いページでは行ごと出さない (空の帯を残さない) */}
-      {note ? (
-        <div
-          aria-live="polite"
-          className={cn(
-            "border-t border-line px-5 py-2.5 text-1xs break-words",
-            note.error ? "text-danger-text" : "text-ink-muted",
-          )}
-        >
-          {note.text}
-        </div>
-      ) : null}
+      {note ? <SettingsNoteRow note={note} /> : null}
     </section>
   );
 }
