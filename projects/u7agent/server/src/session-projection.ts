@@ -159,11 +159,7 @@ export function displayableMessageSet(
   return displayable;
 }
 
-/**
- * 表示する応答メタの解決の唯一の場所。BFF のメモリ実測 → SDK 記録値 (`message.durationMs`) → 無し の
- * 順に見る (保存した実測を挟むときもこの 1 箇所に足す)。記録値からの導出には `source` を付けて、
- * 表示側が metrics の有無ではなく由来だけで概算の印を決められるようにする。
- */
+/** 優先順位を呼び出し側にも書くと経路ごとにずれるため、metrics の解決順はこの関数だけが持つ */
 function resolveMessageMetrics(
   message: PiSessionLike["messages"][number],
   messageMetrics: WeakMap<object, MessageMetrics>,

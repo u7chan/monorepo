@@ -23,9 +23,8 @@ import {
 } from "./session-projection";
 
 /**
- * 応答時間 / TTFT / tok/s の計算の唯一の入口。live の実測も SDK 記録値からの復元も、時刻の
- * 測り方の違いを持ち込まずこの形に揃えて通す。tok/s は最初の delta からのスパンで割り、
- * スパンが 0 以下なら全体の duration で割る。
+ * 応答時間 / TTFT / tok/s の計算の入口。live と復元で計算式を別々に書くと片方だけ直るため、
+ * 規則はここだけが持つ。
  */
 export function computeMessageMetrics({
   durationMs,
