@@ -272,12 +272,7 @@ export interface AppDbStatus {
 /** セッションの引っ越しが使う、cwd をキーにする行の付け替えだけの狭い IF */
 export type CwdKeyStore = Pick<AppDb, "moveCwd">;
 
-/**
- * 応答 1 件分の実測。**正は JSONL** で、このテーブルは再起動・アイドル sweep をまたいで実測を
- * 読み戻すための派生データ。保存するのは数値とモデル識別子だけで、本文・ツール引数・プロンプトは持たない。
- * tok/s は保存しない (`durationMs` / `ttftMs` / `outputTokens` から導出し、分母の定義を変えたときに
- * 再計算できるようにする)。NULL は「プロバイダが報告していない」で、0 と区別する。
- */
+/** 応答 1 件分の実測。正は JSONL で、再起動・sweep をまたいで読み戻すための派生データ (docs/persistence.md) */
 export interface AssistantMetricsRow {
   sessionId: string;
   /** JSONL の entry へ写した応答ID (`<runId>:<seq>`)。復元時の引き当てキー */
@@ -518,12 +513,7 @@ CREATE TABLE IF NOT EXISTS web_search_provider_keys (
 );
 `;
 
-/**
- * v32 -> v33 で足したテーブル。応答時間 / TTFT / usage の実測を 1 行 1 応答で持つ。
- *
- * 正は JSONL で、ここは派生データ。本文は保存しないので、行が消えても表示が SDK 記録値の概算へ
- * 戻るだけで会話は壊れない。そのため `DROP_TABLES` に入れて作り直しでは消す (`secrets` とは逆)。
- */
+/** v32 -> v33 で足したテーブル。応答 1 件分の実測を派生データとして持つ (docs/persistence.md) */
 const ASSISTANT_METRICS_TABLE = `
 CREATE TABLE IF NOT EXISTS assistant_metrics (
   session_id      TEXT NOT NULL,
