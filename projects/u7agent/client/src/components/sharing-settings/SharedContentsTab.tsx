@@ -105,7 +105,10 @@ export function SharedContentsTab({
                   onOpenSession={onOpenSession}
                   busy={contents.busy.find((entry) => entry.id === item.id) ?? null}
                   bulkActive={bulkActive}
-                  error={contents.error?.id === item.id ? contents.error.message : undefined}
+                  error={
+                    contents.bulkStop?.failures.find((failure) => failure.id === item.id)?.message ??
+                    (contents.error?.id === item.id ? contents.error.message : undefined)
+                  }
                   copied={copiedId === item.id}
                   copyFailure={copyFailure(item.id)}
                   onCopy={(url, id) => {

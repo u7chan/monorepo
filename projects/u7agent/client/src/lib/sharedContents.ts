@@ -613,14 +613,15 @@ export type SharedContentStopAllResult = {
  */
 export function sharedContentStopAllNote(result: SharedContentStopAllResult): { text: string; error: boolean } | null {
   if (result.total === 0 || (result.stopped === 0 && result.failures.length === 0)) return null;
-  const firstFailure = result.failures[0];
-  const failureName = firstFailure === undefined ? "" : `（${firstFailure.name}）`;
+  // ノートは 1 行のログなので理由はカードへ配り、ここでは全件の名前を落とさずに出す
+  const failureNames = result.failures.map((failure) => failure.name).join("、");
+  const failureSuffix = result.failures.length === 0 ? "" : `理由は各カードに表示しています。`;
   const stoppedPart =
     result.failures.length === 0
       ? `稼働中 ${result.stopped} 件をすべて停止しました。`
       : result.stopped === 0
-        ? `${result.total} 件を停止できませんでした${failureName}。`
-        : `${result.total} 件中 ${result.stopped} 件を停止しました。${result.failures.length} 件は停止できませんでした${failureName}。`;
+        ? `${result.total} 件を停止できませんでした（${failureNames}）。${failureSuffix}`
+        : `${result.total} 件中 ${result.stopped} 件を停止しました。${result.failures.length} 件は停止できませんでした（${failureNames}）。${failureSuffix}`;
   const excludedPart =
     result.excludedPublishing > 0
       ? `公開処理中の ${result.excludedPublishing} 件は対象外です。完了すると公開されます。`

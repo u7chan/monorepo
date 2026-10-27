@@ -641,18 +641,35 @@ test("一括停止の結果: 成功・一部失敗・全失敗・対象外を 1 
     excludedPublishing: 0,
   });
   assert.deepEqual(partial, {
-    text: "3 件中 2 件を停止しました。1 件は停止できませんでした（docs）。",
+    text: "3 件中 2 件を停止しました。1 件は停止できませんでした（docs）。理由は各カードに表示しています。",
     error: true,
   });
+
+  // 2 件以上失敗しても、ノートは全件の名前を落とさない（理由は各カードへ配る）
+  assert.deepEqual(
+    sharedContentStopAllNote({
+      total: 4,
+      stopped: 2,
+      failures: [{ name: "docs" }, { name: "lp" }],
+      excludedPublishing: 0,
+    }),
+    {
+      text: "4 件中 2 件を停止しました。2 件は停止できませんでした（docs、lp）。理由は各カードに表示しています。",
+      error: true,
+    },
+  );
 
   assert.deepEqual(
     sharedContentStopAllNote({
       total: 3,
       stopped: 0,
-      failures: [{ name: "docs" }],
+      failures: [{ name: "docs" }, { name: "lp" }],
       excludedPublishing: 0,
     }),
-    { text: "3 件を停止できませんでした（docs）。", error: true },
+    {
+      text: "3 件を停止できませんでした（docs、lp）。理由は各カードに表示しています。",
+      error: true,
+    },
   );
   assert.equal(sharedContentStopAllNote({ total: 0, stopped: 0, failures: [], excludedPublishing: 0 }), null);
 });

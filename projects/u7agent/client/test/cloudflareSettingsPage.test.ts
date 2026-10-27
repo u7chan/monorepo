@@ -335,6 +335,29 @@ test("共有コンテンツ: 一括停止の結果をノートに出し、失敗
   assert.match(partial, /text-danger-text/);
 });
 
+test("共有コンテンツ: 複数失敗の理由をそれぞれのカードに出す", () => {
+  const html = render(
+    cloudflare(),
+    {
+      items: [contentItem({ id: "a", name: "portfolio" }), contentItem({ id: "b", name: "lp" })],
+      bulkStop: {
+        total: 2,
+        done: 2,
+        failures: [
+          { id: "a", name: "portfolio", message: "Cloudflare への接続がタイムアウトしました" },
+          { id: "b", name: "lp", message: "資格情報が一致しません" },
+        ],
+        excluded: 0,
+        running: false,
+      },
+    },
+    "contents",
+  );
+  assert.match(html, /Cloudflare への接続がタイムアウトしました/);
+  assert.match(html, /資格情報が一致しません/);
+  assert.match(html, /2 件を停止できませんでした（portfolio、lp）。理由は各カードに表示しています。/);
+});
+
 test("共有コンテンツ: 一覧の取得に失敗している間は一括停止を押せない", () => {
   const html = render(
     cloudflare(),

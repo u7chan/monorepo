@@ -128,9 +128,11 @@ export function useSharedContentsManager() {
    */
   const runAction = useCallback(
     async (id: string, kind: SharedContentBusyKind, run: () => Promise<unknown>, after?: () => void): Promise<void> => {
-      if (busyIds.current.has(id)) return;
+      // 一括停止中は個別操作を始めない（一覧のロックと二重の防御。bulkStop を消さない）
+      if (bulkStopRunning.current || busyIds.current.has(id)) return;
       busyIds.current.add(id);
-      setState((prev) => ({ ...prev, busy: [...prev.busy, { id, kind }], error: null }));
+      // 新しい個別操作で前の一括停止の結果と各カードのエラーを消す
+      setState((prev) => ({ ...prev, busy: [...prev.busy, { id, kind }], error: null, bulkStop: null }));
       try {
         await run();
         // 操作より前に発行した一覧取得は操作前の状態を返す。成功応答のあとに適用させない
