@@ -743,8 +743,9 @@ export function sessionToolPlan(input: {
 }
 
 /**
- * 要約の出力枠は SDK が reserveTokens の 0.8 倍 (モデル上限でクランプ) として導く。SDK 既定の 16,384 では
- * 13,107 となり長い会話の要約が枠で打ち切られて失敗するため、十分な出力枠を取れる値にする。
+ * SDK 1.4.0 で要約の出力枠はモデルの出力上限 (context 残量で切り詰められる) へ移り、この値は自動圧縮の
+ * 閾値だけを決める。65,536 は出力枠を確保するために上げた名残で、閾値としては窓の余裕を大きく取る。
+ * 下げる (= 圧縮を遅らせる) 変更は発火条件の再検証が要るので、SDK 更新とは分けて扱う。
  */
 const DEFAULT_COMPACTION_RESERVE_TOKENS = 65_536;
 /** SDK の compaction の既定値 (SettingsManager と同じ) */
