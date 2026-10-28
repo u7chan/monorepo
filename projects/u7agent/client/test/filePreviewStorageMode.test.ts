@@ -141,9 +141,25 @@ test("HTML は HTTP 文書として取得し、srcdoc や blob / data URL で埋
   }
 });
 
-test("パス行に全画面の切替を出し、dialog は開くまで描かない", () => {
+// 閉じている間も dialog は DOM に居る (開くたびに作り直すと iframe が文書を取り直す)。
+// 全画面の見た目 (viewer-in / viewer-out の付与) は CSS の [open] に依存して SSR では観測できないため、
+// 自動テストでは固定せず手動の受入で確認する
+test("閉じている間も dialog は居る (開くまで modal にしない)", () => {
   const html = renderPreview();
-  assert.match(html, /aria-label="全画面で開く"/);
-  // 開く前は全画面の面 (dialog) を作らない
-  assert.ok(!html.includes("<dialog"), "開いていないのに dialog を作っている");
+  assert.match(html, /aria-label="全画面で開く"/, "全画面のボタンが出ていない");
+  const dialog = html.match(/<dialog\b[^>]*>/)?.[0];
+  assert.ok(dialog, "閉じている間の dialog が無い (開くたびに作り直すと iframe が文書を取り直す)");
+  assert.doesNotMatch(dialog, /\sopen(?:=""|\s|\/?>)/, "閉じているのに open 属性が付いている (modal になっている)");
+  assert.ok(dialog.includes('role="presentation"'), "閉じている間の dialog が役割を名乗っている");
+  assert.ok(!dialog.includes('aria-label="ファイルプレビュー"'), "閉じている間の dialog に本文の名前が付いている");
+  // focusable な要素には presentation が効かないので、閉じている間は tabindex を付けない
+  // (残すと読み上げの対象に dialog の区切りが出る)
+  assert.ok(!dialog.includes("tabindex"), "閉じている間に tabindex が付いている (role=presentation が無視される)");
+  // 本文の名前は section だけが持つ (同名の入れ子を作らない)
+  const labels = html.match(/aria-label="ファイルプレビュー"/g) ?? [];
+  assert.equal(labels.length, 1, "ファイルプレビューの名前が重複している");
+  assert.match(html, /<section[^>]*aria-label="ファイルプレビュー"/, "本文の section が名前を失っている");
+  // 閉状態が全画面にならないよう、寸法の utilities は開いている間だけ当てる
+  assert.ok(!html.includes("h-dvh"), "閉じているのに全画面の高さを当てている");
+  assert.ok(!html.includes("w-screen"), "閉じているのに全画面の幅を当てている");
 });

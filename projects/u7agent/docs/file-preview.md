@@ -39,13 +39,16 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 パス行の右端の ⤢ で、プレビューを全画面の読み面へ切り替えられる（ツリーと高さを分け合う面では本文が数十行しか残らないため）。
 
-- ネイティブの `dialog` + `showModal()`。外枠（タブ / パス行 / 本文）は dialog へ移す。閉じる操作は標準の `Escape` と ⤢ に任せ、閉じたら開いたボタンへ焦点を戻す
-- **portal の親が変わるので React は要素を作り直す**（`unmount` → `mount`）。保証しているのは「同時に 2 枚持たない」で、HTML プレビューは出入りのたびに iframe が文書を取り直し、中の状態（スクロール・フォーム）はリセットされる（チャット右パネルと共用の面なので許容する。避けるなら dialog を常に同じ位置に置き、`showModal()` / `close()` だけで切り替える）
+- **dialog は常に同じ位置に置き、`showModal()` / `close()` だけで切り替える。** 面を portal や条件分岐で移すと React が要素を作り直し、HTML プレビューの iframe が文書を取り直して中の状態（スクロール・フォーム・JS）が消える。iframe のノードを別の親へ `appendChild` で移すだけでも Chromium は文書を読み直す（実測）ので、移す近道も使わない。外枠（タブ / パス行 / 本文）は同じ dialog の中に置いたまま。閉じる操作は標準の `Escape` と ⤢ に任せ、閉じたら開いたボタンへ焦点を戻す
+- 閉じている間は `role="presentation"` にして `aria-label` と `tabindex` を外す（焦点可能な要素が残っていると読み上げは `presentation` を無視し、閉じたまま dialog の区切りとして出る。本文の名前は内側の `<section>` だけが持つ）。閉状態のレイアウトは `display: contents`（`client/src/styles/index.css` の `.file-preview-dialog:not([open])`）で、内側の `<section>` が親の flex にそのまま参加し、色も親から継承する。`display: block` にすると dialog が flex item になり、ツリーと高さを分け合えなくなる
+- **全画面（退場アニメの間を含む）では `@2xl:` の段を当てない。** dialog をその場に置くと祖先の `@container` が一致するようになり、portal で作っていたときには付かなかった境界線が全画面の左上に出る
 - 開いたまま別のタブへ切り替えても全画面は保つ（`FilePreview` の state なので、dialog の開閉で本文を取り直さない）
-- `Escape` は dialog だけを閉じる（設定ページの「一覧へ戻る」やチャット復帰へ届かせない）
+- `Escape` は dialog が開いているときだけ止める（設定ページの「一覧へ戻る」やチャット復帰へ届かせない）。閉じている間は止めないので、インライン表示のままでも同じ `Escape` が背面へ通る
+- **狭い幅のシート（`SessionFilesPanel` の `files-sheet` = 外側 modal）の中で開いたときも、閉じるのは内側の全画面だけ。** 内側の `close` / `cancel` は React の合成イベントで祖先の dialog まで伝わるため、自分の分を祖先へ渡さず（`stopPropagation`）、シート側も自分の dialog のイベントだけを閉じる要求として受ける。`Escape` は内側 → 外側の順になり、焦点は内側を閉じるとシートの ⤢、シートを閉じると開いたボタンへ戻る。逆に**子孫の dialog（本文の Markdown 画像の拡大 = portal の dialog）の `close` / `cancel` は通す**（`event.target !== event.currentTarget` は素通しする。受けると拡大の標準の close を打ち消し、`Escape` で拡大が閉じなくなる。[markdown.md](markdown.md#画像の拡大表示)）
 - **背景（backdrop）は透明にする**（`background: transparent` / `backdrop-filter: none`）。面が viewport を覆うので開き切れば見えないが、既定の暗幕（`--c-backdrop` 0.78 + blur）だと入り / 退場の途中だけ暗幕がよぎって黒い閃きに見える
 - **開いたときの焦点は dialog 自身**（`tabIndex={-1}` + `focus()`）。`showModal()` に任せると先頭の操作（タブや表示切替）へ当たり、実機で意図しないボタンに飛ぶ。閉じたら開いたボタンへ戻す
-- 出入りは `.viewer-dialog`（入り `viewer-in` / 退場 `viewer-out` + `data-closing`）で動かす。退場は `useExitPhase` が `animationend` まで dialog を開いたままにし、閉じ切ってから `close()` する（瞬時に消さない）。`prefers-reduced-motion` では長さを 0.01ms にするだけで、開閉の順序は変えない
+- 出入りは `.viewer-dialog`（入り `viewer-in` / 退場 `viewer-out` + `data-closing`）で動かす。退場は `useExitPhase` が `animationend` まで dialog を開いたままにし、閉じ切ってから `close()` する（瞬時に消さない。`close()` は退場アニメの終了と同じ描画で行い、閉状態の寸法が 1 フレームだけ出るのを避ける）。`prefers-reduced-motion` では長さを 0.01ms にするだけで、開閉の順序は変えない
+- `viewer-in` / `viewer-out` の付与は CSS の `[open]` に依存して SSR では観測できないため、自動テストでは固定せず手動の受入で確認する（[testing.md](testing.md)）
 
 ## 言語判定
 
@@ -230,7 +233,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 `previewVersion` は mount ごとに 0 へ戻すローカルカウンタではなく、[document 内の共有採番](api.md#画像配信raw)で得る版。手動再読み込みと run 終了では新しい版へ進み、パネルの開き直しや設定画面との往復でも過去の URL に戻らない。
 
 - 配信は画像だけに制限し、SVG / HTML は allowlist 外として 400 になる（同一オリジンでスクリプトを実行させない）
-- 表示は `object-contain` で親の幅・高さに合わせる。ピクセル等倍の切替や拡大縮小の UI は持たない
+- 表示は `object-contain` で親の幅・高さに合わせる。枠（`.image-canvas`）の中央（両軸）に置き、枠より大きい画像は `max-h-full` / `max-w-full` で枠に収める（スクロールで切れない）。ピクセル等倍の切替や拡大縮小の UI は持たない
 - **透過は本文の枠の市松で示す**（`styles/index.css` の `.image-canvas`）。色は `--c-soft` と `--c-ink` の `color-mix` で作り、6 テーマぶんの定義を足さずに追随する（1 タイル 16px = 8px 角）。市松は本文の枠いっぱいに敷き、画像の外側（`p-2` の余白）にも出る（VS Code などと同じ扱い。画像の箱の下だけに敷く案は、小さい透過画像で周囲が平らなままになるため採らない）。透明度の有無による出し分けはしない（判定に canvas の縮小が必要で、誤判定とモバイルのデコード負荷に見合わない）
 - **パス行の右端に 寸法 · サイズ を出す**（例: `1536 × 1536 · 24.4 KB`）。寸法は `<img>` の `onLoad` の `naturalWidth` / `naturalHeight`（内在ピクセル。表示倍率は持たない）、サイズは `FileBrowser` がツリーの取得済みの行（`FileEntry.size`）から引いて `activeSize` で渡す。表記の組み立ては `client/src/lib/imageMeta.ts` の純関数で、**分かる項目だけを並べ、どちらも分からなければ行ごと出さない**
 - サイズの取得に一覧を取り直さない（1 タブごとに余分な往復を作らない）。このため親ディレクトリが未取得の面（F5 で親を閉じていた場合、一覧の上限 500 件で載っていない場合）ではサイズが出ず、寸法だけになる。ツリーのサイズは「再読み込み」で画像本体と一緒に新しくなる（`invalidateFileTree` が取得済みの子を捨て、プレビューは `key` と raw URL の版を変えて取り直す）ため、表示中の画像とメタの鮮度は揃う

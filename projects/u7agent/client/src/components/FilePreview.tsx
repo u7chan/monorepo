@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type Ref, type RefObject } from "react";
-import { createPortal } from "react-dom";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type Ref,
+  type RefObject,
+} from "react";
 import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api";
 import { useExitPhase } from "../hooks/useExitPhase";
 import { useMessageCopy } from "../hooks/useMessageCopy";
@@ -99,17 +108,20 @@ export function FilePreview({
   // 退場アニメの間は dialog を開いたままにする (閉じ切ってから close() する)
   const fullscreenPhase = useExitPhase(fullscreen, fullscreenDialogRef);
   const fullscreenVisible = fullscreen || fullscreenPhase === "closing";
-  useEffect(() => {
+  // 開閉は native の showModal / close だけで行う (面を portal / 条件分岐で移すと React が要素を作り直し、
+  // iframe が文書を取り直してスクロール・入力・JS の状態が消える)。close を layout effect に置くのは、
+  // 退場アニメの終了と同じ描画で閉じるため (passive だと 1 フレーム「open のまま閉状態の寸法」が出る)
+  useLayoutEffect(() => {
     const dialog = fullscreenDialogRef.current;
     if (dialog === null) return;
-    if (fullscreenVisible && !dialog.open) {
+    if (fullscreen && !dialog.open) {
       dialog.showModal();
       // 開いたときに先頭のボタンへ勝手に当てない (実機で意図しない操作へフォーカスが飛ぶ)
       dialog.focus();
-    } else if (!fullscreenVisible && dialog.open) {
+    } else if (!fullscreen && fullscreenPhase === "closed" && dialog.open) {
       dialog.close();
     }
-  }, [fullscreenVisible]);
+  }, [fullscreen, fullscreenPhase]);
   useEffect(() => {
     if (fullscreenVisible || !restoreFullscreenFocus.current) return;
     restoreFullscreenFocus.current = false;
@@ -189,7 +201,12 @@ export function FilePreview({
     // 幅が足りないときはツリーの下 (border-t)、コンテナが @2xl 以上ならツリーの右 (border-l) へ置く
     <section
       aria-label="ファイルプレビュー"
-      className="flex min-h-40 min-w-0 flex-1 flex-col border-t border-line @2xl:min-h-0 @2xl:border-t-0 @2xl:border-l"
+      // 全画面 (退場アニメの間を含む) では @2xl を当てない: dialog をその場に置くと祖先の @container が
+      // 一致するようになり、portal で作っていたときは付かなかった境界線が全画面の左上へ出る
+      className={cn(
+        "flex min-h-40 min-w-0 flex-1 flex-col border-t border-line",
+        !fullscreenVisible && "@2xl:min-h-0 @2xl:border-t-0 @2xl:border-l",
+      )}
     >
       <div className="flex shrink-0 scrollbar-thin items-stretch gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
         {paths.map((path, index) => (
@@ -272,7 +289,9 @@ export function FilePreview({
           {errorHint ? <span> {errorHint}</span> : null}
         </p>
       ) : showImage ? (
-        <div className="image-canvas min-h-0 flex-1 overflow-auto p-2">
+        // 縦も中央に置く (items-center)。はみ出した分が上で切れるのは枠の高さが未確定のときなので、
+        // flex-1 + min-h-0 で高さが確定するここでは max-h-full が効き、画像は枠に収まる
+        <div className="image-canvas flex min-h-0 flex-1 items-center justify-center overflow-auto p-2">
           <img
             src={fileRawUrl(fetchPath, previewVersion)}
             alt={`${fetchPath} のプレビュー`}
@@ -282,7 +301,7 @@ export function FilePreview({
                 dimensions: { width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight },
               })
             }
-            className="mx-auto max-h-full max-w-full object-contain"
+            className="max-h-full max-w-full object-contain"
           />
         </div>
       ) : showAudio ? (
@@ -350,28 +369,46 @@ export function FilePreview({
     </section>
   );
 
-  if (!fullscreenVisible) return preview;
-  return createPortal(
+  // dialog は常に同じ位置に置く (閉じている間は `display: contents` で box を作らない)。条件分岐や portal で
+  // 面を移すと React が要素を作り直し、HTML プレビューの iframe が文書を取り直してしまう
+  return (
     <dialog
       ref={fullscreenDialogRef}
-      aria-label="ファイルプレビュー"
-      tabIndex={-1}
+      // 閉じている間は dialog を名乗らない (通常のブロックとして置く外装なので、読み上げの区切りにしない)。
+      // 焦点可能な要素 (tabIndex) が残っていると ARIA は presentation を無視するため、開いている間だけ付ける
+      role={fullscreenVisible ? undefined : "presentation"}
+      aria-label={fullscreenVisible ? "ファイルプレビュー" : undefined}
+      tabIndex={fullscreenVisible ? -1 : undefined}
       data-closing={fullscreenPhase === "closing"}
-      // Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる
+      // 自分の close だけを祖先の dialog へ渡さない: React の合成イベントは子孫から祖先の dialog まで伝わるため、
+      // 狭い幅のシート (外側 modal) の中ではシートまで同時に閉じる。子孫 (画像の拡大) の close は握り潰さない
+      onClose={(event) => {
+        if (event.target === event.currentTarget) event.stopPropagation();
+      }}
+      // Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる。子孫の cancel
+      // (本文の画像の拡大 = portal の dialog) も React のツリーを伝わって届くので、自分の分だけを受ける
+      // (受けると拡大の標準の close を preventDefault で打ち消し、Escape で拡大が閉じなくなる)
       onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
         event.preventDefault();
+        event.stopPropagation();
         closeFullscreen();
       }}
-      // 止めないと設定ページの Escape (一覧へ戻る / チャットへ戻る) まで届く
+      // 閉じている間は止めない (常に止めると、インライン表示のまま設定ページの Escape = 一覧へ戻る /
+      // チャットへ戻るまで届かなくなる)
       onKeyDown={(event) => {
-        if (event.key === "Escape") event.stopPropagation();
+        if (event.key === "Escape" && event.currentTarget.open) event.stopPropagation();
       }}
-      // h-dvh + 余白なし: プレビュー本体が viewport の高さいっぱいを使う
-      className="viewer-dialog m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-panel p-0 focus:outline-none"
+      // h-dvh + 余白なし: プレビュー本体が viewport の高さいっぱいを使う。閉じている間に当てると
+      // 閉状態が全画面になるため、開いている間だけ当てる
+      className={cn(
+        "file-preview-dialog viewer-dialog",
+        fullscreenVisible &&
+          "m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-panel p-0 focus:outline-none",
+      )}
     >
       {preview}
-    </dialog>,
-    document.body,
+    </dialog>
   );
 }
 
