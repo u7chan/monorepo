@@ -244,8 +244,9 @@ export function AgentSettingsPage({
               未保存
             </span>
           ) : builtinEditing ? (
-            <span className="rounded border border-line bg-soft px-1.5 text-2xs leading-4 text-ink-ghost">
-              ビルトイン
+            // スキルの詳細と同じ印 (面のアクセント) にして、同じ「アプリが同梱するもの」を同じ見た目で示す
+            <span className="rounded border border-accent/50 bg-accent-wash px-1.5 text-2xs leading-4 text-accent-text">
+              組み込み
             </span>
           ) : undefined
         }
