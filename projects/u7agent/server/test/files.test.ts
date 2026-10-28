@@ -11,7 +11,7 @@ import {
   type HtmlPreviewPolicy,
 } from "../src/routes/files";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
-import type { SandboxFileListing, SandboxGitInfo } from "../src/sandbox/protocol";
+import { SANDBOX_MAX_UPLOAD_BYTES, type SandboxFileListing, type SandboxGitInfo } from "../src/sandbox/protocol";
 
 const LISTING: SandboxFileListing = {
   path: "src",
@@ -34,6 +34,8 @@ function stubFiles(
   deletedDirs: string[];
   renamed: Array<{ path: string; name: string }>;
   previewed: string[];
+  /** uploadFile へ渡した保存先と名前、本文 (BFF が raw を中継したかの確認) */
+  uploads: Array<{ dir: string; name: string; body: string }>;
   /** statFile へ渡した path (存在確認のルート) */
   stat: string[];
   raw: string[];
@@ -46,6 +48,7 @@ function stubFiles(
   const deletedDirs: string[] = [];
   const renamed: Array<{ path: string; name: string }> = [];
   const previewed: string[] = [];
+  const uploads: Array<{ dir: string; name: string; body: string }> = [];
   const stat: string[] = [];
   const raw: string[] = [];
   const rawRanges: Array<string | undefined> = [];
@@ -56,6 +59,7 @@ function stubFiles(
     deletedDirs,
     renamed,
     previewed,
+    uploads,
     stat,
     raw,
     rawRanges,
@@ -92,8 +96,11 @@ function stubFiles(
       deleteDirectory: async (path: string) => {
         deletedDirs.push(path);
       },
-      // アップロードはこのテストでは扱わない
-      uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
+      // アップロードはファイル画面のドラッグ＆ドロップのテストで使う
+      uploadFile: async ({ dir, name, body }) => {
+        uploads.push({ dir, name, body: body ? await new Response(body).text() : "" });
+        return { path: `${dir ? `${dir}/` : ""}${name}`, name, renamed: false, size: 0 };
+      },
       rawFile: async (path: string, options?: { range?: string }) => {
         raw.push(path);
         rawRanges.push(options?.range);
@@ -214,6 +221,83 @@ test("GET /api/files/preview answers 503 when the sandbox is not configured", as
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
   try {
     assert.equal((await bff.app.request("/api/files/preview?path=README.md")).status, 503);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("POST /api/files/upload streams the raw body to the sandbox with the destination and name", async () => {
+  const { workspace, uploads } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const response = await bff.app.request("/api/files/upload?path=docs&name=notes.txt", {
+      method: "POST",
+      body: "hello",
+    });
+    assert.equal(response.status, 201);
+    assert.deepEqual(await response.json(), { path: "docs/notes.txt", name: "notes.txt", renamed: false, size: 0 });
+    assert.deepEqual(uploads, [{ dir: "docs", name: "notes.txt", body: "hello" }]);
+    // path の省略はワークスペース root (`""`)。BFF が独自の保存先へ寄せない
+    await bff.app.request("/api/files/upload?name=root.txt", { method: "POST", body: "x" });
+    assert.deepEqual(uploads[1], { dir: "", name: "root.txt", body: "x" });
+  } finally {
+    await bff.close();
+  }
+});
+
+test("POST /api/files/upload rejects an invalid name and a declared oversized body before streaming", async () => {
+  const { workspace, uploads } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const invalid = await bff.app.request("/api/files/upload?name=..%2Fescape.txt", { method: "POST", body: "x" });
+    assert.equal(invalid.status, 400);
+
+    // 本文 (ストリーム) を読む前に、宣言された Content-Length だけで止める
+    const oversized = await bff.app.fetch(
+      new Request("http://localhost/api/files/upload?name=big.bin", {
+        method: "POST",
+        headers: { "Content-Length": String(SANDBOX_MAX_UPLOAD_BYTES + 1) },
+        body: "",
+      }),
+    );
+    assert.equal(oversized.status, 413);
+    assert.match(((await oversized.json()) as { error: string }).error, /too large/);
+    assert.deepEqual(uploads, [], "拒否した要求をサンドボックスへ流している");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("POST /api/files/upload maps sandbox failures and malformed responses", async () => {
+  const { workspace } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    workspace.uploadFile = async () => {
+      throw new SandboxRequestError("Path escapes the workspace: ../x", 400);
+    };
+    const refused = await bff.app.request("/api/files/upload?name=x.txt", { method: "POST", body: "x" });
+    assert.equal(refused.status, 400);
+    assert.deepEqual(await refused.json(), { error: "Path escapes the workspace: ../x" });
+
+    workspace.uploadFile = async () => {
+      throw new SandboxRequestError("File is too large (max 1 bytes)", 413);
+    };
+    assert.equal((await bff.app.request("/api/files/upload?name=x.txt", { method: "POST", body: "x" })).status, 413);
+
+    // 契約外の応答は保存結果として信用しない
+    workspace.uploadFile = async () => ({ path: 1, name: "x.txt" }) as never;
+    const malformed = await bff.app.request("/api/files/upload?name=x.txt", { method: "POST", body: "x" });
+    assert.equal(malformed.status, 502);
+    assert.match(((await malformed.json()) as { error: string }).error, /不正/);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("POST /api/files/upload answers 503 when the sandbox is not configured", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
+  try {
+    assert.equal((await bff.app.request("/api/files/upload?name=a.txt", { method: "POST", body: "a" })).status, 503);
   } finally {
     await bff.close();
   }

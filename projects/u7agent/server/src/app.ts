@@ -190,6 +190,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const app = new Hono()
     .use("/api/*", mutationOriginGuard)
     .use("/api/sessions/*", sessionSpaceGuard(spaces, store))
+    // 設定 → ファイル のドラッグ＆ドロップは本文を raw で流すため、bodyGuard より先に登録する
+    .post("/api/files/upload", (c) => fileRoutes.upload(c))
     // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
     .post("/api/sessions/:id/files", (c) => sessionRoutes.uploadFile(c))
     // スキルの取り込みも raw の ZIP を中継する (JSON 化されると展開できない)

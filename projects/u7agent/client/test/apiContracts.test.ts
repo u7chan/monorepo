@@ -29,6 +29,7 @@ const {
   getSharedContentPreview,
   renameSharedContent,
   statFile,
+  uploadWorkspaceFile,
   getRuntimeDebugServeStatus,
   getRuntimeServeStatus,
   logoutOAuthProvider,
@@ -312,6 +313,22 @@ test("git 情報は root 相対の path を符号化し、repo の外の null �
   assert.deepEqual(paths, ["/api/files/git", "/api/files/git"]);
   assert.equal(queries[0].get("path"), "work/app");
   assert.equal(queries[1].get("path"), ".", "path 省略時は root");
+});
+
+test("ファイル画面のアップロードは保存先と名前を query、本文を raw で送る", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return Response.json({ path: "docs/notes.txt", name: "notes.txt", renamed: false, size: 5 }, { status: 201 });
+  });
+  const uploaded = await uploadWorkspaceFile("docs", new File(["hello"], "notes.txt"));
+  assert.deepEqual(uploaded, { path: "docs/notes.txt", name: "notes.txt", renamed: false, size: 5 });
+  const url = new URL(requests[0].url);
+  assert.equal(requests[0].method, "POST");
+  assert.equal(url.pathname, "/api/files/upload");
+  assert.equal(url.searchParams.get("path"), "docs");
+  assert.equal(url.searchParams.get("name"), "notes.txt");
+  assert.equal(await requests[0].text(), "hello");
 });
 
 test("存在確認は root 相対の path を送り、不存在と拒否の status・文言を保つ", async (t) => {

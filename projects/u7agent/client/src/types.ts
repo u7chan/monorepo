@@ -44,6 +44,7 @@ export type {
   FileStat,
   FileSkillInfo,
   FileSkillsResponse,
+  FileUpload,
   GitInfo,
   Health,
   HistoryCompactionItem,

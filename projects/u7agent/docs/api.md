@@ -19,6 +19,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | git ブランチ（作業フォルダ） | `GET /api/files/git` | このファイル |
 | ファイル削除 | `DELETE /api/files` | このファイル |
 | ファイルのリネーム | `POST /api/files/rename` | このファイル |
+| ファイルのアップロード（設定 → ファイルのドラッグ＆ドロップ） | `POST /api/files/upload` | このファイル、[file-upload.md](file-upload.md) |
 | テキストプレビュー | `GET /api/files/preview` | このファイル |
 | HTML プレビュー（iframe 用。アプリ オリジン + プレビュー オリジンの 2 リスナー） | `GET /api/files/html/<root 相対>` | このファイル |
 | 画像配信（raw） | `GET /api/files/raw` | このファイル |
@@ -240,6 +241,32 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
 出す導線は設定 → ファイル（ワークスペース root）のフォルダ行だけにある（[file-preview.md](file-preview.md#リネーム)）。API はファイル / ディレクトリの両方を受けるが、UI からファイルは改名できない。
+
+### アップロード
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| POST | `/api/files/upload?path=<保存先の root 相対>&name=<保存名>` | raw の本文を 1 ファイルとして保存。成功は 201 |
+
+設定 → ファイル（`/settings/files`）のドラッグ＆ドロップが使う（[file-upload.md](file-upload.md)）。`path` は保存先ディレクトリで、省略時はワークスペース root（`""`）。`name` は 1 セグメントの保存名で、形式（空・`.`・`..`・`/`・制御文字・長さ）はサンドボックスが検証する。BFF は本文を JSON 化せず raw のストリームのままサンドボックスの `POST /v1/files/upload`（[sandbox-api.md](sandbox-api.md#post-v1filesupload)）へ中継し、ワークスペースに触らない。
+
+```json
+// request
+POST /api/files/upload?path=docs&name=notes.txt
+Content-Type: application/octet-stream
+
+<raw bytes>
+
+// response (201)
+{ "path": "docs/notes.txt", "name": "notes.txt", "renamed": false, "size": 1234 }
+```
+
+- 201: サンドボックスの応答を `FileUploadSchema` で検証してそのまま返す。`path` は root 相対の保存先。同名の既存ファイルは**上書きせず** `notes-1.txt` のように連番で保存し、`renamed: true` と実際の `name` を返す（[sandbox-api.md](sandbox-api.md#post-v1filesupload)）
+- 413: 宣言された `Content-Length` が `SANDBOX_MAX_UPLOAD_BYTES`（100 MiB）を超える。本文をサンドボックスへ送る前に止める。宣言が無い / 実際の受信バイトが上限を超える場合はサンドボックスが 413 を返す
+- 400: 保存名の形式（空・`.`・`..`・区切り・制御文字・長さ）・`path` が root 外・保存先がディレクトリでない（400）。保存先ディレクトリは必要ならサンドボックスが作る（存在しない `path` は 404 にしない）。サンドボックス側の文言をそのまま返す
+- 502 / 503: 到達不能・認証失敗・契約外の応答 / `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
+
+このルートは raw の本文を受けるため、BFF では `bodyGuard`（64 KiB で読み切って text 化する）より先に登録する。
 
 ### git ブランチ
 

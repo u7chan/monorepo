@@ -27,6 +27,7 @@ import type {
   FileRename,
   FileSkillsResponse,
   FileStat,
+  FileUpload,
   GitInfo,
   Health,
   HistoryPage,
@@ -477,6 +478,22 @@ export const renameEntry = async (path: string, name: string): Promise<FileRenam
   if (!res.ok) throw await apiError(res);
   // 400 / 404 / 409 / 503 の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
   return (await res.json()) as FileRename;
+};
+
+/**
+ * 設定 → ファイル のドラッグ＆ドロップ。raw の本文で 1 ファイルを送り、保存先 (`path`。"" は root) と
+ * 名前は query で渡す。保存名の検証・同名時の連番・上限の最終判定はサンドボックスが行う。
+ * 一覧の再取得は呼び出し側 (hook) が全件の決着後に 1 回だけ行う。
+ */
+export const uploadWorkspaceFile = async (path: string, file: File, signal?: AbortSignal): Promise<FileUpload> => {
+  const res = await fetch(client.api.files.upload.$url({ query: { path, name: file.name } }), {
+    method: "POST",
+    body: file,
+    signal,
+  });
+  if (!res.ok) throw await apiError(res);
+  // 400 (名前 / root 外) / 413 / 502 / 503 の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
+  return (await res.json()) as FileUpload;
 };
 
 export const getFilePreview = async (path: string, signal: AbortSignal): Promise<FilePreview> => {
