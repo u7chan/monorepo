@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type Ref, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api";
+import { useExitPhase } from "../hooks/useExitPhase";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isAudioName, isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
@@ -95,15 +96,24 @@ export function FilePreview({
   const fullscreenDialogRef = useRef<HTMLDialogElement>(null);
   const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
   const restoreFullscreenFocus = useRef(false);
+  // 退場アニメの間は dialog を開いたままにする (閉じ切ってから close() する)
+  const fullscreenPhase = useExitPhase(fullscreen, fullscreenDialogRef);
+  const fullscreenVisible = fullscreen || fullscreenPhase === "closing";
   useEffect(() => {
     const dialog = fullscreenDialogRef.current;
-    if (fullscreen && dialog !== null && !dialog.open) dialog.showModal();
-  }, [fullscreen]);
+    if (dialog === null) return;
+    if (fullscreenVisible && !dialog.open) dialog.showModal();
+    else if (!fullscreenVisible && dialog.open) dialog.close();
+  }, [fullscreenVisible]);
   useEffect(() => {
-    if (fullscreen || !restoreFullscreenFocus.current) return;
+    if (fullscreenVisible || !restoreFullscreenFocus.current) return;
     restoreFullscreenFocus.current = false;
     fullscreenButtonRef.current?.focus();
-  }, [fullscreen]);
+  }, [fullscreenVisible]);
+  const closeFullscreen = () => {
+    restoreFullscreenFocus.current = true;
+    setFullscreen(false);
+  };
   // 読み込みが終わった画像の寸法。パスを一緒に持ち、タブを切り替えたら前のタブの値を出さない
   const [loadedImage, setLoadedImage] = useState<{ path: string; dimensions: ImageDimensions } | null>(null);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
@@ -238,15 +248,17 @@ export function FilePreview({
         <button
           type="button"
           ref={fullscreenButtonRef}
-          aria-label={fullscreen ? FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL : FILE_PREVIEW_FULLSCREEN_OPEN_LABEL}
-          title={fullscreen ? FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL : FILE_PREVIEW_FULLSCREEN_OPEN_LABEL}
+          aria-label={fullscreenVisible ? FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL : FILE_PREVIEW_FULLSCREEN_OPEN_LABEL}
+          title={fullscreenVisible ? FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL : FILE_PREVIEW_FULLSCREEN_OPEN_LABEL}
           onClick={() => {
-            if (fullscreen) fullscreenDialogRef.current?.close();
+            // 退場アニメの間の押下は受けない (開き直すとアニメの途中で面が戻る)
+            if (fullscreenPhase === "closing") return;
+            if (fullscreen) closeFullscreen();
             else setFullscreen(true);
           }}
           className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:text-accent-text"
         >
-          {fullscreen ? <CollapseIcon /> : <ExpandIcon />}
+          {fullscreenVisible ? <CollapseIcon /> : <ExpandIcon />}
         </button>
       </div>
       {result?.error && !skipFetch ? (
@@ -333,21 +345,23 @@ export function FilePreview({
     </section>
   );
 
-  if (!fullscreen) return preview;
+  if (!fullscreenVisible) return preview;
   return createPortal(
     <dialog
       ref={fullscreenDialogRef}
       aria-label="ファイルプレビュー"
-      onClose={() => {
-        restoreFullscreenFocus.current = true;
-        setFullscreen(false);
+      data-closing={fullscreenPhase === "closing"}
+      // Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる
+      onCancel={(event) => {
+        event.preventDefault();
+        closeFullscreen();
       }}
       // 止めないと設定ページの Escape (一覧へ戻る / チャットへ戻る) まで届く
       onKeyDown={(event) => {
         if (event.key === "Escape") event.stopPropagation();
       }}
       // h-dvh + 余白なし: プレビュー本体が viewport の高さいっぱいを使う
-      className="m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-panel p-0"
+      className="viewer-dialog m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-panel p-0"
     >
       {preview}
     </dialog>,

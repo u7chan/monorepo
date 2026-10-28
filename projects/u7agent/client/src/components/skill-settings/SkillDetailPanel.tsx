@@ -1,5 +1,6 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useExitPhase } from "../../hooks/useExitPhase";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { cn } from "../../lib/cn";
 import {
@@ -95,15 +96,24 @@ export function SkillDetailPanel({
   const readerDialogRef = useRef<HTMLDialogElement>(null);
   const readerButtonRef = useRef<HTMLButtonElement>(null);
   const restoreReaderFocus = useRef(false);
+  // 退場アニメの間は dialog を開いたままにする (閉じ切ってから close() する)
+  const readerPhase = useExitPhase(reading, readerDialogRef);
+  const readerVisible = reading || readerPhase === "closing";
   useEffect(() => {
     const dialog = readerDialogRef.current;
-    if (reading && dialog !== null && !dialog.open) dialog.showModal();
-  }, [reading]);
+    if (dialog === null) return;
+    if (readerVisible && !dialog.open) dialog.showModal();
+    else if (!readerVisible && dialog.open) dialog.close();
+  }, [readerVisible]);
   useEffect(() => {
-    if (reading || !restoreReaderFocus.current) return;
+    if (readerVisible || !restoreReaderFocus.current) return;
     restoreReaderFocus.current = false;
     readerButtonRef.current?.focus();
-  }, [reading]);
+  }, [readerVisible]);
+  const closeReader = useCallback(() => {
+    restoreReaderFocus.current = true;
+    setReading(false);
+  }, []);
   // 本文のコードスパンを、スキルディレクトリ配下のファイル参照として開けるようにする
   // (実在の確認はしない。字句で採択し、開いたときにファイルタブが確かめる)
   const fileRefOpener = useMemo<FileRefOpener | null>(() => {
@@ -115,19 +125,19 @@ export function SkillDetailPanel({
       },
       open: async (target) => {
         if (target.kind !== "skill") return { kind: "discarded" };
-        // 全画面の読み面から開くときは、閉じてからファイルタブを見せる (切替は呼び出し側が持つ)
-        readerDialogRef.current?.close();
+        // 全画面の読み面から開くときは閉じる (退場アニメの間に背後のファイルタブへ切り替わる)
+        closeReader();
         onOpenFileRef(target.path);
         return { kind: "opened" };
       },
     };
-  }, [skillDir, onOpenFileRef]);
+  }, [skillDir, onOpenFileRef, closeReader]);
 
   // 本文の枠。全画面の読み面でも同じ 1 つを使い回す (表示の切替と本文の解析を二重に持たない)
   const bodyPanel = (text: string) => {
     const panel = (
       <OutputPanel
-        label={reading && title ? title : SKILL_TAB_BODY_LABEL}
+        label={readerVisible && title ? title : SKILL_TAB_BODY_LABEL}
         meta={skillBodyMetaLabel(text)}
         text={text}
         mono
@@ -147,15 +157,17 @@ export function SkillDetailPanel({
               <button
                 type="button"
                 ref={readerButtonRef}
-                aria-label={reading ? SKILL_BODY_READER_CLOSE_LABEL : SKILL_BODY_READER_OPEN_LABEL}
-                title={reading ? SKILL_BODY_READER_CLOSE_LABEL : SKILL_BODY_READER_OPEN_LABEL}
+                aria-label={readerVisible ? SKILL_BODY_READER_CLOSE_LABEL : SKILL_BODY_READER_OPEN_LABEL}
+                title={readerVisible ? SKILL_BODY_READER_CLOSE_LABEL : SKILL_BODY_READER_OPEN_LABEL}
                 onClick={() => {
-                  if (reading) readerDialogRef.current?.close();
+                  // 退場アニメの間の押下は受けない (開き直すとアニメの途中で面が戻る)
+                  if (readerPhase === "closing") return;
+                  if (reading) closeReader();
                   else setReading(true);
                 }}
                 className="grid size-5 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:text-accent-text"
               >
-                {reading ? <CollapseIcon /> : <ExpandIcon />}
+                {readerVisible ? <CollapseIcon /> : <ExpandIcon />}
               </button>
             ) : null}
           </>
@@ -174,21 +186,23 @@ export function SkillDetailPanel({
         ) : undefined}
       </OutputPanel>
     );
-    if (!reading) return panel;
+    if (!readerVisible) return panel;
     // 全画面の読み面。外枠 (ページのヘッダ / タブ / メタ) を外し、閉じる操作は標準の dialog に任せる
     return createPortal(
       <dialog
         ref={readerDialogRef}
         aria-label={title ? `${title} の${SKILL_TAB_BODY_LABEL}` : SKILL_TAB_BODY_LABEL}
-        onClose={() => {
-          restoreReaderFocus.current = true;
-          setReading(false);
+        data-closing={readerPhase === "closing"}
+        // Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる
+        onCancel={(event) => {
+          event.preventDefault();
+          closeReader();
         }}
         // 止めないと App の Escape (設定ページからチャットへ戻る) まで届く
         onKeyDown={(event) => {
           if (event.key === "Escape") event.stopPropagation();
         }}
-        className="m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-soft p-3"
+        className="viewer-dialog m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-soft p-3"
       >
         {panel}
       </dialog>,
