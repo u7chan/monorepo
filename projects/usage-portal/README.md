@@ -15,6 +15,7 @@ Codex（ChatGPT サブスクリプション）と OpenCode Go の利用枠を 1 
 - 窓は月次 ⊃ 週次 ⊃ ローリングの入れ子で、外側が上限なら内側は「使用不可」と赤で出す（[ADR 0009](docs/adr/0009-window-blocking-and-five-hour-rolling.md)）
 - Codex は Web UI から Sign in with ChatGPT（デバイスコード / ブラウザ + 貼り付け）でサインインする
 - OpenCode Go はアカウント（API キー）を最大 10 件登録でき、1 アカウント = 1 カードで並べる
+- PWA 用の manifest と 192 / 512px のアイコン、iOS ホーム画面用の 180px アイコンを配信する
 - `GET /api/health` は DB と認証状態だけを返し、利用枠や利用者情報を含まない
 
 `docs/design.md` は親 checkout の設計ドラフトの写しで、このプロジェクトでは書き換えない。実装との差分や決定は [docs/adr/](docs/adr) に置く。
@@ -41,6 +42,15 @@ bun run start   # bun src/server.ts
 `db` は SQLite の open と migration が通っているか、`auth` は認証状態（`ok` / `setup_required` / `misconfigured`）。
 `setup_required`（PIN 未設定）は故障ではないので 200 を返し、PIN ハッシュが壊れているなど `misconfigured` のときだけ 503 になる。
 利用枠は返さない。応答には `Cache-Control: no-store` を付ける。
+
+## ホーム画面への追加
+
+iOS の Safari では共有メニューの「ホーム画面に追加」、Android / PC ではブラウザのインストール機能から追加する。
+アプリ名は「Usage Portal」で、専用アイコンを使う。起動先は `/` で、PIN 認証は通常のブラウザと同じ。
+
+Chromium の PWA インストールには HTTPS（開発時は localhost）が必要。LAN 内の HTTP ではインストール候補に出ない場合がある。
+HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更では TLS 終端や Service Worker は追加せず、オフライン利用や API のキャッシュも行わない。
+設定の判断は [ADR 0014](docs/adr/0014-pwa-icons.md) を参照する。
 
 ## 初回セットアップ
 
@@ -246,3 +256,4 @@ bun run check
 - [docs/adr/0011-view-mode-toggle.md](docs/adr/0011-view-mode-toggle.md) — 簡易 / 標準の表示切り替え
 - [docs/adr/0012-codex-signout-in-card-menu.md](docs/adr/0012-codex-signout-in-card-menu.md) — Codex のサインアウトをカードのメニューへ
 - [docs/adr/0013-meter-status-icons.md](docs/adr/0013-meter-status-icons.md) — 使用不可と残りわずかの印を SVG にする
+- [docs/adr/0014-pwa-icons.md](docs/adr/0014-pwa-icons.md) — PWA と iOS ホーム画面用のアイコン

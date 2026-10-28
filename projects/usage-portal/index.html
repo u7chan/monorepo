@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#14161a" media="(prefers-color-scheme: dark)" />
     <!--
       文書のヘッダーは Bun の HTML ルートでは付けられないため、CSP は meta で指定する（frame-ancestors は meta では効かない）。
       blob: は Bun の HMR が更新スクリプトを blob URL で読み込むために要る。開発時の inline script は 1 つだけ違反になるが、
@@ -14,6 +16,8 @@
       content="default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'"
     />
     <link rel="icon" type="image/png" sizes="32x32" href="./src/client/assets/favicon-32.png" />
+    <link rel="manifest" href="./src/client/manifest.webmanifest" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./src/client/assets/apple-touch-icon.png" />
     <title>Usage Portal</title>
   </head>
   <body>
