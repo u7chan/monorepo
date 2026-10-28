@@ -460,8 +460,13 @@ export function SessionFilesSheet({ returnFocus, phase, dialogRef, ...props }: S
   return (
     <dialog
       ref={dialogRef}
-      // onCancel を無視する環境では標準の close が来るため、そちらも閉じる要求として受ける
-      onClose={props.onClose}
+      // onCancel を無視する環境では標準の close が来るため、そちらも閉じる要求として受ける。
+      // 子孫の dialog (ファイルプレビューの全画面) の close / cancel は React の合成イベントでここまで泡立つので、
+      // 自分の dialog の分だけを受ける (受けると内側を閉じた 1 回でシートまで閉じる)
+      onClose={(event) => {
+        if (event.target !== event.currentTarget) return;
+        props.onClose();
+      }}
       tabIndex={-1}
       aria-modal="true"
       aria-label={props.mode.kind === "skill" ? "スキル" : "作業環境"}
@@ -470,6 +475,7 @@ export function SessionFilesSheet({ returnFocus, phase, dialogRef, ...props }: S
       }}
       // Escape は標準挙動 (即時に閉じる) を止めて退場アニメへ載せる (NavSheet と同じ)
       onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
         event.preventDefault();
         props.onClose();
       }}

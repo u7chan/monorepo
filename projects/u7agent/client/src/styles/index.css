@@ -1186,6 +1186,15 @@
     }
   }
 
+  /* ファイルプレビューの全画面。閉じている間は box を作らず、内側の section を親の flex へそのまま参加させる
+     (display: block にすると dialog が flex item になり、section が親の高さを分け合えずツリーとの比率が崩れる)。
+     色も UA の CanvasText を継承させない (display: contents は色の継承を止めず、Composer との違いを
+     display だけに保つ。出入りの契約は docs/file-preview.md) */
+  .file-preview-dialog:not([open]) {
+    display: contents;
+    color: inherit;
+  }
+
   /* 全画面の読み面 (スキル本文 / ファイルプレビュー)。showModal() は瞬時に面を差し替えるので、
      入りは animation、退場は data-closing + animation（useExitPhase が閉じ切ってから close() する）。
      背景は入りを @starting-style、退場を data-closing で同時に消す（Composer の拡大と同じ作法） */
