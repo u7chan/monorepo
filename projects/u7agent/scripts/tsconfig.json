@@ -1,0 +1,9 @@
+{
+  "extends": "../server/tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "typeRoots": ["../server/node_modules/@types"]
+  },
+  "include": ["bench-history-*.ts", "history-bench-fixture.ts"]
+}

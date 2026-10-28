@@ -1,21 +1,29 @@
-// 長い履歴の初期表示・ページ遡り・merge の再現用ベンチマーク。CI では実行しない。
-// 使い方: pnpm bench:history-merge
-//         SIZES=1000,10000 TEXT_CHARS=40 pnpm bench:history-merge
-// 絶対値はマシン負荷に依存するため、同じ環境で変更前後を比較する。
+// HTTP / 永続化を混ぜると純粋な投影コストを比較できないため、関数を直接呼ぶ。手動実行専用。
 import { performance } from "node:perf_hooks";
-import { chatReducer, historyToBubbles, initialChatState } from "../client/src/hooks/chatReducer.ts";
-import { mergeHistoryPage } from "../client/src/lib/chatHistory.ts";
-import type { ChatMessage, HistoryPage, SessionPayload } from "../client/src/types.ts";
+import { chatReducer, historyToBubbles, initialChatState } from "../client/src/hooks/chatReducer";
+import { mergeHistoryPage } from "../client/src/lib/chatHistory";
+import type { ChatMessage, HistoryPage, SessionPayload } from "../client/src/types";
+import { runServerBenchmark } from "./bench-history-server";
+import type { HistoryProfile } from "./history-bench-fixture";
 
-const sizes = (process.env.SIZES ?? "1000,10000")
-  .split(",")
-  .map((value) => Number(value.trim()))
-  .filter((value) => Number.isInteger(value) && value > 0);
-const textChars = Number(process.env.TEXT_CHARS ?? 40);
+function positiveInteger(name: string, value: string): number {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number <= 0) throw new Error(`${name} must contain positive integers`);
+  return number;
+}
+
+const sizes = (process.env.SIZES ?? "1000,10000").split(",").map((value) => positiveInteger("SIZES", value));
+const textChars = positiveInteger("TEXT_CHARS", process.env.TEXT_CHARS ?? "40");
 const restoreSizes = (process.env.RESTORE_SIZES ?? "1000,2000,4000")
   .split(",")
-  .map((value) => Number(value.trim()))
-  .filter((value) => Number.isInteger(value) && value > 0);
+  .map((value) => positiveInteger("RESTORE_SIZES", value));
+const pages = positiveInteger("PAGES", process.env.PAGES ?? "20");
+const iterations = positiveInteger("ITERATIONS", process.env.ITERATIONS ?? "10");
+const target = process.env.BENCH_TARGET ?? "all";
+if (!["all", "server", "client"].includes(target)) throw new Error("BENCH_TARGET must be all, server or client");
+const profiles = (process.env.PROFILES ?? "plain,mixed").split(",");
+if (profiles.some((profile) => profile !== "plain" && profile !== "mixed"))
+  throw new Error("PROFILES must contain plain or mixed");
 
 function messagesOf(count: number): ChatMessage[] {
   const text = "あ".repeat(textChars);
@@ -86,66 +94,75 @@ function median(label: string, fn: () => void, iterations = 3): number {
   return value;
 }
 
-for (const count of sizes) {
-  const messages = messagesOf(count);
-  const payload = payloadOf(messages);
-  console.log(`\n## messages=${count} textChars=${textChars} payloadBytes=${JSON.stringify(payload).length}`);
+function runClientBenchmark(): void {
+  for (const count of sizes) {
+    const messages = messagesOf(count);
+    const payload = payloadOf(messages);
+    console.log(
+      `\n## client messages=${count} textChars=${textChars} payloadBytes=${Buffer.byteLength(JSON.stringify(payload), "utf8")}`,
+    );
 
-  const initial = chatReducer(initialChatState, { type: "resync", payload });
-  console.log(`initial resync: bubbles=${initial.bubbles.length}`);
+    const initial = chatReducer(initialChatState, { type: "resync", payload });
+    console.log(`initial resync: bubbles=${initial.bubbles.length}`);
 
-  const latest = pageOf(messages, messages.length - 50);
-  let withHistory = initial;
-  median("first history page", () => {
-    withHistory = chatReducer(initial, { type: "resyncHistory", page: latest });
-  });
-  console.log(`after first page: bubbles=${withHistory.bubbles.length}`);
+    const latest = pageOf(messages, messages.length - 50);
+    let withHistory = initial;
+    median("first history page", () => {
+      withHistory = chatReducer(initial, { type: "resyncHistory", page: latest });
+    });
+    console.log(`after first page: bubbles=${withHistory.bubbles.length}`);
 
-  median(
-    "20 older pages",
-    () => {
-      let state = withHistory;
-      let cursor = state.history.nextCursor;
-      for (let page = 0; page < 20 && cursor; page += 1) {
-        const start = Math.max(0, messages.length - 50 * (page + 2));
-        state = chatReducer(state, { type: "prependHistory", cursor, page: pageOf(messages, start) });
-        cursor = state.history.nextCursor;
-      }
-    },
-    1,
-  );
+    median(
+      `${pages} older pages`,
+      () => {
+        let state = withHistory;
+        let cursor = state.history.nextCursor;
+        for (let page = 0; page < pages && cursor; page += 1) {
+          const start = Math.max(0, messages.length - 50 * (page + 2));
+          state = chatReducer(state, { type: "prependHistory", cursor, page: pageOf(messages, start) });
+          cursor = state.history.nextCursor;
+        }
+      },
+      1,
+    );
 
-  // 初期表示の上限を外したときの worst case。全量を live として最新ページと merge する。
-  const all = historyToBubbles(1, messages);
-  median(
-    `full legacy merge (${all.bubbles.length} live)`,
-    () => {
-      mergeHistoryPage({ bubbles: all.bubbles, markers: [], nextId: all.nextId, toolBubbleIds: {} }, latest, {
-        live: all.bubbles,
-      });
-    },
-    1,
-  );
-}
-
-// 結末 (runDurationMs) 付きの履歴を保持したまま最新 50 件を再適用する。run_end 後の live user と
-// 取り込んだ履歴 user の両方が結末を持つため、restoreUserTurnEnds が全 user 分走る。
-console.log("\n## 結末付き履歴を保持した最新 50 件の再同期");
-for (const count of restoreSizes) {
-  const messages = messagesOf(count);
-  const latest = pageOf(messages, messages.length - 50, true);
-  let state = chatReducer(initialChatState, { type: "resync", payload: payloadOf(messages) });
-  state = chatReducer(state, { type: "resyncHistory", page: latest });
-  let cursor = state.history.nextCursor;
-  for (let page = 0; cursor; page += 1) {
-    const start = Math.max(0, messages.length - 50 * (page + 2));
-    state = chatReducer(state, { type: "prependHistory", cursor, page: pageOf(messages, start, true) });
-    cursor = state.history.nextCursor;
+    // 初期表示の上限を外したときの worst case。全量を live として最新ページと merge する。
+    const all = historyToBubbles(1, messages);
+    median(
+      `full legacy merge (${all.bubbles.length} live)`,
+      () => {
+        mergeHistoryPage({ bubbles: all.bubbles, markers: [], nextId: all.nextId, toolBubbleIds: {} }, latest, {
+          live: all.bubbles,
+        });
+      },
+      1,
+    );
   }
-  const held = state.bubbles.length;
-  const users = state.bubbles.filter((bubble) => bubble.role === "user" && bubble.runDurationMs !== undefined);
-  console.log(`held bubbles=${held} users with turn end=${users.length}`);
-  median(`resync latest 50 (${held} bubbles held)`, () => {
+
+  // 結末 (runDurationMs) 付きの履歴を保持したまま最新 50 件を再適用する。run_end 後の live user と
+  // 取り込んだ履歴 user の両方が結末を持つため、restoreUserTurnEnds が全 user 分走る。
+  console.log("\n## 結末付き履歴を保持した最新 50 件の再同期");
+  for (const count of restoreSizes) {
+    const messages = messagesOf(count);
+    const latest = pageOf(messages, messages.length - 50, true);
+    let state = chatReducer(initialChatState, { type: "resync", payload: payloadOf(messages) });
     state = chatReducer(state, { type: "resyncHistory", page: latest });
-  });
+    let cursor = state.history.nextCursor;
+    for (let page = 0; cursor; page += 1) {
+      const start = Math.max(0, messages.length - 50 * (page + 2));
+      state = chatReducer(state, { type: "prependHistory", cursor, page: pageOf(messages, start, true) });
+      cursor = state.history.nextCursor;
+    }
+    const held = state.bubbles.length;
+    const users = state.bubbles.filter((bubble) => bubble.role === "user" && bubble.runDurationMs !== undefined);
+    console.log(`held bubbles=${held} users with turn end=${users.length}`);
+    median(`resync latest 50 (${held} bubbles held)`, () => {
+      state = chatReducer(state, { type: "resyncHistory", page: latest });
+    });
+  }
 }
+
+if (target !== "client") {
+  await runServerBenchmark({ sizes, textChars, pages, iterations, profiles: profiles as HistoryProfile[] });
+}
+if (target !== "server") runClientBenchmark();
