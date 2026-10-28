@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import type { CodexAuthState, UsageSource } from "../api";
 import { showsSignOutButton } from "../lib/codex-signin";
 import { CodexAuthPanel, type CodexActions } from "./CodexAuthPanel";
@@ -17,11 +17,20 @@ export function CodexCard(props: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const needsSignIn = props.source.error?.code === "not_connected" || props.source.error?.code === "reauth_required";
+  const loginStatus = props.auth?.login?.status ?? null;
+
+  // サインインを始めたら、前回のサインアウト失敗はもう関係ない。
+  useEffect(() => {
+    if (loginStatus !== null) {
+      setMessage(null);
+    }
+  }, [loginStatus]);
+
   const showSignOut = showsSignOutButton({
     known: props.auth !== null,
     needsSignIn,
     signedIn: props.auth?.signedIn ?? false,
-    loginStatus: props.auth?.login?.status ?? null,
+    loginStatus,
   });
 
   const signOut = async (): Promise<void> => {

@@ -245,3 +245,4 @@ bun run check
 - [docs/adr/0010-menu-and-modal-layout.md](docs/adr/0010-menu-and-modal-layout.md) — 常設ボタンのメニュー移動と追加のモーダル
 - [docs/adr/0011-view-mode-toggle.md](docs/adr/0011-view-mode-toggle.md) — 簡易 / 標準の表示切り替え
 - [docs/adr/0012-codex-signout-in-card-menu.md](docs/adr/0012-codex-signout-in-card-menu.md) — Codex のサインアウトをカードのメニューへ
+- [docs/adr/0013-meter-status-icons.md](docs/adr/0013-meter-status-icons.md) — 使用不可と残りわずかの印を SVG にする
