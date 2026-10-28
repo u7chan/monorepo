@@ -30,6 +30,7 @@ import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
 import { SettingsSearchField } from "./SettingsSearchField";
 import { SettingsTabs } from "./SettingsTabs";
+import { LoadingMark } from "./LoadingMark";
 import { TabToolbar } from "./TabToolbar";
 import { ReloadButton } from "./ReloadButton";
 import { FileSkillEditorForm } from "./skill-settings/FileSkillEditorForm";
@@ -456,8 +457,13 @@ export function SkillSettingsPage({
       singleColumn={singleColumn}
     />
   ) : (
-    <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
-      <p className="mx-auto max-w-3xl text-1xs leading-relaxed text-ink-muted">{fileSkillPaneNote(fileSkills.state)}</p>
+    // 選択が無いときの面。並列表示では右半分が丸ごと空くので、上端に文を置かず面の中央に寄せ、
+    // 印と文を横に並べる (狭い面は一覧と詳細を切り替えるので、この面は出ない)
+    <div className="grid min-h-0 min-w-0 flex-1 place-items-center px-6 py-8">
+      <p className="flex max-w-md items-center gap-2 text-xs leading-relaxed text-ink-muted">
+        {fileSkills.state.status === "loading" ? <LoadingMark /> : <SkillListIcon />}
+        <span>{fileSkillPaneNote(fileSkills.state)}</span>
+      </p>
     </div>
   );
 
