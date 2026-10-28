@@ -144,6 +144,143 @@ test("deleting an agent cascades only its references and keeps masters and other
   db.close();
 });
 
+/** 実接続で agent_prompts に直接 INSERT する (API を迂回した保存値の検査) */
+function rawInsertPosition(dir: string, agentId: string, promptId: string, position: number): void {
+  const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+  try {
+    raw.exec("PRAGMA foreign_keys = ON");
+    raw
+      .prepare("INSERT INTO agent_prompts (agentId, promptId, position) VALUES (?, ?, ?)")
+      .run(agentId, promptId, position);
+  } finally {
+    raw.close();
+  }
+}
+
+test("a new db rejects non-integer and out-of-range positions at the sqlite level", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    const prompts = createPromptCatalog({ db });
+    const ids = Array.from({ length: 7 }, (_, index) => prompts.create({ label: `L${index}`, prompt: `P${index}` }).id);
+    db.saveAgent({ id: "agent-raw", name: "x", description: "", systemPrompt: "", promptIds: [ids[0]] });
+    db.close();
+
+    // 1.5 は REAL として入り、上限 6 件をすり抜けていた。型まで縛った CHECK で拒否する
+    assert.throws(() => rawInsertPosition(dir, "agent-raw", ids[1], 1.5));
+    assert.throws(() => rawInsertPosition(dir, "agent-raw", ids[1], 7));
+    assert.throws(() => rawInsertPosition(dir, "agent-raw", ids[1], 0));
+    // 1..6 の整数は入る (6 件まで = 位置の一意制約と範囲で決まる)
+    for (const [index, id] of ids.slice(1, 6).entries()) {
+      rawInsertPosition(dir, "agent-raw", id, index + 2);
+    }
+    assert.throws(() => rawInsertPosition(dir, "agent-raw", ids[6], 6), "位置 6 は使用済み");
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.equal(reopened.getAgent("agent-raw")?.promptIds?.length, 6);
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** v34 の弱点 (位置が整数に限られない) テーブル。旧ビルドが作った DB の再現に使う */
+const LEGACY_AGENT_PROMPTS_TABLE = `CREATE TABLE agent_prompts (
+  agentId TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  promptId TEXT NOT NULL REFERENCES prompts(id) ON DELETE RESTRICT,
+  position INTEGER NOT NULL CHECK (position BETWEEN 1 AND 6),
+  PRIMARY KEY (agentId, promptId),
+  UNIQUE (agentId, position)
+);`;
+
+test("a v34 db gets the integer position check and keeps its references", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE agent_prompts");
+    raw.exec(LEGACY_AGENT_PROMPTS_TABLE);
+    raw
+      .prepare("INSERT INTO agents (id, name, description, systemPrompt, sortOrder) VALUES (?, ?, '', '', 1)")
+      .run("agent-legacy", "旧");
+    for (const [index, label] of ["A", "B"].entries()) {
+      const id = `prompt-legacy-${index}`;
+      raw
+        .prepare("INSERT INTO prompts (id, kind, label, prompt) VALUES (?, 'custom', ?, ?)")
+        .run(id, label, `${label} の本文`);
+      raw
+        .prepare("INSERT INTO agent_prompts (agentId, promptId, position) VALUES (?, ?, ?)")
+        .run("agent-legacy", id, index + 1);
+    }
+    raw.exec("PRAGMA user_version = 34");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.equal(migrated.status().ok, true);
+    assert.deepEqual(migrated.getAgent("agent-legacy")?.promptIds, ["prompt-legacy-0", "prompt-legacy-1"]);
+    migrated.close();
+
+    const version = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(version.prepare("PRAGMA user_version").get()?.user_version), 35);
+    version.close();
+
+    // 移行後のテーブルは 1.5 を受け付けない
+    assert.throws(() => rawInsertPosition(dir, "agent-legacy", "prompt-legacy-1", 1.5));
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const sql = String(
+      (check.prepare("SELECT sql FROM sqlite_master WHERE name = ?").get("agent_prompts") as { sql: string }).sql,
+    );
+    assert.ok(sql.includes("typeof(position)"), "整数型の CHECK が入っている");
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a v34 db with a fractional position fails the migration and keeps the old state", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE agent_prompts");
+    raw.exec(LEGACY_AGENT_PROMPTS_TABLE);
+    raw
+      .prepare("INSERT INTO agents (id, name, description, systemPrompt, sortOrder) VALUES (?, ?, '', '', 1)")
+      .run("agent-broken", "壊れ");
+    for (const [index, position] of [1, 1.5].entries()) {
+      const id = `prompt-broken-${index}`;
+      raw.prepare("INSERT INTO prompts (id, kind, label, prompt) VALUES (?, 'custom', 'L', 'P')").run(id);
+      raw
+        .prepare("INSERT INTO agent_prompts (agentId, promptId, position) VALUES (?, ?, ?)")
+        .run("agent-broken", id, position);
+    }
+    raw.exec("PRAGMA user_version = 34");
+    raw.close();
+
+    // 不正値を黙って捨てて移行成功にしない
+    const broken = AppDb.open({ storeDir: dir });
+    assert.equal(broken.status().ok, false);
+    broken.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const sql = String(
+      (check.prepare("SELECT sql FROM sqlite_master WHERE name = ?").get("agent_prompts") as { sql: string }).sql,
+    );
+    assert.equal(sql.includes("typeof(position)"), false, "旧テーブルと行が残る");
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), 34);
+    check.prepare("DELETE FROM agent_prompts WHERE typeof(position) <> 'integer'").run();
+    check.close();
+
+    // 直して開き直せば移行が再試行できる
+    const fixed = AppDb.open({ storeDir: dir });
+    assert.equal(fixed.status().ok, true);
+    assert.deepEqual(fixed.getAgent("agent-broken")?.promptIds, ["prompt-broken-0"]);
+    fixed.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("the database enforces the reference constraints (foreign keys, positions, duplicates, restrict)", () => {
   const { db, prompts } = memoryCatalog();
   const prompt = prompts.create({ label: "L", prompt: "P" });
@@ -325,6 +462,28 @@ test("a too-long or empty stored suggestion fails the migration instead of being
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("creating a master requires both fields while updating keeps omitted ones", () => {
+  const { db, prompts } = memoryCatalog();
+  const before = db.listPrompts().length;
+  for (const input of [{}, { label: "L" }, { prompt: "P" }, { label: "", prompt: "P" }, { label: "L", prompt: "  " }]) {
+    assert.throws(
+      () => prompts.create(input),
+      (error: Error & { statusCode?: number }) => error.statusCode === 400,
+      JSON.stringify(input),
+    );
+  }
+  assert.equal(db.listPrompts().length, before, "拒否した作成は行を増やさない");
+
+  const created = prompts.create({ label: "ラベル", prompt: "本文" });
+  assert.equal(prompts.update(created.id, { label: "変更" }).prompt, "本文", "更新の省略は現在値を保つ");
+  assert.equal(prompts.update(created.id, { prompt: "変更本文" }).label, "変更");
+  assert.deepEqual(
+    { label: prompts.get(created.id)?.label, prompt: prompts.get(created.id)?.prompt },
+    { label: "変更", prompt: "変更本文" },
+  );
+  db.close();
 });
 
 test("the prompt catalog rejects unknown, duplicate and over-limit references without saving", () => {

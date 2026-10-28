@@ -30,8 +30,12 @@ export function promptDraftKey(draft: PromptDraft): string {
   return JSON.stringify(draft);
 }
 
-export function isPromptDraftDirty(draft: PromptDraft, prompt: PromptDef | undefined): boolean {
-  return promptDraftKey(draft) !== promptDraftKey(promptDraftOf(prompt));
+/**
+ * 下書きが基準 (最後に読み込んだ / 保存した内容のキー) から変わったか。
+ * 一覧の取り直しが遅れている / 失敗している間も、保存した内容を「未保存」と誤認しない。
+ */
+export function promptDraftChanged(draft: PromptDraft, baselineKey: string): boolean {
+  return promptDraftKey(draft) !== baselineKey;
 }
 
 /** 保存前の検証。サーバーも同じ条件で 400 にするが、押せない理由を先に読めるようにする */
@@ -44,6 +48,32 @@ export function promptDraftError(draft: PromptDraft): string | undefined {
 /** 保存ペイロード。trim はサーバーも行うが、前後の空白を残したまま差分表示しないようここで揃える */
 export function promptPayloadOf(draft: PromptDraft): PromptDraft {
   return { label: draft.label.trim(), prompt: draft.prompt.trim() };
+}
+
+/**
+ * 変更後の注記。保存 / 削除そのものの成立と、その後の一覧 / カタログ再取得の失敗を 1 文に混ぜず、
+ * 「保存できていない」と読ませない (失敗の印は付けるが、文面は成功を先に言う)。
+ */
+export function promptMutationNote(
+  action: "saved" | "deleted",
+  refreshError: string | undefined,
+): { text: string; error: boolean } {
+  const done = action === "saved" ? "保存" : "削除";
+  return refreshError === undefined
+    ? { text: `定型プロンプトを${done}しました。`, error: false }
+    : { text: `定型プロンプトを${done}しましたが、${refreshError}`, error: true };
+}
+
+/** 再取得の失敗理由。一覧とカタログのどちらが失敗したかを保ち、両方なら連結する */
+export function promptRefreshFailure(
+  listReason: string | undefined,
+  catalogReason: string | undefined,
+): string | undefined {
+  const reasons = [
+    listReason === undefined ? undefined : `一覧を取り直せませんでした。${listReason}`,
+    catalogReason === undefined ? undefined : `エージェントのカタログを取り直せませんでした。${catalogReason}`,
+  ].filter((reason): reason is string => reason !== undefined);
+  return reasons.length > 0 ? reasons.join(" ") : undefined;
 }
 
 /** 使用先の 1 行。組み込みの汎用アシスタントは DB の紐づけではないことを添える */

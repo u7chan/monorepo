@@ -5,12 +5,15 @@ import test from "node:test";
 import {
   AGENT_PROMPT_LIMIT,
   atPromptLimit,
-  isPromptDraftDirty,
+  promptDraftChanged,
   promptCandidates,
   promptDeleteBlockedReason,
   promptDraftError,
+  promptDraftKey,
   promptDraftOf,
+  promptMutationNote,
   promptPayloadOf,
+  promptRefreshFailure,
   promptSelectionOf,
   promptUsageLabel,
   splitPromptsByKind,
@@ -35,16 +38,15 @@ test("下書きは編集対象の内容で初期化し、同じ内容の取り�
   const target = prompt("p1");
   assert.deepEqual(promptDraftOf(target), { label: "ラベル p1", prompt: "本文 p1" });
   assert.deepEqual(promptDraftOf(undefined), { label: "", prompt: "" });
-  assert.equal(isPromptDraftDirty(promptDraftOf(target), target), false);
-  // 同じ内容の別オブジェクト (サーバーの取り直し) でも dirty にしない
-  assert.equal(isPromptDraftOfRefetch(target), false);
-  assert.equal(isPromptDraftDirty({ label: "変更", prompt: "本文 p1" }, target), true);
+  const baseline = promptDraftKey(promptDraftOf(target));
+  assert.equal(promptDraftChanged(promptDraftOf(target), baseline), false);
+  // 同じ内容の別オブジェクト (サーバーの取り直し) でも未保存にしない
+  assert.equal(promptDraftChanged(promptDraftOf(JSON.parse(JSON.stringify(target)) as PromptDef), baseline), false);
+  assert.equal(promptDraftChanged({ label: "変更", prompt: "本文 p1" }, baseline), true);
+  // 保存直後は一覧が古くても、保存した内容を基準にすれば未保存にならない
+  const saved = { label: "保存した", prompt: "保存した本文" };
+  assert.equal(promptDraftChanged(saved, promptDraftKey(saved)), false);
 });
-
-function isPromptDraftOfRefetch(target: PromptDef): boolean {
-  const refetched = JSON.parse(JSON.stringify(target)) as PromptDef;
-  return isPromptDraftDirty(promptDraftOf(refetched), target);
-}
 
 test("保存前の検証とペイロードは前後の空白を落とす", () => {
   assert.equal(promptDraftError({ label: "  ", prompt: "本文" }), "ラベルを入力してください。");
@@ -54,6 +56,29 @@ test("保存前の検証とペイロードは前後の空白を落とす", () =>
     label: "ラベル",
     prompt: "本文",
   });
+});
+
+test("保存 / 削除の成立と再取得の失敗を混ぜず、失敗の理由だけを添える", () => {
+  assert.deepEqual(promptMutationNote("saved", undefined), {
+    text: "定型プロンプトを保存しました。",
+    error: false,
+  });
+  assert.deepEqual(promptMutationNote("saved", "一覧を取り直せませんでした。503"), {
+    text: "定型プロンプトを保存しましたが、一覧を取り直せませんでした。503",
+    error: true,
+  });
+  assert.deepEqual(promptMutationNote("deleted", "エージェントのカタログを取り直せませんでした。503"), {
+    text: "定型プロンプトを削除しましたが、エージェントのカタログを取り直せませんでした。503",
+    error: true,
+  });
+
+  assert.equal(promptRefreshFailure(undefined, undefined), undefined);
+  assert.equal(promptRefreshFailure("503", undefined), "一覧を取り直せませんでした。503");
+  assert.equal(promptRefreshFailure(undefined, "503"), "エージェントのカタログを取り直せませんでした。503");
+  assert.equal(
+    promptRefreshFailure("503", "502"),
+    "一覧を取り直せませんでした。503 エージェントのカタログを取り直せませんでした。502",
+  );
 });
 
 test("使用先の表示と削除できない理由を区別する", () => {

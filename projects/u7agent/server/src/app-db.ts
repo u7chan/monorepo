@@ -16,7 +16,7 @@ import type { AgentDef, ModelRef, NotificationResult, Project, PromptRef, Space 
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 34;
+export const APP_DB_SCHEMA_VERSION = 35;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -658,12 +658,13 @@ const PROMPTS_TABLE = `CREATE TABLE IF NOT EXISTS prompts (
 /**
  * v33 -> v34 で足したエージェントからマスタへの順序付き参照。`ON DELETE RESTRICT` で使用中の削除を
  * DB でも防ぎ、`ON DELETE CASCADE` でエージェント削除時は紐づけだけを消す（マスタは残す）。
- * 上限 (1..6) と重複禁止も DB 側の制約で守る。
+ * 上限 (1..6) と重複禁止も DB 側の制約で守る。`INTEGER` 宣言だけでは SQLite が REAL (1.5) を
+ * そのまま受けるため、型まで CHECK で縛る (位置は 1..6 の整数だけ)。
  */
 const AGENT_PROMPTS_TABLE = `CREATE TABLE IF NOT EXISTS agent_prompts (
   agentId TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   promptId TEXT NOT NULL REFERENCES prompts(id) ON DELETE RESTRICT,
-  position INTEGER NOT NULL CHECK (position BETWEEN 1 AND 6),
+  position INTEGER NOT NULL CHECK (typeof(position) = 'integer' AND position BETWEEN 1 AND 6),
   PRIMARY KEY (agentId, promptId),
   UNIQUE (agentId, position)
 );`;
@@ -1400,6 +1401,36 @@ export class AppDb {
   }
 
   /**
+   * v34 -> v35 の移行。旧定義の `agent_prompts` は `INTEGER` 宣言だけで REAL の位置を受け付けたため、
+   * 整数型の CHECK を持つテーブルへ組み替える。行は保持し、範囲外の値が混ざっていたときだけ
+   * 黙って捨てずに失敗させる (旧 API は整数しか書かないため、見つかれば手編集された行)。
+   */
+  #tightenAgentPrompts(): void {
+    this.#query((db) => {
+      if (!this.#tableExists("agent_prompts")) return;
+      const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get("agent_prompts") as
+        | Row
+        | undefined;
+      // 整数型の検査が入った定義なら何もしない (新規作成・移行済みの DB)
+      if (text(row?.sql).includes("typeof(position)")) return;
+      db.exec("ALTER TABLE agent_prompts RENAME TO agent_prompts_legacy");
+      db.exec(AGENT_PROMPTS_TABLE);
+      db.exec(
+        `INSERT INTO agent_prompts (agentId, promptId, position)
+         SELECT agentId, promptId, position FROM agent_prompts_legacy
+          WHERE typeof(position) = 'integer' AND position BETWEEN 1 AND 6
+          ORDER BY agentId, position`,
+      );
+      const legacy = db.prepare("SELECT COUNT(*) AS count FROM agent_prompts_legacy").get() as Row;
+      const kept = db.prepare("SELECT COUNT(*) AS count FROM agent_prompts").get() as Row;
+      if (Number(legacy.count) !== Number(kept.count)) {
+        throw new Error("agent_prompts has rows outside the allowed positions");
+      }
+      db.exec("DROP TABLE agent_prompts_legacy");
+    });
+  }
+
+  /**
    * v33 -> v34 の移行。既存の `agents.suggestions` の各項目を独立した自作マスタと紐づけへ変換し、
    * 内容と表示順を保持する。同文でも既存項目同士・組み込みとは統合しない。変換後にだけ旧列を外し、
    * 不正な保存値は黙って捨てずに例外にしてトランザクションごと巻き戻す (既存の DB 障害の扱いに合流)。
@@ -1516,6 +1547,8 @@ export class AppDb {
       // v33 -> v34: 定型プロンプトのマスタと、エージェントからの参照
       this.#query((db) => db.exec(PROMPTS_TABLE));
       this.#query((db) => db.exec(AGENT_PROMPTS_TABLE));
+      // v34 -> v35: 位置を整数に限る CHECK が無い版のテーブルを作り直す
+      this.#tightenAgentPrompts();
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない
       this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");

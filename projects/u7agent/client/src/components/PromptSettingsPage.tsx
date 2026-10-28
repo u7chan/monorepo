@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { usePrompts } from "../hooks/usePrompts";
 import { useWideLayout } from "../hooks/useLayoutMode";
-import { MEMORY_NOTE } from "../lib/settingsNotes";
+import { cn } from "../lib/cn";
+import { MEMORY_NOTE, RELOAD_ABOVE_NOTE } from "../lib/settingsNotes";
 import {
-  isPromptDraftDirty,
+  promptDraftChanged,
   promptDraftKey,
   promptDraftOf,
+  promptMutationNote,
   promptPayloadOf,
   type PromptDraft,
 } from "../lib/promptSettings";
@@ -13,9 +15,28 @@ import { promptDeleteConfirmRequest } from "../lib/settingsConfirm";
 import { useConfirm } from "./ConfirmProvider";
 import { PromptDetail } from "./prompt-settings/PromptDetail";
 import { PromptList } from "./prompt-settings/PromptList";
+import { ReloadButton } from "./ReloadButton";
 import { SettingsDetailHeader } from "./SettingsDetailHeader";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
+import { TabToolbar } from "./TabToolbar";
+
+/** 空の下書きの基準。作成中はこの値を保ち、一覧の到着で入力を書き換えない */
+const EMPTY_DRAFT: PromptDraft = { label: "", prompt: "" };
+
+/** 一覧を取得できていない状態の本文。0 件と混同させず、理由と取り直しの導線だけを出す */
+function PromptLoadError({ message }: { message: string }) {
+  return (
+    <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
+      <div className="mx-auto grid max-w-3xl gap-2 rounded-lg border border-line bg-soft p-3 text-xs text-ink-muted">
+        <p role="alert" className="break-words">
+          定型プロンプトを読み込めませんでした。{message}
+        </p>
+        <p className="text-2xs">{RELOAD_ABOVE_NOTE}。</p>
+      </div>
+    </div>
+  );
+}
 
 /** 一覧と詳細のどちらを見せるか。並列表示では使わない */
 type PromptView = "list" | "detail";
@@ -45,7 +66,9 @@ export function PromptSettingsPage({
   const setNoteText = (text: string, error = false) => setNote({ text, error });
   const [busy, setBusy] = useState(false);
 
-  const list = prompts.state.status === "ready" ? prompts.state.prompts : [];
+  // 取得に失敗しても直前の一覧は残る。初回の失敗 (空) は 0 件として出さない
+  const list = prompts.state.prompts;
+  const loadError = prompts.state.status === "error" ? prompts.state.message : undefined;
   // 並べて見せるときは先頭のマスタを選んでおく (右の面を空の新規フォームで埋めない)
   const [autoSelected, setAutoSelected] = useState(false);
   if (!autoSelected && !creating && list.length > 0) {
@@ -53,21 +76,26 @@ export function PromptSettingsPage({
     if (!editingId) setEditingId(list[0].id);
   }
   const editingPrompt = editingId ? list.find((prompt) => prompt.id === editingId) : undefined;
-  // 選択が一覧から消えた (削除・取得し直し) ら新規へ倒す。選択中の編集対象は消えたら諦める
-  const effectiveId = editingPrompt ? editingId : null;
 
-  // 下書きはページが持つ。初期化は編集対象の内容で判定し、一覧の取り直しで同じ内容が返っても消さない
-  const [draft, setDraft] = useState<PromptDraft>(() => promptDraftOf(editingPrompt));
-  const [draftSource, setDraftSource] = useState(() => ({
-    editingId: effectiveId,
-    key: promptDraftKey(promptDraftOf(editingPrompt)),
-  }));
-  const nextDraftKey = promptDraftKey(promptDraftOf(editingPrompt));
-  if (draftSource.editingId !== effectiveId || draftSource.key !== nextDraftKey) {
-    setDraftSource({ editingId: effectiveId, key: nextDraftKey });
-    setDraft(promptDraftOf(editingPrompt));
+  // 下書きはページが持つ。初期化は編集対象の内容で判定し、一覧の取り直しで同じ内容が返っても消さない。
+  // 作成直後など一覧にまだ載っていない対象では書き換えない (保存したばかりの入力を消さない)
+  const [draft, setDraft] = useState<PromptDraft>(EMPTY_DRAFT);
+  const [draftSource, setDraftSource] = useState(() => ({ id: editingId, key: promptDraftKey(EMPTY_DRAFT) }));
+  const emptyDraftKey = promptDraftKey(EMPTY_DRAFT);
+  if (editingId === null) {
+    if (draftSource.id !== null) {
+      setDraftSource({ id: null, key: emptyDraftKey });
+      setDraft(EMPTY_DRAFT);
+    }
+  } else if (editingPrompt) {
+    const nextKey = promptDraftKey(promptDraftOf(editingPrompt));
+    if (draftSource.id !== editingId || draftSource.key !== nextKey) {
+      setDraftSource({ id: editingId, key: nextKey });
+      setDraft(promptDraftOf(editingPrompt));
+    }
   }
-  const dirty = effectiveId !== null && isPromptDraftDirty(draft, editingPrompt);
+  // 未保存の判定の基準は「最後に読み込んだ / 保存した内容」。成果の一覧が古くても誤って未保存にしない
+  const dirty = promptDraftChanged(draft, draftSource.key);
 
   const selectPrompt = (nextId: string | null) => {
     setEditingId(nextId);
@@ -92,11 +120,11 @@ export function PromptSettingsPage({
       detailRef.current?.focus();
       return;
     }
-    const row = effectiveId
-      ? listRef.current?.querySelector<HTMLButtonElement>(`[data-prompt-row="${CSS.escape(effectiveId)}"] button`)
+    const row = editingId
+      ? listRef.current?.querySelector<HTMLButtonElement>(`[data-prompt-row="${CSS.escape(editingId)}"] button`)
       : undefined;
     (row ?? listRef.current?.querySelector<HTMLButtonElement>("button"))?.focus();
-  }, [view, split, effectiveId]);
+  }, [view, split, editingId]);
 
   // 詳細の Escape は一覧へ戻す。capture で受け、App の「設定 → チャット」より先に消費する
   useEffect(() => {
@@ -117,33 +145,46 @@ export function PromptSettingsPage({
   const savePrompt = async () => {
     if (busy) return;
     setBusy(true);
-    const payload = promptPayloadOf(draft);
-    const result = await prompts.save(effectiveId ?? undefined, payload);
-    setBusy(false);
-    if (!result.ok) {
-      // 失敗したら下書きを残す (保存できていない変更を成功扱いしない)
-      setNoteText(result.message, true);
-      return;
+    try {
+      const payload = promptPayloadOf(draft);
+      const result = await prompts.save(editingId ?? undefined, payload);
+      if (!result.ok) {
+        // 失敗したら下書きを残す (保存できていない変更を成功扱いしない)
+        setNoteText(result.message, true);
+        return;
+      }
+      // 作成した ID を編集対象へ写す。同じフォームで続けて保存しても、次は更新になる
+      setCreating(false);
+      setEditingId(result.id);
+      setDraft(payload);
+      setDraftSource({ id: result.id, key: promptDraftKey(payload) });
+      // 保存そのものは成功している。取り直しの失敗だけを別の文で伝える
+      const saved = promptMutationNote("saved", result.refreshError);
+      setNoteText(saved.text, saved.error);
+      if (!split) setView("list");
+    } finally {
+      setBusy(false);
     }
-    setCreating(false);
-    setNoteText("定型プロンプトを保存しました。");
-    if (!split) setView("list");
   };
 
   const removePrompt = async () => {
     if (!editingPrompt || busy) return;
     if (!(await confirm(promptDeleteConfirmRequest(editingPrompt.label)))) return;
     setBusy(true);
-    const result = await prompts.remove(editingPrompt.id);
-    setBusy(false);
-    if (!result.ok) {
-      setNoteText(result.message, true);
-      return;
+    try {
+      const result = await prompts.remove(editingPrompt.id);
+      if (!result.ok) {
+        setNoteText(result.message, true);
+        return;
+      }
+      setCreating(false);
+      setEditingId(null);
+      const deleted = promptMutationNote("deleted", result.refreshError);
+      setNoteText(deleted.text, deleted.error);
+      if (!split) setView("list");
+    } finally {
+      setBusy(false);
     }
-    setCreating(false);
-    setEditingId(null);
-    setNoteText("定型プロンプトを削除しました。");
-    if (!split) setView("list");
   };
 
   const editor = (
@@ -179,7 +220,7 @@ export function PromptSettingsPage({
           ) : (
             <SelectMenu
               options={pickerOptions}
-              value={effectiveId ?? ""}
+              value={editingId ?? ""}
               label="定型プロンプトを切り替える"
               triggerClassName="min-h-11"
               onChange={(value) => selectPrompt(value || null)}
@@ -203,29 +244,64 @@ export function PromptSettingsPage({
     </div>
   );
 
+  const listPane = (
+    <PromptList prompts={list} editingId={editingId} onSelect={selectPrompt} onStartNew={startNewPrompt} />
+  );
+
   return (
     <SettingsPageLayout
       eyebrow="PROMPTS"
       title="定型プロンプト"
       caption="空の会話に出す定型文を、エージェントから独立したマスタとして管理します。"
+      toolbar={
+        <TabToolbar
+          actions={
+            <ReloadButton onClick={prompts.retry} disabled={prompts.state.status === "loading" || prompts.reloading}>
+              再読み込み
+            </ReloadButton>
+          }
+        />
+      }
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
       note={split || view === "list" ? note : undefined}
       collapseHeader={singleColumn && view === "detail"}
     >
-      {split ? (
-        <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">
-          <PromptList prompts={list} editingId={effectiveId} onSelect={selectPrompt} onStartNew={startNewPrompt} />
-          {detail}
-        </div>
+      {loadError !== undefined && list.length === 0 ? (
+        <PromptLoadError message={loadError} />
       ) : (
-        <div className="grid min-h-0 min-w-0 grid-rows-1">
-          {/* 一覧は隠れている間も mount したままにする (検索語とスクロールを詳細との往復で失わない) */}
-          <div ref={listRef} hidden={view === "detail"} inert={view === "detail"} className="grid min-h-0 grid-rows-1">
-            <PromptList prompts={list} editingId={effectiveId} onSelect={selectPrompt} onStartNew={startNewPrompt} />
-          </div>
-          {view === "detail" ? detail : null}
+        <div
+          className={cn(
+            "grid min-h-0 min-w-0",
+            loadError === undefined ? "grid-rows-1" : "grid-rows-[auto_minmax(0,1fr)]",
+          )}
+        >
+          {loadError === undefined ? null : (
+            // 前回の一覧は残っている。古いままであることと取り直しの導線を、0 件と混同させずに出す
+            <p role="status" className="border-b border-line bg-soft px-4 py-2 text-2xs break-words text-warn-text">
+              {loadError}（{RELOAD_ABOVE_NOTE}）
+            </p>
+          )}
+          {split ? (
+            <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">
+              {listPane}
+              {detail}
+            </div>
+          ) : (
+            <div className="grid min-h-0 min-w-0 grid-rows-1">
+              {/* 一覧は隠れている間も mount したままにする (検索語とスクロールを詳細との往復で失わない) */}
+              <div
+                ref={listRef}
+                hidden={view === "detail"}
+                inert={view === "detail"}
+                className="grid min-h-0 grid-rows-1"
+              >
+                {listPane}
+              </div>
+              {view === "detail" ? detail : null}
+            </div>
+          )}
         </div>
       )}
     </SettingsPageLayout>

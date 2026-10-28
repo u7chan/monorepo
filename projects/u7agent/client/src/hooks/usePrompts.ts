@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPrompt, deletePrompt, getPrompts, updatePrompt } from "../api";
+import { promptRefreshFailure } from "../lib/promptSettings";
 import type { PromptDef } from "../types";
-import { createRequestGate } from "./requestGate";
+import { createLoadingTracker, createRequestGate } from "./requestGate";
 
-/** 一覧の取得状態。読み込み中 / 取得済み / 失敗を区別し、空の一覧と混同しない */
+/**
+ * 一覧の取得状態。読み込み中 / 取得済み / 失敗を区別し、空の一覧と混同しない。
+ * 失敗しても直前の一覧は保持する (再取得の失敗で、表示中のマスタを消さない)。
+ */
 export type PromptsState =
-  | { status: "loading" }
+  | { status: "loading"; prompts: PromptDef[] }
   | { status: "ready"; prompts: PromptDef[] }
-  | { status: "error"; message: string };
+  | { status: "error"; prompts: PromptDef[]; message: string };
 
-/** 保存 / 削除の結果。失敗したら画面は下書きを残し、成功として扱わない */
-export type PromptActionResult = { ok: true } | { ok: false; message: string };
+/**
+ * 変更の結果。**保存 / 削除そのものの成否**と、その後の一覧 / エージェントカタログの
+ * 再取得の失敗を分ける (保存できたのに未保存と誤認させない。例外は投げない)。
+ */
+export type PromptActionResult = { ok: true; id: string; refreshError?: string } | { ok: false; message: string };
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -23,45 +30,77 @@ function errorText(error: unknown): string {
  */
 export function usePrompts({ onChanged }: { onChanged?: () => Promise<unknown> }): {
   state: PromptsState;
-  reload: () => void;
+  /** 再取得中。取り直しのボタンを二重に押させない */
+  reloading: boolean;
+  /** 一覧とエージェントカタログを取り直す。失敗しても例外にせず、理由を状態へ残す */
+  retry: () => void;
   save: (id: string | undefined, draft: { label: string; prompt: string }) => Promise<PromptActionResult>;
   remove: (id: string) => Promise<PromptActionResult>;
 } {
-  const [state, setState] = useState<PromptsState>({ status: "loading" });
+  const [state, setState] = useState<PromptsState>({ status: "loading", prompts: [] });
+  const [reloading, setReloading] = useState(false);
   const [beginRequest] = useState(createRequestGate);
+  const [tracker] = useState(() => createLoadingTracker(setReloading));
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    const finish = tracker.begin();
+    const canApply = beginRequest();
+    void getPrompts()
+      .then(({ prompts }) => {
+        if (canApply()) setState({ status: "ready", prompts });
+      })
+      .catch((error: unknown) => {
+        if (canApply()) {
+          setState((prev) => ({ status: "error", prompts: prev.prompts, message: errorText(error) }));
+        }
+      })
+      .finally(finish);
+  }, [beginRequest, tracker]);
+
+  /**
+   * 変更後の取り直し。一覧とカタログを別々に試し、どちらが失敗したかを 1 つの文へまとめる。
+   * `onChanged` の reject をここで止めるので、呼び出し側の busy 解除が飛ばされない。
+   */
+  const refreshAfterMutation = useCallback(async (): Promise<string | undefined> => {
+    let listReason: string | undefined;
+    let catalogReason: string | undefined;
     const canApply = beginRequest();
     try {
       const { prompts } = await getPrompts();
       if (canApply()) setState({ status: "ready", prompts });
     } catch (error) {
-      if (canApply()) setState({ status: "error", message: errorText(error) });
+      const reason = errorText(error);
+      listReason = reason;
+      if (canApply()) setState((prev) => ({ status: "error", prompts: prev.prompts, message: reason }));
     }
-  }, [beginRequest]);
+    if (onChanged) {
+      try {
+        await onChanged();
+      } catch (error) {
+        catalogReason = errorText(error);
+      }
+    }
+    return promptRefreshFailure(listReason, catalogReason);
+  }, [beginRequest, onChanged]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  /** 一覧を先に取り直してから、カタログの再取得を待つ (順序はどちらも「サーバーの正を写す」) */
-  const refreshAll = useCallback(async () => {
-    await load();
-    await onChanged?.();
-  }, [load, onChanged]);
+  const runRefresh = useCallback((): Promise<string | undefined> => {
+    const finish = tracker.begin();
+    return refreshAfterMutation().finally(finish);
+  }, [refreshAfterMutation, tracker]);
 
   return {
     state,
-    reload: () => void load(),
+    reloading,
+    retry: () => void runRefresh(),
     async save(id, draft) {
+      let savedId: string;
       try {
-        if (id) await updatePrompt(id, draft);
-        else await createPrompt(draft);
+        savedId = id ? (await updatePrompt(id, draft)).prompt.id : (await createPrompt(draft)).prompt.id;
       } catch (error) {
         return { ok: false, message: errorText(error) };
       }
-      await refreshAll();
-      return { ok: true };
+      const refreshError = await runRefresh();
+      return refreshError === undefined ? { ok: true, id: savedId } : { ok: true, id: savedId, refreshError };
     },
     async remove(id) {
       try {
@@ -69,8 +108,8 @@ export function usePrompts({ onChanged }: { onChanged?: () => Promise<unknown> }
       } catch (error) {
         return { ok: false, message: errorText(error) };
       }
-      await refreshAll();
-      return { ok: true };
+      const refreshError = await runRefresh();
+      return refreshError === undefined ? { ok: true, id } : { ok: true, id, refreshError };
     },
   };
 }

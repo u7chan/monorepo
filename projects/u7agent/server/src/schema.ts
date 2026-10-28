@@ -2350,18 +2350,25 @@ export type UpdateAgentBody = z.infer<typeof UpdateAgentBodySchema>;
 /**
  * マスタの作成 / 更新。種別と ID はサーバーが決める。**形は受けるが catalog が拒否する** (400)
  * (`suggestions` と同じ理由で、route が「キーがある」ことを説明できる形にする)。
+ * **作成は両項目が必須**で、省略・空文字は保存前に 400 にする (更新の「省略は保持」と混ぜない)。
  */
-const promptBodyShape = {
-  label: z.string().max(PROMPT_LABEL_MAX).optional(),
-  prompt: z.string().max(PROMPT_TEXT_MAX).optional(),
+const promptManagedKeys = {
   id: z.unknown().optional(),
   kind: z.unknown().optional(),
 };
 
-export const CreatePromptBodySchema = z.object(promptBodyShape);
+export const CreatePromptBodySchema = z.object({
+  label: z.string().max(PROMPT_LABEL_MAX),
+  prompt: z.string().max(PROMPT_TEXT_MAX),
+  ...promptManagedKeys,
+});
 export type CreatePromptBody = z.infer<typeof CreatePromptBodySchema>;
 
-export const UpdatePromptBodySchema = z.object(promptBodyShape);
+export const UpdatePromptBodySchema = z.object({
+  label: z.string().max(PROMPT_LABEL_MAX).optional(),
+  prompt: z.string().max(PROMPT_TEXT_MAX).optional(),
+  ...promptManagedKeys,
+});
 export type UpdatePromptBody = z.infer<typeof UpdatePromptBodySchema>;
 
 /**

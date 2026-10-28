@@ -1131,15 +1131,25 @@ test("prompt master endpoints expose built-ins, usage and custom CRUD", async ()
       const rejected = await app.request("/api/prompts", jsonPost(body));
       assert.equal(rejected.status, 400, JSON.stringify(body));
     }
-    // 空のラベル・本文と上限超過は 400
+    // 作成は両項目が必須。未指定・空のラベル・本文と上限超過は 400 で、行を増やさない
+    const beforeInvalid = (await jsonBody(app.request("/api/prompts"))).prompts.length;
     for (const body of [
+      {},
+      { label: "L" },
+      { prompt: "P" },
       { label: "", prompt: "b" },
       { label: "a", prompt: "   " },
+      { label: "   ", prompt: "b" },
       { label: "a".repeat(61), prompt: "b" },
       { label: "a", prompt: "b".repeat(501) },
     ]) {
       assert.equal((await app.request("/api/prompts", jsonPost(body))).status, 400, JSON.stringify(body));
     }
+    assert.equal(
+      (await jsonBody(app.request("/api/prompts"))).prompts.length,
+      beforeInvalid,
+      "拒否した作成は保存しない",
+    );
 
     // 更新は省略した項目を保つ
     const updated = await app.request(`/api/prompts/${custom.id}`, jsonPatch({ label: "押し直す" }));

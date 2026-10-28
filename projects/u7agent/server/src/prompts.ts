@@ -36,20 +36,37 @@ export interface PromptCatalog {
   normalizeIds(value: unknown): string[];
 }
 
-/** マスタの内容の上限は旧 `suggestions` を引き継ぐ。全文が入るので切らずに 400 で断る */
-function contentOf(value: unknown, fallback: { label: string; prompt: string }): { label: string; prompt: string } {
+/**
+ * 内容 1 項目の検証。上限は旧 `suggestions` を引き継ぎ、全文が入るので切らずに 400 で断る。
+ * `previous === null` は作成 (必須)、文字列は更新 (省略時はその値を保つ) を表す。
+ */
+function readContent(raw: unknown, previous: string | null, max: number, name: string): string {
+  if (raw === undefined || raw === null) {
+    if (previous === null) throw httpError(400, `Prompt ${name} is required`);
+    return previous;
+  }
+  if (typeof raw !== "string") throw httpError(400, `Prompt ${name} must be a string`);
+  const text = raw.trim();
+  if (!text) throw httpError(400, `Prompt ${name} is required`);
+  if (text.length > max) throw httpError(400, `Prompt ${name} must be at most ${max} characters`);
+  return text;
+}
+
+/** 更新用。キーを省略した項目は現在値を保つ (画面が片方だけ編集しても他方を消さない) */
+function contentOf(value: unknown, current: { label: string; prompt: string }): { label: string; prompt: string } {
   const record = value as { label?: unknown; prompt?: unknown } | null;
-  const read = (raw: unknown, previous: string, max: number, name: string): string => {
-    if (raw === undefined || raw === null) return previous;
-    if (typeof raw !== "string") throw httpError(400, `Prompt ${name} must be a string`);
-    const text = raw.trim();
-    if (!text) throw httpError(400, `Prompt ${name} is required`);
-    if (text.length > max) throw httpError(400, `Prompt ${name} must be at most ${max} characters`);
-    return text;
-  };
   return {
-    label: read(record?.label, fallback.label, PROMPT_LABEL_MAX, "label"),
-    prompt: read(record?.prompt, fallback.prompt, PROMPT_TEXT_MAX, "prompt"),
+    label: readContent(record?.label, current.label, PROMPT_LABEL_MAX, "label"),
+    prompt: readContent(record?.prompt, current.prompt, PROMPT_TEXT_MAX, "prompt"),
+  };
+}
+
+/** 作成用。両項目とも必須で、未指定 (undefined / null) も空文字も保存前に 400 にする */
+function createContentOf(value: unknown): { label: string; prompt: string } {
+  const record = value as { label?: unknown; prompt?: unknown } | null;
+  return {
+    label: readContent(record?.label, null, PROMPT_LABEL_MAX, "label"),
+    prompt: readContent(record?.prompt, null, PROMPT_TEXT_MAX, "prompt"),
   };
 }
 
@@ -108,7 +125,7 @@ export function createPromptCatalog({ db }: { db: AppDb }): PromptCatalog {
 
     create(input) {
       rejectManagedKeys(input);
-      const content = contentOf(input, { label: "", prompt: "" });
+      const content = createContentOf(input);
       const row: PromptRow = { id: `prompt-${randomUUID()}`, kind: "custom", ...content };
       db.insertPrompt(row);
       return definitionOf(row, []);
