@@ -36,7 +36,7 @@ import { FileSkillEditorForm } from "./skill-settings/FileSkillEditorForm";
 import { FileSkillList } from "./skill-settings/FileSkillList";
 import { FileSkillPanel } from "./skill-settings/FileSkillPanel";
 import { SkillImportDialog } from "./skill-settings/SkillImportDialog";
-import { PencilIcon, PlusIcon, SparkleIcon, SkillListIcon } from "./icons";
+import { DownloadIcon, PencilIcon, PlusIcon, SparkleIcon, SkillListIcon, UploadIcon } from "./icons";
 
 export type SkillSettingsPageProps = SettingsPageProps & {
   /**
@@ -278,6 +278,7 @@ export function SkillSettingsPage({
           disabled={archive.exporting}
           className="btn-quiet"
         >
+          <DownloadIcon small />
           {SKILL_EXPORT_LABEL}
         </button>
         <button
@@ -286,6 +287,7 @@ export function SkillSettingsPage({
           disabled={archive.import.status === "planning" || archive.import.status === "applying"}
           className="btn-quiet"
         >
+          <UploadIcon small />
           {SKILL_IMPORT_LABEL}
         </button>
         <ReloadButton onClick={fileSkills.reload} aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}>
