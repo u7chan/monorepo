@@ -660,27 +660,36 @@ function restoreSettledTools(
 
 /** 保存済み messages にライブの結末は載らないため、履歴ページ適用後も Done を残す */
 function restoreUserTurnEnds(state: ChatState, bubbles: Bubble[]): Bubble[] {
-  let next = bubbles;
-  for (const live of state.bubbles) {
-    if (live.role !== "user" || live.runDurationMs === undefined) continue;
-    if (next.some((bubble) => bubble.id === live.id)) continue;
-    let match = -1;
-    if (live.sendId !== undefined) {
-      match = next.findIndex((bubble) => bubble.role === "user" && bubble.sendId === live.sendId);
-    } else {
-      for (let index = next.length - 1; index >= 0; index -= 1) {
-        if (next[index].role === "user" && next[index].text === live.text) {
-          match = index;
-          break;
-        }
-      }
-    }
+  // 写す相手が居ない再同期で索引を作らないため、先に対象の live だけを取り出す
+  const ended = state.bubbles.filter(
+    (bubble): bubble is Bubble & { runDurationMs: number } =>
+      bubble.role === "user" && bubble.runDurationMs !== undefined,
+  );
+  if (ended.length === 0) return bubbles;
+  // sendId は先頭・本文は末尾の一致を使うため、索引にも同じ側の 1 件だけを控える
+  const ids = new Set<number>();
+  const indexBySendId = new Map<string, number>();
+  const indexByText = new Map<string, number>();
+  bubbles.forEach((bubble, index) => {
+    ids.add(bubble.id);
+    if (bubble.role !== "user") return;
+    if (bubble.sendId !== undefined && !indexBySendId.has(bubble.sendId)) indexBySendId.set(bubble.sendId, index);
+    indexByText.set(bubble.text, index);
+  });
+  // 一致のたびに map で配列を作り直すと、結末を持つ user の数だけ全バブルを走査し直すことになる
+  const updates = new Map<number, { runDurationMs: number; runOutcome: RunOutcome | undefined }>();
+  for (const live of ended) {
+    if (ids.has(live.id)) continue;
+    const match =
+      live.sendId === undefined ? (indexByText.get(live.text) ?? -1) : (indexBySendId.get(live.sendId) ?? -1);
     if (match === -1) continue;
-    next = next.map((bubble, index) =>
-      index === match ? { ...bubble, runDurationMs: live.runDurationMs, runOutcome: live.runOutcome } : bubble,
-    );
+    updates.set(match, { runDurationMs: live.runDurationMs, runOutcome: live.runOutcome });
   }
-  return next;
+  if (updates.size === 0) return bubbles;
+  return bubbles.map((bubble, index) => {
+    const update = updates.get(index);
+    return update === undefined ? bubble : { ...bubble, ...update };
+  });
 }
 
 /** 本文一致で寄せると同文の別応答を取り違えるため、応答IDがあるときはそれだけで対応付ける */

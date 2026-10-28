@@ -12,6 +12,10 @@ const sizes = (process.env.SIZES ?? "1000,10000")
   .map((value) => Number(value.trim()))
   .filter((value) => Number.isInteger(value) && value > 0);
 const textChars = Number(process.env.TEXT_CHARS ?? 40);
+const restoreSizes = (process.env.RESTORE_SIZES ?? "1000,2000,4000")
+  .split(",")
+  .map((value) => Number(value.trim()))
+  .filter((value) => Number.isInteger(value) && value > 0);
 
 function messagesOf(count: number): ChatMessage[] {
   const text = "あ".repeat(textChars);
@@ -42,7 +46,7 @@ function payloadOf(messages: ChatMessage[]): SessionPayload {
   } as unknown as SessionPayload;
 }
 
-function pageOf(messages: ChatMessage[], start: number): HistoryPage {
+function pageOf(messages: ChatMessage[], start: number, withTurnEnds = false): HistoryPage {
   const items = messages.slice(start, start + 50).map((message, index) => ({
     kind: "message" as const,
     id: `entry-${start + index}`,
@@ -52,6 +56,9 @@ function pageOf(messages: ChatMessage[], start: number): HistoryPage {
     ...(message.sendId === undefined ? {} : { sendId: message.sendId }),
     ...(message.runId === undefined ? {} : { runId: message.runId }),
     ...(message.assistantId === undefined ? {} : { assistantId: message.assistantId }),
+    ...(withTurnEnds && message.role === "user"
+      ? { runDurationMs: 1000 + (start + index), runOutcome: "completed" as const }
+      : {}),
   }));
   return {
     sessionId: "bench",
@@ -119,4 +126,26 @@ for (const count of sizes) {
     },
     1,
   );
+}
+
+// 結末 (runDurationMs) 付きの履歴を保持したまま最新 50 件を再適用する。run_end 後の live user と
+// 取り込んだ履歴 user の両方が結末を持つため、restoreUserTurnEnds が全 user 分走る。
+console.log("\n## 結末付き履歴を保持した最新 50 件の再同期");
+for (const count of restoreSizes) {
+  const messages = messagesOf(count);
+  const latest = pageOf(messages, messages.length - 50, true);
+  let state = chatReducer(initialChatState, { type: "resync", payload: payloadOf(messages) });
+  state = chatReducer(state, { type: "resyncHistory", page: latest });
+  let cursor = state.history.nextCursor;
+  for (let page = 0; cursor; page += 1) {
+    const start = Math.max(0, messages.length - 50 * (page + 2));
+    state = chatReducer(state, { type: "prependHistory", cursor, page: pageOf(messages, start, true) });
+    cursor = state.history.nextCursor;
+  }
+  const held = state.bubbles.length;
+  const users = state.bubbles.filter((bubble) => bubble.role === "user" && bubble.runDurationMs !== undefined);
+  console.log(`held bubbles=${held} users with turn end=${users.length}`);
+  median(`resync latest 50 (${held} bubbles held)`, () => {
+    state = chatReducer(state, { type: "resyncHistory", page: latest });
+  });
 }
