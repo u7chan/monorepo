@@ -14,14 +14,14 @@ export const SIDEBAR_WIDTH = 252;
 export const SIDEBAR_OVERLAY_WIDTH = 1200;
 
 /**
- * 定義の一覧と編集面を並べる最小幅。CSS の `--breakpoint-wide` (`client/src/styles/index.css`) と同じ値で、
- * 狭い desktop では一覧ページ + 全画面シートにする (同じ数字を 2 箇所に持つので、片方を変えたらもう片方も変える。
- * `docs-check` では検出できない)。viewport で判定してよいのは、1200px 未満では左バーが overlay になり
- * viewport ≒ 内容幅になるため (SIDEBAR_OVERLAY_WIDTH の上の説明と同じ帯)。
+ * 定義の一覧と詳細を並べる最小幅。CSS の `--breakpoint-wide` (`client/src/styles/index.css`) と同じ値で、
+ * これ未満の desktop と singleColumn はページ内の一覧 ⇄ 詳細にする (同じ数字を 2 箇所に持つので、
+ * 片方を変えたらもう片方も変える。`docs-check` では検出できない)。viewport で判定してよいのは、
+ * 1200px 未満では左バーが overlay になり viewport ≒ 内容幅になるため (SIDEBAR_OVERLAY_WIDTH の上の説明と同じ帯)。
  */
 export const WIDE_MIN_WIDTH = 900;
 
-/** 一覧と編集面を並べてよい幅か。CSS の `wide:` と対で使う */
+/** 一覧と詳細を並べてよい幅か。CSS の `wide:` と対で使う */
 export function resolveWide(width: number): boolean {
   return width >= WIDE_MIN_WIDTH;
 }

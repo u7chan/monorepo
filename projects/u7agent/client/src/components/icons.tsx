@@ -319,6 +319,26 @@ export function DownloadIcon({ small = false }: { small?: boolean } = {}) {
   );
 }
 
+/** アップロードの矢印。ダウンロードと対にして、手元のファイルを読み込む側を示す */
+export function UploadIcon({ small = false }: { small?: boolean } = {}) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("shrink-0", small ? "size-3.5" : "size-4")}
+    >
+      <path d="M8 13.25v-7.5" />
+      <path d="M4.75 9 8 5.75 11.25 9" />
+      <path d="M3 2.75h10" />
+    </svg>
+  );
+}
+
 /** 共有。外へ出す箱と上向きの矢印で、公開 URL を配ることを示す */
 export function ShareIcon() {
   return (

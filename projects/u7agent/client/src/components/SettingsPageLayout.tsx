@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { ArrowLeftIcon, MenuIcon } from "./icons";
+import { SettingsNoteRow } from "./SettingsNoteRow";
 
 export type SettingsPageProps = {
   onBack: () => void;
@@ -18,6 +19,11 @@ export type SettingsPageLayoutProps = SettingsPageProps & {
   toolbar?: ReactNode;
   /** aria-live で読み上げる */
   note?: { text: string; error: boolean };
+  /**
+   * ページの eyebrow / タイトル / 説明を落として、戻る / ☰ の操作行だけにする。singleColumn で
+   * 詳細を開いている間など、内容に高さを譲るときに使う (設定の外へ出る導線は落とさない)
+   */
+  collapseHeader?: boolean;
   children: ReactNode;
 };
 
@@ -33,6 +39,7 @@ export function SettingsPageLayout({
   toolbar,
   note,
   singleColumn = false,
+  collapseHeader = false,
   onBack,
   onOpenNav,
   children,
@@ -57,7 +64,7 @@ export function SettingsPageLayout({
         className={cn(
           "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center border-b border-line",
           hasHeaderButton && "gap-x-2.5",
-          singleColumn ? "px-4 pt-3.5 pb-3" : "px-5 pt-4 pb-3.5",
+          collapseHeader ? "px-4 py-2" : singleColumn ? "px-4 pt-3.5 pb-3" : "px-5 pt-4 pb-3.5",
         )}
       >
         {hasHeaderButton ? (
@@ -84,15 +91,19 @@ export function SettingsPageLayout({
             ) : null}
           </div>
         ) : null}
-        <div className="col-start-2 min-w-0">
-          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">{eyebrow}</div>
-          <h2 className="text-lg font-semibold text-ink-strong">{title}</h2>
-        </div>
-        {/* singleColumn は説明を次の行へ出して全幅で読ませる。戻る / ☰ と横に並べると説明の幅が
-            ボタンに削られ、同じ長さの文でも画面ごとに折り返しが変わる */}
-        {caption ? (
-          <div className={cn("min-w-0", singleColumn ? "col-span-full" : "col-start-2")}>{caption}</div>
-        ) : null}
+        {collapseHeader ? null : (
+          <>
+            <div className="col-start-2 min-w-0">
+              <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">{eyebrow}</div>
+              <h2 className="text-lg font-semibold text-ink-strong">{title}</h2>
+            </div>
+            {/* singleColumn は説明を次の行へ出して全幅で読ませる。戻る / ☰ と横に並べると説明の幅が
+                ボタンに削られ、同じ長さの文でも画面ごとに折り返しが変わる */}
+            {caption ? (
+              <div className={cn("min-w-0", singleColumn ? "col-span-full" : "col-start-2")}>{caption}</div>
+            ) : null}
+          </>
+        )}
       </header>
 
       {tabs}
@@ -102,17 +113,7 @@ export function SettingsPageLayout({
       {children}
 
       {/* ノートが無いページでは行ごと出さない (空の帯を残さない) */}
-      {note ? (
-        <div
-          aria-live="polite"
-          className={cn(
-            "border-t border-line px-5 py-2.5 text-1xs break-words",
-            note.error ? "text-danger-text" : "text-ink-muted",
-          )}
-        >
-          {note.text}
-        </div>
-      ) : null}
+      {note ? <SettingsNoteRow note={note} /> : null}
     </section>
   );
 }

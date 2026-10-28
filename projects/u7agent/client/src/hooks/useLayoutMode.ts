@@ -3,7 +3,7 @@ import { resolveLayoutMode, resolveWide, type LayoutMode } from "../lib/layout";
 
 interface ViewportLayout {
   mode: LayoutMode;
-  /** 一覧と編集面を並べてよい幅か (lib/layout.ts の WIDE_MIN_WIDTH) */
+  /** 一覧と詳細を並べてよい幅か (lib/layout.ts の WIDE_MIN_WIDTH) */
   wide: boolean;
 }
 
@@ -52,7 +52,7 @@ export function useLayoutMode(): LayoutMode {
   return useViewportLayout().mode;
 }
 
-/** 一覧と編集面を並べてよい幅か。閾値の理由は lib/layout.ts の WIDE_MIN_WIDTH を参照 */
+/** 一覧と詳細を並べてよい幅か。閾値の理由は lib/layout.ts の WIDE_MIN_WIDTH を参照 */
 export function useWideLayout(): boolean {
   return useViewportLayout().wide;
 }

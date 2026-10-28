@@ -140,3 +140,10 @@ test("HTML は HTTP 文書として取得し、srcdoc や blob / data URL で埋
     assert.ok(["http:", "https:"].includes(new URL(src).protocol), src);
   }
 });
+
+test("パス行に全画面の切替を出し、dialog は開くまで描かない", () => {
+  const html = renderPreview();
+  assert.match(html, /aria-label="全画面で開く"/);
+  // 開く前は全画面の面 (dialog) を作らない
+  assert.ok(!html.includes("<dialog"), "開いていないのに dialog を作っている");
+});

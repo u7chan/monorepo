@@ -58,7 +58,7 @@ export function ConfirmDialog({ request, onConfirm, onCancel }: ConfirmDialogPro
       aria-label={request.title}
       tabIndex={-1}
       // Escape はダイアログだけを閉じる。設定ページの「戻る」など背面の keydown へ届かせない
-      // (SettingsDetailSheet と同じ理由。native dialog の Escape は伝播する)
+      // (native dialog の Escape は伝播するため、背面の面へは渡さない)
       onKeyDown={(event) => {
         if (event.key === "Escape") event.stopPropagation();
       }}

@@ -68,9 +68,7 @@ function renderPanel({
   tools?: ToolCatalogEntry[];
   fileSkills?: FileSkillsState;
 } = {}): string {
-  return renderToStaticMarkup(
-    createElement(BuiltinAgentPanel, { agent: AGENT, variant: "page", builtinSkills, tools, fileSkills }),
-  );
+  return renderToStaticMarkup(createElement(BuiltinAgentPanel, { agent: AGENT, builtinSkills, tools, fileSkills }));
 }
 
 test("ビルトインは共通スキルと組み込みを、操作できない行として出す", () => {

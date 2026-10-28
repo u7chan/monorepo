@@ -1,5 +1,5 @@
-// 設定 → スキル（/settings/skills）の一覧面の描画契約。追加行を出してよい条件と、
-// 追加行を渡さなかったときに一覧が壊れないことを固定する。
+// 設定 → スキル（/settings/skills）の一覧面の描画契約。追加行を出してよい条件、固定フッターの操作、
+// 詳細との切り替えがページ内の view state であること (dialog を被せない) を固定する。
 // 追加行が取得状態から切り離されると、一覧が 503 / 502 のときも押せて、入力のあとに保存だけが失敗する。
 import assert from "node:assert/strict";
 import { createElement } from "react";
@@ -14,6 +14,10 @@ import {
   FILE_SKILL_PANE_ERROR_NOTE,
   FILE_SKILL_PANE_LOADING_NOTE,
   FILE_SKILL_PANE_NOTE,
+  FILE_SKILL_RELOAD_ARIA_LABEL,
+  FILE_SKILL_RELOAD_LABEL,
+  SKILL_EXPORT_LABEL,
+  SKILL_IMPORT_LABEL,
 } from "../src/lib/fileSkills";
 
 // api.ts (location.origin を読む) と useLayoutMode (viewport を読む) を辿るため、node では最小の shim を置く
@@ -24,7 +28,8 @@ globalThis.location ??= { origin: "http://localhost" } as Location;
   addEventListener() {},
   removeEventListener() {},
 };
-const { SkillSettingsPage, fileSkillAddRow, fileSkillPaneNote } = await import("../src/components/SkillSettingsPage");
+const { SkillSettingsPage, fileSkillAddRow, fileSkillPaneNote, fileSkillPaneNoteLines } =
+  await import("../src/components/SkillSettingsPage");
 
 /** 追加行の有無は button の描画で見る (文言だけの一致では見出しや注記と区別できない) */
 function hasAddRow(html: string): boolean {
@@ -41,38 +46,97 @@ test("追加行は一覧を取得できたときだけ出す", () => {
   assert.equal(fileSkillAddRow({ status: "error", message: "取得に失敗" }, start), undefined);
 });
 
-test("右ペインの案内は一覧を取得できていない間は作成を案内しない", () => {
+test("選択が無いときの案内は一覧を取得できていない間は作成を案内しない", () => {
   assert.equal(fileSkillPaneNote({ status: "ready", skills: [] }), FILE_SKILL_PANE_NOTE);
   assert.equal(fileSkillPaneNote({ status: "loading" }), FILE_SKILL_PANE_LOADING_NOTE);
   assert.equal(fileSkillPaneNote({ status: "error", message: "取得に失敗" }), FILE_SKILL_PANE_ERROR_NOTE);
   // 追加行が出ない状態で「新しいスキル」からの作成を案内すると、押せない操作を促すことになる
   assert.ok(FILE_SKILL_PANE_NOTE.includes("作成できます"));
+
+  // 日本語は文節の途中でも折り返されるので、案内は文の切れ目で行に分ける (「か / ら」で切れない)
+  const lines = fileSkillPaneNoteLines({ status: "ready", skills: [] });
+  assert.equal(lines.length, 2);
+  assert.ok(lines[0]?.endsWith("。"));
+  assert.equal(lines.join(""), FILE_SKILL_PANE_NOTE);
+  const loadingLines = fileSkillPaneNoteLines({ status: "loading" });
+  assert.equal(loadingLines.length, 2);
+  assert.ok(loadingLines[1]?.endsWith("…"));
   assert.ok(!FILE_SKILL_PANE_LOADING_NOTE.includes("作成できます"));
   assert.ok(!FILE_SKILL_PANE_ERROR_NOTE.includes("作成できます"));
 });
 
-test("ページは取得中の一覧に追加行を出さず、理由と再読み込みを出す", () => {
+test("ページは取得中の一覧に追加行を出さず、理由と固定フッターの操作を出す", () => {
   // renderToStaticMarkup では effect が走らないため、一覧は初期状態 (loading) のまま描画される
   const html = renderToStaticMarkup(
     createElement(ConfirmProvider, null, createElement(SkillSettingsPage, { onBack: () => {}, onOpenNav: () => {} })),
   );
   assert.ok(!hasAddRow(html), "取得中でも追加行が出ている");
   assert.ok(html.includes(FILE_SKILL_LOADING_NOTE), "取得中の注記が無い");
+  // 追加 / インポート / エクスポートは行の外の固定フッターに置く
+  assert.ok(html.includes(SKILL_IMPORT_LABEL));
+  assert.ok(html.includes(SKILL_EXPORT_LABEL));
+  // 一覧 ⇄ 詳細はページ内の view state で、全画面シート (modal dialog) は使わない
+  assert.ok(!html.includes("aria-modal"), "設定の詳細シートが残っている");
+  assert.ok(html.includes("スキルの種類"), "スコープタブが無い");
 });
 
-test("DefinitionList は追加行を渡さなくても見出しと行を出す", () => {
-  const withAdd = renderToStaticMarkup(
+test("DefinitionList は見出しを省いてもタブ・検索・固定フッターを出す", () => {
+  const html = renderToStaticMarkup(
     createElement(DefinitionList, {
-      title: "スキル一覧",
-      count: 0,
-      add: { label: FILE_SKILL_ADD_LABEL, onAdd: () => {} },
+      tabs: createElement("span", null, "scope-tabs"),
+      search: createElement("span", null, "search-field"),
+      footer: createElement("button", { type: "button" }, FILE_SKILL_ADD_LABEL),
       children: null,
     }),
   );
-  assert.ok(hasAddRow(withAdd), "追加行が無い");
-  const withoutAdd = renderToStaticMarkup(
-    createElement(DefinitionList, { title: "スキル一覧", count: 0, children: null }),
+  assert.ok(html.includes("scope-tabs"));
+  assert.ok(html.includes("search-field"));
+  assert.ok(hasAddRow(html));
+  assert.equal(html.includes("スキル一覧"), false, "見出しを省いたのに見出しが出ている");
+});
+
+test("DefinitionList の空状態は未絞込の count に依らず、渡されたら出す (検索外れ 0 件)", () => {
+  // 検索で絞った結果が 0 件でも、全件は 5 件のまま。count で判定すると文言が消える
+  const html = renderToStaticMarkup(
+    createElement(DefinitionList, {
+      title: "エージェント一覧",
+      count: 5,
+      emptyLabel: "条件に合うエージェントがありません。",
+      children: null,
+    }),
   );
-  assert.ok(!hasAddRow(withoutAdd), "追加行が出ている");
-  assert.ok(withoutAdd.includes("スキル一覧"), "見出しが無い");
+  assert.ok(html.includes("条件に合うエージェントがありません。"));
+  const withoutLabel = renderToStaticMarkup(
+    createElement(DefinitionList, { title: "エージェント一覧", count: 0, children: null }),
+  );
+  assert.ok(!withoutLabel.includes("条件に合うエージェントがありません。"), "空状態を渡していないのに文言が出ている");
+});
+
+test("並列表示で何も選んでいない間は、空のピッカーと詳細ヘッダを出さない", () => {
+  // window.innerWidth は 1440 なので、この描画は一覧と詳細を並べる (split) 側になる
+  const html = renderToStaticMarkup(
+    createElement(ConfirmProvider, null, createElement(SkillSettingsPage, { onBack: () => {}, onOpenNav: () => {} })),
+  );
+  // 選択肢が無いと名前も印も無い chevron だけが残るため、ピッカーごと出さない
+  assert.ok(!html.includes("スキルを切り替える"), "選択が無いのに空のピッカーが出ている");
+  // ヘッダはページ自身の 1 つだけ。中身の無い詳細ヘッダの帯を残さない
+  assert.equal(html.match(/<header/g)?.length, 1, "選択が無いのに詳細ヘッダの帯が出ている");
+  // 案内は文ごとに行を分けて描くので、行ごとに出ていることを見る
+  for (const line of fileSkillPaneNoteLines({ status: "loading" })) {
+    assert.ok(html.includes(line), "選択が無いときの案内が無い");
+  }
+});
+
+test("エクスポート / インポート / 再読み込みは一覧の頭の帯へ置き、フッターには追加だけを残す", () => {
+  const html = renderToStaticMarkup(
+    createElement(ConfirmProvider, null, createElement(SkillSettingsPage, { onBack: () => {}, onOpenNav: () => {} })),
+  );
+  const reloadAt = html.indexOf(FILE_SKILL_RELOAD_LABEL);
+  assert.ok(reloadAt > 0);
+  assert.ok(html.includes(SKILL_EXPORT_LABEL));
+  assert.ok(html.includes(SKILL_IMPORT_LABEL));
+  // 何を取り直すのかが読み上げで分かるようにする
+  assert.match(html, new RegExp(`aria-label="${FILE_SKILL_RELOAD_ARIA_LABEL}"`));
+  // 帯は一覧より上にある (スコープタブ・検索欄より前に出る)
+  assert.ok(reloadAt < html.indexOf("スキルの種類"), "帯が一覧より下にある");
 });

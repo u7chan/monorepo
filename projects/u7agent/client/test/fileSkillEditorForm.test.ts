@@ -7,9 +7,7 @@ import test from "node:test";
 import {
   FILE_SKILL_CANCEL_LABEL,
   FILE_SKILL_CONFLICT_NOTE,
-  FILE_SKILL_CREATE_HEADING,
   FILE_SKILL_DELETE_LABEL,
-  FILE_SKILL_EDIT_HEADING,
   FILE_SKILL_NAME_LABEL,
   FILE_SKILL_NAME_READONLY_NOTE,
   FILE_SKILL_RELOAD_LABEL,
@@ -27,7 +25,6 @@ function render(props: Partial<Parameters<typeof FileSkillEditorForm>[0]> = {}):
       setDraft: () => {},
       conflict: false,
       notice: null,
-      variant: "page",
       onSave: () => {},
       onCancel: () => {},
       onReload: () => {},
@@ -38,7 +35,6 @@ function render(props: Partial<Parameters<typeof FileSkillEditorForm>[0]> = {}):
 
 test("描画: 既存の編集は名前を表示だけにし、変更できないことを示す", () => {
   const html = render();
-  assert.ok(html.includes(FILE_SKILL_EDIT_HEADING));
   assert.ok(html.includes(FILE_SKILL_NAME_LABEL));
   assert.ok(html.includes("alpha"));
   assert.ok(!html.includes('name="name"'), "既存の編集に名前の入力欄がある");
@@ -59,7 +55,6 @@ test("描画: 新規作成は名前を入力でき、削除の導線を出さな
     draft: { name: "", description: "", body: "" },
     onDelete: undefined,
   });
-  assert.ok(html.includes(FILE_SKILL_CREATE_HEADING));
   assert.match(html, /<input[^>]*required/);
   assert.match(html, /pattern="\[a-z0-9-\]\+"/);
   assert.match(html, /maxLength="64"/);

@@ -12,6 +12,10 @@ import { isHtmlPath, isMarkdownPath } from "./fileCode";
  */
 export const FILE_TAB_LIMIT = 8;
 
+/** プレビューを全画面で開く / 閉じる。狭い面ではプレビュー本体に数十行しか残らないため */
+export const FILE_PREVIEW_FULLSCREEN_OPEN_LABEL = "全画面で開く";
+export const FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL = "全画面を閉じる";
+
 /** タブごとの表示の切替。ソース (行番号付きの本文) か、HTML / Markdown を描画したプレビューか */
 export type PreviewMode = "source" | "preview";
 

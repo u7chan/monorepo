@@ -1,10 +1,14 @@
+// スキル詳細の表示契約。本文 / ファイル / 使用中 の 3 タブ (組み込みは 2 タブ) で、説明は本文タブの
+// 先頭に全文を出し、置き場 / 更新 / 使用中はメタの 1 行にまとめる (カードにしない)。
 import assert from "node:assert/strict";
 
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { fileTimeLabel } from "../src/lib/messageTime";
-import type { FileSkillInfo, SandboxSkillFileDetail } from "../src/types";
+import { SKILL_USAGE_EMPTY_NOTE, SKILL_USAGE_TAB_NOTE } from "../src/lib/fileSkills";
+import { SKILL_USAGE_NOTE, SKILL_USAGE_UNAVAILABLE_NOTE, skillUsageByPath } from "../src/lib/skillUsage";
+import type { AgentDef, FileSkillInfo, SandboxSkillFileDetail } from "../src/types";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
@@ -24,17 +28,25 @@ function fileSkill(overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {
   };
 }
 
-function renderPanel(skill: FileSkillInfo, detail?: SandboxSkillFileDetail): string {
-  return renderToStaticMarkup(createElement(FileSkillPanel, { skill, variant: "page", detail }));
+function agent(id: string, overrides: Partial<AgentDef> = {}): AgentDef {
+  return { id, name: id, description: `${id} の説明`, systemPrompt: "", ...overrides };
 }
 
-test("描画: ファイルタブは共通スキルに出し、組み込みには出さない", () => {
+function renderPanel(
+  skill: FileSkillInfo,
+  options: { detail?: SandboxSkillFileDetail; usage?: ReturnType<typeof skillUsageByPath> } = {},
+): string {
+  return renderToStaticMarkup(createElement(FileSkillPanel, { skill, detail: options.detail, usage: options.usage }));
+}
+
+test("描画: 本文 / ファイル / 使用中 の 3 タブを出し、組み込みにはファイルタブを出さない", () => {
   const common = renderPanel(fileSkill());
   assert.ok(common.includes(">本文<"), "本文タブが無い");
   assert.ok(common.includes(">ファイル<"), "ファイルタブが無い");
+  assert.ok(common.includes(">使用中<"), "使用中タブが無い");
   assert.ok(common.includes(".agents/skills/alpha/SKILL.md"), "置き場が出ていない");
 
-  // 組み込みは実体が無い仮想パスなので、タブごと出さず本文だけを出す
+  // 組み込みは実体が無い仮想パスなので、ファイルタブごと出さない (root をワークスペースへ落とさない)
   const builtin = renderPanel(
     fileSkill({
       scope: "builtin",
@@ -45,22 +57,38 @@ test("描画: ファイルタブは共通スキルに出し、組み込みには
   );
   assert.ok(!builtin.includes(">ファイル<"), "組み込みにファイルタブが出ている");
   assert.ok(builtin.includes(">本文<"), "組み込みの本文が出ていない");
-  assert.ok(builtin.includes("本文\n"), "組み込みの本文が一覧の応答と違う");
+  assert.ok(builtin.includes(">使用中<"), "組み込みに使用中タブが無い");
+  // 本文はプレビュー (Markdown) が既定。一覧の応答の本文が描画されている
+  assert.ok(builtin.includes(">本文</p>"), "組み込みの本文が一覧の応答と違う");
+  // frontmatter は名前と説明というアプリのメタデータなので、プレビューでは落とす
+  assert.ok(!builtin.includes("name: alpha"), "プレビューに frontmatter が残っている");
+});
+
+test("描画: 説明は本文タブの先頭に全文を出し、ヘッダのメタに置かない", () => {
+  const html = renderPanel(fileSkill({ description: "差分を読んでレビューする。根拠と影響と代替案を返す。" }));
+  const descLabel = html.indexOf(">説明<");
+  assert.ok(descLabel >= 0, "説明の見出しが無い");
+  assert.ok(html.indexOf("差分を読んでレビューする。根拠と影響と代替案を返す。") > descLabel, "説明の全文が出ていない");
+  // 置き場 / 更新 / 使用中 はメタの 1 行にまとめる
+  assert.ok(html.includes(">置き場<"));
+  assert.ok(html.includes(">使用中<"));
 });
 
 test("描画: 最終更新は編集内容 (detail) があるときだけ出し、保存の照合に使う版は出さない", () => {
   const mtime = 1760000000000;
   const shown = renderPanel(fileSkill(), {
-    name: "alpha",
-    description: "アルファの説明",
-    body: "本文\n",
-    relativePath: ".agents/skills/alpha/SKILL.md",
-    fileVersion: "a".repeat(64),
-    mtime,
-    editable: true,
+    detail: {
+      name: "alpha",
+      description: "アルファの説明",
+      body: "本文\n",
+      relativePath: ".agents/skills/alpha/SKILL.md",
+      fileVersion: "a".repeat(64),
+      mtime,
+      editable: true,
+    },
   });
-  assert.ok(shown.includes(">最終更新<"), "最終更新が出ていない");
-  assert.ok(shown.includes(fileTimeLabel(mtime)), "最終更新が時刻の表示と違う");
+  assert.ok(shown.includes(">更新<"), "更新が出ていない");
+  assert.ok(shown.includes(fileTimeLabel(mtime)), "更新が時刻の表示と違う");
   assert.ok(shown.includes("SKILL.md の更新時刻（目安）"), "目安であることの補足が無い");
   assert.ok(!shown.includes(">版<"), "保存の照合に使う版が画面に出ている");
 
@@ -73,5 +101,86 @@ test("描画: 最終更新は編集内容 (detail) があるときだけ出し�
       version: "1",
     }),
   );
-  assert.ok(!builtin.includes("最終更新"), "組み込みに最終更新が出ている");
+  assert.ok(!builtin.includes("更新"), "組み込みに更新が出ている");
+});
+
+test("描画: 使用中タブは実効で使うエージェントだけを読み取り専用で並べる", () => {
+  const skill = fileSkill();
+  const usage = skillUsageByPath({
+    agents: [agent("a1"), agent("a2", { commonSkillNames: [] })],
+    skills: [skill],
+  });
+  const html = renderPanel(skill, { usage });
+  assert.ok(html.includes(SKILL_USAGE_TAB_NOTE));
+  // 集計の基準と対象外を件数の近くに出す (上書きされた組み込みが 0 体でも理由を補える)
+  assert.ok(html.includes(SKILL_USAGE_NOTE));
+  assert.ok(html.includes(">a1<"));
+  assert.ok(html.includes("a1 の説明"));
+  assert.ok(!html.includes(">a2<"), "外したエージェントまで並べている");
+  // 件数はタブとメタの両方に出る。メタのラベルが「使用中」なので、値は件数だけにする
+  assert.match(html, /aria-label="使用中（1 体）"/);
+  assert.match(html, />使用中</);
+  assert.match(html, />1 体</);
+  assert.ok(!html.includes("使用中 使用中"), "メタ行で「使用中」が二重になっている");
+
+  const none = renderPanel(skill, { usage: skillUsageByPath({ agents: [], skills: [skill] }) });
+  assert.ok(none.includes(SKILL_USAGE_EMPTY_NOTE));
+
+  // カタログ未取得では 0 と断定せず、件数を出さない
+  const unknown = renderPanel(skill);
+  assert.ok(unknown.includes(SKILL_USAGE_UNAVAILABLE_NOTE));
+  assert.ok(!unknown.includes(SKILL_USAGE_EMPTY_NOTE));
+});
+
+test("描画: 置き場の値をその場でコピーできる", () => {
+  const html = renderPanel(fileSkill());
+  // 表示している値 (root 相対) をそのままコピーする。絶対パスは画面に出ていないので導線を出さない
+  assert.match(html, /aria-label="置き場をコピー"/);
+  assert.match(html, /title="置き場をコピー"/);
+  // パスでない値 (更新 / 使用中) にはコピーを付けない
+  assert.ok(!html.includes("更新をコピー"));
+  assert.ok(!html.includes("使用中をコピー"));
+});
+
+test("描画: 本文は枠のヘッダにソース / プレビューの切替とコピーを持ち、既定はプレビュー", () => {
+  const html = renderPanel(fileSkill({ body: "---\nname: alpha\n---\n# 手順\n本文\n" }));
+  // 枠のヘッダに、表示の切替とコピーを本文と同じ枠の中へ入れる
+  assert.match(html, /aria-label="本文の表示"/);
+  assert.ok(html.includes(">ソース<"));
+  assert.ok(html.includes(">プレビュー<"));
+  assert.match(html, /aria-label="本文をコピー"/);
+  // 行数はソースの行数 (frontmatter を落としても数え方は変えない)
+  assert.ok(html.includes("SKILL.md · 5 行"), "行数が出ていない");
+  // 既定はプレビュー: 見出しが Markdown として描かれ、原文の記号は出ない
+  assert.ok(html.includes(">手順<"), "見出しが描かれていない");
+  assert.ok(!html.includes("# 手順"), "プレビューなのに原文が出ている");
+});
+
+test("狭い幅では説明を畳み、メタの使用中はタブの件数と重ねない", () => {
+  const skill = fileSkill({ body: "# 手順\n本文\n" });
+  const usage = skillUsageByPath({ agents: [agent("a1")], skills: [skill] });
+  const html = renderToStaticMarkup(createElement(FileSkillPanel, { skill, usage, singleColumn: true }));
+  // 説明は既定で畳む (一覧の行にも説明が出ている)。開閉は高さの遷移 (.tree-fold) で見せるので、
+  // details ではなく aria-expanded を持つボタン + data-open。閉じている間は inert で読み上げから外す
+  assert.match(html, /aria-expanded="false"[^>]*aria-controls=/);
+  assert.ok(html.includes(">説明<"));
+  assert.match(html, /class="tree-fold" data-open="false" inert=""/);
+  // 使用中は自動でタブの件数に出るので、メタの 1 行を重ねない
+  assert.ok(!html.includes(">使用中<"), "メタに使用中が残っている");
+  assert.match(html, />使用中 1</);
+  // 外枠を外して読めるように、本文のヘッダから全画面の読み面を開ける
+  assert.match(html, /aria-label="全画面で読む"/);
+  // 並べて見せる幅ではページの高さが足りているので出さない
+  assert.ok(!renderPanel(skill).includes("全画面で読む"));
+});
+
+test("描画: 本文のファイル参照は、そのファイルを開くボタンになる", () => {
+  const body = "1. `scripts/run.sh --fast` を実行する。\n2. `notes/a.md` を読む。\n";
+  const common = renderPanel(fileSkill({ body }));
+  assert.match(common, /class="md-fileref"/);
+  // 実体の無い組み込み (仮想パス) はファイルタブが無いので、参照もリンクにしない
+  const builtin = renderPanel(
+    fileSkill({ scope: "builtin", relativePath: ".u7agent/builtin-skills/alpha/SKILL.md", body, version: "1" }),
+  );
+  assert.ok(!builtin.includes("md-fileref"));
 });

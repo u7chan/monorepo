@@ -3,10 +3,8 @@ import {
   FILE_SKILL_BODY_LABEL,
   FILE_SKILL_CANCEL_LABEL,
   FILE_SKILL_CONFLICT_NOTE,
-  FILE_SKILL_CREATE_HEADING,
   FILE_SKILL_DELETE_LABEL,
   FILE_SKILL_DESCRIPTION_LABEL,
-  FILE_SKILL_EDIT_HEADING,
   FILE_SKILL_NAME_LABEL,
   FILE_SKILL_NAME_READONLY_NOTE,
   FILE_SKILL_RELOAD_LABEL,
@@ -28,7 +26,6 @@ export function FileSkillEditorForm({
   setDraft,
   conflict,
   notice,
-  variant,
   onSave,
   onCancel,
   onReload,
@@ -42,7 +39,6 @@ export function FileSkillEditorForm({
   conflict: boolean;
   /** 保存 / 作成に失敗した理由 (フォームの上に出す) */
   notice: string | null;
-  variant: "page" | "sheet";
   onSave: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
   /** 競合したときに編集内容を取り直す (競合していないときは出さない) */
@@ -50,19 +46,8 @@ export function FileSkillEditorForm({
   /** 既存スキルの削除 (確認は呼び出し側が取る)。新規では渡さない */
   onDelete?: () => void;
 }) {
-  const heading =
-    variant === "page" ? (
-      <div>
-        <div className="text-2xs font-semibold tracking-label text-accent-text uppercase">SKILL</div>
-        <h3 className="text-sm font-semibold text-ink-strong">
-          {mode === "create" ? FILE_SKILL_CREATE_HEADING : FILE_SKILL_EDIT_HEADING}
-        </h3>
-      </div>
-    ) : null;
-
   const fields = (
     <>
-      {heading}
       {notice ? <p className="text-1xs leading-relaxed break-words text-warn">{notice}</p> : null}
       {conflict && onReload ? (
         <div className="grid gap-1.5 rounded-lg border border-warn/50 bg-soft px-2.5 py-2">
@@ -136,24 +121,12 @@ export function FileSkillEditorForm({
       <button type="button" onClick={onCancel} className="btn-quiet">
         {FILE_SKILL_CANCEL_LABEL}
       </button>
-      <button type="submit" className={variant === "page" ? "btn-primary flex-1" : "btn-primary ml-auto"}>
+      <button type="submit" className="btn-primary ml-auto">
         <CheckIcon />
         {FILE_SKILL_SAVE_LABEL}
       </button>
     </>
   );
-
-  // desktop のページは「本文の最後に操作行」、シートは「スクロール本文 + 下端に固定した操作行」で組む
-  if (variant === "page") {
-    return (
-      <section className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
-        <form onSubmit={onSave} className="mx-auto grid max-w-2xl gap-3">
-          {fields}
-          <div className="flex gap-2 pt-1">{actions}</div>
-        </form>
-      </section>
-    );
-  }
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">

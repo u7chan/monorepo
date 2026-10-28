@@ -163,3 +163,62 @@ test("組み込みのトグルは未指定から見えている一覧を固定�
     "beta",
   ]);
 });
+
+// --- タブの件数 / 一括操作 / 未保存判定 ---
+
+const SKILL_VISIBLE = { common: ["alpha", "beta", "gone-shadow"], builtin: ["serve", "browser"] };
+const TOOL_GROUPS = [
+  { group: "sandbox" as const, names: ["read", "bash"] },
+  { group: "app" as const, names: ["web_search", "serve"] },
+];
+
+test("グループの「すべて外す」は対象グループの visible 名だけを除き、他グループを残す", async () => {
+  const { withSkillGroupDisabled, withToolGroupDisabled } =
+    await import("../src/components/agent-settings/AgentEditorForm");
+  const base = agentFormOf(agent());
+  // スキルは許可リストが 2 本なので、組み込みを全 OFF にしても共通は未指定 (全部 ON) のまま
+  const builtinOff = withSkillGroupDisabled(base, "builtin", SKILL_VISIBLE);
+  assert.deepEqual(builtinOff.builtinSkillNames, []);
+  assert.equal(builtinOff.commonSkillNames, undefined);
+  // 明示リストでは一覧に無い保存名を落とさない
+  const explicit = withSkillGroupDisabled({ ...base, commonSkillNames: ["alpha", "gone"] }, "common", SKILL_VISIBLE);
+  assert.deepEqual(explicit.commonSkillNames, ["gone"]);
+
+  // ツールは 1 本。未指定から作業ツールを全 OFF にしてもアプリのツールは ON のまま残る
+  const sandboxOff = withToolGroupDisabled(base, "sandbox", TOOL_GROUPS, ["read", "bash", "web_search", "serve"]);
+  assert.deepEqual(sandboxOff.toolNames, ["web_search", "serve"]);
+  const appOff = withToolGroupDisabled({ ...base, toolNames: ["read", "serve", "gone"] }, "app", TOOL_GROUPS, [
+    "read",
+    "bash",
+    "web_search",
+    "serve",
+  ]);
+  assert.deepEqual(appOff.toolNames, ["read", "gone"]);
+});
+
+test("「すべて既定に戻す」は null (解除) を送り、保存済みの明示リストを戻せる", async () => {
+  const { withAllSkillsReset, withAllToolsReset } = await import("../src/components/agent-settings/AgentEditorForm");
+  const dirty = agentFormOf(agent({ commonSkillNames: [], builtinSkillNames: ["serve"], toolNames: ["read"] }));
+  const reset = withAllToolsReset(withAllSkillsReset(dirty));
+  assert.equal(reset.commonSkillNames, null);
+  assert.equal(reset.builtinSkillNames, null);
+  assert.equal(reset.toolNames, null);
+  // null は保存で「解除」として送られ、undefined (キー省略 = 現状維持) とは区別される
+  const payload = sent(reset);
+  assert.equal(payload.commonSkillNames, null);
+  assert.equal(payload.builtinSkillNames, null);
+  assert.equal(payload.toolNames, null);
+});
+
+test("未保存の判定は定義の内容と比べ、同じ内容の取り直しでは未保存にしない", async () => {
+  const { isAgentFormDirty } = await import("../src/components/agent-settings/AgentEditorForm");
+  const saved = agent({ name: "レビュー", commonSkillNames: ["alpha"] });
+  assert.equal(isAgentFormDirty(agentFormOf(saved), saved), false);
+  // 同じ内容を別のオブジェクトで取り直しても未保存にならない
+  assert.equal(isAgentFormDirty(agentFormOf(JSON.parse(JSON.stringify(saved)) as AgentDef), saved), false);
+  assert.equal(isAgentFormDirty({ ...agentFormOf(saved), name: "レビュー 改" }, saved), true);
+  assert.equal(isAgentFormDirty({ ...agentFormOf(saved), commonSkillNames: [] }, saved), true);
+  // 新規は空のフォームから離れたら未保存
+  assert.equal(isAgentFormDirty(agentFormOf(undefined), undefined), false);
+  assert.equal(isAgentFormDirty({ ...agentFormOf(undefined), name: "新規" }, undefined), true);
+});

@@ -1,29 +1,29 @@
+// エージェント編集のスキルタブ。行は行全体が 1 つの role="switch" で、組み込み → 共通の順に並ぶ。
+// 検索は表示だけを絞り、切替と一括操作の母集合は未絞込の visible 行のままにする。
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import {
+  BUILTIN_SECTION_LABEL,
   BUILTIN_SECTION_NOTE,
-  BUILTIN_SKILL_DISABLE_ALL_LABEL,
   BUILTIN_SKILL_EXPLICIT_NOTE,
-  BUILTIN_SKILL_SHOW_ALL_LABEL,
   COMMON_SKILL_EXPLICIT_NOTE,
   COMMON_SKILL_SECTION_NOTE,
-  COMMON_SKILL_SHOW_ALL_LABEL,
   SkillSelector,
 } from "../src/components/agent-settings/SkillSelector";
-import { DefinitionList } from "../src/components/DefinitionList";
 import {
   MANUAL_ONLY_LABEL,
   NATURAL_INVOCATION_LABEL,
   NATURAL_INVOCATION_OFF_NOTE,
   NATURAL_INVOCATION_ON_NOTE,
 } from "../src/components/agent-settings/InvocationModeRow";
+import { ALLOWLIST_DISABLE_GROUP_LABEL, ALLOWLIST_RESET_LABEL } from "../src/lib/allowlistText";
 import type { FileSkillsState } from "../src/hooks/useFileSkills";
 import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 import {
+  COMMON_SKILL_SECTION_LABEL,
   FILE_SKILL_ERROR_PREFIX,
-  FILE_SKILL_GROUP_LABEL,
   FILE_SKILL_LOADING_NOTE,
   FILE_SKILL_RELOAD_ARIA_LABEL,
   FILE_SKILL_RELOAD_LABEL,
@@ -44,6 +44,11 @@ function commonSkill(name: string, overrides: Partial<FileSkillInfo> = {}): File
   };
 }
 
+const TWO_BUILTINS: BuiltinSkillInfo[] = [
+  { name: "browser", description: "ブラウザ", version: "1" },
+  { name: "serve", description: "サーバー", version: "2" },
+];
+
 function renderSelector({
   builtinSkills = [{ name: "builtin", description: "", version: "1" }],
   fileSkills = { status: "ready", skills: [commonSkill("alpha"), commonSkill("beta")] },
@@ -63,88 +68,122 @@ function renderSelector({
       fileSkills,
       onReloadFileSkills: () => {},
       commonSkillNames,
-      onToggleCommonSkill: () => {},
-      onShowAllCommonSkills: () => {},
       builtinSkillNames,
+      onToggleCommonSkill: () => {},
       onToggleBuiltinSkill: () => {},
-      onShowAllBuiltinSkills: () => {},
-      onDisableAllBuiltinSkills: () => {},
+      onDisableCommonSkills: () => {},
+      onDisableBuiltinSkills: () => {},
+      onResetSkills: () => {},
       allowNaturalInvocation,
       onToggleNaturalInvocation: () => {},
     }),
   );
 }
 
-/** 描画順のチェックボックスの checked。共通スキルだけを見るときは組み込みを空にして呼ぶ */
-function checkboxes(html: string): boolean[] {
-  return [...html.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)].map((match) => match[0].includes('checked=""'));
+/** スキル行のスイッチだけを描画順に取る (自然文の発火は別のスイッチなので読み上げ名で分ける) */
+function skillSwitches(html: string): { label: string; checked: boolean }[] {
+  return [...html.matchAll(/<button[^>]*role="switch"[^>]*>/g)]
+    .map((match) => match[0])
+    .filter((tag) => tag.includes("を使う"))
+    .map((tag) => ({
+      label: tag.match(/aria-label="([^"]*)"/)?.[1] ?? "",
+      checked: tag.includes('aria-checked="true"'),
+    }));
 }
 
-/** タグを落とした見えている文字。属性の中の語 (aria-label など) を見出しの語と混同しないために使う */
-function visibleText(html: string): string {
-  return html.replace(/<[^>]*>/g, "");
-}
+test("組み込みを先頭に、共通を後に並べる", () => {
+  const html = renderSelector({
+    builtinSkills: TWO_BUILTINS,
+    fileSkills: { status: "ready", skills: [commonSkill("alpha")] },
+  });
+  assert.deepEqual(
+    skillSwitches(html).map((row) => row.label),
+    ["組み込みスキル browser を使う", "組み込みスキル serve を使う", "共通スキル alpha を使う"],
+  );
+  assert.ok(html.indexOf(BUILTIN_SECTION_LABEL) < html.indexOf(COMMON_SKILL_SECTION_LABEL));
+});
 
-test("組み込みスキルはチェックで選べて外せる", () => {
+test("未指定と解除は全部 ON、明示リストは選んだ名前だけ ON、空の明示リストはすべて OFF", () => {
+  const allOn = renderSelector({ fileSkills: { status: "ready", skills: [] } });
+  assert.deepEqual(skillSwitches(allOn), [{ label: "組み込みスキル builtin を使う", checked: true }]);
+  assert.deepEqual(
+    skillSwitches(renderSelector({ builtinSkillNames: null, fileSkills: { status: "ready", skills: [] } })),
+    [{ label: "組み込みスキル builtin を使う", checked: true }],
+  );
+  assert.deepEqual(
+    skillSwitches(renderSelector({ builtinSkillNames: [], fileSkills: { status: "ready", skills: [] } })),
+    [{ label: "組み込みスキル builtin を使う", checked: false }],
+  );
+});
+
+test("件数は検索で絞る前の visible 行で出し、グループごとにも出す", () => {
+  const html = renderSelector({
+    builtinSkills: TWO_BUILTINS,
+    fileSkills: { status: "ready", skills: [commonSkill("alpha"), commonSkill("beta")] },
+    commonSkillNames: ["alpha"],
+    builtinSkillNames: ["browser"],
+  });
+  // タブ上部は割当の合計 (組み込み 1 + 共通 1) / 全 4
+  assert.ok(html.includes("使用 2 / 全 4"));
+  assert.ok(html.includes("使用 1 / 全 2"), "グループごとの件数が無い");
+  assert.ok(html.includes("既定から変更あり"));
+});
+
+test("既定から変えていなければ変更の表示も「既定に戻す」も出さない", () => {
   const html = renderSelector({ fileSkills: { status: "ready", skills: [] } });
-  const inputs = [...html.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)].map((match) => match[0]);
-  assert.equal(inputs.length, 1);
-  // 組み込みは操作可能な行 (無効行ではない)
-  for (const input of inputs) {
-    assert.ok(input.includes('checked=""'));
-    assert.ok(!input.includes('disabled=""'));
-  }
-  assert.ok(html.includes(BUILTIN_SECTION_NOTE));
+  assert.ok(html.includes("既定のまま"));
+  assert.equal(html.includes(ALLOWLIST_RESET_LABEL), false);
 });
 
-test("共通スキルは未指定なら全チェックで出て、明示リストの OFF を再現する", () => {
-  const unspecified = renderSelector({ builtinSkills: [] });
-  assert.ok(unspecified.includes(FILE_SKILL_GROUP_LABEL));
-  assert.deepEqual(checkboxes(unspecified), [true, true]);
-  assert.ok(unspecified.includes("使用 2 / 全 2"));
-  // 解除 (null) も未指定と同じ全可視
-  assert.deepEqual(checkboxes(renderSelector({ builtinSkills: [], commonSkillNames: null })), [true, true]);
-
+test("明示リストのときだけ「すべて既定に戻す」と明示リストの注記を出す", () => {
   const explicit = renderSelector({ builtinSkills: [], commonSkillNames: ["alpha"] });
-  assert.deepEqual(checkboxes(explicit), [true, false]);
-  assert.ok(explicit.includes("使用 1 / 全 2"));
+  assert.ok(explicit.includes(ALLOWLIST_RESET_LABEL));
+  assert.ok(explicit.includes(COMMON_SKILL_EXPLICIT_NOTE));
+  assert.ok(!explicit.includes(BUILTIN_SKILL_EXPLICIT_NOTE), "組み込みは未指定なので注記を出さない");
+
+  const builtinExplicit = renderSelector({
+    builtinSkillNames: ["builtin"],
+    fileSkills: { status: "ready", skills: [] },
+  });
+  assert.ok(builtinExplicit.includes(BUILTIN_SKILL_EXPLICIT_NOTE));
 });
 
-test("自然文での発火は使用チェックとは別のスイッチで、OFF なら手動のみと出る", () => {
+test("グループの「すべて外す」は使用中の行があるときだけ出す", () => {
+  const allOn = renderSelector({ builtinSkills: TWO_BUILTINS, fileSkills: { status: "ready", skills: [] } });
+  assert.ok(allOn.includes(ALLOWLIST_DISABLE_GROUP_LABEL));
+
+  const allOff = renderSelector({
+    builtinSkills: TWO_BUILTINS,
+    builtinSkillNames: [],
+    fileSkills: { status: "ready", skills: [] },
+  });
+  assert.equal(allOff.includes(ALLOWLIST_DISABLE_GROUP_LABEL), false);
+});
+
+test("自然文での発火は使用スイッチとは別のスイッチで、OFF なら手動のみと出る", () => {
   const on = renderSelector({ builtinSkills: [] });
   assert.ok(on.includes(NATURAL_INVOCATION_LABEL));
   assert.ok(on.includes(NATURAL_INVOCATION_ON_NOTE));
   assert.equal(on.includes(MANUAL_ONLY_LABEL), false);
-  assert.ok(on.includes('aria-checked="true"'), "既定は自然文でも発火する");
-  assert.deepEqual(checkboxes(on), [true, true], "使用チェックは変わらない");
+  // 起動モードのスイッチは文字ラベルを持つ (使用スイッチとは aria-checked の位置で区別できる)
+  assert.match(on, /<button[^>]*role="switch"[^>]*aria-checked="true"[^>]*>[\s\S]*?自然文でも発火<\/button>/);
+  assert.deepEqual(
+    skillSwitches(on).map((row) => row.checked),
+    [true, true],
+    "使用スイッチは変わらない",
+  );
 
   const off = renderSelector({ builtinSkills: [], allowNaturalInvocation: false });
   assert.ok(off.includes(MANUAL_ONLY_LABEL));
   assert.ok(off.includes(NATURAL_INVOCATION_OFF_NOTE));
-  assert.ok(off.includes('aria-checked="false"'));
   assert.equal(off.includes(NATURAL_INVOCATION_ON_NOTE), false);
-  assert.deepEqual(checkboxes(off), [true, true], "OFF にしても使用中の一覧は残る");
+  assert.deepEqual(
+    skillSwitches(off).map((row) => row.checked),
+    [true, true],
+  );
 });
 
-test("空の明示リストはすべて OFF で出る", () => {
-  const html = renderSelector({ builtinSkills: [], commonSkillNames: [] });
-  assert.deepEqual(checkboxes(html), [false, false]);
-  assert.ok(html.includes("使用 0 / 全 2"));
-});
-
-test("明示リストのときだけ注記と解除の導線を出す", () => {
-  const explicit = renderSelector({ builtinSkills: [], commonSkillNames: ["alpha"] });
-  assert.ok(explicit.includes(COMMON_SKILL_EXPLICIT_NOTE));
-  assert.ok(explicit.includes(COMMON_SKILL_SHOW_ALL_LABEL));
-  assert.ok(explicit.includes(COMMON_SKILL_SECTION_NOTE));
-
-  const unspecified = renderSelector({ builtinSkills: [] });
-  assert.ok(!unspecified.includes(COMMON_SKILL_EXPLICIT_NOTE));
-  assert.ok(!unspecified.includes(COMMON_SKILL_SHOW_ALL_LABEL));
-  assert.ok(unspecified.includes(COMMON_SKILL_SECTION_NOTE));
-});
-
-test("自動起動なしのスキルも、他の共通スキルと同じく外せる行として出す", () => {
+test("自動起動なしはスキルの性質として行に出す", () => {
   const html = renderSelector({
     builtinSkills: [],
     fileSkills: {
@@ -153,111 +192,21 @@ test("自動起動なしのスキルも、他の共通スキルと同じく外�
     },
   });
   assert.ok(html.includes("自動起動なし"));
-  assert.deepEqual(checkboxes(html), [true, true]);
+  assert.deepEqual(
+    skillSwitches(html).map((row) => row.checked),
+    [true, true],
+  );
 });
 
 test("一覧に無い保存名は落とさず、見つからない旨を出す", () => {
   const html = renderSelector({ builtinSkills: [], commonSkillNames: ["alpha", "gone"] });
   assert.ok(html.includes("見つかりません"));
   assert.ok(html.includes("gone"));
-  assert.deepEqual(checkboxes(html), [true, false]);
+  assert.ok(html.includes(COMMON_SKILL_SECTION_NOTE));
+  assert.ok(html.includes(BUILTIN_SECTION_NOTE));
 });
 
-test("組み込みは未指定なら全チェックで出て、明示リストの OFF を再現する", () => {
-  const unspecified = renderSelector({
-    builtinSkills: [
-      { name: "alpha", description: "", version: "1" },
-      { name: "beta", description: "", version: "1" },
-    ],
-    fileSkills: { status: "ready", skills: [] },
-  });
-  assert.deepEqual(checkboxes(unspecified), [true, true]);
-  assert.ok(unspecified.includes("使用 2 / 全 2"));
-  // 解除 (null) も未指定と同じ全部 ON
-  assert.deepEqual(
-    checkboxes(
-      renderSelector({
-        builtinSkills: [{ name: "alpha", description: "", version: "1" }],
-        builtinSkillNames: null,
-        fileSkills: { status: "ready", skills: [] },
-      }),
-    ),
-    [true],
-  );
-
-  const explicit = renderSelector({
-    builtinSkills: [
-      { name: "alpha", description: "", version: "1" },
-      { name: "beta", description: "", version: "1" },
-    ],
-    builtinSkillNames: ["alpha"],
-    fileSkills: { status: "ready", skills: [] },
-  });
-  assert.deepEqual(checkboxes(explicit), [true, false]);
-  assert.ok(explicit.includes("使用 1 / 全 2"));
-});
-
-test("空の組み込み明示リストはすべて OFF で出る", () => {
-  const html = renderSelector({
-    builtinSkills: [
-      { name: "alpha", description: "", version: "1" },
-      { name: "beta", description: "", version: "1" },
-    ],
-    builtinSkillNames: [],
-    fileSkills: { status: "ready", skills: [] },
-  });
-  assert.deepEqual(checkboxes(html), [false, false]);
-  assert.ok(html.includes("使用 0 / 全 2"));
-});
-
-test("組み込みの全外しと使用への復帰は、対象があるときだけ導線を出す", () => {
-  const allOn = renderSelector({
-    builtinSkills: [
-      { name: "alpha", description: "", version: "1" },
-      { name: "beta", description: "", version: "1" },
-    ],
-    fileSkills: { status: "ready", skills: [] },
-  });
-  assert.ok(allOn.includes(BUILTIN_SKILL_DISABLE_ALL_LABEL));
-  assert.ok(!allOn.includes(BUILTIN_SKILL_SHOW_ALL_LABEL));
-
-  const allOff = renderSelector({
-    builtinSkills: [
-      { name: "alpha", description: "", version: "1" },
-      { name: "beta", description: "", version: "1" },
-    ],
-    builtinSkillNames: [],
-    fileSkills: { status: "ready", skills: [] },
-  });
-  assert.ok(!allOff.includes(BUILTIN_SKILL_DISABLE_ALL_LABEL));
-  assert.ok(allOff.includes(BUILTIN_SKILL_SHOW_ALL_LABEL));
-  assert.ok(allOff.includes(BUILTIN_SKILL_EXPLICIT_NOTE));
-
-  const partial = renderSelector({
-    builtinSkills: [
-      { name: "alpha", description: "", version: "1" },
-      { name: "beta", description: "", version: "1" },
-    ],
-    builtinSkillNames: ["alpha"],
-    fileSkills: { status: "ready", skills: [] },
-  });
-  assert.ok(partial.includes(BUILTIN_SKILL_DISABLE_ALL_LABEL));
-  assert.ok(partial.includes(BUILTIN_SKILL_SHOW_ALL_LABEL));
-});
-
-test("組み込みの一覧に無い保存名は落とさず、見つからない旨を出す", () => {
-  const html = renderSelector({
-    builtinSkills: [{ name: "alpha", description: "", version: "1" }],
-    builtinSkillNames: ["alpha", "gone"],
-    fileSkills: { status: "ready", skills: [] },
-  });
-  assert.ok(html.includes("見つかりません"));
-  assert.ok(html.includes("gone"));
-  assert.ok(html.includes("同梱物が入れ替わっても"));
-  assert.deepEqual(checkboxes(html), [true]);
-});
-
-test("取得失敗時は共通スキルの欄を出さず、理由を出す", () => {
+test("取得失敗時は共通スキルの行を出さず、理由と再読み込みを出す", () => {
   const html = renderSelector({
     builtinSkills: [],
     commonSkillNames: [],
@@ -265,53 +214,15 @@ test("取得失敗時は共通スキルの欄を出さず、理由を出す", ()
   });
   assert.ok(html.includes(FILE_SKILL_ERROR_PREFIX));
   assert.ok(html.includes("サンドボックスが設定されていません"));
-  // 再読み込みの aria-label はグループ名を含むので、見出しの有無は本文の文字で見る
-  assert.ok(!visibleText(html).includes(FILE_SKILL_GROUP_LABEL));
-  assert.deepEqual(checkboxes(html), []);
-});
-
-/** aria-label 付きのボタン (共通スキルの再読み込みはこれだけ)。ラベルは中身から取る */
-function labelledButtons(html: string): { ariaLabel: string; text: string }[] {
-  return [...html.matchAll(/<button[^>]*aria-label="([^"]*)"[^>]*>([\s\S]*?)<\/button>/g)].map((match) => ({
-    ariaLabel: match[1],
-    text: match[2].replace(/<[^>]*>/g, ""),
-  }));
-}
-
-test("取得失敗のときだけ、見出し行に再読み込みの導線を出す", () => {
-  const html = renderSelector({
-    builtinSkills: [],
-    fileSkills: { status: "error", message: "サンドボックスが設定されていません" },
-  });
-  assert.deepEqual(labelledButtons(html), [{ ariaLabel: FILE_SKILL_RELOAD_ARIA_LABEL, text: FILE_SKILL_RELOAD_LABEL }]);
-  // 取り直しは見出し行 (「スキル」) に置き、本文は理由と上の導線の案内だけにする
-  const heading = html.indexOf(">スキル<");
-  const button = html.indexOf(FILE_SKILL_RELOAD_ARIA_LABEL);
-  const reason = html.indexOf(FILE_SKILL_ERROR_PREFIX);
-  assert.ok(heading >= 0 && heading < button && button < reason);
   assert.ok(html.includes(RELOAD_ABOVE_NOTE));
-
-  // 読み込み中と取得済みでは出さない (読み込み中の表示は既存の注記のまま)
-  const loading = renderSelector({ builtinSkills: [], fileSkills: { status: "loading" } });
-  assert.ok(loading.includes(FILE_SKILL_LOADING_NOTE));
-  assert.ok(!loading.includes(RELOAD_ABOVE_NOTE));
-  assert.deepEqual(labelledButtons(loading), []);
-  const ready = renderSelector({ builtinSkills: [] });
-  assert.ok(!ready.includes(RELOAD_ABOVE_NOTE));
-  assert.deepEqual(labelledButtons(ready), []);
+  assert.ok(!html.includes(`>${COMMON_SKILL_SECTION_LABEL}<`), "取得失敗時に共通のグループ見出しを出している");
+  assert.deepEqual(skillSwitches(html), []);
+  assert.match(html, new RegExp(`aria-label="${FILE_SKILL_RELOAD_ARIA_LABEL}"`));
+  assert.ok(html.includes(FILE_SKILL_RELOAD_LABEL));
 });
 
-test("定義一覧は件数がゼロのときだけ空状態を出す", () => {
-  for (const count of [0, 1]) {
-    const html = renderToStaticMarkup(
-      createElement(DefinitionList, {
-        title: "スキル一覧",
-        count,
-        add: { label: "追加", onAdd: () => {} },
-        emptyLabel: "登録なし",
-        children: null,
-      }),
-    );
-    assert.equal(html.includes("登録なし"), count === 0);
-  }
+test("読み込み中は共通スキルの行を出さず、状態だけを出す", () => {
+  const html = renderSelector({ builtinSkills: [], fileSkills: { status: "loading" } });
+  assert.ok(html.includes(FILE_SKILL_LOADING_NOTE));
+  assert.deepEqual(skillSwitches(html), []);
 });

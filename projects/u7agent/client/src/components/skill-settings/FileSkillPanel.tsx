@@ -1,67 +1,69 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getFilePreview } from "../../api";
-import { cn } from "../../lib/cn";
 import {
   BUILTIN_SKILL_OVERRIDE_NOTE,
   BUILTIN_SKILL_READONLY_NOTE,
   FILE_SKILL_EDITABLE_NOTE,
   FILE_SKILL_LOCKED_PREFIX,
-  FILE_SKILL_PANEL_HEADING,
+  SKILL_DETAIL_TABS_ARIA_LABEL,
+  SKILL_TAB_BODY_LABEL,
+  SKILL_TAB_FILES_LABEL,
+  SKILL_TAB_USAGE_LABEL,
+  SKILL_USAGE_EMPTY_NOTE,
+  SKILL_USAGE_TAB_NOTE,
   fileSkillDir,
 } from "../../lib/fileSkills";
 import { fileTimeLabel, messageFullTimeLabel } from "../../lib/messageTime";
-import type { FileSkillInfo, SandboxSkillFileDetail } from "../../types";
+import { SKILL_USAGE_NOTE, SKILL_USAGE_UNAVAILABLE_NOTE, skillUsageCount, type SkillUsage } from "../../lib/skillUsage";
+import type { AgentDef, FileSkillInfo, SandboxSkillFileDetail } from "../../types";
+import { AgentIcon } from "../AgentIcon";
 import { FileBrowser } from "../FileBrowser";
-import { SkillDetailPanel, type SkillBodyState } from "./SkillDetailPanel";
-
-type SkillTab = "body" | "files";
-
-const SKILL_TABS: { value: SkillTab; label: string }[] = [
-  { value: "body", label: "本文" },
-  { value: "files", label: "ファイル" },
-];
+import { SettingsTabs } from "../SettingsTabs";
+import { SkillDetailPanel, type SkillBodyState, type SkillDetailTab } from "./SkillDetailPanel";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 /**
- * ファイルスキル (共通 / プロジェクト / 組み込み) の本文ビュー。編集フォームの代わりに、
- * 何が使われるか (名前 / 説明 / 置き場 / 最終更新) と本文を出す。
+ * スキル詳細。本文 / ファイル / 使用中 の 3 タブで、説明は本文タブの先頭に全文を出す。
  * 共通スキルは編集内容 (`detail`) を渡すと、その本文と保存可否をそのまま表示する (編集中の内容と一致させる)。
  * 組み込みは一覧の `body` をそのまま使い、それ以外はファイルプレビューから取り直す
- * (docs/api-catalog.md。反映タイミングは本文の取得時点)。ファイルスキルは本文の隣の補助ファイル
- * (references / scripts / assets) も見られるよう「本文 / ファイル」のタブを持つ。
+ * (docs/api-catalog.md。反映タイミングは本文の取得時点)。ファイルタブは root を導けるスキルだけに出す
+ * (組み込み・仮想パス・絶対パス・親参照は出さない)。使用中は読み取り専用。
  */
 export function FileSkillPanel({
   skill,
   detail,
-  actions,
-  variant,
+  usage,
   filePreviewPort,
   rootCwd,
+  singleColumn = false,
 }: {
   skill: FileSkillInfo;
   /** 共通スキルの編集内容。渡したときは本文と保存可否をここから出す (エディターと同じ取得結果) */
   detail?: SandboxSkillFileDetail;
-  /** 操作行に足す操作 (編集 / 削除)。組み込みでは渡さない */
-  actions?: ReactNode;
-  variant: "page" | "sheet";
+  /** 使用中エージェント。catalog 未取得のときは渡さない (0 と断定しない) */
+  usage?: SkillUsage;
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
   filePreviewPort?: number;
   /** ワークスペース root の絶対パス (health.cwd)。行の絶対パスをコピーする導線に使う */
   rootCwd?: string;
+  /** 一覧が隠れる幅か。狭いときはメタと説明を詰めて本文へ高さを譲る */
+  singleColumn?: boolean;
 }) {
   const bodySource = detail?.body ?? skill.body;
   const [body, setBody] = useState<SkillBodyState>(() =>
     bodySource === undefined ? { status: "loading" } : { status: "ready", text: bodySource },
   );
-  const [tab, setTab] = useState<SkillTab>("body");
+  const [tab, setTab] = useState<SkillDetailTab>("body");
   // ファイルタブは初回に開いたときだけ mount し、以降は display で隠して保持する
-  // (行き来のたびに一覧とタブを取り直さず、選んだファイルも保つ)
+  // (行き来のたびに一覧とタブを取り直さず、選んだファイルも保つ)。詳細を閉じると unmount される
   const [filesOpened, setFilesOpened] = useState(false);
-  // 組み込みは実体の無い仮想パス、root の外は絶対パスなのでファイルタブを出さない
+  // 組み込みは実体の無い仮想パス、root の外は絶対パスなのでファイルタブを出さない (root をワークスペースへ落とさない)
   const skillDir = fileSkillDir(skill);
+  const usageCount = skillUsageCount(usage, skill.relativePath);
+  const users: AgentDef[] = usage?.get(skill.relativePath) ?? [];
 
   useEffect(() => {
     // 組み込みは応答の本文を、共通スキルは編集内容の本文をそのまま出す (取り直す先が無い)
@@ -83,10 +85,30 @@ export function FileSkillPanel({
     return () => controller.abort();
   }, [skill.relativePath, bodySource]);
 
-  const openTab = (next: SkillTab) => {
+  const openTab = (next: SkillDetailTab) => {
     if (next === "files") setFilesOpened(true);
     setTab(next);
   };
+
+  // 本文のファイル参照から、ファイルタブでその 1 件を開く。ファイル面は未 mount なら mount され、
+  // 同じ render で要求が渡る (FileBrowser が開いて、ツリーでも位置を示す)
+  const fileRequestSeq = useRef(0);
+  const [fileRequest, setFileRequest] = useState<{ seq: number; path: string } | null>(null);
+  const openReferencedFile = (path: string) => {
+    setFilesOpened(true);
+    setTab("files");
+    setFileRequest({ seq: (fileRequestSeq.current += 1), path });
+  };
+
+  const tabs = [
+    { subsection: "body" as const, label: SKILL_TAB_BODY_LABEL },
+    ...(skillDir ? [{ subsection: "files" as const, label: SKILL_TAB_FILES_LABEL }] : []),
+    {
+      subsection: "usage" as const,
+      label: usageCount === undefined ? SKILL_TAB_USAGE_LABEL : `${SKILL_TAB_USAGE_LABEL} ${usageCount}`,
+      ariaLabel: usageCount === undefined ? SKILL_TAB_USAGE_LABEL : `${SKILL_TAB_USAGE_LABEL}（${usageCount} 体）`,
+    },
+  ];
 
   const note =
     skill.scope === "builtin"
@@ -97,57 +119,64 @@ export function FileSkillPanel({
           ? FILE_SKILL_EDITABLE_NOTE
           : `${FILE_SKILL_LOCKED_PREFIX}: ${detail.reason ?? ""}`;
 
+  const meta = [
+    // 置き場は会話や支援に貼り返すことが多いので、表示している値を 1 クリックでコピーできるようにする
+    { label: "置き場", value: skill.relativePath, mono: true, copy: true },
+    // 最終更新は SKILL.md の mtime で、保存の競合検出に使う版 (fileVersion) は出さない。
+    // 組み込みは実体が無く、他のスコープは詳細を取得しないため、行ごと出さない
+    ...(detail
+      ? [
+          {
+            label: "更新",
+            value: fileTimeLabel(detail.mtime),
+            title: `SKILL.md の更新時刻（目安）: ${messageFullTimeLabel(detail.mtime)}`,
+          },
+        ]
+      : []),
+    // メタ行のラベルが「使用中」なので、値は件数だけにする (「使用中 使用中 3 体」にしない)。
+    // 狭い幅ではタブの件数と同じことを 2 度書かない (1 行分の高さを本文へ譲る)
+    ...(usageCount === undefined || singleColumn ? [] : [{ label: "使用中", value: `${usageCount} 体` }]),
+  ];
+
   return (
     <SkillDetailPanel
-      heading={variant === "page" ? FILE_SKILL_PANEL_HEADING[skill.scope] : null}
-      actions={
-        <>
-          {actions}
-          {skillDir ? (
-            <div
-              role="group"
-              aria-label="表示の切替"
-              className="flex shrink-0 items-center gap-0.5 rounded-lg border border-line p-0.5"
-            >
-              {SKILL_TABS.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  aria-pressed={tab === item.value}
-                  onClick={() => openTab(item.value)}
-                  className={cn(
-                    "rounded-md px-2 py-0.5 text-3xs transition-colors",
-                    tab === item.value
-                      ? "bg-accent-wash text-accent-text"
-                      : "text-ink-soft hover:bg-hover hover:text-ink",
-                  )}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </>
-      }
-      meta={[
-        { label: "名前", value: detail?.name ?? skill.name, tone: "strong" },
-        { label: "説明", value: (detail?.description ?? skill.description) || "説明なし" },
-        { label: "置き場", value: detail?.relativePath ?? skill.relativePath, mono: true },
-        // 最終更新は SKILL.md の mtime で、保存の競合検出に使う版 (fileVersion) は出さない。
-        // 組み込みは実体が無く、他のスコープは詳細を取得しないため、行ごと出さない
-        ...(detail
-          ? [
-              {
-                label: "最終更新",
-                value: fileTimeLabel(detail.mtime),
-                title: `SKILL.md の更新時刻（目安）: ${messageFullTimeLabel(detail.mtime)}`,
-              },
-            ]
-          : []),
-      ]}
+      title={skill.name}
+      skillDir={skillDir}
+      onOpenFileRef={openReferencedFile}
+      tabs={<SettingsTabs items={tabs} active={tab} onSelect={openTab} ariaLabel={SKILL_DETAIL_TABS_ARIA_LABEL} />}
+      meta={meta}
       note={note}
+      singleColumn={singleColumn}
       warning={skill.overridden ? BUILTIN_SKILL_OVERRIDE_NOTE : undefined}
+      description={(detail?.description ?? skill.description) || "説明なし"}
       body={body}
+      activeTab={tab}
+      usage={
+        <div className="grid gap-2">
+          <div className="grid gap-0.5">
+            <p className="text-1xs leading-relaxed text-ink-muted">{SKILL_USAGE_TAB_NOTE}</p>
+            {/* 何を数えていないかは件数のすぐ近くに出す (0 体の理由を読み手が補えるように) */}
+            <p className="text-2xs leading-4 text-ink-faint">{SKILL_USAGE_NOTE}</p>
+          </div>
+          {usage === undefined ? (
+            <p className="text-2xs leading-4 text-ink-faint">{SKILL_USAGE_UNAVAILABLE_NOTE}</p>
+          ) : users.length === 0 ? (
+            <p className="text-2xs leading-4 text-ink-faint">{SKILL_USAGE_EMPTY_NOTE}</p>
+          ) : (
+            <ul className="grid gap-1 rounded-lg border border-line bg-soft px-2.5 py-2">
+              {users.map((agent) => (
+                <li key={agent.id} className="flex min-w-0 items-center gap-2 py-1">
+                  <AgentIcon icon={agent.icon} variant="list" />
+                  <span className="grid min-w-0 flex-1 gap-0.5">
+                    <span className="truncate text-xs text-ink">{agent.name}</span>
+                    <span className="truncate text-2xs text-ink-muted">{agent.description || "説明なし"}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      }
       files={
         skillDir && filesOpened ? (
           // ファイルタブではメタ行 (置き場) が display で隠れるため、ツリーの root をここに出す
@@ -164,6 +193,8 @@ export function FileSkillPanel({
               root={skillDir}
               rootCwd={rootCwd}
               reloadToken={0}
+              openRequest={fileRequest}
+              onHandled={(seq) => setFileRequest((current) => (current?.seq === seq ? null : current))}
               readOnly
               excludeNames={[]}
               filePreviewPort={filePreviewPort}
@@ -171,7 +202,6 @@ export function FileSkillPanel({
           </div>
         ) : undefined
       }
-      showFiles={tab === "files"}
     />
   );
 }

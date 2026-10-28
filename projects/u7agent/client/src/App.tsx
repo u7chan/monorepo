@@ -386,7 +386,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     if (mainView !== "settings" || navOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      // モーダルが開いている間はその面が Escape を受ける (順序は 詳細シート → ドロワー → チャット)。
+      // モーダルが開いている間はその面が Escape を受ける (順序は 詳細 → ドロワー → チャット。
+      // 設定の一覧 ⇄ 詳細はページが capture で受けるので、ここまで届かない)
       // 退場中は焦点が body へ外れて各面の stopPropagation を通らないため、ここでも見る
       if (document.querySelector("dialog[open]")) return;
       backToChat();
@@ -864,7 +865,12 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
         );
       case "skills":
         return (
-          <SkillSettingsPage {...pageProps} filePreviewPort={app.health?.filePreviewPort} rootCwd={app.health?.cwd} />
+          <SkillSettingsPage
+            {...pageProps}
+            catalog={app.catalog}
+            filePreviewPort={app.health?.filePreviewPort}
+            rootCwd={app.health?.cwd}
+          />
         );
       case "files":
         // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。

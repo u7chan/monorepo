@@ -50,8 +50,6 @@ export function missingToolNote(names: string[]): string {
 
 /** 明示リストは対象の名前だけを使う。あとから増えたツールを勝手に許可しないことを知らせる */
 export const TOOL_EXPLICIT_NOTE = "選んだ名前だけを使います。あとから増えたツールは自動では選ばれません。";
-export const TOOL_SHOW_ALL_LABEL = "すべて使用に戻す";
-export const TOOL_DISABLE_ALL_LABEL = "すべて外す";
 
 /**
  * ツールカードの注記。伝えるのは (1) 外すと新しい会話で使えなくなる (既存の会話には効かない)

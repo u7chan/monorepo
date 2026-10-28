@@ -35,6 +35,18 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 - 中クリックは `auxclick` の `button === 1` だけを閉じる操作にし、同じ `mousedown` の既定動作（Windows のオートスクロール / Linux のペースト）は `preventDefault` で止める。既定動作は `auxclick` では止められず、止めないと閉じると同時にスクロールモードへ入る
 - 中クリックを持たないタッチ端末では `×` だけが導線になるので、`×` は残す
 
+## 全画面
+
+パス行の右端の ⤢ で、プレビューを全画面の読み面へ切り替えられる（ツリーと高さを分け合う面では本文が数十行しか残らないため）。
+
+- ネイティブの `dialog` + `showModal()`。外枠（タブ / パス行 / 本文）は dialog へ移す。閉じる操作は標準の `Escape` と ⤢ に任せ、閉じたら開いたボタンへ焦点を戻す
+- **portal の親が変わるので React は要素を作り直す**（`unmount` → `mount`）。保証しているのは「同時に 2 枚持たない」で、HTML プレビューは出入りのたびに iframe が文書を取り直し、中の状態（スクロール・フォーム）はリセットされる（チャット右パネルと共用の面なので許容する。避けるなら dialog を常に同じ位置に置き、`showModal()` / `close()` だけで切り替える）
+- 開いたまま別のタブへ切り替えても全画面は保つ（`FilePreview` の state なので、dialog の開閉で本文を取り直さない）
+- `Escape` は dialog だけを閉じる（設定ページの「一覧へ戻る」やチャット復帰へ届かせない）
+- **背景（backdrop）は透明にする**（`background: transparent` / `backdrop-filter: none`）。面が viewport を覆うので開き切れば見えないが、既定の暗幕（`--c-backdrop` 0.78 + blur）だと入り / 退場の途中だけ暗幕がよぎって黒い閃きに見える
+- **開いたときの焦点は dialog 自身**（`tabIndex={-1}` + `focus()`）。`showModal()` に任せると先頭の操作（タブや表示切替）へ当たり、実機で意図しないボタンに飛ぶ。閉じたら開いたボタンへ戻す
+- 出入りは `.viewer-dialog`（入り `viewer-in` / 退場 `viewer-out` + `data-closing`）で動かす。退場は `useExitPhase` が `animationend` まで dialog を開いたままにし、閉じ切ってから `close()` する（瞬時に消さない）。`prefers-reduced-motion` では長さを 0.01ms にするだけで、開閉の順序は変えない
+
 ## 言語判定
 
 拡張子を `highlight.ts` の `normalizeLang` に渡して決める（`ts` / `tsx` / `js` / `json` / `py` / `sh` / `css` / `html` / `c` / `cpp` / `go` / `rs` / `java` / `md` / `diff` など、エイリアスはトークナイザと共通）。拡張子を持たないファイルは `Dockerfile` だけ `bash` の規則で色を付ける。それ以外（`README`、`.gitignore`、`a.yaml` など）は素のテキストとして出す。
@@ -291,7 +303,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 
 ## メッセージからの導線（ファイル参照）
 
-assistant 本文のインラインコードが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と面の種別つきの解決は `client/src/lib/fileRef.ts` の純関数、要求の保持と面のモードは `client/src/lib/fileRefRequest.ts`、インラインコードの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。Markdown リンクの横取り・prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（対応サブセットは変えない。描画側の契約は [markdown.md](markdown.md#インラインコードのファイル参照)）。
+assistant 本文のインラインコードが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と面の種別つきの解決は `client/src/lib/fileRef.ts` の純関数、要求の保持と面のモードは `client/src/lib/fileRefRequest.ts`、インラインコードの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。**設定 → スキルの本文（プレビュー）も同じ導線を持つ。** 解決の基準はセッションの作業フォルダではなく**スキルディレクトリ**で、`scripts/survey.sh <dir>` のように「パス + 引数」で書かれているときは先頭の 1 語だけをパスとして採る（引数込みの字面をクリックすると、そのファイルをファイルタブで開く。採否は `client/src/lib/fileSkills.ts` の `skillFileRefPath`）。組み込みスキル（仮想パスでファイルタブが無い）ではリンクにしない。 Markdown リンクの横取り・prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（対応サブセットは変えない。描画側の契約は [markdown.md](markdown.md#インラインコードのファイル参照)）。
 
 ### 字面の判定（matcher）
 

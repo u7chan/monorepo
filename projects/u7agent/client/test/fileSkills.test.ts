@@ -12,6 +12,9 @@ import {
   fileSkillDir,
   fileSkillWarning,
   groupFileSkills,
+  skillBodyMetaLabel,
+  skillBodyPreviewText,
+  skillFileRefPath,
 } from "../src/lib/fileSkills";
 import type { FileSkillInfo } from "../src/types";
 
@@ -140,4 +143,75 @@ test("組み込みと root の外を指すパスにはファイルタブの root
   }
   // .. はセグメント全体のときだけ親参照 (release..notes のような名前は巻き込まない)
   assert.equal(fileSkillDir(fileSkill({ relativePath: "skills/release..notes/SKILL.md" })), "skills/release..notes");
+});
+
+// スコープタブと検索で一覧を絞る。件数は検索で絞る前のスコープ単位で数える。
+test("スコープタブの件数は組み込みと共通に分け、すべては合計を出す", async () => {
+  const { fileSkillScopeCounts } = await import("../src/lib/fileSkills");
+  const counts = fileSkillScopeCounts([
+    fileSkill({ scope: "user" }),
+    fileSkill({ scope: "project", name: "beta" }),
+    fileSkill({ scope: "builtin", name: "gamma" }),
+  ]);
+  assert.deepEqual(counts, { all: 3, builtin: 1, common: 2 });
+});
+
+test("スコープと検索の絞り込みは組み込みを先頭にし、取得順を保つ", async () => {
+  const { filterFileSkills } = await import("../src/lib/fileSkills");
+  const alpha = fileSkill({ name: "alpha", description: "共通の説明" });
+  const beta = fileSkill({ name: "beta", description: "組み込みの説明", scope: "builtin" });
+  const gamma = fileSkill({ name: "gamma", description: "共通の説明" });
+  const skills = [alpha, beta, gamma];
+
+  assert.deepEqual(
+    filterFileSkills(skills, "all", "").map((skill) => skill.name),
+    ["beta", "alpha", "gamma"],
+  );
+  assert.deepEqual(
+    filterFileSkills(skills, "builtin", "").map((skill) => skill.name),
+    ["beta"],
+  );
+  assert.deepEqual(
+    filterFileSkills(skills, "common", "").map((skill) => skill.name),
+    ["alpha", "gamma"],
+  );
+  assert.deepEqual(
+    filterFileSkills(skills, "all", "説明").map((skill) => skill.name),
+    ["beta", "alpha", "gamma"],
+  );
+  assert.deepEqual(
+    filterFileSkills(skills, "common", "gamma").map((skill) => skill.name),
+    ["gamma"],
+  );
+});
+
+test("本文のプレビューは先頭の frontmatter を落とし、形が崩れたものは触らない", () => {
+  // 名前と説明はヘッダと説明欄に出ているので、本文のプレビューでは繰り返さない
+  assert.equal(skillBodyPreviewText("---\nname: alpha\ndescription: x\n---\n# 手順\n"), "# 手順\n");
+  assert.equal(skillBodyPreviewText("---\r\nname: alpha\r\n---\r\n本文\n"), "本文\n");
+  // frontmatter の無い本文、閉じの無い本文はそのまま (水平線だけを frontmatter と誤認しない)
+  assert.equal(skillBodyPreviewText("# 手順\n本文\n"), "# 手順\n本文\n");
+  assert.equal(skillBodyPreviewText("---\n\n本文\n"), "---\n\n本文\n");
+  assert.equal(skillBodyPreviewText(""), "");
+});
+
+test("本文のヘッダの行数はソースの行数で、空の本文には行数を出さない", () => {
+  assert.equal(skillBodyMetaLabel(""), "SKILL.md");
+  assert.equal(skillBodyMetaLabel("a\n"), "SKILL.md · 1 行");
+  assert.equal(skillBodyMetaLabel("a\nb\n"), "SKILL.md · 2 行");
+});
+
+test("本文のコードスパンはスキルディレクトリ配下のパスだけを参照として採る", () => {
+  // 「パス + 引数」で書かれる本文が多いので、先頭の 1 語を見る
+  assert.equal(skillFileRefPath("scripts/survey.sh <dir>"), "scripts/survey.sh");
+  assert.equal(skillFileRefPath("references/checklist.md"), "references/checklist.md");
+  assert.equal(skillFileRefPath("./scripts/a.py"), "scripts/a.py");
+  // コマンド行の先頭がパスでないもの、裸名、ディレクトリ、root の外はリンクにしない
+  assert.equal(skillFileRefPath("bash scripts/a.sh"), null);
+  assert.equal(skillFileRefPath('rg -l "func main"'), null);
+  assert.equal(skillFileRefPath("AGENTS.md"), null);
+  assert.equal(skillFileRefPath("src/"), null);
+  assert.equal(skillFileRefPath("/etc/passwd"), null);
+  assert.equal(skillFileRefPath("../secrets/x.env"), null);
+  assert.equal(skillFileRefPath("a b/c.sh"), null);
 });
