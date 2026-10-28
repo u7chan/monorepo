@@ -6,6 +6,7 @@ import { DEFAULT_FILES_SUBSECTION, FILES_SUBSECTIONS, type FilesSubsection } fro
 import { UNSAVED_RELOAD_NOTE } from "../lib/settingsNotes";
 import { ArchiveExcludeSettings } from "./ArchiveExcludeSettings";
 import { FileBrowser } from "./FileBrowser";
+import { FileBrowserScrollArea } from "./FileBrowserScrollArea";
 import { CheckIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -164,9 +165,7 @@ export function FileTreePage({
           onOpenSharingExclusions={onOpenSharingExclusions}
         />
       ) : (
-        // プレビューの本文が下限を超える低い窓では、この面のスクロールで本文へ届かせる (1 行のグリッドで
-        // FileBrowser の高さを保ち、はみ出しだけをスクロールの対象にする)
-        <div className="grid min-h-0 scrollbar-thin grid-rows-1 overflow-x-hidden overflow-y-auto">
+        <FileBrowserScrollArea>
           <FileBrowser
             root={rootPath}
             rootCwd={rootCwd}
@@ -175,7 +174,7 @@ export function FileTreePage({
             excludeNames={excludeNames}
             filePreviewPort={filePreviewPort}
           />
-        </div>
+        </FileBrowserScrollArea>
       )}
     </SettingsPageLayout>
   );
