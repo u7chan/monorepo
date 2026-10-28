@@ -2317,13 +2317,16 @@ export class SessionStore {
   }
 
   /**
-   * 会話が実行中 (実行 / キュー待ち / 圧縮) か。live でない会話は走っていないものとして false。
-   * `statusOf` は record を要求するため、会話 ID だけで答える口をここに置く (共有の受付が、
-   * 書き換え途中の成果物を公開しない判定に使う。SDK セッションは開かない)。
+   * 同じ作業フォルダを使う live の会話に実行中 (実行 / キュー待ち / 圧縮) のものがあるか。
+   * プロジェクト会話は同じ `projectCwd` を全セッションで共有するため、自分の会話が idle でも
+   * 兄弟会話が成果物を書き換えていることがある。未所属の会話は会話ごとの scratch なので、
+   * 自分の会話以外と一致しない。live でない会話に run は無い (SDK セッションは開かない)。
    */
-  busyOfId(id: string): boolean {
-    const record = this.records.get(id);
-    return record !== undefined && this.isBusy(record);
+  busyInWorkdir(workdir: string): boolean {
+    for (const record of this.records.values()) {
+      if (record.workdir === workdir && this.isBusy(record)) return true;
+    }
+    return false;
   }
 
   spaceOfId(id: string): string | undefined {

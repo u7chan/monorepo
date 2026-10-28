@@ -16,6 +16,7 @@ import {
 } from "../../lib/sharedContents";
 import { renameInputValue } from "../../lib/confirmDialog";
 import type { SessionSummary, SharedContentResponse } from "../../types";
+import { workdirBusyKind } from "../../lib/sessionBusy";
 import { KeyIcon, ShareIcon, WarningIcon } from "../icons";
 import { LoadingMark } from "../LoadingMark";
 import { QrCodeDialog } from "../QrCodeDialog";
@@ -54,6 +55,23 @@ export function SharedContentsTab({
   const [qrId, setQrId] = useState<string | null>(null);
   const sessionIds = useMemo(() => new Set(sessions.map((session) => session.sessionId)), [sessions]);
   const visible = visibleSharedContents(contents.items, filter);
+  // 共有物の会話と同じ作業フォルダ (同じプロジェクト) で実行中の会話があれば、更新と再試行を押せなくする
+  // (未所属の会話は会話ごとの scratch なので、兄弟は存在しない)
+  const sessionBusyIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of visible) {
+      const session = sharedContentSession(item, sessions, sessionsLoaded);
+      if (session === undefined) continue;
+      const kind = workdirBusyKind({
+        selfStatus: session.status,
+        sessionId: item.sessionId,
+        projectId: session.projectId,
+        sessions,
+      });
+      if (kind !== undefined) ids.add(item.id);
+    }
+    return ids;
+  }, [visible, sessions, sessionsLoaded]);
   // 一括停止中は一覧全体の操作を止める（現在の 1 件は busy が別に持つ）
   const bulkActive = contents.bulkStop?.running === true;
   const sessionMissing = (item: SharedContentResponse) => sharedContentSessionMissing(item, sessionIds, sessionsLoaded);
@@ -101,6 +119,7 @@ export function SharedContentsTab({
                   item={item}
                   narrow={narrow}
                   sessionMissing={sessionMissing(item)}
+                  sessionBusy={sessionBusyIds.has(item.id)}
                   session={sharedContentSession(item, sessions, sessionsLoaded)}
                   onOpenSession={onOpenSession}
                   busy={contents.busy.find((entry) => entry.id === item.id) ?? null}

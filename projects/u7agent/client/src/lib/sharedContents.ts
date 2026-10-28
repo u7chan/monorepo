@@ -4,13 +4,12 @@
  */
 import type {
   CreateSharedContentBody,
-  RunStatus,
   SessionSummary,
   SharedContentResponse,
   SharedContentStatusValue,
 } from "../types";
 import type { ConfirmRequest, PromptRequest } from "./confirmDialog";
-import { sessionBusy } from "./sessionBusy";
+import type { WorkdirBusyKind } from "./sessionBusy";
 
 /** 状態を読み直す間隔。公開ジョブの所要は数十秒なので、待ちすぎず叩きすぎない値にする */
 export const SHARE_POLL_MS = 2000;
@@ -120,12 +119,15 @@ export const SHARE_PREVIEW_FAILED_UPDATE_HINT = "同じフォルダの共有物�
  * 文の正は BFF の `SHARED_CONTENT_RUNNING`（`server/src/shared-contents.ts`）。
  */
 export const SHARE_RUNNING_NOTE = "会話の実行中は公開できません。実行が終わってから共有してください";
+/** プロジェクト会話は cwd を共有するため、自分の会話が idle でも兄弟会話が書き換えていることがある */
+export const SHARE_WORKDIR_RUNNING_NOTE = "同じ作業フォルダの他会話が実行中です。実行が終わってから共有してください";
 /** 管理一覧の更新・再試行を止める理由。文脈が「更新」なので、主操作の「共有」とは別の短い文にする */
 export const SHARED_CONTENT_UPDATE_RUNNING_NOTE = "会話の実行中のため更新できません";
 
 /** 共有（新規 / 更新）を押せない理由。押せないときは項目を消さず、この文を理由として出す */
-export function shareRunBlockedReason(runStatus: RunStatus): string | undefined {
-  return sessionBusy(runStatus) ? SHARE_RUNNING_NOTE : undefined;
+export function shareRunBlockedReason(kind: WorkdirBusyKind | undefined): string | undefined {
+  if (kind === "self") return SHARE_RUNNING_NOTE;
+  return kind === "other" ? SHARE_WORKDIR_RUNNING_NOTE : undefined;
 }
 
 /**

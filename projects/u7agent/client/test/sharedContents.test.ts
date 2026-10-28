@@ -2,11 +2,13 @@
 // 202 後の追跡（詳細の宛先・一覧の要否）を固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sessionBusy } from "../src/lib/sessionBusy";
+import type { RunStatus } from "../src/types";
+import { sessionBusy, workdirBusyKind } from "../src/lib/sessionBusy";
 import {
   SHARE_CONFIRM_NOTES,
   SHARE_PUBLISHING_NOTE,
   SHARE_RUNNING_NOTE,
+  SHARE_WORKDIR_RUNNING_NOTE,
   SHARE_UPDATE_CONFIRM_NOTES,
   SHARE_UPDATE_NOTE_INCOMPLETE,
   SHARE_UPDATE_NOTE_LIVE,
@@ -283,9 +285,11 @@ test("実行中: 共有・更新・再試行を理由付きで無効にし、読
   assert.equal(sessionBusy("compacting"), true);
   for (const status of ["idle", "completed", "stopped", "error"] as const) {
     assert.equal(sessionBusy(status), false, status);
-    assert.equal(shareRunBlockedReason(status), undefined, status);
   }
-  assert.equal(shareRunBlockedReason("running"), SHARE_RUNNING_NOTE);
+  // 理由は誰が実行中かで分ける (自分の会話 / 同じ作業フォルダの他会話)
+  assert.equal(shareRunBlockedReason(undefined), undefined);
+  assert.equal(shareRunBlockedReason("self"), SHARE_RUNNING_NOTE);
+  assert.equal(shareRunBlockedReason("other"), SHARE_WORKDIR_RUNNING_NOTE);
 
   // 管理一覧: 更新だけを理由付きで無効にし、開く・QR・停止・削除は残す
   const published = sharedContentActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
@@ -343,6 +347,66 @@ test("実行中: 共有・更新・再試行を理由付きで無効にし、読
     sessionBusy: true,
   });
   assert.equal(missing?.reason, SHARED_CONTENT_SESSION_MISSING_NOTE);
+});
+
+test("同じ作業フォルダの他会話: プロジェクト会話だけ兄弟を見て、未所属は自分だけを見る", () => {
+  const member = (sessionId: string, projectId: string | undefined, status: RunStatus) => ({
+    sessionId,
+    projectId,
+    status,
+  });
+  // プロジェクト会話は cwd を共有するので、自分が idle でも兄弟が実行中なら止める
+  assert.equal(
+    workdirBusyKind({
+      selfStatus: "idle",
+      sessionId: "self",
+      projectId: "p1",
+      sessions: [member("self", "p1", "idle"), member("sib", "p1", "running")],
+    }),
+    "other",
+  );
+  // 未所属は会話ごとの scratch なので、兄弟がいても cwd が違う
+  assert.equal(
+    workdirBusyKind({
+      selfStatus: "idle",
+      sessionId: "self",
+      sessions: [member("self", undefined, "idle"), member("sib", undefined, "running")],
+    }),
+    undefined,
+  );
+  // 別プロジェクトの会話も cwd が違う
+  assert.equal(
+    workdirBusyKind({
+      selfStatus: "idle",
+      sessionId: "self",
+      projectId: "p1",
+      sessions: [member("sib", "p2", "running")],
+    }),
+    undefined,
+  );
+  // 自分の会話が実行中なら self を優先する (文言が違う)
+  assert.equal(
+    workdirBusyKind({
+      selfStatus: "queued",
+      sessionId: "self",
+      projectId: "p1",
+      sessions: [member("sib", "p1", "running")],
+    }),
+    "self",
+  );
+  // 終端の兄弟は数えない
+  for (const status of ["idle", "completed", "stopped", "error"] as const) {
+    assert.equal(
+      workdirBusyKind({
+        selfStatus: "idle",
+        sessionId: "self",
+        projectId: "p1",
+        sessions: [member("sib", "p1", status)],
+      }),
+      undefined,
+      status,
+    );
+  }
 });
 
 test("セッション削除済み: 更新だけを理由付きで無効にし、停止・再公開・削除は残す", () => {

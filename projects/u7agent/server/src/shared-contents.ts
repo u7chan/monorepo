@@ -147,12 +147,13 @@ export interface SharedContentsOptions {
   /**
    * `projectCwdOfId` は会話がプロジェクト配下かを `projectId` ではなく保存された `projectCwd` の有無で答える
    * (登録解除で `projectId` は undefined に戻り、解除済みのプロジェクト会話が非プロジェクトに化けるため)
-   * `busyOfId` は実行中 (実行 / キュー待ち / 圧縮) か。公開の受付だけがこれを見る
+   * `busyInWorkdir` はその作業フォルダを使う会話に実行中 (実行 / キュー待ち / 圧縮) のものがあるか。
+   * プロジェクト会話は同じ cwd を共有するので、公開元の会話だけでなく兄弟会話も見る
    */
   sessions: {
     workdirOfId(id: string): string | undefined;
     projectCwdOfId(id: string): string | undefined;
-    busyOfId(id: string): boolean;
+    busyInWorkdir(workdir: string): boolean;
   };
   workspace: SandboxWorkspaceClient | null;
   /**
@@ -180,7 +181,7 @@ export class SharedContentsService {
   #sessions: {
     workdirOfId(id: string): string | undefined;
     projectCwdOfId(id: string): string | undefined;
-    busyOfId(id: string): boolean;
+    busyInWorkdir(workdir: string): boolean;
   };
   #workspace: SandboxWorkspaceClient | null;
   #planSandbox: SandboxDownloadPlanClient | null;
@@ -300,7 +301,7 @@ export class SharedContentsService {
     const credential = this.#requireCredentials();
     const sessionCwd = this.#sessions.workdirOfId(input.sessionId);
     if (!sessionCwd) throw httpError(404, "Session not found");
-    this.#assertSessionIdle(input.sessionId);
+    this.#assertWorkdirIdle(sessionCwd);
     this.#assertSessionRootAllowed(input.sessionId, input.directory);
     const sourcePath = resolveSharedContentSource(this.#rootCwd, sessionCwd, input.directory);
     const name = normalizeSharedContentName(input.name, sourcePath);
@@ -355,7 +356,7 @@ export class SharedContentsService {
       }
       const sessionCwd = this.#sessions.workdirOfId(row.sessionId);
       if (!sessionCwd) throw httpError(409, SHARED_CONTENT_SESSION_REQUIRED);
-      this.#assertSessionIdle(row.sessionId);
+      this.#assertWorkdirIdle(sessionCwd);
       this.#assertSourceUnderSession(row.sourcePath, sessionCwd);
       await this.#requireSource(row.sourcePath);
       this.#requireRowCredential(row);
@@ -926,9 +927,10 @@ export class SharedContentsService {
   /**
    * 実行中の会話の公開を断る。作業フォルダを書き換えている最中の ZIP は半端なスナップショットになり得て、
    * 公開は取り消しの効かない外部公開なので、受付で止める (`stop` / `resume` / `remove` / `rename` は通す)。
+   * 見るのは公開元の会話だけでなく、同じ cwd を使う会話全体 (プロジェクト会話は cwd を共有する)。
    */
-  #assertSessionIdle(sessionId: string): void {
-    if (this.#sessions.busyOfId(sessionId)) throw httpError(409, SHARED_CONTENT_RUNNING);
+  #assertWorkdirIdle(workdir: string): void {
+    if (this.#sessions.busyInWorkdir(workdir)) throw httpError(409, SHARED_CONTENT_RUNNING);
   }
 
   #assertSourceUnderSession(sourcePath: string, sessionCwd: string): void {

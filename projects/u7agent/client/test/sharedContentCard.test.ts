@@ -38,15 +38,23 @@ function render(
   {
     narrow = false,
     sessionMissing = false,
+    sessionBusy = false,
     busy = null,
     bulkActive = false,
-  }: { narrow?: boolean; sessionMissing?: boolean; busy?: { kind: "rename" } | null; bulkActive?: boolean } = {},
+  }: {
+    narrow?: boolean;
+    sessionMissing?: boolean;
+    sessionBusy?: boolean;
+    busy?: { kind: "rename" } | null;
+    bulkActive?: boolean;
+  } = {},
 ): string {
   return renderToStaticMarkup(
     createElement(SharedContentCard, {
       item: content,
       narrow,
       sessionMissing,
+      sessionBusy,
       session: undefined,
       busy,
       bulkActive,
@@ -171,6 +179,7 @@ test("コピー成功: アイコンのラベルをコピー済みへ変える", 
       item: item(),
       narrow: false,
       sessionMissing: false,
+      sessionBusy: false,
       session: undefined,
       busy: null,
       error: undefined,
@@ -196,6 +205,7 @@ test("メタ情報: 公開元・会話・時刻を ・ で区切って 1 行に�
       item: item(),
       narrow: false,
       sessionMissing: false,
+      sessionBusy: false,
       session: { sessionId: "s1", title: "会話の題", createdAt: 1, updatedAt: 1 } as never,
       busy: null,
       error: undefined,
@@ -303,6 +313,7 @@ test("コピー失敗: URL を選択してコピーする逃げ道を示す", ()
       item: item(),
       narrow: false,
       sessionMissing: false,
+      sessionBusy: false,
       session: undefined,
       busy: null,
       error: undefined,
