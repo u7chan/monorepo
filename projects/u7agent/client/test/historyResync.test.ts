@@ -1647,3 +1647,153 @@ test("404 の全量復元は古い payload の実行状態を再適用しない"
   assert.equal(fallback.runStartedAt, ended.runStartedAt);
   assert.equal(fallback.history.unsupported, true);
 });
+
+// --- 結末 (runDurationMs / runOutcome) の書き戻し ---
+
+/** run_end 後に結末を持った送信エコー (entryId なし) */
+function endedEcho(runId: string, text: string) {
+  const sent = chatReducer(initialChatState, { type: "localUser", text, at: 1 });
+  const echoed = chatReducer(sent, { type: "echoSendId", sendId: `${runId}-send`, runId });
+  return chatReducer(echoed, {
+    type: "runEnd",
+    runId,
+    status: "completed",
+    queueDepth: 0,
+    durationMs: 5000,
+  });
+}
+
+test("同じ sendId を持つ user が複数あっても、結末は先頭の 1 件だけへ写す", () => {
+  // What: 送信IDが重複した旧データでも、結末の写し先を先頭の user に固定する
+  const ended = endedEcho("run-dup", "重複した送信");
+  assert.deepEqual(
+    ended.bubbles.map((bubble) => [bubble.text, bubble.runDurationMs]),
+    [["重複した送信", 5000]],
+    "前提: live の送信が結末を持つ",
+  );
+
+  const merged = chatReducer(ended, {
+    type: "resyncHistory",
+    page: historyPage([
+      {
+        kind: "message",
+        id: "u-1",
+        context: "active",
+        role: "user",
+        text: "重複した送信",
+        sendId: "run-dup-send",
+        runId: "run-old",
+      },
+      { kind: "message", id: "a-1", context: "active", role: "assistant", text: "1 件目" },
+      {
+        kind: "message",
+        id: "u-2",
+        context: "active",
+        role: "user",
+        text: "別の本文",
+        sendId: "run-dup-send",
+        runId: "run-dup",
+      },
+      { kind: "message", id: "a-2", context: "active", role: "assistant", text: "2 件目" },
+    ]),
+  });
+  assert.deepEqual(
+    merged.bubbles.map((bubble) => [bubble.entryId, bubble.role, bubble.runDurationMs, bubble.runOutcome]),
+    [
+      ["u-1", "user", 5000, "completed"],
+      ["a-1", "assistant", undefined, undefined],
+      ["u-2", "user", undefined, undefined],
+      ["a-2", "assistant", undefined, undefined],
+    ],
+    "2 件目の同じ sendId へは写さない",
+  );
+});
+
+test("sendId を持たない同じ本文の user が複数あるとき、結末は後方の 1 件へ写す", () => {
+  // What: 送信IDが無い旧データは本文の後方一致で写すため、同文の複数 user でも写し先が変わらない
+  const started = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-text",
+    prompt: "同じ質問",
+    at: 1,
+    startedAt: 1,
+  });
+  const ended = chatReducer(started, {
+    type: "runEnd",
+    runId: "run-text",
+    status: "completed",
+    queueDepth: 0,
+    durationMs: 7000,
+  });
+  assert.deepEqual(
+    ended.bubbles.map((bubble) => [bubble.text, bubble.sendId, bubble.runDurationMs]),
+    [["同じ質問", undefined, 7000]],
+    "前提: 送信IDを持たない live の user が結末を持つ",
+  );
+
+  const merged = chatReducer(ended, {
+    type: "resyncHistory",
+    page: historyPage([
+      { kind: "message", id: "u-1", context: "active", role: "user", text: "同じ質問" },
+      { kind: "message", id: "a-1", context: "active", role: "assistant", text: "古い回答" },
+      { kind: "message", id: "u-2", context: "active", role: "user", text: "同じ質問" },
+      { kind: "message", id: "a-2", context: "active", role: "assistant", text: "新しい回答" },
+    ]),
+  });
+  assert.deepEqual(
+    merged.bubbles.map((bubble) => [bubble.entryId, bubble.role, bubble.runDurationMs]),
+    [
+      ["u-1", "user", undefined],
+      ["a-1", "assistant", undefined],
+      ["u-2", "user", 7000],
+      ["a-2", "assistant", undefined],
+    ],
+    "先頭の同文 user ではなく末尾の同文 user へ写す",
+  );
+});
+
+test("結末を持つ履歴 user と持たない user が混在しても、再同期で結末を移さない", () => {
+  // What: sendId 一致を本文一致より優先したまま、結末の無い同文の user へ写さない
+  const items: HistoryPage["items"] = [
+    {
+      kind: "message",
+      id: "u-1",
+      context: "active",
+      role: "user",
+      text: "同じ本文",
+      sendId: "send-1",
+      runId: "run-1",
+      runDurationMs: 4000,
+      runOutcome: "completed",
+    },
+    { kind: "message", id: "a-1", context: "active", role: "assistant", text: "回答 1" },
+    {
+      kind: "message",
+      id: "u-2",
+      context: "active",
+      role: "user",
+      text: "同じ本文",
+      sendId: "send-2",
+      runId: "run-2",
+    },
+    { kind: "message", id: "a-2", context: "active", role: "assistant", text: "回答 2" },
+  ];
+  const options = { hasMore: true, nextCursor: "u-1", messageCount: 4 };
+  const first = chatReducer(initialChatState, { type: "resyncHistory", page: historyPage(items, options) });
+  assert.deepEqual(
+    first.bubbles.filter((bubble) => bubble.role === "user").map((bubble) => [bubble.entryId, bubble.runDurationMs]),
+    [
+      ["u-1", 4000],
+      ["u-2", undefined],
+    ],
+    "前提: 結末を持つ履歴 user と持たない user が混在する",
+  );
+
+  // 同じ最新ページを取り直すと、ページのバブルは新しい id で組み直され結末の書き戻しが走る
+  const resynced = chatReducer(first, { type: "resyncHistory", page: historyPage(items, options) });
+  assert.deepEqual(
+    resynced.bubbles.map((bubble) => [bubble.entryId, bubble.runDurationMs, bubble.runOutcome]),
+    first.bubbles.map((bubble) => [bubble.entryId, bubble.runDurationMs, bubble.runOutcome]),
+    "再同期で結末の写り先が変わらない",
+  );
+});
