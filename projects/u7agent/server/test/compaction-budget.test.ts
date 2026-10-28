@@ -1,8 +1,7 @@
 // 実 SDK (@earendil-works/pi-coding-agent) とローカル OpenAI 互換モックで、要約生成リクエストの出力枠を固定する。
 //
-// 固定するのは (a) 既定 reserve の出力枠が floor(0.8 × 65,536) = 52,428 であること、(b) モデルの maxTokens が
-// 小さければそこでクランプされること、(c) 出力枠が上限に達する規模の会話でも既定設定なら要約が完了すること。
-// 実 API は呼ばない。
+// 固定するのは (a) 出力枠がモデルの maxTokens になること、(b) reserveTokens を変えても出力枠は変わらないこと、
+// (c) 出力枠が上限に達する規模の会話でも要約が完了すること。実 API は呼ばない。
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { createServer, type Server } from "node:http";
@@ -131,7 +130,7 @@ async function createRealSession(baseUrl: string, options: { env: NodeJS.Process
   return { session, sessionManager };
 }
 
-test("既定 reserve の要約リクエストは floor(0.8 × 65536) = 52428 の出力枠で送られる", async () => {
+test("要約リクエストの出力枠はモデルの maxTokens になる", async () => {
   const provider = await startMockProvider({ truncateBelow: 0 });
   try {
     const { session } = await createRealSession(provider.baseUrl, { env: CUT_FRIENDLY_ENV, maxTokens: 100_000 });
@@ -139,7 +138,25 @@ test("既定 reserve の要約リクエストは floor(0.8 × 65536) = 52428 の
     await session.compact();
 
     assert.equal(provider.requests.length, 1);
-    assert.equal(requestedBudget(provider.requests[0]), 52_428);
+    assert.equal(requestedBudget(provider.requests[0]), 100_000);
+  } finally {
+    provider.server.close();
+  }
+});
+
+test("reserveTokens を変えても要約リクエストの出力枠は変わらない", async () => {
+  // 出力枠は reserveTokens から切り離され、u7agent の既定 65,536 は自動圧縮の閾値だけを決める
+  const provider = await startMockProvider({ truncateBelow: 0 });
+  try {
+    const { session } = await createRealSession(provider.baseUrl, {
+      env: { ...CUT_FRIENDLY_ENV, PI_COMPACTION_RESERVE_TOKENS: "30000" },
+      maxTokens: 100_000,
+    });
+
+    await session.compact();
+
+    assert.equal(provider.requests.length, 1);
+    assert.equal(requestedBudget(provider.requests[0]), 100_000);
   } finally {
     provider.server.close();
   }
@@ -159,9 +176,8 @@ test("モデルの maxTokens が出力枠より小さければそこでクラン
   }
 });
 
-test("出力枠に達する規模の要約でも既定設定なら完了して compaction entry が積まれる", async () => {
-  // 旧既定 (reserve 16,384 → 出力枠 13,107) はこのモックの打ち切り境界を下回り、stopReason=length の要約が
-  // 捨てられて compact() が失敗していた
+test("出力枠に達する規模の要約でも完了して compaction entry が積まれる", async () => {
+  // 出力枠がこの境界を下回ると、SDK は stopReason=length の要約を捨てて compact() を失敗させる
   const provider = await startMockProvider({ truncateBelow: 13_284 });
   try {
     const { session, sessionManager } = await createRealSession(provider.baseUrl, {
@@ -172,7 +188,7 @@ test("出力枠に達する規模の要約でも既定設定なら完了して c
     const result = await session.compact();
 
     const budget = requestedBudget(provider.requests[0]);
-    assert.equal(budget, 52_428);
+    assert.equal(budget, 100_000);
     assert.ok(budget >= 32_768, `出力枠 ${budget} は打ち切り境界より十分大きいはず`);
     assert.equal(result.summary, "ここまでの要約");
     assert.equal(
