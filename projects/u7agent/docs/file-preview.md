@@ -42,6 +42,8 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 - ネイティブの `dialog` + `showModal()`。外枠（タブ / パス行 / 本文）はそのまま同じ 1 つを dialog へ移す（複製すると HTML の iframe が 2 枚になる）。閉じる操作は標準の `Escape` と ⤢ に任せ、閉じたら開いたボタンへ焦点を戻す
 - 開いたまま別のタブへ切り替えても全画面は保つ（`FilePreview` の state なので、dialog の開閉で本文を取り直さない）
 - `Escape` は dialog だけを閉じる（設定ページの「一覧へ戻る」やチャット復帰へ届かせない）
+- **背景（backdrop）は透明にする**（`background: transparent` / `backdrop-filter: none`）。面が viewport を覆うので開き切れば見えないが、既定の暗幕（`--c-backdrop` 0.78 + blur）だと入り / 退場の途中だけ暗幕がよぎって黒い閃きに見える
+- **開いたときの焦点は dialog 自身**（`tabIndex={-1}` + `focus()`）。`showModal()` に任せると先頭の操作（タブや表示切替）へ当たり、実機で意図しないボタンに飛ぶ。閉じたら開いたボタンへ戻す
 - 出入りは `.viewer-dialog`（入り `viewer-in` / 退場 `viewer-out` + `data-closing`）で動かす。退場は `useExitPhase` が `animationend` まで dialog を開いたままにし、閉じ切ってから `close()` する（瞬時に消さない）。`prefers-reduced-motion` では長さを 0.01ms にするだけで、開閉の順序は変えない
 
 ## 言語判定

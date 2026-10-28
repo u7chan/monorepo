@@ -1195,16 +1195,11 @@
   .viewer-dialog[data-closing="true"] {
     animation: viewer-out 140ms ease-in forwards;
   }
+  /* 背景は暗くしない。面が viewport を覆うので backdrop は見えず、入り / 退場の途中だけ
+     暗幕とぼかしが一瞬よぎって黒い閃きに見える (ダイアログの既定は rgba 0.78 + blur) */
   .viewer-dialog::backdrop {
-    transition: opacity 140ms ease-out;
-  }
-  @starting-style {
-    .viewer-dialog[open]::backdrop {
-      opacity: 0;
-    }
-  }
-  .viewer-dialog[data-closing="true"]::backdrop {
-    opacity: 0;
+    background: transparent;
+    backdrop-filter: none;
   }
   @keyframes viewer-in {
     from {
@@ -2331,9 +2326,6 @@
     .viewer-dialog[open],
     .viewer-dialog[data-closing="true"] {
       animation-duration: 0.01ms;
-    }
-    .viewer-dialog::backdrop {
-      transition: none;
     }
   }
 

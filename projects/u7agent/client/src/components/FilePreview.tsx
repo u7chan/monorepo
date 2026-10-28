@@ -102,8 +102,13 @@ export function FilePreview({
   useEffect(() => {
     const dialog = fullscreenDialogRef.current;
     if (dialog === null) return;
-    if (fullscreenVisible && !dialog.open) dialog.showModal();
-    else if (!fullscreenVisible && dialog.open) dialog.close();
+    if (fullscreenVisible && !dialog.open) {
+      dialog.showModal();
+      // 開いたときに先頭のボタンへ勝手に当てない (実機で意図しない操作へフォーカスが飛ぶ)
+      dialog.focus();
+    } else if (!fullscreenVisible && dialog.open) {
+      dialog.close();
+    }
   }, [fullscreenVisible]);
   useEffect(() => {
     if (fullscreenVisible || !restoreFullscreenFocus.current) return;
@@ -350,6 +355,7 @@ export function FilePreview({
     <dialog
       ref={fullscreenDialogRef}
       aria-label="ファイルプレビュー"
+      tabIndex={-1}
       data-closing={fullscreenPhase === "closing"}
       // Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる
       onCancel={(event) => {
@@ -361,7 +367,7 @@ export function FilePreview({
         if (event.key === "Escape") event.stopPropagation();
       }}
       // h-dvh + 余白なし: プレビュー本体が viewport の高さいっぱいを使う
-      className="viewer-dialog m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-panel p-0"
+      className="viewer-dialog m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-panel p-0 focus:outline-none"
     >
       {preview}
     </dialog>,

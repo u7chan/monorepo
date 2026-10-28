@@ -102,8 +102,14 @@ export function SkillDetailPanel({
   useEffect(() => {
     const dialog = readerDialogRef.current;
     if (dialog === null) return;
-    if (readerVisible && !dialog.open) dialog.showModal();
-    else if (!readerVisible && dialog.open) dialog.close();
+    if (readerVisible && !dialog.open) {
+      dialog.showModal();
+      // 開いたときに先頭のボタンへ勝手に当てない (実機で意図しない操作へフォーカスが飛ぶ)。
+      // 読み上げにも dialog の名前を渡し、次の Tab から中身へ入る
+      dialog.focus();
+    } else if (!readerVisible && dialog.open) {
+      dialog.close();
+    }
   }, [readerVisible]);
   useEffect(() => {
     if (readerVisible || !restoreReaderFocus.current) return;
@@ -192,6 +198,7 @@ export function SkillDetailPanel({
       <dialog
         ref={readerDialogRef}
         aria-label={title ? `${title} の${SKILL_TAB_BODY_LABEL}` : SKILL_TAB_BODY_LABEL}
+        tabIndex={-1}
         data-closing={readerPhase === "closing"}
         // Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる
         onCancel={(event) => {
@@ -202,7 +209,7 @@ export function SkillDetailPanel({
         onKeyDown={(event) => {
           if (event.key === "Escape") event.stopPropagation();
         }}
-        className="viewer-dialog m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-soft p-3"
+        className="viewer-dialog m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-soft p-3 focus:outline-none"
       >
         {panel}
       </dialog>,
