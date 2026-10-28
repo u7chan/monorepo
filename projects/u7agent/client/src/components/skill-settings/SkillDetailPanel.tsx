@@ -102,6 +102,8 @@ export function SkillDetailPanel({
         mono
         copyLabel="本文をコピー"
         copyAlwaysVisible
+        // 全画面では枠を dialog いっぱいに広げ、ヘッダ (閉じる / 切替 / コピー) を残したまま本文だけを流す
+        fill={reading}
         actions={
           <>
             <SegmentedControl
@@ -149,9 +151,9 @@ export function SkillDetailPanel({
         onKeyDown={(event) => {
           if (event.key === "Escape") event.stopPropagation();
         }}
-        className="m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-soft p-0"
+        className="m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-soft p-3"
       >
-        <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3">{panel}</div>
+        {panel}
       </dialog>,
       document.body,
     );

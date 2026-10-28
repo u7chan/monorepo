@@ -19,6 +19,7 @@ export function OutputPanel({
   actions,
   copyAlwaysVisible = false,
   children,
+  fill = false,
 }: {
   /** ヘッダ左の見出し (コードブロックの lang 名と同じ位置) */
   label: string;
@@ -37,13 +38,23 @@ export function OutputPanel({
   copyAlwaysVisible?: boolean;
   /** 本文を既定の `<pre>` ではなく自前で描く (Markdown プレビューなど)。省略すると `text` をそのまま出す */
   children?: ReactNode;
+  /**
+   * 枠の高さを親いっぱいに広げ、ヘッダを固定して本文だけをスクロールさせる。全画面の読み面で使う
+   * (ヘッダまで流れると、閉じるボタンと表示切替が本文の上へ流れて消える)
+   */
+  fill?: boolean;
 }) {
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const bodyRef = useRef<HTMLPreElement>(null);
   const copyId = "output";
   return (
-    <div className="group/code overflow-hidden rounded-lg border border-line bg-panel">
-      <div className="flex items-center gap-2 border-b border-line bg-soft py-0.5 pr-1.5 pl-2.5 text-3xs text-ink-faint">
+    <div
+      className={cn(
+        "group/code overflow-hidden rounded-lg border border-line bg-panel",
+        fill && "flex min-h-0 flex-1 flex-col",
+      )}
+    >
+      <div className="flex shrink-0 items-center gap-2 border-b border-line bg-soft py-0.5 pr-1.5 pl-2.5 text-3xs text-ink-faint">
         <span className="font-semibold">{label}</span>
         {meta ? <span className="text-ink-ghost">{meta}</span> : null}
         <span className="flex-1" />
@@ -60,17 +71,23 @@ export function OutputPanel({
           />
         ) : null}
       </div>
-      {children ?? (
+      {children === undefined ? (
         <pre
           ref={bodyRef}
           className={cn(
             "m-0 px-2.5 py-2 break-words whitespace-pre-wrap",
             mono ? "font-mono text-1xs leading-relaxed" : "font-sans text-1sm leading-relaxed text-ink-strong",
-            scroll ? "max-h-72 scrollbar-thin overflow-auto" : "",
+            scroll && "max-h-72 scrollbar-thin overflow-auto",
+            fill && "min-h-0 flex-1 scrollbar-thin overflow-auto",
           )}
         >
           {text}
         </pre>
+      ) : fill ? (
+        // 全画面では本文だけをスクロールさせる (ヘッダは枠の上に残す)
+        <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto">{children}</div>
+      ) : (
+        children
       )}
     </div>
   );
