@@ -75,6 +75,16 @@ export function fileSkillPaneNote(state: FileSkillsState): string {
   return state.status === "loading" ? FILE_SKILL_PANE_LOADING_NOTE : FILE_SKILL_PANE_ERROR_NOTE;
 }
 
+/**
+ * 面の案内を文ごとに行へ分ける。日本語は文節の途中でも折り返されるので、そのまま流すと
+ * 「…「新しいスキル」か / ら作成できます。」のように語の途中で切れる。文の切れ目で行を分けて置く
+ */
+export function fileSkillPaneNoteLines(state: FileSkillsState): string[] {
+  return fileSkillPaneNote(state)
+    .split(/(?<=。)/)
+    .filter((line) => line !== "");
+}
+
 /** 一覧と詳細のどちらを見せるか。並列表示では使わない */
 type SkillView = "list" | "detail";
 
@@ -460,10 +470,17 @@ export function SkillSettingsPage({
     // 選択が無いときの面。並列表示では右半分が丸ごと空くので、上端に文を置かず面の中央に寄せ、
     // 印と文を横に並べる (狭い面は一覧と詳細を切り替えるので、この面は出ない)
     <div className="grid min-h-0 min-w-0 flex-1 place-items-center px-6 py-8">
-      <p className="flex max-w-md items-center gap-2 text-xs leading-relaxed text-ink-muted">
-        {fileSkills.state.status === "loading" ? <LoadingMark /> : <SkillListIcon />}
-        <span>{fileSkillPaneNote(fileSkills.state)}</span>
-      </p>
+      <div className="flex max-w-md items-start gap-2 text-xs leading-relaxed text-ink-muted">
+        {/* 行の先頭にそろえる (中央に置くと 2 行の間を指す) */}
+        <span className="mt-0.5 flex shrink-0">
+          {fileSkills.state.status === "loading" ? <LoadingMark /> : <SkillListIcon />}
+        </span>
+        <p className="grid gap-0.5">
+          {fileSkillPaneNoteLines(fileSkills.state).map((line) => (
+            <span key={line}>{line}</span>
+          ))}
+        </p>
+      </div>
     </div>
   );
 

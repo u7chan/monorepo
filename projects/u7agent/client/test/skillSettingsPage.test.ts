@@ -28,7 +28,8 @@ globalThis.location ??= { origin: "http://localhost" } as Location;
   addEventListener() {},
   removeEventListener() {},
 };
-const { SkillSettingsPage, fileSkillAddRow, fileSkillPaneNote } = await import("../src/components/SkillSettingsPage");
+const { SkillSettingsPage, fileSkillAddRow, fileSkillPaneNote, fileSkillPaneNoteLines } =
+  await import("../src/components/SkillSettingsPage");
 
 /** 追加行の有無は button の描画で見る (文言だけの一致では見出しや注記と区別できない) */
 function hasAddRow(html: string): boolean {
@@ -51,6 +52,15 @@ test("選択が無いときの案内は一覧を取得できていない間は�
   assert.equal(fileSkillPaneNote({ status: "error", message: "取得に失敗" }), FILE_SKILL_PANE_ERROR_NOTE);
   // 追加行が出ない状態で「新しいスキル」からの作成を案内すると、押せない操作を促すことになる
   assert.ok(FILE_SKILL_PANE_NOTE.includes("作成できます"));
+
+  // 日本語は文節の途中でも折り返されるので、案内は文の切れ目で行に分ける (「か / ら」で切れない)
+  const lines = fileSkillPaneNoteLines({ status: "ready", skills: [] });
+  assert.equal(lines.length, 2);
+  assert.ok(lines[0]?.endsWith("。"));
+  assert.equal(lines.join(""), FILE_SKILL_PANE_NOTE);
+  const loadingLines = fileSkillPaneNoteLines({ status: "loading" });
+  assert.equal(loadingLines.length, 2);
+  assert.ok(loadingLines[1]?.endsWith("…"));
   assert.ok(!FILE_SKILL_PANE_LOADING_NOTE.includes("作成できます"));
   assert.ok(!FILE_SKILL_PANE_ERROR_NOTE.includes("作成できます"));
 });
@@ -111,7 +121,10 @@ test("並列表示で何も選んでいない間は、空のピッカーと詳�
   assert.ok(!html.includes("スキルを切り替える"), "選択が無いのに空のピッカーが出ている");
   // ヘッダはページ自身の 1 つだけ。中身の無い詳細ヘッダの帯を残さない
   assert.equal(html.match(/<header/g)?.length, 1, "選択が無いのに詳細ヘッダの帯が出ている");
-  assert.ok(html.includes(FILE_SKILL_PANE_LOADING_NOTE), "選択が無いときの案内が無い");
+  // 案内は文ごとに行を分けて描くので、行ごとに出ていることを見る
+  for (const line of fileSkillPaneNoteLines({ status: "loading" })) {
+    assert.ok(html.includes(line), "選択が無いときの案内が無い");
+  }
 });
 
 test("エクスポート / インポート / 再読み込みは一覧の頭の帯へ置き、フッターには追加だけを残す", () => {
