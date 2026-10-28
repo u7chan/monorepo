@@ -221,6 +221,8 @@ export function AgentSettingsPage({
       <SettingsDetailHeader
         ref={detailRef}
         back={split ? undefined : { label: "エージェント一覧へ", onClick: () => setView("list") }}
+        // ページのヘッダを畳む面でも見出し (h2) を 1 つ残す
+        heading={editingAgent?.name ?? "新しいエージェント"}
         title={
           // 一覧を並べて見せている間は、切り替えは一覧の行が担うのでピッカーを出さない (現在名だけを見出しにする)
           split ? (

@@ -59,3 +59,13 @@ test("一覧を並べる幅では最初から選ばれたエージェントの�
   // 見出しは現在名。一覧の行を選べば切り替わるので、切り替えの手段は 1 つで足りる
   assert.ok(html.includes("アルファ"));
 });
+
+test("詳細のヘッダは、ページの見出しを畳んでも h2 を 1 つ残す", () => {
+  // 並列表示でも詳細の面は独立した節なので、現在名の h2 を持つ (singleColumn ではページの h2 が消える)
+  viewport.innerWidth = 1440;
+  const html = render("a1");
+  // 見出し移動の起点が消えないよう、現在名を sr-only の h2 として置く
+  const heading = html.match(/<h2 class="sr-only">[^<]*<\/h2>/g) ?? [];
+  assert.equal(heading.length, 1, "詳細のヘッダに h2 が無い");
+  assert.ok(heading[0]?.includes("アルファ"));
+});

@@ -149,8 +149,9 @@ export function SkillDetailPanel({
         mono
         copyLabel="本文をコピー"
         copyAlwaysVisible
-        // 全画面では枠を dialog いっぱいに広げ、ヘッダ (閉じる / 切替 / コピー) を残したまま本文だけを流す
-        fill={reading}
+        // 全画面では枠を dialog いっぱいに広げ、ヘッダ (閉じる / 切替 / コピー) を残したまま本文だけを流す。
+        // 退場アニメの間も同じ寸法を保つ (ここだけ reading を見ると、閉じ始めに枠が content 高さへ戻る)
+        fill={readerVisible}
         actions={
           <>
             <SegmentedControl
@@ -271,7 +272,7 @@ export function SkillDetailPanel({
                 aria-expanded={descriptionOpen}
                 aria-controls={descriptionId}
                 onClick={() => setDescriptionOpen((open) => !open)}
-                className="flex cursor-pointer items-center gap-1.5 justify-self-start rounded-md text-2xs font-semibold tracking-label text-ink-faint uppercase transition-colors outline-none hover:text-ink-soft focus-visible:ring-2 focus-visible:ring-focus"
+                className="tree-fold-toggle flex cursor-pointer items-center gap-1.5 justify-self-start rounded-md text-2xs font-semibold tracking-label text-ink-faint uppercase transition-colors outline-none hover:text-ink-soft focus-visible:ring-2 focus-visible:ring-focus"
               >
                 <DisclosureChevronIcon />
                 説明

@@ -2000,8 +2000,9 @@
   details[open] > summary .disclosure-chevron {
     transform: rotate(90deg);
   }
-  /* details を使わない開閉 (React が状態を持つ .tree-fold) の印。aria-expanded を持つボタンの直下に置く */
-  [aria-expanded="true"] > .disclosure-chevron {
+  /* details を使わない開閉 (React が状態を持つ .tree-fold) の印。対象の button だけに当たるよう
+     class で閉じる (aria-expanded 一般に当てると、触っていない画面の chevron も回る) */
+  .tree-fold-toggle[aria-expanded="true"] > .disclosure-chevron {
     transform: rotate(90deg);
   }
 
