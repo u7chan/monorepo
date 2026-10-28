@@ -4,6 +4,7 @@ import { sessionEnvScopeKey, sessionEnvTabs, type SessionEnvTab } from "../lib/s
 import { SESSION_FILES_HIDDEN_NAMES } from "../lib/sessionFiles";
 import { fileRefRequestForKind, type FileRefRequest, type FilesMode } from "../lib/fileRefRequest";
 import type { ExitPhase } from "../lib/exitPhase";
+import { shareRunBlockedReason } from "../lib/sharedContents";
 import { cn } from "../lib/cn";
 import {
   clampSessionFilesPanelWidth,
@@ -13,6 +14,7 @@ import {
 } from "../lib/sessionFilesPanel";
 import type { SessionFilesPanelResize } from "../hooks/useSessionFilesPanelWidth";
 import { useGitBranch } from "../hooks/useGitBranch";
+import type { RunStatus } from "../types";
 import { EnvVarsTab } from "./EnvVarsTab";
 import { FileBrowser } from "./FileBrowser";
 import { GitBranchBadge } from "./GitBranchBadge";
@@ -37,6 +39,11 @@ export type SessionFilesPanelProps = {
   filePreviewPort?: number;
   /** run が終わった回数 (ChatState.runEndSeq)。増えるたびに一覧と開いている本文を取り直す */
   runEndSeq: number;
+  /**
+   * 表示中の会話の実行状態。実行中は共有 (新規 / 更新) を押せない (公開元が書き換え途中になり得るため。
+   * 判定は BFF の 409 と同じ集合で、`shareRunBlockedReason` が正)
+   */
+  runStatus: RunStatus;
   onClose: () => void;
   /** 未消費のファイル参照の要求 (App の pending)。適用は FileBrowser が行う */
   openRequest?: FileRefRequest | null;
@@ -59,6 +66,7 @@ function SessionFilesContent({
   excludeNames,
   filePreviewPort,
   runEndSeq,
+  runStatus,
   onClose,
   openRequest,
   onHandled,
@@ -86,6 +94,8 @@ function SessionFilesContent({
   // 出せるタブ (可用性の規則は lib/sessionEnv.ts が正)
   const tabs = sessionEnvTabs({ root, scope: envScope.sessionId || envScope.projectId ? envScope : null });
   const active = tabs.some((entry) => entry.id === tab) ? tab : (tabs[0]?.id ?? "files");
+  // 実行中は公開しない (行メニューとダイアログの両方でこの理由を使う。run が終わると undefined に戻る)
+  const shareBlockedReason = shareRunBlockedReason(runStatus);
 
   return (
     <>
@@ -161,6 +171,7 @@ function SessionFilesContent({
             }
             // ディレクトリ行の「共有」はセッション種別で絞らない (root の入口だけを別の prop で出す)
             canShareSessionRoot={canShareSessionRoot === true}
+            shareBlockedReason={shareBlockedReason}
           />
         </div>
       ) : (
@@ -173,6 +184,7 @@ function SessionFilesContent({
         <ShareContentDialog
           sessionId={envScope.sessionId}
           target={shareTarget}
+          runBlockedReason={shareBlockedReason}
           singleColumn={singleColumn}
           onClose={() => setShareTarget(null)}
         />

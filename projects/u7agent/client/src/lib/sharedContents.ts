@@ -4,6 +4,7 @@
  */
 import type {
   CreateSharedContentBody,
+  RunStatus,
   SessionSummary,
   SharedContentResponse,
   SharedContentStatusValue,
@@ -111,6 +112,28 @@ export const SHARE_CREATE_SECONDARY_NOTE = "新しい URL が増えます（Work
  * （同じフォルダの共有物があっても、ここからは更新へ進めない）。
  */
 export const SHARE_PREVIEW_FAILED_UPDATE_HINT = "同じフォルダの共有物がある場合、更新は 設定 → 共有 から行えます。";
+
+/**
+ * 実行中の会話で共有できない理由。受付時の ZIP は live なディレクトリを読むので、実行中は
+ * 「index.html は新版・資産は旧版」のような半端なスナップショットが外部公開 URL に載り得る。
+ * 文の正は BFF の `SHARED_CONTENT_RUNNING`（`server/src/shared-contents.ts`）。
+ */
+export const SHARE_RUNNING_NOTE = "会話の実行中は公開できません。実行が終わってから共有してください";
+/** 管理一覧の更新を止める理由。文脈が「更新」なので、主操作の「共有」とは別の短い文にする */
+export const SHARED_CONTENT_RUNNING_NOTE = "会話の実行中のため更新できません";
+
+/**
+ * 実行中の会話か。BFF の `isBusy`（`server/src/sessions.ts`）と同じ running / queued / compacting の集合で、
+ * 共有の受付が 409 になる条件と揃える。
+ */
+export function shareRunInProgress(runStatus: RunStatus): boolean {
+  return runStatus === "running" || runStatus === "queued" || runStatus === "compacting";
+}
+
+/** 共有（新規 / 更新）を押せない理由。押せないときは項目を消さず、この文を理由として出す */
+export function shareRunBlockedReason(runStatus: RunStatus): string | undefined {
+  return shareRunInProgress(runStatus) ? SHARE_RUNNING_NOTE : undefined;
+}
 
 /**
  * 確認画面の注意の summary。`SHARE_CONFIRM_NOTES` を畳んだままでも要点が読める 1 行にする
@@ -373,9 +396,12 @@ export const SHARED_CONTENT_SESSION_DELETED_LABEL = "セッション（削除済
 export const SHARED_CONTENT_NO_CREDENTIALS_NOTE =
   "Cloudflare の資格情報が未登録です。設定 → 共有 → 接続 で登録してください";
 
-function updateAction(sessionMissing: boolean): SharedContentAction & { kind: "update" } {
-  return sessionMissing
-    ? { kind: "update", label: "更新", disabled: true, reason: SHARED_CONTENT_SESSION_MISSING_NOTE }
+function updateAction(sessionMissing: boolean, sessionBusy = false): SharedContentAction & { kind: "update" } {
+  if (sessionMissing) {
+    return { kind: "update", label: "更新", disabled: true, reason: SHARED_CONTENT_SESSION_MISSING_NOTE };
+  }
+  return sessionBusy
+    ? { kind: "update", label: "更新", disabled: true, reason: SHARED_CONTENT_RUNNING_NOTE }
     : { kind: "update", label: "更新" };
 }
 
@@ -396,15 +422,15 @@ function qrAction(): SharedContentAction & { kind: "qr" } {
 /** デスクトップの操作行に並べる主操作。停止 / 削除と表示名の変更は ⋯ へ送り、行を増やさない */
 export function sharedContentActions(
   item: SharedContentResponse,
-  { sessionMissing }: { sessionMissing: boolean },
+  { sessionMissing, sessionBusy = false }: { sessionMissing: boolean; sessionBusy?: boolean },
 ): SharedContentAction[] {
-  if (isSharedContentUndeployed(item)) return [updateAction(sessionMissing)];
+  if (isSharedContentUndeployed(item)) return [updateAction(sessionMissing, sessionBusy)];
   switch (item.status) {
     case "published":
       return [
         { kind: "open", label: "開く" },
         ...(sharedContentUrlLive(item) ? [qrAction()] : []),
-        updateAction(sessionMissing),
+        updateAction(sessionMissing, sessionBusy),
       ];
     case "stopped":
       return [{ kind: "resume", label: "再公開" }];
@@ -425,7 +451,7 @@ export type SharedContentMenuKind = Extract<SharedContentActionKind, "qr" | "ren
  */
 export function sharedContentMenuActions(
   item: SharedContentResponse,
-  { sessionMissing, narrow }: { sessionMissing: boolean; narrow: boolean },
+  { sessionMissing, narrow, sessionBusy = false }: { sessionMissing: boolean; narrow: boolean; sessionBusy?: boolean },
 ): (SharedContentAction & { kind: SharedContentMenuKind })[] {
   if (item.status === "publishing") return [];
   const rename = { kind: "rename", label: "名前を変更" } as const;
@@ -436,7 +462,7 @@ export function sharedContentMenuActions(
       // 狭い面の主操作は「開く」だけなので、更新と QR もここに入れる（PC の行には QR がある）
       return [
         rename,
-        ...(narrow ? [updateAction(sessionMissing)] : []),
+        ...(narrow ? [updateAction(sessionMissing, sessionBusy)] : []),
         ...(narrow && sharedContentUrlLive(item) ? [qrAction()] : []),
         { kind: "stop", label: "停止" },
         remove,
@@ -463,9 +489,9 @@ export function sharedContentQrTarget(
 /** 狭い面の主操作。未デプロイは更新、結果不明は停止、公開中は主操作なし（⋯ も出さない） */
 export function sharedContentPrimaryAction(
   item: SharedContentResponse,
-  { sessionMissing }: { sessionMissing: boolean },
+  { sessionMissing, sessionBusy = false }: { sessionMissing: boolean; sessionBusy?: boolean },
 ): SharedContentAction | null {
-  if (isSharedContentUndeployed(item)) return updateAction(sessionMissing);
+  if (isSharedContentUndeployed(item)) return updateAction(sessionMissing, sessionBusy);
   switch (item.status) {
     case "published":
       return { kind: "open", label: "開く" };

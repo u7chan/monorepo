@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { fileRowActions, fileRowShareTarget, type FileRowAction } from "../src/lib/fileRowMenu";
+import { SHARE_RUNNING_NOTE } from "../src/lib/sharedContents";
 import {
   nextRowMenuIndex,
   ROW_MENU_GAP,
@@ -128,6 +129,30 @@ test("出し分け: root の index.html 行だけ「このフォルダを共有�
   assert.equal(fileRowShareTarget({ type: "file", path: "index.html", parent: "." }), ".");
   assert.equal(fileRowShareTarget({ type: "dir", path: "site", parent: "." }), "site");
   assert.equal(fileRowShareTarget({ type: "file", path: "site/index.html", parent: "site" }), "site");
+});
+
+// What: 実行中は共有の項目を消さず、押せない理由を 2 行目に出す (項目ごと隠すと理由が分からない)
+test("出し分け: 共有の押せない理由は項目を残して 2 行目へ出し、run が終われば元に戻る", () => {
+  const blockedDir = { ...shareDir, description: SHARE_RUNNING_NOTE, disabled: true };
+  assert.deepEqual(fileRowActions({ ...base, canShare: true, shareBlockedReason: SHARE_RUNNING_NOTE }), [
+    copyPath,
+    blockedDir,
+    downloadDir,
+    deleteDir,
+  ]);
+  // 作業フォルダ自身の入口も同じ扱い
+  const rootIndex = { ...base, name: "index.html", type: "file" as const, depth: 0, canShare: true };
+  assert.deepEqual(
+    fileRowActions({ ...rootIndex, canShareSessionRoot: true, shareBlockedReason: SHARE_RUNNING_NOTE }),
+    [
+      copyPath,
+      { ...shareSessionRoot, description: SHARE_RUNNING_NOTE, disabled: true },
+      { kind: "download", label: "ダウンロード" },
+      deleteDir,
+    ],
+  );
+  // 理由が無ければ今までどおり押せる (disabled を持たない)
+  assert.deepEqual(fileRowActions({ ...base, canShare: true }), [copyPath, shareDir, downloadDir, deleteDir]);
 });
 
 test("出し分け: ディレクトリ行の「共有」はセッション種別に関係なく出し続ける", () => {

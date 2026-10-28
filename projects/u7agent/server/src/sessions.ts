@@ -2316,6 +2316,16 @@ export class SessionStore {
     return this.workdirOf(id, meta.projectCwd, meta.spaceId);
   }
 
+  /**
+   * 会話が実行中 (実行 / キュー待ち / 圧縮) か。live でない会話は走っていないものとして false。
+   * `statusOf` は record を要求するため、会話 ID だけで答える口をここに置く (共有の受付が、
+   * 書き換え途中の成果物を公開しない判定に使う。SDK セッションは開かない)。
+   */
+  busyOfId(id: string): boolean {
+    const record = this.records.get(id);
+    return record !== undefined && this.isBusy(record);
+  }
+
   spaceOfId(id: string): string | undefined {
     const meta = this.records.get(id)?.meta ?? this.descriptors.get(id);
     return meta ? (meta.spaceId ?? "default") : undefined;

@@ -5,12 +5,16 @@ import test from "node:test";
 import {
   SHARE_CONFIRM_NOTES,
   SHARE_PUBLISHING_NOTE,
+  SHARE_RUNNING_NOTE,
   SHARE_UPDATE_CONFIRM_NOTES,
   SHARE_UPDATE_NOTE_INCOMPLETE,
   SHARE_UPDATE_NOTE_LIVE,
   SHARE_UPDATE_NOTE_STOPPED,
+  SHARED_CONTENT_RUNNING_NOTE,
   SHARED_CONTENT_UNDEPLOYED_NOTE,
   isSharedContentUndeployed,
+  shareRunBlockedReason,
+  shareRunInProgress,
   shareItemsPublishing,
   settleAcceptedDetail,
   sharePollDetailId,
@@ -270,6 +274,58 @@ test("操作行: 状態ごとの主操作だけを並べ、停止 / 削除は行
   assert.deepEqual(kinds({ status: "published" }), ["update"]);
   assert.deepEqual(kinds({ status: "stopped" }), ["update"]);
   assert.deepEqual(kinds({ status: "published", lastError: "公開に失敗しました" }), ["update"]);
+});
+
+test("実行中: 共有・更新を理由付きで無効にし、読み取りと逃げ道は残す", () => {
+  // 判定は BFF の isBusy と同じ集合 (running / queued / compacting)
+  assert.equal(shareRunInProgress("running"), true);
+  assert.equal(shareRunInProgress("queued"), true);
+  assert.equal(shareRunInProgress("compacting"), true);
+  for (const status of ["idle", "completed", "stopped", "error"] as const) {
+    assert.equal(shareRunInProgress(status), false, status);
+    assert.equal(shareRunBlockedReason(status), undefined, status);
+  }
+  assert.equal(shareRunBlockedReason("running"), SHARE_RUNNING_NOTE);
+
+  // 管理一覧: 更新だけを理由付きで無効にし、開く・QR・停止・削除は残す
+  const published = sharedContentActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
+    sessionMissing: false,
+    sessionBusy: true,
+  });
+  const update = published.find((action) => action.kind === "update");
+  assert.equal(update?.disabled, true);
+  assert.equal(update?.reason, SHARED_CONTENT_RUNNING_NOTE);
+  assert.deepEqual(
+    published.filter((action) => action.disabled !== true).map((action) => action.kind),
+    ["open", "qr"],
+  );
+  assert.deepEqual(
+    sharedContentMenuActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
+      sessionMissing: false,
+      narrow: true,
+      sessionBusy: true,
+    }).map((action) => [action.kind, action.disabled === true]),
+    [
+      ["rename", false],
+      ["update", true],
+      ["qr", false],
+      ["stop", false],
+      ["delete", false],
+    ],
+  );
+  // 未デプロイ行の主操作 (更新) も同じ理由で止める
+  const undeployed = sharedContentPrimaryAction(item({ status: "published" }), {
+    sessionMissing: false,
+    sessionBusy: true,
+  });
+  assert.equal(undeployed?.disabled, true);
+  assert.equal(undeployed?.reason, SHARED_CONTENT_RUNNING_NOTE);
+  // セッション削除済みの理由が優先する (更新できない理由が 2 つあるときは恒久的なほうを出す)
+  const missing = sharedContentPrimaryAction(item({ status: "published" }), {
+    sessionMissing: true,
+    sessionBusy: true,
+  });
+  assert.equal(missing?.reason, SHARED_CONTENT_SESSION_MISSING_NOTE);
 });
 
 test("セッション削除済み: 更新だけを理由付きで無効にし、停止・再公開・削除は残す", () => {

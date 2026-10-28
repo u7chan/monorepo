@@ -13,6 +13,7 @@ import {
   sharedContentSourceLabel,
   SHARED_CONTENT_SESSION_DELETED_LABEL,
   isSharedContentUndeployed,
+  shareRunInProgress,
   shareStatusView,
   type ShareStatusTone,
 } from "../../lib/sharedContents";
@@ -174,9 +175,10 @@ export function SharedContentCard({
     }
   };
 
-  const rowActions = sharedContentActions(item, { sessionMissing });
-  const menuActions = sharedContentMenuActions(item, { sessionMissing, narrow });
-  const primary = sharedContentPrimaryAction(item, { sessionMissing });
+  const sessionBusy = session !== undefined && shareRunInProgress(session.status);
+  const rowActions = sharedContentActions(item, { sessionMissing, sessionBusy });
+  const menuActions = sharedContentMenuActions(item, { sessionMissing, narrow, sessionBusy });
+  const primary = sharedContentPrimaryAction(item, { sessionMissing, sessionBusy });
   const undeployed = isSharedContentUndeployed(item);
   // 停止中も URL は見せる契約だが、開く・コピーは出さない（未デプロイは URL 自体を出さない）
   const showUrl = item.publicUrl !== null && item.status !== "publishing" && !undeployed;

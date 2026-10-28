@@ -31,6 +31,11 @@ export type FileRowActionsInput = {
    * 会話が未確定の面は false (呼び出し側の `canShareSessionRoot`)
    */
   canShareSessionRoot?: boolean;
+  /**
+   * 「共有」を押せない理由 (会話の実行中など)。渡すと項目を disabled にし、理由を 2 行目へ出す。
+   * 項目ごと隠さないのは、できない理由が分からなくなるため。
+   */
+  shareBlockedReason?: string;
   /** 行の深さ。0 = ツリーの root 直下。省略は root 自身 (深さ 0) と区別できず、root 専用の項目を出さない */
   depth?: number;
 };
@@ -62,6 +67,7 @@ export function fileRowActions({
   absolutePath,
   canShare = false,
   canShareSessionRoot = false,
+  shareBlockedReason,
   depth,
 }: FileRowActionsInput): FileRowAction[] | null {
   // 相対パスはファイル / ディレクトリ / symlink のどれでも取れる (危険な削除は末尾に残す)
@@ -75,6 +81,8 @@ export function fileRowActions({
   }
   // ダウンロード以下は実体を移す / 変える導線なので、読み取り専用の面では出さない
   if (readOnly) return actions;
+  // 実行中などで押せないときは、項目を消さずに理由を 2 行目へ回す (できない理由が分からなくなるため)
+  const blocked = shareBlockedReason === undefined ? {} : { description: shareBlockedReason, disabled: true };
   // 共有はディレクトリ単位 (index.html の確認は公開ジョブが行うのでクライアントでは見ない)。
   // サービス (一時プレビュー) との違いは押す前に知る条件なので singleColumn でも残す
   if (canShare && type === "dir" && !symlink) {
@@ -83,6 +91,7 @@ export function fileRowActions({
       label: "共有",
       description: "Cloudflare へ静的公開（サービスは一時プレビュー）",
       descriptionKind: "disclosure",
+      ...blocked,
     });
   }
   // 作業フォルダ自身の公開は root 直下の index.html 行だけに出す (サブディレクトリはディレクトリ行の「共有」で足りる)。
@@ -93,6 +102,7 @@ export function fileRowActions({
       label: "このフォルダを共有",
       description: "index.html と同じフォルダの成果物を公開",
       descriptionKind: "disclosure",
+      ...blocked,
     });
   }
   // ダウンロードは通常ファイルとディレクトリに出す。symlink は api が 400 で拒否し、除外名の行は zip に入らない

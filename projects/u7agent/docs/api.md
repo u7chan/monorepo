@@ -856,6 +856,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `GET /api/shared-contents/:id` と衝突しないよう、専用のルートを先に登録する
 - 一覧は `sessionId` クエリで絞れる（共有ダイアログの「この会話の共有物」）。省略時は全件、空文字は指定なしとして扱う。
 - ソースは sandbox の `GET /v1/files/download?path=<dir>&exclude=…`（受付時に解決した公開の除外名。空でも明示）で全量 ZIP を取得し、`index.html` の存在、10,000 entries / 100 MiB / 1 ファイル 25 MiB、パス・symlink、既知の秘密値を検証する。違反は部分公開せず `failed`（更新なら前回の状態 + `lastError`）。
+- 作成と更新は、会話が実行中（実行 / キュー待ち / 圧縮中）なら 409。取得する ZIP は live なディレクトリなので、実行中は「`index.html` は新版で資産は旧版」のような半端なスナップショットが外部公開 URL に載り得る（[static-sharing.md](static-sharing.md#gui共有ダイアログ)）。プレビュー・停止・再公開・削除・表示名の変更は成果物を読まないので実行中も通す。受付後に run が始まるケースは止めない（窓を狭めるだけで、保証ではない）。
 - 資格情報が未登録なら 409。保存済みの `providerAccount` が現在の接続と違う場合も 409。
 - 停止・再公開・削除は `sourcePath` とセッションを必要としない（セッションを削除しても管理できる）。セッション / ソースが要るのは更新だけ。
 - 公開実績の無い行を停止しても `stopped` にはしない。応答は `200 { id, status: "failed" }` で、行の `lastError` に固定文言が入り、`stoppedAt` は入らない。再公開は `publishedAt === null` を 409 で拒否し、更新を促す固定文言を返す。更新の失敗も同じ規則で戻り先を決める（停止中からの更新の確定失敗は `stopped` + `lastError`、未公開の行なら `failed`）。

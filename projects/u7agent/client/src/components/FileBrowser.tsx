@@ -122,6 +122,10 @@ export type FileBrowserProps = {
    * 非プロジェクト会話の作業フォルダ面だけ true (プロジェクト会話はサーバーが 409 で拒否する)
    */
   canShareSessionRoot?: boolean;
+  /**
+   * 「共有」を押せない理由 (会話の実行中など)。渡すと行メニューの共有項目を無効にし、理由を出す
+   */
+  shareBlockedReason?: string;
   /** プレビュー オリジン (別オリジン) のブラウザから見たポート。health から受け取り、未取得は undefined */
   filePreviewPort?: number;
 };
@@ -146,6 +150,7 @@ export function FileBrowser({
   onHandled,
   onShareDirectory,
   canShareSessionRoot = false,
+  shareBlockedReason,
   filePreviewPort,
 }: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
@@ -478,6 +483,7 @@ export function FileBrowser({
                   excludeNames={excludeNames}
                   onShare={onShareDirectory}
                   canShareSessionRoot={canShareSessionRoot}
+                  shareBlockedReason={shareBlockedReason}
                   onToggle={toggle}
                   onSelect={openTab}
                   onRename={renameRow}
@@ -562,6 +568,8 @@ type BranchProps = {
   onShare?: (path: string) => void;
   /** root 直下の `index.html` 行に「このフォルダを共有」を出すか */
   canShareSessionRoot: boolean;
+  /** 「共有」を押せない理由 (実行中など)。undefined なら押せる */
+  shareBlockedReason?: string;
   /** reveal 対象のパス。一致する行だけ ref を付け、スクロールと一時ハイライトの対象にする */
   revealPath: string | null;
   revealRef: RefObject<HTMLDivElement | null>;
@@ -585,6 +593,7 @@ function Branch({
   excludeNames,
   onShare,
   canShareSessionRoot,
+  shareBlockedReason,
   revealPath,
   revealRef,
   onToggle,
@@ -613,6 +622,7 @@ function Branch({
           excludeNames={excludeNames}
           onShare={onShare}
           canShareSessionRoot={canShareSessionRoot}
+          shareBlockedReason={shareBlockedReason}
           revealPath={revealPath}
           revealRef={revealRef}
           onToggle={onToggle}
@@ -656,6 +666,7 @@ function EntryRow({
   excludeNames,
   onShare,
   canShareSessionRoot,
+  shareBlockedReason,
   revealPath,
   revealRef,
   onToggle,
@@ -677,6 +688,8 @@ function EntryRow({
   onShare?: (path: string) => void;
   /** root 直下の `index.html` 行に「このフォルダを共有」を出すか */
   canShareSessionRoot: boolean;
+  /** 「共有」を押せない理由 (実行中など)。undefined なら押せる */
+  shareBlockedReason?: string;
   revealPath: string | null;
   revealRef: RefObject<HTMLDivElement | null>;
   onToggle: (path: string) => void;
@@ -700,6 +713,7 @@ function EntryRow({
       absolutePath={absolutePath}
       canShare={onShare !== undefined}
       canShareSessionRoot={canShareSessionRoot}
+      shareBlockedReason={shareBlockedReason}
       depth={depth}
       copied={copiedId === path}
       onCopyPath={() => void copyMessage(path, path)}
@@ -806,6 +820,7 @@ function EntryRow({
                 excludeNames={excludeNames}
                 onShare={onShare}
                 canShareSessionRoot={canShareSessionRoot}
+                shareBlockedReason={shareBlockedReason}
                 revealPath={revealPath}
                 revealRef={revealRef}
                 onToggle={onToggle}
@@ -888,6 +903,7 @@ export function EntryRowActions({
   absolutePath,
   canShare = false,
   canShareSessionRoot = false,
+  shareBlockedReason,
   depth,
   copied,
   onCopyPath,
@@ -910,6 +926,8 @@ export function EntryRowActions({
   canShare?: boolean;
   /** root 直下の `index.html` 行に「このフォルダを共有」を出すか。未指定は出さない */
   canShareSessionRoot?: boolean;
+  /** 「共有」を押せない理由 (実行中など)。未指定は押せる */
+  shareBlockedReason?: string;
   /** 行の深さ。0 = ツリーの root 直下 (root 専用の項目の出し分けに使う) */
   depth?: number;
   /** 直前のパスコピーが成功した行。⋯ をチェックに替える */
@@ -933,6 +951,7 @@ export function EntryRowActions({
     absolutePath,
     canShare,
     canShareSessionRoot,
+    shareBlockedReason,
     depth,
   });
   // null = 行の操作領域ごと消す (現在返す面は無い)。空配列 = 領域は出すが項目が無い (空きスロット 1 個)

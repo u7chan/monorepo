@@ -56,6 +56,12 @@ export const SHARED_CONTENT_SANDBOX_UNAVAILABLE = "サンドボックスが利�
 export const SHARED_CONTENT_NO_INDEX_HTML = "公開するディレクトリに index.html がありません";
 export const SHARED_CONTENT_NOT_DIRECTORY = "公開するディレクトリではありません";
 export const SHARED_CONTENT_BUSY = "公開処理中です。完了してから操作してください";
+/**
+ * 実行中の会話の公開を断る理由。受付時の ZIP は live なディレクトリを読むため、実行中は
+ * 「index.html は新版・資産は旧版」のような半端なスナップショットが外部公開 URL に載り得る
+ * (停止・再公開・削除は成果物を読まないので、実行中も通す)。
+ */
+export const SHARED_CONTENT_RUNNING = "会話の実行中は公開できません。実行が終わってから共有してください";
 export const SHARED_CONTENT_NOT_UPDATABLE = "この状態からは公開できません";
 export const SHARED_CONTENT_NOT_STOPPABLE = "この状態からは停止できません";
 export const SHARED_CONTENT_NOT_RESUMABLE = "停止中の共有物だけを再公開できます";
@@ -141,8 +147,13 @@ export interface SharedContentsOptions {
   /**
    * `projectCwdOfId` は会話がプロジェクト配下かを `projectId` ではなく保存された `projectCwd` の有無で答える
    * (登録解除で `projectId` は undefined に戻り、解除済みのプロジェクト会話が非プロジェクトに化けるため)
+   * `busyOfId` は実行中 (実行 / キュー待ち / 圧縮) か。公開の受付だけがこれを見る
    */
-  sessions: { workdirOfId(id: string): string | undefined; projectCwdOfId(id: string): string | undefined };
+  sessions: {
+    workdirOfId(id: string): string | undefined;
+    projectCwdOfId(id: string): string | undefined;
+    busyOfId(id: string): boolean;
+  };
   workspace: SandboxWorkspaceClient | null;
   /**
    * プレビューの計画 (plan) を取るサンドボックス。workspace とは別の狭い IF で注入し、
@@ -166,7 +177,11 @@ export interface SharedContentsOptions {
 /** sandbox の ZIP を全量取得し、検証・展開して Cloudflare へ送る資産一覧を作る */
 export class SharedContentsService {
   #store: SharedContentStore;
-  #sessions: { workdirOfId(id: string): string | undefined; projectCwdOfId(id: string): string | undefined };
+  #sessions: {
+    workdirOfId(id: string): string | undefined;
+    projectCwdOfId(id: string): string | undefined;
+    busyOfId(id: string): boolean;
+  };
   #workspace: SandboxWorkspaceClient | null;
   #planSandbox: SandboxDownloadPlanClient | null;
   #credentials: Pick<CloudflareSettingsService, "credential">;
@@ -285,6 +300,7 @@ export class SharedContentsService {
     const credential = this.#requireCredentials();
     const sessionCwd = this.#sessions.workdirOfId(input.sessionId);
     if (!sessionCwd) throw httpError(404, "Session not found");
+    this.#assertSessionIdle(input.sessionId);
     this.#assertSessionRootAllowed(input.sessionId, input.directory);
     const sourcePath = resolveSharedContentSource(this.#rootCwd, sessionCwd, input.directory);
     const name = normalizeSharedContentName(input.name, sourcePath);
@@ -339,6 +355,7 @@ export class SharedContentsService {
       }
       const sessionCwd = this.#sessions.workdirOfId(row.sessionId);
       if (!sessionCwd) throw httpError(409, SHARED_CONTENT_SESSION_REQUIRED);
+      this.#assertSessionIdle(row.sessionId);
       this.#assertSourceUnderSession(row.sourcePath, sessionCwd);
       await this.#requireSource(row.sourcePath);
       this.#requireRowCredential(row);
@@ -904,6 +921,14 @@ export class SharedContentsService {
       if (status === 400) throw httpError(409, "公開するディレクトリではありません");
       throw httpError(503, "公開するディレクトリを確認できませんでした");
     }
+  }
+
+  /**
+   * 実行中の会話の公開を断る。作業フォルダを書き換えている最中の ZIP は半端なスナップショットになり得て、
+   * 公開は取り消しの効かない外部公開なので、受付で止める (`stop` / `resume` / `remove` / `rename` は通す)。
+   */
+  #assertSessionIdle(sessionId: string): void {
+    if (this.#sessions.busyOfId(sessionId)) throw httpError(409, SHARED_CONTENT_RUNNING);
   }
 
   #assertSourceUnderSession(sourcePath: string, sessionCwd: string): void {
