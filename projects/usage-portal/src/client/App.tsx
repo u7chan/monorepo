@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { MAX_OPENCODE_ACCOUNTS } from "../shared/opencode-account";
+import logo from "./assets/logo.png";
 import {
   type CodexAuthState,
   type OpenCodeAccount,
@@ -115,7 +116,10 @@ function Layout(props: { children: ComponentChildren; tools?: ComponentChildren;
   return (
     <>
       <header class="up-header">
-        <span class="up-brand">Usage</span>
+        <span class="up-brand">
+          <img class="up-brand-logo" src={logo} width={32} height={32} alt="" />
+          <span>Usage</span>
+        </span>
         <span class="up-caption">Codex / OpenCode Go</span>
         {props.tools || props.menu ? (
           <div class="up-header-actions">

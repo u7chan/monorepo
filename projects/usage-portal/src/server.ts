@@ -20,6 +20,7 @@ import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "./server/providers";
 import { fetchCodexUsage } from "./server/providers/codex";
 import { fetchOpenCodeUsage } from "./server/providers/opencode-go";
 import { createSampler, type UsageFetcher } from "./server/sampler";
+import { staticRoutes } from "./server/static";
 import { createUsageReader } from "./server/usage";
 import { readPackageVersion, userAgentFor } from "./server/version";
 
@@ -118,9 +119,7 @@ const server = Bun.serve({
   development: config.development,
   routes: {
     "/": index,
-    // アイコンは index.html の data URI に置く。ここに実体を置くとアイコンの定義が 2 か所になるため、
-    // /favicon.ico を無条件に要求するクライアントへは空の応答だけ返して 404 にしない。
-    "/favicon.ico": () => new Response(null, { status: 204 }),
+    ...staticRoutes,
   },
   // Bun の server を env として渡す。connection info (レート制限のキー) はここからしか取れない。
   fetch: (request, server) => app.fetch(request, { server }),
