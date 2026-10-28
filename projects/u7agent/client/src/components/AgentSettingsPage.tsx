@@ -263,6 +263,8 @@ export function AgentSettingsPage({
       onOpenNav={onOpenNav}
       onBack={onBack}
       note={split || view === "list" ? note : undefined}
+      // 詳細を開いている間はページの説明を落とし、戻る / ☰ の操作行だけにする
+      collapseHeader={singleColumn && view === "detail"}
     >
       {split ? (
         <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">

@@ -38,6 +38,7 @@ export function FileSkillPanel({
   usage,
   filePreviewPort,
   rootCwd,
+  singleColumn = false,
 }: {
   skill: FileSkillInfo;
   /** 共通スキルの編集内容。渡したときは本文と保存可否をここから出す (エディターと同じ取得結果) */
@@ -48,6 +49,8 @@ export function FileSkillPanel({
   filePreviewPort?: number;
   /** ワークスペース root の絶対パス (health.cwd)。行の絶対パスをコピーする導線に使う */
   rootCwd?: string;
+  /** 一覧が隠れる幅か。狭いときはメタと説明を詰めて本文へ高さを譲る */
+  singleColumn?: boolean;
 }) {
   const bodySource = detail?.body ?? skill.body;
   const [body, setBody] = useState<SkillBodyState>(() =>
@@ -120,8 +123,9 @@ export function FileSkillPanel({
           },
         ]
       : []),
-    // メタ行のラベルが「使用中」なので、値は件数だけにする (「使用中 使用中 3 体」にしない)
-    ...(usageCount === undefined ? [] : [{ label: "使用中", value: `${usageCount} 体` }]),
+    // メタ行のラベルが「使用中」なので、値は件数だけにする (「使用中 使用中 3 体」にしない)。
+    // 狭い幅ではタブの件数と同じことを 2 度書かない (1 行分の高さを本文へ譲る)
+    ...(usageCount === undefined || singleColumn ? [] : [{ label: "使用中", value: `${usageCount} 体` }]),
   ];
 
   return (
@@ -129,6 +133,7 @@ export function FileSkillPanel({
       tabs={<SettingsTabs items={tabs} active={tab} onSelect={openTab} ariaLabel={SKILL_DETAIL_TABS_ARIA_LABEL} />}
       meta={meta}
       note={note}
+      singleColumn={singleColumn}
       warning={skill.overridden ? BUILTIN_SKILL_OVERRIDE_NOTE : undefined}
       description={(detail?.description ?? skill.description) || "説明なし"}
       body={body}

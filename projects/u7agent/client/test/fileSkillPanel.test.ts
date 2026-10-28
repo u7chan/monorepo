@@ -155,3 +155,15 @@ test("描画: 本文は枠のヘッダにソース / プレビューの切替と
   assert.ok(html.includes(">手順<"), "見出しが描かれていない");
   assert.ok(!html.includes("# 手順"), "プレビューなのに原文が出ている");
 });
+
+test("狭い幅では説明を畳み、メタの使用中はタブの件数と重ねない", () => {
+  const skill = fileSkill();
+  const usage = skillUsageByPath({ agents: [agent("a1")], skills: [skill] });
+  const html = renderToStaticMarkup(createElement(FileSkillPanel, { skill, usage, singleColumn: true }));
+  // 説明は既定で畳む (一覧の行にも説明が出ている)。開閉の口は summary
+  assert.match(html, /<details>/);
+  assert.ok(html.includes(">説明<"));
+  // 使用中は自動でタブの件数に出るので、メタの 1 行を重ねない
+  assert.ok(!html.includes(">使用中<"), "メタに使用中が残っている");
+  assert.match(html, />使用中 1</);
+});

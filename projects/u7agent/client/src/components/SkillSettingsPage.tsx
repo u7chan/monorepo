@@ -451,6 +451,7 @@ export function SkillSettingsPage({
       usage={usage}
       filePreviewPort={filePreviewPort}
       rootCwd={rootCwd}
+      singleColumn={singleColumn}
     />
   ) : (
     <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
@@ -523,6 +524,8 @@ export function SkillSettingsPage({
         singleColumn={singleColumn}
         onOpenNav={onOpenNav}
         onBack={onBack}
+        // 詳細を開いている間はページの説明を落とし、戻る / ☰ の操作行だけにする
+        collapseHeader={singleColumn && view === "detail"}
         toolbar={fileOps ? <TabToolbar actions={fileOps} /> : undefined}
         note={split || view === "list" ? note : undefined}
       >
