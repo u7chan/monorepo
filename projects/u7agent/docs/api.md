@@ -19,7 +19,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | git ブランチ（作業フォルダ） | `GET /api/files/git` | このファイル |
 | ファイル削除 | `DELETE /api/files` | このファイル |
 | ファイルのリネーム | `POST /api/files/rename` | このファイル |
-| ファイルのアップロード（設定 → ファイルのドラッグ＆ドロップ） | `POST /api/files/upload` | このファイル、[file-upload.md](file-upload.md) |
+| ファイルのアップロード（設定 → ファイル / 作業環境 のドラッグ＆ドロップ） | `POST /api/files/upload` | このファイル、[file-upload.md](file-upload.md) |
 | テキストプレビュー | `GET /api/files/preview` | このファイル |
 | HTML プレビュー（iframe 用。アプリ オリジン + プレビュー オリジンの 2 リスナー） | `GET /api/files/html/<root 相対>` | このファイル |
 | 画像配信（raw） | `GET /api/files/raw` | このファイル |
@@ -248,7 +248,7 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 | --- | --- | --- |
 | POST | `/api/files/upload?path=<保存先の root 相対>&name=<保存名>` | raw の本文を 1 ファイルとして保存。成功は 201 |
 
-設定 → ファイル（`/settings/files`）のドラッグ＆ドロップが使う（[file-upload.md](file-upload.md)）。`path` は保存先ディレクトリで、省略時はワークスペース root（`""`）。`name` は 1 セグメントの保存名で、形式（空・`.`・`..`・`/`・制御文字・長さ）はサンドボックスが検証する。BFF は本文を JSON 化せず raw のストリームのままサンドボックスの `POST /v1/files/upload`（[sandbox-api.md](sandbox-api.md#post-v1filesupload)）へ中継し、ワークスペースに触らない。
+設定 → ファイル（`/settings/files`）と、作業環境の作業フォルダ面のドラッグ＆ドロップが使う（[file-upload.md](file-upload.md)）。`path` は保存先ディレクトリで、省略時はワークスペース root（`""`）。作業環境ではその面の root（セッションの作業フォルダ）を渡す。`name` は 1 セグメントの保存名で、形式（空・`.`・`..`・`/`・制御文字・長さ）はサンドボックスが検証する。BFF は本文を JSON 化せず raw のストリームのままサンドボックスの `POST /v1/files/upload`（[sandbox-api.md](sandbox-api.md#post-v1filesupload)）へ中継し、ワークスペースに触らない。
 
 ```json
 // request

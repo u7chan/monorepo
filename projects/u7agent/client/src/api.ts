@@ -481,7 +481,7 @@ export const renameEntry = async (path: string, name: string): Promise<FileRenam
 };
 
 /**
- * 設定 → ファイル のドラッグ＆ドロップ。raw の本文で 1 ファイルを送り、保存先 (`path`。"" は root) と
+ * 設定 → ファイル と作業環境（作業フォルダ）のドラッグ＆ドロップ。raw の本文で 1 ファイルを送り、保存先 (`path`。"" は root) と
  * 名前は query で渡す。保存名の検証・同名時の連番・上限の最終判定はサンドボックスが行う。
  * 一覧の再取得は呼び出し側 (hook) が全件の決着後に 1 回だけ行う。
  */
