@@ -164,14 +164,18 @@ export function FileTreePage({
           onOpenSharingExclusions={onOpenSharingExclusions}
         />
       ) : (
-        <FileBrowser
-          root={rootPath}
-          rootCwd={rootCwd}
-          reloadToken={reloadToken}
-          canRename
-          excludeNames={excludeNames}
-          filePreviewPort={filePreviewPort}
-        />
+        // プレビューの本文が下限を超える低い窓では、この面のスクロールで本文へ届かせる (1 行のグリッドで
+        // FileBrowser の高さを保ち、はみ出しだけをスクロールの対象にする)
+        <div className="grid min-h-0 scrollbar-thin grid-rows-1 overflow-x-hidden overflow-y-auto">
+          <FileBrowser
+            root={rootPath}
+            rootCwd={rootCwd}
+            reloadToken={reloadToken}
+            canRename
+            excludeNames={excludeNames}
+            filePreviewPort={filePreviewPort}
+          />
+        </div>
       )}
     </SettingsPageLayout>
   );

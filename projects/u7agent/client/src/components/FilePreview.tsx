@@ -204,8 +204,8 @@ export function FilePreview({
       // 全画面 (退場アニメの間を含む) では @2xl を当てない: dialog をその場に置くと祖先の @container が
       // 一致するようになり、portal で作っていたときは付かなかった境界線が全画面の左上へ出る
       className={cn(
-        "flex min-h-0 min-w-0 flex-1 scrollbar-thin flex-col overflow-y-auto border-t border-line",
-        !fullscreenVisible && "@2xl:border-t-0 @2xl:border-l",
+        "flex min-h-40 min-w-0 flex-1 flex-col border-t border-line",
+        !fullscreenVisible && "@2xl:min-h-0 @2xl:border-t-0 @2xl:border-l",
       )}
     >
       <div className="flex shrink-0 scrollbar-thin items-stretch gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
@@ -289,8 +289,8 @@ export function FilePreview({
           {errorHint ? <span> {errorHint}</span> : null}
         </p>
       ) : showImage ? (
-        // 縦も中央に置く (items-center)。枠を 0 まで縮めると max-h-full で画像も 0 になり何も見えなくなるため、
-        // 枠には下限を置き、足りない高さは面のスクロールで届かせる
+        // 縦も中央に置く (items-center)。枠を 0 まで縮めると画像も枠の高さに追従して 0 になり、閉状態では何も
+        // 見えなくなるため枠には下限を置く (ここでクリップすると、外装が高さを与えない面で中身ごと閉じ込める)
         <div className="image-canvas flex min-h-40 flex-1 items-center justify-center overflow-auto p-2">
           <img
             src={fileRawUrl(fetchPath, previewVersion)}
