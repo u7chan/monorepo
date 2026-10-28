@@ -21,12 +21,12 @@ import {
   startCodexLogin,
   updateOpenCodeAccount,
 } from "./api";
+import { CodexCard } from "./components/CodexCard";
 import { LoginScreen } from "./components/LoginScreen";
 import { Modal } from "./components/Modal";
 import { OpenCodeAccountCard } from "./components/OpenCodeAccountCard";
 import { OpenCodeAccountForm, type OpenCodeAccountActions } from "./components/OpenCodeAccountForm";
 import { OverflowMenu, type MenuItem } from "./components/OverflowMenu";
-import { ProviderCard } from "./components/ProviderCard";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { formatClock } from "./lib/format";
@@ -428,13 +428,14 @@ function Dashboard(props: {
       <div class="up-providers" data-density={viewMode}>
         {sources.map((source) =>
           source.provider === "codex" ? (
-            <ProviderCard
+            <CodexCard
               key={source.id}
               source={source}
               now={clock}
               generatedAt={usage?.generatedAt ?? null}
               compact={compact}
-              codex={{ auth: codex, actions: codexActions }}
+              auth={codex}
+              actions={codexActions}
             />
           ) : (
             <OpenCodeAccountCard

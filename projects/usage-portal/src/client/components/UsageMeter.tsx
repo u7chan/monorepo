@@ -1,6 +1,7 @@
 import type { UsageWindow } from "../api";
 import { describeReset, formatPercent, remainingPercent } from "../lib/format";
 import { ATTENTION_THRESHOLD } from "../lib/status";
+import { ProhibitedIcon, WarningIcon } from "./Icons";
 
 export function UsageMeter(props: { window: UsageWindow; now: number; blockedBy: string | null }) {
   const remaining = remainingPercent(props.window.usedPercent);
@@ -12,12 +13,8 @@ export function UsageMeter(props: { window: UsageWindow; now: number; blockedBy:
   const reset = describeReset(props.window.resetsAt, props.now);
   const value = (
     <>
-      {stopped || attention ? (
-        <span class="up-meter-warning" aria-hidden="true">
-          ▲{" "}
-        </span>
-      ) : null}
-      {stopped ? "使用不可" : `残り ${formatPercent(remaining)}`}
+      {stopped ? <ProhibitedIcon /> : attention ? <WarningIcon /> : null}
+      <span>{stopped ? "使用不可" : `残り ${formatPercent(remaining)}`}</span>
     </>
   );
 

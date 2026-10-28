@@ -1,6 +1,6 @@
 import { useState } from "preact/hooks";
 import type { CodexAuthState } from "../api";
-import { showsSignOutButton, showsStartButton } from "../lib/codex-signin";
+import { showsStartButton } from "../lib/codex-signin";
 
 export type CodexActions = {
   onStart: () => Promise<string | null>;
@@ -21,6 +21,8 @@ export function CodexAuthPanel(props: {
   actions: CodexActions;
   /** 資格情報が失効している（未接続 / 再サインイン）。サインイン済みでも入り直せるようにする。 */
   needsSignIn: boolean;
+  /** カードのメニューから実行した操作の結果。進行中の操作のメッセージが無いときだけ出す。 */
+  message?: string | null;
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -36,12 +38,17 @@ export function CodexAuthPanel(props: {
     loginStatus: login?.status ?? null,
   };
   const showStart = showsStartButton(visibility);
-  const showSignOut = showsSignOutButton(visibility);
   const options = login?.prompt?.type === "select" ? login.prompt.options : [];
   // 既定はデバイスコード。props は非同期に届くので、選択値を props の初期値に固定しない。
   const choice = options.some((option) => option.id === selected)
     ? selected
     : (options.find((option) => option.id === "device_code")?.id ?? options[0]?.id ?? "");
+  const shownMessage = message ?? props.message ?? null;
+
+  // サインイン済みで操作も通知も無いときは、接続セクションごと出さない。状態は見出しのラベルが示す。
+  if (!showStart && login === null && shownMessage === null) {
+    return null;
+  }
 
   const run = async (task: () => Promise<string | null>): Promise<void> => {
     setBusy(true);
@@ -197,30 +204,9 @@ export function CodexAuthPanel(props: {
         </button>
       ) : null}
 
-      {showSignOut ? (
-        <button
-          class="up-button up-button-secondary"
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            void (async () => {
-              setBusy(true);
-              setMessage(null);
-
-              const ok = await props.actions.onLogout();
-
-              setMessage(ok ? null : "サインアウトできませんでした。もう一度試してください。");
-              setBusy(false);
-            })();
-          }}
-        >
-          サインアウト
-        </button>
-      ) : null}
-
-      {message ? (
+      {shownMessage ? (
         <p class="up-error" role="alert">
-          {message}
+          {shownMessage}
         </p>
       ) : null}
     </section>

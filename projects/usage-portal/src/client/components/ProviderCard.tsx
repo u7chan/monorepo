@@ -1,11 +1,10 @@
 import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
-import type { CodexAuthState, UsageSource } from "../api";
+import type { UsageSource } from "../api";
 import { formatClock } from "../lib/format";
 import { deriveProviderStatus, showsWindows } from "../lib/status";
 import { findBlockedWindows, pickTrendWindow } from "../lib/windows";
 import { AccountIcon } from "./AccountIcon";
-import { CodexAuthPanel, type CodexActions } from "./CodexAuthPanel";
 import { StatusLabel } from "./StatusLabel";
 import { TrendChart } from "./Trend";
 import { UsageMeter } from "./UsageMeter";
@@ -19,7 +18,6 @@ export function ProviderCard(props: {
   compact?: boolean;
   /** provider ごとの操作（編集・削除など）。見出しの右に置く。 */
   headerMenu?: ComponentChildren;
-  codex?: { auth: CodexAuthState | null; actions: CodexActions };
   /** provider ごとの詳細。フッターの下に開く。 */
   children?: ComponentChildren;
 }) {
@@ -111,14 +109,6 @@ export function ProviderCard(props: {
           {source.capturedAt === null ? "まだ取得していません" : `最終取得 ${formatClock(source.capturedAt)}`}
         </p>
       </footer>
-
-      {props.codex ? (
-        <CodexAuthPanel
-          auth={props.codex.auth}
-          actions={props.codex.actions}
-          needsSignIn={source.error?.code === "not_connected" || source.error?.code === "reauth_required"}
-        />
-      ) : null}
 
       {props.children}
     </article>

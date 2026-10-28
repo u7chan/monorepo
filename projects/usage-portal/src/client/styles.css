@@ -385,8 +385,17 @@ h2 {
 }
 
 .up-meter-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--up-space-1);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+
+.up-icon {
+  flex: none;
+  width: 0.95em;
+  height: 0.95em;
 }
 
 .up-attention {
