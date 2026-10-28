@@ -16,13 +16,13 @@
     "check": "pnpm lint && pnpm format:check && pnpm docs:check && pnpm typecheck && pnpm test && pnpm build",
     "test": "pnpm --filter server test && pnpm --filter client test",
     "probe:steering": "pnpm --filter server exec node --import tsx --test --test-reporter=spec test/sdk-steering.test.ts",
-    "bench:history-merge": "pnpm --filter server exec node --import tsx ../scripts/bench-history-merge.ts",
-    "typecheck": "pnpm --filter server typecheck && pnpm --filter client typecheck",
+    "bench:history-merge": "pnpm --filter server exec node --expose-gc --import tsx ../scripts/bench-history-merge.ts",
+    "typecheck": "pnpm --filter server typecheck && pnpm --filter client typecheck && pnpm --filter server exec tsc -p ../scripts/tsconfig.json",
     "docs:check": "node scripts/docs-check.mjs",
-    "lint": "oxlint client server",
-    "lint:fix": "oxlint client server --fix",
-    "format": "oxfmt client server",
-    "format:check": "oxfmt client server --check"
+    "lint": "oxlint client server scripts/bench-history-*.ts scripts/history-bench-fixture.ts",
+    "lint:fix": "oxlint client server scripts/bench-history-*.ts scripts/history-bench-fixture.ts --fix",
+    "format": "oxfmt client server scripts/bench-history-*.ts scripts/history-bench-fixture.ts",
+    "format:check": "oxfmt client server scripts/bench-history-*.ts scripts/history-bench-fixture.ts --check"
   },
   "engines": {
     "node": ">=24"
