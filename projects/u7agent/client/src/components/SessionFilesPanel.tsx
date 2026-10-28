@@ -12,10 +12,13 @@ import {
   type SessionFilesPanelBounds,
 } from "../lib/sessionFilesPanel";
 import type { SessionFilesPanelResize } from "../hooks/useSessionFilesPanelWidth";
+import { useWorkspaceUploads } from "../hooks/useWorkspaceUploads";
 import { useGitBranch } from "../hooks/useGitBranch";
 import { EnvVarsTab } from "./EnvVarsTab";
 import { FileBrowser } from "./FileBrowser";
 import { FileBrowserScrollArea } from "./FileBrowserScrollArea";
+import { FileDropZone } from "./file-tree/FileDropZone";
+import { FileUploadStatus } from "./file-tree/FileUploadStatus";
 import { GitBranchBadge } from "./GitBranchBadge";
 import { CloseIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
@@ -74,6 +77,10 @@ function SessionFilesContent({
   singleColumn,
 }: SessionFilesPanelProps & { singleColumn: boolean }) {
   const [manualReload, setManualReload] = useState(0);
+  // ドロップされたファイルはこの面の root (作業フォルダ) の直下へ保存し、全件の決着後に 1 回だけ一覧を
+  // 取り直す。設定 → ファイル と同じ扱いで、成功した分を run_end を待たずに出す
+  const [uploadReload, setUploadReload] = useState(0);
+  const uploads = useWorkspaceUploads({ dir: root, onUploaded: () => setUploadReload((count) => count + 1) });
   const [tab, setTab] = useState<SessionEnvTab>("files");
   // 共有 (Cloudflare への静的公開) の確認ダイアログ。対象は行の ⋯ から選ぶ 1 ディレクトリだけ
   const [shareTarget, setShareTarget] = useState<ShareContentTarget | null>(null);
@@ -84,11 +91,11 @@ function SessionFilesContent({
     setShareSessionId(envScope.sessionId);
     setShareTarget(null);
   }
-  // ヘッダの「再読み込み」と run_end を 1 つの token にまとめる。どちらも単調なので、合計が
+  // ヘッダの「再読み込み」・run_end・アップロードの完了を 1 つの token にまとめる。どれも単調なので、合計が
   // 変わったときだけ取り直す。描画間の runStatus の差は使わない (run_start と run_end が同じ
   // バッチで届くと running を観測できず、run_end を取りこぼす。カウンタは reducer が進める)
-  const reloadToken = manualReload + runEndSeq;
-  // root が属する repo のブランチ。一覧と同じ合図 (再読み込み / run 終了) で取り直す
+  const reloadToken = manualReload + runEndSeq + uploadReload;
+  // root が属する repo のブランチ。一覧と同じ合図 (再読み込み / run 終了 / アップロードの完了) で取り直す
   const branch = useGitBranch(root, reloadToken);
   // 出せるタブ (可用性の規則は lib/sessionEnv.ts が正)
   const tabs = sessionEnvTabs({ root, scope: envScope.sessionId || envScope.projectId ? envScope : null });
@@ -135,7 +142,8 @@ function SessionFilesContent({
         </div>
       ) : null}
       {active === "files" ? (
-        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+        // 進行と結果の行はタスクが無い間は描画されないため、ドロップ面の行を明示して高さを保つ
+        <div className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)]">
           {/* この帯は作業フォルダ面だけが持つ (環境変数面の帯は EnvVarsTab が描く) */}
           <TabToolbar
             context={
@@ -149,30 +157,37 @@ function SessionFilesContent({
             }
             actions={<ReloadButton onClick={() => setManualReload((count) => count + 1)}>再読み込み</ReloadButton>}
           />
+          <FileUploadStatus tasks={uploads.tasks} busy={uploads.busy} onDismiss={uploads.dismiss} />
           {/* singleColumn の sheet は全画面 modal で、入力欄へドロップできない。プレビューの本文が
               面より高くなる低い窓では、この面のスクロールで本文へ届かせる */}
-          <FileBrowserScrollArea>
-            <FileBrowser
-              root={root}
-              rootCwd={rootCwd}
-              reloadToken={reloadToken}
-              hiddenNames={SESSION_FILES_HIDDEN_NAMES}
-              excludeNames={excludeNames}
-              filePreviewPort={filePreviewPort}
-              openRequest={fileRefRequestForKind(openRequest ?? null, "work")}
-              onHandled={onHandled}
-              canRef={!singleColumn}
-              // 共有 API の directory はセッションの作業フォルダ相対なので、会話が決まっている面だけに出さす
-              onShareDirectory={
-                envScope.sessionId === undefined
-                  ? undefined
-                  : (path) => setShareTarget({ directory: path, defaultName: sessionTitle ?? "" })
-              }
-              // ディレクトリ行の「共有」はセッション種別で絞らない (root の入口だけを別の prop で出す)
-              canShareSessionRoot={canShareSessionRoot === true}
-              shareBlockedReason={shareBlockedReason}
-            />
-          </FileBrowserScrollArea>
+          <FileDropZone
+            onFiles={uploads.start}
+            hint="作業フォルダ直下に保存します"
+            className="col-start-1 row-start-3 grid min-h-0 min-w-0 grid-rows-1"
+          >
+            <FileBrowserScrollArea>
+              <FileBrowser
+                root={root}
+                rootCwd={rootCwd}
+                reloadToken={reloadToken}
+                hiddenNames={SESSION_FILES_HIDDEN_NAMES}
+                excludeNames={excludeNames}
+                filePreviewPort={filePreviewPort}
+                openRequest={fileRefRequestForKind(openRequest ?? null, "work")}
+                onHandled={onHandled}
+                canRef={!singleColumn}
+                // 共有 API の directory はセッションの作業フォルダ相対なので、会話が決まっている面だけに出さす
+                onShareDirectory={
+                  envScope.sessionId === undefined
+                    ? undefined
+                    : (path) => setShareTarget({ directory: path, defaultName: sessionTitle ?? "" })
+                }
+                // ディレクトリ行の「共有」はセッション種別で絞らない (root の入口だけを別の prop で出す)
+                canShareSessionRoot={canShareSessionRoot === true}
+                shareBlockedReason={shareBlockedReason}
+              />
+            </FileBrowserScrollArea>
+          </FileDropZone>
         </div>
       ) : (
         // cwd を共有する会話の切替でも要求元が変われば別の key になり、フォームのドラフトを破棄する
