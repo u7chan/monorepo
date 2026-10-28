@@ -106,6 +106,13 @@ h2 {
   border-bottom: 1px solid var(--up-line);
 }
 
+.up-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--up-space-2);
+  margin-left: auto;
+}
+
 .up-brand {
   font-size: var(--up-font-heading-secondary);
   font-weight: 600;
@@ -261,6 +268,34 @@ h2 {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: stretch;
   }
+
+  /* 簡易表示は 3 枚程度を 1 段に並べる。標準表示は推移を読める幅を優先して 2 列に留める。 */
+  .up-providers[data-density="compact"] {
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  }
+}
+
+/* 推移を省いたぶん、余白も詰めて 3 枚が画面の高さに収まるようにする。 */
+.up-providers[data-density="compact"] {
+  gap: var(--up-space-3);
+}
+
+.up-providers[data-density="compact"] .up-card {
+  padding: var(--up-space-4);
+}
+
+.up-providers[data-density="compact"] .up-provider,
+.up-providers[data-density="compact"] .up-meters {
+  gap: var(--up-space-3);
+}
+
+/* 3 列では見出しが折り返す。provider 名はアイコンとアカウント名で分かるため、補足は標準表示に残す。 */
+.up-providers[data-density="compact"] .up-provider-caption {
+  display: none;
+}
+
+.up-providers[data-density="compact"] .up-provider-name {
+  font-size: var(--up-font-body);
 }
 
 .up-provider {
@@ -415,15 +450,22 @@ h2 {
   gap: var(--up-space-2);
 }
 
-.up-trend-tabs {
+.up-segmented {
   display: inline-flex;
+  flex: none;
+  align-items: stretch;
   gap: 2px;
   padding: 2px;
   border-radius: var(--up-radius-label);
   background: var(--up-raised);
 }
 
-.up-trend-tab {
+/* メニューボタンと高さを揃える。ヘッダーでは指で押すため、タブより少し大きく取る。 */
+.up-header-actions .up-segmented {
+  min-height: 2rem;
+}
+
+.up-segment {
   appearance: none;
   padding: 3px var(--up-space-2);
   border: 0;
@@ -436,13 +478,13 @@ h2 {
   cursor: pointer;
 }
 
-.up-trend-tab[aria-pressed="true"] {
+.up-segment[aria-pressed="true"] {
   background: var(--up-accent);
   color: var(--up-on-accent);
   font-weight: 600;
 }
 
-.up-trend-tab:focus-visible {
+.up-segment:focus-visible {
   outline: 2px solid var(--up-accent);
   outline-offset: 2px;
 }
@@ -720,12 +762,6 @@ h2 {
 .up-menu {
   position: relative;
   flex: none;
-}
-
-/* ヘッダーは brand と caption が左に並ぶ。メニューだけ右端へ寄せる。 */
-.up-header .up-menu {
-  align-self: center;
-  margin-left: auto;
 }
 
 .up-menu-button {

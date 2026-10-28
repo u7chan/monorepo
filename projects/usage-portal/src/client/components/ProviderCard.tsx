@@ -15,6 +15,8 @@ export function ProviderCard(props: {
   now: number;
   /** 推移の右端。再取得のたびにグラフが横にずれないよう、描画時刻ではなく応答時刻を使う。 */
   generatedAt: number | null;
+  /** 推移を省いてカードを短くする。3 件をスクロールせず見たいときの表示。 */
+  compact?: boolean;
   /** provider ごとの操作（編集・削除など）。見出しの右に置く。 */
   headerMenu?: ComponentChildren;
   codex?: { auth: CodexAuthState | null; actions: CodexActions };
@@ -43,9 +45,9 @@ export function ProviderCard(props: {
           {source.account ? <AccountIcon id={source.account.id} icon={source.account.icon} /> : null}
           <h2 class="up-provider-name">{source.name}</h2>
           {source.account ? (
-            <span class="up-caption">OpenCode Go</span>
+            <span class="up-caption up-provider-caption">OpenCode Go</span>
           ) : source.plan ? (
-            <span class="up-caption">{source.plan}</span>
+            <span class="up-caption up-provider-caption">{source.plan}</span>
           ) : null}
         </div>
         <div class="up-provider-actions">
@@ -94,7 +96,7 @@ export function ProviderCard(props: {
         </ul>
       ) : null}
 
-      {activeWindow ? (
+      {activeWindow && !props.compact ? (
         <TrendChart
           windows={chartWindows}
           activeWindowId={activeWindow.id}
