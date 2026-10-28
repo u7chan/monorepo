@@ -14,10 +14,17 @@ import {
   FilePreviewSchema,
   FileRenameSchema,
   FileStatSchema,
+  FileUploadSchema,
   GitInfoSchema,
   type RenameFileBody,
 } from "../schema";
-import { parseRecursiveQuery, rawContentType, RECURSIVE_QUERY_ERROR } from "../sandbox/protocol";
+import {
+  isValidEntryName,
+  parseRecursiveQuery,
+  rawContentType,
+  RECURSIVE_QUERY_ERROR,
+  SANDBOX_MAX_UPLOAD_BYTES,
+} from "../sandbox/protocol";
 import type { SandboxWorkspaceClient } from "../sandbox/client";
 
 /**
@@ -293,6 +300,33 @@ export function createFileRoutes({
         if (recursive.recursive) await workspace.deleteDirectory(path);
         else await workspace.deleteFile(path);
         return c.body(null, 204);
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
+    },
+    /**
+     * 設定 → ファイル のドラッグ＆ドロップ。入力欄の添付とは別に、指定ディレクトリ (省略時は root) へ保存する。
+     * 本文は raw で流すため、このルートを app.ts の bodyGuard より先に登録する。保存名の検証・同名時の連番・
+     * 実際の書き込みはサンドボックスが行い、BFF は事前に分かる上限 (宣言された Content-Length) だけを止める。
+     */
+    upload: async (c: Context) => {
+      if (!workspace) return sandboxNotConfigured(c);
+      const name = c.req.query("name") ?? "";
+      if (!isValidEntryName(name)) return c.json({ error: `Invalid file name: ${name}` }, 400);
+      const declared = Number.parseInt(c.req.header("content-length") ?? "", 10);
+      if (Number.isFinite(declared) && declared > SANDBOX_MAX_UPLOAD_BYTES) {
+        return c.json({ error: `File is too large (max ${SANDBOX_MAX_UPLOAD_BYTES} bytes)` }, 413);
+      }
+      try {
+        const uploaded = await workspace.uploadFile({
+          dir: c.req.query("path") ?? "",
+          name,
+          body: c.req.raw.body,
+          signal: c.req.raw.signal,
+        });
+        const parsed = FileUploadSchema.safeParse(uploaded);
+        if (!parsed.success) return c.json({ error: "サンドボックスのアップロード応答が不正です" }, 502);
+        return c.json(parsed.data, 201);
       } catch (error) {
         return sandboxFailure(c, error);
       }

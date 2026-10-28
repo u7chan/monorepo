@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ArchiveSettings } from "../hooks/useArchiveSettings";
+import { useWorkspaceUploads } from "../hooks/useWorkspaceUploads";
 import { cn } from "../lib/cn";
 import { normalizeFileTreeRoot } from "../lib/fileTree";
 import { DEFAULT_FILES_SUBSECTION, FILES_SUBSECTIONS, type FilesSubsection } from "../lib/settingsNav";
@@ -7,6 +8,8 @@ import { UNSAVED_RELOAD_NOTE } from "../lib/settingsNotes";
 import { ArchiveExcludeSettings } from "./ArchiveExcludeSettings";
 import { FileBrowser } from "./FileBrowser";
 import { FileBrowserScrollArea } from "./FileBrowserScrollArea";
+import { FileDropZone } from "./file-tree/FileDropZone";
+import { FileUploadStatus } from "./file-tree/FileUploadStatus";
 import { CheckIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -54,6 +57,12 @@ export function FileTreePage({
   // root が固定なので key は不要 (root が変わる画面は呼び出し側で FileBrowser を張り替える)
   const rootPath = normalizeFileTreeRoot(cwd);
   const [reloadToken, setReloadToken] = useState(0);
+  // ドロップされたファイルはこの面の root (常にワークスペース root) の直下へ保存し、全件の決着後に 1 回だけ
+  // 一覧を取り直す。失敗や拒否は tasks に残し、成功した分だけを黙って反映しない
+  const uploads = useWorkspaceUploads({
+    dir: rootPath,
+    onUploaded: () => setReloadToken((token) => token + 1),
+  });
   // 追加前の入力はタブの親が持つ。本文はタブ切替で unmount されるため、子に置くと入力中の名前が消える
   const [excludeInput, setExcludeInput] = useState("");
   const archive = filesSubsection === "archive";
@@ -165,16 +174,25 @@ export function FileTreePage({
           onOpenSharingExclusions={onOpenSharingExclusions}
         />
       ) : (
-        <FileBrowserScrollArea>
-          <FileBrowser
-            root={rootPath}
-            rootCwd={rootCwd}
-            reloadToken={reloadToken}
-            canRename
-            excludeNames={excludeNames}
-            filePreviewPort={filePreviewPort}
-          />
-        </FileBrowserScrollArea>
+        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+          <FileUploadStatus tasks={uploads.tasks} busy={uploads.busy} onDismiss={uploads.dismiss} />
+          <FileDropZone
+            onFiles={uploads.start}
+            hint="ワークスペース直下に保存します"
+            className="col-start-1 row-start-2 grid min-h-0 grid-rows-1"
+          >
+            <FileBrowserScrollArea>
+              <FileBrowser
+                root={rootPath}
+                rootCwd={rootCwd}
+                reloadToken={reloadToken}
+                canRename
+                excludeNames={excludeNames}
+                filePreviewPort={filePreviewPort}
+              />
+            </FileBrowserScrollArea>
+          </FileDropZone>
+        </div>
       )}
     </SettingsPageLayout>
   );

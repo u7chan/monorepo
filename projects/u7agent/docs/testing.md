@@ -36,6 +36,19 @@ GUI は有料 API を使わない一時ストア / ポート / stub pi で、次
 
 自動検証は server の `server/test/session-steering.test.ts`（BFF の配送状態機械・受付済みの待機の一括配送・取消・停止・終端の回収）と `server/test/sdk-steering.test.ts`（実 SDK の AgentSession と BFF をつなぎ、`agent_settled` を待たずに次のモデル要求へ修正指示が入ること、複数の追加入力が 1 回のモデル要求にまとまること、組み込み provider adapter の要求本文）、`server/test/session-sends.test.ts`（送信ID / 実行ID の保存と旧データの補完）、client の `client/test/queueWait.test.ts` / `queuedSends.test.ts`（`queued` / `steering` の表示と取消可否）/ `chatReducer.test.ts` / `unsentMessages.test.ts`（送信IDでの照合・未送信の復旧）で行う。GUI は実行中の送信・待機から実行への遷移・1 件取消・停止後の未送信・別タブ / 再読み込みを [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) で確認する。
 
+## ファイル画面のアップロード受入
+
+自動検証は `client/test/fileUpload.test.ts`（件数 / サイズの受付、参照ドラッグの除外、同時数と 1 件失敗時の継続）、`client/test/apiContracts.test.ts`（保存先と名前を query、本文を raw で送ること）、`server/test/files.test.ts`（raw の中継、宣言 `Content-Length` の事前 413、名前の検証、サンドボックス失敗 / 契約外応答の写像、未設定 503）で行う。
+
+GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の実サンドボックスで、デスクトップの `/settings/files` を開いて確認する。
+
+- [ ] OS からファイルを掴んでツリーの上に来ると破線のドロップゾーンが出る。子要素の上を通っても点滅せず、面の外へ出る / `Escape` / ドロップで消える。フォルダ行を入力欄へドラッグする既存の参照ドラッグでは出ない
+- [ ] ドロップすると件数が進行表示に変わり、完了後にワークスペース root の一覧へファイルが増える。同時に送るのは 3 本までで、待機中に別のドロップを足しても増えない
+- [ ] 11 件以上 / 100 MiB 超を含むドロップでは、受け付けた分だけ保存され、残りはファイル名と理由が結果に残る。成功と失敗が混ざっても成功したファイルは一覧に出る
+- [ ] 同名のファイルをドロップすると上書きされず、`name-1.ext` の連番で保存され、その旨が結果に出る
+- [ ] サンドボックス停止中 / API 失敗時は理由が結果に残り、一覧は変わらない。結果は閉じるまで消えず、閉じると消える
+- [ ] モバイル幅 / タッチ操作には新しい入口が無い（タッチでは drag が起きない。設定 → ファイル の既存の閲覧・削除・リネームは従来どおり）
+
 ## スペースの受入
 
 自動検証は `server/test/spaces-api.test.ts`（加算移行・複数所属・live / 未ロード / sweep / 再起動・添付 / cwd・復元前の所属拒否・プロジェクト利用拒否・並べ替えの正規化と永続・既定スペースの先頭固定・入力不正の 400・更新失敗時の rollback・DB 障害時の既定スペースの停止 / 削除）、`client/test/spaces.test.ts`（既定の保存先の解決・選択の fail-closed・初期選択の優先順位・各 API の文脈・作成待ちの要求元固定・遅い一覧応答・並べ替えの保存の分類と一覧へのマージ・保存待ちの作成 / 削除との競合・削除後の選択・削除の成功後処理（成功時点の選択 / URL → 保存値 → 選択の順）・行の ⋯ の出し分け（既定スペースは空）・削除の確認文言）、`client/test/agentReorder.test.ts`（一覧の並べ替えの計算と、スペース一覧でも既定の先頭と渡さなかった行の位置を保つこと）、`client/test/ownerLink.test.ts`（起動元リンクの切替先と順序）と既存の session / API / fallback / 通知リンクテストで行う。引き継ぎは server 側の `server/test/sessions-move.test.ts`（同スペース / 別スペース / プロジェクト所属、エージェント差し替えと復元後の実行、入口条件（未知の `agentId`・メモ × 0 件 / 壊れた JSONL・読めない既存メモ・busy）、メモの内容 / 先頭追記 / 既存の保持 / mask、書込み / meta の失敗時の rollback、消費済み印の保存（後続の送信も待つ・失敗は 500）、確定後の片付けと再起動をまたぐ復旧）と `server/test/handoff-memo.test.ts` / `server/test/sandbox-handoff.test.ts`（節の組み立てと上限 / mask / ハッシュ、読み書き API の上限 / UTF-8 / symlink / 冪等化 / 同時追記 / 条件付き削除と排他内の再判定 / `ENOENT` 以外の lstat 失敗は 404 にしない）で固定する。client 側は `client/test/sessionHandoff.test.ts`（ダイアログの文言・無効理由・チップの導出・移動先へ渡す警告）、`client/test/sessionHandoffDialog.test.ts`（描画と既定 / 無効 / プロジェクトのメモ説明）、`client/test/historyResync.test.ts` / `client/test/requestGate.test.ts`（同じ会話 id のまま履歴が入れ替わる引き継ぎで旧バブルを捨て、保留していた旧ページを適用しないこと）、`client/test/sidebarRowMenu.test.ts`（項目の出し分け・無効理由・並び）、`client/test/apiContracts.test.ts`（要求元が query で `spaceId` / `agentId` / `memo` が body）でも固定する。スペースの削除は `client/test/apiContracts.test.ts`（`DELETE /api/spaces/:id` が文脈の `spaceId` を付けないことと、409 の文言 / status を保つこと）でも固定する。GUI は専用の一時ストア / workspace / ポートと stub pi を使い、実データや有料 API に触れない。

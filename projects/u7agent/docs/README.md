@@ -28,6 +28,7 @@
 | 会話の引き継ぎ（エージェント / スペースの交代と HANDOFF.md） | `server/src/sessions.ts`、`server/src/handoff-memo.ts`、`server/src/sandbox/service.ts`、`client/src/components/SessionHandoffDialog.tsx`、`client/src/lib/sessionHandoff.ts` | [api-sessions.md](api-sessions.md#post-apisessionsidmove)、[run-lifecycle.md](run-lifecycle.md#引き継ぎと復旧)、[ui-layout.md](ui-layout.md#スペース) |
 | セッションの保存・復元（会話ストア / 作業フォルダ） | `server/src/session-store.ts`、`server/src/sessions.ts`、`server/src/agent.ts` | [session-files.md](session-files.md)、[persistence.md](persistence.md) |
 | ファイルプレビューの表示（行番号 / ハイライト / HTML・Markdown・画像・音声の描画） | `client/src/lib/fileCode.ts`、`client/src/lib/fileTabs.ts`、`client/src/lib/markdownAsset.ts`、`client/src/lib/imageMeta.ts`、`client/src/lib/attachments.ts`、`client/src/components/FileBrowser.tsx`、`client/src/components/FilePreview.tsx`、`client/src/components/markdown/MarkdownFilePreview.tsx`、`server/src/routes/files.ts` | [file-preview.md](file-preview.md)、[api.md](api.md) |
+| ファイルのアップロード（設定 → ファイル のドラッグ＆ドロップ） | `server/src/routes/files.ts`、`server/src/app.ts`、`client/src/api.ts`、`client/src/lib/fileUpload.ts`、`client/src/hooks/useWorkspaceUploads.ts`、`client/src/components/FileTreePage.tsx`、`client/src/components/file-tree/FileDropZone.tsx`、`client/src/components/file-tree/FileUploadStatus.tsx` | [file-upload.md](file-upload.md)、[api.md](api.md#アップロード) |
 | チャットの添付ファイル（アップロード / 画像配信 / 注記） | `server/src/attachments.ts`、`server/src/routes/sessions.ts`、`client/src/lib/attachments.ts`、`client/src/components/Composer.tsx`、`client/src/hooks/useU7Agent.ts` | [session-files.md](session-files.md)、[api-sessions.md](api-sessions.md) |
 | 入力欄へのファイル参照（ツリーの行のドラッグ） | `client/src/lib/fileMention.ts`、`client/src/components/Composer.tsx`、`client/src/components/FileBrowser.tsx`、`client/src/components/SessionFilesPanel.tsx`、`server/src/agent.ts` | [file-preview.md](file-preview.md#ツリーの行のドラッグ入力欄への参照) |
 | チャットのスキル一覧と `/skill:` の展開 | `server/src/session-skills.ts`、`server/src/sessions.ts`、`server/src/routes/sessions.ts`、`client/src/hooks/useSessionSkills.ts`、`client/src/lib/sessionSkills.ts`、`client/src/lib/skillPicker.ts`、`client/src/lib/skillBlock.ts`、`client/src/components/composer/SkillPicker.tsx`、`client/src/components/chat/SkillInvocation.tsx` | [api-sessions.md](api-sessions.md)、[persistence.md](persistence.md) |
@@ -77,6 +78,7 @@
 - [frontend.md](frontend.md) — フロントエンドの契約（URL が画面の正・状態の所有と正・テーマと CSP・保存範囲・Effect 契約）
 - [markdown.md](markdown.md) — チャット本文とファイルプレビューの Markdown 描画（対応サブセット・上限・インラインコードのファイル参照）
 - [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / Markdown / 画像 / 音声の描画と、ツリー行の ⋯ メニュー（パスをコピー / 削除 / リネーム / ダウンロード、除外名の設定を含む）
+- [file-upload.md](file-upload.md) — 設定 → ファイル のドラッグ＆ドロップ（対象と保存先・上限・同時数・進行と結果・採用しなかった案）
 - [api.md](api.md) — HTTP API の規約と索引（health / files / projects）
 - [api-sessions.md](api-sessions.md) — セッション API と SSE イベント
 - [api-catalog.md](api-catalog.md) — エージェント / スキル API
