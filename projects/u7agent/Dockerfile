@@ -52,6 +52,7 @@ COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
 # server のテストがルートの scripts/ を読む (dependencies は client/ と server/ しか持たない)
 COPY scripts/dev.mjs ./scripts/dev.mjs
 COPY scripts/steering-send.ts ./scripts/steering-send.ts
+COPY scripts/bench-history-*.ts scripts/history-bench-fixture.ts scripts/tsconfig.json ./scripts/
 COPY scripts/install-landlock.mjs ./scripts/install-landlock.mjs
 COPY scripts/landlock-exec.py ./scripts/landlock-exec.py
 # shell-quote.mjs は install-browser-cli.mjs と install-landlock.mjs の共有 module (テストも読む)
