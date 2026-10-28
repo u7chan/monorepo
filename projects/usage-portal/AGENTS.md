@@ -54,4 +54,4 @@ Docker は `docker build --target test -t usage-portal-test ./projects/usage-por
 
 - [README.md](README.md) — 起動方法、環境変数、Docker、セキュリティの前提
 - [docs/design.md](docs/design.md) — 設計（親 checkout からの写し）
-- [docs/adr/](docs/adr) — スタック、状態取得、認証と公開範囲、利用枠の保存、Codex のサインイン、OpenCode Go のアカウント、残量表示と推移の期間、窓の停止表示とメニュー、表示の密度の決定
+- [docs/adr/](docs/adr) — スタック、状態取得、認証と公開範囲、利用枠の保存、Codex のサインイン、OpenCode Go のアカウント、残量表示と推移の期間、窓の停止表示とメニュー、表示の密度、Codex のサインアウト、ゲージの印の決定

@@ -100,6 +100,9 @@ Codex の OAuth は自前実装せず、Pi SDK（`@earendil-works/pi-coding-agen
 3. 表示された URL とコードで承認する
 4. 成功すると `auth.json` に保存され、sampler が 1 回走って Codex カードが更新される
 
+サインアウトはカード右上の `⋮` から行う（サインイン済みのときだけ出る）。未接続・再サインインのときの
+「Sign in with ChatGPT」は、カードの中に残る。
+
 コールバックポート（1455）は publish しない。コンテナ内の `127.0.0.1` に閉じるため、どのブラウザからでも
 デバイスコードか貼り付けで完了できるようにしてある。進行中の状態は BFF のメモリだけに置き、開始から 10 分で自動中断する。
 
@@ -237,3 +240,9 @@ bun run check
 - [docs/adr/0005-codex-credentials-and-sign-in.md](docs/adr/0005-codex-credentials-and-sign-in.md) — Codex の資格情報とサインイン
 - [docs/adr/0006-opencode-api-key-registration.md](docs/adr/0006-opencode-api-key-registration.md) — OpenCode Go の API キーの画面登録
 - [docs/adr/0007-opencode-multiple-accounts.md](docs/adr/0007-opencode-multiple-accounts.md) — OpenCode Go の複数アカウント
+- [docs/adr/0008-remaining-gauge-and-window-trend.md](docs/adr/0008-remaining-gauge-and-window-trend.md) — 残量ゲージと窓の期間に合わせた推移
+- [docs/adr/0009-window-blocking-and-five-hour-rolling.md](docs/adr/0009-window-blocking-and-five-hour-rolling.md) — 窓の停止表示とローリングの 5 時間
+- [docs/adr/0010-menu-and-modal-layout.md](docs/adr/0010-menu-and-modal-layout.md) — 常設ボタンのメニュー移動と追加のモーダル
+- [docs/adr/0011-view-mode-toggle.md](docs/adr/0011-view-mode-toggle.md) — 簡易 / 標準の表示切り替え
+- [docs/adr/0012-codex-signout-in-card-menu.md](docs/adr/0012-codex-signout-in-card-menu.md) — Codex のサインアウトをカードのメニューへ
+- [docs/adr/0013-meter-status-icons.md](docs/adr/0013-meter-status-icons.md) — 使用不可と残りわずかの印を SVG にする
