@@ -193,6 +193,17 @@ export function SkillSelector({
             ))
           )}
         </SkillGroup>
+        {missingBuiltinNames.length > 0 ? (
+          <p className="text-2xs leading-4 break-words text-ink-faint">
+            {builtinSkillMissingNote(missingBuiltinNames)}
+          </p>
+        ) : null}
+        <div className="grid gap-1">
+          <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SECTION_NOTE}</p>
+          {Array.isArray(builtinSkillNames) ? (
+            <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SKILL_EXPLICIT_NOTE}</p>
+          ) : null}
+        </div>
         {fileSkills.status === "ready" ? (
           <SkillGroup
             divider
@@ -215,26 +226,21 @@ export function SkillSelector({
             )}
           </SkillGroup>
         ) : null}
-        {missingCommonNames.length > 0 ? (
-          <p className="text-2xs leading-4 break-words text-ink-faint">{commonSkillMissingNote(missingCommonNames)}</p>
+        {fileSkills.status === "ready" ? (
+          <>
+            {missingCommonNames.length > 0 ? (
+              <p className="text-2xs leading-4 break-words text-ink-faint">
+                {commonSkillMissingNote(missingCommonNames)}
+              </p>
+            ) : null}
+            <div className="grid gap-1">
+              <p className="text-2xs leading-4 break-words text-ink-faint">{COMMON_SKILL_SECTION_NOTE}</p>
+              {Array.isArray(commonSkillNames) ? (
+                <p className="text-2xs leading-4 break-words text-ink-faint">{COMMON_SKILL_EXPLICIT_NOTE}</p>
+              ) : null}
+            </div>
+          </>
         ) : null}
-        {missingBuiltinNames.length > 0 ? (
-          <p className="text-2xs leading-4 break-words text-ink-faint">
-            {builtinSkillMissingNote(missingBuiltinNames)}
-          </p>
-        ) : null}
-        <div className="grid gap-1 border-t border-line pt-2">
-          <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SECTION_NOTE}</p>
-          {fileSkills.status === "ready" ? (
-            <p className="text-2xs leading-4 break-words text-ink-faint">{COMMON_SKILL_SECTION_NOTE}</p>
-          ) : null}
-          {Array.isArray(builtinSkillNames) ? (
-            <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SKILL_EXPLICIT_NOTE}</p>
-          ) : null}
-          {Array.isArray(commonSkillNames) ? (
-            <p className="text-2xs leading-4 break-words text-ink-faint">{COMMON_SKILL_EXPLICIT_NOTE}</p>
-          ) : null}
-        </div>
       </div>
     </div>
   );
