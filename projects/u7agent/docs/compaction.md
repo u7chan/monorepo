@@ -50,7 +50,7 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 | 自動 | `_checkCompaction()`（ツール完了後の次ターン前 / 新プロンプト前 / overflow 回復） | `contextTokens > contextWindow − reserveTokens`（厳密な不等号）。overflow / length 回復の経路もあるので閾値だけではない |
 | 手動 | `session.compact()` | 閾値は見ない。**要約対象メッセージ（または split-turn の prefix）が 1 件以上あるか**だけで決まる |
 
-`reserveTokens` が決めるのは自動圧縮の閾値（`contextWindow − reserveTokens`）だけ。SDK 1.4.0 で要約生成の出力枠は切り離され、モデルの出力上限（`model.maxTokens`）を使う（1.3.x までは `min(floor(0.8 × reserveTokens), model.maxTokens)` で、u7agent の既定 65,536 は枠を 52,428 まで取るために上げた値だった）。そのため既定 65,536 は、いまは閾値を 65,536 ぶん下げる（128,000 のモデルでは 62,464、窓が 65,536 未満のモデルでは常に真）設定としてだけ効く。手動圧縮は閾値を見ないため影響を受けない。
+`reserveTokens` が決めるのは自動圧縮の閾値（`contextWindow − reserveTokens`）だけ。SDK 1.4.0 で要約生成の出力枠は切り離され、モデルの出力上限を基準に、推定入力との合計が `contextWindow` に収まるよう縮小される（`min(model.maxTokens, contextWindow − 推定入力 − 4,096)`、下限 1。1.3.x までは `min(floor(0.8 × reserveTokens), model.maxTokens)` で、u7agent の既定 65,536 は枠を 52,428 まで取るために上げた値だった）。そのため既定 65,536 は、いまは閾値を 65,536 ぶん下げる（128,000 のモデルでは 62,464、窓が 65,536 未満のモデルでは常に真）設定としてだけ効く。手動圧縮は閾値を見ないため影響を受けない。
 
 手動のカット位置は「末尾から `keepRecentTokens`（既定 20,000）を推定 tokens で溜めた地点」以上で最も近いメッセージ境界（user / assistant / bash / custom。tool result には落ちない）。その手前が要約され、境界が user メッセージでなければその turn の前半が prefix として別途要約される。
 
@@ -71,8 +71,8 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 
 要約そのもののコスト:
 
-- 通常の履歴要約は **1 リクエスト**、出力上限はモデルの出力上限（`model.maxTokens`）。`reserveTokens` は出力枠に効かない
-- split-turn の prefix 要約は別リクエストで、出力上限も `model.maxTokens`。以前の履歴がある split-turn では**最大 2 リクエスト**
+- 通常の履歴要約は **1 リクエスト**。出力上限は `min(model.maxTokens, contextWindow − 推定入力 − 4,096)`（窓に十分な余裕があれば実質 `model.maxTokens`）。`reserveTokens` は出力枠に効かない
+- split-turn の prefix 要約は別リクエストで、出力上限も同じ式。以前の履歴がある split-turn では**最大 2 リクエスト**
 - 要約生成の `usage` は `CompactionInfo.usage` に既にある。**UI には出さない**（出すときはこの節に追記する）
 - 推定値と実トークンの乖離: 日本語は概ね 1〜2 文字 / token なので実トークンが見積りより大きくなる。ゲージが大きく見える割に圧縮できない / 圧縮後の残りも表示上は 20k より大きくなる前提で扱う
 

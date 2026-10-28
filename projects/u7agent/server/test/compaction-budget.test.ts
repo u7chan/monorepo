@@ -1,7 +1,8 @@
 // 実 SDK (@earendil-works/pi-coding-agent) とローカル OpenAI 互換モックで、要約生成リクエストの出力枠を固定する。
 //
 // 固定するのは (a) 出力枠がモデルの maxTokens になること、(b) reserveTokens を変えても出力枠は変わらないこと、
-// (c) 出力枠が上限に達する規模の会話でも要約が完了すること。実 API は呼ばない。
+// (c) 窓の残量が少なければ maxTokens より小さくなること、(d) 出力枠が上限に達する規模の会話でも要約が完了すること。
+// 実 API は呼ばない。
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { createServer, type Server } from "node:http";
@@ -72,7 +73,10 @@ async function startMockProvider(options: { truncateBelow: number }): Promise<{
 /** reserve の既定は変えず、要約対象を作るために keepRecentTokens だけ小さくする検証用 env */
 const CUT_FRIENDLY_ENV = { PI_COMPACTION_KEEP_RECENT_TOKENS: "500" } as NodeJS.ProcessEnv;
 
-async function createRealSession(baseUrl: string, options: { env: NodeJS.ProcessEnv; maxTokens: number }) {
+async function createRealSession(
+  baseUrl: string,
+  options: { env: NodeJS.ProcessEnv; maxTokens: number; contextWindow?: number },
+) {
   const agentDir = mkdtempSync(join(tmpdir(), "u7agent-compaction-budget-"));
   const cwd = mkdtempSync(join(tmpdir(), "u7agent-compaction-budget-cwd-"));
   const settingsManager = SettingsManager.inMemory({ compaction: compactionSettingsFromEnv(options.env) });
@@ -93,7 +97,7 @@ async function createRealSession(baseUrl: string, options: { env: NodeJS.Process
         reasoning: false,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 1_000_000,
+        contextWindow: options.contextWindow ?? 1_000_000,
         maxTokens: options.maxTokens,
       },
     ],
@@ -157,6 +161,26 @@ test("reserveTokens を変えても要約リクエストの出力枠は変わら
 
     assert.equal(provider.requests.length, 1);
     assert.equal(requestedBudget(provider.requests[0]), 100_000);
+  } finally {
+    provider.server.close();
+  }
+});
+
+test("context の残量が少なければ出力枠は model.maxTokens より小さくなる", async () => {
+  // 出力枠はカタログ値ではなく、推定入力と安全余白 (4,096) を引いた窓の残量でも切り詰められる
+  const provider = await startMockProvider({ truncateBelow: 0 });
+  try {
+    const { session } = await createRealSession(provider.baseUrl, {
+      env: CUT_FRIENDLY_ENV,
+      maxTokens: 8_192,
+      contextWindow: 8_192,
+    });
+
+    await session.compact();
+
+    const budget = requestedBudget(provider.requests[0]);
+    assert.ok(budget < 8_192, `出力枠 ${budget} は窓の残量で切り詰められるはず`);
+    assert.ok(budget > 0, `出力枠 ${budget} は正の値のはず`);
   } finally {
     provider.server.close();
   }
