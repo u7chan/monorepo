@@ -13,7 +13,7 @@ import { resolveDevFilePreviewPort } from "../server/src/file-preview-port.ts";
 import { installBrowser, resolveBrowsersDir } from "./install-browser.mjs";
 import { devBrowserCliDir, installBrowserCli } from "./install-browser-cli.mjs";
 import { installLandlockWrapper } from "./install-landlock.mjs";
-// Node 24 の型ストリッピングで .ts をそのまま読む (ポートの検証を JS 側へ写すと二重管理になる)
+// Node 26 の型ストリッピングで .ts をそのまま読む (ポートの検証を JS 側へ写すと二重管理になる)
 import { resolvePreviewPort, resolveServiceListenPort, SERVE_LISTEN_PORT } from "../server/src/preview-port.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");

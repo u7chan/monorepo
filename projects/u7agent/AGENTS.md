@@ -6,7 +6,7 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI。
 
 ## Tech Stack
 
-- Node.js 24 / pnpm 10.34.5
+- Node.js 26 / pnpm 10.34.5
 - TypeScript / Hono / zod（`server/` の BFF）
 - pi SDK（`@earendil-works/pi-coding-agent`）
 - Vite / React 19 / Tailwind CSS v4（`client/`）

@@ -784,7 +784,7 @@ test("appendSystemPrompt は音声生成ツールの案内を有効時だけ足�
 
 test("appendSystemPrompt はサンドボックスの python / uv と .venv の運用を説明する", () => {
   const prompt = appendSystemPrompt("/workspace");
-  // ベースイメージの Python が上がったらプロンプトの記述も見直す (node 24 と同じ性質のドリフト)
+  // ベースイメージの Python が上がったらプロンプトの記述も見直す (node 26 と同じ性質のドリフト)
   assert.match(prompt, /python 3\.13, uv/);
   assert.match(prompt, /`\.venv` directly under it/);
   assert.match(prompt, /uv pip install --python \.venv\/bin\/python/);

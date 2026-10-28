@@ -1,5 +1,5 @@
 # Keep Node and pnpm aligned with the monorepo CI.
-FROM node:24-trixie-slim AS base
+FROM node:26-trixie-slim AS base
 RUN npm install --global pnpm@10.34.5
 WORKDIR /app
 
@@ -26,7 +26,7 @@ COPY server/package.json ./server/package.json
 # fd は pi SDK の find ツールが起動する。find は git 管理外でも動くよう --no-require-git (fd 9.0 で追加) を渡す。
 # apt の fd-find はベースイメージの追随でこの要件を割る版 (bookworm は 8.6.0) に戻り得るため、
 # trixie (fd-find 10.2.0) でも取得方式は変えずリリースバイナリを固定する。test / final の両方で使う。
-FROM node:24-trixie-slim AS fd
+FROM node:26-trixie-slim AS fd
 COPY scripts/install-fd.mjs /tmp/install-fd.mjs
 RUN node /tmp/install-fd.mjs /usr/local/bin
 
