@@ -2,6 +2,7 @@ import { Fragment, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { fileTimeLabel, messageFullTimeLabel } from "../../lib/messageTime";
 import { sessionEntryHref } from "../../lib/route";
+import { sessionBusy } from "../../lib/sessionBusy";
 import {
   type SharedContentAction,
   type SharedContentBusyKind,
@@ -13,7 +14,6 @@ import {
   sharedContentSourceLabel,
   SHARED_CONTENT_SESSION_DELETED_LABEL,
   isSharedContentUndeployed,
-  shareRunInProgress,
   shareStatusView,
   type ShareStatusTone,
 } from "../../lib/sharedContents";
@@ -175,10 +175,10 @@ export function SharedContentCard({
     }
   };
 
-  const sessionBusy = session !== undefined && shareRunInProgress(session.status);
-  const rowActions = sharedContentActions(item, { sessionMissing, sessionBusy });
-  const menuActions = sharedContentMenuActions(item, { sessionMissing, narrow, sessionBusy });
-  const primary = sharedContentPrimaryAction(item, { sessionMissing, sessionBusy });
+  const sessionBusyNow = session !== undefined && sessionBusy(session.status);
+  const rowActions = sharedContentActions(item, { sessionMissing, sessionBusy: sessionBusyNow });
+  const menuActions = sharedContentMenuActions(item, { sessionMissing, narrow, sessionBusy: sessionBusyNow });
+  const primary = sharedContentPrimaryAction(item, { sessionMissing, sessionBusy: sessionBusyNow });
   const undeployed = isSharedContentUndeployed(item);
   // 停止中も URL は見せる契約だが、開く・コピーは出さない（未デプロイは URL 自体を出さない）
   const showUrl = item.publicUrl !== null && item.status !== "publishing" && !undeployed;

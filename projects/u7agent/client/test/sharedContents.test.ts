@@ -2,6 +2,7 @@
 // 202 後の追跡（詳細の宛先・一覧の要否）を固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
+import { sessionBusy } from "../src/lib/sessionBusy";
 import {
   SHARE_CONFIRM_NOTES,
   SHARE_PUBLISHING_NOTE,
@@ -10,11 +11,10 @@ import {
   SHARE_UPDATE_NOTE_INCOMPLETE,
   SHARE_UPDATE_NOTE_LIVE,
   SHARE_UPDATE_NOTE_STOPPED,
-  SHARED_CONTENT_RUNNING_NOTE,
+  SHARED_CONTENT_UPDATE_RUNNING_NOTE,
   SHARED_CONTENT_UNDEPLOYED_NOTE,
   isSharedContentUndeployed,
   shareRunBlockedReason,
-  shareRunInProgress,
   shareItemsPublishing,
   settleAcceptedDetail,
   sharePollDetailId,
@@ -276,13 +276,13 @@ test("操作行: 状態ごとの主操作だけを並べ、停止 / 削除は行
   assert.deepEqual(kinds({ status: "published", lastError: "公開に失敗しました" }), ["update"]);
 });
 
-test("実行中: 共有・更新を理由付きで無効にし、読み取りと逃げ道は残す", () => {
+test("実行中: 共有・更新・再試行を理由付きで無効にし、読み取りと逃げ道は残す", () => {
   // 判定は BFF の isBusy と同じ集合 (running / queued / compacting)
-  assert.equal(shareRunInProgress("running"), true);
-  assert.equal(shareRunInProgress("queued"), true);
-  assert.equal(shareRunInProgress("compacting"), true);
+  assert.equal(sessionBusy("running"), true);
+  assert.equal(sessionBusy("queued"), true);
+  assert.equal(sessionBusy("compacting"), true);
   for (const status of ["idle", "completed", "stopped", "error"] as const) {
-    assert.equal(shareRunInProgress(status), false, status);
+    assert.equal(sessionBusy(status), false, status);
     assert.equal(shareRunBlockedReason(status), undefined, status);
   }
   assert.equal(shareRunBlockedReason("running"), SHARE_RUNNING_NOTE);
@@ -294,7 +294,7 @@ test("実行中: 共有・更新を理由付きで無効にし、読み取りと
   });
   const update = published.find((action) => action.kind === "update");
   assert.equal(update?.disabled, true);
-  assert.equal(update?.reason, SHARED_CONTENT_RUNNING_NOTE);
+  assert.equal(update?.reason, SHARED_CONTENT_UPDATE_RUNNING_NOTE);
   assert.deepEqual(
     published.filter((action) => action.disabled !== true).map((action) => action.kind),
     ["open", "qr"],
@@ -319,7 +319,24 @@ test("実行中: 共有・更新を理由付きで無効にし、読み取りと
     sessionBusy: true,
   });
   assert.equal(undeployed?.disabled, true);
-  assert.equal(undeployed?.reason, SHARED_CONTENT_RUNNING_NOTE);
+  assert.equal(undeployed?.reason, SHARED_CONTENT_UPDATE_RUNNING_NOTE);
+  // failed 行の唯一の復旧導線 (公開を再試行) も、更新と同じ publish を叩くので実行中は止める
+  for (const action of [
+    ...sharedContentActions(item({ status: "failed" }), { sessionMissing: false, sessionBusy: true }),
+    sharedContentPrimaryAction(item({ status: "failed" }), { sessionMissing: false, sessionBusy: true }),
+  ]) {
+    assert.equal(action?.kind, "retry");
+    assert.equal(action?.disabled, true);
+    assert.equal(action?.reason, SHARED_CONTENT_UPDATE_RUNNING_NOTE);
+  }
+  // 再公開 (resume) は成果物を読まないので、実行中でも押せる
+  assert.deepEqual(
+    sharedContentActions(item({ status: "stopped", publishedAt: PUBLISHED_AT }), {
+      sessionMissing: false,
+      sessionBusy: true,
+    }),
+    [{ kind: "resume", label: "再公開" }],
+  );
   // セッション削除済みの理由が優先する (更新できない理由が 2 つあるときは恒久的なほうを出す)
   const missing = sharedContentPrimaryAction(item({ status: "published" }), {
     sessionMissing: true,
