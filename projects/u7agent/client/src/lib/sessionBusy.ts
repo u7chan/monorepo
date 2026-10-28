@@ -13,8 +13,10 @@ export function sessionBusy(runStatus: string): boolean {
 type WorkdirSession = Pick<SessionSummary, "sessionId" | "projectId" | "status">;
 
 /**
- * 公開元と同じ作業フォルダを共有する他会話が実行中か。`projectId` が無い（未所属）会話は
- * 会話ごとの scratch（`.u7agent/sessions/<id>`）を持つので、同じ cwd の兄弟は存在しない。
+ * 公開元と同じ作業フォルダを共有する他会話が実行中か。プロジェクト会話は同じ cwd を共有する。
+ * 一覧には cwd が載らないため、ここは `projectId` で兄弟を探す。プロジェクト登録を解除した会話
+ * （`projectCwd` は残り `projectId` が消える）は見つけられないが、その場合も受付は BFF の
+ * `busyInWorkdir`（cwd で判定）が 409 で止める。ここは押す前に理由を出すための先回り。
  */
 export function siblingRunBusy(input: {
   sessionId: string;
