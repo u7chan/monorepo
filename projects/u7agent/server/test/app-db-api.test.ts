@@ -110,6 +110,9 @@ test("an unusable store dir makes app data 503 without an in-memory fallback", a
 
   const appDataUrls: [string, RequestInit | undefined][] = [
     ["/api/agents", undefined],
+    ["/api/prompts", undefined],
+    ["/api/prompts", jsonPost({ label: "a", prompt: "b" })],
+    ["/api/prompts/p1", { method: "DELETE" }],
     ["/api/skills/session", undefined],
     ["/api/projects", undefined],
     ["/api/projects/p1", { method: "DELETE" }],
@@ -144,7 +147,7 @@ test("the app data guard answers 503 after the db is closed", async () => {
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
     bff.appDb.close();
 
-    for (const url of ["/api/agents", "/api/projects", "/api/sessions"]) {
+    for (const url of ["/api/agents", "/api/prompts", "/api/projects", "/api/sessions"]) {
       const response = await bff.app.request(url);
       assert.equal(response.status, 503, url);
     }

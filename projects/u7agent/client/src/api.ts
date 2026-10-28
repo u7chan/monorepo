@@ -41,6 +41,9 @@ import type {
   PostMessageResult,
   Project,
   ProjectsResponse,
+  PromptDef,
+  PromptResponse,
+  PromptsResponse,
   RuntimeDebugServeStatus,
   RuntimeDebugServeStopResult,
   RuntimeEnvironmentResponse,
@@ -83,6 +86,8 @@ import type {
   TitleSummarySettingsResponse,
   TitleSummaryTestResponse,
   UpdateAgentBody,
+  UpdatePromptBody,
+  CreatePromptBody,
   UpdateCloudflareSettingsBody,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
@@ -320,6 +325,35 @@ export const updateAgent = async (id: string, input: UpdateAgentBody): Promise<{
 
 export const deleteAgent = async (id: string): Promise<unknown> => {
   const res = await client.api.agents[":id"].$delete({ param: { id } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 定型プロンプトのマスタ一覧。使用先 (`usedBy`) つきで、組み込みが先に並ぶ。
+ * エージェントの応答に載る解決済みの定型文はカタログ側 (`getCatalog`) が持つ。
+ */
+export const getPrompts = async (): Promise<PromptsResponse> => {
+  const res = await client.api.prompts.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const createPrompt = async (input: CreatePromptBody): Promise<{ prompt: PromptDef }> => {
+  const res = await client.api.prompts.$post({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const updatePrompt = async (id: string, input: UpdatePromptBody): Promise<PromptResponse> => {
+  const res = await client.api.prompts[":id"].$patch({ param: { id }, json: input });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 削除は使用中 (409) を ApiError で返す。使用先は本文の `usedBy` に載る */
+export const deletePrompt = async (id: string): Promise<unknown> => {
+  const res = await client.api.prompts[":id"].$delete({ param: { id } });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

@@ -12,6 +12,7 @@ import { mutationOriginGuard } from "./mutation-origin";
 import { DEFAULT_PREVIEW_PORT } from "./preview-port";
 import { createArchiveRoutes } from "./routes/archive";
 import { createCatalogRoutes } from "./routes/catalog";
+import { createPromptRoutes } from "./routes/prompts";
 import { createFileRoutes } from "./routes/files";
 import { createHealthRoutes } from "./routes/health";
 import { createCloudflareSettingsRoutes } from "./routes/cloudflare";
@@ -42,6 +43,7 @@ import {
   CreateCustomProviderBodySchema,
   CustomProviderProbeBodySchema,
   CreateProjectBodySchema,
+  CreatePromptBodySchema,
   CreateSecretBodySchema,
   CreateSessionBodySchema,
   CreateFileSkillBodySchema,
@@ -69,6 +71,7 @@ import {
   UpdateWebSearchProviderBodySchema,
   WebSearchTestBodySchema,
   UpdateProviderMemoBodySchema,
+  UpdatePromptBodySchema,
   UpdateSharedContentExclusionsBodySchema,
   SubmitOAuthLoginCodeBodySchema,
   UpdateSecretBodySchema,
@@ -120,6 +123,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     pi,
     initError,
     catalog,
+    prompts,
     projects,
     store,
     workspace,
@@ -166,6 +170,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   // プレビュー専用リスナー (別オリジン) 用。storage を有効にするため、応答は HTML プレビューのルートだけにする
   const previewFileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "storage" });
   const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
+  const promptRoutes = createPromptRoutes({ prompts });
   const skillFileRoutes = createSkillFileRoutes({ sandbox: skillSandbox, archive: skillArchiveSandbox });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
   const sessionRoutes = createSessionRoutes({ store, workspace, spaces, serve });
@@ -291,6 +296,34 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => catalogRoutes.updateAgent(c, c.req.valid("json")),
     )
     .delete("/api/agents/:id", appData, catalogRoutes.removeAgent)
+    // 定型プロンプトのマスタ。種別 (組み込み / 自作) と ID はサーバーが決め、使用中の削除は 409
+    .get("/api/prompts", appData, promptRoutes.list)
+    .post(
+      "/api/prompts",
+      appDataMutation,
+      jsonBodyValidator(CreatePromptBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => promptRoutes.create(c, c.req.valid("json")),
+    )
+    .get("/api/prompts/:id", appData, promptRoutes.get)
+    .patch(
+      "/api/prompts/:id",
+      appDataMutation,
+      jsonBodyValidator(UpdatePromptBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => promptRoutes.update(c, c.req.valid("json")),
+    )
+    .put(
+      "/api/prompts/:id",
+      appDataMutation,
+      jsonBodyValidator(UpdatePromptBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => promptRoutes.update(c, c.req.valid("json")),
+    )
+    .delete("/api/prompts/:id", appDataMutation, promptRoutes.remove)
     // スキルの一覧・編集はファイル (`.agents/skills`) だけを対象にする。旧 `/api/skills` と
     // `/api/skills/:id` の DB カタログ CRUD は置かず、新しい API へも転送しない (404)
     .get("/api/skills/files", catalogRoutes.listFileSkills)
@@ -732,6 +765,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         ["POST", "PUT", "DELETE"].includes(c.req.method) &&
         (path === "/api/spaces" ||
           path.startsWith("/api/secrets") ||
+          path.startsWith("/api/prompts") ||
           ["/api/serve/start", "/api/serve/stop"].includes(path))
       ) {
         return c.json({ error: messageFor(error), state: "not_stored" as const }, 503);
@@ -749,6 +783,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     previewApp,
     store,
     catalog,
+    prompts,
     projects,
     pi,
     initError,

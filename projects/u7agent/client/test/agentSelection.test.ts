@@ -11,6 +11,7 @@ test("selectableAgents puts the built-in agent before the user-defined ones", ()
     builtinSkills: [],
     agents: [agent("agent-code")],
     tools: [],
+    prompts: [],
   };
   assert.deepEqual(
     selectableAgents(catalog).map((item) => item.id),
@@ -20,7 +21,16 @@ test("selectableAgents puts the built-in agent before the user-defined ones", ()
 
 test("selectableAgents tolerates a catalog that is not loaded yet", () => {
   // 取得前の初期状態はビルトインが null
-  assert.deepEqual(selectableAgents({ builtinAgent: null, builtinSkills: [], agents: [], tools: [] }), []);
+  assert.deepEqual(
+    selectableAgents({
+      builtinAgent: null,
+      builtinSkills: [],
+      agents: [],
+      tools: [],
+      prompts: [],
+    }),
+    [],
+  );
 });
 
 test("adopts the snapshot agent when the catalog still has it", () => {

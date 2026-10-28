@@ -15,6 +15,18 @@ export function agentDeleteConfirmRequest(name: string): ConfirmRequest {
   };
 }
 
+/** 定型プロンプトのマスタ削除の確認。使用先が無いことを確認してから出す */
+export function promptDeleteConfirmRequest(label: string): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: "定型プロンプトを削除",
+    ...(label ? { subject: { label: "削除する定型プロンプト", value: label } } : {}),
+    body: ["マスタ自体を削除します。エージェントからの紐づけは残らないため、元に戻せません。"],
+    confirmLabel: "削除する",
+    danger: true,
+  };
+}
+
 /** 編集の破棄の確認。保存していない変更が戻せないことを示す */
 export function skillDiscardConfirmRequest(): ConfirmRequest {
   return {

@@ -1,6 +1,6 @@
 # 会話タイトル
 
-一覧のタイトルを、定型プロンプト (エージェント定義の `suggestions`) の先頭ではなく利用者の依頼から作り、
+一覧のタイトルを、定型プロンプト (チップ) の先頭ではなく利用者の依頼から作り、
 設定で選んだモデルによる AI 要約で一度だけ整える。設定の実体は
 `server/src/title-summary-settings.ts`、入力の抽出と正規化は `server/src/session-title.ts`、
 実行の判断 (タイミング・試行・競合) は `server/src/sessions.ts` が持つ。

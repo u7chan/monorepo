@@ -14,7 +14,6 @@ import { groupTools } from "../../lib/tools";
 import { agentDeleteConfirmRequest } from "../../lib/settingsConfirm";
 import type {
   AgentDef,
-  AgentSuggestion,
   CatalogResponse,
   CreateAgentBody,
   ModelOption,
@@ -29,7 +28,7 @@ import { SettingsNoteRow } from "../SettingsNoteRow";
 import { SettingsTabs } from "../SettingsTabs";
 import { AgentModelEffortFields } from "./AgentModelEffortFields";
 import { SkillSelector } from "./SkillSelector";
-import { SuggestionsEditor } from "./SuggestionsEditor";
+import { PromptSelector } from "./PromptSelector";
 import { ToolSelector } from "./ToolSelector";
 
 export type AgentForm = {
@@ -62,7 +61,8 @@ export type AgentForm = {
   /** null は保存時に「指定解除」として送る */
   model: ModelRef | null;
   thinkingLevel: ThinkingLevel | null;
-  suggestions: AgentSuggestion[];
+  /** 参照するマスタの ID (並び = 表示順)。ラベル・本文の編集は独立した画面が持つ */
+  promptIds: string[];
 };
 
 /** 下書き (AgentForm) はページが持つ。渡した編集対象から初期値を作る */
@@ -79,8 +79,8 @@ export function agentFormOf(agent: AgentDef | undefined): AgentForm {
     icon: agent?.icon ?? null,
     model: agent?.model ? { ...agent.model } : null,
     thinkingLevel: agent?.thinkingLevel ?? null,
-    // catalog のオブジェクトを直接編集しないよう、配列と要素をコピーして持つ
-    suggestions: agent?.suggestions?.map((suggestion) => ({ ...suggestion })) ?? [],
+    // catalog の配列を直接編集しないよう、コピーして持つ
+    promptIds: agent?.prompts?.map((prompt) => prompt.id) ?? [],
   };
 }
 
@@ -110,11 +110,11 @@ export function agentPayloadOf(form: AgentForm): CreateAgentBody {
     builtinSkillNames: form.builtinSkillNames,
     allowNaturalInvocation: form.allowNaturalInvocation,
     toolNames: form.toolNames,
-    // null はサーバー側で「指定解除」に正規化される。suggestions は空配列で解除
+    // null はサーバー側で「指定解除」に正規化される。promptIds は空配列で全解除
     icon: form.icon,
     model: form.model,
     thinkingLevel: form.thinkingLevel,
-    suggestions: form.suggestions,
+    promptIds: form.promptIds,
   };
 }
 
@@ -325,26 +325,6 @@ export function AgentEditorForm({
   };
   const toolCount = allowlistCount(form.toolNames, visibleToolNames);
 
-  const addSuggestion = () => {
-    setForm((prev) => ({ ...prev, suggestions: [...prev.suggestions, { label: "", prompt: "" }] }));
-  };
-
-  const removeSuggestion = (index: number) => {
-    setForm((prev) => ({
-      ...prev,
-      suggestions: prev.suggestions.filter((_, itemIndex) => itemIndex !== index),
-    }));
-  };
-
-  const changeSuggestion = (index: number, patch: Partial<AgentSuggestion>) => {
-    setForm((prev) => ({
-      ...prev,
-      suggestions: prev.suggestions.map((suggestion, itemIndex) =>
-        itemIndex === index ? { ...suggestion, ...patch } : suggestion,
-      ),
-    }));
-  };
-
   const tabs = [
     { subsection: "basic" as const, label: AGENT_TAB_LABELS.basic },
     {
@@ -359,8 +339,8 @@ export function AgentEditorForm({
     },
     {
       subsection: "suggestions" as const,
-      label: `${AGENT_TAB_LABELS.suggestions} ${form.suggestions.length}`,
-      ariaLabel: `定型プロンプト（${form.suggestions.length} 件）`,
+      label: `${AGENT_TAB_LABELS.suggestions} ${form.promptIds.length}`,
+      ariaLabel: `定型プロンプト（${form.promptIds.length} 件）`,
     },
   ];
 
@@ -543,11 +523,10 @@ export function AgentEditorForm({
                 />
               ) : null}
               {tab === "suggestions" ? (
-                <SuggestionsEditor
-                  suggestions={form.suggestions}
-                  onChange={changeSuggestion}
-                  onRemove={removeSuggestion}
-                  onAdd={addSuggestion}
+                <PromptSelector
+                  prompts={catalog.prompts}
+                  promptIds={form.promptIds}
+                  onChange={(promptIds) => setForm((prev) => ({ ...prev, promptIds }))}
                 />
               ) : null}
             </div>

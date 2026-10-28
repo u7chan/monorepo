@@ -5,8 +5,13 @@
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）の一覧（同梱の組み込みスキルを `builtinSkills`、アプリが扱うツールを `tools` で含む） |
-| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, commonSkillNames?, builtinSkillNames?, toolNames?, icon?, model?, thinkingLevel?, suggestions? }` |
-| PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` / `commonSkillNames` / `builtinSkillNames` / `toolNames` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
+| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, commonSkillNames?, builtinSkillNames?, toolNames?, icon?, model?, thinkingLevel?, promptIds? }` |
+| PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` / `commonSkillNames` / `builtinSkillNames` / `toolNames` の `null` と `promptIds: []` は指定解除。ビルトインは 400） |
+| GET | `/api/prompts` | 定型プロンプトのマスタ一覧 `{ prompts }`（使用先 `usedBy` つき、組み込みが先） |
+| POST | `/api/prompts` | 自作マスタの作成 `{ label, prompt }`（種別と ID はサーバーが決める） |
+| GET | `/api/prompts/:id` | マスタ 1 件 `{ prompt }` |
+| PATCH / PUT | `/api/prompts/:id` | 自作マスタの更新（キー省略は保持。組み込みは 400） |
+| DELETE | `/api/prompts/:id` | 自作マスタの削除（使用中は 409 + `usedBy`、組み込みは 400、未知は 404） |
 | PATCH | `/api/agents/order` | 表示順の保存 `{ ids }`（応答は並べ替え後の `{ agents }`。ビルトインは対象外） |
 | DELETE | `/api/agents/:id` | エージェント削除（ビルトインは 400。ユーザー定義は 0 件まで減らせる） |
 | GET | `/api/skills/files` | ファイルスキル（`.agents/skills`）と組み込みスキルの一覧 |
@@ -44,13 +49,16 @@
     "name": "汎用アシスタント",
     "description": "役割や口調を設定していない既定のエージェント",
     "systemPrompt": "",
-    "suggestions": [{ "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }]
+    "prompts": [
+      { "id": "prompt-builtin-project-overview", "kind": "builtin", "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }
+    ]
   },
   "builtinSkills": [{ "name": "skill-creator", "description": "スキルの作成を依頼されたときに使う", "version": "3" }],
   "tools": [
     { "name": "read", "description": "ファイルの内容を読む（スキル本文の読み込みも含む）", "group": "sandbox", "available": true },
     { "name": "web_search", "description": "Web を検索して上位ページの抜粋を取る", "group": "app", "available": false, "reason": "app_disabled" }
   ],
+  "prompts": [{ "id": "prompt-builtin-project-overview", "kind": "builtin", "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }],
   "agents": [
     {
       "id": "agent-zundamon",
@@ -195,23 +203,23 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 }
 ```
 
-## エージェント定義の定型プロンプト
+## 定型プロンプトのマスタと参照
 
-エージェント定義には任意の `suggestions`（`{ label, prompt }` の配列）を持たせられる。空の会話の firstview に `label` のボタンとして並び、押すと入力欄へチップとして載る（押した時点では送信しない）。送信時に本文と結合され（`prompt` → 空行 → 本文）、セッションタイトルの元は送信本文のまま。ビルトインの `agent-general` だけが 3 件を持つ。
+空の会話に出す定型文は、エージェントから独立したアプリ共通のマスタ（`prompts`）として持つ。エージェントはマスタを順序付きの `promptIds` で参照し、応答では解決済みの `prompts`（`{ id, kind, label, prompt }` の配列）として載る。空の会話の firstview に `label` のボタンとして並び、押すと入力欄のチップになり、送信時に本文と結合される（セッションタイトルの元は結合前の本文）。
 
-- 未指定（空配列を含む）なら GET はキーを省略し、画面にもボタンを出さない（アプリ既定のフォールバックはない）。
-- `label` は 60 文字、`prompt` は 500 文字で trim + 切り詰める。どちらかが空の要素は捨てる。編集面は入力中に文字数（`12 / 60` / `40 / 500`）も出す。このカウンターは入力制限 (`maxLength`) と同じく trim 前の長さで数える（trim 後に数えると、前後の空白があるときに残量があるように見えて次の入力が止まる）。
-- 最大 6 件。空の要素と `prompt` の重複を除いた後に数え、6 件を超えると 400（`Agent suggestions must have at most 6 items`）。`prompt` の重複は最初の 1 件だけ残し、6 件の枠を消費しない。設定 → エージェントの編集面は現在値と上限を `3 / 6` で出し、上限では「追加」を無効にする理由を説明行へ出す（黙って捨てると保存できたように見えるため、保存の経路は超過を 400 で断る。`client/src/components/agent-settings/SuggestionsEditor.tsx`）
-- 更新要求はキー省略で保持、`suggestions: []` で解除する。
-- 作成の body はキー省略を未指定として受け付け、追加項目の無い定義もそのまま使える。
+- マスタの種別は `builtin` と `custom`。組み込みは閲覧・参照のみで、編集・削除は 400。同じ本文を使いたいときは自作として登録する。
+- `GET /api/agents` の `prompts` は選択肢（全マスタ）で、`agents[].prompts` は各エージェントが参照している解決済みの値。どちらも並びはサーバーが決め、表示の同一性は `id`（同じ本文の別マスタを本文でまとめない）。
+- エージェントの作成・更新は `promptIds` を受け、**未指定は現状維持、`[]` は全解除**。未知・重複・上限超過は保存の前に 400 で断り、部分保存しない。新しい自作エージェントへ組み込みを自動では足さない。
+- 旧 `suggestions` の書き込みは 400（`suggestions is no longer supported; use promptIds`）。黙って捨てて保存成功と誤認させない。
+- マスタは `label` / `prompt` を trim して保存し、上限はそれぞれ 60 / 500 文字（超過は切らずに 400）。一意制約は付けず、同文の別マスタを持てる。マスタ全体の件数に上限は掛けず、エージェント 1 体の参照上限だけを DB と API の両方で守る。
+- 使用中の削除は 409 で、応答の `usedBy`（`{ agentId, agentName, builtin }`）に使用先を返す。データは変更しない。エージェントを削除してもマスタは残り、参照だけが外部キーの `ON DELETE CASCADE` で消える。
+- 組み込みの汎用アシスタントは固定 ID の 3 件をコード上の一覧から参照する（`agent_prompts` の行は持たず、外部キーは弱めない）。この参照は変更できず、`usedBy` では `builtin: true` として出る。
 
 ```json
 {
   "id": "agent-example",
   "name": "コード実装",
-  "suggestions": [
-    { "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }
-  ]
+  "promptIds": ["prompt-builtin-project-overview", "prompt-example-custom"]
 }
 ```
 

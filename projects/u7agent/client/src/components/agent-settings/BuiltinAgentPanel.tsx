@@ -25,6 +25,10 @@ export const BUILTIN_PANEL_SKILLS_NOTE =
 export const BUILTIN_PANEL_TOOLS_READONLY_LABEL = "このエージェントでは外せません";
 /** 組み込みのエージェントは自然文では発火しない (定義側も false)。行の OFF と合わせて理由をここで伝える */
 export const BUILTIN_PANEL_INVOCATION_FIXED_NOTE = "組み込みエージェントは常に OFF です（自然文では発火しません）。";
+/** 組み込みの定型プロンプトは固定参照で、付け外しも編集もできない */
+export const BUILTIN_PANEL_PROMPTS_READONLY_LABEL = "このエージェントでは変更できません";
+export const BUILTIN_PANEL_PROMPTS_NOTE =
+  "組み込みエージェントは固定の定型プロンプトを参照します。内容の変更はできません（同じ本文を使いたい場合は、設定 → 定型プロンプトで自作として登録し、自作エージェントから参照してください）。";
 
 /**
  * ビルトインはサーバー所有で編集も削除もできないので、
@@ -167,6 +171,32 @@ export function BuiltinAgentPanel({
                     </SkillGroup>
                   ))
                 )}
+              </div>
+            </section>
+            <hr className="border-line" />
+            <section className="grid gap-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">定型プロンプト</h3>
+                <span className="shrink-0 text-2xs text-ink-faint">{BUILTIN_PANEL_PROMPTS_READONLY_LABEL}</span>
+              </div>
+              <div className="grid gap-1 rounded-lg border border-line bg-soft px-2.5 py-2">
+                {(agent.prompts ?? []).length === 0 ? (
+                  <p className="text-2xs leading-4 text-ink-faint">定型プロンプトはありません。</p>
+                ) : (
+                  <ul className="grid gap-1.5">
+                    {(agent.prompts ?? []).map((prompt) => (
+                      <li key={prompt.id} className="grid gap-0.5">
+                        <span className="min-w-0 text-1xs break-words text-ink-strong">{prompt.label}</span>
+                        <span className="min-w-0 text-2xs leading-relaxed break-words whitespace-pre-wrap text-ink-faint">
+                          {prompt.prompt}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="border-t border-line pt-2 text-2xs leading-4 break-words text-ink-faint">
+                  {BUILTIN_PANEL_PROMPTS_NOTE}
+                </p>
               </div>
             </section>
             <p className="text-1xs leading-relaxed text-ink-muted">

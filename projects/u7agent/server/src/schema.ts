@@ -102,12 +102,68 @@ export const ModelRefSchema = z.object({
 });
 export type ModelRef = z.infer<typeof ModelRefSchema>;
 
-/** 空の会話の firstview に出す定型プロンプト。label がボタン文言、prompt が送信文字列。 */
+/**
+ * 入力欄のチップ 1 件。label がボタン文言、prompt が送信文字列。
+ * 定型プロンプトのマスタ (`PromptRefSchema`) と、マスタに属さない引き継ぎのチップが同じ形を使う。
+ */
 export const AgentSuggestionSchema = z.object({
   label: z.string(),
   prompt: z.string(),
 });
 export type AgentSuggestion = z.infer<typeof AgentSuggestionSchema>;
+
+/** マスタの種別。組み込みは閲覧・参照のみ、自作だけが編集・削除できる */
+export const PromptKindSchema = z.enum(["builtin", "custom"]);
+export type PromptKind = z.infer<typeof PromptKindSchema>;
+
+/**
+ * マスタのラベル・本文・ID の上限。ラベルと本文は旧 `suggestions` の編集上限を引き継ぐ。
+ * エージェント 1 体の参照上限は `AGENT_PROMPT_LIMIT` (マスタ全体には上限を掛けない)。
+ */
+export const AGENT_PROMPT_LIMIT = 6;
+export const PROMPT_LABEL_MAX = 60;
+export const PROMPT_TEXT_MAX = 500;
+export const PROMPT_ID_MAX = 100;
+
+/**
+ * エージェントに解決済みで載る定型プロンプト 1 件。表示の同一性は `id` で持ち、
+ * 同じ本文の別マスタを本文でまとめない。
+ */
+export const PromptRefSchema = z.object({
+  id: z.string(),
+  kind: PromptKindSchema,
+  label: z.string(),
+  prompt: z.string(),
+});
+export type PromptRef = z.infer<typeof PromptRefSchema>;
+
+/** マスタの使用先 1 件。組み込みの汎用アシスタントの固定参照も含める */
+export const PromptUsageSchema = z.object({
+  agentId: z.string(),
+  agentName: z.string(),
+  /** 組み込みエージェントの固定参照か (DB の紐づけではない) */
+  builtin: z.boolean(),
+});
+export type PromptUsage = z.infer<typeof PromptUsageSchema>;
+
+/** `GET /api/prompts` の 1 件。使用先を伴い、削除できない理由を画面が説明できる */
+export const PromptDefSchema = PromptRefSchema.extend({ usedBy: z.array(PromptUsageSchema) });
+export type PromptDef = z.infer<typeof PromptDefSchema>;
+
+/** `GET /api/prompts` の応答。並びはサーバーが決める (組み込みが先、その中は作成順) */
+export const PromptsResponseSchema = z.object({ prompts: z.array(PromptDefSchema) });
+export type PromptsResponse = z.infer<typeof PromptsResponseSchema>;
+
+/** `POST /api/prompts` の応答。作成した 1 件を使用先 (空) つきで返す */
+export const PromptResponseSchema = z.object({ prompt: PromptDefSchema });
+export type PromptResponse = z.infer<typeof PromptResponseSchema>;
+
+/**
+ * 使用中の自作マスタの削除拒否 (409) の応答。どこで使われているかを画面がそのまま出せるようにする。
+ * データは変更しない (docs/api-catalog.md)。
+ */
+export const PromptDeleteConflictSchema = z.object({ error: z.string(), usedBy: z.array(PromptUsageSchema) });
+export type PromptDeleteConflict = z.infer<typeof PromptDeleteConflictSchema>;
 
 /**
  * スキル許可リスト (`commonSkillNames` / `builtinSkillNames`) の上限。配列全体は body の
@@ -185,8 +241,11 @@ export const AgentDefSchema = z.object({
   // 未指定のときはキー自体を省略する (null は保存・応答に現れない)
   model: ModelRefSchema.optional(),
   thinkingLevel: ThinkingLevelSchema.optional(),
-  /** 未指定なら firstview のボタンを出さない (アプリ既定のフォールバックは持たない) */
-  suggestions: z.array(AgentSuggestionSchema).optional(),
+  /**
+   * 空の会話に出す定型プロンプト (参照先マスタを解決した値)。並びが表示順で、表示の同一性は `id`。
+   * 未指定なら firstview のボタンを出さない (アプリ既定のフォールバックは持たない)。
+   */
+  prompts: z.array(PromptRefSchema).optional(),
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
 
@@ -213,6 +272,11 @@ export const CatalogResponseSchema = z.object({
   builtinSkills: z.array(BuiltinSkillInfoSchema),
   /** アプリが扱うツールの一覧 (`builtinSkills` と同じく、エージェント定義ではない) */
   tools: z.array(ToolCatalogEntrySchema),
+  /**
+   * 参照できる定型プロンプトのマスタ一覧 (選択肢)。エージェントに解決済みで載る `prompts` とは別で、
+   * こちらは全件。並びはサーバーが決める (組み込みが先、その中は作成順)
+   */
+  prompts: z.array(PromptRefSchema),
 });
 export type CatalogResponse = z.infer<typeof CatalogResponseSchema>;
 
@@ -2265,7 +2329,16 @@ const agentBodyShape = {
   icon: z.string().nullish(),
   model: ModelRefSchema.nullish(),
   thinkingLevel: ThinkingLevelSchema.nullish(),
-  suggestions: z.array(AgentSuggestionSchema).nullish(),
+  /**
+   * 参照するマスタの ID (並び = 表示順)。未指定は現状維持、`[]` は全解除。
+   * 未知・重複・上限超過は保存前に 400 で断り、部分保存しない。
+   */
+  promptIds: z.array(z.string().max(PROMPT_ID_MAX)).max(AGENT_PROMPT_LIMIT).nullish(),
+  /**
+   * 撤去済みの直接書き込み。**形は受けるが値は catalog が拒否する** (400)。
+   * 黙って捨てると保存できたと誤認させるため、`skillIds` と同じ扱いにする。
+   */
+  suggestions: z.unknown().optional(),
 };
 
 export const CreateAgentBodySchema = z.object(agentBodyShape);
@@ -2273,6 +2346,23 @@ export type CreateAgentBody = z.infer<typeof CreateAgentBodySchema>;
 
 export const UpdateAgentBodySchema = z.object(agentBodyShape);
 export type UpdateAgentBody = z.infer<typeof UpdateAgentBodySchema>;
+
+/**
+ * マスタの作成 / 更新。種別と ID はサーバーが決める。**形は受けるが catalog が拒否する** (400)
+ * (`suggestions` と同じ理由で、route が「キーがある」ことを説明できる形にする)。
+ */
+const promptBodyShape = {
+  label: z.string().max(PROMPT_LABEL_MAX).optional(),
+  prompt: z.string().max(PROMPT_TEXT_MAX).optional(),
+  id: z.unknown().optional(),
+  kind: z.unknown().optional(),
+};
+
+export const CreatePromptBodySchema = z.object(promptBodyShape);
+export type CreatePromptBody = z.infer<typeof CreatePromptBodySchema>;
+
+export const UpdatePromptBodySchema = z.object(promptBodyShape);
+export type UpdatePromptBody = z.infer<typeof UpdatePromptBodySchema>;
 
 /**
  * 並べ替えで受ける id の上限。全件を 1 回で渡す API なので、他の配列項目と同じく

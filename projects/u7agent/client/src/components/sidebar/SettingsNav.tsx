@@ -22,6 +22,7 @@ import {
 const SECTION_ICONS: Record<SettingsSection, ReactNode> = {
   spaces: <FolderIcon />,
   agents: <SparkleIcon />,
+  prompts: <SkillListIcon />,
   skills: <BoltIcon />,
   models: <KeyIcon />,
   content: <ImageIcon />,

@@ -4,14 +4,22 @@
  * スキルはファイル (`.agents/skills`) を正とし、このカタログは定義を持たない (docs/api-catalog.md)。
  */
 import { randomUUID } from "node:crypto";
-import { AppDb } from "./app-db";
+import { AppDb, type StoredAgent } from "./app-db";
+import {
+  BUILTIN_AGENT_DESCRIPTION,
+  BUILTIN_AGENT_ID,
+  BUILTIN_AGENT_NAME,
+  BUILTIN_AGENT_PROMPT_IDS,
+} from "./builtin-catalog";
+import { httpError } from "./http";
+import { createPromptCatalog, type PromptCatalog } from "./prompts";
 import { SKILL_NAME_MAX, SKILL_NAMES_MAX, TOOL_NAME_MAX, TOOL_NAMES_MAX, ThinkingLevelSchema } from "./schema";
 import type {
   AgentDef,
-  AgentSuggestion,
   BuiltinSkillInfo,
   CatalogResponse,
   ModelRef,
+  PromptRef,
   ThinkingLevel,
   ToolCatalogEntry,
 } from "./schema";
@@ -20,7 +28,7 @@ export interface HttpError extends Error {
   statusCode?: number;
 }
 
-type AgentRecord = AgentDef;
+type AgentRecord = StoredAgent;
 
 /** catalog CRUD の入力は正規化ロジックが正なので unknown で受ける */
 type DefinitionInput = unknown;
@@ -30,19 +38,17 @@ type DefinitionInput = unknown;
  * 作れる保証をこの分離で持つ (ユーザー定義の一覧には現れず、削除も編集もできない)。
  * 既定のエージェントはスキルを割り当てず、共通 / 組み込みは許可リスト未指定 = 全部 ON になる。
  * 閲覧ビューはその実効の一覧を読み取り専用で出す (なりきりは SEED_AGENTS のサンプルとして別に置く)。
+ * 定型プロンプトは組み込みマスタを固定 ID で参照し、本文をここへ二重に定義しない。
  */
 const BUILTIN_AGENT: AgentRecord = {
-  id: "agent-general",
-  name: "汎用アシスタント",
-  description: "役割や口調を設定していない既定のエージェント",
+  id: BUILTIN_AGENT_ID,
+  name: BUILTIN_AGENT_NAME,
+  description: BUILTIN_AGENT_DESCRIPTION,
   systemPrompt: "",
   // 既定のエージェントは自然文では発火させない。スキルが増えても誤発火しないための固定値
   allowNaturalInvocation: false,
-  suggestions: [
-    { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
-    { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
-    { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
-  ],
+  // 固定参照。`agent_prompts` には書かず、解決はカタログ側で行う (外部キーは弱めない)
+  promptIds: [...BUILTIN_AGENT_PROMPT_IDS],
 };
 
 function copy<T>(value: T): T {
@@ -60,7 +66,7 @@ function invalid(message: string): HttpError {
   return error;
 }
 
-function publicAgent(agent: AgentRecord): AgentDef {
+function publicAgent(agent: AgentRecord, resolvePrompts: (ids: readonly string[]) => PromptRef[]): AgentDef {
   const result: AgentDef = {
     id: agent.id,
     name: agent.name,
@@ -71,7 +77,9 @@ function publicAgent(agent: AgentRecord): AgentDef {
   if (agent.icon) result.icon = agent.icon;
   if (agent.model) result.model = { ...agent.model };
   if (agent.thinkingLevel) result.thinkingLevel = agent.thinkingLevel;
-  if (agent.suggestions?.length) result.suggestions = agent.suggestions.map((suggestion) => ({ ...suggestion }));
+  // 参照先のラベル・本文を解決して載せる。表示の同一性は id で持ち、同じ本文の別マスタをまとめない
+  const prompts = agent.promptIds?.length ? resolvePrompts(agent.promptIds) : [];
+  if (prompts.length) result.prompts = prompts;
   // `[]` は「すべて OFF」なので真偽で落とさない (未指定のときだけキーを省略する)
   if (agent.commonSkillNames) result.commonSkillNames = [...agent.commonSkillNames];
   if (agent.builtinSkillNames) result.builtinSkillNames = [...agent.builtinSkillNames];
@@ -143,31 +151,14 @@ function iconOf(value: unknown): string | undefined {
 }
 
 /**
- * 上限は 6 件。編集面は現在値と上限を `3 / 6` で出して「＋ 追加」を止め、
- * 保存の経路は超過を 400 で断る (黙って切ると保存できたように見える)。
+ * 参照するマスタの `promptIds`。undefined / null は未指定 (= キー省略)、配列は順序を保って
+ * 既存確認・重複・上限までカタログが検証する。`[]` は全解除で、キー省略と混同しない。
+ * 形が違う値は 400 (黙って空にすると「解除した」と誤認される)。
  */
-const SUGGESTION_LIMIT = 6;
-
-/**
- * 配列以外は未指定として空を返す。prompt の重複と空の要素は先に除いてから数えるので、
- * 重複が 6 件の枠を消費しない (同じ prompt を並べた行は保存時に落ちる)。
- */
-function normalizeSuggestions(value: unknown): AgentSuggestion[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const result: AgentSuggestion[] = [];
-  for (const item of value) {
-    const record = item as { label?: unknown; prompt?: unknown } | null;
-    const label = text(record?.label, "", 60);
-    const prompt = text(record?.prompt, "", 500);
-    if (!label || !prompt || seen.has(prompt)) continue;
-    seen.add(prompt);
-    result.push({ label, prompt });
-  }
-  if (result.length > SUGGESTION_LIMIT) {
-    throw invalid(`Agent suggestions must have at most ${SUGGESTION_LIMIT} items`);
-  }
-  return result;
+function promptIdsInput(value: unknown, normalize: (raw: unknown) => string[]): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw invalid("promptIds must be an array of prompt ids");
+  return normalize(value);
 }
 
 /**
@@ -205,7 +196,7 @@ function allowlistOf(
 const SKILL_LIMITS = { nameMax: SKILL_NAME_MAX, namesMax: SKILL_NAMES_MAX } as const;
 const TOOL_LIMITS = { nameMax: TOOL_NAME_MAX, namesMax: TOOL_NAMES_MAX } as const;
 
-function makeAgent(input: DefinitionInput, id: string = randomUUID()): AgentRecord {
+function makeAgent(input: DefinitionInput, promptIds: string[], id: string = randomUUID()): AgentRecord {
   const record = input as {
     name?: unknown;
     description?: unknown;
@@ -220,9 +211,11 @@ function makeAgent(input: DefinitionInput, id: string = randomUUID()): AgentReco
     suggestions?: unknown;
     skillIds?: unknown;
   } | null;
-  // 撤去済みの DB カタログ割り当ては無視せず 400 にする (黙って成功させると
-  // 割り当てが保存されたと誤認させる。docs/api-catalog.md)
+  // 撤去済みの直接書き込みは無視せず 400 にする (黙って成功させると、定型文を保存できたと誤認させる)
   if (record && Object.hasOwn(record, "skillIds")) throw invalid("skillIds is no longer supported");
+  if (record && Object.hasOwn(record, "suggestions")) {
+    throw invalid("suggestions is no longer supported; use promptIds");
+  }
   const name = text(record?.name);
   if (!name) throw invalid("Agent name is required");
   const agent: AgentRecord = {
@@ -230,11 +223,11 @@ function makeAgent(input: DefinitionInput, id: string = randomUUID()): AgentReco
     name,
     description: text(record?.description, "", 300),
     systemPrompt: text(record?.systemPrompt, ""),
+    promptIds,
   };
   const icon = iconOf(record?.icon);
   const model = modelRef(record?.model);
   const thinkingLevel = thinkingLevelOf(record?.thinkingLevel);
-  const suggestions = normalizeSuggestions(record?.suggestions);
   const commonSkillNames = allowlistOf(record?.commonSkillNames, "Common skill", SKILL_LIMITS);
   const builtinSkillNames = allowlistOf(record?.builtinSkillNames, "Builtin skill", SKILL_LIMITS);
   const allowNaturalInvocation = record?.allowNaturalInvocation;
@@ -250,8 +243,6 @@ function makeAgent(input: DefinitionInput, id: string = randomUUID()): AgentReco
   if (icon) agent.icon = icon;
   if (model) agent.model = model;
   if (thinkingLevel) agent.thinkingLevel = thinkingLevel;
-  // 正規化して 0 件ならキーを省略する (解除もこの経路で成立する)
-  if (suggestions.length) agent.suggestions = suggestions;
   // `[]` は「すべて OFF」なので真偽で落とさない (未指定のときだけキーを省略する)
   if (commonSkillNames) agent.commonSkillNames = commonSkillNames;
   if (builtinSkillNames) agent.builtinSkillNames = builtinSkillNames;
@@ -272,7 +263,7 @@ export interface AgentCatalog {
    */
   reorderAgents(ids: readonly string[]): AgentDef[];
   /** ビルトインも解決する (新規セッションの既定がこの id を指す) */
-  getAgent(id: string): AgentRecord | undefined;
+  getAgent(id: string): AgentDef | undefined;
   snapshot(): CatalogResponse;
   createAgent(input: DefinitionInput): AgentDef;
   updateAgent(id: string, input: DefinitionInput): AgentDef | undefined;
@@ -290,22 +281,48 @@ export interface CreateAgentCatalogOptions {
   tools?: () => readonly ToolCatalogEntry[];
   /** アプリデータの DB。未指定はメモリ DB (カタログの単体テスト) */
   db?: AppDb;
+  /**
+   * 定型プロンプトのマスタ。未指定は `db` から作る。API 側と共有するときは同じインスタンスを渡す
+   * (マスタの一覧の使用先と、エージェントの解決結果を同じ保存先から読む)
+   */
+  prompts?: PromptCatalog;
 }
 
 export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): AgentCatalog {
   const db = options.db ?? AppDb.open({ storeDir: null });
+  const prompts = options.prompts ?? createPromptCatalog({ db });
   const builtin = copy(BUILTIN_AGENT);
   // 呼び出し側の配列を参照で持ち回らない (応答のたびにコピーを返す)
   const builtinSkills: BuiltinSkillInfo[] = (options.builtinSkills ?? []).map((skill) => ({ ...skill }));
   const tools = options.tools ?? (() => []);
-
-  const builtinAgent = () => publicAgent(builtin);
-  const listAgents = () => db.listAgents().map(publicAgent);
-  const getAgent = (id: string) => db.getAgent(id) ?? (id === builtin.id ? builtin : undefined);
+  /**
+   * 参照の解決。1 応答で何体ものエージェントを返すため、マスタは 1 回だけ読んで引き当てる
+   * (1 体ごとに問い合わせない)。参照先が消えているのは DB の制約が壊れた状態なので 400 にする。
+   */
+  const resolver = () => {
+    const refs = new Map(prompts.refs().map((prompt) => [prompt.id, prompt]));
+    return (ids: readonly string[]) =>
+      ids.map((id) => {
+        const prompt = refs.get(id);
+        if (!prompt) throw httpError(503, `定型プロンプトを解決できません: ${id}`);
+        return { ...prompt };
+      });
+  };
+  const listAgents = () => {
+    const resolve = resolver();
+    return db.listAgents().map((agent) => publicAgent(agent, resolve));
+  };
+  const getAgent = (id: string) => {
+    const stored = db.getAgent(id) ?? (id === builtin.id ? builtin : undefined);
+    return stored ? publicAgent(stored, resolver()) : undefined;
+  };
+  const builtinAgent = () => publicAgent(builtin, resolver());
   const snapshot = (): CatalogResponse => ({
     builtinAgent: builtinAgent(),
     builtinSkills: builtinSkills.map((skill) => ({ ...skill })),
     tools: tools().map((tool) => ({ ...tool })),
+    // 選択肢は全マスタ。エージェントの解決済みの値とは別に載せる (同じ取得で編集面が揃う)
+    prompts: prompts.refs(),
     agents: listAgents(),
   });
 
@@ -333,19 +350,24 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
       return listAgents();
     },
     createAgent(input) {
-      const agent = makeAgent(input);
+      // 新品の自作エージェントに組み込みマスタを自動で付けない (参照は明示の `promptIds` だけ)
+      const promptIds =
+        promptIdsInput((input as { promptIds?: unknown } | null)?.promptIds, prompts.normalizeIds) ?? [];
+      const agent = makeAgent(input, promptIds);
       db.saveAgent(agent);
-      return publicAgent(agent);
+      return publicAgent(agent, resolver());
     },
     updateAgent(id, input) {
       const current = db.getAgent(id);
       if (!current) return undefined;
       // キー省略は current を残し、null は makeAgent 側でキーごと消える。
       const merged = { ...current, ...(input as object) };
+      // promptIds は未指定なら現在の参照を保つ (null も同じ)。`[]` は全解除としてそのまま通す
+      const requested = promptIdsInput((input as { promptIds?: unknown } | null)?.promptIds, prompts.normalizeIds);
       // makeAgent は undefined のキーを付けないので、解除は merged の上書きで成立する
-      const agent = makeAgent(merged, id);
+      const agent = makeAgent(merged, requested ?? [...(current.promptIds ?? [])], id);
       db.saveAgent(agent);
-      return publicAgent(agent);
+      return publicAgent(agent, resolver());
     },
     removeAgent(id) {
       return db.deleteAgent(id);

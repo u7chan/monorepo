@@ -32,6 +32,7 @@ const catalog: CatalogResponse = {
   builtinAgent: null,
   builtinSkills: [],
   tools: [],
+  prompts: [],
 };
 
 function render(agentId: string): string {
