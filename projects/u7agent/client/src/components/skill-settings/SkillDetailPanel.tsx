@@ -1,9 +1,20 @@
-import { useRef, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { cn } from "../../lib/cn";
-import { selectCopyTarget } from "../../lib/copyToClipboard";
-import { FILE_SKILL_BODY_ERROR_PREFIX, FILE_SKILL_BODY_LOADING_NOTE, SKILL_TAB_BODY_LABEL } from "../../lib/fileSkills";
+import {
+  FILE_SKILL_BODY_ERROR_PREFIX,
+  FILE_SKILL_BODY_LOADING_NOTE,
+  SKILL_BODY_VIEW_ARIA_LABEL,
+  SKILL_BODY_VIEW_MODES,
+  SKILL_TAB_BODY_LABEL,
+  skillBodyMetaLabel,
+  skillBodyPreviewText,
+  type SkillBodyView,
+} from "../../lib/fileSkills";
 import { CopyButton } from "../chat/CopyButton";
+import { MarkdownView } from "../markdown/MarkdownView";
+import { OutputPanel } from "../OutputPanel";
+import { SegmentedControl } from "../SegmentedControl";
 
 /** 本文の状態。組み込みとカタログは一覧の応答の本文をそのまま ready で渡す */
 export type SkillBodyState =
@@ -54,7 +65,8 @@ export function SkillDetailPanel({
   usage,
 }: SkillDetailPanelProps) {
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
-  const bodyRef = useRef<HTMLPreElement>(null);
+  // 本文はまず読める形 (Markdown) で開き、原文が必要なときだけソースへ切り替える
+  const [bodyView, setBodyView] = useState<SkillBodyView>("preview");
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       {tabs}
@@ -114,26 +126,30 @@ export function SkillDetailPanel({
                 {FILE_SKILL_BODY_ERROR_PREFIX}: {body.message}
               </p>
             ) : (
-              <>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">
-                    {SKILL_TAB_BODY_LABEL}
-                  </div>
-                  <CopyButton
-                    copied={copiedId === "skill"}
-                    failure={copyFailure("skill")}
-                    onClick={() => void copyMessage(body.text, "skill")}
-                    onSelect={() => selectCopyTarget(bodyRef.current)}
-                    label="本文をコピー"
+              // 枠とヘッダ右のコピーは設定の他の出力面 (OutputPanel) と同じ組み方にする。
+              // 高さ上限は付けない (ページ 1 本のスクロールを維持し、長い本文を枠内で追わせない)
+              <OutputPanel
+                label={SKILL_TAB_BODY_LABEL}
+                meta={skillBodyMetaLabel(body.text)}
+                text={body.text}
+                mono
+                copyLabel="本文をコピー"
+                copyAlwaysVisible
+                actions={
+                  <SegmentedControl
+                    items={SKILL_BODY_VIEW_MODES}
+                    value={bodyView}
+                    onChange={setBodyView}
+                    ariaLabel={SKILL_BODY_VIEW_ARIA_LABEL}
                   />
-                </div>
-                <pre
-                  ref={bodyRef}
-                  className="scrollbar-thin overflow-x-hidden overflow-y-visible rounded-lg border border-line bg-soft px-2.5 py-2 font-mono text-2xs leading-relaxed wrap-anywhere whitespace-pre-wrap text-ink-soft select-text"
-                >
-                  {body.text}
-                </pre>
-              </>
+                }
+              >
+                {bodyView === "preview" ? (
+                  <div className="px-2.5 py-2">
+                    <MarkdownView text={skillBodyPreviewText(body.text)} />
+                  </div>
+                ) : undefined}
+              </OutputPanel>
             )}
           </div>
         </div>

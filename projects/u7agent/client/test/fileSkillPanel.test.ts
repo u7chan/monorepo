@@ -58,7 +58,10 @@ test("描画: 本文 / ファイル / 使用中 の 3 タブを出し、組み�
   assert.ok(!builtin.includes(">ファイル<"), "組み込みにファイルタブが出ている");
   assert.ok(builtin.includes(">本文<"), "組み込みの本文が出ていない");
   assert.ok(builtin.includes(">使用中<"), "組み込みに使用中タブが無い");
-  assert.ok(builtin.includes("本文\n"), "組み込みの本文が一覧の応答と違う");
+  // 本文はプレビュー (Markdown) が既定。一覧の応答の本文が描画されている
+  assert.ok(builtin.includes(">本文</p>"), "組み込みの本文が一覧の応答と違う");
+  // frontmatter は名前と説明というアプリのメタデータなので、プレビューでは落とす
+  assert.ok(!builtin.includes("name: alpha"), "プレビューに frontmatter が残っている");
 });
 
 test("描画: 説明は本文タブの先頭に全文を出し、ヘッダのメタに置かない", () => {
@@ -137,4 +140,18 @@ test("描画: 置き場の値をその場でコピーできる", () => {
   // パスでない値 (更新 / 使用中) にはコピーを付けない
   assert.ok(!html.includes("更新をコピー"));
   assert.ok(!html.includes("使用中をコピー"));
+});
+
+test("描画: 本文は枠のヘッダにソース / プレビューの切替とコピーを持ち、既定はプレビュー", () => {
+  const html = renderPanel(fileSkill({ body: "---\nname: alpha\n---\n# 手順\n本文\n" }));
+  // 枠のヘッダに、表示の切替とコピーを本文と同じ枠の中へ入れる
+  assert.match(html, /aria-label="本文の表示"/);
+  assert.ok(html.includes(">ソース<"));
+  assert.ok(html.includes(">プレビュー<"));
+  assert.match(html, /aria-label="本文をコピー"/);
+  // 行数はソースの行数 (frontmatter を落としても数え方は変えない)
+  assert.ok(html.includes("SKILL.md · 5 行"), "行数が出ていない");
+  // 既定はプレビュー: 見出しが Markdown として描かれ、原文の記号は出ない
+  assert.ok(html.includes(">手順<"), "見出しが描かれていない");
+  assert.ok(!html.includes("# 手順"), "プレビューなのに原文が出ている");
 });

@@ -1,6 +1,6 @@
 # チャット本文の Markdown 描画
 
-assistant の本文 (`MessageView`) に含まれる Markdown を、外部ライブラリを足さずに描画する。解析は `client/src/lib/markdown/` の純関数、描画は `client/src/components/markdown/` の React 要素が持つ。ファイルプレビューの `.md` も同じ `MarkdownView` を使い、画像の解決基準だけを差し替える（[file-preview.md](file-preview.md#markdown-プレビュー)）。見た目とテーマ / CSP の前提は [frontend.md](frontend.md)、検証コマンドは [../AGENTS.md](../AGENTS.md) を参照する。
+assistant の本文 (`MessageView`) に含まれる Markdown を、外部ライブラリを足さずに描画する。解析は `client/src/lib/markdown/` の純関数、描画は `client/src/components/markdown/` の React 要素が持つ。ファイルプレビューの `.md` も同じ `MarkdownView` を使い、画像の解決基準だけを差し替える（[file-preview.md](file-preview.md#markdown-プレビュー)）。設定 → スキルの本文プレビューは、同じ本文をソース表示と切り替えて読むために使う（[ui-layout.md](ui-layout.md#設定の一覧と編集の境界)）。見た目とテーマ / CSP の前提は [frontend.md](frontend.md)、検証コマンドは [../AGENTS.md](../AGENTS.md) を参照する。
 
 ## 原則
 
@@ -13,7 +13,7 @@ assistant の本文 (`MessageView`) に含まれる Markdown を、外部ライ�
 ## パイプライン
 
 ```
-MessageView (assistant の本文) / FilePreview (ファイルの Markdown プレビュー)
+MessageView (assistant の本文) / FilePreview (ファイルの Markdown プレビュー) / SkillDetailPanel (設定 → スキルの本文プレビュー)
   └─ MarkdownView          text → MdBlock[]        lib/markdown/parse.ts
         ├─ コードフェンス → MdToken[]              lib/markdown/highlight.ts
         ├─ 図フェンス → SvgModel                   lib/markdown/diagram.ts

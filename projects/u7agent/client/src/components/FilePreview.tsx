@@ -23,6 +23,7 @@ import {
 import { fileTreeBreadcrumbs, fileTreeFetchPath, fileTreeParentPath } from "../lib/fileTree";
 import { imageMetaLabel, type ImageDimensions } from "../lib/imageMeta";
 import { LoadingMark } from "./LoadingMark";
+import { SegmentedControl } from "./SegmentedControl";
 import { MarkdownFilePreview } from "./markdown/MarkdownFilePreview";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { CopyButton } from "./chat/CopyButton";
@@ -175,7 +176,12 @@ export function FilePreview({
       <div className="flex items-center gap-3 px-4 py-1.5">
         <FileBreadcrumb rootPath={rootPath} activePath={activePath} onReveal={onReveal} />
         {isHtmlPath(activePath) || isMarkdownPath(activePath) ? (
-          <PreviewModeToggle mode={mode} onChange={(next) => onModeChange(activePath, next)} />
+          <SegmentedControl
+            items={PREVIEW_MODES}
+            value={mode}
+            onChange={(next) => onModeChange(activePath, next)}
+            ariaLabel="表示の切替"
+          />
         ) : null}
         {showHtml ? (
           // 押すと iframe の src が変わってプレビューが開き直る。既定は ON (別オリジン) で、
@@ -350,31 +356,6 @@ function FileCopyButton({ text, targetRef }: { text: string; targetRef: RefObjec
       onSelect={() => selectCopyTarget(targetRef.current)}
       label="本文をコピー"
     />
-  );
-}
-
-function PreviewModeToggle({ mode, onChange }: { mode: PreviewMode; onChange: (mode: PreviewMode) => void }) {
-  return (
-    <div
-      role="group"
-      aria-label="表示の切替"
-      className="flex shrink-0 items-center gap-0.5 rounded-lg border border-line p-0.5"
-    >
-      {PREVIEW_MODES.map((item) => (
-        <button
-          key={item.value}
-          type="button"
-          aria-pressed={mode === item.value}
-          onClick={() => onChange(item.value)}
-          className={cn(
-            "rounded-md px-2 py-0.5 text-3xs transition-colors",
-            mode === item.value ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
-          )}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
