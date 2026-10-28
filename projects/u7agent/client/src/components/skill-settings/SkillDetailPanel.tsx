@@ -201,8 +201,10 @@ export function SkillDetailPanel({
         aria-label={title ? `${title} の${SKILL_TAB_BODY_LABEL}` : SKILL_TAB_BODY_LABEL}
         tabIndex={-1}
         data-closing={readerPhase === "closing"}
-        // Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる
+        // Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる。子孫 (本文の
+        // 画像の拡大) の cancel も React のツリーを伝わって届くので、受けると拡大側の close を打ち消してしまう
         onCancel={(event) => {
+          if (event.target !== event.currentTarget) return;
           event.preventDefault();
           closeReader();
         }}
