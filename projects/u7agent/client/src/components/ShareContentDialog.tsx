@@ -35,6 +35,11 @@ export type ShareContentTarget = {
 export type ShareContentDialogProps = {
   sessionId: string;
   target: ShareContentTarget;
+  /**
+   * 実行中のために公開を押せない理由。ダイアログを開いた後に run が始まるケースをここで塞ぐ
+   * (run が終われば undefined に戻り、押せるようになる)
+   */
+  runBlockedReason?: string;
   singleColumn?: boolean;
   onClose: () => void;
 };
@@ -56,6 +61,8 @@ export function ShareContentDialog({ sessionId, target, ...props }: ShareContent
 export type ShareContentDialogViewProps = {
   target: ShareContentTarget;
   share: SharedContentsController;
+  /** 実行中のために公開を押せない理由 (undefined なら押せる) */
+  runBlockedReason?: string;
   singleColumn?: boolean;
   onClose: () => void;
 };
@@ -63,7 +70,13 @@ export type ShareContentDialogViewProps = {
 /** ダイアログの 2 タブ。開閉で捨てるローカル状態で、URL には載せない */
 type ShareTab = "publish" | "items";
 
-export function ShareContentDialogView({ target, share, singleColumn = false, onClose }: ShareContentDialogViewProps) {
+export function ShareContentDialogView({
+  target,
+  share,
+  runBlockedReason,
+  singleColumn = false,
+  onClose,
+}: ShareContentDialogViewProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -106,7 +119,7 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busy || started || primary.kind === "publishing") return;
+    if (busy || started || primary.kind === "publishing" || runBlockedReason !== undefined) return;
     // フッターは両タブに出すので、一覧側から確定しても結果は「公開」タブに出す
     setTab("publish");
     if (primary.kind === "update") void share.update(primary.item.id);
@@ -115,7 +128,7 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
 
   // 副次の新規作成は、押したときだけ実行する (同じ公開元の更新がある間の既定は更新)
   const createNew = () => {
-    if (busy || started || primary.kind === "publishing") return;
+    if (busy || started || primary.kind === "publishing" || runBlockedReason !== undefined) return;
     setTab("publish");
     void share.share(target.directory, name);
   };
@@ -281,18 +294,31 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
             {primary.kind === "update" ? (
               <p className="text-right text-1xs break-words text-ink-muted">{SHARE_CREATE_SECONDARY_NOTE}</p>
             ) : null}
+            {/* 実行中は公開しない (受付時の ZIP が書き換え途中の成果物になり得る)。理由は BFF の 409 と同じ条件 */}
+            {runBlockedReason === undefined ? null : (
+              <p className="text-right text-1xs break-words text-warn">{runBlockedReason}</p>
+            )}
             <div className="flex items-center justify-end gap-2">
               <button ref={cancelRef} type="button" className="btn-quiet singleColumn:min-h-11" onClick={onClose}>
                 キャンセル
               </button>
               {primary.kind === "update" ? (
-                <button type="button" className="btn-quiet singleColumn:min-h-11" disabled={busy} onClick={createNew}>
+                <button
+                  type="button"
+                  className="btn-quiet singleColumn:min-h-11"
+                  disabled={busy || runBlockedReason !== undefined}
+                  onClick={createNew}
+                >
                   新しく共有
                 </button>
               ) : null}
               {/* 公開中は主操作を出さず、理由だけを本文に出す */}
               {primary.kind === "publishing" ? null : (
-                <button type="submit" className="btn-primary singleColumn:min-h-11" disabled={busy}>
+                <button
+                  type="submit"
+                  className="btn-primary singleColumn:min-h-11"
+                  disabled={busy || runBlockedReason !== undefined}
+                >
                   <ShareIcon />
                   {primary.kind === "update" ? "更新する" : "共有する"}
                 </button>

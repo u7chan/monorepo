@@ -9,6 +9,7 @@ import type {
   SharedContentStatusValue,
 } from "../types";
 import type { ConfirmRequest, PromptRequest } from "./confirmDialog";
+import type { WorkdirBusyKind } from "./sessionBusy";
 
 /** 状態を読み直す間隔。公開ジョブの所要は数十秒なので、待ちすぎず叩きすぎない値にする */
 export const SHARE_POLL_MS = 2000;
@@ -111,6 +112,23 @@ export const SHARE_CREATE_SECONDARY_NOTE = "新しい URL が増えます（Work
  * （同じフォルダの共有物があっても、ここからは更新へ進めない）。
  */
 export const SHARE_PREVIEW_FAILED_UPDATE_HINT = "同じフォルダの共有物がある場合、更新は 設定 → 共有 から行えます。";
+
+/**
+ * 実行中の会話で共有できない理由。受付時の ZIP は live なディレクトリを読むので、実行中は
+ * 「index.html は新版・資産は旧版」のような半端なスナップショットが外部公開 URL に載り得る。
+ * 文の正は BFF の `SHARED_CONTENT_RUNNING`（`server/src/shared-contents.ts`）。
+ */
+export const SHARE_RUNNING_NOTE = "会話の実行中は公開できません。実行が終わってから共有してください";
+/** プロジェクト会話は cwd を共有するため、自分の会話が idle でも兄弟会話が書き換えていることがある */
+export const SHARE_WORKDIR_RUNNING_NOTE = "同じ作業フォルダの他会話が実行中です。実行が終わってから共有してください";
+/** 管理一覧の更新・再試行を止める理由。文脈が「更新」なので、主操作の「共有」とは別の短い文にする */
+export const SHARED_CONTENT_UPDATE_RUNNING_NOTE = "会話の実行中のため更新できません";
+
+/** 共有（新規 / 更新）を押せない理由。押せないときは項目を消さず、この文を理由として出す */
+export function shareRunBlockedReason(kind: WorkdirBusyKind | undefined): string | undefined {
+  if (kind === "self") return SHARE_RUNNING_NOTE;
+  return kind === "other" ? SHARE_WORKDIR_RUNNING_NOTE : undefined;
+}
 
 /**
  * 確認画面の注意の summary。`SHARE_CONFIRM_NOTES` を畳んだままでも要点が読める 1 行にする
@@ -373,10 +391,20 @@ export const SHARED_CONTENT_SESSION_DELETED_LABEL = "セッション（削除済
 export const SHARED_CONTENT_NO_CREDENTIALS_NOTE =
   "Cloudflare の資格情報が未登録です。設定 → 共有 → 接続 で登録してください";
 
-function updateAction(sessionMissing: boolean): SharedContentAction & { kind: "update" } {
-  return sessionMissing
-    ? { kind: "update", label: "更新", disabled: true, reason: SHARED_CONTENT_SESSION_MISSING_NOTE }
+function updateAction(sessionMissing: boolean, sessionBusyNow = false): SharedContentAction & { kind: "update" } {
+  if (sessionMissing) {
+    return { kind: "update", label: "更新", disabled: true, reason: SHARED_CONTENT_SESSION_MISSING_NOTE };
+  }
+  return sessionBusyNow
+    ? { kind: "update", label: "更新", disabled: true, reason: SHARED_CONTENT_UPDATE_RUNNING_NOTE }
     : { kind: "update", label: "更新" };
+}
+
+/** `failed` 行の唯一の復旧導線。更新と同じ publish を叩くので、実行中は同じ理由で押せなくする */
+function retryAction(sessionBusyNow: boolean): SharedContentAction & { kind: "retry" } {
+  return sessionBusyNow
+    ? { kind: "retry", label: "公開を再試行", disabled: true, reason: SHARED_CONTENT_UPDATE_RUNNING_NOTE }
+    : { kind: "retry", label: "公開を再試行" };
 }
 
 /**
@@ -396,20 +424,20 @@ function qrAction(): SharedContentAction & { kind: "qr" } {
 /** デスクトップの操作行に並べる主操作。停止 / 削除と表示名の変更は ⋯ へ送り、行を増やさない */
 export function sharedContentActions(
   item: SharedContentResponse,
-  { sessionMissing }: { sessionMissing: boolean },
+  { sessionMissing, sessionBusy: busy = false }: { sessionMissing: boolean; sessionBusy?: boolean },
 ): SharedContentAction[] {
-  if (isSharedContentUndeployed(item)) return [updateAction(sessionMissing)];
+  if (isSharedContentUndeployed(item)) return [updateAction(sessionMissing, busy)];
   switch (item.status) {
     case "published":
       return [
         { kind: "open", label: "開く" },
         ...(sharedContentUrlLive(item) ? [qrAction()] : []),
-        updateAction(sessionMissing),
+        updateAction(sessionMissing, busy),
       ];
     case "stopped":
       return [{ kind: "resume", label: "再公開" }];
     case "failed":
-      return [{ kind: "retry", label: "公開を再試行" }];
+      return [retryAction(busy)];
     case "publishing":
       // 結果不明は停止だけを受け付ける。確定していない公開中には操作を出さない
       return item.lastError === null ? [] : [{ kind: "stop", label: "停止" }];
@@ -425,7 +453,11 @@ export type SharedContentMenuKind = Extract<SharedContentActionKind, "qr" | "ren
  */
 export function sharedContentMenuActions(
   item: SharedContentResponse,
-  { sessionMissing, narrow }: { sessionMissing: boolean; narrow: boolean },
+  {
+    sessionMissing,
+    narrow,
+    sessionBusy: busy = false,
+  }: { sessionMissing: boolean; narrow: boolean; sessionBusy?: boolean },
 ): (SharedContentAction & { kind: SharedContentMenuKind })[] {
   if (item.status === "publishing") return [];
   const rename = { kind: "rename", label: "名前を変更" } as const;
@@ -436,7 +468,7 @@ export function sharedContentMenuActions(
       // 狭い面の主操作は「開く」だけなので、更新と QR もここに入れる（PC の行には QR がある）
       return [
         rename,
-        ...(narrow ? [updateAction(sessionMissing)] : []),
+        ...(narrow ? [updateAction(sessionMissing, busy)] : []),
         ...(narrow && sharedContentUrlLive(item) ? [qrAction()] : []),
         { kind: "stop", label: "停止" },
         remove,
@@ -463,16 +495,16 @@ export function sharedContentQrTarget(
 /** 狭い面の主操作。未デプロイは更新、結果不明は停止、公開中は主操作なし（⋯ も出さない） */
 export function sharedContentPrimaryAction(
   item: SharedContentResponse,
-  { sessionMissing }: { sessionMissing: boolean },
+  { sessionMissing, sessionBusy: busy = false }: { sessionMissing: boolean; sessionBusy?: boolean },
 ): SharedContentAction | null {
-  if (isSharedContentUndeployed(item)) return updateAction(sessionMissing);
+  if (isSharedContentUndeployed(item)) return updateAction(sessionMissing, busy);
   switch (item.status) {
     case "published":
       return { kind: "open", label: "開く" };
     case "stopped":
       return { kind: "resume", label: "再公開" };
     case "failed":
-      return { kind: "retry", label: "公開を再試行" };
+      return retryAction(busy);
     case "publishing":
       return item.lastError === null ? null : { kind: "stop", label: "停止" };
   }

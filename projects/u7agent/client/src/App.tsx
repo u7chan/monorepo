@@ -70,6 +70,8 @@ import { canShareSessionRoot, sessionFilesDefaultOpen, sessionFilesRoot } from "
 import { sessionEnvScope } from "./lib/sessionEnv";
 import { sessionsInSpace } from "./lib/spaceSessions";
 import { servedAppBusyKind, servedAppFocusRequest, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
+import { workdirBusyKind } from "./lib/sessionBusy";
+import { shareRunBlockedReason } from "./lib/sharedContents";
 import {
   handoffAgentChoices,
   handoffBlockedReason,
@@ -478,6 +480,16 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     sessionId: app.sessionId,
     projectSession: activeSession?.projectSession,
   });
+  // 共有は「公開元の会話」か「同じ作業フォルダを共有する会話」が実行中なら押せない
+  // (プロジェクト会話は cwd を共有するので兄弟会話も見る。判定の集合は lib/sessionBusy が正)
+  const shareBlockedReason = shareRunBlockedReason(
+    workdirBusyKind({
+      selfStatus: app.chat.runStatus,
+      sessionId: app.sessionId,
+      projectId: activeSession?.projectId,
+      sessions: spaceSessions,
+    }),
+  );
 
   // サービスの状態と操作。バーの表示条件は lib/servedApp が決める (会話ごとの値なので facade が持つ)
   const serve = app.serve;
@@ -1169,6 +1181,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             excludeNames={excludeNames}
             filePreviewPort={app.health?.filePreviewPort}
             runEndSeq={app.chat.runEndSeq}
+            shareBlockedReason={shareBlockedReason}
             onClose={closeSessionFiles}
             openRequest={pendingFileRef}
             onHandled={app.ackFileRef}
@@ -1191,6 +1204,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           excludeNames={excludeNames}
           filePreviewPort={app.health?.filePreviewPort}
           runEndSeq={app.chat.runEndSeq}
+          shareBlockedReason={shareBlockedReason}
           onClose={closeSessionFilesSheet}
           openRequest={pendingFileRef}
           onHandled={app.ackFileRef}

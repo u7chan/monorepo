@@ -1,6 +1,7 @@
 import type { ChatState } from "../hooks/chatReducer";
 import { MODEL_UNSET_GUIDE } from "./modelSettings";
 import { pendingAskUserQuestionCount } from "./askUser";
+import { sessionBusy } from "./sessionBusy";
 import type { SettingsSelection } from "../hooks/settingsChange";
 import type { AgentDef, Health, ModelOption, ModelRef, ThinkingLevel } from "../types";
 
@@ -99,11 +100,12 @@ export type ComposerSettingsInput = {
 };
 
 /**
- * 手動圧縮の実効 busy。`statusOf` は streaming を running として返し、idle 相当でも
- * completed / stopped / error を返すため、runStatus === "idle" では判定できない。
+ * 手動圧縮の実効 busy。集合は `sessionBusy` が正で、ここは圧縮の可否という意味を名前で残すだけ。
+ * `statusOf` は streaming を running として返し、idle 相当でも completed / stopped / error を返すため、
+ * runStatus === "idle" では判定できない。
  */
 export function compactionBusy(runStatus: string): boolean {
-  return runStatus === "running" || runStatus === "queued" || runStatus === "compacting";
+  return sessionBusy(runStatus);
 }
 
 /** 手動圧縮を押せない理由。順序は実際に遮っているもの (圧縮中 > 実行中 > 送信中 > 設定変更中) */

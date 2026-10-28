@@ -6,6 +6,7 @@
  * (リロードとスペースの切替をまたいで同じ表示になる)。文面はエージェントの定型プロンプトと同じ形に揃える。
  */
 import type { AgentDef, AgentSuggestion, SessionHandoffState, SessionSummary } from "../types";
+import { sessionBusy } from "./sessionBusy";
 
 /** 引き継ぎのチップ。ラベルは固定、送信本文へ足す文も固定 (docs/ui-layout.md) */
 export const HANDOFF_CHIP_LABEL = "HANDOFF.mdを参照";
@@ -45,7 +46,7 @@ export function handoffBlockedReason(item: Pick<SessionSummary, "status" | "queu
     return "前回の引き継ぎの片付けが残っています。会話を開いてから、もう一度お試しください。";
   }
   // 終端 (completed / stopped / error) は依頼中ではない (サーバーの isBusy と同じ集合)
-  const busy = item.status === "running" || item.status === "queued" || item.status === "compacting";
+  const busy = sessionBusy(item.status);
   if (busy || item.queueDepth > 0) {
     return "実行中・キュー待ち・圧縮中は引き継げません。完了を待ってから開き直してください。";
   }

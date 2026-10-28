@@ -24,6 +24,7 @@ import {
   SHARED_CONTENT_PROJECT_SESSION_ROOT,
   SHARED_CONTENT_RECONCILE_FAILED,
   SHARED_CONTENT_RESUME_UNPUBLISHED,
+  SHARED_CONTENT_RUNNING,
   SHARED_CONTENT_STOP_UNPUBLISHED,
   SharedContentsService,
   resolveSharedContentSource,
@@ -198,6 +199,8 @@ interface SetupOptions {
   credentials?: { accountId: string; apiToken: string } | null;
   credentialError?: boolean;
   sessionCwd?: string | null;
+  /** 実行中の会話がある作業フォルダ。このパスを公開しようとすると 409 になる (兄弟会話を含む) */
+  busyWorkdir?: string;
   /** セッションがプロジェクト配下なら、その cwd (省略 = 非プロジェクト会話) */
   projectCwd?: string;
   secretValues?: readonly string[];
@@ -213,6 +216,7 @@ function setup(options: SetupOptions = {}) {
   const store = new FakeStore();
   const downloadCalls: { path: string; exclude: readonly string[] }[] = [];
   const planCalls: { path: string; exclude: readonly string[]; maxFileBytes: number | undefined }[] = [];
+  const busyCalls: string[] = [];
   const cloudflare = cloudflareStub(options.cloudflare);
   let counter = 0;
   let clock = 1_000;
@@ -221,6 +225,10 @@ function setup(options: SetupOptions = {}) {
     sessions: {
       workdirOfId: () => (options.sessionCwd === null ? undefined : (options.sessionCwd ?? SESSION_CWD)),
       projectCwdOfId: () => options.projectCwd,
+      busyInWorkdir: (workdir) => {
+        busyCalls.push(workdir);
+        return workdir === options.busyWorkdir;
+      },
     },
     workspace: options.workspace ?? workspaceFor(zip, downloadCalls),
     planSandbox:
@@ -252,7 +260,7 @@ function setup(options: SetupOptions = {}) {
     now: () => (clock += 1),
     newId: () => `id${++counter}`,
   });
-  return { service, store, downloadCalls, planCalls, cloudflare, zip };
+  return { service, store, downloadCalls, planCalls, busyCalls, cloudflare, zip };
 }
 
 /** プレビューの既定の計画。index.html を含む素直なディレクトリ */
@@ -549,7 +557,7 @@ test("資格情報が無い / セッションが無い / アカウント不一�
     // 接続を別アカウントへ変えた service では、保存済みの providerAccount と一致しないため 409
     const other = new SharedContentsService({
       store: mismatch.store,
-      sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined },
+      sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined, busyInWorkdir: () => false },
       workspace: workspaceFor(mismatchZip),
       credentials: { credential: () => ({ accountId: "other", apiToken: TOKEN }) },
       createCloudflare: () => cloudflareStub().api,
@@ -582,6 +590,64 @@ test("workers.dev サブドメインが空なら受付を 409 で止め、行を
     );
     assert.equal(empty.store.inserts, 0);
     assert.deepEqual(empty.cloudflare.published, []);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("同じ作業フォルダで会話が実行中なら公開を受け付けず、成果物を読まない操作は通す", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const { service, store, cloudflare, downloadCalls } = setup({ zip, busyWorkdir: SESSION_CWD });
+  try {
+    // 新規: 受付で止め、行も Cloudflare も増やさない
+    await assert.rejects(
+      () => service.create(payload()),
+      (error: any) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.message, SHARED_CONTENT_RUNNING);
+        return true;
+      },
+    );
+    assert.equal(store.inserts, 0);
+    assert.deepEqual(cloudflare.published, []);
+
+    // 更新: 既存行の状態と時刻を変えず、成果物も読まない
+    store.insertSharedContent(rowOf("id2"));
+    const before = store.getSharedContent("id2");
+    await assert.rejects(
+      () => service.publish("id2"),
+      (error: any) => error.statusCode === 409 && error.message === SHARED_CONTENT_RUNNING,
+    );
+    assert.deepEqual(store.getSharedContent("id2"), before);
+    assert.deepEqual(downloadCalls, []);
+
+    // 逃げ道と読み取りは実行中でも通す (プレビューは「その時点の見え方」の契約)
+    await service.preview({ sessionId: "session-1", directory: "dist" });
+    await service.stop("id2");
+    assert.deepEqual(await service.resume("id2"), { id: "id2", status: "publishing" });
+    await service.waitForIdle("id2");
+    assert.equal(store.getSharedContent("id2")?.status, "published");
+    await service.remove("id2");
+    assert.equal(store.getSharedContent("id2"), undefined);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("別の作業フォルダで会話が実行中でも、公開元の作業フォルダには影響しない", async () => {
+  // 兄弟会話の判定は cwd の一致で行う (未所属の会話は会話ごとの scratch なので、他の会話と一致しない)
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const { service, store, busyCalls } = setup({ zip, busyWorkdir: "/workspace/other" });
+  try {
+    const accepted = await service.create(payload());
+    assert.deepEqual(accepted, { id: "id1", status: "publishing" });
+    await service.waitForIdle("id1");
+    assert.equal(store.getSharedContent("id1")?.status, "published");
+    // 判定には公開元の作業フォルダ (プロジェクトの cwd) を渡している
+    assert.ok(
+      busyCalls.every((workdir) => workdir === SESSION_CWD),
+      JSON.stringify(busyCalls),
+    );
   } finally {
     zip.cleanup();
   }
@@ -1037,7 +1103,7 @@ test("sandbox の SandboxRequestError.status を 409 / 413 に写す", async () 
     } as unknown as SandboxWorkspaceClient;
     const service = new SharedContentsService({
       store: published.store,
-      sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined },
+      sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined, busyInWorkdir: () => false },
       workspace: publishWorkspace,
       credentials: { credential: () => ({ accountId: ACCOUNT, apiToken: TOKEN }) },
       createCloudflare: () => cloudflareStub().api,
@@ -1098,7 +1164,7 @@ test("subdomain 有効化の 200 本文が壊れても、照会して published 
   };
   const service = new SharedContentsService({
     store: new FakeStore(),
-    sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined },
+    sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined, busyInWorkdir: () => false },
     workspace: workspaceFor(zip),
     credentials: { credential: () => ({ accountId: ACCOUNT, apiToken: TOKEN }) },
     createCloudflare: (credential) =>
@@ -1141,7 +1207,7 @@ test("有効化の 200 本文が壊れ、照会も壊れていたら publishing 
   const store = new FakeStore();
   const service = new SharedContentsService({
     store,
-    sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined },
+    sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined, busyInWorkdir: () => false },
     workspace: workspaceFor(zip),
     credentials: { credential: () => ({ accountId: ACCOUNT, apiToken: TOKEN }) },
     createCloudflare: (credential) =>
@@ -2139,7 +2205,7 @@ test("管理操作は記録した providerAccount と現在の接続が違えば
     store.insertSharedContent(rowOf("id1"));
     const other = new SharedContentsService({
       store,
-      sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined },
+      sessions: { workdirOfId: () => SESSION_CWD, projectCwdOfId: () => undefined, busyInWorkdir: () => false },
       workspace: workspaceFor(zip),
       credentials: { credential: () => ({ accountId: "other", apiToken: TOKEN }) },
       createCloudflare: () => cloudflare.api,

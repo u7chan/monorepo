@@ -37,6 +37,11 @@ export type SessionFilesPanelProps = {
   filePreviewPort?: number;
   /** run が終わった回数 (ChatState.runEndSeq)。増えるたびに一覧と開いている本文を取り直す */
   runEndSeq: number;
+  /**
+   * 表示中の会話と同じ作業フォルダで会話が実行中なら、共有 (新規 / 更新) を押せない理由。
+   * 誰が実行中かの判定は `App` が会話一覧込みで行う (プロジェクト会話は cwd を共有するため)
+   */
+  shareBlockedReason?: string;
   onClose: () => void;
   /** 未消費のファイル参照の要求 (App の pending)。適用は FileBrowser が行う */
   openRequest?: FileRefRequest | null;
@@ -64,6 +69,7 @@ function SessionFilesContent({
   onHandled,
   sessionTitle,
   canShareSessionRoot,
+  shareBlockedReason,
   singleColumn,
 }: SessionFilesPanelProps & { singleColumn: boolean }) {
   const [manualReload, setManualReload] = useState(0);
@@ -161,6 +167,7 @@ function SessionFilesContent({
             }
             // ディレクトリ行の「共有」はセッション種別で絞らない (root の入口だけを別の prop で出す)
             canShareSessionRoot={canShareSessionRoot === true}
+            shareBlockedReason={shareBlockedReason}
           />
         </div>
       ) : (
@@ -173,6 +180,7 @@ function SessionFilesContent({
         <ShareContentDialog
           sessionId={envScope.sessionId}
           target={shareTarget}
+          runBlockedReason={shareBlockedReason}
           singleColumn={singleColumn}
           onClose={() => setShareTarget(null)}
         />

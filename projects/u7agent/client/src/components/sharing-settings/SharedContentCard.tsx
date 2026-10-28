@@ -38,6 +38,8 @@ export type SharedContentCardProps = {
   narrow: boolean;
   /** セッションが削除済み。更新だけを無効にする */
   sessionMissing: boolean;
+  /** 公開元の会話と同じ作業フォルダの会話が実行中。更新・再試行を理由付きで無効にする */
+  sessionBusy: boolean;
   /** 公開元の会話。会話一覧が信頼できて見つかったときだけ渡す（無い = リンクを出さない） */
   session: SessionSummary | undefined;
   /** 会話リンクの通常クリック。修飾キー付きはブラウザ既定（新規タブ）に任せる */
@@ -122,6 +124,7 @@ export function SharedContentCard({
   item,
   narrow,
   sessionMissing,
+  sessionBusy,
   session,
   onOpenSession,
   busy,
@@ -174,9 +177,9 @@ export function SharedContentCard({
     }
   };
 
-  const rowActions = sharedContentActions(item, { sessionMissing });
-  const menuActions = sharedContentMenuActions(item, { sessionMissing, narrow });
-  const primary = sharedContentPrimaryAction(item, { sessionMissing });
+  const rowActions = sharedContentActions(item, { sessionMissing, sessionBusy });
+  const menuActions = sharedContentMenuActions(item, { sessionMissing, narrow, sessionBusy });
+  const primary = sharedContentPrimaryAction(item, { sessionMissing, sessionBusy });
   const undeployed = isSharedContentUndeployed(item);
   // 停止中も URL は見せる契約だが、開く・コピーは出さない（未デプロイは URL 自体を出さない）
   const showUrl = item.publicUrl !== null && item.status !== "publishing" && !undeployed;

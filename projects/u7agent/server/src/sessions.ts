@@ -2316,6 +2316,19 @@ export class SessionStore {
     return this.workdirOf(id, meta.projectCwd, meta.spaceId);
   }
 
+  /**
+   * 同じ作業フォルダを使う live の会話に実行中 (実行 / キュー待ち / 圧縮) のものがあるか。
+   * プロジェクト会話は同じ `projectCwd` を全セッションで共有するため、自分の会話が idle でも
+   * 兄弟会話が成果物を書き換えていることがある。未所属の会話は会話ごとの scratch なので、
+   * 自分の会話以外と一致しない。live でない会話に run は無い (SDK セッションは開かない)。
+   */
+  busyInWorkdir(workdir: string): boolean {
+    for (const record of this.records.values()) {
+      if (record.workdir === workdir && this.isBusy(record)) return true;
+    }
+    return false;
+  }
+
   spaceOfId(id: string): string | undefined {
     const meta = this.records.get(id)?.meta ?? this.descriptors.get(id);
     return meta ? (meta.spaceId ?? "default") : undefined;

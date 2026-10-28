@@ -14,6 +14,7 @@ import {
   SHARE_NAME_MAX_LENGTH,
   SHARE_PREVIEW_FAILED_UPDATE_HINT,
   SHARE_PUBLISHING_NOTE,
+  SHARE_RUNNING_NOTE,
   SHARE_UPDATE_CONFIRM_NOTES,
   SHARE_UPDATE_NOTE_INCOMPLETE,
   SHARE_UPDATE_NOTE_LIVE,
@@ -86,11 +87,13 @@ function readyPreview(sourcePath: string): SharedContentPreviewResponse {
 function render(
   share: SharedContentsController,
   target: { directory: string; defaultName: string } = { directory: "dist", defaultName: "" },
+  runBlockedReason?: string,
 ): string {
   return renderToStaticMarkup(
     createElement(ShareContentDialogView, {
       target,
       share,
+      ...(runBlockedReason === undefined ? {} : { runBlockedReason }),
       onClose: () => {},
     }),
   );
@@ -307,6 +310,32 @@ test("更新（未デプロイ / failed）: 前回の公開が未完了である
     assert.equal(publish.includes("URL をコピー"), false);
     assert.equal(publish.includes(">開く<"), false);
   }
+});
+
+// What: 実行中は主操作（と副次の新規作成）を押せず、実行が終わってから共有する理由を出す
+test("実行中: 主操作と副次を押せず、理由を出す（開いた後に run が始まるケース）", () => {
+  const html = render(
+    controller({
+      items: [item({ status: "published", publishedAt: PUBLISHED_AT })],
+      preview: { status: "ready", preview: readyPreview("projects/app/dist") },
+    }),
+    { directory: "dist", defaultName: "" },
+    SHARE_RUNNING_NOTE,
+  );
+  assert.ok(html.includes(SHARE_RUNNING_NOTE), "押せない理由が抜けている");
+  assert.equal(isDisabled(actionTag(html, "更新する")), true);
+  assert.equal(isDisabled(actionTag(html, "新しく共有")), true);
+  // 取り消しは塞がない (理由を読んで閉じられる)
+  assert.equal(isDisabled(actionTag(html, "キャンセル")), false);
+
+  // 新規の面でも同じ (共有するを押せない)
+  const created = render(controller(), { directory: "dist", defaultName: "" }, SHARE_RUNNING_NOTE);
+  assert.ok(created.includes(SHARE_RUNNING_NOTE));
+  assert.equal(isDisabled(actionTag(created, "共有する")), true);
+
+  // 理由が無ければ従来どおり押せる
+  const free = render(controller());
+  assert.equal(isDisabled(actionTag(free, "共有する")), false);
 });
 
 // What: 同じ公開元が公開中の間は主操作を出さず、理由だけを出す (押す前の再送を塞ぐ)
