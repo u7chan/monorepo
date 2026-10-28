@@ -440,7 +440,7 @@ export function FileBrowser({
     >
       <div className="relative flex h-full min-h-0 flex-col @2xl:flex-row">
         {/* タブがあるときは shrink-0 を付けない。低い viewport でツリーが全高を取るとプレビュー本文が見えなくなるため、
-            プレビューへ高さを譲る。タブが無いときはツリーを全幅に使う (空の列を作らない)。
+            プレビューの min-h-40 へ譲る。タブが無いときはツリーを全幅に使う (空の列を作らない)。
             左右 2 段では幅を --file-tree-width で選べる (既定はコンテナの 1/3。lib/fileTreeWidth.ts)、
             上下 2 段では高さを --file-tree-height で選べる (既定は内容の高さ。lib/fileTreeHeight.ts) */}
         <div
