@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type Ref, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isAudioName, isImageName } from "../lib/attachments";
@@ -8,6 +9,8 @@ import { selectCopyTarget } from "../lib/copyToClipboard";
 import { buildPreviewCode, isHtmlPath, isMarkdownPath, previewCopyText } from "../lib/fileCode";
 import { filePreviewErrorHint } from "../lib/filePreviewError";
 import {
+  FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL,
+  FILE_PREVIEW_FULLSCREEN_OPEN_LABEL,
   dropClosedPreviews,
   fileTabLabels,
   isMiddleClick,
@@ -27,7 +30,7 @@ import { SegmentedControl } from "./SegmentedControl";
 import { MarkdownFilePreview } from "./markdown/MarkdownFilePreview";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { CopyButton } from "./chat/CopyButton";
-import { CloseIcon, ExternalLinkIcon } from "./icons";
+import { CloseIcon, CollapseIcon, ExpandIcon, ExternalLinkIcon } from "./icons";
 
 const PREVIEW_MODES: { value: PreviewMode; label: string }[] = [
   { value: "source", label: "ソース" },
@@ -86,6 +89,21 @@ export function FilePreview({
   onClose,
 }: FilePreviewProps) {
   const [results, setResults] = useState<PreviewResults>({});
+  // 全画面の読み面。狭い面ではツリーと分け合ってプレビューが数十行しか見えないため、同じ面を dialog へ移す
+  // (複製すると HTML の iframe が 2 枚になる)。閉じたらボタンへ焦点を戻す
+  const [fullscreen, setFullscreen] = useState(false);
+  const fullscreenDialogRef = useRef<HTMLDialogElement>(null);
+  const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFullscreenFocus = useRef(false);
+  useEffect(() => {
+    const dialog = fullscreenDialogRef.current;
+    if (fullscreen && dialog !== null && !dialog.open) dialog.showModal();
+  }, [fullscreen]);
+  useEffect(() => {
+    if (fullscreen || !restoreFullscreenFocus.current) return;
+    restoreFullscreenFocus.current = false;
+    fullscreenButtonRef.current?.focus();
+  }, [fullscreen]);
   // 読み込みが終わった画像の寸法。パスを一緒に持ち、タブを切り替えたら前のタブの値を出さない
   const [loadedImage, setLoadedImage] = useState<{ path: string; dimensions: ImageDimensions } | null>(null);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
@@ -152,7 +170,7 @@ export function FilePreview({
     setResults((prev) => dropClosedPreviews(prev, paths));
   }, [paths]);
 
-  return (
+  const preview = (
     // 幅が足りないときはツリーの下 (border-t)、コンテナが @2xl 以上ならツリーの右 (border-l) へ置く
     <section
       aria-label="ファイルプレビュー"
@@ -217,6 +235,19 @@ export function FilePreview({
             <ExternalLinkIcon />
           </a>
         ) : null}
+        <button
+          type="button"
+          ref={fullscreenButtonRef}
+          aria-label={fullscreen ? FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL : FILE_PREVIEW_FULLSCREEN_OPEN_LABEL}
+          title={fullscreen ? FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL : FILE_PREVIEW_FULLSCREEN_OPEN_LABEL}
+          onClick={() => {
+            if (fullscreen) fullscreenDialogRef.current?.close();
+            else setFullscreen(true);
+          }}
+          className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:text-accent-text"
+        >
+          {fullscreen ? <CollapseIcon /> : <ExpandIcon />}
+        </button>
       </div>
       {result?.error && !skipFetch ? (
         <p role="alert" className="px-4 py-2 text-xs break-words text-danger-text">
@@ -300,6 +331,27 @@ export function FilePreview({
         </div>
       )}
     </section>
+  );
+
+  if (!fullscreen) return preview;
+  return createPortal(
+    <dialog
+      ref={fullscreenDialogRef}
+      aria-label="ファイルプレビュー"
+      onClose={() => {
+        restoreFullscreenFocus.current = true;
+        setFullscreen(false);
+      }}
+      // 止めないと設定ページの Escape (一覧へ戻る / チャットへ戻る) まで届く
+      onKeyDown={(event) => {
+        if (event.key === "Escape") event.stopPropagation();
+      }}
+      // h-dvh + 余白なし: プレビュー本体が viewport の高さいっぱいを使う
+      className="m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-panel p-0"
+    >
+      {preview}
+    </dialog>,
+    document.body,
   );
 }
 
