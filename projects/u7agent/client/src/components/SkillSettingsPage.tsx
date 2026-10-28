@@ -9,6 +9,8 @@ import {
   FILE_SKILL_PANE_ERROR_NOTE,
   FILE_SKILL_PANE_LOADING_NOTE,
   FILE_SKILL_PANE_NOTE,
+  FILE_SKILL_RELOAD_ARIA_LABEL,
+  FILE_SKILL_RELOAD_LABEL,
   FILE_SKILL_SCOPE_LABEL,
   FILE_SKILL_SCOPE_TABS,
   SKILL_EXPORT_LABEL,
@@ -28,11 +30,14 @@ import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
 import { SettingsSearchField } from "./SettingsSearchField";
 import { SettingsTabs } from "./SettingsTabs";
+import { LoadingMark } from "./LoadingMark";
+import { TabToolbar } from "./TabToolbar";
+import { ReloadButton } from "./ReloadButton";
 import { FileSkillEditorForm } from "./skill-settings/FileSkillEditorForm";
 import { FileSkillList } from "./skill-settings/FileSkillList";
 import { FileSkillPanel } from "./skill-settings/FileSkillPanel";
 import { SkillImportDialog } from "./skill-settings/SkillImportDialog";
-import { PencilIcon, PlusIcon, SparkleIcon, SkillListIcon } from "./icons";
+import { DownloadIcon, PencilIcon, PlusIcon, SparkleIcon, SkillListIcon, UploadIcon } from "./icons";
 
 export type SkillSettingsPageProps = SettingsPageProps & {
   /**
@@ -68,6 +73,16 @@ export function fileSkillAddRow(
 export function fileSkillPaneNote(state: FileSkillsState): string {
   if (state.status === "ready") return FILE_SKILL_PANE_NOTE;
   return state.status === "loading" ? FILE_SKILL_PANE_LOADING_NOTE : FILE_SKILL_PANE_ERROR_NOTE;
+}
+
+/**
+ * 面の案内を文ごとに行へ分ける。日本語は文節の途中でも折り返されるので、そのまま流すと
+ * 「…「新しいスキル」か / ら作成できます。」のように語の途中で切れる。文の切れ目で行を分けて置く
+ */
+export function fileSkillPaneNoteLines(state: FileSkillsState): string[] {
+  return fileSkillPaneNote(state)
+    .split(/(?<=。)/)
+    .filter((line) => line !== "");
 }
 
 /** 一覧と詳細のどちらを見せるか。並列表示では使わない */
@@ -261,6 +276,50 @@ export function SkillSettingsPage({
 
   const counts = fileSkills.state.status === "ready" ? fileSkillScopeCounts(fileSkills.state.skills) : undefined;
   const add = fileSkillAddRow(fileSkills.state, startNewFileSkill);
+  const listErrorNote = fileSkills.state.status === "error" ? RELOAD_ABOVE_NOTE : null;
+
+  // 一覧に属するファイル操作は、一覧を見ている間だけヘッダ直下の帯の右端に出す (設定 → モデルと同じ形)。
+  // 詳細を開いている間と、隠れた一覧の上には出さない
+  const fileOps =
+    split || view === "list" ? (
+      <>
+        <button
+          type="button"
+          onClick={() => void archive.exportSkills()}
+          disabled={archive.exporting}
+          className="btn-quiet"
+        >
+          <DownloadIcon small />
+          {SKILL_EXPORT_LABEL}
+        </button>
+        <button
+          type="button"
+          onClick={() => archiveImportRef.current?.click()}
+          disabled={archive.import.status === "planning" || archive.import.status === "applying"}
+          className="btn-quiet"
+        >
+          <UploadIcon small />
+          {SKILL_IMPORT_LABEL}
+        </button>
+        <ReloadButton onClick={fileSkills.reload} aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}>
+          {FILE_SKILL_RELOAD_LABEL}
+        </ReloadButton>
+        <input
+          ref={archiveImportRef}
+          type="file"
+          accept=".zip,application/zip"
+          tabIndex={-1}
+          aria-hidden="true"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            // 選択の取消 (files が空) では何もしない
+            if (file) void archive.selectImportFile(file);
+          }}
+        />
+      </>
+    ) : undefined;
 
   const list = (
     <DefinitionList
@@ -275,6 +334,8 @@ export function SkillSettingsPage({
           onSelect={setScope}
           ariaLabel="スキルの種類"
           singleColumn={singleColumn}
+          // 並列表示の一覧列は 248px で、既定の余白だと 3 つのタブが 10px はみ出す
+          dense={split}
         />
       }
       search={
@@ -286,56 +347,21 @@ export function SkillSettingsPage({
         />
       }
       footer={
-        <div className="grid gap-1.5">
-          {add ? (
-            <button
-              type="button"
-              onClick={add.onAdd}
-              className="flex min-h-11 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-3 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
-            >
-              <PlusIcon />
-              {add.label}
-            </button>
-          ) : null}
-          <div className="flex min-w-0 flex-wrap items-center gap-1">
-            <button
-              type="button"
-              onClick={() => void archive.exportSkills()}
-              disabled={archive.exporting}
-              className="btn-quiet min-h-9 px-2 text-2xs"
-            >
-              {SKILL_EXPORT_LABEL}
-            </button>
-            <button
-              type="button"
-              onClick={() => archiveImportRef.current?.click()}
-              disabled={archive.import.status === "planning" || archive.import.status === "applying"}
-              className="btn-quiet min-h-9 px-2 text-2xs"
-            >
-              {SKILL_IMPORT_LABEL}
-            </button>
-            <button type="button" onClick={fileSkills.reload} className="btn-quiet ml-auto min-h-9 px-2 text-2xs">
-              再読み込み
-            </button>
-            <input
-              ref={archiveImportRef}
-              type="file"
-              accept=".zip,application/zip"
-              tabIndex={-1}
-              aria-hidden="true"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                event.currentTarget.value = "";
-                // 選択の取消 (files が空) では何もしない
-                if (file) void archive.selectImportFile(file);
-              }}
-            />
+        add || listErrorNote ? (
+          <div className="grid gap-1.5">
+            {add ? (
+              <button
+                type="button"
+                onClick={add.onAdd}
+                className="flex min-h-11 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border border-dashed border-line px-3 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:bg-hover hover:text-accent-text"
+              >
+                <PlusIcon />
+                {add.label}
+              </button>
+            ) : null}
+            {listErrorNote ? <p className="text-2xs leading-4 text-ink-muted">{listErrorNote}</p> : null}
           </div>
-          {fileSkills.state.status === "error" ? (
-            <p className="text-2xs leading-4 text-ink-muted">{RELOAD_ABOVE_NOTE}</p>
-          ) : null}
-        </div>
+        ) : undefined
       }
     >
       <FileSkillList
@@ -401,6 +427,14 @@ export function SkillSettingsPage({
     : editingFileSkill && selectedFileSkill
       ? `${selectedFileSkill.name} を編集`
       : undefined;
+  // ピッカーは一覧が隠れているときだけ出す (並べて見えている間は行の選択で切り替えられる)。
+  // 選択が無い間も、切り替え先が無いので空のピッカー (名前も印も無い 1 つの chevron) を出さない。
+  // 中身が何も無いヘッダだけが残らないよう、見出しも選択も無いときは行ごと落とす
+  const showPicker = !split && heading === undefined && selectedFileSkill !== undefined;
+  // 見出し移動と読み上げのための名前。ページのヘッダを畳む面では画面から h2 が消えるので、
+  // 詳細のヘッダに sr-only の h2 として同じ文字列を残す
+  const detailHeading = heading ?? selectedFileSkill?.name;
+  const showDetailHeader = heading !== undefined || selectedFileSkill !== undefined;
 
   const detailContent = creatingFileSkill ? (
     <FileSkillEditorForm
@@ -433,47 +467,78 @@ export function SkillSettingsPage({
       usage={usage}
       filePreviewPort={filePreviewPort}
       rootCwd={rootCwd}
+      singleColumn={singleColumn}
     />
   ) : (
-    <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
-      <p className="mx-auto max-w-3xl text-1xs leading-relaxed text-ink-muted">{fileSkillPaneNote(fileSkills.state)}</p>
+    // 選択が無いときの面。並列表示では右半分が丸ごと空くので、上端に文を置かず面の中央に寄せ、
+    // 印と文を横に並べる (狭い面は一覧と詳細を切り替えるので、この面は出ない)
+    <div className="grid min-h-0 min-w-0 flex-1 place-items-center px-6 py-8">
+      <div className="flex max-w-md items-start gap-2 text-xs leading-relaxed text-ink-muted">
+        {/* 行の先頭にそろえる (中央に置くと 2 行の間を指す) */}
+        <span className="mt-0.5 flex shrink-0">
+          {fileSkills.state.status === "loading" ? <LoadingMark /> : <SkillListIcon />}
+        </span>
+        <p className="grid gap-0.5">
+          {fileSkillPaneNoteLines(fileSkills.state).map((line) => (
+            <span key={line}>{line}</span>
+          ))}
+        </p>
+      </div>
     </div>
   );
 
   const detail = (
-    <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto]">
-      <SettingsDetailHeader
-        ref={detailRef}
-        back={split ? undefined : { label: "スキル一覧へ", onClick: () => setView("list") }}
-        leading={
-          selectedFileSkill?.scope === "builtin" ? <SparkleIcon /> : selectedFileSkill ? <SkillListIcon /> : undefined
-        }
-        title={
-          heading ? (
-            <span className="truncate text-sm font-semibold text-ink-strong">{heading}</span>
-          ) : (
-            <SelectMenu
-              options={pickerOptions}
-              value={selectedFileSkill?.relativePath ?? ""}
-              label="スキルを切り替える"
-              triggerClassName="min-h-11"
-              onChange={(value) => {
-                const next = pickerSkills.find((skill) => skill.relativePath === value);
-                if (next) selectFileSkill(next);
-              }}
-            />
-          )
-        }
-        badge={
-          // 版はピッカーの detail に 1 箇所だけ出す (ヘッダの badge と二重にしない)
-          selectedFileSkill ? (
-            <span className="rounded border border-accent/50 bg-accent-wash px-1.5 text-2xs leading-4 text-accent-text">
-              {FILE_SKILL_SCOPE_LABEL[selectedFileSkill.scope]}
-            </span>
-          ) : undefined
-        }
-        actions={actions}
-      />
+    <div
+      className={
+        showDetailHeader
+          ? "grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto]"
+          : "grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto]"
+      }
+    >
+      {showDetailHeader ? (
+        <SettingsDetailHeader
+          ref={detailRef}
+          back={split ? undefined : { label: "スキル一覧へ", onClick: () => setView("list") }}
+          // ピッカーは選択肢と同じ印をトリガーにも出すので、その左に重ねない (狭い幅で名前の幅を削る)
+          leading={
+            heading && selectedFileSkill ? (
+              selectedFileSkill.scope === "builtin" ? (
+                <SparkleIcon />
+              ) : (
+                <SkillListIcon />
+              )
+            ) : undefined
+          }
+          heading={detailHeading}
+          title={
+            heading ? (
+              <span className="truncate text-sm font-semibold text-ink-strong">{heading}</span>
+            ) : selectedFileSkill && !showPicker ? (
+              <span className="block truncate text-sm font-semibold text-ink-strong">{selectedFileSkill.name}</span>
+            ) : showPicker && selectedFileSkill ? (
+              <SelectMenu
+                options={pickerOptions}
+                value={selectedFileSkill.relativePath}
+                label="スキルを切り替える"
+                triggerClassName="min-h-11"
+                onChange={(value) => {
+                  const next = pickerSkills.find((skill) => skill.relativePath === value);
+                  if (next) selectFileSkill(next);
+                }}
+              />
+            ) : undefined
+          }
+          badge={
+            // 版はピッカーの detail に 1 箇所だけ出す (ヘッダの badge と二重にしない)
+            selectedFileSkill ? (
+              <span className="rounded border border-accent/50 bg-accent-wash px-1.5 text-2xs leading-4 text-accent-text">
+                {FILE_SKILL_SCOPE_LABEL[selectedFileSkill.scope]}
+              </span>
+            ) : undefined
+          }
+          actions={actions}
+        />
+      ) : null}
       {detailContent}
       {split ? null : <SettingsNoteRow note={note} />}
     </div>
@@ -488,6 +553,9 @@ export function SkillSettingsPage({
         singleColumn={singleColumn}
         onOpenNav={onOpenNav}
         onBack={onBack}
+        // 詳細を開いている間はページの説明を落とし、戻る / ☰ の操作行だけにする
+        collapseHeader={singleColumn && view === "detail"}
+        toolbar={fileOps ? <TabToolbar actions={fileOps} /> : undefined}
         note={split || view === "list" ? note : undefined}
       >
         {split ? (

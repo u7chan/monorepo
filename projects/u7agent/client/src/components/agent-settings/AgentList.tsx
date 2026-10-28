@@ -92,7 +92,7 @@ export function AgentList({
                 icon={<AgentIcon icon={agent.icon} variant="list" />}
                 label={agent.name}
                 description={agent.description || "説明なし"}
-                status={agent.id === builtinId ? { text: "ビルトイン", tone: "muted" } : undefined}
+                status={agent.id === builtinId ? { text: "組み込み", tone: "muted" } : undefined}
                 selected={editingId === agent.id}
                 current="true"
                 onClick={() => onSelect(agent.id)}

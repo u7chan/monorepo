@@ -16,15 +16,15 @@ import { SkillGroup, SkillRow } from "./SkillRow";
 /** 見出しの右に出す断り。スイッチを出さない理由をここで伝える */
 export const BUILTIN_PANEL_SKILLS_READONLY_LABEL = "このエージェントでは変更できません";
 /**
- * 読み取り専用のスキル節の注記。ビルトインは許可リストを持たない (未指定 = 全部 ON) ので、
+ * 読み取り専用のスキル節の注記。組み込みのエージェントは許可リストを持たない (未指定 = 全部 ON) ので、
  * 外す導線の代わりに規則と置き場を説明する。
  */
 export const BUILTIN_PANEL_SKILLS_NOTE =
-  "ビルトインは外す設定を持たないため、共通スキルと組み込みスキルは常にすべて使用されます。共通スキルはワークスペース直下の .agents/skills にあり、増減してもこの画面を開き直せば反映されます。プロジェクトのスキル（会話の作業ディレクトリ配下の .agents/skills）は会話ごとに決まり、この画面には出ません。";
+  "組み込みエージェントは外す設定を持たないため、共通スキルと組み込みスキルは常にすべて使用されます。共通スキルはワークスペース直下の .agents/skills にあり、増減してもこの画面を開き直せば反映されます。プロジェクトのスキル（会話の作業ディレクトリ配下の .agents/skills）は会話ごとに決まり、この画面には出ません。";
 /** ツール節の断り。ビルトインは `toolNames` を持たないので、ここでもスイッチは出さない */
 export const BUILTIN_PANEL_TOOLS_READONLY_LABEL = "このエージェントでは外せません";
-/** ビルトインは自然文では発火しない (定義側も false)。行の OFF と合わせて理由をここで伝える */
-export const BUILTIN_PANEL_INVOCATION_FIXED_NOTE = "ビルトインは常に OFF です（自然文では発火しません）。";
+/** 組み込みのエージェントは自然文では発火しない (定義側も false)。行の OFF と合わせて理由をここで伝える */
+export const BUILTIN_PANEL_INVOCATION_FIXED_NOTE = "組み込みエージェントは常に OFF です（自然文では発火しません）。";
 
 /**
  * ビルトインはサーバー所有で編集も削除もできないので、
@@ -170,7 +170,7 @@ export function BuiltinAgentPanel({
               </div>
             </section>
             <p className="text-1xs leading-relaxed text-ink-muted">
-              このエージェントはビルトインのため編集・削除できません。新しい会話の既定として常に 1 体用意され、モデルと
+              このエージェントは組み込みのため編集・削除できません。新しい会話の既定として常に 1 体用意され、モデルと
               Effort はアプリ既定に従います。
             </p>
           </div>

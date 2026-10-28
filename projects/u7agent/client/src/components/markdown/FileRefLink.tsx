@@ -35,6 +35,14 @@ export function FileRefProvider({ rootCwd, cwd, onOpen, children }: FileRefProvi
   return <FileRefContext.Provider value={value}>{children}</FileRefContext.Provider>;
 }
 
+/**
+ * 解決規則が面ごとに違うとき (スキル本文の参照は skill dir 基準) に、解決関数ごと渡す。
+ * 値は呼び出し側で memo する (本文の再描画を招かないため)。
+ */
+export function FileRefOpenerProvider({ value, children }: { value: FileRefOpener; children: ReactNode }) {
+  return <FileRefContext.Provider value={value}>{children}</FileRefContext.Provider>;
+}
+
 /** 参照にならない字面と provider の外 (設定ページの再利用など) は従来どおりのインラインコードにする */
 export function InlineFileRef({ text }: { text: string }) {
   const opener = useContext(FileRefContext);

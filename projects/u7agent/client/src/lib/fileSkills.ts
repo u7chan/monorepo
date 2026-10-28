@@ -3,6 +3,8 @@
  * コンポーネントは結果を描画するだけにする (docs/api-catalog.md)。
  */
 import { formatBytes } from "./attachments";
+import { codeLineCount } from "./codeLines";
+import { matchFileRef } from "./fileRef";
 import { filterBySearch } from "./settingsSearch";
 import type { FileSkillInfo, SandboxSkillImportPlanEntry } from "../types";
 
@@ -71,6 +73,39 @@ export function fileSkillUsageLabel(count: number): string {
 /** 本文の取得中 / 失敗の表示。組み込みは一覧の応答に本文が載るため、ファイルスキルだけが通る */
 export const FILE_SKILL_BODY_LOADING_NOTE = "本文を読み込んでいます…";
 export const FILE_SKILL_BODY_ERROR_PREFIX = "本文を取得できませんでした";
+
+/**
+ * 本文の表示。ソースは取得した生のテキスト、プレビューは同じ本文を Markdown として描く
+ * (既定はプレビュー。スキルは手順書として読むものなので、まず読める形で開く)
+ */
+export const SKILL_BODY_VIEW_ARIA_LABEL = "本文の表示";
+export const SKILL_BODY_VIEW_MODES = [
+  { value: "source", label: "ソース" },
+  { value: "preview", label: "プレビュー" },
+] as const;
+export type SkillBodyView = (typeof SKILL_BODY_VIEW_MODES)[number]["value"];
+/** 本文を全画面の読み面で開く / 閉じる。狭い幅ではページの外枠が本文の高さを削る */
+export const SKILL_BODY_READER_OPEN_LABEL = "全画面で読む";
+export const SKILL_BODY_READER_CLOSE_LABEL = "全画面を閉じる";
+
+/**
+ * 本文の枠のヘッダに出す補足。行数はソースの行数で、プレビューに切り替えても変わらない
+ * (何行のファイルを見ているかを常に同じ値で示す)
+ */
+export function skillBodyMetaLabel(text: string): string {
+  const lines = codeLineCount(text);
+  return lines > 0 ? `SKILL.md · ${lines} 行` : "SKILL.md";
+}
+
+/**
+ * プレビューに渡す本文。先頭の YAML frontmatter は、名前と説明というアプリのメタデータで、
+ * ヘッダと説明欄に既に出ているため、本文のプレビューでは落とす (原文はソース表示で読める)。
+ * 閉じの無いものや行内で閉じているものは frontmatter とみなさず、そのまま渡す。
+ */
+export function skillBodyPreviewText(text: string): string {
+  const match = text.match(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/);
+  return match ? text.slice(match[0].length) : text;
+}
 
 /** 一覧のスコープタブ。「すべて」では組み込みを先頭に並べる */
 export type FileSkillScopeTab = "all" | "builtin" | "common";
@@ -204,4 +239,19 @@ export function fileSkillWarning(skill: FileSkillInfo): string | null {
   if (skill.shadowed.length === 0) return null;
   const shadowed = skill.shadowed.map((item) => item.relativePath).join(", ");
   return `同名のスキルが ${skill.shadowed.length + 1} 件あります。有効: ${skill.relativePath} / 読み込まれない: ${shadowed}`;
+}
+
+/**
+ * 本文のコードスパンがスキルディレクトリ配下のファイルを指すか。指すなら skill dir 相対のパスを返す。
+ * 字句判定だけ (実在は開いたときに FileBrowser が確かめる) で、裸名と root 外の絶対パスは採らない
+ * (本文のありふれたコードスパンをリンクにしないため。規則は chat のファイル参照と同じ)。
+ */
+export function skillFileRefPath(raw: string): string | null {
+  // 本文は `scripts/run.sh --depth 3` のように「パス + 引数」で書かれることが多いので、先頭の 1 語だけを
+  // パスとして見る。先頭がパスでないもの (`bash scripts/run.sh`) は採らない (コマンド行を参照にしない)
+  const head = raw.split(/\s+/, 1)[0] ?? "";
+  if (!head.includes("/")) return null;
+  const path = matchFileRef(head);
+  if (path === null || path.startsWith("/")) return null;
+  return path;
 }

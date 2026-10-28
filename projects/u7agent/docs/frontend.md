@@ -32,7 +32,7 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 - 認識済みコンポーネントへ渡す className は静的に読める形で書く（`shadcn/require-static-classes`）。ヘルパーの戻り値や、別 module から import したクラス定数を渡すと違反になるので、その場合はコンポーネント側に props を足す
 - 図形は CSS（幅と背景色）か SVG で描く。**ブロック要素のグリフ（`█` / `▁` など）は端末のフォント次第で字形が崩れ、等幅にならない**ため `tabular-nums` も効かない。`style` 属性は CSP と `shadcn/no-inline-styles` で使えない
 - **状態で見た目を切り替えるボタンの土台は `@layer components` に置く。** utilities 同士で同じプロパティを並べると（`border-line` と `border-accent/50` など）生成 CSS の順序で勝敗が決まり、`cn()` の後勝ちにならない
-- 折りたたみ（`<details>`）は browser 既定のマーカーを外し、本文の高さを `details::details-content` の遷移で見せる。未対応のブラウザーでは瞬時に開閉するだけで機能は落ちない
+- 折りたたみ（`<details>`）は browser 既定のマーカーを外し、本文の高さを `details::details-content` の遷移で見せる。未対応のブラウザーでは瞬時に開閉するだけで機能は落ちない。**実機で必ず滑らかに開かせたい面は `details` を使わず、`aria-expanded` のボタン + `.tree-fold`（grid の 0fr → 1fr）で開閉する**（スキル詳細の説明。`interpolate-size` は Safari に無く、`details::details-content` の遷移が効かない）
 - コピー確定や再取得の演出は**取得の完了に紐づけない**（速い応答では何も見えず、応答が返らないときは回りっぱなしになって「止まった」と区別できない）。`prefers-reduced-motion` では animation だけを切る
 
 ## チャット状態とレンダリング

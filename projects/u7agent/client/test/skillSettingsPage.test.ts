@@ -14,6 +14,8 @@ import {
   FILE_SKILL_PANE_ERROR_NOTE,
   FILE_SKILL_PANE_LOADING_NOTE,
   FILE_SKILL_PANE_NOTE,
+  FILE_SKILL_RELOAD_ARIA_LABEL,
+  FILE_SKILL_RELOAD_LABEL,
   SKILL_EXPORT_LABEL,
   SKILL_IMPORT_LABEL,
 } from "../src/lib/fileSkills";
@@ -26,7 +28,8 @@ globalThis.location ??= { origin: "http://localhost" } as Location;
   addEventListener() {},
   removeEventListener() {},
 };
-const { SkillSettingsPage, fileSkillAddRow, fileSkillPaneNote } = await import("../src/components/SkillSettingsPage");
+const { SkillSettingsPage, fileSkillAddRow, fileSkillPaneNote, fileSkillPaneNoteLines } =
+  await import("../src/components/SkillSettingsPage");
 
 /** 追加行の有無は button の描画で見る (文言だけの一致では見出しや注記と区別できない) */
 function hasAddRow(html: string): boolean {
@@ -49,6 +52,15 @@ test("選択が無いときの案内は一覧を取得できていない間は�
   assert.equal(fileSkillPaneNote({ status: "error", message: "取得に失敗" }), FILE_SKILL_PANE_ERROR_NOTE);
   // 追加行が出ない状態で「新しいスキル」からの作成を案内すると、押せない操作を促すことになる
   assert.ok(FILE_SKILL_PANE_NOTE.includes("作成できます"));
+
+  // 日本語は文節の途中でも折り返されるので、案内は文の切れ目で行に分ける (「か / ら」で切れない)
+  const lines = fileSkillPaneNoteLines({ status: "ready", skills: [] });
+  assert.equal(lines.length, 2);
+  assert.ok(lines[0]?.endsWith("。"));
+  assert.equal(lines.join(""), FILE_SKILL_PANE_NOTE);
+  const loadingLines = fileSkillPaneNoteLines({ status: "loading" });
+  assert.equal(loadingLines.length, 2);
+  assert.ok(loadingLines[1]?.endsWith("…"));
   assert.ok(!FILE_SKILL_PANE_LOADING_NOTE.includes("作成できます"));
   assert.ok(!FILE_SKILL_PANE_ERROR_NOTE.includes("作成できます"));
 });
@@ -98,4 +110,33 @@ test("DefinitionList の空状態は未絞込の count に依らず、渡され�
     createElement(DefinitionList, { title: "エージェント一覧", count: 0, children: null }),
   );
   assert.ok(!withoutLabel.includes("条件に合うエージェントがありません。"), "空状態を渡していないのに文言が出ている");
+});
+
+test("並列表示で何も選んでいない間は、空のピッカーと詳細ヘッダを出さない", () => {
+  // window.innerWidth は 1440 なので、この描画は一覧と詳細を並べる (split) 側になる
+  const html = renderToStaticMarkup(
+    createElement(ConfirmProvider, null, createElement(SkillSettingsPage, { onBack: () => {}, onOpenNav: () => {} })),
+  );
+  // 選択肢が無いと名前も印も無い chevron だけが残るため、ピッカーごと出さない
+  assert.ok(!html.includes("スキルを切り替える"), "選択が無いのに空のピッカーが出ている");
+  // ヘッダはページ自身の 1 つだけ。中身の無い詳細ヘッダの帯を残さない
+  assert.equal(html.match(/<header/g)?.length, 1, "選択が無いのに詳細ヘッダの帯が出ている");
+  // 案内は文ごとに行を分けて描くので、行ごとに出ていることを見る
+  for (const line of fileSkillPaneNoteLines({ status: "loading" })) {
+    assert.ok(html.includes(line), "選択が無いときの案内が無い");
+  }
+});
+
+test("エクスポート / インポート / 再読み込みは一覧の頭の帯へ置き、フッターには追加だけを残す", () => {
+  const html = renderToStaticMarkup(
+    createElement(ConfirmProvider, null, createElement(SkillSettingsPage, { onBack: () => {}, onOpenNav: () => {} })),
+  );
+  const reloadAt = html.indexOf(FILE_SKILL_RELOAD_LABEL);
+  assert.ok(reloadAt > 0);
+  assert.ok(html.includes(SKILL_EXPORT_LABEL));
+  assert.ok(html.includes(SKILL_IMPORT_LABEL));
+  // 何を取り直すのかが読み上げで分かるようにする
+  assert.match(html, new RegExp(`aria-label="${FILE_SKILL_RELOAD_ARIA_LABEL}"`));
+  // 帯は一覧より上にある (スコープタブ・検索欄より前に出る)
+  assert.ok(reloadAt < html.indexOf("スキルの種類"), "帯が一覧より下にある");
 });

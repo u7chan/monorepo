@@ -35,10 +35,10 @@ export const SKILL_SEARCH_ARIA_LABEL = "スキルを絞り込む";
  * (同梱物そのものは変更しない。docs/api-catalog.md#組み込みスキル)。
  */
 export const BUILTIN_SECTION_NOTE =
-  "外しても同梱物は変わりません。このエージェントの会話でだけ読み込まれなくなります。";
+  "組み込みスキルは外しても変わりません。このエージェントの会話で使わなくなるだけです。";
 /** 明示リストは対象の名前だけを使う。同梱物が増えても勝手に有効にしないことを注記で知らせる */
 export const BUILTIN_SKILL_EXPLICIT_NOTE =
-  "選んだ組み込みスキルだけを使います。あとから同梱された分は自動では選ばれません。";
+  "選んだ組み込みスキルだけを使います。あとから増えた分は自動では選ばれません。";
 
 /**
  * 共通スキルの注記。行に出る「自動起動なし」(`disable-model-invocation` = モデルが自分からは起動しない) とは
@@ -46,9 +46,9 @@ export const BUILTIN_SKILL_EXPLICIT_NOTE =
  * (docs/ui-layout.md)。共通スキルのファイルは変更しない。
  */
 export const COMMON_SKILL_SECTION_NOTE =
-  "外してもファイルは消えません。このエージェントの会話でだけ読み込まれなくなります。";
+  "共通スキルは外してもファイルは消えません。このエージェントの会話で使わなくなるだけです。";
 /** 明示リストは対象の名前だけを使う。一覧が後から増えても勝手に有効にしないことを注記で知らせる */
-export const COMMON_SKILL_EXPLICIT_NOTE = "選んだ名前だけを使います。あとから増えた共通スキルは自動では選ばれません。";
+export const COMMON_SKILL_EXPLICIT_NOTE = "選んだ共通スキルだけを使います。あとから増えた分は自動では選ばれません。";
 
 /** 保存名のうち一覧に無いもの (ファイルの削除・改名)。落とさず残すので、自動では直らないことを知らせる */
 function commonSkillMissingNote(names: string[]): string {
@@ -193,6 +193,17 @@ export function SkillSelector({
             ))
           )}
         </SkillGroup>
+        {missingBuiltinNames.length > 0 ? (
+          <p className="text-2xs leading-4 break-words text-ink-faint">
+            {builtinSkillMissingNote(missingBuiltinNames)}
+          </p>
+        ) : null}
+        <div className="grid gap-1">
+          <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SECTION_NOTE}</p>
+          {Array.isArray(builtinSkillNames) ? (
+            <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SKILL_EXPLICIT_NOTE}</p>
+          ) : null}
+        </div>
         {fileSkills.status === "ready" ? (
           <SkillGroup
             divider
@@ -215,26 +226,21 @@ export function SkillSelector({
             )}
           </SkillGroup>
         ) : null}
-        {missingCommonNames.length > 0 ? (
-          <p className="text-2xs leading-4 break-words text-ink-faint">{commonSkillMissingNote(missingCommonNames)}</p>
+        {fileSkills.status === "ready" ? (
+          <>
+            {missingCommonNames.length > 0 ? (
+              <p className="text-2xs leading-4 break-words text-ink-faint">
+                {commonSkillMissingNote(missingCommonNames)}
+              </p>
+            ) : null}
+            <div className="grid gap-1">
+              <p className="text-2xs leading-4 break-words text-ink-faint">{COMMON_SKILL_SECTION_NOTE}</p>
+              {Array.isArray(commonSkillNames) ? (
+                <p className="text-2xs leading-4 break-words text-ink-faint">{COMMON_SKILL_EXPLICIT_NOTE}</p>
+              ) : null}
+            </div>
+          </>
         ) : null}
-        {missingBuiltinNames.length > 0 ? (
-          <p className="text-2xs leading-4 break-words text-ink-faint">
-            {builtinSkillMissingNote(missingBuiltinNames)}
-          </p>
-        ) : null}
-        <div className="grid gap-1 border-t border-line pt-2">
-          <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SECTION_NOTE}</p>
-          {fileSkills.status === "ready" ? (
-            <p className="text-2xs leading-4 break-words text-ink-faint">{COMMON_SKILL_SECTION_NOTE}</p>
-          ) : null}
-          {Array.isArray(builtinSkillNames) ? (
-            <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SKILL_EXPLICIT_NOTE}</p>
-          ) : null}
-          {Array.isArray(commonSkillNames) ? (
-            <p className="text-2xs leading-4 break-words text-ink-faint">{COMMON_SKILL_EXPLICIT_NOTE}</p>
-          ) : null}
-        </div>
       </div>
     </div>
   );

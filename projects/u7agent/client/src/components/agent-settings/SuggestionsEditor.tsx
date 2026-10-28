@@ -1,5 +1,7 @@
+import { useRef, useState } from "react";
 import type { AgentSuggestion } from "../../types";
 import { PlusIcon, TrashIcon } from "../icons";
+import { SuggestionDeleteDialog } from "./SuggestionDeleteDialog";
 
 /**
  * サーバー側の上限に合わせる。件数は見出しへ、文字数は各入力欄の隣へ現在値と上限で出し、
@@ -30,8 +32,23 @@ export function SuggestionsEditor({
   onAdd: () => void;
 }) {
   const atLimit = suggestions.length >= SUGGESTION_LIMIT;
+  // 削除は確認の面を挟む。どの行を消すかは開いた時点の並びで持ち、確定まで配列を変えない
+  const [removing, setRemoving] = useState<number | null>(null);
+  const removingSuggestion = removing === null ? undefined : suggestions[removing];
+  const panelRef = useRef<HTMLDivElement>(null);
+  const addRef = useRef<HTMLButtonElement>(null);
+
+  /** 確定後に焦点を移す先。消した行のボタンは unmount されるので、同じ位置に残った行 (無ければ追加) を使う */
+  const focusAfterRemove = (index: number) => {
+    requestAnimationFrame(() => {
+      const buttons = panelRef.current?.querySelectorAll<HTMLButtonElement>("button[data-suggestion-remove]");
+      const next = buttons?.[Math.min(index, (buttons?.length ?? 0) - 1)] ?? addRef.current;
+      next?.focus();
+    });
+  };
+
   return (
-    <div className="grid gap-2 rounded-lg border border-line bg-soft px-2.5 py-2">
+    <div ref={panelRef} className="grid gap-2 rounded-lg border border-line bg-soft px-2.5 py-2">
       <div className="flex items-baseline gap-1.5 text-2xs text-ink-faint">
         <span className="font-semibold tracking-label uppercase">{SUGGESTIONS_PANEL_HEADING}</span>
         <span className="font-normal">
@@ -51,7 +68,9 @@ export function SuggestionsEditor({
                 <span className="min-w-0 flex-1 truncate text-2xs text-ink-muted">{SUGGESTIONS_PANEL_HEADING}</span>
                 <button
                   type="button"
-                  onClick={() => onRemove(index)}
+                  data-suggestion-remove
+                  onClick={() => setRemoving(index)}
+                  aria-haspopup="dialog"
                   aria-label={`定型プロンプト${index + 1}を削除`}
                   className="grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-raised text-ink-soft transition-colors hover:border-danger/60 hover:text-danger"
                 >
@@ -97,6 +116,7 @@ export function SuggestionsEditor({
         </div>
       )}
       <button
+        ref={addRef}
         type="button"
         disabled={atLimit}
         onClick={onAdd}
@@ -112,6 +132,19 @@ export function SuggestionsEditor({
         <p role="status" className="text-2xs leading-relaxed text-ink-soft">
           上限の {SUGGESTION_LIMIT} 件です。追加するにはどれかを削除してください。
         </p>
+      ) : null}
+      {removing !== null && removingSuggestion !== undefined ? (
+        <SuggestionDeleteDialog
+          suggestion={removingSuggestion}
+          index={removing + 1}
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            const index = removing;
+            onRemove(index);
+            setRemoving(null);
+            focusAfterRemove(index);
+          }}
+        />
       ) : null}
     </div>
   );

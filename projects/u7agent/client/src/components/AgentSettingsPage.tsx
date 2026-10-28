@@ -221,14 +221,23 @@ export function AgentSettingsPage({
       <SettingsDetailHeader
         ref={detailRef}
         back={split ? undefined : { label: "エージェント一覧へ", onClick: () => setView("list") }}
+        // ページのヘッダを畳む面でも見出し (h2) を 1 つ残す
+        heading={editingAgent?.name ?? "新しいエージェント"}
         title={
-          <SelectMenu
-            options={pickerOptions}
-            value={editingId ?? ""}
-            label="エージェントを切り替える"
-            triggerClassName="min-h-11"
-            onChange={(value) => selectAgent(value || null)}
-          />
+          // 一覧を並べて見せている間は、切り替えは一覧の行が担うのでピッカーを出さない (現在名だけを見出しにする)
+          split ? (
+            <span className="block truncate text-sm font-semibold text-ink-strong">
+              {editingAgent?.name ?? "新しいエージェント"}
+            </span>
+          ) : (
+            <SelectMenu
+              options={pickerOptions}
+              value={editingId ?? ""}
+              label="エージェントを切り替える"
+              triggerClassName="min-h-11"
+              onChange={(value) => selectAgent(value || null)}
+            />
+          )
         }
         badge={
           dirty ? (
@@ -237,8 +246,9 @@ export function AgentSettingsPage({
               未保存
             </span>
           ) : builtinEditing ? (
-            <span className="rounded border border-line bg-soft px-1.5 text-2xs leading-4 text-ink-ghost">
-              ビルトイン
+            // スキルの詳細と同じ印 (面のアクセント) にして、同じ「アプリが同梱するもの」を同じ見た目で示す
+            <span className="rounded border border-accent/50 bg-accent-wash px-1.5 text-2xs leading-4 text-accent-text">
+              組み込み
             </span>
           ) : undefined
         }
@@ -256,6 +266,8 @@ export function AgentSettingsPage({
       onOpenNav={onOpenNav}
       onBack={onBack}
       note={split || view === "list" ? note : undefined}
+      // 詳細を開いている間はページの説明を落とし、戻る / ☰ の操作行だけにする
+      collapseHeader={singleColumn && view === "detail"}
     >
       {split ? (
         <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">

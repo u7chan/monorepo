@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getFilePreview } from "../../api";
 import {
   BUILTIN_SKILL_OVERRIDE_NOTE,
@@ -38,6 +38,7 @@ export function FileSkillPanel({
   usage,
   filePreviewPort,
   rootCwd,
+  singleColumn = false,
 }: {
   skill: FileSkillInfo;
   /** 共通スキルの編集内容。渡したときは本文と保存可否をここから出す (エディターと同じ取得結果) */
@@ -48,6 +49,8 @@ export function FileSkillPanel({
   filePreviewPort?: number;
   /** ワークスペース root の絶対パス (health.cwd)。行の絶対パスをコピーする導線に使う */
   rootCwd?: string;
+  /** 一覧が隠れる幅か。狭いときはメタと説明を詰めて本文へ高さを譲る */
+  singleColumn?: boolean;
 }) {
   const bodySource = detail?.body ?? skill.body;
   const [body, setBody] = useState<SkillBodyState>(() =>
@@ -87,6 +90,16 @@ export function FileSkillPanel({
     setTab(next);
   };
 
+  // 本文のファイル参照から、ファイルタブでその 1 件を開く。ファイル面は未 mount なら mount され、
+  // 同じ render で要求が渡る (FileBrowser が開いて、ツリーでも位置を示す)
+  const fileRequestSeq = useRef(0);
+  const [fileRequest, setFileRequest] = useState<{ seq: number; path: string } | null>(null);
+  const openReferencedFile = (path: string) => {
+    setFilesOpened(true);
+    setTab("files");
+    setFileRequest({ seq: (fileRequestSeq.current += 1), path });
+  };
+
   const tabs = [
     { subsection: "body" as const, label: SKILL_TAB_BODY_LABEL },
     ...(skillDir ? [{ subsection: "files" as const, label: SKILL_TAB_FILES_LABEL }] : []),
@@ -107,7 +120,8 @@ export function FileSkillPanel({
           : `${FILE_SKILL_LOCKED_PREFIX}: ${detail.reason ?? ""}`;
 
   const meta = [
-    { label: "置き場", value: skill.relativePath, mono: true },
+    // 置き場は会話や支援に貼り返すことが多いので、表示している値を 1 クリックでコピーできるようにする
+    { label: "置き場", value: skill.relativePath, mono: true, copy: true },
     // 最終更新は SKILL.md の mtime で、保存の競合検出に使う版 (fileVersion) は出さない。
     // 組み込みは実体が無く、他のスコープは詳細を取得しないため、行ごと出さない
     ...(detail
@@ -119,15 +133,20 @@ export function FileSkillPanel({
           },
         ]
       : []),
-    // メタ行のラベルが「使用中」なので、値は件数だけにする (「使用中 使用中 3 体」にしない)
-    ...(usageCount === undefined ? [] : [{ label: "使用中", value: `${usageCount} 体` }]),
+    // メタ行のラベルが「使用中」なので、値は件数だけにする (「使用中 使用中 3 体」にしない)。
+    // 狭い幅ではタブの件数と同じことを 2 度書かない (1 行分の高さを本文へ譲る)
+    ...(usageCount === undefined || singleColumn ? [] : [{ label: "使用中", value: `${usageCount} 体` }]),
   ];
 
   return (
     <SkillDetailPanel
+      title={skill.name}
+      skillDir={skillDir}
+      onOpenFileRef={openReferencedFile}
       tabs={<SettingsTabs items={tabs} active={tab} onSelect={openTab} ariaLabel={SKILL_DETAIL_TABS_ARIA_LABEL} />}
       meta={meta}
       note={note}
+      singleColumn={singleColumn}
       warning={skill.overridden ? BUILTIN_SKILL_OVERRIDE_NOTE : undefined}
       description={(detail?.description ?? skill.description) || "説明なし"}
       body={body}
@@ -174,6 +193,8 @@ export function FileSkillPanel({
               root={skillDir}
               rootCwd={rootCwd}
               reloadToken={0}
+              openRequest={fileRequest}
+              onHandled={(seq) => setFileRequest((current) => (current?.seq === seq ? null : current))}
               readOnly
               excludeNames={[]}
               filePreviewPort={filePreviewPort}

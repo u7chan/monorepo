@@ -1186,6 +1186,34 @@
     }
   }
 
+  /* 全画面の読み面 (スキル本文 / ファイルプレビュー)。showModal() は瞬時に面を差し替えるので、
+     入りは animation、退場は data-closing + animation（useExitPhase が閉じ切ってから close() する）。
+     背景は入りを @starting-style、退場を data-closing で同時に消す（Composer の拡大と同じ作法） */
+  .viewer-dialog[open] {
+    animation: viewer-in 160ms ease-out;
+  }
+  .viewer-dialog[data-closing="true"] {
+    animation: viewer-out 140ms ease-in forwards;
+  }
+  /* 背景は暗くしない。面が viewport を覆うので backdrop は見えず、入り / 退場の途中だけ
+     暗幕とぼかしが一瞬よぎって黒い閃きに見える (ダイアログの既定は rgba 0.78 + blur) */
+  .viewer-dialog::backdrop {
+    background: transparent;
+    backdrop-filter: none;
+  }
+  @keyframes viewer-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.985);
+    }
+  }
+  @keyframes viewer-out {
+    to {
+      opacity: 0;
+      transform: translateY(10px) scale(0.985);
+    }
+  }
+
   /* 面のアクセントを使う主操作 (保存)。押せないときは面を残して不透明度で示す */
   .btn-primary {
     @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-accent px-4 text-xs font-semibold text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45;
@@ -1972,6 +2000,11 @@
   details[open] > summary .disclosure-chevron {
     transform: rotate(90deg);
   }
+  /* details を使わない開閉 (React が状態を持つ .tree-fold) の印。対象の button だけに当たるよう
+     class で閉じる (aria-expanded 一般に当てると、触っていない画面の chevron も回る) */
+  .tree-fold-toggle[aria-expanded="true"] > .disclosure-chevron {
+    transform: rotate(90deg);
+  }
 
   details::details-content {
     interpolate-size: allow-keywords;
@@ -2289,6 +2322,11 @@
     }
     .composer-dialog::backdrop {
       transition: none;
+    }
+    /* 全画面の読み面も同じ扱い (短くして animationend を必ず出す) */
+    .viewer-dialog[open],
+    .viewer-dialog[data-closing="true"] {
+      animation-duration: 0.01ms;
     }
   }
 

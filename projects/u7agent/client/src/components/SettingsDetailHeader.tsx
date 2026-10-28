@@ -9,6 +9,7 @@ export function SettingsDetailHeader({
   back,
   leading,
   title,
+  heading,
   badge,
   actions,
   ref,
@@ -18,6 +19,11 @@ export function SettingsDetailHeader({
   leading?: ReactNode;
   /** 現在名 (エージェントではピッカー)。見出しとしてフォーカスを受ける */
   title: ReactNode;
+  /**
+   * 詳細面の見出し (読み上げと見出し移動のため)。ページのヘッダを畳む面では、画面から `h2` が
+   * 消えて見出し移動の起点が無くなるので、現在名と同じ文字列を sr-only の `h2` として残す
+   */
+  heading?: string;
   badge?: ReactNode;
   actions?: ReactNode;
   ref?: Ref<HTMLDivElement>;
@@ -41,6 +47,7 @@ export function SettingsDetailHeader({
       ) : null}
       {leading ? <span className="shrink-0">{leading}</span> : null}
       <div className="grid min-w-0 flex-1 gap-0.5">
+        {heading ? <h2 className="sr-only">{heading}</h2> : null}
         <div className="flex min-w-0 items-center gap-1.5">
           <div className="min-w-0">{title}</div>
           {badge ? <div className="flex shrink-0 items-center gap-1.5">{badge}</div> : null}

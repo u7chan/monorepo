@@ -58,7 +58,10 @@ test("描画: 本文 / ファイル / 使用中 の 3 タブを出し、組み�
   assert.ok(!builtin.includes(">ファイル<"), "組み込みにファイルタブが出ている");
   assert.ok(builtin.includes(">本文<"), "組み込みの本文が出ていない");
   assert.ok(builtin.includes(">使用中<"), "組み込みに使用中タブが無い");
-  assert.ok(builtin.includes("本文\n"), "組み込みの本文が一覧の応答と違う");
+  // 本文はプレビュー (Markdown) が既定。一覧の応答の本文が描画されている
+  assert.ok(builtin.includes(">本文</p>"), "組み込みの本文が一覧の応答と違う");
+  // frontmatter は名前と説明というアプリのメタデータなので、プレビューでは落とす
+  assert.ok(!builtin.includes("name: alpha"), "プレビューに frontmatter が残っている");
 });
 
 test("描画: 説明は本文タブの先頭に全文を出し、ヘッダのメタに置かない", () => {
@@ -127,4 +130,57 @@ test("描画: 使用中タブは実効で使うエージェントだけを読み
   const unknown = renderPanel(skill);
   assert.ok(unknown.includes(SKILL_USAGE_UNAVAILABLE_NOTE));
   assert.ok(!unknown.includes(SKILL_USAGE_EMPTY_NOTE));
+});
+
+test("描画: 置き場の値をその場でコピーできる", () => {
+  const html = renderPanel(fileSkill());
+  // 表示している値 (root 相対) をそのままコピーする。絶対パスは画面に出ていないので導線を出さない
+  assert.match(html, /aria-label="置き場をコピー"/);
+  assert.match(html, /title="置き場をコピー"/);
+  // パスでない値 (更新 / 使用中) にはコピーを付けない
+  assert.ok(!html.includes("更新をコピー"));
+  assert.ok(!html.includes("使用中をコピー"));
+});
+
+test("描画: 本文は枠のヘッダにソース / プレビューの切替とコピーを持ち、既定はプレビュー", () => {
+  const html = renderPanel(fileSkill({ body: "---\nname: alpha\n---\n# 手順\n本文\n" }));
+  // 枠のヘッダに、表示の切替とコピーを本文と同じ枠の中へ入れる
+  assert.match(html, /aria-label="本文の表示"/);
+  assert.ok(html.includes(">ソース<"));
+  assert.ok(html.includes(">プレビュー<"));
+  assert.match(html, /aria-label="本文をコピー"/);
+  // 行数はソースの行数 (frontmatter を落としても数え方は変えない)
+  assert.ok(html.includes("SKILL.md · 5 行"), "行数が出ていない");
+  // 既定はプレビュー: 見出しが Markdown として描かれ、原文の記号は出ない
+  assert.ok(html.includes(">手順<"), "見出しが描かれていない");
+  assert.ok(!html.includes("# 手順"), "プレビューなのに原文が出ている");
+});
+
+test("狭い幅では説明を畳み、メタの使用中はタブの件数と重ねない", () => {
+  const skill = fileSkill({ body: "# 手順\n本文\n" });
+  const usage = skillUsageByPath({ agents: [agent("a1")], skills: [skill] });
+  const html = renderToStaticMarkup(createElement(FileSkillPanel, { skill, usage, singleColumn: true }));
+  // 説明は既定で畳む (一覧の行にも説明が出ている)。開閉は高さの遷移 (.tree-fold) で見せるので、
+  // details ではなく aria-expanded を持つボタン + data-open。閉じている間は inert で読み上げから外す
+  assert.match(html, /aria-expanded="false"[^>]*aria-controls=/);
+  assert.ok(html.includes(">説明<"));
+  assert.match(html, /class="tree-fold" data-open="false" inert=""/);
+  // 使用中は自動でタブの件数に出るので、メタの 1 行を重ねない
+  assert.ok(!html.includes(">使用中<"), "メタに使用中が残っている");
+  assert.match(html, />使用中 1</);
+  // 外枠を外して読めるように、本文のヘッダから全画面の読み面を開ける
+  assert.match(html, /aria-label="全画面で読む"/);
+  // 並べて見せる幅ではページの高さが足りているので出さない
+  assert.ok(!renderPanel(skill).includes("全画面で読む"));
+});
+
+test("描画: 本文のファイル参照は、そのファイルを開くボタンになる", () => {
+  const body = "1. `scripts/run.sh --fast` を実行する。\n2. `notes/a.md` を読む。\n";
+  const common = renderPanel(fileSkill({ body }));
+  assert.match(common, /class="md-fileref"/);
+  // 実体の無い組み込み (仮想パス) はファイルタブが無いので、参照もリンクにしない
+  const builtin = renderPanel(
+    fileSkill({ scope: "builtin", relativePath: ".u7agent/builtin-skills/alpha/SKILL.md", body, version: "1" }),
+  );
+  assert.ok(!builtin.includes("md-fileref"));
 });

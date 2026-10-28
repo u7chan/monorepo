@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type Ref, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api";
+import { useExitPhase } from "../hooks/useExitPhase";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isAudioName, isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
@@ -8,6 +10,8 @@ import { selectCopyTarget } from "../lib/copyToClipboard";
 import { buildPreviewCode, isHtmlPath, isMarkdownPath, previewCopyText } from "../lib/fileCode";
 import { filePreviewErrorHint } from "../lib/filePreviewError";
 import {
+  FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL,
+  FILE_PREVIEW_FULLSCREEN_OPEN_LABEL,
   dropClosedPreviews,
   fileTabLabels,
   isMiddleClick,
@@ -23,10 +27,11 @@ import {
 import { fileTreeBreadcrumbs, fileTreeFetchPath, fileTreeParentPath } from "../lib/fileTree";
 import { imageMetaLabel, type ImageDimensions } from "../lib/imageMeta";
 import { LoadingMark } from "./LoadingMark";
+import { SegmentedControl } from "./SegmentedControl";
 import { MarkdownFilePreview } from "./markdown/MarkdownFilePreview";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { CopyButton } from "./chat/CopyButton";
-import { CloseIcon, ExternalLinkIcon } from "./icons";
+import { CloseIcon, CollapseIcon, ExpandIcon, ExternalLinkIcon } from "./icons";
 
 const PREVIEW_MODES: { value: PreviewMode; label: string }[] = [
   { value: "source", label: "ソース" },
@@ -85,6 +90,35 @@ export function FilePreview({
   onClose,
 }: FilePreviewProps) {
   const [results, setResults] = useState<PreviewResults>({});
+  // 全画面の読み面。狭い面ではツリーと分け合ってプレビューが数十行しか見えないため、同じ面を dialog へ移す
+  // (複製すると HTML の iframe が 2 枚になる)。閉じたらボタンへ焦点を戻す
+  const [fullscreen, setFullscreen] = useState(false);
+  const fullscreenDialogRef = useRef<HTMLDialogElement>(null);
+  const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFullscreenFocus = useRef(false);
+  // 退場アニメの間は dialog を開いたままにする (閉じ切ってから close() する)
+  const fullscreenPhase = useExitPhase(fullscreen, fullscreenDialogRef);
+  const fullscreenVisible = fullscreen || fullscreenPhase === "closing";
+  useEffect(() => {
+    const dialog = fullscreenDialogRef.current;
+    if (dialog === null) return;
+    if (fullscreenVisible && !dialog.open) {
+      dialog.showModal();
+      // 開いたときに先頭のボタンへ勝手に当てない (実機で意図しない操作へフォーカスが飛ぶ)
+      dialog.focus();
+    } else if (!fullscreenVisible && dialog.open) {
+      dialog.close();
+    }
+  }, [fullscreenVisible]);
+  useEffect(() => {
+    if (fullscreenVisible || !restoreFullscreenFocus.current) return;
+    restoreFullscreenFocus.current = false;
+    fullscreenButtonRef.current?.focus();
+  }, [fullscreenVisible]);
+  const closeFullscreen = () => {
+    restoreFullscreenFocus.current = true;
+    setFullscreen(false);
+  };
   // 読み込みが終わった画像の寸法。パスを一緒に持ち、タブを切り替えたら前のタブの値を出さない
   const [loadedImage, setLoadedImage] = useState<{ path: string; dimensions: ImageDimensions } | null>(null);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
@@ -151,7 +185,7 @@ export function FilePreview({
     setResults((prev) => dropClosedPreviews(prev, paths));
   }, [paths]);
 
-  return (
+  const preview = (
     // 幅が足りないときはツリーの下 (border-t)、コンテナが @2xl 以上ならツリーの右 (border-l) へ置く
     <section
       aria-label="ファイルプレビュー"
@@ -175,7 +209,12 @@ export function FilePreview({
       <div className="flex items-center gap-3 px-4 py-1.5">
         <FileBreadcrumb rootPath={rootPath} activePath={activePath} onReveal={onReveal} />
         {isHtmlPath(activePath) || isMarkdownPath(activePath) ? (
-          <PreviewModeToggle mode={mode} onChange={(next) => onModeChange(activePath, next)} />
+          <SegmentedControl
+            items={PREVIEW_MODES}
+            value={mode}
+            onChange={(next) => onModeChange(activePath, next)}
+            ariaLabel="表示の切替"
+          />
         ) : null}
         {showHtml ? (
           // 押すと iframe の src が変わってプレビューが開き直る。既定は ON (別オリジン) で、
@@ -211,6 +250,21 @@ export function FilePreview({
             <ExternalLinkIcon />
           </a>
         ) : null}
+        <button
+          type="button"
+          ref={fullscreenButtonRef}
+          aria-label={fullscreenVisible ? FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL : FILE_PREVIEW_FULLSCREEN_OPEN_LABEL}
+          title={fullscreenVisible ? FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL : FILE_PREVIEW_FULLSCREEN_OPEN_LABEL}
+          onClick={() => {
+            // 退場アニメの間の押下は受けない (開き直すとアニメの途中で面が戻る)
+            if (fullscreenPhase === "closing") return;
+            if (fullscreen) closeFullscreen();
+            else setFullscreen(true);
+          }}
+          className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:text-accent-text"
+        >
+          {fullscreenVisible ? <CollapseIcon /> : <ExpandIcon />}
+        </button>
       </div>
       {result?.error && !skipFetch ? (
         <p role="alert" className="px-4 py-2 text-xs break-words text-danger-text">
@@ -295,6 +349,30 @@ export function FilePreview({
       )}
     </section>
   );
+
+  if (!fullscreenVisible) return preview;
+  return createPortal(
+    <dialog
+      ref={fullscreenDialogRef}
+      aria-label="ファイルプレビュー"
+      tabIndex={-1}
+      data-closing={fullscreenPhase === "closing"}
+      // Escape は標準の cancel。既定の close は瞬時なので止め、退場アニメを挟んでから閉じる
+      onCancel={(event) => {
+        event.preventDefault();
+        closeFullscreen();
+      }}
+      // 止めないと設定ページの Escape (一覧へ戻る / チャットへ戻る) まで届く
+      onKeyDown={(event) => {
+        if (event.key === "Escape") event.stopPropagation();
+      }}
+      // h-dvh + 余白なし: プレビュー本体が viewport の高さいっぱいを使う
+      className="viewer-dialog m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-panel p-0 focus:outline-none"
+    >
+      {preview}
+    </dialog>,
+    document.body,
+  );
 }
 
 // 画面 root はツリーに対応する行がなく押せないため、パンくずへ出さない。
@@ -350,31 +428,6 @@ function FileCopyButton({ text, targetRef }: { text: string; targetRef: RefObjec
       onSelect={() => selectCopyTarget(targetRef.current)}
       label="本文をコピー"
     />
-  );
-}
-
-function PreviewModeToggle({ mode, onChange }: { mode: PreviewMode; onChange: (mode: PreviewMode) => void }) {
-  return (
-    <div
-      role="group"
-      aria-label="表示の切替"
-      className="flex shrink-0 items-center gap-0.5 rounded-lg border border-line p-0.5"
-    >
-      {PREVIEW_MODES.map((item) => (
-        <button
-          key={item.value}
-          type="button"
-          aria-pressed={mode === item.value}
-          onClick={() => onChange(item.value)}
-          className={cn(
-            "rounded-md px-2 py-0.5 text-3xs transition-colors",
-            mode === item.value ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
-          )}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
   );
 }
 

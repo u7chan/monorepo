@@ -45,7 +45,6 @@ import { fileKind } from "../lib/fileKind";
 import { FILE_TREE_STACK_BREAKPOINT } from "../lib/fileTreeWidth";
 import { FILE_MENTION_MIME, mentionText } from "../lib/fileMention";
 import { fileRowActions, fileRowShareTarget, type FileRowActionKind } from "../lib/fileRowMenu";
-import { type FileRefRequest } from "../lib/fileRefRequest";
 import { filePreviewStore } from "../lib/filePreviewState";
 import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
 import {
@@ -108,8 +107,8 @@ export type FileBrowserProps = {
    * 取得元を health ではなく app 状態 (prop) にすることで、設定の保存直後に再 mount なしで追随する。
    */
   excludeNames: readonly string[];
-  /** 未消費の「ファイル参照から開く」要求。適用したら onHandled(seq) で App へ返す */
-  openRequest?: FileRefRequest | null;
+  /** 未消費の「ファイル参照から開く」要求。適用したら onHandled(seq) で呼び出し元へ返す */
+  openRequest?: { seq: number; path: string } | null;
   onHandled?: (seq: number) => void;
   /**
    * 行の ⋯ の「共有」(Cloudflare への静的公開) から呼ぶ。渡した面にだけ項目を出す。
