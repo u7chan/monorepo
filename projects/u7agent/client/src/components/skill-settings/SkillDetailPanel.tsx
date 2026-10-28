@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { cn } from "../../lib/cn";
@@ -85,6 +85,10 @@ export function SkillDetailPanel({
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   // 本文はまず読める形 (Markdown) で開き、原文が必要なときだけソースへ切り替える
   const [bodyView, setBodyView] = useState<SkillBodyView>("preview");
+  // 狭い幅の説明は既定で畳む。開閉は .tree-fold の高さの遷移で見せる (details の interpolate-size は
+  // 未対応のブラウザーがあり、実機で瞬時に開閉してしまう)
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
+  const descriptionId = useId();
   // 狭い幅では、ページの外枠 (ヘッダ / タブ / メタ) を外した全画面の読み面へ切り替えられる。
   // 本文の DOM は 1 つだけにして、全画面のあいだはその 1 つを dialog の中へ移す (二重に解析しない)
   const [reading, setReading] = useState(false);
@@ -240,13 +244,23 @@ export function SkillDetailPanel({
         <div className="mx-auto grid max-w-3xl content-start gap-3">
           {singleColumn ? (
             // 狭い幅では説明を畳む。一覧の行にも説明が出ているので、開いた直後は本文へ高さを譲る
-            <details>
-              <summary className="disclosure-summary flex cursor-pointer items-center gap-1.5 rounded-md text-2xs font-semibold tracking-label text-ink-faint uppercase transition-colors outline-none hover:text-ink-soft focus-visible:ring-2 focus-visible:ring-focus">
+            <section className="grid gap-1">
+              <button
+                type="button"
+                aria-expanded={descriptionOpen}
+                aria-controls={descriptionId}
+                onClick={() => setDescriptionOpen((open) => !open)}
+                className="flex cursor-pointer items-center gap-1.5 justify-self-start rounded-md text-2xs font-semibold tracking-label text-ink-faint uppercase transition-colors outline-none hover:text-ink-soft focus-visible:ring-2 focus-visible:ring-focus"
+              >
                 <DisclosureChevronIcon />
                 説明
-              </summary>
-              <p className="mt-1 text-1xs leading-relaxed break-words text-ink-soft">{description}</p>
-            </details>
+              </button>
+              <div id={descriptionId} className="tree-fold" data-open={descriptionOpen} inert={!descriptionOpen}>
+                <div>
+                  <p className="text-1xs leading-relaxed break-words text-ink-soft">{description}</p>
+                </div>
+              </div>
+            </section>
           ) : (
             <section className="grid gap-1">
               <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">説明</h3>

@@ -1972,6 +1972,10 @@
   details[open] > summary .disclosure-chevron {
     transform: rotate(90deg);
   }
+  /* details を使わない開閉 (React が状態を持つ .tree-fold) の印。aria-expanded を持つボタンの直下に置く */
+  [aria-expanded="true"] > .disclosure-chevron {
+    transform: rotate(90deg);
+  }
 
   details::details-content {
     interpolate-size: allow-keywords;

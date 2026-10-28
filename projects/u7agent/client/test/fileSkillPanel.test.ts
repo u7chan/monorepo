@@ -160,9 +160,11 @@ test("狭い幅では説明を畳み、メタの使用中はタブの件数と�
   const skill = fileSkill({ body: "# 手順\n本文\n" });
   const usage = skillUsageByPath({ agents: [agent("a1")], skills: [skill] });
   const html = renderToStaticMarkup(createElement(FileSkillPanel, { skill, usage, singleColumn: true }));
-  // 説明は既定で畳む (一覧の行にも説明が出ている)。開閉の口は summary
-  assert.match(html, /<details>/);
+  // 説明は既定で畳む (一覧の行にも説明が出ている)。開閉は高さの遷移 (.tree-fold) で見せるので、
+  // details ではなく aria-expanded を持つボタン + data-open。閉じている間は inert で読み上げから外す
+  assert.match(html, /aria-expanded="false"[^>]*aria-controls=/);
   assert.ok(html.includes(">説明<"));
+  assert.match(html, /class="tree-fold" data-open="false" inert=""/);
   // 使用中は自動でタブの件数に出るので、メタの 1 行を重ねない
   assert.ok(!html.includes(">使用中<"), "メタに使用中が残っている");
   assert.match(html, />使用中 1</);
