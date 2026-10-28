@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { cn } from "../../lib/cn";
@@ -12,10 +12,12 @@ import {
   SKILL_TAB_BODY_LABEL,
   skillBodyMetaLabel,
   skillBodyPreviewText,
+  skillFileRefPath,
   type SkillBodyView,
 } from "../../lib/fileSkills";
 import { CopyButton } from "../chat/CopyButton";
 import { CollapseIcon, DisclosureChevronIcon, ExpandIcon } from "../icons";
+import { FileRefOpenerProvider, type FileRefOpener } from "../markdown/FileRefLink";
 import { MarkdownView } from "../markdown/MarkdownView";
 import { OutputPanel } from "../OutputPanel";
 import { SegmentedControl } from "../SegmentedControl";
@@ -45,6 +47,10 @@ export type SkillDetailPanelProps = {
   description: string;
   /** 全画面で読むときの見出し (スキル名)。読み上げ名にも使う */
   title?: string;
+  /** スキルディレクトリ (root 相対)。本文のファイル参照をこの下のパスとして解決する */
+  skillDir?: string | null;
+  /** 本文のファイル参照から、そのファイルをファイルタブで開く */
+  onOpenFileRef?: (path: string) => void;
   /** 一覧が隠れる幅か。狭いときは説明を既定で畳み、本文へ高さを譲る */
   singleColumn?: boolean;
   body: SkillBodyState;
@@ -68,6 +74,8 @@ export function SkillDetailPanel({
   warning,
   description,
   title,
+  skillDir,
+  onOpenFileRef,
   singleColumn = false,
   body,
   activeTab,
@@ -92,6 +100,25 @@ export function SkillDetailPanel({
     restoreReaderFocus.current = false;
     readerButtonRef.current?.focus();
   }, [reading]);
+  // 本文のコードスパンを、スキルディレクトリ配下のファイル参照として開けるようにする
+  // (実在の確認はしない。字句で採択し、開いたときにファイルタブが確かめる)
+  const fileRefOpener = useMemo<FileRefOpener | null>(() => {
+    if (!skillDir || !onOpenFileRef) return null;
+    return {
+      resolve: (text: string) => {
+        const path = skillFileRefPath(text);
+        return path === null ? null : { kind: "skill", root: skillDir, path };
+      },
+      open: async (target) => {
+        if (target.kind !== "skill") return { kind: "discarded" };
+        // 全画面の読み面から開くときは、閉じてからファイルタブを見せる (切替は呼び出し側が持つ)
+        readerDialogRef.current?.close();
+        onOpenFileRef(target.path);
+        return { kind: "opened" };
+      },
+    };
+  }, [skillDir, onOpenFileRef]);
+
   // 本文の枠。全画面の読み面でも同じ 1 つを使い回す (表示の切替と本文の解析を二重に持たない)
   const bodyPanel = (text: string) => {
     const panel = (
@@ -132,7 +159,13 @@ export function SkillDetailPanel({
       >
         {bodyView === "preview" ? (
           <div className="px-2.5 py-2">
-            <MarkdownView text={skillBodyPreviewText(text)} />
+            {fileRefOpener ? (
+              <FileRefOpenerProvider value={fileRefOpener}>
+                <MarkdownView text={skillBodyPreviewText(text)} />
+              </FileRefOpenerProvider>
+            ) : (
+              <MarkdownView text={skillBodyPreviewText(text)} />
+            )}
           </div>
         ) : undefined}
       </OutputPanel>

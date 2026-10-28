@@ -291,7 +291,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 
 ## メッセージからの導線（ファイル参照）
 
-assistant 本文のインラインコードが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と面の種別つきの解決は `client/src/lib/fileRef.ts` の純関数、要求の保持と面のモードは `client/src/lib/fileRefRequest.ts`、インラインコードの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。Markdown リンクの横取り・prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（対応サブセットは変えない。描画側の契約は [markdown.md](markdown.md#インラインコードのファイル参照)）。
+assistant 本文のインラインコードが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と面の種別つきの解決は `client/src/lib/fileRef.ts` の純関数、要求の保持と面のモードは `client/src/lib/fileRefRequest.ts`、インラインコードの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。**設定 → スキルの本文（プレビュー）も同じ導線を持つ。** 解決の基準はセッションの作業フォルダではなく**スキルディレクトリ**で、`scripts/survey.sh <dir>` のように「パス + 引数」で書かれているときは先頭の 1 語だけをパスとして採る（引数込みの字面をクリックすると、そのファイルをファイルタブで開く。採否は `client/src/lib/fileSkills.ts` の `skillFileRefPath`）。組み込みスキル（仮想パスでファイルタブが無い）ではリンクにしない。 Markdown リンクの横取り・prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（対応サブセットは変えない。描画側の契約は [markdown.md](markdown.md#インラインコードのファイル参照)）。
 
 ### 字面の判定（matcher）
 

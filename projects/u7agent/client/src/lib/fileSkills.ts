@@ -4,6 +4,7 @@
  */
 import { formatBytes } from "./attachments";
 import { codeLineCount } from "./codeLines";
+import { matchFileRef } from "./fileRef";
 import { filterBySearch } from "./settingsSearch";
 import type { FileSkillInfo, SandboxSkillImportPlanEntry } from "../types";
 
@@ -238,4 +239,19 @@ export function fileSkillWarning(skill: FileSkillInfo): string | null {
   if (skill.shadowed.length === 0) return null;
   const shadowed = skill.shadowed.map((item) => item.relativePath).join(", ");
   return `同名のスキルが ${skill.shadowed.length + 1} 件あります。有効: ${skill.relativePath} / 読み込まれない: ${shadowed}`;
+}
+
+/**
+ * 本文のコードスパンがスキルディレクトリ配下のファイルを指すか。指すなら skill dir 相対のパスを返す。
+ * 字句判定だけ (実在は開いたときに FileBrowser が確かめる) で、裸名と root 外の絶対パスは採らない
+ * (本文のありふれたコードスパンをリンクにしないため。規則は chat のファイル参照と同じ)。
+ */
+export function skillFileRefPath(raw: string): string | null {
+  // 本文は `scripts/run.sh --depth 3` のように「パス + 引数」で書かれることが多いので、先頭の 1 語だけを
+  // パスとして見る。先頭がパスでないもの (`bash scripts/run.sh`) は採らない (コマンド行を参照にしない)
+  const head = raw.split(/\s+/, 1)[0] ?? "";
+  if (!head.includes("/")) return null;
+  const path = matchFileRef(head);
+  if (path === null || path.startsWith("/")) return null;
+  return path;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getFilePreview } from "../../api";
 import {
   BUILTIN_SKILL_OVERRIDE_NOTE,
@@ -90,6 +90,16 @@ export function FileSkillPanel({
     setTab(next);
   };
 
+  // 本文のファイル参照から、ファイルタブでその 1 件を開く。ファイル面は未 mount なら mount され、
+  // 同じ render で要求が渡る (FileBrowser が開いて、ツリーでも位置を示す)
+  const fileRequestSeq = useRef(0);
+  const [fileRequest, setFileRequest] = useState<{ seq: number; path: string } | null>(null);
+  const openReferencedFile = (path: string) => {
+    setFilesOpened(true);
+    setTab("files");
+    setFileRequest({ seq: (fileRequestSeq.current += 1), path });
+  };
+
   const tabs = [
     { subsection: "body" as const, label: SKILL_TAB_BODY_LABEL },
     ...(skillDir ? [{ subsection: "files" as const, label: SKILL_TAB_FILES_LABEL }] : []),
@@ -131,6 +141,8 @@ export function FileSkillPanel({
   return (
     <SkillDetailPanel
       title={skill.name}
+      skillDir={skillDir}
+      onOpenFileRef={openReferencedFile}
       tabs={<SettingsTabs items={tabs} active={tab} onSelect={openTab} ariaLabel={SKILL_DETAIL_TABS_ARIA_LABEL} />}
       meta={meta}
       note={note}
@@ -181,6 +193,8 @@ export function FileSkillPanel({
               root={skillDir}
               rootCwd={rootCwd}
               reloadToken={0}
+              openRequest={fileRequest}
+              onHandled={(seq) => setFileRequest((current) => (current?.seq === seq ? null : current))}
               readOnly
               excludeNames={[]}
               filePreviewPort={filePreviewPort}

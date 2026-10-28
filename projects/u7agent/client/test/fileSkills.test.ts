@@ -14,6 +14,7 @@ import {
   groupFileSkills,
   skillBodyMetaLabel,
   skillBodyPreviewText,
+  skillFileRefPath,
 } from "../src/lib/fileSkills";
 import type { FileSkillInfo } from "../src/types";
 
@@ -198,4 +199,19 @@ test("本文のヘッダの行数はソースの行数で、空の本文には�
   assert.equal(skillBodyMetaLabel(""), "SKILL.md");
   assert.equal(skillBodyMetaLabel("a\n"), "SKILL.md · 1 行");
   assert.equal(skillBodyMetaLabel("a\nb\n"), "SKILL.md · 2 行");
+});
+
+test("本文のコードスパンはスキルディレクトリ配下のパスだけを参照として採る", () => {
+  // 「パス + 引数」で書かれる本文が多いので、先頭の 1 語を見る
+  assert.equal(skillFileRefPath("scripts/survey.sh <dir>"), "scripts/survey.sh");
+  assert.equal(skillFileRefPath("references/checklist.md"), "references/checklist.md");
+  assert.equal(skillFileRefPath("./scripts/a.py"), "scripts/a.py");
+  // コマンド行の先頭がパスでないもの、裸名、ディレクトリ、root の外はリンクにしない
+  assert.equal(skillFileRefPath("bash scripts/a.sh"), null);
+  assert.equal(skillFileRefPath('rg -l "func main"'), null);
+  assert.equal(skillFileRefPath("AGENTS.md"), null);
+  assert.equal(skillFileRefPath("src/"), null);
+  assert.equal(skillFileRefPath("/etc/passwd"), null);
+  assert.equal(skillFileRefPath("../secrets/x.env"), null);
+  assert.equal(skillFileRefPath("a b/c.sh"), null);
 });

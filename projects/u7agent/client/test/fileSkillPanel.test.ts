@@ -171,3 +171,14 @@ test("狭い幅では説明を畳み、メタの使用中はタブの件数と�
   // 並べて見せる幅ではページの高さが足りているので出さない
   assert.ok(!renderPanel(skill).includes("全画面で読む"));
 });
+
+test("描画: 本文のファイル参照は、そのファイルを開くボタンになる", () => {
+  const body = "1. `scripts/run.sh --fast` を実行する。\n2. `notes/a.md` を読む。\n";
+  const common = renderPanel(fileSkill({ body }));
+  assert.match(common, /class="md-fileref"/);
+  // 実体の無い組み込み (仮想パス) はファイルタブが無いので、参照もリンクにしない
+  const builtin = renderPanel(
+    fileSkill({ scope: "builtin", relativePath: ".u7agent/builtin-skills/alpha/SKILL.md", body, version: "1" }),
+  );
+  assert.ok(!builtin.includes("md-fileref"));
+});
