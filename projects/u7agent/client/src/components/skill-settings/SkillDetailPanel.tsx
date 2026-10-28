@@ -1,9 +1,12 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { cn } from "../../lib/cn";
 import {
   FILE_SKILL_BODY_ERROR_PREFIX,
   FILE_SKILL_BODY_LOADING_NOTE,
+  SKILL_BODY_READER_CLOSE_LABEL,
+  SKILL_BODY_READER_OPEN_LABEL,
   SKILL_BODY_VIEW_ARIA_LABEL,
   SKILL_BODY_VIEW_MODES,
   SKILL_TAB_BODY_LABEL,
@@ -12,7 +15,7 @@ import {
   type SkillBodyView,
 } from "../../lib/fileSkills";
 import { CopyButton } from "../chat/CopyButton";
-import { DisclosureChevronIcon } from "../icons";
+import { CollapseIcon, DisclosureChevronIcon, ExpandIcon } from "../icons";
 import { MarkdownView } from "../markdown/MarkdownView";
 import { OutputPanel } from "../OutputPanel";
 import { SegmentedControl } from "../SegmentedControl";
@@ -40,6 +43,8 @@ export type SkillDetailPanelProps = {
   warning?: string;
   /** 本文タブの先頭に全文を出す説明 */
   description: string;
+  /** 全画面で読むときの見出し (スキル名)。読み上げ名にも使う */
+  title?: string;
   /** 一覧が隠れる幅か。狭いときは説明を既定で畳み、本文へ高さを譲る */
   singleColumn?: boolean;
   body: SkillBodyState;
@@ -62,6 +67,7 @@ export function SkillDetailPanel({
   note,
   warning,
   description,
+  title,
   singleColumn = false,
   body,
   activeTab,
@@ -71,6 +77,86 @@ export function SkillDetailPanel({
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   // 本文はまず読める形 (Markdown) で開き、原文が必要なときだけソースへ切り替える
   const [bodyView, setBodyView] = useState<SkillBodyView>("preview");
+  // 狭い幅では、ページの外枠 (ヘッダ / タブ / メタ) を外した全画面の読み面へ切り替えられる。
+  // 本文の DOM は 1 つだけにして、全画面のあいだはその 1 つを dialog の中へ移す (二重に解析しない)
+  const [reading, setReading] = useState(false);
+  const readerDialogRef = useRef<HTMLDialogElement>(null);
+  const readerButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreReaderFocus = useRef(false);
+  useEffect(() => {
+    const dialog = readerDialogRef.current;
+    if (reading && dialog !== null && !dialog.open) dialog.showModal();
+  }, [reading]);
+  useEffect(() => {
+    if (reading || !restoreReaderFocus.current) return;
+    restoreReaderFocus.current = false;
+    readerButtonRef.current?.focus();
+  }, [reading]);
+  // 本文の枠。全画面の読み面でも同じ 1 つを使い回す (表示の切替と本文の解析を二重に持たない)
+  const bodyPanel = (text: string) => {
+    const panel = (
+      <OutputPanel
+        label={reading && title ? title : SKILL_TAB_BODY_LABEL}
+        meta={skillBodyMetaLabel(text)}
+        text={text}
+        mono
+        copyLabel="本文をコピー"
+        copyAlwaysVisible
+        actions={
+          <>
+            <SegmentedControl
+              items={SKILL_BODY_VIEW_MODES}
+              value={bodyView}
+              onChange={setBodyView}
+              ariaLabel={SKILL_BODY_VIEW_ARIA_LABEL}
+            />
+            {singleColumn ? (
+              <button
+                type="button"
+                ref={readerButtonRef}
+                aria-label={reading ? SKILL_BODY_READER_CLOSE_LABEL : SKILL_BODY_READER_OPEN_LABEL}
+                title={reading ? SKILL_BODY_READER_CLOSE_LABEL : SKILL_BODY_READER_OPEN_LABEL}
+                onClick={() => {
+                  if (reading) readerDialogRef.current?.close();
+                  else setReading(true);
+                }}
+                className="grid size-5 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:text-accent-text"
+              >
+                {reading ? <CollapseIcon /> : <ExpandIcon />}
+              </button>
+            ) : null}
+          </>
+        }
+      >
+        {bodyView === "preview" ? (
+          <div className="px-2.5 py-2">
+            <MarkdownView text={skillBodyPreviewText(text)} />
+          </div>
+        ) : undefined}
+      </OutputPanel>
+    );
+    if (!reading) return panel;
+    // 全画面の読み面。外枠 (ページのヘッダ / タブ / メタ) を外し、閉じる操作は標準の dialog に任せる
+    return createPortal(
+      <dialog
+        ref={readerDialogRef}
+        aria-label={title ? `${title} の${SKILL_TAB_BODY_LABEL}` : SKILL_TAB_BODY_LABEL}
+        onClose={() => {
+          restoreReaderFocus.current = true;
+          setReading(false);
+        }}
+        // 止めないと App の Escape (設定ページからチャットへ戻る) まで届く
+        onKeyDown={(event) => {
+          if (event.key === "Escape") event.stopPropagation();
+        }}
+        className="m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-soft p-0"
+      >
+        <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3">{panel}</div>
+      </dialog>,
+      document.body,
+    );
+  };
+
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       {tabs}
@@ -141,30 +227,7 @@ export function SkillDetailPanel({
                 {FILE_SKILL_BODY_ERROR_PREFIX}: {body.message}
               </p>
             ) : (
-              // 枠とヘッダ右のコピーは設定の他の出力面 (OutputPanel) と同じ組み方にする。
-              // 高さ上限は付けない (ページ 1 本のスクロールを維持し、長い本文を枠内で追わせない)
-              <OutputPanel
-                label={SKILL_TAB_BODY_LABEL}
-                meta={skillBodyMetaLabel(body.text)}
-                text={body.text}
-                mono
-                copyLabel="本文をコピー"
-                copyAlwaysVisible
-                actions={
-                  <SegmentedControl
-                    items={SKILL_BODY_VIEW_MODES}
-                    value={bodyView}
-                    onChange={setBodyView}
-                    ariaLabel={SKILL_BODY_VIEW_ARIA_LABEL}
-                  />
-                }
-              >
-                {bodyView === "preview" ? (
-                  <div className="px-2.5 py-2">
-                    <MarkdownView text={skillBodyPreviewText(body.text)} />
-                  </div>
-                ) : undefined}
-              </OutputPanel>
+              bodyPanel(body.text)
             )}
           </div>
         </div>

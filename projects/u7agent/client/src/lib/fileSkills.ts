@@ -83,6 +83,9 @@ export const SKILL_BODY_VIEW_MODES = [
   { value: "preview", label: "プレビュー" },
 ] as const;
 export type SkillBodyView = (typeof SKILL_BODY_VIEW_MODES)[number]["value"];
+/** 本文を全画面の読み面で開く / 閉じる。狭い幅ではページの外枠が本文の高さを削る */
+export const SKILL_BODY_READER_OPEN_LABEL = "全画面で読む";
+export const SKILL_BODY_READER_CLOSE_LABEL = "全画面を閉じる";
 
 /**
  * 本文の枠のヘッダに出す補足。行数はソースの行数で、プレビューに切り替えても変わらない

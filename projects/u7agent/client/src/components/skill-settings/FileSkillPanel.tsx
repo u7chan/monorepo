@@ -130,6 +130,7 @@ export function FileSkillPanel({
 
   return (
     <SkillDetailPanel
+      title={skill.name}
       tabs={<SettingsTabs items={tabs} active={tab} onSelect={openTab} ariaLabel={SKILL_DETAIL_TABS_ARIA_LABEL} />}
       meta={meta}
       note={note}
