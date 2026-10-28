@@ -6,6 +6,7 @@ import { DEFAULT_FILES_SUBSECTION, FILES_SUBSECTIONS, type FilesSubsection } fro
 import { UNSAVED_RELOAD_NOTE } from "../lib/settingsNotes";
 import { ArchiveExcludeSettings } from "./ArchiveExcludeSettings";
 import { FileBrowser } from "./FileBrowser";
+import { FileBrowserScrollArea } from "./FileBrowserScrollArea";
 import { CheckIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -164,14 +165,16 @@ export function FileTreePage({
           onOpenSharingExclusions={onOpenSharingExclusions}
         />
       ) : (
-        <FileBrowser
-          root={rootPath}
-          rootCwd={rootCwd}
-          reloadToken={reloadToken}
-          canRename
-          excludeNames={excludeNames}
-          filePreviewPort={filePreviewPort}
-        />
+        <FileBrowserScrollArea>
+          <FileBrowser
+            root={rootPath}
+            rootCwd={rootCwd}
+            reloadToken={reloadToken}
+            canRename
+            excludeNames={excludeNames}
+            filePreviewPort={filePreviewPort}
+          />
+        </FileBrowserScrollArea>
       )}
     </SettingsPageLayout>
   );

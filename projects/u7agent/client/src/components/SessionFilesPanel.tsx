@@ -15,6 +15,7 @@ import type { SessionFilesPanelResize } from "../hooks/useSessionFilesPanelWidth
 import { useGitBranch } from "../hooks/useGitBranch";
 import { EnvVarsTab } from "./EnvVarsTab";
 import { FileBrowser } from "./FileBrowser";
+import { FileBrowserScrollArea } from "./FileBrowserScrollArea";
 import { GitBranchBadge } from "./GitBranchBadge";
 import { CloseIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
@@ -148,27 +149,30 @@ function SessionFilesContent({
             }
             actions={<ReloadButton onClick={() => setManualReload((count) => count + 1)}>再読み込み</ReloadButton>}
           />
-          {/* singleColumn の sheet は全画面 modal で、入力欄へドロップできない */}
-          <FileBrowser
-            root={root}
-            rootCwd={rootCwd}
-            reloadToken={reloadToken}
-            hiddenNames={SESSION_FILES_HIDDEN_NAMES}
-            excludeNames={excludeNames}
-            filePreviewPort={filePreviewPort}
-            openRequest={fileRefRequestForKind(openRequest ?? null, "work")}
-            onHandled={onHandled}
-            canRef={!singleColumn}
-            // 共有 API の directory はセッションの作業フォルダ相対なので、会話が決まっている面だけに出さす
-            onShareDirectory={
-              envScope.sessionId === undefined
-                ? undefined
-                : (path) => setShareTarget({ directory: path, defaultName: sessionTitle ?? "" })
-            }
-            // ディレクトリ行の「共有」はセッション種別で絞らない (root の入口だけを別の prop で出す)
-            canShareSessionRoot={canShareSessionRoot === true}
-            shareBlockedReason={shareBlockedReason}
-          />
+          {/* singleColumn の sheet は全画面 modal で、入力欄へドロップできない。プレビューの本文が
+              面より高くなる低い窓では、この面のスクロールで本文へ届かせる */}
+          <FileBrowserScrollArea>
+            <FileBrowser
+              root={root}
+              rootCwd={rootCwd}
+              reloadToken={reloadToken}
+              hiddenNames={SESSION_FILES_HIDDEN_NAMES}
+              excludeNames={excludeNames}
+              filePreviewPort={filePreviewPort}
+              openRequest={fileRefRequestForKind(openRequest ?? null, "work")}
+              onHandled={onHandled}
+              canRef={!singleColumn}
+              // 共有 API の directory はセッションの作業フォルダ相対なので、会話が決まっている面だけに出さす
+              onShareDirectory={
+                envScope.sessionId === undefined
+                  ? undefined
+                  : (path) => setShareTarget({ directory: path, defaultName: sessionTitle ?? "" })
+              }
+              // ディレクトリ行の「共有」はセッション種別で絞らない (root の入口だけを別の prop で出す)
+              canShareSessionRoot={canShareSessionRoot === true}
+              shareBlockedReason={shareBlockedReason}
+            />
+          </FileBrowserScrollArea>
         </div>
       ) : (
         // cwd を共有する会話の切替でも要求元が変われば別の key になり、フォームのドラフトを破棄する
@@ -353,18 +357,20 @@ export function SkillFilesContent({
           </code>
         </div>
         {/* 読み取り専用の面なので実体を移す / 変える操作は出さない (除外名も使われない)。パスのコピーは残す。
-            .git は隠さず、参照ドラッグも付けない */}
-        <FileBrowser
-          key={root}
-          root={root}
-          rootCwd={rootCwd}
-          reloadToken={runEndSeq}
-          readOnly
-          excludeNames={[]}
-          filePreviewPort={filePreviewPort}
-          openRequest={fileRefRequestForKind(openRequest ?? null, "skill")}
-          onHandled={onHandled}
-        />
+            .git は隠さず、参照ドラッグも付けない。スクロールの所有者は作業フォルダ面と同じ */}
+        <FileBrowserScrollArea>
+          <FileBrowser
+            key={root}
+            root={root}
+            rootCwd={rootCwd}
+            reloadToken={runEndSeq}
+            readOnly
+            excludeNames={[]}
+            filePreviewPort={filePreviewPort}
+            openRequest={fileRefRequestForKind(openRequest ?? null, "skill")}
+            onHandled={onHandled}
+          />
+        </FileBrowserScrollArea>
       </div>
     </>
   );

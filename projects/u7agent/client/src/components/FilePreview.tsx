@@ -289,9 +289,9 @@ export function FilePreview({
           {errorHint ? <span> {errorHint}</span> : null}
         </p>
       ) : showImage ? (
-        // 縦も中央に置く (items-center)。はみ出した分が上で切れるのは枠の高さが未確定のときなので、
-        // flex-1 + min-h-0 で高さが確定するここでは max-h-full が効き、画像は枠に収まる
-        <div className="image-canvas flex min-h-0 flex-1 items-center justify-center overflow-auto p-2">
+        // 縦も中央に置く (items-center)。枠を 0 まで縮めると画像も枠の高さに追従して 0 になり、閉状態では何も
+        // 見えなくなるため枠には下限を置く (ここでクリップすると、外装が高さを与えない面で中身ごと閉じ込める)
+        <div className="image-canvas flex min-h-40 flex-1 items-center justify-center overflow-auto p-2">
           <img
             src={fileRawUrl(fetchPath, previewVersion)}
             alt={`${fetchPath} のプレビュー`}
