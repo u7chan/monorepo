@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   isFileDrag,
+  mergeUploadTasks,
   planUploads,
   runTaskPool,
   UPLOAD_CONCURRENCY,
+  type UploadTaskStatus,
   UPLOAD_MAX_BYTES,
   UPLOAD_MAX_FILES,
   UPLOAD_MAX_LABEL,
@@ -69,5 +71,34 @@ test("runTaskPool: 同時数を超えず、1 件の失敗で残りを止めな�
   assert.deepEqual(
     [...started].sort((a, b) => a - b),
     items,
+  );
+});
+
+test("mergeUploadTasks: 実行中は完了済みを残し、独立した次のバッチでは前回成功だけを捨てる", () => {
+  type Task = { id: string; status: UploadTaskStatus };
+  const done: Task = { id: "a", status: "done" };
+  const error: Task = { id: "b", status: "error" };
+  const uploading: Task = { id: "c", status: "uploading" };
+  const queued: Task = { id: "d", status: "queued" };
+  const added: Task = { id: "e", status: "queued" };
+
+  // 同じキューが動いている間に追加された分は、先に完了した同じバッチの結果を消さない
+  assert.deepEqual(
+    mergeUploadTasks([done, error, uploading], [added]).map((task) => task.id),
+    ["a", "b", "c", "e"],
+  );
+  // 全件決着後の独立したバッチでは前回成功を捨て、失敗は直すまで残す
+  assert.deepEqual(
+    mergeUploadTasks([done, error], [added]).map((task) => task.id),
+    ["b", "e"],
+  );
+  // 前回の待機が残っているだけでも、完了済みは同じバッチとして残す
+  assert.deepEqual(
+    mergeUploadTasks([done, queued], [added]).map((task) => task.id),
+    ["a", "d", "e"],
+  );
+  assert.deepEqual(
+    mergeUploadTasks([], [added]).map((task) => task.id),
+    ["e"],
   );
 });

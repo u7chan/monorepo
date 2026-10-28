@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uploadWorkspaceFile } from "../api";
-import { planUploads, runTaskPool, UPLOAD_CONCURRENCY } from "../lib/fileUpload";
+import {
+  mergeUploadTasks,
+  planUploads,
+  runTaskPool,
+  UPLOAD_CONCURRENCY,
+  type UploadTaskStatus,
+} from "../lib/fileUpload";
 
-export type WorkspaceUploadStatus = "queued" | "uploading" | "done" | "error";
+export type WorkspaceUploadStatus = UploadTaskStatus;
 
 export type WorkspaceUploadTask = {
   id: string;
@@ -137,11 +143,7 @@ export function useWorkspaceUploads(options: {
       });
     }
     if (added.length === 0) return;
-    // 前回の成功は今回の結果に混ぜない (一覧の再取得で見えている)。失敗は直すまで残す
-    setTasks((prev) => [
-      ...prev.filter((task) => task.status === "queued" || task.status === "uploading" || task.status === "error"),
-      ...added,
-    ]);
+    setTasks((prev) => mergeUploadTasks(prev, added));
     drainRef.current();
   }, []);
 

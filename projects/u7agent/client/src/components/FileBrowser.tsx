@@ -41,6 +41,7 @@ import {
   type FileTreeDirectoryState,
   type FileTreeState,
 } from "../lib/fileTree";
+import { requestFileTreeReload, settleFileTreeRequest, type FileTreeReloadGate } from "../lib/fileTreeReload";
 import { fileKind } from "../lib/fileKind";
 import { FILE_TREE_STACK_BREAKPOINT } from "../lib/fileTreeWidth";
 import { FILE_MENTION_MIME, mentionText } from "../lib/fileMention";
@@ -186,6 +187,8 @@ export function FileBrowser({
   const hasTabs = tabs.paths.length > 0;
   // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
   const inFlightRef = useRef<Set<string>>(new Set());
+  // 取得中に来た再読み込みの要求。最後の取得が決着してから 1 回だけ反映する
+  const reloadGateRef = useRef<FileTreeReloadGate>({ pending: false });
   // 同じ行の削除を二重に送らない (実体が消えた後の再要求で 404 を出さないため)
   const deletingRef = useRef<Set<string>>(new Set());
   // 同じ行のリネームを二重に送らない (削除と同じ理由)
@@ -298,6 +301,9 @@ export function FileBrowser({
           setTree((prev) => applyFileTreeError(prev, path, errorText(error)));
         } finally {
           inFlightRef.current.delete(path);
+          const reload = settleFileTreeRequest(reloadGateRef.current, inFlightRef.current.size);
+          reloadGateRef.current = reload.gate;
+          if (reload.applyNow) setTree((prev) => invalidateFileTree(prev));
         }
       })();
     }
@@ -309,7 +315,11 @@ export function FileBrowser({
   useEffect(() => {
     if (lastReloadTokenRef.current === reloadToken) return;
     lastReloadTokenRef.current = reloadToken;
-    setTree((prev) => invalidateFileTree(prev));
+    // 取得中に invalidate すると、後着の古い応答が loading を解除して取り直しが失われる。
+    // 取得が無いときだけ即時、あるときは最後の取得の finally へ譲る
+    const reload = requestFileTreeReload(reloadGateRef.current, inFlightRef.current.size);
+    reloadGateRef.current = reload.gate;
+    if (reload.applyNow) setTree((prev) => invalidateFileTree(prev));
   }, [reloadToken]);
 
   const toggle = (path: string) => {

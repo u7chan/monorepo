@@ -24,6 +24,17 @@ export type UploadPlan<T extends UploadCandidate> = {
   rejected: Array<{ file: T; reason: string }>;
 };
 
+export type UploadTaskStatus = "queued" | "uploading" | "done" | "error";
+
+/**
+ * 次のドロップを既存の結果へ足す。キューが動いている間は完了済みも残し（同じバッチの結果を
+ * 追加ドロップで消さない）、全件決着後の独立したバッチでは前回成功だけを捨てて失敗を残す。
+ */
+export function mergeUploadTasks<T extends { status: UploadTaskStatus }>(prev: readonly T[], added: readonly T[]): T[] {
+  const continuing = prev.some((task) => task.status === "queued" || task.status === "uploading");
+  return [...prev.filter((task) => continuing || task.status === "error"), ...added];
+}
+
 /**
  * ドロップされたファイルを、受け付け分と理由つきの拒否分に分ける。大きすぎるファイルは
  * 件数の枠を消費しない（10 件の枠は「保存を試すファイル」に使い、超過分はまとめて理由を出す）。
