@@ -7,6 +7,11 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SuggestionsEditor } from "../src/components/agent-settings/SuggestionsEditor";
+import {
+  SuggestionDeleteDialog,
+  SUGGESTION_DELETE_CONFIRM_LABEL,
+  SUGGESTION_DELETE_TITLE,
+} from "../src/components/agent-settings/SuggestionDeleteDialog";
 import type { AgentSuggestion } from "../src/types";
 
 const suggestionsOf = (count: number): AgentSuggestion[] =>
@@ -56,4 +61,32 @@ test("描画: 上限では追加を無効にし、理由を説明行へ出す", 
   // 理由は無効の手前ではなく、押せない状態の説明として読める位置に出す
   assert.match(textOf(html), /上限の 6 件です。追加するにはどれかを削除してください。/);
   assert.ok(textOf(html).includes("空の会話の最初の画面にボタンとして出ます"), "説明は上限の有無に関わらず残す");
+});
+
+test("描画: 削除は確認の面を挟み、行のボタンからは直接消さない", () => {
+  const html = render([{ label: "案 1", prompt: "依頼 1" }]);
+  // onClick は面を開くだけ。押した時点で onRemove は呼ばれない (静的描画では呼び出し回数を見ない)
+  assert.match(html, /aria-haspopup="dialog"/);
+  assert.ok(!html.includes("<dialog"), "開く前から面を出さない");
+});
+
+test("描画: 確認の面は対象のラベルとプロンプトを並べ、保存で効くと伝える", () => {
+  const html = textOf(
+    renderToStaticMarkup(
+      createElement(SuggestionDeleteDialog, {
+        suggestion: { label: "案 1", prompt: "依頼 1" },
+        index: 2,
+        onConfirm: () => {},
+        onCancel: () => {},
+      }),
+    ),
+  );
+  assert.ok(html.includes(SUGGESTION_DELETE_TITLE));
+  assert.match(html, /02/, "何番目の行かを見出しに出す");
+  assert.ok(html.includes("案 1") && html.includes("依頼 1"));
+  assert.ok(html.includes("保存すると、このエージェントの定型プロンプトから外れます。"));
+  assert.ok(html.includes(SUGGESTION_DELETE_CONFIRM_LABEL));
+  assert.ok(html.includes("やめる"));
+  // 入れ子の form は無効な HTML になる (この面は編集フォームの中に置く)
+  assert.equal(html.match(/<form/g), null, "form を持たない");
 });
