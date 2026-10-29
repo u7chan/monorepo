@@ -145,6 +145,7 @@ test("確認: 公開対象の path と 4 つの条件を出し、確定 URL と�
   assert.equal(html.includes("workers.dev/"), false, "確認画面に確定 URL を出さない");
   assert.equal(html.includes("URL をコピー"), false);
   assert.equal(html.includes(">開く<"), false);
+  assert.equal(hasAction(html, "QR コード"), false);
   assert.ok(actionTag(html, "共有する"), "確定するボタンが無い");
   assert.equal(actionTag(html, "共有する").includes("disabled"), false);
   assert.ok(actionTag(html, "キャンセル"));
@@ -419,7 +420,7 @@ test("完了・失敗: 閉じても公開が続く案内は出さない", () => 
   }
 });
 
-test("完了: URL と共有 ID と 開く / URL をコピー を結果に出す", () => {
+test("完了: URL と共有 ID と 開く / QR コード / URL をコピー を結果に出す", () => {
   const html = render(
     controller({ items: [item({ status: "published", publishedAt: PUBLISHED_AT })], activeId: "abc123" }),
   );
@@ -428,11 +429,38 @@ test("完了: URL と共有 ID と 開く / URL をコピー を結果に出す"
   assert.ok(html.includes(`href="${URL_PUBLISHED}"`));
   assert.match(html, /target="_blank"/);
   assert.match(html, /rel="noreferrer noopener"/);
+  assert.ok(hasAction(html, "QR コード"));
   assert.ok(actionTag(html, "URL をコピー"));
   assert.ok(html.includes(">abc123<"), "共有 ID を出す");
   // 受付した 1 件は結果に出すので、同じ URL とボタンを一覧にも並べない
   assert.equal((html.match(/URL をコピー/g) ?? []).length, 1);
   assert.equal((html.match(/>開く</g) ?? []).length, 1);
+  assert.equal((html.match(/>QR コード</g) ?? []).length, 1);
+});
+
+// What: QR は開く / コピーと同じ条件（公開済みで実体のある URL）だけに出し、閉じた状態ではダイアログを描かない
+test("QR コード: 公開済みで実体のある URL のときだけ、結果と一覧の行の両方に出す", () => {
+  const hidden: [string, SharedContentResponse][] = [
+    ["公開中", item({ status: "publishing" })],
+    ["停止中", item({ status: "stopped", publishedAt: PUBLISHED_AT })],
+    ["失敗", item({ status: "failed", publicUrl: null, lastError: "失敗" })],
+    ["未デプロイ", item({ status: "published", lastError: "未デプロイ" })],
+    ["URL 無し", item({ status: "published", publishedAt: PUBLISHED_AT, publicUrl: null })],
+  ];
+  for (const [label, target] of hidden) {
+    // 結果（activeId が対象）と一覧の行（activeId なし）の両方で出さない
+    for (const activeId of [target.id, null]) {
+      const html = render(controller({ items: [target], activeId }));
+      assert.equal(hasAction(html, "QR コード"), false, `${label}: QR を出さない`);
+    }
+  }
+  // 公開済みで実体があれば、結果と一覧のどちらでも出す。閉じた状態ではダイアログを描かない
+  const live = item({ status: "published", publishedAt: PUBLISHED_AT });
+  for (const activeId of [live.id, null]) {
+    const html = render(controller({ items: [live], activeId }));
+    assert.ok(hasAction(html, "QR コード"), `${String(activeId)}: QR を出す`);
+    assert.equal(html.includes("公開 URL の QR コード"), false);
+  }
 });
 
 test("一覧: 受付した 1 件を除いた他の共有物を並べ、共有 ID も出す", () => {
@@ -444,6 +472,8 @@ test("一覧: 受付した 1 件を除いた他の共有物を並べ、共有 ID
   assert.match(html, />site</, "他の共有物を一覧に出す");
   assert.ok(html.includes(`href="${URL_PUBLISHED}"`), "他の共有物の URL も出す");
   assert.ok(html.includes(">def456<"), "一覧の共有物にも共有 ID を出す");
+  // 一覧の行にも QR の導線を出す (結果の 1 件 + 一覧の 1 件)
+  assert.equal((html.match(/>QR コード</g) ?? []).length, 2);
 });
 
 test("再オープン: 受付していない状態でも一覧の各共有物に共有 ID と URL を出す", () => {
@@ -496,6 +526,7 @@ test("停止中（公開実績あり）: 停止中として出し、URL のコ�
   assert.equal(html.includes("公開済み"), false);
   assert.equal(html.includes("URL をコピー"), false);
   assert.equal(html.includes(">開く<"), false);
+  assert.equal(html.includes(">QR コード<"), false);
 });
 
 test("受付の拒否: サーバーの文言 (資格情報の未登録) をそのまま出し、一覧は残す", () => {

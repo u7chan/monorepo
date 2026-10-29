@@ -17,6 +17,8 @@ export type QrCodeDialogProps = {
 export function QrCodeDialog({ item, onClose }: QrCodeDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  /** 起点が対象の失効で消えたときの戻り先。共有ダイアログの上に重ねて開く用途で使う */
+  const fallbackFocusRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const open = item !== null;
@@ -25,17 +27,28 @@ export function QrCodeDialog({ item, onClose }: QrCodeDialogProps) {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (!open) {
-      // 対象が消えた / 状態が変わった。条件付き描画で消さず、close() で焦点を戻す
-      if (dialog.open) dialog.close();
+      // 対象が消えた / 状態が変わった。close() の復帰先が消えていれば親のモーダルへ戻す
+      if (dialog.open) {
+        dialog.close();
+        const previous = previousFocusRef.current;
+        if (previous?.isConnected) previous.focus();
+        else if (fallbackFocusRef.current?.isConnected) fallbackFocusRef.current.focus();
+      }
       return;
     }
     if (!dialog.open) {
       previousFocusRef.current = document.activeElement as HTMLElement | null;
+      fallbackFocusRef.current = dialog.parentElement?.closest<HTMLElement>("dialog") ?? null;
       dialog.showModal();
     } else if (!dialog.contains(document.activeElement)) {
       dialog.focus();
     }
-    return () => previousFocusRef.current?.focus();
+    return () => {
+      const previous = previousFocusRef.current;
+      // 起点が消えたときは親のモーダルへ戻す
+      if (previous?.isConnected) previous.focus();
+      else if (fallbackFocusRef.current?.isConnected) fallbackFocusRef.current.focus();
+    };
   }, [open]);
 
   // 主操作は閉じるだけなので、開いたら「閉じる」に置く（破壊的な操作を Enter で確定させない）
@@ -53,7 +66,14 @@ export function QrCodeDialog({ item, onClose }: QrCodeDialogProps) {
   return (
     <dialog
       ref={dialogRef}
-      onClose={onClose}
+      // 共有ダイアログの上に重ねて開くため、close / cancel を祖先の dialog へ伝播させない
+      onCancel={(event) => {
+        event.stopPropagation();
+      }}
+      onClose={(event) => {
+        event.stopPropagation();
+        onClose();
+      }}
       aria-modal="true"
       aria-label={item === null ? "QR コード" : `${item.name} の QR コード`}
       tabIndex={-1}
