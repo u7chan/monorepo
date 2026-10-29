@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, typ
 import type { SecretsScope } from "../api";
 import { sessionEnvScopeKey, sessionEnvTabs, type SessionEnvTab } from "../lib/sessionEnv";
 import { SESSION_FILES_HIDDEN_NAMES } from "../lib/sessionFiles";
+import { workFolderAbsolutePath } from "../lib/sessionFilesPath";
 import { fileRefRequestForKind, type FileRefRequest, type FilesMode } from "../lib/fileRefRequest";
 import type { ExitPhase } from "../lib/exitPhase";
 import { cn } from "../lib/cn";
@@ -24,6 +25,7 @@ import { CloseIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
 import { ShareContentDialog, type ShareContentTarget } from "./ShareContentDialog";
 import { TabToolbar } from "./TabToolbar";
+import { WorkFolderPathMenu } from "./WorkFolderPathMenu";
 
 export type SessionFilesPanelProps = {
   /** 作業フォルダ (ワークスペース root 相対)。パネル / シートの root */
@@ -59,6 +61,11 @@ export type SessionFilesPanelProps = {
   sessionTitle?: string;
   /** root 直下の index.html 行から作業フォルダ自身を共有できるか。非プロジェクト会話だけ true */
   canShareSessionRoot?: boolean;
+  /**
+   * 選択中セッションがプロジェクト所属か (`SessionSummary.projectSession`)。undefined は未取得で、
+   * パスの末尾をプロジェクト相当の 1 段に倒す。`projectId` は登録解除で消えるため使わない
+   */
+  projectSession?: boolean;
 };
 
 function SessionFilesContent({
@@ -73,10 +80,13 @@ function SessionFilesContent({
   onHandled,
   sessionTitle,
   canShareSessionRoot,
+  projectSession,
   shareBlockedReason,
   singleColumn,
 }: SessionFilesPanelProps & { singleColumn: boolean }) {
   const [manualReload, setManualReload] = useState(0);
+  // 帯のパス (末尾 + ⋯) に必要な幅。`TabToolbar` の context 最小幅へ渡し、入り切らない幅では操作を次の段へ落とす
+  const [pathMinWidth, setPathMinWidth] = useState(0);
   // ドロップされたファイルはこの面の root (作業フォルダ) の直下へ保存し、全件の決着後に 1 回だけ一覧を
   // 取り直す。設定 → ファイル と同じ扱いで、成功した分を run_end を待たずに出す
   const [uploadReload, setUploadReload] = useState(0);
@@ -146,11 +156,18 @@ function SessionFilesContent({
         <div className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)]">
           {/* この帯は作業フォルダ面だけが持つ (環境変数面の帯は EnvVarsTab が描く) */}
           <TabToolbar
+            contextMinWidth={pathMinWidth}
             context={
               <>
-                <code className="min-w-0 truncate text-2xs leading-normal text-ink-muted" title={root}>
-                  {root}
-                </code>
+                {/* 同じ cwd の会話切替ではパネルが remount されないので、コピー結果の所有者を会話ごとに張り替える */}
+                <WorkFolderPathMenu
+                  key={envScope.sessionId ?? ""}
+                  root={root}
+                  absolutePath={workFolderAbsolutePath(rootCwd, root)}
+                  sessionId={envScope.sessionId}
+                  projectSession={projectSession}
+                  onRequiredWidth={setPathMinWidth}
+                />
                 {/* repo の外では出さない (ブランチは一覧の表示を止める情報ではない) */}
                 {branch ? <GitBranchBadge branch={branch} /> : null}
               </>

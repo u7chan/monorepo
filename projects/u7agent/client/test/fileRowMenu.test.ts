@@ -16,7 +16,8 @@ import {
 
 // FileBrowser / RowMenu は api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { EntryRowActions, PathCopyFailure } = await import("../src/components/FileBrowser");
+const { EntryRowActions } = await import("../src/components/FileBrowser");
+const { PathCopyFailure } = await import("../src/components/file-tree/PathCopyFailure");
 const { RowMenu } = await import("../src/components/RowMenu");
 
 const base = {
@@ -424,4 +425,21 @@ test("↑↓ は端で止まり、フォーカスが項目の外にあるとき�
   assert.equal(nextRowMenuIndex(-1, 4, "next"), 0);
   assert.equal(nextRowMenuIndex(-1, 4, "previous"), 3);
   assert.equal(nextRowMenuIndex(0, 0, "next"), -1);
+});
+
+test("出し分け: 行の ⋯ にセッション ID のコピーは出さない (作業フォルダ面の帯の専用項目)", () => {
+  const rows: (FileRowAction[] | null)[] = [
+    fileRowActions(base),
+    fileRowActions({ ...base, canRename: true, absolutePath: "/srv/workspace/docs" }),
+    fileRowActions({ ...base, type: "file", name: "index.html", canShareSessionRoot: true, canShare: true }),
+    fileRowActions({ ...base, readOnly: true, absolutePath: "/srv/workspace/.agents/skills/demo" }),
+  ];
+  for (const actions of rows) {
+    assert.ok(actions !== null);
+    // 型 (FileRowActionKind) から外しているので、実行時の出し分けでも混ざらないことを確かめる
+    assert.ok(
+      !(actions.map((action) => action.kind) as string[]).includes("copy-session-id"),
+      "行の ⋯ に帯専用の項目が出ている",
+    );
+  }
 });

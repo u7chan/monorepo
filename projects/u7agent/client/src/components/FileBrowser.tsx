@@ -67,8 +67,8 @@ import {
   type PreviewOrigins,
 } from "../lib/fileTabs";
 import type { FileEntry } from "../types";
-import { COPY_FAILED_TEXT } from "./chat/CopyButton";
 import { ChevronIcon, FileIcon, FolderIcon } from "./icons";
+import { PathCopyFailure } from "./file-tree/PathCopyFailure";
 import { LoadingMark } from "./LoadingMark";
 import { RowMenu } from "./RowMenu";
 
@@ -977,17 +977,6 @@ export function EntryRowActions({
     delete: onDelete,
   };
   return <RowMenu name={name} actions={actions} copied={copied} onSelect={(kind) => handlers[kind]()} />;
-}
-
-/** パスコピーの失敗。⋯ は項目の選択で閉じるため、結果は行の中の 1 行 (RowTail の次) に残す */
-export function PathCopyFailure({ detail }: { detail?: string }) {
-  if (detail === undefined) return null;
-  return (
-    <div role="alert" className="basis-full pb-1 pl-2 text-2xs leading-relaxed text-danger-text">
-      <span className="block">{COPY_FAILED_TEXT}</span>
-      <span className="block break-words text-ink-faint">{detail}</span>
-    </div>
-  );
 }
 
 /** 項目を持たない行の末尾スロット。時刻の右端を ⋯ の行にそろえる。 */
