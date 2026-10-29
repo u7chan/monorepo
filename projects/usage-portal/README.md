@@ -52,6 +52,12 @@ Chromium の PWA インストールには HTTPS（開発時は localhost）が�
 HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更では TLS 終端や Service Worker は追加せず、オフライン利用や API のキャッシュも行わない。
 設定の判断は [ADR 0014](docs/adr/0014-pwa-icons.md) を参照する。
 
+## 画面の読み方
+
+ゲージの下の行は、先頭のバッジがリセットまでの残り時間（「あと 12 日」）、続く淡色の文字がリセット日時を表す。
+すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。
+表示の判断は [ADR 0008](docs/adr/0008-remaining-gauge-and-window-trend.md)、[ADR 0015](docs/adr/0015-reset-line-badge.md)、[ADR 0016](docs/adr/0016-exhausted-cards-last.md) を参照する。
+
 ## 初回セットアップ
 
 認証の設定は環境変数ではなく `DATA_DIR` 配下のファイルで持つ。初回起動時に次の 2 つができる。
@@ -257,3 +263,5 @@ bun run check
 - [docs/adr/0012-codex-signout-in-card-menu.md](docs/adr/0012-codex-signout-in-card-menu.md) — Codex のサインアウトをカードのメニューへ
 - [docs/adr/0013-meter-status-icons.md](docs/adr/0013-meter-status-icons.md) — 使用不可と残りわずかの印を SVG にする
 - [docs/adr/0014-pwa-icons.md](docs/adr/0014-pwa-icons.md) — PWA と iOS ホーム画面用のアイコン
+- [docs/adr/0015-reset-line-badge.md](docs/adr/0015-reset-line-badge.md) — リセット行の残り時間をバッジにする
+- [docs/adr/0016-exhausted-cards-last.md](docs/adr/0016-exhausted-cards-last.md) — 使い切ったカードを末尾に回す
