@@ -16,13 +16,15 @@ import {
   sharePrimaryAction,
   shareStatusView,
   shareUpdateNote,
+  sharedContentQrTarget,
   type ShareStatusView,
 } from "../lib/sharedContents";
 import { sharePreviewSummary } from "../lib/sharedContentPreview";
 import type { SharedContentResponse } from "../types";
-import { ExternalLinkIcon, RunSpinnerIcon, ShareIcon, WarningIcon } from "./icons";
+import { ExternalLinkIcon, QrCodeIcon, RunSpinnerIcon, ShareIcon, WarningIcon } from "./icons";
 import { CollapsibleNotice } from "./CollapsibleNotice";
 import { LoadingMark } from "./LoadingMark";
+import { QrCodeDialog } from "./QrCodeDialog";
 
 /** 行の ⋯ から渡す公開対象 */
 export type ShareContentTarget = {
@@ -83,6 +85,7 @@ export function ShareContentDialogView({
   // 表示名は作成時にだけ決める (既存の共有物の名前は 設定 → 共有 でも変えない)
   const [name, setName] = useState(target.defaultName);
   const [tab, setTab] = useState<ShareTab>("publish");
+  const [qrId, setQrId] = useState<string | null>(null);
   const active = share.activeId === null ? undefined : share.items.find((item) => item.id === share.activeId);
   // 受付した 1 件は上の結果に出す (同じ URL とボタンを一覧にも並べない)。閉じて開き直すと一覧だけになる
   const listed = share.activeId === null ? share.items : share.items.filter((item) => item.id !== share.activeId);
@@ -253,7 +256,7 @@ export function ShareContentDialogView({
               </p>
             )}
 
-            {started ? <ShareOutcome active={active} submitting={share.submitting} /> : null}
+            {started ? <ShareOutcome active={active} submitting={share.submitting} onQr={setQrId} /> : null}
 
             {/* 閉じると受付済みの表示は失われるが、公開はサーバー側で続く。閉じるは塞がない */}
             {busy ? <p className="text-1xs break-words text-ink-muted">{SHARE_CLOSE_HINT}</p> : null}
@@ -279,7 +282,7 @@ export function ShareContentDialogView({
                 ) : null}
                 <ul className="grid gap-2">
                   {listed.map((item) => (
-                    <ShareListItem key={item.id} item={item} />
+                    <ShareListItem key={item.id} item={item} onQr={setQrId} />
                   ))}
                 </ul>
               </section>
@@ -327,6 +330,9 @@ export function ShareContentDialogView({
           </footer>
         )}
       </form>
+      {qrId === null ? null : (
+        <QrCodeDialog item={sharedContentQrTarget(share.items, qrId)} onClose={() => setQrId(null)} />
+      )}
     </dialog>
   );
 }
@@ -410,8 +416,16 @@ function SharePreview({ state }: { state: SharePreviewState }) {
   );
 }
 
-/** 受付した 1 件の状態。公開中は操作を出さず、完了で URL・共有 ID・開く / コピーを出す */
-function ShareOutcome({ active, submitting }: { active: SharedContentResponse | undefined; submitting: boolean }) {
+/** 受付した 1 件の状態。公開中は操作を出さず、完了で URL・共有 ID・開く / QR / コピーを出す */
+function ShareOutcome({
+  active,
+  submitting,
+  onQr,
+}: {
+  active: SharedContentResponse | undefined;
+  submitting: boolean;
+  onQr: (id: string) => void;
+}) {
   if (submitting) {
     return (
       <p aria-live="polite" className="flex items-center gap-1.5 text-ink-soft">
@@ -425,15 +439,15 @@ function ShareOutcome({ active, submitting }: { active: SharedContentResponse | 
   return (
     <div className="grid gap-1.5 rounded-lg border border-line bg-soft px-3 py-2.5">
       <ShareStatusLine view={view} />
-      {view.openUrl === null ? null : <ShareUrl url={view.openUrl} id={active.id} />}
+      {view.openUrl === null ? null : <ShareUrl url={view.openUrl} id={active.id} onQr={() => onQr(active.id)} />}
       <ShareId id={active.id} />
       <ShareNote view={view} />
     </div>
   );
 }
 
-/** この会話の共有物 1 件。公開済みなら URL と開く / コピーを出す */
-function ShareListItem({ item }: { item: SharedContentResponse }) {
+/** この会話の共有物 1 件。公開済みなら URL と開く / QR / コピーを出す */
+function ShareListItem({ item, onQr }: { item: SharedContentResponse; onQr: (id: string) => void }) {
   const view = shareStatusView(item);
   return (
     <li className="grid min-w-0 gap-1 border-b border-line pb-2 last:border-b-0 last:pb-0">
@@ -441,7 +455,7 @@ function ShareListItem({ item }: { item: SharedContentResponse }) {
         <span className="min-w-0 truncate font-semibold text-ink-strong">{item.name}</span>
         <ShareStatusLine view={view} />
       </div>
-      {view.openUrl === null ? null : <ShareUrl url={view.openUrl} id={item.id} />}
+      {view.openUrl === null ? null : <ShareUrl url={view.openUrl} id={item.id} onQr={() => onQr(item.id)} />}
       <ShareId id={item.id} />
       <ShareNote view={view} />
       {/* 未デプロイの固定文言とは別に、BFF が分類した理由を表示だけに使う */}
@@ -489,8 +503,8 @@ function ShareNote({ view }: { view: ShareStatusView }) {
   );
 }
 
-/** 公開 URL と、外部タブで開く / クリップボードへコピーの 2 操作。長い URL は折り返す */
-function ShareUrl({ url, id }: { url: string; id: string }) {
+/** 公開 URL と、外部タブで開く / QR / クリップボードへコピーの 3 操作。長い URL は折り返す */
+function ShareUrl({ url, id, onQr }: { url: string; id: string; onQr: () => void }) {
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const failure = copyFailure(id);
   return (
@@ -501,6 +515,10 @@ function ShareUrl({ url, id }: { url: string; id: string }) {
           <ExternalLinkIcon />
           開く
         </a>
+        <button type="button" className="btn-quiet" onClick={onQr}>
+          <QrCodeIcon />
+          QR コード
+        </button>
         <button type="button" className="btn-quiet" onClick={() => void copyMessage(url, id)}>
           {copiedId === id ? "コピーしました" : "URL をコピー"}
         </button>
