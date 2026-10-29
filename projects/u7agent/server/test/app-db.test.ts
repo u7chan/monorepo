@@ -1923,7 +1923,7 @@ test("migrates a v16 db additively and keeps NULL and [] of the skill allowlists
         "icon",
         "model",
         "thinkingLevel",
-        "suggestions",
+        // v33 -> v34 で定型プロンプトはマスタへ移し、旧列は落とす
         "commonSkillNames",
         "builtinSkillNames",
         "toolNames",

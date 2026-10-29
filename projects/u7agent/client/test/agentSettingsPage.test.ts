@@ -177,7 +177,13 @@ test("保存中の再確定は直列化され、古い操作が最終値にな�
 // --- 共有カタログの取得の世代 ---
 
 function catalog(agentIds: string[]): CatalogResponse {
-  return { builtinAgent: null, builtinSkills: [], agents: agentIds.map((id) => agent(id)), tools: [] };
+  return {
+    builtinAgent: null,
+    builtinSkills: [],
+    agents: agentIds.map((id) => agent(id)),
+    tools: [],
+    prompts: [],
+  };
 }
 
 test("並べ替えより前に開始した取得の応答は確定順を巻き戻さない", () => {
@@ -243,7 +249,10 @@ test("フォームの初期化は定義の参照ではなく内容で判定す�
   assert.equal(agentFormKey(saved), agentFormKey(agent("a", "レビュー")));
   // 内容が変われば初期化する
   assert.notEqual(agentFormKey(saved), agentFormKey({ ...saved, name: "レビュー 改" }));
-  assert.notEqual(agentFormKey(saved), agentFormKey({ ...saved, suggestions: [{ label: "x", prompt: "y" }] }));
+  assert.notEqual(
+    agentFormKey(saved),
+    agentFormKey({ ...saved, prompts: [{ id: "p1", kind: "custom", label: "x", prompt: "y" }] }),
+  );
   // 新規 (未保存) の下書きは空どうしで同じ
   assert.equal(agentFormKey(undefined), agentFormKey(undefined));
 });

@@ -420,7 +420,7 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - `attachments` は root 相対のパスで、そのセッションの保存先（[session-files.md](session-files.md#スペースごとの配置)）配下だけを許可する（`./` は正規化、`..`・絶対パス・ディレクトリ自体・別セッションの保存先は 400）。最大 10 件、文字列以外は 400。
 - `text` は空でも添付があれば送れる（本文も添付も無いときだけ 400）。
 - `resendSendId` は payload の `pendingSends` の `sendId` を指定する。本文はストアに保存済みの生テキストを使い、同じ送信IDで実行し直す（表示用のマスク済み本文を送り直さない）。実行へ割り当て直すときは新しい `runId` になる。互換名 `resendRunId` も送信IDとして受け付け、両方の同時指定は 400。配送中 / 実行中 / 注入済みの送信IDへの二重の再送は重ねず、現在の状態を返す。記録が無い（保存済み / 破棄済み）送信IDは 409。受理の記録はそのままで、user entry が保存された時点で未送信から外れる。受付後は `resync` を 1 件配り、別タブの未送信表示を更新する（キュー受付の `queued` は `sendId` を載せる）
-- `titleSource` は一覧タイトルの元にする本文で、定型プロンプト（`suggestions`）を結合する前の入力を渡す。省略時は `text` を使う（従来形式のクライアントはタイトル用の情報を送らない）。`text` と同じ上限（413）を適用し、`text` を超える情報は受け付けない。タイトルの抽出規則と AI 要約は [session-title.md](session-title.md)
+- `titleSource` は一覧タイトルの元にする本文で、定型プロンプト（チップ）を結合する前の入力を渡す。省略時は `text` を使う（従来形式のクライアントはタイトル用の情報を送らない）。`text` と同じ上限（413）を適用し、`text` を超える情報は受け付けない。タイトルの抽出規則と AI 要約は [session-title.md](session-title.md)
 - `text` が `/skill:` で始まるときは、BFF が本文ブロックへ展開してから送る（[`/skill:` の展開](#skill-の展開)）。タイトルは展開前の `titleSource` から、認識したスキル参照だけを外して作る（`<skill …>` の本文をタイトルへ混ぜない）。`/skill:` を参照として外すのは実際に展開できたときだけで、未知のスキル指定はタイトルにも本文のまま残す（[session-title.md](session-title.md#タイトルの作り方)）。
 - BFF は本文の末尾に注記を合成してから `SessionStore.postMessage` へ渡す（[注記](#添付の注記)）。
 - 圧縮中に送ると BFF の配送キューに積まれ、`queued: true` と `queueDepth` を返す（`sendId` は受け付けた時点で振り、`runId` は実行の開始時に確定する）。圧縮の終端処理の後に 1 回だけ pump し、先頭の送信を開始送信として次のランを始める（排他の判定は BFF の `compacting` フラグ。SDK は保存待ちの間 idle に見える）。

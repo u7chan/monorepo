@@ -37,6 +37,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 共有コンテンツ（公開・更新・停止・再公開・削除）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare`、`/api/settings/shared-content-exclusions` | [static-sharing.md](static-sharing.md) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview`・`/export`・`/export/check`・`/import` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
+| 定型プロンプト（設定 → 定型プロンプト `/settings/prompts`） | `GET/POST /api/prompts`、`GET/PATCH/PUT/DELETE /api/prompts/:id` | [api-catalog.md](api-catalog.md#定型プロンプトのマスタと参照) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
 ## スペース

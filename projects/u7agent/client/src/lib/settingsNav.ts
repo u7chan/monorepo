@@ -8,6 +8,7 @@ export type SidebarMode = "nav" | "settings";
 // 並び順はサイドバーの表示順
 export type SettingsSection =
   | "agents"
+  | "prompts"
   | "skills"
   | "files"
   | "appearance"
@@ -25,6 +26,8 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
   // アプリ全体と見るだけの設定を後に置く
   { section: "spaces", label: "会話スペース" },
   { section: "agents", label: "エージェント" },
+  // 定型プロンプトはエージェントから独立したマスタなので、エージェントのタブではなく次の行に置く
+  { section: "prompts", label: "定型プロンプト" },
   { section: "skills", label: "スキル" },
   { section: "models", label: "モデル" },
   // コンテンツ生成と Web 検索はモデルと同じ「外部サービスとキー」の面だが、対象そのものが別なので

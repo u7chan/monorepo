@@ -2,13 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { appendSystemPrompt, composePromptSnapshot, investigationSystemPrompt, investigationTools } from "../src/agent";
 import { allowsNaturalInvocation, createAgentCatalog } from "../src/agents";
+import { AppDb } from "../src/app-db";
+import { BUILTIN_AGENT_PROMPT_IDS, BUILTIN_PROMPTS } from "../src/builtin-catalog";
+import { createPromptCatalog } from "../src/prompts";
 import { SKILL_NAME_MAX, SKILL_NAMES_MAX, TOOL_NAME_MAX, TOOL_NAMES_MAX } from "../src/schema";
 
-const DEFAULT_SUGGESTIONS = [
-  { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
-  { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
-  { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
-];
+/** カタログとマスタを同じメモリ DB に載せる (API と同じ共有のしかた) */
+function testCatalog() {
+  const db = AppDb.open({ storeDir: null });
+  const prompts = createPromptCatalog({ db });
+  return { db, prompts, catalog: createAgentCatalog({ db, prompts }) };
+}
 
 test("the built-in agent keeps model and thinkingLevel unspecified", () => {
   const catalog = createAgentCatalog();
@@ -186,167 +190,160 @@ test("rejects the removed skillIds on create and update", () => {
   assert.equal(Object.hasOwn(catalog.getAgent(created.id) ?? {}, "skillIds"), false);
 });
 
-test("only the built-in agent ships with default suggestions", () => {
-  const catalog = createAgentCatalog();
-  assert.deepEqual(catalog.builtinAgent().suggestions, DEFAULT_SUGGESTIONS);
-
-  // ユーザー定義は追加項目を書かない限り suggestions を持たない
-  const created = catalog.createAgent({ name: "定型なし" });
-  assert.equal(Object.hasOwn(created, "suggestions"), false);
-});
-
-test("normalizes agent suggestions on create", () => {
-  const catalog = createAgentCatalog();
-
-  // 配列でなければ未指定 (キー省略)。null / 文字列 / オブジェクト / 数値はすべて同じ扱い
-  const nonArrays: unknown[] = [null, undefined, "プロンプト", { label: "x", prompt: "y" }, 42];
-  for (const suggestions of nonArrays) {
-    const agent = catalog.createAgent({ name: "非配列", suggestions });
-    assert.equal(
-      Object.hasOwn(agent, "suggestions"),
-      false,
-      `must omit suggestions for ${JSON.stringify(suggestions)}`,
-    );
+test("the built-in agent resolves the fixed built-in prompt masters", () => {
+  const { catalog } = testCatalog();
+  const builtin = catalog.builtinAgent();
+  assert.deepEqual(
+    builtin.prompts?.map((prompt) => prompt.id),
+    [...BUILTIN_AGENT_PROMPT_IDS],
+    "組み込みの参照は固定 ID で、順序がそのまま表示順になる",
+  );
+  for (const prompt of builtin.prompts ?? []) {
+    assert.equal(prompt.kind, "builtin");
+    // 本文の正はマスタ側だけ (エージェント定義へ写さない)
+    assert.equal(prompt.prompt, BUILTIN_PROMPTS.find((entry) => entry.id === prompt.id)?.prompt);
   }
 
-  // label / prompt が空・非文字列の要素は捨てる
-  const kept = { label: "残る", prompt: "残るプロンプト" };
-  const dropped = catalog.createAgent({
-    name: "空要素",
-    suggestions: [
-      { label: "   ", prompt: "有効なプロンプト" },
-      { label: "有効なラベル", prompt: "   " },
-      { label: 42, prompt: "数値ラベル" },
-      { prompt: "ラベルなし" },
-      null,
-      "文字列",
-      kept,
-    ],
-  });
-  assert.deepEqual(dropped.suggestions, [{ label: "残る", prompt: "残るプロンプト" }]);
-  // 元の入力オブジェクトを参照で持ち回らない
-  assert.notEqual(dropped.suggestions?.[0], kept);
-
-  // 正規化後に 0 件ならキーを省略する
-  const empty = catalog.createAgent({
-    name: "全部空",
-    suggestions: [{ label: "", prompt: "" }, { label: " ", prompt: " " }, null],
-  });
-  assert.equal(Object.hasOwn(empty, "suggestions"), false);
+  // 新しく作る自作エージェントへ組み込みを自動で足さない
+  const created = catalog.createAgent({ name: "定型なし" });
+  assert.equal(Object.hasOwn(created, "prompts"), false);
 });
 
-test("trims, truncates and deduplicates suggestions, and rejects a 7th unique item", () => {
-  const catalog = createAgentCatalog();
+test("rejects the legacy suggestions write with 400 instead of dropping it", () => {
+  const { catalog } = testCatalog();
+  const suggestions = [{ label: "旧", prompt: "旧い書き込み" }];
+  assert.throws(
+    () => catalog.createAgent({ name: "旧形式", suggestions }),
+    (error: Error & { statusCode?: number }) => error.statusCode === 400 && /promptIds/.test(error.message),
+  );
+  const agent = catalog.createAgent({ name: "既存" });
+  assert.throws(
+    () => catalog.updateAgent(agent.id, { suggestions }),
+    (error: Error & { statusCode?: number }) => error.statusCode === 400 && /promptIds/.test(error.message),
+  );
+  // 断った書き込みは何も変えない
+  assert.equal(Object.hasOwn(catalog.getAgent(agent.id) ?? {}, "prompts"), false);
+});
 
-  const trimmed = catalog.createAgent({
-    name: "trim と切り詰め",
-    suggestions: [{ label: `  ${"い".repeat(70)}  `, prompt: `  ${"う".repeat(600)}  ` }],
-  });
-  assert.equal(trimmed.suggestions?.[0].label, "い".repeat(60));
-  assert.equal(trimmed.suggestions?.[0].prompt, "う".repeat(500));
+test("stores ordered prompt references and keeps same-content masters distinct", () => {
+  const { catalog, prompts } = testCatalog();
+  const first = prompts.create({ label: "同じ", prompt: "同じ本文" });
+  const second = prompts.create({ label: "同じ", prompt: "同じ本文" });
+  const other = prompts.create({ label: "別", prompt: "別の本文" });
 
-  // prompt の重複は最初の 1 件だけ残す (trim 後で比較する)
-  const deduped = catalog.createAgent({
-    name: "重複排除",
-    suggestions: [
-      { label: "1 件目", prompt: "同じ" },
-      { label: "2 件目", prompt: "同じ" },
-      { label: "3 件目", prompt: " 同じ " },
-      { label: "別", prompt: "別のプロンプト" },
-    ],
-  });
-  assert.deepEqual(deduped.suggestions, [
-    { label: "1 件目", prompt: "同じ" },
-    { label: "別", prompt: "別のプロンプト" },
-  ]);
-
-  // 重複排除が先なので、重複は 6 件の枠を消費しない (ユニーク 6 件までは保存できる)
-  const full = catalog.createAgent({
-    name: "上限ちょうど",
-    suggestions: [
-      { label: "A", prompt: "A" },
-      { label: "A の重複", prompt: "A" },
-      { label: "B", prompt: "B" },
-      { label: "C", prompt: "C" },
-      { label: "D", prompt: "D" },
-      { label: "E", prompt: "E" },
-      { label: "F", prompt: "F" },
-    ],
+  const agent = catalog.createAgent({
+    name: "参照あり",
+    promptIds: [second.id, first.id, other.id],
   });
   assert.deepEqual(
-    full.suggestions?.map((suggestion) => suggestion.prompt),
-    ["A", "B", "C", "D", "E", "F"],
+    agent.prompts?.map((prompt) => prompt.id),
+    [second.id, first.id, other.id],
+    "同じ本文でも本文でまとめず、参照の順序を保つ",
   );
 
-  // ユニーク 7 件は黙って 6 件に切らず、保存を 400 で断る (保存できたと誤認させない)
-  assert.throws(
-    () =>
-      catalog.createAgent({
-        name: "上限超過",
-        suggestions: [
-          { label: "A", prompt: "A" },
-          { label: "A の重複", prompt: "A" },
-          { label: "B", prompt: "B" },
-          { label: "C", prompt: "C" },
-          { label: "D", prompt: "D" },
-          { label: "E", prompt: "E" },
-          { label: "F", prompt: "F" },
-          { label: "G", prompt: "G" },
-        ],
-      }),
-    (error: Error & { statusCode?: number }) =>
-      error.statusCode === 400 && error.message === "Agent suggestions must have at most 6 items",
+  // マスタの編集は、次の取得から共通で反映される (選択済みチップはクライアントの持ち物)
+  prompts.update(second.id, { label: "編集後", prompt: "編集後の本文" });
+  assert.deepEqual(
+    catalog.getAgent(agent.id)?.prompts?.map((prompt) => prompt.label),
+    ["編集後", "同じ", "別"],
   );
 });
 
-test("updates and clears agent suggestions", () => {
-  const catalog = createAgentCatalog();
-  const agent = catalog.createAgent({ name: "定型あり", suggestions: DEFAULT_SUGGESTIONS });
+test("validates prompt ids and never partially saves an agent", () => {
+  const { catalog, prompts } = testCatalog();
+  const known = prompts.create({ label: "既知", prompt: "既知の本文" });
+  assert.equal(catalog.createAgent({ name: "0 件", promptIds: [] }).prompts, undefined);
 
-  // キー省略の更新は保持する
-  const kept = catalog.updateAgent(agent.id, { description: "説明だけ更新" });
-  assert.deepEqual(kept?.suggestions, DEFAULT_SUGGESTIONS);
+  const six = Array.from({ length: 6 }, (_, index) => prompts.create({ label: `L${index}`, prompt: `P${index}` }));
+  const full = catalog.createAgent({ name: "6 件", promptIds: six.map((prompt) => prompt.id) });
+  assert.equal(full.prompts?.length, 6);
 
-  const replaced = catalog.updateAgent(agent.id, {
-    suggestions: [{ label: " 足す ", prompt: " 追加のプロンプト " }],
-  });
-  assert.deepEqual(replaced?.suggestions, [{ label: "足す", prompt: "追加のプロンプト" }]);
-
-  // 空配列 / null は解除 (キー省略)
-  const cleared = catalog.updateAgent(agent.id, { suggestions: [] });
-  assert.equal(Object.hasOwn(cleared ?? {}, "suggestions"), false);
-  const afterClear = catalog.updateAgent(agent.id, { description: "解除後" });
-  assert.equal(Object.hasOwn(afterClear ?? {}, "suggestions"), false);
-
-  const nullCleared = catalog.updateAgent(agent.id, {
-    suggestions: [{ label: "一時", prompt: "一時的なプロンプト" }],
-  });
-  assert.equal(nullCleared?.suggestions?.length, 1);
-  const nulled = catalog.updateAgent(agent.id, { suggestions: null });
-  assert.equal(Object.hasOwn(nulled ?? {}, "suggestions"), false);
+  const agent = catalog.createAgent({ name: "検証", promptIds: [known.id] });
+  const rejected: unknown[] = [
+    [known.id, known.id],
+    [known.id, "prompt-unknown"],
+    [...six.map((prompt) => prompt.id), known.id],
+    [""],
+    "not-an-array",
+    [42],
+  ];
+  for (const promptIds of rejected) {
+    assert.throws(
+      () => catalog.updateAgent(agent.id, { promptIds }),
+      (error: Error & { statusCode?: number }) => error.statusCode === 400,
+      `must reject ${JSON.stringify(promptIds)}`,
+    );
+    assert.deepEqual(
+      catalog.getAgent(agent.id)?.prompts?.map((prompt) => prompt.id),
+      [known.id],
+      "拒否した更新は保存済みの参照を変えない",
+    );
+  }
 });
 
-test("public agents copy the suggestions of the internal catalog", () => {
-  const catalog = createAgentCatalog();
+test("updates and clears prompt references", () => {
+  const { catalog, prompts } = testCatalog();
+  const prompt = prompts.create({ label: "ラベル", prompt: "本文" });
+  const agent = catalog.createAgent({ name: "参照あり", promptIds: [prompt.id] });
+
+  // キー省略 / null は現状維持
+  assert.deepEqual(
+    catalog.updateAgent(agent.id, { description: "説明だけ更新" })?.prompts?.map((p) => p.id),
+    [prompt.id],
+  );
+  assert.deepEqual(
+    catalog.updateAgent(agent.id, { promptIds: null })?.prompts?.map((p) => p.id),
+    [prompt.id],
+  );
+
+  // `[]` は全解除
+  assert.equal(catalog.updateAgent(agent.id, { promptIds: [] })?.prompts, undefined);
+  assert.equal(catalog.getAgent(agent.id)?.prompts, undefined);
+});
+
+test("deleting an agent keeps the master and other references", () => {
+  const { catalog, prompts } = testCatalog();
+  const prompt = prompts.create({ label: "共有", prompt: "共有の本文" });
+  const keep = catalog.createAgent({ name: "残す", promptIds: [prompt.id] });
+  const remove = catalog.createAgent({ name: "消す", promptIds: [prompt.id] });
+
+  assert.equal(catalog.removeAgent(remove.id), true);
+  assert.deepEqual(
+    prompts.list().map((entry) => entry.id),
+    [...BUILTIN_AGENT_PROMPT_IDS, prompt.id],
+    "エージェントを消してもマスタは残る",
+  );
+  assert.deepEqual(prompts.get(prompt.id)?.usedBy, [{ agentId: keep.id, agentName: "残す", builtin: false }]);
+  assert.deepEqual(
+    catalog.getAgent(keep.id)?.prompts?.map((p) => p.id),
+    [prompt.id],
+  );
+});
+
+test("public agents copy the resolved prompts of the internal catalog", () => {
+  const { catalog, prompts } = testCatalog();
 
   // ビルトイン (ユーザー定義の外) も応答のたびにコピーを返し、書き換えても内部に残らない
-  const internalBuiltin = catalog.getAgent("agent-general")?.suggestions;
-  const exportedBuiltin = catalog.builtinAgent().suggestions;
+  const internalBuiltin = catalog.getAgent("agent-general")?.prompts;
+  const exportedBuiltin = catalog.builtinAgent().prompts;
   assert.ok(internalBuiltin && exportedBuiltin);
   assert.notEqual(exportedBuiltin, internalBuiltin);
   assert.notEqual(exportedBuiltin[0], internalBuiltin[0]);
   exportedBuiltin[0].label = "書き換え";
-  exportedBuiltin.push({ label: "追加", prompt: "追加のプロンプト" });
-  assert.deepEqual(catalog.getAgent("agent-general")?.suggestions, DEFAULT_SUGGESTIONS);
+  exportedBuiltin.push({ id: "extra", kind: "custom", label: "追加", prompt: "追加のプロンプト" });
+  assert.deepEqual(
+    catalog.getAgent("agent-general")?.prompts?.map((prompt) => prompt.label),
+    BUILTIN_PROMPTS.map((prompt) => prompt.label),
+  );
 
-  const agent = catalog.createAgent({ name: "定型あり", suggestions: [{ label: "l", prompt: "p" }] });
-  const internal = catalog.getAgent(agent.id)?.suggestions;
-  const exported = catalog.listAgents().find((listed) => listed.id === agent.id)?.suggestions;
-  assert.ok(exported && internal);
-  assert.notEqual(exported, internal);
-  assert.notEqual(exported[0], internal[0]);
+  const prompt = prompts.create({ label: "l", prompt: "p" });
+  const agent = catalog.createAgent({ name: "参照あり", promptIds: [prompt.id] });
+  const exported = catalog.listAgents().find((listed) => listed.id === agent.id)?.prompts;
+  assert.ok(exported);
+  assert.notEqual(exported, agent.prompts);
+  assert.notEqual(exported[0], agent.prompts?.[0]);
   exported[0].label = "書き換え";
-  assert.equal(catalog.getAgent(agent.id)?.suggestions?.[0].label, "l");
+  assert.equal(catalog.getAgent(agent.id)?.prompts?.[0].label, "l");
 });
 
 test("rejects malformed model references and unknown thinking levels with 400", () => {

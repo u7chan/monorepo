@@ -4,16 +4,19 @@
  * スキル定義はこの DB ではなくファイル (`.agents/skills`) を正とする。
  */
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { spaceDirRel } from "./app-paths";
+import { BUILTIN_PROMPTS } from "./builtin-catalog";
 import { httpError, messageFor } from "./http";
 import type { ImageInputDeclaration } from "./images";
 import type { SecretKind } from "./secret-crypto";
-import type { AgentDef, AgentSuggestion, ModelRef, NotificationResult, Project, Space } from "./schema";
+import { AGENT_PROMPT_LIMIT, PROMPT_LABEL_MAX, PROMPT_TEXT_MAX } from "./schema";
+import type { AgentDef, ModelRef, NotificationResult, Project, PromptRef, Space } from "./schema";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 33;
+export const APP_DB_SCHEMA_VERSION = 35;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -172,6 +175,21 @@ export interface SpeechCatalogRow {
   fetchedAt: number;
   models: SpeechCatalogModelRow[];
 }
+
+/**
+ * エージェント 1 体の保存形。定型プロンプトの参照 (`promptIds`) は別テーブル `agent_prompts` に持ち、
+ * 応答用の解決済みの値 (`AgentDef.prompts`) はカタログ側が付ける。
+ */
+export interface StoredAgent extends Omit<AgentDef, "prompts"> {
+  /** 参照するマスタの ID (並び = 表示順)。未指定は参照なしとして書く */
+  promptIds?: string[];
+}
+
+/**
+ * 定型プロンプトのマスタ 1 件。ラベルと本文には一意制約を付けず、同じ本文を別マスタとして持てる。
+ * kind と ID はサーバーが決め、組み込みは起動時に定義へ同期される (docs/persistence.md)。
+ */
+export type PromptRow = PromptRef;
 
 /**
  * serve (サービス) の起動実績。**作業ディレクトリ単位**で、同じプロジェクトの他会話でも使える。
@@ -625,6 +643,32 @@ CREATE TABLE IF NOT EXISTS shared_content_settings (
 );
 `;
 
+/**
+ * v33 -> v34 で足した定型プロンプトのマスタ。`kind` は `builtin` / `custom` で、組み込み行は
+ * 起動時に `builtin-catalog.ts` の定義へ同期される。本文とラベルには一意制約を付けない
+ * (同じ本文の別マスタをまとめない)。
+ */
+const PROMPTS_TABLE = `CREATE TABLE IF NOT EXISTS prompts (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('builtin', 'custom')),
+  label TEXT NOT NULL,
+  prompt TEXT NOT NULL
+);`;
+
+/**
+ * v33 -> v34 で足したエージェントからマスタへの順序付き参照。`ON DELETE RESTRICT` で使用中の削除を
+ * DB でも防ぎ、`ON DELETE CASCADE` でエージェント削除時は紐づけだけを消す（マスタは残す）。
+ * 上限 (1..6) と重複禁止も DB 側の制約で守る。`INTEGER` 宣言だけでは SQLite が REAL (1.5) を
+ * そのまま受けるため、型まで CHECK で縛る (位置は 1..6 の整数だけ)。
+ */
+const AGENT_PROMPTS_TABLE = `CREATE TABLE IF NOT EXISTS agent_prompts (
+  agentId TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  promptId TEXT NOT NULL REFERENCES prompts(id) ON DELETE RESTRICT,
+  position INTEGER NOT NULL CHECK (typeof(position) = 'integer' AND position BETWEEN 1 AND 6),
+  PRIMARY KEY (agentId, promptId),
+  UNIQUE (agentId, position)
+);`;
+
 const CREATE_TABLES = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -640,13 +684,14 @@ CREATE TABLE agents (
   icon TEXT,
   model TEXT,
   thinkingLevel TEXT,
-  suggestions TEXT,
   commonSkillNames TEXT,
   builtinSkillNames TEXT,
   toolNames TEXT,
   allowNaturalInvocation INTEGER,
   sortOrder INTEGER
 );
+${PROMPTS_TABLE}
+${AGENT_PROMPTS_TABLE}
 ${NOTIFICATION_SETTINGS_TABLE}
 ${ARCHIVE_SETTINGS_TABLE}
 ${PROVIDER_CREDENTIALS_TABLE}
@@ -669,6 +714,8 @@ ${ASSISTANT_METRICS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
+DROP TABLE IF EXISTS agent_prompts;
+DROP TABLE IF EXISTS prompts;
 DROP TABLE IF EXISTS agents;
 DROP TABLE IF EXISTS skills;
 DROP TABLE IF EXISTS projects;
@@ -1006,7 +1053,6 @@ function agentOf(row: Row): AgentDef {
   const icon = optionalText(row.icon);
   const model = jsonObject<ModelRef>(row.model);
   const thinkingLevel = optionalText(row.thinkingLevel);
-  const suggestions = jsonArray<AgentSuggestion>(row.suggestions);
   const commonSkillNames = agentSkillNames(row, "commonSkillNames");
   const builtinSkillNames = agentSkillNames(row, "builtinSkillNames");
   const toolNames = agentSkillNames(row, "toolNames");
@@ -1014,7 +1060,6 @@ function agentOf(row: Row): AgentDef {
   if (icon) agent.icon = icon;
   if (model) agent.model = model;
   if (thinkingLevel) agent.thinkingLevel = thinkingLevel as AgentDef["thinkingLevel"];
-  if (suggestions?.length) agent.suggestions = suggestions;
   if (commonSkillNames) agent.commonSkillNames = commonSkillNames;
   if (builtinSkillNames) agent.builtinSkillNames = builtinSkillNames;
   if (toolNames) agent.toolNames = toolNames;
@@ -1037,6 +1082,30 @@ function agentSkillNames(
   const names = jsonArrayColumn<string>("agents", column, value);
   if (!names) throw new Error(`agents.${column} is not a JSON array`);
   return names;
+}
+
+/**
+ * エージェントごとの参照マスタ ID を表示順でまとめる。全件取得 (引数なし) と 1 体だけを同じ形で読む。
+ */
+function promptIdsByAgent(db: DatabaseSync, agentId?: string): Map<string, string[]> {
+  const rows = (
+    agentId === undefined
+      ? db.prepare("SELECT agentId, promptId FROM agent_prompts ORDER BY agentId, position").all()
+      : db.prepare("SELECT agentId, promptId FROM agent_prompts WHERE agentId = ? ORDER BY position").all(agentId)
+  ) as Row[];
+  const result = new Map<string, string[]>();
+  for (const row of rows) {
+    const id = text(row.agentId);
+    const ids = result.get(id) ?? [];
+    ids.push(text(row.promptId));
+    result.set(id, ids);
+  }
+  return result;
+}
+
+function promptOf(row: Row): PromptRow {
+  const kind = text(row.kind) === "builtin" ? "builtin" : "custom";
+  return { id: text(row.id), kind, label: text(row.label), prompt: text(row.prompt) };
 }
 
 /**
@@ -1075,6 +1144,9 @@ export class AppDb {
       // 会話ストアと同じ方針 (メモリ DB では無視される)
       db.exec("PRAGMA journal_mode = WAL");
       db.exec("PRAGMA synchronous = NORMAL");
+      // 定型プロンプトの参照は外部キー (CASCADE / RESTRICT) で整合性を守る。接続ごとの設定なので
+      // トランザクションの外で有効にする
+      db.exec("PRAGMA foreign_keys = ON");
       const instance = new AppDb(db, path, sanitize);
       const version = instance.#schemaVersion();
       // user_version が 0 = 未初期化 (新規ファイル・0 バイトの残骸・メモリ DB)。このときだけ seed する
@@ -1082,6 +1154,8 @@ export class AppDb {
       // 古い版は加算的に移行する (定義を消さない)。未知の新しい版だけ従来どおり作り直す
       else if (version < APP_DB_SCHEMA_VERSION) instance.#migrate();
       else if (version > APP_DB_SCHEMA_VERSION) instance.#recreate(false);
+      // 組み込みプロンプトは新規作成・移行・再起動のすべてで固定 ID へ同期する (自作行は上書きしない)
+      instance.#syncBuiltinPrompts();
       return instance;
     } catch (error) {
       try {
@@ -1131,7 +1205,8 @@ export class AppDb {
       return result;
     } catch (error) {
       try {
-        this.#query((db) => db.exec("ROLLBACK"));
+        // 失敗した操作の後始末なので、成功しても #error を消さない (壊れたことを次の読み取りまで隠さない)
+        this.#handle().exec("ROLLBACK");
       } catch {
         // rollback の失敗で元の例外を隠さない (接続が壊れている場合は次のクエリで 503 になる)
       }
@@ -1325,6 +1400,74 @@ export class AppDb {
     });
   }
 
+  /**
+   * v34 -> v35 の移行。旧定義の `agent_prompts` は `INTEGER` 宣言だけで REAL の位置を受け付けたため、
+   * 整数型の CHECK を持つテーブルへ組み替える。行は保持し、範囲外の値が混ざっていたときだけ
+   * 黙って捨てずに失敗させる (旧 API は整数しか書かないため、見つかれば手編集された行)。
+   */
+  #tightenAgentPrompts(): void {
+    this.#query((db) => {
+      if (!this.#tableExists("agent_prompts")) return;
+      const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get("agent_prompts") as
+        | Row
+        | undefined;
+      // 整数型の検査が入った定義なら何もしない (新規作成・移行済みの DB)
+      if (text(row?.sql).includes("typeof(position)")) return;
+      db.exec("ALTER TABLE agent_prompts RENAME TO agent_prompts_legacy");
+      db.exec(AGENT_PROMPTS_TABLE);
+      db.exec(
+        `INSERT INTO agent_prompts (agentId, promptId, position)
+         SELECT agentId, promptId, position FROM agent_prompts_legacy
+          WHERE typeof(position) = 'integer' AND position BETWEEN 1 AND 6
+          ORDER BY agentId, position`,
+      );
+      const legacy = db.prepare("SELECT COUNT(*) AS count FROM agent_prompts_legacy").get() as Row;
+      const kept = db.prepare("SELECT COUNT(*) AS count FROM agent_prompts").get() as Row;
+      if (Number(legacy.count) !== Number(kept.count)) {
+        throw new Error("agent_prompts has rows outside the allowed positions");
+      }
+      db.exec("DROP TABLE agent_prompts_legacy");
+    });
+  }
+
+  /**
+   * v33 -> v34 の移行。既存の `agents.suggestions` の各項目を独立した自作マスタと紐づけへ変換し、
+   * 内容と表示順を保持する。同文でも既存項目同士・組み込みとは統合しない。変換後にだけ旧列を外し、
+   * 不正な保存値は黙って捨てずに例外にしてトランザクションごと巻き戻す (既存の DB 障害の扱いに合流)。
+   */
+  #migrateAgentSuggestions(): void {
+    this.#query((db) => {
+      // 列の有無で判定する (後続の版で移行が再実行されても、変換済みのデータを二重に作らない)
+      if (!this.#hasColumn(db, "agents", "suggestions")) return;
+      // 古い版では sortOrder が無いため、作成順 (rowid) だけを頼りにする
+      const rows = db.prepare("SELECT id, suggestions FROM agents ORDER BY rowid").all() as Row[];
+      const insertPrompt = db.prepare("INSERT INTO prompts (id, kind, label, prompt) VALUES (?, 'custom', ?, ?)");
+      const link = db.prepare("INSERT INTO agent_prompts (agentId, promptId, position) VALUES (?, ?, ?)");
+      for (const row of rows) {
+        const value = row.suggestions;
+        if (value === null || value === undefined) continue;
+        const items = jsonArrayColumn<unknown>("agents", "suggestions", value);
+        if (!items) throw new Error("agents.suggestions is not a JSON array");
+        if (items.length > AGENT_PROMPT_LIMIT) throw new Error("agents.suggestions has too many items");
+        const agentId = text(row.id);
+        items.forEach((item, index) => {
+          const record = item as { label?: unknown; prompt?: unknown } | null;
+          const label = typeof record?.label === "string" ? record.label : "";
+          const prompt = typeof record?.prompt === "string" ? record.prompt : "";
+          // 旧保存経路は空要素を落としていたため、ここに来る空値は壊れた行として扱う
+          if (!label.trim() || !prompt.trim()) throw new Error("agents.suggestions has an invalid item");
+          if (label.length > PROMPT_LABEL_MAX || prompt.length > PROMPT_TEXT_MAX) {
+            throw new Error("agents.suggestions has an oversized item");
+          }
+          const id = `prompt-${randomUUID()}`;
+          insertPrompt.run(id, label, prompt);
+          link.run(agentId, id, index + 1);
+        });
+      }
+      db.exec("ALTER TABLE agents DROP COLUMN suggestions");
+    });
+  }
+
   /** DROP → CREATE → user_version → (未初期化なら) seed を 1 トランザクションで行う */
   #recreate(seed: boolean): void {
     this.#query((db) => db.exec("BEGIN"));
@@ -1349,7 +1492,24 @@ export class AppDb {
   }
 
   #seed(): void {
-    for (const agent of SEED_AGENTS) this.saveAgent(agent);
+    for (const agent of SEED_AGENTS) this.#saveAgent(agent);
+  }
+
+  /**
+   * 組み込みプロンプトを固定 ID で同期する。新規 DB・移行後・再起動のどの経路でも通るよう
+   * `open()` から呼ぶ (新規 DB 専用の #seed に置かない)。既存の自作行には当たらない条件を付ける。
+   */
+  #syncBuiltinPrompts(): void {
+    this.transaction(() => {
+      this.#query((db) => {
+        const upsert = db.prepare(
+          `INSERT INTO prompts (id, kind, label, prompt) VALUES (?, 'builtin', ?, ?)
+           ON CONFLICT(id) DO UPDATE SET label = excluded.label, prompt = excluded.prompt
+           WHERE prompts.kind = 'builtin'`,
+        );
+        for (const entry of BUILTIN_PROMPTS) upsert.run(entry.id, entry.label, entry.prompt);
+      });
+    });
   }
 
   /**
@@ -1384,6 +1544,11 @@ export class AppDb {
       this.#query((db) => db.exec(SHARED_CONTENT_SETTINGS_TABLE));
       this.#query((db) => db.exec(SPACES_TABLE));
       this.#query((db) => db.exec(ASSISTANT_METRICS_TABLE));
+      // v33 -> v34: 定型プロンプトのマスタと、エージェントからの参照
+      this.#query((db) => db.exec(PROMPTS_TABLE));
+      this.#query((db) => db.exec(AGENT_PROMPTS_TABLE));
+      // v34 -> v35: 位置を整数に限る CHECK が無い版のテーブルを作り直す
+      this.#tightenAgentPrompts();
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない
       this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");
@@ -1420,6 +1585,9 @@ export class AppDb {
       // v22 -> v23: DB カタログの撤去。加算更新を通した後にだけ限定して消す
       this.#dropTableIfExists("skills");
       this.#dropColumnIfExists("agents", "skillIds");
+      // v33 -> v34: 既存の定型プロンプトを変換してから旧列を外す。他の列追加が済んだ後に置く
+      // (途中で失敗したら列も中身も版も残るので、開き直して再試行できる)
+      this.#migrateAgentSuggestions();
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -2102,10 +2270,15 @@ export class AppDb {
   // --- agents ---
 
   /** 表示順 (sortOrder 昇順)。移行前の行は NULL なので、同じ NULL 同士は rowid = 作成順で並ぶ */
-  listAgents(): AgentDef[] {
-    return this.#query((db) =>
-      (db.prepare("SELECT * FROM agents ORDER BY sortOrder, rowid").all() as Row[]).map(agentOf),
-    );
+  listAgents(): StoredAgent[] {
+    return this.#query((db) => {
+      const links = promptIdsByAgent(db);
+      return (db.prepare("SELECT * FROM agents ORDER BY sortOrder, rowid").all() as Row[]).map((row) => {
+        const ids = links.get(text(row.id)) ?? [];
+        // 参照が無い行はキーごと省略する (未指定と [] を応答で区別しない)
+        return ids.length ? { ...agentOf(row), promptIds: ids } : agentOf(row);
+      });
+    });
   }
 
   /**
@@ -2121,48 +2294,108 @@ export class AppDb {
     });
   }
 
-  getAgent(id: string): AgentDef | undefined {
-    const row = this.#query((db) => db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as Row | undefined);
-    return row ? agentOf(row) : undefined;
+  getAgent(id: string): StoredAgent | undefined {
+    return this.#query((db) => {
+      const row = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as Row | undefined;
+      if (!row) return undefined;
+      const ids = promptIdsByAgent(db, id).get(id) ?? [];
+      return ids.length ? { ...agentOf(row), promptIds: ids } : agentOf(row);
+    });
   }
 
   /**
    * 作成と更新で同じ (id が主キー)。**sortOrder は挿入のときだけ振る** (更新で `DO UPDATE SET` へ
-   * 入れると、名前やアイコンの保存だけで位置が動く)。
+   * 入れると、名前やアイコンの保存だけで位置が動く)。本体と参照の書き換えは 1 トランザクションで行い、
+   * 途中で失敗したら部分適用を残さない。
    */
-  saveAgent(agent: AgentDef): void {
-    this.#query((db) =>
-      db
-        .prepare(
-          `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, suggestions, commonSkillNames, builtinSkillNames, toolNames, allowNaturalInvocation, sortOrder)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM agents))
-           ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
-             systemPrompt = excluded.systemPrompt, icon = excluded.icon, model = excluded.model,
-             thinkingLevel = excluded.thinkingLevel, suggestions = excluded.suggestions,
-             commonSkillNames = excluded.commonSkillNames, builtinSkillNames = excluded.builtinSkillNames,
-             toolNames = excluded.toolNames, allowNaturalInvocation = excluded.allowNaturalInvocation`,
-        )
-        .run(
-          agent.id,
-          agent.name,
-          agent.description,
-          agent.systemPrompt,
-          agent.icon ?? null,
-          agent.model ? JSON.stringify(agent.model) : null,
-          agent.thinkingLevel ?? null,
-          agent.suggestions ? JSON.stringify(agent.suggestions) : null,
-          // 未指定は NULL、`[]` は "[]" (undefined と [] を混同しない)
-          agent.commonSkillNames === undefined ? null : JSON.stringify(agent.commonSkillNames),
-          agent.builtinSkillNames === undefined ? null : JSON.stringify(agent.builtinSkillNames),
-          agent.toolNames === undefined ? null : JSON.stringify(agent.toolNames),
-          // false だけ 0 を書き、true / 未指定は NULL (既定) へ寄せる
-          agent.allowNaturalInvocation === false ? 0 : null,
-        ),
-    );
+  saveAgent(agent: StoredAgent): void {
+    this.transaction(() => this.#saveAgent(agent));
+  }
+
+  /** 既存のトランザクション内から呼ぶ本体 (#seed など)。単体で呼ばない */
+  #saveAgent(agent: StoredAgent): void {
+    this.#query((db) => {
+      db.prepare(
+        `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, commonSkillNames, builtinSkillNames, toolNames, allowNaturalInvocation, sortOrder)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM agents))
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
+           systemPrompt = excluded.systemPrompt, icon = excluded.icon, model = excluded.model,
+           thinkingLevel = excluded.thinkingLevel,
+           commonSkillNames = excluded.commonSkillNames, builtinSkillNames = excluded.builtinSkillNames,
+           toolNames = excluded.toolNames, allowNaturalInvocation = excluded.allowNaturalInvocation`,
+      ).run(
+        agent.id,
+        agent.name,
+        agent.description,
+        agent.systemPrompt,
+        agent.icon ?? null,
+        agent.model ? JSON.stringify(agent.model) : null,
+        agent.thinkingLevel ?? null,
+        // 未指定は NULL、`[]` は "[]" (undefined と [] を混同しない)
+        agent.commonSkillNames === undefined ? null : JSON.stringify(agent.commonSkillNames),
+        agent.builtinSkillNames === undefined ? null : JSON.stringify(agent.builtinSkillNames),
+        agent.toolNames === undefined ? null : JSON.stringify(agent.toolNames),
+        // false だけ 0 を書き、true / 未指定は NULL (既定) へ寄せる
+        agent.allowNaturalInvocation === false ? 0 : null,
+      );
+      // 参照は丸ごと差し替える。position は並びそのもので、重複・上限は DB の制約でも守る
+      db.prepare("DELETE FROM agent_prompts WHERE agentId = ?").run(agent.id);
+      const insert = db.prepare("INSERT INTO agent_prompts (agentId, promptId, position) VALUES (?, ?, ?)");
+      (agent.promptIds ?? []).forEach((promptId, index) => insert.run(agent.id, promptId, index + 1));
+    });
   }
 
   deleteAgent(id: string): boolean {
+    // 参照 (agent_prompts) は外部キーの ON DELETE CASCADE で一緒に消え、マスタは残る
     return this.#query((db) => db.prepare("DELETE FROM agents WHERE id = ?").run(id).changes > 0);
+  }
+
+  // --- prompts (定型プロンプトのマスタ) ---
+
+  /** 一覧の並びは組み込みが先、その中は作成順 (ID は不透明なのでソートキーにしない) */
+  listPrompts(): PromptRow[] {
+    return this.#query((db) =>
+      (
+        db.prepare("SELECT * FROM prompts ORDER BY CASE kind WHEN 'builtin' THEN 0 ELSE 1 END, rowid").all() as Row[]
+      ).map(promptOf),
+    );
+  }
+
+  getPrompt(id: string): PromptRow | undefined {
+    const row = this.#query((db) => db.prepare("SELECT * FROM prompts WHERE id = ?").get(id) as Row | undefined);
+    return row ? promptOf(row) : undefined;
+  }
+
+  insertPrompt(row: PromptRow): void {
+    this.#query((db) =>
+      db
+        .prepare("INSERT INTO prompts (id, kind, label, prompt) VALUES (?, ?, ?, ?)")
+        .run(row.id, row.kind, row.label, row.prompt),
+    );
+  }
+
+  /** 組み込み行は編集しない (条件に入れて、サービス側の判定が漏れても行が変わらないようにする) */
+  updatePrompt(row: PromptRow): boolean {
+    return this.#query(
+      (db) =>
+        db
+          .prepare("UPDATE prompts SET label = ?, prompt = ? WHERE id = ? AND kind = 'custom'")
+          .run(row.label, row.prompt, row.id).changes > 0,
+    );
+  }
+
+  /** 使用中の行は外部キー (ON DELETE RESTRICT) でも消せない。戻り値は消せたか */
+  deletePrompt(id: string): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM prompts WHERE id = ? AND kind = 'custom'").run(id).changes > 0);
+  }
+
+  /** 全マスタの使用先 (エージェント ID とマスタ ID の組)。一覧の `usedBy` を 1 クエリで組む */
+  listAgentPromptLinks(): { agentId: string; promptId: string }[] {
+    return this.#query((db) =>
+      (db.prepare("SELECT agentId, promptId FROM agent_prompts ORDER BY agentId, position").all() as Row[]).map(
+        (row) => ({ agentId: text(row.agentId), promptId: text(row.promptId) }),
+      ),
+    );
   }
 
   // --- serve (サービスの起動実績) ---

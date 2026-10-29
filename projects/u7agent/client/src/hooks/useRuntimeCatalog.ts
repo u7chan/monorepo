@@ -17,6 +17,7 @@ const EMPTY_CATALOG: CatalogResponse = {
   builtinSkills: [],
   agents: [],
   tools: [],
+  prompts: [],
 };
 
 export type UseRuntimeCatalogParams = {

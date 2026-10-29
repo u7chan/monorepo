@@ -16,7 +16,7 @@ import { cn } from "../lib/cn";
 import { generationCaptionsOf } from "../lib/generationInfo";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
 import { nonSkillToolCards, skillBadgesOf } from "../lib/skillLoad";
-import type { AgentSuggestion, AskUserAnswer, CompactionInfo } from "../types";
+import type { AskUserAnswer, CompactionInfo, PromptRef } from "../types";
 import { AgentIcon } from "./AgentIcon";
 import { CompactionDivider } from "./chat/CompactionDivider";
 import { ContextBoundary } from "./chat/ContextBoundary";
@@ -40,7 +40,8 @@ export type ChatAreaProps = {
   singleColumn?: boolean;
   /** 縦向きの空状態では案内を入力欄の直上に寄せる */
   centerEmpty?: boolean;
-  suggestions?: AgentSuggestion[];
+  /** 空の会話に出す定型プロンプト (エージェントの参照先を解決した値)。並びが表示順 */
+  prompts?: PromptRef[];
   /** assistant の表示名 (セッションのスナップショット)。未作成チャットでは選択中のエージェント */
   agentName?: string;
   /** 未設定なら SparkleIcon へフォールバックする */
@@ -58,7 +59,7 @@ export type ChatAreaProps = {
   /** 送信のたびに増える (reducer の localUser)。値そのものは表示に使わず、増加だけを追従の合図にする */
   sendSeq: number;
   /** firstview の定型プロンプトの押下。送信はせず、選択を入力欄へ渡す */
-  onSuggestion: (suggestion: AgentSuggestion) => void;
+  onSuggestion: (prompt: PromptRef) => void;
   /** 未送信メッセージの再送 (サーバーが保存済みの本文を使う) */
   onResendUnsent?: (sendId: string) => void;
   /** 未送信メッセージの破棄 */
@@ -92,7 +93,7 @@ export function ChatArea({
   onLoadOlder,
   singleColumn = false,
   centerEmpty = false,
-  suggestions = [],
+  prompts = [],
   agentName,
   agentIcon,
   scope,
@@ -359,16 +360,16 @@ export function ChatArea({
               <p className="mt-2 text-1sm leading-relaxed text-ink-soft">
                 コードを読んだり、ファイルを編集したり、コマンドを実行できます。
               </p>
-              {suggestions.length > 0 ? (
+              {prompts.length > 0 ? (
                 <div className="mt-5 flex flex-wrap justify-center gap-2">
-                  {suggestions.map((s) => (
+                  {prompts.map((prompt) => (
                     <button
-                      key={s.prompt}
+                      key={prompt.id}
                       type="button"
-                      onClick={() => onSuggestion(s)}
+                      onClick={() => onSuggestion(prompt)}
                       className="min-h-9 rounded-lg border border-line bg-raised px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
                     >
-                      {s.label}
+                      {prompt.label}
                     </button>
                   ))}
                 </div>

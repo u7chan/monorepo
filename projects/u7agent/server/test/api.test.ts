@@ -10,6 +10,7 @@ import { VERSION } from "@earendil-works/pi-coding-agent";
 import { AUTH_REQUIRED_MESSAGE, MODEL_UNSET_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
+import { BUILTIN_AGENT_PROMPT_IDS, BUILTIN_PROMPTS } from "../src/builtin-catalog";
 import { AGENT_ORDER_IDS_MAX } from "../src/schema";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_USAGE } from "./stub-pi";
@@ -1095,74 +1096,153 @@ test("catalog endpoints reorder agents and answer the normalized order", async (
   }
 });
 
-test("catalog endpoints expose and update agent suggestions", async () => {
+test("prompt master endpoints expose built-ins, usage and custom CRUD", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
-    const initial = await jsonBody(app.request("/api/agents"));
-    // ビルトインは別フィールドで返り、ユーザー定義の agents には含まれない。初期状態のユーザー定義はずんだもんだけ
-    assert.deepEqual(initial.builtinAgent.suggestions, [
-      { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
-      { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
-      { label: "README をレビューして", prompt: "README を読んで改善案を3つ出して" },
-    ]);
+    // 組み込み 3 件は読み取り専用のマスタで、汎用アシスタントの固定参照が使用先に出る
+    const initial = await jsonBody(app.request("/api/prompts"));
     assert.deepEqual(
-      initial.agents.map((agent: { id: string }) => agent.id),
-      ["agent-zundamon"],
+      initial.prompts.map((prompt: { id: string; kind: string }) => [prompt.kind, prompt.id]),
+      BUILTIN_PROMPTS.map((prompt) => ["builtin", prompt.id]),
     );
-    assert.equal(Object.hasOwn(initial.agents[0], "suggestions"), false);
-
-    // suggestions を省略した作成はキーごと落ちる
-    const plain = await app.request("/api/agents", jsonPost({ name: "定型なし" }));
-    assert.equal(plain.status, 201);
-    assert.equal(Object.hasOwn((await jsonBody(plain)).agent, "suggestions"), false);
-
-    // 作成時も正規化して受け付ける
-    const created = await app.request(
-      "/api/agents",
-      jsonPost({ name: "定型あり", suggestions: [{ label: " 押す ", prompt: " 送る " }] }),
+    for (const prompt of initial.prompts) {
+      assert.deepEqual(prompt.usedBy, [{ agentId: "agent-general", agentName: "汎用アシスタント", builtin: true }]);
+    }
+    assert.deepEqual(
+      (await jsonBody(app.request("/api/agents"))).builtinAgent.prompts.map((prompt: { id: string }) => prompt.id),
+      BUILTIN_AGENT_PROMPT_IDS,
     );
+
+    // 自作は作成でき、ラベルと本文は trim して保存する
+    const created = await app.request("/api/prompts", jsonPost({ label: " 押す ", prompt: " 送る " }));
     assert.equal(created.status, 201);
-    const createdAgent = (await jsonBody(created)).agent;
-    assert.deepEqual(createdAgent.suggestions, [{ label: "押す", prompt: "送る" }]);
+    const custom = (await jsonBody(created)).prompt;
+    assert.equal(custom.kind, "custom");
+    assert.equal(custom.label, "押す");
+    assert.equal(custom.prompt, "送る");
+    assert.deepEqual(custom.usedBy, []);
 
-    const saved = await app.request(
-      `/api/agents/${createdAgent.id}`,
-      jsonPatch({ suggestions: [{ label: "足した", prompt: "追加のプロンプト" }] }),
-    );
-    assert.equal(saved.status, 200);
-    assert.deepEqual((await jsonBody(saved)).agent.suggestions, [{ label: "足した", prompt: "追加のプロンプト" }]);
-
-    const reloaded = await jsonBody(app.request("/api/agents"));
-    assert.deepEqual(reloaded.agents.find((agent: { id: string }) => agent.id === createdAgent.id).suggestions, [
-      { label: "足した", prompt: "追加のプロンプト" },
-    ]);
-
-    // ユニーク 7 件は黙って 6 件に切らず 400 で断り、保存済みの定義を変えない
-    const tooMany = await app.request(
-      `/api/agents/${createdAgent.id}`,
-      jsonPatch({
-        suggestions: Array.from({ length: 7 }, (_, index) => ({ label: `案 ${index}`, prompt: `案 ${index}` })),
-      }),
-    );
-    assert.equal(tooMany.status, 400);
-    assert.equal((await jsonBody(tooMany)).error, "Agent suggestions must have at most 6 items");
-    const afterReject = await jsonBody(app.request("/api/agents"));
-    assert.deepEqual(afterReject.agents.find((agent: { id: string }) => agent.id === createdAgent.id).suggestions, [
-      { label: "足した", prompt: "追加のプロンプト" },
-    ]);
-
-    // 空配列で解除すると応答からもキーが消える
-    const cleared = await app.request(`/api/agents/${createdAgent.id}`, jsonPatch({ suggestions: [] }));
-    assert.equal(cleared.status, 200);
-    assert.equal(Object.hasOwn((await jsonBody(cleared)).agent, "suggestions"), false);
-    const afterClear = await jsonBody(app.request("/api/agents"));
+    // 種別と ID は入力で決められない (組み込みへの昇格・置換を許さない)
+    for (const body of [
+      { label: "a", prompt: "b", kind: "builtin" },
+      { label: "a", prompt: "b", id: BUILTIN_PROMPTS[0].id },
+    ]) {
+      const rejected = await app.request("/api/prompts", jsonPost(body));
+      assert.equal(rejected.status, 400, JSON.stringify(body));
+    }
+    // 作成は両項目が必須。未指定・空のラベル・本文と上限超過は 400 で、行を増やさない
+    const beforeInvalid = (await jsonBody(app.request("/api/prompts"))).prompts.length;
+    for (const body of [
+      {},
+      { label: "L" },
+      { prompt: "P" },
+      { label: "", prompt: "b" },
+      { label: "a", prompt: "   " },
+      { label: "   ", prompt: "b" },
+      { label: "a".repeat(61), prompt: "b" },
+      { label: "a", prompt: "b".repeat(501) },
+    ]) {
+      assert.equal((await app.request("/api/prompts", jsonPost(body))).status, 400, JSON.stringify(body));
+    }
     assert.equal(
-      Object.hasOwn(
-        afterClear.agents.find((agent: { id: string }) => agent.id === createdAgent.id),
-        "suggestions",
-      ),
+      (await jsonBody(app.request("/api/prompts"))).prompts.length,
+      beforeInvalid,
+      "拒否した作成は保存しない",
+    );
+
+    // 更新は省略した項目を保つ
+    const updated = await app.request(`/api/prompts/${custom.id}`, jsonPatch({ label: "押し直す" }));
+    assert.equal(updated.status, 200);
+    const updatedPrompt = (await jsonBody(updated)).prompt;
+    assert.equal(updatedPrompt.label, "押し直す");
+    assert.equal(updatedPrompt.prompt, "送る");
+
+    // 組み込みは編集も削除も 400、未知は 404
+    const builtinId = BUILTIN_PROMPTS[0].id;
+    assert.equal((await app.request(`/api/prompts/${builtinId}`, jsonPatch({ label: "書き換え" }))).status, 400);
+    assert.equal((await app.request(`/api/prompts/${builtinId}`, { method: "DELETE" })).status, 400);
+    assert.equal((await app.request("/api/prompts/prompt-missing", { method: "DELETE" })).status, 404);
+    assert.equal((await app.request("/api/prompts/prompt-missing", jsonPatch({ label: "x" }))).status, 404);
+    // 組み込みの内容は変わっていない
+    assert.deepEqual(
+      (await jsonBody(app.request("/api/prompts"))).prompts.find((prompt: { id: string }) => prompt.id === builtinId),
+      (await jsonBody(app.request("/api/prompts"))).prompts[0],
+    );
+
+    // エージェントは順序付きの promptIds で参照し、応答には解決済みのラベル・本文が載る
+    const agent = await app.request("/api/agents", jsonPost({ name: "参照あり", promptIds: [custom.id, builtinId] }));
+    assert.equal(agent.status, 201);
+    const agentBody = (await jsonBody(agent)).agent;
+    assert.deepEqual(
+      agentBody.prompts.map((prompt: { id: string }) => prompt.id),
+      [custom.id, builtinId],
+    );
+
+    // 旧 suggestions の直接書き込みは黙って捨てず 400
+    for (const body of [{ suggestions: [] }, { suggestions: [{ label: "a", prompt: "b" }] }]) {
+      const legacy = await app.request("/api/agents", jsonPost({ name: "旧", ...body }));
+      assert.equal(legacy.status, 400, JSON.stringify(body));
+      assert.equal((await jsonBody(legacy)).error, "suggestions is no longer supported; use promptIds");
+    }
+
+    // 未知・重複・7 件以上は 400 で、保存済みの参照を変えない
+    const tooMany = [...BUILTIN_AGENT_PROMPT_IDS, custom.id];
+    for (const promptIds of [
+      [custom.id, custom.id],
+      [custom.id, "prompt-missing"],
+      [...tooMany, ...BUILTIN_AGENT_PROMPT_IDS, custom.id],
+    ]) {
+      const rejected = await app.request(`/api/agents/${agentBody.id}`, jsonPatch({ promptIds }));
+      assert.equal(rejected.status, 400, JSON.stringify(promptIds));
+    }
+    const afterReject = (await jsonBody(app.request("/api/agents"))).agents.find(
+      (entry: { id: string }) => entry.id === agentBody.id,
+    );
+    assert.deepEqual(
+      afterReject.prompts.map((prompt: { id: string }) => prompt.id),
+      [custom.id, builtinId],
+    );
+
+    // 使用中の自作マスタは 409 で拒否し、使用先を返す。何も消えない
+    const usedBy = (await jsonBody(app.request("/api/prompts"))).prompts.find(
+      (prompt: { id: string }) => prompt.id === custom.id,
+    );
+    assert.deepEqual(usedBy.usedBy, [{ agentId: agentBody.id, agentName: "参照あり", builtin: false }]);
+    const conflict = await app.request(`/api/prompts/${custom.id}`, { method: "DELETE" });
+    assert.equal(conflict.status, 409);
+    assert.deepEqual((await jsonBody(conflict)).usedBy, usedBy.usedBy);
+    assert.ok(
+      (await jsonBody(app.request("/api/prompts"))).prompts.some((prompt: { id: string }) => prompt.id === custom.id),
+    );
+
+    // 全解除すると削除できる。エージェントを消してもマスタは残る
+    const cleared = await app.request(`/api/agents/${agentBody.id}`, jsonPatch({ promptIds: [] }));
+    assert.equal(cleared.status, 200);
+    assert.equal(Object.hasOwn((await jsonBody(cleared)).agent, "prompts"), false);
+    const removed = await app.request(`/api/prompts/${custom.id}`, { method: "DELETE" });
+    assert.equal(removed.status, 200);
+    assert.deepEqual(await jsonBody(removed), { ok: true });
+    assert.equal(
+      (await jsonBody(app.request("/api/prompts"))).prompts.some((prompt: { id: string }) => prompt.id === custom.id),
       false,
+    );
+
+    const shared = (
+      await jsonBody(await app.request("/api/prompts", jsonPost({ label: "共有", prompt: "共有の本文" })))
+    ).prompt;
+    const keep = (await jsonBody(await app.request("/api/agents", jsonPost({ name: "残す", promptIds: [shared.id] }))))
+      .agent;
+    const drop = (await jsonBody(await app.request("/api/agents", jsonPost({ name: "消す", promptIds: [shared.id] }))))
+      .agent;
+    assert.equal((await app.request(`/api/agents/${drop.id}`, { method: "DELETE" })).status, 200);
+    assert.equal(
+      (await jsonBody(app.request("/api/prompts"))).prompts.some((prompt: { id: string }) => prompt.id === shared.id),
+      true,
+    );
+    assert.deepEqual(
+      (await jsonBody(app.request("/api/agents"))).agents.find((entry: { id: string }) => entry.id === keep.id).prompts,
+      [{ id: shared.id, kind: "custom", label: "共有", prompt: "共有の本文" }],
     );
   } finally {
     await bff.close();
@@ -1353,10 +1433,10 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
-    // 作成は client が送る形 (model / thinkingLevel の null と空 suggestions) をそのまま受ける
+    // 作成は client が送る形 (model / thinkingLevel の null と空 promptIds) をそのまま受ける
     const created = await app.request(
       "/api/agents",
-      jsonPost({ name: " 型付き ", model: null, thinkingLevel: null, suggestions: [] }),
+      jsonPost({ name: " 型付き ", model: null, thinkingLevel: null, promptIds: [] }),
     );
     assert.equal(created.status, 201);
     const createdAgent = (await jsonBody(created)).agent;
@@ -1398,7 +1478,7 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
     assert.deepEqual(await jsonBody(noBody), { agent: clearedAgent });
 
     // route は形・型だけを見る。違反は 400 で、必須判定の文言は catalog のまま
-    for (const body of [{ name: 1 }, { model: "x" }, { thinkingLevel: "ultra" }, { suggestions: "x" }]) {
+    for (const body of [{ name: 1 }, { model: "x" }, { thinkingLevel: "ultra" }, { promptIds: "x" }]) {
       const invalid = await app.request("/api/agents", jsonPost(body));
       assert.equal(invalid.status, 400, JSON.stringify(body));
       assert.equal((await jsonBody(invalid)).error, "Invalid request body");

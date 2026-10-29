@@ -18,12 +18,14 @@ import {
   SETTINGS_SECTION_KEY,
 } from "../src/lib/settingsNav";
 
-test("設定ナビは 12 項目をこの順で持つ", () => {
+test("設定ナビは 13 項目をこの順で持つ", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => [item.section, item.label]),
     [
       ["spaces", "会話スペース"],
       ["agents", "エージェント"],
+      // 定型プロンプトはエージェントから独立したマスタなので、エージェントのタブにせず次の行に置く
+      ["prompts", "定型プロンプト"],
       ["skills", "スキル"],
       ["models", "モデル"],
       // モデルとは対象そのものが別で、モデルのタブではなくルートのセクションに置く

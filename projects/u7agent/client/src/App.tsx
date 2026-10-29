@@ -4,6 +4,7 @@ import { useSpace } from "./SpaceContext";
 import { ActivityPage } from "./components/ActivityPage";
 import { SpaceSettingsPage } from "./components/SpaceSettingsPage";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
+import { PromptSettingsPage } from "./components/PromptSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
 import { ChatArea } from "./components/ChatArea";
 import { DiagnosticsContext } from "./DiagnosticsContext";
@@ -99,7 +100,7 @@ import {
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
 import { ownerLinkSpace } from "./lib/spaceSelection";
 import { suggestionScopeChange, type SuggestionScope } from "./lib/suggestion";
-import type { AgentSuggestion } from "./types";
+import type { AgentSuggestion, PromptRef } from "./types";
 
 export type AppProps = {
   /**
@@ -218,7 +219,11 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     setSuggestionScope(nextSuggestionScope);
   }
   // 押すたびに新しい値を渡す (同じチップを押し直しても、入力欄へフォーカスを戻す合図にする)
-  const selectSuggestion = useCallback((next: AgentSuggestion) => setSuggestion({ ...next }), []);
+  // チップは選択した時点の文言を写して持つ (マスタを編集しても、選択済みのチップは書き換えない)
+  const selectSuggestion = useCallback(
+    (next: PromptRef) => setSuggestion({ label: next.label, prompt: next.prompt }),
+    [],
+  );
   // 引き継ぎのチップを外した印 (操作 ID)。表示は会話の状態から導出し、外したことだけを覚える
   // (リロードでは戻り、新しい引き継ぎでは ID が変わるため再び出る)
   const [dismissedHandoff, setDismissedHandoff] = useState<string | null>(null);
@@ -875,6 +880,9 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             defaultThinkingLevel={app.health?.defaultThinkingLevel}
           />
         );
+      case "prompts":
+        // マスタの変更はエージェントへ解決済みの値として載るため、保存後にカタログを取り直す
+        return <PromptSettingsPage {...pageProps} refreshCatalog={refreshCatalog} />;
       case "skills":
         return (
           <SkillSettingsPage
@@ -1073,7 +1081,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                   onLoadOlder={app.loadOlderHistory}
                   singleColumn={singleColumn}
                   scope={scope}
-                  suggestions={app.selectedAgent?.suggestions}
+                  prompts={app.selectedAgent?.prompts}
                   agentName={chatAgentName}
                   agentIcon={chatAgentIcon}
                   rootCwd={app.health?.cwd ?? ""}

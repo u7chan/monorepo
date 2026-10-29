@@ -6,6 +6,8 @@ import { CredentialSynchronizationError, readStoredCredential } from "@earendil-
 import { AppDb } from "./app-db";
 import { createAgentCatalog } from "./agents";
 import type { AgentCatalog } from "./agents";
+import { createPromptCatalog } from "./prompts";
+import type { PromptCatalog } from "./prompts";
 import { createArchiveSettings } from "./archive-settings";
 import type { ArchiveSettings } from "./archive-settings";
 import { BUILTIN_SKILLS } from "./builtin-skills";
@@ -150,6 +152,8 @@ export type BffContext = {
   pi: PiBff | null;
   initError: string | undefined;
   catalog: AgentCatalog;
+  /** 定型プロンプトのマスタ (設定 → 定型プロンプトと、エージェントからの参照の解決元) */
+  prompts: PromptCatalog;
   projects: ProjectStore;
   store: SessionStore;
   workspace: SandboxWorkspaceClient | null;
@@ -371,6 +375,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる。
   // ツールの一覧はアプリ側の実効 (キー / 実行時トグル / serve host / 環境変数) を取得時に写すため、
   // 値ではなく pi の解決関数を渡す (runtime が無いときは空 = クライアントが「取得できていない」と出す)
+  const prompts = createPromptCatalog({ db: appDb });
   const catalog = createAgentCatalog({
     builtinSkills: BUILTIN_SKILLS.map((skill) => ({
       name: skill.name,
@@ -379,6 +384,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     })),
     tools: () => pi?.toolCatalog() ?? [],
     db: appDb,
+    prompts,
   });
   const projects = new ProjectStore(appDb);
   // 通知はセッションと同じ secret masker を使い、本文とエラーから秘密値を落とす
@@ -497,6 +503,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     pi,
     initError,
     catalog,
+    prompts,
     projects,
     store,
     workspace,
