@@ -11,6 +11,7 @@ import {
   generateSessionId,
   parseSessionFile,
   prepareSessionStore,
+  readSessionMeta,
   resolveSessionStoreDir,
   sessionDirPath,
   sessionJsonlPath,
@@ -536,5 +537,48 @@ test("SessionFileWriter serializes overlapping schedules", async () => {
     assert.equal(text, serializeSession(header, [first, second, third]));
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("meta の分岐の由来と共有の持ち主を読み分ける", async () => {
+  const store = await mkdtemp(join(tmpdir(), "session-store-meta-"));
+  try {
+    const id = "a1b2c3d4e5";
+    const owner = "0f1e2d3c4b";
+    await mkdir(sessionDirPath(store, id), { recursive: true });
+    const base = {
+      version: 1,
+      id,
+      title: "",
+      createdAt: 1,
+      lastUsedAt: 2,
+      messageCount: 0,
+      agentId: "default",
+      agent: { id: "default", name: "既定" },
+      promptSnapshot: { agent: "<agent_profile />" },
+    };
+    const read = async (extra: Record<string, unknown>) => {
+      await writeFile(join(sessionDirPath(store, id), "meta.json"), `${JSON.stringify({ ...base, ...extra })}\n`);
+      return readSessionMeta(store, id);
+    };
+
+    // 分岐の由来は表示用。10 hex 以外と数値以外は落とし、読み込みは妨げない
+    const derived = await read({ parentSessionId: owner, forkedAt: 3 });
+    assert.equal(derived?.parentSessionId, owner);
+    assert.equal(derived?.forkedAt, 3);
+    assert.equal((await read({ parentSessionId: "zzz", forkedAt: "x" }))?.parentSessionId, undefined);
+    assert.equal((await read({ parentSessionId: "zzz", forkedAt: "x" }))?.forkedAt, undefined);
+
+    // 共有の持ち主は省略 = 自分。文字列でない値と 10 hex 以外は壊れた meta として除外し、
+    // 自分の id へは倒さない (正規表現の test は number / 配列を暗黙変換して受理してしまう)
+    assert.equal((await read({}))?.workdirOwner, undefined);
+    assert.equal((await read({ workdirOwner: owner, uploadsOwner: owner }))?.workdirOwner, owner);
+    assert.equal(await read({ workdirOwner: "zzz" }), undefined);
+    assert.equal(await read({ uploadsOwner: "a1b2c3d4e" }), undefined);
+    assert.equal(await read({ workdirOwner: 1234567890 }), undefined);
+    assert.equal(await read({ workdirOwner: ["abcdef1234"] }), undefined);
+    assert.equal(await read({ uploadsOwner: { id: owner } }), undefined);
+  } finally {
+    await rm(store, { recursive: true, force: true });
   }
 });

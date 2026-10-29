@@ -175,6 +175,7 @@ export function projectSessionPayload({
           },
         }
       : {}),
+    ...(record.meta.parentSessionId ? { parentSessionId: record.meta.parentSessionId } : {}),
     ...(context ? { context } : {}),
   };
 }
@@ -236,5 +237,6 @@ export function projectSessionSummary({
     ...(record.compactionStartedAt !== undefined ? { compactionStartedAt: record.compactionStartedAt } : {}),
     ...(awaitingSince !== undefined ? { awaitingSince } : {}),
     ...(projectId ? { projectId } : {}),
+    ...(record.meta.parentSessionId ? { parentSessionId: record.meta.parentSessionId } : {}),
   };
 }

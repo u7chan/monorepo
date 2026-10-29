@@ -27,6 +27,7 @@ import {
   CheckIcon,
   CopyIcon,
   DownloadIcon,
+  GitBranchIcon,
   MoreIcon,
   MoveIcon,
   PencilIcon,
@@ -49,6 +50,7 @@ const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
   pin: <PinIcon />,
   move: <MoveIcon />,
   handoff: <MoveIcon />,
+  fork: <GitBranchIcon />,
   delete: <TrashIcon />,
   "new-chat": <PlusIcon />,
 };

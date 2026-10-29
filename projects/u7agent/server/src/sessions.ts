@@ -103,6 +103,7 @@ import {
   sessionJsonlPath,
   sessionWorkdirRel,
   writeSessionMeta,
+  writeSessionDir,
   RUN_ID_FIELD,
   ASSISTANT_ID_FIELD,
   SEND_ID_FIELD,
@@ -152,6 +153,13 @@ const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 /** 引き継ぎの片付け (確定後に残った履歴の削除) が済んでいない会話の共通文言 */
 const HANDOFF_CLEANUP_PENDING_MESSAGE =
   "前回の引き継ぎの片付けが残っています。会話を開いてから、もう一度お試しください";
+/** 分岐した子と作業フォルダ / 添付を共有している会話を、別のスペースへ運べない理由 */
+const SHARED_PLACEMENT_MESSAGE =
+  "同じ作業フォルダまたは添付を共有している会話があるため、別のスペースへは引き継げません。" +
+  "同じスペースへのエージェント交代だけができます";
+/** 共有しているフォルダが消えているときの文言。空フォルダを作って「ファイルが消えた」ように見せない */
+const SHARED_PLACEMENT_MISSING_MESSAGE =
+  "共有している作業フォルダが見つかりません。分岐元の会話を開いて、作業フォルダを確かめてください";
 
 /** SDK の compact() が投げる既知の理由。完全一致で分類する (部分一致は別の失敗を拾い得る) */
 const COMPACTION_TOO_SMALL = "Nothing to compact (session too small)";
@@ -325,6 +333,22 @@ function entriesOf(session: PiSessionLike): SessionEntryLike[] {
   const manager = session.sessionManager as { getEntries?(): unknown[]; getBranch?(): unknown[] } | undefined;
   const entries = manager?.getEntries?.() ?? manager?.getBranch?.() ?? [];
   return Array.isArray(entries) ? (entries as SessionEntryLike[]) : [];
+}
+
+/** 会話の末尾 entry の id (分岐の境界)。entry が無ければ undefined */
+function lastEntryId(entries: SessionEntryLike[]): string | undefined {
+  const last = entries[entries.length - 1];
+  return typeof last?.id === "string" ? last.id : undefined;
+}
+
+/**
+ * 境界 entry までの複製。境界が未指定 (境界の時点で entry 0 件) は空、指定された境界が
+ * 読み直した記録に無ければ undefined (中途半端な履歴を子へ書かない)。
+ */
+function copiedEntries(entries: SessionEntryLike[], boundaryId: string | undefined): SessionEntryLike[] | undefined {
+  if (boundaryId === undefined) return [];
+  const index = entries.findIndex((entry) => entry.id === boundaryId);
+  return index === -1 ? undefined : entries.slice(0, index + 1);
 }
 
 /**
@@ -565,7 +589,8 @@ export class SessionStore {
     const id = this.storeDir ? generateSessionId(this.storeDir) : randomBytes(5).toString("hex");
     // 所属セッションの cwd は登録ディレクトリそのもの。プロジェクトのディレクトリは作らず存在だけ確かめる。
     // スクラッチを作るのは未所属だけ (永続化なしでは作業フォルダのライフサイクルを持たない)
-    const workdir = this.workdirOf(id, project?.cwd, spaceId);
+    const placement = this.placementOf({ id, ...(project ? { projectCwd: project.cwd } : {}), spaceId });
+    const workdir = placement.workdir;
     if (this.storeDir || spaceId !== "default") {
       if (project) await this.requireProjectDir(project.cwd);
       else await this.ensureWorkdir(workdir);
@@ -588,7 +613,7 @@ export class SessionStore {
       ownerSessionId: id,
       promptSnapshot,
       // 参照画像の添付許可範囲。保存先はスペースで変わるため、ここで確定した値をツールへ渡す
-      uploadsDirRel: sessionUploadsRel(id, spaceId),
+      uploadsDirRel: placement.uploads,
     });
     // 上記の await 中に DELETE /api/projects/:id が走ると、このセッションは破棄対象の
     // スナップショットに含まれない。登録の直前に存在を再確認し、消えていれば作った SDK セッションを
@@ -722,12 +747,98 @@ export class SessionStore {
   }
 
   /**
-   * セッションの作業ディレクトリ (root 相対)。所属があれば登録ディレクトリ、無ければ所属スペースの
-   * スクラッチ。root ("") になるのは永続化なしの既定スペースだけ (既存のテスト・未設定デプロイ)。
+   * 会話の配置 (root 相対) を決める唯一の入口。作業フォルダは所属があれば登録ディレクトリ、無ければ
+   * 共有の持ち主 (`workdirOwner`。省略 = 自分) のスクラッチ。添付も同じ持ち主 (`uploadsOwner`) を辿る。
+   * 分岐した子は親の id を持つため、id から導出する 1 箇所をここに寄せる。
    */
-  private workdirOf(id: string, projectCwd?: string, spaceId = "default"): string {
-    if (projectCwd) return projectCwd;
+  private placementOf(meta: {
+    id: string;
+    spaceId?: string;
+    projectCwd?: string;
+    workdirOwner?: string;
+    uploadsOwner?: string;
+  }): { workdir: string; uploads: string } {
+    const spaceId = meta.spaceId ?? "default";
+    return {
+      workdir: meta.projectCwd ?? this.scratchOf(meta.workdirOwner ?? meta.id, spaceId),
+      uploads: sessionUploadsRel(meta.uploadsOwner ?? meta.id, spaceId),
+    };
+  }
+
+  /**
+   * 未所属のスクラッチ (root 相対)。root ("") になるのは永続化なしの既定スペースだけ
+   * (既存のテスト・未設定デプロイ)。
+   */
+  private scratchOf(id: string, spaceId = "default"): string {
     return this.storeDir || spaceId !== "default" ? sessionWorkdirRel(id, spaceId) : "";
+  }
+
+  /** 添付の保存先 (root 相対)。route の添付検証はこの 1 つを通す (子は親の置き場を共有する) */
+  uploadsOf(record: SessionRecord): string {
+    return this.placementOf(record.meta).uploads;
+  }
+
+  /** 作業フォルダの持ち主。省略 = 自分 */
+  private workdirOwnerOf(meta: { id: string; workdirOwner?: string }): string {
+    return meta.workdirOwner ?? meta.id;
+  }
+
+  /** 添付の持ち主。省略 = 自分 */
+  private uploadsOwnerOf(meta: { id: string; uploadsOwner?: string }): string {
+    return meta.uploadsOwner ?? meta.id;
+  }
+
+  /**
+   * 同じ作業フォルダ / 添付を共有している他の会話があるか (live / 未ロードの両方)。
+   * 引き継ぎでフォルダを運ぶと共有相手の居場所を失うため、別スペース移動を止める根拠にする。
+   */
+  private sharesPlacement(id: string, workdir: string, uploads: string): boolean {
+    for (const [otherId, placement] of this.placements()) {
+      if (otherId === id) continue;
+      if (placement.workdir === workdir || placement.uploads === uploads) return true;
+    }
+    return false;
+  }
+
+  private *placements(): Generator<[string, { workdir: string; uploads: string }]> {
+    const seen = new Set<string>();
+    for (const record of this.records.values()) {
+      seen.add(record.id);
+      const placement = this.placementOf(record.meta);
+      // live の workdir は SDK へ渡した値が正 (プロジェクト解除などで meta とずれていても後勝ちにしない)
+      yield [record.id, { workdir: record.workdir || placement.workdir, uploads: placement.uploads }];
+    }
+    for (const meta of this.descriptors.values()) {
+      if (seen.has(meta.id)) continue;
+      yield [meta.id, this.placementOf(meta)];
+    }
+  }
+
+  /**
+   * 分岐の前に親の作業フォルダの存在を確かめる。未ロードの会話は復元 (`load`) が未所属のスクラッチを
+   * mkdir するため、解決より先にここで検査しないと「フォルダが無い」を空フォルダの作成で隠す。
+   * 未知の id は何もしない (404 は解決する側が返す)。
+   */
+  async requireForkWorkdir(id: string): Promise<void> {
+    const meta = this.records.get(id)?.meta ?? this.descriptors.get(id);
+    if (!meta) return;
+    await this.requireSharedWorkdir(this.placementOf(meta).workdir);
+  }
+
+  /**
+   * 共有している作業フォルダの存在確認。無ければ 409 にして空フォルダを作らない
+   * (作ると「ファイルが消えた」ように見える)。
+   */
+  private async requireSharedWorkdir(workdir: string): Promise<void> {
+    if (!this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    try {
+      await this.workspace.listFiles(workdir);
+    } catch (error) {
+      if (error instanceof SandboxRequestError && error.status === 404) {
+        throw httpError(409, SHARED_PLACEMENT_MISSING_MESSAGE);
+      }
+      throw httpError(sandboxFailureStatus(error), messageFor(error));
+    }
   }
 
   /**
@@ -798,9 +909,12 @@ export class SessionStore {
     }
     const entries = parsed.kind === "ok" ? parsed.entries : [];
     // cwd は保存値の projectCwd をそのまま使う (登録解除・消失していても復元先を変えない)。
-    // 未所属 (projectCwd なし) のときだけスクラッチを保証する
-    const workdir = this.workdirOf(id, current.projectCwd, current.spaceId);
-    if (!current.projectCwd) await this.ensureWorkdir(workdir);
+    // 自分だけのスクラッチは作って保証し、共有している会話 (owner 付き) は作らずに存在を確かめる。
+    // プロジェクト所属でも、持ち主が別の会話ならそのフォルダを mkdir しない
+    const placement = this.placementOf(current);
+    const workdir = placement.workdir;
+    if (this.workdirOwnerOf(current) !== id) await this.requireSharedWorkdir(workdir);
+    else if (!current.projectCwd) await this.ensureWorkdir(workdir);
     const restored = this.restoreInputs(current, entries);
     const created = await (this.pi as PiRuntimeLike).createSession({
       sessionId: id,
@@ -818,8 +932,8 @@ export class SessionStore {
       model: restored.model,
       thinkingLevel: restored.thinkingLevel,
       cwd: workdir,
-      // 参照画像の添付許可範囲は復元でも同じ関数から組み立てる (保存値のスペースを使う)
-      uploadsDirRel: sessionUploadsRel(id, current.spaceId ?? "default"),
+      // 参照画像の添付許可範囲は復元でも同じ解決から組み立てる (子は親の置き場を共有する)
+      uploadsDirRel: placement.uploads,
     });
     const session = created.session as PiSessionLike;
     if (this.deleting.has(id)) {
@@ -2256,7 +2370,7 @@ export class SessionStore {
           agentName: meta.agent.name,
           ...(this.projectIdOfCwd(meta.projectCwd) ? { projectId: this.projectIdOfCwd(meta.projectCwd) } : {}),
           ...(meta.projectName ? { projectName: meta.projectName } : {}),
-          workdir: this.workdirOf(meta.id, meta.projectCwd, meta.spaceId),
+          workdir: this.placementOf(meta).workdir,
           createdAt: meta.createdAt,
           lastUsedAt: meta.lastUsedAt,
           messageCount: meta.messageCount,
@@ -2290,12 +2404,13 @@ export class SessionStore {
       projectSession: meta.projectCwd !== undefined,
       ...(meta.handoffCleanup ? { handoffCleanup: true } : {}),
       hasRawLog: this.hasRawLogOf(meta.id, this.storeDir ?? ""),
-      serveCommand: this.serveCommandOf(this.workdirOf(meta.id, meta.projectCwd, meta.spaceId)),
+      serveCommand: this.serveCommandOf(this.placementOf(meta).workdir),
       messageCount: meta.messageCount,
       createdAt: meta.createdAt,
       lastUsedAt: meta.lastUsedAt,
       ...(meta.model ? { model: meta.model } : {}),
       ...(this.projectIdOfCwd(meta.projectCwd) ? { projectId: this.projectIdOfCwd(meta.projectCwd) } : {}),
+      ...(meta.parentSessionId ? { parentSessionId: meta.parentSessionId } : {}),
     };
   }
 
@@ -2313,7 +2428,7 @@ export class SessionStore {
     if (live) return live.workdir;
     const meta = this.descriptors.get(id);
     if (!meta) return undefined;
-    return this.workdirOf(id, meta.projectCwd, meta.spaceId);
+    return this.placementOf(meta).workdir;
   }
 
   /**
@@ -2498,9 +2613,18 @@ export class SessionStore {
     if (meta.projectCwd && moving) {
       throw httpError(400, "プロジェクト所属のセッションは同じ会話スペースへだけ引き継げます");
     }
-    // スクラッチ以外 (projectCwd の残骸など) を動かさないための不変条件
-    const fromWorkdir = live?.workdir ?? this.workdirOf(id, meta.projectCwd, fromSpace);
-    if (!meta.projectCwd && fromWorkdir !== sessionWorkdirRel(id, fromSpace)) {
+    // スクラッチ以外 (projectCwd の残骸など) を動かさないための不変条件。スペースをまたぐ移動だけに適用し、
+    // 同じスペースのエージェント交代はファイルを動かさないので owner を持つ子でも通す
+    const placement = this.placementOf(meta);
+    const fromWorkdir = live?.workdir ?? placement.workdir;
+    const fromUploads = placement.uploads;
+    // 同じ作業フォルダ / 添付を共有している会話があるなら別スペースへ運ばない。運ぶと共有相手の
+    // owner が指すパスが消え、次に開いたときに空のフォルダを作って「ファイルが消えた」ように見える。
+    // 子自身 (owner が自分でない) も、共有相手が既に消えていても同じ理由で断る
+    if (moving && (this.workdirOwnerOf(meta) !== id || this.sharesPlacement(id, fromWorkdir, fromUploads))) {
+      throw httpError(409, SHARED_PLACEMENT_MESSAGE);
+    }
+    if (moving && !meta.projectCwd && fromWorkdir !== this.scratchOf(id, fromSpace)) {
       throw httpError(400, "移動できるのはセッション専用の作業フォルダだけです");
     }
     if (live && (this.isBusy(live) || live.session.isStreaming || live.changingSettings)) {
@@ -2511,9 +2635,9 @@ export class SessionStore {
     const moveSandbox = this.moveSandbox;
     const workspace = this.workspace;
     const handoffSandbox = this.handoffSandbox;
-    const toWorkdir = meta.projectCwd ?? sessionWorkdirRel(id, target);
-    const fromUploads = sessionUploadsRel(id, fromSpace);
-    const toUploads = sessionUploadsRel(id, target);
+    // 移動先も owner 経由で解く (同じスペースの引き継ぎでは共有フォルダのまま、メモはそこへ書く)
+    const toWorkdir = meta.projectCwd ?? this.scratchOf(this.workdirOwnerOf(meta), target);
+    const toUploads = sessionUploadsRel(this.uploadsOwnerOf(meta), target);
     // 古い値の保存が移動後の meta を上書きしないよう、先に drain する
     if (live) await this.drainRecordWrites(live);
     // drain 中の setNotify / setTitle / setPinned を落とさないよう、最新の meta から組み立てる
@@ -2715,6 +2839,177 @@ export class SessionStore {
     return this.deleting.has(id) || this.closing;
   }
 
+  /**
+   * 会話を分岐する。親の解決済み record を受け取り、この関数の先頭 (最初の await より前) で末尾 entry を
+   * 境界として固定する。子は境界までの entry を複製した独立した会話で、以後の追記・要約・マージはしない。
+   * 親の meta / 履歴 / 未送信 / タイトル / ピン / 通知は変えない。
+   */
+  async fork(parent: SessionRecord, { agentId }: { agentId?: string } = {}): Promise<SessionRecord> {
+    const storeDir = this.storeDir;
+    if (this.storeError) throw httpError(503, `会話ストアを利用できません: ${this.storeError}`);
+    if (!storeDir) throw httpError(503, "会話の分岐には会話ストアが必要です");
+    const pi = this.pi;
+    if (!pi) throw httpError(503, "ランタイムを利用できません");
+    if (this.closing) throw httpError(503, "サーバーを終了しています");
+    const meta = parent.meta;
+    if (meta.handoffCleanup) throw httpError(409, HANDOFF_CLEANUP_PENDING_MESSAGE);
+    // busy は引き継ぎと同じ条件。境界より後に受付された送信を子へ含めないため、ここで断る
+    if (this.isBusy(parent) || parent.session.isStreaming || parent.changingSettings || parent.stopping) {
+      throw httpError(409, "実行中・キュー中・圧縮中・設定変更中のセッションは分岐できません");
+    }
+    // ここで境界を固定する。送信ルートはスキル展開を await してから postMessage するため、
+    // lifecycle を押さえるだけでは境界を保証できない
+    const boundaryId = lastEntryId(entriesOf(parent.session));
+    const spaceId = meta.spaceId ?? "default";
+    // 同じスペースの削除が、書込み中の子と親を見落とさないよう完了まで待たせる (操作単位で登録する)
+    let settle: () => void = () => {};
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const pending: PendingMove = { spaceId, settled };
+    this.pendingMoves.add(pending);
+    this.lifecycle.set(parent.id, settled);
+    try {
+      return await this.forkSession(parent, boundaryId, spaceId, { agentId });
+    } finally {
+      this.pendingMoves.delete(pending);
+      if (this.lifecycle.get(parent.id) === settled) this.lifecycle.delete(parent.id);
+      settle();
+    }
+  }
+
+  private async forkSession(
+    parent: SessionRecord,
+    boundaryId: string | undefined,
+    spaceId: string,
+    { agentId }: { agentId?: string },
+  ): Promise<SessionRecord> {
+    const storeDir = this.storeDir as string;
+    const meta = parent.meta;
+    // 「指定なし」は保存済みのスナップショットを維持する (カタログから消えていても分岐できる)。
+    // 「指定あり」は引き継ぎと同じく現在の定義から作り直す
+    const resolved = agentId === undefined ? undefined : resolveAgentSkills(this.catalog, agentId);
+    const placement = this.placementOf(meta);
+    // 共有する作業フォルダが無ければ、空フォルダを作らずに 409 で断る
+    await this.requireSharedWorkdir(placement.workdir);
+    if (this.forkAborted(parent.id)) throw httpError(404, "Session not found");
+    // 破損した原本は writer の全体書直しで上書きされ得るため、必ず persist より前に検証する
+    const before = await readSessionFile(storeDir, parent.id);
+    if (before.parsed.kind === "damaged") {
+      throw httpError(
+        409,
+        `${new SessionDamagedError(before.parsed.reason).message} (${sessionJsonlPath(parent.id, storeDir)})`,
+      );
+    }
+    // live な親の未保存 entry を確定させる (検証の後。境界まではこの保存で読み直せる)
+    const failure = await this.persist(parent);
+    await this.flush(parent);
+    const saveError = failure ?? parent.persistError ?? parent.writer?.error;
+    if (saveError) throw httpError(500, `セッションの保存に失敗しました: ${saveError}`);
+    if (this.forkAborted(parent.id)) throw httpError(404, "Session not found");
+    const after = await readSessionFile(storeDir, parent.id);
+    if (after.parsed.kind === "damaged") {
+      throw httpError(500, "セッションの保存に失敗しました: 会話の記録を読み直せません");
+    }
+    const entries = after.parsed.kind === "ok" ? after.parsed.entries : [];
+    const copied = copiedEntries(entries, boundaryId);
+    if (!copied) {
+      throw httpError(500, "セッションの保存に失敗しました: 分岐の境界が記録に見つかりません");
+    }
+
+    const childId = generateSessionId(storeDir);
+    const now = Date.now();
+    // タイトルと履歴の保存値は、上の保存列を待った**後**の最新状態から読む。persist は parent.meta を
+    // 別オブジェクトへ差し替え、AI 要約の予約は record.titleAttempt を先に更新するため、先頭で
+    // 捕まえた meta から複製すると親が pending でも子が未試行になる (子で二重に要約し直す)
+    const current = parent.meta;
+    const model = modelLabel(parent.session.model) ?? current.model;
+    const thinkingLevel = parent.session.thinkingLevel ?? current.thinkingLevel;
+    const attempt = settledTitleAttemptOf(parent.titleAttempt ?? current.titleAttempt);
+    const childMeta: SessionMeta = {
+      spaceId,
+      version: 1,
+      id: childId,
+      title: parent.title || current.title,
+      createdAt: now,
+      lastUsedAt: now,
+      // 表示件数は子を開いたときに実履歴から補正する (分岐の成否には影響しない)
+      messageCount: current.messageCount,
+      agentId: resolved?.agentInfo.id ?? current.agentId,
+      agent: resolved?.agentInfo ?? current.agent,
+      promptSnapshot: resolved?.promptSnapshot ?? current.promptSnapshot,
+      ...(current.projectCwd ? { projectCwd: current.projectCwd } : {}),
+      ...(current.projectName ? { projectName: current.projectName } : {}),
+      ...(model ? { model } : {}),
+      ...(thinkingLevel ? { thinkingLevel } : {}),
+      titleOrigin: parent.titleOrigin ?? titleOriginOf(current),
+      // 親に試行が無ければ子も未試行 (一度も正常完了していないなら子の最初の完了で 1 回だけ要約され得る)。
+      // pending は子だけ interrupted に終端化し、親の meta / titleTask は変えない
+      ...(attempt ? { titleAttempt: attempt } : {}),
+      ...((parent.titleRequest ?? current.titleRequest)
+        ? { titleRequest: (parent.titleRequest ?? current.titleRequest) as string }
+        : {}),
+      parentSessionId: parent.id,
+      forkedAt: now,
+      workdirOwner: this.workdirOwnerOf(meta),
+      uploadsOwner: this.uploadsOwnerOf(meta),
+    };
+    // 表示用の実測は派生データ。複製できなくても分岐は成功させる (SDK の記録値へ落ちる)
+    this.copyAssistantMetrics(parent.id, childId);
+    try {
+      await writeSessionDir(storeDir, childId, {
+        meta: childMeta,
+        header: sessionHeaderOf(childMeta, workspaceAbs(this.rootCwd, placement.workdir)),
+        entries: copied,
+      });
+    } catch (error) {
+      this.deleteAssistantMetrics(childId);
+      throw httpError(500, `セッションの保存に失敗しました: ${messageFor(error)}`);
+    }
+    this.descriptors.set(childId, childMeta);
+    try {
+      const child = await this.resolve(childId);
+      if (!child) {
+        throw this.closing
+          ? httpError(503, "サーバーを終了しています")
+          : httpError(409, "分岐先の会話を作成できませんでした");
+      }
+      return child;
+    } catch (error) {
+      // 子の load が失敗した / load 中に DELETE された場合も、store だけの半端な子を残さない
+      await this.discardFork(childId);
+      throw error;
+    }
+  }
+
+  /** 分岐の途中で親が消えたか (DELETE / close) */
+  private forkAborted(parentId: string): boolean {
+    return this.moveAborted(parentId);
+  }
+
+  /** 分岐の失敗を回収する。SDK セッション・record / descriptor・子ディレクトリ・複製した実測を残さない */
+  private async discardFork(id: string): Promise<void> {
+    const record = this.records.get(id);
+    this.records.delete(id);
+    this.descriptors.delete(id);
+    record?.session.dispose?.();
+    if (record) this.closeSubscribers(record);
+    this.deleteAssistantMetrics(id);
+    if (this.storeDir) await removeSessionDir(this.storeDir, id).catch(() => {});
+  }
+
+  /** 応答の実測を子の session_id へ写す。派生データなので失敗しても分岐を止めない */
+  private copyAssistantMetrics(fromId: string, toId: string): void {
+    const store = this.assistantMetrics;
+    if (!store) return;
+    try {
+      for (const row of store.loadAssistantMetrics(fromId)) {
+        store.recordAssistantMetrics({ ...row, sessionId: toId });
+      }
+    } catch (error) {
+      console.warn(`[u7agent] assistant metrics copy failed: ${this.masker.mask(messageFor(error))}`);
+    }
+  }
   /**
    * 作業フォルダ / 添付を 1 つ移す。元が無い (404) は「運ぶものが無い」として false を返し、
    * 移動先が既にある (409) はマージできないため、手動での退避先の削除を案内する。

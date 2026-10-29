@@ -93,6 +93,18 @@ export interface SessionMeta {
    * 再要約を再起動後も同じ入力で行うために保存する。タイトル本文より長い利用者の文が残る点に注意。
    */
   titleRequest?: string;
+  /** 分岐元の会話 id。分岐の正はこの meta で、親が削除されていても子は開ける (表示用) */
+  parentSessionId?: string;
+  /** 分岐した時刻 (epoch ms)。表示用で、欠落・不正値は落とす */
+  forkedAt?: number;
+  /**
+   * 作業フォルダを共有する会話 id (root 相対のスクラッチを持つ会話)。省略 = 自分。分岐した子は親の
+   * フォルダを共有するため、id から導出せずこの値で解決する。10 hex 以外は壊れた meta として扱う
+   * (自分の id へフォールバックしない)。
+   */
+  workdirOwner?: string;
+  /** 添付の保存先を共有する会話 id。意味は `workdirOwner` と同じ */
+  uploadsOwner?: string;
 }
 
 /** 引き継ぎごとの操作 ID。セッション ID と同じ 8 hex 文字 */
@@ -230,6 +242,10 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
   if (!prompt || typeof prompt.agent !== "string") return undefined;
   const handoff = parseHandoff(meta.handoff);
   const titleAttempt = parseTitleAttempt(meta.titleAttempt);
+  // 共有の持ち主は省略 = 自分。10 hex 以外は壊れた meta として一覧から除外し、自分の id へは
+  // フォールバックしない (別の会話のフォルダを勝手に指さない)
+  if (meta.workdirOwner !== undefined && !isSessionId(meta.workdirOwner)) return undefined;
+  if (meta.uploadsOwner !== undefined && !isSessionId(meta.uploadsOwner)) return undefined;
   return {
     version: 1,
     ...(meta.spaceId !== undefined ? { spaceId: meta.spaceId } : {}),
@@ -262,6 +278,11 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
     ...(typeof meta.titleRequest === "string" && meta.titleRequest.trim() !== ""
       ? { titleRequest: truncate(meta.titleRequest, TITLE_REQUEST_MAX) }
       : {}),
+    // 分岐の由来は表示用。不正値は落とし、読み込みそのものは妨げない
+    ...(isSessionId(meta.parentSessionId) ? { parentSessionId: meta.parentSessionId } : {}),
+    ...(typeof meta.forkedAt === "number" && Number.isFinite(meta.forkedAt) ? { forkedAt: meta.forkedAt } : {}),
+    ...(meta.workdirOwner !== undefined ? { workdirOwner: meta.workdirOwner } : {}),
+    ...(meta.uploadsOwner !== undefined ? { uploadsOwner: meta.uploadsOwner } : {}),
   };
 }
 
@@ -651,6 +672,27 @@ export async function readSessionFile(
     throw error;
   });
   return { parsed: parseSessionFile(text, id), text };
+}
+
+/**
+ * 分岐した子の store を、まだ一覧に出ない temp ディレクトリへ書いて rename で確定する。
+ * 途中で落ちても 10 hex 以外の名前は一覧の走査に拾われないため、半端な会話を出さない。
+ */
+export async function writeSessionDir(
+  storeDir: string,
+  id: string,
+  { meta, header, entries }: { meta: SessionMeta; header: SessionHeader; entries: SessionEntryLike[] },
+): Promise<void> {
+  const temp = join(storeDir, `.fork-${randomBytes(6).toString("hex")}`);
+  await mkdir(temp, { recursive: true, mode: 0o700 });
+  try {
+    await writeFile(join(temp, "session.jsonl"), serializeSession(header, entries), { mode: 0o600 });
+    await writeFile(join(temp, "meta.json"), `${JSON.stringify(meta, null, 2)}\n`, { mode: 0o600 });
+    await rename(temp, sessionDirPath(storeDir, id));
+  } catch (error) {
+    await rm(temp, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
 }
 
 export async function removeSessionDir(storeDir: string, id: string): Promise<void> {

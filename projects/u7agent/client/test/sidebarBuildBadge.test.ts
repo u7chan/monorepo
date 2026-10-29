@@ -26,6 +26,7 @@ function renderSidebar(commitHash?: string): string {
       selectSession: () => {},
       renameSession: () => {},
       handoffSession: () => {},
+      forkSession: () => {},
       deleteSession: () => {},
       deleteProject: () => {},
       togglePinned: () => {},

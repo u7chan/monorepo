@@ -1,12 +1,13 @@
 import { agentIconOf } from "../../lib/agentIcon";
 import { cn } from "../../lib/cn";
 import { messageTimeLabel } from "../../lib/messageTime";
+import { forkBlockedReason } from "../../lib/sessionFork";
 import { handoffBlockedReason } from "../../lib/sessionHandoff";
 import { sessionRowActions, type SessionRowKind } from "../../lib/sidebarRowMenu";
 import { sidebarStatus, type SidebarStatus } from "../../lib/sidebarStatus";
 import type { AgentDef, SessionSummary } from "../../types";
 import { AgentIcon } from "../AgentIcon";
-import { BellIcon, PinIcon } from "../icons";
+import { BellIcon, GitBranchIcon, PinIcon } from "../icons";
 import { RowMenu } from "../RowMenu";
 
 const DOT_TONE: Record<SidebarStatus["tone"], string> = {
@@ -34,6 +35,7 @@ export function SessionRow({
   onDelete,
   onTogglePin,
   onHandoff,
+  onFork,
   onOpenTitleSummary,
 }: {
   item: SessionSummary;
@@ -46,6 +48,8 @@ export function SessionRow({
   onTogglePin: () => void;
   /** 未指定の呼び出し側には引き継ぎの項目を出さない (操作の受け取りと表示を揃える) */
   onHandoff?: () => void;
+  /** 分岐。未指定の呼び出し側には項目を出さない (引き継ぎと同じ扱い) */
+  onFork?: () => void;
   /** AI要約のダイアログ。未指定の呼び出し側には項目を出さない */
   onOpenTitleSummary?: () => void;
 }) {
@@ -61,6 +65,7 @@ export function SessionRow({
     rename: onRename,
     "title-summary": onOpenTitleSummary,
     handoff: onHandoff,
+    fork: onFork,
     delete: onDelete,
   };
 
@@ -88,6 +93,13 @@ export function SessionRow({
                 </span>
               ) : null}
               <strong className="truncate text-xs text-ink">{item.title || "無題のセッション"}</strong>
+              {/* 分岐はタイトルを継承するため、一覧でも親と子を見分けられるようにする (行き来はチャット上部の
+                  リンクが担う。ここは「分岐した会話」であることだけを示す) */}
+              {item.parentSessionId ? (
+                <span role="img" aria-label="分岐した会話" title="分岐した会話" className="shrink-0 text-ink-faint">
+                  <GitBranchIcon />
+                </span>
+              ) : null}
             </span>
             {/* 選択行は accent-wash を重ねた面になるため、10px のメタは ink-soft まで上げる
                 (非選択の ink-muted はそのままにし、一覧の情報階層を変えない) */}
@@ -126,6 +138,8 @@ export function SessionRow({
             pinned: item.pinned === true,
             canHandoff: onHandoff !== undefined,
             ...(onHandoff === undefined ? {} : { handoffBlockedReason: handoffBlockedReason(item) }),
+            canFork: onFork !== undefined,
+            ...(onFork === undefined ? {} : { forkBlockedReason: forkBlockedReason(item) }),
             ...(item.titleSummary ? { titleSummary: item.titleSummary } : {}),
             canTitleSummary: onOpenTitleSummary !== undefined,
           })}

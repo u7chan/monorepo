@@ -15,6 +15,7 @@ export function SessionList({
   onDelete,
   onTogglePin,
   onHandoff,
+  onFork,
   onOpenTitleSummary,
 }: {
   sessions: SessionSummary[];
@@ -26,6 +27,8 @@ export function SessionList({
   onTogglePin: (sessionId: string) => void;
   /** 会話の引き継ぎ。未指定の一覧 (プロジェクト配下) は項目を出さない */
   onHandoff?: (sessionId: string) => void;
+  /** 会話の分岐。未指定の一覧は項目を出さない */
+  onFork?: (sessionId: string) => void;
   /** AI要約のダイアログ。未指定の呼び出し側は行メニューに項目を出さない */
   onOpenTitleSummary?: (sessionId: string) => void;
 }) {
@@ -42,6 +45,7 @@ export function SessionList({
       onDelete={() => onDelete(item.sessionId)}
       onTogglePin={() => onTogglePin(item.sessionId)}
       {...(onHandoff ? { onHandoff: () => onHandoff(item.sessionId) } : {})}
+      {...(onFork ? { onFork: () => onFork(item.sessionId) } : {})}
       {...(onOpenTitleSummary ? { onOpenTitleSummary: () => onOpenTitleSummary(item.sessionId) } : {})}
     />
   );

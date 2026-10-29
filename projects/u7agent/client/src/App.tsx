@@ -21,6 +21,8 @@ import { RuntimePage } from "./components/RuntimePage";
 import { Sidebar } from "./components/Sidebar";
 import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesPanel";
 import { SharingSettingsPage } from "./components/SharingSettingsPage";
+import { SessionForkDialog } from "./components/SessionForkDialog";
+import { SessionForkLinks } from "./components/SessionForkLinks";
 import { SessionHandoffDialog, type SessionHandoffRequest } from "./components/SessionHandoffDialog";
 import { SessionTitleDialog } from "./components/SessionTitleDialog";
 import { SessionTitleNotice } from "./components/SessionTitleNotice";
@@ -82,6 +84,14 @@ import {
   sessionHandoffDialogText,
   type HandoffNote,
 } from "./lib/sessionHandoff";
+import {
+  type SessionForkRequest,
+  forkAgentChoices,
+  forkBlockedReason,
+  forkOpenDecision,
+  forkRelations,
+  sessionForkDialogText,
+} from "./lib/sessionFork";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
   DEFAULT_CONTENT_SUBSECTION,
@@ -247,6 +257,15 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     agentName: string;
     projectSession: boolean;
     memoDisabledReason: string;
+    blockedNote: string;
+  } | null>(null);
+  // 分岐の対象 (会話 id と、ダイアログに出す値)。ダイアログはエージェントだけを選び、
+  // スペース・作業フォルダ・添付は親から決まる
+  const [forkTarget, setForkTarget] = useState<{
+    sessionId: string;
+    title: string;
+    agentId: string;
+    agentName: string;
     blockedNote: string;
   } | null>(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -480,6 +499,15 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
 
   // 表示中のセッション。エージェント切替で引き継ぐ作業先 (所属) の解決にも使う
   const activeSession = spaceSessions.find((item) => item.sessionId === app.sessionId);
+  // 分岐元 / 分岐先のリンク。子一覧の API は足さず、同じスペースの一覧から parentSessionId で引く
+  const forkLinkRelations = useMemo(
+    () =>
+      forkRelations(spaceSessions, {
+        sessionId: app.sessionId,
+        ...(activeSession?.parentSessionId ? { parentSessionId: activeSession.parentSessionId } : {}),
+      }),
+    [activeSession?.parentSessionId, app.sessionId, spaceSessions],
+  );
   // 作業フォルダ自身の共有は非プロジェクト会話だけ (projectSession が明示的な false のときだけ出す)
   const sessionRootShareEnabled = canShareSessionRoot({
     sessionId: app.sessionId,
@@ -738,6 +766,23 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     [app, backToChat, handoffTarget, navigate, onHandoffNote, space],
   );
 
+  /**
+   * 分岐の実行。子は同じスペースにできるため、成功したら子を開く (URL は選択に追従する)。
+   * 要求を出した後に利用者が別の会話を選んでいたら、遅れて届いた応答でその選択を巻き戻さない。
+   */
+  const handleFork = useCallback(
+    async (request: SessionForkRequest) => {
+      const sessionId = forkTarget?.sessionId;
+      if (!sessionId) return;
+      const selection = app.selectionSeqRef.current;
+      const child = await app.forkSession(sessionId, request);
+      if (forkOpenDecision(selection, app.selectionSeqRef.current) === "keep") return;
+      await app.selectSession(child.sessionId);
+      if (route.view !== "chat") navigate({ view: "chat", sessionId: child.sessionId });
+    },
+    [app, forkTarget, navigate, route.view],
+  );
+
   // 移動先の App へ渡された引き継ぎの警告。入口 (`/s/<id>`) の解決が終わってから出す
   // (先に出すと、payload を適用する `resync` の初期化で消える)。解決までに別の会話へ移っていたら
   // 出さずに捨てる (関係ない会話の状態行に残さない)
@@ -780,6 +825,16 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     },
     deleteSession: (sessionId: string) => {
       void app.deleteSession(sessionId);
+    },
+    forkSession: (sessionId: string) => {
+      const item = spaceSessions.find((entry) => entry.sessionId === sessionId);
+      setForkTarget({
+        sessionId,
+        title: item?.title ?? "",
+        agentId: item?.agentId ?? "",
+        agentName: item?.agentName ?? "",
+        blockedNote: item ? forkBlockedReason(item) : "会話が見つかりません",
+      });
     },
     handoffSession: (sessionId: string) => {
       const item = spaceSessions.find((entry) => entry.sessionId === sessionId);
@@ -1056,6 +1111,15 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                   activity={sidebarDocked ? undefined : activityEntry}
                 />
               )}
+              {app.sessionId ? (
+                <SessionForkLinks
+                  relations={forkLinkRelations}
+                  onOpen={(sessionId) => {
+                    if (sessionId !== app.sessionId) void app.selectSession(sessionId);
+                    if (route.view !== "chat") navigate({ view: "chat", sessionId });
+                  }}
+                />
+              ) : null}
               {sessionTitleNotice ? (
                 <div className="px-6 pb-3 singleColumn:px-3">
                   <SessionTitleNotice
@@ -1250,6 +1314,16 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             openSettingsSection("session-title");
           }}
           onUpdated={() => void app.refreshSessions()}
+        />
+      ) : null}
+      {forkTarget ? (
+        <SessionForkDialog
+          singleColumn={singleColumn}
+          text={sessionForkDialogText(forkTarget.title)}
+          agents={forkAgentChoices(app.agents, forkTarget.agentId, forkTarget.agentName)}
+          blockedNote={forkTarget.blockedNote}
+          onClose={() => setForkTarget(null)}
+          onFork={handleFork}
         />
       ) : null}
       {handoffTarget ? (

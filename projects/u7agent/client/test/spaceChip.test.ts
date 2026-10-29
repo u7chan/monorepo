@@ -24,6 +24,7 @@ function renderSidebar(spaceName: string, conversationOnly: boolean): string {
       selectSession: () => {},
       renameSession: () => {},
       handoffSession: () => {},
+      forkSession: () => {},
       deleteSession: () => {},
       deleteProject: () => {},
       togglePinned: () => {},

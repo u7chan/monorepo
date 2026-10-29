@@ -56,7 +56,7 @@
 
 `runStartedAt` / `finishedAt` は live な実行の開始・終了、`compactionStartedAt` は圧縮の開始、`awaitingSince` は未 settle の質問のうち最も古い開始時刻、`lastRunDurationMs` は直近のランの所要時間（`runOutcomes` にあるときだけ）で、どれも該当が無ければキーを省略する。未ロードの会話は `idle` でこれらの時刻を載せない（`lastUsedAt` を開始時刻の代用にしない）。終了済みの live レコードは終了から 120 分の間だけ sweep の対象外になる。
 
-`pinned` はサイドバーで固定するかを示す（常に boolean）。`awaitingAnswer` は `ask_user` の未 settle の回答待ちがあるか（省略 = false）。この間もランは `running` のままで、左バーの行が「回答待ち」になる（[ask-user.md](ask-user.md#ui)）。待機を持たない未ロードの会話は省略し、ロード済みの会話は待機が無くても `false` を返す。`canHandoff` は同じ会話のままエージェント / スペースを引き継げるか（常に true。旧サーバーは省略 = false）。`projectSession` はプロジェクト所属か（真では引き継ぎ先のスペースを選ばない）。`handoffCleanup` は確定後の履歴削除（片付け）が残っているか（省略 = false。真の間は開く要求が 409 になり、新しい引き継ぎも受け付けない）。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（省略 = false）。設定 → ランタイム の診断タブは、まだ診断応答を取れていないときの出し分けにこの値を使い、応答が取れていれば `raw.available` を正とする。false のときだけダウンロードを押せなくし、理由を 1 行で出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
+`pinned` はサイドバーで固定するかを示す（常に boolean）。`awaitingAnswer` は `ask_user` の未 settle の回答待ちがあるか（省略 = false）。この間もランは `running` のままで、左バーの行が「回答待ち」になる（[ask-user.md](ask-user.md#ui)）。待機を持たない未ロードの会話は省略し、ロード済みの会話は待機が無くても `false` を返す。`canHandoff` は同じ会話のままエージェント / スペースを引き継げるか（常に true。旧サーバーは省略 = false）。`parentSessionId` は分岐元の会話 id（分岐していない会話と旧サーバーはキーを省略する。分岐先はこの値から引く）。`projectSession` はプロジェクト所属か（真では引き継ぎ先のスペースを選ばない）。`handoffCleanup` は確定後の履歴削除（片付け）が残っているか（省略 = false。真の間は開く要求が 409 になり、新しい引き継ぎも受け付けない）。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（省略 = false）。設定 → ランタイム の診断タブは、まだ診断応答を取れていないときの出し分けにこの値を使い、応答が取れていれば `raw.available` を正とする。false のときだけダウンロードを押せなくし、理由を 1 行で出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
 
 `serveCommand` はその会話の作業ディレクトリ（workdir）の serve 成功実績で、`{ cwd, command }` か **無ければ `null`**（キーは常に載る）。cwd を共有するプロジェクト会話は同じ値を返し、別ディレクトリの実績は返さない。実行状況（`/activity`）はこれを終了行に起動の操作を出す条件と、起動の確認に出す作業ディレクトリ・コマンドに使う（[frontend.md](frontend.md#全スペースの一覧)）。
 
@@ -399,6 +399,26 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - メモの冪等化: 節の先頭行に材料のハッシュを書き、書込みの排他の中で先頭行だけを見て同じハッシュなら追記しない（再試行・再起動で二重にならない。操作 ID は再試行のたびに変わるため鍵にしない）。`HANDOFF.md` の書き込み API は [sandbox-api.md](sandbox-api.md#post-v1fileshandoff) を参照。
 - 引き継ぎ後の最初に受理した送信は、消費済み印の保存を**応答の前に**確かめる。進行中の保存は後続の送信 / 再送も共有して待ち、保存に失敗したときは 202 を返さず「セッションの保存に失敗しました: …」の 500 にする（未保存のまま成功を返すと、再起動でチップが戻る。[run-lifecycle.md](run-lifecycle.md#引き継ぎと復旧)）。
 - 失敗の分類は移動と同じ（meta 書換え前は 400 / 409 / 500 / 502、サンドボックス未設定・永続化なし・アプリ DB 障害は 503。DB は `not_stored`）。
+
+## `POST /api/sessions/:id/fork`
+
+会話を分岐する。**元の会話を残したまま**、受け付けた時点の末尾までの履歴を持つ別の会話を作る。要求元のスペースは query で照合し、子のスペースは親と同じになる。
+
+```json
+// request (?spaceId=<要求元>)
+{ "agentId": "…" }
+// response (201): `POST /api/sessions` と同じ payload + parentSessionId
+```
+
+- 子は親の `session.jsonl` の entry をそのまま複製した別ファイルを持つ。以後の追記は独立し、自動の同期・要約・マージはしない。
+- **境界は解決済みの record を受け取った直後（最初の await より前）に固定する**。送信ルートはスキル展開を await してから `postMessage` するため、同時に受付された送信は子へ入らず親にだけ残る。
+- 複製の順序は「親の既存 JSONL の検証（破損は 409。ここでは親へ書かない）→ live な親の `persist` / `flush` → 境界までの読み直しと複製」。`persist` は検証をせず全体を書き直すことがあるため、検証の後にだけ置く。
+- 子の store は temp ディレクトリへ書いて rename で確定する（[session-files.md](session-files.md#metajson)）。`sends.json` は作らず、未送信・通知・ピン・引き継ぎの記録は引き継がない。
+- `agentId` は省略で親のスナップショット（`agentId` / `agent` / `promptSnapshot`）を維持する（カタログから消えていても分岐できる）。指定するときは引き継ぎと同じ解決経路でスナップショットを作り直し、未知・削除済みの id は 400。
+- 子のモデル / Effort の初期値は親の実効値（[session-files.md](session-files.md#モデル--effort-の復元)）。以後の変更は `PATCH /api/sessions/:id/settings` で別々に行い、互いに波及しない。
+- 作業フォルダと添付は親と共有する（[session-files.md](session-files.md#共有する作業フォルダと添付)）。共有フォルダが無いときは空を作らず 409 で、未ロードの親でも復元（未所属のスクラッチの mkdir）より前に検査する。
+- 実行中 / キュー中 / 圧縮中 / 設定変更中 / 停止処理中 / 片付け中は 409。JSONL の破損も 409。保存に失敗したら 500。親・子の store / record / 派生データを残さずに回収する。
+- `parentSessionId` は `SessionSummary` / `SessionPayload` に載る（分岐した会話だけ。親のタイトルはクライアントが同じスペースの一覧から引く）。
 
 ## `POST /api/sessions/:id/messages`
 
