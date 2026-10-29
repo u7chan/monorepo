@@ -758,6 +758,8 @@ export const SessionPayloadSchema = z.object({
   context: ContextUsageSchema.optional(),
   /** 直前の引き継ぎの状態。引き継ぎを受けていない会話と旧サーバーは省略する */
   handoff: SessionHandoffStateSchema.optional(),
+  /** 分岐元の会話 id。分岐した会話だけが載せ、親のタイトルは一覧から引く (旧サーバーは省略する) */
+  parentSessionId: z.string().optional(),
 });
 export type SessionPayload = z.infer<typeof SessionPayloadSchema>;
 
@@ -817,6 +819,8 @@ export const SessionSummarySchema = z.object({
   compactionStartedAt: z.number().optional(),
   /** 未 settle の質問のうち最も古い開始時刻。回答待ちの経過時間の起点 */
   awaitingSince: z.number().optional(),
+  /** 分岐元の会話 id。分岐した会話だけが載せ、分岐先は同じスペースの一覧から引く */
+  parentSessionId: z.string().optional(),
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
@@ -2121,6 +2125,15 @@ export const MoveSessionBodySchema = z.object({
   memo: z.boolean().optional(),
 });
 export type MoveSessionBody = z.infer<typeof MoveSessionBodySchema>;
+
+/**
+ * 会話の分岐。`agentId` の省略は親のスナップショット (エージェント・スキル・ツールの許可) を維持し、
+ * 指定時は引き継ぎと同じく現在の定義から作り直す。対象の会話とスペースは path / query で決まる。
+ */
+export const ForkSessionBodySchema = z.object({
+  agentId: z.string().min(1).optional(),
+});
+export type ForkSessionBody = z.infer<typeof ForkSessionBodySchema>;
 
 /**
  * serve (UI 上の呼称は「サービス」) の状態。稼働判定は常にプローブで、記録は表示と操作権限にだけ使う。

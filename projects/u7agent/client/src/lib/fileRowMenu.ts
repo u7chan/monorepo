@@ -5,8 +5,11 @@
 import { isArchiveExcludedName } from "./archive";
 import type { RowMenuAction, RowMenuActionKind } from "./rowMenu";
 
-/** ファイルツリーが出せる種別 (new-chat / pin / move / handoff はサイドバー専用) */
-export type FileRowActionKind = Exclude<RowMenuActionKind, "new-chat" | "pin" | "move" | "handoff" | "title-summary">;
+/** ファイルツリーが出せる種別 (new-chat / pin / move / handoff / fork はサイドバー専用) */
+export type FileRowActionKind = Exclude<
+  RowMenuActionKind,
+  "new-chat" | "pin" | "move" | "handoff" | "fork" | "title-summary"
+>;
 
 export type FileRowAction = RowMenuAction<FileRowActionKind>;
 

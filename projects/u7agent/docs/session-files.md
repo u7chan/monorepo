@@ -69,6 +69,17 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 
 会話 ID を持つ要求の所属は descriptor / live record で確認し、不一致を SDK の遅延復元や作業フォルダ生成の前に拒否する。共有サービスの所有者 lookup など内部の全会話参照はスペース別 HTTP 一覧と分ける（[api.md](api.md#スペース)）。
 
+## 共有する作業フォルダと添付
+
+分岐した子は親の作業フォルダと添付を共有する（[api-sessions.md](api-sessions.md#post-apisessionsidfork)）。パスは会話 id から直接導出せず、meta の**持ち主**（`workdirOwner` / `uploadsOwner`。省略 = 自分）を経由して解決する。解決の入口は BFF の 1 箇所（`SessionStore` の配置解決）に寄せ、添付の許可範囲・SDK へ渡す cwd / `uploadsDirRel`・一覧の `cwd`・serve の実績・引き継ぎのパスはすべてそこを通す。
+
+- 分岐の子は `workdirOwner` / `uploadsOwner` に親の id を持つ。持ち主の解決は 1 段だけで、子の子も根の会話を指す。
+- `projectCwd` を持つ会話の子は `projectCwd` を複製するため、同じディレクトリを共有する。
+- 持ち主のフォルダが無いときは**空フォルダを作らず 409**（自分だけのスクラッチだけを mkdir する）。作ると「ファイルが消えた」ように見えるため。
+- 持ち主が 10 hex でない meta は壊れた meta として一覧から除外し、自分の id へはフォールバックしない（別の会話のフォルダを勝手に指さない）。
+- 環境変数（`secrets`）と serve の実績（`serve_commands`）は cwd をキーにするため、共有フォルダでは自動的に共有される。同じフォルダの兄弟が実行中かを見る判定もそのまま効く（[static-sharing.md](static-sharing.md#決定事項)）。
+- 片方の会話を削除してもフォルダは残り、もう片方は開ける。スペース削除は両方と根を消す（意図した破壊操作）。共有中の会話は別スペースへ引き継げない（フォルダを運ぶと持ち主のパスが消えるため 409）。
+
 ## meta.json
 
 ```json
@@ -94,7 +105,9 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 - カタログ撤去前の meta が持つ `agent.skillIds` / `agent.skills` / `promptSnapshot.skills` は読取境界で落とし、古いオブジェクトをそのまま persist しない。欠落した `promptSnapshot.skills` は新しい正常形として受け入れ、新しく保存する meta にカタログ専用キーを出さない（開き直して再保存しても復活しない）。過去に展開済みの本文や toolResult は履歴としてそのまま残る。
 - ファイルスキル（`.agents/skills`）は `promptSnapshot` に含めない。SDK の `skillsOverride` でセッション作成・復元のたびに注入し、セッションが持つのは発見一覧・説明・優先順位だけ。本文は `read` 時点のファイル内容になる（[persistence.md](persistence.md#スキルの扱い)）。
 - `title` は最初のメッセージで作り、GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で上書きできる（正規化は自動タイトルと同じで、空・空白だけは 400。改名後は以降のメッセージで作り直さない。[api-sessions.md](api-sessions.md#patch-apisessionsidtitle)）。由来（`titleOrigin`）と AI 要約の試行（`titleAttempt`）は任意フィールドで、欠落は「既存タイトル = 手動 / 未判定」として読む（[session-title.md](session-title.md)）。`titleRequest` は初回送信時に保存するマスク済みの依頼本文の先頭（600 文字上限）で、会話メニューからの再要約に使う。古い meta に無ければ最初の user メッセージから作る。`pinned` はサイドバーの固定状態で、古い meta に無い場合は false とする。GUI の ⋯ から SDK を開かず切り替え、タイトル・履歴・`lastUsedAt` は変えない。`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
-- 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。
+- `parentSessionId` / `forkedAt` は分岐の由来（表示用）。`parentSessionId` は 10 hex と数値だけを受け、不正値は落とす（欠落と同じ扱い）。分岐関係の正は meta で、JSONL の header には書かない。
+- `workdirOwner` / `uploadsOwner` は共有するフォルダの持ち主（[共有する作業フォルダと添付](#共有する作業フォルダと添付)）。
+- 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。分岐の子は **temp ディレクトリへ書いて rename で確定**する（10 hex 以外の名前は一覧の走査に拾われないため、途中で落ちても半端な会話が出ない）。
 
 ## sends.json と送信ID / 実行ID の注記
 

@@ -1,6 +1,7 @@
 import { agentIconOf } from "../../lib/agentIcon";
 import { cn } from "../../lib/cn";
 import { messageTimeLabel } from "../../lib/messageTime";
+import { forkBlockedReason } from "../../lib/sessionFork";
 import { handoffBlockedReason } from "../../lib/sessionHandoff";
 import { sessionRowActions, type SessionRowKind } from "../../lib/sidebarRowMenu";
 import { sidebarStatus, type SidebarStatus } from "../../lib/sidebarStatus";
@@ -34,6 +35,7 @@ export function SessionRow({
   onDelete,
   onTogglePin,
   onHandoff,
+  onFork,
   onOpenTitleSummary,
 }: {
   item: SessionSummary;
@@ -46,6 +48,8 @@ export function SessionRow({
   onTogglePin: () => void;
   /** 未指定の呼び出し側には引き継ぎの項目を出さない (操作の受け取りと表示を揃える) */
   onHandoff?: () => void;
+  /** 分岐。未指定の呼び出し側には項目を出さない (引き継ぎと同じ扱い) */
+  onFork?: () => void;
   /** AI要約のダイアログ。未指定の呼び出し側には項目を出さない */
   onOpenTitleSummary?: () => void;
 }) {
@@ -61,6 +65,7 @@ export function SessionRow({
     rename: onRename,
     "title-summary": onOpenTitleSummary,
     handoff: onHandoff,
+    fork: onFork,
     delete: onDelete,
   };
 
@@ -126,6 +131,8 @@ export function SessionRow({
             pinned: item.pinned === true,
             canHandoff: onHandoff !== undefined,
             ...(onHandoff === undefined ? {} : { handoffBlockedReason: handoffBlockedReason(item) }),
+            canFork: onFork !== undefined,
+            ...(onFork === undefined ? {} : { forkBlockedReason: forkBlockedReason(item) }),
             ...(item.titleSummary ? { titleSummary: item.titleSummary } : {}),
             canTitleSummary: onOpenTitleSummary !== undefined,
           })}

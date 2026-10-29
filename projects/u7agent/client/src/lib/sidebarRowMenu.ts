@@ -24,7 +24,7 @@ export function projectRowActions(): RowMenuAction<ProjectRowKind>[] {
 }
 
 /** セッション行の ⋯ の種別 (通知のベルとピンは状態の印として行にも残す) */
-export type SessionRowKind = "pin" | "rename" | "title-summary" | "handoff" | "delete";
+export type SessionRowKind = "pin" | "rename" | "title-summary" | "handoff" | "fork" | "delete";
 
 /** セッション行の ⋯ の出し分けに使う状態。省略は「ピン無し / 引き継ぎ不可」 */
 export type SessionRowMenuOptions = {
@@ -33,6 +33,10 @@ export type SessionRowMenuOptions = {
   canHandoff?: boolean;
   /** 引き継ぎを止める理由。空なら実行できる (項目ごと隠さず、理由を説明行へ出す) */
   handoffBlockedReason?: string;
+  /** 分岐の受け取りがあるか (未指定 = 項目を出さない) */
+  canFork?: boolean;
+  /** 分岐を止める理由。空なら実行できる (引き継ぎと同じ条件) */
+  forkBlockedReason?: string;
   /** AI要約の状態。状態を出せる呼び出し側だけ項目を出す (旧呼び出しは出さない) */
   titleSummary?: SessionTitleSummary;
   /** AI要約のダイアログを開けるか。false の呼び出し側は項目を出さない */
@@ -48,6 +52,8 @@ export function sessionRowActions(options: SessionRowMenuOptions = {}): RowMenuA
     pinned = false,
     canHandoff = false,
     handoffBlockedReason = "",
+    canFork = false,
+    forkBlockedReason = "",
     titleSummary,
     canTitleSummary = false,
   } = options;
@@ -73,11 +79,23 @@ export function sessionRowActions(options: SessionRowMenuOptions = {}): RowMenuA
         },
       ]
     : [];
+  const fork: RowMenuAction<SessionRowKind>[] = canFork
+    ? [
+        {
+          kind: "fork",
+          label: "会話を分岐",
+          description: forkBlockedReason || "ここまでの流れを引き継いだ別の会話を作ります。元の会話は残ります",
+          descriptionKind: "disclosure",
+          disabled: forkBlockedReason !== "",
+        },
+      ]
+    : [];
   return [
     { kind: "pin", label: pinned ? "ピン留めを解除" : "ピン留め" },
     { kind: "rename", label: "名前を変更" },
     ...titleSummaryAction,
     ...handoff,
+    ...fork,
     { kind: "delete", label: "セッションを削除", danger: true },
   ];
 }

@@ -15,6 +15,7 @@ export type RowMenuActionKind =
   | "pin"
   | "move"
   | "handoff"
+  | "fork"
   | "delete"
   | "new-chat";
 

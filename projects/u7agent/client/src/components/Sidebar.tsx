@@ -26,11 +26,19 @@ export type SidebarProps = Omit<
     | "selectSession"
     | "renameSession"
     | "handoffSession"
+    | "forkSession"
     | "deleteSession"
     | "deleteProject"
     | "togglePinned"
   >,
-  "newChat" | "selectSession" | "renameSession" | "handoffSession" | "deleteSession" | "deleteProject" | "togglePinned"
+  | "newChat"
+  | "selectSession"
+  | "renameSession"
+  | "handoffSession"
+  | "forkSession"
+  | "deleteSession"
+  | "deleteProject"
+  | "togglePinned"
 > & {
   /** 会話一覧の見出しに出す現在の会話スペース名 */
   spaceName: string;
@@ -48,6 +56,7 @@ export type SidebarProps = Omit<
   selectSession: (sessionId: string) => void;
   renameSession: (sessionId: string) => void;
   handoffSession: (sessionId: string) => void;
+  forkSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
   deleteProject: (projectId: string) => void;
   togglePinned: (sessionId: string) => void;
@@ -92,6 +101,7 @@ export function Sidebar({
     selectSession,
     renameSession,
     handoffSession,
+    forkSession,
     deleteSession,
     deleteProject,
     togglePinned,
@@ -235,6 +245,7 @@ export function Sidebar({
                               onDeleteSession={deleteSession}
                               onTogglePinnedSession={togglePinned}
                               onHandoffSession={handoffSession}
+                              onForkSession={forkSession}
                               {...(onOpenTitleSummary ? { onOpenTitleSummary } : {})}
                             />
                           ))}
@@ -283,6 +294,7 @@ export function Sidebar({
                         onDelete={deleteSession}
                         onTogglePin={togglePinned}
                         onHandoff={handoffSession}
+                        onFork={forkSession}
                         {...(onOpenTitleSummary ? { onOpenTitleSummary } : {})}
                       />
                     )}

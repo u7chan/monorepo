@@ -162,6 +162,7 @@ function renderSidebar(withResize: boolean): string {
       selectSession: () => {},
       renameSession: () => {},
       handoffSession: () => {},
+      forkSession: () => {},
       deleteSession: () => {},
       deleteProject: () => {},
       togglePinned: () => {},

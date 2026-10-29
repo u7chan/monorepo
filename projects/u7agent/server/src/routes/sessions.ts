@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 import { streamSSE } from "hono/streaming";
 import { MAX_ATTACHMENT_BYTES, composePrompt, normalizeAttachmentPaths, toAttachmentPath } from "../attachments";
 import { rawLogFileName } from "../diagnostics";
-import { sessionUploadsRel, workspaceAbs } from "../app-paths";
+import { workspaceAbs } from "../app-paths";
 import { httpError, sandboxFailure, sandboxNotConfigured } from "../http";
 import { HISTORY_PAGE_LIMIT_MAX, type HistoryPageResult } from "../history-projection";
 import { isValidEntryName } from "../sandbox/protocol";
@@ -18,6 +18,7 @@ import {
   FileUploadSchema,
   type AnswerQuestionBody,
   type CreateSessionBody,
+  type ForkSessionBody,
   type MoveSessionBody,
   type PostMessageBody,
   type UpdateSessionNotifyBody,
@@ -202,6 +203,22 @@ export function createSessionRoutes({
       return c.json(result);
     },
 
+    /**
+     * 会話の分岐。親の現在の末尾までのコンテキストを持つ別の会話を作り、子の payload を返す。
+     * 親の履歴・未送信・タイトル・ピン・通知は変えず、作業フォルダ / 添付は共有する。
+     * 要求元スペースの照合は `sessionSpaceGuard` が済ませているが、待機の後で親の所属を再確認する
+     * (待つ前の照合は引っ越し中の会話で古くなり得る)。
+     */
+    fork: async (c: Context, body: ForkSessionBody) => {
+      const spaceId = spaces.require(c.req.query("spaceId"));
+      const record = await resolveRecord(c);
+      if (!record) return c.json({ error: "Session not found" }, 404);
+      if ((store.spaceOfId(record.id) ?? "default") !== spaceId) return c.json({ error: "Session not found" }, 404);
+      // 未指定は親のスナップショットを維持する (undefined を渡しても同じ)
+      const child = await store.fork(record, { ...body });
+      return c.json(store.payload(child), 201);
+    },
+
     remove: async (c: Context) => {
       // 未ロードでも消せる (SDK を開かない。履歴だけ削除し、作業フォルダは残す)
       const id = c.req.param("id") ?? "";
@@ -292,7 +309,7 @@ export function createSessionRoutes({
         await awaitHandoffSave(handoffSaving);
         return c.json({ sessionId: record.id, status: store.statusOf(record), ...rest }, 202);
       }
-      const attachments = normalizeAttachmentPaths(body.attachments, sessionUploadsRel(record.id, record.meta.spaceId));
+      const attachments = normalizeAttachmentPaths(body.attachments, store.uploadsOf(record));
       const text = (body.text ?? "").trim();
       // 本文が空でも添付だけで送れる (注記だけのプロンプトになる)
       if (!text && attachments.length === 0) return c.json({ error: "text is required" }, 400);
@@ -381,7 +398,8 @@ export function createSessionRoutes({
     /**
      * 選択時の即時アップロード。bodyGuard (既定 64 KiB 上限 / text 化) を通さないよう、app.ts では
      * このルートを bodyGuard より先に登録する。保存先は所属スペースの添付置き場 (app-paths.ts の
-     * `sessionUploadsRel`。プロジェクトのリポジトリ内にファイルを作らない)。
+     * `sessionUploadsRel`。プロジェクトのリポジトリ内にファイルを作らない)。分岐した子は親の置き場を
+     * 共有するため、保存先は `store.uploadsOf` が決める。
      */
     uploadFile: async (c: Context) => {
       if (!workspace) return sandboxNotConfigured(c);
@@ -394,7 +412,7 @@ export function createSessionRoutes({
       if (Number.isFinite(declared) && declared > MAX_ATTACHMENT_BYTES) {
         return c.json({ error: `File is too large (max ${MAX_ATTACHMENT_BYTES} bytes)` }, 413);
       }
-      const uploadsDirRel = sessionUploadsRel(record.id, record.meta.spaceId);
+      const uploadsDirRel = store.uploadsOf(record);
       try {
         const uploaded = await workspace.uploadFile({
           dir: uploadsDirRel,

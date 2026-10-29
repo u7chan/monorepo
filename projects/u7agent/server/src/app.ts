@@ -47,6 +47,7 @@ import {
   CreateSecretBodySchema,
   CreateSessionBodySchema,
   CreateFileSkillBodySchema,
+  ForkSessionBodySchema,
   MoveSessionBodySchema,
   PostMessageBodySchema,
   RenameFileBodySchema,
@@ -402,6 +403,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "spaceId is required" }, 400),
       ),
       (c) => sessionRoutes.move(c, c.req.valid("json")),
+    )
+    // 会話の分岐。親の末尾までのコンテキストを複製し、独立した子の会話を 201 で返す
+    .post(
+      "/api/sessions/:id/fork",
+      appDataMutation,
+      jsonBodyValidator(ForkSessionBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => sessionRoutes.fork(c, c.req.valid("json")),
     )
     .get("/api/sessions/:id", appData, sessionRoutes.get)
     // 全履歴のカーソルページ。`:id` より深いパスのため順序に依存しないが、:id の近くに置く
