@@ -371,6 +371,18 @@ h2 {
   font-size: 0.75em;
 }
 
+/* 状態ラベルと同じ形の枠。色は付けず、数値であることが読めればよい。 */
+.up-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--up-space-2);
+  border: 1px solid var(--up-line);
+  border-radius: var(--up-radius-label);
+  background: var(--up-raised);
+  color: var(--up-text);
+  font-variant-numeric: tabular-nums;
+}
+
 .up-meters {
   display: flex;
   flex-direction: column;
@@ -441,6 +453,14 @@ h2 {
   .up-meter-fill {
     transition: none;
   }
+}
+
+/* バッジは折り返さず、余白だけ詰める。狭い列でも日時が次の行に落ちる。 */
+.up-meter-reset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--up-space-1) var(--up-space-2);
 }
 
 .up-notes {

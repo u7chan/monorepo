@@ -31,6 +31,7 @@ import { OverflowMenu, type MenuItem } from "./components/OverflowMenu";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { formatClock } from "./lib/format";
+import { orderSources } from "./lib/order";
 import { type ViewMode, browserStorage, readViewMode, writeViewMode } from "./lib/view-mode";
 import { expiryNotice } from "./time";
 
@@ -388,7 +389,7 @@ function Dashboard(props: {
   }, [onLoggedOut]);
 
   const expiry = expiryNotice(props.expiresAt, clock);
-  const sources = usage?.sources ?? placeholderSources(accounts.accounts);
+  const sources = orderSources(usage?.sources ?? placeholderSources(accounts.accounts));
   const codexActions = {
     onStart: startCodex,
     onRespond: respondCodex,
