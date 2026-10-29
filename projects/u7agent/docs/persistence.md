@@ -82,6 +82,8 @@ BFF の agent dir（`PI_CODING_AGENT_DIR`。未設定なら `$HOME/.pi/agent`）
 - [target 設定](https://github.com/u7chan/self-hosted-runner/blob/main/deploy/targets.json)
 - [運用手順](https://github.com/u7chan/self-hosted-runner/blob/main/docs/u7agent.md)
 
+分岐した会話は作業フォルダと添付を共有する（[session-files.md](session-files.md#共有する作業フォルダと添付)）。会話の削除はストアのフォルダだけを消して作業フォルダを残すため、片方を消してももう片方は開ける（分岐元は「削除済み」として表示する）。スペースの削除は根ごと消すので両方消える。共有中の会話の別スペースへの引き継ぎは 409 で断る（フォルダを運ぶと共有相手のパスが消えるため）。
+
 ## アプリデータ（SQLite）
 
 プロジェクトの登録とエージェント定義は BFF の SQLite に保存する（`server/src/app-db.ts`）。

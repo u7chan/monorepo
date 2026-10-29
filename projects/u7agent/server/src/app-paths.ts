@@ -22,9 +22,13 @@ export function serveDebugLogRel(port: number): string {
 
 const SESSION_ID_PATTERN = /^[0-9a-f]{10}$/;
 
-/** 10 hex 文字のセッション ID か。store のフォルダ走査とパス組み立ての共通判定。 */
-export function isSessionId(value: string): boolean {
-  return SESSION_ID_PATTERN.test(value);
+/**
+ * 10 hex 文字のセッション ID か。store のフォルダ走査とパス組み立ての共通判定。
+ * meta の owner のように外部から来る値を渡すため、型も含めて検査する
+ * (正規表現の test は number / 配列を暗黙変換して受理してしまう)。
+ */
+export function isSessionId(value: unknown): value is string {
+  return typeof value === "string" && SESSION_ID_PATTERN.test(value);
 }
 
 export function assertSessionId(id: string): void {

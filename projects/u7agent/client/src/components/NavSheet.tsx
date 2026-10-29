@@ -125,6 +125,7 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
           newChat={closeThen(sidebarProps.newChat)}
           selectSession={closeThen(sidebarProps.selectSession)}
           handoffSession={closeAfter(sidebarProps.handoffSession)}
+          forkSession={closeAfter(sidebarProps.forkSession)}
           onNewProject={closeAfter(sidebarProps.onNewProject)}
           onOpenSettingsSection={closeThen(sidebarProps.onOpenSettingsSection)}
           // ダイアログはドロワーの外側 (App) に出すため、先に閉じてから開く

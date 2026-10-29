@@ -90,6 +90,7 @@ export function useSessions({
     getSessionHistory,
     listSessions,
     handoffSession: apiHandoffSession,
+    forkSession: apiForkSession,
     updateSessionNotify,
     updateSessionPinned,
     updateSessionSettings,
@@ -733,6 +734,20 @@ export function useSessions({
    * App が `openOwnerSession` と同じ経路で行う。一覧からの削除と同じ移り先の規則は使わない)。
    * 失敗は理由をダイアログへ返すため投げ直す。
    */
+  /**
+   * 会話を分岐する。子は親の末尾までの履歴を持ち、作業フォルダ / 添付は親と共有する。
+   * 成功したら一覧を取り直し、子の payload を返す (子を開くかは App が選択の世代で決める)。
+   * 失敗は理由をダイアログへ返すため投げ直す。
+   */
+  const forkSession = useCallback(
+    async (id: string, request: { agentId?: string }): Promise<SessionPayload> => {
+      const child = await apiForkSession(id, request);
+      await refreshSessionsNow();
+      return child;
+    },
+    [apiForkSession, refreshSessionsNow],
+  );
+
   const handoffSession = useCallback(
     async (id: string, request: { spaceId: string; agentId?: string; memo: boolean }): Promise<SessionMoveResponse> => {
       // 要求元は現在のスペース (space.api の query)、移動先は body で渡す
@@ -829,6 +844,7 @@ export function useSessions({
     ensureSession,
     deleteSession,
     handoffSession,
+    forkSession,
     renameSession,
     reselectIfMissing,
     restoreSession,
