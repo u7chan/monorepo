@@ -41,6 +41,7 @@ import {
 const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
   "copy-path": <CopyIcon />,
   "copy-absolute-path": <CopyIcon />,
+  "copy-session-id": <CopyIcon />,
   share: <ShareIcon />,
   download: <DownloadIcon small />,
   rename: <PencilIcon />,
@@ -59,6 +60,11 @@ export type RowMenuProps<K extends RowMenuActionKind> = {
   actions: readonly RowMenuAction<K>[];
   /** 直前の選択 (コピー) が成功した直後。選択で項目が消えるため、結果を ⋯ の位置に出す */
   copied?: boolean;
+  /**
+   * singleColumn のタップ領域。`toolbar` は幅も 44px へ広げる (行では行の高さに揃えて 24px 幅のまま)。
+   * 寸法はこの部品が持ち、呼び出し側は用途だけを渡す
+   */
+  touchTarget?: "row" | "toolbar";
   onSelect: (kind: K) => void;
 };
 
@@ -68,7 +74,13 @@ export type RowMenuProps<K extends RowMenuActionKind> = {
  * 自前で閉じる経路 (項目の選択 / Tab での退出) だけ `hidePopover()` を通す。
  * 本体は常時 mount する (React の条件付き mount で出し入れすると標準の開閉と二重管理になる)。
  */
-export function RowMenu<K extends RowMenuActionKind>({ name, actions, copied = false, onSelect }: RowMenuProps<K>) {
+export function RowMenu<K extends RowMenuActionKind>({
+  name,
+  actions,
+  copied = false,
+  touchTarget = "row",
+  onSelect,
+}: RowMenuProps<K>) {
   const menuId = useId();
   const triggerId = `${menuId}-trigger`;
   const [open, setOpen] = useState(false);
@@ -204,7 +216,10 @@ export function RowMenu<K extends RowMenuActionKind>({ name, actions, copied = f
           pressingTriggerRef.current = false;
         }}
         onClick={toggle}
-        className="group grid h-6 w-6 shrink-0 place-items-center singleColumn:h-11"
+        className={cn(
+          "group grid h-6 w-6 shrink-0 place-items-center singleColumn:h-11",
+          touchTarget === "toolbar" && "singleColumn:w-11",
+        )}
       >
         {/* 見た目の箱 (24px) と操作領域 (singleColumn は行いっぱいの 44px) を分ける。アンカーは外側の button ではなく
             この箱で、 `place()` が読む rect を広げない (行が半分隠れた状態で開いた直後に閉じる経路を増やさない) */}

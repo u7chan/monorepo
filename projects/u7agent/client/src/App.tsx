@@ -1197,6 +1197,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             onBackToWork={backToWorkFiles}
             sessionTitle={activeSession?.title}
             canShareSessionRoot={sessionRootShareEnabled}
+            projectSession={activeSession?.projectSession}
             resize={panelWidth}
           />
         ) : null}
@@ -1220,6 +1221,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           onBackToWork={backToWorkFiles}
           sessionTitle={activeSession?.title}
           canShareSessionRoot={sessionRootShareEnabled}
+          projectSession={activeSession?.projectSession}
           returnFocus={fileRefOriginRef.current}
         />
       ) : null}

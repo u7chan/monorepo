@@ -9,7 +9,7 @@ import type { ConfirmRequest, PromptRequest } from "./confirmDialog";
 export const FILE_TREE_ROOT = ".";
 
 /** ホストの絶対パスの字面か (POSIX の "/" か Windows のドライブ文字)。"" は false */
-function isAbsolutePath(path: string): boolean {
+export function isAbsolutePath(path: string): boolean {
   return path.startsWith("/") || /^[A-Za-z]:\//.test(path);
 }
 
