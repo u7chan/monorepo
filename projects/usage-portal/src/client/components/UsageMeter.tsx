@@ -41,12 +41,13 @@ export function UsageMeter(props: { window: UsageWindow; now: number; blockedBy:
           style={{ width: `${remaining}%` }}
         />
       </div>
-      <p class="up-caption">
+      <p class="up-caption up-meter-reset">
         {props.blockedBy ? (
           `${props.blockedBy}が上限のため使えません`
         ) : reset ? (
           <>
-            <span class="up-nowrap">{reset.at}</span> <span class="up-nowrap">· {reset.remaining}</span>
+            <span class="up-badge">{reset.remaining}</span>
+            <span class="up-nowrap">{reset.at}</span>
           </>
         ) : (
           "リセット時刻は不明"
