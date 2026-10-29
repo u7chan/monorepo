@@ -4,12 +4,12 @@ import { useWideLayout } from "../hooks/useLayoutMode";
 import { cn } from "../lib/cn";
 import { MEMORY_NOTE, RELOAD_ABOVE_NOTE } from "../lib/settingsNotes";
 import {
+  emptyPromptDraftState,
   promptDraftChanged,
-  promptDraftKey,
-  promptDraftOf,
+  promptDraftStateOf,
   promptMutationNote,
   promptPayloadOf,
-  type PromptDraft,
+  syncPromptDraft,
 } from "../lib/promptSettings";
 import { promptDeleteConfirmRequest } from "../lib/settingsConfirm";
 import { useConfirm } from "./ConfirmProvider";
@@ -20,9 +20,6 @@ import { SettingsDetailHeader } from "./SettingsDetailHeader";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
 import { TabToolbar } from "./TabToolbar";
-
-/** 空の下書きの基準。作成中はこの値を保ち、一覧の到着で入力を書き換えない */
-const EMPTY_DRAFT: PromptDraft = { label: "", prompt: "" };
 
 /** 一覧を取得できていない状態の本文。0 件と混同させず、理由と取り直しの導線だけを出す */
 function PromptLoadError({ message }: { message: string }) {
@@ -77,25 +74,19 @@ export function PromptSettingsPage({
   }
   const editingPrompt = editingId ? list.find((prompt) => prompt.id === editingId) : undefined;
 
-  // 下書きはページが持つ。初期化は編集対象の内容で判定し、一覧の取り直しで同じ内容が返っても消さない。
-  // 作成直後など一覧にまだ載っていない対象では書き換えない (保存したばかりの入力を消さない)
-  const [draft, setDraft] = useState<PromptDraft>(EMPTY_DRAFT);
-  const [draftSource, setDraftSource] = useState(() => ({ id: editingId, key: promptDraftKey(EMPTY_DRAFT) }));
-  const emptyDraftKey = promptDraftKey(EMPTY_DRAFT);
-  if (editingId === null) {
-    if (draftSource.id !== null) {
-      setDraftSource({ id: null, key: emptyDraftKey });
-      setDraft(EMPTY_DRAFT);
-    }
-  } else if (editingPrompt) {
-    const nextKey = promptDraftKey(promptDraftOf(editingPrompt));
-    if (draftSource.id !== editingId || draftSource.key !== nextKey) {
-      setDraftSource({ id: editingId, key: nextKey });
-      setDraft(promptDraftOf(editingPrompt));
-    }
-  }
+  // 下書きはページが持つ。失敗して保持した古い一覧や、遅れて届いた取得で、
+  // 成立済みの保存値・編集中の入力を書き換えない (lib の syncPromptDraft が規則を持つ)
+  const [draftState, setDraftState] = useState(emptyPromptDraftState);
+  const nextDraftState = syncPromptDraft(draftState, {
+    editingId,
+    prompt: editingPrompt,
+    // 取得に失敗している間の一覧は古い可能性があるため、内容の追随には使わない
+    authoritative: prompts.state.status === "ready",
+  });
+  if (nextDraftState !== draftState) setDraftState(nextDraftState);
+  const draft = draftState.draft;
   // 未保存の判定の基準は「最後に読み込んだ / 保存した内容」。成果の一覧が古くても誤って未保存にしない
-  const dirty = promptDraftChanged(draft, draftSource.key);
+  const dirty = promptDraftChanged(draftState.draft, draftState.key);
 
   const selectPrompt = (nextId: string | null) => {
     setEditingId(nextId);
@@ -153,11 +144,11 @@ export function PromptSettingsPage({
         setNoteText(result.message, true);
         return;
       }
-      // 作成した ID を編集対象へ写す。同じフォームで続けて保存しても、次は更新になる
+      // 作成した ID を編集対象へ写す。同じフォームで続けて保存しても、次は更新になる。
+      // 下書きの基準も保存した内容へ進め、失敗して保持した古い一覧で巻き戻さない
       setCreating(false);
       setEditingId(result.id);
-      setDraft(payload);
-      setDraftSource({ id: result.id, key: promptDraftKey(payload) });
+      setDraftState(promptDraftStateOf(result.id, payload));
       // 保存そのものは成功している。取り直しの失敗だけを別の文で伝える
       const saved = promptMutationNote("saved", result.refreshError);
       setNoteText(saved.text, saved.error);
@@ -191,7 +182,7 @@ export function PromptSettingsPage({
     <PromptDetail
       prompt={editingPrompt}
       draft={draft}
-      onDraftChange={(patch) => setDraft((prev) => ({ ...prev, ...patch }))}
+      onDraftChange={(patch) => setDraftState((prev) => ({ ...prev, draft: { ...prev.draft, ...patch } }))}
       onSave={() => void savePrompt()}
       onDelete={() => void removePrompt()}
       saving={busy}

@@ -38,6 +38,48 @@ export function promptDraftChanged(draft: PromptDraft, baselineKey: string): boo
   return promptDraftKey(draft) !== baselineKey;
 }
 
+/** 下書きの状態。`key` は最後に読み込んだ / 保存した内容で、未保存の判定の基準になる */
+export type PromptDraftState = { id: string | null; draft: PromptDraft; key: string };
+
+const EMPTY_DRAFT: PromptDraft = { label: "", prompt: "" };
+
+/** 対象なし (新規) の下書き。対象が決まるまでこの基準を保つ */
+export function emptyPromptDraftState(): PromptDraftState {
+  return { id: null, draft: EMPTY_DRAFT, key: promptDraftKey(EMPTY_DRAFT) };
+}
+
+/** 一覧の 1 件を基準にした下書き (対象を開いたときと、保存が成立したときに使う) */
+export function promptDraftStateOf(id: string, draft: PromptDraft): PromptDraftState {
+  return { id, draft, key: promptDraftKey(draft) };
+}
+
+/**
+ * 一覧 / 選択の変化から下書きの状態を決める。
+ * - 対象が変わったら、一覧にあればその内容から初期化する
+ * - 同じ対象では、**一覧がサーバーの正 (取得に成功した応答) で、未編集で、内容が変わったときだけ**追随する
+ * 失敗して保持した古い一覧は `authoritative=false` なので、成立済みの保存値や編集中の入力、
+ * 保存直後の基準を巻き戻さない (保存成功後に一覧の再取得だけ失敗する経路)。
+ * 変化が無ければ同じ参照を返す (呼び出し側は参照比較で再 render を省ける)。
+ */
+export function syncPromptDraft(
+  current: PromptDraftState,
+  input: { editingId: string | null; prompt: PromptDef | undefined; authoritative: boolean },
+): PromptDraftState {
+  const { editingId, prompt, authoritative } = input;
+  if (editingId === null) return current.id === null ? current : emptyPromptDraftState();
+  if (editingId !== current.id) {
+    return prompt
+      ? promptDraftStateOf(editingId, promptDraftOf(prompt))
+      : { ...emptyPromptDraftState(), id: editingId };
+  }
+  if (!prompt || !authoritative) return current;
+  // 入力中の内容は、サーバーの値が届いても書き換えない
+  if (promptDraftChanged(current.draft, current.key)) return current;
+  const next = promptDraftOf(prompt);
+  const nextKey = promptDraftKey(next);
+  return nextKey === current.key ? current : { id: editingId, draft: next, key: nextKey };
+}
+
 /** 保存前の検証。サーバーも同じ条件で 400 にするが、押せない理由を先に読めるようにする */
 export function promptDraftError(draft: PromptDraft): string | undefined {
   if (draft.label.trim() === "") return "ラベルを入力してください。";

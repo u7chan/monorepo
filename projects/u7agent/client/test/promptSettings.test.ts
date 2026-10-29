@@ -11,12 +11,14 @@ import {
   promptDraftError,
   promptDraftKey,
   promptDraftOf,
+  promptDraftStateOf,
   promptMutationNote,
   promptPayloadOf,
   promptRefreshFailure,
   promptSelectionOf,
   promptUsageLabel,
   splitPromptsByKind,
+  syncPromptDraft,
   withPromptMoved,
   withPromptRemoved,
   withPromptSelected,
@@ -56,6 +58,47 @@ test("保存前の検証とペイロードは前後の空白を落とす", () =>
     label: "ラベル",
     prompt: "本文",
   });
+});
+
+test("失敗して保持した古い一覧は、保存成立後の下書きと基準を巻き戻さない", () => {
+  const stale = prompt("p1", { label: "既存一", prompt: "既存の本文" });
+  const saved = { label: "保存済み", prompt: "既存の本文" };
+  const state = promptDraftStateOf("p1", saved);
+
+  // 一覧の再取得に失敗している間は、保持している旧い一覧で初期化しない
+  assert.equal(syncPromptDraft(state, { editingId: "p1", prompt: stale, authoritative: false }), state);
+  // 取得成功でも保存した内容と同じなら何もしない
+  const same = prompt("p1", saved);
+  assert.equal(syncPromptDraft(state, { editingId: "p1", prompt: same, authoritative: true }), state);
+  // 保存直後は未保存ではない (フォームの内容と基準が一致する)
+  assert.equal(promptDraftChanged(state.draft, state.key), false);
+});
+
+test("取得成功の一覧では、未編集の下書きだけ他端末の変更へ追随する", () => {
+  const state = promptDraftStateOf("p1", { label: "既存一", prompt: "既存の本文" });
+  const changed = prompt("p1", { label: "他端末", prompt: "他端末の本文" });
+  const adopted = syncPromptDraft(state, { editingId: "p1", prompt: changed, authoritative: true });
+  assert.deepEqual(adopted.draft, { label: "他端末", prompt: "他端末の本文" });
+  assert.equal(adopted.key, promptDraftKey({ label: "他端末", prompt: "他端末の本文" }));
+
+  // 編集している途中の内容は、取得成功の再取得でも上書きしない
+  const editing = { ...state, draft: { label: "編集中", prompt: "編集中の本文" } };
+  assert.equal(syncPromptDraft(editing, { editingId: "p1", prompt: changed, authoritative: true }), editing);
+});
+
+test("対象が変われば一覧の内容から初期化し、対象なしへ戻ると空にする", () => {
+  const first = promptDraftStateOf("p1", { label: "一", prompt: "一の本文" });
+  const second = prompt("p2", { label: "二", prompt: "二の本文" });
+  // 失敗して保持した古い一覧でも、選択した対象の内容からは初期化する
+  const moved = syncPromptDraft(first, { editingId: "p2", prompt: second, authoritative: false });
+  assert.deepEqual(moved, promptDraftStateOf("p2", { label: "二", prompt: "二の本文" }));
+
+  const cleared = syncPromptDraft(moved, { editingId: null, prompt: undefined, authoritative: false });
+  assert.equal(cleared.id, null);
+  assert.deepEqual(cleared.draft, { label: "", prompt: "" });
+  // 新規の下書き中输入した内容は、対象が無い間そのまま
+  const typing = { ...cleared, draft: { label: "新規", prompt: "新規の本文" } };
+  assert.equal(syncPromptDraft(typing, { editingId: null, prompt: undefined, authoritative: true }), typing);
 });
 
 test("保存 / 削除の成立と再取得の失敗を混ぜず、失敗の理由だけを添える", () => {
