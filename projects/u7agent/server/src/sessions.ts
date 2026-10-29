@@ -815,6 +815,17 @@ export class SessionStore {
   }
 
   /**
+   * 分岐の前に親の作業フォルダの存在を確かめる。未ロードの会話は復元 (`load`) が未所属のスクラッチを
+   * mkdir するため、解決より先にここで検査しないと「フォルダが無い」を空フォルダの作成で隠す。
+   * 未知の id は何もしない (404 は解決する側が返す)。
+   */
+  async requireForkWorkdir(id: string): Promise<void> {
+    const meta = this.records.get(id)?.meta ?? this.descriptors.get(id);
+    if (!meta) return;
+    await this.requireSharedWorkdir(this.placementOf(meta).workdir);
+  }
+
+  /**
    * 共有している作業フォルダの存在確認。無ければ 409 にして空フォルダを作らない
    * (作ると「ファイルが消えた」ように見える)。
    */
@@ -898,14 +909,12 @@ export class SessionStore {
     }
     const entries = parsed.kind === "ok" ? parsed.entries : [];
     // cwd は保存値の projectCwd をそのまま使う (登録解除・消失していても復元先を変えない)。
-    // 未所属 (projectCwd なし) のスクラッチは自分だけのものなら作って保証し、共有している会話は
-    // 作らずに存在を確かめる (owner のフォルダを空で作らない)
+    // 自分だけのスクラッチは作って保証し、共有している会話 (owner 付き) は作らずに存在を確かめる。
+    // プロジェクト所属でも、持ち主が別の会話ならそのフォルダを mkdir しない
     const placement = this.placementOf(current);
     const workdir = placement.workdir;
-    if (!current.projectCwd) {
-      if (current.workdirOwner === undefined || current.workdirOwner === id) await this.ensureWorkdir(workdir);
-      else await this.requireSharedWorkdir(workdir);
-    }
+    if (this.workdirOwnerOf(current) !== id) await this.requireSharedWorkdir(workdir);
+    else if (!current.projectCwd) await this.ensureWorkdir(workdir);
     const restored = this.restoreInputs(current, entries);
     const created = await (this.pi as PiRuntimeLike).createSession({
       sessionId: id,
@@ -2910,30 +2919,36 @@ export class SessionStore {
 
     const childId = generateSessionId(storeDir);
     const now = Date.now();
-    const model = modelLabel(parent.session.model) ?? meta.model;
-    const thinkingLevel = parent.session.thinkingLevel ?? meta.thinkingLevel;
-    const attempt = settledTitleAttemptOf(meta.titleAttempt);
+    // タイトルと履歴の保存値は、上の保存列を待った**後**の最新状態から読む。persist は parent.meta を
+    // 別オブジェクトへ差し替え、AI 要約の予約は record.titleAttempt を先に更新するため、先頭で
+    // 捕まえた meta から複製すると親が pending でも子が未試行になる (子で二重に要約し直す)
+    const current = parent.meta;
+    const model = modelLabel(parent.session.model) ?? current.model;
+    const thinkingLevel = parent.session.thinkingLevel ?? current.thinkingLevel;
+    const attempt = settledTitleAttemptOf(parent.titleAttempt ?? current.titleAttempt);
     const childMeta: SessionMeta = {
       spaceId,
       version: 1,
       id: childId,
-      title: meta.title,
+      title: parent.title || current.title,
       createdAt: now,
       lastUsedAt: now,
       // 表示件数は子を開いたときに実履歴から補正する (分岐の成否には影響しない)
-      messageCount: meta.messageCount,
-      agentId: resolved?.agentInfo.id ?? meta.agentId,
-      agent: resolved?.agentInfo ?? meta.agent,
-      promptSnapshot: resolved?.promptSnapshot ?? meta.promptSnapshot,
-      ...(meta.projectCwd ? { projectCwd: meta.projectCwd } : {}),
-      ...(meta.projectName ? { projectName: meta.projectName } : {}),
+      messageCount: current.messageCount,
+      agentId: resolved?.agentInfo.id ?? current.agentId,
+      agent: resolved?.agentInfo ?? current.agent,
+      promptSnapshot: resolved?.promptSnapshot ?? current.promptSnapshot,
+      ...(current.projectCwd ? { projectCwd: current.projectCwd } : {}),
+      ...(current.projectName ? { projectName: current.projectName } : {}),
       ...(model ? { model } : {}),
       ...(thinkingLevel ? { thinkingLevel } : {}),
-      titleOrigin: titleOriginOf(meta),
+      titleOrigin: parent.titleOrigin ?? titleOriginOf(current),
       // 親に試行が無ければ子も未試行 (一度も正常完了していないなら子の最初の完了で 1 回だけ要約され得る)。
       // pending は子だけ interrupted に終端化し、親の meta / titleTask は変えない
       ...(attempt ? { titleAttempt: attempt } : {}),
-      ...(meta.titleRequest ? { titleRequest: meta.titleRequest } : {}),
+      ...((parent.titleRequest ?? current.titleRequest)
+        ? { titleRequest: (parent.titleRequest ?? current.titleRequest) as string }
+        : {}),
       parentSessionId: parent.id,
       forkedAt: now,
       workdirOwner: this.workdirOwnerOf(meta),

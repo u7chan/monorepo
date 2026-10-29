@@ -846,3 +846,123 @@ test("プロジェクト解除でも共有フォルダと子会話は消えな�
     }
   });
 });
+
+test("予約中 (pending) のタイトル試行は最新の保存状態から複製し、子だけ interrupted にする", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await sendText(bff, id, "タイトル競合の元になる会話");
+      await bff.store.flush(bff.store.get(id)!);
+
+      // 要約の生成を gate で止め、予約 (pending) のまま分岐する。persist は parent.meta を別オブジェクトへ
+      // 差し替えるため、保存列を待たずに複製すると子が「未試行」になり、子で二重に要約し直す
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolveTick) => {
+        release = resolveTick;
+      });
+      let generateCalls = 0;
+      bff.store.titleSummary = {
+        settings: () => ({
+          enabled: true,
+          model: { provider: "stub", id: "stub-model" },
+          definition: "要約の定義",
+          generation: 1,
+        }),
+        generate: async () => {
+          generateCalls += 1;
+          await gate;
+          return { ok: true as const, title: "要約タイトル" };
+        },
+      } as never;
+      const summarizing = bff.store.manualSummarizeTitle(bff.store.get(id)!);
+      const record = bff.store.get(id)!;
+      assert.equal(record.titleAttempt?.state, "pending", "前提: 予約が立っている");
+      await bff.store.flush(record);
+
+      const child = await bff.store.fork(record);
+      const childMeta = await readMeta(child.id, paths.store);
+      assert.equal(childMeta.titleAttempt.state, "skipped", "子だけ終端化する");
+      assert.equal(childMeta.titleAttempt.skipReason, "interrupted");
+      assert.equal(record.titleAttempt?.state, "pending", "親の予約は変えない");
+
+      // 子の最初の完了では要約し直さない (generate は親の 1 回だけ)
+      bff.store.postMessage(bff.store.get(child.id)!, "子の最初の続き");
+      await waitFor(() => bff.store.statusOf(bff.store.get(child.id)!) === "completed", 5000, "child run");
+      await bff.store.flush(bff.store.get(child.id)!);
+      release();
+      await summarizing;
+      assert.equal(generateCalls, 1, "子で要約を二重に実行しない");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("未ロードの親の作業フォルダが無ければ、復元の mkdir より前に 409 で断る", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    let id = "";
+    let workdir = "";
+    try {
+      const created = await createSession(bff);
+      id = created.sessionId as string;
+      await sendText(bff, id, "フォルダを消す会話");
+      workdir = bff.store.get(id)!.workdir;
+      await bff.store.flush(bff.store.get(id)!);
+    } finally {
+      await bff.close();
+    }
+    const absolute = join(paths.root, workdir);
+    await rm(absolute, { recursive: true, force: true });
+
+    // 開かずに分岐すると、復元 (load) の ensureWorkdir が空の scratch を作って 201 にしてしまう
+    const reopened = await openBff(paths);
+    try {
+      const response = await fork(reopened.bff, id);
+      assert.equal(response.status, 409, "未ロードの親でもフォルダ欠落は 409");
+      assert.match(((await jsonBody(response)) as { error: string }).error, /作業フォルダが見つかりません/);
+      assert.equal(existsSync(absolute), false, "空のスクラッチを作らない");
+      const list = await jsonBody(reopened.bff.app.request("/api/sessions"));
+      assert.deepEqual(
+        list.sessions.map((item: { sessionId: string }) => item.sessionId),
+        [id],
+        "半端な子を残さない",
+      );
+    } finally {
+      await reopened.bff.close();
+    }
+  });
+});
+
+test("プロジェクト所属の子も、共有フォルダが無ければ復元を 409 にする", async () => {
+  await withPaths(async (paths) => {
+    let childId = "";
+    let projectDir = "";
+    const first = await openBff(paths);
+    try {
+      projectDir = join(paths.root, "work", "app");
+      await mkdir(projectDir, { recursive: true });
+      const project = (await jsonBody(first.bff.app.request("/api/projects", jsonPost({ cwd: "work/app" })))).project;
+      const created = await createSession(first.bff, { projectId: project.id });
+      await sendText(first.bff, created.sessionId as string, "プロジェクトの会話");
+      const child = await jsonBody(fork(first.bff, created.sessionId as string));
+      childId = child.sessionId as string;
+      assert.equal(child.cwd, "work/app");
+    } finally {
+      await first.bff.close();
+    }
+    // BFF 停止中にプロジェクトのディレクトリが消える
+    await rm(projectDir, { recursive: true, force: true });
+
+    const reopened = await openBff(paths);
+    try {
+      const response = await reopened.bff.app.request(`/api/sessions/${childId}`);
+      assert.equal(response.status, 409, "owner 付きの子は projectCwd でも存在検査をする");
+      assert.equal(existsSync(projectDir), false, "共有フォルダを作らない");
+    } finally {
+      await reopened.bff.close();
+    }
+  });
+});

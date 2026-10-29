@@ -211,6 +211,9 @@ export function createSessionRoutes({
      */
     fork: async (c: Context, body: ForkSessionBody) => {
       const spaceId = spaces.require(c.req.query("spaceId"));
+      // 復元 (未所属のスクラッチの mkdir) より先に親のフォルダを確かめる。後から確かめると、
+      // 未ロードの親では `load` が空のスクラッチを作ってしまい「フォルダが無い」を隠す
+      await store.requireForkWorkdir(c.req.param("id") ?? "");
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
       if ((store.spaceOfId(record.id) ?? "default") !== spaceId) return c.json({ error: "Session not found" }, 404);

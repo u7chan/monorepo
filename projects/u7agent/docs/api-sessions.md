@@ -416,7 +416,7 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - 子の store は temp ディレクトリへ書いて rename で確定する（[session-files.md](session-files.md#metajson)）。`sends.json` は作らず、未送信・通知・ピン・引き継ぎの記録は引き継がない。
 - `agentId` は省略で親のスナップショット（`agentId` / `agent` / `promptSnapshot`）を維持する（カタログから消えていても分岐できる）。指定するときは引き継ぎと同じ解決経路でスナップショットを作り直し、未知・削除済みの id は 400。
 - 子のモデル / Effort の初期値は親の実効値（[session-files.md](session-files.md#モデル--effort-の復元)）。以後の変更は `PATCH /api/sessions/:id/settings` で別々に行い、互いに波及しない。
-- 作業フォルダと添付は親と共有する（[session-files.md](session-files.md#共有する作業フォルダと添付)）。共有フォルダが無いときは空を作らず 409。
+- 作業フォルダと添付は親と共有する（[session-files.md](session-files.md#共有する作業フォルダと添付)）。共有フォルダが無いときは空を作らず 409 で、未ロードの親でも復元（未所属のスクラッチの mkdir）より前に検査する。
 - 実行中 / キュー中 / 圧縮中 / 設定変更中 / 停止処理中 / 片付け中は 409。JSONL の破損も 409。保存に失敗したら 500。親・子の store / record / 派生データを残さずに回収する。
 - `parentSessionId` は `SessionSummary` / `SessionPayload` に載る（分岐した会話だけ。親のタイトルはクライアントが同じスペースの一覧から引く）。
 

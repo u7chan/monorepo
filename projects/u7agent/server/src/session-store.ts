@@ -279,9 +279,7 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
       ? { titleRequest: truncate(meta.titleRequest, TITLE_REQUEST_MAX) }
       : {}),
     // 分岐の由来は表示用。不正値は落とし、読み込みそのものは妨げない
-    ...(typeof meta.parentSessionId === "string" && isSessionId(meta.parentSessionId)
-      ? { parentSessionId: meta.parentSessionId }
-      : {}),
+    ...(isSessionId(meta.parentSessionId) ? { parentSessionId: meta.parentSessionId } : {}),
     ...(typeof meta.forkedAt === "number" && Number.isFinite(meta.forkedAt) ? { forkedAt: meta.forkedAt } : {}),
     ...(meta.workdirOwner !== undefined ? { workdirOwner: meta.workdirOwner } : {}),
     ...(meta.uploadsOwner !== undefined ? { uploadsOwner: meta.uploadsOwner } : {}),

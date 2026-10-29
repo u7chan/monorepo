@@ -7,7 +7,7 @@ import { sessionRowActions, type SessionRowKind } from "../../lib/sidebarRowMenu
 import { sidebarStatus, type SidebarStatus } from "../../lib/sidebarStatus";
 import type { AgentDef, SessionSummary } from "../../types";
 import { AgentIcon } from "../AgentIcon";
-import { BellIcon, PinIcon } from "../icons";
+import { BellIcon, GitBranchIcon, PinIcon } from "../icons";
 import { RowMenu } from "../RowMenu";
 
 const DOT_TONE: Record<SidebarStatus["tone"], string> = {
@@ -93,6 +93,13 @@ export function SessionRow({
                 </span>
               ) : null}
               <strong className="truncate text-xs text-ink">{item.title || "無題のセッション"}</strong>
+              {/* 分岐はタイトルを継承するため、一覧でも親と子を見分けられるようにする (行き来はチャット上部の
+                  リンクが担う。ここは「分岐した会話」であることだけを示す) */}
+              {item.parentSessionId ? (
+                <span role="img" aria-label="分岐した会話" title="分岐した会話" className="shrink-0 text-ink-faint">
+                  <GitBranchIcon />
+                </span>
+              ) : null}
             </span>
             {/* 選択行は accent-wash を重ねた面になるため、10px のメタは ink-soft まで上げる
                 (非選択の ink-muted はそのままにし、一覧の情報階層を変えない) */}

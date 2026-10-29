@@ -6,6 +6,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { SessionForkDialog } from "../src/components/SessionForkDialog";
+import { SessionRow } from "../src/components/sidebar/SessionRow";
 import {
   FORK_ORIGIN_DELETED_NOTE,
   forkAgentChoices,
@@ -185,4 +186,30 @@ test("分岐ダイアログは無効理由があると確定できず、その�
   const html = render({ blockedNote: "実行中・キュー待ち・圧縮中は引き継げません。" });
   assert.ok(submitButton(html).includes("disabled"), "無効理由があるのに押せる");
   assert.ok(html.includes("実行中・キュー待ち・圧縮中"), "無効理由が出ていない");
+});
+
+function renderRow(item: SessionSummary): string {
+  return renderToStaticMarkup(
+    createElement(SessionRow, {
+      item,
+      agents: [],
+      active: false,
+      onSelect: () => {},
+      onRename: () => {},
+      onDelete: () => {},
+      onTogglePin: () => {},
+      onFork: () => {},
+    }),
+  );
+}
+
+test("分岐した会話は一覧の行にも印を出し、親と子を見分けられる", () => {
+  const parent = summary({ sessionId: "p-1", title: "共通タイトル" });
+  const child = summary({ sessionId: "c-1", title: "共通タイトル", parentSessionId: "p-1" });
+  // タイトルは継承するため、印が無いと一覧では見分けられない
+  assert.notEqual(renderRow(child), renderRow(parent));
+  assert.ok(renderRow(child).includes('aria-label="分岐した会話"'), "分岐元を持つ行に印が無い");
+  assert.equal(renderRow(parent).includes('aria-label="分岐した会話"'), false, "分岐していない行に印が出ている");
+  // 読み上げ名 (ボタン内の可視テキスト) に入るので、印だけで分岐したと分かる
+  assert.ok(renderRow(child).includes('title="分岐した会話"'));
 });

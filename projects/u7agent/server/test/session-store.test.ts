@@ -569,11 +569,15 @@ test("meta の分岐の由来と共有の持ち主を読み分ける", async () 
     assert.equal((await read({ parentSessionId: "zzz", forkedAt: "x" }))?.parentSessionId, undefined);
     assert.equal((await read({ parentSessionId: "zzz", forkedAt: "x" }))?.forkedAt, undefined);
 
-    // 共有の持ち主は省略 = 自分。10 hex 以外は壊れた meta として除外し、自分の id へは倒さない
+    // 共有の持ち主は省略 = 自分。文字列でない値と 10 hex 以外は壊れた meta として除外し、
+    // 自分の id へは倒さない (正規表現の test は number / 配列を暗黙変換して受理してしまう)
     assert.equal((await read({}))?.workdirOwner, undefined);
     assert.equal((await read({ workdirOwner: owner, uploadsOwner: owner }))?.workdirOwner, owner);
     assert.equal(await read({ workdirOwner: "zzz" }), undefined);
     assert.equal(await read({ uploadsOwner: "a1b2c3d4e" }), undefined);
+    assert.equal(await read({ workdirOwner: 1234567890 }), undefined);
+    assert.equal(await read({ workdirOwner: ["abcdef1234"] }), undefined);
+    assert.equal(await read({ uploadsOwner: { id: owner } }), undefined);
   } finally {
     await rm(store, { recursive: true, force: true });
   }
