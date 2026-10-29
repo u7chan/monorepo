@@ -24,9 +24,10 @@ export type WorkFolderPathMenuProps = {
 };
 
 /**
- * 作業フォルダ面の帯のパス表示と ⋯。`useMessageCopy` と結果表示をこの部品が所有し、呼び出し側が
- * `envScope.sessionId` を key にして remount する (同一 cwd の会話切替ではパネルが remount されないため、
- * 未完了のコピーの結果を前の会話へ出さない)。
+ * 作業フォルダ面の帯のパス表示と ⋯。パスと ⋯ は 1 つの折り返さない組にして、組の幅 (省略前の
+ * パス全体 + ⋯) を帯の文脈の最小幅へ渡す。収まらない幅では組ごと全幅の段へ落ちるので、短いパスを
+ * 省略しない。`useMessageCopy` と結果表示もこの部品が所有し、呼び出し側が `sessionId` を key に
+ * して remount する (同じ cwd の会話切替ではパネルが remount されないため)。
  */
 export function WorkFolderPathMenu({
   root,
@@ -35,30 +36,32 @@ export function WorkFolderPathMenu({
   projectSession,
   onRequiredWidth,
 }: WorkFolderPathMenuProps) {
-  const { copiedId, copyMessage, copyFailure } = useMessageCopy();
+  const { copiedId, copyMessage, copyFailure } = useMessageCopy(sessionId ?? "");
   const menu = workFolderMenu({ sessionId, absolutePath });
   const { prefix, tail } = splitWorkFolderPath(root, projectSession);
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const groupRef = useRef<HTMLDivElement | null>(null);
+  const prefixRef = useRef<HTMLSpanElement | null>(null);
   const tailRef = useRef<HTMLSpanElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
-  // 末尾 (shrink-0) を縮めずに済む幅を測り、帯の段を分けるかの材料にする。truncate 中の scrollWidth は
-  // 省略前の幅を返すので、表示が切れているかに関係なく同じ値を報告できる
+  // 組 (パス + ⋯) に必要な幅を測り、帯の段を分けるかの材料にする。truncate 中の scrollWidth は
+  // 省略前の幅を返すので、表示が切れているかに関係なく省略前のパス全体を測れる
   useLayoutEffect(() => {
-    const wrapper = wrapperRef.current;
+    const group = groupRef.current;
     const tailElement = tailRef.current;
-    if (wrapper === null || tailElement === null) return;
+    if (group === null || tailElement === null) return;
     const measure = () => {
-      const gap = menu.menu ? Number.parseFloat(getComputedStyle(wrapper).columnGap) || 0 : 0;
-      onRequiredWidth(
-        workFolderPathMinWidth({ tail: tailElement.scrollWidth, menu: menuRef.current?.offsetWidth ?? 0, gap }),
-      );
+      const path = (prefixRef.current?.scrollWidth ?? 0) + tailElement.scrollWidth;
+      const menuWidth = menuRef.current?.offsetWidth ?? 0;
+      const gap = menuWidth === 0 ? 0 : Number.parseFloat(getComputedStyle(group).columnGap) || 0;
+      onRequiredWidth(workFolderPathMinWidth({ path, menu: menuWidth, gap }));
     };
     measure();
     // ResizeObserver の callback 内で同期に再レイアウトさせると loop 警告になるため rAF へずらす
     const observer = new ResizeObserver(() => requestAnimationFrame(measure));
-    observer.observe(tailElement);
-    if (menuRef.current !== null) observer.observe(menuRef.current);
+    for (const element of [prefixRef.current, tailElement, menuRef.current]) {
+      if (element !== null) observer.observe(element);
+    }
     return () => observer.disconnect();
   }, [onRequiredWidth, root, projectSession, menu.menu]);
 
@@ -77,26 +80,35 @@ export function WorkFolderPathMenu({
   const failure = copyFailure("copy-session-id") ?? copyFailure("copy-absolute-path");
 
   return (
-    <div ref={wrapperRef} className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-      {/* 前置きだけを縮め、末尾 (未所属会話ではセッション ID) は幅を確保する。末尾自身が段の幅を超える
-          長いプロジェクト名では max-w-full で末尾も truncate に落ちる */}
-      <code title={root} className="flex min-w-0 items-center text-2xs leading-normal text-ink-muted">
-        {prefix === "" ? null : <span className="min-w-0 truncate">{prefix}</span>}
-        <span ref={tailRef} className="max-w-full shrink-0 truncate">
-          {tail}
-        </span>
-      </code>
-      {menu.menu ? (
-        <div ref={menuRef} className="flex shrink-0 items-center">
-          <RowMenu
-            name="作業フォルダのパス"
-            actions={menu.actions}
-            copied={copiedKind !== undefined}
-            touchTarget="toolbar"
-            onSelect={copy}
-          />
-        </div>
-      ) : (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+      {/* パスと ⋯ は折り返さない 1 つの組にする。組の中で折り返すと、帯の幅が足りないときも
+          パスが細い段に残って ⋯ だけが落ち、短いパスが省略される */}
+      <div ref={groupRef} className="flex min-w-0 items-center gap-x-1.5">
+        {/* 前置きだけを縮め、末尾 (未所属会話ではセッション ID) は幅を確保する。末尾自身が段の幅を超える
+            長いプロジェクト名では max-w-full で末尾も truncate に落ちる */}
+        <code title={root} className="flex min-w-0 items-center text-2xs leading-normal text-ink-muted">
+          {prefix === "" ? null : (
+            <span ref={prefixRef} className="min-w-0 truncate">
+              {prefix}
+            </span>
+          )}
+          <span ref={tailRef} className="max-w-full shrink-0 truncate">
+            {tail}
+          </span>
+        </code>
+        {menu.menu ? (
+          <div ref={menuRef} className="flex shrink-0 items-center">
+            <RowMenu
+              name="作業フォルダのパス"
+              actions={menu.actions}
+              copied={copiedKind !== undefined}
+              touchTarget="toolbar"
+              onSelect={copy}
+            />
+          </div>
+        ) : null}
+      </div>
+      {menu.menu ? null : (
         // 全項目 disabled のときは ⋯ を出さず、できない理由をパスの下へ常設する (キーボードでも読める)
         <span className="basis-full text-2xs leading-relaxed text-ink-ghost">
           {menu.reasons.map((reason) => (

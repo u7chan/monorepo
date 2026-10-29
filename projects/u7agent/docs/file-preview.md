@@ -274,10 +274,10 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 帯のパスは末尾優先で見せ、パスの ⋯ からセッション ID と絶対パスをコピーできる（`client/src/components/WorkFolderPathMenu.tsx`）。
 
 - **パスは「省略される前置き」と「幅を確保する末尾」に分ける**（`client/src/lib/sessionFilesPath.ts` の `splitWorkFolderPath`）。末尾の段数は会話の種別だけで決める（プロジェクト所属は登録ディレクトリ名の 1 段、未所属は `sessions/<sessionId>` の 2 段。未取得は 1 段に倒す）。セッション ID の正規表現でパスを解析しない。末尾は `shrink-0`、前置きだけを `truncate` するので、狭い幅でも ID は最後まで残る
-- **末尾に必要な幅は実測して帯の文脈の最小幅にする**（末尾 + ⋯ + 間隔。`TabToolbar` の `contextMinWidth`）。固定の内側幅を前提にせず、入り切らない幅では [再読み込み] を次の段へ落とす（`min-w-0` のままだと文脈が 0 まで縮み、末尾が操作の下や `overflow-hidden` の外へはみ出す）。段の幅すら超える長いプロジェクト名では末尾だけ `truncate` に落ちる
+- **パスと ⋯ は折り返さない 1 つの組にし、省略前のパス全体 + ⋯ + 間隔を実測して帯の文脈の最小幅にする**（`TabToolbar` の `contextMinWidth`）。固定の内側幅を前提にせず、組が入り切らない幅では組ごと全幅の段へ落ちて [再読み込み] が次の段へ回るので、**短いパスは省略されない**（`min-w-0` のままだと文脈が 0 まで縮み、細い段に残ったパスだけが切れて ⋯ が落ちる）。段の幅すら超える長いプロジェクト名では末尾だけ `truncate` に落ちる
 - **⋯ の項目は「セッション ID をコピー」→「絶対パスをコピー」の 2 つ**で、行の ⋯（`FileRowActionKind`）には出さない。セッション ID は `envScope.sessionId`、絶対パスは行と同じ `fileTreeAbsolutePath(rootCwd, root, ".")`（root が `.` のときは `rootCwd` 自身）で作り、取れない値は別の値で代替しない
 - **片方だけ取れないときは項目を disabled にして理由を 2 行目へ出す**（会話がまだ無い / ワークスペースの絶対パスが未取得）。**両方取れないときは ⋯ を出さず、理由をパスの下へ常設する**（全項目 disabled を `RowMenu` へ渡さない。[行の操作メニュー](#行の操作メニュー) の「有効な最初の項目へ focus」の前提を崩さないため）
-- コピーは `client/src/lib/copyToClipboard.ts` を通す。成功は ⋯ を 2 秒チェックに替え、`role="status"` で項目ごとの文言を読み上げる。失敗はパスの下の `role="alert"` の段（`basis-full`）に内訳を折り返して出し、8 秒で消す（[パスをコピー](#パスをコピー) と同じ見せ方）
+- コピーは `client/src/lib/copyToClipboard.ts` を通す。成功は ⋯ を 2 秒チェックに替え、`role="status"` で項目ごとの文言を読み上げる。失敗はパスの下の `role="alert"` の段（`basis-full` + `min-w-0`）に内訳を折り返して出し、8 秒で消す（[パスをコピー](#パスをコピー) と同じ見せ方。長い非改行文字列でも親幅で折り返し、全文を読める）
 - **同じ cwd の会話切替ではパネルが remount されない**（`key={filesRoot}`）ので、コピーの結果を所有する `WorkFolderPathMenu` を `envScope.sessionId` で key にして張り替える。`useMessageCopy` の unmount 後始末が世代を進めるため、前の会話で始めたコピーの成否は次の会話の表示に適用されない
 - スキル面のパス表示は対象外（セッション ID を持たない面）。同じ帯に ⋯ を 2 つ置かない
 
@@ -608,6 +608,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/sessionSkillFiles.test.ts` | チャットのスキル面の外装（見出し / root / 戻る導線 / 閉じる導線）と、モードによる作業フォルダ面との出し分け（SSR）。行の操作は `fileRowMenu.test.ts` とブラウザ受入で確認する |
 | `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot / 配信元（ストレージ有効モード）を保存しないこと |
 | `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
+| `client/test/copyResult.test.ts` | コピー結果の controller: 所有者 (会話) の切替と unmount の invalidate をまたいで、deferred な成功 / 失敗を適用しないこと（A→B・A→B→A）/ 成功 2 秒・失敗 8 秒の表示と、切替でのタイマー破棄 |
 | `client/test/sessionFilesPath.test.ts` | 帯のパスの分割（未所属の 2 段 / プロジェクトの 1 段 / 末尾の `/` / root `.` / 1 段だけ）/ 絶対パスの組み立て（root `.` は `rootCwd` そのまま・未取得は undefined）/ ⋯ の項目と disabled の理由（片方だけ・両方）/ 全 disabled で ⋯ を出さず理由を常設すること（SSR） |
 | `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |

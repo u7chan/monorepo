@@ -55,11 +55,12 @@ export function workFolderAbsolutePath(rootCwd: string | undefined, root: string
 }
 
 /**
- * 帯の段に必要な幅 (px)。末尾と ⋯ を縮めないために `TabToolbar` の context 最小幅として渡す
- * (context が 0 まで縮むと、shrink-0 の末尾が操作の下や overflow-hidden の外へはみ出す)。
+ * 帯の段に必要な幅 (px)。省略前のパス全体と ⋯ を 1 つの組として扱うために `TabToolbar` の
+ * context 最小幅へ渡す。足りない幅では組ごと全幅の段へ落ちるので、短いパスは省略されない
+ * (context が 0 まで縮むと、組が細い段に残ってパスだけが切れる)。
  */
-export function workFolderPathMinWidth(parts: { tail: number; menu: number; gap: number }): number {
-  return Math.max(0, Math.ceil(parts.tail + parts.menu + parts.gap));
+export function workFolderPathMinWidth(parts: { path: number; menu: number; gap: number }): number {
+  return Math.max(0, Math.ceil(parts.path + parts.menu + parts.gap));
 }
 
 export const WORK_FOLDER_SESSION_MISSING = "会話がまだ作成されていません";

@@ -112,9 +112,9 @@ test("⋯: 両方取れないときはメニューを出さず、理由を常設
   assert.equal(workFolderMenu({ sessionId: "" }).menu, false);
 });
 
-test("必要幅: 末尾と ⋯ と間隔の合計を切り上げ、負の値は 0 にする", () => {
-  assert.equal(workFolderPathMinWidth({ tail: 120.4, menu: 24, gap: 6 }), 151);
-  assert.equal(workFolderPathMinWidth({ tail: 0, menu: 0, gap: 0 }), 0);
+test("必要幅: 省略前のパス全体と ⋯ と間隔の合計を切り上げ、負の値は 0 にする", () => {
+  assert.equal(workFolderPathMinWidth({ path: 120.4, menu: 24, gap: 6 }), 151);
+  assert.equal(workFolderPathMinWidth({ path: 0, menu: 0, gap: 0 }), 0);
 });
 
 function renderMenu(props: Omit<Parameters<typeof WorkFolderPathMenu>[0], "onRequiredWidth">): string {
