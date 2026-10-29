@@ -817,3 +817,32 @@ test("子の load に失敗したら子を回収し、親はそのまま開け�
     }
   });
 });
+
+test("プロジェクト解除でも共有フォルダと子会話は消えない", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    try {
+      // プロジェクト会話は projectCwd を共有するため、子も同じディレクトリを使う
+      const projectDir = join(paths.root, "work", "app");
+      await mkdir(projectDir, { recursive: true });
+      await writeFile(join(projectDir, "keep.txt"), "残す");
+      const project = (await jsonBody(bff.app.request("/api/projects", jsonPost({ cwd: "work/app", name: "app" }))))
+        .project;
+      const created = await createSession(bff, { projectId: project.id });
+      const id = created.sessionId as string;
+      await sendText(bff, id, "プロジェクトの会話");
+      const child = await jsonBody(fork(bff, id));
+      assert.equal(child.cwd, "work/app", "子も同じ作業フォルダを共有する");
+
+      assert.equal((await bff.app.request(`/api/projects/${project.id}`, { method: "DELETE" })).status, 200);
+      assert.equal(existsSync(join(projectDir, "keep.txt")), true, "解除で作業フォルダを消さない");
+      for (const sessionId of [id, child.sessionId as string]) {
+        const payload = await jsonBody(bff.app.request(`/api/sessions/${sessionId}`));
+        assert.equal(payload.cwd, "work/app");
+        assert.equal(payload.projectId, undefined, "解除後は未所属として返る");
+      }
+    } finally {
+      await bff.close();
+    }
+  });
+});
