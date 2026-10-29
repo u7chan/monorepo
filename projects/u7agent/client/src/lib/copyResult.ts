@@ -82,6 +82,24 @@ export function createCopyResultController({
     clearTimers();
   };
 
+  // 新しい結果を出す前に必ず古いタイマーを解除する。ハンドルを上書きすると、旧タイマーが
+  // 新しい表示 (別のコピーの成功 / 失敗) を先に消してしまう
+  const scheduleSuccessReset = () => {
+    clearTimers();
+    successTimer = timers.set(() => {
+      successTimer = null;
+      publish({ ...snapshot, copiedId: "" });
+    }, resetMs);
+  };
+
+  const scheduleFailureReset = () => {
+    clearTimers();
+    failureTimer = timers.set(() => {
+      failureTimer = null;
+      publish({ ...snapshot, failure: null });
+    }, failureResetMs);
+  };
+
   return {
     snapshot: () => snapshot,
     setOwner(next) {
@@ -103,19 +121,13 @@ export function createCopyResultController({
         reportError(error);
         // 失敗時は成功表示にしない (以前のクリップボード内容を成功と誤認させるため)
         publish({ copiedId: "", failure: { id, detail: error instanceof Error ? error.message : String(error) } });
-        failureTimer = timers.set(() => {
-          failureTimer = null;
-          publish({ ...snapshot, failure: null });
-        }, failureResetMs);
+        scheduleFailureReset();
         return;
       }
       // 待機中に所有者が変わった / 別のコピーが始まったら、古い結果は表示しない
       if (!holds()) return;
       publish({ copiedId: id, failure: null });
-      successTimer = timers.set(() => {
-        successTimer = null;
-        publish({ ...snapshot, copiedId: "" });
-      }, resetMs);
+      scheduleSuccessReset();
     },
   };
 }

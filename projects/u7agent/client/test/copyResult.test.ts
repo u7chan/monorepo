@@ -18,15 +18,15 @@ function createDeferredClipboard() {
   };
 }
 
-/** タイマーを手動で進める。`fired` は発火した順の待ち時間 */
+/** 時計を手で進める。`advance` は期限の来たタイマーだけを発火し、解除済みのものは発火しない */
 function createManualTimers() {
-  const pending = new Map<number, { handler: () => void; ms: number }>();
+  const pending = new Map<number, { at: number; handler: () => void; ms: number }>();
+  let now = 0;
   let next = 1;
-  const fired: number[] = [];
   const timers: CopyResultTimers = {
     set(handler, ms) {
       const handle = next++;
-      pending.set(handle, { handler, ms });
+      pending.set(handle, { at: now + ms, handler, ms });
       return handle;
     },
     clear(handle) {
@@ -35,13 +35,13 @@ function createManualTimers() {
   };
   return {
     timers,
-    fired,
+    now: () => now,
     pendingMs: () => [...pending.values()].map((entry) => entry.ms),
-    run() {
-      const entries = [...pending.values()];
-      pending.clear();
-      for (const entry of entries) {
-        fired.push(entry.ms);
+    advance(ms: number) {
+      now += ms;
+      for (const [handle, entry] of pending) {
+        if (entry.at > now) continue;
+        pending.delete(handle);
         entry.handler();
       }
     },
@@ -131,7 +131,9 @@ test("コピー結果: 成功は 2 秒、失敗は 8 秒で消え、所有者の
   await success;
   assert.deepEqual(controller.snapshot(), { copiedId: "copy-session-id", failure: null });
   assert.deepEqual(timers.pendingMs(), [2000]);
-  timers.run();
+  timers.advance(1999);
+  assert.equal(controller.snapshot().copiedId, "copy-session-id", "成功の表示が 2 秒より早く消えている");
+  timers.advance(1);
   assert.deepEqual(controller.snapshot(), EMPTY, "成功の表示が 2 秒で消えていない");
 
   const failure = controller.copy("/workspace/projects/foo", "copy-absolute-path");
@@ -139,10 +141,12 @@ test("コピー結果: 成功は 2 秒、失敗は 8 秒で消え、所有者の
   await failure;
   assert.deepEqual(controller.snapshot().failure?.id, "copy-absolute-path");
   assert.deepEqual(timers.pendingMs(), [8000]);
-  timers.run();
+  timers.advance(7999);
+  assert.equal(controller.snapshot().failure?.id, "copy-absolute-path", "失敗の表示が 8 秒より早く消えている");
+  timers.advance(1);
   assert.deepEqual(controller.snapshot(), EMPTY, "失敗の表示が 8 秒で消えていない");
 
-  // 待機中に所有者が変わったら、タイマーも残さない (切替後の表示を古いタイマーで消さない)
+  // 表示中のタイマーは所有者の切替で捨てる (切替後の表示を古いタイマーで消さない)
   const pending = controller.copy("0123456789", "copy-session-id");
   clipboard.calls[2].resolve();
   await pending;
@@ -150,4 +154,78 @@ test("コピー結果: 成功は 2 秒、失敗は 8 秒で消え、所有者の
   controller.setOwner("B");
   assert.deepEqual(timers.pendingMs(), []);
   assert.deepEqual(controller.snapshot(), EMPTY);
+});
+
+test("コピー結果: 失敗 → 再失敗 では 2 回目の detail が 8 秒残る (旧タイマーが早期に消さない)", async () => {
+  const { clipboard, timers, controller } = createHarness();
+  controller.setOwner("A");
+
+  const first = controller.copy("/workspace/projects/foo", "copy-absolute-path");
+  clipboard.calls[0].reject(new Error("first failure"));
+  await first;
+  assert.equal(controller.snapshot().failure?.detail, "first failure");
+
+  // 1 回目の解除 (8 秒) が来る前に 2 回目が失敗する。旧タイマーは解除され、新しい detail は 8 秒残る
+  timers.advance(7000);
+  const second = controller.copy("/workspace/projects/foo", "copy-absolute-path");
+  clipboard.calls[1].reject(new Error("second failure"));
+  await second;
+  assert.equal(controller.snapshot().failure?.detail, "second failure");
+  assert.deepEqual(timers.pendingMs(), [8000], "旧タイマーが残っている (新しい表示を早期に消す)");
+  timers.advance(1000);
+  assert.equal(controller.snapshot().failure?.detail, "second failure", "旧タイマーが 2 回目の detail を消した");
+  timers.advance(6999);
+  assert.equal(controller.snapshot().failure?.detail, "second failure", "2 回目の detail が 8 秒より早く消えた");
+  timers.advance(1);
+  assert.deepEqual(controller.snapshot(), EMPTY, "2 回目の detail が 8 秒で消えていない");
+});
+
+test("コピー結果: 成功 → 再成功 では 2 回目のチェックが 2 秒残る (旧タイマーが早期に消さない)", async () => {
+  const { clipboard, timers, controller } = createHarness();
+  controller.setOwner("A");
+
+  const first = controller.copy("old-id", "copy-session-id");
+  clipboard.calls[0].resolve();
+  await first;
+  assert.equal(controller.snapshot().copiedId, "copy-session-id");
+
+  timers.advance(1500);
+  const second = controller.copy("new-id", "copy-absolute-path");
+  clipboard.calls[1].resolve();
+  await second;
+  assert.equal(controller.snapshot().copiedId, "copy-absolute-path");
+  assert.deepEqual(timers.pendingMs(), [2000], "旧タイマーが残っている (新しいチェックを早期に消す)");
+  timers.advance(500);
+  assert.equal(controller.snapshot().copiedId, "copy-absolute-path", "旧タイマーが 2 回目のチェックを消した");
+  timers.advance(1499);
+  assert.equal(controller.snapshot().copiedId, "copy-absolute-path", "2 回目のチェックが 2 秒より早く消えた");
+  timers.advance(1);
+  assert.deepEqual(controller.snapshot(), EMPTY, "2 回目のチェックが 2 秒で消えていない");
+});
+
+test("コピー結果: 失敗 → 所有者切替 / invalidate で旧タイマーが残らず、後の失敗を早期に消さない", async () => {
+  const { clipboard, timers, controller } = createHarness();
+  controller.setOwner("A");
+  const first = controller.copy("/workspace/projects/foo", "copy-absolute-path");
+  clipboard.calls[0].reject(new Error("first failure"));
+  await first;
+  timers.advance(7000);
+  const second = controller.copy("/workspace/projects/foo", "copy-absolute-path");
+  clipboard.calls[1].reject(new Error("second failure"));
+  await second;
+  controller.setOwner("B");
+  assert.deepEqual(timers.pendingMs(), [], "所有者の切替で旧タイマーが残っている");
+
+  // 切替後の失敗は自分の 8 秒だけを持ち、切替前のタイマーに消されない
+  const third = controller.copy("/workspace/projects/foo", "copy-absolute-path");
+  clipboard.calls[2].reject(new Error("third failure"));
+  await third;
+  assert.deepEqual(timers.pendingMs(), [8000]);
+  timers.advance(1000);
+  assert.equal(controller.snapshot().failure?.detail, "third failure", "切替前のタイマーが新しい detail を消した");
+
+  // invalidate (unmount) も同じく未完了タイマーを残さない
+  controller.invalidate();
+  assert.deepEqual(timers.pendingMs(), [], "invalidate で旧タイマーが残っている");
+  assert.deepEqual(controller.snapshot().failure?.detail, "third failure", "invalidate が表示を勝手に消した");
 });
