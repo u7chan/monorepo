@@ -25,7 +25,7 @@
     "format:check": "oxfmt client server scripts/bench-history-*.ts scripts/history-bench-fixture.ts --check"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^1.4.0",

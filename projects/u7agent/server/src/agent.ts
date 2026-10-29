@@ -137,7 +137,7 @@ In deployment it is a non-root Linux container where apt-get install fails.
 
 Networking: use curl for HTTP(S) (e.g. \`curl -fsSL -o <path> <url>\`).
 Prefer curl over one-off \`node -e\` fetch scripts; use node fetch only as a fallback when curl is missing.
-In the deployed container: node 24, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl, python 3.13, uv, chromium (headless, u7agent-browser).
+In the deployed container: node 26, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl, python 3.13, uv, chromium (headless, u7agent-browser).
 Not installed there: wget, ffmpeg, imagemagick.
 
 To let the user inspect a served app in their browser, drive it with the \`serve\` tool (the UI calls it a service)${serveSkillClause}. The app must listen on 0.0.0.0:8080; only one app is served across all conversations, and starting replaces whatever is served now. Container recreation stops it, and the UI does not restore it.\nFor your own verification, use the serve tool's \`debug_start\` action instead: it runs the command on a private 127.0.0.1 port from 18000-18099 that the user's UI never shows, so screenshots and curl checks never take over what the user sees. Read the port from the tool result and stop the server with \`debug_stop\` when the checks are done.
@@ -169,7 +169,7 @@ Environment: the tools run in a dedicated sandbox, not in the user's editor proc
 In deployment it is a non-root Linux container where apt-get install fails.
 
 Networking: use curl for HTTP(S) (e.g. \`curl -fsSL <url>\`).
-In the deployed container: node 24, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl, python 3.13, uv, chromium (headless, u7agent-browser).
+In the deployed container: node 26, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl, python 3.13, uv, chromium (headless, u7agent-browser).
 Not installed there: wget, ffmpeg, imagemagick.
 
 When summarizing files, refer to files inside the working directory by cwd-relative path.

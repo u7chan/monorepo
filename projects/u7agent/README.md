@@ -12,7 +12,7 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI です（`projects/u7
 
 ## ローカルで起動する（Docker なし）
 
-Node.js 24 と pnpm 10.34.5 を使います。初回だけ `pnpm install`。
+Node.js 26 と pnpm 10.34.5 を使います。初回だけ `pnpm install`。
 
 ```bash
 pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http://localhost:3000

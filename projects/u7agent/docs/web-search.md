@@ -62,7 +62,7 @@ provider に依存しない共通処理。
 - 本文の**先頭に現在日時行**（`現在日時: 2026-10-07 (Asia/Tokyo)`）を置く。モデルが「今」を知る唯一の材料で、時間依存の質問の年誤りを防ぐ（検索を呼ばない質問には届かない。下の「残る懸念」）
 - 続けて**検索プロバイダー行**（`検索プロバイダー: Exa`）を置く。クエリの外部送信先は会話に残す価値があり、`key_missing` / `key_rejected` の固定文言が provider 名を持たないため、キーを複数登録しているときにどちらの provider の話かがツール履歴から読める。値は adapter（`server/src/web-search-providers.ts`）の `name` で、provider を解決できなかった呼び出し（設定読取失敗 / 無効化）には付けない（[チャットのチップ](#チャットのチップ)）
 - 続けて**出典一覧**（`[n] <title> — <url> (<publishedDate>)`）を置く。チャットのツール履歴は出力の先頭 900 字しか出さない（`server/src/session-projection.ts` の `SUMMARY_TEXT_MAX`）ため、先頭にまとめると履歴でも日時行・provider 行と出典が残る
-- タイムゾーンは `Asia/Tokyo` 固定（`server/src/jst.ts` の `JST_TIME_ZONE`）。UI は日本語で利用者は JST だが、デプロイ先コンテナは `TZ` 未設定（`Dockerfile`、base は `node:24-trixie-slim`）でサーバのローカル時刻には任せられず、設定化（環境変数 / GUI）は非ゴール
+- タイムゾーンは `Asia/Tokyo` 固定（`server/src/jst.ts` の `JST_TIME_ZONE`）。UI は日本語で利用者は JST だが、デプロイ先コンテナは `TZ` 未設定（`Dockerfile`、base は `node:26-trixie-slim`）でサーバのローカル時刻には任せられず、設定化（環境変数 / GUI）は非ゴール
 - locale は `en-US` に固定し、`Intl.DateTimeFormat.formatToParts` から `YYYY-MM-DD` を組む。locale 未指定だと実行環境の LANG / ICU で数字や暦が変わり得るため固定し、`en-CA` の出力書式にも依存しない。formatter はモジュールスコープで 1 回だけ作る
 - 日時行は**日付まで**で時刻（時分秒）は出さない。「今年」の判断には足り、表示と prefix cache が安定する
 - 公開日は JST の `YYYY-MM-DD` へ直して括弧に出す。値が無い / parse できない / 空文字のときは括弧ごと省く（公開日を持たない結果が実在する）。**生の文字列を出典行へ入れない**（マスクと切り詰めの順序の議論を持ち込まないため）

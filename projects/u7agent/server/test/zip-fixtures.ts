@@ -64,7 +64,7 @@ export interface ZipFixtureOptions {
 }
 
 /** 指定した形式の ZIP バイト列を組み立てる (テストの都合で最小限のフィールドだけ書く) */
-export function buildZip(entries: readonly ZipFixtureEntry[], options: ZipFixtureOptions = {}): Buffer {
+export function buildZip(entries: readonly ZipFixtureEntry[], options: ZipFixtureOptions = {}): Buffer<ArrayBuffer> {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
