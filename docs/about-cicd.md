@@ -187,6 +187,24 @@ GHCR への送信後、`cleanup-docker-images` アクションが `repository_di
 
 `build-docker-images` は、checkout したソースの短縮コミットハッシュを `COMMIT_HASH` ビルド引数として渡します。プロジェクトルートに `pre-docker-build.sh` がある場合は、Docker ビルドの前に実行します。
 
+## アクション依存の固定
+
+workflow が使う外部 action は `.github/workflows/actions.lock` で commit に固定しています。workflow 側は `actions/checkout@v6` のような読みやすい ref のままですが、実行されるのは lockfile に記録された commit です。lockfile は直接使う action だけでなく、その action が使う推移的依存も記録します。
+
+- `.github/workflows/actions.lock` は手で編集せず、`gh-actions-lock` で再生成する。workflow 内の ref は、生成時に解決済みのバージョン（例: `@v6` から `@v6.1.0`）へ狭められる。
+- action や workflow を追加・変更したら、同じ PR で lockfile を更新する。
+
+  ```bash
+  gh extension install github/gh-actions-lock
+  gh actions-lock --ignore-local-actions
+  ```
+
+- `.github/workflows/actions-lock-verify.yml` が PR と `main` push で `gh actions-lock --verify` を実行し、lockfile が古い場合は失敗する。
+- Dependabot が action を更新する PR では、lockfile も同じ PR で更新される。
+- lockfile の差分は依存更新として review する。`commit` の変更は実行されるコードの変更、`owner_id` / `repo_id` の変更は参照先リポジトリの変更を意味する。
+- リポジトリ内の composite action は `./` 参照のままにしている。手動 CD は入力された ref を checkout するため、`$/` に変えると実行される action の世代が変わる。
+- reusable workflow、container image、runner image は lockfile の対象外。
+
 ## トラブルシューティング
 
 ### ビルド対象が空になる

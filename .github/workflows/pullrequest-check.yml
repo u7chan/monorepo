@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.1.0
         with:
           persist-credentials: false
           # PRのベースブランチとの差分取得に必要な履歴深度
@@ -53,15 +53,15 @@ jobs:
 
       - name: Set up Bun for License Check
         if: env.LICENSE_CHECK_TARGETS != ''
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
 
       - name: Set up uv for License Check
         if: env.LICENSE_CHECK_TARGETS != ''
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v6.8.0
 
       - name: Set up pnpm for License Check
         if: env.LICENSE_CHECK_PNPM_REQUIRED == 'true'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v4.3.0
         with:
           version: 10
 

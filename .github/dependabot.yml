@@ -1,5 +1,22 @@
 version: 2
 updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
+    rebase-strategy: "disabled"
+    labels:
+      - "dependabot-auto-process"
+    groups:
+      actions-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
   - package-ecosystem: "bun"
     directory: "/projects/browser-auto"
     schedule:
