@@ -317,5 +317,5 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - [api-files.md](api-files.md#テキストプレビュー) — プレビューの転送契約
 - [api-files.md](api-files.md#html-プレビュー) — HTML プレビューのヘッダとエラー応答
 - [api-files.md](api-files.md#ダウンロード) — ダウンロードの転送契約
-- [sandbox-api.md](sandbox-api.md#get-v1filesdownload) — ZIP の除外規則・上限・ZIP ライタの実装
+- [sandbox-api-files.md](sandbox-api-files.md#get-v1filesdownload) — ZIP の除外規則・上限・ZIP ライタの実装
 - [api-files.md](api-files.md#アーカイブの除外名) — 除外名の設定 API（未設定と明示空の区別・検証）

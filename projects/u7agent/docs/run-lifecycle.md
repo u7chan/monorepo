@@ -153,7 +153,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 ## 引き継ぎと復旧
 
-会話を引き継ぐ（エージェント / スペースの交代）ときの状態と失敗時の復旧。API の契約は [api-session-state.md](api-session-state.md#post-apisessionsidmove)、メモの書き込みは [sandbox-api.md](sandbox-api.md#get-v1fileshandoff) を正とする。
+会話を引き継ぐ（エージェント / スペースの交代）ときの状態と失敗時の復旧。API の契約は [api-session-state.md](api-session-state.md#post-apisessionsidmove)、メモの書き込みは [sandbox-api-files.md](sandbox-api-files.md#get-v1fileshandoff) を正とする。
 
 可逆でない操作をまたぐため、**meta の書換えを確定点**にし、それより前の失敗はmeta とファイルを元のままにする。
 

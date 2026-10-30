@@ -1,5 +1,5 @@
 // GET /v1/files/git と readWorkspaceGitInfo。repo はテスト自身が git で作り、listen せず app.request() で検証する。
-// git が無い環境では skip する (配布イメージには入っている前提は docs/sandbox-api.md を参照)。
+// git が無い環境では skip する (配布イメージには入っている前提は docs/sandbox-api-files.md を参照)。
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
