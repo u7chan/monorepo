@@ -20,9 +20,9 @@ Node.js 26 と pnpm 10.34.5 を使います。初回だけ `pnpm install` を実
 pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http://localhost:3000
 ```
 
-サンドボックスは常に別プロセスです。`pnpm dev` が共有トークンを生成してサンドボックスと BFF の両方へ渡すため、ローカルで Docker は不要です。停止は Ctrl-C で、3 プロセスまとめて止まります。
+サンドボックスは常に別プロセスです。`pnpm dev` が共有トークンを生成してサンドボックスと BFF の両方へ渡します。ローカルで Docker は不要です。停止は Ctrl-C で、3 プロセスまとめて止まります。
 
-`bash` を実行するには、Linux と Landlock ABI 3 以上（カーネル 6.2 以上）が必要です。`bash` は書き込みを作業ディレクトリ・共通スキル・`/tmp`・ホーム配下のキャッシュへ限るため、macOS や古いカーネルでは実行できません。`pnpm dev` はラッパーを `$HOME/.local/libexec/u7agent` へ配置します。エージェントに書き換えられないよう、許可 root の外に置くためです。
+`bash` を実行するには、Linux と Landlock ABI 3 以上（カーネル 6.2 以上）が必要です。`bash` は書き込みを作業ディレクトリ・共通スキル・`/tmp`・ホーム配下のキャッシュへ限るため、要件を満たさない環境（macOS、カーネル 6.2 未満など）では実行できません。`pnpm dev` は、エージェントに書き換えられないよう、許可 root の外にある `$HOME/.local/libexec/u7agent` へラッパーを配置します。
 
 - 作業領域は既定でこのディレクトリです。変えるときは `PI_APP_CWD=/path/to/project pnpm dev` を使います（プロジェクト登録と未所属チャットの起点になります）
 - APIキーは起動後に 設定 → モデル から登録できます。アプリのデータベースに保存され、再起動後も使われます。`~/.pi/agent/auth.json` があれば不要です
@@ -53,7 +53,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 設定できる変数の一覧と説明は [.env.example](.env.example) が正です。`cp .env.example .env` で読み込まれ、`.env` を読むのは BFF だけです。サンドボックス側は [docs/sandbox-api.md](docs/sandbox-api.md)、BFF の待受とオリジンの契約は [docs/api.md](docs/api.md) を参照してください。
 
-- 利用可能なモデル、アプリ既定モデル、プロバイダーAPIキーは、起動後に 設定 → モデル から設定するのが既定です。アプリのデータベースへ保存し、再起動せずにモデル候補へ反映します。選択の入口は GUI に一本化したため、`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読みません（移行は [docs/model-settings.md](docs/model-settings.md)）
+- 利用可能なモデル、アプリ既定モデル、プロバイダーAPIキーは、起動後に 設定 → モデル から設定するのが既定です。アプリのデータベースへ保存され、再起動せずにモデル候補へ反映されます。選択の入口は GUI に一本化したため、`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読みません（移行は [docs/model-settings.md](docs/model-settings.md)）
 - 作業フォルダごとの環境変数（作業環境 → 環境変数）は GUI から登録します。変数は平文で保存し、エージェントの `bash` とサービスの両方から見えます。シークレットは保存時に暗号化し、サービスの起動時だけ注入します。エージェントの `bash` の env には入りません。APIキー / Webhook URL も同じ master key を使います。値の規則と残存リスクは [docs/secrets.md](docs/secrets.md#作業フォルダの環境変数) にあります
 - ポートを変えると、プレビューの `localStorage` の保存領域も別になります。`pnpm dev` をもう 1 つ並行して起動するときは、プレビュー以外のポートも分けてください（[docs/frontend.md](docs/frontend.md#開発フローと配信)）
 
@@ -79,7 +79,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 - LLM の APIキーは BFF が持ち、サンドボックスへは共有トークンしか渡しません。
 - 設定 → モデルで登録したキーは、アプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）へ暗号化して保存します（AEAD）。
-- 保存時に暗号化するのは、作業環境 → 環境変数のシークレット、プロバイダー / 画像・音声・BGM / Web 検索の APIキー、Discord の Webhook URL、Cloudflare の API トークンです。いずれも同じ master key を使います。
+- 保存時に暗号化するのは、作業環境 → 環境変数のシークレット、プロバイダー / 画像・音声・BGM / Web 検索の APIキー、Discord の Webhook URL、Cloudflare の API トークンです（AEAD）。いずれも同じ master key を使います。
 - master key は `U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE` でアプリ DB とは別経路で管理し、DB と一緒にバックアップしてください。未設定または不正の間は、保存済みのキーを使えません。DB・WAL・バックアップのアクセス権も管理してください（[docs/model-settings.md](docs/model-settings.md#残存リスク)）
 - provider メモと種別 = 変数の値は `u7agent.db` へ平文で残るため、「DB 全体が暗号化された」わけではありません。master key を持つ者と稼働中の BFF は復号できるため、鍵の管理と DB のアクセス権の両方が必要です（[docs/secrets.md](docs/secrets.md#アプリ-db-に保存する-apiキーと-webhook-url) / [保証範囲と残存リスク](docs/secrets.md#保証範囲と残存リスク)）
 - シークレットはエージェントの `bash` の env に入りません。ただし同一サンドボックス・同一 Unix user でサービスが動くため、`/proc/<pid>/environ` などを読める可能性は残ります。
