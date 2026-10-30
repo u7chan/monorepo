@@ -1,6 +1,6 @@
 # 長時間ランの可視化と追加入力の扱い
 
-実行中の会話に対して利用者が「いま何をしているか」を知ろうとしたときの現行の挙動と、今後採り得る案。**未着手**で、ここに書くのは決定ではなく検討の記録。現行の契約は [run-lifecycle.md](../run-lifecycle.md#追加入力steeringの配送) と [api-sessions.md](../api-sessions.md) を正とする。
+実行中の会話に対して利用者が「いま何をしているか」を知ろうとしたときの現行の挙動と、今後採り得る案。**未着手**で、ここに書くのは決定ではなく検討の記録。現行の契約は [run-lifecycle.md](../run-lifecycle.md#追加入力steeringの配送) と [api-session-turns.md](../api-session-turns.md) を正とする。
 
 ## 現行の挙動（観測）
 

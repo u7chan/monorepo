@@ -115,7 +115,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 ## イベントログと SSE
 
 - ログは `{ seq, type, data, at }` の配列。セッションごとに直近 2000 件を保持。
-- `GET /api/sessions/:id/events` が SSE 購読エンドポイント。イベント種別と data の契約は [api-sessions.md](api-sessions.md) を参照。
+- `GET /api/sessions/:id/events` が SSE 購読エンドポイント。イベント種別と data の契約は [api-session-runtime.md](api-session-runtime.md) を参照。
   - SSE の `id` は `<generation>:<seq>`。`generation` は record のロードごとに発行する 8 hex で、再起動や sweep 後の復元で変わる。seq は復元で 0 に戻るため、数値カーソルだけでは古いタブの位置を判別できない。
   - カーソルの優先順位は `Last-Event-ID` ヘッダ → query の `generation` + `after` → `resync`。generation が一致し、seq がバッファ範囲内のときだけ差分をリプレイし、それ以外はセッション全体のペイロードを持つ `resync` を 1 件送る。
 - 接続の生存確認は可視イベントの `ping`（接続直後と 15 秒ごと、`id` 無し = カーソルを動かさない）で行う。購読は複数タブから可能で、切断してもランには影響しない。
@@ -128,7 +128,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 - タイトルは最初のユーザーメッセージ（60 文字）から自動生成し、meta へ保存する。セッション一覧 `GET /api/sessions` は状態・件数・最終使用時刻付きで返す。
 - セッションの作成は最初のメッセージ送信時（添付のアップロードでも作られる）。未送信の新規チャットは `POST /api/sessions` を呼ばず、一覧にも出ない（「新しい会話」・会話を指定しない `/` の起動・未作成チャットでのエージェント選択はローカルの状態だけで完結する）。起動時に会話を開くのは URL が `/s/<id>` を指定する場合だけで、開いた会話は URL に残るため F5 でも同じ会話に戻る（[frontend.md](frontend.md#会話-url)）。作成前の Model / Effort 選択は次の作成時に `POST /api/sessions` の body として送られる。
 - ラン中に再接続したクライアント向けに、`payload.run.toolCalls` で進行中ランのツールカード状態も返す。
-- 202 で受理した送信は user entry が保存されるまで未送信（`sends.json`）として控え、再起動や停止で実行されなかった分は payload の `pendingSends`（`state: "unsent"`）で「未送信」として見せる（履歴の同一文面 item へ黙って吸収させない）。`run_end` で user entry を残さずに終わった run（認証エラー等）も、保存の後に `resync` を 1 件配って未送信として見せる。契約は [api-sessions.md](api-sessions.md#post-apisessionsidmessages) / [frontend.md](frontend.md#チャット状態とレンダリング)。
+- 202 で受理した送信は user entry が保存されるまで未送信（`sends.json`）として控え、再起動や停止で実行されなかった分は payload の `pendingSends`（`state: "unsent"`）で「未送信」として見せる（履歴の同一文面 item へ黙って吸収させない）。`run_end` で user entry を残さずに終わった run（認証エラー等）も、保存の後に `resync` を 1 件配って未送信として見せる。契約は [api-session-turns.md](api-session-turns.md#post-apisessionsidmessages) / [frontend.md](frontend.md#チャット状態とレンダリング)。
 - エージェント定義の編集は既存チャットに遡及しない。表示用のエージェント情報は作成時に `SessionRecord` へ、実行用プロンプトは meta の `promptSnapshot` へスナップショット化し、定義の変更・削除後も `payload.agent` と復元後の実行内容は作成時のままになる。
 - 会話の圧縮（compaction）は `payload.compactions` と `compaction` / `resync` イベントで配る。表示仕様と手動圧縮の契約は [compaction.md](compaction.md) を正とする。compaction entry も `session.jsonl` に保存され、復元後も区切りが再現される（`reason` / `estimatedTokensAfter` は復元後は欠ける）。
 - 手動圧縮（`POST /api/sessions/:id/compact`）は run と同じく HTTP リクエストから切り離して進み、状態は `statusOf` の `compacting` として現れる。完了は同期 POST と SSE（終端 `resync` → `status`）の両方で届き、正は payload。
@@ -153,7 +153,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 ## 引き継ぎと復旧
 
-会話を引き継ぐ（エージェント / スペースの交代）ときの状態と失敗時の復旧。API の契約は [api-sessions.md](api-sessions.md#post-apisessionsidmove)、メモの書き込みは [sandbox-api.md](sandbox-api.md#get-v1fileshandoff) を正とする。
+会話を引き継ぐ（エージェント / スペースの交代）ときの状態と失敗時の復旧。API の契約は [api-session-state.md](api-session-state.md#post-apisessionsidmove)、メモの書き込みは [sandbox-api.md](sandbox-api.md#get-v1fileshandoff) を正とする。
 
 可逆でない操作をまたぐため、**meta の書換えを確定点**にし、それより前の失敗はmeta とファイルを元のままにする。
 
@@ -176,7 +176,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 ## 分岐
 
-会話を分岐する（`POST /api/sessions/:id/fork`）ときの状態。API の契約は [api-sessions.md](api-sessions.md#post-apisessionsidfork) を正とする。
+会話を分岐する（`POST /api/sessions/:id/fork`）ときの状態。API の契約は [api-session-state.md](api-session-state.md#post-apisessionsidfork) を正とする。
 
 - **境界は解決済みの record を `SessionStore.fork()` が受け取った直後（最初の await より前）**に、末尾 entry の id として固定する。送信ルートはスキル展開を await してから `postMessage` するため、lifecycle を押さえるだけでは「同時に受付された送信」を境界から除外できない。
 - busy（実行中 / キュー待ち / 圧縮中 / 停止処理中 / 設定変更中）と片付け中は 409。分岐は保存済みの末尾までのスナップショットに限り、実行中の会話は分岐しない。

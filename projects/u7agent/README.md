@@ -32,7 +32,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 ### 会話とプロジェクト
 
 - **プロジェクトとセッションの作業ディレクトリ**: 登録したプロジェクトのセッションはそのディレクトリを cwd にします。未所属チャットは、既定スペースでは `<workspace root>/.u7agent/sessions/<id>` のスクラッチで動きます（[docs/projects.md](docs/projects.md)）
-- **会話の引き継ぎ**: 会話の行の ⋯ から、同じ会話のままエージェントや会話スペースを代えて続けられます。履歴は破棄し、タイトル・ピン・通知は維持します（[docs/run-lifecycle.md](docs/run-lifecycle.md#引き継ぎと復旧) / [docs/api-sessions.md](docs/api-sessions.md#post-apisessionsidmove)）
+- **会話の引き継ぎ**: 会話の行の ⋯ から、同じ会話のままエージェントや会話スペースを代えて続けられます。履歴は破棄し、タイトル・ピン・通知は維持します（[docs/run-lifecycle.md](docs/run-lifecycle.md#引き継ぎと復旧) / [docs/api-sessions.md](docs/api-session-state.md#post-apisessionsidmove)）
 - **引き継ぎのメモ**: 要点を作業フォルダ直下の `HANDOFF.md` に書き出せます。引き継ぎ直後の入力欄にはチップが出て、必要なときだけ参照させられます（[docs/run-lifecycle.md](docs/run-lifecycle.md#引き継ぎと復旧)）
 - **スキル**: ファイルスキル（`.agents/skills`）と組み込みスキルの 2 種類があり、入力欄から `/skill:<name>` で展開します（[docs/persistence.md](docs/persistence.md#スキルの扱い) / [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills)）
 - **通知（Discord）**: 会話ごとのトグルが On のとき、応答の先頭 200 文字を 1 通送ります。応答が返らない質問待ちでも、設定 → 通知の「質問の通知」を On にしていれば、質問が発生したことと会話のリンクが届きます。会話の通知が Off の場合は本文なし、On の場合はタイトルと第 1 問も載ります（[docs/notifications.md](docs/notifications.md)）

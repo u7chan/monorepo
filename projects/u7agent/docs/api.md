@@ -27,7 +27,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 画像配信（raw） | `GET /api/files/raw` | [api-files.md](api-files.md) |
 | ダウンロード（ファイル / ZIP） | `GET /api/files/download`、`GET /api/files/download/check` | [api-files.md](api-files.md) |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
-| セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/history`、`/files`、`/messages`、`/unsent/:sendId`、`/queue/:sendId`、`/questions/:toolCallId/answer`、`/events`、`/settings`、`/title`、`/title/summarize`、`/pin`、`/fork`、`/move`、`/stop`、`/abort`、`/compact`、`/diagnostics`、`/raw` | [api-sessions.md](api-sessions.md) |
+| セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/history`、`/files`、`/messages`、`/unsent/:sendId`、`/queue/:sendId`、`/questions/:toolCallId/answer`、`/events`、`/settings`、`/title`、`/title/summarize`、`/pin`、`/fork`、`/move`、`/stop`、`/abort`、`/compact`、`/diagnostics`、`/raw` | [api-sessions.md](api-sessions.md)、[api-session-state.md](api-session-state.md)、[api-session-turns.md](api-session-turns.md)、[api-session-runtime.md](api-session-runtime.md) |
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | [api-files.md](api-files.md) |
 | 共有の除外名（設定 → 共有 `/settings/sharing` の「公開の除外」） | `GET/PUT/DELETE /api/settings/shared-content-exclusions` | [api-sharing.md](api-sharing.md)、[static-sharing.md](static-sharing.md#公開の除外) |
@@ -38,7 +38,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | [api-sharing.md](api-sharing.md)、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 共有コンテンツ（公開・更新・停止・再公開・削除）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare`、`/api/settings/shared-content-exclusions` | [api-sharing.md](api-sharing.md)、[static-sharing.md](static-sharing.md) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | [api-settings.md](api-settings.md)、[secrets.md](secrets.md#作業フォルダの環境変数) |
-| エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview`・`/export`・`/export/check`・`/import` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
+| エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview`・`/export`・`/export/check`・`/import` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-session-turns.md](api-session-turns.md#get-apiskillssession) |
 | 定型プロンプト（設定 → 定型プロンプト `/settings/prompts`） | `GET/POST /api/prompts`、`GET/PATCH/PUT/DELETE /api/prompts/:id` | [api-catalog.md](api-catalog.md#定型プロンプトのマスタと参照) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
@@ -51,7 +51,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 - 削除の対象は `spaces` 行だけでなく、会話（live / 未ロード）・履歴・作業フォルダ・添付・`secrets` / `serve_commands` の cwd キー行（[persistence.md](persistence.md#スペース)）。会話はセッション削除と同じ経路で消し（実行中は abort する）、作業フォルダの根はサンドボックスの `DELETE /v1/dirs?recursive=true`（[sandbox-api.md](sandbox-api.md#delete-v1dirs)）へ委譲する（対象が無い 404 は成功）。`spaces` 行の削除が commit point で、途中で失敗しても行が残るのでそのまま再試行できる。コミット後に残った会話 / 作業フォルダを回収できないときは 500 で報告し、そのとき行は既に無いので再試行は 404 になる。
 - 削除の最中（claim 中）は、そのスペースを対象にする scoped API が**読み取りも含めて** 404 になる。同じスペースの二重削除は 409、既定スペースと不正な id は DB を読む前に 400 になる。
 - 会話作成は本文の `spaceId`、それ以外の会話 API・EventSource・プロジェクト API・作成前スキルプレビュー・作業環境の環境変数 / サービス API は query の `spaceId` を使う。欠落だけ `default` として扱う。不正 ID は 400、未知の追加スペースは 404。会話作成では query ではなく本文が正。引き継ぎ（`POST /api/sessions/:id/move`）は query が要求元で、本文の `spaceId` が移動先になる。
-- 引き継ぎはプロジェクト所属でも同スペースへの交代だけでき、未所属は別スペースへも移れる。履歴は破棄し、メモ（`memo: true`）では作業フォルダの `HANDOFF.md` へ要点を書き、別スペースなら作業フォルダ / 添付 / `secrets` / `serve_commands` を移動先へ移す（[api-sessions.md](api-sessions.md#post-apisessionsidmove)）。
+- 引き継ぎはプロジェクト所属でも同スペースへの交代だけでき、未所属は別スペースへも移れる。履歴は破棄し、メモ（`memo: true`）では作業フォルダの `HANDOFF.md` へ要点を書き、別スペースなら作業フォルダ / 添付 / `secrets` / `serve_commands` を移動先へ移す（[api-session-state.md](api-session-state.md#post-apisessionsidmove)）。
 - 会話 ID と要求スペースの不一致は 404。descriptor / live record の所属で SDK 復元・作業生成・変更の前に拒否し、取得・履歴・設定・タイトル・通知・削除・停止・圧縮・送信・未送信・回答・添付・スキル・SSE に同じ規則を適用する。環境変数・サービスの `sessionId` にも適用する。
 - 追加スペースでは `GET /api/projects` は `{ projects: [] }`、プロジェクト変更と `projectId` の利用は 400。通常のプロジェクト契約は変更しない。
 - 共通カタログ・共通設定・汎用ファイル API、ランタイムのサービス診断 / 全体停止は分割しない。共有サービスの所有者は全会話から解決し、全体管理の応答は起動元の所属スペースも返す（会話のリンクの `?space=`）。`spaceId` は認証・権限ではなく、指定を変えれば別スペースを選べる。

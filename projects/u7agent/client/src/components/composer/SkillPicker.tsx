@@ -141,7 +141,7 @@ export function SkillPicker({
     place();
   };
 
-  /** 一覧の選択はコマンドの挿入だけ。本文の展開は送信時に BFF が行う (docs/api-sessions.md) */
+  /** 一覧の選択はコマンドの挿入だけ。本文の展開は送信時に BFF が行う (docs/api-session-turns.md) */
   const select = (name: string) => {
     popoverRef.current?.hidePopover();
     onSelect(name);

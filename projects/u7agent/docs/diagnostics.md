@@ -4,7 +4,7 @@
 
 - サーバー側: `GET /api/sessions/:id/diagnostics`（いつでも取れる）と `GET /api/sessions/:id/raw`（生ログ）。**どちらも未ロードの会話では SDK を復元しない**（復元が失敗する壊れた記録を取るための経路なので、観測が対象を変えない）
 - クライアント側: このタブが受信した SSE の直近列と、chat reducer の状態（その瞬間しか取れない）
-- 契約は [api-sessions.md](api-sessions.md#get-apisessionsiddiagnostics) と [api-sessions.md](api-sessions.md#get-apisessionsidraw)、実装は `server/src/diagnostics.ts` / `client/src/lib/diagnostics.ts`
+- 契約は [api-session-runtime.md](api-session-runtime.md#get-apisessionsiddiagnostics) と [api-session-runtime.md](api-session-runtime.md#get-apisessionsidraw)、実装は `server/src/diagnostics.ts` / `client/src/lib/diagnostics.ts`
 
 ## 入口
 
