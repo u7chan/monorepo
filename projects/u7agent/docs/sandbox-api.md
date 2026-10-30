@@ -107,7 +107,7 @@ POST /v1/files/upload?dir=uploads&name=photo.png
 
 ## `GET /v1/files/handoff`
 
-引き継ぎメモ（作業フォルダ直下の `HANDOFF.md`）専用の読み書き。BFF の会話の引き継ぎ（[api-sessions.md](api-sessions.md#post-apisessionsidmove)）だけが使う。プレビュー API とは別の入口にし、**上限の値を分けて共有しない**（プレビューの上限を変えても引き継ぎの契約が動かないように）。
+引き継ぎメモ（作業フォルダ直下の `HANDOFF.md`）専用の読み書き。BFF の会話の引き継ぎ（[api-session-state.md](api-session-state.md#post-apisessionsidmove)）だけが使う。プレビュー API とは別の入口にし、**上限の値を分けて共有しない**（プレビューの上限を変えても引き継ぎの契約が動かないように）。
 
 ```json
 // GET response (200)

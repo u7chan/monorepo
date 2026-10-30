@@ -324,7 +324,7 @@ export function createSessionRoutes({
         return c.json({ error: `titleSource is too long (max ${MAX_MESSAGE_CHARS} characters)` }, 413);
       }
       // SDK の /skill: 展開は BFF プロセスの readFileSync で動くため、Docker ではファイル / 組み込みの
-      // どちらも展開できない。アプリ側で本文を取り直してから prompt() へ渡す (docs/api-sessions.md)。
+      // どちらも展開できない。アプリ側で本文を取り直してから prompt() へ渡す (docs/api-session-turns.md)。
       const prompt = await expandSkillCommand(text, skillsInputOf(record));
       // タイトルの元は、定型プロンプトを結合する前の本文 (無ければ送信本文)
       const titleSource = body.titleSource ?? text;

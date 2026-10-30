@@ -195,7 +195,7 @@ SDK 1.3.0 では、ツールを中断した後の assistant に `stopReason: "er
 
 ## 本体へ反映するときに残る設計課題
 
-**以下は調査時点の未着手事項の記録**で、現在の契約ではない。本体は送信IDと実行IDの分離、BFF が持つ 1 件ずつの配送、`peekQueuedMessages()` を使う取消判定、停止時の回収まで実装済みで、現行の契約は [run-lifecycle.md](../run-lifecycle.md#追加入力steeringの配送) / [api-sessions.md](../api-sessions.md#post-apisessionsidmessages) を正とする。
+**以下は調査時点の未着手事項の記録**で、現在の契約ではない。本体は送信IDと実行IDの分離、BFF が持つ 1 件ずつの配送、`peekQueuedMessages()` を使う取消判定、停止時の回収まで実装済みで、現行の契約は [run-lifecycle.md](../run-lifecycle.md#追加入力steeringの配送) / [api-session-turns.md](../api-session-turns.md#post-apisessionsidmessages) を正とする。
 
 - 通常送信を steer にするか、終了後の追加依頼と即時中断を操作として分けるか。
 - 現状の「1 送信 = 1 runId / 1 prompt()」と、同じ SDK ラン内へ入る steering の対応付け。

@@ -59,7 +59,7 @@ export function liveToolRows(runTools: Readonly<Record<string, ToolCall>>): Live
   return Object.values(runTools)
     .filter((call) => !call.skill && !call.questions?.length)
     .map((call, index) => {
-      // 実行時間は終了イベントを受けたカードだけが持つ (BFF 計測。docs/api-sessions.md)
+      // 実行時間は終了イベントを受けたカードだけが持つ (BFF 計測。docs/api-session-runtime.md)
       const durationMs = toolDurationMs(call);
       return {
         id: call.id,

@@ -2073,7 +2073,7 @@ export class SessionStore {
 
   /**
    * 手動 compaction。SDK の compact() の完了を待ち、成功時は entry の保存まで排他を保持する。
-   * 開始 / 終端の配信順序と失敗の分類は docs/compaction.md / docs/api-sessions.md を正とする。
+   * 開始 / 終端の配信順序と失敗の分類は docs/compaction.md / docs/api-session-runtime.md を正とする。
    */
   async compact(record: SessionRecord): Promise<SessionCompactionResult> {
     if (this.closing) throw httpError(503, "サーバーを終了しています");

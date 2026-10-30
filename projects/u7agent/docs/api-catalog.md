@@ -85,7 +85,7 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 
 共通（`<PI_APP_CWD>/.agents/skills`）とプロジェクト（セッションの cwd 配下の `.agents/skills`）のスキル、およびアプリに同梱した**組み込みスキル**はセッションへ注入される。プロジェクトはエージェントに紐づかない **ambient** なスキルで、共通分は `commonSkillNames`、組み込み分は `builtinSkillNames` でエージェント別に絞れる（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。設定画面に出るのは共通分と組み込み分で、**共通分だけ** GUI から作成・編集・削除できる（変えられるのは説明と本文だけで、名前は作成時に決まり変更できない。プロジェクト分と組み込みは読み取り専用のまま）。組み込みを上書きしているときの見え方と、どのエージェントで有効かはエージェント編集のスキル欄と、ビルトインの閲覧ビューで見る。優先順位は `プロジェクト > 共通 > 組み込み` で、同名は一意化する。許可リストはこの一意化の**前**に当てるため、外した共通 / 組み込みスキルと同名の下位側（プロジェクト / 共通）は浮上して有効になる（ファイルの改名・削除・マージはしない）。発見と合成は `server/src/file-skills.ts`、同梱物は `server/src/builtin-skills.ts` が持つ。
 
-チャット側では `GET /api/sessions/:id/skills` がこの 3 種類（プロジェクト / 共通 / 組み込み）を優先順位つきで返し、入力補助の一覧と `/skill:` の展開（送信時に本文を取得）が同じ解決を共有する。セッション未確定の `GET /api/skills/session` は同じ解決をセッション作成前に走らせ、新規チャットのピッカーへ同じ形で返す（[api-sessions.md](api-sessions.md#get-apisessionsidskills)、[api-sessions.md](api-sessions.md#get-apiskillssession)、[persistence.md](persistence.md#スキルの扱い)）。
+チャット側では `GET /api/sessions/:id/skills` がこの 3 種類（プロジェクト / 共通 / 組み込み）を優先順位つきで返し、入力補助の一覧と `/skill:` の展開（送信時に本文を取得）が同じ解決を共有する。セッション未確定の `GET /api/skills/session` は同じ解決をセッション作成前に走らせ、新規チャットのピッカーへ同じ形で返す（[api-session-turns.md](api-session-turns.md#get-apisessionsidskills)、[api-session-turns.md](api-session-turns.md#get-apiskillssession)、[persistence.md](persistence.md#スキルの扱い)）。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
@@ -232,7 +232,7 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 - GET は未指定のときキーを省略し、`[]` はそのまま返す。
 - 上限は 200 件 / 1 件 200 文字。trim / 空文字の除去 / 重複排除は保存時に行い、非配列と上限超過は 400。1 件の長さはワークスペースの 1 セグメント名の上限（`server/src/sandbox/protocol.ts` の `SANDBOX_MAX_ENTRY_NAME_LENGTH`）と揃える。
 - 実在しない名前も保存できる（BFF はワークスペースを見られないため、組み込みも同梱の registry 以外の存在検証はしない）。実行時は無視され、一覧にも出ない（スキル欄は「見つかりません」として出す）。`SKILL.md` の frontmatter `name` を改名すると保存済みリストは古いままになり、同梱物が入れ替わったときも保存した名前は残る（ディレクトリ名では追えない）。
-- セッションは作成時のスナップショットで動き、定義の編集は既存セッションへ遡及しない（[api-sessions.md](api-sessions.md#get-apisessionsidskills)）。
+- セッションは作成時のスナップショットで動き、定義の編集は既存セッションへ遡及しない（[api-session-turns.md](api-session-turns.md#get-apisessionsidskills)）。
 
 許可リストは一意化の前に当てるため、外した共通 / 組み込みスキルと同名の下位側（プロジェクト / 共通）が浮上して有効になる。明示リストにした後に増えた共通 / 組み込みスキルは自動では有効にならない（`builtinSkillNames: []` はアプリ更新で同梱物が増えても 0 件のままで、検証用のエージェントを作れる）。
 
@@ -273,7 +273,7 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 - 実在しない名前も保存できる（一覧の入れ替えで保存値を書き換えない）。実行時は無視され、エージェント編集のツール欄は「見つかりません」として出す。
 - **実効はアプリ側の可否との積**で、どちらかが OFF なら OFF。アプリ側には `PI_AGENT_TOOLS`（デプロイ側の上限）、コンテンツ生成のキーと有効 / 無効、Web 検索の実行時トグル、`serve` / `ask_user` / `investigate` の実体の有無が入る。`available: false` の行はチェックが入っていても使えず、理由（`deploy_allowlist` / `app_disabled` / `no_key`）を画面の行に出す。`generate_image` / `generate_speech` / `generate_bgm` は**キーの行が無いときだけ `no_key`** で、行があって設定で OFF なら `app_disabled` になる（キーの再登録を促さない）。
 - `generate_bgm` も画像・TTSと同じ共有キーのゲートを使うBFFローカルツール。`toolNames` の積を登録名・定義・カタログに揃え、調査子やremoteツールには公開しない（[bgm-generation.md](bgm-generation.md)）。
-- セッションは作成時の値をスナップショットとして持ち、復元はそれを使う（[api-sessions.md](api-sessions.md#get-apisessionsidskills) と同じ規則）。定義を編集しても既存の会話の振る舞いは変わらない。子セッション（`investigate`）へは親の許可リストを読み取り専用の集合との積で引き継ぐ（[subagent.md](subagent.md)）。
+- セッションは作成時の値をスナップショットとして持ち、復元はそれを使う（[api-session-turns.md](api-session-turns.md#get-apisessionsidskills) と同じ規則）。定義を編集しても既存の会話の振る舞いは変わらない。子セッション（`investigate`）へは親の許可リストを読み取り専用の集合との積で引き継ぐ（[subagent.md](subagent.md)）。
 
 ```json
 {

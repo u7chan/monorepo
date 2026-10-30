@@ -1,6 +1,6 @@
 # 会話の圧縮（compaction）表示
 
-pi SDK はコンテキストが上限に近づくと会話を自動で compaction（古いメッセージを要約へ置き換えて context から外す）する。GUI の圧縮ボタンから手動で起こすこともできる。BFF はその結果を履歴として残し、GUI は圧縮位置の区切りと要約を出す。DTO と SSE イベントの契約は [api-sessions.md](api-sessions.md)、保存を見据えた要件は [persistence.md](persistence.md) を正とする。
+pi SDK はコンテキストが上限に近づくと会話を自動で compaction（古いメッセージを要約へ置き換えて context から外す）する。GUI の圧縮ボタンから手動で起こすこともできる。BFF はその結果を履歴として残し、GUI は圧縮位置の区切りと要約を出す。DTO は [api-sessions.md](api-sessions.md)、SSE イベントは [api-session-runtime.md](api-session-runtime.md#get-apisessionsidevents)、保存を見据えた要件は [persistence.md](persistence.md) を正とする。
 
 ## SDK が起きること
 
@@ -17,7 +17,7 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 | 数値 | 区切りに出すのは `tokensBefore`（pi TUI と同じ）と、圧縮にかかった時間（`CompactionInfo.durationMs` を `formatDurationMs` で整形した値。summary の右端で `要約` の左に、ラベルを付けずに出す。測るのは手動 / 自動の両方で、失敗・中止のときは区切りごと出さないため載らない。ラベルを付けないのは区切りの文が何の時間かを説明しているため）。`estimatedTokensAfter` は推定値であり Context ゲージ（provider 実測）と食い違って見えるため出さない。DTO には保持する |
 | 要約 | 各区切りを折りたたみ（既定は畳む）にし、その圧縮の要約を「N回目」の通し番号付きで出す。過去の圧縮も発生位置で読める |
 | 位置 | 区切りは全履歴の entry 順で決める（`HistoryItem` の compaction item）。旧 payload（全履歴 API 無し）では最新の 1 件の `beforeMessageIndex` だけを使う |
-| 圧縮前の元メッセージ | 全履歴 API（[api-sessions.md](api-sessions.md#get-apisessionsidhistory)）で遡って読める。要約で置き換わった範囲は薄暗く、「要約済み」タグを付ける |
+| 圧縮前の元メッセージ | 全履歴 API（[api-session-state.md](api-session-state.md#get-apisessionsidhistory)）で遡って読める。要約で置き換わった範囲は薄暗く、「要約済み」タグを付ける |
 | 反映 | `compaction` イベントで要約と回数を反映し、続く `resync` で最新ページを取り直す（クライアントは取得済みの古いページを保持する）。SDK は送信メッセージを履歴へ入れる前に compaction を走らせることがあるため、その場合は送信メッセージが入ってから `resync` を配る（先に配るとそのメッセージが履歴から消える）。履歴ページを取り込み済みの表示は、ページ取得に失敗しても `payload.messages` で組み直さない（`messages` は有効コンテキストの投影で、圧縮後の残りが tool 呼び出しだけなら空にもなるため、入れ替えると古い会話が消えたように見える）。ただしページが空なら現行ブランチが空ということなので、保持分を捨てて適用する。初期ロードはサーバー payload と履歴ページを正とする |
 | 失敗・中断（run の自動圧縮） | `result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らず、履歴と区切りを変えない（既存の status 遷移とエラー表示に任せる）。手動圧縮は下の「終端の契約」で終端 `resync` を配る |
 
@@ -25,7 +25,7 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 
 ## 全履歴の表示（閲覧と段階読み込み）
 
-圧縮で context から外れた元の user / assistant とツール履歴も GUI で遡って読めるようにする。保存の正は従来どおり `session.jsonl` で、表示用の履歴は SDK entry 列（`SessionManager.getBranch()`）から毎回投影する（会話の二重保存・ディスク索引は追加しない。API は [api-sessions.md](api-sessions.md#get-apisessionsidhistory)）。
+圧縮で context から外れた元の user / assistant とツール履歴も GUI で遡って読めるようにする。保存の正は従来どおり `session.jsonl` で、表示用の履歴は SDK entry 列（`SessionManager.getBranch()`）から毎回投影する（会話の二重保存・ディスク索引は追加しない。API は [api-session-state.md](api-session-state.md#get-apisessionsidhistory)）。
 
 - 各 item は SDK entry の id を持ち、メッセージはコンテキスト状態を持つ。
   - `active` = 現在の `session.messages` に生のまま残る
