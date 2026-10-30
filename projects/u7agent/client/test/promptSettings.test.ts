@@ -24,8 +24,10 @@ import {
   withPromptSelected,
 } from "../src/lib/promptSettings";
 import { promptDeleteConfirmRequest } from "../src/lib/settingsConfirm";
-import type { AgentDef, PromptDef } from "../src/types";
+import type { AgentDef, CatalogResponse, PromptDef } from "../src/types";
 import { PromptSelector } from "../src/components/agent-settings/PromptSelector";
+import { PromptList } from "../src/components/prompt-settings/PromptList";
+import { createCatalogStore } from "../src/lib/catalogStore";
 
 const prompt = (id: string, overrides: Partial<PromptDef> = {}): PromptDef => ({
   id,
@@ -187,6 +189,50 @@ test("エージェントの参照は解決済みの並びから取り出す", ()
   };
   assert.deepEqual(promptSelectionOf(agent), ["p1", "p2"]);
   assert.deepEqual(promptSelectionOf(undefined), []);
+});
+
+test("一覧は自作の行にだけグリップを出し、組み込みは先頭固定にする", () => {
+  const prompts = [
+    prompt("builtin-1", { kind: "builtin", label: "組み込みの定型" }),
+    prompt("custom-1", { label: "自作の定型" }),
+  ];
+  const html = renderToStaticMarkup(
+    createElement(PromptList, {
+      prompts,
+      reorderIds: ["custom-1"],
+      editingId: null,
+      onSelect: () => {},
+      onStartNew: () => {},
+      onReorder: () => {},
+      onCommitOrder: () => {},
+      onCancelOrder: () => {},
+    }),
+  );
+  assert.match(html, /自作の定型の順番を変更/);
+  assert.doesNotMatch(html, /組み込みの定型の順番を変更/);
+  // 組み込みが先、自作が後 (表示順をサーバーの応答から変えない)
+  assert.ok(html.indexOf("組み込みの定型") < html.indexOf("自作の定型"));
+});
+
+test("確定した定型プロンプトの順は、組み込みの位置を保って共有カタログへ反映する", () => {
+  const snapshot: CatalogResponse = {
+    builtinAgent: null,
+    builtinSkills: [],
+    agents: [],
+    tools: [],
+    prompts: [
+      prompt("builtin-1", { kind: "builtin" }),
+      prompt("builtin-2", { kind: "builtin" }),
+      prompt("custom-1"),
+      prompt("custom-2"),
+    ],
+  };
+  const store = createCatalogStore(snapshot);
+  store.adoptPromptOrder(["custom-2", "custom-1"]);
+  assert.deepEqual(
+    store.get().prompts.map((entry) => entry.id),
+    ["builtin-1", "builtin-2", "custom-2", "custom-1"],
+  );
 });
 
 test("削除の確認は対象のラベルを示し、取り消せないことを本文で伝える", () => {

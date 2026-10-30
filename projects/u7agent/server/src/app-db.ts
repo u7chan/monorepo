@@ -16,7 +16,7 @@ import type { AgentDef, ModelRef, NotificationResult, Project, PromptRef, Space 
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 35;
+export const APP_DB_SCHEMA_VERSION = 36;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -646,13 +646,15 @@ CREATE TABLE IF NOT EXISTS shared_content_settings (
 /**
  * v33 -> v34 で足した定型プロンプトのマスタ。`kind` は `builtin` / `custom` で、組み込み行は
  * 起動時に `builtin-catalog.ts` の定義へ同期される。本文とラベルには一意制約を付けない
- * (同じ本文の別マスタをまとめない)。
+ * (同じ本文の別マスタをまとめない)。`sortOrder` は自作の表示順で、組み込みは NULL のまま
+ * 一覧の先頭へ固定する (v35 -> v36 の加算移行で足した)。
  */
 const PROMPTS_TABLE = `CREATE TABLE IF NOT EXISTS prompts (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('builtin', 'custom')),
   label TEXT NOT NULL,
-  prompt TEXT NOT NULL
+  prompt TEXT NOT NULL,
+  sortOrder INTEGER
 );`;
 
 /**
@@ -1547,6 +1549,9 @@ export class AppDb {
       // v33 -> v34: 定型プロンプトのマスタと、エージェントからの参照
       this.#query((db) => db.exec(PROMPTS_TABLE));
       this.#query((db) => db.exec(AGENT_PROMPTS_TABLE));
+      // v35 -> v36: 自作マスタの表示順。既存行は NULL のままで、listPrompts の rowid タイブレークが
+      // そのまま作成順になる (移行で既存行を書き換えない)
+      this.#addColumnIfMissing("prompts", "sortOrder", "INTEGER");
       // v34 -> v35: 位置を整数に限る CHECK が無い版のテーブルを作り直す
       this.#tightenAgentPrompts();
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
@@ -2352,11 +2357,16 @@ export class AppDb {
 
   // --- prompts (定型プロンプトのマスタ) ---
 
-  /** 一覧の並びは組み込みが先、その中は作成順 (ID は不透明なのでソートキーにしない) */
+  /**
+   * 一覧の並びは組み込みが先、その中は作成順。自作は保存した sortOrder の昇順で、未設定 (移行前の行) は
+   * NULL が先に並ぶため作成順のまま、後から追加した行が末尾に付く (ID は不透明なのでソートキーにしない)。
+   */
   listPrompts(): PromptRow[] {
     return this.#query((db) =>
       (
-        db.prepare("SELECT * FROM prompts ORDER BY CASE kind WHEN 'builtin' THEN 0 ELSE 1 END, rowid").all() as Row[]
+        db
+          .prepare("SELECT * FROM prompts ORDER BY CASE kind WHEN 'builtin' THEN 0 ELSE 1 END, sortOrder, rowid")
+          .all() as Row[]
       ).map(promptOf),
     );
   }
@@ -2366,12 +2376,29 @@ export class AppDb {
     return row ? promptOf(row) : undefined;
   }
 
+  /** 自作の追加は末尾。sortOrder の最大 + 1 を振る (組み込みは NULL なので数に入らない) */
   insertPrompt(row: PromptRow): void {
     this.#query((db) =>
       db
-        .prepare("INSERT INTO prompts (id, kind, label, prompt) VALUES (?, ?, ?, ?)")
+        .prepare(
+          `INSERT INTO prompts (id, kind, label, prompt, sortOrder)
+           VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM prompts))`,
+        )
         .run(row.id, row.kind, row.label, row.prompt),
     );
+  }
+
+  /**
+   * 並べ替え。与えた順に 1..n を振り直す (途中で失敗したら 1 つも書かない)。
+   * 採用する id の絞り込みはカタログ側が行う (docs/api-catalog.md)。
+   */
+  reorderPrompts(ids: readonly string[]): void {
+    this.transaction(() => {
+      this.#query((db) => {
+        const update = db.prepare("UPDATE prompts SET sortOrder = ? WHERE id = ?");
+        ids.forEach((id, index) => update.run(index + 1, id));
+      });
+    });
   }
 
   /** 組み込み行は編集しない (条件に入れて、サービス側の判定が漏れても行が変わらないようにする) */

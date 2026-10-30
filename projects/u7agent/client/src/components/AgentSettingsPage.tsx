@@ -3,7 +3,7 @@ import { reorderAgents } from "../api";
 import { useFileSkills } from "../hooks/useFileSkills";
 import { useWideLayout } from "../hooks/useLayoutMode";
 import { selectableAgents } from "../lib/agentSelection";
-import { createAgentOrderFlow, type AgentOrderNoteKind, type AgentOrderState } from "../lib/agentOrder";
+import { createReorderFlow, type ReorderNoteKind, type ReorderState } from "../lib/reorderFlow";
 import { reorderRows } from "../lib/agentReorder";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -36,8 +36,8 @@ export type AgentSettingsPageProps = SettingsPageProps & {
 /** 一覧と詳細のどちらを見せるか。並列表示では使わない */
 type AgentView = "list" | "detail";
 
-/** 並べ替えの失敗の文言。保存されたかどうかで伝えることを分ける（client/src/lib/agentOrder.ts） */
-function orderNoteText(kind: AgentOrderNoteKind, message: string): string {
+/** 並べ替えの失敗の文言。保存されたかどうかで伝えることを分ける（client/src/lib/reorderFlow.ts） */
+function orderNoteText(kind: ReorderNoteKind, message: string): string {
   if (kind === "rejected") return `並び順を保存できませんでした。${message}`;
   if (kind === "unknown") {
     return `並び順を保存できたか確認できません。再読み込みするとサーバーの並びに合わせます。（${message}）`;
@@ -73,13 +73,13 @@ export function AgentSettingsPage({
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
-  // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/agentOrder が持ち、
+  // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/reorderFlow が持ち、
   // ここは state への反映と文言だけを持つ（編集フォームの下書きをページが持つのと同じ理由）
-  const [order, setOrder] = useState<AgentOrderState>({ draft: null, saving: false });
+  const [order, setOrder] = useState<ReorderState>({ draft: null, saving: false });
   const orderDeps = useRef({ catalogAgents: catalog.agents, applyAgentOrder, refreshCatalog, setNoteText });
   orderDeps.current = { catalogAgents: catalog.agents, applyAgentOrder, refreshCatalog, setNoteText };
   const [orderFlow] = useState(() =>
-    createAgentOrderFlow({
+    createReorderFlow({
       ids: () => orderDeps.current.catalogAgents.map((agent) => agent.id),
       save: async (ids) => (await reorderAgents(ids)).agents.map((agent) => agent.id),
       apply: (ids) => orderDeps.current.applyAgentOrder(ids),

@@ -333,11 +333,18 @@ export const deleteAgent = async (id: string): Promise<unknown> => {
 };
 
 /**
- * 定型プロンプトのマスタ一覧。使用先 (`usedBy`) つきで、組み込みが先に並ぶ。
+ * 定型プロンプトのマスタ一覧。使用先 (`usedBy`) つきで、組み込みが先に並ぶ。自作は保存した順。
  * エージェントの応答に載る解決済みの定型文はカタログ側 (`getCatalog`) が持つ。
  */
 export const getPrompts = async (): Promise<PromptsResponse> => {
   const res = await client.api.prompts.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 並べ替え。応答の prompts がサーバーの採用した順（定義は変えない） */
+export const reorderPrompts = async (ids: readonly string[]): Promise<PromptsResponse> => {
+  const res = await client.api.prompts.order.$patch({ json: { ids: [...ids] } });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

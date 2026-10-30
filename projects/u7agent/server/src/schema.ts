@@ -150,9 +150,18 @@ export type PromptUsage = z.infer<typeof PromptUsageSchema>;
 export const PromptDefSchema = PromptRefSchema.extend({ usedBy: z.array(PromptUsageSchema) });
 export type PromptDef = z.infer<typeof PromptDefSchema>;
 
-/** `GET /api/prompts` の応答。並びはサーバーが決める (組み込みが先、その中は作成順) */
+/** `GET /api/prompts` の応答。並びはサーバーが決める (組み込みが先、自作は保存した順) */
 export const PromptsResponseSchema = z.object({ prompts: z.array(PromptDefSchema) });
 export type PromptsResponse = z.infer<typeof PromptsResponseSchema>;
+
+/**
+ * 並べ替えで受ける id の上限。形と上限だけを見る点は `ReorderAgentsBodySchema` と同じで、
+ * 未知の id・重複・組み込みの扱いは `PromptCatalog.reorder` が正。
+ */
+export const PROMPT_ORDER_IDS_MAX = 500;
+
+export const ReorderPromptsBodySchema = z.object({ ids: z.array(z.string()).max(PROMPT_ORDER_IDS_MAX) });
+export type ReorderPromptsBody = z.infer<typeof ReorderPromptsBodySchema>;
 
 /** `POST /api/prompts` の応答。作成した 1 件を使用先 (空) つきで返す */
 export const PromptResponseSchema = z.object({ prompt: PromptDefSchema });

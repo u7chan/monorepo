@@ -5,7 +5,7 @@
  */
 import { createRequestGate } from "../hooks/requestGate";
 import type { CatalogResponse } from "../types";
-import { applyAgentOrder } from "./agentReorder";
+import { applyAgentOrder, reorderRows } from "./agentReorder";
 
 export type CatalogStore = {
   get(): CatalogResponse;
@@ -17,6 +17,8 @@ export type CatalogStore = {
   begin(): (next: CatalogResponse) => boolean;
   /** 確定した並びを即時に反映する。定義はそのまま使い、順序だけを差し替える */
   adoptOrder(ids: readonly string[]): void;
+  /** 確定した定型プロンプトの並びを即時に反映する（組み込みは先頭の位置を保つ） */
+  adoptPromptOrder(ids: readonly string[]): void;
 };
 
 export function createCatalogStore(initial: CatalogResponse): CatalogStore {
@@ -49,6 +51,12 @@ export function createCatalogStore(initial: CatalogResponse): CatalogStore {
       // 確定順が古い並びで置き換わらない)
       gate();
       publish({ ...snapshot, agents: applyAgentOrder(snapshot.agents, ids) });
+    },
+
+    adoptPromptOrder(ids) {
+      // 定型プロンプトの一覧は組み込みを含むため、渡されない行 (組み込み) は元の位置に残す
+      gate();
+      publish({ ...snapshot, prompts: reorderRows(snapshot.prompts, ids) });
     },
   };
 }

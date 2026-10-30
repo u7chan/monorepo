@@ -105,6 +105,14 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
     [catalogStore],
   );
 
+  /** 定型プロンプトの並べ替えの確定順を共有カタログへ反映する入口（設定 → 定型プロンプト） */
+  const applyPromptOrder = useCallback(
+    (ids: readonly string[]) => {
+      catalogStore.adoptPromptOrder(ids);
+    },
+    [catalogStore],
+  );
+
   // 一覧とピッカーが使う並び。catalog が変わるまで同じ配列を渡す (下流の useCallback を安定させる)
   const agents = useMemo(() => selectableAgents(catalog), [catalog]);
   const selectedAgent = agents.find((agent) => agent.id === agentId);
@@ -121,6 +129,8 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
     loadCatalog,
     /** 並べ替えの確定順を共有カタログへ反映する（App 経由で設定 → エージェントへ渡す） */
     applyAgentOrder,
+    /** 並べ替えの確定順を共有カタログへ反映する（App 経由で設定 → 定型プロンプトへ渡す） */
+    applyPromptOrder,
     refreshHealth,
     applyHealth,
   };

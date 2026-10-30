@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPrompt, deletePrompt, getPrompts, updatePrompt } from "../api";
+import { reorderRows } from "../lib/agentReorder";
 import { promptRefreshFailure } from "../lib/promptSettings";
 import type { PromptDef } from "../types";
 import { createLoadingTracker, createRequestGate } from "./requestGate";
@@ -34,6 +35,10 @@ export function usePrompts({ onChanged }: { onChanged?: () => Promise<unknown> }
   reloading: boolean;
   /** 一覧とエージェントカタログを取り直す。失敗しても例外にせず、理由を状態へ残す */
   retry: () => void;
+  /** 一覧とエージェントカタログを取り直し、失敗したらその理由で reject する（並べ替えの確定後） */
+  refresh: () => Promise<void>;
+  /** 並べ替えの確定順を、取り直しを待たずに現在の一覧へ反映する（組み込みは位置を保つ） */
+  applyOrder: (ids: readonly string[]) => void;
   save: (id: string | undefined, draft: { label: string; prompt: string }) => Promise<PromptActionResult>;
   remove: (id: string) => Promise<PromptActionResult>;
 } {
@@ -88,10 +93,32 @@ export function usePrompts({ onChanged }: { onChanged?: () => Promise<unknown> }
     return refreshAfterMutation().finally(finish);
   }, [refreshAfterMutation, tracker]);
 
+  const refresh = useCallback(async (): Promise<void> => {
+    const finish = tracker.begin();
+    try {
+      const failure = await refreshAfterMutation();
+      // 並べ替えの確定後、保存は成立している。取り直しの失敗だけを理由として返す
+      if (failure !== undefined) throw new Error(failure);
+    } finally {
+      finish();
+    }
+  }, [refreshAfterMutation, tracker]);
+
+  const applyOrder = useCallback(
+    (ids: readonly string[]) => {
+      // 先行する取得の応答で確定順を巻き戻さない（client/src/hooks/requestGate.ts）
+      beginRequest();
+      setState((prev) => ({ ...prev, prompts: reorderRows(prev.prompts, ids) }));
+    },
+    [beginRequest],
+  );
+
   return {
     state,
     reloading,
     retry: () => void runRefresh(),
+    refresh,
+    applyOrder,
     async save(id, draft) {
       let savedId: string;
       try {

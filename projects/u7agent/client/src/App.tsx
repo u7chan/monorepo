@@ -937,7 +937,9 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
         );
       case "prompts":
         // マスタの変更はエージェントへ解決済みの値として載るため、保存後にカタログを取り直す
-        return <PromptSettingsPage {...pageProps} refreshCatalog={refreshCatalog} />;
+        return (
+          <PromptSettingsPage {...pageProps} refreshCatalog={refreshCatalog} applyPromptOrder={app.applyPromptOrder} />
+        );
       case "skills":
         return (
           <SkillSettingsPage

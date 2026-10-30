@@ -1798,7 +1798,7 @@
     background: var(--c-accent);
   }
 
-  /* エージェント / スペース / 環境変数一覧の並べ替え。ドラッグ中はポインタの下の行を translate で追わせ (位置は CSS 変数)、
+  /* エージェント / 定型プロンプト / スペース / 環境変数一覧の並べ替え。ドラッグ中はポインタの下の行を translate で追わせ (位置は CSS 変数)、
    * 行そのものはグリップを掴んだときだけ動く (行のクリックは選択なので、重ねられない)。
    * touch-action: none はグリップだけに当てる: 行に当てると縦スクロールを奪う。
    * 追従は直接操作でアニメーションを掛けない (追従量の計測に前フレームの translate が混ざるのを避け、
@@ -1807,17 +1807,20 @@
     @apply grid w-7 shrink-0 cursor-grab touch-none place-items-center self-stretch rounded-lg text-ink-faint outline-none hover:bg-hover hover:text-ink-soft focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset singleColumn:w-11;
   }
   body.is-dragging-agent,
+  body.is-dragging-prompt,
   body.is-dragging-space,
   body.is-dragging-env {
     cursor: grabbing;
     user-select: none;
   }
   body.is-dragging-agent .drag-grip,
+  body.is-dragging-prompt .drag-grip,
   body.is-dragging-space .drag-grip,
   body.is-dragging-env .drag-grip {
     cursor: grabbing;
   }
   .agent-drag-row,
+  .prompt-drag-row,
   .space-drag-row,
   .env-drag-row {
     position: relative;
@@ -1825,6 +1828,9 @@
   }
   .agent-drag-row {
     translate: 0 var(--agent-drag-y, 0);
+  }
+  .prompt-drag-row {
+    translate: 0 var(--prompt-drag-y, 0);
   }
   .space-drag-row {
     translate: 0 var(--space-drag-y, 0);

@@ -11,7 +11,7 @@ import { AUTH_REQUIRED_MESSAGE, MODEL_UNSET_MESSAGE, MODEL_WHITELIST_EMPTY_MESSA
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { BUILTIN_AGENT_PROMPT_IDS, BUILTIN_PROMPTS } from "../src/builtin-catalog";
-import { AGENT_ORDER_IDS_MAX } from "../src/schema";
+import { AGENT_ORDER_IDS_MAX, PROMPT_ORDER_IDS_MAX } from "../src/schema";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_USAGE } from "./stub-pi";
 
@@ -1243,6 +1243,62 @@ test("prompt master endpoints expose built-ins, usage and custom CRUD", async ()
     assert.deepEqual(
       (await jsonBody(app.request("/api/agents"))).agents.find((entry: { id: string }) => entry.id === keep.id).prompts,
       [{ id: shared.id, kind: "custom", label: "共有", prompt: "共有の本文" }],
+    );
+  } finally {
+    await bff.close();
+  }
+});
+
+test("prompt order endpoint keeps built-ins first, normalizes ids and rejects invalid bodies", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const custom = [];
+    for (const label of ["A", "B", "C"]) {
+      custom.push(
+        (await jsonBody(await app.request("/api/prompts", jsonPost({ label, prompt: `${label} の本文` })))).prompt,
+      );
+    }
+    const builtinIds = BUILTIN_PROMPTS.map((prompt) => prompt.id);
+
+    // 未知の id・重複・組み込みは捨て、渡されなかった自作は元の相対順で末尾に回す
+    const reordered = await app.request(
+      "/api/prompts/order",
+      jsonPatch({ ids: [custom[2].id, "prompt-missing", custom[1].id, custom[2].id, builtinIds[0]] }),
+    );
+    assert.equal(reordered.status, 200);
+    assert.deepEqual(
+      (await jsonBody(reordered)).prompts.map((prompt: { id: string }) => prompt.id),
+      [...builtinIds, custom[2].id, custom[1].id, custom[0].id],
+    );
+    assert.deepEqual(
+      (await jsonBody(app.request("/api/prompts"))).prompts.map((prompt: { id: string }) => prompt.id),
+      [...builtinIds, custom[2].id, custom[1].id, custom[0].id],
+      "応答の順が以後の GET と一致する",
+    );
+
+    // 欠落・不正な形・件数超過は 400 で、並びを変えない
+    for (const payload of [
+      {},
+      { ids: "prompt-missing" },
+      { ids: [1] },
+      { ids: Array.from({ length: PROMPT_ORDER_IDS_MAX + 1 }, (_, index) => `prompt-${index}`) },
+    ]) {
+      const rejected = await app.request("/api/prompts/order", jsonPatch(payload));
+      assert.equal(rejected.status, 400, JSON.stringify(payload));
+      assert.deepEqual(await jsonBody(rejected), { error: "Invalid request body" });
+    }
+    assert.deepEqual(
+      (await jsonBody(app.request("/api/prompts"))).prompts.map((prompt: { id: string }) => prompt.id),
+      [...builtinIds, custom[2].id, custom[1].id, custom[0].id],
+    );
+
+    // 組み込みだけを渡しても先頭固定のまま (自作は現行順)
+    const builtinOnly = await app.request("/api/prompts/order", jsonPatch({ ids: [builtinIds[2]] }));
+    assert.equal(builtinOnly.status, 200);
+    assert.deepEqual(
+      (await jsonBody(builtinOnly)).prompts.map((prompt: { id: string }) => prompt.id),
+      [...builtinIds, custom[2].id, custom[1].id, custom[0].id],
     );
   } finally {
     await bff.close();
