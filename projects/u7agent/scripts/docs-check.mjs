@@ -8,6 +8,7 @@
  *  - ソースのコメントにある `docs/xxx.md#anchor` の参照先が実在する
  *  - 見出しに UI の階層 (`設定 → 通知`) を書かない (見出しがアンカーの正のため)
  *  - 各 doc の冒頭に正となるコードのパスか関連 doc のリンクがある
+ *  - 散文の境界を決められない構文 (引用 / HTML ブロック) を使っていない
  *  - フロントエンドの docs が行数予算に収まっている
  *
  * 検査しない: 文が「振る舞いが変わらない変更で書き換えが要る」内容かどうか (review で判断する)。
@@ -22,8 +23,8 @@ import { fileURLToPath } from "node:url";
 import {
   linkPattern,
   proseOf,
-  withoutCodeBlocks,
-  withoutIndentedCode,
+  unsupportedBlocks,
+  withoutCode,
   withoutInlineCode,
 } from "./docs-text.mjs";
 
@@ -125,7 +126,7 @@ function checkIntro(file) {
   const shown = relative(root, file);
   if (!shown.startsWith("docs/") || shown.startsWith("docs/surveys/")) return;
   // 本文の検査と同じ境界にする（フェンスとインデントコードを落としてから見る）
-  const lines = withoutIndentedCode(withoutCodeBlocks(readFileSync(file, "utf8"))).split("\n");
+  const lines = withoutCode(readFileSync(file, "utf8")).split("\n");
   // 最初の節見出し (レベル 2 以上) までを冒頭とする
   const headingAt = lines.findIndex((line) => /^#{2,6} /.test(line));
   const body = headingAt === -1 ? lines : lines.slice(0, headingAt);
@@ -149,11 +150,21 @@ function checkIntro(file) {
   }
 }
 
+/** 散文の境界を決められない構文の言い換え。代替を書いて、使う人が次の手を選べるようにする。 */
+const UNSUPPORTED_LABEL = {
+  quote: "引用 (`>`) は使わない (段落を箇条書きか見出しで分ける)",
+  html: "HTML ブロック (`<div>` など) は使わない (Markdown で書く)",
+};
+
 function checkFile(file) {
   const text = readFileSync(file, "utf8");
   const shown = relative(root, file);
 
   checkIntro(file);
+
+  for (const { line, syntax } of unsupportedBlocks(text)) {
+    errors.push(`${shown}: ${line} 行目: ${UNSUPPORTED_LABEL[syntax]}`);
+  }
 
   for (const [, raw] of proseOf(text).matchAll(linkPattern)) {
     const target = raw.startsWith("<") ? raw.slice(1, -1) : raw;
@@ -180,7 +191,7 @@ function checkFile(file) {
 
   // 見出しはアンカーとして外部から参照される。UI の階層を書くと、階層が変わるたびにリンクが死ぬ。
   // 見出しの中の単一のコード span は見出しの一部なので、コードブロックと複数行のコード span だけを外して判定する
-  for (const [, heading] of withoutCodeBlocks(text).matchAll(/^#{1,6}[ \t]+(.*)$/gm)) {
+  for (const [, heading] of withoutCode(text).matchAll(/^#{1,6}[ \t]+(.*)$/gm)) {
     if (heading.includes("→")) errors.push(`${shown}: 見出しに「→」を書かない → ${heading}`);
   }
 
