@@ -106,18 +106,9 @@ function hasHeading(file, anchor) {
   return headingCache.get(file).has(anchor);
 }
 
-/** fenced code block・HTML コメント・複数行のコード span を落とす (中身の記法は本文ではない)。
- * GitHub は ``` と ~~~ の両方をフェンスとして描画し、コメント内のリンクも描画しない。
- * コード span の中の `<!--` はコメントの開始ではないので、退避してからコメントを落とす。 */
+/** fenced code block と複数行のコード span を落とす (中身の記法は本文ではない)。GitHub は ``` と ~~~ の両方をフェンスとして描画する。 */
 function withoutCodeBlocks(text) {
-  const spans = [];
-  const masked = text
-    .replace(/^(```|~~~)[\s\S]*?^\1/gm, "")
-    .replace(/`[^`\n]*`/g, (span) => `\u0000${spans.push(span) - 1}\u0000`);
-  return masked
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/\u0000(\d+)\u0000/g, (_, index) => spans[Number(index)])
-    .replace(/``[\s\S]*?``/g, "");
+  return text.replace(/^(```|~~~)[\s\S]*?^\1/gm, "").replace(/``[\s\S]*?``/g, "");
 }
 
 /** コード例の中の記法は参照ではないので、リンク検査の前に落とす。 */
@@ -154,8 +145,9 @@ function checkIntro(file) {
     errors.push(`${shown}: 冒頭の段落がない (何か / 正となるコード / 関連 doc)`);
     return;
   }
-  // リンクはコード span 内の例示を数えない。パスはコード span に書くのが規約なので、そのまま見る
-  const hasDocLink = [...proseOf(intro).matchAll(linkPattern)].some(([, raw]) => {
+  // 参照の判定にフェンス以外の除去をしない。バッククォートやコメントの対応を推測すると、
+  // 対応の取れないバッククォート 1 つで本文を消してしまい、正しい参照を拒否する。
+  const hasDocLink = [...intro.matchAll(linkPattern)].some(([, raw]) => {
     const target = raw.startsWith("<") ? raw.slice(1, -1) : raw;
     return target.split("#")[0].endsWith(".md");
   });
