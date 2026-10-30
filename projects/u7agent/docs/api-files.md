@@ -41,7 +41,7 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 - `recursive` が `true` 以外（`false` / `1` / `TRUE` / 空）や重複しているときは 400（`recursive must be exactly "true" when present`）で、サンドボックスへ要求を出さない
 - 503 / 502: `GET /api/files` と同じ（未設定 / 到達不能・認証失敗・サンドボックス側のエラー）
 
-出す導線は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の両方にある（[file-preview.md](file-preview.md#削除)）。
+出す導線は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の両方にある（[file-actions.md](file-actions.md#削除)）。
 
 ### リネーム
 
@@ -61,7 +61,7 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 - 502: サンドボックスへ到達できない / 認証失敗 / 応答が契約外
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
-出す導線は設定 → ファイル（ワークスペース root）のフォルダ行だけにある（[file-preview.md](file-preview.md#リネーム)）。API はファイル / ディレクトリの両方を受けるが、UI からファイルは改名できない。
+出す導線は設定 → ファイル（ワークスペース root）のフォルダ行だけにある（[file-actions.md](file-actions.md#リネーム)）。API はファイル / ディレクトリの両方を受けるが、UI からファイルは改名できない。
 
 ### アップロード
 
@@ -112,7 +112,7 @@ client（`client/src/api.ts` の `getGitInfo`）は作業フォルダの行が�
 | --- | --- | --- |
 | GET | `/api/files/stat?path=<root 相対>` | 通常ファイルとして実在するかの確認（本文は返さない） |
 
-サンドボックスの `GET /v1/files/stat`（[sandbox-api.md](sandbox-api.md#get-v1filesstat)）の応答を DTO（`FileStat`）として返す。`path` は一覧と同じワークスペース root 相対で、検証も同じ経路を通す。チャット本文のファイル参照を開く前に実在を確認するために使い（[file-preview.md](file-preview.md#クリックと要求)）、**一覧（`GET /api/files`）は 1 ディレクトリ 500 件の打切り（`truncated: true`）と壊れた symlink の行があるため、存在の判定には使わない**。
+サンドボックスの `GET /v1/files/stat`（[sandbox-api.md](sandbox-api.md#get-v1filesstat)）の応答を DTO（`FileStat`）として返す。`path` は一覧と同じワークスペース root 相対で、検証も同じ経路を通す。チャット本文のファイル参照を開く前に実在を確認するために使い（[file-tree.md](file-tree.md#クリックと要求)）、**一覧（`GET /api/files`）は 1 ディレクトリ 500 件の打切り（`truncated: true`）と壊れた symlink の行があるため、存在の判定には使わない**。
 
 ```json
 { "path": "src/index.ts" }
@@ -121,7 +121,7 @@ client（`client/src/api.ts` の `getGitInfo`）は作業フォルダの行が�
 - 200: 通常ファイルとして実在する（`Cache-Control: no-store`）。`path` は realpath を root 相対へ写した正規化パス（root は `"."`。symlink を経由した要求は辿った先）
 - 404: 実在しない。壊れた symlink も同じ
 - 400: `path` が不正 / root 外へ解決される / 通常ファイル以外（ディレクトリ・特殊ファイル）。**本文を読まない**ため、テキストプレビューの 400（バイナリ・UTF-8 不正・2 MiB 超）はこの API では返らない
-- 502 / 503: 到達不能・契約外の応答 / 未設定。**不存在の判定には使わない**（[file-preview.md](file-preview.md#クリックと要求) の分類で確認不能として扱う）
+- 502 / 503: 到達不能・契約外の応答 / 未設定。**不存在の判定には使わない**（[file-tree.md](file-tree.md#クリックと要求) の分類で確認不能として扱う）
 
 client（`client/src/api.ts` の `statFile`）は `client/src/lib/fileRefOpen.ts` の `classifyFileRefFailure` と組で使い、200 だけを実在、404 を不存在、400 を拒否、それ以外を確認不能として扱う。
 
@@ -218,7 +218,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 502: サンドボックスへ到達できない / 認証失敗 / 本文が無い / check の応答が契約外
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
-クライアントは `client/src/api.ts` の `getFileDownloadCheck(path)` で先に見積りを取り、`fileDownloadUrl(path)` の URL を `<a download>` のプログラム的クリックで開く（本文を `fetch` して保持しない。100 MiB のメモリを避け、ページ遷移もしない）。確認ダイアログ・エラー表示・行の出し分けは [file-preview.md](file-preview.md#ダウンロード)。
+クライアントは `client/src/api.ts` の `getFileDownloadCheck(path)` で先に見積りを取り、`fileDownloadUrl(path)` の URL を `<a download>` のプログラム的クリックで開く（本文を `fetch` して保持しない。100 MiB のメモリを避け、ページ遷移もしない）。確認ダイアログ・エラー表示・行の出し分けは [file-actions.md](file-actions.md#ダウンロード)。
 
 ## アーカイブの除外名
 
