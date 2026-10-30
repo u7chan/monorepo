@@ -379,7 +379,7 @@ export const ToolCallSchema = z.object({
   skill: SkillLoadSchema.optional(),
   /**
    * investigate の進捗 (現在の活動 + 子の本文末尾)。SSE の `tool_progress` だけが作るライブ専用で、
-   * payload (`run.toolCalls`) と履歴 (`messages[].tools`) には載らない (`docs/api-sessions.md`)。
+   * payload (`run.toolCalls`) と履歴 (`messages[].tools`) には載らない (`docs/api-session-turns.md`)。
    */
   progress: z.string().optional(),
   /**

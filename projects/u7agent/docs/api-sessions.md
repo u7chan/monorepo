@@ -225,7 +225,7 @@ DB から復元した実測には、`recorded` に掛けている「tok/s が揃
 
 `messages[].tools` は表示対象の assistant バブルに属する確定済みツール履歴。対応する `toolResult` がある toolCall だけを `ToolCall` DTO（`done: true`）で投影し、結果が無い call は含めない。`args` / `output` はライブイベントと同じマスク・要約関数を通し、**マスクの後に**、ツール契約で値がパスと決まっている引数（`path` / `file_path` / `filePath`）だけを `./` 付きの cwd 相対へ畳む（先に畳むと cwd をまたぐ秘密値が完全一致しなくなり、後段のマスクをすり抜ける）。`command` / `output` / `path` を持たないツールの JSON 引数（本文）は畳まない: 本文の `<cwd>/…` に見える語はパスとは限らず（grep の検索語、`case` のパターン、`[ ]` の照合語）、`./…` へ書き換えるとコピーしたコマンドの挙動が変わる（表示文字列はコピーにもそのまま使う）。cwd の外は絶対のまま残し、root 相対と基準を混ぜない。`skill` はライブ専用で、スキル読み込み（`read` で basename が `SKILL.md`）はここに含めず `skillLoads` のバッジだけに出す。ask_user の `questions` / `answers` は逆に**ライブと履歴の両方で同じ `ToolCall` に載る**（`tool_start` / `tool_end` / `run.toolCalls` と `messages[].tools` が同じ値）。本文の無い assistant に属するツール履歴は同じ user ターン内の次の表示 assistant へ part 順で繰り上げる。繰り上げ先がそのターンに無いとき（停止・中断した応答、ツールだけの最終応答）は、その応答自身を本文の空な表示 item にしてツールをそこへ残す（同じターンに本文なし応答が複数あれば所有者ごとに item にし、1 つの item へ寄せない。表示の正は `displayableMessageSet()`、件数も同じ集合で数える）。ターンを越えて運ぶことはしない。ask_user は回答待ちの間だけ resync が assistant バブルを合成する（[ask-user.md](ask-user.md#回答待ちカードの復帰)）。
 
-`resync` は `messages[].tools` を `ToolCard` へ変換し、`toolCallId` → バブルの索引も再構築する。重複する `run.toolCalls` は現在の実行状態を優先して該当カードを更新し、履歴に無い call だけを現在ターンの最後の assistant バブルへ追加する。`messages` は有効コンテキストの投影なので、全履歴の表示は `history` API（下記）が担う。500 件の長い履歴で payload サイズと生成・JSON 化時間を検証する（`messages` に全履歴は含めない）。
+`resync` は `messages[].tools` を `ToolCard` へ変換し、`toolCallId` → バブルの索引も再構築する。重複する `run.toolCalls` は現在の実行状態を優先して該当カードを更新し、履歴に無い call だけを現在ターンの最後の assistant バブルへ追加する。`messages` は有効コンテキストの投影なので、全履歴の表示は [history API](api-session-state.md#get-apisessionsidhistory) が担う。500 件の長い履歴で payload サイズと生成・JSON 化時間を検証する（`messages` に全履歴は含めない）。
 
 ### スキル読み込み（`skillLoads` / `skill`）
 
