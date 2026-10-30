@@ -106,9 +106,9 @@ function hasHeading(file, anchor) {
   return headingCache.get(file).has(anchor);
 }
 
-/** fenced code block と複数行のコード span を落とす (中身の記法は本文ではない)。 */
+/** fenced code block と複数行のコード span を落とす (中身の記法は本文ではない)。GitHub は ``` と ~~~ の両方をフェンスとして描画する。 */
 function withoutCodeBlocks(text) {
-  return text.replace(/^```[\s\S]*?^```/gm, "").replace(/``[\s\S]*?``/g, "");
+  return text.replace(/^(```|~~~)[\s\S]*?^\1/gm, "").replace(/``[\s\S]*?``/g, "");
 }
 
 /** コード例の中の記法は参照ではないので、リンク検査の前に落とす。 */
@@ -136,7 +136,9 @@ function checkIntro(file) {
   const lines = withoutCodeBlocks(readFileSync(file, "utf8")).split("\n");
   const headingAt = lines.findIndex((line) => line.startsWith("## "));
   const body = headingAt === -1 ? lines : lines.slice(0, headingAt);
-  if (body[0]?.startsWith("# ")) body.shift();
+  // 先頭の空行を挟んだ title も落とす (空行の有無で判定が変わらないようにする)
+  const titleAt = body.findIndex((line) => line.trim() !== "");
+  if (titleAt !== -1 && body[titleAt].startsWith("# ")) body.splice(titleAt, 1);
   const intro = body.join("\n").trim();
   if (intro === "") {
     errors.push(`${shown}: 冒頭の段落がない (何か / 正となるコード / 関連 doc)`);
