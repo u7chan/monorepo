@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { cn } from "../lib/cn";
 import type { FileKind } from "../lib/fileKind";
 
@@ -821,6 +821,7 @@ export function CollapseChevronIcon() {
 /**
  * フォルダ (ツリーの行と各所の見出し)。開いているときは手前のパネルを傾けて薄く塗る。
  * 輪郭のままだと展開の印が chevron の回転だけになり、行の左端で開閉が読み取れない。
+ * 色は styles/index.css が [data-file-icons] の配下だけで切り替える (ツリー以外は currentColor のまま)。
  */
 export function FolderIcon({ open = false }: { open?: boolean }) {
   return (
@@ -832,19 +833,26 @@ export function FolderIcon({ open = false }: { open?: boolean }) {
       strokeWidth="1.4"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-4 shrink-0"
+      className="file-folder size-4 shrink-0"
     >
       {open ? (
         <>
-          <path d="M2.5 11.6V5.5c0-.6.4-1 1-1h2.35c.29 0 .56.12.75.34l.78.92h4.12c.6 0 1 .4 1 1v1.14" />
           <path
+            className="icon-doc"
+            d="M2.5 11.6V5.5c0-.6.4-1 1-1h2.35c.29 0 .56.12.75.34l.78.92h4.12c.6 0 1 .4 1 1v1.14"
+          />
+          <path
+            className="icon-front"
             d="M5.15 8.15Q5.4 7.95 5.75 7.95h6.1q.6 0 .65.65l-.7 2.95q-.1.5-.65.5H3.5q-.55 0-.4-.55L4.6 8.6q.15-.45.55-.45Z"
             fill="currentColor"
             fillOpacity="0.2"
           />
         </>
       ) : (
-        <path d="M2.5 5.5c0-.6.4-1 1-1h2.35c.29 0 .56.12.75.34l.78.92h4.12c.6 0 1 .4 1 1v4.24c0 .6-.4 1-1 1h-8c-.6 0-1-.4-1-1z" />
+        <path
+          className="icon-doc"
+          d="M2.5 5.5c0-.6.4-1 1-1h2.35c.29 0 .56.12.75.34l.78.92h4.12c.6 0 1 .4 1 1v4.24c0 .6-.4 1-1 1h-8c-.6 0-1-.4-1-1z"
+        />
       )}
     </svg>
   );
@@ -977,11 +985,15 @@ export function FileIcon({ kind = "text" }: { kind?: FileKind }) {
       strokeWidth="1.4"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-4 shrink-0"
+      // 種類色は CSS 側 ([data-file-icons] の配下) が引く。ツリー以外では使われない
+      style={{ "--file-kind": `var(--c-file-${kind})` } as CSSProperties}
+      className="file-icon size-4 shrink-0"
     >
-      <path d="M4.25 2.75h4.9l2.6 2.6v7.9h-7.5z" />
-      <path d="M9.15 2.75v2.6h2.6" />
-      <g strokeWidth="1.2">{FILE_MARKS[kind]}</g>
+      <path className="icon-doc" d="M4.25 2.75h4.9l2.6 2.6v7.9h-7.5z" />
+      <path className="icon-fold" d="M9.15 2.75v2.6h2.6" />
+      <g className="icon-mark" strokeWidth="1.2">
+        {FILE_MARKS[kind]}
+      </g>
     </svg>
   );
 }

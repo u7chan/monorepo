@@ -48,6 +48,20 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
 ];
 
 /**
+ * 設定 → 外観 のタブ。テーマ (色) とアイコン (ファイルツリーの見た目) は同じ「見た目の設定」だが、
+ * テーマの一覧は縦に長く、片方だけ見たいときに他方が場所を取るため分ける。
+ * URL は `/settings/appearance` と `/settings/appearance/<sub>` を正とし、既定タブ (theme) はパスへ出さない。
+ */
+export type AppearanceSubsection = "theme" | "icons";
+
+export const APPEARANCE_SUBSECTIONS: { subsection: AppearanceSubsection; label: string }[] = [
+  { subsection: "theme", label: "テーマ" },
+  { subsection: "icons", label: "アイコン" },
+];
+
+export const DEFAULT_APPEARANCE_SUBSECTION: AppearanceSubsection = "theme";
+
+/**
  * 設定 → モデル のタブ。URL は `/settings/models` と `/settings/models/<sub>` を正とし、
  * 既定タブ (models) はパスへ出さない (lib/route.ts の routePath)。
  *

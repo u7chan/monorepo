@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { deleteDirectory, deleteFile, fileDownloadUrl, getFileDownloadCheck, getFiles, renameEntry } from "../api";
+import { useFileIconStyle } from "../hooks/useFileIconStyle";
 import { useFileTreeHeight } from "../hooks/useFileTreeHeight";
 import { useFileTreeWidth } from "../hooks/useFileTreeWidth";
 import { useImageVersion } from "../hooks/useImageVersion";
@@ -176,6 +177,8 @@ export function FileBrowser({
   const [previewOrigins, setPreviewOrigins] = useState<PreviewOrigins>({});
   // 幅は左右 2 段のときだけ効く。ツリーの親 (@container) 自身を測り、--file-tree-width をそこへ入れる
   const treeWidth = useFileTreeWidth();
+  // アイコンの見た目は 4 面で同じ設定を使う (選択は端末ローカル。lib/fileIconStyle.ts)
+  const fileIconStyle = useFileIconStyle();
   // 高さは上下 2 段のときだけ効く (左右 2 段では容器に従う)。同じコンテナの高さを bounds の根拠にする
   const treeHeight = useFileTreeHeight({
     containerRef: treeWidth.containerRef,
@@ -437,6 +440,8 @@ export function FileBrowser({
     // 自分自身の幅を問い合わせられないため、判定はこの段で行う
     <div
       ref={treeWidth.containerRef}
+      // アイコンの色と塗りは CSS がこの属性で切り替える (styles/index.css)。ツリー以外の FolderIcon は変えない
+      data-file-icons={fileIconStyle}
       className="@container min-h-0"
       style={
         {

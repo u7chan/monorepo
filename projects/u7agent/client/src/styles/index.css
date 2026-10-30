@@ -1046,6 +1046,33 @@
   --c-syn-op: #93a1a1;
 }
 
+/* ファイルツリーのアイコンの種類色。理由は docs/file-tree.md#アイコンの見た目。明暗 2 組だけを持ち、
+ * プリセットの差は data-appearance で切り替える。lock / text はテーマの ink を指すだけにする。 */
+:root {
+  --c-file-code: #7aa2f7;
+  --c-file-markup: #ff9e64;
+  --c-file-style: #bb9af7;
+  --c-file-data: #e0af68;
+  --c-file-image: #9ece6a;
+  --c-file-audio: #f7768e;
+  --c-file-shell: #7dcfff;
+  --c-file-lock: var(--c-ink-muted);
+  --c-file-text: var(--c-ink-faint);
+  /* 塗り (fill) の上に抜く模様の色。塗った面の上でだけ使う */
+  --c-file-on-solid: #0d1016;
+}
+
+:root[data-appearance="light"] {
+  --c-file-code: #2563eb;
+  --c-file-markup: #c2410c;
+  --c-file-style: #7e22ce;
+  --c-file-data: #a16207;
+  --c-file-image: #15803d;
+  --c-file-audio: #be123c;
+  --c-file-shell: #0e7490;
+  --c-file-on-solid: #ffffff;
+}
+
 /* ラン状態ドットの pulse (旧 @keyframes pulse 相当) */
 @keyframes dot-pulse {
   0%,
@@ -2054,6 +2081,50 @@
     .tree-fold {
       transition: none;
     }
+  }
+
+  /* ファイルツリーのアイコン。形状は icons.tsx が持ち、色と塗りだけをここで切り替える。
+   * 切替の目印は FileBrowser の root が持つ data-file-icons なので、左バー / トップバー / 設定ナビの
+   * FolderIcon / FileIcon (data-file-icons の外) は現行の currentColor のまま。 */
+  [data-file-icons="tint"] .file-icon .icon-doc,
+  [data-file-icons="tint"] .file-icon .icon-fold {
+    stroke: var(--c-ink-faint);
+    stroke-width: 1.3;
+  }
+  [data-file-icons="tint"] .file-icon .icon-mark {
+    stroke: var(--file-kind);
+    stroke-width: 1.4;
+  }
+  [data-file-icons="fill"] .file-icon .icon-doc {
+    fill: var(--file-kind);
+    stroke: var(--file-kind);
+  }
+  [data-file-icons="fill"] .file-icon .icon-fold {
+    stroke: var(--c-file-on-solid);
+    opacity: 0.45;
+  }
+  [data-file-icons="fill"] .file-icon .icon-mark {
+    stroke: var(--c-file-on-solid);
+    stroke-width: 1.3;
+  }
+
+  /* フォルダは差し色 1 本。tint は輪郭だけ、fill は面を塗って手前の板を一段濃くする */
+  [data-file-icons="tint"] .file-folder .icon-doc,
+  [data-file-icons="tint"] .file-folder .icon-front {
+    stroke: var(--c-accent);
+    stroke-width: 1.35;
+  }
+  [data-file-icons="tint"] .file-folder .icon-front {
+    fill: none;
+  }
+  [data-file-icons="fill"] .file-folder .icon-doc {
+    fill: var(--c-accent);
+    stroke: var(--c-accent);
+  }
+  [data-file-icons="fill"] .file-folder .icon-front {
+    fill: color-mix(in srgb, var(--c-accent) 76%, var(--c-file-on-solid));
+    fill-opacity: 1;
+    stroke: none;
   }
 
   /* ツール履歴に 1 件差し込まれた合図。畳んだままでも見えるよう、見出しを一瞬光らせる。
