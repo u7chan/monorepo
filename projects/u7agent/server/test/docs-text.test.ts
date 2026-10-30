@@ -159,6 +159,12 @@ test("単独行のタグは段落の外でだけ HTML ブロックとして検�
   assert.deepEqual(unsupportedBlocks("本文\n<span>\n"), []);
 });
 
+test("段落を中断できない番号付きリストの行は段落の継続として扱う", () => {
+  assert.deepEqual(unsupportedBlocks("text\n2. <span>\n  body\n"), []);
+  assert.deepEqual(unsupportedBlocks("text\n2. <div>\n  body\n"), []);
+  assert.deepEqual(unsupportedBlocks("text\n1. <span>\n  body\n"), [{ line: 2, syntax: "html" }]);
+});
+
 test("新しいリスト項目の先頭は段落の継続ではない", () => {
   assert.deepEqual(unsupportedBlocks("- text\n- <span>\n  body\n"), [{ line: 2, syntax: "html" }]);
 });

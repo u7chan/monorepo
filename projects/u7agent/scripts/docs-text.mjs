@@ -92,9 +92,15 @@ function classify(text) {
     const contentIndent = items.length > 0 ? items[items.length - 1] : 0;
     const relative = indent - contentIndent;
     const blockIndent = relative <= INDENT;
-    const { body, width } = blockIndent
-      ? stripMarkers(line.trimStart())
-      : { body: line.trimStart(), width: 0 };
+    const content = line.trimStart();
+    const marker = blockIndent ? MARKER.exec(content) : null;
+    // 段落の中では、内容のある「-」「*」「+」と 1 から始まる番号付きだけが項目を開始できる
+    const interrupts =
+      marker === null ||
+      !paragraphBefore ||
+      (marker[4].trim() !== "" && (marker[2].length === 1 || /^1[.)]$/.test(marker[2])));
+    const { body, width } =
+      marker !== null && interrupts ? stripMarkers(content) : { body: content, width: 0 };
     const bodyIndent = indent + width;
     const open = blockIndent ? FENCE.exec(body) : null;
     if (open !== null) {
