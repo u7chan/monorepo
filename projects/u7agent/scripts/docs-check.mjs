@@ -7,6 +7,7 @@
  *  - 本文中の `client/src/...` などのパスが実在する
  *  - ソースのコメントにある `docs/xxx.md#anchor` の参照先が実在する
  *  - 見出しに UI の階層 (`設定 → 通知`) を書かない (見出しがアンカーの正のため)
+ *  - 各 doc の冒頭に正となるコードのパスか関連 doc のリンクがある
  *  - フロントエンドの docs が行数予算に収まっている
  *
  * 検査しない: 文が「振る舞いが変わらない変更で書き換えが要る」内容かどうか (review で判断する)。
@@ -105,9 +106,22 @@ function hasHeading(file, anchor) {
   return headingCache.get(file).has(anchor);
 }
 
-/** fenced code block と複数行のコード span を落とす (中身の記法は本文ではない)。 */
+/** fenced code block を落とす。GitHub は ``` と ~~~ の両方をフェンスとして描画する。 */
 function withoutCodeBlocks(text) {
-  return text.replace(/^```[\s\S]*?^```/gm, "").replace(/``[\s\S]*?``/g, "");
+  return text.replace(/^(```|~~~)[\s\S]*?^\1/gm, "");
+}
+
+/**
+ * 行内のコード span を落とす。バッククォートが奇数個の行はどれが対応するか決められないので、
+ * その行は触らない（対応を推測して消すと、コメント内の 1 つが本文ごと消していた）。
+ */
+function withoutInlineCode(text) {
+  return text
+    .split("\n")
+    .map((line) =>
+      (line.match(/`/g)?.length ?? 0) % 2 === 0 ? line.replace(/`[^`\n]*`/g, "") : line,
+    )
+    .join("\n");
 }
 
 /** コード例の中の記法は参照ではないので、リンク検査の前に落とす。 */
@@ -121,9 +135,46 @@ function proseOf(text) {
  */
 const linkPattern = /\[[^\]]*\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
 
+/** 冒頭の段落にある「正となるコード」のパス。日付と調査範囲を持つ surveys は、読むかを決める材料が冒頭の日付と対象なので別扱いにする。 */
+const introTarget = /`(?:client|server)\//;
+
+/**
+ * 冒頭の段落は、読むかを決める数行。リンクとパスの判定は、本文の検査と同じ規則を使う
+ * (ここで別の正規表現を持つと、title や angle 形式のリンクが片方だけ通る)。
+ */
+function checkIntro(file) {
+  const shown = relative(root, file);
+  if (!shown.startsWith("docs/") || shown.startsWith("docs/surveys/")) return;
+  // フェンス内の見出し記法を区切りと誤認しないよう、先にコードブロックを落とす
+  const lines = withoutCodeBlocks(readFileSync(file, "utf8")).split("\n");
+  // 最初の節見出し (レベル 2 以上) までを冒頭とする
+  const headingAt = lines.findIndex((line) => /^#{2,6} /.test(line));
+  const body = headingAt === -1 ? lines : lines.slice(0, headingAt);
+  // 先頭の空行を挟んだ title も落とす (空行の有無で判定が変わらないようにする)
+  const titleAt = body.findIndex((line) => line.trim() !== "");
+  if (titleAt !== -1 && body[titleAt].startsWith("# ")) body.splice(titleAt, 1);
+  const intro = body.join("\n").trim();
+  if (intro === "") {
+    errors.push(`${shown}: 冒頭の段落がない (何か / 正となるコード / 関連 doc)`);
+    return;
+  }
+  // 参照の判定は、対応の決まるコード span だけを外した本文で行う。コード span 内の記法を
+  // 参照として数えると、その参照先は本文のリンク検査が（コード span を外すため）検証しない。
+  const prose = withoutInlineCode(intro);
+  const hasDocLink = [...prose.matchAll(linkPattern)].some(([, raw]) => {
+    const target = raw.startsWith("<") ? raw.slice(1, -1) : raw;
+    return target.split("#")[0].endsWith(".md");
+  });
+  if (!introTarget.test(intro) && !hasDocLink) {
+    errors.push(`${shown}: 冒頭に正となるコードのパスか関連 doc のリンクがない`);
+  }
+}
+
 function checkFile(file) {
   const text = readFileSync(file, "utf8");
   const shown = relative(root, file);
+
+  checkIntro(file);
 
   for (const [, raw] of proseOf(text).matchAll(linkPattern)) {
     const target = raw.startsWith("<") ? raw.slice(1, -1) : raw;
