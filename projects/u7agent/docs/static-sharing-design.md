@@ -40,7 +40,7 @@
 - 作成手順: Cloudflare ダッシュボード → My Profile → API Tokens → Create Token → Custom token。Permissions は **Account → Workers Scripts → Edit**（画面では「レガシー」表示）、Account Resources は **Include → 対象アカウント**だけにする。Zone Resources は選ばない。
 - `Workers Routes` などの zone 権限は不要（workers.dev のみ使うため）。
 - 権限の範囲はアカウント内の全 Worker に及ぶ。トークンの漏洩時の影響が広いので、保存先とマスクの扱いを他機能より厳しくする。
-- 実装時に、実際のトークンで作成・更新・停止・削除が通ることを確認し、必要な権限名を確定する（下表の実機確認）。
+- 実装時に、実際のトークンで作成・更新・停止・削除が通ることを確認し、必要な権限名を確定する（[実機で確認する項目](static-sharing.md#実機で確認する項目)）。
 
 ### 共有物のライフサイクル
 
@@ -117,7 +117,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 - agent tool は受付のあと内部で終端までポーリングし、状態が確定してから URL かエラーを返す。`publishing` + `lastError`（結果不明）を見たらそこで打ち切って、停止で安全側に倒すよう案内する。
 - provider の結果が不明になったとき（timeout など）と、BFF 再起動で `publishing` のまま残ったときは、subdomain を問い合わせて状態を確定する。有効なら `published`、無効なら `stopped`（公開実績あり）/ `failed`（未公開）、script が無ければ一度も公開できていない行だけ `failed`（公開実績のある行は `stopped` + `lastError`。`publishedAt` は残す）。更新・初回公開の中断では配信中の版が分からないため、その旨を `lastError` に残す。問い合わせできないときは `publishing` + `lastError` に留め、停止だけを受け付ける。
 - script の不在は「照会が 404」だけでなく「操作の要求自体が 404」でも確定する。どちらも同じ規則（公開実績あり → `stopped` + `lastError`、未公開 → `failed`）で終端へ収束させ、`publishing` のまま残さない。
-- 停止の結果が不明なときも同じ問い合わせを行う。無効なら `stopped`（公開実績あり）/ `failed`（未公開）、有効なら開始状態 + `lastError`（停止を再試行できる）。問い合わせできない間は開始状態にかかわらず `publishing` + `lastError` に留める（誤って「停止済み」と表示せず、停止を受け付ける）。照会または停止要求が 404 を返したときは不在の確定として終端へ収束させる（次の節と同じ規則）。
+- 停止の結果が不明なときも同じ問い合わせを行う。無効なら `stopped`（公開実績あり）/ `failed`（未公開）、有効なら開始状態 + `lastError`（停止を再試行できる）。問い合わせできない間は開始状態にかかわらず `publishing` + `lastError` に留める（誤って「停止済み」と表示せず、停止を受け付ける）。照会または停止要求が 404 を返したときは不在の確定として終端へ収束させる（[API 契約](static-sharing-api.md#api-契約) の停止と同じ規則）。
 - deployment 成功後に DB を更新できなかった場合も同じ復帰規則を使う。subdomain が有効なままなら `published` になり、版の不明は `lastError` に残る。
 - provider の確定した失敗と、DB の書き込み失敗を混ぜない。公開が成功しても DB を更新できなかった場合は成功を返さず、行の状態を進めない。
 

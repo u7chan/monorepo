@@ -1,6 +1,6 @@
 # 公開と共有 API
 
-サービス（serve）の起動・停止と、静的コンテンツの共有（Cloudflare への公開）の HTTP 契約。DTO の正は `server/src/schema.ts`、規約と索引は [api.md](api.md) を参照する。設計は [sandbox.md](sandbox.md#serveサービスの公開と起動停止) と [static-sharing.md](static-sharing.md) を正とする。
+サービス（serve）の起動・停止と、静的コンテンツの共有（Cloudflare への公開）の HTTP 契約。DTO の正は `server/src/schema.ts`、規約と索引は [api.md](api.md) を参照する。設計は [sandbox.md](sandbox.md#serveサービスの公開と起動停止) と [static-sharing-design.md](static-sharing-design.md) を正とする。
 
 ## 共有の除外名
 
