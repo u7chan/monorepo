@@ -228,14 +228,14 @@ export interface SecretRow {
 
 /**
  * 公開した静的成果物の状態。値の検査はサービス側で行い、状態を増やすときに列の移行を要さないよう
- * テーブル側の CHECK にはしない (docs/static-sharing.md)。
+ * テーブル側の CHECK にはしない (docs/static-sharing-design.md)。
  */
 export type SharedContentStatus = "publishing" | "published" | "stopped" | "failed";
 
 /**
  * Cloudflare へ公開した静的成果物の記録。管理操作の主語は u7agent 側の id で、provider 固有の識別子は
  * remoteId に閉じる。sourcePath はワークスペース root 相対で、作業フォルダが消えても行は残す
- * (docs/static-sharing.md)。
+ * (docs/static-sharing-design.md#共有物のライフサイクル)。
  */
 /**
  * 公開元の種類。`session-root` はセッションの作業フォルダ自身、`directory` はその配下のディレクトリ。
@@ -269,7 +269,7 @@ export interface SharedContentRow {
 
 /**
  * Cloudflare の資格情報。**行が無い = 未登録**で、BFF 専用 (agent / sandbox へ渡さない)。
- * 暗号化の書式は `secrets` と同じ AES-256-GCM を再利用する (docs/static-sharing.md)。
+ * 暗号化の書式は `secrets` と同じ AES-256-GCM を再利用する (docs/static-sharing-design.md)。
  */
 export interface CloudflareSettingsRow {
   accountId: string;
@@ -735,7 +735,7 @@ DROP TABLE IF EXISTS title_summary_settings;
 DROP TABLE IF EXISTS assistant_metrics;
 `;
 // secrets / shared_contents / cloudflare_settings / shared_content_settings は意図的に含めない
-// (docs/secrets.md / docs/static-sharing.md)。assistant_metrics は JSONL から引き直せる派生データなので
+// (docs/secrets.md / docs/static-sharing-design.md)。assistant_metrics は JSONL から引き直せる派生データなので
 // 含める (行が消えても、再起動後の表示が SDK 記録値の概算へ戻るだけ)。
 // 列追加も #migrate() にだけ足し、既存行を書き換える移行はしない。
 

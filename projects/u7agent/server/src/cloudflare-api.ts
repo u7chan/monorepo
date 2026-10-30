@@ -1,6 +1,6 @@
 /**
  * Cloudflare Workers の静的アセット direct upload。API トークンと応答本文は外へ出さず、
- * 失敗は分類済みの `CloudflareApiError` に閉じる。契約は docs/static-sharing.md を正とする。
+ * 失敗は分類済みの `CloudflareApiError` に閉じる。契約は docs/static-sharing-api.md を正とする。
  */
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";

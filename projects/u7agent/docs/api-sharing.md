@@ -1,10 +1,10 @@
 # 公開と共有 API
 
-サービス（serve）の起動・停止と、静的コンテンツの共有（Cloudflare への公開）の HTTP 契約。DTO の正は `server/src/schema.ts`、規約と索引は [api.md](api.md) を参照する。設計は [sandbox.md](sandbox.md#serveサービスの公開と起動停止) と [static-sharing.md](static-sharing.md) を正とする。
+サービス（serve）の起動・停止と、静的コンテンツの共有（Cloudflare への公開）の HTTP 契約。DTO の正は `server/src/schema.ts`、規約と索引は [api.md](api.md) を参照する。設計は [sandbox.md](sandbox.md#serveサービスの公開と起動停止) と [static-sharing-design.md](static-sharing-design.md) を正とする。
 
 ## 共有の除外名
 
-設定 → 共有の「公開の除外」（`/settings/sharing/exclusions`）。Cloudflare へ公開するときに落とす名前で、ダウンロードの除外とは保存行も既定も別（[static-sharing.md](static-sharing.md#公開の除外)）。
+設定 → 共有の「公開の除外」（`/settings/sharing/exclusions`）。Cloudflare へ公開するときに落とす名前で、ダウンロードの除外とは保存行も既定も別（[static-sharing-design.md](static-sharing-design.md#公開の除外)）。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
@@ -94,7 +94,7 @@
 
 ## 共有コンテンツ
 
-静的な成果物を Cloudflare の静的アセットとして公開し、公開先の状態とライフサイクルを管理する。状態遷移・検証・エラーの契約は [static-sharing.md](static-sharing.md#api-契約) を正とする。
+静的な成果物を Cloudflare の静的アセットとして公開し、公開先の状態とライフサイクルを管理する。状態遷移・検証・エラーの契約は [static-sharing-api.md](static-sharing-api.md#api-契約) を正とする。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
@@ -150,7 +150,7 @@
 
 ### Cloudflare の接続
 
-設定 → 共有 → 接続（`/settings/sharing/connections`、既定タブの正準形は `/settings/sharing`）。BFF 専用の資格情報で、API トークンは write-only（応答・ログ・agent / sandbox へ出さない）。保存方式と権限は [static-sharing.md](static-sharing.md#cloudflare-資格情報) を正とする。
+設定 → 共有 → 接続（`/settings/sharing/connections`、既定タブの正準形は `/settings/sharing`）。BFF 専用の資格情報で、API トークンは write-only（応答・ログ・agent / sandbox へ出さない）。保存方式と権限は [static-sharing-design.md](static-sharing-design.md#cloudflare-資格情報) を正とする。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |

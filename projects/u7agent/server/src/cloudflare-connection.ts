@@ -1,7 +1,7 @@
 /**
  * 設定 → 共有 → 接続 の「接続を確認」。保存済みの資格情報が Cloudflare へ届くかを、公開の受付が
  * 最初に呼ぶのと同じ subdomain GET 1 本で確かめる。結果は保存せず、失敗も 200 で返す。
- * 契約は docs/static-sharing.md を正とする。
+ * 契約は docs/static-sharing-api.md を正とする。
  */
 import {
   CloudflareApiError,
