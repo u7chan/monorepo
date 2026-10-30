@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { reorderPrompts } from "../api";
 import { usePrompts } from "../hooks/usePrompts";
 import { useWideLayout } from "../hooks/useLayoutMode";
+import { reorderRows } from "../lib/agentReorder";
 import { cn } from "../lib/cn";
 import { MEMORY_NOTE, RELOAD_ABOVE_NOTE } from "../lib/settingsNotes";
 import {
@@ -11,6 +13,7 @@ import {
   promptPayloadOf,
   syncPromptDraft,
 } from "../lib/promptSettings";
+import { createReorderFlow, type ReorderNoteKind, type ReorderState } from "../lib/reorderFlow";
 import { promptDeleteConfirmRequest } from "../lib/settingsConfirm";
 import { useConfirm } from "./ConfirmProvider";
 import { PromptDetail } from "./prompt-settings/PromptDetail";
@@ -38,6 +41,15 @@ function PromptLoadError({ message }: { message: string }) {
 /** 一覧と詳細のどちらを見せるか。並列表示では使わない */
 type PromptView = "list" | "detail";
 
+/** 並べ替えの失敗の文言。保存されたかどうかで伝えることを分ける（client/src/lib/reorderFlow.ts） */
+function orderNoteText(kind: ReorderNoteKind, message: string): string {
+  if (kind === "rejected") return `並び順を保存できませんでした。${message}`;
+  if (kind === "unknown") {
+    return `並び順を保存できたか確認できません。再読み込みするとサーバーの並びに合わせます。（${message}）`;
+  }
+  return `並び順は保存しましたが、${message}`;
+}
+
 /**
  * 設定 → 定型プロンプト (`/settings/prompts`)。マスタの一覧と、1 件の閲覧・編集を出す。
  * 幅の境界・下書きの持ち方・焦点・結果通知はエージェント / スキルの設定と同じ規則に従う
@@ -48,9 +60,12 @@ export function PromptSettingsPage({
   onBack,
   onOpenNav,
   refreshCatalog,
+  applyPromptOrder,
 }: SettingsPageProps & {
   /** マスタの変更後にエージェントの解決済みの値を取り直す */
   refreshCatalog: () => Promise<unknown>;
+  /** 並べ替えの確定順を、取り直しを待たずに共有カタログへ反映する */
+  applyPromptOrder: (ids: readonly string[]) => void;
 }) {
   const prompts = usePrompts({ onChanged: refreshCatalog });
   const wide = useWideLayout();
@@ -66,13 +81,56 @@ export function PromptSettingsPage({
   // 取得に失敗しても直前の一覧は残る。初回の失敗 (空) は 0 件として出さない
   const list = prompts.state.prompts;
   const loadError = prompts.state.status === "error" ? prompts.state.message : undefined;
+
+  // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/reorderFlow が持ち、
+  // ここは state への反映と文言だけを持つ（エージェントの一覧と同じ組み方）
+  const [order, setOrder] = useState<ReorderState>({ draft: null, saving: false });
+  const orderDeps = useRef({
+    list,
+    applyOrder: prompts.applyOrder,
+    applyPromptOrder,
+    refresh: prompts.refresh,
+    setNoteText,
+  });
+  orderDeps.current = {
+    list,
+    applyOrder: prompts.applyOrder,
+    applyPromptOrder,
+    refresh: prompts.refresh,
+    setNoteText,
+  };
+  const [orderFlow] = useState(() =>
+    createReorderFlow({
+      ids: () => orderDeps.current.list.filter((prompt) => prompt.kind === "custom").map((prompt) => prompt.id),
+      save: async (ids) =>
+        (await reorderPrompts(ids)).prompts.filter((prompt) => prompt.kind === "custom").map((prompt) => prompt.id),
+      apply: (ids) => {
+        orderDeps.current.applyOrder(ids);
+        orderDeps.current.applyPromptOrder(ids);
+      },
+      refresh: () => orderDeps.current.refresh(),
+      note: (kind, message) => orderDeps.current.setNoteText(orderNoteText(kind, message), true),
+      onChange: setOrder,
+    }),
+  );
+  // 取得した一覧が更新された = サーバーの正が届いた。結果不明のまま残した並びの下書きはここで捨てる
+  // （エージェントのページと同じ規則。描画中の同期はフォームの初期化と同じ理由）
+  const sourceListRef = useRef(list);
+  if (sourceListRef.current !== list) {
+    sourceListRef.current = list;
+    orderFlow.settle();
+  }
+  // ドラッグ中は下書きの順で並べる。組み込みは先頭固定で、並べ替えの対象にしない
+  const visibleList = order.draft ? reorderRows(list, order.draft) : list;
+  const reorderIds = visibleList.filter((prompt) => prompt.kind === "custom").map((prompt) => prompt.id);
+
   // 並べて見せるときは先頭のマスタを選んでおく (右の面を空の新規フォームで埋めない)
   const [autoSelected, setAutoSelected] = useState(false);
   if (!autoSelected && !creating && list.length > 0) {
     setAutoSelected(true);
     if (!editingId) setEditingId(list[0].id);
   }
-  const editingPrompt = editingId ? list.find((prompt) => prompt.id === editingId) : undefined;
+  const editingPrompt = editingId ? visibleList.find((prompt) => prompt.id === editingId) : undefined;
 
   // 下書きはページが持つ。失敗して保持した古い一覧や、遅れて届いた取得で、
   // 成立済みの保存値・編集中の入力を書き換えない (lib の syncPromptDraft が規則を持つ)
@@ -191,7 +249,7 @@ export function PromptSettingsPage({
   );
 
   // 現在名 + ▾ のピッカー。一覧を並べている間は行の選択が切り替えを担うので出さない
-  const pickerOptions: SelectMenuOption[] = list.map((prompt) => ({
+  const pickerOptions: SelectMenuOption[] = visibleList.map((prompt) => ({
     value: prompt.id,
     label: prompt.label,
     description: prompt.kind === "builtin" ? "組み込み" : prompt.prompt,
@@ -236,7 +294,17 @@ export function PromptSettingsPage({
   );
 
   const listPane = (
-    <PromptList prompts={list} editingId={editingId} onSelect={selectPrompt} onStartNew={startNewPrompt} />
+    <PromptList
+      prompts={visibleList}
+      reorderIds={reorderIds}
+      editingId={editingId}
+      onSelect={selectPrompt}
+      onStartNew={startNewPrompt}
+      onReorder={(ids) => orderFlow.preview(ids)}
+      onCommitOrder={() => void orderFlow.commit()}
+      onCancelOrder={() => orderFlow.cancel()}
+      reorderDisabled={order.saving}
+    />
   );
 
   return (

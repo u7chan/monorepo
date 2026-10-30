@@ -1,19 +1,19 @@
 /**
- * 設定 → エージェント（/settings/agents）の並べ替えの保存と反映。ドラッグの下書きはページが持ち、
+ * 設定の一覧（エージェント / 定型プロンプト）の並べ替えの保存と反映。ドラッグの下書きはページが持ち、
  * 確定時の手順（保存 → 即時反映 → 取り直し）と、失敗の分類だけをここへ閉じる。
- * DOM も React も知らないので、呼び出し側（AgentSettingsPage）が状態を受け取って描画に使う。
+ * DOM も React も知らないので、呼び出し側のページが状態を受け取って描画に使う。
  */
 import { ApiError } from "../api";
 
-export type AgentOrderState = {
-  /** ドラッグ中の下書き順（ユーザー定義の id）。null = カタログの順（確定済み） */
+export type ReorderState = {
+  /** ドラッグ中の下書き順（並べ替え対象の id）。null = サーバーの確定順 */
   draft: string[] | null;
   /** 送信を直列化する。保存中は次のドラッグを始めさせない */
   saving: boolean;
 };
 
 /** 通知の種類。文言はページが持ち、ここは分類だけを渡す */
-export type AgentOrderNoteKind =
+export type ReorderNoteKind =
   /** HTTP エラーの応答。保存されていないので元の順へ戻す */
   | "rejected"
   /** 応答が返らない失敗（接続断 / タイムアウト）。保存結果が不明なので表示は戻さない */
@@ -21,31 +21,31 @@ export type AgentOrderNoteKind =
   /** 保存はできたが、一覧を取り直せない */
   | "refresh";
 
-export type AgentOrderFlowOptions = {
-  /** 現在のユーザー定義の id 順（確定済みのカタログから読む） */
+export type ReorderFlowOptions = {
+  /** 現在の並べ替え対象の id 順（確定済みの一覧から読む。組み込みは含めない） */
   ids: () => string[];
-  /** 並びを保存し、サーバーが採用した順を返す（PATCH /api/agents/order） */
+  /** 並びを保存し、サーバーが採用した順を返す（PATCH /api/agents/order または /api/prompts/order） */
   save: (ids: string[]) => Promise<string[]>;
-  /** 確定した順を共有カタログへ即時に反映する（同時に取得の世代を進める） */
+  /** 確定した順を一覧と共有カタログへ即時に反映する（同時に取得の世代を進める） */
   apply: (ids: string[]) => void;
-  /** 確定後にカタログを取り直す */
+  /** 確定後に一覧（と共有カタログ）を取り直す */
   refresh: () => Promise<unknown>;
-  note: (kind: AgentOrderNoteKind, message: string) => void;
+  note: (kind: ReorderNoteKind, message: string) => void;
   /** 下書きと保存中の状態をページへ渡す */
-  onChange: (state: AgentOrderState) => void;
+  onChange: (state: ReorderState) => void;
 };
 
-export type AgentOrderFlow = {
-  state(): AgentOrderState;
+export type ReorderFlow = {
+  state(): ReorderState;
   /** ドラッグ中の live 差し替え。保存中は受け付けない */
   preview(ids: readonly string[]): void;
-  /** ドラッグの取り消し。下書きを捨ててカタログの順へ戻す */
+  /** ドラッグの取り消し。下書きを捨ててサーバーの確定順へ戻す */
   cancel(): void;
   /** 確定。ドラッグしていなければ何もしない */
   commit(): Promise<void>;
   /**
-   * サーバーの正を取り込んだ（カタログの更新）。**結果不明のまま残している下書きだけ**を捨てて
-   * 表示をサーバーの並びへ戻す（`AgentSettingsPage` がカタログの更新で呼ぶ）。
+   * サーバーの正を取り込んだ（一覧 / カタログの更新）。**結果不明のまま残している下書きだけ**を捨てて
+   * 表示をサーバーの並びへ戻す（各ページが取得の更新で呼ぶ）。
    */
   settle(): void;
 };
@@ -54,8 +54,8 @@ function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function createAgentOrderFlow(options: AgentOrderFlowOptions): AgentOrderFlow {
-  let state: AgentOrderState = { draft: null, saving: false };
+export function createReorderFlow(options: ReorderFlowOptions): ReorderFlow {
+  let state: ReorderState = { draft: null, saving: false };
   /** 応答が返らず結果不明のまま残している下書き。次の取得（settle）までだけ表示に残す */
   let unconfirmed = false;
   const publish = () => options.onChange({ draft: state.draft ? [...state.draft] : null, saving: state.saving });
@@ -87,7 +87,7 @@ export function createAgentOrderFlow(options: AgentOrderFlowOptions): AgentOrder
     async commit() {
       // 保存中のドラッグは開始させない前提。ここでも直列化して、到達順の逆転で古い操作が最終値にならないようにする
       if (state.saving) return;
-      // 動かしていないドラッグ（レきい値を越えて戻した / 同位置へ落とした）では送らない
+      // 動かしていないドラッグ（しきい値を越えて戻した / 同位置へ落とした）では送らない
       const ids = state.draft;
       const current = options.ids();
       if (!ids || (ids.length === current.length && ids.every((id, index) => id === current[index]))) return;

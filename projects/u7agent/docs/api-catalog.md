@@ -7,8 +7,9 @@
 | GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）の一覧（同梱の組み込みスキルを `builtinSkills`、アプリが扱うツールを `tools` で含む） |
 | POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, commonSkillNames?, builtinSkillNames?, toolNames?, icon?, model?, thinkingLevel?, promptIds? }` |
 | PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` / `commonSkillNames` / `builtinSkillNames` / `toolNames` の `null` と `promptIds: []` は指定解除。ビルトインは 400） |
-| GET | `/api/prompts` | 定型プロンプトのマスタ一覧 `{ prompts }`（使用先 `usedBy` つき、組み込みが先） |
+| GET | `/api/prompts` | 定型プロンプトのマスタ一覧 `{ prompts }`（使用先 `usedBy` つき、組み込みが先で自作は保存した順） |
 | POST | `/api/prompts` | 自作マスタの作成 `{ label, prompt }`（種別と ID はサーバーが決める） |
+| PATCH | `/api/prompts/order` | 表示順の保存 `{ ids }`（応答は並べ替え後の `{ prompts }`。組み込みは対象外） |
 | GET | `/api/prompts/:id` | マスタ 1 件 `{ prompt }` |
 | PATCH / PUT | `/api/prompts/:id` | 自作マスタの更新（キー省略は保持。組み込みは 400） |
 | DELETE | `/api/prompts/:id` | 自作マスタの削除（使用中は 409 + `usedBy`、組み込みは 400、未知は 404） |
@@ -221,6 +222,20 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
   "name": "コード実装",
   "promptIds": ["prompt-builtin-project-overview", "prompt-example-custom"]
 }
+```
+
+## 定型プロンプトの表示順
+
+一覧の並びは端末ごとの表示設定ではなく、マスタのプロパティとしてアプリデータへ保存する。正をサーバーの配列順にすれば、設定一覧とエージェントの定型タブの候補が同じ順で揃う（[persistence.md](persistence.md#アプリデータsqlite)）。
+
+- GET の `prompts` は保存された並び順で返る。`sortOrder` は app-db の内部に閉じ、`PromptDef` と応答形は変えない。
+- 組み込みは同梱の定義順で先頭固定とし、並べ替えの対象にしない（`ids` に渡しても捨てる）。自作だけが動く。
+- `ids` の正規化はエージェントの表示順と同じ: 採用するのは既存の自作の id だけで、未知の id・重複・組み込みは捨て、渡されなかった行は元の相対順で末尾に回す。`[]` と全件未知は現行順のまま。応答は正規化後の一覧で、これが以後の GET と一致する。
+- 追加したマスタは末尾に付く。更新（PATCH / PUT）とエージェントの参照の保存では位置を動かさない。
+- 保存は全件を 1 トランザクションで書き直し、途中で失敗したら 1 つも書かない。400 = 本文が不正、503 = DB 障害（[エージェントの表示順](#エージェントの表示順) と同じ方針）。
+
+```json
+{ "ids": ["prompt-example-b", "prompt-example-a"] }
 ```
 
 ## エージェント定義のスキル許可リスト

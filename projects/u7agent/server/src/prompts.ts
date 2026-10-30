@@ -16,7 +16,7 @@ export interface PromptUsageConflict extends Error {
 }
 
 export interface PromptCatalog {
-  /** 一覧 (組み込みが先、その中は作成順)。各件に使用先を付ける */
+  /** 一覧 (組み込みが先、その中は定義順。自作は保存した順)。各件に使用先を付ける */
   list(): PromptDef[];
   get(id: string): PromptDef | undefined;
   /** 作成。kind と ID はサーバーが決める (入力からは指定できない) */
@@ -25,6 +25,11 @@ export interface PromptCatalog {
   update(id: string, input: unknown): PromptDef;
   /** 削除。組み込みは 400、使用中は 409、未知は 404 */
   remove(id: string): void;
+  /**
+   * 表示順の更新。応答と以後の一覧は、正規化したあとの順で返る。
+   * 未知の id・重複・組み込みは捨て、渡されなかった行は元の相対順で末尾に回す。
+   */
+  reorder(ids: readonly string[]): PromptDef[];
   /** 全マスタを参照形で返す (エージェントの選択肢。使用先は含めない) */
   refs(): PromptRef[];
   /** エージェントが参照する ID 列を解決する (未知は 400) */
@@ -156,6 +161,26 @@ export function createPromptCatalog({ db }: { db: AppDb }): PromptCatalog {
         if (usedBy.length > 0) throw inUseError(usedBy);
         throw error;
       }
+    },
+
+    reorder(ids) {
+      // 組み込みは定義順の先頭固定。並べ替えの対象は自作だけで、未知の id を捨てる方針は
+      // エージェントの並べ替えと同じ (docs/api-catalog.md)
+      const current = db.listPrompts().filter((row) => row.kind === "custom");
+      const known = new Set(current.map((row) => row.id));
+      const seen = new Set<string>();
+      const order: string[] = [];
+      for (const id of ids) {
+        if (typeof id !== "string" || !known.has(id) || seen.has(id)) continue;
+        seen.add(id);
+        order.push(id);
+      }
+      // 渡されなかった行は末尾へ、元の相対順のまま (1 度も触られていない行を並べ替えない)
+      for (const row of current) {
+        if (!seen.has(row.id)) order.push(row.id);
+      }
+      db.reorderPrompts(order);
+      return list();
     },
 
     refs() {

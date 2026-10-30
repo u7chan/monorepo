@@ -221,7 +221,7 @@ test("a v34 db gets the integer position check and keeps its references", () => 
     migrated.close();
 
     const version = new DatabaseSync(join(dir, APP_DB_FILENAME));
-    assert.equal(Number(version.prepare("PRAGMA user_version").get()?.user_version), 35);
+    assert.equal(Number(version.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     version.close();
 
     // 移行後のテーブルは 1.5 を受け付けない
@@ -459,6 +459,99 @@ test("a too-long or empty stored suggestion fails the migration instead of being
     const broken = AppDb.open({ storeDir: dir });
     assert.equal(broken.status().ok, false);
     broken.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("prompt masters can be reordered without moving built-ins, and the order survives reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    const prompts = createPromptCatalog({ db: first });
+    const a = prompts.create({ label: "A", prompt: "A の本文" });
+    const b = prompts.create({ label: "B", prompt: "B の本文" });
+    const c = prompts.create({ label: "C", prompt: "C の本文" });
+    const builtinIds = BUILTIN_PROMPTS.map((prompt) => prompt.id);
+
+    // 未知の id・重複・組み込みは捨て、渡されなかった自作は元の相対順で末尾へ回す
+    const reordered = prompts.reorder([c.id, "prompt-missing", b.id, c.id, builtinIds[0]]);
+    assert.deepEqual(
+      reordered.map((prompt) => prompt.id),
+      [...builtinIds, c.id, b.id, a.id],
+    );
+    // 組み込みは並べ替えの対象にしない (先頭固定)
+    assert.deepEqual(
+      prompts.reorder([builtinIds[2], a.id]).map((prompt) => prompt.id),
+      [...builtinIds, a.id, c.id, b.id],
+    );
+    // 空の指定と全件未知は現行順のまま
+    assert.deepEqual(
+      prompts.reorder([]).map((prompt) => prompt.id),
+      [...builtinIds, a.id, c.id, b.id],
+    );
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(
+      second.listPrompts().map((prompt) => prompt.id),
+      [...builtinIds, a.id, c.id, b.id],
+      "再起動しても保存した順を保つ",
+    );
+    const reopened = createPromptCatalog({ db: second });
+    const d = reopened.create({ label: "D", prompt: "D の本文" });
+    assert.deepEqual(
+      reopened.list().map((prompt) => prompt.id),
+      [...builtinIds, a.id, c.id, b.id, d.id],
+      "追加したマスタは末尾に付く",
+    );
+    second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a v35 db gets the prompt sort order without changing the existing order", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("ALTER TABLE prompts DROP COLUMN sortOrder");
+    const insert = raw.prepare("INSERT INTO prompts (id, kind, label, prompt) VALUES (?, 'custom', ?, ?)");
+    insert.run("prompt-legacy-a", "A", "A の本文");
+    insert.run("prompt-legacy-b", "B", "B の本文");
+    raw.exec("PRAGMA user_version = 35");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.equal(migrated.status().ok, true);
+    assert.deepEqual(
+      migrated
+        .listPrompts()
+        .filter((prompt) => prompt.kind === "custom")
+        .map((prompt) => prompt.id),
+      ["prompt-legacy-a", "prompt-legacy-b"],
+      "移行前の作成順を保つ",
+    );
+    const prompts = createPromptCatalog({ db: migrated });
+    const appended = prompts.create({ label: "C", prompt: "C の本文" });
+    assert.deepEqual(
+      prompts
+        .list()
+        .filter((prompt) => prompt.kind === "custom")
+        .map((prompt) => prompt.id),
+      ["prompt-legacy-a", "prompt-legacy-b", appended.id],
+      "移行後の追加は末尾に付く",
+    );
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = (check.prepare("PRAGMA table_info(prompts)").all() as { name: string }[]).map(
+      (column) => column.name,
+    );
+    assert.ok(columns.includes("sortOrder"));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

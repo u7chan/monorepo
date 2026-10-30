@@ -1,16 +1,16 @@
 // 設定 → エージェント（/settings/agents）の並べ替えの保存と反映。DOM を組まずに、
-// ページが使う flow（client/src/lib/agentOrder.ts）と共有カタログの取得の世代（client/src/lib/catalogStore.ts）、
+// ページが使う flow（client/src/lib/reorderFlow.ts）と共有カタログの取得の世代（client/src/lib/catalogStore.ts）、
 // フォーム初期化の判定（agentFormKey）だけを固定する。ここが崩れると、取消が保存を送る / 遅れて届いた取得が
 // 確定した並びを巻き戻す / 並べ替えで入力中の下書きが消える、のいずれかが起きる。
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentOrderNoteKind, AgentOrderState } from "../src/lib/agentOrder";
+import type { ReorderNoteKind, ReorderState } from "../src/lib/reorderFlow";
 import type { AgentDef, CatalogResponse } from "../src/types";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { ApiError } = await import("../src/api");
-const { createAgentOrderFlow } = await import("../src/lib/agentOrder");
+const { createReorderFlow } = await import("../src/lib/reorderFlow");
 const { createCatalogStore } = await import("../src/lib/catalogStore");
 const { agentFormKey } = await import("../src/components/agent-settings/AgentEditorForm");
 
@@ -26,10 +26,10 @@ function createHarness(options: {
 }) {
   const saved: string[][] = [];
   const applied: string[][] = [];
-  const notes: { kind: AgentOrderNoteKind; message: string }[] = [];
-  const states: AgentOrderState[] = [];
+  const notes: { kind: ReorderNoteKind; message: string }[] = [];
+  const states: ReorderState[] = [];
   let current = [...options.ids];
-  const flow = createAgentOrderFlow({
+  const flow = createReorderFlow({
     ids: () => current,
     save: async (ids) => {
       saved.push([...ids]);

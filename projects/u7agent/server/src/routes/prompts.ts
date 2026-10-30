@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { messageFor, statusCodeOf } from "../http";
 import type { PromptCatalog, PromptUsageConflict } from "../prompts";
-import type { CreatePromptBody, UpdatePromptBody } from "../schema";
+import type { CreatePromptBody, ReorderPromptsBody, UpdatePromptBody } from "../schema";
 
 /** 409 の応答に使用先を載せる。画面が「どこで使われているか」をそのまま出せる */
 function usedByOf(error: unknown): PromptUsageConflict["usedBy"] {
@@ -24,6 +24,9 @@ export function createPromptRoutes({ prompts }: { prompts: PromptCatalog }) {
     },
 
     create: (c: Context, body: CreatePromptBody) => c.json({ prompt: prompts.create(body) }, 201),
+
+    /** 応答は並べ替え後の一覧。クライアントはこれをそのまま採用する (定義は順序で書き換えない) */
+    reorder: (c: Context, body: ReorderPromptsBody) => c.json({ prompts: prompts.reorder(body.ids) }),
 
     update: (c: Context, body: UpdatePromptBody) => c.json({ prompt: prompts.update(c.req.param("id") ?? "", body) }),
 
