@@ -361,7 +361,7 @@ docker compose up -d --build
 
 ### Dockerfileの構成（マルチステージ）
 
-1. **base** - Node 24 Alpine + Bun
+1. **base** - Node 26 Alpine + Bun
 2. **test** - lint + テスト実行
 3. **builder** - 本番依存関係のインストール
 4. **final** - 本番イメージ（非rootユーザー実行、ポート3000）
