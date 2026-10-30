@@ -56,6 +56,6 @@ Landlock の保証範囲と残りの限界（`chmod` / `chown` / `utime` / `setx
 
 ## 関連 API
 
-- `GET /api/files?path=<root 相対>` — 一覧（[api.md](api.md)）
+- `GET /api/files?path=<root 相対>` — 一覧（[api-files.md](api-files.md#ファイル一覧)）
 - `POST /api/projects` / `DELETE /api/projects/:id` — 登録と解除（`<appdir>/**` は 400。[api.md](api.md)）
 - `POST /api/sessions` の `projectId` — セッション作成時の所属（[api-sessions.md](api-sessions.md)）

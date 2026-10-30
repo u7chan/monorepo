@@ -14,7 +14,7 @@ const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "i
 
 /**
  * raw 配信 (音声プレビュー) に対応する拡張子。再生できる形式はブラウザのコーデックに依るため、
- * ここではサーバーの allowlist と同じものを並べる (docs/api.md)。
+ * ここではサーバーの allowlist と同じものを並べる (docs/api-files.md#画像配信raw)。
  */
 const AUDIO_EXTENSIONS = ["mp3", "m4a", "ogg", "oga", "wav", "flac"];
 
