@@ -43,7 +43,8 @@ export function withoutIndentedCode(text) {
     const marker = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/.exec(line);
     if (marker !== null && indent < codeAt) {
       listStack.push(marker[1].length + marker[2].length + marker[3].length);
-      paragraph = marker[4].trim() !== "";
+      // 項目の中身が見出しや水平線なら、その項目の段落は開かない
+      paragraph = marker[4].trim() !== "" && !HEADING.test(marker[4]) && !THEMATIC.test(marker[4]);
       out.push(line);
       continue;
     }

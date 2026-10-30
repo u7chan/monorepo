@@ -54,6 +54,10 @@ test("見出しや水平線の直後のインデント行はコードとして�
   assert.equal(withoutIndentedCode("---\n    [a](x.md)").includes("[a](x.md)"), false);
 });
 
+test("見出しを内容にするリスト項目の直後はコードとして落とす", () => {
+  assert.equal(withoutIndentedCode("- # 見出し\n      [a](x.md)").includes("[a](x.md)"), false);
+});
+
 test("リストの継続は散文として残す", () => {
   assert.equal(withoutIndentedCode("- 項目\n  継続 [a](x.md)").includes("[a](x.md)"), true);
   assert.equal(withoutIndentedCode("本文 [a](x.md)").includes("[a](x.md)"), true);
