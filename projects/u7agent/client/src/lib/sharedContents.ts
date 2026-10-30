@@ -1,6 +1,6 @@
 /**
  * 共有ダイアログの文言と状態の見せ方。公開は非同期なので、`publishing` の間だけポーリングし、
- * 終端は `status` と `lastError` の組で読む（契約は docs/static-sharing.md）。
+ * 終端は `status` と `lastError` の組で読む（契約は docs/static-sharing-api.md）。
  */
 import type {
   CreateSharedContentBody,

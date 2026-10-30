@@ -543,7 +543,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => archiveRoutes.update(c, c.req.valid("json")),
     )
     .delete("/api/settings/archive", appData, archiveRoutes.reset)
-    // 共有の除外名。アーカイブの設定とは別の行・別の既定を持つ (docs/static-sharing.md)
+    // 共有の除外名。アーカイブの設定とは別の行・別の既定を持つ (docs/static-sharing-design.md#公開の除外)
     .get("/api/settings/shared-content-exclusions", appData, sharedContentExclusionsRoutes.get)
     .put(
       "/api/settings/shared-content-exclusions",

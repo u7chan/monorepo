@@ -1,6 +1,6 @@
 /**
  * 静的成果物の共有。sandbox の ZIP を全量取得して検証し、Cloudflare の静的アセットとして公開する。
- * 資格情報は BFF だけが扱い、状態は `shared_contents` へ記録する。契約は docs/static-sharing.md を正とする。
+ * 資格情報は BFF だけが扱い、状態は `shared_contents` へ記録する。契約は docs/static-sharing-api.md を正とする。
  */
 import { randomBytes } from "node:crypto";
 import { createWriteStream } from "node:fs";

@@ -1,6 +1,6 @@
 /**
  * Cloudflare の資格情報（アカウント ID と暗号化した API トークン）を BFF 専用で保存する。
- * 契約は docs/static-sharing.md を正とする。
+ * 契約は docs/static-sharing-api.md を正とする。
  */
 import type { CloudflareSettingsRow } from "./app-db";
 import { httpError } from "./http";
