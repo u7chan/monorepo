@@ -204,11 +204,11 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 
 ファイルを置くのはサンドボックスだけなので、`uploads/` も通常の作業ファイルと同じく `bash` / `read` から見える（セッション間の隔離はない）。`write` / `edit` の書き込み範囲はセッションの作業ディレクトリと `<root>/.agents/skills` なので、添付は変更できない。
 
-誤ってアップロードしたファイルは、設定 → ファイル の一覧（ワークスペース root）から通常ファイル単位 / ディレクトリ単位（配下ごと）で削除できる（`DELETE /api/files` → サンドボックスの `DELETE /v1/files` / `DELETE /v1/dirs?recursive=true`。出す画面・確認・タブの扱いは [file-preview.md](file-preview.md#削除)）。symlink は消せない。同じ一覧のフォルダ行からは名前も変更できる（`POST /api/files/rename` → サンドボックスの `POST /v1/files/rename`。出すのは設定 → ファイル だけで、ツリーの経路とプレビューのタブが新しい名前へ追随する。[file-preview.md](file-preview.md#リネーム)）。セッションの DELETE は従来どおり履歴だけで、作業ディレクトリと添付は残る。
+誤ってアップロードしたファイルは、設定 → ファイル の一覧（ワークスペース root）から通常ファイル単位 / ディレクトリ単位（配下ごと）で削除できる（`DELETE /api/files` → サンドボックスの `DELETE /v1/files` / `DELETE /v1/dirs?recursive=true`。出す画面・確認・タブの扱いは [file-actions.md](file-actions.md#削除)）。symlink は消せない。同じ一覧のフォルダ行からは名前も変更できる（`POST /api/files/rename` → サンドボックスの `POST /v1/files/rename`。出すのは設定 → ファイル だけで、ツリーの経路とプレビューのタブが新しい名前へ追随する。[file-actions.md](file-actions.md#リネーム)）。セッションの DELETE は従来どおり履歴だけで、作業ディレクトリと添付は残る。
 
 ## メッセージからのファイル参照
 
-assistant 本文のインラインコードが指すファイルは、クリックでそのセッションの作業フォルダのタブとして右パネル / sheet に開く。字面の判定・cwd 相対への解決・要求の寿命・focus の扱いは [file-preview.md](file-preview.md#メッセージからの導線ファイル参照) を正とする。
+assistant 本文のインラインコードが指すファイルは、クリックでそのセッションの作業フォルダのタブとして右パネル / sheet に開く。字面の判定・cwd 相対への解決・要求の寿命・focus の扱いは [file-tree.md](file-tree.md#メッセージからの導線ファイル参照) を正とする。
 
 - 解決の基準は選択中セッションの `payload.cwd` で、`health.cwd`（ワークスペース root）を前置した絶対パスは cwd 配下のときだけ剥がす。cwd 相対に正規化できないもの（cwd 外の絶対パス / 未作成チャット / `..` を含む字面）はリンクにしない
 - 要求は `{ seq, sessionId, path }` で持ち、選択が変わった時点で旧セッションの要求を破棄する。**同一プロジェクトの複数セッションはツリーを共有するが、`cwd` はセッション識別子にならない**ため、切り替えて同じ cwd に戻っても要求は復活しない

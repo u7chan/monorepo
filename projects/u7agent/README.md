@@ -39,7 +39,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 ### ファイルと公開
 
-- **ファイルの持ち出し（ダウンロード）**: 設定 → ファイル と右パネルのツリーの行から保存できます。ファイルは元の名前のまま生バイトで、フォルダは ZIP です。除外規則と上限は [docs/file-preview.md](docs/file-preview.md#ダウンロード) にあります
+- **ファイルの持ち出し（ダウンロード）**: 設定 → ファイル と右パネルのツリーの行から保存できます。ファイルは元の名前のまま生バイトで、フォルダは ZIP です。除外規則と上限は [docs/file-actions.md](docs/file-actions.md#ダウンロード) にあります
 - **サービス（serve）**: エージェントが起動した Web サーバーを別タブで開けます。トップバーから起動・停止・入れ替えができます（[docs/sandbox.md](docs/sandbox.md#serveサービスの公開と起動停止)）
 - **静的コンテンツの共有**: チャット右パネルのディレクトリ行から、作業フォルダの成果物を Cloudflare（workers.dev）へ公開して安定した URL を発行できます。公開した共有物の一覧・更新・停止・削除は 設定 → 共有（`/settings/sharing`）で行います。同じ公開元の共有物があるときは、ダイアログから同じ URL へ更新できます（[docs/static-sharing.md](docs/static-sharing.md)）
 

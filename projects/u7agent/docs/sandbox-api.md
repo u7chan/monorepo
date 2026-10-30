@@ -251,7 +251,7 @@ X-Content-Type-Options: nosniff
 
 事前 walk（`server/src/sandbox/archive.ts`）がヘッダを送る前に上限を検査するため、超過は「切れた zip」ではなく 413 になる。**単体ファイルも同じ 100 MiB** で拒否する（Zip64 を書かずに 4 GiB 級のファイルを 32bit フィールドで書くと壊れるため）。
 
-限界は [file-preview.md](file-preview.md#既知の制限ダウンロード) を参照（ストリーム中の失敗で切れた zip になる / 事前 walk と圧縮の間の増減は見積りの近似になる）。
+限界は [file-actions.md](file-actions.md#既知の制限ダウンロード) を参照（ストリーム中の失敗で切れた zip になる / 事前 walk と圧縮の間の増減は見積りの近似になる）。
 
 ### `GET /v1/files/download/check`
 
