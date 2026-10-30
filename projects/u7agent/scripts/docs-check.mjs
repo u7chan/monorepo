@@ -107,11 +107,16 @@ function hasHeading(file, anchor) {
 }
 
 /** fenced code block・HTML コメント・複数行のコード span を落とす (中身の記法は本文ではない)。
- * GitHub は ``` と ~~~ の両方をフェンスとして描画し、コメント内のリンクも描画しない。 */
+ * GitHub は ``` と ~~~ の両方をフェンスとして描画し、コメント内のリンクも描画しない。
+ * コード span の中の `<!--` はコメントの開始ではないので、退避してからコメントを落とす。 */
 function withoutCodeBlocks(text) {
-  return text
+  const spans = [];
+  const masked = text
     .replace(/^(```|~~~)[\s\S]*?^\1/gm, "")
+    .replace(/`[^`\n]*`/g, (span) => `\u0000${spans.push(span) - 1}\u0000`);
+  return masked
     .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/\u0000(\d+)\u0000/g, (_, index) => spans[Number(index)])
     .replace(/``[\s\S]*?``/g, "");
 }
 
