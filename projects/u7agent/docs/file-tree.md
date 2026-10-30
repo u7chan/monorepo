@@ -43,12 +43,12 @@
 
 ## アイコンの見た目
 
-ファイル行・ディレクトリ行のアイコンは、設定 → 外観（`/settings/appearance`）の「アイコン」タブ（`/settings/appearance/icons`）で選ぶ。保存はテーマと同じブラウザー単位で、`client/src/lib/fileIconStyle.ts` の 1 キーに閉じる。未保存と未知の値は現行の見た目へ倒す（既存の見た目を勝手に変えない）。切り替えの選択肢と既定値はコードが正。
+ファイル行・ディレクトリ行のアイコンは、設定 → 外観（`/settings/appearance`）の「アイコン」タブ（`/settings/appearance/icons`）で選ぶ。保存はテーマと同じブラウザー単位で、`client/src/lib/fileIconStyle.ts` の保存先に閉じる。未保存と未知の値は現行の見た目へ倒す（既存の見た目を勝手に変えない）。切り替えの選択肢と既定値はコードが正。
 
-- **切り替えはツリーの root が持つ `data-file-icons` と CSS（`client/src/styles/index.css`）が担う**。`FileIcon` は `--file-kind`（種類色の参照）とクラスだけを持ち、`FolderIcon` は `--file-folder` が無ければ `currentColor` のまま描く。`FolderIcon` / `FileIcon` は左バーのプロジェクト行・トップバー・設定ナビ・プロジェクトダイアログにも出るため、コンポーネント側で色を決めるとツリーの外まで色付く。設定の効く範囲は `FileBrowser` を使う 4 面（設定 → ファイル / チャットの右パネル / チャットのスキル面 / 設定 → スキルのファイルタブ）に閉じ、面ごとの設定は持たない
-- **種類色は明暗 2 組だけを持つ**（`client/src/styles/index.css` の `--c-file-*` を `:root` と `[data-appearance="light"]` に置く）。20 テーマ × 7 色を各プリセットへ足すと、テーマを追加するたびに色の検証が増えるため。`data-appearance` は `client/src/theme/ThemeProvider.tsx` が解決済みテーマから描画前に書く（ライトテーマでダーク用の色が 1 フレーム見えない）
-- **形（`FileKind` の 9 分類）と行の寸法は変えない**。設定は色の載せ方だけを変える
-- **選択中の行でも種類色はそのまま**。行の状態（通常 / hover / 選択中 / reveal）ごとに色を落とすと、見た目 × 状態の組み合わせが増えるため。選択面（`accent-wash`）の上で沈む色は、テーマごとの手動確認で見る
+- **切り替えはツリーの root が持つ `data-file-icons` と CSS（`client/src/styles/index.css`）が担う**。`FileIcon` は `--file-kind`（種類色の参照）とクラスだけを持ち、`FolderIcon` / `FileIcon` は `data-file-icons` の外では `currentColor` のまま描く。両者は左バーのプロジェクト行・トップバー・設定ナビ・プロジェクトダイアログにも出るため、コンポーネント側で色を決めるとツリーの外まで色付く。設定の効く範囲は `FileBrowser` を使う面に閉じ、面ごとの設定は持たない
+- **種類色はプリセットごとではなく、明暗（`color-scheme`）ごとの組に持つ**（`client/src/styles/index.css` の `--c-file-*` を `:root[data-appearance="light"]` で切り替える）。各プリセットへ色を足すと、テーマを追加するたびに色の検証が増えるため。`data-appearance` は `client/src/theme/ThemeProvider.tsx` が解決済みテーマから描画前に書く（ライトテーマでダーク用の色が 1 フレーム見えない）
+- **形（分類は `client/src/lib/fileKind.ts`）と行の寸法は変えない**。設定は色の載せ方だけを変える
+- **行の選択中でも種類色は変えない**。状態ごとに色を落とすと、見た目 × 状態の組み合わせが増えるため。選択面（`accent-wash`）の上で沈む色は、テーマごとの手動確認で見る
 - 色と塗りは CSS だけが持つので自動テストにしない。保存値の解決・store・`--file-kind` とクラス名の対応だけをテストで固定する（[testing.md](testing.md)）
 
 ## ディレクトリの開閉
