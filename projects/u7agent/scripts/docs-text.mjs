@@ -52,7 +52,7 @@ function stripMarkers(content) {
 
 /** フェンスの閉じ行か。記号は開きと同じで、長さは開き以上、コンテナから 3 桁まで。 */
 function isFenceEnd(line, fence) {
-  const mark = CLOSING_FENCE.exec(line.trimStart());
+  const mark = CLOSING_FENCE.exec(line.trim());
   const relative = line.length - line.trimStart().length - fence.indent;
   return (
     mark !== null &&
@@ -75,15 +75,14 @@ function classify(text) {
   let table = false;
   let fence = null;
   for (const line of text.split("\n")) {
-    // 段落の中の行は、HTML の 7 型のように段落を中断できないブロックを開始しない
     const paragraphBefore = paragraph !== null;
     if (fence !== null) {
-      rows.push({ line, code: true, body: "", blockIndent: false, paragraphBefore });
+      rows.push({ line, code: true, body: "", blockIndent: false, continues: paragraphBefore });
       if (isFenceEnd(line, fence)) fence = null;
       continue;
     }
     if (line.trim() === "") {
-      rows.push({ line, code: false, body: "", blockIndent: false, paragraphBefore });
+      rows.push({ line, code: false, body: "", blockIndent: false, continues: false });
       paragraph = null;
       table = false;
       continue;
@@ -100,23 +99,27 @@ function classify(text) {
     const open = blockIndent ? FENCE.exec(body) : null;
     if (open !== null) {
       fence = { mark: open[1], indent: width > 0 ? bodyIndent : contentIndent };
+      // 項目の内容として始まったフェンスは、フェンスの間も項目を開いたままにする
+      if (width > 0) items.push(bodyIndent);
       paragraph = null;
       table = false;
-      rows.push({ line, code: true, body, blockIndent, paragraphBefore });
+      rows.push({ line, code: true, body, blockIndent, continues: false });
       continue;
     }
     const heading = blockIndent && HEADING.test(body);
     const thematic = blockIndent && THEMATIC.test(body);
     const listItem = blockIndent && width > 0;
+    // 段落の継続行は、HTML の 7 型のように段落を中断できないブロックを開始しない
+    const continues = paragraphBefore && !heading && !thematic && !listItem;
     // インデントコードは段落を中断できない (空行か、段落のないブロックの後だけが開始できる)
     if (paragraph === null && !blockIndent) {
       table = false;
-      rows.push({ line, code: true, body, blockIndent, paragraphBefore });
+      rows.push({ line, code: true, body, blockIndent, continues });
       continue;
     }
     // 表は空行か別のブロックの開始まで続き、その行は段落を開かない (GFM の表は leaf block)
     if (table && !heading && !thematic && !listItem) {
-      rows.push({ line, code: false, body, blockIndent, paragraphBefore });
+      rows.push({ line, code: false, body, blockIndent, continues });
       continue;
     }
     table = false;
@@ -130,19 +133,19 @@ function classify(text) {
     ) {
       table = true;
       paragraph = null;
-      rows.push({ line, code: false, body, blockIndent, paragraphBefore });
+      rows.push({ line, code: false, body, blockIndent, continues });
       continue;
     }
     if (heading || thematic) {
       paragraph = null;
-      rows.push({ line, code: false, body, blockIndent, paragraphBefore });
+      rows.push({ line, code: false, body, blockIndent, continues });
       continue;
     }
     // setext の下線は開いている段落を閉じる。lazy continuation は下線にできないので、
     // 段落の内容位置より浅い行では閉じない
     if (inParagraph && SETEXT.test(body)) {
       paragraph = null;
-      rows.push({ line, code: false, body, blockIndent, paragraphBefore });
+      rows.push({ line, code: false, body, blockIndent, continues });
       continue;
     }
     if (listItem) {
@@ -150,12 +153,12 @@ function classify(text) {
       paragraphBody = body;
       // 項目の中身が空か見出しか水平線なら、その項目の段落は開かない
       paragraph = body === "" || HEADING.test(body) || THEMATIC.test(body) ? null : bodyIndent;
-      rows.push({ line, code: false, body, blockIndent, paragraphBefore });
+      rows.push({ line, code: false, body, blockIndent, continues });
       continue;
     }
     paragraphBody = body;
     if (paragraph === null) paragraph = contentIndent;
-    rows.push({ line, code: false, body, blockIndent, paragraphBefore });
+    rows.push({ line, code: false, body, blockIndent, continues });
   }
   return rows;
 }
@@ -204,7 +207,7 @@ export function unsupportedBlocks(text) {
     if (row.code || !row.blockIndent) return [];
     const hit = UNSUPPORTED.find(
       ({ pattern, interruptsParagraph }) =>
-        (interruptsParagraph || !row.paragraphBefore) && pattern.test(row.body),
+        (interruptsParagraph || !row.continues) && pattern.test(row.body),
     );
     return hit === undefined ? [] : [{ line: index + 1, syntax: hit.syntax }];
   });

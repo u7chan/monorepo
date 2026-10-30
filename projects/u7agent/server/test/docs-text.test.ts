@@ -31,6 +31,14 @@ test("リスト項目の内容として始まるフェンスもコードとし�
   assert.equal(withoutCode(text).includes("[a](x.md)"), false);
 });
 
+test("閉じ行の末尾の空白は許す", () => {
+  assert.equal(withoutCode("```\nexample\n``` \n[a](x.md)\n").includes("[a](x.md)"), true);
+});
+
+test("フェンスを内容に持つリスト項目は、フェンスの後も開いたままにする", () => {
+  assert.equal(withoutCode("- ```\n  example\n  ```\n\n    [a](x.md)").includes("[a](x.md)"), true);
+});
+
 test("バッククォートが奇数個の行は触らない", () => {
   const line = "説明 <!-- backtick: ` --> 契約は [API](api.md)。`例示`";
   assert.equal(proseOf(line).includes("[API](api.md)"), true);
@@ -149,6 +157,10 @@ test("単独行のタグは段落の外でだけ HTML ブロックとして検�
   assert.deepEqual(unsupportedBlocks(`<span title=">">\n`), [{ line: 1, syntax: "html" }]);
   assert.deepEqual(unsupportedBlocks("本文\n<div>\n"), [{ line: 2, syntax: "html" }]);
   assert.deepEqual(unsupportedBlocks("本文\n<span>\n"), []);
+});
+
+test("新しいリスト項目の先頭は段落の継続ではない", () => {
+  assert.deepEqual(unsupportedBlocks("- text\n- <span>\n  body\n"), [{ line: 2, syntax: "html" }]);
 });
 
 test("1 行に複数のリストマーカーがある行も内容位置から判定する", () => {
