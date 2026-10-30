@@ -24,8 +24,7 @@ import {
   linkPattern,
   proseOf,
   unsupportedBlocks,
-  withoutCodeBlocks,
-  withoutIndentedCode,
+  withoutCode,
   withoutInlineCode,
 } from "./docs-text.mjs";
 
@@ -127,7 +126,7 @@ function checkIntro(file) {
   const shown = relative(root, file);
   if (!shown.startsWith("docs/") || shown.startsWith("docs/surveys/")) return;
   // 本文の検査と同じ境界にする（フェンスとインデントコードを落としてから見る）
-  const lines = withoutIndentedCode(withoutCodeBlocks(readFileSync(file, "utf8"))).split("\n");
+  const lines = withoutCode(readFileSync(file, "utf8")).split("\n");
   // 最初の節見出し (レベル 2 以上) までを冒頭とする
   const headingAt = lines.findIndex((line) => /^#{2,6} /.test(line));
   const body = headingAt === -1 ? lines : lines.slice(0, headingAt);
@@ -192,7 +191,7 @@ function checkFile(file) {
 
   // 見出しはアンカーとして外部から参照される。UI の階層を書くと、階層が変わるたびにリンクが死ぬ。
   // 見出しの中の単一のコード span は見出しの一部なので、コードブロックと複数行のコード span だけを外して判定する
-  for (const [, heading] of withoutCodeBlocks(text).matchAll(/^#{1,6}[ \t]+(.*)$/gm)) {
+  for (const [, heading] of withoutCode(text).matchAll(/^#{1,6}[ \t]+(.*)$/gm)) {
     if (heading.includes("→")) errors.push(`${shown}: 見出しに「→」を書かない → ${heading}`);
   }
 

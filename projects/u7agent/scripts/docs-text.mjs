@@ -3,18 +3,6 @@
  * 本文のリンク検査と冒頭段落の検査は必ずこの module を通す（規則を 2 箇所に分けない）。
  */
 
-const FENCE = /^(```|~~~)[\s\S]*?^\1/gm;
-
-/** fenced code block を落とす。GitHub は ``` と ~~~ の両方をフェンスとして描画する。 */
-export function withoutCodeBlocks(text) {
-  return text.replace(FENCE, "");
-}
-
-/** フェンスの中身を空行に置き換える。中身を外しつつ、報告する行番号をずらさないため。 */
-function blankCodeBlocks(text) {
-  return text.replace(FENCE, (block) => "\n".repeat((block.match(/\n/g) ?? []).length));
-}
-
 /** 行内のコード span を落とす。バッククォートが奇数個の行は対応を決められないので触らない。 */
 export function withoutInlineCode(text) {
   return text
@@ -25,108 +13,182 @@ export function withoutInlineCode(text) {
     .join("\n");
 }
 
-const HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
-const THEMATIC = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/;
-// setext 見出しの下線。段落の次の行にだけ効く（単独なら「===」という段落）
-const SETEXT = /^ {0,3}(?:=+|-{1,2})[ \t]*$/;
-/** GFM の表の区切り行か。見出し行 (直前の段落) が `|` を含むことは別に確かめる。 */
-function isTableDelimiter(line) {
-  if (!line.includes("|")) return false;
+const HEADING = /^#{1,6}(?:[ \t]|$)/;
+const THEMATIC = /^(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/;
+const SETEXT = /^(?:=+|-{1,2})[ \t]*$/;
+const FENCE = /^(`{3,}|~{3,})/;
+const MARKER = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
+const DELIMITER_CELL = /^[ \t]*:?-+:?[ \t]*$/;
+
+/** コンテナの内容位置からブロックを開始できるのは 3 桁まで。深い行は段落の継続かコード。 */
+const INDENT = 3;
+
+/** 表の行のセル。外側の `|` は落とし、`\|` は区切りにしない。 */
+function tableCells(line) {
   return line
     .trim()
+    .replace(/\\\|/g, "")
     .replace(/^\|/, "")
     .replace(/\|$/, "")
-    .split("|")
-    .every((cell) => /^[ \t]*:?-+:?[ \t]*$/.test(cell));
+    .split("|");
+}
+
+/** GFM の表の区切り行か (`| --- | :-: |` など)。 */
+function isTableDelimiter(line) {
+  return line.includes("|") && tableCells(line).every((cell) => DELIMITER_CELL.test(cell));
+}
+
+/** フェンスの閉じ行か。記号は開きと同じで、長さは開き以上。 */
+function isFenceEnd(line, fence) {
+  const match = /^(`{3,}|~{3,})$/.exec(line.trim());
+  return match !== null && match[1][0] === fence[0] && match[1].length >= fence.length;
 }
 
 /**
- * 行頭 4 スペース以上のインデントコードを落とす。段落の継続行は散文のままとし、
- * リストの内容は「内容のインデント + 4」からをコードとして扱う。
- * 段落を閉じる leaf block（見出し / 水平線 / setext 見出し / 表）は、直後のインデント行を
- * コードとして扱う。引用と HTML ブロックは中身のブロック構造を持つので扱わない
- * （docs では使わない規約。`unsupportedBlocks` が検出する）。
+ * 行を散文 / コードと、その行のコンテナ内容インデントに分類する。フェンス・インデントコード・
+ * 段落の開閉が同じコンテナ状態に依存するので、判定を分けると片方だけが腐る。
  */
-export function withoutIndentedCode(text) {
-  const out = [];
-  const listStack = [];
-  let paragraph = false;
+function classify(text) {
+  const rows = [];
+  const items = [];
+  let paragraph = null;
+  let paragraphBody = "";
+  let paragraphLines = 0;
   let table = false;
-  let last = "";
+  let fence = null;
   for (const line of text.split("\n")) {
-    const previous = last;
-    last = line;
+    if (fence !== null) {
+      rows.push({ line, code: true, contentIndent: 0 });
+      if (isFenceEnd(line, fence)) fence = null;
+      continue;
+    }
     if (line.trim() === "") {
-      out.push(line);
-      paragraph = false;
+      rows.push({ line, code: false, contentIndent: 0 });
+      paragraph = null;
       table = false;
       continue;
     }
     const indent = line.length - line.trimStart().length;
-    while (listStack.length > 0 && listStack[listStack.length - 1] > indent) listStack.pop();
-    const codeAt = (listStack.length > 0 ? listStack[listStack.length - 1] : 0) + 4;
-    const marker = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/.exec(line);
-    const blockStart =
-      HEADING.test(line) || THEMATIC.test(line) || marker !== null || indent >= codeAt;
-    // 表は空行か別のブロックの開始まで続く。表の行は段落ではないので、直後のインデント行はコード
-    if (table && !blockStart) {
-      out.push(line);
+    while (items.length > 0 && items[items.length - 1] > indent) items.pop();
+    const contentIndent = items.length > 0 ? items[items.length - 1] : 0;
+    const relative = indent - contentIndent;
+    const content = line.trimStart();
+    const atBlockIndent = relative >= 0 && relative <= INDENT;
+    const open = atBlockIndent ? FENCE.exec(content) : null;
+    if (open !== null) {
+      fence = open[1];
+      paragraph = null;
+      table = false;
+      rows.push({ line, code: true, contentIndent });
+      continue;
+    }
+    const marker = MARKER.exec(line);
+    // リスト項目はコンテナの内容位置から 3 桁以内でだけ始まる
+    const listItem =
+      marker !== null &&
+      marker[1].length - contentIndent >= 0 &&
+      marker[1].length - contentIndent <= INDENT;
+    const heading = atBlockIndent && HEADING.test(content);
+    const thematic = atBlockIndent && THEMATIC.test(content);
+    // インデントコードは段落を中断できない (空行か、段落のないブロックの後だけが開始できる)
+    if (paragraph === null && relative > INDENT) {
+      table = false;
+      rows.push({ line, code: true, contentIndent });
+      continue;
+    }
+    // 表は空行か別のブロックの開始まで続き、その行は段落を開かない (GFM の表は leaf block)
+    if (table && !heading && !thematic && !listItem) {
+      rows.push({ line, code: false, contentIndent });
       continue;
     }
     table = false;
-    // インデントコードは段落を中断できない（空行の次だけが開始できる）
-    if (!paragraph && indent >= codeAt) continue;
-    if (paragraph && previous.includes("|") && isTableDelimiter(line)) {
+    // 見出し行は 1 行の段落で、区切り行と列数が一致し、段落の内容位置から 3 桁以内のときだけ表になる
+    const inParagraph =
+      paragraph !== null && indent - paragraph >= 0 && indent - paragraph <= INDENT;
+    if (
+      inParagraph &&
+      paragraphLines === 1 &&
+      isTableDelimiter(content) &&
+      tableCells(paragraphBody).length === tableCells(content).length
+    ) {
       table = true;
-      paragraph = false;
-      out.push(line);
+      paragraph = null;
+      rows.push({ line, code: false, contentIndent });
       continue;
     }
-    if (marker !== null && indent < codeAt) {
-      listStack.push(marker[1].length + marker[2].length + marker[3].length);
-      // 項目の中身が見出しや水平線なら、その項目の段落は開かない
-      paragraph = marker[4].trim() !== "" && !HEADING.test(marker[4]) && !THEMATIC.test(marker[4]);
-      out.push(line);
+    if (heading || thematic) {
+      paragraph = null;
+      rows.push({ line, code: false, contentIndent });
       continue;
     }
-    // setext の下線は開いている段落を見出しにする（見出しも leaf block）
-    const setext = paragraph && SETEXT.test(line);
-    paragraph = !setext && !HEADING.test(line) && !THEMATIC.test(line);
-    out.push(line);
+    // setext の下線は開いている段落を閉じる。lazy continuation は下線にできないので、
+    // 段落の内容位置より浅い行では閉じない
+    if (inParagraph && SETEXT.test(content)) {
+      paragraph = null;
+      rows.push({ line, code: false, contentIndent });
+      continue;
+    }
+    if (listItem) {
+      const body = marker[4].trim();
+      const itemIndent = marker[1].length + marker[2].length + marker[3].length;
+      items.push(itemIndent);
+      paragraphBody = body;
+      paragraphLines = 1;
+      // 項目の中身が空か見出しか水平線なら、その項目の段落は開かない
+      paragraph = body === "" || HEADING.test(body) || THEMATIC.test(body) ? null : itemIndent;
+      rows.push({ line, code: false, contentIndent: itemIndent });
+      continue;
+    }
+    if (paragraph === null) {
+      paragraph = contentIndent;
+      paragraphBody = content;
+      paragraphLines = 1;
+    } else {
+      paragraphLines += 1;
+    }
+    rows.push({ line, code: false, contentIndent });
   }
-  return out.join("\n");
+  return rows;
 }
 
-/**
- * 行頭の生の HTML (CommonMark の HTML ブロック)。docs では使わない規約にする。中身の段落を
- * 持たず、直後のインデント行が散文かコードかを決められないため。
- */
-const HTML_BLOCK =
-  /^ {0,3}<(?:!--|\?|![A-Za-z]|!\[CDATA\[|\/?(?:address|article|aside|audio|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|pre|script|search|section|style|summary|table|tbody|td|textarea|tfoot|th|thead|title|tr|track|ul)(?:[ \t>]|$))/;
+/** コード (フェンスとインデントコード) を落とす。境界の判定は `classify` が持つ。 */
+export function withoutCode(text) {
+  return classify(text)
+    .filter((row) => !row.code)
+    .map((row) => row.line)
+    .join("\n");
+}
+
+/** コード例の中の記法は参照ではないので、リンク検査の前に落とす。 */
+export function proseOf(text) {
+  return withoutInlineCode(withoutCode(text));
+}
+
+const HTML_BLOCK_TAGS =
+  "address|article|aside|audio|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|pre|script|search|section|style|summary|table|tbody|td|textarea|tfoot|th|thead|title|tr|track|ul";
+
+/** 行頭の生の HTML ブロックか (CommonMark の 1〜7 型)。タグ名は大文字小文字を区別しない。 */
+const HTML_BLOCK = new RegExp(
+  `^ {0,3}<(?:!--|\\?|![A-Za-z\\[]|\\/?(?:${HTML_BLOCK_TAGS})(?:[ \\t/>]|$)|\\/?[A-Za-z][A-Za-z0-9-]*(?:[ \\t][^<>]*)?\\/?>[ \\t]*$)`,
+  "i",
+);
 
 /** 散文の境界を決められない構文。`docs/` では使わない規約にし、検出したら失敗させる。 */
 const UNSUPPORTED = [
-  { syntax: "quote", pattern: /^ {0,3}(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)?>/ },
+  { syntax: "quote", pattern: /^ {0,3}>/ },
   { syntax: "html", pattern: HTML_BLOCK },
 ];
 
 /**
  * 境界を決められない構文の位置を返す。推測して落とすと正しい参照を消し、推測して残すと
  * コード例の中身を実リンクとして検証するので、どちらにも倒さず規約違反として報告する。
- * フェンスの中と、行頭 4 スペース以上（インデントコード）は対象外。
  */
 export function unsupportedBlocks(text) {
-  return blankCodeBlocks(text)
-    .split("\n")
-    .flatMap((line, index) => {
-      const hit = UNSUPPORTED.find(({ pattern }) => pattern.test(line));
-      return hit === undefined ? [] : [{ line: index + 1, syntax: hit.syntax }];
-    });
-}
-
-/** コード例の中の記法は参照ではないので、リンク検査の前に落とす。 */
-export function proseOf(text) {
-  return withoutInlineCode(withoutIndentedCode(withoutCodeBlocks(text)));
+  return classify(text).flatMap((row, index) => {
+    if (row.code) return [];
+    const hit = UNSUPPORTED.find(({ pattern }) => pattern.test(row.line.slice(row.contentIndent)));
+    return hit === undefined ? [] : [{ line: index + 1, syntax: hit.syntax }];
+  });
 }
 
 /** リンクの参照先。title (`[t](url "title")`) と angle (`[t](<url>)`) も GitHub の記法として通す。 */
