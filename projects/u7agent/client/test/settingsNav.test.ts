@@ -2,7 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  APPEARANCE_SUBSECTIONS,
   CONTENT_SUBSECTIONS,
+  DEFAULT_APPEARANCE_SUBSECTION,
   DEFAULT_CONTENT_SUBSECTION,
   DEFAULT_FILES_SUBSECTION,
   DEFAULT_MODELS_SUBSECTION,
@@ -40,6 +42,17 @@ test("設定ナビは 13 項目をこの順で持つ", () => {
       ["runtime", "ランタイム"],
     ],
   );
+});
+
+test("設定 → 外観のタブは「テーマ / アイコン」の 2 項目で、既定はテーマ", () => {
+  assert.deepEqual(
+    APPEARANCE_SUBSECTIONS.map((item) => [item.subsection, item.label]),
+    [
+      ["theme", "テーマ"],
+      ["icons", "アイコン"],
+    ],
+  );
+  assert.equal(DEFAULT_APPEARANCE_SUBSECTION, APPEARANCE_SUBSECTIONS[0].subsection);
 });
 
 test("設定 → モデルのタブは「モデルを選ぶ / プロバイダー」の 2 項目で、既定はモデルを選ぶ", () => {

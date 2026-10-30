@@ -15,6 +15,7 @@ import {
 } from "../src/lib/route";
 import {
   SETTINGS_SECTIONS,
+  type AppearanceSubsection,
   type ContentSubsection,
   type FilesSubsection,
   type ModelsSubsection,
@@ -24,6 +25,13 @@ import {
 } from "../src/lib/settingsNav";
 
 const settings = (section: SettingsSection): Route => ({ view: "settings", section });
+
+/** 設定 → 外観のタブ。既定タブ (theme) は URL のパスに出さない */
+const appearanceTab = (appearanceSubsection: AppearanceSubsection): Route => ({
+  view: "settings",
+  section: "appearance",
+  appearanceSubsection,
+});
 
 /** 設定 → コンテンツ生成のタブ。既定タブ (image) は URL のパスに出さない */
 const contentTab = (contentSubsection: ContentSubsection): Route => ({
@@ -117,6 +125,13 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings/spaces", settings("spaces")],
     ["/settings/skills", settings("skills")],
     ["/settings/appearance", settings("appearance")],
+    // 設定 → 外観のタブ。既定タブ (テーマ) はパスへ出さず、未知のサブセクションも既定へ畳む
+    ["/Settings/APPEARANCE/ICONS/", appearanceTab("icons")],
+    ["//settings//appearance//icons//", appearanceTab("icons")],
+    ["/settings%2Fappearance%2Ficons", appearanceTab("icons")],
+    ["/settings/appearance/theme", settings("appearance")],
+    ["/settings/appearance/unknown", settings("appearance")],
+    ["/settings/appearance/icons/extra", CHAT_ROUTE],
     ["/settings/models", settings("models")],
     ["/settings/runtime", settings("runtime")],
     ["/settings/notifications", settings("notifications")],
@@ -218,6 +233,15 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
   assert.equal(routePath(modelsTab("models")), "/settings/models");
   assert.deepEqual(parseRoute(routePath(modelsTab("providers"))), modelsTab("providers"));
   assert.deepEqual(parseRoute(routePath(modelsTab("providers"))), modelsTab("providers"));
+  // 外観のタブも同じく、アイコンだけをパスへ出し、既定のテーマは出さない
+  assert.equal(routePath(appearanceTab("icons")), "/settings/appearance/icons");
+  assert.equal(routePath(appearanceTab("theme")), "/settings/appearance");
+  assert.deepEqual(parseRoute(routePath(appearanceTab("icons"))), appearanceTab("icons"));
+  assert.deepEqual(
+    parseRoute(routePath(appearanceTab("theme"))),
+    settings("appearance"),
+    "既定タブはパスへ出さず、既定へ戻す",
+  );
   // ファイルのタブも同じ規則で、旧 /settings/archive は除外タブの正準形へ畳む
   assert.equal(routePath(filesTab("archive")), "/settings/files/archive");
   assert.equal(routePath(filesTab("files")), "/settings/files");

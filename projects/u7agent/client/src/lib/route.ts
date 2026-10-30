@@ -3,7 +3,8 @@
  * hooks/useRoute.ts が担う。`/` はチャット (会話を指定しない)、`/activity` は全スペース横断の
  * 実行状況、`/settings/<section>` は設定の各画面
  * (SETTINGS_SECTIONS)、`/settings/<section>/<sub>` はタブを持つ画面 (MODELS_SUBSECTIONS /
- * CONTENT_SUBSECTIONS / FILES_SUBSECTIONS / RUNTIME_SUBSECTIONS / SHARING_SUBSECTIONS)、`/s/<sessionId>` はチャット + URL が指定する会話。
+ * CONTENT_SUBSECTIONS / FILES_SUBSECTIONS / RUNTIME_SUBSECTIONS / SHARING_SUBSECTIONS /
+ * APPEARANCE_SUBSECTIONS)、`/s/<sessionId>` はチャット + URL が指定する会話。
  * 未知・不正なパスはチャットへ畳み、routePath は常に正準形 (小文字・末尾スラッシュなし・既定タブの
  * パスなし) を返す。
  * `/s/<sessionId>` の `space` クエリだけは会話を指定した URL の入力として解釈し (entrySpaceOf)、
@@ -11,7 +12,9 @@
  * `space` を解釈しない。
  */
 import {
+  APPEARANCE_SUBSECTIONS,
   CONTENT_SUBSECTIONS,
+  DEFAULT_APPEARANCE_SUBSECTION,
   DEFAULT_CONTENT_SUBSECTION,
   DEFAULT_FILES_SUBSECTION,
   DEFAULT_MODELS_SUBSECTION,
@@ -22,6 +25,7 @@ import {
   RUNTIME_SUBSECTIONS,
   SETTINGS_SECTIONS,
   SHARING_SUBSECTIONS,
+  type AppearanceSubsection,
   type ContentSubsection,
   type FilesSubsection,
   type ModelsSubsection,
@@ -56,6 +60,8 @@ export type Route =
       runtimeSubsection?: RuntimeSubsection;
       /** 設定 → 共有のタブ。既定タブは省略する */
       sharingSubsection?: SharingSubsection;
+      /** 設定 → 外観のタブ。同じく既定タブ (テーマ) は省略する */
+      appearanceSubsection?: AppearanceSubsection;
     };
 
 /** 会話を指定しないチャット (正準形の `/`)。未知・解釈不能なパスを畳む先でもある */
@@ -64,7 +70,7 @@ export const CHAT_ROUTE: Route = { view: "chat" };
 /**
  * pathname から画面を決める。クエリとフラグメントは pathname に含めない契約
  * (含めると `#foo` 付きのリンクが画面として解釈できなくなる) ため、境界側で切り落とす。
- * タブを持つ画面 (models / content / files / runtime / sharing) だけは `/settings/<section>/<sub>` の 1 セグメントを解釈し、
+ * タブを持つ画面 (models / content / files / runtime / sharing / appearance) だけは `/settings/<section>/<sub>` の 1 セグメントを解釈し、
  * 未知のサブセクションと既定タブの明示 (`/settings/models/models` 等) は既定タブへ正準化する。
  * 旧 設定 → ダウンロード (`/settings/archive`) は 設定 → ファイル の「ダウンロードの除外」タブへ読み替える。
  */
@@ -107,6 +113,13 @@ export function parseRoute(pathname: string): Route {
       return subsection && subsection !== DEFAULT_SHARING_SUBSECTION
         ? { view: "settings", section: "sharing", sharingSubsection: subsection }
         : { view: "settings", section: "sharing" };
+    }
+    if (found.section === "appearance") {
+      if (rest.length > 0) return CHAT_ROUTE;
+      const subsection = APPEARANCE_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
+      return subsection && subsection !== DEFAULT_APPEARANCE_SUBSECTION
+        ? { view: "settings", section: "appearance", appearanceSubsection: subsection }
+        : { view: "settings", section: "appearance" };
     }
     if (found.section !== "models")
       return third === undefined ? { view: "settings", section: found.section } : CHAT_ROUTE;
@@ -151,6 +164,13 @@ export function routePath(route: Route): string {
       route.sharingSubsection !== DEFAULT_SHARING_SUBSECTION
     ) {
       return `/settings/sharing/${route.sharingSubsection}`;
+    }
+    if (
+      route.section === "appearance" &&
+      route.appearanceSubsection &&
+      route.appearanceSubsection !== DEFAULT_APPEARANCE_SUBSECTION
+    ) {
+      return `/settings/appearance/${route.appearanceSubsection}`;
     }
     return `/settings/${route.section}`;
   }

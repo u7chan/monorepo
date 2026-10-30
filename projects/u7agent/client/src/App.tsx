@@ -94,11 +94,13 @@ import {
 } from "./lib/sessionFork";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
+  DEFAULT_APPEARANCE_SUBSECTION,
   DEFAULT_CONTENT_SUBSECTION,
   DEFAULT_FILES_SUBSECTION,
   DEFAULT_MODELS_SUBSECTION,
   DEFAULT_RUNTIME_SUBSECTION,
   DEFAULT_SHARING_SUBSECTION,
+  type AppearanceSubsection,
   type ContentSubsection,
   type FilesSubsection,
   type ModelsSubsection,
@@ -638,6 +640,18 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     setTitleSummaryTargetId(sessionId);
   }, []);
 
+  // 外観のタブ切替も URL へ集約する (既定タブはパスへ出さない)
+  const openAppearanceSubsection = useCallback(
+    (subsection: AppearanceSubsection) => {
+      navigate(
+        subsection === DEFAULT_APPEARANCE_SUBSECTION
+          ? { view: "settings", section: "appearance" }
+          : { view: "settings", section: "appearance", appearanceSubsection: subsection },
+      );
+    },
+    [navigate],
+  );
+
   // モデルのタブ切替も URL へ集約する。既定タブはパスへ出さない (正準形は lib/route.ts が決める)
   const openModelsSubsection = useCallback(
     (subsection: ModelsSubsection) => {
@@ -970,7 +984,17 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           />
         );
       case "appearance":
-        return <AppearancePage {...pageProps} />;
+        return (
+          <AppearancePage
+            {...pageProps}
+            appearanceSubsection={
+              route.view === "settings" && route.section === "appearance"
+                ? (route.appearanceSubsection ?? DEFAULT_APPEARANCE_SUBSECTION)
+                : DEFAULT_APPEARANCE_SUBSECTION
+            }
+            onSelectAppearanceSubsection={openAppearanceSubsection}
+          />
+        );
       case "models":
         // 最終使用の導出元は起動時から facade が持つ一覧。この画面だけに渡す (再取得はしない)
         return (
