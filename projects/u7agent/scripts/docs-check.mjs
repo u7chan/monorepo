@@ -106,9 +106,13 @@ function hasHeading(file, anchor) {
   return headingCache.get(file).has(anchor);
 }
 
-/** fenced code block と複数行のコード span を落とす (中身の記法は本文ではない)。GitHub は ``` と ~~~ の両方をフェンスとして描画する。 */
+/** fenced code block・HTML コメント・複数行のコード span を落とす (中身の記法は本文ではない)。
+ * GitHub は ``` と ~~~ の両方をフェンスとして描画し、コメント内のリンクも描画しない。 */
 function withoutCodeBlocks(text) {
-  return text.replace(/^(```|~~~)[\s\S]*?^\1/gm, "").replace(/``[\s\S]*?``/g, "");
+  return text
+    .replace(/^(```|~~~)[\s\S]*?^\1/gm, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/``[\s\S]*?``/g, "");
 }
 
 /** コード例の中の記法は参照ではないので、リンク検査の前に落とす。 */
@@ -134,7 +138,8 @@ function checkIntro(file) {
   if (!shown.startsWith("docs/") || shown.startsWith("docs/surveys/")) return;
   // フェンス内の見出し記法を区切りと誤認しないよう、先にコードブロックを落とす
   const lines = withoutCodeBlocks(readFileSync(file, "utf8")).split("\n");
-  const headingAt = lines.findIndex((line) => line.startsWith("## "));
+  // 最初の節見出し (レベル 2 以上) までを冒頭とする
+  const headingAt = lines.findIndex((line) => /^#{2,6} /.test(line));
   const body = headingAt === -1 ? lines : lines.slice(0, headingAt);
   // 先頭の空行を挟んだ title も落とす (空行の有無で判定が変わらないようにする)
   const titleAt = body.findIndex((line) => line.trim() !== "");
