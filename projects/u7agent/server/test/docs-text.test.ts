@@ -45,6 +45,15 @@ test("入れ子リストから外側へ戻ると外側の内容インデント�
   assert.equal(withoutIndentedCode(nested).includes("[a](x.md)"), false);
 });
 
+test("リスト項目の直後の継続行は散文として残す", () => {
+  assert.equal(withoutIndentedCode("- 項目\n      [a](x.md)").includes("[a](x.md)"), true);
+});
+
+test("見出しや水平線の直後のインデント行はコードとして落とす", () => {
+  assert.equal(withoutIndentedCode("# 見出し\n    [a](x.md)").includes("[a](x.md)"), false);
+  assert.equal(withoutIndentedCode("---\n    [a](x.md)").includes("[a](x.md)"), false);
+});
+
 test("リストの継続は散文として残す", () => {
   assert.equal(withoutIndentedCode("- 項目\n  継続 [a](x.md)").includes("[a](x.md)"), true);
   assert.equal(withoutIndentedCode("本文 [a](x.md)").includes("[a](x.md)"), true);

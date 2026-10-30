@@ -18,6 +18,9 @@ export function withoutInlineCode(text) {
     .join("\n");
 }
 
+const HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
+const THEMATIC = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/;
+
 /**
  * 行頭 4 スペース以上のインデントコードを落とす。段落の継続行は散文のままとし、
  * リストの内容は「内容のインデント + 4」からをコードとして扱う。
@@ -37,14 +40,14 @@ export function withoutIndentedCode(text) {
     const codeAt = (listStack.length > 0 ? listStack[listStack.length - 1] : 0) + 4;
     // インデントコードは段落を中断できない（空行の次だけが開始できる）
     if (!paragraph && indent >= codeAt) continue;
-    const marker = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)/.exec(line);
+    const marker = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/.exec(line);
     if (marker !== null && indent < codeAt) {
       listStack.push(marker[1].length + marker[2].length + marker[3].length);
-      paragraph = false;
+      paragraph = marker[4].trim() !== "";
       out.push(line);
       continue;
     }
-    paragraph = true;
+    paragraph = !HEADING.test(line) && !THEMATIC.test(line);
     out.push(line);
   }
   return out.join("\n");
