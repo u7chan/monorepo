@@ -2,9 +2,26 @@
 
 行の ⋯ メニュー（パスをコピー / 共有 / 削除 / リネーム / ダウンロード）と、サイズ・時刻の表示、画面を往復したときの復帰の契約。出し分けの正は `client/src/lib/fileRowMenu.ts`。ツリーの表示は [file-tree.md](file-tree.md)、プレビューの描画は [file-preview.md](file-preview.md) を参照する。
 
+## 行の操作メニュー（⋯）
+
+行の右端の ⋯（`client/src/components/RowMenu.tsx`）に、その行の操作（パスをコピー（相対 / 絶対） / ダウンロード / リネーム / 削除）を 1 つのメニューとして畳む。同じ ⋯ を左サイドバーのプロジェクト行 / セッション行とも共有する（[ui-layout.md](ui-layout.md#サイドバー)）。行ごとにアイコンを並べる方式では、幅の狭い列（当時は `@2xl:w-72` = 288px 固定。最大 3 スロット = 84px）で名前が数文字まで truncate され、1 行あたりのタブストップも最大 3 つあった。
+
+- **出し分けの正は `client/src/lib/fileRowMenu.ts` の `fileRowActions`**。`null` = 行の操作領域ごと出さない、`[]` = 領域は出すが項目が無い（`aria-hidden` の `size-6` の空きスロット `EmptySlot` を 1 個だけ置いて時刻の右端をそろえる）と契約を分ける（`[]` だけで両方を表すと、`FileBrowser` 側で「領域を出さない」と「項目の無い行」を区別できない。`readOnly` でもパスをコピーを出すようになって `null` / `[]` を返す行は無くなったが、契約は変えずに受け側の分岐を残す）。項目は パスをコピー → 絶対パスをコピー → 共有（ディレクトリだけ、共有できる面だけ） → ダウンロード → リネーム → 削除 の順で（絶対パスはワークスペース root の絶対パスが取れた行にだけ加わる）、ディレクトリのダウンロードだけラベル「ZIP でダウンロード」+ 2 行目「ビルド成果物と依存を除く」を持つ（以前の `title` の開示をメニュー項目へ移した）。条件は移行前と同じで、[パスをコピー](#パスをコピー) / [共有](#共有) / [ダウンロード](#ダウンロード) / [リネーム](#リネーム) / [削除](#削除) をそれぞれ参照
+- **項目の型と、位置 / キーボード移動の計算は `client/src/lib/rowMenu.ts` の共有部**（`RowMenuAction` / `rowMenuPlacement` / `rowMenuAnchorVisible` / `nextRowMenuIndex`）。画面ごとの出し分けはここ（`fileRowMenu.ts` の `fileRowActions`）と `client/src/lib/sidebarRowMenu.ts` の `projectRowActions` / `sessionRowActions` が持ち、描画は `RowMenu.tsx` 1 箇所で共有する
+- **外装は native `popover="auto"`**。top layer に載るのでツリーのスクロール枠（`overflow-y-auto`）に切られず、外側クリックと `Escape` は標準の light dismiss に任せる。本体は常時 mount し、React の条件付き mount で出し入れしない（閉じている間の非表示は UA 既定の `display: none`）。開閉の正は popover の状態で、React は `toggle` イベントで `aria-expanded` を写すだけにする
+- **⋯ には `popoverTarget` を付け、`onClick` で既定動作を打ち消してから `showPopover()` / `hidePopover()` を呼ぶ**。popover の外にある ⋯ の click は light dismiss（pointerup）の後に届くため、`popoverTarget` が無いと「開いた状態で ⋯ を押す」たびに閉じて開き直り、トグルが効かない。`popoverTarget` は UA の activation behavior も持つので、同じトグルを二重に走らせないよう `preventDefault()` する。開閉の入口はこの 1 つで、標準の close（Escape / 外側クリック）も含めて状態は `toggle` イベントで観測する
+- **位置は開いた時に `getBoundingClientRect()` から計算する**。UA 既定（`inset: 0` / `margin: auto` / `border` / `padding` / `overflow`）をクラスで打ち消してから `fixed` の `left` / `top` を直接書く（React の `style` では持たない）。純関数 `rowMenuPlacement` が ⋯ の右下（右端をそろえる）を既定に、右端 / 下端で収まらないときは左 / 上へ倒して viewport へ clamp する。スクロール（capture）と resize で取り直し、⋯ がツリーのスクロール枠 / viewport の外へ出たら閉じる（`rowMenuAnchorVisible`）。**React の再レンダーでレイアウトが変わるリサイズ（左サイドバーの docked ⇄ overlay はファイルツリーの幅も動かす）は resize イベントより後に DOM へ届く**ため、commit 後（`useLayoutEffect`）にも置き直す。これが無いと、境界をまたぐ 1 回のリサイズで ⋯ だけが左バーの幅の分だけ動き、次のイベントまでメニューが取り残される。この追従は境界を跨いでも生存する行（メイン列のファイルツリー）の話で、左サイドバーの行は境界で `Sidebar` ごと unmount されて ⋯ も行と一緒に消える（メニューだけが取り残されない。追従はしない）。CSS anchor positioning は Baseline 2026-01 で動く環境の下限を揃えられないため使わない
+- **キーボードは親の `role="menu"` の容器で受ける**。項目は `role="menuitem"` / `tabIndex={-1}` で、↑↓ は `nextRowMenuIndex` で移動し端では止まる（循環しない）。`Tab` / `Shift+Tab` は既定のフォーカス移動に任せ、`focusout`（`relatedTarget` がメニューの外）で閉じる。`Escape` は閉じるのを標準挙動に任せ、伝播だけ止める（`App` の「設定ページからチャットへ戻る」に届かせない。[ImageZoom](markdown.md#画像の拡大表示) と同じ扱い）
+- **開いた直後に座標を確定してから先頭項目へフォーカスを移す**。`Escape` は native の復帰で ⋯ へ戻す。**項目の選択でも ⋯ へ戻す**（隠す前に popover 内のフォーカスを外し、`hidePopover()` の後に `triggerRef.focus()` する。この後の確認・入力ダイアログは「開いたボタン」を控えて閉じたときにそこへ戻すので、戻り先を残す）。外側クリック / `focusout` / 行の消滅では戻り先が無いので何もしない（明示的な `focus()` は足さない）。⋯ 自身の押下で focusout が走る場合は、直後の click がトグルとして働くよう閉じるのを保留する
+- **削除の項目は danger のトーン**（`MenuItem` の `danger`）。寸法は `MenuItem` の 1 箇所のまま（`min-h-7.5` / `px-2` / `text-xs` / `size-4` のアイコン箱）で、メニュー側に新しい寸法を書かない。⋯ の読み上げ名は `<名前> の操作`（どの行の操作かを含める）
+- **`copied` の間は ⋯ をチェック + `コピーしました` に替える**（読み上げ名と `title` も同じ文言にし、チェックは成功色で出す）。項目は選択で消えるため、結果は ⋯ の位置に出す（[パスをコピー](#パスをコピー)）
+- **コピーの失敗は ⋯ ではなく行の中の 1 行（`role="alert"`）に出す**。メニューは項目の選択で閉じるため、結果は行の位置に残す（メニューの中に残すには開閉の作法を変えることになる）。文言と内訳は `CopyButton` の失敗表示と揃え、行幅いっぱいの段にするので狭い面（2 段になる行）でも名前・時刻・⋯ の段を崩さない
+- 項目の選択・`focusout` で閉じるときは、確認・入力のダイアログを出す前に `hidePopover()` を通す（開いたままだとダイアログがメニューの背後に残る）
+- 実ブラウザーでしか確かめられないもの（light dismiss / top layer / スクロール追従 / フォーカスの実挙動）は自動テストに残さず、`client/test/fileRowMenu.test.ts` は純関数と描画属性、自前の close が `hidePopover()` を通ることまでを固定する
+
 ## パスをコピー
 
-ツリーの行のパスをクリップボードへ取る導線。行の右端の ⋯（[行の操作メニュー](file-tree.md#行の操作メニュー)）の「パスをコピー」（その面の root からの相対）と「絶対パスをコピー」の 2 項目から、`client/src/lib/copyToClipboard.ts` でコピーする。
+ツリーの行のパスをクリップボードへ取る導線。行の右端の ⋯（[行の操作メニュー](#行の操作メニュー)）の「パスをコピー」（その面の root からの相対）と「絶対パスをコピー」の 2 項目から、`client/src/lib/copyToClipboard.ts` でコピーする。
 
 - **コピーする字面はその面の root からの相対パス**（ツリーの行・タブ・パンくずと同じ `path`）。チャット右パネル（作業フォルダ面）ではセッション cwd 相対になり、そのまま入力欄へ貼って `@` 参照に使える。設定 → ファイル（ワークスペース root）ではワークスペース root 相対なので、`@` 参照（cwd 相対）とは基準が違う
 - **「絶対パスをコピー」はワークスペース root の絶対パス（`health.cwd`）を前置して組み立てる**（`client/src/lib/fileTree.ts` の `fileTreeAbsolutePath`）。チャット右パネルではセッション cwd が入るので `<health.cwd>/<セッション cwd>/<行のパス>` になる。**health 未取得（`""`）の間は字面を作れないため項目ごと出さない**（health は起動直後に届くので、行の ⋯ を開く時点では通常出ている）
@@ -17,7 +34,7 @@
 
 ## 共有
 
-ディレクトリを Cloudflare へ外部公開する導線。ディレクトリ行の ⋯（[行の操作メニュー](file-tree.md#行の操作メニュー)）の「共有」から、共有ダイアログ（`client/src/components/ShareContentDialog.tsx`）を開く。
+ディレクトリを Cloudflare へ外部公開する導線。ディレクトリ行の ⋯（[行の操作メニュー](#行の操作メニュー)）の「共有」から、共有ダイアログ（`client/src/components/ShareContentDialog.tsx`）を開く。
 
 - **出す面はチャット右パネル（作業フォルダ面）だけ**。項目の採否は `fileRowActions` の `canShare` で、`FileBrowser` に渡すのは作業フォルダ面だけ（共有 API の `directory` がセッションの作業フォルダ相対のため）。**設定 → ファイルには出さない**。会話が決まっていない面（プロジェクト起点の新規会話）・スキル面・読み取り専用の面と、symlink の行には出さない。ファイルの行にも出さない（`index.html` の例外を除く）
 - **例外はツリーの root 直下の `index.html` 行の「このフォルダを共有」**（ファイル行なのに同じフォルダ全体が上がるため、2 行目で開示する）。対象は作業フォルダ自身（`directory` は root 直下の行の `parent` = `.`）で、サブディレクトリの `index.html` 行には出さない（そのディレクトリ行の「共有」で足りる）。出し分けは `canShareSessionRoot` で、非プロジェクト会話（`SessionSummary.projectSession` が明示的な false）のときだけ true になる。ディレクトリ行の「共有」は `canShare` だけで決まり、セッション種別では絞らない
@@ -26,7 +43,7 @@
 
 ## 削除
 
-誤ってアップロードしたファイルやエージェントの成果物を取り消す導線。通常ファイルとディレクトリの行の右端の ⋯（[行の操作メニュー](file-tree.md#行の操作メニュー)）の「削除」から、共通の確認ダイアログ（`fileTreeDeleteConfirmRequest`。セッション / プロジェクト / エージェント削除と同じ）で確認してから `DELETE /api/files` を呼ぶ。
+誤ってアップロードしたファイルやエージェントの成果物を取り消す導線。通常ファイルとディレクトリの行の右端の ⋯（[行の操作メニュー](#行の操作メニュー)）の「削除」から、共通の確認ダイアログ（`fileTreeDeleteConfirmRequest`。セッション / プロジェクト / エージェント削除と同じ）で確認してから `DELETE /api/files` を呼ぶ。
 
 - **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の 2 つ**。`FileBrowser` に画面を分ける `canDelete` は持たせず（`onDelete` も必須にする）、通常ファイルとディレクトリの行の ⋯ には常に「削除」を出す。プロジェクトのソースを GUI から消せる点は「ワークスペース全体を見ながら片付けたい」という要望を優先して受け入れ、事故防止は confirm のパス表記が担う。**dev の root は `PI_APP_CWD`（既定は `projects/u7agent` 自身）なので、自分のソースも消せる**
 - **スキル設定のファイルタブ（読み取り専用の面）は `readOnly` を渡し、ダウンロード / 削除 / リネームを出さない（⋯ にはパスのコピーだけが残る）**（補助ファイルの持ち出しはスキルのエクスポート `GET /api/skills/files/export` が担い、削除 / リネームは従来どおり「ファイル」画面の行から行う）。既定は false なので、上の 2 画面の挙動は変わらない
@@ -48,7 +65,7 @@
 
 ## リネーム
 
-名前を直したいフォルダを削除して作り直さずに済むよう、設定 → ファイル のフォルダ行にリネームの導線を出す。行の右端の ⋯（[行の操作メニュー](file-tree.md#行の操作メニュー)）の「名前を変更」から、削除と同じ流れの入力ダイアログ（`fileTreeRenameRequest`）で新しい名前を入力し、`POST /api/files/rename` を呼ぶ。
+名前を直したいフォルダを削除して作り直さずに済むよう、設定 → ファイル のフォルダ行にリネームの導線を出す。行の右端の ⋯（[行の操作メニュー](#行の操作メニュー)）の「名前を変更」から、削除と同じ流れの入力ダイアログ（`fileTreeRenameRequest`）で新しい名前を入力し、`POST /api/files/rename` を呼ぶ。
 
 - **出すのは設定 → ファイル（ワークスペース root）だけ**。`FileBrowser` の `canRename` prop（既定 false）で切り、`FileTreePage` だけが true を渡す。チャット右パネル（`SessionFilesPanel`）は対話中のパスと食い違うため出さない。スキル設定のファイルタブは `readOnly` で削除と一緒に消す（`canRename` も渡さない）
 - **リネームを出すのはフォルダ行だけ**。UI からファイルは改名できない（API はファイル / ディレクトリの両方を受ける。移動（親ディレクトリの変更）は非ゴール）。symlink の行にも出さない（サンドボックスが 400 で拒否する）
@@ -66,7 +83,7 @@
 
 ## ダウンロード
 
-ワークスペースからファイル / フォルダを持ち出す導線。ツリーの行の右端の ⋯（[行の操作メニュー](file-tree.md#行の操作メニュー)）のダウンロード項目から、**事前チェック（`GET /api/files/download/check`）を通してから**保存を始める。通常ファイルは生バイトのまま、フォルダは ZIP になる。
+ワークスペースからファイル / フォルダを持ち出す導線。ツリーの行の右端の ⋯（[行の操作メニュー](#行の操作メニュー)）のダウンロード項目から、**事前チェック（`GET /api/files/download/check`）を通してから**保存を始める。通常ファイルは生バイトのまま、フォルダは ZIP になる。
 
 - **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の 2 つ**。行の右端は サイズ + 時刻 + ⋯ で、メニューの項目が パスをコピー → 絶対パスをコピー → ダウンロード → リネーム → 削除 の順になる。ダウンロードは通常ファイルとフォルダの行に出る。**スキル設定のファイルタブは `readOnly` でダウンロードを消し、⋯ にはパスのコピーだけを残す**（組み込みスキルはワークスペース外でサンドボックスから解決できないため、削除 / リネームと同じ扱い）。スキル（`.agents/skills`）全体のエクスポートはこの節の行の導線ではなく、スキルのエクスポート（`GET /api/skills/files/export`）が担う（[api-catalog.md](api-catalog.md#ファイルスキルagentsskills)）
 - **symlink の行には出さない**（サンドボックスが 400 で拒否する。削除と同じ判定）。**除外規則に一致する名前の行にも出さない**（`node_modules` など。出すと押した直後に 400 になるため）。どちらの行も ⋯ と他の項目は残る
@@ -127,68 +144,3 @@
 - 「再読み込み」はタブ・表示モード・展開を保ったまま本文だけを取り直す。最後のタブを閉じた状態（保存する内容が無い）は cwd ごと消すので、F5 後も空のままになる
 - 保存値が壊れている / 形が合わない cwd は捨てる（他の cwd は残す）。9 枚のタブを持つ保存値も捨てる。これは通常操作の 9 枚目で最古を落とす `FILE_TAB_LIMIT` とは別の契約
 - 保存領域が使えない環境（SecurityError / quota 超過）では、write が失敗した cwd をメモリ snapshot として持ち、同一セッション内の往復は復元できる。F5 を跨ぐ復元は保証しない（古い保存値が戻り得る）。保存キーと上限の全体は [frontend.md](frontend.md#保存キーと保存範囲)。**チャットのスキル面も root ごとの保存枠を 1 つ消費する**（`FILE_SNAPSHOT_CWD_LIMIT` 件を超えて開くと、先に書かれた root から落ちる）
-
-## テスト
-
-方針と実ブラウザでの確認は [testing.md](testing.md)。具体的な CSS・component の配線名は固定しない。
-
-| テスト | 固定すること |
-| --- | --- |
-| `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化・行数・コピー本文 / 上限での fallback / HTML・Markdown の判定 / 例外を投げない |
-| `client/test/filePreviewSafety.test.ts` | ソース本文の HTML 挿入・HTML パース・インライン style の禁止（限定的なソース走査） |
-| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と Markdown と画像と音声だけプレビュー）/ 表示モードと配信元の選択の保持と破棄（配信元の既定は別オリジン = ストレージ有効）/ タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モードと配信元）/ 保存値からの復元（表示中の繰り上がりと上限） |
-| `client/test/toggleSwitch.test.ts` | 名前付きの role=switch / aria-checked / disabled / 実 handler の状態反転 |
-| `client/test/filePreviewStorageMode.test.ts` | HTML の sandbox・配信元・切替の公開状態とポート未取得時の隔離 / srcdoc・blob・data 文書の禁止 / 別タブの noopener と操作名 / 画像の raw URL・メタ・HTML 用操作の非表示 / 音声の `<audio controls>`・raw URL・本文を取得しないこと（SSR） |
-| `client/test/filePreviewMarkdown.test.ts` | Markdown のタブの既定（プレビュー）とソース / プレビューの公開状態 / 他拡張子に切替を出さないこと / HTML 用の操作を出さないこと / 描画した本文と dir 基準の画像 URL / 解決できない src の扱い（SSR） |
-| `client/test/markdownAsset.test.ts` | 相対 src の解決（dir 基準 / `.` と空セグメントの畳み方 / `..` の往復と root 外の拒否 / 先頭 `/` / `?`・`#` の除去 / 前後の空白）と、外部 URL・fragment だけの不採用 |
-| `client/test/imageRefresh.test.ts` | 実フックの同一 mount での再描画安定性・run 終了・手動更新 / 実 Markdown と FileBrowser → FilePreview の描画を通した面間・再 mount の URL 非衝突（SSR） |
-| `client/test/imageMeta.test.ts` | 画像メタの表記（寸法とサイズの両方 / 片方だけ / どちらも無ければ null / 不正値の落とし方と 0 B） |
-| `client/test/filePreviewTabClose.test.ts` | 中クリックの button 判定。タブの ×・中クリックの実操作はブラウザで確認 |
-| `client/test/loadingMark.test.ts` | 待ちの印の公開状態（`role="status"` / スピナーは `aria-hidden` / 文字は `sr-only` の 1 箇所）と、本文待ち（ソース / Markdown プレビュー）とツリーの一覧待ちで出ること、本文を取得しない面（画像 / 音声 / HTML のプレビュー）では出ず、HTML のソース表示では出ること（SSR） |
-| `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 親を閉じたときの全子孫の開閉（接頭辞境界、取得結果・loading・error の保持、後着した一覧で開きが復活しないこと）/ 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、閉じた子孫の除外、祖先がそろわない保存パスの正規化・順序非依存・`__proto__`、truncated）/ reveal の祖先（root から近い順・root 直下は空・同 object を返す条件・loading と子の保持・親を閉じた後の再展開・`__proto__`）/ パンくずの項目（root 相対の祖先とファイル）/ 取得済みの行の引き（未取得の親・一覧の上限外・前方一致・`__proto__`・再読み込み後） |
-| `client/test/fileTreeReveal.test.ts` | パンくずの操作名 / root 相対の祖先とファイル / 全体パスの title / aria-current（SSR） |
-| `client/test/fileRowMenu.test.ts` | 操作の採否・順序 / menu と menuitem の公開属性 / パスコピー失敗の通知の出し分け（行の中の `role="alert"`・内訳・選択の導線なし） / 位置・可視判定・キーボード移動の純関数 |
-| `client/test/fileDownloadRow.test.ts` | 種類・symlink・除外名・readOnly ごとの操作の採否 / 確認文言とサイズ表記 |
-| `client/test/archiveSettings.test.ts` | 除外名の下書きの純関数（実効値からの初期化と配列を共有しないこと / dirty の比較（未設定のまま既定を保存させない）/ 追加の trim・空・重複・上限 / 削除 / 検証（サーバーと同じ 1 セグメント名の規則と件数上限）） |
-| `client/test/archiveExcludeSettings.test.ts` | 「ダウンロードの除外」タブの中身: 未設定・上書き・明示空・読み込み中・失敗（SSR）。HTTP は apiContracts で検査 |
-| `client/test/filesSettingsPage.test.ts` | 設定 → ファイル のタブ / ヘッダ: 既定はファイルツリー、除外タブの説明・操作（保存可否）・note（SSR） |
-| `client/test/sharedContentExclusions.test.ts` | 共有の除外名の検証（`index.html` の拒否 / 1 セグメント名の規則と件数上限はダウンロードの除外と同じ） |
-| `client/test/sharedContentExclusionsTab.test.ts` | 設定 → 共有の「公開の除外」タブの中身: 公開だけの規則（対象ディレクトリ自身の名前 / `index.html`）・ダウンロードの除外への導線・未設定 / 上書き / 明示空 / 読み込み中 / 失敗（SSR） |
-| `client/test/fileSkillPanel.test.ts` | ファイルタブの採否 / 組み込み本文の表示（SSR）。取得・タブ間の操作はブラウザで確認 |
-| `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、cwd 相対の解決表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定）、面つき解決（裸名の除外と、区切りを持つ字面の採用 / 共通スキルの絶対パス → `kind = "skill"` の root / path、補助ファイル、名前の境界、`.agents/skills` 直下・プロジェクトスキル・root 外の不採用、workspace 相対の現行維持、cwd 配下の作業フォルダ面優先 / 画像が使う matcher は裸名を採ること / 共通スキル配下のパス判定） |
-| `client/test/fileMention.test.ts` | ドラッグの種類の判定 / 参照の引用とエスケープ / 挿入・カーソルの位置 / trim を通したパスの保持 |
-| `client/test/fileRefRequest.test.ts` | 最新要求だけを保持 / 要求の種別と root / seq が一致する ack だけを消費 / 選択変更と sessionId の採否 / 面ごとの消費可否（作業フォルダ面がスキル要求を消費しない） / 種別からのモード決定 / セッション切替・画面の移動・layout 切替での既定への復帰 / 購読・解除 / 選択の切替世代（未消費が無くても clear で進み、request・ack では進まない）/ クリックの順序（実在を確認してから面を開く / A→B・A→B→A の逆転で最後のクリックだけが開く / セッション切替で失効（A→B→A で戻っても復活しない）/ 不存在では要求もモードも変えない / 拒否・確認不能の理由） |
-| `client/test/fileRefOpen.test.ts` | 確認 API の status 分類（404 = 不存在 / 400 = 拒否 / 502・503・通信失敗 = 確認不能）/ 失敗理由の文言 / 確認先のパス写像（作業フォルダ面とスキル面）/ 確認の例外とセッション未確定で開かないこと / 切替世代をまたいだ結果の失効（A→B→A） |
-| `client/test/markdownFileRef.test.ts` | 参照になる code だけ操作にする / 裸名・provider 外・cwd 外・リンク内の除外 / 引用・リスト・表での描画 / 共通スキルの絶対パスがスキル面の操作要素になり、操作名が種別で変わること（SSR） |
-| `client/test/sessionSkillFiles.test.ts` | チャットのスキル面の外装（見出し / root / 戻る導線 / 閉じる導線）と、モードによる作業フォルダ面との出し分け（SSR）。行の操作は `fileRowMenu.test.ts` とブラウザ受入で確認する |
-| `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot / 配信元（ストレージ有効モード）を保存しないこと |
-| `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
-| `client/test/copyResult.test.ts` | コピー結果の controller: 所有者 (会話) の切替と unmount の invalidate をまたいで、deferred な成功 / 失敗を適用しないこと（A→B・A→B→A）/ 成功 2 秒・失敗 8 秒の表示と、切替でのタイマー破棄 |
-| `client/test/sessionFilesPath.test.ts` | 帯のパスの分割（未所属の 2 段 / プロジェクトの 1 段 / 末尾の `/` / root `.` / 1 段だけ）/ 絶対パスの組み立て（root `.` は `rootCwd` そのまま・未取得は undefined）/ ⋯ の項目と disabled の理由（片方だけ・両方）/ 全 disabled で ⋯ を出さず理由を常設すること（SSR） |
-| `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
-| `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
-| `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileRawUrl` が version 指定時だけ `v` を付け、未指定時の URL を保つこと / `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること / `fileStoragePreviewUrl` が hostname + ポートで別オリジンの URL を組み立てること |
-| `client/test/filePreviewError.test.ts` | 共通スキル配下の `Path not found` にだけ補助文を出すこと（作業フォルダ側・接頭辞の別名・他のエラーでは出さない） |
-| `server/test/file-stat.test.ts` | サンドボックスの `GET /v1/files/stat`（通常ファイル 200 と symlink の実パス / 本文を読まないためバイナリ・UTF-8 不正・上限超過も 200 / 不存在と壊れた symlink の 404 / ディレクトリ・root 自身・root 外・不正要求の 400 / 認証） |
-| `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし / リスナーごとの sandbox 段）/ `GET /api/files/html/<path>` の文書・画像・音声・テキストアセット・400 の分岐と percent decoding（音声は raw・テキストは preview の使い分けと動画 / フォントの 400 を含む）/ ヘッダ（CSP / `no-store` / `nosniff`）/ `previewApp` の storage 有効 CSP（文書は HTML・アセットは CSP 無しの JSON）とマウント範囲（HTML プレビュー ルートだけ）/ `GET /api/files/raw` が画像と音声を配り、`.svg` / `.html` / 動画 / テキストを 400 で拒むこと / `Range` の status・`Content-Range`・`Accept-Ranges` の中継（206 と 416）/ 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 / `POST /api/files/rename` の委譲と body 検証・エラー写像（409 の透過を含む）・契約外の応答の 502 / `GET /api/files/stat` の本文を取らない委譲と no-store・200 / 404 / 400 の透過・確認不能の 502 / 未設定の 503 |
-| `server/test/file-preview-port.test.ts` | プレビュー オリジンのポート解決（待受とブラウザから見た値の既定はどちらも 4318 / 未設定は既定 / 1〜65535 の整数 / 不正値は throw して指定した env を名指しする / `pnpm dev` 用の統一（`PI_FILE_PREVIEW_PORT` が正・待受 env しか無いときはその値へ寄せる・空白だけは未設定）） |
-| `server/test/dev-file-preview-port.test.ts` | `pnpm dev` が解決した 1 つの値を待受の空き確認と BFF の両 env（`PI_FILE_PREVIEW_PORT` / `PI_FILE_PREVIEW_LISTEN_PORT`）へ渡し、既定ポートを直書きしないこと（ソース走査） |
-| `server/test/archive-rules.test.ts` | 既定の除外名（再生成物 / ビルド成果物 / `vendor` などを入れない）/ 上書きの解決（空配列は全解除・trim と重複の除去・呼び出し側の変更から既定を守る）/ 正規化（trim / 空落とし / 先勝ちの重複 / 順序と大文字小文字の保持）/ 検証（`.`・`..`・区切り・制御文字・200 文字超・100 件超）/ `GET /api/health` が実効値を返すこと |
-| `server/test/archive-settings.test.ts` | 設定ストア（未設定 = 既定 / 保存の正規化と明示空 / リセットで行を消す / 検証エラーの 400 と非破壊 / DB 不可のフォールバックと 503）とルート（GET / PUT / DELETE の同じ形 / zod の 400 / 再起動後の保持 / DB 不可の 503）/ 整合（PUT の直後に health と download / check が同じ実効値を見る） |
-| `server/test/zip-writer.test.ts` | ZIP ライタ（既知ベクタの CRC32 と分割入力 / store と deflate の選択 / UTF-8 名と bit 3・bit 11 / 空ファイル・空ディレクトリ / 複数チャンク / 途中失敗でストリームを失敗させる） |
-| `server/test/sandbox-archive.test.ts` | `GET /v1/files/download` と `/check`（zip の中身と除外 / skipped の内容 / `exclude` の省略 = 既定と空値のみ = 除外なし / 繰り返しの一覧 / 不正名と 100 件超の 400 / 除外名のディレクトリの 400 / symlink の 400 と配下 symlink の除外 / 単体ファイルの生配信とヘッダ / root の zip / 空ディレクトリ / 末尾スラッシュ / 404・root 外 400・`..` の 400 / 上限 413 / 認証） |
-| `server/test/file-download.test.ts` | BFF の `GET /api/files/download` と `/check`（ストリーム中継とヘッダ / `Content-Disposition` の透過 / `Content-Length` の有無 / 設定ストアの実効値を `exclude` の繰り返しで渡すこと（未設定 = 既定 / 明示空 = 空のまま）/ 400・404・413・502・503 の写像 / 契約外の check 応答の 502） |
-| `server/test/sandbox-delete-dir.test.ts` | `DELETE /v1/dirs`（`recursive` の解釈 / 空ディレクトリ / 非空の 400 と部分削除なし / 配下ごとの削除と接頭辞境界 / パス形式と root 外・不存在・非ディレクトリ・symlink の 400・404 / 配下 symlink のリンクだけの削除 / 一覧上限外の子 / `__proto__` / 認証） |
-| `server/test/sandbox-client.test.ts` | NDJSON / JSON 経路の写像と、`deleteDirectory` が `DELETE /v1/dirs?recursive=true` を呼び 204 の本文を読まないこと / `renameEntry` が `POST /v1/files/rename` を呼び、409 を文言ごと透過すること / `rawFile` が `Range` を付けて送り status・`Content-Range`・`Accept-Ranges` を中継すること（416 は例外にしない） |
-| `server/test/sandbox-rename.test.ts` | `POST /v1/files/rename`（ファイル / ディレクトリの改名と応答パス / 大文字小文字だけの変更 / 同名 409 と変更なし / 不正な名前・パス形式の 400 / 不存在 404 / root 外 400 / symlink の 400 とリンク先の維持・symlink への上書きの 409 / symlink ディレクトリ経由 / 認証） |
-| `server/test/static.test.ts` | SPA フォールバック（拡張子なしの画面 URL / `/api`・`/assets` の境界 / `Accept` / 未ビルド 503）と、アプリ CSP の `frame-src`（`'self'` + プレビュー オリジンのポート）と `media-src 'self' blob:`（お試し再生の blob URL） |
-
-## 参照
-
-- [ui-layout.md](ui-layout.md) — 本文の中でツリーとプレビューをどう並べるか
-- [markdown.md](markdown.md) — 共有するトークナイザの対応言語・上限と、インラインコードをファイル参照の操作要素にする描画契約
-- [api-files.md](api-files.md#テキストプレビュー) — プレビューの転送契約
-- [api-files.md](api-files.md#html-プレビュー) — HTML プレビューのヘッダとエラー応答
-- [api-files.md](api-files.md#ダウンロード) — ダウンロードの転送契約
-- [sandbox-api.md](sandbox-api.md#get-v1filesdownload) — ZIP の除外規則・上限・ZIP ライタの実装
-- [api-files.md](api-files.md#アーカイブの除外名) — 除外名の設定 API（未設定と明示空の区別・検証）

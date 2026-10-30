@@ -1,5 +1,5 @@
 // インラインコードからファイル参照を拾う matcher と、面の種別つきで解決する純関数。
-// 採否は Issue の表をそのままテストケースにする (docs/file-preview.md の採否表も同じ内容)。
+// 採否は Issue の表をそのままテストケースにする (docs/file-tree.md#字面の判定matcher の採否表も同じ内容)。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isCommonSkillPath, matchFileRef, resolveFileRef, resolveFileRefTarget } from "../src/lib/fileRef";

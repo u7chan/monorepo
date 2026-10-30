@@ -2,6 +2,22 @@
 
 ファイルツリーの表示（どの画面がどの root を使うか・隠す行・開閉・reveal）と、メッセージ / 入力欄からのファイル参照。本体は `client/src/components/FileBrowser.tsx`、参照の判定は `client/src/lib/fileRef.ts`、面の座標解決は `client/src/lib/fileRefOpen.ts`。プレビューの描画は [file-preview.md](file-preview.md)、行の操作は [file-actions.md](file-actions.md) を参照する。
 
+## 画面と root
+
+ツリーとプレビューの本体は `client/src/components/FileBrowser.tsx` で、root を props で受け取る。同じ実装を 4 面が別の root で使う。
+
+| 画面 | 外装 | root | 出す条件 |
+| --- | --- | --- | --- |
+| 設定 → ファイル | `FileTreePage`（`SettingsPageLayout` + ヘッダ + タブ） | ワークスペース root 固定（`cwd=""` → `"."`） | 常時（タブの一方はダウンロードの除外） |
+| チャットの右パネル | `SessionFilesPanel`（ヘッダ + 閉じる） | 選択中セッションの作業フォルダ（`payload.cwd`） | desktop のチャット画面で、作業フォルダがあるときだけ（`client/src/lib/sessionFiles.ts`） |
+| チャットのスキル面 | `SessionFilesPanel` / `SessionFilesSheet` のスキルモード（`SkillFilesContent`） | 参照の絶対パスから導いた `.agents/skills/<name>`（ワークスペース root 相対） | 共通スキル配下の絶対パスの参照をクリックしたときだけ（[面のモード](#面のモード作業フォルダとスキル)） |
+| 設定 → スキルのファイルタブ | `FileSkillPanel`（`SkillDetailPanel` のファイルタブ） | SKILL.md の親ディレクトリ（root 相対。`client/src/lib/fileSkills.ts` の `fileSkillDir`） | `scope !== "builtin"` かつ root 相対の `.../SKILL.md` の親が取れるときだけ（組み込みの仮想パスと root 外の絶対パスは出さない）。**ダウンロード / 削除 / リネームは `readOnly` で出さない（パスのコピーは出す）** |
+
+- `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）。スキルのファイルタブは選択したスキルごとに `FileSkillPanel` ごと入れ替え、初回にタブを開いたときだけ `FileBrowser` を mount する（以降は `display` で隠して保持する）。チャットのスキル面も `FileBrowser` の `key` を skill root にして、root の切替で remount する
+- 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。**チャットのスキル面はヘッダに「再読み込み」を持たず、`runEndSeq` だけを渡す**（設定 → スキルのファイルタブは自動の取り直しを持たない）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
+- `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら所属スペースのスクラッチ）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
+- **作業フォルダ面（右パネル / sheet）だけが `.git` を行ごと隠す**（[隠す行](#隠す行)）。設定 → ファイル とスキル面（設定 → スキルのファイルタブ / チャットのスキル面）は隠さない
+
 ## 作業フォルダ面の帯（パスと ⋯）
 
 帯のパスは末尾優先で見せ、パスの ⋯ からセッション ID と絶対パスをコピーできる（`client/src/components/WorkFolderPathMenu.tsx`）。
@@ -9,7 +25,7 @@
 - **パスは「省略される前置き」と「幅を確保する末尾」に分ける**（`client/src/lib/sessionFilesPath.ts` の `splitWorkFolderPath`）。末尾の段数は会話の種別だけで決める（プロジェクト所属は登録ディレクトリ名の 1 段、未所属は `sessions/<sessionId>` の 2 段。未取得は 1 段に倒す）。セッション ID の正規表現でパスを解析しない。末尾は `shrink-0`、前置きだけを `truncate` するので、狭い幅でも ID は最後まで残る
 - **パスと ⋯ は折り返さない 1 つの組にし、省略前のパス全体 + ⋯ + 間隔を実測して帯の文脈の最小幅にする**（`TabToolbar` の `contextMinWidth`）。固定の内側幅を前提にせず、組が入り切らない幅では組ごと全幅の段へ落ちて [再読み込み] が次の段へ回るので、**短いパスは省略されない**（`min-w-0` のままだと文脈が 0 まで縮み、細い段に残ったパスだけが切れて ⋯ が落ちる）。段の幅すら超える長いプロジェクト名では末尾だけ `truncate` に落ちる
 - **⋯ の項目は「セッション ID をコピー」→「絶対パスをコピー」の 2 つ**で、行の ⋯（`FileRowActionKind`）には出さない。セッション ID は `envScope.sessionId`、絶対パスは行と同じ `fileTreeAbsolutePath(rootCwd, root, ".")`（root が `.` のときは `rootCwd` 自身）で作り、取れない値は別の値で代替しない
-- **片方だけ取れないときは項目を disabled にして理由を 2 行目へ出す**（会話がまだ無い / ワークスペースの絶対パスが未取得）。**両方取れないときは ⋯ を出さず、理由をパスの下へ常設する**（全項目 disabled を `RowMenu` へ渡さない。[行の操作メニュー](#行の操作メニュー) の「有効な最初の項目へ focus」の前提を崩さないため）
+- **片方だけ取れないときは項目を disabled にして理由を 2 行目へ出す**（会話がまだ無い / ワークスペースの絶対パスが未取得）。**両方取れないときは ⋯ を出さず、理由をパスの下へ常設する**（全項目 disabled を `RowMenu` へ渡さない。[行の操作メニュー](file-actions.md#行の操作メニュー) の「有効な最初の項目へ focus」の前提を崩さないため）
 - コピーは `client/src/lib/copyToClipboard.ts` を通す。成功は ⋯ を 2 秒チェックに替え、`role="status"` で項目ごとの文言を読み上げる。失敗はパスの下の `role="alert"` の段（`basis-full` + `min-w-0`）に内訳を折り返して出し、8 秒で消す（[パスをコピー](file-actions.md#パスをコピー) と同じ見せ方。長い非改行文字列でも親幅で折り返し、全文を読める）
 - **同じ cwd の会話切替ではパネルが remount されない**（`key={filesRoot}`）ので、コピーの結果を所有する `WorkFolderPathMenu` を `envScope.sessionId` で key にして張り替える。`useMessageCopy` の unmount 後始末が世代を進めるため、前の会話で始めたコピーの成否は次の会話の表示に適用されない
 - スキル面のパス表示は対象外（セッション ID を持たない面）。同じ帯に ⋯ を 2 つ置かない
@@ -162,20 +178,3 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - 挿入位置はドロップ座標（`caretPositionFromPoint`。`caretRangeFromPoint` は textarea で正しい位置を返さないブラウザーがある）、取れなければ現在の選択。前後が非空白なら区切りに空白を足し、カーソルは参照の直後（続きを書ける位置）へ置く
 - 空白・二重引用符・バックスラッシュを含むパスは `@"<パス>"` と二重引用符で囲む（`"` と `\` はエスケープ）。区切りに足す空白と同じ字がパスに入っていると、送信時の `trim`（クライアントの `value.trim()` とサーバーの本文）で末尾の空白が消えて別のファイルを指すため
 - 存在確認も展開もしない。消えているパスでも挿せて、区切りの解釈はモデルに委ねる（[メッセージからの導線](#メッセージからの導線ファイル参照) の matcher とは別の規則）
-
-## 行の操作メニュー（⋯）
-
-行の右端の ⋯（`client/src/components/RowMenu.tsx`）に、その行の操作（パスをコピー（相対 / 絶対） / ダウンロード / リネーム / 削除）を 1 つのメニューとして畳む。同じ ⋯ を左サイドバーのプロジェクト行 / セッション行とも共有する（[ui-layout.md](ui-layout.md#サイドバー)）。行ごとにアイコンを並べる方式では、幅の狭い列（当時は `@2xl:w-72` = 288px 固定。最大 3 スロット = 84px）で名前が数文字まで truncate され、1 行あたりのタブストップも最大 3 つあった。
-
-- **出し分けの正は `client/src/lib/fileRowMenu.ts` の `fileRowActions`**。`null` = 行の操作領域ごと出さない、`[]` = 領域は出すが項目が無い（`aria-hidden` の `size-6` の空きスロット `EmptySlot` を 1 個だけ置いて時刻の右端をそろえる）と契約を分ける（`[]` だけで両方を表すと、`FileBrowser` 側で「領域を出さない」と「項目の無い行」を区別できない。`readOnly` でもパスをコピーを出すようになって `null` / `[]` を返す行は無くなったが、契約は変えずに受け側の分岐を残す）。項目は パスをコピー → 絶対パスをコピー → 共有（ディレクトリだけ、共有できる面だけ） → ダウンロード → リネーム → 削除 の順で（絶対パスはワークスペース root の絶対パスが取れた行にだけ加わる）、ディレクトリのダウンロードだけラベル「ZIP でダウンロード」+ 2 行目「ビルド成果物と依存を除く」を持つ（以前の `title` の開示をメニュー項目へ移した）。条件は移行前と同じで、[パスをコピー](file-actions.md#パスをコピー) / [共有](file-actions.md#共有) / [ダウンロード](file-actions.md#ダウンロード) / [リネーム](file-actions.md#リネーム) / [削除](file-actions.md#削除) をそれぞれ参照
-- **項目の型と、位置 / キーボード移動の計算は `client/src/lib/rowMenu.ts` の共有部**（`RowMenuAction` / `rowMenuPlacement` / `rowMenuAnchorVisible` / `nextRowMenuIndex`）。画面ごとの出し分けはここ（`fileRowMenu.ts` の `fileRowActions`）と `client/src/lib/sidebarRowMenu.ts` の `projectRowActions` / `sessionRowActions` が持ち、描画は `RowMenu.tsx` 1 箇所で共有する
-- **外装は native `popover="auto"`**。top layer に載るのでツリーのスクロール枠（`overflow-y-auto`）に切られず、外側クリックと `Escape` は標準の light dismiss に任せる。本体は常時 mount し、React の条件付き mount で出し入れしない（閉じている間の非表示は UA 既定の `display: none`）。開閉の正は popover の状態で、React は `toggle` イベントで `aria-expanded` を写すだけにする
-- **⋯ には `popoverTarget` を付け、`onClick` で既定動作を打ち消してから `showPopover()` / `hidePopover()` を呼ぶ**。popover の外にある ⋯ の click は light dismiss（pointerup）の後に届くため、`popoverTarget` が無いと「開いた状態で ⋯ を押す」たびに閉じて開き直り、トグルが効かない。`popoverTarget` は UA の activation behavior も持つので、同じトグルを二重に走らせないよう `preventDefault()` する。開閉の入口はこの 1 つで、標準の close（Escape / 外側クリック）も含めて状態は `toggle` イベントで観測する
-- **位置は開いた時に `getBoundingClientRect()` から計算する**。UA 既定（`inset: 0` / `margin: auto` / `border` / `padding` / `overflow`）をクラスで打ち消してから `fixed` の `left` / `top` を直接書く（React の `style` では持たない）。純関数 `rowMenuPlacement` が ⋯ の右下（右端をそろえる）を既定に、右端 / 下端で収まらないときは左 / 上へ倒して viewport へ clamp する。スクロール（capture）と resize で取り直し、⋯ がツリーのスクロール枠 / viewport の外へ出たら閉じる（`rowMenuAnchorVisible`）。**React の再レンダーでレイアウトが変わるリサイズ（左サイドバーの docked ⇄ overlay はファイルツリーの幅も動かす）は resize イベントより後に DOM へ届く**ため、commit 後（`useLayoutEffect`）にも置き直す。これが無いと、境界をまたぐ 1 回のリサイズで ⋯ だけが左バーの幅の分だけ動き、次のイベントまでメニューが取り残される。この追従は境界を跨いでも生存する行（メイン列のファイルツリー）の話で、左サイドバーの行は境界で `Sidebar` ごと unmount されて ⋯ も行と一緒に消える（メニューだけが取り残されない。追従はしない）。CSS anchor positioning は Baseline 2026-01 で動く環境の下限を揃えられないため使わない
-- **キーボードは親の `role="menu"` の容器で受ける**。項目は `role="menuitem"` / `tabIndex={-1}` で、↑↓ は `nextRowMenuIndex` で移動し端では止まる（循環しない）。`Tab` / `Shift+Tab` は既定のフォーカス移動に任せ、`focusout`（`relatedTarget` がメニューの外）で閉じる。`Escape` は閉じるのを標準挙動に任せ、伝播だけ止める（`App` の「設定ページからチャットへ戻る」に届かせない。[ImageZoom](markdown.md#画像の拡大表示) と同じ扱い）
-- **開いた直後に座標を確定してから先頭項目へフォーカスを移す**。`Escape` は native の復帰で ⋯ へ戻す。**項目の選択でも ⋯ へ戻す**（隠す前に popover 内のフォーカスを外し、`hidePopover()` の後に `triggerRef.focus()` する。この後の確認・入力ダイアログは「開いたボタン」を控えて閉じたときにそこへ戻すので、戻り先を残す）。外側クリック / `focusout` / 行の消滅では戻り先が無いので何もしない（明示的な `focus()` は足さない）。⋯ 自身の押下で focusout が走る場合は、直後の click がトグルとして働くよう閉じるのを保留する
-- **削除の項目は danger のトーン**（`MenuItem` の `danger`）。寸法は `MenuItem` の 1 箇所のまま（`min-h-7.5` / `px-2` / `text-xs` / `size-4` のアイコン箱）で、メニュー側に新しい寸法を書かない。⋯ の読み上げ名は `<名前> の操作`（どの行の操作かを含める）
-- **`copied` の間は ⋯ をチェック + `コピーしました` に替える**（読み上げ名と `title` も同じ文言にし、チェックは成功色で出す）。項目は選択で消えるため、結果は ⋯ の位置に出す（[パスをコピー](file-actions.md#パスをコピー)）
-- **コピーの失敗は ⋯ ではなく行の中の 1 行（`role="alert"`）に出す**。メニューは項目の選択で閉じるため、結果は行の位置に残す（メニューの中に残すには開閉の作法を変えることになる）。文言と内訳は `CopyButton` の失敗表示と揃え、行幅いっぱいの段にするので狭い面（2 段になる行）でも名前・時刻・⋯ の段を崩さない
-- 項目の選択・`focusout` で閉じるときは、確認・入力のダイアログを出す前に `hidePopover()` を通す（開いたままだとダイアログがメニューの背後に残る）
-- 実ブラウザーでしか確かめられないもの（light dismiss / top layer / スクロール追従 / フォーカスの実挙動）は自動テストに残さず、`client/test/fileRowMenu.test.ts` は純関数と描画属性、自前の close が `hidePopover()` を通ることまでを固定する

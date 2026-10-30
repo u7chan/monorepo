@@ -255,18 +255,67 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - ソース / プレビューの切替は出さない（バイナリのソース表示に意味が無い）。パス行のメタも出さず、再生時間 / ビットレートは取得しない
 - 再生できる形式はブラウザーのコーデックに依る（`flac` / `ogg` は環境により差が出る）。配信は allowlist にある限り 200 / 206 を返すため、再生できない形式は操作の失敗としてブラウザー側に出る（形式ごとに配信を絞る判断は未実施）
 
-## 画面と root
+## テスト
 
-ツリーとプレビューの本体は `client/src/components/FileBrowser.tsx` で、root を props で受け取る。同じ実装を 4 面が別の root で使う。
+方針と実ブラウザでの確認は [testing.md](testing.md)。具体的な CSS・component の配線名は固定しない。
 
-| 画面 | 外装 | root | 出す条件 |
-| --- | --- | --- | --- |
-| 設定 → ファイル | `FileTreePage`（`SettingsPageLayout` + ヘッダ + タブ） | ワークスペース root 固定（`cwd=""` → `"."`） | 常時（タブの一方はダウンロードの除外） |
-| チャットの右パネル | `SessionFilesPanel`（ヘッダ + 閉じる） | 選択中セッションの作業フォルダ（`payload.cwd`） | desktop のチャット画面で、作業フォルダがあるときだけ（`client/src/lib/sessionFiles.ts`） |
-| チャットのスキル面 | `SessionFilesPanel` / `SessionFilesSheet` のスキルモード（`SkillFilesContent`） | 参照の絶対パスから導いた `.agents/skills/<name>`（ワークスペース root 相対） | 共通スキル配下の絶対パスの参照をクリックしたときだけ（[面のモード](file-tree.md#面のモード作業フォルダとスキル)） |
-| 設定 → スキルのファイルタブ | `FileSkillPanel`（`SkillDetailPanel` のファイルタブ） | SKILL.md の親ディレクトリ（root 相対。`client/src/lib/fileSkills.ts` の `fileSkillDir`） | `scope !== "builtin"` かつ root 相対の `.../SKILL.md` の親が取れるときだけ（組み込みの仮想パスと root 外の絶対パスは出さない）。**ダウンロード / 削除 / リネームは `readOnly` で出さない（パスのコピーは出す）** |
+| テスト | 固定すること |
+| --- | --- |
+| `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化・行数・コピー本文 / 上限での fallback / HTML・Markdown の判定 / 例外を投げない |
+| `client/test/filePreviewSafety.test.ts` | ソース本文の HTML 挿入・HTML パース・インライン style の禁止（限定的なソース走査） |
+| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と Markdown と画像と音声だけプレビュー）/ 表示モードと配信元の選択の保持と破棄（配信元の既定は別オリジン = ストレージ有効）/ タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モードと配信元）/ 保存値からの復元（表示中の繰り上がりと上限） |
+| `client/test/toggleSwitch.test.ts` | 名前付きの role=switch / aria-checked / disabled / 実 handler の状態反転 |
+| `client/test/filePreviewStorageMode.test.ts` | HTML の sandbox・配信元・切替の公開状態とポート未取得時の隔離 / srcdoc・blob・data 文書の禁止 / 別タブの noopener と操作名 / 画像の raw URL・メタ・HTML 用操作の非表示 / 音声の `<audio controls>`・raw URL・本文を取得しないこと（SSR） |
+| `client/test/filePreviewMarkdown.test.ts` | Markdown のタブの既定（プレビュー）とソース / プレビューの公開状態 / 他拡張子に切替を出さないこと / HTML 用の操作を出さないこと / 描画した本文と dir 基準の画像 URL / 解決できない src の扱い（SSR） |
+| `client/test/markdownAsset.test.ts` | 相対 src の解決（dir 基準 / `.` と空セグメントの畳み方 / `..` の往復と root 外の拒否 / 先頭 `/` / `?`・`#` の除去 / 前後の空白）と、外部 URL・fragment だけの不採用 |
+| `client/test/imageRefresh.test.ts` | 実フックの同一 mount での再描画安定性・run 終了・手動更新 / 実 Markdown と FileBrowser → FilePreview の描画を通した面間・再 mount の URL 非衝突（SSR） |
+| `client/test/imageMeta.test.ts` | 画像メタの表記（寸法とサイズの両方 / 片方だけ / どちらも無ければ null / 不正値の落とし方と 0 B） |
+| `client/test/filePreviewTabClose.test.ts` | 中クリックの button 判定。タブの ×・中クリックの実操作はブラウザで確認 |
+| `client/test/loadingMark.test.ts` | 待ちの印の公開状態（`role="status"` / スピナーは `aria-hidden` / 文字は `sr-only` の 1 箇所）と、本文待ち（ソース / Markdown プレビュー）とツリーの一覧待ちで出ること、本文を取得しない面（画像 / 音声 / HTML のプレビュー）では出ず、HTML のソース表示では出ること（SSR） |
+| `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 親を閉じたときの全子孫の開閉（接頭辞境界、取得結果・loading・error の保持、後着した一覧で開きが復活しないこと）/ 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、閉じた子孫の除外、祖先がそろわない保存パスの正規化・順序非依存・`__proto__`、truncated）/ reveal の祖先（root から近い順・root 直下は空・同 object を返す条件・loading と子の保持・親を閉じた後の再展開・`__proto__`）/ パンくずの項目（root 相対の祖先とファイル）/ 取得済みの行の引き（未取得の親・一覧の上限外・前方一致・`__proto__`・再読み込み後） |
+| `client/test/fileTreeReveal.test.ts` | パンくずの操作名 / root 相対の祖先とファイル / 全体パスの title / aria-current（SSR） |
+| `client/test/fileRowMenu.test.ts` | 操作の採否・順序 / menu と menuitem の公開属性 / パスコピー失敗の通知の出し分け（行の中の `role="alert"`・内訳・選択の導線なし） / 位置・可視判定・キーボード移動の純関数 |
+| `client/test/fileDownloadRow.test.ts` | 種類・symlink・除外名・readOnly ごとの操作の採否 / 確認文言とサイズ表記 |
+| `client/test/archiveSettings.test.ts` | 除外名の下書きの純関数（実効値からの初期化と配列を共有しないこと / dirty の比較（未設定のまま既定を保存させない）/ 追加の trim・空・重複・上限 / 削除 / 検証（サーバーと同じ 1 セグメント名の規則と件数上限）） |
+| `client/test/archiveExcludeSettings.test.ts` | 「ダウンロードの除外」タブの中身: 未設定・上書き・明示空・読み込み中・失敗（SSR）。HTTP は apiContracts で検査 |
+| `client/test/filesSettingsPage.test.ts` | 設定 → ファイル のタブ / ヘッダ: 既定はファイルツリー、除外タブの説明・操作（保存可否）・note（SSR） |
+| `client/test/sharedContentExclusions.test.ts` | 共有の除外名の検証（`index.html` の拒否 / 1 セグメント名の規則と件数上限はダウンロードの除外と同じ） |
+| `client/test/sharedContentExclusionsTab.test.ts` | 設定 → 共有の「公開の除外」タブの中身: 公開だけの規則（対象ディレクトリ自身の名前 / `index.html`）・ダウンロードの除外への導線・未設定 / 上書き / 明示空 / 読み込み中 / 失敗（SSR） |
+| `client/test/fileSkillPanel.test.ts` | ファイルタブの採否 / 組み込み本文の表示（SSR）。取得・タブ間の操作はブラウザで確認 |
+| `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、cwd 相対の解決表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定）、面つき解決（裸名の除外と、区切りを持つ字面の採用 / 共通スキルの絶対パス → `kind = "skill"` の root / path、補助ファイル、名前の境界、`.agents/skills` 直下・プロジェクトスキル・root 外の不採用、workspace 相対の現行維持、cwd 配下の作業フォルダ面優先 / 画像が使う matcher は裸名を採ること / 共通スキル配下のパス判定） |
+| `client/test/fileMention.test.ts` | ドラッグの種類の判定 / 参照の引用とエスケープ / 挿入・カーソルの位置 / trim を通したパスの保持 |
+| `client/test/fileRefRequest.test.ts` | 最新要求だけを保持 / 要求の種別と root / seq が一致する ack だけを消費 / 選択変更と sessionId の採否 / 面ごとの消費可否（作業フォルダ面がスキル要求を消費しない） / 種別からのモード決定 / セッション切替・画面の移動・layout 切替での既定への復帰 / 購読・解除 / 選択の切替世代（未消費が無くても clear で進み、request・ack では進まない）/ クリックの順序（実在を確認してから面を開く / A→B・A→B→A の逆転で最後のクリックだけが開く / セッション切替で失効（A→B→A で戻っても復活しない）/ 不存在では要求もモードも変えない / 拒否・確認不能の理由） |
+| `client/test/fileRefOpen.test.ts` | 確認 API の status 分類（404 = 不存在 / 400 = 拒否 / 502・503・通信失敗 = 確認不能）/ 失敗理由の文言 / 確認先のパス写像（作業フォルダ面とスキル面）/ 確認の例外とセッション未確定で開かないこと / 切替世代をまたいだ結果の失効（A→B→A） |
+| `client/test/markdownFileRef.test.ts` | 参照になる code だけ操作にする / 裸名・provider 外・cwd 外・リンク内の除外 / 引用・リスト・表での描画 / 共通スキルの絶対パスがスキル面の操作要素になり、操作名が種別で変わること（SSR） |
+| `client/test/sessionSkillFiles.test.ts` | チャットのスキル面の外装（見出し / root / 戻る導線 / 閉じる導線）と、モードによる作業フォルダ面との出し分け（SSR）。行の操作は `fileRowMenu.test.ts` とブラウザ受入で確認する |
+| `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot / 配信元（ストレージ有効モード）を保存しないこと |
+| `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
+| `client/test/copyResult.test.ts` | コピー結果の controller: 所有者 (会話) の切替と unmount の invalidate をまたいで、deferred な成功 / 失敗を適用しないこと（A→B・A→B→A）/ 成功 2 秒・失敗 8 秒の表示と、切替でのタイマー破棄 |
+| `client/test/sessionFilesPath.test.ts` | 帯のパスの分割（未所属の 2 段 / プロジェクトの 1 段 / 末尾の `/` / root `.` / 1 段だけ）/ 絶対パスの組み立て（root `.` は `rootCwd` そのまま・未取得は undefined）/ ⋯ の項目と disabled の理由（片方だけ・両方）/ 全 disabled で ⋯ を出さず理由を常設すること（SSR） |
+| `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
+| `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
+| `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileRawUrl` が version 指定時だけ `v` を付け、未指定時の URL を保つこと / `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること / `fileStoragePreviewUrl` が hostname + ポートで別オリジンの URL を組み立てること |
+| `client/test/filePreviewError.test.ts` | 共通スキル配下の `Path not found` にだけ補助文を出すこと（作業フォルダ側・接頭辞の別名・他のエラーでは出さない） |
+| `server/test/file-stat.test.ts` | サンドボックスの `GET /v1/files/stat`（通常ファイル 200 と symlink の実パス / 本文を読まないためバイナリ・UTF-8 不正・上限超過も 200 / 不存在と壊れた symlink の 404 / ディレクトリ・root 自身・root 外・不正要求の 400 / 認証） |
+| `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし / リスナーごとの sandbox 段）/ `GET /api/files/html/<path>` の文書・画像・音声・テキストアセット・400 の分岐と percent decoding（音声は raw・テキストは preview の使い分けと動画 / フォントの 400 を含む）/ ヘッダ（CSP / `no-store` / `nosniff`）/ `previewApp` の storage 有効 CSP（文書は HTML・アセットは CSP 無しの JSON）とマウント範囲（HTML プレビュー ルートだけ）/ `GET /api/files/raw` が画像と音声を配り、`.svg` / `.html` / 動画 / テキストを 400 で拒むこと / `Range` の status・`Content-Range`・`Accept-Ranges` の中継（206 と 416）/ 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 / `POST /api/files/rename` の委譲と body 検証・エラー写像（409 の透過を含む）・契約外の応答の 502 / `GET /api/files/stat` の本文を取らない委譲と no-store・200 / 404 / 400 の透過・確認不能の 502 / 未設定の 503 |
+| `server/test/file-preview-port.test.ts` | プレビュー オリジンのポート解決（待受とブラウザから見た値の既定はどちらも 4318 / 未設定は既定 / 1〜65535 の整数 / 不正値は throw して指定した env を名指しする / `pnpm dev` 用の統一（`PI_FILE_PREVIEW_PORT` が正・待受 env しか無いときはその値へ寄せる・空白だけは未設定）） |
+| `server/test/dev-file-preview-port.test.ts` | `pnpm dev` が解決した 1 つの値を待受の空き確認と BFF の両 env（`PI_FILE_PREVIEW_PORT` / `PI_FILE_PREVIEW_LISTEN_PORT`）へ渡し、既定ポートを直書きしないこと（ソース走査） |
+| `server/test/archive-rules.test.ts` | 既定の除外名（再生成物 / ビルド成果物 / `vendor` などを入れない）/ 上書きの解決（空配列は全解除・trim と重複の除去・呼び出し側の変更から既定を守る）/ 正規化（trim / 空落とし / 先勝ちの重複 / 順序と大文字小文字の保持）/ 検証（`.`・`..`・区切り・制御文字・200 文字超・100 件超）/ `GET /api/health` が実効値を返すこと |
+| `server/test/archive-settings.test.ts` | 設定ストア（未設定 = 既定 / 保存の正規化と明示空 / リセットで行を消す / 検証エラーの 400 と非破壊 / DB 不可のフォールバックと 503）とルート（GET / PUT / DELETE の同じ形 / zod の 400 / 再起動後の保持 / DB 不可の 503）/ 整合（PUT の直後に health と download / check が同じ実効値を見る） |
+| `server/test/zip-writer.test.ts` | ZIP ライタ（既知ベクタの CRC32 と分割入力 / store と deflate の選択 / UTF-8 名と bit 3・bit 11 / 空ファイル・空ディレクトリ / 複数チャンク / 途中失敗でストリームを失敗させる） |
+| `server/test/sandbox-archive.test.ts` | `GET /v1/files/download` と `/check`（zip の中身と除外 / skipped の内容 / `exclude` の省略 = 既定と空値のみ = 除外なし / 繰り返しの一覧 / 不正名と 100 件超の 400 / 除外名のディレクトリの 400 / symlink の 400 と配下 symlink の除外 / 単体ファイルの生配信とヘッダ / root の zip / 空ディレクトリ / 末尾スラッシュ / 404・root 外 400・`..` の 400 / 上限 413 / 認証） |
+| `server/test/file-download.test.ts` | BFF の `GET /api/files/download` と `/check`（ストリーム中継とヘッダ / `Content-Disposition` の透過 / `Content-Length` の有無 / 設定ストアの実効値を `exclude` の繰り返しで渡すこと（未設定 = 既定 / 明示空 = 空のまま）/ 400・404・413・502・503 の写像 / 契約外の check 応答の 502） |
+| `server/test/sandbox-delete-dir.test.ts` | `DELETE /v1/dirs`（`recursive` の解釈 / 空ディレクトリ / 非空の 400 と部分削除なし / 配下ごとの削除と接頭辞境界 / パス形式と root 外・不存在・非ディレクトリ・symlink の 400・404 / 配下 symlink のリンクだけの削除 / 一覧上限外の子 / `__proto__` / 認証） |
+| `server/test/sandbox-client.test.ts` | NDJSON / JSON 経路の写像と、`deleteDirectory` が `DELETE /v1/dirs?recursive=true` を呼び 204 の本文を読まないこと / `renameEntry` が `POST /v1/files/rename` を呼び、409 を文言ごと透過すること / `rawFile` が `Range` を付けて送り status・`Content-Range`・`Accept-Ranges` を中継すること（416 は例外にしない） |
+| `server/test/sandbox-rename.test.ts` | `POST /v1/files/rename`（ファイル / ディレクトリの改名と応答パス / 大文字小文字だけの変更 / 同名 409 と変更なし / 不正な名前・パス形式の 400 / 不存在 404 / root 外 400 / symlink の 400 とリンク先の維持・symlink への上書きの 409 / symlink ディレクトリ経由 / 認証） |
+| `server/test/static.test.ts` | SPA フォールバック（拡張子なしの画面 URL / `/api`・`/assets` の境界 / `Accept` / 未ビルド 503）と、アプリ CSP の `frame-src`（`'self'` + プレビュー オリジンのポート）と `media-src 'self' blob:`（お試し再生の blob URL） |
 
-- `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）。スキルのファイルタブは選択したスキルごとに `FileSkillPanel` ごと入れ替え、初回にタブを開いたときだけ `FileBrowser` を mount する（以降は `display` で隠して保持する）。チャットのスキル面も `FileBrowser` の `key` を skill root にして、root の切替で remount する
-- 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。**チャットのスキル面はヘッダに「再読み込み」を持たず、`runEndSeq` だけを渡す**（設定 → スキルのファイルタブは自動の取り直しを持たない）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
-- `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら所属スペースのスクラッチ）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
-- **作業フォルダ面（右パネル / sheet）だけが `.git` を行ごと隠す**（[隠す行](file-tree.md#隠す行)）。設定 → ファイル とスキル面（設定 → スキルのファイルタブ / チャットのスキル面）は隠さない
+## 参照
+
+- [ui-layout.md](ui-layout.md) — 本文の中でツリーとプレビューをどう並べるか
+- [markdown.md](markdown.md) — 共有するトークナイザの対応言語・上限と、インラインコードをファイル参照の操作要素にする描画契約
+- [api-files.md](api-files.md#テキストプレビュー) — プレビューの転送契約
+- [api-files.md](api-files.md#html-プレビュー) — HTML プレビューのヘッダとエラー応答
+- [api-files.md](api-files.md#ダウンロード) — ダウンロードの転送契約
+- [sandbox-api.md](sandbox-api.md#get-v1filesdownload) — ZIP の除外規則・上限・ZIP ライタの実装
+- [api-files.md](api-files.md#アーカイブの除外名) — 除外名の設定 API（未設定と明示空の区別・検証）

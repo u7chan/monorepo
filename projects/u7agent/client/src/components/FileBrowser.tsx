@@ -99,7 +99,7 @@ export type FileBrowserProps = {
   canRef?: boolean;
   /**
    * 行ごと隠す名前 (名前一致・階層を問わない)。作業環境パネルだけが `.git` を渡す
-   * (設定 → ファイル とスキルのファイルタブは渡さず、全部見える。docs/file-preview.md)。
+   * (設定 → ファイル とスキルのファイルタブは渡さず、全部見える。docs/file-tree.md#隠す行)。
    * 取得済みの一覧には効かないため、mount の間で変えない (root と同じ前提)。
    */
   hiddenNames?: readonly string[];
