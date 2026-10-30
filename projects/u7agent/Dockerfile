@@ -61,7 +61,7 @@ COPY scripts/shell-quote.mjs ./scripts/shell-quote.mjs
 # 渡さないと検査対象が空になり、docs のリンク切れを見逃したまま test が通る (final へは入れない)。
 COPY docs/ ./docs/
 COPY AGENTS.md README.md .env.example ./
-COPY scripts/docs-check.mjs ./scripts/docs-check.mjs
+COPY scripts/docs-check.mjs scripts/docs-text.mjs ./scripts/
 # ラッパーが無い / 動かないイメージを出さないための probe。許可 root の外への書き込みが
 # EACCES になることまで見る (テスト側の skip 条件ではなくビルドを失敗させる)。
 COPY scripts/landlock-exec.py /usr/local/bin/u7agent-landlock
