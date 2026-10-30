@@ -22,7 +22,7 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 
 - すべての `/v1/*` は `Authorization: Bearer PI_SANDBOX_TOKEN` を要求し、長さを漏らさない定数時間比較で検証する。未認証は 401
 - `/healthz` は無認証（Compose healthcheck 用）。ツール実行の情報は含まない
-- 実行環境の診断（`GET /v1/runtime/info`）も同じ認証の下に置く。診断の子プロセスは bash ツールの `spawnHook` を通らないため、環境を新規作成し、信頼ディレクトリで解決した絶対パスと固定引数だけを実行し、期限・同時数・出力上限を設ける（[sandbox-api.md](sandbox-api.md#検出の安全性と上限)）
+- 実行環境の診断（`GET /v1/runtime/info`）も同じ認証の下に置く。診断の子プロセスは bash ツールの `spawnHook` を通らないため、環境を新規作成し、信頼ディレクトリで解決した絶対パスと固定引数だけを実行し、期限・同時数・出力上限を設ける（[sandbox-api-runtime.md](sandbox-api-runtime.md#検出の安全性と上限)）
 - ツール実行APIはホストへ publish しない。BFF ⇄ サンドボックスは専用の内部ネットワークのみで到達する。トークンは BFF とサンドボックスの 2 サービスにのみ渡す（LLM 認証情報とは別の値）。ホスト上の別プロセスで起動する場合は `SANDBOX_HOST=127.0.0.1` を指定する（既定は `0.0.0.0` で LAN へ露出する）
 - サンドボックスのツール API は 9418、ユーザーへ見せる serve（サービス）は 8080、エージェントの自己デバッグ用 serve は 18000–18099 に分ける。8080 は publish せず、ブラウザへ公開するのは BFF の 3 本目のリスナー（サービス オリジン）だけにする（以下の運用契約）。BFF は任意ポートの proxy は作らないが、サービス 1 本だけはこのリスナーで受けて `PI_SANDBOX_URL` のホストの 8080 へ転送する。ファイルプレビューは従来どおり BFF が CSP / sandbox 付きで配る（[file-preview.md](file-preview.md)）。
 - `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定のとき、BFF はセッション作成を 503 で拒否する（ローカル実行へのフォールバックなし）

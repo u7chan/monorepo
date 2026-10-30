@@ -23,7 +23,7 @@
 }
 ```
 
-- 200: サンドボックスの一覧をそのまま返す。エントリの意味は [sandbox-api.md](sandbox-api.md#get-v1files) を参照
+- 200: サンドボックスの一覧をそのまま返す。エントリの意味は [sandbox-api-files.md](sandbox-api-files.md#get-v1files) を参照
 - 400 / 404: `path` が root 外へ解決される / 不正 / ディレクトリでない（400）、実在しない（404）。実在しない `path` は lexical な位置で判定するため、root 外を指す未作成パスは 404 ではなく 400 になる。サンドボックス側の文言をそのまま返す
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定。`{ "error": "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)" }`
 - 502: サンドボックスへ到達できない / 認証失敗 / サンドボックス側のエラー / 契約外の応答（BFF が zod で検証して弾く）
@@ -45,7 +45,7 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 
 ### リネーム
 
-`POST /api/files/rename` は `{ path, name }`（どちらも string）を受け、サンドボックスの `POST /v1/files/rename`（[sandbox-api.md](sandbox-api.md#post-v1filesrename)）へ委譲する。BFF はワークスペースに触らない。`client/src/api.ts` の `renameEntry(path, name)` が呼び、応答は改名後のワークスペース root 相対パス。
+`POST /api/files/rename` は `{ path, name }`（どちらも string）を受け、サンドボックスの `POST /v1/files/rename`（[sandbox-api-files.md](sandbox-api-files.md#post-v1filesrename)）へ委譲する。BFF はワークスペースに触らない。`client/src/api.ts` の `renameEntry(path, name)` が呼び、応答は改名後のワークスペース root 相対パス。
 
 ```json
 // request
@@ -69,7 +69,7 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 | --- | --- | --- |
 | POST | `/api/files/upload?path=<保存先の root 相対>&name=<保存名>` | raw の本文を 1 ファイルとして保存。成功は 201 |
 
-設定 → ファイル（`/settings/files`）と、作業環境の作業フォルダ面のドラッグ＆ドロップが使う（[file-upload.md](file-upload.md)）。`path` は保存先ディレクトリで、省略時はワークスペース root（`""`）。作業環境ではその面の root（セッションの作業フォルダ）を渡す。`name` は 1 セグメントの保存名で、形式（空・`.`・`..`・`/`・制御文字・長さ）はサンドボックスが検証する。BFF は本文を JSON 化せず raw のストリームのままサンドボックスの `POST /v1/files/upload`（[sandbox-api.md](sandbox-api.md#post-v1filesupload)）へ中継し、ワークスペースに触らない。
+設定 → ファイル（`/settings/files`）と、作業環境の作業フォルダ面のドラッグ＆ドロップが使う（[file-upload.md](file-upload.md)）。`path` は保存先ディレクトリで、省略時はワークスペース root（`""`）。作業環境ではその面の root（セッションの作業フォルダ）を渡す。`name` は 1 セグメントの保存名で、形式（空・`.`・`..`・`/`・制御文字・長さ）はサンドボックスが検証する。BFF は本文を JSON 化せず raw のストリームのままサンドボックスの `POST /v1/files/upload`（[sandbox-api-files.md](sandbox-api-files.md#post-v1filesupload)）へ中継し、ワークスペースに触らない。
 
 ```json
 // request
@@ -82,7 +82,7 @@ Content-Type: application/octet-stream
 { "path": "docs/notes.txt", "name": "notes.txt", "renamed": false, "size": 1234 }
 ```
 
-- 201: サンドボックスの応答を `FileUploadSchema` で検証してそのまま返す。`path` は root 相対の保存先。同名の既存ファイルは**上書きせず** `notes-1.txt` のように連番で保存し、`renamed: true` と実際の `name` を返す（[sandbox-api.md](sandbox-api.md#post-v1filesupload)）
+- 201: サンドボックスの応答を `FileUploadSchema` で検証してそのまま返す。`path` は root 相対の保存先。同名の既存ファイルは**上書きせず** `notes-1.txt` のように連番で保存し、`renamed: true` と実際の `name` を返す（[sandbox-api-files.md](sandbox-api-files.md#post-v1filesupload)）
 - 413: 宣言された `Content-Length` が `SANDBOX_MAX_UPLOAD_BYTES`（100 MiB）を超える。本文をサンドボックスへ送る前に止める。宣言が無い / 実際の受信バイトが上限を超える場合はサンドボックスが 413 を返す
 - 400: 保存名の形式（空・`.`・`..`・区切り・制御文字・長さ）・`path` が root 外・保存先がディレクトリでない（400）。保存先ディレクトリは必要ならサンドボックスが作る（存在しない `path` は 404 にしない）。サンドボックス側の文言をそのまま返す
 - 502 / 503: 到達不能・認証失敗・契約外の応答 / `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
@@ -95,7 +95,7 @@ Content-Type: application/octet-stream
 | --- | --- | --- |
 | GET | `/api/files/git?path=<root 相対>` | `path`（省略時は root）のディレクトリが属する repo の HEAD |
 
-サンドボックスの `GET /v1/files/git`（[sandbox-api.md](sandbox-api.md#get-v1filesgit)）の応答を DTO（`GitInfo`）として返す。`path` は一覧と同じワークスペース root 相対で、検証も同じ経路を通す。
+サンドボックスの `GET /v1/files/git`（[sandbox-api-files.md](sandbox-api-files.md#get-v1filesgit)）の応答を DTO（`GitInfo`）として返す。`path` は一覧と同じワークスペース root 相対で、検証も同じ経路を通す。
 
 ```json
 { "branch": "feature/x" }
@@ -112,7 +112,7 @@ client（`client/src/api.ts` の `getGitInfo`）は作業フォルダの行が�
 | --- | --- | --- |
 | GET | `/api/files/stat?path=<root 相対>` | 通常ファイルとして実在するかの確認（本文は返さない） |
 
-サンドボックスの `GET /v1/files/stat`（[sandbox-api.md](sandbox-api.md#get-v1filesstat)）の応答を DTO（`FileStat`）として返す。`path` は一覧と同じワークスペース root 相対で、検証も同じ経路を通す。チャット本文のファイル参照を開く前に実在を確認するために使い（[file-tree.md](file-tree.md#クリックと要求)）、**一覧（`GET /api/files`）は 1 ディレクトリ 500 件の打切り（`truncated: true`）と壊れた symlink の行があるため、存在の判定には使わない**。
+サンドボックスの `GET /v1/files/stat`（[sandbox-api-files.md](sandbox-api-files.md#get-v1filesstat)）の応答を DTO（`FileStat`）として返す。`path` は一覧と同じワークスペース root 相対で、検証も同じ経路を通す。チャット本文のファイル参照を開く前に実在を確認するために使い（[file-tree.md](file-tree.md#クリックと要求)）、**一覧（`GET /api/files`）は 1 ディレクトリ 500 件の打切り（`truncated: true`）と壊れた symlink の行があるため、存在の判定には使わない**。
 
 ```json
 { "path": "src/index.ts" }
@@ -177,7 +177,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | --- | --- | --- |
 | GET | `/api/files/raw?path=<root 相対>` | 画像 / 音声の生配信（チャットの添付サムネイル・ファイル画面のプレビュー） |
 
-サンドボックスの `GET /v1/files/raw` に委譲し、status と `Range` 系ヘッダを含めて応答をそのままストリームで返す。配信するのは画像（`png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`）と音声（`mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac`）で、SVG / HTML は同一オリジンでスクリプトが動くため配信しない。判定は BFF とサンドボックスの両方で行う。**節の見出しはアンカー（`#画像配信raw`）を保つために据え置き**で、音声を含むようになったのは本文だけ（[sandbox-api.md](sandbox-api.md#get-v1filesraw)）。
+サンドボックスの `GET /v1/files/raw` に委譲し、status と `Range` 系ヘッダを含めて応答をそのままストリームで返す。配信するのは画像（`png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`）と音声（`mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac`）で、SVG / HTML は同一オリジンでスクリプトが動くため配信しない。判定は BFF とサンドボックスの両方で行う。**節の見出しはアンカー（`#画像配信raw`）を保つために据え置き**で、音声を含むようになったのは本文だけ（[sandbox-api-files.md](sandbox-api-files.md#get-v1filesraw)）。
 
 - 200: 本文 + `Content-Type`（拡張子から決める）/ `Content-Length` / `Accept-Ranges: bytes` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
 - 206: 単一の `Range`（`bytes=<start>-<end>` / `bytes=<start>-` / `bytes=-<suffix>`）を満たした部分本文 + `Content-Range: bytes <start>-<end>/<size>` / `Content-Length`（部分の長さ）/ `Accept-Ranges: bytes`。マルチパート / 複数レンジは対象外で、解釈できない `Range`（構文不正・`bytes` 以外の単位・複数レンジ）は無視して 200 を返す（RFC 9110）
@@ -199,7 +199,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | GET | `/api/files/download?path=<root 相対>` | 通常ファイルは生バイト、ディレクトリは ZIP。どちらも `Content-Disposition: attachment` |
 | GET | `/api/files/download/check?path=<root 相対>` | ダウンロードの見積り（種別 / 保存名 / 合計サイズ / エントリ数 / 除外名）。UI は先にこれを呼ぶ |
 
-サンドボックスの `GET /v1/files/download` と `GET /v1/files/download/check` に委譲し、**BFF はワークスペースに触らない**。`download` は本文を JSON に載せずストリーム中継し（既存 `raw` と同じ）、`Content-Type` / `Content-Disposition` / `Content-Length` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff` を付け直す。ファイル名の決定（`filename*=UTF-8''…` のエンコードを含む）と上限 / 除外の判定はサンドボックス側で、BFF は `Content-Disposition` を書き換えない（[sandbox-api.md](sandbox-api.md#get-v1filesdownload)）。
+サンドボックスの `GET /v1/files/download` と `GET /v1/files/download/check` に委譲し、**BFF はワークスペースに触らない**。`download` は本文を JSON に載せずストリーム中継し（既存 `raw` と同じ）、`Content-Type` / `Content-Disposition` / `Content-Length` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff` を付け直す。ファイル名の決定（`filename*=UTF-8''…` のエンコードを含む）と上限 / 除外の判定はサンドボックス側で、BFF は `Content-Disposition` を書き換えない（[sandbox-api-files.md](sandbox-api-files.md#get-v1filesdownload)）。
 
 ```json
 // GET /api/files/download/check?path=src (200)
@@ -246,10 +246,10 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - PUT の本文は `{ "excludeNames": string[] }`（zod は形だけを見て、値の検証は store 側）。前後の空白は落とし、空文字は無視し、重複は先勝ちで畳む（大文字小文字はそのまま保持）
 - 400: 形が違う本文、または 1 セグメント名として不正な名前（空・`.`・`..`・`/`・`\`・制御文字・`maxNameLength` 超）と `maxNames` 超。文言は `除外名に使えない名前があります: <name>` / `除外名は 100 件までです` で、画面はそのまま出す
 - 保存 / リセットの応答も GET と同じ形で、`excludeNames` は保存後の実効値になる
-- 変更は次のダウンロードから効く（BFF はリクエストごとに実効値をサンドボックスへ渡す。[sandbox-api.md](sandbox-api.md#get-v1filesdownload)）
+- 変更は次のダウンロードから効く（BFF はリクエストごとに実効値をサンドボックスへ渡す。[sandbox-api-files.md](sandbox-api-files.md#get-v1filesdownload)）
 
 ## セッションへのファイルアップロード
 
 `POST /api/sessions/:id/files?name=<ファイル名>` は選択時の即時アップロードで、保存先は所属スペースの添付置き場（既定スペースは `<appdir>/uploads/<sessionId>/`。置き場は [session-files.md](session-files.md#スペースごとの配置)）で、プロジェクトのリポジトリ内には作らない。JSON ではなく raw ストリームで受け、`bodyGuard`（既定 64 KiB の body 上限と text 化）より前に登録する。仕様と上限は [api-session-turns.md](api-session-turns.md#post-apisessionsidfiles)、保存の規則は [session-files.md](session-files.md#添付ファイルチャットからのアップロード) を参照する。
 
-`POST /api/skills/files/import?dryRun=true&replace=<名前>` はスキル（`.agents/skills`）の ZIP インポートで、これも raw ストリームで受け、`bodyGuard` より前に登録する。申告された `content-length` が上限を超えるときは本文を送らずに 413 にし、本文の上限はサンドボックス側でも数える（同じ値）。応答はサンドボックスの plan / apply の形を検証してそのまま返し、`dryRun` / `replace` は解釈せず query のままサンドボックスへ渡す。契約は [api-catalog.md](api-catalog.md#ファイルスキルagentsskills)、検証と排他は [sandbox-api.md](sandbox-api.md#スキルのエクスポート--インポート) を参照する。
+`POST /api/skills/files/import?dryRun=true&replace=<名前>` はスキル（`.agents/skills`）の ZIP インポートで、これも raw ストリームで受け、`bodyGuard` より前に登録する。申告された `content-length` が上限を超えるときは本文を送らずに 413 にし、本文の上限はサンドボックス側でも数える（同じ値）。応答はサンドボックスの plan / apply の形を検証してそのまま返し、`dryRun` / `replace` は解釈せず query のままサンドボックスへ渡す。契約は [api-catalog.md](api-catalog.md#ファイルスキルagentsskills)、検証と排他は [sandbox-api-skills.md](sandbox-api-skills.md#スキルのエクスポート--インポート) を参照する。

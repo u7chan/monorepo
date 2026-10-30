@@ -1,7 +1,7 @@
 /**
  * アーカイブ除外名の設定ストア。DB の読み書き・検証・実効値の解決をここに閉じ、
  * health・download / check が同じ実効値を取るようにする（判定のずれを作らない）。
- * サンドボックスは設定を持たないため、実効値はリクエストごとに query で渡す（docs/sandbox-api.md）。
+ * サンドボックスは設定を持たないため、実効値はリクエストごとに query で渡す（docs/sandbox-api-files.md）。
  */
 import type { AppDb } from "./app-db";
 import {

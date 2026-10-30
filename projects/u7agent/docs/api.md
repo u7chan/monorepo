@@ -40,7 +40,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | [api-settings.md](api-settings.md)、[secrets.md](secrets.md#作業フォルダの環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview`・`/export`・`/export/check`・`/import` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-session-turns.md](api-session-turns.md#get-apiskillssession) |
 | 定型プロンプト（設定 → 定型プロンプト `/settings/prompts`） | `GET/POST /api/prompts`、`GET/PATCH/PUT/DELETE /api/prompts/:id` | [api-catalog.md](api-catalog.md#定型プロンプトのマスタと参照) |
-| サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
+| サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md)、[sandbox-api-files.md](sandbox-api-files.md)、[sandbox-api-skills.md](sandbox-api-skills.md)、[sandbox-api-runtime.md](sandbox-api-runtime.md) |
 
 ## スペース
 
@@ -175,7 +175,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 }
 ```
 
-`state` は `connected` / `not_configured` / `unreachable` / `unauthorized` / `timeout` / `probe_failed` の 6 種で、`connected` 以外は `state` だけを返す（サンドボックスの情報は載せない）。検出できるコマンドの意味と allowlist、上限は [sandbox-api.md](sandbox-api.md#get-v1runtimeinfo) を参照する。
+`state` は `connected` / `not_configured` / `unreachable` / `unauthorized` / `timeout` / `probe_failed` の 6 種で、`connected` 以外は `state` だけを返す（サンドボックスの情報は載せない）。検出できるコマンドの意味と allowlist、上限は [sandbox-api-runtime.md](sandbox-api-runtime.md#get-v1runtimeinfo) を参照する。
 
 - 未接続でも HTTP 200 で返し、UI は HTTP ステータスや文言ではなく `state` で分岐する。BFF 自体の予期せぬエラーだけが既存のエラー処理（500）になる
 - `connected` は認証付きの `GET /v1/runtime/info` が契約どおり応答し、情報の取得が完了した状態を指す。`bash` などのツールが実行可能であることは保証しない（`landlock` が `enabled` でなければ `bash` は実行できない。設定 → ランタイム の環境タブの実行環境カードに ABI と適用状態を出す）。個別コマンドのバージョンを取れなくても存在を確認できていれば `version: null` として `connected` を維持する

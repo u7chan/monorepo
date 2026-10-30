@@ -2,7 +2,7 @@
  * サンドボックス自身の実行環境と、allowlist コマンドの実在 / バージョンの検出。
  * process.env を継承しない最小環境・信頼ディレクトリで解決した絶対パス・固定引数だけを使い、
  * 上限 (1 コマンド / 全体 / 同時数 / 出力バイト) を超えた子プロセスはプロセスグループごと殺す。
- * 何をどこまで検出するかと限界は docs/sandbox-api.md を参照する。
+ * 何をどこまで検出するかと限界は docs/sandbox-api-runtime.md を参照する。
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { accessSync, constants, realpathSync, statSync } from "node:fs";

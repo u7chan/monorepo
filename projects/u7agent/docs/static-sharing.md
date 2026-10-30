@@ -264,7 +264,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 
 ### glob / パス指定の除外
 
-- 却下: サンドボックスの `exclude` は 1 セグメント名の完全一致で、パスや `*` を解釈しない（[sandbox-api.md](sandbox-api.md#get-v1filesdownload)）。BFF 側だけで解釈すると、計画（walk）と ZIP の生成で別の規則を持つことになり、見えたものと上がるものがずれる。`.env.*` は既定に個別で列挙する。
+- 却下: サンドボックスの `exclude` は 1 セグメント名の完全一致で、パスや `*` を解釈しない（[sandbox-api-files.md](sandbox-api-files.md#get-v1filesdownload)）。BFF 側だけで解釈すると、計画（walk）と ZIP の生成で別の規則を持つことになり、見えたものと上がるものがずれる。`.env.*` は既定に個別で列挙する。
 
 ### 同期 HTTP で公開する
 

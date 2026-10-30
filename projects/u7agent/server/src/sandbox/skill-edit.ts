@@ -1,7 +1,7 @@
 /**
  * 共通スキル (SKILL.md) の決定的なテキスト編集。frontmatter の境界と description の値の source range
  * だけを差し替え、YAML 全体は再生成しない。境界と改行の正規化は SDK の parseFrontmatter と同じ規則に
- * 合わせ、スキルとしての意味の検証はサンドボックス側の SDK 走査へ委ねる (docs/sandbox-api.md)。
+ * 合わせ、スキルとしての意味の検証はサンドボックス側の SDK 走査へ委ねる (docs/sandbox-api-skills.md)。
  */
 import { createHash } from "node:crypto";
 import { isMap, isScalar, parseDocument, type Document, type Pair, type YAMLMap } from "yaml";

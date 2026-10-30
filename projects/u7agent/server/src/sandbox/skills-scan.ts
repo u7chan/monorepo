@@ -5,7 +5,7 @@
  * 走査規則 (hidden / node_modules / ignore ファイル / 再帰 / frontmatter 検証) を二重実装しないため、
  * 規則は SDK のままにして実行だけを隔離し、期限切れは呼び出し側が「発見できなかった」として扱う。
  * worker はプロセスで 1 つを使い回す (起動と SDK の import に数百 ms 掛かるため)。期限切れや異常終了では
- * worker を捨て、次の要求で作り直す (docs/sandbox-api.md)。
+ * worker を捨て、次の要求で作り直す (docs/sandbox-api-skills.md)。
  */
 import type { LoadSkillsResult } from "@earendil-works/pi-coding-agent";
 import { Worker } from "node:worker_threads";
