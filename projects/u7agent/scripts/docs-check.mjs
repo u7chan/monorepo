@@ -19,6 +19,13 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  linkPattern,
+  proseOf,
+  withoutCodeBlocks,
+  withoutInlineCode,
+} from "./docs-text.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
@@ -105,35 +112,6 @@ function hasHeading(file, anchor) {
   if (!headingCache.has(file)) headingCache.set(file, headingsOf(file));
   return headingCache.get(file).has(anchor);
 }
-
-/** fenced code block を落とす。GitHub は ``` と ~~~ の両方をフェンスとして描画する。 */
-function withoutCodeBlocks(text) {
-  return text.replace(/^(```|~~~)[\s\S]*?^\1/gm, "");
-}
-
-/**
- * 行内のコード span を落とす。バッククォートが奇数個の行はどれが対応するか決められないので、
- * その行は触らない（対応を推測して消すと、コメント内の 1 つが本文ごと消していた）。
- */
-function withoutInlineCode(text) {
-  return text
-    .split("\n")
-    .map((line) =>
-      (line.match(/`/g)?.length ?? 0) % 2 === 0 ? line.replace(/`[^`\n]*`/g, "") : line,
-    )
-    .join("\n");
-}
-
-/** コード例の中の記法は参照ではないので、リンク検査の前に落とす。 */
-function proseOf(text) {
-  return withoutCodeBlocks(text).replace(/`[^`\n]*`/g, "");
-}
-
-/**
- * リンクの参照先。title (`[t](url "title")`) と angle (`[t](<url with space>)`) も GitHub の記法として通す。
- * ここを狭めると、その形式で書いたリンクが無検査で残る。
- */
-const linkPattern = /\[[^\]]*\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
 
 /** 冒頭の段落にある「正となるコード」のパス。日付と調査範囲を持つ surveys は、読むかを決める材料が冒頭の日付と対象なので別扱いにする。 */
 const introTarget = /`(?:client|server)\//;
