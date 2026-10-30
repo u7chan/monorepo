@@ -17,6 +17,7 @@ const HEADING = /^#{1,6}(?:[ \t]|$)/;
 const THEMATIC = /^(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/;
 const SETEXT = /^(?:=+|-{1,2})[ \t]*$/;
 const FENCE = /^(`{3,}|~{3,})/;
+const CLOSING_FENCE = /^(`{3,}|~{3,})$/;
 const MARKER = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
 const DELIMITER_CELL = /^[ \t]*:?-+:?[ \t]*$/;
 
@@ -38,32 +39,51 @@ function isTableDelimiter(line) {
   return line.includes("|") && tableCells(line).every((cell) => DELIMITER_CELL.test(cell));
 }
 
-/** フェンスの閉じ行か。記号は開きと同じで、長さは開き以上。 */
+/** 行頭のリストマーカーをすべて落とす。1 行で複数の項目が始まることがある。 */
+function stripMarkers(content) {
+  let body = content;
+  let width = 0;
+  for (let match = MARKER.exec(body); match !== null; match = MARKER.exec(body)) {
+    width += match[1].length + match[2].length + match[3].length;
+    body = match[4];
+  }
+  return { body, width };
+}
+
+/** フェンスの閉じ行か。記号は開きと同じで、長さは開き以上、コンテナから 3 桁まで。 */
 function isFenceEnd(line, fence) {
-  const match = /^(`{3,}|~{3,})$/.exec(line.trim());
-  return match !== null && match[1][0] === fence[0] && match[1].length >= fence.length;
+  const mark = CLOSING_FENCE.exec(line.trimStart());
+  const relative = line.length - line.trimStart().length - fence.indent;
+  return (
+    mark !== null &&
+    relative >= 0 &&
+    relative <= INDENT &&
+    mark[1][0] === fence.mark[0] &&
+    mark[1].length >= fence.mark.length
+  );
 }
 
 /**
- * 行を散文 / コードと、その行のコンテナ内容インデントに分類する。フェンス・インデントコード・
- * 段落の開閉が同じコンテナ状態に依存するので、判定を分けると片方だけが腐る。
+ * 行を散文 / コードと、その行の本文（リストマーカーを落とした内容）に分類する。フェンス・
+ * インデントコード・段落の開閉が同じコンテナ状態に依存するので、判定を分けると片方だけが腐る。
  */
 function classify(text) {
   const rows = [];
   const items = [];
   let paragraph = null;
   let paragraphBody = "";
-  let paragraphLines = 0;
   let table = false;
   let fence = null;
   for (const line of text.split("\n")) {
+    // 段落の中の行は、HTML の 7 型のように段落を中断できないブロックを開始しない
+    const paragraphBefore = paragraph !== null;
     if (fence !== null) {
-      rows.push({ line, code: true, contentIndent: 0 });
+      rows.push({ line, code: true, body: "", blockIndent: false, paragraphBefore });
       if (isFenceEnd(line, fence)) fence = null;
       continue;
     }
     if (line.trim() === "") {
-      rows.push({ line, code: false, contentIndent: 0 });
+      rows.push({ line, code: false, body: "", blockIndent: false, paragraphBefore });
       paragraph = null;
       table = false;
       continue;
@@ -72,81 +92,70 @@ function classify(text) {
     while (items.length > 0 && items[items.length - 1] > indent) items.pop();
     const contentIndent = items.length > 0 ? items[items.length - 1] : 0;
     const relative = indent - contentIndent;
-    const content = line.trimStart();
-    const atBlockIndent = relative >= 0 && relative <= INDENT;
-    const open = atBlockIndent ? FENCE.exec(content) : null;
+    const blockIndent = relative <= INDENT;
+    const { body, width } = blockIndent
+      ? stripMarkers(line.trimStart())
+      : { body: line.trimStart(), width: 0 };
+    const bodyIndent = indent + width;
+    const open = blockIndent ? FENCE.exec(body) : null;
     if (open !== null) {
-      fence = open[1];
+      fence = { mark: open[1], indent: width > 0 ? bodyIndent : contentIndent };
       paragraph = null;
       table = false;
-      rows.push({ line, code: true, contentIndent });
+      rows.push({ line, code: true, body, blockIndent, paragraphBefore });
       continue;
     }
-    const marker = MARKER.exec(line);
-    // リスト項目はコンテナの内容位置から 3 桁以内でだけ始まる
-    const listItem =
-      marker !== null &&
-      marker[1].length - contentIndent >= 0 &&
-      marker[1].length - contentIndent <= INDENT;
-    const heading = atBlockIndent && HEADING.test(content);
-    const thematic = atBlockIndent && THEMATIC.test(content);
+    const heading = blockIndent && HEADING.test(body);
+    const thematic = blockIndent && THEMATIC.test(body);
+    const listItem = blockIndent && width > 0;
     // インデントコードは段落を中断できない (空行か、段落のないブロックの後だけが開始できる)
-    if (paragraph === null && relative > INDENT) {
+    if (paragraph === null && !blockIndent) {
       table = false;
-      rows.push({ line, code: true, contentIndent });
+      rows.push({ line, code: true, body, blockIndent, paragraphBefore });
       continue;
     }
     // 表は空行か別のブロックの開始まで続き、その行は段落を開かない (GFM の表は leaf block)
     if (table && !heading && !thematic && !listItem) {
-      rows.push({ line, code: false, contentIndent });
+      rows.push({ line, code: false, body, blockIndent, paragraphBefore });
       continue;
     }
     table = false;
-    // 見出し行は 1 行の段落で、区切り行と列数が一致し、段落の内容位置から 3 桁以内のときだけ表になる
+    // 表の見出しは直前の段落の最終行。区切り行と列数が一致し、段落の内容位置から 3 桁以内で成立する
     const inParagraph =
       paragraph !== null && indent - paragraph >= 0 && indent - paragraph <= INDENT;
     if (
       inParagraph &&
-      paragraphLines === 1 &&
-      isTableDelimiter(content) &&
-      tableCells(paragraphBody).length === tableCells(content).length
+      isTableDelimiter(body) &&
+      tableCells(paragraphBody).length === tableCells(body).length
     ) {
       table = true;
       paragraph = null;
-      rows.push({ line, code: false, contentIndent });
+      rows.push({ line, code: false, body, blockIndent, paragraphBefore });
       continue;
     }
     if (heading || thematic) {
       paragraph = null;
-      rows.push({ line, code: false, contentIndent });
+      rows.push({ line, code: false, body, blockIndent, paragraphBefore });
       continue;
     }
     // setext の下線は開いている段落を閉じる。lazy continuation は下線にできないので、
     // 段落の内容位置より浅い行では閉じない
-    if (inParagraph && SETEXT.test(content)) {
+    if (inParagraph && SETEXT.test(body)) {
       paragraph = null;
-      rows.push({ line, code: false, contentIndent });
+      rows.push({ line, code: false, body, blockIndent, paragraphBefore });
       continue;
     }
     if (listItem) {
-      const body = marker[4].trim();
-      const itemIndent = marker[1].length + marker[2].length + marker[3].length;
-      items.push(itemIndent);
+      items.push(bodyIndent);
       paragraphBody = body;
-      paragraphLines = 1;
       // 項目の中身が空か見出しか水平線なら、その項目の段落は開かない
-      paragraph = body === "" || HEADING.test(body) || THEMATIC.test(body) ? null : itemIndent;
-      rows.push({ line, code: false, contentIndent: itemIndent });
+      paragraph = body === "" || HEADING.test(body) || THEMATIC.test(body) ? null : bodyIndent;
+      rows.push({ line, code: false, body, blockIndent, paragraphBefore });
       continue;
     }
-    if (paragraph === null) {
-      paragraph = contentIndent;
-      paragraphBody = content;
-      paragraphLines = 1;
-    } else {
-      paragraphLines += 1;
-    }
-    rows.push({ line, code: false, contentIndent });
+    paragraphBody = body;
+    if (paragraph === null) paragraph = contentIndent;
+    rows.push({ line, code: false, body, blockIndent, paragraphBefore });
   }
   return rows;
 }
@@ -167,16 +176,23 @@ export function proseOf(text) {
 const HTML_BLOCK_TAGS =
   "address|article|aside|audio|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|pre|script|search|section|style|summary|table|tbody|td|textarea|tfoot|th|thead|title|tr|track|ul";
 
-/** 行頭の生の HTML ブロックか (CommonMark の 1〜7 型)。タグ名は大文字小文字を区別しない。 */
+/**
+ * 行頭の生の HTML ブロックか (CommonMark の 1〜6 型)。段落を中断できる。
+ * タグ名は大文字小文字を区別しない。
+ */
 const HTML_BLOCK = new RegExp(
-  `^ {0,3}<(?:!--|\\?|![A-Za-z\\[]|\\/?(?:${HTML_BLOCK_TAGS})(?:[ \\t/>]|$)|\\/?[A-Za-z][A-Za-z0-9-]*(?:[ \\t][^<>]*)?\\/?>[ \\t]*$)`,
+  `^<(?:!--|\\?|![A-Za-z\\[]|\\/?(?:${HTML_BLOCK_TAGS})(?:[ \\t/>]|$))`,
   "i",
 );
 
+/** 完全なタグだけの行 (7 型)。属性値の中の `>` は許すが、段落は中断できない。 */
+const HTML_TAG = /^<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+(?:[^"'<>]|"[^"]*"|'[^']*')*)?[ \t]*\/?>[ \t]*$/;
+
 /** 散文の境界を決められない構文。`docs/` では使わない規約にし、検出したら失敗させる。 */
 const UNSUPPORTED = [
-  { syntax: "quote", pattern: /^ {0,3}>/ },
-  { syntax: "html", pattern: HTML_BLOCK },
+  { syntax: "quote", pattern: /^>/, interruptsParagraph: true },
+  { syntax: "html", pattern: HTML_BLOCK, interruptsParagraph: true },
+  { syntax: "html", pattern: HTML_TAG, interruptsParagraph: false },
 ];
 
 /**
@@ -185,8 +201,11 @@ const UNSUPPORTED = [
  */
 export function unsupportedBlocks(text) {
   return classify(text).flatMap((row, index) => {
-    if (row.code) return [];
-    const hit = UNSUPPORTED.find(({ pattern }) => pattern.test(row.line.slice(row.contentIndent)));
+    if (row.code || !row.blockIndent) return [];
+    const hit = UNSUPPORTED.find(
+      ({ pattern, interruptsParagraph }) =>
+        (interruptsParagraph || !row.paragraphBefore) && pattern.test(row.body),
+    );
     return hit === undefined ? [] : [{ line: index + 1, syntax: hit.syntax }];
   });
 }

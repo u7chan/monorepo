@@ -21,6 +21,16 @@ test("3 桁までの字下げがあるフェンスもコードとして落とす
   assert.equal(proseOf("- 例\n\n   ```md\n   [a](x.md)\n   ```\n").includes("[a](x.md)"), false);
 });
 
+test("4 桁字下げの閉じ行風の行はフェンスを閉じない", () => {
+  const text = "```\ncode\n    ```\n[a](x.md)\n```\n";
+  assert.equal(withoutCode(text).includes("[a](x.md)"), false);
+});
+
+test("リスト項目の内容として始まるフェンスもコードとして落とす", () => {
+  const text = "- ```md\n  [a](x.md)\n  ```\n";
+  assert.equal(withoutCode(text).includes("[a](x.md)"), false);
+});
+
 test("バッククォートが奇数個の行は触らない", () => {
   const line = "説明 <!-- backtick: ` --> 契約は [API](api.md)。`例示`";
   assert.equal(proseOf(line).includes("[API](api.md)"), true);
@@ -103,6 +113,11 @@ test("段落のない区切り行は表を開かない", () => {
   assert.equal(withoutCode("本文\n\n| --- |\n    [a](x.md)").includes("[a](x.md)"), true);
 });
 
+test("散文の直後でも、直前の行が見出しになる表は成立する", () => {
+  const text = "散文\n| a |\n| --- |\n    [a](x.md)";
+  assert.equal(withoutCode(text).includes("[a](x.md)"), false);
+});
+
 test("列数が合わない区切り行は表にせず、段落の継続を散文に残す", () => {
   assert.equal(withoutCode("| a | b |\n| --- |\n    [a](x.md)").includes("[a](x.md)"), true);
 });
@@ -128,6 +143,17 @@ test("大文字のタグ、`/>`、単独行のタグも HTML ブロックとし�
   assert.deepEqual(unsupportedBlocks("<div/>\n"), [{ line: 1, syntax: "html" }]);
   assert.deepEqual(unsupportedBlocks("<span>\n"), [{ line: 1, syntax: "html" }]);
   assert.deepEqual(unsupportedBlocks("</span>\n"), [{ line: 1, syntax: "html" }]);
+});
+
+test("単独行のタグは段落の外でだけ HTML ブロックとして検出する", () => {
+  assert.deepEqual(unsupportedBlocks(`<span title=">">\n`), [{ line: 1, syntax: "html" }]);
+  assert.deepEqual(unsupportedBlocks("本文\n<div>\n"), [{ line: 2, syntax: "html" }]);
+  assert.deepEqual(unsupportedBlocks("本文\n<span>\n"), []);
+});
+
+test("1 行に複数のリストマーカーがある行も内容位置から判定する", () => {
+  assert.deepEqual(unsupportedBlocks("- - > quote\n"), [{ line: 1, syntax: "quote" }]);
+  assert.deepEqual(unsupportedBlocks("- - <div>\n"), [{ line: 1, syntax: "html" }]);
 });
 
 test("フェンスとインデントコードの中の引用と HTML は検出しない", () => {
