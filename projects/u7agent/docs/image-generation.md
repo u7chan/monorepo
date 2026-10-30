@@ -6,7 +6,7 @@
 - コンテンツ生成のゲートとエージェントの `toolNames` の積が有効なときだけ、モデルへ `generate_image` を見せる。未設定ならツール一覧に現れない。
 - ツールは **BFF ローカル**（`server/src/image-tools.ts`）。サンドボックスのリモート定義ではなく、`createRemoteToolDefinitions` / `REMOTE_TOOL_NAMES` の外にあり、`PI_AGENT_TOOLS` の影響を受けない。エージェント定義の `toolNames` では外せる（[api-catalog.md](api-catalog.md#ツール許可リスト)）
 - 保存は `workspace.uploadFile({ dir, name })`。`dir` は root 相対で渡す（BFF がセッション cwd を前置する 1 段。`projects.ts` の cwd 解決とは混ぜない）
-- 設定画面は 設定 → コンテンツ生成（`/settings/content`）で操作する。API は [api.md](api.md#コンテンツ生成) を参照
+- 設定画面は 設定 → コンテンツ生成（`/settings/content`）で操作する。API は [api-settings.md](api-settings.md#コンテンツ生成) を参照
 
 ## モデルカタログ
 
@@ -205,7 +205,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 - モデル行は結果本文の先頭に置く。投影（`toolResultSummary`）は先頭 900 文字（`SUMMARY_TEXT_MAX`）で切るため、長い `path` を指定しても表示からモデルが欠けないようにする
 - 生成物の確認は `read`。SDK の `read` は画像を返せる
 - チャットのプレビューは Markdown 画像の cwd 相対解決で行う。`![alt](generated/cafe.png)` を 1) `resolveFileRef(src, rootCwd, cwd)` → 2) `fileTreeFetchPath(cwd, resolved)` → 3) `fileRawUrl(rootRelative, imageVersion)` の 3 段で解決し、添付画像と同じ `ZoomableImage`（variant `markdown`）で表示する（[markdown.md](markdown.md#画像の-src-解決)）。解決できなければ従来どおり src をそのまま描く（外部 URL は CSP で読み込めない）
-- raw URL の `v` は[document 内の共有採番](api.md#画像配信raw)で得る版。`ChatState.runEndSeq` の変化を合図に URL を変え、同一パスが差し替わっていてもブラウザの in-document 画像キャッシュを使わずに取り直す。これは現在のファイルへの追随であり、履歴を不変にするのは上記の[生成手順](#会話履歴を保つ生成手順)。添付画像はアップロードごとの一意名で不変なので版を付けない
+- raw URL の `v` は[document 内の共有採番](api-files.md#画像配信raw)で得る版。`ChatState.runEndSeq` の変化を合図に URL を変え、同一パスが差し替わっていてもブラウザの in-document 画像キャッシュを使わずに取り直す。これは現在のファイルへの追随であり、履歴を不変にするのは上記の[生成手順](#会話履歴を保つ生成手順)。添付画像はアップロードごとの一意名で不変なので版を付けない
 
 ### チャットのバッジ
 
@@ -244,7 +244,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 
 - 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映が無いため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`
 - キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`（直後に画面から変更できる）
-- 詳細と例は [api.md](api.md#コンテンツ生成)
+- 詳細と例は [api-settings.md](api-settings.md#コンテンツ生成)
 
 ## テスト
 

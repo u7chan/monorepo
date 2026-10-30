@@ -182,7 +182,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `c
 
 - `GET /api/settings/content` の `speech` は `model` / `voice` / `models`（`voices` を含む）/ `catalogSource` / `fetchedAt`。`models` は live が取得できれば live、できなければ前回の一覧、どちらも無ければ同梱の 1 件
 - 400: 行が無い、`catalogSource` が `live` / `stored` でカタログ外のモデル、宣言があるモデルで宣言外のボイス（`default` のときは照合しない）
-- 変更系の応答は GET と同じ形 + `state: "applied"`。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`。詳細と例は [api.md](api.md#コンテンツ生成)
+- 変更系の応答は GET と同じ形 + `state: "applied"`。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`。詳細と例は [api-settings.md](api-settings.md#コンテンツ生成)
 - `preview` は設定を変えないため `state` を付けず、`appData`（DB ゲート）だけを通す。400（行なし / 課金前の検証）、503（runtime 不可 / DB 不通）、502（provider の失敗。`code` は `server/src/provider-failure.ts` の分類）
 
 ## テスト

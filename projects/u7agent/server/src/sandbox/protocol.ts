@@ -600,7 +600,7 @@ export const RAW_IMAGE_CONTENT_TYPES: Record<string, string> = {
 
 /**
  * 同じく音声の拡張子と Content-Type。動画 / フォントは載せず、公開 raw と HTML プレビューのアセット経路が
- * 画像と同じ allowlist として見る (BFF とサンドボックスの両方で判定する。docs/api.md)。
+ * 画像と同じ allowlist として見る (BFF とサンドボックスの両方で判定する。docs/api-files.md#画像配信raw)。
  */
 export const RAW_MEDIA_CONTENT_TYPES: Record<string, string> = {
   mp3: "audio/mpeg",

@@ -1,6 +1,6 @@
 # ファイルのアップロード（ファイルツリーへのドラッグ＆ドロップ）
 
-設定 → ファイル（`/settings/files`）と、チャット右パネル / singleColumn シートの作業環境 → 作業フォルダのファイルツリーへ、PC のブラウザーから OS のファイルをドラッグ＆ドロップして保存する。口としての API 契約は [api.md](api.md#アップロード)、保存名の検証・連番・実書き込みはサンドボックスが持つ（[sandbox-api.md](sandbox-api.md#post-v1filesupload)）。
+設定 → ファイル（`/settings/files`）と、チャット右パネル / singleColumn シートの作業環境 → 作業フォルダのファイルツリーへ、PC のブラウザーから OS のファイルをドラッグ＆ドロップして保存する。口としての API 契約は [api-files.md](api-files.md#アップロード)、保存名の検証・連番・実書き込みはサンドボックスが持つ（[sandbox-api.md](sandbox-api.md#post-v1filesupload)）。
 
 ## 入口と範囲
 

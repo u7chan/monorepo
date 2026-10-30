@@ -1,6 +1,6 @@
 # 利用可能なモデルとプロバイダーAPIキーの設定
 
-設定 → モデル（`/settings/models`）から、**モデル候補（選択リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキーとメモ**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。保存と反映の実装は `server/src/model-settings.ts`、HTTP 契約は [api.md](api.md#利用可能なモデルとプロバイダーapiキー) を正とする。
+設定 → モデル（`/settings/models`）から、**モデル候補（選択リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキーとメモ**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。保存と反映の実装は `server/src/model-settings.ts`、HTTP 契約は [api-settings.md](api-settings.md#利用可能なモデルとプロバイダーapiキー) を正とする。
 
 - 保存の正は **アプリ DB**（`provider_credentials` / `model_settings` / `provider_memos`）。SDK の runtime overlay は実効状態で、再起動で消える
 - APIキーの変更系は「DB を希望状態として先に確定」し、SDK への反映に失敗しても DB を戻さない（補償ロールバックを持たない）。反映できなかった変更は **degraded（保存済み・未反映）** として画面に出し、`resync` / 次回の変更 / 再起動で収束させる
@@ -92,7 +92,7 @@ u7agent は Sign in with ChatGPT（SIWC）の資格情報を**認証ソースと
 provider 詳細から Sign in with ChatGPT（SIWC）などをサインイン / サインアウトできる。SDK の公開 API（`ModelRuntime.login(provider, "oauth", interaction, { getDeviceId, agentName })` / `logout`）だけを使い、**資格情報の保存先は `auth.json` のまま**にする（アプリ DB へ複製せず、`provider_credentials` の行も触らない）。新しい依存も SDK 側の改変も足さない。
 
 - 進行状態は BFF のメモリだけが持ち、再起動で消える。公開するのは状態・認可 URL・案内（`instructions`）・補助の進行（`progress`）・貼り付け欄・デバイスコードで、**認可 URL は進行中の間だけ**載せ、完了・失敗・キャンセルで落とす。生の例外文言・トークン・`clientId` はどのフィールドにも載せない（応答の形の正は `server/src/schema.ts` の `OAuthLoginStateSchema`）
-- 進行中の表示は、デバイスコード → 承認待ち → URL 未着 の順に判定する副状態で主文を 1 つに絞り、`progress` は**主文を置き換えず**補助行として併記する（SDK の進捗だけを出すと承認の案内が消える provider がある）。`instructions` と `progress` の分業は [api.md](api.md#利用可能なモデルとプロバイダーapiキー) も参照する
+- 進行中の表示は、デバイスコード → 承認待ち → URL 未着 の順に判定する副状態で主文を 1 つに絞り、`progress` は**主文を置き換えず**補助行として併記する（SDK の進捗だけを出すと承認の案内が消える provider がある）。`instructions` と `progress` の分業は [api-settings.md](api-settings.md#利用可能なモデルとプロバイダーapiキー) も参照する
 - 進行中の二重開始は provider ごとに 409 にする。中断は SDK のコールバックサーバー（provider ごとの待受。`127.0.0.1` の固定ポートか一時ポート）と通信を閉じ、終端した状態は [閉じる] で消える。中断 API は冪等にし、進行中なら中断、終端なら消去にする（完了直後の [中断] を 400 にしない）。認可 URL と `manual_code` の発行前に中断が確定した場合、後着の prompt は拒否して入力欄を立てない（abort 済みの signal に listener を足してもイベントは再発火しないため、prompt の開始前に終端と abort 済みを見る）
 - 完了・失敗・キャンセルで `refreshModelState()` を 1 回だけ呼び、available / health を追随させる。サインイン中はクライアントが `GET /api/settings/models` をポーリングし、終端したら health とカタログも取り直す。**成功はこの再計算が終わってから `succeeded` として公開**し、待っている間も認可 URL と入力欄は載せない（クライアントは成功を観測すると再取得を止めるため、先に公開すると未認証時の候補が残る）
 - 失敗は固定の分類（コールバックポートの競合 / 承認拒否 / この画面で扱えない方式 / 不明）に寄せ、文言は `server/src/oauth-login.ts` の定数を正とする。SDK / provider の英語のメッセージは応答にもログにも出さず、ログには分類だけを残す
@@ -290,7 +290,7 @@ Ollama / LM Studio / vLLM / llama.cpp などの OpenAI 互換エンドポイン�
 | DELETE | `/api/settings/custom-providers/:provider` | カスタムプロバイダーを削除する。body 無し。DB 行を消してから runtime overlay → 登録の順に外す |
 | POST | `/api/settings/custom-providers/probe` | `GET {baseUrl}/models` を 1 回叩く。body は `{ provider?, baseUrl, apiKey? }`。接続できない場合も 200 の分類で返し、`state` を持たない |
 
-`canSetApiKey` は SDK の `auth.apiKey.login` の有無で判定する（ambient / keyless provider は login を持たない）。詳細な DTO と応答は [api.md](api.md#利用可能なモデルとプロバイダーapiキー)。
+`canSetApiKey` は SDK の `auth.apiKey.login` の有無で判定する（ambient / keyless provider は login を持たない）。詳細な DTO と応答は [api-settings.md](api-settings.md#利用可能なモデルとプロバイダーapiキー)。
 
 ## クライアント
 
