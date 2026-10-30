@@ -135,7 +135,9 @@ function checkIntro(file) {
   // フェンス内の見出し記法を区切りと誤認しないよう、先にコードブロックを落とす
   const lines = withoutCodeBlocks(readFileSync(file, "utf8")).split("\n");
   const headingAt = lines.findIndex((line) => line.startsWith("## "));
-  const intro = (headingAt === -1 ? lines : lines.slice(0, headingAt)).join("\n").trim();
+  const body = headingAt === -1 ? lines : lines.slice(0, headingAt);
+  if (body[0]?.startsWith("# ")) body.shift();
+  const intro = body.join("\n").trim();
   if (intro === "") {
     errors.push(`${shown}: 冒頭の段落がない (何か / 正となるコード / 関連 doc)`);
     return;
