@@ -1,6 +1,6 @@
 # ファイルプレビューの表示（行番号 / シンタックスハイライト / HTML・Markdown 描画 / 画像・音声）
 
-ファイル画面（`FileTreePage` / `SessionFilesPanel` / スキル設定のファイルタブ → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html/<root 相対>` を iframe で描画し、Markdown は同じ本文をチャットと共通の `MarkdownView` で描画し、画像 / 音声は `GET /api/files/raw` を `<img>` / `<audio>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、Markdown の相対パスは `client/src/lib/markdownAsset.ts`、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api.md](api.md#テキストプレビュー) を参照する。
+ファイル画面（`FileTreePage` / `SessionFilesPanel` / スキル設定のファイルタブ → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html/<root 相対>` を iframe で描画し、Markdown は同じ本文をチャットと共通の `MarkdownView` で描画し、画像 / 音声は `GET /api/files/raw` を `<img>` / `<audio>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、Markdown の相対パスは `client/src/lib/markdownAsset.ts`、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api-files.md](api-files.md#テキストプレビュー) を参照する。
 
 ## 原則
 
@@ -132,7 +132,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 - 文書以外は CSP を付けず、Content-Type と `nosniff` で守る。`.svg` と HTML はアセットとして配らない（同一オリジンでスクリプトを動かさない）。動画 / フォントは対象外
 - アセットの上限はテキストが 2 MiB（UTF-8）、画像 / 音声の raw が 100 MiB。超える `.js` / `.css` は 400、100 MiB 超の画像 / 音声は 413 になり、プレビューから読めない
-- 音声は raw のストリームをそのまま返す（単一の `Range` / 206 / 416 を中継するので、シークで未バッファ位置へ飛んでも全体を取り直さない。契約は [api.md](api.md#画像配信raw)）
+- 音声は raw のストリームをそのまま返す（単一の `Range` / 206 / 416 を中継するので、シークで未バッファ位置へ飛んでも全体を取り直さない。契約は [api-files.md](api-files.md#画像配信raw)）
 - `.json` は CSP に `connect-src` が無いため、現状のプレビュー内から読む手段が無い（`fetch` も classic script も不可）
 - path はクライアントがセグメント単位で percent encoding する（`client/src/lib/fileUrl.ts`）。Hono 側（`:path{.+}`）は 1 回だけ decode する。文書 / アセット / エラー文書の分岐と応答ヘッダ（`Cache-Control: no-store` / `X-Content-Type-Options: nosniff`）は 2 つのオリジンで同じで、CORS ヘッダは付けない
 - プレビュー オリジンは認証を持たない（アプリと同じ）。待受は env `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で、ポート使用中は BFF の起動が止まる（`scripts/dev.mjs` も同じ値の空きを先に確認する）。**待受とブラウザから見た値は独立で、ずれると iframe は繋がらない**ため、`pnpm dev` は `PI_FILE_PREVIEW_PORT` を正として両方を揃える（待受 env しか無いときはその値へ寄せる）
@@ -226,11 +226,11 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 
 ## 画像プレビュー
 
-画像（`png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`）の既定モードはプレビューで、`GET /api/files/raw` の URL を `<img>` の src にする（[api.md](api.md#画像配信raw)）。`GET /api/files/preview` はバイナリを 400 で拒否するため呼ばない（本文を取得しないので、待ちの印（`LoadingMark`）も行数も出さない）。
+画像（`png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`）の既定モードはプレビューで、`GET /api/files/raw` の URL を `<img>` の src にする（[api-files.md](api-files.md#画像配信raw)）。`GET /api/files/preview` はバイナリを 400 で拒否するため呼ばない（本文を取得しないので、待ちの印（`LoadingMark`）も行数も出さない）。
 
 `FileBrowser` は `useImageVersion(reloadToken)` が返す `previewVersion` を、remount 用の `key` と `FilePreview` の prop の両方に渡す。画像 URL は `fileRawUrl(fetchPath, previewVersion)` で `v` query を付ける。同じ URL のまま remount しても、`no-store` にかかわらずブラウザの in-document 画像キャッシュが使われるため、URL 自体を変えて同一パスの差し替えを取り直す。
 
-`previewVersion` は mount ごとに 0 へ戻すローカルカウンタではなく、[document 内の共有採番](api.md#画像配信raw)で得る版。手動再読み込みと run 終了では新しい版へ進み、パネルの開き直しや設定画面との往復でも過去の URL に戻らない。
+`previewVersion` は mount ごとに 0 へ戻すローカルカウンタではなく、[document 内の共有採番](api-files.md#画像配信raw)で得る版。手動再読み込みと run 終了では新しい版へ進み、パネルの開き直しや設定画面との往復でも過去の URL に戻らない。
 
 - 配信は画像だけに制限し、SVG / HTML は allowlist 外として 400 になる（同一オリジンでスクリプトを実行させない）
 - 表示は `object-contain` で親の幅・高さに合わせる。枠（`.image-canvas`）の中央（両軸）に置き、枠より大きい画像は `max-h-full` / `max-w-full` で枠に収める（スクロールで切れない）。ピクセル等倍の切替や拡大縮小の UI は持たない
@@ -246,7 +246,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 
 ## 音声プレビュー
 
-音声（`mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac`）の既定モードもプレビューで、画像と同じく `GET /api/files/raw` の URL を `<audio controls>` の src にする（[api.md](api.md#画像配信raw)）。`GET /api/files/preview` はバイナリを 400 で拒否するため呼ばない。音声の判定は画像の allowlist とは別に持ち、添付アップロードの制限と混ぜない。
+音声（`mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac`）の既定モードもプレビューで、画像と同じく `GET /api/files/raw` の URL を `<audio controls>` の src にする（[api-files.md](api-files.md#画像配信raw)）。`GET /api/files/preview` はバイナリを 400 で拒否するため呼ばない。音声の判定は画像の allowlist とは別に持ち、添付アップロードの制限と混ぜない。
 
 - 音声はテキスト本文を取得しない（画像と同じ扱い）。本文を取りに行かないので、待ちの印（`LoadingMark`）も行数も本文取得のエラー帯もコピーボタンも出ない
 - 再生 / シークの要求はブラウザーが `Range` を付けて送り、サーバーが単一レンジを 206 で返す。再生位置・音量・再生速度は保存しない（タブを閉じても再開位置を持たない）
@@ -381,7 +381,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 ### クリックと要求
 
-- クリックすると、**面の切替・要求の登録より前に**サンドボックスへ実在を確認する（`GET /api/files/stat`。[api.md](api.md#存在確認)）。開くのは通常ファイルとしての 200 だけで、404（不存在）・400（不正入力 / root 外 / 通常ファイル以外）・502 / 503 / 通信失敗では面を開かない。順序と分類は `client/src/lib/fileRefOpen.ts` の `createFileRefOpener` / `classifyFileRefFailure` が持ち、確認先は `fileRefCheckPath`（作業フォルダ面は `fileTreeFetchPath(cwd, path)`、スキル面は `<root>/<path>`）がワークスペース root 相対へ写す
+- クリックすると、**面の切替・要求の登録より前に**サンドボックスへ実在を確認する（`GET /api/files/stat`。[api-files.md](api-files.md#存在確認)）。開くのは通常ファイルとしての 200 だけで、404（不存在）・400（不正入力 / root 外 / 通常ファイル以外）・502 / 503 / 通信失敗では面を開かない。順序と分類は `client/src/lib/fileRefOpen.ts` の `createFileRefOpener` / `classifyFileRefFailure` が持ち、確認先は `fileRefCheckPath`（作業フォルダ面は `fileTreeFetchPath(cwd, path)`、スキル面は `<root>/<path>`）がワークスペース root 相対へ写す
 - **クリック世代で後着の結果を捨てる**（A→B / A→B→A のどちらでも最後のクリックだけが開く）。確認中に選択中セッションが切り替わった結果も失効させる: 確認の開始時に**選択の切替世代**（`fileRefRequests` の `clear` の回数。`selectSession` / `newChat` の開始時と、`applySelectedSession` で ID が変わるときに進む）を控え、完了時に一致を要求する。ID の一致で見ると切替をまたいで同じ ID へ戻ったときに失効が巻き戻るため、世代で判定する（要求の `clear` は、まだ登録されていない確認には届かない）。不存在・拒否・確認不能と分かったときは要求を登録せず、**既に開いている面のモードとタブも変えない**
 - 失敗理由はクリックした要素の近くに出す。`InlineFileRef` がクリック元の状態（確認中 / 失敗）を持ち、失敗時は参照の直後に `.md-fileref-note` の 1 行を添える（文言は不存在 `ファイルが見つかりません` / 拒否 `このパスは開けません` / 確認不能 `ファイルを確認できませんでした。もう一度お試しください`）。確認中は押した要素を `aria-busy` と薄い表示にし、**確認中の文字を足さない**（段落の折り返しが動いて押下位置から逃げないため）。読み上げは `ChatArea` の `aria-live` に任せ、専用の live region は足さない
 - 操作要素にするのは assistant 本文のインラインコードだけ。`type="button"` で、Tab 移動 / Enter / Space / 可視 focus / 読み上げ名を持つ。**Markdown リンクの children の code は対象外**（`[`./index.html`](https://example.com)` は従来どおり `<a>` の中の code で、操作要素を入れない）。user 本文と、`MARKDOWN_MAX_LENGTH` 超のプレーン表示フォールバックも対象外
@@ -515,7 +515,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 - **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の 2 つ**。行の右端は サイズ + 時刻 + ⋯ で、メニューの項目が パスをコピー → 絶対パスをコピー → ダウンロード → リネーム → 削除 の順になる。ダウンロードは通常ファイルとフォルダの行に出る。**スキル設定のファイルタブは `readOnly` でダウンロードを消し、⋯ にはパスのコピーだけを残す**（組み込みスキルはワークスペース外でサンドボックスから解決できないため、削除 / リネームと同じ扱い）。スキル（`.agents/skills`）全体のエクスポートはこの節の行の導線ではなく、スキルのエクスポート（`GET /api/skills/files/export`）が担う（[api-catalog.md](api-catalog.md#ファイルスキルagentsskills)）
 - **symlink の行には出さない**（サンドボックスが 400 で拒否する。削除と同じ判定）。**除外規則に一致する名前の行にも出さない**（`node_modules` など。出すと押した直後に 400 になるため）。どちらの行も ⋯ と他の項目は残る
-- **除外名は 設定 → ファイル の「ダウンロードの除外」タブ（`/settings/files/archive`。旧 `/settings/archive` は読み替え）で編集する**。一覧はアプリデータの SQLite に保存し、未設定のときは既定の一覧（`DEFAULT_ARCHIVE_EXCLUDE_NAMES`）、保存するとその一覧が正になる（`[]` は「除外なし」。空にすると `node_modules` も入るため画面が既定で畳んだ注意書きで警告し、展開で全文を出す）。規則はベース名の完全一致・全階層で、symlink は一覧に関係なく常に対象外（[api.md](api.md#アーカイブの除外名)、[persistence.md](persistence.md#アプリデータsqlite)）。ツールバーの [再読み込み] はこのタブに常設し、未保存の変更がある間だけ無効にする。理由は広い幅では帯の左、狭い幅ではヘッダに出す（帯は操作で埋まり、理由が 1 文字幅まで潰れるため。[ui-layout.md](ui-layout.md)）
+- **除外名は 設定 → ファイル の「ダウンロードの除外」タブ（`/settings/files/archive`。旧 `/settings/archive` は読み替え）で編集する**。一覧はアプリデータの SQLite に保存し、未設定のときは既定の一覧（`DEFAULT_ARCHIVE_EXCLUDE_NAMES`）、保存するとその一覧が正になる（`[]` は「除外なし」。空にすると `node_modules` も入るため画面が既定で畳んだ注意書きで警告し、展開で全文を出す）。規則はベース名の完全一致・全階層で、symlink は一覧に関係なく常に対象外（[api-files.md](api-files.md#アーカイブの除外名)、[persistence.md](persistence.md#アプリデータsqlite)）。ツールバーの [再読み込み] はこのタブに常設し、未保存の変更がある間だけ無効にする。理由は広い幅では帯の左、狭い幅ではヘッダに出す（帯は操作で埋まり、理由が 1 文字幅まで潰れるため。[ui-layout.md](ui-layout.md)）
 - **共有（Cloudflare への公開）の除外は別の一覧**で、こちらとは保存行も既定値も違う（`dist` / `build` / `out` を既定で落とすかどうかが逆になる）。設定 → 共有の「公開の除外」（`/settings/sharing/exclusions`）で編集し、相互のタブへ文言の導線を置く（[static-sharing.md](static-sharing.md#公開の除外)）
 - **除外名は設定ストアの実効値（`GET /api/settings/archive` の `excludeNames`）を `App` から prop で受ける**（`app.archiveSettings.settings?.excludeNames ?? []`）。取得元を health から app 状態へ移したのは、設定の保存直後に再 mount なしで 設定 → ファイル とチャット右パネルの両方が追随するため。未取得の間は空（= 除外なし）として導線を出し、実際の判定はサーバーの `check` に任せる（ずれた瞬間は `check` が 400 を返し、ツリーのエラー行に出る）
 - **クリックで先に `check` を呼び、結果で振り分ける**。`kind: "archive"` で `skipped` が 1 件以上あるときだけ共通の確認ダイアログを 1 回出し、**サイズ / 件数の超過（413）・除外名のディレクトリそのもの（400）は確認より先にエラー行へ出す**（ダウンロードは始まらない）。確認は `client/src/lib/archive.ts` の `archiveConfirmRequest` で、対象のフォルダ名（clamp した行）+ `含まれるファイル数 N 件 / 合計サイズ X` + `除外: node_modules, dist`（**実際に落ちた名前をサーバーの `skipped` からそのまま出す**）を出し、ボタンは「ダウンロードする」にする。除外 0 件のフォルダと通常ファイルは確認なしで始まる
@@ -525,7 +525,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - 同じ行の二重送信は実行中のパスを持つ ref（`downloadingRef`）で弾く。ダウンロード中も他の行は操作でき、ツリーの再取得やラン終了も止めない
 - **上限は合計 100 MiB / 10,000 エントリ**（サンドボックスの定数）。単体ファイルも同じ 100 MiB で、メッセージは 1 本（`Download is too large (max … bytes)`）。上限は本文の送出前に判定するため、超過は「切れた zip」ではなく 413 になる
 - **ZIP の中身はフォルダ直下をルートに置く**（フォルダ自身は前置せず、ダウンロード名 `<フォルダ名>.zip` が担う）。空ディレクトリは末尾 `/` のエントリとして残り、展開後に空フォルダとして復元される（**空のフォルダ自体を配ると中身が無いので空の zip になる**）。symlink は辿らず、エントリにも入らない
-- 保存名・`Content-Type`・長さはサンドボックスが決め、BFF はストリームとヘッダを中継する（[api.md](api.md#ダウンロード)）。zip は長さを確定できないため `Content-Length` を付けない（ブラウザは保存表示で進捗を出す）
+- 保存名・`Content-Type`・長さはサンドボックスが決め、BFF はストリームとヘッダを中継する（[api-files.md](api-files.md#ダウンロード)）。zip は長さを確定できないため `Content-Length` を付けない（ブラウザは保存表示で進捗を出す）
 
 ### 既知の制限（ダウンロード）
 
@@ -632,8 +632,8 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 - [ui-layout.md](ui-layout.md) — 本文の中でツリーとプレビューをどう並べるか
 - [markdown.md](markdown.md) — 共有するトークナイザの対応言語・上限と、インラインコードをファイル参照の操作要素にする描画契約
-- [api.md](api.md#テキストプレビュー) — プレビューの転送契約
-- [api.md](api.md#html-プレビュー) — HTML プレビューのヘッダとエラー応答
-- [api.md](api.md#ダウンロード) — ダウンロードの転送契約
+- [api-files.md](api-files.md#テキストプレビュー) — プレビューの転送契約
+- [api-files.md](api-files.md#html-プレビュー) — HTML プレビューのヘッダとエラー応答
+- [api-files.md](api-files.md#ダウンロード) — ダウンロードの転送契約
 - [sandbox-api.md](sandbox-api.md#get-v1filesdownload) — ZIP の除外規則・上限・ZIP ライタの実装
-- [api.md](api.md#アーカイブの除外名) — 除外名の設定 API（未設定と明示空の区別・検証）
+- [api-files.md](api-files.md#アーカイブの除外名) — 除外名の設定 API（未設定と明示空の区別・検証）

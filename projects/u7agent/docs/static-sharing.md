@@ -66,7 +66,7 @@ Cloudflare Workers（workers.dev）
 - 確認の進行中も保存・削除は止めない。確認中に設定が変わったら、遅れて届いた結果だけを捨てる。公開の進行中でも確認は独立して実行できる。
 - 成功文言は「公開できます」と言わない。subdomain GET は `Workers Scripts Read` でも通るため、Write（Edit）権限の有無は保証できない。
 - 失敗は HTTP status を添えて切り分けられるようにする。文言は接続確認専用で、公開処理向けの文言（404 の「対象の Worker」など）を流用しない。
-- ボタンの無効条件・結果の出し分け・確認時刻の整形は `client/src/lib/cloudflareSettings.ts` を正とする。API 契約は [api.md](api.md#post-apisettingscloudflarecheck)。
+- ボタンの無効条件・結果の出し分け・確認時刻の整形は `client/src/lib/cloudflareSettings.ts` を正とする。API 契約は [api-sharing.md](api-sharing.md#post-apisettingscloudflarecheck)。
 
 ## GUI（管理一覧）
 
@@ -315,7 +315,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 | `GET` | `/api/settings/cloudflare` | 登録状態（トークンは返さない） |
 | `PUT` | `/api/settings/cloudflare` | 登録・更新 |
 | `DELETE` | `/api/settings/cloudflare` | 削除 |
-| `POST` | `/api/settings/cloudflare/check` | 保存済みの資格情報での接続確認（何も保存しない。詳細は [api.md](api.md#post-apisettingscloudflarecheck)） |
+| `POST` | `/api/settings/cloudflare/check` | 保存済みの資格情報での接続確認（何も保存しない。詳細は [api-sharing.md](api-sharing.md#post-apisettingscloudflarecheck)） |
 | `GET` | `/api/settings/shared-content-exclusions` | 公開の除外名（実効値・未設定かどうか・上限） |
 | `PUT` | `/api/settings/shared-content-exclusions` | 一覧を丸ごと差し替える（空配列は「除外なし」） |
 | `DELETE` | `/api/settings/shared-content-exclusions` | 保存行を消して未設定（既定）へ戻す |

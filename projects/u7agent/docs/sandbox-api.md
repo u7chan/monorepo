@@ -21,8 +21,8 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | DELETE | `/v1/files` | 通常ファイルの削除。`?path=<root 相対>`。成功は本文なしの 204 |
 | POST | `/v1/files/rename` | エントリ（ファイル / ディレクトリ）のリネーム。`{ path, name }` |
 | POST | `/v1/files/move` | エントリ（ファイル / ディレクトリ）を別の親へ移動。`{ from, to }` |
-| GET | `/v1/files/preview` | UTF-8テキストの取得。`?path=<root 相対>`。上限・応答は [api.md](api.md#テキストプレビュー) を参照 |
-| GET | `/v1/files/raw` | 画像 + 音声の生配信。`?path=<root 相対>`。応答ヘッダは [api.md](api.md#画像配信raw) を参照 |
+| GET | `/v1/files/preview` | UTF-8テキストの取得。`?path=<root 相対>`。上限・応答は [api-files.md](api-files.md#テキストプレビュー) を参照 |
+| GET | `/v1/files/raw` | 画像 + 音声の生配信。`?path=<root 相対>`。応答ヘッダは [api-files.md](api-files.md#画像配信raw) を参照 |
 | GET | `/v1/files/download` | 通常ファイルは生バイト、ディレクトリは ZIP（ストリーム）。`?path=<root 相対>&exclude=<名前>`（繰り返し可） |
 | GET | `/v1/files/download/check` | ダウンロードの見積り（JSON）。除外 / 上限の判定は download と同じ（`exclude` も共通） |
 | GET | `/v1/files/download/plan` | 見積りに公開前プレビュー用の一覧を足した計画（JSON）。走査と上限は download と同じ |
@@ -155,7 +155,7 @@ POST /v1/files/rename
 - 改名先に既存のエントリがあるときは 409（`Already exists: …`）で、何も変えない（上書きも自動採番もしない）。ただし **`lstat` と `realpath` が同じ実体を指す場合は通す**ため、大文字小文字だけの変更は許す（case-insensitive な fs では `lstat` が既存を返す）。改名先が symlink のときは実体が同じでも上書きしない（別のディレクトリエントリのため 409）
 - 親が root 内の symlink なら、一覧・削除と同じく辿った先のディレクトリで名前を変える。応答の `path` は辿った先の実パス基準（`GET /v1/files` の `path` と同じ規則）
 - 入力検証は**競合がない場合**の契約。`lstat` の後に同じ名前が作られると `rename(2)` が上書きする（Node に no-replace の rename が無い。単一ユーザーでエージェントと同時に触った場合のみ）。fd 相対の rename が Node に無いため完全な防御は入れない（[`DELETE /v1/dirs`](#delete-v1dirs) の TOCTOU と同じクラス）
-- 400 / 404 / 409 の文言はサンドボックスが返し、BFF はそのままクライアントへ返す（[api.md](api.md#リネーム)）
+- 400 / 404 / 409 の文言はサンドボックスが返し、BFF はそのままクライアントへ返す（[api-files.md](api-files.md#リネーム)）
 
 ## `POST /v1/files/move`
 
@@ -184,9 +184,9 @@ POST /v1/files/move
 root 相対の画像 / 音声を `createReadStream` でストリーム返却する。配信できる拡張子は画像が `png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`、音声が `mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac` だけで、それ以外（SVG / HTML / 動画 / フォント / 拡張子なし / dotfile）は 400 `Not a servable file: …`。root 外・実在しない・ディレクトリは通常のパス検証と同じ 400 / 404 になる。単一レンジの `Range` に対応し、HTML プレビューのアセット経路（`GET /api/files/html/<path>`）からも同じ応答を返す。
 
 - 200: `Content-Type`（拡張子）/ `Content-Length` / `Accept-Ranges: bytes` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
-- 206 / 416: 単一の `Range`（`bytes=<start>-<end>` / `bytes=<start>-` / `bytes=-<suffix>`）を解釈し、満たせれば 206 + `Content-Range: bytes <start>-<end>/<size>`、解釈できて満たせないときだけ 416 + `Content-Range: bytes */<size>`。解釈できない `Range`（構文不正 / `bytes` 以外の単位 / 複数レンジ）は無視して 200 を返す。マルチパートは返さない。契約は [api.md](api.md#画像配信raw) を参照
+- 206 / 416: 単一の `Range`（`bytes=<start>-<end>` / `bytes=<start>-` / `bytes=-<suffix>`）を解釈し、満たせれば 206 + `Content-Range: bytes <start>-<end>/<size>`、解釈できて満たせないときだけ 416 + `Content-Range: bytes */<size>`。解釈できない `Range`（構文不正 / `bytes` 以外の単位 / 複数レンジ）は無視して 200 を返す。マルチパートは返さない。契約は [api-files.md](api-files.md#画像配信raw) を参照
 - 413: サイズが上限（100 MiB）を超える（`{ error: "File is too large (max … bytes)" }` の JSON を返す。ファイルの本文と `Content-Length` は送出しない）
-- BFF はこの応答をそのまま中継し、本文を JSON に載せない。**公開 `GET /api/files/raw` も画像と音声の両方を渡し**、同じ allowlist と `Range` の契約を見る（[api.md](api.md#画像配信raw)）
+- BFF はこの応答をそのまま中継し、本文を JSON に載せない。**公開 `GET /api/files/raw` も画像と音声の両方を渡し**、同じ allowlist と `Range` の契約を見る（[api-files.md](api-files.md#画像配信raw)）
 
 ## `GET /v1/files/image-input`
 
@@ -240,7 +240,7 @@ X-Content-Type-Options: nosniff
 - **エントリの更新時刻**: ファイルは元ファイルの mtime を書く（ZIP の DOS 時刻はローカル時刻・2 秒粒度で、1980 年より前と 2107 年より先は年だけを丸める）。ディレクトリのエントリは walk が stat を持たないため ZIP を生成した時刻になる
 - 200 のヘッダ: ファイルは `application/octet-stream` + `Content-Length`、ZIP は `application/zip`（**`Content-Length` を付けない**）。どちらも `Content-Disposition: attachment; filename*=UTF-8''<percent encoded>` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
 - 400 / 404 / 413: 除外名のディレクトリそのもの・root 外・形式不正・symlink / ファイルでもディレクトリでもない（400）、不存在（404）、サイズ / 件数の上限超過（413）。413 の文言は単体ファイルと ZIP で 1 本（`Download is too large (max … bytes)`）
-- BFF はこの応答をストリーム中継し、本文を JSON に載せない（[api.md](api.md#ダウンロード)）
+- BFF はこの応答をストリーム中継し、本文を JSON に載せない（[api-files.md](api-files.md#ダウンロード)）
 
 ### `GET /v1/files/download` の上限
 
@@ -351,7 +351,7 @@ X-Content-Type-Options: nosniff
 
 ## `GET /v1/files/stat`
 
-`path`（root 相対、省略時は root）が通常ファイルとして実在するかを JSON で返す。**本文は読まない**（テキストプレビューの入力検証を存在の判定に混ぜない）。BFF の `GET /api/files/stat` がこの API を呼び、参照を開く前の確認に使う（[api.md](api.md#存在確認)）。
+`path`（root 相対、省略時は root）が通常ファイルとして実在するかを JSON で返す。**本文は読まない**（テキストプレビューの入力検証を存在の判定に混ぜない）。BFF の `GET /api/files/stat` がこの API を呼び、参照を開く前の確認に使う（[api-files.md](api-files.md#存在確認)）。
 
 ```json
 // response

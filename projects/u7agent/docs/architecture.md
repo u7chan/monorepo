@@ -24,7 +24,7 @@
 | プロジェクトと cwd | `server/src/projects.ts` | [projects.md](projects.md) |
 | ツール実行のサンドボックス | `server/src/sandbox/` | [sandbox.md](sandbox.md) |
 | 同梱のヘッドレスブラウザ | `server/src/browser/` | [browser.md](browser.md) |
-| サービスの状態と起動・停止 | `server/src/serve.ts`、`server/src/serve-tool.ts`、`server/src/routes/serve.ts` | [sandbox.md](sandbox.md)、[api.md](api.md#サービスserveの状態と起動停止) |
+| サービスの状態と起動・停止 | `server/src/serve.ts`、`server/src/serve-tool.ts`、`server/src/routes/serve.ts` | [sandbox.md](sandbox.md)、[api-sharing.md](api-sharing.md#サービスserveの状態と起動停止) |
 | 共有した静的コンテンツの記録と公開（Cloudflare） | `server/src/app-db.ts`（`shared_contents` / `cloudflare_settings` / `shared_content_settings`）、`server/src/shared-contents.ts`、`server/src/shared-content-rules.ts`、`server/src/cloudflare-api.ts` | [static-sharing.md](static-sharing.md) |
 | サービス オリジンの転送と公開ポート | `server/src/service-proxy.ts`、`server/src/preview-port.ts`、`server/src/index.ts` | [sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 秘密値のマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
