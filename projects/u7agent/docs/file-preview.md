@@ -210,7 +210,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 
 ## Markdown プレビュー
 
-`.md` / `.markdown` のタブ（`isMarkdownPath`）は、行番号付きのソース表示と描画したプレビューを切り替えられる。**既定はプレビュー**で、切替はパス行の ソース / プレビュー（HTML と共通の `PreviewModeToggle`。別オリジンのスイッチは出さない）。
+`.md` / `.markdown` のタブ（`isMarkdownPath`）は、行番号付きのソース表示と描画したプレビューを切り替えられる。**既定はプレビュー**で、切替はパス行の ソース / プレビュー（HTML と共通の `SegmentedControl`。別オリジンのスイッチは出さない）。
 
 - 描画はチャット本文と同じ `components/markdown/MarkdownView.tsx` に取得した本文を渡すだけにする。`MARKDOWN_MAX_LENGTH`（200 KB）超でプレーンテキストへ落ちるのもチャットと同じで、ファイル用の別実装を持たない。対応記法・解析の上限・テーマは [markdown.md](markdown.md) を正とする
 - 本文は HTML と違い親が `GET /api/files/preview` で取得する（iframe が自分で取りに行く HTML / 画像とここが違う）。ソース表示へ切り替えても同じ本文を使い、取得し直さない
@@ -262,9 +262,9 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 | 設定 → ファイル | `FileTreePage`（`SettingsPageLayout` + ヘッダ + タブ） | ワークスペース root 固定（`cwd=""` → `"."`） | 常時（タブの一方はダウンロードの除外） |
 | チャットの右パネル | `SessionFilesPanel`（ヘッダ + 閉じる） | 選択中セッションの作業フォルダ（`payload.cwd`） | desktop のチャット画面で、作業フォルダがあるときだけ（`client/src/lib/sessionFiles.ts`） |
 | チャットのスキル面 | `SessionFilesPanel` / `SessionFilesSheet` のスキルモード（`SkillFilesContent`） | 参照の絶対パスから導いた `.agents/skills/<name>`（ワークスペース root 相対） | 共通スキル配下の絶対パスの参照をクリックしたときだけ（[面のモード](#面のモード作業フォルダとスキル)） |
-| 設定 → スキルのファイルタブ | `ReadOnlySkillPanel`（`SkillDetailPanel` の中の 1 タブ） | SKILL.md の親ディレクトリ（root 相対。`client/src/lib/fileSkills.ts` の `fileSkillDir`） | `scope !== "builtin"` かつ root 相対の `.../SKILL.md` の親が取れるときだけ（組み込みの仮想パスと root 外の絶対パスは出さない）。**ダウンロード / 削除 / リネームは `readOnly` で出さない（パスのコピーは出す）** |
+| 設定 → スキルのファイルタブ | `FileSkillPanel`（`SkillDetailPanel` のファイルタブ） | SKILL.md の親ディレクトリ（root 相対。`client/src/lib/fileSkills.ts` の `fileSkillDir`） | `scope !== "builtin"` かつ root 相対の `.../SKILL.md` の親が取れるときだけ（組み込みの仮想パスと root 外の絶対パスは出さない）。**ダウンロード / 削除 / リネームは `readOnly` で出さない（パスのコピーは出す）** |
 
-- `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）。スキルのファイルタブは選択したスキルごとに `ReadOnlySkillPanel` ごと入れ替え、初回にタブを開いたときだけ `FileBrowser` を mount する（以降は `display` で隠して保持する）。チャットのスキル面も `FileBrowser` の `key` を skill root にして、root の切替で remount する
+- `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）。スキルのファイルタブは選択したスキルごとに `FileSkillPanel` ごと入れ替え、初回にタブを開いたときだけ `FileBrowser` を mount する（以降は `display` で隠して保持する）。チャットのスキル面も `FileBrowser` の `key` を skill root にして、root の切替で remount する
 - 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。**チャットのスキル面はヘッダに「再読み込み」を持たず、`runEndSeq` だけを渡す**（設定 → スキルのファイルタブは自動の取り直しを持たない）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
 - `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら所属スペースのスクラッチ）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
 - **作業フォルダ面（右パネル / sheet）だけが `.git` を行ごと隠す**（[隠す行](#隠す行)）。設定 → ファイル とスキル面（設定 → スキルのファイルタブ / チャットのスキル面）は隠さない

@@ -80,7 +80,7 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 **画面は URL がただ 1 つの正で、サイドバーのモードや表示中のセクションを state では持たない**（`parseRoute` / `routePath` が pathname と画面を相互変換し、`useRoute` が `popstate` の購読と URL の置換を 1 箇所に集約する）。
 
 - 大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形（小文字・末尾スラッシュなし）へ畳む。セクションを特定できない URL はチャットにする
-- タブを持つのは 設定 → モデル（/settings/models）/ コンテンツ生成（/settings/content）/ ファイル（/settings/files）/ ランタイム（/settings/runtime）で、`/settings/<section>/<sub>` の 1 セグメントを解釈する。**未知のサブセクションと既定タブの明示は既定タブへ畳み、その画面からチャットへ飛ばさない**（語彙は `client/src/lib/settingsNav.ts`）。旧 `/settings/archive` は `/settings/files/archive` へ読み替える。**画面の中の入れ子のタブ（設定 → モデル → プロバイダーの詳細の `APIキー` / `サインイン`）は URL に載せず、クライアントのローカル状態にする**（URL が正なのは画面を切り替えるタブまで）。属性は `SettingsTabs` と同じ水準（`role` / `aria-label` / `aria-selected`。`aria-controls` と矢印キーは置かない）に揃え、非表示側のペインはアンマウントせず `hidden` / `inert` でフォーカス対象から外す
+- タブを持つのは 設定 → モデル（/settings/models）/ コンテンツ生成（/settings/content）/ ファイル（/settings/files）/ 共有（/settings/sharing）/ ランタイム（/settings/runtime）で、`/settings/<section>/<sub>` の 1 セグメントを解釈する。**未知のサブセクションと既定タブの明示は既定タブへ畳み、その画面からチャットへ飛ばさない**（語彙は `client/src/lib/settingsNav.ts`）。旧 `/settings/archive` は `/settings/files/archive` へ読み替える。**画面の中の入れ子のタブ（設定 → モデル → プロバイダーの詳細の `APIキー` / `サインイン`）は URL に載せず、クライアントのローカル状態にする**（URL が正なのは画面を切り替えるタブまで）。属性は `SettingsTabs` と同じ水準（`role` / `aria-label` / `aria-selected`。`aria-controls` と矢印キーは置かない）に揃え、非表示側のペインはアンマウントせず `hidden` / `inert` でフォーカス対象から外す
 - 画面切替は `replaceState` で履歴を追加しない。URL の置換と表示の更新は `navigate()`（画面切替）と `syncSessionPath`（会話 URL の同期）だけが行い、両者を独立に同期させない
 - `/activity` は全スペース横断の実行状況で、`?space=` を解釈しない（`/s/<id>` 以外の `space` を読まない契約のまま）。実行状況の表示中は `sessionPath` が null を返し、会話 URL の同期が画面を上書きしない
 - **クエリとフラグメントは解釈も破棄もしない**（本文の Markdown が通す `#foo` のような断片リンクを壊さないため）。例外は `/s/<id>` の `space` だけで、**確定した選択の所属スペース**を表す（会話を指定した URL には載せ、他の画面の URL からは外す。他のキーとフラグメントはそのまま残る）
@@ -116,7 +116,7 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 
 | 内容 | 保存する |
 | --- | --- |
-| テーマ / 最後の設定セクション / サイドバーとツリーの開閉 / パネルとツリーの幅 / ファイルタブと表示モード / スペースの選択 | する |
+| テーマ / 最後の設定セクション / エージェントの選択 / サイドバーとツリーの開閉 / パネルとツリーの幅 / ツリーの高さ / ファイルタブと表示モード / スペースの選択 | する |
 | 会話の選択 / パネルとシートの開閉 / 入力中のドラフト / 作成先（最後に開いたプロジェクト） | しない |
 
 - 保存値は version 付きで形を検証する。**JSON 全体が壊れているときだけ全体を捨て、形の合わない項目は 1 件ずつ捨てる**

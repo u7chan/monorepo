@@ -25,7 +25,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 画像配信（raw） | `GET /api/files/raw` | このファイル |
 | ダウンロード（ファイル / ZIP） | `GET /api/files/download`、`GET /api/files/download/check` | このファイル |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
-| セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/questions/:toolCallId/answer`、`/events`、`/settings`、`/title`、`/title/summarize`、`/move`、`/stop`、`/compact` | [api-sessions.md](api-sessions.md) |
+| セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/history`、`/files`、`/messages`、`/unsent/:sendId`、`/queue/:sendId`、`/questions/:toolCallId/answer`、`/events`、`/settings`、`/title`、`/title/summarize`、`/pin`、`/fork`、`/move`、`/stop`、`/abort`、`/compact`、`/diagnostics`、`/raw` | [api-sessions.md](api-sessions.md) |
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
 | 共有の除外名（設定 → 共有 `/settings/sharing` の「公開の除外」） | `GET/PUT/DELETE /api/settings/shared-content-exclusions` | このファイル、[static-sharing.md](static-sharing.md#公開の除外) |
@@ -96,7 +96,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   "defaultModelUnset": false,
   "filePreviewPort": 4318,
   "previewPort": 4319,
-  "versions": { "piCodingAgent": "1.3.0", "piAi": "1.3.0" },
+  "versions": { "piCodingAgent": "<version>", "piAi": "<version>" },
   "sessionStore": { "path": "/var/lib/u7agent/sessions", "ok": true, "dirty": 0 },
   "appDb": { "path": "/var/lib/u7agent/sessions/u7agent.db", "ok": true },
   "archive": { "excludeNames": ["node_modules", ".venv", "…"] }
@@ -123,7 +123,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 {
   "catalogCount": 2,
   "availableCount": 2,
-  "versions": { "piCodingAgent": "1.3.0", "piAi": "1.3.0", "commitHash": "…" },
+  "versions": { "piCodingAgent": "<version>", "piAi": "<version>", "commitHash": "…" },
   "providers": [
     {
       "provider": "<provider>",
