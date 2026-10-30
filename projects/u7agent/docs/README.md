@@ -1,6 +1,8 @@
 # docs 索引
 
-変更テーマから、読むべきコードと設計ドキュメントを引く。設計の全体像は [architecture.md](architecture.md)、起動と環境変数は [README.md](../README.md)（人間向け）を参照する。**何を docs に書くかの判断は [AGENTS.md](../AGENTS.md#docs) を参照する**（状態の一覧・件数・並び・既定値・実測値はコード / テストが正で、ここには書かない）。
+変更テーマから、読むべきコードと設計ドキュメントを引く索引です。設計の全体像は [architecture.md](architecture.md)、起動と環境変数は [README.md](../README.md)（人間向け）を参照してください。
+
+何を docs に書くかは [AGENTS.md](../AGENTS.md#docs) で決めます。状態の一覧・件数・並び・既定値・実測値はコード / テストが正なので、ここには書きません。
 
 | 変更テーマ | 主に読むコード | 主に読む docs |
 | --- | --- | --- |
@@ -53,41 +55,64 @@
 
 実装済みの製品仕様とは分け、対象バージョンと調査範囲を限定した観測・未解決事項を残す。現行の挙動はコードとテストを正とする。
 
-- [Pi SDK steering の調査](surveys/pi-steering.md) — 追加入力の注入境界、steering と中断の違い、最小再現（現行契約は [run-lifecycle.md](run-lifecycle.md#追加入力steeringの配送)）
-- [長時間ランの可視化と追加入力の扱い](surveys/long-run-visibility.md) — 実行中の質問が回答されないこと、進捗の見せ方、中断して送信する案、TODO リストの成立条件（未着手）
+- [Pi SDK steering の調査](surveys/pi-steering.md): 追加入力の注入境界、steering と中断の違い、最小再現（現行契約は [run-lifecycle.md](run-lifecycle.md#追加入力steeringの配送)）
+- [長時間ランの可視化と追加入力の扱い](surveys/long-run-visibility.md): 実行中の質問が回答されないこと、進捗の見せ方、中断して送信する案、TODO リストの成立条件（未着手）
 
 ## ドキュメントの構成
 
-- [architecture.md](architecture.md) — 層構成・基本原則・責務の所在
-- [run-lifecycle.md](run-lifecycle.md) — ラン、イベントログ、SSE、セッションのライフサイクル
-- [diagnostics.md](diagnostics.md) — セッション診断（取れるもの・mask の範囲・上限と省略の見せ方・取れないもの）
-- [ask-user.md](ask-user.md) — エージェントからユーザーへの質問カード（ツール契約・待機のライフサイクル・UI・mask 規則・既知の制限）
-- [subagent.md](subagent.md) — 調査の子エージェントへの委譲（ツール契約・子の制約・打ち切り・並列・記録に残らないこと）
-- [projects.md](projects.md) — プロジェクトとセッションの作業ディレクトリ
-- [model-effort.md](model-effort.md) — モデル / Effort の解決と変更
-- [model-settings.md](model-settings.md) — モデル候補（選択）/ アプリ既定モデルとプロバイダーAPIキーの GUI 設定（保存先・応答契約・degraded・残存リスク）
-- [image-generation.md](image-generation.md) — 画像生成（保存先とパスの空間・キーによるゲート・失敗分類・キーの扱い・Markdown 画像のプレビュー）
-- [speech-generation.md](speech-generation.md) — 音声生成（mp3 / wav の保存形式・モデルとボイスのカタログ・キー共有・失敗分類・保存先・お試し再生）
-- [session-title.md](session-title.md) — 会話タイトル（非 AI の抽出・AI 要約の設定と試行・再要約・画面・競合・採用しなかった案）
-- [web-search.md](web-search.md) — Web 検索（Exa / Tavily の provider 抽象化・引数と結果の整形・失敗の分類・実行時トグルとキーの設定）
-- [bgm-generation.md](bgm-generation.md) — BGM生成（暫定API契約・実API受入の保留・期限とサイズ・非上書き保存・既存音声プレイヤー）
-- [sandbox.md](sandbox.md) — ツール実行のサンドボックス分離
-- [static-sharing.md](static-sharing.md) — 静的コンテンツ共有（公開単位・URL・資格情報の境界・状態遷移・上限・未採用案・実機確認項目）
-- [browser.md](browser.md) — ヘッドレスブラウザ（同梱物と入口・保存と出力の契約・single-shot と残存物・外部到達の境界・実行環境の制約・保証しないこと。使い方は同梱スキル `browser`）
-- [sandbox-api.md](sandbox-api.md) — サンドボックス内部 API と環境変数（ZIP の除外規則と上限を含む）
-- [secrets.md](secrets.md) — APIキー漏洩の抑制と、作業フォルダの環境変数（保存時暗号化・実行時注入）
-- [notifications.md](notifications.md) — Discord 通知（送るタイミング・宛先制限・write-only な Webhook URL・設定画面）
-- [frontend.md](frontend.md) — フロントエンドの契約（URL が画面の正・状態の所有と正・テーマと CSP・保存範囲・Effect 契約）
-- [markdown.md](markdown.md) — チャット本文とファイルプレビューの Markdown 描画（対応サブセット・上限・インラインコードのファイル参照）
-- [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / Markdown / 画像 / 音声の描画と、ツリー行の ⋯ メニュー（パスをコピー / 削除 / リネーム / ダウンロード、除外名の設定を含む）
-- [file-upload.md](file-upload.md) — 設定 → ファイル と作業環境 のドラッグ＆ドロップ（対象と保存先・上限・同時数・進行と結果・採用しなかった案）
-- [api.md](api.md) — HTTP API の規約と索引（health / files / projects）
-- [api-sessions.md](api-sessions.md) — セッション API と SSE イベント
-- [api-catalog.md](api-catalog.md) — エージェント / スキル API
-- [compaction.md](compaction.md) — 会話の圧縮表示
-- [persistence.md](persistence.md) — 永続化と再デプロイ
-- [session-files.md](session-files.md) — セッション別ファイル管理・添付ファイル・会話の永続化の設計
-- [ui-layout.md](ui-layout.md) — レイアウトモードの判定理由と、モード・導線・追従・入力欄・サイドバーの契約
-- [verification.md](verification.md) — 検証（lint / format の設定と落とし穴）
-- [testing.md](testing.md) — テスト方針と GUI の最小受入
-- [migration.md](migration.md) — モノレポへの移植
+### 全体
+
+- [architecture.md](architecture.md): 層構成・基本原則・責務の所在
+- [persistence.md](persistence.md): 永続化と再デプロイ
+- [migration.md](migration.md): モノレポへの移植
+
+### API
+
+- [api.md](api.md): HTTP API の規約と索引（health / files / projects）
+- [api-sessions.md](api-sessions.md): セッション API と SSE イベント
+- [api-catalog.md](api-catalog.md): エージェント / スキル API
+- [sandbox-api.md](sandbox-api.md): サンドボックス内部 API と環境変数（ZIP の除外規則と上限を含む）
+
+### 会話と実行
+
+- [run-lifecycle.md](run-lifecycle.md): ラン、イベントログ、SSE、セッションのライフサイクル
+- [compaction.md](compaction.md): 会話の圧縮表示
+- [session-files.md](session-files.md): セッション別ファイル管理・添付ファイル・会話の永続化の設計
+- [session-title.md](session-title.md): 会話タイトル（非 AI の抽出・AI 要約の設定と試行・再要約・画面・競合・採用しなかった案）
+- [diagnostics.md](diagnostics.md): セッション診断（取れるもの・mask の範囲・上限と省略の見せ方・取れないもの）
+- [ask-user.md](ask-user.md): エージェントからユーザーへの質問カード（ツール契約・待機のライフサイクル・UI・mask 規則・既知の制限）
+- [subagent.md](subagent.md): 調査の子エージェントへの委譲（ツール契約・子の制約・打ち切り・並列・記録に残らないこと）
+- [projects.md](projects.md): プロジェクトとセッションの作業ディレクトリ
+
+### モデルと生成
+
+- [model-effort.md](model-effort.md): モデル / Effort の解決と変更
+- [model-settings.md](model-settings.md): モデル候補（選択）/ アプリ既定モデルとプロバイダーAPIキーの GUI 設定（保存先・応答契約・degraded・残存リスク）
+- [image-generation.md](image-generation.md): 画像生成（保存先とパスの空間・キーによるゲート・失敗分類・キーの扱い・Markdown 画像のプレビュー）
+- [speech-generation.md](speech-generation.md): 音声生成（mp3 / wav の保存形式・モデルとボイスのカタログ・キー共有・失敗分類・保存先・お試し再生）
+- [bgm-generation.md](bgm-generation.md): BGM生成（暫定API契約・実API受入の保留・期限とサイズ・非上書き保存・既存音声プレイヤー）
+- [web-search.md](web-search.md): Web 検索（Exa / Tavily の provider 抽象化・引数と結果の整形・失敗の分類・実行時トグルとキーの設定）
+
+### サンドボックスとファイル
+
+- [sandbox.md](sandbox.md): ツール実行のサンドボックス分離
+- [browser.md](browser.md): ヘッドレスブラウザ（同梱物と入口・保存と出力の契約・single-shot と残存物・外部到達の境界・実行環境の制約・保証しないこと。使い方は同梱スキル `browser`）
+- [static-sharing.md](static-sharing.md): 静的コンテンツ共有（公開単位・URL・資格情報の境界・状態遷移・上限・未採用案・実機確認項目）
+- [file-preview.md](file-preview.md): ファイルプレビューの行番号・シンタックスハイライト・HTML / Markdown / 画像 / 音声の描画と、ツリー行の ⋯ メニュー（パスをコピー / 削除 / リネーム / ダウンロード、除外名の設定を含む）
+- [file-upload.md](file-upload.md): 設定 → ファイル と作業環境 のドラッグ＆ドロップ（対象と保存先・上限・同時数・進行と結果・採用しなかった案）
+
+### フロントエンド
+
+- [frontend.md](frontend.md): フロントエンドの契約（URL が画面の正・状態の所有と正・テーマと CSP・保存範囲・Effect 契約）
+- [ui-layout.md](ui-layout.md): レイアウトモードの判定理由と、モード・導線・追従・入力欄・サイドバーの契約
+- [markdown.md](markdown.md): チャット本文とファイルプレビューの Markdown 描画（対応サブセット・上限・インラインコードのファイル参照）
+
+### 開発と検証
+
+- [verification.md](verification.md): 検証（lint / format の設定と落とし穴）
+- [testing.md](testing.md): テスト方針と GUI の最小受入
+
+### セキュリティと通知
+
+- [secrets.md](secrets.md): APIキー漏洩の抑制と、作業フォルダの環境変数（保存時暗号化・実行時注入）
+- [notifications.md](notifications.md): Discord 通知（送るタイミング・宛先制限・write-only な Webhook URL・設定画面）
