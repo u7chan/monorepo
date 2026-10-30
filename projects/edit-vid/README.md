@@ -47,7 +47,7 @@ edit-vid/
 
 ### 必要条件
 - Python 3.13+
-- Node.js 24+
+- Node.js 26+
 - FFmpeg
 - [uv](https://docs.astral.sh/uv/) (Pythonパッケージマネージャ)
 
