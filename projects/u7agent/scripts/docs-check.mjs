@@ -23,6 +23,7 @@ import {
   linkPattern,
   proseOf,
   withoutCodeBlocks,
+  withoutIndentedCode,
   withoutInlineCode,
 } from "./docs-text.mjs";
 
@@ -123,8 +124,8 @@ const introTarget = /`(?:client|server)\//;
 function checkIntro(file) {
   const shown = relative(root, file);
   if (!shown.startsWith("docs/") || shown.startsWith("docs/surveys/")) return;
-  // フェンス内の見出し記法を区切りと誤認しないよう、先にコードブロックを落とす
-  const lines = withoutCodeBlocks(readFileSync(file, "utf8")).split("\n");
+  // 本文の検査と同じ境界にする（フェンスとインデントコードを落としてから見る）
+  const lines = withoutIndentedCode(withoutCodeBlocks(readFileSync(file, "utf8"))).split("\n");
   // 最初の節見出し (レベル 2 以上) までを冒頭とする
   const headingAt = lines.findIndex((line) => /^#{2,6} /.test(line));
   const body = headingAt === -1 ? lines : lines.slice(0, headingAt);
