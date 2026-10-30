@@ -7,6 +7,7 @@
  *  - 本文中の `client/src/...` などのパスが実在する
  *  - ソースのコメントにある `docs/xxx.md#anchor` の参照先が実在する
  *  - 見出しに UI の階層 (`設定 → 通知`) を書かない (見出しがアンカーの正のため)
+ *  - 各 doc の冒頭に正となるコードのパスか関連 doc のリンクがある
  *  - フロントエンドの docs が行数予算に収まっている
  *
  * 検査しない: 文が「振る舞いが変わらない変更で書き換えが要る」内容かどうか (review で判断する)。
@@ -105,6 +106,30 @@ function hasHeading(file, anchor) {
   return headingCache.get(file).has(anchor);
 }
 
+/** 冒頭の段落にある「正となるコード」のパス。
+ * 日付と調査範囲を持つ surveys は、読むかを決める材料が冒頭の日付と対象なので別扱いにする。 */
+const introTarget = /`(?:client|server)\//;
+const introDocLink = /\]\([^)\s]+\.md(?:#[^)\s]*)?\)/;
+
+function checkIntro(file) {
+  const shown = relative(root, file);
+  if (!shown.startsWith("docs/") || shown.startsWith("docs/surveys/")) return;
+  const lines = readFileSync(file, "utf8").split("\n");
+  const titleAt = lines.findIndex((line) => line.startsWith("# "));
+  if (titleAt === -1) return;
+  const intro = [];
+  for (const line of lines.slice(titleAt + 1)) {
+    if (line.startsWith("## ")) break;
+    intro.push(line);
+  }
+  const paragraph = intro.join("\n").trim();
+  if (paragraph === "") {
+    errors.push(`${shown}: 見出しの直後に冒頭の段落がない (何か / 正となるコード / 関連 doc)`);
+  } else if (!introTarget.test(paragraph) && !introDocLink.test(paragraph)) {
+    errors.push(`${shown}: 冒頭に正となるコードのパスか関連 doc のリンクがない`);
+  }
+}
+
 /** fenced code block と複数行のコード span を落とす (中身の記法は本文ではない)。 */
 function withoutCodeBlocks(text) {
   return text.replace(/^```[\s\S]*?^```/gm, "").replace(/``[\s\S]*?``/g, "");
@@ -124,6 +149,8 @@ const linkPattern = /\[[^\]]*\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'|\(
 function checkFile(file) {
   const text = readFileSync(file, "utf8");
   const shown = relative(root, file);
+
+  checkIntro(file);
 
   for (const [, raw] of proseOf(text).matchAll(linkPattern)) {
     const target = raw.startsWith("<") ? raw.slice(1, -1) : raw;
