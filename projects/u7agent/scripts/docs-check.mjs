@@ -106,30 +106,6 @@ function hasHeading(file, anchor) {
   return headingCache.get(file).has(anchor);
 }
 
-/** 冒頭の段落にある「正となるコード」のパス。
- * 日付と調査範囲を持つ surveys は、読むかを決める材料が冒頭の日付と対象なので別扱いにする。 */
-const introTarget = /`(?:client|server)\//;
-const introDocLink = /\]\([^)\s]+\.md(?:#[^)\s]*)?\)/;
-
-function checkIntro(file) {
-  const shown = relative(root, file);
-  if (!shown.startsWith("docs/") || shown.startsWith("docs/surveys/")) return;
-  const lines = readFileSync(file, "utf8").split("\n");
-  const titleAt = lines.findIndex((line) => line.startsWith("# "));
-  if (titleAt === -1) return;
-  const intro = [];
-  for (const line of lines.slice(titleAt + 1)) {
-    if (line.startsWith("## ")) break;
-    intro.push(line);
-  }
-  const paragraph = intro.join("\n").trim();
-  if (paragraph === "") {
-    errors.push(`${shown}: 見出しの直後に冒頭の段落がない (何か / 正となるコード / 関連 doc)`);
-  } else if (!introTarget.test(paragraph) && !introDocLink.test(paragraph)) {
-    errors.push(`${shown}: 冒頭に正となるコードのパスか関連 doc のリンクがない`);
-  }
-}
-
 /** fenced code block と複数行のコード span を落とす (中身の記法は本文ではない)。 */
 function withoutCodeBlocks(text) {
   return text.replace(/^```[\s\S]*?^```/gm, "").replace(/``[\s\S]*?``/g, "");
@@ -145,6 +121,34 @@ function proseOf(text) {
  * ここを狭めると、その形式で書いたリンクが無検査で残る。
  */
 const linkPattern = /\[[^\]]*\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
+
+/** 冒頭の段落にある「正となるコード」のパス。日付と調査範囲を持つ surveys は、読むかを決める材料が冒頭の日付と対象なので別扱いにする。 */
+const introTarget = /`(?:client|server)\//;
+
+/**
+ * 冒頭の段落は、読むかを決める数行。リンクとパスの判定は、本文の検査と同じ規則を使う
+ * (ここで別の正規表現を持つと、title や angle 形式のリンクが片方だけ通る)。
+ */
+function checkIntro(file) {
+  const shown = relative(root, file);
+  if (!shown.startsWith("docs/") || shown.startsWith("docs/surveys/")) return;
+  // フェンス内の見出し記法を区切りと誤認しないよう、先にコードブロックを落とす
+  const lines = withoutCodeBlocks(readFileSync(file, "utf8")).split("\n");
+  const headingAt = lines.findIndex((line) => line.startsWith("## "));
+  const intro = (headingAt === -1 ? lines : lines.slice(0, headingAt)).join("\n").trim();
+  if (intro === "") {
+    errors.push(`${shown}: 冒頭の段落がない (何か / 正となるコード / 関連 doc)`);
+    return;
+  }
+  // リンクはコード span 内の例示を数えない。パスはコード span に書くのが規約なので、そのまま見る
+  const hasDocLink = [...proseOf(intro).matchAll(linkPattern)].some(([, raw]) => {
+    const target = raw.startsWith("<") ? raw.slice(1, -1) : raw;
+    return target.split("#")[0].endsWith(".md");
+  });
+  if (!introTarget.test(intro) && !hasDocLink) {
+    errors.push(`${shown}: 冒頭に正となるコードのパスか関連 doc のリンクがない`);
+  }
+}
 
 function checkFile(file) {
   const text = readFileSync(file, "utf8");
