@@ -95,7 +95,7 @@ README、`docs/`、アプリケーションコードだけの変更では実ス�
 `scripts/check_licenses.py` 自体は Python の標準ライブラリだけで動作します。依存パッケージのメタデータを収集するときに、対象に応じて `bun`、`npm`、`pnpm`、`uv` を外部コマンドとして実行します。
 
 Python のバージョンは、対象ディレクトリの `.python-version` を優先します。利用できる指定がなければ、`pyproject.toml` の `requires-python` をもとに選びます。
-PR の CI では、`oven-sh/setup-bun@v2` と `astral-sh/setup-uv@v6` を使って Bun と uv を準備します。pnpm は、検出した対象に `pnpm-lock.yaml` がある場合だけ `pnpm/action-setup@v4`（バージョン 10 系）で準備します。
+PR の CI では、`oven-sh/setup-bun@v2` と `astral-sh/setup-uv@v6` を使って Bun と uv を準備します。pnpm は、検出した対象に `pnpm-lock.yaml` がある場合だけ `pnpm/action-setup@v6`（バージョン 10 系）で準備します。
 
 ## 判定ポリシー
 

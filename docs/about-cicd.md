@@ -98,7 +98,7 @@ gh api repos/<owner>/<repository>/actions/permissions/fork-pr-contributor-approv
 7. 各プロジェクトを `stage=test` でビルドする
 8. ビルド済み Docker イメージをログに表示する
 
-ライセンスチェックの実行前に、必要なランタイムを対象に応じてセットアップします。Bun と uv はライセンスチェック対象があればセットアップし、pnpm は対象に `pnpm-lock.yaml` があるプロジェクトが含まれる場合だけ `pnpm/action-setup@v4` でセットアップします。
+ライセンスチェックの実行前に、必要なランタイムを対象に応じてセットアップします。Bun と uv はライセンスチェック対象があればセットアップし、pnpm は対象に `pnpm-lock.yaml` があるプロジェクトが含まれる場合だけ `pnpm/action-setup@v6` でセットアップします。
 
 ライセンスチェックの対象や判定方法は、[OSS ライセンスチェック](./license-check.md)を参照してください。
 

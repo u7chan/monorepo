@@ -33,7 +33,7 @@ ref: #1220
 PR の CI（`.github/workflows/pullrequest-check.yml`）では、次の挙動を確認できます。
 
 - `pnpm-lock.yaml` の変更で、このプロジェクトがライセンスチェックの対象として検出される
-- 対象に `pnpm-lock.yaml` があるため、CI が `pnpm/action-setup@v4` で pnpm 10 系をセットアップする
+- 対象に `pnpm-lock.yaml` があるため、CI が `pnpm/action-setup@v6` で pnpm 10 系をセットアップする
 - `pnpm install --frozen-lockfile --prod --ignore-scripts` が失敗せず、ライセンスチェックが完了する（依存を `devDependencies` のみにしているため、実スキャン対象のパッケージは 0 件で `PASS` になる）
 - Docker の `test` ステージのビルドで `pnpm lint` と `pnpm test` が実行される
 
