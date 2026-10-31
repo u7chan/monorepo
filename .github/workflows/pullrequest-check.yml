@@ -57,7 +57,7 @@ jobs:
 
       - name: Set up uv for License Check
         if: env.LICENSE_CHECK_TARGETS != ''
-        uses: astral-sh/setup-uv@v6.8.0
+        uses: astral-sh/setup-uv@v10.3.3
 
       - name: Set up pnpm for License Check
         if: env.LICENSE_CHECK_PNPM_REQUIRED == 'true'
