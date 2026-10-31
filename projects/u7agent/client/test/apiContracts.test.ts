@@ -20,6 +20,7 @@ const {
   postWebSearchTest,
   createSpaceApi,
   deleteSpace,
+  renameSpace,
   updateArchiveSettings,
   resetArchiveSettings,
   getSharedContentExclusions,
@@ -193,6 +194,31 @@ test("スペース削除は id をパスに置く unscoped の DELETE を送り�
   const message = "公開中のサービスがあります。設定 → ランタイムから停止してから削除してください";
   answer = () => Response.json({ error: message }, { status: 409 });
   await assert.rejects(deleteSpace("space-1111111111111111"), { message, status: 409 });
+});
+
+test("スペースの改名は id をパスに置いた unscoped の PATCH で名前を送り、失敗の理由と status を保つ", async (t) => {
+  const requests: Request[] = [];
+  let answer = () => Response.json({ space: { id: "space-1111111111111111", name: "改名後", createdAt: 1 } });
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return answer();
+  });
+  assert.deepEqual(await renameSpace("space-1111111111111111", "改名後"), {
+    space: { id: "space-1111111111111111", name: "改名後", createdAt: 1 },
+  });
+  const url = new URL(requests[0].url);
+  assert.equal(requests[0].method, "PATCH");
+  assert.equal(url.pathname, "/api/spaces/space-1111111111111111");
+  // 改名の対象はパスの id なので、文脈の spaceId を付けない (削除と同じ経路)
+  assert.equal(url.search, "");
+  assert.deepEqual(await requests[0].json(), { name: "改名後" });
+
+  // サーバーの検証の文言をそのまま保ち、画面が理由として出せるようにする
+  answer = () => Response.json({ error: "Invalid request body" }, { status: 400 });
+  await assert.rejects(renameSpace("space-1111111111111111", "あ".repeat(81)), {
+    message: "Invalid request body",
+    status: 400,
+  });
 });
 
 test("アーカイブ設定は PUT で保存し、DELETE で既定へ戻して応答を返す", async (t) => {

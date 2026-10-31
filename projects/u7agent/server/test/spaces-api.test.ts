@@ -238,6 +238,126 @@ test("並べ替えの入力不正は 400 にし、更新の失敗は 503 で 1 �
   assert.deepEqual(await order(), before);
 });
 
+const renameSpace = (f: Awaited<ReturnType<typeof setup>>, id: string, body: unknown) =>
+  f.bff.app.request(`/api/spaces/${encodeURIComponent(id)}`, json(body, "PATCH"));
+
+// 改名が表示名だけを変え、id・並び・会話の所属を巻き込まないことを見る (What)
+test("改名は表示名だけを変え、重複名を許し、再起動後も残る", async (t) => {
+  const f = await setup(t);
+  const a = await f.space("デモ A");
+  const b = await f.space("デモ B");
+  const session = await f.session(a.id);
+  const spaces = async () => (await jsonBody(f.bff.app.request("/api/spaces"))).spaces as Space[];
+
+  // trim した名前を保存し、応答は一覧と同じ形（sortOrder は出さない）
+  const res = await renameSpace(f, a.id, { name: "  改名後  " });
+  assert.equal(res.status, 200);
+  const renamed = (await jsonBody(res)).space as Space;
+  assert.deepEqual(renamed, { id: a.id, name: "改名後", createdAt: a.createdAt });
+  assert.deepEqual(Object.keys(renamed), ["id", "name", "createdAt"]);
+  assert.deepEqual(await spaces(), [{ id: "default", name: "既定", createdAt: 0 }, renamed, b]);
+
+  // 80 文字ちょうどは成功し、81 文字は 400 で名前を変えない
+  const longest = "あ".repeat(80);
+  assert.equal((await renameSpace(f, a.id, { name: longest })).status, 200);
+  assert.equal((await spaces())[1].name, longest);
+  const tooLong = await renameSpace(f, a.id, { name: "あ".repeat(81) });
+  assert.equal(tooLong.status, 400);
+  assert.equal((await jsonBody(tooLong)).error, "Invalid request body");
+  assert.equal((await spaces())[1].name, longest);
+
+  // 既存と同じ名前（重複）にできる。同一性は id が持つ
+  assert.equal((await renameSpace(f, a.id, { name: b.name })).status, 200);
+  assert.deepEqual(
+    (await spaces()).map((space) => [space.id, space.name]),
+    [
+      ["default", "既定"],
+      [a.id, "デモ B"],
+      [b.id, "デモ B"],
+    ],
+  );
+
+  // 改名しても会話の所属・作業フォルダ・`?space=` の判定は変わらない
+  assert.equal(f.bff.store.spaceOfId(session.sessionId), a.id);
+  assert.equal(f.bff.store.workdirOfId(session.sessionId), sessionWorkdirRel(session.sessionId, a.id));
+  assert.equal((await jsonBody(f.bff.app.request(`/api/sessions/${session.sessionId}?spaceId=${a.id}`))).spaceId, a.id);
+
+  // 再起動しても名前と並びは残る
+  await f.restart();
+  assert.deepEqual(
+    (await spaces()).map((space) => [space.id, space.name]),
+    [
+      ["default", "既定"],
+      [a.id, "デモ B"],
+      [b.id, "デモ B"],
+    ],
+  );
+});
+
+// 入力の不正・既定スペース・不正な id が、どれも保存前に 400 で止まることを見る (What)
+test("改名の入力不正・既定スペース・不正な id は 400 で名前を変えない", async (t) => {
+  const f = await setup(t);
+  const a = await f.space("デモ A");
+  const before = (await jsonBody(f.bff.app.request("/api/spaces"))).spaces;
+
+  for (const body of [{}, { name: "" }, { name: "   " }, { name: 1 }, { name: null }, { name: "あ".repeat(81) }]) {
+    const res = await renameSpace(f, a.id, body);
+    assert.equal(res.status, 400, JSON.stringify(body).slice(0, 40));
+    assert.equal((await jsonBody(res)).error, "Invalid request body");
+  }
+  // 既定スペースは並べ替え・削除と同じく対象外、id の形式違いも 400
+  for (const id of ["default", "space-zzz", "bad-id", "space-0123456789ABCDEF"]) {
+    const res = await renameSpace(f, id, { name: "変更" });
+    assert.equal(res.status, 400, id);
+    assert.match((await jsonBody(res)).error, /既定スペース|スペース ID/);
+  }
+  assert.equal((await f.bff.app.request(`/api/spaces/${a.id}`, { method: "PATCH", body: "not json" })).status, 400);
+  assert.deepEqual((await jsonBody(f.bff.app.request("/api/spaces"))).spaces, before);
+});
+
+// 未知・削除中を 404 にし、削除の claim が解ければ同じ id も未知として扱うことを見る (What)
+test("未知のスペースと削除中のスペースの改名は 404 になる", async (t) => {
+  const f = await setup(t);
+  const space = await f.space("デモ");
+  assert.equal((await renameSpace(f, "space-ffffffffffffffff", { name: "変更" })).status, 404);
+
+  // 削除の claim 中は、そのスペースへの改名も読み取りも 404 になる
+  const during: number[] = [];
+  f.workspace.deleteDirectory = async (path) => {
+    f.deletedDirs.push(path);
+    during.push((await renameSpace(f, space.id, { name: "変更" })).status);
+    during.push((await f.bff.app.request("/api/spaces")).status);
+  };
+  assert.equal((await deleteSpace(f, space.id)).status, 200);
+  assert.deepEqual(during, [404, 200]);
+  // claim が解けた後は行が無いので未知の 404
+  assert.equal((await renameSpace(f, space.id, { name: "変更" })).status, 404);
+});
+
+// DB 障害を入口ガード・クエリの失敗とも 503 に寄せ、名前を書かないことを見る (What)
+test("改名の DB 障害は 503 にし、名前を変えない", async (t) => {
+  const f = await setup(t);
+  const a = await f.space("デモ A");
+  const spaces = async () => (await jsonBody(f.bff.app.request("/api/spaces"))).spaces as Space[];
+
+  // ハンドラ内のクエリが失敗する (応答に state は付けない)
+  const raw = new DatabaseSync(join(f.dir, APP_DB_FILENAME));
+  raw.exec(
+    `CREATE TRIGGER boom BEFORE UPDATE OF name ON spaces WHEN NEW.id = '${a.id}' BEGIN SELECT RAISE(ABORT, 'boom'); END`,
+  );
+  raw.close();
+  const inner = await renameSpace(f, a.id, { name: "変更" });
+  assert.equal(inner.status, 503);
+  assert.equal((await jsonBody(inner)).state, undefined);
+  assert.equal((await spaces())[1].name, "デモ A");
+
+  // 入口ガードは「何も保存していない」ことを state でも示す
+  f.bff.appDb.close();
+  const guard = await renameSpace(f, a.id, { name: "変更" });
+  assert.equal(guard.status, 503);
+  assert.equal((await jsonBody(guard)).state, "not_stored");
+});
+
 test("v13 DB と所属欠落の会話は加算移行し、既存のカタログ・キー・プロジェクトを保持する", async (t) => {
   const f = await setup(t);
   f.bff.appDb.insertProject({ id: "p", name: "既存", cwd: "proj", createdAt: 1 });

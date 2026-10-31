@@ -2217,6 +2217,11 @@ export class AppDb {
     );
   }
 
+  /** 表示名だけを書き換える。行が無ければ false (id・作成日時・sortOrder は触らない) */
+  renameSpace(id: string, name: string): boolean {
+    return this.#query((db) => db.prepare("UPDATE spaces SET name = ? WHERE id = ?").run(name, id).changes > 0);
+  }
+
   /**
    * 並べ替え。与えた順に 1..n を振り直す (途中で失敗したら 1 つも書かない)。
    * 採用する id の絞り込みは SpaceStore 側が行う (docs/api.md#スペース)。

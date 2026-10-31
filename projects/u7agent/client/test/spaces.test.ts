@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { Space } from "server";
 import {
   createSpaceSelectionStore,
   initialSpaceSelection,
@@ -11,7 +12,7 @@ import {
   SPACE_SELECTION_KEY,
   type SpaceSelectionStorage,
 } from "../src/lib/spaceSelection";
-import { spaceDeleteConfirmRequest, spaceRowActions } from "../src/lib/spaceSettings";
+import { spaceDeleteConfirmRequest, spaceRenameRequest, spaceRowActions } from "../src/lib/spaceSettings";
 import { removeSpaceAndApply } from "../src/lib/spaceDelete";
 import { reorderRows } from "../src/lib/agentReorder";
 import { createSessionCreation } from "../src/hooks/sessionCreation";
@@ -21,8 +22,9 @@ import type { ChatAction } from "../src/hooks/chatReducer";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { ApiError, createSpaceApi, getCatalog, getFiles, listSpaces, createSpace } = await import("../src/api");
-// spaceOrder は api を（ApiError のために）読むので、location を用意した後で読む
+// spaceOrder / spaceRename は api を（ApiError のために）読むので、location を用意した後で読む
 const { createSpaceOrderFlow } = await import("../src/lib/spaceOrder");
+const { createSpaceRenameFlow } = await import("../src/lib/spaceRename");
 const normal = { id: "default", name: "既定", createdAt: 0 };
 const demo = { id: "space-1111111111111111", name: "デモ", createdAt: 1 };
 
@@ -136,10 +138,31 @@ test("削除が失敗したときは一覧以外の状態を変えず、理由�
   assert.deepEqual(calls, ["delete"], "失敗時は一覧も選択も変えない");
 });
 
-test("行の ⋯ は既定スペースに項目を持たず、追加スペースだけに削除を出す", () => {
+test("行の ⋯ は既定スペースに項目を持たず、追加スペースだけに改名と削除を出す", () => {
   // 空配列は「その行に出せる操作が無い」印で、呼び出し側は ⋯ ごと出さない
   assert.deepEqual(spaceRowActions(true), []);
-  assert.deepEqual(spaceRowActions(false), [{ kind: "delete", label: "スペースを削除", danger: true }]);
+  // 並びは改名 → 削除（取り消せない削除を最後に置く）
+  assert.deepEqual(spaceRowActions(false), [
+    { kind: "rename", label: "名前を変更" },
+    { kind: "delete", label: "スペースを削除", danger: true },
+  ]);
+});
+
+// 改名の入力が現在の名前を初期値にし、表示名だけが変わることを示す (What)
+test("改名の入力は現在の名前を初期値にし、id・所属・保存先が変わらないことを示す", () => {
+  const request = spaceRenameRequest(demo);
+  assert.equal(request.kind, "prompt");
+  assert.equal(request.title, "名前を変更");
+  assert.equal(request.label, "新しい名前");
+  assert.equal(request.confirmLabel, "変更する");
+  // 現在名の入力を省かない（既存の名前を確かめてから直せる）
+  assert.equal(request.defaultValue, demo.name);
+  assert.deepEqual(request.subject, { label: "名前を変更する会話スペース", value: demo.name });
+  // prompt の入力欄には maxLength が無いので、上限はダイアログ内で先に示す（弾くのはサーバー）
+  const text = (request.body ?? []).join("");
+  for (const kept of ["表示名だけ", "会話の所属", "作業フォルダ", "添付", "1〜80 文字"]) {
+    assert.ok(text.includes(kept), `本文に無い: ${kept}`);
+  }
 });
 
 test("削除の確認はスペース名と消える対象、実行中の停止、選択中なら既定へ切り替わることを示す", () => {
@@ -580,5 +603,30 @@ test("保存待ちにページを離れて戻っても、離脱前の遅い応�
   assert.deepEqual(
     rows.map((row) => row.id),
     ["default", alpha.id, demo.id, beta.id],
+  );
+});
+
+// 遅れて届いた改名の応答が、その間に変わった一覧（削除・作成・並べ替え）を巻き戻さないことを見る (What)
+test("遅れて届いた改名の応答は、消えた行を戻さず、その間の作成・並べ替えも巻き戻さない", async () => {
+  const pending = deferred<Space>();
+  let table: Space[] = [normal, demo, alpha];
+  const flow = createSpaceRenameFlow({
+    save: () => pending.promise,
+    // SpacesApp と同じく、応答の space と id が一致する行だけを差し替える（一覧全体は置き換えない）
+    apply: (space) => {
+      table = table.map((row) => (row.id === space.id ? space : row));
+    },
+    note: () => {},
+  });
+  const renaming = flow.rename(demo.id, "デモ改");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // 応答待ちの間に、その行を削除して別の行を作り、並びを変える
+  table = [normal, alpha, gamma];
+  pending.resolve({ ...demo, name: "デモ改" });
+  await renaming;
+  assert.deepEqual(
+    table.map((row) => row.id),
+    [normal.id, alpha.id, gamma.id],
+    "消えた行は戻らず、並びも応答で上書きしない",
   );
 });

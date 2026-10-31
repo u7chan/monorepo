@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Space } from "server";
 import App from "./App";
-import { createSpace, createSpaceApi, deleteSpace, listSpaces, reorderSpaces } from "./api";
+import { createSpace, createSpaceApi, deleteSpace, listSpaces, renameSpace, reorderSpaces } from "./api";
 import { SpaceContext } from "./SpaceContext";
 import { ConfirmProvider } from "./components/ConfirmProvider";
 import { reorderRows } from "./lib/agentReorder";
 import { entrySpaceOf, parseRoute } from "./lib/route";
 import type { HandoffNote } from "./lib/sessionHandoff";
 import { removeSpaceAndApply } from "./lib/spaceDelete";
+import { createSpaceRenameFlow, spaceRenameNoteText } from "./lib/spaceRename";
 import { DEFAULT_SPACE_ID, initialSpaceSelection, selectedSpace, spaceSelectionStore } from "./lib/spaceSelection";
 
 /** 読み取りの失敗は既定スペースを黙って出さず、明示的な選び直しを求める */
@@ -101,6 +102,23 @@ export function SpacesApp() {
     const { spaces: saved } = await reorderSpaces(ids);
     return saved.map((space) => space.id);
   }, []);
+  // 改名はページを離れても続行する（前半の改名が後半の失敗で消えないよう待ち行列を持つ）ので、
+  // 失敗の文言は一覧を持つここで受け、設定ページへ渡す
+  const [renameNote, setRenameNote] = useState("");
+  const [renameFlow] = useState(() =>
+    createSpaceRenameFlow({
+      save: async (id, name) => (await renameSpace(id, name)).space,
+      apply: (space) => {
+        setSpaces((previous) => previous.map((item) => (item.id === space.id ? space : item)));
+        // 直列化により成功の応答は先行の失敗より後に届く。改名を始める前のクリアだけでは、
+        // 表示名が変わったのに先行の失敗通知が残る
+        setRenameNote("");
+      },
+      note: (kind, message) => setRenameNote(spaceRenameNoteText(kind, message)),
+    }),
+  );
+  const rename = useCallback((id: string, name: string) => renameFlow.rename(id, name), [renameFlow]);
+  const clearRenameNote = useCallback(() => setRenameNote(""), []);
   // 応答の順をそのまま入れない: 既定スペースや、応答待ちの間に作られた行は元の位置に残す
   // (作成・削除は一覧を差分更新するので、遅れて届いた一覧全体で上書きしない)
   const applyOrder = useCallback((ids: readonly string[]) => {
@@ -132,7 +150,21 @@ export function SpacesApp() {
     );
   }
   return (
-    <SpaceContext.Provider value={{ spaces, selected, select, create, remove, reorder, applyOrder, api }}>
+    <SpaceContext.Provider
+      value={{
+        spaces,
+        selected,
+        select,
+        create,
+        remove,
+        reorder,
+        applyOrder,
+        rename,
+        renameNote,
+        clearRenameNote,
+        api,
+      }}
+    >
       <ConfirmProvider key={selected.id}>
         <App handoffNote={handoffNote} onHandoffNoteShown={() => setHandoffNote(null)} onHandoffNote={setHandoffNote} />
       </ConfirmProvider>

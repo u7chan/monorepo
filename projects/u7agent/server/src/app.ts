@@ -51,6 +51,7 @@ import {
   MoveSessionBodySchema,
   PostMessageBodySchema,
   RenameFileBodySchema,
+  RenameSpaceBodySchema,
   ReorderAgentsBodySchema,
   ReorderPromptsBodySchema,
   ReorderSecretsBodySchema,
@@ -222,6 +223,16 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => c.json({ spaces: spaces.reorder(c.req.valid("json").ids) }),
+    )
+    // 追加スペースの改名。表示名だけを変え、id・並び・会話の所属は変えない (docs/api.md#スペース)。
+    // Hono は登録順に照合するため、`order` を id として拾わないよう `PATCH /api/spaces/order` より後ろに置く
+    .patch(
+      "/api/spaces/:id",
+      appDataMutation,
+      jsonBodyValidator(RenameSpaceBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => c.json({ space: spaces.rename(c.req.param("id"), c.req.valid("json").name) }),
     )
     // 追加スペースの削除。会話・履歴・作業フォルダ・cwd キーの行まで消す (docs/api.md#スペース)
     .delete("/api/spaces/:id", appDataMutation, async (c) => {
