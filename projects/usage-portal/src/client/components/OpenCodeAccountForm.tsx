@@ -124,7 +124,7 @@ export function OpenCodeAccountForm(props: {
       <label class="up-field">
         <span class="up-label">{editing ? "新しい API キー" : "API キー"}</span>
         <input
-          class="up-input up-input-code"
+          class="up-input"
           type="password"
           name={`${groupName}-key`}
           autocomplete="off"

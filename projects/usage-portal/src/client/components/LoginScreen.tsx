@@ -82,7 +82,7 @@ export function LoginScreen(props: {
         <label class="up-field">
           <span class="up-label">PIN</span>
           <input
-            class="up-input"
+            class="up-input up-input-pin"
             type="password"
             inputMode="numeric"
             pattern="[0-9]{6}"
@@ -97,7 +97,7 @@ export function LoginScreen(props: {
           <label class="up-field">
             <span class="up-label">PIN（確認）</span>
             <input
-              class="up-input"
+              class="up-input up-input-pin"
               type="password"
               inputMode="numeric"
               pattern="[0-9]{6}"
