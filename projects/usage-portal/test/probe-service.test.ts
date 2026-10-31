@@ -75,6 +75,21 @@ function fakeProvider(scenario: Scenario = {}): ProbeStreamProvider {
   };
 }
 
+function delay(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new Error("aborted"));
+      },
+      { once: true },
+    );
+  });
+}
+
 function settings(config: CodexProbeConfig | null): ProbeSettingsStore {
   return { read: () => ({ codex: config }), writeCodex: () => {} };
 }
@@ -96,6 +111,8 @@ function createRunner(
     credential?: () => Promise<{ accessToken: string }>;
     timeoutMs?: number;
     now?: () => number;
+    codexProvider?: ProbeStreamProvider;
+    opencodeGoProvider?: ProbeStreamProvider;
   } = {},
 ) {
   const kicked: number[] = [];
@@ -117,8 +134,8 @@ function createRunner(
     now: overrides.now,
     log: (message) => logs.push(message),
     providers: {
-      codex: fakeProvider(overrides.codex ?? { status: 200 }),
-      opencodeGo: fakeProvider(overrides.opencodeGo ?? { status: 200 }),
+      codex: overrides.codexProvider ?? fakeProvider(overrides.codex ?? { status: 200 }),
+      opencodeGo: overrides.opencodeGoProvider ?? fakeProvider(overrides.opencodeGo ?? { status: 200 }),
     },
   });
 
@@ -357,6 +374,69 @@ describe("single-flight と timeout", () => {
 
     const next = createRunner({ codex: { status: 200 } });
     expect((await next.runner.checkCodex()).ok).toBe(true);
+  });
+
+  test("打ち切った送信は止まり、解放直後の再試行と重ならない", async () => {
+    // 偽の資格情報で 150 ms 待たせ、timeoutMs を 100 ms にすると race が先に切れる。
+    // 中断が共有されていないと、再試行が古い送信と同時に走る。
+    let active = 0;
+    let maxActive = 0;
+    let sends = 0;
+
+    upstreamStatus = 200;
+
+    const slow: ProbeStreamProvider = {
+      streamSimple(_model, _context, options) {
+        const stream = {
+          async *[Symbol.asyncIterator]() {
+            sends += 1;
+            active += 1;
+            maxActive = Math.max(maxActive, active);
+
+            try {
+              // adapter と同じく、まず HTTP を叩いて status を残す。
+              const response = await options?.fetch?.("https://upstream.test/v1/stream", { method: "POST" });
+
+              if (!response?.ok) {
+                throw new Error("upstream status");
+              }
+
+              await delay(80, options?.signal);
+              yield { type: "text_delta" };
+            } finally {
+              active -= 1;
+            }
+          },
+          result: async () => ({ stopReason: "stop" }),
+        };
+
+        return stream as unknown as AssistantMessageEventStream;
+      },
+    };
+    let credentialCalls = 0;
+    const { runner } = createRunner({
+      timeoutMs: 100,
+      codexProvider: slow,
+      credential: async () => {
+        credentialCalls += 1;
+
+        // 1 回目だけ資格情報に時間がかかり、送信の timeout より先に race が切れる。
+        if (credentialCalls === 1) {
+          await delay(150, undefined);
+        }
+
+        return { accessToken: "token" };
+      },
+    });
+
+    expect(await runner.checkCodex()).toEqual({ ok: false, error: "unavailable" });
+    // 打ち切りが adapter に届いているので、送信は残っていない。
+    expect(active).toBe(0);
+
+    // 直後の再試行は in_progress にならず、古い送信とも重ならない。
+    expect((await runner.checkCodex()).ok).toBe(true);
+    expect(maxActive).toBe(1);
+    expect(sends).toBe(2);
   });
 
   test("source が違えば同時に走らせない待ち行列を作らない", async () => {

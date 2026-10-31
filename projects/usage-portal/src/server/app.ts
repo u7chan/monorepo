@@ -307,7 +307,8 @@ export function createApp(deps: AppDeps) {
     return result.ok ? c.json({ codex: result.value }) : probeError(c, result.error);
   });
 
-  app.delete("/api/codex/probe", requireSession, (c) => {
+  // 解除も状態を変える入口。PUT と同じ上限を掛け、過大な body では解除しない。
+  app.delete("/api/codex/probe", requireSession, bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }), (c) => {
     const result = deps.probe.clearCodexConfig();
 
     return result.ok ? c.json({ codex: null }) : probeError(c, result.error);

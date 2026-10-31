@@ -42,6 +42,7 @@ import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { formatClock } from "./lib/format";
 import { orderSources } from "./lib/order";
+import { readProbeLoad } from "./lib/probe";
 import { type ViewMode, browserStorage, readViewMode, writeViewMode } from "./lib/view-mode";
 import { expiryNotice } from "./time";
 
@@ -262,19 +263,20 @@ function Dashboard(props: {
   const loadProbe = useCallback(async () => {
     try {
       const [config, models] = await Promise.all([fetchCodexProbe(), fetchProbeModels()]);
+      const outcome = readProbeLoad(config, models);
 
-      if (config === null || models === null) {
-        return;
-      }
-
-      if ("unauthorized" in config || "unauthorized" in models) {
+      if (outcome.kind === "unauthorized") {
         onUnauthorized();
 
         return;
       }
 
-      setProbe(config);
-      setCatalog(models);
+      if (outcome.kind === "failed") {
+        return;
+      }
+
+      setProbe(outcome.codex);
+      setCatalog(outcome.catalog);
     } catch {
       // 取得できないあいだは入口を出さない。設定そのものは server に残る。
     }

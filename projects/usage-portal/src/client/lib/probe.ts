@@ -1,4 +1,33 @@
-import type { UsageSource } from "../api";
+import type { CodexProbeConfig, CodexProbeRead, ProbeCatalog, Unauthorized, UsageSource } from "../api";
+
+/**
+ * 設定と catalog の初期取得をまとめる。未設定 (`codex: null`) は成功として扱い、
+ * catalog だけが取れている状態でも設定を始められるようにする。
+ */
+export type ProbeLoadOutcome =
+  | { kind: "unauthorized" }
+  | { kind: "failed" }
+  | { kind: "ok"; codex: CodexProbeConfig | null; catalog: ProbeCatalog };
+
+export function readProbeLoad(
+  config: CodexProbeRead | Unauthorized | null,
+  models: ProbeCatalog | Unauthorized | null,
+): ProbeLoadOutcome {
+  if (config !== null && "unauthorized" in config) {
+    return { kind: "unauthorized" };
+  }
+
+  if (models !== null && "unauthorized" in models) {
+    return { kind: "unauthorized" };
+  }
+
+  // 片方でも取れていないときは、前回の状態をそのまま使う。
+  if (config === null || models === null) {
+    return { kind: "failed" };
+  }
+
+  return { kind: "ok", codex: config.value, catalog: models };
+}
 
 /**
  * 「5時間を開始」を押せるか。5h 窓が API に出ないアカウントがあるため、

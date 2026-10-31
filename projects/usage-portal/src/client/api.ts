@@ -112,6 +112,9 @@ export type CodexProbeConfig = { model: string; thinking: string };
 
 export type CodexProbeOutcome = { ok: true; value: CodexProbeConfig | null } | { ok: false; error: string };
 
+/** 取得結果。未設定 (`value: null`) と、取得できなかったこと (`null`) を区別する。 */
+export type CodexProbeRead = { ok: true; value: CodexProbeConfig | null };
+
 /** 送信の結果。応答本文は受け取らない。 */
 export type ProbeCheckOutcome = { ok: true; latencyMs: number } | { ok: false; error: string };
 
@@ -276,7 +279,7 @@ export async function fetchProbeModels(): Promise<ProbeCatalog | Unauthorized | 
   return { codex: readModels(body, "codex"), opencodeGo: readModels(body, "opencodeGo") };
 }
 
-export async function fetchCodexProbe(): Promise<CodexProbeConfig | null | Unauthorized> {
+export async function fetchCodexProbe(): Promise<CodexProbeRead | Unauthorized | null> {
   const response = await fetch("/api/codex/probe", { headers: { accept: "application/json" } });
 
   if (response.status === 401) {
@@ -287,7 +290,7 @@ export async function fetchCodexProbe(): Promise<CodexProbeConfig | null | Unaut
     return null;
   }
 
-  return parseCodexProbe(await response.json().catch(() => null));
+  return { ok: true, value: parseCodexProbe(await response.json().catch(() => null)) };
 }
 
 export async function saveCodexProbe(config: CodexProbeConfig): Promise<CodexProbeOutcome> {

@@ -299,6 +299,35 @@ describe("GET / PUT / DELETE /api/codex/probe", () => {
     expect(existsSync(join(h.dataDir, PROBE_SETTINGS_FILE))).toBe(false);
   });
 
+  test("2 KiB を超える body の解除は 413 にし、保存済みの設定を変えない", async () => {
+    const h = harness();
+    const cookieValue = await cookie(h.app);
+
+    const saved = await request(h, "/api/codex/probe", {
+      method: "PUT",
+      cookie: cookieValue,
+      body: { model: "gpt-6-luna", thinking: "low" },
+    });
+
+    expect(saved.status).toBe(200);
+
+    const large = await request(h, "/api/codex/probe", {
+      method: "DELETE",
+      cookie: cookieValue,
+      body: { padding: "a".repeat(2048) },
+    });
+
+    expect(large.status).toBe(413);
+    expect(await large.json()).toEqual({ error: "invalid_request" });
+    expect(h.settings.read()).toEqual({ codex: { model: "gpt-6-luna", thinking: "low" } });
+
+    // 空の body なら今までどおり解除できる。
+    const cleared = await request(h, "/api/codex/probe", { method: "DELETE", cookie: cookieValue });
+
+    expect(cleared.status).toBe(200);
+    expect(h.settings.read()).toEqual({ codex: null });
+  });
+
   test("設定を書けないときは 503 を返し、probe を有効にしない", async () => {
     const h = harness({ blockedSettings: true });
     const response = await request(h, "/api/codex/probe", {

@@ -1,7 +1,7 @@
 // 「5時間を開始」の表示・無効条件（未設定 / 未サインイン / snapshot なし / limitReached / 100% / 実行中）を固定する。
 import { describe, expect, test } from "bun:test";
-import type { UsageSource } from "../src/client/api";
-import { canStartCodexWindow, probeErrorMessage } from "../src/client/lib/probe";
+import type { ProbeCatalog, UsageSource } from "../src/client/api";
+import { canStartCodexWindow, probeErrorMessage, readProbeLoad } from "../src/client/lib/probe";
 import { BASE_TIME } from "./support";
 
 function source(overrides: Partial<UsageSource> = {}): UsageSource {
@@ -99,6 +99,46 @@ describe("canStartCodexWindow", () => {
         }),
       }),
     ).toBe(true);
+  });
+});
+
+describe("readProbeLoad", () => {
+  const catalog: ProbeCatalog = {
+    codex: [
+      {
+        id: "model-a",
+        name: "Model A",
+        thinkingLevels: ["low"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+    ],
+    opencodeGo: [],
+  };
+
+  test("未設定でも catalog を反映し、設定を始められる状態にする", () => {
+    expect(readProbeLoad({ ok: true, value: null }, catalog)).toEqual({
+      kind: "ok",
+      codex: null,
+      catalog,
+    });
+  });
+
+  test("設定済みなら設定と catalog の両方を反映する", () => {
+    expect(readProbeLoad({ ok: true, value: { model: "model-a", thinking: "low" } }, catalog)).toEqual({
+      kind: "ok",
+      codex: { model: "model-a", thinking: "low" },
+      catalog,
+    });
+  });
+
+  test("片方でも取得できていなければ失敗にし、前回の状態を残す", () => {
+    expect(readProbeLoad(null, catalog)).toEqual({ kind: "failed" });
+    expect(readProbeLoad({ ok: true, value: null }, null)).toEqual({ kind: "failed" });
+  });
+
+  test("認証切れは unauthorized として区別する", () => {
+    expect(readProbeLoad({ unauthorized: true }, catalog)).toEqual({ kind: "unauthorized" });
+    expect(readProbeLoad({ ok: true, value: null }, { unauthorized: true })).toEqual({ kind: "unauthorized" });
   });
 });
 

@@ -27,6 +27,9 @@ export const PROBE_MAX_TOKENS = 16;
 /** 送信後の再取得を待つ上限。全 source の取り直しが遅い環境で、送信の結果を落とさない。 */
 const KICK_WAIT_MS = 5_000;
 
+/** 打ち切ったあと、中断が adapter へ伝わるのを待つ上限。ここを過ぎたら印だけ解放する。 */
+const ABORT_GRACE_MS = 1_000;
+
 export type ProbeErrorCode =
   | "not_configured"
   | "in_progress"
@@ -51,6 +54,8 @@ export type ProbeStreamProvider = { streamSimple: Provider<Api>["streamSimple"] 
 
 type SendOptions = {
   apiKey: string;
+  /** single-flight の中断状態。期限切れで flight ごと止める。 */
+  signal: AbortSignal;
   now: () => number;
   thinking: ModelThinkingLevel;
   userAgent: string;
@@ -88,20 +93,36 @@ export function createProbeRunner(options: {
   // 二重送信を防ぐ。上流の利用枠を 1 メッセージで 2 回減らさない。
   const inFlight = new Set<string>();
 
-  async function singleFlight(key: string, task: () => Promise<ProbeOutcome>): Promise<ProbeOutcome> {
+  async function singleFlight(
+    key: string,
+    task: (signal: AbortSignal) => Promise<ProbeOutcome>,
+  ): Promise<ProbeOutcome> {
     if (inFlight.has(key)) {
       return { ok: false, error: "in_progress" };
     }
 
+    // 期限切れのときに task を止めるための中断状態。印を外す前に必ず abort する。
+    const flight = new AbortController();
+
     inFlight.add(key);
 
-    const work = task();
+    const work = task(flight.signal);
 
     // 中断後に adapter が返らない場合も、実行中の印を残さない。
     work.catch(() => undefined);
 
     try {
-      return await Promise.race([work, after(timeoutMs * 2, { ok: false, error: "unavailable" } as const)]);
+      const outcome = await Promise.race([work, after(timeoutMs * 2, TIMED_OUT)]);
+
+      if (outcome !== TIMED_OUT) {
+        return outcome;
+      }
+
+      // 打ち切りを task と共有する。中断を待たずに印を外すと、古い送信と再試行が重なる。
+      flight.abort();
+      await Promise.race([work.catch(() => undefined), after(ABORT_GRACE_MS, undefined)]);
+
+      return { ok: false, error: "unavailable" };
     } finally {
       inFlight.delete(key);
     }
@@ -123,7 +144,7 @@ export function createProbeRunner(options: {
         return { ok: false, error: "not_configured" };
       }
 
-      return singleFlight("codex", async () => {
+      return singleFlight("codex", async (signal) => {
         const model = findProbeModel("codex", config.model);
 
         if (model === null) {
@@ -145,6 +166,7 @@ export function createProbeRunner(options: {
 
         const reading = await send(providers.codex, model, {
           apiKey: accessToken,
+          signal,
           now,
           thinking: config.thinking,
           userAgent: options.userAgent,
@@ -181,9 +203,10 @@ export function createProbeRunner(options: {
         return { ok: false, error: "invalid_thinking" };
       }
 
-      return singleFlight(`opencode-go:${accountId}`, async () => {
+      return singleFlight(`opencode-go:${accountId}`, async (signal) => {
         const reading = await send(providers.opencodeGo, model, {
           apiKey,
+          signal,
           now,
           thinking: account.probeThinking as ModelThinkingLevel,
           userAgent: options.userAgent,
@@ -206,7 +229,7 @@ async function send(provider: ProbeStreamProvider, model: Model<Api>, options: S
     ...reasoningOption(options.thinking),
     headers: { "user-agent": options.userAgent },
     // timeoutMs だけでは SSE が途中で止まったときに返らない。stream 全体を中断する。
-    signal: AbortSignal.timeout(options.timeoutMs),
+    signal: AbortSignal.any([AbortSignal.timeout(options.timeoutMs), options.signal]),
     fetch: capture.fetch,
     ...options.extra,
   });
@@ -288,6 +311,9 @@ function createStatusCapture(): { fetch: FetchFunction; status: () => number | n
 
   return { fetch: wrapper, status: () => status };
 }
+
+/** race の期限切れを結果と取り違えないための印。 */
+const TIMED_OUT = Symbol("timed-out");
 
 function after<T>(ms: number, value: T): Promise<T> {
   return new Promise((resolve) => {
