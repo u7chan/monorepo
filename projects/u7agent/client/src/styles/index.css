@@ -1181,6 +1181,8 @@
     overflow: visible;
     background-color: transparent;
     color: inherit;
+    /* 外装自体は操作を持たない。焦点を取ったときの UA の輪郭が画面幅の線として残るのを防ぐ */
+    outline: none;
   }
   .composer-dialog[open] {
     animation: composer-expand-in 160ms ease-out;

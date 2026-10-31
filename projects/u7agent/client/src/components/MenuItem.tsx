@@ -91,6 +91,8 @@ export function MenuItem({
 }: MenuItemProps) {
   const active = selected && variant !== "add";
   const tone = disabled ? "disabled" : active ? (`${variant}-active` as const) : danger ? "danger" : IDLE_TONE[variant];
+  // midnight / daylight は --c-focus と --c-accent が同値。選択中の nav 行だけ on-accent で描く
+  const focusOutline = tone === "nav-active" ? "focus-visible:outline-on-accent" : "focus-visible:outline-focus";
   // 2 行の行では行の中央ではなく 1 行目に合わせる (ラベルと説明の境目に浮かないようにする)。singleColumn で
   // 補足を隠したときは 1 行の行に戻るので、中央寄せへ戻す (説明を隠す条件と同じ CSS で切り替える)
   const slotAlign =
@@ -106,7 +108,10 @@ export function MenuItem({
       aria-selected={role === "option" ? active : undefined}
       onClick={onClick}
       className={cn(
-        "flex min-h-7.5 w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors singleColumn:min-h-11",
+        // 既定の outline はスクロール枠の縁で切れる。内側へ寄せた outline なら行の端まで見え、
+        // タッチでプログラム的に焦点が移ったときの既定の輪郭も出さない (選択の塗りは残る)
+        "flex min-h-7.5 w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid singleColumn:min-h-11",
+        focusOutline,
         TONE[tone],
       )}
     >
