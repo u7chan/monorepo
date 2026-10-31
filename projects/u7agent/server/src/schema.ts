@@ -8,6 +8,8 @@ import type { SecretKind } from "./secret-crypto";
 export const SpaceSchema = z.object({ id: z.string(), name: z.string(), createdAt: z.number() });
 export type Space = z.infer<typeof SpaceSchema>;
 export const CreateSpaceBodySchema = z.object({ name: z.string().trim().min(1).max(80) });
+/** PATCH /api/spaces/:id。入力の規則は作成と同じ (重複名は許可し、同一性は id が持つ) */
+export const RenameSpaceBodySchema = CreateSpaceBodySchema;
 
 export const RunStatusSchema = z.enum(["idle", "running", "queued", "compacting", "completed", "stopped", "error"]);
 export type RunStatus = z.infer<typeof RunStatusSchema>;

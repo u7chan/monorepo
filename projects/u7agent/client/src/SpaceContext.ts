@@ -19,6 +19,14 @@ export type SpaceContextValue = {
    */
   reorder: (ids: readonly string[]) => Promise<readonly string[]>;
   /**
+   * 改名。要求は 1 本の待ち行列で直列化し、応答の `space` で**一覧の該当行だけ**を差し替える
+   * （応答待ちの間に作られた行や並べ替えの結果を巻き戻さない。docs/ui-layout.md#スペース）。
+   */
+  rename: (id: string, name: string) => Promise<void>;
+  /** 改名に失敗した理由。設定 → 会話スペース が表示し、`clearRenameNote` で消す */
+  renameNote: string;
+  clearRenameNote: () => void;
+  /**
    * 保存が返した順を現在の一覧へマージする。**渡されなかった行（既定スペース・保存待ちの間に作られた行）は
    * 元の位置に残す**（応答で一覧全体を置き換えず、作成・削除の差分更新を巻き戻さないため）。
    */

@@ -68,6 +68,19 @@ export class SpaceStore {
   }
 
   /**
+   * 追加スペースの表示名を変える。並べ替え・削除と同じく既定スペースは DB を読む前に 400 にし、
+   * 削除中・未知は 404 にする。id・作成日時・並びは変えない (docs/api.md#スペース)。
+   */
+  rename(value: unknown, name: string): Space {
+    const id = spaceIdOf(value);
+    if (id === DEFAULT_SPACE_ID) throw httpError(400, "既定スペースの名前は変更できません");
+    if (this.#deleting.has(id)) throw httpError(404, "スペースが見つかりません");
+    const current = this.db.listSpaces().find((space) => space.id === id);
+    if (!current || !this.db.renameSpace(id, name)) throw httpError(404, "スペースが見つかりません");
+    return { ...current, name };
+  }
+
+  /**
    * 並べ替え。既定スペース・未知の id・重複は捨て、渡されなかった行は元の相対順で末尾に回す
    * (`reorderAgents` と同じ方針。docs/api.md#スペース)。既定スペースは `list()` が先頭に置く。
    */

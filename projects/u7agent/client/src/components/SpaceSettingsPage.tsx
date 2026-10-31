@@ -5,11 +5,12 @@ import { useAgentDrag, type AgentDragNaming } from "../hooks/useAgentDrag";
 import { createMountScope } from "../hooks/requestGate";
 import { reorderRows } from "../lib/agentReorder";
 import { cn } from "../lib/cn";
+import { renameInputValue } from "../lib/confirmDialog";
 import { createSpaceOrderFlow, type SpaceOrderNoteKind, type SpaceOrderState } from "../lib/spaceOrder";
-import { spaceDeleteConfirmRequest, spaceRowActions } from "../lib/spaceSettings";
+import { spaceDeleteConfirmRequest, spaceRenameRequest, spaceRowActions } from "../lib/spaceSettings";
 import { DEFAULT_SPACE_ID } from "../lib/spaceSelection";
 import { CollapsibleNotice } from "./CollapsibleNotice";
-import { useConfirm } from "./ConfirmProvider";
+import { useConfirm, usePrompt } from "./ConfirmProvider";
 import { MenuItem } from "./MenuItem";
 import { RowMenu } from "./RowMenu";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -40,6 +41,7 @@ export function SpaceSettingsPage({
 }) {
   const space = useSpace();
   const confirm = useConfirm();
+  const prompt = usePrompt();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -52,6 +54,11 @@ export function SpaceSettingsPage({
   // 一覧はこのページより長生きするので、離脱前の古い応答で新しい確定順を巻き戻さない
   const [mountScope] = useState(createMountScope);
   useEffect(mountScope.setup, [mountScope]);
+  // 失敗の文言は一覧（SpacesApp）が持ち、ページより長生きする。開き直したときに前回の失敗を持ち越さない
+  const clearRenameNote = space.clearRenameNote;
+  useEffect(() => {
+    clearRenameNote();
+  }, [clearRenameNote]);
   // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/spaceOrder が持ち、
   // ここは state への反映と文言だけを持つ。確定順の一覧は SpacesApp が持つ (同じ一覧を作成・削除が差分更新する)
   const orderDeps = useRef({ spaces: space.spaces, reorder: space.reorder, applyOrder: space.applyOrder });
@@ -96,6 +103,15 @@ export function SpaceSettingsPage({
     } finally {
       setDeleting("");
     }
+  };
+
+  // 空欄・未変更は送らない（設定 → ファイル / 共有物の改名と同じ規則）。送信の直列化と失敗の文言は
+  // 一覧を持つ SpacesApp の flow が持ち、失敗は `space.renameNote` に出る
+  const requestRename = async (item: Space) => {
+    const name = renameInputValue(await prompt(spaceRenameRequest(item)), item.name);
+    if (name === undefined) return;
+    space.clearRenameNote();
+    await space.rename(item.id, name);
   };
 
   return (
@@ -189,7 +205,11 @@ export function SpaceSettingsPage({
                       }}
                     />
                     {actions.length > 0 ? (
-                      <RowMenu name={item.name} actions={actions} onSelect={() => void requestDelete(item)} />
+                      <RowMenu
+                        name={item.name}
+                        actions={actions}
+                        onSelect={(kind) => void (kind === "rename" ? requestRename(item) : requestDelete(item))}
+                      />
                     ) : null}
                   </div>
                 );
@@ -197,8 +217,13 @@ export function SpaceSettingsPage({
             </div>
             <p className="text-2xs leading-relaxed text-ink-ghost">
               作成した会話スペースを選ぶと空の会話一覧から始められます。会話は切り替えても残ります。追加スペースは行の ⋯
-              から削除できます（既定スペースは削除できません）。
+              から名前を変更・削除できます（既定スペースはどちらもできません）。
             </p>
+            {space.renameNote ? (
+              <p role="alert" className="text-sm text-danger">
+                {space.renameNote}
+              </p>
+            ) : null}
             {deleteError ? (
               <p role="alert" className="text-sm text-danger">
                 {deleteError}

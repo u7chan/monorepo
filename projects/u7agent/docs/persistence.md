@@ -56,7 +56,7 @@ BFF の agent dir（`PI_CODING_AGENT_DIR`。未設定なら `$HOME/.pi/agent`）
 - 既定の作業先・添付は既存パスのまま。追加スペースの作業フォルダと添付は所属スペース配下（[session-files.md](session-files.md#スペースごとの配置)）。
 - 未所属セッションは `POST /api/sessions/:id/move` で別のスペースへ引き継げる（プロジェクト所属は同じスペースへのエージェント交代だけ）。meta の `spaceId` とエージェントのスナップショットを書き換え、別スペースなら作業フォルダ / 添付を移動先のパスへ物理移動する（会話ログのフォルダは `<PI_SESSION_STORE>/<sessionId>/` のままで、履歴の `session.jsonl` / `sends.json` は破棄する。`secrets` / `serve_commands` は cwd をキーにするため移動先へ付け替える。[api-session-state.md](api-session-state.md#post-apisessionsidmove)）。
 - 追加スペースは `DELETE /api/spaces/:id` で削除できる。会話（live / 未ロード）・履歴・作業フォルダ / 添付（`<workspace>/.u7agent/spaces/<spaceId>`）・`secrets` / `serve_commands` の cwd キー行・`spaces` 行を消し、`spaces` 行の削除を最後に置いて途中で失敗しても行が残るようにする（そのまま再試行できる）。既定スペースは対象外（400）。削除中はそのスペースを対象にする scoped API が読み取りも含めて 404 になる（[api.md](api.md#スペース)）。
-- 切り替えは会話や実行中ランを消さない。改名・リセットは設けず、削除だけができる。空のデモを始めるときは新しいスペースを作成する。
+- 切り替えは会話や実行中ランを消さない。改名は `spaces.name`（表示名）だけを変え、会話の所属・作業フォルダ・添付・`?space=` の値は変えない。リセットは設けず、削除だけができる。空のデモを始めるときは新しいスペースを作成する。
 
 ## 作業領域
 
