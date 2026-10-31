@@ -48,7 +48,7 @@ POST /api/sessions { model?, thinkingLevel? }
 3. モデルだけの変更では、変更前の実効 `thinkingLevel` を退避して `setModel(model, {persist:false})` の後に再適用する（SDK のモデル切替既定に任せない）。両方指定時は要求値を再適用する。
 4. `finally` でフラグを解除し、SDK 補正後の実効値で `resync` イベントを記録して返す。
 
-送信（`POST /api/sessions/:id/messages`）は text だけを受け取り、モデルはそのセッションの SDK セッションが持つ実効値（`session.model`）で決まる。送信ごとのモデル指定は無いため、表示（入力欄 / ヘッダー）と実際の送信先が食い違わないよう、クライアントは選択中セッションの実効モデルだけを表示する。
+送信（`POST /api/sessions/:id/messages`）は text だけを受け取り、モデルはそのセッションの SDK セッションが持つ実効値（`session.model`）で決まる。送信ごとのモデル指定は無いため、入力欄の表示と実際の送信先が食い違わないよう、クライアントは選択中セッションの実効モデルだけを表示する。履歴の assistant ヘッダーは、その応答を生成したモデル（SDK がメッセージへ記録した `provider/model`）を表示し、現在のセッション値では補わない（切替前の応答に切替後のモデルを付けない）。表示名は health の `modelOptions` から引き、引けなければ `provider/id` を出す。`model` が `null` の履歴は `モデル不明`、未指定（旧サーバー / ライブの `assistant_end` 前）は出さない。完全な `provider/id` はラベルの `title` にだけ出す。
 
 エージェント定義の Model / Effort（`agent.model` / `agent.thinkingLevel`）はセッション作成時の初期値にだけ使い、既存チャットへ遡及しない（[api-catalog.md](api-catalog.md)）。
 

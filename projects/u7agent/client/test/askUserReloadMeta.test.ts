@@ -102,7 +102,10 @@ function askCards(state: ChatState): ToolCard[] {
   return state.bubbles.flatMap((bubble) => bubble.tools.filter((card) => (card.questions?.length ?? 0) > 0));
 }
 
-function renderMessage(bubble: Bubble, options: { singleColumn?: boolean; turnEnd?: TurnEnd } = {}): string {
+function renderMessage(
+  bubble: Bubble,
+  options: { singleColumn?: boolean; turnEnd?: TurnEnd; modelLabel?: string } = {},
+): string {
   return renderToStaticMarkup(
     createElement(
       ConfirmProvider,
@@ -122,6 +125,7 @@ function renderMessage(bubble: Bubble, options: { singleColumn?: boolean; turnEn
         answerable: true,
         onAnswerQuestion: async () => ({ ok: true as const }),
         ...(options.turnEnd === undefined ? {} : { turnEnd: options.turnEnd }),
+        ...(options.modelLabel === undefined ? {} : { modelLabel: options.modelLabel }),
       }),
     ),
   );
@@ -141,7 +145,7 @@ function historyPage(messageCount: number): HistoryPage {
 }
 
 /** live の質問カード (本文なし応答 → usage → ツール開始 → 回答待ち) */
-function liveState(): ChatState {
+function liveState(model?: string | null): ChatState {
   let state = chatReducer(initialChatState, {
     type: "runStart",
     runId: "run-1",
@@ -150,7 +154,11 @@ function liveState(): ChatState {
     startedAt: 1,
   });
   state = chatReducer(state, { type: "usage", assistantId: OWNER, usage: USAGE, metrics: METRICS });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: OWNER });
+  state = chatReducer(state, {
+    type: "assistantEnd",
+    assistantId: OWNER,
+    ...(model === undefined ? {} : { model }),
+  });
   return chatReducer(state, {
     type: "toolStart",
     id: "call-1",
@@ -319,4 +327,32 @@ test("復元したカードは履歴の件数・ページ境界を変えず、Do
   const reconnectedItem = askItem(reconnected);
   assert.equal(reconnectedItem.bubble.at, ASKED_AT);
   assert.match(renderMessage(reconnectedItem.bubble), /850ms/);
+});
+
+test("本文なし応答の ask_user でも、assistant_end の確定モデルをヘッダーに出す", () => {
+  // What: assistant_end の時点で対象バブルが無い応答でも、後から合成する質問バブルがその確定モデル
+  // (不明 = null を含む) を表示し、再読み込み (assistantMeta) でも同じ値を出す
+  const known = renderMessage(askItem(liveState("example/model-a")).bubble, { modelLabel: "Model A" });
+  assert.match(known, /Model A/, "表示名は候補の name を使う");
+  assert.ok(known.includes('title="example/model-a"'), "tooltip は provider/id だけ");
+  assert.doesNotMatch(known, /選択モデル/, "tooltip にラベルを付けない");
+
+  const unknown = renderMessage(askItem(liveState(null)).bubble);
+  assert.match(unknown, /モデル不明/, "null は不明として出す");
+  assert.doesNotMatch(unknown, /example\//, "不明のときは識別子を出さない");
+
+  // 旧サーバー (assistant_end に model が無い) は非表示のまま
+  const legacy = renderMessage(askItem(liveState()).bubble);
+  assert.doesNotMatch(legacy, /モデル不明|example\/model-a/);
+
+  // 再読み込みは payload の assistantMeta が同じ値を持ち、合成バブルのヘッダーに出る
+  const reload = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payload([{ role: "user", text: "質問して" }], runPayload([askCall("call-1", OWNER)]), {
+      assistantMeta: [{ assistantId: OWNER, at: ASKED_AT, usage: USAGE, metrics: METRICS, model: "example/model-a" }],
+    }),
+  });
+  const reloadHtml = renderMessage(askItem(reload).bubble, { modelLabel: "Model A" });
+  assert.match(reloadHtml, /Model A/);
+  assert.ok(reloadHtml.includes('title="example/model-a"'));
 });

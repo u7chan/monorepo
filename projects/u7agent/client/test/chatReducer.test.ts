@@ -5423,3 +5423,27 @@ test("操作の結果 (notice) は応答や同じ会話の resync では消え�
   assert.equal(switched.sessionId, "session-b");
   assert.equal(switched.notice, undefined, "会話を切り替えたら残さない");
 });
+
+test("assistant のモデルは payload と assistant_end の両方からバブルへ入る", () => {
+  // What: 履歴の model はそのまま写し、live は assistant_end まで出さず、届いた値 (null = 不明を含む) で確定する
+  const payload = runningPayload();
+  payload.messages = [
+    { role: "user", text: "質問" },
+    { role: "assistant", text: "応答", model: "openai/gpt-6-luna" },
+  ];
+  let state = chatReducer(initialChatState, { type: "resync", payload });
+  const fromPayload = state.bubbles.find((bubble) => bubble.text === "応答");
+  assert.equal(fromPayload?.model, "openai/gpt-6-luna");
+  assert.equal(state.bubbles.find((bubble) => bubble.text === "質問")?.model, undefined, "user はモデルを持たない");
+
+  state = chatReducer(state, { type: "text", delta: "追記", at: 3, assistantId: "run-1:2" });
+  const streaming = state.bubbles.find((bubble) => bubble.assistantId === "run-1:2");
+  assert.equal(streaming?.model, undefined, "ストリーミング中はモデルを出さない");
+
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2", model: "openai/gpt-6-luna" });
+  assert.equal(state.bubbles.find((bubble) => bubble.assistantId === "run-1:2")?.model, "openai/gpt-6-luna");
+
+  state = chatReducer(state, { type: "text", delta: "不明な応答", at: 4, assistantId: "run-1:3" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:3", model: null });
+  assert.equal(state.bubbles.find((bubble) => bubble.assistantId === "run-1:3")?.model, null, "不明は null で確定する");
+});

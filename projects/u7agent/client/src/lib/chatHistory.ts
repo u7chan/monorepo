@@ -74,6 +74,7 @@ function bubbleOfItem(
     ...(item.assistantId !== undefined ? { assistantId: item.assistantId } : {}),
     role: item.role,
     text: item.text,
+    ...(item.model !== undefined ? { model: item.model } : {}),
     tools,
     skillLoads: item.skillLoads ?? [],
     at: item.at,

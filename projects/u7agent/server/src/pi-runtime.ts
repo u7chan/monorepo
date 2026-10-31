@@ -195,6 +195,20 @@ export function parseUsage(raw: unknown): Usage | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
+/**
+ * assistant を生成したモデル (`provider/model`)。assistant 以外は undefined、provider / model が
+ * 欠ける旧履歴や未報告は null (不明) にする。
+ */
+export function assistantModelLabel(
+  message: Pick<PiSessionMessageLike, "role" | "provider" | "model">,
+): string | null | undefined {
+  if (message.role !== "assistant") return undefined;
+  const provider = typeof message.provider === "string" ? message.provider.trim() : "";
+  const model = typeof message.model === "string" ? message.model.trim() : "";
+  if (!provider || !model || (provider === "unknown" && model === "unknown")) return null;
+  return `${provider}/${model}`;
+}
+
 export function contextUsageOf(session: PiSessionLike): ContextUsage | undefined {
   // SDK の getContextUsage() は compaction entry の usage を無条件に読むため、usage を持たない
   // 旧 / 手作り JSONL では例外になる。context は補助情報なので、失敗はキー省略へ縮退させる

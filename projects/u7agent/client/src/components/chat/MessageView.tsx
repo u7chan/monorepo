@@ -63,6 +63,7 @@ export function MessageView({
   singleColumn,
   agentName,
   agentIcon,
+  modelLabel,
   rootCwd,
   cwd = "",
   rawUrl,
@@ -92,6 +93,8 @@ export function MessageView({
   agentName?: string;
   /** 未設定なら SparkleIcon へフォールバックする */
   agentIcon?: string;
+  /** 履歴ヘッダーに出すモデル名。候補に引けなければ bubble.model をそのまま出す */
+  modelLabel?: string;
   /** ワークスペース root の絶対パス (health.cwd)。添付のサムネイル URL を組むのに使う */
   rootCwd: string;
   /** 選択中セッションの作業フォルダ (payload.cwd)。未確定 ("") のときは生成音声のパスを解決しない */
@@ -209,6 +212,18 @@ export function MessageView({
           )}
         >
           <span>{isUser ? "あなた" : agentName || "アシスタント"}</span>
+          {!isUser && bubble.model !== undefined ? (
+            <span
+              // 完全な識別子は tooltip にだけ出す (表示は現在のカタログの名前。引けなければ provider/id)
+              title={bubble.model ?? undefined}
+              className={cn(
+                "inline-block max-w-56 truncate rounded-sm border px-1 text-3xs font-normal",
+                bubble.model === null ? "border-warn/40 text-warn" : "border-line text-ink-muted",
+              )}
+            >
+              {bubble.model === null ? "モデル不明" : (modelLabel ?? bubble.model)}
+            </span>
+          ) : null}
           {isUser && queueStarted ? (
             <span
               // 一瞬で消える演出なので、読み上げは直上ブロックの件数へ委ねる (二重に読ませない)

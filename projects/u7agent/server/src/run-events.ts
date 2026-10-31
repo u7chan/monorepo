@@ -8,7 +8,7 @@ import { recordCompactionOutcome } from "./compaction-view";
 import { classifyRunError, type RunErrorClassification } from "./error-classify";
 import { INVESTIGATE_TOOL_NAME } from "./investigate-tool";
 import type { PiSessionEventListener, PiSessionLike, PiSessionMessageLike } from "./pi-runtime";
-import { contextUsageOf, lastAssistantMessage, parseUsage } from "./pi-runtime";
+import { assistantModelLabel, contextUsageOf, lastAssistantMessage, parseUsage } from "./pi-runtime";
 import { createStreamingSecretMasker, type SecretMasker } from "./redact";
 import type { CompactionMeta } from "./session-record";
 import type { MessageMetrics, ResyncReason, SSEEventData, SSEEventType, ToolCall, ToolTiming } from "./schema";
@@ -301,8 +301,13 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
                 ...(currentAssistantId === undefined ? {} : { assistantId: currentAssistantId }),
               });
             }
-            // usage を先に配ってから閉じる (usage は開いている応答へ付く)
-            emit("assistant_end", currentAssistantId === undefined ? {} : { assistantId: currentAssistantId });
+            // usage を先に配ってから閉じる (usage は開いている応答へ付く)。model は応答の生成元を
+            // 表すため、usage / metrics を報告しないプロバイダでもここで配る
+            const model = assistantModelLabel(event.message);
+            emit("assistant_end", {
+              ...(currentAssistantId === undefined ? {} : { assistantId: currentAssistantId }),
+              ...(model === undefined ? {} : { model }),
+            });
             assistantStartedAt = undefined;
             firstTokenAt = undefined;
           }

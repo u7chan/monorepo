@@ -570,3 +570,19 @@ test("古いページの前置きは重複を捨て、区切りの位置をず�
     ],
   );
 });
+
+// What: 履歴ページの assistant item のモデルはバブルへ写り、null (不明) はそのまま保って user には付かない
+test("historyItemsToBundle は assistant のモデルを写し、null は不明として保つ", () => {
+  const known: HistoryMessageItem = {
+    ...message("m1", "active", "既知のモデル", "assistant"),
+    model: "openai/gpt-6-luna",
+  };
+  const unknown: HistoryMessageItem = {
+    ...message("m2", "active", "不明なモデル", "assistant"),
+    model: null,
+  };
+  const bundle = historyItemsToBundle(1, [known, unknown, userItem("m3", "質問")]);
+  assert.equal(bundle.bubbles[0]?.model, "openai/gpt-6-luna");
+  assert.equal(bundle.bubbles[1]?.model, null);
+  assert.equal(bundle.bubbles[2]?.model, undefined, "user はモデルを持たない");
+});

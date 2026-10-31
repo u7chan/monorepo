@@ -275,6 +275,7 @@ function projectItems({
       text: item?.text ?? "",
       ...(item?.stopReason !== undefined ? { stopReason: item.stopReason } : {}),
       ...(item?.at !== undefined ? { at: item.at } : {}),
+      ...(item?.model !== undefined ? { model: item.model } : {}),
       ...(item?.usage ? { usage: item.usage } : {}),
       ...(item?.metrics ? { metrics: item.metrics } : {}),
       ...(item?.tools ? { tools: item.tools } : {}),
