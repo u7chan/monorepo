@@ -42,7 +42,7 @@ const app = new Hono<HonoEnv>()
   .use(requestId())
   .use(applySecurityHeaders)
   .use(
-    structuredLogger<pino.Logger>({
+    structuredLogger<HonoEnv, pino.Logger>({
       createLogger: (c) => logger.child({ requestId: c.var.requestId }),
       onRequest: (requestLogger, c) => {
         requestLogger.info(
