@@ -196,6 +196,12 @@ h2 {
   background: var(--up-raised);
   color: var(--up-text);
   font: inherit;
+  /* 補助文字のラベルに合わせて小さくすると、iOS はフォーカス時に 16px 未満の入力を読もうとして画面を拡大する。 */
+  font-size: 1rem;
+}
+
+/* 桁を 1 つずつ確かめる PIN だけ字間を空ける。名前や API キーには掛けない。 */
+.up-input-pin {
   letter-spacing: 0.3em;
 }
 
@@ -716,10 +722,6 @@ h2 {
   display: flex;
   align-items: center;
   gap: var(--up-space-2);
-}
-
-.up-input-code {
-  letter-spacing: normal;
 }
 
 .up-notice {

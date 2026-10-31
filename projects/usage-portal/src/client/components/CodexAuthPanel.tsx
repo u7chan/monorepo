@@ -154,7 +154,7 @@ export function CodexAuthPanel(props: {
               <label class="up-field">
                 <span class="up-label">{login.prompt.message}</span>
                 <input
-                  class="up-input up-input-code"
+                  class="up-input"
                   type="text"
                   inputMode="url"
                   autocomplete="off"
