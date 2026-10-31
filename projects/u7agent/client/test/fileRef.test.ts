@@ -2,7 +2,13 @@
 // 採否は Issue の表をそのままテストケースにする (docs/file-tree.md#字面の判定matcher の採否表も同じ内容)。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isCommonSkillPath, matchFileRef, resolveFileRef, resolveFileRefTarget } from "../src/lib/fileRef";
+import {
+  isCommonSkillPath,
+  matchFileRef,
+  resolveFileRef,
+  resolveFileRefTarget,
+  resolveLinkRefTarget,
+} from "../src/lib/fileRef";
 
 const ACCEPTED: [input: string, path: string][] = [
   ["index.html", "index.html"],
@@ -154,6 +160,51 @@ test("面つき解決: 共通スキルの絶対パスはスキル面の (root, p
     root: ".agents/skills/alpha",
     path: "nested/deep/x.md",
   });
+});
+
+test("リンク解決: 遷移先を字面で示すため裸名も採り、クエリとフラグメントは落とす", () => {
+  const root = "/workspace";
+  const cwd = "projects/u7agent";
+  assert.deepEqual(resolveLinkRefTarget("docs/design.md", root, cwd), {
+    kind: "work",
+    path: "docs/design.md",
+  });
+  // コードスパンでは不採用の裸名も、リンクなら遷移先を明示しているので採る
+  assert.deepEqual(resolveLinkRefTarget("AGENTS.md", root, cwd), { kind: "work", path: "AGENTS.md" });
+  assert.deepEqual(resolveLinkRefTarget("./index.html", root, cwd), { kind: "work", path: "index.html" });
+  // タブに写せない位置指定とクエリは落とし、実在確認はパスだけで行う
+  assert.deepEqual(resolveLinkRefTarget("notes/a.md#L10", root, cwd), { kind: "work", path: "notes/a.md" });
+  assert.deepEqual(resolveLinkRefTarget("notes/a.md?raw=1#top", root, cwd), { kind: "work", path: "notes/a.md" });
+  assert.deepEqual(resolveLinkRefTarget(`${root}/projects/u7agent/a.md`, root, cwd), { kind: "work", path: "a.md" });
+  // 共通スキルの絶対パスはコードスパンと同じくスキル面へ回す
+  assert.deepEqual(resolveLinkRefTarget(`${root}/.agents/skills/alpha/SKILL.md`, root, UNASSIGNED_CWD), {
+    kind: "skill",
+    root: ".agents/skills/alpha",
+    path: "SKILL.md",
+  });
+});
+
+test("リンク解決: ページ内リンク・外部 URL・開けない字面は対象外", () => {
+  const root = "/workspace";
+  const cwd = "projects/u7agent";
+  for (const href of [
+    "#section",
+    "?tab=1",
+    "",
+    "https://example.com/a.md",
+    "mailto:a@example.com",
+    "//host/a.md",
+    "a/../b.md",
+    "assets/",
+    ".gitignore",
+    "localStorage",
+    "/etc/passwd.md",
+    "/workspace/other/a.md",
+  ]) {
+    assert.equal(resolveLinkRefTarget(href, root, cwd), null, href);
+  }
+  assert.equal(resolveLinkRefTarget("a.md", root, ""), null, "cwd 未確定");
+  assert.equal(resolveLinkRefTarget("/workspace/projects/u7agent/a.md", "", cwd), null, "rootCwd 未取得");
 });
 
 test("面つき解決: root / path の境界はスキル名の位置で切る", () => {

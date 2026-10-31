@@ -75,11 +75,38 @@ export function resolveFileRefTarget(raw: string, rootCwd: string, cwd: string):
   if (cwd === "") return null;
   // 裸名はコードスパンでは採らない (画像が使う matchFileRef は採るため、除外はこの経路だけに閉じる)
   if (!hasDirectorySeparator(raw)) return null;
+  return resolveTarget(raw, rootCwd, cwd);
+}
+
+/**
+ * Markdown リンクの href を面の種別つきで解決する (docs/file-tree.md#markdown-リンク)。
+ * リンクは遷移先を字面で明示しているので、コードスパンと違って裸名も採る (`[AGENTS.md](AGENTS.md)`)。
+ */
+export function resolveLinkRefTarget(href: string, rootCwd: string, cwd: string): FileRefTarget | null {
+  // セッションの作業フォルダが未確定 (未作成チャット) の間は対象外 (resolveFileRef と同じ前提)
+  if (cwd === "") return null;
+  const path = linkPath(href);
+  return path === null ? null : resolveTarget(path, rootCwd, cwd);
+}
+
+/** 作業フォルダ面を先に見て、cwd 外の絶対パスだけを共通スキル面へ回す */
+function resolveTarget(raw: string, rootCwd: string, cwd: string): FileRefTarget | null {
   const work = resolveFileRef(raw, rootCwd, cwd);
   if (work !== null) return { kind: "work", path: work };
   if (rootCwd === "") return null;
   const rootRelative = commonSkillRelativePath(raw, rootCwd);
   return rootRelative === null ? null : skillRefTarget(rootRelative);
+}
+
+/**
+ * href の遷移先パス。クエリとフラグメントはファイルタブへ写せないので落とし、ページ内リンクは参照にしない。
+ * ページ URL 基準の解決はしないため、`..` や scheme は matcher が拒否する。
+ */
+function linkPath(href: string): string | null {
+  if (href.startsWith("#") || href.startsWith("?")) return null;
+  const end = href.search(/[?#]/);
+  const path = end === -1 ? href : href.slice(0, end);
+  return path === "" ? null : path;
 }
 
 /**

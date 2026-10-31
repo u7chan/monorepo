@@ -6,7 +6,7 @@ import { ZoomableImage } from "../ImageZoom";
 import { GenerationCaption } from "../GenerationCaption";
 import { CodeBlock } from "./CodeBlock";
 import { Diagram } from "./Diagram";
-import { InlineFileRef } from "./FileRefLink";
+import { InlineFileRef, MarkdownLink } from "./FileRefLink";
 import { HtmlInline } from "./HtmlInline";
 import { useMarkdownImageCaption, useMarkdownImageResolution } from "./MarkdownImageRefs";
 import { MathBlock, MathInline } from "./MathView";
@@ -239,9 +239,9 @@ function InlineNode({ node, inLink = false, caption = true }: { node: MdInline; 
       );
     case "link":
       return (
-        <a href={node.href} title={node.title ?? undefined} target="_blank" rel="noreferrer noopener">
+        <MarkdownLink href={node.href} title={node.title ?? undefined}>
           <InlineNodes nodes={node.children} inLink caption={caption} />
-        </a>
+        </MarkdownLink>
       );
     case "image": {
       const imageSrc = resolution?.src ?? node.src;

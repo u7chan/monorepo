@@ -2635,6 +2635,10 @@
     text-decoration: underline;
     text-underline-offset: 2px;
   }
+  /* ファイル参照になる Markdown リンク。確認中は押したリンクを薄くする (段落が折り返さないよう文字は足さない) */
+  .md-filelink[aria-busy="true"] {
+    opacity: 0.55;
+  }
   .md code {
     font-size: 0.9em;
     padding: 0.1em 0.35em;

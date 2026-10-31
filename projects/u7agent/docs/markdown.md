@@ -91,6 +91,14 @@ MessageView (assistant の本文) / FilePreview (ファイルの Markdown プレ
 - **確認中と失敗の状態はクリック元の code が持つ**（`InlineFileRef` の state）。参照と理由は 1 つの `span` にまとめ（段落の中で理由が別の参照に属して見えないようにする）、押すと面を開く前に実在を確認する。確認中は `aria-busy` と `.md-fileref[aria-busy="true"] code` の薄い表示だけにする（確認中の文字を足すと段落の折り返しが動いて押下位置から逃げるため）。失敗したときは参照の直後に `.md-fileref-note` の 1 行（不存在 / 拒否 / 確認不能の文言）を出す。専用の live region は足さず、`ChatArea` の `aria-live` に任せる（順序と分類の契約は [file-tree.md](file-tree.md#クリックと要求)）
 - 字面が参照かどうかは描画層（`client/src/components/markdown/FileRefLink.tsx` の context）が決める。`MdInline` の `code` は字面だけを持ち、parser と `lib/markdown/` はファイル参照を知らない（原則 4 を保つ）
 
+## Markdown リンクのファイル参照
+
+`[設計](docs/design.md)` のように作業フォルダのファイルを指す Markdown リンクは、インラインコードと同じ導線でファイルタブを開く。字面の採否・面ごとの解決・クリック後の導線は [file-tree.md](file-tree.md#markdown-リンク) を正とし、ここには描画側の契約だけを置く。
+
+- リンクは `<a>` のまま描き、解決できたときだけ `preventDefault` でタブを開く（`href` の遷移先はアプリ origin の 404 になる）。解決できないリンクは従来どおり `<a target="_blank">` のまま
+- 解決できたリンクには `class="md-filelink"` と `title`（Markdown の title が無ければ `作業フォルダで開く` / `スキルで開く`）を付け、確認中は `aria-busy` と `.md-filelink[aria-busy="true"]` の薄い表示、失敗時は参照の直後に `.md-fileref-note` を出す（状態は `MarkdownLink` が持つ）。確認中に文字は足さない（段落の折り返しが動いて押下位置から逃げないため）
+- リンクの children の code は操作要素にしない（入れ子の操作要素を作らない。`inLink` の印をそのまま通す）
+
 ## 画像の拡大表示
 
 本文の画像（Markdown の `![alt](src)` と、許可リストを通った生 HTML の `img`）は、クリックでライトボックスを開く。実装は `client/src/components/ImageZoom.tsx` の `ZoomableImage` が持ち、Markdown 側は import して使うだけにする。`components/markdown/` は `client/test/markdownSafety.test.ts` が `document.` とインライン style を禁止して走査するため、DOM に触る部品をここには置かない（`MarkdownView` へコールバックも引き回さないので、ブロック単位の `memo` にも影響しない）。

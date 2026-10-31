@@ -80,7 +80,7 @@
 
 ## メッセージからの導線（ファイル参照）
 
-assistant 本文のインラインコードが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と面の種別つきの解決は `client/src/lib/fileRef.ts` の純関数、要求の保持と面のモードは `client/src/lib/fileRefRequest.ts`、インラインコードの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。**設定 → スキルの本文（プレビュー）も同じ導線を持つ。** 解決の基準はセッションの作業フォルダではなく**スキルディレクトリ**で、`scripts/survey.sh <dir>` のように「パス + 引数」で書かれているときは先頭の 1 語だけをパスとして採る（引数込みの字面をクリックすると、そのファイルをファイルタブで開く。採否は `client/src/lib/fileSkills.ts` の `skillFileRefPath`）。組み込みスキル（仮想パスでファイルタブが無い）ではリンクにしない。 Markdown リンクの横取り・prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（対応サブセットは変えない。描画側の契約は [markdown.md](markdown.md#インラインコードのファイル参照)）。
+assistant 本文のインラインコードと Markdown リンクが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と面の種別つきの解決は `client/src/lib/fileRef.ts` の純関数、要求の保持と面のモードは `client/src/lib/fileRefRequest.ts`、インラインコードとリンクの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。リンク固有の採否は [Markdown リンク](#markdown-リンク) に置く。**設定 → スキルの本文（プレビュー）も同じ導線を持つ。** 解決の基準はセッションの作業フォルダではなく**スキルディレクトリ**で、`scripts/survey.sh <dir>` のように「パス + 引数」で書かれているときは先頭の 1 語だけをパスとして採る（引数込みの字面をクリックすると、そのファイルをファイルタブで開く。採否は `client/src/lib/fileSkills.ts` の `skillFileRefPath`）。組み込みスキル（仮想パスでファイルタブが無い）ではリンクにしない。 prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（対応サブセットは変えない。描画側の契約は [markdown.md](markdown.md#インラインコードのファイル参照)）。
 
 ### 字面の判定（matcher）
 
@@ -154,6 +154,17 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - 表示モードは既存の選択規則のまま（未選択の HTML だけ既定でプレビュー。ユーザーがソースを選んだタブはソースのまま）
 - singleColumn の sheet は閉じたときに、クリックした button を `App` が保持して focus を戻す（`document.activeElement` はクリックした button を指すとは限らない）。起点がセッション切替などで消えていたら focus を移さない。トグルから開いたときは `App` は起点を保持せず、sheet を表示したときの `document.activeElement` （通常は 📁 のトグル）へ戻す。戻り先は sheet が `showModal()` する前に 1 回だけ決める（Effect の再実行では 2 回目の `document.activeElement` が sheet の中の要素になる）。Escape は dialog の標準動作で閉じる（プレビューの中にフォーカスがあると親へ届かない既知制約は HTML プレビューと同じ）
 - provider は `App` が `rootCwd` / `cwd` / callback だけの memo 値で配る。要求 `seq` やパネル開閉を value に混ぜず、SSE の更新で過去の本文を再解析・再描画させない。インラインコード側だけが context を購読するため、独自 comparator を持つ `MdBlockView` / `MdList` / `MdListItemView` / `MdTable` に callback を通す必要がない
+
+### Markdown リンク
+
+`` `[課題](docs/design.md)` `` のような相対リンクをブラウザにページ URL 基準で解決させると、アプリ origin の 404（`{"error":"Not found"}`）になる（拡張子つきのパスは SPA フォールバックの対象外）。リンクの遷移先が作業フォルダ / 共通スキルのファイルを指すときは、コードスパンと同じくタブとして開く（解決は `resolveLinkRefTarget`）。
+
+- **裸名も採る**: リンクは遷移先を字面で明示しているため、コードスパンの裸名除外（[字面の判定](#字面の判定matcher) の `6.`）は掛けない。`[AGENTS.md](AGENTS.md)` は採用する
+- **クエリとフラグメントは落とす**: `docs/markdown.md#L10` / `docs/markdown.md?raw=1` はパスだけを実在確認に使い、`docs/markdown.md` のタブを開く（位置やクエリをタブへ写す機能は無い）。`#section` / `?tab=1` のようなページ内リンクは参照にしない
+- **href の安全性は matcher が担う**: `safeUrl` が scheme 付き・`//host`・空白・バックスラッシュを落とし、matcher が `..` や拡張子の形を拒否する。http(s) / mailto はリンクのまま
+- **参照にならないリンクは従来どおり** `<a target="_blank">` で、クリック時の確認・失敗理由の表示・要求の寿命はコードスパンと同じ（[クリックと要求](#クリックと要求)）。`FileRefOpenerProvider` を使う面（設定 → スキルの本文）は `resolveLink` を渡さないため、リンクは従来どおり
+- **横取りするのは左クリックだけ**: 中クリックや「リンク先をコピー」は `href` のままで、アプリ origin の URL を開く（ファイルの URL を返す口が無いため、`href` は書き換えない）
+- **リンクの中の code は操作要素にしない**: 入れ子の操作要素を作らないため、`[docs/design.md](docs/design.md)` のリンクの children に code を置いても操作要素にしない（[markdown.md](markdown.md#markdown-リンクのファイル参照)）
 
 ### 面のモード（作業フォルダとスキル）
 
