@@ -106,7 +106,9 @@ export function MenuItem({
       aria-selected={role === "option" ? active : undefined}
       onClick={onClick}
       className={cn(
-        "flex min-h-7.5 w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors singleColumn:min-h-11",
+        // 既定の outline はスクロール枠の縁で切れる。内側へ寄せた outline なら行の端まで見え、
+        // タッチでプログラム的に焦点が移ったときの既定の輪郭も出さない (選択の塗りは残る)
+        "flex min-h-7.5 w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid singleColumn:min-h-11",
         TONE[tone],
       )}
     >

@@ -9,6 +9,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent,
   type SyntheticEvent,
 } from "react";
 import { useExitPhase } from "../hooks/useExitPhase";
@@ -432,6 +433,12 @@ export function Composer({
     setExpanded(false);
   };
 
+  /** 余白の押下で外装の dialog に焦点を移さない (移ると画面幅いっぱいの輪郭が入力欄の上下に出る) */
+  const handleDialogPointerDown = (event: PointerEvent<HTMLDialogElement>) => {
+    if (event.target !== event.currentTarget) return;
+    event.preventDefault();
+  };
+
   // 再実行の押せない理由は送信経路と同じガードから導く (実際に遮っているものだけを出す)
   const retryBlockedReason = runRetryBlockedReason({
     sending,
@@ -513,6 +520,7 @@ export function Composer({
         data-closing={expandPhase === "closing"}
         onCancel={handleCancel}
         onClick={handleDialogClick}
+        onPointerDown={handleDialogPointerDown}
         className={cn(
           "composer-dialog text-ink",
           expandedUi
