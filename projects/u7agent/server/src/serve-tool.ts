@@ -22,9 +22,9 @@ export const SERVE_TOOL_DESCRIPTION =
  */
 function serveToolDescription(
   builtinSkillNames: readonly string[] | undefined,
-  allowNaturalInvocation: boolean | undefined,
+  allowNaturalInvocationBuiltin: boolean | undefined,
 ): string {
-  return builtinSkillEnabled("serve", builtinSkillNames) && allowNaturalInvocation !== false
+  return builtinSkillEnabled("serve", builtinSkillNames) && allowNaturalInvocationBuiltin !== false
     ? `${SERVE_TOOL_DESCRIPTION} Follow the bundled \`serve\` skill for the command and verification loop.`
     : SERVE_TOOL_DESCRIPTION;
 }
@@ -178,15 +178,15 @@ export function createServeToolDefinitions(options: {
   host: ServeToolHost;
   /** エージェント定義の組み込みスキル許可リスト。undefined = 全部 ON（既定） */
   builtinSkillNames?: readonly string[] | undefined;
-  /** false なら自然文では発火しないので、skill への案内を落とす (既定 true) */
-  allowNaturalInvocation?: boolean | undefined;
+  /** false なら組み込みスキルは自然文では発火しないので、skill への案内を落とす (既定 true) */
+  allowNaturalInvocationBuiltin?: boolean | undefined;
 }): ToolDefinition[] {
   const sessionId = options.sessionId;
   if (!options.enabled || !sessionId) return [];
   const definition: ToolDefinition<typeof serveSchema> = {
     name: SERVE_TOOL_NAME,
     label: SERVE_TOOL_NAME,
-    description: serveToolDescription(options.builtinSkillNames, options.allowNaturalInvocation),
+    description: serveToolDescription(options.builtinSkillNames, options.allowNaturalInvocationBuiltin),
     promptSnippet: "Start, stop, or check the app served to the user's browser",
     promptGuidelines: [...SERVE_TOOL_GUIDELINES],
     parameters: serveSchema,

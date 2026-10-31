@@ -17,7 +17,12 @@ import {
   FILE_SKILL_LOADING_NOTE,
 } from "../src/lib/fileSkills";
 import { TOOL_CATALOG_UNAVAILABLE_NOTE } from "../src/lib/tools";
-import { MANUAL_ONLY_LABEL, NATURAL_INVOCATION_LABEL } from "../src/components/agent-settings/InvocationModeRow";
+import {
+  MANUAL_ONLY_LABEL,
+  NATURAL_INVOCATION_BUILTIN_SCOPE_LABEL,
+  NATURAL_INVOCATION_FILE_SCOPE_LABEL,
+  NATURAL_INVOCATION_LABEL,
+} from "../src/components/agent-settings/InvocationModeRow";
 import type { AgentDef, BuiltinSkillInfo, FileSkillInfo, ToolCatalogEntry } from "../src/types";
 
 const AGENT: AgentDef = {
@@ -25,7 +30,8 @@ const AGENT: AgentDef = {
   name: "汎用アシスタント",
   description: "役割や口調を設定していない既定のエージェント",
   systemPrompt: "",
-  allowNaturalInvocation: false,
+  allowNaturalInvocationBuiltin: false,
+  allowNaturalInvocationFile: false,
 };
 
 function commonSkill(name: string, overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {
@@ -83,11 +89,17 @@ test("ビルトインは共通スキルと組み込みを、操作できない�
   assert.equal(html.includes("すべて外す"), false);
   assert.ok(html.includes(BUILTIN_PANEL_SKILLS_READONLY_LABEL));
 
-  // 自然文では発火しない。OFF のスイッチは読み取り専用で、手動のみのチップを出す
-  const switchTag = html.match(/<button[^>]*role="switch"[^>]*>/)?.[0] ?? "";
-  assert.ok(switchTag.includes('aria-checked="false"'));
-  assert.ok(switchTag.includes('disabled=""'));
-  assert.ok(html.includes(NATURAL_INVOCATION_LABEL));
+  // 自然文では発火しない。スコープ別の 2 行とも OFF の読み取り専用で、手動のみのチップを出す
+  const switches = [...html.matchAll(/<button[^>]*role="switch"[^>]*>[\s\S]*?<\/button>/g)].map((match) => match[0]);
+  assert.equal(switches.length, 2, "組み込みとユーザー作成の 2 行を出す");
+  for (const block of switches) {
+    assert.ok(block.includes('aria-checked="false"'));
+    assert.ok(block.includes('disabled=""'), "閲覧ビューでは押せない");
+    assert.ok(block.includes(NATURAL_INVOCATION_LABEL));
+  }
+  assert.ok(switches.some((block) => block.includes(NATURAL_INVOCATION_BUILTIN_SCOPE_LABEL)));
+  assert.ok(switches.some((block) => block.includes(NATURAL_INVOCATION_FILE_SCOPE_LABEL)));
+  assert.equal(html.includes('aria-checked="true"'), false, "ON の行を出さない");
   assert.ok(html.includes(MANUAL_ONLY_LABEL));
   assert.ok(html.includes(BUILTIN_PANEL_INVOCATION_FIXED_NOTE));
 

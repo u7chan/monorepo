@@ -70,10 +70,15 @@ export interface SessionFileSkillInput {
    */
   builtinSkillNames?: readonly string[] | undefined;
   /**
-   * false なら解決した全スコープ (プロジェクト / 共通 / 組み込み) のスキルを `/skill:` と
-   * スキルボタンからのみ起動する。未指定 = true (自然文でも発火する)。
+   * false なら組み込み (builtin) スコープのスキルを `/skill:` とスキルボタンからのみ起動する。
+   * 未指定 = true (自然文でも発火する)。ファイルスキル側とは独立
    */
-  allowNaturalInvocation?: boolean | undefined;
+  allowNaturalInvocationBuiltin?: boolean | undefined;
+  /**
+   * false ならファイルスキル (プロジェクト / 共通) を `/skill:` とスキルボタンからのみ起動する。
+   * 未指定 = true (自然文でも発火する)。組み込み側とは独立
+   */
+  allowNaturalInvocationFile?: boolean | undefined;
   /**
    * true なら置き場の不在 (404) 以外の失敗を投げる。一覧 API は「使えるスキル」を見せる場所なので、
    * 取れないことをエラーで見せる (既定はログに残して落とし、セッション作成を止めない)。
@@ -93,10 +98,15 @@ export interface ComposeFileSkillsOptions {
    */
   builtinSkillNames?: readonly string[] | undefined;
   /**
-   * false なら一意化後の全スキルを `/skill:` とスキルボタンからのみ起動する。許可リストと違い
-   * 一意化の後に当てる (どのスコープが勝っても、実効のスキルを手動専用にする)。
+   * false なら組み込み (builtin) スコープのスキルを `/skill:` とスキルボタンからのみ起動する。許可リストと違い
+   * 一意化の後に当てる (組み込みが勝ったとしても、実効のスキルを手動専用にする)。
    */
-  allowNaturalInvocation?: boolean | undefined;
+  allowNaturalInvocationBuiltin?: boolean | undefined;
+  /**
+   * false ならファイルスキル (プロジェクト / 共通) を `/skill:` とスキルボタンからのみ起動する。
+   * 同じく一意化の後に、scope ごとにだけ当てる。
+   */
+  allowNaturalInvocationFile?: boolean | undefined;
 }
 
 /**
@@ -115,7 +125,11 @@ export function composeFileSkills(
   const byPath = new Map<string, FileSkillInfo>();
   const byName = new Map<string, FileSkillInfo>();
   const shadowed: ShadowedFileSkill[] = [];
-  const manualOnly = options.allowNaturalInvocation === false;
+  // 手動専用はスコープ別。ファイル側のフラグで組み込みを落とさず、その逆もしない
+  const manualOnlyFor = (scope: FileSkillScope): boolean =>
+    scope === "builtin"
+      ? options.allowNaturalInvocationBuiltin === false
+      : options.allowNaturalInvocationFile === false;
 
   const makeRow = (entry: FileSkillCandidate, scope: FileSkillScope, overridden: boolean): FileSkillInfo => ({
     name: entry.name,
@@ -123,7 +137,7 @@ export function composeFileSkills(
     path: entry.path,
     relativePath: fileSkillDisplayPath(rootCwd, entry.path),
     scope,
-    disableModelInvocation: entry.disableModelInvocation || manualOnly,
+    disableModelInvocation: entry.disableModelInvocation || manualOnlyFor(scope),
     shadowed: [],
     overridden,
     ...(entry.body === undefined ? {} : { body: entry.body }),
@@ -157,7 +171,7 @@ export function composeFileSkills(
       rows.push(row);
       byPath.set(entry.path, row);
       byName.set(entry.name, row);
-      skills.push(toSyntheticSkill(entry, source.scope, manualOnly));
+      skills.push(toSyntheticSkill(entry, source.scope, manualOnlyFor(source.scope)));
     }
   }
   return { skills, response: { skills: rows }, shadowed };
@@ -189,7 +203,12 @@ export async function discoverSessionFileSkills(
   const composed = composeFileSkills(sources, input.rootCwd, {
     ...(input.commonSkillNames === undefined ? {} : { commonSkillNames: input.commonSkillNames }),
     ...(input.builtinSkillNames === undefined ? {} : { builtinSkillNames: input.builtinSkillNames }),
-    ...(input.allowNaturalInvocation === undefined ? {} : { allowNaturalInvocation: input.allowNaturalInvocation }),
+    ...(input.allowNaturalInvocationBuiltin === undefined
+      ? {}
+      : { allowNaturalInvocationBuiltin: input.allowNaturalInvocationBuiltin }),
+    ...(input.allowNaturalInvocationFile === undefined
+      ? {}
+      : { allowNaturalInvocationFile: input.allowNaturalInvocationFile }),
   });
   for (const item of composed.shadowed) {
     console.warn(`[u7agent] 同名のスキルが複数あるため ${item.shadowedPath} を読み込みません (有効: ${item.keptPath})`);

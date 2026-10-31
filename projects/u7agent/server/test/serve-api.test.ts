@@ -461,7 +461,7 @@ test("serve ツールは会話へ束縛した BFF ローカルの customTool と
       enabled: true,
       sessionId: first,
       host,
-      allowNaturalInvocation: false,
+      allowNaturalInvocationBuiltin: false,
     });
     assert.doesNotMatch(manualOnly.description, /bundled `serve` skill/);
 

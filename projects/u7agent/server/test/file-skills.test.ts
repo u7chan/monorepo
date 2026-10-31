@@ -374,7 +374,7 @@ test("composeFileSkills は上書きが無ければ組み込みを SDK の Skill
   );
 });
 
-test("allowNaturalInvocation=false は全スコープのスキルを索引から外す", () => {
+test("自然文での発火はスコープ別で、片方の false が他方へ波及しない", () => {
   const root = mkdtempSync(join(tmpdir(), "u7agent-manual-skills-"));
   const projectPath = join(root, "proj/.agents/skills/project-only/SKILL.md");
   const commonPath = join(root, ".agents/skills/user-only/SKILL.md");
@@ -384,7 +384,7 @@ test("allowNaturalInvocation=false は全スコープのスキルを索引から
     { scope: "builtin", entries: builtinSkillEntries(root) },
   ];
 
-  // 既定はファイル側の指定だけに従う
+  // 既定は両方 ON。ファイル側の指定だけに従う
   const on = composeFileSkills(sources, root);
   assert.deepEqual(fileSkillNamesForPrompt(on), [
     "project-only",
@@ -392,20 +392,67 @@ test("allowNaturalInvocation=false は全スコープのスキルを索引から
     ...BUILTIN_SKILLS.map((skill) => skill.name),
   ]);
 
-  // false ならプロジェクト / 共通 / 組み込みのすべてが索引から外れる
-  const off = composeFileSkills(sources, root, { allowNaturalInvocation: false });
+  // 組み込み ON / ファイル OFF: 組み込みだけが索引に残り、共通 / プロジェクトは手動
+  const fileOff = composeFileSkills(sources, root, { allowNaturalInvocationFile: false });
+  assert.deepEqual(
+    fileSkillNamesForPrompt(fileOff),
+    BUILTIN_SKILLS.map((skill) => skill.name),
+  );
+  for (const row of fileOff.response.skills) {
+    assert.equal(row.disableModelInvocation, row.scope === "builtin" ? false : true, `${row.scope}:${row.name}`);
+  }
+
+  // 組み込み OFF / ファイル ON: 逆になる
+  const builtinOff = composeFileSkills(sources, root, { allowNaturalInvocationBuiltin: false });
+  assert.deepEqual(fileSkillNamesForPrompt(builtinOff), ["project-only", "user-only"]);
+  for (const row of builtinOff.response.skills) {
+    assert.equal(row.disableModelInvocation, row.scope === "builtin" ? true : false, `${row.scope}:${row.name}`);
+  }
+
+  // 両方 false なら全スコープが索引から外れる
+  const off = composeFileSkills(sources, root, {
+    allowNaturalInvocationBuiltin: false,
+    allowNaturalInvocationFile: false,
+  });
   assert.deepEqual(fileSkillNamesForPrompt(off), []);
   assert.ok(off.skills.every((skill) => skill.disableModelInvocation));
   assert.ok(off.response.skills.every((row) => row.disableModelInvocation));
 
-  // ファイル側の disable-model-invocation とは OR で、false でも true のまま
+  // ファイル側の disable-model-invocation とは OR で、設定で発火に戻すことはできない
   const locked = composeFileSkills(
     [{ scope: "user", entries: [skillEntry(commonPath, { name: "user-only", disableModelInvocation: true })] }],
     root,
-    { allowNaturalInvocation: false },
+    { allowNaturalInvocationFile: false },
   );
   assert.equal(locked.skills[0].disableModelInvocation, true);
   assert.equal(locked.response.skills[0].disableModelInvocation, true);
+});
+
+test("同名で共通が勝ったときは、組み込み ON / ファイル OFF でも組み込みを索引へ繰り上げない", () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-manual-shadowed-builtin-"));
+  const commonServe = join(root, ".agents/skills/serve/SKILL.md");
+  const sources: FileSkillSource[] = [
+    { scope: "user", entries: [skillEntry(commonServe, { name: "serve" })] },
+    { scope: "builtin", entries: builtinSkillEntries(root) },
+  ];
+
+  const fileOff = composeFileSkills(sources, root, { allowNaturalInvocationFile: false });
+  // 共通 serve は手動のまま勝ち、組み込みは overridden で索引に載らない
+  assert.equal(fileSkillNamesForPrompt(fileOff).includes("serve"), false);
+  const shadowed = fileOff.response.skills.find((row) => row.scope === "builtin" && row.name === "serve");
+  assert.equal(shadowed?.overridden, true);
+  assert.equal(shadowed?.disableModelInvocation, false, "組み込み側の手動専用はファイル側と独立");
+  assert.equal(
+    fileOff.response.skills.find((row) => row.scope === "user" && row.name === "serve")?.disableModelInvocation,
+    true,
+  );
+
+  // 共通を許可リストで外したときだけ、組み込みが索引に載る
+  const withoutCommon = composeFileSkills(sources, root, {
+    commonSkillNames: [],
+    allowNaturalInvocationFile: false,
+  });
+  assert.ok(fileSkillNamesForPrompt(withoutCommon).includes("serve"));
 });
 
 /** SDK の system prompt 一覧に入る名前 (disable-model-invocation は入らない) */

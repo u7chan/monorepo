@@ -149,7 +149,7 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 - 画面の導線は同じ `.agents/skills` 全体への操作なので、一覧の**頭の帯**（`TabToolbar`。設定 → モデルと同じ形）に**エクスポート**と**インポート**を置く（スクロールする行の外なので、件数が増えても位置が下がらない）。狭い幅で 3 つが入らないときは帯の操作を折り返す（帯は `overflow-hidden` なので、はみ出させると押せない操作ができる）。**ラベルは「持ち出し / 取り込み」ではなく「エクスポート / インポート」にする** — 何が出入りするか (ZIP) をラベルだけで読めるようにし、ダウンロードと同じカタカナ技術語に揃える。エクスポートは除外の指定が無いため確認ダイアログを出さず、`export/check` の見積りだけを見て `<a download>` のプログラム的クリックで始める（`.agents/skills` が無い 404、上限超過 413、0 件は理由を注記へ出す）。インポートは選んだ `File` を保持したまま plan（`dryRun=true`）を 1 回取り、`new` / `identical` / `conflict` / `invalid` を状態と理由つきで並べる専用ダイアログを出す。**置き換えを選べるのは `conflict` だけ**で、既定では 1 つも選ばず、全選択も `conflict` だけを対象にする（`new` は常に取り込み、`identical` は常に書き込まず、`invalid` は常にスキップする）。適用は plan と**同じ `File`** を `replace` つきで送り、`applied` / `skipped` を出してから一覧を取り直し、取り込んだスキルを選択する（選択はダイアログを閉じてから行う）。plan / apply の失敗は理由をそのまま注記へ出し、部分適用の結果は出さず一覧だけ取り直す（巻き戻すのはサーバー）。送信中の二重送信は画面側で止め、適用中はダイアログを閉じさせない（結果と一覧の取り直しを取りこぼさない）。ファイル選択の取消では何もしない。判定と状態遷移は `client/src/lib/skillArchive.ts`、文言は `client/src/lib/fileSkills.ts` が正
 - `.agents/skills` がまだ無い workspace ではエラーにせず、組み込みだけを返す（サンドボックスの 404 を空の一覧として扱う）。サンドボックス未設定は 503、接続失敗・走査の期限切れ（[sandbox-api-skills.md](sandbox-api-skills.md#get-v1skills)）は 502
 - 発見一覧はセッション作成・復元のたびに取り直す。復元は `meta.projectCwd` を起点にするため、プロジェクト登録が外れていても同じスキルが見える
-- `disable-model-invocation` のスキルは system prompt の `available_skills` から外れる（本文は `path` を `read` すれば読める）。一覧が fat になる場合はこれで逃がす。エージェント定義の `allowNaturalInvocation: false` も同じく全スキルを索引から外す（[自然文での発火](#自然文での発火)）
+- `disable-model-invocation` のスキルは system prompt の `available_skills` から外れる（本文は `path` を `read` すれば読める）。一覧が fat になる場合はこれで逃がす。エージェント定義の `allowNaturalInvocationBuiltin` / `allowNaturalInvocationFile` も、対象のスコープのスキルを同じく索引から外す（[自然文での発火](#自然文での発火)）
 
 ### 組み込みスキル
 
@@ -157,7 +157,7 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 - ワークスペースへ実体を作らない（git status を汚さず、アプリ更新で常に最新、改変不可）。`path` は仮想パス `<root>/.u7agent/builtin-skills/<name>/SKILL.md` で、`.u7agent` 配下なのでプロジェクトとしては登録できない。SDK の `sourceInfo.scope` に組み込みが無いため `temporary`（path 扱い）にする
 - モデルの `read` は BFF が横取りして同梱の本文を返す（サンドボックスへ送らない）。`ls` / `grep` / `find` / `bash` からは見えない。`PI_AGENT_TOOLS` から `read` を外した構成ではモデルは本文を読めず、一覧表示だけになる（エージェント定義の `toolNames` でも同じく外せる。[ツール許可リスト](#ツール許可リスト)）
 - 仮想パスは実ファイルが無く、`write` / `edit` の書き込み範囲（セッションの作業ディレクトリと `<root>/.agents/skills`）の外なので変更できない（同梱物を変えるにはイメージを更新する）。`read` は常に同梱の本文を返す
-- カタログ（`GET /api/agents`）の対象外。ビルトインの汎用アシスタントは `allowNaturalInvocation` が `false` 固定で、自然文では発火しない（[自然文での発火](#自然文での発火)）。エージェント別の ON / OFF は `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）で行い、外した組み込みは一覧（`GET /api/sessions/:id/skills`）・`skillsOverride` の索引・`read` の横取り・system prompt の案内（`appendSystemPrompt` の `serve` / `skill-creator` への言及）・`serve` ツールの説明（`createServeToolDefinitions` の skill 参照）のすべてから消える。同名のファイルスキルがあるときはファイル側が浮上し、`overridden` の行も出なくなる
+- カタログ（`GET /api/agents`）の対象外。ビルトインの汎用アシスタントは `allowNaturalInvocationBuiltin` / `allowNaturalInvocationFile` がどちらも `false` 固定で、自然文では発火しない（[自然文での発火](#自然文での発火)）。エージェント別の ON / OFF は `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）で行い、外した組み込みは一覧（`GET /api/sessions/:id/skills`）・`skillsOverride` の索引・`read` の横取り・system prompt の案内（`appendSystemPrompt` の `serve` / `skill-creator` への言及）・`serve` ツールの説明（`createServeToolDefinitions` の skill 参照）のすべてから消える。同名のファイルスキルがあるときはファイル側が浮上し、`overridden` の行も出なくなる
 - 同梱物を追加するときは `server/src/builtin-skills/<name>/SKILL.md` を足し、`VERSIONS` に版を追加する（Docker は `server/src/` ごとイメージへ入るので Dockerfile の変更は不要）
 - 同梱しているスキルの名前と版は `server/src/builtin-skills.ts` の `VERSIONS`、本文と使い方は各 `SKILL.md` が正（設定 → スキルにも出る）。`serve` は `serve` ツールと同じ経路を使い、起動に成功したコマンドがその作業ディレクトリの実績として記録される（[sandbox.md](sandbox.md#serveサービスの公開と起動停止)）。**自己検証は `debug_start` で 127.0.0.1 の 18000 帯を使い、ユーザーへ見せるときだけ `start` で 8080 に出す**（デバッグ起動は実績へ記録されない）。`browser` はヘッドレスブラウザでの確認と撮影を担い、デバッグ用 serve のポートを `127.0.0.1` で開く（[browser.md](browser.md)）。起動の作法を `appendSystemPrompt` に書かないのは、契約の正をスキル側の 1 箇所に保つため。環境変数の種別ごとの注入先も同じ理由で、要約だけを `serve` ツールの guideline に短く置き、契約の正はスキルに保つ
 
@@ -262,18 +262,25 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 
 ## 自然文での発火
 
-エージェント定義には任意の `allowNaturalInvocation`（真偽値）を持たせられる。未指定 / `true` = 自然文でも発火する（既定）、`false` = そのセッションで解決する全スキル（プロジェクト / 共通 / 組み込み）を `/skill:` とスキルボタンからのみ起動する。
+エージェント定義には任意の `allowNaturalInvocationBuiltin` と `allowNaturalInvocationFile`（どちらも真偽値）を持たせられる。**起動モードはスコープ別の 2 設定**で、未指定 / `true` = 自然文でも発火する（既定）、`false` = 対象のスキルを `/skill:` とスキルボタンからのみ起動する。
 
-- `false` のときは、解決した全スキルを SDK の `disableModelInvocation` として扱い、system prompt の `available_skills` から外す。索引から外れるだけで、本文と `/skill:` の展開・スキルピッカーは残る（[ファイルスキル](#ファイルスキルagentsskills) の `disable-model-invocation` と同じ）。ファイル側の `disable-model-invocation` とは OR で、`false` で発火に戻すことはできない
-- ビルトインの汎用アシスタントはサーバー定義で `false` 固定。閲覧ビューはスイッチを OFF・読み取り専用で出し、`builtinSkillNames` の有無に依らず自然文では発火しない（古いスナップショットに値が無くても id で倒す）
-- セッションは作成時のスナップショット（`meta.agent.allowNaturalInvocation`）で動き、定義の編集は既存セッションへ遡及しない。`false` のときだけキーを載せる
-- エージェント編集のスキルタブは起動モードの行を置き、`自然文でも発火` のスイッチで編集する（OFF は `手動のみ` のチップ）。ビルトインの閲覧ビューは同じ行を操作できない状態で出す（[ui-layout.md](ui-layout.md#設定の編集フォームエージェント--スキル)）
+- `allowNaturalInvocationBuiltin` の対象は組み込みスキル（`builtinSkillNames` で絞った後の実効）。`allowNaturalInvocationFile` の対象はファイルスキル（共通 `.agents/skills` とプロジェクト `<cwd>/.agents/skills`）で、`commonSkillNames` で絞った後の実効。2 つは独立し、片方の `false` は他方へ波及しない。**API 名の「ファイル」は UI の「ユーザー作成（共通・プロジェクト）」と同じ対象**を指す
+- `false` のときは、対象スコープのスキルを SDK の `disableModelInvocation` として扱い、system prompt の `available_skills` から外す。索引から外れるだけで、本文と `/skill:` の展開・スキルピッカーは残る（[ファイルスキル](#ファイルスキルagentsskills) の `disable-model-invocation` と同じ）。ファイル側の `disable-model-invocation` とは OR で、設定で発火に戻すことはできない
+- 一意化は許可リスト → 同名の一意化 → スコープ別の `false` の順で当てる。同名で共通が勝った場合、組み込み側は `overridden` になり、組み込みが発火側でも索引へ繰り上げない（外した名前の下位スキルが浮上する現行順序を変えない）
+- `serve` / `skill-creator` を指す system prompt の案内と `serve` ツールの説明は**組み込み側だけ**を見る。組み込み ON / ファイル OFF で案内を落とさない
+- ビルトインの汎用アシスタントはサーバー定義で両方 `false` 固定。閲覧ビューはスコープ別の 2 行をどちらも OFF・読み取り専用で出し、`builtinSkillNames` の有無に依らず自然文では発火しない（古いスナップショットに値が無くても id で倒す）
+- セッションは作成時のスナップショット（`meta.agent.allowNaturalInvocationBuiltin` / `allowNaturalInvocationFile`）で動き、定義の編集は既存セッションへ遡及しない。`false` のときだけキーを載せ、**新規 snapshot に分割前の旧キー `allowNaturalInvocation` は書かない**
+- 旧セッション meta の `allowNaturalInvocation` は読み取り専用のフォールバックで、スコープごとに「新キー > 旧キー > 既定 `true`」の順で解決する。旧 `false` は「全部手動」の意図なので両方 `false` として読む（旧 `false` + 新 `builtin: true` + file 省略なら、builtin は ON / file は OFF）
+- **書き込み API の旧キーは 400**（`allowNaturalInvocation is no longer supported; reload the settings page`）。旧タブは分割後の状態を表示・送信できないため、旧 `false` だけを受理すると「旧 `true` で解除できない」「旧タブの保存で両方 OFF に落ちる」などの部分互換の誤解を生む。`z.object` は未知キーを黙って落とすので、旧キーは入力 shape に残して catalog で検出する
+- 更新はキー省略 = 現在値の維持、`null` = 既定 `true` への解除。2 キーは独立で、片方の指定が他方の値を変えない
+- エージェント編集のスキルタブは起動モードを **組み込み / ユーザー作成の 2 行**に分け、`自然文でも発火` のスイッチで編集する（OFF は `手動のみ` のチップ）。ファイル一覧の取得に失敗してもファイル側の行は残す（一覧の有無とエージェント設定は別）。ビルトインの閲覧ビューは同じ 2 行を操作できない状態で出す（[ui-layout.md](ui-layout.md#設定の編集フォームエージェント--スキル)）
 
 ```json
 {
   "id": "agent-example",
   "name": "検証用エージェント",
-  "allowNaturalInvocation": false
+  "allowNaturalInvocationBuiltin": false,
+  "allowNaturalInvocationFile": true
 }
 ```
 

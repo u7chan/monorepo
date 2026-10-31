@@ -77,7 +77,8 @@ export function createSessionRoutes({
     commonSkillNames: record.agent.commonSkillNames,
     builtinSkillNames: record.agent.builtinSkillNames,
     // ビルトインは旧スナップショットに値が無くても常に手動専用にする
-    allowNaturalInvocation: allowsNaturalInvocation(record.agent),
+    allowNaturalInvocationBuiltin: allowsNaturalInvocation(record.agent, "builtin"),
+    allowNaturalInvocationFile: allowsNaturalInvocation(record.agent, "file"),
   });
 
   const stop = async (c: Context) => {
@@ -285,7 +286,8 @@ export function createSessionRoutes({
           // セッション作成と同じ選択を反映する (新規チャットのピッカーと作成後の一覧を一致させる)
           commonSkillNames: agentInfo.commonSkillNames,
           builtinSkillNames: agentInfo.builtinSkillNames,
-          allowNaturalInvocation: allowsNaturalInvocation(agentInfo),
+          allowNaturalInvocationBuiltin: allowsNaturalInvocation(agentInfo, "builtin"),
+          allowNaturalInvocationFile: allowsNaturalInvocation(agentInfo, "file"),
           strict: true,
         });
         return c.json({ cwd: relativeCwd, projectSkills: hasProjectSkills(relativeCwd), skills });

@@ -39,13 +39,26 @@ test("下書きは未指定 / 空の許可リスト / 明示リストを区別�
   assert.notEqual(agentFormOf(agent({ commonSkillNames: catalogNames })).commonSkillNames, catalogNames);
 });
 
-test("自然文での発火は既定 ON、OFF もそのまま保存し、下書きの初期化キーに含める", () => {
-  assert.equal(agentFormOf(agent()).allowNaturalInvocation, true);
-  assert.equal(agentFormOf(undefined).allowNaturalInvocation, true);
-  assert.equal(agentFormOf(agent({ allowNaturalInvocation: false })).allowNaturalInvocation, false);
-  assert.equal(sent(agentFormOf(agent())).allowNaturalInvocation, true);
-  assert.equal(sent(agentFormOf(agent({ allowNaturalInvocation: false }))).allowNaturalInvocation, false);
-  assert.notEqual(agentFormKey(agent()), agentFormKey(agent({ allowNaturalInvocation: false })));
+test("自然文での発火はスコープ別に既定 ON、OFF もそのまま保存し、下書きの初期化キーに含める", () => {
+  assert.equal(agentFormOf(agent()).allowNaturalInvocationBuiltin, true);
+  assert.equal(agentFormOf(agent()).allowNaturalInvocationFile, true);
+  assert.equal(agentFormOf(undefined).allowNaturalInvocationBuiltin, true);
+  assert.equal(agentFormOf(undefined).allowNaturalInvocationFile, true);
+
+  // 片方だけ OFF の値をそのまま持ち、もう片方へ波及しない
+  const builtinOff = agentFormOf(agent({ allowNaturalInvocationBuiltin: false }));
+  assert.equal(builtinOff.allowNaturalInvocationBuiltin, false);
+  assert.equal(builtinOff.allowNaturalInvocationFile, true);
+  const fileOff = agentFormOf(agent({ allowNaturalInvocationFile: false }));
+  assert.equal(fileOff.allowNaturalInvocationBuiltin, true);
+  assert.equal(fileOff.allowNaturalInvocationFile, false);
+
+  assert.equal(sent(agentFormOf(agent())).allowNaturalInvocationBuiltin, true);
+  assert.equal(sent(fileOff).allowNaturalInvocationFile, false);
+  assert.equal(Object.hasOwn(sent(fileOff), "allowNaturalInvocation"), false, "旧キーは送らない");
+
+  assert.notEqual(agentFormKey(agent()), agentFormKey(agent({ allowNaturalInvocationBuiltin: false })));
+  assert.notEqual(agentFormKey(agent()), agentFormKey(agent({ allowNaturalInvocationFile: false })));
 });
 
 test("保存ペイロードは未指定ならキーが落ち、null は解除として送られる", () => {

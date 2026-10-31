@@ -235,10 +235,15 @@ export const AgentDefSchema = z.object({
    */
   builtinSkillNames: z.array(z.string()).optional(),
   /**
-   * 自然文での発火を許すか。未指定 = 許す (既定)。false なら共通 / 組み込み / プロジェクトの
-   * 全スキルを `/skill:` とスキルボタンからのみ起動する (docs/api-catalog.md)。
+   * 組み込みスキルを自然文で発火させるか。未指定 = 発火する (既定)。false なら組み込みスキルを
+   * `/skill:` とスキルボタンからのみ起動する (docs/api-catalog.md#自然文での発火)。
    */
-  allowNaturalInvocation: z.boolean().optional(),
+  allowNaturalInvocationBuiltin: z.boolean().optional(),
+  /**
+   * ファイルスキル (共通 `.agents/skills` とプロジェクト `<cwd>/.agents/skills`) を自然文で発火させるか。
+   * 未指定 = 発火する (既定)。組み込み側とは独立で、片方の false は他方へ波及しない。
+   */
+  allowNaturalInvocationFile: z.boolean().optional(),
   /**
    * ツールの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (この 2 つは混同しない)。実効は
    * アプリ側の可否との積で、アプリ側が止めているツールは許可リストに入れても使えない
@@ -302,10 +307,12 @@ export const AgentPayloadInfoSchema = z.object({
   /** 組み込みスキルの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (未指定のときはキーを省略する) */
   builtinSkillNames: z.array(z.string()).optional(),
   /**
-   * 自然文での発火を許すか。未指定 = 許す (既定)。false のときだけキーを載せる。
+   * 組み込みスキルを自然文で発火させるか。未指定 = 発火する (既定)。false のときだけキーを載せる。
    * セッション作成時のスナップショットで、定義を編集しても復元後の会話は変わらない
    */
-  allowNaturalInvocation: z.boolean().optional(),
+  allowNaturalInvocationBuiltin: z.boolean().optional(),
+  /** ファイルスキル (共通 / プロジェクト) 側の同じスナップショット値。false のときだけキーを載せる */
+  allowNaturalInvocationFile: z.boolean().optional(),
   /**
    * ツールの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (未指定のときはキーを省略する)。
    * セッション作成時のスナップショットで、定義を編集しても復元後の会話は変わらない
@@ -2346,6 +2353,15 @@ const agentBodyShape = {
   skillIds: z.unknown().optional(),
   commonSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
   builtinSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
+  /**
+   * スコープ別の自然文発火。省略は現在値の維持、`null` は既定 (発火する) への解除で、2 キーは独立。
+   */
+  allowNaturalInvocationBuiltin: z.boolean().nullish(),
+  allowNaturalInvocationFile: z.boolean().nullish(),
+  /**
+   * 分割前の 1 本のフラグ。**形だけ受けて catalog が 400 にする** (未知キーとして黙って落とすと、
+   * 旧クライアントの保存が成功したように見える)。値の解釈は DB 移行と旧 meta の読み取りだけが行う。
+   */
   allowNaturalInvocation: z.boolean().nullish(),
   toolNames: z.array(z.string().max(TOOL_NAME_MAX)).max(TOOL_NAMES_MAX).nullish(),
   icon: z.string().nullish(),

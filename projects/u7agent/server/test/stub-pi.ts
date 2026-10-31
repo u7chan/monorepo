@@ -1165,8 +1165,10 @@ export interface StubCreateInput {
   commonSkillNames?: string[];
   /** 組み込みスキルの許可リスト。呼び出し側の検証用に記録するだけ */
   builtinSkillNames?: string[];
-  /** 自然文での発火を許すか。呼び出し側の検証用に記録するだけ */
-  allowNaturalInvocation?: boolean;
+  /** 組み込みスキルを自然文で発火させるか。呼び出し側の検証用に記録するだけ */
+  allowNaturalInvocationBuiltin?: boolean;
+  /** ファイルスキル (共通 / プロジェクト) 側の同じスイッチ */
+  allowNaturalInvocationFile?: boolean;
   /** ツールの許可リスト。呼び出し側の検証用に記録するだけ */
   toolNames?: string[];
   /** 子モード (investigate の子セッション)。呼び出し側の検証用に記録するだけ */

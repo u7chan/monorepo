@@ -10,10 +10,13 @@ import {
   BUILTIN_SKILL_EXPLICIT_NOTE,
   COMMON_SKILL_EXPLICIT_NOTE,
   COMMON_SKILL_SECTION_NOTE,
+  FILE_INVOCATION_SCOPE_NOTE,
   SkillSelector,
 } from "../src/components/agent-settings/SkillSelector";
 import {
   MANUAL_ONLY_LABEL,
+  NATURAL_INVOCATION_BUILTIN_SCOPE_LABEL,
+  NATURAL_INVOCATION_FILE_SCOPE_LABEL,
   NATURAL_INVOCATION_LABEL,
   NATURAL_INVOCATION_OFF_NOTE,
   NATURAL_INVOCATION_ON_NOTE,
@@ -54,13 +57,15 @@ function renderSelector({
   fileSkills = { status: "ready", skills: [commonSkill("alpha"), commonSkill("beta")] },
   commonSkillNames,
   builtinSkillNames,
-  allowNaturalInvocation = true,
+  allowNaturalInvocationBuiltin = true,
+  allowNaturalInvocationFile = true,
 }: {
   builtinSkills?: BuiltinSkillInfo[];
   fileSkills?: FileSkillsState;
   commonSkillNames?: string[] | null;
   builtinSkillNames?: string[] | null;
-  allowNaturalInvocation?: boolean;
+  allowNaturalInvocationBuiltin?: boolean;
+  allowNaturalInvocationFile?: boolean;
 } = {}): string {
   return renderToStaticMarkup(
     createElement(SkillSelector, {
@@ -74,10 +79,26 @@ function renderSelector({
       onDisableCommonSkills: () => {},
       onDisableBuiltinSkills: () => {},
       onResetSkills: () => {},
-      allowNaturalInvocation,
-      onToggleNaturalInvocation: () => {},
+      allowNaturalInvocationBuiltin,
+      onToggleNaturalInvocationBuiltin: () => {},
+      allowNaturalInvocationFile,
+      onToggleNaturalInvocationFile: () => {},
     }),
   );
+}
+
+/**
+ * 起動モードのスイッチだけを描画順に取る。ラベルはボタンの文字 (スコープ名を含む) なので、
+ * 空要素でないボタンを丸ごと見て、スコープ名でどちら側かを判別する。
+ */
+function invocationSwitches(html: string): { scope: "builtin" | "file"; checked: boolean }[] {
+  return [...html.matchAll(/<button[^>]*role="switch"[^>]*>[\s\S]*?<\/button>/g)]
+    .map((match) => match[0])
+    .filter((block) => block.includes(NATURAL_INVOCATION_LABEL))
+    .map((block) => ({
+      scope: block.includes(NATURAL_INVOCATION_BUILTIN_SCOPE_LABEL) ? "builtin" : "file",
+      checked: block.includes('aria-checked="true"'),
+    }));
 }
 
 /** スキル行のスイッチだけを描画順に取る (自然文の発火は別のスイッチなので読み上げ名で分ける) */
@@ -160,26 +181,46 @@ test("グループの「すべて外す」は使用中の行があるときだ�
   assert.equal(allOff.includes(ALLOWLIST_DISABLE_GROUP_LABEL), false);
 });
 
-test("自然文での発火は使用スイッチとは別のスイッチで、OFF なら手動のみと出る", () => {
+test("起動モードは組み込みとユーザー作成の 2 行に分かれ、読み上げ名で区別できる", () => {
   const on = renderSelector({ builtinSkills: [] });
   assert.ok(on.includes(NATURAL_INVOCATION_LABEL));
   assert.ok(on.includes(NATURAL_INVOCATION_ON_NOTE));
   assert.equal(on.includes(MANUAL_ONLY_LABEL), false);
-  // 起動モードのスイッチは文字ラベルを持つ (使用スイッチとは aria-checked の位置で区別できる)
-  assert.match(on, /<button[^>]*role="switch"[^>]*aria-checked="true"[^>]*>[\s\S]*?自然文でも発火<\/button>/);
+  // 行の見出しでスコープを示し、スイッチの読み上げ名にも同じ語を入れる
+  assert.ok(on.includes(NATURAL_INVOCATION_BUILTIN_SCOPE_LABEL));
+  assert.ok(on.includes(NATURAL_INVOCATION_FILE_SCOPE_LABEL));
+  assert.ok(on.includes(FILE_INVOCATION_SCOPE_NOTE));
+  assert.deepEqual(invocationSwitches(on), [
+    { scope: "builtin", checked: true },
+    { scope: "file", checked: true },
+  ]);
   assert.deepEqual(
     skillSwitches(on).map((row) => row.checked),
     [true, true],
     "使用スイッチは変わらない",
   );
+});
 
-  const off = renderSelector({ builtinSkills: [], allowNaturalInvocation: false });
-  assert.ok(off.includes(MANUAL_ONLY_LABEL));
-  assert.ok(off.includes(NATURAL_INVOCATION_OFF_NOTE));
-  assert.equal(off.includes(NATURAL_INVOCATION_ON_NOTE), false);
+test("2 つの起動モードは独立で、OFF の行だけが手動のみになる", () => {
+  const builtinOff = renderSelector({ builtinSkills: [], allowNaturalInvocationBuiltin: false });
   assert.deepEqual(
-    skillSwitches(off).map((row) => row.checked),
+    invocationSwitches(builtinOff).map((row) => row.checked),
+    [false, true],
+    "組み込み側の false がユーザー作成側へ波及している",
+  );
+  assert.ok(builtinOff.includes(MANUAL_ONLY_LABEL));
+  assert.ok(builtinOff.includes(NATURAL_INVOCATION_OFF_NOTE));
+  assert.ok(builtinOff.includes(NATURAL_INVOCATION_ON_NOTE), "ON の行の説明は残る");
+  assert.deepEqual(
+    skillSwitches(builtinOff).map((row) => row.checked),
     [true, true],
+    "使用スイッチは起動モードで変わらない",
+  );
+
+  const fileOff = renderSelector({ builtinSkills: [], allowNaturalInvocationFile: false });
+  assert.deepEqual(
+    invocationSwitches(fileOff).map((row) => row.checked),
+    [true, false],
   );
 });
 
@@ -219,6 +260,11 @@ test("取得失敗時は共通スキルの行を出さず、理由と再読み�
   assert.deepEqual(skillSwitches(html), []);
   assert.match(html, new RegExp(`aria-label="${FILE_SKILL_RELOAD_ARIA_LABEL}"`));
   assert.ok(html.includes(FILE_SKILL_RELOAD_LABEL));
+  // 一覧の有無と起動モードは別の設定なので、取得失敗でもファイル側のスイッチは残す
+  assert.deepEqual(invocationSwitches(html), [
+    { scope: "builtin", checked: true },
+    { scope: "file", checked: true },
+  ]);
 });
 
 test("読み込み中は共通スキルの行を出さず、状態だけを出す", () => {
