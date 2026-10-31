@@ -18,6 +18,27 @@ updates:
           - "patch"
 
   - package-ecosystem: "bun"
+    directory: "/projects/aiagent"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
+    rebase-strategy: "disabled"
+    labels:
+      - "dependabot-auto-process"
+    # pi SDK は 0.x の minor でも破壊変更が入るため、u7agent / usage-portal と同じく
+    # migration とセットの専用 PR で手動更新する（aiagent は 0.84 系）
+    ignore:
+      - dependency-name: "@earendil-works/pi-*"
+    groups:
+      aiagent-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "bun"
     directory: "/projects/browser-auto"
     schedule:
       interval: "weekly"
