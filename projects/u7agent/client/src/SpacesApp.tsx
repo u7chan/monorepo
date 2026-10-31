@@ -108,7 +108,12 @@ export function SpacesApp() {
   const [renameFlow] = useState(() =>
     createSpaceRenameFlow({
       save: async (id, name) => (await renameSpace(id, name)).space,
-      apply: (space) => setSpaces((previous) => previous.map((item) => (item.id === space.id ? space : item))),
+      apply: (space) => {
+        setSpaces((previous) => previous.map((item) => (item.id === space.id ? space : item)));
+        // 直列化により成功の応答は先行の失敗より後に届く。改名を始める前のクリアだけでは、
+        // 表示名が変わったのに先行の失敗通知が残る
+        setRenameNote("");
+      },
       note: (kind, message) => setRenameNote(spaceRenameNoteText(kind, message)),
     }),
   );

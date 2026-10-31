@@ -103,6 +103,36 @@ test("改名の応答は届いた順に一覧の該当行だけへ反映し、�
   );
 });
 
+// 400 → 200 の順に完結しても、成功の反映で先行の失敗通知が消えることを見る (What)
+test("先行の改名が 400 で失敗して後続が成功すると、失敗の通知は残らない", async () => {
+  const second = deferred<Space>();
+  let note = "";
+  let rows: Space[] = [normal, demo];
+  const flow = createSpaceRenameFlow({
+    save: async (_id, name) => {
+      if (name.length > 80) throw new ApiError("Invalid request body", 400);
+      return second.promise;
+    },
+    // SpacesApp と同じ配線: 応答の行だけを差し替え、成功したら前の失敗の通知を消す
+    apply: (space) => {
+      rows = rows.map((row) => (row.id === space.id ? space : row));
+      note = "";
+    },
+    note: (kind, message) => {
+      note = spaceRenameNoteText(kind, message);
+    },
+  });
+  // prompt は確定で閉じるので、81 文字の改名の応答を待たずに次の改名を確定できる
+  const failing = flow.rename(demo.id, "あ".repeat(81));
+  const succeeding = flow.rename(demo.id, "改名後");
+  await failing;
+  assert.match(note, /名前を変更できませんでした/, "先行の失敗は通知する");
+  second.resolve({ ...demo, name: "改名後" });
+  await succeeding;
+  assert.equal(rows[1].name, "改名後");
+  assert.equal(note, "", "後続の成功で先行の失敗通知を消す");
+});
+
 test("改名の失敗は HTTP エラーと結果不明を分け、文言を 1 回だけ渡して次の改名を妨げない", async () => {
   // HTTP エラーの応答は保存されていないので、一覧は変えずに理由だけを渡す
   const rejected = renameFlowRecorder([normal, demo], async () => {

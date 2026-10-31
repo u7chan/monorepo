@@ -23,7 +23,7 @@ export type SpaceContextValue = {
    * （応答待ちの間に作られた行や並べ替えの結果を巻き戻さない。docs/ui-layout.md#スペース）。
    */
   rename: (id: string, name: string) => Promise<void>;
-  /** 改名に失敗した理由。設定 → 会話スペース が表示し、`clearRenameNote` で消す */
+  /** 改名に失敗した理由。設定 → 会話スペース が表示し、次の改名が成功したときか `clearRenameNote` で消す */
   renameNote: string;
   clearRenameNote: () => void;
   /**
