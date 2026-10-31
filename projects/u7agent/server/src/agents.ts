@@ -46,7 +46,9 @@ const BUILTIN_AGENT: AgentRecord = {
   description: BUILTIN_AGENT_DESCRIPTION,
   systemPrompt: "",
   // 既定のエージェントは自然文では発火させない。スキルが増えても誤発火しないための固定値
-  allowNaturalInvocation: false,
+  // (スコープ別の 2 キーをどちらも false にし、`allowsNaturalInvocation` でも id で倒す)
+  allowNaturalInvocationBuiltin: false,
+  allowNaturalInvocationFile: false,
   // 固定参照。`agent_prompts` には書かず、解決はカタログ側で行う (外部キーは弱めない)
   promptIds: [...BUILTIN_AGENT_PROMPT_IDS],
 };
@@ -83,19 +85,27 @@ function publicAgent(agent: AgentRecord, resolvePrompts: (ids: readonly string[]
   // `[]` は「すべて OFF」なので真偽で落とさない (未指定のときだけキーを省略する)
   if (agent.commonSkillNames) result.commonSkillNames = [...agent.commonSkillNames];
   if (agent.builtinSkillNames) result.builtinSkillNames = [...agent.builtinSkillNames];
-  // 既定 (true) はキーを省略し、false だけを載せる
-  if (agent.allowNaturalInvocation === false) result.allowNaturalInvocation = false;
+  // 既定 (true) はキーを省略し、false だけを載せる (スコープごとに独立)
+  if (agent.allowNaturalInvocationBuiltin === false) result.allowNaturalInvocationBuiltin = false;
+  if (agent.allowNaturalInvocationFile === false) result.allowNaturalInvocationFile = false;
   if (agent.toolNames) result.toolNames = [...agent.toolNames];
   return result;
 }
 
+/** 自然文発火の対象スコープ。`builtin` = 組み込みスキル、`file` = 共通 / プロジェクトのファイルスキル */
+export type NaturalInvocationScope = "builtin" | "file";
+
 /**
- * セッションのスキルを自然文で発火させてよいか。ビルトインは定義の値に依らず常に許さない
- * (このフィールドが無い旧スナップショットから復元しても誤発火に戻さない)。
+ * セッションのスキルを自然文で発火させてよいか。スコープごとに独立して判定し、ビルトインは
+ * 定義の値に依らず常に許さない (このフィールドが無い旧スナップショットから復元しても誤発火に戻さない)。
  */
-export function allowsNaturalInvocation(agent: Pick<AgentDef, "id" | "allowNaturalInvocation">): boolean {
+export function allowsNaturalInvocation(
+  agent: Pick<AgentDef, "id" | "allowNaturalInvocationBuiltin" | "allowNaturalInvocationFile">,
+  scope: NaturalInvocationScope,
+): boolean {
   if (agent.id === BUILTIN_AGENT.id) return false;
-  return agent.allowNaturalInvocation !== false;
+  const value = scope === "builtin" ? agent.allowNaturalInvocationBuiltin : agent.allowNaturalInvocationFile;
+  return value !== false;
 }
 
 /**
@@ -196,6 +206,16 @@ function allowlistOf(
 const SKILL_LIMITS = { nameMax: SKILL_NAME_MAX, namesMax: SKILL_NAMES_MAX } as const;
 const TOOL_LIMITS = { nameMax: TOOL_NAME_MAX, namesMax: TOOL_NAMES_MAX } as const;
 
+/**
+ * 自然文発火の 1 キー。undefined / null は未指定 (= キー省略) で、真偽値以外は 400。
+ * 2 キーは独立なので、片方が壊れていても他方の値を保存しない (部分保存しない)。
+ */
+function naturalInvocationOf(value: unknown, scope: "Builtin" | "File"): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "boolean") throw invalid(`allowNaturalInvocation${scope} must be a boolean`);
+  return value;
+}
+
 function makeAgent(input: DefinitionInput, promptIds: string[], id: string = randomUUID()): AgentRecord {
   const record = input as {
     name?: unknown;
@@ -204,6 +224,8 @@ function makeAgent(input: DefinitionInput, promptIds: string[], id: string = ran
     commonSkillNames?: unknown;
     builtinSkillNames?: unknown;
     allowNaturalInvocation?: unknown;
+    allowNaturalInvocationBuiltin?: unknown;
+    allowNaturalInvocationFile?: unknown;
     toolNames?: unknown;
     icon?: unknown;
     model?: unknown;
@@ -215,6 +237,10 @@ function makeAgent(input: DefinitionInput, promptIds: string[], id: string = ran
   if (record && Object.hasOwn(record, "skillIds")) throw invalid("skillIds is no longer supported");
   if (record && Object.hasOwn(record, "suggestions")) {
     throw invalid("suggestions is no longer supported; use promptIds");
+  }
+  // 分割前の旧キーは受理しない。旧タブは新 2 キーを表示・送信できないため、部分互換を作らない
+  if (record && Object.hasOwn(record, "allowNaturalInvocation")) {
+    throw invalid("allowNaturalInvocation is no longer supported; reload the settings page");
   }
   const name = text(record?.name);
   if (!name) throw invalid("Agent name is required");
@@ -230,14 +256,8 @@ function makeAgent(input: DefinitionInput, promptIds: string[], id: string = ran
   const thinkingLevel = thinkingLevelOf(record?.thinkingLevel);
   const commonSkillNames = allowlistOf(record?.commonSkillNames, "Common skill", SKILL_LIMITS);
   const builtinSkillNames = allowlistOf(record?.builtinSkillNames, "Builtin skill", SKILL_LIMITS);
-  const allowNaturalInvocation = record?.allowNaturalInvocation;
-  if (
-    allowNaturalInvocation !== undefined &&
-    allowNaturalInvocation !== null &&
-    typeof allowNaturalInvocation !== "boolean"
-  ) {
-    throw invalid("allowNaturalInvocation must be a boolean");
-  }
+  const allowNaturalInvocationBuiltin = naturalInvocationOf(record?.allowNaturalInvocationBuiltin, "Builtin");
+  const allowNaturalInvocationFile = naturalInvocationOf(record?.allowNaturalInvocationFile, "File");
   // 一覧に無い名前も保存する (改名・削除・同梱の入れ替えで保存値を書き換えない。docs/api-catalog.md)
   const toolNames = allowlistOf(record?.toolNames, "Agent tool", TOOL_LIMITS);
   if (icon) agent.icon = icon;
@@ -247,7 +267,8 @@ function makeAgent(input: DefinitionInput, promptIds: string[], id: string = ran
   if (commonSkillNames) agent.commonSkillNames = commonSkillNames;
   if (builtinSkillNames) agent.builtinSkillNames = builtinSkillNames;
   // true は既定なので保存せず、false のときだけ持つ (null は解除 = 既定の true)
-  if (allowNaturalInvocation === false) agent.allowNaturalInvocation = false;
+  if (allowNaturalInvocationBuiltin === false) agent.allowNaturalInvocationBuiltin = false;
+  if (allowNaturalInvocationFile === false) agent.allowNaturalInvocationFile = false;
   if (toolNames) agent.toolNames = toolNames;
   return agent;
 }

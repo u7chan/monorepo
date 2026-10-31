@@ -344,7 +344,7 @@ test("expandSkillCommand は本文が取れないときだけ 4xx / 502 で止�
   }
 });
 
-test("allowNaturalInvocation=false は索引から外すが /skill: の展開は残す", async () => {
+test("組み込み OFF / ファイル ON は組み込みだけを索引から外し、/skill: の展開は両方残す", async () => {
   const root = mkdtempSync(join(tmpdir(), "u7agent-manual-session-skills-"));
   const commonPath = join(root, ".agents/skills/alpha/SKILL.md");
   const { workspace } = stubWorkspace({
@@ -355,20 +355,32 @@ test("allowNaturalInvocation=false は索引から外すが /skill: の展開は
     rootCwd: root,
     relativeCwd: "",
     client: workspace,
-    allowNaturalInvocation: false,
+    allowNaturalInvocationBuiltin: false,
   };
 
   const listed = await listSessionSkills(input);
   assert.ok(listed.length > 1, "共通 + 組み込みを返す");
+  // ファイル側は既定 ON なので、共通は索引に残り、組み込みだけが外れる
+  assert.equal(listed.find((item) => item.name === "alpha")?.disableModelInvocation, false);
   assert.ok(
-    listed.every((item) => item.disableModelInvocation),
-    "一覧の全行が索引から外れた値になる",
+    listed.filter((item) => item.scope === "builtin").every((item) => item.disableModelInvocation),
+    "組み込みは索引から外れる",
   );
 
+  // /skill: の展開はフラグに関係なく残る
   const expanded = await expandSkillCommand("/skill:alpha 追加", input);
   assert.match(expanded, /<skill name="alpha"/);
   assert.match(expanded, /本文/);
   assert.match(expanded, /追加/);
+
+  const fileOff = await listSessionSkills({
+    ...input,
+    allowNaturalInvocationBuiltin: true,
+    allowNaturalInvocationFile: false,
+  });
+  assert.ok(fileOff.every((item) => item.scope === "builtin" || item.disableModelInvocation));
+  assert.ok(fileOff.filter((item) => item.scope === "builtin").every((item) => !item.disableModelInvocation));
+  assert.match(await expandSkillCommand("/skill:alpha", { ...input, allowNaturalInvocationFile: false }), /本文/);
 });
 
 test("expandSkillCommand は disable-model-invocation のスキルも展開する (一覧にしか出ない設定)", async () => {

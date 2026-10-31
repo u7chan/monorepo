@@ -28,7 +28,8 @@ test("ships the generic agent as the built-in and the zundamon sample as a user 
   assert.equal(agent.name, "汎用アシスタント");
   // 既定のエージェント自身は役割もスキル割り当てを持たない (口調のサンプルはユーザー定義側に置く)
   assert.equal(agent.systemPrompt, "");
-  assert.equal(agent.allowNaturalInvocation, false, "既定のエージェントは自然文で発火しない");
+  assert.equal(agent.allowNaturalInvocationBuiltin, false, "既定のエージェントは自然文で発火しない");
+  assert.equal(agent.allowNaturalInvocationFile, false, "ファイルスキル側も同じく発火しない");
   assert.equal(Object.hasOwn(agent, "skillIds"), false);
 
   const samples = catalog.listAgents();
@@ -534,37 +535,66 @@ test("rejects malformed common skill lists with 400", () => {
   assert.deepEqual(catalog.getAgent(agent.id)?.commonSkillNames, ["writer"]);
 });
 
-test("自然文での発火は既定で ON、false だけを保存し、ビルトインは常に OFF", () => {
+test("自然文での発火はスコープ別に既定 ON、false だけを保存し、ビルトインは常に両方 OFF", () => {
   const catalog = createAgentCatalog();
-  assert.equal(catalog.builtinAgent().allowNaturalInvocation, false);
-  assert.equal(allowsNaturalInvocation(catalog.builtinAgent()), false);
+  assert.equal(catalog.builtinAgent().allowNaturalInvocationBuiltin, false);
+  assert.equal(catalog.builtinAgent().allowNaturalInvocationFile, false);
+  assert.equal(allowsNaturalInvocation(catalog.builtinAgent(), "builtin"), false);
+  assert.equal(allowsNaturalInvocation(catalog.builtinAgent(), "file"), false);
 
   const user = catalog.createAgent({ name: "ユーザー" });
-  assert.equal(Object.hasOwn(user, "allowNaturalInvocation"), false, "既定はキーを省略する");
-  assert.equal(allowsNaturalInvocation(user), true);
+  assert.equal(Object.hasOwn(user, "allowNaturalInvocationBuiltin"), false, "既定はキーを省略する");
+  assert.equal(Object.hasOwn(user, "allowNaturalInvocationFile"), false);
+  assert.equal(allowsNaturalInvocation(user, "builtin"), true);
+  assert.equal(allowsNaturalInvocation(user, "file"), true);
 
-  const manual = catalog.createAgent({ name: "手動", allowNaturalInvocation: false });
-  assert.equal(manual.allowNaturalInvocation, false);
-  assert.equal(allowsNaturalInvocation(manual), false);
+  // 片方だけ false にでき、もう片方へ波及しない
+  const manualBuiltin = catalog.createAgent({ name: "組み込みだけ手動", allowNaturalInvocationBuiltin: false });
+  assert.equal(manualBuiltin.allowNaturalInvocationBuiltin, false);
+  assert.equal(Object.hasOwn(manualBuiltin, "allowNaturalInvocationFile"), false);
+  assert.equal(allowsNaturalInvocation(manualBuiltin, "builtin"), false);
+  assert.equal(allowsNaturalInvocation(manualBuiltin, "file"), true);
+
+  const manualFile = catalog.createAgent({ name: "ファイルだけ手動", allowNaturalInvocationFile: false });
+  assert.equal(Object.hasOwn(manualFile, "allowNaturalInvocationBuiltin"), false);
+  assert.equal(allowsNaturalInvocation(manualFile, "builtin"), true);
+  assert.equal(allowsNaturalInvocation(manualFile, "file"), false);
 
   // true / null は既定 (ON) に戻る。true は保存しない
-  assert.equal(
-    Object.hasOwn(catalog.updateAgent(manual.id, { allowNaturalInvocation: true }) ?? {}, "allowNaturalInvocation"),
-    false,
-  );
-  assert.equal(allowsNaturalInvocation(catalog.getAgent(manual.id) ?? manual), true);
-  assert.equal(
-    Object.hasOwn(catalog.updateAgent(manual.id, { allowNaturalInvocation: null }) ?? {}, "allowNaturalInvocation"),
-    false,
-  );
+  const clearedBuiltin = catalog.updateAgent(manualBuiltin.id, { allowNaturalInvocationBuiltin: true });
+  assert.equal(Object.hasOwn(clearedBuiltin ?? {}, "allowNaturalInvocationBuiltin"), false);
+  assert.equal(allowsNaturalInvocation(catalog.getAgent(manualBuiltin.id) ?? manualBuiltin, "builtin"), true);
+  // キー省略は現在値を維持する (ファイル側は false のまま)
+  assert.equal(allowsNaturalInvocation(catalog.getAgent(manualFile.id) ?? manualFile, "file"), false);
+  const clearedFile = catalog.updateAgent(manualFile.id, { allowNaturalInvocationFile: null });
+  assert.equal(Object.hasOwn(clearedFile ?? {}, "allowNaturalInvocationFile"), false);
+  assert.equal(allowsNaturalInvocation(catalog.getAgent(manualFile.id) ?? manualFile, "file"), true);
 
-  // 不正な値は 400 (既存値は保持)
-  const stillManual = catalog.createAgent({ name: "手動のまま", allowNaturalInvocation: false });
+  // 旧キーは再読み込みを促して 400 にし、既存値を変えない (黙って無視しない)
+  const stillManual = catalog.createAgent({ name: "手動のまま", allowNaturalInvocationFile: false });
+  for (const input of [{ allowNaturalInvocation: false }, { allowNaturalInvocation: true }]) {
+    assert.throws(
+      () => catalog.updateAgent(stillManual.id, input),
+      (error: Error & { statusCode?: number }) => error.statusCode === 400,
+    );
+  }
   assert.throws(
-    () => catalog.updateAgent(stillManual.id, { allowNaturalInvocation: "on" }),
+    () => catalog.createAgent({ name: "旧キー", allowNaturalInvocation: false }),
     (error: Error & { statusCode?: number }) => error.statusCode === 400,
   );
-  assert.equal(catalog.getAgent(stillManual.id)?.allowNaturalInvocation, false);
+  assert.equal(catalog.getAgent(stillManual.id)?.allowNaturalInvocationFile, false);
+
+  // 不正な値は 400 (既存値は保持)
+  assert.throws(
+    () => catalog.updateAgent(stillManual.id, { allowNaturalInvocationFile: "on" }),
+    (error: Error & { statusCode?: number }) => error.statusCode === 400,
+  );
+  assert.equal(catalog.getAgent(stillManual.id)?.allowNaturalInvocationFile, false);
+  assert.throws(
+    () => catalog.updateAgent(stillManual.id, { allowNaturalInvocationBuiltin: "on" }),
+    (error: Error & { statusCode?: number }) => error.statusCode === 400,
+  );
+  assert.equal(Object.hasOwn(catalog.getAgent(stillManual.id) ?? {}, "allowNaturalInvocationBuiltin"), false);
 });
 
 test("normalizes the builtin skill allowlist independently from the common one", () => {
@@ -743,7 +773,7 @@ test("appendSystemPrompt は外した組み込みスキルの案内を出さな�
   assert.match(skillCreatorOnly, /follow the bundled `skill-creator` skill/);
 
   // 自然文で発火しない = 索引に載らないので、スキルへの案内も出さない
-  const manualOnly = appendSystemPrompt("/workspace", { allowNaturalInvocation: false });
+  const manualOnly = appendSystemPrompt("/workspace", { allowNaturalInvocationBuiltin: false });
   assert.doesNotMatch(manualOnly, /bundled `serve` skill/);
   assert.doesNotMatch(manualOnly, /bundled `skill-creator` skill/);
   assert.match(manualOnly, /drive it with the `serve` tool/);

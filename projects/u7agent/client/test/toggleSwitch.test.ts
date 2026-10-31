@@ -24,6 +24,20 @@ test("スイッチは名前・選択状態・無効状態を公開する", () =>
   }
 });
 
+test("読み上げ名は ariaLabel で表示ラベルと分けられる", () => {
+  const html = renderToStaticMarkup(
+    createElement(ToggleSwitch, {
+      label: "自然文でも発火",
+      ariaLabel: "自然文でも発火（組み込みスキル）",
+      checked: true,
+      onChange: () => {},
+    }),
+  );
+  assert.match(html, /aria-label="自然文でも発火（組み込みスキル）"/);
+  // 可視の文字は短いラベルだけ (狭い幅で行を崩さない)
+  assert.equal(html.replace(/<[^>]*>/g, "").trim(), "自然文でも発火");
+});
+
 test("押下は現在の状態の反転をコールバックへ渡す", () => {
   for (const checked of [false, true]) {
     const changes: boolean[] = [];

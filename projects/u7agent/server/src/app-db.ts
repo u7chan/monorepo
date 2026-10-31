@@ -16,7 +16,7 @@ import type { AgentDef, ModelRef, NotificationResult, Project, PromptRef, Space 
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 36;
+export const APP_DB_SCHEMA_VERSION = 37;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -689,7 +689,8 @@ CREATE TABLE agents (
   commonSkillNames TEXT,
   builtinSkillNames TEXT,
   toolNames TEXT,
-  allowNaturalInvocation INTEGER,
+  allowNaturalInvocationBuiltin INTEGER,
+  allowNaturalInvocationFile INTEGER,
   sortOrder INTEGER
 );
 ${PROMPTS_TABLE}
@@ -1065,8 +1066,9 @@ function agentOf(row: Row): AgentDef {
   if (commonSkillNames) agent.commonSkillNames = commonSkillNames;
   if (builtinSkillNames) agent.builtinSkillNames = builtinSkillNames;
   if (toolNames) agent.toolNames = toolNames;
-  // NULL = 既定 (自然文でも発火する)、0 = false。1 は保存しない (true は NULL へ正規化する)
-  if (row.allowNaturalInvocation === 0) agent.allowNaturalInvocation = false;
+  // NULL = 既定 (自然文でも発火する)、0 = false。1 は保存しない (true は NULL へ正規化する)。2 列は独立
+  if (row.allowNaturalInvocationBuiltin === 0) agent.allowNaturalInvocationBuiltin = false;
+  if (row.allowNaturalInvocationFile === 0) agent.allowNaturalInvocationFile = false;
   return agent;
 }
 
@@ -1470,6 +1472,22 @@ export class AppDb {
     });
   }
 
+  /**
+   * v29 -> v30 で足した 1 本の自然文発火フラグを、スコープ別の 2 列へ移す (v36 -> v37)。
+   * 移行元の値は「両方 OFF」の意図なので、`0` だけを両列の `0` にコピーし、旧列は同じトランザクションで落とす。
+   * 古い版には旧列が無いので、無い場合は何もしない (全部既定 = ON になる)。
+   */
+  #migrateNaturalInvocationByScope(): void {
+    this.#query((db) => {
+      if (!this.#hasColumn(db, "agents", "allowNaturalInvocation")) return;
+      // 移行元が 1 (理論上は書き込まない値) のときは既定の NULL に倒す (true を保存の形へ持ち込まない)
+      db.exec(
+        "UPDATE agents SET allowNaturalInvocationBuiltin = 0, allowNaturalInvocationFile = 0 WHERE allowNaturalInvocation = 0",
+      );
+      db.exec("ALTER TABLE agents DROP COLUMN allowNaturalInvocation");
+    });
+  }
+
   /** DROP → CREATE → user_version → (未初期化なら) seed を 1 トランザクションで行う */
   #recreate(seed: boolean): void {
     this.#query((db) => db.exec("BEGIN"));
@@ -1573,8 +1591,11 @@ export class AppDb {
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "builtinSkillNames", "TEXT");
       // v18 以前に無い列 (ツールの許可リスト)。既存行は NULL = 未指定 (全部 ON) として読む
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "toolNames", "TEXT");
-      // v29 以前に無い列 (自然文での発火)。既存行は NULL = 既定 (発火する) として読む
-      if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "allowNaturalInvocation", "INTEGER");
+      // v36 -> v37: 自然文発火をスコープ別の 2 列へ分ける。旧列のコピーと drop は加算更新の後に行う
+      if (this.#tableExists("agents")) {
+        this.#addColumnIfMissing("agents", "allowNaturalInvocationBuiltin", "INTEGER");
+        this.#addColumnIfMissing("agents", "allowNaturalInvocationFile", "INTEGER");
+      }
       // v20 以前に無い列 (表示順)。既存行は NULL のままで、listAgents の rowid タイブレークが
       // そのまま作成順になる (移行で既存行を書き換えない)
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "sortOrder", "INTEGER");
@@ -1593,6 +1614,9 @@ export class AppDb {
       // v33 -> v34: 既存の定型プロンプトを変換してから旧列を外す。他の列追加が済んだ後に置く
       // (途中で失敗したら列も中身も版も残るので、開き直して再試行できる)
       this.#migrateAgentSuggestions();
+      // v36 -> v37: 1 本の自然文発火フラグを 2 列へ移してから旧列を外す。他の列追加が済んだ後に置く
+      // (途中で失敗したら旧列も値も残るので、開き直して再試行できる)
+      this.#migrateNaturalInvocationByScope();
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -2326,13 +2350,15 @@ export class AppDb {
   #saveAgent(agent: StoredAgent): void {
     this.#query((db) => {
       db.prepare(
-        `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, commonSkillNames, builtinSkillNames, toolNames, allowNaturalInvocation, sortOrder)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM agents))
+        `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, commonSkillNames, builtinSkillNames, toolNames, allowNaturalInvocationBuiltin, allowNaturalInvocationFile, sortOrder)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM agents))
          ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
            systemPrompt = excluded.systemPrompt, icon = excluded.icon, model = excluded.model,
            thinkingLevel = excluded.thinkingLevel,
            commonSkillNames = excluded.commonSkillNames, builtinSkillNames = excluded.builtinSkillNames,
-           toolNames = excluded.toolNames, allowNaturalInvocation = excluded.allowNaturalInvocation`,
+           toolNames = excluded.toolNames,
+           allowNaturalInvocationBuiltin = excluded.allowNaturalInvocationBuiltin,
+           allowNaturalInvocationFile = excluded.allowNaturalInvocationFile`,
       ).run(
         agent.id,
         agent.name,
@@ -2345,8 +2371,9 @@ export class AppDb {
         agent.commonSkillNames === undefined ? null : JSON.stringify(agent.commonSkillNames),
         agent.builtinSkillNames === undefined ? null : JSON.stringify(agent.builtinSkillNames),
         agent.toolNames === undefined ? null : JSON.stringify(agent.toolNames),
-        // false だけ 0 を書き、true / 未指定は NULL (既定) へ寄せる
-        agent.allowNaturalInvocation === false ? 0 : null,
+        // false だけ 0 を書き、true / 未指定は NULL (既定) へ寄せる。2 列は独立
+        agent.allowNaturalInvocationBuiltin === false ? 0 : null,
+        agent.allowNaturalInvocationFile === false ? 0 : null,
       );
       // 参照は丸ごと差し替える。position は並びそのもので、重複・上限は DB の制約でも守る
       db.prepare("DELETE FROM agent_prompts WHERE agentId = ?").run(agent.id);

@@ -22,7 +22,11 @@ import { filterBySearch } from "../../lib/settingsSearch";
 import type { BuiltinSkillInfo, FileSkillInfo } from "../../types";
 import { ReloadButton } from "../ReloadButton";
 import { SettingsSearchField } from "../SettingsSearchField";
-import { InvocationModeRow } from "./InvocationModeRow";
+import {
+  InvocationModeRow,
+  NATURAL_INVOCATION_BUILTIN_SCOPE_LABEL,
+  NATURAL_INVOCATION_FILE_SCOPE_LABEL,
+} from "./InvocationModeRow";
 import { SkillGroup } from "./SkillRow";
 import { SwitchRow } from "./SwitchRow";
 
@@ -49,6 +53,12 @@ export const COMMON_SKILL_SECTION_NOTE =
   "共通スキルは外してもファイルは消えません。このエージェントの会話で使わなくなるだけです。";
 /** 明示リストは対象の名前だけを使う。一覧が後から増えても勝手に有効にしないことを注記で知らせる */
 export const COMMON_SKILL_EXPLICIT_NOTE = "選んだ共通スキルだけを使います。あとから増えた分は自動では選ばれません。";
+/**
+ * ファイル側の起動モードがどこまでを対象にするかの注記。プロジェクトスキルは一覧に出ないため、
+ * 「ユーザー作成」だけでは対象が伝わらない (docs/api-catalog.md#自然文での発火)。
+ */
+export const FILE_INVOCATION_SCOPE_NOTE =
+  "ユーザー作成側は、共通（ワークスペース直下の .agents/skills）と、会話の作業ディレクトリ配下のプロジェクトスキルが対象です。プロジェクトスキルはこの一覧には出ません。";
 
 /** 保存名のうち一覧に無いもの (ファイルの削除・改名)。落とさず残すので、自動では直らないことを知らせる */
 function commonSkillMissingNote(names: string[]): string {
@@ -81,8 +91,10 @@ export function SkillSelector({
   onDisableCommonSkills,
   onDisableBuiltinSkills,
   onResetSkills,
-  allowNaturalInvocation,
-  onToggleNaturalInvocation,
+  allowNaturalInvocationBuiltin,
+  onToggleNaturalInvocationBuiltin,
+  allowNaturalInvocationFile,
+  onToggleNaturalInvocationFile,
 }: {
   /** アプリに同梱する組み込みスキル。エージェント定義の許可リストで外せるので、スイッチ行で出す */
   builtinSkills: BuiltinSkillInfo[];
@@ -98,9 +110,12 @@ export function SkillSelector({
   onDisableBuiltinSkills: () => void;
   /** 明示リストを null へ戻す (既定 = 全可視) */
   onResetSkills: () => void;
-  /** true = 自然文でも発火する (既定)。false なら使用中のスキルは /skill: とスキルボタンだけ */
-  allowNaturalInvocation: boolean;
-  onToggleNaturalInvocation: (allowed: boolean) => void;
+  /** true = 自然文でも発火する (既定)。false なら組み込みスキルは /skill: とスキルボタンだけ */
+  allowNaturalInvocationBuiltin: boolean;
+  onToggleNaturalInvocationBuiltin: (allowed: boolean) => void;
+  /** ファイルスキル (共通 / プロジェクト) 側の同じスイッチ。組み込み側とは独立 */
+  allowNaturalInvocationFile: boolean;
+  onToggleNaturalInvocationFile: (allowed: boolean) => void;
 }) {
   const [query, setQuery] = useState("");
   // 一覧 API は共通 (user) と組み込みだけを返すので、組み込みを除いた側がそのまま共通スキル
@@ -143,8 +158,21 @@ export function SkillSelector({
         placeholder={SKILL_SEARCH_PLACEHOLDER}
         ariaLabel={SKILL_SEARCH_ARIA_LABEL}
       />
-      {/* 行の「使用」とは別の軸。ON = 自然文でも発火、OFF = /skill: とスキルボタンだけ */}
-      <InvocationModeRow allowNaturalInvocation={allowNaturalInvocation} onChange={onToggleNaturalInvocation} />
+      {/* 行の「使用」とは別の軸。ON = 自然文でも発火、OFF = /skill: とスキルボタンだけ。スコープごとに独立 */}
+      <div className="grid gap-1.5">
+        <InvocationModeRow
+          scopeLabel={NATURAL_INVOCATION_BUILTIN_SCOPE_LABEL}
+          allowNaturalInvocation={allowNaturalInvocationBuiltin}
+          onChange={onToggleNaturalInvocationBuiltin}
+        />
+        {/* ファイル一覧の取得状態と起動モードは別の設定なので、一覧が取れなくても行は残す */}
+        <InvocationModeRow
+          scopeLabel={NATURAL_INVOCATION_FILE_SCOPE_LABEL}
+          allowNaturalInvocation={allowNaturalInvocationFile}
+          onChange={onToggleNaturalInvocationFile}
+        />
+        <p className="text-2xs leading-4 break-words text-ink-faint">{FILE_INVOCATION_SCOPE_NOTE}</p>
+      </div>
       <div className="grid gap-2 rounded-lg border border-line bg-soft px-2.5 py-2">
         {fileSkills.status === "loading" ? (
           <p className="text-2xs leading-4 break-words text-ink-muted">{FILE_SKILL_LOADING_NOTE}</p>

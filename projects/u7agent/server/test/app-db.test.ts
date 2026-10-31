@@ -95,25 +95,80 @@ test("keeps projects and agents across reopen", () => {
   }
 });
 
-test("persists allowNaturalInvocation=false and normalizes true to the default", () => {
+test("persists the natural-invocation flags per scope and normalizes true to the default", () => {
   const dir = tempStoreDir();
   try {
     const first = AppDb.open({ storeDir: dir });
     first.deleteAgent("agent-zundamon");
-    first.saveAgent({ ...agent("manual"), allowNaturalInvocation: false });
+    first.saveAgent({ ...agent("manual"), allowNaturalInvocationBuiltin: false, allowNaturalInvocationFile: false });
+    first.saveAgent({ ...agent("builtin-only"), allowNaturalInvocationBuiltin: false });
     first.saveAgent(agent("default"));
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
-    assert.equal(second.getAgent("manual")?.allowNaturalInvocation, false);
-    assert.equal(Object.hasOwn(second.getAgent("default") ?? {}, "allowNaturalInvocation"), false);
+    assert.equal(second.getAgent("manual")?.allowNaturalInvocationBuiltin, false);
+    assert.equal(second.getAgent("manual")?.allowNaturalInvocationFile, false);
+    // 片方だけの false がもう片方へ波及しない
+    assert.equal(second.getAgent("builtin-only")?.allowNaturalInvocationBuiltin, false);
+    assert.equal(Object.hasOwn(second.getAgent("builtin-only") ?? {}, "allowNaturalInvocationFile"), false);
+    assert.equal(Object.hasOwn(second.getAgent("default") ?? {}, "allowNaturalInvocationBuiltin"), false);
+    assert.equal(Object.hasOwn(second.getAgent("default") ?? {}, "allowNaturalInvocationFile"), false);
 
     // true は既定へ戻す (NULL) ので、読み直すとキーごと省略される
     const manual = second.getAgent("manual");
     assert.ok(manual);
-    second.saveAgent({ ...manual, allowNaturalInvocation: true });
-    assert.equal(Object.hasOwn(second.getAgent("manual") ?? {}, "allowNaturalInvocation"), false);
+    second.saveAgent({ ...manual, allowNaturalInvocationBuiltin: true, allowNaturalInvocationFile: true });
+    assert.equal(Object.hasOwn(second.getAgent("manual") ?? {}, "allowNaturalInvocationBuiltin"), false);
+    assert.equal(Object.hasOwn(second.getAgent("manual") ?? {}, "allowNaturalInvocationFile"), false);
     second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("migrates the single natural-invocation flag into the two scope columns (v36 -> v37)", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        systemPrompt TEXT NOT NULL,
+        icon TEXT,
+        model TEXT,
+        thinkingLevel TEXT,
+        commonSkillNames TEXT,
+        builtinSkillNames TEXT,
+        toolNames TEXT,
+        allowNaturalInvocation INTEGER,
+        sortOrder INTEGER
+      );
+    `);
+    raw.exec("PRAGMA user_version = 36");
+    const insert = raw.prepare(
+      "INSERT INTO agents (id, name, description, systemPrompt, allowNaturalInvocation) VALUES (?, ?, '', '', ?)",
+    );
+    // 旧 NULL = 既定 (ON)、旧 0 = 「全部手動」の意図
+    insert.run("a-on", "on", null);
+    insert.run("a-off", "off", 0);
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    assert.equal(Object.hasOwn(first.getAgent("a-on") ?? {}, "allowNaturalInvocationBuiltin"), false);
+    assert.equal(Object.hasOwn(first.getAgent("a-on") ?? {}, "allowNaturalInvocationFile"), false);
+    assert.equal(first.getAgent("a-off")?.allowNaturalInvocationBuiltin, false);
+    assert.equal(first.getAgent("a-off")?.allowNaturalInvocationFile, false);
+    first.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const names = columnNames(check, "agents");
+    assert.equal(names.includes("allowNaturalInvocation"), false, "旧列は移行後に落とす");
+    assert.ok(names.includes("allowNaturalInvocationBuiltin"));
+    assert.ok(names.includes("allowNaturalInvocationFile"));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1927,7 +1982,9 @@ test("migrates a v16 db additively and keeps NULL and [] of the skill allowlists
         "commonSkillNames",
         "builtinSkillNames",
         "toolNames",
-        "allowNaturalInvocation",
+        // v36 -> v37 で 1 本の allowNaturalInvocation をスコープ別の 2 列へ分け、旧列は落とす
+        "allowNaturalInvocationBuiltin",
+        "allowNaturalInvocationFile",
         "sortOrder",
       ],
     );

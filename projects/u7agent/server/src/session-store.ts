@@ -207,21 +207,26 @@ export async function listSessionIds(storeDir: string): Promise<string[]> {
  */
 function parseAgentPayload(value: unknown): AgentPayloadInfo | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const agent = value as Partial<AgentPayloadInfo>;
+  const agent = value as Partial<AgentPayloadInfo> & { allowNaturalInvocation?: unknown };
   if (typeof agent.id !== "string" || typeof agent.name !== "string") return undefined;
   const names = (list: unknown): string[] | undefined =>
     Array.isArray(list) ? list.filter((name): name is string => typeof name === "string") : undefined;
   const commonSkillNames = names(agent.commonSkillNames);
   const builtinSkillNames = names(agent.builtinSkillNames);
   const toolNames = names(agent.toolNames);
+  // 旧 meta の 1 本のフラグは読み取り専用のフォールバック。scope ごとに「新キー > 旧キー > 既定 true」
+  const legacy = agent.allowNaturalInvocation;
+  const resolved = (key: unknown): boolean =>
+    typeof key === "boolean" ? key : typeof legacy === "boolean" ? legacy : true;
   return {
     id: agent.id,
     name: agent.name,
     description: typeof agent.description === "string" ? agent.description : "",
     ...(commonSkillNames ? { commonSkillNames } : {}),
     ...(builtinSkillNames ? { builtinSkillNames } : {}),
-    // 既定 (true / 未指定) はキーを省略し、false だけを残す
-    ...(agent.allowNaturalInvocation === false ? { allowNaturalInvocation: false } : {}),
+    // 既定 (true / 未指定) はキーを省略し、false だけを残す。旧キーは書き戻さない
+    ...(resolved(agent.allowNaturalInvocationBuiltin) ? {} : { allowNaturalInvocationBuiltin: false }),
+    ...(resolved(agent.allowNaturalInvocationFile) ? {} : { allowNaturalInvocationFile: false }),
     ...(toolNames ? { toolNames } : {}),
   };
 }

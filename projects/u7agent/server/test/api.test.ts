@@ -1563,6 +1563,63 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
   }
 });
 
+test("natural invocation is saved and read per scope over HTTP", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    // 作成: 片方だけ false にでき、もう片方は既定 (キー省略)
+    const created = await app.request(
+      "/api/agents",
+      jsonPost({ name: "スコープ別", allowNaturalInvocationBuiltin: false }),
+    );
+    assert.equal(created.status, 201);
+    const createdAgent = (await jsonBody(created)).agent;
+    assert.equal(createdAgent.allowNaturalInvocationBuiltin, false);
+    assert.equal(Object.hasOwn(createdAgent, "allowNaturalInvocationFile"), false);
+    assert.equal(Object.hasOwn(createdAgent, "allowNaturalInvocation"), false, "旧キーは応答に出さない");
+    const agentPath = `/api/agents/${createdAgent.id}`;
+
+    // PATCH: 片側だけ指定しても、もう片方の false を保持する
+    const patched = await app.request(agentPath, jsonPatch({ allowNaturalInvocationFile: false }));
+    assert.equal(patched.status, 200);
+    const patchedAgent = (await jsonBody(patched)).agent;
+    assert.equal(patchedAgent.allowNaturalInvocationBuiltin, false);
+    assert.equal(patchedAgent.allowNaturalInvocationFile, false);
+
+    // 取り直しても同じ値
+    const reloaded = (await jsonBody(app.request("/api/agents"))).agents.find(
+      (agent: { id: string }) => agent.id === createdAgent.id,
+    );
+    assert.equal(reloaded.allowNaturalInvocationBuiltin, false);
+    assert.equal(reloaded.allowNaturalInvocationFile, false);
+
+    // null は既定 (true) への解除で、指定していない側は変えない
+    const cleared = await app.request(agentPath, jsonPatch({ allowNaturalInvocationBuiltin: null }));
+    assert.equal(cleared.status, 200);
+    const clearedAgent = (await jsonBody(cleared)).agent;
+    assert.equal(Object.hasOwn(clearedAgent, "allowNaturalInvocationBuiltin"), false);
+    assert.equal(clearedAgent.allowNaturalInvocationFile, false);
+
+    // 旧キーは黙って無視せず 400 にし、再読み込みを促す。既存値は変えない
+    for (const body of [{ allowNaturalInvocation: false }, { allowNaturalInvocation: true }]) {
+      const post = await app.request("/api/agents", jsonPost({ name: "旧", ...body }));
+      assert.equal(post.status, 400);
+      assert.match((await jsonBody(post)).error, /reload/);
+
+      const patch = await app.request(agentPath, jsonPatch(body));
+      assert.equal(patch.status, 400);
+      assert.match((await jsonBody(patch)).error, /reload/);
+    }
+    const afterReject = (await jsonBody(app.request("/api/agents"))).agents.find(
+      (agent: { id: string }) => agent.id === createdAgent.id,
+    );
+    assert.equal(Object.hasOwn(afterReject, "allowNaturalInvocationBuiltin"), false);
+    assert.equal(afterReject.allowNaturalInvocationFile, false);
+  } finally {
+    await bff.close();
+  }
+});
+
 test("catalog CRUD reads the JSON body whatever the request Content-Type is", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app, catalog } = bff;

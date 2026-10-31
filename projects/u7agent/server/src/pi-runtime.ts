@@ -163,8 +163,10 @@ export interface PiRuntimeLike {
     commonSkillNames?: string[];
     /** 組み込みスキルの許可リスト。undefined = 全部 ON、`[]` = すべて OFF */
     builtinSkillNames?: string[];
-    /** false なら解決した全スキルを索引から外す (既定 true) */
-    allowNaturalInvocation?: boolean;
+    /** 組み込みスキルを自然文でも発火させるか (false なら索引から外す)。ファイルスキル側とは独立 */
+    allowNaturalInvocationBuiltin?: boolean;
+    /** ファイルスキル (共通 / プロジェクト) 側の同じスイッチ */
+    allowNaturalInvocationFile?: boolean;
     /** ツールの許可リスト。undefined = 全部 ON、`[]` = すべて OFF */
     toolNames?: string[];
     /** 子モード。読み取り専用ツールだけを公開し、常時有効群とスキル発見を落とす (既定 "chat") */

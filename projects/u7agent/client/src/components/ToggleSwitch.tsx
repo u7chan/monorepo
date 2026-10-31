@@ -7,13 +7,17 @@ import { cn } from "../lib/cn";
 export function ToggleSwitch({
   checked,
   label,
+  ariaLabel,
   disabled = false,
   size = "md",
   title,
   onChange,
 }: {
   checked: boolean;
+  /** ボタンに表示する短いラベル。狭い面でも読めるよう、文脈は `ariaLabel` に分ける */
   label: string;
+  /** 読み上げ名。省略すると表示ラベルがそのまま読み上げ名になる */
+  ariaLabel?: string;
   disabled?: boolean;
   /** `sm` はパス行のように高さを詰めた行で使う (行の他の切替と高さを揃える) */
   size?: "md" | "sm";
@@ -26,6 +30,7 @@ export function ToggleSwitch({
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       disabled={disabled}
       title={title}
       onClick={() => onChange(!checked)}

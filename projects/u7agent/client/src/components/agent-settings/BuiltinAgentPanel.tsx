@@ -9,7 +9,11 @@ import {
 } from "../../lib/fileSkills";
 import { TOOL_CATALOG_UNAVAILABLE_NOTE, TOOL_GROUP_LABELS, groupTools, unavailableToolNote } from "../../lib/tools";
 import type { AgentDef, BuiltinSkillInfo, ToolCatalogEntry } from "../../types";
-import { InvocationModeRow } from "./InvocationModeRow";
+import {
+  InvocationModeRow,
+  NATURAL_INVOCATION_BUILTIN_SCOPE_LABEL,
+  NATURAL_INVOCATION_FILE_SCOPE_LABEL,
+} from "./InvocationModeRow";
 import { BUILTIN_SECTION_LABEL } from "./SkillSelector";
 import { SkillGroup, SkillRow } from "./SkillRow";
 
@@ -23,8 +27,9 @@ export const BUILTIN_PANEL_SKILLS_NOTE =
   "組み込みエージェントは外す設定を持たないため、共通スキルと組み込みスキルは常にすべて使用されます。共通スキルはワークスペース直下の .agents/skills にあり、増減してもこの画面を開き直せば反映されます。プロジェクトのスキル（会話の作業ディレクトリ配下の .agents/skills）は会話ごとに決まり、この画面には出ません。";
 /** ツール節の断り。ビルトインは `toolNames` を持たないので、ここでもスイッチは出さない */
 export const BUILTIN_PANEL_TOOLS_READONLY_LABEL = "このエージェントでは外せません";
-/** 組み込みのエージェントは自然文では発火しない (定義側も false)。行の OFF と合わせて理由をここで伝える */
-export const BUILTIN_PANEL_INVOCATION_FIXED_NOTE = "組み込みエージェントは常に OFF です（自然文では発火しません）。";
+/** 組み込みのエージェントは自然文では発火しない (定義側も両方 false)。行の OFF と合わせて理由をここで伝える */
+export const BUILTIN_PANEL_INVOCATION_FIXED_NOTE =
+  "組み込みエージェントは組み込みスキルもユーザー作成スキルも常に OFF です（自然文では発火しません）。";
 /** 組み込みの定型プロンプトは固定参照で、付け外しも編集もできない */
 export const BUILTIN_PANEL_PROMPTS_READONLY_LABEL = "このエージェントでは変更できません";
 export const BUILTIN_PANEL_PROMPTS_NOTE =
@@ -61,8 +66,6 @@ export function BuiltinAgentPanel({
       : [],
   );
   const usedBuiltinCount = builtinSkills.filter((skill) => !overriddenBuiltins.has(skill.name)).length;
-  // ビルトインは常に OFF。値が無い旧 API でも ON に倒さない (サーバー側も id で false に固定する)
-  const allowNaturalInvocation = agent.allowNaturalInvocation === true;
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
@@ -88,7 +91,17 @@ export function BuiltinAgentPanel({
                 <span className="shrink-0 text-2xs text-ink-faint">{BUILTIN_PANEL_SKILLS_READONLY_LABEL}</span>
               </div>
               <div className="grid gap-2 rounded-lg border border-line bg-soft px-2.5 py-2">
-                <InvocationModeRow allowNaturalInvocation={allowNaturalInvocation} readOnly />
+                {/* ビルトインは常に両方 OFF。値が無い旧 API でも ON に倒さない (サーバー側も id で固定する) */}
+                <InvocationModeRow
+                  scopeLabel={NATURAL_INVOCATION_BUILTIN_SCOPE_LABEL}
+                  allowNaturalInvocation={false}
+                  readOnly
+                />
+                <InvocationModeRow
+                  scopeLabel={NATURAL_INVOCATION_FILE_SCOPE_LABEL}
+                  allowNaturalInvocation={false}
+                  readOnly
+                />
                 <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_PANEL_INVOCATION_FIXED_NOTE}</p>
                 {fileSkills.status === "loading" ? (
                   <p className="text-2xs leading-4 break-words text-ink-muted">{FILE_SKILL_LOADING_NOTE}</p>

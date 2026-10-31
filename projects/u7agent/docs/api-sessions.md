@@ -174,7 +174,7 @@
 }
 ```
 
-`model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショット（スキル許可リスト・`allowNaturalInvocation`・`toolNames` を含む）なので、定義を編集・削除しても既存チャットの表示とツールの実効は変わらない。
+`model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショット（スキル許可リスト・`allowNaturalInvocationBuiltin` / `allowNaturalInvocationFile`・`toolNames` を含む）なので、定義を編集・削除しても既存チャットの表示とツールの実効は変わらない。分割前の旧セッション meta にある `allowNaturalInvocation` は応答へは載せず、スコープごとの値へ解決して読む（[api-catalog.md](api-catalog.md#自然文での発火)）。
 
 `status` は `idle` / `running` / `queued` / `compacting` / `completed` / `stopped` / `error`。`compacting` は手動圧縮の実行中で、SDK の実行中だけでなく**保存待ち**も含む（排他の正は BFF のフラグ。詳細は [compaction.md](compaction.md#手動圧縮)）。`compactionStartedAt` はその開始時刻（epoch ms）で、`status` が `compacting` のときだけ載る（終端の `resync` では載せない）。経過時間の起点はこの値を使い、`run.startedAt` は再利用しない。
 

@@ -376,7 +376,8 @@ export function resolveAgentSkills(
       // 未指定のときはキーを省略する (`[]` = すべて OFF は落とさない)
       ...(agent.commonSkillNames === undefined ? {} : { commonSkillNames: [...agent.commonSkillNames] }),
       ...(agent.builtinSkillNames === undefined ? {} : { builtinSkillNames: [...agent.builtinSkillNames] }),
-      ...(agent.allowNaturalInvocation === false ? { allowNaturalInvocation: false } : {}),
+      ...(agent.allowNaturalInvocationBuiltin === false ? { allowNaturalInvocationBuiltin: false } : {}),
+      ...(agent.allowNaturalInvocationFile === false ? { allowNaturalInvocationFile: false } : {}),
       ...(agent.toolNames === undefined ? {} : { toolNames: [...agent.toolNames] }),
     },
     promptSnapshot: composePromptSnapshot(agent),
@@ -601,8 +602,9 @@ export class SessionStore {
       ...(agentInfo.commonSkillNames === undefined ? {} : { commonSkillNames: agentInfo.commonSkillNames }),
       // 組み込みスキルの許可リストも同じく注入経路・read の横取り・system prompt の案内へ渡す
       ...(agentInfo.builtinSkillNames === undefined ? {} : { builtinSkillNames: agentInfo.builtinSkillNames }),
-      // 自然文での発火を許さないエージェントは、解決した全スキルの索引を落とす (ビルトインは常に false)
-      allowNaturalInvocation: allowsNaturalInvocation(agentInfo),
+      // 自然文での発火はスコープごとに索引を落とす (ビルトインは id で両方 false に倒す)
+      allowNaturalInvocationBuiltin: allowsNaturalInvocation(agentInfo, "builtin"),
+      allowNaturalInvocationFile: allowsNaturalInvocation(agentInfo, "file"),
       // ツールの許可リストも作成時に確定して meta へ保存する (復元はこれをスナップショットとして使う)
       ...(agentInfo.toolNames === undefined ? {} : { toolNames: agentInfo.toolNames }),
       model: model ?? agent.model,
@@ -926,7 +928,8 @@ export class SessionStore {
       // 組み込みスキルの許可リストも同じく meta のスナップショットから渡す
       ...(current.agent.builtinSkillNames === undefined ? {} : { builtinSkillNames: current.agent.builtinSkillNames }),
       // 自然文での発火もスナップショットから決める (旧 meta に値が無いビルトインは id で false に倒す)
-      allowNaturalInvocation: allowsNaturalInvocation(current.agent),
+      allowNaturalInvocationBuiltin: allowsNaturalInvocation(current.agent, "builtin"),
+      allowNaturalInvocationFile: allowsNaturalInvocation(current.agent, "file"),
       // ツールの許可リストも定義を引き直さず、セッションのスナップショットから渡す
       ...(current.agent.toolNames === undefined ? {} : { toolNames: current.agent.toolNames }),
       model: restored.model,

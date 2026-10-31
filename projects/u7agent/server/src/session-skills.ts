@@ -39,10 +39,15 @@ export interface SessionSkillsInput {
    */
   builtinSkillNames?: readonly string[] | undefined;
   /**
-   * false なら解決した全スキル (プロジェクト / 共通 / 組み込み) を `/skill:` とスキルボタンからのみ起動する。
-   * 一覧と `/skill:` の展開で同じ値を渡す (既定 true)。
+   * false なら組み込みスキルを `/skill:` とスキルボタンからのみ起動する。一覧と `/skill:` の展開で
+   * 同じ値を渡す (既定 true)。ファイルスキル側とは独立
    */
-  allowNaturalInvocation?: boolean | undefined;
+  allowNaturalInvocationBuiltin?: boolean | undefined;
+  /**
+   * false ならファイルスキル (共通 / プロジェクト) を `/skill:` とスキルボタンからのみ起動する。
+   * 組み込み側とは独立で、どちらのフラグでも `/skill:` の展開は残る
+   */
+  allowNaturalInvocationFile?: boolean | undefined;
   /**
    * true ならファイルスキルの発見失敗を投げる (一覧 API 用)。既定は落として組み込みだけで解決する
    * (セッション作成と `/skill:` の展開は縮退させる)。
@@ -96,13 +101,20 @@ export async function resolveSessionSkills(input: SessionSkillsInput): Promise<R
         relativeCwd: input.relativeCwd,
         ...(input.commonSkillNames === undefined ? {} : { commonSkillNames: input.commonSkillNames }),
         ...(input.builtinSkillNames === undefined ? {} : { builtinSkillNames: input.builtinSkillNames }),
-        ...(input.allowNaturalInvocation === undefined ? {} : { allowNaturalInvocation: input.allowNaturalInvocation }),
+        ...(input.allowNaturalInvocationBuiltin === undefined
+          ? {}
+          : { allowNaturalInvocationBuiltin: input.allowNaturalInvocationBuiltin }),
+        ...(input.allowNaturalInvocationFile === undefined
+          ? {}
+          : { allowNaturalInvocationFile: input.allowNaturalInvocationFile }),
         ...(input.strict === undefined ? {} : { strict: input.strict }),
       })
     : // サンドボックスが無くても組み込みはワークスペースに依らず使える (一覧と展開を同じ解決に保つ)
       composeFileSkills([{ scope: "builtin", entries: builtinSkillEntries(input.rootCwd) }], input.rootCwd, {
         ...(input.builtinSkillNames === undefined ? {} : { builtinSkillNames: input.builtinSkillNames }),
-        ...(input.allowNaturalInvocation === undefined ? {} : { allowNaturalInvocation: input.allowNaturalInvocation }),
+        ...(input.allowNaturalInvocationBuiltin === undefined
+          ? {}
+          : { allowNaturalInvocationBuiltin: input.allowNaturalInvocationBuiltin }),
       });
   // 影になった組み合わせは「落ちた側のパス → 採用された側のパス」で引く
   const keptByShadowed = new Map(composed.shadowed.map((item) => [item.shadowedPath, item.keptPath]));
