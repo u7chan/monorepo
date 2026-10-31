@@ -7,7 +7,12 @@ import { reorderRows } from "../lib/agentReorder";
 import { cn } from "../lib/cn";
 import { renameInputValue } from "../lib/confirmDialog";
 import { createSpaceOrderFlow, type SpaceOrderNoteKind, type SpaceOrderState } from "../lib/spaceOrder";
-import { spaceDeleteConfirmRequest, spaceRenameRequest, spaceRowActions } from "../lib/spaceSettings";
+import {
+  spaceDeleteConfirmRequest,
+  spaceRenameRequest,
+  spaceRowActions,
+  SPACE_NAME_MAX_LENGTH,
+} from "../lib/spaceSettings";
 import { DEFAULT_SPACE_ID } from "../lib/spaceSelection";
 import { CollapsibleNotice } from "./CollapsibleNotice";
 import { useConfirm, usePrompt } from "./ConfirmProvider";
@@ -149,7 +154,7 @@ export function SpaceSettingsPage({
             >
               <input
                 className={cn("field min-w-0 flex-1", singleColumn ? "text-md" : "text-xs")}
-                maxLength={80}
+                maxLength={SPACE_NAME_MAX_LENGTH}
                 value={name}
                 aria-label="会話スペースの名前"
                 onChange={(event) => setName(event.currentTarget.value)}

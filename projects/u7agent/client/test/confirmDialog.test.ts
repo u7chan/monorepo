@@ -63,20 +63,33 @@ test("対象の一覧: 名前と状態を並べ、省略した件数を最後に
   assert.match(html, /ほか 3 件/);
 });
 
-test("prompt は入力欄に現在値を入れ、ラベルと確定ボタンを持つ", () => {
+test("prompt は入力欄に現在値を入れ、ラベルと確定ボタンを持ち、上限を指定すれば maxLength を付ける", () => {
   const request: PromptRequest = {
     kind: "prompt",
     title: "名前を変更",
     subject: { label: "名前を変更するフォルダ", value: "docs" },
     label: "新しい名前",
     defaultValue: "docs",
+    maxLength: 200,
     confirmLabel: "名前を変更",
   };
   const html = renderToStaticMarkup(createElement(ConfirmDialog, { request, onConfirm: () => {}, onCancel: () => {} }));
 
   assert.match(html, /<input[^>]*value="docs"/);
+  // SSR は React の属性名 (maxLength) をそのまま出す
+  assert.match(html, /<input[^>]*maxLength="200"/);
   assert.ok(html.includes("新しい名前"));
   assert.match(html, />名前を変更</);
+
+  // 上限を指定しない入力（会話タイトルなど）には属性を出さない
+  const unlimited = renderToStaticMarkup(
+    createElement(ConfirmDialog, {
+      request: { ...request, maxLength: undefined },
+      onConfirm: () => {},
+      onCancel: () => {},
+    }),
+  );
+  assert.doesNotMatch(unlimited, /maxLength/i);
 });
 
 test("リネームの入力は取り消し・空・未変更を何もしない扱いにする", () => {

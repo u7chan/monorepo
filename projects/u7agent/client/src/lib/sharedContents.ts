@@ -582,6 +582,7 @@ export function sharedContentRenameRequest(item: Pick<SharedContentResponse, "na
     title: "名前を変更",
     label: "共有物の名前",
     defaultValue: item.name,
+    maxLength: SHARE_NAME_MAX_LENGTH,
     body: ["表示名だけを変えます。公開 URL と公開状態は変わりません。"],
     confirmLabel: "変更する",
   };

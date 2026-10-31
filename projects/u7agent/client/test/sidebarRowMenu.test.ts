@@ -122,6 +122,8 @@ test("セッションの削除確認は対象のタイトルを出し、リネ�
   const rename = sessionRenameRequest("決済画面の検証");
   assert.equal(rename.kind, "prompt");
   assert.equal(rename.defaultValue, "決済画面の検証");
+  // サーバーが切り詰めるため、タイトルの改名には入力上限を指定しない
+  assert.equal(rename.maxLength, undefined);
   assert.equal(rename.confirmLabel, "名前を変更");
 });
 

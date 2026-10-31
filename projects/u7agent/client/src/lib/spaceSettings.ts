@@ -10,6 +10,9 @@ import type { RowMenuAction } from "./rowMenu";
 
 export type SpaceRowKind = "rename" | "delete";
 
+/** 表示名の上限。`server/src/schema.ts` の `CreateSpaceBodySchema` と同じ値 (作成と改名で共有する) */
+export const SPACE_NAME_MAX_LENGTH = 80;
+
 /** 既定スペースは空配列 (項目 0 の行は ⋯ を出さない)。削除は他者から見ても取り消せないので danger にする */
 export function spaceRowActions(isDefault: boolean): RowMenuAction<SpaceRowKind>[] {
   return isDefault
@@ -31,9 +34,10 @@ export function spaceRenameRequest(space: Space): PromptRequest {
     subject: { label: "名前を変更する会話スペース", value: space.name },
     label: "新しい名前",
     defaultValue: space.name,
+    maxLength: SPACE_NAME_MAX_LENGTH,
     body: [
       "表示名だけを変えます。会話の所属・作業フォルダ・添付は変わりません。",
-      "名前は 1〜80 文字で指定してください。",
+      `名前は 1〜${SPACE_NAME_MAX_LENGTH} 文字で指定してください。`,
     ],
     confirmLabel: "変更する",
   };

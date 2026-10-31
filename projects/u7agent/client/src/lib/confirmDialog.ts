@@ -40,6 +40,8 @@ export type PromptRequest = DialogBase & {
   label: string;
   /** 現在の値。取り消しと同じく、空・未変更を何もしない扱いにするかは呼び出し側が決める */
   defaultValue: string;
+  /** 入力段階の上限。最終判定はサーバーが行う (数え方の差は docs/ui-layout.md#確認と入力のダイアログ) */
+  maxLength?: number;
   confirmLabel: string;
 };
 

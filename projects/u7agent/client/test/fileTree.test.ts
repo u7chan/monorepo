@@ -16,6 +16,7 @@ import {
   fileTreeEntryFor,
   fileTreeFetchPath,
   fileTreeRenameRequest,
+  ENTRY_NAME_MAX_LENGTH,
   invalidateFileTree,
   isHiddenFileTreePath,
   normalizeFileTreeRoot,
@@ -560,6 +561,7 @@ test("リネームの入力はパスを対象の行へ出し、現在の名前�
   assert.equal(request.title, "名前を変更");
   assert.deepEqual(request.subject, { label: "名前を変更するフォルダ", value: ".u7agent/sessions/3a7bfba36f/uploads" });
   assert.equal(request.defaultValue, "uploads");
+  assert.equal(request.maxLength, ENTRY_NAME_MAX_LENGTH);
   assert.equal(request.confirmLabel, "名前を変更");
   assert.equal(fileTreeRenameRequest("docs", "docs").defaultValue, "docs");
 });
