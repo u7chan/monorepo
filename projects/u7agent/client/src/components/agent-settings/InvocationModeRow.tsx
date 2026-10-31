@@ -34,21 +34,26 @@ export function InvocationModeRow({
   readOnly?: boolean;
 }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-line bg-raised px-2.5 py-2">
-      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="min-w-0 text-2xs font-semibold text-ink">{scopeLabel}</span>
-        {allowNaturalInvocation ? null : (
-          <span className="shrink-0 rounded border border-line bg-soft px-1.5 text-2xs leading-4 text-ink-ghost">
-            {MANUAL_ONLY_LABEL}
-          </span>
-        )}
-        <span className="min-w-0 text-2xs leading-4 text-ink-muted">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-line bg-raised px-2.5 py-2">
+      {/* 左列は幅が足りないときに行内で折り返し、スイッチは自身の幅を保ったまま次の行へ落とす */}
+      <span className="grid min-w-0 grow basis-44 gap-0.5">
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="min-w-0 text-2xs font-semibold break-words text-ink">{scopeLabel}</span>
+          {allowNaturalInvocation ? null : (
+            <span className="shrink-0 rounded border border-line bg-soft px-1.5 text-2xs leading-4 text-ink-ghost">
+              {MANUAL_ONLY_LABEL}
+            </span>
+          )}
+        </span>
+        <span className="min-w-0 text-2xs leading-4 break-words text-ink-muted">
           {allowNaturalInvocation ? NATURAL_INVOCATION_ON_NOTE : NATURAL_INVOCATION_OFF_NOTE}
         </span>
       </span>
       <ToggleSwitch
         checked={allowNaturalInvocation}
-        label={`${NATURAL_INVOCATION_LABEL}（${scopeLabel}）`}
+        label={NATURAL_INVOCATION_LABEL}
+        // 可視ラベルは短く保ち、2 つのスイッチの区別は読み上げ名で付ける (狭い幅で行を崩さない)
+        ariaLabel={`${NATURAL_INVOCATION_LABEL}（${scopeLabel}）`}
         disabled={readOnly}
         onChange={onChange ?? (() => undefined)}
       />

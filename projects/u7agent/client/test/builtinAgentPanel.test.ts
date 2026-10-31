@@ -92,13 +92,17 @@ test("ビルトインは共通スキルと組み込みを、操作できない�
   // 自然文では発火しない。スコープ別の 2 行とも OFF の読み取り専用で、手動のみのチップを出す
   const switches = [...html.matchAll(/<button[^>]*role="switch"[^>]*>[\s\S]*?<\/button>/g)].map((match) => match[0]);
   assert.equal(switches.length, 2, "組み込みとユーザー作成の 2 行を出す");
+  const labels = switches.map((block) => block.match(/aria-label="([^"]*)"/)?.[1] ?? "");
+  assert.deepEqual(labels, [
+    `${NATURAL_INVOCATION_LABEL}（${NATURAL_INVOCATION_BUILTIN_SCOPE_LABEL}）`,
+    `${NATURAL_INVOCATION_LABEL}（${NATURAL_INVOCATION_FILE_SCOPE_LABEL}）`,
+  ]);
   for (const block of switches) {
     assert.ok(block.includes('aria-checked="false"'));
     assert.ok(block.includes('disabled=""'), "閲覧ビューでは押せない");
-    assert.ok(block.includes(NATURAL_INVOCATION_LABEL));
+    // 可視ラベルは短いまま (2 行をスコープ名の長さで崩さない)
+    assert.equal(block.replace(/<[^>]*>/g, "").trim(), NATURAL_INVOCATION_LABEL);
   }
-  assert.ok(switches.some((block) => block.includes(NATURAL_INVOCATION_BUILTIN_SCOPE_LABEL)));
-  assert.ok(switches.some((block) => block.includes(NATURAL_INVOCATION_FILE_SCOPE_LABEL)));
   assert.equal(html.includes('aria-checked="true"'), false, "ON の行を出さない");
   assert.ok(html.includes(MANUAL_ONLY_LABEL));
   assert.ok(html.includes(BUILTIN_PANEL_INVOCATION_FIXED_NOTE));
