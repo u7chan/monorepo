@@ -77,7 +77,9 @@ export function CodexCard(props: {
 
       if (outcome.ok) {
         // 反映が遅れることがある。取得できたときだけリセット時刻が出る、という前提の文言にする。
-        setCheckMessage(`送信しました（${outcome.latencyMs} ms）。利用枠を再取得しています…`);
+        setCheckMessage(
+          `送信しました（${outcome.latencyMs} ms）。5 時間の利用枠の開始を兼ねます。利用枠を再取得しています…`,
+        );
       } else {
         setCheckError(probeErrorMessage(outcome.error));
       }
