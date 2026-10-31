@@ -15,6 +15,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | ヘルス | `GET /api/health` | このファイル |
 | スペース | `GET/POST /api/spaces`、`PATCH /api/spaces/:id`、`PATCH /api/spaces/order`、`DELETE /api/spaces/:id` | このファイル |
 | ランタイムのモデルカタログ | `GET /api/runtime/models` | このファイル |
+| 利用中のモデルと外部連携 | `GET /api/runtime/in-use` | このファイル |
 | 実行環境（サンドボックスの診断） | `GET /api/runtime/environment` | このファイル |
 | ファイル一覧 | `GET /api/files` | [api-files.md](api-files.md) |
 | ファイルの存在確認 | `GET /api/files/stat` | [api-files.md](api-files.md) |
@@ -150,6 +151,43 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 カタログ全件は通常約 90KB（pi SDK の同梱版で変動）となるため、health には載せない。この API は設定画面を開いたとき、設定の変更後、それに [カタログ更新](api-settings.md#利用可能なモデルとプロバイダーapiキー) を押したときにだけ要求する（定期取得はしない）。
 
 `sessionStore` は会話ストア、`appDb` はプロジェクト / エージェント定義を保存する SQLite の状態。`ok: false` のときは `error` に理由が入り、その保存先を読む API は 503 になる。`path` が `null` なのは永続化なしのとき（`sessionStore` は未設定、`appDb` はテストのメモリ DB）で、パス解決に失敗した `appDb` は `ok: false` と `path: null` の組み合わせになる。詳細は [persistence.md](persistence.md)。
+
+## 利用中のモデルと外部連携
+
+設定 → ランタイム の環境タブ（`/settings/runtime/environment`）が「いま何が使われるか」を 1 回で読むための、読み取り専用の集約。表示とコピーの正は `client/src/lib/runtimeEnvironment.ts`。
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/runtime/in-use` | 環境タブを開いたときと再読み込みで取得する、会話タイトル・コンテンツ生成・Web 検索・Cloudflare の設定値 |
+
+```json
+{
+  "title": {
+    "enabled": true,
+    "model": "<provider>/<id>",
+    "thinkingLevel": "low",
+    "effectiveThinkingLevel": "high",
+    "modelAvailable": true
+  },
+  "content": {
+    "configured": true,
+    "enabled": true,
+    "keyAvailable": true,
+    "imageModel": "<provider>/<id>",
+    "speechModel": "<provider>/<id>",
+    "speechVoice": "Kore",
+    "bgmModel": "<provider>/<id>"
+  },
+  "webSearch": { "enabled": true, "provider": "tavily", "host": "api.tavily.com" },
+  "cloudflare": { "configured": true, "available": true, "accountId": "<account-id>" }
+}
+```
+
+- アプリ既定モデルは含めない。正は `GET /api/health` の `model` と `defaultModelUnset` / `defaultModelError` / `availabilityError` で、画面は既定モデルとこの応答を別々に読む（`health.model` の欠落を「未設定」と同一視しない）
+- `content.speechVoice` の `null` は「指定なし」で、保存値の空文字を値として返さない。`title.thinkingLevel` は保存値、`title.effectiveThinkingLevel` は実際の要約に使う Effort で、画面は後者だけを「利用中」として出す
+- `webSearch.host` は既定 provider の外部送信先。`cloudflare.accountId` は [Cloudflare の設定](api-settings.md) と同じ公開情報で、トークンは含めない
+- APIキー・OAuth トークン・暗号文・モデルカタログは返さない（設定の面ごとの API はカタログを含むため、この画面はそれらを再利用しない）。この画面は Cloudflare の接続確認もモデルカタログの再取得も行わない
+- 200: 集約応答。取得の失敗はアプリ DB を読めないときだけで、既存のガードと同じ `{ "error": ... }` の 503 になる
 
 ## 実行環境（サンドボックス診断）
 

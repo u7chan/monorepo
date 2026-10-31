@@ -2801,3 +2801,59 @@ export const UpdateTitleSummaryBodySchema = z.object({
   definition: z.string().optional(),
 });
 export type UpdateTitleSummaryBody = z.infer<typeof UpdateTitleSummaryBodySchema>;
+
+/**
+ * GET /api/runtime/in-use。設定 → ランタイム の環境タブが「いま何が使われるか」を 1 回で読む。
+ * カタログ・APIキー・OAuth トークン・暗号文は載せない（表示専用。詳細は docs/api.md）。
+ */
+export const RuntimeInUseTitleSchema = z.object({
+  enabled: z.boolean(),
+  /** 保存済みの要約モデル。無効にしても消さない既存仕様のまま返す */
+  model: z.string().nullable(),
+  /** 保存値。未指定は null で、実効値とは食い違い得る */
+  thinkingLevel: ThinkingLevelSchema.nullable(),
+  effectiveThinkingLevel: ThinkingLevelSchema.nullable(),
+  /** 保存済みモデルが現在の候補にあるか */
+  modelAvailable: z.boolean(),
+});
+export type RuntimeInUseTitle = z.infer<typeof RuntimeInUseTitleSchema>;
+
+export const RuntimeInUseContentSchema = z.object({
+  /** 設定行がある（キーの保存とは別） */
+  configured: z.boolean(),
+  /** 画像・音声・BGM 共通の実行時トグル */
+  enabled: z.boolean(),
+  /** キーを復号でき、生成ツールへ渡せる */
+  keyAvailable: z.boolean(),
+  imageModel: z.string().nullable(),
+  speechModel: z.string().nullable(),
+  /** 空文字（指定なし）は null へ正規化する。表示側で値と取り違えないようにする */
+  speechVoice: z.string().nullable(),
+  bgmModel: z.string().nullable(),
+});
+export type RuntimeInUseContent = z.infer<typeof RuntimeInUseContentSchema>;
+
+export const RuntimeInUseWebSearchSchema = z.object({
+  enabled: z.boolean(),
+  provider: WebSearchProviderIdSchema,
+  /** provider の外部送信先。画面で隠さない */
+  host: z.string(),
+});
+export type RuntimeInUseWebSearch = z.infer<typeof RuntimeInUseWebSearchSchema>;
+
+export const RuntimeInUseCloudflareSchema = z.object({
+  configured: z.boolean(),
+  /** master key が使えるか（false は登録・復号が 503） */
+  available: z.boolean(),
+  /** GET /api/settings/cloudflare と同じ公開情報 */
+  accountId: z.string().nullable(),
+});
+export type RuntimeInUseCloudflare = z.infer<typeof RuntimeInUseCloudflareSchema>;
+
+export const RuntimeInUseResponseSchema = z.object({
+  title: RuntimeInUseTitleSchema,
+  content: RuntimeInUseContentSchema,
+  webSearch: RuntimeInUseWebSearchSchema,
+  cloudflare: RuntimeInUseCloudflareSchema,
+});
+export type RuntimeInUseResponse = z.infer<typeof RuntimeInUseResponseSchema>;
