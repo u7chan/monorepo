@@ -6,6 +6,8 @@ import type {
   Health,
   RuntimeEnvironmentResponse,
   RuntimeEnvironmentState,
+  RuntimeInUseContent,
+  RuntimeInUseResponse,
   SandboxLandlockStatus,
   SandboxRuntimeCommand,
   SandboxRuntimeEnvironment,
@@ -64,6 +66,8 @@ export function runtimeCommandRows(commands: readonly SandboxRuntimeCommand[]): 
 /** セクション見出し */
 export const RUNTIME_SECTION_TITLES = {
   connection: "接続状態",
+  models: "利用中のモデル",
+  integrations: "外部連携",
   environment: "実行環境（サンドボックス側）",
   commands: "利用可能なコマンド",
 } as const;
@@ -84,8 +88,20 @@ export const RUNTIME_COMMANDS_FOOTNOTE = "実際に検出できたコマンド�
 
 export type RuntimeTone = RuntimeEnvironmentSummary["tone"];
 
-/** 画面 1 行分の値。コピー本文もこの値をそのまま使う */
-export type RuntimeInfoRow = { label: string; value: string; note?: string };
+/** 行からコピーする対象。識別子だけを持ち、ラベルや注記は含めない */
+export type RuntimeCopyTarget = { text: string; label: string };
+
+/**
+ * 画面 1 行分の値。コピー本文もこの値をそのまま使う。`noteCopy` は注記の中の識別子
+ * (音声のボイス) をコピーするときに使う。
+ */
+export type RuntimeInfoRow = {
+  label: string;
+  value: string;
+  note?: string;
+  copy?: RuntimeCopyTarget;
+  noteCopy?: RuntimeCopyTarget;
+};
 
 /** 状態ドットを持つ行 (実行環境の接続状態だけ) */
 export type RuntimeStatusRow = RuntimeInfoRow & { tone: RuntimeTone };
@@ -95,7 +111,6 @@ export function runtimeConnectionRows(health: Health | null): RuntimeInfoRow[] {
   return [
     { label: "ランタイム", value: health ? (health.ready ? "利用可能" : "利用できません") : "情報なし" },
     { label: "サンドボックス", value: health ? (health.sandboxConfigured ? "設定済み" : "未設定") : "情報なし" },
-    { label: "既定モデル", value: health?.model ?? "指定なし", note: RUNTIME_DEFAULT_MODEL_NOTE },
     { label: "作業ディレクトリ (cwd)", value: health?.cwd ?? "情報なし" },
     { label: "セッションストア", value: runtimeStoreStatus(health?.sessionStore) },
     { label: "アプリ DB", value: runtimeAppDbStatus(health?.appDb) },
@@ -179,11 +194,183 @@ export function runtimeAppDbStatus(db: Health["appDb"]): string {
   return `${db.ok ? "利用可能" : "利用できません"} · ${db.path ?? "永続化なし"}`;
 }
 
+/** 「利用中のモデル」カードの取得状態。失敗はカード内に閉じ、実行環境のカードを巻き込まない */
+export const RUNTIME_MODELS_LOADING = "利用中のモデルを取得しています。";
+export const RUNTIME_MODELS_ERROR_LEAD = "利用中のモデルを取得できませんでした。";
+
+/** 「外部連携」カードの取得状態。モデルと同じ取得なので、失敗時はモデル側に理由を出す */
+export const RUNTIME_INTEGRATIONS_LOADING = "外部連携を取得しています。";
+export const RUNTIME_INTEGRATIONS_UNAVAILABLE = "利用中のモデルを取得できていないため、外部連携は表示していません。";
+
+/** 値が無い行の文言。行を消すと「未設定」と「取得できていない」の区別が付かなくなる */
+const RUNTIME_UNSET = "未設定";
+const RUNTIME_UNKNOWN = "情報なし";
+const RUNTIME_UNAVAILABLE = "利用できません";
+
+/** 会話タイトルの状態。無効にしても保存済みモデルは消さない既存仕様のまま出す */
+const RUNTIME_TITLE_STATES = {
+  disabled: "無効",
+  unavailable: "候補外",
+  enabled: "有効",
+} as const;
+
+/** コンテンツ生成の状態。画像・音声・BGM は 1 つのゲートを共有する */
+export type RuntimeContentState = "未設定" | "停止中" | "キー未復号" | "有効";
+
+export function runtimeContentState(content: RuntimeInUseContent): RuntimeContentState {
+  if (!content.configured) return "未設定";
+  if (!content.enabled) return "停止中";
+  if (!content.keyAvailable) return "キー未復号";
+  return "有効";
+}
+
+/**
+ * 「利用中のモデル」カードの行。既定モデルの正は health（in-use API には含めない）で、
+ * `health.model` の欠落を「未設定」と同一視しない。
+ */
+export function runtimeModelRows(health: Health | null, inUse: RuntimeInUseResponse | null): RuntimeInfoRow[] {
+  return [
+    runtimeDefaultModelRow(health),
+    runtimeTitleRow(inUse?.title ?? null),
+    ...runtimeContentRows(inUse?.content ?? null),
+  ];
+}
+
+function runtimeDefaultModelRow(health: Health | null): RuntimeInfoRow {
+  const label = "既定モデル";
+  if (!health) return { label, value: RUNTIME_UNKNOWN };
+  if (health.model) {
+    return {
+      label,
+      value: health.model,
+      note: RUNTIME_DEFAULT_MODEL_NOTE,
+      copy: { text: health.model, label: "既定モデルのIDをコピー" },
+    };
+  }
+  // 解決できなかった理由が分かるものだけを、上から順に 1 つ選ぶ (推測で「未設定」と断定しない)
+  if (health.defaultModelUnset) return { label, value: RUNTIME_UNSET };
+  if (health.defaultModelError) return { label, value: RUNTIME_UNAVAILABLE, note: health.defaultModelError };
+  if (health.availabilityError) return { label, value: RUNTIME_UNAVAILABLE, note: health.availabilityError };
+  return { label, value: RUNTIME_UNKNOWN };
+}
+
+function runtimeTitleRow(title: RuntimeInUseResponse["title"] | null): RuntimeInfoRow {
+  const label = "会話タイトル";
+  if (!title) return { label, value: RUNTIME_UNKNOWN };
+  if (title.model === null) return { label, value: "未選択" };
+  // 保存値の thinkingLevel は能力変更や未指定で実効値と食い違うため、実効値だけを出す
+  const state = runtimeTitleStateNote(title);
+  const note = [state, title.effectiveThinkingLevel ? `Effort: ${title.effectiveThinkingLevel}` : null]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
+  return identifierRow(label, title.model, "会話タイトルのモデルIDをコピー", "未選択", note);
+}
+
+function runtimeTitleStateNote(title: RuntimeInUseResponse["title"]): string {
+  if (!title.enabled) {
+    return `${RUNTIME_TITLE_STATES.disabled}（AI要約は行いません。保存済みのモデルは残ります）`;
+  }
+  if (!title.modelAvailable) {
+    return `${RUNTIME_TITLE_STATES.unavailable}（現在の候補に無いため要約しません）`;
+  }
+  return RUNTIME_TITLE_STATES.enabled;
+}
+
+/** 識別子の行。null は「未選択」と「取得できていない」を呼び出し側の文言で分ける */
+function identifierRow(
+  label: string,
+  id: string | null,
+  copyLabel: string,
+  missing: string,
+  note?: string,
+  noteCopy?: RuntimeCopyTarget,
+): RuntimeInfoRow {
+  const row: RuntimeInfoRow = { label, value: id ?? missing };
+  if (note) row.note = note;
+  if (noteCopy) row.noteCopy = noteCopy;
+  if (id) row.copy = { text: id, label: copyLabel };
+  return row;
+}
+
+function runtimeContentRows(content: RuntimeInUseContent | null): RuntimeInfoRow[] {
+  const missing = content ? RUNTIME_UNSET : RUNTIME_UNKNOWN;
+  const voice = runtimeSpeechVoice(content);
+  return [
+    {
+      label: "コンテンツ生成",
+      value: content ? runtimeContentState(content) : RUNTIME_UNKNOWN,
+      ...(content ? runtimeContentStateNote(content) : {}),
+    },
+    identifierRow("画像生成モデル", content?.imageModel ?? null, "画像生成モデルのIDをコピー", missing),
+    identifierRow(
+      "音声モデル",
+      content?.speechModel ?? null,
+      "音声モデルのIDをコピー",
+      missing,
+      voice.note,
+      voice.copy,
+    ),
+    identifierRow("BGM モデル", content?.bgmModel ?? null, "BGM モデルのIDをコピー", missing),
+  ];
+}
+
+function runtimeContentStateNote(content: RuntimeInUseContent): { note: string } | undefined {
+  switch (runtimeContentState(content)) {
+    case "未設定":
+      return { note: "コンテンツ生成の設定がありません。" };
+    case "停止中":
+      return { note: "コンテンツ生成は停止中です。" };
+    case "キー未復号":
+      return { note: "APIキーを復号できません。" };
+    default:
+      return undefined;
+  }
+}
+
+/** ボイスの空文字は API が null（指定なし）へ正規化している。指定なしをコピーさせない */
+function runtimeSpeechVoice(content: RuntimeInUseContent | null): { note?: string; copy?: RuntimeCopyTarget } {
+  if (!content || content.speechModel === null) return {};
+  if (content.speechVoice === null) return { note: "ボイス: 指定なし" };
+  return {
+    note: `ボイス: ${content.speechVoice}`,
+    copy: { text: content.speechVoice, label: "音声のボイスをコピー" },
+  };
+}
+
+/** 「外部連携」カードの行。モデルではないため「利用中のモデル」へ混ぜない */
+export function runtimeIntegrationRows(inUse: RuntimeInUseResponse | null): RuntimeInfoRow[] {
+  return [runtimeWebSearchRow(inUse), runtimeCloudflareRow(inUse)];
+}
+
+function runtimeWebSearchRow(inUse: RuntimeInUseResponse | null): RuntimeInfoRow {
+  const label = "Web 検索";
+  if (!inUse) return { label, value: RUNTIME_UNKNOWN };
+  const { enabled, provider, host } = inUse.webSearch;
+  return {
+    label,
+    value: provider,
+    note: `${host} · ${enabled ? "有効" : "停止中"}`,
+    copy: { text: provider, label: "Web 検索の provider ID をコピー" },
+  };
+}
+
+function runtimeCloudflareRow(inUse: RuntimeInUseResponse | null): RuntimeInfoRow {
+  const label = "Cloudflare";
+  if (!inUse) return { label, value: RUNTIME_UNKNOWN };
+  const { available, accountId } = inUse.cloudflare;
+  const row: RuntimeInfoRow = { label, value: accountId ?? RUNTIME_UNSET };
+  if (!available) row.note = "利用できません（サーバーの master key が未設定です）";
+  else if (accountId) row.note = "設定済み";
+  if (accountId) row.copy = { text: accountId, label: "Cloudflare のアカウントIDをコピー" };
+  return row;
+}
+
 export type RuntimeReloadOutcome<T> = { ok: true; value: T } | { ok: false; message: string };
 
 export type RuntimeReloadResults = {
   /** includeHealth が false のときは null (親が持つ health をそのまま使う) */
   health: RuntimeReloadOutcome<Health> | null;
+  inUse: RuntimeReloadOutcome<RuntimeInUseResponse>;
   environment: RuntimeReloadOutcome<RuntimeEnvironmentResponse>;
 };
 
@@ -199,23 +386,25 @@ export type RuntimeReloadInput = {
   isCurrent: () => boolean;
   /** 既存の契約 (失敗もキャンセルも null) は変えず、ここで明示的な失敗へ変換する */
   refreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
+  getInUse: () => Promise<RuntimeInUseResponse>;
   getEnvironment: () => Promise<RuntimeEnvironmentResponse>;
 };
 
 /**
- * health と実行環境をまとめて取得する。1 系統の失敗で他を捨てず、全 settled を待つ。
+ * health・利用中のモデル・実行環境をまとめて取得する。1 系統の失敗で他を捨てず、全 settled を待つ。
  * 古い応答を適用しない判定は呼び出し側 (createRuntimeReloadGate) が持つ。
  */
 export async function reloadRuntime(input: RuntimeReloadInput): Promise<RuntimeReloadResults> {
   if (!input.includeHealth) {
-    const [environment] = await Promise.allSettled([input.getEnvironment()]);
-    return { health: null, environment: outcomeOf(environment) };
+    const [inUse, environment] = await Promise.allSettled([input.getInUse(), input.getEnvironment()]);
+    return { health: null, inUse: outcomeOf(inUse), environment: outcomeOf(environment) };
   }
-  const [health, environment] = await Promise.allSettled([
+  const [health, inUse, environment] = await Promise.allSettled([
     refreshHealthOrFail(input.refreshHealth, input.isCurrent),
+    input.getInUse(),
     input.getEnvironment(),
   ]);
-  return { health: outcomeOf(health), environment: outcomeOf(environment) };
+  return { health: outcomeOf(health), inUse: outcomeOf(inUse), environment: outcomeOf(environment) };
 }
 
 async function refreshHealthOrFail(
@@ -245,6 +434,7 @@ export type RuntimeDiagnosticInput = {
   health: Health | null;
   /** health の再取得に失敗し、前回値の表示になっているか */
   healthFailed: boolean;
+  inUse: RuntimeFetchState<RuntimeInUseResponse>;
   environment: RuntimeFetchState<RuntimeEnvironmentResponse>;
 };
 
@@ -260,6 +450,10 @@ export function runtimeDiagnosticText(input: RuntimeDiagnosticInput): string {
     RUNTIME_DIAGNOSTIC_TITLE,
     "",
     ...sectionLines(RUNTIME_SECTION_TITLES.connection, connectionLines(input.health, input.healthFailed)),
+    "",
+    ...sectionLines(RUNTIME_SECTION_TITLES.models, modelLines(input.health, input.inUse)),
+    "",
+    ...sectionLines(RUNTIME_SECTION_TITLES.integrations, integrationLines(input.inUse)),
     "",
     ...sectionLines(RUNTIME_SECTION_TITLES.environment, environmentLines(input.environment)),
     "",
@@ -284,6 +478,18 @@ function connectionLines(health: Health | null, healthFailed: boolean): string[]
   // 画面と同じく、前回値の断り書きを見出しの直後に出す
   const lines = healthFailed ? [HEALTH_RELOAD_FAILED_MESSAGE] : [];
   return [...lines, ...runtimeConnectionRows(health).map(rowLine), ...runtimeVersionRows(health).map(rowLine)];
+}
+
+function modelLines(health: Health | null, inUse: RuntimeFetchState<RuntimeInUseResponse>): string[] {
+  if (inUse.status === "loading") return [RUNTIME_MODELS_LOADING];
+  if (inUse.status === "error") return [inline(`${RUNTIME_MODELS_ERROR_LEAD}${inUse.message}`)];
+  return runtimeModelRows(health, inUse.value).map(rowLine);
+}
+
+function integrationLines(inUse: RuntimeFetchState<RuntimeInUseResponse>): string[] {
+  if (inUse.status === "loading") return [RUNTIME_INTEGRATIONS_LOADING];
+  if (inUse.status === "error") return [RUNTIME_INTEGRATIONS_UNAVAILABLE];
+  return runtimeIntegrationRows(inUse.value).map(rowLine);
 }
 
 function environmentLines(environment: RuntimeFetchState<RuntimeEnvironmentResponse>): string[] {

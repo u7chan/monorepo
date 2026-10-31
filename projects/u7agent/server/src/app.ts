@@ -168,7 +168,14 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     filePreviewPort,
     previewPort,
   });
-  const runtimeRoutes = createRuntimeRoutes({ pi, runtimeDiagnostics });
+  const runtimeRoutes = createRuntimeRoutes({
+    pi,
+    runtimeDiagnostics,
+    contentSettings,
+    webSearchSettings,
+    titleSummarySettings,
+    cloudflareSettings,
+  });
   const fileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "isolated" });
   // プレビュー専用リスナー (別オリジン) 用。storage を有効にするため、応答は HTML プレビューのルートだけにする
   const previewFileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "storage" });
@@ -242,6 +249,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .get("/api/health", healthRoutes.health)
     .get("/api/runtime/models", runtimeRoutes.models)
     .get("/api/runtime/environment", runtimeRoutes.environment)
+    .get("/api/runtime/in-use", appData, runtimeRoutes.inUse)
     .get("/api/files", fileRoutes.list)
     // 存在確認 (本文を取得しない)。一覧と同じ root 相対の path を受ける
     .get("/api/files/stat", fileRoutes.stat)

@@ -47,6 +47,7 @@ import type {
   RuntimeDebugServeStatus,
   RuntimeDebugServeStopResult,
   RuntimeEnvironmentResponse,
+  RuntimeInUseResponse,
   RuntimeModelsResponse,
   RuntimeServeStatus,
   SandboxSkillCreateResult,
@@ -314,6 +315,16 @@ export const getRuntimeModels = async (): Promise<RuntimeModelsResponse> => {
  */
 export const getRuntimeEnvironment = async (): Promise<RuntimeEnvironmentResponse> => {
   const res = await client.api.runtime.environment.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 環境タブが「いま使われるモデル」と「外部連携」を 1 回で読むための集約。設定 API のカタログは含まない。
+ * 失敗は BFF / アプリ DB の異常を表し、UI は取得状態 (loading / ready / error) で分岐する。
+ */
+export const getRuntimeInUse = async (): Promise<RuntimeInUseResponse> => {
+  const res = await client.api.runtime["in-use"].$get();
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
