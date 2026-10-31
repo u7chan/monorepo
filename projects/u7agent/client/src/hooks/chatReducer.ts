@@ -51,8 +51,9 @@ export type ChatState = {
    */
   runTools: Record<string, ToolCall>;
   /**
-   * payload が配る、表示 item にならない assistant 応答の時刻 / usage / 応答時間 (assistantId 引き)。
-   * 本文なしの未回答 ask_user のために `runTools` から空のバブルを合成するときだけ使う
+   * 表示 item にならない assistant 応答の時刻 / モデル / usage / 応答時間 (assistantId 引き)。
+   * payload の `assistantMeta` と、ライブの `assistant_end` が対象バブルを見つけられなかった応答の
+   * 確定モデルが入る。本文なしの未回答 ask_user のために `runTools` から空のバブルを合成するときだけ使う
    */
   assistantMeta: Record<string, AssistantMeta>;
   /** 表示中のセッション。切替 (resync の sessionId 変化) で履歴ページを捨てる */
@@ -455,7 +456,9 @@ function mergeAssistantCard(live: Bubble, history: Bubble): Bubble {
     entryId: history.entryId,
     context: history.context ?? live.context,
     at: live.at ?? history.at,
-    model: live.model !== undefined ? live.model : history.model,
+    // 履歴が assistant_end を追い越しても、未確定のライブ応答はモデルを伏せたままにする
+    // (確定済み / assistant_end を取りこぼした応答だけ、履歴の値を補完に使う)
+    model: live.model !== undefined ? live.model : live.settled === true ? history.model : undefined,
     usage: live.usage ?? history.usage,
     metrics: live.metrics ?? history.metrics,
     turnEnd: history.turnEnd ?? live.turnEnd,
@@ -1041,12 +1044,14 @@ function ensureAssistant(state: ChatState, at?: number, assistantKey?: string): 
   const next = appendBubble(state, "assistant", "", at);
   const bubbleId = next.nextId - 1;
   // ツール呼び出しだけの応答は usage の方が先に届くので、ここで作ったバブルへ回す
+  const meta = assistantKey === undefined ? undefined : next.assistantMeta[assistantKey];
   const withMeta =
-    next.pendingUsage || next.pendingMetrics
+    next.pendingUsage || next.pendingMetrics || meta?.model !== undefined
       ? updateBubble(next, bubbleId, (bubble) => ({
           ...bubble,
           usage: next.pendingUsage,
           metrics: next.pendingMetrics,
+          ...(meta?.model === undefined ? {} : { model: meta.model }),
         }))
       : next;
   return {
@@ -2646,7 +2651,19 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             ? undefined
             : state.bubbles.find((bubble) => bubble.id === state.currentAssistantId);
       if (target === undefined) {
-        if (key !== undefined) return state;
+        if (key !== undefined) {
+          // 本文なしの ask_user など、まだバブルが無い応答の確定モデルは応答IDごとに控える。
+          // 後から合成するバブル (ensureAssistant / appendOwnedAssistant) が同じキーを読む
+          return action.model === undefined
+            ? state
+            : {
+                ...state,
+                assistantMeta: {
+                  ...state.assistantMeta,
+                  [key]: { ...state.assistantMeta[key], assistantId: key, model: action.model },
+                },
+              };
+        }
         return state.toolTargetAssistantId === undefined
           ? state
           : { ...state, currentAssistantId: null, currentAssistantKey: undefined, toolTargetAssistantId: undefined };
