@@ -73,3 +73,60 @@ test("描画: Markdown リンクの children にある code は操作要素に�
   assert.ok(html.includes("<code>./index.html</code>"));
   assert.ok(!html.includes("<button"), "<a> の中に button が入っている");
 });
+
+test("描画: 作業フォルダのファイルを指す Markdown リンクは操作可能にする", () => {
+  const html = render("[課題](docs/design.md) を確認する。");
+  assert.ok(html.includes('class="md-filelink"'), html);
+  assert.ok(html.includes('href="docs/design.md"'), html);
+  assert.ok(html.includes('title="作業フォルダで開く"'), html);
+});
+
+test("描画: 裸名のリンクは遷移先を明示しているので採る", () => {
+  const html = render("[AGENTS.md](AGENTS.md)");
+  assert.ok(html.includes('class="md-filelink"'), html);
+});
+
+test("描画: フラグメント付きのリンクもファイルとして扱う", () => {
+  const html = render("[x](notes/a.md#L10)");
+  assert.ok(html.includes('class="md-filelink"'), html);
+  // 遷移先の字面はそのまま残す (ファイルタブへはパスだけを渡す)
+  assert.ok(html.includes('href="notes/a.md#L10"'), html);
+});
+
+test("描画: Markdown の title は開く先の案内より優先する", () => {
+  const html = render('[x](notes/a.md "説明")');
+  assert.ok(html.includes('title="説明"'), html);
+});
+
+test("描画: 通常の Web リンク・ページ内リンクは従来どおりの a のまま", () => {
+  for (const text of [
+    "[x](https://example.com/a.md)",
+    "[x](#section)",
+    "[x](/settings/appearance)",
+    "[x](mailto:a@example.com)",
+  ]) {
+    const html = render(text);
+    assert.ok(!html.includes("md-filelink"), text);
+    assert.ok(html.includes('target="_blank"'), text);
+    assert.ok(html.includes('rel="noreferrer noopener"'), text);
+  }
+});
+
+test("描画: provider の外では Markdown リンクを横取りしない", () => {
+  const html = render("[設計](docs/design.md)", { provider: false });
+  assert.ok(!html.includes("md-filelink"), html);
+  assert.ok(html.includes('target="_blank"'), html);
+});
+
+test("描画: 共通スキルの絶対パスへのリンクはスキル面の操作名になる", () => {
+  const html = render("[SKILL](/workspace/.agents/skills/alpha/SKILL.md)", { cwd: ".u7agent/sessions/s1" });
+  assert.ok(html.includes('class="md-filelink"'), html);
+  assert.ok(html.includes('title="スキルで開く"'), html);
+});
+
+test("描画: ファイル参照のリンクでも、リンク内の code は操作要素にしない", () => {
+  const html = render("[`docs/design.md`](docs/design.md)");
+  assert.ok(html.includes('class="md-filelink"'), html);
+  assert.ok(html.includes("<code>docs/design.md</code>"), html);
+  assert.ok(!html.includes("<button"), "<a> の中に button が入っている");
+});
