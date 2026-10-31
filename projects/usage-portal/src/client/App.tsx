@@ -4,21 +4,30 @@ import { MAX_OPENCODE_ACCOUNTS } from "../shared/opencode-account";
 import logo from "./assets/logo.png";
 import {
   type CodexAuthState,
+  type CodexProbeConfig,
   type OpenCodeAccount,
   type OpenCodeAccountInput,
   type OpenCodeAccountPatch,
+  type ProbeCatalog,
+  type ProbeCheckOutcome,
   type UsagePayload,
   type UsageSource,
   cancelCodexLogin,
+  checkCodex,
+  checkOpenCodeAccount,
+  clearCodexProbe,
   createOpenCodeAccount,
   deleteOpenCodeAccount,
   fetchCodexAuth,
+  fetchCodexProbe,
   fetchOpenCodeAccounts,
+  fetchProbeModels,
   fetchSession,
   fetchUsage,
   logout,
   logoutCodex,
   respondCodexLogin,
+  saveCodexProbe,
   startCodexLogin,
   updateOpenCodeAccount,
 } from "./api";
@@ -28,10 +37,12 @@ import { Modal } from "./components/Modal";
 import { OpenCodeAccountCard } from "./components/OpenCodeAccountCard";
 import { OpenCodeAccountForm, type OpenCodeAccountActions } from "./components/OpenCodeAccountForm";
 import { OverflowMenu, type MenuItem } from "./components/OverflowMenu";
+import { ProbeSettingsForm } from "./components/ProbeSettingsForm";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { formatClock } from "./lib/format";
 import { orderSources } from "./lib/order";
+import { readProbeLoad } from "./lib/probe";
 import { type ViewMode, browserStorage, readViewMode, writeViewMode } from "./lib/view-mode";
 import { expiryNotice } from "./time";
 
@@ -131,7 +142,7 @@ function Layout(props: { children: ComponentChildren; tools?: ComponentChildren;
       </header>
       <main class="up-main">{props.children}</main>
       <footer class="up-footer">
-        <span class="up-caption">5 分ごとに取得 · 表示専用</span>
+        <span class="up-caption">5 分ごとに取得 · 利用枠の確認と最小プロンプトの送信</span>
       </footer>
     </>
   );
@@ -146,8 +157,11 @@ function Dashboard(props: {
   const [usage, setUsage] = useState<UsagePayload | null>(null);
   const [codex, setCodex] = useState<CodexAuthState | null>(null);
   const [accounts, setAccounts] = useState<AccountsState>({ status: "loading", accounts: [] });
+  const [probe, setProbe] = useState<CodexProbeConfig | null>(null);
+  const [catalog, setCatalog] = useState<ProbeCatalog | null>(null);
   const [clock, setClock] = useState(() => Date.now());
   const [adding, setAdding] = useState(false);
+  const [configuring, setConfiguring] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(() => readViewMode(browserStorage()));
   const changeViewMode = useCallback((mode: ViewMode) => {
     setViewMode(mode);
@@ -246,9 +260,32 @@ function Dashboard(props: {
     return () => clearInterval(timer);
   }, [loadUsage]);
 
+  const loadProbe = useCallback(async () => {
+    try {
+      const [config, models] = await Promise.all([fetchCodexProbe(), fetchProbeModels()]);
+      const outcome = readProbeLoad(config, models);
+
+      if (outcome.kind === "unauthorized") {
+        onUnauthorized();
+
+        return;
+      }
+
+      if (outcome.kind === "failed") {
+        return;
+      }
+
+      setProbe(outcome.codex);
+      setCatalog(outcome.catalog);
+    } catch {
+      // 取得できないあいだは入口を出さない。設定そのものは server に残る。
+    }
+  }, [onUnauthorized]);
+
   useEffect(() => {
     void loadCodex();
-  }, [loadCodex]);
+    void loadProbe();
+  }, [loadCodex, loadProbe]);
 
   // アカウントの一覧は初回だけ取る。追加・削除・名前の変更のあとにだけ取り直す。
   useEffect(() => {
@@ -383,6 +420,70 @@ function Dashboard(props: {
     [refreshAfterChange],
   );
 
+  const saveProbe = useCallback(
+    async (config: CodexProbeConfig): Promise<string | null> => {
+      const outcome = await saveCodexProbe(config);
+
+      if (!outcome.ok) {
+        if (outcome.error === "unauthorized") {
+          onUnauthorized();
+        }
+
+        return outcome.error;
+      }
+
+      setProbe(outcome.value);
+
+      return null;
+    },
+    [onUnauthorized],
+  );
+
+  const clearProbe = useCallback(async (): Promise<string | null> => {
+    const outcome = await clearCodexProbe();
+
+    if (!outcome.ok) {
+      if (outcome.error === "unauthorized") {
+        onUnauthorized();
+      }
+
+      return outcome.error;
+    }
+
+    setProbe(null);
+
+    return null;
+  }, [onUnauthorized]);
+
+  const startCodexWindow = useCallback(async (): Promise<ProbeCheckOutcome> => {
+    const outcome = await checkCodex();
+
+    if (!outcome.ok && outcome.error === "unauthorized") {
+      onUnauthorized();
+
+      return outcome;
+    }
+
+    // 送信で窓が動いたかは分からない。取得できたときだけリセット時刻が出る。
+    void loadUsage();
+    void loadCodex();
+
+    return outcome;
+  }, [loadCodex, loadUsage, onUnauthorized]);
+
+  const checkAccount = useCallback(
+    async (id: string): Promise<ProbeCheckOutcome> => {
+      const outcome = await checkOpenCodeAccount(id);
+
+      if (!outcome.ok && outcome.error === "unauthorized") {
+        onUnauthorized();
+      }
+
+      return outcome;
+    },
+    [onUnauthorized],
+  );
+
   const signOut = useCallback(async (): Promise<void> => {
     await logout();
     await onLoggedOut();
@@ -408,6 +509,7 @@ function Dashboard(props: {
       onSelect: () => setAdding(true),
       disabled: atLimit,
     },
+    { label: "Codex の開始設定", onSelect: () => setConfiguring(true), disabled: catalog === null },
     { label: "ログアウト", onSelect: () => void signOut(), danger: true },
   ];
 
@@ -441,6 +543,8 @@ function Dashboard(props: {
               compact={compact}
               auth={codex}
               actions={codexActions}
+              probe={probe}
+              onCheck={startCodexWindow}
             />
           ) : (
             <OpenCodeAccountCard
@@ -450,6 +554,9 @@ function Dashboard(props: {
               generatedAt={usage?.generatedAt ?? null}
               compact={compact}
               actions={openCodeActions}
+              account={accounts.accounts.find((candidate) => candidate.id === source.id) ?? null}
+              models={catalog?.opencodeGo ?? []}
+              onCheck={checkAccount}
             />
           ),
         )}
@@ -468,7 +575,27 @@ function Dashboard(props: {
       ) : null}
       {adding ? (
         <Modal title="OpenCode Go のアカウントを追加" onClose={() => setAdding(false)}>
-          {(close) => <OpenCodeAccountForm mode="create" onSubmit={createAccount} onClose={close} />}
+          {(close) => (
+            <OpenCodeAccountForm
+              mode="create"
+              models={catalog?.opencodeGo ?? []}
+              onSubmit={createAccount}
+              onClose={close}
+            />
+          )}
+        </Modal>
+      ) : null}
+      {configuring ? (
+        <Modal title="Codex の開始設定" onClose={() => setConfiguring(false)}>
+          {(close) => (
+            <ProbeSettingsForm
+              models={catalog?.codex ?? []}
+              config={probe}
+              onSave={saveProbe}
+              onClear={clearProbe}
+              onClose={close}
+            />
+          )}
         </Modal>
       ) : null}
     </Layout>

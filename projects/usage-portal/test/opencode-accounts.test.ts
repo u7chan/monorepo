@@ -43,8 +43,8 @@ describe("createOpenCodeAccounts", () => {
     expect(first.id).toMatch(UUID_PATTERN);
     expect(second.id).not.toBe(first.id);
     expect(accounts.list()).toEqual([
-      { id: first.id, name: "メイン", icon: "🦊", savedAt: NOW },
-      { id: second.id, name: "サブ", icon: "🐼", savedAt: NOW + 60_000 },
+      { id: first.id, name: "メイン", icon: "🦊", savedAt: NOW, probeModel: null, probeThinking: null },
+      { id: second.id, name: "サブ", icon: "🐼", savedAt: NOW + 60_000, probeModel: null, probeThinking: null },
     ]);
     expect(accounts.get(second.id)?.name).toBe("サブ");
     expect(accounts.apiKey(second.id)).toBe("sk-second");
@@ -61,7 +61,17 @@ describe("createOpenCodeAccounts", () => {
 
     expect(JSON.parse(readFileSync(join(credentialDir, OPENCODE_ACCOUNTS_FILE), "utf8"))).toEqual({
       version: 1,
-      accounts: [{ id: expect.any(String), name: "メイン", icon: "🦊", apiKey: "sk-sentinel", savedAt: NOW }],
+      accounts: [
+        {
+          id: expect.any(String),
+          name: "メイン",
+          icon: "🦊",
+          apiKey: "sk-sentinel",
+          savedAt: NOW,
+          probeModel: null,
+          probeThinking: null,
+        },
+      ],
     });
   });
 
@@ -77,6 +87,8 @@ describe("createOpenCodeAccounts", () => {
       name: "メイン 2",
       icon: "🦊",
       savedAt: NOW + 1_000,
+      probeModel: null,
+      probeThinking: null,
     });
     expect(accounts.apiKey(created.id)).toBe("sk-first");
 
@@ -86,6 +98,8 @@ describe("createOpenCodeAccounts", () => {
       name: "メイン 2",
       icon: "🐧",
       savedAt: NOW + 2_000,
+      probeModel: null,
+      probeThinking: null,
     });
     expect(accounts.apiKey(created.id)).toBe("sk-second");
 
@@ -99,7 +113,9 @@ describe("createOpenCodeAccounts", () => {
     const second = accounts.create({ name: "サブ", icon: "🐼", apiKey: "sk-second" });
 
     expect(accounts.remove(first.id)).toBe(true);
-    expect(accounts.list()).toEqual([{ id: second.id, name: "サブ", icon: "🐼", savedAt: NOW }]);
+    expect(accounts.list()).toEqual([
+      { id: second.id, name: "サブ", icon: "🐼", savedAt: NOW, probeModel: null, probeThinking: null },
+    ]);
     expect(accounts.apiKey(first.id)).toBeNull();
     expect(accounts.remove("missing")).toBe(false);
   });
@@ -143,6 +159,52 @@ describe("createOpenCodeAccounts", () => {
 
     expect(logs).toEqual(["opencode-accounts.json を読めないため、アカウント 0 件として扱います"]);
     expect(JSON.stringify(logs)).not.toContain("sk-sentinel");
+  });
+
+  test("接続確認の設定を保存し、既存レコードは未設定として読む", () => {
+    const credentialDir = join(tempDir(), "credentials");
+    const path = join(credentialDir, OPENCODE_ACCOUNTS_FILE);
+    const accounts = createOpenCodeAccounts({ credentialDir, now: () => NOW });
+
+    // 旧バージョンが書いたレコード（probe の項目が無い）。
+    mkdirSync(credentialDir, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 1,
+        accounts: [{ id: "old", name: "旧", icon: "🦊", apiKey: "sk-old", savedAt: NOW }],
+      }),
+      { mode: 0o600 },
+    );
+
+    expect(accounts.list()).toEqual([
+      { id: "old", name: "旧", icon: "🦊", savedAt: NOW, probeModel: null, probeThinking: null },
+    ]);
+
+    // 保存済みのモデルが catalog から消えても、ストレージを壊れた扱いにしない。
+    expect(accounts.update("old", { probeModel: "gone-model", probeThinking: "low" })).toEqual({
+      id: "old",
+      name: "旧",
+      icon: "🦊",
+      savedAt: NOW,
+      probeModel: "gone-model",
+      probeThinking: "low",
+    });
+    expect(accounts.get("old")?.probeModel).toBe("gone-model");
+
+    // 片方だけの設定は、書き込み側の不具合として壊れたファイル扱いにする。
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 1,
+        accounts: [
+          { id: "old", name: "旧", icon: "🦊", apiKey: "sk-old", savedAt: NOW, probeModel: "m", probeThinking: null },
+        ],
+      }),
+      { mode: 0o600 },
+    );
+
+    expect(accounts.list()).toEqual([]);
   });
 
   test("read で読んだ配列を restore で書き戻せる", () => {

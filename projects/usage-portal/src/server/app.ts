@@ -7,6 +7,8 @@ import type { CodexApi } from "./codex/api";
 import { CodexLoginError } from "./codex/login";
 import type { HealthReport } from "./health";
 import type { OpenCodeApi, OpenCodeApiError } from "./opencode/api";
+import type { ProbeApi, ProbeConfigError } from "./probe/api";
+import type { ProbeErrorCode } from "./probe/service";
 import { createRateLimiter, type RateLimiter } from "./rate-limit";
 import { clearSessionCookie, sessionCookie } from "./session";
 import type { UsagePayload } from "./usage";
@@ -34,6 +36,7 @@ export type AppDeps = {
   usage: () => UsagePayload;
   codex: CodexApi;
   opencode: OpenCodeApi;
+  probe: ProbeApi;
   rateLimiter?: RateLimiter;
   clientKey?: (c: Context) => string;
   now?: () => number;
@@ -240,7 +243,13 @@ export function createApp(deps: AppDeps) {
         return c.json({ error: "invalid_request" as const }, 400);
       }
 
-      const result = await deps.opencode.create({ name: body.name, icon: body.icon, apiKey: body.apiKey });
+      const result = await deps.opencode.create({
+        name: body.name,
+        icon: body.icon,
+        apiKey: body.apiKey,
+        probeModel: body.probeModel,
+        probeThinking: body.probeThinking,
+      });
 
       return result.ok ? c.json({ account: result.value }, 201) : openCodeError(c, result.error);
     },
@@ -257,10 +266,22 @@ export function createApp(deps: AppDeps) {
         return c.json({ error: "invalid_request" as const }, 400);
       }
 
-      const patch = { name: body.name, icon: body.icon, apiKey: body.apiKey };
+      const patch = {
+        name: body.name,
+        icon: body.icon,
+        apiKey: body.apiKey,
+        probeModel: body.probeModel,
+        probeThinking: body.probeThinking,
+      };
 
       // 部分更新。どれも無い要求は、何を変えるのか決まらないので受け付けない。
-      if (patch.name === undefined && patch.icon === undefined && patch.apiKey === undefined) {
+      if (
+        patch.name === undefined &&
+        patch.icon === undefined &&
+        patch.apiKey === undefined &&
+        patch.probeModel === undefined &&
+        patch.probeThinking === undefined
+      ) {
         return c.json({ error: "invalid_request" as const }, 400);
       }
 
@@ -269,6 +290,47 @@ export function createApp(deps: AppDeps) {
       return result.ok ? c.json({ account: result.value }, 200) : openCodeError(c, result.error);
     },
   );
+
+  app.get("/api/probe/models", requireSession, (c) => c.json(deps.probe.models()));
+
+  app.get("/api/codex/probe", requireSession, (c) => c.json({ codex: deps.probe.codexConfig() }));
+
+  app.put("/api/codex/probe", requireSession, bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }), async (c) => {
+    const body = await readJsonObject(c);
+
+    if (!body) {
+      return c.json({ error: "invalid_request" as const }, 400);
+    }
+
+    const result = deps.probe.setCodexConfig({ model: body.model, thinking: body.thinking });
+
+    return result.ok ? c.json({ codex: result.value }) : probeError(c, result.error);
+  });
+
+  // 解除も状態を変える入口。PUT と同じ上限を掛け、過大な body では解除しない。
+  app.delete("/api/codex/probe", requireSession, bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }), (c) => {
+    const result = deps.probe.clearCodexConfig();
+
+    return result.ok ? c.json({ codex: null }) : probeError(c, result.error);
+  });
+
+  app.post("/api/codex/check", requireSession, async (c) => {
+    const result = await deps.probe.checkCodex();
+
+    return result.ok ? c.json({ latencyMs: result.latencyMs }) : probeError(c, result.error);
+  });
+
+  app.post("/api/opencode/accounts/:id/check", requireSession, async (c) => {
+    const id = c.req.param("id") ?? "";
+
+    if (deps.opencode.list().every((account) => account.id !== id)) {
+      return c.json({ error: "not_found" as const }, 404);
+    }
+
+    const result = await deps.probe.checkOpenCode(id);
+
+    return result.ok ? c.json({ latencyMs: result.latencyMs }) : probeError(c, result.error);
+  });
 
   app.delete("/api/opencode/accounts/:id", requireSession, async (c) => {
     const result = await deps.opencode.remove(c.req.param("id") ?? "");
@@ -332,6 +394,23 @@ function openCodeError(c: Context, error: OpenCodeApiError): Response {
   const status = error === "not_found" ? 404 : error === "limit_reached" ? 409 : error === "unavailable" ? 503 : 400;
 
   return c.json({ error }, status);
+}
+
+function probeError(c: Context, error: ProbeErrorCode | ProbeConfigError): Response {
+  switch (error) {
+    case "invalid_model":
+    case "invalid_thinking":
+    case "invalid_key":
+    case "model_unavailable":
+      return c.json({ error }, 400);
+    case "not_configured":
+    case "in_progress":
+    case "limit_reached":
+    case "reauth_required":
+      return c.json({ error }, 409);
+    default:
+      return c.json({ error: "unavailable" as const }, 503);
+  }
 }
 
 function codexError(c: Context, error: unknown): Response {

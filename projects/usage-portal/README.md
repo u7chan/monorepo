@@ -1,7 +1,9 @@
 # usage-portal
 
 Codex（ChatGPT サブスクリプション）と OpenCode Go の利用枠を 1 ページで確認するダッシュボード。
-自宅 LAN または VPN の内側から、スマホと PC で見る読み取り専用の画面で、Docker コンテナとして動かす。
+自宅 LAN または VPN の内側から、スマホと PC で見る画面で、Docker コンテナとして動かす。
+利用枠の表示に加えて、設定したときだけ最小プロンプトを 1 回送る操作（Codex の 5 時間窓の開始と
+OpenCode Go の接続確認）を持つ。
 
 全体設計は [docs/design.md](docs/design.md)、決定の理由は [docs/adr/](docs/adr) を参照する。
 
@@ -14,6 +16,9 @@ Codex（ChatGPT サブスクリプション）と OpenCode Go の利用枠を 1 
 - 表示は「簡易」と「標準」を切り替えられる。簡易は推移と補足を省いて 3 件程度を 1 画面に収め、選択は localStorage に残す（[ADR 0011](docs/adr/0011-view-mode-toggle.md)）
 - 窓は月次 ⊃ 週次 ⊃ ローリングの入れ子で、外側が上限なら内側は「使用不可」と赤で出す（[ADR 0009](docs/adr/0009-window-blocking-and-five-hour-rolling.md)）
 - Codex は Web UI から Sign in with ChatGPT（デバイスコード / ブラウザ + 貼り付け）でサインインする
+- 送信の設定（モデルと思考レベル）を済ませると、Codex カードに「5時間を開始」、設定済みの OpenCode Go の
+  アカウントに「接続確認」が出る。固定の最小プロンプトを 1 回だけ送り、応答本文は保存も表示もしない
+  （[ADR 0017](docs/adr/0017-probe-prompts.md)）
 - OpenCode Go はアカウント（API キー）を最大 10 件登録でき、1 アカウント = 1 カードで並べる
 - PWA 用の manifest と 192 / 512px のアイコン、iOS ホーム画面用の 180px アイコンを配信する
 - `GET /api/health` は DB と認証状態だけを返し、利用枠や利用者情報を含まない
@@ -92,13 +97,24 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `POST` | `/api/codex/login/respond` | 必要 | `{ "value": "..." }`。`select` の選択肢 ID か、ブラウザの最後の URL（204） |
 | `DELETE` | `/api/codex/login` | 必要 | 進行中のサインインを中断（204、冪等） |
 | `POST` | `/api/codex/logout` | 必要 | 保存済み OAuth を削除し、Codex の snapshot を消す（204） |
-| `GET` | `/api/opencode/accounts` | 必要 | `{ accounts: [{ id, name, icon, savedAt }] }`。値は返さない |
-| `POST` | `/api/opencode/accounts` | 必要 | `{ name, icon, apiKey }` → 201 `{ account }`。検証して保存。失敗は `invalid_name` / `invalid_icon` / `invalid_key`（400）、`limit_reached`（409）、`unavailable`（503） |
-| `PUT` | `/api/opencode/accounts/:id` | 必要 | `{ name?, icon?, apiKey? }` → 200 `{ account }`。未知の id は 404 |
+| `GET` | `/api/probe/models` | 必要 | `{ codex: [...], opencodeGo: [...] }`。`{ id, name, thinkingLevels, cost }`。ネットワークは叩かない |
+| `GET` | `/api/codex/probe` | 必要 | `{ codex: { model, thinking } \| null }`。未設定は `null` |
+| `PUT` | `/api/codex/probe` | 必要 | `{ model, thinking }` → 200 `{ codex }`。catalog に無ければ `invalid_model` / `invalid_thinking`（400） |
+| `DELETE` | `/api/codex/probe` | 必要 | 設定を解除（200 `{ codex: null }`） |
+| `POST` | `/api/codex/check` | 必要 | 最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未設定は 409 `not_configured`、同時実行は 409 `in_progress` |
+| `GET` | `/api/opencode/accounts` | 必要 | `{ accounts: [{ id, name, icon, savedAt, probeModel, probeThinking }] }`。キーは返さない |
+| `POST` | `/api/opencode/accounts` | 必要 | `{ name, icon, apiKey, probeModel?, probeThinking? }` → 201 `{ account }`。検証して保存。失敗は `invalid_name` / `invalid_icon` / `invalid_key` / `invalid_probe` / `invalid_model` / `invalid_thinking`（400）、`limit_reached`（409）、`unavailable`（503） |
+| `PUT` | `/api/opencode/accounts/:id` | 必要 | `{ name?, icon?, apiKey?, probeModel?, probeThinking? }` → 200 `{ account }`。未知の id は 404 |
+| `POST` | `/api/opencode/accounts/:id/check` | 必要 | そのキーで最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未知の id は 404、未設定は 409 `not_configured` |
 | `DELETE` | `/api/opencode/accounts/:id` | 必要 | アカウントと snapshot / error / sample を削除（204）。未知の id は 404 |
 
 状態を変える要求（`POST` / `PUT` / `DELETE`）は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。
 応答はすべて `Cache-Control: no-store`。ログインの試行制限は接続元ごとに数え、同時に届いた要求も直列化して 5 回を超えて照合しない。
+
+送信系の 2 つ（`/api/codex/check`・`/api/opencode/accounts/:id/check`）は同じ契約で失敗を返す。
+401 / 403 は Codex が `reauth_required`、OpenCode Go が `invalid_key`、429 は `limit_reached`、400 / 404 は
+`model_unavailable`、それ以外と stream の異常終了は `unavailable`。応答本文と上流のエラー文は返さない。
+Codex の 5 時間窓が API に返らないアカウントがあるため、「開始済み」の判定は持たない（再送しても 5 時間は延びない）。
 
 `sources[]` は source ごとに独立して失敗する。`id` は `codex` またはアカウントの uuid、`provider` は `codex` / 
 `opencode-go`、`account` は OpenCode Go の `{ id, name, icon }`（Codex は `null`）で、並びは Codex → 登録順。
@@ -121,6 +137,19 @@ Codex の OAuth は自前実装せず、Pi SDK（`@earendil-works/pi-coding-agen
 
 コールバックポート（1455）は publish しない。コンテナ内の `127.0.0.1` に閉じるため、どのブラウザからでも
 デバイスコードか貼り付けで完了できるようにしてある。進行中の状態は BFF のメモリだけに置き、開始から 10 分で自動中断する。
+
+## 最小プロンプトの送信
+
+Codex の「5時間を開始」と OpenCode Go の「接続確認」は、どちらも固定の 1 文（`Reply with the single word OK.`）を
+1 回だけ送る。応答本文は使わず、成功・失敗・latency・固定のエラーコードだけを扱う（[ADR 0017](docs/adr/0017-probe-prompts.md)）。
+
+1. ヘッダーの `⋮` →「Codex の開始設定」でモデルと思考レベルを選ぶ（どちらも選ぶまで保存できない）
+2. Codex カードのフッターに「5時間を開始」が出る。押すと送信し、そのあと利用枠を取り直す
+3. OpenCode Go はアカウントの追加・編集フォームでモデルと思考レベルを選ぶと、`⋮` に「接続確認」が出る
+4. 設定を解除すると入口も消える
+
+送信しても利用枠の表示にすぐ反映されないことがある。リセット時刻は取得できたときにだけ出す。
+既定のモデルは置かない。Codex の送信後は全 source を取り直すため、アカウントが多いと数秒かかる。
 
 ## OpenCode Go のアカウント
 
@@ -153,7 +182,7 @@ rm credentials/opencode-key.json
 | --- | --- | --- |
 | `HOST` | `0.0.0.0` | 待ち受けアドレス |
 | `PORT` | `3000` | 待ち受けポート |
-| `DATA_DIR` | `/app/data` | SQLite と認証状態（`pin-hash` / `session-key`）の置き場。起動時に 0700 で作り、配下のファイルを 0600 にする |
+| `DATA_DIR` | `/app/data` | SQLite と認証状態（`pin-hash` / `session-key`）、送信の設定（`settings.json`）の置き場。起動時に 0700 で作り、配下のファイルを 0600 にする |
 | `CREDENTIAL_DIR` | `/app/credentials` | Codex の `auth.json` / `device-id` と OpenCode Go の `opencode-accounts.json` の置き場。起動時に 0700、配下のファイルを 0600 にする |
 | `POLL_INTERVAL_MS` | `300000` | 上流を取りに行く間隔。1 分未満・非整数は起動しない |
 | `COMMIT_HASH` | なし | build 時に埋め込む。`User-Agent: usage-portal/<version>` の version になる |
@@ -202,6 +231,7 @@ src/server/version.ts         version と User-Agent の組み立て
 src/server/providers/         Codex / OpenCode Go の adapter と正規化モデル
 src/server/codex/             Pi SDK の資格情報、SiWC の状態機械、/api/codex/*
 src/server/opencode/          OpenCode Go のアカウントの保存と /api/opencode/*
+src/server/probe/             送信の設定（settings.json）、モデル catalog、最小プロンプトの送信
 src/shared/                    server と client で共有する入力規則（アカウント名・アイコン・キー）
 src/client/main.tsx           Preact の描画入口
 src/client/App.tsx            セッション・利用枠・アカウントの取得と画面の切り替え
@@ -212,7 +242,7 @@ src/client/lib/windows.ts     推移の初期表示に選ぶ窓
 src/client/lib/view-mode.ts  簡易 / 標準の保存値（localStorage）
 src/client/lib/status.ts      状態ラベルとしきい値
 src/client/lib/account-color.ts  アカウントのアイコン背景色（id のハッシュから選ぶ）
-src/client/components/        ログイン、source カード、meter、trend、アカウントの編集、表示の切り替え
+src/client/components/        ログイン、source カード、meter、trend、アカウントの編集、送信の設定、表示の切り替え
 src/client/styles.css         CSS トークンとレイアウト
 test/                         bun:test
 scripts/docs-check.mjs        docs の相対リンクとパスの検査
@@ -234,10 +264,12 @@ bun run check
 ## セキュリティの前提
 
 - 自宅 LAN または VPN の内側からだけ使う。インターネットへ公開しない。v1 は HTTP のままで、TLS 終端は置かない
-- 画面は利用枠を変更しない。資格情報（Codex のサインイン、OpenCode Go のアカウント）の登録・変更・削除だけを行う
+- 画面は利用枠を変更しない。資格情報（Codex のサインイン、OpenCode Go のアカウント）の登録・変更・削除と、
+  明示的に押したときの最小プロンプト 1 回の送信だけを行う（送るのはサーバ側の固定 1 文で、利用者の入力は混ぜない）
 - 認証情報と DB の中身は API から返さない。`/api/health` は状態だけを返し、利用枠や利用者情報を含めない
 - SQLite と認証状態は `DATA_DIR`（0700）に置き、ファイルを 0600 にし、プロセスの先頭で `umask 077` を設定する
 - Codex の token・account id・email、OpenCode の API key は応答・ログ・DB に残さない。上流の応答本文も保存しない
+- 送信の成否は status・`stopReason`・latency・固定のエラーコードだけを扱い、プロンプトも応答も保存しない
 - `/app/credentials` は 0700、`auth.json` / `device-id` / `opencode-accounts.json` は 0600。ホストの Pi 資格情報とは共有しない
 - `opencode-accounts.json` はアカウント数だけキーを平文で持つ。旧 `opencode-key.json` を残すとキーが二重に残るため、登録後に削除する
 - PIN、PIN ハッシュ、セッション鍵、cookie、API key、token をログに出さない
@@ -265,3 +297,4 @@ bun run check
 - [docs/adr/0014-pwa-icons.md](docs/adr/0014-pwa-icons.md) — PWA と iOS ホーム画面用のアイコン
 - [docs/adr/0015-reset-line-badge.md](docs/adr/0015-reset-line-badge.md) — リセット行の残り時間をバッジにする
 - [docs/adr/0016-exhausted-cards-last.md](docs/adr/0016-exhausted-cards-last.md) — 使い切ったカードを末尾に回す
+- [docs/adr/0017-probe-prompts.md](docs/adr/0017-probe-prompts.md) — 最小プロンプトの送信（5 時間窓の開始と接続確認）

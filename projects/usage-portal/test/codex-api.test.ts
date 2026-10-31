@@ -11,7 +11,7 @@ import type { CodexAuth } from "../src/server/codex/auth";
 import { createCodexLoginService } from "../src/server/codex/login";
 import { openDatabase, saveProviderSnapshot, type DatabaseHandle } from "../src/server/db";
 import { buildHealthReport } from "../src/server/health";
-import { BASE_TIME, EMPTY_USAGE, stubOpenCodeApi, usageSnapshot } from "./support";
+import { BASE_TIME, EMPTY_USAGE, stubOpenCodeApi, stubProbeApi, usageSnapshot } from "./support";
 
 const PIN = "123456";
 const ORIGIN = "http://localhost";
@@ -69,6 +69,7 @@ function harness(
     usage: () => EMPTY_USAGE,
     codex,
     opencode: stubOpenCodeApi(),
+    probe: stubProbeApi(),
     health: () => buildHealthReport("ok", auth.status()),
     now: () => BASE_TIME,
     clientKey: () => "test-client",

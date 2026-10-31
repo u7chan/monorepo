@@ -16,6 +16,9 @@ import {
 import { buildHealthReport } from "./server/health";
 import { createOpenCodeAccounts, openCodeSourceId } from "./server/opencode/accounts";
 import { createOpenCodeApi } from "./server/opencode/api";
+import { createProbeApi } from "./server/probe/api";
+import { createProbeRunner } from "./server/probe/service";
+import { createProbeSettings } from "./server/probe/settings";
 import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "./server/providers";
 import { fetchCodexUsage } from "./server/providers/codex";
 import { fetchOpenCodeUsage } from "./server/providers/opencode-go";
@@ -60,6 +63,8 @@ try {
 
 const codexAuth = createCodexAuth({ credentialDir: config.credentialDir, log });
 const openCodeAccounts = createOpenCodeAccounts({ credentialDir: config.credentialDir, log });
+// 送信の設定は秘密ではないので `DATA_DIR` に置く。壊れていても「未設定」として起動する。
+const probeSettings = createProbeSettings({ dataDir: config.dataDir, log });
 
 // 単一キー時代の行と、消えたアカウントの行を起動時に回収する。失敗しても取得は続けられる。
 try {
@@ -99,11 +104,24 @@ const opencode = createOpenCodeApi({
   sampler,
   fetchUsage: (apiKey) => fetchOpenCodeUsage({ apiKey, userAgent, now: Date.now }),
 });
+const probe = createProbeApi({
+  settings: probeSettings,
+  runner: createProbeRunner({
+    settings: probeSettings,
+    accounts: openCodeAccounts,
+    credential: () => codexAuth.credential(),
+    userAgent,
+    kick: () => sampler.kick(),
+    now: Date.now,
+    log,
+  }),
+});
 
 const app = createApp({
   auth,
   codex,
   opencode,
+  probe,
   usage: createUsageReader({
     db: database,
     sampleIntervalMs: config.pollIntervalMs,
