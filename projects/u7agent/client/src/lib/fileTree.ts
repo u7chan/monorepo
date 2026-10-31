@@ -187,6 +187,9 @@ export function fileTreeDeleteConfirmRequest(path: string, type: "file" | "dir")
   };
 }
 
+/** 1 セグメントの名前の上限。`server/src/sandbox/protocol.ts` の `SANDBOX_MAX_ENTRY_NAME_LENGTH` と同じ値 */
+export const ENTRY_NAME_MAX_LENGTH = 200;
+
 /** リネームの入力。初期値 (現在の名前) を入れ、対象のパスは clamp した独立した行へ出す */
 export function fileTreeRenameRequest(path: string, currentName: string): PromptRequest {
   return {
@@ -195,6 +198,7 @@ export function fileTreeRenameRequest(path: string, currentName: string): Prompt
     subject: { label: "名前を変更するフォルダ", value: path },
     label: "新しい名前",
     defaultValue: currentName,
+    maxLength: ENTRY_NAME_MAX_LENGTH,
     confirmLabel: "名前を変更",
   };
 }

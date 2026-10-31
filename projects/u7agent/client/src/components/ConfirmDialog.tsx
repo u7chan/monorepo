@@ -125,6 +125,7 @@ export function ConfirmDialog({ request, onConfirm, onCancel }: ConfirmDialogPro
                 id={inputId}
                 ref={inputRef}
                 value={value}
+                maxLength={request.maxLength}
                 onChange={(event) => setValue(event.currentTarget.value)}
                 className="field text-md"
               />

@@ -12,7 +12,12 @@ import {
   SPACE_SELECTION_KEY,
   type SpaceSelectionStorage,
 } from "../src/lib/spaceSelection";
-import { spaceDeleteConfirmRequest, spaceRenameRequest, spaceRowActions } from "../src/lib/spaceSettings";
+import {
+  spaceDeleteConfirmRequest,
+  spaceRenameRequest,
+  spaceRowActions,
+  SPACE_NAME_MAX_LENGTH,
+} from "../src/lib/spaceSettings";
 import { removeSpaceAndApply } from "../src/lib/spaceDelete";
 import { reorderRows } from "../src/lib/agentReorder";
 import { createSessionCreation } from "../src/hooks/sessionCreation";
@@ -158,7 +163,9 @@ test("改名の入力は現在の名前を初期値にし、id・所属・保存
   // 現在名の入力を省かない（既存の名前を確かめてから直せる）
   assert.equal(request.defaultValue, demo.name);
   assert.deepEqual(request.subject, { label: "名前を変更する会話スペース", value: demo.name });
-  // prompt の入力欄には maxLength が無いので、上限はダイアログ内で先に示す（弾くのはサーバー）
+  // 上限は入力段階で止め、本文でも同じ値を示す（最終判定はサーバー）
+  assert.equal(request.maxLength, SPACE_NAME_MAX_LENGTH);
+  assert.equal(SPACE_NAME_MAX_LENGTH, 80);
   const text = (request.body ?? []).join("");
   for (const kept of ["表示名だけ", "会話の所属", "作業フォルダ", "添付", "1〜80 文字"]) {
     assert.ok(text.includes(kept), `本文に無い: ${kept}`);

@@ -6,6 +6,7 @@ import type { RunStatus } from "../src/types";
 import { sessionBusy, workdirBusyKind } from "../src/lib/sessionBusy";
 import {
   SHARE_CONFIRM_NOTES,
+  SHARE_NAME_MAX_LENGTH,
   SHARE_PUBLISHING_NOTE,
   SHARE_RUNNING_NOTE,
   SHARE_WORKDIR_RUNNING_NOTE,
@@ -530,6 +531,7 @@ test("名前の変更: 対象と現在値を入れ、URL と状態が変わら�
     title: "名前を変更",
     label: "共有物の名前",
     defaultValue: "モンスト風",
+    maxLength: SHARE_NAME_MAX_LENGTH,
     body: ["表示名だけを変えます。公開 URL と公開状態は変わりません。"],
     confirmLabel: "変更する",
   });
