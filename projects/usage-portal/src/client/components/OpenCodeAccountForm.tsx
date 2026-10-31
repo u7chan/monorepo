@@ -5,7 +5,7 @@ import {
   OPENCODE_ACCOUNT_ICONS,
   normalizeAccountName,
 } from "../../shared/opencode-account";
-import type { OpenCodeAccountInput, OpenCodeAccountPatch } from "../api";
+import type { OpenCodeAccount, OpenCodeAccountInput, OpenCodeAccountPatch, ProbeModel } from "../api";
 
 export type OpenCodeAccountActions = {
   /** 成功なら `null`、失敗なら画面に出すコード。 */
@@ -32,17 +32,24 @@ export function openCodeAccountErrorMessage(error: string): string {
 /** 追加と編集で同じ入力を使う。編集では API キーを空のままにすると変更しない。 */
 export function OpenCodeAccountForm(props: {
   mode: "create" | "edit";
-  account?: { id: string; name: string; icon: string };
+  account?: OpenCodeAccount;
+  /** 接続確認に使えるモデル。catalog を取得できていなければ空で、選択肢を出さない。 */
+  models: readonly ProbeModel[];
   onSubmit: (input: OpenCodeAccountInput) => Promise<string | null>;
   onClose: () => void;
 }) {
   const [name, setName] = useState(props.account?.name ?? "");
   const [icon, setIcon] = useState<string>(props.account?.icon ?? OPENCODE_ACCOUNT_ICONS[0]);
   const [apiKey, setApiKey] = useState("");
+  const [probeModel, setProbeModel] = useState(props.account?.probeModel ?? "");
+  const [probeThinking, setProbeThinking] = useState(props.account?.probeThinking ?? "");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const groupName = props.account ? `opencode-icon-${props.account.id}` : "opencode-icon-new";
   const editing = props.mode === "edit";
+  const selectedModel = props.models.find((candidate) => candidate.id === probeModel) ?? null;
+  const levels = selectedModel?.thinkingLevels ?? [];
+  const thinking = levels.includes(probeThinking) ? probeThinking : "";
 
   const submit = async (): Promise<void> => {
     // 名前の規則は server と同じ 1 つだけを使う。HTML の maxLength はコードポイントではなく
@@ -62,11 +69,26 @@ export function OpenCodeAccountForm(props: {
       return;
     }
 
+    // 片方だけの設定は server も受け付けない。何を設定したいのか決まらないため、送る前に止める。
+    if ((selectedModel === null) !== (thinking === "")) {
+      setMessage("接続確認は、モデルと思考レベルの両方を選ぶか、両方を空にしてください。");
+
+      return;
+    }
+
     setBusy(true);
     setMessage(null);
 
     try {
-      const error = await props.onSubmit({ name: normalizedName, icon, apiKey: trimmedKey });
+      const error = await props.onSubmit({
+        name: normalizedName,
+        icon,
+        apiKey: trimmedKey,
+        // catalog を取得できていないときは選択肢を出していない。保存済みの設定を消さないよう触らない。
+        ...(props.models.length === 0
+          ? {}
+          : { probeModel: selectedModel?.id ?? null, probeThinking: selectedModel === null ? null : thinking }),
+      });
 
       if (error === null) {
         // 入力したキーを画面に残さない。閉じるまで平文で保持しない。
@@ -135,6 +157,47 @@ export function OpenCodeAccountForm(props: {
           onInput={(event) => setApiKey((event.currentTarget as HTMLInputElement).value)}
         />
       </label>
+
+      {props.models.length === 0 ? null : (
+        <fieldset class="up-fieldset">
+          <legend class="up-label">接続確認（任意）</legend>
+          <p class="up-caption">設定すると、このアカウントのキーで最小プロンプトを 1 回送れるようになります。</p>
+          <label class="up-field">
+            <span class="up-label">モデル</span>
+            <select
+              class="up-input"
+              value={selectedModel?.id ?? ""}
+              onChange={(event) => {
+                setProbeModel((event.currentTarget as HTMLSelectElement).value);
+                setProbeThinking("");
+              }}
+            >
+              <option value="">設定しない</option>
+              {props.models.map((candidate) => (
+                <option value={candidate.id} key={candidate.id}>
+                  {candidate.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label class="up-field">
+            <span class="up-label">思考レベル</span>
+            <select
+              class="up-input"
+              value={thinking}
+              disabled={selectedModel === null}
+              onChange={(event) => setProbeThinking((event.currentTarget as HTMLSelectElement).value)}
+            >
+              <option value="">選択してください</option>
+              {levels.map((candidate) => (
+                <option value={candidate} key={candidate}>
+                  {candidate}
+                </option>
+              ))}
+            </select>
+          </label>
+        </fieldset>
+      )}
 
       <div class="up-form-actions">
         <button class="up-button" type="submit" disabled={busy}>

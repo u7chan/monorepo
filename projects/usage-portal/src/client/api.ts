@@ -72,11 +72,48 @@ export type CodexLoginState = {
 
 export type CodexAuthState = { signedIn: boolean; login: CodexLoginState | null };
 
-export type OpenCodeAccount = { id: string; name: string; icon: string; savedAt: number };
+export type OpenCodeAccount = {
+  id: string;
+  name: string;
+  icon: string;
+  savedAt: number;
+  /** 接続確認に使うモデルと思考レベル。未設定は両方 null。 */
+  probeModel: string | null;
+  probeThinking: string | null;
+};
 
-export type OpenCodeAccountInput = { name: string; icon: string; apiKey: string };
+export type OpenCodeAccountInput = {
+  name: string;
+  icon: string;
+  apiKey: string;
+  probeModel?: string | null;
+  probeThinking?: string | null;
+};
 
-export type OpenCodeAccountPatch = { name?: string; icon?: string; apiKey?: string };
+export type OpenCodeAccountPatch = {
+  name?: string;
+  icon?: string;
+  apiKey?: string;
+  probeModel?: string | null;
+  probeThinking?: string | null;
+};
+
+/** 送信に使えるモデル。既定値は持たず、保存された値だけを使う。 */
+export type ProbeModel = {
+  id: string;
+  name: string;
+  thinkingLevels: string[];
+  cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+};
+
+export type ProbeCatalog = { codex: ProbeModel[]; opencodeGo: ProbeModel[] };
+
+export type CodexProbeConfig = { model: string; thinking: string };
+
+export type CodexProbeOutcome = { ok: true; value: CodexProbeConfig | null } | { ok: false; error: string };
+
+/** 送信の結果。応答本文は受け取らない。 */
+export type ProbeCheckOutcome = { ok: true; latencyMs: number } | { ok: false; error: string };
 
 export type OpenCodeAccountOutcome<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -223,6 +260,86 @@ export async function updateOpenCodeAccount(
   return requestOpenCodeAccount(`/api/opencode/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: patch });
 }
 
+export async function fetchProbeModels(): Promise<ProbeCatalog | Unauthorized | null> {
+  const response = await fetch("/api/probe/models", { headers: { accept: "application/json" } });
+
+  if (response.status === 401) {
+    return { unauthorized: true };
+  }
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const body: unknown = await response.json().catch(() => null);
+
+  return { codex: readModels(body, "codex"), opencodeGo: readModels(body, "opencodeGo") };
+}
+
+export async function fetchCodexProbe(): Promise<CodexProbeConfig | null | Unauthorized> {
+  const response = await fetch("/api/codex/probe", { headers: { accept: "application/json" } });
+
+  if (response.status === 401) {
+    return { unauthorized: true };
+  }
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return parseCodexProbe(await response.json().catch(() => null));
+}
+
+export async function saveCodexProbe(config: CodexProbeConfig): Promise<CodexProbeOutcome> {
+  return requestCodexProbe("PUT", config);
+}
+
+export async function clearCodexProbe(): Promise<CodexProbeOutcome> {
+  return requestCodexProbe("DELETE", undefined);
+}
+
+async function requestCodexProbe(
+  method: "PUT" | "DELETE",
+  body: CodexProbeConfig | undefined,
+): Promise<CodexProbeOutcome> {
+  const response = await fetch("/api/codex/probe", {
+    method,
+    ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  });
+  const parsed: unknown = await response.json().catch(() => null);
+
+  if (response.ok) {
+    return { ok: true, value: parseCodexProbe(parsed) };
+  }
+
+  if (response.status === 401) {
+    return { ok: false, error: "unauthorized" };
+  }
+
+  return { ok: false, error: readString(parsed, "error") ?? "unavailable" };
+}
+
+export async function checkCodex(): Promise<ProbeCheckOutcome> {
+  return requestProbeCheck("/api/codex/check");
+}
+
+export async function checkOpenCodeAccount(id: string): Promise<ProbeCheckOutcome> {
+  return requestProbeCheck(`/api/opencode/accounts/${encodeURIComponent(id)}/check`);
+}
+
+async function requestProbeCheck(path: string): Promise<ProbeCheckOutcome> {
+  const response = await fetch(path, { method: "POST" });
+  const body: unknown = await response.json().catch(() => null);
+
+  if (response.ok) {
+    const latencyMs = readNumber(body, "latencyMs");
+
+    return latencyMs === null ? { ok: false, error: "unavailable" } : { ok: true, latencyMs };
+  }
+
+  return { ok: false, error: readString(body, "error") ?? "unavailable" };
+}
+
 export async function deleteOpenCodeAccount(id: string): Promise<boolean> {
   const response = await fetch(`/api/opencode/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
 
@@ -289,7 +406,51 @@ export function parseOpenCodeAccount(body: unknown): OpenCodeAccount | null {
     return null;
   }
 
-  return { id, name, icon, savedAt: readNumber(body, "savedAt") ?? 0 };
+  return {
+    id,
+    name,
+    icon,
+    savedAt: readNumber(body, "savedAt") ?? 0,
+    probeModel: readString(body, "probeModel"),
+    probeThinking: readString(body, "probeThinking"),
+  };
+}
+
+export function parseCodexProbe(body: unknown): CodexProbeConfig | null {
+  const codex = readObject(body, "codex");
+  const model = readString(codex, "model");
+  const thinking = readString(codex, "thinking");
+
+  return model && thinking ? { model, thinking } : null;
+}
+
+function readModels(body: unknown, key: string): ProbeModel[] {
+  return readObjects(body, key)
+    .map(parseProbeModel)
+    .filter((model) => model !== null);
+}
+
+function parseProbeModel(value: unknown): ProbeModel | null {
+  const id = readString(value, "id");
+  const name = readString(value, "name");
+
+  if (!id) {
+    return null;
+  }
+
+  const cost = readObject(value, "cost");
+
+  return {
+    id,
+    name: name ?? id,
+    thinkingLevels: readStrings(value, "thinkingLevels"),
+    cost: {
+      input: readNumber(cost, "input") ?? 0,
+      output: readNumber(cost, "output") ?? 0,
+      cacheRead: readNumber(cost, "cacheRead") ?? 0,
+      cacheWrite: readNumber(cost, "cacheWrite") ?? 0,
+    },
+  };
 }
 
 function parseSource(value: unknown): UsageSource | null {

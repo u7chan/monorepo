@@ -478,7 +478,24 @@ h2 {
 }
 
 .up-provider-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--up-space-2);
   margin-top: auto;
+}
+
+/* 送信の操作と結果。フッターの右側に寄せ、結果はその下に折り返す。 */
+.up-probe {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--up-space-2);
+}
+
+.up-probe .up-button {
+  margin-top: 0;
 }
 
 .up-trend {

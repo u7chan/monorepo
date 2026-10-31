@@ -10,7 +10,7 @@ import { buildHealthReport } from "../src/server/health";
 import { openCodeSourceId } from "../src/server/opencode/accounts";
 import { parseCodexUsage } from "../src/server/providers/codex";
 import { createUsageReader, type UsagePayload, type UsageSourceAccount } from "../src/server/usage";
-import { BASE_TIME, stubCodexApi, stubOpenCodeApi, usageSnapshot } from "./support";
+import { BASE_TIME, stubCodexApi, stubOpenCodeApi, usageSnapshot, stubProbeApi } from "./support";
 
 const PIN = "123456";
 const ORIGIN = "http://localhost";
@@ -44,6 +44,7 @@ function harness(accounts: readonly UsageSourceAccount[] = []): Harness {
     auth,
     usage: createUsageReader({ db, sampleIntervalMs: INTERVAL, now: () => clock, accounts: () => accounts }),
     codex: stubCodexApi(),
+    probe: stubProbeApi(),
     opencode: stubOpenCodeApi(),
     health: () => buildHealthReport("ok", auth.status()),
     now: () => clock,

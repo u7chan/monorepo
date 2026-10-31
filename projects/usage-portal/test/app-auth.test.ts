@@ -7,7 +7,7 @@ import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
 import { buildHealthReport } from "../src/server/health";
 import { SESSION_COOKIE_NAME } from "../src/server/session";
-import { EMPTY_USAGE, stubCodexApi, stubOpenCodeApi } from "./support";
+import { EMPTY_USAGE, stubCodexApi, stubOpenCodeApi, stubProbeApi } from "./support";
 
 const dirs: string[] = [];
 const PIN = "123456";
@@ -29,6 +29,7 @@ function harness(options: { clientKey?: boolean } = {}) {
     health: () => buildHealthReport("ok", auth.status()),
     usage: () => EMPTY_USAGE,
     codex: stubCodexApi(),
+    probe: stubProbeApi(),
     opencode: stubOpenCodeApi(),
     now: () => clock,
     ...(options.clientKey === false ? {} : { clientKey: () => "test-client" }),

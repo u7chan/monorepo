@@ -6,6 +6,7 @@ import {
   type OpenCodeAccountIcon,
 } from "../../shared/opencode-account";
 import { deleteProviderUsage, saveProviderSnapshot, type DatabaseHandle } from "../db";
+import { validateProbeConfig } from "../probe/catalog";
 import { ProviderError, type ProviderSnapshot } from "../providers/types";
 import type { Sampler } from "../sampler";
 import { openCodeSourceId, type OpenCodeAccount, type OpenCodeAccountRecord, type OpenCodeAccounts } from "./accounts";
@@ -14,6 +15,9 @@ export type OpenCodeApiError =
   | "invalid_name"
   | "invalid_icon"
   | "invalid_key"
+  | "invalid_probe"
+  | "invalid_model"
+  | "invalid_thinking"
   | "invalid_request"
   | "not_found"
   | "limit_reached"
@@ -22,7 +26,17 @@ export type OpenCodeApiError =
 export type OpenCodeApiResult<T> = { ok: true; value: T } | { ok: false; error: OpenCodeApiError };
 
 /** body の生の値。検証はこの module が持つ（route は形だけを見る）。 */
-export type OpenCodeInput = { name?: unknown; icon?: unknown; apiKey?: unknown };
+export type OpenCodeInput = {
+  name?: unknown;
+  icon?: unknown;
+  apiKey?: unknown;
+  probeModel?: unknown;
+  probeThinking?: unknown;
+};
+
+type ProbeFields = { probeModel: string | null; probeThinking: string | null };
+
+type ProbeValidator = (model: string, thinking: string) => "invalid_model" | "invalid_thinking" | null;
 
 export type OpenCodeApi = {
   list: () => OpenCodeAccount[];
@@ -40,7 +54,11 @@ export function createOpenCodeApi(options: {
   db: DatabaseHandle;
   sampler: Pick<Sampler, "exclusive">;
   fetchUsage: (apiKey: string) => Promise<ProviderSnapshot>;
+  /** catalog の照合。catalog に無いモデルでストレージを壊さないため、保存時にだけ確かめる。 */
+  validateProbe?: ProbeValidator;
 }): OpenCodeApi {
+  const validateProbe =
+    options.validateProbe ?? ((model, thinking) => validateProbeConfig("opencodeGo", model, thinking));
   async function verifyKey(
     apiKey: string,
   ): Promise<{ ok: true; snapshot: ProviderSnapshot } | { ok: false; error: OpenCodeApiError }> {
@@ -78,6 +96,12 @@ export function createOpenCodeApi(options: {
         return { ok: false, error: "invalid_key" };
       }
 
+      const probe = readCreatedProbe(input, validateProbe);
+
+      if ("ok" in probe) {
+        return probe;
+      }
+
       const icon: OpenCodeAccountIcon = input.icon;
       // 上流の検証は排他区間の外で行う。待っている間に他の要求を止めない。
       const verified = await verifyKey(apiKey);
@@ -98,7 +122,7 @@ export function createOpenCodeApi(options: {
           const previous = options.accounts.read();
 
           try {
-            const account = options.accounts.create({ name, icon, apiKey });
+            const account = options.accounts.create({ name, icon, apiKey, ...probe });
 
             created.account = account;
             saveProviderSnapshot(options.db, openCodeSourceId(account.id), verified.snapshot);
@@ -117,8 +141,10 @@ export function createOpenCodeApi(options: {
     },
     async update(id, input) {
       const provided = (["name", "icon", "apiKey"] as const).filter((key) => input[key] !== undefined);
+      const probeProvided = input.probeModel !== undefined || input.probeThinking !== undefined;
 
-      if (provided.length === 0 || provided.some((key) => typeof input[key] !== "string")) {
+      // probe の設定は null を取り得るので、文字列だけの検証から外す。
+      if ((provided.length === 0 && !probeProvided) || provided.some((key) => typeof input[key] !== "string")) {
         return { ok: false, error: "invalid_request" };
       }
 
@@ -153,6 +179,12 @@ export function createOpenCodeApi(options: {
         }
       }
 
+      const probe = readUpdatedProbe(input, validateProbe);
+
+      if (probe !== null && "ok" in probe) {
+        return probe;
+      }
+
       // 未知 id は上流を叩く前に返す。キー検証の結果を先に返すと、存在しない id でも
       // 400 / 503 になり、承認済みの「未知 id は PUT も 404」から外れる。
       if (options.accounts.get(id) === null) {
@@ -184,6 +216,7 @@ export function createOpenCodeApi(options: {
                 ...(name === null ? {} : { name }),
                 ...(icon === null ? {} : { icon }),
                 ...(apiKey === null ? {} : { apiKey }),
+                ...(probe === null || "ok" in probe ? {} : probe),
               });
 
               if (account === null) {
@@ -237,6 +270,64 @@ export function createOpenCodeApi(options: {
       return { ok: true, value: null };
     },
   };
+}
+
+/**
+ * 作成時の probe 設定。両方の省略は「未設定」、両方の指定は catalog で検証する。
+ * 片方だけの指定は、何を設定したいのか決まらないので受け付けない。
+ */
+function readCreatedProbe(
+  input: OpenCodeInput,
+  validateProbe: ProbeValidator,
+): ProbeFields | { ok: false; error: OpenCodeApiError } {
+  if (input.probeModel === undefined && input.probeThinking === undefined) {
+    return { probeModel: null, probeThinking: null };
+  }
+
+  const pair = readProbePair(input);
+
+  if (pair === undefined) {
+    return { ok: false, error: "invalid_probe" };
+  }
+
+  if (pair === null) {
+    return { probeModel: null, probeThinking: null };
+  }
+
+  const invalid = validateProbe(pair.probeModel, pair.probeThinking);
+
+  return invalid === null ? pair : { ok: false, error: invalid };
+}
+
+/**
+ * 更新時の probe 設定。両方の省略は「変更しない」、両方 null は「解除」。
+ * 片方だけ・null と文字列の混在は受け付けない。
+ */
+function readUpdatedProbe(
+  input: OpenCodeInput,
+  validateProbe: ProbeValidator,
+): ProbeFields | { ok: false; error: OpenCodeApiError } | null {
+  if (input.probeModel === undefined && input.probeThinking === undefined) {
+    return null;
+  }
+
+  return readCreatedProbe(input, validateProbe);
+}
+
+/** 両方が文字列なら catalog の検証対象、両方が null なら解除。それ以外は `undefined`（不正）。 */
+function readProbePair(input: OpenCodeInput): { probeModel: string; probeThinking: string } | null | undefined {
+  const model = input.probeModel;
+  const thinking = input.probeThinking;
+
+  if (model === null && thinking === null) {
+    return null;
+  }
+
+  if (typeof model !== "string" || typeof thinking !== "string" || model === "" || thinking === "") {
+    return undefined;
+  }
+
+  return { probeModel: model, probeThinking: thinking };
 }
 
 /** 元の失敗を 503 として返すため、巻き戻し自体の失敗は握る。次の書き込みで上書きできる。 */

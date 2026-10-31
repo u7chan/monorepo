@@ -13,6 +13,9 @@ export type OpenCodeAccountRecord = {
   icon: OpenCodeAccountIcon;
   apiKey: string;
   savedAt: number;
+  /** 接続確認に使うモデルと思考レベル。未設定は両方 `null`。 */
+  probeModel: string | null;
+  probeThinking: string | null;
 };
 
 export type OpenCodeAccount = Omit<OpenCodeAccountRecord, "apiKey">;
@@ -20,14 +23,24 @@ export type OpenCodeAccount = Omit<OpenCodeAccountRecord, "apiKey">;
 export type OpenCodeAccounts = {
   list: () => OpenCodeAccount[];
   get: (id: string) => OpenCodeAccount | null;
-  create: (input: { name: string; icon: OpenCodeAccountIcon; apiKey: string }) => OpenCodeAccount;
-  update: (id: string, patch: { name?: string; icon?: OpenCodeAccountIcon; apiKey?: string }) => OpenCodeAccount | null;
+  create: (input: OpenCodeAccountInput) => OpenCodeAccount;
+  update: (id: string, patch: OpenCodeAccountPatch) => OpenCodeAccount | null;
   remove: (id: string) => boolean;
   apiKey: (id: string) => string | null;
   /** DB の更新に失敗したとき、ファイルを操作前の配列へ戻すために使う。 */
   read: () => OpenCodeAccountRecord[] | null;
   restore: (records: readonly OpenCodeAccountRecord[] | null) => void;
 };
+
+export type OpenCodeAccountInput = {
+  name: string;
+  icon: OpenCodeAccountIcon;
+  apiKey: string;
+  probeModel?: string | null;
+  probeThinking?: string | null;
+};
+
+export type OpenCodeAccountPatch = Partial<OpenCodeAccountInput>;
 
 /** アカウントの正はこの 1 ファイル。配列の順がそのまま画面の並びになる。 */
 export function openCodeSourceId(accountId: string): string {
@@ -85,7 +98,15 @@ export function createOpenCodeAccounts(options: {
     create(input) {
       const records = readOrEmpty();
       const id = uniqueId(records);
-      const record: OpenCodeAccountRecord = { id, ...input, savedAt: now() };
+      const record: OpenCodeAccountRecord = {
+        id,
+        name: input.name,
+        icon: input.icon,
+        apiKey: input.apiKey,
+        probeModel: input.probeModel ?? null,
+        probeThinking: input.probeThinking ?? null,
+        savedAt: now(),
+      };
 
       write([...records, record]);
 
@@ -100,7 +121,7 @@ export function createOpenCodeAccounts(options: {
       }
 
       const current = records[index] as OpenCodeAccountRecord;
-      const next: OpenCodeAccountRecord = { ...current, ...patch, savedAt: now() };
+      const next: OpenCodeAccountRecord = { ...current, ...definedValues(patch), savedAt: now() };
       const updated = records.map((record, position) => (position === index ? next : record));
 
       write(updated);
@@ -137,8 +158,20 @@ export function createOpenCodeAccounts(options: {
   };
 }
 
+/** 部分更新で `undefined` を明示された項目を、消えた値として書き込まない。 */
+function definedValues(patch: OpenCodeAccountPatch): OpenCodeAccountPatch {
+  return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+}
+
 function toPublic(record: OpenCodeAccountRecord): OpenCodeAccount {
-  return { id: record.id, name: record.name, icon: record.icon, savedAt: record.savedAt };
+  return {
+    id: record.id,
+    name: record.name,
+    icon: record.icon,
+    savedAt: record.savedAt,
+    probeModel: record.probeModel,
+    probeThinking: record.probeThinking,
+  };
 }
 
 function uniqueId(records: readonly OpenCodeAccountRecord[]): string {
@@ -188,6 +221,11 @@ function readRecord(value: unknown): OpenCodeAccountRecord | null {
   }
 
   const { id, name, icon, apiKey, savedAt } = value as Record<string, unknown>;
+  const probe = readProbeFields(value as Record<string, unknown>);
+
+  if (probe === null) {
+    return null;
+  }
 
   if (
     typeof id !== "string" ||
@@ -203,7 +241,28 @@ function readRecord(value: unknown): OpenCodeAccountRecord | null {
     return null;
   }
 
-  return { id, name, icon, apiKey, savedAt };
+  return { id, name, icon, apiKey, savedAt, probeModel: probe.probeModel, probeThinking: probe.probeThinking };
+}
+
+/**
+ * 既存のレコードは項目ごと持たない。欠損は「未設定」（両方 null）として読む。
+ * 片方だけ入っているレコードは書き込み側の不具合なので、壊れたファイルとして扱う。
+ */
+function readProbeFields(
+  value: Record<string, unknown>,
+): { probeModel: string | null; probeThinking: string | null } | null {
+  const model = value.probeModel ?? null;
+  const thinking = value.probeThinking ?? null;
+
+  for (const level of [model, thinking]) {
+    if (level !== null && (typeof level !== "string" || level === "")) {
+      return null;
+    }
+  }
+
+  return (model === null) === (thinking === null)
+    ? { probeModel: model as string | null, probeThinking: thinking as string | null }
+    : null;
 }
 
 /**

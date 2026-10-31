@@ -18,7 +18,7 @@ import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "../src/server/providers";
 import { ProviderError } from "../src/server/providers/types";
 import { createSampler, type UsageFetcher } from "../src/server/sampler";
 import { createUsageReader, type UsagePayload } from "../src/server/usage";
-import { BASE_TIME, stubCodexApi, usageSnapshot } from "./support";
+import { BASE_TIME, stubCodexApi, usageSnapshot, stubProbeApi } from "./support";
 
 const PIN = "123456";
 const ORIGIN = "http://localhost";
@@ -114,6 +114,7 @@ function harness(
       accounts: () => accounts.list(),
     }),
     codex: stubCodexApi(),
+    probe: stubProbeApi(),
     opencode,
     health: () => buildHealthReport("ok", auth.status()),
     now: () => clock,
@@ -436,7 +437,14 @@ describe("PUT /api/opencode/accounts/:id", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      account: { id: account.id, name: "サブ", icon: "🐼", savedAt: BASE_TIME + 60_000 },
+      account: {
+        id: account.id,
+        name: "サブ",
+        icon: "🐼",
+        savedAt: BASE_TIME + 60_000,
+        probeModel: null,
+        probeThinking: null,
+      },
     });
     expect(h.keys).toHaveLength(1);
     expect(h.accounts.apiKey(account.id)).toBe(KEY);
@@ -489,7 +497,14 @@ describe("PUT /api/opencode/accounts/:id", () => {
       expect(await response.json()).toEqual({ error });
     }
 
-    expect(h.accounts.get(account.id)).toEqual({ id: account.id, name: "メイン", icon: "🦊", savedAt: BASE_TIME });
+    expect(h.accounts.get(account.id)).toEqual({
+      id: account.id,
+      name: "メイン",
+      icon: "🦊",
+      savedAt: BASE_TIME,
+      probeModel: null,
+      probeThinking: null,
+    });
     expect(h.accounts.apiKey(account.id)).toBe(KEY);
   });
 
@@ -771,5 +786,130 @@ describe("排他区間内の存在確認", () => {
     expect(
       loadProviderUsage(db, [openCodeSourceId(account.id)]).get(openCodeSourceId(account.id))?.snapshot,
     ).toBeNull();
+  });
+});
+
+describe("接続確認の設定（probeModel / probeThinking）", () => {
+  const MODEL = "deepseek-v4.1-flash";
+
+  test("作成で両方を省略すると未設定として保存し、応答にも null を返す", async () => {
+    const h = harness();
+    const cookieValue = await cookie(h.app);
+    const response = await request(h.app, "/api/opencode/accounts", {
+      method: "POST",
+      cookie: cookieValue,
+      body: { name: "メイン", icon: "🦊", apiKey: KEY },
+    });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({
+      account: {
+        id: expect.any(String),
+        name: "メイン",
+        icon: "🦊",
+        savedAt: BASE_TIME,
+        probeModel: null,
+        probeThinking: null,
+      },
+    });
+    expect(h.keys).toEqual([KEY]);
+  });
+
+  test("作成で両方を指定すると catalog で検証して保存する", async () => {
+    const h = harness();
+    const response = await request(h.app, "/api/opencode/accounts", {
+      method: "POST",
+      cookie: await cookie(h.app),
+      body: { name: "メイン", icon: "🦊", apiKey: KEY, probeModel: MODEL, probeThinking: "low" },
+    });
+
+    expect(response.status).toBe(201);
+    expect(((await response.json()) as { account: { probeModel: string } }).account.probeModel).toBe(MODEL);
+    expect(h.accounts.list()).toEqual([expect.objectContaining({ probeModel: MODEL, probeThinking: "low" })]);
+  });
+
+  test("作成で片方だけ、または catalog に無いモデルは 400 にして保存しない", async () => {
+    const h = harness();
+    const cookieValue = await cookie(h.app);
+
+    for (const [body, error] of [
+      [{ name: "メイン", icon: "🦊", apiKey: KEY, probeModel: MODEL }, "invalid_probe"],
+      [{ name: "メイン", icon: "🦊", apiKey: KEY, probeThinking: "low" }, "invalid_probe"],
+      [{ name: "メイン", icon: "🦊", apiKey: KEY, probeModel: MODEL, probeThinking: null }, "invalid_probe"],
+      [{ name: "メイン", icon: "🦊", apiKey: KEY, probeModel: "no-such-model", probeThinking: "low" }, "invalid_model"],
+      [{ name: "メイン", icon: "🦊", apiKey: KEY, probeModel: MODEL, probeThinking: "off" }, "invalid_thinking"],
+    ] as const) {
+      const response = await request(h.app, "/api/opencode/accounts", { method: "POST", cookie: cookieValue, body });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error });
+    }
+
+    expect(h.accounts.list()).toEqual([]);
+  });
+
+  test("更新で両方を省略すると保持し、両方 null で解除する", async () => {
+    const h = harness();
+    const cookieValue = await cookie(h.app);
+    const account = await createAccount(h, cookieValue, {
+      name: "メイン",
+      icon: "🦊",
+      apiKey: KEY,
+      probeModel: MODEL,
+      probeThinking: "low",
+    });
+
+    const kept = await request(h.app, `/api/opencode/accounts/${account.id}`, {
+      method: "PUT",
+      cookie: cookieValue,
+      body: { name: "サブ" },
+    });
+
+    expect(kept.status).toBe(200);
+    expect(await kept.json()).toEqual({
+      account: expect.objectContaining({ name: "サブ", probeModel: MODEL, probeThinking: "low" }),
+    });
+
+    const cleared = await request(h.app, `/api/opencode/accounts/${account.id}`, {
+      method: "PUT",
+      cookie: cookieValue,
+      body: { probeModel: null, probeThinking: null },
+    });
+
+    expect(cleared.status).toBe(200);
+    expect(await cleared.json()).toEqual({
+      account: expect.objectContaining({ probeModel: null, probeThinking: null }),
+    });
+  });
+
+  test("更新で片方だけ、または catalog に無いモデルは 400 にして保存済みの値を残す", async () => {
+    const h = harness();
+    const cookieValue = await cookie(h.app);
+    const account = await createAccount(h, cookieValue, {
+      name: "メイン",
+      icon: "🦊",
+      apiKey: KEY,
+      probeModel: MODEL,
+      probeThinking: "low",
+    });
+
+    for (const [body, error] of [
+      [{ probeModel: MODEL }, "invalid_probe"],
+      [{ probeThinking: "low" }, "invalid_probe"],
+      [{ probeModel: null, probeThinking: "low" }, "invalid_probe"],
+      [{ probeModel: "no-such-model", probeThinking: "low" }, "invalid_model"],
+      [{ probeModel: MODEL, probeThinking: "off" }, "invalid_thinking"],
+    ] as const) {
+      const response = await request(h.app, `/api/opencode/accounts/${account.id}`, {
+        method: "PUT",
+        cookie: cookieValue,
+        body,
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error });
+    }
+
+    expect(h.accounts.get(account.id)).toEqual(expect.objectContaining({ probeModel: MODEL, probeThinking: "low" }));
   });
 });
