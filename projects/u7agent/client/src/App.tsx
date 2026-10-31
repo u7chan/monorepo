@@ -1174,6 +1174,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                   prompts={app.selectedAgent?.prompts}
                   agentName={chatAgentName}
                   agentIcon={chatAgentIcon}
+                  modelOptions={app.health?.modelOptions}
                   rootCwd={app.health?.cwd ?? ""}
                   cwd={app.cwd}
                   rawUrl={markdownImageRawUrl}

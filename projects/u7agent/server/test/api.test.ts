@@ -380,6 +380,12 @@ test("assistant usage reaches the client through SSE and the session payload", a
       events.indexOf(usageEvent) < events.findIndex((entry) => entry.type === "run_end"),
       "バブルが開いている間に届く",
     );
+    const assistantEnd = events.find((entry) => entry.type === "assistant_end");
+    assert.equal(
+      assistantEnd?.data.model,
+      `${STUB_MODEL.provider}/${STUB_MODEL.id}`,
+      "usage / metrics と別に、応答の生成元モデルを assistant_end で配る",
+    );
 
     // context は SDK の履歴反映後に run_end でも配る (usage の値は 1 応答分古い)
     const runEnd = events.find((entry) => entry.type === "run_end");
@@ -394,6 +400,7 @@ test("assistant usage reaches the client through SSE and the session payload", a
     const payload = await jsonBody(app.request(`/api/sessions/${created.sessionId}`));
     assert.deepEqual(payload.messages.at(-1).usage, STUB_USAGE);
     assert.deepEqual(payload.messages.at(-1).metrics, usageEvent.data.metrics);
+    assert.equal(payload.messages.at(-1).model, `${STUB_MODEL.provider}/${STUB_MODEL.id}`);
     assert.deepEqual(payload.context, STUB_CONTEXT_USAGE);
   } finally {
     await bff.close();

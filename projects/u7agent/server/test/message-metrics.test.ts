@@ -157,3 +157,37 @@ test("未回答 ask_user の合成バブル向けメタにも DB 実測を使う
   );
   assert.deepEqual(meta[0]?.metrics, { durationMs: 1600 });
 });
+
+// What: assistant item にだけ生成元の provider/model が載り、SDK がモデルを記録しない履歴は不明 (null) になる
+test("assistant のモデルは provider/model で投影し、欠けた応答は null にする", () => {
+  const user: TestMessage = { role: "user", content: [{ type: "text", text: "質問" }], timestamp: 1 };
+  const known = assistantMessage({ provider: "openai", model: "gpt-6-luna" });
+  const missing = assistantMessage({ provider: undefined, model: undefined });
+  const placeholder = assistantMessage({ provider: "unknown", model: "unknown" });
+  const projected = projectMessages(sessionOf([user, known, missing, placeholder]), noMetrics(), masker, CWD);
+  assert.equal(projected[0]?.model, undefined, "user はモデルを持たない");
+  assert.equal(projected[1]?.model, "openai/gpt-6-luna");
+  assert.equal(projected[2]?.model, null, "provider / model が欠ける応答は不明");
+  assert.equal(projected[3]?.model, null, "unknown/unknown はモデルとして扱わない");
+});
+
+// What: 本文を持たない応答から合成する ask_user バブルにも、その応答のモデルが載る
+test("本文を持たない応答の合成バブル向けメタにもモデルを載せる", () => {
+  const known = assistantMessage({ provider: "openai", model: "gpt-6-luna" });
+  const missing = assistantMessage();
+  const assistantIds = new WeakMap<object, string>();
+  assistantIds.set(known, "run-1:1");
+  assistantIds.set(missing, "run-1:2");
+  const meta = unprojectedAssistantMeta(
+    [known, missing],
+    { messageMetrics: noMetrics(), assistantIds },
+    new Set(["run-1:1", "run-1:2"]),
+  );
+  assert.deepEqual(
+    meta.map((entry) => [entry.assistantId, entry.model]),
+    [
+      ["run-1:1", "openai/gpt-6-luna"],
+      ["run-1:2", null],
+    ],
+  );
+});

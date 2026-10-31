@@ -235,7 +235,7 @@ export type ChatAction =
   | { type: "dropLocalUser" }
   | { type: "text"; delta: string; at: number; assistantId?: string }
   /** assistant の応答が終わった。開いているカードを閉じ、次の delta を新しいカードで始める */
-  | { type: "assistantEnd"; assistantId?: string }
+  | { type: "assistantEnd"; assistantId?: string; model?: string | null }
   | {
       type: "toolStart";
       id: string;
@@ -455,6 +455,7 @@ function mergeAssistantCard(live: Bubble, history: Bubble): Bubble {
     entryId: history.entryId,
     context: history.context ?? live.context,
     at: live.at ?? history.at,
+    model: live.model !== undefined ? live.model : history.model,
     usage: live.usage ?? history.usage,
     metrics: live.metrics ?? history.metrics,
     turnEnd: history.turnEnd ?? live.turnEnd,
@@ -1336,6 +1337,7 @@ export function historyToBubbles(
       legacy: true,
       role: message.role,
       text: message.text,
+      ...(message.model !== undefined ? { model: message.model } : {}),
       ...(message.assistantId !== undefined ? { assistantId: message.assistantId } : {}),
       ...(message.sendId !== undefined ? { sendId: message.sendId } : {}),
       ...(message.runId !== undefined ? { runId: message.runId } : {}),
@@ -1399,6 +1401,7 @@ function appendOwnedAssistant(state: ChatState, ownerKey: string | undefined): {
     settled: true,
     ...(ownerKey === undefined ? {} : { assistantId: ownerKey }),
     ...(meta?.at === undefined ? {} : { at: meta.at }),
+    ...(meta?.model !== undefined ? { model: meta.model } : {}),
     ...(usage === undefined ? {} : { usage }),
     ...(metrics === undefined ? {} : { metrics }),
   };
@@ -2656,7 +2659,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentAssistantId: closesCurrent ? null : state.currentAssistantId,
         currentAssistantKey: closesCurrent ? undefined : state.currentAssistantKey,
         toolTargetAssistantId: closesCurrent ? target.id : state.toolTargetAssistantId,
-        bubbles: state.bubbles.map((bubble) => (bubble.id === target.id ? { ...bubble, settled: true } : bubble)),
+        bubbles: state.bubbles.map((bubble) =>
+          bubble.id === target.id
+            ? { ...bubble, settled: true, ...(action.model === undefined ? {} : { model: action.model }) }
+            : bubble,
+        ),
         closedAssistantTexts:
           key !== undefined || target.text === ""
             ? state.closedAssistantTexts

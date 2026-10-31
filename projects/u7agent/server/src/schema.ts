@@ -513,6 +513,11 @@ export const AssistantMetaSchema = z.object({
   assistantId: z.string(),
   /** SDK が持つメッセージの作成時刻 (epoch ms)。時刻を持たない履歴ではキーを省略する */
   at: z.number().optional(),
+  /**
+   * 応答を生成したモデル (`provider/model`)。null はモデル情報なし、未指定は旧サーバー。
+   * 欠けた値を現在のセッションモデルで補わない (別のモデルで生成した応答に誤って付く)
+   */
+  model: z.string().nullable().optional(),
   usage: UsageSchema.optional(),
   /** 応答時間 (メッセージ生成の時間で、回答待ちの時間は含まない)。由来は source を見る */
   metrics: MessageMetricsSchema.optional(),
@@ -565,6 +570,11 @@ export const ChatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   text: z.string(),
   stopReason: z.string().optional(),
+  /**
+   * assistant を生成したモデル (`provider/model`)。null はモデル情報なし (旧履歴 / 未報告)、
+   * 未指定は旧サーバー。user は持たない
+   */
+  model: z.string().nullable().optional(),
   /** assistant 応答の実行内 ID。live の delta / ツールと履歴を本文一致に依らず対応付ける */
   assistantId: z.string().optional(),
   /** user メッセージを送信した送信ID。payload でもエコーを本文一致に依らず対応付ける */
@@ -2486,9 +2496,13 @@ export const EventDataSchemas = {
   }),
   /**
    * assistant の応答が終わった (message_end)。クライアントは開いている応答カードを閉じ、
-   * 続く delta を次のカードへ入れる。usage とは別で、payload を持たない
+   * 続く delta を次のカードへ入れる。usage とは別で、model だけを載せる
    */
-  assistant_end: z.object({ assistantId: z.string().optional() }),
+  assistant_end: z.object({
+    assistantId: z.string().optional(),
+    /** 応答を生成したモデル (`provider/model`)。null は不明、未指定は旧サーバー */
+    model: z.string().nullable().optional(),
+  }),
   run_end: z.object({
     runId: z.string().optional(),
     status: RunStatusSchema,

@@ -384,6 +384,32 @@ test("送信した user item には、その run の id が載る", async () => 
   await store.close();
 });
 
+// What: 履歴 API の assistant item にだけ生成元モデルが載り、モデルを記録していない旧履歴は null で載る
+test("assistant item には生成元モデルが載り、provider / model が欠ける履歴は null になる", async () => {
+  const store = new SessionStore({ pi: createStubPi(), catalog: createAgentCatalog() });
+  const record = await store.create();
+  store.postMessage(record, "モデルの検証");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const first = store.history(record, {});
+  assert.ok(first.ok);
+  const firstItems = messageItems(first.page);
+  assert.equal(firstItems.find((item) => item.role === "assistant")?.model, "stub/stub-model");
+  assert.equal(firstItems.find((item) => item.role === "user")?.model, undefined, "user はモデルを持たない");
+
+  const session = record.session as unknown as StubSession;
+  session.appendMessage({ role: "assistant", content: text("古い応答"), stopReason: "stop" });
+  const after = store.history(record, {});
+  assert.ok(after.ok);
+  assert.equal(
+    messageItems(after.page).find((item) => item.text === "古い応答")?.model,
+    null,
+    "provider / model を持たない履歴は不明として載せる",
+  );
+
+  await store.close();
+});
+
 test("履歴の user item には run 全体の所要時間と結末が載り、再起動で消える", async () => {
   const first = await createPersistentFixture();
   try {

@@ -50,6 +50,11 @@ export type Bubble = {
   context?: HistoryContextState;
   role: "user" | "assistant";
   text: string;
+  /**
+   * assistant を生成したモデル (`provider/id`)。null はモデル情報なし (旧履歴 / 未報告)、
+   * undefined は未確定 (ライブの assistant_end 前) または旧サーバー
+   */
+  model?: string | null;
   tools: ToolCard[];
   /** このバブルに出す導出行 (繰り上げ分を含む。カードと重複する分は表示側で落とす) */
   skillLoads: SkillLoad[];

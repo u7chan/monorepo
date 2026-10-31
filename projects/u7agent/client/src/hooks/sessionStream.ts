@@ -134,6 +134,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       dispatch({
         type: "assistantEnd",
         ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
+        ...(entry.data.model === undefined ? {} : { model: entry.data.model }),
       });
       return;
     case "compaction":

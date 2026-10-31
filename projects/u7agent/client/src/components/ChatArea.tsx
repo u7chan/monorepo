@@ -14,9 +14,10 @@ import { resolveScrollFollow, shouldLoadOlder } from "../lib/chatScroll";
 import type { ChatScope } from "../lib/chatScope";
 import { cn } from "../lib/cn";
 import { generationCaptionsOf } from "../lib/generationInfo";
+import { modelRefKey } from "../lib/modelSettings";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
 import { nonSkillToolCards, skillBadgesOf } from "../lib/skillLoad";
-import type { AskUserAnswer, CompactionInfo, PromptRef } from "../types";
+import type { AskUserAnswer, CompactionInfo, ModelOption, PromptRef } from "../types";
 import { AgentIcon } from "./AgentIcon";
 import { CompactionDivider } from "./chat/CompactionDivider";
 import { ContextBoundary } from "./chat/ContextBoundary";
@@ -46,6 +47,8 @@ export type ChatAreaProps = {
   agentName?: string;
   /** 未設定なら SparkleIcon へフォールバックする */
   agentIcon?: string;
+  /** 履歴ヘッダーに出すモデル名の解決に使う。候補に無いモデルは provider/id をそのまま出す */
+  modelOptions?: ModelOption[];
   /** 作業先。空状態の見出しを「〈作業先〉で作業します」にするかの根拠 */
   scope: ChatScope;
   /** ワークスペース root の絶対パス (health.cwd)。添付のサムネイル URL を組むのに使う */
@@ -96,6 +99,7 @@ export function ChatArea({
   prompts = [],
   agentName,
   agentIcon,
+  modelOptions,
   scope,
   rootCwd = "",
   cwd = "",
@@ -134,6 +138,15 @@ export function ChatArea({
   );
   // resync では run の toolCall が最後のバブルへまとまるため、全バブル横断で同じ呼び出しをバッジ 1 件に統合する
   const skillBadges = skillBadgesOf(bubbles);
+  // ヘッダーは狭いので候補の name だけを使う (同名衝突に provider を添えるのは選択リスト側の都合)
+  const modelLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const option of modelOptions ?? []) {
+      const key = modelRefKey({ provider: option.provider, id: option.id });
+      labels.set(key, option.name === "" ? key : option.name);
+    }
+    return labels;
+  }, [modelOptions]);
   // 生成カードと画像・プレイヤーのバブルが分かれる履歴でも対応が取れるよう、ターン単位で対応付ける
   const generationCaptions = useMemo(() => generationCaptionsOf(bubbles, { rootCwd, cwd }), [bubbles, rootCwd, cwd]);
 
@@ -295,6 +308,7 @@ export function ChatArea({
         singleColumn={singleColumn}
         agentName={agentName}
         agentIcon={agentIcon}
+        modelLabel={bubble.model === null || bubble.model === undefined ? undefined : modelLabels.get(bubble.model)}
         rootCwd={rootCwd}
         cwd={cwd}
         rawUrl={rawUrl}

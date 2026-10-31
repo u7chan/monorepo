@@ -7,7 +7,7 @@ import { APP_DIR_REL } from "./app-paths";
 import { ASK_USER_TOOL_NAME, deriveAskUserQuestions, parseAskUserAnswers } from "./ask-user-tool";
 import { SKILL_FILE_NAME } from "./builtin-skills";
 import type { PiSessionLike } from "./pi-runtime";
-import { parseUsage } from "./pi-runtime";
+import { assistantModelLabel, parseUsage } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
 import { computeMessageMetrics } from "./run-events";
 import type {
@@ -213,13 +213,15 @@ export function unprojectedAssistantMeta(
     const assistantId = assistantIds.get(message);
     if (assistantId === undefined || !owners.has(assistantId)) continue;
     const at = typeof message.timestamp === "number" ? message.timestamp : undefined;
+    const model = assistantModelLabel(message);
     const usage = parseUsage(message.usage);
     const metrics = resolveMessageMetrics(message, context.messageMetrics, context.savedMetrics, assistantId);
     // 値の無い項目はキーごと省く (0 や現在時刻で埋めると別の応答の数値に見える)
-    if (at === undefined && usage === undefined && metrics === undefined) continue;
+    if (at === undefined && usage === undefined && metrics === undefined && model === undefined) continue;
     projected.push({
       assistantId,
       ...(at === undefined ? {} : { at }),
+      ...(model === undefined ? {} : { model }),
       ...(usage ? { usage } : {}),
       ...(metrics ? { metrics } : {}),
     });
@@ -307,6 +309,7 @@ export function projectMessagesRange(
       continue;
     }
     const text = masker.mask(contentText(message.content));
+    const model = assistantModelLabel(message);
     const usage = message.role === "assistant" ? parseUsage(message.usage) : undefined;
     const metrics = resolveMessageMetrics(message, messageMetrics, savedMetrics, assistantId);
     const skillLoads = [...carried, ...loads];
@@ -330,6 +333,7 @@ export function projectMessagesRange(
         stopReason: message.role === "assistant" ? message.stopReason : undefined,
         // SDK が timestamp を持たない履歴 (旧セッション / スタブ) では at キー自体を作らない
         ...(typeof message.timestamp === "number" ? { at: message.timestamp } : {}),
+        ...(model !== undefined ? { model } : {}),
         ...(usage ? { usage } : {}),
         ...(metrics ? { metrics } : {}),
         ...(projectedTools.length > 0 ? { tools: projectedTools } : {}),
