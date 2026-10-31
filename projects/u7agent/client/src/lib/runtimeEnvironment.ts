@@ -357,10 +357,12 @@ function runtimeWebSearchRow(inUse: RuntimeInUseResponse | null): RuntimeInfoRow
 function runtimeCloudflareRow(inUse: RuntimeInUseResponse | null): RuntimeInfoRow {
   const label = "Cloudflare";
   if (!inUse) return { label, value: RUNTIME_UNKNOWN };
-  const { available, accountId } = inUse.cloudflare;
+  const { configured, available, accountId } = inUse.cloudflare;
   const row: RuntimeInfoRow = { label, value: accountId ?? RUNTIME_UNSET };
+  // 未登録と「登録できない」は原因が別。master key の不在を利用者の未設定と混ぜない
   if (!available) row.note = "利用できません（サーバーの master key が未設定です）";
-  else if (accountId) row.note = "設定済み";
+  else if (!configured) row.note = "共有コンテンツの公開には資格情報が必要です。";
+  else row.note = "設定済み";
   if (accountId) row.copy = { text: accountId, label: "Cloudflare のアカウントIDをコピー" };
   return row;
 }
@@ -388,23 +390,45 @@ export type RuntimeReloadInput = {
   refreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
   getInUse: () => Promise<RuntimeInUseResponse>;
   getEnvironment: () => Promise<RuntimeEnvironmentResponse>;
+  /**
+   * 系統ごとの適用。遅い系統が速い系統の描画を待たせないよう、返った順に呼ぶ。
+   * アンマウント / 再試行で古くなった応答は `isCurrent` で捨て、ここへは渡さない。
+   */
+  apply?: {
+    health?: (outcome: RuntimeReloadOutcome<Health>) => void;
+    inUse?: (outcome: RuntimeReloadOutcome<RuntimeInUseResponse>) => void;
+    environment?: (outcome: RuntimeReloadOutcome<RuntimeEnvironmentResponse>) => void;
+  };
 };
 
 /**
- * health・利用中のモデル・実行環境をまとめて取得する。1 系統の失敗で他を捨てず、全 settled を待つ。
- * 古い応答を適用しない判定は呼び出し側 (createRuntimeReloadGate) が持つ。
+ * health・利用中のモデル・実行環境を同じ 1 回の再読み込みで取得する。1 系統の失敗で他を捨てず、
+ * 適用 (`apply`) は系統ごとに返った時点で行う（全 settled を待たない）。
  */
 export async function reloadRuntime(input: RuntimeReloadInput): Promise<RuntimeReloadResults> {
-  if (!input.includeHealth) {
-    const [inUse, environment] = await Promise.allSettled([input.getInUse(), input.getEnvironment()]);
-    return { health: null, inUse: outcomeOf(inUse), environment: outcomeOf(environment) };
-  }
-  const [health, inUse, environment] = await Promise.allSettled([
-    refreshHealthOrFail(input.refreshHealth, input.isCurrent),
-    input.getInUse(),
-    input.getEnvironment(),
-  ]);
-  return { health: outcomeOf(health), inUse: outcomeOf(inUse), environment: outcomeOf(environment) };
+  const health = input.includeHealth
+    ? applyWhenSettled(refreshHealthOrFail(input.refreshHealth, input.isCurrent), input, input.apply?.health)
+    : null;
+  const inUse = applyWhenSettled(input.getInUse(), input, input.apply?.inUse);
+  const environment = applyWhenSettled(input.getEnvironment(), input, input.apply?.environment);
+  const [healthResult, inUseResult, environmentResult] = await Promise.all([health, inUse, environment]);
+  return { health: healthResult, inUse: inUseResult, environment: environmentResult };
+}
+
+/** 1 系統の結果を、返った時点で適用する。古い応答は isCurrent で捨てる */
+function applyWhenSettled<T>(
+  promise: Promise<T>,
+  input: RuntimeReloadInput,
+  apply: ((outcome: RuntimeReloadOutcome<T>) => void) | undefined,
+): Promise<RuntimeReloadOutcome<T>> {
+  const notify = (outcome: RuntimeReloadOutcome<T>) => {
+    if (input.isCurrent()) apply?.(outcome);
+    return outcome;
+  };
+  return promise.then(
+    (value) => notify({ ok: true, value }),
+    (reason) => notify({ ok: false, message: reason instanceof Error ? reason.message : String(reason) }),
+  );
 }
 
 async function refreshHealthOrFail(
@@ -414,11 +438,6 @@ async function refreshHealthOrFail(
   const value = await refreshHealth(isCurrent);
   if (value === null) throw new Error(HEALTH_RELOAD_FAILED_MESSAGE);
   return value;
-}
-
-function outcomeOf<T>(result: PromiseSettledResult<T>): RuntimeReloadOutcome<T> {
-  if (result.status === "fulfilled") return { ok: true, value: result.value };
-  return { ok: false, message: result.reason instanceof Error ? result.reason.message : String(result.reason) };
 }
 
 export type RuntimeFetchState<T> =

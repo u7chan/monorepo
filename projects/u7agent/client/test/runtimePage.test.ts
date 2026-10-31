@@ -238,6 +238,21 @@ test("取得できていない間は 2 カードに取得中の文言を出す",
   assert.equal(html.includes('aria-label="既定モデルのIDをコピー"'), false, "取得前は行を出さない");
 });
 
+test("利用中のモデルが遅れても、実行環境とコマンドは返った時点で描く", () => {
+  const html = renderEnvironmentView({
+    inUse: { status: "loading" },
+    environment: { status: "ready", value: ENVIRONMENT },
+  });
+
+  // in-use の待ちはモデル / 外部連携のカードだけに閉じ、実行環境の 2 カードは待たせない
+  assert.ok(html.includes("利用中のモデルを取得しています。"));
+  assert.ok(html.includes("外部連携を取得しています。"));
+  assert.ok(html.includes("Debian"), "実行環境の行を出す");
+  assert.ok(html.includes("curl") && html.includes("8.14.1"), "検出できたコマンドを出す");
+  assert.equal(html.includes("実行環境を取得しています。"), false);
+  assert.equal(html.includes("コマンドを検出しています。"), false);
+});
+
 test("取得失敗は 2 カードに閉じ、実行環境のカードは表示する", () => {
   const html = renderEnvironmentView({
     inUse: { status: "error", message: "アプリデータ（SQLite）を利用できません" },

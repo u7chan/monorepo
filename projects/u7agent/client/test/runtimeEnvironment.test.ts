@@ -203,6 +203,66 @@ test("opening the page fetches in-use models and the environment but not health"
   assert.equal(results.environment.ok, true);
 });
 
+test("applies each fetch as soon as it settles, without waiting for the slow one", async () => {
+  const inUse = deferred<RuntimeInUseResponse>();
+  const environment = deferred<RuntimeEnvironmentResponse>();
+  const applied: string[] = [];
+  const pending = reloadRuntime({
+    includeHealth: false,
+    isCurrent: alwaysCurrent,
+    refreshHealth: async () => HEALTH,
+    getInUse: () => inUse.promise,
+    getEnvironment: () => environment.promise,
+    apply: {
+      inUse: (outcome) => applied.push(`inUse:${outcome.ok}`),
+      environment: (outcome) => applied.push(`environment:${outcome.ok}`),
+    },
+  });
+
+  // 遅い in-use が未解決のまま、速い実行環境だけを先に適用する
+  environment.resolve(CONNECTED);
+  await flushMicrotasks();
+  assert.deepEqual(applied, ["environment:true"]);
+
+  inUse.resolve(IN_USE);
+  const results = await pending;
+  assert.deepEqual(applied, ["environment:true", "inUse:true"]);
+  assert.deepEqual(results.inUse, { ok: true, value: IN_USE });
+  assert.deepEqual(results.environment, { ok: true, value: CONNECTED });
+});
+
+test("does not apply a fetch that settles after the reload becomes stale", async () => {
+  const gate = createRuntimeReloadGate();
+  const isCurrent = gate.begin();
+  const applied: string[] = [];
+  const inUse = deferred<RuntimeInUseResponse>();
+  const pending = reloadRuntime({
+    includeHealth: false,
+    isCurrent,
+    refreshHealth: async () => HEALTH,
+    getInUse: () => inUse.promise,
+    getEnvironment: async () => CONNECTED,
+    apply: {
+      inUse: () => applied.push("inUse"),
+      environment: () => applied.push("environment"),
+    },
+  });
+
+  gate.invalidate();
+  inUse.resolve(IN_USE);
+  const results = await pending;
+
+  // 取得自体は完了しても、古い系統の結果は画面へ適用しない (戻り値は失敗扱いにしない)
+  assert.deepEqual(applied, []);
+  assert.deepEqual(results.environment, { ok: true, value: CONNECTED });
+  assert.deepEqual(results.inUse, { ok: true, value: IN_USE });
+});
+
+/** 片方の系統だけを解決させて、適用順を見るための待ち */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 test("converts reload outcomes into fetch states without losing the previous value on success", () => {
   assert.deepEqual(runtimeFetchStateOf({ ok: true, value: CONNECTED }), { status: "ready", value: CONNECTED });
   assert.deepEqual(runtimeFetchStateOf<RuntimeEnvironmentResponse>({ ok: false, message: "失敗" }), {
@@ -463,7 +523,11 @@ test("外部連携は Web 検索の provider と host、Cloudflare のアカウ�
     ...IN_USE,
     cloudflare: { configured: false, available: true, accountId: null },
   });
-  assert.deepEqual(unsetCloudflare[1], { label: "Cloudflare", value: "未設定" });
+  assert.deepEqual(unsetCloudflare[1], {
+    label: "Cloudflare",
+    value: "未設定",
+    note: "共有コンテンツの公開には資格情報が必要です。",
+  });
 
   const unavailableCloudflare = runtimeIntegrationRows({
     ...IN_USE,
@@ -471,6 +535,17 @@ test("外部連携は Web 検索の provider と host、Cloudflare のアカウ�
   });
   assert.equal(unavailableCloudflare[1]?.value, ACCOUNT_ID);
   assert.ok(unavailableCloudflare[1]?.note?.startsWith("利用できません"));
+
+  // 未登録と「登録できない」が重なるときは、登録を阻んでいる理由を先に出す
+  const unavailableAndUnset = runtimeIntegrationRows({
+    ...IN_USE,
+    cloudflare: { configured: false, available: false, accountId: null },
+  });
+  assert.deepEqual(unavailableAndUnset[1], {
+    label: "Cloudflare",
+    value: "未設定",
+    note: "利用できません（サーバーの master key が未設定です）",
+  });
 });
 
 test("一括コピー本文は画面と同じ見出し・値・注記を markdown で出す", () => {

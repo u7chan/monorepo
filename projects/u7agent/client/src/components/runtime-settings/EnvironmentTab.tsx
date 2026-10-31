@@ -61,19 +61,21 @@ export function EnvironmentTab({
     async (includeHealth: boolean) => {
       const isCurrent = gate.begin();
       setPending(true);
-      const results = await reloadRuntime({
+      // 系統ごとに返った時点で適用する (利用中のモデルが遅くても実行環境のカードを待たせない)
+      await reloadRuntime({
         includeHealth,
         isCurrent,
         refreshHealth: onRefreshHealth,
         getInUse: getRuntimeInUse,
         getEnvironment: getRuntimeEnvironment,
+        apply: {
+          health: (outcome) => setHealthFailed(!outcome.ok),
+          inUse: (outcome) => setInUseState(runtimeFetchStateOf(outcome)),
+          environment: (outcome) => setEnvironmentState(runtimeFetchStateOf(outcome)),
+        },
       });
-      // アンマウント / 再試行で古くなった応答は、失敗した系統の前回値を含めて何も適用しない
+      // アンマウント / 再試行で古くなった取得は、処理中フラグも含めて何も適用しない
       if (!isCurrent()) return;
-      if (results.health) setHealthFailed(!results.health.ok);
-      // health と in-use は同じ再取得で揃えるが、片方の失敗でもう片方を捨てない
-      setInUseState(runtimeFetchStateOf(results.inUse));
-      setEnvironmentState(runtimeFetchStateOf(results.environment));
       setPending(false);
     },
     [gate, onRefreshHealth],
