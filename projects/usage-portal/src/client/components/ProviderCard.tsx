@@ -18,8 +18,6 @@ export function ProviderCard(props: {
   compact?: boolean;
   /** provider ごとの操作（編集・削除など）。見出しの右に置く。 */
   headerMenu?: ComponentChildren;
-  /** フッターに置く操作。カードの最後に 1 つだけ添える。 */
-  footerAction?: ComponentChildren;
   /** provider ごとの詳細。フッターの下に開く。 */
   children?: ComponentChildren;
 }) {
@@ -110,7 +108,6 @@ export function ProviderCard(props: {
         <p class="up-caption">
           {source.capturedAt === null ? "まだ取得していません" : `最終取得 ${formatClock(source.capturedAt)}`}
         </p>
-        {props.footerAction}
       </footer>
 
       {props.children}

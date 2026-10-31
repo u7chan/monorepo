@@ -509,7 +509,6 @@ function Dashboard(props: {
       onSelect: () => setAdding(true),
       disabled: atLimit,
     },
-    { label: "Codex の開始設定", onSelect: () => setConfiguring(true), disabled: catalog === null },
     { label: "ログアウト", onSelect: () => void signOut(), danger: true },
   ];
 
@@ -544,6 +543,8 @@ function Dashboard(props: {
               auth={codex}
               actions={codexActions}
               probe={probe}
+              catalog={catalog}
+              onConfigure={() => setConfiguring(true)}
               onCheck={startCodexWindow}
             />
           ) : (
