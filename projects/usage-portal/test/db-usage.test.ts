@@ -214,7 +214,7 @@ describe("deleteProviderState / migrateCodexUsage", () => {
     expect(loadSamples(handle, "codex:account-1", "primary", 0)).toHaveLength(1);
   });
 
-  test("旧キーの snapshot・error・sample を現在のアカウントへ移す", () => {
+  test("旧キーの snapshot と sample を現在のアカウントへ移し、error は移さない", () => {
     const handle = open();
 
     saveProviderSnapshot(handle, "codex", usageSnapshot({ capturedAt: BASE_TIME - 300_000 }));
@@ -229,8 +229,26 @@ describe("deleteProviderState / migrateCodexUsage", () => {
     const moved = loadProviderUsage(handle, ["codex:account-1"]).get("codex:account-1");
 
     expect(moved?.snapshot?.capturedAt).toBe(BASE_TIME);
-    expect(moved?.error?.code).toBe("upstream");
+    expect(moved?.error).toBeNull();
     expect(loadSamples(handle, "codex:account-1", "primary", 0)).toHaveLength(2);
+  });
+
+  test("サインアウト中の not_connected を再起動時に引き継がない", () => {
+    const handle = open();
+
+    saveProviderSnapshot(handle, "codex:account-1", usageSnapshot());
+    saveProviderError(handle, "codex", {
+      code: "not_connected",
+      message: "Codex にサインインしていません",
+      at: BASE_TIME,
+    });
+
+    migrateCodexUsage(handle, "codex:account-1");
+
+    const stored = loadProviderUsage(handle, ["codex:account-1"]).get("codex:account-1");
+
+    expect(stored?.snapshot?.capturedAt).toBe(BASE_TIME);
+    expect(stored?.error).toBeNull();
   });
 
   test("移し先に既にある行を上書きしない", () => {

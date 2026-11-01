@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-01
-- 一部置き換え: [ADR 0007](0007-opencode-multiple-accounts.md) の「Codex のサインアウトも同じ関数を通るので、Codex の sample も消える」
+- 一部置き換え: [ADR 0005](0005-codex-credentials-and-sign-in.md) の「accountId ... どちらも応答・DB・ログには出さない」と [ADR 0007](0007-opencode-multiple-accounts.md) の「Codex のサインアウトも同じ関数を通るので、Codex の sample も消える」
 
 ## 背景
 
@@ -20,8 +20,9 @@ sample を消さずに残すだけでは、アカウントを切り替えたと�
 - `accountId` は `auth.json` から読む（`CodexAuth.accountId()`）。応答・snapshot・ログへは出さない。
 - サインアウトは snapshot と error だけを消し、sample は残す（`deleteProviderState`）。
   OpenCode Go のアカウント削除は従来どおり sample も消す（`deleteProviderUsage`）。
-- 起動時にサインイン済みなら、旧キー `codex` の snapshot・error・sample を現在のアカウントのキーへ移す。
-  移し先に同じ行があれば移さない。移せなかった旧キーの行は消す。
+- 起動時にサインイン済みなら、旧キー `codex` の snapshot と sample を現在のアカウントのキーへ移す。
+  error は移さない。base キーの error はサインアウト中の未接続を表し、サインイン中のアカウントには
+  当てはまらないため。移し先に同じ行があれば移さない。旧キーの行は移したあとに消す。
 - `/api/usage` の `sources[].id` は `codex` のまま。アカウント別の source id は DB のキーにだけ使う。
 - 推移は snapshot があるときだけ返すため、サインアウト中はグラフを出さない。同じアカウントで戻ると、
   残っていた sample がそのまま推移になる。
@@ -41,11 +42,15 @@ OpenCode Go の `opencode-go:<uuid>` と同じく `accountId` を含めるのが
 サインアウトで snapshot を消すのは、前回の利用枠を接続していない間に出さないため。
 sample まで消す理由は無く、同じアカウントで戻ったときに推移が続く方が、次に何が起きるかを読みやすい。
 
+base キーの error を移すと、サインアウト→再サインイン→再起動のたびに `not_connected` が復活し、
+サインイン済みなのに未接続の表示になる。起動直後の取得で正しい状態に置き換わるため、error は引き継がない。
+
 ## 影響
 
 - DB の `provider` 列に入る Codex のキーが変わる。スキーマと `user_version` は v1 のまま。
 - サインアウトしても sample は保持期間（30 日）まで残る。別アカウントの sample は読み手が居なくなり、
   `pruneSamples` の期限で消える。
-- accountId はローカルの SQLite にだけ入る。`/api/usage` の `id` には出さない。
+- accountId はローカルの SQLite の `provider` 列（履歴のキー）にだけ入る。ADR 0005 の「DB に出さない」は
+  この用途に限って置き換える。`/api/usage` の `id`・snapshot・ログには出さない。
 - 起動時にサインアウトしていると、旧キー `codex` の sample は引き継がない。旧コードはサインアウトで
   sample を消していたため、この状態で残っている sample は無い。

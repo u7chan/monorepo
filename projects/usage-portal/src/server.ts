@@ -98,6 +98,8 @@ const fetchers = (): UsageFetcher[] => [
     // サインイン中はアカウント別のキーへ書き、未接続時だけ base キーに error を書く。
     sourceId: codexSourceId(codexAuth.accountId()),
     provider: CODEX_PROVIDER,
+    // source id の accountId はログへ出さない。
+    logLabel: CODEX_PROVIDER.id,
     fetch: () => fetchCodexUsage({ source: codexAuth, userAgent, now: Date.now }),
   },
   ...openCodeAccounts.list().map((account) => ({

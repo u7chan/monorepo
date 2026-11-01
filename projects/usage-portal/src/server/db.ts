@@ -129,7 +129,8 @@ export function deleteProviderState(handle: DatabaseHandle, sourceId: string): v
 }
 
 /**
- * アカウント別のキーへ移す前の Codex の履歴を、いまサインインしているアカウントへ引き継ぐ。
+ * 旧キー `codex` の snapshot と sample を、いまサインインしているアカウントへ引き継ぐ。
+ * error は移さない。base キーの error はサインアウト中の未接続を表し、サインイン中のアカウントには当てはまらない。
  * 旧キーは同時に 1 アカウントぶんしか無い（サインアウトで消していた）ため、衝突したら新しい側を残す。
  */
 export function migrateCodexUsage(handle: DatabaseHandle, sourceId: string): void {
@@ -141,11 +142,6 @@ export function migrateCodexUsage(handle: DatabaseHandle, sourceId: string): voi
     handle.db
       .query(
         "INSERT OR IGNORE INTO provider_snapshot (provider, captured_at, snapshot_json) SELECT ?, captured_at, snapshot_json FROM provider_snapshot WHERE provider = ?",
-      )
-      .run(sourceId, LEGACY_CODEX_SOURCE_ID);
-    handle.db
-      .query(
-        "INSERT OR IGNORE INTO provider_error (provider, failed_at, code, message) SELECT ?, failed_at, code, message FROM provider_error WHERE provider = ?",
       )
       .run(sourceId, LEGACY_CODEX_SOURCE_ID);
     handle.db
