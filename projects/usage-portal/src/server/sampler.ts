@@ -9,6 +9,8 @@ export const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 export type UsageFetcher = {
   sourceId: string;
   provider: ProviderDefinition;
+  /** ログに出す source の呼び名。source id にアカウント識別子が入る場合は伏せた値を渡す。 */
+  logLabel?: string;
   fetch: () => Promise<ProviderSnapshot>;
 };
 
@@ -161,7 +163,9 @@ export function createSampler(options: {
 }
 
 function describeFetcher(fetcher: UsageFetcher): string {
-  return fetcher.sourceId === fetcher.provider.id ? fetcher.provider.id : `${fetcher.provider.id} ${fetcher.sourceId}`;
+  const source = fetcher.logLabel ?? fetcher.sourceId;
+
+  return source === fetcher.provider.id ? fetcher.provider.id : `${fetcher.provider.id} ${source}`;
 }
 
 function toProviderError(error: unknown): ProviderError {

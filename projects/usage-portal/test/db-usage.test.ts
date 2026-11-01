@@ -5,9 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   deleteLegacyOpenCodeUsage,
+  deleteProviderState,
   deleteProviderUsage,
   loadProviderUsage,
   loadSamples,
+  migrateCodexUsage,
   openDatabase,
   pruneOpenCodeUsage,
   pruneSamples,
@@ -192,6 +194,88 @@ describe("pruneSamples / deleteProviderUsage", () => {
     expect(loadProviderUsage(handle, [MAIN_SOURCE_ID]).get(MAIN_SOURCE_ID)).toEqual({ snapshot: null, error: null });
     expect(loadSamples(handle, MAIN_SOURCE_ID, "primary", 0)).toEqual([]);
     expect(loadProviderUsage(handle, ["codex"]).get("codex")?.snapshot?.windows).toHaveLength(1);
+    expect(loadSamples(handle, "codex", "primary", 0)).toHaveLength(1);
+  });
+});
+
+describe("deleteProviderState / migrateCodexUsage", () => {
+  test("snapshot と error だけを消し、sample は残す", () => {
+    const handle = open();
+
+    saveProviderSnapshot(handle, "codex:account-1", usageSnapshot());
+    saveProviderError(handle, "codex:account-1", { code: "upstream", message: "HTTP 500", at: BASE_TIME });
+
+    deleteProviderState(handle, "codex:account-1");
+
+    expect(loadProviderUsage(handle, ["codex:account-1"]).get("codex:account-1")).toEqual({
+      snapshot: null,
+      error: null,
+    });
+    expect(loadSamples(handle, "codex:account-1", "primary", 0)).toHaveLength(1);
+  });
+
+  test("旧キーの snapshot と sample を現在のアカウントへ移し、error は移さない", () => {
+    const handle = open();
+
+    saveProviderSnapshot(handle, "codex", usageSnapshot({ capturedAt: BASE_TIME - 300_000 }));
+    saveProviderSnapshot(handle, "codex", usageSnapshot());
+    saveProviderError(handle, "codex", { code: "upstream", message: "HTTP 500", at: BASE_TIME + 1 });
+
+    migrateCodexUsage(handle, "codex:account-1");
+
+    expect(loadProviderUsage(handle, ["codex"]).get("codex")).toEqual({ snapshot: null, error: null });
+    expect(loadSamples(handle, "codex", "primary", 0)).toEqual([]);
+
+    const moved = loadProviderUsage(handle, ["codex:account-1"]).get("codex:account-1");
+
+    expect(moved?.snapshot?.capturedAt).toBe(BASE_TIME);
+    expect(moved?.error).toBeNull();
+    expect(loadSamples(handle, "codex:account-1", "primary", 0)).toHaveLength(2);
+  });
+
+  test("サインアウト中の not_connected を再起動時に引き継がない", () => {
+    const handle = open();
+
+    saveProviderSnapshot(handle, "codex:account-1", usageSnapshot());
+    saveProviderError(handle, "codex", {
+      code: "not_connected",
+      message: "Codex にサインインしていません",
+      at: BASE_TIME,
+    });
+
+    migrateCodexUsage(handle, "codex:account-1");
+
+    const stored = loadProviderUsage(handle, ["codex:account-1"]).get("codex:account-1");
+
+    expect(stored?.snapshot?.capturedAt).toBe(BASE_TIME);
+    expect(stored?.error).toBeNull();
+  });
+
+  test("移し先に既にある行を上書きしない", () => {
+    const handle = open();
+
+    saveProviderSnapshot(
+      handle,
+      "codex",
+      usageSnapshot({
+        windows: [{ id: "primary", label: "週次", durationSeconds: 604_800, usedPercent: 10, resetsAt: null }],
+      }),
+    );
+    saveProviderSnapshot(handle, "codex:account-1", usageSnapshot());
+
+    migrateCodexUsage(handle, "codex:account-1");
+
+    expect(loadSamples(handle, "codex:account-1", "primary", 0)).toEqual([{ at: BASE_TIME, usedPercent: 62 }]);
+    expect(loadSamples(handle, "codex", "primary", 0)).toEqual([]);
+  });
+
+  test("未接続のキーを渡したら何もしない", () => {
+    const handle = open();
+
+    saveProviderSnapshot(handle, "codex", usageSnapshot());
+
+    migrateCodexUsage(handle, "codex");
+
     expect(loadSamples(handle, "codex", "primary", 0)).toHaveLength(1);
   });
 });

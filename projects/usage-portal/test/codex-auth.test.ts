@@ -102,6 +102,7 @@ describe("createCodexAuth", () => {
     const auth = createCodexAuth({ credentialDir });
 
     expect(auth.signedIn()).toBe(false);
+    expect(auth.accountId()).toBeNull();
 
     await expect(auth.credential()).rejects.toMatchObject({
       code: "not_connected",
@@ -124,6 +125,7 @@ describe("createCodexAuth", () => {
     const auth = createCodexAuth({ credentialDir });
 
     expect(auth.signedIn()).toBe(true);
+    expect(auth.accountId()).toBe("account-sentinel");
     expect(await auth.credential()).toEqual({ accessToken: "access-sentinel", accountId: "account-sentinel" });
   });
 
@@ -138,7 +140,10 @@ describe("createCodexAuth", () => {
       expires: Date.now() + 60 * 60 * 1000,
     });
 
-    await expect(createCodexAuth({ credentialDir }).credential()).rejects.toMatchObject({
+    const auth = createCodexAuth({ credentialDir });
+
+    expect(auth.accountId()).toBeNull();
+    await expect(auth.credential()).rejects.toMatchObject({
       code: "reauth_required",
     });
   });
@@ -152,6 +157,7 @@ describe("createCodexAuth", () => {
     const auth = createCodexAuth({ credentialDir });
 
     expect(auth.signedIn()).toBe(false);
+    expect(auth.accountId()).toBeNull();
     await expect(auth.credential()).rejects.toMatchObject({ code: "not_connected" });
   });
 

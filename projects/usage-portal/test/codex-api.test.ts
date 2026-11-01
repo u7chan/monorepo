@@ -9,7 +9,7 @@ import { createAuthService } from "../src/server/auth";
 import { createCodexApi } from "../src/server/codex/api";
 import type { CodexAuth } from "../src/server/codex/auth";
 import { createCodexLoginService } from "../src/server/codex/login";
-import { openDatabase, saveProviderSnapshot, type DatabaseHandle } from "../src/server/db";
+import { openDatabase, loadSamples, saveProviderSnapshot, type DatabaseHandle } from "../src/server/db";
 import { buildHealthReport } from "../src/server/health";
 import { BASE_TIME, EMPTY_USAGE, stubOpenCodeApi, stubProbeApi, usageSnapshot } from "./support";
 
@@ -30,6 +30,7 @@ function harness(
     login?: (interaction: AuthInteraction) => Promise<void>;
     signedIn?: boolean;
     logout?: () => Promise<void>;
+    accountId?: string | null;
   } = {},
 ): Harness {
   const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-codex-api-"));
@@ -43,6 +44,7 @@ function harness(
 
   const codexAuth: CodexAuth = {
     signedIn: () => options.signedIn ?? false,
+    accountId: () => options.accountId ?? null,
     credential: async () => ({ accessToken: "token-sentinel", accountId: "account-sentinel" }),
     login: options.login ?? (async () => {}),
     logout: options.logout ?? (async () => {}),
@@ -296,10 +298,10 @@ describe("DELETE /api/codex/login", () => {
 
 describe("POST /api/codex/logout", () => {
   test("snapshot を排他区間で消して取得し直す", async () => {
-    const h = harness();
+    const h = harness({ accountId: "account-1" });
     const cookie = await h.cookie();
 
-    saveProviderSnapshot(h.db, "codex", usageSnapshot());
+    saveProviderSnapshot(h.db, "codex:account-1", usageSnapshot());
 
     const response = await h.app.request(
       new Request("http://localhost/api/codex/logout", { method: "POST", headers: { origin: ORIGIN, cookie } }),
@@ -308,6 +310,21 @@ describe("POST /api/codex/logout", () => {
     expect(response.status).toBe(204);
     expect(h.refreshes).toBe(1);
     expect(h.db.db.query("SELECT COUNT(*) AS count FROM provider_snapshot").get()).toEqual({ count: 0 });
+  });
+
+  test("sample は残し、同じアカウントで戻ったときの推移を引き継ぐ", async () => {
+    const h = harness({ accountId: "account-1" });
+    const cookie = await h.cookie();
+
+    saveProviderSnapshot(h.db, "codex:account-1", usageSnapshot({ capturedAt: BASE_TIME - 300_000 }));
+    saveProviderSnapshot(h.db, "codex:account-1", usageSnapshot());
+
+    const response = await h.app.request(
+      new Request("http://localhost/api/codex/logout", { method: "POST", headers: { origin: ORIGIN, cookie } }),
+    );
+
+    expect(response.status).toBe(204);
+    expect(loadSamples(h.db, "codex:account-1", "primary", 0)).toHaveLength(2);
   });
 
   test("サインアウトで成功状態の表示も消し、すぐ開始し直せる", async () => {

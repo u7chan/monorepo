@@ -87,6 +87,32 @@ describe("createSampler", () => {
     expect(logs).toEqual([`opencode-go ${ACCOUNT_SOURCE_ID}: config (OpenCode Go の API キーが設定されていません)`]);
   });
 
+  test("accountId を含む source id でもログには logLabel だけを出す", async () => {
+    const handle = open();
+    const logs: string[] = [];
+    const sampler = createSampler({
+      db: handle,
+      fetchers: () => [
+        {
+          sourceId: "codex:account-1",
+          provider: CODEX_PROVIDER,
+          logLabel: CODEX_PROVIDER.id,
+          fetch: async () => {
+            throw new ProviderError("upstream", "利用枠を取得できませんでした");
+          },
+        },
+      ],
+      intervalMs: 300_000,
+      now: () => BASE_TIME,
+      log: (message) => logs.push(message),
+    });
+
+    await sampler.kick();
+
+    expect(logs).toEqual(["codex: upstream (利用枠を取得できませんでした)"]);
+    expect(JSON.stringify(logs)).not.toContain("account-1");
+  });
+
   test("アカウントの追加・削除が次の取得から反映される", async () => {
     const handle = open();
     let accounts = 0;
