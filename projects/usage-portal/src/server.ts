@@ -4,10 +4,12 @@ import { createAuthService } from "./server/auth";
 import { createCodexApi } from "./server/codex/api";
 import { createCodexAuth } from "./server/codex/auth";
 import { createCodexLoginService } from "./server/codex/login";
+import { codexSourceId } from "./server/codex/source";
 import { loadConfig } from "./server/config";
 import { prepareCredentialDir } from "./server/credential-dir";
 import {
   deleteLegacyOpenCodeUsage,
+  migrateCodexUsage,
   openDatabase,
   pruneOpenCodeUsage,
   verifyDatabase,
@@ -62,6 +64,14 @@ try {
 }
 
 const codexAuth = createCodexAuth({ credentialDir: config.credentialDir, log });
+
+// 旧キーの履歴を、いまサインインしているアカウントのキーへ移す。サインアウト中は何もしない。
+try {
+  migrateCodexUsage(database, codexSourceId(codexAuth.accountId()));
+} catch {
+  log("Codex の履歴を引き継げませんでした");
+}
+
 const openCodeAccounts = createOpenCodeAccounts({ credentialDir: config.credentialDir, log });
 // 送信の設定は秘密ではないので `DATA_DIR` に置く。壊れていても「未設定」として起動する。
 const probeSettings = createProbeSettings({ dataDir: config.dataDir, log });
@@ -85,7 +95,8 @@ try {
 // 取得のたびに評価する。アカウントの追加・削除が再起動なしで次の取得から反映される。
 const fetchers = (): UsageFetcher[] => [
   {
-    sourceId: CODEX_PROVIDER.id,
+    // サインイン中はアカウント別のキーへ書き、未接続時だけ base キーに error を書く。
+    sourceId: codexSourceId(codexAuth.accountId()),
     provider: CODEX_PROVIDER,
     fetch: () => fetchCodexUsage({ source: codexAuth, userAgent, now: Date.now }),
   },
@@ -127,6 +138,7 @@ const app = createApp({
     sampleIntervalMs: config.pollIntervalMs,
     now: Date.now,
     accounts: () => openCodeAccounts.list(),
+    codexSourceId: () => codexSourceId(codexAuth.accountId()),
   }),
   health: () => buildHealthReport(verifyDatabase(database) ? "ok" : "error", auth.status()),
 });

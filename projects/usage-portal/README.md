@@ -95,7 +95,7 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `POST` | `/api/codex/login` | 必要 | サインイン開始（202）。進行中の二重開始は 409 |
 | `POST` | `/api/codex/login/respond` | 必要 | `{ "value": "..." }`。`select` の選択肢 ID か、ブラウザの最後の URL（204） |
 | `DELETE` | `/api/codex/login` | 必要 | 進行中のサインインを中断（204、冪等） |
-| `POST` | `/api/codex/logout` | 必要 | 保存済み OAuth を削除し、Codex の snapshot を消す（204） |
+| `POST` | `/api/codex/logout` | 必要 | 保存済み OAuth を削除し、Codex の snapshot と error を消す（204）。推移の sample は同じアカウントの再サインイン用に残す |
 | `GET` | `/api/probe/models` | 必要 | `{ codex: [...], opencodeGo: [...] }`。`{ id, name, thinkingLevels, cost }`。ネットワークは叩かない |
 | `GET` | `/api/codex/probe` | 必要 | `{ codex: { model, thinking } \| null }`。未設定は `null` |
 | `PUT` | `/api/codex/probe` | 必要 | `{ model, thinking }` → 200 `{ codex }`。catalog に無ければ `invalid_model` / `invalid_thinking`（400） |
@@ -131,8 +131,9 @@ Codex の OAuth は自前実装せず、Pi SDK（`@earendil-works/pi-coding-agen
 3. 表示された URL とコードで承認する
 4. 成功すると `auth.json` に保存され、sampler が 1 回走って Codex カードが更新される
 
-サインアウトはカード右上の `⋮` から行う（サインイン済みのときだけ出る）。未接続・再サインインのときの
-「Sign in with ChatGPT」は、カードの中に残る。
+サインアウトはカード右上の `⋮` から行う（サインイン済みのときだけ出る）。サインアウト中は推移も出さないが、
+同じ ChatGPT アカウントで戻ると、残しておいた sample から推移を引き継ぐ（[ADR 0018](docs/adr/0018-codex-trend-across-signout.md)）。
+未接続・再サインインのときの「Sign in with ChatGPT」は、カードの中に残る。
 
 コールバックポート（1455）は publish しない。コンテナ内の `127.0.0.1` に閉じるため、どのブラウザからでも
 デバイスコードか貼り付けで完了できるようにしてある。進行中の状態は BFF のメモリだけに置き、開始から 10 分で自動中断する。
@@ -299,3 +300,4 @@ bun run check
 - [docs/adr/0015-reset-line-badge.md](docs/adr/0015-reset-line-badge.md) — リセット行の残り時間をバッジにする
 - [docs/adr/0016-exhausted-cards-last.md](docs/adr/0016-exhausted-cards-last.md) — 使い切ったカードを末尾に回す
 - [docs/adr/0017-probe-prompts.md](docs/adr/0017-probe-prompts.md) — 最小プロンプトの送信（5 時間窓の開始と接続確認）
+- [docs/adr/0018-codex-trend-across-signout.md](docs/adr/0018-codex-trend-across-signout.md) — Codex の推移をサインアウト後も同じアカウントで引き継ぐ

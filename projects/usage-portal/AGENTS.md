@@ -23,7 +23,7 @@ OpenCode Go の接続確認）を持つ。
 - 利用枠は `src/server/providers/` の adapter で `ProviderSnapshot` に正規化し、`src/server/sampler.ts` が 5 分ごとに取得して `src/server/db.ts` へ書く。応答は `src/server/usage.ts` が組み立てる（[docs/adr/0004-usage-sampling-and-storage.md](docs/adr/0004-usage-sampling-and-storage.md)）。
 - Codex の資格情報とサインインは `src/server/codex/`。OAuth は実装せず、Pi SDK の `ModelRuntime` を認証の境界としてだけ使う（[docs/adr/0005-codex-credentials-and-sign-in.md](docs/adr/0005-codex-credentials-and-sign-in.md)）。
 - OpenCode Go のアカウント（名前 / アイコン / API キー）は `src/server/opencode/accounts.ts` が `CREDENTIAL_DIR` の `opencode-accounts.json` に保存し、`/api/opencode/accounts` から登録・変更・削除する。入力規則は `src/shared/opencode-account.ts` を server と client で共有する。`.env` は使わない（[docs/adr/0006-opencode-api-key-registration.md](docs/adr/0006-opencode-api-key-registration.md), [docs/adr/0007-opencode-multiple-accounts.md](docs/adr/0007-opencode-multiple-accounts.md)）。
-- DB の `provider` 列は provider id ではなく source id（`codex` / `opencode-go:<account uuid>`）を持つ。テーブル定義と `user_version` は v1 のまま（ADR 0007）。
+- DB の `provider` 列は provider id ではなく source id（`codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>`）を持つ。テーブル定義と `user_version` は v1 のまま（ADR 0007, 0018）。Codex のサインアウトは snapshot と error だけを消し、sample は同じアカウントの再サインイン用に残す。
 - 送信（5 時間窓の開始・接続確認）は `src/server/probe/`。エージェントは使わず、`@earendil-works/pi-ai` の
   `openaiCodexProvider()` / `opencodeGoProvider()` を直接呼ぶ。Codex の access token は `CodexAuth.credential()`
   から取り、`auth.json` は解析しない（[docs/adr/0017-probe-prompts.md](docs/adr/0017-probe-prompts.md)）。
@@ -64,4 +64,4 @@ Docker は `docker build --target test -t usage-portal-test ./projects/usage-por
 
 - [README.md](README.md) — 起動方法、環境変数、Docker、セキュリティの前提
 - [docs/design.md](docs/design.md) — 設計（親 checkout からの写し）
-- [docs/adr/](docs/adr) — スタック、状態取得、認証と公開範囲、利用枠の保存、Codex のサインイン、OpenCode Go のアカウント、残量表示と推移の期間、窓の停止表示とメニュー、表示の密度、Codex のサインアウト、ゲージの印、リセット行のバッジ、使い切ったカードの並び、最小プロンプトの送信の決定
+- [docs/adr/](docs/adr) — スタック、状態取得、認証と公開範囲、利用枠の保存、Codex のサインイン、OpenCode Go のアカウント、残量表示と推移の期間、窓の停止表示とメニュー、表示の密度、Codex のサインアウト、ゲージの印、リセット行のバッジ、使い切ったカードの並び、最小プロンプトの送信、Codex の推移の引き継ぎの決定

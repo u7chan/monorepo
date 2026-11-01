@@ -16,6 +16,8 @@ export type CodexCredential = { accessToken: string; accountId: string };
 
 export type CodexAuth = {
   signedIn: () => boolean;
+  /** 履歴のキーにだけ使う。応答・DB の snapshot・ログには出さない。 */
+  accountId: () => string | null;
   credential: () => Promise<CodexCredential>;
   login: (interaction: AuthInteraction) => Promise<void>;
   logout: () => Promise<void>;
@@ -29,6 +31,18 @@ export function createCodexAuth(options: { credentialDir: string; log?: (message
   const authPath = join(options.credentialDir, CODEX_AUTH_FILE);
   const deviceIds = createDeviceIdStore(join(options.credentialDir, CODEX_DEVICE_ID_FILE), options.log);
   let runtime: Promise<ModelRuntime> | null = null;
+
+  function readAccountId(): string | null {
+    try {
+      const stored = readStoredCredential(CODEX_PROVIDER_ID, authPath);
+
+      return stored?.type === "oauth" && typeof stored.accountId === "string" && stored.accountId !== ""
+        ? stored.accountId
+        : null;
+    } catch {
+      return null;
+    }
+  }
 
   function getRuntime(): Promise<ModelRuntime> {
     runtime ??= ModelRuntime.create({ authPath, modelsPath: null, refreshOnCreate: false }).catch((error) => {
@@ -49,6 +63,7 @@ export function createCodexAuth(options: { credentialDir: string; log?: (message
         return false;
       }
     },
+    accountId: readAccountId,
     async credential() {
       let auth: Awaited<ReturnType<ModelRuntime["getAuth"]>>;
 
@@ -65,11 +80,7 @@ export function createCodexAuth(options: { credentialDir: string; log?: (message
         throw new ProviderError("not_connected", "Codex にサインインしていません");
       }
 
-      const stored = readStoredCredential(CODEX_PROVIDER_ID, authPath);
-      const accountId =
-        stored?.type === "oauth" && typeof stored.accountId === "string" && stored.accountId !== ""
-          ? stored.accountId
-          : null;
+      const accountId = readAccountId();
 
       if (!accountId) {
         throw new ProviderError("reauth_required", "Codex の再サインインが必要です");

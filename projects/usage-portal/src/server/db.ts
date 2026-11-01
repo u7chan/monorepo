@@ -9,10 +9,13 @@ export const SCHEMA_VERSION = 1;
 
 /** 単一キー時代の OpenCode Go の source id。起動時の掃除でだけ使う。 */
 const LEGACY_OPENCODE_SOURCE_ID = "opencode-go";
+/** アカウント別のキーへ移す前の Codex の source id。起動時の引き継ぎでだけ使う。 */
+const LEGACY_CODEX_SOURCE_ID = "codex";
 
 /**
  * 3 つのテーブルの `provider` 列は provider id ではなく source id を持つ。
- * `codex` と `opencode-go:<account uuid>` が入り、列名だけが v1 のまま残っている。
+ * `codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>` が入り、
+ * 列名だけが v1 のまま残っている。
  */
 const MIGRATIONS: readonly string[] = [
   `
@@ -45,6 +48,9 @@ export type DatabaseHandle = {
   path: string;
   close: () => void;
 };
+
+const STATE_TABLES = ["provider_snapshot", "provider_error"] as const;
+const USAGE_TABLES = [...STATE_TABLES, "usage_sample"] as const;
 
 export function openDatabase(dataDir: string, filename = "usage.sqlite"): DatabaseHandle {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -117,6 +123,43 @@ export function deleteProviderUsage(handle: DatabaseHandle, sourceId: string): v
   deleteUsageRows(handle, "provider = ?", [sourceId]);
 }
 
+/** snapshot と error だけを消し、sample は残す。Codex のサインアウトで推移を引き継ぐために使う。 */
+export function deleteProviderState(handle: DatabaseHandle, sourceId: string): void {
+  deleteUsageRows(handle, "provider = ?", [sourceId], STATE_TABLES);
+}
+
+/**
+ * アカウント別のキーへ移す前の Codex の履歴を、いまサインインしているアカウントへ引き継ぐ。
+ * 旧キーは同時に 1 アカウントぶんしか無い（サインアウトで消していた）ため、衝突したら新しい側を残す。
+ */
+export function migrateCodexUsage(handle: DatabaseHandle, sourceId: string): void {
+  if (sourceId === LEGACY_CODEX_SOURCE_ID) {
+    return;
+  }
+
+  handle.db.transaction(() => {
+    handle.db
+      .query(
+        "INSERT OR IGNORE INTO provider_snapshot (provider, captured_at, snapshot_json) SELECT ?, captured_at, snapshot_json FROM provider_snapshot WHERE provider = ?",
+      )
+      .run(sourceId, LEGACY_CODEX_SOURCE_ID);
+    handle.db
+      .query(
+        "INSERT OR IGNORE INTO provider_error (provider, failed_at, code, message) SELECT ?, failed_at, code, message FROM provider_error WHERE provider = ?",
+      )
+      .run(sourceId, LEGACY_CODEX_SOURCE_ID);
+    handle.db
+      .query(
+        "INSERT OR IGNORE INTO usage_sample (provider, window_id, captured_at, used_percent, resets_at) SELECT ?, window_id, captured_at, used_percent, resets_at FROM usage_sample WHERE provider = ?",
+      )
+      .run(sourceId, LEGACY_CODEX_SOURCE_ID);
+
+    for (const table of USAGE_TABLES) {
+      handle.db.query(`DELETE FROM ${table} WHERE provider = ?`).run(LEGACY_CODEX_SOURCE_ID);
+    }
+  })();
+}
+
 /**
  * 単一キー時代の `opencode-go` 行を消す。Codex の行は残す。
  * 旧キーは `CREDENTIAL_DIR` に残るが、読み手がもう居ないので同じ行を引き継がない。
@@ -184,10 +227,13 @@ export function pruneSamples(handle: DatabaseHandle, olderThan: number): number 
   return handle.db.query("DELETE FROM usage_sample WHERE captured_at < ?").run(olderThan).changes;
 }
 
-function deleteUsageRows(handle: DatabaseHandle, condition: string, values: readonly string[]): number {
-  const statements = ["provider_snapshot", "provider_error", "usage_sample"].map((table) =>
-    handle.db.query(`DELETE FROM ${table} WHERE ${condition}`),
-  );
+function deleteUsageRows(
+  handle: DatabaseHandle,
+  condition: string,
+  values: readonly string[],
+  tables: readonly string[] = USAGE_TABLES,
+): number {
+  const statements = tables.map((table) => handle.db.query(`DELETE FROM ${table} WHERE ${condition}`));
 
   return handle.db.transaction(() =>
     statements.reduce((total, statement) => total + statement.run(...values).changes, 0),

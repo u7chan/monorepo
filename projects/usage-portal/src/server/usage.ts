@@ -1,11 +1,10 @@
 import { loadProviderUsage, loadSamples, type DatabaseHandle } from "./db";
+import { CODEX_SOURCE_ID } from "./codex/source";
 import { openCodeSourceId } from "./opencode/accounts";
 import { CODEX_PROVIDER } from "./providers";
 import type { ProviderId, UsageWindow } from "./providers/types";
 import { decideProviderState, type ProviderState, type UsageError } from "./state";
 import { buildTrend, trendSpanMs, type Trend } from "./trend";
-
-const CODEX_SOURCE_ID = "codex";
 
 /** 画面のヘッダーに出すアカウントの識別情報。キーは含めない。 */
 export type UsageSourceAccount = { id: string; name: string; icon: string };
@@ -45,10 +44,12 @@ export function createUsageReader(options: {
   sampleIntervalMs: number;
   now: () => number;
   accounts?: () => readonly UsageSourceAccount[];
+  /** Codex の履歴キー。サインイン中の ChatGPT アカウントで変わる。 */
+  codexSourceId?: () => string;
 }): () => UsagePayload {
   return () => {
     const now = options.now();
-    const entries = collectSources(options.accounts?.() ?? []);
+    const entries = collectSources(options.codexSourceId?.() ?? CODEX_SOURCE_ID, options.accounts?.() ?? []);
     const stored = loadProviderUsage(
       options.db,
       entries.map((entry) => entry.sourceId),
@@ -62,7 +63,7 @@ export function createUsageReader(options: {
         const capturedAt = snapshot?.capturedAt ?? null;
 
         return {
-          id: entry.account?.id ?? entry.sourceId,
+          id: entry.account?.id ?? CODEX_SOURCE_ID,
           provider: entry.provider,
           // Codex の名前と plan は snapshot 由来。アカウントは登録した名前だけを使う。
           name: entry.account?.name ?? snapshot?.name ?? CODEX_PROVIDER.name,
@@ -86,9 +87,9 @@ export function createUsageReader(options: {
   };
 }
 
-function collectSources(accounts: readonly UsageSourceAccount[]): SourceEntry[] {
+function collectSources(codexSourceId: string, accounts: readonly UsageSourceAccount[]): SourceEntry[] {
   return [
-    { sourceId: CODEX_SOURCE_ID, provider: "codex", account: null },
+    { sourceId: codexSourceId, provider: "codex", account: null },
     ...accounts.map((account) => ({
       sourceId: openCodeSourceId(account.id),
       provider: "opencode-go" as const,

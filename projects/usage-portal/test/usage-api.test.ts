@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
 import { openDatabase, saveProviderError, saveProviderSnapshot, type DatabaseHandle } from "../src/server/db";
+import { codexSourceId } from "../src/server/codex/source";
 import { buildHealthReport } from "../src/server/health";
 import { openCodeSourceId } from "../src/server/opencode/accounts";
 import { parseCodexUsage } from "../src/server/providers/codex";
@@ -31,7 +32,10 @@ type Harness = {
   advance: (ms: number) => void;
 };
 
-function harness(accounts: readonly UsageSourceAccount[] = []): Harness {
+function harness(
+  accounts: readonly UsageSourceAccount[] = [],
+  options: { codexSourceId?: () => string } = {},
+): Harness {
   let clock = BASE_TIME;
   const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-usage-api-"));
   const auth = createAuthService({ dataDir, now: () => clock });
@@ -42,7 +46,13 @@ function harness(accounts: readonly UsageSourceAccount[] = []): Harness {
 
   const app = createApp({
     auth,
-    usage: createUsageReader({ db, sampleIntervalMs: INTERVAL, now: () => clock, accounts: () => accounts }),
+    usage: createUsageReader({
+      db,
+      sampleIntervalMs: INTERVAL,
+      now: () => clock,
+      accounts: () => accounts,
+      codexSourceId: options.codexSourceId,
+    }),
     codex: stubCodexApi(),
     probe: stubProbeApi(),
     opencode: stubOpenCodeApi(),
@@ -175,6 +185,60 @@ describe("GET /api/usage", () => {
     // bucket の代表点はすべて 20% になり、点列だけではリセットを検出できない。
     expect(trend?.points.map((point) => point.usedPercent)).toEqual([20, 20, 20]);
     expect(trend?.resets).toEqual([BASE_TIME - 10 * MINUTE]);
+  });
+
+  test("サインイン中の Codex はアカウント別の履歴を読み、公開 id は codex のまま", async () => {
+    let accountId: string | null = "account-1";
+    const h = harness([], { codexSourceId: () => codexSourceId(accountId) });
+    const cookie = await sessionCookie(h.app);
+
+    saveProviderSnapshot(h.db, "codex:account-1", usageSnapshot({ capturedAt: BASE_TIME - 30 * MINUTE }));
+    saveProviderSnapshot(h.db, "codex:account-1", usageSnapshot());
+
+    const signedIn = (await readUsage(h, cookie)).sources[0];
+
+    expect(signedIn?.id).toBe("codex");
+    expect(signedIn?.state).toBe("ok");
+    expect(signedIn?.trends[0]?.points).toHaveLength(2);
+
+    // サインアウト中は base キーを見る。前のアカウントの snapshot は出さない。
+    accountId = null;
+    saveProviderError(h.db, "codex", {
+      code: "not_connected",
+      message: "Codex にサインインしていません",
+      at: BASE_TIME,
+    });
+
+    const signedOut = (await readUsage(h, cookie)).sources[0];
+
+    expect(signedOut?.id).toBe("codex");
+    expect(signedOut?.state).toBe("error");
+    expect(signedOut?.windows).toEqual([]);
+    expect(signedOut?.trends).toEqual([]);
+
+    // 同じアカウントで戻ると、残しておいた sample から推移が戻る。
+    accountId = "account-1";
+
+    const reloggedIn = (await readUsage(h, cookie)).sources[0];
+
+    expect(reloggedIn?.state).toBe("ok");
+    expect(reloggedIn?.trends[0]?.points).toHaveLength(2);
+  });
+
+  test("別のアカウントでサインインし直したら前の履歴を混ぜない", async () => {
+    let accountId: string | null = "account-1";
+    const h = harness([], { codexSourceId: () => codexSourceId(accountId) });
+    const cookie = await sessionCookie(h.app);
+
+    saveProviderSnapshot(h.db, "codex:account-1", usageSnapshot({ capturedAt: BASE_TIME - 30 * MINUTE }));
+    saveProviderSnapshot(h.db, "codex:account-1", usageSnapshot());
+
+    accountId = "account-2";
+    saveProviderSnapshot(h.db, "codex:account-2", usageSnapshot());
+
+    const source = (await readUsage(h, cookie)).sources[0];
+
+    expect(source?.trends).toEqual([]);
   });
 
   test("アカウントごとに source id で state と trends を出す", async () => {
