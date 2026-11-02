@@ -7,6 +7,7 @@ import {
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
+  imageScreenModel,
   contentProviderId,
   contentProviderLabel,
   keyDraftAfterSave,
@@ -111,6 +112,8 @@ export function ContentSettingsTab({
   const [trialPrompt, setTrialPrompt] = useState("");
   // 証拠の相対表記は画面を開いた時刻で固定する（毎秒の再描画を持ち込まない）
   const [trialNow] = useState(() => Date.now());
+  // 画面に出ているモデル。モデル選択・試行の開始・証拠はこの 1 つを使う（保存前でも画面の値で試す）
+  const screenModel = imageScreenModel({ draft: imageDraft, savedModel: imageModelValue(settings) });
   const busy = saving !== null;
   const runtimeAvailable = settings.runtimeAvailable;
   const providerName = contentProviderLabel(settings.provider);
@@ -247,7 +250,7 @@ export function ContentSettingsTab({
                 settings={settings}
                 busy={busy}
                 refreshing={saving === "catalog"}
-                draft={imageDraft}
+                selectedModel={screenModel}
                 onChangeDraft={setImageDraft}
                 onSave={onSaveSelection}
                 onRefresh={onRefreshCatalog}
@@ -258,6 +261,7 @@ export function ContentSettingsTab({
             ) : null}
             <ImageTrialSection
               settings={settings}
+              model={screenModel}
               trials={trials}
               keyEpoch={trialKeyEpoch}
               busy={trialBusy}
@@ -341,7 +345,7 @@ function ImageModelSection({
   settings,
   busy,
   refreshing,
-  draft,
+  selectedModel,
   onChangeDraft,
   onSave,
   onRefresh,
@@ -352,7 +356,8 @@ function ImageModelSection({
   settings: ContentSettingsResponse;
   busy: boolean;
   refreshing: boolean;
-  draft: string | null;
+  /** 画面で選択中のモデル（下書き優先）。試行と証拠も同じ値を使う */
+  selectedModel: string;
   onChangeDraft: (draft: string | null) => void;
   onSave: (input: UpdateContentImageBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
@@ -362,7 +367,6 @@ function ImageModelSection({
 }) {
   const options = imageModelOptions(settings);
   const savedModel = imageModelValue(settings);
-  const selectedModel = draft ?? savedModel;
   const dirty = selectedModel !== savedModel;
 
   const submit = async () => {
@@ -374,7 +378,7 @@ function ImageModelSection({
   return (
     <section className="grid gap-1.5 border-t border-line pt-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">保存される設定</div>
+        <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">保存される設定</h3>
         {dirty ? <span className="text-2xs text-warn">未保存</span> : null}
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -397,7 +401,7 @@ function ImageModelSection({
         </button>
       </div>
       {/* キーの有効性は緑のバッジにせず、現在のキー世代と選択中モデルの実績だけを証拠として出す */}
-      <EvidenceLine trials={trials} settings={settings} keyEpoch={trialKeyEpoch} now={trialNow} />
+      <EvidenceLine trials={trials} model={selectedModel} keyEpoch={trialKeyEpoch} now={trialNow} />
       {/* サイズ・品質・出力形式の UI は持たない理由だけを残す。provider は見出しに出ている */}
       <p className="text-2xs leading-relaxed text-ink-muted">サイズ・品質・出力形式は provider の既定を使います。</p>
       <div className="flex flex-wrap items-center gap-2">

@@ -126,7 +126,8 @@ export function trialHistoryRow(trial: ContentTrial, currentKeyEpoch: number): T
     durationLabel: trialDurationLabel(trial.durationMs),
     keyEpochLabel: trial.keyEpoch < currentKeyEpoch ? `旧キー（世代 ${trial.keyEpoch}）` : null,
     prompt: trial.prompt,
-    failureLabel: trialFailureLabel(trial.failureCode),
+    // 分類を出すのは失敗だけ。中止（利用者の操作）や中断（再起動）を失敗の分類として見せない
+    failureLabel: trial.state === "failed" ? trialFailureLabel(trial.failureCode) : null,
     at: trial.finishedAt ?? trial.startedAt,
   };
 }

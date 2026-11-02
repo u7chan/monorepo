@@ -18,6 +18,7 @@ import {
   trialStartBlockedReason,
   trialStateLabel,
 } from "../src/lib/contentTrials";
+import { imageScreenModel } from "../src/lib/contentSettings";
 import type { ContentTrial } from "../src/types";
 
 const MODEL = "openrouter/openai/gpt-image-2";
@@ -90,6 +91,39 @@ test("証拠は現在のキー世代と選択中モデルの実績だけを数�
   assert.equal(evidenceNote(evidence, { now }), "この画面での最終成功: たった今（11.0s）。結果は保存されていません");
 });
 
+test("証拠と試行のモデルは画面の選択（下書き優先）で、保存値の実績は数えない", () => {
+  const now = 100_000;
+  // 画面は Gemini を選んでいるが、まだ保存していない（保存値は gpt-image-2）
+  const savedModel = "openrouter/openai/gpt-image-2";
+  const draft = "openrouter/google/gemini-image";
+  const currentModel = imageScreenModel({ draft, savedModel });
+  assert.equal(currentModel, draft);
+
+  const trials = [
+    trial({ id: "saved-model-success", model: savedModel, finishedAt: 90_000 }),
+    trial({
+      id: "draft-model-failure",
+      model: draft,
+      state: "failed",
+      failureCode: "rate_limited",
+      finishedAt: 95_000,
+    }),
+  ];
+  // 開始本文と証拠が同じ値を使うので、保存値の成功を「この画面での最終成功」にしない
+  assert.deepEqual(imageTrialEvidence({ trials, currentKeyEpoch: 1, currentModel, now }), {
+    kind: "failure",
+    at: 95_000,
+    code: "rate_limited",
+    message: null,
+  });
+  // 保存値のモデルで数えると別モデルの成功が証拠になる（以前の不具合）。その混同をここで固定する
+  assert.deepEqual(imageTrialEvidence({ trials, currentKeyEpoch: 1, currentModel: savedModel, now }), {
+    kind: "success",
+    at: 90_000,
+    durationMs: 11_000,
+  });
+});
+
 test("成功が無ければ同じ条件の直近の失敗を出し、どちらも無ければ未確認にする", () => {
   const now = 200_000;
   const failed = imageTrialEvidence({
@@ -117,6 +151,17 @@ test("成功が無ければ同じ条件の直近の失敗を出し、どちら�
   });
   assert.deepEqual(unverified, { kind: "unverified" });
   assert.equal(evidenceNote(unverified, { now }), "この画面での成功: 未確認");
+});
+
+test("失敗の分類を出すのは failed だけ（中止・中断を失敗の分類として見せない）", () => {
+  const canceled = trialHistoryRow(trial({ state: "canceled", failureCode: "aborted" }), 1);
+  assert.equal(canceled.stateLabel, "中止");
+  assert.equal(canceled.failureLabel, null);
+  const interrupted = trialHistoryRow(trial({ state: "interrupted", failureCode: null }), 1);
+  assert.equal(interrupted.stateLabel, "中断（再起動）");
+  assert.equal(interrupted.failureLabel, null);
+  const failed = trialHistoryRow(trial({ state: "failed", failureCode: "timeout" }), 1);
+  assert.equal(failed.failureLabel, "タイムアウト");
 });
 
 test("履歴の行は現在より古いキー世代を「旧キー」として区別する", () => {

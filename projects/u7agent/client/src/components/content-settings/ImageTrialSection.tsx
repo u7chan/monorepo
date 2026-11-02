@@ -17,6 +17,8 @@ const HISTORY_PREVIEW_COUNT = 3;
 
 export type ImageTrialSectionProps = {
   settings: ContentSettingsResponse;
+  /** 画面で選択中のモデル（下書き優先）。保存前でも画面の値で試行する */
+  model: string;
   /** 一覧を取得できていない間は null */
   trials: readonly ContentTrial[] | null;
   /** 現在のキー世代。証拠と「旧キー」の判定に使う */
@@ -38,6 +40,7 @@ export type ImageTrialSectionProps = {
  */
 export function ImageTrialSection({
   settings,
+  model,
   trials,
   keyEpoch,
   busy,
@@ -95,7 +98,7 @@ export function ImageTrialSection({
           type="button"
           className="btn-primary"
           disabled={busy || blocked !== null}
-          onClick={() => void onStart({ kind: "image", model: modelRefOf(settings), prompt })}
+          onClick={() => void onStart({ kind: "image", model, prompt })}
         >
           <CheckIcon />
           {running ? "生成中…" : "試行する"}
@@ -174,12 +177,6 @@ function panelNote(panel: ReturnType<typeof trialPanelState>): string {
     case "ready":
       return "前回の試行は完了しています。";
   }
-}
-
-/** 画像モデルの `provider/id`。カタログ外の保存値でも同じ表記で送る */
-function modelRefOf(settings: ContentSettingsResponse): string {
-  if (settings.provider === null || settings.image.model === null) return "";
-  return `${settings.provider}/${settings.image.model}`;
 }
 
 function ResultCard({
@@ -270,19 +267,20 @@ function HistoryListItem({
 /** 証拠の 1 行。モデル選択の直下に置き、緑のバッジにはしない */
 export function EvidenceLine({
   trials,
-  settings,
+  model,
   keyEpoch,
   now,
 }: {
   trials: readonly ContentTrial[] | null;
-  settings: ContentSettingsResponse;
+  /** 画面で選択中のモデル（下書き優先）。証拠はこのモデルの実績だけを数える */
+  model: string;
   keyEpoch: number;
   now: number;
 }) {
   const evidence = imageTrialEvidence({
     trials: trials ?? [],
     currentKeyEpoch: keyEpoch,
-    currentModel: modelRefOf(settings),
+    currentModel: model,
     now,
   });
   return (

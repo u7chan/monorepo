@@ -495,3 +495,19 @@ test("成功した実績はモデル選択の直下に最終成功として出�
   assert.ok(html.includes("この画面での最終成功: 1 分前（12.4s）。結果は保存されていません"));
   assert.ok(html.includes("チャットの生成は含めません"), "証拠の範囲を書く");
 });
+
+test("「保存される設定」と「設定に反映しない試行」は同じ見出しの段と見た目で並ぶ", () => {
+  const html = render({ trials: [TRIAL_BASE] });
+  const headingClass = (label: string): string => {
+    const match = new RegExp(`<h3 class="([^"]*)"[^>]*>${label}</h3>`).exec(html);
+    assert.ok(match, `${label} を h3 で出す`);
+    return match[1];
+  };
+  assert.equal(headingClass("保存される設定"), headingClass("設定に反映しない試行"), "見出しの見た目を揃える");
+});
+
+test("中止した試行は「中止」と出し、失敗の分類として見せない", () => {
+  const html = render({ trials: [{ ...TRIAL_BASE, state: "canceled", failureCode: "aborted" }] });
+  assert.match(html, />中止</, "状態は中止");
+  assert.equal(html.includes("失敗の分類"), false, "利用者の中止を失敗の分類にしない");
+});

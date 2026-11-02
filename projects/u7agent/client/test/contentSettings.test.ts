@@ -15,6 +15,7 @@ import {
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
+  imageScreenModel,
   keyDraftAfterSave,
   speechCatalogNotice,
   speechDefaultVoice,
@@ -151,6 +152,17 @@ test("カタログ外の保存済みモデルは現在値として先頭に足�
   assert.equal(options[0].label, "stale/model（カタログ外）");
   assert.equal(options[0].model?.provider, "openrouter");
   assert.equal(options.length, 4, "カタログの 3 件を失わない");
+});
+
+test("画面のモデルは下書きを優先し、未設定では空文字（試行と証拠もこの値を使う）", () => {
+  const savedModel = imageModelValue(settings());
+  // 保存前でも画面の選択が正。保存値と混ぜると、保存前の試行が別モデルで走る
+  assert.equal(
+    imageScreenModel({ draft: "openrouter/google/gemini-image", savedModel }),
+    "openrouter/google/gemini-image",
+  );
+  assert.equal(imageScreenModel({ draft: null, savedModel }), savedModel);
+  assert.equal(imageScreenModel({ draft: null, savedModel: "" }), "", "行が無ければ空文字");
 });
 
 test("現在値と PUT の本文を選択肢から解決する", () => {
