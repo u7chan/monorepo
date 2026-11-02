@@ -11,6 +11,7 @@ import {
   imageTrialEvidence,
   latestTrial,
   newlyFinishedKinds,
+  removeTrialThenRefresh,
   reusableTrial,
   selectedTrial,
   tabIndicator,
@@ -379,4 +380,61 @@ test("同じ入力の保存済み成功がある間は課金しない判定に�
   assert.equal(reusableTrial({ trials, ...input, model: OTHER_MODEL }), null);
   // 保存済みの成果物が無い成功は再利用しない
   assert.equal(reusableTrial({ trials: [trial({ artifactState: "none", artifact: null })], ...input }), null);
+});
+
+test("試行の削除は一覧を取り直し、保存容量を古いまま残さない", async () => {
+  const calls: string[] = [];
+  const removedIds: string[] = [];
+  let finishRemove: () => void = () => {};
+  let finishReload: (value: boolean) => void = () => {};
+  const removeGate = new Promise<void>((resolve) => {
+    finishRemove = resolve;
+  });
+  const reloadGate = new Promise<boolean>((resolve) => {
+    finishReload = resolve;
+  });
+  const pending = removeTrialThenRefresh({
+    id: "trial-1",
+    remove: async (id) => {
+      calls.push(`remove:${id}`);
+      removedIds.push(id);
+      await removeGate;
+    },
+    reload: async () => {
+      calls.push("reload");
+      return reloadGate;
+    },
+  });
+  // 削除が終わるまで取り直しは始めない（古い一覧で上書きしない）
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, ["remove:trial-1"]);
+  assert.deepEqual(removedIds, ["trial-1"]);
+  finishRemove();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, ["remove:trial-1", "reload"]);
+  finishReload(true);
+  assert.equal(await pending, true);
+
+  // 取り直しの失敗は呼び出し側へ返す（「消えたが一覧を取り直せない」を伝えられる）
+  assert.equal(
+    await removeTrialThenRefresh({ id: "trial-2", remove: async () => {}, reload: async () => false }),
+    false,
+  );
+
+  // 削除に失敗したら取り直さない（呼び出し側が別の経路で回復させる）
+  let reloaded = false;
+  await assert.rejects(
+    removeTrialThenRefresh({
+      id: "trial-3",
+      remove: async () => {
+        throw new Error("delete boom");
+      },
+      reload: async () => {
+        reloaded = true;
+        return true;
+      },
+    }),
+    /delete boom/,
+  );
+  assert.equal(reloaded, false);
 });

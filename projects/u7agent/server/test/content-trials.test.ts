@@ -160,12 +160,16 @@ class FakeTrialsDb implements ContentTrialsDb {
   }
 }
 
-/** 成果物の置き場。`hold` で write を止め、保存後・終端更新前の窓を作れるようにする */
+/** 成果物の置き場。`hold` で write を、`holdList` で list を止め、競合の窓を作れるようにする */
 class FakeArtifactStore implements TrialArtifactStore {
   files = new Map<string, Uint8Array>();
   failWrite = false;
   failRemove = false;
+  /** write の途中で止める（保存後・終端更新前の窓を作る） */
   hold: { promise: Promise<void>; release: () => void } | null = null;
+  /** list の途中で止める（一覧の取得中にジョブが確定する窓を作る）。返す一覧は呼ばれた時点のもの */
+  holdList: { promise: Promise<void>; release: () => void } | null = null;
+  listCalls = 0;
 
   async write(input: { trialId: string; format: "png" | "jpeg" | "webp"; bytes: Uint8Array }): Promise<void> {
     if (this.failWrite) throw new Error("disk full");
@@ -185,7 +189,10 @@ class FakeArtifactStore implements TrialArtifactStore {
   }
 
   async list(): Promise<string[]> {
-    return [...this.files.keys()];
+    this.listCalls += 1;
+    const snapshot = [...this.files.keys()];
+    if (this.holdList) await this.holdList.promise;
+    return snapshot;
   }
 }
 
@@ -663,6 +670,44 @@ test("オンラインの再照合は、保存後・終端更新前の実行中�
   hold.resolve();
   await until(() => harness.db.rows.get(started.trial.id)?.state === "succeeded");
   assert.equal(harness.store.files.size, 1);
+});
+
+test("一覧の取得中に確定したジョブの成果物を、オンラインの再照合が消さない", async () => {
+  const harness = createHarness();
+  const holdWrite = deferred<void>();
+  harness.store.hold = { promise: holdWrite.promise, release: () => holdWrite.resolve() };
+  const started = harness.start();
+  if (started.status !== 202) return;
+  harness.generations[0]?.resolve({ ok: true, image: pngImage() });
+  // ファイルは書けたが write はまだ返っていない（行は running、ジョブはレジストリに居る）
+  await until(() => harness.store.files.size === 1);
+  const fileName = trialArtifactFileName(started.trial.id, "png");
+
+  // 再照合は行を読み、ファイル一覧の取得で止まる。この間にジョブが succeeded へ確定して
+  // レジストリから外れる（行のスナップショットは running のまま）
+  const holdList = deferred<void>();
+  harness.store.holdList = { promise: holdList.promise, release: () => holdList.resolve() };
+  const reconciling = harness.service.reconcileArtifacts();
+  await until(() => harness.store.listCalls === 1);
+  harness.store.hold = null;
+  holdWrite.resolve();
+  await until(() => harness.db.rows.get(started.trial.id)?.state === "succeeded");
+  await until(() => harness.service.running("image") === false);
+  harness.store.holdList = null;
+  holdList.resolve();
+
+  assert.equal(await reconciling, 0, "確定済みの成果物を中途ファイルとして消さない");
+  assert.ok(harness.store.files.has(fileName), "保存済みのファイルが残る");
+  // 配信・容量・再利用が壊れていないこと（消えていれば raw 404 / 容量 0 / 画像の無い成功になる）
+  const raw = await harness.service.raw(started.trial.id);
+  assert.equal(raw.status, 200);
+  assert.deepEqual(harness.service.list("image").artifactUsage, { count: 1, bytes: 33 });
+  const reused = harness.start();
+  assert.equal(reused.status, 200);
+  if (reused.status !== 200) return;
+  assert.equal(reused.reused, true);
+  assert.equal(reused.trial.id, started.trial.id);
+  assert.equal(harness.generations.length, 1, "再利用では provider を呼ばない");
 });
 
 test("running のまま残った行は一覧の再照合で interrupted になり、容量に計上されない", async () => {

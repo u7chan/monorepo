@@ -43,6 +43,8 @@ export type ImageTrialSectionProps = {
   keyEpoch: number;
   /** 保存容量（`succeeded` + 保存済みだけ）。一覧の取得前は 0 件 */
   artifactUsage: ContentTrialArtifactUsageValue;
+  /** 試行の操作（開始 / 中断 / 削除 / 一覧の取得失敗）の注記。設定の注記とは別の行に出す */
+  note: { text: string; error: boolean } | null;
   busy: boolean;
   /** 試行のプロンプト下書き。面を切り替えても失わないよう、呼び出し側が持つ */
   prompt: string;
@@ -65,6 +67,7 @@ export function ImageTrialSection({
   trials,
   keyEpoch,
   artifactUsage,
+  note,
   busy,
   prompt,
   onChangePrompt,
@@ -143,6 +146,13 @@ export function ImageTrialSection({
           {blocked === null ? null : <span className="text-ink-faint">（{blocked}）</span>}
         </p>
       </div>
+
+      {/* 試行の操作の結果はこの面の中だけに出す（設定の注記と場所を奪い合わない） */}
+      {note ? (
+        <p role="status" className={cn("text-2xs break-words", note.error ? "text-warn" : "text-ink-muted")}>
+          {note.text}
+        </p>
+      ) : null}
 
       {selected ? (
         <ResultViewport

@@ -6,7 +6,7 @@ import {
   listContentTrials,
   startContentTrial,
 } from "../api";
-import { hasRunningTrial, newlyFinishedKinds, trialKindSubsection } from "../lib/contentTrials";
+import { hasRunningTrial, newlyFinishedKinds, removeTrialThenRefresh, trialKindSubsection } from "../lib/contentTrials";
 import { messageFor } from "../lib/settingsResource";
 import type { ContentSubsection } from "../lib/settingsNav";
 import type { ContentTrial, ContentTrialArtifactUsageValue, CreateContentTrialBody } from "../types";
@@ -160,10 +160,17 @@ export function useContentTrials({ activeSubsection }: { activeSubsection: Conte
     async (id: string): Promise<boolean> => {
       setBusy(true);
       try {
-        await deleteContentTrial(id);
+        // 行だけをローカルで除くと保存容量（一覧の応答にしか載らない）が古いまま残るため、必ず取り直す
+        const refreshed = await removeTrialThenRefresh({ id, remove: deleteContentTrial, reload: load });
         if (!alive.current) return true;
-        setTrials((current) => (current ?? []).filter((trial) => trial.id !== id));
-        setNote({ text: "試行の履歴を削除しました。", error: false });
+        setNote(
+          refreshed
+            ? { text: "試行の履歴を削除しました。", error: false }
+            : {
+                text: "試行の履歴は削除しましたが、一覧を取り直せませんでした。再読み込みしてください。",
+                error: true,
+              },
+        );
         return true;
       } catch (error) {
         if (alive.current) setNote({ text: `試行の履歴を削除できませんでした。${messageFor(error)}`, error: true });

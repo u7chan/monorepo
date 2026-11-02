@@ -365,6 +365,20 @@ export function selectedTrial(input: {
 }
 
 /**
+ * 試行を 1 件消した後に一覧を取り直す。保存容量（`artifactUsage`）は一覧の応答にしか載らないため、
+ * 行だけをローカルから除くと画面の容量が古いまま残る（[すべて削除] と同じ経路に揃える）。
+ * 取り直しに失敗したときは false を返し、呼び出し側が「消えたが一覧を取り直せない」と伝えられるようにする。
+ */
+export async function removeTrialThenRefresh(input: {
+  id: string;
+  remove: (id: string) => Promise<unknown>;
+  reload: () => Promise<boolean>;
+}): Promise<boolean> {
+  await input.remove(input.id);
+  return input.reload();
+}
+
+/**
  * 同じ入力の保存済み成功。新しく試行したときに provider を呼ばない（課金しない）判定で、
  * サーバーの再利用条件（種別 / モデル / プロンプト + 保存済みの成功）をそのまま写す。
  */

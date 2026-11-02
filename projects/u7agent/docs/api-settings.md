@@ -313,6 +313,7 @@
 - 同じ入力（種別 / モデル / プロンプト）の保存済み成功があるときは provider を呼ばず 200 `{ trial, reused: true }` を返す（課金せず、新しい成功としても記録しない）
 - 配信は trial id だけの同 origin ルートで、保存時に確定した MIME・`nosniff`・`no-store` を付け、`?download=1` のときだけ添付にする。パスは受け取らず、保存名が行の id と形式から作り直した名前と一致しない行は配信しない
 - 置き場の再照合は、`succeeded` + `stored` の行のファイルだけを残し、それ以外の行にひも付くファイルと行の無いファイルを消す。起動時（レジストリは空）は全件を、一覧の取得時は間引いて同じ規則を適用する。ただし実行中レジストリに居る trial（保存後・終端更新前を含む）のファイルは消さない
+- 再照合は**ファイル一覧を取った後に行一覧を読み**、削除の直前にもその行を読み直す。一覧の取得を待つ間にジョブが `succeeded` + `stored` へ確定してレジストリから外れるため、先に読んだ行一覧で残す対象を決めると、確定済みのファイルを中途ファイルとして消してしまう（配信 404・画像の無い成功の再利用・容量の数え残しになる）
 - 保存容量はディレクトリを走査せず、`succeeded` + `stored` の行のバイト数を合計する（`artifactUsage`）。時間ベースの自動削除はしない
 
 `configured`（設定行の有無）と `keyStored`（暗号文の有無）・`keyAvailable`（復号できて生成ツールへ渡せる）・`keyEvaluated` / `keyErrorMessage` は別の軸で、実効の公開ゲートは「行がある」「`enabled`」「`keyAvailable`」の積。`configured: true` / `keyStored: true` / `keyAvailable: false` でも画面はキーの削除・置換を出す。未評価（runtime 無し / 起動時に DB を読めなかった）は `keyEvaluated: false` と「まだ確認できていない」固定文言で、誤鍵・破損と断定しない（[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。

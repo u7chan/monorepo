@@ -71,6 +71,8 @@ function render(
     trials?: ContentTrial[];
     trialKeyEpoch?: number;
     trialArtifactUsage?: { count: number; bytes: number };
+    /** 試行の操作の注記（試行の面の中だけに出す） */
+    trialNote?: { text: string; error: boolean } | null;
     trialBusy?: boolean;
   } & Omit<Partial<ContentSettingsResponse>, "image" | "speech"> = {},
 ): string {
@@ -96,6 +98,7 @@ function render(
         trials: options.trials ?? [],
         trialKeyEpoch: options.trialKeyEpoch ?? 0,
         trialArtifactUsage: options.trialArtifactUsage ?? { count: 0, bytes: 0 },
+        trialNote: options.trialNote ?? null,
         trialBusy: options.trialBusy ?? false,
         onStartTrial: async () => true,
         onCancelTrial: async () => true,
@@ -597,4 +600,17 @@ test("実行中の行は送信時のプロンプトを表示し、入力欄の�
   assert.ok(html.includes("submitted prompt"), "送信時のプロンプトを結果に出す");
   assert.ok(html.includes("生成中です。送信したプロンプトを表示しています"), "スナップショットであることを書く");
   assert.equal(html.includes("/raw"), false, "実行中はプレビューを出さない");
+});
+
+test("試行の注記は試行の面の中に出す（設定の注記行とは別）", () => {
+  const html = render({ trials: [TRIAL_BASE], trialNote: { text: "試行の履歴を削除しました。", error: false } });
+  assert.ok(html.includes("試行の履歴を削除しました。"), "試行の注記を出す");
+  const error = render({
+    trials: [TRIAL_BASE],
+    trialNote: { text: "試行の履歴を取得できませんでした。", error: true },
+  });
+  assert.ok(error.includes("試行の履歴を取得できませんでした。"), "取得失敗も同じ行に出す");
+  // 注記が無ければ空行を作らない
+  const none = render({ trials: [TRIAL_BASE] });
+  assert.equal(none.includes("試行の履歴を削除しました。"), false);
 });

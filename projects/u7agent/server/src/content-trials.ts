@@ -451,11 +451,19 @@ export class ContentTrialsService {
   async reconcileArtifacts(): Promise<number> {
     const store = this.#artifacts;
     if (!store) return 0;
-    let rows: ContentTrialRow[];
     let files: string[];
     try {
-      rows = this.#db.listContentTrials();
       files = await store.list();
+    } catch (error) {
+      console.warn(`[u7agent] content trial artifacts reconcile failed: ${this.#maskError(messageFor(error))}`);
+      return 0;
+    }
+    if (files.length === 0) return 0;
+    // 行の一覧はファイル一覧を待った**後**に読む。待つ間にジョブが `succeeded` へ確定して
+    // `#jobs` から外れるため、古い一覧で keep を作ると、確定済みのファイルを中途ファイルとして消してしまう
+    let rows: ContentTrialRow[];
+    try {
+      rows = this.#db.listContentTrials();
     } catch (error) {
       console.warn(`[u7agent] content trial artifacts reconcile failed: ${this.#maskError(messageFor(error))}`);
       return 0;
@@ -467,10 +475,12 @@ export class ContentTrialsService {
     }
     let removed = 0;
     for (const file of files) {
+      if (keep.has(file)) continue;
       const id = trialArtifactIdOfFileName(file);
       // 保存後・終端更新前の窓に居るジョブ。行はまだ running で keep に入らない
       if (id !== undefined && this.#jobs.has(id)) continue;
-      if (keep.has(file)) continue;
+      // 行の一覧を取った後にも確定は進むため、消す直前にその行だけ読み直す
+      if (id !== undefined && this.#keepsStoredArtifact(id, file)) continue;
       try {
         await store.remove(file);
         removed += 1;
@@ -479,6 +489,21 @@ export class ContentTrialsService {
       }
     }
     return removed;
+  }
+
+  /**
+   * 消す直前にその行を読み直し、保存済みとして残すべき成果物かを確かめる。一覧を取ってから削除までの間にも
+   * ジョブの確定は進むため、最後の判定は行ごとに行う。行を読めないときは消さない（安全側に倒す）。
+   */
+  #keepsStoredArtifact(id: string, fileName: string): boolean {
+    try {
+      const row = this.#db.readContentTrial(id);
+      if (!row) return false;
+      return storedFormatOf(row) !== undefined && row.artifact?.path === fileName;
+    } catch (error) {
+      console.warn(`[u7agent] content trial artifacts reconcile failed: ${this.#maskError(messageFor(error))}`);
+      return true;
+    }
   }
 
   /**

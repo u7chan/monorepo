@@ -130,8 +130,8 @@ export function ContentSettingsView({
         />
       }
       tabs={tabs}
-      // 試行の操作（開始 / 再利用 / 削除）の結果は、設定の読み込み状態より新しいので優先して出す
-      note={contentTrials.note ?? note}
+      // 注記は出どころで分ける。試行の注記をここへ重ねると、消えない試行の注記が設定の失敗を隠す
+      note={note}
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
@@ -157,6 +157,7 @@ export function ContentSettingsView({
           speechSynced={speechSynced}
           trials={contentTrials.trials}
           trialArtifactUsage={contentTrials.artifactUsage}
+          trialNote={contentTrials.note}
           trialKeyEpoch={trialKeyEpoch}
           trialBusy={contentTrials.busy}
           onStartTrial={contentTrials.start}
