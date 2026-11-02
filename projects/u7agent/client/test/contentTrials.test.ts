@@ -4,16 +4,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   evidenceNote,
+  filteredTrials,
+  groupTrialsByMonth,
   hasRunningTrial,
+  hasStoredArtifact,
   imageTrialEvidence,
   latestTrial,
   newlyFinishedKinds,
+  reusableTrial,
+  selectedTrial,
   tabIndicator,
   trialAgeLabel,
+  trialArtifactSummary,
+  trialArtifactUrl,
+  trialByteSizeLabel,
+  trialDimensionLabel,
   trialDurationLabel,
   trialFailureLabel,
   trialHistoryRow,
   trialKindSubsection,
+  trialModelOptions,
   trialPanelState,
   trialStartBlockedReason,
   trialStateLabel,
@@ -24,6 +34,7 @@ import type { ContentTrial } from "../src/types";
 const MODEL = "openrouter/openai/gpt-image-2";
 const OTHER_MODEL = "openrouter/black-forest-labs/flux.2-max";
 
+/** 既定は「保存済みの成功」。成果物なしの行（段階 1 の `none`）は必要なテストで上書きする */
 function trial(overrides: Partial<ContentTrial> = {}): ContentTrial {
   return {
     id: "trial-1",
@@ -32,7 +43,9 @@ function trial(overrides: Partial<ContentTrial> = {}): ContentTrial {
     prompt: "a cat",
     state: "succeeded",
     keyEpoch: 1,
-    artifactState: "none",
+    artifactState: "stored",
+    artifact: { format: "png", bytes: 2_048, width: 1024, height: 1024 },
+    charged: true,
     failureCode: null,
     failureMessage: null,
     startedAt: 1_000,
@@ -88,7 +101,7 @@ test("証拠は現在のキー世代と選択中モデルの実績だけを数�
     now,
   });
   assert.deepEqual(evidence, { kind: "success", at: 60_000, durationMs: 11_000 });
-  assert.equal(evidenceNote(evidence, { now }), "この画面での最終成功: たった今（11.0s）。結果は保存されていません");
+  assert.equal(evidenceNote(evidence, { now }), "この画面での最終成功: たった今（11.0s）");
 });
 
 test("証拠と試行のモデルは画面の選択（下書き優先）で、保存値の実績は数えない", () => {
@@ -249,4 +262,121 @@ test("実行中の有無と最新の試行は一覧の先頭だけで決める",
 
 test("試行の種別は設定タブの面へ写す", () => {
   assert.equal(trialKindSubsection("image"), "image");
+});
+
+test("証拠は保存済みの成功だけを数え、段階 1 の none 行は履歴にだけ残す", () => {
+  const now = 100_000;
+  const evidence = imageTrialEvidence({
+    trials: [
+      trial({ id: "legacy", artifactState: "none", artifact: null, finishedAt: 99_000 }),
+      trial({ id: "stored", finishedAt: 50_000 }),
+    ],
+    currentKeyEpoch: 1,
+    currentModel: MODEL,
+    now,
+  });
+  assert.deepEqual(evidence, { kind: "success", at: 50_000, durationMs: 11_000 });
+  // 保存済みが無ければ、古い成功があっても未確認
+  assert.deepEqual(
+    imageTrialEvidence({
+      trials: [trial({ artifactState: "none", artifact: null })],
+      currentKeyEpoch: 1,
+      currentModel: MODEL,
+      now,
+    }),
+    { kind: "unverified" },
+  );
+});
+
+test("保存容量と成果物の要約は、保存済みの行だけを 1 行にまとめる", () => {
+  assert.equal(trialByteSizeLabel(820), "820 B");
+  assert.equal(trialByteSizeLabel(2_048), "2.0 KiB");
+  assert.equal(trialByteSizeLabel(3 * 1024 * 1024), "3.0 MiB");
+  assert.equal(trialByteSizeLabel(Number.NaN), "—");
+
+  const stored = trial();
+  assert.equal(hasStoredArtifact(stored), true);
+  assert.equal(trialDimensionLabel(stored), "1024 × 1024");
+  assert.equal(trialArtifactSummary(stored), "PNG · 1024 × 1024 · 2.0 KiB");
+  assert.equal(trialArtifactUrl(stored.id), "/api/settings/content/trials/trial-1/raw");
+  assert.equal(trialArtifactUrl(stored.id, { download: true }), "/api/settings/content/trials/trial-1/raw?download=1");
+
+  // 段階 1 の none 行は再生・ダウンロードの対象外（画像の URL を出さない）
+  const legacy = trial({ artifactState: "none", artifact: null });
+  assert.equal(hasStoredArtifact(legacy), false);
+  assert.equal(trialArtifactSummary(legacy), null);
+  assert.equal(trialHistoryRow(legacy, 1).artifactUrl, null);
+
+  // 保存に失敗した成功も成果物を持たない
+  const failed = trial({ state: "failed", failureCode: "storage", artifactState: "none", artifact: null });
+  assert.equal(hasStoredArtifact(failed), false);
+  assert.equal(trialHistoryRow(failed, 1).chargedWithoutArtifact, true);
+});
+
+test("履歴はモデルと成功 / 失敗で絞り、中止・中断はどちらの絞り込みにも出さない", () => {
+  const trials = [
+    trial({ id: "a" }),
+    trial({
+      id: "b",
+      model: OTHER_MODEL,
+      state: "failed",
+      failureCode: "timeout",
+      artifactState: "none",
+      artifact: null,
+    }),
+    trial({ id: "c", state: "canceled", failureCode: "aborted", artifactState: "none", artifact: null }),
+    trial({ id: "d", state: "interrupted", artifactState: "none", artifact: null }),
+  ];
+  const ids = (model: string, outcome: "all" | "succeeded" | "failed"): string[] =>
+    filteredTrials({ trials, model, outcome }).map((entry) => entry.id);
+  assert.deepEqual(ids("all", "all"), ["a", "b", "c", "d"]);
+  assert.deepEqual(ids("all", "succeeded"), ["a"]);
+  assert.deepEqual(ids("all", "failed"), ["b"]);
+  assert.deepEqual(ids(OTHER_MODEL, "all"), ["b"]);
+  assert.deepEqual(ids(MODEL, "failed"), []);
+  // 選択肢は試行に出てきたモデルだけを新しい順で重複なく並べる
+  assert.deepEqual(trialModelOptions(trials), [MODEL, OTHER_MODEL]);
+});
+
+test("履歴は月でまとめ、並びは新しい順のまま保つ", () => {
+  const options = { timeZone: "UTC" };
+  const groups = groupTrialsByMonth(
+    [
+      trial({ id: "may-2", startedAt: Date.UTC(2026, 4, 20), finishedAt: Date.UTC(2026, 4, 20) }),
+      trial({ id: "may-1", startedAt: Date.UTC(2026, 4, 2), finishedAt: Date.UTC(2026, 4, 2) }),
+      trial({ id: "jan", startedAt: Date.UTC(2026, 0, 5), finishedAt: Date.UTC(2026, 0, 5) }),
+      trial({ id: "old", startedAt: Date.UTC(2024, 11, 31), finishedAt: Date.UTC(2024, 11, 31) }),
+    ],
+    options,
+  );
+  assert.deepEqual(
+    groups.map((group) => [group.label, group.trials.map((entry) => entry.id)]),
+    [
+      ["2026年5月", ["may-2", "may-1"]],
+      ["2026年1月", ["jan"]],
+      ["2024年12月", ["old"]],
+    ],
+  );
+  // 半年前の行も自動では消えない（別の月として残る）
+  assert.equal(groups.length, 3);
+});
+
+test("ビューポートは選択中の試行を出し、一覧から消えたら最新へ戻す", () => {
+  const trials = [trial({ id: "new" }), trial({ id: "old" })];
+  assert.equal(selectedTrial({ trials, selectedId: null })?.id, "new");
+  assert.equal(selectedTrial({ trials, selectedId: "old" })?.id, "old");
+  // 削除された行を選んでいたら最新へ戻す
+  assert.equal(selectedTrial({ trials, selectedId: "gone" })?.id, "new");
+  assert.equal(selectedTrial({ trials: [], selectedId: "gone" }), null);
+});
+
+test("同じ入力の保存済み成功がある間は課金しない判定になる", () => {
+  const trials = [trial({ id: "hit", prompt: "a cat" })];
+  const input = { kind: "image" as const, model: MODEL, prompt: "a cat" };
+  assert.equal(reusableTrial({ trials, ...input })?.id, "hit");
+  // プロンプト・モデル・種別のどれかが違えば課金される
+  assert.equal(reusableTrial({ trials, ...input, prompt: "a dog" }), null);
+  assert.equal(reusableTrial({ trials, ...input, model: OTHER_MODEL }), null);
+  // 保存済みの成果物が無い成功は再利用しない
+  assert.equal(reusableTrial({ trials: [trial({ artifactState: "none", artifact: null })], ...input }), null);
 });

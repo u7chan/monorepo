@@ -11,6 +11,8 @@ import {
   IMAGE_RATE_LIMITED_MESSAGE,
   IMAGE_TIMEOUT_MESSAGE,
   IMAGE_ABORTED_MESSAGE,
+  IMAGE_RESPONSE_MAX_BYTES,
+  IMAGE_RESPONSE_TOO_LARGE_MESSAGE,
   IMAGE_UNKNOWN_FAILURE_MESSAGE,
   imageModelCatalog,
 } from "../src/images";
@@ -371,4 +373,28 @@ test("参照画像が無い失敗では従来どおり provider の理由（マ�
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.match(result.message, /moderation blocked/);
+});
+
+test("応答本文が上限を超えたら画像として読まず、固定文言の失敗にする（保存前に止める）", async () => {
+  // content-length が上限を超える応答は本文を読まない
+  const declared = stubFetch(
+    () =>
+      new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json", "content-length": String(IMAGE_RESPONSE_MAX_BYTES + 1) },
+      }),
+  );
+  const declaredResult = await createImagesGenerator({
+    models: () => stubModels(),
+    fetchImpl: declared.fetchImpl,
+  }).generate(baseInput);
+  assert.deepEqual(declaredResult, { ok: false, code: "unknown", message: IMAGE_RESPONSE_TOO_LARGE_MESSAGE });
+
+  // content-length が無い（または嘘の）応答も、実バイトで打ち切る
+  const streamed = stubFetch(() => new Response(new Uint8Array(IMAGE_RESPONSE_MAX_BYTES + 1), { status: 200 }));
+  const streamedResult = await createImagesGenerator({
+    models: () => stubModels(),
+    fetchImpl: streamed.fetchImpl,
+  }).generate(baseInput);
+  assert.deepEqual(streamedResult, { ok: false, code: "unknown", message: IMAGE_RESPONSE_TOO_LARGE_MESSAGE });
 });

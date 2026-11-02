@@ -172,6 +172,14 @@ export interface ImagesGeneratorOptions {
 
 export const IMAGE_GENERATION_TIMEOUT_MS = 180_000;
 
+/**
+ * 応答本文の上限。base64 の JSON は画像の約 4/3 倍になるため、保存上限に余裕を足した値にし、
+ * 大きすぎる応答は画像として読む前に打ち切る（保存側の上限と二重に止める）。
+ */
+export const IMAGE_RESPONSE_MAX_BYTES = 24 * 1024 * 1024;
+
+export const IMAGE_RESPONSE_TOO_LARGE_MESSAGE = "画像生成の応答が大きすぎます";
+
 export const IMAGE_API_KEY_INVALID_MESSAGE = "画像APIキーが無効です。設定を確認してください";
 export const IMAGE_INSUFFICIENT_CREDIT_MESSAGE = "画像生成の残高が不足しています";
 export const IMAGE_RATE_LIMITED_MESSAGE = "画像生成が混雑しています（レート制限またはプロバイダー障害）";
@@ -187,6 +195,39 @@ const IMAGE_FAILURE_MESSAGES: ProviderFailureMessages = {
   aborted: IMAGE_ABORTED_MESSAGE,
   unknown: IMAGE_UNKNOWN_FAILURE_MESSAGE,
 };
+
+/**
+ * 本文を上限まで読む。超えたら本文を捨てて undefined を返す（大きな応答をメモリへ載せない）。
+ * content-length は当てにならない応答もあるため、宣言と実バイトの両方で見る。
+ */
+async function readCappedBody(response: Response, maxBytes: number): Promise<string | undefined> {
+  const declared = Number(response.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => {});
+    return undefined;
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
 
 /** media_type が読めないときの画像形式。OpenRouter は識別できるときだけ返す */
 const DEFAULT_IMAGE_MIME_TYPE = "image/png";
@@ -322,7 +363,9 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
           signal: controller.signal,
         });
         if (!response.ok) status = response.status;
-        const text = await response.text();
+        const text = await readCappedBody(response, IMAGE_RESPONSE_MAX_BYTES);
+        // 上限超過は provider の原文を載せず、固定文言だけを返す（本文を持っていない）
+        if (text === undefined) return { ok: false, code: "unknown", message: IMAGE_RESPONSE_TOO_LARGE_MESSAGE };
         const body = parseJsonBody(text);
         const image = imageOf(body);
         if (image) return { ok: true, image };

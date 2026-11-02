@@ -1,19 +1,37 @@
 import { useState } from "react";
 import {
   evidenceNote,
+  filteredTrials,
+  groupTrialsByMonth,
+  hasStoredArtifact,
   imageTrialEvidence,
-  latestTrial,
+  reusableTrial,
+  selectedTrial,
+  trialArtifactUrl,
+  trialByteSizeLabel,
+  trialDimensionLabel,
   trialHistoryRow,
+  trialModelOptions,
   trialPanelState,
   trialStartBlockedReason,
+  trialStateLabel,
   type TrialHistoryRow,
+  type TrialOutcomeFilter,
 } from "../../lib/contentTrials";
 import { cn } from "../../lib/cn";
-import type { ContentSettingsResponse, ContentTrial } from "../../types";
+import type { ContentSettingsResponse, ContentTrial, ContentTrialArtifactUsageValue } from "../../types";
 import { CheckIcon, TrashIcon } from "../icons";
+import { ZoomableImage } from "../ImageZoom";
 
-/** 履歴の既定表示件数。全件は「すべて表示」で開く（時間ベースの自動削除はしない） */
+/** 履歴の既定表示件数。全件は「すべて見る」で開く（時間ベースの自動削除はしない） */
 const HISTORY_PREVIEW_COUNT = 3;
+
+/** 成功 / 失敗の絞り込み。中止・中断はどちらにも含めない */
+const OUTCOME_OPTIONS: { value: TrialOutcomeFilter; label: string }[] = [
+  { value: "all", label: "すべて" },
+  { value: "succeeded", label: "成功" },
+  { value: "failed", label: "失敗" },
+];
 
 export type ImageTrialSectionProps = {
   settings: ContentSettingsResponse;
@@ -23,6 +41,8 @@ export type ImageTrialSectionProps = {
   trials: readonly ContentTrial[] | null;
   /** 現在のキー世代。証拠と「旧キー」の判定に使う */
   keyEpoch: number;
+  /** 保存容量（`succeeded` + 保存済みだけ）。一覧の取得前は 0 件 */
+  artifactUsage: ContentTrialArtifactUsageValue;
   busy: boolean;
   /** 試行のプロンプト下書き。面を切り替えても失わないよう、呼び出し側が持つ */
   prompt: string;
@@ -34,8 +54,9 @@ export type ImageTrialSectionProps = {
 };
 
 /**
- * 設定に反映しない画像の試行。段階 1 は成果物を保存しないため、結果は
- * 「生成 + 終端の記録」だけで、再生・ダウンロード・同一入力の再利用は出さない。
+ * 設定に反映しない画像の試行。結果は 1 つのビューポート + 履歴セレクタで見せ、履歴の行を選ぶと
+ * ビューポートが切り替わる。成果物はサーバーの trial id 経由で配信し、保存していない行（段階 1 の
+ * `none`）は「記録のみ」として再生・ダウンロードを出さない。
  * キー未設定・全体 OFF・runtime 不可でも履歴は表示し、新規生成だけを止める。
  */
 export function ImageTrialSection({
@@ -43,6 +64,7 @@ export function ImageTrialSection({
   model,
   trials,
   keyEpoch,
+  artifactUsage,
   busy,
   prompt,
   onChangePrompt,
@@ -52,6 +74,9 @@ export function ImageTrialSection({
   onDeleteAll,
 }: ImageTrialSectionProps) {
   const [showAll, setShowAll] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [modelFilter, setModelFilter] = useState("all");
+  const [outcomeFilter, setOutcomeFilter] = useState<TrialOutcomeFilter>("all");
   const list = trials ?? [];
   const panel = trialPanelState({
     runtimeAvailable: settings.runtimeAvailable,
@@ -61,7 +86,7 @@ export function ImageTrialSection({
     trials: list,
   });
   const running = list.find((trial) => trial.state === "running") ?? null;
-  const latest = latestTrial(list);
+  const selected = selectedTrial({ trials: list, selectedId });
   const blocked = trialStartBlockedReason({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,
@@ -70,14 +95,19 @@ export function ImageTrialSection({
     running: running !== null,
     prompt,
   });
-  const visible = showAll ? list : list.slice(0, HISTORY_PREVIEW_COUNT);
+  const models = trialModelOptions(list);
+  const filtered = filteredTrials({ trials: list, model: modelFilter, outcome: outcomeFilter });
+  const visible = showAll ? filtered : filtered.slice(0, HISTORY_PREVIEW_COUNT);
+  const groups = groupTrialsByMonth(visible);
+  const filtering = modelFilter !== "all" || outcomeFilter !== "all";
 
   return (
     <section className="grid min-w-0 gap-2 border-t border-line pt-3">
       <div className="grid gap-0.5">
         <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">設定に反映しない試行</h3>
         <p className="text-2xs leading-relaxed text-ink-muted">
-          画面の値で生成だけを試します。モデルの保存値は変えません。送ったプロンプトと結果は履歴に残ります。
+          画面の値で生成だけを試します。モデルの保存値は変えません。送ったプロンプトと結果はアプリのデータ領域に
+          履歴として残ります（時間ベースでは消えません）。
         </p>
       </div>
 
@@ -114,20 +144,31 @@ export function ImageTrialSection({
         </p>
       </div>
 
-      {latest ? <ResultCard trial={latest} currentKeyEpoch={keyEpoch} busy={busy} onDelete={onDelete} /> : null}
-
-      {list.length === 0 ? (
-        <p className="text-2xs text-ink-faint">まだ試行の履歴はありません。</p>
+      {selected ? (
+        <ResultViewport
+          trial={selected}
+          currentKeyEpoch={keyEpoch}
+          trials={list}
+          busy={busy}
+          running={running !== null}
+          onDelete={onDelete}
+          onRestorePrompt={() => onChangePrompt(selected.prompt)}
+          onAnotherTake={() => void onStart({ kind: "image", model: selected.model, prompt: selected.prompt })}
+        />
       ) : (
+        <p className="text-2xs text-ink-faint">まだ試行の履歴はありません。</p>
+      )}
+
+      {list.length === 0 ? null : (
         <div className="grid gap-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">
-              履歴（{list.length} 件）
+              履歴（{filtering ? `${filtered.length} / ${list.length}` : list.length} 件）
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {list.length > HISTORY_PREVIEW_COUNT ? (
+              {filtered.length > HISTORY_PREVIEW_COUNT || showAll ? (
                 <button type="button" className="btn-quiet" onClick={() => setShowAll((current) => !current)}>
-                  {showAll ? "最新 3 件だけ表示" : "すべて表示"}
+                  {showAll ? "最新 3 件だけ表示" : "すべて見る"}
                 </button>
               ) : null}
               <button
@@ -141,11 +182,67 @@ export function ImageTrialSection({
               </button>
             </div>
           </div>
-          <ul className="grid gap-1">
-            {visible.map((trial) => (
-              <HistoryListItem key={trial.id} row={trialHistoryRow(trial, keyEpoch)} busy={busy} onDelete={onDelete} />
-            ))}
-          </ul>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex min-w-0 items-center gap-1">
+              <span className="text-2xs text-ink-muted">モデル</span>
+              <select
+                className="field w-auto max-w-56 text-2xs"
+                value={modelFilter}
+                aria-label="履歴のモデル絞り込み"
+                onChange={(event) => setModelFilter(event.currentTarget.value)}
+              >
+                <option value="all">すべて</option>
+                {models.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex min-w-0 items-center gap-1">
+              <span className="text-2xs text-ink-muted">結果</span>
+              <select
+                className="field w-auto text-2xs"
+                value={outcomeFilter}
+                aria-label="履歴の成功失敗の絞り込み"
+                onChange={(event) => setOutcomeFilter(event.currentTarget.value as TrialOutcomeFilter)}
+              >
+                {OUTCOME_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="text-2xs text-ink-faint">
+              保存容量: {artifactUsage.count} 件 · {trialByteSizeLabel(artifactUsage.bytes)}
+            </span>
+          </div>
+
+          {filtered.length === 0 ? (
+            <p className="text-2xs text-ink-faint">条件に合う履歴はありません。</p>
+          ) : (
+            <div className="grid gap-1">
+              {groups.map((group) => (
+                <div key={group.key} className="grid gap-1">
+                  <div className="text-2xs text-ink-faint">{group.label}</div>
+                  <ul className="grid gap-1">
+                    {group.trials.map((trial) => (
+                      <HistoryListItem
+                        key={trial.id}
+                        row={trialHistoryRow(trial, keyEpoch)}
+                        selected={trial.id === selected?.id}
+                        busy={busy}
+                        onSelect={() => setSelectedId(trial.id)}
+                        onDelete={onDelete}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
           <p className="text-2xs leading-relaxed text-ink-faint">
             履歴は自動では消えません。実行中の試行は削除できません（先に中断してください）。
           </p>
@@ -179,22 +276,38 @@ function panelNote(panel: ReturnType<typeof trialPanelState>): string {
   }
 }
 
-function ResultCard({
+/**
+ * 1 つの結果ビューポート。表示中の試行のスナップショットだけを出し、下書きのプロンプトとは混ぜない。
+ * 選んだ行が実行中でも、送信したプロンプトと状態はその行の値で固定される。
+ */
+function ResultViewport({
   trial,
   currentKeyEpoch,
+  trials,
   busy,
+  running,
   onDelete,
+  onRestorePrompt,
+  onAnotherTake,
 }: {
   trial: ContentTrial;
   currentKeyEpoch: number;
+  trials: readonly ContentTrial[];
   busy: boolean;
+  running: boolean;
   onDelete: (id: string) => Promise<boolean>;
+  onRestorePrompt: () => void;
+  onAnotherTake: () => void;
 }) {
   const row = trialHistoryRow(trial, currentKeyEpoch);
+  const stored = hasStoredArtifact(trial);
+  const dimensions = trialDimensionLabel(trial);
+  const reuse = reusableTrial({ trials, kind: trial.kind, model: trial.model, prompt: trial.prompt });
+
   return (
-    <div className="grid gap-1 rounded-lg border border-line bg-soft p-3">
+    <div className="grid gap-2 rounded-lg border border-line bg-soft p-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="text-xs font-semibold text-ink-strong">最新の試行</span>
+        <span className="text-xs font-semibold text-ink-strong">結果</span>
         <span className={cn("text-2xs", trial.state === "failed" ? "text-warn" : "text-ink-muted")}>
           {row.stateLabel}
         </span>
@@ -203,17 +316,50 @@ function ResultCard({
         {row.keyEpochLabel ? <span className="text-2xs text-warn">{row.keyEpochLabel}</span> : null}
         {trial.recorded ? null : <span className="text-2xs text-warn">状態を記録できませんでした</span>}
       </div>
+
+      {stored ? (
+        <div className="grid gap-1">
+          {/* 拡大は会話の画像と同じ dialog に任せる（同じ寸法規則を 2 か所に増やさない） */}
+          <ZoomableImage src={trialArtifactUrl(trial.id)} alt="試行の結果" variant="markdown" />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-2xs text-ink-muted">{row.artifactLabel}</span>
+            <a className="btn-quiet" href={trialArtifactUrl(trial.id, { download: true })}>
+              ダウンロード
+            </a>
+          </div>
+          {dimensions ? null : <p className="text-2xs text-ink-faint">実寸を読めませんでした。</p>}
+        </div>
+      ) : trial.state === "running" ? (
+        <p className="text-2xs text-ink-muted" role="status">
+          生成中です。送信したプロンプトを表示しています（入力欄の編集とは別です）。
+        </p>
+      ) : (
+        <p className="text-2xs leading-relaxed text-ink-faint">
+          {trial.artifactState === "none" && trial.state === "succeeded"
+            ? "結果は保存されていません（記録のみ）。ダウンロードや再生はできません。"
+            : "結果は残っていません。"}
+        </p>
+      )}
+
       {row.failureLabel ? (
         <p className="text-2xs text-warn">
           失敗の分類: {row.failureLabel}
           {trial.failureMessage ? ` — ${trial.failureMessage}` : ""}
         </p>
       ) : null}
+      {row.chargedWithoutArtifact ? (
+        <p className="text-2xs text-warn">生成は課金されています。もう一度生成すると再課金されます。</p>
+      ) : null}
+
       <p className="text-2xs break-words whitespace-pre-wrap text-ink">{row.prompt}</p>
-      <p className="text-2xs leading-relaxed text-ink-faint">
-        結果は保存されていません（記録のみ）。ダウンロードや再生はまだできません。
-      </p>
+
       <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className="btn-quiet" disabled={busy} onClick={onRestorePrompt}>
+          入力欄に戻す
+        </button>
+        <button type="button" className="btn-quiet" disabled={busy || running} onClick={onAnotherTake}>
+          別のテイクを生成
+        </button>
         <button
           type="button"
           className="btn-quiet"
@@ -224,42 +370,73 @@ function ResultCard({
           削除
         </button>
       </div>
+      <p className="text-2xs leading-relaxed text-ink-faint">
+        {reuse
+          ? "同じ入力の保存済みの結果があるため、生成し直しても課金されません。"
+          : "別のテイクは新しい試行として課金されます。"}
+      </p>
     </div>
   );
 }
 
 function HistoryListItem({
   row,
+  selected,
   busy,
+  onSelect,
   onDelete,
 }: {
   row: TrialHistoryRow;
+  selected: boolean;
   busy: boolean;
+  onSelect: () => void;
   onDelete: (id: string) => Promise<boolean>;
 }) {
   return (
-    <li className="grid gap-0.5 rounded border border-line bg-base px-2 py-1.5">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-        <span className={cn("text-2xs", row.state === "failed" ? "text-warn" : "text-ink-muted")}>
-          {row.stateLabel}
+    <li
+      className={cn(
+        "flex min-w-0 items-center gap-2 rounded border px-2 py-1.5",
+        selected ? "border-accent/60 bg-raised" : "border-line bg-base",
+      )}
+    >
+      {/* 画像は保存済みの行だけサムネイルを出す（無い行は「記録のみ」） */}
+      {row.artifactUrl ? (
+        <img src={row.artifactUrl} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded object-cover" />
+      ) : (
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded border border-line text-2xs text-ink-ghost">
+          記録
         </span>
-        <code className="min-w-0 truncate text-2xs text-ink-ghost">{row.model}</code>
-        <span className="text-2xs text-ink-muted">{row.durationLabel}</span>
-        {row.keyEpochLabel ? <span className="text-2xs text-warn">{row.keyEpochLabel}</span> : null}
-        <span className="min-w-0 flex-1 truncate text-2xs text-ink" title={row.prompt}>
+      )}
+      <button
+        type="button"
+        className="grid min-w-0 flex-1 gap-0.5 text-left"
+        aria-pressed={selected}
+        aria-label={`${row.stateLabel}の試行を表示`}
+        onClick={onSelect}
+      >
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className={cn("text-2xs", row.state === "failed" ? "text-warn" : "text-ink-muted")}>
+            {row.stateLabel}
+          </span>
+          <code className="min-w-0 truncate text-2xs text-ink-ghost">{row.model}</code>
+          <span className="text-2xs text-ink-muted">{row.durationLabel}</span>
+          {row.keyEpochLabel ? <span className="text-2xs text-warn">{row.keyEpochLabel}</span> : null}
+        </span>
+        <span className="min-w-0 truncate text-2xs text-ink" title={row.prompt}>
           {row.prompt}
         </span>
+        {row.artifactLabel ? <span className="text-2xs text-ink-faint">{row.artifactLabel}</span> : null}
         {row.failureLabel ? <span className="text-2xs text-warn">{row.failureLabel}</span> : null}
-        <button
-          type="button"
-          className="btn-quiet shrink-0"
-          disabled={busy || row.state === "running"}
-          aria-label={`${row.stateLabel}の試行を削除`}
-          onClick={() => void onDelete(row.id)}
-        >
-          <TrashIcon />
-        </button>
-      </div>
+      </button>
+      <button
+        type="button"
+        className="btn-quiet shrink-0"
+        disabled={busy || row.state === "running"}
+        aria-label={`${trialStateLabel(row.state)}の試行を削除`}
+        onClick={() => void onDelete(row.id)}
+      >
+        <TrashIcon />
+      </button>
     </li>
   );
 }

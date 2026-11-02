@@ -16,7 +16,7 @@ import type { AgentDef, ModelRef, NotificationResult, Project, PromptRef, Space 
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 38;
+export const APP_DB_SCHEMA_VERSION = 39;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -105,9 +105,23 @@ export interface ContentSettingsRow {
 }
 
 /**
- * コンテンツ生成の試行ジョブの保存行。成果物を持たない段階のため `artifactState` は `none` だけを持つ。
- * **行は履歴そのもの**なので、未知の版を開いたときの `#recreate` でも消さない (`DROP_TABLES` に入れない)。
- * APIキーは保存しない（世代番号 `keyEpoch` だけを持つ）。
+ * 試行の成果物のメタデータ。実体は `<storeDir>/trials/<id>.<ext>` にあり、DB はパスと大きさだけを持つ
+ * (BLOB では持たない)。`path` は置き場からの相対名で、配信も保存名だけを使う。
+ */
+export interface ContentTrialArtifactRow {
+  /** `<trialId>.<ext>`。ディレクトリを含まない */
+  path: string;
+  bytes: number;
+  /** `png` / `jpeg` / `webp`。保存時に確定した値だけを持つ */
+  format: string;
+  width: number | null;
+  height: number | null;
+}
+
+/**
+ * コンテンツ生成の試行ジョブの保存行。成果物を持たない段階 1 の行は `artifactState: none` と
+ * `artifact: null` のまま残す。**行は履歴そのもの**なので、未知の版を開いたときの `#recreate` でも
+ * 消さない (`DROP_TABLES` に入れない)。APIキーは保存しない（世代番号 `keyEpoch` だけを持つ）。
  */
 export interface ContentTrialRow {
   id: string;
@@ -118,6 +132,10 @@ export interface ContentTrialRow {
   state: string;
   keyEpoch: number;
   artifactState: string;
+  /** 生成が成功して課金されたか。保存に失敗した成功も true になる */
+  charged: boolean;
+  /** `artifactState: stored` のときだけ非 null */
+  artifact: ContentTrialArtifactRow | null;
   failureCode: string | null;
   failureMessage: string | null;
   startedAt: number;
@@ -464,9 +482,11 @@ CREATE TABLE IF NOT EXISTS content_settings (
 `;
 
 /**
- * v37 -> v38 で足したテーブル。設定 → コンテンツ生成の試行ジョブ（段階 1 は成果物なし）のメタデータ。
+ * v37 -> v38 で足したテーブル。設定 → コンテンツ生成の試行ジョブのメタデータ。
  * 行は履歴そのもので、時間ベースの自動削除はしない。`state` の終端値は不変で、`running` からしか
  * 終端へは進まない (docs/api-settings.md)。APIキーは列に持たず、`keyEpoch` だけを残す。
+ * 成果物の実体は `<storeDir>/trials` に置き、この表には名前・大きさ・形式・寸法だけを持つ (v38 -> v39)。
+ * 容量は `succeeded` かつ `artifactState = 'stored'` の `artifactBytes` を合計して出す (走査しない)。
  * **`DROP_TABLES` に入れない**: 古いビルドへ戻したとき (#recreate) はこのテーブルを知らないので放置され、
  * 新ビルドへ戻すと #migrate() の `CREATE TABLE IF NOT EXISTS` がそのまま合流させる。
  */
@@ -479,6 +499,12 @@ CREATE TABLE IF NOT EXISTS content_trials (
   state          TEXT NOT NULL,
   keyEpoch       INTEGER NOT NULL,
   artifactState  TEXT NOT NULL,
+  charged        INTEGER NOT NULL DEFAULT 0,
+  artifactPath   TEXT,
+  artifactBytes  INTEGER,
+  artifactFormat TEXT,
+  artifactWidth  INTEGER,
+  artifactHeight INTEGER,
   failureCode    TEXT,
   failureMessage TEXT,
   startedAt      INTEGER NOT NULL,
@@ -954,6 +980,7 @@ function contentSettingsOf(row: Row): ContentSettingsRow | undefined {
 /**
  * 試行ジョブの行。数値列は INTEGER で書いているため、手編集で NULL / 小数になっていたら保存値の破損として
  * 失敗させる (未設定と読み違えない)。終端時刻と所要時間だけは `running` / `interrupted` で NULL を許す。
+ * 成果物の 3 列も `stored` のときだけ揃っていなければならない (半端な行を配信経路へ渡さない)。
  */
 function contentTrialOf(row: Row): ContentTrialRow {
   const id = optionalText(row.id);
@@ -975,11 +1002,29 @@ function contentTrialOf(row: Row): ContentTrialRow {
     state,
     keyEpoch,
     artifactState,
+    charged: Number(row.charged) !== 0,
+    artifact: contentTrialArtifactOf(row, artifactState),
     failureCode: optionalText(row.failureCode) ?? null,
     failureMessage: optionalText(row.failureMessage) ?? null,
     startedAt,
     finishedAt: optionalNumber(row.finishedAt),
     durationMs: optionalNumber(row.durationMs),
+  };
+}
+
+/** 成果物のメタデータ。`stored` 以外は null で、`stored` で欠けた列は破損として失敗させる */
+function contentTrialArtifactOf(row: Row, artifactState: string): ContentTrialArtifactRow | null {
+  if (artifactState !== "stored") return null;
+  const path = optionalText(row.artifactPath);
+  const bytes = optionalNumber(row.artifactBytes);
+  const format = optionalText(row.artifactFormat);
+  if (!path || bytes === null || !format) throw new Error("content_trials artifact is incomplete");
+  return {
+    path,
+    bytes,
+    format,
+    width: optionalNumber(row.artifactWidth),
+    height: optionalNumber(row.artifactHeight),
   };
 }
 
@@ -1647,6 +1692,13 @@ export class AppDb {
       // v37 -> v38: 試行ジョブの履歴と、キー削除でも消えないキー世代
       this.#query((db) => db.exec(CONTENT_KEY_EPOCH_TABLE));
       this.#query((db) => db.exec(CONTENT_TRIALS_TABLE));
+      // v38 -> v39: 試行の成果物のメタデータ。既存行は `charged = 0` / 成果物なしで読む
+      this.#addColumnIfMissing("content_trials", "charged", "INTEGER NOT NULL DEFAULT 0");
+      this.#addColumnIfMissing("content_trials", "artifactPath", "TEXT");
+      this.#addColumnIfMissing("content_trials", "artifactBytes", "INTEGER");
+      this.#addColumnIfMissing("content_trials", "artifactFormat", "TEXT");
+      this.#addColumnIfMissing("content_trials", "artifactWidth", "INTEGER");
+      this.#addColumnIfMissing("content_trials", "artifactHeight", "INTEGER");
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SPEECH_CATALOG_TABLE));
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
@@ -2060,9 +2112,10 @@ export class AppDb {
       db
         .prepare(
           `INSERT INTO content_trials
-             (id, kind, model, prompt, state, keyEpoch, artifactState, failureCode, failureMessage,
+             (id, kind, model, prompt, state, keyEpoch, artifactState, charged, artifactPath, artifactBytes,
+              artifactFormat, artifactWidth, artifactHeight, failureCode, failureMessage,
               startedAt, finishedAt, durationMs)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           row.id,
@@ -2072,6 +2125,12 @@ export class AppDb {
           row.state,
           row.keyEpoch,
           row.artifactState,
+          row.charged ? 1 : 0,
+          row.artifact?.path ?? null,
+          row.artifact?.bytes ?? null,
+          row.artifact?.format ?? null,
+          row.artifact?.width ?? null,
+          row.artifact?.height ?? null,
           row.failureCode,
           row.failureMessage,
           row.startedAt,
@@ -2083,7 +2142,8 @@ export class AppDb {
 
   /**
    * 終端への更新。**`running` の行だけ**を対象にし、終端状態から別の状態へは進めない
-   * (完了直後のキャンセルや、遅れて届いた結果で状態を戻さない)。更新したかを返す。
+   * (完了直後のキャンセルや、遅れて届いた結果で状態を戻さない)。状態と成果物のメタデータを 1 文で書き、
+   * ファイルと行の片側だけが確定しないようにする。更新したかを返す。
    */
   finishContentTrial(input: {
     id: string;
@@ -2092,18 +2152,71 @@ export class AppDb {
     failureMessage: string | null;
     finishedAt: number;
     durationMs: number | null;
+    charged: boolean;
+    artifact: ContentTrialArtifactRow | null;
   }): boolean {
     return this.#query(
       (db) =>
         db
           .prepare(
             `UPDATE content_trials
-               SET state = ?, failureCode = ?, failureMessage = ?, finishedAt = ?, durationMs = ?
+               SET state = ?, failureCode = ?, failureMessage = ?, finishedAt = ?, durationMs = ?,
+                   charged = ?, artifactState = ?, artifactPath = ?, artifactBytes = ?, artifactFormat = ?,
+                   artifactWidth = ?, artifactHeight = ?
              WHERE id = ? AND state = 'running'`,
           )
-          .run(input.state, input.failureCode, input.failureMessage, input.finishedAt, input.durationMs, input.id)
-          .changes > 0,
+          .run(
+            input.state,
+            input.failureCode,
+            input.failureMessage,
+            input.finishedAt,
+            input.durationMs,
+            input.charged ? 1 : 0,
+            input.artifact ? "stored" : "none",
+            input.artifact?.path ?? null,
+            input.artifact?.bytes ?? null,
+            input.artifact?.format ?? null,
+            input.artifact?.width ?? null,
+            input.artifact?.height ?? null,
+            input.id,
+          ).changes > 0,
     );
+  }
+
+  /**
+   * 同じ入力（種別 / モデル / プロンプト）の保存済み成功。あれば provider を呼ばずにその結果を見せる
+   * (課金しない)。並びは新しい順の先頭 1 件で、`artifactState = 'stored'` だけを対象にする。
+   */
+  findReusableContentTrial(input: { kind: string; model: string; prompt: string }): ContentTrialRow | undefined {
+    const row = this.#query(
+      (db) =>
+        db
+          .prepare(
+            `SELECT * FROM content_trials
+             WHERE kind = ? AND model = ? AND prompt = ? AND state = 'succeeded' AND artifactState = 'stored'
+               AND artifactPath IS NOT NULL
+             ORDER BY startedAt DESC, rowid DESC LIMIT 1`,
+          )
+          .get(input.kind, input.model, input.prompt) as Row | undefined,
+    );
+    return row ? contentTrialOf(row) : undefined;
+  }
+
+  /**
+   * 保存容量。ディレクトリは走査せず、`succeeded` かつ `stored` の行のバイト数を合計する
+   * (再照合で消えるはずの中途ファイルを容量に数えない)。
+   */
+  readContentTrialArtifactUsage(): { count: number; bytes: number } {
+    const row = this.#query(
+      (db) =>
+        db
+          .prepare(
+            `SELECT COUNT(*) AS count, COALESCE(SUM(artifactBytes), 0) AS bytes FROM content_trials
+             WHERE state = 'succeeded' AND artifactState = 'stored'`,
+          )
+          .get() as Row,
+    );
+    return { count: Number(row.count), bytes: Number(row.bytes) };
   }
 
   /** 行が無ければ undefined。`kind` は問わない (id は不透明なので、未知の種別もそのまま返す) */

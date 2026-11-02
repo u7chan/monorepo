@@ -130,7 +130,8 @@ export function ContentSettingsView({
         />
       }
       tabs={tabs}
-      note={note}
+      // 試行の操作（開始 / 再利用 / 削除）の結果は、設定の読み込み状態より新しいので優先して出す
+      note={contentTrials.note ?? note}
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
@@ -155,6 +156,7 @@ export function ContentSettingsView({
           onPreviewSpeech={previewSpeech}
           speechSynced={speechSynced}
           trials={contentTrials.trials}
+          trialArtifactUsage={contentTrials.artifactUsage}
           trialKeyEpoch={trialKeyEpoch}
           trialBusy={contentTrials.busy}
           onStartTrial={contentTrials.start}

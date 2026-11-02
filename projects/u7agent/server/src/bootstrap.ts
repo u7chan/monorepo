@@ -15,6 +15,7 @@ import { createDeviceIdStore, DEVICE_ID_PATH } from "./device-id";
 import { messageFor } from "./http";
 import { ContentSettingsService } from "./content-settings";
 import { ContentTrialsService } from "./content-trials";
+import { TRIAL_ARTIFACTS_DIR_NAME, createTrialArtifactStore } from "./content-trial-artifacts";
 import { createImageCatalog } from "./image-catalog";
 import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
@@ -321,11 +322,13 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     generateSpeech: pi ? pi.generateSpeech : undefined,
   });
   await contentSettings.applyStored();
-  // 試行ジョブのレジストリはメモリだけに持つ。起動時に前のプロセスの `running` を `interrupted` へ倒す
+  // 試行ジョブのレジストリはメモリだけに持つ。起動時に前のプロセスの `running` を `interrupted` へ倒す。
+  // 成果物は会話ストア / DB と同じ領域の兄弟 (`<storeDir>/trials`) に置き、サンドボックスを要求しない
   const contentTrials = new ContentTrialsService({
     db: appDb,
     source: contentSettings.trialSource(),
     generateImage: pi ? pi.generateImage : undefined,
+    artifacts: storeDir ? createTrialArtifactStore(join(storeDir, TRIAL_ARTIFACTS_DIR_NAME)) : undefined,
     maskError,
   });
   await contentTrials.applyStored();

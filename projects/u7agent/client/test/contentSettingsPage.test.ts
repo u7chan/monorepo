@@ -80,6 +80,7 @@ function contentTrials(trials: ContentTrial[] | null = null): ContentTrials {
   return {
     trials,
     keyEpoch: 0,
+    artifactUsage: { count: 0, bytes: 0 },
     note: null,
     busy: false,
     newResults: [],

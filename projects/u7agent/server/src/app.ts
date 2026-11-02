@@ -707,6 +707,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => contentSettingsRoutes.startTrial(c, c.req.valid("json")),
     )
     .get("/api/settings/content/trials/:id", appData, contentSettingsRoutes.getTrial)
+    // 保存済みの成果物は trial id だけで引く（パスを受け取らない）。ダウンロードも同じルート
+    .get("/api/settings/content/trials/:id/raw", appData, contentSettingsRoutes.rawTrial)
     .post("/api/settings/content/trials/:id/cancel", appData, contentSettingsRoutes.cancelTrial)
     .delete("/api/settings/content/trials/:id", appData, contentSettingsRoutes.removeTrial)
     .get("/api/settings/cloudflare", appData, cloudflareSettingsRoutes.get)
