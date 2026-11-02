@@ -1,4 +1,6 @@
 import { useContentSettings, type ContentSettings } from "../hooks/useContentSettings";
+import { useContentTrials, type ContentTrials } from "../hooks/useContentTrials";
+import { tabIndicator, trialKindSubsection } from "../lib/contentTrials";
 import { CONTENT_SUBSECTIONS, DEFAULT_CONTENT_SUBSECTION, type ContentSubsection } from "../lib/settingsNav";
 import { ContentSettingsTab } from "./content-settings/ContentSettingsTab";
 import { ReloadButton } from "./ReloadButton";
@@ -26,9 +28,11 @@ export function ContentSettingsPage({
   onOpenNav,
 }: ContentSettingsPageProps & { refreshToolCatalog?: () => Promise<unknown> }) {
   const contentSettings = useContentSettings();
+  const contentTrials = useContentTrials({ activeSubsection: contentSubsection });
   return (
     <ContentSettingsView
       contentSettings={contentSettings}
+      contentTrials={contentTrials}
       contentSubsection={contentSubsection}
       onSelectContentSubsection={onSelectContentSubsection}
       singleColumn={singleColumn}
@@ -42,6 +46,7 @@ export function ContentSettingsPage({
 /** 表示だけを持つ部分。取得の成否は contentSettings が持ち、ここは描画に徹する */
 export function ContentSettingsView({
   contentSettings,
+  contentTrials,
   singleColumn = false,
   contentSubsection = DEFAULT_CONTENT_SUBSECTION,
   onSelectContentSubsection,
@@ -50,6 +55,7 @@ export function ContentSettingsView({
   onOpenNav,
 }: SettingsPageProps & {
   contentSettings: ContentSettings;
+  contentTrials: ContentTrials;
   contentSubsection?: ContentSubsection;
   onSelectContentSubsection?: (subsection: ContentSubsection) => void;
   /** 有効 / 無効でツールの `available` が変わるため、保存後にエージェントの一覧を取り直す */
@@ -71,19 +77,30 @@ export function ContentSettingsView({
     refreshSpeechCatalog,
     speechSynced,
   } = contentSettings;
-  // 取得前は面の中身が無く、未設定ではキーを保存して初めて選べるようになるため、その間はタブ行も出さない
+  // 取得前は面の中身が無い。未設定でも試行の履歴があれば読めるようにタブを出す（新規生成だけを止める）
+  const trialList = contentTrials.trials ?? [];
+  // キーの保存 / 削除で世代が変わったら、一覧を取り直さなくても証拠と「旧キー」の判定を追随させる
+  const trialKeyEpoch = settings?.keyEpoch ?? contentTrials.keyEpoch;
   const tabs =
-    settings?.configured === true ? (
+    settings?.configured === true || trialList.length > 0 ? (
       <SettingsTabs
-        items={CONTENT_SUBSECTIONS.map((item) =>
-          item.subsection === "speech" && !speechSynced
-            ? {
-                ...item,
-                mark: true,
-                ariaLabel: `${item.label}（現在の設定を確認できません）`,
-              }
-            : item,
-        )}
+        items={CONTENT_SUBSECTIONS.map((item) => {
+          // 印の優先順位は 実行中 > 同期未確認 > 新着結果（`tabIndicator` が 1 箇所で決める）
+          const indicator = tabIndicator({
+            label: item.label,
+            running: trialList.some(
+              (trial) => trialKindSubsection(trial.kind) === item.subsection && trial.state === "running",
+            ),
+            unsynced: item.subsection === "speech" && !speechSynced,
+            newResult: contentTrials.newResults.includes(item.subsection),
+          });
+          return {
+            ...item,
+            mark: indicator.dot === "warn",
+            accentMark: indicator.dot === "accent",
+            ariaLabel: indicator.ariaLabel ?? undefined,
+          };
+        })}
         active={contentSubsection}
         onSelect={onSelectContentSubsection}
         ariaLabel="コンテンツ生成の設定"
@@ -99,7 +116,14 @@ export function ContentSettingsView({
       toolbar={
         <TabToolbar
           actions={
-            <ReloadButton onClick={() => void reload()} disabled={reloading}>
+            <ReloadButton
+              onClick={() => {
+                void reload();
+                // 試行の一覧も同じ面の操作として取り直す（取得中の試行はポーリングが拾う）
+                void contentTrials.reload();
+              }}
+              disabled={reloading}
+            >
               再読み込み
             </ReloadButton>
           }
@@ -130,6 +154,13 @@ export function ContentSettingsView({
           onRefreshSpeechCatalog={refreshSpeechCatalog}
           onPreviewSpeech={previewSpeech}
           speechSynced={speechSynced}
+          trials={contentTrials.trials}
+          trialKeyEpoch={trialKeyEpoch}
+          trialBusy={contentTrials.busy}
+          onStartTrial={contentTrials.start}
+          onCancelTrial={contentTrials.cancel}
+          onDeleteTrial={contentTrials.remove}
+          onDeleteAllTrials={contentTrials.removeAll}
         />
       ) : (
         <SettingsPlaceholder label="コンテンツ生成の設定" note={note} />

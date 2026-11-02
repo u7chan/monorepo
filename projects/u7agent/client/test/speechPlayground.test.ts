@@ -28,6 +28,7 @@ function settings(speech: Partial<ContentSpeechSettings> = {}): ContentSettingsR
     keyAvailable: true,
     keyEvaluated: true,
     keyErrorMessage: null,
+    keyEpoch: 0,
     enabled: true,
     disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
     runtimeAvailable: true,

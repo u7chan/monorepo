@@ -188,14 +188,19 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 
 設定 → コンテンツ生成の「画像生成」タブ（`/settings/content`。既定。音声（TTS）は `/settings/content/speech`）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` に閉じる。APIキー・provider の見出し・注意書きは面の外で音声と共有し、本文は選択中の面だけを描く。
 
-- 未設定ではキー入力だけを出す（面の中身もタブ行も無い）。`PUT /api/settings/content/image` は行が無いと 400 のため、モデル選択と削除はキー保存（`PUT /api/settings/content/key`）に成功してから現れる
+- 未設定ではキー入力だけを出す（保存される設定とタブ行は無い）。ただし試行の履歴があるときは、タブ行と試行の面を出して履歴を読めるようにする（新規生成だけを止める）。`PUT /api/settings/content/image` は行が無いと 400 のため、モデル選択と削除はキー保存（`PUT /api/settings/content/key`）に成功してから現れる
 - タブ行の下の provider 見出し（ロゴ + 表示名 + provider id + 登録状態バッジ + `画像 <n>` / `音声 <n>`）を出す。件数チップはタブ文脈でどちらの件数か分かるよう、面の名前を接頭する。ロゴは `client/src/components/ProviderIcon.tsx` の `providerIconKey()` で引き、表示名と id は `contentProviderId()` / `contentProviderLabel()` が決める。v1 は openrouter だけなので未設定（`null`）でも OpenRouter を出し、provider が増えれば `settings.provider` に追随して同じ見出しのロゴが切り替わる（対応表に無い provider は頭文字のタイルへ落ちる）。件数と登録状態のチップはプロバイダータブと同じ `MetaChip` を使う
 - 登録状態バッジ（設定済み / 未設定）は上部の見出しに出す（プロバイダータブと同じ見た目。`contentKeyStatusBadge()`）。キー欄の補足には provider 名（OpenRouter）を添え、モデル欄に出る `OpenAI: …` と混同させない
 - キーは `type="password"` / `autoComplete="off"` で、保存値を再表示しない（常に空から入力する）。[上書き保存] は成功したときだけ入力を消し、[削除] は共通の確認ダイアログ（`deleteContentKeyConfirmRequest()`。対象の provider は clamp した行に出す）の後に行ごと消して未設定へ戻す
+- 画面は「保存される設定」と「設定に反映しない試行」に分ける。保存されるのはモデルだけで、試行のプロンプトは保存値ではなく履歴に残す。未保存の選択には「未保存」を出し、[保存] で確定する。試行は常に画面の値を使う
+- 試行（`POST /api/settings/content/trials`）は種別ごとに同時 1 本で、実行中は主ボタンを無効にする。画面を離れても続き、戻ると結果が出る。中止は明示の [中断] だけで、遅れて届いた結果は破棄する（契約は [api-settings.md](api-settings.md#試行ジョブ)）。**段階 1 は成果物を保存しない**ため、結果カードは「記録のみ」として状態・モデル・所要時間・キー世代・送ったプロンプトを出し、再生・ダウンロード・同一入力の再利用は出さない
+- キーの有効性は緑のバッジにしない。モデル選択の直下に「この画面での最終成功: …」「未確認」「直近の失敗（分類 + 時刻）」を出す。数えるのは**現在のキー世代（`keyEpoch`）と選択中モデルの成功だけ**で、旧キー・別モデルの実績は履歴に残すが証拠にしない（履歴の行には「旧キー」と出す）。チャットの生成は含めない。専用のキー確認ボタンも作らない
+- 履歴は時間ベースで自動削除しない。タブ内に最新 3 件を出し、「すべて表示」で全件を開く。個別削除と「すべて削除」は**終端状態だけ**を対象にし、実行中は削除できない（先に中断する）。キー未設定・runtime 不可・全体 OFF でも履歴は閲覧・削除でき、止まるのは新規生成だけ
 - モデルは native `<select>`（`SelectField`）でカタログから 1 件選ぶ。保存済みのモデルがカタログに無いときは「（カタログ外）」として現在の id を先頭に足す（何が保存されているかを見失わせない）。サイズ / 品質 / 出力形式の UI は持たず、本文にはその理由（provider の既定を使う）だけを書く。provider 名は見出しにあるため繰り返さない
 - 注意書きは詳細の上部で既定に畳んで出す（1 行の要点 + 展開で全文。暗号化して保存・再表示しない・master key 未設定では使えない・ログイン無しで公開しない・有効性は保存時に見ない・キーは 8 文字以上・プロバイダー登録キーとは別管理）。下部に「保存したキーは新しい会話から使える（ツール一覧はセッション作成時に固定）」と、生成物の保存先（作業フォルダの `generated/`）を注記する
 - `runtimeAvailable: false` のときはキー登録・上書き・削除を disable し、プロバイダータブと同じ理由（サーバーの起動ログ）を出す。モデルの変更は SDK に触れないため残す。変更系の 503 `state: "not_stored"` は「変更は保存されていません。」を付けて画面の注記へ出す
-- 画面の [再読み込み] はこの画面の設定だけを取り直す（設定 → モデルの [再読み込み] はモデル側だけを取り直す）。キーの登録・削除は再起動を待たず、次に作るセッションから効く
+- 画面の [再読み込み] はこの画面の設定と試行の一覧を取り直す（設定 → モデルの [再読み込み] はモデル側だけを取り直す）。キーの登録・削除は再起動を待たず、次に作るセッションから効く
+- タブの印は 実行中（accent の点 + pulse）> 音声の同期未確認（warn の点。開いても消えない）> 新着結果（warn の点。そのタブを開いたら消える）の順に 1 つだけ出す。読み上げ名も状態ごとに分ける（「画像生成（生成中）」など）。`prefers-reduced-motion` では pulse を止める
 - 有効 / 無効のトグルは**タブの外に 1 つだけ**置く（画像・音声・BGM のどのタブでも同じカードが出る）。ラベルは「アプリ全体の生成を止めます（画像・音声・BGM で共通）」で、OFF の間は API が返す `disabledMessage` をその場に出す。未設定（キーが無い）では止める対象が無いため出さない。保存に成功したらエージェントのツール一覧を取り直す（エージェント編集のツール欄が取得時点のスナップショットを見るため）
 
 ## ツールとプレビュー
@@ -259,9 +264,11 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 | `server/test/sandbox-image-input.test.ts` | `GET /v1/files/image-input` の許可範囲（scope 外・実在しない範囲・root 外 symlink）/ 実バイト判定 / 上限 413 / scope 数の上限 |
 | `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、有効 / 無効の切替（キーと選択を保つ・行が無ければ 400・保存失敗は 503 で写しも変えない・キー上書きが OFF を引き継ぐ）、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式宣言 |
 | `server/test/content-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、`PUT /api/settings/content` の有効 / 無効（行が無ければ 400）、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `models` の形（宣言を載せない） |
+| `server/test/content-trials.test.ts` / `server/test/content-trials-api.test.ts` | 試行の開始 / 取得 / キャンセル / 完了 / 失敗 / 中断の状態遷移と終端の不変性、完了直前のキャンセル、遅い結果の破棄、実行中の削除拒否、種別ごとの同時 1 本と provider が終わるまでのスロット保持、キャンセルで abort すること、起動時と一覧取得時の `running` → `interrupted`、終端の記録失敗からの再試行、close の中断、開始前の検証（未設定 / OFF / runtime 不可 / カタログ外 / 空・長すぎるプロンプト）、失敗文言のマスク、APIキーが応答・履歴に載らないこと、キー削除後も履歴を読めること |
 | `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`enabled` の列追加（既存行は ON）と往復、`image_catalog` の upsert と壊れた行（health を落とさない）、形式宣言の往復と形違いの読み方 |
 | `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
 | `client/test/imageRefresh.test.ts` | 実フックの再描画安定性・更新時の URL 非衝突 / 実 Markdown と FileBrowser の再 mount が過去の URL を再利用しないこと（SSR） |
+| `client/test/contentTrials.test.ts` | 状態ラベルと失敗分類の写像、証拠の相対時刻・所要時間、現在のキー世代と選択中モデルだけを数える証拠、失敗へのフォールバックと未確認、旧キーの行、面の状態の優先順位、開始を止める理由、タブの印の優先順位と読み上げ名、新着結果の判定、実行中の有無 |
 | `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` | 選択肢（表示名の昇順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `画像 <n>` / `音声 <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / 選んだ面だけの描画（未設定はキーのみ・設定済みは削除と選んだ面の選択・キーを再表示しない・runtime 不可の disable・[カタログ更新] の出し分け）/ 有効 / 無効のカード（どのタブでも 1 つだけ・無効時の固定文言と警告色・未設定では出さない）と注記の文面 |
 
 ## 非ゴール
@@ -279,3 +286,4 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 - バッジのモデルを[カタログ](#モデルカタログ)の表示名へ解決すること。表示名はいつでも変わるので、履歴に残った実行時の id をそのまま出す
 - 生成物のキャプションのための同一ファイル追跡（ハッシュや内容）。別ターンでの再掲・`cp` したコピー・リネーム後の画像には出ない（[生成物のキャプション](#生成物のキャプション)）
 - キャプションからの追加の導線（クリックで設定を開く / モデルを切り替える）、動画・SVG へのキャプション、画像の alt 表示の変更
+- 試行の成果物の保存・配信・再生・ダウンロード・保存容量の表示・同一入力の再利用（段階 2 以降。段階 1 は履歴の記録だけ）

@@ -9,7 +9,7 @@ import type { ModelSelection } from "../src/agent";
 import { MODEL_UNSET_MESSAGE } from "../src/agent";
 import type { AskUserHost } from "../src/ask-user-tool";
 import type { CustomProviderRuntimeConfig } from "../src/custom-providers";
-import type { ContentGenerationConfig } from "../src/images";
+import type { ContentGenerationConfig, ImageGenerationInput, ImageGenerationResult } from "../src/images";
 import type { InvestigateHost } from "../src/investigate-tool";
 import type { ServeToolHost } from "../src/serve-tool";
 import type { SpeechGenerationInput, SpeechGenerationResult } from "../src/speech";
@@ -99,6 +99,10 @@ export function stubSpeechAudio(options: { sampleRate?: number; ms?: number; fre
   }
   return bytes;
 }
+
+/** 試行ジョブの既定の成功応答（1x1 の png）。バイト列は使わないので最小の base64 で足りる */
+export const STUB_IMAGE_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/AF+k6VJAAAAAElFTkSuQmCC";
 
 /** assistant メッセージに載せる既定の usage (provider が報告する値を模する) */
 export const STUB_USAGE: Usage = {
@@ -1277,6 +1281,11 @@ export interface StubPiOptions {
    * （中断は `input.signal` を待つ実装をテスト側で書く）。
    */
   onGenerateSpeech?: (input: SpeechGenerationInput) => SpeechGenerationResult | Promise<SpeechGenerationResult>;
+  /**
+   * 試行ジョブの画像生成器の模倣。省略時は成功（1x1 png）を返す。成功 / 失敗 / 中断を差し替えられる
+   * （中断は `input.signal` を待つ実装をテスト側で書く）。
+   */
+  onGenerateImage?: (input: ImageGenerationInput) => ImageGenerationResult | Promise<ImageGenerationResult>;
 }
 
 export interface StubProvider {
@@ -1439,6 +1448,8 @@ export function createStubPi(options: StubPiOptions = {}) {
   const contentGenerationConfigs: ContentGenerationConfig[] = [];
   // お試し再生の生成器へ渡った入力を記録する（課金前の検証で止めた呼び出しが無いことも見る）
   const speechCalls: SpeechGenerationInput[] = [];
+  // 試行ジョブの生成器へ渡った入力を記録する（課金前の検証で止めた呼び出しが無いことも見る）
+  const imageCalls: ImageGenerationInput[] = [];
   const webSearchConfigs: WebSearchRuntimeConfig[] = [];
   // serve ツールの実体 (bootstrap が注入する)。ツールの配線はここに記録して検証する
   const serveHosts: ServeToolHost[] = [];
@@ -1500,6 +1511,12 @@ export function createStubPi(options: StubPiOptions = {}) {
       contentGenerationConfigs.push(config);
     },
     speechCalls,
+    imageCalls,
+    generateImage: async (input: ImageGenerationInput) => {
+      imageCalls.push(input);
+      if (options.onGenerateImage) return options.onGenerateImage(input);
+      return { ok: true, image: { mimeType: "image/png", data: STUB_IMAGE_BASE64 } };
+    },
     generateSpeech: async (input: SpeechGenerationInput) => {
       speechCalls.push(input);
       if (options.onGenerateSpeech) return options.onGenerateSpeech(input);

@@ -14,6 +14,7 @@ import { BUILTIN_SKILLS } from "./builtin-skills";
 import { createDeviceIdStore, DEVICE_ID_PATH } from "./device-id";
 import { messageFor } from "./http";
 import { ContentSettingsService } from "./content-settings";
+import { ContentTrialsService } from "./content-trials";
 import { createImageCatalog } from "./image-catalog";
 import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
@@ -176,6 +177,8 @@ export type BffContext = {
   oauthLogin: OAuthLoginService;
   /** コンテンツ生成の provider / 画像モデル / APIキー (設定 → コンテンツ生成)。行の有無をツール公開へ写す */
   contentSettings: ContentSettingsService;
+  /** コンテンツ生成の試行ジョブ (設定 → コンテンツ生成)。画面の寿命に縛らず、明示キャンセルと close だけが止める */
+  contentTrials: ContentTrialsService;
   /** Web 検索の実行時トグル (設定 → Web 検索)。行が無い = 既定 (有効) を execute のたびに読む */
   webSearchSettings: WebSearchSettingsService;
   /** 設定画面のテスト検索。実行環境を作れない起動 (pi なし) は null */
@@ -318,6 +321,14 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     generateSpeech: pi ? pi.generateSpeech : undefined,
   });
   await contentSettings.applyStored();
+  // 試行ジョブのレジストリはメモリだけに持つ。起動時に前のプロセスの `running` を `interrupted` へ倒す
+  const contentTrials = new ContentTrialsService({
+    db: appDb,
+    source: contentSettings.trialSource(),
+    generateImage: pi ? pi.generateImage : undefined,
+    maskError,
+  });
+  await contentTrials.applyStored();
   // Web 検索は「既定 ON / Exa」なので、行が無ければそのまま立ち、設定行とキーがあるときだけ写す。
   // コンテンツ生成と同じく、写しはロックの内側で差し替える (設定 API と起動時の適用を直列化する)
   const webSearchSettings = new WebSearchSettingsService({
@@ -517,6 +528,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     modelSettings,
     oauthLogin,
     contentSettings,
+    contentTrials,
     webSearchSettings,
     webSearchTest,
     titleSummarySettings,

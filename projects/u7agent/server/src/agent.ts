@@ -28,7 +28,12 @@ import {
   IMAGE_TOOL_NAME,
   sessionToolNames,
 } from "./image-tools";
-import { createImagesGenerator, type ContentGenerationConfig } from "./images";
+import {
+  createImagesGenerator,
+  type ContentGenerationConfig,
+  type ImageGenerationInput,
+  type ImageGenerationResult,
+} from "./images";
 import { IMAGE_INPUT_UNKNOWN_MESSAGE } from "./image-catalog";
 import { createSpeechGenerator, type SpeechGenerationInput, type SpeechGenerationResult } from "./speech";
 import { createSpeechToolDefinitions, SPEECH_GENERATION_PROMPT_LINES, SPEECH_TOOL_NAME } from "./speech-tools";
@@ -333,6 +338,11 @@ export interface PiBff {
    * プレイグラウンドの試行でも mp3 / pcm の使い分けが進む。
    */
   generateSpeech(input: SpeechGenerationInput): Promise<SpeechGenerationResult>;
+  /**
+   * 設定 → コンテンツ生成 の試行ジョブが使う画像の生成器。ツールと同じ失敗分類・期限を共有する。
+   * 成果物はチャット側と違い保存しない（段階 1 は記録のみ）。
+   */
+  generateImage(input: ImageGenerationInput): Promise<ImageGenerationResult>;
   /**
    * `web_search` の実行時設定（有効 / 無効・既定 provider・provider のキー）を注入する。ツールは
    * execute のたびに読むため、既存セッションにも次の呼び出しから効く。設定が未注入の間は有効 / Exa
@@ -1209,6 +1219,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       contentGeneration.config = config;
     },
     generateSpeech: (input) => speechGenerator.generate(input),
+    generateImage: (input) => imagesGenerator.generate(input),
     setWebSearch(config) {
       webSearch.config = config;
     },

@@ -208,6 +208,12 @@
 | DELETE | `/api/settings/content/key` | 行ごと削除して未設定へ戻す（冪等） |
 | POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
 | POST | `/api/settings/content/speech/catalog/refresh` | 音声カタログの再取得。応答は画像と同じ形 |
+| POST | `/api/settings/content/trials` | `{ kind, model, prompt }`。試行ジョブを開始し、202 で `{ trial }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409） |
+| GET | `/api/settings/content/trials` | `{ items, keyEpoch }`。新しい順の履歴（`?kind=` で絞る）。取得のたびに `running` の取り残しを再照合する |
+| GET | `/api/settings/content/trials/:id` | `{ trial }`。終端の記録に失敗している間は `recorded: false` でメモリの状態を返す |
+| POST | `/api/settings/content/trials/:id/cancel` | 実行中の試行だけを中断して `{ trial }`。終端は 409 |
+| DELETE | `/api/settings/content/trials/:id` | 終端状態の試行だけを削除。実行中は 409（`先に中断してください`） |
+| DELETE | `/api/settings/content/trials` | 終端状態の試行をまとめて削除（`{ removed }`）。実行中は残る |
 
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。`enabled` は行が無いとき（未設定）も既定の `true` を返し、ツールの公開可否は `configured` との積で決まる。OFF の間、モデルへは `disabledMessage` の固定文言だけが返る（[image-generation.md](image-generation.md#有効化ゲート)）。モデル、保存先、ゲート、失敗分類は [image-generation.md](image-generation.md) / [speech-generation.md](speech-generation.md) / [bgm-generation.md](bgm-generation.md) を参照する。
 
@@ -220,6 +226,7 @@
   "keyAvailable": true,
   "keyEvaluated": true,
   "keyErrorMessage": null,
+  "keyEpoch": 2,
   "enabled": true,
   "disabledMessage": "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
   "runtimeAvailable": true,
@@ -270,6 +277,7 @@
 - POST の `catalogError` は**今回の取得だけ**の結果で、`null` なら成功。失敗しても一覧と `catalogSource` は前のままで、503 にはしない（設定ではなくキャッシュの更新なので `state` も付けない）
 - 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映を持たないため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`
 - 400: 行が無いのに PUT（`コンテンツ生成のAPIキーが未設定です。先にキーを登録してください`）、`openrouter` 以外の provider、カタログ外の model、画像 / 音声のカタログ外モデル、宣言があるモデルで宣言外のボイス、8..2048 文字外のキー、形が違う本文。音声カタログが `default` のときはカタログ照合をしない（[speech-generation.md](speech-generation.md#モデルカタログ)）
+- `keyEpoch` はキーの世代で、**上書きと（行があったときの）削除で進む**。新規保存と未設定の削除では動かさない。試行の証拠は「現在の `keyEpoch` と現在のモデル」に一致する成功だけを数えるため、旧キーの実績が現在のキーの確認として扱われない（[image-generation.md](image-generation.md#設定画面)）
 - キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`。削除すると行ごと消え、`generate_image` / `generate_speech` / `generate_bgm` は次のセッション作成・復元から公開されなくなる（既存liveセッションの execute は実行時にキー無効エラーを返す）。
 
 `preview` は設定を変えないため `state` を付けず、`appData`（DB ゲート）だけを通す。成功の応答は音声バイト（mp3 は `Content-Type: audio/mpeg`、pcm は RIFF ヘッダを付けて `audio/wav`）で、`X-Content-Type-Options: nosniff` と `Cache-Control: no-store` を付ける。失敗は JSON なので、判別は status と Content-Type で行う。
@@ -287,6 +295,18 @@
 
 - 502 の `code` は `invalid_key` / `insufficient_credit` / `rate_limited` / `timeout` / `aborted` / `unknown` で、正は `server/src/provider-failure.ts`（[speech-generation.md](speech-generation.md#失敗の分類)）
 - 課金前の検証（行なし / カタログ外モデル / 宣言外ボイス / 本文と `instructions` の長さ / 空本文 / `speed` の型）は provider を叩かず 400 にする。文言は「クレジットを消費していない」ことを伝えるプレビュー用のものを返す（分割を促すツール向け文言は使わない）。`speed` の範囲は provider の制約なのでアプリでは縛らない
+
+### 試行ジョブ
+
+設定に反映しない試行（動作確認）は、画面の寿命に縛らないジョブとして持つ。実装の正は `server/src/content-trials.ts`、状態の一覧・期限・再照合の間隔はそこから読む。
+
+- 開始は 202 で、状態は `GET .../trials/:id` と一覧で取る。**リクエストの `AbortSignal` には結び付けない**（画面を離れても続く）。中断は明示キャンセルと BFF の close だけで、close は実行中の試行を abort する
+- 種別ごとに同時 1 本。実行中は開始が 409。**キャンセルしても provider の呼び出しが終わるまで次の試行を始められない**（終端を決めた後の結果は捨てる）
+- 終端状態は不変で、`running` の行だけが終端へ進む（DB の更新条件も同じ）。キャンセルは `running` のときだけ受け付け、完了後のキャンセルは 409 で状態を戻さない
+- 失敗は既存の provider 失敗分類をそのまま載せ、自動では再試行しない。APIキーは行にも応答にもログにも残さず、キーの世代（`keyEpoch`）だけを持つ
+- 再起動でレジストリを失った `running` は `interrupted` に倒す（再開しない）。一覧の取得時にも、期限を過ぎてレジストリに無い行だけを同じ扱いにする（間引きあり）
+- 終端を DB へ書けなかったときは、メモリの終端を `recorded: false` として返し、次の取得で記録を再試行する
+- 成果物は段階 1 では持たない（`artifactState` は `none`）。結果の再生・ダウンロード・同一入力の再利用は段階 2 以降
 
 `configured`（設定行の有無）と `keyStored`（暗号文の有無）・`keyAvailable`（復号できて生成ツールへ渡せる）・`keyEvaluated` / `keyErrorMessage` は別の軸で、実効の公開ゲートは「行がある」「`enabled`」「`keyAvailable`」の積。`configured: true` / `keyStored: true` / `keyAvailable: false` でも画面はキーの削除・置換を出す。未評価（runtime 無し / 起動時に DB を読めなかった）は `keyEvaluated: false` と「まだ確認できていない」固定文言で、誤鍵・破損と断定しない（[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。
 

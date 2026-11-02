@@ -5,7 +5,8 @@ import { cn } from "../lib/cn";
  * 設定ページのタブ行 (`role="tablist"`)。表示の正は URL で、選択中の値と切替の要求だけを受け取る。
  * singleColumn では横スクロールする行の選択中タブを可視域へ入れる。
  * `dense` は 248px の一覧列のように、タブが入り切らない狭い面に置くときの詰めた余白。
- * `ariaLabel` と `mark` は未指定なら今までどおり描く（読み上げ名を変える画面と、警告の印を出す画面だけが使う）。
+ * `ariaLabel` / `mark` / `accentMark` は未指定なら今までどおり描く（読み上げ名を変える画面、
+ * 警告の印を出す画面、実行中を示す accent の点を出す画面だけが使う）。
  */
 export function SettingsTabs<T extends string>({
   items,
@@ -15,7 +16,17 @@ export function SettingsTabs<T extends string>({
   singleColumn = false,
   dense = false,
 }: {
-  items: readonly { subsection: T; label: string; ariaLabel?: string; mark?: boolean }[];
+  items: readonly {
+    subsection: T;
+    label: string;
+    ariaLabel?: string;
+    mark?: boolean;
+    /**
+     * 実行中を示す accent の点。pulse は `motion-safe` に限る（`prefers-reduced-motion` では止まる）。
+     * `mark`（warn）との優先順位は呼び出し側が決める。
+     */
+    accentMark?: boolean;
+  }[];
   active: T;
   onSelect?: (subsection: T) => void;
   ariaLabel: string;
@@ -45,13 +56,18 @@ export function SettingsTabs<T extends string>({
           onClick={() => onSelect?.(item.subsection)}
           className={cn(
             "tab-item shrink-0 whitespace-nowrap",
-            item.mark && "flex items-center gap-1.5",
+            (item.mark || item.accentMark) && "flex items-center gap-1.5",
             compact && "px-1.5",
             active === item.subsection && "tab-item-active",
           )}
         >
           {item.label}
-          {item.mark ? <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-warn" /> : null}
+          {item.accentMark ? (
+            <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-accent motion-safe:animate-pulse" />
+          ) : null}
+          {item.mark && !item.accentMark ? (
+            <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-warn" />
+          ) : null}
         </button>
       ))}
     </div>

@@ -16,7 +16,7 @@ import type { AgentDef, ModelRef, NotificationResult, Project, PromptRef, Space 
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 37;
+export const APP_DB_SCHEMA_VERSION = 38;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -102,6 +102,27 @@ export interface ContentSettingsRow {
   ciphertext: Uint8Array | null;
   nonce: Uint8Array | null;
   keyVersion: number | null;
+}
+
+/**
+ * コンテンツ生成の試行ジョブの保存行。成果物を持たない段階のため `artifactState` は `none` だけを持つ。
+ * **行は履歴そのもの**なので、未知の版を開いたときの `#recreate` でも消さない (`DROP_TABLES` に入れない)。
+ * APIキーは保存しない（世代番号 `keyEpoch` だけを持つ）。
+ */
+export interface ContentTrialRow {
+  id: string;
+  kind: string;
+  /** 送信時のモデル (`provider/id`)。現在の保存値とは別に持つ */
+  model: string;
+  prompt: string;
+  state: string;
+  keyEpoch: number;
+  artifactState: string;
+  failureCode: string | null;
+  failureMessage: string | null;
+  startedAt: number;
+  finishedAt: number | null;
+  durationMs: number | null;
 }
 
 /** アプリデータの SQLite に保存する通知設定。Webhook URL は AEAD の暗号文で、応答へは出さない (write-only) */
@@ -443,6 +464,43 @@ CREATE TABLE IF NOT EXISTS content_settings (
 `;
 
 /**
+ * v37 -> v38 で足したテーブル。設定 → コンテンツ生成の試行ジョブ（段階 1 は成果物なし）のメタデータ。
+ * 行は履歴そのもので、時間ベースの自動削除はしない。`state` の終端値は不変で、`running` からしか
+ * 終端へは進まない (docs/api-settings.md)。APIキーは列に持たず、`keyEpoch` だけを残す。
+ * **`DROP_TABLES` に入れない**: 古いビルドへ戻したとき (#recreate) はこのテーブルを知らないので放置され、
+ * 新ビルドへ戻すと #migrate() の `CREATE TABLE IF NOT EXISTS` がそのまま合流させる。
+ */
+const CONTENT_TRIALS_TABLE = `
+CREATE TABLE IF NOT EXISTS content_trials (
+  id             TEXT PRIMARY KEY,
+  kind           TEXT NOT NULL,
+  model          TEXT NOT NULL,
+  prompt         TEXT NOT NULL,
+  state          TEXT NOT NULL,
+  keyEpoch       INTEGER NOT NULL,
+  artifactState  TEXT NOT NULL,
+  failureCode    TEXT,
+  failureMessage TEXT,
+  startedAt      INTEGER NOT NULL,
+  finishedAt     INTEGER,
+  durationMs     INTEGER
+);
+CREATE INDEX IF NOT EXISTS content_trials_started ON content_trials (startedAt);
+`;
+
+/**
+ * v37 -> v38 で足したテーブル。コンテンツ生成のAPIキーの世代。`content_settings` の行はキー削除で
+ * 消えるため、世代は消えない専用の 1 行に持つ（行が無い = 0 世代）。`content_trials` と同じく
+ * `DROP_TABLES` に入れない（世代が戻ると、旧キーの実績が現在のキーの証拠に見えてしまう）。
+ */
+const CONTENT_KEY_EPOCH_TABLE = `
+CREATE TABLE IF NOT EXISTS content_key_epoch (
+  id    INTEGER PRIMARY KEY CHECK (id = 1),
+  epoch INTEGER NOT NULL
+);
+`;
+
+/**
  * v8 -> v9 で足したテーブル。取得に失敗した起動でも前回の一覧を出せるように、
  * 最後に成功した live カタログを 1 行だけ残す (docs/image-generation.md)。
  */
@@ -702,6 +760,8 @@ ${MODEL_SETTINGS_TABLE}
 ${PROVIDER_MEMOS_TABLE}
 ${CUSTOM_PROVIDERS_TABLE}
 ${CONTENT_SETTINGS_TABLE}
+${CONTENT_KEY_EPOCH_TABLE}
+${CONTENT_TRIALS_TABLE}
 ${IMAGE_CATALOG_TABLE}
 ${SPEECH_CATALOG_TABLE}
 ${SERVE_COMMANDS_TABLE}
@@ -888,6 +948,38 @@ function contentSettingsOf(row: Row): ContentSettingsRow | undefined {
     ciphertext: secret?.ciphertext ?? null,
     nonce: secret?.nonce ?? null,
     keyVersion: secret?.keyVersion ?? null,
+  };
+}
+
+/**
+ * 試行ジョブの行。数値列は INTEGER で書いているため、手編集で NULL / 小数になっていたら保存値の破損として
+ * 失敗させる (未設定と読み違えない)。終端時刻と所要時間だけは `running` / `interrupted` で NULL を許す。
+ */
+function contentTrialOf(row: Row): ContentTrialRow {
+  const id = optionalText(row.id);
+  const kind = optionalText(row.kind);
+  const model = optionalText(row.model);
+  const state = optionalText(row.state);
+  const artifactState = optionalText(row.artifactState);
+  const startedAt = optionalNumber(row.startedAt);
+  const keyEpoch = optionalNumber(row.keyEpoch);
+  if (!id || !kind || !model || !state || !artifactState || startedAt === null || keyEpoch === null) {
+    throw new Error("content_trials row is incomplete");
+  }
+  return {
+    id,
+    kind,
+    model,
+    // 空のプロンプトは作らないが、手編集された行は空のまま返す (履歴を消さない)
+    prompt: optionalText(row.prompt) ?? "",
+    state,
+    keyEpoch,
+    artifactState,
+    failureCode: optionalText(row.failureCode) ?? null,
+    failureMessage: optionalText(row.failureMessage) ?? null,
+    startedAt,
+    finishedAt: optionalNumber(row.finishedAt),
+    durationMs: optionalNumber(row.durationMs),
   };
 }
 
@@ -1552,6 +1644,9 @@ export class AppDb {
       this.#renameTableIfNeeded("image_settings", "content_settings");
       this.#renameColumnIfNeeded("content_settings", "model", "imageModel");
       this.#query((db) => db.exec(CONTENT_SETTINGS_TABLE));
+      // v37 -> v38: 試行ジョブの履歴と、キー削除でも消えないキー世代
+      this.#query((db) => db.exec(CONTENT_KEY_EPOCH_TABLE));
+      this.#query((db) => db.exec(CONTENT_TRIALS_TABLE));
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SPEECH_CATALOG_TABLE));
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
@@ -1931,6 +2026,128 @@ export class AppDb {
   /** 行を消して未設定へ戻す (キー削除は provider / imageModel も含めて行ごと消す)。復号は不要 */
   deleteContentSettings(): boolean {
     return this.#secretQuery((db) => db.prepare("DELETE FROM content_settings WHERE id = 1").run().changes > 0);
+  }
+
+  // --- content trials (履歴。時間ベースの自動削除はしない) ---
+
+  /** 現在のキー世代。行が無ければ 0 (まだ一度もキーを保存していない) */
+  readContentKeyEpoch(): number {
+    const row = this.#query(
+      (db) => db.prepare("SELECT epoch FROM content_key_epoch WHERE id = 1").get() as Row | undefined,
+    );
+    const epoch = optionalNumber(row?.epoch);
+    return epoch !== null && Number.isInteger(epoch) && epoch >= 0 ? epoch : 0;
+  }
+
+  /** キーの保存・上書き・削除で世代を 1 つ進め、進めた後の値を返す (単一ステートメントで確定する) */
+  advanceContentKeyEpoch(): number {
+    return this.transaction(() => {
+      this.#query((db) =>
+        db
+          .prepare(
+            `INSERT INTO content_key_epoch (id, epoch) VALUES (1, 1)
+             ON CONFLICT(id) DO UPDATE SET epoch = epoch + 1`,
+          )
+          .run(),
+      );
+      return this.readContentKeyEpoch();
+    });
+  }
+
+  /** 試行を `running` で先に作り、終端は #finishContentTrial で書く */
+  saveContentTrial(row: ContentTrialRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO content_trials
+             (id, kind, model, prompt, state, keyEpoch, artifactState, failureCode, failureMessage,
+              startedAt, finishedAt, durationMs)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          row.id,
+          row.kind,
+          row.model,
+          row.prompt,
+          row.state,
+          row.keyEpoch,
+          row.artifactState,
+          row.failureCode,
+          row.failureMessage,
+          row.startedAt,
+          row.finishedAt,
+          row.durationMs,
+        ),
+    );
+  }
+
+  /**
+   * 終端への更新。**`running` の行だけ**を対象にし、終端状態から別の状態へは進めない
+   * (完了直後のキャンセルや、遅れて届いた結果で状態を戻さない)。更新したかを返す。
+   */
+  finishContentTrial(input: {
+    id: string;
+    state: string;
+    failureCode: string | null;
+    failureMessage: string | null;
+    finishedAt: number;
+    durationMs: number | null;
+  }): boolean {
+    return this.#query(
+      (db) =>
+        db
+          .prepare(
+            `UPDATE content_trials
+               SET state = ?, failureCode = ?, failureMessage = ?, finishedAt = ?, durationMs = ?
+             WHERE id = ? AND state = 'running'`,
+          )
+          .run(input.state, input.failureCode, input.failureMessage, input.finishedAt, input.durationMs, input.id)
+          .changes > 0,
+    );
+  }
+
+  /** 行が無ければ undefined。`kind` は問わない (id は不透明なので、未知の種別もそのまま返す) */
+  readContentTrial(id: string): ContentTrialRow | undefined {
+    const row = this.#query((db) => db.prepare("SELECT * FROM content_trials WHERE id = ?").get(id) as Row | undefined);
+    return row ? contentTrialOf(row) : undefined;
+  }
+
+  /** 新しい順。`kind` を省略すると全種別 (段階 1 は画像だけだが、種別は列で分ける) */
+  listContentTrials(kind?: string): ContentTrialRow[] {
+    return this.#query((db) => {
+      const rows = kind
+        ? (db
+            .prepare("SELECT * FROM content_trials WHERE kind = ? ORDER BY startedAt DESC, rowid DESC")
+            .all(kind) as Row[])
+        : (db.prepare("SELECT * FROM content_trials ORDER BY startedAt DESC, rowid DESC").all() as Row[]);
+      return rows.map(contentTrialOf);
+    });
+  }
+
+  deleteContentTrial(id: string): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM content_trials WHERE id = ?").run(id).changes > 0);
+  }
+
+  /** 終端状態の行だけを消す。`running` は呼び出し側が拒否し、全削除でも残す */
+  deleteTerminalContentTrials(kind?: string): number {
+    return this.#query((db) => {
+      const statement = kind
+        ? db.prepare("DELETE FROM content_trials WHERE state <> 'running' AND kind = ?")
+        : db.prepare("DELETE FROM content_trials WHERE state <> 'running'");
+      return Number((kind ? statement.run(kind) : statement.run()).changes);
+    });
+  }
+
+  /**
+   * 実行中ジョブのレジストリを失った起動で `running` を `interrupted` へ倒す。再開はしない
+   * (docs/api-settings.md)。終了時刻だけは判定時刻で埋め、所要時間は不明として NULL のままにする。
+   */
+  interruptRunningContentTrials(now: number): number {
+    return this.#query(
+      (db) =>
+        db.prepare("UPDATE content_trials SET state = 'interrupted', finishedAt = ? WHERE state = 'running'").run(now)
+          .changes as number,
+    );
   }
 
   // --- cloudflare settings (1 行だけ。行が無い = 未登録) ---

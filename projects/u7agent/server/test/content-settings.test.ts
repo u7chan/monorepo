@@ -94,6 +94,9 @@ class FakeContentDb implements ContentSettingsDb {
   failRead = false;
   failSave = false;
   failDelete = false;
+  /** キー世代。`content_key_epoch` の 1 行に対応する */
+  keyEpoch = 0;
+  failEpoch = false;
   /** 保存の直後から read を失敗させる（書込成功後の読取失敗を再現する） */
   failReadAfterSave = false;
   events: string[] = [];
@@ -116,6 +119,17 @@ class FakeContentDb implements ContentSettingsDb {
     const existed = this.row !== undefined;
     this.row = undefined;
     return existed;
+  }
+
+  readContentKeyEpoch(): number {
+    if (this.failEpoch) throw new Error("db epoch boom");
+    return this.keyEpoch;
+  }
+
+  advanceContentKeyEpoch(): number {
+    if (this.failEpoch) throw new Error("db epoch boom");
+    this.keyEpoch += 1;
+    return this.keyEpoch;
   }
 }
 
@@ -208,6 +222,7 @@ test("GET は行が無いとき未設定を返し、キーを載せない", () =
     keyEvaluated: true,
     keyErrorMessage: null,
     provider: null,
+    keyEpoch: 0,
     enabled: true,
     disabledMessage: CONTENT_DISABLED_MESSAGE,
     runtimeAvailable: true,
@@ -749,4 +764,52 @@ test("起動時の DB 読取に失敗したら未評価のまま残し、復旧�
   assert.equal(settings.keyAvailable, false);
   assert.equal(settings.keyEvaluated, false);
   assert.equal(settings.keyErrorMessage, APP_SECRET_UNEVALUATED_MESSAGE);
+});
+
+test("キー世代は上書きと削除（行があったとき）で進み、新規保存と未設定の削除では進まない", async () => {
+  const { db, service } = createService();
+  assert.equal(service.settings().keyEpoch, 0);
+  // 行が無い状態の DELETE は冪等で、世代を動かさない
+  assert.equal((await service.deleteKey()).status, 200);
+  assert.equal(db.keyEpoch, 0);
+
+  const saved = await service.putKey(KEY);
+  assert.equal(saved.status, 200);
+  if (saved.status !== 200) return;
+  assert.equal(saved.response.keyEpoch, 0, "新規保存では進めない（以前のキーが存在しない）");
+  assert.equal(service.settings().keyEpoch, 0);
+
+  const rotated = await service.putKey(KEY + "-rotated");
+  assert.equal(rotated.status, 200);
+  if (rotated.status !== 200) return;
+  assert.equal(rotated.response.keyEpoch, 1, "上書きで 1 つ進める");
+  assert.equal(service.settings().keyEpoch, 1);
+
+  const removed = await service.deleteKey();
+  assert.equal(removed.status, 200);
+  if (removed.status !== 200) return;
+  assert.equal(removed.response.keyEpoch, 2, "行があった削除で 1 つ進める");
+  assert.equal(service.settings().keyEpoch, 2);
+
+  // 未設定になった後の削除は行が無いので進めない
+  assert.equal((await service.deleteKey()).status, 200);
+  assert.equal(service.settings().keyEpoch, 2);
+});
+
+test("キー世代を進められないときはメモリも動かさず、保存した应答と DB を食い違わせない", async () => {
+  const { db, service } = createService();
+  await service.putKey(KEY);
+  db.failEpoch = true;
+  const rotated = await service.putKey(KEY + "-rotated");
+  assert.equal(rotated.status, 200);
+  if (rotated.status !== 200) return;
+  assert.equal(rotated.response.keyEpoch, 0);
+  assert.equal(service.settings().keyEpoch, 0);
+});
+
+test("起動時に読んだキー世代を応答に載せる（再起動でも世代が戻らない）", async () => {
+  const first = createService();
+  first.db.keyEpoch = 4;
+  await first.service.applyStored();
+  assert.equal(first.service.settings().keyEpoch, 4);
 });

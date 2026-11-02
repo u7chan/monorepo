@@ -1,5 +1,11 @@
 /** API 契約の正。DTO のフィールド名と optional の扱いは client と揃える。 */
 import { z } from "zod";
+import {
+  CONTENT_TRIAL_ARTIFACT_STATES,
+  CONTENT_TRIAL_KINDS,
+  CONTENT_TRIAL_PROMPT_MAX_LENGTH,
+  CONTENT_TRIAL_STATES,
+} from "./content-trials";
 import { PROVIDER_FAILURE_CODES } from "./provider-failure";
 import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
 import type { SandboxLandlockStatus, SandboxRuntimeCommand, SandboxRuntimeEnvironment } from "./sandbox/protocol";
@@ -1329,6 +1335,11 @@ export const ContentSettingsResponseSchema = z.object({
   keyEvaluated: z.boolean(),
   /** 未評価 / 復号失敗の固定文言。使えるときと未設定のときは null */
   keyErrorMessage: z.string().nullable(),
+  /**
+   * コンテンツ生成のAPIキーの世代。キーの保存 / 上書き / 削除で進み、試行の証拠を
+   * 「現在のキーでの実績」に限るために使う（docs/api-settings.md）。
+   */
+  keyEpoch: z.number(),
   /** 画像・音声・BGM の 3 ツール共通の実行時トグル。行が無ければ true（既定） */
   enabled: z.boolean(),
   /** 画面が同じ文言を出すため、ツールが OFF の間に返す固定文言も応答に載せる */
@@ -1346,6 +1357,73 @@ export const ContentMutationResponseSchema = ContentSettingsResponseSchema.exten
   state: z.literal("applied"),
 });
 export type ContentMutationResponse = z.infer<typeof ContentMutationResponseSchema>;
+
+/**
+ * 試行ジョブの状態。終端（`succeeded` / `failed` / `canceled` / `interrupted`）は不変で、
+ * `running` からしか遷移しない。値の正は `server/src/content-trials.ts`。
+ */
+export const ContentTrialStateSchema = z.enum(CONTENT_TRIAL_STATES);
+export type ContentTrialStateValue = z.infer<typeof ContentTrialStateSchema>;
+
+/** 試行の種別。段階 1 は画像だけで、音声 / BGM は後の段階で足す */
+export const ContentTrialKindSchema = z.enum(CONTENT_TRIAL_KINDS);
+export type ContentTrialKindValue = z.infer<typeof ContentTrialKindSchema>;
+
+/** 成果物の状態。段階 1 は保存しないため `none` だけ（段階 2 で `stored` を足す） */
+export const ContentTrialArtifactStateSchema = z.enum(CONTENT_TRIAL_ARTIFACT_STATES);
+export type ContentTrialArtifactStateValue = z.infer<typeof ContentTrialArtifactStateSchema>;
+
+/**
+ * 試行 1 件。`recorded: false` は「終端を DB へ記録できず、メモリの状態を返している」を表し、
+ * この間の行は `running` のまま保存されている（docs/api-settings.md）。APIキーは載らない。
+ */
+export const ContentTrialSchema = z.object({
+  id: z.string(),
+  kind: ContentTrialKindSchema,
+  /** 送信時のモデル（`provider/id`）。現在の保存値とは混ぜない */
+  model: z.string(),
+  prompt: z.string(),
+  state: ContentTrialStateSchema,
+  keyEpoch: z.number(),
+  artifactState: ContentTrialArtifactStateSchema,
+  failureCode: z.enum(PROVIDER_FAILURE_CODES).nullable(),
+  failureMessage: z.string().nullable(),
+  startedAt: z.number(),
+  finishedAt: z.number().nullable(),
+  durationMs: z.number().nullable(),
+  recorded: z.boolean(),
+});
+export type ContentTrial = z.infer<typeof ContentTrialSchema>;
+
+/** POST /api/settings/content/trials の 202 と、GET / cancel の 200。開始直後の状態は `running` */
+export const ContentTrialResponseSchema = z.object({ trial: ContentTrialSchema });
+export type ContentTrialResponse = z.infer<typeof ContentTrialResponseSchema>;
+
+/**
+ * GET /api/settings/content/trials。`keyEpoch` は現在の世代で、各行の `keyEpoch` と比べて
+ * 旧キーの実績を証拠から外す。並びは新しい順（時間ベースの自動削除はしない）。
+ */
+export const ContentTrialListResponseSchema = z.object({
+  items: z.array(ContentTrialSchema),
+  keyEpoch: z.number(),
+});
+export type ContentTrialListResponse = z.infer<typeof ContentTrialListResponseSchema>;
+
+/** 削除の応答。個別削除は 0 / 1、すべて削除は消した件数（`running` は対象にしない） */
+export const ContentTrialDeleteResponseSchema = z.object({ removed: z.number() });
+export type ContentTrialDeleteResponse = z.infer<typeof ContentTrialDeleteResponseSchema>;
+
+/**
+ * POST /api/settings/content/trials。試行は画面の値で実行し、設定には反映しない。
+ * 種別ごとに同時 1 本で、実行中は 409。
+ */
+export const CreateContentTrialBodySchema = z.object({
+  kind: ContentTrialKindSchema,
+  /** `provider/id`。カタログに載っているモデルだけを受け付ける */
+  model: z.string().min(1),
+  prompt: z.string().min(1).max(CONTENT_TRIAL_PROMPT_MAX_LENGTH),
+});
+export type CreateContentTrialBody = z.infer<typeof CreateContentTrialBodySchema>;
 
 /** 共有物の状態。値の正は `server/src/app-db.ts` の `SharedContentStatus` */
 export const SharedContentStatusSchema = z.enum(["publishing", "published", "stopped", "failed"]);
