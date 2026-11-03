@@ -10,12 +10,13 @@ import { createBffApp } from "../src/app";
 import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import {
   CONTENT_TRIAL_BGM_MODEL_MESSAGE,
+  CONTENT_TRIAL_BGM_PROMPT_TOO_LONG_MESSAGE,
   CONTENT_TRIAL_DELETE_RUNNING_MESSAGE,
   CONTENT_TRIAL_IMAGE_MODEL_MESSAGE,
   CONTENT_TRIAL_NOT_FOUND_MESSAGE,
   CONTENT_TRIAL_SPEECH_MODEL_MESSAGE,
 } from "../src/content-trials";
-import { BGM_MODEL } from "../src/bgm";
+import { BGM_MODEL, BGM_PROMPT_MAX_LENGTH } from "../src/bgm";
 import { DEFAULT_IMAGE_MODEL } from "../src/content-settings";
 import { DEFAULT_SPEECH_MODEL } from "../src/speech-catalog";
 import { IMAGE_PROVIDER_ID, type ImageGenerationInput, type ImageGenerationResult } from "../src/images";
@@ -701,6 +702,13 @@ test("BGM の試行は試行 API に載り、raw は audio/mpeg で返し、同�
     const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const tooLong = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "bgm", model: BGM_MODEL, prompt: "a".repeat(BGM_PROMPT_MAX_LENGTH + 1) }),
+      );
+      assert.equal(tooLong.status, 400);
+      assert.equal((await jsonBody(tooLong)).error, CONTENT_TRIAL_BGM_PROMPT_TOO_LONG_MESSAGE);
+      assert.equal(pi.bgmCalls.length, 0);
       const started = await bff.app.request(
         "/api/settings/content/trials",
         jsonPost({ kind: "bgm", model: BGM_MODEL, prompt: "静かな夜のピアノ" }),

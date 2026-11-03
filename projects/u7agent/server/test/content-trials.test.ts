@@ -7,6 +7,7 @@ import {
   CONTENT_TRIAL_ALREADY_TERMINAL_MESSAGE,
   CONTENT_TRIAL_BGM_BUSY_MESSAGE,
   CONTENT_TRIAL_BGM_MODEL_MESSAGE,
+  CONTENT_TRIAL_BGM_PROMPT_TOO_LONG_MESSAGE,
   CONTENT_TRIAL_ARTIFACT_FORMAT_MESSAGE,
   CONTENT_TRIAL_ARTIFACT_MISSING_MESSAGE,
   CONTENT_TRIAL_DELETE_RUNNING_MESSAGE,
@@ -18,6 +19,7 @@ import {
   CONTENT_TRIAL_PROMPT_EMPTY_MESSAGE,
   CONTENT_TRIAL_PROMPT_MAX_LENGTH,
   CONTENT_TRIAL_PROMPT_TOO_LONG_MESSAGE,
+  CONTENT_TRIAL_READ_FAILED_MESSAGE,
   CONTENT_TRIAL_RUNTIME_UNAVAILABLE_MESSAGE,
   CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE,
   CONTENT_TRIAL_SPEECH_VOICE_MESSAGE,
@@ -39,6 +41,7 @@ import {
   acquireBgmGenerationSlot,
   BGM_MAX_CONCURRENT,
   BGM_MODEL,
+  BGM_PROMPT_MAX_LENGTH,
   BGM_TIMEOUT_MS,
   BgmGenerationError,
   releaseBgmGenerationSlot,
@@ -1278,6 +1281,18 @@ function bgmMp3(): Uint8Array<ArrayBuffer> {
   return new Uint8Array([0xff, 0xfb, 0x90, 0x64, 0x00, 0x00]);
 }
 
+test("BGM のプロンプトは 1,000 文字を超えると 400 にし、枠を取らない", () => {
+  const harness = createHarness();
+  const outcome = harness.startBgm("a".repeat(BGM_PROMPT_MAX_LENGTH + 1));
+  assert.equal(outcome.status, 400);
+  assert.equal(outcome.status === 400 ? outcome.error : "", CONTENT_TRIAL_BGM_PROMPT_TOO_LONG_MESSAGE);
+  assert.equal(harness.db.rows.size, 0, "行を作らない");
+  assert.equal(harness.bgmGenerations.length, 0, "生成しない");
+  // 失敗後も共有枠は空いている
+  assert.equal(acquireBgmGenerationSlot(), true);
+  releaseBgmGenerationSlot();
+});
+
 test("BGM の試行は固定モデルとプロンプトだけを記録し、MP3 を保存して成功する", async () => {
   const harness = createHarness();
   const started = harness.startBgm("静かな夜のピアノ");
@@ -1466,12 +1481,14 @@ test("BGM の開始前の検証は固定モデルと音声パラメーターを�
   assert.equal(unavailable.status === 503 ? unavailable.error : "", CONTENT_TRIAL_RUNTIME_UNAVAILABLE_MESSAGE);
 });
 
-test("世代の読み取りが失敗しても、BGM の共有枠を漏らさない", () => {
+test("世代の読み取りが失敗しても 503 にし、BGM の共有枠を漏らさない", () => {
   const harness = createHarness();
   harness.db.failKeyEpoch = true;
   // 上限と同じ回数だけ失敗させる。解放されていなければ、この時点で共有枠が張り付く
   for (let attempt = 0; attempt < BGM_MAX_CONCURRENT; attempt += 1) {
-    assert.throws(() => harness.startBgm(), /db epoch boom/);
+    const outcome = harness.startBgm();
+    assert.equal(outcome.status, 503);
+    assert.equal(outcome.status === 503 ? outcome.error : "", CONTENT_TRIAL_READ_FAILED_MESSAGE);
   }
   assert.equal(harness.db.rows.size, 0, "行を作らない");
 

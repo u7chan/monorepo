@@ -273,6 +273,7 @@ export function createSpeechGenerator(options: SpeechGeneratorOptions = {}): Spe
           const suggested =
             attempt === 0 && response.status === 400 ? speechFormatFromProviderMessage(providerMessage) : undefined;
           if (suggested !== undefined && suggested !== format) {
+            console.info(`[u7agent] speech format fallback: model=${input.model} from=${format} to=${suggested}`);
             format = suggested;
             // 中断済みなら待機を伴う再試行をせず、最後の試行の材料で分類する
             if (aborted()) {
