@@ -451,6 +451,25 @@ const TRIAL_BASE: ContentTrial = {
   recorded: true,
 };
 
+test("キー未設定では、結果カードから既定へ保存する導線も押せない", () => {
+  const html = render({
+    configured: false,
+    keyStored: false,
+    keyAvailable: false,
+    provider: null,
+    image: { model: null },
+    trials: [TRIAL_BASE],
+  });
+  assert.equal(html.includes("保存される設定"), false, "保存フォームは出さない（既存の意図）");
+  assert.match(
+    html,
+    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?このモデルを既定にする/,
+    "保存できないので導線を押せなくする",
+  );
+  assert.ok(html.includes("APIキーが未設定のため保存できません。"), "押せない理由をその場に出す");
+  assert.ok(html.includes("a cat on a sofa"), "履歴と結果の閲覧は残す");
+});
+
 test("未設定でも試行の履歴と証拠を出し、新規生成だけを止める", () => {
   const html = render({
     configured: false,
@@ -730,6 +749,11 @@ test("音声の設定を確認できない間は、結果カードからの既�
 
   const allowed = render({ subsection: "speech", trials: [SPEECH_TRIAL_BASE] });
   assert.equal(allowed.includes("サーバーの現在の設定を確認できていないため"), false, "同期できていれば理由を出さない");
+  assert.equal(
+    allowed.includes("APIキーが未設定のため保存できません。"),
+    false,
+    "設定済みではキー未設定の理由を出さない",
+  );
 });
 
 test("音声の実行中はプレイヤーを出さず、状態だけを示す", () => {
@@ -777,6 +801,25 @@ test("画像と音声の履歴は互いの面に出さない", () => {
   assert.equal(image.includes("おはようございます"), false, "音声の履歴は画像タブに混ぜない");
   const speech = render({ subsection: "speech", trials: [TRIAL_BASE] });
   assert.equal(speech.includes("a cat on a sofa"), false, "画像の履歴は音声タブに混ぜない");
+});
+
+test("キー未設定では、音声の結果カードから既定へ保存する導線も押せない", () => {
+  const html = render({
+    configured: false,
+    keyStored: false,
+    keyAvailable: false,
+    provider: null,
+    image: { model: null },
+    subsection: "speech",
+    trials: [SPEECH_TRIAL_BASE],
+  });
+  assert.match(
+    html,
+    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?このモデルとボイスを既定にする/,
+    "保存できないので導線を押せなくする",
+  );
+  assert.ok(html.includes("APIキーが未設定のため保存できません。"), "押せない理由をその場に出す");
+  assert.match(html, /<audio[^>]*src="\/api\/settings\/content\/trials\/trial-speech-1\/raw"/, "再生は未設定でも残す");
 });
 
 test("キー未設定でも音声の試行の履歴と再生を出し、新規生成だけを止める", () => {

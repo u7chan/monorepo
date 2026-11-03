@@ -30,7 +30,7 @@ import type {
   UpdateContentSpeechBody,
 } from "../../types";
 import { CheckIcon, MinusIcon, PlusIcon, TrashIcon } from "../icons";
-import { TrialDefaultAction } from "./TrialDefaultAction";
+import { TrialDefaultAction, UNCONFIGURED_BLOCKED_NOTE } from "./TrialDefaultAction";
 
 /** 履歴の既定表示件数。全件は「すべて見る」で開く（時間ベースの自動削除はしない） */
 const HISTORY_PREVIEW_COUNT = 3;
@@ -118,6 +118,8 @@ export function SpeechTrialSection({
   const defaultTarget = selected
     ? speechTrialDefaultTarget({ settings, trialModel: selected.model, trialVoice: selected.voice })
     : null;
+  // 保存フォームと同じゲート。履歴と結果は未設定・未同期でも読めるが、同じ PUT を呼ぶ保存は止める
+  const defaultBlockedReason = !settings.configured ? UNCONFIGURED_BLOCKED_NOTE : synced ? null : SYNC_BLOCKED_NOTE;
   const blocked = trialStartBlockedReason({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,
@@ -271,7 +273,7 @@ export function SpeechTrialSection({
           running={running !== null}
           defaultTarget={defaultTarget}
           settingsBusy={settingsBusy}
-          synced={synced}
+          blockedReason={defaultBlockedReason}
           onMakeDefault={onMakeDefault}
           onDelete={onDelete}
           onRestore={() => {
@@ -423,7 +425,7 @@ function ResultViewport({
   running,
   defaultTarget,
   settingsBusy,
-  synced,
+  blockedReason,
   onMakeDefault,
   onDelete,
   onRestore,
@@ -437,8 +439,8 @@ function ResultViewport({
   /** 既定として保存する本文。保存値と同じなら null（導線を出さない） */
   defaultTarget: UpdateContentSpeechBody | null;
   settingsBusy: boolean;
-  /** 保存フォームと同じ未同期のゲート。 false の間は既定として保存させない */
-  synced: boolean;
+  /** 保存できない理由（キー未設定 / 現在の設定を確認できない）。null なら押せる */
+  blockedReason: string | null;
   onMakeDefault: (input: UpdateContentSpeechBody) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onRestore: () => void;
@@ -533,7 +535,7 @@ function ResultViewport({
         label="このモデルとボイスを既定にする"
         target={defaultTarget}
         disabled={busy || settingsBusy}
-        blockedReason={synced ? null : SYNC_BLOCKED_NOTE}
+        blockedReason={blockedReason}
         onSave={onMakeDefault}
       />
       <p className="text-2xs leading-relaxed text-ink-faint">

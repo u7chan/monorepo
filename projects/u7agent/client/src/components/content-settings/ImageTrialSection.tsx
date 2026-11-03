@@ -28,7 +28,7 @@ import type {
 } from "../../types";
 import { CheckIcon, TrashIcon } from "../icons";
 import { ZoomableImage } from "../ImageZoom";
-import { TrialDefaultAction } from "./TrialDefaultAction";
+import { TrialDefaultAction, UNCONFIGURED_BLOCKED_NOTE } from "./TrialDefaultAction";
 
 /** 履歴の既定表示件数。全件は「すべて見る」で開く（時間ベースの自動削除はしない） */
 const HISTORY_PREVIEW_COUNT = 3;
@@ -106,6 +106,8 @@ export function ImageTrialSection({
   const selected = selectedTrial({ trials: list, selectedId });
   // 同じモデルを保存しても何も変わらないため、結果との差分があるときだけ導線を出す
   const defaultTarget = selected ? imageTrialDefaultTarget({ settings, trialModel: selected.model }) : null;
+  // 保存フォームはキー未設定では出ない。同じ PUT を呼ぶ導線も履歴の閲覧だけを残して止める
+  const defaultBlockedReason = settings.configured ? null : UNCONFIGURED_BLOCKED_NOTE;
   const blocked = trialStartBlockedReason({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,
@@ -179,6 +181,7 @@ export function ImageTrialSection({
           running={running !== null}
           defaultTarget={defaultTarget}
           settingsBusy={settingsBusy}
+          blockedReason={defaultBlockedReason}
           onMakeDefault={onMakeDefault}
           onDelete={onDelete}
           onRestorePrompt={() => onChangePrompt(selected.prompt)}
@@ -317,6 +320,7 @@ function ResultViewport({
   running,
   defaultTarget,
   settingsBusy,
+  blockedReason,
   onMakeDefault,
   onDelete,
   onRestorePrompt,
@@ -330,6 +334,8 @@ function ResultViewport({
   /** 既定として保存する本文。保存値と同じなら null（導線を出さない） */
   defaultTarget: UpdateContentImageBody | null;
   settingsBusy: boolean;
+  /** 保存できない理由（キー未設定）。null なら押せる */
+  blockedReason: string | null;
   onMakeDefault: (input: UpdateContentImageBody) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onRestorePrompt: () => void;
@@ -412,6 +418,7 @@ function ResultViewport({
         label="このモデルを既定にする"
         target={defaultTarget}
         disabled={busy || settingsBusy}
+        blockedReason={blockedReason}
         onSave={onMakeDefault}
       />
       <p className="text-2xs leading-relaxed text-ink-faint">
