@@ -109,8 +109,19 @@ export interface SpeechGeneratorOptions {
   timeoutMs?: number;
   /** provider メッセージをログ・応答へ出す前の境界 */
   maskText?: (text: string) => string;
+  /** 形式の学習結果の保存先。未注入ならプロセス内のメモだけを持つ */
+  store?: SpeechFormatStore | undefined;
   /** テストで差し替える fetch */
   fetchImpl?: typeof fetch;
+}
+
+/**
+ * 形式の学習結果の保存先（アプリデータ）。読めないときは `undefined` を返し、書き込みの失敗は投げてもよい。
+ * 生成器はどちらの失敗も吸収し、DB 障害で生成を止めない（未学習から始めるだけ）。
+ */
+export interface SpeechFormatStore {
+  read(model: string): SpeechAudioFormat | undefined;
+  save(model: string, format: SpeechAudioFormat): void;
 }
 
 export interface SpeechGenerator {
@@ -203,9 +214,35 @@ export function createSpeechGenerator(options: SpeechGeneratorOptions = {}): Spe
   const timeoutMs = options.timeoutMs ?? SPEECH_GENERATION_TIMEOUT_MS;
   const maskText = options.maskText ?? ((text: string) => text);
   const baseFetch = options.fetchImpl ?? fetch;
+  const store = options.store;
   // モデルごとの対応形式。API が宣言しないため形式違いの 400 から学習し、応答の Content-Type で
-  // 確定した実形式だけを残す。プロセス内のみで、再学習は課金されない 400 の 1 往復で済む
-  const knownFormats = new Map<string, SpeechAudioFormat>();
+  // 確定した実形式だけを残す。ここはプロセス内の写しで、再起動後は store（アプリデータ）の値から始める
+  const learnedFormats = new Map<string, SpeechAudioFormat>();
+
+  /** 学習済みの形式。読取の失敗は未学習として扱う（mp3 から試す） */
+  const rememberedFormat = (model: string): SpeechAudioFormat | undefined => {
+    const known = learnedFormats.get(model);
+    if (known !== undefined) return known;
+    let stored: SpeechAudioFormat | undefined;
+    try {
+      stored = store?.read(model);
+    } catch {
+      stored = undefined;
+    }
+    if (stored !== undefined) learnedFormats.set(model, stored);
+    return stored;
+  };
+
+  /** 確定した形式を残す。同じ値の再保存と、書込の失敗は生成結果を変えない */
+  const rememberFormat = (model: string, format: SpeechAudioFormat): void => {
+    if (learnedFormats.get(model) === format) return;
+    learnedFormats.set(model, format);
+    try {
+      store?.save(model, format);
+    } catch {
+      // 次の起動で未学習から始まるだけで、生成した音声はすでに返せる
+    }
+  };
 
   return {
     generate: async (input) => {
@@ -223,8 +260,9 @@ export function createSpeechGenerator(options: SpeechGeneratorOptions = {}): Spe
 
       let status: number | undefined;
       try {
-        // メモが無ければ mp3 から試す。再試行しても期限と中断の扱いを変えないよう controller は共有する
-        let format: SpeechAudioFormat = knownFormats.get(input.model) ?? "mp3";
+        // 学習済みの形式があればそれを、無ければ mp3 から試す。再試行しても期限と中断の扱いを
+        // 変えないよう controller は共有する
+        let format: SpeechAudioFormat = rememberedFormat(input.model) ?? "mp3";
         for (let attempt = 0; ; attempt += 1) {
           status = undefined;
           const response = await baseFetch(SPEECH_API_URL, {
@@ -255,7 +293,7 @@ export function createSpeechGenerator(options: SpeechGeneratorOptions = {}): Spe
             const responseType = speechResponseTypeOf(contentType);
             if (!responseType) return { ok: false, code: "unknown", message: SPEECH_CONTENT_TYPE_MESSAGE };
             // 要求と違う形式が返ることがあるため、メモは応答から確定した実形式で上書きする
-            knownFormats.set(input.model, responseType.format);
+            rememberFormat(input.model, responseType.format);
             if (responseType.format === "pcm") {
               const { sampleRate, channels } = responseType;
               if (sampleRate === undefined || channels === undefined) {

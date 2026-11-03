@@ -12,7 +12,7 @@ import type { CustomProviderRuntimeConfig } from "../src/custom-providers";
 import type { ContentGenerationConfig, ImageGenerationInput, ImageGenerationResult } from "../src/images";
 import type { InvestigateHost } from "../src/investigate-tool";
 import type { ServeToolHost } from "../src/serve-tool";
-import type { SpeechGenerationInput, SpeechGenerationResult } from "../src/speech";
+import type { SpeechFormatStore, SpeechGenerationInput, SpeechGenerationResult } from "../src/speech";
 import type { BgmGenerationInput } from "../src/bgm";
 import { toolCatalog } from "../src/tool-catalog";
 import type { WebSearchRuntimeConfig } from "../src/web-search-tool";
@@ -1458,6 +1458,8 @@ export function createStubPi(options: StubPiOptions = {}) {
   const imageCalls: ImageGenerationInput[] = [];
   const bgmCalls: BgmGenerationInput[] = [];
   const webSearchConfigs: WebSearchRuntimeConfig[] = [];
+  // 音声の形式メモの保存先 (bootstrap がアプリ DB を写して注入する)
+  const speechFormatStores: SpeechFormatStore[] = [];
   // serve ツールの実体 (bootstrap が注入する)。ツールの配線はここに記録して検証する
   const serveHosts: ServeToolHost[] = [];
   // ask_user ツールの実体 (bootstrap が注入する)。待機の所有は実物と同じく store 側にある
@@ -1543,6 +1545,10 @@ export function createStubPi(options: StubPiOptions = {}) {
     // 注入のたびに差し替わる。実行中のセッションが同じ関数を読むことを再現する
     setWebSearch: (config: WebSearchRuntimeConfig) => {
       webSearchConfigs.push(config);
+    },
+    speechFormatStores,
+    setSpeechFormatStore: (store: SpeechFormatStore) => {
+      speechFormatStores.push(store);
     },
     serveHosts,
     setServe: (host: ServeToolHost) => {

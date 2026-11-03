@@ -2,6 +2,7 @@
 // 実 API は呼ばず stub provider と差し替えた fetch で検証する。
 import assert from "node:assert/strict";
 import test from "node:test";
+import { AppDb } from "../src/app-db";
 import {
   createSpeechGenerator,
   SPEECH_ABORTED_MESSAGE,
@@ -14,6 +15,7 @@ import {
   SPEECH_RATE_LIMITED_MESSAGE,
   SPEECH_TIMEOUT_MESSAGE,
   SPEECH_UNKNOWN_FAILURE_MESSAGE,
+  type SpeechAudioFormat,
 } from "../src/speech";
 
 interface RecordedRequest {
@@ -443,4 +445,87 @@ test("provider メッセージは 500 文字までに切る", async () => {
   if (result.ok) return;
   // "音声生成に失敗しました: " + 500 文字
   assert.equal(result.message.length, SPEECH_UNKNOWN_FAILURE_MESSAGE.length + 2 + 500);
+});
+
+test("形式の学習結果は store に残し、再起動後の最初の要求からその形式で送る", async () => {
+  const db = AppDb.open({ storeDir: null });
+  // bootstrap と同じ組み方（PiBff へ渡す保存先）で、DB の列名を生成器の契約へ写す
+  const store = {
+    read: (model: string) => db.readSpeechFormat(model),
+    save: (model: string, format: SpeechAudioFormat) => db.saveSpeechFormat(model, format),
+  };
+  try {
+    // 1 回目は mp3 が通らず、応答から pcm を学ぶ
+    const first = stubFetch((_request, index) =>
+      index === 0 ? formatHintResponse("pcm") : audioResponse([1], "audio/pcm;rate=24000;channels=1"),
+    );
+    const learned = await createSpeechGenerator({ fetchImpl: first.fetchImpl, store }).generate(baseInput);
+    assert.equal(learned.ok, true);
+    assert.equal(db.readSpeechFormat(baseInput.model), "pcm", "学習した形式が残っていない");
+
+    // 再起動相当: 同じ DB に対して生成器を作り直す
+    const restarted = stubFetch(() => audioResponse([2], "audio/pcm;rate=24000;channels=1"));
+    const result = await createSpeechGenerator({ fetchImpl: restarted.fetchImpl, store }).generate(baseInput);
+    assert.equal(result.ok, true);
+    assert.equal(restarted.requests.length, 1, "再起動後の初回で形式違いの 400 を往復している");
+    assert.equal(sentFormat(restarted.requests[0]), "pcm");
+  } finally {
+    db.close();
+  }
+});
+
+test("store の読取に失敗したら未学習として mp3 から試し、生成は続ける", async () => {
+  const { requests, fetchImpl } = stubFetch(() => audioResponse());
+  const generator = createSpeechGenerator({
+    fetchImpl,
+    store: {
+      read: () => {
+        throw new Error("app db is unavailable");
+      },
+      save: () => {},
+    },
+  });
+  const result = await generator.generate(baseInput);
+  assert.equal(result.ok, true);
+  assert.equal(requests.length, 1);
+  assert.equal(sentFormat(requests[0]), "mp3");
+});
+
+test("store の書込に失敗しても生成結果を変えず、同じプロセスでは学習を続ける", async () => {
+  const { requests, fetchImpl } = stubFetch((_request, index) =>
+    index === 0 ? formatHintResponse("pcm") : audioResponse([1], "audio/pcm;rate=24000;channels=1"),
+  );
+  const generator = createSpeechGenerator({
+    fetchImpl,
+    store: {
+      read: () => undefined,
+      save: () => {
+        throw new Error("app db is unavailable");
+      },
+    },
+  });
+  const first = await generator.generate(baseInput);
+  assert.equal(first.ok, true);
+  assert.equal(first.ok && first.speech.format, "pcm");
+  const second = await generator.generate(baseInput);
+  assert.equal(second.ok, true);
+  // 保存できなくても、この生成器は 2 回目から pcm を先に送る
+  assert.equal(requests.length, 3);
+  assert.equal(sentFormat(requests[2]), "pcm");
+});
+
+test("学習済みの形式が応答でも変わらなければ store へ書き直さない", async () => {
+  const saved: string[] = [];
+  const { fetchImpl } = stubFetch(() => audioResponse());
+  const generator = createSpeechGenerator({
+    fetchImpl,
+    store: {
+      read: () => "mp3",
+      save: (_model, format) => {
+        saved.push(format);
+      },
+    },
+  });
+  await generator.generate(baseInput);
+  assert.deepEqual(saved, [], "読み直した値と同じ形式を再保存している");
 });

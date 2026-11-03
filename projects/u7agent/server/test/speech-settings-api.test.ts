@@ -414,3 +414,28 @@ test("アプリ DB が使えないときは音声の変更系も 503 not_stored 
     }
   });
 });
+
+test("起動時に形式メモの保存先がアプリ DB へ配線され、再起動後の BFF も学習済みの形式を読む", async () => {
+  await withStoreDir(async (dir) => {
+    const firstPi = createStubPi();
+    const first = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(firstPi), workspace: null });
+    try {
+      const store = firstPi.speechFormatStores.at(-1);
+      assert.ok(store, "形式メモの保存先が注入されていない");
+      // 新規 DB は未学習（mp3 から試す契約）
+      assert.equal(store.read(DEFAULT_SPEECH_MODEL), undefined);
+      store.save(DEFAULT_SPEECH_MODEL, "pcm");
+    } finally {
+      await first.close();
+    }
+
+    // 再起動相当: 同じ会話ストア（同じ DB）で BFF を作り直す
+    const secondPi = createStubPi();
+    const second = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(secondPi), workspace: null });
+    try {
+      assert.equal(secondPi.speechFormatStores.at(-1)?.read(DEFAULT_SPEECH_MODEL), "pcm");
+    } finally {
+      await second.close();
+    }
+  });
+});
