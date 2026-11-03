@@ -29,6 +29,7 @@ export type {
   ContentTrialDeleteResponse,
   ContentTrialArtifact,
   ContentTrialArtifactUsageValue,
+  ContentTrialArtifactWarningValue,
   ContentTrialListResponse,
   ContentTrialResponse,
   ContentTrialStartResponse,

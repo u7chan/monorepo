@@ -7,6 +7,7 @@ const {
   ApiError,
   cancelOAuthLogin,
   checkCloudflareConnection,
+  contentTrialStartFailure,
   deleteWebSearchApiKey,
   getTitleSummarySettings,
   getWebSearchSettings,
@@ -34,6 +35,7 @@ const {
   getRuntimeDebugServeStatus,
   getRuntimeServeStatus,
   logoutOAuthProvider,
+  startContentTrial,
   startOAuthLogin,
   startRuntimeServe,
   stopRuntimeDebugServe,
@@ -118,6 +120,44 @@ test("変更系の503は not_stored だけを、保存されていない失敗�
   // state を持たない 503 と、ApiError でない失敗は区別しない
   assert.equal(isNotStoredError(new ApiError("DB に接続できません", 503)), false);
   assert.equal(isNotStoredError(Object.assign(new Error("DB に接続できません"), { status: 503 })), false);
+});
+
+test("試行の開始拒否は応答の code だけで空き不足を見分ける", () => {
+  // 空き不足は行も課金も作らない拒否で、`storage`（課金済みの保存失敗）とは別の分類
+  assert.equal(
+    contentTrialStartFailure(new ApiError("空きが足りません", 503, { code: "disk_shortage" })),
+    "disk_shortage",
+  );
+  // 409（種別ごとの同時実行）と 400 系、code を持たない 503 は汎用の失敗のまま
+  assert.equal(contentTrialStartFailure(new ApiError("実行中です", 409)), "other");
+  assert.equal(contentTrialStartFailure(new ApiError("不正です", 400)), "other");
+  assert.equal(contentTrialStartFailure(new ApiError("DB に接続できません", 503)), "other");
+  assert.equal(contentTrialStartFailure(new TypeError("fetch failed")), "other");
+});
+
+test("開始拒否の応答の code は ApiError に載り、空き不足として分類できる", async (t) => {
+  // server は空き不足のときだけ 503 に機械可読な code を添える（文言は変わりうるので読まない）
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json(
+      { error: "保存先のディスクの空きが足りないため、試行を開始できませんでした", code: "disk_shortage" },
+      {
+        status: 503,
+      },
+    ),
+  );
+  const failure = await startContentTrial({
+    kind: "image",
+    model: "openrouter/openai/gpt-image-2",
+    prompt: "a cat",
+  }).then(
+    () => null,
+    (reason: unknown) => reason,
+  );
+  assert.ok(failure instanceof ApiError);
+  assert.equal(failure.status, 503);
+  assert.equal(failure.code, "disk_shortage");
+  assert.equal(contentTrialStartFailure(failure), "disk_shortage");
+  assert.equal(isNotStoredError(failure), false, "開始拒否は設定の保存失敗ではない");
 });
 
 test("生ログは文字列化せず、原本のバイトをそのまま返す", async (t) => {

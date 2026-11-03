@@ -22,6 +22,7 @@ import type {
   ContentSettingsResponse,
   ContentTrial,
   ContentTrialArtifactUsageValue,
+  ContentTrialArtifactWarningValue,
   ContentTrialSummary,
   CreateContentTrialBody,
   UpdateContentImageBody,
@@ -47,6 +48,8 @@ export type ImageTrialSectionProps = {
   keyEpoch: number;
   /** 保存容量（`succeeded` + 保存済みだけ）。一覧の取得前は 0 件 */
   artifactUsage: ContentTrialArtifactUsageValue;
+  /** 保存容量の警告。しきい値と判定は一覧の応答が持ち、返さない間は null */
+  artifactWarning: ContentTrialArtifactWarningValue | null;
   /** 試行の操作（開始 / 中断 / 削除 / 一覧の取得失敗）の注記。設定の注記とは別の行に出す */
   note: { text: string; error: boolean } | null;
   busy: boolean;
@@ -81,6 +84,7 @@ export function ImageTrialSection({
   trials,
   keyEpoch,
   artifactUsage,
+  artifactWarning,
   note,
   busy,
   settingsBusy,
@@ -141,6 +145,7 @@ export function ImageTrialSection({
   return (
     <TrialSection
       artifactUsage={artifactUsage}
+      artifactWarning={artifactWarning}
       description="画面の値で生成だけを試します。モデルの保存値は変えません。送ったプロンプトと結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。"
     >
       <label className="grid min-w-0 gap-1">

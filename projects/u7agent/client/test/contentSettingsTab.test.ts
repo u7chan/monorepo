@@ -74,6 +74,7 @@ function render(
     trialHasMore?: boolean;
     trialKeyEpoch?: number;
     trialArtifactUsage?: { count: number; bytes: number };
+    trialArtifactWarning?: { thresholdBytes: number; warning: boolean } | null;
     /** 試行の操作の注記（試行の面の中だけに出す） */
     trialNote?: { text: string; error: boolean } | null;
     trialBusy?: boolean;
@@ -106,6 +107,7 @@ function render(
         onLoadMoreTrials: async () => true,
         trialKeyEpoch: options.trialKeyEpoch ?? 0,
         trialArtifactUsage: options.trialArtifactUsage ?? { count: 0, bytes: 0 },
+        trialArtifactWarning: options.trialArtifactWarning ?? null,
         trialNote: options.trialNote ?? null,
         trialBusy: options.trialBusy ?? false,
         onStartTrial: async () => true,
@@ -572,7 +574,7 @@ test("保存済みの結果はビューポートにプレビュー・実寸・�
   );
   assert.ok(html.includes("入力欄に戻す"), "入力欄へ戻す導線");
   assert.ok(html.includes("別のテイクを生成"), "別テイクの導線");
-  assert.ok(html.includes("保存容量: 1 件 · 2.0 KiB"), "保存容量を出す");
+  assert.ok(html.includes("保存容量: 保存済みの成果物 1 件 · 2.0 KiB"), "保存容量を出す");
   // 履歴の行にも同じ URL のサムネイルを出す
   assert.ok((html.match(/trials\/trial-1\/raw/g) ?? []).length >= 2, "履歴のサムネイル");
   assert.ok(html.includes("モデル絞り込み"), "モデルの絞り込み");
@@ -586,7 +588,7 @@ test("結果を保存していない行（段階 1 の none）は記録のみと
   assert.ok(html.includes("結果は保存されていません（記録のみ）"), "記録のみを明示する");
   assert.equal(html.includes("/raw"), false, "配信 URL を出さない");
   assert.equal(html.includes(">ダウンロード</a>"), false, "ダウンロードを出さない");
-  assert.ok(html.includes("保存容量: 0 件 · 0 B"), "容量に数えない");
+  assert.ok(html.includes("保存容量: 保存済みの成果物 0 件 · 0 B"), "容量に数えない");
 });
 
 test("保存できなかった成功は課金済みを明示し、成功として見せない", () => {
@@ -961,8 +963,8 @@ test("保存見出し・試行の見出し・保存容量・課金の注記は 3
     assert.match(html, /<h3[^>]*>保存される設定<\/h3>/, `${subsection}: 保存する側は h3 の「保存される設定」`);
     assert.match(html, /<h3[^>]*>設定に反映しない試行<\/h3>/, `${subsection}: 試行は h3 の「設定に反映しない試行」`);
     assert.ok(
-      html.includes(`保存容量: 1 件 · ${size}（画像・音声・BGM で共通）`),
-      `${subsection}: 容量は 3 タブの合計だと書く`,
+      html.includes(`保存容量: 保存済みの成果物 1 件 · ${size}（履歴の件数ではありません。画像・音声・BGM で共通）`),
+      `${subsection}: 容量は 3 タブの合計で、件数が履歴の件数ではないと書く`,
     );
     assert.ok(
       html.includes("失敗・中断・タイムアウトでも課金される可能性があります（自動では再生成しません）。"),
@@ -975,10 +977,34 @@ test("履歴が 0 件でも 3 タブに保存容量を出し、履歴の見出�
   // 容量は 3 タブの合計で、履歴の有無とは別に読める必要がある（新規ストアでは 0 件から始まる）
   for (const subsection of ["image", "speech", "bgm"] as const) {
     const html = render({ subsection, trials: [] });
-    assert.ok(html.includes("保存容量: 0 件 · 0 B（画像・音声・BGM で共通）"), `${subsection}: 0 件でも容量を出す`);
+    assert.ok(
+      html.includes("保存容量: 保存済みの成果物 0 件 · 0 B（履歴の件数ではありません。画像・音声・BGM で共通）"),
+      `${subsection}: 0 件でも容量を出す`,
+    );
+    assert.equal(html.includes("保存容量が目安"), false, `${subsection}: 警告が無ければ容量の警告を出さない`);
     assert.ok(html.includes("まだ試行の履歴はありません。"), `${subsection}: 空の案内と重ねて出す`);
     assert.equal(html.includes("履歴（"), false, `${subsection}: 履歴が無ければ件数の見出しは出さない`);
     assert.equal(html.includes("履歴の成功失敗の絞り込み"), false, `${subsection}: 絞り込みも出さない`);
+  }
+});
+
+test("保存容量の警告は 3 タブ同じ文言で出し、しきい値は一覧の応答の値を使う", () => {
+  const warning = { thresholdBytes: 1024 ** 3, warning: true };
+  for (const subsection of ["image", "speech", "bgm"] as const) {
+    const html = render({ subsection, trials: [], trialArtifactWarning: warning });
+    assert.ok(
+      html.includes("保存容量が目安（1.0 GiB）を超えています。"),
+      `${subsection}: 警告の文言と色を面ごとに書き分けない`,
+    );
+    // しきい値は server の定数が正で、画面は応答の値をそのまま出す
+    assert.ok(
+      render({
+        subsection,
+        trials: [],
+        trialArtifactWarning: { thresholdBytes: 512 * 1024 ** 2, warning: true },
+      }).includes("512.0 MiB"),
+      `${subsection}: 応答のしきい値を出す`,
+    );
   }
 });
 

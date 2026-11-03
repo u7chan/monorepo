@@ -84,6 +84,7 @@ function contentTrials(
     trials,
     keyEpoch: 0,
     artifactUsage: { count: 0, bytes: 0 },
+    artifactWarning: null,
     note,
     busy: false,
     newResults,

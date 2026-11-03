@@ -7,6 +7,7 @@ import type { ContentSubsection } from "./settingsNav";
 import type {
   ContentTrial,
   ContentTrialArtifactUsageValue,
+  ContentTrialArtifactWarningValue,
   ContentTrialDeleteResponse,
   ContentTrialListResponse,
   ContentTrialResponse,
@@ -23,6 +24,8 @@ import {
   trialKindLabel,
   trialKindSubsection,
   trialRemoveAllNote,
+  trialStartFailureNote,
+  type TrialStartFailure,
 } from "./contentTrials";
 import { messageFor } from "./settingsResource";
 
@@ -36,6 +39,11 @@ export interface ContentTrialsState {
   trials: ContentTrialSummary[] | null;
   keyEpoch: number;
   artifactUsage: ContentTrialArtifactUsageValue;
+  /**
+   * 保存容量の警告の判定データ。応答が返さない（旧い server）ときは null で、警告を出さない。
+   * しきい値は応答の `thresholdBytes` を正とし、client では持たない。
+   */
+  artifactWarning: ContentTrialArtifactWarningValue | null;
   note: ContentTrialsNote | null;
   busy: boolean;
   /** 別のタブで終端した試行の種別。そのタブを開いたら消す */
@@ -54,6 +62,7 @@ export const INITIAL_CONTENT_TRIALS_STATE: ContentTrialsState = {
   trials: null,
   keyEpoch: 0,
   artifactUsage: { count: 0, bytes: 0 },
+  artifactWarning: null,
   note: null,
   busy: false,
   newResults: [],
@@ -90,6 +99,8 @@ export function createContentTrialsController(deps: {
   /** 取得の失敗が「その行が無い」（404）かを判定する。分類は api 側が持つ */
   isMissing: (error: unknown) => boolean;
   start: (input: CreateContentTrialBody) => Promise<ContentTrialStartResponse>;
+  /** 開始の拒否の分類。空き不足と他の失敗を、注記の文言で混ぜない */
+  startFailure: (error: unknown) => TrialStartFailure;
   cancel: (id: string) => Promise<ContentTrialResponse>;
   remove: (id: string) => Promise<ContentTrialDeleteResponse>;
   removeAll: (kind: ContentTrial["kind"]) => Promise<ContentTrialDeleteResponse>;
@@ -135,12 +146,19 @@ export function createContentTrialsController(deps: {
     return trial;
   };
 
-  const apply = (next: ContentTrialSummary[], nextKeyEpoch: number, usage: ContentTrialArtifactUsageValue) => {
+  const apply = (
+    next: ContentTrialSummary[],
+    nextKeyEpoch: number,
+    usage: ContentTrialArtifactUsageValue,
+    warning: ContentTrialArtifactWarningValue | undefined,
+  ) => {
     const finished = newlyFinishedKinds({ previous: state.trials, next, activeSubsection });
     update({
       trials: next,
       keyEpoch: nextKeyEpoch,
       artifactUsage: usage,
+      // 返さない応答（旧い server）で前の警告を残さない。再取得のたびに応答だけを正にする
+      artifactWarning: warning ?? null,
       newResults:
         finished.length === 0
           ? state.newResults
@@ -191,7 +209,7 @@ export function createContentTrialsController(deps: {
     const merged = mergeTrialSummaries(state.trials ?? [], [...response.items, ...found]).filter(
       (trial) => !removed.has(trial.id),
     );
-    apply(merged, response.keyEpoch, response.artifactUsage);
+    apply(merged, response.keyEpoch, response.artifactUsage, response.artifactWarning);
     if (selectedId !== null) {
       const detail = details.get(selectedId) ?? null;
       if (detail !== state.detail) update({ detail });
@@ -208,7 +226,7 @@ export function createContentTrialsController(deps: {
       const response = await deps.list(pageQuery());
       if (!active || request !== issued) return false;
       nextBefore = response.nextBefore;
-      apply(response.items, response.keyEpoch, response.artifactUsage);
+      apply(response.items, response.keyEpoch, response.artifactUsage, response.artifactWarning);
       update({ hasMore: response.hasMore });
       // 別種別の実行中の行は一覧に載らないため、タブの印とポーリングの判定のために重ねる
       await applyRunning(request, { settle: false });
@@ -231,7 +249,12 @@ export function createContentTrialsController(deps: {
       const response = await deps.list({ ...pageQuery(), before });
       if (!active || issued !== request || nextBefore !== before) return false;
       nextBefore = response.nextBefore;
-      apply(appendTrialSummaries(state.trials ?? [], response.items), response.keyEpoch, response.artifactUsage);
+      apply(
+        appendTrialSummaries(state.trials ?? [], response.items),
+        response.keyEpoch,
+        response.artifactUsage,
+        response.artifactWarning,
+      );
       update({ hasMore: response.hasMore });
       return true;
     } catch (error) {
@@ -301,7 +324,9 @@ export function createContentTrialsController(deps: {
       void load({ quiet: true });
       return true;
     } catch (error) {
-      if (active) update({ note: { text: `試行を開始できませんでした。${messageFor(error)}`, error: true } });
+      if (active) {
+        update({ note: trialStartFailureNote(deps.startFailure(error), messageFor(error)) });
+      }
       return false;
     } finally {
       update({ busy: false });

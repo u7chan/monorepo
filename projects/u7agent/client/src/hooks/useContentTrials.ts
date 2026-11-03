@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelContentTrial,
+  contentTrialStartFailure,
   deleteAllContentTrials,
   deleteContentTrial,
   getContentTrial,
@@ -42,6 +43,7 @@ export function useContentTrials({
       get: getContentTrial,
       isMissing: isMissingContentTrial,
       start: startContentTrial,
+      startFailure: contentTrialStartFailure,
       cancel: cancelContentTrial,
       remove: deleteContentTrial,
       removeAll: deleteAllContentTrials,
@@ -115,6 +117,8 @@ export function useContentTrials({
     keyEpoch: state.keyEpoch,
     /** 保存容量（`succeeded` + 保存済みの件数とバイト数） */
     artifactUsage: state.artifactUsage,
+    /** 保存容量の警告（しきい値と警告かどうか）。応答が返さない間は null */
+    artifactWarning: state.artifactWarning,
     note: state.note,
     busy: state.busy,
     newResults: state.newResults,

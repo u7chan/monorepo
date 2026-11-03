@@ -104,15 +104,27 @@ import type {
   WebSearchTestResponse,
 } from "./types";
 
+export interface ApiErrorDetails {
+  /** 変更系の 503 だけが持つ。何も保存されていないことを UI が区別できる */
+  state?: "not_stored";
+  /** 応答の本文が持つ機械可読なコード（開始拒否の空き不足など）。分類できない失敗は undefined */
+  code?: string;
+}
+
 export class ApiError extends Error {
+  public readonly state?: "not_stored";
+  /** 応答の本文の `code`。文言ではなくこの値で分岐する（サーバーは固定文言を変えうる） */
+  public readonly code?: string;
+
   constructor(
     message: string,
     public readonly status: number,
-    /** 変更系の 503 だけが持つ。何も保存されていないことを UI が区別できる */
-    public readonly state?: "not_stored",
+    details: ApiErrorDetails = {},
   ) {
     super(message);
     this.name = "ApiError";
+    this.state = details.state;
+    this.code = details.code;
   }
 }
 
@@ -295,7 +307,14 @@ async function apiError(res: Response): Promise<ApiError> {
     typeof body === "object" && body !== null && "state" in body && body.state === "not_stored"
       ? ("not_stored" as const)
       : undefined;
-  return new ApiError(message, res.status, state);
+  const code =
+    typeof body === "object" && body !== null && "code" in body && typeof body.code === "string"
+      ? body.code
+      : undefined;
+  return new ApiError(message, res.status, {
+    ...(state === undefined ? {} : { state }),
+    ...(code === undefined ? {} : { code }),
+  });
 }
 
 export const getHealth = async (): Promise<Health> => {
@@ -889,6 +908,14 @@ export const startContentTrial = async (input: CreateContentTrialBody): Promise<
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ContentTrialStartResponse;
 };
+
+/**
+ * 試行の開始の拒否の分類。空き不足だけを他と分ける（行も課金も作らない拒否で、`storage` の
+ * 終端失敗とは意味が違う）。コードの値はサーバーの定数が正で、ここは写しを持つだけ。
+ */
+export function contentTrialStartFailure(error: unknown): "disk_shortage" | "other" {
+  return error instanceof ApiError && error.code === "disk_shortage" ? "disk_shortage" : "other";
+}
 
 /**
  * 試行の一覧（新しい順）。`kind` を省くと全種別。`limit` / `before` でページを進め、`state: "running"` は

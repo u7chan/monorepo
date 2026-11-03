@@ -20,6 +20,7 @@ import type {
   ContentSettingsResponse,
   ContentTrial,
   ContentTrialArtifactUsageValue,
+  ContentTrialArtifactWarningValue,
   ContentTrialSummary,
   CreateContentTrialBody,
 } from "../../types";
@@ -40,6 +41,8 @@ export type BgmTrialSectionProps = {
   loadingMore: boolean;
   keyEpoch: number;
   artifactUsage: ContentTrialArtifactUsageValue;
+  /** 保存容量の警告。しきい値と判定は一覧の応答が持ち、返さない間は null */
+  artifactWarning: ContentTrialArtifactWarningValue | null;
   note: { text: string; error: boolean } | null;
   busy: boolean;
   /** プロンプトの下書き。面を切り替えても失わないよう、呼び出し側が持つ */
@@ -70,6 +73,7 @@ export function BgmTrialSection({
   loadingMore,
   keyEpoch,
   artifactUsage,
+  artifactWarning,
   note,
   busy,
   prompt,
@@ -136,6 +140,7 @@ export function BgmTrialSection({
   return (
     <TrialSection
       artifactUsage={artifactUsage}
+      artifactWarning={artifactWarning}
       description="固定モデルで生成だけを試します。保存する設定はありません。送ったプロンプトと結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。"
     >
       <label className="grid min-w-0 gap-1">

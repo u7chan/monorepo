@@ -27,6 +27,7 @@ import type {
   ContentTrial,
   ContentTrialSummary,
   ContentTrialArtifactUsageValue,
+  ContentTrialArtifactWarningValue,
   CreateContentTrialBody,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
@@ -78,6 +79,8 @@ export type ContentSettingsTabProps = {
   onLoadMoreTrials: () => Promise<boolean>;
   /** 保存容量（`succeeded` + 保存済みだけ）。3 タブの合計で、画像 / 音声 / BGM の試行の面に出す */
   trialArtifactUsage: ContentTrialArtifactUsageValue;
+  /** 保存容量の警告。しきい値は一覧の応答が持ち、返さない間は null（警告を出さない） */
+  trialArtifactWarning: ContentTrialArtifactWarningValue | null;
   /** 試行の操作（開始 / 中断 / 削除 / 一覧の取得失敗）の注記。試行の面の中だけに出す */
   trialNote: { text: string; error: boolean } | null;
   /** 現在のキー世代。証拠は現在のキーと選択中のモデルの実績だけを数える */
@@ -116,6 +119,7 @@ export function ContentSettingsTab({
   onLoadTrial,
   onLoadMoreTrials,
   trialArtifactUsage,
+  trialArtifactWarning,
   trialNote,
   trialKeyEpoch,
   trialBusy,
@@ -309,6 +313,7 @@ export function ContentSettingsTab({
               loadingMore={trialLoadingMore}
               keyEpoch={trialKeyEpoch}
               artifactUsage={trialArtifactUsage}
+              artifactWarning={trialArtifactWarning}
               note={trialNote}
               busy={trialBusy}
               settingsBusy={busy}
@@ -353,6 +358,7 @@ export function ContentSettingsTab({
               loadingMore={trialLoadingMore}
               keyEpoch={trialKeyEpoch}
               artifactUsage={trialArtifactUsage}
+              artifactWarning={trialArtifactWarning}
               note={trialNote}
               busy={trialBusy}
               settingsBusy={busy}
@@ -384,6 +390,7 @@ export function ContentSettingsTab({
               loadingMore={trialLoadingMore}
               keyEpoch={trialKeyEpoch}
               artifactUsage={trialArtifactUsage}
+              artifactWarning={trialArtifactWarning}
               note={trialNote}
               busy={trialBusy}
               prompt={bgmTrialPrompt}

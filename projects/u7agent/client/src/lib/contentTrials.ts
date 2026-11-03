@@ -6,6 +6,7 @@ import type { ContentSubsection } from "./settingsNav";
 import type {
   ContentTrial,
   ContentTrialArtifactUsageValue,
+  ContentTrialArtifactWarningValue,
   ContentTrialStateValue,
   ContentTrialSummary,
   CreateContentTrialBody,
@@ -232,6 +233,26 @@ export function trialPanelNote(panel: TrialPanelState): string {
   }
 }
 
+/**
+ * 開始の拒否の分類。空き不足（503 `disk_shortage`）だけを他と分ける。開始の前に返る拒否は
+ * 行も課金も作らないため、`failureCode: "storage"`（課金済みの保存失敗）と同じ文言にしない。
+ */
+export type TrialStartFailure = "disk_shortage" | "other";
+
+/**
+ * 開始できなかったときの注記。空き不足は「行も課金も作らない拒否」として書き、`storage` の
+ * 終端失敗（課金済み）と課金の有無を混ぜない。再利用（200 `reused: true`）は空き不足でも妨げない。
+ */
+export function trialStartFailureNote(failure: TrialStartFailure, message: string): { text: string; error: boolean } {
+  if (failure === "disk_shortage") {
+    return {
+      text: "保存先のディスクの空きが足りないため、試行を開始できませんでした（履歴にも課金にも残りません）。空きを増やしてから再試行してください。同じ入力の保存済みの結果はそのまま再利用できます。",
+      error: true,
+    };
+  }
+  return { text: `試行を開始できませんでした。${message}`, error: true };
+}
+
 /** 試行を開始できない理由。null なら開始できる */
 export function trialStartBlockedReason(input: {
   runtimeAvailable: boolean;
@@ -392,17 +413,30 @@ export const TRIAL_CHARGE_NOTE = "失敗・中断・タイムアウトでも課�
 
 /**
  * 保存容量の 1 行。容量は 3 タブの成果物の合計（`artifactUsage`）なので、どのタブでも同じ値を同じ文言で出す。
+ * `count` は `succeeded` かつ保存済みの成果物の件数で、履歴（試行）の件数ではない（履歴は `failed` /
+ * `canceled` / `interrupted` も含み、削除でも減る）ため、読み違えないよう文言に明記する。
  */
 export function trialStorageNote(usage: ContentTrialArtifactUsageValue): string {
-  return `保存容量: ${usage.count} 件 · ${trialByteSizeLabel(usage.bytes)}（画像・音声・BGM で共通）`;
+  return `保存容量: 保存済みの成果物 ${usage.count} 件 · ${trialByteSizeLabel(usage.bytes)}（履歴の件数ではありません。画像・音声・BGM で共通）`;
 }
 
-/** ファイルサイズ。1 MiB 未満は KiB で出し、桁を増やさない */
+/**
+ * 保存容量の警告の 1 行。しきい値は一覧の応答（`thresholdBytes`）を使い、client に定数を持たない
+ * （server は自動削除しないため、超えたときに消すかどうかは利用者が決める）。
+ * 応答が `artifactWarning` を返さないときは判定できないので、警告は出さない。
+ */
+export function trialCapacityWarningNote(warning: ContentTrialArtifactWarningValue | null): string | null {
+  if (warning === null || !warning.warning) return null;
+  return `保存容量が目安（${trialByteSizeLabel(warning.thresholdBytes)}）を超えています。不要な履歴を削除してください（自動では消えません）。`;
+}
+
+/** ファイルサイズ。1 MiB 未満は KiB で出し、桁を増やさない。容量の目安（GiB 台）は GiB へ上げる */
 export function trialByteSizeLabel(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "—";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GiB`;
 }
 
 const FORMAT_LABELS: Record<string, string> = { png: "PNG", jpeg: "JPEG", webp: "WebP", mp3: "MP3", wav: "WAV" };
