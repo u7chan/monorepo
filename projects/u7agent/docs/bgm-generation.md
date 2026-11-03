@@ -69,7 +69,7 @@
 
 ## 検証と実API受入
 
-自動テストはダミーキー・stub fetch・fake workspaceと一時サンドボックスのみ。入口は `server/test/bgm.test.ts` / `server/test/bgm-tools.test.ts`（生成器の契約と分類・共有枠）、`server/test/content-trials.test.ts` / `server/test/content-trials-api.test.ts`（`kind: "bgm"` の開始 / 成功 / storage 失敗 / 中断 / 再照合、枠の共有、同一入力の再利用（現在のキー世代・成果物ファイルの存在）、`force` の新規生成、raw の MIME と Range）、`server/test/content-trial-artifacts.test.ts`（mp3 の許可リストと保存前の拒否）、設定DTOは `server/test/content-settings.test.ts` / `server/test/content-settings-api.test.ts`、チャットは `client/test/bgm.test.ts`、設定面は `client/test/contentTrials.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/contentSettingsPage.test.ts`。全体は [verification.md](verification.md) の `pnpm check`。GUIは [testing.md](testing.md#bgmの課金なし受入) の安全なfixtureで別に確認する。
+自動テストはダミーキー・stub fetch・fake workspaceと一時サンドボックスのみ。入口は `server/test/bgm.test.ts` / `server/test/bgm-tools.test.ts`（生成器の契約と分類・共有枠）、`server/test/content-trials.test.ts` / `server/test/content-trials-api.test.ts`（`kind: "bgm"` の開始 / 成功 / storage 失敗 / 中断 / 再照合、枠の共有、同一入力の再利用、raw の MIME と Range。**再利用の分岐（キー世代・成果物の欠損・`force`）は画像のケースで固定する**）、`server/test/content-trial-artifacts.test.ts`（mp3 の許可リストと保存前の拒否）、設定DTOは `server/test/content-settings.test.ts` / `server/test/content-settings-api.test.ts`、チャットは `client/test/bgm.test.ts`、設定面は `client/test/contentTrials.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/contentSettingsPage.test.ts`。全体は [verification.md](verification.md) の `pnpm check`。GUIは [testing.md](testing.md#bgmの課金なし受入) の安全なfixtureで別に確認する。
 
 BGM タブの GUI 受入（試行・再生・履歴・削除・容量・タブの印）は実 API 受入で確認済み（2026-11-03）。fixture の合成 MP3 での GUI 受入は別途（未実施）で、Lyria の実契約・実生成物の確認としては扱わない。
 
