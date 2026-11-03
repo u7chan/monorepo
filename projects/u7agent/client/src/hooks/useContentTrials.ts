@@ -4,6 +4,7 @@ import {
   deleteAllContentTrials,
   deleteContentTrial,
   getContentTrial,
+  isMissingContentTrial,
   listContentTrials,
   startContentTrial,
 } from "../api";
@@ -39,6 +40,7 @@ export function useContentTrials({
       list: listContentTrials,
       listRunning: () => listContentTrials({ state: "running" }),
       get: getContentTrial,
+      isMissing: isMissingContentTrial,
       start: startContentTrial,
       cancel: cancelContentTrial,
       remove: deleteContentTrial,

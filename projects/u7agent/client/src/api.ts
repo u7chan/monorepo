@@ -915,6 +915,14 @@ export const listContentTrials = async (query: ContentTrialsQuery = {}): Promise
   return (await res.json()) as ContentTrialListResponse;
 };
 
+/**
+ * 試行 1 件の取得の失敗が「その行が無い」を表すか。**404 だけを消失とし**、通信断（status 0）や 5xx は
+ * 不明として区別する（ポーリング中に 1 回失敗しただけで実行中の行を一覧から消さないため）。
+ */
+export function isMissingContentTrial(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
 /** 試行 1 件。終端を記録できていない間は `recorded: false` でメモリの状態が返る */
 export const getContentTrial = async (id: string): Promise<ContentTrialResponse> => {
   const res = await client.api.settings.content.trials[":id"].$get({ param: { id } });

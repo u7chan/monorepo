@@ -16,6 +16,11 @@ import type {
   ContentTrialSummary,
 } from "../src/types";
 
+// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む。
+// 取得の失敗の分類（404 とそれ以外）は本番と同じ関数を通す
+globalThis.location ??= { origin: "http://localhost" } as Location;
+const { ApiError, isMissingContentTrial } = await import("../src/api");
+
 const USAGE: ContentTrialArtifactUsageValue = { count: 1, bytes: 2_048 };
 
 const RUNNING: ContentTrial = {
@@ -85,6 +90,8 @@ function setup(
     /** 全種別の実行中の行。既定は空（別種別の実行中が無い状態） */
     listRunning?: () => Promise<ContentTrialListResponse>;
     get?: (id: string) => Promise<{ trial: ContentTrial }>;
+    /** 取得の失敗の分類。既定は本番と同じ 404 判定 */
+    isMissing?: (error: unknown) => boolean;
     start?: () => Promise<ContentTrialStartResponse>;
     cancel?: () => Promise<unknown>;
   } = {},
@@ -102,6 +109,7 @@ function setup(
       }),
     listRunning: overrides.listRunning ?? (async () => listResponse([])),
     get: overrides.get ?? (async (id) => ({ trial: { ...RUNNING, id } })),
+    isMissing: overrides.isMissing ?? isMissingContentTrial,
     start: overrides.start ?? (async () => ({ trial: RUNNING, reused: false })),
     cancel:
       (overrides.cancel as (() => Promise<{ trial: ContentTrial }>) | undefined) ?? (async () => ({ trial: CANCELED })),
@@ -318,18 +326,60 @@ test("実行中のポーリングは、別の種別の実行中の行を重ね�
   assert.equal(view.state().running, true);
 });
 
-test("削除済みの行が実行中の応答から消えたら、詳細の 404 で一覧から落とす", async () => {
+test("実行中の応答から消えた行は、詳細が 404 のときだけ一覧から落とす", async () => {
   const view = setup([], {
     listRunning: async () => listResponse([]),
     get: async () => {
-      throw new Error("404");
+      throw new ApiError("試行が見つかりません", 404);
     },
   });
   await view.controller.reload();
   await view.controller.start({ kind: "image", model: RUNNING.model, prompt: RUNNING.prompt });
   await flush();
   await view.controller.poll();
-  assert.deepEqual(view.state().trials, []);
+  assert.deepEqual(view.state().trials, [], "404 は削除された行として落とす");
+});
+
+test("詳細の取得が通信断や 5xx で失敗しても、実行中の行は残して次のポーリングで取り直す", async () => {
+  // 選択中の行（ポーリングのたびに全文を引きに行く行）が失敗する経路
+  let server: ContentTrial = { ...RUNNING };
+  let failures = 0;
+  const view = setup([Promise.resolve(listResponse([RUNNING]))], {
+    listRunning: async () => listResponse([]),
+    get: async (id) => {
+      if (server.state === "running" && failures < 2) {
+        failures += 1;
+        throw failures === 1
+          ? new ApiError("アプリデータ（SQLite）を利用できません", 500)
+          : new TypeError("fetch failed");
+      }
+      return { trial: { ...server, id } };
+    },
+  });
+  await view.controller.reload();
+  view.controller.select(RUNNING.id);
+  await flush();
+
+  // 5xx で失敗: 一覧から消さず、実行中のまま残す（行が消えるとポーリングも止まる）
+  await view.controller.poll();
+  assert.deepEqual(
+    view.state().trials?.map((trial) => [trial.id, trial.state]),
+    [[RUNNING.id, "running"]],
+    "500 では行を残す",
+  );
+  assert.equal(view.state().running, true, "ポーリング対象のまま残る");
+
+  // 通信断でも同じ。次のポーリングで取得できれば終端へ確定する
+  await view.controller.poll();
+  assert.deepEqual(
+    view.state().trials?.map((trial) => [trial.id, trial.state]),
+    [[RUNNING.id, "running"]],
+    "通信断でも行を残す",
+  );
+  server = { ...SUCCEEDED };
+  await view.controller.poll();
+  assert.equal(view.state().trials?.[0]?.state, "succeeded", "回復したポーリングで確定する");
+  assert.equal(view.state().running, false);
 });
 
 test("選択した行の全文は 1 回だけ取り、同じ行を選び直しても取り直さない", async () => {

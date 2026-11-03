@@ -87,6 +87,8 @@ export function createContentTrialsController(deps: {
   /** 全種別の実行中の行。別の種別の試行が終わっても画面のタブの印を追随させる */
   listRunning: () => Promise<ContentTrialListResponse>;
   get: (id: string) => Promise<ContentTrialResponse>;
+  /** 取得の失敗が「その行が無い」（404）かを判定する。分類は api 側が持つ */
+  isMissing: (error: unknown) => boolean;
   start: (input: CreateContentTrialBody) => Promise<ContentTrialStartResponse>;
   cancel: (id: string) => Promise<ContentTrialResponse>;
   remove: (id: string) => Promise<ContentTrialDeleteResponse>;
@@ -147,6 +149,20 @@ export function createContentTrialsController(deps: {
   };
 
   /**
+   * 1 行の全文。404 だけを「行が消えた」とし、通信断・5xx は不明として区別する
+   * （ポーリングの 1 回の失敗で実行中の行を一覧から落とし、ポーリングまで止めない）。
+   */
+  const fetchDetail = async (
+    id: string,
+  ): Promise<{ kind: "found"; trial: ContentTrial } | { kind: "missing" } | { kind: "unknown" }> => {
+    try {
+      return { kind: "found", trial: rememberDetail((await deps.get(id)).trial) };
+    } catch (error) {
+      return deps.isMissing(error) ? { kind: "missing" } : { kind: "unknown" };
+    }
+  };
+
+  /**
    * 実行中の行を重ねる。`settle`（ポーリング）のときは、実行中だった行が応答から消えたら終端した
    * （または削除された）とみなして `GET /trials/:id` で確定させる（要約のままだと実行中のまま残り、
    * 履歴が欠ける）。選択行の全文も同じ経路で取り直し、`recorded` の再試行と状態を追随させる。
@@ -161,25 +177,18 @@ export function createContentTrialsController(deps: {
       : [];
     const lookups = new Set(vanished.map((trial) => trial.id));
     if (options.settle && selectedId !== null) lookups.add(selectedId);
-    const settled = await Promise.all(
-      [...lookups].map(async (id) => {
-        try {
-          return rememberDetail((await deps.get(id)).trial);
-        } catch {
-          return null;
-        }
-      }),
-    );
+    const ids = [...lookups];
+    const settled = await Promise.all(ids.map(fetchDetail));
     if (!active || issued !== generation) return;
-    const known = settled.filter((trial): trial is ContentTrial => trial !== null);
+    const found = settled.flatMap((result) => (result.kind === "found" ? [result.trial] : []));
+    // 404 の行だけを消す。取得できなかった行は一覧に残し、次のポーリングで取り直す
     const removed = new Set(
-      [...lookups].filter(
-        (id) =>
-          !known.some((candidate) => candidate.id === id) &&
-          (id === selectedId || vanished.some((trial) => trial.id === id)),
+      ids.filter(
+        (id, index) =>
+          settled[index]?.kind === "missing" && (id === selectedId || vanished.some((trial) => trial.id === id)),
       ),
     );
-    const merged = mergeTrialSummaries(state.trials ?? [], [...response.items, ...known]).filter(
+    const merged = mergeTrialSummaries(state.trials ?? [], [...response.items, ...found]).filter(
       (trial) => !removed.has(trial.id),
     );
     apply(merged, response.keyEpoch, response.artifactUsage);
