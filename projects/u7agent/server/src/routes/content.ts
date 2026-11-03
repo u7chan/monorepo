@@ -64,15 +64,23 @@ export function createContentSettingsRoutes({
       return c.json({ trial: outcome.trial });
     },
 
-    // 既定は全種別。`?kind=` は入力の絞り込みで、未知の種別は空の一覧になる
+    // 既定は全種別。`?kind=` は入力の絞り込みで、未知の種別は空の一覧になる。`?limit=` / `?before=` は
+    // ページングで、`?state=running` は実行中の行だけ（実行中のポーリングを履歴の件数に比例させない）
     listTrials: (c: Context) => {
-      const kind = c.req.query("kind");
-      const outcome = contentTrials.list(kind === undefined || kind === "" ? undefined : kind);
+      const outcome = contentTrials.list({
+        kind: c.req.query("kind"),
+        limit: c.req.query("limit"),
+        before: c.req.query("before"),
+        state: c.req.query("state"),
+      });
+      if (outcome.status === 400) return c.json({ error: outcome.error }, 400);
       return c.json({
         items: outcome.items,
         keyEpoch: outcome.keyEpoch,
         artifactUsage: outcome.artifactUsage,
         artifactWarning: outcome.artifactWarning,
+        nextBefore: outcome.nextBefore,
+        hasMore: outcome.hasMore,
       });
     },
 

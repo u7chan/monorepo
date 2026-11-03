@@ -1392,18 +1392,20 @@ export const ContentTrialArtifactSchema = z.object({
 export type ContentTrialArtifact = z.infer<typeof ContentTrialArtifactSchema>;
 
 /**
- * 試行 1 件。`recorded: false` は「終端を DB へ記録できず、メモリの状態を返している」を表し、
+ * 試行 1 件の要約。`prompt` と `instructions` は長いため一覧には載せず、選んだ行の全文は
+ * `GET /api/settings/content/trials/:id` で取る（`promptPreview` は行に出す抜粋）。
+ * `recorded: false` は「終端を DB へ記録できず、メモリの状態を返している」を表し、
  * この間の行は `running` のまま保存されている（docs/api-settings.md）。APIキーは載らない。
- * 音声の `voice` / `instructions` / `speed` は送信時のスナップショットで、画像と BGM の行は null。
+ * 音声の `voice` / `speed` は送信時のスナップショットで、画像と BGM の行は null。
  */
-export const ContentTrialSchema = z.object({
+export const ContentTrialSummarySchema = z.object({
   id: z.string(),
   kind: ContentTrialKindSchema,
   /** 送信時のモデル（画像は `provider/id`、音声はカタログの id）。現在の保存値とは混ぜない */
   model: z.string(),
-  prompt: z.string(),
+  /** 本文の抜粋。全文は `ContentTrialSchema.prompt` にだけ載る */
+  promptPreview: z.string(),
   voice: z.string().nullable(),
-  instructions: z.string().nullable(),
   speed: z.number().nullable(),
   state: ContentTrialStateSchema,
   keyEpoch: z.number(),
@@ -1418,6 +1420,13 @@ export const ContentTrialSchema = z.object({
   finishedAt: z.number().nullable(),
   durationMs: z.number().nullable(),
   recorded: z.boolean(),
+});
+export type ContentTrialSummary = z.infer<typeof ContentTrialSummarySchema>;
+
+/** 試行 1 件の全文。要約に本文と演技指示を足した形（単体取得・開始・中断の応答） */
+export const ContentTrialSchema = ContentTrialSummarySchema.extend({
+  prompt: z.string(),
+  instructions: z.string().nullable(),
 });
 export type ContentTrial = z.infer<typeof ContentTrialSchema>;
 
@@ -1436,6 +1445,7 @@ export type ContentTrialStartResponse = z.infer<typeof ContentTrialStartResponse
  * GET /api/settings/content/trials。`keyEpoch` は現在の世代で、各行の `keyEpoch` と比べて
  * 旧キーの実績を証拠から外す。並びは新しい順（時間ベースの自動削除はしない）。
  * `artifactUsage` は `succeeded` かつ保存済みの件数とバイト数の合計で、画面の保存容量に出す。
+ * `items` は要約で、`nextBefore`（不透明なカーソル）と `hasMore` で続きを取る。
  */
 export const ContentTrialArtifactUsageSchema = z.object({ count: z.number(), bytes: z.number() });
 export type ContentTrialArtifactUsageValue = z.infer<typeof ContentTrialArtifactUsageSchema>;
@@ -1448,11 +1458,14 @@ export const ContentTrialArtifactWarningSchema = z.object({ thresholdBytes: z.nu
 export type ContentTrialArtifactWarningValue = z.infer<typeof ContentTrialArtifactWarningSchema>;
 
 export const ContentTrialListResponseSchema = z.object({
-  items: z.array(ContentTrialSchema),
+  items: z.array(ContentTrialSummarySchema),
   keyEpoch: z.number(),
   artifactUsage: ContentTrialArtifactUsageSchema,
   /** server は常に返すが、追加フィールドなので省略可（旧い client の応答組み立てと互換） */
   artifactWarning: ContentTrialArtifactWarningSchema.optional(),
+  /** 続きの位置。`hasMore` が false のときは null */
+  nextBefore: z.string().nullable(),
+  hasMore: z.boolean(),
 });
 export type ContentTrialListResponse = z.infer<typeof ContentTrialListResponseSchema>;
 

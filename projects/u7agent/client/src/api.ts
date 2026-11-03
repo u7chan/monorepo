@@ -890,12 +890,38 @@ export const startContentTrial = async (input: CreateContentTrialBody): Promise<
   return (await res.json()) as ContentTrialStartResponse;
 };
 
-/** 試行の一覧（新しい順）。`kind` を省くと全種別。取得のたびにサーバーが running の再照合をする */
-export const listContentTrials = async (kind?: string): Promise<ContentTrialListResponse> => {
-  const res = await client.api.settings.content.trials.$get(kind === undefined ? {} : { query: { kind } });
+/**
+ * 試行の一覧（新しい順）。`kind` を省くと全種別。`limit` / `before` でページを進め、`state: "running"` は
+ * 実行中の行だけを取る（実行中のポーリングを履歴の件数に比例させない）。
+ * 取得のたびにサーバーが running の再照合をする。
+ */
+export interface ContentTrialsQuery {
+  kind?: string;
+  limit?: number;
+  /** 前のページの `nextBefore`。不透明なので組み立てない */
+  before?: string;
+  /** 実行中の行だけを取る */
+  state?: "running";
+}
+
+export const listContentTrials = async (query: ContentTrialsQuery = {}): Promise<ContentTrialListResponse> => {
+  const search: Record<string, string> = {};
+  if (query.kind !== undefined) search.kind = query.kind;
+  if (query.limit !== undefined) search.limit = String(query.limit);
+  if (query.before !== undefined) search.before = query.before;
+  if (query.state !== undefined) search.state = query.state;
+  const res = await client.api.settings.content.trials.$get({ query: search });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ContentTrialListResponse;
 };
+
+/**
+ * 試行 1 件の取得の失敗が「その行が無い」を表すか。**404 だけを消失とし**、通信断（status 0）や 5xx は
+ * 不明として区別する（ポーリング中に 1 回失敗しただけで実行中の行を一覧から消さないため）。
+ */
+export function isMissingContentTrial(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
 
 /** 試行 1 件。終端を記録できていない間は `recorded: false` でメモリの状態が返る */
 export const getContentTrial = async (id: string): Promise<ContentTrialResponse> => {

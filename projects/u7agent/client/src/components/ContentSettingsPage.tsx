@@ -28,7 +28,11 @@ export function ContentSettingsPage({
   onOpenNav,
 }: ContentSettingsPageProps & { refreshToolCatalog?: () => Promise<unknown> }) {
   const contentSettings = useContentSettings();
-  const contentTrials = useContentTrials({ activeSubsection: contentSubsection });
+  // 未設定では履歴だけを見せる。タブを出すために一覧を種別で絞らない（設定済みならタブごとに絞る）
+  const contentTrials = useContentTrials({
+    activeSubsection: contentSubsection,
+    kindScoped: contentSettings.settings?.configured === true,
+  });
   return (
     <ContentSettingsView
       contentSettings={contentSettings}
@@ -154,6 +158,12 @@ export function ContentSettingsView({
           onRefreshSpeechCatalog={refreshSpeechCatalog}
           speechSynced={speechSynced}
           trials={contentTrials.trials}
+          trialDetail={contentTrials.detail}
+          trialHasMore={contentTrials.hasMore}
+          trialLoadingMore={contentTrials.loadingMore}
+          onSelectTrial={contentTrials.selectTrial}
+          onLoadTrial={contentTrials.loadTrialDetail}
+          onLoadMoreTrials={contentTrials.loadMore}
           trialArtifactUsage={contentTrials.artifactUsage}
           trialNote={contentTrials.note}
           trialKeyEpoch={trialKeyEpoch}

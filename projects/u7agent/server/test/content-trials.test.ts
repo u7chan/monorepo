@@ -19,6 +19,7 @@ import {
   CONTENT_TRIAL_SPEECH_MODEL_MESSAGE,
   CONTENT_TRIAL_NOT_FOUND_MESSAGE,
   CONTENT_TRIAL_PROMPT_EMPTY_MESSAGE,
+  CONTENT_TRIAL_PROMPT_PREVIEW_MAX_LENGTH,
   CONTENT_TRIAL_PROMPT_MAX_LENGTH,
   CONTENT_TRIAL_PROMPT_TOO_LONG_MESSAGE,
   CONTENT_TRIAL_READ_FAILED_MESSAGE,
@@ -29,6 +30,7 @@ import {
   CONTENT_TRIAL_STORAGE_FAILED_MESSAGE,
   CONTENT_TRIAL_UNCONFIGURED_MESSAGE,
   ContentTrialsService,
+  type ContentTrialListOutcome,
   type ContentTrialSource,
   type ContentTrialsDb,
 } from "../src/content-trials";
@@ -134,6 +136,33 @@ class FakeTrialsDb implements ContentTrialsDb {
     return [...this.rows.values()]
       .filter((row) => kind === undefined || row.kind === kind)
       .sort((a, b) => b.startedAt - a.startedAt)
+      .map((row) => ({ ...row }));
+  }
+
+  /** rowid の代わりに挿入順の `seq` を持たせる（同じ startedAt の行の順序を決める） */
+  listContentTrialPage(input: {
+    kind?: string | undefined;
+    limit: number;
+    before?: { startedAt: number; seq: number } | undefined;
+  }): (ContentTrialRow & { seq: number })[] {
+    if (this.failList) throw new Error("db list boom");
+    return [...this.rows.values()]
+      .map((row, index) => ({ ...row, seq: index + 1 }))
+      .filter((row) => input.kind === undefined || row.kind === input.kind)
+      .filter(
+        (row) =>
+          input.before === undefined ||
+          row.startedAt < input.before.startedAt ||
+          (row.startedAt === input.before.startedAt && row.seq < input.before.seq),
+      )
+      .sort((a, b) => b.startedAt - a.startedAt || b.seq - a.seq)
+      .slice(0, input.limit);
+  }
+
+  listRunningContentTrials(kind?: string): ContentTrialRow[] {
+    if (this.failList) throw new Error("db list boom");
+    return [...this.rows.values()]
+      .filter((row) => row.state === "running" && (kind === undefined || row.kind === kind))
       .map((row) => ({ ...row }));
   }
 
@@ -247,6 +276,16 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+/** 一覧の 200 応答。400 になる入力を確かめるテストだけが `service.list` を直接呼ぶ */
+function listTrials(
+  service: ContentTrialsService,
+  query: { kind?: string; limit?: string; before?: string; state?: string } = {},
+): Extract<ContentTrialListOutcome, { status: 200 }> {
+  const outcome = service.list(query);
+  assert.equal(outcome.status, 200);
+  return outcome;
 }
 
 /** 生成器の呼び出しを 1 件ずつ制御できるようにする。`signal` は abort で観測できる */
@@ -467,7 +506,7 @@ test("成功は成果物を保存して succeeded にし、寸法・サイズ・
   assert.ok(harness.store.files.has(trialArtifactFileName(first.trial.id, "png")));
 
   // 保存容量は succeeded + stored だけを DB のバイト数で合計する
-  const list = harness.service.list("image");
+  const list = listTrials(harness.service, { kind: "image" });
   assert.deepEqual(list.artifactUsage, { count: 1, bytes: 33 });
 
   const second = await harness.start("a dog");
@@ -797,7 +836,7 @@ test("個別削除はその試行の成果物も消す", async () => {
   const removed = await harness.service.remove(started.trial.id);
   assert.equal(removed.status, 200);
   assert.equal(harness.store.files.size, 0);
-  assert.deepEqual(harness.service.list("image").artifactUsage, { count: 0, bytes: 0 });
+  assert.deepEqual(listTrials(harness.service, { kind: "image" }).artifactUsage, { count: 0, bytes: 0 });
 });
 
 test("すべて削除は終端だけを対象にし、実行中は残し、成果物も消す", async () => {
@@ -824,7 +863,7 @@ test("時間ベースの自動削除はせず、古い行と成果物を残す",
   await until(() => harness.db.rows.get(started.trial.id)?.state === "succeeded");
   // 半年進めても一覧から消えない（再照合も succeeded は触らない）
   harness.advanceClock(180 * 86_400_000);
-  harness.service.list("image");
+  listTrials(harness.service, { kind: "image" });
   await harness.service.reconcileArtifacts();
   assert.equal(harness.db.rows.has(started.trial.id), true);
   assert.equal(harness.store.files.size, 1);
@@ -907,7 +946,7 @@ test("一覧の取得中に確定したジョブの成果物を、オンライ�
   // 配信・容量・再利用が壊れていないこと（消えていれば raw 404 / 容量 0 / 画像の無い成功になる）
   const raw = await harness.service.raw(started.trial.id);
   assert.equal(raw.status, 200);
-  assert.deepEqual(harness.service.list("image").artifactUsage, { count: 1, bytes: 33 });
+  assert.deepEqual(listTrials(harness.service, { kind: "image" }).artifactUsage, { count: 1, bytes: 33 });
   const reused = await harness.start();
   assert.equal(reused.status, 200);
   if (reused.status !== 200) return;
@@ -935,20 +974,20 @@ test("保存容量の警告は 1 GiB を超えたときだけ立ち、しきい�
   const below = TRIAL_ARTIFACT_USAGE_WARNING_BYTES - 1;
   harness.db.rows.set(trialId(1), stored(trialId(1), below));
 
-  const under = harness.service.list();
+  const under = listTrials(harness.service);
   assert.deepEqual(under.artifactUsage, { count: 1, bytes: below });
   assert.deepEqual(under.artifactWarning, { thresholdBytes: TRIAL_ARTIFACT_USAGE_WARNING_BYTES, warning: false });
 
   harness.db.rows.set(trialId(1), stored(trialId(1), TRIAL_ARTIFACT_USAGE_WARNING_BYTES));
-  assert.equal(harness.service.list().artifactWarning.warning, false, "1 GiB ちょうどでは警告しない");
+  assert.equal(listTrials(harness.service).artifactWarning.warning, false, "1 GiB ちょうどでは警告しない");
 
   harness.db.rows.set(trialId(1), stored(trialId(1), TRIAL_ARTIFACT_USAGE_WARNING_BYTES + 1));
-  assert.equal(harness.service.list().artifactWarning.warning, true, "1 GiB を超えたら警告する");
+  assert.equal(listTrials(harness.service).artifactWarning.warning, true, "1 GiB を超えたら警告する");
 
   // 容量表示と警告は、個別削除・全削除の後に同じ一覧で追随する
   const removed = await harness.service.remove(trialId(1));
   assert.equal(removed.status, 200);
-  const empty = harness.service.list();
+  const empty = listTrials(harness.service);
   assert.deepEqual(empty.artifactUsage, { count: 0, bytes: 0 });
   assert.equal(empty.artifactWarning.warning, false);
 });
@@ -959,7 +998,7 @@ test("running のまま残った行は一覧の再照合で interrupted にな�
   const stale = trialId(9);
   harness.db.rows.set(stale, row({ id: stale, startedAt }));
   harness.store.files.set(`${stale}.png`, new Uint8Array([1]));
-  const list = harness.service.list("image");
+  const list = listTrials(harness.service, { kind: "image" });
   assert.equal(harness.db.rows.get(stale)?.state, "interrupted");
   assert.deepEqual(list.artifactUsage, { count: 0, bytes: 0 });
   // 一覧は同期的に返るため、置き場の掃除は待たずに走る
@@ -998,7 +1037,7 @@ test("終端の記録に失敗したら成果物を消し、メモリの失敗�
   assert.equal(harness.db.rows.get(started.trial.id)?.charged, true);
 
   // 一覧取得も同じ終端を返す
-  const list = harness.service.list("image");
+  const list = listTrials(harness.service, { kind: "image" });
   assert.equal(list.items[0]?.state, "failed");
   assert.equal(list.items[0]?.recorded, true);
   assert.deepEqual(list.artifactUsage, { count: 0, bytes: 0 });
@@ -1013,6 +1052,82 @@ test("再起動でレジストリを失った running は applyStored で interr
   assert.equal(stale?.durationMs, null);
 });
 
+test("一覧は limit 件ずつ返し、nextBefore で続きを取れる（同じ startedAt の行も欠けない）", () => {
+  const harness = createHarness();
+  // 同じ startedAt の行を混ぜる（時刻だけではページの境目を決められない）
+  for (const [index, startedAt] of [5_000, 4_000, 4_000, 3_000, 2_000].entries()) {
+    harness.db.rows.set(
+      `trial-page-${index}`,
+      row({ id: `trial-page-${index}`, startedAt, state: "succeeded", prompt: `本文 ${index}` }),
+    );
+  }
+  const first = listTrials(harness.service, { limit: "3" });
+  assert.equal(first.items.length, 3);
+  assert.equal(first.hasMore, true);
+  assert.equal(first.nextBefore !== null, true);
+  const second = listTrials(harness.service, { limit: "3", before: first.nextBefore ?? "" });
+  assert.equal(second.items.length, 2);
+  assert.equal(second.hasMore, false);
+  assert.equal(second.nextBefore, null);
+  // 結合すると全件がちょうど 1 回ずつ並ぶ（重複・欠落なし）
+  const ids = [...first.items, ...second.items].map((item) => item.id);
+  assert.deepEqual(ids, ["trial-page-0", "trial-page-2", "trial-page-1", "trial-page-3", "trial-page-4"]);
+});
+
+test("一覧の limit / before / state が不正なら 400 を返し、一覧を返さない", () => {
+  const harness = createHarness();
+  for (const limit of ["0", "101", "1.5", "abc", "-1"]) {
+    const outcome = harness.service.list({ limit });
+    assert.equal(outcome.status, 400, limit);
+  }
+  for (const before of ["abc", "1:", "1:2:3", "a:b"]) {
+    const outcome = harness.service.list({ before });
+    assert.equal(outcome.status, 400, before);
+  }
+  const state = harness.service.list({ state: "succeeded" });
+  assert.equal(state.status, 400);
+});
+
+test("一覧は要約（本文の抜粋だけ）を返し、全文は GET /trials/:id で取る", () => {
+  const harness = createHarness();
+  const longPrompt = `${"あ".repeat(CONTENT_TRIAL_PROMPT_PREVIEW_MAX_LENGTH)}後ろは載らない`;
+  harness.db.rows.set(
+    "trial-summary",
+    row({ id: "trial-summary", prompt: longPrompt, instructions: "演技指示", state: "succeeded" }),
+  );
+  const listed = listTrials(harness.service, { limit: "1" });
+  const summary = listed.items[0];
+  assert.equal(summary?.promptPreview.length, CONTENT_TRIAL_PROMPT_PREVIEW_MAX_LENGTH + 1);
+  assert.equal(summary?.promptPreview.endsWith("…"), true);
+  assert.equal("prompt" in (summary ?? {}), false, "全文は一覧に載せない");
+  assert.equal("instructions" in (summary ?? {}), false, "演技指示も一覧に載せない");
+
+  const got = harness.service.get("trial-summary");
+  assert.equal(got.status, 200);
+  if (got.status !== 200) return;
+  assert.equal(got.trial.prompt, longPrompt, "全文は単体取得で返す");
+  assert.equal(got.trial.instructions, "演技指示");
+});
+
+test("state=running は実行中の行だけを返し、再照合も実行中の行しか読まない", () => {
+  const harness = createHarness();
+  harness.db.rows.set("trial-done", row({ id: "trial-done", kind: "image", state: "succeeded", startedAt: 900 }));
+  harness.db.rows.set("trial-run-speech", row({ id: "trial-run-speech", kind: "speech", startedAt: 800 }));
+  harness.db.rows.set("trial-run-image", row({ id: "trial-run-image", kind: "image", startedAt: 700 }));
+  const running = listTrials(harness.service, { state: "running", kind: "image" });
+  assert.deepEqual(
+    running.items.map((item) => item.id),
+    ["trial-run-image"],
+    "種別で絞った実行中の行だけ",
+  );
+  assert.equal(running.hasMore, false);
+  assert.equal(running.nextBefore, null);
+  // 期限を過ぎた取り残しは、実行中の行の再照合で倒れる（全件を読まない）
+  harness.advanceClock(IMAGE_GENERATION_TIMEOUT_MS * 2);
+  listTrials(harness.service, { state: "running" });
+  assert.equal(harness.db.rows.get("trial-run-image")?.state, "interrupted");
+});
+
 test("一覧の取得でも、期限 + 余裕を過ぎたレジストリ外の running だけを interrupted にする", async () => {
   const harness = createHarness();
   const now = 1_000;
@@ -1020,7 +1135,7 @@ test("一覧の取得でも、期限 + 余裕を過ぎたレジストリ外の r
   const startedAt = now - IMAGE_GENERATION_TIMEOUT_MS * 2;
   harness.db.rows.set("trial-old", row({ id: "trial-old", startedAt }));
   harness.db.rows.set("trial-fresh", row({ id: "trial-fresh", prompt: "new", startedAt: now }));
-  const outcome = harness.service.list("image");
+  const outcome = listTrials(harness.service, { kind: "image" });
   assert.equal(harness.db.rows.get("trial-old")?.state, "interrupted");
   // 期限 + 余裕の内側は触らない
   assert.equal(harness.db.rows.get("trial-fresh")?.state, "running");
@@ -1033,7 +1148,7 @@ test("実行中ジョブは一覧の再照合で中断しない", async () => {
   if (started.status !== 202) return;
   // 期限を大きく過ぎても、レジストリに居る間は running のまま
   harness.advanceClock(IMAGE_GENERATION_TIMEOUT_MS * 3);
-  harness.service.list("image");
+  listTrials(harness.service, { kind: "image" });
   assert.equal(harness.db.rows.get(started.trial.id)?.state, "running");
 });
 
@@ -1256,7 +1371,7 @@ test("音声は mp3 と wav を保存し、raw は保存時に確定した形式
   assert.equal(wavRaw.status === 200 ? wavRaw.contentType : "", "audio/wav");
 
   // 容量は画像と同じ 1 つの合計に載る
-  assert.equal(harness.service.list().artifactUsage.count, 2);
+  assert.equal(listTrials(harness.service).artifactUsage.count, 2);
 });
 
 test("音声の形式の許可リストは保存前に拒否し、課金済みの storage 失敗にする", async () => {
@@ -1346,7 +1461,7 @@ test("音声のキャンセルと close は abort し、interrupted は再起動
     row({ id: staleId, kind: "speech", model: SPEECH_MODEL, prompt: "取り残し", startedAt: 1_000 }),
   );
   stale.advanceClock(SPEECH_GENERATION_TIMEOUT_MS + 60_000);
-  const list = stale.service.list("speech");
+  const list = listTrials(stale.service, { kind: "speech" });
   assert.equal(list.items[0]?.state, "interrupted");
   assert.deepEqual(list.artifactUsage, { count: 0, bytes: 0 });
 });
@@ -1531,7 +1646,7 @@ test("BGM の試行は固定モデルとプロンプトだけを記録し、MP3 
   const raw = await harness.service.raw(started.trial.id);
   assert.equal(raw.status, 200);
   assert.equal(raw.status === 200 ? raw.contentType : "", "audio/mpeg");
-  assert.deepEqual(harness.service.list("bgm").artifactUsage, { count: 1, bytes: 6 });
+  assert.deepEqual(listTrials(harness.service, { kind: "bgm" }).artifactUsage, { count: 1, bytes: 6 });
 });
 
 test("BGM の結果が mp3 でない / 保存できないときは storage の失敗にし、成功として見せない", async () => {
@@ -1594,7 +1709,7 @@ test("BGM の running は BGM_TIMEOUT_MS を過ぎた再照合で interrupted �
     row({ id: staleId, kind: "bgm", model: BGM_MODEL, prompt: "取り残し", startedAt: 1_000 }),
   );
   harness.advanceClock(BGM_TIMEOUT_MS + 60_000);
-  const list = harness.service.list("bgm");
+  const list = listTrials(harness.service, { kind: "bgm" });
   assert.equal(list.items[0]?.state, "interrupted");
 
   // close は実行中の BGM を abort して interrupted にする（枠は provider の呼び出しが終わって返る）

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BGM_TRIAL_PROMPT_MAX_LENGTH,
   bgmDurationLabel,
@@ -22,6 +22,7 @@ import type {
   ContentSettingsResponse,
   ContentTrial,
   ContentTrialArtifactUsageValue,
+  ContentTrialSummary,
   CreateContentTrialBody,
 } from "../../types";
 import { CheckIcon, TrashIcon } from "../icons";
@@ -40,7 +41,13 @@ export type BgmTrialSectionProps = {
   settings: ContentSettingsResponse;
   /** 固定モデル。未設定では空文字（開始は `trialStartBlockedReason` が止める） */
   model: string;
-  trials: readonly ContentTrial[] | null;
+  /** 一覧は要約（本文は抜粋）。選択行の全文は `detail` / `onLoadTrial` で取る */
+  trials: readonly ContentTrialSummary[] | null;
+  /** 選択中の試行の全文（取得中は null） */
+  detail: ContentTrial | null;
+  /** 続きのページがあるか */
+  hasMore: boolean;
+  loadingMore: boolean;
   keyEpoch: number;
   artifactUsage: ContentTrialArtifactUsageValue;
   note: { text: string; error: boolean } | null;
@@ -52,6 +59,12 @@ export type BgmTrialSectionProps = {
   onCancel: (id: string) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onDeleteAll: () => Promise<boolean>;
+  /** 選択中の試行を画面へ知らせる（全文の取得は画面が行う） */
+  onChangeSelection: (id: string | null) => void;
+  /** 履歴の行の全文を取る（もう一度試す・入力欄に戻すで使う） */
+  onLoadTrial: (id: string) => Promise<ContentTrial | null>;
+  /** 続きのページを読む */
+  onLoadMore: () => Promise<boolean>;
 };
 
 /**
@@ -62,6 +75,9 @@ export function BgmTrialSection({
   settings,
   model,
   trials,
+  detail,
+  hasMore,
+  loadingMore,
   keyEpoch,
   artifactUsage,
   note,
@@ -72,6 +88,9 @@ export function BgmTrialSection({
   onCancel,
   onDelete,
   onDeleteAll,
+  onChangeSelection,
+  onLoadTrial,
+  onLoadMore,
 }: BgmTrialSectionProps) {
   const [showAll, setShowAll] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -100,6 +119,12 @@ export function BgmTrialSection({
   const filtered = filteredTrials({ trials: list, model: "all", outcome: outcomeFilter });
   const visible = showAll ? filtered : filtered.slice(0, HISTORY_PREVIEW_COUNT);
   const groups = groupTrialsByMonth(visible);
+  // 選択行の全文は画面（controller）が取る。選ぶたびに 1 回だけ知らせる
+  const selectedKey = selected?.id ?? null;
+  useEffect(() => {
+    onChangeSelection(selectedKey);
+  }, [selectedKey, onChangeSelection]);
+  const selectedDetail = detail !== null && detail.id === selectedKey ? detail : null;
 
   /** 検証を通ったときだけ要求を出し、開始できたかを返す（別テイクの自動選択に使う） */
   const start = async (value: string, nextModel: string, origin: TrialRequestOrigin): Promise<boolean> => {
@@ -110,6 +135,12 @@ export function BgmTrialSection({
     }
     setInputError(null);
     return onStart(request.input);
+  };
+
+  /** 履歴の行の「もう一度試す」。本文は全文を取り直してから送る（一覧は抜粋しか持たない） */
+  const retry = async (id: string): Promise<boolean> => {
+    const full = await onLoadTrial(id);
+    return full === null ? false : start(full.prompt, model, "history");
   };
 
   return (
@@ -179,18 +210,23 @@ export function BgmTrialSection({
           // 実測の尺は選んだ試行ごとに読み直す（前の行の秒数を残さない）
           key={selected.id}
           trial={selected}
+          detail={selectedDetail}
           currentKeyEpoch={keyEpoch}
           busy={busy}
           running={running !== null}
           expectedDurationSeconds={settings.bgm.expectedDurationSeconds}
           onDelete={onDelete}
-          onRestore={() => {
+          onRestore={async () => {
+            const full = await onLoadTrial(selected.id);
+            if (!full) return;
             setInputError(null);
-            onChangePrompt(selected.prompt);
+            onChangePrompt(full.prompt);
           }}
           onAnotherTake={async () => {
             // 始めた行をビューポートへ寄せる。開始できなければ選択を動かさない
-            if (await start(selected.prompt, model, "another-take")) setSelectedId(null);
+            const full = await onLoadTrial(selected.id);
+            if (!full) return;
+            if (await start(full.prompt, model, "another-take")) setSelectedId(null);
           }}
         />
       ) : (
@@ -207,6 +243,11 @@ export function BgmTrialSection({
               {filtered.length > HISTORY_PREVIEW_COUNT || showAll ? (
                 <button type="button" className="btn-quiet" onClick={() => setShowAll((current) => !current)}>
                   {showAll ? "最新 3 件だけ表示" : "すべて見る"}
+                </button>
+              ) : null}
+              {hasMore ? (
+                <button type="button" className="btn-quiet" disabled={loadingMore} onClick={() => void onLoadMore()}>
+                  {loadingMore ? "読み込み中…" : "さらに読み込む"}
                 </button>
               ) : null}
               <button
@@ -257,7 +298,7 @@ export function BgmTrialSection({
                         selected={trial.id === selected?.id}
                         busy={busy}
                         onSelect={() => setSelectedId(trial.id)}
-                        onRetry={() => void start(trial.prompt, model, "history")}
+                        onRetry={() => void retry(trial.id)}
                         onDelete={onDelete}
                       />
                     ))}
@@ -305,6 +346,7 @@ function panelNote(panel: ReturnType<typeof trialPanelState>): string {
  */
 function ResultViewport({
   trial,
+  detail,
   currentKeyEpoch,
   busy,
   running,
@@ -313,14 +355,16 @@ function ResultViewport({
   onRestore,
   onAnotherTake,
 }: {
-  trial: ContentTrial;
+  trial: ContentTrialSummary;
+  /** 選択行の全文。取得中は null で、本文は抜粋を出す */
+  detail: ContentTrial | null;
   currentKeyEpoch: number;
   busy: boolean;
   running: boolean;
   expectedDurationSeconds: number;
   onDelete: (id: string) => Promise<boolean>;
-  onRestore: () => void;
-  onAnotherTake: () => void;
+  onRestore: () => Promise<void>;
+  onAnotherTake: () => Promise<void>;
 }) {
   const [measured, setMeasured] = useState<number | null>(null);
   const row = trialHistoryRow(trial, currentKeyEpoch);
@@ -381,7 +425,7 @@ function ResultViewport({
         <p className="text-2xs text-warn">生成は課金されています。もう一度生成すると再課金されます。</p>
       ) : null}
 
-      <p className="text-2xs break-words whitespace-pre-wrap text-ink">{row.prompt}</p>
+      <p className="text-2xs break-words whitespace-pre-wrap text-ink">{detail?.prompt ?? row.promptPreview}</p>
 
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className="btn-quiet" disabled={busy} onClick={onRestore}>
@@ -444,8 +488,8 @@ function HistoryListItem({
           <span className="text-2xs text-ink-muted">{row.durationLabel}</span>
           {row.keyEpochLabel ? <span className="text-2xs text-warn">{row.keyEpochLabel}</span> : null}
         </span>
-        <span className="min-w-0 truncate text-2xs text-ink" title={row.prompt}>
-          {row.prompt}
+        <span className="min-w-0 truncate text-2xs text-ink" title={row.promptPreview}>
+          {row.promptPreview}
         </span>
         {row.artifactLabel ? <span className="text-2xs text-ink-faint">{row.artifactLabel}</span> : null}
         {row.failureLabel ? <span className="text-2xs text-warn">{row.failureLabel}</span> : null}

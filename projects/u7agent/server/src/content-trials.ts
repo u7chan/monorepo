@@ -119,16 +119,29 @@ const RECONCILE_MARGIN_MS = 30_000;
 /** 一覧の取得ごとに DB / ディスクを書き換えないための間引き */
 const RECONCILE_INTERVAL_MS = 5_000;
 
-/** 試行 1 件の応答形。`artifact` は保存済みのときだけ非 null で、置き場のパスは載せない */
-export interface ContentTrialView {
+/** 一覧の 1 ページの件数。上限を超える指定は 400 にして、1 応答の大きさを有界にする */
+export const CONTENT_TRIAL_LIST_LIMIT_DEFAULT = 20;
+export const CONTENT_TRIAL_LIST_LIMIT_MAX = 100;
+/** 一覧に載せる本文の抜粋。全文は `GET /trials/:id` で取る（一覧とポーリングを軽くする） */
+export const CONTENT_TRIAL_PROMPT_PREVIEW_MAX_LENGTH = 160;
+
+export const CONTENT_TRIAL_LIST_LIMIT_MESSAGE = `limit は 1〜${CONTENT_TRIAL_LIST_LIMIT_MAX} の整数で指定してください`;
+export const CONTENT_TRIAL_LIST_CURSOR_MESSAGE = "一覧のカーソルが不正です。先頭から読み直してください";
+export const CONTENT_TRIAL_LIST_STATE_MESSAGE = "state は running だけを指定できます";
+
+/**
+ * 一覧 1 行の要約。本文と演技指示は長いので載せず、選んだ行の全文は `GET /trials/:id` で取る
+ * （実行中は 2 秒ごとに一覧を取るため、payload を履歴の件数に比例させない）。
+ */
+export interface ContentTrialSummaryView {
   id: string;
   kind: ContentTrialKind;
   /** 送信時のモデル (`provider/id` か音声のカタログ id)。現在の保存値とは混ぜない */
   model: string;
-  prompt: string;
+  /** 本文の抜粋。全文は `ContentTrialView.prompt` にだけ載る */
+  promptPreview: string;
   /** 音声の入力スナップショット。画像の行は 3 つとも null */
   voice: string | null;
-  instructions: string | null;
   speed: number | null;
   state: ContentTrialState;
   keyEpoch: number;
@@ -143,6 +156,12 @@ export interface ContentTrialView {
   durationMs: number | null;
   /** 終端状態を DB へ記録できたか。false の間はメモリの状態を優先して返す */
   recorded: boolean;
+}
+
+/** 試行 1 件の全文。要約に本文と演技指示を足した形（単体取得・開始・中断の応答） */
+export interface ContentTrialView extends ContentTrialSummaryView {
+  prompt: string;
+  instructions: string | null;
 }
 
 export interface ContentTrialArtifactView {
@@ -171,6 +190,20 @@ export interface ContentTrialArtifactWarning {
 /** 保存容量の集計。DB が読めないときは 0 件として扱う（一覧は返す） */
 const EMPTY_USAGE: ContentTrialArtifactUsage = { count: 0, bytes: 0 };
 
+/**
+ * 一覧の続きの位置。`startedAt` だけでなく rowid も持つのは、同じ時刻の行があってもページの境目を
+ * 一意にするため（行が増減しても位置がずれない）。
+ */
+export interface ContentTrialCursor {
+  startedAt: number;
+  seq: number;
+}
+
+/** 一覧ページの行。`seq` は rowid で、続きの位置を作るためだけに使う（応答には載せない） */
+export interface ContentTrialPageRow extends ContentTrialRow {
+  seq: number;
+}
+
 export interface ContentTrialsDb {
   readContentKeyEpoch(): number;
   saveContentTrial(row: ContentTrialRow): void;
@@ -186,6 +219,14 @@ export interface ContentTrialsDb {
   }): boolean;
   readContentTrial(id: string): ContentTrialRow | undefined;
   listContentTrials(kind?: string): ContentTrialRow[];
+  /** 一覧の 1 ページ。`startedAt` と rowid の降順で `before` より古い範囲を `limit` 件まで返す */
+  listContentTrialPage(input: {
+    kind?: string | undefined;
+    limit: number;
+    before?: ContentTrialCursor | undefined;
+  }): ContentTrialPageRow[];
+  /** `running` の行だけ（一覧の再照合と実行中のポーリングは全件を読まない） */
+  listRunningContentTrials(kind?: string): ContentTrialRow[];
   findReusableContentTrial(input: {
     kind: string;
     model: string;
@@ -240,13 +281,18 @@ export type ContentTrialStartOutcome =
 
 export type ContentTrialReadOutcome = { status: 200; trial: ContentTrialView } | { status: 404; error: string };
 
-export type ContentTrialListOutcome = {
-  status: 200;
-  items: ContentTrialView[];
-  keyEpoch: number;
-  artifactUsage: ContentTrialArtifactUsage;
-  artifactWarning: ContentTrialArtifactWarning;
-};
+export type ContentTrialListOutcome =
+  | {
+      status: 200;
+      items: ContentTrialSummaryView[];
+      keyEpoch: number;
+      artifactUsage: ContentTrialArtifactUsage;
+      artifactWarning: ContentTrialArtifactWarning;
+      /** 続きの位置。`hasMore` が false のときは null（不透明なのでクライアントは組み立てない） */
+      nextBefore: string | null;
+      hasMore: boolean;
+    }
+  | { status: 400; error: string };
 
 export type ContentTrialRemoveOutcome =
   | { status: 200; removed: number }
@@ -547,18 +593,61 @@ export class ContentTrialsService {
     return { status: 200, trial: this.#view(row) };
   }
 
-  /** 一覧。取得のたびに（間引いて）`running` の取り残しと置き場を再照合し、DB 回復後は終端の記録を再試行する */
-  list(kind?: string): ContentTrialListOutcome {
+  /**
+   * 一覧。取得のたびに（間引いて）`running` の取り残しと置き場を再照合し、DB 回復後は終端の記録を再試行する。
+   * `state=running` は実行中の行だけを返し、実行中のポーリングを履歴の件数に比例させない。
+   */
+  list(
+    query: {
+      kind?: string | undefined;
+      limit?: string | undefined;
+      before?: string | undefined;
+      state?: string | undefined;
+    } = {},
+  ): ContentTrialListOutcome {
+    if (query.state !== undefined && query.state !== "running") {
+      return { status: 400, error: CONTENT_TRIAL_LIST_STATE_MESSAGE };
+    }
+    const limit = parseTrialListLimit(query.limit);
+    if (limit === null) return { status: 400, error: CONTENT_TRIAL_LIST_LIMIT_MESSAGE };
+    const before = query.before === undefined || query.before === "" ? undefined : parseTrialCursor(query.before);
+    if (before === null) return { status: 400, error: CONTENT_TRIAL_LIST_CURSOR_MESSAGE };
+    const kind = query.kind === undefined || query.kind === "" ? undefined : query.kind;
     this.#reconcileIfDue();
     this.#retryUnrecorded();
-    const rows = this.#db.listContentTrials(kind);
+    const keyEpoch = this.#db.readContentKeyEpoch();
     const artifactUsage = this.#usage();
+    // 警告の判定は容量の集計だけで決まるため、実行中の取得でも同じ値を返す（画面が古い値を残さない）
+    const artifactWarning = artifactWarningOf(artifactUsage);
+    if (query.state === "running") {
+      const running = this.#db.listRunningContentTrials(kind).slice(0, limit);
+      return {
+        status: 200,
+        items: running.map((row) => this.#summary(row)),
+        keyEpoch,
+        artifactUsage,
+        artifactWarning,
+        nextBefore: null,
+        hasMore: false,
+      };
+    }
+    // 1 件多く取って `hasMore` を決める。カーソルは返した最後の行の位置にする
+    const rows = this.#db.listContentTrialPage({
+      kind,
+      limit: limit + 1,
+      ...(before === undefined ? {} : { before }),
+    });
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
     return {
       status: 200,
-      items: rows.map((row) => this.#view(row)),
-      keyEpoch: this.#db.readContentKeyEpoch(),
+      items: page.map((row) => this.#summary(row)),
+      keyEpoch,
       artifactUsage,
-      artifactWarning: artifactWarningOf(artifactUsage),
+      artifactWarning,
+      nextBefore: hasMore && last ? formatTrialCursor(last.startedAt, last.seq) : null,
+      hasMore,
     };
   }
 
@@ -1036,7 +1125,7 @@ export class ContentTrialsService {
     this.#lastReconcileAt = now;
     let rows: ContentTrialRow[];
     try {
-      rows = this.#db.listContentTrials().filter((row) => row.state === "running");
+      rows = this.#db.listRunningContentTrials();
     } catch (error) {
       console.warn(`[u7agent] content trials reconcile failed: ${this.#maskError(messageFor(error))}`);
       return;
@@ -1104,15 +1193,19 @@ export class ContentTrialsService {
 
   /** DB の行とメモリの終端を重ねる。記録できていない終端はメモリ側を採用する */
   #view(row: ContentTrialRow): ContentTrialView {
+    return { ...this.#summary(row), prompt: row.prompt, instructions: row.instructions };
+  }
+
+  /** DB の行とメモリの終端を重ねた要約。一覧と実行中のポーリングは本文を載せない */
+  #summary(row: ContentTrialRow): ContentTrialSummaryView {
     const terminal = this.#terminals.get(row.id) ?? this.#jobs.get(row.id)?.terminal ?? null;
     const format = isTrialId(row.id) ? storedFormatOf(row) : undefined;
-    const base: ContentTrialView = {
+    const base: ContentTrialSummaryView = {
       id: row.id,
       kind: isTrialKind(row.kind) ? row.kind : "image",
       model: row.model,
-      prompt: row.prompt,
+      promptPreview: promptPreviewOf(row.prompt),
       voice: row.voice,
-      instructions: row.instructions,
       speed: row.speed,
       state: isTrialState(row.state) ? row.state : "failed",
       keyEpoch: row.keyEpoch,
@@ -1153,6 +1246,38 @@ function artifactWarningOf(usage: ContentTrialArtifactUsage): ContentTrialArtifa
     thresholdBytes: TRIAL_ARTIFACT_USAGE_WARNING_BYTES,
     warning: usage.bytes > TRIAL_ARTIFACT_USAGE_WARNING_BYTES,
   };
+}
+
+/** 一覧に載せる本文の抜粋。改行と連続する空白は 1 つに詰めて、行の高さを崩さない */
+function promptPreviewOf(prompt: string): string {
+  const flat = prompt.replace(/\s+/g, " ").trim();
+  // 絵文字などのサロゲートペアを抜かないよう、コードポイント単位で切る
+  const points = [...flat];
+  return points.length <= CONTENT_TRIAL_PROMPT_PREVIEW_MAX_LENGTH
+    ? flat
+    : `${points.slice(0, CONTENT_TRIAL_PROMPT_PREVIEW_MAX_LENGTH).join("")}…`;
+}
+
+/**
+ * 一覧のカーソル。クライアントには不透明な文字列として渡し、`<startedAt>:<rowid>` だけを受ける。
+ * 行の id をカーソルにしないのは、行を削除しても続きの位置がずれないようにするため。
+ */
+function formatTrialCursor(startedAt: number, seq: number): string {
+  return `${startedAt}:${seq}`;
+}
+
+function parseTrialCursor(value: string): ContentTrialCursor | null {
+  const match = /^(\d{1,16}):(\d{1,16})$/.exec(value);
+  if (!match) return null;
+  return { startedAt: Number(match[1]), seq: Number(match[2]) };
+}
+
+/** 一覧の `limit`。未指定は既定値、範囲外と数値でない値は null（呼び出し側が 400 にする） */
+function parseTrialListLimit(value: string | undefined): number | null {
+  if (value === undefined || value === "") return CONTENT_TRIAL_LIST_LIMIT_DEFAULT;
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 1 || limit > CONTENT_TRIAL_LIST_LIMIT_MAX) return null;
+  return limit;
 }
 
 /** 保存済みとして配信できる形式。`succeeded` + `stored` + 種別の許可リスト + 保存名の一致だけを通す */
