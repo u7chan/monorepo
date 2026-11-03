@@ -477,7 +477,7 @@ export const RunPayloadSchema = z.object({
 });
 export type RunPayload = z.infer<typeof RunPayloadSchema>;
 
-/** pi SDK の AssistantMessage.usage。cost は pi-ai の calculateCost 済み (料金表が無いモデルは 0)。 */
+/** pi SDK の AssistantMessage.usage。cost は SDK が算出済みで、プロバイダが請求額を報告する場合はそれを優先し、無ければ料金表から計算する (料金表が無いモデルは 0)。 */
 export const UsageSchema = z.object({
   input: z.number(),
   output: z.number(),
