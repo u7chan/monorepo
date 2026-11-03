@@ -4,7 +4,7 @@
 
 ## API確認の状態
 
-**実APIの受入は未実施。ユーザーの「PR収束してから実際にAPIキーで試す」という運用に従い、実キーの探索・読取・課金APIへの送信は行っていない。要求とLyria固有のSSE契約は暫定であり、通常生成が実証済みとは扱わない。**
+**実APIの受入は完了（2026-11-03）。Lyria の実 API で 1 回の BGM 生成（MP3 / 実測 30.77 秒 / 生成 12.9 秒）が成功し、ブラウザーで再生・シークできることを確認した。要求は voice を送らず、`audio/mpeg` で返った。料金はユーザーが許容と判断した。n=1 のため、再現性・失敗分類・聴感の継続確認は残る。**
 
 公開資料を2026-10-23に調査した根拠は次のとおり。
 
@@ -17,7 +17,7 @@
 
 暫定の受信範囲は、1 choice / 1 audio track、各 `delta.audio.data` が**独立してcanonical Base64へデコードできるイベント**、`finish_reason: "stop"` の後の `[DONE]`。track idがあれば全イベントで同じ値だけを許す。text / transcript / usageは音声に混ぜない。usageの同じstop再掲と空choicesのusageも受け付ける。継続Base64列、複数音声、未知の終端へ推測で対応しない。
 
-`server/test/fixtures/bgm-sse.ts` は**手書きの合成stubで、実レスポンス由来ではない**。含む最小MP3ヘッダもブラウザー再生可能な音声を示すものではない。実API確認後は、キー・個人情報・生の音声Base64を含めず、確認したフィールドと境界だけをfixtureへ反映する。
+`server/test/fixtures/bgm-sse.ts` は**手書きの合成stubで、実レスポンス由来ではない**。含む最小MP3ヘッダもブラウザー再生可能な音声を示すものではない。実 API 受入で確認した voice 省略・MP3 / Base64 の扱いは、キー・個人情報・生の音声 Base64 を含めずに fixture へ反映する（この受入では未反映）。
 
 ## キー・公開ゲート・設定
 
@@ -48,7 +48,7 @@
 - 同じ prompt とモデルの保存済み成功があるときは provider を呼ばず 200 で返す（課金しない。履歴から「もう一度試す」で再実行しても同じ判定になる）。
 - 画面は「試行する / 中断」、1 つの再生ビューポート（プレイヤー・固定モデル・モデル仕様の目安尺と実測尺・所要時間・送った prompt・ダウンロード・削除・入力欄に戻す・別のテイクを生成）、保存容量、証拠の 1 行、月区切りと成功 / 失敗の絞り込みを持つ履歴（行から「もう一度試す」）で構成する。実測尺はブラウザーが `<audio>` のメタデータから読めた秒数だけで、読めるまでは `—` にする（目安尺と混ぜない）。
 - 未設定 / 全体 OFF / runtime 不可でも、保存済みの履歴と再生は残して新規生成だけを止める（画像・音声と同じ文言）。タブの印（実行中 / 新着 / 同期未確認）も同じ規則で、BGM の試行は BGM タブにだけ出す。
-- **実 API の受入が済むまで、BGM タブの試行の面に「試験的」を出す。** 文面は「実プロバイダー（Lyria）での受入が済んでいない。要求と応答の契約、生成される音声、所要時間、料金は実 API で確かめておらず、予告なく変わる可能性がある。受入が済み次第、この表示を外す」で、`client/src/components/content-settings/BgmTrialSection.tsx` の試行の見出し直下（折り畳みや tooltip の内側ではなく常時見える位置）に置く。ページ全体の帯にはせず、同じ文言を [検証と実APIの保留項目](#検証と実apiの保留項目) と [testing.md](testing.md#bgmの課金なし受入) の未実施表示に対応させる。**実 API 受入が完了したら、この節と UI の表示を同じ変更で外す**（外し忘れを防ぐため、条件をここに残す）。
+- **実 API 受入済み（2026-11-03）のため、BGM タブの試行の面の「試験的」は表示しない。** 受入では Lyria の実 API で 1 回の BGM 生成（MP3 / 実測 30.77 秒 / 生成 12.9 秒）が成功し、ブラウザーで再生・シークできた。音声は [speech-generation.md](speech-generation.md)、画像は既存試行で確認した。料金はユーザーが許容と判断した。残る未確認は [検証と実 API 受入](#検証と実api受入) に書く。
 
 ## 失敗とリソース境界
 
@@ -58,13 +58,13 @@
 
 自動リトライ・形式フォールバックはしない。送信後の中断・期限・上限・保存失敗は課金の可能性を伝え、**明示的な再依頼なしに再生成しない**。保存確定と中断が競合しても確定済みファイルを削除しない。未課金と示せるのはAPI未送信の場合だけで、providerの処理停止・返金・内部再試行の回数は保証しない。
 
-## 検証と実APIの保留項目
+## 検証と実API受入
 
 自動テストはダミーキー・stub fetch・fake workspaceと一時サンドボックスのみ。入口は `server/test/bgm.test.ts` / `server/test/bgm-tools.test.ts`（生成器の契約と分類・共有枠）、`server/test/content-trials.test.ts` / `server/test/content-trials-api.test.ts`（`kind: "bgm"` の開始 / 成功 / storage 失敗 / 中断 / 再照合、枠の共有、同一入力の再利用、raw の MIME と Range）、`server/test/content-trial-artifacts.test.ts`（mp3 の許可リストと保存前の拒否）、設定DTOは `server/test/content-settings.test.ts` / `server/test/content-settings-api.test.ts`、チャットは `client/test/bgm.test.ts`、設定面は `client/test/contentTrials.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/contentSettingsPage.test.ts`。全体は [verification.md](verification.md) の `pnpm check`。GUIは [testing.md](testing.md#bgmの課金なし受入) の安全なfixtureで別に確認する。
 
-BGM タブの GUI 受入（試行・再生・履歴・削除・容量・タブの印）は、下の実 API 受入が済むまで**未実施**とする。fixture の合成 MP3 で画面と配信を確かめても、Lyria の実契約・実生成物の確認としては扱わない。
+BGM タブの GUI 受入（試行・再生・履歴・削除・容量・タブの印）は実 API 受入で確認済み（2026-11-03）。fixture の合成 MP3 での GUI 受入は別途（未実施）で、Lyria の実契約・実生成物の確認としては扱わない。
 
-実API受入はユーザー待ち: Lyriaの要求（voice省略可否を含む）、音声フィールドとBase64境界・padding、正常終端・usage・200内error、生成MP3のブラウザー再生、生成時間・実測の尺・料金。PRの自動検証や合成音声のGUI確認を、これらの実証の代わりにはしない。
+実 API 受入で確認したもの: voice を送らずに 200 / `audio/mpeg`、正常終端、ブラウザーでの再生・シーク、生成 12.9 秒、実測 30.77 秒、料金はユーザーが許容。残る未確認: 2 回目以降の再現性、失敗系（invalid_key / 402 / 429 / timeout）の実分類、チャットツール `generate_bgm` / `generate_speech` の実 API 経路、聴感品質、C2PA マニフェストの扱い、試行ライフサイクル / pcm 再試行のログ。
 
 ## 非ゴール
 

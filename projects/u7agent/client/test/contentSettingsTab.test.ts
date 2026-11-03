@@ -935,26 +935,11 @@ test("画像・音声・BGM の履歴は互いの面に出さない", () => {
   assert.equal(image.includes("夜の高速道路を走る軽快なシンセポップ"), false, "BGM の履歴を画像タブに混ぜない");
 });
 
-test("BGM の試行の面には実 API 未受入の「試験的」を出し、画像・音声の面には出さない", () => {
+test("BGM の試行の面には実 API 受入済みのため「試験的」を出さない", () => {
   const bgm = render({ subsection: "bgm", trials: [BGM_TRIAL_BASE] });
-  // 折り畳み（details）や tooltip（title）の内側ではなく、面の本文として常時見える
-  assert.match(bgm, /<p[^>]*role="note"[^>]*>[\s\S]*?<strong[^>]*>試験的<\/strong>/);
-  assert.ok(bgm.includes("実プロバイダー（Lyria）での受入が済んでいません"), "未受入であることを伝える");
-  assert.ok(bgm.includes("予告なく変わる可能性があります"), "契約・音声・料金が変わり得ることを伝える");
-  assert.ok(bgm.includes("受入が済み次第、この表示を外します"), "外す条件を画面にも残す");
-  const accordions = bgm.match(/<details[\s\S]*?<\/details>/g) ?? [];
-  assert.equal(
-    accordions.some((block) => block.includes("試験的")),
-    false,
-    "折り畳みの中に隠さない",
-  );
+  assert.equal(bgm.includes("試験的"), false, "受入済みなので試験的を出さない");
+  assert.equal(bgm.includes("実プロバイダー（Lyria）での受入が済んでいません"), false);
 
-  // 受入済みの種別（画像 / 音声）には試験的の表示を出さない
-  for (const contentSubsection of ["image", "speech"] as const) {
-    const other = render({ subsection: contentSubsection, trials: [] });
-    assert.equal(other.includes("試験的"), false, `${contentSubsection} の面には出さない`);
-  }
-  // 未設定（履歴だけ）でも同じ面なので表示は残る
   const unset = render({
     configured: false,
     keyStored: false,
@@ -963,5 +948,5 @@ test("BGM の試行の面には実 API 未受入の「試験的」を出し、�
     image: { model: null },
     subsection: "bgm",
   });
-  assert.ok(unset.includes("試験的"));
+  assert.equal(unset.includes("試験的"), false, "未設定の履歴表示でも出さない");
 });
