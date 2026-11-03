@@ -25,6 +25,7 @@ export type {
   ContentSettingsResponse,
   ContentSpeechSettings,
   ContentTrial,
+  ContentTrialSummary,
   ContentTrialDeleteResponse,
   ContentTrialArtifact,
   ContentTrialArtifactUsageValue,

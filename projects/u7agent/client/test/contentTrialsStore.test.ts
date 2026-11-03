@@ -13,6 +13,7 @@ import type {
   ContentTrialArtifactUsageValue,
   ContentTrialListResponse,
   ContentTrialStartResponse,
+  ContentTrialSummary,
 } from "../src/types";
 
 const USAGE: ContentTrialArtifactUsageValue = { count: 1, bytes: 2_048 };
@@ -21,6 +22,7 @@ const RUNNING: ContentTrial = {
   id: "trial-1",
   kind: "image",
   model: "openrouter/openai/gpt-image-2",
+  promptPreview: "a cat on a sofa",
   prompt: "a cat on a sofa",
   voice: null,
   instructions: null,
@@ -56,8 +58,8 @@ const CANCELED: ContentTrial = {
   durationMs: 2_000,
 };
 
-function listResponse(items: ContentTrial[]): ContentTrialListResponse {
-  return { items, keyEpoch: 0, artifactUsage: USAGE };
+function listResponse(items: ContentTrialSummary[], nextBefore: string | null = null): ContentTrialListResponse {
+  return { items, keyEpoch: 0, artifactUsage: USAGE, nextBefore, hasMore: nextBefore !== null };
 }
 
 function deferred<T>() {
@@ -74,7 +76,15 @@ function deferred<T>() {
 function setup(
   lists: Array<Promise<ContentTrialListResponse>>,
   overrides: {
-    list?: () => Promise<ContentTrialListResponse>;
+    list?: (query: {
+      kind?: string;
+      limit?: number;
+      before?: string;
+      state?: "running";
+    }) => Promise<ContentTrialListResponse>;
+    /** 全種別の実行中の行。既定は空（別種別の実行中が無い状態） */
+    listRunning?: () => Promise<ContentTrialListResponse>;
+    get?: (id: string) => Promise<{ trial: ContentTrial }>;
     start?: () => Promise<ContentTrialStartResponse>;
     cancel?: () => Promise<unknown>;
   } = {},
@@ -83,7 +93,15 @@ function setup(
   const changes: ContentTrialsState[] = [];
   let reads = 0;
   const controller = createContentTrialsController({
-    list: overrides.list ?? (() => lists[reads++] ?? Promise.resolve(listResponse([]))),
+    list:
+      overrides.list ??
+      ((query) => {
+        // 種別を絞った取得も同じ応答の列から返す（ページの順序だけを見るテストのため）
+        void query;
+        return lists[reads++] ?? Promise.resolve(listResponse([]));
+      }),
+    listRunning: overrides.listRunning ?? (async () => listResponse([])),
+    get: overrides.get ?? (async (id) => ({ trial: { ...RUNNING, id } })),
     start: overrides.start ?? (async () => ({ trial: RUNNING, reused: false })),
     cancel:
       (overrides.cancel as (() => Promise<{ trial: ContentTrial }>) | undefined) ?? (async () => ({ trial: CANCELED })),
@@ -240,4 +258,135 @@ test("画面を閉じた後の応答は適用しない", async () => {
   slow.resolve(listResponse([SUCCEEDED]));
   assert.equal(await listed, false);
   assert.equal(view.changes.length, applied, "閉じた後に state を変えない");
+});
+
+test("続きのページは末尾に足し、hasMore が false になったら読まない", async () => {
+  const view = setup([
+    Promise.resolve(listResponse([SUCCEEDED], "cursor-1")),
+    Promise.resolve(listResponse([{ ...CANCELED, id: "trial-2" }], null)),
+  ]);
+  await view.controller.reload();
+  assert.equal(view.state().hasMore, true);
+  assert.equal(view.state().trials?.length, 1);
+
+  assert.equal(await view.controller.loadMore(), true);
+  assert.equal(view.state().hasMore, false);
+  assert.deepEqual(
+    view.state().trials?.map((trial) => trial.id),
+    ["trial-1", "trial-2"],
+    "古い行を末尾に足す（先頭ページを置き換えない）",
+  );
+  assert.equal(await view.controller.loadMore(), false, "続きが無ければ要求しない");
+});
+
+test("実行中のポーリングは running の行だけを取り、終端した行は詳細で確定させる", async () => {
+  // サーバーの行の状態。ポーリングの応答から消えたときだけ終端になる
+  let server: ContentTrial = { ...RUNNING };
+  const view = setup([Promise.resolve(listResponse([])), Promise.resolve(listResponse([RUNNING]))], {
+    listRunning: async () => listResponse(server.state === "running" ? [server] : []),
+    get: async (id) => ({ trial: { ...server, id } }),
+  });
+  await view.controller.reload();
+
+  // 一覧で実行中の行を積む（開始の応答と同じ経路）
+  await view.controller.start({ kind: "image", model: RUNNING.model, prompt: RUNNING.prompt });
+  await flush();
+  view.controller.select(RUNNING.id);
+  await flush();
+  assert.equal(view.state().running, true);
+  assert.equal(view.state().detail?.state, "running");
+
+  // running の応答から消えたら、全文を取って終端に確定させる（実行中のまま残さない）
+  server = { ...SUCCEEDED };
+  await view.controller.poll();
+  assert.equal(view.state().trials?.[0]?.state, "succeeded");
+  assert.equal(view.state().running, false);
+  assert.equal(view.state().detail?.state, "succeeded", "選択行の全文も追随する");
+});
+
+test("実行中のポーリングは、別の種別の実行中の行を重ねる（タブの印とポーリングを止めない）", async () => {
+  const speechRunning: ContentTrial = { ...RUNNING, id: "trial-speech", kind: "speech" };
+  const view = setup([Promise.resolve(listResponse([SUCCEEDED]))], {
+    listRunning: async () => listResponse([speechRunning]),
+  });
+  await view.controller.reload();
+  assert.deepEqual(
+    view.state().trials?.map((trial) => trial.id),
+    ["trial-speech", "trial-1"],
+    "別種別の実行中の行を先頭に重ねる",
+  );
+  assert.equal(view.state().running, true);
+});
+
+test("削除済みの行が実行中の応答から消えたら、詳細の 404 で一覧から落とす", async () => {
+  const view = setup([], {
+    listRunning: async () => listResponse([]),
+    get: async () => {
+      throw new Error("404");
+    },
+  });
+  await view.controller.reload();
+  await view.controller.start({ kind: "image", model: RUNNING.model, prompt: RUNNING.prompt });
+  await flush();
+  await view.controller.poll();
+  assert.deepEqual(view.state().trials, []);
+});
+
+test("選択した行の全文は 1 回だけ取り、同じ行を選び直しても取り直さない", async () => {
+  let reads = 0;
+  const view = setup([Promise.resolve(listResponse([SUCCEEDED]))], {
+    get: async (id) => {
+      reads += 1;
+      return { trial: { ...SUCCEEDED, id } };
+    },
+  });
+  await view.controller.reload();
+  view.controller.select(SUCCEEDED.id);
+  await flush();
+  assert.equal(view.state().detail?.id, SUCCEEDED.id);
+  assert.equal(view.state().detail?.prompt, SUCCEEDED.prompt);
+  assert.equal(await view.controller.loadDetail(SUCCEEDED.id), view.state().detail, "控えを返す");
+  view.controller.select(null);
+  assert.equal(view.state().detail, null);
+  assert.equal(reads, 1);
+});
+
+test("選択行の全文はポーリングでも取り直す（終端を記録できていなかった行が回復する）", async () => {
+  const unrecorded: ContentTrial = { ...SUCCEEDED, recorded: false };
+  let server: ContentTrial = { ...RUNNING };
+  const view = setup([Promise.resolve(listResponse([RUNNING]))], {
+    listRunning: async () => listResponse([]),
+    get: async (id) => ({ trial: { ...server, id } }),
+  });
+  await view.controller.reload();
+  view.controller.select(RUNNING.id);
+  await flush();
+  assert.equal(view.state().detail?.recorded, true);
+
+  // 終端の記録に失敗している間は recorded: false、DB が回復したら次のポーリングで true に戻る
+  server = unrecorded;
+  await view.controller.poll();
+  assert.equal(view.state().detail?.recorded, false);
+  server = { ...SUCCEEDED };
+  await view.controller.poll();
+  assert.equal(view.state().detail?.recorded, true);
+});
+
+test("一覧は開いている種別で絞り、種別が変わったらその種別で取り直す", async () => {
+  const queries: (string | undefined)[] = [];
+  const view = setup([], {
+    list: async (query) => {
+      queries.push(query.kind);
+      return listResponse([]);
+    },
+  });
+  await view.controller.open("image");
+  view.controller.setKind("speech");
+  await flush();
+  // 同じ種別をもう一度指定しても取り直さない
+  view.controller.setKind("speech");
+  await flush();
+  view.controller.setKind(null);
+  await flush();
+  assert.deepEqual(queries, ["image", "speech", undefined], "種別を絞らないときは kind を送らない");
 });

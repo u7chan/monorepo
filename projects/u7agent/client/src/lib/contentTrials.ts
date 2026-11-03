@@ -3,7 +3,7 @@
  * 状態ラベル・証拠の判定・タブの印の優先順位・履歴の行をテストできるようにする。
  */
 import type { ContentSubsection } from "./settingsNav";
-import type { ContentTrial, ContentTrialStateValue, CreateContentTrialBody } from "../types";
+import type { ContentTrial, ContentTrialStateValue, ContentTrialSummary, CreateContentTrialBody } from "../types";
 import { speechSpeed } from "./contentSettings";
 import { messageTimeLabel, yearMonthLabel, type MessageTimeOptions } from "./messageTime";
 import { formatDurationMs } from "./usageFormat";
@@ -68,7 +68,7 @@ export type TrialEvidence =
  * 旧キー・別モデル・別ボイスの実績は履歴にだけ残し、現在の証拠にしない。
  */
 export function trialEvidence(input: {
-  trials: readonly ContentTrial[];
+  trials: readonly ContentTrialSummary[];
   currentKeyEpoch: number;
   currentModel: string;
   /** 音声はボイスも一致する実績だけを現在の証拠にする。画像は undefined */
@@ -81,7 +81,7 @@ export function trialEvidence(input: {
       trial.model === input.currentModel &&
       (input.currentVoice === undefined || voiceKey(trial.voice) === voiceKey(input.currentVoice)),
   );
-  const at = (trial: ContentTrial): number => trial.finishedAt ?? trial.startedAt;
+  const at = (trial: ContentTrialSummary): number => trial.finishedAt ?? trial.startedAt;
   // 段階 2 以降の証拠は「保存済みの成果物がある成功」だけを数える。段階 1 の `none` 行は履歴にだけ残す
   const succeeded = current
     .filter((trial) => trial.state === "succeeded" && trial.artifactState === "stored")
@@ -132,7 +132,8 @@ export interface TrialHistoryRow {
   voice: string | null;
   durationLabel: string;
   keyEpochLabel: string | null;
-  prompt: string;
+  /** 本文の抜粋。全文は選択時の `GET /trials/:id` で取る */
+  promptPreview: string;
   failureLabel: string | null;
   at: number;
   /** 保存済みの成果物の配信 URL。保存していない行（段階 1 の `none`）は null */
@@ -143,7 +144,7 @@ export interface TrialHistoryRow {
   chargedWithoutArtifact: boolean;
 }
 
-export function trialHistoryRow(trial: ContentTrial, currentKeyEpoch: number): TrialHistoryRow {
+export function trialHistoryRow(trial: ContentTrialSummary, currentKeyEpoch: number): TrialHistoryRow {
   return {
     id: trial.id,
     state: trial.state,
@@ -152,7 +153,7 @@ export function trialHistoryRow(trial: ContentTrial, currentKeyEpoch: number): T
     voice: trial.voice,
     durationLabel: trialDurationLabel(trial.durationMs),
     keyEpochLabel: trial.keyEpoch < currentKeyEpoch ? `旧キー（世代 ${trial.keyEpoch}）` : null,
-    prompt: trial.prompt,
+    promptPreview: trial.promptPreview,
     // 分類を出すのは失敗だけ。中止（利用者の操作）や中断（再起動）を失敗の分類として見せない
     failureLabel: trial.state === "failed" ? trialFailureLabel(trial.failureCode) : null,
     at: trial.finishedAt ?? trial.startedAt,
@@ -183,7 +184,7 @@ export function trialPanelState(input: {
   enabled: boolean;
   /** 音声の同期が確認できていない。画像の面では常に true */
   synced: boolean;
-  trials: readonly ContentTrial[];
+  trials: readonly ContentTrialSummary[];
 }): TrialPanelState {
   if (!input.runtimeAvailable) return "runtime_unavailable";
   if (!input.configured) return "unconfigured";
@@ -219,7 +220,7 @@ export function trialStartBlockedReason(input: {
 }
 
 /** 種別の表示名。削除の注記など、画面の文言に使う */
-export function trialKindLabel(kind: ContentTrial["kind"]): string {
+export function trialKindLabel(kind: ContentTrialSummary["kind"]): string {
   if (kind === "speech") return "音声";
   if (kind === "bgm") return "BGM";
   return "画像";
@@ -229,7 +230,7 @@ export function trialKindLabel(kind: ContentTrial["kind"]): string {
  * 種別ごとの全削除の注記。消した件数は渡された種別の履歴だけを数えるため、
  * 文言にも種別を入れて「もう一方のタブの履歴は消えていない」ことが読み取れるようにする。
  */
-export function trialRemoveAllNote(kind: ContentTrial["kind"], removed: number): string {
+export function trialRemoveAllNote(kind: ContentTrialSummary["kind"], removed: number): string {
   const label = trialKindLabel(kind);
   return removed === 0
     ? `${label}の試行に削除できる履歴がありません（実行中の試行は残ります）。`
@@ -237,7 +238,7 @@ export function trialRemoveAllNote(kind: ContentTrial["kind"], removed: number):
 }
 
 /** 試行の種別と設定タブの対応。印はタブ単位で出す */
-export function trialKindSubsection(kind: ContentTrial["kind"]): ContentSubsection {
+export function trialKindSubsection(kind: ContentTrialSummary["kind"]): ContentSubsection {
   switch (kind) {
     case "image":
       return "image";
@@ -276,13 +277,13 @@ export function tabIndicator(input: {
  * 中止・中断は利用者の操作や再起動で終わった行なので、見ていないタブへ新しい結果として知らせない。
  */
 export function newlyFinishedKinds(input: {
-  previous: readonly ContentTrial[] | null;
-  next: readonly ContentTrial[];
+  previous: readonly ContentTrialSummary[] | null;
+  next: readonly ContentTrialSummary[];
   activeSubsection: ContentSubsection | null;
-}): ContentTrial["kind"][] {
+}): ContentTrialSummary["kind"][] {
   if (input.previous === null) return [];
   const wasRunning = new Set(input.previous.filter((trial) => trial.state === "running").map((trial) => trial.id));
-  const kinds = new Set<ContentTrial["kind"]>();
+  const kinds = new Set<ContentTrialSummary["kind"]>();
   for (const trial of input.next) {
     if (trial.state !== "succeeded" && trial.state !== "failed") continue;
     if (!wasRunning.has(trial.id)) continue;
@@ -294,17 +295,53 @@ export function newlyFinishedKinds(input: {
 }
 
 /** 実行中の試行が 1 件でもあるか。ポーリングの要否を決める */
-export function hasRunningTrial(trials: readonly ContentTrial[]): boolean {
+export function hasRunningTrial(trials: readonly ContentTrialSummary[]): boolean {
   return trials.some((trial) => trial.state === "running");
 }
 
+/**
+ * ポーリングで得た要約を、読み込み済みの一覧へ重ねる。**同じ id は差し替え**、一覧に無い行（別の種別や、
+ * 追加読み込み済みの古い行）は落とさず、新しい行だけを先頭に足す（新しい順を崩さない）。
+ * 実行中のポーリングは `running` の行だけを返すため、一覧をそのまま置き換えると履歴が消える。
+ */
+export function mergeTrialSummaries(
+  current: readonly ContentTrialSummary[],
+  incoming: readonly ContentTrialSummary[],
+): ContentTrialSummary[] {
+  const updated = new Map(incoming.map((trial) => [trial.id, trial]));
+  const known = new Set(current.map((trial) => trial.id));
+  const added = incoming.filter((trial) => !known.has(trial.id));
+  return [...added, ...current.map((trial) => updated.get(trial.id) ?? trial)];
+}
+
+/**
+ * 続きのページを末尾に足す。既にある行はその位置のまま差し替え、新しい行だけを後ろに足す
+ * （古いページを先頭へ持ち上げると、新しい順の並びが崩れる）。
+ */
+export function appendTrialSummaries(
+  current: readonly ContentTrialSummary[],
+  incoming: readonly ContentTrialSummary[],
+): ContentTrialSummary[] {
+  const updated = new Map(incoming.map((trial) => [trial.id, trial]));
+  const known = new Set(current.map((trial) => trial.id));
+  return [
+    ...current.map((trial) => updated.get(trial.id) ?? trial),
+    ...incoming.filter((trial) => !known.has(trial.id)),
+  ];
+}
+
+/** 設定タブの subsection から試行の種別へ。タブごとに一覧を 1 種別だけ取る */
+export function trialKindOfSubsection(subsection: ContentSubsection): ContentTrialSummary["kind"] {
+  return subsection;
+}
+
 /** 履歴に出す最新の試行。既定選択は最新 1 件 */
-export function latestTrial(trials: readonly ContentTrial[]): ContentTrial | null {
+export function latestTrial(trials: readonly ContentTrialSummary[]): ContentTrialSummary | null {
   return trials[0] ?? null;
 }
 
 /** 保存済みの成果物があるか。段階 1 の `none` 行は再生・ダウンロードの対象外 */
-export function hasStoredArtifact(trial: ContentTrial): boolean {
+export function hasStoredArtifact(trial: ContentTrialSummary): boolean {
   return trial.state === "succeeded" && trial.artifactState === "stored" && trial.artifact !== null;
 }
 
@@ -325,14 +362,14 @@ export function trialByteSizeLabel(bytes: number): string {
 const FORMAT_LABELS: Record<string, string> = { png: "PNG", jpeg: "JPEG", webp: "WebP", mp3: "MP3", wav: "WAV" };
 
 /** 実寸。保存時に読めなかった（寸法の無い）成果物は出さない */
-export function trialDimensionLabel(trial: ContentTrial): string | null {
+export function trialDimensionLabel(trial: ContentTrialSummary): string | null {
   const artifact = trial.artifact;
   if (!artifact || artifact.width === null || artifact.height === null) return null;
   return `${artifact.width} × ${artifact.height}`;
 }
 
 /** 形式・実寸・サイズの 1 行。成果物が無い行は null（「記録のみ」は呼び出し側が出す） */
-export function trialArtifactSummary(trial: ContentTrial): string | null {
+export function trialArtifactSummary(trial: ContentTrialSummary): string | null {
   const artifact = trial.artifact;
   if (!artifact) return null;
   const parts = [FORMAT_LABELS[artifact.format] ?? artifact.format.toUpperCase()];
@@ -346,10 +383,10 @@ export function trialArtifactSummary(trial: ContentTrial): string | null {
 export type TrialOutcomeFilter = "all" | "succeeded" | "failed";
 
 export function filteredTrials(input: {
-  trials: readonly ContentTrial[];
+  trials: readonly ContentTrialSummary[];
   model: string;
   outcome: TrialOutcomeFilter;
-}): ContentTrial[] {
+}): ContentTrialSummary[] {
   return input.trials.filter((trial) => {
     if (input.model !== "all" && trial.model !== input.model) return false;
     if (input.outcome === "all") return true;
@@ -359,7 +396,7 @@ export function filteredTrials(input: {
 }
 
 /** 履歴に出すモデルの選択肢。試行に出てきた値だけを新しい順で重複なく並べる */
-export function trialModelOptions(trials: readonly ContentTrial[]): string[] {
+export function trialModelOptions(trials: readonly ContentTrialSummary[]): string[] {
   return [...new Set(trials.map((trial) => trial.model))];
 }
 
@@ -367,7 +404,7 @@ export function trialModelOptions(trials: readonly ContentTrial[]): string[] {
 export interface TrialMonthGroup {
   key: string;
   label: string;
-  trials: ContentTrial[];
+  trials: ContentTrialSummary[];
 }
 
 /**
@@ -375,7 +412,7 @@ export interface TrialMonthGroup {
  * 半年前の行も別の月として残る。
  */
 export function groupTrialsByMonth(
-  trials: readonly ContentTrial[],
+  trials: readonly ContentTrialSummary[],
   options: MessageTimeOptions = {},
 ): TrialMonthGroup[] {
   const groups: TrialMonthGroup[] = [];
@@ -396,9 +433,9 @@ export function groupTrialsByMonth(
  * ビューポートに出す試行。選択中の id が一覧に無ければ（削除・別種別へ切替）最新へ戻す。
  */
 export function selectedTrial(input: {
-  trials: readonly ContentTrial[];
+  trials: readonly ContentTrialSummary[];
   selectedId: string | null;
-}): ContentTrial | null {
+}): ContentTrialSummary | null {
   if (input.selectedId !== null) {
     const found = input.trials.find((trial) => trial.id === input.selectedId);
     if (found) return found;

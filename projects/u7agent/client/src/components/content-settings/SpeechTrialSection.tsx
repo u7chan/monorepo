@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   filteredTrials,
   groupTrialsByMonth,
@@ -26,6 +26,7 @@ import type {
   ContentSettingsResponse,
   ContentTrial,
   ContentTrialArtifactUsageValue,
+  ContentTrialSummary,
   CreateContentTrialBody,
   UpdateContentSpeechBody,
 } from "../../types";
@@ -54,7 +55,13 @@ export type SpeechTrialSectionProps = {
   model: string;
   /** 画面で選択中のボイス。モデルの宣言に応じた値（空文字は「指定なし」） */
   voice: string;
-  trials: readonly ContentTrial[] | null;
+  /** 一覧は要約（本文は抜粋）。選択行の全文は `detail` / `onLoadTrial` で取る */
+  trials: readonly ContentTrialSummary[] | null;
+  /** 選択中の試行の全文（取得中は null） */
+  detail: ContentTrial | null;
+  /** 続きのページがあるか */
+  hasMore: boolean;
+  loadingMore: boolean;
   keyEpoch: number;
   artifactUsage: ContentTrialArtifactUsageValue;
   note: { text: string; error: boolean } | null;
@@ -72,6 +79,12 @@ export type SpeechTrialSectionProps = {
   onCancel: (id: string) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onDeleteAll: () => Promise<boolean>;
+  /** 選択中の試行を画面へ知らせる（全文の取得は画面が行う） */
+  onChangeSelection: (id: string | null) => void;
+  /** 履歴の行の全文を取る（再実行・入力欄に戻すで使う） */
+  onLoadTrial: (id: string) => Promise<ContentTrial | null>;
+  /** 続きのページを読む */
+  onLoadMore: () => Promise<boolean>;
 };
 
 /**
@@ -84,6 +97,9 @@ export function SpeechTrialSection({
   model,
   voice,
   trials,
+  detail,
+  hasMore,
+  loadingMore,
   keyEpoch,
   artifactUsage,
   note,
@@ -97,6 +113,9 @@ export function SpeechTrialSection({
   onCancel,
   onDelete,
   onDeleteAll,
+  onChangeSelection,
+  onLoadTrial,
+  onLoadMore,
 }: SpeechTrialSectionProps) {
   const [showAll, setShowAll] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -134,6 +153,12 @@ export function SpeechTrialSection({
   const visible = showAll ? filtered : filtered.slice(0, HISTORY_PREVIEW_COUNT);
   const groups = groupTrialsByMonth(visible);
   const filtering = modelFilter !== "all" || outcomeFilter !== "all";
+  // 選択行の全文は画面（controller）が取る。選ぶたびに 1 回だけ知らせる
+  const selectedKey = selected?.id ?? null;
+  useEffect(() => {
+    onChangeSelection(selectedKey);
+  }, [selectedKey, onChangeSelection]);
+  const selectedDetail = detail !== null && detail.id === selectedKey ? detail : null;
 
   /** 検証を通ったときだけ要求を出し、開始できたかを返す（別テイクの自動選択に使う） */
   const start = async (
@@ -273,6 +298,7 @@ export function SpeechTrialSection({
       {selected ? (
         <ResultViewport
           trial={selected}
+          detail={selectedDetail}
           currentKeyEpoch={keyEpoch}
           busy={busy}
           running={running !== null}
@@ -281,22 +307,17 @@ export function SpeechTrialSection({
           blockedReason={defaultBlockedReason}
           onMakeDefault={onMakeDefault}
           onDelete={onDelete}
-          onRestore={() => {
+          onRestore={async () => {
+            const full = await onLoadTrial(selected.id);
+            if (!full) return;
             setInputError(null);
-            onChangeDraft(speechTrialDraftOf(selected));
+            onChangeDraft(speechTrialDraftOf(full));
           }}
           onAnotherTake={async () => {
             // 始めた行をビューポートへ寄せる。開始できなければ選択を動かさない
-            const started = await start(
-              {
-                text: selected.prompt,
-                instructions: selected.instructions ?? "",
-                speed: selected.speed === null ? "" : String(selected.speed),
-              },
-              selected.model,
-              selected.voice ?? "",
-              "another-take",
-            );
+            const full = await onLoadTrial(selected.id);
+            if (!full) return;
+            const started = await start(speechTrialDraftOf(full), full.model, full.voice ?? "", "another-take");
             if (started) setSelectedId(null);
           }}
         />
@@ -314,6 +335,11 @@ export function SpeechTrialSection({
               {filtered.length > HISTORY_PREVIEW_COUNT || showAll ? (
                 <button type="button" className="btn-quiet" onClick={() => setShowAll((current) => !current)}>
                   {showAll ? "最新 3 件だけ表示" : "すべて見る"}
+                </button>
+              ) : null}
+              {hasMore ? (
+                <button type="button" className="btn-quiet" disabled={loadingMore} onClick={() => void onLoadMore()}>
+                  {loadingMore ? "読み込み中…" : "さらに読み込む"}
                 </button>
               ) : null}
               <button
@@ -427,6 +453,7 @@ function panelNote(panel: ReturnType<typeof trialPanelState>): string {
  */
 function ResultViewport({
   trial,
+  detail,
   currentKeyEpoch,
   busy,
   running,
@@ -438,7 +465,9 @@ function ResultViewport({
   onRestore,
   onAnotherTake,
 }: {
-  trial: ContentTrial;
+  trial: ContentTrialSummary;
+  /** 選択行の全文。取得中は null で、本文は抜粋・スナップショットは読み込み中として出す */
+  detail: ContentTrial | null;
   currentKeyEpoch: number;
   busy: boolean;
   running: boolean;
@@ -449,12 +478,13 @@ function ResultViewport({
   blockedReason: string | null;
   onMakeDefault: (input: UpdateContentSpeechBody) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
-  onRestore: () => void;
-  onAnotherTake: () => void;
+  onRestore: () => Promise<void>;
+  onAnotherTake: () => Promise<void>;
 }) {
   const row = trialHistoryRow(trial, currentKeyEpoch);
   const stored = hasStoredArtifact(trial);
-  const labels = speechTrialSnapshotLabels(trial);
+  // 演技指示は長いので一覧に載らない。全文を取れるまでは「読み込み中」と出す（指定なしと混同しない）
+  const labels = detail === null ? null : speechTrialSnapshotLabels(detail);
 
   return (
     <div className="grid gap-2 rounded-lg border border-line bg-soft p-3">
@@ -464,7 +494,7 @@ function ResultViewport({
           {row.stateLabel}
         </span>
         <code className="text-2xs text-ink-ghost">{row.model}</code>
-        <span className="text-2xs text-ink-muted">ボイス: {labels.voice}</span>
+        <span className="text-2xs text-ink-muted">ボイス: {trial.voice ?? "モデル既定"}</span>
         <span className="text-2xs text-ink-muted">{row.durationLabel}</span>
         {row.keyEpochLabel ? <span className="text-2xs text-warn">{row.keyEpochLabel}</span> : null}
         {trial.recorded ? null : <span className="text-2xs text-warn">状態を記録できませんでした</span>}
@@ -503,9 +533,9 @@ function ResultViewport({
       ) : null}
 
       <div className="grid gap-0.5">
-        <p className="text-2xs break-words whitespace-pre-wrap text-ink">{row.prompt}</p>
+        <p className="text-2xs break-words whitespace-pre-wrap text-ink">{detail?.prompt ?? row.promptPreview}</p>
         <p className="text-2xs text-ink-muted">
-          演技指示: {labels.instructions} · 話速: {labels.speed}
+          演技指示: {labels?.instructions ?? "読み込み中…"} · 話速: {labels?.speed ?? "—"}
         </p>
       </div>
 
@@ -579,8 +609,8 @@ function HistoryListItem({
           <span className="text-2xs text-ink-muted">{row.durationLabel}</span>
           {row.keyEpochLabel ? <span className="text-2xs text-warn">{row.keyEpochLabel}</span> : null}
         </span>
-        <span className="min-w-0 truncate text-2xs text-ink" title={row.prompt}>
-          {row.prompt}
+        <span className="min-w-0 truncate text-2xs text-ink" title={row.promptPreview}>
+          {row.promptPreview}
         </span>
         {row.artifactLabel ? <span className="text-2xs text-ink-faint">{row.artifactLabel}</span> : null}
         {row.failureLabel ? <span className="text-2xs text-warn">{row.failureLabel}</span> : null}

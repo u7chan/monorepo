@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   evidenceNote,
   filteredTrials,
@@ -24,6 +24,7 @@ import type {
   ContentSettingsResponse,
   ContentTrial,
   ContentTrialArtifactUsageValue,
+  ContentTrialSummary,
   CreateContentTrialBody,
   UpdateContentImageBody,
 } from "../../types";
@@ -45,8 +46,13 @@ export type ImageTrialSectionProps = {
   settings: ContentSettingsResponse;
   /** 画面で選択中のモデル（下書き優先）。保存前でも画面の値で試行する */
   model: string;
-  /** 一覧を取得できていない間は null */
-  trials: readonly ContentTrial[] | null;
+  /** 一覧は要約（本文は抜粋）。選択行の全文は `detail` / `onLoadTrial` で取る */
+  trials: readonly ContentTrialSummary[] | null;
+  /** 選択中の試行の全文（取得中は null） */
+  detail: ContentTrial | null;
+  /** 続きのページがあるか */
+  hasMore: boolean;
+  loadingMore: boolean;
   /** 現在のキー世代。証拠と「旧キー」の判定に使う */
   keyEpoch: number;
   /** 保存容量（`succeeded` + 保存済みだけ）。一覧の取得前は 0 件 */
@@ -65,6 +71,12 @@ export type ImageTrialSectionProps = {
   onCancel: (id: string) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onDeleteAll: () => Promise<boolean>;
+  /** 選択中の試行を画面へ知らせる（全文の取得は画面が行う） */
+  onChangeSelection: (id: string | null) => void;
+  /** 履歴の行の全文を取る（再実行・入力欄に戻すで使う） */
+  onLoadTrial: (id: string) => Promise<ContentTrial | null>;
+  /** 続きのページを読む */
+  onLoadMore: () => Promise<boolean>;
 };
 
 /**
@@ -89,6 +101,12 @@ export function ImageTrialSection({
   onCancel,
   onDelete,
   onDeleteAll,
+  detail,
+  hasMore,
+  loadingMore,
+  onChangeSelection,
+  onLoadTrial,
+  onLoadMore,
 }: ImageTrialSectionProps) {
   const [showAll, setShowAll] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -122,6 +140,12 @@ export function ImageTrialSection({
   const visible = showAll ? filtered : filtered.slice(0, HISTORY_PREVIEW_COUNT);
   const groups = groupTrialsByMonth(visible);
   const filtering = modelFilter !== "all" || outcomeFilter !== "all";
+  // 選択行の全文は画面（controller）が取る。選ぶたびに 1 回だけ知らせる
+  const selectedKey = selected?.id ?? null;
+  useEffect(() => {
+    onChangeSelection(selectedKey);
+  }, [selectedKey, onChangeSelection]);
+  const selectedDetail = detail !== null && detail.id === selectedKey ? detail : null;
 
   return (
     <section className="grid min-w-0 gap-2 border-t border-line pt-3">
@@ -176,6 +200,7 @@ export function ImageTrialSection({
       {selected ? (
         <ResultViewport
           trial={selected}
+          detail={selectedDetail}
           currentKeyEpoch={keyEpoch}
           busy={busy}
           running={running !== null}
@@ -184,11 +209,16 @@ export function ImageTrialSection({
           blockedReason={defaultBlockedReason}
           onMakeDefault={onMakeDefault}
           onDelete={onDelete}
-          onRestorePrompt={() => onChangePrompt(selected.prompt)}
+          onRestorePrompt={async () => {
+            const full = await onLoadTrial(selected.id);
+            if (full) onChangePrompt(full.prompt);
+          }}
           onAnotherTake={async () => {
             // 始めた行をビューポートへ寄せる。開始できなければ選択を動かさない
+            const full = await onLoadTrial(selected.id);
+            if (!full) return;
             const started = await onStart(
-              imageTrialRequest({ model: selected.model, prompt: selected.prompt, origin: "another-take" }),
+              imageTrialRequest({ model: full.model, prompt: full.prompt, origin: "another-take" }),
             );
             if (started) setSelectedId(null);
           }}
@@ -207,6 +237,11 @@ export function ImageTrialSection({
               {filtered.length > HISTORY_PREVIEW_COUNT || showAll ? (
                 <button type="button" className="btn-quiet" onClick={() => setShowAll((current) => !current)}>
                   {showAll ? "最新 3 件だけ表示" : "すべて見る"}
+                </button>
+              ) : null}
+              {hasMore ? (
+                <button type="button" className="btn-quiet" disabled={loadingMore} onClick={() => void onLoadMore()}>
+                  {loadingMore ? "読み込み中…" : "さらに読み込む"}
                 </button>
               ) : null}
               <button
@@ -320,6 +355,7 @@ function panelNote(panel: ReturnType<typeof trialPanelState>): string {
  */
 function ResultViewport({
   trial,
+  detail,
   currentKeyEpoch,
   busy,
   running,
@@ -331,7 +367,9 @@ function ResultViewport({
   onRestorePrompt,
   onAnotherTake,
 }: {
-  trial: ContentTrial;
+  trial: ContentTrialSummary;
+  /** 選択行の全文。取得中は null で、本文は抜粋を出す */
+  detail: ContentTrial | null;
   currentKeyEpoch: number;
   busy: boolean;
   running: boolean;
@@ -342,8 +380,8 @@ function ResultViewport({
   blockedReason: string | null;
   onMakeDefault: (input: UpdateContentImageBody) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
-  onRestorePrompt: () => void;
-  onAnotherTake: () => void;
+  onRestorePrompt: () => Promise<void>;
+  onAnotherTake: () => Promise<void>;
 }) {
   const row = trialHistoryRow(trial, currentKeyEpoch);
   const stored = hasStoredArtifact(trial);
@@ -396,7 +434,7 @@ function ResultViewport({
         <p className="text-2xs text-warn">生成は課金されています。もう一度生成すると再課金されます。</p>
       ) : null}
 
-      <p className="text-2xs break-words whitespace-pre-wrap text-ink">{row.prompt}</p>
+      <p className="text-2xs break-words whitespace-pre-wrap text-ink">{detail?.prompt ?? row.promptPreview}</p>
 
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className="btn-quiet" disabled={busy} onClick={onRestorePrompt}>
@@ -472,8 +510,8 @@ function HistoryListItem({
           <span className="text-2xs text-ink-muted">{row.durationLabel}</span>
           {row.keyEpochLabel ? <span className="text-2xs text-warn">{row.keyEpochLabel}</span> : null}
         </span>
-        <span className="min-w-0 truncate text-2xs text-ink" title={row.prompt}>
-          {row.prompt}
+        <span className="min-w-0 truncate text-2xs text-ink" title={row.promptPreview}>
+          {row.promptPreview}
         </span>
         {row.artifactLabel ? <span className="text-2xs text-ink-faint">{row.artifactLabel}</span> : null}
         {row.failureLabel ? <span className="text-2xs text-warn">{row.failureLabel}</span> : null}
@@ -499,7 +537,7 @@ export function EvidenceLine({
   keyEpoch,
   now,
 }: {
-  trials: readonly ContentTrial[] | null;
+  trials: readonly ContentTrialSummary[] | null;
   /** 画面で選択中のモデル（下書き優先）。証拠はこのモデルの実績だけを数える */
   model: string;
   /** 音声はボイスも一致する実績だけを数える。画像は省略 */

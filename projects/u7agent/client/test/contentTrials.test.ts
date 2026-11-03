@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  appendTrialSummaries,
   BGM_TRIAL_PROMPT_MAX_LENGTH,
   bgmDurationLabel,
   bgmTrialInput,
@@ -15,6 +16,7 @@ import {
   imageTrialRequest,
   trialEvidence,
   latestTrial,
+  mergeTrialSummaries,
   newlyFinishedKinds,
   removeTrialThenRefresh,
   selectedTrial,
@@ -51,6 +53,7 @@ function trial(overrides: Partial<ContentTrial> = {}): ContentTrial {
     id: "trial-1",
     kind: "image",
     model: MODEL,
+    promptPreview: "a cat",
     prompt: "a cat",
     voice: null,
     instructions: null,
@@ -196,7 +199,7 @@ test("履歴の行は現在より古いキー世代を「旧キー」として�
   assert.equal(row.stateLabel, "成功");
   assert.equal(row.durationLabel, "11.0s");
   assert.equal(row.keyEpochLabel, "旧キー（世代 1）");
-  assert.equal(row.prompt, "a cat");
+  assert.equal(row.promptPreview, "a cat");
   assert.equal(trialHistoryRow(trial({ keyEpoch: 2 }), 2).keyEpochLabel, null);
 });
 
@@ -718,4 +721,36 @@ test("BGM の実測尺は読めた秒数だけを出し、未読は — にす�
   assert.equal(bgmDurationLabel(Number.NaN), "—");
   assert.equal(bgmDurationLabel(12.34), "12.3 秒");
   assert.equal(bgmDurationLabel(30), "30.0 秒");
+});
+
+test("実行中の応答は同じ id を差し替え、一覧に無い行だけを先頭に足す", () => {
+  const newer = trial({ id: "trial-new", state: "running", finishedAt: null, durationMs: null });
+  const merged = mergeTrialSummaries(
+    [trial(), trial({ id: "trial-old", startedAt: 1 })],
+    [{ ...trial({ state: "running", finishedAt: null }), state: "running" }, newer],
+  );
+  assert.deepEqual(
+    merged.map((row) => [row.id, row.state]),
+    [
+      ["trial-new", "running"],
+      ["trial-1", "running"],
+      ["trial-old", "succeeded"],
+    ],
+    "差し替えは位置を保ち、新しい行だけを先頭に足す",
+  );
+});
+
+test("続きのページは末尾に足し、重複した行は位置を保って差し替える", () => {
+  const appended = appendTrialSummaries(
+    [trial(), trial({ id: "trial-2", startedAt: 500 })],
+    [{ ...trial({ id: "trial-2", startedAt: 500 }), state: "canceled" }, trial({ id: "trial-3", startedAt: 100 })],
+  );
+  assert.deepEqual(
+    appended.map((row) => [row.id, row.state]),
+    [
+      ["trial-1", "succeeded"],
+      ["trial-2", "canceled"],
+      ["trial-3", "succeeded"],
+    ],
+  );
 });

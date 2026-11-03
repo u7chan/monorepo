@@ -69,6 +69,9 @@ function render(
     subsection?: ContentSubsection;
     /** 試行の一覧と操作の状態 (画像の面だけが使う) */
     trials?: ContentTrial[];
+    /** 選択行の全文（未指定は先頭の行） */
+    trialDetail?: ContentTrial | null;
+    trialHasMore?: boolean;
     trialKeyEpoch?: number;
     trialArtifactUsage?: { count: number; bytes: number };
     /** 試行の操作の注記（試行の面の中だけに出す） */
@@ -95,6 +98,12 @@ function render(
         onRefreshSpeechCatalog: async () => true,
         speechSynced: options.speechSynced ?? true,
         trials: options.trials ?? [],
+        trialDetail: options.trialDetail ?? options.trials?.[0] ?? null,
+        trialHasMore: options.trialHasMore ?? false,
+        trialLoadingMore: false,
+        onSelectTrial: () => {},
+        onLoadTrial: async () => options.trials?.[0] ?? null,
+        onLoadMoreTrials: async () => true,
         trialKeyEpoch: options.trialKeyEpoch ?? 0,
         trialArtifactUsage: options.trialArtifactUsage ?? { count: 0, bytes: 0 },
         trialNote: options.trialNote ?? null,
@@ -434,6 +443,7 @@ const TRIAL_BASE: ContentTrial = {
   id: "trial-1",
   kind: "image",
   model: "openrouter/openai/gpt-image-2",
+  promptPreview: "a cat on a sofa",
   prompt: "a cat on a sofa",
   voice: null,
   instructions: null,
@@ -669,6 +679,7 @@ const SPEECH_TRIAL_BASE: ContentTrial = {
   id: "trial-speech-1",
   kind: "speech",
   model: "google/gemini-3.8-flash-tts",
+  promptPreview: "おはようございます",
   prompt: "おはようございます",
   voice: "Aoede",
   instructions: "落ち着いた声で",
@@ -850,6 +861,7 @@ const BGM_TRIAL_BASE: ContentTrial = {
   id: "trial-bgm-1",
   kind: "bgm",
   model: "google/lyria-3-clip-preview",
+  promptPreview: "夜の高速道路を走る軽快なシンセポップ",
   prompt: "夜の高速道路を走る軽快なシンセポップ",
   voice: null,
   instructions: null,
@@ -950,4 +962,23 @@ test("BGM の試行の面には実 API 受入済みのため「試験的」を�
     subsection: "bgm",
   });
   assert.equal(unset.includes("試験的"), false, "未設定の履歴表示でも出さない");
+});
+
+test("一覧の行は本文の抜粋を出し、選んだ行の全文は詳細から出す", () => {
+  const short: ContentTrial = { ...TRIAL_BASE, promptPreview: "a cat on a sofa…" };
+  const long: ContentTrial = { ...short, prompt: "a cat on a sofa with a long tail and a red collar" };
+  // 全文を取得できていない間は抜粋だけを出す（全文を捏造しない）
+  const loading = render({ trials: [short], trialDetail: null });
+  assert.ok(loading.includes("a cat on a sofa…"));
+  assert.equal(loading.includes("with a long tail"), false);
+  // 全文を取得できたら、ビューポートは全文を出す
+  const loaded = render({ trials: [short], trialDetail: long });
+  assert.ok(loaded.includes("with a long tail"), "全文を出す");
+});
+
+test("続きのページがあるときだけ「さらに読み込む」を出す", () => {
+  const without = render({ trials: [TRIAL_BASE] });
+  assert.equal(without.includes("さらに読み込む"), false);
+  const withMore = render({ trials: [TRIAL_BASE], trialHasMore: true });
+  assert.ok(withMore.includes("さらに読み込む"), "続きがあることを出す");
 });

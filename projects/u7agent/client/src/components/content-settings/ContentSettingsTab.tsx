@@ -25,6 +25,7 @@ import type { ContentSubsection } from "../../lib/settingsNav";
 import type {
   ContentSettingsResponse,
   ContentTrial,
+  ContentTrialSummary,
   ContentTrialArtifactUsageValue,
   CreateContentTrialBody,
   UpdateContentImageBody,
@@ -62,8 +63,19 @@ export type ContentSettingsTabProps = {
   onRefreshSpeechCatalog: () => Promise<boolean>;
   /** 音声の表示が server の実効値と一致しているか。false の間は保存を止める */
   speechSynced: boolean;
-  /** 試行ジョブの一覧（取得前は null）。画像の面だけが使う */
-  trials: readonly ContentTrial[] | null;
+  /** 試行の一覧（要約。取得前は null）。表示する種別はタブが決める */
+  trials: readonly ContentTrialSummary[] | null;
+  /** 選択中の試行の全文（取得中は null） */
+  trialDetail: ContentTrial | null;
+  /** 続きのページがあるか */
+  trialHasMore: boolean;
+  trialLoadingMore: boolean;
+  /** 選択行を画面へ知らせる（全文の取得は画面が行う） */
+  onSelectTrial: (id: string | null) => void;
+  /** 履歴の行の全文を取る（再実行・入力欄に戻す） */
+  onLoadTrial: (id: string) => Promise<ContentTrial | null>;
+  /** 続きのページを読む */
+  onLoadMoreTrials: () => Promise<boolean>;
   /** 保存容量（`succeeded` + 保存済みだけ）。画像の面の履歴に出す */
   trialArtifactUsage: ContentTrialArtifactUsageValue;
   /** 試行の操作（開始 / 中断 / 削除 / 一覧の取得失敗）の注記。試行の面の中だけに出す */
@@ -97,6 +109,12 @@ export function ContentSettingsTab({
   onRefreshSpeechCatalog,
   speechSynced,
   trials,
+  trialDetail,
+  trialHasMore,
+  trialLoadingMore,
+  onSelectTrial,
+  onLoadTrial,
+  onLoadMoreTrials,
   trialArtifactUsage,
   trialNote,
   trialKeyEpoch,
@@ -286,11 +304,17 @@ export function ContentSettingsTab({
               settings={settings}
               model={screenModel}
               trials={trials}
+              detail={trialDetail}
+              hasMore={trialHasMore}
+              loadingMore={trialLoadingMore}
               keyEpoch={trialKeyEpoch}
               artifactUsage={trialArtifactUsage}
               note={trialNote}
               busy={trialBusy}
               settingsBusy={busy}
+              onChangeSelection={onSelectTrial}
+              onLoadTrial={onLoadTrial}
+              onLoadMore={onLoadMoreTrials}
               onMakeDefault={saveTrialModel}
               prompt={trialPrompt}
               onChangePrompt={setTrialPrompt}
@@ -324,12 +348,18 @@ export function ContentSettingsTab({
               model={speechSelectionOfScreen.selectedModel}
               voice={speechSelectionOfScreen.selectedVoice}
               trials={trials}
+              detail={trialDetail}
+              hasMore={trialHasMore}
+              loadingMore={trialLoadingMore}
               keyEpoch={trialKeyEpoch}
               artifactUsage={trialArtifactUsage}
               note={trialNote}
               busy={trialBusy}
               settingsBusy={busy}
               synced={speechSynced}
+              onChangeSelection={onSelectTrial}
+              onLoadTrial={onLoadTrial}
+              onLoadMore={onLoadMoreTrials}
               onMakeDefault={saveTrialSpeech}
               draft={speechTrialDraft}
               onChangeDraft={setSpeechTrialDraft}
@@ -349,12 +379,18 @@ export function ContentSettingsTab({
               settings={settings}
               model={settings.bgm.model ?? ""}
               trials={trials}
+              detail={trialDetail}
+              hasMore={trialHasMore}
+              loadingMore={trialLoadingMore}
               keyEpoch={trialKeyEpoch}
               artifactUsage={trialArtifactUsage}
               note={trialNote}
               busy={trialBusy}
               prompt={bgmTrialPrompt}
               onChangePrompt={setBgmTrialPrompt}
+              onChangeSelection={onSelectTrial}
+              onLoadTrial={onLoadTrial}
+              onLoadMore={onLoadMoreTrials}
               onStart={onStartTrial}
               onCancel={onCancelTrial}
               onDelete={onDeleteTrial}
@@ -398,7 +434,7 @@ function BgmModelSection({
   now,
 }: {
   settings: ContentSettingsResponse;
-  trials: readonly ContentTrial[] | null;
+  trials: readonly ContentTrialSummary[] | null;
   keyEpoch: number;
   now: number;
 }) {
@@ -448,7 +484,7 @@ function ImageModelSection({
   onChangeDraft: (draft: string | null) => void;
   onSave: (input: UpdateContentImageBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
-  trials: readonly ContentTrial[] | null;
+  trials: readonly ContentTrialSummary[] | null;
   trialKeyEpoch: number;
   trialNow: number;
 }) {
@@ -534,7 +570,7 @@ function SpeechModelSection({
   onRefresh: () => Promise<boolean>;
   /** 画面のモデル / ボイス。保存フォーム・証拠・試行で同じ解決を使う */
   selection: SpeechScreenSelection;
-  trials: readonly ContentTrial[] | null;
+  trials: readonly ContentTrialSummary[] | null;
   keyEpoch: number;
   trialNow: number;
 }) {
