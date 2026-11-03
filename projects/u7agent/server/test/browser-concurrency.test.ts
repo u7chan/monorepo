@@ -691,6 +691,43 @@ test("取得の途中で index が消えても、旧形式のファイルと同�
   });
 });
 
+// 解放は空になった `<root>/slots` 自体を消す (実行後に置き場が空であることを probe が要求する)。
+// What: index 0 を生きた所有者が持つ状態で、その生存確認の間に `slots` が消えても、例外を投げずに
+// 空いている index へ入場する (親が消えている = その下に枠は無い)。
+test("入場の途中で slots が消えても、例外を投げずに空き index へ入場できる", async () => {
+  await withRoot(async (root) => {
+    const live = { pid: 1002, startedAtMs: STARTED_AT };
+    await putLease(root, 0, live);
+    const readStartedAt: ProcessStartTimeReader = async (pid) => {
+      if (pid === live.pid) await rm(slotsDir(root), { recursive: true, force: true });
+      return pid === live.pid || pid === 1001 ? STARTED_AT : undefined;
+    };
+    const slot = await acquireConcurrencySlot({ root, limit: 2, pid: 1001, readStartedAt });
+    assert.equal(slot.index, 1, "生存中の index 0 を飛ばし、消えた親を作り直して index 1 を取る");
+    assert.deepEqual(await leaseOwners(root, 1), [callDirName({ pid: 1001, startedAtMs: STARTED_AT })]);
+    await slot.release();
+    assert.deepEqual(await readdir(root), [], "解放後は残骸が無い");
+  });
+});
+
+// What: 削除が index の試行の途中 (終了済みの枠を引き継ぐ直前) に来ても、試行回数を使い切らずに
+// 空いている index へ入場する。
+test("index の試行の途中で slots が消えても、試行回数を使い切らずに入場できる", async () => {
+  await withRoot(async (root) => {
+    const ended = { pid: 1002, startedAtMs: STARTED_AT };
+    await putLease(root, 0, ended);
+    const readStartedAt: ProcessStartTimeReader = async (pid) => {
+      if (pid === ended.pid) await rm(slotsDir(root), { recursive: true, force: true });
+      return pid === 1001 ? STARTED_AT : undefined;
+    };
+    const slot = await acquireConcurrencySlot({ root, limit: 2, pid: 1001, readStartedAt });
+    assert.equal(slot.index, 1, "引き継ぎに敗れた後も、消えた親を作り直して index 1 を取る");
+    assert.deepEqual(await leaseOwners(root, 1), [callDirName({ pid: 1001, startedAtMs: STARTED_AT })]);
+    await slot.release();
+    assert.deepEqual(await readdir(root), [], "解放後は残骸が無い");
+  });
+});
+
 test("解放が重なっても枠が壊れず、空いた index を次の呼び出しが使える", async () => {
   await withRoot(async (root) => {
     const readStartedAt = reader({ 1001: STARTED_AT, 1002: STARTED_AT, 1003: STARTED_AT, 1004: STARTED_AT });
