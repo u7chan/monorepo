@@ -134,7 +134,10 @@ export function BgmTrialSection({
   };
 
   return (
-    <TrialSection description="固定モデルで生成だけを試します。保存する設定はありません。送ったプロンプトと結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。">
+    <TrialSection
+      artifactUsage={artifactUsage}
+      description="固定モデルで生成だけを試します。保存する設定はありません。送ったプロンプトと結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。"
+    >
       <label className="grid min-w-0 gap-1">
         <span className="text-2xs text-ink-muted">プロンプト（履歴に保存されます）</span>
         <textarea
@@ -205,13 +208,7 @@ export function BgmTrialSection({
           loadingMore={loadingMore}
           busy={busy}
           deletable={list.some((trial) => trial.state !== "running")}
-          filters={
-            <TrialHistoryFilters
-              outcomeFilter={outcomeFilter}
-              onChangeOutcome={setOutcomeFilter}
-              artifactUsage={artifactUsage}
-            />
-          }
+          filters={<TrialHistoryFilters outcomeFilter={outcomeFilter} onChangeOutcome={setOutcomeFilter} />}
           onToggleShowAll={() => setShowAll((current) => !current)}
           onLoadMore={() => void onLoadMore()}
           onDeleteAll={() => void onDeleteAll()}

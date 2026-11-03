@@ -1,13 +1,12 @@
 import type { ReactNode } from "react";
 import {
   trialStateLabel,
-  trialStorageNote,
   type TrialHistoryRow,
   type TrialMonthGroup,
   type TrialOutcomeFilter,
 } from "../../lib/contentTrials";
 import { cn } from "../../lib/cn";
-import type { ContentTrialArtifactUsageValue, ContentTrialSummary } from "../../types";
+import type { ContentTrialSummary } from "../../types";
 import { TrashIcon } from "../icons";
 
 /** 履歴の既定表示件数。全件は「すべて見る」で開く（時間ベースの自動削除はしない） */
@@ -21,8 +20,8 @@ export const TRIAL_OUTCOME_OPTIONS: { value: TrialOutcomeFilter; label: string }
 ];
 
 /**
- * 履歴の絞り込みと保存容量。モデルの絞り込みは固定モデルの面（BGM）では渡さない。
- * 容量は 3 タブの合計なので、どの面でも同じ 1 行を出す。
+ * 履歴の絞り込み。モデルの絞り込みは固定モデルの面（BGM）では渡さない。
+ * 保存容量はここではなく `TrialSection` が出す（履歴が 0 件でも読めるように）。
  */
 export function TrialHistoryFilters({
   models,
@@ -30,7 +29,6 @@ export function TrialHistoryFilters({
   onChangeModel,
   outcomeFilter,
   onChangeOutcome,
-  artifactUsage,
 }: {
   /** 履歴に出てきたモデル。固定モデルの面は省略する */
   models?: readonly string[];
@@ -38,7 +36,6 @@ export function TrialHistoryFilters({
   onChangeModel?: (model: string) => void;
   outcomeFilter: TrialOutcomeFilter;
   onChangeOutcome: (outcome: TrialOutcomeFilter) => void;
-  artifactUsage: ContentTrialArtifactUsageValue;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -75,7 +72,6 @@ export function TrialHistoryFilters({
           ))}
         </select>
       </label>
-      <span className="text-2xs text-ink-faint">{trialStorageNote(artifactUsage)}</span>
     </div>
   );
 }

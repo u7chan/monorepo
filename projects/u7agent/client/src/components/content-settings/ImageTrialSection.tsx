@@ -139,7 +139,10 @@ export function ImageTrialSection({
   const stored = selected !== null && hasStoredArtifact(selected);
 
   return (
-    <TrialSection description="画面の値で生成だけを試します。モデルの保存値は変えません。送ったプロンプトと結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。">
+    <TrialSection
+      artifactUsage={artifactUsage}
+      description="画面の値で生成だけを試します。モデルの保存値は変えません。送ったプロンプトと結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。"
+    >
       <label className="grid min-w-0 gap-1">
         <span className="text-2xs text-ink-muted">プロンプト（履歴に保存されます）</span>
         <textarea
@@ -234,7 +237,6 @@ export function ImageTrialSection({
               onChangeModel={setModelFilter}
               outcomeFilter={outcomeFilter}
               onChangeOutcome={setOutcomeFilter}
-              artifactUsage={artifactUsage}
             />
           }
           onToggleShowAll={() => setShowAll((current) => !current)}

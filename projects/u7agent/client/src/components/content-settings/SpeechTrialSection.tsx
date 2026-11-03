@@ -172,7 +172,10 @@ export function SpeechTrialSection({
   };
 
   return (
-    <TrialSection description="画面の値で生成だけを試します。モデルとボイスの保存値は変えません。送った本文・演技指示・話速と結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。">
+    <TrialSection
+      artifactUsage={artifactUsage}
+      description="画面の値で生成だけを試します。モデルとボイスの保存値は変えません。送った本文・演技指示・話速と結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。"
+    >
       <label className="grid min-w-0 gap-1">
         <span className="text-2xs text-ink-muted">読み上げる文章（履歴に保存されます）</span>
         <textarea
@@ -327,7 +330,6 @@ export function SpeechTrialSection({
               onChangeModel={setModelFilter}
               outcomeFilter={outcomeFilter}
               onChangeOutcome={setOutcomeFilter}
-              artifactUsage={artifactUsage}
             />
           }
           onToggleShowAll={() => setShowAll((current) => !current)}

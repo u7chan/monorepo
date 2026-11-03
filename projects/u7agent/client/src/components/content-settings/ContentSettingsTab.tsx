@@ -76,7 +76,7 @@ export type ContentSettingsTabProps = {
   onLoadTrial: (id: string) => Promise<ContentTrial | null>;
   /** 続きのページを読む */
   onLoadMoreTrials: () => Promise<boolean>;
-  /** 保存容量（`succeeded` + 保存済みだけ）。画像の面の履歴に出す */
+  /** 保存容量（`succeeded` + 保存済みだけ）。3 タブの合計で、画像 / 音声 / BGM の試行の面に出す */
   trialArtifactUsage: ContentTrialArtifactUsageValue;
   /** 試行の操作（開始 / 中断 / 削除 / 一覧の取得失敗）の注記。試行の面の中だけに出す */
   trialNote: { text: string; error: boolean } | null;

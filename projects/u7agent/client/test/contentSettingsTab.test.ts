@@ -971,6 +971,17 @@ test("保存見出し・試行の見出し・保存容量・課金の注記は 3
   }
 });
 
+test("履歴が 0 件でも 3 タブに保存容量を出し、履歴の見出しと絞り込みは出さない", () => {
+  // 容量は 3 タブの合計で、履歴の有無とは別に読める必要がある（新規ストアでは 0 件から始まる）
+  for (const subsection of ["image", "speech", "bgm"] as const) {
+    const html = render({ subsection, trials: [] });
+    assert.ok(html.includes("保存容量: 0 件 · 0 B（画像・音声・BGM で共通）"), `${subsection}: 0 件でも容量を出す`);
+    assert.ok(html.includes("まだ試行の履歴はありません。"), `${subsection}: 空の案内と重ねて出す`);
+    assert.equal(html.includes("履歴（"), false, `${subsection}: 履歴が無ければ件数の見出しは出さない`);
+    assert.equal(html.includes("履歴の成功失敗の絞り込み"), false, `${subsection}: 絞り込みも出さない`);
+  }
+});
+
 test("BGM の試行の面には実 API 受入済みのため「試験的」を出さない", () => {
   const bgm = render({ subsection: "bgm", trials: [BGM_TRIAL_BASE] });
   assert.equal(bgm.includes("試験的"), false, "受入済みなので試験的を出さない");
