@@ -740,3 +740,93 @@ test("キー未設定でも音声の試行の履歴と再生を出し、新規�
   assert.equal(html.includes('aria-label="音声生成のモデル"'), false, "保存される設定は出さない");
   assert.equal(html.includes('aria-label="音声生成のボイス"'), false, "保存されるボイス欄も出さない");
 });
+
+const BGM_TRIAL_BASE: ContentTrial = {
+  id: "trial-bgm-1",
+  kind: "bgm",
+  model: "google/lyria-3-clip-preview",
+  prompt: "夜の高速道路を走る軽快なシンセポップ",
+  voice: null,
+  instructions: null,
+  speed: null,
+  state: "succeeded",
+  keyEpoch: 0,
+  artifactState: "stored",
+  artifact: { format: "mp3", bytes: 6_144, width: null, height: null },
+  charged: true,
+  failureCode: null,
+  failureMessage: null,
+  startedAt: 1_000,
+  finishedAt: 12_000,
+  durationMs: 11_000,
+  recorded: true,
+};
+
+test("BGM の面は固定モデルと試行の入力・再生・履歴を出し、モデル選択と長さの指定は出さない", () => {
+  const html = render({ subsection: "bgm", trials: [BGM_TRIAL_BASE] });
+  // 保存される設定はモデルの読取専用 1 行だけ（Issue の非ゴール: モデル選択を持たない）
+  assert.match(html, /aria-label="BGM生成の固定モデル"[^>]*readOnly=""/);
+  assert.equal((html.match(/<select/g) ?? []).length, 1, "履歴の結果の絞り込みだけを出す");
+  // 尺・BPM・ループの入力は持たない（注記で「保証しない」と伝えるだけ）
+  assert.equal(/aria-label="[^"]*(BPM|ループ|尺|長さ)/.test(html), false, "長さの指定は出さない");
+  assert.ok(html.includes("正確なBPMや尺・シームレスループは保証しません"), "保証しない旨は残す");
+  // 試行の面
+  assert.match(html, /<textarea[^>]*aria-label="試行のプロンプト"/, "プロンプトから試せる");
+  assert.ok(html.includes("課金される可能性"), "失敗しても課金される旨を残す");
+  assert.ok(html.includes("試行する"));
+  // 結果ビューポート（プレイヤー・固定モデル・目安尺・実測尺・導線）
+  assert.match(html, /<audio[^>]*src="\/api\/settings\/content\/trials\/trial-bgm-1\/raw"/);
+  assert.ok(html.includes("google/lyria-3-clip-preview"), "固定モデルを出す");
+  assert.ok(html.includes("モデル仕様の目安: 30 秒"), "目安尺を出す");
+  assert.ok(html.includes("実測: —"), "実測尺はブラウザーが読むまで出さない");
+  assert.ok(html.includes("MP3 · 6.0 KiB"));
+  assert.ok(html.includes('href="/api/settings/content/trials/trial-bgm-1/raw?download=1"'));
+  assert.ok(html.includes("入力欄に戻す"));
+  assert.ok(html.includes("別のテイクを生成"));
+  assert.ok(html.includes("同じプロンプトの保存済みの結果があるため、生成し直しても課金されません"));
+  assert.ok(html.includes("保存容量"), "画像・音声と同じ容量を出す");
+});
+
+test("BGM の履歴の行から同じプロンプトをもう一度試せる", () => {
+  const html = render({ subsection: "bgm", trials: [BGM_TRIAL_BASE] });
+  assert.ok(html.includes('aria-label="成功の試行をもう一度試す"'), "履歴の行に再試行を出す");
+  assert.ok(html.includes("もう一度試す"));
+  assert.ok(html.includes('aria-label="成功の試行を表示"'), "行を選ぶと結果が切り替わる");
+  // 実行中の行は再試行も削除もできない（種別ごとに同時 1 本）
+  const running = render({
+    subsection: "bgm",
+    trials: [{ ...BGM_TRIAL_BASE, state: "running", artifactState: "none", artifact: null, charged: false }],
+  });
+  assert.match(running, /<button[^>]*\sdisabled=""[^>]*aria-label="実行中の試行をもう一度試す"/);
+  assert.ok(running.includes("生成中です。送信したプロンプトを表示しています"));
+});
+
+test("BGM の面はキー未設定・全体 OFF でも履歴と再生を残し、新規生成だけを止める", () => {
+  for (const overrides of [
+    { configured: false, keyStored: false, keyAvailable: false, provider: null, image: { model: null } },
+    { enabled: false },
+  ]) {
+    const html = render({ ...overrides, subsection: "bgm", trials: [BGM_TRIAL_BASE] });
+    assert.ok(html.includes("設定に反映しない試行"), "試行の面は残す");
+    assert.match(html, /<audio[^>]*src="\/api\/settings\/content\/trials\/trial-bgm-1\/raw"/, "再生も残す");
+    assert.match(html, /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?試行する/, "新規生成は止める");
+  }
+  const unset = render({
+    configured: false,
+    keyStored: false,
+    keyAvailable: false,
+    provider: null,
+    image: { model: null },
+    subsection: "bgm",
+  });
+  assert.ok(unset.includes("APIキーが未設定です"), "未設定では履歴だけを見ていることを伝える");
+  assert.equal(unset.includes('aria-label="BGM生成の固定モデル"'), false, "保存される設定は出さない");
+});
+
+test("画像・音声・BGM の履歴は互いの面に出さない", () => {
+  const bgm = render({ subsection: "bgm", trials: [TRIAL_BASE, SPEECH_TRIAL_BASE] });
+  assert.equal(bgm.includes("a cat on a sofa"), false, "画像の履歴は BGM タブに出さない");
+  assert.equal(bgm.includes("おはようございます"), false, "音声の履歴も BGM タブに出さない");
+  const image = render({ trials: [BGM_TRIAL_BASE] });
+  assert.equal(image.includes("夜の高速道路を走る軽快なシンセポップ"), false, "BGM の履歴を画像タブに混ぜない");
+});

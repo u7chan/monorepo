@@ -1,12 +1,13 @@
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
+  acquireBgmGenerationSlot,
   bgmAbortable,
-  BGM_MAX_CONCURRENT,
   BGM_MODEL,
   BGM_PATH_MAX_LENGTH,
   BGM_PROMPT_MAX_LENGTH,
   BGM_TIMEOUT_MS,
+  releaseBgmGenerationSlot,
   type BgmGenerationInput,
   type BgmGenerationSettings,
 } from "./bgm";
@@ -40,8 +41,6 @@ const schema = Type.Object(
   },
   { additionalProperties: false },
 );
-
-let activeBgm = 0;
 
 export interface BgmToolDefinitionOptions {
   enabled: boolean;
@@ -116,8 +115,8 @@ export function createBgmToolDefinitions(options: BgmToolDefinitionOptions): Too
       if (!settings?.apiKey)
         throw new Error("BGM用の共有APIキーが未設定です。設定 → コンテンツ生成で登録してください（API未送信）");
       if (signal?.aborted) throw new Error("BGM生成を中断しました（API未送信）");
-      if (activeBgm >= BGM_MAX_CONCURRENT) throw new Error("BGMは同時に2件までです（API未送信）");
-      activeBgm += 1;
+      // 枠は設定画面の試行と同じもの。取れなければ送信せずに止める（キューは持たない）
+      if (!acquireBgmGenerationSlot()) throw new Error("BGMは同時に2件までです（API未送信）");
       const controller = new AbortController();
       const timeoutMs = options.timeoutMs ?? BGM_TIMEOUT_MS;
       const deadline = performance.now() + timeoutMs;
@@ -167,7 +166,7 @@ export function createBgmToolDefinitions(options: BgmToolDefinitionOptions): Too
         clearTimeout(timer);
         signal?.removeEventListener("abort", onAbort);
         controller.abort();
-        activeBgm -= 1;
+        releaseBgmGenerationSlot();
       }
     },
   };

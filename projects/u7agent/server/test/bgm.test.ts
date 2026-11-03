@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertBgmMp3, BGM_API_URL, BGM_LIMITS, BGM_MODEL, createBgmGenerator } from "../src/bgm";
+import {
+  acquireBgmGenerationSlot,
+  assertBgmMp3,
+  BGM_API_URL,
+  BGM_LIMITS,
+  BGM_MAX_CONCURRENT,
+  BGM_MODEL,
+  BgmGenerationError,
+  classifyBgmFailure,
+  createBgmGenerator,
+  releaseBgmGenerationSlot,
+} from "../src/bgm";
 import { createMutableSecretMasker } from "../src/redact";
 import { bgmAudio, bgmEvent, bgmStop, SYNTHETIC_BGM_SSE, SYNTHETIC_MP3 } from "./fixtures/bgm-sse";
 
@@ -229,4 +240,55 @@ test("ヘッダ待ちとSSE読取りの中断で、接続・readerを解放す�
   await assert.rejects(waiting, /stop reading/);
   assert.equal(canceled, 1);
   assert.equal(body.locked, false);
+});
+
+test("失敗は HTTP 状態を構造で持ち、provider-failure の分類へ写せる", async () => {
+  const unauthorized = createBgmGenerator({
+    fetchImpl: async () => new Response('{"error":{"message":"invalid key"}}', { status: 401 }),
+  });
+  await assert.rejects(
+    unauthorized.generate(input()),
+    (error: Error) => error instanceof BgmGenerationError && error.status === 401,
+  );
+  const classified = classifyBgmFailure({
+    error: new BgmGenerationError("BGM HTTP 401: invalid key", 401),
+    timedOut: false,
+    aborted: false,
+    maskText: (text) => text,
+  });
+  assert.equal(classified.code, "invalid_key");
+
+  // 期限と中断は呼び出し側が観測した値を優先する（生成器はタイマーを持たない）
+  assert.equal(
+    classifyBgmFailure({ error: new Error("stop"), timedOut: true, aborted: false, maskText: (text) => text }).code,
+    "timeout",
+  );
+  assert.equal(
+    classifyBgmFailure({ error: new Error("stop"), timedOut: false, aborted: true, maskText: (text) => text }).code,
+    "aborted",
+  );
+  // 分類できない失敗は provider の文言を添え、マスカーを通す
+  const unknown = classifyBgmFailure({
+    error: new BgmGenerationError("BGMのSSEが途中で切断されました"),
+    timedOut: false,
+    aborted: false,
+    maskText: (text) => text.split(key).join("[REDACTED]"),
+  });
+  assert.equal(unknown.code, "unknown");
+  assert.match(unknown.message, /途中で切断/);
+});
+
+test("同時実行枠はモジュールで共有し、上限を超えた取得を拒否する", () => {
+  const acquired = Array.from({ length: BGM_MAX_CONCURRENT }, () => acquireBgmGenerationSlot());
+  assert.deepEqual(
+    acquired,
+    Array.from({ length: BGM_MAX_CONCURRENT }, () => true),
+  );
+  assert.equal(acquireBgmGenerationSlot(), false);
+  releaseBgmGenerationSlot();
+  assert.equal(acquireBgmGenerationSlot(), true);
+  // 取りすぎた返却で枠が負にならない
+  for (let index = 0; index < BGM_MAX_CONCURRENT + 3; index += 1) releaseBgmGenerationSlot();
+  assert.equal(acquireBgmGenerationSlot(), true);
+  releaseBgmGenerationSlot();
 });

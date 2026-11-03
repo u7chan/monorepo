@@ -220,7 +220,9 @@ export function trialStartBlockedReason(input: {
 
 /** 種別の表示名。削除の注記など、画面の文言に使う */
 export function trialKindLabel(kind: ContentTrial["kind"]): string {
-  return kind === "speech" ? "音声" : "画像";
+  if (kind === "speech") return "音声";
+  if (kind === "bgm") return "BGM";
+  return "画像";
 }
 
 /**
@@ -241,6 +243,8 @@ export function trialKindSubsection(kind: ContentTrial["kind"]): ContentSubsecti
       return "image";
     case "speech":
       return "speech";
+    case "bgm":
+      return "bgm";
   }
 }
 
@@ -497,4 +501,36 @@ export function speechTrialSnapshotLabels(trial: Pick<ContentTrial, "voice" | "i
     instructions: trial.instructions ?? "指定なし",
     speed: trial.speed === null ? "モデル既定" : `${trial.speed} 倍`,
   };
+}
+
+/**
+ * BGM のプロンプト上限。チャットの `generate_bgm` と同じ 1,000 文字にして、設定画面とチャットで
+ * 受ける依頼の長さを揃える（試行 API 自体の上限はもっと大きい）。
+ */
+export const BGM_TRIAL_PROMPT_MAX_LENGTH = 1_000;
+
+/** BGM の試行の要求。空白だけのプロンプトと長すぎる入力をクライアント側でも止め、課金前に返す */
+export function bgmTrialInput(
+  prompt: string,
+  model: string,
+): { ok: true; input: { kind: "bgm"; model: string; prompt: string } } | { ok: false; error: string } {
+  if (model === "") return { ok: false, error: "BGM のモデルを取得できていません。再読み込みしてください" };
+  if (prompt.trim() === "")
+    return { ok: false, error: "BGM のプロンプトを入力してください（クレジットは消費していません）" };
+  if (prompt.length > BGM_TRIAL_PROMPT_MAX_LENGTH) {
+    return {
+      ok: false,
+      error: `BGM のプロンプトが長すぎます（${BGM_TRIAL_PROMPT_MAX_LENGTH.toLocaleString("en-US")} 文字まで。クレジットは消費していません）`,
+    };
+  }
+  return { ok: true, input: { kind: "bgm", model, prompt } };
+}
+
+/**
+ * 実測の尺。ブラウザーが読めた秒数だけを出し、読めていない間は `—` にする
+ * （モデル仕様の目安尺と混ぜず、実測が無いものを尺として見せない）。
+ */
+export function bgmDurationLabel(seconds: number | null): string {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return "—";
+  return `${seconds.toFixed(1)} 秒`;
 }

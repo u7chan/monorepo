@@ -23,12 +23,13 @@ export const TRIAL_ARTIFACT_FORMATS = ["png", "jpeg", "webp", "mp3", "wav"] as c
 export type TrialArtifactFormat = (typeof TRIAL_ARTIFACT_FORMATS)[number];
 
 /**
- * 種別ごとに保存・配信できる形式。画像の行に音声、音声の行に画像が入らないよう、配信の判定でも種別を見る
- * （BGM の段階で足すときもこの表だけを広げる）。
+ * 種別ごとに保存・配信できる形式。画像の行に音声、音声の行に画像が入らないよう、配信の判定でも種別を見る。
+ * BGM は生成器が MP3 だけを返す（`assertBgmMp3`）ので mp3 だけを通す。
  */
 export const TRIAL_ARTIFACT_FORMATS_BY_KIND: Record<string, readonly TrialArtifactFormat[]> = {
   image: ["png", "jpeg", "webp"],
   speech: ["mp3", "wav"],
+  bgm: ["mp3"],
 };
 
 const EXTENSIONS: Record<TrialArtifactFormat, string> = {
@@ -125,6 +126,23 @@ export function prepareTrialSpeechArtifact(speech: GeneratedSpeech): TrialSpeech
   const sniffed = sniffAudioFormat(bytes);
   if (sniffed === undefined) return { ok: false, reason: "invalid_bytes" };
   return { ok: true, format: sniffed, bytes };
+}
+
+export type TrialBgmPreparation =
+  | { ok: true; format: "mp3"; bytes: Uint8Array }
+  | { ok: false; reason: TrialArtifactRejectReason };
+
+/**
+ * BGM の生成結果（MP3 の実バイト）を保存できる形へ整える。生成器は形式を宣言せずバイトだけを返すため、
+ * 宣言 MIME は固定の `audio/mpeg` とし、実バイトが MP3 として読めることを保存の前に確かめる。
+ */
+export function prepareTrialBgmArtifact(bytes: Uint8Array): TrialBgmPreparation {
+  if (bytes.byteLength > TRIAL_ARTIFACT_MAX_BYTES) return { ok: false, reason: "too_large" };
+  const sniffed = sniffAudioFormat(bytes);
+  if (sniffed === undefined) return { ok: false, reason: "invalid_bytes" };
+  // wav は BGM の生成器が返さない形式なので、保存先の許可リストに合わせて拒否する
+  if (sniffed !== "mp3") return { ok: false, reason: "unsupported_format" };
+  return { ok: true, format: "mp3", bytes };
 }
 
 /**

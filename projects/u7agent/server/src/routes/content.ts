@@ -75,7 +75,6 @@ export function createContentSettingsRoutes({
       if (outcome.status !== 200) return c.json({ error: outcome.error }, 404);
       const size = outcome.bytes.byteLength;
       const base = {
-        "Content-Type": outcome.contentType,
         "Accept-Ranges": "bytes",
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "no-store",
@@ -85,6 +84,7 @@ export function createContentSettingsRoutes({
       };
       const range = parseByteRange(c.req.header("Range"), size);
       if (range.kind === "unsatisfiable") {
+        // 416 の本文は JSON のエラーなので、宣言する MIME も成果物のものではなく JSON にする
         // 416 の Content-Range は全体の長さを表す（bytes */<size>）
         return c.json({ error: "要求された範囲を配信できません" }, 416, {
           ...base,
@@ -96,6 +96,7 @@ export function createContentSettingsRoutes({
           status: 206,
           headers: {
             ...base,
+            "Content-Type": outcome.contentType,
             "Content-Length": String(range.end - range.start + 1),
             "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
           },
@@ -103,7 +104,7 @@ export function createContentSettingsRoutes({
       }
       return new Response(outcome.bytes, {
         status: 200,
-        headers: { ...base, "Content-Length": String(size) },
+        headers: { ...base, "Content-Type": outcome.contentType, "Content-Length": String(size) },
       });
     },
 

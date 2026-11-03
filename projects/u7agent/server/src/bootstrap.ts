@@ -328,6 +328,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     generateImage: pi ? pi.generateImage : undefined,
     // 音声も同じジョブの仕組みに載せる。未注入（ランタイムなしで起動）は画像と同じく 503 にする
     generateSpeech: pi ? pi.generateSpeech : undefined,
+    // BGM の生成器はチャットの `generate_bgm` と同じもの（同時実行枠も共有する）
+    generateBgm: pi ? pi.generateBgm : undefined,
     artifacts: storeDir ? createTrialArtifactStore(join(storeDir, TRIAL_ARTIFACTS_DIR_NAME)) : undefined,
     maskError,
   });

@@ -3,6 +3,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  BGM_TRIAL_PROMPT_MAX_LENGTH,
+  bgmDurationLabel,
+  bgmTrialInput,
   evidenceNote,
   filteredTrials,
   groupTrialsByMonth,
@@ -269,8 +272,21 @@ test("実行中の有無と最新の試行は一覧の先頭だけで決める",
   assert.equal(latestTrial([trial({ id: "new" }), trial({ id: "old" })])?.id, "new");
 });
 
-test("試行の種別は設定タブの面へ写す", () => {
+test("試行の種別は設定タブの面へ写し、BGM も自分のタブへ対応させる", () => {
   assert.equal(trialKindSubsection("image"), "image");
+  assert.equal(trialKindSubsection("speech"), "speech");
+  assert.equal(trialKindSubsection("bgm"), "bgm");
+  // BGM の印は BGM タブにだけ出す（画像・音声のタブへ混ぜない）
+  const running = trial({ id: "bgm-1", kind: "bgm" });
+  assert.deepEqual(tabIndicator({ label: "音楽（BGM）", running: true, unsynced: false, newResult: false }), {
+    dot: "accent",
+    pulse: true,
+    ariaLabel: "音楽（BGM）（生成中）",
+  });
+  assert.deepEqual(
+    newlyFinishedKinds({ previous: [{ ...running, state: "running" }], next: [running], activeSubsection: "image" }),
+    ["bgm"],
+  );
 });
 
 test("証拠は保存済みの成功だけを数え、段階 1 の none 行は履歴にだけ残す", () => {
@@ -631,4 +647,64 @@ test("全削除の注記は種別ごとの件数を伝え、もう一方のタ�
   assert.equal(trialRemoveAllNote("speech", 0), "音声の試行に削除できる履歴がありません（実行中の試行は残ります）。");
   assert.equal(trialKindLabel("speech"), "音声");
   assert.equal(trialKindLabel("image"), "画像");
+});
+
+test("BGM の種別名と全削除の注記は BGM として出す", () => {
+  assert.equal(trialKindLabel("bgm"), "BGM");
+  assert.equal(trialRemoveAllNote("bgm", 2), "BGMの試行の履歴を 2 件削除しました（実行中の試行は残ります）。");
+  assert.equal(trialRemoveAllNote("bgm", 0), "BGMの試行に削除できる履歴がありません（実行中の試行は残ります）。");
+});
+
+test("BGM の試行はプロンプトと固定モデルを課金前に検証する", () => {
+  assert.deepEqual(bgmTrialInput("静かな夜のピアノ", "google/lyria-3-clip-preview"), {
+    ok: true,
+    input: { kind: "bgm", model: "google/lyria-3-clip-preview", prompt: "静かな夜のピアノ" },
+  });
+  // 空白だけのプロンプトは送らない（クレジットを消費しないことを文言でも伝える）
+  const empty = bgmTrialInput("   \n ", "google/lyria-3-clip-preview");
+  assert.equal(empty.ok, false);
+  assert.match(empty.ok ? "" : empty.error, /プロンプトを入力.*クレジットは消費していません/);
+  // モデルを取得できていないときは送らない
+  const noModel = bgmTrialInput("静かな夜のピアノ", "");
+  assert.equal(noModel.ok, false);
+  // 上限はチャットの generate_bgm と同じ
+  assert.equal(BGM_TRIAL_PROMPT_MAX_LENGTH, 1_000);
+  assert.equal(bgmTrialInput("a".repeat(BGM_TRIAL_PROMPT_MAX_LENGTH), "m").ok, true);
+  const tooLong = bgmTrialInput("あ".repeat(BGM_TRIAL_PROMPT_MAX_LENGTH + 1), "m");
+  assert.equal(tooLong.ok, false);
+  assert.match(tooLong.ok ? "" : tooLong.error, /長すぎます/);
+});
+
+test("BGM の実測尺は読めた秒数だけを出し、未読は — にする", () => {
+  assert.equal(bgmDurationLabel(null), "—");
+  assert.equal(bgmDurationLabel(Number.NaN), "—");
+  assert.equal(bgmDurationLabel(12.34), "12.3 秒");
+  assert.equal(bgmDurationLabel(30), "30.0 秒");
+});
+
+test("BGM の同じプロンプトの保存済み成功だけを課金なしとして扱い、プロンプトが違えば再利用しない", () => {
+  const stored = trial({ id: "bgm-1", kind: "bgm", model: "google/lyria-3-clip-preview", prompt: "同じ夜" });
+  assert.equal(
+    reusableTrial({
+      trials: [stored],
+      kind: "bgm",
+      model: "google/lyria-3-clip-preview",
+      prompt: "同じ夜",
+    })?.id,
+    "bgm-1",
+  );
+  assert.equal(
+    reusableTrial({ trials: [stored], kind: "bgm", model: "google/lyria-3-clip-preview", prompt: "違う夜" }),
+    null,
+  );
+  // 成果物が保存されていない行（記録のみ）は再利用しない
+  assert.equal(
+    reusableTrial({
+      trials: [{ ...stored, artifactState: "none", artifact: null }],
+      kind: "bgm",
+      model: "google/lyria-3-clip-preview",
+      prompt: "同じ夜",
+    }),
+    null,
+  );
 });

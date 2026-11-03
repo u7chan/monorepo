@@ -9,10 +9,13 @@ import { TEST_MASTER_KEY } from "./app-secret-fixture";
 import { createBffApp } from "../src/app";
 import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import {
+  CONTENT_TRIAL_BGM_MODEL_MESSAGE,
   CONTENT_TRIAL_DELETE_RUNNING_MESSAGE,
-  CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE,
+  CONTENT_TRIAL_IMAGE_MODEL_MESSAGE,
   CONTENT_TRIAL_NOT_FOUND_MESSAGE,
+  CONTENT_TRIAL_SPEECH_MODEL_MESSAGE,
 } from "../src/content-trials";
+import { BGM_MODEL } from "../src/bgm";
 import { DEFAULT_IMAGE_MODEL } from "../src/content-settings";
 import { DEFAULT_SPEECH_MODEL } from "../src/speech-catalog";
 import { IMAGE_PROVIDER_ID, type ImageGenerationInput, type ImageGenerationResult } from "../src/images";
@@ -252,7 +255,7 @@ test("キー未設定 / OFF / カタログ外モデルは課金前に止め、�
         jsonPost({ kind: "image", model: `${IMAGE_PROVIDER_ID}/nope/model`, prompt: "a cat" }),
       );
       assert.equal(outside.status, 400);
-      assert.match((await jsonBody(outside)).error, new RegExp(CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE));
+      assert.match((await jsonBody(outside)).error, new RegExp(CONTENT_TRIAL_IMAGE_MODEL_MESSAGE));
 
       // 全体 OFF では新規生成を止める
       await bff.app.request("/api/settings/content", jsonPut({ enabled: false }));
@@ -593,6 +596,9 @@ test("raw 配信の Range は音声でも同じ契約になる（206 と 416）"
       const unsatisfiable = await bff.app.request(url, { headers: { Range: "bytes=4-" } });
       assert.equal(unsatisfiable.status, 416);
       assert.equal(unsatisfiable.headers.get("content-range"), "bytes */4");
+      // 本文は JSON のエラーなので、成果物の MIME ではなく application/json を宣言する
+      assert.equal(unsatisfiable.headers.get("content-type"), "application/json");
+      assert.equal(typeof (await jsonBody(unsatisfiable)).error, "string");
     } finally {
       await bff.close();
     }
@@ -683,6 +689,111 @@ test("全削除と個別削除・キャンセルは種別をまたがない", as
         [image.trial.id, runningSpeech.trial.id].sort(),
         "個別削除は指定した id だけを消す",
       );
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("BGM の試行は試行 API に載り、raw は audio/mpeg で返し、同じプロンプトは再課金しない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi({});
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const started = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "bgm", model: BGM_MODEL, prompt: "静かな夜のピアノ" }),
+      );
+      assert.equal(started.status, 202);
+      const created = await jsonBody(started);
+      assert.equal(created.trial.kind, "bgm");
+      assert.equal(created.trial.model, BGM_MODEL);
+      assert.equal(created.trial.voice, null);
+      await waitForState(bff, created.trial.id, "succeeded");
+      assert.equal(pi.bgmCalls.length, 1);
+      assert.equal(pi.bgmCalls[0]?.prompt, "静かな夜のピアノ");
+
+      // 実体は画像・音声と同じ置き場に `<trialId>.mp3` で置く
+      assert.deepEqual(await readdir(join(dir, "trials")), [`${created.trial.id}.mp3`]);
+      const raw = await bff.app.request(`/api/settings/content/trials/${created.trial.id}/raw`);
+      assert.equal(raw.status, 200);
+      assert.equal(raw.headers.get("content-type"), "audio/mpeg");
+      assert.equal(raw.headers.get("x-content-type-options"), "nosniff");
+      assert.equal(raw.headers.get("cache-control"), "no-store");
+      const download = await bff.app.request(`/api/settings/content/trials/${created.trial.id}/raw?download=1`);
+      assert.equal(download.headers.get("content-disposition"), `attachment; filename="${created.trial.id}.mp3"`);
+
+      // 保存容量は種別をまたいだ合計で、一覧は `?kind=bgm` で絞れる
+      const bgm = await jsonBody(await bff.app.request("/api/settings/content/trials?kind=bgm"));
+      assert.equal(bgm.items.length, 1);
+      assert.deepEqual(bgm.artifactUsage, { count: 1, bytes: 6 });
+      assert.deepEqual((await jsonBody(await bff.app.request("/api/settings/content/trials?kind=image"))).items, []);
+
+      // 同じプロンプト + モデルは provider を呼ばずに 200 で返す
+      const reused = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "bgm", model: BGM_MODEL, prompt: "静かな夜のピアノ" }),
+      );
+      assert.equal(reused.status, 200);
+      assert.equal((await jsonBody(reused)).reused, true);
+      assert.equal(pi.bgmCalls.length, 1);
+
+      // プロンプトが違えば新しい試行として生成する
+      const next = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/trials",
+          jsonPost({ kind: "bgm", model: BGM_MODEL, prompt: "昼の市場" }),
+        ),
+      );
+      await waitForState(bff, next.trial.id, "succeeded");
+      assert.equal(pi.bgmCalls.length, 2);
+
+      // 全削除は種別を絞り、BGM の成果物も消える
+      const removed = await jsonBody(
+        await bff.app.request("/api/settings/content/trials?kind=bgm", { method: "DELETE" }),
+      );
+      assert.equal(removed.removed, 2);
+      assert.deepEqual(await readdir(join(dir, "trials")), []);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("モデルを受け付けない 400 の文言は種別ごとに変え、画像の文言を他の種別へ出さない", async () => {
+  await withStoreDir(async (dir) => {
+    const bff = await openBff({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(createStubPi({})),
+      workspace: null,
+    });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const image = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "image", model: "openrouter/nope/model", prompt: "a cat" }),
+      );
+      assert.match((await jsonBody(image)).error, new RegExp(CONTENT_TRIAL_IMAGE_MODEL_MESSAGE));
+
+      const speech = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "speech", model: "nope/model", prompt: "こんにちは" }),
+      );
+      assert.equal(speech.status, 400);
+      const speechError = (await jsonBody(speech)).error as string;
+      assert.ok(speechError.startsWith(CONTENT_TRIAL_SPEECH_MODEL_MESSAGE));
+      assert.equal(speechError.includes("画像"), false, "音声の試行に画像の文言を出さない");
+
+      const bgm = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "bgm", model: "openrouter/nope/model", prompt: "静かな夜" }),
+      );
+      assert.equal(bgm.status, 400);
+      const bgmError = (await jsonBody(bgm)).error as string;
+      assert.ok(bgmError.startsWith(CONTENT_TRIAL_BGM_MODEL_MESSAGE));
+      assert.equal(bgmError.includes("画像"), false, "BGM の試行に画像の文言を出さない");
     } finally {
       await bff.close();
     }
