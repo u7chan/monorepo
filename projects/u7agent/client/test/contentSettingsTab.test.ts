@@ -93,7 +93,6 @@ function render(
         onRefreshCatalog: async () => true,
         onSaveSpeech: async () => true,
         onRefreshSpeechCatalog: async () => true,
-        onPreviewSpeech: async () => ({ blob: new Blob(), format: "mp3" as const }),
         speechSynced: options.speechSynced ?? true,
         trials: options.trials ?? [],
         trialKeyEpoch: options.trialKeyEpoch ?? 0,
@@ -247,7 +246,8 @@ test("選択中の面だけを出し、もう一方の面は描かない", () =>
   assert.ok(image.includes('aria-label="コンテンツ生成のモデル"'), "画像の面のモデル選択を出す");
   assert.equal(image.includes("音声（TTS）"), false, "音声（TTS）の小見出しは出さない");
   assert.equal(image.includes('aria-label="音声生成のモデル"'), false, "音声のモデル欄は出さない");
-  assert.equal(image.includes("お試し再生"), false, "お試し再生も音声タブの中だけに出す");
+  assert.equal(image.includes("設定に反映しない試行"), true, "画像の試行は画像タブに出す");
+  assert.equal(image.includes('aria-label="試行の本文"'), false, "音声の試行の入力は音声タブだけに出す");
 
   const speech = render({ subsection: "speech" });
   assert.ok(speech.includes("音声（TTS）"), "音声の小見出しを出す");
@@ -266,9 +266,10 @@ test("設定済みでは音声のモデルとボイスを出し、宣言のあ�
   assert.ok(html.includes("Kore（Firm）</option>"), "宣言されている他のボイスも候補に出す");
   assert.ok(html.includes("音声モデル一覧は OpenRouter から取得しました"), "一覧の出どころを出す");
   assert.ok(
-    html.includes("出力形式はモデルに合わせて mp3 / wav で保存します"),
-    "出力形式と演技指示を書かせない方針を出す",
+    html.includes("出力形式は選ばず、provider が返した形式（mp3 / wav）で保存します"),
+    "出力形式の選択を持たない方針を出す",
   );
+  assert.ok(html.includes("この画面での成功: 未確認"), "モデル選択の直下に証拠を出す");
 });
 
 test("google のモデルでも属性を引ける声が無ければグループを出さない", () => {
@@ -312,10 +313,6 @@ test("音声カタログ外の保存済みモデルも選択肢に残す", () =>
   const html = render({ subsection: "speech", speech: { model: "stale/tts", voice: "Zephyr" } });
   assert.ok(html.includes("stale/tts（カタログ外）"));
   assert.ok(html.includes('value="stale/tts"'));
-  assert.ok(
-    html.includes("こんにちは、stale/ttsです！よろしくお願いします。"),
-    "名前が無いモデルは id をテンプレへ入れる",
-  );
 });
 
 test("音声カタログも取得できていないときは警告色のチップで出す", () => {
@@ -372,42 +369,50 @@ test("runtimeAvailable: false でも音声の選択は残す", () => {
   assert.ok(html.includes('aria-label="音声生成のボイス"'));
 });
 
-test("音声セクションの下部にお試し再生を出し、未設定では出さない", () => {
+test("音声セクションの下部に試行の入力を出し、未設定では出さない", () => {
   const html = render({ subsection: "speech" });
-  assert.ok(html.includes("お試し再生"), "設定済みでは常に出す");
-  assert.match(html, /<textarea[^>]*aria-label="お試し再生の本文"/, "本文から試せる");
-  assert.ok(
-    html.includes("こんにちは、Gemini 3.8 Flash TTSです！よろしくお願いします。"),
-    "本文の初期値に、保存済みモデル名（接頭辞を落としたもの）入りのテンプレを入れる",
-  );
-  assert.match(html, /<button[^>]*>音声を生成<\/button>/, "その場で鳴らす操作を出す");
+  assert.ok(html.includes("設定に反映しない試行"), "設定済みでは常に出す");
+  assert.match(html, /<textarea[^>]*aria-label="試行の本文"/, "本文から試せる");
+  assert.match(html, /<input[^>]*aria-label="試行の演技指示"/, "演技指示も試せる");
+  assert.match(html, /<input[^>]*aria-label="試行の話速"/, "話速も試せる");
+  assert.ok(html.includes("試行する"), "試行 API で開始する操作を出す");
+  assert.equal(html.includes("お試し再生"), false, "退役したお試し再生の文言は出さない");
+  // 保存される設定と試行の入力は別の見出しで分ける
+  assert.ok(html.includes("音声（TTS）"));
 
+  // 未設定でも試行の面は出す（履歴が無くても、画像タブと同じ位置に理由と履歴を出す）
   const unset = render({
+    subsection: "speech",
     configured: false,
     provider: null,
     image: { model: null, catalogSource: "sdk", fetchedAt: null },
   });
-  assert.equal(unset.includes("お試し再生"), false, "キー保存前は出さない");
+  assert.ok(unset.includes("設定に反映しない試行"), "キー保存前も試行の面を出す");
+  assert.ok(unset.includes("APIキーが未設定です"), "履歴だけを表示していることを伝える");
 });
 
-test("音声の同期が取れていない間もお試し再生は使える", () => {
+test("音声の同期が取れていない間も試行は使える（保存のゲートを持ち込まない）", () => {
   const html = render({ subsection: "speech", speechSynced: false });
-  assert.match(html, /<button[^>]*>音声を生成<\/button>/, "保存のゲートを持ち込まない");
   // class に `disabled:` が含まれるため、属性としての disabled だけを否定する
-  assert.match(html, /<textarea[^>]*aria-label="お試し再生の本文"(?![^>]*\sdisabled=)/, "本文も触れる");
-  assert.match(html, /<select[^>]*aria-label="お試し再生のモデル"(?![^>]*\sdisabled=)/, "モデルも選べる");
+  assert.match(html, /<textarea[^>]*aria-label="試行の本文"(?![^>]*\sdisabled=)/, "本文も触れる");
+  assert.match(html, /<input[^>]*aria-label="試行の演技指示"(?![^>]*\sdisabled=)/, "演技指示も触れる");
+  // 未同期は保存だけを止める。試行の開始を理由にしない（本文が空なので主ボタンは本文の理由で無効）
+  assert.equal(html.includes("ランタイムが利用できないため試行できません"), false);
+  assert.equal(html.includes("現在の設定を取得できなかった"), true, "未同期はバナーで知らせる");
 });
 
-test("runtimeAvailable: false ではお試し再生の主ボタンも無効にする", () => {
+test("runtimeAvailable: false では音声の試行の主ボタンも無効にする", () => {
   const html = render({ runtimeAvailable: false, subsection: "speech" });
-  assert.match(html, /<button[^>]*\sdisabled=""[^>]*>音声を生成<\/button>/, "実行できない preview API を呼ばせない");
-  assert.ok(html.includes("ランタイムが利用できないため、お試し再生はできません"), "押せない理由を出す");
-  // ランタイムがあれば、音声の同期が取れていない間も押せる（別のゲート）
-  assert.match(render({ subsection: "speech" }), /<button(?![^>]*\sdisabled=)[^>]*>音声を生成<\/button>/);
   assert.match(
-    render({ subsection: "speech", speechSynced: false }),
-    /<button(?![^>]*\sdisabled=)[^>]*>音声を生成<\/button>/,
+    html,
+    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?試行する/,
+    "実行できない試行 API を呼ばせない",
   );
+  assert.ok(html.includes("ランタイムが利用できないため試行できません"), "押せない理由を出す");
+  // ランタイムがあれば、この理由では止めない（本文が空の理由だけが残る）
+  const available = render({ subsection: "speech" });
+  assert.equal(available.includes("ランタイムが利用できないため試行できません"), false);
+  assert.match(available, /（本文を入力してください）/);
 });
 
 test("保存済みでも復号できないキーは、利用不可として理由と削除・再入力を出す", () => {
@@ -430,6 +435,9 @@ const TRIAL_BASE: ContentTrial = {
   kind: "image",
   model: "openrouter/openai/gpt-image-2",
   prompt: "a cat on a sofa",
+  voice: null,
+  instructions: null,
+  speed: null,
   state: "succeeded",
   keyEpoch: 0,
   artifactState: "stored",
@@ -613,4 +621,122 @@ test("試行の注記は試行の面の中に出す（設定の注記行とは�
   // 注記が無ければ空行を作らない
   const none = render({ trials: [TRIAL_BASE] });
   assert.equal(none.includes("試行の履歴を削除しました。"), false);
+});
+
+// --- 試行ジョブ（音声） ---
+
+const SPEECH_TRIAL_BASE: ContentTrial = {
+  id: "trial-speech-1",
+  kind: "speech",
+  model: "google/gemini-3.8-flash-tts",
+  prompt: "おはようございます",
+  voice: "Aoede",
+  instructions: "落ち着いた声で",
+  speed: 1.1,
+  state: "succeeded",
+  keyEpoch: 0,
+  artifactState: "stored",
+  artifact: { format: "mp3", bytes: 4_096, width: null, height: null },
+  charged: true,
+  failureCode: null,
+  failureMessage: null,
+  startedAt: 1_000,
+  finishedAt: 12_000,
+  durationMs: 11_000,
+  recorded: true,
+};
+
+test("音声の結果はプレイヤー・snapshot・導線を出し、履歴にボイスを出す", () => {
+  const html = render({ subsection: "speech", trials: [SPEECH_TRIAL_BASE] });
+  // 再生は trial id の同 origin ルート（blob URL ではない）。同じ試行は 1 つのビューポートだけ
+  assert.match(html, /<audio[^>]*src="\/api\/settings\/content\/trials\/trial-speech-1\/raw"/);
+  assert.ok(html.includes("おはようございます"), "送った本文を出す");
+  assert.ok(html.includes("演技指示: 落ち着いた声で · 話速: 1.1 倍"), "送った演技指示と話速を出す");
+  assert.ok(html.includes("ボイス: Aoede"), "送ったボイスを出す");
+  assert.ok(html.includes("MP3 · 4.0 KiB"), "形式とサイズを出す");
+  assert.ok(
+    html.includes('href="/api/settings/content/trials/trial-speech-1/raw?download=1"'),
+    "ダウンロードは同じルート",
+  );
+  assert.ok(html.includes("入力欄に戻す"));
+  assert.ok(html.includes("別のテイクを生成"));
+  assert.ok(html.includes("同じ入力の保存済みの結果があるため、生成し直しても課金されません"), "課金なしの注記");
+  assert.ok(html.includes("保存容量"), "画像と同じ容量を出す");
+  // 同じ本文の別テイクを履歴に並べる
+  const two = render({
+    subsection: "speech",
+    trials: [SPEECH_TRIAL_BASE, { ...SPEECH_TRIAL_BASE, id: "trial-speech-2", speed: 1.2 }],
+  });
+  assert.ok(two.includes('aria-label="成功の試行を表示"'), "履歴の行を出す");
+  assert.ok(two.includes("履歴（2 件）"));
+});
+
+test("音声の実行中はプレイヤーを出さず、状態だけを示す", () => {
+  const html = render({
+    subsection: "speech",
+    trials: [
+      {
+        ...SPEECH_TRIAL_BASE,
+        state: "running",
+        finishedAt: null,
+        durationMs: null,
+        artifactState: "none",
+        artifact: null,
+        charged: false,
+      },
+    ],
+  });
+  assert.equal(html.includes("/raw"), false, "実行中は再生を出さない");
+  assert.ok(html.includes("生成中です。送信した本文を表示しています"));
+  assert.match(html, /<button[^>]*>中断<\/button>/, "実行中は中断を出す");
+});
+
+test("音声の保存に失敗した成功は課金済みとして出し、記録のみの行は再生させない", () => {
+  const failed = render({
+    subsection: "speech",
+    trials: [
+      {
+        ...SPEECH_TRIAL_BASE,
+        state: "failed",
+        artifactState: "none",
+        artifact: null,
+        charged: true,
+        failureCode: "storage",
+        failureMessage: "生成は完了しましたが、結果を保存できませんでした（課金済み）。",
+      },
+    ],
+  });
+  assert.ok(failed.includes("結果を保存できない"));
+  assert.ok(failed.includes("生成は課金されています"));
+  assert.equal(failed.includes("<audio"), false, "成果物の無い行は再生しない");
+});
+
+test("画像と音声の履歴は互いの面に出さない", () => {
+  const image = render({ trials: [SPEECH_TRIAL_BASE] });
+  assert.equal(image.includes("おはようございます"), false, "音声の履歴は画像タブに混ぜない");
+  const speech = render({ subsection: "speech", trials: [TRIAL_BASE] });
+  assert.equal(speech.includes("a cat on a sofa"), false, "画像の履歴は音声タブに混ぜない");
+});
+
+test("キー未設定でも音声の試行の履歴と再生を出し、新規生成だけを止める", () => {
+  const html = render({
+    configured: false,
+    keyStored: false,
+    keyAvailable: false,
+    provider: null,
+    image: { model: null },
+    subsection: "speech",
+    trials: [SPEECH_TRIAL_BASE],
+  });
+  assert.ok(html.includes("設定に反映しない試行"), "試行の面は未設定でも出す");
+  assert.ok(html.includes("おはようございます"), "保存済みの履歴を出す");
+  assert.ok(html.includes("ボイス: Aoede"), "履歴の行にボイスを出す");
+  assert.match(
+    html,
+    /<audio[^>]*src="\/api\/settings\/content\/trials\/trial-speech-1\/raw"/,
+    "再生（raw 配信）も未設定で使える",
+  );
+  assert.ok(html.includes("APIキーを登録すると試行できます"), "開始できない理由を出す");
+  assert.equal(html.includes('aria-label="音声生成のモデル"'), false, "保存される設定は出さない");
+  assert.equal(html.includes('aria-label="音声生成のボイス"'), false, "保存されるボイス欄も出さない");
 });

@@ -4,6 +4,7 @@
  */
 import type { ContentSubsection } from "./settingsNav";
 import type { ContentTrial, ContentTrialStateValue } from "../types";
+import { speechSpeed } from "./contentSettings";
 import { messageTimeLabel, yearMonthLabel, type MessageTimeOptions } from "./messageTime";
 import { formatDurationMs } from "./usageFormat";
 
@@ -62,18 +63,23 @@ export type TrialEvidence =
   | { kind: "unverified" };
 
 /**
- * モデル選択の直下に出す証拠。現在のキー世代・現在のモデルの `succeeded` が最新なら成功、
+ * モデル選択の直下に出す証拠。現在のキー世代・現在のモデル（音声はボイスも）の `succeeded` が最新なら成功、
  * 無ければ同じ条件の `failed` の最新を出し、どちらも無ければ未確認にする（緑のバッジは作らない）。
- * 旧キー・別モデルの実績は履歴にだけ残し、現在の証拠にしない。
+ * 旧キー・別モデル・別ボイスの実績は履歴にだけ残し、現在の証拠にしない。
  */
-export function imageTrialEvidence(input: {
+export function trialEvidence(input: {
   trials: readonly ContentTrial[];
   currentKeyEpoch: number;
   currentModel: string;
+  /** 音声はボイスも一致する実績だけを現在の証拠にする。画像は undefined */
+  currentVoice?: string | null;
   now: number;
 }): TrialEvidence {
   const current = input.trials.filter(
-    (trial) => trial.keyEpoch === input.currentKeyEpoch && trial.model === input.currentModel,
+    (trial) =>
+      trial.keyEpoch === input.currentKeyEpoch &&
+      trial.model === input.currentModel &&
+      (input.currentVoice === undefined || voiceKey(trial.voice) === voiceKey(input.currentVoice)),
   );
   const at = (trial: ContentTrial): number => trial.finishedAt ?? trial.startedAt;
   // 段階 2 以降の証拠は「保存済みの成果物がある成功」だけを数える。段階 1 の `none` 行は履歴にだけ残す
@@ -108,12 +114,22 @@ export function evidenceNote(
   return `この画面での最終成功: ${age}${duration}`;
 }
 
+/**
+ * ボイスの比較キー。空文字（画面の「指定なし」）と null（サーバーが保存する未指定）は同じ「ボイス未指定」を
+ * 表すため、証拠と再利用の判定で同じ表現へ寄せる。
+ */
+function voiceKey(voice: string | null | undefined): string {
+  return voice ?? "";
+}
+
 /** 履歴の 1 行。現在のキー世代より古い行は「旧キー」として区別する */
 export interface TrialHistoryRow {
   id: string;
   stateLabel: string;
   state: ContentTrialStateValue;
   model: string;
+  /** 音声のボイス（送信時の値）。画像の行は null */
+  voice: string | null;
   durationLabel: string;
   keyEpochLabel: string | null;
   prompt: string;
@@ -133,6 +149,7 @@ export function trialHistoryRow(trial: ContentTrial, currentKeyEpoch: number): T
     state: trial.state,
     stateLabel: trialStateLabel(trial.state),
     model: trial.model,
+    voice: trial.voice,
     durationLabel: trialDurationLabel(trial.durationMs),
     keyEpochLabel: trial.keyEpoch < currentKeyEpoch ? `旧キー（世代 ${trial.keyEpoch}）` : null,
     prompt: trial.prompt,
@@ -189,14 +206,32 @@ export function trialStartBlockedReason(input: {
   keyAvailable: boolean;
   running: boolean;
   prompt: string;
+  /** 空のときの文言。音声は「本文」、画像は既定の「プロンプト」 */
+  emptyPromptReason?: string;
 }): string | null {
   if (!input.runtimeAvailable) return "ランタイムが利用できないため試行できません";
   if (!input.configured) return "APIキーを登録すると試行できます";
   if (!input.enabled) return "全体が OFF のため試行できません（履歴は残ります）";
   if (!input.keyAvailable) return "保存済みのAPIキーを使えないため試行できません";
   if (input.running) return "実行中です。完了するか中断してください";
-  if (input.prompt.trim() === "") return "プロンプトを入力してください";
+  if (input.prompt.trim() === "") return input.emptyPromptReason ?? "プロンプトを入力してください";
   return null;
+}
+
+/** 種別の表示名。削除の注記など、画面の文言に使う */
+export function trialKindLabel(kind: ContentTrial["kind"]): string {
+  return kind === "speech" ? "音声" : "画像";
+}
+
+/**
+ * 種別ごとの全削除の注記。消した件数は渡された種別の履歴だけを数えるため、
+ * 文言にも種別を入れて「もう一方のタブの履歴は消えていない」ことが読み取れるようにする。
+ */
+export function trialRemoveAllNote(kind: ContentTrial["kind"], removed: number): string {
+  const label = trialKindLabel(kind);
+  return removed === 0
+    ? `${label}の試行に削除できる履歴がありません（実行中の試行は残ります）。`
+    : `${label}の試行の履歴を ${removed} 件削除しました（実行中の試行は残ります）。`;
 }
 
 /** 試行の種別と設定タブの対応。印はタブ単位で出す */
@@ -204,6 +239,8 @@ export function trialKindSubsection(kind: ContentTrial["kind"]): ContentSubsecti
   switch (kind) {
     case "image":
       return "image";
+    case "speech":
+      return "speech";
   }
 }
 
@@ -280,7 +317,7 @@ export function trialByteSizeLabel(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
-const FORMAT_LABELS: Record<string, string> = { png: "PNG", jpeg: "JPEG", webp: "WebP" };
+const FORMAT_LABELS: Record<string, string> = { png: "PNG", jpeg: "JPEG", webp: "WebP", mp3: "MP3", wav: "WAV" };
 
 /** 実寸。保存時に読めなかった（寸法の無い）成果物は出さない */
 export function trialDimensionLabel(trial: ContentTrial): string | null {
@@ -387,6 +424,10 @@ export function reusableTrial(input: {
   kind: ContentTrial["kind"];
   model: string;
   prompt: string;
+  /** 音声は本文に加えてボイス・演技指示・話速も一致するときだけ再利用する（画像は省略） */
+  voice?: string | null;
+  instructions?: string | null;
+  speed?: number | null;
 }): ContentTrial | null {
   return (
     input.trials.find(
@@ -394,7 +435,66 @@ export function reusableTrial(input: {
         trial.kind === input.kind &&
         trial.model === input.model &&
         trial.prompt === input.prompt &&
+        (input.voice === undefined || voiceKey(trial.voice) === voiceKey(input.voice)) &&
+        (input.instructions === undefined || trial.instructions === input.instructions) &&
+        (input.speed === undefined || trial.speed === input.speed) &&
         hasStoredArtifact(trial),
     ) ?? null
   );
+}
+
+/** 音声の試行の下書き。本文・演技指示・話速は試行にだけ使い、履歴にスナップショットとして残る */
+export interface SpeechTrialDraft {
+  text: string;
+  instructions: string;
+  speed: string;
+}
+
+export const EMPTY_SPEECH_TRIAL_DRAFT: SpeechTrialDraft = { text: "", instructions: "", speed: "" };
+
+/** 音声の試行の要求。速度欄の解釈と空本文の拒否をクライアント側でも行い、課金前に止める */
+export function speechTrialInput(
+  draft: SpeechTrialDraft,
+  model: string,
+  voice: string,
+):
+  | { ok: true; input: { model: string; prompt: string; voice?: string; instructions?: string; speed?: number } }
+  | { ok: false; error: string } {
+  if (model === "") return { ok: false, error: "音声モデルを選択してください" };
+  if (draft.text.trim() === "")
+    return { ok: false, error: "読み上げる文章を入力してください（クレジットは消費していません）" };
+  const speed = speechSpeed(draft.speed);
+  if (!speed.ok) return speed;
+  return {
+    ok: true,
+    input: {
+      model,
+      prompt: draft.text,
+      ...(voice === "" ? {} : { voice }),
+      ...(draft.instructions.trim() === "" ? {} : { instructions: draft.instructions }),
+      ...(speed.speed === undefined ? {} : { speed: speed.speed }),
+    },
+  };
+}
+
+/** 履歴の試行から音声の下書きを戻す（「入力欄に戻す」）。話速は欄の値として小数 2 桁まで出す */
+export function speechTrialDraftOf(trial: Pick<ContentTrial, "prompt" | "instructions" | "speed">): SpeechTrialDraft {
+  return {
+    text: trial.prompt,
+    instructions: trial.instructions ?? "",
+    speed: trial.speed === null ? "" : String(trial.speed),
+  };
+}
+
+/** 送信時のスナップショットの 1 行。未指定は「モデル既定」として、何を送ったかを見失わせない */
+export function speechTrialSnapshotLabels(trial: Pick<ContentTrial, "voice" | "instructions" | "speed">): {
+  voice: string;
+  instructions: string;
+  speed: string;
+} {
+  return {
+    voice: trial.voice ?? "モデル既定",
+    instructions: trial.instructions ?? "指定なし",
+    speed: trial.speed === null ? "モデル既定" : `${trial.speed} 倍`,
+  };
 }

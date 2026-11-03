@@ -8,6 +8,7 @@ import {
   CONTENT_TRIAL_ARTIFACT_FORMAT_MESSAGE,
   CONTENT_TRIAL_ARTIFACT_MISSING_MESSAGE,
   CONTENT_TRIAL_DELETE_RUNNING_MESSAGE,
+  CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH,
   CONTENT_TRIAL_KEY_UNAVAILABLE_MESSAGE,
   CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE,
   CONTENT_TRIAL_NOT_FOUND_MESSAGE,
@@ -15,6 +16,9 @@ import {
   CONTENT_TRIAL_PROMPT_MAX_LENGTH,
   CONTENT_TRIAL_PROMPT_TOO_LONG_MESSAGE,
   CONTENT_TRIAL_RUNTIME_UNAVAILABLE_MESSAGE,
+  CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE,
+  CONTENT_TRIAL_SPEECH_VOICE_MESSAGE,
+  CONTENT_TRIAL_SPEECH_SPEED_MESSAGE,
   CONTENT_TRIAL_STORAGE_FAILED_MESSAGE,
   CONTENT_TRIAL_UNCONFIGURED_MESSAGE,
   ContentTrialsService,
@@ -24,10 +28,12 @@ import {
 import {
   TRIAL_ARTIFACT_MAX_BYTES,
   trialArtifactFileName,
+  type TrialArtifactFormat,
   type TrialArtifactStore,
 } from "../src/content-trial-artifacts";
 import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import { IMAGE_GENERATION_TIMEOUT_MS, type ImageGenerationInput, type ImageGenerationResult } from "../src/images";
+import { SPEECH_GENERATION_TIMEOUT_MS, type SpeechGenerationInput, type SpeechGenerationResult } from "../src/speech";
 
 const KEY = "sk-trial-dummy-key-0123456789abcdef";
 const MODEL = "openrouter/openai/gpt-image-2";
@@ -108,13 +114,23 @@ class FakeTrialsDb implements ContentTrialsDb {
       .map((row) => ({ ...row }));
   }
 
-  findReusableContentTrial(input: { kind: string; model: string; prompt: string }): ContentTrialRow | undefined {
+  findReusableContentTrial(input: {
+    kind: string;
+    model: string;
+    prompt: string;
+    voice: string | null;
+    instructions: string | null;
+    speed: number | null;
+  }): ContentTrialRow | undefined {
     const row = this.listContentTrials()
       .filter(
         (candidate) =>
           candidate.kind === input.kind &&
           candidate.model === input.model &&
           candidate.prompt === input.prompt &&
+          candidate.voice === input.voice &&
+          candidate.instructions === input.instructions &&
+          candidate.speed === input.speed &&
           candidate.state === "succeeded" &&
           candidate.artifactState === "stored" &&
           candidate.artifact !== null,
@@ -171,7 +187,7 @@ class FakeArtifactStore implements TrialArtifactStore {
   holdList: { promise: Promise<void>; release: () => void } | null = null;
   listCalls = 0;
 
-  async write(input: { trialId: string; format: "png" | "jpeg" | "webp"; bytes: Uint8Array }): Promise<void> {
+  async write(input: { trialId: string; format: TrialArtifactFormat; bytes: Uint8Array }): Promise<void> {
     if (this.failWrite) throw new Error("disk full");
     this.files.set(trialArtifactFileName(input.trialId, input.format), input.bytes);
     if (this.hold) await this.hold.promise;
@@ -211,6 +227,16 @@ interface Generation {
   aborted: () => boolean;
 }
 
+interface SpeechGeneration {
+  input: SpeechGenerationInput;
+  resolve: (result: SpeechGenerationResult) => void;
+  aborted: () => boolean;
+}
+
+/** 音声のカタログ。`voices` が undefined のモデルは自由記述のボイスを受ける */
+const SPEECH_MODEL = "google/gemini-3.8-flash-tts";
+const SPEECH_VOICES = ["Achernar", "Aoede"];
+
 function row(overrides: Partial<ContentTrialRow> & { id: string }): ContentTrialRow {
   const { id, ...rest } = overrides;
   return {
@@ -218,6 +244,9 @@ function row(overrides: Partial<ContentTrialRow> & { id: string }): ContentTrial
     kind: "image",
     model: MODEL,
     prompt: "old",
+    voice: null,
+    instructions: null,
+    speed: null,
     state: "running",
     keyEpoch: 0,
     artifactState: "none",
@@ -237,6 +266,8 @@ function createHarness(
     row?: { imageModel: string; enabled: boolean } | undefined;
     apiKey?: string | null;
     models?: readonly string[];
+    speechModels?: readonly string[];
+    speechVoices?: readonly string[] | undefined;
     generate?: boolean;
     artifacts?: boolean;
   } = {},
@@ -244,6 +275,7 @@ function createHarness(
   const db = new FakeTrialsDb();
   const store = new FakeArtifactStore();
   const generations: Generation[] = [];
+  const speechGenerations: SpeechGeneration[] = [];
   let now = 1_000;
   const source: ContentTrialSource = {
     read: () => ({
@@ -251,6 +283,8 @@ function createHarness(
       apiKey: "apiKey" in options ? (options.apiKey ?? null) : KEY,
     }),
     models: () => options.models ?? [MODEL],
+    speechModels: () => options.speechModels ?? [SPEECH_MODEL],
+    speechVoices: () => ("speechVoices" in options ? options.speechVoices : SPEECH_VOICES),
   };
   const service = new ContentTrialsService({
     db,
@@ -263,6 +297,14 @@ function createHarness(
             generations.push({ input, resolve: pending.resolve, aborted: () => input.signal?.aborted === true });
             return pending.promise;
           },
+    generateSpeech:
+      options.generate === false
+        ? undefined
+        : (input) => {
+            const pending = deferred<SpeechGenerationResult>();
+            speechGenerations.push({ input, resolve: pending.resolve, aborted: () => input.signal?.aborted === true });
+            return pending.promise;
+          },
     artifacts: options.artifacts === false ? undefined : store,
     maskError: (text) => text.split(KEY).join("[REDACTED]"),
     now: () => now,
@@ -272,11 +314,46 @@ function createHarness(
     store,
     service,
     generations,
+    speechGenerations,
     advanceClock: (ms: number) => {
       now += ms;
     },
     start: (prompt = "a cat", model = MODEL) => service.start({ kind: "image", model, prompt }),
+    startSpeech: (
+      prompt = "こんにちは",
+      params: { model?: string; voice?: string | undefined; instructions?: string | undefined; speed?: number } = {},
+    ) =>
+      service.start({
+        kind: "speech",
+        model: params.model ?? SPEECH_MODEL,
+        prompt,
+        ...(params.voice === undefined ? {} : { voice: params.voice }),
+        ...(params.instructions === undefined ? {} : { instructions: params.instructions }),
+        ...(params.speed === undefined ? {} : { speed: params.speed }),
+      }),
+    speech: {
+      /** 実バイトが mp3 として読める最小の応答（先頭はフレーム同期） */
+      mp3: (): SpeechGenerationResult => ({
+        ok: true,
+        speech: { audio: mp3Bytes(), format: "mp3", contentType: "audio/mpeg" },
+      }),
+      /** pcm の応答。保存側が RIFF ヘッダを付けて wav にする */
+      pcm: (): SpeechGenerationResult => ({
+        ok: true,
+        speech: { audio: pcmBytes(), format: "pcm", contentType: "audio/pcm", sampleRate: 24_000, channels: 1 },
+      }),
+    },
   };
+}
+
+/** mp3 のフレーム同期で始まる最小のバイト列（保存側は先頭だけを見る） */
+function mp3Bytes(): ArrayBuffer {
+  return new Uint8Array([0xff, 0xfb, 0x90, 0x64, 0x00, 0x00]).buffer;
+}
+
+/** pcm の生バイト（wav 化すると 44 バイトのヘッダが付く） */
+function pcmBytes(): ArrayBuffer {
+  return new Uint8Array([0x00, 0x01, 0x02, 0x03]).buffer;
 }
 
 /** 非同期のジョブが DB へ書くまで待つ（実時間ではなくマイクロタスクだけを回す） */
@@ -857,4 +934,311 @@ test("存在しない試行の取得は 404", () => {
   assert.equal(outcome.status, 404);
   if (outcome.status !== 404) return;
   assert.equal(outcome.error, CONTENT_TRIAL_NOT_FOUND_MESSAGE);
+});
+
+// --- 音声の試行（段階 3） ---
+
+test("音声の開始は入力スナップショットを記録し、provider へ本文とパラメーターを渡す", () => {
+  const harness = createHarness();
+  harness.db.epoch = 2;
+  const outcome = harness.startSpeech("おはようございます", {
+    voice: "Aoede",
+    instructions: "落ち着いた声で",
+    speed: 1.25,
+  });
+  assert.equal(outcome.status, 202);
+  if (outcome.status !== 202) return;
+  assert.equal(outcome.reused, false);
+  assert.equal(outcome.trial.kind, "speech");
+  assert.equal(outcome.trial.model, SPEECH_MODEL);
+  assert.equal(outcome.trial.voice, "Aoede");
+  assert.equal(outcome.trial.instructions, "落ち着いた声で");
+  assert.equal(outcome.trial.speed, 1.25);
+  assert.equal(outcome.trial.keyEpoch, 2);
+  // 生成器へは固定 provider と画面の値だけを渡す（APIキーは行に残さない）
+  const generation = harness.speechGenerations[0];
+  assert.ok(generation);
+  assert.equal(generation.input.provider, "openrouter");
+  assert.equal(generation.input.model, SPEECH_MODEL);
+  assert.equal(generation.input.text, "おはようございます");
+  assert.equal(generation.input.voice, "Aoede");
+  assert.equal(generation.input.instructions, "落ち着いた声で");
+  assert.equal(generation.input.speed, 1.25);
+  assert.equal(generation.input.apiKey, KEY);
+  const saved = harness.db.rows.get(outcome.trial.id);
+  assert.equal(JSON.stringify(saved).includes(KEY), false);
+});
+
+test("空のボイスと演技指示は送らず、{voice, instructions} を null として履歴に残す", () => {
+  const harness = createHarness();
+  const outcome = harness.startSpeech("こんにちは", { voice: "", instructions: "  " });
+  if (outcome.status !== 202) return;
+  const generation = harness.speechGenerations[0];
+  assert.equal("voice" in (generation?.input ?? {}), false);
+  assert.equal("instructions" in (generation?.input ?? {}), false);
+  assert.equal("speed" in (generation?.input ?? {}), false);
+  assert.equal(outcome.trial.voice, null);
+  assert.equal(outcome.trial.instructions, null);
+  assert.equal(outcome.trial.speed, null);
+});
+
+test("音声は mp3 と wav を保存し、raw は保存時に確定した形式の MIME で返す", async () => {
+  const harness = createHarness();
+  const first = harness.startSpeech("mp3 の本文");
+  if (first.status !== 202) return;
+  harness.speechGenerations[0]?.resolve(harness.speech.mp3());
+  await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
+  const mp3Row = harness.db.rows.get(first.trial.id);
+  assert.equal(mp3Row?.artifactState, "stored");
+  assert.equal(mp3Row?.artifact?.format, "mp3");
+  assert.equal(mp3Row?.artifact?.width, null);
+  assert.equal(mp3Row?.charged, true);
+  assert.ok(harness.store.files.has(trialArtifactFileName(first.trial.id, "mp3")));
+
+  const raw = await harness.service.raw(first.trial.id);
+  assert.equal(raw.status, 200);
+  if (raw.status !== 200) return;
+  assert.equal(raw.contentType, "audio/mpeg");
+  assert.equal(raw.fileName, `${first.trial.id}.mp3`);
+
+  // pcm は RIFF ヘッダを付けて wav として保存する
+  const second = harness.startSpeech("pcm の本文");
+  if (second.status !== 202) return;
+  harness.speechGenerations[1]?.resolve(harness.speech.pcm());
+  await until(() => harness.db.rows.get(second.trial.id)?.state === "succeeded");
+  const wavRow = harness.db.rows.get(second.trial.id);
+  assert.equal(wavRow?.artifact?.format, "wav");
+  // pcm 4 バイト + 44 バイトのヘッダ
+  assert.equal(wavRow?.artifact?.bytes, 48);
+  const wavRaw = await harness.service.raw(second.trial.id);
+  assert.equal(wavRaw.status === 200 ? wavRaw.contentType : "", "audio/wav");
+
+  // 容量は画像と同じ 1 つの合計に載る
+  assert.equal(harness.service.list().artifactUsage.count, 2);
+});
+
+test("音声の形式の許可リストは保存前に拒否し、課金済みの storage 失敗にする", async () => {
+  // 宣言 MIME と実バイトが食い違う（mp3 と称して wav を返す）応答は保存しない
+  for (const speech of [
+    { audio: pcmBytes(), format: "mp3" as const, contentType: "audio/pcm" },
+    { audio: new Uint8Array([0x00, 0x01, 0x02]).buffer, format: "mp3" as const, contentType: "audio/mpeg" },
+    { audio: new Uint8Array(0).buffer, format: "mp3" as const, contentType: "audio/mpeg" },
+  ]) {
+    const harness = createHarness();
+    const started = harness.startSpeech();
+    if (started.status !== 202) return;
+    harness.speechGenerations[0]?.resolve({ ok: true, speech });
+    await until(() => harness.db.rows.get(started.trial.id)?.state === "failed");
+    const failed = harness.db.rows.get(started.trial.id);
+    assert.equal(failed?.failureCode, "storage");
+    assert.equal(failed?.charged, true);
+    assert.equal(harness.store.files.size, 0, "拒否した応答は 1 バイトも書かない");
+  }
+});
+
+test("音声の保存に失敗したら storage の課金済み失敗にし、成功として見せない", async () => {
+  const harness = createHarness();
+  harness.store.failWrite = true;
+  const started = harness.startSpeech();
+  if (started.status !== 202) return;
+  harness.speechGenerations[0]?.resolve(harness.speech.mp3());
+  await until(() => harness.db.rows.get(started.trial.id)?.state === "failed");
+  const failed = harness.db.rows.get(started.trial.id);
+  assert.equal(failed?.failureCode, "storage");
+  assert.equal(failed?.failureMessage, CONTENT_TRIAL_STORAGE_FAILED_MESSAGE);
+  assert.equal(failed?.charged, true);
+  assert.equal(harness.store.files.size, 0);
+
+  // 置き場が無い起動（永続化なし）も同じ分類
+  const noStore = createHarness({ artifacts: false });
+  const started2 = noStore.startSpeech();
+  if (started2.status !== 202) return;
+  noStore.speechGenerations[0]?.resolve(noStore.speech.mp3());
+  await until(() => noStore.db.rows.get(started2.trial.id)?.state === "failed");
+  assert.equal(noStore.db.rows.get(started2.trial.id)?.failureCode, "storage");
+});
+
+test("音声の provider の失敗は分類して記録し、aborted だけを canceled にする", async () => {
+  for (const [code, state] of [
+    ["invalid_key", "failed"],
+    ["insufficient_credit", "failed"],
+    ["aborted", "canceled"],
+  ] as const) {
+    const harness = createHarness();
+    const started = harness.startSpeech();
+    if (started.status !== 202) return;
+    harness.speechGenerations[0]?.resolve({ ok: false, code, message: KEY });
+    await until(() => harness.db.rows.get(started.trial.id)?.state === state);
+    const row = harness.db.rows.get(started.trial.id);
+    assert.equal(row?.failureCode, code);
+    assert.equal(row?.charged, false);
+    // 履歴に残る文言もマスカーを通す
+    assert.equal(row?.failureMessage, "[REDACTED]");
+  }
+});
+
+test("音声のキャンセルと close は abort し、interrupted は再起動の再照合で倒す", async () => {
+  const harness = createHarness();
+  const started = harness.startSpeech();
+  if (started.status !== 202) return;
+  const canceled = harness.service.cancel(started.trial.id);
+  assert.equal(canceled.status, 200);
+  assert.equal(harness.speechGenerations[0]?.aborted(), true);
+  assert.equal(harness.db.rows.get(started.trial.id)?.state, "canceled");
+  harness.speechGenerations[0]?.resolve({ ok: false, code: "aborted", message: "中断" });
+  await until(() => harness.service.running("speech") === false);
+  assert.equal(harness.db.rows.get(started.trial.id)?.state, "canceled");
+
+  const other = createHarness();
+  const running = other.startSpeech();
+  if (running.status !== 202) return;
+  await other.service.close();
+  assert.equal(other.speechGenerations[0]?.aborted(), true);
+  assert.equal(other.db.rows.get(running.trial.id)?.state, "interrupted");
+
+  // 期限を過ぎた running（レジストリに居ない＝前のプロセスの取り残し）は一覧の取得で interrupted になる
+  const stale = createHarness();
+  const staleId = trialId(99);
+  stale.db.rows.set(
+    staleId,
+    row({ id: staleId, kind: "speech", model: SPEECH_MODEL, prompt: "取り残し", startedAt: 1_000 }),
+  );
+  stale.advanceClock(SPEECH_GENERATION_TIMEOUT_MS + 60_000);
+  const list = stale.service.list("speech");
+  assert.equal(list.items[0]?.state, "interrupted");
+  assert.deepEqual(list.artifactUsage, { count: 0, bytes: 0 });
+});
+
+test("同じ入力（本文 + モデル + ボイス + 演技指示 + 話速）の保存済み成功は課金せずに返す", async () => {
+  const harness = createHarness({ speechModels: [SPEECH_MODEL, "google/other-tts"] });
+  const input = { voice: "Aoede", instructions: "ゆっくり", speed: 0.9 };
+  const first = harness.startSpeech("同じ本文", input);
+  if (first.status !== 202) return;
+  harness.speechGenerations[0]?.resolve(harness.speech.mp3());
+  await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
+  const rowsBefore = harness.db.rows.size;
+
+  const reused = harness.startSpeech("同じ本文", input);
+  assert.equal(reused.status, 200);
+  if (reused.status !== 200) return;
+  assert.equal(reused.reused, true);
+  assert.equal(reused.trial.id, first.trial.id);
+  assert.equal(harness.speechGenerations.length, 1);
+  assert.equal(harness.db.rows.size, rowsBefore);
+
+  // ボイス / 演技指示 / 話速 / モデルが違えば再利用せず、新しい試行として開始する
+  for (const changed of [
+    { voice: "Achernar", instructions: "ゆっくり", speed: 0.9 },
+    { voice: "Aoede", instructions: "早口で", speed: 0.9 },
+    { voice: "Aoede", instructions: "ゆっくり", speed: 1.1 },
+    { voice: "Aoede", instructions: "ゆっくり", speed: 0.9, model: "google/other-tts" },
+  ]) {
+    const next = harness.startSpeech("同じ本文", changed);
+    assert.equal(next.status, 202, JSON.stringify(changed));
+    if (next.status === 202) {
+      harness.speechGenerations[harness.speechGenerations.length - 1]?.resolve({
+        ok: false,
+        code: "unknown",
+        message: "止める",
+      });
+      await until(() => harness.db.rows.get(next.trial.id)?.state !== "running");
+    }
+  }
+  // 本文だけ違っても再利用しない
+  assert.equal(harness.startSpeech("別の本文", input).status, 202);
+});
+
+test("音声の開始前の検証は課金前に止める（カタログ / 宣言ボイス / 話速 / 音声以外のパラメーター）", () => {
+  const outside = createHarness().startSpeech("x", { model: "unknown/model" });
+  assert.equal(outside.status, 400);
+  assert.equal(
+    outside.status === 400 ? outside.error : "",
+    `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: unknown/model`,
+  );
+
+  const undeclared = createHarness().startSpeech("x", { voice: "NotAVoice" });
+  assert.equal(undeclared.status, 400);
+  assert.match(undeclared.status === 400 ? undeclared.error : "", /NotAVoice/);
+
+  const freeform = createHarness({ speechVoices: undefined }).startSpeech("x", { voice: "any name" });
+  assert.equal(freeform.status, 202, "宣言が無いモデルは自由記述を受ける");
+
+  const speed = createHarness().startSpeech("x", { speed: 0 });
+  assert.equal(speed.status, 400);
+  assert.equal(speed.status === 400 ? speed.error : "", CONTENT_TRIAL_SPEECH_SPEED_MESSAGE);
+
+  const instructions = createHarness().startSpeech("x", {
+    instructions: "a".repeat(CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH + 1),
+  });
+  assert.equal(instructions.status, 400);
+
+  // 画像の試行に音声のパラメーターは付けられない
+  const image = createHarness().service.start({ kind: "image", model: MODEL, prompt: "a cat", voice: "Aoede" });
+  assert.equal(image.status, 400);
+  assert.equal(image.status === 400 ? image.error : "", CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE);
+
+  // 音声の生成器が無い起動は 503
+  const unavailable = createHarness({ generate: false }).startSpeech();
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.status === 503 ? unavailable.error : "", CONTENT_TRIAL_RUNTIME_UNAVAILABLE_MESSAGE);
+});
+
+test("画像と音声は種別ごとに 1 本ずつで、種類が違えば並行できる", async () => {
+  const harness = createHarness();
+  const image = harness.start("a cat");
+  const speech = harness.startSpeech();
+  assert.equal(image.status, 202);
+  assert.equal(speech.status, 202);
+  assert.equal(harness.service.running("image"), true);
+  assert.equal(harness.service.running("speech"), true);
+  assert.equal(harness.start("a dog").status, 409);
+  assert.equal(harness.startSpeech("別の本文").status, 409);
+  harness.speechGenerations[0]?.resolve(harness.speech.mp3());
+  harness.generations[0]?.resolve({ ok: true, image: pngImage() });
+  await until(() => harness.service.running("image") === false && harness.service.running("speech") === false);
+});
+
+test("成果物の再照合は音声の succeeded + stored だけを残し、画像の形式を音声の行に配信しない", async () => {
+  const harness = createHarness();
+  const ok = harness.startSpeech();
+  if (ok.status !== 202) return;
+  harness.speechGenerations[0]?.resolve(harness.speech.mp3());
+  await until(() => harness.db.rows.get(ok.trial.id)?.state === "succeeded");
+  // 行の無いファイルは孤児として消える
+  harness.store.files.set("trial-000000000000000000000099.mp3", new Uint8Array([1, 2, 3]));
+  await harness.service.reconcileArtifacts();
+  assert.deepEqual([...harness.store.files.keys()], [trialArtifactFileName(ok.trial.id, "mp3")]);
+
+  // 種別と形式が食い違う行は配信しない（画像の行に mp3 が載っていても 404）
+  const wrong = harness.db.rows.get(ok.trial.id)!;
+  harness.db.rows.set(ok.trial.id, { ...wrong, kind: "image" });
+  const raw = await harness.service.raw(ok.trial.id);
+  assert.equal(raw.status, 404);
+});
+
+test("400 の文言は入力を反射するときにマスカーを通し、固定の理由は残す", () => {
+  const harness = createHarness();
+
+  // 画像のモデル欄へキーを貼った場合（`provider/id` の形ではない）
+  const image = harness.start("a cat", KEY);
+  assert.equal(image.status, 400);
+  if (image.status !== 400) return;
+  assert.equal(image.error.includes(KEY), false, "キーを反射しない");
+  assert.ok(image.error.includes("[REDACTED]"));
+  assert.ok(image.error.startsWith(CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE), "固定の理由は残す");
+
+  // 音声のモデル欄（カタログ外）
+  const speechModel = harness.startSpeech("こんにちは", { model: KEY });
+  assert.equal(speechModel.status, 400);
+  if (speechModel.status !== 400) return;
+  assert.equal(speechModel.error.includes(KEY), false);
+  assert.ok(speechModel.error.includes("[REDACTED]"));
+
+  // 音声のボイス欄（宣言外）
+  const voice = harness.startSpeech("こんにちは", { voice: KEY });
+  assert.equal(voice.status, 400);
+  if (voice.status !== 400) return;
+  assert.equal(voice.error.includes(KEY), false);
+  assert.ok(voice.error.includes("[REDACTED]"));
+  assert.ok(voice.error.startsWith(CONTENT_TRIAL_SPEECH_VOICE_MESSAGE), "固定の理由は残す");
 });

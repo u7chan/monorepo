@@ -42,8 +42,9 @@ async function assertIndexResponse(response: Response, message: string): Promise
   assert.match(response.headers.get("content-security-policy") || "", /default-src 'self'/, message);
   // エージェントのアイコン (data URL) を <img> で描けること (script-src は緩めない)
   assert.match(response.headers.get("content-security-policy") || "", /img-src 'self' data:/, message);
-  // お試し再生の blob: の <audio> を鳴らせること ('self' は blob: に一致せず、無いと本番ビルドでだけ無音になる)
-  assert.match(response.headers.get("content-security-policy") || "", /media-src 'self' blob:/, message);
+  // 音声は同 origin の raw ルートだけを鳴らす (試行の成果物に blob: を使わない)
+  assert.match(response.headers.get("content-security-policy") || "", /media-src 'self';/, message);
+  assert.equal((response.headers.get("content-security-policy") || "").includes("blob:"), false, message);
   // 別オリジンを OFF にしたときの同一オリジン フレームと、別オリジン (プレビュー リスナー) のフレームの両方を許可する
   assert.match(response.headers.get("content-security-policy") || "", /frame-src 'self' http:\/\/\*:4318/, message);
   assert.equal(await response.text(), INDEX_HTML, message);

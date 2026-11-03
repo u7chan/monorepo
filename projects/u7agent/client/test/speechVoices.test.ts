@@ -1,5 +1,5 @@
 // ボイスの表示属性とグループ分け。並び・ラベル・未知の声の扱いを純関数で固定する
-// (どのように描画するかは contentSettingsTab / speechPlayground の SSR テストが見る)。
+// (どのように描画するかは contentSettingsTab / contentTrials の SSR テストが見る)。
 
 import assert from "node:assert/strict";
 import test from "node:test";

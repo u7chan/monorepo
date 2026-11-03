@@ -318,8 +318,6 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     setContentGeneration: pi ? pi.setContentGeneration : () => {},
     maskError,
     appCipher: secretCrypto.appCipher,
-    // 生成器の口は任意。未注入（ランタイムなしで起動）はお試し再生を 503 にする
-    generateSpeech: pi ? pi.generateSpeech : undefined,
   });
   await contentSettings.applyStored();
   // 試行ジョブのレジストリはメモリだけに持つ。起動時に前のプロセスの `running` を `interrupted` へ倒す。
@@ -328,6 +326,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     db: appDb,
     source: contentSettings.trialSource(),
     generateImage: pi ? pi.generateImage : undefined,
+    // 音声も同じジョブの仕組みに載せる。未注入（ランタイムなしで起動）は画像と同じく 503 にする
+    generateSpeech: pi ? pi.generateSpeech : undefined,
     artifacts: storeDir ? createTrialArtifactStore(join(storeDir, TRIAL_ARTIFACTS_DIR_NAME)) : undefined,
     maskError,
   });

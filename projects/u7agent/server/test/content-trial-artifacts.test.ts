@@ -8,9 +8,11 @@ import {
   createTrialArtifactStore,
   isTrialId,
   prepareTrialImageArtifact,
+  prepareTrialSpeechArtifact,
   TRIAL_ARTIFACT_MAX_BYTES,
   trialArtifactContentType,
   trialArtifactFileName,
+  trialArtifactFormatAllowed,
   trialArtifactFormatOf,
   trialArtifactIdOfFileName,
 } from "../src/content-trial-artifacts";
@@ -88,11 +90,11 @@ test("svg / html / 不明な MIME は保存の前に拒否する", () => {
 test("壊れた base64 と上限を超えるバイト数は保存しない", () => {
   assert.deepEqual(prepareTrialImageArtifact({ mimeType: "image/png", data: "" }), {
     ok: false,
-    reason: "invalid_image",
+    reason: "invalid_bytes",
   });
   assert.deepEqual(prepareTrialImageArtifact({ mimeType: "image/png", data: "%%%" }), {
     ok: false,
-    reason: "invalid_image",
+    reason: "invalid_bytes",
   });
   const large = new Uint8Array(TRIAL_ARTIFACT_MAX_BYTES + 1);
   large.set(pngBytes(), 0);
@@ -114,6 +116,15 @@ test("ファイル名は trial id と形式からだけ作り、id の形を外�
   assert.equal(trialArtifactIdOfFileName("note.png"), undefined);
   assert.equal(trialArtifactIdOfFileName("../trial-0123456789abcdef01234567.png"), undefined);
   assert.equal(trialArtifactFormatOf("svg"), undefined);
+  assert.equal(trialArtifactFileName(TRIAL_ID, "mp3"), `${TRIAL_ID}.mp3`);
+  assert.equal(trialArtifactContentType("mp3"), "audio/mpeg");
+  assert.equal(trialArtifactContentType("wav"), "audio/wav");
+  // 種別ごとの許可リストを混ぜない
+  assert.equal(trialArtifactFormatAllowed("image", "png"), true);
+  assert.equal(trialArtifactFormatAllowed("image", "mp3"), false);
+  assert.equal(trialArtifactFormatAllowed("speech", "wav"), true);
+  assert.equal(trialArtifactFormatAllowed("speech", "png"), false);
+  assert.equal(trialArtifactFormatAllowed("bgm", "mp3"), false);
 });
 
 async function withDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
@@ -160,5 +171,49 @@ test("置き場は保存名の形を外れる要求を fs へ渡さず、未知�
     await assert.rejects(() => store.read("keep.txt"), /不正/);
     // 置き場の外には書かない
     assert.deepEqual((await readdir(dir)).sort(), ["trials"]);
+  });
+});
+
+test("音声は mp3 と wav だけを保存できる形にし、宣言 MIME と実バイトの両方を見る", () => {
+  // mp3 は ID3 かフレーム同期で判定する。宣言 MIME が audio/mpeg であることも確かめる
+  const id3 = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00]);
+  const mp3 = prepareTrialSpeechArtifact({ audio: id3.buffer, format: "mp3", contentType: "audio/mpeg" });
+  assert.equal(mp3.ok, true);
+  assert.equal(mp3.ok ? mp3.format : "", "mp3");
+  assert.equal(mp3.ok ? mp3.bytes.byteLength : 0, 6);
+  const frame = new Uint8Array([0xff, 0xfb, 0x90, 0x64]);
+  assert.equal(prepareTrialSpeechArtifact({ audio: frame.buffer, format: "mp3", contentType: "audio/mpeg" }).ok, true);
+
+  // 宣言と実バイトが食い違う / 宣言が許可外 / 中身が音声でない応答は保存しない
+  assert.deepEqual(prepareTrialSpeechArtifact({ audio: id3.buffer, format: "mp3", contentType: "audio/pcm" }), {
+    ok: false,
+    reason: "unsupported_format",
+  });
+  assert.deepEqual(
+    prepareTrialSpeechArtifact({ audio: new Uint8Array([1, 2, 3]).buffer, format: "mp3", contentType: "audio/mpeg" }),
+    { ok: false, reason: "invalid_bytes" },
+  );
+  assert.deepEqual(
+    prepareTrialSpeechArtifact({ audio: new Uint8Array(0).buffer, format: "mp3", contentType: "audio/mpeg" }),
+    { ok: false, reason: "invalid_bytes" },
+  );
+  assert.deepEqual(
+    prepareTrialSpeechArtifact({
+      audio: new Uint8Array([1, 2]).buffer,
+      format: "pcm",
+      contentType: "audio/pcm",
+      sampleRate: 24_000,
+      channels: 1,
+    }).ok,
+    true,
+    "pcm は RIFF 化して wav として保存できる",
+  );
+
+  // 上限を超える音声は保存しない
+  const large = new Uint8Array(TRIAL_ARTIFACT_MAX_BYTES + 1);
+  large.set(id3, 0);
+  assert.deepEqual(prepareTrialSpeechArtifact({ audio: large.buffer, format: "mp3", contentType: "audio/mpeg" }), {
+    ok: false,
+    reason: "too_large",
   });
 });

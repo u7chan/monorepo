@@ -203,15 +203,14 @@
 | PUT | `/api/settings/content` | `{ enabled }`。画像・音声・BGM 共通の有効 / 無効（キーと選択は保持。行が無ければ 400）。保存した瞬間から既存のセッションの次の呼び出しにも効く |
 | PUT | `/api/settings/content/image` | `{ provider, model }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400） |
 | PUT | `/api/settings/content/speech` | `{ model, voice }`。キーと画像モデルを保持したまま音声モデル / ボイスを更新（行が無ければ 400） |
-| POST | `/api/settings/content/speech/preview` | `{ model, voice, text, instructions?, speed? }`。音声のお試し再生（[speech-generation.md](speech-generation.md#お試し再生パラメーターのプレイグラウンド)）。成功は音声バイト、失敗は `{ error, code? }` |
 | PUT | `/api/settings/content/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
 | DELETE | `/api/settings/content/key` | 行ごと削除して未設定へ戻す（冪等） |
 | POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
 | POST | `/api/settings/content/speech/catalog/refresh` | 音声カタログの再取得。応答は画像と同じ形 |
-| POST | `/api/settings/content/trials` | `{ kind, model, prompt }`。試行ジョブを開始し、202 で `{ trial, reused: false }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409）。同じ入力の保存済み成功があれば provider を呼ばず 200 `{ trial, reused: true }` |
+| POST | `/api/settings/content/trials` | `{ kind, model, prompt, voice?, instructions?, speed? }`。試行ジョブを開始し、202 で `{ trial, reused: false }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409）。同じ入力の保存済み成功があれば provider を呼ばず 200 `{ trial, reused: true }` |
 | GET | `/api/settings/content/trials` | `{ items, keyEpoch, artifactUsage }`。新しい順の履歴（`?kind=` で絞る）。取得のたびに `running` の取り残しと成果物の置き場を再照合する |
 | GET | `/api/settings/content/trials/:id` | `{ trial }`。終端の記録に失敗している間は `recorded: false` でメモリの状態を返す |
-| GET | `/api/settings/content/trials/:id/raw` | 保存済みの成果物。`Content-Type` は保存時に確定した MIME で、`X-Content-Type-Options: nosniff` と `Cache-Control: no-store`。`?download=1` で `Content-Disposition: attachment` |
+| GET | `/api/settings/content/trials/:id/raw` | 保存済みの成果物。`Content-Type` は保存時に確定した MIME で、`Accept-Ranges: bytes` / `X-Content-Type-Options: nosniff` / `Cache-Control: no-store`。単一の `Range` を満たすときは 206 + `Content-Range`、満たせないときは 416 + `Content-Range: bytes */<size>`（契約は [api-files.md](api-files.md#画像配信raw) と同じ）。`?download=1` で `Content-Disposition: attachment` |
 | POST | `/api/settings/content/trials/:id/cancel` | 実行中の試行だけを中断して `{ trial }`。終端は 409 |
 | DELETE | `/api/settings/content/trials/:id` | 終端状態の試行だけを削除し、成果物も消す。実行中は 409（`先に中断してください`） |
 | DELETE | `/api/settings/content/trials` | 終端状態の試行をまとめて削除し、成果物も消す（`{ removed }`）。実行中は残る |
@@ -281,21 +280,37 @@
 - `keyEpoch` はキーの世代で、**上書きと（行があったときの）削除で進む**。新規保存と未設定の削除では動かさない。試行の証拠は「現在の `keyEpoch` と現在のモデル」に一致する成功だけを数えるため、旧キーの実績が現在のキーの確認として扱われない（[image-generation.md](image-generation.md#設定画面)）
 - キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`。削除すると行ごと消え、`generate_image` / `generate_speech` / `generate_bgm` は次のセッション作成・復元から公開されなくなる（既存liveセッションの execute は実行時にキー無効エラーを返す）。
 
-`preview` は設定を変えないため `state` を付けず、`appData`（DB ゲート）だけを通す。成功の応答は音声バイト（mp3 は `Content-Type: audio/mpeg`、pcm は RIFF ヘッダを付けて `audio/wav`）で、`X-Content-Type-Options: nosniff` と `Cache-Control: no-store` を付ける。失敗は JSON なので、判別は status と Content-Type で行う。
+音声の生成は試行（`POST /api/settings/content/trials` の `kind: "speech"`）に一本化し、設定を変えない別の生成ルートは持たない（旧 `/api/settings/content/speech/preview` は退役した）。本文・演技指示・話速は試行の入力スナップショットとして履歴に残り、成果物は同じ raw ルートで配信する。
 
 ```json
-// POST /api/settings/content/speech/preview (400。行なし、または課金前の検証で止めた。文言は理由ごとに固定)
-{ "error": "…" }
+// POST /api/settings/content/trials (202。音声。実行中は種別ごとに 1 本だけ)
+{
+  "trial": {
+    "id": "trial-0123456789abcdef01234567",
+    "kind": "speech",
+    "model": "google/gemini-3.8-flash-tts",
+    "prompt": "おはようございます",
+    "voice": "Aoede",
+    "instructions": null,
+    "speed": 1.1,
+    "state": "running",
+    "keyEpoch": 2,
+    "artifactState": "none",
+    "artifact": null,
+    "charged": false,
+    "failureCode": null,
+    "failureMessage": null,
+    "startedAt": 1740000000000,
+    "finishedAt": null,
+    "durationMs": null,
+    "recorded": true
+  },
+  "reused": false
+}
 
-// POST /api/settings/content/speech/preview (502。provider の失敗を分類して返す)
-{ "error": "音声生成に失敗しました: <マスク済みの provider メッセージ>", "code": "unknown" }
-
-// POST /api/settings/content/speech/preview (503。runtime 不可 / DB 不通)
-{ "error": "…" }
+// POST /api/settings/content/trials (400。音声の課金前の検証。provider は叩かない)
+{ "error": "話速は 0 より大きい数値で指定してください（クレジットは消費していません）" }
 ```
-
-- 502 の `code` は `invalid_key` / `insufficient_credit` / `rate_limited` / `timeout` / `aborted` / `unknown` で、正は `server/src/provider-failure.ts`（[speech-generation.md](speech-generation.md#失敗の分類)）
-- 課金前の検証（行なし / カタログ外モデル / 宣言外ボイス / 本文と `instructions` の長さ / 空本文 / `speed` の型）は provider を叩かず 400 にする。文言は「クレジットを消費していない」ことを伝えるプレビュー用のものを返す（分割を促すツール向け文言は使わない）。`speed` の範囲は provider の制約なのでアプリでは縛らない
 
 ### 試行ジョブ
 
@@ -308,10 +323,12 @@
 - 再起動でレジストリを失った `running` は `interrupted` に倒す（再開しない）。一覧の取得時にも、期限を過ぎてレジストリに無い行だけを同じ扱いにする（間引きあり）
 - 終端を DB へ書けなかったときは、メモリの終端を `recorded: false` として返し、次の取得で記録を再試行する
 - 成果物はアプリデータ領域の兄弟 `<storeDir>/trials` に `<trialId>.<ext>` で置き（`server/src/content-trial-artifacts.ts`）、行には相対名・バイト数・形式・寸法だけを持つ。`generated/` にもプロジェクトにも DB の BLOB にも置かず、サンドボックスを要求しない
-- 保存できるのは png / jpeg / webp だけで、宣言 MIME と実バイトの両方を `saveableImageFormat` の許可リストに通し、実バイトの形式を正にする。svg / html / 不明な MIME は**保存の前に**拒否する
+- 保存できる形式は種別ごとに固定する。画像は png / jpeg / webp で、宣言 MIME と実バイトの両方を `saveableImageFormat` の許可リストに通し、実バイトの形式を正にする。音声は mp3 / wav で、宣言 MIME と実バイト（RIFF/WAVE・mp3 のフレーム同期 / ID3）を見る。pcm の応答は生成器と同じ関数で RIFF を付けて wav にする。svg / html / 不明な MIME / 宣言と実体のずれは**保存の前に**拒否する
 - 生成が成功して成果物を保存し、終端を `succeeded` として記録できたときだけ成功とする。保存に失敗したら分類 `storage`（課金済み）の `failed` にして成功として見せない。終端を記録できなかった成果物は消し、メモリの失敗（`failed` / `storage`）を `recorded: false` で返す
-- 同じ入力（種別 / モデル / プロンプト）の保存済み成功があるときは provider を呼ばず 200 `{ trial, reused: true }` を返す（課金せず、新しい成功としても記録しない）
-- 配信は trial id だけの同 origin ルートで、保存時に確定した MIME・`nosniff`・`no-store` を付け、`?download=1` のときだけ添付にする。パスは受け取らず、保存名が行の id と形式から作り直した名前と一致しない行は配信しない
+- 同じ入力の保存済み成功があるときは provider を呼ばず 200 `{ trial, reused: true }` を返す（課金せず、新しい成功としても記録しない）。入力は画像が「種別 / モデル / プロンプト」、音声が「種別 / モデル / 本文 / ボイス / 演技指示 / 話速」で、音声の 3 つは NULL（未指定）同士も一致として扱う
+- 音声の入力（本文・ボイス・演技指示・話速）は行のスナップショットとして履歴に残し、同じ入力の照合にも使う。課金前の検証はカタログのモデル、宣言があるモデルのボイス、本文と演技指示の長さ、正の `speed`
+- 配信は trial id だけの同 origin ルートで、保存時に確定した MIME（画像は `image/*`、音声は `audio/mpeg` / `audio/wav`）・`nosniff`・`no-store` を付け、`?download=1` のときだけ添付にする。パスは受け取らず、保存名が行の id と形式から作り直した名前と一致しない行と、種別の許可リストに無い形式の行は配信しない
+- 配信はファイル配信と同じ**単一 `Range`** の契約に従う（200 に `Accept-Ranges: bytes`、`bytes=<start>-<end>` / `bytes=<start>-` / `bytes=-<suffix>` は 206 + `Content-Range` + 部分の `Content-Length`、満たせない範囲は 416 + `Content-Range: bytes */<size>`、解釈できない `Range` と複数レンジは無視して 200）。音声のシークは全体を読み終えるまで待たせない
 - 置き場の再照合は、`succeeded` + `stored` の行のファイルだけを残し、それ以外の行にひも付くファイルと行の無いファイルを消す。起動時（レジストリは空）は全件を、一覧の取得時は間引いて同じ規則を適用する。ただし実行中レジストリに居る trial（保存後・終端更新前を含む）のファイルは消さない
 - 再照合は**ファイル一覧を取った後に行一覧を読み**、削除の直前にもその行を読み直す。一覧の取得を待つ間にジョブが `succeeded` + `stored` へ確定してレジストリから外れるため、先に読んだ行一覧で残す対象を決めると、確定済みのファイルを中途ファイルとして消してしまう（配信 404・画像の無い成功の再利用・容量の数え残しになる）
 - 保存容量はディレクトリを走査せず、`succeeded` + `stored` の行のバイト数を合計する（`artifactUsage`）。時間ベースの自動削除はしない

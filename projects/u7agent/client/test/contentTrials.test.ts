@@ -8,12 +8,15 @@ import {
   groupTrialsByMonth,
   hasRunningTrial,
   hasStoredArtifact,
-  imageTrialEvidence,
+  trialEvidence,
   latestTrial,
   newlyFinishedKinds,
   removeTrialThenRefresh,
   reusableTrial,
   selectedTrial,
+  speechTrialDraftOf,
+  speechTrialInput,
+  speechTrialSnapshotLabels,
   tabIndicator,
   trialAgeLabel,
   trialArtifactSummary,
@@ -23,8 +26,10 @@ import {
   trialDurationLabel,
   trialFailureLabel,
   trialHistoryRow,
+  trialKindLabel,
   trialKindSubsection,
   trialModelOptions,
+  trialRemoveAllNote,
   trialPanelState,
   trialStartBlockedReason,
   trialStateLabel,
@@ -42,6 +47,9 @@ function trial(overrides: Partial<ContentTrial> = {}): ContentTrial {
     kind: "image",
     model: MODEL,
     prompt: "a cat",
+    voice: null,
+    instructions: null,
+    speed: null,
     state: "succeeded",
     keyEpoch: 1,
     artifactState: "stored",
@@ -91,7 +99,7 @@ test("所要時間は不明を — にし、分かるものだけ単位付きで
 
 test("証拠は現在のキー世代と選択中モデルの実績だけを数える", () => {
   const now = 100_000;
-  const evidence = imageTrialEvidence({
+  const evidence = trialEvidence({
     trials: [
       trial({ id: "old-key", keyEpoch: 0, finishedAt: 90_000 }),
       trial({ id: "other-model", model: OTHER_MODEL, finishedAt: 95_000 }),
@@ -124,14 +132,14 @@ test("証拠と試行のモデルは画面の選択（下書き優先）で、�
     }),
   ];
   // 開始本文と証拠が同じ値を使うので、保存値の成功を「この画面での最終成功」にしない
-  assert.deepEqual(imageTrialEvidence({ trials, currentKeyEpoch: 1, currentModel, now }), {
+  assert.deepEqual(trialEvidence({ trials, currentKeyEpoch: 1, currentModel, now }), {
     kind: "failure",
     at: 95_000,
     code: "rate_limited",
     message: null,
   });
   // 保存値のモデルで数えると別モデルの成功が証拠になる（以前の不具合）。その混同をここで固定する
-  assert.deepEqual(imageTrialEvidence({ trials, currentKeyEpoch: 1, currentModel: savedModel, now }), {
+  assert.deepEqual(trialEvidence({ trials, currentKeyEpoch: 1, currentModel: savedModel, now }), {
     kind: "success",
     at: 90_000,
     durationMs: 11_000,
@@ -140,7 +148,7 @@ test("証拠と試行のモデルは画面の選択（下書き優先）で、�
 
 test("成功が無ければ同じ条件の直近の失敗を出し、どちらも無ければ未確認にする", () => {
   const now = 200_000;
-  const failed = imageTrialEvidence({
+  const failed = trialEvidence({
     trials: [
       trial({ state: "failed", failureCode: "invalid_key", finishedAt: 190_000, durationMs: 500 }),
       trial({ state: "canceled", failureCode: "aborted", finishedAt: 195_000 }),
@@ -157,7 +165,7 @@ test("成功が無ければ同じ条件の直近の失敗を出し、どちら�
   });
   assert.equal(evidenceNote(failed, { now }), "直近の失敗: APIキーが無効（たった今）");
 
-  const unverified = imageTrialEvidence({
+  const unverified = trialEvidence({
     trials: [trial({ keyEpoch: 0 })],
     currentKeyEpoch: 2,
     currentModel: MODEL,
@@ -267,7 +275,7 @@ test("試行の種別は設定タブの面へ写す", () => {
 
 test("証拠は保存済みの成功だけを数え、段階 1 の none 行は履歴にだけ残す", () => {
   const now = 100_000;
-  const evidence = imageTrialEvidence({
+  const evidence = trialEvidence({
     trials: [
       trial({ id: "legacy", artifactState: "none", artifact: null, finishedAt: 99_000 }),
       trial({ id: "stored", finishedAt: 50_000 }),
@@ -279,7 +287,7 @@ test("証拠は保存済みの成功だけを数え、段階 1 の none 行は�
   assert.deepEqual(evidence, { kind: "success", at: 50_000, durationMs: 11_000 });
   // 保存済みが無ければ、古い成功があっても未確認
   assert.deepEqual(
-    imageTrialEvidence({
+    trialEvidence({
       trials: [trial({ artifactState: "none", artifact: null })],
       currentKeyEpoch: 1,
       currentModel: MODEL,
@@ -437,4 +445,190 @@ test("試行の削除は一覧を取り直し、保存容量を古いまま残�
     /delete boom/,
   );
   assert.equal(reloaded, false);
+});
+
+// --- 音声の試行（段階 3） ---
+
+/** 音声の試行。本文とパラメーターは履歴のスナップショットとして持つ */
+function speechTrial(overrides: Partial<ContentTrial> = {}): ContentTrial {
+  return trial({
+    id: "trial-speech-1",
+    kind: "speech",
+    model: "google/gemini-3.8-flash-tts",
+    prompt: "おはようございます",
+    voice: "Aoede",
+    instructions: "落ち着いた声で",
+    speed: 1.1,
+    artifact: { format: "mp3", bytes: 4_096, width: null, height: null },
+    ...overrides,
+  });
+}
+
+test("音声の種別は音声タブに対応し、履歴の行にボイスと形式を出す", () => {
+  assert.equal(trialKindSubsection("speech"), "speech");
+  assert.equal(trialKindSubsection("image"), "image");
+  const row = trialHistoryRow(speechTrial(), 1);
+  assert.equal(row.voice, "Aoede");
+  assert.equal(row.artifactLabel, "MP3 · 4.0 KiB");
+  assert.equal(row.artifactUrl, trialArtifactUrl("trial-speech-1"));
+  // 画像の行はボイスを持たない
+  assert.equal(trialHistoryRow(trial(), 1).voice, null);
+});
+
+test("音声の証拠はモデルに加えてボイスも一致する実績だけを数える", () => {
+  const now = 100_000;
+  const trials = [
+    speechTrial({ id: "other-voice", voice: "Achernar", finishedAt: 95_000 }),
+    speechTrial({ id: "current", voice: "Aoede", finishedAt: 60_000 }),
+  ];
+  assert.deepEqual(
+    trialEvidence({ trials, currentKeyEpoch: 1, currentModel: trials[0]!.model, currentVoice: "Aoede", now }),
+    {
+      kind: "success",
+      at: 60_000,
+      durationMs: 11_000,
+    },
+  );
+  // 保存値のボイス（Achernar）で数えると別ボイスの成功が証拠になる。混同しないことをここで固定する
+  assert.deepEqual(
+    trialEvidence({ trials, currentKeyEpoch: 1, currentModel: trials[0]!.model, currentVoice: "Achernar", now }),
+    { kind: "success", at: 95_000, durationMs: 11_000 },
+  );
+  // ボイスを渡さない画像の証拠は全ボイスを見る（画像の行は voice: null）
+  assert.equal(trialEvidence({ trials, currentKeyEpoch: 1, currentModel: trials[0]!.model, now }).kind, "success");
+});
+
+test("音声の再利用は本文・モデル・ボイス・演技指示・話速がすべて一致するときだけ", () => {
+  const trials = [speechTrial()];
+  const base = { trials, kind: "speech" as const, model: speechTrial().model, prompt: "おはようございます" };
+  assert.ok(reusableTrial({ ...base, voice: "Aoede", instructions: "落ち着いた声で", speed: 1.1 }));
+  assert.equal(reusableTrial({ ...base, voice: "Achernar", instructions: "落ち着いた声で", speed: 1.1 }), null);
+  assert.equal(reusableTrial({ ...base, voice: "Aoede", instructions: "別の指示", speed: 1.1 }), null);
+  assert.equal(reusableTrial({ ...base, voice: "Aoede", instructions: "落ち着いた声で", speed: 1.2 }), null);
+  assert.equal(reusableTrial({ ...base, prompt: "別の本文", voice: "Aoede" }), null);
+  // 保存済みの成果物が無い成功は再利用しない
+  assert.equal(
+    reusableTrial({ ...base, trials: [speechTrial({ artifactState: "none", artifact: null })], voice: "Aoede" }),
+    null,
+  );
+});
+
+test("音声の試行の要求は本文・演技指示・話速を画面の値から組み立て、課金前に空を止める", () => {
+  const input = speechTrialInput({ text: "こんにちは", instructions: "静かに", speed: "1.5" }, "google/tts", "Aoede");
+  assert.deepEqual(input, {
+    ok: true,
+    input: { model: "google/tts", prompt: "こんにちは", voice: "Aoede", instructions: "静かに", speed: 1.5 },
+  });
+  // ボイスが空（指定なし）と空欄の速度はキーごと落とす
+  assert.deepEqual(speechTrialInput({ text: "こんにちは", instructions: "", speed: "" }, "google/tts", ""), {
+    ok: true,
+    input: { model: "google/tts", prompt: "こんにちは" },
+  });
+  assert.equal(speechTrialInput({ text: "   ", instructions: "", speed: "" }, "google/tts", "").ok, false);
+  assert.equal(speechTrialInput({ text: "x", instructions: "", speed: "0" }, "google/tts", "").ok, false);
+  assert.equal(speechTrialInput({ text: "x", instructions: "", speed: "" }, "", "").ok, false);
+});
+
+test("入力欄に戻すと送った本文・演技指示・話速のスナップショットへ戻る", () => {
+  assert.deepEqual(speechTrialDraftOf(speechTrial()), {
+    text: "おはようございます",
+    instructions: "落ち着いた声で",
+    speed: "1.1",
+  });
+  // 未指定は空欄へ戻し、0 を入れない
+  assert.deepEqual(speechTrialDraftOf(speechTrial({ voice: null, instructions: null, speed: null })), {
+    text: "おはようございます",
+    instructions: "",
+    speed: "",
+  });
+  assert.deepEqual(speechTrialSnapshotLabels(speechTrial()), {
+    voice: "Aoede",
+    instructions: "落ち着いた声で",
+    speed: "1.1 倍",
+  });
+  assert.deepEqual(speechTrialSnapshotLabels(speechTrial({ voice: null, instructions: null, speed: null })), {
+    voice: "モデル既定",
+    instructions: "指定なし",
+    speed: "モデル既定",
+  });
+});
+
+test("音声の表示は trial id で一意になり、本文が同じでも別のテイクは別の履歴になる", () => {
+  // 同じ本文の 2 テイク。id が違うので選択も履歴行も別（本文の比較で 1 件に畳まない）
+  const first = speechTrial({ id: "trial-aaa", finishedAt: 2_000 });
+  const second = speechTrial({ id: "trial-bbb", finishedAt: 3_000, speed: 1.2 });
+  const trials = [second, first];
+  assert.deepEqual(
+    trials.map((entry) => trialHistoryRow(entry, 1).id),
+    ["trial-bbb", "trial-aaa"],
+  );
+  // 同じ trial を 2 回選んでも 1 件のビューポートにしかならない（id で引く）
+  assert.equal(selectedTrial({ trials, selectedId: "trial-aaa" })?.id, "trial-aaa");
+  assert.equal(selectedTrial({ trials, selectedId: "trial-aaa" })?.id, "trial-aaa");
+  // 選択が消えたら最新（同じ本文でも新しいテイク）へ戻る
+  assert.equal(selectedTrial({ trials, selectedId: null })?.id, "trial-bbb");
+  assert.equal(selectedTrial({ trials, selectedId: "trial-gone" })?.id, "trial-bbb");
+});
+
+test("ボイス未指定は空文字と null を同じ「指定なし」として証拠と再利用で一致する", () => {
+  const now = 100_000;
+  // 画面のボイス欄は空文字、保存済みの成功行は null（サーバーが空文字を null へ寄せる）
+  const unsaved = [
+    speechTrial({ id: "unspecified", voice: null, instructions: null, speed: null, finishedAt: 60_000 }),
+  ];
+  assert.deepEqual(
+    trialEvidence({
+      trials: unsaved,
+      currentKeyEpoch: 1,
+      currentModel: unsaved[0]!.model,
+      currentVoice: "",
+      now,
+    }),
+    { kind: "success", at: 60_000, durationMs: 11_000 },
+    "空文字の画面値を null の保存値へ一致させる",
+  );
+  assert.ok(
+    reusableTrial({
+      trials: unsaved,
+      kind: "speech",
+      model: unsaved[0]!.model,
+      prompt: unsaved[0]!.prompt,
+      voice: "",
+      instructions: null,
+      speed: null,
+    }),
+    "同じ入力（ボイス未指定）として再利用する",
+  );
+
+  // 逆向き（保存値が空文字・画面が null）でも同じ扱いにする
+  const stored = [speechTrial({ id: "empty", voice: "", instructions: null, speed: null, finishedAt: 60_000 })];
+  assert.deepEqual(
+    trialEvidence({
+      trials: stored,
+      currentKeyEpoch: 1,
+      currentModel: stored[0]!.model,
+      currentVoice: null,
+      now,
+    }),
+    { kind: "success", at: 60_000, durationMs: 11_000 },
+  );
+  // 指定したボイスが違えば一致しない（正規化で別のボイスまで一致させない）
+  assert.deepEqual(
+    trialEvidence({
+      trials: stored,
+      currentKeyEpoch: 1,
+      currentModel: stored[0]!.model,
+      currentVoice: "Aoede",
+      now,
+    }),
+    { kind: "unverified" },
+  );
+});
+
+test("全削除の注記は種別ごとの件数を伝え、もう一方のタブの履歴を消したと誤解させない", () => {
+  assert.equal(trialRemoveAllNote("speech", 2), "音声の試行の履歴を 2 件削除しました（実行中の試行は残ります）。");
+  assert.equal(trialRemoveAllNote("image", 1), "画像の試行の履歴を 1 件削除しました（実行中の試行は残ります）。");
+  assert.equal(trialRemoveAllNote("speech", 0), "音声の試行に削除できる履歴がありません（実行中の試行は残ります）。");
+  assert.equal(trialKindLabel("speech"), "音声");
+  assert.equal(trialKindLabel("image"), "画像");
 });
