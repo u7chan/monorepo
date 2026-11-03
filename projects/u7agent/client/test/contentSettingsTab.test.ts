@@ -590,6 +590,26 @@ test("同じ入力の保存済み結果がある行は、生成し直しても�
   assert.ok(fresh.includes("別のテイクは新しい試行として課金されます。"));
 });
 
+test("結果のモデルが保存値と違うときだけ、このモデルを既定にする導線を出す", () => {
+  const button = "このモデルを既定にする";
+  const other = render({ trials: [{ ...TRIAL_BASE, model: "openrouter/google/gemini-image" }] });
+  assert.ok(other.includes(button), "別モデルで試した結果からは既定にできる");
+
+  const same = render({ trials: [TRIAL_BASE] });
+  assert.equal(same.includes(button), false, "保存値と同じモデルでは出さない");
+
+  // 保存後は保存値が試行のモデルになり、下書きを捨てた状態（初期値）では未保存も出ない
+  const saved = render({
+    image: { model: "google/gemini-image" },
+    trials: [{ ...TRIAL_BASE, model: "openrouter/google/gemini-image" }],
+  });
+  assert.equal(saved.includes(button), false, "保存できたら導線を消す");
+  assert.equal(saved.includes("未保存"), false, "未保存扱いを残さない");
+
+  const outside = render({ trials: [{ ...TRIAL_BASE, model: "openrouter/unknown/image" }] });
+  assert.equal(outside.includes(button), false, "保存の本文を作れないモデルでは出さない");
+});
+
 test("実行中の行は送信時のプロンプトを表示し、入力欄の下書きとは混ぜない", () => {
   const html = render({
     trials: [
@@ -669,6 +689,31 @@ test("音声の結果はプレイヤー・snapshot・導線を出し、履歴に
   });
   assert.ok(two.includes('aria-label="成功の試行を表示"'), "履歴の行を出す");
   assert.ok(two.includes("履歴（2 件）"));
+});
+
+test("音声は結果のモデルとボイスが保存値と違うときだけ、このモデルとボイスを既定にする導線を出す", () => {
+  const button = "このモデルとボイスを既定にする";
+  // 保存値は Zephyr、試行は Aoede
+  const voiceDiff = render({ subsection: "speech", trials: [SPEECH_TRIAL_BASE] });
+  assert.ok(voiceDiff.includes(button), "ボイスだけ違っても既定にできる");
+
+  const same = render({ subsection: "speech", speech: { voice: "Aoede" }, trials: [SPEECH_TRIAL_BASE] });
+  assert.equal(same.includes(button), false, "モデルもボイスも同じなら出さない");
+
+  const saved = render({
+    subsection: "speech",
+    speech: { model: "google/gemini-3.8-flash-tts", voice: "Aoede" },
+    trials: [SPEECH_TRIAL_BASE],
+  });
+  assert.equal(saved.includes(button), false, "保存できたら導線を消す");
+  assert.equal(saved.includes("未保存"), false, "未保存扱いを残さない");
+
+  const modelDiff = render({
+    subsection: "speech",
+    speech: { model: "fish/audio", voice: "Aoede" },
+    trials: [SPEECH_TRIAL_BASE],
+  });
+  assert.ok(modelDiff.includes(button), "モデルが違えば既定にできる");
 });
 
 test("音声の実行中はプレイヤーを出さず、状態だけを示す", () => {

@@ -19,9 +19,16 @@ import {
   type TrialOutcomeFilter,
 } from "../../lib/contentTrials";
 import { cn } from "../../lib/cn";
-import type { ContentSettingsResponse, ContentTrial, ContentTrialArtifactUsageValue } from "../../types";
+import { imageTrialDefaultTarget } from "../../lib/trialDefault";
+import type {
+  ContentSettingsResponse,
+  ContentTrial,
+  ContentTrialArtifactUsageValue,
+  UpdateContentImageBody,
+} from "../../types";
 import { CheckIcon, TrashIcon } from "../icons";
 import { ZoomableImage } from "../ImageZoom";
+import { TrialDefaultAction } from "./TrialDefaultAction";
 
 /** 履歴の既定表示件数。全件は「すべて見る」で開く（時間ベースの自動削除はしない） */
 const HISTORY_PREVIEW_COUNT = 3;
@@ -46,6 +53,10 @@ export type ImageTrialSectionProps = {
   /** 試行の操作（開始 / 中断 / 削除 / 一覧の取得失敗）の注記。設定の注記とは別の行に出す */
   note: { text: string; error: boolean } | null;
   busy: boolean;
+  /** 設定の保存中。既定の保存を重ねない（試行の `busy` とは別の軸） */
+  settingsBusy: boolean;
+  /** 試行のモデルを既定として保存する。成功したら呼び出し側が下書きを捨てる */
+  onMakeDefault: (input: UpdateContentImageBody) => Promise<boolean>;
   /** 試行のプロンプト下書き。面を切り替えても失わないよう、呼び出し側が持つ */
   prompt: string;
   onChangePrompt: (prompt: string) => void;
@@ -69,6 +80,8 @@ export function ImageTrialSection({
   artifactUsage,
   note,
   busy,
+  settingsBusy,
+  onMakeDefault,
   prompt,
   onChangePrompt,
   onStart,
@@ -91,6 +104,8 @@ export function ImageTrialSection({
   });
   const running = list.find((trial) => trial.state === "running") ?? null;
   const selected = selectedTrial({ trials: list, selectedId });
+  // 同じモデルを保存しても何も変わらないため、結果との差分があるときだけ導線を出す
+  const defaultTarget = selected ? imageTrialDefaultTarget({ settings, trialModel: selected.model }) : null;
   const blocked = trialStartBlockedReason({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,
@@ -162,6 +177,9 @@ export function ImageTrialSection({
           trials={list}
           busy={busy}
           running={running !== null}
+          defaultTarget={defaultTarget}
+          settingsBusy={settingsBusy}
+          onMakeDefault={onMakeDefault}
           onDelete={onDelete}
           onRestorePrompt={() => onChangePrompt(selected.prompt)}
           onAnotherTake={() => void onStart({ kind: "image", model: selected.model, prompt: selected.prompt })}
@@ -297,6 +315,9 @@ function ResultViewport({
   trials,
   busy,
   running,
+  defaultTarget,
+  settingsBusy,
+  onMakeDefault,
   onDelete,
   onRestorePrompt,
   onAnotherTake,
@@ -306,6 +327,10 @@ function ResultViewport({
   trials: readonly ContentTrial[];
   busy: boolean;
   running: boolean;
+  /** 既定として保存する本文。保存値と同じなら null（導線を出さない） */
+  defaultTarget: UpdateContentImageBody | null;
+  settingsBusy: boolean;
+  onMakeDefault: (input: UpdateContentImageBody) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onRestorePrompt: () => void;
   onAnotherTake: () => void;
@@ -381,6 +406,14 @@ function ResultViewport({
           削除
         </button>
       </div>
+      {/* 下書きを捨てるのは呼び出し側。ここは保存の進行と失敗の注記だけを持つ */}
+      <TrialDefaultAction
+        key={trial.id}
+        label="このモデルを既定にする"
+        target={defaultTarget}
+        disabled={busy || settingsBusy}
+        onSave={onMakeDefault}
+      />
       <p className="text-2xs leading-relaxed text-ink-faint">
         {reuse
           ? "同じ入力の保存済みの結果があるため、生成し直しても課金されません。"

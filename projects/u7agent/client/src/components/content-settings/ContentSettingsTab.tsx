@@ -145,6 +145,19 @@ export function ContentSettingsTab({
     if (await onDeleteKey()) setApiKey("");
   };
 
+  // 試行の結果を既定へ上げる。保存できたら下書きを捨て、画面を保存値へ追随させる（未保存表示を残さない）
+  const saveTrialModel = async (input: UpdateContentImageBody): Promise<boolean> => {
+    if (!(await onSaveSelection(input))) return false;
+    setImageDraft(null);
+    return true;
+  };
+
+  const saveTrialSpeech = async (input: UpdateContentSpeechBody): Promise<boolean> => {
+    if (!(await onSaveSpeech(input))) return false;
+    setSpeechDraft(EMPTY_SPEECH_DRAFT);
+    return true;
+  };
+
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
       <div className="mx-auto grid max-w-3xl gap-3">
@@ -277,6 +290,8 @@ export function ContentSettingsTab({
               artifactUsage={trialArtifactUsage}
               note={trialNote}
               busy={trialBusy}
+              settingsBusy={busy}
+              onMakeDefault={saveTrialModel}
               prompt={trialPrompt}
               onChangePrompt={setTrialPrompt}
               onStart={onStartTrial}
@@ -313,6 +328,8 @@ export function ContentSettingsTab({
               artifactUsage={trialArtifactUsage}
               note={trialNote}
               busy={trialBusy}
+              settingsBusy={busy}
+              onMakeDefault={saveTrialSpeech}
               draft={speechTrialDraft}
               onChangeDraft={setSpeechTrialDraft}
               onStart={onStartTrial}
