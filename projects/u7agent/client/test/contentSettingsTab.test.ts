@@ -70,6 +70,9 @@ function render(
     /** 試行の一覧と操作の状態 (画像の面だけが使う) */
     trials?: ContentTrial[];
     trialKeyEpoch?: number;
+    trialArtifactUsage?: { count: number; bytes: number };
+    /** 試行の操作の注記（試行の面の中だけに出す） */
+    trialNote?: { text: string; error: boolean } | null;
     trialBusy?: boolean;
   } & Omit<Partial<ContentSettingsResponse>, "image" | "speech"> = {},
 ): string {
@@ -94,6 +97,8 @@ function render(
         speechSynced: options.speechSynced ?? true,
         trials: options.trials ?? [],
         trialKeyEpoch: options.trialKeyEpoch ?? 0,
+        trialArtifactUsage: options.trialArtifactUsage ?? { count: 0, bytes: 0 },
+        trialNote: options.trialNote ?? null,
         trialBusy: options.trialBusy ?? false,
         onStartTrial: async () => true,
         onCancelTrial: async () => true,
@@ -427,7 +432,9 @@ const TRIAL_BASE: ContentTrial = {
   prompt: "a cat on a sofa",
   state: "succeeded",
   keyEpoch: 0,
-  artifactState: "none",
+  artifactState: "stored",
+  artifact: { format: "png", bytes: 2_048, width: 1024, height: 1024 },
+  charged: true,
   failureCode: null,
   failureMessage: null,
   startedAt: 1_000,
@@ -487,12 +494,12 @@ test("失敗は分類とマスク済みの文言を出し、全体 OFF でも履
   assert.ok(html.includes("a cat on a sofa"), "OFF でも履歴を読める");
 });
 
-test("成功した実績はモデル選択の直下に最終成功として出し、結果が保存されていないことを添える", () => {
+test("成功した実績はモデル選択の直下に最終成功として出す", () => {
   const now = Date.now();
   const html = render({
     trials: [{ ...TRIAL_BASE, startedAt: now - 72_400, finishedAt: now - 60_000, durationMs: 12_400 }],
   });
-  assert.ok(html.includes("この画面での最終成功: 1 分前（12.4s）。結果は保存されていません"));
+  assert.ok(html.includes("この画面での最終成功: 1 分前（12.4s）"));
   assert.ok(html.includes("チャットの生成は含めません"), "証拠の範囲を書く");
 });
 
@@ -510,4 +517,100 @@ test("中止した試行は「中止」と出し、失敗の分類として見�
   const html = render({ trials: [{ ...TRIAL_BASE, state: "canceled", failureCode: "aborted" }] });
   assert.match(html, />中止</, "状態は中止");
   assert.equal(html.includes("失敗の分類"), false, "利用者の中止を失敗の分類にしない");
+});
+
+test("保存済みの結果はビューポートにプレビュー・実寸・形式・サイズ・導線を出し、履歴にサムネイルを出す", () => {
+  const html = render({
+    trials: [TRIAL_BASE],
+    trialArtifactUsage: { count: 1, bytes: 2_048 },
+  });
+  // プレビューは trial id の同 origin ルート（blob URL ではない）
+  assert.ok(html.includes('src="/api/settings/content/trials/trial-1/raw"'), "プレビューの URL");
+  assert.ok(html.includes("PNG · 1024 × 1024 · 2.0 KiB"), "形式・実寸・サイズ");
+  assert.ok(html.includes("試行の結果 を拡大表示"), "拡大の導線");
+  assert.ok(
+    html.includes('href="/api/settings/content/trials/trial-1/raw?download=1"'),
+    "ダウンロードは同じ trial id のルート",
+  );
+  assert.ok(html.includes("入力欄に戻す"), "入力欄へ戻す導線");
+  assert.ok(html.includes("別のテイクを生成"), "別テイクの導線");
+  assert.ok(html.includes("保存容量: 1 件 · 2.0 KiB"), "保存容量を出す");
+  // 履歴の行にも同じ URL のサムネイルを出す
+  assert.ok((html.match(/trials\/trial-1\/raw/g) ?? []).length >= 2, "履歴のサムネイル");
+  assert.ok(html.includes("モデル絞り込み"), "モデルの絞り込み");
+  assert.ok(html.includes("成功失敗の絞り込み"), "成功 / 失敗の絞り込み");
+});
+
+test("結果を保存していない行（段階 1 の none）は記録のみと出し、ダウンロードを出さない", () => {
+  const html = render({
+    trials: [{ ...TRIAL_BASE, artifactState: "none", artifact: null, charged: false }],
+  });
+  assert.ok(html.includes("結果は保存されていません（記録のみ）"), "記録のみを明示する");
+  assert.equal(html.includes("/raw"), false, "配信 URL を出さない");
+  assert.equal(html.includes(">ダウンロード</a>"), false, "ダウンロードを出さない");
+  assert.ok(html.includes("保存容量: 0 件 · 0 B"), "容量に数えない");
+});
+
+test("保存できなかった成功は課金済みを明示し、成功として見せない", () => {
+  const html = render({
+    trials: [
+      {
+        ...TRIAL_BASE,
+        state: "failed",
+        failureCode: "storage",
+        failureMessage:
+          "生成は完了しましたが、結果を保存できませんでした（課金済み）。もう一度生成すると再課金されます",
+        artifactState: "none",
+        artifact: null,
+        charged: true,
+      },
+    ],
+  });
+  assert.ok(html.includes(">失敗<"), "成功として見せない");
+  assert.ok(html.includes("失敗の分類: 結果を保存できない"), "storage の分類を出す");
+  assert.ok(html.includes("生成は課金されています。もう一度生成すると再課金されます。"), "課金済みを明示する");
+  assert.equal(html.includes("/raw"), false);
+});
+
+test("同じ入力の保存済み結果がある行は、生成し直しても課金されないことを添える", () => {
+  const reused = render({ trials: [TRIAL_BASE] });
+  assert.ok(reused.includes("同じ入力の保存済みの結果があるため、生成し直しても課金されません。"));
+  // 保存済みが無い（失敗した）行は、新しい試行として課金されることを出す
+  const fresh = render({
+    trials: [{ ...TRIAL_BASE, state: "failed", failureCode: "timeout", artifactState: "none", artifact: null }],
+  });
+  assert.ok(fresh.includes("別のテイクは新しい試行として課金されます。"));
+});
+
+test("実行中の行は送信時のプロンプトを表示し、入力欄の下書きとは混ぜない", () => {
+  const html = render({
+    trials: [
+      {
+        ...TRIAL_BASE,
+        state: "running",
+        prompt: "submitted prompt",
+        finishedAt: null,
+        durationMs: null,
+        artifactState: "none",
+        artifact: null,
+        charged: false,
+      },
+    ],
+  });
+  assert.ok(html.includes("submitted prompt"), "送信時のプロンプトを結果に出す");
+  assert.ok(html.includes("生成中です。送信したプロンプトを表示しています"), "スナップショットであることを書く");
+  assert.equal(html.includes("/raw"), false, "実行中はプレビューを出さない");
+});
+
+test("試行の注記は試行の面の中に出す（設定の注記行とは別）", () => {
+  const html = render({ trials: [TRIAL_BASE], trialNote: { text: "試行の履歴を削除しました。", error: false } });
+  assert.ok(html.includes("試行の履歴を削除しました。"), "試行の注記を出す");
+  const error = render({
+    trials: [TRIAL_BASE],
+    trialNote: { text: "試行の履歴を取得できませんでした。", error: true },
+  });
+  assert.ok(error.includes("試行の履歴を取得できませんでした。"), "取得失敗も同じ行に出す");
+  // 注記が無ければ空行を作らない
+  const none = render({ trials: [TRIAL_BASE] });
+  assert.equal(none.includes("試行の履歴を削除しました。"), false);
 });

@@ -48,11 +48,12 @@ export function createContentSettingsRoutes({
 
     refreshSpeechCatalog: async (c: Context) => c.json(await contentSettings.refreshSpeechCatalog()),
 
-    // 試行は 202 で開始し、状態は GET で取る。画面の寿命にも、リクエストの signal にも結び付けない
+    // 試行は 202 で開始し、状態は GET で取る。画面の寿命にも、リクエストの signal にも結び付けない。
+    // 同じ入力の保存済み成功があるときは provider を呼ばず 200 + `reused: true` を返す（課金しない）
     startTrial: (c: Context, body: CreateContentTrialBody) => {
       const outcome = contentTrials.start(body);
-      if (outcome.status !== 202) return c.json({ error: outcome.error }, outcome.status);
-      return c.json({ trial: outcome.trial }, 202);
+      if ("error" in outcome) return c.json({ error: outcome.error }, outcome.status);
+      return c.json({ trial: outcome.trial, reused: outcome.reused }, outcome.status);
     },
 
     getTrial: (c: Context) => {
@@ -65,7 +66,28 @@ export function createContentSettingsRoutes({
     listTrials: (c: Context) => {
       const kind = c.req.query("kind");
       const outcome = contentTrials.list(kind === undefined || kind === "" ? undefined : kind);
-      return c.json({ items: outcome.items, keyEpoch: outcome.keyEpoch });
+      return c.json({ items: outcome.items, keyEpoch: outcome.keyEpoch, artifactUsage: outcome.artifactUsage });
+    },
+
+    /**
+     * 保存済みの成果物。trial id だけで引き、パスは受け取らない。保存時に確定した許可 MIME だけを返し、
+     * `nosniff` と `no-store` を付け、`?download=1` のときだけ添付にする。
+     */
+    rawTrial: async (c: Context) => {
+      const outcome = await contentTrials.raw(c.req.param("id") ?? "");
+      if (outcome.status !== 200) return c.json({ error: outcome.error }, 404);
+      return new Response(outcome.bytes, {
+        status: 200,
+        headers: {
+          "Content-Type": outcome.contentType,
+          "Content-Length": String(outcome.bytes.byteLength),
+          "X-Content-Type-Options": "nosniff",
+          "Cache-Control": "no-store",
+          ...(c.req.query("download") === "1"
+            ? { "Content-Disposition": `attachment; filename="${outcome.fileName}"` }
+            : {}),
+        },
+      });
     },
 
     // `running` のときだけ受け付ける。終端は 409（状態を戻さない）
@@ -76,18 +98,18 @@ export function createContentSettingsRoutes({
       return c.json({ trial: outcome.trial });
     },
 
-    // 個別削除は終端状態だけ。`running` は 409 で「先に中断してください」を返す
-    removeTrial: (c: Context) => {
-      const outcome = contentTrials.remove(c.req.param("id") ?? "");
+    // 個別削除は終端状態だけ。`running` は 409 で「先に中断してください」を返す。成果物も消す
+    removeTrial: async (c: Context) => {
+      const outcome = await contentTrials.remove(c.req.param("id") ?? "");
       if (outcome.status === 404) return c.json({ error: outcome.error }, 404);
       if (outcome.status === 409) return c.json({ error: outcome.error }, 409);
       return c.json({ removed: outcome.removed });
     },
 
-    // 全削除も終端状態だけを対象にする（実行中の試行は残す）
-    removeAllTrials: (c: Context) => {
+    // 全削除も終端状態だけを対象にする（実行中の試行は残す）。その行の成果物も消す
+    removeAllTrials: async (c: Context) => {
       const kind = c.req.query("kind");
-      const outcome = contentTrials.removeAll(kind === undefined || kind === "" ? undefined : kind);
+      const outcome = await contentTrials.removeAll(kind === undefined || kind === "" ? undefined : kind);
       return c.json({ removed: outcome.removed });
     },
   };

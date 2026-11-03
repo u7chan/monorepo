@@ -155,6 +155,18 @@ GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui
 - [ ] 接続タブの「接続を確認」は未登録・master key 不在・未保存の下書き・保存 / 削除 / 再読み込み / 確認中に無効になり、下書きを変えると前回の結果が消える。
 - [ ] 「接続を確認」の結果はカード内の結果行（`role="status"`）に出て、成功は workers.dev サブドメインと確認時刻、失敗は固定文言と `HTTP <status>` になる。409 / 503 は `role="alert"` に出る。desktop と 390x844 で入力欄・ヘルプ文を押し出さない。
 
+## コンテンツ生成の試行（画像）の受入
+
+自動検証は `server/test/content-trials.test.ts` / `server/test/content-trials-api.test.ts`（状態遷移・再照合・`storage` の分類・raw 配信のヘッダと拒否・同じ入力の再利用・成果物の削除）、`server/test/content-trial-artifacts.test.ts`（形式の許可リストと置き場）、`client/test/contentTrials.test.ts`（ビューポートの選択・絞り込み・月区切り）、`client/test/contentSettingsTab.test.ts`（結果カードと履歴の描画）で行う。
+
+GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の一時ストアと stub pi で、`/settings/content` を desktop と singleColumn で確認する。
+
+- 画像を試行すると、完了後にビューポートへプレビュー・実寸・形式・サイズ・所要時間・送ったプロンプトが出る。別タブへ移動して戻っても結果が残り、ブラウザーを閉じて開き直しても残る。
+- 履歴の行を選ぶとビューポートが切り替わり、実行中でも表示は送信時のプロンプトのまま。[入力欄に戻す] でプロンプトが戻る。
+- [ダウンロード] で保存済みの画像が落ちる（同じ trial id のルート）。[すべて削除] と行ごとの削除で画像と容量表示が減る。時間ベースでは消えない。
+- 保存できない形式・大きさは「保存できませんでした（課金済み）」になり、成功として表示されない。
+- キーを削除した後も履歴の閲覧と削除はでき、新規生成だけが止まる。
+
 ## BGMの課金なし受入
 
 [有料APIを使わないGUI fixture](#有料-api-を使わない-gui-fixture) と同じ一時ストア・workspace・別ポートを使い、通常の `pnpm dev` や既存 `.env` は使わない。fixtureの画像・TTSカタログもstubで、共有キー登録には `bgm-fixture-dummy-key` のようなダミーだけを使う（実キーは不要）。設定 → コンテンツ生成の音楽（BGM）（`/settings/content/bgm`）を開き、固定モデル、モデル仕様の尺、課金・外部送信・無保証の注意を確認する。リロード後もURLと面が復元され、お試し生成やvoice選択が出ないことを見る。画像とTTSの既存面・TTSお試し再生も確認する。

@@ -3255,6 +3255,8 @@ function runningTrial(id: string, overrides: Partial<ContentTrialRow> = {}): Con
     state: "running",
     keyEpoch: 0,
     artifactState: "none",
+    charged: false,
+    artifact: null,
     failureCode: null,
     failureMessage: null,
     startedAt: 1_000,
@@ -3286,6 +3288,8 @@ test("試行は running で保存し、終端への更新は running の行だ�
       failureMessage: null,
       finishedAt: 2_000,
       durationMs: 1_000,
+      charged: true,
+      artifact: null,
     }),
     true,
   );
@@ -3298,6 +3302,8 @@ test("試行は running で保存し、終端への更新は running の行だ�
       failureMessage: null,
       finishedAt: 3_000,
       durationMs: 2_000,
+      charged: false,
+      artifact: null,
     }),
     false,
   );
@@ -3319,6 +3325,8 @@ test("試行の一覧は新しい順で、全削除は終端だけを消し、ru
     failureMessage: "混雑",
     finishedAt: 3_000,
     durationMs: 2_000,
+    charged: false,
+    artifact: null,
   });
   assert.deepEqual(
     db.listContentTrials().map((row) => row.id),
@@ -3400,6 +3408,103 @@ test("v37 の DB を開くと試行のテーブルとキー世代が足され、
         .sort(),
       ["a1", "agent-zundamon"],
     );
+    migrated.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("成果物のメタデータは状態と 1 文で書き、容量は succeeded + stored だけを合計する", () => {
+  const db = AppDb.open({ storeDir: null });
+  const id = "trial-0123456789abcdef01234567";
+  db.saveContentTrial(runningTrial(id));
+  assert.deepEqual(db.readContentTrialArtifactUsage(), { count: 0, bytes: 0 });
+
+  assert.equal(
+    db.finishContentTrial({
+      id,
+      state: "succeeded",
+      failureCode: null,
+      failureMessage: null,
+      finishedAt: 2_000,
+      durationMs: 1_000,
+      charged: true,
+      artifact: { path: `${id}.png`, bytes: 1_024, format: "png", width: 640, height: 480 },
+    }),
+    true,
+  );
+  const row = db.readContentTrial(id);
+  assert.equal(row?.artifactState, "stored");
+  assert.equal(row?.charged, true);
+  assert.deepEqual(row?.artifact, { path: `${id}.png`, bytes: 1_024, format: "png", width: 640, height: 480 });
+  assert.deepEqual(db.readContentTrialArtifactUsage(), { count: 1, bytes: 1_024 });
+
+  // 同じ入力の保存済み成功だけを再利用の対象にする
+  assert.equal(db.findReusableContentTrial({ kind: "image", model: row?.model ?? "", prompt: "a cat" })?.id, id);
+  assert.equal(db.findReusableContentTrial({ kind: "image", model: row?.model ?? "", prompt: "a dog" }), undefined);
+
+  // 失敗（保存できなかった成功）は容量に数えない
+  const failed = "trial-0123456789abcdef01234568";
+  db.saveContentTrial(runningTrial(failed, { prompt: "a dog" }));
+  db.finishContentTrial({
+    id: failed,
+    state: "failed",
+    failureCode: "storage",
+    failureMessage: "保存できない",
+    finishedAt: 3_000,
+    durationMs: 1_000,
+    charged: true,
+    artifact: null,
+  });
+  assert.deepEqual(db.readContentTrialArtifactUsage(), { count: 1, bytes: 1_024 });
+  assert.equal(db.findReusableContentTrial({ kind: "image", model: row?.model ?? "", prompt: "a dog" }), undefined);
+  db.close();
+});
+
+test("v38 の DB を開くと成果物の列が足され、既存の行は課金なし・成果物なしで読める", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentTrial(runningTrial("trial-1"));
+    first.close();
+
+    // v38 相当（成果物の列を持たない版）へ落として開き直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    for (const column of [
+      "charged",
+      "artifactPath",
+      "artifactBytes",
+      "artifactFormat",
+      "artifactWidth",
+      "artifactHeight",
+    ]) {
+      raw.exec(`ALTER TABLE content_trials DROP COLUMN ${column}`);
+    }
+    raw.exec("PRAGMA user_version = 38");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    const row = migrated.readContentTrial("trial-1");
+    assert.equal(row?.state, "running");
+    assert.equal(row?.charged, false);
+    assert.equal(row?.artifactState, "none");
+    assert.equal(row?.artifact, null);
+    assert.deepEqual(migrated.readContentTrialArtifactUsage(), { count: 0, bytes: 0 });
+    // 移行後の行にも成果物を書ける
+    assert.equal(
+      migrated.finishContentTrial({
+        id: "trial-1",
+        state: "succeeded",
+        failureCode: null,
+        failureMessage: null,
+        finishedAt: 2_000,
+        durationMs: 1_000,
+        charged: true,
+        artifact: { path: "trial-1.png", bytes: 10, format: "png", width: 1, height: 1 },
+      }),
+      true,
+    );
+    assert.equal(migrated.readContentTrial("trial-1")?.artifact?.bytes, 10);
     migrated.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

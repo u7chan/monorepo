@@ -20,6 +20,7 @@ import type {
   ContentTrialDeleteResponse,
   ContentTrialListResponse,
   ContentTrialResponse,
+  ContentTrialStartResponse,
   CreateContentTrialBody,
   CreateAgentBody,
   CreateFileSkillBody,
@@ -896,13 +897,14 @@ export const putContentApiKey = async (apiKey: string): Promise<ContentMutationR
 };
 
 /**
- * 試行ジョブの開始。応答は 202 で、状態は `getContentTrial` / `listContentTrials` で取る。
+ * 試行ジョブの開始。応答は 202（開始）か 200（同じ入力の保存済み結果を再利用。課金しない）で、
+ * 状態は `getContentTrial` / `listContentTrials` で取る。
  * リクエストの signal には結び付けない（画面を離れても続き、中断はキャンセル API だけが行う）。
  */
-export const startContentTrial = async (input: CreateContentTrialBody): Promise<ContentTrialResponse> => {
+export const startContentTrial = async (input: CreateContentTrialBody): Promise<ContentTrialStartResponse> => {
   const res = await client.api.settings.content.trials.$post({ json: input });
   if (!res.ok) throw await apiError(res);
-  return (await res.json()) as ContentTrialResponse;
+  return (await res.json()) as ContentTrialStartResponse;
 };
 
 /** 試行の一覧（新しい順）。`kind` を省くと全種別。取得のたびにサーバーが running の再照合をする */

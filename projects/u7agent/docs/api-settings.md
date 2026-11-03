@@ -208,12 +208,13 @@
 | DELETE | `/api/settings/content/key` | 行ごと削除して未設定へ戻す（冪等） |
 | POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
 | POST | `/api/settings/content/speech/catalog/refresh` | 音声カタログの再取得。応答は画像と同じ形 |
-| POST | `/api/settings/content/trials` | `{ kind, model, prompt }`。試行ジョブを開始し、202 で `{ trial }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409） |
-| GET | `/api/settings/content/trials` | `{ items, keyEpoch }`。新しい順の履歴（`?kind=` で絞る）。取得のたびに `running` の取り残しを再照合する |
+| POST | `/api/settings/content/trials` | `{ kind, model, prompt }`。試行ジョブを開始し、202 で `{ trial, reused: false }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409）。同じ入力の保存済み成功があれば provider を呼ばず 200 `{ trial, reused: true }` |
+| GET | `/api/settings/content/trials` | `{ items, keyEpoch, artifactUsage }`。新しい順の履歴（`?kind=` で絞る）。取得のたびに `running` の取り残しと成果物の置き場を再照合する |
 | GET | `/api/settings/content/trials/:id` | `{ trial }`。終端の記録に失敗している間は `recorded: false` でメモリの状態を返す |
+| GET | `/api/settings/content/trials/:id/raw` | 保存済みの成果物。`Content-Type` は保存時に確定した MIME で、`X-Content-Type-Options: nosniff` と `Cache-Control: no-store`。`?download=1` で `Content-Disposition: attachment` |
 | POST | `/api/settings/content/trials/:id/cancel` | 実行中の試行だけを中断して `{ trial }`。終端は 409 |
-| DELETE | `/api/settings/content/trials/:id` | 終端状態の試行だけを削除。実行中は 409（`先に中断してください`） |
-| DELETE | `/api/settings/content/trials` | 終端状態の試行をまとめて削除（`{ removed }`）。実行中は残る |
+| DELETE | `/api/settings/content/trials/:id` | 終端状態の試行だけを削除し、成果物も消す。実行中は 409（`先に中断してください`） |
+| DELETE | `/api/settings/content/trials` | 終端状態の試行をまとめて削除し、成果物も消す（`{ removed }`）。実行中は残る |
 
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。`enabled` は行が無いとき（未設定）も既定の `true` を返し、ツールの公開可否は `configured` との積で決まる。OFF の間、モデルへは `disabledMessage` の固定文言だけが返る（[image-generation.md](image-generation.md#有効化ゲート)）。モデル、保存先、ゲート、失敗分類は [image-generation.md](image-generation.md) / [speech-generation.md](speech-generation.md) / [bgm-generation.md](bgm-generation.md) を参照する。
 
@@ -298,7 +299,7 @@
 
 ### 試行ジョブ
 
-設定に反映しない試行（動作確認）は、画面の寿命に縛らないジョブとして持つ。実装の正は `server/src/content-trials.ts`、状態の一覧・期限・再照合の間隔はそこから読む。
+設定に反映しない試行（動作確認）は、画面の寿命に縛らないジョブとして持つ。実装の正は `server/src/content-trials.ts` と `server/src/content-trial-artifacts.ts`、状態の一覧・期限・再照合の間隔・形式の許可リストはそこから読む。
 
 - 開始は 202 で、状態は `GET .../trials/:id` と一覧で取る。**リクエストの `AbortSignal` には結び付けない**（画面を離れても続く）。中断は明示キャンセルと BFF の close だけで、close は実行中の試行を abort する
 - 種別ごとに同時 1 本。実行中は開始が 409。**キャンセルしても provider の呼び出しが終わるまで次の試行を始められない**（終端を決めた後の結果は捨てる）
@@ -306,7 +307,14 @@
 - 失敗は既存の provider 失敗分類をそのまま載せ、自動では再試行しない。APIキーは行にも応答にもログにも残さず、キーの世代（`keyEpoch`）だけを持つ
 - 再起動でレジストリを失った `running` は `interrupted` に倒す（再開しない）。一覧の取得時にも、期限を過ぎてレジストリに無い行だけを同じ扱いにする（間引きあり）
 - 終端を DB へ書けなかったときは、メモリの終端を `recorded: false` として返し、次の取得で記録を再試行する
-- 成果物は段階 1 では持たない（`artifactState` は `none`）。結果の再生・ダウンロード・同一入力の再利用は段階 2 以降
+- 成果物はアプリデータ領域の兄弟 `<storeDir>/trials` に `<trialId>.<ext>` で置き（`server/src/content-trial-artifacts.ts`）、行には相対名・バイト数・形式・寸法だけを持つ。`generated/` にもプロジェクトにも DB の BLOB にも置かず、サンドボックスを要求しない
+- 保存できるのは png / jpeg / webp だけで、宣言 MIME と実バイトの両方を `saveableImageFormat` の許可リストに通し、実バイトの形式を正にする。svg / html / 不明な MIME は**保存の前に**拒否する
+- 生成が成功して成果物を保存し、終端を `succeeded` として記録できたときだけ成功とする。保存に失敗したら分類 `storage`（課金済み）の `failed` にして成功として見せない。終端を記録できなかった成果物は消し、メモリの失敗（`failed` / `storage`）を `recorded: false` で返す
+- 同じ入力（種別 / モデル / プロンプト）の保存済み成功があるときは provider を呼ばず 200 `{ trial, reused: true }` を返す（課金せず、新しい成功としても記録しない）
+- 配信は trial id だけの同 origin ルートで、保存時に確定した MIME・`nosniff`・`no-store` を付け、`?download=1` のときだけ添付にする。パスは受け取らず、保存名が行の id と形式から作り直した名前と一致しない行は配信しない
+- 置き場の再照合は、`succeeded` + `stored` の行のファイルだけを残し、それ以外の行にひも付くファイルと行の無いファイルを消す。起動時（レジストリは空）は全件を、一覧の取得時は間引いて同じ規則を適用する。ただし実行中レジストリに居る trial（保存後・終端更新前を含む）のファイルは消さない
+- 再照合は**ファイル一覧を取った後に行一覧を読み**、削除の直前にもその行を読み直す。一覧の取得を待つ間にジョブが `succeeded` + `stored` へ確定してレジストリから外れるため、先に読んだ行一覧で残す対象を決めると、確定済みのファイルを中途ファイルとして消してしまう（配信 404・画像の無い成功の再利用・容量の数え残しになる）
+- 保存容量はディレクトリを走査せず、`succeeded` + `stored` の行のバイト数を合計する（`artifactUsage`）。時間ベースの自動削除はしない
 
 `configured`（設定行の有無）と `keyStored`（暗号文の有無）・`keyAvailable`（復号できて生成ツールへ渡せる）・`keyEvaluated` / `keyErrorMessage` は別の軸で、実効の公開ゲートは「行がある」「`enabled`」「`keyAvailable`」の積。`configured: true` / `keyStored: true` / `keyAvailable: false` でも画面はキーの削除・置換を出す。未評価（runtime 無し / 起動時に DB を読めなかった）は `keyEvaluated: false` と「まだ確認できていない」固定文言で、誤鍵・破損と断定しない（[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。
 

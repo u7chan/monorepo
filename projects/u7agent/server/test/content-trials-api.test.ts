@@ -1,6 +1,6 @@
 // 試行ジョブの API（開始 / 取得 / 一覧 / キャンセル / 削除）。実 API は呼ばず stub pi とアプリ DB で検証する。
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -23,6 +23,18 @@ process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 const KEY = "sk-image-dummy-key-0123456789abcdef";
 const MODEL = `${IMAGE_PROVIDER_ID}/${DEFAULT_IMAGE_MODEL}`;
 const CATALOG_MODEL = "black-forest-labs/flux.2-max";
+
+/** 実バイトが PNG として読める最小の画像（保存側は先頭ヘッダを見る） */
+function pngImage(width = 8, height = 6): { mimeType: string; data: string } {
+  const bytes = new Uint8Array(33);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(8, 13);
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return { mimeType: "image/png", data: Buffer.from(bytes).toString("base64") };
+}
 
 const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
@@ -80,6 +92,20 @@ function createImageHarness() {
   };
 }
 
+/** 試行が終端になるまで GET で待つ（成果物の書き込みは非同期なので、固定の待ちにしない） */
+async function waitForState(
+  bff: { app: { request: (input: string, init?: RequestInit) => Response | Promise<Response> } },
+  id: string,
+  state: string,
+): Promise<any> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const body = await jsonBody(await bff.app.request(`/api/settings/content/trials/${id}`));
+    if (body.trial?.state === state) return body;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`trial ${id} did not reach ${state}`);
+}
+
 async function until(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     if (predicate()) return;
@@ -134,7 +160,7 @@ test("開始 → 取得 → キャンセル → 削除の往復。APIキーは�
       assert.equal(images.pending[0]?.input.apiKey, KEY, "生成器へはキーを渡す");
 
       // 遅れて届いた結果は捨て、状態を戻さない
-      images.pending[0]?.resolve({ ok: true, image: { mimeType: "image/png", data: "AAAA" } });
+      images.pending[0]?.resolve({ ok: true, image: pngImage() });
       await until(() => true);
       const afterLate = await jsonBody(await bff.app.request(`/api/settings/content/trials/${id}`));
       assert.equal(afterLate.trial.state, "canceled");
@@ -174,20 +200,29 @@ test("成功は succeeded で所要時間が入り、すべて削除は終端だ
           jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
         ),
       );
-      images.pending[0]?.resolve({ ok: true, image: { mimeType: "image/png", data: "AAAA" } });
-      await until(() => images.pending.length === 1);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      images.pending[0]?.resolve({ ok: true, image: pngImage() });
+      await waitForState(bff, created.trial.id, "succeeded");
 
       const list = await jsonBody(await bff.app.request("/api/settings/content/trials?kind=image"));
       assert.equal(list.items[0]?.state, "succeeded");
       assert.equal(list.items[0]?.failureCode, null);
       assert.equal(typeof list.items[0]?.durationMs, "number");
       assert.equal(list.items[0]?.id, created.trial.id);
+      assert.equal(list.items[0]?.artifactState, "stored");
+      assert.equal(list.items[0]?.charged, true);
+      assert.deepEqual(list.items[0]?.artifact, { format: "png", bytes: 33, width: 8, height: 6 });
+      // 保存容量は保存済みの成功だけを DB のバイト数で合計する
+      assert.deepEqual(list.artifactUsage, { count: 1, bytes: 33 });
+      // 実体は会話ストアの兄弟 `<dir>/trials` に置く（プロジェクトでも generated/ でもない）
+      assert.deepEqual(await readdir(join(dir, "trials")), [`${created.trial.id}.png`]);
 
       const removed = await jsonBody(await bff.app.request("/api/settings/content/trials", { method: "DELETE" }));
       assert.equal(removed.removed, 1);
       const empty = await jsonBody(await bff.app.request("/api/settings/content/trials"));
       assert.deepEqual(empty.items, []);
+      assert.deepEqual(empty.artifactUsage, { count: 0, bytes: 0 });
+      // 削除で成果物も消える
+      assert.deepEqual(await readdir(join(dir, "trials")), []);
     } finally {
       await bff.close();
     }
@@ -234,8 +269,8 @@ test("キー未設定 / OFF / カタログ外モデルは課金前に止め、�
           jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
         ),
       );
-      images.pending[0]?.resolve({ ok: true, image: { mimeType: "image/png", data: "AAAA" } });
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      images.pending[0]?.resolve({ ok: true, image: pngImage() });
+      await waitForState(bff, created.trial.id, "succeeded");
 
       // キーを消しても履歴は残り、閲覧・削除できる（新規生成だけが止まる）
       const deleted = await jsonBody(await bff.app.request("/api/settings/content/key", { method: "DELETE" }));
@@ -289,6 +324,102 @@ test("BFF の close は実行中の試行を中断し、次の起動で running 
       assert.equal(row?.state, "interrupted");
     } finally {
       await reopened.close();
+    }
+  });
+});
+
+test("raw 配信は trial id だけで引き、保存時の MIME と nosniff / no-store を返す", async () => {
+  await withStoreDir(async (dir) => {
+    const images = createImageHarness();
+    const pi = createStubPi({ onGenerateImage: images.onGenerateImage });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const created = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/trials",
+          jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+        ),
+      );
+      const id = created.trial.id as string;
+      // 実行中は成果物が無い
+      assert.equal((await bff.app.request(`/api/settings/content/trials/${id}/raw`)).status, 404);
+
+      images.pending[0]?.resolve({ ok: true, image: pngImage(640, 480) });
+      await waitForState(bff, id, "succeeded");
+
+      const raw = await bff.app.request(`/api/settings/content/trials/${id}/raw`);
+      assert.equal(raw.status, 200);
+      assert.equal(raw.headers.get("content-type"), "image/png");
+      assert.equal(raw.headers.get("x-content-type-options"), "nosniff");
+      assert.equal(raw.headers.get("cache-control"), "no-store");
+      assert.equal(raw.headers.get("content-disposition"), null, "通常表示はインライン");
+      assert.equal((await raw.arrayBuffer()).byteLength, 33);
+
+      const download = await bff.app.request(`/api/settings/content/trials/${id}/raw?download=1`);
+      assert.equal(download.status, 200);
+      assert.equal(download.headers.get("content-disposition"), `attachment; filename="${id}.png"`);
+
+      // 未知の id・id にパスや拡張子を混ぜた要求は配信しない
+      for (const requested of [
+        "trial-ffffffffffffffffffffffff",
+        `${id}.png`,
+        "..%2F..%2Fetc%2Fpasswd",
+        "%2Fetc%2Fpasswd",
+        "trial-1",
+      ]) {
+        const response = await bff.app.request(`/api/settings/content/trials/${requested}/raw`);
+        assert.equal(response.status, 404, requested);
+      }
+
+      // 失敗した行（保存できなかった成功）も配信しない
+      const failed = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/trials",
+          jsonPost({ kind: "image", model: MODEL, prompt: "a dog" }),
+        ),
+      );
+      images.pending[1]?.resolve({ ok: false, code: "rate_limited", message: "混雑" });
+      await waitForState(bff, failed.trial.id, "failed");
+      assert.equal((await bff.app.request(`/api/settings/content/trials/${failed.trial.id}/raw`)).status, 404);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("同じ入力の成功は再課金せず 200 で返し、応答の形を変えない", async () => {
+  await withStoreDir(async (dir) => {
+    const images = createImageHarness();
+    const pi = createStubPi({ onGenerateImage: images.onGenerateImage });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const first = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+      );
+      assert.equal(first.status, 202);
+      const created = await jsonBody(first);
+      assert.equal(created.reused, false);
+      images.pending[0]?.resolve({ ok: true, image: pngImage() });
+      await waitForState(bff, created.trial.id, "succeeded");
+
+      const reused = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+      );
+      assert.equal(reused.status, 200);
+      const body = await jsonBody(reused);
+      assert.equal(body.reused, true);
+      assert.equal(body.trial.id, created.trial.id);
+      assert.equal(body.trial.artifactState, "stored");
+      // provider は 1 回だけ呼ばれ、履歴も増えない
+      assert.equal(images.pending.length, 1);
+      const list = await jsonBody(await bff.app.request("/api/settings/content/trials?kind=image"));
+      assert.equal(list.items.length, 1);
+    } finally {
+      await bff.close();
     }
   });
 });

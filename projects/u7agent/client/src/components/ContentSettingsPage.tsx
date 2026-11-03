@@ -130,6 +130,7 @@ export function ContentSettingsView({
         />
       }
       tabs={tabs}
+      // 注記は出どころで分ける。試行の注記をここへ重ねると、消えない試行の注記が設定の失敗を隠す
       note={note}
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
@@ -155,6 +156,8 @@ export function ContentSettingsView({
           onPreviewSpeech={previewSpeech}
           speechSynced={speechSynced}
           trials={contentTrials.trials}
+          trialArtifactUsage={contentTrials.artifactUsage}
+          trialNote={contentTrials.note}
           trialKeyEpoch={trialKeyEpoch}
           trialBusy={contentTrials.busy}
           onStartTrial={contentTrials.start}

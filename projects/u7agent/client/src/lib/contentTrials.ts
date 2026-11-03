@@ -4,7 +4,7 @@
  */
 import type { ContentSubsection } from "./settingsNav";
 import type { ContentTrial, ContentTrialStateValue } from "../types";
-import { messageTimeLabel, type MessageTimeOptions } from "./messageTime";
+import { messageTimeLabel, yearMonthLabel, type MessageTimeOptions } from "./messageTime";
 import { formatDurationMs } from "./usageFormat";
 
 /** 状態の表示名。`interrupted` は再起動で実行中を持ち越せなかったことを表す */
@@ -16,13 +16,14 @@ export const TRIAL_STATE_LABELS: Record<ContentTrialStateValue, string> = {
   interrupted: "中断（再起動）",
 };
 
-/** provider の失敗分類の表示名。分類できない失敗は `unknown` */
+/** provider の失敗分類の表示名。分類できない失敗は `unknown`、保存できなかった成功は `storage` */
 export const TRIAL_FAILURE_LABELS: Record<string, string> = {
   invalid_key: "APIキーが無効",
   insufficient_credit: "残高不足",
   rate_limited: "混雑・レート制限",
   timeout: "タイムアウト",
   aborted: "中断",
+  storage: "結果を保存できない",
   unknown: "原因不明",
 };
 
@@ -75,7 +76,10 @@ export function imageTrialEvidence(input: {
     (trial) => trial.keyEpoch === input.currentKeyEpoch && trial.model === input.currentModel,
   );
   const at = (trial: ContentTrial): number => trial.finishedAt ?? trial.startedAt;
-  const succeeded = current.filter((trial) => trial.state === "succeeded").sort((a, b) => at(b) - at(a))[0];
+  // 段階 2 以降の証拠は「保存済みの成果物がある成功」だけを数える。段階 1 の `none` 行は履歴にだけ残す
+  const succeeded = current
+    .filter((trial) => trial.state === "succeeded" && trial.artifactState === "stored")
+    .sort((a, b) => at(b) - at(a))[0];
   if (succeeded) {
     return { kind: "success", at: at(succeeded), durationMs: succeeded.durationMs };
   }
@@ -87,8 +91,8 @@ export function imageTrialEvidence(input: {
 }
 
 /**
- * 証拠の 1 行。成功には所要時間を添え、段階 1（成果物なし）では結果が保存されていないことを明示する。
- * 分類の文言は provider の原文ではなく固定の短い名前を使う（原文は履歴の行に出す）。
+ * 証拠の 1 行。成功には所要時間を添える。分類の文言は provider の原文ではなく固定の短い名前を使う
+ * （原文は履歴の行に出す）。
  */
 export function evidenceNote(
   evidence: TrialEvidence,
@@ -101,7 +105,7 @@ export function evidenceNote(
     return `直近の失敗: ${label}（${age}）`;
   }
   const duration = evidence.durationMs === null ? "" : `（${trialDurationLabel(evidence.durationMs)}）`;
-  return `この画面での最終成功: ${age}${duration}。結果は保存されていません`;
+  return `この画面での最終成功: ${age}${duration}`;
 }
 
 /** 履歴の 1 行。現在のキー世代より古い行は「旧キー」として区別する */
@@ -115,6 +119,12 @@ export interface TrialHistoryRow {
   prompt: string;
   failureLabel: string | null;
   at: number;
+  /** 保存済みの成果物の配信 URL。保存していない行（段階 1 の `none`）は null */
+  artifactUrl: string | null;
+  /** 画像の実寸と形式・サイズ。成果物が無いときは null */
+  artifactLabel: string | null;
+  /** 課金されたのに結果を残せなかった行。再生成で再課金されることを行にも出す */
+  chargedWithoutArtifact: boolean;
 }
 
 export function trialHistoryRow(trial: ContentTrial, currentKeyEpoch: number): TrialHistoryRow {
@@ -129,6 +139,9 @@ export function trialHistoryRow(trial: ContentTrial, currentKeyEpoch: number): T
     // 分類を出すのは失敗だけ。中止（利用者の操作）や中断（再起動）を失敗の分類として見せない
     failureLabel: trial.state === "failed" ? trialFailureLabel(trial.failureCode) : null,
     at: trial.finishedAt ?? trial.startedAt,
+    artifactUrl: hasStoredArtifact(trial) ? trialArtifactUrl(trial.id) : null,
+    artifactLabel: trialArtifactSummary(trial),
+    chargedWithoutArtifact: trial.charged && trial.artifact === null,
   };
 }
 
@@ -246,4 +259,142 @@ export function hasRunningTrial(trials: readonly ContentTrial[]): boolean {
 /** 履歴に出す最新の試行。既定選択は最新 1 件 */
 export function latestTrial(trials: readonly ContentTrial[]): ContentTrial | null {
   return trials[0] ?? null;
+}
+
+/** 保存済みの成果物があるか。段階 1 の `none` 行は再生・ダウンロードの対象外 */
+export function hasStoredArtifact(trial: ContentTrial): boolean {
+  return trial.state === "succeeded" && trial.artifactState === "stored" && trial.artifact !== null;
+}
+
+/** 成果物の配信 URL。trial id だけで引き、ダウンロードも同じルートを使う（パスを組み立てない） */
+export function trialArtifactUrl(id: string, options: { download?: boolean } = {}): string {
+  const base = `/api/settings/content/trials/${encodeURIComponent(id)}/raw`;
+  return options.download ? `${base}?download=1` : base;
+}
+
+/** ファイルサイズ。1 MiB 未満は KiB で出し、桁を増やさない */
+export function trialByteSizeLabel(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+const FORMAT_LABELS: Record<string, string> = { png: "PNG", jpeg: "JPEG", webp: "WebP" };
+
+/** 実寸。保存時に読めなかった（寸法の無い）成果物は出さない */
+export function trialDimensionLabel(trial: ContentTrial): string | null {
+  const artifact = trial.artifact;
+  if (!artifact || artifact.width === null || artifact.height === null) return null;
+  return `${artifact.width} × ${artifact.height}`;
+}
+
+/** 形式・実寸・サイズの 1 行。成果物が無い行は null（「記録のみ」は呼び出し側が出す） */
+export function trialArtifactSummary(trial: ContentTrial): string | null {
+  const artifact = trial.artifact;
+  if (!artifact) return null;
+  const parts = [FORMAT_LABELS[artifact.format] ?? artifact.format.toUpperCase()];
+  const dimensions = trialDimensionLabel(trial);
+  if (dimensions) parts.push(dimensions);
+  parts.push(trialByteSizeLabel(artifact.bytes));
+  return parts.join(" · ");
+}
+
+/** 履歴の絞り込み。モデルは試行時の値（現在の保存値ではない）で絞る */
+export type TrialOutcomeFilter = "all" | "succeeded" | "failed";
+
+export function filteredTrials(input: {
+  trials: readonly ContentTrial[];
+  model: string;
+  outcome: TrialOutcomeFilter;
+}): ContentTrial[] {
+  return input.trials.filter((trial) => {
+    if (input.model !== "all" && trial.model !== input.model) return false;
+    if (input.outcome === "all") return true;
+    // 中止・中断は「成功」でも「失敗」でもない（絞り込みのどちらにも出さない）
+    return trial.state === input.outcome;
+  });
+}
+
+/** 履歴に出すモデルの選択肢。試行に出てきた値だけを新しい順で重複なく並べる */
+export function trialModelOptions(trials: readonly ContentTrial[]): string[] {
+  return [...new Set(trials.map((trial) => trial.model))];
+}
+
+/** 月区切りの 1 かたまり。`label` は表示名で、`key` は同じ月をまとめる識別子 */
+export interface TrialMonthGroup {
+  key: string;
+  label: string;
+  trials: ContentTrial[];
+}
+
+/**
+ * 履歴を月でまとめる（新しい順は保ったまま）。時間ベースの自動削除はしないため、
+ * 半年前の行も別の月として残る。
+ */
+export function groupTrialsByMonth(
+  trials: readonly ContentTrial[],
+  options: MessageTimeOptions = {},
+): TrialMonthGroup[] {
+  const groups: TrialMonthGroup[] = [];
+  for (const trial of trials) {
+    const at = trial.finishedAt ?? trial.startedAt;
+    const key = yearMonthLabel(at, options);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) {
+      last.trials.push(trial);
+      continue;
+    }
+    groups.push({ key, label: key, trials: [trial] });
+  }
+  return groups;
+}
+
+/**
+ * ビューポートに出す試行。選択中の id が一覧に無ければ（削除・別種別へ切替）最新へ戻す。
+ */
+export function selectedTrial(input: {
+  trials: readonly ContentTrial[];
+  selectedId: string | null;
+}): ContentTrial | null {
+  if (input.selectedId !== null) {
+    const found = input.trials.find((trial) => trial.id === input.selectedId);
+    if (found) return found;
+  }
+  return latestTrial(input.trials);
+}
+
+/**
+ * 試行を 1 件消した後に一覧を取り直す。保存容量（`artifactUsage`）は一覧の応答にしか載らないため、
+ * 行だけをローカルから除くと画面の容量が古いまま残る（[すべて削除] と同じ経路に揃える）。
+ * 取り直しに失敗したときは false を返し、呼び出し側が「消えたが一覧を取り直せない」と伝えられるようにする。
+ */
+export async function removeTrialThenRefresh(input: {
+  id: string;
+  remove: (id: string) => Promise<unknown>;
+  reload: () => Promise<boolean>;
+}): Promise<boolean> {
+  await input.remove(input.id);
+  return input.reload();
+}
+
+/**
+ * 同じ入力の保存済み成功。新しく試行したときに provider を呼ばない（課金しない）判定で、
+ * サーバーの再利用条件（種別 / モデル / プロンプト + 保存済みの成功）をそのまま写す。
+ */
+export function reusableTrial(input: {
+  trials: readonly ContentTrial[];
+  kind: ContentTrial["kind"];
+  model: string;
+  prompt: string;
+}): ContentTrial | null {
+  return (
+    input.trials.find(
+      (trial) =>
+        trial.kind === input.kind &&
+        trial.model === input.model &&
+        trial.prompt === input.prompt &&
+        hasStoredArtifact(trial),
+    ) ?? null
+  );
 }

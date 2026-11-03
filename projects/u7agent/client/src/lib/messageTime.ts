@@ -5,7 +5,7 @@
 
 const LOCALE = "ja-JP";
 
-type TimeFormat = "time" | "dayMonth" | "yearMonthDay" | "yearMonthDayWeekday" | "year";
+type TimeFormat = "time" | "dayMonth" | "yearMonth" | "yearMonthDay" | "yearMonthDayWeekday" | "year";
 
 const FORMAT_OPTIONS: Record<TimeFormat, Intl.DateTimeFormatOptions> = {
   // 環境の時計設定 (12/24 時間) に左右されないよう h23 を明示する
@@ -14,6 +14,8 @@ const FORMAT_OPTIONS: Record<TimeFormat, Intl.DateTimeFormatOptions> = {
   yearMonthDay: { year: "numeric", month: "numeric", day: "numeric" },
   // ja-JP の weekday: "short" は「2026/9/5(土)」になる
   yearMonthDayWeekday: { year: "numeric", month: "numeric", day: "numeric", weekday: "short" },
+  // 履歴の月区切りの見出し（例: 2026年2月）
+  yearMonth: { year: "numeric", month: "long" },
   year: { year: "numeric" },
 };
 
@@ -70,4 +72,9 @@ export function fileTimeLabel(at: number, options: MessageTimeOptions = {}): str
 
 export function messageFullTimeLabel(at: number, options: MessageTimeOptions = {}): string {
   return `${format("yearMonthDayWeekday", at, options.timeZone)} ${format("time", at, options.timeZone)}`;
+}
+
+/** 月単位の見出し（履歴の月区切り）。時刻帯は呼び出し側が固定できる */
+export function yearMonthLabel(at: number, options: MessageTimeOptions = {}): string {
+  return format("yearMonth", at, options.timeZone);
 }

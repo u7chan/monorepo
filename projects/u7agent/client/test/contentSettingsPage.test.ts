@@ -76,11 +76,15 @@ function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSetti
 }
 
 /** `useContentTrials` の戻り値のうち、描画が読む部分だけを組み立てる */
-function contentTrials(trials: ContentTrial[] | null = null): ContentTrials {
+function contentTrials(
+  trials: ContentTrial[] | null = null,
+  note: { text: string; error: boolean } | null = null,
+): ContentTrials {
   return {
     trials,
     keyEpoch: 0,
-    note: null,
+    artifactUsage: { count: 0, bytes: 0 },
+    note,
     busy: false,
     newResults: [],
     running: (trials ?? []).some((trial) => trial.state === "running"),
@@ -98,6 +102,8 @@ function render(
     contentSubsection?: ContentSubsection;
     onSelectContentSubsection?: (value: ContentSubsection) => void;
     trials?: ContentTrial[] | null;
+    /** 試行の操作の注記。設定の注記とは別の行に出る */
+    trialNote?: { text: string; error: boolean } | null;
   } = {},
 ): string {
   // 確認ダイアログの provider は app の root が持つ (main.tsx)。ここでは描画だけを検査する
@@ -107,7 +113,7 @@ function render(
       null,
       createElement(ContentSettingsView, {
         contentSettings: settings,
-        contentTrials: contentTrials(options.trials),
+        contentTrials: contentTrials(options.trials, options.trialNote),
         contentSubsection: options.contentSubsection,
         onSelectContentSubsection: options.onSelectContentSubsection,
         onBack: () => {},
@@ -218,4 +224,26 @@ test("音声の同期が取れていない間だけ、音声タブに警告ド�
   const synced = render(contentSettings());
   assert.equal(synced.includes('aria-label="音声（TTS）"'), false, "同期中は状態を足さない");
   assert.equal(/(?:role="tab")[\s\S]*?音声（TTS）<span/.test(synced), false, "同期中はドットを出さない");
+});
+
+test("試行の注記は設定の注記を隠さない（出どころごとに別の行へ出す）", () => {
+  const trialNote = { text: "試行を開始しました。画面を離れても続きます。", error: false };
+  const settingsNote = { text: "画像APIキーが無効です。設定を確認してください", error: true };
+  const html = render(contentSettings({ note: settingsNote }), { trialNote });
+
+  // 設定の注記行（aria-live）には設定の注記だけを出す（試行の注記で上書きしない）
+  const noteRow = /<div aria-live="polite"[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1] ?? "";
+  assert.ok(noteRow.includes(settingsNote.text), "設定の失敗を隠さない");
+  assert.equal(noteRow.includes(trialNote.text), false, "試行の注記を設定の注記行へ混ぜない");
+
+  // 試行の注記は試行の面の中に出す
+  assert.ok(html.includes(trialNote.text), "試行の注記はその面に出す");
+
+  // 試行の面を開いていないときは、試行の注記を出さない（出どころの面に閉じる）
+  const speech = render(contentSettings({ note: settingsNote }), {
+    trialNote,
+    contentSubsection: "speech",
+  });
+  assert.ok(speech.includes(settingsNote.text), "設定の注記は面を問わず出す");
+  assert.equal(speech.includes(trialNote.text), false, "試行の注記は画像の面の外に出さない");
 });

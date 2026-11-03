@@ -6,10 +6,10 @@ import {
   listContentTrials,
   startContentTrial,
 } from "../api";
-import { hasRunningTrial, newlyFinishedKinds, trialKindSubsection } from "../lib/contentTrials";
+import { hasRunningTrial, newlyFinishedKinds, removeTrialThenRefresh, trialKindSubsection } from "../lib/contentTrials";
 import { messageFor } from "../lib/settingsResource";
 import type { ContentSubsection } from "../lib/settingsNav";
-import type { ContentTrial, CreateContentTrialBody } from "../types";
+import type { ContentTrial, ContentTrialArtifactUsageValue, CreateContentTrialBody } from "../types";
 
 /** 実行中に一覧を取り直す間隔。画面を離れていても結果を拾えるよう、開いている間だけ回す */
 const TRIAL_POLL_INTERVAL_MS = 2_000;
@@ -24,6 +24,8 @@ export type ContentTrialsNote = { text: string; error: boolean };
 export function useContentTrials({ activeSubsection }: { activeSubsection: ContentSubsection }) {
   const [trials, setTrials] = useState<ContentTrial[] | null>(null);
   const [keyEpoch, setKeyEpoch] = useState(0);
+  /** 保存容量（保存済みの成功だけを DB のバイト数で合計したもの） */
+  const [artifactUsage, setArtifactUsage] = useState<ContentTrialArtifactUsageValue>({ count: 0, bytes: 0 });
   const [note, setNote] = useState<ContentTrialsNote | null>(null);
   const [busy, setBusy] = useState(false);
   /** 別のタブで終端した試行の種別。そのタブを開いたら消す */
@@ -41,7 +43,7 @@ export function useContentTrials({ activeSubsection }: { activeSubsection: Conte
     };
   }, []);
 
-  const apply = useCallback((next: ContentTrial[], nextKeyEpoch: number) => {
+  const apply = useCallback((next: ContentTrial[], nextKeyEpoch: number, usage: ContentTrialArtifactUsageValue) => {
     const finished = newlyFinishedKinds({
       previous: previous.current,
       next,
@@ -50,6 +52,7 @@ export function useContentTrials({ activeSubsection }: { activeSubsection: Conte
     previous.current = next;
     setTrials(next);
     setKeyEpoch(nextKeyEpoch);
+    setArtifactUsage(usage);
     if (finished.length > 0) {
       setNewResults((current) => [...new Set([...current, ...finished.map(trialKindSubsection)])]);
     }
@@ -61,7 +64,7 @@ export function useContentTrials({ activeSubsection }: { activeSubsection: Conte
       const response = await listContentTrials();
       // 後から始めた要求がある / unmount 済みなら、この応答では表示を変えない
       if (!alive.current || request !== seq.current) return false;
-      apply(response.items, response.keyEpoch);
+      apply(response.items, response.keyEpoch, response.artifactUsage);
       return true;
     } catch (error) {
       if (alive.current && request === seq.current) {
@@ -107,10 +110,20 @@ export function useContentTrials({ activeSubsection }: { activeSubsection: Conte
     try {
       const response = await startContentTrial(input);
       if (!alive.current) return true;
-      // 開始直後の状態を反映し、その後の完了はポーリングで拾う
-      setTrials((current) => [response.trial, ...(current ?? [])]);
-      previous.current = [response.trial, ...(previous.current ?? [])];
-      setNote({ text: "試行を開始しました。画面を離れても続きます。", error: false });
+      // 再利用は「同じ入力の保存済み結果」を返す。新しい成功として積まず、既存の行を差し替える
+      const trial = response.trial;
+      setTrials((current) => {
+        const list = current ?? [];
+        return list.some((item) => item.id === trial.id)
+          ? list.map((item) => (item.id === trial.id ? trial : item))
+          : [trial, ...list];
+      });
+      setNote({
+        text: response.reused
+          ? "同じ入力の保存済みの結果を表示しています（課金していません）。"
+          : "試行を開始しました。画面を離れても続きます。",
+        error: false,
+      });
       return true;
     } catch (error) {
       if (alive.current) setNote({ text: `試行を開始できませんでした。${messageFor(error)}`, error: true });
@@ -147,10 +160,17 @@ export function useContentTrials({ activeSubsection }: { activeSubsection: Conte
     async (id: string): Promise<boolean> => {
       setBusy(true);
       try {
-        await deleteContentTrial(id);
+        // 行だけをローカルで除くと保存容量（一覧の応答にしか載らない）が古いまま残るため、必ず取り直す
+        const refreshed = await removeTrialThenRefresh({ id, remove: deleteContentTrial, reload: load });
         if (!alive.current) return true;
-        setTrials((current) => (current ?? []).filter((trial) => trial.id !== id));
-        setNote({ text: "試行の履歴を削除しました。", error: false });
+        setNote(
+          refreshed
+            ? { text: "試行の履歴を削除しました。", error: false }
+            : {
+                text: "試行の履歴は削除しましたが、一覧を取り直せませんでした。再読み込みしてください。",
+                error: true,
+              },
+        );
         return true;
       } catch (error) {
         if (alive.current) setNote({ text: `試行の履歴を削除できませんでした。${messageFor(error)}`, error: true });
@@ -191,6 +211,8 @@ export function useContentTrials({ activeSubsection }: { activeSubsection: Conte
     /** 一覧を取得できていない間は null */
     trials,
     keyEpoch,
+    /** 保存容量（`succeeded` + 保存済みの件数とバイト数） */
+    artifactUsage,
     note,
     busy,
     newResults,

@@ -2,10 +2,12 @@
 import { z } from "zod";
 import {
   CONTENT_TRIAL_ARTIFACT_STATES,
+  CONTENT_TRIAL_FAILURE_CODES,
   CONTENT_TRIAL_KINDS,
   CONTENT_TRIAL_PROMPT_MAX_LENGTH,
   CONTENT_TRIAL_STATES,
 } from "./content-trials";
+import { TRIAL_ARTIFACT_FORMATS } from "./content-trial-artifacts";
 import { PROVIDER_FAILURE_CODES } from "./provider-failure";
 import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
 import type { SandboxLandlockStatus, SandboxRuntimeCommand, SandboxRuntimeEnvironment } from "./sandbox/protocol";
@@ -1369,9 +1371,25 @@ export type ContentTrialStateValue = z.infer<typeof ContentTrialStateSchema>;
 export const ContentTrialKindSchema = z.enum(CONTENT_TRIAL_KINDS);
 export type ContentTrialKindValue = z.infer<typeof ContentTrialKindSchema>;
 
-/** 成果物の状態。段階 1 は保存しないため `none` だけ（段階 2 で `stored` を足す） */
+/** 成果物の状態。`none` は保存していない行（段階 1 の行と、保存に失敗した成功）で `stored` は保存済み */
 export const ContentTrialArtifactStateSchema = z.enum(CONTENT_TRIAL_ARTIFACT_STATES);
 export type ContentTrialArtifactStateValue = z.infer<typeof ContentTrialArtifactStateSchema>;
+
+/** 保存できる成果物の形式。値の正は `server/src/content-trial-artifacts.ts` */
+export const ContentTrialArtifactFormatSchema = z.enum(TRIAL_ARTIFACT_FORMATS);
+export type ContentTrialArtifactFormatValue = z.infer<typeof ContentTrialArtifactFormatSchema>;
+
+/**
+ * 保存済みの成果物のメタデータ。実体の置き場（パス）は応答に載せず、配信は trial id だけで引く。
+ * 寸法は画像だけの値で、読めなかったときは null。
+ */
+export const ContentTrialArtifactSchema = z.object({
+  format: ContentTrialArtifactFormatSchema,
+  bytes: z.number(),
+  width: z.number().nullable(),
+  height: z.number().nullable(),
+});
+export type ContentTrialArtifact = z.infer<typeof ContentTrialArtifactSchema>;
 
 /**
  * 試行 1 件。`recorded: false` は「終端を DB へ記録できず、メモリの状態を返している」を表し、
@@ -1386,7 +1404,11 @@ export const ContentTrialSchema = z.object({
   state: ContentTrialStateSchema,
   keyEpoch: z.number(),
   artifactState: ContentTrialArtifactStateSchema,
-  failureCode: z.enum(PROVIDER_FAILURE_CODES).nullable(),
+  /** 保存済みのときだけ非 null */
+  artifact: ContentTrialArtifactSchema.nullable(),
+  /** 生成が成功して課金されたか（保存に失敗した成功も true） */
+  charged: z.boolean(),
+  failureCode: z.enum(CONTENT_TRIAL_FAILURE_CODES).nullable(),
   failureMessage: z.string().nullable(),
   startedAt: z.number(),
   finishedAt: z.number().nullable(),
@@ -1395,17 +1417,29 @@ export const ContentTrialSchema = z.object({
 });
 export type ContentTrial = z.infer<typeof ContentTrialSchema>;
 
-/** POST /api/settings/content/trials の 202 と、GET / cancel の 200。開始直後の状態は `running` */
+/** POST /api/settings/content/trials の 202（開始）と 200（同じ入力の再利用）と、GET / cancel の 200 */
 export const ContentTrialResponseSchema = z.object({ trial: ContentTrialSchema });
 export type ContentTrialResponse = z.infer<typeof ContentTrialResponseSchema>;
 
 /**
+ * 開始の応答。`reused: true` は「同じ入力の保存済み成功を返した」を表し、provider を呼ばず課金しない
+ * （status は 200、開始したときは 202）。
+ */
+export const ContentTrialStartResponseSchema = z.object({ trial: ContentTrialSchema, reused: z.boolean() });
+export type ContentTrialStartResponse = z.infer<typeof ContentTrialStartResponseSchema>;
+
+/**
  * GET /api/settings/content/trials。`keyEpoch` は現在の世代で、各行の `keyEpoch` と比べて
  * 旧キーの実績を証拠から外す。並びは新しい順（時間ベースの自動削除はしない）。
+ * `artifactUsage` は `succeeded` かつ保存済みの件数とバイト数の合計で、画面の保存容量に出す。
  */
+export const ContentTrialArtifactUsageSchema = z.object({ count: z.number(), bytes: z.number() });
+export type ContentTrialArtifactUsageValue = z.infer<typeof ContentTrialArtifactUsageSchema>;
+
 export const ContentTrialListResponseSchema = z.object({
   items: z.array(ContentTrialSchema),
   keyEpoch: z.number(),
+  artifactUsage: ContentTrialArtifactUsageSchema,
 });
 export type ContentTrialListResponse = z.infer<typeof ContentTrialListResponseSchema>;
 
