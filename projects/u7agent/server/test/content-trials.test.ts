@@ -40,6 +40,7 @@ import {
   type TrialArtifactStore,
 } from "../src/content-trial-artifacts";
 import type { TrialDiskCheck, TrialDiskVerdict } from "../src/content-trial-disk-space";
+import { TRIAL_DISK_REQUIRED_BYTES, createTrialDiskCheck } from "../src/content-trial-disk-space";
 import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import {
   acquireBgmGenerationSlot,
@@ -696,6 +697,34 @@ test("種別ごとに同時 1 本。実行中は 409 で、provider の呼び出
   harness.generations[0]?.resolve({ ok: false, code: "aborted", message: "中断" });
   await until(() => harness.service.running("image") === false);
   assert.equal((await harness.start("another")).status, 202);
+});
+
+test("空き確認の待ちで同時開始が二重に通らない（種別ごとに同時 1 本）", async () => {
+  const gate = deferred<void>();
+  // 本番と同じ組み立て（`createTrialDiskCheck`）で、`statfs` の応答だけを遅らせる
+  const diskSpace = createTrialDiskCheck({
+    dir: "/store/trials",
+    statfs: async () => {
+      await gate.promise;
+      return { bsize: 1, bavail: TRIAL_DISK_REQUIRED_BYTES };
+    },
+  });
+  const harness = createHarness({ diskSpace });
+  // 空き確認で止まっている間に、同じ種別の開始がもう 1 本届く
+  const first = harness.start("a cat");
+  const second = harness.start("a cat");
+  gate.resolve();
+  const outcomes = await Promise.all([first, second]);
+
+  assert.deepEqual(
+    outcomes.map((outcome) => outcome.status).sort(),
+    [202, 409],
+    "待つ間の同時開始で 2 本とも 202 にしない",
+  );
+  const refused = outcomes.find((outcome) => outcome.status === 409);
+  assert.equal(refused && "error" in refused ? refused.error : "", CONTENT_TRIAL_ALREADY_RUNNING_MESSAGE);
+  assert.equal(harness.db.rows.size, 1, "running の行は 1 件だけ");
+  assert.equal(harness.generations.length, 1, "provider を 2 回呼ばない（二重課金しない）");
 });
 
 test("キャンセルは running のときだけ受け付け、遅れて届いた結果で状態を戻さない", async () => {

@@ -6,7 +6,10 @@ import { statfs } from "node:fs/promises";
 import { dirname } from "node:path";
 import { TRIAL_ARTIFACT_MAX_BYTES } from "./content-trial-artifacts";
 
-/** 1 件分の見込みに足す余白。保存中の一時ファイルと、同じ領域へ書く DB / 会話ストアの分を先に残す */
+/**
+ * 1 件分の見込みに足す余白。保存は最終パスへ直接書く（一時ファイルを作らない）ため、保存中の伸びではなく、
+ * 生成の間に同じ領域のアプリ DB / 会話ストアが書く分と、他の種別の試行が同時に保存する分に備える。
+ */
 export const TRIAL_DISK_MARGIN_BYTES = 64 * 1024 * 1024;
 
 /** 試行 1 本を始めるのに要る空き。保存の 1 件の上限に余白を足す */

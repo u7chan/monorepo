@@ -466,8 +466,14 @@ export class ContentTrialsService {
     }
 
     // 生成（課金）の前に空きを見る。足りなければ行を作らずに拒否し、保存の失敗（課金済み）と混ぜない
-    if (this.#diskSpace && (await this.#diskSpace()) === "short") {
-      return { status: 503, error: CONTENT_TRIAL_DISK_SHORT_MESSAGE, code: CONTENT_TRIAL_DISK_SHORT_CODE };
+    if (this.#diskSpace) {
+      const verdict = await this.#diskSpace();
+      // 空き確認の await 中に同じ種別が始まっていることがある。行を作る前にもう一度見て、
+      // 「種別ごとに同時 1 本」を守る（判定から行の作成・レジストリ登録までを同期のままにする）
+      if (this.running(kind)) return { status: 409, error: CONTENT_TRIAL_ALREADY_RUNNING_MESSAGE };
+      if (verdict === "short") {
+        return { status: 503, error: CONTENT_TRIAL_DISK_SHORT_MESSAGE, code: CONTENT_TRIAL_DISK_SHORT_CODE };
+      }
     }
 
     const startedAt = this.#now();
