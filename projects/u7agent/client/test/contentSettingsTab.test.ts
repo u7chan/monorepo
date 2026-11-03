@@ -137,7 +137,7 @@ test("未設定ではキー入力だけを出し、モデル選択と削除は�
   assert.equal(html.includes("<select"), false, "モデル選択はキー保存後にだけ出す");
   assert.equal(html.includes(">削除</button>"), false, "削除もキー保存後にだけ出す");
   assert.equal(html.includes(">カタログ更新</button>"), false, "カタログ更新もモデル欄と同じくキー保存後にだけ出す");
-  assert.equal(html.includes("音声（TTS）"), false, "音声の欄もキー保存後にだけ出す");
+  assert.equal(html.includes("出力形式は選ばず"), false, "音声の保存欄もキー保存後にだけ出す");
 });
 
 test("有効 / 無効はタブの外に 1 つだけ出し、画像・音声・BGM 共通だと伝える", () => {
@@ -253,13 +253,13 @@ test("カタログ外の保存済みモデルも選択肢に残す", () => {
 test("選択中の面だけを出し、もう一方の面は描かない", () => {
   const image = render();
   assert.ok(image.includes('aria-label="コンテンツ生成のモデル"'), "画像の面のモデル選択を出す");
-  assert.equal(image.includes("音声（TTS）"), false, "音声（TTS）の小見出しは出さない");
+  assert.equal(image.includes("読み上げる文章"), false, "音声の保存欄と試行の入力は出さない");
   assert.equal(image.includes('aria-label="音声生成のモデル"'), false, "音声のモデル欄は出さない");
   assert.equal(image.includes("設定に反映しない試行"), true, "画像の試行は画像タブに出す");
   assert.equal(image.includes('aria-label="試行の本文"'), false, "音声の試行の入力は音声タブだけに出す");
 
   const speech = render({ subsection: "speech" });
-  assert.ok(speech.includes("音声（TTS）"), "音声の小見出しを出す");
+  assert.ok(speech.includes("保存される設定"), "音声の保存見出しを出す");
   assert.ok(speech.includes('aria-label="音声生成のモデル"'), "音声の面のモデル選択を出す");
   assert.equal(speech.includes('aria-label="コンテンツ生成のモデル"'), false, "画像のモデル欄は出さない");
   assert.equal(speech.includes("サイズ・品質・出力形式は provider の既定を使います"), false, "画像の説明も出さない");
@@ -267,7 +267,7 @@ test("選択中の面だけを出し、もう一方の面は描かない", () =>
 
 test("設定済みでは音声のモデルとボイスを出し、宣言のあるボイスを選択肢にする", () => {
   const html = render({ subsection: "speech" });
-  assert.ok(html.includes("音声（TTS）"), "音声のセクションを出す");
+  assert.ok(html.includes("保存される設定"), "音声のセクションを出す");
   assert.ok(html.includes('aria-label="音声生成のモデル"'), "音声モデルの選択を出す");
   assert.ok(html.includes('aria-label="音声生成のボイス"'), "ボイスの選択を出す");
   assert.ok(html.includes('value="google/gemini-3.8-flash-tts"'), "保存済みモデルを選択した状態で出す");
@@ -387,7 +387,8 @@ test("音声セクションの下部に試行の入力を出し、未設定で�
   assert.ok(html.includes("試行する"), "試行 API で開始する操作を出す");
   assert.equal(html.includes("お試し再生"), false, "退役したお試し再生の文言は出さない");
   // 保存される設定と試行の入力は別の見出しで分ける
-  assert.ok(html.includes("音声（TTS）"));
+  assert.ok(html.includes("保存される設定"), "保存する側の見出し");
+  assert.ok(html.includes("設定に反映しない試行"), "試行の見出し");
 
   // 未設定でも試行の面は出す（履歴が無くても、画像タブと同じ位置に理由と履歴を出す）
   const unset = render({
@@ -946,6 +947,39 @@ test("画像・音声・BGM の履歴は互いの面に出さない", () => {
   assert.equal(bgm.includes("おはようございます"), false, "音声の履歴も BGM タブに出さない");
   const image = render({ trials: [BGM_TRIAL_BASE] });
   assert.equal(image.includes("夜の高速道路を走る軽快なシンセポップ"), false, "BGM の履歴を画像タブに混ぜない");
+});
+
+test("保存見出し・試行の見出し・保存容量・課金の注記は 3 タブで同じ文言にする", () => {
+  // 音声だけ見出しが `div` の「音声（TTS）」で、保存容量の注記と中断課金の注記もタブごとに違っていた
+  const cases = [
+    { subsection: "image" as const, trial: TRIAL_BASE, bytes: 2_048, size: "2.0 KiB" },
+    { subsection: "speech" as const, trial: SPEECH_TRIAL_BASE, bytes: 4_096, size: "4.0 KiB" },
+    { subsection: "bgm" as const, trial: BGM_TRIAL_BASE, bytes: 6_144, size: "6.0 KiB" },
+  ];
+  for (const { subsection, trial, bytes, size } of cases) {
+    const html = render({ subsection, trials: [trial], trialArtifactUsage: { count: 1, bytes } });
+    assert.match(html, /<h3[^>]*>保存される設定<\/h3>/, `${subsection}: 保存する側は h3 の「保存される設定」`);
+    assert.match(html, /<h3[^>]*>設定に反映しない試行<\/h3>/, `${subsection}: 試行は h3 の「設定に反映しない試行」`);
+    assert.ok(
+      html.includes(`保存容量: 1 件 · ${size}（画像・音声・BGM で共通）`),
+      `${subsection}: 容量は 3 タブの合計だと書く`,
+    );
+    assert.ok(
+      html.includes("失敗・中断・タイムアウトでも課金される可能性があります（自動では再生成しません）。"),
+      `${subsection}: 中断・タイムアウトの課金を面ごとに省かない`,
+    );
+  }
+});
+
+test("履歴が 0 件でも 3 タブに保存容量を出し、履歴の見出しと絞り込みは出さない", () => {
+  // 容量は 3 タブの合計で、履歴の有無とは別に読める必要がある（新規ストアでは 0 件から始まる）
+  for (const subsection of ["image", "speech", "bgm"] as const) {
+    const html = render({ subsection, trials: [] });
+    assert.ok(html.includes("保存容量: 0 件 · 0 B（画像・音声・BGM で共通）"), `${subsection}: 0 件でも容量を出す`);
+    assert.ok(html.includes("まだ試行の履歴はありません。"), `${subsection}: 空の案内と重ねて出す`);
+    assert.equal(html.includes("履歴（"), false, `${subsection}: 履歴が無ければ件数の見出しは出さない`);
+    assert.equal(html.includes("履歴の成功失敗の絞り込み"), false, `${subsection}: 絞り込みも出さない`);
+  }
 });
 
 test("BGM の試行の面には実 API 受入済みのため「試験的」を出さない", () => {

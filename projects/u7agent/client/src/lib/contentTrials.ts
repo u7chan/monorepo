@@ -3,7 +3,13 @@
  * 状態ラベル・証拠の判定・タブの印の優先順位・履歴の行をテストできるようにする。
  */
 import type { ContentSubsection } from "./settingsNav";
-import type { ContentTrial, ContentTrialStateValue, ContentTrialSummary, CreateContentTrialBody } from "../types";
+import type {
+  ContentTrial,
+  ContentTrialArtifactUsageValue,
+  ContentTrialStateValue,
+  ContentTrialSummary,
+  CreateContentTrialBody,
+} from "../types";
 import { speechSpeed } from "./contentSettings";
 import { messageTimeLabel, yearMonthLabel, type MessageTimeOptions } from "./messageTime";
 import { formatDurationMs } from "./usageFormat";
@@ -199,6 +205,33 @@ export function trialPanelState(input: {
   return "ready";
 }
 
+/**
+ * 試行の面の状態の 1 行。押せない理由は `trialStartBlockedReason` が持つので、ここは状態だけを出す。
+ * 3 タブで同じ文言にする（面ごとに書き分けると、同じ状態を探せなくなる）。
+ */
+export function trialPanelNote(panel: TrialPanelState): string {
+  switch (panel) {
+    case "runtime_unavailable":
+      return "ランタイムが利用できないため試行できません。";
+    case "unconfigured":
+      return "APIキーが未設定です。履歴だけを表示しています。";
+    case "disabled":
+      return "全体が OFF です。履歴は残り、新規の生成だけを止めています。";
+    case "unsynced":
+      return "音声の設定を確認できていません。試行はできますが、既定への保存はできません。";
+    case "empty":
+      return "まだ試行していません。";
+    case "running":
+      return "生成中です。画面を離れても続きます。";
+    case "failed":
+      return "直近の試行は失敗しました。";
+    case "interrupted":
+      return "前回の試行はサーバーの再起動で中断されました。";
+    case "ready":
+      return "前回の試行は完了しています。";
+  }
+}
+
 /** 試行を開始できない理由。null なら開始できる */
 export function trialStartBlockedReason(input: {
   runtimeAvailable: boolean;
@@ -351,6 +384,19 @@ export function trialArtifactUrl(id: string, options: { download?: boolean } = {
   return options.download ? `${base}?download=1` : base;
 }
 
+/**
+ * 課金の注記。失敗・中断・タイムアウトでも課金されうることは 3 タブ共通で、面ごとに書き分けない
+ * （BGM だけに書くと、他のタブでは再生成の前に確認できない）。
+ */
+export const TRIAL_CHARGE_NOTE = "失敗・中断・タイムアウトでも課金される可能性があります（自動では再生成しません）。";
+
+/**
+ * 保存容量の 1 行。容量は 3 タブの成果物の合計（`artifactUsage`）なので、どのタブでも同じ値を同じ文言で出す。
+ */
+export function trialStorageNote(usage: ContentTrialArtifactUsageValue): string {
+  return `保存容量: ${usage.count} 件 · ${trialByteSizeLabel(usage.bytes)}（画像・音声・BGM で共通）`;
+}
+
 /** ファイルサイズ。1 MiB 未満は KiB で出し、桁を増やさない */
 export function trialByteSizeLabel(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "—";
@@ -441,6 +487,14 @@ export function selectedTrial(input: {
     if (found) return found;
   }
   return latestTrial(input.trials);
+}
+
+/**
+ * ビューポートに出す試行の全文。選択行と一致するときだけ渡す（取得中・別行の応答は捨てる）。
+ * 一致しないものを渡すと、前の行の本文やスナップショットを今の行の値として出すことになる。
+ */
+export function selectedTrialDetail(detail: ContentTrial | null, selectedId: string | null): ContentTrial | null {
+  return detail !== null && detail.id === selectedId ? detail : null;
 }
 
 /**

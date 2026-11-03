@@ -151,7 +151,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `c
 
 ## 設定画面
 
-設定 → コンテンツ生成の「音声（TTS）」タブ（`/settings/content/speech`）に音声のセクションを置く（provider の見出しとキー欄は画像と同じ画面のタブの外で共有する）。表示の正は `client/src/lib/contentSettings.ts` の純関数、ボイス欄のグループとラベルは `client/src/lib/speechVoices.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` とボイス欄の `client/src/components/content-settings/SpeechVoiceOptions.tsx` に閉じる。
+設定 → コンテンツ生成の「音声（TTS）」タブ（`/settings/content/speech`）に音声のセクションを置く（provider の見出しとキー欄は画像と同じ画面のタブの外で共有する）。表示の正は `client/src/lib/contentSettings.ts` の純関数、ボイス欄のグループとラベルは `client/src/lib/speechVoices.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` とボイス欄の `client/src/components/content-settings/SpeechVoiceOptions.tsx` に閉じる。音声セクションの見出しは画像 / BGM と同じ「保存される設定」で、タブ名がどの生成物かを示す。
 
 - 未設定（行が無い）ではキー入力だけを出し、音声の欄もモデルと同じくキー保存後に現れる（タブ行も同時に現れる）
 - モデルとボイスの選択は、保存済みの値がカタログから落ちていても現在値を見失わせない。ボイス欄は選択中モデルの宣言に応じて選択 / 自由記述を切り替え、空欄は「送らない」を表す
@@ -173,13 +173,13 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `c
 - 一部の provider への要求は最大 180 秒かかるため、試行は画面の寿命に縛らない（リクエストの `AbortSignal` にも結び付けない）。中断は試行のキャンセル API だけが行う
 - 生成器は PiBff が持つ `createSpeechGenerator`（`server/src/agent.ts`）を bootstrap から試行サービスへ注入する。**ツールと同じ形式の学習（アプリデータに残る）を共有する**ので、試行でも mp3 / pcm の使い分けが進む（[形式の選択と再試行](#形式の選択と再試行)）。注入は optional で、未注入（`pi === null` で起動）は runtime 不可と同じ 503 にする。このときクライアントは**開始のボタンを無効**にし、理由をその場に出す（音声の同期とは別のゲート）
 - 同じ入力（本文 + モデル + ボイス + 演技指示 + 話速）の保存済み成功があり、現在のキー世代で成果物ファイルが残っているときは provider を呼ばず、既存の結果を 200 で返す（課金しない）。**本文が同じでも話速 / 演技指示 / ボイス / モデルが違えば別の試行**として課金される。結果カードの [別のテイクを生成] は `force: true` で保存済み結果を無視する
-- 結果は 1 つの再生ビューポート + 履歴セレクタで見せる（画像タブと同じ形）。再生は成果物の raw ルート（trial id だけ）で、履歴の行を選ぶとビューポートが切り替わる。結果カードには送った本文・演技指示・話速・モデル・ボイス・形式とサイズ・所要時間・状態・キー世代を出し、[入力欄に戻す] / [別のテイクを生成]（新しい試行として課金）/ ダウンロード / 削除を持つ。保存容量は画像と同じ合計を出す
+- 結果は 1 つの再生ビューポート + 履歴セレクタで見せる（画像 / BGM と同じ共通部品。契約は [画像生成](image-generation.md#設定画面)）。再生は成果物の raw ルート（trial id だけ）で、履歴の行を選ぶとビューポートが切り替わる。結果カードには送った本文・演技指示・話速・モデル・ボイス・形式とサイズ・所要時間・状態・キー世代を出し、[入力欄に戻す] / [別のテイクを生成]（新しい試行として課金）/ ダウンロード / 削除を持つ。保存容量は 3 タブの合計を出し、その旨を文言に含める（履歴が 0 件でも試行の面の見出しの下に出る）
 - 結果のモデルとボイスが保存値と違うときだけ、結果カードに [このモデルとボイスを既定にする] を出す。押すと試行と同じ組み合わせを保存し（既存の `PUT /api/settings/content/speech` の経路）、画面の下書きを捨てて保存値と未保存の表示を追随させる。両方とも保存値と同じときは出さず、保存できなかったときは結果カードと設定の注記で知らせる（成功と同じ見た目にしない）。本文・演技指示・話速は保存値の対象ではない。同じ `PUT` を呼ぶため、現在の設定を確認できていない間は保存フォームと同じゲートで止め、その理由をカードに出す（保存値との差分も古い値で判定することになるため）。キー未設定の間も同じく、履歴と結果だけを出してこの導線は押せない
 - 一覧の取得中に開始 / 中断したときは、その取得の応答で画面を巻き戻さない（画像と同じ規則。開始した実行中の行を消さず、ポーリングも続ける）
 - 音声の長さ（尺）は保存時に読めないため出さない（mp3 / wav のデコードを持たない）。所要時間は試行の実測を出す
-- クライアントは生成中に入力と実行を無効化し、課金の条件（生成は 1 回ごと / 同じ入力の保存済み結果があるときは課金されない）を伝える。結果カードの [別のテイクを生成] は force で新しい試行として課金されることを伝える。失敗時は分類済みの文言を出し、入力は保つ（そのまま直して再試行できる）。本文が空 / 話速が不正なときは送信前に止める（**この検証に当たったときはサーバーの 400 文言ではなくクライアントの文言を出す**）
+- クライアントは生成中に入力と実行を無効化し、課金の条件（生成は 1 回ごと / 同じ入力の保存済み結果があるときは課金されない）と、失敗・中断・タイムアウトでも課金されうることを伝える（後者は 3 タブ共通の注記）。結果カードの [別のテイクを生成] は force で新しい試行として課金されることを伝える。失敗時は分類済みの文言を出し、入力は保つ（そのまま直して再試行できる）。本文が空 / 話速が不正なときは送信前に止める（**この検証に当たったときはサーバーの 400 文言ではなくクライアントの文言を出す**）
 - 音声の同期が取れていない間（`speechSynced === false`）も試行（開始と履歴・再生）は使える。保存値を書き換えず、画面で選んだ値をそのまま試すだけなので、開始の入力欄に保存ボタン用の未同期ゲート（`value=""` / `disabled` / 「（未確認）」）は持ち込まない。結果カードから既定へ保存する導線だけは例外で、同じ `PUT` を呼ぶため保存フォームと同じゲートに従う
-- 表示の正は `client/src/lib/contentTrials.ts`（試行の要求（`force` を付ける出どころ）・スナップショットの復元・履歴の行）と `client/src/lib/contentSettings.ts`（モデル / ボイス / 話速の増減）の純関数、既定へ保存する対象は `client/src/lib/trialDefault.ts`、描画は `client/src/components/content-settings/SpeechTrialSection.tsx` に閉じる（ボイス欄のラベルと並びは `client/src/lib/speechVoices.ts` の純関数、描画は `client/src/components/content-settings/SpeechVoiceOptions.tsx` に出し、保存フォームと共有する）。再生そのものは自動テストせず GUI 受入にする（[testing.md](testing.md)）
+- 表示の正は `client/src/lib/contentTrials.ts`（試行の要求（`force` を付ける出どころ）・スナップショットの復元・履歴の行）と `client/src/lib/contentSettings.ts`（モデル / ボイス / 話速の増減）の純関数、既定へ保存する対象は `client/src/lib/trialDefault.ts`、描画は `client/src/components/content-settings/SpeechTrialSection.tsx` と 3 タブ共通の `client/src/components/content-settings/TrialRun.tsx` / `TrialResultViewport.tsx` / `TrialHistory.tsx` に閉じる（ボイス欄のラベルと並びは `client/src/lib/speechVoices.ts` の純関数、描画は `client/src/components/content-settings/SpeechVoiceOptions.tsx` に出し、保存フォームと共有する）。再生そのものは自動テストせず GUI 受入にする（[testing.md](testing.md)）
 
 ## API
 

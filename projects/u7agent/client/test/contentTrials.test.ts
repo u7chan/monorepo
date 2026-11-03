@@ -20,6 +20,7 @@ import {
   newlyFinishedKinds,
   removeTrialThenRefresh,
   selectedTrial,
+  selectedTrialDetail,
   speechTrialDraftOf,
   speechTrialInput,
   speechTrialRequest,
@@ -37,7 +38,9 @@ import {
   trialKindSubsection,
   trialModelOptions,
   trialRemoveAllNote,
+  trialPanelNote,
   trialPanelState,
+  trialStorageNote,
   trialStartBlockedReason,
   trialStateLabel,
 } from "../src/lib/contentTrials";
@@ -214,6 +217,46 @@ test("面の状態は runtime 不可 → 未設定 → 同期未確認 → 全�
   assert.equal(trialPanelState({ ...base, trials: [trial({ state: "failed" })] }), "failed");
   assert.equal(trialPanelState({ ...base, trials: [trial({ state: "interrupted" })] }), "interrupted");
   assert.equal(trialPanelState({ ...base, trials: [trial()] }), "ready");
+});
+
+test("面の状態の 1 行は、どの状態でも空文字を返さず 3 タブで同じ文言を使う", () => {
+  const panels = [
+    "runtime_unavailable",
+    "unconfigured",
+    "disabled",
+    "unsynced",
+    "empty",
+    "running",
+    "failed",
+    "interrupted",
+    "ready",
+  ] as const;
+  const notes = panels.map((panel) => trialPanelNote(panel));
+  assert.deepEqual(notes, [
+    "ランタイムが利用できないため試行できません。",
+    "APIキーが未設定です。履歴だけを表示しています。",
+    "全体が OFF です。履歴は残り、新規の生成だけを止めています。",
+    "音声の設定を確認できていません。試行はできますが、既定への保存はできません。",
+    "まだ試行していません。",
+    "生成中です。画面を離れても続きます。",
+    "直近の試行は失敗しました。",
+    "前回の試行はサーバーの再起動で中断されました。",
+    "前回の試行は完了しています。",
+  ]);
+  assert.equal(new Set(notes).size, panels.length, "状態ごとに違う 1 行を返す");
+});
+
+test("保存容量の 1 行は 3 タブの合計であることを文言で示す", () => {
+  assert.equal(trialStorageNote({ count: 0, bytes: 0 }), "保存容量: 0 件 · 0 B（画像・音声・BGM で共通）");
+  assert.equal(trialStorageNote({ count: 2, bytes: 2_048 }), "保存容量: 2 件 · 2.0 KiB（画像・音声・BGM で共通）");
+});
+
+test("ビューポートの全文は選択行と一致するときだけ返す", () => {
+  const detail: ContentTrial = { ...trial(), prompt: "full prompt" };
+  assert.equal(selectedTrialDetail(detail, "trial-1"), detail);
+  assert.equal(selectedTrialDetail(detail, "trial-2"), null, "別の行の応答を今の行の値にしない");
+  assert.equal(selectedTrialDetail(detail, null), null);
+  assert.equal(selectedTrialDetail(null, "trial-1"), null, "取得中は null のままにする");
 });
 
 test("試行の開始を止める理由は上から順に 1 つだけ返し、問題が無ければ null", () => {

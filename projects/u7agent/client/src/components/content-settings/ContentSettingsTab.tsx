@@ -76,7 +76,7 @@ export type ContentSettingsTabProps = {
   onLoadTrial: (id: string) => Promise<ContentTrial | null>;
   /** 続きのページを読む */
   onLoadMoreTrials: () => Promise<boolean>;
-  /** 保存容量（`succeeded` + 保存済みだけ）。画像の面の履歴に出す */
+  /** 保存容量（`succeeded` + 保存済みだけ）。3 タブの合計で、画像 / 音声 / BGM の試行の面に出す */
   trialArtifactUsage: ContentTrialArtifactUsageValue;
   /** 試行の操作（開始 / 中断 / 削除 / 一覧の取得失敗）の注記。試行の面の中だけに出す */
   trialNote: { text: string; error: boolean } | null;
@@ -585,7 +585,7 @@ function SpeechModelSection({
 
   return (
     <section className="grid gap-1.5 border-t border-line pt-3">
-      <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">音声（TTS）</div>
+      <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">保存される設定</h3>
       {/* 同期できていない間は、旧い表示を現在値として見せない（保存も speechSaveDisabled が止める） */}
       {synced ? null : (
         <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
