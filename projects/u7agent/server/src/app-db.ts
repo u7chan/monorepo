@@ -2214,6 +2214,7 @@ export class AppDb {
     voice: string | null;
     instructions: string | null;
     speed: number | null;
+    keyEpoch: number;
   }): ContentTrialRow | undefined {
     const row = this.#query(
       (db) =>
@@ -2222,11 +2223,14 @@ export class AppDb {
             `SELECT * FROM content_trials
              WHERE kind = ? AND model = ? AND prompt = ?
                AND voice IS ? AND instructions IS ? AND speed IS ?
+               AND keyEpoch = ?
                AND state = 'succeeded' AND artifactState = 'stored'
                AND artifactPath IS NOT NULL
              ORDER BY startedAt DESC, rowid DESC LIMIT 1`,
           )
-          .get(input.kind, input.model, input.prompt, input.voice, input.instructions, input.speed) as Row | undefined,
+          .get(input.kind, input.model, input.prompt, input.voice, input.instructions, input.speed, input.keyEpoch) as
+          | Row
+          | undefined,
     );
     return row ? contentTrialOf(row) : undefined;
   }

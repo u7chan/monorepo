@@ -429,6 +429,66 @@ test("同じ入力の成功は再課金せず 200 で返し、応答の形を変
   });
 });
 
+test("force / 現在のキー世代 / 成果物欠損は再利用せず、新しい試行を開始する", async () => {
+  await withStoreDir(async (dir) => {
+    const images = createImageHarness();
+    const pi = createStubPi({ onGenerateImage: images.onGenerateImage });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const first = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+      );
+      assert.equal(first.status, 202);
+      const created = await jsonBody(first);
+      images.pending[0]?.resolve({ ok: true, image: pngImage() });
+      await waitForState(bff, created.trial.id, "succeeded");
+
+      // force は同じプロンプトでも保存済み結果を無視する
+      const forced = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "image", model: MODEL, prompt: "a cat", force: true }),
+      );
+      assert.equal(forced.status, 202);
+      const forcedBody = await jsonBody(forced);
+      assert.equal(forcedBody.reused, false);
+      assert.notEqual(forcedBody.trial.id, created.trial.id);
+      assert.equal(images.pending.length, 2);
+      images.pending[1]?.resolve({ ok: true, image: pngImage() });
+      await waitForState(bff, forcedBody.trial.id, "succeeded");
+
+      // キーを変えると世代が変わり、同じ入力でも前の世代は再利用しない
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: "sk-image-dummy-key-other-0123456789" }));
+      const afterKey = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+      );
+      assert.equal(afterKey.status, 202);
+      const afterKeyBody = await jsonBody(afterKey);
+      assert.equal(afterKeyBody.reused, false);
+      assert.equal(afterKeyBody.trial.keyEpoch, 1);
+      assert.equal(images.pending.length, 3);
+      images.pending[2]?.resolve({ ok: true, image: pngImage() });
+      await waitForState(bff, afterKeyBody.trial.id, "succeeded");
+
+      // 成果物ファイルが消えている成功は再利用しない
+      await rm(join(dir, "trials", `${afterKeyBody.trial.id}.png`));
+      const missing = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+      );
+      assert.equal(missing.status, 202);
+      const missingBody = await jsonBody(missing);
+      assert.equal(missingBody.reused, false);
+      assert.notEqual(missingBody.trial.id, afterKeyBody.trial.id);
+      assert.equal(images.pending.length, 4);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
 test("音声の試行は試行 API に載り、raw は音声の MIME で返し、同じ入力は再課金しない", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi({

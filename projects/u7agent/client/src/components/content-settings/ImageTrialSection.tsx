@@ -5,7 +5,6 @@ import {
   groupTrialsByMonth,
   hasStoredArtifact,
   trialEvidence,
-  reusableTrial,
   selectedTrial,
   trialArtifactUrl,
   trialByteSizeLabel,
@@ -60,7 +59,7 @@ export type ImageTrialSectionProps = {
   /** 試行のプロンプト下書き。面を切り替えても失わないよう、呼び出し側が持つ */
   prompt: string;
   onChangePrompt: (prompt: string) => void;
-  onStart: (input: { kind: "image"; model: string; prompt: string }) => Promise<boolean>;
+  onStart: (input: { kind: "image"; model: string; prompt: string; force?: boolean }) => Promise<boolean>;
   onCancel: (id: string) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onDeleteAll: () => Promise<boolean>;
@@ -176,7 +175,6 @@ export function ImageTrialSection({
         <ResultViewport
           trial={selected}
           currentKeyEpoch={keyEpoch}
-          trials={list}
           busy={busy}
           running={running !== null}
           defaultTarget={defaultTarget}
@@ -185,7 +183,9 @@ export function ImageTrialSection({
           onMakeDefault={onMakeDefault}
           onDelete={onDelete}
           onRestorePrompt={() => onChangePrompt(selected.prompt)}
-          onAnotherTake={() => void onStart({ kind: "image", model: selected.model, prompt: selected.prompt })}
+          onAnotherTake={() =>
+            void onStart({ kind: "image", model: selected.model, prompt: selected.prompt, force: true })
+          }
         />
       ) : (
         <p className="text-2xs text-ink-faint">まだ試行の履歴はありません。</p>
@@ -315,7 +315,6 @@ function panelNote(panel: ReturnType<typeof trialPanelState>): string {
 function ResultViewport({
   trial,
   currentKeyEpoch,
-  trials,
   busy,
   running,
   defaultTarget,
@@ -328,7 +327,6 @@ function ResultViewport({
 }: {
   trial: ContentTrial;
   currentKeyEpoch: number;
-  trials: readonly ContentTrial[];
   busy: boolean;
   running: boolean;
   /** 既定として保存する本文。保存値と同じなら null（導線を出さない） */
@@ -344,7 +342,6 @@ function ResultViewport({
   const row = trialHistoryRow(trial, currentKeyEpoch);
   const stored = hasStoredArtifact(trial);
   const dimensions = trialDimensionLabel(trial);
-  const reuse = reusableTrial({ trials, kind: trial.kind, model: trial.model, prompt: trial.prompt });
 
   return (
     <div className="grid gap-2 rounded-lg border border-line bg-soft p-3">
@@ -421,11 +418,7 @@ function ResultViewport({
         blockedReason={blockedReason}
         onSave={onMakeDefault}
       />
-      <p className="text-2xs leading-relaxed text-ink-faint">
-        {reuse
-          ? "同じ入力の保存済みの結果があるため、生成し直しても課金されません。"
-          : "別のテイクは新しい試行として課金されます。"}
-      </p>
+      <p className="text-2xs leading-relaxed text-ink-faint">別のテイクは新しい試行として課金されます。</p>
     </div>
   );
 }

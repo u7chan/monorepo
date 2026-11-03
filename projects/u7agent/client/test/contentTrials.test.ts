@@ -15,7 +15,6 @@ import {
   latestTrial,
   newlyFinishedKinds,
   removeTrialThenRefresh,
-  reusableTrial,
   selectedTrial,
   speechTrialDraftOf,
   speechTrialInput,
@@ -395,17 +394,6 @@ test("ビューポートは選択中の試行を出し、一覧から消えた�
   assert.equal(selectedTrial({ trials: [], selectedId: "gone" }), null);
 });
 
-test("同じ入力の保存済み成功がある間は課金しない判定になる", () => {
-  const trials = [trial({ id: "hit", prompt: "a cat" })];
-  const input = { kind: "image" as const, model: MODEL, prompt: "a cat" };
-  assert.equal(reusableTrial({ trials, ...input })?.id, "hit");
-  // プロンプト・モデル・種別のどれかが違えば課金される
-  assert.equal(reusableTrial({ trials, ...input, prompt: "a dog" }), null);
-  assert.equal(reusableTrial({ trials, ...input, model: OTHER_MODEL }), null);
-  // 保存済みの成果物が無い成功は再利用しない
-  assert.equal(reusableTrial({ trials: [trial({ artifactState: "none", artifact: null })], ...input }), null);
-});
-
 test("試行の削除は一覧を取り直し、保存容量を古いまま残さない", async () => {
   const calls: string[] = [];
   const removedIds: string[] = [];
@@ -514,21 +502,6 @@ test("音声の証拠はモデルに加えてボイスも一致する実績だ�
   assert.equal(trialEvidence({ trials, currentKeyEpoch: 1, currentModel: trials[0]!.model, now }).kind, "success");
 });
 
-test("音声の再利用は本文・モデル・ボイス・演技指示・話速がすべて一致するときだけ", () => {
-  const trials = [speechTrial()];
-  const base = { trials, kind: "speech" as const, model: speechTrial().model, prompt: "おはようございます" };
-  assert.ok(reusableTrial({ ...base, voice: "Aoede", instructions: "落ち着いた声で", speed: 1.1 }));
-  assert.equal(reusableTrial({ ...base, voice: "Achernar", instructions: "落ち着いた声で", speed: 1.1 }), null);
-  assert.equal(reusableTrial({ ...base, voice: "Aoede", instructions: "別の指示", speed: 1.1 }), null);
-  assert.equal(reusableTrial({ ...base, voice: "Aoede", instructions: "落ち着いた声で", speed: 1.2 }), null);
-  assert.equal(reusableTrial({ ...base, prompt: "別の本文", voice: "Aoede" }), null);
-  // 保存済みの成果物が無い成功は再利用しない
-  assert.equal(
-    reusableTrial({ ...base, trials: [speechTrial({ artifactState: "none", artifact: null })], voice: "Aoede" }),
-    null,
-  );
-});
-
 test("音声の試行の要求は本文・演技指示・話速を画面の値から組み立て、課金前に空を止める", () => {
   const input = speechTrialInput({ text: "こんにちは", instructions: "静かに", speed: "1.5" }, "google/tts", "Aoede");
   assert.deepEqual(input, {
@@ -586,7 +559,7 @@ test("音声の表示は trial id で一意になり、本文が同じでも別�
   assert.equal(selectedTrial({ trials, selectedId: "trial-gone" })?.id, "trial-bbb");
 });
 
-test("ボイス未指定は空文字と null を同じ「指定なし」として証拠と再利用で一致する", () => {
+test("ボイス未指定は空文字と null を同じ「指定なし」として証拠で一致する", () => {
   const now = 100_000;
   // 画面のボイス欄は空文字、保存済みの成功行は null（サーバーが空文字を null へ寄せる）
   const unsaved = [
@@ -602,18 +575,6 @@ test("ボイス未指定は空文字と null を同じ「指定なし」とし�
     }),
     { kind: "success", at: 60_000, durationMs: 11_000 },
     "空文字の画面値を null の保存値へ一致させる",
-  );
-  assert.ok(
-    reusableTrial({
-      trials: unsaved,
-      kind: "speech",
-      model: unsaved[0]!.model,
-      prompt: unsaved[0]!.prompt,
-      voice: "",
-      instructions: null,
-      speed: null,
-    }),
-    "同じ入力（ボイス未指定）として再利用する",
   );
 
   // 逆向き（保存値が空文字・画面が null）でも同じ扱いにする
@@ -680,31 +641,4 @@ test("BGM の実測尺は読めた秒数だけを出し、未読は — にす�
   assert.equal(bgmDurationLabel(Number.NaN), "—");
   assert.equal(bgmDurationLabel(12.34), "12.3 秒");
   assert.equal(bgmDurationLabel(30), "30.0 秒");
-});
-
-test("BGM の同じプロンプトの保存済み成功だけを課金なしとして扱い、プロンプトが違えば再利用しない", () => {
-  const stored = trial({ id: "bgm-1", kind: "bgm", model: "google/lyria-3-clip-preview", prompt: "同じ夜" });
-  assert.equal(
-    reusableTrial({
-      trials: [stored],
-      kind: "bgm",
-      model: "google/lyria-3-clip-preview",
-      prompt: "同じ夜",
-    })?.id,
-    "bgm-1",
-  );
-  assert.equal(
-    reusableTrial({ trials: [stored], kind: "bgm", model: "google/lyria-3-clip-preview", prompt: "違う夜" }),
-    null,
-  );
-  // 成果物が保存されていない行（記録のみ）は再利用しない
-  assert.equal(
-    reusableTrial({
-      trials: [{ ...stored, artifactState: "none", artifact: null }],
-      kind: "bgm",
-      model: "google/lyria-3-clip-preview",
-      prompt: "同じ夜",
-    }),
-    null,
-  );
 });

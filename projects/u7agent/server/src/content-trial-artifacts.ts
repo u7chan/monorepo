@@ -3,6 +3,7 @@
  * `<trialId>.<ext>` だけを置き、`generated/` にもプロジェクトにも DB の BLOB にも置かない。
  * ファイル名は trial id から作り、外から来たパスは fs へ渡さない（契約は docs/api-settings.md）。
  */
+import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { inspectImageInput } from "./image-format";
@@ -167,6 +168,8 @@ export interface TrialArtifactStore {
   write(input: { trialId: string; format: TrialArtifactFormat; bytes: Uint8Array }): Promise<void>;
   /** 保存名で読む。無ければ undefined。保存名の形を外れる要求は読まない */
   read(fileName: string): Promise<ArrayBuffer | undefined>;
+  /** 保存名のファイルが置き場にあるか。reuse の判定は同期の start から呼ぶ */
+  exists(fileName: string): boolean;
   /** 保存名で消す。無くても成功として扱う（冪等） */
   remove(fileName: string): Promise<void>;
   /** 置き場のファイル名。ディレクトリが無ければ空 */
@@ -196,6 +199,7 @@ export function createTrialArtifactStore(dir: string): TrialArtifactStore {
         throw error;
       }
     },
+    exists: (fileName) => existsSync(pathOf(fileName)),
     remove: async (fileName) => {
       await rm(pathOf(fileName), { force: true });
     },

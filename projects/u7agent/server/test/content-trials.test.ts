@@ -139,6 +139,7 @@ class FakeTrialsDb implements ContentTrialsDb {
     voice: string | null;
     instructions: string | null;
     speed: number | null;
+    keyEpoch: number;
   }): ContentTrialRow | undefined {
     const row = this.listContentTrials()
       .filter(
@@ -149,6 +150,7 @@ class FakeTrialsDb implements ContentTrialsDb {
           candidate.voice === input.voice &&
           candidate.instructions === input.instructions &&
           candidate.speed === input.speed &&
+          candidate.keyEpoch === input.keyEpoch &&
           candidate.state === "succeeded" &&
           candidate.artifactState === "stored" &&
           candidate.artifact !== null,
@@ -215,6 +217,10 @@ class FakeArtifactStore implements TrialArtifactStore {
     const bytes = this.files.get(fileName);
     if (!bytes) return undefined;
     return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }
+
+  exists(fileName: string): boolean {
+    return this.files.has(fileName);
   }
 
   async remove(fileName: string): Promise<void> {
@@ -353,7 +359,8 @@ function createHarness(
     advanceClock: (ms: number) => {
       now += ms;
     },
-    start: (prompt = "a cat", model = MODEL) => service.start({ kind: "image", model, prompt }),
+    start: (prompt = "a cat", model = MODEL, force = false) =>
+      service.start({ kind: "image", model, prompt, ...(force ? { force: true } : {}) }),
     startSpeech: (
       prompt = "こんにちは",
       params: { model?: string; voice?: string | undefined; instructions?: string | undefined; speed?: number } = {},
@@ -496,6 +503,56 @@ test("同じ入力の保存済み成功は provider を呼ばず 200 で返し�
   harness.db.rows.set("trial-legacy", row({ id: "trial-legacy", prompt: "legacy", state: "succeeded" }));
   const again = harness.start("legacy");
   assert.equal(again.status, 202);
+});
+
+test("force の開始は保存済み結果を無視して新しい試行を作る", async () => {
+  const harness = createHarness();
+  const first = harness.start("a cat on a sofa");
+  if (first.status !== 202) return;
+  harness.generations[0]?.resolve({ ok: true, image: pngImage() });
+  await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
+
+  const forced = harness.start("a cat on a sofa", MODEL, true);
+  assert.equal(forced.status, 202);
+  if (forced.status !== 202) return;
+  assert.equal(forced.reused, false);
+  assert.notEqual(forced.trial.id, first.trial.id);
+  assert.equal(harness.generations.length, 2);
+  assert.equal(harness.db.rows.size, 2);
+});
+
+test("reuse は現在のキー世代の成功だけを対象にする", async () => {
+  const harness = createHarness();
+  const first = harness.start("a cat on a sofa");
+  if (first.status !== 202) return;
+  harness.generations[0]?.resolve({ ok: true, image: pngImage() });
+  await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
+
+  harness.db.epoch = 1;
+  const next = harness.start("a cat on a sofa");
+  assert.equal(next.status, 202);
+  if (next.status !== 202) return;
+  assert.equal(next.reused, false);
+  assert.equal(next.trial.keyEpoch, 1);
+  assert.equal(harness.generations.length, 2);
+  assert.equal(harness.db.rows.size, 2);
+});
+
+test("reuse は成果物ファイルが残っている成功だけを対象にする", async () => {
+  const harness = createHarness();
+  const first = harness.start("a cat on a sofa");
+  if (first.status !== 202) return;
+  harness.generations[0]?.resolve({ ok: true, image: pngImage() });
+  await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
+  harness.store.files.delete(trialArtifactFileName(first.trial.id, "png"));
+
+  const next = harness.start("a cat on a sofa");
+  assert.equal(next.status, 202);
+  if (next.status !== 202) return;
+  assert.equal(next.reused, false);
+  assert.notEqual(next.trial.id, first.trial.id);
+  assert.equal(harness.generations.length, 2);
+  assert.equal(harness.db.rows.size, 2);
 });
 
 test("保存できない形式（svg / html / 不明な MIME）は保存前に拒否し、課金済みの失敗にする", async () => {
