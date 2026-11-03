@@ -121,17 +121,6 @@ export function BgmTrialSection({
         </p>
       </div>
 
-      {/* 実 API の受入が済むまで「試験的」を面の先頭に出す。受入後にこのブロックごと外す（docs/bgm-generation.md） */}
-      <p
-        role="note"
-        className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs leading-relaxed text-warn"
-      >
-        <strong className="font-semibold">試験的</strong>
-        ：この BGM
-        生成は実プロバイダー（Lyria）での受入が済んでいません。要求と応答の契約、生成される音声、所要時間、料金は実 API
-        で確かめておらず、予告なく変わる可能性があります。受入が済み次第、この表示を外します。
-      </p>
-
       <label className="grid min-w-0 gap-1">
         <span className="text-2xs text-ink-muted">プロンプト（履歴に保存されます）</span>
         <textarea
