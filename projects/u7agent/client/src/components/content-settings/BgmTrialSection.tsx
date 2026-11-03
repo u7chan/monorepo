@@ -6,7 +6,6 @@ import {
   filteredTrials,
   groupTrialsByMonth,
   hasStoredArtifact,
-  reusableTrial,
   selectedTrial,
   trialArtifactUrl,
   trialByteSizeLabel,
@@ -101,14 +100,14 @@ export function BgmTrialSection({
   const visible = showAll ? filtered : filtered.slice(0, HISTORY_PREVIEW_COUNT);
   const groups = groupTrialsByMonth(visible);
 
-  const start = (value: string, nextModel: string) => {
+  const start = (value: string, nextModel: string, force = false) => {
     const request = bgmTrialInput(value, nextModel);
     if (!request.ok) {
       setInputError(request.error);
       return;
     }
     setInputError(null);
-    void onStart(request.input);
+    void onStart({ ...request.input, ...(force ? { force: true } : {}) });
   };
 
   return (
@@ -179,7 +178,6 @@ export function BgmTrialSection({
           key={selected.id}
           trial={selected}
           currentKeyEpoch={keyEpoch}
-          trials={list}
           busy={busy}
           running={running !== null}
           expectedDurationSeconds={settings.bgm.expectedDurationSeconds}
@@ -188,7 +186,7 @@ export function BgmTrialSection({
             setInputError(null);
             onChangePrompt(selected.prompt);
           }}
-          onAnotherTake={() => start(selected.prompt, model)}
+          onAnotherTake={() => start(selected.prompt, model, true)}
         />
       ) : (
         <p className="text-2xs text-ink-faint">まだ試行の履歴はありません。</p>
@@ -303,7 +301,6 @@ function panelNote(panel: ReturnType<typeof trialPanelState>): string {
 function ResultViewport({
   trial,
   currentKeyEpoch,
-  trials,
   busy,
   running,
   expectedDurationSeconds,
@@ -313,7 +310,6 @@ function ResultViewport({
 }: {
   trial: ContentTrial;
   currentKeyEpoch: number;
-  trials: readonly ContentTrial[];
   busy: boolean;
   running: boolean;
   expectedDurationSeconds: number;
@@ -324,7 +320,6 @@ function ResultViewport({
   const [measured, setMeasured] = useState<number | null>(null);
   const row = trialHistoryRow(trial, currentKeyEpoch);
   const stored = hasStoredArtifact(trial);
-  const reuse = reusableTrial({ trials, kind: trial.kind, model: trial.model, prompt: trial.prompt });
 
   return (
     <div className="grid gap-2 rounded-lg border border-line bg-soft p-3">
@@ -400,11 +395,7 @@ function ResultViewport({
           削除
         </button>
       </div>
-      <p className="text-2xs leading-relaxed text-ink-faint">
-        {reuse
-          ? "同じプロンプトの保存済みの結果があるため、生成し直しても課金されません。"
-          : "別のテイクは新しい試行として課金されます。"}
-      </p>
+      <p className="text-2xs leading-relaxed text-ink-faint">別のテイクは新しい試行として課金されます。</p>
     </div>
   );
 }

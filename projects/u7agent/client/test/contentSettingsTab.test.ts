@@ -599,10 +599,11 @@ test("保存できなかった成功は課金済みを明示し、成功とし�
   assert.equal(html.includes("/raw"), false);
 });
 
-test("同じ入力の保存済み結果がある行は、生成し直しても課金されないことを添える", () => {
-  const reused = render({ trials: [TRIAL_BASE] });
-  assert.ok(reused.includes("同じ入力の保存済みの結果があるため、生成し直しても課金されません。"));
-  // 保存済みが無い（失敗した）行は、新しい試行として課金されることを出す
+test("結果カードは保存済みの有無に関係なく、別のテイクの課金を添える", () => {
+  const stored = render({ trials: [TRIAL_BASE] });
+  assert.ok(stored.includes("別のテイクは新しい試行として課金されます。"));
+  assert.equal(stored.includes("同じ入力の保存済みの結果があるため、生成し直しても課金されません。"), false);
+  // 保存済みが無い（失敗した）行も同じ
   const fresh = render({
     trials: [{ ...TRIAL_BASE, state: "failed", failureCode: "timeout", artifactState: "none", artifact: null }],
   });
@@ -699,7 +700,7 @@ test("音声の結果はプレイヤー・snapshot・導線を出し、履歴に
   );
   assert.ok(html.includes("入力欄に戻す"));
   assert.ok(html.includes("別のテイクを生成"));
-  assert.ok(html.includes("同じ入力の保存済みの結果があるため、生成し直しても課金されません"), "課金なしの注記");
+  assert.ok(html.includes("別のテイクは新しい試行として課金されます。"), "別テイクの課金の注記");
   assert.ok(html.includes("保存容量"), "画像と同じ容量を出す");
   // 同じ本文の別テイクを履歴に並べる
   const two = render({
@@ -887,7 +888,7 @@ test("BGM の面は固定モデルと試行の入力・再生・履歴を出し�
   assert.ok(html.includes('href="/api/settings/content/trials/trial-bgm-1/raw?download=1"'));
   assert.ok(html.includes("入力欄に戻す"));
   assert.ok(html.includes("別のテイクを生成"));
-  assert.ok(html.includes("同じプロンプトの保存済みの結果があるため、生成し直しても課金されません"));
+  assert.ok(html.includes("別のテイクは新しい試行として課金されます。"));
   assert.ok(html.includes("保存容量"), "画像・音声と同じ容量を出す");
 });
 

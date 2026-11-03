@@ -419,34 +419,6 @@ export async function removeTrialThenRefresh(input: {
   return input.reload();
 }
 
-/**
- * 同じ入力の保存済み成功。新しく試行したときに provider を呼ばない（課金しない）判定で、
- * サーバーの再利用条件（種別 / モデル / プロンプト + 保存済みの成功）をそのまま写す。
- */
-export function reusableTrial(input: {
-  trials: readonly ContentTrial[];
-  kind: ContentTrial["kind"];
-  model: string;
-  prompt: string;
-  /** 音声は本文に加えてボイス・演技指示・話速も一致するときだけ再利用する（画像は省略） */
-  voice?: string | null;
-  instructions?: string | null;
-  speed?: number | null;
-}): ContentTrial | null {
-  return (
-    input.trials.find(
-      (trial) =>
-        trial.kind === input.kind &&
-        trial.model === input.model &&
-        trial.prompt === input.prompt &&
-        (input.voice === undefined || voiceKey(trial.voice) === voiceKey(input.voice)) &&
-        (input.instructions === undefined || trial.instructions === input.instructions) &&
-        (input.speed === undefined || trial.speed === input.speed) &&
-        hasStoredArtifact(trial),
-    ) ?? null
-  );
-}
-
 /** 音声の試行の下書き。本文・演技指示・話速は試行にだけ使い、履歴にスナップショットとして残る */
 export interface SpeechTrialDraft {
   text: string;

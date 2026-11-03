@@ -1462,6 +1462,8 @@ export const CreateContentTrialBodySchema = z.object({
   /** 画像は `provider/id`、音声はカタログのモデル id、BGM は固定のモデル id だけを受け付ける */
   model: z.string().min(1),
   prompt: z.string().min(1).max(CONTENT_TRIAL_PROMPT_MAX_LENGTH),
+  /** 保存済み結果を無視して新しい試行を開始する。結果カードの「別のテイク」だけが true を送る */
+  force: z.boolean().optional(),
   /** 空文字は「指定なし」（宣言が無いモデル）で、本文から `voice` を落とす */
   voice: z.string().max(200).optional(),
   instructions: z.string().max(CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH).optional(),

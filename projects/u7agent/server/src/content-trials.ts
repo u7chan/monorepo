@@ -172,6 +172,7 @@ export interface ContentTrialsDb {
     voice: string | null;
     instructions: string | null;
     speed: number | null;
+    keyEpoch: number;
   }): ContentTrialRow | undefined;
   readContentTrialArtifactUsage(): ContentTrialArtifactUsage;
   deleteContentTrial(id: string): boolean;
@@ -361,6 +362,8 @@ export class ContentTrialsService {
     voice?: string | undefined;
     instructions?: string | undefined;
     speed?: number | undefined;
+    /** 保存済み結果を無視して新しい試行を開始する（結果カードの「別のテイク」） */
+    force?: boolean | undefined;
   }): ContentTrialStartOutcome {
     if (!isTrialKind(input.kind)) return { status: 400, error: CONTENT_TRIAL_KIND_UNSUPPORTED_MESSAGE };
     const kind = input.kind;
@@ -410,22 +413,9 @@ export class ContentTrialsService {
     if (snapshot.apiKey === null) return { status: 503, error: CONTENT_TRIAL_KEY_UNAVAILABLE_MESSAGE };
 
     // 同じ入力の保存済み成功があれば provider を呼ばない（課金しない。新しい成功としても記録しない）。
-    // 音声は本文に加えてモデル・ボイス・演技指示・話速も一致するときだけ再利用する
-    const reused = this.#reusable({
-      kind,
-      model: input.model,
-      prompt,
-      voice: params.voice,
-      instructions: params.instructions,
-      speed: params.speed,
-    });
-    if (reused) {
-      console.info(`[u7agent] content trial reused: id=${reused.id} kind=${kind}`);
-      return { status: 200, trial: this.#view(reused), reused: true };
-    }
-
-    const startedAt = this.#now();
-    // 世代の読み取りは枠を取る前に済ませる。DB 障害は 503 にし、共有枠を漏らさない
+    // 音声は本文に加えてモデル・ボイス・演技指示・話速も一致するときだけ再利用する。
+    // `force` は保存済み結果を無視し、結果カードの「別のテイク」だけが使う。
+    // 世代の読み取りは再利用の判定と枠を取る前に済ませ、DB 障害は 503 にして共有枠を漏らさない
     let keyEpoch: number;
     try {
       keyEpoch = this.#db.readContentKeyEpoch();
@@ -433,6 +423,23 @@ export class ContentTrialsService {
       console.warn(`[u7agent] content trial key epoch read failed: ${this.#maskError(messageFor(error))}`);
       return { status: 503, error: CONTENT_TRIAL_READ_FAILED_MESSAGE };
     }
+    if (!input.force) {
+      const reused = this.#reusable({
+        kind,
+        model: input.model,
+        prompt,
+        voice: params.voice,
+        instructions: params.instructions,
+        speed: params.speed,
+        keyEpoch,
+      });
+      if (reused) {
+        console.info(`[u7agent] content trial reused: id=${reused.id} kind=${kind}`);
+        return { status: 200, trial: this.#view(reused), reused: true };
+      }
+    }
+
+    const startedAt = this.#now();
 
     // BGM はチャットの `generate_bgm` と同じプロセス内の枠を数える（試行用の別枠を足さない）。
     // 行を作る前に取り、取れなければ行を残さずに止める
@@ -955,11 +962,16 @@ export class ContentTrialsService {
     voice: string | null;
     instructions: string | null;
     speed: number | null;
+    keyEpoch: number;
   }): ContentTrialRow | undefined {
     try {
       const row = this.#db.findReusableContentTrial(input);
       if (!row) return undefined;
-      return storedFormatOf(row) ? row : undefined;
+      const format = storedFormatOf(row);
+      const artifacts = this.#artifacts;
+      if (!format || !artifacts) return undefined;
+      // 成果物ファイルが消えている行は再利用しない（raw 404 のまま繰り返さない）
+      return artifacts.exists(trialArtifactFileName(row.id, format)) ? row : undefined;
     } catch (error) {
       console.warn(`[u7agent] content trial reuse lookup failed: ${this.#maskError(messageFor(error))}`);
       return undefined;

@@ -3,7 +3,6 @@ import {
   filteredTrials,
   groupTrialsByMonth,
   hasStoredArtifact,
-  reusableTrial,
   selectedTrial,
   speechTrialDraftOf,
   speechTrialInput,
@@ -135,14 +134,14 @@ export function SpeechTrialSection({
   const groups = groupTrialsByMonth(visible);
   const filtering = modelFilter !== "all" || outcomeFilter !== "all";
 
-  const start = (values: SpeechTrialDraft, nextModel: string, nextVoice: string) => {
+  const start = (values: SpeechTrialDraft, nextModel: string, nextVoice: string, force = false) => {
     const request = speechTrialInput(values, nextModel, nextVoice);
     if (!request.ok) {
       setInputError(request.error);
       return;
     }
     setInputError(null);
-    void onStart({ kind: "speech", ...request.input });
+    void onStart({ kind: "speech", ...request.input, ...(force ? { force: true } : {}) });
   };
 
   return (
@@ -268,7 +267,6 @@ export function SpeechTrialSection({
         <ResultViewport
           trial={selected}
           currentKeyEpoch={keyEpoch}
-          trials={list}
           busy={busy}
           running={running !== null}
           defaultTarget={defaultTarget}
@@ -289,6 +287,7 @@ export function SpeechTrialSection({
               },
               selected.model,
               selected.voice ?? "",
+              true,
             )
           }
         />
@@ -420,7 +419,6 @@ function panelNote(panel: ReturnType<typeof trialPanelState>): string {
 function ResultViewport({
   trial,
   currentKeyEpoch,
-  trials,
   busy,
   running,
   defaultTarget,
@@ -433,7 +431,6 @@ function ResultViewport({
 }: {
   trial: ContentTrial;
   currentKeyEpoch: number;
-  trials: readonly ContentTrial[];
   busy: boolean;
   running: boolean;
   /** 既定として保存する本文。保存値と同じなら null（導線を出さない） */
@@ -449,15 +446,6 @@ function ResultViewport({
   const row = trialHistoryRow(trial, currentKeyEpoch);
   const stored = hasStoredArtifact(trial);
   const labels = speechTrialSnapshotLabels(trial);
-  const reuse = reusableTrial({
-    trials,
-    kind: trial.kind,
-    model: trial.model,
-    prompt: trial.prompt,
-    voice: trial.voice,
-    instructions: trial.instructions,
-    speed: trial.speed,
-  });
 
   return (
     <div className="grid gap-2 rounded-lg border border-line bg-soft p-3">
@@ -538,11 +526,7 @@ function ResultViewport({
         blockedReason={blockedReason}
         onSave={onMakeDefault}
       />
-      <p className="text-2xs leading-relaxed text-ink-faint">
-        {reuse
-          ? "同じ入力の保存済みの結果があるため、生成し直しても課金されません。"
-          : "別のテイクは新しい試行として課金されます。"}
-      </p>
+      <p className="text-2xs leading-relaxed text-ink-faint">別のテイクは新しい試行として課金されます。</p>
     </div>
   );
 }

@@ -3443,7 +3443,14 @@ test("成果物のメタデータは状態と 1 文で書き、容量は succeed
   assert.deepEqual(db.readContentTrialArtifactUsage(), { count: 1, bytes: 1_024 });
 
   // 同じ入力の保存済み成功だけを再利用の対象にする
-  const reuseBase = { kind: "image", model: row?.model ?? "", voice: null, instructions: null, speed: null };
+  const reuseBase = {
+    kind: "image",
+    model: row?.model ?? "",
+    voice: null,
+    instructions: null,
+    speed: null,
+    keyEpoch: row?.keyEpoch ?? 0,
+  };
   assert.equal(db.findReusableContentTrial({ ...reuseBase, prompt: "a cat" })?.id, id);
   assert.equal(db.findReusableContentTrial({ ...reuseBase, prompt: "a dog" }), undefined);
   // 音声のパラメーターが違う入力は再利用しない（NULL 同士は一致させる）
@@ -3563,6 +3570,7 @@ test("v39 の DB を開くと音声の列が足され、既存の行は null の
         voice: "Aoede",
         instructions: null,
         speed: 1.1,
+        keyEpoch: speech?.keyEpoch ?? 0,
       })?.id,
       id,
     );
@@ -3574,6 +3582,7 @@ test("v39 の DB を開くと音声の列が足され、既存の行は null の
         voice: "Aoede",
         instructions: null,
         speed: 1.2,
+        keyEpoch: speech?.keyEpoch ?? 0,
       }),
       undefined,
     );
