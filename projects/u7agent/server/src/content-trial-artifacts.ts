@@ -19,6 +19,12 @@ export const TRIAL_ARTIFACTS_DIR_NAME = "trials";
  */
 export const TRIAL_ARTIFACT_MAX_BYTES = 16 * 1024 * 1024;
 
+/**
+ * 保存容量の警告を出すしきい値（1 GiB）。保持の上限ではなく、自動削除もしないため、
+ * 画面は「警告かどうか」と「しきい値」だけを受け取り、消すかどうかは利用者に委ねる。
+ */
+export const TRIAL_ARTIFACT_USAGE_WARNING_BYTES = 1024 * 1024 * 1024;
+
 /** 保存・配信できる形式。拡張子と配信 MIME はこの一覧に固定する */
 export const TRIAL_ARTIFACT_FORMATS = ["png", "jpeg", "webp", "mp3", "wav"] as const;
 export type TrialArtifactFormat = (typeof TRIAL_ARTIFACT_FORMATS)[number];

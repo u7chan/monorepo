@@ -17,10 +17,12 @@ import {
   trialArtifactFormatAllowed,
   trialArtifactFormatOf,
   trialArtifactIdOfFileName,
+  TRIAL_ARTIFACT_USAGE_WARNING_BYTES,
   type TrialArtifactFormat,
   type TrialArtifactRejectReason,
   type TrialArtifactStore,
 } from "./content-trial-artifacts";
+import type { TrialDiskCheck } from "./content-trial-disk-space";
 import {
   acquireBgmGenerationSlot,
   BGM_MAX_CONCURRENT,
@@ -91,6 +93,8 @@ export const CONTENT_TRIAL_ARTIFACT_TOO_LARGE_MESSAGE =
 export const CONTENT_TRIAL_ARTIFACT_FORMAT_MESSAGE =
   "生成は完了しましたが、保存できない形式でした（課金済み）。もう一度生成すると再課金されます";
 export const CONTENT_TRIAL_ARTIFACT_MISSING_MESSAGE = "この試行には保存された結果がありません";
+export const CONTENT_TRIAL_DISK_SHORT_MESSAGE =
+  "保存先のディスクの空きが足りないため、試行を開始できませんでした（クレジットは消費していません）";
 export const CONTENT_TRIAL_SPEECH_VOICE_MESSAGE =
   "このモデルが宣言していないボイスは試行できません（クレジットは消費していません）";
 export const CONTENT_TRIAL_SPEECH_INSTRUCTIONS_TOO_LONG_MESSAGE = `演技指示が長すぎます（${CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH.toLocaleString("en-US")} 文字まで。クレジットは消費していません）`;
@@ -99,6 +103,13 @@ export const CONTENT_TRIAL_SPEECH_SPEED_MESSAGE =
 export const CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE = "話速・演技指示・ボイスは音声の試行だけに指定できます";
 // 上限値はチャットのツールと同じ定数を書き、文言を 2 か所で数えない
 export const CONTENT_TRIAL_BGM_BUSY_MESSAGE = `BGMの同時生成は ${BGM_MAX_CONCURRENT} 件までです（チャットの generate_bgm と共通）。実行中の生成が終わってから試してください（クレジットは消費していません）`;
+
+/**
+ * 空き不足で開始を拒否したときの機械可読なコード。生成の後に保存できなかった `failureCode: "storage"`
+ * （課金済みの `failed`）とは別の意味で、行も課金も作らない拒否を表す。
+ */
+export const CONTENT_TRIAL_DISK_SHORT_CODE = "disk_shortage";
+export type ContentTrialStartErrorCode = typeof CONTENT_TRIAL_DISK_SHORT_CODE;
 
 /**
  * `running` のまま残った行を一覧取得時に再照合する条件。provider の期限に余裕を足した時刻を過ぎ、
@@ -145,6 +156,16 @@ export interface ContentTrialArtifactView {
 export interface ContentTrialArtifactUsage {
   count: number;
   bytes: number;
+}
+
+/**
+ * 保存容量の警告の判定データ。しきい値は server の定数（`TRIAL_ARTIFACT_USAGE_WARNING_BYTES`）で、
+ * 画面はこの 2 つだけで警告を出す（消すかどうかは決めない）。
+ */
+export interface ContentTrialArtifactWarning {
+  /** この値を超えたら警告する */
+  thresholdBytes: number;
+  warning: boolean;
 }
 
 /** 保存容量の集計。DB が読めないときは 0 件として扱う（一覧は返す） */
@@ -205,6 +226,8 @@ export interface ContentTrialsOptions {
   generateBgm?: ((input: BgmGenerationInput) => Promise<Uint8Array<ArrayBuffer>>) | undefined;
   /** 成果物の置き場。未注入（永続化なしで起動）は保存に失敗したものとして `storage` で倒す */
   artifacts?: TrialArtifactStore | undefined;
+  /** 置き場の空き確認。未注入は判定しない（空きを測れない環境と同じく通す） */
+  diskSpace?: TrialDiskCheck | undefined;
   /** ログ・状態へ出す前の文言境界 */
   maskError: (text: string) => string;
   /** 時計。テストで進める */
@@ -213,7 +236,7 @@ export interface ContentTrialsOptions {
 
 export type ContentTrialStartOutcome =
   | { status: 200 | 202; trial: ContentTrialView; reused: boolean }
-  | { status: 400 | 409 | 503; error: string };
+  | { status: 400 | 409 | 503; error: string; code?: ContentTrialStartErrorCode };
 
 export type ContentTrialReadOutcome = { status: 200; trial: ContentTrialView } | { status: 404; error: string };
 
@@ -222,6 +245,7 @@ export type ContentTrialListOutcome = {
   items: ContentTrialView[];
   keyEpoch: number;
   artifactUsage: ContentTrialArtifactUsage;
+  artifactWarning: ContentTrialArtifactWarning;
 };
 
 export type ContentTrialRemoveOutcome =
@@ -282,6 +306,7 @@ export class ContentTrialsService {
   #generateSpeech: ((input: SpeechGenerationInput) => Promise<SpeechGenerationResult>) | undefined;
   #generateBgm: ((input: BgmGenerationInput) => Promise<Uint8Array<ArrayBuffer>>) | undefined;
   #artifacts: TrialArtifactStore | undefined;
+  #diskSpace: TrialDiskCheck | undefined;
   #maskError: (text: string) => string;
   #now: () => number;
   /** 実行中（終端を決めた後も provider の呼び出しが終わるまで残る）ジョブ。スロットの所有者 */
@@ -303,6 +328,7 @@ export class ContentTrialsService {
     this.#generateSpeech = options.generateSpeech;
     this.#generateBgm = options.generateBgm;
     this.#artifacts = options.artifacts;
+    this.#diskSpace = options.diskSpace;
     this.#maskError = options.maskError;
     this.#now = options.now ?? Date.now;
   }
@@ -355,7 +381,7 @@ export class ContentTrialsService {
   }
 
   /** 試行の開始。応答は開始直後（202）で、状態は GET で取る */
-  start(input: {
+  async start(input: {
     kind: string;
     model: string;
     prompt: string;
@@ -364,7 +390,7 @@ export class ContentTrialsService {
     speed?: number | undefined;
     /** 保存済み結果を無視して新しい試行を開始する（結果カードの「別のテイク」） */
     force?: boolean | undefined;
-  }): ContentTrialStartOutcome {
+  }): Promise<ContentTrialStartOutcome> {
     if (!isTrialKind(input.kind)) return { status: 400, error: CONTENT_TRIAL_KIND_UNSUPPORTED_MESSAGE };
     const kind = input.kind;
     const prompt = input.prompt;
@@ -437,6 +463,11 @@ export class ContentTrialsService {
         console.info(`[u7agent] content trial reused: id=${reused.id} kind=${kind}`);
         return { status: 200, trial: this.#view(reused), reused: true };
       }
+    }
+
+    // 生成（課金）の前に空きを見る。足りなければ行を作らずに拒否し、保存の失敗（課金済み）と混ぜない
+    if (this.#diskSpace && (await this.#diskSpace()) === "short") {
+      return { status: 503, error: CONTENT_TRIAL_DISK_SHORT_MESSAGE, code: CONTENT_TRIAL_DISK_SHORT_CODE };
     }
 
     const startedAt = this.#now();
@@ -515,11 +546,13 @@ export class ContentTrialsService {
     this.#reconcileIfDue();
     this.#retryUnrecorded();
     const rows = this.#db.listContentTrials(kind);
+    const artifactUsage = this.#usage();
     return {
       status: 200,
       items: rows.map((row) => this.#view(row)),
       keyEpoch: this.#db.readContentKeyEpoch(),
-      artifactUsage: this.#usage(),
+      artifactUsage,
+      artifactWarning: artifactWarningOf(artifactUsage),
     };
   }
 
@@ -1106,6 +1139,14 @@ export class ContentTrialsService {
       recorded: false,
     };
   }
+}
+
+/** 保存容量の警告。しきい値は server の定数で、画面が同じ値を推測しなくて済むように応答へ載せる */
+function artifactWarningOf(usage: ContentTrialArtifactUsage): ContentTrialArtifactWarning {
+  return {
+    thresholdBytes: TRIAL_ARTIFACT_USAGE_WARNING_BYTES,
+    warning: usage.bytes > TRIAL_ARTIFACT_USAGE_WARNING_BYTES,
+  };
 }
 
 /** 保存済みとして配信できる形式。`succeeded` + `stored` + 種別の許可リスト + 保存名の一致だけを通す */

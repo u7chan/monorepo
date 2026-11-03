@@ -12,10 +12,13 @@ import {
   CONTENT_TRIAL_BGM_MODEL_MESSAGE,
   CONTENT_TRIAL_BGM_PROMPT_TOO_LONG_MESSAGE,
   CONTENT_TRIAL_DELETE_RUNNING_MESSAGE,
+  CONTENT_TRIAL_DISK_SHORT_CODE,
+  CONTENT_TRIAL_DISK_SHORT_MESSAGE,
   CONTENT_TRIAL_IMAGE_MODEL_MESSAGE,
   CONTENT_TRIAL_NOT_FOUND_MESSAGE,
   CONTENT_TRIAL_SPEECH_MODEL_MESSAGE,
 } from "../src/content-trials";
+import { TRIAL_ARTIFACT_USAGE_WARNING_BYTES } from "../src/content-trial-artifacts";
 import { BGM_MODEL, BGM_PROMPT_MAX_LENGTH } from "../src/bgm";
 import { DEFAULT_IMAGE_MODEL } from "../src/content-settings";
 import { DEFAULT_SPEECH_MODEL } from "../src/speech-catalog";
@@ -218,6 +221,11 @@ test("成功は succeeded で所要時間が入り、すべて削除は終端だ
       assert.deepEqual(list.items[0]?.artifact, { format: "png", bytes: 33, width: 8, height: 6 });
       // 保存容量は保存済みの成功だけを DB のバイト数で合計する
       assert.deepEqual(list.artifactUsage, { count: 1, bytes: 33 });
+      // 容量警告は server のしきい値と判定だけを載せ、画面に値を推測させない
+      assert.deepEqual(list.artifactWarning, {
+        thresholdBytes: TRIAL_ARTIFACT_USAGE_WARNING_BYTES,
+        warning: false,
+      });
       // 実体は会話ストアの兄弟 `<dir>/trials` に置く（プロジェクトでも generated/ でもない）
       assert.deepEqual(await readdir(join(dir, "trials")), [`${created.trial.id}.png`]);
 
@@ -226,8 +234,114 @@ test("成功は succeeded で所要時間が入り、すべて削除は終端だ
       const empty = await jsonBody(await bff.app.request("/api/settings/content/trials"));
       assert.deepEqual(empty.items, []);
       assert.deepEqual(empty.artifactUsage, { count: 0, bytes: 0 });
+      assert.equal(empty.artifactWarning.warning, false, "消した後の容量で判定し直す");
       // 削除で成果物も消える
       assert.deepEqual(await readdir(join(dir, "trials")), []);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("置き場の空きが足りないときは、行を作らずに 503 のコード付きで止める", async () => {
+  await withStoreDir(async (dir) => {
+    const images = createImageHarness();
+    const pi = createStubPi({ onGenerateImage: images.onGenerateImage });
+    const bff = await openBff({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(pi),
+      workspace: null,
+      trialStatfs: async () => ({ bsize: 1, bavail: 0 }),
+    });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const refused = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+      );
+      assert.equal(refused.status, 503);
+      const body = await jsonBody(refused);
+      assert.equal(body.code, CONTENT_TRIAL_DISK_SHORT_CODE, "保存の失敗（storage）とは別のコードで返す");
+      assert.equal(body.error, CONTENT_TRIAL_DISK_SHORT_MESSAGE);
+      // 開始していないので履歴に残らず、provider も呼ばない
+      const list = await jsonBody(await bff.app.request("/api/settings/content/trials"));
+      assert.deepEqual(list.items, []);
+      assert.equal(images.pending.length, 0);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("空きを測れない環境では開始を止めない", async () => {
+  await withStoreDir(async (dir) => {
+    const images = createImageHarness();
+    const pi = createStubPi({ onGenerateImage: images.onGenerateImage });
+    const bff = await openBff({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(pi),
+      workspace: null,
+      // 非対応の fs など、空きを読めない環境
+      trialStatfs: async () => {
+        throw Object.assign(new Error("ENOSYS"), { code: "ENOSYS" });
+      },
+    });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const started = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+      );
+      assert.equal(started.status, 202);
+      images.pending[0]?.resolve({ ok: true, image: pngImage() });
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("空きが足りなくても保存済みの同じ入力は再利用し、別のテイクは止める", async () => {
+  await withStoreDir(async (dir) => {
+    const images = createImageHarness();
+    const pi = createStubPi({ onGenerateImage: images.onGenerateImage });
+    let bavail = 1_000_000_000_000;
+    const bff = await openBff({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(pi),
+      workspace: null,
+      trialStatfs: async () => ({ bsize: 1, bavail }),
+    });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const created = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/trials",
+          jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+        ),
+      );
+      images.pending[0]?.resolve({ ok: true, image: pngImage() });
+      await waitForState(bff, created.trial.id, "succeeded");
+
+      bavail = 0;
+      const reused = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+      );
+      assert.equal(reused.status, 200, "provider を呼ばない再利用は空きが無くても返せる");
+      const reusedBody = await jsonBody(reused);
+      assert.equal(reusedBody.reused, true);
+      assert.equal(reusedBody.trial.id, created.trial.id);
+      assert.equal(images.pending.length, 1, "再利用で生成器を呼ばない");
+
+      const forced = await bff.app.request(
+        "/api/settings/content/trials",
+        jsonPost({ kind: "image", model: MODEL, prompt: "a cat", force: true }),
+      );
+      assert.equal(forced.status, 503, "別のテイクは新しい保存が要る");
+      assert.equal((await jsonBody(forced)).code, CONTENT_TRIAL_DISK_SHORT_CODE);
     } finally {
       await bff.close();
     }
