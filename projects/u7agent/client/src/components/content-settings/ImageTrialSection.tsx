@@ -4,7 +4,7 @@ import {
   filteredTrials,
   groupTrialsByMonth,
   hasStoredArtifact,
-  imageTrialEvidence,
+  trialEvidence,
   reusableTrial,
   selectedTrial,
   trialArtifactUrl,
@@ -80,7 +80,8 @@ export function ImageTrialSection({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modelFilter, setModelFilter] = useState("all");
   const [outcomeFilter, setOutcomeFilter] = useState<TrialOutcomeFilter>("all");
-  const list = trials ?? [];
+  // 一覧は全種別を 1 回で取るため、面ごとに自分の種別だけを出す（音声の履歴を混ぜない）
+  const list = (trials ?? []).filter((trial) => trial.kind === "image");
   const panel = trialPanelState({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,
@@ -455,19 +456,23 @@ function HistoryListItem({
 export function EvidenceLine({
   trials,
   model,
+  voice,
   keyEpoch,
   now,
 }: {
   trials: readonly ContentTrial[] | null;
   /** 画面で選択中のモデル（下書き優先）。証拠はこのモデルの実績だけを数える */
   model: string;
+  /** 音声はボイスも一致する実績だけを数える。画像は省略 */
+  voice?: string;
   keyEpoch: number;
   now: number;
 }) {
-  const evidence = imageTrialEvidence({
+  const evidence = trialEvidence({
     trials: trials ?? [],
     currentKeyEpoch: keyEpoch,
     currentModel: model,
+    ...(voice === undefined ? {} : { currentVoice: voice }),
     now,
   });
   return (

@@ -85,7 +85,7 @@ export function modelOptionOf(model: PiAiModel<Api>): ModelOption {
 }
 
 /**
- * お試し再生の canned 音声。有料 API を呼ばずに、実際に鳴る短い 440Hz の 16-bit LE pcm を作る
+ * 試行 / ツールの canned 音声。有料 API を呼ばずに、実際に鳴る短い 440Hz の 16-bit LE pcm を作る
  * （BFF が RIFF ヘッダを付けて wav として返す）。
  */
 export function stubSpeechAudio(options: { sampleRate?: number; ms?: number; frequency?: number } = {}): ArrayBuffer {
@@ -1277,7 +1277,7 @@ export interface StubPiOptions {
   ) => Promise<void> | void;
   onOAuthLogout?: (provider: string, signal: AbortSignal | undefined) => Promise<void> | void;
   /**
-   * お試し再生の生成器の模倣。省略時は canned 音声（pcm）を返す。成功 / 失敗 / 中断を差し替えられる
+   * 音声生成器の模倣。省略時は canned 音声（pcm）を返す。成功 / 失敗 / 中断を差し替えられる
    * （中断は `input.signal` を待つ実装をテスト側で書く）。
    */
   onGenerateSpeech?: (input: SpeechGenerationInput) => SpeechGenerationResult | Promise<SpeechGenerationResult>;
@@ -1446,7 +1446,7 @@ export function createStubPi(options: StubPiOptions = {}) {
   const modelStateRefreshSignals: (AbortSignal | undefined)[] = [];
   const modelSelections: ModelSelection[] = [];
   const contentGenerationConfigs: ContentGenerationConfig[] = [];
-  // お試し再生の生成器へ渡った入力を記録する（課金前の検証で止めた呼び出しが無いことも見る）
+  // 生成器へ渡った入力を記録する（課金前の検証で止めた呼び出しが無いことも見る）
   const speechCalls: SpeechGenerationInput[] = [];
   // 試行ジョブの生成器へ渡った入力を記録する（課金前の検証で止めた呼び出しが無いことも見る）
   const imageCalls: ImageGenerationInput[] = [];

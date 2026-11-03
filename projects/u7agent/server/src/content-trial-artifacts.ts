@@ -7,6 +7,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { inspectImageInput } from "./image-format";
 import { saveableImageFormat, type SaveableImageFormat } from "./images";
+import { pcmToWav, type GeneratedSpeech } from "./speech";
 
 /** 会話ストア直下のディレクトリ名。DB (`u7agent.db`) と同じ領域の兄弟に置く */
 export const TRIAL_ARTIFACTS_DIR_NAME = "trials";
@@ -17,26 +18,44 @@ export const TRIAL_ARTIFACTS_DIR_NAME = "trials";
  */
 export const TRIAL_ARTIFACT_MAX_BYTES = 16 * 1024 * 1024;
 
-/** 保存・配信できる形式。拡張子と配信 MIME はこの 3 つに固定する */
-export const TRIAL_ARTIFACT_FORMATS = ["png", "jpeg", "webp"] as const;
+/** 保存・配信できる形式。拡張子と配信 MIME はこの一覧に固定する */
+export const TRIAL_ARTIFACT_FORMATS = ["png", "jpeg", "webp", "mp3", "wav"] as const;
+export type TrialArtifactFormat = (typeof TRIAL_ARTIFACT_FORMATS)[number];
 
-const EXTENSIONS: Record<SaveableImageFormat, string> = { png: "png", jpeg: "jpg", webp: "webp" };
+/**
+ * 種別ごとに保存・配信できる形式。画像の行に音声、音声の行に画像が入らないよう、配信の判定でも種別を見る
+ * （BGM の段階で足すときもこの表だけを広げる）。
+ */
+export const TRIAL_ARTIFACT_FORMATS_BY_KIND: Record<string, readonly TrialArtifactFormat[]> = {
+  image: ["png", "jpeg", "webp"],
+  speech: ["mp3", "wav"],
+};
 
-const CONTENT_TYPES: Record<SaveableImageFormat, string> = {
+const EXTENSIONS: Record<TrialArtifactFormat, string> = {
+  png: "png",
+  jpeg: "jpg",
+  webp: "webp",
+  mp3: "mp3",
+  wav: "wav",
+};
+
+const CONTENT_TYPES: Record<TrialArtifactFormat, string> = {
   png: "image/png",
   jpeg: "image/jpeg",
   webp: "image/webp",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
 };
 
 const TRIAL_ID_PATTERN = /^trial-[0-9a-f]{24}$/;
-const ARTIFACT_FILE_PATTERN = /^(trial-[0-9a-f]{24})\.(png|jpg|webp)$/;
+const ARTIFACT_FILE_PATTERN = /^(trial-[0-9a-f]{24})\.(png|jpg|webp|mp3|wav)$/;
 
 export function isTrialId(value: string): boolean {
   return TRIAL_ID_PATTERN.test(value);
 }
 
 /** 保存名。id と形式からだけ作り、呼び出し側の文字列を混ぜない */
-export function trialArtifactFileName(trialId: string, format: SaveableImageFormat): string {
+export function trialArtifactFileName(trialId: string, format: TrialArtifactFormat): string {
   if (!isTrialId(trialId)) throw new Error("試行 ID が不正です");
   return `${trialId}.${EXTENSIONS[format]}`;
 }
@@ -47,19 +66,25 @@ export function trialArtifactIdOfFileName(fileName: string): string | undefined 
 }
 
 /** 保存時に確定した形式だけを配信 MIME にする（拡張子や要求からは決めない） */
-export function trialArtifactContentType(format: SaveableImageFormat): string {
+export function trialArtifactContentType(format: TrialArtifactFormat): string {
   return CONTENT_TYPES[format];
 }
 
-export function trialArtifactFormatOf(value: string): SaveableImageFormat | undefined {
-  return (TRIAL_ARTIFACT_FORMATS as readonly string[]).includes(value) ? (value as SaveableImageFormat) : undefined;
+export function trialArtifactFormatOf(value: string): TrialArtifactFormat | undefined {
+  return (TRIAL_ARTIFACT_FORMATS as readonly string[]).includes(value) ? (value as TrialArtifactFormat) : undefined;
 }
 
-export type TrialImageRejectReason = "unsupported_format" | "too_large" | "invalid_image";
+/** その種別の行に保存・配信してよい形式か。種別が未知なら何も通さない */
+export function trialArtifactFormatAllowed(kind: string, format: TrialArtifactFormat): boolean {
+  const allowed = TRIAL_ARTIFACT_FORMATS_BY_KIND[kind] ?? [];
+  return allowed.includes(format);
+}
+
+export type TrialArtifactRejectReason = "unsupported_format" | "too_large" | "invalid_bytes";
 
 export type TrialImagePreparation =
   | { ok: true; format: SaveableImageFormat; bytes: Uint8Array; width: number; height: number }
-  | { ok: false; reason: TrialImageRejectReason };
+  | { ok: false; reason: TrialArtifactRejectReason };
 
 const BASE64_PATTERN = /^[A-Za-z0-9+/=\s]*$/;
 
@@ -70,9 +95,9 @@ const BASE64_PATTERN = /^[A-Za-z0-9+/=\s]*$/;
  */
 export function prepareTrialImageArtifact(image: { mimeType: string; data: string }): TrialImagePreparation {
   if (saveableImageFormat(image.mimeType) === undefined) return { ok: false, reason: "unsupported_format" };
-  if (!BASE64_PATTERN.test(image.data)) return { ok: false, reason: "invalid_image" };
+  if (!BASE64_PATTERN.test(image.data)) return { ok: false, reason: "invalid_bytes" };
   const bytes = new Uint8Array(Buffer.from(image.data, "base64"));
-  if (bytes.byteLength === 0) return { ok: false, reason: "invalid_image" };
+  if (bytes.byteLength === 0) return { ok: false, reason: "invalid_bytes" };
   if (bytes.byteLength > TRIAL_ARTIFACT_MAX_BYTES) return { ok: false, reason: "too_large" };
   const inspected = inspectImageInput(bytes);
   if (!inspected) return { ok: false, reason: "unsupported_format" };
@@ -81,9 +106,47 @@ export function prepareTrialImageArtifact(image: { mimeType: string; data: strin
   return { ok: true, format, bytes, width: inspected.width, height: inspected.height };
 }
 
+export type TrialSpeechPreparation =
+  | { ok: true; format: "mp3" | "wav"; bytes: Uint8Array }
+  | { ok: false; reason: TrialArtifactRejectReason };
+
+/**
+ * 生成した音声を保存できる形へ整える。画像と同じく、宣言 MIME と実バイトの両方が許可リストに載っているかを
+ * 確かめ、実バイトの形式を正にする（pcm は生成器の RIFF 化と同じ関数で wav にする）。
+ */
+export function prepareTrialSpeechArtifact(speech: GeneratedSpeech): TrialSpeechPreparation {
+  if (speech.format === "mp3" && speech.contentType !== "audio/mpeg")
+    return { ok: false, reason: "unsupported_format" };
+  const bytes =
+    speech.format === "pcm"
+      ? new Uint8Array(pcmToWav(speech.audio, speech.sampleRate, speech.channels))
+      : new Uint8Array(speech.audio);
+  if (bytes.byteLength > TRIAL_ARTIFACT_MAX_BYTES) return { ok: false, reason: "too_large" };
+  const sniffed = sniffAudioFormat(bytes);
+  if (sniffed === undefined) return { ok: false, reason: "invalid_bytes" };
+  return { ok: true, format: sniffed, bytes };
+}
+
+/**
+ * 実バイトの形式。wav は RIFF/WAVE、mp3 は ID3 かフレーム同期で見る（宣言だけを信じると、`nosniff` でも
+ * 宣言と実体のずれたファイルを配信する）。
+ */
+function sniffAudioFormat(bytes: Uint8Array): "mp3" | "wav" | undefined {
+  const ascii = (offset: number, text: string): boolean => {
+    for (let index = 0; index < text.length; index += 1) {
+      if (bytes[offset + index] !== text.charCodeAt(index)) return false;
+    }
+    return true;
+  };
+  if (bytes.byteLength >= 12 && ascii(0, "RIFF") && ascii(8, "WAVE")) return "wav";
+  if (bytes.byteLength >= 3 && ascii(0, "ID3")) return "mp3";
+  if (bytes.byteLength >= 2 && bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0) return "mp3";
+  return undefined;
+}
+
 export interface TrialArtifactStore {
   /** `<trialId>.<ext>` を書く。書けなければ例外（呼び出し側が `storage` 失敗にする） */
-  write(input: { trialId: string; format: SaveableImageFormat; bytes: Uint8Array }): Promise<void>;
+  write(input: { trialId: string; format: TrialArtifactFormat; bytes: Uint8Array }): Promise<void>;
   /** 保存名で読む。無ければ undefined。保存名の形を外れる要求は読まない */
   read(fileName: string): Promise<ArrayBuffer | undefined>;
   /** 保存名で消す。無くても成功として扱う（冪等） */

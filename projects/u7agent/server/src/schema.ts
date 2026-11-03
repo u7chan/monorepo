@@ -3,12 +3,12 @@ import { z } from "zod";
 import {
   CONTENT_TRIAL_ARTIFACT_STATES,
   CONTENT_TRIAL_FAILURE_CODES,
+  CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH,
   CONTENT_TRIAL_KINDS,
   CONTENT_TRIAL_PROMPT_MAX_LENGTH,
   CONTENT_TRIAL_STATES,
 } from "./content-trials";
 import { TRIAL_ARTIFACT_FORMATS } from "./content-trial-artifacts";
-import { PROVIDER_FAILURE_CODES } from "./provider-failure";
 import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
 import type { SandboxLandlockStatus, SandboxRuntimeCommand, SandboxRuntimeEnvironment } from "./sandbox/protocol";
 import type { SecretKind } from "./secret-crypto";
@@ -1367,7 +1367,7 @@ export type ContentMutationResponse = z.infer<typeof ContentMutationResponseSche
 export const ContentTrialStateSchema = z.enum(CONTENT_TRIAL_STATES);
 export type ContentTrialStateValue = z.infer<typeof ContentTrialStateSchema>;
 
-/** 試行の種別。段階 1 は画像だけで、音声 / BGM は後の段階で足す */
+/** 試行の種別。画像 / 音声は同じジョブの仕組みを使い、BGM は最後の段階で足す */
 export const ContentTrialKindSchema = z.enum(CONTENT_TRIAL_KINDS);
 export type ContentTrialKindValue = z.infer<typeof ContentTrialKindSchema>;
 
@@ -1394,13 +1394,17 @@ export type ContentTrialArtifact = z.infer<typeof ContentTrialArtifactSchema>;
 /**
  * 試行 1 件。`recorded: false` は「終端を DB へ記録できず、メモリの状態を返している」を表し、
  * この間の行は `running` のまま保存されている（docs/api-settings.md）。APIキーは載らない。
+ * 音声の `voice` / `instructions` / `speed` は送信時のスナップショットで、画像の行は null。
  */
 export const ContentTrialSchema = z.object({
   id: z.string(),
   kind: ContentTrialKindSchema,
-  /** 送信時のモデル（`provider/id`）。現在の保存値とは混ぜない */
+  /** 送信時のモデル（画像は `provider/id`、音声はカタログの id）。現在の保存値とは混ぜない */
   model: z.string(),
   prompt: z.string(),
+  voice: z.string().nullable(),
+  instructions: z.string().nullable(),
+  speed: z.number().nullable(),
   state: ContentTrialStateSchema,
   keyEpoch: z.number(),
   artifactState: ContentTrialArtifactStateSchema,
@@ -1449,13 +1453,18 @@ export type ContentTrialDeleteResponse = z.infer<typeof ContentTrialDeleteRespon
 
 /**
  * POST /api/settings/content/trials。試行は画面の値で実行し、設定には反映しない。
- * 種別ごとに同時 1 本で、実行中は 409。
+ * 種別ごとに同時 1 本で、実行中は 409。`voice` / `instructions` / `speed` は音声のときだけ受け付け、
+ * 音声の試行の入力スナップショットとして履歴に残る（同じ入力の再利用もこの 3 つで照合する）。
  */
 export const CreateContentTrialBodySchema = z.object({
   kind: ContentTrialKindSchema,
-  /** `provider/id`。カタログに載っているモデルだけを受け付ける */
+  /** 画像は `provider/id`、音声はカタログのモデル id。カタログに載っているモデルだけを受け付ける */
   model: z.string().min(1),
   prompt: z.string().min(1).max(CONTENT_TRIAL_PROMPT_MAX_LENGTH),
+  /** 空文字は「指定なし」（宣言が無いモデル）で、本文から `voice` を落とす */
+  voice: z.string().max(200).optional(),
+  instructions: z.string().max(CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH).optional(),
+  speed: z.number().optional(),
 });
 export type CreateContentTrialBody = z.infer<typeof CreateContentTrialBodySchema>;
 
@@ -1667,30 +1676,6 @@ export const UpdateContentEnabledBodySchema = z.object({
   enabled: z.boolean(),
 });
 export type UpdateContentEnabledBody = z.infer<typeof UpdateContentEnabledBodySchema>;
-
-/**
- * POST /api/settings/content/speech/preview の本文（お試し再生）。モデルと声は画面で選んだ値をそのまま送り、
- * 演技指示と速度は任意。未対応のモデルでは provider が無視するか 400 を返す（対応表はアプリに持たない）。
- */
-export const SpeechPreviewBodySchema = z.object({
-  model: z.string(),
-  /** 空文字は「指定なし」（宣言が無いモデル）で、本文から `voice` を落とす */
-  voice: z.string(),
-  text: z.string(),
-  instructions: z.string().optional(),
-  speed: z.number().optional(),
-});
-export type SpeechPreviewBody = z.infer<typeof SpeechPreviewBodySchema>;
-
-/**
- * お試し再生の失敗応答（音声バイトではない）。`code` は provider の失敗を分類できたときだけ載る。
- * 分類の値は `server/src/provider-failure.ts` の配列を正とし、union を二重定義しない。
- */
-export const SpeechPreviewErrorSchema = z.object({
-  error: z.string(),
-  code: z.enum(PROVIDER_FAILURE_CODES).optional(),
-});
-export type SpeechPreviewError = z.infer<typeof SpeechPreviewErrorSchema>;
 
 /** 画像APIキーの登録・上書き。長さは provider_credentials と同じ */
 export const UpdateContentKeyBodySchema = z.object({

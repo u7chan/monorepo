@@ -14,6 +14,7 @@ import {
   CONTENT_TRIAL_NOT_FOUND_MESSAGE,
 } from "../src/content-trials";
 import { DEFAULT_IMAGE_MODEL } from "../src/content-settings";
+import { DEFAULT_SPEECH_MODEL } from "../src/speech-catalog";
 import { IMAGE_PROVIDER_ID, type ImageGenerationInput, type ImageGenerationResult } from "../src/images";
 import { asPiBff, createStubPi } from "./stub-pi";
 
@@ -418,6 +419,81 @@ test("同じ入力の成功は再課金せず 200 で返し、応答の形を変
       assert.equal(images.pending.length, 1);
       const list = await jsonBody(await bff.app.request("/api/settings/content/trials?kind=image"));
       assert.equal(list.items.length, 1);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("音声の試行は試行 API に載り、raw は音声の MIME で返し、同じ入力は再課金しない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi({
+      onGenerateSpeech: async () => ({
+        ok: true,
+        speech: { audio: new Uint8Array([0xff, 0xfb, 0x90, 0x64]).buffer, format: "mp3", contentType: "audio/mpeg" },
+      }),
+    });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const body = { kind: "speech", model: DEFAULT_SPEECH_MODEL, prompt: "こんにちは", voice: "Aoede", speed: 1.1 };
+      const started = await bff.app.request("/api/settings/content/trials", jsonPost(body));
+      assert.equal(started.status, 202);
+      const created = await jsonBody(started);
+      assert.equal(created.trial.kind, "speech");
+      assert.equal(created.trial.voice, "Aoede");
+      assert.equal(created.trial.speed, 1.1);
+      assert.equal(created.trial.instructions, null);
+      await waitForState(bff, created.trial.id, "succeeded");
+
+      // 実体は画像と同じ置き場に `<trialId>.mp3` で置く
+      assert.deepEqual(await readdir(join(dir, "trials")), [`${created.trial.id}.mp3`]);
+
+      const raw = await bff.app.request(`/api/settings/content/trials/${created.trial.id}/raw`);
+      assert.equal(raw.status, 200);
+      assert.equal(raw.headers.get("content-type"), "audio/mpeg");
+      assert.equal(raw.headers.get("x-content-type-options"), "nosniff");
+      assert.equal(raw.headers.get("cache-control"), "no-store");
+      const download = await bff.app.request(`/api/settings/content/trials/${created.trial.id}/raw?download=1`);
+      assert.equal(download.headers.get("content-disposition"), `attachment; filename="${created.trial.id}.mp3"`);
+
+      const list = await jsonBody(await bff.app.request("/api/settings/content/trials"));
+      assert.deepEqual(list.artifactUsage, { count: 1, bytes: 4 }, "画像と同じ保存容量に載る");
+
+      // 同じ入力（本文 + モデル + ボイス + 話速）は provider を呼ばずに 200 で返す
+      const reused = await bff.app.request("/api/settings/content/trials", jsonPost(body));
+      assert.equal(reused.status, 200);
+      const reusedBody = await jsonBody(reused);
+      assert.equal(reusedBody.reused, true);
+      assert.equal(reusedBody.trial.id, created.trial.id);
+      assert.equal(pi.speechCalls.length, 1);
+
+      // 話速が違えば新しい試行として課金対象になる
+      const next = await bff.app.request("/api/settings/content/trials", jsonPost({ ...body, speed: 1.2 }));
+      assert.equal(next.status, 202);
+      assert.equal(pi.speechCalls.length, 2);
+      await waitForState(bff, (await jsonBody(next)).trial.id, "succeeded");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("お試し再生のルートは退役し、音声の生成は試行 API だけが持つ", async () => {
+  await withStoreDir(async (dir) => {
+    const bff = await openBff({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(createStubPi()),
+      workspace: null,
+    });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const legacy = await bff.app.request(
+        "/api/settings/content/speech/preview",
+        jsonPost({ model: DEFAULT_SPEECH_MODEL, voice: "Aoede", text: "こんにちは" }),
+      );
+      assert.equal(legacy.status, 404, "退役したルートは存在しない（別の課金経路を残さない）");
     } finally {
       await bff.close();
     }

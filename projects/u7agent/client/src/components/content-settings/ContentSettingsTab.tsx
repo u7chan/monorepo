@@ -19,8 +19,8 @@ import {
   speechVoiceDraft,
   speechVoiceMode,
   type ContentSavingAction,
-  type SpeechPreviewAudio,
 } from "../../lib/contentSettings";
+import { EMPTY_SPEECH_TRIAL_DRAFT, type SpeechTrialDraft } from "../../lib/contentTrials";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import { cn } from "../../lib/cn";
 import type { ContentSubsection } from "../../lib/settingsNav";
@@ -28,7 +28,7 @@ import type {
   ContentSettingsResponse,
   ContentTrial,
   ContentTrialArtifactUsageValue,
-  SpeechPreviewBody,
+  CreateContentTrialBody,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
 } from "../../types";
@@ -42,7 +42,7 @@ import { ToggleSwitch } from "../ToggleSwitch";
 import { MetaChip } from "../model-settings/MetaChip";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
 import { EvidenceLine, ImageTrialSection } from "./ImageTrialSection";
-import { SpeechPlayground } from "./SpeechPlayground";
+import { SpeechTrialSection } from "./SpeechTrialSection";
 import { SpeechVoiceOptions } from "./SpeechVoiceOptions";
 
 export type ContentSettingsTabProps = {
@@ -61,8 +61,6 @@ export type ContentSettingsTabProps = {
   onSaveSpeech: (input: UpdateContentSpeechBody) => Promise<boolean>;
   /** 音声モデル一覧の再取得。失敗しても一覧は前のまま残る */
   onRefreshSpeechCatalog: () => Promise<boolean>;
-  /** お試し再生の要求。設定は変えず、応答の音声と形式だけを返す */
-  onPreviewSpeech: (input: SpeechPreviewBody, signal?: AbortSignal) => Promise<SpeechPreviewAudio>;
   /** 音声の表示が server の実効値と一致しているか。false の間は保存を止める */
   speechSynced: boolean;
   /** 試行ジョブの一覧（取得前は null）。画像の面だけが使う */
@@ -75,7 +73,7 @@ export type ContentSettingsTabProps = {
   trialKeyEpoch: number;
   /** 試行の操作。`saving` とは別の軸で、試行中も設定の保存は塞がない */
   trialBusy: boolean;
-  onStartTrial: (input: { kind: "image"; model: string; prompt: string }) => Promise<boolean>;
+  onStartTrial: (input: CreateContentTrialBody) => Promise<boolean>;
   onCancelTrial: (id: string) => Promise<boolean>;
   onDeleteTrial: (id: string) => Promise<boolean>;
   onDeleteAllTrials: () => Promise<boolean>;
@@ -97,7 +95,6 @@ export function ContentSettingsTab({
   onRefreshCatalog,
   onSaveSpeech,
   onRefreshSpeechCatalog,
-  onPreviewSpeech,
   speechSynced,
   trials,
   trialArtifactUsage,
@@ -117,6 +114,8 @@ export function ContentSettingsTab({
   const [speechDraft, setSpeechDraft] = useState<SpeechDraft>(EMPTY_SPEECH_DRAFT);
   // 試行のプロンプトは保存しない（履歴にだけ残す）。面を切り替えても失わないよう、この画面が持つ
   const [trialPrompt, setTrialPrompt] = useState("");
+  // 音声の試行の本文・演技指示・話速も同じ扱い（保存値へ書き戻さない）
+  const [speechTrialDraft, setSpeechTrialDraft] = useState(EMPTY_SPEECH_TRIAL_DRAFT);
   // 証拠の相対表記は画面を開いた時刻で固定する（毎秒の再描画を持ち込まない）
   const [trialNow] = useState(() => Date.now());
   // 画面に出ているモデル。モデル選択・試行の開始・証拠はこの 1 つを使う（保存前でも画面の値で試す）
@@ -288,13 +287,23 @@ export function ContentSettingsTab({
               settings={settings}
               busy={busy}
               synced={speechSynced}
-              enabled={settings.enabled}
               refreshing={saving === "speech-catalog"}
               draft={speechDraft}
               onChangeDraft={setSpeechDraft}
               onSave={onSaveSpeech}
               onRefresh={onRefreshSpeechCatalog}
-              onPreview={onPreviewSpeech}
+              trials={trials}
+              keyEpoch={trialKeyEpoch}
+              artifactUsage={trialArtifactUsage}
+              trialNote={trialNote}
+              trialBusy={trialBusy}
+              trialNow={trialNow}
+              trialDraft={speechTrialDraft}
+              onChangeTrialDraft={setSpeechTrialDraft}
+              onStartTrial={onStartTrial}
+              onCancelTrial={onCancelTrial}
+              onDeleteTrial={onDeleteTrial}
+              onDeleteAllTrials={onDeleteAllTrials}
             />
           ) : (
             <BgmSection settings={settings} />
@@ -436,25 +445,44 @@ function SpeechSection({
   settings,
   busy,
   synced,
-  enabled,
   refreshing,
   draft,
   onChangeDraft,
   onSave,
   onRefresh,
-  onPreview,
+  trials,
+  keyEpoch,
+  artifactUsage,
+  trialNote,
+  trialBusy,
+  trialNow,
+  trialDraft,
+  onChangeTrialDraft,
+  onStartTrial,
+  onCancelTrial,
+  onDeleteTrial,
+  onDeleteAllTrials,
 }: {
   settings: ContentSettingsResponse;
   busy: boolean;
   synced: boolean;
-  /** アプリ全体の有効 / 無効。OFF の間はお試し再生でも課金させない */
-  enabled: boolean;
   refreshing: boolean;
   draft: SpeechDraft;
   onChangeDraft: (draft: SpeechDraft) => void;
   onSave: (input: UpdateContentSpeechBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
-  onPreview: (input: SpeechPreviewBody, signal?: AbortSignal) => Promise<SpeechPreviewAudio>;
+  trials: readonly ContentTrial[] | null;
+  keyEpoch: number;
+  artifactUsage: ContentTrialArtifactUsageValue;
+  trialNote: { text: string; error: boolean } | null;
+  trialBusy: boolean;
+  trialNow: number;
+  trialDraft: SpeechTrialDraft;
+  onChangeTrialDraft: (draft: SpeechTrialDraft) => void;
+  onStartTrial: (input: CreateContentTrialBody) => Promise<boolean>;
+  onCancelTrial: (id: string) => Promise<boolean>;
+  onDeleteTrial: (id: string) => Promise<boolean>;
+  onDeleteAllTrials: () => Promise<boolean>;
 }) {
   const options = speechModelOptions(settings);
   const savedModel = speechModelValue(settings);
@@ -537,10 +565,12 @@ function SpeechSection({
           保存
         </button>
       </div>
-      {/* 演技指示は `instructions` の非ゴールに合わせて渡さない。長文は分割がエージェントの仕事 */}
+      {/* キーの有効性は緑のバッジにせず、現在のキー世代と選択中のモデル / ボイスの実績だけを証拠として出す */}
+      <EvidenceLine trials={trials} model={selectedModel} voice={selectedVoice} keyEpoch={keyEpoch} now={trialNow} />
+      {/* 出力形式の選択 UI は持たない。形式は生成器が provider の応答から確定する（mp3 / wav） */}
       <p className="text-2xs leading-relaxed text-ink-muted">
-        出力形式はモデルに合わせて mp3 / wav
-        で保存します。読み上げる文章だけを渡し、演技指示は本文に書かせません。長文は分けて複数回呼ばせます。
+        出力形式は選ばず、provider が返した形式（mp3 /
+        wav）で保存します。読み上げる文章だけを渡し、演技指示は本文に書かせません。長文は分けて複数回呼ばせます。
       </p>
       <div className="flex flex-wrap items-center gap-2">
         {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
@@ -553,8 +583,23 @@ function SpeechSection({
           {refreshing ? "更新中" : "カタログ更新"}
         </ReloadButton>
       </div>
-      {/* 同期できていない間も、保存値を書き換えずにその場で試せる（保存のゲートを持ち込まない） */}
-      <SpeechPlayground settings={settings} enabled={enabled} onPreview={onPreview} />
+      {/* 同期できていない間も、保存値を書き換えずに画面の値で試せる（保存のゲートを持ち込まない） */}
+      <SpeechTrialSection
+        settings={settings}
+        model={selectedModel}
+        voice={selectedVoice}
+        trials={trials}
+        keyEpoch={keyEpoch}
+        artifactUsage={artifactUsage}
+        note={trialNote}
+        busy={trialBusy}
+        draft={trialDraft}
+        onChangeDraft={onChangeTrialDraft}
+        onStart={onStartTrial}
+        onCancel={onCancelTrial}
+        onDelete={onDeleteTrial}
+        onDeleteAll={onDeleteAllTrials}
+      />
     </section>
   );
 }

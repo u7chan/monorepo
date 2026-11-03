@@ -334,7 +334,7 @@ export interface PiBff {
    */
   setContentGeneration(config: ContentGenerationConfig): void;
   /**
-   * 設定 → コンテンツ生成 の「お試し再生」が使う生成器。ツールと同じ形式の学習メモを共有するため、
+   * 設定 → コンテンツ生成 の音声の試行が使う生成器。ツールと同じ形式の学習メモを共有するため、
    * プレイグラウンドの試行でも mp3 / pcm の使い分けが進む。
    */
   generateSpeech(input: SpeechGenerationInput): Promise<SpeechGenerationResult>;

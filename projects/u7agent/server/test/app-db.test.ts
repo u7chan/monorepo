@@ -3252,6 +3252,9 @@ function runningTrial(id: string, overrides: Partial<ContentTrialRow> = {}): Con
     kind: "image",
     model: "openrouter/openai/gpt-image-2",
     prompt: "a cat",
+    voice: null,
+    instructions: null,
+    speed: null,
     state: "running",
     keyEpoch: 0,
     artifactState: "none",
@@ -3440,8 +3443,11 @@ test("成果物のメタデータは状態と 1 文で書き、容量は succeed
   assert.deepEqual(db.readContentTrialArtifactUsage(), { count: 1, bytes: 1_024 });
 
   // 同じ入力の保存済み成功だけを再利用の対象にする
-  assert.equal(db.findReusableContentTrial({ kind: "image", model: row?.model ?? "", prompt: "a cat" })?.id, id);
-  assert.equal(db.findReusableContentTrial({ kind: "image", model: row?.model ?? "", prompt: "a dog" }), undefined);
+  const reuseBase = { kind: "image", model: row?.model ?? "", voice: null, instructions: null, speed: null };
+  assert.equal(db.findReusableContentTrial({ ...reuseBase, prompt: "a cat" })?.id, id);
+  assert.equal(db.findReusableContentTrial({ ...reuseBase, prompt: "a dog" }), undefined);
+  // 音声のパラメーターが違う入力は再利用しない（NULL 同士は一致させる）
+  assert.equal(db.findReusableContentTrial({ ...reuseBase, prompt: "a cat", voice: "Aoede" }), undefined);
 
   // 失敗（保存できなかった成功）は容量に数えない
   const failed = "trial-0123456789abcdef01234568";
@@ -3457,7 +3463,7 @@ test("成果物のメタデータは状態と 1 文で書き、容量は succeed
     artifact: null,
   });
   assert.deepEqual(db.readContentTrialArtifactUsage(), { count: 1, bytes: 1_024 });
-  assert.equal(db.findReusableContentTrial({ kind: "image", model: row?.model ?? "", prompt: "a dog" }), undefined);
+  assert.equal(db.findReusableContentTrial({ ...reuseBase, prompt: "a dog" }), undefined);
   db.close();
 });
 
@@ -3505,6 +3511,72 @@ test("v38 の DB を開くと成果物の列が足され、既存の行は課金
       true,
     );
     assert.equal(migrated.readContentTrial("trial-1")?.artifact?.bytes, 10);
+    migrated.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("v39 の DB を開くと音声の列が足され、既存の行は null のスナップショットで読める", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentTrial(runningTrial("trial-1"));
+    first.close();
+
+    // v39 相当（voice / instructions / speed を持たない版）へ落として開き直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    for (const column of ["voice", "instructions", "speed"]) {
+      raw.exec(`ALTER TABLE content_trials DROP COLUMN ${column}`);
+    }
+    raw.exec("PRAGMA user_version = 39");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    const row = migrated.readContentTrial("trial-1");
+    assert.equal(row?.voice, null);
+    assert.equal(row?.instructions, null);
+    assert.equal(row?.speed, null);
+    // 移行後の行には音声のスナップショットを書き、同じ入力の照合に使える
+    const id = "trial-0123456789abcdef01234567";
+    migrated.saveContentTrial(
+      runningTrial(id, { kind: "speech", model: "google/gemini-3.8-flash-tts", voice: "Aoede", speed: 1.1 }),
+    );
+    migrated.finishContentTrial({
+      id,
+      state: "succeeded",
+      failureCode: null,
+      failureMessage: null,
+      finishedAt: 2_000,
+      durationMs: 1_000,
+      charged: true,
+      artifact: { path: `${id}.mp3`, bytes: 10, format: "mp3", width: null, height: null },
+    });
+    const speech = migrated.readContentTrial(id);
+    assert.equal(speech?.voice, "Aoede");
+    assert.equal(speech?.speed, 1.1);
+    assert.equal(
+      migrated.findReusableContentTrial({
+        kind: "speech",
+        model: "google/gemini-3.8-flash-tts",
+        prompt: "a cat",
+        voice: "Aoede",
+        instructions: null,
+        speed: 1.1,
+      })?.id,
+      id,
+    );
+    assert.equal(
+      migrated.findReusableContentTrial({
+        kind: "speech",
+        model: "google/gemini-3.8-flash-tts",
+        prompt: "a cat",
+        voice: "Aoede",
+        instructions: null,
+        speed: 1.2,
+      }),
+      undefined,
+    );
     migrated.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -9,14 +9,12 @@ import type {
   ModelRef,
   SpeechCatalogRefreshResponse,
   SpeechModel,
-  SpeechPreviewBody,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
 } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
 import { messageTimeLabel, type MessageTimeOptions } from "./messageTime";
 import { modelRefKey, type ProviderBadge } from "./modelSettings";
-import { messageFor } from "./settingsResource";
 
 /** コンテンツ生成の初期注記。キーの有無に関わらず出す */
 export const CONTENT_SETTINGS_NOTE = "コンテンツ生成の設定はサーバーに保存され、再起動後も残ります。";
@@ -334,71 +332,22 @@ export function deleteContentKeyConfirmRequest(providerName: string): ConfirmReq
   };
 }
 
-/** お試し再生で受け取る形式。BFF は mp3 を `audio/mpeg`、pcm は RIFF 化して `audio/wav` で返す */
-export type SpeechPreviewFormat = "mp3" | "wav";
+export const SPEECH_SPEED_ERROR = "速度は正の数で入力してください（空欄は provider の既定）";
 
-/** お試し再生の結果。`format` は応答の Content-Type から読む（判別できない応答は undefined） */
-export interface SpeechPreviewAudio {
-  blob: Blob;
-  format: SpeechPreviewFormat | undefined;
-}
-
-/** お試し再生の入力。速度は入力欄の文字列のまま持ち、送信時に解釈する */
-export interface SpeechPreviewDraft {
-  model: string;
-  voice: string;
-  text: string;
-  instructions: string;
-  speed: string;
-}
-
-export const SPEECH_PREVIEW_NO_MODEL_ERROR = "音声モデルを選択してください";
-export const SPEECH_PREVIEW_EMPTY_TEXT_ERROR = "読み上げる文章を入力してください";
-export const SPEECH_PREVIEW_SPEED_ERROR = "速度は正の数で入力してください（空欄は provider の既定）";
-export const SPEECH_PREVIEW_UNKNOWN_FAILURE_NOTE = "音声を生成できませんでした";
-
-/** お試し再生の初期値。保存済みのモデルと声から始める（この画面の選択は保存値へ書き戻さない） */
-export function speechPreviewInitialDraft(settings: Pick<ContentSettingsResponse, "speech">): SpeechPreviewDraft {
-  return { model: speechModelValue(settings), voice: settings.speech.voice, text: "", instructions: "", speed: "" };
-}
-
-/** 名前が取れないときの本文。空の名前を差し込むと発話の意味が変わってしまうため、名前無しの文へ落とす */
-const SPEECH_PREVIEW_NO_NAME_TEXT = "こんにちは！よろしくお願いします。";
-
-/**
- * お試し再生の本文の初期値（テンプレ）。名前は provider の接頭辞を落とすだけで、読みは TTS に任せる
- * （読みの表は provider が増えるたびに埋まらない穴が残るため持たない。不自然なら本文を直せばよい）。
- */
-export function speechPreviewDefaultText(model: SpeechModel | null | undefined): string {
-  const name = model == null ? "" : speechPreviewModelName(model);
-  return name === "" ? SPEECH_PREVIEW_NO_NAME_TEXT : `こんにちは、${name}です！よろしくお願いします。`;
-}
-
-/** テンプレへ入れる名前。接頭辞 (`Google: `) を落とし、落として空になる名前はそのまま使う */
-function speechPreviewModelName(model: SpeechModel): string {
-  const separator = model.name.indexOf(": ");
-  const withoutPrefix = separator === -1 ? "" : model.name.slice(separator + 2);
-  if (withoutPrefix !== "") return withoutPrefix;
-  return model.name === "" ? model.id : model.name;
-}
-
-/**
- * 速度入力の解釈。空欄は「指定なし」（provider の既定）で、それ以外は正の有限数だけを受け付ける。
- * 対応モデルの範囲（0.5–2.0 など）は provider の制約なので、ここでは縛らない。
- */
-export function speechPreviewSpeed(raw: string): { ok: true; speed?: number } | { ok: false; error: string } {
+/** 速度入力の解釈。空欄は「指定なし」（provider の既定）で、それ以外は正の有限数だけを受け付ける。 */
+export function speechSpeed(raw: string): { ok: true; speed?: number } | { ok: false; error: string } {
   const trimmed = raw.trim();
   if (trimmed === "") return { ok: true };
   const speed = Number(trimmed);
-  if (!Number.isFinite(speed) || speed <= 0) return { ok: false, error: SPEECH_PREVIEW_SPEED_ERROR };
+  if (!Number.isFinite(speed) || speed <= 0) return { ok: false, error: SPEECH_SPEED_ERROR };
   return { ok: true, speed };
 }
 
 /** 速度欄の増減幅。押下 1 回で 0.1 動かす */
-export const SPEECH_PREVIEW_SPEED_STEP = 0.1;
+export const SPEECH_SPEED_STEP = 0.1;
 
 /** 増減の下限。0 以下は送れない値なので、押下だけで不正値を作らない（上限は provider の 400 に委ねる） */
-export const SPEECH_PREVIEW_SPEED_MIN = 0.1;
+export const SPEECH_SPEED_MIN = 0.1;
 
 /** 欄の値を扱う 1/100 単位。丸めを十進の桁で行うため、小数のまま足さない */
 const SPEED_SCALE = 100;
@@ -406,7 +355,7 @@ const SPEED_SCALE = 100;
 /** 押下の起点。空欄と解釈できない値は 1.0（標準）から始める（押しても何も起きないボタンを作らない） */
 const SPEED_STANDARD = SPEED_SCALE;
 
-const SPEED_FLOOR = Math.round(SPEECH_PREVIEW_SPEED_MIN * SPEED_SCALE);
+const SPEED_FLOOR = Math.round(SPEECH_SPEED_MIN * SPEED_SCALE);
 
 /** 十進で書かれた小数。指数表記になる極端な値は数値のまま扱う */
 const SPEED_DECIMAL = /^(\d+)(?:\.(\d*))?$/;
@@ -433,69 +382,9 @@ function speedUnits(raw: string): number | null {
 
 /**
  * 速度欄の増減。押下 1 回で `delta` だけ動かし、欄の値として小数 2 桁で返す。
- * 起点は空欄と解釈できない値で 1.0、下限は `SPEECH_PREVIEW_SPEED_MIN` で止める。
+ * 起点は空欄と解釈できない値で 1.0、下限は `SPEECH_SPEED_MIN` で止める。
  */
-export function speechPreviewSpeedStep(raw: string, delta: number): string {
+export function speechSpeedStep(raw: string, delta: number): string {
   const current = speedUnits(raw.trim()) ?? SPEED_STANDARD;
   return String(Math.max(SPEED_FLOOR, current + Math.round(delta * SPEED_SCALE)) / SPEED_SCALE);
-}
-
-/** 送信前の検証。止められるものは API を呼ばず、クレジットも消費させない */
-export function speechPreviewRequest(
-  draft: SpeechPreviewDraft,
-): { ok: true; body: SpeechPreviewBody } | { ok: false; error: string } {
-  if (draft.model === "") return { ok: false, error: SPEECH_PREVIEW_NO_MODEL_ERROR };
-  if (draft.text.trim() === "") return { ok: false, error: SPEECH_PREVIEW_EMPTY_TEXT_ERROR };
-  const speed = speechPreviewSpeed(draft.speed);
-  if (!speed.ok) return speed;
-  return {
-    ok: true,
-    body: {
-      model: draft.model,
-      voice: draft.voice,
-      text: draft.text,
-      instructions: draft.instructions,
-      ...(speed.speed === undefined ? {} : { speed: speed.speed }),
-    },
-  };
-}
-
-/** お試し再生の主ボタン。`replayable` のときだけ鳴らす意味になり、それ以外は生成へ戻る */
-export interface SpeechPreviewPrimaryAction {
-  replayable: boolean;
-  label: string;
-}
-
-/**
- * 主ボタンの意味。いまの入力の署名 (`body`) が最後に生成した要求 (`lastBody`) と一致するときだけ再生にする。
- * 比較を本文の JSON で行うのは `speechPreviewRequest` の組み立て順が固定で、同じ入力なら同じ文字列になるため。
- */
-export function speechPreviewPrimaryAction(input: {
-  busy: boolean;
-  body: SpeechPreviewBody | null;
-  lastBody: SpeechPreviewBody | null;
-}): SpeechPreviewPrimaryAction {
-  if (input.busy) return { replayable: false, label: "生成中…" };
-  const replayable =
-    input.body !== null && input.lastBody !== null && JSON.stringify(input.body) === JSON.stringify(input.lastBody);
-  return replayable ? { replayable: true, label: "もう一度再生" } : { replayable: false, label: "音声を生成" };
-}
-
-/** 応答の Content-Type から表示形式を決める。判別できない応答は形式を推測せず undefined にする */
-export function speechPreviewFormatOf(contentType: string | null): SpeechPreviewFormat | undefined {
-  const mediaType = (contentType ?? "").split(";")[0]?.trim().toLowerCase();
-  if (mediaType === "audio/mpeg") return "mp3";
-  if (mediaType === "audio/wav") return "wav";
-  return undefined;
-}
-
-/** どちらの形式で返ったかを画面に出す。判別できなかったときは形式の表示だけを省く */
-export function speechPreviewFormatNote(format: SpeechPreviewFormat | undefined): string {
-  return format === undefined ? "音声を生成しました" : `音声を生成しました（${format}）`;
-}
-
-/** 失敗の表示文言。分類済みの文言はサーバーが `{ error }` で返すため、そのまま画面へ出す */
-export function speechPreviewFailureNote(error: unknown): string {
-  const message = messageFor(error);
-  return /^HTTP \d+$/.test(message) ? `${SPEECH_PREVIEW_UNKNOWN_FAILURE_NOTE}（${message}）` : message;
 }

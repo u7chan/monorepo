@@ -72,7 +72,6 @@ export function ContentSettingsView({
     removeKey,
     saveSelection,
     saveSpeech,
-    previewSpeech,
     refreshCatalog,
     refreshSpeechCatalog,
     speechSynced,
@@ -153,7 +152,6 @@ export function ContentSettingsView({
           onRefreshCatalog={refreshCatalog}
           onSaveSpeech={saveSpeech}
           onRefreshSpeechCatalog={refreshSpeechCatalog}
-          onPreviewSpeech={previewSpeech}
           speechSynced={speechSynced}
           trials={contentTrials.trials}
           trialArtifactUsage={contentTrials.artifactUsage}

@@ -16,7 +16,7 @@ import type { AgentDef, ModelRef, NotificationResult, Project, PromptRef, Space 
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 39;
+export const APP_DB_SCHEMA_VERSION = 40;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -129,6 +129,10 @@ export interface ContentTrialRow {
   /** 送信時のモデル (`provider/id`)。現在の保存値とは別に持つ */
   model: string;
   prompt: string;
+  /** 音声の入力スナップショット。画像の行は 3 列とも null */
+  voice: string | null;
+  instructions: string | null;
+  speed: number | null;
   state: string;
   keyEpoch: number;
   artifactState: string;
@@ -487,6 +491,8 @@ CREATE TABLE IF NOT EXISTS content_settings (
  * 終端へは進まない (docs/api-settings.md)。APIキーは列に持たず、`keyEpoch` だけを残す。
  * 成果物の実体は `<storeDir>/trials` に置き、この表には名前・大きさ・形式・寸法だけを持つ (v38 -> v39)。
  * 容量は `succeeded` かつ `artifactState = 'stored'` の `artifactBytes` を合計して出す (走査しない)。
+ * 音声の入力スナップショットは `voice` / `instructions` / `speed` に持ち、同じ入力の再利用もこの 3 列で照合する
+ * (v39 -> v40。画像の行は 3 列とも NULL)。
  * **`DROP_TABLES` に入れない**: 古いビルドへ戻したとき (#recreate) はこのテーブルを知らないので放置され、
  * 新ビルドへ戻すと #migrate() の `CREATE TABLE IF NOT EXISTS` がそのまま合流させる。
  */
@@ -496,6 +502,9 @@ CREATE TABLE IF NOT EXISTS content_trials (
   kind           TEXT NOT NULL,
   model          TEXT NOT NULL,
   prompt         TEXT NOT NULL,
+  voice          TEXT,
+  instructions   TEXT,
+  speed          REAL,
   state          TEXT NOT NULL,
   keyEpoch       INTEGER NOT NULL,
   artifactState  TEXT NOT NULL,
@@ -999,6 +1008,9 @@ function contentTrialOf(row: Row): ContentTrialRow {
     model,
     // 空のプロンプトは作らないが、手編集された行は空のまま返す (履歴を消さない)
     prompt: optionalText(row.prompt) ?? "",
+    voice: optionalText(row.voice) ?? null,
+    instructions: optionalText(row.instructions) ?? null,
+    speed: optionalNumber(row.speed) ?? null,
     state,
     keyEpoch,
     artifactState,
@@ -1699,6 +1711,10 @@ export class AppDb {
       this.#addColumnIfMissing("content_trials", "artifactFormat", "TEXT");
       this.#addColumnIfMissing("content_trials", "artifactWidth", "INTEGER");
       this.#addColumnIfMissing("content_trials", "artifactHeight", "INTEGER");
+      // v39 -> v40: 音声の試行の入力スナップショット（画像の行は NULL のまま）
+      this.#addColumnIfMissing("content_trials", "voice", "TEXT");
+      this.#addColumnIfMissing("content_trials", "instructions", "TEXT");
+      this.#addColumnIfMissing("content_trials", "speed", "REAL");
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SPEECH_CATALOG_TABLE));
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
@@ -2112,16 +2128,19 @@ export class AppDb {
       db
         .prepare(
           `INSERT INTO content_trials
-             (id, kind, model, prompt, state, keyEpoch, artifactState, charged, artifactPath, artifactBytes,
-              artifactFormat, artifactWidth, artifactHeight, failureCode, failureMessage,
+             (id, kind, model, prompt, voice, instructions, speed, state, keyEpoch, artifactState, charged, artifactPath,
+              artifactBytes, artifactFormat, artifactWidth, artifactHeight, failureCode, failureMessage,
               startedAt, finishedAt, durationMs)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           row.id,
           row.kind,
           row.model,
           row.prompt,
+          row.voice,
+          row.instructions,
+          row.speed,
           row.state,
           row.keyEpoch,
           row.artifactState,
@@ -2184,20 +2203,30 @@ export class AppDb {
   }
 
   /**
-   * 同じ入力（種別 / モデル / プロンプト）の保存済み成功。あれば provider を呼ばずにその結果を見せる
-   * (課金しない)。並びは新しい順の先頭 1 件で、`artifactState = 'stored'` だけを対象にする。
+   * 同じ入力（種別 / モデル / プロンプト / 音声のパラメーター）の保存済み成功。あれば provider を呼ばずに
+   * その結果を見せる (課金しない)。並びは新しい順の先頭 1 件で、`artifactState = 'stored'` だけを対象にする。
+   * 音声の 3 列は `IS` で比べ、NULL（未指定）同士も一致させる。
    */
-  findReusableContentTrial(input: { kind: string; model: string; prompt: string }): ContentTrialRow | undefined {
+  findReusableContentTrial(input: {
+    kind: string;
+    model: string;
+    prompt: string;
+    voice: string | null;
+    instructions: string | null;
+    speed: number | null;
+  }): ContentTrialRow | undefined {
     const row = this.#query(
       (db) =>
         db
           .prepare(
             `SELECT * FROM content_trials
-             WHERE kind = ? AND model = ? AND prompt = ? AND state = 'succeeded' AND artifactState = 'stored'
+             WHERE kind = ? AND model = ? AND prompt = ?
+               AND voice IS ? AND instructions IS ? AND speed IS ?
+               AND state = 'succeeded' AND artifactState = 'stored'
                AND artifactPath IS NOT NULL
              ORDER BY startedAt DESC, rowid DESC LIMIT 1`,
           )
-          .get(input.kind, input.model, input.prompt) as Row | undefined,
+          .get(input.kind, input.model, input.prompt, input.voice, input.instructions, input.speed) as Row | undefined,
     );
     return row ? contentTrialOf(row) : undefined;
   }

@@ -69,7 +69,6 @@ function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSetti
     saveSpeech: async () => true,
     refreshCatalog: async () => true,
     refreshSpeechCatalog: async () => true,
-    previewSpeech: async () => ({ blob: new Blob(), format: "mp3" }),
     speechSynced: true,
     ...overrides,
   };
@@ -133,7 +132,7 @@ test("設定済みでは画像・TTS・BGMのタブを出し、既定は画像�
   assert.ok(html.includes("音声（TTS）"), "音声のタブを出す");
   assert.ok(html.includes("音楽（BGM）"), "BGMのタブを出す");
   assert.ok(html.includes('aria-label="コンテンツ生成のモデル"'), "本文は画像の面を出す");
-  assert.equal(html.includes("お試し再生"), false, "もう一方の面は出さない");
+  assert.equal(html.includes("試行の本文"), false, "もう一方の面は出さない");
   assert.ok(html.includes('type="password"'), "APIキーの入力を出す");
   assert.equal(html.includes("モデル候補を保存"), false, "モデルの保存バーは出さない");
   // タブの切替は URL 経由で親へ渡す
@@ -239,11 +238,14 @@ test("試行の注記は設定の注記を隠さない（出どころごとに�
   // 試行の注記は試行の面の中に出す
   assert.ok(html.includes(trialNote.text), "試行の注記はその面に出す");
 
-  // 試行の面を開いていないときは、試行の注記を出さない（出どころの面に閉じる）
-  const speech = render(contentSettings({ note: settingsNote }), {
+  // 試行の面が無いタブ（BGM）では、試行の注記を出さない（出どころの面に閉じる）
+  const bgm = render(contentSettings({ note: settingsNote }), {
     trialNote,
-    contentSubsection: "speech",
+    contentSubsection: "bgm",
   });
-  assert.ok(speech.includes(settingsNote.text), "設定の注記は面を問わず出す");
-  assert.equal(speech.includes(trialNote.text), false, "試行の注記は画像の面の外に出さない");
+  assert.ok(bgm.includes(settingsNote.text), "設定の注記は面を問わず出す");
+  assert.equal(bgm.includes(trialNote.text), false, "試行の注記は試行の面の外に出さない");
+  // 音声タブも同じ注記を使う（種別が違っても試行の操作結果は 1 つの行に出す）
+  const speech = render(contentSettings({ note: settingsNote }), { trialNote, contentSubsection: "speech" });
+  assert.ok(speech.includes(trialNote.text), "音声の面でも試行の注記を出す");
 });

@@ -5,7 +5,7 @@
  * 要求を自前で組む。送信先は OpenRouter の音声専用 API（`POST {baseUrl}/audio/speech`）で、
  * 応答は JSON ではなく生バイト。`response_format` はモデルごとに mp3 / pcm のどちらかしか通らず、
  * API はどちらかを宣言しないため、mp3 を優先して送り、形式違いを示す 400 から使い分けを学習する。
- * ツール（`speech-tools.ts`）と設定画面のお試し再生の両方がこの生成器を通る。
+ * ツール（`speech-tools.ts`）と設定画面の試行の両方がこの生成器を通る。
  */
 import {
   classifyProviderFailure,
@@ -23,7 +23,7 @@ export type SpeechAudioFormat = "mp3" | "pcm";
 
 /**
  * 保存できる形の生成結果。pcm は生バイトのまま返し、RIFF ヘッダを付けるのは受け取った側
- * （ツールの保存前とお試し再生の応答前）にする。
+ * （ツールの保存前と試行の成果物の保存前）にする。
  */
 export type GeneratedSpeech =
   | {

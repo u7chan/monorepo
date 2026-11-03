@@ -23,31 +23,15 @@ import {
   speechModelValue,
   speechSaveDisabled,
   speechSelection,
-  speechPreviewFailureNote,
-  speechPreviewFormatNote,
-  speechPreviewFormatOf,
-  speechPreviewInitialDraft,
-  speechPreviewDefaultText,
-  speechPreviewPrimaryAction,
-  speechPreviewRequest,
-  speechPreviewSpeed,
-  speechPreviewSpeedStep,
-  SPEECH_PREVIEW_EMPTY_TEXT_ERROR,
-  SPEECH_PREVIEW_NO_MODEL_ERROR,
-  SPEECH_PREVIEW_SPEED_ERROR,
+  speechSpeed,
+  speechSpeedStep,
   speechSettingsAfterRefresh,
   speechSyncedAfterRefresh,
   speechVoiceDraft,
   speechVoiceMode,
   speechVoiceValue,
 } from "../src/lib/contentSettings";
-import type {
-  ContentImageSettings,
-  ContentSettingsResponse,
-  ContentSpeechSettings,
-  SpeechModel,
-  SpeechPreviewBody,
-} from "../src/types";
+import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings } from "../src/types";
 
 /** `image` / `speech` の中身を差し替える (provider は設定面の値なので別引数) */
 function settings(
@@ -391,182 +375,40 @@ test("音声モデル一覧の注記は取得元と最終取得時刻を示し�
   );
 });
 
-test("speechPreviewInitialDraft は保存済みのモデルと声を選び、本文と指示と速度は空から始める", () => {
-  assert.deepEqual(speechPreviewInitialDraft(settings()), {
-    model: "google/gemini-3.8-flash-tts",
-    voice: "Zephyr",
-    text: "",
-    instructions: "",
-    speed: "",
-  });
-  // カタログ外の保存値も現在値として引き継ぐ (何が保存されているかを見失わせない)
-  assert.equal(speechPreviewInitialDraft(settings({}, {}, { model: "stale/tts", voice: "" })).model, "stale/tts");
-  assert.equal(speechPreviewInitialDraft(settings({}, {}, { model: null, voice: "" })).model, "");
-});
-
-test("お試し再生のテンプレは接頭辞を落としたモデル名を入れ、名前が取れないときは名前無しの文にする", () => {
-  const model = (overrides: Partial<SpeechModel> = {}): SpeechModel => ({
-    provider: "openrouter",
-    id: "google/gemini-3.8-flash-tts",
-    name: "Google: Gemini 3.8 Flash TTS",
-    ...overrides,
-  });
-  assert.equal(speechPreviewDefaultText(model()), "こんにちは、Gemini 3.8 Flash TTSです！よろしくお願いします。");
-  // 接頭辞は最初の `: ` までだけを落とす
-  assert.equal(
-    speechPreviewDefaultText(model({ name: "Google: Gemini: TTS" })),
-    "こんにちは、Gemini: TTSです！よろしくお願いします。",
-  );
-  // `: ` が無い名前はそのまま使う
-  assert.equal(
-    speechPreviewDefaultText(model({ name: "Fish Audio" })),
-    "こんにちは、Fish Audioです！よろしくお願いします。",
-  );
-  // 名前が空なら id へ落とす (表示用の `（id）` や `（カタログ外）` は使わない)
-  assert.equal(
-    speechPreviewDefaultText(model({ name: "" })),
-    "こんにちは、google/gemini-3.8-flash-ttsです！よろしくお願いします。",
-  );
-  // 名前が取れないとき (未選択 / 空の id) は名前無しの文にする
-  assert.equal(speechPreviewDefaultText(null), "こんにちは！よろしくお願いします。");
-  assert.equal(speechPreviewDefaultText(undefined), "こんにちは！よろしくお願いします。");
-  assert.equal(speechPreviewDefaultText(model({ name: "", id: "" })), "こんにちは！よろしくお願いします。");
-});
-
-test("お試し再生の主ボタンは、いまの入力の署名が最後の生成と一致するときだけ再生にする", () => {
-  const body: SpeechPreviewBody = {
-    model: "google/gemini-3.8-flash-tts",
-    voice: "Zephyr",
-    text: "こんにちは",
-    instructions: "",
-  };
-  // 未生成
-  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body, lastBody: null }), {
-    replayable: false,
-    label: "音声を生成",
-  });
-  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body, lastBody: { ...body } }), {
-    replayable: true,
-    label: "もう一度再生",
-  });
-  // 入力が変われば生成に戻す (本文 / 演技指示 / 速度だけの違いも別の要求)
-  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body, lastBody: { ...body, text: "こんばんは" } }), {
-    replayable: false,
-    label: "音声を生成",
-  });
-  assert.deepEqual(
-    speechPreviewPrimaryAction({ busy: false, body, lastBody: { ...body, instructions: "静かに読む" } }),
-    { replayable: false, label: "音声を生成" },
-  );
-  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body: { ...body, speed: 1.5 }, lastBody: body }), {
-    replayable: false,
-    label: "音声を生成",
-  });
-  // 生成中は再生にしない
-  assert.deepEqual(speechPreviewPrimaryAction({ busy: true, body, lastBody: { ...body } }), {
-    replayable: false,
-    label: "生成中…",
-  });
-  // 検証で止まる状態 (body が null) でも生成に戻す
-  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body: null, lastBody: null }), {
-    replayable: false,
-    label: "音声を生成",
-  });
-  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body: null, lastBody: { ...body } }), {
-    replayable: false,
-    label: "音声を生成",
-  });
-});
-
-test("お試し再生の検証はモデル・本文・速度を見て、送れるときだけ本文を組み立てる", () => {
-  const draft = {
-    model: "google/gemini-3.8-flash-tts",
-    voice: "Zephyr",
-    text: "こんにちは",
-    instructions: "",
-    speed: "",
-  };
-  assert.deepEqual(speechPreviewRequest(draft), {
-    ok: true,
-    body: {
-      model: "google/gemini-3.8-flash-tts",
-      voice: "Zephyr",
-      text: "こんにちは",
-      instructions: "",
-    },
-  });
-  // 空欄の速度はキーごと落として provider の既定へ委ねる
-  assert.equal("speed" in (speechPreviewRequest({ ...draft, speed: "  " }) as { body: object }).body, false);
-
-  const withOptions = speechPreviewRequest({ ...draft, instructions: "静かに読む", speed: "1.5" });
-  assert.deepEqual(withOptions, {
-    ok: true,
-    body: {
-      model: "google/gemini-3.8-flash-tts",
-      voice: "Zephyr",
-      text: "こんにちは",
-      instructions: "静かに読む",
-      speed: 1.5,
-    },
-  });
-
-  // 止められるものは API を呼ばずにクレジットも消費させない
-  assert.deepEqual(speechPreviewRequest({ ...draft, model: "" }), {
-    ok: false,
-    error: SPEECH_PREVIEW_NO_MODEL_ERROR,
-  });
-  for (const text of ["", "   ", "\n"]) {
-    assert.deepEqual(speechPreviewRequest({ ...draft, text }), {
-      ok: false,
-      error: SPEECH_PREVIEW_EMPTY_TEXT_ERROR,
-    });
-  }
-  for (const speed of ["0", "-1", "fast", "1e999"]) {
-    assert.deepEqual(speechPreviewRequest({ ...draft, speed }), {
-      ok: false,
-      error: SPEECH_PREVIEW_SPEED_ERROR,
-    });
-  }
-  // 対応モデルの範囲 (0.5–2.0 など) は provider の制約なので、ここでは縛らない
-  assert.deepEqual(speechPreviewSpeed("0.1"), { ok: true, speed: 0.1 });
-  assert.deepEqual(speechPreviewSpeed(" 2 "), { ok: true, speed: 2 });
-  assert.deepEqual(speechPreviewSpeed(""), { ok: true });
-});
-
 test("速度の増減は 1.0 を起点に 0.1 刻みで動かし、空欄と不正値では起点を 1.0 へ寄せる", () => {
   // 空欄は「未指定」なので、押した瞬間だけ 1.0 を起点にする（値は押下で初めて入る）
-  assert.equal(speechPreviewSpeedStep("", 0.1), "1.1");
-  assert.equal(speechPreviewSpeedStep("", -0.1), "0.9");
-  assert.equal(speechPreviewSpeedStep("1", 0.1), "1.1");
-  assert.equal(speechPreviewSpeedStep("0.8", -0.1), "0.7");
+  assert.equal(speechSpeedStep("", 0.1), "1.1");
+  assert.equal(speechSpeedStep("", -0.1), "0.9");
+  assert.equal(speechSpeedStep("1", 0.1), "1.1");
+  assert.equal(speechSpeedStep("0.8", -0.1), "0.7");
   // 押しても何も起きないボタンを作らない（不正値と 0 以下は 1.0 を起点にする）
-  assert.equal(speechPreviewSpeedStep("fast", 0.1), "1.1");
-  assert.equal(speechPreviewSpeedStep("0", 0.1), "1.1");
-  assert.equal(speechPreviewSpeedStep("-1", -0.1), "0.9");
+  assert.equal(speechSpeedStep("fast", 0.1), "1.1");
+  assert.equal(speechSpeedStep("0", 0.1), "1.1");
+  assert.equal(speechSpeedStep("-1", -0.1), "0.9");
   // 0 以下は送れないため、押下だけで不正値を作らない（上限は provider の 400 に委ねる）
-  assert.equal(speechPreviewSpeedStep("0.1", -0.1), "0.1");
-  assert.equal(speechPreviewSpeedStep("2", 0.1), "2.1");
+  assert.equal(speechSpeedStep("0.1", -0.1), "0.1");
+  assert.equal(speechSpeedStep("2", 0.1), "2.1");
 });
 
 test("速度の増減は十進の桁で小数 2 桁へ丸め、押下だけで不正値を作らない", () => {
   // 0.1 ずつ足した値が 0.7000000000000001 のように欄へ出ない
-  assert.equal(speechPreviewSpeedStep("0.6", 0.1), "0.7");
-  assert.equal(speechPreviewSpeedStep("1.05", 0.1), "1.15");
+  assert.equal(speechSpeedStep("0.6", 0.1), "0.7");
+  assert.equal(speechSpeedStep("1.05", 0.1), "1.15");
   // 小数第 3 位以下も十進の桁で丸める（二進の誤差があると 1.015 - 0.1 が 0.92 にならない）
-  assert.equal(speechPreviewSpeedStep("1.015", -0.1), "0.92");
-  assert.equal(speechPreviewSpeedStep("1.005", 0.1), "1.11");
-  assert.equal(speechPreviewSpeedStep("1.014", -0.1), "0.91");
+  assert.equal(speechSpeedStep("1.015", -0.1), "0.92");
+  assert.equal(speechSpeedStep("1.005", 0.1), "1.11");
+  assert.equal(speechSpeedStep("1.014", -0.1), "0.91");
   // 同じ数値なら、符号・小数点の前の 0 省略・指数表記で結果を変えない
   for (const raw of ["0.565", ".565", "+0.565", "5.65e-1", "0.5650"]) {
-    assert.equal(speechPreviewSpeedStep(raw, 0.1), "0.67", `${raw} の増加`);
-    assert.equal(speechPreviewSpeedStep(raw, -0.1), "0.47", `${raw} の減少`);
+    assert.equal(speechSpeedStep(raw, 0.1), "0.67", `${raw} の増加`);
+    assert.equal(speechSpeedStep(raw, -0.1), "0.47", `${raw} の減少`);
   }
-  assert.equal(speechPreviewSpeedStep("1.005e0", 0.1), "1.11");
+  assert.equal(speechSpeedStep("1.005e0", 0.1), "1.11");
   // 有限でも押下で 1/100 単位を溢れる値から Infinity を作らない
   for (const raw of ["1e307", "1".repeat(400)]) {
     for (const delta of [0.1, -0.1]) {
-      const stepped = speechPreviewSpeedStep(raw, delta);
-      assert.ok(speechPreviewSpeed(stepped).ok, `${raw} の押下結果 ${stepped} は送信前の検証を通る`);
+      const stepped = speechSpeedStep(raw, delta);
+      assert.ok(speechSpeed(stepped).ok, `${raw} の押下結果 ${stepped} は送信前の検証を通る`);
     }
   }
 });
@@ -574,35 +416,12 @@ test("速度の増減は十進の桁で小数 2 桁へ丸め、押下だけで�
 test("速度の増減は丸めで 0 単位になる正の値を未指定と混同しない", () => {
   // 0.004 は送信前の検証を通る正の値なので、起点 1.0 へは飛ばさず下限で止める
   for (const raw of ["0.004", ".004", "4e-3", "0.0001", "1e-7"]) {
-    assert.equal(speechPreviewSpeedStep(raw, 0.1), "0.1", `${raw} の増加`);
-    assert.equal(speechPreviewSpeedStep(raw, -0.1), "0.1", `${raw} の減少`);
+    assert.equal(speechSpeedStep(raw, 0.1), "0.1", `${raw} の増加`);
+    assert.equal(speechSpeedStep(raw, -0.1), "0.1", `${raw} の減少`);
   }
   // 0 は送信前の検証が弾く値なので、空欄と同じ起点にする
-  assert.equal(speechPreviewSpeedStep("0", 0.1), "1.1");
-  assert.equal(speechPreviewSpeedStep("0.000", -0.1), "0.9");
-});
-
-test("お試し再生は Content-Type から形式を読み、判別できない応答では形式の表示を省く", () => {
-  assert.equal(speechPreviewFormatOf("audio/mpeg"), "mp3");
-  assert.equal(speechPreviewFormatOf("audio/wav"), "wav");
-  assert.equal(speechPreviewFormatOf("Audio/MPEG; charset=binary"), "mp3");
-  assert.equal(speechPreviewFormatOf("audio/ogg"), undefined);
-  assert.equal(speechPreviewFormatOf(null), undefined);
-
-  assert.equal(speechPreviewFormatNote("mp3"), "音声を生成しました（mp3）");
-  assert.equal(speechPreviewFormatNote("wav"), "音声を生成しました（wav）");
-  assert.equal(speechPreviewFormatNote(undefined), "音声を生成しました");
-});
-
-test("お試し再生の失敗文言は分類済みの文言をそのまま出し、応答が読めないときだけ補う", () => {
-  // サーバーが分類した文言 (残高不足・宣言外の声・長さなど) はそのまま画面へ出す
-  assert.equal(speechPreviewFailureNote(new Error("音声生成の残高が不足しています")), "音声生成の残高が不足しています");
-  assert.equal(
-    speechPreviewFailureNote(new Error("読み上げる文章を入力してください（クレジットは消費していません）")),
-    "読み上げる文章を入力してください（クレジットは消費していません）",
-  );
-  // JSON でない応答 (HTTP <status>) だけは固定文言へ寄せる
-  assert.equal(speechPreviewFailureNote(new Error("HTTP 502")), "音声を生成できませんでした（HTTP 502）");
+  assert.equal(speechSpeedStep("0", 0.1), "1.1");
+  assert.equal(speechSpeedStep("0.000", -0.1), "0.9");
 });
 
 test("有効 / 無効の注記は、既存の会話にも効くこととキーが残ることを伝える", () => {
