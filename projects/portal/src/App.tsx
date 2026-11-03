@@ -5,6 +5,11 @@ import { ContainerList } from "./components/ContainerList";
 import { useConfig } from "./hooks/useConfig";
 import portalLogo from "./logo.svg";
 
+// ヘッダーの HTTPS リンクはブラウザから見た portal の入口。リクエストの Host からは
+// TLS 終端の有無を判断できないため、deploy 側が公開している URL をここで持つ。
+const PORTAL_HTTPS_URL = "https://portal.home.arpa";
+const PORTAL_HTTPS_HOST = new URL(PORTAL_HTTPS_URL).hostname;
+
 /**
  * アプリロゴ。SVG 自体が背景を持つため、発光やブラーは足さない。
  */
@@ -38,6 +43,20 @@ export function App() {
               <span className="hidden text-fg-3 sm:inline">host</span>
               <span className="truncate font-mono text-fg-2">{host}</span>
             </span>
+            <a
+              href={PORTAL_HTTPS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={PORTAL_HTTPS_URL}
+              aria-label={`Open ${PORTAL_HTTPS_URL}`}
+              className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-line px-2 text-[11.5px] text-fg-2 transition-colors duration-150 hover:border-line-strong hover:bg-ink-800 hover:text-fg"
+            >
+              <span className="hidden text-fg-3 sm:inline">https</span>
+              <span className="truncate font-mono">{PORTAL_HTTPS_HOST}</span>
+              <span aria-hidden="true" className="text-fg-3">
+                ↗
+              </span>
+            </a>
           </div>
         </div>
       </header>

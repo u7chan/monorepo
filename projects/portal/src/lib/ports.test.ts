@@ -11,6 +11,22 @@ describe("buildPortUrl", () => {
   test("ホスト名に PORTAL_HOST の値をそのまま使う", () => {
     expect(buildPortUrl("portal.example.com", 8443)).toBe("http://portal.example.com:8443");
   });
+
+  test("上書き URL があればそれを優先する", () => {
+    expect(buildPortUrl("192.0.2.10", 443, "https://portal.home.arpa")).toBe(
+      "https://portal.home.arpa",
+    );
+  });
+
+  test("上書き URL で http を明示できる", () => {
+    expect(buildPortUrl("192.0.2.10", 80, "http://portal.home.arpa")).toBe(
+      "http://portal.home.arpa",
+    );
+  });
+
+  test("上書き URL がないポートは PORTAL_HOST とポートに戻る", () => {
+    expect(buildPortUrl("192.0.2.10", 5432, undefined)).toBe("http://192.0.2.10:5432");
+  });
 });
 
 describe("describePort", () => {

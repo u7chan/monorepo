@@ -15,6 +15,23 @@ export const mockContainers: Container[] = [
     ],
     created: "2024-01-15T10:30:00Z",
   },
+  // running状態 - ラベルで URL を上書きしたサービス（HTTPS リンクの表示確認用）
+  {
+    id: "bcd234efg567890",
+    name: "caddy",
+    image: "caddy:2",
+    state: "running",
+    status: "Up 3 days",
+    ports: [
+      { host: "0.0.0.0", publicPort: 80, privatePort: 80, protocol: "tcp" },
+      { host: "0.0.0.0", publicPort: 443, privatePort: 443, protocol: "tcp" },
+    ],
+    urls: {
+      80: "http://portal.home.arpa",
+      443: "https://portal.home.arpa",
+    },
+    created: "2024-01-15T10:30:00Z",
+  },
   // running状態 - DB
   {
     id: "def789ghi012345",

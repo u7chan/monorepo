@@ -93,11 +93,13 @@ function StatusLabel({ container }: { container: Container }) {
 function PortLink({
   port,
   host,
+  url: overrideUrl,
   reachable,
   dense,
 }: {
   port: PortMapping;
   host: string;
+  url?: string;
   reachable: boolean;
   dense: boolean;
 }) {
@@ -157,7 +159,7 @@ function PortLink({
     );
   }
 
-  const url = buildPortUrl(host, port.publicPort);
+  const url = buildPortUrl(host, port.publicPort, overrideUrl);
 
   return (
     <a
@@ -165,7 +167,7 @@ function PortLink({
       target="_blank"
       rel="noopener noreferrer"
       title={url}
-      aria-label={`Open ${host}:${port.publicPort} (container port ${port.privatePort}/${port.protocol})`}
+      aria-label={`Open ${url} (container port ${port.privatePort}/${port.protocol})`}
       className={className}
     >
       {content(true)}
@@ -176,11 +178,13 @@ function PortLink({
 function PortLinks({
   ports,
   host,
+  urls,
   reachable,
   dense = false,
 }: {
   ports: PortMapping[];
   host: string;
+  urls?: Record<number, string>;
   reachable: boolean;
   dense?: boolean;
 }) {
@@ -195,6 +199,7 @@ function PortLinks({
           key={`${port.publicPort}-${index}`}
           port={port}
           host={host}
+          url={urls?.[port.publicPort]}
           reachable={reachable}
           dense={dense}
         />
@@ -365,7 +370,12 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
       </div>
 
       <div className="flex-1 px-4 py-4">
-        <PortLinks ports={container.ports} host={host} reachable={reachable} />
+        <PortLinks
+          ports={container.ports}
+          host={host}
+          urls={container.urls}
+          reachable={reachable}
+        />
       </div>
 
       <div className="flex items-center gap-2 border-t border-line px-4 py-2">
@@ -409,7 +419,13 @@ export function ContainerListItem({ container, pendingAction, onAction }: Contai
       </div>
 
       <div className="mt-3 min-w-0 md:mt-0 md:flex-1">
-        <PortLinks ports={container.ports} host={host} reachable={reachable} dense />
+        <PortLinks
+          ports={container.ports}
+          host={host}
+          urls={container.urls}
+          reachable={reachable}
+          dense
+        />
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-4 md:mt-0 md:shrink-0 md:justify-end">

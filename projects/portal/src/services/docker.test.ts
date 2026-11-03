@@ -10,6 +10,7 @@ import {
   parseContainer,
   parseContainerList,
   parsePorts,
+  parseUrlLabels,
   runContainerAction,
   validateContainerAction,
 } from "./docker";
@@ -162,6 +163,55 @@ describe("normalizeName", () => {
   });
 });
 
+describe("parseUrlLabels", () => {
+  test("portal.url.<公開ポート> を公開ポート -> URL に変換する", () => {
+    const labels = "portal.url.80=http://portal.home.arpa,portal.url.443=https://portal.home.arpa";
+
+    expect(parseUrlLabels(labels)).toEqual({
+      80: "http://portal.home.arpa",
+      443: "https://portal.home.arpa",
+    });
+  });
+
+  test("portal.url 以外のラベルは無視する", () => {
+    const labels =
+      "com.docker.compose.service=caddy,caddy=portal.home.arpa,portal.url.443=https://portal.home.arpa";
+
+    expect(parseUrlLabels(labels)).toEqual({ 443: "https://portal.home.arpa" });
+  });
+
+  test("ラベルがない場合は undefined", () => {
+    expect(parseUrlLabels(undefined)).toBeUndefined();
+    expect(parseUrlLabels("")).toBeUndefined();
+    expect(parseUrlLabels("com.docker.compose.service=caddy")).toBeUndefined();
+  });
+
+  test("不正なポートや空の URL は無視する", () => {
+    const labels =
+      "portal.url.abc=https://portal.home.arpa,portal.url.=https://portal.home.arpa,portal.url.0=https://portal.home.arpa,portal.url.65536=https://portal.home.arpa,portal.url.443=";
+
+    expect(parseUrlLabels(labels)).toBeUndefined();
+  });
+
+  test("不正なラベルがあっても有効なラベルは残す", () => {
+    const labels = "portal.url.abc=https://ignored.example,portal.url.443=https://portal.home.arpa";
+
+    expect(parseUrlLabels(labels)).toEqual({ 443: "https://portal.home.arpa" });
+  });
+
+  test("値に = が含まれても URL 全体を使う", () => {
+    expect(parseUrlLabels("portal.url.80=http://portal.home.arpa/?a=b")).toEqual({
+      80: "http://portal.home.arpa/?a=b",
+    });
+  });
+
+  test("キーと値の前後の空白を無視する", () => {
+    expect(parseUrlLabels(" portal.url.443 = https://portal.home.arpa ")).toEqual({
+      443: "https://portal.home.arpa",
+    });
+  });
+});
+
 describe("parseContainer", () => {
   test("Docker生データを正しくパースする", () => {
     const raw: DockerContainerRaw = {
@@ -185,6 +235,51 @@ describe("parseContainer", () => {
     expect(result.ports).toHaveLength(1);
     expect(result.created).toBe("2024-01-01T00:00:00Z");
     expect(result.command).toBe("nginx -g 'daemon off;'");
+  });
+
+  test("Labels の portal.url.<ポート> を urls に変換する", () => {
+    const raw: DockerContainerRaw = {
+      ID: "abc123def456",
+      Names: "/caddy",
+      State: "running",
+      Status: "Up 2 hours",
+      Image: "caddy:2",
+      Ports: "0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp",
+      Labels: "portal.url.80=http://portal.home.arpa,portal.url.443=https://portal.home.arpa",
+    };
+
+    expect(parseContainer(raw).urls).toEqual({
+      80: "http://portal.home.arpa",
+      443: "https://portal.home.arpa",
+    });
+  });
+
+  test("portal.url ラベルがなければ urls は undefined", () => {
+    const raw: DockerContainerRaw = {
+      ID: "abc123def456",
+      Names: "/my-app",
+      State: "running",
+      Status: "Up",
+      Image: "nginx:latest",
+      Ports: "0.0.0.0:3000->80/tcp",
+      Labels: "com.docker.compose.service=my-app",
+    };
+
+    expect(parseContainer(raw).urls).toBeUndefined();
+  });
+
+  test("不正な portal.url ラベルは urls に含めない", () => {
+    const raw: DockerContainerRaw = {
+      ID: "abc123def456",
+      Names: "/my-app",
+      State: "running",
+      Status: "Up",
+      Image: "nginx:latest",
+      Ports: "0.0.0.0:3000->80/tcp",
+      Labels: "portal.url.abc=https://ignored.example,portal.url.3000=",
+    };
+
+    expect(parseContainer(raw).urls).toBeUndefined();
   });
 
   test("ポートが空の場合は空配列", () => {
