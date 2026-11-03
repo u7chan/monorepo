@@ -6,11 +6,13 @@ import {
   BGM_TRIAL_PROMPT_MAX_LENGTH,
   bgmDurationLabel,
   bgmTrialInput,
+  bgmTrialRequest,
   evidenceNote,
   filteredTrials,
   groupTrialsByMonth,
   hasRunningTrial,
   hasStoredArtifact,
+  imageTrialRequest,
   trialEvidence,
   latestTrial,
   newlyFinishedKinds,
@@ -18,6 +20,7 @@ import {
   selectedTrial,
   speechTrialDraftOf,
   speechTrialInput,
+  speechTrialRequest,
   speechTrialSnapshotLabels,
   tabIndicator,
   trialAgeLabel,
@@ -262,6 +265,27 @@ test("新着結果は、前回 running だった行が終端になり、その�
   assert.deepEqual(newlyFinishedKinds({ previous: [running], next: [done], activeSubsection: "speech" }), ["image"]);
   // 前回から終端していた行は新しい結果にしない
   assert.deepEqual(newlyFinishedKinds({ previous: [done], next: [done], activeSubsection: "speech" }), []);
+  // 失敗も新しい結果として知らせる
+  assert.deepEqual(
+    newlyFinishedKinds({
+      previous: [running],
+      next: [{ ...done, state: "failed", artifactState: "none", artifact: null }],
+      activeSubsection: "speech",
+    }),
+    ["image"],
+  );
+  // 中止・中断は利用者の操作や再起動で終わった行なので、点を出さない
+  for (const state of ["canceled", "interrupted"] as const) {
+    assert.deepEqual(
+      newlyFinishedKinds({
+        previous: [running],
+        next: [{ ...done, state, artifactState: "none", artifact: null }],
+        activeSubsection: "speech",
+      }),
+      [],
+      `${state} では新着の印を出さない`,
+    );
+  }
 });
 
 test("実行中の有無と最新の試行は一覧の先頭だけで決める", () => {
@@ -634,6 +658,59 @@ test("BGM の試行はプロンプトと固定モデルを課金前に検証す�
   const tooLong = bgmTrialInput("あ".repeat(BGM_TRIAL_PROMPT_MAX_LENGTH + 1), "m");
   assert.equal(tooLong.ok, false);
   assert.match(tooLong.ok ? "" : tooLong.error, /長すぎます/);
+});
+
+test("試行の要求は別のテイクだけが force を付け、通常の試行と履歴行の再試行は付けない", () => {
+  const image = { model: MODEL, prompt: "a cat" };
+  assert.deepEqual(imageTrialRequest({ ...image, origin: "form" }), {
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+  });
+  assert.deepEqual(imageTrialRequest({ ...image, origin: "history" }), {
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+  });
+  assert.deepEqual(imageTrialRequest({ ...image, origin: "another-take" }), {
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    force: true,
+  });
+
+  const speech = { draft: { text: "こんにちは", instructions: "", speed: "" }, model: "google/tts", voice: "" };
+  assert.deepEqual(speechTrialRequest({ ...speech, origin: "form" }), {
+    ok: true,
+    input: { kind: "speech", model: "google/tts", prompt: "こんにちは" },
+  });
+  assert.deepEqual(speechTrialRequest({ ...speech, origin: "history" }), {
+    ok: true,
+    input: { kind: "speech", model: "google/tts", prompt: "こんにちは" },
+  });
+  assert.deepEqual(speechTrialRequest({ ...speech, origin: "another-take" }), {
+    ok: true,
+    input: { kind: "speech", model: "google/tts", prompt: "こんにちは", force: true },
+  });
+  // 検証はそのまま返す（別のテイクでも課金前に止まる）
+  assert.equal(
+    speechTrialRequest({ ...speech, draft: { ...speech.draft, text: " " }, origin: "another-take" }).ok,
+    false,
+  );
+
+  const bgm = { prompt: "静かな夜のピアノ", model: "google/lyria-3-clip-preview" };
+  assert.deepEqual(bgmTrialRequest({ ...bgm, origin: "form" }), {
+    ok: true,
+    input: { kind: "bgm", model: "google/lyria-3-clip-preview", prompt: "静かな夜のピアノ" },
+  });
+  assert.deepEqual(bgmTrialRequest({ ...bgm, origin: "history" }), {
+    ok: true,
+    input: { kind: "bgm", model: "google/lyria-3-clip-preview", prompt: "静かな夜のピアノ" },
+  });
+  assert.deepEqual(bgmTrialRequest({ ...bgm, origin: "another-take" }), {
+    ok: true,
+    input: { kind: "bgm", model: "google/lyria-3-clip-preview", prompt: "静かな夜のピアノ", force: true },
+  });
 });
 
 test("BGM の実測尺は読めた秒数だけを出し、未読は — にする", () => {

@@ -4,6 +4,7 @@ import {
   filteredTrials,
   groupTrialsByMonth,
   hasStoredArtifact,
+  imageTrialRequest,
   trialEvidence,
   selectedTrial,
   trialArtifactUrl,
@@ -23,6 +24,7 @@ import type {
   ContentSettingsResponse,
   ContentTrial,
   ContentTrialArtifactUsageValue,
+  CreateContentTrialBody,
   UpdateContentImageBody,
 } from "../../types";
 import { CheckIcon, TrashIcon } from "../icons";
@@ -59,7 +61,7 @@ export type ImageTrialSectionProps = {
   /** 試行のプロンプト下書き。面を切り替えても失わないよう、呼び出し側が持つ */
   prompt: string;
   onChangePrompt: (prompt: string) => void;
-  onStart: (input: { kind: "image"; model: string; prompt: string; force?: boolean }) => Promise<boolean>;
+  onStart: (input: CreateContentTrialBody) => Promise<boolean>;
   onCancel: (id: string) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onDeleteAll: () => Promise<boolean>;
@@ -148,7 +150,7 @@ export function ImageTrialSection({
           type="button"
           className="btn-primary"
           disabled={busy || blocked !== null}
-          onClick={() => void onStart({ kind: "image", model, prompt })}
+          onClick={() => void onStart(imageTrialRequest({ model, prompt, origin: "form" }))}
         >
           <CheckIcon />
           {running ? "生成中…" : "試行する"}
@@ -183,9 +185,13 @@ export function ImageTrialSection({
           onMakeDefault={onMakeDefault}
           onDelete={onDelete}
           onRestorePrompt={() => onChangePrompt(selected.prompt)}
-          onAnotherTake={() =>
-            void onStart({ kind: "image", model: selected.model, prompt: selected.prompt, force: true })
-          }
+          onAnotherTake={async () => {
+            // 始めた行をビューポートへ寄せる。開始できなければ選択を動かさない
+            const started = await onStart(
+              imageTrialRequest({ model: selected.model, prompt: selected.prompt, origin: "another-take" }),
+            );
+            if (started) setSelectedId(null);
+          }}
         />
       ) : (
         <p className="text-2xs text-ink-faint">まだ試行の履歴はありません。</p>

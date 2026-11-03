@@ -3,7 +3,7 @@
  * 状態ラベル・証拠の判定・タブの印の優先順位・履歴の行をテストできるようにする。
  */
 import type { ContentSubsection } from "./settingsNav";
-import type { ContentTrial, ContentTrialStateValue } from "../types";
+import type { ContentTrial, ContentTrialStateValue, CreateContentTrialBody } from "../types";
 import { speechSpeed } from "./contentSettings";
 import { messageTimeLabel, yearMonthLabel, type MessageTimeOptions } from "./messageTime";
 import { formatDurationMs } from "./usageFormat";
@@ -116,7 +116,7 @@ export function evidenceNote(
 
 /**
  * ボイスの比較キー。空文字（画面の「指定なし」）と null（サーバーが保存する未指定）は同じ「ボイス未指定」を
- * 表すため、証拠と再利用の判定で同じ表現へ寄せる。
+ * 表すため、証拠の判定で同じ表現へ寄せる。
  */
 function voiceKey(voice: string | null | undefined): string {
   return voice ?? "";
@@ -271,8 +271,9 @@ export function tabIndicator(input: {
 }
 
 /**
- * 新しく終端した試行の種別。前回の一覧で `running` だった行が今回の一覧で終端になり、かつ
- * その種別のタブが開いていなければ「新着結果」として印を出す（ページ再訪時は前回の一覧が無いので出ない）。
+ * 新しく終端した試行の種別。前回の一覧で `running` だった行が今回の一覧で `succeeded` / `failed` になり、
+ * かつその種別のタブが開いていなければ「新着結果」として印を出す（ページ再訪時は前回の一覧が無いので出ない）。
+ * 中止・中断は利用者の操作や再起動で終わった行なので、見ていないタブへ新しい結果として知らせない。
  */
 export function newlyFinishedKinds(input: {
   previous: readonly ContentTrial[] | null;
@@ -283,7 +284,7 @@ export function newlyFinishedKinds(input: {
   const wasRunning = new Set(input.previous.filter((trial) => trial.state === "running").map((trial) => trial.id));
   const kinds = new Set<ContentTrial["kind"]>();
   for (const trial of input.next) {
-    if (trial.state === "running") continue;
+    if (trial.state !== "succeeded" && trial.state !== "failed") continue;
     if (!wasRunning.has(trial.id)) continue;
     const subsection = trialKindSubsection(trial.kind);
     if (subsection === input.activeSubsection) continue;
@@ -419,6 +420,25 @@ export async function removeTrialThenRefresh(input: {
   return input.reload();
 }
 
+/**
+ * 試行の要求の出どころ。`force`（保存済みの結果を再利用しない）を付けるのは結果カードの [別のテイクを生成]
+ * だけで、通常の [試行する] と履歴行の [もう一度試す] は再利用してよい。
+ */
+export type TrialRequestOrigin = "form" | "history" | "another-take";
+
+function forceForOrigin(origin: TrialRequestOrigin): { force?: true } {
+  return origin === "another-take" ? { force: true } : {};
+}
+
+/** 画像の試行の要求。モデルは画面の値（保存前の下書きを含む）をそのまま使う */
+export function imageTrialRequest(input: {
+  model: string;
+  prompt: string;
+  origin: TrialRequestOrigin;
+}): CreateContentTrialBody {
+  return { kind: "image", model: input.model, prompt: input.prompt, ...forceForOrigin(input.origin) };
+}
+
 /** 音声の試行の下書き。本文・演技指示・話速は試行にだけ使い、履歴にスナップショットとして残る */
 export interface SpeechTrialDraft {
   text: string;
@@ -451,6 +471,18 @@ export function speechTrialInput(
       ...(speed.speed === undefined ? {} : { speed: speed.speed }),
     },
   };
+}
+
+/** 音声の試行の要求。検証は `speechTrialInput` に任せ、`force` だけを出どころで決める */
+export function speechTrialRequest(input: {
+  draft: SpeechTrialDraft;
+  model: string;
+  voice: string;
+  origin: TrialRequestOrigin;
+}): { ok: true; input: CreateContentTrialBody } | { ok: false; error: string } {
+  const request = speechTrialInput(input.draft, input.model, input.voice);
+  if (!request.ok) return request;
+  return { ok: true, input: { kind: "speech", ...request.input, ...forceForOrigin(input.origin) } };
 }
 
 /** 履歴の試行から音声の下書きを戻す（「入力欄に戻す」）。話速は欄の値として小数 2 桁まで出す */
@@ -496,6 +528,17 @@ export function bgmTrialInput(
     };
   }
   return { ok: true, input: { kind: "bgm", model, prompt } };
+}
+
+/** BGM の試行の要求。検証は `bgmTrialInput` に任せ、`force` だけを出どころで決める */
+export function bgmTrialRequest(input: {
+  prompt: string;
+  model: string;
+  origin: TrialRequestOrigin;
+}): { ok: true; input: CreateContentTrialBody } | { ok: false; error: string } {
+  const request = bgmTrialInput(input.prompt, input.model);
+  if (!request.ok) return request;
+  return { ok: true, input: { ...request.input, ...forceForOrigin(input.origin) } };
 }
 
 /**
