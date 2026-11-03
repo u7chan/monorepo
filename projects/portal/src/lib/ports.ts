@@ -2,9 +2,10 @@ import type { PortMapping } from "../types/container";
 
 /**
  * ポートリンクの遷移先。ホストは全カードで共通なので、カード側ではなく URL 組み立てで補う。
+ * ラベルで URL が指定されたポートは、TLS などホスト名だけでは表せない接続先を優先する。
  */
-export function buildPortUrl(host: string, publicPort: number): string {
-  return `http://${host}:${publicPort}`;
+export function buildPortUrl(host: string, publicPort: number, override?: string): string {
+  return override ?? `http://${host}:${publicPort}`;
 }
 
 /**

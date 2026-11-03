@@ -64,6 +64,36 @@ export function normalizeName(name: string): string {
   return name.replace(/^\//, "");
 }
 
+// ポートリンクの URL をサービス側から上書きするためのラベル接頭辞。
+// ホスト名とポートだけでは HTTPS かどうかを判断できないため、TLS 終端の有無を
+// portal の推測に頼らず compose 定義側で表明できるようにする。
+const URL_LABEL_PREFIX = "portal.url.";
+
+/**
+ * `portal.url.<公開ポート>=<URL>` 形式のラベルを公開ポート -> URL に変換する
+ */
+export function parseUrlLabels(labels: string | undefined): Record<number, string> | undefined {
+  if (!labels) return undefined;
+
+  const urls: Record<number, string> = {};
+  for (const pair of labels.split(",")) {
+    const index = pair.indexOf("=");
+    if (index < 0) continue;
+
+    const key = pair.slice(0, index).trim();
+    if (!key.startsWith(URL_LABEL_PREFIX)) continue;
+
+    const portText = key.slice(URL_LABEL_PREFIX.length);
+    if (!/^\d+$/.test(portText)) continue;
+
+    const port = Number(portText);
+    const value = pair.slice(index + 1).trim();
+    if (port >= 1 && port <= 65535 && value) urls[port] = value;
+  }
+
+  return Object.keys(urls).length > 0 ? urls : undefined;
+}
+
 // portal 自身を表すイメージリポジトリ。タグやダイジェストは含めない。
 const PORTAL_IMAGE_REPOSITORY = "ghcr.io/u7chan/monorepo/portal";
 
@@ -120,6 +150,7 @@ export function parseContainer(raw: DockerContainerRaw): Container {
   const ports = parsePorts(raw.Ports || "");
   const created = raw.CreatedAt || "";
   const command = raw.Command || "";
+  const urls = parseUrlLabels(raw.Labels);
 
   return {
     id,
@@ -130,6 +161,7 @@ export function parseContainer(raw: DockerContainerRaw): Container {
     ports,
     created,
     command,
+    urls,
   };
 }
 

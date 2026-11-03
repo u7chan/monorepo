@@ -4,7 +4,7 @@ Bun + React + TypeScriptで構築された、Dockerコンテナを可視化・�
 
 ## 機能
 
-- **ポートリンク**: 起動中のコンテナが公開しているポートを、カードごとの主役として表示。クリックで `http://<host>:PORT` を新しいタブで開く
+- **ポートリンク**: 起動中のコンテナが公開しているポートを、カードごとの主役として表示。クリックで既定は `http://<PORTAL_HOST>:PORT` を新しいタブで開く。Docker ラベルの `portal.url.<公開ポート>` があるポートはその URL を使う
 - **コンテナ一覧表示**: ホスト上の全Dockerコンテナをカード / リストで表示（portal 自身のコンテナは除く）
 - **ステータス表示**: 実行中/停止中などの状態を、色と Docker の状態文言の両方で表示
 - **イメージ名のコピー**: カード/リストのコピーボタンでイメージURIをクリップボードへコピー
@@ -32,6 +32,25 @@ portal 自身が一覧に出ると、開いても portal に戻るだけの項�
 - `HOSTNAME` が自分のコンテナ ID と一致する（docker がコンテナのホスト名に短縮コンテナ ID を入れるため）
 
 除外は `fetchContainers` が Docker から取得した時点で行う。このため一覧 API の件数は除外後になり、操作 API（`/api/containers/:id/:action`）も同じ経路で portal 自身を見つけられず、`start` / `stop` は 404 を返す。portal が自分自身を停止して画面ごと消えるのを避けるための挙動なので、この 404 は仕様とする。
+
+## ポートリンクの URL 上書き（`portal.url.<ポート>`）
+
+ポートリンクは既定で `http://<PORTAL_HOST>:<公開ポート>` になる。TLS 終端などでホスト名とポートだけでは URL を表せないサービスは、コンテナの Docker ラベル `portal.url.<公開ポート>` に URL を書くと、その URL をリンク・`title`・`aria-label` に使う。
+
+```yaml
+services:
+  caddy:
+    labels:
+      portal.url.80: http://portal.home.arpa
+      portal.url.443: https://portal.home.arpa
+```
+
+- ラベルがないポートは `http://<PORTAL_HOST>:<ポート>` のまま
+- ラベルは `docker ps --format json` の `Labels`（カンマ区切り）から読む
+- キーが `portal.url.` で始まり、ポートが 1–65535、値が空でないものだけ有効
+- 上書きはリンクの表示だけ。portal が TLS を終端したり、疎通確認をしたりはしない
+
+portal 自身の HTTPS 入口はヘッダー右側のリンクから開ける。
 
 ## 技術スタック
 
@@ -89,6 +108,7 @@ bun run start:mock
 - 各種状態（running, exited, paused, restarting）
 - 長い名前のコンテナ
 - 複数ポートを持つコンテナ
+- `portal.url.<ポート>` ラベル相当の URL 上書きを持つコンテナ
 - ポートなしのコンテナ
 
 ### 本番実行

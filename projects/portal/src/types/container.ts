@@ -23,6 +23,8 @@ export interface Container {
   ports: PortMapping[];
   created?: string;
   command?: string;
+  // 公開ポート -> ラベルで上書きされた URL
+  urls?: Record<number, string>;
 }
 
 /**
@@ -38,6 +40,7 @@ export interface DockerContainerRaw {
   Ports?: string;
   CreatedAt?: string;
   Command?: string;
+  Labels?: string;
 }
 
 /**
