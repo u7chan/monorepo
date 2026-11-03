@@ -3,7 +3,7 @@
  * 報告だけを返す。子の生成・並列・打ち切りは host (SessionStore 側の runner) が持ち、ここは契約と整形を持つ
  * (`docs/subagent.md`)。
  */
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SecretMasker } from "./redact";
 import type { Usage } from "./schema";

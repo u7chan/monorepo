@@ -3,7 +3,7 @@
  * `PI_AGENT_TOOLS`（サンドボックスの allowlist）の影響を受けない。
  * 有効化はセッション作成時に固定し、execute は毎回現在の settings を読む（docs/image-generation.md）。
  */
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { messageFor } from "./http";
 import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
