@@ -202,7 +202,7 @@ JSONL が破損している（SDK が追記する entry type / message role を 
 
 `messages[].model` は assistant を生成したモデル（`provider/model`）。SDK の `provider` / `model` から作り、どちらかが欠ける / `unknown/unknown` の応答は `null`（モデル不明）にする。user は持たず、旧サーバーはキーを省略する。クライアントは履歴ヘッダーの表示名に使い、完全な識別子はラベルの `title` に出す。
 
-`messages[].usage` は SDK の `AssistantMessage.usage` をそのまま通したもの（`cost` は pi-ai の `calculateCost` 済み。料金表が無いモデルは 0）。`cacheWrite1h` / `reasoning` は報告するプロバイダだけが返す。プロバイダが usage を報告しないときはキーを省略し、0 に置き換えない（受け手は数字を出さない）。
+`messages[].usage` は SDK の `AssistantMessage.usage` をそのまま通したもの（`cost` はプロバイダが報告した請求額（`totalFromProvider`）を優先し、無い場合は pi-ai の `calculateCost`。料金表が無いモデルは 0）。`cacheWrite1h` / `reasoning` は報告するプロバイダだけが返す。プロバイダが usage を報告しないときはキーを省略し、0 に置き換えない（受け手は数字を出さない）。
 
 `messages[].metrics` は応答時間のメタ。`durationMs` は応答の所要時間、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 以下なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
 

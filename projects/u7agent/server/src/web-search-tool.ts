@@ -4,7 +4,7 @@
  * allowlist (`PI_AGENT_TOOLS`) の外にあり、上流の応答本文と失敗理由はモデル・ログ・UI へ出さない
  * (docs/web-search.md)。
  */
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { formatJstDate, JST_TIME_ZONE } from "./jst";
 import type { SecretMasker } from "./redact";

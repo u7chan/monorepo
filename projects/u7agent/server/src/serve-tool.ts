@@ -3,7 +3,7 @@
  * 起動・停止の実処理は GUI と同じ `ServeService` を共有する (docs/sandbox.md)。
  * 所有者はモデルに申告させず、ツール定義の生成時に渡した会話 id へ束縛する。
  */
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { builtinSkillEnabled } from "./builtin-skills";
 import type { ServeStatus } from "./schema";

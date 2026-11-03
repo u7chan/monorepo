@@ -3,7 +3,7 @@
  * pause / resume の状態は持たず、待機の実体は SessionStore が持つ (`docs/ask-user.md`)。
  * 所有者はモデルに申告させず、定義の生成時に束縛した会話 id へ紐づける。
  */
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   ASK_USER_DESCRIPTION_MAX,
