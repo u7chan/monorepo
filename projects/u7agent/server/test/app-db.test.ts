@@ -3363,6 +3363,52 @@ test("起動時の再照合で running は interrupted になり、終了時刻�
   db.close();
 });
 
+test("一覧のページは開始時刻と rowid の降順で、同じ時刻の行もカーソルで欠けない", () => {
+  const db = AppDb.open({ storeDir: null });
+  db.saveContentTrial(runningTrial("trial-a", { startedAt: 3_000 }));
+  db.saveContentTrial(runningTrial("trial-b", { startedAt: 2_000 }));
+  db.saveContentTrial(runningTrial("trial-c", { startedAt: 2_000 }));
+  db.saveContentTrial(runningTrial("trial-d", { startedAt: 1_000 }));
+
+  const first = db.listContentTrialPage({ limit: 2 });
+  assert.deepEqual(
+    first.map((row) => row.id),
+    ["trial-a", "trial-c"],
+    "同じ startedAt は後から入れた行が先（rowid の降順）",
+  );
+  const cursor = first[first.length - 1];
+  const second = db.listContentTrialPage({
+    limit: 2,
+    before: { startedAt: cursor?.startedAt ?? 0, seq: cursor?.seq ?? 0 },
+  });
+  assert.deepEqual(
+    second.map((row) => row.id),
+    ["trial-b", "trial-d"],
+    "同じ時刻の残りと古い行が続く",
+  );
+  assert.deepEqual(
+    db.listContentTrials().map((row) => row.id),
+    ["trial-a", "trial-c", "trial-b", "trial-d"],
+  );
+  db.close();
+});
+
+test("実行中の一覧は running の行だけを返し、種別で絞れる", () => {
+  const db = AppDb.open({ storeDir: null });
+  db.saveContentTrial(runningTrial("trial-run", { startedAt: 2_000 }));
+  db.saveContentTrial(runningTrial("trial-speech", { kind: "speech", startedAt: 1_000 }));
+  db.saveContentTrial(runningTrial("trial-done", { state: "succeeded", startedAt: 3_000 }));
+  assert.deepEqual(
+    db.listRunningContentTrials().map((row) => row.id),
+    ["trial-run", "trial-speech"],
+  );
+  assert.deepEqual(
+    db.listRunningContentTrials("image").map((row) => row.id),
+    ["trial-run"],
+  );
+  db.close();
+});
+
 test("試行の履歴とキー世代は、未知の新しい版を開いたときの作り直しで残る (not in DROP_TABLES)", () => {
   const dir = tempStoreDir();
   try {

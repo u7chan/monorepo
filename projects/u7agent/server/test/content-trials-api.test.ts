@@ -981,3 +981,68 @@ test("モデルを受け付けない 400 の文言は種別ごとに変え、画
     }
   });
 });
+
+test("一覧は limit / before でページを返し、state=running は実行中の行だけを返す", async () => {
+  await withStoreDir(async (dir) => {
+    const images = createImageHarness();
+    const pi = createStubPi({ onGenerateImage: images.onGenerateImage });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const ids: string[] = [];
+      for (const prompt of ["one", "two", "three"]) {
+        const created = await jsonBody(
+          await bff.app.request("/api/settings/content/trials", jsonPost({ kind: "image", model: MODEL, prompt })),
+        );
+        ids.push(created.trial.id);
+        images.pending.at(-1)?.resolve({ ok: true, image: pngImage() });
+        await waitForState(bff, created.trial.id, "succeeded");
+      }
+
+      // 一覧は要約（本文の全文は載らず、抜粋だけ）で、`nextBefore` で次のページを取れる
+      const first = await jsonBody(await bff.app.request("/api/settings/content/trials?kind=image&limit=2"));
+      assert.equal(first.items.length, 2);
+      assert.equal(first.hasMore, true);
+      assert.equal(typeof first.nextBefore, "string");
+      assert.equal(typeof first.items[0].promptPreview, "string");
+      assert.equal("prompt" in first.items[0], false, "一覧に本文を載せない");
+      assert.equal("instructions" in first.items[0], false, "一覧に演技指示を載せない");
+
+      const second = await jsonBody(
+        await bff.app.request(`/api/settings/content/trials?kind=image&limit=2&before=${first.nextBefore}`),
+      );
+      assert.equal(second.items.length, 1);
+      assert.equal(second.hasMore, false);
+      assert.equal(second.nextBefore, null);
+      assert.deepEqual(
+        new Set([...first.items, ...second.items].map((item: { id: string }) => item.id)),
+        new Set(ids),
+        "2 ページで全件をちょうど 1 回ずつ返す",
+      );
+
+      // 実行中の行だけを返す（1 件だけ開始して取得する）
+      const started = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/trials",
+          jsonPost({ kind: "image", model: MODEL, prompt: "running one" }),
+        ),
+      );
+      const running = await jsonBody(await bff.app.request("/api/settings/content/trials?state=running"));
+      assert.deepEqual(
+        running.items.map((item: { id: string }) => item.id),
+        [started.trial.id],
+      );
+      assert.equal(running.hasMore, false);
+      images.pending.at(-1)?.resolve({ ok: true, image: pngImage() });
+      await waitForState(bff, started.trial.id, "succeeded");
+
+      // 不正な limit / before / state は 400（クライアントのページ飛びを作らない）
+      for (const query of ["limit=0", "limit=101", "limit=abc", "before=abc", "before=1:2:3", "state=succeeded"]) {
+        const response = await bff.app.request(`/api/settings/content/trials?${query}`);
+        assert.equal(response.status, 400, query);
+      }
+    } finally {
+      await bff.close();
+    }
+  });
+});

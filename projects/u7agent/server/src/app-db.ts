@@ -2270,6 +2270,49 @@ export class AppDb {
     });
   }
 
+  /**
+   * 一覧の 1 ページ。`startedAt` と rowid の降順で、`before` より古い範囲を `limit` 件返す (呼び出し側が
+   * 1 件多く取って `hasMore` を決める)。行を削除してもページの残りがずれないよう、位置は行の値で持つ。
+   */
+  listContentTrialPage(input: {
+    kind?: string | undefined;
+    limit: number;
+    before?: { startedAt: number; seq: number } | undefined;
+  }): (ContentTrialRow & { seq: number })[] {
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    if (input.kind !== undefined) {
+      where.push("kind = ?");
+      params.push(input.kind);
+    }
+    if (input.before !== undefined) {
+      where.push("(startedAt < ? OR (startedAt = ? AND rowid < ?))");
+      params.push(input.before.startedAt, input.before.startedAt, input.before.seq);
+    }
+    const filter = where.length === 0 ? "" : `WHERE ${where.join(" AND ")} `;
+    const sql = `SELECT rowid AS seq, * FROM content_trials ${filter}ORDER BY startedAt DESC, rowid DESC LIMIT ?`;
+    return this.#query((db) => {
+      const rows = db.prepare(sql).all(...params, input.limit) as Row[];
+      return rows.map((row) => ({ ...contentTrialOf(row), seq: Number(row.seq) }));
+    });
+  }
+
+  /** `running` の行だけ。一覧の再照合と実行中のポーリングは履歴の全件を読まない */
+  listRunningContentTrials(kind?: string): ContentTrialRow[] {
+    return this.#query((db) => {
+      const rows = kind
+        ? (db
+            .prepare(
+              "SELECT * FROM content_trials WHERE state = 'running' AND kind = ? ORDER BY startedAt DESC, rowid DESC",
+            )
+            .all(kind) as Row[])
+        : (db
+            .prepare("SELECT * FROM content_trials WHERE state = 'running' ORDER BY startedAt DESC, rowid DESC")
+            .all() as Row[]);
+      return rows.map(contentTrialOf);
+    });
+  }
+
   deleteContentTrial(id: string): boolean {
     return this.#query((db) => db.prepare("DELETE FROM content_trials WHERE id = ?").run(id).changes > 0);
   }

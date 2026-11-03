@@ -208,8 +208,8 @@
 | POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
 | POST | `/api/settings/content/speech/catalog/refresh` | 音声カタログの再取得。応答は画像と同じ形 |
 | POST | `/api/settings/content/trials` | `{ kind, model, prompt, voice?, instructions?, speed?, force? }`。試行ジョブを開始し、202 で `{ trial, reused: false }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409）。BGM の `model` は固定値だけで、BGM の同時実行はチャットの `generate_bgm` と枠を共有する（空きが無ければ行を作らず 409）。同じ入力の保存済み成功（現在のキー世代・成果物ファイルあり）があれば provider を呼ばず 200 `{ trial, reused: true }`。`force: true` は保存済み結果を無視する。置き場のディスクの空きが 1 件分に満たないときは、行を作らず 503 `{ error, code: "disk_shortage" }` で拒否する（クレジットは消費しない） |
-| GET | `/api/settings/content/trials` | `{ items, keyEpoch, artifactUsage, artifactWarning }`。新しい順の履歴（`?kind=` で絞る）。取得のたびに `running` の取り残しと成果物の置き場を再照合する |
-| GET | `/api/settings/content/trials/:id` | `{ trial }`。終端の記録に失敗している間は `recorded: false` でメモリの状態を返す |
+| GET | `/api/settings/content/trials` | `{ items, keyEpoch, artifactUsage, artifactWarning, nextBefore, hasMore }`。新しい順の履歴（`?kind=` で絞る）。`?limit=`（上限あり）と `?before=`（前のページの `nextBefore`）でページを進め、`?state=running` は実行中の行だけを返す。`items` は要約で、本文と演技指示は `GET .../trials/:id` だけが返す。取得のたびに `running` の取り残しと成果物の置き場を再照合する |
+| GET | `/api/settings/content/trials/:id` | `{ trial }`。本文と演技指示を含む全文。終端の記録に失敗している間は `recorded: false` でメモリの状態を返す |
 | GET | `/api/settings/content/trials/:id/raw` | 保存済みの成果物。`Content-Type` は保存時に確定した MIME で、`Accept-Ranges: bytes` / `X-Content-Type-Options: nosniff` / `Cache-Control: no-store`。単一の `Range` を満たすときは 206 + `Content-Range`、満たせないときは 416 + `Content-Range: bytes */<size>`（本文は JSON のエラーなので `Content-Type: application/json`。契約は [api-files.md](api-files.md#画像配信raw) と同じ）。`?download=1` で `Content-Disposition: attachment` |
 | POST | `/api/settings/content/trials/:id/cancel` | 実行中の試行だけを中断して `{ trial }`。終端は 409 |
 | DELETE | `/api/settings/content/trials/:id` | 終端状態の試行だけを削除し、成果物も消す。実行中は 409（`先に中断してください`） |
@@ -347,7 +347,9 @@
 - 種別ごとに同時 1 本。実行中は開始が 409。**キャンセルしても provider の呼び出しが終わるまで次の試行を始められない**（終端を決めた後の結果は捨てる）
 - 終端状態は不変で、`running` の行だけが終端へ進む（DB の更新条件も同じ）。キャンセルは `running` のときだけ受け付け、完了後のキャンセルは 409 で状態を戻さない
 - 失敗は既存の provider 失敗分類をそのまま載せ、自動では再試行しない。APIキーは行にも応答にもログにも残さず、キーの世代（`keyEpoch`）だけを持つ
-- 再起動でレジストリを失った `running` は `interrupted` に倒す（再開しない）。一覧の取得時にも、期限を過ぎてレジストリに無い行だけを同じ扱いにする（間引きあり）
+- 再起動でレジストリを失った `running` は `interrupted` に倒す（再開しない）。一覧の取得時にも、期限を過ぎてレジストリに無い行だけを同じ扱いにする（間引きあり）。再照合と実行中の取得は `running` の行だけを DB から読み、履歴の全件を走査しない
+- 一覧は**要約**（本文は抜粋の `promptPreview`、演技指示は載せない）を新しい順で返し、`limit`（上限あり）と `before`（前のページの `nextBefore`）でページを進める。カーソルは不透明で、行の削除で位置がずれないよう行の値（開始時刻と rowid）から作る。範囲外の `limit` と解釈できない `before` は空の成功にせず 400、`state` は `running` だけを受ける。全文が要るのは選択行と、履歴の行から再実行・入力欄へ戻す操作で、そのときだけ `GET .../trials/:id` を引く
+- **実行中は `?state=running` の行（と選択行の全文）だけを取りに行き**、一覧のページを再度取らない。実行中だった行がその応答から消えたら終端した（または削除された）とみなし、その行だけ `GET .../trials/:id` で確定させる（要約のままだと実行中のまま残る）。一覧の取得ではこの確定を行わない（ページ外の古い行を巻き込まない）
 - 終端を DB へ書けなかったときは、メモリの終端を `recorded: false` として返し、次の取得で記録を再試行する
 - 成果物はアプリデータ領域の兄弟 `<storeDir>/trials` に `<trialId>.<ext>` で置き（`server/src/content-trial-artifacts.ts`）、行には相対名・バイト数・形式・寸法だけを持つ。`generated/` にもプロジェクトにも DB の BLOB にも置かず、サンドボックスを要求しない
 - 保存できる形式は種別ごとに固定する。画像は png / jpeg / webp で、宣言 MIME と実バイトの両方を `saveableImageFormat` の許可リストに通し、実バイトの形式を正にする。音声は mp3 / wav で、宣言 MIME と実バイト（RIFF/WAVE・mp3 のフレーム同期 / ID3）を見る。pcm の応答は生成器と同じ関数で RIFF を付けて wav にする。BGM は生成器が形式を宣言せずバイトだけを返すため、宣言 MIME は固定の `audio/mpeg` とし、実バイトが MP3 として読めるものだけを保存する（wav は通さない）。svg / html / 不明な MIME / 宣言と実体のずれは**保存の前に**拒否する
