@@ -24,6 +24,7 @@ import type {
   ContentSettingsResponse,
   ContentTrial,
   ContentTrialArtifactUsageValue,
+  ContentTrialArtifactWarningValue,
   ContentTrialSummary,
   CreateContentTrialBody,
   UpdateContentSpeechBody,
@@ -55,6 +56,8 @@ export type SpeechTrialSectionProps = {
   loadingMore: boolean;
   keyEpoch: number;
   artifactUsage: ContentTrialArtifactUsageValue;
+  /** 保存容量の警告。しきい値と判定は一覧の応答が持ち、返さない間は null */
+  artifactWarning: ContentTrialArtifactWarningValue | null;
   note: { text: string; error: boolean } | null;
   busy: boolean;
   /** 設定の保存中。既定の保存を重ねない（試行の `busy` とは別の軸） */
@@ -93,6 +96,7 @@ export function SpeechTrialSection({
   loadingMore,
   keyEpoch,
   artifactUsage,
+  artifactWarning,
   note,
   busy,
   settingsBusy,
@@ -174,6 +178,7 @@ export function SpeechTrialSection({
   return (
     <TrialSection
       artifactUsage={artifactUsage}
+      artifactWarning={artifactWarning}
       description="画面の値で生成だけを試します。モデルとボイスの保存値は変えません。送った本文・演技指示・話速と結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。"
     >
       <label className="grid min-w-0 gap-1">

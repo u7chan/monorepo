@@ -30,6 +30,7 @@ import {
   trialArtifactSummary,
   trialArtifactUrl,
   trialByteSizeLabel,
+  trialCapacityWarningNote,
   trialDimensionLabel,
   trialDurationLabel,
   trialFailureLabel,
@@ -40,6 +41,7 @@ import {
   trialRemoveAllNote,
   trialPanelNote,
   trialPanelState,
+  trialStartFailureNote,
   trialStorageNote,
   trialStartBlockedReason,
   trialStateLabel,
@@ -246,9 +248,49 @@ test("面の状態の 1 行は、どの状態でも空文字を返さず 3 タ�
   assert.equal(new Set(notes).size, panels.length, "状態ごとに違う 1 行を返す");
 });
 
-test("保存容量の 1 行は 3 タブの合計であることを文言で示す", () => {
-  assert.equal(trialStorageNote({ count: 0, bytes: 0 }), "保存容量: 0 件 · 0 B（画像・音声・BGM で共通）");
-  assert.equal(trialStorageNote({ count: 2, bytes: 2_048 }), "保存容量: 2 件 · 2.0 KiB（画像・音声・BGM で共通）");
+test("保存容量の 1 行は 3 タブの合計で、件数が履歴の件数ではないことを文言で示す", () => {
+  assert.equal(
+    trialStorageNote({ count: 0, bytes: 0 }),
+    "保存容量: 保存済みの成果物 0 件 · 0 B（履歴の件数ではありません。画像・音声・BGM で共通）",
+  );
+  assert.equal(
+    trialStorageNote({ count: 2, bytes: 2_048 }),
+    "保存容量: 保存済みの成果物 2 件 · 2.0 KiB（履歴の件数ではありません。画像・音声・BGM で共通）",
+  );
+});
+
+test("保存容量の警告は応答のしきい値だけを使い、警告でなければ出さない", () => {
+  assert.equal(trialCapacityWarningNote(null), null, "応答が返さない（旧い server）ときは警告しない");
+  assert.equal(trialCapacityWarningNote({ thresholdBytes: 1024 ** 3, warning: false }), null);
+
+  // しきい値は client にハードコードせず、応答の値をそのまま文言に使う
+  const note = trialCapacityWarningNote({ thresholdBytes: 1024 ** 3, warning: true });
+  assert.ok(note !== null);
+  assert.match(note, /1\.0 GiB/u);
+  assert.match(note, /自動では消えません/u, "server は自動削除しないので、消すかどうかは利用者が決める");
+  assert.match(
+    trialCapacityWarningNote({ thresholdBytes: 2 * 1024 ** 3, warning: true }) ?? "",
+    /2\.0 GiB/u,
+    "別のしきい値でも応答の値を出す",
+  );
+});
+
+test("開始拒否の注記は空き不足を他の開始失敗と分け、課金の有無を混ぜない", () => {
+  const shortage = trialStartFailureNote(
+    "disk_shortage",
+    "保存先のディスクの空きが足りないため、試行を開始できませんでした",
+  );
+  assert.equal(shortage.error, true);
+  assert.match(shortage.text, /履歴にも課金にも残りません/u);
+  assert.match(shortage.text, /再利用できます/u, "空き不足は再利用（200 reused）を妨げない");
+  assert.doesNotMatch(shortage.text, /保存できませんでした/u, "`storage`（課金済みの保存失敗）と同じ文言にしない");
+  assert.doesNotMatch(shortage.text, /再課金/u);
+
+  // 他の失敗（409 の同時実行・400 系）はサーバーの文言をそのまま添える
+  assert.deepEqual(trialStartFailureNote("other", "実行中です"), {
+    text: "試行を開始できませんでした。実行中です",
+    error: true,
+  });
 });
 
 test("ビューポートの全文は選択行と一致するときだけ返す", () => {
@@ -386,6 +428,7 @@ test("保存容量と成果物の要約は、保存済みの行だけを 1 行�
   assert.equal(trialByteSizeLabel(820), "820 B");
   assert.equal(trialByteSizeLabel(2_048), "2.0 KiB");
   assert.equal(trialByteSizeLabel(3 * 1024 * 1024), "3.0 MiB");
+  assert.equal(trialByteSizeLabel(3 * 1024 ** 3), "3.0 GiB", "容量の目安（GiB 台）は MiB へ丸めない");
   assert.equal(trialByteSizeLabel(Number.NaN), "—");
 
   const stored = trial();

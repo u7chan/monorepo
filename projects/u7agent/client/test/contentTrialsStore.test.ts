@@ -19,7 +19,7 @@ import type {
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む。
 // 取得の失敗の分類（404 とそれ以外）は本番と同じ関数を通す
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { ApiError, isMissingContentTrial } = await import("../src/api");
+const { ApiError, contentTrialStartFailure, isMissingContentTrial } = await import("../src/api");
 
 const USAGE: ContentTrialArtifactUsageValue = { count: 1, bytes: 2_048 };
 
@@ -63,8 +63,19 @@ const CANCELED: ContentTrial = {
   durationMs: 2_000,
 };
 
-function listResponse(items: ContentTrialSummary[], nextBefore: string | null = null): ContentTrialListResponse {
-  return { items, keyEpoch: 0, artifactUsage: USAGE, nextBefore, hasMore: nextBefore !== null };
+function listResponse(
+  items: ContentTrialSummary[],
+  nextBefore: string | null = null,
+  artifactWarning?: ContentTrialListResponse["artifactWarning"],
+): ContentTrialListResponse {
+  return {
+    items,
+    keyEpoch: 0,
+    artifactUsage: USAGE,
+    ...(artifactWarning === undefined ? {} : { artifactWarning }),
+    nextBefore,
+    hasMore: nextBefore !== null,
+  };
 }
 
 function deferred<T>() {
@@ -93,6 +104,8 @@ function setup(
     /** 取得の失敗の分類。既定は本番と同じ 404 判定 */
     isMissing?: (error: unknown) => boolean;
     start?: () => Promise<ContentTrialStartResponse>;
+    /** 開始の拒否の分類。既定は本番と同じ `code` の判定 */
+    startFailure?: (error: unknown) => "disk_shortage" | "other";
     cancel?: () => Promise<unknown>;
   } = {},
 ) {
@@ -111,6 +124,7 @@ function setup(
     get: overrides.get ?? (async (id) => ({ trial: { ...RUNNING, id } })),
     isMissing: overrides.isMissing ?? isMissingContentTrial,
     start: overrides.start ?? (async () => ({ trial: RUNNING, reused: false })),
+    startFailure: overrides.startFailure ?? contentTrialStartFailure,
     cancel:
       (overrides.cancel as (() => Promise<{ trial: ContentTrial }>) | undefined) ?? (async () => ({ trial: CANCELED })),
     remove: async () => ({ removed: 1 }),
@@ -242,6 +256,38 @@ test("busy は操作の間だけ立て、失敗は理由つきの注記にする
   assert.equal(view.state().busy, false);
   assert.equal(view.state().note?.error, true);
   assert.match(view.state().note?.text ?? "", /試行を開始できませんでした/u);
+});
+
+test("保存容量の警告は一覧の応答から取り、返さない応答では前の警告を残さない", async () => {
+  const warning = { thresholdBytes: 1024 ** 3, warning: true };
+  let responding: ContentTrialListResponse["artifactWarning"] = warning;
+  const view = setup([], {
+    list: async () => listResponse([SUCCEEDED], null, responding),
+    listRunning: async () => listResponse([], null, responding),
+  });
+  await view.controller.reload();
+  assert.deepEqual(view.state().artifactWarning, warning);
+
+  // しきい値と判定は応答が正。返さない応答（旧い server）では警告を出さない
+  responding = undefined;
+  await view.controller.reload();
+  assert.equal(view.state().artifactWarning, null);
+});
+
+test("開始拒否が空き不足のときは、他の開始失敗と別の文言で課金の有無を伝える", async () => {
+  const view = setup([], {
+    start: async () => {
+      throw new ApiError("保存先のディスクの空きが足りないため、試行を開始できませんでした", 503, {
+        code: "disk_shortage",
+      });
+    },
+  });
+  const started = view.controller.start({ kind: "image", model: RUNNING.model, prompt: RUNNING.prompt });
+  assert.equal(await started, false);
+  assert.equal(view.state().note?.error, true);
+  assert.match(view.state().note?.text ?? "", /履歴にも課金にも残りません/u);
+  assert.equal(view.state().trials, null, "開始拒否は行を作らない");
+  assert.equal(view.state().busy, false);
 });
 
 test("別のタブで終端した試行の印は、そのタブを開いたら消える", async () => {

@@ -165,6 +165,7 @@ export function ContentSettingsView({
           onLoadTrial={contentTrials.loadTrialDetail}
           onLoadMoreTrials={contentTrials.loadMore}
           trialArtifactUsage={contentTrials.artifactUsage}
+          trialArtifactWarning={contentTrials.artifactWarning}
           trialNote={contentTrials.note}
           trialKeyEpoch={trialKeyEpoch}
           trialBusy={contentTrials.busy}
