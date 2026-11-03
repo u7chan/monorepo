@@ -25,6 +25,7 @@ import {
   acquireBgmGenerationSlot,
   BGM_MAX_CONCURRENT,
   BGM_MODEL,
+  BGM_PROMPT_MAX_LENGTH,
   BGM_TIMEOUT_MS,
   classifyBgmFailure,
   releaseBgmGenerationSlot,
@@ -81,6 +82,7 @@ export const CONTENT_TRIAL_SPEECH_MODEL_MESSAGE = "カタログに無い音声�
 export const CONTENT_TRIAL_BGM_MODEL_MESSAGE = "BGMのモデルは固定です。別のモデルでは試行できません";
 export const CONTENT_TRIAL_PROMPT_EMPTY_MESSAGE = "プロンプトを入力してください（クレジットは消費していません）";
 export const CONTENT_TRIAL_PROMPT_TOO_LONG_MESSAGE = `プロンプトが長すぎます（${CONTENT_TRIAL_PROMPT_MAX_LENGTH.toLocaleString("en-US")} 文字まで。クレジットは消費していません）`;
+export const CONTENT_TRIAL_BGM_PROMPT_TOO_LONG_MESSAGE = `BGMのプロンプトが長すぎます（${BGM_PROMPT_MAX_LENGTH.toLocaleString("en-US")} 文字まで。クレジットは消費していません）`;
 export const CONTENT_TRIAL_RECORD_FAILED_MESSAGE = "試行の状態をアプリデータへ記録できませんでした";
 export const CONTENT_TRIAL_STORAGE_FAILED_MESSAGE =
   "生成は完了しましたが、結果を保存できませんでした（課金済み）。もう一度生成すると再課金されます";
@@ -364,6 +366,9 @@ export class ContentTrialsService {
     const kind = input.kind;
     const prompt = input.prompt;
     if (prompt.trim() === "") return { status: 400, error: CONTENT_TRIAL_PROMPT_EMPTY_MESSAGE };
+    // BGM はチャットのツールと同じ 1,000 字。一般の 4,000 字より厳しく、provider の呼び出し前に止める
+    if (kind === "bgm" && prompt.length > BGM_PROMPT_MAX_LENGTH)
+      return { status: 400, error: CONTENT_TRIAL_BGM_PROMPT_TOO_LONG_MESSAGE };
     if (prompt.length > CONTENT_TRIAL_PROMPT_MAX_LENGTH)
       return { status: 400, error: CONTENT_TRIAL_PROMPT_TOO_LONG_MESSAGE };
     const params = trialParametersOf(kind, input);
@@ -414,12 +419,20 @@ export class ContentTrialsService {
       instructions: params.instructions,
       speed: params.speed,
     });
-    if (reused) return { status: 200, trial: this.#view(reused), reused: true };
+    if (reused) {
+      console.info(`[u7agent] content trial reused: id=${reused.id} kind=${kind}`);
+      return { status: 200, trial: this.#view(reused), reused: true };
+    }
 
     const startedAt = this.#now();
-    // 世代の読み取りは枠を取る前に済ませる。ここが投げても共有枠を漏らさない（DB 障害で試行も
-    // チャットの generate_bgm も 409 に張り付くのを避ける）
-    const keyEpoch = this.#db.readContentKeyEpoch();
+    // 世代の読み取りは枠を取る前に済ませる。DB 障害は 503 にし、共有枠を漏らさない
+    let keyEpoch: number;
+    try {
+      keyEpoch = this.#db.readContentKeyEpoch();
+    } catch (error) {
+      console.warn(`[u7agent] content trial key epoch read failed: ${this.#maskError(messageFor(error))}`);
+      return { status: 503, error: CONTENT_TRIAL_READ_FAILED_MESSAGE };
+    }
 
     // BGM はチャットの `generate_bgm` と同じプロセス内の枠を数える（試行用の別枠を足さない）。
     // 行を作る前に取り、取れなければ行を残さずに止める
@@ -460,6 +473,7 @@ export class ContentTrialsService {
       releaseSlot: heldSlot ? releaseBgmGenerationSlot : null,
     };
     this.#jobs.set(row.id, job);
+    console.info(`[u7agent] content trial started: id=${row.id} kind=${kind} model=${this.#reflected(input.model)}`);
     // 応答は開始直後（202）に返し、ジョブの完了は待たない
     void this.#run(job, {
       kind,
@@ -886,6 +900,9 @@ export class ContentTrialsService {
       recorded,
     };
     job.terminal = memory;
+    console.info(
+      `[u7agent] content trial ${decision.state}: id=${job.id} kind=${job.kind} durationMs=${durationMs} charged=${decision.charged}${decision.failureCode === null ? "" : ` failure=${decision.failureCode}`}`,
+    );
     if (recorded) this.#terminals.delete(job.id);
     else this.#terminals.set(job.id, memory);
     return recorded;
@@ -988,6 +1005,7 @@ export class ContentTrialsService {
   }
 
   #interrupt(row: ContentTrialRow): void {
+    console.warn(`[u7agent] content trial interrupted: id=${row.id} kind=${row.kind}`);
     try {
       this.#db.finishContentTrial({
         id: row.id,

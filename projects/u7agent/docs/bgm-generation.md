@@ -30,7 +30,7 @@
 
 ## 入力・保存・再生
 
-引数は `prompt` と任意のcwd相対 `path` だけ。BPM・voice・duration・seedや生のproviderオプションは受け付けない。promptの空白のみ・長さ、パスの拡張子・字句境界・空白と制御文字・隠しbasename・長さは送信前に検証する。数値と拒否ケースの正は `server/src/bgm.ts` / `server/src/bgm-tools.ts` と `server/test/bgm-tools.test.ts`。
+引数は `prompt` と任意のcwd相対 `path` だけ。BPM・voice・duration・seedや生のproviderオプションは受け付けない。promptの空白のみ・長さ、パスの拡張子・字句境界・空白と制御文字・隠しbasename・長さは送信前に検証する。数値と拒否ケースの正は `server/src/bgm.ts` / `server/src/bgm-tools.ts` と `server/test/bgm-tools.test.ts`。試行サーバーも BGM は 1,000 字で止める（一般の 4,000 字より厳しく、チャットのツールと同じ）。
 
 既定先は `generated/`、拡張子省略はMP3を補う。`parseToolPath()` / `rootRelativeDir()` / `cwdRelativePath()` と既存uploadの親作成・一時ファイル・非上書きを使い、同名はsuffix付きの新規ファイルにする。root外symlinkは拒否し、root内symlinkのcwdは既存どおり字句的に扱う（cwd専用の新しい隔離は追加しない）。保存結果の実パスとモデルを結果本文の先頭の改行終端した行へ置き、履歴の投影後も同じパスを参照する。
 
@@ -64,7 +64,7 @@
 
 BGM タブの GUI 受入（試行・再生・履歴・削除・容量・タブの印）は実 API 受入で確認済み（2026-11-03）。fixture の合成 MP3 での GUI 受入は別途（未実施）で、Lyria の実契約・実生成物の確認としては扱わない。
 
-実 API 受入で確認したもの: voice を送らずに 200 / `audio/mpeg`、正常終端、ブラウザーでの再生・シーク、生成 12.9 秒、実測 30.77 秒、料金はユーザーが許容。残る未確認: 2 回目以降の再現性、失敗系（invalid_key / 402 / 429 / timeout）の実分類、チャットツール `generate_bgm` / `generate_speech` の実 API 経路、聴感品質、C2PA マニフェストの扱い、試行ライフサイクル / pcm 再試行のログ。
+実 API 受入で確認したもの: voice を送らずに 200 / `audio/mpeg`、正常終端、ブラウザーでの再生・シーク、生成 12.9 秒、実測 30.77 秒、料金はユーザーが許容。残る未確認: 2 回目以降の再現性、失敗系（invalid_key / 402 / 429 / timeout）の実分類、チャットツール `generate_bgm` / `generate_speech` の実 API 経路、聴感品質、C2PA マニフェストの扱い。試行ライフサイクルと pcm 400 再試行はログに出る。
 
 ## 非ゴール
 
