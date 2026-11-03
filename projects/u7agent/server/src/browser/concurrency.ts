@@ -16,7 +16,7 @@
  * 分からないディレクトリ (複数の枠・所有者名でない名前) は消さずに容量として扱う (fail-closed)。
  */
 import { mkdir, open, readFile, readdir, rename, rm, rmdir } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { processStartedAtMs } from "../proc-stat";
 import { MAX_CONCURRENT_CALLS } from "./limits";
 import {
@@ -73,13 +73,39 @@ function parseSlotIndex(name: string): number | undefined {
   return Number.isSafeInteger(index) ? index : undefined;
 }
 
-/** 空いていれば作る。取れなければ false (他の呼び出しが先に取った) */
+/**
+ * 置き場のディレクトリを作る。親は空になったとき release が消すため、消えている = その下に枠は無い。
+ */
+async function ensureDir(path: string): Promise<void> {
+  try {
+    await mkdir(path, { recursive: true });
+  } catch (error) {
+    // recursive mkdir 自体も、走査の途中で親を消した相手と競合して ENOENT を返すことがある
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    await mkdir(path, { recursive: true });
+  }
+}
+
+/**
+ * 空いていれば作る。取れなければ false (他の呼び出しが先に取った)。親が消えていた場合は作り直して
+ * 1 回だけやり直す (取れなければ false を返し、呼び出し元が次の試行で取り直す)。
+ */
 async function tryMkdir(path: string): Promise<boolean> {
   try {
     await mkdir(path);
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") return false;
+    if (code !== "ENOENT") throw error;
+  }
+  await ensureDir(dirname(path));
+  try {
+    await mkdir(path);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST" || code === "ENOENT") return false;
     throw error;
   }
 }
@@ -215,7 +241,7 @@ export async function acquireConcurrencySlot(options: AcquireConcurrencySlotOpti
   const log = options.log ?? (() => {});
   const owner = await readCallOwner({ pid: options.pid, readStartedAt });
   const dir = join(root, SLOTS_DIR_NAME);
-  await mkdir(dir, { recursive: true });
+  await ensureDir(dir);
   if (await hasUncountableLease(dir, limit, readStartedAt)) throw new ConcurrencyLimitError(limit);
   for (let index = 0; index < limit; index += 1) {
     const path = await claimIndex({ dir, index, owner, readStartedAt });
