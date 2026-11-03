@@ -234,10 +234,10 @@ async function settleWrites(bff: Harness, id: string): Promise<void> {
 }
 
 /**
- * meta.json をディレクトリへ差し替えて保存を失敗させる。非同期な保存 (temp + rename) が直後に作り直す
- * ことがあるため、差し替えが収束するまで試す (注入と競合して EEXIST で落ちないようにする)。
+ * 保存先のファイルをディレクトリへ差し替えて書込みを失敗させる。非同期な保存 (temp + rename / jsonl 追記) が
+ * 直後に作り直すことがあるため、差し替えが収束するまで試す (注入と競合して EEXIST で落ちないようにする)。
  */
-async function replaceMetaWithDirectory(path: string): Promise<void> {
+async function replaceWithDirectory(path: string): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     await rm(path, { recursive: true, force: true });
     try {
@@ -248,7 +248,7 @@ async function replaceMetaWithDirectory(path: string): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
   }
-  throw new Error(`meta.json をディレクトリに差し替えられませんでした: ${path}`);
+  throw new Error(`ファイルをディレクトリに差し替えられませんでした: ${path}`);
 }
 
 test("moves a session to another space with its workdir and uploads, and drops the history", async () => {
@@ -703,8 +703,8 @@ test("rolls back the workdir when the meta write fails", async () => {
       const created = await createSession(bff);
       const id = created.sessionId as string;
       // meta.json をディレクトリに差し替え、temp + rename の rename を失敗させる
-      await rm(sessionMetaPath(id, paths.store));
-      await mkdir(sessionMetaPath(id, paths.store));
+      await settleWrites(bff, id);
+      await replaceWithDirectory(sessionMetaPath(id, paths.store));
 
       const response = await moveTo(bff, id, space);
       assert.equal(response.status, 500);
@@ -1358,7 +1358,7 @@ test("retries a memo at the size limit when the same hash is already at the head
       const metaPath = sessionMetaPath(id, paths.store);
       const metaText = await readFile(metaPath, "utf8");
       await settleWrites(bff, id);
-      await replaceMetaWithDirectory(metaPath);
+      await replaceWithDirectory(metaPath);
       assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 500);
       await rm(metaPath, { recursive: true });
       await writeFile(metaPath, metaText);
@@ -1407,7 +1407,7 @@ test("keeps a memo that another conversation appended to before the rollback", a
       const metaPath = sessionMetaPath(id, paths.store);
       const metaText = await readFile(metaPath, "utf8");
       await settleWrites(bff, id);
-      await replaceMetaWithDirectory(metaPath);
+      await replaceWithDirectory(metaPath);
       assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 500);
       await rm(metaPath, { recursive: true });
       await writeFile(metaPath, metaText);
@@ -1522,7 +1522,7 @@ test("answers 500 instead of 202 when the consumed mark cannot be saved", async 
       const metaPath = sessionMetaPath(id, paths.store);
       const metaText = await readFile(metaPath, "utf8");
       await settleWrites(bff, id);
-      await replaceMetaWithDirectory(metaPath);
+      await replaceWithDirectory(metaPath);
       try {
         const response = await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "続き" }));
         assert.equal(response.status, 500, "保存できないのに 202 を返している");
@@ -1626,7 +1626,7 @@ test("restores the state when the memo write fails, and keeps an appended memo w
       const metaPath = sessionMetaPath(id, paths.store);
       const metaText = await readFile(metaPath, "utf8");
       await settleWrites(bff, id);
-      await replaceMetaWithDirectory(metaPath);
+      await replaceWithDirectory(metaPath);
       const metaFailed = await moveTo(bff, id, space, { memo: true });
       assert.equal(metaFailed.status, 500);
       await rm(metaPath, { recursive: true });
@@ -1643,7 +1643,7 @@ test("restores the state when the memo write fails, and keeps an appended memo w
       const existing = "# 手書き\n";
       await writeFile(join(paths.root, sessionWorkdirRel(id, "default"), HANDOFF_FILE_NAME), existing);
       await settleWrites(bff, id);
-      await replaceMetaWithDirectory(metaPath);
+      await replaceWithDirectory(metaPath);
       assert.equal((await moveTo(bff, id, space, { memo: true })).status, 500);
       await rm(metaPath, { recursive: true });
       await writeFile(metaPath, metaText);
@@ -1666,9 +1666,9 @@ test("answers success with cleanupPending when the history removal fails, and cl
       await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
       await waitFor(() => bff.appDb.loadAssistantMetrics(id).length === 1, 3000, "metrics row");
       // session.jsonl をディレクトリに差し替え、rm (force・非再帰) を失敗させる
+      await settleWrites(bff, id);
       const jsonl = sessionJsonlPath(id, paths.store);
-      await rm(jsonl);
-      await mkdir(jsonl);
+      await replaceWithDirectory(jsonl);
 
       const response = await moveTo(bff, id, "default", { memo: false });
       assert.equal(response.status, 200);
