@@ -203,7 +203,7 @@ test("保存できなかったときと例外は失敗の印を立て、成功�
   assert.deepEqual(thrown.state(), { saving: false, failed: true });
 });
 
-test("押下中は二重に送らず、閉じた後は state を変えない", async () => {
+test("押下中は二重に送らない", async () => {
   let release!: (saved: boolean) => void;
   const view = setupAction(
     () =>
@@ -216,9 +216,29 @@ test("押下中は二重に送らず、閉じた後は state を変えない", a
   assert.equal(view.saved.length, 1);
   release(true);
   assert.equal(await first, true);
+});
 
+test("破棄の通知の後も次の押下は保存できる（StrictMode の effect 再実行で壊れない）", async () => {
+  const view = setupAction(async () => true);
+  // StrictMode の開発時は Effect が setup → cleanup → setup と余分に 1 周する
+  view.action.invalidate();
+  assert.equal(await view.run(), true, "破棄の通知で以後の押下を殺さない");
+  assert.deepEqual(view.saved, [{ provider: "openrouter", model: "google/gemini-image" }]);
+  assert.deepEqual(view.state(), { saving: false, failed: false });
+});
+
+test("破棄の後に遅れて届いた保存結果は適用しない", async () => {
+  let release!: (saved: boolean) => void;
+  const view = setupAction(
+    () =>
+      new Promise<boolean>((done) => {
+        release = done;
+      }),
+  );
+  const first = view.run();
+  view.action.invalidate();
   const applied = view.states.length;
-  view.action.dispose();
-  assert.equal(await view.run(), false, "閉じた後は保存しない");
-  assert.equal(view.states.length, applied);
+  release(true);
+  assert.equal(await first, false, "破棄後の結果は成功として扱わない");
+  assert.equal(view.states.length, applied, "破棄後の結果で state を変えない");
 });

@@ -716,6 +716,22 @@ test("音声は結果のモデルとボイスが保存値と違うときだけ�
   assert.ok(modelDiff.includes(button), "モデルが違えば既定にできる");
 });
 
+test("音声の設定を確認できない間は、結果カードからの既定の保存も止めて理由を出す", () => {
+  const blocked = render({ subsection: "speech", speechSynced: false, trials: [SPEECH_TRIAL_BASE] });
+  assert.match(
+    blocked,
+    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?このモデルとボイスを既定にする/,
+    "保存フォームと同じく押せなくする",
+  );
+  assert.ok(
+    blocked.includes("サーバーの現在の設定を確認できていないため、再読み込みするまで保存できません。"),
+    "押せない理由を出す",
+  );
+
+  const allowed = render({ subsection: "speech", trials: [SPEECH_TRIAL_BASE] });
+  assert.equal(allowed.includes("サーバーの現在の設定を確認できていないため"), false, "同期できていれば理由を出さない");
+});
+
 test("音声の実行中はプレイヤーを出さず、状態だけを示す", () => {
   const html = render({
     subsection: "speech",

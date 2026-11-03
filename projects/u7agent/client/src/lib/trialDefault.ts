@@ -54,35 +54,46 @@ export const INITIAL_TRIAL_DEFAULT_STATE: TrialDefaultState = { saving: false, f
  */
 export function createTrialDefaultAction(deps: { onChange: (state: TrialDefaultState) => void }) {
   let state = INITIAL_TRIAL_DEFAULT_STATE;
-  let active = true;
+  // 破棄フラグは持たず世代だけを進める。StrictMode の effect 再実行 (mount → cleanup → mount) でも
+  // その後の押下は普通に動き、unmount 後に届いた結果だけを捨てられる
+  let generation = 0;
   let inFlight = false;
 
   const update = (patch: Partial<TrialDefaultState>) => {
-    if (!active) return;
     state = { ...state, ...patch };
     deps.onChange(state);
   };
 
   const run = async <Target>(target: Target, save: (input: Target) => Promise<boolean>): Promise<boolean> => {
-    if (!active || inFlight) return false;
+    if (inFlight) return false;
     inFlight = true;
+    const token = ++generation;
     update({ saving: true, failed: false });
     try {
       const saved = await save(target);
+      // 待機中に破棄された / 別の押下が始まったら、古い結果は表示しない
+      if (token !== generation) return false;
       update({ saving: false, failed: !saved });
       return saved;
     } catch {
+      if (token !== generation) return false;
       update({ saving: false, failed: true });
       return false;
     } finally {
-      inFlight = false;
+      // 破棄済みのときは invalidate が既に解除しているので、新しい押下の状態を壊さない
+      if (token === generation) inFlight = false;
     }
   };
 
   return {
     run,
-    dispose: () => {
-      active = false;
+    /**
+     * 押下の待機を捨てる（所有部品の unmount）。以後に届いた保存結果は適用しない。
+     * 世代を進めるだけなので、続く押下は普通に動く
+     */
+    invalidate: () => {
+      generation += 1;
+      inFlight = false;
     },
   };
 }

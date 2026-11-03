@@ -42,6 +42,12 @@ const OUTCOME_OPTIONS: { value: TrialOutcomeFilter; label: string }[] = [
   { value: "failed", label: "失敗" },
 ];
 
+/**
+ * 未同期の間、結果カードから既定へ保存できない理由。同じ `PUT /speech` を呼ぶ保存フォームが止まるのと
+ * 同じ状態を指す（短く書く）。
+ */
+const SYNC_BLOCKED_NOTE = "サーバーの現在の設定を確認できていないため、再読み込みするまで保存できません。";
+
 export type SpeechTrialSectionProps = {
   settings: ContentSettingsResponse;
   /** 画面で選択中のモデル（下書き優先）。保存前でも画面の値で試行する */
@@ -55,6 +61,8 @@ export type SpeechTrialSectionProps = {
   busy: boolean;
   /** 設定の保存中。既定の保存を重ねない（試行の `busy` とは別の軸） */
   settingsBusy: boolean;
+  /** サーバーの現在値を確認できているか。false の間は保存フォームと同じく既定の保存も止める */
+  synced: boolean;
   /** 試行のモデルとボイスを既定として保存する。成功したら呼び出し側が下書きを捨てる */
   onMakeDefault: (input: UpdateContentSpeechBody) => Promise<boolean>;
   /** 本文・演技指示・話速の下書き。面を切り替えても失わないよう、呼び出し側が持つ */
@@ -81,6 +89,7 @@ export function SpeechTrialSection({
   note,
   busy,
   settingsBusy,
+  synced,
   onMakeDefault,
   draft,
   onChangeDraft,
@@ -262,6 +271,7 @@ export function SpeechTrialSection({
           running={running !== null}
           defaultTarget={defaultTarget}
           settingsBusy={settingsBusy}
+          synced={synced}
           onMakeDefault={onMakeDefault}
           onDelete={onDelete}
           onRestore={() => {
@@ -413,6 +423,7 @@ function ResultViewport({
   running,
   defaultTarget,
   settingsBusy,
+  synced,
   onMakeDefault,
   onDelete,
   onRestore,
@@ -426,6 +437,8 @@ function ResultViewport({
   /** 既定として保存する本文。保存値と同じなら null（導線を出さない） */
   defaultTarget: UpdateContentSpeechBody | null;
   settingsBusy: boolean;
+  /** 保存フォームと同じ未同期のゲート。 false の間は既定として保存させない */
+  synced: boolean;
   onMakeDefault: (input: UpdateContentSpeechBody) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onRestore: () => void;
@@ -520,6 +533,7 @@ function ResultViewport({
         label="このモデルとボイスを既定にする"
         target={defaultTarget}
         disabled={busy || settingsBusy}
+        blockedReason={synced ? null : SYNC_BLOCKED_NOTE}
         onSave={onMakeDefault}
       />
       <p className="text-2xs leading-relaxed text-ink-faint">

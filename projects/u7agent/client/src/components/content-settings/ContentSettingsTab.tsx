@@ -329,6 +329,7 @@ export function ContentSettingsTab({
               note={trialNote}
               busy={trialBusy}
               settingsBusy={busy}
+              synced={speechSynced}
               onMakeDefault={saveTrialSpeech}
               draft={speechTrialDraft}
               onChangeDraft={setSpeechTrialDraft}
