@@ -78,6 +78,7 @@ function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSetti
 function contentTrials(
   trials: ContentTrial[] | null = null,
   note: { text: string; error: boolean } | null = null,
+  newResults: ContentSubsection[] = [],
 ): ContentTrials {
   return {
     trials,
@@ -85,7 +86,7 @@ function contentTrials(
     artifactUsage: { count: 0, bytes: 0 },
     note,
     busy: false,
-    newResults: [],
+    newResults,
     running: (trials ?? []).some((trial) => trial.state === "running"),
     reload: async () => true,
     start: async () => true,
@@ -103,6 +104,8 @@ function render(
     trials?: ContentTrial[] | null;
     /** 試行の操作の注記。設定の注記とは別の行に出る */
     trialNote?: { text: string; error: boolean } | null;
+    /** 別のタブで終端した試行の種別（タブの warn の点） */
+    newResults?: ContentSubsection[];
   } = {},
 ): string {
   // 確認ダイアログの provider は app の root が持つ (main.tsx)。ここでは描画だけを検査する
@@ -112,7 +115,7 @@ function render(
       null,
       createElement(ContentSettingsView, {
         contentSettings: settings,
-        contentTrials: contentTrials(options.trials, options.trialNote),
+        contentTrials: contentTrials(options.trials, options.trialNote, options.newResults),
         contentSubsection: options.contentSubsection,
         onSelectContentSubsection: options.onSelectContentSubsection,
         onBack: () => {},
@@ -141,7 +144,7 @@ test("設定済みでは画像・TTS・BGMのタブを出し、既定は画像�
   assert.deepEqual(calls, [], "描画だけでは切替を要求しない");
 });
 
-test("URLがBGMを指すと固定モデルの読取専用面だけを出し、試し生成は提供しない", () => {
+test("URLがBGMを指すと固定モデルの読取専用面と試行の面を出し、モデル選択は出さない", () => {
   const html = render(contentSettings(), { contentSubsection: "bgm" });
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>音楽（BGM）/);
   assert.match(
@@ -152,6 +155,8 @@ test("URLがBGMを指すと固定モデルの読取専用面だけを出し、�
   assert.match(html, /課金対象/);
   assert.match(html, /外部送信/);
   assert.match(html, /ボーカルなし.*保証しません/);
+  // 試行の面（プロンプトの入力）は出し、BGM のモデル選択は出さない
+  assert.ok(html.includes('aria-label="試行のプロンプト"'), "BGM の試行の面を出す");
   assert.equal(html.includes("お試し再生"), false);
   assert.equal(html.includes('aria-label="音声生成のモデル"'), false);
   assert.equal(html.includes('aria-label="コンテンツ生成のモデル"'), false);
@@ -238,14 +243,47 @@ test("試行の注記は設定の注記を隠さない（出どころごとに�
   // 試行の注記は試行の面の中に出す
   assert.ok(html.includes(trialNote.text), "試行の注記はその面に出す");
 
-  // 試行の面が無いタブ（BGM）では、試行の注記を出さない（出どころの面に閉じる）
-  const bgm = render(contentSettings({ note: settingsNote }), {
-    trialNote,
-    contentSubsection: "bgm",
-  });
-  assert.ok(bgm.includes(settingsNote.text), "設定の注記は面を問わず出す");
-  assert.equal(bgm.includes(trialNote.text), false, "試行の注記は試行の面の外に出さない");
-  // 音声タブも同じ注記を使う（種別が違っても試行の操作結果は 1 つの行に出す）
-  const speech = render(contentSettings({ note: settingsNote }), { trialNote, contentSubsection: "speech" });
-  assert.ok(speech.includes(trialNote.text), "音声の面でも試行の注記を出す");
+  // 音声・BGM のタブも同じ注記を自分の面の中に出す（種別が違っても試行の操作結果は 1 つの行に出す）
+  for (const contentSubsection of ["speech", "bgm"] as const) {
+    const other = render(contentSettings({ note: settingsNote }), { trialNote, contentSubsection });
+    assert.ok(other.includes(settingsNote.text), contentSubsection);
+    assert.ok(other.includes(trialNote.text), `${contentSubsection} の面でも試行の注記を出す`);
+  }
+});
+
+test("BGM のタブにも実行中と新着の印を出し、開けば消える", () => {
+  const running: ContentTrial = {
+    id: "trial-bgm-run",
+    kind: "bgm",
+    model: "google/lyria-3-clip-preview",
+    prompt: "静かな夜のピアノ",
+    voice: null,
+    instructions: null,
+    speed: null,
+    state: "running",
+    keyEpoch: 0,
+    artifactState: "none",
+    artifact: null,
+    charged: false,
+    failureCode: null,
+    failureMessage: null,
+    startedAt: 1_000,
+    finishedAt: null,
+    durationMs: null,
+    recorded: true,
+  };
+  // 実行中は BGM タブにだけ accent の点が出る（画像・音声のタブには出さない）
+  const html = render(contentSettings(), { trials: [running], contentSubsection: "image" });
+  assert.match(html, /<button[^>]*role="tab"[^>]*aria-label="音楽（BGM）（生成中）"/);
+  assert.equal(html.includes('aria-label="画像生成（生成中）"'), false);
+
+  // 実行中の点は開いたタブにも残る（開いて消えるのは新着の点だけ）
+  const open = render(contentSettings(), { trials: [running], contentSubsection: "bgm" });
+  assert.match(open, /aria-label="音楽（BGM）（生成中）"/);
+
+  // 別のタブで終端した BGM には warn の点を出し、BGM を開けば消える（フックが newResults から外す）
+  const finished = render(contentSettings(), { newResults: ["bgm"], contentSubsection: "image" });
+  assert.match(finished, /aria-label="音楽（BGM）（新しい結果があります）"/);
+  const cleared = render(contentSettings(), { newResults: [], contentSubsection: "image" });
+  assert.equal(cleared.includes("（新しい結果があります）"), false);
 });

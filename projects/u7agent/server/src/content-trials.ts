@@ -9,6 +9,7 @@ import { messageFor } from "./http";
 import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import {
   isTrialId,
+  prepareTrialBgmArtifact,
   prepareTrialImageArtifact,
   prepareTrialSpeechArtifact,
   trialArtifactContentType,
@@ -20,6 +21,15 @@ import {
   type TrialArtifactRejectReason,
   type TrialArtifactStore,
 } from "./content-trial-artifacts";
+import {
+  acquireBgmGenerationSlot,
+  BGM_MAX_CONCURRENT,
+  BGM_MODEL,
+  BGM_TIMEOUT_MS,
+  classifyBgmFailure,
+  releaseBgmGenerationSlot,
+  type BgmGenerationInput,
+} from "./bgm";
 import { IMAGE_GENERATION_TIMEOUT_MS, type ImageGenerationInput, type ImageGenerationResult } from "./images";
 import {
   SPEECH_GENERATION_TIMEOUT_MS,
@@ -31,8 +41,8 @@ import {
 import { PROVIDER_FAILURE_CODES } from "./provider-failure";
 import type { ContentTrialArtifactRow, ContentTrialRow } from "./app-db";
 
-/** 試行の種別。BGM は最後の段階で足す */
-export const CONTENT_TRIAL_KINDS = ["image", "speech"] as const;
+/** 試行の種別。画像 / 音声 / BGM は同じレジストリ・DB・履歴の経路を使う */
+export const CONTENT_TRIAL_KINDS = ["image", "speech", "bgm"] as const;
 export type ContentTrialKind = (typeof CONTENT_TRIAL_KINDS)[number];
 
 /** 終端状態は不変で、`running` からしか遷移しない */
@@ -66,7 +76,9 @@ export const CONTENT_TRIAL_UNCONFIGURED_MESSAGE = "コンテンツ生成のAPI�
 export const CONTENT_TRIAL_KEY_UNAVAILABLE_MESSAGE =
   "保存済みのAPIキーを使えないため、試行を実行できません。設定を確認してください";
 export const CONTENT_TRIAL_READ_FAILED_MESSAGE = "コンテンツ生成の設定を読み取れないため、試行を実行できません";
-export const CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE = "カタログに無い画像モデルは試行できません";
+export const CONTENT_TRIAL_IMAGE_MODEL_MESSAGE = "カタログに無い画像モデルは試行できません";
+export const CONTENT_TRIAL_SPEECH_MODEL_MESSAGE = "カタログに無い音声モデルは試行できません";
+export const CONTENT_TRIAL_BGM_MODEL_MESSAGE = "BGMのモデルは固定です。別のモデルでは試行できません";
 export const CONTENT_TRIAL_PROMPT_EMPTY_MESSAGE = "プロンプトを入力してください（クレジットは消費していません）";
 export const CONTENT_TRIAL_PROMPT_TOO_LONG_MESSAGE = `プロンプトが長すぎます（${CONTENT_TRIAL_PROMPT_MAX_LENGTH.toLocaleString("en-US")} 文字まで。クレジットは消費していません）`;
 export const CONTENT_TRIAL_RECORD_FAILED_MESSAGE = "試行の状態をアプリデータへ記録できませんでした";
@@ -83,6 +95,8 @@ export const CONTENT_TRIAL_SPEECH_INSTRUCTIONS_TOO_LONG_MESSAGE = `演技指示�
 export const CONTENT_TRIAL_SPEECH_SPEED_MESSAGE =
   "話速は 0 より大きい数値で指定してください（クレジットは消費していません）";
 export const CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE = "話速・演技指示・ボイスは音声の試行だけに指定できます";
+// 上限値はチャットのツールと同じ定数を書き、文言を 2 か所で数えない
+export const CONTENT_TRIAL_BGM_BUSY_MESSAGE = `BGMの同時生成は ${BGM_MAX_CONCURRENT} 件までです（チャットの generate_bgm と共通）。実行中の生成が終わってから試してください（クレジットは消費していません）`;
 
 /**
  * `running` のまま残った行を一覧取得時に再照合する条件。provider の期限に余裕を足した時刻を過ぎ、
@@ -184,6 +198,8 @@ export interface ContentTrialsOptions {
   generateImage?: ((input: ImageGenerationInput) => Promise<ImageGenerationResult>) | undefined;
   /** 音声の生成器。未注入は画像と同じく 503 */
   generateSpeech?: ((input: SpeechGenerationInput) => Promise<SpeechGenerationResult>) | undefined;
+  /** BGM の生成器。未注入は画像と同じく 503（失敗は例外で返るため、ここで分類する） */
+  generateBgm?: ((input: BgmGenerationInput) => Promise<Uint8Array<ArrayBuffer>>) | undefined;
   /** 成果物の置き場。未注入（永続化なしで起動）は保存に失敗したものとして `storage` で倒す */
   artifacts?: TrialArtifactStore | undefined;
   /** ログ・状態へ出す前の文言境界 */
@@ -231,6 +247,8 @@ interface RunningJob {
   controller: AbortController;
   /** 終端を決めた時点で埋まる。以降に届いた結果は破棄する */
   terminal: MemoryTerminal | null;
+  /** BGM のときだけ、provider の呼び出しが終わるまで握っている共有枠の返却 */
+  releaseSlot: (() => void) | null;
 }
 
 /** 開始要求から確定した、生成器へ渡す入力。行にも同じ値を入力スナップショットとして書く */
@@ -259,6 +277,7 @@ export class ContentTrialsService {
   #source: ContentTrialSource;
   #generateImage: ((input: ImageGenerationInput) => Promise<ImageGenerationResult>) | undefined;
   #generateSpeech: ((input: SpeechGenerationInput) => Promise<SpeechGenerationResult>) | undefined;
+  #generateBgm: ((input: BgmGenerationInput) => Promise<Uint8Array<ArrayBuffer>>) | undefined;
   #artifacts: TrialArtifactStore | undefined;
   #maskError: (text: string) => string;
   #now: () => number;
@@ -279,6 +298,7 @@ export class ContentTrialsService {
     this.#source = options.source;
     this.#generateImage = options.generateImage;
     this.#generateSpeech = options.generateSpeech;
+    this.#generateBgm = options.generateBgm;
     this.#artifacts = options.artifacts;
     this.#maskError = options.maskError;
     this.#now = options.now ?? Date.now;
@@ -319,12 +339,16 @@ export class ContentTrialsService {
 
   /** 種別の生成器が注入されているか。未注入は runtime 不可と同じ 503 にする */
   #generatorOf(kind: ContentTrialKind): boolean {
-    return kind === "speech" ? this.#generateSpeech !== undefined : this.#generateImage !== undefined;
+    if (kind === "speech") return this.#generateSpeech !== undefined;
+    if (kind === "bgm") return this.#generateBgm !== undefined;
+    return this.#generateImage !== undefined;
   }
 
   /** 種別ごとの期限。`running` の取り残しを再照合で倒す時刻に使う */
   #timeoutOf(kind: string): number {
-    return kind === "speech" ? SPEECH_GENERATION_TIMEOUT_MS : IMAGE_GENERATION_TIMEOUT_MS;
+    if (kind === "speech") return SPEECH_GENERATION_TIMEOUT_MS;
+    if (kind === "bgm") return BGM_TIMEOUT_MS;
+    return IMAGE_GENERATION_TIMEOUT_MS;
   }
 
   /** 試行の開始。応答は開始直後（202）で、状態は GET で取る */
@@ -347,21 +371,23 @@ export class ContentTrialsService {
 
     const route = generationRouteOf(kind, input.model);
     if (route === null) {
-      return { status: 400, error: `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflected(input.model)}` };
+      return { status: 400, error: `${modelMessageOf(kind)}: ${this.#reflected(input.model)}` };
     }
-    // 画像と音声で照合先が違う（画像は `provider/id`、音声はカタログの id と宣言ボイス）
+    // 画像と音声で照合先が違う（画像は `provider/id`、音声はカタログの id と宣言ボイス、BGM は固定モデル）
     if (kind === "image") {
       if (!this.#source.models().includes(input.model)) {
-        return { status: 400, error: `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflected(input.model)}` };
+        return { status: 400, error: `${CONTENT_TRIAL_IMAGE_MODEL_MESSAGE}: ${this.#reflected(input.model)}` };
       }
-    } else {
+    } else if (kind === "speech") {
       if (!this.#source.speechModels().includes(input.model)) {
-        return { status: 400, error: `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflected(input.model)}` };
+        return { status: 400, error: `${CONTENT_TRIAL_SPEECH_MODEL_MESSAGE}: ${this.#reflected(input.model)}` };
       }
       const declared = this.#source.speechVoices(input.model);
       if (declared && params.voice !== null && !declared.includes(params.voice)) {
         return { status: 400, error: `${CONTENT_TRIAL_SPEECH_VOICE_MESSAGE}: ${this.#reflected(params.voice)}` };
       }
+    } else if (input.model !== BGM_MODEL) {
+      return { status: 400, error: `${CONTENT_TRIAL_BGM_MODEL_MESSAGE}: ${this.#reflected(input.model)}` };
     }
 
     if (this.running(kind)) return { status: 409, error: CONTENT_TRIAL_ALREADY_RUNNING_MESSAGE };
@@ -391,6 +417,15 @@ export class ContentTrialsService {
     if (reused) return { status: 200, trial: this.#view(reused), reused: true };
 
     const startedAt = this.#now();
+    // 世代の読み取りは枠を取る前に済ませる。ここが投げても共有枠を漏らさない（DB 障害で試行も
+    // チャットの generate_bgm も 409 に張り付くのを避ける）
+    const keyEpoch = this.#db.readContentKeyEpoch();
+
+    // BGM はチャットの `generate_bgm` と同じプロセス内の枠を数える（試行用の別枠を足さない）。
+    // 行を作る前に取り、取れなければ行を残さずに止める
+    const heldSlot = kind === "bgm" ? acquireBgmGenerationSlot() : false;
+    if (kind === "bgm" && !heldSlot) return { status: 409, error: CONTENT_TRIAL_BGM_BUSY_MESSAGE };
+
     const row: ContentTrialRow = {
       id: newTrialId(),
       kind,
@@ -400,7 +435,7 @@ export class ContentTrialsService {
       instructions: params.instructions,
       speed: params.speed,
       state: "running",
-      keyEpoch: this.#db.readContentKeyEpoch(),
+      keyEpoch,
       artifactState: "none",
       charged: false,
       artifact: null,
@@ -413,10 +448,17 @@ export class ContentTrialsService {
     try {
       this.#db.saveContentTrial(row);
     } catch (error) {
+      if (heldSlot) releaseBgmGenerationSlot();
       console.warn(`[u7agent] content trial save failed: ${this.#maskError(messageFor(error))}`);
       return { status: 503, error: CONTENT_TRIAL_RECORD_FAILED_MESSAGE };
     }
-    const job: RunningJob = { id: row.id, kind, controller: new AbortController(), terminal: null };
+    const job: RunningJob = {
+      id: row.id,
+      kind,
+      controller: new AbortController(),
+      terminal: null,
+      releaseSlot: heldSlot ? releaseBgmGenerationSlot : null,
+    };
     this.#jobs.set(row.id, job);
     // 応答は開始直後（202）に返し、ジョブの完了は待たない
     void this.#run(job, {
@@ -637,12 +679,15 @@ export class ContentTrialsService {
   /** provider の 1 回の呼び出し。終端を決めた後に届いた結果は破棄する */
   async #run(job: RunningJob, target: TrialTarget): Promise<void> {
     try {
-      if (target.kind === "speech") await this.#generateSpeechOnce(job, target);
+      if (target.kind === "bgm") await this.#generateBgmOnce(job, target);
+      else if (target.kind === "speech") await this.#generateSpeechOnce(job, target);
       else await this.#generateImageOnce(job, target);
     } finally {
       // スロットと「実行中」の印の解放はここだけ。保存直後・終端更新の間もレジストリに残るため、
       // 一覧取得時の再照合が保存済みのファイルを中途ファイルとして消さない
       this.#jobs.delete(job.id);
+      // BGM の共有枠は provider の呼び出しが終わるまで握る（チャット側と同じ数え方）
+      job.releaseSlot?.();
     }
   }
 
@@ -726,6 +771,49 @@ export class ContentTrialsService {
     }
     // 音声に寸法は無い（履歴の行は形式とサイズだけを出す）
     await this.#storeArtifact(job, { format: prepared.format, bytes: prepared.bytes, width: null, height: null });
+  }
+
+  /**
+   * BGM の生成器を 1 回呼ぶ。生成器は失敗を例外で返すため、期限・中断と一緒に
+   * provider-failure の分類へ写す（成果物は MP3 だけを保存する）。
+   */
+  async #generateBgmOnce(job: RunningJob, target: TrialTarget): Promise<void> {
+    const generate = this.#generateBgm;
+    if (!generate) return;
+    // 期限はチャットのツールと同じ値。upload を持たない試行では生成だけに掛ける
+    const controller = new AbortController();
+    const onAbort = () => controller.abort(job.controller.signal.reason);
+    job.controller.signal.addEventListener("abort", onAbort, { once: true });
+    if (job.controller.signal.aborted) onAbort();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new Error("BGM生成がタイムアウトしました"));
+    }, BGM_TIMEOUT_MS);
+    try {
+      const audio = await generate({ prompt: target.prompt, apiKey: target.apiKey, signal: controller.signal });
+      if (job.terminal !== null) return;
+      // 宣言 MIME は固定（`audio/mpeg`）。実バイトの形式を正にして保存の前に確かめる
+      const prepared = prepareTrialBgmArtifact(audio);
+      if (!prepared.ok) {
+        this.#settle(job, storageFailure(prepared.reason));
+        return;
+      }
+      await this.#storeArtifact(job, { format: prepared.format, bytes: prepared.bytes, width: null, height: null });
+    } catch (error) {
+      // 中断・期限で終端を先に決めているときは、遅れて届いた失敗で状態を戻さない
+      if (job.terminal !== null) return;
+      const failure = classifyBgmFailure({
+        error,
+        timedOut,
+        aborted: job.controller.signal.aborted,
+        maskText: this.#maskError,
+      });
+      this.#settleFailure(job, failure.code, failure.message);
+    } finally {
+      clearTimeout(timer);
+      job.controller.signal.removeEventListener("abort", onAbort);
+    }
   }
 
   /** 成果物を書いて成功の終端を確定する。行とファイルの片側だけを残さない */
@@ -1016,7 +1104,7 @@ function storageFailure(reason: StorageFailureReason): TerminalDecision {
 
 /**
  * 種別ごとの入力スナップショット。音声は本文に加えてボイス・演技指示・話速を課金前に検査し、
- * 空の音声パラメーターは null（送らない）へ寄せる。
+ * 空の音声パラメーターは null（送らない）へ寄せる（画像と BGM はプロンプトだけ）。
  */
 function trialParametersOf(
   kind: ContentTrialKind,
@@ -1046,13 +1134,21 @@ function trialParametersOf(
 
 /**
  * 生成器へ渡す provider と model。画像はカタログの `provider/id` を分け、音声は provider を固定する
- * （音声のモデル id はそれ自体が `owner/model` の形で、アプリの provider 名とは別）。
+ * （音声のモデル id はそれ自体が `owner/model` の形で、アプリの provider 名とは別）。BGM はモデルも固定。
  */
 function generationRouteOf(kind: ContentTrialKind, model: string): { provider: string; model: string } | null {
   if (kind === "speech") return model === "" ? null : { provider: SPEECH_PROVIDER_ID, model };
+  if (kind === "bgm") return model === BGM_MODEL ? { provider: "openrouter", model: BGM_MODEL } : null;
   const separator = model.indexOf("/");
   if (separator <= 0 || separator === model.length - 1) return null;
   return { provider: model.slice(0, separator), model: model.slice(separator + 1) };
+}
+
+/** モデルを受け付けない理由の文言。種別ごとに変え、画像の文言を他の種別へ出さない */
+function modelMessageOf(kind: ContentTrialKind): string {
+  if (kind === "speech") return CONTENT_TRIAL_SPEECH_MODEL_MESSAGE;
+  if (kind === "bgm") return CONTENT_TRIAL_BGM_MODEL_MESSAGE;
+  return CONTENT_TRIAL_IMAGE_MODEL_MESSAGE;
 }
 
 function isTrialKind(value: string): value is ContentTrialKind {

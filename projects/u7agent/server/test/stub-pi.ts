@@ -13,6 +13,7 @@ import type { ContentGenerationConfig, ImageGenerationInput, ImageGenerationResu
 import type { InvestigateHost } from "../src/investigate-tool";
 import type { ServeToolHost } from "../src/serve-tool";
 import type { SpeechGenerationInput, SpeechGenerationResult } from "../src/speech";
+import type { BgmGenerationInput } from "../src/bgm";
 import { toolCatalog } from "../src/tool-catalog";
 import type { WebSearchRuntimeConfig } from "../src/web-search-tool";
 import type { SessionEnvSource } from "../src/agent";
@@ -1286,6 +1287,11 @@ export interface StubPiOptions {
    * （中断は `input.signal` を待つ実装をテスト側で書く）。
    */
   onGenerateImage?: (input: ImageGenerationInput) => ImageGenerationResult | Promise<ImageGenerationResult>;
+  /**
+   * BGM 生成器の模倣。省略時は最小の MP3（フレーム同期から始まる音声ではないバイト列）を返す。
+   * 成功 / 失敗（例外）/ 中断を差し替えられる。
+   */
+  onGenerateBgm?: (input: BgmGenerationInput) => Uint8Array<ArrayBuffer> | Promise<Uint8Array<ArrayBuffer>>;
 }
 
 export interface StubProvider {
@@ -1450,6 +1456,7 @@ export function createStubPi(options: StubPiOptions = {}) {
   const speechCalls: SpeechGenerationInput[] = [];
   // 試行ジョブの生成器へ渡った入力を記録する（課金前の検証で止めた呼び出しが無いことも見る）
   const imageCalls: ImageGenerationInput[] = [];
+  const bgmCalls: BgmGenerationInput[] = [];
   const webSearchConfigs: WebSearchRuntimeConfig[] = [];
   // serve ツールの実体 (bootstrap が注入する)。ツールの配線はここに記録して検証する
   const serveHosts: ServeToolHost[] = [];
@@ -1512,6 +1519,13 @@ export function createStubPi(options: StubPiOptions = {}) {
     },
     speechCalls,
     imageCalls,
+    bgmCalls,
+    generateBgm: async (input: BgmGenerationInput) => {
+      bgmCalls.push(input);
+      if (options.onGenerateBgm) return options.onGenerateBgm(input);
+      // 保存側は先頭のフレーム同期だけを見る（ブラウザーで鳴る音声ではない）
+      return new Uint8Array([0xff, 0xfb, 0x90, 0x64, 0x00, 0x00]);
+    },
     generateImage: async (input: ImageGenerationInput) => {
       imageCalls.push(input);
       if (options.onGenerateImage) return options.onGenerateImage(input);

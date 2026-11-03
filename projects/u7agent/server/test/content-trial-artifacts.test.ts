@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   createTrialArtifactStore,
   isTrialId,
+  prepareTrialBgmArtifact,
   prepareTrialImageArtifact,
   prepareTrialSpeechArtifact,
   TRIAL_ARTIFACT_MAX_BYTES,
@@ -124,7 +125,11 @@ test("ファイル名は trial id と形式からだけ作り、id の形を外�
   assert.equal(trialArtifactFormatAllowed("image", "mp3"), false);
   assert.equal(trialArtifactFormatAllowed("speech", "wav"), true);
   assert.equal(trialArtifactFormatAllowed("speech", "png"), false);
-  assert.equal(trialArtifactFormatAllowed("bgm", "mp3"), false);
+  // BGM は生成器が MP3 だけを返すので wav を通さない
+  assert.equal(trialArtifactFormatAllowed("bgm", "mp3"), true);
+  assert.equal(trialArtifactFormatAllowed("bgm", "wav"), false);
+  assert.equal(trialArtifactFormatAllowed("bgm", "png"), false);
+  assert.equal(trialArtifactFormatAllowed("unknown", "mp3"), false);
 });
 
 async function withDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
@@ -172,6 +177,28 @@ test("置き場は保存名の形を外れる要求を fs へ渡さず、未知�
     // 置き場の外には書かない
     assert.deepEqual((await readdir(dir)).sort(), ["trials"]);
   });
+});
+
+test("BGM は mp3 だけを保存できる形にし、他の形式は保存の前に拒否する", () => {
+  const frame = new Uint8Array([0xff, 0xfb, 0x90, 0x64, 0x00]);
+  const mp3 = prepareTrialBgmArtifact(frame);
+  assert.equal(mp3.ok, true);
+  if (!mp3.ok) return;
+  assert.equal(mp3.format, "mp3");
+  // ID3 付きの MP3 も同じく通す（生成器の `assertBgmMp3` が見る先頭と同じ）
+  assert.equal(prepareTrialBgmArtifact(new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00])).ok, true);
+
+  // wav（RIFF/WAVE）は BGM の許可リスト外、音声でないバイトは invalid_bytes
+  const wav = new Uint8Array(12);
+  wav.set([...Buffer.from("RIFF")], 0);
+  wav.set([...Buffer.from("WAVE")], 8);
+  assert.deepEqual(prepareTrialBgmArtifact(wav), { ok: false, reason: "unsupported_format" });
+  assert.deepEqual(prepareTrialBgmArtifact(pngBytes()), { ok: false, reason: "invalid_bytes" });
+  assert.deepEqual(prepareTrialBgmArtifact(new Uint8Array(0)), { ok: false, reason: "invalid_bytes" });
+
+  const large = new Uint8Array(TRIAL_ARTIFACT_MAX_BYTES + 1);
+  large.set(frame, 0);
+  assert.deepEqual(prepareTrialBgmArtifact(large), { ok: false, reason: "too_large" });
 });
 
 test("音声は mp3 と wav だけを保存できる形にし、宣言 MIME と実バイトの両方を見る", () => {

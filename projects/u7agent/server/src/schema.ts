@@ -1367,7 +1367,7 @@ export type ContentMutationResponse = z.infer<typeof ContentMutationResponseSche
 export const ContentTrialStateSchema = z.enum(CONTENT_TRIAL_STATES);
 export type ContentTrialStateValue = z.infer<typeof ContentTrialStateSchema>;
 
-/** 試行の種別。画像 / 音声は同じジョブの仕組みを使い、BGM は最後の段階で足す */
+/** 試行の種別。画像 / 音声 / BGM は同じジョブの仕組みと履歴を使う */
 export const ContentTrialKindSchema = z.enum(CONTENT_TRIAL_KINDS);
 export type ContentTrialKindValue = z.infer<typeof ContentTrialKindSchema>;
 
@@ -1394,7 +1394,7 @@ export type ContentTrialArtifact = z.infer<typeof ContentTrialArtifactSchema>;
 /**
  * 試行 1 件。`recorded: false` は「終端を DB へ記録できず、メモリの状態を返している」を表し、
  * この間の行は `running` のまま保存されている（docs/api-settings.md）。APIキーは載らない。
- * 音声の `voice` / `instructions` / `speed` は送信時のスナップショットで、画像の行は null。
+ * 音声の `voice` / `instructions` / `speed` は送信時のスナップショットで、画像と BGM の行は null。
  */
 export const ContentTrialSchema = z.object({
   id: z.string(),
@@ -1455,10 +1455,11 @@ export type ContentTrialDeleteResponse = z.infer<typeof ContentTrialDeleteRespon
  * POST /api/settings/content/trials。試行は画面の値で実行し、設定には反映しない。
  * 種別ごとに同時 1 本で、実行中は 409。`voice` / `instructions` / `speed` は音声のときだけ受け付け、
  * 音声の試行の入力スナップショットとして履歴に残る（同じ入力の再利用もこの 3 つで照合する）。
+ * BGM の `model` は固定で、それ以外は 400（設定画面は固定値を送る）。
  */
 export const CreateContentTrialBodySchema = z.object({
   kind: ContentTrialKindSchema,
-  /** 画像は `provider/id`、音声はカタログのモデル id。カタログに載っているモデルだけを受け付ける */
+  /** 画像は `provider/id`、音声はカタログのモデル id、BGM は固定のモデル id だけを受け付ける */
   model: z.string().min(1),
   prompt: z.string().min(1).max(CONTENT_TRIAL_PROMPT_MAX_LENGTH),
   /** 空文字は「指定なし」（宣言が無いモデル）で、本文から `voice` を落とす */

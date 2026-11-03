@@ -5,12 +5,15 @@ import type { ContentTrialArtifactRow, ContentTrialRow } from "../src/app-db";
 import {
   CONTENT_TRIAL_ALREADY_RUNNING_MESSAGE,
   CONTENT_TRIAL_ALREADY_TERMINAL_MESSAGE,
+  CONTENT_TRIAL_BGM_BUSY_MESSAGE,
+  CONTENT_TRIAL_BGM_MODEL_MESSAGE,
   CONTENT_TRIAL_ARTIFACT_FORMAT_MESSAGE,
   CONTENT_TRIAL_ARTIFACT_MISSING_MESSAGE,
   CONTENT_TRIAL_DELETE_RUNNING_MESSAGE,
   CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH,
   CONTENT_TRIAL_KEY_UNAVAILABLE_MESSAGE,
-  CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE,
+  CONTENT_TRIAL_IMAGE_MODEL_MESSAGE,
+  CONTENT_TRIAL_SPEECH_MODEL_MESSAGE,
   CONTENT_TRIAL_NOT_FOUND_MESSAGE,
   CONTENT_TRIAL_PROMPT_EMPTY_MESSAGE,
   CONTENT_TRIAL_PROMPT_MAX_LENGTH,
@@ -32,6 +35,15 @@ import {
   type TrialArtifactStore,
 } from "../src/content-trial-artifacts";
 import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
+import {
+  acquireBgmGenerationSlot,
+  BGM_MAX_CONCURRENT,
+  BGM_MODEL,
+  BGM_TIMEOUT_MS,
+  BgmGenerationError,
+  releaseBgmGenerationSlot,
+  type BgmGenerationInput,
+} from "../src/bgm";
 import { IMAGE_GENERATION_TIMEOUT_MS, type ImageGenerationInput, type ImageGenerationResult } from "../src/images";
 import { SPEECH_GENERATION_TIMEOUT_MS, type SpeechGenerationInput, type SpeechGenerationResult } from "../src/speech";
 
@@ -62,9 +74,12 @@ class FakeTrialsDb implements ContentTrialsDb {
   failSave = false;
   failFinish = false;
   failList = false;
+  /** 世代の読み取りだけを失敗させる（枠を取った後の例外で共有枠を漏らさないことの確認） */
+  failKeyEpoch = false;
   finishCalls = 0;
 
   readContentKeyEpoch(): number {
+    if (this.failKeyEpoch) throw new Error("db epoch boom");
     return this.epoch;
   }
 
@@ -233,6 +248,14 @@ interface SpeechGeneration {
   aborted: () => boolean;
 }
 
+/** BGM の生成器は失敗を例外で返す（チャットのツールと同じ契約） */
+interface BgmGeneration {
+  input: BgmGenerationInput;
+  resolve: (audio: Uint8Array<ArrayBuffer>) => void;
+  reject: (error: unknown) => void;
+  aborted: () => boolean;
+}
+
 /** 音声のカタログ。`voices` が undefined のモデルは自由記述のボイスを受ける */
 const SPEECH_MODEL = "google/gemini-3.8-flash-tts";
 const SPEECH_VOICES = ["Achernar", "Aoede"];
@@ -276,6 +299,7 @@ function createHarness(
   const store = new FakeArtifactStore();
   const generations: Generation[] = [];
   const speechGenerations: SpeechGeneration[] = [];
+  const bgmGenerations: BgmGeneration[] = [];
   let now = 1_000;
   const source: ContentTrialSource = {
     read: () => ({
@@ -306,6 +330,13 @@ function createHarness(
             return pending.promise;
           },
     artifacts: options.artifacts === false ? undefined : store,
+    generateBgm:
+      options.generate === false
+        ? undefined
+        : (input) =>
+            new Promise((resolve, reject) => {
+              bgmGenerations.push({ input, resolve, reject, aborted: () => input.signal.aborted });
+            }),
     maskError: (text) => text.split(KEY).join("[REDACTED]"),
     now: () => now,
   });
@@ -315,6 +346,7 @@ function createHarness(
     service,
     generations,
     speechGenerations,
+    bgmGenerations,
     advanceClock: (ms: number) => {
       now += ms;
     },
@@ -331,6 +363,7 @@ function createHarness(
         ...(params.instructions === undefined ? {} : { instructions: params.instructions }),
         ...(params.speed === undefined ? {} : { speed: params.speed }),
       }),
+    startBgm: (prompt = "静かな夜のピアノ", model = BGM_MODEL) => service.start({ kind: "bgm", model, prompt }),
     speech: {
       /** 実バイトが mp3 として読める最小の応答（先頭はフレーム同期） */
       mp3: (): SpeechGenerationResult => ({
@@ -904,7 +937,7 @@ test("開始前の検証は課金前に止め、理由ごとの固定文言を�
   assert.equal(outside.status, 400);
   assert.equal(
     outside.status === 400 ? outside.error : "",
-    `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: openrouter/unknown/model`,
+    `${CONTENT_TRIAL_IMAGE_MODEL_MESSAGE}: openrouter/unknown/model`,
   );
 
   const empty = createHarness().start("   ");
@@ -1151,10 +1184,7 @@ test("同じ入力（本文 + モデル + ボイス + 演技指示 + 話速）�
 test("音声の開始前の検証は課金前に止める（カタログ / 宣言ボイス / 話速 / 音声以外のパラメーター）", () => {
   const outside = createHarness().startSpeech("x", { model: "unknown/model" });
   assert.equal(outside.status, 400);
-  assert.equal(
-    outside.status === 400 ? outside.error : "",
-    `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: unknown/model`,
-  );
+  assert.equal(outside.status === 400 ? outside.error : "", `${CONTENT_TRIAL_SPEECH_MODEL_MESSAGE}: unknown/model`);
 
   const undeclared = createHarness().startSpeech("x", { voice: "NotAVoice" });
   assert.equal(undeclared.status, 400);
@@ -1225,7 +1255,7 @@ test("400 の文言は入力を反射するときにマスカーを通し、固�
   if (image.status !== 400) return;
   assert.equal(image.error.includes(KEY), false, "キーを反射しない");
   assert.ok(image.error.includes("[REDACTED]"));
-  assert.ok(image.error.startsWith(CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE), "固定の理由は残す");
+  assert.ok(image.error.startsWith(CONTENT_TRIAL_IMAGE_MODEL_MESSAGE), "固定の理由は残す");
 
   // 音声のモデル欄（カタログ外）
   const speechModel = harness.startSpeech("こんにちは", { model: KEY });
@@ -1241,4 +1271,218 @@ test("400 の文言は入力を反射するときにマスカーを通し、固�
   assert.equal(voice.error.includes(KEY), false);
   assert.ok(voice.error.includes("[REDACTED]"));
   assert.ok(voice.error.startsWith(CONTENT_TRIAL_SPEECH_VOICE_MESSAGE), "固定の理由は残す");
+});
+
+/** BGM の成果物として保存できる最小の MP3（フレーム同期で始まる） */
+function bgmMp3(): Uint8Array<ArrayBuffer> {
+  return new Uint8Array([0xff, 0xfb, 0x90, 0x64, 0x00, 0x00]);
+}
+
+test("BGM の試行は固定モデルとプロンプトだけを記録し、MP3 を保存して成功する", async () => {
+  const harness = createHarness();
+  const started = harness.startBgm("静かな夜のピアノ");
+  assert.equal(started.status, 202);
+  if (started.status !== 202) return;
+  assert.equal(started.trial.kind, "bgm");
+  assert.equal(started.trial.model, BGM_MODEL);
+  assert.equal(started.trial.prompt, "静かな夜のピアノ");
+  // BGM に入力スナップショットは無い（音声の 3 列は null）
+  assert.equal(started.trial.voice, null);
+  assert.equal(started.trial.instructions, null);
+  assert.equal(started.trial.speed, null);
+  // 生成器へはプロンプトとキーと中断だけを渡す
+  const generation = harness.bgmGenerations[0];
+  assert.ok(generation);
+  assert.equal(generation.input.prompt, "静かな夜のピアノ");
+  assert.equal(generation.input.apiKey, KEY);
+
+  generation.resolve(bgmMp3());
+  await until(() => harness.db.rows.get(started.trial.id)?.state === "succeeded");
+  const succeeded = harness.db.rows.get(started.trial.id);
+  assert.equal(succeeded?.artifactState, "stored");
+  assert.equal(succeeded?.artifact?.format, "mp3");
+  assert.equal(succeeded?.artifact?.bytes, 6);
+  // 音声に寸法は無い
+  assert.equal(succeeded?.artifact?.width, null);
+  assert.equal(succeeded?.artifact?.height, null);
+  assert.equal(succeeded?.charged, true);
+  // raw 配信は保存時に確定した audio/mpeg
+  const raw = await harness.service.raw(started.trial.id);
+  assert.equal(raw.status, 200);
+  assert.equal(raw.status === 200 ? raw.contentType : "", "audio/mpeg");
+  assert.deepEqual(harness.service.list("bgm").artifactUsage, { count: 1, bytes: 6 });
+});
+
+test("BGM の結果が mp3 でない / 保存できないときは storage の失敗にし、成功として見せない", async () => {
+  // 実バイトが画像（生成器の契約違反）は保存しない
+  const notMp3 = createHarness();
+  const bad = notMp3.startBgm();
+  if (bad.status !== 202) return;
+  notMp3.bgmGenerations[0]?.resolve(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  await until(() => notMp3.db.rows.get(bad.trial.id)?.state === "failed");
+  const failed = notMp3.db.rows.get(bad.trial.id);
+  assert.equal(failed?.failureCode, "storage");
+  assert.equal(failed?.failureMessage, CONTENT_TRIAL_ARTIFACT_FORMAT_MESSAGE);
+  // 生成は成功して課金されているので、再生成で再課金されることを記録する
+  assert.equal(failed?.charged, true);
+  assert.equal(notMp3.store.files.size, 0, "拒否した結果は 1 バイトも書かない");
+
+  // 置き場の書き込み失敗も同じ分類
+  const noDisk = createHarness();
+  noDisk.store.failWrite = true;
+  const pending = noDisk.startBgm();
+  if (pending.status !== 202) return;
+  noDisk.bgmGenerations[0]?.resolve(bgmMp3());
+  await until(() => noDisk.db.rows.get(pending.trial.id)?.state === "failed");
+  assert.equal(noDisk.db.rows.get(pending.trial.id)?.failureCode, "storage");
+  assert.equal(noDisk.db.rows.get(pending.trial.id)?.failureMessage, CONTENT_TRIAL_STORAGE_FAILED_MESSAGE);
+});
+
+test("BGM の失敗は provider-failure の分類へ写し、中断は canceled にする", async () => {
+  const harness = createHarness();
+  const unauthorized = harness.startBgm();
+  if (unauthorized.status !== 202) return;
+  harness.bgmGenerations[0]?.reject(new BgmGenerationError("BGM HTTP 401: invalid key", 401));
+  await until(() => harness.db.rows.get(unauthorized.trial.id)?.state === "failed");
+  assert.equal(harness.db.rows.get(unauthorized.trial.id)?.failureCode, "invalid_key");
+
+  const unknown = harness.startBgm("別のプロンプト");
+  if (unknown.status !== 202) return;
+  harness.bgmGenerations[1]?.reject(new Error("BGMのSSEが途中で切断されました"));
+  await until(() => harness.db.rows.get(unknown.trial.id)?.state === "failed");
+  assert.equal(harness.db.rows.get(unknown.trial.id)?.failureCode, "unknown");
+  assert.match(harness.db.rows.get(unknown.trial.id)?.failureMessage ?? "", /途中で切断/);
+
+  // 利用者の中断は canceled（生成器の signal も abort される）
+  const canceled = harness.startBgm("中断するプロンプト");
+  if (canceled.status !== 202) return;
+  const outcome = harness.service.cancel(canceled.trial.id);
+  assert.equal(outcome.status, 200);
+  assert.equal(harness.bgmGenerations[2]?.aborted(), true);
+  harness.bgmGenerations[2]?.reject(new BgmGenerationError("BGM生成を中断しました"));
+  await until(() => harness.service.running("bgm") === false);
+  assert.equal(harness.db.rows.get(canceled.trial.id)?.state, "canceled");
+  assert.equal(harness.db.rows.get(canceled.trial.id)?.charged, false);
+});
+
+test("BGM の running は BGM_TIMEOUT_MS を過ぎた再照合で interrupted になる", async () => {
+  const harness = createHarness();
+  const staleId = trialId(77);
+  harness.db.rows.set(
+    staleId,
+    row({ id: staleId, kind: "bgm", model: BGM_MODEL, prompt: "取り残し", startedAt: 1_000 }),
+  );
+  harness.advanceClock(BGM_TIMEOUT_MS + 60_000);
+  const list = harness.service.list("bgm");
+  assert.equal(list.items[0]?.state, "interrupted");
+
+  // close は実行中の BGM を abort して interrupted にする（枠は provider の呼び出しが終わって返る）
+  const running = harness.startBgm();
+  if (running.status !== 202) return;
+  await harness.service.close();
+  assert.equal(harness.bgmGenerations[0]?.aborted(), true);
+  assert.equal(harness.db.rows.get(running.trial.id)?.state, "interrupted");
+  harness.bgmGenerations[0]?.reject(new BgmGenerationError("BGM生成を中断しました"));
+  await until(() => harness.service.running("bgm") === false);
+});
+
+test("BGM の試行はチャットの generate_bgm と同じ同時実行枠を数える", async () => {
+  const harness = createHarness();
+  // チャットの生成が枠を使い切っている間は、行を作らずに 409 で止める
+  assert.equal(acquireBgmGenerationSlot(), true);
+  assert.equal(acquireBgmGenerationSlot(), true);
+  assert.equal(acquireBgmGenerationSlot(), false, `同時 ${BGM_MAX_CONCURRENT} 件が上限`);
+  const busy = harness.startBgm();
+  assert.equal(busy.status, 409);
+  assert.equal(busy.status === 409 ? busy.error : "", CONTENT_TRIAL_BGM_BUSY_MESSAGE);
+  assert.equal(harness.db.rows.size, 0, "枠が無いときは行を作らない");
+  releaseBgmGenerationSlot();
+  releaseBgmGenerationSlot();
+
+  // チャット側の 1 本と試行の 1 本で上限に達する（試行用の別枠が無い）
+  assert.equal(acquireBgmGenerationSlot(), true);
+  const started = harness.startBgm();
+  assert.equal(started.status, 202);
+  assert.equal(acquireBgmGenerationSlot(), false, "試行が握っている枠も同じ上限に数える");
+  releaseBgmGenerationSlot();
+
+  // 試行が終わると枠が返り、チャットの生成を再び受けられる
+  harness.bgmGenerations[0]?.resolve(bgmMp3());
+  await until(() => harness.service.running("bgm") === false);
+  assert.deepEqual(
+    Array.from({ length: BGM_MAX_CONCURRENT }, () => acquireBgmGenerationSlot()),
+    [true, true],
+  );
+  releaseBgmGenerationSlot();
+  releaseBgmGenerationSlot();
+});
+
+test("BGM の同じプロンプトとモデルの保存済み成功は課金せず、プロンプトが違えば再利用しない", async () => {
+  const harness = createHarness();
+  const first = harness.startBgm("同じプロンプト");
+  if (first.status !== 202) return;
+  harness.bgmGenerations[0]?.resolve(bgmMp3());
+  await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
+  const rowsBefore = harness.db.rows.size;
+
+  const reused = harness.startBgm("同じプロンプト");
+  assert.equal(reused.status, 200);
+  assert.equal(reused.status === 200 ? reused.reused : false, true);
+  assert.equal(harness.bgmGenerations.length, 1, "再利用では provider を呼ばない");
+  assert.equal(harness.db.rows.size, rowsBefore, "再利用は新しい成功として記録しない");
+
+  // プロンプトが違えば再利用しない（新しい試行として開始し、provider を呼ぶ）
+  const changed = harness.startBgm("違うプロンプト");
+  assert.equal(changed.status, 202);
+  assert.equal(changed.status === 202 ? changed.reused : true, false);
+  assert.equal(harness.bgmGenerations.length, 2);
+  if (changed.status !== 202) return;
+  harness.service.cancel(changed.trial.id);
+  harness.bgmGenerations[1]?.reject(new BgmGenerationError("BGM生成を中断しました"));
+  await until(() => harness.service.running("bgm") === false);
+});
+
+test("BGM の開始前の検証は固定モデルと音声パラメーターを課金前に止める", () => {
+  const outside = createHarness().startBgm("x", "openrouter/other-model");
+  assert.equal(outside.status, 400);
+  assert.equal(
+    outside.status === 400 ? outside.error : "",
+    `${CONTENT_TRIAL_BGM_MODEL_MESSAGE}: openrouter/other-model`,
+  );
+
+  // 音声のパラメーターは BGM へ付けられない
+  const params = createHarness().service.start({
+    kind: "bgm",
+    model: BGM_MODEL,
+    prompt: "x",
+    voice: "Aoede",
+  });
+  assert.equal(params.status, 400);
+  assert.equal(params.status === 400 ? params.error : "", CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE);
+
+  // 生成器が未注入の起動は 503（BGM 専用の別枠を作らない）
+  const unavailable = createHarness({ generate: false }).startBgm();
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.status === 503 ? unavailable.error : "", CONTENT_TRIAL_RUNTIME_UNAVAILABLE_MESSAGE);
+});
+
+test("世代の読み取りが失敗しても、BGM の共有枠を漏らさない", () => {
+  const harness = createHarness();
+  harness.db.failKeyEpoch = true;
+  // 上限と同じ回数だけ失敗させる。解放されていなければ、この時点で共有枠が張り付く
+  for (let attempt = 0; attempt < BGM_MAX_CONCURRENT; attempt += 1) {
+    assert.throws(() => harness.startBgm(), /db epoch boom/);
+  }
+  assert.equal(harness.db.rows.size, 0, "行を作らない");
+
+  harness.db.failKeyEpoch = false;
+  // チャット側の生成も試行も、同じ枠をそのまま取れる（漏れていない）
+  assert.equal(acquireBgmGenerationSlot(), true);
+  releaseBgmGenerationSlot();
+  const started = harness.startBgm();
+  assert.equal(started.status, 202);
+  if (started.status !== 202) return;
+  harness.service.cancel(started.trial.id);
+  harness.bgmGenerations[0]?.reject(new BgmGenerationError("BGM生成を中断しました"));
+  return until(() => harness.service.running("bgm") === false);
 });

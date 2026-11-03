@@ -40,6 +40,7 @@ import { ToggleSwitch } from "../ToggleSwitch";
 import { MetaChip } from "../model-settings/MetaChip";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
 import { EvidenceLine, ImageTrialSection } from "./ImageTrialSection";
+import { BgmTrialSection } from "./BgmTrialSection";
 import { SpeechTrialSection } from "./SpeechTrialSection";
 import { SpeechVoiceOptions } from "./SpeechVoiceOptions";
 
@@ -115,6 +116,8 @@ export function ContentSettingsTab({
   const [trialPrompt, setTrialPrompt] = useState("");
   // 音声の試行の本文・演技指示・話速も同じ扱い（保存値へ書き戻さない）
   const [speechTrialDraft, setSpeechTrialDraft] = useState(EMPTY_SPEECH_TRIAL_DRAFT);
+  // BGM の試行のプロンプトも保存しない（履歴にだけ残す）
+  const [bgmTrialPrompt, setBgmTrialPrompt] = useState("");
   // 証拠の相対表記は画面を開いた時刻で固定する（毎秒の再描画を持ち込まない）
   const [trialNow] = useState(() => Date.now());
   // 画面に出ているモデル。モデル選択・試行の開始・証拠はこの 1 つを使う（保存前でも画面の値で試す）
@@ -318,9 +321,29 @@ export function ContentSettingsTab({
               onDeleteAll={() => onDeleteAllTrials("speech")}
             />
           </>
-        ) : settings.configured ? (
-          <BgmSection settings={settings} />
-        ) : null}
+        ) : (
+          <>
+            {/* 保存される設定はキー保存後にだけ出す。試行の面は履歴を読めるよう未設定でも出す */}
+            {settings.configured ? (
+              <BgmModelSection settings={settings} trials={trials} keyEpoch={trialKeyEpoch} now={trialNow} />
+            ) : null}
+            <BgmTrialSection
+              settings={settings}
+              model={settings.bgm.model ?? ""}
+              trials={trials}
+              keyEpoch={trialKeyEpoch}
+              artifactUsage={trialArtifactUsage}
+              note={trialNote}
+              busy={trialBusy}
+              prompt={bgmTrialPrompt}
+              onChangePrompt={setBgmTrialPrompt}
+              onStart={onStartTrial}
+              onCancel={onCancelTrial}
+              onDelete={onDeleteTrial}
+              onDeleteAll={() => onDeleteAllTrials("bgm")}
+            />
+          </>
+        )}
 
         <section className="grid gap-1 border-t border-line pt-3 text-2xs leading-relaxed text-ink-muted">
           <p>
@@ -346,10 +369,24 @@ type SpeechDraft = { model: string | null; voice: string | null };
 
 const EMPTY_SPEECH_DRAFT: SpeechDraft = { model: null, voice: null };
 
-function BgmSection({ settings }: { settings: ContentSettingsResponse }) {
+/**
+ * 音楽（BGM）の保存される設定。モデルは Issue の非ゴールで選ばせないため、読取専用の 1 行と証拠だけを出し、
+ * 入力と結果は試行の面（`BgmTrialSection`）へ置く。
+ */
+function BgmModelSection({
+  settings,
+  trials,
+  keyEpoch,
+  now,
+}: {
+  settings: ContentSettingsResponse;
+  trials: readonly ContentTrial[] | null;
+  keyEpoch: number;
+  now: number;
+}) {
   return (
     <section className="grid min-w-0 gap-1.5 border-t border-line pt-3">
-      <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">音楽（BGM）</h3>
+      <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">保存される設定</h3>
       <label className="grid min-w-0 gap-1.5 text-2xs text-ink-muted">
         固定モデル（変更不可）
         <input
@@ -359,12 +396,14 @@ function BgmSection({ settings }: { settings: ContentSettingsResponse }) {
           value={settings.bgm.model ?? ""}
         />
       </label>
+      {/* キーの有効性は緑のバッジにせず、現在のキー世代の実績だけを証拠として出す */}
+      <EvidenceLine trials={trials} model={settings.bgm.model ?? ""} keyEpoch={keyEpoch} now={now} />
       <p className="text-2xs leading-relaxed text-ink-muted">
         モデル仕様では{settings.bgm.expectedDurationSeconds}秒のクリップを{settings.bgm.format.toUpperCase()}
         で生成します（実測の尺ではありません）。生成は課金対象で、プロンプトをOpenRouterと生成プロバイダーへ外部送信します。
       </p>
       <p className="text-2xs leading-relaxed text-ink-muted">
-        会話から新しいインストゥルメンタルBGMを依頼してください。ボーカルなし・正確なBPMや尺・シームレスループは保証しません。失敗や中断でも課金される可能性があるため、自動で再生成しません。
+        ボーカルなし・正確なBPMや尺・シームレスループは保証しません。失敗や中断でも課金される可能性があるため、自動で再生成しません。
       </p>
     </section>
   );

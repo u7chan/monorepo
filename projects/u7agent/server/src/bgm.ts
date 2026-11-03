@@ -1,4 +1,10 @@
-import { parseJsonBody, providerMessageOf } from "./provider-failure";
+import {
+  classifyProviderFailure,
+  parseJsonBody,
+  providerMessageOf,
+  type ProviderFailure,
+  type ProviderFailureMessages,
+} from "./provider-failure";
 
 export const BGM_MODEL = "google/lyria-3-clip-preview";
 export const BGM_API_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -13,6 +19,70 @@ export const BGM_LIMITS = {
   total: 64 * 1024 * 1024,
   error: 64 * 1024,
 } as const;
+
+/** 失敗の公開文言。分類の規則は `provider-failure.ts` を正とし、ここは文言だけを持つ */
+const BGM_FAILURE_MESSAGES: ProviderFailureMessages = {
+  invalidKey: "BGM生成のAPIキーが無効です。設定を確認してください",
+  insufficientCredit: "BGM生成の残高が不足しています",
+  rateLimited: "BGM生成が混雑しています（レート制限またはプロバイダー障害）",
+  timeout: "BGM生成がタイムアウトしました",
+  aborted: "BGM生成を中断しました",
+  unknown: "BGM生成に失敗しました",
+};
+
+/**
+ * 生成器が投げる失敗。チャットのツールは文言だけを使い、設定画面の試行は `status` を
+ * provider-failure の分類へ写す（分類を文字列から読み直さない）。
+ */
+export class BgmGenerationError extends Error {
+  readonly status: number | undefined;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = "BgmGenerationError";
+    this.status = status;
+  }
+}
+
+/**
+ * 失敗を provider-failure のコードへ写す。期限と中断は呼び出し側が観測した値を渡す
+ * （生成器は自前のタイマーを持たない）。
+ */
+export function classifyBgmFailure(input: {
+  error: unknown;
+  timedOut: boolean;
+  aborted: boolean;
+  maskText: (text: string) => string;
+}): ProviderFailure {
+  return classifyProviderFailure(
+    {
+      status: input.error instanceof BgmGenerationError ? input.error.status : undefined,
+      timedOut: input.timedOut,
+      aborted: input.aborted,
+      providerMessage: input.error instanceof Error ? input.error.message : undefined,
+      maskText: input.maskText,
+    },
+    BGM_FAILURE_MESSAGES,
+  );
+}
+
+/**
+ * プロセス内の同時実行枠。チャットの `generate_bgm` と設定画面の試行は同じ枠を数え、
+ * 試行用の別枠を足さない（docs/bgm-generation.md）。
+ */
+let activeBgmGenerations = 0;
+
+/** 枠を取る。取れなければ false（送信前に止める。キューは持たない） */
+export function acquireBgmGenerationSlot(): boolean {
+  if (activeBgmGenerations >= BGM_MAX_CONCURRENT) return false;
+  activeBgmGenerations += 1;
+  return true;
+}
+
+/** 枠を返す。取っていない呼び出しで減らさない（返し忘れより二重解放を避ける） */
+export function releaseBgmGenerationSlot(): void {
+  if (activeBgmGenerations > 0) activeBgmGenerations -= 1;
+}
 
 export interface BgmGenerationSettings {
   model: typeof BGM_MODEL;
@@ -139,8 +209,10 @@ export function createBgmGenerator(options: BgmGeneratorOptions = {}) {
             chunks.push(next.value);
           }
           const raw = Buffer.concat(chunks).toString("utf8");
-          throw new Error(
+          // 状態は分類（401 / 402 / 429 / 5xx）へ写すため、文言へ畳まずに構造で持つ
+          throw new BgmGenerationError(
             `BGM HTTP ${response.status}: ${mask(providerMessageOf(parseJsonBody(raw), raw, true) ?? "生成失敗").slice(0, 500)}`,
+            response.status,
           );
         }
         if (response.headers.get("content-type")?.split(";")[0]?.trim() !== "text/event-stream") {
@@ -277,7 +349,10 @@ export function createBgmGenerator(options: BgmGeneratorOptions = {}) {
         return result;
       } catch (error) {
         const message = error instanceof Error ? error.message : "BGM生成に失敗しました";
-        throw new Error(mask(message).slice(0, 500));
+        throw new BgmGenerationError(
+          mask(message).slice(0, 500),
+          error instanceof BgmGenerationError ? error.status : undefined,
+        );
       } finally {
         if (reader) {
           void reader.cancel().catch(() => {});

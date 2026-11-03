@@ -18,7 +18,7 @@ import { join, resolve } from "node:path";
 import { COMMON_SKILLS_DIR } from "./app-paths";
 import { createAskUserToolDefinitions, ASK_USER_TOOL_NAME, withAskUserTool, type AskUserHost } from "./ask-user-tool";
 import { builtinSkillEnabled } from "./builtin-skills";
-import { createBgmGenerator } from "./bgm";
+import { createBgmGenerator, type BgmGenerationInput } from "./bgm";
 import { contentGenerationDisabled } from "./content-disabled";
 import { createBgmToolDefinitions, BGM_GENERATION_PROMPT_LINES, BGM_TOOL_NAME } from "./bgm-tools";
 import { discoverSessionFileSkills } from "./file-skills";
@@ -343,6 +343,11 @@ export interface PiBff {
    * 成果物はチャット側と違い保存しない（段階 1 は記録のみ）。
    */
   generateImage(input: ImageGenerationInput): Promise<ImageGenerationResult>;
+  /**
+   * 設定 → コンテンツ生成 の BGM の試行が使う生成器。チャットの `generate_bgm` と同じ生成器・同じ
+   * プロセス内の同時実行枠を共有する（失敗は例外で返る）。
+   */
+  generateBgm(input: BgmGenerationInput): Promise<Uint8Array<ArrayBuffer>>;
   /**
    * `web_search` の実行時設定（有効 / 無効・既定 provider・provider のキー）を注入する。ツールは
    * execute のたびに読むため、既存セッションにも次の呼び出しから効く。設定が未注入の間は有効 / Exa
@@ -1220,6 +1225,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     },
     generateSpeech: (input) => speechGenerator.generate(input),
     generateImage: (input) => imagesGenerator.generate(input),
+    generateBgm: (input) => bgmGenerator.generate(input),
     setWebSearch(config) {
       webSearch.config = config;
     },
