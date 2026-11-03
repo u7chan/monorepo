@@ -416,12 +416,16 @@ export class ContentTrialsService {
     });
     if (reused) return { status: 200, trial: this.#view(reused), reused: true };
 
+    const startedAt = this.#now();
+    // 世代の読み取りは枠を取る前に済ませる。ここが投げても共有枠を漏らさない（DB 障害で試行も
+    // チャットの generate_bgm も 409 に張り付くのを避ける）
+    const keyEpoch = this.#db.readContentKeyEpoch();
+
     // BGM はチャットの `generate_bgm` と同じプロセス内の枠を数える（試行用の別枠を足さない）。
     // 行を作る前に取り、取れなければ行を残さずに止める
     const heldSlot = kind === "bgm" ? acquireBgmGenerationSlot() : false;
     if (kind === "bgm" && !heldSlot) return { status: 409, error: CONTENT_TRIAL_BGM_BUSY_MESSAGE };
 
-    const startedAt = this.#now();
     const row: ContentTrialRow = {
       id: newTrialId(),
       kind,
@@ -431,7 +435,7 @@ export class ContentTrialsService {
       instructions: params.instructions,
       speed: params.speed,
       state: "running",
-      keyEpoch: this.#db.readContentKeyEpoch(),
+      keyEpoch,
       artifactState: "none",
       charged: false,
       artifact: null,

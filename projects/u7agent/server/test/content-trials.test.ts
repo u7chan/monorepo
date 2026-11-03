@@ -74,9 +74,12 @@ class FakeTrialsDb implements ContentTrialsDb {
   failSave = false;
   failFinish = false;
   failList = false;
+  /** 世代の読み取りだけを失敗させる（枠を取った後の例外で共有枠を漏らさないことの確認） */
+  failKeyEpoch = false;
   finishCalls = 0;
 
   readContentKeyEpoch(): number {
+    if (this.failKeyEpoch) throw new Error("db epoch boom");
     return this.epoch;
   }
 
@@ -1461,4 +1464,25 @@ test("BGM の開始前の検証は固定モデルと音声パラメーターを�
   const unavailable = createHarness({ generate: false }).startBgm();
   assert.equal(unavailable.status, 503);
   assert.equal(unavailable.status === 503 ? unavailable.error : "", CONTENT_TRIAL_RUNTIME_UNAVAILABLE_MESSAGE);
+});
+
+test("世代の読み取りが失敗しても、BGM の共有枠を漏らさない", () => {
+  const harness = createHarness();
+  harness.db.failKeyEpoch = true;
+  // 上限と同じ回数だけ失敗させる。解放されていなければ、この時点で共有枠が張り付く
+  for (let attempt = 0; attempt < BGM_MAX_CONCURRENT; attempt += 1) {
+    assert.throws(() => harness.startBgm(), /db epoch boom/);
+  }
+  assert.equal(harness.db.rows.size, 0, "行を作らない");
+
+  harness.db.failKeyEpoch = false;
+  // チャット側の生成も試行も、同じ枠をそのまま取れる（漏れていない）
+  assert.equal(acquireBgmGenerationSlot(), true);
+  releaseBgmGenerationSlot();
+  const started = harness.startBgm();
+  assert.equal(started.status, 202);
+  if (started.status !== 202) return;
+  harness.service.cancel(started.trial.id);
+  harness.bgmGenerations[0]?.reject(new BgmGenerationError("BGM生成を中断しました"));
+  return until(() => harness.service.running("bgm") === false);
 });
