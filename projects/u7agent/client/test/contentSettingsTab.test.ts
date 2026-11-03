@@ -11,7 +11,7 @@ import { ContentSettingsTab } from "../src/components/content-settings/ContentSe
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import type { ContentSavingAction } from "../src/lib/contentSettings";
 import type { ContentSubsection } from "../src/lib/settingsNav";
-import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings } from "../src/types";
+import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings, ContentTrial } from "../src/types";
 
 const MODELS = [
   { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
@@ -41,6 +41,7 @@ function settings(
     keyAvailable: true,
     keyEvaluated: true,
     keyErrorMessage: null,
+    keyEpoch: 0,
     enabled: true,
     disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
     runtimeAvailable: true,
@@ -66,6 +67,10 @@ function render(
     speechSynced?: boolean;
     /** URL が決める面。この component は選択中の面だけを描く (既定は画像生成) */
     subsection?: ContentSubsection;
+    /** 試行の一覧と操作の状態 (画像の面だけが使う) */
+    trials?: ContentTrial[];
+    trialKeyEpoch?: number;
+    trialBusy?: boolean;
   } & Omit<Partial<ContentSettingsResponse>, "image" | "speech"> = {},
 ): string {
   const { image, speech, saving = null, subsection = "image", ...overrides } = options;
@@ -87,6 +92,13 @@ function render(
         onRefreshSpeechCatalog: async () => true,
         onPreviewSpeech: async () => ({ blob: new Blob(), format: "mp3" as const }),
         speechSynced: options.speechSynced ?? true,
+        trials: options.trials ?? [],
+        trialKeyEpoch: options.trialKeyEpoch ?? 0,
+        trialBusy: options.trialBusy ?? false,
+        onStartTrial: async () => true,
+        onCancelTrial: async () => true,
+        onDeleteTrial: async () => true,
+        onDeleteAllTrials: async () => true,
       }),
     ),
   );
@@ -404,4 +416,98 @@ test("保存済みでも復号できないキーは、利用不可として理�
   assert.ok(html.includes("保存済みのキーを復号できるかまだ確認できていません"), "固定文言をそのまま出す");
   assert.ok(html.includes("上書き保存"), "再入力の導線を残す");
   assert.ok(html.includes(">削除</button>"), "削除の導線を残す");
+});
+
+// --- 試行ジョブ（画像） ---
+
+const TRIAL_BASE: ContentTrial = {
+  id: "trial-1",
+  kind: "image",
+  model: "openrouter/openai/gpt-image-2",
+  prompt: "a cat on a sofa",
+  state: "succeeded",
+  keyEpoch: 0,
+  artifactState: "none",
+  failureCode: null,
+  failureMessage: null,
+  startedAt: 1_000,
+  finishedAt: 12_000,
+  durationMs: 11_000,
+  recorded: true,
+};
+
+test("未設定でも試行の履歴と証拠を出し、新規生成だけを止める", () => {
+  const html = render({
+    configured: false,
+    keyStored: false,
+    keyAvailable: false,
+    provider: null,
+    image: { model: null },
+    trials: [TRIAL_BASE],
+  });
+  assert.ok(html.includes("設定に反映しない試行"), "試行の面を出す");
+  assert.ok(html.includes("a cat on a sofa"), "保存済みの履歴を出す");
+  assert.ok(html.includes("APIキーを登録すると試行できます"), "開始できない理由を出す");
+  assert.match(html, /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?試行する/, "主ボタンを無効にする");
+  assert.equal(html.includes("保存される設定"), false, "未設定では保存される設定を出さない");
+  // 証拠はモデル選択の直下に置くため、モデルを選べない未設定では出さない
+  assert.equal(html.includes("この画面での最終成功"), false);
+});
+
+test("実行中は主ボタンを無効にして中断を出し、証拠と履歴にキー世代を出す", () => {
+  const html = render({
+    trials: [{ ...TRIAL_BASE, state: "running", finishedAt: null, durationMs: null, keyEpoch: 0 }],
+    trialKeyEpoch: 1,
+  });
+  assert.match(
+    html,
+    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?生成中…/,
+    "実行中は主ボタンを無効にする",
+  );
+  assert.match(html, />中断<\/button>/, "中断の導線を出す");
+  assert.ok(html.includes("実行中です。完了するか中断してください"), "状態を出す");
+  assert.ok(html.includes("旧キー（世代 0）"), "現在のキー世代と混ぜない");
+});
+
+test("失敗は分類とマスク済みの文言を出し、全体 OFF でも履歴は残す", () => {
+  const html = render({
+    enabled: false,
+    trials: [
+      {
+        ...TRIAL_BASE,
+        state: "failed",
+        failureCode: "invalid_key",
+        failureMessage: "画像APIキーが無効です",
+      },
+    ],
+  });
+  assert.ok(html.includes("失敗の分類: APIキーが無効"), "分類を出す");
+  assert.ok(html.includes("画像APIキーが無効です"), "サーバーの文言をそのまま出す");
+  assert.ok(html.includes("全体が OFF のため試行できません（履歴は残ります）"), "理由を出す");
+  assert.ok(html.includes("a cat on a sofa"), "OFF でも履歴を読める");
+});
+
+test("成功した実績はモデル選択の直下に最終成功として出し、結果が保存されていないことを添える", () => {
+  const now = Date.now();
+  const html = render({
+    trials: [{ ...TRIAL_BASE, startedAt: now - 72_400, finishedAt: now - 60_000, durationMs: 12_400 }],
+  });
+  assert.ok(html.includes("この画面での最終成功: 1 分前（12.4s）。結果は保存されていません"));
+  assert.ok(html.includes("チャットの生成は含めません"), "証拠の範囲を書く");
+});
+
+test("「保存される設定」と「設定に反映しない試行」は同じ見出しの段と見た目で並ぶ", () => {
+  const html = render({ trials: [TRIAL_BASE] });
+  const headingClass = (label: string): string => {
+    const match = new RegExp(`<h3 class="([^"]*)"[^>]*>${label}</h3>`).exec(html);
+    assert.ok(match, `${label} を h3 で出す`);
+    return match[1];
+  };
+  assert.equal(headingClass("保存される設定"), headingClass("設定に反映しない試行"), "見出しの見た目を揃える");
+});
+
+test("中止した試行は「中止」と出し、失敗の分類として見せない", () => {
+  const html = render({ trials: [{ ...TRIAL_BASE, state: "canceled", failureCode: "aborted" }] });
+  assert.match(html, />中止</, "状態は中止");
+  assert.equal(html.includes("失敗の分類"), false, "利用者の中止を失敗の分類にしない");
 });

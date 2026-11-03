@@ -152,6 +152,15 @@ function compareOptionLabels(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+/**
+ * 画面に出ている画像モデル（`provider/id`）。下書きがあれば下書き、無ければ保存値。
+ * 試行の開始と証拠の判定もこの 1 つを使う（保存前の試行が保存値のモデルで走ったり、
+ * 別モデルの実績を現在の証拠として数えたりしないため）。未設定は空文字。
+ */
+export function imageScreenModel(input: { draft: string | null; savedModel: string }): string {
+  return input.draft ?? input.savedModel;
+}
+
 /** 選択欄の現在値。行が無い (未設定) か provider を決められないときは空文字 */
 export function imageModelValue(settings: Pick<ContentSettingsResponse, "provider" | "image">): string {
   if (settings.provider === null || settings.image.model === null) return "";

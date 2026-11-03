@@ -38,6 +38,7 @@ import {
   AnswerQuestionBodySchema,
   CreateSharedContentBodySchema,
   RenameSharedContentBodySchema,
+  CreateContentTrialBodySchema,
   CreateSpaceBodySchema,
   CreateAgentBodySchema,
   CreateCustomProviderBodySchema,
@@ -138,6 +139,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     modelSettings,
     oauthLogin,
     contentSettings,
+    contentTrials,
     webSearchSettings,
     webSearchTest,
     titleSummarySettings,
@@ -187,7 +189,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const notificationRoutes = createNotificationRoutes({ notifications });
   const archiveRoutes = createArchiveRoutes({ archiveSettings });
   const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings, oauthLogin });
-  const contentSettingsRoutes = createContentSettingsRoutes({ contentSettings });
+  const contentSettingsRoutes = createContentSettingsRoutes({ contentSettings, contentTrials });
   const cloudflareSettingsRoutes = createCloudflareSettingsRoutes({ cloudflareSettings, cloudflareConnection });
   const sharedContentRoutes = createSharedContentRoutes({ sharedContents });
   const sharedContentExclusionsRoutes = createSharedContentExclusionsRoutes({ sharedContentExclusions });
@@ -693,6 +695,20 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => contentSettingsRoutes.previewSpeech(c, c.req.valid("json")),
     )
     .delete("/api/settings/content/key", appDataMutation, contentSettingsRoutes.deleteKey)
+    // 試行ジョブ。設定を変えないため appDataMutation は使わない（state: "not_stored" を返さない）
+    .delete("/api/settings/content/trials", appData, contentSettingsRoutes.removeAllTrials)
+    .get("/api/settings/content/trials", appData, contentSettingsRoutes.listTrials)
+    .post(
+      "/api/settings/content/trials",
+      appData,
+      jsonBodyValidator(CreateContentTrialBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => contentSettingsRoutes.startTrial(c, c.req.valid("json")),
+    )
+    .get("/api/settings/content/trials/:id", appData, contentSettingsRoutes.getTrial)
+    .post("/api/settings/content/trials/:id/cancel", appData, contentSettingsRoutes.cancelTrial)
+    .delete("/api/settings/content/trials/:id", appData, contentSettingsRoutes.removeTrial)
     .get("/api/settings/cloudflare", appData, cloudflareSettingsRoutes.get)
     .put(
       "/api/settings/cloudflare",
@@ -833,6 +849,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     modelSettings,
     oauthLogin,
     contentSettings,
+    contentTrials,
     webSearchSettings,
     webSearchTest,
     titleSummarySettings,
@@ -843,6 +860,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     sharedContents,
     sharedContentExclusions,
     close: async () => {
+      // 実行中の試行はプロセスの close でだけ interrupt する (リクエストの signal には結び付けない)
+      await contentTrials.close();
       // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
       notifications.close();
       await store.close();

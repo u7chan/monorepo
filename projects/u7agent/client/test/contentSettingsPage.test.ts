@@ -10,7 +10,8 @@ import type { ContentSettings } from "../src/hooks/useContentSettings";
 import { CONTENT_SETTINGS_NOTE } from "../src/lib/contentSettings";
 import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 import type { ContentSubsection } from "../src/lib/settingsNav";
-import type { ContentSettingsResponse } from "../src/types";
+import type { ContentTrials } from "../src/hooks/useContentTrials";
+import type { ContentSettingsResponse, ContentTrial } from "../src/types";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
@@ -24,6 +25,7 @@ const CONTENT_SETTINGS: ContentSettingsResponse = {
   keyAvailable: true,
   keyEvaluated: true,
   keyErrorMessage: null,
+  keyEpoch: 0,
   enabled: true,
   disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
   runtimeAvailable: true,
@@ -73,11 +75,29 @@ function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSetti
   };
 }
 
+/** `useContentTrials` の戻り値のうち、描画が読む部分だけを組み立てる */
+function contentTrials(trials: ContentTrial[] | null = null): ContentTrials {
+  return {
+    trials,
+    keyEpoch: 0,
+    note: null,
+    busy: false,
+    newResults: [],
+    running: (trials ?? []).some((trial) => trial.state === "running"),
+    reload: async () => true,
+    start: async () => true,
+    cancel: async () => true,
+    remove: async () => true,
+    removeAll: async () => true,
+  } satisfies ContentTrials;
+}
+
 function render(
   settings: ContentSettings,
   options: {
     contentSubsection?: ContentSubsection;
     onSelectContentSubsection?: (value: ContentSubsection) => void;
+    trials?: ContentTrial[] | null;
   } = {},
 ): string {
   // 確認ダイアログの provider は app の root が持つ (main.tsx)。ここでは描画だけを検査する
@@ -87,6 +107,7 @@ function render(
       null,
       createElement(ContentSettingsView, {
         contentSettings: settings,
+        contentTrials: contentTrials(options.trials),
         contentSubsection: options.contentSubsection,
         onSelectContentSubsection: options.onSelectContentSubsection,
         onBack: () => {},

@@ -7,6 +7,7 @@ import {
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
+  imageScreenModel,
   contentProviderId,
   contentProviderLabel,
   keyDraftAfterSave,
@@ -25,6 +26,7 @@ import { cn } from "../../lib/cn";
 import type { ContentSubsection } from "../../lib/settingsNav";
 import type {
   ContentSettingsResponse,
+  ContentTrial,
   SpeechPreviewBody,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
@@ -38,6 +40,7 @@ import { SelectField } from "../SelectField";
 import { ToggleSwitch } from "../ToggleSwitch";
 import { MetaChip } from "../model-settings/MetaChip";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
+import { EvidenceLine, ImageTrialSection } from "./ImageTrialSection";
 import { SpeechPlayground } from "./SpeechPlayground";
 import { SpeechVoiceOptions } from "./SpeechVoiceOptions";
 
@@ -61,6 +64,16 @@ export type ContentSettingsTabProps = {
   onPreviewSpeech: (input: SpeechPreviewBody, signal?: AbortSignal) => Promise<SpeechPreviewAudio>;
   /** 音声の表示が server の実効値と一致しているか。false の間は保存を止める */
   speechSynced: boolean;
+  /** 試行ジョブの一覧（取得前は null）。画像の面だけが使う */
+  trials: readonly ContentTrial[] | null;
+  /** 現在のキー世代。証拠は現在のキーと選択中のモデルの実績だけを数える */
+  trialKeyEpoch: number;
+  /** 試行の操作。`saving` とは別の軸で、試行中も設定の保存は塞がない */
+  trialBusy: boolean;
+  onStartTrial: (input: { kind: "image"; model: string; prompt: string }) => Promise<boolean>;
+  onCancelTrial: (id: string) => Promise<boolean>;
+  onDeleteTrial: (id: string) => Promise<boolean>;
+  onDeleteAllTrials: () => Promise<boolean>;
 };
 
 /**
@@ -81,6 +94,13 @@ export function ContentSettingsTab({
   onRefreshSpeechCatalog,
   onPreviewSpeech,
   speechSynced,
+  trials,
+  trialKeyEpoch,
+  trialBusy,
+  onStartTrial,
+  onCancelTrial,
+  onDeleteTrial,
+  onDeleteAllTrials,
 }: ContentSettingsTabProps) {
   // 保存したキーは再表示しないため、入力は常に空から始め、保存できたときだけ消す
   const confirm = useConfirm();
@@ -88,6 +108,12 @@ export function ContentSettingsTab({
   // 面の下書きはこの画面が持ち続ける。面をタブで出し分けても unmount しないため、未保存の選択を失わない
   const [imageDraft, setImageDraft] = useState<string | null>(null);
   const [speechDraft, setSpeechDraft] = useState<SpeechDraft>(EMPTY_SPEECH_DRAFT);
+  // 試行のプロンプトは保存しない（履歴にだけ残す）。面を切り替えても失わないよう、この画面が持つ
+  const [trialPrompt, setTrialPrompt] = useState("");
+  // 証拠の相対表記は画面を開いた時刻で固定する（毎秒の再描画を持ち込まない）
+  const [trialNow] = useState(() => Date.now());
+  // 画面に出ているモデル。モデル選択・試行の開始・証拠はこの 1 つを使う（保存前でも画面の値で試す）
+  const screenModel = imageScreenModel({ draft: imageDraft, savedModel: imageModelValue(settings) });
   const busy = saving !== null;
   const runtimeAvailable = settings.runtimeAvailable;
   const providerName = contentProviderLabel(settings.provider);
@@ -215,8 +241,39 @@ export function ContentSettingsTab({
           </p>
         </section>
 
-        {/* 未設定では面を出さない現行の分岐を保ち、下書きの破棄は上で行う。面だけをタブで切り替える */}
-        {settings.configured ? (
+        {/* 未設定では保存される設定を出さない（下書きの破棄は上で行う）。画像の試行の履歴だけは
+            キー未設定・OFF でも読めるように残す（新規生成だけを止める） */}
+        {contentSubsection === "image" ? (
+          <>
+            {settings.configured ? (
+              <ImageModelSection
+                settings={settings}
+                busy={busy}
+                refreshing={saving === "catalog"}
+                selectedModel={screenModel}
+                onChangeDraft={setImageDraft}
+                onSave={onSaveSelection}
+                onRefresh={onRefreshCatalog}
+                trials={trials}
+                trialKeyEpoch={trialKeyEpoch}
+                trialNow={trialNow}
+              />
+            ) : null}
+            <ImageTrialSection
+              settings={settings}
+              model={screenModel}
+              trials={trials}
+              keyEpoch={trialKeyEpoch}
+              busy={trialBusy}
+              prompt={trialPrompt}
+              onChangePrompt={setTrialPrompt}
+              onStart={onStartTrial}
+              onCancel={onCancelTrial}
+              onDelete={onDeleteTrial}
+              onDeleteAll={onDeleteAllTrials}
+            />
+          </>
+        ) : settings.configured ? (
           contentSubsection === "speech" ? (
             <SpeechSection
               settings={settings}
@@ -230,18 +287,8 @@ export function ContentSettingsTab({
               onRefresh={onRefreshSpeechCatalog}
               onPreview={onPreviewSpeech}
             />
-          ) : contentSubsection === "bgm" ? (
-            <BgmSection settings={settings} />
           ) : (
-            <ImageModelSection
-              settings={settings}
-              busy={busy}
-              refreshing={saving === "catalog"}
-              draft={imageDraft}
-              onChangeDraft={setImageDraft}
-              onSave={onSaveSelection}
-              onRefresh={onRefreshCatalog}
-            />
+            <BgmSection settings={settings} />
           )
         ) : null}
 
@@ -298,22 +345,29 @@ function ImageModelSection({
   settings,
   busy,
   refreshing,
-  draft,
+  selectedModel,
   onChangeDraft,
   onSave,
   onRefresh,
+  trials,
+  trialKeyEpoch,
+  trialNow,
 }: {
   settings: ContentSettingsResponse;
   busy: boolean;
   refreshing: boolean;
-  draft: string | null;
+  /** 画面で選択中のモデル（下書き優先）。試行と証拠も同じ値を使う */
+  selectedModel: string;
   onChangeDraft: (draft: string | null) => void;
   onSave: (input: UpdateContentImageBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
+  trials: readonly ContentTrial[] | null;
+  trialKeyEpoch: number;
+  trialNow: number;
 }) {
   const options = imageModelOptions(settings);
   const savedModel = imageModelValue(settings);
-  const selectedModel = draft ?? savedModel;
+  const dirty = selectedModel !== savedModel;
 
   const submit = async () => {
     const input = imageModelSelection(options, selectedModel);
@@ -322,8 +376,11 @@ function ImageModelSection({
   };
 
   return (
-    <section className="grid gap-1.5">
-      <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">モデル</div>
+    <section className="grid gap-1.5 border-t border-line pt-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">保存される設定</h3>
+        {dirty ? <span className="text-2xs text-warn">未保存</span> : null}
+      </div>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <SelectField
           wrapperClassName="min-w-0 flex-1"
@@ -338,16 +395,13 @@ function ImageModelSection({
             </option>
           ))}
         </SelectField>
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={busy || selectedModel === savedModel}
-          onClick={() => void submit()}
-        >
+        <button type="button" className="btn-primary" disabled={busy || !dirty} onClick={() => void submit()}>
           <CheckIcon />
           保存
         </button>
       </div>
+      {/* キーの有効性は緑のバッジにせず、現在のキー世代と選択中モデルの実績だけを証拠として出す */}
+      <EvidenceLine trials={trials} model={selectedModel} keyEpoch={trialKeyEpoch} now={trialNow} />
       {/* サイズ・品質・出力形式の UI は持たない理由だけを残す。provider は見出しに出ている */}
       <p className="text-2xs leading-relaxed text-ink-muted">サイズ・品質・出力形式は provider の既定を使います。</p>
       <div className="flex flex-wrap items-center gap-2">

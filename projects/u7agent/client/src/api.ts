@@ -17,6 +17,10 @@ import type {
   CustomProviderProbeResponse,
   ContentMutationResponse,
   ContentSettingsResponse,
+  ContentTrialDeleteResponse,
+  ContentTrialListResponse,
+  ContentTrialResponse,
+  CreateContentTrialBody,
   CreateAgentBody,
   CreateFileSkillBody,
   CreateSharedContentBody,
@@ -889,6 +893,51 @@ export const putContentApiKey = async (apiKey: string): Promise<ContentMutationR
   const res = await client.api.settings.content.key.$put({ json: { apiKey } });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ContentMutationResponse;
+};
+
+/**
+ * 試行ジョブの開始。応答は 202 で、状態は `getContentTrial` / `listContentTrials` で取る。
+ * リクエストの signal には結び付けない（画面を離れても続き、中断はキャンセル API だけが行う）。
+ */
+export const startContentTrial = async (input: CreateContentTrialBody): Promise<ContentTrialResponse> => {
+  const res = await client.api.settings.content.trials.$post({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ContentTrialResponse;
+};
+
+/** 試行の一覧（新しい順）。`kind` を省くと全種別。取得のたびにサーバーが running の再照合をする */
+export const listContentTrials = async (kind?: string): Promise<ContentTrialListResponse> => {
+  const res = await client.api.settings.content.trials.$get(kind === undefined ? {} : { query: { kind } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ContentTrialListResponse;
+};
+
+/** 試行 1 件。終端を記録できていない間は `recorded: false` でメモリの状態が返る */
+export const getContentTrial = async (id: string): Promise<ContentTrialResponse> => {
+  const res = await client.api.settings.content.trials[":id"].$get({ param: { id } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ContentTrialResponse;
+};
+
+/** キャンセル。`running` のときだけ受け付け、終端は 409（状態を戻さない） */
+export const cancelContentTrial = async (id: string): Promise<ContentTrialResponse> => {
+  const res = await client.api.settings.content.trials[":id"].cancel.$post({ param: { id } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ContentTrialResponse;
+};
+
+/** 個別削除。終端状態だけで、`running` は 409（先に中断する） */
+export const deleteContentTrial = async (id: string): Promise<ContentTrialDeleteResponse> => {
+  const res = await client.api.settings.content.trials[":id"].$delete({ param: { id } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ContentTrialDeleteResponse;
+};
+
+/** すべて削除。終端状態だけが対象で、実行中の試行は残る */
+export const deleteAllContentTrials = async (kind?: string): Promise<ContentTrialDeleteResponse> => {
+  const res = await client.api.settings.content.trials.$delete(kind === undefined ? {} : { query: { kind } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ContentTrialDeleteResponse;
 };
 
 /** 画像のAPIキーの削除（行ごと消して未設定へ戻す）。未設定でも 200 の冪等 */

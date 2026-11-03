@@ -17,6 +17,7 @@ import { messageFor } from "./http";
 import { bgmSettings, BGM_MODEL } from "./bgm";
 import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import { MutationLock } from "./model-settings";
+import type { ContentTrialSource } from "./content-trials";
 import type { ProviderFailureCode } from "./provider-failure";
 import { REDACTED } from "./redact";
 import type { ContentSettingsRow } from "./app-db";
@@ -82,6 +83,10 @@ export interface ContentSettingsDb {
   readContentSettings(): ContentSettingsRow | undefined;
   saveContentSettings(settings: ContentSettingsRow): void;
   deleteContentSettings(): boolean;
+  /** キーの世代。行が無ければ 0（まだ一度もキーを保存していない） */
+  readContentKeyEpoch(): number;
+  /** キーの保存・上書き・削除で 1 つ進め、進めた後の値を返す */
+  advanceContentKeyEpoch(): number;
 }
 
 export interface ContentSettingsOptions {
@@ -135,6 +140,11 @@ export class ContentSettingsService {
   #apiKey: string | null = null;
   /** 保存済みキーの復号結果。起動時と保存 / 置換のときだけ更新する */
   #keyState: AppSecretState = appSecretUnevaluated();
+  /**
+   * キーの世代。試行の証拠を現在のキーの実績に限るために応答へ載せる。保存 / 削除で進むと
+   * 以前の実績は「旧キー」になる（docs/api-settings.md）。
+   */
+  #keyEpoch = 0;
 
   constructor(options: ContentSettingsOptions) {
     this.#db = options.db;
@@ -248,6 +258,7 @@ export class ContentSettingsService {
       ...this.#keyStatus(row),
       configured: row !== undefined,
       provider: row?.provider ?? null,
+      keyEpoch: this.#keyEpoch,
       // 行が無い = 未設定。トグルの既定は ON（Web 検索の「行が無い = 有効」と同じ読み替え）
       enabled: row?.enabled ?? true,
       disabledMessage: CONTENT_DISABLED_MESSAGE,
@@ -354,6 +365,8 @@ export class ContentSettingsService {
       // 保存が確定した値は復号し直さず、手元の状態をそのまま使える状態へ揃える
       this.#apiKey = apiKey;
       this.#keyState = appSecretAvailable();
+      // 上書きだけ世代を進める（新規保存は「以前のキー」が存在しないため、進めても証拠の意味が変わらない）
+      if (existing !== undefined) this.#advanceKeyEpoch();
       this.#apply(next);
       return { status: 200, response: this.#applied(next) };
     });
@@ -555,12 +568,15 @@ export class ContentSettingsService {
    */
   async deleteKey(): Promise<ContentMutationOutcome> {
     return this.#lock.run(async () => {
+      let removed: boolean;
       try {
-        this.#db.deleteContentSettings();
+        removed = this.#db.deleteContentSettings();
       } catch {
         console.warn("[u7agent] content key delete failed");
         return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
       }
+      // 行があったときだけ進める（未設定の DELETE は冪等で、世代を動かさない）
+      if (removed) this.#advanceKeyEpoch();
       // 復号は不要 (暗号文を読まない)。メモリのキーも消す
       this.#apiKey = null;
       this.#keyState = appSecretNotStored();
@@ -577,6 +593,7 @@ export class ContentSettingsService {
     await this.#lock.run(async () => {
       this.#catalog.loadStored();
       this.#speechCatalog.loadStored();
+      this.#loadKeyEpoch();
       let row: ContentSettingsRow | undefined;
       let readFailed = false;
       try {
@@ -600,6 +617,41 @@ export class ContentSettingsService {
       }
       this.#apply(row);
     });
+  }
+
+  /**
+   * 試行ジョブが読む現在値。キーは応答・ログへ出さないまま、生成器へ渡すためだけに返す。
+   * 行が無ければ未設定で、カタログは画像の一覧（`provider/id`）を返す。
+   */
+  trialSource(): ContentTrialSource {
+    return {
+      read: () => {
+        const row = this.#db.readContentSettings();
+        return {
+          row: row ? { imageModel: row.imageModel, enabled: row.enabled } : undefined,
+          apiKey: this.#apiKey,
+        };
+      },
+      models: () => this.#catalog.snapshot().entries.map((entry) => `${entry.provider}/${entry.id}`),
+    };
+  }
+
+  /** 起動時に 1 回だけ世代を読む。読めないときは 0 のままで、次の保存 / 削除で DB の値から進む */
+  #loadKeyEpoch(): void {
+    try {
+      this.#keyEpoch = this.#db.readContentKeyEpoch();
+    } catch (error) {
+      console.warn(`[u7agent] content key epoch read failed: ${this.#maskError(messageFor(error))}`);
+    }
+  }
+
+  /** 世代を進める。進められなかったときはメモリも動かさない（応答と DB を食い違わせない） */
+  #advanceKeyEpoch(): void {
+    try {
+      this.#keyEpoch = this.#db.advanceContentKeyEpoch();
+    } catch (error) {
+      console.warn(`[u7agent] content key epoch advance failed: ${this.#maskError(messageFor(error))}`);
+    }
   }
 
   /**
@@ -665,6 +717,7 @@ export class ContentSettingsService {
       ...this.#keyStatus(row),
       configured: row !== undefined,
       provider: row?.provider ?? null,
+      keyEpoch: this.#keyEpoch,
       enabled: row?.enabled ?? true,
       disabledMessage: CONTENT_DISABLED_MESSAGE,
       runtimeAvailable: this.#runtimeAvailable,

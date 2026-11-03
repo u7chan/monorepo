@@ -11,6 +11,7 @@ import {
   APP_DB_FILENAME,
   APP_DB_SCHEMA_VERSION,
   type AssistantMetricsRow,
+  type ContentTrialRow,
   type CustomProviderRow,
   type SecretRow,
 } from "../src/app-db";
@@ -3237,6 +3238,169 @@ test("assistant_metrics の失敗は status() を落とさず、呼び出し側�
     assert.deepEqual(unavailable.loadAssistantMetrics("0123456789"), []);
     unavailable.deleteAssistantMetrics("0123456789");
     assert.deepEqual(unavailable.status(), { path: null, ok: false, error: "boom" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- content trials / key epoch (v37 -> v38) ---
+
+/** 試行の保存行。終端は finishContentTrial で書くので、ここでは running だけを作る */
+function runningTrial(id: string, overrides: Partial<ContentTrialRow> = {}): ContentTrialRow {
+  return {
+    id,
+    kind: "image",
+    model: "openrouter/openai/gpt-image-2",
+    prompt: "a cat",
+    state: "running",
+    keyEpoch: 0,
+    artifactState: "none",
+    failureCode: null,
+    failureMessage: null,
+    startedAt: 1_000,
+    finishedAt: null,
+    durationMs: null,
+    ...overrides,
+  };
+}
+
+test("キー世代は行が無ければ 0 で、進めるたびに 1 つ増える", () => {
+  const db = AppDb.open({ storeDir: null });
+  assert.equal(db.readContentKeyEpoch(), 0);
+  assert.equal(db.advanceContentKeyEpoch(), 1);
+  assert.equal(db.advanceContentKeyEpoch(), 2);
+  assert.equal(db.readContentKeyEpoch(), 2);
+  db.close();
+});
+
+test("試行は running で保存し、終端への更新は running の行だけを対象にする", () => {
+  const db = AppDb.open({ storeDir: null });
+  db.saveContentTrial(runningTrial("trial-1"));
+  assert.equal(db.readContentTrial("trial-1")?.state, "running");
+
+  assert.equal(
+    db.finishContentTrial({
+      id: "trial-1",
+      state: "succeeded",
+      failureCode: null,
+      failureMessage: null,
+      finishedAt: 2_000,
+      durationMs: 1_000,
+    }),
+    true,
+  );
+  // 終端状態から別の状態へは進まない（遅れて届いた結果で状態を戻さない）
+  assert.equal(
+    db.finishContentTrial({
+      id: "trial-1",
+      state: "canceled",
+      failureCode: "aborted",
+      failureMessage: null,
+      finishedAt: 3_000,
+      durationMs: 2_000,
+    }),
+    false,
+  );
+  const row = db.readContentTrial("trial-1");
+  assert.equal(row?.state, "succeeded");
+  assert.equal(row?.durationMs, 1_000);
+  assert.equal(db.readContentTrial("trial-missing"), undefined);
+  db.close();
+});
+
+test("試行の一覧は新しい順で、全削除は終端だけを消し、running を残す", () => {
+  const db = AppDb.open({ storeDir: null });
+  db.saveContentTrial(runningTrial("trial-old", { startedAt: 1_000 }));
+  db.saveContentTrial(runningTrial("trial-new", { startedAt: 2_000, kind: "bgm" }));
+  db.finishContentTrial({
+    id: "trial-old",
+    state: "failed",
+    failureCode: "rate_limited",
+    failureMessage: "混雑",
+    finishedAt: 3_000,
+    durationMs: 2_000,
+  });
+  assert.deepEqual(
+    db.listContentTrials().map((row) => row.id),
+    ["trial-new", "trial-old"],
+  );
+  assert.deepEqual(
+    db.listContentTrials("image").map((row) => row.id),
+    ["trial-old"],
+  );
+
+  assert.equal(db.deleteTerminalContentTrials(), 1);
+  assert.deepEqual(
+    db.listContentTrials().map((row) => row.id),
+    ["trial-new"],
+  );
+  assert.equal(db.deleteContentTrial("trial-new"), true);
+  assert.equal(db.deleteContentTrial("trial-new"), false);
+  db.close();
+});
+
+test("起動時の再照合で running は interrupted になり、終了時刻だけが入る", () => {
+  const db = AppDb.open({ storeDir: null });
+  db.saveContentTrial(runningTrial("trial-1"));
+  assert.equal(db.interruptRunningContentTrials(5_000), 1);
+  const row = db.readContentTrial("trial-1");
+  assert.equal(row?.state, "interrupted");
+  assert.equal(row?.finishedAt, 5_000);
+  assert.equal(row?.durationMs, null);
+  // 2 回目は倒す行が無い
+  assert.equal(db.interruptRunningContentTrials(6_000), 0);
+  db.close();
+});
+
+test("試行の履歴とキー世代は、未知の新しい版を開いたときの作り直しで残る (not in DROP_TABLES)", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentTrial(runningTrial("trial-1"));
+    first.advanceContentKeyEpoch();
+    first.close();
+
+    // 古いビルド (このテーブルを知らない) が開いて作り直す経路を再現する
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION + 1}`);
+    raw.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.equal(reopened.readContentTrial("trial-1")?.prompt, "a cat");
+    assert.equal(reopened.readContentKeyEpoch(), 1);
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("v37 の DB を開くと試行のテーブルとキー世代が足され、既存の行は変わらない", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveAgent(agent("a1"));
+    first.close();
+
+    // v37 相当 (試行のテーブルを持たない版) へ落として開き直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE content_trials");
+    raw.exec("DROP TABLE content_key_epoch");
+    raw.exec("PRAGMA user_version = 37");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.equal(migrated.readContentKeyEpoch(), 0);
+    migrated.saveContentTrial(runningTrial("trial-1"));
+    assert.equal(migrated.readContentTrial("trial-1")?.state, "running");
+    // 既存のエージェントは移行で消えない
+    assert.deepEqual(
+      migrated
+        .listAgents()
+        .map((entry) => entry.id)
+        .sort(),
+      ["a1", "agent-zundamon"],
+    );
+    migrated.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

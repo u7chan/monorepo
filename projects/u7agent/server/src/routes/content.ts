@@ -1,6 +1,8 @@
 import type { Context } from "hono";
 import type { ContentSettingsService, ContentMutationOutcome, SpeechPreviewOutcome } from "../content-settings";
+import type { ContentTrialsService } from "../content-trials";
 import type {
+  CreateContentTrialBody,
   SpeechPreviewBody,
   UpdateContentEnabledBody,
   UpdateContentImageBody,
@@ -13,7 +15,13 @@ import type {
  * DB に何も保存されなかったときだけ 503 `{ error, state: "not_stored" }` を返す。
  * お試し再生は設定を変えないため、応答は音声バイトか `{ error, code? }` になる。
  */
-export function createContentSettingsRoutes({ contentSettings }: { contentSettings: ContentSettingsService }) {
+export function createContentSettingsRoutes({
+  contentSettings,
+  contentTrials,
+}: {
+  contentSettings: ContentSettingsService;
+  contentTrials: ContentTrialsService;
+}) {
   return {
     list: (c: Context) => c.json(contentSettings.settings()),
 
@@ -39,6 +47,49 @@ export function createContentSettingsRoutes({ contentSettings }: { contentSettin
     refreshCatalog: async (c: Context) => c.json(await contentSettings.refreshCatalog()),
 
     refreshSpeechCatalog: async (c: Context) => c.json(await contentSettings.refreshSpeechCatalog()),
+
+    // 試行は 202 で開始し、状態は GET で取る。画面の寿命にも、リクエストの signal にも結び付けない
+    startTrial: (c: Context, body: CreateContentTrialBody) => {
+      const outcome = contentTrials.start(body);
+      if (outcome.status !== 202) return c.json({ error: outcome.error }, outcome.status);
+      return c.json({ trial: outcome.trial }, 202);
+    },
+
+    getTrial: (c: Context) => {
+      const outcome = contentTrials.get(c.req.param("id") ?? "");
+      if (outcome.status !== 200) return c.json({ error: outcome.error }, 404);
+      return c.json({ trial: outcome.trial });
+    },
+
+    // 既定は全種別。`?kind=` は入力の絞り込みで、未知の種別は空の一覧になる
+    listTrials: (c: Context) => {
+      const kind = c.req.query("kind");
+      const outcome = contentTrials.list(kind === undefined || kind === "" ? undefined : kind);
+      return c.json({ items: outcome.items, keyEpoch: outcome.keyEpoch });
+    },
+
+    // `running` のときだけ受け付ける。終端は 409（状態を戻さない）
+    cancelTrial: (c: Context) => {
+      const outcome = contentTrials.cancel(c.req.param("id") ?? "");
+      if (outcome.status === 404) return c.json({ error: outcome.error }, 404);
+      if (outcome.status === 409) return c.json({ error: outcome.error }, 409);
+      return c.json({ trial: outcome.trial });
+    },
+
+    // 個別削除は終端状態だけ。`running` は 409 で「先に中断してください」を返す
+    removeTrial: (c: Context) => {
+      const outcome = contentTrials.remove(c.req.param("id") ?? "");
+      if (outcome.status === 404) return c.json({ error: outcome.error }, 404);
+      if (outcome.status === 409) return c.json({ error: outcome.error }, 409);
+      return c.json({ removed: outcome.removed });
+    },
+
+    // 全削除も終端状態だけを対象にする（実行中の試行は残す）
+    removeAllTrials: (c: Context) => {
+      const kind = c.req.query("kind");
+      const outcome = contentTrials.removeAll(kind === undefined || kind === "" ? undefined : kind);
+      return c.json({ removed: outcome.removed });
+    },
   };
 }
 

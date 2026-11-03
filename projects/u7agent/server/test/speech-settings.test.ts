@@ -48,6 +48,8 @@ class FakeContentDb implements ContentSettingsDb {
   failRead = false;
   failSave = false;
   events: string[] = [];
+  /** キー世代。`content_key_epoch` の 1 行に対応する */
+  keyEpoch = 0;
 
   readContentSettings(): ContentSettingsRow | undefined {
     if (this.failRead) throw new Error("db read boom");
@@ -65,6 +67,15 @@ class FakeContentDb implements ContentSettingsDb {
     const existed = this.row !== undefined;
     this.row = undefined;
     return existed;
+  }
+
+  readContentKeyEpoch(): number {
+    return this.keyEpoch;
+  }
+
+  advanceContentKeyEpoch(): number {
+    this.keyEpoch += 1;
+    return this.keyEpoch;
   }
 }
 
