@@ -21,13 +21,16 @@ import {
 } from "../../lib/contentTrials";
 import { SPEECH_SPEED_MIN, SPEECH_SPEED_STEP, speechSpeedStep } from "../../lib/contentSettings";
 import { cn } from "../../lib/cn";
+import { speechTrialDefaultTarget } from "../../lib/trialDefault";
 import type {
   ContentSettingsResponse,
   ContentTrial,
   ContentTrialArtifactUsageValue,
   CreateContentTrialBody,
+  UpdateContentSpeechBody,
 } from "../../types";
 import { CheckIcon, MinusIcon, PlusIcon, TrashIcon } from "../icons";
+import { TrialDefaultAction, UNCONFIGURED_BLOCKED_NOTE } from "./TrialDefaultAction";
 
 /** 履歴の既定表示件数。全件は「すべて見る」で開く（時間ベースの自動削除はしない） */
 const HISTORY_PREVIEW_COUNT = 3;
@@ -38,6 +41,12 @@ const OUTCOME_OPTIONS: { value: TrialOutcomeFilter; label: string }[] = [
   { value: "succeeded", label: "成功" },
   { value: "failed", label: "失敗" },
 ];
+
+/**
+ * 未同期の間、結果カードから既定へ保存できない理由。同じ `PUT /speech` を呼ぶ保存フォームが止まるのと
+ * 同じ状態を指す（短く書く）。
+ */
+const SYNC_BLOCKED_NOTE = "サーバーの現在の設定を確認できていないため、再読み込みするまで保存できません。";
 
 export type SpeechTrialSectionProps = {
   settings: ContentSettingsResponse;
@@ -50,6 +59,12 @@ export type SpeechTrialSectionProps = {
   artifactUsage: ContentTrialArtifactUsageValue;
   note: { text: string; error: boolean } | null;
   busy: boolean;
+  /** 設定の保存中。既定の保存を重ねない（試行の `busy` とは別の軸） */
+  settingsBusy: boolean;
+  /** サーバーの現在値を確認できているか。false の間は保存フォームと同じく既定の保存も止める */
+  synced: boolean;
+  /** 試行のモデルとボイスを既定として保存する。成功したら呼び出し側が下書きを捨てる */
+  onMakeDefault: (input: UpdateContentSpeechBody) => Promise<boolean>;
   /** 本文・演技指示・話速の下書き。面を切り替えても失わないよう、呼び出し側が持つ */
   draft: SpeechTrialDraft;
   onChangeDraft: (draft: SpeechTrialDraft) => void;
@@ -73,6 +88,9 @@ export function SpeechTrialSection({
   artifactUsage,
   note,
   busy,
+  settingsBusy,
+  synced,
+  onMakeDefault,
   draft,
   onChangeDraft,
   onStart,
@@ -96,6 +114,12 @@ export function SpeechTrialSection({
   });
   const running = list.find((trial) => trial.state === "running") ?? null;
   const selected = selectedTrial({ trials: list, selectedId });
+  // 同じ組み合わせを保存しても何も変わらないため、結果との差分があるときだけ導線を出す
+  const defaultTarget = selected
+    ? speechTrialDefaultTarget({ settings, trialModel: selected.model, trialVoice: selected.voice })
+    : null;
+  // 保存フォームと同じゲート。履歴と結果は未設定・未同期でも読めるが、同じ PUT を呼ぶ保存は止める
+  const defaultBlockedReason = !settings.configured ? UNCONFIGURED_BLOCKED_NOTE : synced ? null : SYNC_BLOCKED_NOTE;
   const blocked = trialStartBlockedReason({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,
@@ -247,6 +271,10 @@ export function SpeechTrialSection({
           trials={list}
           busy={busy}
           running={running !== null}
+          defaultTarget={defaultTarget}
+          settingsBusy={settingsBusy}
+          blockedReason={defaultBlockedReason}
+          onMakeDefault={onMakeDefault}
           onDelete={onDelete}
           onRestore={() => {
             setInputError(null);
@@ -395,6 +423,10 @@ function ResultViewport({
   trials,
   busy,
   running,
+  defaultTarget,
+  settingsBusy,
+  blockedReason,
+  onMakeDefault,
   onDelete,
   onRestore,
   onAnotherTake,
@@ -404,6 +436,12 @@ function ResultViewport({
   trials: readonly ContentTrial[];
   busy: boolean;
   running: boolean;
+  /** 既定として保存する本文。保存値と同じなら null（導線を出さない） */
+  defaultTarget: UpdateContentSpeechBody | null;
+  settingsBusy: boolean;
+  /** 保存できない理由（キー未設定 / 現在の設定を確認できない）。null なら押せる */
+  blockedReason: string | null;
+  onMakeDefault: (input: UpdateContentSpeechBody) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onRestore: () => void;
   onAnotherTake: () => void;
@@ -491,6 +529,15 @@ function ResultViewport({
           削除
         </button>
       </div>
+      {/* 下書きを捨てるのは呼び出し側。ここは保存の進行と失敗の注記だけを持つ */}
+      <TrialDefaultAction
+        key={trial.id}
+        label="このモデルとボイスを既定にする"
+        target={defaultTarget}
+        disabled={busy || settingsBusy}
+        blockedReason={blockedReason}
+        onSave={onMakeDefault}
+      />
       <p className="text-2xs leading-relaxed text-ink-faint">
         {reuse
           ? "同じ入力の保存済みの結果があるため、生成し直しても課金されません。"

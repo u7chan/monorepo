@@ -168,10 +168,12 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `c
 - 生成器は PiBff が持つ `createSpeechGenerator`（`server/src/agent.ts`）を bootstrap から試行サービスへ注入する。**ツールと同じ形式の学習メモを共有する**ので、試行でも mp3 / pcm の使い分けが進む（副作用としてツール側の再試行が減りうる）。注入は optional で、未注入（`pi === null` で起動）は runtime 不可と同じ 503 にする。このときクライアントは**開始のボタンを無効**にし、理由をその場に出す（音声の同期とは別のゲート）
 - 同じ入力（本文 + モデル + ボイス + 演技指示 + 話速）の保存済み成功があるときは provider を呼ばず、既存の結果を 200 で返す（課金しない）。**本文が同じでも話速 / 演技指示 / ボイス / モデルが違えば別の試行**として課金される
 - 結果は 1 つの再生ビューポート + 履歴セレクタで見せる（画像タブと同じ形）。再生は成果物の raw ルート（trial id だけ）で、履歴の行を選ぶとビューポートが切り替わる。結果カードには送った本文・演技指示・話速・モデル・ボイス・形式とサイズ・所要時間・状態・キー世代を出し、[入力欄に戻す] / [別のテイクを生成] / ダウンロード / 削除を持つ。保存容量は画像と同じ合計を出す
+- 結果のモデルとボイスが保存値と違うときだけ、結果カードに [このモデルとボイスを既定にする] を出す。押すと試行と同じ組み合わせを保存し（既存の `PUT /api/settings/content/speech` の経路）、画面の下書きを捨てて保存値と未保存の表示を追随させる。両方とも保存値と同じときは出さず、保存できなかったときは結果カードと設定の注記で知らせる（成功と同じ見た目にしない）。本文・演技指示・話速は保存値の対象ではない。同じ `PUT` を呼ぶため、現在の設定を確認できていない間は保存フォームと同じゲートで止め、その理由をカードに出す（保存値との差分も古い値で判定することになるため）。キー未設定の間も同じく、履歴と結果だけを出してこの導線は押せない
+- 一覧の取得中に開始 / 中断したときは、その取得の応答で画面を巻き戻さない（画像と同じ規則。開始した実行中の行を消さず、ポーリングも続ける）
 - 音声の長さ（尺）は保存時に読めないため出さない（mp3 / wav のデコードを持たない）。所要時間は試行の実測を出す
 - クライアントは生成中に入力と実行を無効化し、課金の条件（生成は 1 回ごと / 同じ入力の保存済み結果があるときは課金されない）を伝える。失敗時は分類済みの文言を出し、入力は保つ（そのまま直して再試行できる）。本文が空 / 話速が不正なときは送信前に止める（**この検証に当たったときはサーバーの 400 文言ではなくクライアントの文言を出す**）
-- 音声の同期が取れていない間（`speechSynced === false`）も使える。保存値を書き換えず、画面で選んだ値をそのまま試すだけなので、保存ボタン用の未同期ゲート（`value=""` / `disabled` / 「（未確認）」）は持ち込まない
-- 表示の正は `client/src/lib/contentTrials.ts`（試行の要求・スナップショットの復元・履歴の行・再利用の判定）と `client/src/lib/contentSettings.ts`（モデル / ボイス / 話速の増減）の純関数、描画は `client/src/components/content-settings/SpeechTrialSection.tsx` に閉じる（ボイス欄のラベルと並びは `client/src/lib/speechVoices.ts` の純関数、描画は `client/src/components/content-settings/SpeechVoiceOptions.tsx` に出し、保存フォームと共有する）。再生そのものは自動テストせず GUI 受入にする（[testing.md](testing.md)）
+- 音声の同期が取れていない間（`speechSynced === false`）も試行（開始と履歴・再生）は使える。保存値を書き換えず、画面で選んだ値をそのまま試すだけなので、開始の入力欄に保存ボタン用の未同期ゲート（`value=""` / `disabled` / 「（未確認）」）は持ち込まない。結果カードから既定へ保存する導線だけは例外で、同じ `PUT` を呼ぶため保存フォームと同じゲートに従う
+- 表示の正は `client/src/lib/contentTrials.ts`（試行の要求・スナップショットの復元・履歴の行・再利用の判定）と `client/src/lib/contentSettings.ts`（モデル / ボイス / 話速の増減）の純関数、既定へ保存する対象は `client/src/lib/trialDefault.ts`、描画は `client/src/components/content-settings/SpeechTrialSection.tsx` に閉じる（ボイス欄のラベルと並びは `client/src/lib/speechVoices.ts` の純関数、描画は `client/src/components/content-settings/SpeechVoiceOptions.tsx` に出し、保存フォームと共有する）。再生そのものは自動テストせず GUI 受入にする（[testing.md](testing.md)）
 
 ## API
 
@@ -200,7 +202,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `c
 | `server/test/speech-settings-api.test.ts` | HTTP 契約（GET / PUT / 再取得）、既定カタログの形、キーが応答に出ないこと、カタログ外 / 宣言外 / 本文形の 400、DB 不通 |
 | `server/test/content-trials.test.ts` | 音声の試行の入力スナップショット / mp3 と pcm→wav の保存 / 形式の許可リストの保存前拒否 / `storage` の課金済み失敗 / 失敗分類 / キャンセルと再起動の中断 / 同じ入力（本文 + モデル + ボイス + 演技指示 + 話速）の再利用と、1 つでも違えば再課金 / カタログ・宣言ボイス・話速の課金前拒否 / 種別ごとの同時 1 本 / 音声の成果物だけを残す再照合 |
 | `server/test/content-trials-api.test.ts` | 音声の試行の HTTP 契約（202 の開始 / raw の `audio/mpeg`・`nosniff`・`no-store`・`?download=1` / 保存容量への合算 / 同じ入力の 200 `reused` と provider 呼び出し 1 回 / 旧 `/speech/preview` が 404 であること） |
-| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/contentTrials.test.ts` / `client/test/speechVoices.test.ts` | 音声モデル（表示名の昇順）とボイスの選択肢・現在値・PUT の本文・自由記述の切替 / ボイスの属性の写し（欠けと綴り、性別の内訳、スタイル語のラベル）とグループ分け（女性 → 男性 → 未知、`google/` 以外と属性を引けない一覧は宣言順の 1 グループ、片方の性別しか無いときの空グループの除外）/ カタログ外の現在値 / 出どころのチップと再取得の注記 / 選んだ面の描画（音声欄はキー保存後・runtime 不可でも残る）/ 試行の入力順・送信前の検証・話速の増減・スナップショットの復元・同じ入力の課金なし判定・証拠（モデル + ボイス）・再生と履歴の描画 / 実行中・失敗・記録のみ・画像と音声の履歴を混ぜないこと |
+| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/contentTrials.test.ts` / `client/test/speechVoices.test.ts` / `client/test/trialDefault.test.ts` | 音声モデル（表示名の昇順）とボイスの選択肢・現在値・PUT の本文・自由記述の切替 / ボイスの属性の写し（欠けと綴り、性別の内訳、スタイル語のラベル）とグループ分け（女性 → 男性 → 未知、`google/` 以外と属性を引けない一覧は宣言順の 1 グループ、片方の性別しか無いときの空グループの除外）/ カタログ外の現在値 / 出どころのチップと再取得の注記 / 選んだ面の描画（音声欄はキー保存後・runtime 不可でも残る）/ 試行の入力順・送信前の検証・話速の増減・スナップショットの復元・同じ入力の課金なし判定・証拠（モデル + ボイス）・再生と履歴の描画 / 実行中・失敗・記録のみ・画像と音声の履歴を混ぜないこと / 結果から既定へ保存する導線の表示条件（モデルとボイスの差分、ボイス未指定と保存値の空文字を同じ扱い）と PUT の本文・保存後の印 |
 
 ## 非ゴール
 

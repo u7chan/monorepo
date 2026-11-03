@@ -451,6 +451,25 @@ const TRIAL_BASE: ContentTrial = {
   recorded: true,
 };
 
+test("キー未設定では、結果カードから既定へ保存する導線も押せない", () => {
+  const html = render({
+    configured: false,
+    keyStored: false,
+    keyAvailable: false,
+    provider: null,
+    image: { model: null },
+    trials: [TRIAL_BASE],
+  });
+  assert.equal(html.includes("保存される設定"), false, "保存フォームは出さない（既存の意図）");
+  assert.match(
+    html,
+    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?このモデルを既定にする/,
+    "保存できないので導線を押せなくする",
+  );
+  assert.ok(html.includes("APIキーが未設定のため保存できません。"), "押せない理由をその場に出す");
+  assert.ok(html.includes("a cat on a sofa"), "履歴と結果の閲覧は残す");
+});
+
 test("未設定でも試行の履歴と証拠を出し、新規生成だけを止める", () => {
   const html = render({
     configured: false,
@@ -590,6 +609,26 @@ test("同じ入力の保存済み結果がある行は、生成し直しても�
   assert.ok(fresh.includes("別のテイクは新しい試行として課金されます。"));
 });
 
+test("結果のモデルが保存値と違うときだけ、このモデルを既定にする導線を出す", () => {
+  const button = "このモデルを既定にする";
+  const other = render({ trials: [{ ...TRIAL_BASE, model: "openrouter/google/gemini-image" }] });
+  assert.ok(other.includes(button), "別モデルで試した結果からは既定にできる");
+
+  const same = render({ trials: [TRIAL_BASE] });
+  assert.equal(same.includes(button), false, "保存値と同じモデルでは出さない");
+
+  // 保存後は保存値が試行のモデルになり、下書きを捨てた状態（初期値）では未保存も出ない
+  const saved = render({
+    image: { model: "google/gemini-image" },
+    trials: [{ ...TRIAL_BASE, model: "openrouter/google/gemini-image" }],
+  });
+  assert.equal(saved.includes(button), false, "保存できたら導線を消す");
+  assert.equal(saved.includes("未保存"), false, "未保存扱いを残さない");
+
+  const outside = render({ trials: [{ ...TRIAL_BASE, model: "openrouter/unknown/image" }] });
+  assert.equal(outside.includes(button), false, "保存の本文を作れないモデルでは出さない");
+});
+
 test("実行中の行は送信時のプロンプトを表示し、入力欄の下書きとは混ぜない", () => {
   const html = render({
     trials: [
@@ -671,6 +710,52 @@ test("音声の結果はプレイヤー・snapshot・導線を出し、履歴に
   assert.ok(two.includes("履歴（2 件）"));
 });
 
+test("音声は結果のモデルとボイスが保存値と違うときだけ、このモデルとボイスを既定にする導線を出す", () => {
+  const button = "このモデルとボイスを既定にする";
+  // 保存値は Zephyr、試行は Aoede
+  const voiceDiff = render({ subsection: "speech", trials: [SPEECH_TRIAL_BASE] });
+  assert.ok(voiceDiff.includes(button), "ボイスだけ違っても既定にできる");
+
+  const same = render({ subsection: "speech", speech: { voice: "Aoede" }, trials: [SPEECH_TRIAL_BASE] });
+  assert.equal(same.includes(button), false, "モデルもボイスも同じなら出さない");
+
+  const saved = render({
+    subsection: "speech",
+    speech: { model: "google/gemini-3.8-flash-tts", voice: "Aoede" },
+    trials: [SPEECH_TRIAL_BASE],
+  });
+  assert.equal(saved.includes(button), false, "保存できたら導線を消す");
+  assert.equal(saved.includes("未保存"), false, "未保存扱いを残さない");
+
+  const modelDiff = render({
+    subsection: "speech",
+    speech: { model: "fish/audio", voice: "Aoede" },
+    trials: [SPEECH_TRIAL_BASE],
+  });
+  assert.ok(modelDiff.includes(button), "モデルが違えば既定にできる");
+});
+
+test("音声の設定を確認できない間は、結果カードからの既定の保存も止めて理由を出す", () => {
+  const blocked = render({ subsection: "speech", speechSynced: false, trials: [SPEECH_TRIAL_BASE] });
+  assert.match(
+    blocked,
+    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?このモデルとボイスを既定にする/,
+    "保存フォームと同じく押せなくする",
+  );
+  assert.ok(
+    blocked.includes("サーバーの現在の設定を確認できていないため、再読み込みするまで保存できません。"),
+    "押せない理由を出す",
+  );
+
+  const allowed = render({ subsection: "speech", trials: [SPEECH_TRIAL_BASE] });
+  assert.equal(allowed.includes("サーバーの現在の設定を確認できていないため"), false, "同期できていれば理由を出さない");
+  assert.equal(
+    allowed.includes("APIキーが未設定のため保存できません。"),
+    false,
+    "設定済みではキー未設定の理由を出さない",
+  );
+});
+
 test("音声の実行中はプレイヤーを出さず、状態だけを示す", () => {
   const html = render({
     subsection: "speech",
@@ -716,6 +801,25 @@ test("画像と音声の履歴は互いの面に出さない", () => {
   assert.equal(image.includes("おはようございます"), false, "音声の履歴は画像タブに混ぜない");
   const speech = render({ subsection: "speech", trials: [TRIAL_BASE] });
   assert.equal(speech.includes("a cat on a sofa"), false, "画像の履歴は音声タブに混ぜない");
+});
+
+test("キー未設定では、音声の結果カードから既定へ保存する導線も押せない", () => {
+  const html = render({
+    configured: false,
+    keyStored: false,
+    keyAvailable: false,
+    provider: null,
+    image: { model: null },
+    subsection: "speech",
+    trials: [SPEECH_TRIAL_BASE],
+  });
+  assert.match(
+    html,
+    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?このモデルとボイスを既定にする/,
+    "保存できないので導線を押せなくする",
+  );
+  assert.ok(html.includes("APIキーが未設定のため保存できません。"), "押せない理由をその場に出す");
+  assert.match(html, /<audio[^>]*src="\/api\/settings\/content\/trials\/trial-speech-1\/raw"/, "再生は未設定でも残す");
 });
 
 test("キー未設定でも音声の試行の履歴と再生を出し、新規生成だけを止める", () => {
