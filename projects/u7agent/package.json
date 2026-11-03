@@ -32,8 +32,8 @@
     "@earendil-works/pi-coding-agent": "^1.4.0"
   },
   "devDependencies": {
-    "@shadcn/lint": "^0.2.3",
-    "oxfmt": "0.75.0",
+    "@shadcn/lint": "^0.2.5",
+    "oxfmt": "0.76.0",
     "oxlint": "^1.90.0"
   }
 }
