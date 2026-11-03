@@ -26,8 +26,10 @@ import {
   trialDurationLabel,
   trialFailureLabel,
   trialHistoryRow,
+  trialKindLabel,
   trialKindSubsection,
   trialModelOptions,
+  trialRemoveAllNote,
   trialPanelState,
   trialStartBlockedReason,
   trialStateLabel,
@@ -566,4 +568,67 @@ test("音声の表示は trial id で一意になり、本文が同じでも別�
   // 選択が消えたら最新（同じ本文でも新しいテイク）へ戻る
   assert.equal(selectedTrial({ trials, selectedId: null })?.id, "trial-bbb");
   assert.equal(selectedTrial({ trials, selectedId: "trial-gone" })?.id, "trial-bbb");
+});
+
+test("ボイス未指定は空文字と null を同じ「指定なし」として証拠と再利用で一致する", () => {
+  const now = 100_000;
+  // 画面のボイス欄は空文字、保存済みの成功行は null（サーバーが空文字を null へ寄せる）
+  const unsaved = [
+    speechTrial({ id: "unspecified", voice: null, instructions: null, speed: null, finishedAt: 60_000 }),
+  ];
+  assert.deepEqual(
+    trialEvidence({
+      trials: unsaved,
+      currentKeyEpoch: 1,
+      currentModel: unsaved[0]!.model,
+      currentVoice: "",
+      now,
+    }),
+    { kind: "success", at: 60_000, durationMs: 11_000 },
+    "空文字の画面値を null の保存値へ一致させる",
+  );
+  assert.ok(
+    reusableTrial({
+      trials: unsaved,
+      kind: "speech",
+      model: unsaved[0]!.model,
+      prompt: unsaved[0]!.prompt,
+      voice: "",
+      instructions: null,
+      speed: null,
+    }),
+    "同じ入力（ボイス未指定）として再利用する",
+  );
+
+  // 逆向き（保存値が空文字・画面が null）でも同じ扱いにする
+  const stored = [speechTrial({ id: "empty", voice: "", instructions: null, speed: null, finishedAt: 60_000 })];
+  assert.deepEqual(
+    trialEvidence({
+      trials: stored,
+      currentKeyEpoch: 1,
+      currentModel: stored[0]!.model,
+      currentVoice: null,
+      now,
+    }),
+    { kind: "success", at: 60_000, durationMs: 11_000 },
+  );
+  // 指定したボイスが違えば一致しない（正規化で別のボイスまで一致させない）
+  assert.deepEqual(
+    trialEvidence({
+      trials: stored,
+      currentKeyEpoch: 1,
+      currentModel: stored[0]!.model,
+      currentVoice: "Aoede",
+      now,
+    }),
+    { kind: "unverified" },
+  );
+});
+
+test("全削除の注記は種別ごとの件数を伝え、もう一方のタブの履歴を消したと誤解させない", () => {
+  assert.equal(trialRemoveAllNote("speech", 2), "音声の試行の履歴を 2 件削除しました（実行中の試行は残ります）。");
+  assert.equal(trialRemoveAllNote("image", 1), "画像の試行の履歴を 1 件削除しました（実行中の試行は残ります）。");
+  assert.equal(trialRemoveAllNote("speech", 0), "音声の試行に削除できる履歴がありません（実行中の試行は残ります）。");
+  assert.equal(trialKindLabel("speech"), "音声");
+  assert.equal(trialKindLabel("image"), "画像");
 });

@@ -309,6 +309,14 @@ export class ContentTrialsService {
     return false;
   }
 
+  /**
+   * 400 の文言へ入力を反射するときの境界。マスカーが登録済みの秘密値（保存したAPIキー）を伏せ、
+   * model / voice 欄へ誤って貼られたキーを応答と画面の注記へ出さない。
+   */
+  #reflected(value: string): string {
+    return this.#maskError(value);
+  }
+
   /** 種別の生成器が注入されているか。未注入は runtime 不可と同じ 503 にする */
   #generatorOf(kind: ContentTrialKind): boolean {
     return kind === "speech" ? this.#generateSpeech !== undefined : this.#generateImage !== undefined;
@@ -339,20 +347,20 @@ export class ContentTrialsService {
 
     const route = generationRouteOf(kind, input.model);
     if (route === null) {
-      return { status: 400, error: `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: ${input.model}` };
+      return { status: 400, error: `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflected(input.model)}` };
     }
     // 画像と音声で照合先が違う（画像は `provider/id`、音声はカタログの id と宣言ボイス）
     if (kind === "image") {
       if (!this.#source.models().includes(input.model)) {
-        return { status: 400, error: `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: ${input.model}` };
+        return { status: 400, error: `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflected(input.model)}` };
       }
     } else {
       if (!this.#source.speechModels().includes(input.model)) {
-        return { status: 400, error: `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: ${input.model}` };
+        return { status: 400, error: `${CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflected(input.model)}` };
       }
       const declared = this.#source.speechVoices(input.model);
       if (declared && params.voice !== null && !declared.includes(params.voice)) {
-        return { status: 400, error: `${CONTENT_TRIAL_SPEECH_VOICE_MESSAGE}: ${params.voice}` };
+        return { status: 400, error: `${CONTENT_TRIAL_SPEECH_VOICE_MESSAGE}: ${this.#reflected(params.voice)}` };
       }
     }
 

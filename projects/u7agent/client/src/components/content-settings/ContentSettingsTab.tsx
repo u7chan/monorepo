@@ -12,15 +12,13 @@ import {
   contentProviderLabel,
   keyDraftAfterSave,
   speechCatalogNotice,
-  speechModelOptions,
-  speechModelValue,
-  speechSelection,
   speechSaveDisabled,
-  speechVoiceDraft,
-  speechVoiceMode,
+  speechScreenSelection,
+  speechSelection,
+  type SpeechScreenSelection,
   type ContentSavingAction,
 } from "../../lib/contentSettings";
-import { EMPTY_SPEECH_TRIAL_DRAFT, type SpeechTrialDraft } from "../../lib/contentTrials";
+import { EMPTY_SPEECH_TRIAL_DRAFT } from "../../lib/contentTrials";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import { cn } from "../../lib/cn";
 import type { ContentSubsection } from "../../lib/settingsNav";
@@ -76,7 +74,8 @@ export type ContentSettingsTabProps = {
   onStartTrial: (input: CreateContentTrialBody) => Promise<boolean>;
   onCancelTrial: (id: string) => Promise<boolean>;
   onDeleteTrial: (id: string) => Promise<boolean>;
-  onDeleteAllTrials: () => Promise<boolean>;
+  /** 種別ごとの全削除。他の種別の履歴を消さないよう、面の種別を渡す */
+  onDeleteAllTrials: (kind: ContentTrial["kind"]) => Promise<boolean>;
 };
 
 /**
@@ -120,6 +119,8 @@ export function ContentSettingsTab({
   const [trialNow] = useState(() => Date.now());
   // 画面に出ているモデル。モデル選択・試行の開始・証拠はこの 1 つを使う（保存前でも画面の値で試す）
   const screenModel = imageScreenModel({ draft: imageDraft, savedModel: imageModelValue(settings) });
+  // 音声タブのモデル / ボイスも画面の値（下書き優先）。未設定でも履歴を出すため、タブの外側で解決する
+  const speechSelectionOfScreen = speechScreenSelection(settings, speechDraft);
   const busy = saving !== null;
   const runtimeAvailable = settings.runtimeAvailable;
   const providerName = contentProviderLabel(settings.provider);
@@ -278,36 +279,47 @@ export function ContentSettingsTab({
               onStart={onStartTrial}
               onCancel={onCancelTrial}
               onDelete={onDeleteTrial}
-              onDeleteAll={onDeleteAllTrials}
+              onDeleteAll={() => onDeleteAllTrials("image")}
             />
           </>
-        ) : settings.configured ? (
-          contentSubsection === "speech" ? (
-            <SpeechSection
+        ) : contentSubsection === "speech" ? (
+          <>
+            {/* 保存される設定はキー保存後にだけ出す。試行の面は履歴を読めるよう未設定でも出す */}
+            {settings.configured ? (
+              <SpeechModelSection
+                settings={settings}
+                busy={busy}
+                synced={speechSynced}
+                refreshing={saving === "speech-catalog"}
+                draft={speechDraft}
+                onChangeDraft={setSpeechDraft}
+                onSave={onSaveSpeech}
+                onRefresh={onRefreshSpeechCatalog}
+                selection={speechSelectionOfScreen}
+                trials={trials}
+                keyEpoch={trialKeyEpoch}
+                trialNow={trialNow}
+              />
+            ) : null}
+            <SpeechTrialSection
               settings={settings}
-              busy={busy}
-              synced={speechSynced}
-              refreshing={saving === "speech-catalog"}
-              draft={speechDraft}
-              onChangeDraft={setSpeechDraft}
-              onSave={onSaveSpeech}
-              onRefresh={onRefreshSpeechCatalog}
+              model={speechSelectionOfScreen.selectedModel}
+              voice={speechSelectionOfScreen.selectedVoice}
               trials={trials}
               keyEpoch={trialKeyEpoch}
               artifactUsage={trialArtifactUsage}
-              trialNote={trialNote}
-              trialBusy={trialBusy}
-              trialNow={trialNow}
-              trialDraft={speechTrialDraft}
-              onChangeTrialDraft={setSpeechTrialDraft}
-              onStartTrial={onStartTrial}
-              onCancelTrial={onCancelTrial}
-              onDeleteTrial={onDeleteTrial}
-              onDeleteAllTrials={onDeleteAllTrials}
+              note={trialNote}
+              busy={trialBusy}
+              draft={speechTrialDraft}
+              onChangeDraft={setSpeechTrialDraft}
+              onStart={onStartTrial}
+              onCancel={onCancelTrial}
+              onDelete={onDeleteTrial}
+              onDeleteAll={() => onDeleteAllTrials("speech")}
             />
-          ) : (
-            <BgmSection settings={settings} />
-          )
+          </>
+        ) : settings.configured ? (
+          <BgmSection settings={settings} />
         ) : null}
 
         <section className="grid gap-1 border-t border-line pt-3 text-2xs leading-relaxed text-ink-muted">
@@ -441,7 +453,7 @@ function ImageModelSection({
  * 音声のモデルとボイス。画像と同じ行（`content_settings`）の別の列で、生成のたびにツールが読み直す。
  * 宣言が無いモデルは空欄を許し、自由記述の入力欄へ切り替える（送らない場合は空のまま保存する）。
  */
-function SpeechSection({
+function SpeechModelSection({
   settings,
   busy,
   synced,
@@ -450,18 +462,10 @@ function SpeechSection({
   onChangeDraft,
   onSave,
   onRefresh,
+  selection,
   trials,
   keyEpoch,
-  artifactUsage,
-  trialNote,
-  trialBusy,
   trialNow,
-  trialDraft,
-  onChangeTrialDraft,
-  onStartTrial,
-  onCancelTrial,
-  onDeleteTrial,
-  onDeleteAllTrials,
 }: {
   settings: ContentSettingsResponse;
   busy: boolean;
@@ -471,33 +475,13 @@ function SpeechSection({
   onChangeDraft: (draft: SpeechDraft) => void;
   onSave: (input: UpdateContentSpeechBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
+  /** 画面のモデル / ボイス。保存フォーム・証拠・試行で同じ解決を使う */
+  selection: SpeechScreenSelection;
   trials: readonly ContentTrial[] | null;
   keyEpoch: number;
-  artifactUsage: ContentTrialArtifactUsageValue;
-  trialNote: { text: string; error: boolean } | null;
-  trialBusy: boolean;
   trialNow: number;
-  trialDraft: SpeechTrialDraft;
-  onChangeTrialDraft: (draft: SpeechTrialDraft) => void;
-  onStartTrial: (input: CreateContentTrialBody) => Promise<boolean>;
-  onCancelTrial: (id: string) => Promise<boolean>;
-  onDeleteTrial: (id: string) => Promise<boolean>;
-  onDeleteAllTrials: () => Promise<boolean>;
 }) {
-  const options = speechModelOptions(settings);
-  const savedModel = speechModelValue(settings);
-  const savedVoice = settings.speech.voice;
-  const selectedModel = draft.model ?? savedModel;
-  const selectedOption = options.find((option) => option.value === selectedModel);
-  const textMode = speechVoiceMode(selectedOption) === "text";
-  // モデルを切り替えたら、ボイスは新しいモデルの既定（先頭、宣言が無ければ空）へ寄せる
-  const selectedVoice = speechVoiceDraft({
-    draft: draft.voice,
-    modelChanged: draft.model !== null,
-    option: selectedOption,
-    savedVoice,
-  });
-  const dirty = selectedModel !== savedModel || selectedVoice !== savedVoice;
+  const { options, selectedModel, selectedOption, selectedVoice, textMode, dirty } = selection;
 
   const submit = async () => {
     if (!synced) return;
@@ -583,23 +567,6 @@ function SpeechSection({
           {refreshing ? "更新中" : "カタログ更新"}
         </ReloadButton>
       </div>
-      {/* 同期できていない間も、保存値を書き換えずに画面の値で試せる（保存のゲートを持ち込まない） */}
-      <SpeechTrialSection
-        settings={settings}
-        model={selectedModel}
-        voice={selectedVoice}
-        trials={trials}
-        keyEpoch={keyEpoch}
-        artifactUsage={artifactUsage}
-        note={trialNote}
-        busy={trialBusy}
-        draft={trialDraft}
-        onChangeDraft={onChangeTrialDraft}
-        onStart={onStartTrial}
-        onCancel={onCancelTrial}
-        onDelete={onDeleteTrial}
-        onDeleteAll={onDeleteAllTrials}
-      />
     </section>
   );
 }

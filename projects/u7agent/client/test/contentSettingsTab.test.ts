@@ -380,13 +380,15 @@ test("音声セクションの下部に試行の入力を出し、未設定で�
   // 保存される設定と試行の入力は別の見出しで分ける
   assert.ok(html.includes("音声（TTS）"));
 
+  // 未設定でも試行の面は出す（履歴が無くても、画像タブと同じ位置に理由と履歴を出す）
   const unset = render({
     subsection: "speech",
     configured: false,
     provider: null,
     image: { model: null, catalogSource: "sdk", fetchedAt: null },
   });
-  assert.equal(unset.includes("設定に反映しない試行"), false, "キー保存前は試行の面を出さない");
+  assert.ok(unset.includes("設定に反映しない試行"), "キー保存前も試行の面を出す");
+  assert.ok(unset.includes("APIキーが未設定です"), "履歴だけを表示していることを伝える");
 });
 
 test("音声の同期が取れていない間も試行は使える（保存のゲートを持ち込まない）", () => {
@@ -714,4 +716,27 @@ test("画像と音声の履歴は互いの面に出さない", () => {
   assert.equal(image.includes("おはようございます"), false, "音声の履歴は画像タブに混ぜない");
   const speech = render({ subsection: "speech", trials: [TRIAL_BASE] });
   assert.equal(speech.includes("a cat on a sofa"), false, "画像の履歴は音声タブに混ぜない");
+});
+
+test("キー未設定でも音声の試行の履歴と再生を出し、新規生成だけを止める", () => {
+  const html = render({
+    configured: false,
+    keyStored: false,
+    keyAvailable: false,
+    provider: null,
+    image: { model: null },
+    subsection: "speech",
+    trials: [SPEECH_TRIAL_BASE],
+  });
+  assert.ok(html.includes("設定に反映しない試行"), "試行の面は未設定でも出す");
+  assert.ok(html.includes("おはようございます"), "保存済みの履歴を出す");
+  assert.ok(html.includes("ボイス: Aoede"), "履歴の行にボイスを出す");
+  assert.match(
+    html,
+    /<audio[^>]*src="\/api\/settings\/content\/trials\/trial-speech-1\/raw"/,
+    "再生（raw 配信）も未設定で使える",
+  );
+  assert.ok(html.includes("APIキーを登録すると試行できます"), "開始できない理由を出す");
+  assert.equal(html.includes('aria-label="音声生成のモデル"'), false, "保存される設定は出さない");
+  assert.equal(html.includes('aria-label="音声生成のボイス"'), false, "保存されるボイス欄も出さない");
 });

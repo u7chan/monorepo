@@ -210,7 +210,7 @@
 | POST | `/api/settings/content/trials` | `{ kind, model, prompt, voice?, instructions?, speed? }`。試行ジョブを開始し、202 で `{ trial, reused: false }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409）。同じ入力の保存済み成功があれば provider を呼ばず 200 `{ trial, reused: true }` |
 | GET | `/api/settings/content/trials` | `{ items, keyEpoch, artifactUsage }`。新しい順の履歴（`?kind=` で絞る）。取得のたびに `running` の取り残しと成果物の置き場を再照合する |
 | GET | `/api/settings/content/trials/:id` | `{ trial }`。終端の記録に失敗している間は `recorded: false` でメモリの状態を返す |
-| GET | `/api/settings/content/trials/:id/raw` | 保存済みの成果物。`Content-Type` は保存時に確定した MIME で、`X-Content-Type-Options: nosniff` と `Cache-Control: no-store`。`?download=1` で `Content-Disposition: attachment` |
+| GET | `/api/settings/content/trials/:id/raw` | 保存済みの成果物。`Content-Type` は保存時に確定した MIME で、`Accept-Ranges: bytes` / `X-Content-Type-Options: nosniff` / `Cache-Control: no-store`。単一の `Range` を満たすときは 206 + `Content-Range`、満たせないときは 416 + `Content-Range: bytes */<size>`（契約は [api-files.md](api-files.md#画像配信raw) と同じ）。`?download=1` で `Content-Disposition: attachment` |
 | POST | `/api/settings/content/trials/:id/cancel` | 実行中の試行だけを中断して `{ trial }`。終端は 409 |
 | DELETE | `/api/settings/content/trials/:id` | 終端状態の試行だけを削除し、成果物も消す。実行中は 409（`先に中断してください`） |
 | DELETE | `/api/settings/content/trials` | 終端状態の試行をまとめて削除し、成果物も消す（`{ removed }`）。実行中は残る |
@@ -328,6 +328,7 @@
 - 同じ入力の保存済み成功があるときは provider を呼ばず 200 `{ trial, reused: true }` を返す（課金せず、新しい成功としても記録しない）。入力は画像が「種別 / モデル / プロンプト」、音声が「種別 / モデル / 本文 / ボイス / 演技指示 / 話速」で、音声の 3 つは NULL（未指定）同士も一致として扱う
 - 音声の入力（本文・ボイス・演技指示・話速）は行のスナップショットとして履歴に残し、同じ入力の照合にも使う。課金前の検証はカタログのモデル、宣言があるモデルのボイス、本文と演技指示の長さ、正の `speed`
 - 配信は trial id だけの同 origin ルートで、保存時に確定した MIME（画像は `image/*`、音声は `audio/mpeg` / `audio/wav`）・`nosniff`・`no-store` を付け、`?download=1` のときだけ添付にする。パスは受け取らず、保存名が行の id と形式から作り直した名前と一致しない行と、種別の許可リストに無い形式の行は配信しない
+- 配信はファイル配信と同じ**単一 `Range`** の契約に従う（200 に `Accept-Ranges: bytes`、`bytes=<start>-<end>` / `bytes=<start>-` / `bytes=-<suffix>` は 206 + `Content-Range` + 部分の `Content-Length`、満たせない範囲は 416 + `Content-Range: bytes */<size>`、解釈できない `Range` と複数レンジは無視して 200）。音声のシークは全体を読み終えるまで待たせない
 - 置き場の再照合は、`succeeded` + `stored` の行のファイルだけを残し、それ以外の行にひも付くファイルと行の無いファイルを消す。起動時（レジストリは空）は全件を、一覧の取得時は間引いて同じ規則を適用する。ただし実行中レジストリに居る trial（保存後・終端更新前を含む）のファイルは消さない
 - 再照合は**ファイル一覧を取った後に行一覧を読み**、削除の直前にもその行を読み直す。一覧の取得を待つ間にジョブが `succeeded` + `stored` へ確定してレジストリから外れるため、先に読んだ行一覧で残す対象を決めると、確定済みのファイルを中途ファイルとして消してしまう（配信 404・画像の無い成功の再利用・容量の数え残しになる）
 - 保存容量はディレクトリを走査せず、`succeeded` + `stored` の行のバイト数を合計する（`artifactUsage`）。時間ベースの自動削除はしない

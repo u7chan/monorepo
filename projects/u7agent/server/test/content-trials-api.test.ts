@@ -499,3 +499,192 @@ test("お試し再生のルートは退役し、音声の生成は試行 API だ
     }
   });
 });
+
+test("raw 配信は単一 Range を解釈し、206 / 416 / 解釈できない Range の 200 を返す（画像）", async () => {
+  await withStoreDir(async (dir) => {
+    const images = createImageHarness();
+    const pi = createStubPi({ onGenerateImage: images.onGenerateImage });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const created = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/trials",
+          jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+        ),
+      );
+      images.pending[0]?.resolve({ ok: true, image: pngImage(640, 480) });
+      await waitForState(bff, created.trial.id, "succeeded");
+      const url = `/api/settings/content/trials/${created.trial.id}/raw`;
+
+      // 200 は全体に加えて Range を受けることを宣言する
+      const full = await bff.app.request(url);
+      assert.equal(full.status, 200);
+      assert.equal(full.headers.get("accept-ranges"), "bytes");
+      assert.equal(full.headers.get("content-length"), "33");
+      assert.equal((await full.arrayBuffer()).byteLength, 33);
+
+      // 開始 / 末尾 / サフィックスの 3 形を 206 で満たす
+      for (const [range, start, end] of [
+        ["bytes=0-9", 0, 9],
+        ["bytes=10-", 10, 32],
+        ["bytes=-5", 28, 32],
+      ] as const) {
+        const partial = await bff.app.request(url, { headers: { Range: range } });
+        assert.equal(partial.status, 206, range);
+        assert.equal(partial.headers.get("content-range"), `bytes ${start}-${end}/33`, range);
+        assert.equal(partial.headers.get("content-length"), String(end - start + 1), range);
+        assert.equal(partial.headers.get("accept-ranges"), "bytes", range);
+        assert.equal(partial.headers.get("x-content-type-options"), "nosniff", range);
+        assert.equal(partial.headers.get("cache-control"), "no-store", range);
+        assert.equal((await partial.arrayBuffer()).byteLength, end - start + 1, range);
+      }
+
+      // 満たせない範囲だけ 416。Content-Range は全体の長さを表す
+      for (const range of ["bytes=33-", "bytes=-0"]) {
+        const unsatisfiable = await bff.app.request(url, { headers: { Range: range } });
+        assert.equal(unsatisfiable.status, 416, range);
+        assert.equal(unsatisfiable.headers.get("content-range"), "bytes */33", range);
+      }
+
+      // 構文不正・複数レンジ・bytes 以外の単位は Range を無視して 200（RFC 9110）
+      for (const range of ["bytes=abc", "bytes=9-2", "bytes=0-1,3-4", "items=0-1"]) {
+        const ignored = await bff.app.request(url, { headers: { Range: range } });
+        assert.equal(ignored.status, 200, range);
+        assert.equal((await ignored.arrayBuffer()).byteLength, 33, range);
+      }
+
+      // ダウンロードでも同じ Range 契約と添付ヘッダを両立させる
+      const download = await bff.app.request(`${url}?download=1`, { headers: { Range: "bytes=0-9" } });
+      assert.equal(download.status, 206);
+      assert.equal(download.headers.get("content-disposition"), `attachment; filename="${created.trial.id}.png"`);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("raw 配信の Range は音声でも同じ契約になる（206 と 416）", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi({
+      onGenerateSpeech: async () => ({
+        ok: true,
+        speech: { audio: new Uint8Array([0xff, 0xfb, 0x90, 0x64]).buffer, format: "mp3", contentType: "audio/mpeg" },
+      }),
+    });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const created = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/trials",
+          jsonPost({ kind: "speech", model: DEFAULT_SPEECH_MODEL, prompt: "こんにちは" }),
+        ),
+      );
+      await waitForState(bff, created.trial.id, "succeeded");
+      const url = `/api/settings/content/trials/${created.trial.id}/raw`;
+
+      const partial = await bff.app.request(url, { headers: { Range: "bytes=0-1" } });
+      assert.equal(partial.status, 206);
+      assert.equal(partial.headers.get("content-type"), "audio/mpeg");
+      assert.equal(partial.headers.get("content-range"), "bytes 0-1/4");
+      assert.equal((await partial.arrayBuffer()).byteLength, 2);
+
+      const unsatisfiable = await bff.app.request(url, { headers: { Range: "bytes=4-" } });
+      assert.equal(unsatisfiable.status, 416);
+      assert.equal(unsatisfiable.headers.get("content-range"), "bytes */4");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("全削除と個別削除・キャンセルは種別をまたがない", async () => {
+  await withStoreDir(async (dir) => {
+    const images = createImageHarness();
+    const speech: { input: unknown; resolve: (value: any) => void; aborted: () => boolean }[] = [];
+    const pi = createStubPi({
+      onGenerateImage: images.onGenerateImage,
+      onGenerateSpeech: (input) =>
+        new Promise((resolve) => speech.push({ input, resolve, aborted: () => input.signal?.aborted === true })),
+    });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const image = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/trials",
+          jsonPost({ kind: "image", model: MODEL, prompt: "a cat" }),
+        ),
+      );
+      images.pending[0]?.resolve({ ok: true, image: pngImage() });
+      await waitForState(bff, image.trial.id, "succeeded");
+
+      // 種別を渡した全削除は、その種別の履歴だけを消す
+      const speechOne = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/trials",
+          jsonPost({ kind: "speech", model: DEFAULT_SPEECH_MODEL, prompt: "ひとつめ" }),
+        ),
+      );
+      speech[0]?.resolve({
+        ok: true,
+        speech: { audio: new Uint8Array([0xff, 0xfb, 0x90, 0x64]).buffer, format: "mp3", contentType: "audio/mpeg" },
+      });
+      await waitForState(bff, speechOne.trial.id, "succeeded");
+
+      const removed = await jsonBody(
+        await bff.app.request("/api/settings/content/trials?kind=speech", { method: "DELETE" }),
+      );
+      assert.equal(removed.removed, 1, "音声の試行だけを消す");
+      const afterAll = await jsonBody(await bff.app.request("/api/settings/content/trials"));
+      assert.deepEqual(
+        afterAll.items.map((item: { id: string }) => item.id),
+        [image.trial.id],
+        "画像の履歴と成果物は残す",
+      );
+      assert.deepEqual(afterAll.artifactUsage, { count: 1, bytes: 33 }, "画像の容量も残す");
+      assert.deepEqual(await readdir(join(dir, "trials")), [`${image.trial.id}.png`], "音声の成果物だけを消す");
+
+      // 個別削除もキャンセルも id でしか効かない（もう一方の種別の実行中は止めない）
+      const runningImage = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/trials",
+          jsonPost({ kind: "image", model: MODEL, prompt: "a dog" }),
+        ),
+      );
+      const runningSpeech = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/trials",
+          jsonPost({ kind: "speech", model: DEFAULT_SPEECH_MODEL, prompt: "ふたつめ" }),
+        ),
+      );
+      const canceled = await bff.app.request(`/api/settings/content/trials/${runningImage.trial.id}/cancel`, {
+        method: "POST",
+      });
+      assert.equal(canceled.status, 200);
+      const speechStill = await jsonBody(
+        await bff.app.request(`/api/settings/content/trials/${runningSpeech.trial.id}`),
+      );
+      assert.equal(speechStill.trial.state, "running", "画像のキャンセルで音声を止めない");
+      speech[1]?.resolve({
+        ok: true,
+        speech: { audio: new Uint8Array([0xff, 0xfb, 0x90, 0x64]).buffer, format: "mp3", contentType: "audio/mpeg" },
+      });
+      await waitForState(bff, runningSpeech.trial.id, "succeeded");
+
+      const deleted = await bff.app.request(`/api/settings/content/trials/${runningImage.trial.id}`, {
+        method: "DELETE",
+      });
+      assert.equal(deleted.status, 200);
+      const remaining = await jsonBody(await bff.app.request("/api/settings/content/trials"));
+      assert.deepEqual(
+        remaining.items.map((item: { id: string }) => item.id).sort(),
+        [image.trial.id, runningSpeech.trial.id].sort(),
+        "個別削除は指定した id だけを消す",
+      );
+    } finally {
+      await bff.close();
+    }
+  });
+});

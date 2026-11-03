@@ -180,7 +180,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `c
 | PUT | `/api/settings/content/speech` | `{ model, voice }`。キーと画像モデルを保持したまま音声の選択を更新（行が無ければ 400） |
 | POST | `/api/settings/content/speech/catalog/refresh` | live カタログの再取得。常に 200 で `models` / `catalogSource` / `fetchedAt` / `catalogError` を返す |
 | POST | `/api/settings/content/trials` | `{ kind: "speech", model, prompt, voice?, instructions?, speed? }`。[試行](#試行パラメーターのプレイグラウンド)。202 で開始し、同じ入力の保存済み成功は 200 `{ trial, reused: true }` |
-| GET | `/api/settings/content/trials/:id/raw` | 保存済み音声の配信（`audio/mpeg` / `audio/wav`、`nosniff` / `no-store`、`?download=1` で添付） |
+| GET | `/api/settings/content/trials/:id/raw` | 保存済み音声の配信（`audio/mpeg` / `audio/wav`、`nosniff` / `no-store`、単一 `Range` の 206 / 416、`?download=1` で添付） |
 
 - `GET /api/settings/content` の `speech` は `model` / `voice` / `models`（`voices` を含む）/ `catalogSource` / `fetchedAt`。`models` は live が取得できれば live、できなければ前回の一覧、どちらも無ければ同梱の 1 件
 - 400: 行が無い、`catalogSource` が `live` / `stored` でカタログ外のモデル、宣言があるモデルで宣言外のボイス（`default` のときは照合しない）

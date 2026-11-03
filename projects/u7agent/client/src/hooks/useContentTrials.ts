@@ -6,7 +6,14 @@ import {
   listContentTrials,
   startContentTrial,
 } from "../api";
-import { hasRunningTrial, newlyFinishedKinds, removeTrialThenRefresh, trialKindSubsection } from "../lib/contentTrials";
+import {
+  hasRunningTrial,
+  newlyFinishedKinds,
+  removeTrialThenRefresh,
+  trialKindLabel,
+  trialKindSubsection,
+  trialRemoveAllNote,
+} from "../lib/contentTrials";
 import { messageFor } from "../lib/settingsResource";
 import type { ContentSubsection } from "../lib/settingsNav";
 import type { ContentTrial, ContentTrialArtifactUsageValue, CreateContentTrialBody } from "../types";
@@ -183,29 +190,35 @@ export function useContentTrials({ activeSubsection }: { activeSubsection: Conte
     [load],
   );
 
-  const removeAll = useCallback(async (): Promise<boolean> => {
-    setBusy(true);
-    try {
-      const response = await deleteAllContentTrials();
-      if (!alive.current) return true;
-      await load();
-      if (alive.current) {
-        setNote({
-          text:
-            response.removed === 0
-              ? "削除できる履歴がありません（実行中の試行は残ります）。"
-              : `試行の履歴を ${response.removed} 件削除しました（実行中の試行は残ります）。`,
-          error: false,
-        });
+  /**
+   * 種別ごとの全削除。面は自分の種別の履歴しか見せないため、種別を渡さずに消すと
+   * もう一方のタブの履歴と保存容量まで消える（API の `?kind=` で絞る）。
+   */
+  const removeAll = useCallback(
+    async (kind: ContentTrial["kind"]): Promise<boolean> => {
+      setBusy(true);
+      try {
+        const response = await deleteAllContentTrials(kind);
+        if (!alive.current) return true;
+        await load();
+        if (alive.current) {
+          setNote({ text: trialRemoveAllNote(kind, response.removed), error: false });
+        }
+        return true;
+      } catch (error) {
+        if (alive.current) {
+          setNote({
+            text: `${trialKindLabel(kind)}の試行の履歴を削除できませんでした。${messageFor(error)}`,
+            error: true,
+          });
+        }
+        return false;
+      } finally {
+        if (alive.current) setBusy(false);
       }
-      return true;
-    } catch (error) {
-      if (alive.current) setNote({ text: `試行の履歴を削除できませんでした。${messageFor(error)}`, error: true });
-      return false;
-    } finally {
-      if (alive.current) setBusy(false);
-    }
-  }, [load]);
+    },
+    [load],
+  );
 
   return {
     /** 一覧を取得できていない間は null */

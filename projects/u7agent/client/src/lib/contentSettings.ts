@@ -273,6 +273,49 @@ export function speechVoiceDraft(input: {
   return input.modelChanged ? speechDefaultVoice(input.option) : speechVoiceValue(input.option, input.savedVoice);
 }
 
+/** 音声タブの画面の選択（保存される設定）と、試行・証拠が使う値。1 箇所で決めて面と試行で食い違わせない */
+export interface SpeechScreenSelection {
+  options: SpeechModelOption[];
+  savedModel: string;
+  savedVoice: string;
+  selectedModel: string;
+  selectedOption: SpeechModelOption | undefined;
+  selectedVoice: string;
+  /** ボイス欄の形。宣言があるモデルは選択、無いモデルは自由記述 */
+  textMode: boolean;
+  /** 保存値と違うか（保存ボタンの活性） */
+  dirty: boolean;
+}
+
+/** 音声タブの表示と試行のモデル / ボイスを決める。試行は未設定でも履歴を出すため、この解決だけを先に使う */
+export function speechScreenSelection(
+  settings: Pick<ContentSettingsResponse, "provider" | "speech">,
+  draft: { model: string | null; voice: string | null },
+): SpeechScreenSelection {
+  const options = speechModelOptions(settings);
+  const savedModel = speechModelValue(settings);
+  const savedVoice = settings.speech.voice;
+  const selectedModel = draft.model ?? savedModel;
+  const selectedOption = options.find((option) => option.value === selectedModel);
+  // モデルを切り替えたら、ボイスは新しいモデルの既定（先頭、宣言が無ければ空）へ寄せる
+  const selectedVoice = speechVoiceDraft({
+    draft: draft.voice,
+    modelChanged: draft.model !== null,
+    option: selectedOption,
+    savedVoice,
+  });
+  return {
+    options,
+    savedModel,
+    savedVoice,
+    selectedModel,
+    selectedOption,
+    selectedVoice,
+    textMode: speechVoiceMode(selectedOption) === "text",
+    dirty: selectedModel !== savedModel || selectedVoice !== savedVoice,
+  };
+}
+
 /**
  * 音声カタログ再取得後の状態。一覧の並びが変わると NULL ボイスのフォールバック（先頭）も変わるため、
  * server の現在値（GET）が取れていればそれを正とし、取れなかったときだけ一覧の項目を差し替える。

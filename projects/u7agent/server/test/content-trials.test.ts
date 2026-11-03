@@ -17,6 +17,7 @@ import {
   CONTENT_TRIAL_PROMPT_TOO_LONG_MESSAGE,
   CONTENT_TRIAL_RUNTIME_UNAVAILABLE_MESSAGE,
   CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE,
+  CONTENT_TRIAL_SPEECH_VOICE_MESSAGE,
   CONTENT_TRIAL_SPEECH_SPEED_MESSAGE,
   CONTENT_TRIAL_STORAGE_FAILED_MESSAGE,
   CONTENT_TRIAL_UNCONFIGURED_MESSAGE,
@@ -1213,4 +1214,31 @@ test("成果物の再照合は音声の succeeded + stored だけを残し、画
   harness.db.rows.set(ok.trial.id, { ...wrong, kind: "image" });
   const raw = await harness.service.raw(ok.trial.id);
   assert.equal(raw.status, 404);
+});
+
+test("400 の文言は入力を反射するときにマスカーを通し、固定の理由は残す", () => {
+  const harness = createHarness();
+
+  // 画像のモデル欄へキーを貼った場合（`provider/id` の形ではない）
+  const image = harness.start("a cat", KEY);
+  assert.equal(image.status, 400);
+  if (image.status !== 400) return;
+  assert.equal(image.error.includes(KEY), false, "キーを反射しない");
+  assert.ok(image.error.includes("[REDACTED]"));
+  assert.ok(image.error.startsWith(CONTENT_TRIAL_MODEL_NOT_IN_CATALOG_MESSAGE), "固定の理由は残す");
+
+  // 音声のモデル欄（カタログ外）
+  const speechModel = harness.startSpeech("こんにちは", { model: KEY });
+  assert.equal(speechModel.status, 400);
+  if (speechModel.status !== 400) return;
+  assert.equal(speechModel.error.includes(KEY), false);
+  assert.ok(speechModel.error.includes("[REDACTED]"));
+
+  // 音声のボイス欄（宣言外）
+  const voice = harness.startSpeech("こんにちは", { voice: KEY });
+  assert.equal(voice.status, 400);
+  if (voice.status !== 400) return;
+  assert.equal(voice.error.includes(KEY), false);
+  assert.ok(voice.error.includes("[REDACTED]"));
+  assert.ok(voice.error.startsWith(CONTENT_TRIAL_SPEECH_VOICE_MESSAGE), "固定の理由は残す");
 });

@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { parseByteRange } from "../byte-range";
 import type { ContentSettingsService, ContentMutationOutcome } from "../content-settings";
 import type { ContentTrialsService } from "../content-trials";
 import type {
@@ -67,21 +68,42 @@ export function createContentSettingsRoutes({
     /**
      * 保存済みの成果物。trial id だけで引き、パスは受け取らない。保存時に確定した許可 MIME だけを返し、
      * `nosniff` と `no-store` を付け、`?download=1` のときだけ添付にする。
+     * 音声のシークのため、raw 配信と同じ単一 `Range` の契約（200 / 206 / 416）に従う。
      */
     rawTrial: async (c: Context) => {
       const outcome = await contentTrials.raw(c.req.param("id") ?? "");
       if (outcome.status !== 200) return c.json({ error: outcome.error }, 404);
+      const size = outcome.bytes.byteLength;
+      const base = {
+        "Content-Type": outcome.contentType,
+        "Accept-Ranges": "bytes",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+        ...(c.req.query("download") === "1"
+          ? { "Content-Disposition": `attachment; filename="${outcome.fileName}"` }
+          : {}),
+      };
+      const range = parseByteRange(c.req.header("Range"), size);
+      if (range.kind === "unsatisfiable") {
+        // 416 の Content-Range は全体の長さを表す（bytes */<size>）
+        return c.json({ error: "要求された範囲を配信できません" }, 416, {
+          ...base,
+          "Content-Range": `bytes */${size}`,
+        });
+      }
+      if (range.kind === "satisfiable") {
+        return new Response(outcome.bytes.slice(range.start, range.end + 1), {
+          status: 206,
+          headers: {
+            ...base,
+            "Content-Length": String(range.end - range.start + 1),
+            "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
+          },
+        });
+      }
       return new Response(outcome.bytes, {
         status: 200,
-        headers: {
-          "Content-Type": outcome.contentType,
-          "Content-Length": String(outcome.bytes.byteLength),
-          "X-Content-Type-Options": "nosniff",
-          "Cache-Control": "no-store",
-          ...(c.req.query("download") === "1"
-            ? { "Content-Disposition": `attachment; filename="${outcome.fileName}"` }
-            : {}),
-        },
+        headers: { ...base, "Content-Length": String(size) },
       });
     },
 

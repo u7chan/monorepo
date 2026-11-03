@@ -79,7 +79,7 @@ export function trialEvidence(input: {
     (trial) =>
       trial.keyEpoch === input.currentKeyEpoch &&
       trial.model === input.currentModel &&
-      (input.currentVoice === undefined || trial.voice === input.currentVoice),
+      (input.currentVoice === undefined || voiceKey(trial.voice) === voiceKey(input.currentVoice)),
   );
   const at = (trial: ContentTrial): number => trial.finishedAt ?? trial.startedAt;
   // 段階 2 以降の証拠は「保存済みの成果物がある成功」だけを数える。段階 1 の `none` 行は履歴にだけ残す
@@ -112,6 +112,14 @@ export function evidenceNote(
   }
   const duration = evidence.durationMs === null ? "" : `（${trialDurationLabel(evidence.durationMs)}）`;
   return `この画面での最終成功: ${age}${duration}`;
+}
+
+/**
+ * ボイスの比較キー。空文字（画面の「指定なし」）と null（サーバーが保存する未指定）は同じ「ボイス未指定」を
+ * 表すため、証拠と再利用の判定で同じ表現へ寄せる。
+ */
+function voiceKey(voice: string | null | undefined): string {
+  return voice ?? "";
 }
 
 /** 履歴の 1 行。現在のキー世代より古い行は「旧キー」として区別する */
@@ -208,6 +216,22 @@ export function trialStartBlockedReason(input: {
   if (input.running) return "実行中です。完了するか中断してください";
   if (input.prompt.trim() === "") return input.emptyPromptReason ?? "プロンプトを入力してください";
   return null;
+}
+
+/** 種別の表示名。削除の注記など、画面の文言に使う */
+export function trialKindLabel(kind: ContentTrial["kind"]): string {
+  return kind === "speech" ? "音声" : "画像";
+}
+
+/**
+ * 種別ごとの全削除の注記。消した件数は渡された種別の履歴だけを数えるため、
+ * 文言にも種別を入れて「もう一方のタブの履歴は消えていない」ことが読み取れるようにする。
+ */
+export function trialRemoveAllNote(kind: ContentTrial["kind"], removed: number): string {
+  const label = trialKindLabel(kind);
+  return removed === 0
+    ? `${label}の試行に削除できる履歴がありません（実行中の試行は残ります）。`
+    : `${label}の試行の履歴を ${removed} 件削除しました（実行中の試行は残ります）。`;
 }
 
 /** 試行の種別と設定タブの対応。印はタブ単位で出す */
@@ -411,7 +435,7 @@ export function reusableTrial(input: {
         trial.kind === input.kind &&
         trial.model === input.model &&
         trial.prompt === input.prompt &&
-        (input.voice === undefined || trial.voice === input.voice) &&
+        (input.voice === undefined || voiceKey(trial.voice) === voiceKey(input.voice)) &&
         (input.instructions === undefined || trial.instructions === input.instructions) &&
         (input.speed === undefined || trial.speed === input.speed) &&
         hasStoredArtifact(trial),
