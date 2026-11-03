@@ -3637,3 +3637,67 @@ test("v39 の DB を開くと音声の列が足され、既存の行は null の
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("v40 の DB を開くと形式メモのテーブルが足され、既存の行は書き換えない", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.insertProject(project("p1", "proj-a"));
+    first.saveSpeechFormat("google/gemini-3.8-flash-tts", "pcm");
+    first.close();
+
+    // v40 相当（speech_formats を持たない版）へ落として開き直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE speech_formats");
+    raw.exec("PRAGMA user_version = 40");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    // 加算移行だけなので既存の行は残り、形式メモは未学習（行なし）から始まる
+    assert.deepEqual(
+      migrated.listProjects().map((entry) => entry.id),
+      ["p1"],
+    );
+    assert.equal(migrated.readSpeechFormat("google/gemini-3.8-flash-tts"), undefined);
+    migrated.saveSpeechFormat("google/gemini-3.8-flash-tts", "pcm");
+    assert.equal(migrated.readSpeechFormat("google/gemini-3.8-flash-tts"), "pcm");
+    // 同じモデルの再学習は行を増やさず上書きする
+    migrated.saveSpeechFormat("google/gemini-3.8-flash-tts", "mp3");
+    assert.equal(migrated.readSpeechFormat("google/gemini-3.8-flash-tts"), "mp3");
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    assert.deepEqual(
+      (check.prepare("SELECT model, format FROM speech_formats").all() as { model: string; format: string }[]).map(
+        (row) => [row.model, row.format],
+      ),
+      [["google/gemini-3.8-flash-tts", "mp3"]],
+    );
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("形式メモの壊れた行は未学習として読み、health を落とさない", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw
+      .prepare("INSERT INTO speech_formats (model, format, updatedAt) VALUES (?, ?, ?)")
+      .run("google/gemini-3.8-flash-tts", "flac", 1);
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    assert.equal(db.readSpeechFormat("google/gemini-3.8-flash-tts"), undefined);
+    assert.equal(db.status().ok, true, "派生データの壊れで health を落としている");
+    // 次の学習が行を上書きして直る
+    db.saveSpeechFormat("google/gemini-3.8-flash-tts", "pcm");
+    assert.equal(db.readSpeechFormat("google/gemini-3.8-flash-tts"), "pcm");
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

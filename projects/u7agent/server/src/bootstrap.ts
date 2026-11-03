@@ -326,6 +326,12 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     appCipher: secretCrypto.appCipher,
   });
   await contentSettings.applyStored();
+  // 形式の学習結果は派生データだが、再起動後に同じ 400 往復を繰り返さないためアプリ DB へ残す。
+  // 生成器は PiBff が持ち、DB はここが持つので、注入は setServe などと同じ形にする
+  pi?.setSpeechFormatStore({
+    read: (model) => appDb.readSpeechFormat(model),
+    save: (model, format) => appDb.saveSpeechFormat(model, format),
+  });
   // 試行ジョブのレジストリはメモリだけに持つ。起動時に前のプロセスの `running` を `interrupted` へ倒す。
   // 成果物は会話ストア / DB と同じ領域の兄弟 (`<storeDir>/trials`) に置き、サンドボックスを要求しない
   const trialArtifactsDir = storeDir ? join(storeDir, TRIAL_ARTIFACTS_DIR_NAME) : undefined;

@@ -35,7 +35,12 @@ import {
   type ImageGenerationResult,
 } from "./images";
 import { IMAGE_INPUT_UNKNOWN_MESSAGE } from "./image-catalog";
-import { createSpeechGenerator, type SpeechGenerationInput, type SpeechGenerationResult } from "./speech";
+import {
+  createSpeechGenerator,
+  type SpeechFormatStore,
+  type SpeechGenerationInput,
+  type SpeechGenerationResult,
+} from "./speech";
 import { createSpeechToolDefinitions, SPEECH_GENERATION_PROMPT_LINES, SPEECH_TOOL_NAME } from "./speech-tools";
 import {
   createInvestigateToolDefinitions,
@@ -333,6 +338,11 @@ export interface PiBff {
    * `read` は常に差し替える（既存セッションの execute は削除後も現在の行を見に行く）
    */
   setContentGeneration(config: ContentGenerationConfig): void;
+  /**
+   * 音声の形式の学習結果の保存先を注入する。createPiBff は DB を持たないため bootstrap が渡し、
+   * 未注入（ランタイムなしで起動）はプロセス内のメモだけで動く。生成器は呼び出しのたびにここを読む。
+   */
+  setSpeechFormatStore(store: SpeechFormatStore): void;
   /**
    * 設定 → コンテンツ生成 の音声の試行が使う生成器。ツールと同じ形式の学習メモを共有するため、
    * プレイグラウンドの試行でも mp3 / pcm の使い分けが進む。
@@ -897,7 +907,15 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   // ツール定義はセッション作成時にこの値を見る（既存会話へ遡及しない）
   const contentGeneration: { config: ContentGenerationConfig | undefined } = { config: undefined };
   const imagesGenerator = createImagesGenerator({ maskText: maskError });
-  const speechGenerator = createSpeechGenerator({ maskText: maskError });
+  // 形式の学習結果の保存先は bootstrap が注入する（DB を持たないため、ここで束縛だけを遅らせる）
+  const speechFormatStore: { value: SpeechFormatStore | null } = { value: null };
+  const speechGenerator = createSpeechGenerator({
+    maskText: maskError,
+    store: {
+      read: (model) => speechFormatStore.value?.read(model),
+      save: (model, format) => speechFormatStore.value?.save(model, format),
+    },
+  });
   const bgmGenerator = createBgmGenerator({ maskText: maskError });
   // Web 検索の設定も DB を正とする WebSearchSettingsService が写す。既定は有効 / Exa で、
   // ツールは execute のたびにここを読む（セッション作成時に凍結しない）
@@ -1222,6 +1240,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     },
     setContentGeneration(config) {
       contentGeneration.config = config;
+    },
+    setSpeechFormatStore(store) {
+      speechFormatStore.value = store;
     },
     generateSpeech: (input) => speechGenerator.generate(input),
     generateImage: (input) => imagesGenerator.generate(input),

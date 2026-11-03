@@ -13,10 +13,11 @@ import type { ImageInputDeclaration } from "./images";
 import type { SecretKind } from "./secret-crypto";
 import { AGENT_PROMPT_LIMIT, PROMPT_LABEL_MAX, PROMPT_TEXT_MAX } from "./schema";
 import type { AgentDef, ModelRef, NotificationResult, Project, PromptRef, Space } from "./schema";
+import type { SpeechAudioFormat } from "./speech";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 40;
+export const APP_DB_SCHEMA_VERSION = 41;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -560,6 +561,19 @@ CREATE TABLE IF NOT EXISTS speech_catalog (
 `;
 
 /**
+ * v40 -> v41 で足したテーブル。モデルごとの応答形式 (mp3 / pcm) の学習結果を 1 行 1 モデルで持つ。
+ * **行が無い = 未学習** (mp3 から試す)。一覧 API が宣言しない形式を生成の 400 と応答から学ぶ派生データ
+ * なので、読めない行は未学習として読み、health を落とさない (docs/speech-generation.md)。
+ */
+const SPEECH_FORMATS_TABLE = `
+CREATE TABLE IF NOT EXISTS speech_formats (
+  model     TEXT PRIMARY KEY,
+  format    TEXT NOT NULL,
+  updatedAt INTEGER NOT NULL
+);
+`;
+
+/**
  * v9 -> v10 で足したテーブル。serve の起動に成功したコマンドを作業ディレクトリ単位で持つ
  * (**行が無い = 実績なし**)。稼働記録 (サンドボックスの作業領域) とは別物で、こちらは実績の再利用だけに使う。
  */
@@ -799,6 +813,7 @@ ${CONTENT_KEY_EPOCH_TABLE}
 ${CONTENT_TRIALS_TABLE}
 ${IMAGE_CATALOG_TABLE}
 ${SPEECH_CATALOG_TABLE}
+${SPEECH_FORMATS_TABLE}
 ${SERVE_COMMANDS_TABLE}
 ${WEB_SEARCH_SETTINGS_TABLE}
 ${WEB_SEARCH_PROVIDER_KEYS_TABLE}
@@ -826,6 +841,7 @@ DROP TABLE IF EXISTS custom_providers;
 DROP TABLE IF EXISTS content_settings;
 DROP TABLE IF EXISTS image_catalog;
 DROP TABLE IF EXISTS speech_catalog;
+DROP TABLE IF EXISTS speech_formats;
 DROP TABLE IF EXISTS serve_commands;
 DROP TABLE IF EXISTS web_search_settings;
 DROP TABLE IF EXISTS web_search_provider_keys;
@@ -834,7 +850,8 @@ DROP TABLE IF EXISTS assistant_metrics;
 `;
 // secrets / shared_contents / cloudflare_settings / shared_content_settings は意図的に含めない
 // (docs/secrets.md / docs/static-sharing-design.md)。assistant_metrics は JSONL から引き直せる派生データなので
-// 含める (行が消えても、再起動後の表示が SDK 記録値の概算へ戻るだけ)。
+// 含める (行が消えても、再起動後の表示が SDK 記録値の概算へ戻るだけ)。speech_formats も同じ派生データで、
+// 消えても形式違いの 400 が 1 往復増えるだけ。
 // 列追加も #migrate() にだけ足し、既存行を書き換える移行はしない。
 
 /**
@@ -1717,6 +1734,8 @@ export class AppDb {
       this.#addColumnIfMissing("content_trials", "speed", "REAL");
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SPEECH_CATALOG_TABLE));
+      // v40 -> v41: 形式の学習結果。既存行を書き換えず、未学習 (行なし) から始まる
+      this.#query((db) => db.exec(SPEECH_FORMATS_TABLE));
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_SETTINGS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_PROVIDER_KEYS_TABLE));
@@ -2609,6 +2628,30 @@ export class AppDb {
     const fetchedAt = Number(row.fetchedAt);
     if (!models || !Number.isFinite(fetchedAt)) return undefined;
     return { fetchedAt, models };
+  }
+
+  // --- speech formats (モデルごとの応答形式の学習結果) ---
+
+  /** 行が無い / 形式が読めない行は undefined（未学習として mp3 から試す。health の失敗にはしない） */
+  readSpeechFormat(model: string): SpeechAudioFormat | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT format FROM speech_formats WHERE model = ?").get(model) as Row | undefined,
+    );
+    if (!row) return undefined;
+    const format = row.format;
+    return format === "mp3" || format === "pcm" ? format : undefined;
+  }
+
+  /** 学習した形式の上書き (モデル行の upsert)。派生データなので、失敗しても生成結果は変えない */
+  saveSpeechFormat(model: string, format: SpeechAudioFormat): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO speech_formats (model, format, updatedAt) VALUES (?, ?, ?)
+           ON CONFLICT(model) DO UPDATE SET format = excluded.format, updatedAt = excluded.updatedAt`,
+        )
+        .run(model, format, Date.now()),
+    );
   }
 
   /** 取得成功時の上書き (id = 1 の upsert)。キャッシュなので、失敗しても呼び出し側は続行する */
