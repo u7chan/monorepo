@@ -585,7 +585,7 @@ function SpeechModelSection({
 
   return (
     <section className="grid gap-1.5 border-t border-line pt-3">
-      <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">音声（TTS）</div>
+      <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">保存される設定</h3>
       {/* 同期できていない間は、旧い表示を現在値として見せない（保存も speechSaveDisabled が止める） */}
       {synced ? null : (
         <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">

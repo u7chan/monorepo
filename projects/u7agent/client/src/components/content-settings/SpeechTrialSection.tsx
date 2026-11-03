@@ -4,23 +4,21 @@ import {
   groupTrialsByMonth,
   hasStoredArtifact,
   selectedTrial,
+  selectedTrialDetail,
   speechTrialDraftOf,
   speechTrialRequest,
   speechTrialSnapshotLabels,
+  trialArtifactSummary,
   trialArtifactUrl,
-  trialByteSizeLabel,
   trialHistoryRow,
   trialModelOptions,
   trialPanelState,
   trialStartBlockedReason,
-  trialStateLabel,
   type SpeechTrialDraft,
-  type TrialHistoryRow,
   type TrialOutcomeFilter,
   type TrialRequestOrigin,
 } from "../../lib/contentTrials";
 import { SPEECH_SPEED_MIN, SPEECH_SPEED_STEP, speechSpeedStep } from "../../lib/contentSettings";
-import { cn } from "../../lib/cn";
 import { speechTrialDefaultTarget } from "../../lib/trialDefault";
 import type {
   ContentSettingsResponse,
@@ -30,18 +28,11 @@ import type {
   CreateContentTrialBody,
   UpdateContentSpeechBody,
 } from "../../types";
-import { CheckIcon, MinusIcon, PlusIcon, TrashIcon } from "../icons";
+import { MinusIcon, PlusIcon } from "../icons";
+import { TRIAL_HISTORY_PREVIEW_COUNT, TrialHistoryFilters, TrialHistoryPanel, TrialHistoryRow } from "./TrialHistory";
+import { TrialArtifactMeta, TrialResultViewport } from "./TrialResultViewport";
+import { TrialEmptyNote, TrialNoteLines, TrialRunControls, TrialSection } from "./TrialRun";
 import { TrialDefaultAction, UNCONFIGURED_BLOCKED_NOTE } from "./TrialDefaultAction";
-
-/** 履歴の既定表示件数。全件は「すべて見る」で開く（時間ベースの自動削除はしない） */
-const HISTORY_PREVIEW_COUNT = 3;
-
-/** 成功 / 失敗の絞り込み。中止・中断はどちらにも含めない */
-const OUTCOME_OPTIONS: { value: TrialOutcomeFilter; label: string }[] = [
-  { value: "all", label: "すべて" },
-  { value: "succeeded", label: "成功" },
-  { value: "failed", label: "失敗" },
-];
 
 /**
  * 未同期の間、結果カードから既定へ保存できない理由。同じ `PUT /speech` を呼ぶ保存フォームが止まるのと
@@ -128,6 +119,7 @@ export function SpeechTrialSection({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,
     enabled: settings.enabled,
+    // 同期未確認は保存だけを止める状態で、試行は画面の値でできる（バナーと既定への保存の理由で伝える）
     synced: true,
     trials: list,
   });
@@ -150,7 +142,7 @@ export function SpeechTrialSection({
   });
   const models = trialModelOptions(list);
   const filtered = filteredTrials({ trials: list, model: modelFilter, outcome: outcomeFilter });
-  const visible = showAll ? filtered : filtered.slice(0, HISTORY_PREVIEW_COUNT);
+  const visible = showAll ? filtered : filtered.slice(0, TRIAL_HISTORY_PREVIEW_COUNT);
   const groups = groupTrialsByMonth(visible);
   const filtering = modelFilter !== "all" || outcomeFilter !== "all";
   // 選択行の全文は画面（controller）が取る。選ぶたびに 1 回だけ知らせる
@@ -158,7 +150,10 @@ export function SpeechTrialSection({
   useEffect(() => {
     onChangeSelection(selectedKey);
   }, [selectedKey, onChangeSelection]);
-  const selectedDetail = detail !== null && detail.id === selectedKey ? detail : null;
+  const selectedDetail = selectedTrialDetail(detail, selectedKey);
+  const stored = selected !== null && hasStoredArtifact(selected);
+  // 演技指示は長いので一覧に載らない。全文を取れるまでは「読み込み中」と出す（指定なしと混同しない）
+  const snapshot = selectedDetail === null ? null : speechTrialSnapshotLabels(selectedDetail);
 
   /** 検証を通ったときだけ要求を出し、開始できたかを返す（別テイクの自動選択に使う） */
   const start = async (
@@ -177,15 +172,7 @@ export function SpeechTrialSection({
   };
 
   return (
-    <section className="grid min-w-0 gap-2 border-t border-line pt-3">
-      <div className="grid gap-0.5">
-        <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">設定に反映しない試行</h3>
-        <p className="text-2xs leading-relaxed text-ink-muted">
-          画面の値で生成だけを試します。モデルとボイスの保存値は変えません。送った本文・演技指示・話速と結果は
-          アプリのデータ領域に履歴として残ります（時間ベースでは消えません）。
-        </p>
-      </div>
-
+    <TrialSection description="画面の値で生成だけを試します。モデルとボイスの保存値は変えません。送った本文・演技指示・話速と結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。">
       <label className="grid min-w-0 gap-1">
         <span className="text-2xs text-ink-muted">読み上げる文章（履歴に保存されます）</span>
         <textarea
@@ -262,50 +249,49 @@ export function SpeechTrialSection({
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={busy || blocked !== null}
-          onClick={() => void start(draft, model, voice, "form")}
-        >
-          <CheckIcon />
-          {running ? "生成中…" : "試行する"}
-        </button>
-        {running ? (
-          <button type="button" className="btn-quiet" disabled={busy} onClick={() => void onCancel(running.id)}>
-            中断
-          </button>
-        ) : null}
-        <p role="status" className="min-w-0 text-2xs text-ink-muted">
-          {panelNote(panel)}
-          {blocked === null ? null : <span className="text-ink-faint">（{blocked}）</span>}
-        </p>
-      </div>
+      <TrialRunControls
+        busy={busy}
+        running={running !== null}
+        panel={panel}
+        blocked={blocked}
+        onStart={() => void start(draft, model, voice, "form")}
+        onCancel={() => {
+          if (running) void onCancel(running.id);
+        }}
+      />
 
-      {/* 送信前の検証と試行の操作の結果は、この面の中だけに出す（設定の注記と場所を奪い合わない） */}
-      {inputError ? (
-        <p role="alert" className="text-2xs break-words text-warn">
-          {inputError}
-        </p>
-      ) : null}
-      {note ? (
-        <p role="status" className={cn("text-2xs break-words", note.error ? "text-warn" : "text-ink-muted")}>
-          {note.text}
-        </p>
-      ) : null}
+      <TrialNoteLines alert={inputError} note={note} />
 
-      {selected ? (
-        <ResultViewport
+      {selected === null ? (
+        <TrialEmptyNote />
+      ) : (
+        <TrialResultViewport
           trial={selected}
-          detail={selectedDetail}
           currentKeyEpoch={keyEpoch}
           busy={busy}
           running={running !== null}
-          defaultTarget={defaultTarget}
-          settingsBusy={settingsBusy}
-          blockedReason={defaultBlockedReason}
-          onMakeDefault={onMakeDefault}
+          sentNoun="本文"
+          chips={[`ボイス: ${selected.voice ?? "モデル既定"}`]}
+          artifact={
+            stored ? (
+              <div className="grid gap-1">
+                <audio controls src={trialArtifactUrl(selected.id)} aria-label="試行の音声" className="w-full" />
+                <TrialArtifactMeta trialId={selected.id} label={trialArtifactSummary(selected)} />
+              </div>
+            ) : null
+          }
+          prompt={selectedDetail?.prompt ?? trialHistoryRow(selected, keyEpoch).promptPreview}
+          promptDetail={`演技指示: ${snapshot?.instructions ?? "読み込み中…"} · 話速: ${snapshot?.speed ?? "—"}`}
+          defaultAction={
+            <TrialDefaultAction
+              key={selected.id}
+              label="このモデルとボイスを既定にする"
+              target={defaultTarget}
+              disabled={busy || settingsBusy}
+              blockedReason={defaultBlockedReason}
+              onSave={onMakeDefault}
+            />
+          }
           onDelete={onDelete}
           onRestore={async () => {
             const full = await onLoadTrial(selected.id);
@@ -321,309 +307,46 @@ export function SpeechTrialSection({
             if (started) setSelectedId(null);
           }}
         />
-      ) : (
-        <p className="text-2xs text-ink-faint">まだ試行の履歴はありません。</p>
       )}
 
       {list.length === 0 ? null : (
-        <div className="grid gap-1">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">
-              履歴（{filtering ? `${filtered.length} / ${list.length}` : list.length} 件）
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {filtered.length > HISTORY_PREVIEW_COUNT || showAll ? (
-                <button type="button" className="btn-quiet" onClick={() => setShowAll((current) => !current)}>
-                  {showAll ? "最新 3 件だけ表示" : "すべて見る"}
-                </button>
-              ) : null}
-              {hasMore ? (
-                <button type="button" className="btn-quiet" disabled={loadingMore} onClick={() => void onLoadMore()}>
-                  {loadingMore ? "読み込み中…" : "さらに読み込む"}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="btn-quiet"
-                disabled={busy || !list.some((trial) => trial.state !== "running")}
-                onClick={() => void onDeleteAll()}
-              >
-                <TrashIcon />
-                すべて削除
-              </button>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="flex min-w-0 items-center gap-1">
-              <span className="text-2xs text-ink-muted">モデル</span>
-              <select
-                className="field w-auto max-w-56 text-2xs"
-                value={modelFilter}
-                aria-label="履歴のモデル絞り込み"
-                onChange={(event) => setModelFilter(event.currentTarget.value)}
-              >
-                <option value="all">すべて</option>
-                {models.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex min-w-0 items-center gap-1">
-              <span className="text-2xs text-ink-muted">結果</span>
-              <select
-                className="field w-auto text-2xs"
-                value={outcomeFilter}
-                aria-label="履歴の成功失敗の絞り込み"
-                onChange={(event) => setOutcomeFilter(event.currentTarget.value as TrialOutcomeFilter)}
-              >
-                {OUTCOME_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <span className="text-2xs text-ink-faint">
-              保存容量: {artifactUsage.count} 件 · {trialByteSizeLabel(artifactUsage.bytes)}（画像と共通）
-            </span>
-          </div>
-
-          {filtered.length === 0 ? (
-            <p className="text-2xs text-ink-faint">条件に合う履歴はありません。</p>
-          ) : (
-            <div className="grid gap-1">
-              {groups.map((group) => (
-                <div key={group.key} className="grid gap-1">
-                  <div className="text-2xs text-ink-faint">{group.label}</div>
-                  <ul className="grid gap-1">
-                    {group.trials.map((trial) => (
-                      <HistoryListItem
-                        key={trial.id}
-                        row={trialHistoryRow(trial, keyEpoch)}
-                        selected={trial.id === selected?.id}
-                        busy={busy}
-                        onSelect={() => setSelectedId(trial.id)}
-                        onDelete={onDelete}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
+        <TrialHistoryPanel
+          loaded={list.length}
+          filtered={filtered.length}
+          filtering={filtering}
+          groups={groups}
+          showAll={showAll}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          busy={busy}
+          deletable={list.some((trial) => trial.state !== "running")}
+          filters={
+            <TrialHistoryFilters
+              models={models}
+              modelFilter={modelFilter}
+              onChangeModel={setModelFilter}
+              outcomeFilter={outcomeFilter}
+              onChangeOutcome={setOutcomeFilter}
+              artifactUsage={artifactUsage}
+            />
+          }
+          onToggleShowAll={() => setShowAll((current) => !current)}
+          onLoadMore={() => void onLoadMore()}
+          onDeleteAll={() => void onDeleteAll()}
+          renderRow={(trial) => (
+            <TrialHistoryRow
+              key={trial.id}
+              row={trialHistoryRow(trial, keyEpoch)}
+              selected={trial.id === selected?.id}
+              busy={busy}
+              thumbnail={{ kind: "speech" }}
+              voice={trial.voice}
+              onSelect={() => setSelectedId(trial.id)}
+              onDelete={onDelete}
+            />
           )}
-          <p className="text-2xs leading-relaxed text-ink-faint">
-            履歴は自動では消えません。実行中の試行は削除できません（先に中断してください）。
-          </p>
-        </div>
+        />
       )}
-    </section>
-  );
-}
-
-/** 状態ごとの 1 行。主ボタンの理由は `trialStartBlockedReason` が持つので、ここは状態だけを出す */
-function panelNote(panel: ReturnType<typeof trialPanelState>): string {
-  switch (panel) {
-    case "runtime_unavailable":
-      return "ランタイムが利用できないため試行できません。";
-    case "unconfigured":
-      return "APIキーが未設定です。履歴だけを表示しています。";
-    case "disabled":
-      return "全体が OFF です。履歴は残り、新規の生成だけを止めています。";
-    case "unsynced":
-      return "音声の設定を確認できていません。試行はできます。";
-    case "empty":
-      return "まだ試行していません。";
-    case "running":
-      return "生成中です。画面を離れても続きます。";
-    case "failed":
-      return "直近の試行は失敗しました。";
-    case "interrupted":
-      return "前回の試行はサーバーの再起動で中断されました。";
-    case "ready":
-      return "前回の試行は完了しています。";
-  }
-}
-
-/**
- * 1 つの再生ビューポート。表示中の試行のスナップショットだけを出し、下書きとは混ぜない。
- * 再生は共通の raw ルート（trial id だけ）で、形式は保存時に確定した MIME に従う。
- */
-function ResultViewport({
-  trial,
-  detail,
-  currentKeyEpoch,
-  busy,
-  running,
-  defaultTarget,
-  settingsBusy,
-  blockedReason,
-  onMakeDefault,
-  onDelete,
-  onRestore,
-  onAnotherTake,
-}: {
-  trial: ContentTrialSummary;
-  /** 選択行の全文。取得中は null で、本文は抜粋・スナップショットは読み込み中として出す */
-  detail: ContentTrial | null;
-  currentKeyEpoch: number;
-  busy: boolean;
-  running: boolean;
-  /** 既定として保存する本文。保存値と同じなら null（導線を出さない） */
-  defaultTarget: UpdateContentSpeechBody | null;
-  settingsBusy: boolean;
-  /** 保存できない理由（キー未設定 / 現在の設定を確認できない）。null なら押せる */
-  blockedReason: string | null;
-  onMakeDefault: (input: UpdateContentSpeechBody) => Promise<boolean>;
-  onDelete: (id: string) => Promise<boolean>;
-  onRestore: () => Promise<void>;
-  onAnotherTake: () => Promise<void>;
-}) {
-  const row = trialHistoryRow(trial, currentKeyEpoch);
-  const stored = hasStoredArtifact(trial);
-  // 演技指示は長いので一覧に載らない。全文を取れるまでは「読み込み中」と出す（指定なしと混同しない）
-  const labels = detail === null ? null : speechTrialSnapshotLabels(detail);
-
-  return (
-    <div className="grid gap-2 rounded-lg border border-line bg-soft p-3">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="text-xs font-semibold text-ink-strong">結果</span>
-        <span className={cn("text-2xs", trial.state === "failed" ? "text-warn" : "text-ink-muted")}>
-          {row.stateLabel}
-        </span>
-        <code className="text-2xs text-ink-ghost">{row.model}</code>
-        <span className="text-2xs text-ink-muted">ボイス: {trial.voice ?? "モデル既定"}</span>
-        <span className="text-2xs text-ink-muted">{row.durationLabel}</span>
-        {row.keyEpochLabel ? <span className="text-2xs text-warn">{row.keyEpochLabel}</span> : null}
-        {trial.recorded ? null : <span className="text-2xs text-warn">状態を記録できませんでした</span>}
-      </div>
-
-      {stored ? (
-        <div className="grid gap-1">
-          <audio controls src={trialArtifactUrl(trial.id)} aria-label="試行の音声" className="w-full" />
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="text-2xs text-ink-muted">{row.artifactLabel}</span>
-            <a className="btn-quiet" href={trialArtifactUrl(trial.id, { download: true })}>
-              ダウンロード
-            </a>
-          </div>
-        </div>
-      ) : trial.state === "running" ? (
-        <p className="text-2xs text-ink-muted" role="status">
-          生成中です。送信した本文を表示しています（入力欄の編集とは別です）。
-        </p>
-      ) : (
-        <p className="text-2xs leading-relaxed text-ink-faint">
-          {trial.artifactState === "none" && trial.state === "succeeded"
-            ? "結果は保存されていません（記録のみ）。ダウンロードや再生はできません。"
-            : "結果は残っていません。"}
-        </p>
-      )}
-
-      {row.failureLabel ? (
-        <p className="text-2xs text-warn">
-          失敗の分類: {row.failureLabel}
-          {trial.failureMessage ? ` — ${trial.failureMessage}` : ""}
-        </p>
-      ) : null}
-      {row.chargedWithoutArtifact ? (
-        <p className="text-2xs text-warn">生成は課金されています。もう一度生成すると再課金されます。</p>
-      ) : null}
-
-      <div className="grid gap-0.5">
-        <p className="text-2xs break-words whitespace-pre-wrap text-ink">{detail?.prompt ?? row.promptPreview}</p>
-        <p className="text-2xs text-ink-muted">
-          演技指示: {labels?.instructions ?? "読み込み中…"} · 話速: {labels?.speed ?? "—"}
-        </p>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="btn-quiet" disabled={busy} onClick={onRestore}>
-          入力欄に戻す
-        </button>
-        <button type="button" className="btn-quiet" disabled={busy || running} onClick={onAnotherTake}>
-          別のテイクを生成
-        </button>
-        <button
-          type="button"
-          className="btn-quiet"
-          disabled={busy || trial.state === "running"}
-          onClick={() => void onDelete(trial.id)}
-        >
-          <TrashIcon />
-          削除
-        </button>
-      </div>
-      {/* 下書きを捨てるのは呼び出し側。ここは保存の進行と失敗の注記だけを持つ */}
-      <TrialDefaultAction
-        key={trial.id}
-        label="このモデルとボイスを既定にする"
-        target={defaultTarget}
-        disabled={busy || settingsBusy}
-        blockedReason={blockedReason}
-        onSave={onMakeDefault}
-      />
-      <p className="text-2xs leading-relaxed text-ink-faint">別のテイクは新しい試行として課金されます。</p>
-    </div>
-  );
-}
-
-function HistoryListItem({
-  row,
-  selected,
-  busy,
-  onSelect,
-  onDelete,
-}: {
-  row: TrialHistoryRow;
-  selected: boolean;
-  busy: boolean;
-  onSelect: () => void;
-  onDelete: (id: string) => Promise<boolean>;
-}) {
-  return (
-    <li
-      className={cn(
-        "flex min-w-0 items-center gap-2 rounded border px-2 py-1.5",
-        selected ? "border-accent/60 bg-raised" : "border-line bg-base",
-      )}
-    >
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded border border-line text-2xs text-ink-ghost">
-        音声
-      </span>
-      <button
-        type="button"
-        className="grid min-w-0 flex-1 gap-0.5 text-left"
-        aria-pressed={selected}
-        aria-label={`${row.stateLabel}の試行を表示`}
-        onClick={onSelect}
-      >
-        <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className={cn("text-2xs", row.state === "failed" ? "text-warn" : "text-ink-muted")}>
-            {row.stateLabel}
-          </span>
-          <code className="min-w-0 truncate text-2xs text-ink-ghost">{row.model}</code>
-          {row.voice === null ? null : <span className="text-2xs text-ink-muted">ボイス: {row.voice}</span>}
-          <span className="text-2xs text-ink-muted">{row.durationLabel}</span>
-          {row.keyEpochLabel ? <span className="text-2xs text-warn">{row.keyEpochLabel}</span> : null}
-        </span>
-        <span className="min-w-0 truncate text-2xs text-ink" title={row.promptPreview}>
-          {row.promptPreview}
-        </span>
-        {row.artifactLabel ? <span className="text-2xs text-ink-faint">{row.artifactLabel}</span> : null}
-        {row.failureLabel ? <span className="text-2xs text-warn">{row.failureLabel}</span> : null}
-      </button>
-      <button
-        type="button"
-        className="btn-quiet shrink-0"
-        disabled={busy || row.state === "running"}
-        aria-label={`${trialStateLabel(row.state)}の試行を削除`}
-        onClick={() => void onDelete(row.id)}
-      >
-        <TrashIcon />
-      </button>
-    </li>
+    </TrialSection>
   );
 }
