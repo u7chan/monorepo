@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   BGM_TRIAL_PROMPT_MAX_LENGTH,
   bgmDurationLabel,
-  bgmTrialInput,
+  bgmTrialRequest,
   filteredTrials,
   groupTrialsByMonth,
   hasStoredArtifact,
@@ -15,6 +15,7 @@ import {
   trialStateLabel,
   type TrialHistoryRow,
   type TrialOutcomeFilter,
+  type TrialRequestOrigin,
 } from "../../lib/contentTrials";
 import { cn } from "../../lib/cn";
 import type {
@@ -100,14 +101,15 @@ export function BgmTrialSection({
   const visible = showAll ? filtered : filtered.slice(0, HISTORY_PREVIEW_COUNT);
   const groups = groupTrialsByMonth(visible);
 
-  const start = (value: string, nextModel: string, force = false) => {
-    const request = bgmTrialInput(value, nextModel);
+  /** 検証を通ったときだけ要求を出し、開始できたかを返す（別テイクの自動選択に使う） */
+  const start = async (value: string, nextModel: string, origin: TrialRequestOrigin): Promise<boolean> => {
+    const request = bgmTrialRequest({ prompt: value, model: nextModel, origin });
     if (!request.ok) {
       setInputError(request.error);
-      return;
+      return false;
     }
     setInputError(null);
-    void onStart({ ...request.input, ...(force ? { force: true } : {}) });
+    return onStart(request.input);
   };
 
   return (
@@ -144,7 +146,7 @@ export function BgmTrialSection({
           type="button"
           className="btn-primary"
           disabled={busy || blocked !== null}
-          onClick={() => start(prompt, model)}
+          onClick={() => void start(prompt, model, "form")}
         >
           <CheckIcon />
           {running ? "生成中…" : "試行する"}
@@ -186,7 +188,10 @@ export function BgmTrialSection({
             setInputError(null);
             onChangePrompt(selected.prompt);
           }}
-          onAnotherTake={() => start(selected.prompt, model, true)}
+          onAnotherTake={async () => {
+            // 始めた行をビューポートへ寄せる。開始できなければ選択を動かさない
+            if (await start(selected.prompt, model, "another-take")) setSelectedId(null);
+          }}
         />
       ) : (
         <p className="text-2xs text-ink-faint">まだ試行の履歴はありません。</p>
@@ -252,7 +257,7 @@ export function BgmTrialSection({
                         selected={trial.id === selected?.id}
                         busy={busy}
                         onSelect={() => setSelectedId(trial.id)}
-                        onRetry={() => start(trial.prompt, model)}
+                        onRetry={() => void start(trial.prompt, model, "history")}
                         onDelete={onDelete}
                       />
                     ))}
@@ -445,7 +450,7 @@ function HistoryListItem({
         {row.artifactLabel ? <span className="text-2xs text-ink-faint">{row.artifactLabel}</span> : null}
         {row.failureLabel ? <span className="text-2xs text-warn">{row.failureLabel}</span> : null}
       </button>
-      {/* 同じプロンプトをもう一度試す。保存済みの結果があれば再利用され、課金されない */}
+      {/* 結果カードの別テイクと違い `force` を送らない。現行のキー世代で成果物が残っていれば再利用され、課金されない */}
       <button
         type="button"
         className="btn-quiet shrink-0"

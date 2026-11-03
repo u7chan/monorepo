@@ -5,7 +5,7 @@ import {
   hasStoredArtifact,
   selectedTrial,
   speechTrialDraftOf,
-  speechTrialInput,
+  speechTrialRequest,
   speechTrialSnapshotLabels,
   trialArtifactUrl,
   trialByteSizeLabel,
@@ -17,6 +17,7 @@ import {
   type SpeechTrialDraft,
   type TrialHistoryRow,
   type TrialOutcomeFilter,
+  type TrialRequestOrigin,
 } from "../../lib/contentTrials";
 import { SPEECH_SPEED_MIN, SPEECH_SPEED_STEP, speechSpeedStep } from "../../lib/contentSettings";
 import { cn } from "../../lib/cn";
@@ -134,14 +135,20 @@ export function SpeechTrialSection({
   const groups = groupTrialsByMonth(visible);
   const filtering = modelFilter !== "all" || outcomeFilter !== "all";
 
-  const start = (values: SpeechTrialDraft, nextModel: string, nextVoice: string, force = false) => {
-    const request = speechTrialInput(values, nextModel, nextVoice);
+  /** 検証を通ったときだけ要求を出し、開始できたかを返す（別テイクの自動選択に使う） */
+  const start = async (
+    values: SpeechTrialDraft,
+    nextModel: string,
+    nextVoice: string,
+    origin: TrialRequestOrigin,
+  ): Promise<boolean> => {
+    const request = speechTrialRequest({ draft: values, model: nextModel, voice: nextVoice, origin });
     if (!request.ok) {
       setInputError(request.error);
-      return;
+      return false;
     }
     setInputError(null);
-    void onStart({ kind: "speech", ...request.input, ...(force ? { force: true } : {}) });
+    return onStart(request.input);
   };
 
   return (
@@ -235,7 +242,7 @@ export function SpeechTrialSection({
           type="button"
           className="btn-primary"
           disabled={busy || blocked !== null}
-          onClick={() => start(draft, model, voice)}
+          onClick={() => void start(draft, model, voice, "form")}
         >
           <CheckIcon />
           {running ? "生成中…" : "試行する"}
@@ -278,8 +285,9 @@ export function SpeechTrialSection({
             setInputError(null);
             onChangeDraft(speechTrialDraftOf(selected));
           }}
-          onAnotherTake={() =>
-            start(
+          onAnotherTake={async () => {
+            // 始めた行をビューポートへ寄せる。開始できなければ選択を動かさない
+            const started = await start(
               {
                 text: selected.prompt,
                 instructions: selected.instructions ?? "",
@@ -287,9 +295,10 @@ export function SpeechTrialSection({
               },
               selected.model,
               selected.voice ?? "",
-              true,
-            )
-          }
+              "another-take",
+            );
+            if (started) setSelectedId(null);
+          }}
         />
       ) : (
         <p className="text-2xs text-ink-faint">まだ試行の履歴はありません。</p>

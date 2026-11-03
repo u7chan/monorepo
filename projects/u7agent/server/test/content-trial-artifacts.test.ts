@@ -163,6 +163,27 @@ test("置き場は `<trialId>.<ext>` だけを読み書きし、消した後は 
   });
 });
 
+test("置き場の exists は同期でファイルの有無だけを返し、置き場が無ければ false、保存名の形を外れる要求は拒否する", async () => {
+  await withDir(async (dir) => {
+    const store = createTrialArtifactStore(join(dir, "trials"));
+    const fileName = `${TRIAL_ID}.png`;
+    // 置き場が無い（起動直後で一度も保存していない）間は false
+    assert.equal(store.exists(fileName), false);
+
+    await store.write({ trialId: TRIAL_ID, format: "png", bytes: pngBytes(8, 8) });
+    assert.equal(store.exists(fileName), true);
+    // 別拡張子の名前は同じ trial id でも別のファイル
+    assert.equal(store.exists(`${TRIAL_ID}.webp`), false);
+
+    await store.remove(fileName);
+    assert.equal(store.exists(fileName), false);
+
+    // 再利用の判定に使うため、名前の検査を通らない要求は fs へ渡さずに例外にする
+    assert.throws(() => store.exists("../escape.png"), /不正/);
+    assert.throws(() => store.exists("keep.txt"), /不正/);
+  });
+});
+
 test("置き場は保存名の形を外れる要求を fs へ渡さず、未知のファイルは一覧に載せない", async () => {
   await withDir(async (dir) => {
     const root = join(dir, "trials");
