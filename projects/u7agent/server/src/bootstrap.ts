@@ -16,6 +16,7 @@ import { messageFor } from "./http";
 import { ContentSettingsService } from "./content-settings";
 import { ContentTrialsService } from "./content-trials";
 import { TRIAL_ARTIFACTS_DIR_NAME, createTrialArtifactStore } from "./content-trial-artifacts";
+import { createTrialDiskCheck, type TrialStatfs } from "./content-trial-disk-space";
 import { createImageCatalog } from "./image-catalog";
 import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
@@ -95,6 +96,11 @@ export type CreateBffAppOptions = {
   imageCatalogFetch?: typeof fetch;
   /** 音声モデル一覧取得のテスト用。省略時は globalThis.fetch */
   speechCatalogFetch?: typeof fetch;
+  /**
+   * 試行の成果物の置き場の空き確認のテスト用。省略時は `fs/promises` の `statfs`。
+   * 未対応の fs を模すときは失敗するものを渡す。
+   */
+  trialStatfs?: TrialStatfs;
   /** カスタムプロバイダーの `/models` probe のテスト用。省略時は globalThis.fetch */
   customProviderProbeFetch?: typeof fetch;
   /**
@@ -322,6 +328,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   await contentSettings.applyStored();
   // 試行ジョブのレジストリはメモリだけに持つ。起動時に前のプロセスの `running` を `interrupted` へ倒す。
   // 成果物は会話ストア / DB と同じ領域の兄弟 (`<storeDir>/trials`) に置き、サンドボックスを要求しない
+  const trialArtifactsDir = storeDir ? join(storeDir, TRIAL_ARTIFACTS_DIR_NAME) : undefined;
   const contentTrials = new ContentTrialsService({
     db: appDb,
     source: contentSettings.trialSource(),
@@ -330,7 +337,11 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     generateSpeech: pi ? pi.generateSpeech : undefined,
     // BGM の生成器はチャットの `generate_bgm` と同じもの（同時実行枠も共有する）
     generateBgm: pi ? pi.generateBgm : undefined,
-    artifacts: storeDir ? createTrialArtifactStore(join(storeDir, TRIAL_ARTIFACTS_DIR_NAME)) : undefined,
+    artifacts: trialArtifactsDir ? createTrialArtifactStore(trialArtifactsDir) : undefined,
+    // 生成の前に置き場の空きを見る（永続化なしの構成では保存できないため、判定しない）
+    diskSpace: trialArtifactsDir
+      ? createTrialDiskCheck({ dir: trialArtifactsDir, statfs: opts.trialStatfs })
+      : undefined,
     maskError,
   });
   await contentTrials.applyStored();

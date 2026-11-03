@@ -207,8 +207,8 @@
 | DELETE | `/api/settings/content/key` | 行ごと削除して未設定へ戻す（冪等） |
 | POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
 | POST | `/api/settings/content/speech/catalog/refresh` | 音声カタログの再取得。応答は画像と同じ形 |
-| POST | `/api/settings/content/trials` | `{ kind, model, prompt, voice?, instructions?, speed?, force? }`。試行ジョブを開始し、202 で `{ trial, reused: false }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409）。BGM の `model` は固定値だけで、BGM の同時実行はチャットの `generate_bgm` と枠を共有する（空きが無ければ行を作らず 409）。同じ入力の保存済み成功（現在のキー世代・成果物ファイルあり）があれば provider を呼ばず 200 `{ trial, reused: true }`。`force: true` は保存済み結果を無視する |
-| GET | `/api/settings/content/trials` | `{ items, keyEpoch, artifactUsage }`。新しい順の履歴（`?kind=` で絞る）。取得のたびに `running` の取り残しと成果物の置き場を再照合する |
+| POST | `/api/settings/content/trials` | `{ kind, model, prompt, voice?, instructions?, speed?, force? }`。試行ジョブを開始し、202 で `{ trial, reused: false }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409）。BGM の `model` は固定値だけで、BGM の同時実行はチャットの `generate_bgm` と枠を共有する（空きが無ければ行を作らず 409）。同じ入力の保存済み成功（現在のキー世代・成果物ファイルあり）があれば provider を呼ばず 200 `{ trial, reused: true }`。`force: true` は保存済み結果を無視する。置き場のディスクの空きが 1 件分に満たないときは、行を作らず 503 `{ error, code: "disk_shortage" }` で拒否する（クレジットは消費しない） |
+| GET | `/api/settings/content/trials` | `{ items, keyEpoch, artifactUsage, artifactWarning }`。新しい順の履歴（`?kind=` で絞る）。取得のたびに `running` の取り残しと成果物の置き場を再照合する |
 | GET | `/api/settings/content/trials/:id` | `{ trial }`。終端の記録に失敗している間は `recorded: false` でメモリの状態を返す |
 | GET | `/api/settings/content/trials/:id/raw` | 保存済みの成果物。`Content-Type` は保存時に確定した MIME で、`Accept-Ranges: bytes` / `X-Content-Type-Options: nosniff` / `Cache-Control: no-store`。単一の `Range` を満たすときは 206 + `Content-Range`、満たせないときは 416 + `Content-Range: bytes */<size>`（本文は JSON のエラーなので `Content-Type: application/json`。契約は [api-files.md](api-files.md#画像配信raw) と同じ）。`?download=1` で `Content-Disposition: attachment` |
 | POST | `/api/settings/content/trials/:id/cancel` | 実行中の試行だけを中断して `{ trial }`。終端は 409 |
@@ -361,6 +361,11 @@
 - 置き場の再照合は、`succeeded` + `stored` の行のファイルだけを残し、それ以外の行にひも付くファイルと行の無いファイルを消す。起動時（レジストリは空）は全件を、一覧の取得時は間引いて同じ規則を適用する。ただし実行中レジストリに居る trial（保存後・終端更新前を含む）のファイルは消さない
 - 再照合は**ファイル一覧を取った後に行一覧を読み**、削除の直前にもその行を読み直す。一覧の取得を待つ間にジョブが `succeeded` + `stored` へ確定してレジストリから外れるため、先に読んだ行一覧で残す対象を決めると、確定済みのファイルを中途ファイルとして消してしまう（配信 404・画像の無い成功の再利用・容量の数え残しになる）
 - 保存容量はディレクトリを走査せず、`succeeded` + `stored` の行のバイト数を合計する（`artifactUsage`）。時間ベースの自動削除はしない
+- 保存容量の警告は server の定数（`server/src/content-trial-artifacts.ts`）で判定し、一覧の `artifactWarning` に**しきい値と警告かどうかだけ**を載せる。しきい値の値と比べ方の正はそこだけで、画面は文言・色・表示位置を決める（消すかどうかも画面と利用者が決め、server は自動削除しない）
+- 生成の前に置き場の空きを見て、1 件分の上限に余白を足した分に満たないときは**行を作らずに開始を拒否する**（`server/src/content-trial-disk-space.ts`、503 `{ error, code: "disk_shortage" }`。クレジットは消費していない）。空きは `<storeDir>/trials` を `fs/promises` の `statfs` で読み、置き場がまだ無いときは作られる親を見る（どちらも読み口は依存として注入し、テストは固定値を渡す）
+- **開始拒否と `storage` の終端失敗は意味が違う。** 開始拒否は行も課金も作らない 503 で、`failureCode` を持たない。`failureCode: "storage"` は生成が成功した後に保存できなかった `failed`（`charged: true`）で、再試行は再課金になる。どちらも「保存先の問題」だが、利用者に課金の有無を伝える文言を混ぜない
+- 空き不足は**再利用（同じ入力の保存済み成功、200）を阻害しない**（provider を呼ばず課金もしないため）。`force: true`（別のテイク）は新しい保存が要るため、空きが足りなければ 409 や再利用ではなく開始拒否になる
+- 空きを測れない環境（`statfs` の非対応・権限の失敗）は**通過に倒す**。測れないことを理由に正しい試行まで止めない（保存できなければ従来どおり `storage` の失敗になる）
 
 `configured`（設定行の有無）と `keyStored`（暗号文の有無）・`keyAvailable`（復号できて生成ツールへ渡せる）・`keyEvaluated` / `keyErrorMessage` は別の軸で、実効の公開ゲートは「行がある」「`enabled`」「`keyAvailable`」の積。`configured: true` / `keyStored: true` / `keyAvailable: false` でも画面はキーの削除・置換を出す。未評価（runtime 無し / 起動時に DB を読めなかった）は `keyEvaluated: false` と「まだ確認できていない」固定文言で、誤鍵・破損と断定しない（[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。
 

@@ -1440,10 +1440,19 @@ export type ContentTrialStartResponse = z.infer<typeof ContentTrialStartResponse
 export const ContentTrialArtifactUsageSchema = z.object({ count: z.number(), bytes: z.number() });
 export type ContentTrialArtifactUsageValue = z.infer<typeof ContentTrialArtifactUsageSchema>;
 
+/**
+ * 保存容量の警告。しきい値は server の定数（`server/src/content-trial-artifacts.ts`）で、
+ * `artifactUsage.bytes` がこれを**超えた**とき `warning: true`。
+ */
+export const ContentTrialArtifactWarningSchema = z.object({ thresholdBytes: z.number(), warning: z.boolean() });
+export type ContentTrialArtifactWarningValue = z.infer<typeof ContentTrialArtifactWarningSchema>;
+
 export const ContentTrialListResponseSchema = z.object({
   items: z.array(ContentTrialSchema),
   keyEpoch: z.number(),
   artifactUsage: ContentTrialArtifactUsageSchema,
+  /** server は常に返すが、追加フィールドなので省略可（旧い client の応答組み立てと互換） */
+  artifactWarning: ContentTrialArtifactWarningSchema.optional(),
 });
 export type ContentTrialListResponse = z.infer<typeof ContentTrialListResponseSchema>;
 

@@ -46,9 +46,15 @@ export function createContentSettingsRoutes({
 
     // 試行は 202 で開始し、状態は GET で取る。画面の寿命にも、リクエストの signal にも結び付けない。
     // 同じ入力の保存済み成功があるときは provider を呼ばず 200 + `reused: true` を返す（課金しない）
-    startTrial: (c: Context, body: CreateContentTrialBody) => {
-      const outcome = contentTrials.start(body);
-      if ("error" in outcome) return c.json({ error: outcome.error }, outcome.status);
+    startTrial: async (c: Context, body: CreateContentTrialBody) => {
+      const outcome = await contentTrials.start(body);
+      if ("error" in outcome) {
+        // 空き不足の拒否だけは機械可読なコードを添える（保存の失敗との区別は docs/api-settings.md）
+        return c.json(
+          { error: outcome.error, ...(outcome.code === undefined ? {} : { code: outcome.code }) },
+          outcome.status,
+        );
+      }
       return c.json({ trial: outcome.trial, reused: outcome.reused }, outcome.status);
     },
 
@@ -62,7 +68,12 @@ export function createContentSettingsRoutes({
     listTrials: (c: Context) => {
       const kind = c.req.query("kind");
       const outcome = contentTrials.list(kind === undefined || kind === "" ? undefined : kind);
-      return c.json({ items: outcome.items, keyEpoch: outcome.keyEpoch, artifactUsage: outcome.artifactUsage });
+      return c.json({
+        items: outcome.items,
+        keyEpoch: outcome.keyEpoch,
+        artifactUsage: outcome.artifactUsage,
+        artifactWarning: outcome.artifactWarning,
+      });
     },
 
     /**

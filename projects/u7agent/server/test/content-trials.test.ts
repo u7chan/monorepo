@@ -10,6 +10,8 @@ import {
   CONTENT_TRIAL_BGM_PROMPT_TOO_LONG_MESSAGE,
   CONTENT_TRIAL_ARTIFACT_FORMAT_MESSAGE,
   CONTENT_TRIAL_ARTIFACT_MISSING_MESSAGE,
+  CONTENT_TRIAL_DISK_SHORT_CODE,
+  CONTENT_TRIAL_DISK_SHORT_MESSAGE,
   CONTENT_TRIAL_DELETE_RUNNING_MESSAGE,
   CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH,
   CONTENT_TRIAL_KEY_UNAVAILABLE_MESSAGE,
@@ -32,10 +34,13 @@ import {
 } from "../src/content-trials";
 import {
   TRIAL_ARTIFACT_MAX_BYTES,
+  TRIAL_ARTIFACT_USAGE_WARNING_BYTES,
   trialArtifactFileName,
   type TrialArtifactFormat,
   type TrialArtifactStore,
 } from "../src/content-trial-artifacts";
+import type { TrialDiskCheck, TrialDiskVerdict } from "../src/content-trial-disk-space";
+import { TRIAL_DISK_REQUIRED_BYTES, createTrialDiskCheck } from "../src/content-trial-disk-space";
 import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import {
   acquireBgmGenerationSlot,
@@ -302,6 +307,8 @@ function createHarness(
     speechVoices?: readonly string[] | undefined;
     generate?: boolean;
     artifacts?: boolean;
+    /** 置き場の空き確認。未指定は判定しない（空きを測れない環境と同じく通す） */
+    diskSpace?: TrialDiskCheck;
   } = {},
 ) {
   const db = new FakeTrialsDb();
@@ -339,6 +346,7 @@ function createHarness(
             return pending.promise;
           },
     artifacts: options.artifacts === false ? undefined : store,
+    diskSpace: options.diskSpace,
     generateBgm:
       options.generate === false
         ? undefined
@@ -408,10 +416,10 @@ async function until(predicate: () => boolean): Promise<void> {
   throw new Error("condition was not met");
 }
 
-test("開始は 202 の running で、世代と artifactState: none を記録し、APIキーは保存しない", () => {
+test("開始は 202 の running で、世代と artifactState: none を記録し、APIキーは保存しない", async () => {
   const harness = createHarness();
   harness.db.epoch = 3;
-  const outcome = harness.start("a cat on a sofa");
+  const outcome = await harness.start("a cat on a sofa");
   assert.equal(outcome.status, 202);
   if (outcome.status !== 202) return;
   assert.equal(outcome.reused, false);
@@ -440,7 +448,7 @@ test("開始は 202 の running で、世代と artifactState: none を記録し
 
 test("成功は成果物を保存して succeeded にし、寸法・サイズ・形式と課金済みを記録する", async () => {
   const harness = createHarness();
-  const first = harness.start();
+  const first = await harness.start();
   assert.equal(first.status, 202);
   if (first.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage(1024, 768) });
@@ -462,7 +470,7 @@ test("成功は成果物を保存して succeeded にし、寸法・サイズ・
   const list = harness.service.list("image");
   assert.deepEqual(list.artifactUsage, { count: 1, bytes: 33 });
 
-  const second = harness.start("a dog");
+  const second = await harness.start("a dog");
   assert.equal(second.status, 202);
   if (second.status !== 202) return;
   harness.generations[1]?.resolve({ ok: false, code: "invalid_key", message: "画像APIキーが無効です" });
@@ -472,7 +480,7 @@ test("成功は成果物を保存して succeeded にし、寸法・サイズ・
   assert.equal(failed?.failureMessage, "画像APIキーが無効です");
   assert.equal(failed?.charged, false);
 
-  const third = harness.start("a bird");
+  const third = await harness.start("a bird");
   assert.equal(third.status, 202);
   if (third.status !== 202) return;
   harness.generations[2]?.resolve({ ok: false, code: "aborted", message: "画像生成を中断しました" });
@@ -482,14 +490,14 @@ test("成功は成果物を保存して succeeded にし、寸法・サイズ・
 
 test("同じ入力の保存済み成功は provider を呼ばず 200 で返し、新しい成功を記録しない", async () => {
   const harness = createHarness();
-  const first = harness.start("a cat on a sofa");
+  const first = await harness.start("a cat on a sofa");
   if (first.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
   const rowsBefore = harness.db.rows.size;
   const finishesBefore = harness.db.finishCalls;
 
-  const reused = harness.start("a cat on a sofa");
+  const reused = await harness.start("a cat on a sofa");
   assert.equal(reused.status, 200);
   if (reused.status !== 200) return;
   assert.equal(reused.reused, true);
@@ -501,18 +509,18 @@ test("同じ入力の保存済み成功は provider を呼ばず 200 で返し�
   assert.equal(harness.db.finishCalls, finishesBefore);
   // 保存済みの成果物が無い成功（段階 1 の none）は再利用しない
   harness.db.rows.set("trial-legacy", row({ id: "trial-legacy", prompt: "legacy", state: "succeeded" }));
-  const again = harness.start("legacy");
+  const again = await harness.start("legacy");
   assert.equal(again.status, 202);
 });
 
 test("force の開始は保存済み結果を無視して新しい試行を作る", async () => {
   const harness = createHarness();
-  const first = harness.start("a cat on a sofa");
+  const first = await harness.start("a cat on a sofa");
   if (first.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
 
-  const forced = harness.start("a cat on a sofa", MODEL, true);
+  const forced = await harness.start("a cat on a sofa", MODEL, true);
   assert.equal(forced.status, 202);
   if (forced.status !== 202) return;
   assert.equal(forced.reused, false);
@@ -523,13 +531,13 @@ test("force の開始は保存済み結果を無視して新しい試行を作�
 
 test("reuse は現在のキー世代の成功だけを対象にする", async () => {
   const harness = createHarness();
-  const first = harness.start("a cat on a sofa");
+  const first = await harness.start("a cat on a sofa");
   if (first.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
 
   harness.db.epoch = 1;
-  const next = harness.start("a cat on a sofa");
+  const next = await harness.start("a cat on a sofa");
   assert.equal(next.status, 202);
   if (next.status !== 202) return;
   assert.equal(next.reused, false);
@@ -540,13 +548,13 @@ test("reuse は現在のキー世代の成功だけを対象にする", async ()
 
 test("reuse は成果物ファイルが残っている成功だけを対象にする", async () => {
   const harness = createHarness();
-  const first = harness.start("a cat on a sofa");
+  const first = await harness.start("a cat on a sofa");
   if (first.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
   harness.store.files.delete(trialArtifactFileName(first.trial.id, "png"));
 
-  const next = harness.start("a cat on a sofa");
+  const next = await harness.start("a cat on a sofa");
   assert.equal(next.status, 202);
   if (next.status !== 202) return;
   assert.equal(next.reused, false);
@@ -558,7 +566,7 @@ test("reuse は成果物ファイルが残っている成功だけを対象に�
 test("保存できない形式（svg / html / 不明な MIME）は保存前に拒否し、課金済みの失敗にする", async () => {
   for (const mimeType of ["image/svg+xml", "text/html", "application/octet-stream"]) {
     const harness = createHarness();
-    const started = harness.start();
+    const started = await harness.start();
     if (started.status !== 202) return;
     harness.generations[0]?.resolve({
       ok: true,
@@ -578,7 +586,7 @@ test("保存できない形式（svg / html / 不明な MIME）は保存前に�
 test("成果物の保存に失敗したら storage の失敗にし、成功として見せない", async () => {
   const harness = createHarness();
   harness.store.failWrite = true;
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.db.rows.get(started.trial.id)?.state === "failed");
@@ -592,7 +600,7 @@ test("成果物の保存に失敗したら storage の失敗にし、成功と�
 
 test("保存先を用意できていない起動では、生成が成功しても storage の失敗にする", async () => {
   const harness = createHarness({ artifacts: false });
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.db.rows.get(started.trial.id)?.state === "failed");
@@ -601,7 +609,7 @@ test("保存先を用意できていない起動では、生成が成功して�
 
 test("大きすぎる成果物は保存せず、専用の文言で storage の失敗にする", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   const bytes = new Uint8Array(TRIAL_ARTIFACT_MAX_BYTES + 1);
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
@@ -617,7 +625,7 @@ test("大きすぎる成果物は保存せず、専用の文言で storage の�
 
 test("trial id だけで成果物を配信し、保存していない行・未知の id は 404", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   // 実行中はまだ成果物が無い
   assert.equal((await harness.service.raw(started.trial.id)).status, 404);
@@ -644,7 +652,7 @@ test("trial id だけで成果物を配信し、保存していない行・未�
 
 test("保存名が行の id と一致しない行（手編集・旧版）は配信しない", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.db.rows.get(started.trial.id)?.state === "succeeded");
@@ -659,7 +667,7 @@ test("保存名が行の id と一致しない行（手編集・旧版）は配�
 
 test("失敗文言はマスカーを通してから保存する", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   harness.generations[0]?.resolve({ ok: false, code: "unknown", message: `upstream said ${KEY}` });
   await until(() => harness.db.rows.get(started.trial.id)?.state === "failed");
@@ -670,11 +678,11 @@ test("失敗文言はマスカーを通してから保存する", async () => {
 
 test("種別ごとに同時 1 本。実行中は 409 で、provider の呼び出しが終わるまでスロットを解放しない", async () => {
   const harness = createHarness();
-  const first = harness.start();
+  const first = await harness.start();
   assert.equal(first.status, 202);
   if (first.status !== 202) return;
   assert.equal(harness.service.running("image"), true);
-  const rejected = harness.start("another");
+  const rejected = await harness.start("another");
   assert.equal(rejected.status, 409);
   if (rejected.status !== 409) return;
   assert.equal(rejected.error, CONTENT_TRIAL_ALREADY_RUNNING_MESSAGE);
@@ -683,17 +691,45 @@ test("種別ごとに同時 1 本。実行中は 409 で、provider の呼び出
   assert.equal(canceled.status, 200);
   // キャンセル直後も provider の呼び出しは続く（スロットは解放しない）
   assert.equal(harness.service.running("image"), true);
-  assert.equal(harness.start("another").status, 409);
+  assert.equal((await harness.start("another")).status, 409);
   assert.equal(harness.generations[0]?.aborted(), true);
 
   harness.generations[0]?.resolve({ ok: false, code: "aborted", message: "中断" });
   await until(() => harness.service.running("image") === false);
-  assert.equal(harness.start("another").status, 202);
+  assert.equal((await harness.start("another")).status, 202);
+});
+
+test("空き確認の待ちで同時開始が二重に通らない（種別ごとに同時 1 本）", async () => {
+  const gate = deferred<void>();
+  // 本番と同じ組み立て（`createTrialDiskCheck`）で、`statfs` の応答だけを遅らせる
+  const diskSpace = createTrialDiskCheck({
+    dir: "/store/trials",
+    statfs: async () => {
+      await gate.promise;
+      return { bsize: 1, bavail: TRIAL_DISK_REQUIRED_BYTES };
+    },
+  });
+  const harness = createHarness({ diskSpace });
+  // 空き確認で止まっている間に、同じ種別の開始がもう 1 本届く
+  const first = harness.start("a cat");
+  const second = harness.start("a cat");
+  gate.resolve();
+  const outcomes = await Promise.all([first, second]);
+
+  assert.deepEqual(
+    outcomes.map((outcome) => outcome.status).sort(),
+    [202, 409],
+    "待つ間の同時開始で 2 本とも 202 にしない",
+  );
+  const refused = outcomes.find((outcome) => outcome.status === 409);
+  assert.equal(refused && "error" in refused ? refused.error : "", CONTENT_TRIAL_ALREADY_RUNNING_MESSAGE);
+  assert.equal(harness.db.rows.size, 1, "running の行は 1 件だけ");
+  assert.equal(harness.generations.length, 1, "provider を 2 回呼ばない（二重課金しない）");
 });
 
 test("キャンセルは running のときだけ受け付け、遅れて届いた結果で状態を戻さない", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   assert.equal(started.status, 202);
   if (started.status !== 202) return;
   const canceled = harness.service.cancel(started.trial.id);
@@ -719,7 +755,7 @@ test("キャンセルは running のときだけ受け付け、遅れて届い�
 
 test("完了直後のキャンセルは 409（すでに終端）", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.db.rows.get(started.trial.id)?.state === "succeeded");
@@ -730,7 +766,7 @@ test("完了直後のキャンセルは 409（すでに終端）", async () => {
 
 test("running の削除は 409 で「先に中断してください」、終端だけ消せる", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   const rejected = await harness.service.remove(started.trial.id);
   assert.equal(rejected.status, 409);
@@ -753,7 +789,7 @@ test("running の削除は 409 で「先に中断してください」、終端�
 
 test("個別削除はその試行の成果物も消す", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.db.rows.get(started.trial.id)?.state === "succeeded");
@@ -766,11 +802,11 @@ test("個別削除はその試行の成果物も消す", async () => {
 
 test("すべて削除は終端だけを対象にし、実行中は残し、成果物も消す", async () => {
   const harness = createHarness();
-  const done = harness.start("done");
+  const done = await harness.start("done");
   if (done.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.db.rows.get(done.trial.id)?.state === "succeeded");
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   const outcome = await harness.service.removeAll();
   assert.equal(outcome.status, 200);
@@ -782,7 +818,7 @@ test("すべて削除は終端だけを対象にし、実行中は残し、成�
 
 test("時間ベースの自動削除はせず、古い行と成果物を残す", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.db.rows.get(started.trial.id)?.state === "succeeded");
@@ -827,7 +863,7 @@ test("オンラインの再照合は、保存後・終端更新前の実行中�
   const harness = createHarness();
   const hold = deferred<void>();
   harness.store.hold = { promise: hold.promise, release: () => hold.resolve() };
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   // ファイルは書けたが、write がまだ返っていない（DB はまだ running）
@@ -846,7 +882,7 @@ test("一覧の取得中に確定したジョブの成果物を、オンライ�
   const harness = createHarness();
   const holdWrite = deferred<void>();
   harness.store.hold = { promise: holdWrite.promise, release: () => holdWrite.resolve() };
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   // ファイルは書けたが write はまだ返っていない（行は running、ジョブはレジストリに居る）
@@ -872,12 +908,49 @@ test("一覧の取得中に確定したジョブの成果物を、オンライ�
   const raw = await harness.service.raw(started.trial.id);
   assert.equal(raw.status, 200);
   assert.deepEqual(harness.service.list("image").artifactUsage, { count: 1, bytes: 33 });
-  const reused = harness.start();
+  const reused = await harness.start();
   assert.equal(reused.status, 200);
   if (reused.status !== 200) return;
   assert.equal(reused.reused, true);
   assert.equal(reused.trial.id, started.trial.id);
   assert.equal(harness.generations.length, 1, "再利用では provider を呼ばない");
+});
+
+test("保存容量の警告は 1 GiB を超えたときだけ立ち、しきい値を応答に載せる", async () => {
+  const harness = createHarness();
+  const stored = (id: string, bytes: number): ContentTrialRow =>
+    row({
+      id,
+      state: "succeeded",
+      artifactState: "stored",
+      charged: true,
+      artifact: {
+        path: trialArtifactFileName(id, "png"),
+        bytes,
+        format: "png",
+        width: 1,
+        height: 1,
+      },
+    });
+  const below = TRIAL_ARTIFACT_USAGE_WARNING_BYTES - 1;
+  harness.db.rows.set(trialId(1), stored(trialId(1), below));
+
+  const under = harness.service.list();
+  assert.deepEqual(under.artifactUsage, { count: 1, bytes: below });
+  assert.deepEqual(under.artifactWarning, { thresholdBytes: TRIAL_ARTIFACT_USAGE_WARNING_BYTES, warning: false });
+
+  harness.db.rows.set(trialId(1), stored(trialId(1), TRIAL_ARTIFACT_USAGE_WARNING_BYTES));
+  assert.equal(harness.service.list().artifactWarning.warning, false, "1 GiB ちょうどでは警告しない");
+
+  harness.db.rows.set(trialId(1), stored(trialId(1), TRIAL_ARTIFACT_USAGE_WARNING_BYTES + 1));
+  assert.equal(harness.service.list().artifactWarning.warning, true, "1 GiB を超えたら警告する");
+
+  // 容量表示と警告は、個別削除・全削除の後に同じ一覧で追随する
+  const removed = await harness.service.remove(trialId(1));
+  assert.equal(removed.status, 200);
+  const empty = harness.service.list();
+  assert.deepEqual(empty.artifactUsage, { count: 0, bytes: 0 });
+  assert.equal(empty.artifactWarning.warning, false);
 });
 
 test("running のまま残った行は一覧の再照合で interrupted になり、容量に計上されない", async () => {
@@ -896,7 +969,7 @@ test("running のまま残った行は一覧の再照合で interrupted にな�
 
 test("終端の記録に失敗したら成果物を消し、メモリの失敗（storage）を返して、回復後に再試行する", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   harness.db.failFinish = true;
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
@@ -940,7 +1013,7 @@ test("再起動でレジストリを失った running は applyStored で interr
   assert.equal(stale?.durationMs, null);
 });
 
-test("一覧の取得でも、期限 + 余裕を過ぎたレジストリ外の running だけを interrupted にする", () => {
+test("一覧の取得でも、期限 + 余裕を過ぎたレジストリ外の running だけを interrupted にする", async () => {
   const harness = createHarness();
   const now = 1_000;
   // 期限 + 余裕を大きく過ぎた行と、まだ期限内の行を並べる
@@ -954,9 +1027,9 @@ test("一覧の取得でも、期限 + 余裕を過ぎたレジストリ外の r
   assert.equal(outcome.items.length, 2);
 });
 
-test("実行中ジョブは一覧の再照合で中断しない", () => {
+test("実行中ジョブは一覧の再照合で中断しない", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   // 期限を大きく過ぎても、レジストリに居る間は running のまま
   harness.advanceClock(IMAGE_GENERATION_TIMEOUT_MS * 3);
@@ -966,7 +1039,7 @@ test("実行中ジョブは一覧の再照合で中断しない", () => {
 
 test("close は実行中の試行を abort して interrupted にする", async () => {
   const harness = createHarness();
-  const started = harness.start();
+  const started = await harness.start();
   if (started.status !== 202) return;
   await harness.service.close();
   assert.equal(harness.generations[0]?.aborted(), true);
@@ -976,52 +1049,128 @@ test("close は実行中の試行を abort して interrupted にする", async 
   assert.equal(harness.db.rows.get(started.trial.id)?.state, "interrupted");
 });
 
-test("開始前の検証は課金前に止め、理由ごとの固定文言を返す", () => {
-  assert.equal(createHarness({ generate: false }).start().status, 503);
-  const runtime = createHarness({ generate: false }).start();
+test("開始前の検証は課金前に止め、理由ごとの固定文言を返す", async () => {
+  assert.equal((await createHarness({ generate: false }).start()).status, 503);
+  const runtime = await createHarness({ generate: false }).start();
   assert.equal(runtime.status === 503 ? runtime.error : "", CONTENT_TRIAL_RUNTIME_UNAVAILABLE_MESSAGE);
 
-  const unconfigured = createHarness({ row: undefined }).start();
+  const unconfigured = await createHarness({ row: undefined }).start();
   assert.equal(unconfigured.status, 400);
   assert.equal(unconfigured.status === 400 ? unconfigured.error : "", CONTENT_TRIAL_UNCONFIGURED_MESSAGE);
 
-  const disabled = createHarness({ row: { imageModel: "openai/gpt-image-2", enabled: false } }).start();
+  const disabled = await createHarness({ row: { imageModel: "openai/gpt-image-2", enabled: false } }).start();
   assert.equal(disabled.status, 400);
   assert.equal(disabled.status === 400 ? disabled.error : "", CONTENT_DISABLED_MESSAGE);
 
-  const noKey = createHarness({ apiKey: null }).start();
+  const noKey = await createHarness({ apiKey: null }).start();
   assert.equal(noKey.status, 503);
   assert.equal(noKey.status === 503 ? noKey.error : "", CONTENT_TRIAL_KEY_UNAVAILABLE_MESSAGE);
 
-  const outside = createHarness().start("a cat", "openrouter/unknown/model");
+  const outside = await createHarness().start("a cat", "openrouter/unknown/model");
   assert.equal(outside.status, 400);
   assert.equal(
     outside.status === 400 ? outside.error : "",
     `${CONTENT_TRIAL_IMAGE_MODEL_MESSAGE}: openrouter/unknown/model`,
   );
 
-  const empty = createHarness().start("   ");
+  const empty = await createHarness().start("   ");
   assert.equal(empty.status, 400);
   assert.equal(empty.status === 400 ? empty.error : "", CONTENT_TRIAL_PROMPT_EMPTY_MESSAGE);
 
-  const tooLong = createHarness().start("x".repeat(CONTENT_TRIAL_PROMPT_MAX_LENGTH + 1));
+  const tooLong = await createHarness().start("x".repeat(CONTENT_TRIAL_PROMPT_MAX_LENGTH + 1));
   assert.equal(tooLong.status, 400);
   assert.equal(tooLong.status === 400 ? tooLong.error : "", CONTENT_TRIAL_PROMPT_TOO_LONG_MESSAGE);
 
-  const kind = createHarness().service.start({ kind: "bgm", model: MODEL, prompt: "a cat" });
+  const kind = await createHarness().service.start({ kind: "bgm", model: MODEL, prompt: "a cat" });
   assert.equal(kind.status, 400);
 });
 
-test("保存に失敗したら 503 で、実行中のジョブを残さない", () => {
+test("保存に失敗したら 503 で、実行中のジョブを残さない", async () => {
   const harness = createHarness();
   harness.db.failSave = true;
-  const outcome = harness.start();
+  const outcome = await harness.start();
   assert.equal(outcome.status, 503);
   assert.equal(harness.service.running("image"), false);
   assert.equal(harness.generations.length, 0);
 });
 
-test("存在しない試行の取得は 404", () => {
+test("置き場の空きが足りないときは、行を作らずに開始を拒否する", async () => {
+  let verdict: TrialDiskVerdict = "short";
+  const harness = createHarness({ diskSpace: async () => verdict });
+
+  const refused = await harness.start("a cat on a sofa");
+  assert.equal(refused.status, 503);
+  if (refused.status !== 503) return;
+  assert.equal(refused.code, CONTENT_TRIAL_DISK_SHORT_CODE);
+  assert.equal(refused.error, CONTENT_TRIAL_DISK_SHORT_MESSAGE);
+  assert.equal(harness.db.rows.size, 0, "拒否した試行の行を作らない");
+  assert.equal(harness.generations.length, 0, "provider を呼ばない");
+
+  verdict = "enough";
+  assert.equal((await harness.start("a cat on a sofa")).status, 202, "空きが戻れば同じ入力で開始できる");
+});
+
+test("空きが足りなくても、保存済みの同じ入力の再利用は止めない", async () => {
+  let verdict: TrialDiskVerdict = "enough";
+  const harness = createHarness({ diskSpace: async () => verdict });
+  const started = await harness.start("a cat on a sofa");
+  if (started.status !== 202) return;
+  harness.generations[0]?.resolve({ ok: true, image: pngImage() });
+  await until(() => harness.db.rows.get(started.trial.id)?.state === "succeeded");
+
+  verdict = "short";
+  const reused = await harness.start("a cat on a sofa");
+  assert.equal(reused.status, 200);
+  if (reused.status !== 200) return;
+  assert.equal(reused.reused, true);
+  assert.equal(reused.trial.id, started.trial.id);
+  assert.equal(harness.generations.length, 1, "再利用は provider を呼ばない");
+
+  const forced = await harness.start("a cat on a sofa", MODEL, true);
+  assert.equal(forced.status, 503, "別のテイクは空きが要る");
+  assert.equal(harness.db.rows.size, 1);
+});
+
+test("空き不足の開始拒否は、保存に失敗した storage の終端と混ざらない", async () => {
+  let verdict: TrialDiskVerdict = "short";
+  const refusedHarness = createHarness({ diskSpace: async () => verdict });
+  const refused = await refusedHarness.start();
+  assert.equal(refused.status, 503);
+  if (refused.status !== 503) return;
+  assert.equal(refused.code, CONTENT_TRIAL_DISK_SHORT_CODE);
+  assert.equal(refusedHarness.db.rows.size, 0, "開始していないため課金済みの行も残さない");
+
+  // 生成の後に保存できなかった試行は、行が残り、課金済みの failed + failureCode: storage になる
+  verdict = "enough";
+  refusedHarness.store.failWrite = true;
+  const failed = await refusedHarness.start();
+  if (failed.status !== 202) return;
+  refusedHarness.generations[0]?.resolve({ ok: true, image: pngImage() });
+  await until(() => refusedHarness.db.rows.get(failed.trial.id)?.state === "failed");
+  const failure = refusedHarness.db.rows.get(failed.trial.id);
+  assert.equal(failure?.failureCode, "storage");
+  assert.equal(failure?.charged, true);
+  assert.equal(failure?.failureMessage, CONTENT_TRIAL_STORAGE_FAILED_MESSAGE);
+});
+
+test("空きが足りないときは BGM の共有枠も取らない", async () => {
+  let verdict: TrialDiskVerdict = "short";
+  const harness = createHarness({ diskSpace: async () => verdict });
+  assert.equal((await harness.startBgm()).status, 503);
+  verdict = "enough";
+  const started = await harness.startBgm();
+  assert.equal(started.status, 202, "拒否で枠を漏らさない");
+  // 共有枠を次のテストへ残さない（後片付けはキャンセルではなく結果の確定で行う）
+  harness.bgmGenerations[0]?.resolve(bgmMp3());
+  await until(() => harness.service.running("bgm") === false);
+});
+
+test("空きを判定しない構成（未注入）は、これまでどおり開始できる", async () => {
+  const harness = createHarness();
+  assert.equal((await harness.start()).status, 202);
+});
+
+test("存在しない試行の取得は 404", async () => {
   const harness = createHarness();
   const outcome = harness.service.get("trial-missing");
   assert.equal(outcome.status, 404);
@@ -1031,10 +1180,10 @@ test("存在しない試行の取得は 404", () => {
 
 // --- 音声の試行（段階 3） ---
 
-test("音声の開始は入力スナップショットを記録し、provider へ本文とパラメーターを渡す", () => {
+test("音声の開始は入力スナップショットを記録し、provider へ本文とパラメーターを渡す", async () => {
   const harness = createHarness();
   harness.db.epoch = 2;
-  const outcome = harness.startSpeech("おはようございます", {
+  const outcome = await harness.startSpeech("おはようございます", {
     voice: "Aoede",
     instructions: "落ち着いた声で",
     speed: 1.25,
@@ -1062,9 +1211,9 @@ test("音声の開始は入力スナップショットを記録し、provider �
   assert.equal(JSON.stringify(saved).includes(KEY), false);
 });
 
-test("空のボイスと演技指示は送らず、{voice, instructions} を null として履歴に残す", () => {
+test("空のボイスと演技指示は送らず、{voice, instructions} を null として履歴に残す", async () => {
   const harness = createHarness();
-  const outcome = harness.startSpeech("こんにちは", { voice: "", instructions: "  " });
+  const outcome = await harness.startSpeech("こんにちは", { voice: "", instructions: "  " });
   if (outcome.status !== 202) return;
   const generation = harness.speechGenerations[0];
   assert.equal("voice" in (generation?.input ?? {}), false);
@@ -1077,7 +1226,7 @@ test("空のボイスと演技指示は送らず、{voice, instructions} を nul
 
 test("音声は mp3 と wav を保存し、raw は保存時に確定した形式の MIME で返す", async () => {
   const harness = createHarness();
-  const first = harness.startSpeech("mp3 の本文");
+  const first = await harness.startSpeech("mp3 の本文");
   if (first.status !== 202) return;
   harness.speechGenerations[0]?.resolve(harness.speech.mp3());
   await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
@@ -1095,7 +1244,7 @@ test("音声は mp3 と wav を保存し、raw は保存時に確定した形式
   assert.equal(raw.fileName, `${first.trial.id}.mp3`);
 
   // pcm は RIFF ヘッダを付けて wav として保存する
-  const second = harness.startSpeech("pcm の本文");
+  const second = await harness.startSpeech("pcm の本文");
   if (second.status !== 202) return;
   harness.speechGenerations[1]?.resolve(harness.speech.pcm());
   await until(() => harness.db.rows.get(second.trial.id)?.state === "succeeded");
@@ -1118,7 +1267,7 @@ test("音声の形式の許可リストは保存前に拒否し、課金済み�
     { audio: new Uint8Array(0).buffer, format: "mp3" as const, contentType: "audio/mpeg" },
   ]) {
     const harness = createHarness();
-    const started = harness.startSpeech();
+    const started = await harness.startSpeech();
     if (started.status !== 202) return;
     harness.speechGenerations[0]?.resolve({ ok: true, speech });
     await until(() => harness.db.rows.get(started.trial.id)?.state === "failed");
@@ -1132,7 +1281,7 @@ test("音声の形式の許可リストは保存前に拒否し、課金済み�
 test("音声の保存に失敗したら storage の課金済み失敗にし、成功として見せない", async () => {
   const harness = createHarness();
   harness.store.failWrite = true;
-  const started = harness.startSpeech();
+  const started = await harness.startSpeech();
   if (started.status !== 202) return;
   harness.speechGenerations[0]?.resolve(harness.speech.mp3());
   await until(() => harness.db.rows.get(started.trial.id)?.state === "failed");
@@ -1144,7 +1293,7 @@ test("音声の保存に失敗したら storage の課金済み失敗にし、�
 
   // 置き場が無い起動（永続化なし）も同じ分類
   const noStore = createHarness({ artifacts: false });
-  const started2 = noStore.startSpeech();
+  const started2 = await noStore.startSpeech();
   if (started2.status !== 202) return;
   noStore.speechGenerations[0]?.resolve(noStore.speech.mp3());
   await until(() => noStore.db.rows.get(started2.trial.id)?.state === "failed");
@@ -1158,7 +1307,7 @@ test("音声の provider の失敗は分類して記録し、aborted だけを c
     ["aborted", "canceled"],
   ] as const) {
     const harness = createHarness();
-    const started = harness.startSpeech();
+    const started = await harness.startSpeech();
     if (started.status !== 202) return;
     harness.speechGenerations[0]?.resolve({ ok: false, code, message: KEY });
     await until(() => harness.db.rows.get(started.trial.id)?.state === state);
@@ -1172,7 +1321,7 @@ test("音声の provider の失敗は分類して記録し、aborted だけを c
 
 test("音声のキャンセルと close は abort し、interrupted は再起動の再照合で倒す", async () => {
   const harness = createHarness();
-  const started = harness.startSpeech();
+  const started = await harness.startSpeech();
   if (started.status !== 202) return;
   const canceled = harness.service.cancel(started.trial.id);
   assert.equal(canceled.status, 200);
@@ -1183,7 +1332,7 @@ test("音声のキャンセルと close は abort し、interrupted は再起動
   assert.equal(harness.db.rows.get(started.trial.id)?.state, "canceled");
 
   const other = createHarness();
-  const running = other.startSpeech();
+  const running = await other.startSpeech();
   if (running.status !== 202) return;
   await other.service.close();
   assert.equal(other.speechGenerations[0]?.aborted(), true);
@@ -1205,13 +1354,13 @@ test("音声のキャンセルと close は abort し、interrupted は再起動
 test("同じ入力（本文 + モデル + ボイス + 演技指示 + 話速）の保存済み成功は課金せずに返す", async () => {
   const harness = createHarness({ speechModels: [SPEECH_MODEL, "google/other-tts"] });
   const input = { voice: "Aoede", instructions: "ゆっくり", speed: 0.9 };
-  const first = harness.startSpeech("同じ本文", input);
+  const first = await harness.startSpeech("同じ本文", input);
   if (first.status !== 202) return;
   harness.speechGenerations[0]?.resolve(harness.speech.mp3());
   await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
   const rowsBefore = harness.db.rows.size;
 
-  const reused = harness.startSpeech("同じ本文", input);
+  const reused = await harness.startSpeech("同じ本文", input);
   assert.equal(reused.status, 200);
   if (reused.status !== 200) return;
   assert.equal(reused.reused, true);
@@ -1226,7 +1375,7 @@ test("同じ入力（本文 + モデル + ボイス + 演技指示 + 話速）�
     { voice: "Aoede", instructions: "ゆっくり", speed: 1.1 },
     { voice: "Aoede", instructions: "ゆっくり", speed: 0.9, model: "google/other-tts" },
   ]) {
-    const next = harness.startSpeech("同じ本文", changed);
+    const next = await harness.startSpeech("同じ本文", changed);
     assert.equal(next.status, 202, JSON.stringify(changed));
     if (next.status === 202) {
       harness.speechGenerations[harness.speechGenerations.length - 1]?.resolve({
@@ -1238,51 +1387,51 @@ test("同じ入力（本文 + モデル + ボイス + 演技指示 + 話速）�
     }
   }
   // 本文だけ違っても再利用しない
-  assert.equal(harness.startSpeech("別の本文", input).status, 202);
+  assert.equal((await harness.startSpeech("別の本文", input)).status, 202);
 });
 
-test("音声の開始前の検証は課金前に止める（カタログ / 宣言ボイス / 話速 / 音声以外のパラメーター）", () => {
-  const outside = createHarness().startSpeech("x", { model: "unknown/model" });
+test("音声の開始前の検証は課金前に止める（カタログ / 宣言ボイス / 話速 / 音声以外のパラメーター）", async () => {
+  const outside = await createHarness().startSpeech("x", { model: "unknown/model" });
   assert.equal(outside.status, 400);
   assert.equal(outside.status === 400 ? outside.error : "", `${CONTENT_TRIAL_SPEECH_MODEL_MESSAGE}: unknown/model`);
 
-  const undeclared = createHarness().startSpeech("x", { voice: "NotAVoice" });
+  const undeclared = await createHarness().startSpeech("x", { voice: "NotAVoice" });
   assert.equal(undeclared.status, 400);
   assert.match(undeclared.status === 400 ? undeclared.error : "", /NotAVoice/);
 
-  const freeform = createHarness({ speechVoices: undefined }).startSpeech("x", { voice: "any name" });
+  const freeform = await createHarness({ speechVoices: undefined }).startSpeech("x", { voice: "any name" });
   assert.equal(freeform.status, 202, "宣言が無いモデルは自由記述を受ける");
 
-  const speed = createHarness().startSpeech("x", { speed: 0 });
+  const speed = await createHarness().startSpeech("x", { speed: 0 });
   assert.equal(speed.status, 400);
   assert.equal(speed.status === 400 ? speed.error : "", CONTENT_TRIAL_SPEECH_SPEED_MESSAGE);
 
-  const instructions = createHarness().startSpeech("x", {
+  const instructions = await createHarness().startSpeech("x", {
     instructions: "a".repeat(CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH + 1),
   });
   assert.equal(instructions.status, 400);
 
   // 画像の試行に音声のパラメーターは付けられない
-  const image = createHarness().service.start({ kind: "image", model: MODEL, prompt: "a cat", voice: "Aoede" });
+  const image = await createHarness().service.start({ kind: "image", model: MODEL, prompt: "a cat", voice: "Aoede" });
   assert.equal(image.status, 400);
   assert.equal(image.status === 400 ? image.error : "", CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE);
 
   // 音声の生成器が無い起動は 503
-  const unavailable = createHarness({ generate: false }).startSpeech();
+  const unavailable = await createHarness({ generate: false }).startSpeech();
   assert.equal(unavailable.status, 503);
   assert.equal(unavailable.status === 503 ? unavailable.error : "", CONTENT_TRIAL_RUNTIME_UNAVAILABLE_MESSAGE);
 });
 
 test("画像と音声は種別ごとに 1 本ずつで、種類が違えば並行できる", async () => {
   const harness = createHarness();
-  const image = harness.start("a cat");
-  const speech = harness.startSpeech();
+  const image = await harness.start("a cat");
+  const speech = await harness.startSpeech();
   assert.equal(image.status, 202);
   assert.equal(speech.status, 202);
   assert.equal(harness.service.running("image"), true);
   assert.equal(harness.service.running("speech"), true);
-  assert.equal(harness.start("a dog").status, 409);
-  assert.equal(harness.startSpeech("別の本文").status, 409);
+  assert.equal((await harness.start("a dog")).status, 409);
+  assert.equal((await harness.startSpeech("別の本文")).status, 409);
   harness.speechGenerations[0]?.resolve(harness.speech.mp3());
   harness.generations[0]?.resolve({ ok: true, image: pngImage() });
   await until(() => harness.service.running("image") === false && harness.service.running("speech") === false);
@@ -1290,7 +1439,7 @@ test("画像と音声は種別ごとに 1 本ずつで、種類が違えば並�
 
 test("成果物の再照合は音声の succeeded + stored だけを残し、画像の形式を音声の行に配信しない", async () => {
   const harness = createHarness();
-  const ok = harness.startSpeech();
+  const ok = await harness.startSpeech();
   if (ok.status !== 202) return;
   harness.speechGenerations[0]?.resolve(harness.speech.mp3());
   await until(() => harness.db.rows.get(ok.trial.id)?.state === "succeeded");
@@ -1306,11 +1455,11 @@ test("成果物の再照合は音声の succeeded + stored だけを残し、画
   assert.equal(raw.status, 404);
 });
 
-test("400 の文言は入力を反射するときにマスカーを通し、固定の理由は残す", () => {
+test("400 の文言は入力を反射するときにマスカーを通し、固定の理由は残す", async () => {
   const harness = createHarness();
 
   // 画像のモデル欄へキーを貼った場合（`provider/id` の形ではない）
-  const image = harness.start("a cat", KEY);
+  const image = await harness.start("a cat", KEY);
   assert.equal(image.status, 400);
   if (image.status !== 400) return;
   assert.equal(image.error.includes(KEY), false, "キーを反射しない");
@@ -1318,14 +1467,14 @@ test("400 の文言は入力を反射するときにマスカーを通し、固�
   assert.ok(image.error.startsWith(CONTENT_TRIAL_IMAGE_MODEL_MESSAGE), "固定の理由は残す");
 
   // 音声のモデル欄（カタログ外）
-  const speechModel = harness.startSpeech("こんにちは", { model: KEY });
+  const speechModel = await harness.startSpeech("こんにちは", { model: KEY });
   assert.equal(speechModel.status, 400);
   if (speechModel.status !== 400) return;
   assert.equal(speechModel.error.includes(KEY), false);
   assert.ok(speechModel.error.includes("[REDACTED]"));
 
   // 音声のボイス欄（宣言外）
-  const voice = harness.startSpeech("こんにちは", { voice: KEY });
+  const voice = await harness.startSpeech("こんにちは", { voice: KEY });
   assert.equal(voice.status, 400);
   if (voice.status !== 400) return;
   assert.equal(voice.error.includes(KEY), false);
@@ -1338,9 +1487,9 @@ function bgmMp3(): Uint8Array<ArrayBuffer> {
   return new Uint8Array([0xff, 0xfb, 0x90, 0x64, 0x00, 0x00]);
 }
 
-test("BGM のプロンプトは 1,000 文字を超えると 400 にし、枠を取らない", () => {
+test("BGM のプロンプトは 1,000 文字を超えると 400 にし、枠を取らない", async () => {
   const harness = createHarness();
-  const outcome = harness.startBgm("a".repeat(BGM_PROMPT_MAX_LENGTH + 1));
+  const outcome = await harness.startBgm("a".repeat(BGM_PROMPT_MAX_LENGTH + 1));
   assert.equal(outcome.status, 400);
   assert.equal(outcome.status === 400 ? outcome.error : "", CONTENT_TRIAL_BGM_PROMPT_TOO_LONG_MESSAGE);
   assert.equal(harness.db.rows.size, 0, "行を作らない");
@@ -1352,7 +1501,7 @@ test("BGM のプロンプトは 1,000 文字を超えると 400 にし、枠を�
 
 test("BGM の試行は固定モデルとプロンプトだけを記録し、MP3 を保存して成功する", async () => {
   const harness = createHarness();
-  const started = harness.startBgm("静かな夜のピアノ");
+  const started = await harness.startBgm("静かな夜のピアノ");
   assert.equal(started.status, 202);
   if (started.status !== 202) return;
   assert.equal(started.trial.kind, "bgm");
@@ -1388,7 +1537,7 @@ test("BGM の試行は固定モデルとプロンプトだけを記録し、MP3 
 test("BGM の結果が mp3 でない / 保存できないときは storage の失敗にし、成功として見せない", async () => {
   // 実バイトが画像（生成器の契約違反）は保存しない
   const notMp3 = createHarness();
-  const bad = notMp3.startBgm();
+  const bad = await notMp3.startBgm();
   if (bad.status !== 202) return;
   notMp3.bgmGenerations[0]?.resolve(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   await until(() => notMp3.db.rows.get(bad.trial.id)?.state === "failed");
@@ -1402,7 +1551,7 @@ test("BGM の結果が mp3 でない / 保存できないときは storage の�
   // 置き場の書き込み失敗も同じ分類
   const noDisk = createHarness();
   noDisk.store.failWrite = true;
-  const pending = noDisk.startBgm();
+  const pending = await noDisk.startBgm();
   if (pending.status !== 202) return;
   noDisk.bgmGenerations[0]?.resolve(bgmMp3());
   await until(() => noDisk.db.rows.get(pending.trial.id)?.state === "failed");
@@ -1412,13 +1561,13 @@ test("BGM の結果が mp3 でない / 保存できないときは storage の�
 
 test("BGM の失敗は provider-failure の分類へ写し、中断は canceled にする", async () => {
   const harness = createHarness();
-  const unauthorized = harness.startBgm();
+  const unauthorized = await harness.startBgm();
   if (unauthorized.status !== 202) return;
   harness.bgmGenerations[0]?.reject(new BgmGenerationError("BGM HTTP 401: invalid key", 401));
   await until(() => harness.db.rows.get(unauthorized.trial.id)?.state === "failed");
   assert.equal(harness.db.rows.get(unauthorized.trial.id)?.failureCode, "invalid_key");
 
-  const unknown = harness.startBgm("別のプロンプト");
+  const unknown = await harness.startBgm("別のプロンプト");
   if (unknown.status !== 202) return;
   harness.bgmGenerations[1]?.reject(new Error("BGMのSSEが途中で切断されました"));
   await until(() => harness.db.rows.get(unknown.trial.id)?.state === "failed");
@@ -1426,7 +1575,7 @@ test("BGM の失敗は provider-failure の分類へ写し、中断は canceled 
   assert.match(harness.db.rows.get(unknown.trial.id)?.failureMessage ?? "", /途中で切断/);
 
   // 利用者の中断は canceled（生成器の signal も abort される）
-  const canceled = harness.startBgm("中断するプロンプト");
+  const canceled = await harness.startBgm("中断するプロンプト");
   if (canceled.status !== 202) return;
   const outcome = harness.service.cancel(canceled.trial.id);
   assert.equal(outcome.status, 200);
@@ -1449,7 +1598,7 @@ test("BGM の running は BGM_TIMEOUT_MS を過ぎた再照合で interrupted �
   assert.equal(list.items[0]?.state, "interrupted");
 
   // close は実行中の BGM を abort して interrupted にする（枠は provider の呼び出しが終わって返る）
-  const running = harness.startBgm();
+  const running = await harness.startBgm();
   if (running.status !== 202) return;
   await harness.service.close();
   assert.equal(harness.bgmGenerations[0]?.aborted(), true);
@@ -1464,7 +1613,7 @@ test("BGM の試行はチャットの generate_bgm と同じ同時実行枠を�
   assert.equal(acquireBgmGenerationSlot(), true);
   assert.equal(acquireBgmGenerationSlot(), true);
   assert.equal(acquireBgmGenerationSlot(), false, `同時 ${BGM_MAX_CONCURRENT} 件が上限`);
-  const busy = harness.startBgm();
+  const busy = await harness.startBgm();
   assert.equal(busy.status, 409);
   assert.equal(busy.status === 409 ? busy.error : "", CONTENT_TRIAL_BGM_BUSY_MESSAGE);
   assert.equal(harness.db.rows.size, 0, "枠が無いときは行を作らない");
@@ -1473,7 +1622,7 @@ test("BGM の試行はチャットの generate_bgm と同じ同時実行枠を�
 
   // チャット側の 1 本と試行の 1 本で上限に達する（試行用の別枠が無い）
   assert.equal(acquireBgmGenerationSlot(), true);
-  const started = harness.startBgm();
+  const started = await harness.startBgm();
   assert.equal(started.status, 202);
   assert.equal(acquireBgmGenerationSlot(), false, "試行が握っている枠も同じ上限に数える");
   releaseBgmGenerationSlot();
@@ -1491,20 +1640,20 @@ test("BGM の試行はチャットの generate_bgm と同じ同時実行枠を�
 
 test("BGM の同じプロンプトとモデルの保存済み成功は課金せず、プロンプトが違えば再利用しない", async () => {
   const harness = createHarness();
-  const first = harness.startBgm("同じプロンプト");
+  const first = await harness.startBgm("同じプロンプト");
   if (first.status !== 202) return;
   harness.bgmGenerations[0]?.resolve(bgmMp3());
   await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
   const rowsBefore = harness.db.rows.size;
 
-  const reused = harness.startBgm("同じプロンプト");
+  const reused = await harness.startBgm("同じプロンプト");
   assert.equal(reused.status, 200);
   assert.equal(reused.status === 200 ? reused.reused : false, true);
   assert.equal(harness.bgmGenerations.length, 1, "再利用では provider を呼ばない");
   assert.equal(harness.db.rows.size, rowsBefore, "再利用は新しい成功として記録しない");
 
   // プロンプトが違えば再利用しない（新しい試行として開始し、provider を呼ぶ）
-  const changed = harness.startBgm("違うプロンプト");
+  const changed = await harness.startBgm("違うプロンプト");
   assert.equal(changed.status, 202);
   assert.equal(changed.status === 202 ? changed.reused : true, false);
   assert.equal(harness.bgmGenerations.length, 2);
@@ -1514,8 +1663,8 @@ test("BGM の同じプロンプトとモデルの保存済み成功は課金せ�
   await until(() => harness.service.running("bgm") === false);
 });
 
-test("BGM の開始前の検証は固定モデルと音声パラメーターを課金前に止める", () => {
-  const outside = createHarness().startBgm("x", "openrouter/other-model");
+test("BGM の開始前の検証は固定モデルと音声パラメーターを課金前に止める", async () => {
+  const outside = await createHarness().startBgm("x", "openrouter/other-model");
   assert.equal(outside.status, 400);
   assert.equal(
     outside.status === 400 ? outside.error : "",
@@ -1523,7 +1672,7 @@ test("BGM の開始前の検証は固定モデルと音声パラメーターを�
   );
 
   // 音声のパラメーターは BGM へ付けられない
-  const params = createHarness().service.start({
+  const params = await createHarness().service.start({
     kind: "bgm",
     model: BGM_MODEL,
     prompt: "x",
@@ -1533,17 +1682,17 @@ test("BGM の開始前の検証は固定モデルと音声パラメーターを�
   assert.equal(params.status === 400 ? params.error : "", CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE);
 
   // 生成器が未注入の起動は 503（BGM 専用の別枠を作らない）
-  const unavailable = createHarness({ generate: false }).startBgm();
+  const unavailable = await createHarness({ generate: false }).startBgm();
   assert.equal(unavailable.status, 503);
   assert.equal(unavailable.status === 503 ? unavailable.error : "", CONTENT_TRIAL_RUNTIME_UNAVAILABLE_MESSAGE);
 });
 
-test("世代の読み取りが失敗しても 503 にし、BGM の共有枠を漏らさない", () => {
+test("世代の読み取りが失敗しても 503 にし、BGM の共有枠を漏らさない", async () => {
   const harness = createHarness();
   harness.db.failKeyEpoch = true;
   // 上限と同じ回数だけ失敗させる。解放されていなければ、この時点で共有枠が張り付く
   for (let attempt = 0; attempt < BGM_MAX_CONCURRENT; attempt += 1) {
-    const outcome = harness.startBgm();
+    const outcome = await harness.startBgm();
     assert.equal(outcome.status, 503);
     assert.equal(outcome.status === 503 ? outcome.error : "", CONTENT_TRIAL_READ_FAILED_MESSAGE);
   }
@@ -1553,7 +1702,7 @@ test("世代の読み取りが失敗しても 503 にし、BGM の共有枠を�
   // チャット側の生成も試行も、同じ枠をそのまま取れる（漏れていない）
   assert.equal(acquireBgmGenerationSlot(), true);
   releaseBgmGenerationSlot();
-  const started = harness.startBgm();
+  const started = await harness.startBgm();
   assert.equal(started.status, 202);
   if (started.status !== 202) return;
   harness.service.cancel(started.trial.id);
