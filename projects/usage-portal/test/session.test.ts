@@ -67,8 +67,16 @@ describe("cookie", () => {
     expect(cookie).not.toContain("Secure");
   });
 
+  test("HTTPS の要求では Secure を付ける", () => {
+    expect(sessionCookie("v1.payload.signature", { secure: true })).toEndWith("; Secure");
+  });
+
   test("削除用 cookie は Max-Age=0 で値を空にする", () => {
     expect(clearSessionCookie()).toBe(`${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  });
+
+  test("削除用 cookie も HTTPS では Secure を付ける", () => {
+    expect(clearSessionCookie({ secure: true })).toEndWith("; Max-Age=0; Secure");
   });
 
   test("Cookie ヘッダーから対象の値だけを取り出す", () => {

@@ -1,5 +1,7 @@
 import { resolveVersion } from "./version";
 
+export type CookieSecureMode = "auto" | "always";
+
 export type ServerConfig = {
   host: string;
   port: number;
@@ -8,6 +10,8 @@ export type ServerConfig = {
   pollIntervalMs: number;
   development: boolean;
   version: string;
+  trustProxy: boolean;
+  cookieSecure: CookieSecureMode;
 };
 
 const DEFAULT_HOST = "0.0.0.0";
@@ -27,6 +31,8 @@ export function loadConfig(env: Record<string, string | undefined>, packageVersi
     pollIntervalMs: parsePollInterval(env.POLL_INTERVAL_MS),
     development: env.NODE_ENV !== "production",
     version: resolveVersion(env.COMMIT_HASH, packageVersion),
+    trustProxy: env.TRUST_PROXY?.trim() === "1",
+    cookieSecure: env.COOKIE_SECURE?.trim() === "1" ? "always" : "auto",
   };
 }
 

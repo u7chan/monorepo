@@ -10,6 +10,7 @@ import type { OpenCodeApi, OpenCodeApiError } from "./opencode/api";
 import type { ProbeApi, ProbeConfigError } from "./probe/api";
 import type { ProbeErrorCode } from "./probe/service";
 import { createRateLimiter, type RateLimiter } from "./rate-limit";
+import type { CookieSecureMode } from "./config";
 import { clearSessionCookie, sessionCookie } from "./session";
 import type { UsagePayload } from "./usage";
 
@@ -40,6 +41,10 @@ export type AppDeps = {
   rateLimiter?: RateLimiter;
   clientKey?: (c: Context) => string;
   now?: () => number;
+  /** 前段の TLS 終端を信頼し、X-Forwarded-* を読むか。既定は読まない。 */
+  trustProxy?: boolean;
+  /** auto は要求が HTTPS のとき、always は常に cookie へ Secure を付ける。 */
+  cookieSecure?: CookieSecureMode;
 };
 
 type AppEnv = { Variables: { clientKey: string } };
@@ -47,7 +52,10 @@ type AppEnv = { Variables: { clientKey: string } };
 export function createApp(deps: AppDeps) {
   const now = deps.now ?? Date.now;
   const rateLimiter = deps.rateLimiter ?? createRateLimiter({ maxFailures: 5, windowMs: 15 * 60 * 1000, now });
-  const clientKey = deps.clientKey ?? defaultClientKey;
+  const trustProxy = deps.trustProxy ?? false;
+  const cookieSecure = deps.cookieSecure ?? "auto";
+  const clientKey = deps.clientKey ?? ((c: Context) => defaultClientKey(c, trustProxy));
+  const secureCookie = (c: Context) => cookieSecure === "always" || requestIsSecure(c, trustProxy);
   const tooLarge = (c: Context) => c.json({ error: "invalid_request" as const }, 413);
   const app = new Hono<AppEnv>();
 
@@ -82,7 +90,7 @@ export function createApp(deps: AppDeps) {
       c.set("clientKey", clientKey(c));
 
       // 状態を変える入口は同一 origin からの要求だけ受け付ける。Origin が無い要求 (curl など) も拒否する。
-      if (!isSameOrigin(c)) {
+      if (!isSameOrigin(c, trustProxy)) {
         return c.json({ error: "origin_mismatch" as const }, 403);
       }
     }
@@ -128,7 +136,7 @@ export function createApp(deps: AppDeps) {
       }
     }
 
-    c.header("Set-Cookie", sessionCookie(result.token));
+    c.header("Set-Cookie", sessionCookie(result.token, { secure: secureCookie(c) }));
 
     return c.json({ state: "authenticated" as const }, 201);
   });
@@ -167,14 +175,14 @@ export function createApp(deps: AppDeps) {
       }
 
       rateLimiter.reset(key);
-      c.header("Set-Cookie", sessionCookie(result.token));
+      c.header("Set-Cookie", sessionCookie(result.token, { secure: secureCookie(c) }));
 
       return c.json({ state: "authenticated" as const }, 200);
     });
   });
 
   app.post("/api/auth/logout", (c) => {
-    c.header("Set-Cookie", clearSessionCookie());
+    c.header("Set-Cookie", clearSessionCookie({ secure: secureCookie(c) }));
 
     return c.body(null, 204);
   });
@@ -343,7 +351,35 @@ export function createApp(deps: AppDeps) {
 
 export type AppType = ReturnType<typeof createApp>;
 
-function isSameOrigin(c: Context): boolean {
+function firstForwarded(c: Context, name: string): string | null {
+  const first = c.req.header(name)?.split(",")[0]?.trim();
+
+  return first ? first : null;
+}
+
+/**
+ * 直接公開している間はクライアントが X-Forwarded-* を偽装できる。TLS 終端を
+ * 前段に置いた構成だけで読むよう、TRUST_PROXY=1 のときだけ参照する。
+ */
+function requestProtocol(c: Context, trustProxy: boolean): string {
+  if (trustProxy) {
+    const forwarded = firstForwarded(c, "x-forwarded-proto")?.toLowerCase();
+
+    if (forwarded === "http" || forwarded === "https") {
+      return forwarded;
+    }
+  }
+
+  return new URL(c.req.url).protocol.slice(0, -1);
+}
+
+function requestHost(c: Context, trustProxy: boolean): string {
+  const forwarded = trustProxy ? firstForwarded(c, "x-forwarded-host") : null;
+
+  return forwarded ?? new URL(c.req.url).host;
+}
+
+function isSameOrigin(c: Context, trustProxy: boolean): boolean {
   const origin = c.req.header("origin");
 
   if (!origin) {
@@ -351,10 +387,14 @@ function isSameOrigin(c: Context): boolean {
   }
 
   try {
-    return new URL(origin).origin === new URL(c.req.url).origin;
+    return new URL(origin).origin === `${requestProtocol(c, trustProxy)}://${requestHost(c, trustProxy)}`;
   } catch {
     return false;
   }
+}
+
+function requestIsSecure(c: Context, trustProxy: boolean): boolean {
+  return requestProtocol(c, trustProxy) === "https";
 }
 
 async function readPinBody(c: Context): Promise<string | null> {
@@ -433,7 +473,15 @@ function codexError(c: Context, error: unknown): Response {
   return c.json({ error: "unavailable" as const }, 503);
 }
 
-function defaultClientKey(c: Context): string {
+function defaultClientKey(c: Context, trustProxy: boolean): string {
+  if (trustProxy) {
+    const forwarded = firstForwarded(c, "x-forwarded-for");
+
+    if (forwarded) {
+      return forwarded;
+    }
+  }
+
   try {
     // Bun.serve の第 2 引数 (server) が c.env に渡る前提。渡らないと requestIP を引けない。
     return getConnInfo(c).remote.address ?? "unknown";
