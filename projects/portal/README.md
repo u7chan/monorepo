@@ -11,6 +11,7 @@ Bun + React + TypeScriptで構築された、Dockerコンテナを可視化・�
 - **起動 / 停止**: 停止は対象ボタンの脇に出る確認ポップオーバーを経てから実行
 - **フィルタリング**: 全て/実行中/停止中でフィルタ可能（件数付き）
 - **自動更新**: 30秒ごとに自動リフレッシュ
+- **PWA**: manifest と 192 / 512px のアイコン、iOS ホーム画面用の 180px アイコンを配信
 - **モックデータモード**: Docker不要でUI開発・レイアウト確認が可能
 
 ## デザイン方針
@@ -141,6 +142,14 @@ docker build -t portal .
 
 このリポジトリでは本番用 Docker Compose 定義を管理していません。CD で GHCR に push された `ghcr.io/u7chan/monorepo/portal:<tag>` を、deploy 実行側の定義から参照してください。
 
+## ホーム画面への追加
+
+iOS の Safari では共有メニューの「ホーム画面に追加」、Android / PC ではブラウザのインストール機能から追加する。
+アプリ名は「Docker Container Portal」（ホーム画面では短縮名「Portal」）で、`src/logo.svg` を 192 / 512 / 180px にラスタライズした専用アイコンを使う。起動先は `/`。
+
+Chromium の PWA インストールには HTTPS（開発時は localhost）が必要で、LAN 内の HTTP ではインストール候補に出ない場合がある。
+Service Worker やオフライン対応は追加していないため、起動時は portal が動作しているホストへ接続できる必要がある。
+
 ## APIエンドポイント
 
 | エンドポイント     | メソッド | 説明                                                |
@@ -161,6 +170,9 @@ docker build -t portal .
 │   ├── APITester.tsx         # APIテスト用コンポーネント
 │   ├── index.css             # デザイントークン (@theme) とベーススタイル
 │   ├── logo.svg              # ロゴ / favicon
+│   ├── manifest.webmanifest  # PWA のアプリ名・起動設定・アイコン
+│   ├── static.ts             # manifest とアイコンの固定ルート
+│   ├── assets/               # PWA / iOS ホーム画面用アイコン
 │   ├── types/
 │   │   └── container.ts      # 型定義
 │   ├── services/
