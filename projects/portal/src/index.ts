@@ -1,5 +1,6 @@
 import { serve } from "bun";
 import index from "./index.html";
+import { staticRoutes } from "./static";
 import {
   ContainerActionError,
   fetchContainers,
@@ -16,6 +17,8 @@ if (isMockMode) {
 
 const server = serve({
   routes: {
+    ...staticRoutes,
+
     // Serve index.html for all unmatched routes.
     "/*": index,
 
