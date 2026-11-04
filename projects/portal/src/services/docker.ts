@@ -64,34 +64,62 @@ export function normalizeName(name: string): string {
   return name.replace(/^\//, "");
 }
 
-// ポートリンクの URL をサービス側から上書きするためのラベル接頭辞。
+// リンクの表示をサービス側から制御するためのラベル。
 // ホスト名とポートだけでは HTTPS かどうかを判断できないため、TLS 終端の有無を
 // portal の推測に頼らず compose 定義側で表明できるようにする。
-const URL_LABEL_PREFIX = "portal.url.";
+const URL_LABEL = "portal.url";
+const URL_LABEL_PREFIX = `${URL_LABEL}.`;
+const HIDDEN_LABEL = "portal.hidden";
+
+export interface ContainerLinks {
+  /** 単一の入口。`portal.url` を付けたコンテナは公開ポートのタイルを出さない */
+  url?: string;
+  /** 複数オリジン用の上書き。キーは公開ポート（publish をやめても識別子として残る） */
+  urls?: Record<number, string>;
+  /** インフラ用。リンクを出さない */
+  hidden?: boolean;
+}
 
 /**
- * `portal.url.<公開ポート>=<URL>` 形式のラベルを公開ポート -> URL に変換する
+ * `portal.url` / `portal.url.<ポート>` / `portal.hidden` を 1 回の走査で読む
  */
-export function parseUrlLabels(labels: string | undefined): Record<number, string> | undefined {
-  if (!labels) return undefined;
+export function parseLinkLabels(labels: string | undefined): ContainerLinks {
+  const links: ContainerLinks = {};
+  if (!labels) return links;
 
-  const urls: Record<number, string> = {};
+  let urls: Record<number, string> | undefined;
   for (const pair of labels.split(",")) {
     const index = pair.indexOf("=");
     if (index < 0) continue;
 
     const key = pair.slice(0, index).trim();
+    const value = pair.slice(index + 1).trim();
+
+    if (key === HIDDEN_LABEL) {
+      // 真偽値の表現を増やさない。compose 側は "true" だけを使う。
+      if (value.toLowerCase() === "true") links.hidden = true;
+      continue;
+    }
+
+    if (key === URL_LABEL) {
+      if (value) links.url = value;
+      continue;
+    }
+
     if (!key.startsWith(URL_LABEL_PREFIX)) continue;
 
     const portText = key.slice(URL_LABEL_PREFIX.length);
     if (!/^\d+$/.test(portText)) continue;
 
     const port = Number(portText);
-    const value = pair.slice(index + 1).trim();
-    if (port >= 1 && port <= 65535 && value) urls[port] = value;
+    if (port < 1 || port > 65535 || !value) continue;
+
+    urls ??= {};
+    urls[port] = value;
   }
 
-  return Object.keys(urls).length > 0 ? urls : undefined;
+  if (urls) links.urls = urls;
+  return links;
 }
 
 // portal 自身を表すイメージリポジトリ。タグやダイジェストは含めない。
@@ -150,7 +178,7 @@ export function parseContainer(raw: DockerContainerRaw): Container {
   const ports = parsePorts(raw.Ports || "");
   const created = raw.CreatedAt || "";
   const command = raw.Command || "";
-  const urls = parseUrlLabels(raw.Labels);
+  const links = parseLinkLabels(raw.Labels);
 
   return {
     id,
@@ -161,7 +189,9 @@ export function parseContainer(raw: DockerContainerRaw): Container {
     ports,
     created,
     command,
-    urls,
+    urls: links.urls,
+    url: links.url,
+    hidden: links.hidden,
   };
 }
 

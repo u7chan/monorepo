@@ -1,7 +1,7 @@
 // ports.ts の表示ロジック（ポートタイルの URL と 2 行目）の仕様
 
 import { describe, expect, test } from "bun:test";
-import { buildPortUrl, describePort } from "./ports";
+import { buildPortUrl, describePort, describeUrl, isHttpsUrl, orderLinks } from "./ports";
 
 describe("buildPortUrl", () => {
   test("ホストと公開ポートから http の URL を組み立てる", () => {
@@ -12,20 +12,8 @@ describe("buildPortUrl", () => {
     expect(buildPortUrl("portal.example.com", 8443)).toBe("http://portal.example.com:8443");
   });
 
-  test("上書き URL があればそれを優先する", () => {
-    expect(buildPortUrl("192.0.2.10", 443, "https://portal.home.arpa")).toBe(
-      "https://portal.home.arpa",
-    );
-  });
-
-  test("上書き URL で http を明示できる", () => {
-    expect(buildPortUrl("192.0.2.10", 80, "http://portal.home.arpa")).toBe(
-      "http://portal.home.arpa",
-    );
-  });
-
-  test("上書き URL がないポートは PORTAL_HOST とポートに戻る", () => {
-    expect(buildPortUrl("192.0.2.10", 5432, undefined)).toBe("http://192.0.2.10:5432");
+  test("公開ポートはそのまま URL のポートになる", () => {
+    expect(buildPortUrl("192.0.2.10", 5432)).toBe("http://192.0.2.10:5432");
   });
 });
 
@@ -46,5 +34,69 @@ describe("describePort", () => {
     expect(
       describePort({ host: "0.0.0.0", publicPort: 53, privatePort: 53, protocol: "udp" }),
     ).toBe("udp");
+  });
+});
+
+describe("describeUrl", () => {
+  test("URL のホスト名だけを返す（ポート番号は行き先を表さない）", () => {
+    expect(describeUrl("https://dozzle.home.arpa/")).toBe("dozzle.home.arpa");
+    expect(describeUrl("https://agent.home.arpa:8443/path")).toBe("agent.home.arpa:8443");
+  });
+
+  test("URL として読めない値はそのまま返す", () => {
+    expect(describeUrl("not a url")).toBe("not a url");
+  });
+});
+
+describe("isHttpsUrl", () => {
+  test("https のときだけ true", () => {
+    expect(isHttpsUrl("https://dozzle.home.arpa")).toBe(true);
+    expect(isHttpsUrl("http://dozzle.home.arpa")).toBe(false);
+  });
+
+  test("URL として読めない値は false", () => {
+    expect(isHttpsUrl("dozzle.home.arpa")).toBe(false);
+    expect(isHttpsUrl("")).toBe(false);
+  });
+});
+
+describe("orderLinks", () => {
+  const port = (publicPort: number) => ({
+    host: "0.0.0.0",
+    publicPort,
+    privatePort: publicPort,
+    protocol: "tcp",
+  });
+
+  test("公開ポートを番号の昇順に並べる", () => {
+    expect(orderLinks([port(443), port(80)], undefined).map((link) => link.portNumber)).toEqual([
+      80, 443,
+    ]);
+  });
+
+  test("公開をやめた上書きも番号の昇順に混ぜる", () => {
+    const links = orderLinks([port(4318), port(4319)], {
+      4317: "https://agent.home.arpa",
+      4319: "https://service.agent.home.arpa",
+    });
+
+    expect(links.map((link) => [link.portNumber, link.url])).toEqual([
+      [4317, "https://agent.home.arpa"],
+      [4318, undefined],
+      [4319, "https://service.agent.home.arpa"],
+    ]);
+  });
+
+  test("公開ポートの上書きは同じスロットに載せ、二重に出さない", () => {
+    const links = orderLinks([port(8888)], { 8888: "https://dozzle.home.arpa" });
+
+    expect(links).toHaveLength(1);
+    expect(links[0]?.url).toBe("https://dozzle.home.arpa");
+    expect(links[0]?.port?.publicPort).toBe(8888);
+  });
+
+  test("ポートも上書きもなければ空", () => {
+    expect(orderLinks([], undefined)).toEqual([]);
+    expect(orderLinks([], {})).toEqual([]);
   });
 });

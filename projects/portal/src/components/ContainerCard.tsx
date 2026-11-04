@@ -6,7 +6,7 @@ import { useConfig } from "../hooks/useConfig";
 import { useCopy } from "../hooks/useCopy";
 import { CopyButton, REVEAL_CARD } from "./CopyButton";
 import { ConfirmPopover } from "./ConfirmPopover";
-import { buildPortUrl, describePort } from "../lib/ports";
+import { buildPortUrl, describePort, describeUrl, isHttpsUrl, orderLinks } from "../lib/ports";
 import {
   getContainerAction,
   getStatusTone,
@@ -42,6 +42,24 @@ const TONE_TEXT: Record<StatusTone, string> = {
 const TILE_BASE = "group/port flex rounded-lg border transition-colors duration-150";
 const TILE_LIVE = "border-live/50 bg-ink-850 text-live hover:border-live/70 hover:bg-live/[0.09]";
 const TILE_DORMANT = "border-line bg-ink-850 text-fg-3";
+
+function LockIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3 shrink-0"
+    >
+      <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
+      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+    </svg>
+  );
+}
 
 function ArrowIcon() {
   return (
@@ -93,13 +111,11 @@ function StatusLabel({ container }: { container: Container }) {
 function PortLink({
   port,
   host,
-  url: overrideUrl,
   reachable,
   dense,
 }: {
   port: PortMapping;
   host: string;
-  url?: string;
   reachable: boolean;
   dense: boolean;
 }) {
@@ -159,7 +175,7 @@ function PortLink({
     );
   }
 
-  const url = buildPortUrl(host, port.publicPort, overrideUrl);
+  const url = buildPortUrl(host, port.publicPort);
 
   return (
     <a
@@ -175,35 +191,132 @@ function PortLink({
   );
 }
 
-function PortLinks({
-  ports,
+/**
+ * ラベルで指定された URL のチップ。
+ * SSL 化済みのアプリはポート番号を出さず、行き先のホスト名と鍵アイコンで表す
+ * (ポート番号は行き先を表さないし、TLS 終端の有無を推測させないため)。
+ */
+function UrlLink({ url, reachable, dense }: { url: string; reachable: boolean; dense: boolean }) {
+  const label = describeUrl(url);
+  const secure = isHttpsUrl(url);
+  const scheme = secure ? "https" : "http";
+
+  const className = [
+    TILE_BASE,
+    reachable ? TILE_LIVE : TILE_DORMANT,
+    dense
+      ? "h-9 max-w-[220px] flex-none items-center gap-1.5 px-2.5"
+      : "flex-1 basis-[104px] flex-col justify-center px-3 py-2.5",
+  ].join(" ");
+
+  const content = (withArrow: boolean) =>
+    dense ? (
+      <>
+        {secure && <LockIcon />}
+        <span className="truncate font-mono text-[13px] leading-none font-medium">{label}</span>
+        {withArrow && <ArrowIcon />}
+      </>
+    ) : (
+      <>
+        <span className="flex min-w-0 items-center justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-1.5">
+            {secure && <LockIcon />}
+            <span className="truncate font-mono text-[15px] leading-none font-medium tracking-[-0.01em]">
+              {label}
+            </span>
+          </span>
+          {withArrow && <ArrowIcon />}
+        </span>
+        <span
+          className={[
+            "mt-auto font-mono text-[11px] leading-none tracking-[0.03em]",
+            reachable ? "text-fg-2" : "text-fg-3",
+          ].join(" ")}
+        >
+          {scheme}
+        </span>
+      </>
+    );
+
+  if (!reachable) {
+    return (
+      <span title={`${url} is offline until the container starts`} className={className}>
+        {content(false)}
+      </span>
+    );
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={url}
+      aria-label={`Open ${url}`}
+      className={className}
+    >
+      {content(true)}
+    </a>
+  );
+}
+
+/**
+ * カード中央のリンク群。公開の有無によらずポート番号の昇順に並べる。
+ * - `portal.hidden` はリンクを出さない (Caddy などの入口そのもの)
+ * - `portal.url` は 1 本だけ出す (公開ポートの数を見せない)
+ * - `portal.url.<ポート>` は該当ポートのチップを URL に差し替える。publish をやめても
+ *   キーは識別子として残るため、公開されていないポートの上書きもチップにする
+ */
+function ContainerLinks({
+  container,
   host,
-  urls,
-  reachable,
   dense = false,
 }: {
-  ports: PortMapping[];
+  container: Container;
   host: string;
-  urls?: Record<number, string>;
-  reachable: boolean;
   dense?: boolean;
 }) {
-  if (ports.length === 0) {
+  const reachable = isPortReachable(container.state);
+  const wrapper = dense ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2";
+
+  if (container.hidden) {
+    return <p className="text-[11.5px] text-fg-3">Links hidden</p>;
+  }
+
+  if (container.url) {
+    return (
+      <div className={wrapper}>
+        <UrlLink url={container.url} reachable={reachable} dense={dense} />
+      </div>
+    );
+  }
+
+  const links = orderLinks(container.ports, container.urls);
+
+  if (links.length === 0) {
     return <p className="text-[11.5px] text-fg-3">No published ports</p>;
   }
 
   return (
-    <div className={dense ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"}>
-      {ports.map((port, index) => (
-        <PortLink
-          key={`${port.publicPort}-${index}`}
-          port={port}
-          host={host}
-          url={urls?.[port.publicPort]}
-          reachable={reachable}
-          dense={dense}
-        />
-      ))}
+    <div className={wrapper}>
+      {links.map(({ portNumber, url, port }, index) =>
+        url ? (
+          <UrlLink
+            key={`url-${portNumber}-${index}`}
+            url={url}
+            reachable={reachable}
+            dense={dense}
+          />
+        ) : port ? (
+          <PortLink
+            key={`port-${portNumber}-${index}`}
+            port={port}
+            host={host}
+            reachable={reachable}
+            dense={dense}
+          />
+        ) : null,
+      )}
     </div>
   );
 }
@@ -352,7 +465,6 @@ function ContainerActionSlot({ container, pendingAction, onAction }: ContainerCa
 export function ContainerCard({ container, pendingAction, onAction }: ContainerCardProps) {
   const { config } = useConfig();
   const host = config?.host || "localhost";
-  const reachable = isPortReachable(container.state);
 
   return (
     <article
@@ -370,12 +482,7 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
       </div>
 
       <div className="flex-1 px-4 py-4">
-        <PortLinks
-          ports={container.ports}
-          host={host}
-          urls={container.urls}
-          reachable={reachable}
-        />
+        <ContainerLinks container={container} host={host} />
       </div>
 
       <div className="flex items-center gap-2 border-t border-line px-4 py-2">
@@ -398,7 +505,6 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
 export function ContainerListItem({ container, pendingAction, onAction }: ContainerCardProps) {
   const { config } = useConfig();
   const host = config?.host || "localhost";
-  const reachable = isPortReachable(container.state);
 
   return (
     <article
@@ -419,13 +525,7 @@ export function ContainerListItem({ container, pendingAction, onAction }: Contai
       </div>
 
       <div className="mt-3 min-w-0 md:mt-0 md:flex-1">
-        <PortLinks
-          ports={container.ports}
-          host={host}
-          urls={container.urls}
-          reachable={reachable}
-          dense
-        />
+        <ContainerLinks container={container} host={host} dense />
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-4 md:mt-0 md:shrink-0 md:justify-end">
