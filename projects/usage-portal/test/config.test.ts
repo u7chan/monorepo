@@ -12,6 +12,8 @@ describe("loadConfig", () => {
       pollIntervalMs: 300_000,
       development: true,
       version: "0.1.0",
+      trustProxy: false,
+      cookieSecure: "auto",
     });
   });
 
@@ -37,6 +39,8 @@ describe("loadConfig", () => {
       pollIntervalMs: 60_000,
       development: false,
       version: "abc123",
+      trustProxy: false,
+      cookieSecure: "auto",
     });
   });
 

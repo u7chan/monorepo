@@ -132,6 +132,8 @@ const probe = createProbeApi({
 
 const app = createApp({
   auth,
+  trustProxy: config.trustProxy,
+  cookieSecure: config.cookieSecure,
   codex,
   opencode,
   probe,

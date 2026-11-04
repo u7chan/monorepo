@@ -45,13 +45,19 @@ export function readSessionToken(
   return parsed && parsed.exp > options.now ? { expiresAt: parsed.exp } : null;
 }
 
-export function sessionCookie(token: string): string {
-  // v1 は HTTP で LAN 内にだけ出すため `Secure` を付けない。TLS 終端を置くときに足す。
-  return `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}`;
+export type SessionCookieOptions = { secure?: boolean };
+
+/** HTTPS でだけ cookie を送らせる。平文の直通入口が無い構成では常に付ける。 */
+function secureAttribute(options: SessionCookieOptions): string {
+  return options.secure ? "; Secure" : "";
 }
 
-export function clearSessionCookie(): string {
-  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+export function sessionCookie(token: string, options: SessionCookieOptions = {}): string {
+  return `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}${secureAttribute(options)}`;
+}
+
+export function clearSessionCookie(options: SessionCookieOptions = {}): string {
+  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureAttribute(options)}`;
 }
 
 export function readCookie(header: string | null, name: string): string | null {

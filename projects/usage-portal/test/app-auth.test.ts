@@ -14,7 +14,7 @@ const PIN = "123456";
 const BASE_NOW = 1_800_000_000_000;
 const ORIGIN = "http://localhost";
 
-function harness(options: { clientKey?: boolean } = {}) {
+function harness(options: { clientKey?: boolean; trustProxy?: boolean; cookieSecure?: "auto" | "always" } = {}) {
   let clock = BASE_NOW;
   const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-app-"));
 
@@ -33,6 +33,8 @@ function harness(options: { clientKey?: boolean } = {}) {
     opencode: stubOpenCodeApi(),
     now: () => clock,
     ...(options.clientKey === false ? {} : { clientKey: () => "test-client" }),
+    trustProxy: options.trustProxy ?? false,
+    cookieSecure: options.cookieSecure ?? "auto",
   });
 
   return {
@@ -226,6 +228,74 @@ describe("POST /api/auth/logout", () => {
 
     expect(response.status).toBe(204);
     expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+});
+
+describe("TLS 終端の前段", () => {
+  const forwarded = {
+    origin: "https://usage.example.com",
+    "x-forwarded-proto": "https",
+    "x-forwarded-host": "usage.example.com",
+  };
+
+  test("TRUST_PROXY=1 なら X-Forwarded-Proto/Host に合わせた Origin を受け付ける", async () => {
+    const { app } = harness({ trustProxy: true });
+    const response = await app.request(request("/api/auth/setup", { pin: PIN }, forwarded));
+
+    expect(response.status).toBe(201);
+    // TLS 終端の先では cookie を HTTPS に限定する。
+    expect(response.headers.get("set-cookie")).toContain("Secure");
+  });
+
+  test("TRUST_PROXY=0 では X-Forwarded-* を信頼せず 403 にする", async () => {
+    const { app } = harness();
+    const response = await app.request(request("/api/auth/setup", { pin: PIN }, forwarded));
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "origin_mismatch" });
+  });
+
+  test("TRUST_PROXY=1 でも平文の要求には Secure を付けない", async () => {
+    const { app } = harness({ trustProxy: true });
+    const response = await app.request(
+      request(
+        "/api/auth/setup",
+        { pin: PIN },
+        {
+          origin: "http://usage.example.com",
+          "x-forwarded-proto": "http",
+          "x-forwarded-host": "usage.example.com",
+        },
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("set-cookie")).not.toContain("Secure");
+  });
+
+  test("COOKIE_SECURE=1 なら平文の要求にも Secure を付ける", async () => {
+    const { app } = harness({ cookieSecure: "always" });
+    const response = await app.request(request("/api/auth/setup", { pin: PIN }));
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("set-cookie")).toContain("Secure");
+  });
+
+  test("TRUST_PROXY=1 は X-Forwarded-For の先頭でロックを分ける", async () => {
+    const { app } = harness({ clientKey: false, trustProxy: true });
+
+    await app.request(request("/api/auth/setup", { pin: PIN }));
+
+    const login = (forwardedFor: string) =>
+      app.request(request("/api/auth/login", { pin: "000000" }, { "x-forwarded-for": forwardedFor }));
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect((await login("198.51.100.10")).status).toBe(401);
+    }
+
+    expect((await login("198.51.100.10")).status).toBe(429);
+    // 別のクライアントは巻き込まない。
+    expect((await login("198.51.100.11")).status).toBe(401);
   });
 });
 

@@ -188,6 +188,8 @@ rm credentials/opencode-key.json
 | `CREDENTIAL_DIR` | `/app/credentials` | Codex の `auth.json` / `device-id` と OpenCode Go の `opencode-accounts.json` の置き場。起動時に 0700、配下のファイルを 0600 にする |
 | `POLL_INTERVAL_MS` | `300000` | 上流を取りに行く間隔。1 分未満・非整数は起動しない |
 | `COMMIT_HASH` | なし | build 時に埋め込む。`User-Agent: usage-portal/<version>` の version になる |
+| `TRUST_PROXY` | `0` | `1` のときだけ `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-For` を信頼する。TLS 終端を前段に置く構成で使う |
+| `COOKIE_SECURE` | `auto` | `1` なら常に cookie へ `Secure` を付ける。`auto` は要求が HTTPS のときだけ付ける（`TRUST_PROXY=1` なら転送ヘッダーも見る） |
 
 `PI_CODING_AGENT_DIR` は Dockerfile で `CREDENTIAL_DIR` と同じ値にしている。PIN とセッション鍵は環境変数では渡さない。
 
@@ -265,7 +267,7 @@ bun run check
 
 ## セキュリティの前提
 
-- 自宅 LAN または VPN の内側からだけ使う。インターネットへ公開しない。v1 は HTTP のままで、TLS 終端は置かない
+- 自宅 LAN または VPN の内側からだけ使う。インターネットへ公開しない。TLS 終端を前段（Caddy など）に置く場合は `TRUST_PROXY=1` を設定する
 - 画面は利用枠を変更しない。資格情報（Codex のサインイン、OpenCode Go のアカウント）の登録・変更・削除と、
   明示的に押したときの最小プロンプト 1 回の送信だけを行う（送るのはサーバ側の固定 1 文で、利用者の入力は混ぜない）
 - 認証情報と DB の中身は API から返さない。`/api/health` は状態だけを返し、利用枠や利用者情報を含めない
@@ -275,7 +277,7 @@ bun run check
 - `/app/credentials` は 0700、`auth.json` / `device-id` / `opencode-accounts.json` は 0600。ホストの Pi 資格情報とは共有しない
 - `opencode-accounts.json` はアカウント数だけキーを平文で持つ。旧 `opencode-key.json` を残すとキーが二重に残るため、登録後に削除する
 - PIN、PIN ハッシュ、セッション鍵、cookie、API key、token をログに出さない
-- セッション cookie は `HttpOnly; SameSite=Lax`。v1 は HTTP で LAN 内にだけ出すため `Secure` は付けない
+- セッション cookie は `HttpOnly; SameSite=Lax`。`Secure` は `COOKIE_SECURE` / `TRUST_PROXY` に従う（既定は HTTPS の要求のときだけ付与）
 - 6 桁 PIN は総当たり耐性が低い。Argon2id とログイン試行の制限で補い、インターネット公開には使わない
 
 ## 参考
