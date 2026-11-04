@@ -9,8 +9,8 @@ import {
   normalizeName,
   parseContainer,
   parseContainerList,
+  parseLinkLabels,
   parsePorts,
-  parseUrlLabels,
   runContainerAction,
   validateContainerAction,
 } from "./docker";
@@ -163,11 +163,47 @@ describe("normalizeName", () => {
   });
 });
 
-describe("parseUrlLabels", () => {
+describe("parseLinkLabels", () => {
+  test("portal.url を単一の入口として読む", () => {
+    expect(parseLinkLabels("portal.url=https://dozzle.home.arpa")).toEqual({
+      url: "https://dozzle.home.arpa",
+    });
+  });
+
+  test("portal.hidden=true を読む", () => {
+    // docker ps の Labels は YAML のクォートを含まない。
+    expect(parseLinkLabels("portal.hidden=true")).toEqual({ hidden: true });
+  });
+
+  test("portal.hidden の値が true 以外なら hidden にしない", () => {
+    expect(parseLinkLabels("portal.hidden=false")).toEqual({});
+    expect(parseLinkLabels("portal.hidden=1")).toEqual({});
+  });
+
+  test("portal.url と portal.url.<ポート> を同時に読む", () => {
+    const labels =
+      "portal.url=https://app.home.arpa,portal.url.4317=https://agent.home.arpa,portal.hidden=false";
+
+    expect(parseLinkLabels(labels)).toEqual({
+      url: "https://app.home.arpa",
+      urls: { 4317: "https://agent.home.arpa" },
+    });
+  });
+
+  test("空の portal.url は無視する", () => {
+    expect(parseLinkLabels("portal.url=,portal.url.443=")).toEqual({});
+  });
+
+  test("portal.url の値に = が含まれても URL 全体を使う", () => {
+    expect(parseLinkLabels("portal.url=https://app.home.arpa/?a=b")).toEqual({
+      url: "https://app.home.arpa/?a=b",
+    });
+  });
+
   test("portal.url.<公開ポート> を公開ポート -> URL に変換する", () => {
     const labels = "portal.url.80=http://portal.home.arpa,portal.url.443=https://portal.home.arpa";
 
-    expect(parseUrlLabels(labels)).toEqual({
+    expect(parseLinkLabels(labels).urls).toEqual({
       80: "http://portal.home.arpa",
       443: "https://portal.home.arpa",
     });
@@ -177,36 +213,36 @@ describe("parseUrlLabels", () => {
     const labels =
       "com.docker.compose.service=caddy,caddy=portal.home.arpa,portal.url.443=https://portal.home.arpa";
 
-    expect(parseUrlLabels(labels)).toEqual({ 443: "https://portal.home.arpa" });
+    expect(parseLinkLabels(labels).urls).toEqual({ 443: "https://portal.home.arpa" });
   });
 
-  test("ラベルがない場合は undefined", () => {
-    expect(parseUrlLabels(undefined)).toBeUndefined();
-    expect(parseUrlLabels("")).toBeUndefined();
-    expect(parseUrlLabels("com.docker.compose.service=caddy")).toBeUndefined();
+  test("ラベルがない場合は urls も url も undefined", () => {
+    expect(parseLinkLabels(undefined)).toEqual({});
+    expect(parseLinkLabels("")).toEqual({});
+    expect(parseLinkLabels("com.docker.compose.service=caddy")).toEqual({});
   });
 
   test("不正なポートや空の URL は無視する", () => {
     const labels =
       "portal.url.abc=https://portal.home.arpa,portal.url.=https://portal.home.arpa,portal.url.0=https://portal.home.arpa,portal.url.65536=https://portal.home.arpa,portal.url.443=";
 
-    expect(parseUrlLabels(labels)).toBeUndefined();
+    expect(parseLinkLabels(labels)).toEqual({});
   });
 
   test("不正なラベルがあっても有効なラベルは残す", () => {
     const labels = "portal.url.abc=https://ignored.example,portal.url.443=https://portal.home.arpa";
 
-    expect(parseUrlLabels(labels)).toEqual({ 443: "https://portal.home.arpa" });
+    expect(parseLinkLabels(labels).urls).toEqual({ 443: "https://portal.home.arpa" });
   });
 
   test("値に = が含まれても URL 全体を使う", () => {
-    expect(parseUrlLabels("portal.url.80=http://portal.home.arpa/?a=b")).toEqual({
+    expect(parseLinkLabels("portal.url.80=http://portal.home.arpa/?a=b").urls).toEqual({
       80: "http://portal.home.arpa/?a=b",
     });
   });
 
   test("キーと値の前後の空白を無視する", () => {
-    expect(parseUrlLabels(" portal.url.443 = https://portal.home.arpa ")).toEqual({
+    expect(parseLinkLabels(" portal.url.443 = https://portal.home.arpa ").urls).toEqual({
       443: "https://portal.home.arpa",
     });
   });
@@ -280,6 +316,41 @@ describe("parseContainer", () => {
     };
 
     expect(parseContainer(raw).urls).toBeUndefined();
+  });
+
+  test("Labels の portal.url と portal.hidden をコンテナへ写す", () => {
+    const raw: DockerContainerRaw = {
+      ID: "abc123def456",
+      Names: "/caddy",
+      State: "running",
+      Status: "Up",
+      Image: "caddy:2",
+      Ports: "0.0.0.0:80->80/tcp",
+      Labels: "portal.url=https://app.home.arpa,portal.hidden=true",
+    };
+
+    const container = parseContainer(raw);
+
+    expect(container.url).toBe("https://app.home.arpa");
+    expect(container.hidden).toBe(true);
+    expect(container.urls).toBeUndefined();
+  });
+
+  test("portal.url のラベルがなければ url は undefined", () => {
+    const raw: DockerContainerRaw = {
+      ID: "abc123def456",
+      Names: "/my-app",
+      State: "running",
+      Status: "Up",
+      Image: "nginx:latest",
+      Ports: "0.0.0.0:3000->80/tcp",
+      Labels: "com.docker.compose.service=my-app",
+    };
+
+    const container = parseContainer(raw);
+
+    expect(container.url).toBeUndefined();
+    expect(container.hidden).toBeUndefined();
   });
 
   test("ポートが空の場合は空配列", () => {

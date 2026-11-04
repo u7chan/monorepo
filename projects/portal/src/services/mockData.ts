@@ -15,7 +15,7 @@ export const mockContainers: Container[] = [
     ],
     created: "2024-01-15T10:30:00Z",
   },
-  // running状態 - ラベルで URL を上書きしたサービス（HTTPS リンクの表示確認用）
+  // running状態 - インフラでリンクを出さないコンテナ (portal.hidden)
   {
     id: "bcd234efg567890",
     name: "caddy",
@@ -26,11 +26,38 @@ export const mockContainers: Container[] = [
       { host: "0.0.0.0", publicPort: 80, privatePort: 80, protocol: "tcp" },
       { host: "0.0.0.0", publicPort: 443, privatePort: 443, protocol: "tcp" },
     ],
-    urls: {
-      80: "http://portal.home.arpa",
-      443: "https://portal.home.arpa",
-    },
+    hidden: true,
     created: "2024-01-15T10:30:00Z",
+  },
+  // running状態 - 単一の HTTPS 入口 (portal.url)。ポート番号は出さない
+  {
+    id: "cde345fgh678901",
+    name: "dozzle",
+    image: "ghcr.io/amir20/dozzle:latest",
+    state: "running",
+    status: "Up 2 hours",
+    ports: [{ host: "0.0.0.0", publicPort: 8888, privatePort: 8080, protocol: "tcp" }],
+    url: "https://dozzle.home.arpa",
+    created: "2024-01-16T09:00:00Z",
+  },
+  // running状態 - 複数オリジンの HTTPS 入口 (portal.url.<ポート>)
+  {
+    id: "def456ghi789012",
+    name: "agent",
+    image: "ghcr.io/u7chan/monorepo/u7agent:latest",
+    state: "running",
+    status: "Up 5 hours",
+    ports: [
+      { host: "0.0.0.0", publicPort: 4317, privatePort: 4317, protocol: "tcp" },
+      { host: "0.0.0.0", publicPort: 4318, privatePort: 4318, protocol: "tcp" },
+      { host: "0.0.0.0", publicPort: 4319, privatePort: 4319, protocol: "tcp" },
+    ],
+    urls: {
+      4317: "https://agent.home.arpa",
+      4318: "https://preview.agent.home.arpa",
+      4319: "https://service.agent.home.arpa",
+    },
+    created: "2024-01-18T11:00:00Z",
   },
   // running状態 - DB
   {

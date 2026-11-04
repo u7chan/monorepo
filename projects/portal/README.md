@@ -4,7 +4,7 @@ Bun + React + TypeScriptで構築された、Dockerコンテナを可視化・�
 
 ## 機能
 
-- **ポートリンク**: 起動中のコンテナが公開しているポートを、カードごとの主役として表示。クリックで既定は `http://<PORTAL_HOST>:PORT` を新しいタブで開く。Docker ラベルの `portal.url.<公開ポート>` があるポートはその URL を使う
+- **ポートリンク**: 起動中のコンテナが公開しているポートを、カードごとの主役として表示。クリックで既定は `http://<PORTAL_HOST>:PORT` を新しいタブで開く。Docker ラベルの `portal.url` / `portal.url.<公開ポート>` があるコンテナは、その URL をホスト名と鍵アイコンで表示する
 - **コンテナ一覧表示**: ホスト上の全Dockerコンテナをカード / リストで表示（portal 自身のコンテナは除く）
 - **ステータス表示**: 実行中/停止中などの状態を、色と Docker の状態文言の両方で表示
 - **イメージ名のコピー**: カード/リストのコピーボタンでイメージURIをクリップボードへコピー
@@ -33,21 +33,35 @@ portal 自身が一覧に出ると、開いても portal に戻るだけの項�
 
 除外は `fetchContainers` が Docker から取得した時点で行う。このため一覧 API の件数は除外後になり、操作 API（`/api/containers/:id/:action`）も同じ経路で portal 自身を見つけられず、`start` / `stop` は 404 を返す。portal が自分自身を停止して画面ごと消えるのを避けるための挙動なので、この 404 は仕様とする。
 
-## ポートリンクの URL 上書き（`portal.url.<ポート>`）
+## リンクのラベル
 
-ポートリンクは既定で `http://<PORTAL_HOST>:<公開ポート>` になる。TLS 終端などでホスト名とポートだけでは URL を表せないサービスは、コンテナの Docker ラベル `portal.url.<公開ポート>` に URL を書くと、その URL をリンク・`title`・`aria-label` に使う。
+カード中央のリンクは既定で `http://<PORTAL_HOST>:<公開ポート>` になる。TLS 終端などでホスト名とポートだけでは行き先を表せないサービスは、Docker ラベルで上書きする。
+
+| ラベル                                         | 用途                                | 表示                                                                                            |
+| ---------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `portal.url: https://dozzle.home.arpa`         | 単一の入口                          | ホスト名 + 鍵のチップを 1 本だけ出す。公開ポートのタイルは出さないため、`ports:` を閉じても残る |
+| `portal.url.<ポート>: https://agent.home.arpa` | 複数オリジン（u7agent の 3 面など） | 該当ポートのチップをホスト名 + 鍵に差し替える。publish をやめてもキーは識別子として残る         |
+| `portal.hidden: "true"`                        | Caddy など入口そのもの              | リンクを出さない（カードと状態は残る）                                                          |
 
 ```yaml
 services:
+  dozzle:
+    labels:
+      portal.url: https://dozzle.home.arpa
+  agent:
+    labels:
+      portal.url.4317: https://agent.home.arpa
+      portal.url.4318: https://preview.agent.home.arpa
+      portal.url.4319: https://service.agent.home.arpa
   caddy:
     labels:
-      portal.url.80: http://portal.home.arpa
-      portal.url.443: https://portal.home.arpa
+      portal.hidden: "true"
 ```
 
+- SSL 化の有無はラベルの有無ではなく URL の scheme で表す（`https` のときだけ鍵アイコン）
 - ラベルがないポートは `http://<PORTAL_HOST>:<ポート>` のまま
 - ラベルは `docker ps --format json` の `Labels`（カンマ区切り）から読む
-- キーが `portal.url.` で始まり、ポートが 1–65535、値が空でないものだけ有効
+- `portal.url.<ポート>` のキーは 1–65535。値が空のものは無視する
 - 上書きはリンクの表示だけ。portal が TLS を終端したり、疎通確認をしたりはしない
 
 portal 自身の HTTPS 入口はヘッダー右側のリンクから開ける。

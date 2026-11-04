@@ -318,7 +318,8 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
   const livePortCount = useMemo(
     () =>
       state.containers
-        .filter((item) => isPortReachable(item.state))
+        // リンクを出さないコンテナ (portal.hidden) のポートは数えない。
+        .filter((item) => !item.hidden && isPortReachable(item.state))
         .reduce((total, item) => total + item.ports.length, 0),
     [state.containers],
   );

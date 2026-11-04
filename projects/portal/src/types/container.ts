@@ -25,6 +25,10 @@ export interface Container {
   command?: string;
   // 公開ポート -> ラベルで上書きされた URL
   urls?: Record<number, string>;
+  // 単一の入口（portal.url）。あるとポートのタイルを出さない
+  url?: string;
+  // インフラ用でリンクを出さない（portal.hidden）
+  hidden?: boolean;
 }
 
 /**
