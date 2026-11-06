@@ -39,57 +39,6 @@ updates:
           - "patch"
 
   - package-ecosystem: "bun"
-    directory: "/projects/browser-auto"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 1
-    rebase-strategy: "disabled"
-    labels:
-      - "dependabot-auto-process"
-    groups:
-      browser-auto-minor-and-patch:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  - package-ecosystem: "uv"
-    directory: "/projects/edit-vid"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 1
-    rebase-strategy: "disabled"
-    labels:
-      - "dependabot-auto-process"
-    groups:
-      edit-vid-minor-and-patch:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  - package-ecosystem: "bun"
-    directory: "/projects/edit-vid2"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 1
-    rebase-strategy: "disabled"
-    labels:
-      - "dependabot-auto-process"
-    groups:
-      edit-vid2-minor-and-patch:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  - package-ecosystem: "bun"
     directory: "/projects/file-server"
     schedule:
       interval: "weekly"
@@ -154,28 +103,6 @@ updates:
       - "dependabot-auto-process"
     groups:
       portfolio-minor-and-patch:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  - package-ecosystem: "uv"
-    directory: "/projects/simple-agent-poc"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 1
-    rebase-strategy: "disabled"
-    labels:
-      - "dependabot-auto-process"
-    # pyproject.toml の litellm 上限（<1.103）を緩めてまで更新させない
-    ignore:
-      - dependency-name: "litellm"
-        versions:
-          - ">=1.103.0"
-    groups:
-      simple-agent-poc-minor-and-patch:
         applies-to: version-updates
         patterns:
           - "*"
