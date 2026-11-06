@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import type { ChatSettingsContextValue } from '#/client/features/chat/components/chat-settings/chat-settings-context'
 import { useImageGenerationModel } from '#/client/features/chat/hooks/use-image-generation-model'
+import { resolveChatModel } from '#/client/features/chat/lib/chat-model'
 import { useLockBodyScroll } from '#/client/shared/hooks/use-lock-body-scroll'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import { useLocalStorageSettings } from './use-local-storage-settings'
@@ -42,6 +44,24 @@ export function useChatSettings({ settings, showPopup, onChange }: UseChatSettin
     reasoningEffortEnabled: settings.reasoningEffortEnabled,
     updateSetting: storage.updateSetting,
   })
+
+  const resolvedModel = resolveChatModel({
+    savedModel: settings.model,
+    availableModels: models.fetchedModels,
+  })
+
+  // 保存値が一覧にないと select は先頭項目を選んだように描画されるだけで change が発火しないため、保存値を一覧側へ寄せる
+  useEffect(() => {
+    if (!settings.autoModel || settings.fakeMode) {
+      return
+    }
+
+    if (!resolvedModel || resolvedModel === settings.model) {
+      return
+    }
+
+    handlers.handleSelectModel(resolvedModel)
+  }, [handlers.handleSelectModel, resolvedModel, settings.autoModel, settings.fakeMode, settings.model])
 
   return {
     settings,

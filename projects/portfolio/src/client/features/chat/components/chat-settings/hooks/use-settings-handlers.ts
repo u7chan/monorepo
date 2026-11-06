@@ -31,6 +31,7 @@ interface UseSettingsHandlersDeps {
 }
 
 interface UseSettingsHandlersReturn {
+  handleSelectModel: (model: string) => void
   handleChangeAutoModel: (event: ChangeEvent<HTMLSelectElement>) => void
   handleChangeManualModel: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeBaseURL: (event: ChangeEvent<HTMLInputElement>) => void
@@ -78,20 +79,26 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
     updateSetting,
   } = deps
 
-  const handleChangeAutoModel = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) => {
-      setModel(event.target.value)
-      updateSetting('model', event.target.value)
+  const handleSelectModel = useCallback(
+    (model: string) => {
+      setModel(model)
+      updateSetting('model', model)
     },
     [setModel, updateSetting]
   )
 
+  const handleChangeAutoModel = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      handleSelectModel(event.target.value)
+    },
+    [handleSelectModel]
+  )
+
   const handleChangeManualModel = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      setModel(event.target.value)
-      updateSetting('model', event.target.value)
+      handleSelectModel(event.target.value)
     },
-    [setModel, updateSetting]
+    [handleSelectModel]
   )
 
   const handleChangeBaseURL = useCallback(
@@ -219,6 +226,7 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
   )
 
   return {
+    handleSelectModel,
     handleChangeAutoModel,
     handleChangeManualModel,
     handleChangeBaseURL,

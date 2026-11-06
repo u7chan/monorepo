@@ -134,4 +134,48 @@ describe('useChatSettings', () => {
       imageGenerationModel: 'openai/gpt-image-2.5-sunburst',
     })
   })
+
+  describe('取得済みモデルの解決', () => {
+    const autoModelSettings = { ...settings, autoModel: true }
+
+    const renderWithAutoModel = async (currentSettings: Settings) => {
+      const { useChatSettings } =
+        await import('#/client/features/chat/components/chat-settings/hooks/use-chat-settings')
+      return renderHook(() => {
+        const [sharedSettings, setSharedSettings] = useState(currentSettings)
+        const context = useChatSettings({ settings: sharedSettings, onChange: setSharedSettings })
+        return { context }
+      })
+    }
+
+    beforeEach(() => {
+      useModelFetchingMock.mockReturnValue({
+        fetchedModels: ['gemini-2.5-flash'],
+        isLoadingModels: false,
+        fetchError: null,
+        refetchModels: vi.fn(),
+      })
+    })
+
+    it('一覧に保存値がないときは取得したモデルを共有設定と localStorage へ反映する', async () => {
+      const { result } = await renderWithAutoModel(autoModelSettings)
+
+      expect(result.current.context.settings.model).toBe('gemini-2.5-flash')
+      expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({ model: 'gemini-2.5-flash' })
+    })
+
+    it('autoModel が無効なときは保存値を書き換えない', async () => {
+      const { result } = await renderWithAutoModel({ ...autoModelSettings, autoModel: false })
+
+      expect(result.current.context.settings.model).toBe('gpt-4.1-mini')
+      expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({ model: 'gpt-4.1-mini' })
+    })
+
+    it('fakeMode のときは保存値を書き換えない', async () => {
+      const { result } = await renderWithAutoModel({ ...autoModelSettings, fakeMode: true })
+
+      expect(result.current.context.settings.model).toBe('gpt-4.1-mini')
+      expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({ model: 'gpt-4.1-mini' })
+    })
+  })
 })
