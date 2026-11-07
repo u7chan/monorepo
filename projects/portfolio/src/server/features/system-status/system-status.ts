@@ -3,6 +3,7 @@ import { getDatabase } from '#/db'
 import {
   loginToFileServer,
   readFileServerApi,
+  readJsonOrNull,
   resolveFileServerBaseUrl,
   resolveFileServerPublicBaseUrl,
   type FileServerConfig,
@@ -403,7 +404,7 @@ async function checkFileServerPublic(env: SystemStatusEnv, checkedAt: string): P
       throw new Error(`file-server public healthz returned ${response.status}`)
     }
 
-    const payload = (await response.json().catch(() => null)) as { status?: unknown } | null
+    const payload = await readJsonOrNull<{ status?: unknown }>(response)
     if (!payload || payload.status !== 'ok') {
       throw new Error('file-server public healthz returned an invalid response')
     }

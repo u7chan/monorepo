@@ -213,6 +213,30 @@ describe('getSystemStatus', () => {
     )
   })
 
+  it('公開URLの本文受信が切断された場合は connection-failed として返す', async () => {
+    fetchMock.mockImplementation(async (input: unknown) => {
+      if (String(input) === `${env.FILE_SERVER_PUBLIC_URL}/healthz`) {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"status":'))
+              controller.error(createConnectionError())
+            },
+          }),
+          { status: 200 }
+        )
+      }
+
+      return new Response(JSON.stringify({ status: 'ok' }), { status: 200 })
+    })
+
+    const result = await getSystemStatus(env)
+
+    expect(result.checks.fileServerPublic).toEqual(
+      expect.objectContaining({ status: 'error', reason: 'connection-failed' })
+    )
+  })
+
   it('公開URLのルートが成功しても公開healthzが失敗した場合は異常として返す', async () => {
     fetchMock.mockImplementation(async (input: unknown) => {
       if (String(input) === `${env.FILE_SERVER_PUBLIC_URL}/healthz`) {
