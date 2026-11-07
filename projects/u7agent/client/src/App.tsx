@@ -1195,6 +1195,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
               visible={mainView === "chat"}
               activity={activity.text}
               activityState={activity.state}
+              thinkingText={app.chat.thinkingText}
+              thinkingOpen={app.chat.thinkingOpen}
               notice={app.chat.notice}
               runningSince={
                 app.chat.runStatus === "running"

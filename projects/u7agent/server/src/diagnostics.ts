@@ -108,6 +108,15 @@ export function summarizeEventData<T extends SSEEventType>(type: T, data: DataOf
     case "tool_progress":
       // 子エージェントの本文末尾が入るため、長さだけを残す
       return { id: (data as DataOf<"tool_progress">).id, chars: (data as DataOf<"tool_progress">).text.length };
+    case "status": {
+      // live の thinking 末尾も本文なので、載せるのは文字数だけにする
+      const value = data as DataOf<"status">;
+      return {
+        state: value.state,
+        text: value.text,
+        ...(value.thinking === undefined ? {} : { thinkingChars: value.thinking.length }),
+      };
+    }
     case "queued": {
       const value = data as DataOf<"queued">;
       return { position: value.position, queueDepth: value.queueDepth, promptChars: value.prompt.length };
@@ -149,7 +158,7 @@ export function summarizeEventData<T extends SSEEventType>(type: T, data: DataOf
       };
     }
     default:
-      // status / queue_cleared / usage / assistant_end / run_end / run_retry / session_deleted は本文を含まない
+      // queue_cleared / usage / assistant_end / run_end / run_retry / session_deleted は本文を含まない
       return data;
   }
 }

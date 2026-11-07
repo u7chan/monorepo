@@ -83,7 +83,12 @@ export function summarizeEvent(entry: EventEntry): Record<string, unknown> {
     case "tool_progress":
       return { id: entry.data.id, chars: entry.data.text.length };
     case "status":
-      return { state: entry.data.state, text: entry.data.text };
+      // thinking も本文なので、載せるのは文字数だけにする
+      return {
+        state: entry.data.state,
+        text: entry.data.text,
+        ...(entry.data.thinking === undefined ? {} : { thinkingChars: entry.data.thinking.length }),
+      };
     case "queued":
       return {
         position: entry.data.position,

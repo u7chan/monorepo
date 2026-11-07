@@ -1152,8 +1152,7 @@
     @apply grid size-5 shrink-0 cursor-pointer place-items-center rounded-md text-ink-faint transition-colors hover:text-accent-text disabled:cursor-not-allowed disabled:opacity-45;
   }
 
-  /* 状態行のモデル名 / Effort のトリガー。見た目の寸法は .composer-status-icon と同じ 20px に保ち、
-     当たり判定だけ ::after で 24px 以上 (WCAG 2.2 AA 2.5.8) へ広げる。行の高さと入力欄の位置は変えない。
+  /* 状態行のモデル名 / Effort のトリガー。見た目の寸法は .composer-status-icon と同じ 20px に保ち、     当たり判定だけ ::after で 24px 以上 (WCAG 2.2 AA 2.5.8) へ広げる。行の高さと入力欄の位置は変えない。
      色はここに置かない: components レイヤーの :hover / :focus-visible は utilities の色に負ける */
   .composer-model-trigger {
     @apply relative inline-flex h-5 min-w-0 shrink cursor-pointer items-center gap-1 rounded-md font-sans text-2xs transition-colors disabled:cursor-not-allowed disabled:opacity-45;
@@ -1162,6 +1161,16 @@
     content: "";
     position: absolute;
     inset: -2px;
+  }
+
+  /* 状態行の下の thinking 末尾。2 行分の高さを固定し、テキスト量・改行・折り返しで composer の高さを
+     動かさない (上端をクリップして下端寄せ)。罫線と色はコンポーネント側のクラスが持ち、ここは箱の形だけ */
+  .live-thought {
+    height: calc(2 * 1.625em);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
   }
 
   /* 入力欄の拡大。拡大していない間は UA の `dialog:not([open]) { display: none }` を打ち消し、その場に置く

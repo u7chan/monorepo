@@ -706,6 +706,8 @@ export function useSessions({
     onClosed,
     onSessionOpen: (id) => diagnostics.beginSession(id),
     onReconnect: () => diagnostics.recordReconnect(),
+    // 切断を検知した時点で tail だけを消す。2 行領域は run の終端まで残し、次の delta で戻す
+    onDisconnect: () => dispatch({ type: "thinkingCleared" }),
   });
 
   const deleteSession = useCallback(

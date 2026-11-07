@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, type RefObject } from "react";
 import type { EventEntry, SSEEventType } from "../types";
-import { isSseSilent, nextRetryDelayMs, SSE_SILENCE_CHECK_MS } from "./sessionStream";
+import { handleSseError, isSseSilent, nextRetryDelayMs, SSE_SILENCE_CHECK_MS } from "./sessionStream";
 import { useSpace } from "../SpaceContext";
 
 const EVENT_TYPES: SSEEventType[] = [
@@ -30,6 +30,11 @@ export type UseSessionEventsParams = {
   /** 受信イベントと、その接続のセッション (切替直後の旧接続を診断へ混ぜないため) */
   onEvent: (entry: EventEntry, sessionId: string) => void;
   onClosed: () => void;
+  /**
+   * 切断を検知した (error / 無音 / 明示再接続)。再接続中の古い tail を見せないために使う
+   * （2 行領域は run の終端まで残す）
+   */
+  onDisconnect?: () => void;
   /** セッションを開いた / 切り替えた (診断の記録対象を合わせる) */
   onSessionOpen?: (sessionId: string) => void;
   /** 切断を検知して再接続をスケジュールした (診断の再接続回数) */
@@ -45,6 +50,7 @@ export function useSessionEvents({
   onClosed,
   onSessionOpen,
   onReconnect,
+  onDisconnect,
 }: UseSessionEventsParams): void {
   const spaceId = useSpace().selected.id;
   // 常に最新の処理を呼ぶが、コールバックの変更では再接続させない。
@@ -52,6 +58,7 @@ export function useSessionEvents({
   const handleClosed = useEffectEvent(onClosed);
   const handleSessionOpen = useEffectEvent((id: string) => onSessionOpen?.(id));
   const handleReconnect = useEffectEvent(() => onReconnect?.());
+  const handleDisconnect = useEffectEvent(() => onDisconnect?.());
   // 接続は epoch / sessionId の変更でも作り直すため、無音の判定とバックオフは effect の外に置く
   const lastActivityRef = useRef(0);
   const retryCountRef = useRef(0);
@@ -90,6 +97,8 @@ export function useSessionEvents({
       // 半開の接続はブラウザも閉じないため、こちらから切って既存の復帰経路 (onClosed) に乗せる
       window.clearInterval(silenceTimer);
       source.close();
+      // 無音も切断として扱い、リプレイでは戻らない live の thinking 末尾を消す
+      handleDisconnect();
       scheduleReconnect();
     }, SSE_SILENCE_CHECK_MS);
 
@@ -128,9 +137,12 @@ export function useSessionEvents({
     }
 
     source.onerror = () => {
-      // CONNECTING の間はブラウザが Last-Event-ID 付きでリトライする
-      if (source.readyState !== EventSource.CLOSED) return;
-      scheduleReconnect();
+      // 切断の検知 (tail のクリア) は readyState を問わず行う。CONNECTING のまま戻る切断では
+      // イベントもリプレイも来ないため、ここで消さないと古い tail が残り続ける
+      handleSseError(source, {
+        onDisconnect: () => handleDisconnect(),
+        onReconnect: scheduleReconnect,
+      });
     };
 
     return () => {
