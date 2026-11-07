@@ -29,6 +29,7 @@ export interface ChatSettingsContextValue {
   imageModelsError: string | null
   refetchImageModels: () => void
   resolvedImageGenerationModel: string | null
+  handleSelectModel: (model: string) => void
   handleChangeAutoModel: (event: ChangeEvent<HTMLSelectElement>) => void
   handleChangeManualModel: (event: ChangeEvent<HTMLInputElement>) => void
   handleChangeBaseURL: (event: ChangeEvent<HTMLInputElement>) => void
