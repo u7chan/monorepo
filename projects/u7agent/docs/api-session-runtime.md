@@ -18,7 +18,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `text` | `{ delta, assistantId? }`（`assistantId` はこの delta が属する応答。旧サーバーは載せない） |
 | `tool_start` / `tool_end` | `{ id, assistantId?, name, args, skill?, questions?, startedAt? }` / `{ id, name, isError, output, answers?, endedAt? }`（`skill` は `run.toolCalls[].skill` と同じスキル読み込み。結果が無い時点なので `isError` は載らない。`questions` / `answers` は ask_user のときだけ載り、`run.toolCalls` と `messages[].tools` と同じ値。`startedAt` / `endedAt` は BFF 計測のツール実行の開始 / 終了で、`run.toolCalls` / `messages[].tools` と同じ値。旧サーバーは載せない） |
 | `tool_progress` | `{ id, text }`（`investigate` の子の進捗。`id` は `tool_start` / `tool_end` と同じ toolCallId で、ライブの `ToolCall.progress` だけを更新する。payload には載らない live 専用） |
-| `status` | `{ state, text }`（`thinking` / `writing`（本文の書き出し）/ `tool` / `question`（回答待ち）/ `compacting` / `retry` / `warning` / など。手動圧縮の終端では成功 / 失敗の文言を配る。自動再試行の文言は `run_retry` の構造化情報からクライアントが導出する） |
+| `status` | `{ state, text, thinking? }`（`thinking` / `writing`（本文の書き出し）/ `tool` / `question`（回答待ち）/ `compacting` / `retry` / `warning` / など。手動圧縮の終端では成功 / 失敗の文言を配る。自動再試行の文言は `run_retry` の構造化情報からクライアントが導出する。`thinking` は live 専用の thinking 末尾で、`state === "thinking"` のときだけ載る。値は差分ではなく、mask 済みのスナップショット（最大 1200 code point）。500ms で間引き、最初の delta と phase の変化は間引かない。`thinking` を省いた status は末尾のクリアを表す） |
 | `queued` | `{ position, queueDepth, sendId?, prompt }`（`sendId` は待機した送信。旧サーバーは載せない） |
 | `queue_cleared` | `{ sendIds? }`（停止で回収した送信のID。クライアントは該当する送信を「未送信」へ切り替える。旧サーバーは載せない） |
 | `run_retry` | `{ retry, totalRetryCount, serverNow }`（自動再試行の開始 / 再実行開始 / 解除。`retry` は payload の `run.retry` と同じ形で、解除時は `null`） |
@@ -30,7 +30,9 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる。移動は送らずに close する） |
 | `ping` | `{}`（接続直後と 15 秒ごとの生存確認。`id` 無し = カーソルを動かさない） |
 
-テキスト系イベント（`text` / `tool_start` / `tool_end` / `tool_progress` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages`・`compactions[].summary`、`compaction` の `compaction.summary` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は [secrets.md](secrets.md) を参照。
+`status.thinking` は live 専用で、ペイロード / JSONL / DB には保存しない（復元した会話・`/activity` には出ない）。バッファからのリプレイでは `thinking` を落として phase の status だけを復元し、resync / 新しい購読では保留中の配信を取り消す。クライアントは再接続を検知した時点で末尾を消し、次の live の delta だけで戻す。
+
+テキスト系イベント（`text` / `status` の `thinking` / `tool_start` / `tool_end` / `tool_progress` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages`・`compactions[].summary`、`compaction` の `compaction.summary` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は [secrets.md](secrets.md) を参照。
 
 ### 失敗試行の取り消しとエラーの公開契約
 

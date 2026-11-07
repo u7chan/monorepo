@@ -419,3 +419,89 @@ test("output without secrets passes through unchanged", async () => {
   );
   await store.close();
 });
+
+const thinkingDelta = (delta: string): PiSessionEvent =>
+  ({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta } }) as PiSessionEvent;
+
+const thinkingOf = (entry: EventEntry): string | undefined =>
+  entry.type === "status" ? (entry.data as { thinking?: string }).thinking : undefined;
+
+test("thinking の末尾は mask 済みで status に載り、リプレイでは thinking を落とす", async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolveGate) => {
+    release = resolveGate;
+  });
+  const session = createScriptedSession(async (s) => {
+    const assistant = startAssistant(s);
+    s.emit(thinkingDelta(KEY.slice(0, 6)));
+    s.emit(thinkingDelta(`${KEY.slice(6)} を確認`));
+    await gate;
+    // 再購読したクライアントへ、新しい live の delta だけが tail を戻す (間引きの待ちを跨ぐ)
+    s.emit(thinkingDelta(" 再開"));
+    await sleep(600);
+    await streamChunks(s, assistant, ["完了"]);
+    settle(s);
+  });
+  const { store, events } = createStore(session);
+  const record = await store.create();
+  store.subscribe(record, undefined, (entry) => events.push(entry));
+
+  store.postMessage(record, "考えて");
+  await waitFor(() => events.some((entry) => thinkingOf(entry) !== undefined), 3000, "thinking status");
+  const first = events.find((entry) => thinkingOf(entry) !== undefined);
+  assert.ok(first, "thinking の status が無い");
+  assert.ok(!thinkingOf(first)?.includes(KEY), "生のキーを載せない");
+
+  // カーソル付きの再購読。バッファのリプレイは phase の status だけを復元する
+  const replay: EventEntry[] = [];
+  store.subscribe(record, `${record.generation}:${first.seq - 1}`, (entry) => replay.push(entry));
+  const replayed = [...replay];
+  assert.ok(
+    replayed.some((entry) => entry.type === "status"),
+    "phase の status はリプレイする",
+  );
+  assert.ok(
+    replayed.every((entry) => thinkingOf(entry) === undefined),
+    "リプレイに古い thinking の末尾を載せない",
+  );
+
+  release();
+  await waitFor(() => store.statusOf(record) === "completed", 5000, "run completion");
+  assert.ok(
+    replay.some((entry) => thinkingOf(entry)?.includes("再開")),
+    "新しい live の delta で tail が戻る",
+  );
+  assertNoRawKey(events, store.payload(record), "thinking tail");
+  await store.close();
+});
+
+test("resync は保留中の thinking 配信を取り消す", async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolveGate) => {
+    release = resolveGate;
+  });
+  const session = createScriptedSession(async (s) => {
+    const assistant = startAssistant(s);
+    s.emit(thinkingDelta("最初の思考。"));
+    // 500ms の間引きで保留になる
+    s.emit(thinkingDelta("続きの思考。"));
+    await gate;
+    await streamChunks(s, assistant, ["完了"]);
+    settle(s);
+  });
+  const { store, events } = createStore(session);
+  const record = await store.create();
+  store.subscribe(record, undefined, (entry) => events.push(entry));
+
+  store.postMessage(record, "考えて");
+  await waitFor(() => events.some((entry) => thinkingOf(entry) !== undefined), 3000, "thinking status");
+  const resync = store.emitResync(record);
+  const resyncSeq = record.seq;
+  release();
+  await waitFor(() => store.statusOf(record) === "completed", 5000, "run completion");
+
+  const late = events.filter((entry) => entry.seq >= resyncSeq && thinkingOf(entry) !== undefined);
+  assert.deepEqual(late, [], "resync の後に保留中の tail を配らない");
+  assert.equal(resync.lastSeq, resyncSeq, "resync のカーソルは最後の seq + 1");
+  await store.close();
+});

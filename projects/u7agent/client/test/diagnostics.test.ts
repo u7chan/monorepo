@@ -113,6 +113,22 @@ test("イベントの要約は本文を入れず、長さと件数だけを持�
     runId: "r-1",
     queueDepth: 1,
   });
+
+  // live の thinking 末尾も本文なので、文字数だけを残す
+  const thinking = {
+    seq: 5,
+    type: "status",
+    data: { state: "thinking", text: "考え中…", thinking: "末尾の思考" },
+    at: 5,
+  } as EventEntry;
+  assert.deepEqual(summarizeEvent(thinking), { state: "thinking", text: "考え中…", thinkingChars: 5 });
+  const writing = {
+    seq: 6,
+    type: "status",
+    data: { state: "writing", text: "応答を書いています…" },
+    at: 6,
+  } as EventEntry;
+  assert.deepEqual(summarizeEvent(writing), { state: "writing", text: "応答を書いています…" });
 });
 
 test("クライアント状態のスナップショットは本文を載せず、カードの要約を持つ", () => {

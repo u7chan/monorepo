@@ -313,3 +313,41 @@ test("assistant_end 後の再接続 resync で閉じた応答を開き直さな�
     "並列ツールも要求した A だけに付く",
   );
 });
+
+test("routes the live thinking tail from status events to the chat reducer", () => {
+  const { record, deps } = createHarness();
+
+  applySessionEvent(
+    { seq: 1, type: "status", data: { state: "thinking", text: "考え中…", thinking: "末尾の思考" }, at: 7 },
+    deps,
+  );
+  assert.deepEqual(record.actions, [{ type: "status", state: "thinking", text: "考え中…", thinking: "末尾の思考" }]);
+
+  // キーが無い status は thinking 無しで渡す (reducer が tail のクリアとして扱う)
+  applySessionEvent({ seq: 2, type: "status", data: { state: "writing", text: "応答を書いています…" }, at: 8 }, deps);
+  assert.deepEqual(record.actions.at(-1), { type: "status", state: "writing", text: "応答を書いています…" });
+});
+
+test("切断で消した thinking の末尾は、リプレイされた status から戻らない", () => {
+  const { record, deps } = createHarness();
+  applySessionEvent(
+    { seq: 1, type: "status", data: { state: "thinking", text: "考え中…", thinking: "切断前の末尾" }, at: 7 },
+    deps,
+  );
+  // 無音を検知した時点で hook が流す action (useSessionEvents の onDisconnect と同じ)
+  const silent = chatReducer(record.actions.reduce(chatReducer, initialChatState), { type: "thinkingCleared" });
+  assert.equal(silent.thinkingText, undefined);
+  assert.equal(silent.thinkingOpen, true, "2 行領域は run の終端まで残す");
+
+  // 再接続でリプレイされる status はサーバーが thinking を落としているため、古い tail を再表示しない
+  const replayed = chatReducer(silent, {
+    type: "status",
+    state: "thinking",
+    text: "考え中…",
+  });
+  assert.equal(replayed.thinkingText, undefined);
+  assert.equal(replayed.thinkingOpen, true);
+  // 新しい live の delta で tail が戻る
+  const resumed = chatReducer(replayed, { type: "status", state: "thinking", text: "考え中…", thinking: "再開" });
+  assert.equal(resumed.thinkingText, "再開");
+});

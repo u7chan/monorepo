@@ -566,3 +566,53 @@ test("描画: 操作の結果 (取り消しの失敗理由) を状態行の下�
   assert.ok(render({ activity: "", notice: "待機中のメッセージが見つかりません" }).includes("待機中のメッセージ"));
   assert.ok(!render({ activity: "実行中…" }).includes('role="status"'), "結果が無ければ行ごと出さない");
 });
+
+test("描画: thinking の末尾は状態行の下の 2 行領域に出し、読み上げの対象から外す", () => {
+  const html = render({
+    activity: "考え中…",
+    activityState: "thinking",
+    thinkingText: "1 行目の思考\n2 行目の思考\n3 行目の思考",
+    thinkingOpen: true,
+  });
+
+  const region = html.indexOf("live-thought");
+  assert.ok(region >= 0, "2 行領域を出す");
+  const regionTag = html.slice(html.lastIndexOf("<div", region), html.indexOf(">", region) + 1);
+  assert.ok(regionTag.includes('aria-hidden="true"'), "tail は読み上げない");
+  assert.ok(regionTag.includes('title="1 行目の思考'), "全文を title に残す");
+  // 領域の中身は末尾 2 行 (全文は title にだけ残す)。状態行の aria-live の外に置く
+  assert.ok(html.includes("<span>2 行目の思考\n3 行目の思考</span>"), "末尾 2 行だけを出す");
+  const liveStart = html.indexOf('aria-live="polite"');
+  assert.ok(liveStart >= 0, "phase のラベルは読み上げる");
+  const liveEnd = html.indexOf("</span>", liveStart);
+  assert.ok(!html.slice(liveStart, liveEnd).includes("3 行目の思考"), "tail を live region に入れない");
+});
+
+test("描画: 2 行領域は text が無くても高さを保ち、phase が移っても閉じない", () => {
+  const empty = render({ activity: "考え中…", thinkingText: undefined, thinkingOpen: true });
+  const emptyRegion = empty.indexOf("live-thought");
+  assert.ok(emptyRegion >= 0, "空でも領域を残す");
+  assert.ok(empty.slice(empty.lastIndexOf("<div", emptyRegion)).includes("></span>"), "中身は空");
+
+  const writing = render({
+    activity: "応答を書いています…",
+    activityState: "writing",
+    thinkingText: undefined,
+    thinkingOpen: true,
+  });
+  assert.ok(writing.includes("live-thought"), "writing に移っても領域を残す");
+
+  const tool = render({
+    activity: "bash を実行中…",
+    activityState: "tool",
+    runStatus: "running",
+    runTools: { t1: runningTool("t1", "bash", "ls") },
+    thinkingOpen: true,
+  });
+  assert.ok(tool.includes("live-thought"), "tool に移っても領域を残す");
+});
+
+test("描画: thinking を観測していない間は 2 行領域を出さない", () => {
+  const html = render({ activity: "考え中…", activityState: "thinking" });
+  assert.equal(html.includes("live-thought"), false, "run の最初から空白を出さない");
+});

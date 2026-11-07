@@ -17,6 +17,7 @@ startRun():
   2. run_start イベントを記録
   3. session.subscribe() で pi のイベントを変換して記録（変換は `server/src/run-events.ts`）
      - message_update / text_delta → text / status（本文の書き出しに入った最初の delta だけ）
+     - message_update / thinking_delta → status（thinking の末尾。live 専用。後述）
      - message_end(user)          → 注入の観測。sendId / runId を対応付け、保存を待たず resync
      - tool_execution_start/end    → tool_start / tool_end
      - tool_execution_update       → tool_progress（investigate の進捗だけ。live 専用）
@@ -36,6 +37,15 @@ startRun():
 ```
 
 SDK の `agent_settled` は、BFF が持つ追加入力の注入完了を意味しない。BFF は `record.run.status` と SDK の `isStreaming` / `isIdle` を併せて配送フェーズを判断し、`isStreaming` 単独では決めない。
+
+## 実行中の thinking の末尾
+
+`thinking_delta` は `status` の `thinking` にだけ載せる（`server/src/live-thinking.ts`）。新しいイベント種別も保存経路も作らず、phase のラベルと同じ status に載せて順序のずれをなくす。値は差分ではなく、thinking ブロックごとに作った `createStreamingSecretMasker` を通した末尾のスナップショットで、最初の delta と phase の変化は間引かず、以降は 500ms で間引く。
+
+- `thinking_start` / 最初の `thinking_delta` でブロックを始め、`text_start` / `text_delta` / `tool_execution_start` / `message_end` / `compaction_start` / `auto_retry_start` / `agent_end` / `context_edit` / `finalize` で捨てる。捨てた後は phase の status だけを配り、`thinking` を載せない（クライアントはそれを末尾のクリアとして扱う）。
+- `thinking_end` でも保留末尾は公開せずに破棄する。`flush()` の戻り値を末尾へ足さないのは、既知の秘密値の前方一致で delta が途絶えたときに、末尾を欠いた断片が返り得るため（[secrets.md](secrets.md)）。masker が例外を投げても raw へフォールバックせず、そのブロックを捨てる。表示の失敗で run は止めない。
+- resync と新しい購読では保留中の配信だけを取り消す（masker の境界バッファと次の delta の受付は残す）。バッファからのリプレイは `thinking` を落とし、phase の status だけを復元する（[api-session-runtime.md](api-session-runtime.md#get-apisessionsidevents)）。
+- `thinking_end.content` は使わない。delta の無い redacted thinking は末尾も出さず、phase のラベルだけになる。
 
 ## 追加入力（steering）の配送
 

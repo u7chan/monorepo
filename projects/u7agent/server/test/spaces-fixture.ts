@@ -112,6 +112,12 @@ const pi = Object.assign(
           { name: "bash", args: { command: "pnpm check" }, at: 1400, endAt: 1900 },
         ],
       },
+      // 長い thinking の後にツール実行へ移るターン (2 行領域が閉じずに text だけ消えることの受入)
+      {
+        prompt: "長い思考",
+        calls: [{ name: "bash", args: { command: "pnpm check" }, at: 0, endAt: 1200 }],
+        reply: "思考の末にツールを 1 回実行し、結果を本文にまとめました。合成 fixture の応答です。",
+      },
       // 最後のツールの後に start と end が同じ時刻の one-shot 行を 1 本だけ流す再現
       // (本文に「高速ツール」で発動)。状態行が最後の 1 件を取りこぼさないかの受入に使う
       {
@@ -372,6 +378,20 @@ const pi = Object.assign(
     // 履歴ページの窓 (50 item) より長いターンの受入用: 本文に「長いターン」を含めて送ると 1 run で
     // 本文あり応答を 55 件積む (完了後の F5 で結末が出ることを見る)
     longTurn: { prompt: "長いターン", rounds: 55, roundDelayMs: 120 },
+    // 実行中の thinking 末尾の受入用: 本文に「長い思考」を含めて送ると、本文より前に思考の delta を
+    // 14 回流す (合計 1200 code point 超)。8 件目の後に 2 秒の無音を空ける。ツール → 本文の順に
+    // phase が移るため、2 行領域が閉じずに text だけ消えることを見られる
+    liveThinking: {
+      prompt: "長い思考",
+      chunks: Array.from(
+        { length: 14 },
+        (_, index) =>
+          `検討 ${index + 1}: 状態行の下に置く 2 行の固定領域は、行数と文字数で高さが変わらないようにする。` +
+          "折り返しの上限を決め、上端をクリップして下端を揃え、phase が変わっても領域を閉じない。",
+      ),
+      chunkDelayMs: 700,
+      silence: { afterIndex: 7, ms: 2000 },
+    },
   }),
   { cwd, sandboxConfigured: true },
 );

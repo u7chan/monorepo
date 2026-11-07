@@ -11,6 +11,7 @@ import {
   DIAGNOSTICS_EVENT_LIMIT,
   DIAGNOSTICS_STRING_MAX,
   projectSessionDiagnostics,
+  summarizeEventData,
 } from "../src/diagnostics";
 import { REDACTED, createSecretMasker } from "../src/redact";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
@@ -139,6 +140,19 @@ test("diagnostics drops the oldest events over the count limit and truncates lon
     } finally {
       await bff.close();
     }
+  });
+});
+
+test("status の要約は thinking の本文を載せず文字数だけを残す", () => {
+  assert.deepEqual(summarizeEventData("status", { state: "thinking", text: "考え中…", thinking: "末尾の思考" }), {
+    state: "thinking",
+    text: "考え中…",
+    thinkingChars: 5,
+  });
+  // キーが無い status (phase の移行 / 旧サーバー) は文字数も載せない
+  assert.deepEqual(summarizeEventData("status", { state: "writing", text: "応答を書いています…" }), {
+    state: "writing",
+    text: "応答を書いています…",
   });
 });
 

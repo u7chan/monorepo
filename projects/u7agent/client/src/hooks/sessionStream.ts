@@ -142,8 +142,14 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       return;
     case "status":
       // state はサーバーが配る活動の種類 (thinking / tool / compacting / retry / warning)。
-      // 表示文言とは別に持ち、活動ラベルの演出 (thinking のときだけ光を流す) の条件に使う
-      dispatch({ type: "status", state: entry.data.state, text: entry.data.text });
+      // 表示文言とは別に持ち、活動ラベルの演出 (thinking のときだけ光を流す) の条件に使う。
+      // thinking は live 専用の末尾で、キーが無いときは「クリア」を意味する
+      dispatch({
+        type: "status",
+        state: entry.data.state,
+        text: entry.data.text,
+        ...(entry.data.thinking === undefined ? {} : { thinking: entry.data.thinking }),
+      });
       return;
     case "run_retry":
       // 受信時刻はブラウザの Date.now()。サーバーの serverNow との差で残り時間を出す

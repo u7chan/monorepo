@@ -51,6 +51,7 @@ import { createSecretMasker, type SecretMasker } from "./redact";
 import { classifyRunError, composeRunError, retryWaitingText } from "./error-classify";
 import { computeMessageMetrics, createRunEventBridge, type RunSettlement } from "./run-events";
 import { runDurationMs } from "./run-metrics";
+import { withoutThinking } from "./live-thinking";
 import type {
   CreateSessionOptions,
   PendingQuestion,
@@ -1326,6 +1327,8 @@ export class SessionStore {
 
   /** resync は payload と同じ lastSeq を持つ (クライアントのカーソルになる) */
   emitResync(record: SessionRecord, reason?: ResyncReason): SessionPayload {
+    // 新しいスナップショットが正になるため、保留中の thinking 末尾は配らない (次の delta で戻る)
+    record.run?.cancelThinking?.();
     const payload = this.payload(record);
     payload.lastSeq = record.seq + 1;
     if (reason !== undefined) payload.resyncReason = reason;
@@ -2193,6 +2196,9 @@ export class SessionStore {
   ): () => void {
     const subscriber: SessionSubscriber = { send, close };
     record.subscribers.add(subscriber);
+    // 購読の確立 / リプレイの前に、保留中の thinking 末尾を配らない (古い tail を復元しない)。
+    // masker は残るため、次の delta は普通に配れる
+    record.run?.cancelThinking?.();
     const cursor = parseEventCursor(after === undefined ? undefined : String(after));
     const earliest = record.events.length > 0 ? record.events[0].seq : record.seq + 1;
     // 世代が一致しないカーソルは差分に使わない (seq は復元で 0 に戻るため数値だけでは同定できない)
@@ -2211,7 +2217,9 @@ export class SessionStore {
       let retryReplayed = false;
       for (const entry of record.events) {
         if (entry.seq <= cursor.seq) continue;
-        send(entry);
+        // リプレイは phase の status だけを復元する。live の thinking 末尾は過去の delta から作れず、
+        // 古い tail を再表示しないため落とす
+        send(withoutThinking(entry));
         if (entry.type === "run_retry" && entry.data.retry !== null) retryReplayed = true;
       }
       if (retryReplayed) send({ seq: record.seq, type: "resync", data: this.payload(record), at: Date.now() });
@@ -3415,6 +3423,8 @@ export class SessionStore {
     });
 
     const unsubscribe = session.subscribe(bridge.listener);
+    // resync / 再購読の直前の保留配信を止めるため、run から controller を引けるようにする
+    run.cancelThinking = bridge.cancelPendingThinking;
     session
       .prompt(text)
       .then(() => {

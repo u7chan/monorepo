@@ -7,6 +7,7 @@
 import { recordCompactionOutcome } from "./compaction-view";
 import { classifyRunError, type RunErrorClassification } from "./error-classify";
 import { INVESTIGATE_TOOL_NAME } from "./investigate-tool";
+import { createLiveThinking } from "./live-thinking";
 import type { PiSessionEventListener, PiSessionLike, PiSessionMessageLike } from "./pi-runtime";
 import { assistantModelLabel, contextUsageOf, lastAssistantMessage, parseUsage } from "./pi-runtime";
 import { createStreamingSecretMasker, type SecretMasker } from "./redact";
@@ -107,6 +108,12 @@ export interface RunEventBridge {
   finalize: () => void;
 
   /**
+   * thinking 末尾の保留配信を取り消す (resync / 再購読の直前)。masker の保留バッファは残すため、
+   * 次の delta はそのまま配れる
+   */
+  cancelPendingThinking: () => void;
+
+  /**
    * このランで確定した最後の assistant 本文 (mask 済み)。このランで assistant メッセージを観測しなければ
    * undefined を返す (履歴を遡って前のランの本文を拾わない)。finalize の後に呼ぶ。
    */
@@ -160,6 +167,23 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
   let promptRecorded = false;
   let pendingCompactionResync = false;
   let retryActive = false;
+  // live 専用の thinking 末尾。載せる status の文言は phase の status と同じものを使い、
+  // 再送でラベルを変えない (docs/api-session-runtime.md)
+  let phase: { state: string; text: string } = { state: "", text: "" };
+  const liveThinking = createLiveThinking({
+    masker,
+    emit: (thinking) => {
+      // phase が thinking の間だけ載せる。他の phase の status は `thinking` 無しで出す
+      if (phase.state !== "thinking") return;
+      emit("status", { state: "thinking", text: phase.text, thinking });
+    },
+  });
+  /** phase の status。thinking 以外へ移った時点で tail と保留配信を捨てる */
+  const emitStatus = (state: string, text: string): void => {
+    phase = { state, text };
+    if (state !== "thinking") liveThinking.clear();
+    emit("status", { state, text });
+  };
   /** compaction_start の到着時刻。compaction_end までの BFF 計測に使う (run の寿命で足りる) */
   let compactionStartedAt: number | undefined;
   /** toolCallId -> tool_execution_start の到着時刻。run の寿命で足りるので session へは残さない */
@@ -201,6 +225,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
   const finalize = (): void => {
     if (finished) return;
     finished = true;
+    // run_end より後に thinking の status を出さない
+    liveThinking.clear();
 
     // 補完対象はこのランで観測し、かつ SDK の最終投影に残っている assistant だけ。
     // 失敗試行 (context_edit で除外) や前のランの本文を、保留 delta の flush で再表示しない。
@@ -237,12 +263,12 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
       }
       switch (event.type) {
         case "agent_start":
-          emit("status", { state: "thinking", text: "考え中…" });
+          emitStatus("thinking", "考え中…");
           break;
         case "turn_start":
           // 最初のターンは agent_start と同じ文言。ツールを終えた後のモデル待ちで、
           // 終わったツール名を実行中のまま残さない
-          if (assistantSeen) emit("status", { state: "thinking", text: "考え中…" });
+          if (assistantSeen) emitStatus("thinking", "考え中…");
           break;
         case "message_start":
           if (event.message?.role === "assistant") {
@@ -259,20 +285,31 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           break;
         case "message_update": {
           const assistantEvent = event.assistantMessageEvent;
-          if (assistantEvent?.type === "text_delta") {
+          if (assistantEvent?.type === "text_start") {
+            // 本文が始まったら thinking の末尾は用済み (phase の移行は最初の delta で知らせる)
+            liveThinking.clear();
+          } else if (assistantEvent?.type === "text_delta") {
             firstTokenAt ??= Date.now();
             if (!writingNotified) {
               writingNotified = true;
-              emit("status", { state: "writing", text: "応答を書いています…" });
+              emitStatus("writing", "応答を書いています…");
             }
             pushText(deltaMasker.push(assistantEvent.delta ?? ""));
+          } else if (assistantEvent?.type === "thinking_start") {
+            // ブロックごとに masker を作り直す (前のブロックの保留バッファを引き継がない)
+            liveThinking.clear();
           } else if (assistantEvent?.type === "thinking_delta") {
             // 思考だけが先に流れるモデルでも TTFT を測れる
             firstTokenAt ??= Date.now();
+            liveThinking.push(assistantEvent.delta ?? "");
+          } else if (assistantEvent?.type === "thinking_end") {
+            // 保留末尾は公開しない。flush() は既知の秘密値の前方一致で途絶えた断片を返し得る
+            liveThinking.clear();
           }
           break;
         }
         case "message_end":
+          liveThinking.clear();
           if (event.message?.role === "assistant" && event.message) {
             assistantSeen = true;
             currentAssistantId ??= nextAssistantId();
@@ -347,12 +384,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             ...(questions ? { questions } : {}),
           });
           // 待機中を「実行中」と同じ文言で出さない (複数待機では後から来た文言が勝つが、カード側で分かる)
-          emit(
-            "status",
-            questions
-              ? { state: "question", text: "回答を待っています…" }
-              : { state: "tool", text: `${tool.name} を実行中…` },
-          );
+          emitStatus(questions ? "question" : "tool", questions ? "回答を待っています…" : `${tool.name} を実行中…`);
           break;
         }
         case "tool_execution_end": {
@@ -403,7 +435,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
         }
         case "compaction_start":
           compactionStartedAt = Date.now();
-          emit("status", { state: "compacting", text: "会話を整理中…" });
+          emitStatus("compacting", "会話を整理中…");
           break;
         case "compaction_end": {
           const durationMs = compactionStartedAt === undefined ? undefined : Date.now() - compactionStartedAt;
@@ -418,6 +450,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
         }
         case "auto_retry_start": {
           retryActive = true;
+          // 失敗試行の thinking を残さない (次の試行は新しいブロックとして始まる)
+          liveThinking.clear();
           onRetryScheduled({
             attempt: event.attempt ?? 0,
             maxAttempts: event.maxAttempts ?? 0,
@@ -434,6 +468,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             queueMicrotask(() => {
               if (finished) return;
               discardAttempt();
+              liveThinking.clear();
               // 未確定の応答を捨てるのは失敗試行の取り消しだけ (通常の resync は同じ実行の継続)
               emitResync("attempt_discarded");
             });
@@ -445,15 +480,12 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           onRetryEnd();
           break;
         case "extension_error":
-          emit("status", {
-            state: "warning",
-            text: masker.mask(typeof event.error === "string" ? event.error : String(event.error ?? "")),
-          });
+          emitStatus("warning", masker.mask(typeof event.error === "string" ? event.error : String(event.error ?? "")));
           break;
         case "agent_end":
-          if (event.willRetry) {
-            emit("status", { state: "retry", text: "再試行を準備中…" });
-          }
+          // ターンの終わりに thinking の末尾を残さない
+          liveThinking.clear();
+          if (event.willRetry) emitStatus("retry", "再試行を準備中…");
           break;
         case "agent_settled": {
           const finalAssistant = lastAssistantMessage(session);
@@ -475,5 +507,10 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     }
   };
 
-  return { listener, finalize, settledAssistantText: () => (assistantSeen ? currentAssistantText : undefined) };
+  return {
+    listener,
+    finalize,
+    cancelPendingThinking: () => liveThinking.cancelPending(),
+    settledAssistantText: () => (assistantSeen ? currentAssistantText : undefined),
+  };
 }

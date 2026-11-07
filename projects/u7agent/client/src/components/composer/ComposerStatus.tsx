@@ -11,6 +11,7 @@ import {
   liveToolViewKey,
   type LiveToolStatusView,
 } from "../../lib/liveToolCall";
+import { liveThoughtSnippet } from "../../lib/liveThinking";
 import { answerWaitQueueReason } from "../../lib/queueWait";
 import {
   blockedButtonsNotice,
@@ -139,6 +140,8 @@ function useLiveToolView(view: LiveToolStatusView | undefined): LiveToolStatusVi
 export function ComposerStatus({
   activity,
   activityState,
+  thinkingText,
+  thinkingOpen = false,
   runningSince,
   runTools = {},
   queueDepth = 0,
@@ -163,6 +166,15 @@ export function ComposerStatus({
    * (折り返すと帯が行ごとに切れる。保証するのは chatReducer と App 側)
    */
   activityState?: string;
+  /**
+   * 実行中の thinking 末尾 (live 専用。SSE `status.thinking`)。状態行の下の 2 行領域に出す
+   */
+  thinkingText?: string;
+  /**
+   * この run で thinking を観測したか。一度開いたら run の終端まで領域と高さを保つ
+   * (writing / tool では text だけが消える)
+   */
+  thinkingOpen?: boolean;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
   /** 回答待ちの控除と、実行中ツールの 1 行表示に使う */
@@ -222,8 +234,17 @@ export function ComposerStatus({
   // 再実行カードは時間をおけば回復し得る失敗だけに出す (停止・成功・キュー待ちでは出さない)
   const card = retryableRunError(runStatus, runError);
   const showRetry = card !== undefined && onRetry !== undefined;
-  // カードだけの状態でも描画する (activity は空にして文言をカードへ移す)
-  if (!showActivity && notice === undefined && !gauge && !modelSlot && onCompact === undefined && !showRetry)
+  // カードだけの状態でも描画する (activity は空にして文言をカードへ移す)。thinking の 2 行領域を
+  // 開いている間は活動文言が空でも領域を残す (開閉で入力欄の位置を動かさない)
+  if (
+    !showActivity &&
+    !thinkingOpen &&
+    notice === undefined &&
+    !gauge &&
+    !modelSlot &&
+    onCompact === undefined &&
+    !showRetry
+  )
     return null;
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
@@ -338,6 +359,17 @@ export function ComposerStatus({
           )}
         </div>
       </div>
+      {/* 実行中の thinking の末尾。状態行の下に 2 行分の固定領域を置き、テキスト量では高さを変えない
+          (docs/ui-layout.md)。読み上げは状態行の phase ラベルだけにし、tail は aria-hidden にする */}
+      {thinkingOpen ? (
+        <div
+          className="live-thought mb-1.5 border-l-2 border-line-strong pl-2.5 text-1xs leading-relaxed break-words whitespace-pre-line text-ink-soft"
+          title={thinkingText}
+          aria-hidden="true"
+        >
+          <span>{liveThoughtSnippet(thinkingText ?? "")}</span>
+        </div>
+      ) : null}
       {queueReason === undefined && blockedNotice === undefined && notice === undefined ? null : (
         // 説明 (待機の理由 / 作用の結果 / 押せない理由) の 1 行。待機の理由を活動と同じ行に置くと、
         // 幅が足りないときに両方が折り返すため、状態行の外へ出す。作用の結果だけは自分の live region で

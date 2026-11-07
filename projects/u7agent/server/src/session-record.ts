@@ -44,6 +44,11 @@ export interface RunState {
   totalRetryCount: number;
   /** BFF の stop で abort したか。待機中は aborted の assistant が残らないため、停止判定に使う */
   stopRequested?: boolean;
+  /**
+   * live 専用の thinking 末尾の保留配信を取り消す。resync / 再購読の直前に呼び、payload に載らない
+   * 古い tail を配らない (保存しないので run の寿命で足りる)
+   */
+  cancelThinking?: () => void;
 }
 
 /** compaction entry id に紐づく、entry へは保存されない表示用の値 */

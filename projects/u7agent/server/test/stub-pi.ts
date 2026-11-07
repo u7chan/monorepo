@@ -161,6 +161,8 @@ export interface StubSessionOptions {
   contextUsageBeforeHistory?: ContextUsage;
   /** 最初の delta の前に送る thinking_delta の本文 (TTFT の検証用) */
   thinkingDelta?: string;
+  /** 長い thinking と無音を流す (実行中の thinking 末尾の GUI 受入用) */
+  liveThinking?: StubLiveThinking;
   /** 復元: BFF が読んだ entry。SDK の inMemory(cwd, id, entries) と同じく初期履歴として使う */
   entries?: unknown[];
   /** 復元: SDK セッションの id (BFF のセッション id) */
@@ -227,6 +229,26 @@ export interface StubLongTurn {
   roundDelayMs?: number;
   /** 各応答の本文。省略は `ラウンド <n> 件目の応答です` */
   replyOf?: (round: number) => string;
+}
+
+/**
+ * 実行中の thinking 末尾の受入用。本文に `prompt` を含む送信で、本文の前に thinking_delta を
+ * 複数回流し、途中で無音を空ける (スロットルと末尾の差し替えを実タイマーで観測できる)。
+ */
+export interface StubLiveThinking {
+  /** この語を本文に含む送信のときだけ流す */
+  prompt: string;
+  /** 1 要素が 1 回の thinking_delta。長い思考は要素を増やす */
+  chunks: string[];
+  /** chunk の間隔 (ms)。省略は chunkDelayMs */
+  chunkDelayMs?: number;
+  /** `afterIndex` 件目の chunk の後に空ける無音 (ms)。delta が途切れた状態を作る */
+  silence?: { afterIndex: number; ms: number };
+}
+
+/** 送信本文に合う thinking の流れを選ぶ (他のキーワード trigger と同じく部分一致) */
+export function stubLiveThinkingOf(option: StubLiveThinking | undefined, text: string): StubLiveThinking | undefined {
+  return option !== undefined && text.includes(option.prompt) ? option : undefined;
 }
 
 /** 履歴ページの既定 (50 item) を超える 1 ターンを作る既定値。user 1 件 + 応答 55 件 = 56 item */
@@ -960,6 +982,20 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             });
           }
         }
+        // 長い thinking と無音 (実行中の末尾の受入用)。本文より前に流し、phase の遷移は後続が作る
+        const liveThinking = stubLiveThinkingOf(options.liveThinking, text);
+        if (liveThinking) {
+          const thinkingGap = liveThinking.chunkDelayMs ?? chunkDelayMs;
+          for (const [index, chunk] of liveThinking.chunks.entries()) {
+            await sleep(thinkingGap);
+            if (session.abortRequested) break;
+            session.emit({
+              type: "message_update",
+              assistantMessageEvent: { type: "thinking_delta", delta: chunk },
+            });
+            if (liveThinking.silence?.afterIndex === index) await sleep(liveThinking.silence.ms);
+          }
+        }
         // 子の進捗 (tool_execution_update) を本文の前に流す。間隔は本文 delta と同じ chunkDelayMs に合わせる
         for (const text of investigate?.progress ?? []) {
           await sleep(chunkDelayMs);
@@ -1206,6 +1242,8 @@ export interface StubPiOptions {
   contextUsageBeforeHistory?: ContextUsage;
   /** 最初の delta の前に送る thinking_delta の本文 (TTFT の検証用) */
   thinkingDelta?: string;
+  /** 長い thinking と無音を流す (実行中の thinking 末尾の GUI 受入用) */
+  liveThinking?: StubLiveThinking;
   /** 最初の N 回だけ setModel を失敗させる (ガード解除の検証用) */
   setModelFailures?: number;
   /** prompt ごとに消費する preflight compaction (StubSessionOptions と同じ) */

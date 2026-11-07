@@ -43,15 +43,56 @@ test("本文の最初の delta だけで書き出しを知らせ、同じメッ�
   const { bridge, statuses } = createActivityBridge();
   bridge.listener({ type: "agent_start" });
   bridge.listener(assistantStart);
-  // 思考は本文ではない (「考え中…」のまま)
+  // 思考は本文ではない (「考え中…」のまま)。末尾は同じ status の `thinking` にだけ載る
   bridge.listener(delta("thinking_delta", "考える"));
   bridge.listener(delta("text_delta", "応答"));
   bridge.listener(delta("text_delta", " の続き"));
 
   assert.deepEqual(statuses(), [
     { state: "thinking", text: "考え中…" },
+    { state: "thinking", text: "考え中…", thinking: "考える" },
     { state: "writing", text: "応答を書いています…" },
   ]);
+});
+
+// What: 実行中の thinking の末尾は、phase と一緒に `status.thinking` として届き、phase が移ると消える。
+test("thinking_delta は status の thinking になり、text / tool / message_end で消える", () => {
+  const { bridge, statuses } = createActivityBridge();
+  bridge.listener({ type: "agent_start" });
+  bridge.listener(assistantStart);
+  bridge.listener(delta("thinking_delta", "まず前提を確かめる。"));
+  assert.equal(statuses().at(-1)?.thinking, "まず前提を確かめる。");
+
+  bridge.listener(delta("text_delta", "応答"));
+  assert.equal(statuses().at(-1)?.state, "writing");
+  assert.ok(!("thinking" in (statuses().at(-1) ?? {})), "phase が移ったら tail を載せない");
+
+  bridge.listener({ type: "turn_start" });
+  bridge.listener(delta("thinking_delta", "次の思考。"));
+  assert.equal(statuses().at(-1)?.thinking, "次の思考。");
+
+  bridge.listener({ type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", args: {} });
+  assert.ok(!("thinking" in (statuses().at(-1) ?? {})), "ツール実行中に tail を載せない");
+
+  bridge.listener({ type: "turn_start" });
+  bridge.listener(delta("thinking_delta", "さらに思考。"));
+  bridge.listener({ type: "message_end", message: { role: "assistant" } });
+  bridge.listener({ type: "turn_start" });
+  assert.deepEqual(statuses().at(-1), { state: "thinking", text: "考え中…" }, "message_end の後に古い tail を載せない");
+});
+
+// What: 確定 (finalize) より後に thinking の status を配らない。保留中の配信も run_end の前に捨てる。
+test("finalize の後に保留中の thinking を配らない", async () => {
+  const { bridge, statuses } = createActivityBridge();
+  bridge.listener({ type: "agent_start" });
+  bridge.listener(assistantStart);
+  bridge.listener(delta("thinking_delta", "最初の思考。"));
+  assert.equal(statuses().length, 2);
+  // 500ms の間引きで保留になる (次の delta はタイマー待ち)
+  bridge.listener(delta("thinking_delta", "続きの思考。"));
+  bridge.finalize();
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  assert.equal(statuses().length, 2, "finalize の後に thinking の status を出さない");
 });
 
 test("ツール実行を挟んだターンは、次の本文で書き出しを再び知らせる", () => {
