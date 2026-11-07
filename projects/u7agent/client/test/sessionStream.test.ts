@@ -9,10 +9,14 @@ import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/cha
 import { createDiagnosticsRecorder } from "../src/lib/diagnostics";
 import {
   applySessionEvent,
+  handleSseError,
   isSseSilent,
   nextRetryDelayMs,
   recoverDecision,
+  SSE_READY_CLOSED,
+  SSE_READY_CONNECTING,
   SSE_SILENCE_TIMEOUT_MS,
+  sseErrorDecision,
   type SessionStreamDeps,
 } from "../src/hooks/sessionStream";
 import type { RuntimeStatus } from "../src/hooks/runtimeStatus";
@@ -350,4 +354,37 @@ test("切断で消した thinking の末尾は、リプレイされた status �
   // 新しい live の delta で tail が戻る
   const resumed = chatReducer(replayed, { type: "status", state: "thinking", text: "考え中…", thinking: "再開" });
   assert.equal(resumed.thinkingText, "再開");
+});
+
+// What: 通常の切断 (EventSource.onerror が CONNECTING のまま戻る) でも、ライブの thinking 末尾を
+// 消して 2 行領域を残す。CLOSED だけが「切れた」ではないため、入口 (handleSseError) を通して確かめる。
+test("SSE の error は CONNECTING でも thinking の末尾を消し、CLOSED のときだけ張り直す", () => {
+  const tail = chatReducer(initialChatState, {
+    type: "status",
+    state: "thinking",
+    text: "考え中…",
+    thinking: "切断前の末尾",
+  });
+  assert.equal(tail.thinkingText, "切断前の末尾");
+
+  // ブラウザーの EventSource は復帰できる切断では readyState を CONNECTING のまま自動再接続する
+  const calls: string[] = [];
+  handleSseError(
+    { readyState: SSE_READY_CONNECTING },
+    { onDisconnect: () => calls.push("disconnect"), onReconnect: () => calls.push("reconnect") },
+  );
+  assert.deepEqual(calls, ["disconnect"], "CONNECTING でも tail を消し、張り直しは予約しない");
+  const cleared = chatReducer(tail, { type: "thinkingCleared" });
+  assert.equal(cleared.thinkingText, undefined, "古い tail を残さない");
+  assert.equal(cleared.thinkingOpen, true, "2 行領域は run の終端まで残す");
+
+  // 復帰できない応答 (502 など) は CLOSED になり、張り直しをスケジュールする
+  const closed: string[] = [];
+  handleSseError(
+    { readyState: SSE_READY_CLOSED },
+    { onDisconnect: () => closed.push("disconnect"), onReconnect: () => closed.push("reconnect") },
+  );
+  assert.deepEqual(closed, ["disconnect", "reconnect"]);
+  assert.deepEqual(sseErrorDecision(SSE_READY_CONNECTING), { clearThinking: true, scheduleReconnect: false });
+  assert.deepEqual(sseErrorDecision(SSE_READY_CLOSED), { clearThinking: true, scheduleReconnect: true });
 });

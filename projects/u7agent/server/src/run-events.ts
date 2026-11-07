@@ -120,6 +120,9 @@ export interface RunEventBridge {
   settledAssistantText: () => string | undefined;
 }
 
+/** thinking phase の活動ラベル。開始 / 再開 / ターン待ちで同じ文言を使う */
+const THINKING_PHASE_TEXT = "考え中…";
+
 export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
   const {
     session,
@@ -183,6 +186,20 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     phase = { state, text };
     if (state !== "thinking") liveThinking.clear();
     emit("status", { state, text });
+  };
+  /**
+   * thinking ブロックの開始 (明示的な境界)。phase を thinking へ戻し、block を閉じ直す。
+   * 本文の後に同じ応答で thinking が再開する経路 (commentary → reasoning) と、`thinking_start` を
+   * 配らないプロバイダの最初の delta の両方から呼ぶ。本文へ戻ったときにもう一度「書き出し」を
+   * 知らせられるよう `writingNotified` も戻す
+   */
+  const beginThinking = (): void => {
+    const entering = phase.state !== "thinking";
+    liveThinking.clear();
+    phase = { state: "thinking", text: THINKING_PHASE_TEXT };
+    writingNotified = false;
+    // 同じ phase の再送では知らせない (読み上げと演出を増やさない)
+    if (entering) emit("status", { state: "thinking", text: THINKING_PHASE_TEXT });
   };
   /** compaction_start の到着時刻。compaction_end までの BFF 計測に使う (run の寿命で足りる) */
   let compactionStartedAt: number | undefined;
@@ -263,12 +280,12 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
       }
       switch (event.type) {
         case "agent_start":
-          emitStatus("thinking", "考え中…");
+          emitStatus("thinking", THINKING_PHASE_TEXT);
           break;
         case "turn_start":
           // 最初のターンは agent_start と同じ文言。ツールを終えた後のモデル待ちで、
           // 終わったツール名を実行中のまま残さない
-          if (assistantSeen) emitStatus("thinking", "考え中…");
+          if (assistantSeen) emitStatus("thinking", THINKING_PHASE_TEXT);
           break;
         case "message_start":
           if (event.message?.role === "assistant") {
@@ -297,10 +314,12 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             pushText(deltaMasker.push(assistantEvent.delta ?? ""));
           } else if (assistantEvent?.type === "thinking_start") {
             // ブロックごとに masker を作り直す (前のブロックの保留バッファを引き継がない)
-            liveThinking.clear();
+            beginThinking();
           } else if (assistantEvent?.type === "thinking_delta") {
             // 思考だけが先に流れるモデルでも TTFT を測れる
             firstTokenAt ??= Date.now();
+            // `thinking_start` を配らないプロバイダでも、最初の delta で phase を thinking へ戻す
+            if (phase.state !== "thinking") beginThinking();
             liveThinking.push(assistantEvent.delta ?? "");
           } else if (assistantEvent?.type === "thinking_end") {
             // 保留末尾は公開しない。flush() は既知の秘密値の前方一致で途絶えた断片を返し得る

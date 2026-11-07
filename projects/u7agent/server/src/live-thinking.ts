@@ -34,9 +34,14 @@ export interface LiveThinkingDeps {
 export interface LiveThinking {
   /** thinking の delta。mask した末尾を保持し、間隔を空けて配る */
   push(delta: string): void;
-  /** thinking ブロックの終了。保留中の末尾は公開せず破棄する */
+  /**
+   * thinking ブロックの終了 (次の明示的な境界)。保留中の末尾は公開せず破棄し、masker の失敗も解く
+   */
   clear(): void;
-  /** 保留中の配信だけを取り消す (masker の境界バッファと次の delta の受付は維持) */
+  /**
+   * 保留中の配信だけを取り消す (masker の境界バッファと次の delta の受付は維持)。
+   * masker が失敗したブロックは解かない (境界が戻るのは次の `clear()` だけ)
+   */
   cancelPending(): void;
 }
 
@@ -57,6 +62,12 @@ export function createLiveThinking(deps: LiveThinkingDeps): LiveThinking {
   let tail = "";
   let deliveredAt: number | undefined;
   let cancelScheduled: (() => void) | undefined;
+  /**
+   * masker が失敗したブロック。失敗した streaming masker は保留境界を失っているため、残りを
+   * 新しい masker で処理すると分割された秘密値の先頭が平文で出る。次の明示的な境界 (clear) まで
+   * このブロックの delta は一切配信しない
+   */
+  let failed = false;
 
   const cancelDelivery = (): void => {
     cancelScheduled?.();
@@ -84,6 +95,8 @@ export function createLiveThinking(deps: LiveThinkingDeps): LiveThinking {
   return {
     push(delta: string): void {
       if (!delta) return;
+      // 失敗したブロックの続きは、境界を失った masker では安全に処理できない
+      if (failed) return;
       try {
         if (!streaming) {
           streaming = createStreamingSecretMasker(deps.masker);
@@ -92,8 +105,9 @@ export function createLiveThinking(deps: LiveThinkingDeps): LiveThinking {
         }
         tail = tailText(tail + streaming.push(delta), maxChars);
       } catch {
-        // masker の失敗では raw を出さない (確定できなかったこのブロックを捨てる)
+        // masker の失敗では raw を出さず、次の明示的なブロック境界までこのブロックを閉じる
         reset();
+        failed = true;
         return;
       }
       if (tail === "") return;
@@ -108,6 +122,8 @@ export function createLiveThinking(deps: LiveThinkingDeps): LiveThinking {
     },
     clear(): void {
       reset();
+      // 次のブロックは新しい masker で始める (失敗したブロックを引き継がない)
+      failed = false;
     },
     cancelPending(): void {
       cancelDelivery();

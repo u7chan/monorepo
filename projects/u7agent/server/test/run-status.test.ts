@@ -38,6 +38,12 @@ function createActivityBridge() {
 const assistantStart = { type: "message_start", message: { role: "assistant" } } as const;
 const delta = (type: "text_delta" | "thinking_delta", value: string) =>
   ({ type: "message_update", assistantMessageEvent: { type, delta: value } }) as const;
+/** `thinking_start` / `text_end` など、delta を持たない assistant イベント */
+const assistantEvent = (type: string, value?: string) =>
+  ({
+    type: "message_update",
+    assistantMessageEvent: { type, ...(value === undefined ? {} : { delta: value }) },
+  }) as const;
 
 test("本文の最初の delta だけで書き出しを知らせ、同じメッセージの後続では繰り返さない", () => {
   const { bridge, statuses } = createActivityBridge();
@@ -79,6 +85,45 @@ test("thinking_delta は status の thinking になり、text / tool / message_e
   bridge.listener({ type: "message_end", message: { role: "assistant" } });
   bridge.listener({ type: "turn_start" });
   assert.deepEqual(statuses().at(-1), { state: "thinking", text: "考え中…" }, "message_end の後に古い tail を載せない");
+});
+
+// What: commentary → reasoning のように、同じ assistant 応答の中で本文の後に thinking が再開しても
+// phase が thinking へ戻り、tail が出る。本文へ戻ったら writing をもう一度知らせる。
+test("本文 → thinking → 本文の再開で phase と tail が追従する", () => {
+  const { bridge, statuses } = createActivityBridge();
+  bridge.listener({ type: "agent_start" });
+  bridge.listener(assistantStart);
+  bridge.listener(assistantEvent("text_start"));
+  bridge.listener(delta("text_delta", "本文"));
+  bridge.listener(assistantEvent("text_end"));
+  bridge.listener(assistantEvent("thinking_start"));
+  bridge.listener(delta("thinking_delta", "考え直す。"));
+  bridge.listener(assistantEvent("thinking_end"));
+  bridge.listener(assistantEvent("text_start"));
+  bridge.listener(delta("text_delta", "本文の続き"));
+
+  const tails = statuses().filter((status) => typeof status.thinking === "string");
+  assert.equal(tails.length, 1, "thinking の末尾が配られる");
+  assert.equal(tails[0].thinking, "考え直す。");
+  assert.equal(tails[0].state, "thinking");
+  assert.deepEqual(
+    statuses().map((status) => status.state),
+    ["thinking", "writing", "thinking", "thinking", "writing"],
+    "phase が thinking へ戻り、本文の再開で writing を再通知する",
+  );
+});
+
+// What: `thinking_start` を配らないプロバイダでも、最初の delta で phase と tail が付く。
+test("thinking_start が無い最初の delta でも thinking の末尾を配る", () => {
+  const { bridge, statuses } = createActivityBridge();
+  bridge.listener({ type: "agent_start" });
+  bridge.listener(assistantStart);
+  bridge.listener(delta("text_delta", "本文"));
+  bridge.listener(delta("thinking_delta", "思考だけが後から来る。"));
+  assert.equal(statuses().at(-1)?.thinking, "思考だけが後から来る。");
+  bridge.listener(delta("text_delta", "本文の続き"));
+  assert.equal(statuses().at(-1)?.state, "writing", "本文へ戻ったら書き出しへ戻す");
+  assert.ok(!("thinking" in (statuses().at(-1) ?? {})), "本文へ戻ったら tail を載せない");
 });
 
 // What: 確定 (finalize) より後に thinking の status を配らない。保留中の配信も run_end の前に捨てる。

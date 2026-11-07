@@ -140,6 +140,42 @@ test("masker が例外を投げても raw へフォールバックせず、run �
   assert.equal(out.length, 0, "例外の後も raw を出さない");
 });
 
+// What: 途中で masker が失敗しても、同じ thinking ブロックの残りを新しい masker で処理しない
+// (失敗した masker は保留境界を失っており、分割された秘密値の先頭が raw で出る)。
+test("masker が失敗したブロックは、次の明示的な境界まで 1 文字も配らない", () => {
+  const secret = "sk-synthetic-review-0123456789";
+  const inner = createSecretMasker([secret]);
+  let calls = 0;
+  const masker: SecretMasker = {
+    ...inner,
+    // 2 回目 (2 個目の delta) の mask だけを失敗させる
+    mask: (text: string): string => {
+      calls += 1;
+      if (calls === 2) throw new Error("masker failed");
+      return inner.mask(text);
+    },
+  };
+  const { thinking, out, advance } = harness({ masker });
+
+  thinking.push(secret.slice(0, 6));
+  thinking.push(secret.slice(6, 12));
+  // 失敗した後に届く同じブロックの delta。新しい masker で処理すると "-review-0123456789" が出る
+  thinking.push(secret.slice(12));
+  advance(LIVE_THINKING_THROTTLE_MS * 2);
+  assert.equal(out.length, 0, "失敗したブロックの残りを配信しない");
+
+  thinking.cancelPending();
+  thinking.push("まだ同じブロック");
+  advance(LIVE_THINKING_THROTTLE_MS * 2);
+  assert.equal(out.length, 0, "cancelPending では失敗したブロックを解かない");
+
+  // 明示的な境界 (次の thinking ブロック) から通常どおり再開する
+  thinking.clear();
+  thinking.push("次のブロック");
+  advance(LIVE_THINKING_THROTTLE_MS * 2);
+  assert.deepEqual(out, ["次のブロック"], "新しいブロックは配信できる");
+});
+
 test("withoutThinking は status から thinking だけを落とす", () => {
   const entry = { seq: 3, type: "status", data: { state: "thinking", text: "考え中…", thinking: "末尾" }, at: 1 };
   assert.deepEqual(withoutThinking(entry as EventEntry), {

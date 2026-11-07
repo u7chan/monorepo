@@ -42,8 +42,8 @@ SDK の `agent_settled` は、BFF が持つ追加入力の注入完了を意味�
 
 `thinking_delta` は `status` の `thinking` にだけ載せる（`server/src/live-thinking.ts`）。新しいイベント種別も保存経路も作らず、phase のラベルと同じ status に載せて順序のずれをなくす。値は差分ではなく、thinking ブロックごとに作った `createStreamingSecretMasker` を通した末尾のスナップショットで、最初の delta と phase の変化は間引かず、以降は 500ms で間引く。
 
-- `thinking_start` / 最初の `thinking_delta` でブロックを始め、`text_start` / `text_delta` / `tool_execution_start` / `message_end` / `compaction_start` / `auto_retry_start` / `agent_end` / `context_edit` / `finalize` で捨てる。捨てた後は phase の status だけを配り、`thinking` を載せない（クライアントはそれを末尾のクリアとして扱う）。
-- `thinking_end` でも保留末尾は公開せずに破棄する。`flush()` の戻り値を末尾へ足さないのは、既知の秘密値の前方一致で delta が途絶えたときに、末尾を欠いた断片が返り得るため（[secrets.md](secrets.md)）。masker が例外を投げても raw へフォールバックせず、そのブロックを捨てる。表示の失敗で run は止めない。
+- `thinking_start` / 最初の `thinking_delta` でブロックを始め、phase を thinking へ戻して status を知らせる（本文の後に同じ assistant 応答の中で thinking が再開する経路と、`thinking_start` を配らないプロバイダの最初の delta を含む）。その後に本文が再開したら「書き出し」をもう一度知らせる。ブロックは `text_start` / `text_delta` / `tool_execution_start` / `message_end` / `compaction_start` / `auto_retry_start` / `agent_end` / `context_edit` / `finalize` で捨て、捨てた後は phase の status だけを配って `thinking` を載せない（クライアントはそれを末尾のクリアとして扱う）。
+- `thinking_end` でも保留末尾は公開せずに破棄する。`flush()` の戻り値を末尾へ足さないのは、既知の秘密値の前方一致で delta が途絶えたときに、末尾を欠いた断片が返り得るため（[secrets.md](secrets.md)）。masker が例外を投げても raw へフォールバックせず、そのブロックは次の明示的な境界（新しい thinking ブロック）まで一切配信しない（境界を失った masker で続きを処理すると、分割された秘密値の先頭が平文で出る）。表示の失敗で run は止めない。
 - resync と新しい購読では保留中の配信だけを取り消す（masker の境界バッファと次の delta の受付は残す）。バッファからのリプレイは `thinking` を落とし、phase の status だけを復元する（[api-session-runtime.md](api-session-runtime.md#get-apisessionsidevents)）。
 - `thinking_end.content` は使わない。delta の無い redacted thinking は末尾も出さず、phase のラベルだけになる。
 

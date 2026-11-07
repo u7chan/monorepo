@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import { createBffApp } from "../src/app";
 import { createSandboxToolClientFromEnv } from "../src/sandbox/client";
-import { asPiBff, createStubPi } from "./stub-pi";
+import type { AskUserAnswer } from "../src/schema";
+import { asPiBff, createStubPi, type StubAskUserRequest } from "./stub-pi";
 
 const root = process.env.U7AGENT_FIXTURE_ROOT;
 if (!root?.startsWith("/tmp/u7agent-spaces-e2e-") || root.includes("..")) {
@@ -14,11 +15,32 @@ const store = join(root, "store");
 await mkdir(store, { recursive: true });
 const workspace = createSandboxToolClientFromEnv(process.env);
 if (!workspace) throw new Error("別プロセスの一時サンドボックス URL / token が必要です");
+// ask_user の待機は BFF の SessionStore が持つ。stub の質問をそこへ登録し、回答は通常の
+// 回答 API から届くようにする。bff はこの後に作るので、生成後に差し込む
+let askUserBridge: ((request: StubAskUserRequest) => Promise<AskUserAnswer[]>) | undefined;
 const pi = Object.assign(
   createStubPi({
     chunkDelayMs: 150,
-    // 状態行の受入用: 実モデルの代わりに investigate の呼び出しと進捗を流す
+    // 質問カードの受入用: このターンで質問して回答を待つ。回答は通常の回答 API から届く
+    askUserTurn: {
+      prompt: "質問して",
+      questions: [
+        {
+          question: "thinking の末尾をどこまで出すか",
+          header: "表示範囲",
+          options: [
+            { label: "末尾 2 行", description: "固定領域に収める" },
+            { label: "全文", description: "別枠で開く" },
+          ],
+        },
+      ],
+      reply: "回答を受け取りました。末尾 2 行の表示を続けます。",
+    },
+    onAskUser: (request) => askUserBridge?.(request) ?? Promise.resolve([]),
+    // 状態行の受入用: 実モデルの代わりに investigate の呼び出しと進捗を流す。trigger を付けて
+    // この依頼文のときだけ流す (他のシナリオの先頭で phase を tool に奪わない)
     investigateProgress: {
+      trigger: "リポジトリの docs 構成を調べ、investigate の記述箇所を報告して",
       prompt: "リポジトリの docs 構成を調べ、investigate の記述箇所を報告して",
       progress: [
         "grep -rn investigate docs/",
@@ -381,17 +403,38 @@ const pi = Object.assign(
     // 実行中の thinking 末尾の受入用: 本文に「長い思考」を含めて送ると、本文より前に思考の delta を
     // 14 回流す (合計 1200 code point 超)。8 件目の後に 2 秒の無音を空ける。ツール → 本文の順に
     // phase が移るため、2 行領域が閉じずに text だけ消えることを見られる
-    liveThinking: {
-      prompt: "長い思考",
-      chunks: Array.from(
-        { length: 14 },
-        (_, index) =>
-          `検討 ${index + 1}: 状態行の下に置く 2 行の固定領域は、行数と文字数で高さが変わらないようにする。` +
-          "折り返しの上限を決め、上端をクリップして下端を揃え、phase が変わっても領域を閉じない。",
-      ),
-      chunkDelayMs: 700,
-      silence: { afterIndex: 7, ms: 2000 },
-    },
+    liveThinking: [
+      {
+        prompt: "長い思考",
+        chunks: Array.from(
+          { length: 14 },
+          (_, index) =>
+            `検討 ${index + 1}: 状態行の下に置く 2 行の固定領域は、行数と文字数で高さが変わらないようにする。` +
+            "折り返しの上限を決め、上端をクリップして下端を揃え、phase が変わっても領域を閉じない。",
+        ),
+        chunkDelayMs: 700,
+        silence: { afterIndex: 7, ms: 2000 },
+      },
+      // 本文 → thinking → 本文の再開 (commentary → reasoning)。同じ assistant 応答の途中で
+      // 2 つ目の thinking ブロックが始まり、phase と末尾が thinking へ戻る
+      {
+        prompt: "思考の再開",
+        chunks: [
+          "最初の確認: 入力の順序を確かめる。",
+          "次に、本文を書いてからもう一度考える経路を確かめる。",
+          "ここで一度本文を書く。",
+        ],
+        resumeChunks: ["本文の後に再開した思考。", "phase が thinking に戻ることを確かめる。"],
+        resumeAfterText: true,
+        chunkDelayMs: 600,
+      },
+      // 質問カードへ入る前に thinking を流す (2 行領域を開いたまま question へ移る)
+      {
+        prompt: "質問して",
+        chunks: ["質問を組み立てる。", "選択肢を 2 つに絞る。"],
+        chunkDelayMs: 600,
+      },
+    ],
   }),
   { cwd, sandboxConfigured: true },
 );
@@ -422,6 +465,12 @@ const bff = await createBffApp({
     }),
   pi: asPiBff(pi),
 });
+// stub の ask_user を BFF の待機へ繋ぐ。回答は GUI から通常の回答 API へ POST される
+askUserBridge = (request) => {
+  const record = bff.store.get(request.sessionId);
+  if (!record) return Promise.resolve([]);
+  return bff.store.askQuestion(record, request.toolCallId, request.questions, request.signal);
+};
 if (bff.projects.list().length === 0) {
   await workspace.createDir("normal-project");
   bff.projects.create({ cwd: "normal-project", name: "通常のプロジェクト" });

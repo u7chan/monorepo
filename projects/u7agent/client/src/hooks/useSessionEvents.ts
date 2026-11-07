@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, type RefObject } from "react";
 import type { EventEntry, SSEEventType } from "../types";
-import { isSseSilent, nextRetryDelayMs, SSE_SILENCE_CHECK_MS } from "./sessionStream";
+import { handleSseError, isSseSilent, nextRetryDelayMs, SSE_SILENCE_CHECK_MS } from "./sessionStream";
 import { useSpace } from "../SpaceContext";
 
 const EVENT_TYPES: SSEEventType[] = [
@@ -88,8 +88,6 @@ export function useSessionEvents({
       retryScheduled = true;
       const delay = nextRetryDelayMs(retryCountRef.current);
       retryCountRef.current += 1;
-      // 切断した時点で、リプレイでは戻らない live の thinking 末尾を消す
-      handleDisconnect();
       handleReconnect();
       retryTimer = window.setTimeout(() => handleClosed(), delay);
     };
@@ -99,6 +97,8 @@ export function useSessionEvents({
       // 半開の接続はブラウザも閉じないため、こちらから切って既存の復帰経路 (onClosed) に乗せる
       window.clearInterval(silenceTimer);
       source.close();
+      // 無音も切断として扱い、リプレイでは戻らない live の thinking 末尾を消す
+      handleDisconnect();
       scheduleReconnect();
     }, SSE_SILENCE_CHECK_MS);
 
@@ -137,9 +137,12 @@ export function useSessionEvents({
     }
 
     source.onerror = () => {
-      // CONNECTING の間はブラウザが Last-Event-ID 付きでリトライする
-      if (source.readyState !== EventSource.CLOSED) return;
-      scheduleReconnect();
+      // 切断の検知 (tail のクリア) は readyState を問わず行う。CONNECTING のまま戻る切断では
+      // イベントもリプレイも来ないため、ここで消さないと古い tail が残り続ける
+      handleSseError(source, {
+        onDisconnect: () => handleDisconnect(),
+        onReconnect: scheduleReconnect,
+      });
     };
 
     return () => {
