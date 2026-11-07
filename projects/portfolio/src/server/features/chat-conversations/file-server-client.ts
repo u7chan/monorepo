@@ -162,6 +162,20 @@ export async function loginToFileServer(
 }
 
 /**
+ * JSON の構文不正だけを null にし、本文受信中の通信エラーは呼び出し元の分類へ伝播させる。
+ */
+export async function readJsonOrNull<T>(response: Response): Promise<T | null> {
+  try {
+    return (await response.json()) as T
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return null
+    }
+    throw error
+  }
+}
+
+/**
  * file-server の読み取りAPIに GET して、JSON のファイル一覧を確認する。
  */
 export async function readFileServerApi(
@@ -185,7 +199,7 @@ export async function readFileServerApi(
     throw new Error(`file-server read failed: ${res.status}`)
   }
 
-  const payload = (await res.json().catch(() => null)) as { files?: unknown } | null
+  const payload = await readJsonOrNull<{ files?: unknown }>(res)
   if (!payload || !Array.isArray(payload.files)) {
     throw new Error('file-server read returned an invalid response')
   }

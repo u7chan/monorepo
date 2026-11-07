@@ -72,6 +72,11 @@ function createDeferred<T>() {
   return { promise, resolve }
 }
 
+function createConnectionError(code = 'ECONNREFUSED') {
+  const cause = Object.assign(new Error(`connect ${code}`), { code })
+  return Object.assign(new TypeError('fetch failed'), { cause })
+}
+
 describe('getSystemStatus', () => {
   beforeEach(() => {
     resetSystemStatusCacheForTests()
@@ -149,6 +154,87 @@ describe('getSystemStatus', () => {
     )
     expect(readFileServerApiMock).not.toHaveBeenCalled()
     expect(dbEndMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('file-server へ接続できない場合は認証失敗ではなく接続失敗として返す', async () => {
+    const connectionError = createConnectionError()
+    fetchMock.mockRejectedValue(connectionError)
+    loginToFileServerMock.mockRejectedValue(connectionError)
+
+    const result = await getSystemStatus(env)
+
+    expect(result.status).toBe('degraded')
+    expect(result.checks.fileServerHealth).toEqual(
+      expect.objectContaining({ status: 'error', reason: 'connection-failed' })
+    )
+    expect(result.checks.fileServerApi).toEqual(
+      expect.objectContaining({ status: 'error', reason: 'connection-failed' })
+    )
+    expect(result.checks.fileServerApi.login).toEqual(
+      expect.objectContaining({ status: 'error', reason: 'connection-failed' })
+    )
+    expect(result.checks.fileServerApi.read).toEqual(
+      expect.objectContaining({ status: 'error', reason: 'connection-failed' })
+    )
+    expect(result.checks.fileServerPublic).toEqual(
+      expect.objectContaining({ status: 'error', reason: 'connection-failed' })
+    )
+    expect(readFileServerApiMock).not.toHaveBeenCalled()
+  })
+
+  it('ログイン後の読み取りだけが接続失敗した場合はログイン成功を保つ', async () => {
+    readFileServerApiMock.mockRejectedValue(createConnectionError())
+
+    const result = await getSystemStatus(env)
+
+    expect(result.checks.fileServerApi.login).toEqual(expect.objectContaining({ status: 'ok', reason: 'ok' }))
+    expect(result.checks.fileServerApi.read).toEqual(
+      expect.objectContaining({ status: 'error', reason: 'connection-failed' })
+    )
+    expect(result.checks.fileServerApi).toEqual(
+      expect.objectContaining({ status: 'error', reason: 'connection-failed' })
+    )
+  })
+
+  it('公開URLの証明書を検証できない場合は公開配信ではなく接続失敗として返す', async () => {
+    fetchMock.mockImplementation(async (input: unknown) => {
+      if (String(input) === `${env.FILE_SERVER_PUBLIC_URL}/healthz`) {
+        throw createConnectionError('UNABLE_TO_GET_ISSUER_CERT_LOCALLY')
+      }
+
+      return new Response(JSON.stringify({ status: 'ok' }), { status: 200 })
+    })
+
+    const result = await getSystemStatus(env)
+
+    expect(result.checks.fileServerHealth.status).toBe('ok')
+    expect(result.checks.fileServerPublic).toEqual(
+      expect.objectContaining({ status: 'error', reason: 'connection-failed' })
+    )
+  })
+
+  it('公開URLの本文受信が切断された場合は connection-failed として返す', async () => {
+    fetchMock.mockImplementation(async (input: unknown) => {
+      if (String(input) === `${env.FILE_SERVER_PUBLIC_URL}/healthz`) {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"status":'))
+              controller.error(createConnectionError())
+            },
+          }),
+          { status: 200 }
+        )
+      }
+
+      return new Response(JSON.stringify({ status: 'ok' }), { status: 200 })
+    })
+
+    const result = await getSystemStatus(env)
+
+    expect(result.checks.fileServerPublic).toEqual(
+      expect.objectContaining({ status: 'error', reason: 'connection-failed' })
+    )
   })
 
   it('公開URLのルートが成功しても公開healthzが失敗した場合は異常として返す', async () => {

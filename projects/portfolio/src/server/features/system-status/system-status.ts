@@ -3,6 +3,7 @@ import { getDatabase } from '#/db'
 import {
   loginToFileServer,
   readFileServerApi,
+  readJsonOrNull,
   resolveFileServerBaseUrl,
   resolveFileServerPublicBaseUrl,
   type FileServerConfig,
@@ -123,8 +124,59 @@ function isCheckTimeoutError(error: unknown): boolean {
   )
 }
 
+const CONNECTION_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ETIMEDOUT',
+  'EPIPE',
+  'UND_ERR_CLOSED',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET',
+  'CERT_HAS_EXPIRED',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+])
+
+function isConnectionError(error: unknown): boolean {
+  let current: unknown = error
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!(current instanceof Error)) {
+      return false
+    }
+
+    const code = (current as { code?: unknown }).code
+    if (typeof code === 'string' && CONNECTION_ERROR_CODES.has(code)) {
+      return true
+    }
+
+    // undici は接続・TLS の失敗を TypeError('fetch failed') に畳み、原因を cause に置く。
+    // 認証失敗（HTTP status）と区別するため、cause の code も見る。
+    if (current.message === 'fetch failed') {
+      return true
+    }
+
+    current = (current as { cause?: unknown }).cause
+  }
+
+  return false
+}
+
 function failedOutcome(error: unknown, fallbackReason: SystemStatusReason): CheckOutcome {
-  return outcome('error', isCheckTimeoutError(error) ? 'timeout' : fallbackReason)
+  if (isCheckTimeoutError(error)) {
+    return outcome('error', 'timeout')
+  }
+  if (isConnectionError(error)) {
+    return outcome('error', 'connection-failed')
+  }
+  return outcome('error', fallbackReason)
 }
 
 function toCheck(value: CheckOutcome, checkedAt: string): SystemCheck {
@@ -316,12 +368,12 @@ async function checkFileServerApi(env: SystemStatusEnv, checkedAt: string): Prom
     })
     readOutcome = okOutcome()
   } catch (error) {
-    const reason = error instanceof CheckTimeoutError ? 'timeout' : phase === 'login' ? 'login-failed' : 'read-failed'
+    const failed = failedOutcome(error, phase === 'login' ? 'login-failed' : 'read-failed')
     if (phase === 'login') {
-      loginOutcome = outcome('error', reason)
-      readOutcome = outcome('error', reason === 'timeout' ? 'timeout' : 'login-failed')
+      loginOutcome = failed
+      readOutcome = outcome('error', failed.reason)
     } else {
-      readOutcome = outcome('error', reason)
+      readOutcome = failed
     }
   }
 
@@ -352,7 +404,7 @@ async function checkFileServerPublic(env: SystemStatusEnv, checkedAt: string): P
       throw new Error(`file-server public healthz returned ${response.status}`)
     }
 
-    const payload = (await response.json().catch(() => null)) as { status?: unknown } | null
+    const payload = await readJsonOrNull<{ status?: unknown }>(response)
     if (!payload || payload.status !== 'ok') {
       throw new Error('file-server public healthz returned an invalid response')
     }
