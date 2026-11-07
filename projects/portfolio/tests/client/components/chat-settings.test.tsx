@@ -57,6 +57,8 @@ describe('ChatSettings', () => {
     useChatSettingsMock.mockReturnValue({
       fakeMode: false,
       resolvedImageGenerationModel: 'openai/gpt-image-2.5-flare',
+      reasoningEffort: 'medium',
+      reasoningEffortEnabled: false,
       settings: { model: 'gpt-4.1-mini' },
     })
   })
@@ -116,5 +118,39 @@ describe('ChatSettings', () => {
     expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
     expect(screen.getByTestId('settings-panel').dataset.show).toBe('true')
     expect(screen.getByTestId('settings-form').dataset.imageGenerationMode).toBe('true')
+  })
+
+  describe('右上のモデルラベル', () => {
+    const renderChatSettings = () =>
+      render(<ChatSettings settings={settings} showActions={true} showNewChat={false} showSidebarToggle={false} />)
+
+    it('Reasoning Effort が有効なときはモデル名とエフォートを表示する', () => {
+      useChatSettingsMock.mockReturnValue({
+        fakeMode: false,
+        resolvedImageGenerationModel: null,
+        reasoningEffort: 'high',
+        reasoningEffortEnabled: true,
+        settings: { model: 'gpt-4.1-mini' },
+      })
+
+      renderChatSettings()
+
+      expect(screen.getByText('gpt-4.1-mini (high)')).toBeTruthy()
+    })
+
+    it('Reasoning Effort が無効なときはモデル名だけを表示する', () => {
+      useChatSettingsMock.mockReturnValue({
+        fakeMode: false,
+        resolvedImageGenerationModel: null,
+        reasoningEffort: 'high',
+        reasoningEffortEnabled: false,
+        settings: { model: 'gpt-4.1-mini' },
+      })
+
+      renderChatSettings()
+
+      expect(screen.getByText('gpt-4.1-mini')).toBeTruthy()
+      expect(screen.queryByText('gpt-4.1-mini (high)')).toBeNull()
+    })
   })
 })

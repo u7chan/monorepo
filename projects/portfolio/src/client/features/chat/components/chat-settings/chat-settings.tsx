@@ -43,6 +43,13 @@ export function ChatSettings({
   settings,
 }: Props) {
   const contextValue = useChatSettings({ showPopup, onChange, settings })
+  const modelLabel = imageGenerationMode
+    ? (contextValue.resolvedImageGenerationModel ?? '画像モデル未選択')
+    : contextValue.fakeMode
+      ? 'Fake Mode'
+      : contextValue.reasoningEffortEnabled
+        ? `${contextValue.settings.model} (${contextValue.reasoningEffort})`
+        : contextValue.settings.model
 
   return (
     <>
@@ -78,12 +85,11 @@ export function ChatSettings({
             </div>
             {/* Right side */}
             <div className='flex items-center gap-2'>
-              <span className='max-w-48 truncate text-xs font-medium text-gray-500 dark:text-gray-400'>
-                {imageGenerationMode
-                  ? (contextValue.resolvedImageGenerationModel ?? '画像モデル未選択')
-                  : contextValue.fakeMode
-                    ? 'Fake Mode'
-                    : contextValue.settings.model}
+              <span
+                className='max-w-48 truncate text-xs font-medium text-gray-500 dark:text-gray-400'
+                title={modelLabel}
+              >
+                {modelLabel}
               </span>
               <IconButton
                 label='Settings'
