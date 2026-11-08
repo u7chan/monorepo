@@ -40,6 +40,10 @@ export type ComposerProps = {
   activity: string;
   /** 活動表示の由来 (SSE `status` の state)。thinking のときだけ活動ラベルに光を流す */
   activityState?: string;
+  /** 実行中の thinking 末尾 (live 専用)。状態行の下の 2 行領域に出す */
+  thinkingText?: string;
+  /** この run で thinking を観測したか。一度開いたら run の終端まで高さを保つ */
+  thinkingOpen?: boolean;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
   /** 回答待ち (ask_user の実行区間) を経過時間から除く入力。run が実行中のときだけ使う */
@@ -133,6 +137,8 @@ function ClipIcon() {
 export function Composer({
   activity,
   activityState,
+  thinkingText,
+  thinkingOpen,
   runningSince,
   runTools,
   runtimeReady,
@@ -554,6 +560,8 @@ export function Composer({
           <ComposerStatus
             activity={activity}
             activityState={activityState}
+            thinkingText={thinkingText}
+            thinkingOpen={thinkingOpen}
             runningSince={runningSince}
             runTools={runTools}
             queueDepth={queueDepth}

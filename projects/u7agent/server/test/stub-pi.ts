@@ -20,6 +20,8 @@ import type { SessionEnvSource } from "../src/agent";
 import { createMutableSecretMasker } from "../src/redact";
 import type {
   AgentDef,
+  AskUserAnswer,
+  AskUserQuestion,
   ContextUsage,
   ModelOption,
   ModelRef,
@@ -161,6 +163,12 @@ export interface StubSessionOptions {
   contextUsageBeforeHistory?: ContextUsage;
   /** 最初の delta の前に送る thinking_delta の本文 (TTFT の検証用) */
   thinkingDelta?: string;
+  /** 長い thinking と無音を流す (実行中の thinking 末尾の GUI 受入用) */
+  liveThinking?: StubLiveThinking | StubLiveThinking[];
+  /** ask_user の質問カードで止まるターン (GUI 受入用) */
+  askUserTurn?: StubAskUserTurn;
+  /** ask_user の待機を BFF へ渡す口 (未指定ならすべて skip で即答する) */
+  onAskUser?: (request: StubAskUserRequest) => Promise<AskUserAnswer[]>;
   /** 復元: BFF が読んだ entry。SDK の inMemory(cwd, id, entries) と同じく初期履歴として使う */
   entries?: unknown[];
   /** 復元: SDK セッションの id (BFF のセッション id) */
@@ -229,6 +237,110 @@ export interface StubLongTurn {
   replyOf?: (round: number) => string;
 }
 
+/**
+ * 実行中の thinking 末尾の受入用。本文に `prompt` を含む送信で、本文の前に thinking_delta を
+ * 複数回流し、途中で無音を空ける (スロットルと末尾の差し替えを実タイマーで観測できる)。
+ */
+export interface StubLiveThinking {
+  /** この語を本文に含む送信のときだけ流す */
+  prompt: string;
+  /** 1 要素が 1 回の thinking_delta。長い思考は要素を増やす */
+  chunks: string[];
+  /** chunk の間隔 (ms)。省略は chunkDelayMs */
+  chunkDelayMs?: number;
+  /** `afterIndex` 件目の chunk の後に空ける無音 (ms)。delta が途切れた状態を作る */
+  silence?: { afterIndex: number; ms: number };
+  /**
+   * 本文の後に同じ assistant 応答の中で thinking をもう一度始める (commentary → reasoning の再現)。
+   * 本文を半分ほど流し、2 つ目の thinking ブロックを挟んで残りの本文へ戻る
+   */
+  resumeAfterText?: boolean;
+  /** `resumeAfterText` の 2 つ目のブロック。省略は `chunks` を使い回す */
+  resumeChunks?: string[];
+}
+
+/** 送信本文に合う thinking の流れを選ぶ (完全一致 → 最長の部分一致。toolBurst と同じ規則) */
+export function stubLiveThinkingOf(
+  option: StubLiveThinking | StubLiveThinking[] | undefined,
+  text: string,
+): StubLiveThinking | undefined {
+  const options = option === undefined ? [] : Array.isArray(option) ? option : [option];
+  const matched = options.filter((entry) => text.includes(entry.prompt));
+  const exact = matched.find((entry) => entry.prompt === text);
+  if (exact) return exact;
+  return matched.reduce<StubLiveThinking | undefined>(
+    (longest, entry) => (longest === undefined || entry.prompt.length > longest.prompt.length ? entry : longest),
+    undefined,
+  );
+}
+
+/**
+ * ask_user の質問カードで止まり、回答が届いたら本文を流すターン。待機は BFF の
+ * `SessionStore.askQuestion` に登録するため、回答は通常の API (`POST .../questions/:id/answer`) で行う。
+ */
+export interface StubAskUserTurn {
+  /** この語を本文に含む送信のときだけ流す */
+  prompt: string;
+  questions: AskUserQuestion[];
+  /** 回答後に流す本文 (省略時は固定文) */
+  reply?: string;
+}
+
+/** ask_user の待機を BFF へ渡す口。fixture が `SessionStore.askQuestion` を配線する */
+export interface StubAskUserRequest {
+  sessionId: string;
+  toolCallId: string;
+  questions: AskUserQuestion[];
+  signal: AbortSignal;
+}
+
+/** 送信本文に合う ask_user のターンを選ぶ */
+export function stubAskUserOf(option: StubAskUserTurn | undefined, text: string): StubAskUserTurn | undefined {
+  return option !== undefined && text.includes(option.prompt) ? option : undefined;
+}
+
+/** investigate の進捗をこの送信で流すか (`trigger` があれば部分一致で絞る) */
+export function stubInvestigateOf(
+  option: StubInvestigateProgress | undefined,
+  text: string,
+): StubInvestigateProgress | undefined {
+  if (option?.trigger !== undefined && !text.includes(option.trigger)) return undefined;
+  return option;
+}
+
+/** fixture 補助の待ち。session の abortable sleep とは別に、停止まで待たない単純な待ちを使う */
+const stubSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** thinking の delta 列を流す。`silence` は指定した index の後にまとめて空ける */
+async function streamThinking(
+  session: StubSession,
+  chunks: readonly string[],
+  options: { delayMs: number; silence?: { afterIndex: number; ms: number } },
+): Promise<void> {
+  for (const [index, chunk] of chunks.entries()) {
+    await stubSleep(options.delayMs);
+    if (session.abortRequested) return;
+    session.emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: chunk } });
+    if (options.silence?.afterIndex === index) await stubSleep(options.silence.ms);
+  }
+}
+
+/** 本文の delta を流す (実 SDK と同じく text_start / text_end で挟む) */
+async function streamText(
+  session: StubSession,
+  target: { text: string },
+  text: string,
+  delayMs: number,
+): Promise<void> {
+  if (!text) return;
+  session.emit({ type: "message_update", assistantMessageEvent: { type: "text_start" } });
+  await stubSleep(delayMs);
+  if (session.abortRequested) return;
+  target.text += text;
+  session.emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: text } });
+  session.emit({ type: "message_update", assistantMessageEvent: { type: "text_end" } });
+}
+
 /** 履歴ページの既定 (50 item) を超える 1 ターンを作る既定値。user 1 件 + 応答 55 件 = 56 item */
 const LONG_TURN_ROUNDS_DEFAULT = 55;
 
@@ -251,6 +363,8 @@ export interface StubSessionEntry {
     /** role "toolResult" のとき: 対応する toolCall の id と成否 */
     toolCallId?: string;
     isError?: boolean;
+    /** role "toolResult" のとき: ツール固有の結果 (ask_user の質問と回答など) */
+    details?: unknown;
   };
   /** type === "compaction" */
   summary?: string;
@@ -277,6 +391,11 @@ export interface StubKeywordCompaction {
 export interface StubInvestigateProgress {
   /** モデルが渡す依頼文 (ツールカードの引数になる) */
   prompt?: string;
+  /**
+   * この語を本文に含む送信のときだけ流す (省略すると毎ターン流す)。fixture で他のシナリオを
+   * 流すときに、先頭の investigate tool_start が phase を奪わないようにするために使う
+   */
+  trigger?: string;
   /** 子の進捗。runner と同じく「現在の活動」と「本文末尾」を 1 本の本文へ詰めて流す */
   progress?: string[];
   /** tool_execution_end の報告本文 */
@@ -899,10 +1018,94 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           }
           return;
         }
+        // ask_user の質問カードで止まるターン (GUI 受入用)。待機は BFF の askQuestion に登録し、
+        // 回答は通常の回答 API から届く (ブラウザー側の DOM は書き換えない)
+        const askTurn = stubAskUserOf(options.askUserTurn, text);
+        if (askTurn) {
+          promptSeq += 1;
+          const toolCallId = `call-ask-${promptSeq}`;
+          const askArgs = { questions: askTurn.questions };
+          // 実 SDK と同じく、ツール呼び出しだけの応答を message_end まで流してから実行する。
+          // 質問の前に thinking を流すシナリオ (2 行領域を開いたまま question へ移る) も同じ応答で扱う
+          session.emit({ type: "message_start", message: { role: "assistant" } });
+          const askThinking = stubLiveThinkingOf(options.liveThinking, text);
+          if (askThinking) {
+            await streamThinking(session, askThinking.chunks, {
+              delayMs: askThinking.chunkDelayMs ?? chunkDelayMs,
+              silence: askThinking.silence,
+            });
+          }
+          const asked = {
+            role: "assistant",
+            ...assistantModel(),
+            content: [{ type: "toolCall", id: toolCallId, name: "ask_user", arguments: askArgs }],
+            stopReason: "toolUse",
+            timestamp: Date.now(),
+            ...(options.usage === null ? {} : { usage: options.usage ?? STUB_USAGE }),
+          };
+          session.emit({ type: "message_end", message: asked });
+          session.emit({ type: "tool_execution_start", toolCallId, toolName: "ask_user", args: askArgs });
+          const controller = new AbortController();
+          // 回答・停止・終了のどれでも run を止めない (停止時は BFF が待機を取り消して reject する)
+          const answers = await (
+            options.onAskUser === undefined
+              ? Promise.resolve(askTurn.questions.map((_, index) => ({ index, skipped: true })))
+              : options.onAskUser({
+                  sessionId: session.sessionId,
+                  toolCallId,
+                  questions: askTurn.questions,
+                  signal: controller.signal,
+                })
+          ).catch(() => []);
+          const resultText = "回答を受け取りました";
+          session.emit({
+            type: "tool_execution_end",
+            toolCallId,
+            toolName: "ask_user",
+            isError: false,
+            result: {
+              content: [{ type: "text", text: resultText }],
+              details: { questions: askTurn.questions, answers },
+            },
+          });
+          session.appendMessage({
+            role: "toolResult",
+            content: [{ type: "text", text: resultText }],
+            toolCallId,
+            isError: false,
+            timestamp: Date.now(),
+            details: { questions: askTurn.questions, answers },
+          });
+          if (!session.abortRequested) {
+            session.emit({ type: "message_start", message: { role: "assistant" } });
+            const textBlock = { type: "text", text: askTurn.reply ?? "回答を受け取りました。続けます。" };
+            const finalized = {
+              role: "assistant",
+              ...assistantModel(),
+              content: [textBlock],
+              stopReason: "stop",
+              timestamp: Date.now(),
+              ...(options.usage === null ? {} : { usage: options.usage ?? STUB_USAGE }),
+            };
+            session.appendMessage(finalized);
+            await sleep(chunkDelayMs);
+            session.emit({
+              type: "message_update",
+              assistantMessageEvent: { type: "text_delta", delta: textBlock.text },
+            });
+            historyUpdated = false;
+            try {
+              session.emit({ type: "message_end", message: finalized });
+            } finally {
+              historyUpdated = true;
+            }
+          }
+          return;
+        }
         session.emit({ type: "message_start", message: { role: "assistant" } });
         // investigate の呼び出しを模す (状態行の配信経路を作る)。tool_end は本文の後で出す
         promptSeq += 1;
-        const investigate = options.investigateProgress;
+        const investigate = stubInvestigateOf(options.investigateProgress, text);
         const investigateToolCallId = investigate?.toolCallId ?? `call-investigate-${promptSeq}`;
         const burstIdPrefix = `call-burst-${promptSeq}-`;
         const investigateArgs = { prompt: investigate?.prompt ?? "スタブの調査依頼" };
@@ -960,6 +1163,26 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             });
           }
         }
+        // 長い thinking と無音 (実行中の末尾の受入用)。本文より前に流し、phase の遷移は後続が作る
+        const liveThinking = stubLiveThinkingOf(options.liveThinking, text);
+        // resumeAfterText では本文をここで流し切る (後段の chunk ループと二重に流さない)
+        let textStreamed = false;
+        if (liveThinking) {
+          const thinkingGap = liveThinking.chunkDelayMs ?? chunkDelayMs;
+          await streamThinking(session, liveThinking.chunks, { delayMs: thinkingGap, silence: liveThinking.silence });
+          if (liveThinking.resumeAfterText && !session.abortRequested) {
+            // commentary → reasoning: 同じ assistant 応答の途中で本文 → thinking → 本文へ戻る
+            const splitAt = Math.max(1, Math.ceil(body.length / 2));
+            await streamText(session, assistantText, body.slice(0, splitAt), chunkDelayMs);
+            session.emit({ type: "message_update", assistantMessageEvent: { type: "thinking_start" } });
+            await streamThinking(session, liveThinking.resumeChunks ?? liveThinking.chunks, {
+              delayMs: thinkingGap,
+            });
+            session.emit({ type: "message_update", assistantMessageEvent: { type: "thinking_end" } });
+            await streamText(session, assistantText, body.slice(splitAt), chunkDelayMs);
+            textStreamed = true;
+          }
+        }
         // 子の進捗 (tool_execution_update) を本文の前に流す。間隔は本文 delta と同じ chunkDelayMs に合わせる
         for (const text of investigate?.progress ?? []) {
           await sleep(chunkDelayMs);
@@ -1014,7 +1237,9 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             timestamp: Date.now(),
           });
         }
-        if (options.streamPrefixChars === undefined) {
+        if (textStreamed) {
+          // resumeAfterText で本文を流し終えている (同じ本文を二重に流さない)
+        } else if (options.streamPrefixChars === undefined) {
           for (const chunk of chunks) {
             await sleep(chunkDelayMs);
             if (session.abortRequested) break;
@@ -1206,6 +1431,15 @@ export interface StubPiOptions {
   contextUsageBeforeHistory?: ContextUsage;
   /** 最初の delta の前に送る thinking_delta の本文 (TTFT の検証用) */
   thinkingDelta?: string;
+  /** 長い thinking と無音を流す (実行中の thinking 末尾の GUI 受入用) */
+  liveThinking?: StubLiveThinking | StubLiveThinking[];
+  /** ask_user の質問カードで止まるターン (GUI 受入用) */
+  askUserTurn?: StubAskUserTurn;
+  /**
+   * ask_user の待機を BFF へ渡す口。未指定なら「すべて skip」で即答し、他のテストを止めない。
+   * fixture は `SessionStore.askQuestion` を配線して、通常の回答 API から回答できるようにする
+   */
+  onAskUser?: (request: StubAskUserRequest) => Promise<AskUserAnswer[]>;
   /** 最初の N 回だけ setModel を失敗させる (ガード解除の検証用) */
   setModelFailures?: number;
   /** prompt ごとに消費する preflight compaction (StubSessionOptions と同じ) */

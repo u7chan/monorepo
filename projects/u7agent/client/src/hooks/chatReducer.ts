@@ -178,6 +178,13 @@ export type ChatState = {
    * これらを host として戻し、再構築の後に実行中の行とコピーを出さない (1 run に複数の host が並び得る)
    */
   liveHostAssistantIds: string[];
+  /** 実行中の thinking 末尾 (live 専用)。SSE の `status.thinking` だけが入れる */
+  thinkingText?: string;
+  /**
+   * この run で thinking を観測したか。2 行領域を一度開いたら run の終端まで閉じない
+   * (writing / tool へ移っても高さを動かさないため)
+   */
+  thinkingOpen?: boolean;
   /**
    * `liveHostAssistantIds` を採用した run の id。切断中に前の run が終わり次の run が始まると
    * (`run_start` のリプレイなしで) `resync` だけが届くため、run が変わったら前ターンの host を
@@ -263,7 +270,16 @@ export type ChatAction =
   | { type: "toolProgress"; id: string; text: string }
   | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage; assistantId?: string }
   | { type: "compaction"; compaction: CompactionInfo; count: number }
-  | { type: "status"; state: string; text: string }
+  /**
+   * 状態行の活動。`thinking` は live 専用の thinking 末尾 (SSE `status.thinking`)。
+   * キーが無い status は tail のクリアを意味する
+   */
+  | { type: "status"; state: string; text: string; thinking?: string }
+  /**
+   * 切断 (error / 無音 / 明示再接続) を検知した時点で tail だけを消す。2 行領域 (`thinkingOpen`) は
+   * run の終端まで維持し、次の thinking delta で tail を戻す
+   */
+  | { type: "thinkingCleared" }
   | { type: "queued"; sendId?: string; position: number; queueDepth: number }
   /** 停止で待機キューを破棄した。sendIds は破棄された送信で、未送信の表示へ切り替える */
   | { type: "queueCleared"; sendIds?: string[] }
@@ -334,6 +350,8 @@ export const initialChatState: ChatState = {
   queueDepth: 0,
   activity: "",
   activityState: undefined,
+  thinkingText: undefined,
+  thinkingOpen: false,
   notice: undefined,
   sessionModel: undefined,
   sessionThinkingLevel: undefined,
@@ -1772,6 +1790,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         history: initialChatState.history,
         activity: "",
         activityState: undefined,
+        thinkingText: undefined,
+        thinkingOpen: false,
         // 履歴ごと入れ替わるので、前の履歴の操作の結果は持ち越さない
         notice: undefined,
         handoff: undefined,
@@ -2061,6 +2081,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         notice: switchedSession ? undefined : state.notice,
         // 活動の由来は status イベントだけが入れる (復帰時の文言は状態ではなくお知らせなので持たない)
         activityState: undefined,
+        // thinking の末尾は live 専用で payload に載らない。同じ run の resync (設定変更 / 圧縮 /
+        // context_edit) では領域を開いたまま text だけ消し、run が変わった / 終わったなら閉じる
+        thinkingText: undefined,
+        thinkingOpen:
+          status === "running" && payload.run?.id !== undefined && payload.run.id === state.currentRunId
+            ? state.thinkingOpen
+            : false,
         sessionModel: payload.model,
         sessionThinkingLevel: payload.thinkingLevel,
         sessionAgentId: payload.agent?.id,
@@ -2421,6 +2448,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         compactionStartedAt: undefined,
         activity: "実行を開始しました",
         activityState: undefined,
+        // 前の run の tail と 2 行領域を引き継がない (この run で thinking を観測したら開く)
+        thinkingText: undefined,
+        thinkingOpen: false,
         // 前の run の保留値・再試行状態を引き継がない (累計は結果表示用に残す)
         pendingUsage: undefined,
         pendingMetrics: undefined,
@@ -2619,6 +2649,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "text": {
+      // 本文が来たら thinking の末尾は用済み (旧サーバー / 取りこぼした status への保険)
+      if (state.thinkingText !== undefined) state = { ...state, thinkingText: undefined };
       const key = action.assistantId;
       if (key !== undefined) {
         const existing = state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === key);
@@ -2643,6 +2675,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "assistantEnd": {
+      if (state.thinkingText !== undefined) state = { ...state, thinkingText: undefined };
       const key = action.assistantId;
       const target =
         key !== undefined
@@ -2689,6 +2722,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "toolStart": {
+      if (state.thinkingText !== undefined) state = { ...state, thinkingText: undefined };
       const call: ToolCall = {
         id: action.id,
         ...(action.assistantId === undefined ? {} : { assistantId: action.assistantId }),
@@ -2870,9 +2904,23 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     }
 
-    case "status":
-      // state は演出の条件 (thinking のときだけ活動ラベルに光を流す)、text は表示文言
-      return { ...state, activity: action.text || "処理中…", activityState: action.state || undefined };
+    case "status": {
+      // state は演出の条件 (thinking のときだけ活動ラベルに光を流す)、text は表示文言。
+      // thinking の末尾は live 専用で、載っていない status は tail のクリアを意味する
+      const thinkingText = action.state === "thinking" && action.thinking ? action.thinking : undefined;
+      return {
+        ...state,
+        activity: action.text || "処理中…",
+        activityState: action.state || undefined,
+        thinkingText,
+        // 一度開いた 2 行領域は run の終端まで閉じない (writing / tool で text だけ消す)
+        thinkingOpen: state.thinkingOpen === true || thinkingText !== undefined,
+      };
+    }
+
+    case "thinkingCleared":
+      // 切断した tail を見せ続けない。領域は次の delta のために残す
+      return state.thinkingText === undefined ? state : { ...state, thinkingText: undefined };
 
     case "queued": {
       // 自分の送信の待機を SSE が先に配る経路 (応答より前) でも送信IDで対応付ける
@@ -3053,6 +3101,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         toolBubbleIds: {},
         activity,
         activityState: undefined,
+        // run が終わったら tail も 2 行領域も閉じる
+        thinkingText: undefined,
+        thinkingOpen: false,
         // 開始直後の演出は run の終了でも必ず落とす
         startingRunId: undefined,
         // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)

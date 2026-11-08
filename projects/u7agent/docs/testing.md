@@ -211,6 +211,20 @@ GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui
 - 1440 / 1024 / 834 / 390 / 320 / 844×390 で横スクロールせず、長い会話名・長いエージェント名・多数行でも末尾まで到達できる。サービス行の `開く` / `停止` と行の `起動` / `開く` は 44px 以上のタップ領域になる。**901px でサイドバーの docked / モバイルヘッダが切り替わり、641–900px では ☰・会話に戻る・再読み込み・入口が 44×44px 以上**になる。640px 以下では行が縦積みになり、行のリンク（操作を持つ行はタイトル + メタ）がタップ領域になる。
 - light / dark の各テーマと reduced motion、ブラウザーの文字拡大で状態と操作が読み取れる。11px 未満のメタ文字と 4.5:1 未満の小さい文字が無い。
 
+## 実行中の thinking の受入
+
+自動検証は `server/test/live-thinking.test.ts`（code point 単位の末尾・500ms の間引き・phase 変化での即時クリア・`cancelPending` が masker の境界を保つこと・保留末尾を公開しないこと・masker が途中で失敗したブロックを次の境界まで配信しないこと）、`server/test/run-status.test.ts`（`thinking_delta` が `status.thinking` になり、text / tool / message_end で消えること、本文 → thinking → 本文と `thinking_start` 欠落でも phase と末尾が追従すること、finalize の後に配らないこと）、`server/test/sessions-secrets.test.ts`（分割した秘密値が SSE に出ないこと・カーソルのリプレイが `thinking` を落とすこと・resync が保留配信を取り消すこと）、`server/test/diagnostics.test.ts` と `client/test/diagnostics.test.ts`（要約が `thinkingChars` だけを持つこと）、client の `client/test/liveThinking.test.ts`（末尾 2 行・160 code point・空行・絵文字）、`client/test/chatReducer.test.ts`（set / phase の変化 / 切断 / 同じ run と別 run の resync / run_end / newChat）、`client/test/sessionStream.test.ts`（`status.thinking` の経路とリプレイで戻らないこと、`EventSource.onerror` が CONNECTING でも末尾を消して CLOSED だけ張り直すこと）、`client/test/composerStatus.test.ts`（2 行領域の表示条件・空でも残る高さ・`aria-hidden` と `title`・状態行の `aria-live` の外にあること）で行う。
+
+GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の合成シナリオで、desktop と singleColumn を確認する。本文に「長い思考」を含めると長い thinking（1200 code point 超）・複数回の更新・2 秒の無音・ツール実行への遷移を流し、「思考の再開」で本文 → thinking → 本文の再開を、「質問して」で thinking → 質問カード → 回答後の本文を流す（質問の待機は BFF の `askQuestion` に登録するので、回答は通常の回答 API から行う）。
+
+- thinking の delta が増えても 2 行領域の高さとチャットのスクロール範囲が変わらず、末尾 2 行だけが差し替わる。入力欄の上端は初回に 2 行分だけ動き、その後は動かない。
+- writing / tool / question に移っても領域が閉じず text だけ消える。run が終わると閉じ、次に thinking を出す run で再び開く。
+- F5 と再接続（dev のプロキシを止めて戻す）で tail が消え、次の thinking の delta で戻る。resync（設定変更 / 圧縮）では 2 行領域が閉じない。
+- 低い窓（高さ 390px 程度）と 320px 幅で入力欄と主ボタンが viewport の外へ出ない。
+- 読み上げが phase のラベルだけを対象にし、tail を連続で読まない。light / dark / 全テーマで 11px の tail が読め、`forced-colors` でも本文が消えない。
+- 引数 `trigger` を持つ fixture の investigate 進行は、その依頼文のときだけ流れる（他のシナリオの先頭で phase が tool にならない）。
+- `/activity` の行には thinking を出さない（今回の変更で `/activity` が変わっていないこと）。
+
 ## client の棚卸し
 
 整理前のローカル checkout は `client/test/*.test.ts` が 119 ファイル、うち `readFileSync` を使うものが 61 ファイルだった。ファイル数ではなくテストケース単位で分類し、混在する純関数・SSR の検査は残した。以下のファイル名は `client/test/` 相対。

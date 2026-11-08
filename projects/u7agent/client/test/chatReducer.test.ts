@@ -5447,3 +5447,105 @@ test("assistant のモデルは payload と assistant_end の両方からバブ�
   state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:3", model: null });
   assert.equal(state.bubbles.find((bubble) => bubble.assistantId === "run-1:3")?.model, null, "不明は null で確定する");
 });
+
+/** 実行中 run の payload。resync が同じ run の継続かを run.id で判定する */
+function liveThinkingPayload(runId: string): SessionPayload {
+  return {
+    ...runningPayload(),
+    run: {
+      id: runId,
+      initialSendId: "send-1",
+      status: "running",
+      startedAt: 1,
+      prompt: "考えて",
+      toolCalls: [],
+      totalRetryCount: 0,
+    },
+  };
+}
+
+/** run を開始し、thinking の末尾を 1 度観測した状態 */
+function thinkingState(runId = "run-1"): ChatState {
+  const started = chatReducer(initialChatState, {
+    type: "runStart",
+    runId,
+    prompt: "考えて",
+    at: 1,
+    startedAt: 1,
+  });
+  return chatReducer(started, { type: "status", state: "thinking", text: "考え中…", thinking: "末尾の思考" });
+}
+
+test("thinking の末尾は status で入り、phase が移っても領域は閉じず text だけ消える", () => {
+  const thinking = thinkingState();
+  assert.equal(thinking.thinkingText, "末尾の思考");
+  assert.equal(thinking.thinkingOpen, true);
+
+  // writing / tool / question では tail を消すが、2 行領域は run の終端まで残す
+  for (const [state, text] of [
+    ["writing", "応答を書いています…"],
+    ["tool", "bash を実行中…"],
+    ["question", "回答を待っています…"],
+  ] as const) {
+    const next = chatReducer(thinking, { type: "status", state, text });
+    assert.equal(next.thinkingText, undefined, `${state} で tail を消す`);
+    assert.equal(next.thinkingOpen, true, `${state} で領域を閉じない`);
+    assert.equal(next.activity, text, "phase のラベルは status の文言を使う");
+  }
+});
+
+test("status の再送では phase のラベルを変えず、tail だけを差し替える", () => {
+  const thinking = thinkingState();
+  const resent = chatReducer(thinking, { type: "status", state: "thinking", text: "考え中…", thinking: "次の末尾" });
+  assert.equal(resent.thinkingText, "次の末尾");
+  assert.equal(resent.activity, "考え中…");
+  // thinking を載せない status は tail のクリアを意味する
+  const cleared = chatReducer(resent, { type: "status", state: "thinking", text: "考え中…" });
+  assert.equal(cleared.thinkingText, undefined);
+  assert.equal(cleared.thinkingOpen, true);
+});
+
+test("旧サーバー / 取りこぼしに備えて text / toolStart / assistantEnd でも tail を消す", () => {
+  const thinking = thinkingState();
+  assert.equal(chatReducer(thinking, { type: "text", delta: "本文", at: 2 }).thinkingText, undefined);
+  assert.equal(
+    chatReducer(thinking, { type: "toolStart", id: "call-1", name: "read", args: "a.md", at: 2 }).thinkingText,
+    undefined,
+  );
+  assert.equal(chatReducer(thinking, { type: "assistantEnd", assistantId: "run-1:1" }).thinkingText, undefined);
+});
+
+test("切断を検知したら tail だけを消し、2 行領域は run の終端まで残す", () => {
+  const thinking = thinkingState();
+  const disconnected = chatReducer(thinking, { type: "thinkingCleared" });
+  assert.equal(disconnected.thinkingText, undefined);
+  assert.equal(disconnected.thinkingOpen, true, "次の delta で同じ領域へ戻せる");
+  // リプレイされた status は thinking を載せない (古い tail を再表示しない)
+  const replayed = chatReducer(disconnected, { type: "status", state: "thinking", text: "考え中…" });
+  assert.equal(replayed.thinkingText, undefined);
+  assert.equal(replayed.thinkingOpen, true);
+});
+
+test("resync は同じ run なら領域を開いたまま text だけ消し、run が変われば閉じる", () => {
+  const thinking = thinkingState("run-1");
+  const sameRun = chatReducer(thinking, { type: "resync", payload: liveThinkingPayload("run-1") });
+  assert.equal(sameRun.thinkingText, undefined);
+  assert.equal(sameRun.thinkingOpen, true, "設定変更 / 圧縮 / context_edit の resync で閉じない");
+
+  const otherRun = chatReducer(thinking, { type: "resync", payload: liveThinkingPayload("run-2") });
+  assert.equal(otherRun.thinkingOpen, false, "run が変わったら閉じる");
+
+  const ended = chatReducer(thinking, { type: "resync", payload: { ...runningPayload(), status: "idle", run: null } });
+  assert.equal(ended.thinkingOpen, false, "run が終わっていたら閉じる");
+});
+
+test("runEnd / newChat で tail と 2 行領域を閉じる", () => {
+  const thinking = thinkingState();
+  const ended = chatReducer(thinking, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0 });
+  assert.equal(ended.thinkingText, undefined);
+  assert.equal(ended.thinkingOpen, false);
+
+  const fresh = chatReducer(thinking, { type: "newChat" });
+  assert.equal(fresh.thinkingText, undefined);
+  assert.equal(fresh.thinkingOpen, false);
+});

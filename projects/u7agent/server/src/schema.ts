@@ -2599,7 +2599,9 @@ export const EventDataSchemas = {
   // investigate の子の進捗。`id` は tool_start / tool_end と同じ toolCallId で、ライブの
   // `ToolCall.progress` だけを更新する (payload の `run.toolCalls` には載せない)
   tool_progress: z.object({ id: z.string(), text: z.string() }),
-  status: z.object({ state: z.string(), text: z.string() }),
+  // 状態行の活動ラベル。`thinking` は live 専用の thinking 末尾で、保存せずリプレイでも落とす。
+  // mask 済み・最大 `LIVE_THINKING_MAX_CHARS` code point (`server/src/live-thinking.ts`)
+  status: z.object({ state: z.string(), text: z.string(), thinking: z.string().optional() }),
   queued: z.object({
     position: z.number(),
     queueDepth: z.number(),

@@ -40,6 +40,34 @@ export function nextRetryDelayMs(retryCount: number): number {
   return Math.min(SSE_RETRY_MAX_MS, SSE_RETRY_BASE_MS * 2 ** retryCount);
 }
 
+/** `EventSource.readyState`。0 = CONNECTING (ブラウザーが自動再接続中)、2 = CLOSED (諦めた) */
+export const SSE_READY_CONNECTING = 0;
+export const SSE_READY_CLOSED = 2;
+
+/**
+ * `EventSource` の `onerror` で何をするか。**切断の検知 (thinking の末尾のクリア) は
+ * `readyState` より先に確定させる**: 末尾に追いついた再購読では新しいイベントもリプレイも来ず、
+ * 復帰後の ping が無音判定を延ばすため、CONNECTING のまま戻る通常の切断で消さないと古い tail が
+ * 残り続ける。張り直しの予約は CLOSED のときだけ行う (CONNECTING はブラウザーの自動再接続に任せ、
+ * 502 のような致命的応答で HTTP 往復速度に叩き続けない)。
+ */
+export function sseErrorDecision(readyState: number): { clearThinking: boolean; scheduleReconnect: boolean } {
+  return { clearThinking: true, scheduleReconnect: readyState === SSE_READY_CLOSED };
+}
+
+/**
+ * `onerror` の後始末。判断 (`sseErrorDecision`) とハンドラの呼び出しを 1 箇所に置き、
+ * hook の外から実際の入口として検証できるようにする。
+ */
+export function handleSseError(
+  source: { readyState: number },
+  handlers: { onDisconnect: () => void; onReconnect: () => void },
+): void {
+  const decision = sseErrorDecision(source.readyState);
+  if (decision.clearThinking) handlers.onDisconnect();
+  if (decision.scheduleReconnect) handlers.onReconnect();
+}
+
 /**
  * recover (GET での payload 取り直し) の応答をどう扱うか。`stale` は適用しない (別世代 / 選択が
  * 変わった)、`superseded` は適用しないが回復済み (取得中に新しいイベントが入った / 応答が既知の
@@ -142,8 +170,14 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       return;
     case "status":
       // state はサーバーが配る活動の種類 (thinking / tool / compacting / retry / warning)。
-      // 表示文言とは別に持ち、活動ラベルの演出 (thinking のときだけ光を流す) の条件に使う
-      dispatch({ type: "status", state: entry.data.state, text: entry.data.text });
+      // 表示文言とは別に持ち、活動ラベルの演出 (thinking のときだけ光を流す) の条件に使う。
+      // thinking は live 専用の末尾で、キーが無いときは「クリア」を意味する
+      dispatch({
+        type: "status",
+        state: entry.data.state,
+        text: entry.data.text,
+        ...(entry.data.thinking === undefined ? {} : { thinking: entry.data.thinking }),
+      });
       return;
     case "run_retry":
       // 受信時刻はブラウザの Date.now()。サーバーの serverNow との差で残り時間を出す
