@@ -338,6 +338,11 @@ export interface ContentGenerationConfig {
    */
   readOutputFormats: (model: string) => readonly string[] | undefined;
   /**
+   * 実行のたびにカタログのパラメータ宣言を引く。未知名・宣言なしは undefined（＝不明）。
+   * 明示された引数を provider へ送る前に宣言と突き合わせるために使う。
+   */
+  readParameters: (model: string) => ImageParameterDeclarations | undefined;
+  /**
    * 参照画像による編集が可能かを課金前に確かめる。可能なら undefined、止めるときは理由の文言を返す
    * （モデル宣言と endpoint 宣言の両方を見る）。新規生成はここを通らない。
    */

@@ -101,7 +101,7 @@ SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品�
 
 ### 結果・ログの扱い
 
-- ツール結果の先頭 2 行（モデル行・保存パス行）は編集でも変えない（クライアントの `generationInfo.ts` が読む接頭辞）。編集元はその後に `編集元: <cwd 相対>` として足す
+- ツール結果の先頭 2 行（モデル行・保存パス行）は編集でも変えない（クライアントの `generationInfo.ts` が読む接頭辞）。3 行目はパラメータ行で、編集元はその後に `編集元: <cwd 相対>` として足す（[ツールとプレビュー](#ツールとプレビュー)）
 - 取得した画像の base64 / data URL は、ツール引数・結果・履歴・通常ログへ追加しない。provider のエラー本文は要求 JSON を反射でき、JSON の入れ子・URL エンコード・折り返しの表記を列挙して除去する方式は未知の表記で漏れる。そのため `input_images` を付けた要求が失敗したときは provider の自由文を返さず、分類と固定文言（`画像生成に失敗しました（原因不明）` など）だけを返す。参照画像が無い従来の失敗は今までどおりマスク済みの理由を添える
 - `read` が返す画像 content（SDK が会話履歴へ記録する分）はこの保証の対象外で、従来どおり
 - 入力画像は EXIF 等を含めて無変換で外部 provider へ送られる。ツール説明・`promptGuidelines`・system prompt にこの点と「利用者が明示した編集にだけ使う」ことを書く
@@ -184,7 +184,7 @@ generate_image
 
 - 1 行目 `モデル:`、2 行目 `画像を生成して保存しました: <path>` は provider で変えない（クライアントの `generationInfo.ts` が先頭行を読む）
 - OpenRouter は従来どおり `モデル: <id>`
-- Codex は `モデル: Codex（画像モデル不明）` とし、3 行目に `プロバイダー: Codex` を置く。ルーティングモデルを画像モデルとして出さない
+- Codex は `モデル: Codex（画像モデル不明）` とし、4 行目に `プロバイダー: Codex` を置く（3 行目はパラメータ行で固定する）。ルーティングモデルを画像モデルとして出さない
 - バッジ / キャプションは結果本文の 1 行目をそのまま表示するため、Codex の生成は「Codex（画像モデル不明）」と出る。旧履歴（OpenRouter の `モデル: <id>`）は同じ読み取りで変わらず読める
 
 ### 試行・ツール公開
@@ -274,7 +274,12 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 
 ## ツールとプレビュー
 
-- ツール引数は `prompt`（必須）、`path`（省略可、cwd 相対）、`input_images`（省略可、参照画像 1 枚）。ツール説明と system prompt（`appendSystemPrompt` の画像生成行）に、生成物の場所と「本文には Markdown 画像で示す」ことを入れる
+- ツール引数は `prompt`（必須）、`path`（省略可、cwd 相対）、`input_images`（省略可、参照画像 1 枚）、生成パラメータ（省略可）。ツール説明と system prompt（`appendSystemPrompt` の画像生成行）に、生成物の場所と「本文には Markdown 画像で示す」ことを入れる
+- 生成パラメータの引数は `aspect_ratio` / `resolution` / `quality` / `output_format` / `background` / `seed`。宣言に無いキー・宣言の外の値は provider を呼ぶ前に拒否し、文言に「クレジットは消費していません」を添える（宣言はカタログ、値の型と突き合わせは `server/src/images.ts` の純関数を正とする）。`seed` は 0 以上 2^31-1 以下の整数に限る。`output_format` は保存できる形式（png / jpeg / webp）との積だけを通す。`background: transparent` は実効の `output_format` が jpeg なら拒否し、`output_format` 未指定でも宣言に png / webp が 1 つも無ければ拒否する（宣言が読めないときだけ通す）
+- Codex は画像モデルを持たず引数も受け付けないため、生成パラメータが指定されたら provider を呼ぶ前に拒否する（黙って捨てると結果本文と実際の要求が食い違う）。既定（保存値）の適用はこの段の外で、ここでは引数で明示された値だけを扱う
+- ツール説明と `promptGuidelines` に、生成パラメータは利用者が形・品質・形式を指定したときだけ入れることを書く（指定が無ければ provider の既定に任せる）
+- ツール結果本文は 1 行目モデル・2 行目保存パス・3 行目パラメータ（`<name>=<value>` を固定の並び順で並べる。未指定でも `パラメータ: 指定なし（モデル既定）` を出して位置を固定する）、`編集元:` はその後に置く。3 行目を固定するのは、クライアントの `generationInfo.ts` が結果本文の先頭 3 行だけを読むため（パラメータ行がモデル行・保存パス行を押し出さない）
+- 本文に書くのは検証後の実効値で、要求した値と送信本文を食い違わせない（既定の適用が入る段でも同じ行に実効値を書く）
 - ツール結果本文には保存パスと一緒に使用モデル（実行時に読んだ `model`。Codex は画像モデルが返らないため `Codex（画像モデル不明）` と `プロバイダー: Codex`）を行で残す。会話履歴は `session.jsonl` の `toolResult` の生 content を正とするため、別途 DB へは保存せず、ライブ・復元後の両方でツール履歴の出力から何で生成したかを追える。設定を変更した後の実行にはその時点のモデルが入る
 - モデル行は結果本文の先頭に置く。投影（`toolResultSummary`）は先頭 900 文字（`SUMMARY_TEXT_MAX`）で切るため、長い `path` を指定しても表示からモデルが欠けないようにする
 - 生成物の確認は `read`。SDK の `read` は画像を返せる
@@ -329,11 +334,11 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 | --- | --- |
 | `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ 明示された生成パラメータだけを本文へ足し、未指定なら従来と同一の本文になること / 宣言との突き合わせ（宣言に無いキー・宣言の外の値・不明を送らせない）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK 同梱の openrouter が provider 内で同じ `baseUrl` / ヘッダを使うこと（ひな形の流用の前提）/ SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること / 参照画像ありの失敗では provider の自由文（plain / 1 段・2 段の JSON エスケープ / 折り返し base64）を返さず固定文言だけになること / 参照画像なしの失敗では従来どおり理由を添えること |
 | `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名と形式の宣言）/ 出力形式の取り込みと一覧の絞り込み（不明・形違いは落とさない）/ 宣言がキャッシュから読めること / 一覧から落ちた id の `outputFormatsOf` / 生成パラメータの宣言の取り込み（enum / range / boolean、未知キーの無視、壊れた descriptor、`seed` の上限、`output_format` の積）と `snapshot()` への掲載 / 一覧から落ちた id の `parametersOf` / 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
-| `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ Codex の結果の先頭 3 行（モデル・保存パス・プロバイダー）と参照画像の課金前拒否・認証解決の失敗 / path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / OFF の間は provider を叩かず固定文言で失敗し ON へ戻すと同じ定義で生成できる / throw のマスク / signal の伝播 |
+| `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ Codex の結果の先頭 4 行（モデル・保存パス・パラメータ・プロバイダー）と参照画像の課金前拒否・認証解決の失敗 / 明示された生成パラメータの送信本文への反映と、宣言外の課金前拒否（宣言に無いキー・宣言の外の値・`seed` の型 / `background: transparent` と jpeg・宣言に png / webp が無いモデル・宣言が読めないときは通す / Codex の引数拒否）/ 結果本文の 3 行目パラメータ行（未指定でも出す）と `編集元:` の位置 / path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / OFF の間は provider を叩かず固定文言で失敗し ON へ戻すと同じ定義で生成できる / throw のマスク / signal の伝播 |
 | `server/test/codex-images.test.ts` | Codex アダプタの要求（`/codex/responses`・認証ヘッダ・`image_generation` ツール・ルーティングモデルは画像モデルにしない）/ SSE からの画像の取り出し（`output_item` と最終応答、`content-type` 非依存、`output_format` の写像）/ 失敗分類（401・403・429・5xx・timeout・中断・画像 0 件）/ 画像と応答の上限 / ルーティングモデルが無いときは呼ばない / `auth.json` の保存値だけでの認証状態（missing / configured / expired、壊れた保存値）/ JWT claim からの account id（読めないトークンは使わない） |
 | `server/test/image-input.test.ts` | 参照画像のパス解決（cwd 相対 / 添付の絶対パス / 未所属・プロジェクト・追加スペースで起点がずれない）/ 拒否規則（`..`・範囲外・URL・data URL・バックスラッシュ・空）/ 実バイトの形式判定（PNG・JPEG・WebP、無拡張子・拡張子違い、壊れたヘッダ）/ 上限（10 MiB・40 メガピクセル）/ 入力の base64・data URL の除去 |
 | `server/test/sandbox-image-input.test.ts` | `GET /v1/files/image-input` の許可範囲（scope 外・実在しない範囲・root 外 symlink）/ 実バイト判定 / 上限 413 / scope 数の上限 |
-| `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、有効 / 無効の切替（キーと選択を保つ・行が無ければ 400・保存失敗は 503 で写しも変えない・キー上書きが OFF を引き継ぐ）、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式宣言 |
+| `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、有効 / 無効の切替（キーと選択を保つ・行が無ければ 400・保存失敗は 503 で写しも変えない・キー上書きが OFF を引き継ぐ）、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式・パラメータ宣言 |
 | `server/test/content-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、`PUT /api/settings/content` の有効 / 無効（行が無ければ 400）、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `image.models` の形（SDK 同梱カタログは 3 キーのまま、宣言を持つモデルだけ `parameters` が加わる） |
 | `server/test/content-trials.test.ts` / `server/test/content-trials-api.test.ts` | 試行の開始 / 取得 / キャンセル / 完了 / 失敗 / 中断の状態遷移と終端の不変性、完了直前のキャンセル、遅い結果の破棄、実行中の削除拒否、種別ごとの同時 1 本と provider が終わるまでのスロット保持、キャンセルで abort すること、起動時と一覧取得時の `running` → `interrupted`、終端の記録失敗からの再試行、close の中断、開始前の検証（未設定 / OFF / runtime 不可 / カタログ外 / 空・長すぎるプロンプト / 宣言外・宣言不明・透過できない形式の画像のパラメータ）、失敗文言のマスク、APIキーが応答・履歴に載らないこと、キー削除後も履歴を読めること、成果物の保存と `storage` の分類（課金済み）、保存できない形式・大きさの保存前拒否、同じ入力の再利用（現在のキー世代・成果物ファイルの存在、画像のパラメータの一致・不一致・未指定同士、provider を呼ばず新しい成功を記録しない）、`force` の新規生成、raw 配信の MIME と `nosniff` / `no-store` / `?download=1`、未知の id とパスを混ぜた要求の拒否、保存していない行の 404、成果物の削除、起動時の孤児掃除、実行中ジョブ（保存後・終端更新前）のファイルを消さないこと、一覧の取得中に確定したジョブの成果物を消さないこと（その後の raw 配信・容量・再利用も壊れないこと）、容量が保存済みの成功だけを数えること、時間ベースの自動削除が無いこと |
 | `server/test/content-trial-artifacts.test.ts` | 保存できる形式の許可リスト（png / jpeg / webp と、svg / html / 不明 MIME の保存前拒否）、実バイトからの寸法、壊れた base64 と上限超過、保存名が `<trialId>.<ext>` に固定されること、置き場の外を指す名前の拒否、読み書き・削除・一覧 |

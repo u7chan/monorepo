@@ -1,17 +1,23 @@
 // generate_image ツールの組み立てと保存規則。実 API もサンドボックスも使わず、fake workspace / stub generator で検証する。
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { ImageApi, ImageModel } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { CodexAuth, ImageGenerationInput, ImageGenerationSettings } from "../src/images";
-import { CODEX_AUTH_UNAVAILABLE_MESSAGE } from "../src/images";
+import { CODEX_AUTH_UNAVAILABLE_MESSAGE, createImagesGenerator, type ImageParameterDeclarations } from "../src/images";
 import {
   CODEX_INPUT_IMAGES_MESSAGE,
+  CODEX_PARAMETERS_MESSAGE,
   createImageToolDefinitions,
   imageExtensionFor,
   imageSlug,
   IMAGE_GENERATION_PROMPT_LINES,
+  IMAGE_TOOL_DESCRIPTION,
   IMAGE_TOOL_GUIDELINES,
   IMAGE_TOOL_NAME,
+  IMAGE_TOOL_PARAMETER_DEFAULT_LINE,
+  IMAGE_TOOL_TRANSPARENT_JPEG_MESSAGE,
+  IMAGE_TOOL_TRANSPARENT_UNSAVEABLE_MESSAGE,
   sessionToolNames,
 } from "../src/image-tools";
 import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
@@ -61,6 +67,8 @@ function tool(options: {
   masker?: ReturnType<typeof createMutableSecretMasker>;
   settings?: ImageGenerationSettings | undefined | (() => ImageGenerationSettings | undefined);
   outputFormats?: (model: string) => readonly string[] | undefined;
+  /** モデルのパラメータ宣言。省略は「不明」 */
+  parameters?: (model: string) => ImageParameterDeclarations | undefined;
   /** 実行時の有効 / 無効。省略は常に有効 */
   readEnabled?: () => boolean;
   /** root 相対のパス → 返す画像バイト。無いパスは「読めない」として失敗させる */
@@ -81,6 +89,7 @@ function tool(options: {
     readSettings: () => (typeof settingsOption === "function" ? settingsOption() : settingsOption),
     ...(options.readEnabled ? { readEnabled: options.readEnabled } : {}),
     readOutputFormats: options.outputFormats ?? (() => undefined),
+    readParameters: options.parameters ?? (() => undefined),
     checkImageInput: options.checkImageInput ?? (async () => undefined),
     readImageInput: async (path, scope, signal) => {
       options.capture.reads.push({ path, scope });
@@ -174,6 +183,7 @@ test("ツール一覧は有効なときだけ generate_image を足す", () => {
       masker: createMutableSecretMasker([]),
       readSettings: () => undefined,
       readOutputFormats: () => undefined,
+      readParameters: () => undefined,
       checkImageInput: async () => undefined,
       readImageInput: async () => new Uint8Array(),
       generate: async () => ({ ok: false, code: "unknown", message: "x" }),
@@ -187,8 +197,8 @@ test("path の説明と system prompt は結果パスの参照と一意な生成
   const definition = tool({ capture, settings });
   assert.deepEqual(
     Object.keys(definition.parameters.properties),
-    ["prompt", "path", "input_images"],
-    "引数は既知の 3 つだけ",
+    ["prompt", "path", "input_images", "aspect_ratio", "resolution", "quality", "output_format", "background", "seed"],
+    "引数は既知の 9 つだけ",
   );
   const pathDescription = definition.parameters.properties.path.description;
   assert.equal(typeof pathDescription, "string");
@@ -621,7 +631,7 @@ function codexSettings(resolveAuth: () => Promise<CodexAuth | undefined> = async
   return { provider: "codex" as const, resolveAuth };
 }
 
-test("Codex の結果は 1 行目モデル・2 行目保存パス・3 行目プロバイダーにし、画像モデルを偽らない", async () => {
+test("Codex の結果は 1 行目モデル・2 行目保存パス・3 行目パラメータ・4 行目プロバイダーにし、画像モデルを偽らない", async () => {
   const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   const text = await run(tool({ capture, settings: codexSettings() }), { prompt: "A Cafe" });
   assert.deepEqual(capture.generated[0], {
@@ -633,7 +643,8 @@ test("Codex の結果は 1 行目モデル・2 行目保存パス・3 行目プ�
   const lines = text.split("\n");
   assert.equal(lines[0], "モデル: Codex（画像モデル不明）");
   assert.match(lines[1] ?? "", /^画像を生成して保存しました: generated\//);
-  assert.equal(lines[2], "プロバイダー: Codex");
+  assert.equal(lines[2], IMAGE_TOOL_PARAMETER_DEFAULT_LINE);
+  assert.equal(lines[3], "プロバイダー: Codex");
   assert.equal(text.includes("stub-routing-model"), false, "ルーティングモデルを出さない");
   // バッジの読み取り（先頭 3 行）が壊れていないことも同じ本文で確かめる
   assert.ok(text.includes("Markdown 画像"), text);
@@ -690,5 +701,193 @@ test("OpenRouter の結果の先頭 2 行はモデルと保存パスのまま", 
   const lines = text.split("\n");
   assert.equal(lines[0], "モデル: openai/gpt-image-2");
   assert.match(lines[1] ?? "", /^画像を生成して保存しました: generated\//);
+  assert.equal(lines[2], IMAGE_TOOL_PARAMETER_DEFAULT_LINE, "未指定でも 3 行目にパラメータ行を出す");
   assert.equal(text.includes("プロバイダー:"), false);
+});
+
+/** 宣言を持つモデルの最小構成。宣言の有無をテストごとに動かす */
+const DECLARED: ImageParameterDeclarations = {
+  aspect_ratio: { type: "enum", values: ["16:9", "1:1"] },
+  quality: { type: "enum", values: ["high", "low"] },
+  output_format: { type: "enum", values: ["png", "jpeg", "webp"] },
+  background: { type: "enum", values: ["transparent", "opaque"] },
+  seed: { type: "range", min: 0, max: 1000 },
+};
+
+const declared =
+  (declarations: ImageParameterDeclarations | undefined = DECLARED) =>
+  () =>
+    declarations;
+
+/** 実 generator を差し込むための最低限のモデル。送信先はテスト内の stub fetch が受ける */
+const STUB_MODEL: ImageModel<ImageApi> = {
+  id: "openai/gpt-image-2",
+  name: "Stub Image",
+  type: "image",
+  api: "openrouter-images",
+  provider: "openrouter",
+  baseUrl: "https://stub.invalid/api/v1",
+  input: ["text"],
+  output: ["image"],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+};
+
+test("明示された引数は宣言との検証を通って送信本文へ載り、結果本文の 3 行目に残る", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const sent: Record<string, unknown>[] = [];
+  const generator = createImagesGenerator({
+    models: () => [STUB_MODEL],
+    fetchImpl: (async (_url: string | URL | Request, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: Buffer.from("hello").toString("base64"), media_type: "image/png" }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch,
+  });
+  const text = await run(
+    tool({
+      capture,
+      settings,
+      parameters: declared(),
+      outputFormats: () => ["png", "jpeg", "webp"],
+      inputFiles: { "generated/a.png": pngBytes() },
+      generate: async (input) => {
+        if (input.provider !== "openrouter") throw new Error("unexpected provider");
+        return generator.generate(input);
+      },
+    }),
+    {
+      prompt: "a cafe",
+      input_images: ["generated/a.png"],
+      aspect_ratio: "16:9",
+      quality: "high",
+      output_format: "webp",
+      seed: 42,
+    },
+  );
+  // 明示したキーだけを、引数の値のまま送る（参照画像の欄は別の契約なのでここで外す）
+  const { input_references: references, ...body } = sent[0] ?? {};
+  assert.equal(Array.isArray(references) && references.length, 1, "参照画像も従来どおり送る");
+  assert.deepEqual(body, {
+    model: "openai/gpt-image-2",
+    prompt: "a cafe",
+    n: 1,
+    aspect_ratio: "16:9",
+    quality: "high",
+    output_format: "webp",
+    seed: 42,
+  });
+  const lines = text.split("\n");
+  assert.equal(lines[0], "モデル: openai/gpt-image-2");
+  assert.match(lines[1] ?? "", /^画像を生成して保存しました: generated\//);
+  assert.equal(lines[2], "パラメータ: aspect_ratio=16:9, quality=high, output_format=webp, seed=42");
+  assert.match(lines[3] ?? "", /^本文に示すときは Markdown 画像/);
+  assert.match(lines[4] ?? "", /^編集元: generated\/a\.png/);
+});
+
+test("宣言に無いキー・宣言の外の値は provider を呼ぶ前に拒否する", async () => {
+  const cases: { params: Record<string, unknown>; declarations?: ImageParameterDeclarations; reason: RegExp }[] = [
+    { params: { aspect_ratio: "16:9" }, declarations: {}, reason: /aspect_ratio はこの画像モデルでは指定できません/ },
+    { params: { resolution: "1K" }, reason: /resolution はこの画像モデルでは指定できません/ },
+    { params: { aspect_ratio: "4:3" }, reason: /aspect_ratio に指定できない値です: 4:3/ },
+    { params: { quality: "ultra" }, reason: /quality に指定できない値です: ultra/ },
+    { params: { output_format: "png" }, declarations: {}, reason: /output_format はこの画像モデルでは指定できません/ },
+    { params: { seed: 1001 }, reason: /seed に指定できない値です: 1001/ },
+    { params: { seed: 1.5 }, reason: /seed に指定できない値です: 1.5/ },
+    { params: { seed: -1 }, reason: /seed に指定できない値です: -1/ },
+  ];
+  for (const { params, declarations, reason } of cases) {
+    const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+    const error = await run(tool({ capture, settings, parameters: declared(declarations) }), {
+      prompt: "cafe",
+      ...params,
+    }).then(
+      () => undefined,
+      (failure: unknown) => failure,
+    );
+    assert.ok(error instanceof Error, JSON.stringify(params));
+    assert.match(error.message, reason);
+    assert.match(error.message, /生成は行っていません（クレジットは消費していません）/, "課金前であることを添える");
+    assert.equal(capture.generated.length, 0, `拒否した値で生成を呼んでいる: ${JSON.stringify(params)}`);
+  }
+});
+
+test("background: transparent は jpeg と同時に指定できず、png を宣言するモデルでも拒否する", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const error = await run(
+    tool({ capture, settings, parameters: declared(), outputFormats: () => ["png", "jpeg", "webp"] }),
+    { prompt: "cafe", background: "transparent", output_format: "jpeg" },
+  ).then(
+    () => undefined,
+    (failure: unknown) => failure,
+  );
+  assert.ok(error instanceof Error);
+  assert.equal(error.message, IMAGE_TOOL_TRANSPARENT_JPEG_MESSAGE);
+  assert.equal(capture.generated.length, 0, "生成 API を叩く前に止める");
+});
+
+test("background: transparent は出力形式の宣言に png / webp が無ければ拒否し、宣言が読めないときだけ通す", async () => {
+  for (const formats of [["jpeg"], ["svg", "jpeg"]]) {
+    const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+    const error = await run(tool({ capture, settings, parameters: declared(), outputFormats: () => formats }), {
+      prompt: "cafe",
+      background: "transparent",
+    }).then(
+      () => undefined,
+      (failure: unknown) => failure,
+    );
+    assert.ok(error instanceof Error, JSON.stringify(formats));
+    assert.equal(error.message, IMAGE_TOOL_TRANSPARENT_UNSAVEABLE_MESSAGE);
+    assert.equal(capture.generated.length, 0, "生成 API を叩く前に止める");
+  }
+  // 宣言が不明（SDK 同梱カタログ・古いキャッシュ）なら相互依存の判定をせず provider に任せる
+  for (const formats of [undefined, []]) {
+    const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+    await run(tool({ capture, settings, parameters: declared(), outputFormats: () => formats }), {
+      prompt: "cafe",
+      background: "transparent",
+      output_format: "png",
+    });
+    assert.equal(capture.generated.length, 1);
+  }
+});
+
+test("Codex は画像パラメータを受け付けず、provider を呼ぶ前に拒否する", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const error = await run(tool({ capture, settings: codexSettings() }), {
+    prompt: "a cafe",
+    aspect_ratio: "16:9",
+  }).then(
+    () => undefined,
+    (failure: unknown) => failure,
+  );
+  assert.ok(error instanceof Error);
+  assert.equal(error.message, CODEX_PARAMETERS_MESSAGE);
+  assert.equal(capture.generated.length, 0, "provider を呼ばない（課金しない）");
+});
+
+test("引数を反射する拒否文言もマスカーを通る", async () => {
+  const key = "sk-image-dummy-key-0123456789abcdef";
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const error = await run(
+    tool({ capture, settings, masker: createMutableSecretMasker([key]), parameters: declared() }),
+    {
+      prompt: "cafe",
+      quality: key,
+    },
+  ).then(
+    () => undefined,
+    (failure: unknown) => failure,
+  );
+  assert.ok(error instanceof Error);
+  assert.ok(!error.message.includes(key), "値を反射しない");
+  assert.ok(error.message.includes("[REDACTED]"), error.message);
+  assert.equal(capture.generated.length, 0);
+});
+
+test("ツール説明と promptGuidelines はパラメータを利用者の指定があるときだけ入れると伝える", () => {
+  for (const instructions of [IMAGE_TOOL_DESCRIPTION, IMAGE_TOOL_GUIDELINES.join("\n")]) {
+    assert.match(instructions, /only when the user asked for that shape, quality or format/);
+  }
 });
