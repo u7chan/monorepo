@@ -103,7 +103,8 @@ export function createContentTrialsController(deps: {
   startFailure: (error: unknown) => TrialStartFailure;
   cancel: (id: string) => Promise<ContentTrialResponse>;
   remove: (id: string) => Promise<ContentTrialDeleteResponse>;
-  removeAll: (kind: ContentTrial["kind"]) => Promise<ContentTrialDeleteResponse>;
+  /** 種別を渡すとその種別だけ、省略すると全種別を消す（履歴タブの「すべて削除」） */
+  removeAll: (kind?: ContentTrial["kind"]) => Promise<ContentTrialDeleteResponse>;
   onChange: (state: ContentTrialsState) => void;
 }) {
   let state = INITIAL_CONTENT_TRIALS_STATE;
@@ -385,10 +386,10 @@ export function createContentTrialsController(deps: {
   };
 
   /**
-   * 種別ごとの全削除。面は自分の種別の履歴しか見せないため、種別を渡さずに消すと
-   * もう一方のタブの履歴と保存容量まで消える（API の `?kind=` で絞る）。
+   * 全削除。生成タブは自分の種別だけを見せているため種別を渡し（API の `?kind=` で絞る）、
+   * 履歴タブは種別をまたいだ一覧なので省略する。どちらも実行中の試行はサーバーが残す。
    */
-  const removeAll = async (kind: ContentTrial["kind"]): Promise<boolean> => {
+  const removeAll = async (kind?: ContentTrial["kind"]): Promise<boolean> => {
     update({ busy: true });
     try {
       const response = await deps.removeAll(kind);
@@ -396,13 +397,13 @@ export function createContentTrialsController(deps: {
       details.clear();
       update({ detail: null });
       await load();
-      update({ note: { text: trialRemoveAllNote(kind, response.removed), error: false } });
+      update({ note: { text: trialRemoveAllNote(kind ?? null, response.removed), error: false } });
       return true;
     } catch (error) {
       if (active) {
         update({
           note: {
-            text: `${trialKindLabel(kind)}の試行の履歴を削除できませんでした。${messageFor(error)}`,
+            text: `${kind === undefined ? "すべての種別" : trialKindLabel(kind)}の試行の履歴を削除できませんでした。${messageFor(error)}`,
             error: true,
           },
         });
@@ -448,9 +449,13 @@ export function createContentTrialsController(deps: {
       update({ detail: details.get(id) ?? null });
       void loadDetail(id);
     },
-    /** 開いたタブの新着の印は消す（ページ再訪時に残さない） */
+    /** 開いたタブの新着の印は消す（ページ再訪時に残さない）。履歴は全種別を出すので全部消す */
     setActiveSubsection: (next: ContentSubsection) => {
       activeSubsection = next;
+      if (next === "history") {
+        if (state.newResults.length > 0) update({ newResults: [] });
+        return;
+      }
       if (state.newResults.includes(next)) {
         update({ newResults: state.newResults.filter((item) => item !== next) });
       }

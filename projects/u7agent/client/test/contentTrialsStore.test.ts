@@ -107,6 +107,7 @@ function setup(
     /** 開始の拒否の分類。既定は本番と同じ `code` の判定 */
     startFailure?: (error: unknown) => "disk_shortage" | "other";
     cancel?: () => Promise<unknown>;
+    removeAll?: (kind?: ContentTrial["kind"]) => Promise<{ removed: number }>;
   } = {},
 ) {
   let state: ContentTrialsState = INITIAL_CONTENT_TRIALS_STATE;
@@ -128,7 +129,7 @@ function setup(
     cancel:
       (overrides.cancel as (() => Promise<{ trial: ContentTrial }>) | undefined) ?? (async () => ({ trial: CANCELED })),
     remove: async () => ({ removed: 1 }),
-    removeAll: async () => ({ removed: 1 }),
+    removeAll: overrides.removeAll ?? (async () => ({ removed: 1 })),
     onChange: (next) => {
       state = next;
       changes.push(next);
@@ -485,4 +486,30 @@ test("一覧は開いている種別で絞り、種別が変わったらその�
   view.controller.setKind(null);
   await flush();
   assert.deepEqual(queries, ["image", "speech", undefined], "種別を絞らないときは kind を送らない");
+});
+
+test("履歴タブの全削除は種別を省略し、開いたら全種別の新着を消す", async () => {
+  const calls: (ContentTrial["kind"] | undefined)[] = [];
+  const view = setup([Promise.resolve(listResponse([RUNNING]))], {
+    get: async (id) => ({ trial: { ...SUCCEEDED, id } }),
+    removeAll: async (kind) => {
+      calls.push(kind);
+      return { removed: 1 };
+    },
+  });
+  await view.controller.open("image");
+  view.controller.setActiveSubsection("speech");
+  await view.controller.poll();
+  assert.deepEqual(view.state().newResults, ["image"], "見ていないタブの新着として印を出す");
+
+  // 履歴タブは全種別を出すため、開いたら全種別の新着を消す
+  view.controller.setActiveSubsection("history");
+  assert.deepEqual(view.state().newResults, []);
+
+  await view.controller.removeAll();
+  assert.deepEqual(calls, [undefined], "履歴タブは種別を渡さず全種別を消す");
+  assert.match(view.state().note?.text ?? "", /すべての種別の試行の履歴を 1 件削除しました/);
+
+  await view.controller.removeAll("image");
+  assert.deepEqual(calls, [undefined, "image"], "種別を渡したときはその種別だけを消す");
 });

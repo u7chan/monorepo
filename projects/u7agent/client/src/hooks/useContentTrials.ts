@@ -107,7 +107,7 @@ export function useContentTrials({
     [],
   );
   const removeAll = useCallback(
-    async (target: ContentTrial["kind"]): Promise<boolean> => (await controller.current?.removeAll(target)) ?? false,
+    async (target?: ContentTrial["kind"]): Promise<boolean> => (await controller.current?.removeAll(target)) ?? false,
     [],
   );
 

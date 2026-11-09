@@ -18,7 +18,16 @@ import {
   type SpeechScreenSelection,
   type ContentSavingAction,
 } from "../../lib/contentSettings";
-import { EMPTY_SPEECH_TRIAL_DRAFT } from "../../lib/contentTrials";
+import {
+  EMPTY_SPEECH_TRIAL_DRAFT,
+  bgmTrialRequest,
+  imageTrialRequest,
+  speechTrialDraftOf,
+  speechTrialRequest,
+  trialByteSizeLabel,
+  trialCapacityWarningNote,
+  trialStorageNote,
+} from "../../lib/contentTrials";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import { cn } from "../../lib/cn";
 import type { ContentSubsection } from "../../lib/settingsNav";
@@ -33,7 +42,7 @@ import type {
   UpdateContentSpeechBody,
 } from "../../types";
 import { CollapsibleNotice } from "../CollapsibleNotice";
-import { CheckIcon, TrashIcon } from "../icons";
+import { ArrowRightIcon, CheckIcon, ChevronDownIcon, GearIcon, TrashIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
 import { useConfirm } from "../ConfirmProvider";
 import { ProviderIcon } from "../ProviderIcon";
@@ -45,11 +54,14 @@ import { EvidenceLine, ImageTrialSection } from "./ImageTrialSection";
 import { BgmTrialSection } from "./BgmTrialSection";
 import { SpeechTrialSection } from "./SpeechTrialSection";
 import { SpeechVoiceOptions } from "./SpeechVoiceOptions";
+import { TrialHistoryTab } from "./TrialHistoryTab";
 
 export type ContentSettingsTabProps = {
   settings: ContentSettingsResponse;
   /** URL が決める面。既定は画像生成 */
   contentSubsection: ContentSubsection;
+  /** 一覧と詳細を 1 画面ずつ出す（履歴タブだけが使う） */
+  singleColumn?: boolean;
   /** 実行中の操作。null なら操作なし */
   saving: ContentSavingAction | null;
   /** 有効 / 無効（画像・音声・BGM 共通の 1 つのトグル）。キーと選択は残したまま止められる */
@@ -64,6 +76,8 @@ export type ContentSettingsTabProps = {
   onRefreshSpeechCatalog: () => Promise<boolean>;
   /** 音声の表示が server の実効値と一致しているか。false の間は保存を止める */
   speechSynced: boolean;
+  /** タブを切り替える（履歴への導線と、履歴から生成タブへ戻す導線） */
+  onSelectContentSubsection?: (subsection: ContentSubsection) => void;
   /** 試行の一覧（要約。取得前は null）。表示する種別はタブが決める */
   trials: readonly ContentTrialSummary[] | null;
   /** 選択中の試行の全文（取得中は null） */
@@ -73,11 +87,11 @@ export type ContentSettingsTabProps = {
   trialLoadingMore: boolean;
   /** 選択行を画面へ知らせる（全文の取得は画面が行う） */
   onSelectTrial: (id: string | null) => void;
-  /** 履歴の行の全文を取る（再実行・入力欄に戻す） */
+  /** 履歴の行の全文を取る（直近の結果の表示・再実行・この内容で生成） */
   onLoadTrial: (id: string) => Promise<ContentTrial | null>;
   /** 続きのページを読む */
   onLoadMoreTrials: () => Promise<boolean>;
-  /** 保存容量（`succeeded` + 保存済みだけ）。3 タブの合計で、画像 / 音声 / BGM の試行の面に出す */
+  /** 保存容量（`succeeded` + 保存済みだけ）。3 タブの合計で、履歴の面に出す */
   trialArtifactUsage: ContentTrialArtifactUsageValue;
   /** 保存容量の警告。しきい値は一覧の応答が持ち、返さない間は null（警告を出さない） */
   trialArtifactWarning: ContentTrialArtifactWarningValue | null;
@@ -90,18 +104,20 @@ export type ContentSettingsTabProps = {
   onStartTrial: (input: CreateContentTrialBody) => Promise<boolean>;
   onCancelTrial: (id: string) => Promise<boolean>;
   onDeleteTrial: (id: string) => Promise<boolean>;
-  /** 種別ごとの全削除。他の種別の履歴を消さないよう、面の種別を渡す */
-  onDeleteAllTrials: (kind: ContentTrial["kind"]) => Promise<boolean>;
+  /** 種別ごとの全削除。履歴タブは種別を省略して全種別を消せる */
+  onDeleteAllTrials: (kind?: ContentTrial["kind"]) => Promise<boolean>;
 };
 
 /**
- * 設定 → コンテンツ生成の本文。キー登録・モデル選択・削除の最小 UI に絞り、未設定ではキー入力だけを出す。
+ * 設定 → コンテンツ生成の本文。生成タブは「設定（キー・有効/無効・モデル）」と
+ * 「設定に反映しない 1 回の試行 + 直近の結果」だけを持ち、履歴は専用のタブ（`TrialHistoryTab`）へ分ける。
  * `PUT /api/settings/content/image` と `.../speech` は行が無いと 400 のため、モデル選択はキー保存に成功してから現れる。
  * APIキーは画像と音声で 1 つ共有する（音声だけを無効にするトグルは持たない）。
  */
 export function ContentSettingsTab({
   settings,
   contentSubsection,
+  singleColumn = false,
   saving,
   onSetEnabled,
   onSaveKey,
@@ -111,6 +127,7 @@ export function ContentSettingsTab({
   onSaveSpeech,
   onRefreshSpeechCatalog,
   speechSynced,
+  onSelectContentSubsection,
   trials,
   trialDetail,
   trialHasMore,
@@ -142,6 +159,8 @@ export function ContentSettingsTab({
   const [bgmTrialPrompt, setBgmTrialPrompt] = useState("");
   // 証拠の相対表記は画面を開いた時刻で固定する（毎秒の再描画を持ち込まない）
   const [trialNow] = useState(() => Date.now());
+  // 設定は既定で畳む。生成タブを「設定 + その場の 1 回」に保ち、変えるときだけ開く
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // 画面に出ているモデル。モデル選択・試行の開始・証拠はこの 1 つを使う（保存前でも画面の値で試す）
   const screenModel = imageScreenModel({ draft: imageDraft, savedModel: imageModelValue(settings) });
   // 音声タブのモデル / ボイスも画面の値（下書き優先）。未設定でも履歴を出すため、タブの外側で解決する
@@ -150,12 +169,15 @@ export function ContentSettingsTab({
   const runtimeAvailable = settings.runtimeAvailable;
   const providerName = contentProviderLabel(settings.provider);
   const keyError = contentKeyErrorNotice(settings);
+  const capacityWarning = trialCapacityWarningNote(trialArtifactWarning);
 
   // 未設定へ戻ったら下書きを捨てる。面の unmount で消えていた挙動を持ち上げた側で明示的に保つ
   if (!settings.configured && (imageDraft !== null || speechDraft.model !== null || speechDraft.voice !== null)) {
     setImageDraft(null);
     setSpeechDraft(EMPTY_SPEECH_DRAFT);
   }
+  // キーを消したら設定パネルも閉じる（開いたままの空のフォームを残さない）
+  if (!settings.configured && settingsOpen) setSettingsOpen(false);
 
   const submitKey = async () => {
     setApiKey(keyDraftAfterSave(apiKey, await onSaveKey(apiKey)));
@@ -179,6 +201,91 @@ export function ContentSettingsTab({
     setSpeechDraft(EMPTY_SPEECH_DRAFT);
     return true;
   };
+
+  /** 履歴の「この内容で生成」。全文を下書きへ戻して、その種別の生成タブを開く */
+  const prefillTrial = (trial: ContentTrial): void => {
+    if (trial.kind === "image") {
+      setImageDraft(trial.model);
+      setTrialPrompt(trial.prompt);
+    } else if (trial.kind === "speech") {
+      setSpeechDraft({ model: trial.model, voice: trial.voice ?? "" });
+      setSpeechTrialDraft(speechTrialDraftOf(trial));
+    } else {
+      setBgmTrialPrompt(trial.prompt);
+    }
+    onSelectContentSubsection?.(trial.kind);
+  };
+
+  /** 履歴の「もう一度生成」。保存済みの結果を再利用せず、新しい試行として課金する */
+  const anotherTake = async (trial: ContentTrial): Promise<boolean> => {
+    if (trial.kind === "image") {
+      return onStartTrial(imageTrialRequest({ model: trial.model, prompt: trial.prompt, origin: "another-take" }));
+    }
+    if (trial.kind === "speech") {
+      const request = speechTrialRequest({
+        draft: speechTrialDraftOf(trial),
+        model: trial.model,
+        voice: trial.voice ?? "",
+        origin: "another-take",
+      });
+      if (!request.ok) throw new Error(request.error);
+      return onStartTrial(request.input);
+    }
+    const request = bgmTrialRequest({ prompt: trial.prompt, model: settings.bgm.model ?? "", origin: "another-take" });
+    if (!request.ok) throw new Error(request.error);
+    return onStartTrial(request.input);
+  };
+
+  // 履歴タブは生成の設定を持たない。設定の保存中でも履歴は読める（削除と再生成だけが trialBusy に従う）
+  if (contentSubsection === "history") {
+    return (
+      <TrialHistoryTab
+        settings={settings}
+        singleColumn={singleColumn}
+        trials={trials}
+        detail={trialDetail}
+        hasMore={trialHasMore}
+        loadingMore={trialLoadingMore}
+        keyEpoch={trialKeyEpoch}
+        artifactUsage={trialArtifactUsage}
+        artifactWarning={trialArtifactWarning}
+        note={trialNote}
+        busy={trialBusy}
+        onSelect={onSelectTrial}
+        onLoadTrial={onLoadTrial}
+        onLoadMore={onLoadMoreTrials}
+        onDelete={onDeleteTrial}
+        onDeleteAll={onDeleteAllTrials}
+        onPrefill={prefillTrial}
+        onAnotherTake={anotherTake}
+      />
+    );
+  }
+
+  const settingsSummary = [
+    settings.enabled ? "有効" : "無効",
+    settings.keyStored ? (settings.keyAvailable ? "キー設定済み" : "キーを利用できません") : "キー未設定",
+    contentSubsection === "image"
+      ? imageModelValue(settings) || "モデル未選択"
+      : contentSubsection === "speech"
+        ? `${speechSelectionOfScreen.selectedModel}${
+            speechSelectionOfScreen.selectedVoice === "" ? "" : ` · ${speechSelectionOfScreen.selectedVoice}`
+          }`
+        : (settings.bgm.model ?? "モデル未取得"),
+  ].join(" · ");
+
+  const keySection = (
+    <ContentKeySection
+      settings={settings}
+      apiKey={apiKey}
+      busy={busy}
+      runtimeAvailable={runtimeAvailable}
+      providerName={providerName}
+      onChange={setApiKey}
+      onSubmit={submitKey}
+      onRemove={removeKey}
+    />
+  );
 
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
@@ -206,204 +313,179 @@ export function ContentSettingsTab({
           </p>
         ) : null}
 
-        {/* 実行時トグルはタブの外に置く。画像・音声・BGM は同じキー / 課金を共有するので 1 つに閉じる */}
+        {/* 設定は要約 1 行を既定にし、変えるときだけ開く。生成と結果を同じ画面に収める */}
         {settings.configured ? (
-          <section
-            className={cn(
-              "grid gap-2 rounded-lg border p-3",
-              settings.enabled ? "border-line bg-soft" : "border-warn/50 bg-raised",
-            )}
-          >
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <div className="min-w-0 flex-1">
-                <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">有効 / 無効</div>
-                <p className="mt-0.5 text-xs text-ink">アプリ全体の生成を止めます（画像・音声・BGM で共通）。</p>
-              </div>
-              <ToggleSwitch
-                checked={settings.enabled}
-                label={settings.enabled ? "有効" : "無効"}
-                disabled={busy}
-                onChange={(next) => void onSetEnabled(next)}
-              />
-            </div>
-            <p className="text-2xs leading-relaxed text-ink-muted">
-              OFF にすると <code>generate_image</code>・<code>generate_speech</code>・<code>generate_bgm</code>{" "}
-              は生成を行わず、固定の文言で失敗します。OFF は保存した瞬間から
-              <strong>既存のセッション</strong>にも次の呼び出しから効きます（会話の作り直しもデプロイも 要りません）。ON
-              に戻したとき、OFF の間に作った会話にはツールが無いため新しい会話が必要です。 キーと選択は残ります。
-            </p>
-            {settings.enabled ? null : (
-              <p className="rounded border border-line bg-base px-2 py-1.5 text-2xs leading-relaxed text-ink-muted">
-                無効の間、モデルへはこの文言だけが返ります:
-                <span className="text-ink">{settings.disabledMessage}</span>
-              </p>
-            )}
-          </section>
-        ) : null}
-
-        <section className="grid gap-1.5">
-          <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">APIキー</div>
-          <div className="flex flex-wrap items-center gap-2">
-            <form
-              className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitKey();
-              }}
+          <section className="rounded-lg border border-line bg-raised">
+            <button
+              type="button"
+              aria-expanded={settingsOpen}
+              onClick={() => setSettingsOpen((open) => !open)}
+              className="flex w-full min-w-0 items-center gap-2.5 px-3 py-2 text-left"
             >
-              <input
-                className="field min-w-0 flex-1 text-xs"
-                type="password"
-                value={apiKey}
-                placeholder={settings.keyStored ? "新しいコンテンツ生成のAPIキー（上書き）" : "コンテンツ生成のAPIキー"}
-                aria-label="コンテンツ生成のAPIキー"
-                autoComplete="off"
-                spellCheck={false}
-                disabled={!runtimeAvailable}
-                onChange={(event) => setApiKey(event.currentTarget.value)}
-              />
-              <button type="submit" className="btn-primary" disabled={!runtimeAvailable || busy || apiKey.length === 0}>
-                <CheckIcon />
-                {settings.keyStored ? "上書き保存" : "保存"}
-              </button>
-            </form>
-            {settings.keyStored ? (
-              <button
-                type="button"
-                className="btn-quiet"
-                disabled={!runtimeAvailable || busy}
-                onClick={() => void removeKey()}
+              <span className="grid size-7 shrink-0 place-items-center rounded-md bg-accent-wash text-accent-text">
+                <GearIcon />
+              </span>
+              <span className="grid min-w-0 flex-1 gap-0.5">
+                <span className="text-2xs font-semibold tracking-label text-ink-faint uppercase">設定</span>
+                <span className="truncate text-xs text-ink" title={settingsSummary}>
+                  {settingsSummary}
+                </span>
+              </span>
+              <span className="text-2xs text-ink-muted">{settingsOpen ? "閉じる" : "変更"}</span>
+              <span className={cn("shrink-0 text-ink-faint transition-transform", settingsOpen && "rotate-180")}>
+                <ChevronDownIcon />
+              </span>
+            </button>
+            <div hidden={!settingsOpen} className="grid gap-3 border-t border-line px-3 py-3">
+              {/* 実行時トグルはタブの外に置く。画像・音声・BGM は同じキー / 課金を共有するので 1 つに閉じる */}
+              <section
+                className={cn(
+                  "grid gap-2 rounded-lg border p-3",
+                  settings.enabled ? "border-line bg-soft" : "border-warn/50 bg-raised",
+                )}
               >
-                <TrashIcon />
-                削除
-              </button>
-            ) : null}
-          </div>
-          <p className="text-2xs leading-relaxed text-ink-muted">
-            {providerName} のコンテンツ生成（画像 / 音声 /
-            BGM）で共有するキーです。プロバイダータブで登録したキーとは別に管理し、 流用しません。キーは{" "}
-            {API_KEY_MIN_LENGTH} 文字以上で入力します。
-          </p>
-        </section>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">有効 / 無効</div>
+                    <p className="mt-0.5 text-xs text-ink">アプリ全体の生成を止めます（画像・音声・BGM で共通）。</p>
+                  </div>
+                  <ToggleSwitch
+                    checked={settings.enabled}
+                    label={settings.enabled ? "有効" : "無効"}
+                    disabled={busy}
+                    onChange={(next) => void onSetEnabled(next)}
+                  />
+                </div>
+                <p className="text-2xs leading-relaxed text-ink-muted">
+                  OFF にすると <code>generate_image</code>・<code>generate_speech</code>・<code>generate_bgm</code>{" "}
+                  は生成を行わず、固定の文言で失敗します。OFF は保存した瞬間から
+                  <strong>既存のセッション</strong>にも次の呼び出しから効きます（会話の作り直しもデプロイも
+                  要りません）。ON に戻したとき、OFF の間に作った会話にはツールが無いため新しい会話が必要です。
+                  キーと選択は残ります。
+                </p>
+                {settings.enabled ? null : (
+                  <p className="rounded border border-line bg-base px-2 py-1.5 text-2xs leading-relaxed text-ink-muted">
+                    無効の間、モデルへはこの文言だけが返ります:
+                    <span className="text-ink">{settings.disabledMessage}</span>
+                  </p>
+                )}
+              </section>
 
-        {/* 未設定では保存される設定を出さない（下書きの破棄は上で行う）。画像の試行の履歴だけは
-            キー未設定・OFF でも読めるように残す（新規生成だけを止める） */}
-        {contentSubsection === "image" ? (
-          <>
-            {settings.configured ? (
-              <ImageModelSection
-                settings={settings}
-                busy={busy}
-                refreshing={saving === "catalog"}
-                selectedModel={screenModel}
-                onChangeDraft={setImageDraft}
-                onSave={onSaveSelection}
-                onRefresh={onRefreshCatalog}
-                trials={trials}
-                trialKeyEpoch={trialKeyEpoch}
-                trialNow={trialNow}
-              />
-            ) : null}
-            <ImageTrialSection
-              settings={settings}
-              model={screenModel}
-              trials={trials}
-              detail={trialDetail}
-              hasMore={trialHasMore}
-              loadingMore={trialLoadingMore}
-              keyEpoch={trialKeyEpoch}
-              artifactUsage={trialArtifactUsage}
-              artifactWarning={trialArtifactWarning}
-              note={trialNote}
-              busy={trialBusy}
-              settingsBusy={busy}
-              onChangeSelection={onSelectTrial}
-              onLoadTrial={onLoadTrial}
-              onLoadMore={onLoadMoreTrials}
-              onMakeDefault={saveTrialModel}
-              prompt={trialPrompt}
-              onChangePrompt={setTrialPrompt}
-              onStart={onStartTrial}
-              onCancel={onCancelTrial}
-              onDelete={onDeleteTrial}
-              onDeleteAll={() => onDeleteAllTrials("image")}
-            />
-          </>
-        ) : contentSubsection === "speech" ? (
-          <>
-            {/* 保存される設定はキー保存後にだけ出す。試行の面は履歴を読めるよう未設定でも出す */}
-            {settings.configured ? (
-              <SpeechModelSection
-                settings={settings}
-                busy={busy}
-                synced={speechSynced}
-                refreshing={saving === "speech-catalog"}
-                draft={speechDraft}
-                onChangeDraft={setSpeechDraft}
-                onSave={onSaveSpeech}
-                onRefresh={onRefreshSpeechCatalog}
-                selection={speechSelectionOfScreen}
-                trials={trials}
-                keyEpoch={trialKeyEpoch}
-                trialNow={trialNow}
-              />
-            ) : null}
-            <SpeechTrialSection
-              settings={settings}
-              model={speechSelectionOfScreen.selectedModel}
-              voice={speechSelectionOfScreen.selectedVoice}
-              trials={trials}
-              detail={trialDetail}
-              hasMore={trialHasMore}
-              loadingMore={trialLoadingMore}
-              keyEpoch={trialKeyEpoch}
-              artifactUsage={trialArtifactUsage}
-              artifactWarning={trialArtifactWarning}
-              note={trialNote}
-              busy={trialBusy}
-              settingsBusy={busy}
-              synced={speechSynced}
-              onChangeSelection={onSelectTrial}
-              onLoadTrial={onLoadTrial}
-              onLoadMore={onLoadMoreTrials}
-              onMakeDefault={saveTrialSpeech}
-              draft={speechTrialDraft}
-              onChangeDraft={setSpeechTrialDraft}
-              onStart={onStartTrial}
-              onCancel={onCancelTrial}
-              onDelete={onDeleteTrial}
-              onDeleteAll={() => onDeleteAllTrials("speech")}
-            />
-          </>
+              {keySection}
+
+              {contentSubsection === "image" ? (
+                <ImageModelSection
+                  settings={settings}
+                  busy={busy}
+                  refreshing={saving === "catalog"}
+                  selectedModel={screenModel}
+                  onChangeDraft={setImageDraft}
+                  onSave={onSaveSelection}
+                  onRefresh={onRefreshCatalog}
+                  trials={trials}
+                  trialKeyEpoch={trialKeyEpoch}
+                  trialNow={trialNow}
+                />
+              ) : contentSubsection === "speech" ? (
+                <SpeechModelSection
+                  settings={settings}
+                  busy={busy}
+                  synced={speechSynced}
+                  refreshing={saving === "speech-catalog"}
+                  draft={speechDraft}
+                  onChangeDraft={setSpeechDraft}
+                  onSave={onSaveSpeech}
+                  onRefresh={onRefreshSpeechCatalog}
+                  selection={speechSelectionOfScreen}
+                  trials={trials}
+                  keyEpoch={trialKeyEpoch}
+                  trialNow={trialNow}
+                />
+              ) : (
+                <BgmModelSection settings={settings} trials={trials} keyEpoch={trialKeyEpoch} now={trialNow} />
+              )}
+            </div>
+          </section>
         ) : (
-          <>
-            {/* 保存される設定はキー保存後にだけ出す。試行の面は履歴を読めるよう未設定でも出す */}
-            {settings.configured ? (
-              <BgmModelSection settings={settings} trials={trials} keyEpoch={trialKeyEpoch} now={trialNow} />
-            ) : null}
-            <BgmTrialSection
-              settings={settings}
-              model={settings.bgm.model ?? ""}
-              trials={trials}
-              detail={trialDetail}
-              hasMore={trialHasMore}
-              loadingMore={trialLoadingMore}
-              keyEpoch={trialKeyEpoch}
-              artifactUsage={trialArtifactUsage}
-              artifactWarning={trialArtifactWarning}
-              note={trialNote}
-              busy={trialBusy}
-              prompt={bgmTrialPrompt}
-              onChangePrompt={setBgmTrialPrompt}
-              onChangeSelection={onSelectTrial}
-              onLoadTrial={onLoadTrial}
-              onLoadMore={onLoadMoreTrials}
-              onStart={onStartTrial}
-              onCancel={onCancelTrial}
-              onDelete={onDeleteTrial}
-              onDeleteAll={() => onDeleteAllTrials("bgm")}
-            />
-          </>
+          // 未設定では保存される設定を出さず、キー入力だけを出す（下書きの破棄は上で行う）
+          keySection
+        )}
+
+        {contentSubsection === "image" ? (
+          <ImageTrialSection
+            settings={settings}
+            model={screenModel}
+            trials={trials}
+            keyEpoch={trialKeyEpoch}
+            note={trialNote}
+            busy={trialBusy}
+            settingsBusy={busy}
+            onMakeDefault={saveTrialModel}
+            prompt={trialPrompt}
+            onChangePrompt={setTrialPrompt}
+            onStart={onStartTrial}
+            onCancel={onCancelTrial}
+            onDelete={onDeleteTrial}
+            onLoadTrial={onLoadTrial}
+          />
+        ) : contentSubsection === "speech" ? (
+          <SpeechTrialSection
+            settings={settings}
+            model={speechSelectionOfScreen.selectedModel}
+            voice={speechSelectionOfScreen.selectedVoice}
+            trials={trials}
+            keyEpoch={trialKeyEpoch}
+            note={trialNote}
+            busy={trialBusy}
+            settingsBusy={busy}
+            synced={speechSynced}
+            onMakeDefault={saveTrialSpeech}
+            draft={speechTrialDraft}
+            onChangeDraft={setSpeechTrialDraft}
+            onStart={onStartTrial}
+            onCancel={onCancelTrial}
+            onDelete={onDeleteTrial}
+            onLoadTrial={onLoadTrial}
+          />
+        ) : (
+          <BgmTrialSection
+            settings={settings}
+            model={settings.bgm.model ?? ""}
+            trials={trials}
+            keyEpoch={trialKeyEpoch}
+            note={trialNote}
+            busy={trialBusy}
+            prompt={bgmTrialPrompt}
+            onChangePrompt={setBgmTrialPrompt}
+            onStart={onStartTrial}
+            onCancel={onCancelTrial}
+            onDelete={onDeleteTrial}
+            onLoadTrial={onLoadTrial}
+          />
+        )}
+
+        {/* 履歴は専用のタブへ。件数はこの種別の読み込み済みの数、容量は 3 種別の合計 */}
+        <button
+          type="button"
+          className="flex w-full min-w-0 items-center gap-2.5 rounded-lg border border-line bg-raised px-3 py-2 text-left"
+          onClick={() => onSelectContentSubsection?.("history")}
+        >
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent-wash text-accent-text">
+            <ArrowRightIcon />
+          </span>
+          <span className="grid min-w-0 flex-1 gap-0.5">
+            <span className="text-xs font-semibold text-ink-strong">履歴を見る</span>
+            <span className="truncate text-2xs text-ink-faint" title={trialStorageNote(trialArtifactUsage)}>
+              この種別の履歴 {trials?.length ?? 0} 件 · 保存済み {trialArtifactUsage.count} 件 ·{" "}
+              {trialByteSizeLabel(trialArtifactUsage.bytes)} · 画像 / 音声 / BGM をまとめて見る
+            </span>
+          </span>
+          <span className="btn-quiet shrink-0">すべて見る</span>
+        </button>
+        {capacityWarning === null ? null : (
+          <p role="status" className="text-2xs leading-relaxed break-words text-warn">
+            {capacityWarning}
+          </p>
         )}
 
         <section className="grid gap-1 border-t border-line pt-3 text-2xs leading-relaxed text-ink-muted">
@@ -422,6 +504,77 @@ export function ContentSettingsTab({
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * APIキーの入力。保存済みのキーは再表示しないため、欄は常に空から始める。
+ * 設定パネルの中と、未設定の画面の両方で同じものを使う（未設定では設定パネルを出さない）。
+ */
+function ContentKeySection({
+  settings,
+  apiKey,
+  busy,
+  runtimeAvailable,
+  providerName,
+  onChange,
+  onSubmit,
+  onRemove,
+}: {
+  settings: ContentSettingsResponse;
+  apiKey: string;
+  busy: boolean;
+  runtimeAvailable: boolean;
+  providerName: string;
+  onChange: (value: string) => void;
+  onSubmit: () => Promise<void>;
+  onRemove: () => Promise<void>;
+}) {
+  return (
+    <section className="grid gap-1.5">
+      <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">APIキー</div>
+      <div className="flex flex-wrap items-center gap-2">
+        <form
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onSubmit();
+          }}
+        >
+          <input
+            className="field min-w-0 flex-1 text-xs"
+            type="password"
+            value={apiKey}
+            placeholder={settings.keyStored ? "新しいコンテンツ生成のAPIキー（上書き）" : "コンテンツ生成のAPIキー"}
+            aria-label="コンテンツ生成のAPIキー"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={!runtimeAvailable}
+            onChange={(event) => onChange(event.currentTarget.value)}
+          />
+          <button type="submit" className="btn-primary" disabled={!runtimeAvailable || busy || apiKey.length === 0}>
+            <CheckIcon />
+            {settings.keyStored ? "上書き保存" : "保存"}
+          </button>
+        </form>
+        {settings.keyStored ? (
+          <button
+            type="button"
+            className="btn-quiet"
+            disabled={!runtimeAvailable || busy}
+            onClick={() => void onRemove()}
+          >
+            <TrashIcon />
+            削除
+          </button>
+        ) : null}
+      </div>
+      <p className="text-2xs leading-relaxed text-ink-muted">
+        {providerName} のコンテンツ生成（画像 / 音声 /
+        BGM）で共有するキーです。プロバイダータブで登録したキーとは別に管理し、 流用しません。キーは{" "}
+        {API_KEY_MIN_LENGTH} 文字以上で入力します。
+      </p>
+    </section>
   );
 }
 

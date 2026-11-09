@@ -28,10 +28,11 @@ export function ContentSettingsPage({
   onOpenNav,
 }: ContentSettingsPageProps & { refreshToolCatalog?: () => Promise<unknown> }) {
   const contentSettings = useContentSettings();
-  // 未設定では履歴だけを見せる。タブを出すために一覧を種別で絞らない（設定済みならタブごとに絞る）
+  // 未設定では履歴だけを見せる。タブを出すために一覧を種別で絞らない（設定済みならタブごとに絞る）。
+  // 履歴タブは設定の有無に関係なく全種別をまとめて出す。
   const contentTrials = useContentTrials({
     activeSubsection: contentSubsection,
-    kindScoped: contentSettings.settings?.configured === true,
+    kindScoped: contentSettings.settings?.configured === true && contentSubsection !== "history",
   });
   return (
     <ContentSettingsView
@@ -85,17 +86,23 @@ export function ContentSettingsView({
   // キーの保存 / 削除で世代が変わったら、一覧を取り直さなくても証拠と「旧キー」の判定を追随させる
   const trialKeyEpoch = settings?.keyEpoch ?? contentTrials.keyEpoch;
   const tabs =
-    settings?.configured === true || trialList.length > 0 ? (
+    settings?.configured === true || trialList.length > 0 || contentSubsection === "history" ? (
       <SettingsTabs
         items={CONTENT_SUBSECTIONS.map((item) => {
           // 印の優先順位は 実行中 > 同期未確認 > 新着結果（`tabIndicator` が 1 箇所で決める）
           const indicator = tabIndicator({
             label: item.label,
             running: trialList.some(
-              (trial) => trialKindSubsection(trial.kind) === item.subsection && trial.state === "running",
+              (trial) =>
+                (item.subsection === "history" || trialKindSubsection(trial.kind) === item.subsection) &&
+                trial.state === "running",
             ),
             unsynced: item.subsection === "speech" && !speechSynced,
-            newResult: contentTrials.newResults.includes(item.subsection),
+            // 履歴は全種別を 1 つの一覧に出すため、どの種別の新着でも 1 つの印にまとめる
+            newResult:
+              item.subsection === "history"
+                ? contentTrials.newResults.length > 0
+                : contentTrials.newResults.includes(item.subsection),
           });
           return {
             ...item,
@@ -114,7 +121,11 @@ export function ContentSettingsView({
     <SettingsPageLayout
       eyebrow="CONTENT"
       title="コンテンツ生成"
-      caption="画像・音声・BGMの生成に使う OpenRouter のAPIキーとモデルを確認・設定します。"
+      caption={
+        contentSubsection === "history"
+          ? "画像・音声・BGM の試行をまとめて確認します。チャットの生成は含みません。"
+          : "画像・音声・BGMの生成に使う OpenRouter のAPIキーとモデルを確認・設定します。"
+      }
       // タブが無い（未設定 / 取得前）間も取り直せるよう、面のツールバーは常に出す
       toolbar={
         <TabToolbar
@@ -143,6 +154,7 @@ export function ContentSettingsView({
         <ContentSettingsTab
           settings={settings}
           contentSubsection={contentSubsection}
+          singleColumn={singleColumn}
           saving={saving}
           onSetEnabled={async (enabled) => {
             const saved = await setEnabled(enabled);
@@ -158,6 +170,7 @@ export function ContentSettingsView({
           onRefreshSpeechCatalog={refreshSpeechCatalog}
           speechSynced={speechSynced}
           trials={contentTrials.trials}
+          onSelectContentSubsection={onSelectContentSubsection}
           trialDetail={contentTrials.detail}
           trialHasMore={contentTrials.hasMore}
           trialLoadingMore={contentTrials.loadingMore}

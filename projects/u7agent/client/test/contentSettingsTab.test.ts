@@ -99,7 +99,7 @@ function render(
         onRefreshSpeechCatalog: async () => true,
         speechSynced: options.speechSynced ?? true,
         trials: options.trials ?? [],
-        trialDetail: options.trialDetail ?? options.trials?.[0] ?? null,
+        trialDetail: options.trialDetail !== undefined ? options.trialDetail : (options.trials?.[0] ?? null),
         trialHasMore: options.trialHasMore ?? false,
         trialLoadingMore: false,
         onSelectTrial: () => {},
@@ -118,6 +118,58 @@ function render(
     ),
   );
 }
+
+test("設定は要約 1 行を既定にし、変更でキーとモデルを開く", () => {
+  const html = render();
+  assert.match(html, /aria-expanded="false"/, "既定は畳む");
+  assert.ok(html.includes(">設定<"), "設定の見出しを出す");
+  assert.ok(html.includes("有効 · キー設定済み · openrouter/openai/gpt-image-2"), "現在値を 1 行にまとめる");
+  assert.ok(html.includes(">変更<"), "展開する操作を出す");
+  assert.ok(html.includes('type="password"'), "展開した中にキー入力を残す（hidden で隠すだけ）");
+  assert.ok(html.includes('aria-label="コンテンツ生成のモデル"'), "展開した中にモデル選択を残す");
+  assert.ok(html.includes("履歴を見る"), "履歴は専用タブへ案内する");
+});
+
+test("履歴タブは設定を持たず、全種別の一覧と詳細を出す", () => {
+  const html = render({
+    subsection: "history",
+    trials: [TRIAL_BASE, SPEECH_TRIAL_BASE, BGM_TRIAL_BASE],
+    trialDetail: TRIAL_BASE,
+  });
+  assert.equal(html.includes('type="password"'), false, "履歴タブにキー入力を出さない");
+  assert.equal(html.includes("有効 / 無効"), false, "履歴タブに生成の設定を出さない");
+  assert.ok(html.includes("履歴（3 件）"), "件数を出す");
+  assert.ok(html.includes("保存済み"), "保存容量を出す");
+  assert.ok(html.includes("種別絞り込み"), "種別の絞り込みを出す");
+  assert.ok(html.includes("モデル絞り込み"), "モデルの絞り込みを出す");
+  assert.ok(html.includes("成功失敗の絞り込み"), "成功 / 失敗の絞り込みを出す");
+  assert.ok(html.includes("この内容で生成"), "入力欄へ戻す導線を出す");
+  assert.ok(html.includes("もう一度生成"), "再生成の導線を出す");
+  assert.ok(html.includes("送ったプロンプトをコピー"), "プロンプトのコピーを出す");
+  assert.ok(html.includes(">種別<"), "パラメータの表を出す");
+  assert.ok(html.includes(">キー世代<"), "キー世代を出す");
+});
+
+test("全文を取得できるまでプロンプトは抜粋と明示し、コピーさせない", () => {
+  // 生成タブの静的描画では全文の取得 effect が走らないため、抜粋のままになる
+  const latest = render({ trials: [TRIAL_BASE] });
+  assert.ok(latest.includes("送ったプロンプト（抜粋）"), "抜粋であることをラベルに出す");
+  assert.ok(latest.includes("全文を取得中です。取得できるまでコピーはできません。"), "コピーできない理由を出す");
+  assert.equal(latest.includes("送ったプロンプトをコピー"), false, "抜粋をコピーさせない");
+
+  const loading = render({ subsection: "history", trials: [TRIAL_BASE], trialDetail: null });
+  assert.ok(loading.includes("送ったプロンプト（抜粋）"), "履歴の詳細も取得中は抜粋と明示する");
+  assert.equal(loading.includes("送ったプロンプトをコピー"), false);
+
+  const loaded = render({ subsection: "history", trials: [TRIAL_BASE], trialDetail: TRIAL_BASE });
+  assert.ok(loaded.includes("送ったプロンプトをコピー"), "全文を取れたらコピーを出す");
+});
+
+test("履歴が 0 件でも容量を出し、条件に合う行が無いことを伝える", () => {
+  const html = render({ subsection: "history", trials: [], trialArtifactUsage: { count: 2, bytes: 4_096 } });
+  assert.ok(html.includes("保存済み 2 件 · 4.0 KiB"), "容量は履歴が無くても出す");
+  assert.ok(html.includes("条件に合う履歴はありません。"), "空の案内を出す");
+});
 
 test("未設定ではキー入力だけを出し、モデル選択と削除は出さない", () => {
   const html = render({
@@ -559,7 +611,7 @@ test("中止した試行は「中止」と出し、失敗の分類として見�
   assert.equal(html.includes("失敗の分類"), false, "利用者の中止を失敗の分類にしない");
 });
 
-test("保存済みの結果はビューポートにプレビュー・実寸・形式・サイズ・導線を出し、履歴にサムネイルを出す", () => {
+test("直近の結果はプレビュー・実寸・形式・サイズ・導線を出し、履歴は専用タブへ案内する", () => {
   const html = render({
     trials: [TRIAL_BASE],
     trialArtifactUsage: { count: 1, bytes: 2_048 },
@@ -572,15 +624,11 @@ test("保存済みの結果はビューポートにプレビュー・実寸・�
     html.includes('href="/api/settings/content/trials/trial-1/raw?download=1"'),
     "ダウンロードは同じ trial id のルート",
   );
-  assert.ok(html.includes("入力欄に戻す"), "入力欄へ戻す導線");
-  assert.ok(html.includes("別のテイクを生成"), "別テイクの導線");
-  assert.ok(html.includes("保存容量: 保存済みの成果物 1 件 · 2.0 KiB"), "保存容量を出す");
-  // 履歴の行にも同じ URL のサムネイルを出す
-  assert.ok((html.match(/trials\/trial-1\/raw/g) ?? []).length >= 2, "履歴のサムネイル");
-  assert.ok(html.includes("モデル絞り込み"), "モデルの絞り込み");
-  assert.ok(html.includes("成功失敗の絞り込み"), "成功 / 失敗の絞り込み");
+  assert.ok(html.includes("履歴を見る"), "履歴は専用タブへ案内する");
+  assert.equal(html.includes("入力欄に戻す"), false, "生成タブに入力欄へ戻す導線は置かない");
+  assert.equal(html.includes("別のテイクを生成"), false, "生成タブに別テイクの導線は置かない");
+  assert.equal(html.includes("モデル絞り込み"), false, "履歴の絞り込みは生成タブに出さない");
 });
-
 test("結果を保存していない行（段階 1 の none）は記録のみと出し、ダウンロードを出さない", () => {
   const html = render({
     trials: [{ ...TRIAL_BASE, artifactState: "none", artifact: null, charged: false }],
@@ -588,7 +636,6 @@ test("結果を保存していない行（段階 1 の none）は記録のみと
   assert.ok(html.includes("結果は保存されていません（記録のみ）"), "記録のみを明示する");
   assert.equal(html.includes("/raw"), false, "配信 URL を出さない");
   assert.equal(html.includes(">ダウンロード</a>"), false, "ダウンロードを出さない");
-  assert.ok(html.includes("保存容量: 保存済みの成果物 0 件 · 0 B"), "容量に数えない");
 });
 
 test("保存できなかった成功は課金済みを明示し、成功として見せない", () => {
@@ -612,17 +659,18 @@ test("保存できなかった成功は課金済みを明示し、成功とし�
   assert.equal(html.includes("/raw"), false);
 });
 
-test("結果カードは保存済みの有無に関係なく、別のテイクの課金を添える", () => {
-  const stored = render({ trials: [TRIAL_BASE] });
-  assert.ok(stored.includes("別のテイクは新しい試行として課金されます。"));
-  assert.equal(stored.includes("同じ入力の保存済みの結果があるため、生成し直しても課金されません。"), false);
+test("履歴の詳細は「もう一度生成」を出し、課金されることを添える", () => {
+  const html = render({ subsection: "history", trials: [TRIAL_BASE] });
+  assert.ok(html.includes("もう一度生成"), "履歴からは新しい試行を始められる");
+  assert.ok(html.includes("もう一度生成は新しい試行として課金されます。"), "課金の注記");
+  assert.ok(html.includes("この内容で生成"), "入力欄へ戻す導線");
   // 保存済みが無い（失敗した）行も同じ
   const fresh = render({
+    subsection: "history",
     trials: [{ ...TRIAL_BASE, state: "failed", failureCode: "timeout", artifactState: "none", artifact: null }],
   });
-  assert.ok(fresh.includes("別のテイクは新しい試行として課金されます。"));
+  assert.ok(fresh.includes("もう一度生成は新しい試行として課金されます。"));
 });
-
 test("結果のモデルが保存値と違うときだけ、このモデルを既定にする導線を出す", () => {
   const button = "このモデルを既定にする";
   const other = render({ trials: [{ ...TRIAL_BASE, model: "openrouter/google/gemini-image" }] });
@@ -650,6 +698,7 @@ test("実行中の行は送信時のプロンプトを表示し、入力欄の�
         ...TRIAL_BASE,
         state: "running",
         prompt: "submitted prompt",
+        promptPreview: "submitted prompt",
         finishedAt: null,
         durationMs: null,
         artifactState: "none",
@@ -700,31 +749,22 @@ const SPEECH_TRIAL_BASE: ContentTrial = {
   recorded: true,
 };
 
-test("音声の結果はプレイヤー・snapshot・導線を出し、履歴にボイスを出す", () => {
+test("音声の直近の結果はプレイヤー・snapshot・ボイスを出す", () => {
   const html = render({ subsection: "speech", trials: [SPEECH_TRIAL_BASE] });
-  // 再生は trial id の同 origin ルート（blob URL ではない）。同じ試行は 1 つのビューポートだけ
+  // 再生は trial id の同 origin ルート（blob URL ではない）
   assert.match(html, /<audio[^>]*src="\/api\/settings\/content\/trials\/trial-speech-1\/raw"/);
   assert.ok(html.includes("おはようございます"), "送った本文を出す");
-  assert.ok(html.includes("演技指示: 落ち着いた声で · 話速: 1.1 倍"), "送った演技指示と話速を出す");
+  assert.ok(html.includes("演技指示: 読み込み中… · 話速: 1.1 倍"), "全文を取れるまでは送信時の話速を出す");
   assert.ok(html.includes("ボイス: Aoede"), "送ったボイスを出す");
   assert.ok(html.includes("MP3 · 4.0 KiB"), "形式とサイズを出す");
   assert.ok(
     html.includes('href="/api/settings/content/trials/trial-speech-1/raw?download=1"'),
     "ダウンロードは同じルート",
   );
-  assert.ok(html.includes("入力欄に戻す"));
-  assert.ok(html.includes("別のテイクを生成"));
-  assert.ok(html.includes("別のテイクは新しい試行として課金されます。"), "別テイクの課金の注記");
-  assert.ok(html.includes("保存容量"), "画像と同じ容量を出す");
-  // 同じ本文の別テイクを履歴に並べる
-  const two = render({
-    subsection: "speech",
-    trials: [SPEECH_TRIAL_BASE, { ...SPEECH_TRIAL_BASE, id: "trial-speech-2", speed: 1.2 }],
-  });
-  assert.ok(two.includes('aria-label="成功の試行を表示"'), "履歴の行を出す");
-  assert.ok(two.includes("履歴（2 件）"));
+  assert.ok(html.includes("履歴を見る"), "履歴は専用タブへ案内する");
+  assert.equal(html.includes("入力欄に戻す"), false, "生成タブに入力欄へ戻す導線は置かない");
+  assert.equal(html.includes("別のテイクを生成"), false, "生成タブに別テイクの導線は置かない");
 });
-
 test("音声は結果のモデルとボイスが保存値と違うときだけ、このモデルとボイスを既定にする導線を出す", () => {
   const button = "このモデルとボイスを既定にする";
   // 保存値は Zephyr、試行は Aoede
@@ -882,11 +922,11 @@ const BGM_TRIAL_BASE: ContentTrial = {
   recorded: true,
 };
 
-test("BGM の面は固定モデルと試行の入力・再生・履歴を出し、モデル選択と長さの指定は出さない", () => {
+test("BGM の面は固定モデルと試行の入力・再生を出し、モデル選択と長さの指定は出さない", () => {
   const html = render({ subsection: "bgm", trials: [BGM_TRIAL_BASE] });
   // 保存される設定はモデルの読取専用 1 行だけ（Issue の非ゴール: モデル選択を持たない）
   assert.match(html, /aria-label="BGM生成の固定モデル"[^>]*readOnly=""/);
-  assert.equal((html.match(/<select/g) ?? []).length, 1, "履歴の結果の絞り込みだけを出す");
+  assert.equal((html.match(/<select/g) ?? []).length, 0, "生成タブに履歴の絞り込みを出さない");
   // 尺・BPM・ループの入力は持たない（注記で「保証しない」と伝えるだけ）
   assert.equal(/aria-label="[^"]*(BPM|ループ|尺|長さ)/.test(html), false, "長さの指定は出さない");
   assert.ok(html.includes("正確なBPMや尺・シームレスループは保証しません"), "保証しない旨は残す");
@@ -901,26 +941,22 @@ test("BGM の面は固定モデルと試行の入力・再生・履歴を出し�
   assert.ok(html.includes("実測: —"), "実測尺はブラウザーが読むまで出さない");
   assert.ok(html.includes("MP3 · 6.0 KiB"));
   assert.ok(html.includes('href="/api/settings/content/trials/trial-bgm-1/raw?download=1"'));
-  assert.ok(html.includes("入力欄に戻す"));
-  assert.ok(html.includes("別のテイクを生成"));
-  assert.ok(html.includes("別のテイクは新しい試行として課金されます。"));
-  assert.ok(html.includes("保存容量"), "画像・音声と同じ容量を出す");
+  assert.ok(html.includes("履歴を見る"), "履歴は専用タブへ案内する");
+  assert.equal(html.includes("入力欄に戻す"), false, "生成タブに入力欄へ戻す導線は置かない");
+  assert.equal(html.includes("別のテイクを生成"), false, "生成タブに別テイクの導線は置かない");
 });
-
-test("BGM の履歴の行から同じプロンプトをもう一度試せる", () => {
-  const html = render({ subsection: "bgm", trials: [BGM_TRIAL_BASE] });
-  assert.ok(html.includes('aria-label="成功の試行をもう一度試す"'), "履歴の行に再試行を出す");
-  assert.ok(html.includes("もう一度試す"));
-  assert.ok(html.includes('aria-label="成功の試行を表示"'), "行を選ぶと結果が切り替わる");
-  // 実行中の行は再試行も削除もできない（種別ごとに同時 1 本）
+test("履歴の詳細は BGM も同じプロンプトで再生成できる", () => {
+  const html = render({ subsection: "history", trials: [BGM_TRIAL_BASE] });
+  assert.ok(html.includes("もう一度生成"), "履歴の詳細に再生成を出す");
+  assert.ok(html.includes("夜の高速道路を走る軽快なシンセポップ"), "送ったプロンプトを出す");
+  // 実行中の行は再生成も削除もできない（種別ごとに同時 1 本）
   const running = render({
-    subsection: "bgm",
+    subsection: "history",
     trials: [{ ...BGM_TRIAL_BASE, state: "running", artifactState: "none", artifact: null, charged: false }],
   });
-  assert.match(running, /<button[^>]*\sdisabled=""[^>]*aria-label="実行中の試行をもう一度試す"/);
+  assert.match(running, /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?もう一度生成/);
   assert.ok(running.includes("生成中です。送信したプロンプトを表示しています"));
 });
-
 test("BGM の面はキー未設定・全体 OFF でも履歴と再生を残し、新規生成だけを止める", () => {
   for (const overrides of [
     { configured: false, keyStored: false, keyAvailable: false, provider: null, image: { model: null } },
@@ -943,14 +979,18 @@ test("BGM の面はキー未設定・全体 OFF でも履歴と再生を残し�
   assert.equal(unset.includes('aria-label="BGM生成の固定モデル"'), false, "保存される設定は出さない");
 });
 
-test("画像・音声・BGM の履歴は互いの面に出さない", () => {
-  const bgm = render({ subsection: "bgm", trials: [TRIAL_BASE, SPEECH_TRIAL_BASE] });
-  assert.equal(bgm.includes("a cat on a sofa"), false, "画像の履歴は BGM タブに出さない");
-  assert.equal(bgm.includes("おはようございます"), false, "音声の履歴も BGM タブに出さない");
+test("履歴タブは画像・音声・BGM を 1 本の一覧にまとめて出す", () => {
+  const html = render({ subsection: "history", trials: [TRIAL_BASE, SPEECH_TRIAL_BASE, BGM_TRIAL_BASE] });
+  assert.ok(html.includes("a cat on a sofa"), "画像の履歴を出す");
+  assert.ok(html.includes("おはようございます"), "音声の履歴を出す");
+  assert.ok(html.includes("夜の高速道路を走る軽快なシンセポップ"), "BGM の履歴を出す");
+  assert.ok(html.includes(">画像<"), "種別の列を出す");
+  assert.ok(html.includes(">音声<"), "種別の列を出す");
+  assert.ok(html.includes(">BGM<"), "種別の列を出す");
+  // 生成タブは自分の種別だけを出す
   const image = render({ trials: [BGM_TRIAL_BASE] });
   assert.equal(image.includes("夜の高速道路を走る軽快なシンセポップ"), false, "BGM の履歴を画像タブに混ぜない");
 });
-
 test("保存見出し・試行の見出し・保存容量・課金の注記は 3 タブで同じ文言にする", () => {
   // 音声だけ見出しが `div` の「音声（TTS）」で、保存容量の注記と中断課金の注記もタブごとに違っていた
   const cases = [
@@ -1024,21 +1064,20 @@ test("BGM の試行の面には実 API 受入済みのため「試験的」を�
   assert.equal(unset.includes("試験的"), false, "未設定の履歴表示でも出さない");
 });
 
-test("一覧の行は本文の抜粋を出し、選んだ行の全文は詳細から出す", () => {
+test("履歴の一覧は本文の抜粋を出し、詳細は全文を出す", () => {
   const short: ContentTrial = { ...TRIAL_BASE, promptPreview: "a cat on a sofa…" };
   const long: ContentTrial = { ...short, prompt: "a cat on a sofa with a long tail and a red collar" };
   // 全文を取得できていない間は抜粋だけを出す（全文を捏造しない）
-  const loading = render({ trials: [short], trialDetail: null });
+  const loading = render({ subsection: "history", trials: [short], trialDetail: null });
   assert.ok(loading.includes("a cat on a sofa…"));
   assert.equal(loading.includes("with a long tail"), false);
-  // 全文を取得できたら、ビューポートは全文を出す
-  const loaded = render({ trials: [short], trialDetail: long });
+  // 全文を取得できたら、詳細は全文を出す
+  const loaded = render({ subsection: "history", trials: [short], trialDetail: long });
   assert.ok(loaded.includes("with a long tail"), "全文を出す");
 });
-
-test("続きのページがあるときだけ「さらに読み込む」を出す", () => {
-  const without = render({ trials: [TRIAL_BASE] });
+test("履歴に続きのページがあるときだけ「さらに読み込む」を出す", () => {
+  const without = render({ subsection: "history", trials: [TRIAL_BASE] });
   assert.equal(without.includes("さらに読み込む"), false);
-  const withMore = render({ trials: [TRIAL_BASE], trialHasMore: true });
+  const withMore = render({ subsection: "history", trials: [TRIAL_BASE], trialHasMore: true });
   assert.ok(withMore.includes("さらに読み込む"), "続きがあることを出す");
 });

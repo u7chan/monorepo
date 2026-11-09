@@ -1,12 +1,19 @@
 import type { ReactNode } from "react";
+import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { trialArtifactUrl, trialHistoryRow } from "../../lib/contentTrials";
 import { cn } from "../../lib/cn";
 import type { ContentTrialSummary } from "../../types";
+import { CopyButton } from "../chat/CopyButton";
 import { TrashIcon } from "../icons";
 
 /**
- * 1 つの結果ビューポート。表示中の試行のスナップショットだけを出し、下書きの入力とは混ぜない。
- * 成果物の再生・プレビューだけを面ごとに渡し、状態・失敗・課金・送った内容・導線の並びはここで揃える。
+ * 1 つの結果。生成タブの直近の結果（`latest`）と、履歴タブの詳細（`history`）で同じ骨格を使う。
+ * 状態・失敗・課金・送った内容・成果物は共通で、面ごとに違うのは成果物の見せ方と、
+ * 結果から次へ進む導線（既定へ保存 / この内容で生成 / もう一度生成）だけにする。
+ *
+ * `latest` は生成直後に同じ画面で閉じるためのカードなので、入力欄へ戻す導線は置かない
+ * （プロンプトの入力欄はすぐ上にある）。`history` は履歴を読む面なので、プロンプトのコピーと
+ * 「この内容で生成」を出す。
  */
 export function TrialResultViewport({
   trial,
@@ -21,35 +28,49 @@ export function TrialResultViewport({
   artifact,
   /** 送った内容の本体（全文を取れるまでは一覧の抜粋） */
   prompt,
+  /** 全文を取得できているか。false の間は抜粋と明示し、コピーを出さない */
+  promptComplete = true,
   /** 送った内容に添える面固有の 1 行（音声の演技指示と話速）。無い面は省略 */
   promptDetail,
+  /** 履歴の詳細に出すパラメータ表（形式・実寸・サイズなど）。生成タブの直近の結果では省略する */
+  params,
   /** 結果から既定へ保存する導線（画像・音声だけ）。BGM は保存する設定を持たない */
   defaultAction,
-  onDelete,
-  onRestore,
+  /** この内容を生成タブへ戻す（履歴だけ）。生成タブは入力欄が同じ画面にあるため渡さない */
+  onPrefill,
+  /** もう一度生成する（履歴だけ）。新しい試行として課金される */
   onAnotherTake,
+  onDelete,
+  variant = "history",
 }: {
   trial: ContentTrialSummary;
   currentKeyEpoch: number;
   busy: boolean;
-  /** 同じ種別の実行中の試行があるか（別のテイクを重ねない） */
+  /** 同じ種別の実行中の試行があるか（もう一度生成を重ねない） */
   running: boolean;
   sentNoun: string;
   chips?: readonly string[];
   artifact: ReactNode | null;
   prompt: string;
+  /** 全文を取得できているか。false の間は抜粋と明示し、コピーを出さない（欠けた文面をコピーさせない） */
+  promptComplete?: boolean;
   promptDetail?: string;
+  params?: ReactNode;
   defaultAction?: ReactNode;
+  onPrefill?: () => Promise<void>;
+  onAnotherTake?: () => Promise<void>;
   onDelete: (id: string) => Promise<boolean>;
-  onRestore: () => Promise<void>;
-  onAnotherTake: () => Promise<void>;
+  variant?: "latest" | "history";
 }) {
   const row = trialHistoryRow(trial, currentKeyEpoch);
+  const { copiedId, copyMessage, copyFailure } = useMessageCopy(trial.id);
+  const copyId = "prompt";
+  const latest = variant === "latest";
 
   return (
-    <div className="grid gap-2 rounded-lg border border-line bg-soft p-3">
+    <div className={cn("grid gap-2", latest && "rounded-lg border border-line bg-soft p-3")}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="text-xs font-semibold text-ink-strong">結果</span>
+        <span className="text-xs font-semibold text-ink-strong">{latest ? "直近の結果" : "結果"}</span>
         <span className={cn("text-2xs", trial.state === "failed" ? "text-warn" : "text-ink-muted")}>
           {row.stateLabel}
         </span>
@@ -88,18 +109,48 @@ export function TrialResultViewport({
         <p className="text-2xs text-warn">生成は課金されています。もう一度生成すると再課金されます。</p>
       ) : null}
 
-      <div className="grid gap-0.5">
-        <p className="text-2xs break-words whitespace-pre-wrap text-ink">{prompt}</p>
+      <div className="grid gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-2xs font-semibold text-ink-faint">
+            送った{sentNoun}
+            {promptComplete ? null : "（抜粋）"}
+          </span>
+          <span className="flex-1" />
+          {promptComplete ? (
+            <CopyButton
+              copied={copiedId === copyId}
+              failure={copyFailure(copyId)}
+              onClick={() => void copyMessage(prompt, copyId)}
+              label={`送った${sentNoun}をコピー`}
+              compact
+            />
+          ) : null}
+        </div>
+        <p className="rounded-lg border border-line bg-base px-2.5 py-2 text-2xs break-words whitespace-pre-wrap text-ink">
+          {prompt}
+        </p>
         {promptDetail === undefined ? null : <p className="text-2xs text-ink-muted">{promptDetail}</p>}
+        {promptComplete ? null : (
+          <p className="text-2xs text-ink-faint">全文を取得中です。取得できるまでコピーはできません。</p>
+        )}
       </div>
 
+      {params}
+
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="btn-quiet" disabled={busy} onClick={onRestore}>
-          入力欄に戻す
-        </button>
-        <button type="button" className="btn-quiet" disabled={busy || running} onClick={onAnotherTake}>
-          別のテイクを生成
-        </button>
+        {onPrefill === undefined ? null : (
+          <button type="button" className="btn-primary" disabled={busy} onClick={() => void onPrefill()}>
+            この内容で生成
+          </button>
+        )}
+        {onAnotherTake === undefined ? null : (
+          <button type="button" className="btn-quiet" disabled={busy || running} onClick={() => void onAnotherTake()}>
+            もう一度生成
+          </button>
+        )}
+        {/* 直近の結果は「既定にする / 削除」の 2 つだけ。履歴は保存の導線を下の行へ分ける */}
+        {latest ? defaultAction : null}
+        {latest ? null : <span className="flex-1" />}
         <button
           type="button"
           className="btn-quiet"
@@ -111,8 +162,10 @@ export function TrialResultViewport({
         </button>
       </div>
       {/* 下書きを捨てるのは呼び出し側。ここは保存の進行と失敗の注記だけを持つ */}
-      {defaultAction}
-      <p className="text-2xs leading-relaxed text-ink-faint">別のテイクは新しい試行として課金されます。</p>
+      {latest ? null : defaultAction}
+      {latest ? null : (
+        <p className="text-2xs leading-relaxed text-ink-faint">もう一度生成は新しい試行として課金されます。</p>
+      )}
     </div>
   );
 }
