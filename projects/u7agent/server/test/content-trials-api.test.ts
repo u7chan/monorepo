@@ -165,7 +165,9 @@ test("開始 → 取得 → キャンセル → 削除の往復。APIキーは�
       const canceledBody = await jsonBody(canceled);
       assert.equal(canceledBody.trial.state, "canceled");
       assert.equal(images.pending[0]?.aborted(), true, "キャンセルで provider の呼び出しを abort する");
-      assert.equal(images.pending[0]?.input.apiKey, KEY, "生成器へはキーを渡す");
+      const sent = images.pending[0]?.input;
+      assert.equal(sent?.provider, "openrouter");
+      assert.equal(sent?.provider === "openrouter" ? sent.apiKey : undefined, KEY, "生成器へはキーを渡す");
 
       // 遅れて届いた結果は捨て、状態を戻さない
       images.pending[0]?.resolve({ ok: true, image: pngImage() });

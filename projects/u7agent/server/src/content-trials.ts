@@ -33,7 +33,12 @@ import {
   releaseBgmGenerationSlot,
   type BgmGenerationInput,
 } from "./bgm";
-import { IMAGE_GENERATION_TIMEOUT_MS, type ImageGenerationInput, type ImageGenerationResult } from "./images";
+import {
+  IMAGE_GENERATION_TIMEOUT_MS,
+  IMAGE_PROVIDER_ID,
+  type ImageGenerationInput,
+  type ImageGenerationResult,
+} from "./images";
 import {
   SPEECH_GENERATION_TIMEOUT_MS,
   SPEECH_PROVIDER_ID,
@@ -101,6 +106,12 @@ export const CONTENT_TRIAL_SPEECH_INSTRUCTIONS_TOO_LONG_MESSAGE = `演技指示�
 export const CONTENT_TRIAL_SPEECH_SPEED_MESSAGE =
   "話速は 0 より大きい数値で指定してください（クレジットは消費していません）";
 export const CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE = "話速・演技指示・ボイスは音声の試行だけに指定できます";
+/**
+ * Codex の画像生成は試行から呼ばない。試行は「同じ入力の再利用」をキーで照合しており、Codex の認証世代
+ * （トークン更新）をまだキーへ写していないため、UI と API の両方でこの 1 文に寄せる（課金前に止まる）。
+ */
+export const CONTENT_TRIAL_PROVIDER_MESSAGE =
+  "Codex はチャットからのみ生成できます。設定 → コンテンツ生成 の画像の生成元で OpenRouter を選ぶと試行できます（クレジットは消費していません）";
 // 上限値はチャットのツールと同じ定数を書き、文言を 2 か所で数えない
 export const CONTENT_TRIAL_BGM_BUSY_MESSAGE = `BGMの同時生成は ${BGM_MAX_CONCURRENT} 件までです（チャットの generate_bgm と共通）。実行中の生成が終わってから試してください（クレジットは消費していません）`;
 
@@ -229,6 +240,7 @@ export interface ContentTrialsDb {
   listRunningContentTrials(kind?: string): ContentTrialRow[];
   findReusableContentTrial(input: {
     kind: string;
+    provider: string;
     model: string;
     prompt: string;
     voice: string | null;
@@ -247,7 +259,11 @@ export interface ContentTrialsDb {
  * 設定サービスが同じロックの外で読める形で渡す。
  */
 export interface ContentTrialSource {
-  read(): { row: { imageModel: string; enabled: boolean } | undefined; apiKey: string | null };
+  read(): {
+    /** `imageProvider` は画像の生成元（試行は openrouter だけを受ける） */
+    row: { imageModel: string; enabled: boolean; imageProvider: string } | undefined;
+    apiKey: string | null;
+  };
   /** カタログに載っている画像モデル (`provider/id`)。provider も含めて照合する */
   models(): readonly string[];
   /** カタログに載っている音声モデルの id */
@@ -482,6 +498,10 @@ export class ContentTrialsService {
     if (!snapshot.row) return { status: 400, error: CONTENT_TRIAL_UNCONFIGURED_MESSAGE };
     // OFF は「課金も止める」。ツールへ返すのと同じ文言で止める
     if (!snapshot.row.enabled) return { status: 400, error: CONTENT_DISABLED_MESSAGE };
+    // 画像の生成元が Codex のときは試行を受けない。キーの有無より先に見て、キー登録の案内を出さない
+    if (kind === "image" && snapshot.row.imageProvider !== IMAGE_PROVIDER_ID) {
+      return { status: 400, error: CONTENT_TRIAL_PROVIDER_MESSAGE };
+    }
     if (snapshot.apiKey === null) return { status: 503, error: CONTENT_TRIAL_KEY_UNAVAILABLE_MESSAGE };
 
     // 同じ入力の保存済み成功があれば provider を呼ばない（課金しない。新しい成功としても記録しない）。
@@ -498,6 +518,8 @@ export class ContentTrialsService {
     if (!input.force) {
       const reused = this.#reusable({
         kind,
+        // 試行は v1 では openrouter 固定。再利用の照合にも生成元を含める（別 provider の実績を証拠にしない）
+        provider: IMAGE_PROVIDER_ID,
         model: input.model,
         prompt,
         voice: params.voice,
@@ -532,6 +554,8 @@ export class ContentTrialsService {
     const row: ContentTrialRow = {
       id: newTrialId(),
       kind,
+      // 試行が受け付けるのは openrouter だけ。音声 / BGM も同じキーを使う
+      provider: IMAGE_PROVIDER_ID,
       model: input.model,
       prompt,
       voice: params.voice,
@@ -859,7 +883,7 @@ export class ContentTrialsService {
     let result: ImageGenerationResult;
     try {
       result = await generate({
-        provider: target.provider,
+        provider: IMAGE_PROVIDER_ID,
         model: target.model,
         prompt: target.prompt,
         apiKey: target.apiKey,
@@ -1085,6 +1109,7 @@ export class ContentTrialsService {
   /** 同じ入力の保存済み成功。置き場のパスが行と一致しない行は再利用しない（配信できないため） */
   #reusable(input: {
     kind: string;
+    provider: string;
     model: string;
     prompt: string;
     voice: string | null;
@@ -1168,6 +1193,7 @@ export class ContentTrialsService {
     const row = {
       id: job.id,
       kind: job.kind,
+      provider: IMAGE_PROVIDER_ID,
       model: "",
       prompt: "",
       voice: null,

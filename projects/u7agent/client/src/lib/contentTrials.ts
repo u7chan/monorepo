@@ -11,6 +11,7 @@ import type {
   ContentTrialStateValue,
   ContentTrialSummary,
   CreateContentTrialBody,
+  ImageGenerationProvider,
 } from "../types";
 import { speechSpeed } from "./contentSettings";
 import { messageTimeLabel, yearMonthLabel, type MessageTimeOptions } from "./messageTime";
@@ -267,14 +268,29 @@ export function trialStartBlockedReason(input: {
   prompt: string;
   /** 空のときの文言。音声は「本文」、画像は既定の「プロンプト」 */
   emptyPromptReason?: string;
+  /** 種別そのものが試行を受け付けない理由（画像の Codex）。他の条件より先に出す */
+  providerBlockedReason?: string | null | undefined;
 }): string | null {
   if (!input.runtimeAvailable) return "ランタイムが利用できないため試行できません";
+  if (input.providerBlockedReason) return input.providerBlockedReason;
   if (!input.configured) return "APIキーを登録すると試行できます";
   if (!input.enabled) return "全体が OFF のため試行できません（履歴は残ります）";
   if (!input.keyAvailable) return "保存済みのAPIキーを使えないため試行できません";
   if (input.running) return "実行中です。完了するか中断してください";
   if (input.prompt.trim() === "") return input.emptyPromptReason ?? "プロンプトを入力してください";
   return null;
+}
+
+/**
+ * Codex は試行を受け付けない（server も 400 で拒否する）。文言を画面と API で揃え、
+ * 「押せるのに必ず失敗する」ボタンを作らない。
+ */
+export const CODEX_TRIAL_UNSUPPORTED_NOTE =
+  "Codex はチャットからのみ生成できます。試行は OpenRouter を選んだときに使えます。";
+
+/** 画像の試行を provider の理由で止めるときの文言。試行できるときは null */
+export function imageTrialProviderBlockedReason(provider: ImageGenerationProvider): string | null {
+  return provider === "codex" ? CODEX_TRIAL_UNSUPPORTED_NOTE : null;
 }
 
 /** 種別の表示名。削除の注記など、画面の文言に使う */

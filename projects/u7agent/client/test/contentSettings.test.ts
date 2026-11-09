@@ -11,8 +11,15 @@ import {
   contentProviderId,
   contentProviderLabel,
   deleteContentKeyConfirmRequest,
+  imageAuthBadge,
+  imageAuthNotice,
   imageCatalogNotice,
+  imageKeySectionVisible,
   imageModelOptions,
+  imageModelSectionVisible,
+  contentImageProviderLabel,
+  contentImageProviderNote,
+  IMAGE_PROVIDER_OPTIONS,
   imageModelSelection,
   imageModelValue,
   imageScreenModel,
@@ -53,6 +60,8 @@ function settings(
     bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
     image: {
       model: "openai/gpt-image-2",
+      provider: "openrouter",
+      auth: { state: "configured", kind: "api_key" },
       models: [
         { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
         { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
@@ -461,4 +470,38 @@ test("キーが使えない理由は、サーバーの固定文言をそのま�
     "master key が未設定です",
     "原因は推測せずサーバーの文言を渡す",
   );
+});
+
+// --- 画像の生成元（OpenRouter / Codex）。値の正は server の DTO で、ここは表示の対応だけを持つ ---
+
+test("生成元の選択肢は 2 つで、表示名と案内を持つ", () => {
+  assert.deepEqual(
+    IMAGE_PROVIDER_OPTIONS.map((option) => option.value),
+    ["openrouter", "codex"],
+  );
+  assert.equal(contentImageProviderLabel("openrouter"), "OpenRouter");
+  assert.equal(contentImageProviderLabel("codex"), "Codex");
+  assert.match(contentImageProviderNote("codex"), /既存の会話/);
+  assert.match(contentImageProviderNote("codex"), /新しい会話/);
+});
+
+test("認証状態は「認証済み / 期限切れ / 未認証」に分け、未設定でも種類を隠さない", () => {
+  assert.deepEqual(imageAuthBadge({ state: "configured", kind: "oauth" }), { label: "認証済み", tone: "ok" });
+  assert.deepEqual(imageAuthBadge({ state: "expired", kind: "oauth" }), { label: "認証の期限切れ", tone: "warn" });
+  assert.deepEqual(imageAuthBadge({ state: "missing", kind: null }), { label: "未認証", tone: "muted" });
+});
+
+test("認証がないときの案内は provider ごとに変え、Codex にAPIキーを求めない", () => {
+  assert.equal(imageAuthNotice({ state: "configured", kind: "oauth" }, "codex"), null);
+  assert.match(imageAuthNotice({ state: "missing", kind: null }, "codex") ?? "", /openai-codex/);
+  assert.match(imageAuthNotice({ state: "missing", kind: null }, "codex") ?? "", /APIキーは不要/);
+  assert.match(imageAuthNotice({ state: "expired", kind: "oauth" }, "codex") ?? "", /期限が切れています/);
+  assert.match(imageAuthNotice({ state: "missing", kind: "api_key" }, "openrouter") ?? "", /OpenRouter のAPIキー/);
+});
+
+test("Codex では APIキー欄とモデル一覧を出さない（OpenRouter では出す）", () => {
+  assert.equal(imageKeySectionVisible("openrouter"), true);
+  assert.equal(imageKeySectionVisible("codex"), false);
+  assert.equal(imageModelSectionVisible("openrouter"), true);
+  assert.equal(imageModelSectionVisible("codex"), false);
 });

@@ -46,7 +46,15 @@ function settings(
     disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
     runtimeAvailable: true,
     bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
-    image: { model: "openai/gpt-image-2", models: MODELS, catalogSource: "live", fetchedAt: null, ...image },
+    image: {
+      model: "openai/gpt-image-2",
+      provider: "openrouter",
+      auth: { state: "configured", kind: "api_key" },
+      models: MODELS,
+      catalogSource: "live",
+      fetchedAt: null,
+      ...image,
+    },
     speech: {
       model: "google/gemini-3.8-flash-tts",
       voice: "Zephyr",
@@ -93,6 +101,7 @@ function render(
         onSetEnabled: async () => true,
         onSaveKey: async () => true,
         onDeleteKey: async () => true,
+        onSaveImageProvider: async () => true,
         onSaveSelection: async () => true,
         onRefreshCatalog: async () => true,
         onSaveSpeech: async () => true,
@@ -1080,4 +1089,43 @@ test("履歴に続きのページがあるときだけ「さらに読み込む�
   assert.equal(without.includes("さらに読み込む"), false);
   const withMore = render({ subsection: "history", trials: [TRIAL_BASE], trialHasMore: true });
   assert.ok(withMore.includes("さらに読み込む"), "続きがあることを出す");
+});
+
+// --- 画像の生成元（OpenRouter / Codex） ---
+
+test("生成元の radio を出し、Codex ではAPIキー欄とモデル一覧を出さない", () => {
+  const codex = render({
+    image: { provider: "codex", auth: { state: "configured", kind: "oauth" }, models: [] },
+  });
+  assert.match(codex, /画像の生成元/, "生成元の見出しを出す");
+  assert.match(codex, /<input type="radio"[^>]*checked=""[^>]*value="codex"/, "Codex を選択済みで出す");
+  assert.match(codex, /type="radio"[^>]*value="openrouter"/, "OpenRouter も選べる");
+  assert.equal(codex.includes('type="password"'), false, "Codex ではAPIキー欄を出さない");
+  assert.equal(codex.includes('aria-label="コンテンツ生成のモデル"'), false, "Codex ではモデル一覧を出さない");
+  assert.ok(codex.includes("Codex（画像モデル不明）"), "画像モデルを偽らない");
+  assert.ok(codex.includes("音声 / BGM は OpenRouter のAPIキーで生成します"), "音声 / BGM の前提を明示する");
+
+  const openrouter = render();
+  assert.ok(openrouter.includes('type="password"'), "OpenRouter ではAPIキー欄を出す");
+  assert.ok(openrouter.includes('aria-label="コンテンツ生成のモデル"'), "OpenRouter ではモデル一覧を出す");
+});
+
+test("Codex のサインインが無いときは案内を出し、試行は押せない理由として出す", () => {
+  const html = render({
+    image: { provider: "codex", auth: { state: "missing", kind: null }, models: [] },
+  });
+  assert.ok(html.includes("openai-codex にサインイン"), "サインインの案内を出す");
+  assert.ok(html.includes("APIキーは不要"), "キー登録を促さない");
+  assert.ok(html.includes("Codex はチャットからのみ生成できます"), "試行が使えない理由を出す");
+  // 未設定（キーの行が無い）でも生成元は選べる
+  const unconfigured = render({ configured: false });
+  assert.match(unconfigured, /画像の生成元/, "キー未設定でも生成元を選べる");
+});
+
+test("Codex の認証が切れているときは再サインインを案内する", () => {
+  const html = render({
+    image: { provider: "codex", auth: { state: "expired", kind: "oauth" }, models: [] },
+  });
+  assert.ok(html.includes("期限が切れています"));
+  assert.ok(html.includes("/settings/models"));
 });

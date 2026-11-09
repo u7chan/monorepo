@@ -34,6 +34,7 @@ import {
   type ImageGenerationInput,
   type ImageGenerationResult,
 } from "./images";
+import { createCodexImagesGenerator } from "./codex-images";
 import { IMAGE_INPUT_UNKNOWN_MESSAGE } from "./image-catalog";
 import {
   createSpeechGenerator,
@@ -907,6 +908,12 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   // ツール定義はセッション作成時にこの値を見る（既存会話へ遡及しない）
   const contentGeneration: { config: ContentGenerationConfig | undefined } = { config: undefined };
   const imagesGenerator = createImagesGenerator({ maskText: maskError });
+  // Codex は応答の形も期限も違うため別のアダプタにする。呼び出し側は provider を渡すだけでよい
+  const codexImagesGenerator = createCodexImagesGenerator({ maskText: maskError });
+  const generateImage = (input: ImageGenerationInput): Promise<ImageGenerationResult> =>
+    input.provider === "codex"
+      ? codexImagesGenerator.generate({ prompt: input.prompt, auth: input.auth, signal: input.signal })
+      : imagesGenerator.generate(input);
   // 形式の学習結果の保存先は bootstrap が注入する（DB を持たないため、ここで束縛だけを遅らせる）
   const speechFormatStore: { value: SpeechFormatStore | null } = { value: null };
   const speechGenerator = createSpeechGenerator({
@@ -976,6 +983,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   function toolAvailability(): ToolAvailability {
     return {
       sandboxTools: configuredTools(),
+      imageGeneration: contentGeneration.config?.imageAvailability() ?? { enabled: false, reason: "no_key" },
       contentGeneration: contentGeneration.config?.enabled === true,
       contentGenerationConfigured: contentGeneration.config?.configured === true,
       webSearch: webSearch.config.readEnabled(),
@@ -1147,7 +1155,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                     ? contentGeneration.config.checkImageInput(model, signal)
                     : IMAGE_INPUT_UNKNOWN_MESSAGE,
                 readImageInput: (path, scope, signal) => sandboxClient.readImageInput(path, scope, signal),
-                generate: imagesGenerator.generate,
+                generate: generateImage,
               }),
               ...createSpeechToolDefinitions({
                 enabled: appTool(SPEECH_TOOL_NAME),
@@ -1245,7 +1253,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       speechFormatStore.value = store;
     },
     generateSpeech: (input) => speechGenerator.generate(input),
-    generateImage: (input) => imagesGenerator.generate(input),
+    generateImage,
     generateBgm: (input) => bgmGenerator.generate(input),
     setWebSearch(config) {
       webSearch.config = config;

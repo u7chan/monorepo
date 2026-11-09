@@ -61,6 +61,7 @@ import {
   UpdateArchiveSettingsBodySchema,
   UpdateContentEnabledBodySchema,
   UpdateContentImageBodySchema,
+  UpdateContentImageProviderBodySchema,
   UpdateContentKeyBodySchema,
   UpdateCloudflareSettingsBodySchema,
   UpdateContentSpeechBodySchema,
@@ -667,6 +668,14 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => contentSettingsRoutes.putSelection(c, c.req.valid("json")),
+    )
+    .put(
+      "/api/settings/content/image/provider",
+      appDataMutation,
+      jsonBodyValidator(UpdateContentImageProviderBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => contentSettingsRoutes.putImageProvider(c, c.req.valid("json")),
     )
     .put(
       "/api/settings/content/key",

@@ -24,6 +24,7 @@ import {
   CONTENT_TRIAL_PROMPT_TOO_LONG_MESSAGE,
   CONTENT_TRIAL_READ_FAILED_MESSAGE,
   CONTENT_TRIAL_RUNTIME_UNAVAILABLE_MESSAGE,
+  CONTENT_TRIAL_PROVIDER_MESSAGE,
   CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE,
   CONTENT_TRIAL_SPEECH_VOICE_MESSAGE,
   CONTENT_TRIAL_SPEECH_SPEED_MESSAGE,
@@ -168,6 +169,7 @@ class FakeTrialsDb implements ContentTrialsDb {
 
   findReusableContentTrial(input: {
     kind: string;
+    provider: string;
     model: string;
     prompt: string;
     voice: string | null;
@@ -179,6 +181,7 @@ class FakeTrialsDb implements ContentTrialsDb {
       .filter(
         (candidate) =>
           candidate.kind === input.kind &&
+          candidate.provider === input.provider &&
           candidate.model === input.model &&
           candidate.prompt === input.prompt &&
           candidate.voice === input.voice &&
@@ -318,6 +321,7 @@ function row(overrides: Partial<ContentTrialRow> & { id: string }): ContentTrial
   return {
     id,
     kind: "image",
+    provider: "openrouter",
     model: MODEL,
     prompt: "old",
     voice: null,
@@ -339,7 +343,7 @@ function row(overrides: Partial<ContentTrialRow> & { id: string }): ContentTrial
 
 function createHarness(
   options: {
-    row?: { imageModel: string; enabled: boolean } | undefined;
+    row?: { imageModel: string; enabled: boolean; imageProvider: string } | undefined;
     apiKey?: string | null;
     models?: readonly string[];
     speechModels?: readonly string[];
@@ -358,7 +362,11 @@ function createHarness(
   let now = 1_000;
   const source: ContentTrialSource = {
     read: () => ({
-      row: "row" in options ? options.row : { imageModel: "openai/gpt-image-2", enabled: true },
+      row:
+        "row" in options
+          ? options.row
+          : { imageModel: "openai/gpt-image-2", enabled: true, imageProvider: "openrouter" },
+      // eslint 対象外: 既定は openrouter の行
       apiKey: "apiKey" in options ? (options.apiKey ?? null) : KEY,
     }),
     models: () => options.models ?? [MODEL],
@@ -1173,7 +1181,9 @@ test("開始前の検証は課金前に止め、理由ごとの固定文言を�
   assert.equal(unconfigured.status, 400);
   assert.equal(unconfigured.status === 400 ? unconfigured.error : "", CONTENT_TRIAL_UNCONFIGURED_MESSAGE);
 
-  const disabled = await createHarness({ row: { imageModel: "openai/gpt-image-2", enabled: false } }).start();
+  const disabled = await createHarness({
+    row: { imageModel: "openai/gpt-image-2", enabled: false, imageProvider: "openrouter" },
+  }).start();
   assert.equal(disabled.status, 400);
   assert.equal(disabled.status === 400 ? disabled.error : "", CONTENT_DISABLED_MESSAGE);
 
@@ -1823,4 +1833,43 @@ test("世代の読み取りが失敗しても 503 にし、BGM の共有枠を�
   harness.service.cancel(started.trial.id);
   harness.bgmGenerations[0]?.reject(new BgmGenerationError("BGM生成を中断しました"));
   return until(() => harness.service.running("bgm") === false);
+});
+
+// --- 生成元（v1 は openrouter 固定）。Codex の試行は API でも明示的に拒否する ---
+
+test("画像の生成元が Codex のときは試行を開始せず、キー登録を案内しない", async () => {
+  // Codex はキーを使わないため、apiKey が null でも「キー未設定」ではなく provider の理由を返す
+  const harness = await createHarness({
+    row: { imageModel: "openai/gpt-image-2", enabled: true, imageProvider: "codex" },
+    apiKey: null,
+  }).start();
+  assert.equal(harness.status, 400);
+  assert.equal(harness.status === 400 ? harness.error : "", CONTENT_TRIAL_PROVIDER_MESSAGE);
+});
+
+test("試行の生成元は openrouter で記録し、別 provider の実績は再利用しない", async () => {
+  const harness = createHarness();
+  const started = await harness.start();
+  assert.equal(started.status, 202);
+  if (started.status !== 202) return;
+  harness.generations[0]?.resolve({ ok: true, image: pngImage() });
+  await until(() => harness.db.readContentTrial(started.trial.id)?.state === "succeeded");
+  assert.equal(
+    harness.db.readContentTrial(started.trial.id)?.provider,
+    "openrouter",
+    "v1 の試行は openrouter で記録する",
+  );
+  // 同じ入力は再利用する（provider も一致する）
+  const reused = await harness.start();
+  assert.equal(reused.status, 200);
+  assert.equal(reused.status === 200 ? reused.reused : false, true);
+
+  // 保存済みの成功を別 provider の行へ書き換えると、openrouter の試行では再利用しない
+  const stored = harness.db.rows.get(started.trial.id);
+  assert.ok(stored);
+  harness.db.rows.set(started.trial.id, { ...stored, provider: "codex" });
+  harness.generations.length = 0;
+  const rerun = await harness.start();
+  assert.equal(rerun.status, 202, "別 provider の実績を証拠にしない");
+  assert.equal(harness.generations.length, 1);
 });

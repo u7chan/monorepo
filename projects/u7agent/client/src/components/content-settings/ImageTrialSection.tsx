@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   evidenceNote,
   hasStoredArtifact,
+  imageTrialProviderBlockedReason,
   imageTrialRequest,
   latestTrial,
   trialArtifactSummary,
@@ -103,6 +104,7 @@ export function ImageTrialSection({
   // 同じモデルを保存しても何も変わらないため、結果との差分があるときだけ導線を出す
   const defaultTarget = latest ? imageTrialDefaultTarget({ settings, trialModel: latest.model }) : null;
   const defaultBlockedReason = settings.configured ? null : UNCONFIGURED_BLOCKED_NOTE;
+  const providerBlocked = imageTrialProviderBlockedReason(settings.image.provider);
   const blocked = trialStartBlockedReason({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,
@@ -110,6 +112,7 @@ export function ImageTrialSection({
     keyAvailable: settings.keyAvailable,
     running: running !== null,
     prompt,
+    providerBlockedReason: providerBlocked,
   });
   const stored = latest !== null && hasStoredArtifact(latest);
 
@@ -126,6 +129,15 @@ export function ImageTrialSection({
           onChange={(event) => onChangePrompt(event.currentTarget.value)}
         />
       </label>
+
+      {providerBlocked === null ? null : (
+        <p
+          role="status"
+          className="rounded border border-line bg-base px-2 py-1.5 text-2xs leading-relaxed text-ink-muted"
+        >
+          {providerBlocked}
+        </p>
+      )}
 
       <TrialRunControls
         busy={busy}

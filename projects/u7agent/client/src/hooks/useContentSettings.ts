@@ -4,6 +4,7 @@ import {
   getContentSettings,
   putContentApiKey,
   putContentEnabled,
+  putContentImageProvider,
   putContentImageSettings,
   putContentSpeechSettings,
   refreshImageCatalog,
@@ -16,6 +17,7 @@ import {
   CONTENT_SETTINGS_NOTE,
   CONTENT_SPEECH_SAVED_NOTE,
   SPEECH_SYNC_FAILED_NOTE,
+  contentImageProviderNote,
   catalogRefreshNote,
   contentEnabledNote,
   speechSettingsAfterRefresh,
@@ -24,7 +26,12 @@ import {
 } from "../lib/contentSettings";
 import { validateApiKey } from "../lib/modelSettings";
 import { messageFor } from "../lib/settingsResource";
-import type { ContentSettingsResponse, UpdateContentImageBody, UpdateContentSpeechBody } from "../types";
+import type {
+  ContentSettingsResponse,
+  ImageGenerationProvider,
+  UpdateContentImageBody,
+  UpdateContentSpeechBody,
+} from "../types";
 import { useSettingsResource } from "./useSettingsResource";
 
 /**
@@ -79,6 +86,16 @@ export function useContentSettings() {
 
   const removeKey = useCallback(
     (): Promise<boolean> => runMutation("delete", CONTENT_KEY_DELETED_NOTE, () => deleteContentApiKey()),
+    [runMutation],
+  );
+
+  /**
+   * 画像の生成元。キーもモデルも伴わないが、ツール一覧の公開状態が変わるため、保存できたら
+   * エージェントのツール一覧も取り直す（画面は保存後に呼ぶ）。
+   */
+  const saveImageProvider = useCallback(
+    (provider: ImageGenerationProvider): Promise<boolean> =>
+      runMutation("provider", contentImageProviderNote(provider), () => putContentImageProvider({ provider })),
     [runMutation],
   );
 
@@ -169,6 +186,7 @@ export function useContentSettings() {
     setEnabled,
     saveKey,
     removeKey,
+    saveImageProvider,
     saveSelection,
     saveSpeech,
     refreshCatalog,

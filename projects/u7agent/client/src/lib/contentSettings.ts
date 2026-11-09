@@ -3,9 +3,11 @@
  * 選択肢の組み立て・入力の後始末・保存後の文言・確認文をテストできるようにする。
  */
 import type {
+  ContentImageAuth,
   ContentImageSettings,
   ContentSettingsResponse,
   ContentSpeechSettings,
+  ImageGenerationProvider,
   ModelRef,
   SpeechCatalogRefreshResponse,
   SpeechModel,
@@ -26,12 +28,93 @@ export const CONTENT_KEY_DELETED_NOTE =
 export const CONTENT_MODEL_SAVED_NOTE = "画像生成のモデルを保存しました。";
 export const CONTENT_SPEECH_SAVED_NOTE = "音声生成のモデルとボイスを保存しました。";
 
+/** 画像の生成元の選択肢。radio の並び・表示名・案内をここ 1 箇所で作る */
+export interface ImageProviderOption {
+  value: ImageGenerationProvider;
+  label: string;
+  description: string;
+}
+
+export const IMAGE_PROVIDER_OPTIONS: readonly ImageProviderOption[] = [
+  {
+    value: "openrouter",
+    label: "OpenRouter",
+    description: "APIキーと画像モデルを指定します。音声 / BGM もこのAPIキーを使います。",
+  },
+  {
+    value: "codex",
+    label: "Codex",
+    description:
+      "ChatGPT のサインインで生成します。画像モデルはバックエンドが選び（不明と表示）、参照画像の編集はできません。利用枠は ChatGPT の画像生成枠です。",
+  },
+];
+
+/** 生成元の表示名。見出し・削除の確認文などで使う */
+export function contentImageProviderLabel(provider: ImageGenerationProvider): string {
+  return IMAGE_PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ?? provider;
+}
+
+/**
+ * 生成元の切り替えの注記。既存の会話にも次の呼び出しから効くことと、未設定からの有効化だけは
+ * 新しい会話が要ることを書き分ける（ツール一覧をセッション作成時に固定するため）。
+ */
+export function contentImageProviderNote(provider: ImageGenerationProvider): string {
+  return `画像の生成元を ${contentImageProviderLabel(provider)} に変更しました。他方の設定は残ります。ツールを持つ既存の会話でも、次の呼び出しから新しい生成元を使います（未設定から有効にしたときだけ、ツールが無い会話には新しい会話が必要です）。`;
+}
+
+/** 認証状態のバッジ。保存済みでも使えない値を「設定済み」と誤表示しない */
+export function imageAuthBadge(auth: ContentImageAuth): ProviderBadge {
+  if (auth.state === "configured") return { label: "認証済み", tone: "ok" };
+  if (auth.state === "expired") return { label: "認証の期限切れ", tone: "warn" };
+  return { label: "未認証", tone: "muted" };
+}
+
+/** Codex のサインイン案内。APIキーを画像利用の前提にしないため、登録先を名指しする */
+export const CODEX_SIGN_IN_NOTICE =
+  "Codex のサインインが見つかりません。Pi / Codex CLI で openai-codex にサインインするか、設定 → モデル（/settings/models）のサインインを使ってください。APIキーは不要です。";
+export const CODEX_SIGN_IN_EXPIRED_NOTICE =
+  "Codex のサインインの期限が切れています。設定 → モデル（/settings/models）で openai-codex にサインインし直してください。";
+export const OPENROUTER_IMAGE_KEY_NOTICE =
+  "OpenRouter のAPIキーが未設定です。下の欄で登録すると generate_image を使えます。";
+
+/** 認証が足りないときの案内。使えるときは null */
+export function imageAuthNotice(auth: ContentImageAuth, provider: ImageGenerationProvider): string | null {
+  if (auth.state === "configured") return null;
+  if (provider === "codex") return auth.state === "expired" ? CODEX_SIGN_IN_EXPIRED_NOTICE : CODEX_SIGN_IN_NOTICE;
+  return OPENROUTER_IMAGE_KEY_NOTICE;
+}
+
+/** APIキー欄を出すか。Codex はキーを使わないため、画像タブでは欄ごと隠す（音声 / BGM のタブでは出す） */
+export function imageKeySectionVisible(provider: ImageGenerationProvider): boolean {
+  return provider === "openrouter";
+}
+
+/** Codex は画像モデルを選ばないため、モデル一覧と保存フォームを出さない */
+export function imageModelSectionVisible(provider: ImageGenerationProvider): boolean {
+  return provider === "openrouter";
+}
+
+/** 音声 / BGM が OpenRouter のAPIキーを必要とする旨。Codex を選んでも音声は使えないことを明示する */
+export const SPEECH_NEEDS_OPENROUTER_KEY_NOTE =
+  "音声 / BGM は OpenRouter のAPIキーで生成します。画像の生成元に Codex を選んでいても、音声 / BGM を使うには OpenRouter のAPIキーが必要です。";
+
+/** 画像タブの生成元欄の見出し */
+export const CONTENT_IMAGE_PROVIDER_HEADING = "画像の生成元";
+
 /** 音声カタログ更新後に現在値を確認できなかったときの注記。確認できるまで音声の設定を保存させない */
 export const SPEECH_SYNC_FAILED_NOTE =
   "音声モデル一覧は取得しましたが、現在の設定を確認できませんでした。再読み込みするまで音声の設定は保存できません。";
 
 /** 実行中の操作。null なら操作なし */
-export type ContentSavingAction = "enabled" | "key" | "delete" | "selection" | "catalog" | "speech" | "speech-catalog";
+export type ContentSavingAction =
+  | "enabled"
+  | "key"
+  | "delete"
+  | "provider"
+  | "selection"
+  | "catalog"
+  | "speech"
+  | "speech-catalog";
 
 /**
  * 有効 / 無効を保存したときの注記。ツール一覧はセッション作成時に固定するため、OFF は既存の会話に

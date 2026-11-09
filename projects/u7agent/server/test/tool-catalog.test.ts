@@ -18,6 +18,7 @@ const ALL_SANDBOX_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"
 
 const OPEN: ToolAvailability = {
   sandboxTools: ALL_SANDBOX_TOOLS,
+  imageGeneration: { enabled: true, reason: null },
   contentGeneration: true,
   contentGenerationConfigured: true,
   webSearch: true,
@@ -96,9 +97,14 @@ test("作業ツールの可否は PI_AGENT_TOOLS の実効で決まり、外れ�
   assert.equal(entry(SERVE_TOOL_NAME, { ...OPEN, sandboxTools: [] }).available, true);
 });
 
-test("アプリのツールはキー・実行時トグル・実体の有無で止まり、理由コードが変わる", () => {
+test("アプリのツールはキー・認証・実行時トグル・実体の有無で止まり、理由コードが変わる", () => {
   // キー未設定だけは no_key。行は残し、画面が「キーを設定すれば使える」と伝える
-  const noKey = { ...OPEN, contentGeneration: false, contentGenerationConfigured: false };
+  const noKey = {
+    ...OPEN,
+    imageGeneration: { enabled: false, reason: "no_key" as const },
+    contentGeneration: false,
+    contentGenerationConfigured: false,
+  };
   assert.deepEqual(entry(IMAGE_TOOL_NAME, noKey), {
     name: IMAGE_TOOL_NAME,
     description: entry(IMAGE_TOOL_NAME).description,
@@ -109,8 +115,28 @@ test("アプリのツールはキー・実行時トグル・実体の有無で�
   assert.equal(entry(SPEECH_TOOL_NAME, noKey).reason, "no_key");
   assert.equal(entry(BGM_TOOL_NAME, noKey).reason, "no_key");
 
+  // Codex を選んでサインインが無いときは no_auth。APIキーの登録を促さない
+  const noAuth = { ...OPEN, imageGeneration: { enabled: false, reason: "no_auth" as const } };
+  assert.equal(entry(IMAGE_TOOL_NAME, noAuth).reason, "no_auth");
+
+  // Codex の認証だけで開くのは画像だけ。音声 / BGM は OpenRouter のキーが要る
+  const codexOnly = {
+    ...OPEN,
+    imageGeneration: { enabled: true, reason: null },
+    contentGeneration: false,
+    contentGenerationConfigured: false,
+  };
+  assert.equal(entry(IMAGE_TOOL_NAME, codexOnly).available, true, "Codex の認証で画像は開く");
+  assert.equal(entry(SPEECH_TOOL_NAME, codexOnly).reason, "no_key");
+  assert.equal(entry(BGM_TOOL_NAME, codexOnly).reason, "no_key");
+
   // キーはあるが設定で OFF。画面は「アプリ側で無効」と出し、キーの登録を促さない
-  const disabled = { ...OPEN, contentGeneration: false, contentGenerationConfigured: true };
+  const disabled = {
+    ...OPEN,
+    imageGeneration: { enabled: false, reason: "app_disabled" as const },
+    contentGeneration: false,
+    contentGenerationConfigured: true,
+  };
   for (const name of [IMAGE_TOOL_NAME, SPEECH_TOOL_NAME, BGM_TOOL_NAME]) {
     assert.equal(entry(name, disabled).reason, "app_disabled", name);
   }
@@ -161,7 +187,12 @@ test("sessionToolPlan は許可リストの積を取り、tools と enabled が�
   const appOff = sessionToolPlan({
     base: ALL_SANDBOX_TOOLS,
     toolNames: [SERVE_TOOL_NAME, IMAGE_TOOL_NAME],
-    availability: { ...OPEN, serve: false, contentGeneration: false },
+    availability: {
+      ...OPEN,
+      serve: false,
+      imageGeneration: { enabled: false, reason: "no_key" },
+      contentGeneration: false,
+    },
     investigation: false,
   });
   assert.deepEqual(appOff.names, []);

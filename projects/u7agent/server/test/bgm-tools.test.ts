@@ -68,6 +68,7 @@ test("有効 / 無効が OFF の間は provider を呼ばず、固定文言で�
 test("公開はcontentゲートとtoolNamesの積で固定し、調査子とremoteには追加しない", () => {
   const availability = {
     sandboxTools: ["read"],
+    imageGeneration: { enabled: true, reason: null },
     contentGeneration: true,
     contentGenerationConfigured: true,
     webSearch: false,
