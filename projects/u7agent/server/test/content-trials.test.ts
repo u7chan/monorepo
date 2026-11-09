@@ -16,6 +16,10 @@ import {
   CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH,
   CONTENT_TRIAL_KEY_UNAVAILABLE_MESSAGE,
   CONTENT_TRIAL_IMAGE_MODEL_MESSAGE,
+  CONTENT_TRIAL_IMAGE_PARAMS_DECLARED_MESSAGE,
+  CONTENT_TRIAL_IMAGE_PARAMS_MESSAGE,
+  CONTENT_TRIAL_IMAGE_PARAMS_UNKNOWN_MESSAGE,
+  CONTENT_TRIAL_IMAGE_TRANSPARENT_MESSAGE,
   CONTENT_TRIAL_SPEECH_MODEL_MESSAGE,
   CONTENT_TRIAL_NOT_FOUND_MESSAGE,
   CONTENT_TRIAL_PROMPT_EMPTY_MESSAGE,
@@ -56,6 +60,8 @@ import {
   type BgmGenerationInput,
 } from "../src/bgm";
 import { IMAGE_GENERATION_TIMEOUT_MS, type ImageGenerationInput, type ImageGenerationResult } from "../src/images";
+import type { ImageParameterDeclarations } from "../src/images";
+import type { ImageParameterValues } from "../src/schema";
 import { SPEECH_GENERATION_TIMEOUT_MS, type SpeechGenerationInput, type SpeechGenerationResult } from "../src/speech";
 
 const KEY = "sk-trial-dummy-key-0123456789abcdef";
@@ -65,6 +71,23 @@ const MODEL = "openrouter/openai/gpt-image-2";
 function trialId(n: number): string {
   return `trial-${String(n).padStart(24, "0")}`;
 }
+
+/** SQL の `imageParams IS ?` の代わりの比較。正規化 JSON の文字列比較と同じ意味にし、NULL 同士も一致させる */
+function sameParameters(left: ImageParameterValues | null, right: ImageParameterValues | null): boolean {
+  if (left === null || right === null) return left === right;
+  const canonical = (values: ImageParameterValues) =>
+    JSON.stringify(Object.entries(values).sort(([a], [b]) => (a < b ? -1 : 1)));
+  return canonical(left) === canonical(right);
+}
+
+/** 画像モデルのパラメータ宣言。enum / range / 受け付けるだけの 3 種をすべて含む */
+const IMAGE_PARAMETERS: ImageParameterDeclarations = {
+  aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+  output_format: { type: "enum", values: ["png", "jpeg"] },
+  background: { type: "enum", values: ["transparent", "opaque"] },
+  quality: { type: "boolean" },
+  seed: { type: "range", min: 0, max: 4_294_967_295 },
+};
 
 /** 実バイトが PNG として読める最小の画像（保存側は先頭ヘッダを見る） */
 function pngImage(width = 2, height = 3): { mimeType: string; data: string } {
@@ -175,6 +198,7 @@ class FakeTrialsDb implements ContentTrialsDb {
     voice: string | null;
     instructions: string | null;
     speed: number | null;
+    parameters: ImageParameterValues | null;
     keyEpoch: number;
   }): ContentTrialRow | undefined {
     const row = this.listContentTrials()
@@ -187,6 +211,7 @@ class FakeTrialsDb implements ContentTrialsDb {
           candidate.voice === input.voice &&
           candidate.instructions === input.instructions &&
           candidate.speed === input.speed &&
+          sameParameters(candidate.parameters, input.parameters) &&
           candidate.keyEpoch === input.keyEpoch &&
           candidate.state === "succeeded" &&
           candidate.artifactState === "stored" &&
@@ -327,6 +352,7 @@ function row(overrides: Partial<ContentTrialRow> & { id: string }): ContentTrial
     voice: null,
     instructions: null,
     speed: null,
+    parameters: null,
     state: "running",
     keyEpoch: 0,
     artifactState: "none",
@@ -348,6 +374,8 @@ function createHarness(
     models?: readonly string[];
     speechModels?: readonly string[];
     speechVoices?: readonly string[] | undefined;
+    /** 画像モデルのパラメータ宣言。明示的に `undefined` にすると「宣言なし」のモデルになる */
+    imageParameters?: ImageParameterDeclarations | undefined;
     generate?: boolean;
     artifacts?: boolean;
     /** 置き場の空き確認。未指定は判定しない（空きを測れない環境と同じく通す） */
@@ -372,6 +400,7 @@ function createHarness(
     models: () => options.models ?? [MODEL],
     speechModels: () => options.speechModels ?? [SPEECH_MODEL],
     speechVoices: () => ("speechVoices" in options ? options.speechVoices : SPEECH_VOICES),
+    imageParameters: () => ("imageParameters" in options ? options.imageParameters : IMAGE_PARAMETERS),
   };
   const service = new ContentTrialsService({
     db,
@@ -1872,4 +1901,216 @@ test("試行の生成元は openrouter で記録し、別 provider の実績は�
   const rerun = await harness.start();
   assert.equal(rerun.status, 202, "別 provider の実績を証拠にしない");
   assert.equal(harness.generations.length, 1);
+});
+
+test("画像のパラメータは入力スナップショットになり、要約と全文の両方に載る", async () => {
+  const harness = createHarness();
+  const outcome = await harness.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { aspect_ratio: "16:9", seed: 7 },
+  });
+  assert.equal(outcome.status, 202);
+  if (outcome.status !== 202) return;
+  assert.deepEqual(outcome.trial.parameters, { aspect_ratio: "16:9", seed: 7 });
+  // 生成器へは正規化した値を渡す（未指定のキーは載せない）
+  assert.deepEqual(harness.generations[0]?.input.parameters, { aspect_ratio: "16:9", seed: 7 });
+  assert.deepEqual(harness.db.readContentTrial(outcome.trial.id)?.parameters, { aspect_ratio: "16:9", seed: 7 });
+
+  const listed = listTrials(harness.service, { kind: "image" });
+  assert.deepEqual(listed.items[0]?.parameters, { aspect_ratio: "16:9", seed: 7 }, "要約にも載せる");
+  const got = harness.service.get(outcome.trial.id);
+  assert.equal(got.status, 200);
+  if (got.status !== 200) return;
+  assert.deepEqual(got.trial.parameters, { aspect_ratio: "16:9", seed: 7 }, "全文にも載せる");
+
+  // 未指定の行は null
+  const plain = await createHarness();
+  const started = await plain.start();
+  assert.equal(started.status, 202);
+  if (started.status !== 202) return;
+  assert.equal(started.trial.parameters, null);
+  assert.equal(listTrials(plain.service).items[0]?.parameters, null);
+});
+
+test("同じパラメータの保存済み成功は再利用し、パラメータが違えば再利用しない", async () => {
+  const harness = createHarness();
+  const first = await harness.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { aspect_ratio: "1:1", seed: 3 },
+  });
+  assert.equal(first.status, 202);
+  if (first.status !== 202) return;
+  harness.generations[0]?.resolve({ ok: true, image: pngImage() });
+  await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
+
+  // キーの順序が違うだけの入力は同じスナップショットになる
+  const reused = await harness.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { seed: 3, aspect_ratio: "1:1" },
+  });
+  assert.equal(reused.status, 200);
+  if (reused.status !== 200) return;
+  assert.equal(reused.reused, true);
+  assert.equal(reused.trial.id, first.trial.id);
+  assert.equal(harness.generations.length, 1, "provider を呼ばない");
+
+  // パラメータが違えば別の試行
+  const other = await harness.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { aspect_ratio: "1:1" },
+  });
+  assert.equal(other.status, 202, "パラメータが違えば再利用しない");
+  assert.equal(harness.generations.length, 2);
+});
+
+test("未指定同士（NULL）の保存済み成功は再利用する", async () => {
+  const harness = createHarness();
+  const first = await harness.start("a cat on a sofa");
+  if (first.status !== 202) return;
+  harness.generations[0]?.resolve({ ok: true, image: pngImage() });
+  await until(() => harness.db.rows.get(first.trial.id)?.state === "succeeded");
+  const reused = await harness.start("a cat on a sofa");
+  assert.equal(reused.status, 200);
+  if (reused.status !== 200) return;
+  assert.equal(reused.trial.id, first.trial.id);
+  assert.equal(harness.generations.length, 1);
+});
+
+test("画像のパラメータは画像の試行だけが受け付け、音声 / BGM では課金前に 400 にする", async () => {
+  const harness = createHarness();
+  const speech = await harness.service.start({
+    kind: "speech",
+    model: SPEECH_MODEL,
+    prompt: "こんにちは",
+    parameters: { seed: 1 },
+  });
+  assert.equal(speech.status, 400);
+  assert.equal(speech.status === 400 ? speech.error : "", CONTENT_TRIAL_IMAGE_PARAMS_MESSAGE);
+  const bgm = await harness.service.start({
+    kind: "bgm",
+    model: BGM_MODEL,
+    prompt: "静かな夜のピアノ",
+    parameters: { seed: 1 },
+  });
+  assert.equal(bgm.status, 400);
+  assert.equal(bgm.status === 400 ? bgm.error : "", CONTENT_TRIAL_IMAGE_PARAMS_MESSAGE);
+  assert.equal(
+    harness.generations.length + harness.speechGenerations.length + harness.bgmGenerations.length,
+    0,
+    "provider を叩かない",
+  );
+});
+
+test("宣言外のパラメータと宣言の無いモデルは、provider を呼ばずに 400 にする", async () => {
+  const harness = createHarness();
+  // 宣言に無いキー
+  const undeclared = await harness.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { resolution: "1024x1024" },
+  });
+  assert.equal(undeclared.status, 400);
+  assert.ok(
+    undeclared.status === 400 && undeclared.error.startsWith(CONTENT_TRIAL_IMAGE_PARAMS_DECLARED_MESSAGE),
+    "固定の理由を先頭に置く",
+  );
+  // 宣言の外の値
+  const outside = await harness.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { aspect_ratio: "3:2" },
+  });
+  assert.equal(outside.status, 400);
+  // 値を文言へ反射するときもマスカーを通す
+  const reflected = await harness.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { aspect_ratio: KEY },
+  });
+  assert.equal(reflected.status, 400);
+  if (reflected.status !== 400) return;
+  assert.equal(reflected.error.includes(KEY), false);
+  assert.ok(reflected.error.includes("[REDACTED]"));
+
+  // 宣言が読めないモデルでは明示の指定を受けない
+  const unknown = createHarness({ imageParameters: undefined });
+  const rejected = await unknown.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { seed: 1 },
+  });
+  assert.equal(rejected.status, 400);
+  assert.equal(rejected.status === 400 ? rejected.error : "", CONTENT_TRIAL_IMAGE_PARAMS_UNKNOWN_MESSAGE);
+  assert.equal(harness.generations.length + unknown.generations.length, 0, "provider を叩かない");
+  // パラメータを指定しなければ、宣言が読めないモデルでも従来どおり開始できる
+  assert.equal((await unknown.start()).status, 202);
+});
+
+test("透過できない形式は課金前に 400 にし、宣言が読めないときは通す", async () => {
+  // 明示の output_format が jpeg
+  const jpeg = createHarness();
+  const explicitJpeg = await jpeg.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { background: "transparent", output_format: "jpeg" },
+  });
+  assert.equal(explicitJpeg.status, 400);
+  assert.equal(
+    explicitJpeg.status === 400 ? explicitJpeg.error : "",
+    CONTENT_TRIAL_IMAGE_TRANSPARENT_MESSAGE,
+    "provider を叩かない",
+  );
+  assert.equal(jpeg.generations.length, 0);
+
+  // output_format 未指定で、宣言に png / webp が無い（jpeg しか選べない）
+  const jpegOnly = createHarness({
+    imageParameters: {
+      background: { type: "enum", values: ["transparent", "opaque"] },
+      output_format: { type: "enum", values: ["jpeg"] },
+    },
+  });
+  const implicitJpeg = await jpegOnly.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { background: "transparent" },
+  });
+  assert.equal(implicitJpeg.status, 400);
+  assert.equal(implicitJpeg.status === 400 ? implicitJpeg.error : "", CONTENT_TRIAL_IMAGE_TRANSPARENT_MESSAGE);
+  assert.equal(jpegOnly.generations.length, 0);
+
+  // 明示の png は通す
+  const png = createHarness();
+  const explicitPng = await png.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { background: "transparent", output_format: "png" },
+  });
+  assert.equal(explicitPng.status, 202);
+
+  // output_format を宣言していないモデルは、宣言が読めない扱いで通す
+  const undeclaredFormat = createHarness({
+    imageParameters: { background: { type: "enum", values: ["transparent", "opaque"] } },
+  });
+  const passed = await undeclaredFormat.service.start({
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { background: "transparent" },
+  });
+  assert.equal(passed.status, 202);
 });

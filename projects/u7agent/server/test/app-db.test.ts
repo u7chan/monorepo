@@ -3335,6 +3335,7 @@ function runningTrial(id: string, overrides: Partial<ContentTrialRow> = {}): Con
     voice: null,
     instructions: null,
     speed: null,
+    parameters: null,
     state: "running",
     keyEpoch: 0,
     artifactState: "none",
@@ -3576,6 +3577,7 @@ test("成果物のメタデータは状態と 1 文で書き、容量は succeed
     voice: null,
     instructions: null,
     speed: null,
+    parameters: null,
     keyEpoch: row?.keyEpoch ?? 0,
   };
   assert.equal(db.findReusableContentTrial({ ...reuseBase, prompt: "a cat" })?.id, id);
@@ -3698,6 +3700,7 @@ test("v39 の DB を開くと音声の列が足され、既存の行は null の
         voice: "Aoede",
         instructions: null,
         speed: 1.1,
+        parameters: null,
         keyEpoch: speech?.keyEpoch ?? 0,
       })?.id,
       id,
@@ -3711,6 +3714,7 @@ test("v39 の DB を開くと音声の列が足され、既存の行は null の
         voice: "Aoede",
         instructions: null,
         speed: 1.2,
+        parameters: null,
         keyEpoch: speech?.keyEpoch ?? 0,
       }),
       undefined,
@@ -3836,6 +3840,132 @@ test("v41 の DB を開くと image_settings と content_trials.provider が足�
       "既存の試行の行は書き換えない",
     );
     check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("v42 の DB を開くと content_trials.imageParams が足され、既存の行は未指定として読める", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentTrial(runningTrial("trial-params"));
+    first.close();
+
+    // v42 相当（imageParams を持たない版）へ落として開き直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("ALTER TABLE content_trials DROP COLUMN imageParams");
+    raw.exec("PRAGMA user_version = 42");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.equal(migrated.readContentTrial("trial-params")?.parameters, null, "既存行は NULL = 未指定");
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    assert.equal(
+      (
+        check.prepare("SELECT imageParams FROM content_trials WHERE id = 'trial-params'").get() as {
+          imageParams: string | null;
+        }
+      ).imageParams,
+      null,
+      "既存の試行の行は書き換えない",
+    );
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("画像のパラメータは正規化した JSON で往復し、同じ入力だけを再利用する", () => {
+  const db = AppDb.open({ storeDir: null });
+  const id = "trial-0123456789abcdef01234567";
+  // キーの順序が違うだけの入力が同じ保存値になるように、保存側でキー順を固定する
+  db.saveContentTrial(runningTrial(id, { parameters: { seed: 42, aspect_ratio: "1:1" } }));
+  db.finishContentTrial({
+    id,
+    state: "succeeded",
+    failureCode: null,
+    failureMessage: null,
+    finishedAt: 2_000,
+    durationMs: 1_000,
+    charged: true,
+    artifact: { path: `${id}.png`, bytes: 10, format: "png", width: 1, height: 1 },
+  });
+  assert.deepEqual(db.readContentTrial(id)?.parameters, { aspect_ratio: "1:1", seed: 42 });
+
+  const reuse = (parameters: { aspect_ratio?: string; seed?: number } | null) =>
+    db.findReusableContentTrial({
+      kind: "image",
+      provider: "openrouter",
+      model: "openrouter/openai/gpt-image-2",
+      prompt: "a cat",
+      voice: null,
+      instructions: null,
+      speed: null,
+      parameters,
+      keyEpoch: 0,
+    })?.id;
+  assert.equal(reuse({ aspect_ratio: "1:1", seed: 42 }), id, "キーの順序が違っても同じ入力");
+  assert.equal(reuse({ aspect_ratio: "1:1" }), undefined, "パラメータが違えば再利用しない");
+  assert.equal(reuse(null), undefined, "未指定の入力はパラメータ付きの実績を再利用しない");
+
+  // 未指定同士（NULL）は一致として再利用できる
+  const none = "trial-0123456789abcdef01234568";
+  db.saveContentTrial(runningTrial(none, { prompt: "a dog" }));
+  db.finishContentTrial({
+    id: none,
+    state: "succeeded",
+    failureCode: null,
+    failureMessage: null,
+    finishedAt: 3_000,
+    durationMs: 1_000,
+    charged: true,
+    artifact: { path: `${none}.png`, bytes: 10, format: "png", width: 1, height: 1 },
+  });
+  assert.equal(
+    db.findReusableContentTrial({
+      kind: "image",
+      provider: "openrouter",
+      model: "openrouter/openai/gpt-image-2",
+      prompt: "a dog",
+      voice: null,
+      instructions: null,
+      speed: null,
+      parameters: null,
+      keyEpoch: 0,
+    })?.id,
+    none,
+  );
+  db.close();
+});
+
+test("壊れた imageParams は未指定へ落とさず、行の破損として例外にする", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentTrial(runningTrial("trial-broken"));
+    first.saveContentTrial(runningTrial("trial-shape"));
+    first.close();
+
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    for (const [value, id] of [
+      ["{not json", "trial-broken"],
+      ['{"seed":"42"}', "trial-shape"],
+    ] as const) {
+      raw.prepare("UPDATE content_trials SET imageParams = ? WHERE id = ?").run(value, id);
+    }
+    raw.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.throws(() => reopened.readContentTrial("trial-broken"), /content_trials\.imageParams is not valid JSON/);
+    assert.throws(
+      () => reopened.readContentTrial("trial-shape"),
+      /content_trials\.imageParams is not a valid parameters object/,
+    );
+    reopened.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

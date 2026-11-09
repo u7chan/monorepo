@@ -65,6 +65,7 @@ function trial(overrides: Partial<ContentTrial> = {}): ContentTrial {
     voice: null,
     instructions: null,
     speed: null,
+    parameters: null,
     state: "succeeded",
     keyEpoch: 1,
     artifactState: "stored",

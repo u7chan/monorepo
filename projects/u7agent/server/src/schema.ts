@@ -1466,6 +1466,7 @@ export type ContentTrialArtifact = z.infer<typeof ContentTrialArtifactSchema>;
  * `recorded: false` は「終端を DB へ記録できず、メモリの状態を返している」を表し、
  * この間の行は `running` のまま保存されている（docs/api-settings.md）。APIキーは載らない。
  * 音声の `voice` / `speed` は送信時のスナップショットで、画像と BGM の行は null。
+ * `parameters` も送信時のスナップショットで、未指定（未指定のまま生成した行を含む）は null。
  */
 export const ContentTrialSummarySchema = z.object({
   id: z.string(),
@@ -1476,6 +1477,11 @@ export const ContentTrialSummarySchema = z.object({
   promptPreview: z.string(),
   voice: z.string().nullable(),
   speed: z.number().nullable(),
+  /**
+   * 画像の生成パラメータ（許可リストのキーだけ）。未指定は null で、[もう一度生成] は全文の取得を待たずに
+   * この値を使える（`ContentTrialSchema` も要約を extends するため全文にも載る）。
+   */
+  parameters: ImageParameterValuesSchema.nullable(),
   state: ContentTrialStateSchema,
   keyEpoch: z.number(),
   artifactState: ContentTrialArtifactStateSchema,
@@ -1546,6 +1552,7 @@ export type ContentTrialDeleteResponse = z.infer<typeof ContentTrialDeleteRespon
  * POST /api/settings/content/trials。試行は画面の値で実行し、設定には反映しない。
  * 種別ごとに同時 1 本で、実行中は 409。`voice` / `instructions` / `speed` は音声のときだけ受け付け、
  * 音声の試行の入力スナップショットとして履歴に残る（同じ入力の再利用もこの 3 つで照合する）。
+ * `parameters` は画像のときだけ受け付け、宣言との突き合わせは課金前に行う（同じ入力の再利用もこの値で照合する）。
  * BGM の `model` は固定で、それ以外は 400（設定画面は固定値を送る）。
  */
 export const CreateContentTrialBodySchema = z.object({
@@ -1559,6 +1566,8 @@ export const CreateContentTrialBodySchema = z.object({
   voice: z.string().max(200).optional(),
   instructions: z.string().max(CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH).optional(),
   speed: z.number().optional(),
+  /** 画像の生成パラメータ。未指定は送らず、モデルが宣言した範囲だけを通す */
+  parameters: ImageParameterValuesSchema.optional(),
 });
 export type CreateContentTrialBody = z.infer<typeof CreateContentTrialBodySchema>;
 

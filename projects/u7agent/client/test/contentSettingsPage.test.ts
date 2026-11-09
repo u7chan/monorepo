@@ -272,6 +272,7 @@ test("BGM のタブにも実行中と新着の印を出し、開けば消える"
     voice: null,
     instructions: null,
     speed: null,
+    parameters: null,
     state: "running",
     keyEpoch: 0,
     artifactState: "none",
