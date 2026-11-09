@@ -143,15 +143,65 @@ cp generated/cafe-1.png assets/cafe-latest.png
 
 `generated/cafe-1.png` はそのまま残す。最新コピー用の追加ツール引数は設けず、`path` の説明と system prompt のガイドラインでこの運用を指示する。参照元を別ツールで上書き・削除した場合の履歴保護は保証しない。
 
+## 画像の生成元（provider）
+
+画像の生成元は OpenRouter と Codex の 2 つで、既定は OpenRouter。設定で明示的に選んだ片方だけを使い、provider 間の自動フォールバック・自動再送はしない（片方の失敗を他方で隠さない。失敗の分類と文言は選んだ provider のものを返す）。
+
+### 設定の持ち方
+
+生成元は `content_settings` の 1 行に混ぜず、別テーブル `image_settings`（1 行）に置く。
+
+- 既定は行が無いことで表し、既存環境は `provider = openrouter` として移行する（行を作らない。OpenRouter のモデルは `content_settings.imageModel` が正のままで、同じ値を 2 箇所へ写さない）
+- Codex に切り替えても OpenRouter のキー・モデル・音声 / BGM の設定は消さない（戻せばそのまま使える）
+- OpenRouter キーの削除は `content_settings` の行だけを消すため、`image_settings.provider` は残る（Codex の選択がキー削除で消えない）
+- `codexParams` は将来の Codex 用パラメータの枠で、この版の API / 画面は読み書きしない（`PUT` のたびに値を保つだけ）。モデル別の生成パラメータの既定は `content_settings` 側に置くため、OpenRouter 用のパラメータ列を `image_settings` へは持たない（同じ既定を 2 箇所に持たない）
+- 画面からパラメータの既定を編集する導線は持たない（設定できるのは生成元だけ）
+
+### 認証と GET の純粋性
+
+`GET /api/settings/content` は `image.provider` と `image.auth { state, kind }` を返すが、**保存値の読取だけで判定する**。OpenRouter は復号済みのキーがあるか、Codex は Pi の `auth.json` に保存された資格情報の種別と期限だけを見る（トークンの解決・更新・外部通信を GET で起こさない）。認証の値そのものは応答・ログ・health へ出さない。
+
+- Codex の認証は 設定 → モデル の `openai-codex` サインイン（Pi / Codex CLI の `auth.json`）をそのまま使う。画像用の APIキーは要求しない
+- サインインの確認だけを行うため、サインイン・サインアウトの後に設定画面を開き直す必要はない（ツール一覧の判定も保存値の読取だけを行う）
+
+### 実行
+
+```text
+generate_image
+  → 実行時に image_settings.provider を読む
+      ├─ openrouter → 既存の /images
+      └─ codex      → openai-codex の OAuth を解決 → Codex アダプタ
+```
+
+- `provider` はツール引数にしない（モデルに課金経路を選ばせない）。既存セッションでも、ツールが公開済みなら次の実行から新しい生成元を使う
+- Codex の要求は SDK の `openai-codex` の chat モデルをルーティングにだけ使い、`tools` に `image_generation` を付けて `POST {baseUrl}/codex/responses` へ送る。画像は SSE の `image_generation_call` の `result`（base64）だけを使い、`content-type` の宣言には依存しない（実測で null だった）。応答に画像モデルは含まれない
+- 期限は 5 分、画像の上限は 32 MiB、応答の上限は base64 を含めて 48 MiB とし、OpenRouter の値とは別に持つ（条件が違うため流用しない）
+- Codex の `input_images` は、サンドボックスから読む前・送信する前に拒否する（参照なし生成へ黙ってフォールバックしない。課金しない）
+- 認証切れ（401 / 403）・利用枠 / レート（429 / 5xx）・timeout・中断・unknown は固定文言へ分類し、provider の本文は返さない。**自動再送も別 provider / 別アカウントへの切り替えもしない**。timeout・中断の文言には利用枠が消費されている可能性を含める
+- 認証を解決できないときも provider を呼ばず、サインイン案内の固定文言で止める（SDK の例外文言にはトークンが混ざり得るため外へ出さない）
+
+### 結果表示
+
+- 1 行目 `モデル:`、2 行目 `画像を生成して保存しました: <path>` は provider で変えない（クライアントの `generationInfo.ts` が先頭行を読む）
+- OpenRouter は従来どおり `モデル: <id>`
+- Codex は `モデル: Codex（画像モデル不明）` とし、3 行目に `プロバイダー: Codex` を置く。ルーティングモデルを画像モデルとして出さない
+- バッジ / キャプションは結果本文の 1 行目をそのまま表示するため、Codex の生成は「Codex（画像モデル不明）」と出る。旧履歴（OpenRouter の `モデル: <id>`）は同じ読み取りで変わらず読める
+
+### 試行・ツール公開
+
+- 試行（プレイグラウンド）は v1 では OpenRouter 固定。生成元が Codex のときは API と UI の両方で明示的に拒否し、押しても必ず失敗するボタンを作らない（認証世代を試行の再利用キーへ写す設計が別途必要なため。課金はしない）
+- `content_trials` には生成元の列を持ち、同じ入力の再利用の照合にも含める。既存行は `NULL` を OpenRouter として読み、v1 の試行は OpenRouter だけを記録する
+- 画像ツールの公開は**選択 provider の認証**で決める。OpenRouter はキー、Codex はサインインが必要で、止まっている理由を `no_key` / `no_auth` に分ける（APIキーを求めない provider でキー登録を促さない）。設定のトグルが OFF なら `app_disabled`。Codex は `content_settings` の行を要求しない（キー削除後もサインインだけで公開する）。サインインの期限切れは公開し、access token の更新は生成時の SDK の解決へ委ねる（ここで落とすと更新の機会が無くなる）。音声 / BGM は従来どおり OpenRouter のキーが要り、Codex の認証だけでは開かない
+
 ## 有効化（ゲート）
 
-`content_settings` の行の有無と `enabled` 列がコンテンツ生成のゲートで、`PiBff.contentGenerationEnabled` と `PiBff.setContentGeneration()` がその写し先になる。公開時にはさらにエージェントの `toolNames` との積を取る。画像・TTS・BGMは同じゲートを共有する（**有効 / 無効は 1 つの列**。タブごとのトグルは持たない。3 つは同じキーと同じ課金を共有し、止めたい依存も同じため）。
+`content_settings` の行の有無と `enabled` 列がコンテンツ生成のゲートで、`PiBff.contentGenerationEnabled` と `PiBff.setContentGeneration()` がその写し先になる。公開時にはさらにエージェントの `toolNames` との積を取る。画像・TTS・BGMは同じゲートを共有する（**有効 / 無効は 1 つの列**。タブごとのトグルは持たない。3 つは同じ設定行と課金の枠を共有し、止めたい依存も同じため）。ただし画像は生成元ごとの認証も要る（[画像の生成元（provider）](#画像の生成元provider)）。
 
 - `bootstrap.ts` は `AppDb.open()` の後、`ModelSettingsService.applyStored()` と同じ順序で `ContentSettingsService.applyStored()` を呼ぶ。行があり `enabled` が ON なら（キーをマスカーへ登録してから）有効化し、行が無ければ未設定、行があっても OFF なら停止のまま起動する
 - キー登録・削除・有効 / 無効の API は**同じミューテーションロックの内側**で `setContentGeneration()` を更新する。次のセッション作成から効き、再起動は要らない。キー登録（上書き）は OFF を引き継ぎ、削除は行ごと消すため OFF も一緒に失われる（未設定へ戻る）
 - ツール一覧はセッション作成時に固定する（新しい会話と復元から効く）。ON に戻しても、OFF の間に作った会話にはツールが無い（新しい会話で使う）。**OFF は実行時にも見る**ため、既存の live セッションでも次の呼び出しから `CONTENT_DISABLED_MESSAGE`（「コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。」）で失敗し、provider を叩かない。キー未設定・削除後とは別の文言にし、キーの再登録を促さない
 - `execute` は作成時のキーを握らず、毎回 `content_settings` を読み直す。未設定・削除後はキー無効エラーを返し、キーの変更・回転にも追随する
-- ツール一覧の止まっている理由は 2 つに分ける: キーの行が無ければ `no_key`、行があって OFF なら `app_disabled`（[api-catalog.md](api-catalog.md#ツール許可リスト)）
+- ツール一覧の止まっている理由は分ける: 画像は OpenRouter のキーが無ければ `no_key`、Codex のサインインが無ければ `no_auth`、設定が OFF なら `app_disabled`。音声 / BGM は行が無ければ `no_key`、OFF なら `app_disabled`（[api-catalog.md](api-catalog.md#ツール許可リスト)）
 - 音声の試行も OFF の間は課金しない（同じ文言の 400 を返し、画面は開始のボタンを止める。生成済みの音声の再生は課金しないため残す）
 - pi ランタイム初期化に失敗したとき（`pi` が null）は `retainSecret` が no-op になり、キーを保護対象へ足せない。この状態のキー登録は model-settings と同じく 503 `not_stored` にする（DB へも書き込まない）
 
@@ -225,7 +275,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 ## ツールとプレビュー
 
 - ツール引数は `prompt`（必須）、`path`（省略可、cwd 相対）、`input_images`（省略可、参照画像 1 枚）。ツール説明と system prompt（`appendSystemPrompt` の画像生成行）に、生成物の場所と「本文には Markdown 画像で示す」ことを入れる
-- ツール結果本文には保存パスと一緒に使用モデル（実行時に読んだ `model`）を行で残す。会話履歴は `session.jsonl` の `toolResult` の生 content を正とするため、別途 DB へは保存せず、ライブ・復元後の両方でツール履歴の出力から何で生成したかを追える。設定を変更した後の実行にはその時点のモデルが入る
+- ツール結果本文には保存パスと一緒に使用モデル（実行時に読んだ `model`。Codex は画像モデルが返らないため `Codex（画像モデル不明）` と `プロバイダー: Codex`）を行で残す。会話履歴は `session.jsonl` の `toolResult` の生 content を正とするため、別途 DB へは保存せず、ライブ・復元後の両方でツール履歴の出力から何で生成したかを追える。設定を変更した後の実行にはその時点のモデルが入る
 - モデル行は結果本文の先頭に置く。投影（`toolResultSummary`）は先頭 900 文字（`SUMMARY_TEXT_MAX`）で切るため、長い `path` を指定しても表示からモデルが欠けないようにする
 - 生成物の確認は `read`。SDK の `read` は画像を返せる
 - チャットのプレビューは Markdown 画像の cwd 相対解決で行う。`![alt](generated/cafe.png)` を 1) `resolveFileRef(src, rootCwd, cwd)` → 2) `fileTreeFetchPath(cwd, resolved)` → 3) `fileRawUrl(rootRelative, imageVersion)` の 3 段で解決し、添付画像と同じ `ZoomableImage`（variant `markdown`）で表示する（[markdown.md](markdown.md#画像の-src-解決)）。解決できなければ従来どおり src をそのまま描く（外部 URL は CSP で読み込めない）
@@ -258,8 +308,9 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/content` | `configured` / `provider` / `runtimeAvailable` / `image`（`model` / `models`（カタログ）/ `catalogSource` / `fetchedAt`）。キーは返さない |
+| GET | `/api/settings/content` | `configured` / `provider` / `runtimeAvailable` / `image`（`model` / `provider` / `auth` / `models`（カタログ。Codex は空配列）/ `catalogSource` / `fetchedAt`）。キーもトークンも返さない |
 | PUT | `/api/settings/content/image` | `{ provider, model }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400） |
+| PUT | `/api/settings/content/image/provider` | `{ provider }`。画像の生成元を切り替える。キー登録を伴わないため行が無くても受け付ける（[画像の生成元（provider）](#画像の生成元provider)） |
 | PUT | `/api/settings/content/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
 | DELETE | `/api/settings/content/key` | 行ごと削除（未設定へ戻す。冪等） |
 | POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `models` / `catalogSource` / `fetchedAt` / `catalogError` を返す（失敗時も一覧は返す） |
@@ -278,7 +329,8 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 | --- | --- |
 | `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ 明示された生成パラメータだけを本文へ足し、未指定なら従来と同一の本文になること / 宣言との突き合わせ（宣言に無いキー・宣言の外の値・不明を送らせない）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK 同梱の openrouter が provider 内で同じ `baseUrl` / ヘッダを使うこと（ひな形の流用の前提）/ SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること / 参照画像ありの失敗では provider の自由文（plain / 1 段・2 段の JSON エスケープ / 折り返し base64）を返さず固定文言だけになること / 参照画像なしの失敗では従来どおり理由を添えること |
 | `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名と形式の宣言）/ 出力形式の取り込みと一覧の絞り込み（不明・形違いは落とさない）/ 宣言がキャッシュから読めること / 一覧から落ちた id の `outputFormatsOf` / 生成パラメータの宣言の取り込み（enum / range / boolean、未知キーの無視、壊れた descriptor、`seed` の上限、`output_format` の積）と `snapshot()` への掲載 / 一覧から落ちた id の `parametersOf` / 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
-| `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / OFF の間は provider を叩かず固定文言で失敗し ON へ戻すと同じ定義で生成できる / throw のマスク / signal の伝播 |
+| `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ Codex の結果の先頭 3 行（モデル・保存パス・プロバイダー）と参照画像の課金前拒否・認証解決の失敗 / path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / OFF の間は provider を叩かず固定文言で失敗し ON へ戻すと同じ定義で生成できる / throw のマスク / signal の伝播 |
+| `server/test/codex-images.test.ts` | Codex アダプタの要求（`/codex/responses`・認証ヘッダ・`image_generation` ツール・ルーティングモデルは画像モデルにしない）/ SSE からの画像の取り出し（`output_item` と最終応答、`content-type` 非依存、`output_format` の写像）/ 失敗分類（401・403・429・5xx・timeout・中断・画像 0 件）/ 画像と応答の上限 / ルーティングモデルが無いときは呼ばない / `auth.json` の保存値だけでの認証状態（missing / configured / expired、壊れた保存値）/ JWT claim からの account id（読めないトークンは使わない） |
 | `server/test/image-input.test.ts` | 参照画像のパス解決（cwd 相対 / 添付の絶対パス / 未所属・プロジェクト・追加スペースで起点がずれない）/ 拒否規則（`..`・範囲外・URL・data URL・バックスラッシュ・空）/ 実バイトの形式判定（PNG・JPEG・WebP、無拡張子・拡張子違い、壊れたヘッダ）/ 上限（10 MiB・40 メガピクセル）/ 入力の base64・data URL の除去 |
 | `server/test/sandbox-image-input.test.ts` | `GET /v1/files/image-input` の許可範囲（scope 外・実在しない範囲・root 外 symlink）/ 実バイト判定 / 上限 413 / scope 数の上限 |
 | `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、有効 / 無効の切替（キーと選択を保つ・行が無ければ 400・保存失敗は 503 で写しも変えない・キー上書きが OFF を引き継ぐ）、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式宣言 |
@@ -295,10 +347,10 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 
 ## 非ゴール
 
-- OpenAI provider の実装（差し替え点だけ残す）
+- OpenAI provider の実装（OpenRouter の差し替え点だけ残す。Codex のアダプタは `server/src/codex-images.ts` に閉じる）
 - キーの有効性のチェック（live カタログの取得は API キーを見ないため兼用できない。やるなら別 API）
 - TTL / バックグラウンドでのカタログ自動再取得（契機は起動と手動 [カタログ更新] だけ）
-- コスト表示、provider 切替 UI、プロバイダー登録済みキーの流用
+- コスト表示、プロバイダー登録済みキーの流用、エージェント単位の生成元の上書き
 - 参照画像による**部分編集**（マスク / 領域指定 / レイヤー）。変更対象外のピクセルを厳密に保つことは保証しない（[参照画像による編集](#参照画像による編集)）
 - 複数の参照画像、複数枚の出力、入力の自動縮小・自動変換、外部 URL を直接の入力にすること
 - `provider.only` による endpoint の pin（対応 / 非対応が混在するモデルは編集対象外）

@@ -55,6 +55,13 @@ class FakeContentDb implements ContentSettingsDb {
     this.row = settings;
   }
 
+  /** 画像の生成元は別テーブル。音声のテストでは既定（openrouter）のまま使う */
+  readImageSettings(): undefined {
+    return undefined;
+  }
+
+  saveImageSettings(): void {}
+
   deleteContentSettings(): boolean {
     this.events.push("delete");
     const existed = this.row !== undefined;
@@ -153,6 +160,7 @@ function createService(
     retainSecret: () => {},
     catalog: stubImageCatalog(),
     speechCatalog: fake.catalog,
+    codexAuth: { status: () => ({ state: "missing" as const, kind: null }), resolve: async () => undefined },
     setContentGeneration: (config) => {
       configs.push(config);
       db.events.push(`inject:${config.enabled ? "on" : "off"}`);

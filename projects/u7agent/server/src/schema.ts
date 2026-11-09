@@ -211,8 +211,10 @@ export type ToolGroup = z.infer<typeof ToolGroupSchema>;
 /**
  * アプリ側でツールを使えない理由のコード。文言はクライアントの lib が持ち、応答にはコードだけを載せる
  * (既存の分担は `client/src/lib/fileSkills.ts` / `client/src/lib/settingsNotes.ts`)。
+ * `no_key` は OpenRouter のキー未登録、`no_auth` は Codex のサインインが無いことを表す
+ * (画像は選択 provider の認証で決まる。docs/api-catalog.md)。
  */
-export const ToolUnavailableReasonSchema = z.enum(["deploy_allowlist", "app_disabled", "no_key"]);
+export const ToolUnavailableReasonSchema = z.enum(["deploy_allowlist", "app_disabled", "no_key", "no_auth"]);
 export type ToolUnavailableReason = z.infer<typeof ToolUnavailableReasonSchema>;
 
 /**
@@ -1331,12 +1333,30 @@ export const SpeechCatalogSourceSchema = z.enum(["live", "stored", "default"]);
 export type SpeechCatalogSource = z.infer<typeof SpeechCatalogSourceSchema>;
 
 /**
+ * 画像の生成元。値の正は `server/src/images.ts` の `IMAGE_GENERATION_PROVIDERS`。
+ * provider 間の自動フォールバックはなく、設定で明示的に選んだ片方だけを使う。
+ */
+export const ImageGenerationProviderSchema = z.enum(["openrouter", "codex"]);
+export type ImageGenerationProvider = z.infer<typeof ImageGenerationProviderSchema>;
+
+/** 画像の認証状態。値を伏せたまま「使えるか / 何を入れれば使えるか」だけを返す */
+export const ContentImageAuthSchema = z.object({
+  state: z.enum(["configured", "missing", "expired"]),
+  kind: z.enum(["api_key", "oauth"]).nullable(),
+});
+export type ContentImageAuth = z.infer<typeof ContentImageAuthSchema>;
+
+/**
  * GET /api/settings/content の `image`。`configured: false` のとき `model` は null（行が無い = 未設定）。
  * 音声など別の生成物を足すときは、この兄弟として項目を増やす（`image` の形は変えない）。
  */
 export const ContentImageSettingsSchema = z.object({
   model: z.string().nullable(),
-  /** 選択肢。live カタログ（取得できないときは前回の一覧 / SDK 同梱） */
+  /** 画像の生成元。既定は openrouter（行が無いときも openrouter） */
+  provider: ImageGenerationProviderSchema,
+  /** 選択中の provider が使える認証を持っているか。値そのものは返さない */
+  auth: ContentImageAuthSchema,
+  /** 選択肢。Codex は画像モデルを選ばないため空配列（ルーティングモデルを画像モデルとして見せない） */
   models: z.array(ImageModelSchema),
   /** 上の models の出どころ。live 以外は取得に失敗した状態 */
   catalogSource: ImageCatalogSourceSchema,
@@ -1731,6 +1751,15 @@ export const UpdateContentImageBodySchema = z.object({
   model: z.string(),
 });
 export type UpdateContentImageBody = z.infer<typeof UpdateContentImageBodySchema>;
+
+/**
+ * PUT /api/settings/content/image/provider。画像の生成元の切り替えで、キーもモデルも伴わない。
+ * 未設定の行でも受け付ける（Codex は APIキーを使わない）。
+ */
+export const UpdateContentImageProviderBodySchema = z.object({
+  provider: ImageGenerationProviderSchema,
+});
+export type UpdateContentImageProviderBody = z.infer<typeof UpdateContentImageProviderBodySchema>;
 
 /**
  * 音声モデル / 話者の変更。キーと provider は保持したまま差し替える（行が無ければ 400）。

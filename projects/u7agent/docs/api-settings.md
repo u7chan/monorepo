@@ -199,9 +199,10 @@
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/content` | `configured` / `provider` / `enabled` / `disabledMessage` / `runtimeAvailable` / `image` / `speech` / `bgm`。画像・TTSはモデル一覧、BGMは固定モデル・形式・モデル仕様の尺を返す。純粋読取でAPIキーは返さず、生成APIも呼ばない |
+| GET | `/api/settings/content` | `configured` / `provider` / `enabled` / `disabledMessage` / `runtimeAvailable` / `image` / `speech` / `bgm`。画像は生成元と認証状態、画像・TTSはモデル一覧、BGMは固定モデル・形式・モデル仕様の尺を返す。純粋読取でAPIキー・トークンを返さず、生成APIも呼ばず、OAuth の解決もしない |
 | PUT | `/api/settings/content` | `{ enabled }`。画像・音声・BGM 共通の有効 / 無効（キーと選択は保持。行が無ければ 400）。保存した瞬間から既存のセッションの次の呼び出しにも効く |
 | PUT | `/api/settings/content/image` | `{ provider, model }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400） |
+| PUT | `/api/settings/content/image/provider` | `{ provider }`（`openrouter` / `codex`）。画像の生成元だけを切り替える。キー登録を伴わないため行が無くても受け付け、`content_settings` のキー・モデル・音声・トグルは変えない（[image-generation.md](image-generation.md#画像の生成元provider)） |
 | PUT | `/api/settings/content/speech` | `{ model, voice }`。キーと画像モデルを保持したまま音声モデル / ボイスを更新（行が無ければ 400） |
 | PUT | `/api/settings/content/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
 | DELETE | `/api/settings/content/key` | 行ごと削除して未設定へ戻す（冪等） |
@@ -232,6 +233,8 @@
   "runtimeAvailable": true,
   "image": {
     "model": "openai/gpt-image-2",
+    "provider": "openrouter",
+    "auth": { "state": "configured", "kind": "api_key" },
     "models": [{ "provider": "openrouter", "id": "openai/gpt-image-2", "name": "OpenAI: GPT Image 2" }],
     "catalogSource": "live",
     "fetchedAt": 1740000000000
@@ -271,12 +274,13 @@
 
 - `configured` は `content_settings` に行があるか。`false` のとき `provider` / `image.model` / `speech.model` / `bgm.model` は `null`（行が無い = 未設定）。
 - `image` / `speech` / `bgm` は兄弟の表示項目。`bgm` は `{ model, format, expectedDurationSeconds }` で形式と尺は固定のモデル仕様（生成物の実測値ではない）。値とDTOの正は `server/src/bgm.ts` / `server/src/schema.ts`。BGM専用の保存APIは追加せず、変更系もGETと同じbgmを返す（[bgm-generation.md](bgm-generation.md)）。
+- `image.provider` は画像の生成元（`openrouter` / `codex`。行が無ければ既定の `openrouter`）で、`image.auth` は選択中の provider の認証状態（`configured` / `missing` / `expired` と `kind`）だけを返す。**GET はどちらも保存値の読取だけで判定し、OAuth のトークン解決・更新・外部通信をしない**。`image.models` は OpenRouter を選んでいるときだけ返し、Codex のときは空配列（画像モデルを選ばない。ルーティングモデルを画像モデルとして返さない）。
 - `image.models` は live カタログ（OpenRouter の画像モデル API）で、UI はこの一覧からだけモデルを選べる。各要素は `provider` / `id` / `name` と、宣言があるときだけ `parameters`（生成パラメータの宣言）を持つ。`catalogSource` は `live` / `stored` / `sdk` で、`live` 以外は取得に失敗した状態（`stored` = 前回の成功を DB キャッシュから、`sdk` = SDK 同梱）を表し、`fetchedAt` は最後に live を取得できた時刻（`sdk` は `null`）。キー値はどの応答にも含めない（[image-generation.md](image-generation.md#モデルカタログ)）
 - `speech.models` は live カタログ（OpenRouter の音声モデル一覧 API）で、`voices` に話者の宣言を含む。`catalogSource` は `live` / `stored` / `default` で、`default` は「live もキャッシュも無く、同梱の既定 1 件を見ている」を表す。`voice` の空文字は「指定なし」（宣言が無いモデルで送らない）。`content_settings` の音声列が `NULL` の既存行は、既定モデルと先頭ボイスへフォールバックして返す（[speech-generation.md](speech-generation.md#モデルカタログ)）
 - `runtimeAvailable` は `/api/settings/models` と同じく「SDK ランタイムの初期化に成功したか」。`false` のときキー登録は 503 `not_stored`（`retainSecret` が no-op になり保護できないため）。選択変更と削除は runtime に依存しない
 - POST の `catalogError` は**今回の取得だけ**の結果で、`null` なら成功。失敗しても一覧と `catalogSource` は前のままで、503 にはしない（設定ではなくキャッシュの更新なので `state` も付けない）
 - 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映を持たないため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`
-- 400: 行が無いのに PUT（`コンテンツ生成のAPIキーが未設定です。先にキーを登録してください`）、`openrouter` 以外の provider、カタログ外の model、画像 / 音声のカタログ外モデル、宣言があるモデルで宣言外のボイス、8..2048 文字外のキー、形が違う本文。音声カタログが `default` のときはカタログ照合をしない（[speech-generation.md](speech-generation.md#モデルカタログ)）。BGM 専用の設定は持たず、試行の `model` は固定値だけを受け付ける（[bgm-generation.md](bgm-generation.md#試行設定画面)）
+- 400: 行が無いのに PUT（`コンテンツ生成のAPIキーが未設定です。先にキーを登録してください`）、`openrouter` 以外の provider、画像の生成元が `openrouter` / `codex` 以外、カタログ外の model、画像 / 音声のカタログ外モデル、宣言があるモデルで宣言外のボイス、8..2048 文字外のキー、形が違う本文。音声カタログが `default` のときはカタログ照合をしない（[speech-generation.md](speech-generation.md#モデルカタログ)）。BGM 専用の設定は持たず、試行の `model` は固定値だけを受け付ける（[bgm-generation.md](bgm-generation.md#試行設定画面)）
 - `keyEpoch` はキーの世代で、**上書きと（行があったときの）削除で進む**。新規保存と未設定の削除では動かさない。試行の証拠は「現在の `keyEpoch` と現在のモデル」に一致する成功だけを数えるため、旧キーの実績が現在のキーの確認として扱われない（[image-generation.md](image-generation.md#設定画面)）
 - キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`。削除すると行ごと消え、`generate_image` / `generate_speech` / `generate_bgm` は次のセッション作成・復元から公開されなくなる（既存liveセッションの execute は実行時にキー無効エラーを返す）。
 

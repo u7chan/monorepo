@@ -1,7 +1,7 @@
 // コンテンツ生成の設定サービス（DB を正とした 1 行の CRUD と PiBff への注入）。実 API は呼ばず fake db で検証する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ContentSettingsRow } from "../src/app-db";
+import type { ContentSettingsRow, ImageSettingsRow } from "../src/app-db";
 import type { ImageCatalog, ImageCatalogSnapshot } from "../src/image-catalog";
 import {
   DEFAULT_IMAGE_MODEL,
@@ -12,11 +12,12 @@ import {
   CONTENT_SETTINGS_NOT_STORED_MESSAGE,
   CONTENT_SETTINGS_RUNTIME_UNAVAILABLE_MESSAGE,
   CONTENT_SETTINGS_UNCONFIGURED_MESSAGE,
+  CONTENT_IMAGE_PROVIDER_UNSUPPORTED_MESSAGE,
   ContentSettingsService,
   type ContentSettingsDb,
 } from "../src/content-settings";
 import { CONTENT_DISABLED_MESSAGE, contentGenerationDisabled } from "../src/content-disabled";
-import { IMAGE_PROVIDER_ID, type ContentGenerationConfig } from "../src/images";
+import { IMAGE_PROVIDER_ID, type CodexAuth, type ContentGenerationConfig, type ImageAuthStatus } from "../src/images";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "../src/speech-catalog";
 import { bgmSettings, BGM_MODEL } from "../src/bgm";
@@ -91,6 +92,9 @@ function assertRow(
 
 class FakeContentDb implements ContentSettingsDb {
   row: ContentSettingsRow | undefined;
+  /** 画像の生成元（別テーブル）。未設定は undefined = 既定 openrouter */
+  imageRow: ImageSettingsRow | undefined;
+  failImageSave = false;
   failRead = false;
   failSave = false;
   failDelete = false;
@@ -119,6 +123,16 @@ class FakeContentDb implements ContentSettingsDb {
     const existed = this.row !== undefined;
     this.row = undefined;
     return existed;
+  }
+
+  readImageSettings(): ImageSettingsRow | undefined {
+    return this.imageRow;
+  }
+
+  saveImageSettings(settings: ImageSettingsRow): void {
+    if (this.failImageSave) throw new Error("db image save boom");
+    this.events.push("save-image");
+    this.imageRow = settings;
   }
 
   readContentKeyEpoch(): number {
@@ -184,6 +198,11 @@ function createService(
     source?: ImageCatalogSnapshot["source"];
     fetchedAt?: number | null;
     refreshError?: string | null;
+    /** Codex の認証状態 / 解決。未指定は未認証 */
+    codexAuth?: {
+      status: () => ImageAuthStatus;
+      resolve: () => Promise<CodexAuth | undefined>;
+    };
   } = {},
 ) {
   const db = options.db ?? new FakeContentDb();
@@ -199,6 +218,10 @@ function createService(
     },
     catalog: fake.catalog,
     speechCatalog: stubSpeechCatalog(),
+    codexAuth: options.codexAuth ?? {
+      status: () => ({ state: "missing" as const, kind: null }),
+      resolve: async () => undefined,
+    },
     setContentGeneration: (config) => {
       configs.push(config);
       db.events.push(`inject:${config.enabled ? "on" : "off"}`);
@@ -229,6 +252,8 @@ test("GET は行が無いとき未設定を返し、キーを載せない", () =
     runtimeAvailable: true,
     image: {
       model: null,
+      provider: "openrouter",
+      auth: { state: "missing", kind: "api_key" },
       models: [{ provider: IMAGE_PROVIDER_ID, id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" }],
       catalogSource: "live",
       fetchedAt: null,
@@ -813,4 +838,171 @@ test("起動時に読んだキー世代を応答に載せる（再起動でも�
   first.db.keyEpoch = 4;
   await first.service.applyStored();
   assert.equal(first.service.settings().keyEpoch, 4);
+});
+
+// --- 画像の生成元（`image_settings`。キー削除でも消えない別テーブル） ---
+
+const CODEX_AUTH: CodexAuth = { access: "dummy-access-token", accountId: "dummy-account" };
+
+test("画像の生成元は別の行に保存し、切り替えても OpenRouter のキーとモデルを消さない", async () => {
+  const { db, service, latest } = createService();
+  await service.putKey(KEY);
+  const before = db.row;
+  assert.ok(before);
+
+  const toCodex = await service.putImageProvider("codex");
+  assert.equal(toCodex.status, 200);
+  if (toCodex.status !== 200) return;
+  assert.equal(toCodex.response.image.provider, "codex");
+  assert.deepEqual(toCodex.response.image.models, [], "Codex は画像モデルの一覧を出さない");
+  assert.deepEqual(db.imageRow, { provider: "codex", codexParams: null });
+  // content_settings の行は 1 列も変わらない（キー・モデル・音声・トグル）
+  assert.deepEqual(db.row, before);
+  assert.equal(service.settings().image.model, DEFAULT_IMAGE_MODEL, "戻したときのためにモデルは残す");
+  assert.equal(latest()?.read()?.provider, "codex", "実行時の設定も Codex へ切り替わる");
+
+  const back = await service.putImageProvider("openrouter");
+  assert.equal(back.status, 200);
+  assert.deepEqual(db.imageRow, { provider: "openrouter", codexParams: null });
+  assert.deepEqual(
+    latest()?.read(),
+    { provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, apiKey: KEY },
+    "切り替えを戻すと OpenRouter の設定がそのまま使える",
+  );
+});
+
+test("未設定でも生成元を保存でき、OpenRouter キーの削除でも Codex の選択は消えない", async () => {
+  const { db, service } = createService();
+  const saved = await service.putImageProvider("codex");
+  assert.equal(saved.status, 200, "Codex はキーを使わないため、行が無くても受け付ける");
+  assert.equal(db.row, undefined, "キーの行を作らない");
+
+  const removed = await service.deleteKey();
+  assert.equal(removed.status, 200);
+  assert.deepEqual(db.imageRow, { provider: "codex", codexParams: null }, "キー削除で provider を消さない");
+  assert.equal(service.settings().image.provider, "codex");
+});
+
+test("Codex 用の枠（codexParams）は provider を切り替えても保持する", async () => {
+  const { db, service } = createService();
+  db.imageRow = { provider: "codex", codexParams: '{"quality":"low"}' };
+  await service.applyStored();
+  await service.putImageProvider("openrouter");
+  assert.deepEqual(db.imageRow, { provider: "openrouter", codexParams: '{"quality":"low"}' });
+});
+
+test("未知の生成元と保存できない DB は 400 / 503 に分ける", async () => {
+  const { db, service } = createService();
+  await assert.rejects(
+    () => service.putImageProvider("openai"),
+    (error: Error) => error.message === CONTENT_IMAGE_PROVIDER_UNSUPPORTED_MESSAGE && statusOf(error) === 400,
+  );
+  db.failImageSave = true;
+  const failed = await service.putImageProvider("codex");
+  assert.deepEqual(failed, { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE });
+  assert.equal(service.settings().image.provider, "openrouter", "保存できなかった選択を反映しない");
+});
+
+test("認証状態は provider ごとの保存値だけで返し、キーもトークンも載せない", async () => {
+  const unset = createService();
+  assert.deepEqual(unset.service.settings().image.auth, { state: "missing", kind: "api_key" });
+  await unset.service.putKey(KEY);
+  assert.deepEqual(unset.service.settings().image.auth, { state: "configured", kind: "api_key" });
+  assert.equal(JSON.stringify(unset.service.settings()).includes(KEY), false);
+
+  const codex = createService({
+    codexAuth: { status: () => ({ state: "expired", kind: "oauth" }), resolve: async () => undefined },
+  });
+  await codex.service.putImageProvider("codex");
+  assert.deepEqual(codex.service.settings().image.auth, { state: "expired", kind: "oauth" });
+
+  const broken = createService({
+    codexAuth: {
+      status: () => {
+        throw new Error("auth.json boom");
+      },
+      resolve: async () => undefined,
+    },
+  });
+  await broken.service.putImageProvider("codex");
+  assert.deepEqual(broken.service.settings().image.auth, { state: "missing", kind: null }, "読取の失敗で落とさない");
+});
+
+test("画像ツールの公開状態は選択 provider の認証で決まり、理由を no_key / no_auth / app_disabled に分ける", async () => {
+  const { service, latest } = createService({
+    codexAuth: { status: () => ({ state: "configured", kind: "oauth" }), resolve: async () => CODEX_AUTH },
+  });
+  assert.deepEqual(latest(), undefined, "起動前は注入しない");
+  await service.putImageProvider("openrouter");
+  assert.deepEqual(latest()?.imageAvailability(), { enabled: false, reason: "no_key" }, "キー未設定は no_key");
+
+  await service.putKey(KEY);
+  assert.deepEqual(latest()?.imageAvailability(), { enabled: true, reason: null });
+
+  await service.putImageProvider("codex");
+  assert.deepEqual(latest()?.imageAvailability(), { enabled: true, reason: null }, "Codex はサインインだけで開く");
+  await service.putEnabled(false);
+  assert.deepEqual(latest()?.imageAvailability(), { enabled: false, reason: "app_disabled" });
+
+  const noAuth = createService({
+    codexAuth: { status: () => ({ state: "missing", kind: null }), resolve: async () => undefined },
+  });
+  await noAuth.service.putImageProvider("codex");
+  assert.deepEqual(noAuth.latest()?.imageAvailability(), { enabled: false, reason: "no_auth" }, "キー登録を促さない");
+});
+
+test("OpenRouter のキーを一度も保存していなくても、Codex のサインインだけで generate_image を公開する", async () => {
+  // 新規プロファイル: content_settings の行が無い（キー未登録）。Codex はキーを使わないため公開する
+  const { service, latest, db } = createService({
+    codexAuth: { status: () => ({ state: "configured", kind: "oauth" }), resolve: async () => CODEX_AUTH },
+  });
+  await service.applyStored();
+  await service.putImageProvider("codex");
+  assert.equal(db.row, undefined, "キーの行は作らない");
+  assert.deepEqual(latest()?.imageAvailability(), { enabled: true, reason: null });
+  // GET / read() と公開判定が食い違わない（同じ状態で auth は configured、read は Codex を返す）
+  const settings = service.settings();
+  assert.deepEqual(settings.image.auth, { state: "configured", kind: "oauth" });
+  assert.equal(settings.image.provider, "codex");
+  assert.equal(latest()?.read()?.provider, "codex");
+
+  // キーを保存して削除しても、Codex の選択と公開はそのまま（キー削除で provider を落とさない）
+  await service.putKey(KEY);
+  await service.deleteKey();
+  assert.deepEqual(latest()?.imageAvailability(), { enabled: true, reason: null });
+});
+
+test("Codex のサインインが期限切れでも公開し、更新は実行時の解決へ委ねる", async () => {
+  const { service, latest } = createService({
+    codexAuth: { status: () => ({ state: "expired", kind: "oauth" }), resolve: async () => CODEX_AUTH },
+  });
+  await service.putImageProvider("codex");
+  // access token の期限切れは SDK の getAuth() が生成時に更新できる。ここで落とすと解決の機会が無い
+  assert.deepEqual(latest()?.imageAvailability(), { enabled: true, reason: null });
+  assert.deepEqual(service.settings().image.auth, { state: "expired", kind: "oauth" }, "表示は期限切れのまま");
+});
+
+test("Codex の実行時設定はキーを要求せず、認証の解決だけを返す", async () => {
+  const { service, latest } = createService({
+    codexAuth: { status: () => ({ state: "configured", kind: "oauth" }), resolve: async () => CODEX_AUTH },
+  });
+  await service.putKey(KEY);
+  await service.putImageProvider("codex");
+  const settings = latest()?.read();
+  assert.equal(settings?.provider, "codex");
+  assert.equal(settings?.provider === "codex" ? await settings.resolveAuth() : undefined, CODEX_AUTH);
+  // キーは残したまま、Codex の実行では使わない
+  assert.equal(JSON.stringify(settings).includes(KEY), false);
+});
+
+test("起動時に保存済みの生成元を読み、読めないときは既定と警告に倒す", async () => {
+  const stored = createService();
+  stored.db.imageRow = { provider: "codex", codexParams: null };
+  await stored.service.applyStored();
+  assert.equal(stored.service.settings().image.provider, "codex");
+
+  const unknown = createService();
+  unknown.db.imageRow = { provider: "openai", codexParams: null };
+  await unknown.service.applyStored();
+  assert.equal(unknown.service.settings().image.provider, "openrouter", "未知の値は既定へ寄せる");
 });

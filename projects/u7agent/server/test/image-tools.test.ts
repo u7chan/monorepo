@@ -2,7 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { CodexAuth, ImageGenerationInput, ImageGenerationSettings } from "../src/images";
+import { CODEX_AUTH_UNAVAILABLE_MESSAGE } from "../src/images";
 import {
+  CODEX_INPUT_IMAGES_MESSAGE,
   createImageToolDefinitions,
   imageExtensionFor,
   imageSlug,
@@ -24,7 +27,7 @@ interface Capture {
   uploads: SandboxUploadInput[];
   /** アップロード本文を読んだ結果 */
   bodies: Buffer[];
-  generated: { provider: string; model: string; prompt: string; apiKey: string; signal?: AbortSignal | undefined }[];
+  generated: ImageGenerationInput[];
   /** 画像入力を参照消費した回だけ増える（provider へ渡した data URL） */
   inputPayloads: (readonly string[] | undefined)[];
   /** 参照画像の読取要求（path / scope） */
@@ -56,10 +59,7 @@ function tool(options: {
   uploadsDirRel?: string;
   capture: Capture;
   masker?: ReturnType<typeof createMutableSecretMasker>;
-  settings?:
-    | { provider: string; model: string; apiKey: string }
-    | undefined
-    | (() => { provider: string; model: string; apiKey: string } | undefined);
+  settings?: ImageGenerationSettings | undefined | (() => ImageGenerationSettings | undefined);
   outputFormats?: (model: string) => readonly string[] | undefined;
   /** 実行時の有効 / 無効。省略は常に有効 */
   readEnabled?: () => boolean;
@@ -67,14 +67,7 @@ function tool(options: {
   inputFiles?: Record<string, Uint8Array>;
   checkImageInput?: (model: string) => Promise<string | undefined>;
   readImageInput?: (path: string, scope: readonly string[], signal?: AbortSignal) => Promise<Uint8Array>;
-  generate?: (input: {
-    provider: string;
-    model: string;
-    prompt: string;
-    apiKey: string;
-    signal?: AbortSignal | undefined;
-    inputReferences?: readonly string[] | undefined;
-  }) => Promise<unknown>;
+  generate?: (input: ImageGenerationInput) => Promise<unknown>;
   workspaceResult?: (input: SandboxUploadInput) => { path: string; name: string; renamed: boolean; size: number };
 }): AnyTool {
   const settingsOption = options.settings;
@@ -97,9 +90,8 @@ function tool(options: {
       return bytes;
     },
     generate: async (input) => {
-      const { inputReferences, ...rest } = input;
-      options.capture.generated.push(rest);
-      options.capture.inputPayloads.push(inputReferences);
+      options.capture.generated.push(input);
+      options.capture.inputPayloads.push(input.inputReferences);
       if (options.generate) return (await options.generate(input)) as never;
       return { ok: true, image: { mimeType: "image/png", data: Buffer.from("hello").toString("base64") } };
     },
@@ -117,7 +109,10 @@ async function run(tool: AnyTool, params: Record<string, unknown>, signal?: Abor
   return text as string;
 }
 
-const settings = { provider: "openrouter", model: "openai/gpt-image-2", apiKey: "sk-image-dummy-key" };
+const settings = { provider: "openrouter", model: "openai/gpt-image-2", apiKey: "sk-image-dummy-key" } as const;
+
+/** Codex の設定。認証は resolveAuth が返すダミーだけで、実トークンは使わない */
+const CODEX_AUTH: CodexAuth = { access: "dummy-access-token", accountId: "dummy-account" };
 
 test("path の拒否規則: `..` / 絶対パス / バックスラッシュ / 空の name", () => {
   assert.deepEqual(parseToolPath("generated/cafe.png"), { dir: "generated", name: "cafe.png" });
@@ -411,7 +406,10 @@ test("カタログにしか無いモデルの保存値もそのまま provider �
   // 生成側はカタログを知らない (SDK の一覧に無い id をローカルで弾かない)
   const liveOnly = { ...settings, model: "recraft/recraft-v4.1-flash" };
   const text = await run(tool({ capture, settings: liveOnly }), { prompt: "cafe" });
-  assert.equal(capture.generated[0].model, "recraft/recraft-v4.1-flash");
+  assert.equal(
+    capture.generated[0].provider === "openrouter" ? capture.generated[0].model : undefined,
+    "recraft/recraft-v4.1-flash",
+  );
   assert.ok(text.includes("モデル: recraft/recraft-v4.1-flash"), text);
 });
 
@@ -614,4 +612,83 @@ test("部分応答 (206) の参照画像は provider へ送らず、課金前に
   );
   assert.equal(capture.generated.length, 0, "部分画像で provider を呼んでいる");
   assert.equal(capture.uploads.length, 0);
+});
+
+// --- Codex（画像モデルを返さない provider）。参照画像は課金前に拒否する ---
+
+/** Codex の設定。認証は resolveAuth の戻り値だけで、実トークンは使わない */
+function codexSettings(resolveAuth: () => Promise<CodexAuth | undefined> = async () => CODEX_AUTH) {
+  return { provider: "codex" as const, resolveAuth };
+}
+
+test("Codex の結果は 1 行目モデル・2 行目保存パス・3 行目プロバイダーにし、画像モデルを偽らない", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const text = await run(tool({ capture, settings: codexSettings() }), { prompt: "A Cafe" });
+  assert.deepEqual(capture.generated[0], {
+    provider: "codex",
+    auth: CODEX_AUTH,
+    prompt: "A Cafe",
+    signal: undefined,
+  });
+  const lines = text.split("\n");
+  assert.equal(lines[0], "モデル: Codex（画像モデル不明）");
+  assert.match(lines[1] ?? "", /^画像を生成して保存しました: generated\//);
+  assert.equal(lines[2], "プロバイダー: Codex");
+  assert.equal(text.includes("stub-routing-model"), false, "ルーティングモデルを出さない");
+  // バッジの読み取り（先頭 3 行）が壊れていないことも同じ本文で確かめる
+  assert.ok(text.includes("Markdown 画像"), text);
+});
+
+test("Codex へは input_images を渡さず、サンドボックスから読む前に拒否する", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  await assert.rejects(
+    () =>
+      run(tool({ capture, settings: codexSettings(), inputFiles: { "generated/a.png": pngBytes() } }), {
+        prompt: "edit it",
+        input_images: ["generated/a.png"],
+      }),
+    (error: Error) => error.message === CODEX_INPUT_IMAGES_MESSAGE,
+  );
+  assert.deepEqual(capture.reads, [], "参照画像を読まない");
+  assert.equal(capture.generated.length, 0, "provider を呼ばない（課金しない）");
+});
+
+test("Codex の認証を解決できないときは provider を呼ばずに固定文言で止める", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  await assert.rejects(
+    () => run(tool({ capture, settings: codexSettings(async () => undefined) }), { prompt: "a cafe" }),
+    (error: Error) => error.message === CODEX_AUTH_UNAVAILABLE_MESSAGE,
+  );
+  await assert.rejects(
+    () =>
+      run(
+        tool({
+          capture,
+          settings: codexSettings(async () => {
+            throw new Error("oauth refresh failed: secret refresh token");
+          }),
+        }),
+        { prompt: "a cafe" },
+      ),
+    (error: Error) => error.message === CODEX_AUTH_UNAVAILABLE_MESSAGE,
+  );
+  assert.equal(capture.generated.length, 0);
+});
+
+test("Codex には OpenRouter の形式宣言のガードを掛けない（返る形式は応答で決まる）", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const text = await run(tool({ capture, settings: codexSettings(), outputFormats: () => ["svg"] }), {
+    prompt: "a cafe",
+  });
+  assert.equal(capture.generated.length, 1, "宣言が無い扱いで生成へ進む");
+  assert.ok(text.includes("プロバイダー: Codex"));
+});
+
+test("OpenRouter の結果の先頭 2 行はモデルと保存パスのまま", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const text = await run(tool({ capture, settings }), { prompt: "a cafe" });
+  const lines = text.split("\n");
+  assert.equal(lines[0], "モデル: openai/gpt-image-2");
+  assert.match(lines[1] ?? "", /^画像を生成して保存しました: generated\//);
+  assert.equal(text.includes("プロバイダー:"), false);
 });

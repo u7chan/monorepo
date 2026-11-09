@@ -242,15 +242,74 @@ export function imageParameterBody(
   return body;
 }
 
-/** 画像生成の provider。v1 は openrouter 固定で、他は設定 API が 400 にする */
+/** 画像生成の provider。既定は openrouter。Codex は設定で明示的に選んだときだけ使う */
 export const IMAGE_PROVIDER_ID = "openrouter";
 
-/** 実行のたびに読み直す現在の設定。DB の列名 `imageModel` は ContentSettingsService が `model` へ写す */
-export interface ImageGenerationSettings {
-  provider: string;
+/**
+ * 画像の生成元。provider 間の自動フォールバック・自動再送はしない（片方の失敗を他方で隠さない）。
+ * Codex は画像モデルを選ばせず、ルーティングモデルも画像モデルとして見せない。
+ */
+export const IMAGE_GENERATION_PROVIDERS = [IMAGE_PROVIDER_ID, "codex"] as const;
+export type ImageProviderId = (typeof IMAGE_GENERATION_PROVIDERS)[number];
+export const DEFAULT_IMAGE_PROVIDER: ImageProviderId = IMAGE_PROVIDER_ID;
+
+export function isImageProviderId(value: string): value is ImageProviderId {
+  return (IMAGE_GENERATION_PROVIDERS as readonly string[]).includes(value);
+}
+
+/** 画像の認証状態。GET は保存値の読取だけで判定し、トークン解決も外部通信もしない */
+export type ImageAuthState = "configured" | "missing" | "expired";
+export type ImageAuthKind = "api_key" | "oauth";
+
+export interface ImageAuthStatus {
+  state: ImageAuthState;
+  /** provider が求める認証の種類。未設定でも「何を入れれば使えるか」を出すために返す */
+  kind: ImageAuthKind | null;
+}
+
+/**
+ * 画像ツールを公開しない理由。`no_key` は OpenRouter キー未登録、`no_auth` は Codex のサインインが無い
+ * （APIキーを求めない provider でキー登録を促さないため、理由を分ける）。
+ */
+export type ImageToolUnavailableReason = "no_key" | "no_auth" | "app_disabled";
+
+/** 画像ツールの実効と、止まっている理由。公開中は `reason` が null */
+export interface ImageToolAvailability {
+  enabled: boolean;
+  reason: ImageToolUnavailableReason | null;
+}
+
+/** Codex の実行時認証。値はログ・応答・結果本文へ出さない */
+export interface CodexAuth {
+  /** リクエストの Authorization に使うアクセストークン */
+  access: string;
+  /** `chatgpt-account-id` ヘッダの値 */
+  accountId: string;
+}
+
+/** Codex は画像モデルを返さないため、モデル行に出す固定の表示名（ルーティングモデルを偽らない） */
+export const CODEX_IMAGE_MODEL_LABEL = "Codex（画像モデル不明）";
+
+export const CODEX_AUTH_UNAVAILABLE_MESSAGE =
+  "Codex の認証を確認できませんでした。設定 → モデル で openai-codex にサインインしてください（画像は生成しておらず、クレジットも消費していません）";
+
+export interface OpenRouterImageGenerationSettings {
+  provider: typeof IMAGE_PROVIDER_ID;
   model: string;
   apiKey: string;
 }
+
+export interface CodexImageGenerationSettings {
+  provider: "codex";
+  /** 実行時に openai-codex の認証を解決する。無ければ undefined（呼ぶ前に固定文言で止める） */
+  resolveAuth: () => Promise<CodexAuth | undefined>;
+}
+
+/**
+ * 実行のたびに読み直す現在の設定。provider ごとに要求する認証が違うが、その分岐はここで吸収する
+ * （DB の列をそのままツールへ渡さない）。
+ */
+export type ImageGenerationSettings = OpenRouterImageGenerationSettings | CodexImageGenerationSettings;
 
 /**
  * PiBff へ注入する有効状態と読取口。`enabled` はセッション作成時のツール一覧に使い、実行時の
@@ -266,7 +325,12 @@ export interface ContentGenerationConfig {
    * 実行時は `readSettings()` のキー無効エラーへ落とす（「無効化」と誤案内しない）
    */
   disabled: boolean;
-  /** 実行のたびに現在の設定を読む。行が無ければ undefined（未設定・削除後） */
+  /**
+   * 画像ツールの実効と理由。音声 / BGM の `enabled` と違い、選択 provider の認証を呼ぶたびに読む
+   * （Codex のサインインは設定画面を開き直しても `setContentGeneration` を呼ばないため）
+   */
+  imageAvailability: () => ImageToolAvailability;
+  /** 実行のたびに現在の設定を読む。生成元が Codex のときも undefined にしない（キーは要らない） */
   read: () => ImageGenerationSettings | undefined;
   /**
    * 実行のたびにカタログの形式宣言を引く。未知名・宣言なし（SDK 同梱カタログなど）は undefined。
@@ -285,11 +349,9 @@ export interface ContentGenerationConfig {
   readVoices: (model: string) => readonly string[] | undefined;
 }
 
-export interface ImageGenerationInput {
-  provider: string;
-  model: string;
+/** 生成要求の共通部分。provider ごとに認証の形だけが違う */
+export interface ImageRequestBase {
   prompt: string;
-  apiKey: string;
   /**
    * 明示された生成パラメータ。省略した値は送信本文へ載せず、provider の既定に任せる。
    * 宣言との突き合わせは `normalizeImageParameters` で済ませてから渡す。
@@ -303,6 +365,17 @@ export interface ImageGenerationInput {
    */
   inputReferences?: readonly string[] | undefined;
 }
+
+/** 画像生成器（OpenRouter の `/images`）が受ける要求。provider はカタログの id で、テストは stub を差し込む */
+export type ImageGenerationRequest = ImageRequestBase & { provider: string; model: string; apiKey: string };
+
+/**
+ * アプリが生成器へ渡す要求。Codex は画像モデルを選ばず、認証もキー文字列ではなく実行時に解決したものを渡す
+ * （provider で判別できる共用体にする）。
+ */
+export type ImageGenerationInput =
+  | (ImageRequestBase & { provider: typeof IMAGE_PROVIDER_ID; model: string; apiKey: string })
+  | (ImageRequestBase & { provider: "codex"; auth: CodexAuth });
 
 export interface ImagesGeneratorOptions {
   /** テストで stub カタログを注入する。既定は SDK 同梱の画像モデル（openrouter のみ） */
@@ -425,7 +498,7 @@ function builtinImageModels(): readonly ImageModel<ImageApi>[] {
 export interface ImagesGenerator {
   /** SDK 同梱のカタログ（provider 順・モデル順は SDK の定義順） */
   catalog(): ImageCatalogEntry[];
-  generate(input: ImageGenerationInput): Promise<ImageGenerationResult>;
+  generate(input: ImageGenerationRequest): Promise<ImageGenerationResult>;
 }
 
 /** カタログの組み立ては 1 箇所。generator を作らずに一覧だけを引ける */

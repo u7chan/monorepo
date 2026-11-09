@@ -7,13 +7,16 @@
  * powershell のようなプラットフォーム差は扱わない (サンドボックスは提供せず、PI_AGENT_TOOLS の設定ミスは
  * createRemoteToolDefinitions が UnknownRemoteToolError で検出する既存の規則を残す)。
  */
+import type { ImageToolAvailability } from "./images";
 import type { ToolCatalogEntry, ToolGroup } from "./schema";
 
 /** アプリ側の実効。エージェントの許可リストとの積を取る前に、アプリ自身がツールを公開しているか */
 export interface ToolAvailability {
   /** `PI_AGENT_TOOLS` の実効 (agent.ts の `configuredTools()`)。デプロイ側の上限 */
   sandboxTools: readonly string[];
-  /** コンテンツ生成の設定が有効か (キーの行があり、かつ設定が ON) */
+  /** 画像の実効（選択 provider の認証と設定 ON の積）。理由は provider で分く */
+  imageGeneration: ImageToolAvailability;
+  /** 音声 / BGM の実効（OpenRouter キーと設定 ON の積） */
   contentGeneration: boolean;
   /** キーの行があるか。止まっている理由をキー未設定と設定 OFF で書き分ける */
   contentGenerationConfigured: boolean;
@@ -25,13 +28,13 @@ export interface ToolAvailability {
 }
 
 /** アプリ側の可否を引くキー。作業ツールは `sandboxTools` の一覧で決まるため持たない */
-type AppGate = Exclude<keyof ToolAvailability, "sandboxTools" | "contentGenerationConfigured">;
+type AppGate = Exclude<keyof ToolAvailability, "sandboxTools" | "contentGenerationConfigured" | "imageGeneration">;
 
 interface ToolRegistryEntry {
   name: string;
   description: string;
   group: ToolGroup;
-  gate?: AppGate;
+  gate?: AppGate | "imageGeneration";
 }
 
 const TOOL_REGISTRY: readonly ToolRegistryEntry[] = [
@@ -47,7 +50,7 @@ const TOOL_REGISTRY: readonly ToolRegistryEntry[] = [
     name: "generate_image",
     description: "画像を生成・編集して作業フォルダへ保存する",
     group: "app",
-    gate: "contentGeneration",
+    gate: "imageGeneration",
   },
   {
     name: "generate_speech",
@@ -79,6 +82,13 @@ export function toolCatalog(availability: ToolAvailability): ToolCatalogEntry[] 
       return availability.sandboxTools.includes(entry.name)
         ? { ...base, available: true }
         : { ...base, available: false, reason: "deploy_allowlist" as const };
+    }
+    // 画像は選択 provider の認証が要る。止まっている理由は provider で分ける（Codex にキー登録を促さない）
+    if (entry.gate === "imageGeneration") {
+      const image = availability.imageGeneration;
+      return image.enabled
+        ? { ...base, available: true }
+        : { ...base, available: false, reason: image.reason ?? "no_key" };
     }
     // コンテンツ生成だけは止まっている理由が 2 つある (キー未設定 / 設定で OFF)。キーの行があれば
     // 画面は「アプリ側で無効」と出せる

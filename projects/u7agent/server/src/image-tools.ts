@@ -8,10 +8,14 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { messageFor } from "./http";
 import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import {
+  CODEX_AUTH_UNAVAILABLE_MESSAGE,
+  CODEX_IMAGE_MODEL_LABEL,
   IMAGE_ABORTED_MESSAGE,
   isUnsaveableOutputOnly,
   saveableImageFormat,
+  type CodexAuth,
   type GeneratedImage,
+  type ImageGenerationInput,
   type ImageGenerationResult,
   type ImageGenerationSettings,
   type SaveableImageFormat,
@@ -52,6 +56,35 @@ export const IMAGE_TOOL_GUIDELINES = [
 /** 保存できる形式を 1 つも宣言していないモデルを生成前に止めるときの文言。課金前であることを明示する */
 export const IMAGE_TOOL_UNSAVEABLE_MODEL_MESSAGE =
   "この画像モデルは png / jpeg / webp を返さないため、生成は行っていません（クレジットは消費していません）。設定 → コンテンツ生成 で別の画像モデルを選んでください";
+
+/**
+ * Codex の結果本文のモデル行。画像モデルが返らないため、ルーティングモデルを画像モデルとして出さない。
+ * 1 行目を `モデル:` で固定するのは、バッジの読み取り（`generationInfo.ts`）が行の位置に依存するため。
+ */
+export const CODEX_MODEL_LINE = `モデル: ${CODEX_IMAGE_MODEL_LABEL}`;
+
+/** 生成元が Codex であることを示す行。2 行目（保存パス）の後ろに置く */
+export const CODEX_PROVIDER_LINE = "プロバイダー: Codex";
+
+/** Codex は参照画像を受け付けない。読めば課金前に止まるが、読む前に拒否してフォールバックしない */
+export const CODEX_INPUT_IMAGES_MESSAGE =
+  "Codex は参照画像の編集に対応していません。input_images を外して新規生成してください（画像は生成しておらず、クレジットも消費していません）";
+
+/**
+ * Codex の実行時認証を解く。解決できなければ provider を呼ばずに固定文言で止める
+ * （解けない理由を「未設定」と推測せず、サインイン案内へ寄せる）。
+ */
+async function requireCodexAuth(settings: Extract<ImageGenerationSettings, { provider: "codex" }>): Promise<CodexAuth> {
+  let auth: CodexAuth | undefined;
+  try {
+    auth = await settings.resolveAuth();
+  } catch {
+    // SDK の失敗文言にはトークンが混ざり得る。外へ出すのは固定文言だけにする
+    throw new Error(CODEX_AUTH_UNAVAILABLE_MESSAGE);
+  }
+  if (!auth) throw new Error(CODEX_AUTH_UNAVAILABLE_MESSAGE);
+  return auth;
+}
 
 /** 有効なときだけ system prompt へ足す。生成物の場所と本文での示し方を固定する */
 export const IMAGE_GENERATION_PROMPT_LINES = [
@@ -208,14 +241,11 @@ export interface ImageToolDefinitionOptions {
   checkImageInput: (model: string, signal?: AbortSignal | undefined) => Promise<string | undefined>;
   /** サンドボックスから参照画像のバイトを取る。scope は BFF が決めた root 相対の許可範囲 */
   readImageInput: (path: string, scope: readonly string[], signal?: AbortSignal | undefined) => Promise<Uint8Array>;
-  generate: (input: {
-    provider: string;
-    model: string;
-    prompt: string;
-    apiKey: string;
-    signal?: AbortSignal | undefined;
-    inputReferences?: readonly string[] | undefined;
-  }) => Promise<ImageGenerationResult>;
+  /**
+   * 生成元を決めて 1 回だけ生成する。`apiKey` は OpenRouter のときだけ、Codex は解決済みの認証を渡す
+   * （ツール側で provider の分岐を持たない）。
+   */
+  generate: (input: ImageGenerationInput) => Promise<ImageGenerationResult>;
 }
 
 export function createImageToolDefinitions(options: ImageToolDefinitionOptions): ToolDefinition[] {
@@ -235,24 +265,36 @@ export function createImageToolDefinitions(options: ImageToolDefinitionOptions):
       const explicit = params.path === undefined ? undefined : parseToolPath(params.path);
       const targets = resolveImageInputTargets(params.input_images, options);
       const settings = readCurrentSettings(options.readSettings);
-      // 保存名を決める段で初めて分かると生成だけが成功して課金が残るため、provider を叩く前に止める
-      if (isUnsaveableOutputOnly(options.readOutputFormats(settings.model))) {
+      // Codex は参照画像を送れない。サンドボックスから読む前に拒否し、参照なしの生成へ黙って変えない
+      if (settings.provider === "codex" && targets.length > 0) throw new Error(CODEX_INPUT_IMAGES_MESSAGE);
+      // 保存名を決める段で初めて分かると生成だけが成功して課金が残るため、provider を叩く前に止める。
+      // Codex は画像モデルを選ばず、返る形式も宣言しない（保存の可否は応答の形式で決まる）
+      if (settings.provider === "openrouter" && isUnsaveableOutputOnly(options.readOutputFormats(settings.model))) {
         throw new Error(IMAGE_TOOL_UNSAVEABLE_MODEL_MESSAGE);
       }
       const references = await readImageInputReferences(targets, options, signal);
-      if (references.length > 0) {
+      if (references.length > 0 && settings.provider === "openrouter") {
         // 参照を使う編集は、モデル宣言と endpoint 宣言の両方を課金前に確かめる
         const reason = await options.checkImageInput(settings.model, signal);
         if (reason !== undefined) throw new Error(reason);
       }
-      const result = await options.generate({
-        provider: settings.provider,
-        model: settings.model,
-        prompt: params.prompt,
-        apiKey: settings.apiKey,
-        signal,
-        ...(references.length > 0 ? { inputReferences: references.map((reference) => reference.dataUrl) } : {}),
-      });
+      const inputReferences = references.map((reference) => reference.dataUrl);
+      const result =
+        settings.provider === "codex"
+          ? await options.generate({
+              provider: "codex",
+              auth: await requireCodexAuth(settings),
+              prompt: params.prompt,
+              signal,
+            })
+          : await options.generate({
+              provider: "openrouter",
+              model: settings.model,
+              prompt: params.prompt,
+              apiKey: settings.apiKey,
+              signal,
+              ...(references.length > 0 ? { inputReferences } : {}),
+            });
       if (!result.ok) throw new Error(result.message);
 
       // 明示 path は拡張子も含めてそのまま使う。省略時だけ mimeType から決める
@@ -270,15 +312,19 @@ export function createImageToolDefinitions(options: ImageToolDefinitionOptions):
       // 使用モデルを結果本文へ残す。投影 (toolResultSummary) は先頭 900 文字で切るため、
       // 長い path でもモデルが欠けないよう先頭の行に置く。会話履歴は session.jsonl の toolResult を正とするため、
       // ここに載せた行が (ライブ / 復元後の両方で) ツール履歴の出力として見える (docs/image-generation.md)
+      // Codex は画像モデルを知らないので、ルーティングモデルを出さずに固定の表示名と生成元を書く
+      const header =
+        settings.provider === "codex"
+          ? `${CODEX_MODEL_LINE}\n画像を生成して保存しました: ${path}\n${CODEX_PROVIDER_LINE}`
+          : `モデル: ${settings.model}\n画像を生成して保存しました: ${path}`;
       return {
         content: [
           {
             type: "text",
             text:
-              `モデル: ${settings.model}\n` +
-              `画像を生成して保存しました: ${path}\n` +
+              `${header}\n` +
               `本文に示すときは Markdown 画像 ![alt](${path}) で示してください。` +
-              // 編集元は 2 行目より後に置き、投影の切詰めでモデル行・保存パス行が落ちない位置を守る
+              // 編集元は保存パス行より後に置き、投影の切詰めでモデル行・保存パス行が落ちない位置を守る
               (references.length > 0 ? `\n編集元: ${targets.map((target) => target.display).join(", ")}` : ""),
           },
         ],

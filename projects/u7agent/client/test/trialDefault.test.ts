@@ -40,7 +40,15 @@ function settings(
     disabledMessage: "無効",
     runtimeAvailable: true,
     bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
-    image: { model: "openai/gpt-image-2", models: IMAGE_MODELS, catalogSource: "live", fetchedAt: null, ...image },
+    image: {
+      model: "openai/gpt-image-2",
+      provider: "openrouter",
+      auth: { state: "configured", kind: "api_key" },
+      models: IMAGE_MODELS,
+      catalogSource: "live",
+      fetchedAt: null,
+      ...image,
+    },
     speech: {
       model: "google/gemini-3.8-flash-tts",
       voice: "Zephyr",

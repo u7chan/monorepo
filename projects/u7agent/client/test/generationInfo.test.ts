@@ -218,3 +218,19 @@ test("音声はボイスも持ち、cwd が空なら 1 件も解決しない", (
   });
   assert.equal(generationCaptionsOf(bubbles, { rootCwd: ROOT_CWD, cwd: "" }).size, 0, "cwd 未確定で解決している");
 });
+
+test("Codex の結果はモデル行の固定表示をそのまま返し、旧履歴の読み取りを壊さない", () => {
+  const output =
+    "モデル: Codex（画像モデル不明）\n" +
+    "画像を生成して保存しました: generated/night-platform-cat.png\n" +
+    "プロバイダー: Codex\n" +
+    "本文に示すときは Markdown 画像 ![alt](generated/night-platform-cat.png) で示してください。";
+  // ルーティングモデルは結果本文に載らないため、バッジにも出ない（偽らない）
+  assert.deepEqual(generationInfoOf(card({ output })), {
+    kind: "image",
+    model: "Codex（画像モデル不明）",
+    path: "generated/night-platform-cat.png",
+  });
+  // 旧履歴（OpenRouter の `モデル: <id>`）は同じ読み取りで変わらず読める
+  assert.equal(generationInfoOf(card())?.model, "openai/gpt-image-2");
+});

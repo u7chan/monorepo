@@ -1833,8 +1833,15 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
     reopened.close();
 
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
-    const tables = check.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[];
-    assert.ok(!tables.some((table) => table.name === "image_settings"), "改名後に古いテーブルを残さない");
+    // v14 の `image_settings` は `content_settings` へ改名され、空の `image_settings` が v42 で作り直される。
+    // 古い行が新しいテーブルへ紛れ込んでいないことを見る
+    const imageRows = check.prepare("SELECT * FROM image_settings").all();
+    assert.deepEqual(imageRows, [], "改名後の image_settings は空で始まる");
+    assert.equal(
+      (check.prepare("SELECT COUNT(*) AS count FROM content_settings").get() as { count: number }).count,
+      1,
+      "改名した行は content_settings に残る",
+    );
     const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
@@ -3322,6 +3329,7 @@ function runningTrial(id: string, overrides: Partial<ContentTrialRow> = {}): Con
   return {
     id,
     kind: "image",
+    provider: "openrouter",
     model: "openrouter/openai/gpt-image-2",
     prompt: "a cat",
     voice: null,
@@ -3563,6 +3571,7 @@ test("成果物のメタデータは状態と 1 文で書き、容量は succeed
   // 同じ入力の保存済み成功だけを再利用の対象にする
   const reuseBase = {
     kind: "image",
+    provider: row?.provider ?? "openrouter",
     model: row?.model ?? "",
     voice: null,
     instructions: null,
@@ -3683,6 +3692,7 @@ test("v39 の DB を開くと音声の列が足され、既存の行は null の
     assert.equal(
       migrated.findReusableContentTrial({
         kind: "speech",
+        provider: "openrouter",
         model: "google/gemini-3.8-flash-tts",
         prompt: "a cat",
         voice: "Aoede",
@@ -3695,6 +3705,7 @@ test("v39 の DB を開くと音声の列が足され、既存の行は null の
     assert.equal(
       migrated.findReusableContentTrial({
         kind: "speech",
+        provider: "openrouter",
         model: "google/gemini-3.8-flash-tts",
         prompt: "a cat",
         voice: "Aoede",
@@ -3772,4 +3783,71 @@ test("形式メモの壊れた行は未学習として読み、health を落と�
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// --- v41 -> v42: 画像の生成元（別テーブル）と試行の生成元の列 ---
+
+test("v41 の DB を開くと image_settings と content_trials.provider が足され、既存の行は残る", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.insertProject(project("p1", "proj-a"));
+    first.saveContentSettings({
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      speechModel: null,
+      speechVoice: null,
+      enabled: true,
+      ...storedSecret(1),
+    });
+    first.saveContentTrial(runningTrial("trial-provider"));
+    first.close();
+
+    // v41 相当（image_settings と content_trials.provider を持たない版）へ落として開き直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE image_settings");
+    raw.exec("ALTER TABLE content_trials DROP COLUMN provider");
+    raw.exec("PRAGMA user_version = 41");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.deepEqual(
+      migrated.listProjects().map((entry) => entry.id),
+      ["p1"],
+    );
+    // 行が無い = 既定 (openrouter)。キー削除で消えないよう content_settings とは別の行に持つ
+    assert.equal(migrated.readImageSettings(), undefined);
+    migrated.saveImageSettings({ provider: "codex", codexParams: null });
+    assert.deepEqual(migrated.readImageSettings(), { provider: "codex", codexParams: null });
+    // 試行の既存行は NULL = openrouter として読める
+    assert.equal(migrated.readContentTrial("trial-provider")?.provider, "openrouter");
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    assert.deepEqual(
+      (check.prepare("SELECT provider FROM image_settings").all() as { provider: string }[]).map((row) => row.provider),
+      ["codex"],
+    );
+    assert.equal(
+      (check.prepare("SELECT provider FROM content_trials WHERE id = 'trial-provider'").get() as { provider: string })
+        .provider,
+      null,
+      "既存の試行の行は書き換えない",
+    );
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("image_settings は 1 行の upsert で、codexParams をそのまま往復する", () => {
+  const db = AppDb.open({ storeDir: null });
+  db.saveImageSettings({ provider: "codex", codexParams: '{"quality":"low"}' });
+  assert.deepEqual(db.readImageSettings(), { provider: "codex", codexParams: '{"quality":"low"}' });
+  db.saveImageSettings({ provider: "openrouter", codexParams: '{"quality":"low"}' });
+  assert.deepEqual(db.readImageSettings(), { provider: "openrouter", codexParams: '{"quality":"low"}' });
+  db.saveImageSettings({ provider: "openrouter", codexParams: null });
+  assert.deepEqual(db.readImageSettings(), { provider: "openrouter", codexParams: null });
+  db.close();
 });
