@@ -29,12 +29,17 @@ import {
 import {
   EMPTY_SPEECH_TRIAL_DRAFT,
   bgmTrialRequest,
+  imageModelParameterDeclarations,
+  imageParameterNote,
+  imageTrialDraftOf,
   imageTrialRequest,
+  pruneImageTrialParameters,
   speechTrialDraftOf,
   speechTrialRequest,
   trialByteSizeLabel,
   trialCapacityWarningNote,
   trialStorageNote,
+  type ImageParameterDraft,
 } from "../../lib/contentTrials";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import { cn } from "../../lib/cn";
@@ -165,6 +170,8 @@ export function ContentSettingsTab({
   const [speechDraft, setSpeechDraft] = useState<SpeechDraft>(EMPTY_SPEECH_DRAFT);
   // 試行のプロンプトは保存しない（履歴にだけ残す）。面を切り替えても失わないよう、この画面が持つ
   const [trialPrompt, setTrialPrompt] = useState("");
+  // 画像の生成パラメータも同じ扱い。宣言に無いキーはモデルの切替でここから落とす
+  const [trialParameters, setTrialParameters] = useState<ImageParameterDraft>({});
   // 音声の試行の本文・演技指示・話速も同じ扱い（保存値へ書き戻さない）
   const [speechTrialDraft, setSpeechTrialDraft] = useState(EMPTY_SPEECH_TRIAL_DRAFT);
   // BGM の試行のプロンプトも保存しない（履歴にだけ残す）
@@ -182,6 +189,11 @@ export function ContentSettingsTab({
   const providerName = contentProviderLabel(settings.provider);
   const keyError = contentKeyErrorNotice(settings);
   const capacityWarning = trialCapacityWarningNote(trialArtifactWarning);
+  // モデルを切り替えたら、新しい宣言に無いキーを下書きから落とす（隠れた値が要求に残ると 400 になる）。
+  // 落とすのは画面の state だけで、保存値には触らない
+  const trialParameterDeclarations = imageModelParameterDeclarations(settings.image.models, screenModel);
+  const keptTrialParameters = pruneImageTrialParameters(trialParameterDeclarations, trialParameters);
+  if (keptTrialParameters !== trialParameters) setTrialParameters(keptTrialParameters);
 
   // 未設定へ戻ったら下書きを捨てる。面の unmount で消えていた挙動を持ち上げた側で明示的に保つ
   if (!settings.configured && (imageDraft !== null || speechDraft.model !== null || speechDraft.voice !== null)) {
@@ -217,8 +229,10 @@ export function ContentSettingsTab({
   /** 履歴の「この内容で編集」。全文を下書きへ戻して、その種別の生成タブを開く */
   const prefillTrial = (trial: ContentTrial): void => {
     if (trial.kind === "image") {
+      const draft = imageTrialDraftOf(trial);
       setImageDraft(trial.model);
-      setTrialPrompt(trial.prompt);
+      setTrialPrompt(draft.prompt);
+      setTrialParameters(draft.parameters);
     } else if (trial.kind === "speech") {
       setSpeechDraft({ model: trial.model, voice: trial.voice ?? "" });
       setSpeechTrialDraft(speechTrialDraftOf(trial));
@@ -231,7 +245,14 @@ export function ContentSettingsTab({
   /** 履歴の「もう一度生成」。確認のうえ、保存済みの結果を再利用せず新しい試行として課金する */
   const anotherTake = async (trial: ContentTrial): Promise<boolean> => {
     if (trial.kind === "image") {
-      return onStartTrial(imageTrialRequest({ model: trial.model, prompt: trial.prompt, origin: "another-take" }));
+      return onStartTrial(
+        imageTrialRequest({
+          model: trial.model,
+          prompt: trial.prompt,
+          parameters: trial.parameters ?? undefined,
+          origin: "another-take",
+        }),
+      );
     }
     if (trial.kind === "speech") {
       const request = speechTrialRequest({
@@ -456,6 +477,8 @@ export function ContentSettingsTab({
             onMakeDefault={saveTrialModel}
             prompt={trialPrompt}
             onChangePrompt={setTrialPrompt}
+            parameters={keptTrialParameters}
+            onChangeParameters={setTrialParameters}
             onStart={onStartTrial}
             onCancel={onCancelTrial}
             onDelete={onDeleteTrial}
@@ -795,8 +818,10 @@ function ImageModelSection({
       </div>
       {/* キーの有効性は緑のバッジにせず、現在のキー世代と選択中モデルの実績だけを証拠として出す */}
       <EvidenceLine trials={trials} model={selectedModel} keyEpoch={trialKeyEpoch} now={trialNow} />
-      {/* サイズ・品質・出力形式の UI は持たない理由だけを残す。provider は見出しに出ている */}
-      <p className="text-2xs leading-relaxed text-ink-muted">サイズ・品質・出力形式は provider の既定を使います。</p>
+      {/* 入力欄は宣言に応じて試行の面に出し、ここでは何を指定できるかだけを書く */}
+      <p className="text-2xs leading-relaxed text-ink-muted">
+        {imageParameterNote(imageModelParameterDeclarations(settings.image.models, selectedModel))}
+      </p>
       <div className="flex flex-wrap items-center gap-2">
         {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
         <p className="min-w-0">

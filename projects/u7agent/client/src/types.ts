@@ -67,6 +67,8 @@ export type {
   HistoryMessageItem,
   HistoryPage,
   ImageCatalogRefreshResponse,
+  ImageModel,
+  ImageParameterValues,
   MessageMetrics,
   ModelCatalogRefreshResponse,
   ModelMutationError,
