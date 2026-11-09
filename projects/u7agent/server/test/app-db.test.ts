@@ -15,6 +15,7 @@ import {
   type CustomProviderRow,
   type SecretRow,
 } from "../src/app-db";
+import type { ImageParameterDeclarations } from "../src/images";
 import type { AgentDef, Project } from "../src/schema";
 import { storedSecret } from "./app-secret-fixture";
 
@@ -1102,6 +1103,77 @@ test("the image catalog cache round-trips the image input declaration", () => {
     });
     assert.equal(second.status().ok, true);
     second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the image catalog cache round-trips the image parameter declarations", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    const parameters: ImageParameterDeclarations = {
+      aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+      seed: { type: "range", min: 0, max: 2_147_483_647 },
+      background: { type: "boolean" },
+    };
+    db.saveImageCatalog({
+      fetchedAt: 1000,
+      models: [
+        { id: "openai/gpt-image-2", name: "GPT Image 2", parameters },
+        { id: "text-only/model", name: "Text Only", outputFormats: ["png"] },
+      ],
+    });
+    assert.deepEqual(db.readImageCatalog(), {
+      fetchedAt: 1000,
+      models: [
+        { id: "openai/gpt-image-2", name: "GPT Image 2", parameters },
+        { id: "text-only/model", name: "Text Only", outputFormats: ["png"] },
+      ],
+    });
+    db.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readImageCatalog(), {
+      fetchedAt: 1000,
+      models: [
+        { id: "openai/gpt-image-2", name: "GPT Image 2", parameters },
+        { id: "text-only/model", name: "Text Only", outputFormats: ["png"] },
+      ],
+    });
+    second.close();
+
+    // 形が違う descriptor / 未知のキーは「宣言なし」として読み、行自体は残す（列は増やさない）
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("UPDATE image_catalog SET models = ? WHERE id = 1").run(
+      JSON.stringify([
+        { id: "openai/gpt-image-2", name: "GPT Image 2", parameters },
+        {
+          id: "broken/descriptor",
+          name: "Broken",
+          parameters: {
+            aspect_ratio: { type: "enum", values: "1:1" },
+            resolution: { type: "range", min: "1", max: 2 },
+            output_format: { type: "enum", values: ["svg"] },
+            unknown_parameter: { type: "boolean" },
+          },
+        },
+        { id: "partial/descriptor", name: "Partial", parameters: { quality: { type: "boolean" } } },
+      ]),
+    );
+    raw.close();
+
+    const third = AppDb.open({ storeDir: dir });
+    assert.deepEqual(third.readImageCatalog(), {
+      fetchedAt: 1000,
+      models: [
+        { id: "openai/gpt-image-2", name: "GPT Image 2", parameters },
+        { id: "broken/descriptor", name: "Broken" },
+        { id: "partial/descriptor", name: "Partial", parameters: { quality: { type: "boolean" } } },
+      ],
+    });
+    assert.equal(third.status().ok, true, "壊れた descriptor で health を落とさない");
+    third.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

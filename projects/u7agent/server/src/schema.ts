@@ -1250,11 +1250,60 @@ export const UpdateModelAvailabilityBodySchema = z.object({
 });
 export type UpdateModelAvailabilityBody = z.infer<typeof UpdateModelAvailabilityBodySchema>;
 
+/**
+ * 画像生成のパラメータ値。**6 キー固定の strict object** で、`seed` だけが整数、他は文字列。
+ * `z.record` で受けると `"42"` と `42` で正規化キーが変わるため、キーを明示する。
+ */
+export const ImageParameterValuesSchema = z
+  .object({
+    aspect_ratio: z.string().min(1).optional(),
+    resolution: z.string().min(1).optional(),
+    quality: z.string().min(1).optional(),
+    output_format: z.string().min(1).optional(),
+    background: z.string().min(1).optional(),
+    /** 0 以上 2^31-1 以下の整数（`server/src/images.ts` の宣言検証と同じ上限） */
+    seed: z
+      .number()
+      .int()
+      .min(0)
+      .max(2 ** 31 - 1)
+      .optional(),
+  })
+  .strict();
+export type ImageParameterValues = z.infer<typeof ImageParameterValuesSchema>;
+
+/**
+ * 生成パラメータの宣言 1 件。`boolean` は「そのパラメータを受け付ける」の意味で、値は送らない。
+ * 宣言の正規化（未知キーの除去・`output_format` の積）は `server/src/images.ts` が行う。
+ */
+export const ImageParameterDescriptorSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("enum"), values: z.array(z.string()) }),
+  z.object({ type: z.literal("range"), min: z.number(), max: z.number() }),
+  z.object({ type: z.literal("boolean") }),
+]);
+
+/** 宣言の集まり。名前は許可リストの 6 つに固定し、読めなかった項目は載せない */
+export const ImageParameterDeclarationsSchema = z
+  .object({
+    aspect_ratio: ImageParameterDescriptorSchema.optional(),
+    resolution: ImageParameterDescriptorSchema.optional(),
+    quality: ImageParameterDescriptorSchema.optional(),
+    output_format: ImageParameterDescriptorSchema.optional(),
+    background: ImageParameterDescriptorSchema.optional(),
+    seed: ImageParameterDescriptorSchema.optional(),
+  })
+  .strict();
+
 /** 画像生成のカタログ 1 件。provider は将来の追加に備えて載せ、値は開放しない */
 export const ImageModelSchema = z.object({
   provider: z.string(),
   id: z.string(),
   name: z.string(),
+  /**
+   * live が宣言する生成パラメータ。宣言が無い / 読めないモデル（SDK 同梱・古いキャッシュ）は載せない
+   * （＝不明）。画面はこれだけを見て選択肢を描き、サーバーは送信本文と生成前検証に使う。
+   */
+  parameters: ImageParameterDeclarationsSchema.optional(),
 });
 export type ImageModel = z.infer<typeof ImageModelSchema>;
 

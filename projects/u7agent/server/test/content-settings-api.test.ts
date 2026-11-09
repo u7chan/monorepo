@@ -44,8 +44,17 @@ const liveCatalogFetch: typeof fetch = async () =>
   new Response(
     JSON.stringify({
       data: [
+        // 宣言の無いモデルはそのまま（SDK 同梱カタログと同じ形で応答する）
         { id: CATALOG_MODEL, name: "FLUX.2 Max" },
-        { id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" },
+        {
+          id: DEFAULT_IMAGE_MODEL,
+          name: "GPT Image 2",
+          supported_parameters: {
+            aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+            quality: { type: "enum", values: ["low", "high"] },
+            seed: { type: "range", min: 0, max: 2_147_483_647 },
+          },
+        },
       ],
     }),
     { status: 200, headers: { "content-type": "application/json" } },
@@ -67,7 +76,7 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
       assert.equal(before.runtimeAvailable, true);
       assert.deepEqual(before.bgm, bgmSettings(false));
       assert.ok(before.image.models.length > 0, "カタログが空");
-      // キー未設定では live を取りに行かないので、SDK 同梱カタログから始まる
+      // キー未設定では live を取りに行かないので、SDK 同梱カタログから始まる（宣言を持たない）
       assert.equal(before.image.catalogSource, "sdk");
       assert.equal(before.image.fetchedAt, null);
       assert.ok(
@@ -385,6 +394,19 @@ test("モデル一覧の再取得は 200 で一覧を返し、失敗は catalogE
         refreshed.models.map((model: any) => model.id),
         [CATALOG_MODEL, DEFAULT_IMAGE_MODEL],
       );
+      // 宣言を持つモデルだけ parameters が加わり、宣言の無いモデルは 3 キーのまま
+      assert.deepEqual(
+        refreshed.models.map((model: any) => Object.keys(model).sort()),
+        [
+          ["id", "name", "provider"],
+          ["id", "name", "parameters", "provider"],
+        ],
+      );
+      assert.deepEqual(refreshed.models[1].parameters, {
+        aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+        quality: { type: "enum", values: ["low", "high"] },
+        seed: { type: "range", min: 0, max: 2_147_483_647 },
+      });
     } finally {
       await bff.close();
     }

@@ -18,6 +18,7 @@ import {
 } from "./provider-failure";
 import type { SpeechGenerationSettings } from "./speech";
 import type { BgmGenerationSettings } from "./bgm";
+import type { ImageParameterValues } from "./schema";
 
 /** 失敗の公開分類。分類の規則と provider メッセージの扱いは provider-failure.ts を正とする */
 export type ImageFailureCode = ProviderFailureCode;
@@ -46,11 +47,43 @@ export interface ImageInputDeclaration {
   endpoints?: string[] | undefined;
 }
 
+/**
+ * 生成パラメータの名前。この 6 つ以外は宣言ごと落とす（UI の語彙と送信本文のキーを勝手に増やさない）。
+ * 宣言の値は `enum` / `range` / `boolean` の 3 種類だけで表す。
+ */
+export const IMAGE_PARAMETER_NAMES = [
+  "aspect_ratio",
+  "resolution",
+  "quality",
+  "output_format",
+  "background",
+  "seed",
+] as const;
+
+export type ImageParameterName = (typeof IMAGE_PARAMETER_NAMES)[number];
+
+/** 宣言 1 件。`boolean` は「そのパラメータを受け付ける」の意味で、値そのものは boolean で送らない */
+export type ImageParameterDescriptor =
+  | { type: "enum"; values: string[] }
+  | { type: "range"; min: number; max: number }
+  | { type: "boolean" };
+
+/** モデルが宣言する生成パラメータ。読めなかった項目は載せない（不在 = 不明） */
+export type ImageParameterDeclarations = Partial<Record<ImageParameterName, ImageParameterDescriptor>>;
+
+/** seed に受け付ける上限。宣言がこれを超えていても、送る値はこの範囲へ収める */
+export const IMAGE_PARAMETER_SEED_MAX = 2 ** 31 - 1;
+
 /** カタログ 1 件。UI の選択肢と model の検証はこの一覧を正とする */
 export interface ImageCatalogEntry {
   provider: string;
   id: string;
   name: string;
+  /**
+   * live 一覧が宣言する生成パラメータ（`supported_parameters`）。宣言が無い / 形が違うときは載せない
+   * （＝不明）。画面はこれを見て選択肢を描き、送信本文と生成前検証はこの宣言だけを見る。
+   */
+  parameters?: ImageParameterDeclarations | undefined;
   /**
    * live 一覧が宣言する出力形式（`supported_parameters.output_format.values`）。宣言が無い / 形が違うときは
    * 載せない（＝形式は不明）。SDK 同梱カタログと、この項目より前に書かれたキャッシュがこれにあたる。
@@ -102,6 +135,113 @@ export function isUnsaveableOutputOnly(outputFormats: readonly string[] | undefi
   return !outputFormats.some((format) => saveableImageFormat(format) !== undefined);
 }
 
+/**
+ * enum の `values` を読む。`output_format` だけは保存できる形式との積にし、積が空なら「宣言なし」に倒す
+ * （保存できない形式しか選べない宣言を通すと、`isUnsaveableOutputOnly` の判定と食い違う）。
+ */
+function enumValuesOf(name: ImageParameterName, values: unknown): string[] | undefined {
+  if (!Array.isArray(values)) return undefined;
+  const strings = values.filter((value): value is string => typeof value === "string" && value.trim() !== "");
+  if (name !== "output_format") return strings.length > 0 ? strings : undefined;
+  const formats = strings
+    .map((value) => saveableImageFormat(value))
+    .filter((format): format is SaveableImageFormat => format !== undefined);
+  const unique = [...new Set(formats)];
+  return unique.length > 0 ? unique : undefined;
+}
+
+/** `{ type: "range", min, max }` を整数の閉区間として読む。seed は受け付ける範囲で切る */
+function rangeOf(name: ImageParameterName, value: object): { min: number; max: number } | undefined {
+  const { min, max } = value as { min?: unknown; max?: unknown };
+  if (typeof min !== "number" || typeof max !== "number") return undefined;
+  if (!Number.isInteger(min) || !Number.isInteger(max)) return undefined;
+  if (name !== "seed") return { min, max };
+  const bounded = { min: Math.max(min, 0), max: Math.min(max, IMAGE_PARAMETER_SEED_MAX) };
+  return bounded.min <= bounded.max ? bounded : undefined;
+}
+
+/** 宣言 1 件を読む。形が違う / 値が空の descriptor は undefined（＝不明） */
+function descriptorOf(name: ImageParameterName, value: unknown): ImageParameterDescriptor | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { type } = value as { type?: unknown };
+  if (type === "boolean") return { type: "boolean" };
+  if (type === "enum") {
+    const values = enumValuesOf(name, (value as { values?: unknown }).values);
+    return values ? { type: "enum", values } : undefined;
+  }
+  if (type === "range") {
+    const range = rangeOf(name, value);
+    return range ? { type: "range", ...range } : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * 宣言の JSON を正規化する。live の `supported_parameters` とキャッシュの `parameters` の両方をこれで読み、
+ * 未知のキー・形違い・空の values を落とし、1 つも読めなければ undefined（＝不明）にする。
+ */
+export function imageParameterDeclarationsOf(value: unknown): ImageParameterDeclarations | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const declarations: ImageParameterDeclarations = {};
+  for (const name of IMAGE_PARAMETER_NAMES) {
+    const descriptor = descriptorOf(name, (value as Record<string, unknown>)[name]);
+    if (descriptor) declarations[name] = descriptor;
+  }
+  return Object.keys(declarations).length > 0 ? declarations : undefined;
+}
+
+/** 明示された値の検証結果。宣言に無い / 値が宣言の外なら理由を返し、送信本文を組ませない */
+export type ImageParameterValidation = { ok: true; values: ImageParameterValues } | { ok: false; message: string };
+
+/** 1 つの値が宣言に収まるか。`boolean` は受け付けるの意味なので、値そのものは縛らない */
+function imageParameterValueAllowed(
+  name: ImageParameterName,
+  descriptor: ImageParameterDescriptor,
+  value: string | number,
+): boolean {
+  if (descriptor.type === "boolean") return true;
+  if (descriptor.type === "enum") return typeof value === "string" && descriptor.values.includes(value);
+  if (typeof value !== "number" || !Number.isInteger(value)) return false;
+  if (name === "seed" && (value < 0 || value > IMAGE_PARAMETER_SEED_MAX)) return false;
+  return value >= descriptor.min && value <= descriptor.max;
+}
+
+/**
+ * 明示された値をモデルの宣言と突き合わせる。宣言の無いモデル・宣言に無いキー・宣言の外の値は通さない
+ * （不明は送らない）。通った値はそのまま送信本文の材料になる。
+ */
+export function normalizeImageParameters(
+  declarations: ImageParameterDeclarations | undefined,
+  values: ImageParameterValues | undefined,
+): ImageParameterValidation {
+  if (!values) return { ok: true, values: {} };
+  for (const name of IMAGE_PARAMETER_NAMES) {
+    const value = values[name];
+    if (value === undefined) continue;
+    const descriptor = declarations?.[name];
+    if (!descriptor) return { ok: false, message: `${name} はこの画像モデルでは指定できません` };
+    if (!imageParameterValueAllowed(name, descriptor, value)) {
+      return { ok: false, message: `${name} に指定できない値です: ${String(value)}` };
+    }
+  }
+  return { ok: true, values };
+}
+
+/**
+ * 送信本文へ足す値。省略された値は載せない（未指定のときの本文を従来と同一に保ち、provider の既定に任せる）。
+ */
+export function imageParameterBody(
+  values: ImageParameterValues | undefined,
+): Partial<Record<ImageParameterName, string | number>> {
+  const body: Partial<Record<ImageParameterName, string | number>> = {};
+  if (!values) return body;
+  for (const name of IMAGE_PARAMETER_NAMES) {
+    const value = values[name];
+    if (value !== undefined) body[name] = value;
+  }
+  return body;
+}
+
 /** 画像生成の provider。v1 は openrouter 固定で、他は設定 API が 400 にする */
 export const IMAGE_PROVIDER_ID = "openrouter";
 
@@ -150,6 +290,11 @@ export interface ImageGenerationInput {
   model: string;
   prompt: string;
   apiKey: string;
+  /**
+   * 明示された生成パラメータ。省略した値は送信本文へ載せず、provider の既定に任せる。
+   * 宣言との突き合わせは `normalizeImageParameters` で済ませてから渡す。
+   */
+  parameters?: ImageParameterValues | undefined;
   /** ユーザー中断。timeout の自前タイマーとは別に扱う */
   signal?: AbortSignal | undefined;
   /**
@@ -343,7 +488,12 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
 
       let status: number | undefined;
       const inputReferences = input.inputReferences ?? [];
-      const requestBody: Record<string, unknown> = { model: model.id, prompt: input.prompt, n: 1 };
+      const requestBody: Record<string, unknown> = {
+        model: model.id,
+        prompt: input.prompt,
+        n: 1,
+        ...imageParameterBody(input.parameters),
+      };
       if (inputReferences.length > 0) {
         // OpenAI 直結 API の /images/edits や multipart は使わない（OpenRouter の /images の契約に合わせる）
         requestBody.input_references = inputReferences.map((url) => ({ type: "image_url", image_url: { url } }));

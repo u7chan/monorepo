@@ -9,7 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { spaceDirRel } from "./app-paths";
 import { BUILTIN_PROMPTS } from "./builtin-catalog";
 import { httpError, messageFor } from "./http";
-import type { ImageInputDeclaration } from "./images";
+import { imageParameterDeclarationsOf, type ImageInputDeclaration, type ImageParameterDeclarations } from "./images";
 import type { SecretKind } from "./secret-crypto";
 import { AGENT_PROMPT_LIMIT, PROMPT_LABEL_MAX, PROMPT_TEXT_MAX } from "./schema";
 import type { AgentDef, ModelRef, NotificationResult, Project, PromptRef, Space } from "./schema";
@@ -190,6 +190,11 @@ export interface ImageCatalogModelRow {
   outputFormats?: string[] | undefined;
   /** live が宣言する画像入力の能力。無い行（この項目より前のキャッシュ）は「不明」として読む */
   input?: ImageInputDeclaration | undefined;
+  /**
+   * live が宣言する生成パラメータ。無い行（この項目より前のキャッシュ）と壊れた descriptor は
+   * 「宣言なし」として読む（列は増やさない）
+   */
+  parameters?: ImageParameterDeclarations | undefined;
 }
 
 /**
@@ -1072,23 +1077,27 @@ function imageCatalogModelsOf(value: unknown): ImageCatalogModelRow[] | undefine
   const models: ImageCatalogModelRow[] = [];
   for (const entry of parsed) {
     if (typeof entry !== "object" || entry === null) return undefined;
-    const { id, name, outputFormats, input } = entry as {
+    const { id, name, outputFormats, input, parameters } = entry as {
       id?: unknown;
       name?: unknown;
       outputFormats?: unknown;
       input?: unknown;
+      parameters?: unknown;
     };
     if (typeof id !== "string" || id === "" || typeof name !== "string") return undefined;
-    // 形式 / 入力の宣言は任意フィールド。形が違えば「宣言なし」として読み、id / 表示名が正しい行まで捨てない
+    // 形式 / 入力 / 生成パラメータの宣言は任意フィールド。形が違えば「宣言なし」として読み、
+    // id / 表示名が正しい行まで捨てない
     const formats = Array.isArray(outputFormats)
       ? outputFormats.filter((format): format is string => typeof format === "string" && format !== "")
       : [];
     const declaration = imageInputDeclarationOf(input);
+    const declaredParameters = imageParameterDeclarationsOf(parameters);
     models.push({
       id,
       name,
       ...(formats.length > 0 ? { outputFormats: formats } : {}),
       ...(declaration ? { input: declaration } : {}),
+      ...(declaredParameters ? { parameters: declaredParameters } : {}),
     });
   }
   return models;

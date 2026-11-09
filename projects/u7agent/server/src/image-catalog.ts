@@ -9,9 +9,11 @@ import {
   IMAGE_PROVIDER_ID,
   imageInputSupportOf,
   imageModelCatalog,
+  imageParameterDeclarationsOf,
   isUnsaveableOutputOnly,
   type ImageCatalogEntry,
   type ImageInputDeclaration,
+  type ImageParameterDeclarations,
 } from "./images";
 
 /** いま表示している一覧の出どころ。live 以外は取得に失敗した状態を表す */
@@ -46,6 +48,11 @@ export interface ImageCatalog {
   snapshot(): ImageCatalogSnapshot;
   /** 形式の宣言。一覧から落ちたモデルも引ける（生成前ガード用）。未知名・宣言なしは undefined */
   outputFormatsOf(model: string): string[] | undefined;
+  /**
+   * 生成パラメータの宣言。一覧から落ちたモデルも引ける（画面に出さないモデルでも、保存済みの選択を
+   * 課金前に検証できるようにする）。未知名・宣言なしは undefined（＝不明）
+   */
+  parametersOf(model: string): ImageParameterDeclarations | undefined;
   /** 画像入力の宣言。未知名・宣言なしは undefined（＝不明） */
   imageInputOf(model: string): ImageInputDeclaration | undefined;
   /**
@@ -107,6 +114,7 @@ function entryOf(model: ImageCatalogModelRow): ImageCatalogEntry {
     name: model.name,
     ...(model.outputFormats ? { outputFormats: model.outputFormats } : {}),
     ...(model.input ? { input: model.input } : {}),
+    ...(model.parameters ? { parameters: model.parameters } : {}),
   };
 }
 
@@ -117,6 +125,7 @@ function cacheModelOf(entry: ImageCatalogEntry): ImageCatalogModelRow {
     name: entry.name,
     ...(entry.outputFormats ? { outputFormats: entry.outputFormats } : {}),
     ...(entry.input ? { input: entry.input } : {}),
+    ...(entry.parameters ? { parameters: entry.parameters } : {}),
   };
 }
 
@@ -170,7 +179,7 @@ function declaredInputOf(item: object): ImageInputDeclaration | undefined {
   };
 }
 
-/** `data[]` から id / 表示名 / 形式 / 入力の宣言を読む。1 件も読めない応答は契約外として失敗にする */
+/** `data[]` から id / 表示名 / 形式 / 入力 / 生成パラメータの宣言を読む。1 件も読めない応答は契約外として失敗にする */
 function entriesOf(body: unknown): ImageCatalogEntry[] | undefined {
   if (typeof body !== "object" || body === null) return undefined;
   const data = (body as { data?: unknown }).data;
@@ -184,12 +193,14 @@ function entriesOf(body: unknown): ImageCatalogEntry[] | undefined {
     seen.add(id);
     const outputFormats = declaredFormatsOf(item);
     const input = declaredInputOf(item);
+    const parameters = imageParameterDeclarationsOf((item as { supported_parameters?: unknown }).supported_parameters);
     entries.push({
       provider: IMAGE_PROVIDER_ID,
       id,
       name: typeof name === "string" ? name : "",
       ...(outputFormats ? { outputFormats } : {}),
       ...(input ? { input } : {}),
+      ...(parameters ? { parameters } : {}),
     });
   }
   return entries.length === 0 ? undefined : entries;
@@ -341,16 +352,23 @@ export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
 
   return {
     snapshot: () => ({
-      // 形式が不明なモデル（SDK 同梱・古いキャッシュ）は落とさない。宣言はサーバー側の判定にだけ使い、
-      // 形式を選べない UI へは載せない（載せても使う先が無く、応答の形だけが広がる）
+      // 形式が不明なモデル（SDK 同梱・古いキャッシュ）は落とさない。生成パラメータの宣言は画面が選択肢を
+      // 描くために応答へ載せるが、画像入力の宣言はサーバー側の判定にだけ使うので載せない
       entries: entries
         .filter((entry) => !isUnsaveableOutputOnly(entry.outputFormats))
-        .map(({ provider, id, name }) => ({ provider, id, name })),
+        .map(({ provider, id, name, parameters }) => ({
+          provider,
+          id,
+          name,
+          ...(parameters ? { parameters } : {}),
+        })),
       source,
       fetchedAt,
     }),
 
     outputFormatsOf: (model) => entries.find((entry) => entry.id === model)?.outputFormats,
+
+    parametersOf: (model) => entries.find((entry) => entry.id === model)?.parameters,
 
     imageInputOf: (model) => entries.find((entry) => entry.id === model)?.input,
 

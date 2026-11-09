@@ -21,15 +21,18 @@
 - 取得は **API キーを使わない**（一覧 API は認証を見ないので、認証ヘッダも付けない）。キーの有無・有効性とは独立で、**キーの死活チェックには使えない**（無効なキーでも 200 が返る）
 - 取得契機は 起動時（`content_settings` に行があるとき）/ 手動の [カタログ更新]。`GET /api/settings/content` はネットワークに触らず、メモリ上の現在値を返すだけ。キー保存にも紐づけない（設定の変更を外部 API の待ち時間へ巻き込まない）
 - 期限は 10 秒（`IMAGE_CATALOG_TIMEOUT_MS`）+ リトライなし。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
-- 取得成功時だけ DB（`image_catalog`）へ `id` と表示名、あれば出力形式の宣言（`outputFormats`）と画像入力の宣言（`input`）を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
+- 取得成功時だけ DB（`image_catalog`）へ `id` と表示名、あれば出力形式の宣言（`outputFormats`）と画像入力の宣言（`input`）、生成パラメータの宣言（`parameters`）を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
+- 生成パラメータの宣言は `supported_parameters` から読み、名前を `aspect_ratio` / `resolution` / `quality` / `output_format` / `background` / `seed` に限る。descriptor は `enum`（`values`）/ `range`（`min` / `max`）/ `boolean` の 3 種類だけで、`boolean` は「そのパラメータを受け付ける」の意味（値そのものは送らない）。`seed` の値は 0 以上 2^31-1 以下の整数で、宣言がそれを超えていてもこの範囲に切る
+- 宣言の読み取りは `server/src/images.ts` の `imageParameterDeclarationsOf()` 1 つを live とキャッシュの両方に使い、未知のキー・形違い・空の `values` は落とす（1 つも読めなければ「不明」）。`output_format` の値は保存できる形式（png / jpeg / webp）との積にし、積が空なら宣言なしに倒す（[保存できない形式のモデル](#保存できない形式のモデル)の判定と食い違わせない）
+- 宣言の無い / 読めないモデルは「不明」として残し、旧キャッシュも同じく不明として読む。不明な値は画面に出さず、保存既定としても送らない。明示入力が不明ならその時点で 400 にする（`normalizeImageParameters()`）
 - 画像入力の宣言は `architecture.input_modalities` と `supported_parameters.input_references`、`endpoints` から読む（[参照画像による編集](#参照画像による編集)）。宣言が無い / 形が違うモデルは「不明」として残し、旧キャッシュも「不明」として読む（新規生成は巻き添えにしない）
 - live は `supported_parameters.output_format`（`{ type: "enum", values: ["png", ...] }`）に出力形式を宣言する。**保存できる形式（png / jpeg / webp）を 1 つも宣言していないモデルは一覧から落とす**（`recraft/*-vector` が `["svg"]` 単独でこれに当たる）。判定は `server/src/images.ts` の `isUnsaveableOutputOnly()` 1 つで、保存側の `imageExtensionFor()` と同じ表を見る（[保存できない形式のモデル](#保存できない形式のモデル)）
 - 宣言が無い（フィールドが無い / `values` が配列でない）ときは形式「不明」として扱い、一覧の絞り込みも生成前ガードも動かさない。SDK 同梱カタログと、この項目より前に書かれたキャッシュがこれにあたる
-- 形式の宣言は一覧から落ちたモデルもメモリとキャッシュに残し、生成前ガードが引けるようにする（`ImageCatalog.outputFormatsOf()`）。宣言そのものは `models` の応答には載せない（選べるモデルの一覧と、サーバー内の判定を混ぜない）
+- 形式の宣言と生成パラメータの宣言は一覧から落ちたモデルもメモリとキャッシュに残し、生成前ガードと同じ判定から引けるようにする（`ImageCatalog.outputFormatsOf()` / `ImageCatalog.parametersOf()`）。生成パラメータの宣言は画面が選択肢を描くために `image.models` の各要素へ `parameters` として載せ、画像入力の宣言はサーバー内の判定にだけ使うので載せない
 - 起動時は先にキャッシュを読み、行があれば続けて live を試す。live が失敗しても「前回の一覧」から始められる
 - SDK 同梱へ落ちるときは `openrouter/*`（= `openrouter/auto*`）を除く。画像専用 API に存在せず、選ぶと生成が 404 になる
 - キャッシュは利用者データではなく派生データとして扱う。行が無い / 形が違う / JSON が壊れているときは「未取得」として読み、health の失敗にはしない（破損を DB 全体の失敗にしない。次の取得成功が行を上書きして直る）
-- 生成は保存された id をそのまま `/images` へ送る。live カタログにしか無いモデルでも、SDK 同梱の一覧にあるかどうかでローカルには弾かない。SDK から借りるのは provider の `baseUrl` / ヘッダだけで、一覧にその id が無いときは同じ provider の先頭モデルをひな形にする（**provider 内で全モデルが同じ `baseUrl` / ヘッダを使う前提**。この前提が今も成り立つかは `server/test/images.test.ts` が SDK 同梱カタログで検査する。provider 内でモデルごとに送信先が異なる provider を足すときは、この流用を置き換えること。`server/src/images.ts`）
+- 生成は保存された id をそのまま `/images` へ送る。明示された生成パラメータだけを本文へ足し、未指定の値は送らない（provider の既定に任せる）。live カタログにしか無いモデルでも、SDK 同梱の一覧にあるかどうかでローカルには弾かない。SDK から借りるのは provider の `baseUrl` / ヘッダだけで、一覧にその id が無いときは同じ provider の先頭モデルをひな形にする（**provider 内で全モデルが同じ `baseUrl` / ヘッダを使う前提**。この前提が今も成り立つかは `server/test/images.test.ts` が SDK 同梱カタログで検査する。provider 内でモデルごとに送信先が異なる provider を足すときは、この流用を置き換えること。`server/src/images.ts`）
 
 ### 画面表示
 
@@ -54,13 +57,13 @@ SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品�
 | 生成前ガード | この画像モデルは png / jpeg / webp を返さないため、生成は行っていません（クレジットは消費していません）。設定 → コンテンツ生成 で別の画像モデルを選んでください |
 | 保存段（`imageExtensionFor`） | 対応していない画像形式です: `<mimeType>`（生成は完了しており、クレジットは消費されています）。設定 → コンテンツ生成 で別の画像モデルを選んでください |
 
-`output_format` の明示送信はしない（モデルごとに対応差があり、対応表が要る。今のカタログに svg とラスタを両方宣言するモデルは無いため効果も無い）。実行分類（`RunErrorCode` / `error-classify.ts`）にも専用コードは足さず、`unknown` のままにする。
+`output_format` も宣言があれば明示指定できる（宣言は保存できる形式との積だけを通す）。未指定なら本文へ載せず provider の既定に任せる。実行分類（`RunErrorCode` / `error-classify.ts`）に `output_format` 専用のコードは足さず、`unknown` のままにする。
 
 ### 残る穴
 
 - live の取得が一度も成功せず SDK 同梱カタログへ落ちているときは形式宣言が読めず、絞り込みも生成前ガードも効かない（SDK の一覧に形式情報が無い）。[カタログ更新] か次の起動で live を取れれば解消する
 - この変更より前に書かれた `image_catalog` のキャッシュも宣言を持たないため、一時的に vector モデルが出得る（次の live 取得成功が行を上書きして解消する）
-- svg とラスタの両方を宣言するモデルは一覧に残るため、svg が返れば保存段で失敗して課金だけが残る。今のカタログには該当が無く、`output_format` を送らない方針とも合わせて既知の穴に留める
+- svg とラスタの両方を宣言するモデルは一覧に残るため、明示指定が無いまま svg が返れば保存段で失敗して課金だけが残る。今のカタログには該当が無く、既知の穴に留める
 
 ## 参照画像による編集
 
@@ -273,16 +276,16 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 
 | テスト | 固定すること |
 | --- | --- |
-| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK 同梱の openrouter が provider 内で同じ `baseUrl` / ヘッダを使うこと（ひな形の流用の前提）/ SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること / 参照画像ありの失敗では provider の自由文（plain / 1 段・2 段の JSON エスケープ / 折り返し base64）を返さず固定文言だけになること / 参照画像なしの失敗では従来どおり理由を添えること |
-| `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名と形式の宣言）/ 出力形式の取り込みと一覧の絞り込み（不明・形違いは落とさない）/ 宣言がキャッシュから読めること / 一覧から落ちた id の `outputFormatsOf` / 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
+| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ 明示された生成パラメータだけを本文へ足し、未指定なら従来と同一の本文になること / 宣言との突き合わせ（宣言に無いキー・宣言の外の値・不明を送らせない）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK 同梱の openrouter が provider 内で同じ `baseUrl` / ヘッダを使うこと（ひな形の流用の前提）/ SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること / 参照画像ありの失敗では provider の自由文（plain / 1 段・2 段の JSON エスケープ / 折り返し base64）を返さず固定文言だけになること / 参照画像なしの失敗では従来どおり理由を添えること |
+| `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名と形式の宣言）/ 出力形式の取り込みと一覧の絞り込み（不明・形違いは落とさない）/ 宣言がキャッシュから読めること / 一覧から落ちた id の `outputFormatsOf` / 生成パラメータの宣言の取り込み（enum / range / boolean、未知キーの無視、壊れた descriptor、`seed` の上限、`output_format` の積）と `snapshot()` への掲載 / 一覧から落ちた id の `parametersOf` / 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
 | `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / OFF の間は provider を叩かず固定文言で失敗し ON へ戻すと同じ定義で生成できる / throw のマスク / signal の伝播 |
 | `server/test/image-input.test.ts` | 参照画像のパス解決（cwd 相対 / 添付の絶対パス / 未所属・プロジェクト・追加スペースで起点がずれない）/ 拒否規則（`..`・範囲外・URL・data URL・バックスラッシュ・空）/ 実バイトの形式判定（PNG・JPEG・WebP、無拡張子・拡張子違い、壊れたヘッダ）/ 上限（10 MiB・40 メガピクセル）/ 入力の base64・data URL の除去 |
 | `server/test/sandbox-image-input.test.ts` | `GET /v1/files/image-input` の許可範囲（scope 外・実在しない範囲・root 外 symlink）/ 実バイト判定 / 上限 413 / scope 数の上限 |
 | `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、有効 / 無効の切替（キーと選択を保つ・行が無ければ 400・保存失敗は 503 で写しも変えない・キー上書きが OFF を引き継ぐ）、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式宣言 |
-| `server/test/content-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、`PUT /api/settings/content` の有効 / 無効（行が無ければ 400）、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `models` の形（宣言を載せない） |
+| `server/test/content-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、`PUT /api/settings/content` の有効 / 無効（行が無ければ 400）、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `image.models` の形（SDK 同梱カタログは 3 キーのまま、宣言を持つモデルだけ `parameters` が加わる） |
 | `server/test/content-trials.test.ts` / `server/test/content-trials-api.test.ts` | 試行の開始 / 取得 / キャンセル / 完了 / 失敗 / 中断の状態遷移と終端の不変性、完了直前のキャンセル、遅い結果の破棄、実行中の削除拒否、種別ごとの同時 1 本と provider が終わるまでのスロット保持、キャンセルで abort すること、起動時と一覧取得時の `running` → `interrupted`、終端の記録失敗からの再試行、close の中断、開始前の検証（未設定 / OFF / runtime 不可 / カタログ外 / 空・長すぎるプロンプト）、失敗文言のマスク、APIキーが応答・履歴に載らないこと、キー削除後も履歴を読めること、成果物の保存と `storage` の分類（課金済み）、保存できない形式・大きさの保存前拒否、同じ入力の再利用（現在のキー世代・成果物ファイルの存在、provider を呼ばず新しい成功を記録しない）、`force` の新規生成、raw 配信の MIME と `nosniff` / `no-store` / `?download=1`、未知の id とパスを混ぜた要求の拒否、保存していない行の 404、成果物の削除、起動時の孤児掃除、実行中ジョブ（保存後・終端更新前）のファイルを消さないこと、一覧の取得中に確定したジョブの成果物を消さないこと（その後の raw 配信・容量・再利用も壊れないこと）、容量が保存済みの成功だけを数えること、時間ベースの自動削除が無いこと |
 | `server/test/content-trial-artifacts.test.ts` | 保存できる形式の許可リスト（png / jpeg / webp と、svg / html / 不明 MIME の保存前拒否）、実バイトからの寸法、壊れた base64 と上限超過、保存名が `<trialId>.<ext>` に固定されること、置き場の外を指す名前の拒否、読み書き・削除・一覧 |
-| `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`enabled` の列追加（既存行は ON）と往復、`image_catalog` の upsert と壊れた行（health を落とさない）、形式宣言の往復と形違いの読み方 |
+| `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`enabled` の列追加（既存行は ON）と往復、`image_catalog` の upsert と壊れた行（health を落とさない）、形式 / 画像入力 / 生成パラメータの宣言の往復と形違いの読み方 |
 | `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
 | `client/test/imageRefresh.test.ts` | 実フックの再描画安定性・更新時の URL 非衝突 / 実 Markdown と FileBrowser の再 mount が過去の URL を再利用しないこと（SSR） |
 | `client/test/contentTrials.test.ts` | 状態ラベルと失敗分類の写像、証拠の相対時刻・所要時間、現在のキー世代と選択中モデル・保存済みの成功だけを数える証拠、失敗へのフォールバックと未確認、旧キーの行、面の状態の優先順位、開始を止める理由、タブの印の優先順位と読み上げ名、新着結果の判定（成功 / 失敗だけ）、試行の要求（`force` は [もう一度生成] だけ）と再生成の確認（送る内容・モデル・課金）、実行中の有無、成果物の URL と要約（`none` の行は対象外）、履歴のモデル / 成功失敗の絞り込みと月区切り、ビューポートの既定選択、削除してから一覧を取り直す順序（容量の取り直し） |
@@ -300,7 +303,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 - 複数の参照画像、複数枚の出力、入力の自動縮小・自動変換、外部 URL を直接の入力にすること
 - `provider.only` による endpoint の pin（対応 / 非対応が混在するモデルは編集対象外）
 - 専用の編集ボタン・before/after 比較・画像版管理 UI（自然言語と既存のファイル保存・表示で行う）
-- サイズ / 品質 / 出力形式の変更、複数枚生成、ツール結果への画像 content（svg-only の除外と生成前ガードは [保存できない形式のモデル](#保存できない形式のモデル)）
+- `size` の指定と複数枚生成、ツール結果への画像 content（解像度・品質・出力形式は宣言にあるものだけを対象にする。svg-only の除外と生成前ガードは [保存できない形式のモデル](#保存できない形式のモデル)）
 - SVG（vectorization）の保存・プレビュー・raw 配信。svg-only モデルを選択肢から外し、保存形式と同じく png / jpeg / webp だけを通す（[保存できない形式のモデル](#保存できない形式のモデル)）
 - バッジのモデルを[カタログ](#モデルカタログ)の表示名へ解決すること。表示名はいつでも変わるので、履歴に残った実行時の id をそのまま出す
 - 生成物のキャプションのための同一ファイル追跡（ハッシュや内容）。別ターンでの再掲・`cp` したコピー・リネーム後の画像には出ない（[生成物のキャプション](#生成物のキャプション)）

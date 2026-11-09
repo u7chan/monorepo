@@ -159,6 +159,7 @@ function createFakeCatalog(
   const catalog: ImageCatalog = {
     snapshot: () => state.snapshot,
     outputFormatsOf: (model) => options.outputFormats?.[model],
+    parametersOf: () => undefined,
     imageInputOf: () => undefined,
     checkImageInput: async () => undefined,
     loadStored: () => {
