@@ -32,6 +32,7 @@ const RUNNING: ContentTrial = {
   voice: null,
   instructions: null,
   speed: null,
+  parameters: null,
   state: "running",
   keyEpoch: 0,
   artifactState: "none",

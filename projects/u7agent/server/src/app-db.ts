@@ -9,15 +9,20 @@ import { DatabaseSync } from "node:sqlite";
 import { spaceDirRel } from "./app-paths";
 import { BUILTIN_PROMPTS } from "./builtin-catalog";
 import { httpError, messageFor } from "./http";
-import { imageParameterDeclarationsOf, type ImageInputDeclaration, type ImageParameterDeclarations } from "./images";
+import {
+  imageParameterBody,
+  imageParameterDeclarationsOf,
+  type ImageInputDeclaration,
+  type ImageParameterDeclarations,
+} from "./images";
 import type { SecretKind } from "./secret-crypto";
-import { AGENT_PROMPT_LIMIT, PROMPT_LABEL_MAX, PROMPT_TEXT_MAX } from "./schema";
-import type { AgentDef, ModelRef, NotificationResult, Project, PromptRef, Space } from "./schema";
+import { AGENT_PROMPT_LIMIT, ImageParameterValuesSchema, PROMPT_LABEL_MAX, PROMPT_TEXT_MAX } from "./schema";
+import type { AgentDef, ImageParameterValues, ModelRef, NotificationResult, Project, PromptRef, Space } from "./schema";
 import type { SpeechAudioFormat } from "./speech";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 42;
+export const APP_DB_SCHEMA_VERSION = 43;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -146,6 +151,11 @@ export interface ContentTrialRow {
   voice: string | null;
   instructions: string | null;
   speed: number | null;
+  /**
+   * 画像の入力スナップショット。null = 未指定（v42 → v43 で足した列）。表示用の別列は持たず、
+   * 保存する正規化 JSON をそのまま再利用の照合に使う
+   */
+  parameters: ImageParameterValues | null;
   state: string;
   keyEpoch: number;
   artifactState: string;
@@ -524,6 +534,7 @@ CREATE TABLE IF NOT EXISTS content_trials (
   voice          TEXT,
   instructions   TEXT,
   speed          REAL,
+  imageParams    TEXT,
   state          TEXT NOT NULL,
   keyEpoch       INTEGER NOT NULL,
   artifactState  TEXT NOT NULL,
@@ -1072,6 +1083,7 @@ function contentTrialOf(row: Row): ContentTrialRow {
     voice: optionalText(row.voice) ?? null,
     instructions: optionalText(row.instructions) ?? null,
     speed: optionalNumber(row.speed) ?? null,
+    parameters: imageParametersOf(row.imageParams),
     state,
     keyEpoch,
     artifactState,
@@ -1083,6 +1095,34 @@ function contentTrialOf(row: Row): ContentTrialRow {
     finishedAt: optionalNumber(row.finishedAt),
     durationMs: optionalNumber(row.durationMs),
   };
+}
+
+/**
+ * 正規化したパラメータの保存値。許可リストのキーだけを許可リストの順で載せ、未指定は null にする
+ * （同じ正規化から表示用の別列を作ると片方だけ更新する余地ができる）。
+ */
+function imageParamsJsonOf(parameters: ImageParameterValues | null): string | null {
+  if (!parameters) return null;
+  const body = imageParameterBody(parameters);
+  return Object.keys(body).length === 0 ? null : JSON.stringify(body);
+}
+
+/**
+ * 利用者が指定したパラメータを読む。壊れた保存値は未指定へ落とさず、行の破損として例外にする
+ * （キャッシュであるカタログの宣言とは扱いが違う）。
+ */
+function imageParametersOf(value: unknown): ImageParameterValues | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") throw new Error("content_trials.imageParams is not a valid parameters object");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("content_trials.imageParams is not valid JSON");
+  }
+  const result = ImageParameterValuesSchema.safeParse(parsed);
+  if (!result.success) throw new Error("content_trials.imageParams is not a valid parameters object");
+  return result.data;
 }
 
 /** 成果物のメタデータ。`stored` 以外は null で、`stored` で欠けた列は破損として失敗させる */
@@ -1784,6 +1824,8 @@ export class AppDb {
       this.#addColumnIfMissing("content_trials", "voice", "TEXT");
       this.#addColumnIfMissing("content_trials", "instructions", "TEXT");
       this.#addColumnIfMissing("content_trials", "speed", "REAL");
+      // v42 -> v43: 画像の試行の入力スナップショット。既存行は NULL（未指定）のまま読む
+      this.#addColumnIfMissing("content_trials", "imageParams", "TEXT");
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SPEECH_CATALOG_TABLE));
       // v40 -> v41: 形式の学習結果。既存行を書き換えず、未学習 (行なし) から始まる
@@ -2217,10 +2259,10 @@ export class AppDb {
       db
         .prepare(
           `INSERT INTO content_trials
-             (id, kind, provider, model, prompt, voice, instructions, speed, state, keyEpoch, artifactState, charged,
-              artifactPath, artifactBytes, artifactFormat, artifactWidth, artifactHeight, failureCode, failureMessage,
-              startedAt, finishedAt, durationMs)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             (id, kind, provider, model, prompt, voice, instructions, speed, imageParams, state, keyEpoch,
+              artifactState, charged, artifactPath, artifactBytes, artifactFormat, artifactWidth, artifactHeight,
+              failureCode, failureMessage, startedAt, finishedAt, durationMs)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           row.id,
@@ -2231,6 +2273,7 @@ export class AppDb {
           row.voice,
           row.instructions,
           row.speed,
+          imageParamsJsonOf(row.parameters),
           row.state,
           row.keyEpoch,
           row.artifactState,
@@ -2293,9 +2336,10 @@ export class AppDb {
   }
 
   /**
-   * 同じ入力（種別 / モデル / プロンプト / 音声のパラメーター）の保存済み成功。あれば provider を呼ばずに
-   * その結果を見せる (課金しない)。並びは新しい順の先頭 1 件で、`artifactState = 'stored'` だけを対象にする。
-   * 音声の 3 列は `IS` で比べ、NULL（未指定）同士も一致させる。
+   * 同じ入力（種別 / 生成元 / モデル / プロンプト / 音声のパラメーター / 画像のパラメーター）の保存済み成功。
+   * あれば provider を呼ばずにその結果を見せる (課金しない)。並びは新しい順の先頭 1 件で、
+   * `artifactState = 'stored'` だけを対象にする。音声の 3 列と `imageParams` は `IS` で比べ、
+   * NULL（未指定）同士も一致させる。
    */
   findReusableContentTrial(input: {
     kind: string;
@@ -2305,6 +2349,7 @@ export class AppDb {
     voice: string | null;
     instructions: string | null;
     speed: number | null;
+    parameters: ImageParameterValues | null;
     keyEpoch: number;
   }): ContentTrialRow | undefined {
     const row = this.#query(
@@ -2313,7 +2358,7 @@ export class AppDb {
           .prepare(
             `SELECT * FROM content_trials
              WHERE kind = ? AND COALESCE(provider, 'openrouter') IS ? AND model = ? AND prompt = ?
-               AND voice IS ? AND instructions IS ? AND speed IS ?
+               AND voice IS ? AND instructions IS ? AND speed IS ? AND imageParams IS ?
                AND keyEpoch = ?
                AND state = 'succeeded' AND artifactState = 'stored'
                AND artifactPath IS NOT NULL
@@ -2327,6 +2372,7 @@ export class AppDb {
             input.voice,
             input.instructions,
             input.speed,
+            imageParamsJsonOf(input.parameters),
             input.keyEpoch,
           ) as Row | undefined,
     );

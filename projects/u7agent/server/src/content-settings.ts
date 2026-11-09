@@ -625,6 +625,8 @@ export class ContentSettingsService {
       speechModels: () => this.#speechCatalog.snapshot().entries.map((entry) => entry.id),
       // 宣言があるモデルだけ配列を返し、無いモデルは自由記述を受ける（PUT /speech と同じ規則）
       speechVoices: (model) => this.#speechCatalog.voicesOf(model),
+      // 試行の画像モデルはカタログの `provider/id` で来るため、bare id に落としてから宣言を引く
+      imageParameters: (model) => this.#catalog.parametersOf(model),
     };
   }
 

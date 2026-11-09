@@ -36,8 +36,10 @@ import {
 import {
   IMAGE_GENERATION_TIMEOUT_MS,
   IMAGE_PROVIDER_ID,
+  normalizeImageParameters,
   type ImageGenerationInput,
   type ImageGenerationResult,
+  type ImageParameterDeclarations,
 } from "./images";
 import {
   SPEECH_GENERATION_TIMEOUT_MS,
@@ -48,6 +50,7 @@ import {
 } from "./speech";
 import { PROVIDER_FAILURE_CODES } from "./provider-failure";
 import type { ContentTrialArtifactRow, ContentTrialRow } from "./app-db";
+import type { ImageParameterValues } from "./schema";
 
 /** 試行の種別。画像 / 音声 / BGM は同じレジストリ・DB・履歴の経路を使う */
 export const CONTENT_TRIAL_KINDS = ["image", "speech", "bgm"] as const;
@@ -106,6 +109,15 @@ export const CONTENT_TRIAL_SPEECH_INSTRUCTIONS_TOO_LONG_MESSAGE = `演技指示�
 export const CONTENT_TRIAL_SPEECH_SPEED_MESSAGE =
   "話速は 0 より大きい数値で指定してください（クレジットは消費していません）";
 export const CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE = "話速・演技指示・ボイスは音声の試行だけに指定できます";
+export const CONTENT_TRIAL_IMAGE_PARAMS_MESSAGE =
+  "画像のパラメータは画像の試行だけに指定できます（クレジットは消費していません）";
+/** 明示の指定だけで止まる（未指定なら既定が無いので「落とす」対象も無い） */
+export const CONTENT_TRIAL_IMAGE_PARAMS_UNKNOWN_MESSAGE =
+  "このモデルは画像のパラメータを宣言していないため、パラメータを指定できません（クレジットは消費していません）";
+export const CONTENT_TRIAL_IMAGE_PARAMS_DECLARED_MESSAGE =
+  "この画像モデルでは指定できないパラメータです（クレジットは消費していません）";
+export const CONTENT_TRIAL_IMAGE_TRANSPARENT_MESSAGE =
+  "透過には png か webp の出力形式が必要です（クレジットは消費していません）";
 /**
  * Codex の画像生成は試行から呼ばない。試行は「同じ入力の再利用」をキーで照合しており、Codex の認証世代
  * （トークン更新）をまだキーへ写していないため、UI と API の両方でこの 1 文に寄せる（課金前に止まる）。
@@ -154,6 +166,8 @@ export interface ContentTrialSummaryView {
   /** 音声の入力スナップショット。画像の行は 3 つとも null */
   voice: string | null;
   speed: number | null;
+  /** 画像の入力スナップショット。未指定（音声 / BGM の行も）は null */
+  parameters: ImageParameterValues | null;
   state: ContentTrialState;
   keyEpoch: number;
   artifactState: ContentTrialArtifactState;
@@ -246,6 +260,7 @@ export interface ContentTrialsDb {
     voice: string | null;
     instructions: string | null;
     speed: number | null;
+    parameters: ImageParameterValues | null;
     keyEpoch: number;
   }): ContentTrialRow | undefined;
   readContentTrialArtifactUsage(): ContentTrialArtifactUsage;
@@ -270,6 +285,11 @@ export interface ContentTrialSource {
   speechModels(): readonly string[];
   /** そのモデルが宣言しているボイス。宣言が無いモデルは undefined（自由記述を受ける） */
   speechVoices(model: string): readonly string[] | undefined;
+  /**
+   * その画像モデルが宣言している生成パラメータ。未知名・宣言なしは undefined（＝不明）で、
+   * 画像の試行はこの宣言を課金前の検証に使う（試行の画像 provider は openrouter なので bare id を渡す）
+   */
+  imageParameters(model: string): ImageParameterDeclarations | undefined;
 }
 
 export interface ContentTrialsOptions {
@@ -350,6 +370,8 @@ interface TrialTarget {
   voice: string | null;
   instructions: string | null;
   speed: number | null;
+  /** 宣言と突き合わせた画像のパラメータ。未指定は null */
+  parameters: ImageParameterValues | null;
 }
 
 /** 終端の決定内容。成果物は `succeeded` のときだけ入る（DB へは状態と 1 文で書く） */
@@ -435,6 +457,27 @@ export class ContentTrialsService {
     return this.#generateImage !== undefined;
   }
 
+  /**
+   * 画像のパラメータを宣言と突き合わせる。宣言が読めないモデルでは明示の指定を受けない
+   * （既定が無いので「落とす」対象も無い）。宣言外・許容外・透過できない形式は provider を呼ばずに止める。
+   */
+  #checkedImageParameters(
+    parameters: ImageParameterValues | null,
+    model: string,
+  ): { parameters: ImageParameterValues | null } | { error: string } {
+    if (!parameters) return { parameters: null };
+    const declarations = this.#source.imageParameters(model);
+    if (!declarations) return { error: CONTENT_TRIAL_IMAGE_PARAMS_UNKNOWN_MESSAGE };
+    const normalized = normalizeImageParameters(declarations, parameters);
+    if (!normalized.ok) {
+      return { error: `${CONTENT_TRIAL_IMAGE_PARAMS_DECLARED_MESSAGE}: ${this.#reflected(normalized.message)}` };
+    }
+    if (transparentFormatRejected(normalized.values, declarations)) {
+      return { error: CONTENT_TRIAL_IMAGE_TRANSPARENT_MESSAGE };
+    }
+    return { parameters: normalized.values };
+  }
+
   /** 種別ごとの期限。`running` の取り残しを再照合で倒す時刻に使う */
   #timeoutOf(kind: string): number {
     if (kind === "speech") return SPEECH_GENERATION_TIMEOUT_MS;
@@ -450,6 +493,8 @@ export class ContentTrialsService {
     voice?: string | undefined;
     instructions?: string | undefined;
     speed?: number | undefined;
+    /** 画像の生成パラメータ。宣言との突き合わせは課金前に行う */
+    parameters?: ImageParameterValues | undefined;
     /** 保存済み結果を無視して新しい試行を開始する（結果カードの「別のテイク」） */
     force?: boolean | undefined;
   }): Promise<ContentTrialStartOutcome> {
@@ -470,10 +515,14 @@ export class ContentTrialsService {
       return { status: 400, error: `${modelMessageOf(kind)}: ${this.#reflected(input.model)}` };
     }
     // 画像と音声で照合先が違う（画像は `provider/id`、音声はカタログの id と宣言ボイス、BGM は固定モデル）
+    let imageParameters: ImageParameterValues | null = null;
     if (kind === "image") {
       if (!this.#source.models().includes(input.model)) {
         return { status: 400, error: `${CONTENT_TRIAL_IMAGE_MODEL_MESSAGE}: ${this.#reflected(input.model)}` };
       }
+      const checked = this.#checkedImageParameters(params.parameters, route.model);
+      if ("error" in checked) return { status: 400, error: checked.error };
+      imageParameters = checked.parameters;
     } else if (kind === "speech") {
       if (!this.#source.speechModels().includes(input.model)) {
         return { status: 400, error: `${CONTENT_TRIAL_SPEECH_MODEL_MESSAGE}: ${this.#reflected(input.model)}` };
@@ -505,7 +554,7 @@ export class ContentTrialsService {
     if (snapshot.apiKey === null) return { status: 503, error: CONTENT_TRIAL_KEY_UNAVAILABLE_MESSAGE };
 
     // 同じ入力の保存済み成功があれば provider を呼ばない（課金しない。新しい成功としても記録しない）。
-    // 音声は本文に加えてモデル・ボイス・演技指示・話速も一致するときだけ再利用する。
+    // 音声は本文に加えてモデル・ボイス・演技指示・話速も、画像は生成パラメータも一致するときだけ再利用する。
     // `force` は保存済み結果を無視し、結果カードの「別のテイク」だけが使う。
     // 世代の読み取りは再利用の判定と枠を取る前に済ませ、DB 障害は 503 にして共有枠を漏らさない
     let keyEpoch: number;
@@ -525,6 +574,7 @@ export class ContentTrialsService {
         voice: params.voice,
         instructions: params.instructions,
         speed: params.speed,
+        parameters: imageParameters,
         keyEpoch,
       });
       if (reused) {
@@ -561,6 +611,7 @@ export class ContentTrialsService {
       voice: params.voice,
       instructions: params.instructions,
       speed: params.speed,
+      parameters: imageParameters,
       state: "running",
       keyEpoch,
       artifactState: "none",
@@ -598,6 +649,7 @@ export class ContentTrialsService {
       voice: params.voice,
       instructions: params.instructions,
       speed: params.speed,
+      parameters: imageParameters,
     });
     return { status: 202, trial: this.#view(row), reused: false };
   }
@@ -886,6 +938,8 @@ export class ContentTrialsService {
         provider: IMAGE_PROVIDER_ID,
         model: target.model,
         prompt: target.prompt,
+        // 未指定は送らない（宣言が無いモデルの既定のまま従来の本文を作る）
+        ...(target.parameters === null ? {} : { parameters: target.parameters }),
         apiKey: target.apiKey,
         signal: job.controller.signal,
       });
@@ -1115,6 +1169,7 @@ export class ContentTrialsService {
     voice: string | null;
     instructions: string | null;
     speed: number | null;
+    parameters: ImageParameterValues | null;
     keyEpoch: number;
   }): ContentTrialRow | undefined {
     try {
@@ -1199,6 +1254,7 @@ export class ContentTrialsService {
       voice: null,
       instructions: null,
       speed: null,
+      parameters: null,
       state: "running",
       keyEpoch: 0,
       artifactState: "none",
@@ -1233,6 +1289,7 @@ export class ContentTrialsService {
       promptPreview: promptPreviewOf(row.prompt),
       voice: row.voice,
       speed: row.speed,
+      parameters: row.parameters,
       state: isTrialState(row.state) ? row.state : "failed",
       keyEpoch: row.keyEpoch,
       artifactState: format ? "stored" : "none",
@@ -1331,18 +1388,37 @@ function storageFailure(reason: StorageFailureReason): TerminalDecision {
 }
 
 /**
- * 種別ごとの入力スナップショット。音声は本文に加えてボイス・演技指示・話速を課金前に検査し、
- * 空の音声パラメーターは null（送らない）へ寄せる（画像と BGM はプロンプトだけ）。
+ * 種別ごとの入力スナップショット。音声は本文に加えてボイス・演技指示・話速を、画像は生成パラメータを
+ * 課金前に受け取り、空の音声パラメーターは null（送らない）へ寄せる（BGM はプロンプトだけ）。
+ * 画像のパラメータは宣言との突き合わせが要るため、ここでは種別の受理だけを見る。
  */
 function trialParametersOf(
   kind: ContentTrialKind,
-  input: { voice?: string | undefined; instructions?: string | undefined; speed?: number | undefined },
-): { voice: string | null; instructions: string | null; speed: number | null } | { error: string } {
+  input: {
+    voice?: string | undefined;
+    instructions?: string | undefined;
+    speed?: number | undefined;
+    parameters?: ImageParameterValues | undefined;
+  },
+):
+  | {
+      voice: string | null;
+      instructions: string | null;
+      speed: number | null;
+      parameters: ImageParameterValues | null;
+    }
+  | { error: string } {
   if (kind !== "speech") {
     if (input.voice !== undefined || input.instructions !== undefined || input.speed !== undefined) {
       return { error: CONTENT_TRIAL_SPEECH_PARAMS_MESSAGE };
     }
-    return { voice: null, instructions: null, speed: null };
+  }
+  if (kind !== "image" && input.parameters !== undefined) return { error: CONTENT_TRIAL_IMAGE_PARAMS_MESSAGE };
+  if (kind === "image") {
+    return { voice: null, instructions: null, speed: null, parameters: input.parameters ?? null };
+  }
+  if (kind === "bgm") {
+    return { voice: null, instructions: null, speed: null, parameters: null };
   }
   const voice = (input.voice ?? "").trim();
   const instructions = input.instructions ?? "";
@@ -1357,7 +1433,20 @@ function trialParametersOf(
     voice: voice === "" ? null : voice,
     instructions: instructions.trim() === "" ? null : instructions,
     speed: input.speed === undefined ? null : input.speed,
+    parameters: null,
   };
+}
+
+/**
+ * 透過を指定したときに、実効の出力形式が透過を保てないか。宣言が読めないときは通す（不明は止めない）。
+ * 形式の宣言は保存できる形式との積なので、宣言があるのに png も webp も無ければ jpeg しか選べない。
+ */
+function transparentFormatRejected(values: ImageParameterValues, declarations: ImageParameterDeclarations): boolean {
+  if (values.background !== "transparent") return false;
+  const format = values.output_format;
+  if (format !== undefined) return format !== "png" && format !== "webp";
+  const declared = declarations.output_format;
+  return declared?.type === "enum" && !declared.values.some((value) => value === "png" || value === "webp");
 }
 
 /**
