@@ -182,6 +182,7 @@ function rowWith(speechModel: string | null, speechVoice: string | null, enabled
     speechModel,
     speechVoice,
     enabled,
+    imageParams: null,
     ...secretOf(KEY),
   };
 }

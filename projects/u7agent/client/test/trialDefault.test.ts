@@ -47,6 +47,7 @@ function settings(
       models: IMAGE_MODELS,
       catalogSource: "live",
       fetchedAt: null,
+      parametersByModel: {},
       ...image,
     },
     speech: {

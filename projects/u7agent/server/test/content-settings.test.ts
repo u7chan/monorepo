@@ -1,7 +1,7 @@
 // コンテンツ生成の設定サービス（DB を正とした 1 行の CRUD と PiBff への注入）。実 API は呼ばず fake db で検証する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ContentSettingsRow, ImageSettingsRow } from "../src/app-db";
+import type { ContentSettingsRow, ImageParameterDefaults, ImageSettingsRow } from "../src/app-db";
 import type { ImageCatalog, ImageCatalogSnapshot } from "../src/image-catalog";
 import {
   DEFAULT_IMAGE_MODEL,
@@ -25,6 +25,7 @@ import {
   type ImageParameterDeclarations,
 } from "../src/images";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
+import type { ImageParameterValues } from "../src/schema";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "../src/speech-catalog";
 import { bgmSettings, BGM_MODEL } from "../src/bgm";
 import { testAppCipher } from "./app-secret-fixture";
@@ -84,6 +85,7 @@ function assertRow(
     speechModel: string | null;
     speechVoice: string | null;
     enabled: boolean;
+    imageParams: ImageParameterDefaults | null;
     apiKey: string;
   },
 ): void {
@@ -93,6 +95,7 @@ function assertRow(
   assert.equal(row.speechModel, expected.speechModel);
   assert.equal(row.speechVoice, expected.speechVoice);
   assert.equal(row.enabled, expected.enabled);
+  assert.deepEqual(row.imageParams, expected.imageParams);
   assert.equal(storedKey(row), expected.apiKey, "平文ではなく暗号文で保存する");
 }
 
@@ -266,6 +269,7 @@ test("GET は行が無いとき未設定を返し、キーを載せない", () =
       models: [{ provider: IMAGE_PROVIDER_ID, id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" }],
       catalogSource: "live",
       fetchedAt: null,
+      parametersByModel: {},
     },
     speech: {
       model: null,
@@ -315,6 +319,7 @@ test("キー登録はマスカー → DB → 注入の順に通し、行が無�
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     apiKey: KEY,
   });
@@ -373,6 +378,7 @@ test("キー上書きは選択済みの provider / model と有効 / 無効を�
     imageModel: "black-forest-labs/flux.2-max",
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: false,
     ...secretOf("old-key"),
   };
@@ -385,6 +391,7 @@ test("キー上書きは選択済みの provider / model と有効 / 無効を�
     speechVoice: null,
     // OFF のままキーだけ差し替える（キー登録で黙って有効へ戻さない）
     enabled: false,
+    imageParams: null,
     apiKey: KEY,
   });
   assert.equal(latest()?.enabled, false, "OFF のままツールを公開しない");
@@ -397,6 +404,7 @@ test("有効 / 無効は行の 1 列で、キーと選択を保ったまま切�
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     ...secretOf(KEY),
   };
@@ -415,6 +423,7 @@ test("有効 / 無効は行の 1 列で、キーと選択を保ったまま切�
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: false,
     apiKey: KEY,
   });
@@ -454,6 +463,7 @@ test("有効 / 無効の変更は行が無ければ 400、保存できなけれ�
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     ...secretOf(KEY),
   };
@@ -480,6 +490,7 @@ test("GET は有効 / 無効と、OFF の間にモデルへ返す固定文言を
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: false,
     ...secretOf(KEY),
   };
@@ -505,6 +516,7 @@ test("provider / model の変更はキーを保持し、行が無い / provider 
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     ...secretOf(KEY),
   };
@@ -546,6 +558,7 @@ test("provider / model の変更はキーを保持し、行が無い / provider 
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     apiKey: KEY,
   });
@@ -558,6 +571,7 @@ test("キー削除は行ごと消して注入を無効にし、未設定でも 2
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     ...secretOf(KEY),
   };
@@ -597,6 +611,7 @@ test("DB 失敗は 503 not_stored にして理由の分類だけを残す", asyn
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     ...secretOf(KEY),
   };
@@ -633,6 +648,7 @@ test("書込成功後の読取失敗でも applied を返す（not_stored と誤
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     apiKey: KEY,
   });
@@ -645,6 +661,7 @@ test("起動時の適用は行の有無を注入し、読めないときは無�
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     ...secretOf(KEY),
   };
@@ -694,6 +711,7 @@ test("master key が無い起動でも、保存済みキーは「未設定」と
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     ...secretOf(KEY),
   };
@@ -724,6 +742,7 @@ test("誤鍵・破損した暗号文は平文へ落とさず、固定文言で�
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     ciphertext: new Uint8Array([1, 2, 3, 4]),
     nonce: new Uint8Array(12),
@@ -746,6 +765,7 @@ test("runtime が無い起動では暗号文を復号せず、未評価として
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     ...secretOf(KEY),
   };
@@ -783,6 +803,7 @@ test("起動時の DB 読取に失敗したら未評価のまま残し、復旧�
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    imageParams: null,
     enabled: true,
     ...secretOf(KEY),
   };
@@ -1019,4 +1040,219 @@ test("起動時に保存済みの生成元を読み、読めないときは既�
   unknown.db.imageRow = { provider: "openai", codexParams: null };
   await unknown.service.applyStored();
   assert.equal(unknown.service.settings().image.provider, "openrouter", "未知の値は既定へ寄せる");
+});
+
+// --- 画像パラメータの既定（`content_settings.imageParams`。bare なモデル id → 値の map） ---
+
+/** 既定の保存に使う 2 モデルと、宣言を持たない 1 モデル */
+const OTHER_MODEL = "google/gemini-image";
+const UNDECLARED_MODEL = "mystery/image";
+const PARAMETER_MODELS = [
+  { provider: IMAGE_PROVIDER_ID, id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" },
+  { provider: IMAGE_PROVIDER_ID, id: OTHER_MODEL, name: "Gemini Image" },
+  { provider: IMAGE_PROVIDER_ID, id: UNDECLARED_MODEL, name: "Mystery Image" },
+];
+const DEFAULT_DECLARATIONS: ImageParameterDeclarations = {
+  aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+  quality: { type: "enum", values: ["low", "high"] },
+  seed: { type: "range", min: 0, max: 1000 },
+};
+const OTHER_DECLARATIONS: ImageParameterDeclarations = {
+  quality: { type: "enum", values: ["low", "high"] },
+};
+
+/** 既定を持つ行。宣言の無いモデルも混ぜ、エントリごとの絞り込みを検査できるようにする */
+function createDefaultsService() {
+  return createService({
+    models: PARAMETER_MODELS,
+    parameters: { [DEFAULT_IMAGE_MODEL]: DEFAULT_DECLARATIONS, [OTHER_MODEL]: OTHER_DECLARATIONS },
+  });
+}
+
+/** ツールが読む既定。Codex とは共用体なので、検査の前に provider を確かめる */
+function runtimeParameters(latest: () => ContentGenerationConfig | undefined): ImageParameterValues | undefined {
+  const settings = latest()?.read();
+  return settings?.provider === "openrouter" ? settings.parameters : undefined;
+}
+
+test("画像パラメータの既定はモデルごとに保存し、2 回目以降の保存でも他のモデルの既定を消さない", async () => {
+  const { db, service, latest } = createDefaultsService();
+  await service.putKey(KEY);
+
+  const saved = await service.putSelection({
+    provider: IMAGE_PROVIDER_ID,
+    model: DEFAULT_IMAGE_MODEL,
+    parameters: { aspect_ratio: "16:9", seed: 7 },
+  });
+  assert.equal(saved.status, 200);
+  if (saved.status !== 200) return;
+  assert.deepEqual(saved.response.image.parametersByModel, {
+    [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9", seed: 7 },
+  });
+  assert.deepEqual(db.row?.imageParams, { [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9", seed: 7 } });
+  assert.deepEqual(runtimeParameters(latest), { aspect_ratio: "16:9", seed: 7 }, "ツールが読む既定");
+
+  // 切替先（パラメータ省略）でも、前のモデルの既定は残る
+  const switched = await service.putSelection({ provider: IMAGE_PROVIDER_ID, model: OTHER_MODEL });
+  assert.equal(switched.status, 200);
+  if (switched.status !== 200) return;
+  assert.deepEqual(db.row?.imageParams, { [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9", seed: 7 } });
+  assert.deepEqual(switched.response.image.parametersByModel, {
+    [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9", seed: 7 },
+  });
+  assert.equal(runtimeParameters(latest), undefined, "切替先に既定は無い");
+
+  // 切替先へ既定を入れて戻すと、両方のモデルの既定が残る
+  await service.putSelection({ provider: IMAGE_PROVIDER_ID, model: OTHER_MODEL, parameters: { quality: "high" } });
+  const back = await service.putSelection({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL });
+  assert.equal(back.status, 200);
+  if (back.status !== 200) return;
+  assert.deepEqual(db.row?.imageParams, {
+    [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9", seed: 7 },
+    [OTHER_MODEL]: { quality: "high" },
+  });
+  assert.deepEqual(back.response.image.parametersByModel, {
+    [OTHER_MODEL]: { quality: "high" },
+    [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9", seed: 7 },
+  });
+  assert.deepEqual(runtimeParameters(latest), { aspect_ratio: "16:9", seed: 7 });
+});
+
+test("PUT の parameters は省略 = 据え置き / {} = そのモデルの既定を削除 / 値あり = 置き換え", async () => {
+  const { db, service, latest } = createDefaultsService();
+  await service.putKey(KEY);
+  await service.putSelection({
+    provider: IMAGE_PROVIDER_ID,
+    model: DEFAULT_IMAGE_MODEL,
+    parameters: { aspect_ratio: "16:9" },
+  });
+
+  // 省略は据え置き（モデルの切り替えだけを行う）
+  const kept = await service.putSelection({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL });
+  assert.equal(kept.status, 200);
+  assert.deepEqual(db.row?.imageParams, { [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9" } });
+
+  // 値ありはそのモデルの既定を置き換える（キーごとのマージではない）
+  await service.putSelection({
+    provider: IMAGE_PROVIDER_ID,
+    model: DEFAULT_IMAGE_MODEL,
+    parameters: { seed: 12 },
+  });
+  assert.deepEqual(db.row?.imageParams, { [DEFAULT_IMAGE_MODEL]: { seed: 12 } });
+
+  // `{}` はそのモデルの既定を削除する。空の map は NULL へ潰さず `{}` のまま保存する
+  const cleared = await service.putSelection({
+    provider: IMAGE_PROVIDER_ID,
+    model: DEFAULT_IMAGE_MODEL,
+    parameters: {},
+  });
+  assert.equal(cleared.status, 200);
+  if (cleared.status !== 200) return;
+  assert.deepEqual(db.row?.imageParams, {}, "空の map と NULL を区別して保存する");
+  assert.deepEqual(cleared.response.image.parametersByModel, {});
+  assert.equal(runtimeParameters(latest), undefined);
+});
+
+test("宣言外の画像パラメータは 400 で保存せず、文言にキーを反射しない", async () => {
+  const { db, service } = createDefaultsService();
+  await service.putKey(KEY);
+  await service.putSelection({
+    provider: IMAGE_PROVIDER_ID,
+    model: DEFAULT_IMAGE_MODEL,
+    parameters: { aspect_ratio: "1:1" },
+  });
+  const before = db.row?.imageParams;
+
+  const cases: { parameters: ImageParameterValues; reason: RegExp }[] = [
+    { parameters: { quality: "ultra" }, reason: /quality に指定できない値です: ultra/ },
+    { parameters: { resolution: "1K" }, reason: /resolution はこの画像モデルでは指定できません/ },
+    { parameters: { seed: 1001 }, reason: /seed に指定できない値です: 1001/ },
+  ];
+  for (const { parameters, reason } of cases) {
+    const error = await service
+      .putSelection({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, parameters })
+      .then(
+        () => undefined,
+        (failure: unknown) => failure,
+      );
+    assert.ok(error instanceof Error, JSON.stringify(parameters));
+    assert.equal(statusOf(error), 400);
+    assert.match(error.message, reason);
+  }
+  assert.deepEqual(db.row?.imageParams, before, "拒否した値で保存値を書き換えない");
+
+  // 値を文言へ反射するときもマスカーを通す（キーを値として渡されても再露出させない）
+  const reflected = await service
+    .putSelection({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, parameters: { quality: KEY } })
+    .then(
+      () => undefined,
+      (failure: unknown) => failure,
+    );
+  assert.ok(reflected instanceof Error);
+  assert.equal(statusOf(reflected), 400);
+  assert.ok(!reflected.message.includes(KEY), "エラー文言にキーが残っている");
+  assert.ok(reflected.message.includes("[REDACTED]"));
+});
+
+test("宣言が読めないモデルへは既定を保存できず、{} での削除だけは受け付ける", async () => {
+  const { db, service, latest } = createDefaultsService();
+  await service.putKey(KEY);
+  const rejected = await service
+    .putSelection({ provider: IMAGE_PROVIDER_ID, model: UNDECLARED_MODEL, parameters: { quality: "high" } })
+    .then(
+      () => undefined,
+      (failure: unknown) => failure,
+    );
+  assert.ok(rejected instanceof Error);
+  assert.equal(statusOf(rejected), 400);
+  assert.match(rejected.message, /quality はこの画像モデルでは指定できません/);
+  assert.equal(db.row?.imageParams, null, "宣言が不明なモデルの既定は保存しない");
+  assert.equal(runtimeParameters(latest), undefined);
+
+  // 宣言が読めないモデルでも、既にある既定を消す操作は通す（UI が行き止まりにならない）
+  db.row = { ...db.row!, imageParams: { [UNDECLARED_MODEL]: { quality: "high" } } };
+  const cleared = await service.putSelection({
+    provider: IMAGE_PROVIDER_ID,
+    model: UNDECLARED_MODEL,
+    parameters: {},
+  });
+  assert.equal(cleared.status, 200);
+  assert.deepEqual(db.row?.imageParams, {});
+});
+
+test("GET の parametersByModel は各エントリをそのモデルの宣言で絞る", async () => {
+  const { db, service } = createDefaultsService();
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    imageParams: {
+      [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9", quality: "ultra", seed: 5000 },
+      [UNDECLARED_MODEL]: { quality: "high" },
+    },
+    enabled: true,
+    ...secretOf(KEY),
+  };
+  await service.applyStored();
+  assert.deepEqual(service.settings().image.parametersByModel, {
+    // モデル自身の宣言に無いキー・範囲外の値は落とす
+    [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9" },
+    // 宣言が読めないモデルは空（現在のモデルの宣言で全エントリを絞らない）
+    [UNDECLARED_MODEL]: {},
+  });
+});
+
+test("既定の保存に失敗したら 503 not_stored を返し、写しも変えない", async () => {
+  const { db, service, latest } = createDefaultsService();
+  await service.putKey(KEY);
+  db.failSave = true;
+  const failed = await service.putSelection({
+    provider: IMAGE_PROVIDER_ID,
+    model: DEFAULT_IMAGE_MODEL,
+    parameters: { aspect_ratio: "16:9" },
+  });
+  assert.deepEqual(failed, { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE });
+  assert.equal(db.row?.imageParams, null);
+  assert.equal(runtimeParameters(latest), undefined);
 });

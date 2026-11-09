@@ -113,6 +113,19 @@ SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品�
 - モデル一覧の取得が成功していない間（SDK 同梱カタログへ落ちている状態）は能力宣言が読めず、編集だけが止まり続ける。[カタログ更新] か次の起動で解消する
 - 既存ファイルで拡張子と実体が食い違う場合に実バイトを正とするため、保存名と中身が一致しないファイルが入力として通る（表示・保存側の既存挙動を変えない範囲で許容する）
 
+## 画像パラメータの既定
+
+`generate_image` は引数が省略されたとき、設定画面で保存した既定を使う。既定は **モデル id（bare。`openai/gpt-image-2` のような形）をキーにした 1 つの JSON map** で、アプリ DB の `content_settings.imageParams` 1 列に持つ。画面が使う `provider/id` 形式ではなく、`PUT /api/settings/content/image` の `model` と同じ形にする（[persistence.md](persistence.md#アプリデータsqlite)）。
+
+- 合成順は **明示引数 > 既定**で、キー単位でマージする。明示されたキーだけが既定を上書きし、指定していないキーは既定がそのまま残る
+- 既定のうち **宣言に無いキー・宣言の外にある値はそのキーだけ落とす**。利用者が明示した値ではないので、生成は止めず provider の既定へ委ねる（保存後にカタログの宣言が変わっても生成を止めない）。**宣言が読めないモデルでは既定を 1 つも送らない**。明示引数の検証は従来どおりで、既定はその判定に影響しない
+- 確定は provider を呼ぶ前に行い、結果本文のパラメータ行には合成後の実効値を書く（[ツールとプレビュー](#ツールとプレビュー)）
+- Codex は既定を持たず、この map を共有しない（v1 の既定は OpenRouter だけ）。Codex の実行では保存済みの既定を送らない
+- 保存は `PUT /api/settings/content/image` の `parameters` で行う。省略 = 据え置き / `{}` = そのモデルの既定を削除 / 値あり = 置き換えで、`model` を切り替えても他のモデルの既定は消さない。宣言外の値は 400 で保存しない（文言に値を反射するときは `#reflectedValue` を通す）。保存に失敗したときは既存の 503 `not_stored` に従う
+- `GET /api/settings/content` の `image.parametersByModel` は保存済みの全エントリを返し、**各エントリをそのモデルの宣言で絞る**。現在のモデルの宣言で全エントリを絞ると、切替先の正当な値まで消える。宣言が読めないモデルのエントリは空にする（画面は欄を出さない）
+- 空の map（全モデルの既定を消した状態）と NULL（一度も保存していない）は保存値として区別する。壊れた `imageParams` は利用者データなので未設定へ落とさず、行の破損として 503 にする
+- キー削除は `content_settings` の行ごと消すため、保存した既定も一緒に消える（音声モデル / ボイスと同じ扱い。既知の制限）
+
 ## 保存先とパスの空間
 
 | 空間 | 例 | 使う場所 |
@@ -154,8 +167,7 @@ cp generated/cafe-1.png assets/cafe-latest.png
 - 既定は行が無いことで表し、既存環境は `provider = openrouter` として移行する（行を作らない。OpenRouter のモデルは `content_settings.imageModel` が正のままで、同じ値を 2 箇所へ写さない）
 - Codex に切り替えても OpenRouter のキー・モデル・音声 / BGM の設定は消さない（戻せばそのまま使える）
 - OpenRouter キーの削除は `content_settings` の行だけを消すため、`image_settings.provider` は残る（Codex の選択がキー削除で消えない）
-- `codexParams` は将来の Codex 用パラメータの枠で、この版の API / 画面は読み書きしない（`PUT` のたびに値を保つだけ）。モデル別の生成パラメータの既定は `content_settings` 側に置くため、OpenRouter 用のパラメータ列を `image_settings` へは持たない（同じ既定を 2 箇所に持たない）
-- 画面からパラメータの既定を編集する導線は持たない（設定できるのは生成元だけ）
+- `codexParams` は将来の Codex 用パラメータの枠で、この版の API / 画面は読み書きしない（`PUT` のたびに値を保つだけ）。モデル別の生成パラメータの既定は `content_settings.imageParams` に置き、`image_settings` へは持たない（同じ既定を 2 箇所に持たない）。Codex の実行には既定を適用しない
 
 ### 認証と GET の純粋性
 
@@ -278,8 +290,10 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 
 - ツール引数は `prompt`（必須）、`path`（省略可、cwd 相対）、`input_images`（省略可、参照画像 1 枚）、生成パラメータ（省略可）。ツール説明と system prompt（`appendSystemPrompt` の画像生成行）に、生成物の場所と「本文には Markdown 画像で示す」ことを入れる
 - 生成パラメータの引数は `aspect_ratio` / `resolution` / `quality` / `output_format` / `background` / `seed`。宣言に無いキー・宣言の外の値は provider を呼ぶ前に拒否し、文言に「クレジットは消費していません」を添える（宣言はカタログ、値の型と突き合わせは `server/src/images.ts` の純関数を正とする）。`seed` は 0 以上 2^31-1 以下の整数に限る。`output_format` は保存できる形式（png / jpeg / webp）との積だけを通す。`background: transparent` は実効の `output_format` が jpeg なら拒否し、`output_format` 未指定でも宣言に png / webp が 1 つも無ければ拒否する（宣言が読めないときだけ通す）
-- Codex は画像モデルを持たず引数も受け付けないため、生成パラメータが指定されたら provider を呼ぶ前に拒否する（黙って捨てると結果本文と実際の要求が食い違う）。既定（保存値）の適用はこの段の外で、ここでは引数で明示された値だけを扱う
-- ツール説明と `promptGuidelines` に、生成パラメータは利用者が形・品質・形式を指定したときだけ入れることを書く（指定が無ければ provider の既定に任せる）
+- Codex は画像モデルを持たず引数も受け付けないため、生成パラメータが指定されたら provider を呼ぶ前に拒否する（黙って捨てると結果本文と実際の要求が食い違う）
+- 既定（保存値）は 設定 → コンテンツ生成（`/settings/content`）で保存した画像パラメータのうち、**保存中モデルのエントリ**を実行時に読む（`content_settings.imageParams`。bare なモデル id → 値の map）。合成は **明示引数 > 既定** のキー単位マージで、既定のうち **宣言に無いキー・宣言の外の値はそのキーだけ落とす**（利用者が明示した値ではないため、生成は止めず provider の既定へ委ねる）。宣言が読めないモデルでは既定を 1 つも送らない。Codex は既定を持たず、この map を共有しない（同じ既定を provider 間で混ぜない）
+- 既定も引数と同じく provider を呼ぶ前に確定させ、**結果本文には合成後の実効値**を書く（既定を送ったのに結果本文が「指定なし」になる、といった食い違いを作らない）
+- ツール説明と `promptGuidelines` に、生成パラメータは利用者が形・品質・形式を指定したときだけ入れることを書く（指定しなかったキーは保存済みの既定、既定も無ければ provider の既定に任せる）
 - ツール結果本文は 1 行目モデル・2 行目保存パス・3 行目パラメータ（`<name>=<value>` を固定の並び順で並べる。未指定でも `パラメータ: 指定なし（モデル既定）` を出して位置を固定する）、`編集元:` はその後に置く。3 行目を固定するのは、クライアントの `generationInfo.ts` が結果本文の先頭 3 行だけを読むため（パラメータ行がモデル行・保存パス行を押し出さない）
 - 本文に書くのは検証後の実効値で、要求した値と送信本文を食い違わせない（既定の適用が入る段でも同じ行に実効値を書く）
 - ツール結果本文には保存パスと一緒に使用モデル（実行時に読んだ `model`。Codex は画像モデルが返らないため `Codex（画像モデル不明）` と `プロバイダー: Codex`）を行で残す。会話履歴は `session.jsonl` の `toolResult` の生 content を正とするため、別途 DB へは保存せず、ライブ・復元後の両方でツール履歴の出力から何で生成したかを追える。設定を変更した後の実行にはその時点のモデルが入る
@@ -315,8 +329,8 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/content` | `configured` / `provider` / `runtimeAvailable` / `image`（`model` / `provider` / `auth` / `models`（カタログ。Codex は空配列）/ `catalogSource` / `fetchedAt`）。キーもトークンも返さない |
-| PUT | `/api/settings/content/image` | `{ provider, model }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400） |
+| GET | `/api/settings/content` | `configured` / `provider` / `runtimeAvailable` / `image`（`model` / `provider` / `auth` / `models`（カタログ。Codex は空配列）/ `catalogSource` / `fetchedAt` / `parametersByModel`（保存した生成パラメータの既定。**各エントリをそのモデルの宣言で絞る**））。キーもトークンも返さない |
+| PUT | `/api/settings/content/image` | `{ provider, model, parameters? }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400）。`parameters` は省略 = 据え置き / `{}` = そのモデルの既定を削除 / 値あり = 置き換えで、宣言外の値は 400（保存しない） [画像パラメータの既定](#画像パラメータの既定) |
 | PUT | `/api/settings/content/image/provider` | `{ provider }`。画像の生成元を切り替える。キー登録を伴わないため行が無くても受け付ける（[画像の生成元（provider）](#画像の生成元provider)） |
 | PUT | `/api/settings/content/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
 | DELETE | `/api/settings/content/key` | 行ごと削除（未設定へ戻す。冪等） |
@@ -336,15 +350,15 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 | --- | --- |
 | `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ 明示された生成パラメータだけを本文へ足し、未指定なら従来と同一の本文になること / 宣言との突き合わせ（宣言に無いキー・宣言の外の値・不明を送らせない）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK 同梱の openrouter が provider 内で同じ `baseUrl` / ヘッダを使うこと（ひな形の流用の前提）/ SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること / 参照画像ありの失敗では provider の自由文（plain / 1 段・2 段の JSON エスケープ / 折り返し base64）を返さず固定文言だけになること / 参照画像なしの失敗では従来どおり理由を添えること |
 | `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名と形式の宣言）/ 出力形式の取り込みと一覧の絞り込み（不明・形違いは落とさない）/ 宣言がキャッシュから読めること / 一覧から落ちた id の `outputFormatsOf` / 生成パラメータの宣言の取り込み（enum / range / boolean、未知キーの無視、壊れた descriptor、`seed` の上限、`output_format` の積）と `snapshot()` への掲載 / 一覧から落ちた id の `parametersOf` / 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
-| `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ Codex の結果の先頭 4 行（モデル・保存パス・パラメータ・プロバイダー）と参照画像の課金前拒否・認証解決の失敗 / 明示された生成パラメータの送信本文への反映と、宣言外の課金前拒否（宣言に無いキー・宣言の外の値・`seed` の型 / `background: transparent` と jpeg・宣言に png / webp が無いモデル・宣言が読めないときは通す / Codex の引数拒否）/ 結果本文の 3 行目パラメータ行（未指定でも出す）と `編集元:` の位置 / path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / OFF の間は provider を叩かず固定文言で失敗し ON へ戻すと同じ定義で生成できる / throw のマスク / signal の伝播 |
+| `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ Codex の結果の先頭 4 行（モデル・保存パス・パラメータ・プロバイダー）と参照画像の課金前拒否・認証解決の失敗 / 明示された生成パラメータの送信本文への反映と、宣言外の課金前拒否（宣言に無いキー・宣言の外の値・`seed` の型 / `background: transparent` と jpeg・宣言に png / webp が無いモデル・宣言が読めないときは通す / Codex の引数拒否）/ 結果本文の 3 行目パラメータ行（未指定でも出す）と `編集元:` の位置 / 保存済みの既定を明示引数より弱くキー単位でマージし、宣言外のキーはそのキーだけ落とし、宣言が読めないモデルでは既定を送らないこと（結果本文には実効値） / Codex が既定を使わないこと / path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / OFF の間は provider を叩かず固定文言で失敗し ON へ戻すと同じ定義で生成できる / throw のマスク / signal の伝播 |
 | `server/test/codex-images.test.ts` | Codex アダプタの要求（`/codex/responses`・認証ヘッダ・`image_generation` ツール・ルーティングモデルは画像モデルにしない）/ SSE からの画像の取り出し（`output_item` と最終応答、`content-type` 非依存、`output_format` の写像）/ 失敗分類（401・403・429・5xx・timeout・中断・画像 0 件）/ 画像と応答の上限 / ルーティングモデルが無いときは呼ばない / `auth.json` の保存値だけでの認証状態（missing / configured / expired、壊れた保存値）/ JWT claim からの account id（読めないトークンは使わない） |
 | `server/test/image-input.test.ts` | 参照画像のパス解決（cwd 相対 / 添付の絶対パス / 未所属・プロジェクト・追加スペースで起点がずれない）/ 拒否規則（`..`・範囲外・URL・data URL・バックスラッシュ・空）/ 実バイトの形式判定（PNG・JPEG・WebP、無拡張子・拡張子違い、壊れたヘッダ）/ 上限（10 MiB・40 メガピクセル）/ 入力の base64・data URL の除去 |
 | `server/test/sandbox-image-input.test.ts` | `GET /v1/files/image-input` の許可範囲（scope 外・実在しない範囲・root 外 symlink）/ 実バイト判定 / 上限 413 / scope 数の上限 |
-| `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、有効 / 無効の切替（キーと選択を保つ・行が無ければ 400・保存失敗は 503 で写しも変えない・キー上書きが OFF を引き継ぐ）、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式・パラメータ宣言 |
-| `server/test/content-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、`PUT /api/settings/content` の有効 / 無効（行が無ければ 400）、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `image.models` の形（SDK 同梱カタログは 3 キーのまま、宣言を持つモデルだけ `parameters` が加わる） |
+| `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、有効 / 無効の切替（キーと選択を保つ・行が無ければ 400・保存失敗は 503 で写しも変えない・キー上書きが OFF を引き継ぐ）、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式・パラメータ宣言 / 画像パラメータの既定の保存（モデルごと・2 回目以降も残る）、省略 / `{}` / 値ありの 3 通り、宣言外の 400 と文言のマスク、宣言が読めないモデルの扱い、`parametersByModel` のエントリごとの絞り込み |
+| `server/test/content-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、`PUT /api/settings/content` の有効 / 無効（行が無ければ 400）、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `image.models` の形（SDK 同梱カタログは 3 キーのまま、宣言を持つモデルだけ `parameters` が加わる）/ `image.parametersByModel` と PUT の `parameters`（応答・GET・モデル切替で消えないこと・`{}` での削除・宣言外の 400）/ 壊れた `imageParams` の 503 `not_stored` |
 | `server/test/content-trials.test.ts` / `server/test/content-trials-api.test.ts` | 試行の開始 / 取得 / キャンセル / 完了 / 失敗 / 中断の状態遷移と終端の不変性、完了直前のキャンセル、遅い結果の破棄、実行中の削除拒否、種別ごとの同時 1 本と provider が終わるまでのスロット保持、キャンセルで abort すること、起動時と一覧取得時の `running` → `interrupted`、終端の記録失敗からの再試行、close の中断、開始前の検証（未設定 / OFF / runtime 不可 / カタログ外 / 空・長すぎるプロンプト / 宣言外・宣言不明・透過できない形式の画像のパラメータ）、失敗文言のマスク、APIキーが応答・履歴に載らないこと、キー削除後も履歴を読めること、成果物の保存と `storage` の分類（課金済み）、保存できない形式・大きさの保存前拒否、同じ入力の再利用（現在のキー世代・成果物ファイルの存在、画像のパラメータの一致・不一致・未指定同士、provider を呼ばず新しい成功を記録しない）、`force` の新規生成、raw 配信の MIME と `nosniff` / `no-store` / `?download=1`、未知の id とパスを混ぜた要求の拒否、保存していない行の 404、成果物の削除、起動時の孤児掃除、実行中ジョブ（保存後・終端更新前）のファイルを消さないこと、一覧の取得中に確定したジョブの成果物を消さないこと（その後の raw 配信・容量・再利用も壊れないこと）、容量が保存済みの成功だけを数えること、時間ベースの自動削除が無いこと |
 | `server/test/content-trial-artifacts.test.ts` | 保存できる形式の許可リスト（png / jpeg / webp と、svg / html / 不明 MIME の保存前拒否）、実バイトからの寸法、壊れた base64 と上限超過、保存名が `<trialId>.<ext>` に固定されること、置き場の外を指す名前の拒否、読み書き・削除・一覧 |
-| `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`enabled` の列追加（既存行は ON）と往復、`image_catalog` の upsert と壊れた行（health を落とさない）、形式 / 画像入力 / 生成パラメータの宣言の往復と形違いの読み方 |
+| `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`enabled` の列追加（既存行は ON）と往復、`image_catalog` の upsert と壊れた行（health を落とさない）、形式 / 画像入力 / 生成パラメータの宣言の往復と形違いの読み方、`content_settings.imageParams` の往復（空の map と NULL の区別）と v43 → v44 の加算移行、壊れた JSON の行の破損 |
 | `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
 | `client/test/imageRefresh.test.ts` | 実フックの再描画安定性・更新時の URL 非衝突 / 実 Markdown と FileBrowser の再 mount が過去の URL を再利用しないこと（SSR） |
 | `client/test/contentTrials.test.ts` | 状態ラベルと失敗分類の写像、証拠の相対時刻・所要時間、現在のキー世代と選択中モデル・保存済みの成功だけを数える証拠、失敗へのフォールバックと未確認、旧キーの行、面の状態の優先順位、開始を止める理由、タブの印の優先順位と読み上げ名、新着結果の判定（成功 / 失敗だけ）、試行の要求（`force` は [もう一度生成] だけ）と再生成の確認（送る内容・モデル・課金）、**画像の生成パラメータ**（カタログからの宣言の引き当て、入力欄の出し分け、モデル切替時の宣言外のキーの除去、明示値だけの要求と宣言外の値の課金前の拒否、履歴からの下書きの復元、結果のチップ、履歴の全行と未指定の表示、設定画面の注記）、実行中の有無、成果物の URL と要約（`none` の行は対象外）、履歴のモデル / 成功失敗の絞り込みと月区切り、ビューポートの既定選択、削除してから一覧を取り直す順序（容量の取り直し） |

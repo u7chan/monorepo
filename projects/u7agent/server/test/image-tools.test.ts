@@ -891,3 +891,70 @@ test("ツール説明と promptGuidelines はパラメータを利用者の指�
     assert.match(instructions, /only when the user asked for that shape, quality or format/);
   }
 });
+
+test("保存済みの既定は明示引数より弱く、キー単位でマージされて送信本文と結果本文へ載る", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const text = await run(
+    tool({
+      capture,
+      settings: { ...settings, parameters: { aspect_ratio: "1:1", quality: "low", seed: 3 } },
+      parameters: declared(),
+      outputFormats: () => ["png", "jpeg", "webp"],
+    }),
+    { prompt: "a cafe", quality: "high" },
+  );
+  // 明示した quality は既定を上書きし、指定していない既定はそのまま使う
+  assert.deepEqual(capture.generated[0]?.parameters, { aspect_ratio: "1:1", quality: "high", seed: 3 });
+  const lines = text.split("\n");
+  assert.equal(lines[2], "パラメータ: aspect_ratio=1:1, quality=high, seed=3", "結果本文は合成後の実効値");
+});
+
+test("既定が宣言外ならそのキーだけ落とし、残りは送る", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const text = await run(
+    tool({
+      capture,
+      // 宣言の外（quality=ultra）と、宣言に無いキー（resolution）を混ぜる
+      settings: { ...settings, parameters: { aspect_ratio: "16:9", quality: "ultra", resolution: "1K" } },
+      parameters: declared(),
+      outputFormats: () => ["png", "jpeg", "webp"],
+    }),
+    { prompt: "a cafe" },
+  );
+  assert.deepEqual(capture.generated[0]?.parameters, { aspect_ratio: "16:9" });
+  assert.equal(text.split("\n")[2], "パラメータ: aspect_ratio=16:9");
+});
+
+test("宣言が読めないモデルでは既定を 1 つも送らない（明示引数だけを検証して送る）", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const text = await run(
+    tool({
+      capture,
+      settings: { ...settings, parameters: { aspect_ratio: "16:9", seed: 3 } },
+      parameters: () => undefined,
+    }),
+    { prompt: "a cafe" },
+  );
+  assert.equal(capture.generated[0]?.parameters, undefined, "宣言が不明なモデルへ既定を送らない");
+  assert.equal(text.split("\n")[2], IMAGE_TOOL_PARAMETER_DEFAULT_LINE);
+
+  // 明示された値は従来どおり 400（不明な宣言へは送らない）。既定は判定に影響しない
+  const explicit: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const error = await run(
+    tool({ capture: explicit, settings: { ...settings, parameters: { seed: 3 } }, parameters: () => undefined }),
+    { prompt: "a cafe", aspect_ratio: "16:9" },
+  ).then(
+    () => undefined,
+    (failure: unknown) => failure,
+  );
+  assert.ok(error instanceof Error);
+  assert.match(error.message, /aspect_ratio はこの画像モデルでは指定できません/);
+  assert.equal(explicit.generated.length, 0);
+});
+
+test("Codex は保存済みの既定を使わない（OpenRouter の既定を混ぜない）", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const text = await run(tool({ capture, settings: codexSettings() }), { prompt: "a cafe" });
+  assert.equal(capture.generated[0]?.parameters, undefined);
+  assert.equal(text.split("\n")[2], IMAGE_TOOL_PARAMETER_DEFAULT_LINE);
+});

@@ -19,12 +19,15 @@ import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import { MutationLock } from "./model-settings";
 import type { ContentTrialSource } from "./content-trials";
 import { REDACTED } from "./redact";
-import type { ContentSettingsRow, ImageSettingsRow } from "./app-db";
+import type { ContentSettingsRow, ImageParameterDefaults, ImageSettingsRow } from "./app-db";
 import type { AppSecretCipher } from "./secret-crypto";
 import type { ImageCatalog } from "./image-catalog";
 import {
   IMAGE_PROVIDER_ID,
+  declaredImageParameters,
+  imageParameterBody,
   isImageProviderId,
+  normalizeImageParameters,
   type CodexAuth,
   type ContentGenerationConfig,
   type ImageAuthStatus,
@@ -38,6 +41,7 @@ import {
   type ContentMutationResponse,
   type ContentSettingsResponse,
   type ImageCatalogRefreshResponse,
+  type ImageParameterValues,
   type SpeechCatalogRefreshResponse,
 } from "./schema";
 
@@ -284,7 +288,40 @@ export class ContentSettingsService {
     const row = this.#row;
     const apiKey = this.#apiKey;
     if (!row || apiKey === null) return undefined;
-    return { provider: IMAGE_PROVIDER_ID, model: row.imageModel, apiKey };
+    // 既定は保存中のモデルの分だけを渡し、宣言との突き合わせ（宣言外のキーを落とす）はツール側で行う
+    const parameters = row.imageParams?.[row.imageModel];
+    return { provider: IMAGE_PROVIDER_ID, model: row.imageModel, apiKey, ...(parameters ? { parameters } : {}) };
+  }
+
+  /**
+   * 保存する既定を組み立てる。`{}` はそのモデルの既定を削除し、値はそのモデルの宣言と突き合わせて
+   * 宣言外なら 400 にする（保存しない）。他のモデルの既定には触らない。
+   */
+  #updatedImageParams(
+    current: ImageParameterDefaults | null,
+    model: string,
+    parameters: ImageParameterValues,
+  ): ImageParameterDefaults {
+    const next: ImageParameterDefaults = { ...current };
+    if (Object.keys(imageParameterBody(parameters)).length === 0) {
+      delete next[model];
+      return next;
+    }
+    const validated = normalizeImageParameters(this.#catalog.parametersOf(model), parameters);
+    if (!validated.ok) throw badRequest(this.#reflectedValue(validated.message, this.#apiKey));
+    return { ...next, [model]: validated.values };
+  }
+
+  /**
+   * GET / 変更系の応答へ載せる既定。**各エントリをそのモデルの宣言で絞る**（保存中のモデルの宣言で
+   * 全エントリを絞ると、切替先の正当な値まで消える）。宣言が読めないモデルは空のエントリにする。
+   */
+  #parametersByModel(imageParams: ImageParameterDefaults | null): Record<string, ImageParameterValues> {
+    const byModel: Record<string, ImageParameterValues> = {};
+    for (const [model, parameters] of Object.entries(imageParams ?? {})) {
+      byModel[model] = declaredImageParameters(this.#catalog.parametersOf(model), parameters);
+    }
+    return byModel;
   }
 
   /** GET。純粋読取で、キー値は返さない（DB の失敗は 503 のまま伝える） */
@@ -310,6 +347,7 @@ export class ContentSettingsService {
         models: this.#imageProvider === IMAGE_PROVIDER_ID ? catalog.entries : [],
         catalogSource: catalog.source,
         fetchedAt: catalog.fetchedAt,
+        parametersByModel: this.#parametersByModel(row?.imageParams ?? null),
       },
       speech: {
         model: speech?.model ?? null,
@@ -393,6 +431,7 @@ export class ContentSettingsService {
         speechModel: existing?.speechModel ?? null,
         speechVoice: existing?.speechVoice ?? null,
         enabled: existing?.enabled ?? true,
+        imageParams: existing?.imageParams ?? null,
         ciphertext: encrypted.ciphertext,
         nonce: encrypted.nonce,
         keyVersion: encrypted.keyVersion,
@@ -440,8 +479,16 @@ export class ContentSettingsService {
     });
   }
 
-  /** provider / model の変更。キーは保持し、行が無ければ 400（キー登録が先） */
-  async putSelection(input: { provider: string; model: string }): Promise<ContentMutationOutcome> {
+  /**
+   * provider / model の変更。キーは保持し、行が無ければ 400（キー登録が先）。
+   * `parameters` は省略 = 据え置き / `{}` = そのモデルの既定を削除 / 値あり = 置き換えで、
+   * 宣言外の値は 400（保存しない）。`models` はこの操作では変えない。
+   */
+  async putSelection(input: {
+    provider: string;
+    model: string;
+    parameters?: ImageParameterValues | undefined;
+  }): Promise<ContentMutationOutcome> {
     return this.#lock.run(async () => {
       let existing: ContentSettingsRow | undefined;
       try {
@@ -464,7 +511,18 @@ export class ContentSettingsService {
             : this.#reflectedValue(input.model, this.#apiKey);
         throw badRequest(`${CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE}: ${reflected}`);
       }
-      const next: ContentSettingsRow = { ...existing, provider: input.provider, imageModel: input.model };
+      // 宣言外の値は保存しない（不明な宣言へ値を残すと、実行時に黙って落ちる設定になる）。
+      // 入力を反射する文言はマスカーを通す（値にキーを誤って渡されても 400 から再露出させない）
+      const nextImageParams =
+        input.parameters === undefined
+          ? existing.imageParams
+          : this.#updatedImageParams(existing.imageParams, input.model, input.parameters);
+      const next: ContentSettingsRow = {
+        ...existing,
+        provider: input.provider,
+        imageModel: input.model,
+        imageParams: nextImageParams,
+      };
       try {
         this.#db.saveContentSettings(next);
       } catch {
@@ -739,6 +797,7 @@ export class ContentSettingsService {
         models: this.#imageProvider === IMAGE_PROVIDER_ID ? catalog.entries : [],
         catalogSource: catalog.source,
         fetchedAt: catalog.fetchedAt,
+        parametersByModel: this.#parametersByModel(row?.imageParams ?? null),
       },
       speech: {
         model: speech.model,
