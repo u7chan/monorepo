@@ -214,8 +214,10 @@ test("モデルを選ぶタブは既定モデル・選択数・候補・保存�
   assert.ok(html.includes('fill-rule="evenodd"'), "モデル候補の provider 行にもロゴを出す");
   assert.ok(html.includes("開いている会話のモデルは切り替えません"), "live の会話へ効かないことを注記する");
   assert.ok(html.includes("モデル一覧を表示") === false, "ModelTable は出さない");
-  // 先頭の provider も含めて既定は閉じ、折りたたみ中は行を描画しない
-  assert.equal((html.match(/<details[^>]*\sopen=""/g) ?? []).length, 0, "警告が無ければ既定で全部閉じる");
+  // 先頭の provider も含めて既定は閉じ、折りたたみ中は行を描画しない。開閉の入れ物 (Fold) は
+  // 閉じていても置く (開いたときに初めて mount すると、0fr からの遷移が走らない)
+  assert.equal((html.match(/data-open="true"/g) ?? []).length, 0, "警告が無ければ既定で全部閉じる");
+  assert.ok(html.includes('class="tree-fold" data-open="false" inert=""'), "閉じた provider にも開閉の入れ物を置く");
   assert.equal(html.includes("すべて解除"), false, "折りたたみ中の一括操作も描画しない");
   assert.equal(html.includes('title="anthropic/claude-sonnet"'), false, "折りたたみ中の行も描画しない");
   // 下部の固定アクション行は変更なしを示し、ボタンは無効
@@ -253,11 +255,7 @@ test("カタログ外の保存済みエントリは警告付きで残し、既�
   assert.ok(html.includes("anthropic/ghost"), "カタログ外のエントリも出す");
   assert.ok(html.includes("選択 1 / 利用可能 1"));
   assert.ok(html.includes("すべて解除"), "外せる一括操作も出す");
-  assert.equal(
-    (html.match(/<details[^>]*\sopen=""/g) ?? []).length,
-    1,
-    "警告のある provider だけは対処できるように開く",
-  );
+  assert.equal((html.match(/data-open="true"/g) ?? []).length, 1, "警告のある provider だけは対処できるように開く");
 });
 
 test("選択 0 件は保存できず、空を送らない理由を出す", () => {
