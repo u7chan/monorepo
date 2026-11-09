@@ -73,15 +73,30 @@ export function imageAuthBadge(auth: ContentImageAuth): ProviderBadge {
 export const CODEX_SIGN_IN_NOTICE =
   "Codex のサインインが見つかりません。Pi / Codex CLI で openai-codex にサインインするか、設定 → モデル（/settings/models）のサインインを使ってください。APIキーは不要です。";
 export const CODEX_SIGN_IN_EXPIRED_NOTICE =
-  "Codex のサインインの期限が切れています。設定 → モデル（/settings/models）で openai-codex にサインインし直してください。";
+  "Codex のサインインの期限が切れています。生成を実行するとサインインの更新を試みます。更新に失敗するときは、設定 → モデル（/settings/models）で openai-codex にサインインし直してください。";
 export const OPENROUTER_IMAGE_KEY_NOTICE =
   "OpenRouter のAPIキーが未設定です。下の欄で登録すると generate_image を使えます。";
+/** 暗号文はあるが復号できない / 未評価のキー。「未設定」と書くと保存済みの値を捨てる案内になる */
+export const OPENROUTER_IMAGE_KEY_UNUSABLE_NOTICE =
+  "保存済みの OpenRouter のAPIキーを使えません。下の欄で登録し直すと generate_image を使えます。";
 
-/** 認証が足りないときの案内。使えるときは null */
-export function imageAuthNotice(auth: ContentImageAuth, provider: ImageGenerationProvider): string | null {
+/**
+ * 認証が足りないときの案内。使えるときは null。
+ * `image.auth` は値を持たないため、OpenRouter の「保存済みだが使えない」はキーの状態で書き分ける
+ * （同じ画面のバッジ / 警告と同じ事実を、同じ語で伝える）。
+ */
+export function imageAuthNotice(
+  settings: Pick<ContentSettingsResponse, "keyStored" | "keyAvailable" | "keyErrorMessage" | "image">,
+): string | null {
+  const { auth, provider } = settings.image;
+  if (provider === "codex") {
+    if (auth.state === "configured") return null;
+    return auth.state === "expired" ? CODEX_SIGN_IN_EXPIRED_NOTICE : CODEX_SIGN_IN_NOTICE;
+  }
   if (auth.state === "configured") return null;
-  if (provider === "codex") return auth.state === "expired" ? CODEX_SIGN_IN_EXPIRED_NOTICE : CODEX_SIGN_IN_NOTICE;
-  return OPENROUTER_IMAGE_KEY_NOTICE;
+  const unusable = settings.keyStored && !settings.keyAvailable;
+  if (!unusable) return OPENROUTER_IMAGE_KEY_NOTICE;
+  return settings.keyErrorMessage ?? OPENROUTER_IMAGE_KEY_UNUSABLE_NOTICE;
 }
 
 /** APIキー欄を出すか。Codex はキーを使わないため、画像タブでは欄ごと隠す（音声 / BGM のタブでは出す） */

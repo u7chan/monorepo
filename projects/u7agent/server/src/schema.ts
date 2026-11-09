@@ -211,6 +211,8 @@ export type ToolGroup = z.infer<typeof ToolGroupSchema>;
 /**
  * アプリ側でツールを使えない理由のコード。文言はクライアントの lib が持ち、応答にはコードだけを載せる
  * (既存の分担は `client/src/lib/fileSkills.ts` / `client/src/lib/settingsNotes.ts`)。
+ * `no_key` は OpenRouter のキー未登録、`no_auth` は Codex のサインインが無いことを表す
+ * (画像は選択 provider の認証で決まる。docs/api-catalog.md)。
  */
 export const ToolUnavailableReasonSchema = z.enum(["deploy_allowlist", "app_disabled", "no_key", "no_auth"]);
 export type ToolUnavailableReason = z.infer<typeof ToolUnavailableReasonSchema>;

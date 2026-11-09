@@ -1129,3 +1129,18 @@ test("Codex の認証が切れているときは再サインインを案内す�
   assert.ok(html.includes("期限が切れています"));
   assert.ok(html.includes("/settings/models"));
 });
+
+test("画像タブで Codex を選んでも「保存される設定」に BGM の固定モデルを出さない", () => {
+  // 画像タブの分岐が else で BGM の面へ落ちると、画像の生成元が Codex のときだけ BGM の欄が出ていた
+  const codex = render({
+    image: { provider: "codex", auth: { state: "configured", kind: "oauth" }, models: [] },
+  });
+  assert.equal(codex.includes('aria-label="BGM生成の固定モデル"'), false, "画像タブに BGM の保存される設定を出さない");
+  assert.equal(codex.includes('aria-label="音声生成のモデル"'), false, "画像タブに音声の設定を出さない");
+  // 画像の設定そのものは OpenRouter のときだけ出る（Codex では何も出さない）
+  assert.equal(codex.includes('aria-label="コンテンツ生成のモデル"'), false);
+  assert.ok(render().includes('aria-label="コンテンツ生成のモデル"'), "OpenRouter では画像モデルを出す");
+  // 音声 / BGM のタブは従来どおりそれぞれの設定を出す
+  assert.ok(render({ subsection: "bgm" }).includes('aria-label="BGM生成の固定モデル"'));
+  assert.match(render({ subsection: "speech" }), /aria-label="音声生成のモデル"/);
+});

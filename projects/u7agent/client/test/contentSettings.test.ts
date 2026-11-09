@@ -491,12 +491,49 @@ test("認証状態は「認証済み / 期限切れ / 未認証」に分け、�
   assert.deepEqual(imageAuthBadge({ state: "missing", kind: null }), { label: "未認証", tone: "muted" });
 });
 
+/** 案内の入力。`image.auth` とキーの状態だけを差し替える（他は画像の案内が読まない） */
+function authNotice(
+  provider: ContentImageSettings["provider"],
+  auth: ContentImageSettings["auth"],
+  key: { keyStored: boolean; keyAvailable: boolean; keyErrorMessage: string | null } = {
+    keyStored: false,
+    keyAvailable: false,
+    keyErrorMessage: null,
+  },
+): string | null {
+  return imageAuthNotice({ ...key, image: settings({ provider, auth }).image });
+}
+
 test("認証がないときの案内は provider ごとに変え、Codex にAPIキーを求めない", () => {
-  assert.equal(imageAuthNotice({ state: "configured", kind: "oauth" }, "codex"), null);
-  assert.match(imageAuthNotice({ state: "missing", kind: null }, "codex") ?? "", /openai-codex/);
-  assert.match(imageAuthNotice({ state: "missing", kind: null }, "codex") ?? "", /APIキーは不要/);
-  assert.match(imageAuthNotice({ state: "expired", kind: "oauth" }, "codex") ?? "", /期限が切れています/);
-  assert.match(imageAuthNotice({ state: "missing", kind: "api_key" }, "openrouter") ?? "", /OpenRouter のAPIキー/);
+  assert.equal(authNotice("codex", { state: "configured", kind: "oauth" }), null);
+  assert.match(authNotice("codex", { state: "missing", kind: null }) ?? "", /openai-codex/);
+  assert.match(authNotice("codex", { state: "missing", kind: null }) ?? "", /APIキーは不要/);
+  assert.match(authNotice("codex", { state: "expired", kind: "oauth" }) ?? "", /期限が切れています/);
+  assert.match(authNotice("codex", { state: "expired", kind: "oauth" }) ?? "", /更新を試みます/);
+  assert.match(authNotice("openrouter", { state: "missing", kind: "api_key" }) ?? "", /OpenRouter のAPIキー/);
+});
+
+test("OpenRouter のキーが保存済みでも使えないときは「未設定」ではなく再入力を案内する", () => {
+  const stored = { keyStored: true, keyAvailable: false, keyErrorMessage: null };
+  assert.match(
+    authNotice("openrouter", { state: "missing", kind: "api_key" }, stored) ?? "",
+    /保存済みの OpenRouter のAPIキーを使えません/,
+  );
+  // 未評価 / 復号失敗の固定文言はサーバーのものをそのまま出す（画面のキー警告と同じ語）
+  assert.equal(
+    authNotice(
+      "openrouter",
+      { state: "missing", kind: "api_key" },
+      {
+        keyStored: true,
+        keyAvailable: false,
+        keyErrorMessage: "保存済みのAPIキーを復号できません",
+      },
+    ),
+    "保存済みのAPIキーを復号できません",
+  );
+  // 保存そのものが無いときは「未設定」のまま
+  assert.match(authNotice("openrouter", { state: "missing", kind: "api_key" }) ?? "", /未設定/);
 });
 
 test("Codex では APIキー欄とモデル一覧を出さない（OpenRouter では出す）", () => {

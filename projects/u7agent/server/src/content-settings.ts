@@ -260,17 +260,20 @@ export class ContentSettingsService {
     }
   }
 
-  /** 画像ツールの公開状態。理由は provider で分ける（Codex にキー登録を促さない） */
+  /**
+   * 画像ツールの公開状態。OpenRouter はキーの行とその復号が要るが、**Codex は行を要らない**
+   * （キー削除で行が無くなってもサインインだけで使える）。理由は provider で分ける。
+   */
   #imageAvailability(row: ContentSettingsRow | undefined): ImageToolAvailability {
-    if (row === undefined) {
-      return this.#imageProvider === IMAGE_PROVIDER_ID
-        ? { enabled: false, reason: "no_key" }
-        : { enabled: false, reason: "no_auth" };
+    if (row !== undefined && !row.enabled) return { enabled: false, reason: "app_disabled" };
+    if (this.#imageProvider === "codex") {
+      const auth = this.#imageAuthStatus("codex");
+      // `expired` も公開する: access token の期限切れは SDK が生成時の `getAuth()` で更新できる。
+      // ここで落とすと解決の機会が無く、refresh token が生きていてもサインインし直しを強いられる
+      return auth.state === "missing" ? { enabled: false, reason: "no_auth" } : { enabled: true, reason: null };
     }
-    if (!row.enabled) return { enabled: false, reason: "app_disabled" };
-    const auth = this.#imageAuthStatus(this.#imageProvider);
-    if (auth.state === "configured") return { enabled: true, reason: null };
-    return { enabled: false, reason: this.#imageProvider === IMAGE_PROVIDER_ID ? "no_key" : "no_auth" };
+    if (row === undefined || this.#apiKey === null) return { enabled: false, reason: "no_key" };
+    return { enabled: true, reason: null };
   }
 
   /** 実行のたびに読む画像の設定。Codex はキーを使わないため、行が無くても undefined にしない */

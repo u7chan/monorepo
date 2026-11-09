@@ -402,19 +402,22 @@ export function ContentSettingsTab({
                 <p className="text-2xs leading-relaxed text-ink-muted">{SPEECH_NEEDS_OPENROUTER_KEY_NOTE}</p>
               ) : null}
 
-              {contentSubsection === "image" && imageModelSectionVisible(imageProvider) ? (
-                <ImageModelSection
-                  settings={settings}
-                  busy={busy}
-                  refreshing={saving === "catalog"}
-                  selectedModel={screenModel}
-                  onChangeDraft={setImageDraft}
-                  onSave={onSaveSelection}
-                  onRefresh={onRefreshCatalog}
-                  trials={trials}
-                  trialKeyEpoch={trialKeyEpoch}
-                  trialNow={trialNow}
-                />
+              {contentSubsection === "image" ? (
+                // Codex は画像モデルを選ばないため、画像タブでは何も出さない（BGM の欄へ落とさない）
+                imageModelSectionVisible(imageProvider) ? (
+                  <ImageModelSection
+                    settings={settings}
+                    busy={busy}
+                    refreshing={saving === "catalog"}
+                    selectedModel={screenModel}
+                    onChangeDraft={setImageDraft}
+                    onSave={onSaveSelection}
+                    onRefresh={onRefreshCatalog}
+                    trials={trials}
+                    trialKeyEpoch={trialKeyEpoch}
+                    trialNow={trialNow}
+                  />
+                ) : null
               ) : contentSubsection === "speech" ? (
                 <SpeechModelSection
                   settings={settings}
@@ -553,7 +556,7 @@ function ImageProviderSection({
   onSaved: () => void;
 }) {
   const current = settings.image.provider;
-  const notice = imageAuthNotice(settings.image.auth, current);
+  const notice = imageAuthNotice(settings);
   return (
     <section className="grid gap-2 rounded-lg border border-line bg-raised px-3 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">

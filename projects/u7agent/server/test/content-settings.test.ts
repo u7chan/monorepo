@@ -929,7 +929,7 @@ test("認証状態は provider ごとの保存値だけで返し、キーもト�
 });
 
 test("画像ツールの公開状態は選択 provider の認証で決まり、理由を no_key / no_auth / app_disabled に分ける", async () => {
-  const { service, latest, db } = createService({
+  const { service, latest } = createService({
     codexAuth: { status: () => ({ state: "configured", kind: "oauth" }), resolve: async () => CODEX_AUTH },
   });
   assert.deepEqual(latest(), undefined, "起動前は注入しない");
@@ -943,13 +943,43 @@ test("画像ツールの公開状態は選択 provider の認証で決まり、�
   assert.deepEqual(latest()?.imageAvailability(), { enabled: true, reason: null }, "Codex はサインインだけで開く");
   await service.putEnabled(false);
   assert.deepEqual(latest()?.imageAvailability(), { enabled: false, reason: "app_disabled" });
-  db.row = undefined;
 
   const noAuth = createService({
     codexAuth: { status: () => ({ state: "missing", kind: null }), resolve: async () => undefined },
   });
   await noAuth.service.putImageProvider("codex");
   assert.deepEqual(noAuth.latest()?.imageAvailability(), { enabled: false, reason: "no_auth" }, "キー登録を促さない");
+});
+
+test("OpenRouter のキーを一度も保存していなくても、Codex のサインインだけで generate_image を公開する", async () => {
+  // 新規プロファイル: content_settings の行が無い（キー未登録）。Codex はキーを使わないため公開する
+  const { service, latest, db } = createService({
+    codexAuth: { status: () => ({ state: "configured", kind: "oauth" }), resolve: async () => CODEX_AUTH },
+  });
+  await service.applyStored();
+  await service.putImageProvider("codex");
+  assert.equal(db.row, undefined, "キーの行は作らない");
+  assert.deepEqual(latest()?.imageAvailability(), { enabled: true, reason: null });
+  // GET / read() と公開判定が食い違わない（同じ状態で auth は configured、read は Codex を返す）
+  const settings = service.settings();
+  assert.deepEqual(settings.image.auth, { state: "configured", kind: "oauth" });
+  assert.equal(settings.image.provider, "codex");
+  assert.equal(latest()?.read()?.provider, "codex");
+
+  // キーを保存して削除しても、Codex の選択と公開はそのまま（キー削除で provider を落とさない）
+  await service.putKey(KEY);
+  await service.deleteKey();
+  assert.deepEqual(latest()?.imageAvailability(), { enabled: true, reason: null });
+});
+
+test("Codex のサインインが期限切れでも公開し、更新は実行時の解決へ委ねる", async () => {
+  const { service, latest } = createService({
+    codexAuth: { status: () => ({ state: "expired", kind: "oauth" }), resolve: async () => CODEX_AUTH },
+  });
+  await service.putImageProvider("codex");
+  // access token の期限切れは SDK の getAuth() が生成時に更新できる。ここで落とすと解決の機会が無い
+  assert.deepEqual(latest()?.imageAvailability(), { enabled: true, reason: null });
+  assert.deepEqual(service.settings().image.auth, { state: "expired", kind: "oauth" }, "表示は期限切れのまま");
 });
 
 test("Codex の実行時設定はキーを要求せず、認証の解決だけを返す", async () => {

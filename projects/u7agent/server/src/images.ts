@@ -257,8 +257,6 @@ export function isImageProviderId(value: string): value is ImageProviderId {
   return (IMAGE_GENERATION_PROVIDERS as readonly string[]).includes(value);
 }
 
-export const IMAGE_PROVIDER_UNSUPPORTED_MESSAGE = "画像の生成元は openrouter か codex だけです";
-
 /** 画像の認証状態。GET は保存値の読取だけで判定し、トークン解決も外部通信もしない */
 export type ImageAuthState = "configured" | "missing" | "expired";
 export type ImageAuthKind = "api_key" | "oauth";
