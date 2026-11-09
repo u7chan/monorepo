@@ -283,13 +283,13 @@ export function TrialHistoryTab({
       </div>
 
       {singleColumn ? (
-        <div className="min-h-0 overflow-y-auto px-3 py-2">
+        <div className="min-h-0 scrollbar-thin overflow-y-auto px-3 py-2">
           {narrowDetail && selected !== null ? detailView : listView}
         </div>
       ) : (
         <div className="grid min-h-0 grid-cols-[352px_minmax(0,1fr)]">
-          <div className="min-h-0 overflow-y-auto border-r border-line px-3 py-2">{listView}</div>
-          <div className="min-h-0 overflow-y-auto px-4 py-3">{detailView}</div>
+          <div className="min-h-0 scrollbar-thin overflow-y-auto border-r border-line px-3 py-2">{listView}</div>
+          <div className="min-h-0 scrollbar-thin overflow-y-auto px-4 py-3">{detailView}</div>
         </div>
       )}
     </div>
@@ -309,7 +309,7 @@ function TrialHistoryArtifact({
   if (trial.kind === "image") {
     return (
       <div className="grid gap-1">
-        <ZoomableImage src={trialArtifactUrl(trial.id)} alt="試行の結果" variant="markdown" />
+        <ZoomableImage src={trialArtifactUrl(trial.id)} alt="試行の結果" variant="markdown" checker />
         <TrialArtifactMeta trialId={trial.id} label={trialArtifactSummary(trial)}>
           {trialDimensionLabel(trial) ? null : <p className="text-2xs text-ink-faint">実寸を読めませんでした。</p>}
         </TrialArtifactMeta>

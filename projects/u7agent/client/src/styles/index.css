@@ -2946,6 +2946,15 @@
     background-size: 16px 16px;
   }
 
+  /* 設定 → コンテンツ生成の履歴の画像下地。透過を白とグレーの市松で示す。.image-canvas は
+   * 面色に混ぜてテーマへ追随させるが、暗いテーマの履歴では透過と背景の区別が付かないため、
+   * この面だけは明るい市松を固定で使う */
+  .image-canvas-bright {
+    background-color: #ffffff;
+    background-image: repeating-conic-gradient(#d4d4d4 0 25%, #ffffff 0 50%);
+    background-size: 16px 16px;
+  }
+
   /* ===== 数式 (LaTeX サブセット) =====
    * 分数・根号・上下限・行列を CSS だけで組む。色は既存トークンだけを使い、
    * 6 テーマの再定義を不要にする (インライン style は本番の CSP で効かない)。 */

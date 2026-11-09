@@ -155,7 +155,7 @@ export function ImageTrialSection({
             stored ? (
               <div className="grid gap-1">
                 {/* 拡大は会話の画像と同じ dialog に任せる（同じ寸法規則を 2 か所に増やさない） */}
-                <ZoomableImage src={trialArtifactUrl(latest.id)} alt="試行の結果" variant="attachment" />
+                <ZoomableImage src={trialArtifactUrl(latest.id)} alt="試行の結果" variant="attachment" checker />
                 <TrialArtifactMeta trialId={latest.id} label={trialArtifactSummary(latest)}>
                   {trialDimensionLabel(latest) ? null : (
                     <p className="text-2xs text-ink-faint">実寸を読めませんでした。</p>
