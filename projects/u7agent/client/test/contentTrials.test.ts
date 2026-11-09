@@ -37,6 +37,7 @@ import {
   trialHistoryRow,
   trialKindLabel,
   trialKindSubsection,
+  trialKindOfSubsection,
   trialModelOptions,
   trialRemoveAllNote,
   trialPanelNote,
@@ -374,6 +375,30 @@ test("新着結果は、前回 running だった行が終端になり、その�
       `${state} では新着の印を出さない`,
     );
   }
+});
+
+test("履歴タブは種別で絞らず、履歴を開いている間は新着の印を出さない", () => {
+  // 生成タブは種別、履歴タブは全種別（null）を取る
+  assert.equal(trialKindOfSubsection("image"), "image");
+  assert.equal(trialKindOfSubsection("speech"), "speech");
+  assert.equal(trialKindOfSubsection("bgm"), "bgm");
+  assert.equal(trialKindOfSubsection("history"), null);
+  // 履歴タブは全種別を 1 つの一覧に出すため、そこへ終端した結果を「見ていないタブの新着」にしない
+  const running = trial({ id: "a", state: "running", finishedAt: null, durationMs: null });
+  const done = trial({ id: "a" });
+  assert.deepEqual(newlyFinishedKinds({ previous: [running], next: [done], activeSubsection: "history" }), []);
+  // 種別の絞り込みは履歴の一覧にだけ掛ける
+  const trials = [trial({ id: "image-1" }), trial({ id: "speech-1", kind: "speech" })];
+  assert.deepEqual(
+    filteredTrials({ trials, kind: "speech", model: "all", outcome: "all" }).map((entry) => entry.id),
+    ["speech-1"],
+  );
+  assert.deepEqual(
+    filteredTrials({ trials, kind: "all", model: "all", outcome: "all" }).map((entry) => entry.id),
+    ["image-1", "speech-1"],
+  );
+  // 全種別の全削除は、種別を限定した文と混ぜない
+  assert.equal(trialRemoveAllNote(null, 3), "すべての種別の試行の履歴を 3 件削除しました（実行中の試行は残ります）。");
 });
 
 test("実行中の有無と最新の試行は一覧の先頭だけで決める", () => {

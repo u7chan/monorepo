@@ -131,16 +131,17 @@ function render(
   );
 }
 
-test("設定済みでは画像・TTS・BGMのタブを出し、既定は画像生成", () => {
+test("設定済みでは画像・TTS・BGM・履歴のタブを出し、既定は画像生成", () => {
   const html = render(contentSettings());
   assert.ok(html.includes("CONTENT"), "eyebrow は CONTENT");
   assert.ok(html.includes("コンテンツ生成"), "セクション名を見出しに出す");
   assert.ok(html.includes('role="tablist"'), "タブ行を出す");
   assert.ok(html.includes('aria-label="コンテンツ生成の設定"'), "タブ行のラベルを渡す");
-  assert.equal((html.match(/role="tab"/g) ?? []).length, 3, "画像・TTS・BGM");
+  assert.equal((html.match(/role="tab"/g) ?? []).length, 4, "画像・TTS・BGM・履歴");
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>画像生成/, "既定は「画像生成」");
   assert.ok(html.includes("音声（TTS）"), "音声のタブを出す");
   assert.ok(html.includes("音楽（BGM）"), "BGMのタブを出す");
+  assert.ok(html.includes("履歴"), "履歴のタブを出す");
   assert.ok(html.includes('aria-label="コンテンツ生成のモデル"'), "本文は画像の面を出す");
   assert.equal(html.includes("試行の本文"), false, "もう一方の面は出さない");
   assert.ok(html.includes('type="password"'), "APIキーの入力を出す");

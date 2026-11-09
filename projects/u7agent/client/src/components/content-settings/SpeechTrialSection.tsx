@@ -1,38 +1,28 @@
 import { useEffect, useState } from "react";
 import {
-  filteredTrials,
-  groupTrialsByMonth,
   hasStoredArtifact,
-  selectedTrial,
-  selectedTrialDetail,
-  speechTrialDraftOf,
+  latestTrial,
   speechTrialRequest,
   speechTrialSnapshotLabels,
   trialArtifactSummary,
   trialArtifactUrl,
   trialHistoryRow,
-  trialModelOptions,
   trialPanelState,
   trialStartBlockedReason,
   type SpeechTrialDraft,
-  type TrialOutcomeFilter,
-  type TrialRequestOrigin,
 } from "../../lib/contentTrials";
 import { SPEECH_SPEED_MIN, SPEECH_SPEED_STEP, speechSpeedStep } from "../../lib/contentSettings";
 import { speechTrialDefaultTarget } from "../../lib/trialDefault";
 import type {
   ContentSettingsResponse,
   ContentTrial,
-  ContentTrialArtifactUsageValue,
-  ContentTrialArtifactWarningValue,
   ContentTrialSummary,
   CreateContentTrialBody,
   UpdateContentSpeechBody,
 } from "../../types";
 import { MinusIcon, PlusIcon } from "../icons";
-import { TRIAL_HISTORY_PREVIEW_COUNT, TrialHistoryFilters, TrialHistoryPanel, TrialHistoryRow } from "./TrialHistory";
 import { TrialArtifactMeta, TrialResultViewport } from "./TrialResultViewport";
-import { TrialEmptyNote, TrialNoteLines, TrialRunControls, TrialSection } from "./TrialRun";
+import { TrialEmptyNote, TrialNoteLines, TrialRunControls, TrialRunSection } from "./TrialRun";
 import { TrialDefaultAction, UNCONFIGURED_BLOCKED_NOTE } from "./TrialDefaultAction";
 
 /**
@@ -47,17 +37,9 @@ export type SpeechTrialSectionProps = {
   model: string;
   /** 画面で選択中のボイス。モデルの宣言に応じた値（空文字は「指定なし」） */
   voice: string;
-  /** 一覧は要約（本文は抜粋）。選択行の全文は `detail` / `onLoadTrial` で取る */
+  /** 一覧は要約（本文は抜粋）。直近の行の全文は `onLoadTrial` で取る */
   trials: readonly ContentTrialSummary[] | null;
-  /** 選択中の試行の全文（取得中は null） */
-  detail: ContentTrial | null;
-  /** 続きのページがあるか */
-  hasMore: boolean;
-  loadingMore: boolean;
   keyEpoch: number;
-  artifactUsage: ContentTrialArtifactUsageValue;
-  /** 保存容量の警告。しきい値と判定は一覧の応答が持ち、返さない間は null */
-  artifactWarning: ContentTrialArtifactWarningValue | null;
   note: { text: string; error: boolean } | null;
   busy: boolean;
   /** 設定の保存中。既定の保存を重ねない（試行の `busy` とは別の軸） */
@@ -72,31 +54,20 @@ export type SpeechTrialSectionProps = {
   onStart: (input: CreateContentTrialBody) => Promise<boolean>;
   onCancel: (id: string) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
-  onDeleteAll: () => Promise<boolean>;
-  /** 選択中の試行を画面へ知らせる（全文の取得は画面が行う） */
-  onChangeSelection: (id: string | null) => void;
-  /** 履歴の行の全文を取る（再実行・入力欄に戻すで使う） */
+  /** 直近の行の全文を取る（本文・演技指示・話速の全文表示に使う） */
   onLoadTrial: (id: string) => Promise<ContentTrial | null>;
-  /** 続きのページを読む */
-  onLoadMore: () => Promise<boolean>;
 };
 
 /**
- * 設定に反映しない音声の試行。画像タブと同じく 1 つの再生ビューポート + 履歴セレクタで見せ、
- * 結果は trial id の raw ルートで配信する。本文・演技指示・話速は履歴のスナップショットで、
- * 保存される設定（モデル / ボイス）とは混ぜない。
+ * 設定に反映しない音声の試行。本文・演技指示・話速を 1 回送り、直近の結果だけを同じ面に出す。
+ * 履歴は専用のタブ（`TrialHistoryTab`）が全種別をまとめて見る。
  */
 export function SpeechTrialSection({
   settings,
   model,
   voice,
   trials,
-  detail,
-  hasMore,
-  loadingMore,
   keyEpoch,
-  artifactUsage,
-  artifactWarning,
   note,
   busy,
   settingsBusy,
@@ -107,15 +78,8 @@ export function SpeechTrialSection({
   onStart,
   onCancel,
   onDelete,
-  onDeleteAll,
-  onChangeSelection,
   onLoadTrial,
-  onLoadMore,
 }: SpeechTrialSectionProps) {
-  const [showAll, setShowAll] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [modelFilter, setModelFilter] = useState("all");
-  const [outcomeFilter, setOutcomeFilter] = useState<TrialOutcomeFilter>("all");
   const [inputError, setInputError] = useState<string | null>(null);
   // 一覧は全種別を 1 回で取るため、この面は音声の試行だけを出す
   const list = (trials ?? []).filter((trial) => trial.kind === "speech");
@@ -128,12 +92,28 @@ export function SpeechTrialSection({
     trials: list,
   });
   const running = list.find((trial) => trial.state === "running") ?? null;
-  const selected = selectedTrial({ trials: list, selectedId });
+  const latest = latestTrial(list);
+  const latestId = latest?.id ?? null;
+  // 一覧は抜粋しか持たないため、直近の行の全文を取る。行が変わったら前の全文を残さない
+  const [latestDetail, setLatestDetail] = useState<ContentTrial | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (latestId === null) {
+      setLatestDetail(null);
+      return;
+    }
+    void onLoadTrial(latestId).then((trial) => {
+      if (!cancelled) setLatestDetail(trial);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [latestId, onLoadTrial]);
   // 同じ組み合わせを保存しても何も変わらないため、結果との差分があるときだけ導線を出す
-  const defaultTarget = selected
-    ? speechTrialDefaultTarget({ settings, trialModel: selected.model, trialVoice: selected.voice })
+  const defaultTarget = latest
+    ? speechTrialDefaultTarget({ settings, trialModel: latest.model, trialVoice: latest.voice })
     : null;
-  // 保存フォームと同じゲート。履歴と結果は未設定・未同期でも読めるが、同じ PUT を呼ぶ保存は止める
+  // 保存フォームと同じゲート。直近の結果は未設定・未同期でも読めるが、同じ PUT を呼ぶ保存は止める
   const defaultBlockedReason = !settings.configured ? UNCONFIGURED_BLOCKED_NOTE : synced ? null : SYNC_BLOCKED_NOTE;
   const blocked = trialStartBlockedReason({
     runtimeAvailable: settings.runtimeAvailable,
@@ -144,29 +124,14 @@ export function SpeechTrialSection({
     prompt: draft.text,
     emptyPromptReason: "本文を入力してください",
   });
-  const models = trialModelOptions(list);
-  const filtered = filteredTrials({ trials: list, model: modelFilter, outcome: outcomeFilter });
-  const visible = showAll ? filtered : filtered.slice(0, TRIAL_HISTORY_PREVIEW_COUNT);
-  const groups = groupTrialsByMonth(visible);
-  const filtering = modelFilter !== "all" || outcomeFilter !== "all";
-  // 選択行の全文は画面（controller）が取る。選ぶたびに 1 回だけ知らせる
-  const selectedKey = selected?.id ?? null;
-  useEffect(() => {
-    onChangeSelection(selectedKey);
-  }, [selectedKey, onChangeSelection]);
-  const selectedDetail = selectedTrialDetail(detail, selectedKey);
-  const stored = selected !== null && hasStoredArtifact(selected);
+  const stored = latest !== null && hasStoredArtifact(latest);
   // 演技指示は長いので一覧に載らない。全文を取れるまでは「読み込み中」と出す（指定なしと混同しない）
-  const snapshot = selectedDetail === null ? null : speechTrialSnapshotLabels(selectedDetail);
+  const snapshot = latestDetail === null ? null : speechTrialSnapshotLabels(latestDetail);
+  const speedLabel = latest?.speed === null || latest?.speed === undefined ? "モデル既定" : `${latest.speed} 倍`;
 
-  /** 検証を通ったときだけ要求を出し、開始できたかを返す（別テイクの自動選択に使う） */
-  const start = async (
-    values: SpeechTrialDraft,
-    nextModel: string,
-    nextVoice: string,
-    origin: TrialRequestOrigin,
-  ): Promise<boolean> => {
-    const request = speechTrialRequest({ draft: values, model: nextModel, voice: nextVoice, origin });
+  /** 検証を通ったときだけ要求を出し、開始できたかを返す */
+  const start = async (values: SpeechTrialDraft): Promise<boolean> => {
+    const request = speechTrialRequest({ draft: values, model, voice, origin: "form" });
     if (!request.ok) {
       setInputError(request.error);
       return false;
@@ -176,11 +141,7 @@ export function SpeechTrialSection({
   };
 
   return (
-    <TrialSection
-      artifactUsage={artifactUsage}
-      artifactWarning={artifactWarning}
-      description="画面の値で生成だけを試します。モデルとボイスの保存値は変えません。送った本文・演技指示・話速と結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。"
-    >
+    <TrialRunSection description="画面の値で生成だけを試します。モデルとボイスの保存値は変えません。送った本文・演技指示・話速と結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。">
       <label className="grid min-w-0 gap-1">
         <span className="text-2xs text-ink-muted">読み上げる文章（履歴に保存されます）</span>
         <textarea
@@ -262,7 +223,7 @@ export function SpeechTrialSection({
         running={running !== null}
         panel={panel}
         blocked={blocked}
-        onStart={() => void start(draft, model, voice, "form")}
+        onStart={() => void start(draft)}
         onCancel={() => {
           if (running) void onCancel(running.id);
         }}
@@ -270,29 +231,30 @@ export function SpeechTrialSection({
 
       <TrialNoteLines alert={inputError} note={note} />
 
-      {selected === null ? (
+      {latest === null ? (
         <TrialEmptyNote />
       ) : (
         <TrialResultViewport
-          trial={selected}
+          trial={latest}
           currentKeyEpoch={keyEpoch}
           busy={busy}
           running={running !== null}
           sentNoun="本文"
-          chips={[`ボイス: ${selected.voice ?? "モデル既定"}`]}
+          variant="latest"
+          chips={[`ボイス: ${latest.voice ?? "モデル既定"}`]}
           artifact={
             stored ? (
               <div className="grid gap-1">
-                <audio controls src={trialArtifactUrl(selected.id)} aria-label="試行の音声" className="w-full" />
-                <TrialArtifactMeta trialId={selected.id} label={trialArtifactSummary(selected)} />
+                <audio controls src={trialArtifactUrl(latest.id)} aria-label="試行の音声" className="w-full" />
+                <TrialArtifactMeta trialId={latest.id} label={trialArtifactSummary(latest)} />
               </div>
             ) : null
           }
-          prompt={selectedDetail?.prompt ?? trialHistoryRow(selected, keyEpoch).promptPreview}
-          promptDetail={`演技指示: ${snapshot?.instructions ?? "読み込み中…"} · 話速: ${snapshot?.speed ?? "—"}`}
+          prompt={latestDetail?.prompt ?? trialHistoryRow(latest, keyEpoch).promptPreview}
+          promptDetail={`演技指示: ${snapshot?.instructions ?? "読み込み中…"} · 話速: ${snapshot?.speed ?? speedLabel}`}
           defaultAction={
             <TrialDefaultAction
-              key={selected.id}
+              key={latest.id}
               label="このモデルとボイスを既定にする"
               target={defaultTarget}
               disabled={busy || settingsBusy}
@@ -301,59 +263,8 @@ export function SpeechTrialSection({
             />
           }
           onDelete={onDelete}
-          onRestore={async () => {
-            const full = await onLoadTrial(selected.id);
-            if (!full) return;
-            setInputError(null);
-            onChangeDraft(speechTrialDraftOf(full));
-          }}
-          onAnotherTake={async () => {
-            // 始めた行をビューポートへ寄せる。開始できなければ選択を動かさない
-            const full = await onLoadTrial(selected.id);
-            if (!full) return;
-            const started = await start(speechTrialDraftOf(full), full.model, full.voice ?? "", "another-take");
-            if (started) setSelectedId(null);
-          }}
         />
       )}
-
-      {list.length === 0 ? null : (
-        <TrialHistoryPanel
-          loaded={list.length}
-          filtered={filtered.length}
-          filtering={filtering}
-          groups={groups}
-          showAll={showAll}
-          hasMore={hasMore}
-          loadingMore={loadingMore}
-          busy={busy}
-          deletable={list.some((trial) => trial.state !== "running")}
-          filters={
-            <TrialHistoryFilters
-              models={models}
-              modelFilter={modelFilter}
-              onChangeModel={setModelFilter}
-              outcomeFilter={outcomeFilter}
-              onChangeOutcome={setOutcomeFilter}
-            />
-          }
-          onToggleShowAll={() => setShowAll((current) => !current)}
-          onLoadMore={() => void onLoadMore()}
-          onDeleteAll={() => void onDeleteAll()}
-          renderRow={(trial) => (
-            <TrialHistoryRow
-              key={trial.id}
-              row={trialHistoryRow(trial, keyEpoch)}
-              selected={trial.id === selected?.id}
-              busy={busy}
-              thumbnail={{ kind: "speech" }}
-              voice={trial.voice}
-              onSelect={() => setSelectedId(trial.id)}
-              onDelete={onDelete}
-            />
-          )}
-        />
-      )}
-    </TrialSection>
+    </TrialRunSection>
   );
 }

@@ -189,6 +189,10 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings/runtime/diagnostics/extra", CHAT_ROUTE],
     // 設定 → コンテンツ生成のタブ。正準形は「画像生成」= /settings/content、「音声（TTS）」= /speech
     ["/settings/content/speech", contentTab("speech")],
+    ["/settings/content/history", contentTab("history")],
+    ["/Settings/CONTENT/HISTORY/", contentTab("history")],
+    ["//settings//content//history//", contentTab("history")],
+    ["/settings%2Fcontent%2Fhistory", contentTab("history")],
     ["/Settings/CONTENT/SPEECH/", contentTab("speech")],
     ["//settings//content//speech//", contentTab("speech")],
     ["/settings%2Fcontent%2Fspeech", contentTab("speech")],
@@ -278,8 +282,10 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
   }
   // コンテンツ生成のタブも同じ規則で、既定タブ以外をパスへ出し、既定タブは出さない
   assert.equal(routePath(contentTab("speech")), "/settings/content/speech");
+  assert.equal(routePath(contentTab("history")), "/settings/content/history");
   assert.equal(routePath(contentTab("image")), "/settings/content");
   assert.deepEqual(parseRoute(routePath(contentTab("speech"))), contentTab("speech"));
+  assert.deepEqual(parseRoute(routePath(contentTab("history"))), contentTab("history"));
   assert.deepEqual(
     parseRoute(routePath(contentTab("image"))),
     settings("content"),

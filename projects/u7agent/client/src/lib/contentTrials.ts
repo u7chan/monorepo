@@ -132,6 +132,8 @@ function voiceKey(voice: string | null | undefined): string {
 /** 履歴の 1 行。現在のキー世代より古い行は「旧キー」として区別する */
 export interface TrialHistoryRow {
   id: string;
+  /** 種別。履歴は種別をまたいで並べるため、行だけでも画像 / 音声 / BGM を見分けられるようにする */
+  kind: ContentTrialSummary["kind"];
   stateLabel: string;
   state: ContentTrialStateValue;
   model: string;
@@ -154,6 +156,7 @@ export interface TrialHistoryRow {
 export function trialHistoryRow(trial: ContentTrialSummary, currentKeyEpoch: number): TrialHistoryRow {
   return {
     id: trial.id,
+    kind: trial.kind,
     state: trial.state,
     stateLabel: trialStateLabel(trial.state),
     model: trial.model,
@@ -281,11 +284,11 @@ export function trialKindLabel(kind: ContentTrialSummary["kind"]): string {
 }
 
 /**
- * 種別ごとの全削除の注記。消した件数は渡された種別の履歴だけを数えるため、
- * 文言にも種別を入れて「もう一方のタブの履歴は消えていない」ことが読み取れるようにする。
+ * 全削除の注記。`kind` を渡したときは、消した件数もその種別だけを数えるため、文言に種別を入れて
+ * 「他の種別の履歴は消えていない」ことが読み取れるようにする。`null` は種別をまたいだ全削除。
  */
-export function trialRemoveAllNote(kind: ContentTrialSummary["kind"], removed: number): string {
-  const label = trialKindLabel(kind);
+export function trialRemoveAllNote(kind: ContentTrialSummary["kind"] | null, removed: number): string {
+  const label = kind === null ? "すべての種別" : trialKindLabel(kind);
   return removed === 0
     ? `${label}の試行に削除できる履歴がありません（実行中の試行は残ります）。`
     : `${label}の試行の履歴を ${removed} 件削除しました（実行中の試行は残ります）。`;
@@ -341,6 +344,8 @@ export function newlyFinishedKinds(input: {
   for (const trial of input.next) {
     if (trial.state !== "succeeded" && trial.state !== "failed") continue;
     if (!wasRunning.has(trial.id)) continue;
+    // 履歴タブは全種別を 1 つの一覧に出すため、そこへ移った結果を「見ていないタブの新着」にしない
+    if (input.activeSubsection === "history") continue;
     const subsection = trialKindSubsection(trial.kind);
     if (subsection === input.activeSubsection) continue;
     kinds.add(trial.kind);
@@ -384,9 +389,11 @@ export function appendTrialSummaries(
   ];
 }
 
-/** 設定タブの subsection から試行の種別へ。タブごとに一覧を 1 種別だけ取る */
-export function trialKindOfSubsection(subsection: ContentSubsection): ContentTrialSummary["kind"] {
-  return subsection;
+/**
+ * 設定タブの subsection から試行の種別へ。生成タブは 1 種別だけを取り、履歴タブは全種別（null）を取る。
+ */
+export function trialKindOfSubsection(subsection: ContentSubsection): ContentTrialSummary["kind"] | null {
+  return subsection === "history" ? null : subsection;
 }
 
 /** 履歴に出す最新の試行。既定選択は最新 1 件 */
@@ -464,10 +471,13 @@ export type TrialOutcomeFilter = "all" | "succeeded" | "failed";
 
 export function filteredTrials(input: {
   trials: readonly ContentTrialSummary[];
+  /** 種別の絞り込み。`all` は全種別（履歴タブの既定） */
+  kind?: ContentTrialSummary["kind"] | "all";
   model: string;
   outcome: TrialOutcomeFilter;
 }): ContentTrialSummary[] {
   return input.trials.filter((trial) => {
+    if (input.kind !== undefined && input.kind !== "all" && trial.kind !== input.kind) return false;
     if (input.model !== "all" && trial.model !== input.model) return false;
     if (input.outcome === "all") return true;
     // 中止・中断は「成功」でも「失敗」でもない（絞り込みのどちらにも出さない）

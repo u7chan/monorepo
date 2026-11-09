@@ -80,15 +80,17 @@ export const MODELS_SUBSECTIONS: { subsection: ModelsSubsection; label: string }
 export const DEFAULT_MODELS_SUBSECTION: ModelsSubsection = "models";
 
 /**
- * 設定 → コンテンツ生成 のタブ。画像と音声は同じ行 (`content_settings`)・同じ APIキー・同じ
+ * 設定 → コンテンツ生成 のタブ。画像・音声・BGM は同じ行 (`content_settings`)・同じ APIキー・同じ
  * 有効化ゲートを共有するため、1 つの対象の別の面として分ける。規則は MODELS_SUBSECTIONS と同じ。
+ * `history` だけは種別ではなく、3 つの試行をまとめて見る面（生成の設定を持たない）。
  */
-export type ContentSubsection = "image" | "speech" | "bgm";
+export type ContentSubsection = "image" | "speech" | "bgm" | "history";
 
 export const CONTENT_SUBSECTIONS: { subsection: ContentSubsection; label: string }[] = [
   { subsection: "image", label: "画像生成" },
   { subsection: "speech", label: "音声（TTS）" },
   { subsection: "bgm", label: "音楽（BGM）" },
+  { subsection: "history", label: "履歴" },
 ];
 
 export const DEFAULT_CONTENT_SUBSECTION: ContentSubsection = "image";
