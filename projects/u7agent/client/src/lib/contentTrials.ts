@@ -12,8 +12,11 @@ import type {
   ContentTrialSummary,
   CreateContentTrialBody,
   ImageGenerationProvider,
+  ImageModel,
+  ImageParameterValues,
 } from "../types";
 import { speechSpeed } from "./contentSettings";
+import { modelRefKey } from "./modelSettings";
 import { messageTimeLabel, yearMonthLabel, type MessageTimeOptions } from "./messageTime";
 import { formatDurationMs } from "./usageFormat";
 
@@ -270,6 +273,8 @@ export function trialStartBlockedReason(input: {
   emptyPromptReason?: string;
   /** 種別そのものが試行を受け付けない理由（画像の Codex）。他の条件より先に出す */
   providerBlockedReason?: string | null | undefined;
+  /** 生成パラメータの入力の誤り（画像）。空のプロンプトより後に出す */
+  parameterBlockedReason?: string | null | undefined;
 }): string | null {
   if (!input.runtimeAvailable) return "ランタイムが利用できないため試行できません";
   if (input.providerBlockedReason) return input.providerBlockedReason;
@@ -278,6 +283,7 @@ export function trialStartBlockedReason(input: {
   if (!input.keyAvailable) return "保存済みのAPIキーを使えないため試行できません";
   if (input.running) return "実行中です。完了するか中断してください";
   if (input.prompt.trim() === "") return input.emptyPromptReason ?? "プロンプトを入力してください";
+  if (input.parameterBlockedReason) return input.parameterBlockedReason;
   return null;
 }
 
@@ -597,13 +603,204 @@ function forceForOrigin(origin: TrialRequestOrigin): { force?: true } {
   return origin === "another-take" ? { force: true } : {};
 }
 
+/**
+ * 画像の生成パラメータの名前。server の許可リスト（`server/src/images.ts`）と同じ 6 キーで、画面もこの順に出す。
+ * client からは schema の型しか引けないため、和集合をキーから取り直す。
+ */
+export type ImageParameterName = keyof ImageParameterValues;
+
+const IMAGE_PARAMETER_ORDER: readonly ImageParameterName[] = [
+  "aspect_ratio",
+  "resolution",
+  "quality",
+  "output_format",
+  "background",
+  "seed",
+];
+
+/** カタログ 1 件が持つ宣言と、その 1 項目。宣言が読めないモデルは `undefined`（＝不明） */
+type ImageParameterDeclarations = NonNullable<ImageModel["parameters"]>;
+type ImageParameterDescriptor = NonNullable<ImageParameterDeclarations[ImageParameterName]>;
+
+/** 未指定の表示名。押し付けの日本語ラベルは作らず、キーと値はそのまま出す */
+export const IMAGE_PARAMETER_DEFAULT_LABEL = "モデル既定（provider）";
+
+/** `seed` の上限（schema の検証と同じ 2^31-1） */
+export const IMAGE_PARAMETER_SEED_MAX = 2 ** 31 - 1;
+
+/** 画面の下書き。空文字は「未指定（モデル既定）」で、送るときだけ型へ寄せる */
+export type ImageParameterDraft = Partial<Record<ImageParameterName, string>>;
+
+/** 画面に出す入力欄。`enum` は選択、`seed` は整数だけを扱う */
+export type ImageParameterField =
+  | { name: Exclude<ImageParameterName, "seed">; kind: "enum"; values: string[] }
+  | { name: "seed"; kind: "integer"; min: number; max: number };
+
+/** 試行に使うモデルの宣言。カタログに無いモデル（カタログ外・削除済み）は `undefined`（＝不明） */
+export function imageModelParameterDeclarations(
+  models: readonly ImageModel[],
+  model: string,
+): ImageParameterDeclarations | undefined {
+  return models.find((entry) => modelRefKey({ provider: entry.provider, id: entry.id }) === model)?.parameters;
+}
+
+/**
+ * 入力欄の一覧。`enum` と `seed` だけを出し、値の語彙が読めない宣言（`boolean`）と
+ * `seed` 以外の `range` は欄にしない（不明を既定として見せない）。並びは許可リストの順で固定する。
+ */
+export function imageParameterFields(declarations: ImageParameterDeclarations | undefined): ImageParameterField[] {
+  if (!declarations) return [];
+  const fields: ImageParameterField[] = [];
+  for (const name of IMAGE_PARAMETER_ORDER) {
+    const descriptor: ImageParameterDescriptor | undefined = declarations[name];
+    if (!descriptor) continue;
+    if (name === "seed") {
+      // `seed` は「受け付ける」だけの宣言でも整数欄を出す（値の型は 1 つしかない）
+      const range = descriptor.type === "range" ? descriptor : undefined;
+      fields.push({
+        name: "seed",
+        kind: "integer",
+        min: range ? Math.max(0, range.min) : 0,
+        max: range ? Math.min(IMAGE_PARAMETER_SEED_MAX, range.max) : IMAGE_PARAMETER_SEED_MAX,
+      });
+      continue;
+    }
+    if (descriptor.type === "enum") fields.push({ name, kind: "enum", values: [...descriptor.values] });
+  }
+  return fields;
+}
+
+/**
+ * 宣言に無いキーを下書きから落とす。モデルを切り替えたときに欄を隠すだけだと、隠れた値が要求に残って
+ * 400 になるため、画面の state からも落とす（保存値には触らない）。選択肢に無い `enum` の値も同じ理由で落とす。
+ * 何も落とさないときは同じ参照を返す（呼び出し側が state の更新を無限に起こさないため）。
+ */
+export function pruneImageTrialParameters(
+  declarations: ImageParameterDeclarations | undefined,
+  draft: ImageParameterDraft,
+): ImageParameterDraft {
+  const fields = imageParameterFields(declarations);
+  const kept: ImageParameterDraft = {};
+  let dropped = false;
+  for (const name of IMAGE_PARAMETER_ORDER) {
+    const value = draft[name];
+    if (value === undefined) continue;
+    const field = fields.find((entry) => entry.name === name);
+    if (!field || (field.kind === "enum" && !field.values.includes(value))) {
+      dropped = true;
+      continue;
+    }
+    kept[name] = value;
+  }
+  return dropped ? kept : draft;
+}
+
+/**
+ * 下書きから送る値を作る。宣言に無いキーは載せず、空欄は「未指定」として送らない。
+ * 宣言の外の値は課金前にここで止める（server の検証と同じ判断を、送る前に画面でも行う）。
+ */
+export function imageTrialParameters(
+  declarations: ImageParameterDeclarations | undefined,
+  draft: ImageParameterDraft,
+): { ok: true; parameters: ImageParameterValues } | { ok: false; error: string } {
+  const fields = imageParameterFields(declarations);
+  const parameters: ImageParameterValues = {};
+  for (const field of fields) {
+    const raw = (draft[field.name] ?? "").trim();
+    if (raw === "") continue;
+    if (field.kind === "integer") {
+      const value = Number(raw);
+      if (!Number.isInteger(value) || value < field.min || value > field.max) {
+        return {
+          ok: false,
+          error: `${field.name} は ${field.min} 以上 ${field.max} 以下の整数で入力してください（クレジットは消費していません）`,
+        };
+      }
+      parameters[field.name] = value;
+      continue;
+    }
+    if (!field.values.includes(raw)) {
+      return { ok: false, error: `${field.name} に指定できない値です: ${raw}（クレジットは消費していません）` };
+    }
+    parameters[field.name] = raw;
+  }
+  return { ok: true, parameters };
+}
+
 /** 画像の試行の要求。モデルは画面の値（保存前の下書きを含む）をそのまま使う */
 export function imageTrialRequest(input: {
   model: string;
   prompt: string;
+  /** 明示した値だけ。空のまま送ると宣言の無いモデルは 400 になるため、1 つも無ければ送らない */
+  parameters?: ImageParameterValues;
   origin: TrialRequestOrigin;
 }): CreateContentTrialBody {
-  return { kind: "image", model: input.model, prompt: input.prompt, ...forceForOrigin(input.origin) };
+  const parameters = input.parameters;
+  const explicit = parameters !== undefined && Object.keys(parameters).length > 0 ? parameters : undefined;
+  return {
+    kind: "image",
+    model: input.model,
+    prompt: input.prompt,
+    ...(explicit === undefined ? {} : { parameters: explicit }),
+    ...forceForOrigin(input.origin),
+  };
+}
+
+/** 履歴の試行から画像の下書きを戻す（[この内容で生成]）。`seed` は整数欄の文字列として戻す */
+export function imageTrialDraftOf(trial: Pick<ContentTrial, "prompt" | "parameters">): {
+  prompt: string;
+  parameters: ImageParameterDraft;
+} {
+  const parameters: ImageParameterDraft = {};
+  for (const name of IMAGE_PARAMETER_ORDER) {
+    const value = trial.parameters?.[name];
+    if (value !== undefined) parameters[name] = String(value);
+  }
+  return { prompt: trial.prompt, parameters };
+}
+
+/** 結果カードのチップ。要約のスナップショットにある明示値だけを、キーと値のまま並べる */
+export function imageParameterChips(parameters: ImageParameterValues | null): string[] {
+  if (!parameters) return [];
+  const chips: string[] = [];
+  for (const name of IMAGE_PARAMETER_ORDER) {
+    const value = parameters[name];
+    if (value !== undefined) chips.push(`${name}=${value}`);
+  }
+  return chips;
+}
+
+/** 履歴の詳細の 1 行 */
+export interface ImageParameterRow {
+  name: ImageParameterName;
+  /** 送った値。未指定は `IMAGE_PARAMETER_DEFAULT_LABEL` */
+  value: string;
+}
+
+/**
+ * 履歴の詳細の全行。宣言に応じて並べ、未指定は「モデル既定（provider）」と書く。値は試行のスナップショットを
+ * 正とし、現在の保存値とは混ぜない（宣言が今は読めないキーでも、送った値がある行は残す）。
+ */
+export function imageTrialParameterRows(input: {
+  parameters: ImageParameterValues | null;
+  declarations: ImageParameterDeclarations | undefined;
+}): ImageParameterRow[] {
+  const rows: ImageParameterRow[] = [];
+  for (const name of IMAGE_PARAMETER_ORDER) {
+    const value = input.parameters?.[name];
+    if (input.declarations?.[name] === undefined && value === undefined) continue;
+    rows.push({ name, value: value === undefined ? IMAGE_PARAMETER_DEFAULT_LABEL : String(value) });
+  }
+  return rows;
+}
+
+/** 設定画面の注記。宣言に応じて「何を指定できるか」を書き、空欄は provider の既定だと伝える */
+export function imageParameterNote(declarations: ImageParameterDeclarations | undefined): string {
+  const fields = imageParameterFields(declarations);
+  if (fields.length === 0) {
+    return "このモデルは生成パラメータを宣言していないため、サイズ・品質・出力形式は provider の既定で生成します。";
+  }
+  return `指定できるパラメータ: ${fields.map((field) => field.name).join(" / ")}。空欄は provider の既定で生成します。`;
 }
 
 /** 音声の試行の下書き。本文・演技指示・話速は試行にだけ使い、履歴にスナップショットとして残る */

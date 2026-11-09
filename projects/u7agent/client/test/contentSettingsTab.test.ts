@@ -285,7 +285,12 @@ test("設定済みでは上書き保存・削除・モデル選択を出し、�
     /<p[^>]*><span class="rounded border[^"]*">モデル一覧は OpenRouter から取得しました/,
     "文をチップにしても段落のセマンティクスを残す",
   );
-  assert.ok(html.includes("サイズ・品質・出力形式は provider の既定を使います"), "設定できる範囲の説明を残す");
+  assert.ok(
+    html.includes(
+      "このモデルは生成パラメータを宣言していないため、サイズ・品質・出力形式は provider の既定で生成します",
+    ),
+    "宣言が無いモデルでは provider の既定で生成することを出す",
+  );
   assert.equal(html.includes("プロバイダー: OpenRouter"), false, "見出しと重複する provider 名を本文で繰り返さない");
   assert.ok(html.includes(">カタログ更新</button>"));
   const input = /<input[^>]*type="password"[^>]*>/.exec(html)?.[0] ?? "";
@@ -325,7 +330,7 @@ test("選択中の面だけを出し、もう一方の面は描かない", () =>
   assert.ok(speech.includes("保存される設定"), "音声の保存見出しを出す");
   assert.ok(speech.includes('aria-label="音声生成のモデル"'), "音声の面のモデル選択を出す");
   assert.equal(speech.includes('aria-label="コンテンツ生成のモデル"'), false, "画像のモデル欄は出さない");
-  assert.equal(speech.includes("サイズ・品質・出力形式は provider の既定を使います"), false, "画像の説明も出さない");
+  assert.equal(speech.includes("このモデルは生成パラメータを宣言していないため"), false, "画像の説明も出さない");
 });
 
 test("設定済みでは音声のモデルとボイスを出し、宣言のあるボイスを選択肢にする", () => {
@@ -867,6 +872,63 @@ test("画像と音声の履歴は互いの面に出さない", () => {
   assert.equal(image.includes("おはようございます"), false, "音声の履歴は画像タブに混ぜない");
   const speech = render({ subsection: "speech", trials: [TRIAL_BASE] });
   assert.equal(speech.includes("a cat on a sofa"), false, "画像の履歴は音声タブに混ぜない");
+});
+
+// --- 試行ジョブ（画像の生成パラメータ） ---
+// 入力から要求への変換（宣言外の値の除去・seed の検証）と、履歴から下書きへの復元は
+// lib/contentTrials の純関数テスト（contentTrials.test.ts）が見る。ここは描画の出し分けだけを固定する。
+
+/** 宣言を持つ画像モデル。入力欄・チップ・履歴の行を出す条件を作る */
+const DECLARING_MODELS: ContentImageSettings["models"] = [
+  {
+    provider: "openrouter",
+    id: "openai/gpt-image-2",
+    name: "GPT Image 2",
+    parameters: {
+      aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+      seed: { type: "range", min: 0, max: 1_000 },
+    },
+  },
+];
+
+test("画像の試行の入力はモデルの宣言に応じて出し、宣言が無いパラメータは欄にしない", () => {
+  const declared = render({ image: { models: DECLARING_MODELS } });
+  assert.match(declared, /aria-label="試行の aspect_ratio"/, "enum は選択欄にする");
+  assert.ok(declared.includes(">16:9</option>"), "宣言された値を候補にする");
+  assert.match(declared, /<input[^>]*type="number"[^>]*aria-label="試行の seed"/, "seed は整数入力にする");
+  assert.ok(declared.includes("モデル既定（provider）"), "先頭の選択肢と入力の案内に未指定を出す");
+  assert.equal(declared.includes('aria-label="試行の quality"'), false, "宣言の無いパラメータは欄にしない");
+  assert.ok(declared.includes("指定できるパラメータ: aspect_ratio / seed"), "宣言に応じた説明を出す");
+
+  // 宣言が読めないモデル（SDK 同梱・旧キャッシュ）では欄を出さず、不明を既定として見せない
+  const undeclared = render();
+  assert.equal(undeclared.includes('aria-label="試行の aspect_ratio"'), false);
+  assert.equal(undeclared.includes('aria-label="試行の seed"'), false);
+});
+
+test("結果カードのチップは要約のパラメータの明示値だけで、未指定は出さない", () => {
+  const declared = render({
+    image: { models: DECLARING_MODELS },
+    trials: [{ ...TRIAL_BASE, parameters: { aspect_ratio: "16:9" } }],
+  });
+  assert.ok(declared.includes("aspect_ratio=16:9"), "明示した値だけをチップにする");
+  assert.equal(declared.includes("seed="), false, "未指定はチップにしない");
+
+  const none = render({ image: { models: DECLARING_MODELS }, trials: [TRIAL_BASE] });
+  assert.equal(none.includes("aspect_ratio="), false, "未指定の行はチップを出さない");
+});
+
+test("履歴の詳細は宣言に応じた全行を出し、未指定はモデル既定（provider）と表示する", () => {
+  const html = render({
+    subsection: "history",
+    image: { models: DECLARING_MODELS },
+    trials: [{ ...TRIAL_BASE, parameters: { seed: 7 } }],
+  });
+  assert.ok(html.includes(">aspect_ratio<"), "宣言にあるキーの行を出す");
+  assert.ok(html.includes(">seed<"), "送った値のあるキーの行を出す");
+  assert.ok(html.includes(">7<"), "送った値はスナップショットをそのまま出す");
+  assert.ok(html.includes("モデル既定（provider）"), "未指定はモデル既定として書く");
+  assert.equal(html.includes(">quality<"), false, "宣言に無いキーの行は出さない");
 });
 
 test("キー未設定では、音声の結果カードから既定へ保存する導線も押せない", () => {

@@ -4,6 +4,8 @@ import {
   filteredTrials,
   groupTrialsByMonth,
   hasStoredArtifact,
+  imageModelParameterDeclarations,
+  imageTrialParameterRows,
   selectedTrial,
   selectedTrialDetail,
   speechTrialSnapshotLabels,
@@ -17,6 +19,7 @@ import {
   trialModelOptions,
   trialStorageNote,
   trialDurationLabel,
+  type ImageParameterRow,
   type TrialOutcomeFilter,
 } from "../../lib/contentTrials";
 import { messageFullTimeLabel } from "../../lib/messageTime";
@@ -106,6 +109,14 @@ export function TrialHistoryTab({
     onSelect(selectedKey);
   }, [selectedKey, onSelect]);
   const selectedDetail = selectedTrialDetail(detail, selectedKey);
+  // 画像の履歴のパラメータ行は、試行時のモデルの宣言とスナップショットから作る（保存値は混ぜない）
+  const selectedImageParameters =
+    selected?.kind === "image"
+      ? imageTrialParameterRows({
+          parameters: selected.parameters,
+          declarations: imageModelParameterDeclarations(settings.image.models, selected.model),
+        })
+      : [];
   const filtering = kindFilter !== "all" || modelFilter !== "all" || outcomeFilter !== "all";
   const warning = trialCapacityWarningNote(artifactWarning);
   const models = trialModelOptions(kindScoped);
@@ -207,7 +218,14 @@ export function TrialHistoryTab({
                 }`
               : undefined
           }
-          params={<TrialHistoryParams trial={selected} detail={selectedDetail} currentKeyEpoch={keyEpoch} />}
+          params={
+            <TrialHistoryParams
+              trial={selected}
+              detail={selectedDetail}
+              currentKeyEpoch={keyEpoch}
+              imageParameters={selectedImageParameters}
+            />
+          }
           onPrefill={prefill}
           onAnotherTake={anotherTake}
           onDelete={onDelete}
@@ -347,10 +365,13 @@ function TrialHistoryParams({
   trial,
   detail,
   currentKeyEpoch,
+  imageParameters,
 }: {
   trial: ContentTrialSummary;
   detail: ContentTrial | null;
   currentKeyEpoch: number;
+  /** 画像の生成パラメータの全行（宣言に応じた未指定も含む）。他種別は空 */
+  imageParameters: readonly ImageParameterRow[];
 }) {
   const at = trial.finishedAt ?? trial.startedAt;
   const snapshot = detail === null ? null : speechTrialSnapshotLabels(detail);
@@ -364,6 +385,9 @@ function TrialHistoryParams({
       <Param label="所要" value={trialDurationLabel(trial.durationMs)} />
       <Param label="実行" value={messageFullTimeLabel(at)} />
       <Param label="キー世代" value={trial.keyEpoch < currentKeyEpoch ? `旧キー（世代 ${trial.keyEpoch}）` : "現行"} />
+      {imageParameters.map((row) => (
+        <Param key={row.name} label={row.name} value={row.value} rawLabel />
+      ))}
       {trial.kind === "speech" ? <Param label="ボイス" value={trial.voice ?? "モデル既定"} /> : null}
       {trial.kind === "speech" ? (
         <Param label="話速" value={snapshot?.speed ?? (trial.speed === null ? "モデル既定" : `${trial.speed} 倍`)} />
@@ -375,10 +399,21 @@ function TrialHistoryParams({
   );
 }
 
-function Param({ label, value, className }: { label: string; value: ReactNode; className?: string }) {
+function Param({
+  label,
+  value,
+  className,
+  rawLabel = false,
+}: {
+  label: string;
+  value: ReactNode;
+  className?: string;
+  /** 上の大文字変形をしない（パラメータ名はキーをそのまま出す） */
+  rawLabel?: boolean;
+}) {
   return (
     <div className={cn("min-w-0 bg-raised px-2 py-1.5", className)}>
-      <dt className="text-3xs tracking-label text-ink-ghost uppercase">{label}</dt>
+      <dt className={cn("text-3xs tracking-label text-ink-ghost", rawLabel ? null : "uppercase")}>{label}</dt>
       <dd className="mt-0.5 text-2xs break-words text-ink">{value}</dd>
     </div>
   );
