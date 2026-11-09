@@ -14,17 +14,12 @@ import {
   groupTrialsByMonth,
   hasRunningTrial,
   hasStoredArtifact,
-  IMAGE_PARAMETER_DEFAULT_LABEL,
-  IMAGE_PARAMETER_SEED_MAX,
-  imageModelParameterDeclarations,
   imageParameterChips,
-  imageParameterFields,
   imageParameterNote,
   imageTrialDraftOf,
   imageTrialParameterRows,
   imageTrialParameters,
   imageTrialRequest,
-  pruneImageTrialParameters,
   trialEvidence,
   latestTrial,
   mergeTrialSummaries,
@@ -58,6 +53,13 @@ import {
   trialStartBlockedReason,
   trialStateLabel,
 } from "../src/lib/contentTrials";
+import {
+  IMAGE_PARAMETER_DEFAULT_LABEL,
+  IMAGE_PARAMETER_SEED_MAX,
+  imageModelParameterDeclarations,
+  imageParameterFields,
+  pruneImageTrialParameters,
+} from "../src/lib/imageParameters";
 import { imageScreenModel } from "../src/lib/contentSettings";
 import type { ContentTrial, ImageModel, ImageParameterValues } from "../src/types";
 

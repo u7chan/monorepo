@@ -5,16 +5,21 @@ import {
   contentKeyErrorNotice,
   contentKeyStatusBadge,
   CONTENT_IMAGE_PROVIDER_HEADING,
+  IMAGE_DEFAULT_NONE_LABEL,
+  IMAGE_DEFAULT_NOTE,
   IMAGE_PROVIDER_OPTIONS,
   contentImageProviderLabel,
   imageAuthBadge,
   imageAuthNotice,
+  imageDefaultClearSelection,
+  imageDefaultsScreen,
   imageKeySectionVisible,
   imageModelSectionVisible,
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
   imageScreenModel,
+  imageSelectionSaveDisabled,
   SPEECH_NEEDS_OPENROUTER_KEY_NOTE,
   contentProviderId,
   contentProviderLabel,
@@ -23,24 +28,26 @@ import {
   speechSaveDisabled,
   speechScreenSelection,
   speechSelection,
+  type ImageDefaultsDraft,
   type SpeechScreenSelection,
   type ContentSavingAction,
 } from "../../lib/contentSettings";
 import {
   EMPTY_SPEECH_TRIAL_DRAFT,
   bgmTrialRequest,
-  imageModelParameterDeclarations,
-  imageParameterNote,
   imageTrialDraftOf,
   imageTrialRequest,
-  pruneImageTrialParameters,
   speechTrialDraftOf,
   speechTrialRequest,
   trialByteSizeLabel,
   trialCapacityWarningNote,
   trialStorageNote,
-  type ImageParameterDraft,
 } from "../../lib/contentTrials";
+import {
+  imageModelParameterDeclarations,
+  pruneImageTrialParameters,
+  type ImageParameterDraft,
+} from "../../lib/imageParameters";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import { cn } from "../../lib/cn";
 import type { ContentSubsection } from "../../lib/settingsNav";
@@ -167,6 +174,8 @@ export function ContentSettingsTab({
   const [apiKey, setApiKey] = useState("");
   // 面の下書きはこの画面が持ち続ける。面をタブで出し分けても unmount しないため、未保存の選択を失わない
   const [imageDraft, setImageDraft] = useState<string | null>(null);
+  // 既定のパラメータの下書きも面を切り替えて失わないよう、この画面が持つ（モデルごとに組で持つ）
+  const [imageDefaultsDraft, setImageDefaultsDraft] = useState<ImageDefaultsDraft | null>(null);
   const [speechDraft, setSpeechDraft] = useState<SpeechDraft>(EMPTY_SPEECH_DRAFT);
   // 試行のプロンプトは保存しない（履歴にだけ残す）。面を切り替えても失わないよう、この画面が持つ
   const [trialPrompt, setTrialPrompt] = useState("");
@@ -196,8 +205,12 @@ export function ContentSettingsTab({
   if (keptTrialParameters !== trialParameters) setTrialParameters(keptTrialParameters);
 
   // 未設定へ戻ったら下書きを捨てる。面の unmount で消えていた挙動を持ち上げた側で明示的に保つ
-  if (!settings.configured && (imageDraft !== null || speechDraft.model !== null || speechDraft.voice !== null)) {
+  if (
+    !settings.configured &&
+    (imageDraft !== null || imageDefaultsDraft !== null || speechDraft.model !== null || speechDraft.voice !== null)
+  ) {
     setImageDraft(null);
+    setImageDefaultsDraft(null);
     setSpeechDraft(EMPTY_SPEECH_DRAFT);
   }
   // キーを消したら設定パネルも閉じる（開いたままの空のフォームを残さない）
@@ -217,6 +230,7 @@ export function ContentSettingsTab({
   const saveTrialModel = async (input: UpdateContentImageBody): Promise<boolean> => {
     if (!(await onSaveSelection(input))) return false;
     setImageDraft(null);
+    setImageDefaultsDraft(null);
     return true;
   };
 
@@ -432,6 +446,8 @@ export function ContentSettingsTab({
                     refreshing={saving === "catalog"}
                     selectedModel={screenModel}
                     onChangeDraft={setImageDraft}
+                    defaultsDraft={imageDefaultsDraft}
+                    onChangeDefaultsDraft={setImageDefaultsDraft}
                     onSave={onSaveSelection}
                     onRefresh={onRefreshCatalog}
                     trials={trials}
@@ -756,13 +772,15 @@ function BgmModelSection({
   );
 }
 
-/** モデル選択。カタログ外の保存値も「（カタログ外）」として選択肢の先頭に残す */
+/** モデル選択と、そのモデルの既定のパラメータ。[保存] はモデルとパラメータを 1 回の PUT で送る */
 function ImageModelSection({
   settings,
   busy,
   refreshing,
   selectedModel,
   onChangeDraft,
+  defaultsDraft,
+  onChangeDefaultsDraft,
   onSave,
   onRefresh,
   trials,
@@ -775,6 +793,9 @@ function ImageModelSection({
   /** 画面で選択中のモデル（下書き優先）。試行と証拠も同じ値を使う */
   selectedModel: string;
   onChangeDraft: (draft: string | null) => void;
+  /** 既定のパラメータの下書き。編集したモデルと組で持つ */
+  defaultsDraft: ImageDefaultsDraft | null;
+  onChangeDefaultsDraft: (draft: ImageDefaultsDraft | null) => void;
   onSave: (input: UpdateContentImageBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
   trials: readonly ContentTrialSummary[] | null;
@@ -783,12 +804,26 @@ function ImageModelSection({
 }) {
   const options = imageModelOptions(settings);
   const savedModel = imageModelValue(settings);
-  const dirty = selectedModel !== savedModel;
+  const defaults = imageDefaultsScreen(settings, selectedModel, defaultsDraft);
+  const modelDirty = selectedModel !== savedModel;
+  const dirty = modelDirty || defaults.dirty;
 
   const submit = async () => {
-    const input = imageModelSelection(options, selectedModel);
+    if (!defaults.body.ok) return;
+    const selection = imageModelSelection(options, selectedModel);
+    if (!selection) return;
+    // 編集が無ければ parameters を省く（値ありは置き換えなので、触っていない既定を送り直さない）
+    const input = defaults.body.unchanged ? selection : { ...selection, parameters: defaults.body.parameters };
+    if (!(await onSave(input))) return;
+    onChangeDraft(null);
+    onChangeDefaultsDraft(null);
+  };
+
+  // 解除は画面のモデルに対する 1 回の PUT。選んでいるモデルに保存済みの既定が無ければ押せない
+  const clearDefaults = async () => {
+    const input = imageDefaultClearSelection(options, selectedModel);
     if (!input) return;
-    if (await onSave(input)) onChangeDraft(null);
+    if (await onSave(input)) onChangeDefaultsDraft(null);
   };
 
   return (
@@ -811,17 +846,83 @@ function ImageModelSection({
             </option>
           ))}
         </SelectField>
-        <button type="button" className="btn-primary" disabled={busy || !dirty} onClick={() => void submit()}>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={imageSelectionSaveDisabled({
+            busy,
+            modelDirty,
+            defaultsDirty: defaults.dirty,
+            invalid: !defaults.body.ok,
+          })}
+          onClick={() => void submit()}
+        >
           <CheckIcon />
           保存
         </button>
       </div>
+      {/* 既定はモデルの宣言に応じた欄だけを出す。宣言が無ければ「既定なし」だけを書く */}
+      {defaults.fields.length === 0 ? null : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {defaults.fields.map((field) => {
+            const value = defaults.values[field.name] ?? "";
+            const set = (next: string) =>
+              onChangeDefaultsDraft({ model: selectedModel, values: { ...defaults.values, [field.name]: next } });
+            return (
+              <label key={field.name} className="grid min-w-0 gap-1">
+                <span className="text-2xs text-ink-muted">{field.name}</span>
+                {field.kind === "enum" ? (
+                  <SelectField
+                    aria-label={`既定の ${field.name}`}
+                    value={value}
+                    disabled={busy}
+                    onChange={(event) => set(event.currentTarget.value)}
+                  >
+                    <option value="">{IMAGE_DEFAULT_NONE_LABEL}</option>
+                    {field.values.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </SelectField>
+                ) : (
+                  <input
+                    className="field min-w-0 text-xs"
+                    type="number"
+                    inputMode="numeric"
+                    min={field.min}
+                    max={field.max}
+                    value={value}
+                    placeholder={IMAGE_DEFAULT_NONE_LABEL}
+                    aria-label={`既定の ${field.name}`}
+                    disabled={busy}
+                    onChange={(event) => set(event.currentTarget.value)}
+                  />
+                )}
+              </label>
+            );
+          })}
+        </div>
+      )}
+      {defaults.body.ok ? null : (
+        <p role="alert" className="text-2xs break-words text-warn">
+          {defaults.body.error}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="btn-quiet"
+          disabled={busy || defaults.clearDisabled}
+          onClick={() => void clearDefaults()}
+        >
+          <TrashIcon />
+          既定を解除
+        </button>
+        <p className="min-w-0 text-2xs leading-relaxed text-ink-muted">{IMAGE_DEFAULT_NOTE}</p>
+      </div>
       {/* キーの有効性は緑のバッジにせず、現在のキー世代と選択中モデルの実績だけを証拠として出す */}
       <EvidenceLine trials={trials} model={selectedModel} keyEpoch={trialKeyEpoch} now={trialNow} />
-      {/* 入力欄は宣言に応じて試行の面に出し、ここでは何を指定できるかだけを書く */}
-      <p className="text-2xs leading-relaxed text-ink-muted">
-        {imageParameterNote(imageModelParameterDeclarations(settings.image.models, selectedModel))}
-      </p>
       <div className="flex flex-wrap items-center gap-2">
         {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
         <p className="min-w-0">

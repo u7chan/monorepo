@@ -4,7 +4,6 @@ import {
   filteredTrials,
   groupTrialsByMonth,
   hasStoredArtifact,
-  imageModelParameterDeclarations,
   imageTrialParameterRows,
   selectedTrial,
   selectedTrialDetail,
@@ -22,6 +21,7 @@ import {
   type ImageParameterRow,
   type TrialOutcomeFilter,
 } from "../../lib/contentTrials";
+import { imageModelParameterDeclarations } from "../../lib/imageParameters";
 import { messageFullTimeLabel } from "../../lib/messageTime";
 import { cn } from "../../lib/cn";
 import type {

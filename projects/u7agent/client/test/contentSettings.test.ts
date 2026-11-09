@@ -20,9 +20,14 @@ import {
   contentImageProviderLabel,
   contentImageProviderNote,
   IMAGE_PROVIDER_OPTIONS,
+  imageDefaultBody,
+  imageDefaultClearSelection,
+  imageDefaultModelId,
+  imageDefaultsScreen,
   imageModelSelection,
   imageModelValue,
   imageScreenModel,
+  imageSelectionSaveDisabled,
   keyDraftAfterSave,
   speechCatalogNotice,
   speechDefaultVoice,
@@ -38,7 +43,8 @@ import {
   speechVoiceMode,
   speechVoiceValue,
 } from "../src/lib/contentSettings";
-import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings } from "../src/types";
+import { imageParameterDraftOf } from "../src/lib/imageParameters";
+import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings, ImageModel } from "../src/types";
 
 /** `image` / `speech` の中身を差し替える (provider は設定面の値なので別引数) */
 function settings(
@@ -171,6 +177,138 @@ test("現在値と PUT の本文を選択肢から解決する", () => {
     model: "google/gemini-image",
   });
   assert.equal(imageModelSelection(options, "openrouter/unknown"), null, "選択肢に無い値は保存しない");
+});
+
+/** 宣言を持つモデル。既定の入力欄の出し分けと PUT の本文を作る */
+const DECLARING_MODELS: ImageModel[] = [
+  {
+    provider: "openrouter",
+    id: "openai/gpt-image-2",
+    name: "GPT Image 2",
+    parameters: {
+      aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+      quality: { type: "enum", values: ["high", "low"] },
+      resolution: { type: "boolean" },
+      seed: { type: "range", min: 0, max: 1_000 },
+    },
+  },
+  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+];
+
+const MODEL = "openrouter/openai/gpt-image-2";
+const OTHER_MODEL = "openrouter/google/gemini-image";
+
+test("既定の入力欄はモデルの宣言に応じて組み立て、保存済みの値を現在値にする", () => {
+  const declaring = settings({
+    models: DECLARING_MODELS,
+    parametersByModel: { "openai/gpt-image-2": { aspect_ratio: "1:1", seed: 7 } },
+  });
+  const screen = imageDefaultsScreen(declaring, MODEL, null);
+  assert.deepEqual(
+    screen.fields.map((field) => field.name),
+    ["aspect_ratio", "quality", "seed"],
+    "enum と seed の欄だけを許可リストの順で出す",
+  );
+  assert.deepEqual(screen.values, { aspect_ratio: "1:1", seed: "7" }, "保存済みの値を現在値にする");
+  assert.deepEqual(screen.saved, { aspect_ratio: "1:1", seed: 7 });
+  assert.equal(screen.dirty, false, "保存値のままなら未保存にしない");
+  assert.equal(screen.clearDisabled, false, "保存済みの既定があれば解除できる");
+  assert.equal(screen.body.ok && screen.body.unchanged, true, "編集が無ければ parameters を省略する");
+
+  // 宣言を持たないモデルは欄を出さず、「既定なし」だけを見せる（不明を既定として見せない）
+  const undeclared = imageDefaultsScreen(declaring, OTHER_MODEL, null);
+  assert.deepEqual(undeclared.fields, []);
+  assert.deepEqual(undeclared.values, {});
+  assert.equal(undeclared.clearDisabled, true, "保存済みの既定が無ければ解除しない");
+
+  // カタログ外の保存値でも、そのモデルの既定は parametersByModel から引ける
+  const outside = imageDefaultsScreen(
+    settings({ model: "stale/model", parametersByModel: { "stale/model": { seed: 3 } } }),
+    "openrouter/stale/model",
+    null,
+  );
+  assert.deepEqual(outside.saved, { seed: 3 });
+  assert.deepEqual(outside.values, { seed: "3" });
+});
+
+test("既定は編集が 1 つでもあればそのモデルの全項目を送り、編集が無ければ省略する", () => {
+  const fields = imageDefaultsScreen(settings({ models: DECLARING_MODELS }), MODEL, null).fields;
+  const saved = { aspect_ratio: "1:1", seed: 7 } as const;
+
+  // 欄は保存値を初期値にするため、編集後の下書きはそのモデルの全項目を持つ
+  const edited = imageDefaultBody(fields, { aspect_ratio: "16:9", seed: "7" }, saved);
+  assert.deepEqual(edited, {
+    ok: true,
+    parameters: { aspect_ratio: "16:9", seed: 7 },
+    unchanged: false,
+  });
+  // 1 項目を空欄へ戻す編集も、そのモデルの全項目を置き換える（PUT は部分更新ではない）
+  const cleared = imageDefaultBody(fields, { aspect_ratio: "1:1", seed: "" }, saved);
+  assert.deepEqual(cleared, { ok: true, parameters: { aspect_ratio: "1:1" }, unchanged: false });
+  // 編集が無ければ parameters を省略する（送ると切替先の既定を意図せず消す）
+  assert.deepEqual(imageDefaultBody(fields, imageParameterDraftOf(saved), saved), {
+    ok: true,
+    parameters: { aspect_ratio: "1:1", seed: 7 },
+    unchanged: true,
+  });
+  assert.deepEqual(imageDefaultBody(fields, {}, {}), { ok: true, parameters: {}, unchanged: true });
+});
+
+test("既定の入力の宣言外の値は保存の前に止める（クレジットは消費しない操作なので課金の文言を出さない）", () => {
+  const fields = imageDefaultsScreen(settings({ models: DECLARING_MODELS }), MODEL, null).fields;
+  const outOfRange = imageDefaultBody(fields, { seed: "1001" }, {});
+  assert.equal(outOfRange.ok, false);
+  assert.match(outOfRange.ok ? "" : outOfRange.error, /seed は 0 以上 1000 以下の整数で入力してください/);
+  assert.equal(/クレジット/.test(outOfRange.ok ? "" : outOfRange.error), false, "保存は課金しないので消費の話をしない");
+  const fraction = imageDefaultBody(fields, { seed: "1.5" }, {});
+  assert.equal(fraction.ok, false);
+  const notOffered = imageDefaultBody(fields, { quality: "medium" }, {});
+  assert.match(notOffered.ok ? "" : notOffered.error, /quality に指定できない値です: medium/);
+});
+
+test("[既定を解除] はそのモデルの既定だけを消す本文を作る", () => {
+  const options = imageModelOptions(settings());
+  assert.deepEqual(imageDefaultClearSelection(options, MODEL), {
+    provider: "openrouter",
+    model: "openai/gpt-image-2",
+    parameters: {},
+  });
+  assert.equal(imageDefaultClearSelection(options, "openrouter/unknown"), null, "選択肢に無いモデルは保存しない");
+});
+
+test("既定の下書きは編集したモデルの分だけを使い、切替先では保存済みの既定を出す", () => {
+  const declaring = settings({
+    models: DECLARING_MODELS,
+    parametersByModel: { "openai/gpt-image-2": { aspect_ratio: "1:1" }, "google/gemini-image": { seed: 5 } },
+  });
+  const draft = { model: MODEL, values: { aspect_ratio: "16:9", quality: "low" } };
+  assert.deepEqual(imageDefaultsScreen(declaring, MODEL, draft).values, draft.values, "編集したモデルでは下書きを使う");
+  // 切替先は parametersByModel から引き、前のモデルの値（宣言外のキーを含む）を持ち越さない
+  assert.deepEqual(imageDefaultsScreen(declaring, OTHER_MODEL, draft).values, { seed: "5" });
+  assert.equal(imageDefaultModelId(imageModelOptions(declaring), OTHER_MODEL), "google/gemini-image");
+  assert.equal(imageDefaultModelId(imageModelOptions(declaring), "openrouter/unknown"), null);
+});
+
+test("画像の [保存] は既定のパラメータだけを変えても押せる", () => {
+  assert.equal(
+    imageSelectionSaveDisabled({ busy: false, modelDirty: false, defaultsDirty: true, invalid: false }),
+    false,
+    "モデルを見るだけの判定にしない",
+  );
+  assert.equal(
+    imageSelectionSaveDisabled({ busy: false, modelDirty: true, defaultsDirty: false, invalid: false }),
+    false,
+  );
+  assert.equal(
+    imageSelectionSaveDisabled({ busy: false, modelDirty: false, defaultsDirty: false, invalid: false }),
+    true,
+  );
+  assert.equal(imageSelectionSaveDisabled({ busy: true, modelDirty: true, defaultsDirty: true, invalid: false }), true);
+  assert.equal(
+    imageSelectionSaveDisabled({ busy: false, modelDirty: true, defaultsDirty: true, invalid: true }),
+    true,
+    "保存できない値では押させない",
+  );
 });
 
 test("キー入力は保存に成功したときだけ消す", () => {
