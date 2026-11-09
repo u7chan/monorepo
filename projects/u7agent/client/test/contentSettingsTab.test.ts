@@ -136,7 +136,10 @@ test("設定は要約 1 行を既定にし、変更でキーとモデルを開�
   assert.ok(html.includes("有効 · キー設定済み · openrouter/openai/gpt-image-2"), "現在値を 1 行にまとめる");
   assert.ok(html.includes(">変更<"), "展開する操作を出す");
   // 開閉は高さの遷移 (Fold) が持ち、中身は閉じている間も残す (inert で外すだけ)
-  assert.ok(html.includes('class="tree-fold" data-open="false" inert=""'), "閉じている間は開閉の入れ物だけを出す");
+  assert.ok(
+    html.includes('class="tree-fold" data-open="false" inert=""'),
+    "閉じている間も開閉の入れ物を置く（中身は keepMounted で残る）",
+  );
   assert.ok(html.includes('type="password"'), "展開した中にキー入力を残す（inert で外すだけ）");
   assert.ok(html.includes('aria-label="コンテンツ生成のモデル"'), "展開した中にモデル選択を残す");
   assert.ok(html.includes("履歴を見る"), "履歴は専用タブへ案内する");
