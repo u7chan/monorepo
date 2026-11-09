@@ -44,8 +44,17 @@ const liveCatalogFetch: typeof fetch = async () =>
   new Response(
     JSON.stringify({
       data: [
+        // 宣言の無いモデルはそのまま（SDK 同梱カタログと同じ形で応答する）
         { id: CATALOG_MODEL, name: "FLUX.2 Max" },
-        { id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" },
+        {
+          id: DEFAULT_IMAGE_MODEL,
+          name: "GPT Image 2",
+          supported_parameters: {
+            aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+            quality: { type: "enum", values: ["low", "high"] },
+            seed: { type: "range", min: 0, max: 2_147_483_647 },
+          },
+        },
       ],
     }),
     { status: 200, headers: { "content-type": "application/json" } },
@@ -67,7 +76,7 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
       assert.equal(before.runtimeAvailable, true);
       assert.deepEqual(before.bgm, bgmSettings(false));
       assert.ok(before.image.models.length > 0, "カタログが空");
-      // キー未設定では live を取りに行かないので、SDK 同梱カタログから始まる
+      // キー未設定では live を取りに行かないので、SDK 同梱カタログから始まる（宣言を持たない）
       assert.equal(before.image.catalogSource, "sdk");
       assert.equal(before.image.fetchedAt, null);
       assert.ok(
@@ -385,6 +394,19 @@ test("モデル一覧の再取得は 200 で一覧を返し、失敗は catalogE
         refreshed.models.map((model: any) => model.id),
         [CATALOG_MODEL, DEFAULT_IMAGE_MODEL],
       );
+      // 宣言を持つモデルだけ parameters が加わり、宣言の無いモデルは 3 キーのまま
+      assert.deepEqual(
+        refreshed.models.map((model: any) => Object.keys(model).sort()),
+        [
+          ["id", "name", "provider"],
+          ["id", "name", "parameters", "provider"],
+        ],
+      );
+      assert.deepEqual(refreshed.models[1].parameters, {
+        aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+        quality: { type: "enum", values: ["low", "high"] },
+        seed: { type: "range", min: 0, max: 2_147_483_647 },
+      });
     } finally {
       await bff.close();
     }
@@ -406,6 +428,132 @@ test("モデル一覧の再取得は 200 で一覧を返し、失敗は catalogE
       assert.equal(body.catalogSource, "sdk");
       assert.equal(body.fetchedAt, null);
       assert.ok(body.models.length > 0, "前の一覧を返す");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("画像パラメータの既定は PUT の応答と GET の parametersByModel に載り、モデルを切り替えても残る", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi();
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      // 宣言は live 一覧から読むため、先に取得しておく（キー保存は取得しない）
+      await bff.app.request("/api/settings/content/image/catalog/refresh", { method: "POST" });
+
+      const saved = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/image",
+          jsonPut({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, parameters: { aspect_ratio: "16:9" } }),
+        ),
+      );
+      assert.equal(saved.state, "applied");
+      assert.deepEqual(saved.image.parametersByModel, { [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9" } });
+      assert.deepEqual(
+        pi.contentGenerationConfigs.at(-1)?.read(),
+        { provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, apiKey: KEY, parameters: { aspect_ratio: "16:9" } },
+        "次の実行から既定が使われる",
+      );
+
+      // 宣言を持たないモデルへ値は保存できない（400）。切替そのものは通り、他のモデルの既定は残る
+      const rejected = await bff.app.request(
+        "/api/settings/content/image",
+        jsonPut({ provider: IMAGE_PROVIDER_ID, model: CATALOG_MODEL, parameters: { quality: "high" } }),
+      );
+      assert.equal(rejected.status, 400);
+      assert.deepEqual(
+        (await jsonBody(await bff.app.request("/api/settings/content"))).image.parametersByModel,
+        { [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9" } },
+        "拒否した要求で保存値とモデルを書き換えない",
+      );
+      const switched = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/image",
+          jsonPut({ provider: IMAGE_PROVIDER_ID, model: CATALOG_MODEL }),
+        ),
+      );
+      assert.equal(switched.state, "applied");
+      assert.deepEqual(switched.image.parametersByModel, { [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9" } });
+      assert.deepEqual(
+        pi.contentGenerationConfigs.at(-1)?.read(),
+        { provider: IMAGE_PROVIDER_ID, model: CATALOG_MODEL, apiKey: KEY },
+        "既定の無いモデルでは parameters を載せない",
+      );
+
+      const after = await jsonBody(await bff.app.request("/api/settings/content"));
+      assert.deepEqual(after.image.parametersByModel, { [DEFAULT_IMAGE_MODEL]: { aspect_ratio: "16:9" } });
+
+      // `{}` はそのモデルの既定を削除する（GET の map からエントリが消える）
+      const cleared = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/image",
+          jsonPut({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, parameters: {} }),
+        ),
+      );
+      assert.deepEqual(cleared.image.parametersByModel, {});
+      assert.deepEqual((await jsonBody(await bff.app.request("/api/settings/content"))).image.parametersByModel, {});
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("宣言外の画像パラメータは 400 で、値は文言にそのまま反射しない", async () => {
+  await withStoreDir(async (dir) => {
+    const bff = await openBff({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(createStubPi()),
+      workspace: null,
+    });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      await bff.app.request("/api/settings/content/image/catalog/refresh", { method: "POST" });
+      const rejected = await bff.app.request(
+        "/api/settings/content/image",
+        jsonPut({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, parameters: { quality: KEY } }),
+      );
+      assert.equal(rejected.status, 400);
+      const body = await jsonBody(rejected);
+      assert.ok(!body.error.includes(KEY), "値にキーを渡されても応答から再露出させない");
+      assert.ok(body.error.includes("[REDACTED]"), body.error);
+      assert.deepEqual((await jsonBody(await bff.app.request("/api/settings/content"))).image.parametersByModel, {});
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("壊れた content_settings.imageParams は GET / PUT を 503 not_stored にし、値は応答へ出さない", async () => {
+  await withStoreDir(async (dir) => {
+    const bff = await openBff({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(createStubPi()),
+      workspace: null,
+    });
+    try {
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+      raw.prepare("UPDATE content_settings SET imageParams = ? WHERE id = 1").run('{"openai/gpt-image-2":"16:9"}');
+      raw.close();
+
+      const get = await bff.app.request("/api/settings/content");
+      assert.equal(get.status, 503);
+      const getBody = await jsonBody(get);
+      assert.ok(!JSON.stringify(getBody).includes("16:9"), "保存値の断片を応答へ出さない");
+
+      const put = await bff.app.request(
+        "/api/settings/content/image",
+        jsonPut({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL }),
+      );
+      assert.equal(put.status, 503);
+      assert.equal((await jsonBody(put)).state, "not_stored");
+
+      const health = await jsonBody(await bff.app.request("/api/health"));
+      assert.equal(health.appDb.ok, false);
     } finally {
       await bff.close();
     }

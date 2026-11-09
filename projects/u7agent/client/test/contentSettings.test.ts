@@ -11,11 +11,23 @@ import {
   contentProviderId,
   contentProviderLabel,
   deleteContentKeyConfirmRequest,
+  imageAuthBadge,
+  imageAuthNotice,
   imageCatalogNotice,
+  imageKeySectionVisible,
   imageModelOptions,
+  imageModelSectionVisible,
+  contentImageProviderLabel,
+  contentImageProviderNote,
+  IMAGE_PROVIDER_OPTIONS,
+  imageDefaultBody,
+  imageDefaultClearSelection,
+  imageDefaultModelId,
+  imageDefaultsScreen,
   imageModelSelection,
   imageModelValue,
   imageScreenModel,
+  imageSelectionSaveDisabled,
   keyDraftAfterSave,
   speechCatalogNotice,
   speechDefaultVoice,
@@ -31,7 +43,8 @@ import {
   speechVoiceMode,
   speechVoiceValue,
 } from "../src/lib/contentSettings";
-import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings } from "../src/types";
+import { imageParameterDraftOf } from "../src/lib/imageParameters";
+import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings, ImageModel } from "../src/types";
 
 /** `image` / `speech` の中身を差し替える (provider は設定面の値なので別引数) */
 function settings(
@@ -53,6 +66,8 @@ function settings(
     bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
     image: {
       model: "openai/gpt-image-2",
+      provider: "openrouter",
+      auth: { state: "configured", kind: "api_key" },
       models: [
         { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
         { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
@@ -60,6 +75,7 @@ function settings(
       ],
       catalogSource: "live",
       fetchedAt: null,
+      parametersByModel: {},
       ...image,
     },
     speech: {
@@ -161,6 +177,138 @@ test("現在値と PUT の本文を選択肢から解決する", () => {
     model: "google/gemini-image",
   });
   assert.equal(imageModelSelection(options, "openrouter/unknown"), null, "選択肢に無い値は保存しない");
+});
+
+/** 宣言を持つモデル。既定の入力欄の出し分けと PUT の本文を作る */
+const DECLARING_MODELS: ImageModel[] = [
+  {
+    provider: "openrouter",
+    id: "openai/gpt-image-2",
+    name: "GPT Image 2",
+    parameters: {
+      aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+      quality: { type: "enum", values: ["high", "low"] },
+      resolution: { type: "boolean" },
+      seed: { type: "range", min: 0, max: 1_000 },
+    },
+  },
+  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+];
+
+const MODEL = "openrouter/openai/gpt-image-2";
+const OTHER_MODEL = "openrouter/google/gemini-image";
+
+test("既定の入力欄はモデルの宣言に応じて組み立て、保存済みの値を現在値にする", () => {
+  const declaring = settings({
+    models: DECLARING_MODELS,
+    parametersByModel: { "openai/gpt-image-2": { aspect_ratio: "1:1", seed: 7 } },
+  });
+  const screen = imageDefaultsScreen(declaring, MODEL, null);
+  assert.deepEqual(
+    screen.fields.map((field) => field.name),
+    ["aspect_ratio", "quality", "seed"],
+    "enum と seed の欄だけを許可リストの順で出す",
+  );
+  assert.deepEqual(screen.values, { aspect_ratio: "1:1", seed: "7" }, "保存済みの値を現在値にする");
+  assert.deepEqual(screen.saved, { aspect_ratio: "1:1", seed: 7 });
+  assert.equal(screen.dirty, false, "保存値のままなら未保存にしない");
+  assert.equal(screen.clearDisabled, false, "保存済みの既定があれば解除できる");
+  assert.equal(screen.body.ok && screen.body.unchanged, true, "編集が無ければ parameters を省略する");
+
+  // 宣言を持たないモデルは欄を出さず、「既定なし」だけを見せる（不明を既定として見せない）
+  const undeclared = imageDefaultsScreen(declaring, OTHER_MODEL, null);
+  assert.deepEqual(undeclared.fields, []);
+  assert.deepEqual(undeclared.values, {});
+  assert.equal(undeclared.clearDisabled, true, "保存済みの既定が無ければ解除しない");
+
+  // カタログ外の保存値でも、そのモデルの既定は parametersByModel から引ける
+  const outside = imageDefaultsScreen(
+    settings({ model: "stale/model", parametersByModel: { "stale/model": { seed: 3 } } }),
+    "openrouter/stale/model",
+    null,
+  );
+  assert.deepEqual(outside.saved, { seed: 3 });
+  assert.deepEqual(outside.values, { seed: "3" });
+});
+
+test("既定は編集が 1 つでもあればそのモデルの全項目を送り、編集が無ければ省略する", () => {
+  const fields = imageDefaultsScreen(settings({ models: DECLARING_MODELS }), MODEL, null).fields;
+  const saved = { aspect_ratio: "1:1", seed: 7 } as const;
+
+  // 欄は保存値を初期値にするため、編集後の下書きはそのモデルの全項目を持つ
+  const edited = imageDefaultBody(fields, { aspect_ratio: "16:9", seed: "7" }, saved);
+  assert.deepEqual(edited, {
+    ok: true,
+    parameters: { aspect_ratio: "16:9", seed: 7 },
+    unchanged: false,
+  });
+  // 1 項目を空欄へ戻す編集も、そのモデルの全項目を置き換える（PUT は部分更新ではない）
+  const cleared = imageDefaultBody(fields, { aspect_ratio: "1:1", seed: "" }, saved);
+  assert.deepEqual(cleared, { ok: true, parameters: { aspect_ratio: "1:1" }, unchanged: false });
+  // 編集が無ければ parameters を省略する（送ると切替先の既定を意図せず消す）
+  assert.deepEqual(imageDefaultBody(fields, imageParameterDraftOf(saved), saved), {
+    ok: true,
+    parameters: { aspect_ratio: "1:1", seed: 7 },
+    unchanged: true,
+  });
+  assert.deepEqual(imageDefaultBody(fields, {}, {}), { ok: true, parameters: {}, unchanged: true });
+});
+
+test("既定の入力の宣言外の値は保存の前に止める（クレジットは消費しない操作なので課金の文言を出さない）", () => {
+  const fields = imageDefaultsScreen(settings({ models: DECLARING_MODELS }), MODEL, null).fields;
+  const outOfRange = imageDefaultBody(fields, { seed: "1001" }, {});
+  assert.equal(outOfRange.ok, false);
+  assert.match(outOfRange.ok ? "" : outOfRange.error, /seed は 0 以上 1000 以下の整数で入力してください/);
+  assert.equal(/クレジット/.test(outOfRange.ok ? "" : outOfRange.error), false, "保存は課金しないので消費の話をしない");
+  const fraction = imageDefaultBody(fields, { seed: "1.5" }, {});
+  assert.equal(fraction.ok, false);
+  const notOffered = imageDefaultBody(fields, { quality: "medium" }, {});
+  assert.match(notOffered.ok ? "" : notOffered.error, /quality に指定できない値です: medium/);
+});
+
+test("[既定を解除] はそのモデルの既定だけを消す本文を作る", () => {
+  const options = imageModelOptions(settings());
+  assert.deepEqual(imageDefaultClearSelection(options, MODEL), {
+    provider: "openrouter",
+    model: "openai/gpt-image-2",
+    parameters: {},
+  });
+  assert.equal(imageDefaultClearSelection(options, "openrouter/unknown"), null, "選択肢に無いモデルは保存しない");
+});
+
+test("既定の下書きは編集したモデルの分だけを使い、切替先では保存済みの既定を出す", () => {
+  const declaring = settings({
+    models: DECLARING_MODELS,
+    parametersByModel: { "openai/gpt-image-2": { aspect_ratio: "1:1" }, "google/gemini-image": { seed: 5 } },
+  });
+  const draft = { model: MODEL, values: { aspect_ratio: "16:9", quality: "low" } };
+  assert.deepEqual(imageDefaultsScreen(declaring, MODEL, draft).values, draft.values, "編集したモデルでは下書きを使う");
+  // 切替先は parametersByModel から引き、前のモデルの値（宣言外のキーを含む）を持ち越さない
+  assert.deepEqual(imageDefaultsScreen(declaring, OTHER_MODEL, draft).values, { seed: "5" });
+  assert.equal(imageDefaultModelId(imageModelOptions(declaring), OTHER_MODEL), "google/gemini-image");
+  assert.equal(imageDefaultModelId(imageModelOptions(declaring), "openrouter/unknown"), null);
+});
+
+test("画像の [保存] は既定のパラメータだけを変えても押せる", () => {
+  assert.equal(
+    imageSelectionSaveDisabled({ busy: false, modelDirty: false, defaultsDirty: true, invalid: false }),
+    false,
+    "モデルを見るだけの判定にしない",
+  );
+  assert.equal(
+    imageSelectionSaveDisabled({ busy: false, modelDirty: true, defaultsDirty: false, invalid: false }),
+    false,
+  );
+  assert.equal(
+    imageSelectionSaveDisabled({ busy: false, modelDirty: false, defaultsDirty: false, invalid: false }),
+    true,
+  );
+  assert.equal(imageSelectionSaveDisabled({ busy: true, modelDirty: true, defaultsDirty: true, invalid: false }), true);
+  assert.equal(
+    imageSelectionSaveDisabled({ busy: false, modelDirty: true, defaultsDirty: true, invalid: true }),
+    true,
+    "保存できない値では押させない",
+  );
 });
 
 test("キー入力は保存に成功したときだけ消す", () => {
@@ -461,4 +609,75 @@ test("キーが使えない理由は、サーバーの固定文言をそのま�
     "master key が未設定です",
     "原因は推測せずサーバーの文言を渡す",
   );
+});
+
+// --- 画像の生成元（OpenRouter / Codex）。値の正は server の DTO で、ここは表示の対応だけを持つ ---
+
+test("生成元の選択肢は 2 つで、表示名と案内を持つ", () => {
+  assert.deepEqual(
+    IMAGE_PROVIDER_OPTIONS.map((option) => option.value),
+    ["openrouter", "codex"],
+  );
+  assert.equal(contentImageProviderLabel("openrouter"), "OpenRouter");
+  assert.equal(contentImageProviderLabel("codex"), "Codex");
+  assert.match(contentImageProviderNote("codex"), /既存の会話/);
+  assert.match(contentImageProviderNote("codex"), /新しい会話/);
+});
+
+test("認証状態は「認証済み / 期限切れ / 未認証」に分け、未設定でも種類を隠さない", () => {
+  assert.deepEqual(imageAuthBadge({ state: "configured", kind: "oauth" }), { label: "認証済み", tone: "ok" });
+  assert.deepEqual(imageAuthBadge({ state: "expired", kind: "oauth" }), { label: "認証の期限切れ", tone: "warn" });
+  assert.deepEqual(imageAuthBadge({ state: "missing", kind: null }), { label: "未認証", tone: "muted" });
+});
+
+/** 案内の入力。`image.auth` とキーの状態だけを差し替える（他は画像の案内が読まない） */
+function authNotice(
+  provider: ContentImageSettings["provider"],
+  auth: ContentImageSettings["auth"],
+  key: { keyStored: boolean; keyAvailable: boolean; keyErrorMessage: string | null } = {
+    keyStored: false,
+    keyAvailable: false,
+    keyErrorMessage: null,
+  },
+): string | null {
+  return imageAuthNotice({ ...key, image: settings({ provider, auth }).image });
+}
+
+test("認証がないときの案内は provider ごとに変え、Codex にAPIキーを求めない", () => {
+  assert.equal(authNotice("codex", { state: "configured", kind: "oauth" }), null);
+  assert.match(authNotice("codex", { state: "missing", kind: null }) ?? "", /openai-codex/);
+  assert.match(authNotice("codex", { state: "missing", kind: null }) ?? "", /APIキーは不要/);
+  assert.match(authNotice("codex", { state: "expired", kind: "oauth" }) ?? "", /期限が切れています/);
+  assert.match(authNotice("codex", { state: "expired", kind: "oauth" }) ?? "", /更新を試みます/);
+  assert.match(authNotice("openrouter", { state: "missing", kind: "api_key" }) ?? "", /OpenRouter のAPIキー/);
+});
+
+test("OpenRouter のキーが保存済みでも使えないときは「未設定」ではなく再入力を案内する", () => {
+  const stored = { keyStored: true, keyAvailable: false, keyErrorMessage: null };
+  assert.match(
+    authNotice("openrouter", { state: "missing", kind: "api_key" }, stored) ?? "",
+    /保存済みの OpenRouter のAPIキーを使えません/,
+  );
+  // 未評価 / 復号失敗の固定文言はサーバーのものをそのまま出す（画面のキー警告と同じ語）
+  assert.equal(
+    authNotice(
+      "openrouter",
+      { state: "missing", kind: "api_key" },
+      {
+        keyStored: true,
+        keyAvailable: false,
+        keyErrorMessage: "保存済みのAPIキーを復号できません",
+      },
+    ),
+    "保存済みのAPIキーを復号できません",
+  );
+  // 保存そのものが無いときは「未設定」のまま
+  assert.match(authNotice("openrouter", { state: "missing", kind: "api_key" }) ?? "", /未設定/);
+});
+
+test("Codex では APIキー欄とモデル一覧を出さない（OpenRouter では出す）", () => {
+  assert.equal(imageKeySectionVisible("openrouter"), true);
+  assert.equal(imageKeySectionVisible("codex"), false);
+  assert.equal(imageModelSectionVisible("openrouter"), true);
+  assert.equal(imageModelSectionVisible("codex"), false);
 });

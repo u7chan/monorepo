@@ -15,6 +15,8 @@ import {
   IMAGE_RESPONSE_TOO_LARGE_MESSAGE,
   IMAGE_UNKNOWN_FAILURE_MESSAGE,
   imageModelCatalog,
+  normalizeImageParameters,
+  type ImageParameterDeclarations,
 } from "../src/images";
 
 const STUB_IMAGE_MODEL: ImageModel<ImageApi> = {
@@ -397,4 +399,50 @@ test("応答本文が上限を超えたら画像として読まず、固定文�
     fetchImpl: streamed.fetchImpl,
   }).generate(baseInput);
   assert.deepEqual(streamedResult, { ok: false, code: "unknown", message: IMAGE_RESPONSE_TOO_LARGE_MESSAGE });
+});
+
+// --- 生成パラメータ。明示された値だけを送り、宣言との突き合わせは純関数が持つ ---
+
+test("生成パラメータは明示された値だけを送信本文へ足し、未指定なら従来と同じ本文になる", async () => {
+  const { requests, fetchImpl } = stubFetch(() => imageResponse({ data: [{ b64_json: "aGVsbG8=" }] }));
+  const generator = createImagesGenerator({ models: () => stubModels(), fetchImpl });
+
+  await generator.generate({ ...baseInput, parameters: { aspect_ratio: "16:9", seed: 42 } });
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
+    model: "stub-image",
+    prompt: "a cafe",
+    n: 1,
+    aspect_ratio: "16:9",
+    seed: 42,
+  });
+
+  // 空 / 未指定のときは従来の本文と同一（n: 1 は据え置き）
+  await generator.generate({ ...baseInput, parameters: {} });
+  await generator.generate(baseInput);
+  const expected = { model: "stub-image", prompt: "a cafe", n: 1 };
+  assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), expected);
+  assert.deepEqual(JSON.parse(String(requests[2]?.init?.body)), expected);
+});
+
+test("宣言との突き合わせは、宣言に無いキー・宣言の外の値・不明を送らせない", () => {
+  const declarations: ImageParameterDeclarations = {
+    aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+    background: { type: "boolean" },
+    seed: { type: "range", min: 0, max: 100 },
+  };
+  assert.deepEqual(normalizeImageParameters(declarations, { aspect_ratio: "16:9", seed: 42 }), {
+    ok: true,
+    values: { aspect_ratio: "16:9", seed: 42 },
+  });
+  assert.deepEqual(normalizeImageParameters(undefined, undefined), { ok: true, values: {} });
+
+  // 宣言に無いキーは通さない（宣言の無いモデルも同じ）
+  assert.equal(normalizeImageParameters(declarations, { resolution: "2K" }).ok, false);
+  assert.equal(normalizeImageParameters(undefined, { seed: 1 }).ok, false);
+  // enum の外の値 / range の外の値 / 整数でない seed は通さない
+  assert.equal(normalizeImageParameters(declarations, { aspect_ratio: "4:3" }).ok, false);
+  assert.equal(normalizeImageParameters(declarations, { seed: 101 }).ok, false);
+  assert.equal(normalizeImageParameters(declarations, { seed: 1.5 }).ok, false);
+  // boolean は「受け付ける」の意味で、値そのものは縛らない
+  assert.equal(normalizeImageParameters(declarations, { background: "transparent" }).ok, true);
 });

@@ -32,12 +32,15 @@ const CONTENT_SETTINGS: ContentSettingsResponse = {
   bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
   image: {
     model: "openai/gpt-image-2",
+    provider: "openrouter",
+    auth: { state: "configured", kind: "api_key" },
     models: [
       { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
       { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
     ],
     catalogSource: "live",
     fetchedAt: null,
+    parametersByModel: {},
   },
   speech: {
     model: "google/gemini-3.8-flash-tts",
@@ -65,6 +68,7 @@ function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSetti
     setEnabled: async () => true,
     saveKey: async () => true,
     removeKey: async () => true,
+    saveImageProvider: async () => true,
     saveSelection: async () => true,
     saveSpeech: async () => true,
     refreshCatalog: async () => true,
@@ -269,6 +273,7 @@ test("BGM のタブにも実行中と新着の印を出し、開けば消える"
     voice: null,
     instructions: null,
     speed: null,
+    parameters: null,
     state: "running",
     keyEpoch: 0,
     artifactState: "none",

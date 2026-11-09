@@ -18,6 +18,7 @@ import {
 } from "./provider-failure";
 import type { SpeechGenerationSettings } from "./speech";
 import type { BgmGenerationSettings } from "./bgm";
+import type { ImageParameterValues } from "./schema";
 
 /** 失敗の公開分類。分類の規則と provider メッセージの扱いは provider-failure.ts を正とする */
 export type ImageFailureCode = ProviderFailureCode;
@@ -46,11 +47,43 @@ export interface ImageInputDeclaration {
   endpoints?: string[] | undefined;
 }
 
+/**
+ * 生成パラメータの名前。この 6 つ以外は宣言ごと落とす（UI の語彙と送信本文のキーを勝手に増やさない）。
+ * 宣言の値は `enum` / `range` / `boolean` の 3 種類だけで表す。
+ */
+export const IMAGE_PARAMETER_NAMES = [
+  "aspect_ratio",
+  "resolution",
+  "quality",
+  "output_format",
+  "background",
+  "seed",
+] as const;
+
+export type ImageParameterName = (typeof IMAGE_PARAMETER_NAMES)[number];
+
+/** 宣言 1 件。`boolean` は「そのパラメータを受け付ける」の意味で、値そのものは boolean で送らない */
+export type ImageParameterDescriptor =
+  | { type: "enum"; values: string[] }
+  | { type: "range"; min: number; max: number }
+  | { type: "boolean" };
+
+/** モデルが宣言する生成パラメータ。読めなかった項目は載せない（不在 = 不明） */
+export type ImageParameterDeclarations = Partial<Record<ImageParameterName, ImageParameterDescriptor>>;
+
+/** seed に受け付ける上限。宣言がこれを超えていても、送る値はこの範囲へ収める */
+export const IMAGE_PARAMETER_SEED_MAX = 2 ** 31 - 1;
+
 /** カタログ 1 件。UI の選択肢と model の検証はこの一覧を正とする */
 export interface ImageCatalogEntry {
   provider: string;
   id: string;
   name: string;
+  /**
+   * live 一覧が宣言する生成パラメータ（`supported_parameters`）。宣言が無い / 形が違うときは載せない
+   * （＝不明）。画面はこれを見て選択肢を描き、送信本文と生成前検証はこの宣言だけを見る。
+   */
+  parameters?: ImageParameterDeclarations | undefined;
   /**
    * live 一覧が宣言する出力形式（`supported_parameters.output_format.values`）。宣言が無い / 形が違うときは
    * 載せない（＝形式は不明）。SDK 同梱カタログと、この項目より前に書かれたキャッシュがこれにあたる。
@@ -102,15 +135,207 @@ export function isUnsaveableOutputOnly(outputFormats: readonly string[] | undefi
   return !outputFormats.some((format) => saveableImageFormat(format) !== undefined);
 }
 
-/** 画像生成の provider。v1 は openrouter 固定で、他は設定 API が 400 にする */
+/**
+ * enum の `values` を読む。`output_format` だけは保存できる形式との積にし、積が空なら「宣言なし」に倒す
+ * （保存できない形式しか選べない宣言を通すと、`isUnsaveableOutputOnly` の判定と食い違う）。
+ */
+function enumValuesOf(name: ImageParameterName, values: unknown): string[] | undefined {
+  if (!Array.isArray(values)) return undefined;
+  const strings = values.filter((value): value is string => typeof value === "string" && value.trim() !== "");
+  if (name !== "output_format") return strings.length > 0 ? strings : undefined;
+  const formats = strings
+    .map((value) => saveableImageFormat(value))
+    .filter((format): format is SaveableImageFormat => format !== undefined);
+  const unique = [...new Set(formats)];
+  return unique.length > 0 ? unique : undefined;
+}
+
+/** `{ type: "range", min, max }` を整数の閉区間として読む。seed は受け付ける範囲で切る */
+function rangeOf(name: ImageParameterName, value: object): { min: number; max: number } | undefined {
+  const { min, max } = value as { min?: unknown; max?: unknown };
+  if (typeof min !== "number" || typeof max !== "number") return undefined;
+  if (!Number.isInteger(min) || !Number.isInteger(max)) return undefined;
+  if (name !== "seed") return { min, max };
+  const bounded = { min: Math.max(min, 0), max: Math.min(max, IMAGE_PARAMETER_SEED_MAX) };
+  return bounded.min <= bounded.max ? bounded : undefined;
+}
+
+/** 宣言 1 件を読む。形が違う / 値が空の descriptor は undefined（＝不明） */
+function descriptorOf(name: ImageParameterName, value: unknown): ImageParameterDescriptor | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { type } = value as { type?: unknown };
+  if (type === "boolean") return { type: "boolean" };
+  if (type === "enum") {
+    const values = enumValuesOf(name, (value as { values?: unknown }).values);
+    return values ? { type: "enum", values } : undefined;
+  }
+  if (type === "range") {
+    const range = rangeOf(name, value);
+    return range ? { type: "range", ...range } : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * 宣言の JSON を正規化する。live の `supported_parameters` とキャッシュの `parameters` の両方をこれで読み、
+ * 未知のキー・形違い・空の values を落とし、1 つも読めなければ undefined（＝不明）にする。
+ */
+export function imageParameterDeclarationsOf(value: unknown): ImageParameterDeclarations | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const declarations: ImageParameterDeclarations = {};
+  for (const name of IMAGE_PARAMETER_NAMES) {
+    const descriptor = descriptorOf(name, (value as Record<string, unknown>)[name]);
+    if (descriptor) declarations[name] = descriptor;
+  }
+  return Object.keys(declarations).length > 0 ? declarations : undefined;
+}
+
+/** 明示された値の検証結果。宣言に無い / 値が宣言の外なら理由を返し、送信本文を組ませない */
+export type ImageParameterValidation = { ok: true; values: ImageParameterValues } | { ok: false; message: string };
+
+/** 1 つの値が宣言に収まるか。`boolean` は受け付けるの意味なので、値そのものは縛らない */
+function imageParameterValueAllowed(
+  name: ImageParameterName,
+  descriptor: ImageParameterDescriptor,
+  value: string | number,
+): boolean {
+  if (descriptor.type === "boolean") return true;
+  if (descriptor.type === "enum") return typeof value === "string" && descriptor.values.includes(value);
+  if (typeof value !== "number" || !Number.isInteger(value)) return false;
+  if (name === "seed" && (value < 0 || value > IMAGE_PARAMETER_SEED_MAX)) return false;
+  return value >= descriptor.min && value <= descriptor.max;
+}
+
+/**
+ * 既定値（保存値）のうち、モデルの宣言に収まるキーだけを残す。宣言が読めないモデルでは 1 つも残さない。
+ * 利用者が明示した値ではないので、落としたキーで生成を止めず provider の既定へ委ねる。
+ */
+export function declaredImageParameters(
+  declarations: ImageParameterDeclarations | undefined,
+  values: ImageParameterValues | undefined,
+): ImageParameterValues {
+  const kept: ImageParameterValues = {};
+  if (!declarations) return kept;
+  for (const name of IMAGE_PARAMETER_NAMES) {
+    const value = values?.[name];
+    const descriptor = declarations[name];
+    if (value === undefined || !descriptor) continue;
+    if (!imageParameterValueAllowed(name, descriptor, value)) continue;
+    // name ごとに値の型が違う（seed だけ数値）ため、検証済みの 1 キーをそのまま写す
+    Object.assign(kept, { [name]: value });
+  }
+  return kept;
+}
+
+/**
+ * 明示された値をモデルの宣言と突き合わせる。宣言の無いモデル・宣言に無いキー・宣言の外の値は通さない
+ * （不明は送らない）。通った値はそのまま送信本文の材料になる。
+ */
+export function normalizeImageParameters(
+  declarations: ImageParameterDeclarations | undefined,
+  values: ImageParameterValues | undefined,
+): ImageParameterValidation {
+  if (!values) return { ok: true, values: {} };
+  for (const name of IMAGE_PARAMETER_NAMES) {
+    const value = values[name];
+    if (value === undefined) continue;
+    const descriptor = declarations?.[name];
+    if (!descriptor) return { ok: false, message: `${name} はこの画像モデルでは指定できません` };
+    if (!imageParameterValueAllowed(name, descriptor, value)) {
+      return { ok: false, message: `${name} に指定できない値です: ${String(value)}` };
+    }
+  }
+  return { ok: true, values };
+}
+
+/**
+ * 送信本文へ足す値。省略された値は載せない（未指定のときの本文を従来と同一に保ち、provider の既定に任せる）。
+ */
+export function imageParameterBody(
+  values: ImageParameterValues | undefined,
+): Partial<Record<ImageParameterName, string | number>> {
+  const body: Partial<Record<ImageParameterName, string | number>> = {};
+  if (!values) return body;
+  for (const name of IMAGE_PARAMETER_NAMES) {
+    const value = values[name];
+    if (value !== undefined) body[name] = value;
+  }
+  return body;
+}
+
+/** 画像生成の provider。既定は openrouter。Codex は設定で明示的に選んだときだけ使う */
 export const IMAGE_PROVIDER_ID = "openrouter";
 
-/** 実行のたびに読み直す現在の設定。DB の列名 `imageModel` は ContentSettingsService が `model` へ写す */
-export interface ImageGenerationSettings {
-  provider: string;
+/**
+ * 画像の生成元。provider 間の自動フォールバック・自動再送はしない（片方の失敗を他方で隠さない）。
+ * Codex は画像モデルを選ばせず、ルーティングモデルも画像モデルとして見せない。
+ */
+export const IMAGE_GENERATION_PROVIDERS = [IMAGE_PROVIDER_ID, "codex"] as const;
+export type ImageProviderId = (typeof IMAGE_GENERATION_PROVIDERS)[number];
+export const DEFAULT_IMAGE_PROVIDER: ImageProviderId = IMAGE_PROVIDER_ID;
+
+export function isImageProviderId(value: string): value is ImageProviderId {
+  return (IMAGE_GENERATION_PROVIDERS as readonly string[]).includes(value);
+}
+
+/** 画像の認証状態。GET は保存値の読取だけで判定し、トークン解決も外部通信もしない */
+export type ImageAuthState = "configured" | "missing" | "expired";
+export type ImageAuthKind = "api_key" | "oauth";
+
+export interface ImageAuthStatus {
+  state: ImageAuthState;
+  /** provider が求める認証の種類。未設定でも「何を入れれば使えるか」を出すために返す */
+  kind: ImageAuthKind | null;
+}
+
+/**
+ * 画像ツールを公開しない理由。`no_key` は OpenRouter キー未登録、`no_auth` は Codex のサインインが無い
+ * （APIキーを求めない provider でキー登録を促さないため、理由を分ける）。
+ */
+export type ImageToolUnavailableReason = "no_key" | "no_auth" | "app_disabled";
+
+/** 画像ツールの実効と、止まっている理由。公開中は `reason` が null */
+export interface ImageToolAvailability {
+  enabled: boolean;
+  reason: ImageToolUnavailableReason | null;
+}
+
+/** Codex の実行時認証。値はログ・応答・結果本文へ出さない */
+export interface CodexAuth {
+  /** リクエストの Authorization に使うアクセストークン */
+  access: string;
+  /** `chatgpt-account-id` ヘッダの値 */
+  accountId: string;
+}
+
+/** Codex は画像モデルを返さないため、モデル行に出す固定の表示名（ルーティングモデルを偽らない） */
+export const CODEX_IMAGE_MODEL_LABEL = "Codex（画像モデル不明）";
+
+export const CODEX_AUTH_UNAVAILABLE_MESSAGE =
+  "Codex の認証を確認できませんでした。設定 → モデル で openai-codex にサインインしてください（画像は生成しておらず、クレジットも消費していません）";
+
+export interface OpenRouterImageGenerationSettings {
+  provider: typeof IMAGE_PROVIDER_ID;
   model: string;
   apiKey: string;
+  /**
+   * 保存済みの生成パラメータの既定（キー単位）。宣言との突き合わせは使う側（ツール）が
+   * `declaredImageParameters` で行う。Codex は既定を持たない（同じ map を共有しない）。
+   */
+  parameters?: ImageParameterValues | undefined;
 }
+
+export interface CodexImageGenerationSettings {
+  provider: "codex";
+  /** 実行時に openai-codex の認証を解決する。無ければ undefined（呼ぶ前に固定文言で止める） */
+  resolveAuth: () => Promise<CodexAuth | undefined>;
+}
+
+/**
+ * 実行のたびに読み直す現在の設定。provider ごとに要求する認証が違うが、その分岐はここで吸収する
+ * （DB の列をそのままツールへ渡さない）。
+ */
+export type ImageGenerationSettings = OpenRouterImageGenerationSettings | CodexImageGenerationSettings;
 
 /**
  * PiBff へ注入する有効状態と読取口。`enabled` はセッション作成時のツール一覧に使い、実行時の
@@ -126,13 +351,23 @@ export interface ContentGenerationConfig {
    * 実行時は `readSettings()` のキー無効エラーへ落とす（「無効化」と誤案内しない）
    */
   disabled: boolean;
-  /** 実行のたびに現在の設定を読む。行が無ければ undefined（未設定・削除後） */
+  /**
+   * 画像ツールの実効と理由。音声 / BGM の `enabled` と違い、選択 provider の認証を呼ぶたびに読む
+   * （Codex のサインインは設定画面を開き直しても `setContentGeneration` を呼ばないため）
+   */
+  imageAvailability: () => ImageToolAvailability;
+  /** 実行のたびに現在の設定を読む。生成元が Codex のときも undefined にしない（キーは要らない） */
   read: () => ImageGenerationSettings | undefined;
   /**
    * 実行のたびにカタログの形式宣言を引く。未知名・宣言なし（SDK 同梱カタログなど）は undefined。
    * 保存できる形式を 1 つも宣言していないモデルを provider へ送る前に止めるために使う。
    */
   readOutputFormats: (model: string) => readonly string[] | undefined;
+  /**
+   * 実行のたびにカタログのパラメータ宣言を引く。未知名・宣言なしは undefined（＝不明）。
+   * 明示された引数を provider へ送る前に宣言と突き合わせるために使う。
+   */
+  readParameters: (model: string) => ImageParameterDeclarations | undefined;
   /**
    * 参照画像による編集が可能かを課金前に確かめる。可能なら undefined、止めるときは理由の文言を返す
    * （モデル宣言と endpoint 宣言の両方を見る）。新規生成はここを通らない。
@@ -145,11 +380,14 @@ export interface ContentGenerationConfig {
   readVoices: (model: string) => readonly string[] | undefined;
 }
 
-export interface ImageGenerationInput {
-  provider: string;
-  model: string;
+/** 生成要求の共通部分。provider ごとに認証の形だけが違う */
+export interface ImageRequestBase {
   prompt: string;
-  apiKey: string;
+  /**
+   * 明示された生成パラメータ。省略した値は送信本文へ載せず、provider の既定に任せる。
+   * 宣言との突き合わせは `normalizeImageParameters` で済ませてから渡す。
+   */
+  parameters?: ImageParameterValues | undefined;
   /** ユーザー中断。timeout の自前タイマーとは別に扱う */
   signal?: AbortSignal | undefined;
   /**
@@ -158,6 +396,17 @@ export interface ImageGenerationInput {
    */
   inputReferences?: readonly string[] | undefined;
 }
+
+/** 画像生成器（OpenRouter の `/images`）が受ける要求。provider はカタログの id で、テストは stub を差し込む */
+export type ImageGenerationRequest = ImageRequestBase & { provider: string; model: string; apiKey: string };
+
+/**
+ * アプリが生成器へ渡す要求。Codex は画像モデルを選ばず、認証もキー文字列ではなく実行時に解決したものを渡す
+ * （provider で判別できる共用体にする）。
+ */
+export type ImageGenerationInput =
+  | (ImageRequestBase & { provider: typeof IMAGE_PROVIDER_ID; model: string; apiKey: string })
+  | (ImageRequestBase & { provider: "codex"; auth: CodexAuth });
 
 export interface ImagesGeneratorOptions {
   /** テストで stub カタログを注入する。既定は SDK 同梱の画像モデル（openrouter のみ） */
@@ -280,7 +529,7 @@ function builtinImageModels(): readonly ImageModel<ImageApi>[] {
 export interface ImagesGenerator {
   /** SDK 同梱のカタログ（provider 順・モデル順は SDK の定義順） */
   catalog(): ImageCatalogEntry[];
-  generate(input: ImageGenerationInput): Promise<ImageGenerationResult>;
+  generate(input: ImageGenerationRequest): Promise<ImageGenerationResult>;
 }
 
 /** カタログの組み立ては 1 箇所。generator を作らずに一覧だけを引ける */
@@ -343,7 +592,12 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
 
       let status: number | undefined;
       const inputReferences = input.inputReferences ?? [];
-      const requestBody: Record<string, unknown> = { model: model.id, prompt: input.prompt, n: 1 };
+      const requestBody: Record<string, unknown> = {
+        model: model.id,
+        prompt: input.prompt,
+        n: 1,
+        ...imageParameterBody(input.parameters),
+      };
       if (inputReferences.length > 0) {
         // OpenAI 直結 API の /images/edits や multipart は使わない（OpenRouter の /images の契約に合わせる）
         requestBody.input_references = inputReferences.map((url) => ({ type: "image_url", image_url: { url } }));

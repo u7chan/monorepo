@@ -75,6 +75,7 @@ export function ContentSettingsView({
     setEnabled,
     saveKey,
     removeKey,
+    saveImageProvider,
     saveSelection,
     saveSpeech,
     refreshCatalog,
@@ -164,6 +165,12 @@ export function ContentSettingsView({
           }}
           onSaveKey={saveKey}
           onDeleteKey={removeKey}
+          onSaveImageProvider={async (provider) => {
+            const saved = await saveImageProvider(provider);
+            // 公開するツールが変わるため、保存できたときだけエージェントの一覧を取り直す
+            if (saved) void refreshToolCatalog?.();
+            return saved;
+          }}
           onSaveSelection={saveSelection}
           onRefreshCatalog={refreshCatalog}
           onSaveSpeech={saveSpeech}

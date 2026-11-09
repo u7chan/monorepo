@@ -18,6 +18,7 @@ import { ContentTrialsService } from "./content-trials";
 import { TRIAL_ARTIFACTS_DIR_NAME, createTrialArtifactStore } from "./content-trial-artifacts";
 import { createTrialDiskCheck, type TrialStatfs } from "./content-trial-disk-space";
 import { createImageCatalog } from "./image-catalog";
+import { CODEX_PROVIDER_ID, codexAuthOf, codexAuthStatusOf } from "./codex-images";
 import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
 import { createWebSearchTest, type WebSearchTest } from "./web-search-test";
@@ -322,6 +323,21 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     catalog: imageCatalog,
     speechCatalog,
     setContentGeneration: pi ? pi.setContentGeneration : () => {},
+    // 表示には auth.json の保存値だけを使う（GET でトークン解決・外部通信を起こさない）。
+    // 生成の実行時だけ SDK に解決させ、返ったアクセストークンはマスカーへ入れてから使う
+    codexAuth: {
+      status: pi
+        ? () => codexAuthStatusOf(join(pi.agentDir, "auth.json"))
+        : () => ({ state: "missing" as const, kind: null }),
+      resolve: pi
+        ? async () => {
+            const auth = await pi.modelRuntime.getAuth(CODEX_PROVIDER_ID);
+            const access = auth?.auth.apiKey;
+            if (access) pi.retainSecret(access);
+            return codexAuthOf(access);
+          }
+        : async () => undefined,
+    },
     maskError,
     appCipher: secretCrypto.appCipher,
   });

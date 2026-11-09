@@ -11,10 +11,12 @@ import {
   APP_DB_FILENAME,
   APP_DB_SCHEMA_VERSION,
   type AssistantMetricsRow,
+  type ContentSettingsRow,
   type ContentTrialRow,
   type CustomProviderRow,
   type SecretRow,
 } from "../src/app-db";
+import type { ImageParameterDeclarations } from "../src/images";
 import type { AgentDef, Project } from "../src/schema";
 import { storedSecret } from "./app-secret-fixture";
 
@@ -877,6 +879,7 @@ test("migrates a v7 db, discards the plaintext content key and keeps the selecti
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(1).ciphertext,
       nonce: storedSecret(1).nonce,
@@ -888,6 +891,7 @@ test("migrates a v7 db, discards the plaintext content key and keeps the selecti
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(2).ciphertext,
       nonce: storedSecret(2).nonce,
@@ -898,6 +902,7 @@ test("migrates a v7 db, discards the plaintext content key and keeps the selecti
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(2).ciphertext,
       nonce: storedSecret(2).nonce,
@@ -911,6 +916,7 @@ test("migrates a v7 db, discards the plaintext content key and keeps the selecti
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(2).ciphertext,
       nonce: storedSecret(2).nonce,
@@ -925,7 +931,18 @@ test("migrates a v7 db, discards the plaintext content key and keeps the selecti
     const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
-      ["id", "provider", "imageModel", "speechModel", "speechVoice", "enabled", "ciphertext", "nonce", "keyVersion"],
+      [
+        "id",
+        "provider",
+        "imageModel",
+        "speechModel",
+        "speechVoice",
+        "enabled",
+        "ciphertext",
+        "nonce",
+        "keyVersion",
+        "imageParams",
+      ],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -965,6 +982,7 @@ test("migrates a v8 db additively and keeps the image catalog cache across reope
         imageModel: "openai/gpt-image-2",
         speechModel: null,
         speechVoice: null,
+        imageParams: null,
         enabled: true,
         ciphertext: null,
         nonce: null,
@@ -1107,6 +1125,77 @@ test("the image catalog cache round-trips the image input declaration", () => {
   }
 });
 
+test("the image catalog cache round-trips the image parameter declarations", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    const parameters: ImageParameterDeclarations = {
+      aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+      seed: { type: "range", min: 0, max: 2_147_483_647 },
+      background: { type: "boolean" },
+    };
+    db.saveImageCatalog({
+      fetchedAt: 1000,
+      models: [
+        { id: "openai/gpt-image-2", name: "GPT Image 2", parameters },
+        { id: "text-only/model", name: "Text Only", outputFormats: ["png"] },
+      ],
+    });
+    assert.deepEqual(db.readImageCatalog(), {
+      fetchedAt: 1000,
+      models: [
+        { id: "openai/gpt-image-2", name: "GPT Image 2", parameters },
+        { id: "text-only/model", name: "Text Only", outputFormats: ["png"] },
+      ],
+    });
+    db.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readImageCatalog(), {
+      fetchedAt: 1000,
+      models: [
+        { id: "openai/gpt-image-2", name: "GPT Image 2", parameters },
+        { id: "text-only/model", name: "Text Only", outputFormats: ["png"] },
+      ],
+    });
+    second.close();
+
+    // 形が違う descriptor / 未知のキーは「宣言なし」として読み、行自体は残す（列は増やさない）
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("UPDATE image_catalog SET models = ? WHERE id = 1").run(
+      JSON.stringify([
+        { id: "openai/gpt-image-2", name: "GPT Image 2", parameters },
+        {
+          id: "broken/descriptor",
+          name: "Broken",
+          parameters: {
+            aspect_ratio: { type: "enum", values: "1:1" },
+            resolution: { type: "range", min: "1", max: 2 },
+            output_format: { type: "enum", values: ["svg"] },
+            unknown_parameter: { type: "boolean" },
+          },
+        },
+        { id: "partial/descriptor", name: "Partial", parameters: { quality: { type: "boolean" } } },
+      ]),
+    );
+    raw.close();
+
+    const third = AppDb.open({ storeDir: dir });
+    assert.deepEqual(third.readImageCatalog(), {
+      fetchedAt: 1000,
+      models: [
+        { id: "openai/gpt-image-2", name: "GPT Image 2", parameters },
+        { id: "broken/descriptor", name: "Broken" },
+        { id: "partial/descriptor", name: "Partial", parameters: { quality: { type: "boolean" } } },
+      ],
+    });
+    assert.equal(third.status().ok, true, "壊れた descriptor で health を落とさない");
+    third.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a broken image catalog cache row reads as unset", () => {
   const dir = tempStoreDir();
   try {
@@ -1142,6 +1231,7 @@ test("a content settings row with empty values reads as unset", () => {
       imageModel: "",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: null,
       nonce: null,
@@ -1732,6 +1822,7 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: null,
       nonce: null,
@@ -1742,6 +1833,7 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(3).ciphertext,
       nonce: storedSecret(3).nonce,
@@ -1755,19 +1847,38 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ...storedSecret(3),
     });
     reopened.close();
 
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
-    const tables = check.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[];
-    assert.ok(!tables.some((table) => table.name === "image_settings"), "改名後に古いテーブルを残さない");
+    // v14 の `image_settings` は `content_settings` へ改名され、空の `image_settings` が v42 で作り直される。
+    // 古い行が新しいテーブルへ紛れ込んでいないことを見る
+    const imageRows = check.prepare("SELECT * FROM image_settings").all();
+    assert.deepEqual(imageRows, [], "改名後の image_settings は空で始まる");
+    assert.equal(
+      (check.prepare("SELECT COUNT(*) AS count FROM content_settings").get() as { count: number }).count,
+      1,
+      "改名した行は content_settings に残る",
+    );
     const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
       // 加算移行の列追加は末尾に付き、平文の apiKey は消える (読み書きは名前で行う)
-      ["id", "provider", "imageModel", "speechModel", "speechVoice", "enabled", "ciphertext", "nonce", "keyVersion"],
+      [
+        "id",
+        "provider",
+        "imageModel",
+        "speechModel",
+        "speechVoice",
+        "enabled",
+        "imageParams",
+        "ciphertext",
+        "nonce",
+        "keyVersion",
+      ],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -1805,6 +1916,7 @@ CREATE TABLE content_settings (
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: null,
       nonce: null,
@@ -1829,6 +1941,7 @@ test("a round trip through the v14 schema keeps content settings readable", () =
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(4).ciphertext,
       nonce: storedSecret(4).nonce,
@@ -1848,6 +1961,7 @@ test("a round trip through the v14 schema keeps content settings readable", () =
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ...storedSecret(4),
     });
@@ -1883,6 +1997,7 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: null,
       nonce: null,
@@ -1893,6 +2008,7 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(5).ciphertext,
       nonce: storedSecret(5).nonce,
@@ -1905,7 +2021,18 @@ test("migrates a v15 db additively by adding the speech columns", () => {
     assert.deepEqual(
       columns.map((column) => column.name),
       // 加算移行の列追加は末尾に付き、平文の apiKey は消える (読み書きは名前で行う)
-      ["id", "provider", "imageModel", "speechModel", "speechVoice", "enabled", "ciphertext", "nonce", "keyVersion"],
+      [
+        "id",
+        "provider",
+        "imageModel",
+        "speechModel",
+        "speechVoice",
+        "enabled",
+        "imageParams",
+        "ciphertext",
+        "nonce",
+        "keyVersion",
+      ],
     );
     assert.equal(check.prepare("SELECT count(*) AS n FROM speech_catalog").get()?.n, 0, "キャッシュは未取得で始まる");
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
@@ -1917,6 +2044,7 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      imageParams: null,
       enabled: true,
       ...storedSecret(5),
     });
@@ -2802,6 +2930,7 @@ test("migrates a v30 db by discarding plaintext keys and keeping the non-key col
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: "Kore",
+      imageParams: null,
       enabled: false,
       ciphertext: null,
       nonce: null,
@@ -2832,6 +2961,7 @@ test("migrates a v30 db by discarding plaintext keys and keeping the non-key col
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(2).ciphertext,
       nonce: storedSecret(2).nonce,
@@ -3250,11 +3380,13 @@ function runningTrial(id: string, overrides: Partial<ContentTrialRow> = {}): Con
   return {
     id,
     kind: "image",
+    provider: "openrouter",
     model: "openrouter/openai/gpt-image-2",
     prompt: "a cat",
     voice: null,
     instructions: null,
     speed: null,
+    parameters: null,
     state: "running",
     keyEpoch: 0,
     artifactState: "none",
@@ -3491,10 +3623,12 @@ test("成果物のメタデータは状態と 1 文で書き、容量は succeed
   // 同じ入力の保存済み成功だけを再利用の対象にする
   const reuseBase = {
     kind: "image",
+    provider: row?.provider ?? "openrouter",
     model: row?.model ?? "",
     voice: null,
     instructions: null,
     speed: null,
+    parameters: null,
     keyEpoch: row?.keyEpoch ?? 0,
   };
   assert.equal(db.findReusableContentTrial({ ...reuseBase, prompt: "a cat" })?.id, id);
@@ -3611,11 +3745,13 @@ test("v39 の DB を開くと音声の列が足され、既存の行は null の
     assert.equal(
       migrated.findReusableContentTrial({
         kind: "speech",
+        provider: "openrouter",
         model: "google/gemini-3.8-flash-tts",
         prompt: "a cat",
         voice: "Aoede",
         instructions: null,
         speed: 1.1,
+        parameters: null,
         keyEpoch: speech?.keyEpoch ?? 0,
       })?.id,
       id,
@@ -3623,11 +3759,13 @@ test("v39 の DB を開くと音声の列が足され、既存の行は null の
     assert.equal(
       migrated.findReusableContentTrial({
         kind: "speech",
+        provider: "openrouter",
         model: "google/gemini-3.8-flash-tts",
         prompt: "a cat",
         voice: "Aoede",
         instructions: null,
         speed: 1.2,
+        parameters: null,
         keyEpoch: speech?.keyEpoch ?? 0,
       }),
       undefined,
@@ -3697,6 +3835,335 @@ test("形式メモの壊れた行は未学習として読み、health を落と�
     db.saveSpeechFormat("google/gemini-3.8-flash-tts", "pcm");
     assert.equal(db.readSpeechFormat("google/gemini-3.8-flash-tts"), "pcm");
     db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- v41 -> v42: 画像の生成元（別テーブル）と試行の生成元の列 ---
+
+test("v41 の DB を開くと image_settings と content_trials.provider が足され、既存の行は残る", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.insertProject(project("p1", "proj-a"));
+    first.saveContentSettings({
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      speechModel: null,
+      speechVoice: null,
+      imageParams: null,
+      enabled: true,
+      ...storedSecret(1),
+    });
+    first.saveContentTrial(runningTrial("trial-provider"));
+    first.close();
+
+    // v41 相当（image_settings と content_trials.provider を持たない版）へ落として開き直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE image_settings");
+    raw.exec("ALTER TABLE content_trials DROP COLUMN provider");
+    raw.exec("PRAGMA user_version = 41");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.deepEqual(
+      migrated.listProjects().map((entry) => entry.id),
+      ["p1"],
+    );
+    // 行が無い = 既定 (openrouter)。キー削除で消えないよう content_settings とは別の行に持つ
+    assert.equal(migrated.readImageSettings(), undefined);
+    migrated.saveImageSettings({ provider: "codex", codexParams: null });
+    assert.deepEqual(migrated.readImageSettings(), { provider: "codex", codexParams: null });
+    // 試行の既存行は NULL = openrouter として読める
+    assert.equal(migrated.readContentTrial("trial-provider")?.provider, "openrouter");
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    assert.deepEqual(
+      (check.prepare("SELECT provider FROM image_settings").all() as { provider: string }[]).map((row) => row.provider),
+      ["codex"],
+    );
+    assert.equal(
+      (check.prepare("SELECT provider FROM content_trials WHERE id = 'trial-provider'").get() as { provider: string })
+        .provider,
+      null,
+      "既存の試行の行は書き換えない",
+    );
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("v42 の DB を開くと content_trials.imageParams が足され、既存の行は未指定として読める", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentTrial(runningTrial("trial-params"));
+    first.close();
+
+    // v42 相当（imageParams を持たない版）へ落として開き直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("ALTER TABLE content_trials DROP COLUMN imageParams");
+    raw.exec("PRAGMA user_version = 42");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.equal(migrated.readContentTrial("trial-params")?.parameters, null, "既存行は NULL = 未指定");
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    assert.equal(
+      (
+        check.prepare("SELECT imageParams FROM content_trials WHERE id = 'trial-params'").get() as {
+          imageParams: string | null;
+        }
+      ).imageParams,
+      null,
+      "既存の試行の行は書き換えない",
+    );
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("画像のパラメータは正規化した JSON で往復し、同じ入力だけを再利用する", () => {
+  const db = AppDb.open({ storeDir: null });
+  const id = "trial-0123456789abcdef01234567";
+  // キーの順序が違うだけの入力が同じ保存値になるように、保存側でキー順を固定する
+  db.saveContentTrial(runningTrial(id, { parameters: { seed: 42, aspect_ratio: "1:1" } }));
+  db.finishContentTrial({
+    id,
+    state: "succeeded",
+    failureCode: null,
+    failureMessage: null,
+    finishedAt: 2_000,
+    durationMs: 1_000,
+    charged: true,
+    artifact: { path: `${id}.png`, bytes: 10, format: "png", width: 1, height: 1 },
+  });
+  assert.deepEqual(db.readContentTrial(id)?.parameters, { aspect_ratio: "1:1", seed: 42 });
+
+  const reuse = (parameters: { aspect_ratio?: string; seed?: number } | null) =>
+    db.findReusableContentTrial({
+      kind: "image",
+      provider: "openrouter",
+      model: "openrouter/openai/gpt-image-2",
+      prompt: "a cat",
+      voice: null,
+      instructions: null,
+      speed: null,
+      parameters,
+      keyEpoch: 0,
+    })?.id;
+  assert.equal(reuse({ aspect_ratio: "1:1", seed: 42 }), id, "キーの順序が違っても同じ入力");
+  assert.equal(reuse({ aspect_ratio: "1:1" }), undefined, "パラメータが違えば再利用しない");
+  assert.equal(reuse(null), undefined, "未指定の入力はパラメータ付きの実績を再利用しない");
+
+  // 未指定同士（NULL）は一致として再利用できる
+  const none = "trial-0123456789abcdef01234568";
+  db.saveContentTrial(runningTrial(none, { prompt: "a dog" }));
+  db.finishContentTrial({
+    id: none,
+    state: "succeeded",
+    failureCode: null,
+    failureMessage: null,
+    finishedAt: 3_000,
+    durationMs: 1_000,
+    charged: true,
+    artifact: { path: `${none}.png`, bytes: 10, format: "png", width: 1, height: 1 },
+  });
+  assert.equal(
+    db.findReusableContentTrial({
+      kind: "image",
+      provider: "openrouter",
+      model: "openrouter/openai/gpt-image-2",
+      prompt: "a dog",
+      voice: null,
+      instructions: null,
+      speed: null,
+      parameters: null,
+      keyEpoch: 0,
+    })?.id,
+    none,
+  );
+  db.close();
+});
+
+test("壊れた imageParams は未指定へ落とさず、行の破損として例外にする", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentTrial(runningTrial("trial-broken"));
+    first.saveContentTrial(runningTrial("trial-shape"));
+    first.close();
+
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    for (const [value, id] of [
+      ["{not json", "trial-broken"],
+      ['{"seed":"42"}', "trial-shape"],
+    ] as const) {
+      raw.prepare("UPDATE content_trials SET imageParams = ? WHERE id = ?").run(value, id);
+    }
+    raw.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.throws(() => reopened.readContentTrial("trial-broken"), /content_trials\.imageParams is not valid JSON/);
+    assert.throws(
+      () => reopened.readContentTrial("trial-shape"),
+      /content_trials\.imageParams is not a valid parameters object/,
+    );
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("image_settings は 1 行の upsert で、codexParams をそのまま往復する", () => {
+  const db = AppDb.open({ storeDir: null });
+  db.saveImageSettings({ provider: "codex", codexParams: '{"quality":"low"}' });
+  assert.deepEqual(db.readImageSettings(), { provider: "codex", codexParams: '{"quality":"low"}' });
+  db.saveImageSettings({ provider: "openrouter", codexParams: '{"quality":"low"}' });
+  assert.deepEqual(db.readImageSettings(), { provider: "openrouter", codexParams: '{"quality":"low"}' });
+  db.saveImageSettings({ provider: "openrouter", codexParams: null });
+  assert.deepEqual(db.readImageSettings(), { provider: "openrouter", codexParams: null });
+  db.close();
+});
+
+/** 既定を持つ content_settings の行。他の列は往復の検査に要る最小だけを埋める */
+function contentRow(overrides: Partial<ContentSettingsRow> = {}): ContentSettingsRow {
+  return {
+    provider: "openrouter",
+    imageModel: "openai/gpt-image-2",
+    speechModel: null,
+    speechVoice: null,
+    enabled: true,
+    imageParams: null,
+    ...storedSecret(1),
+    ...overrides,
+  };
+}
+
+test("v43 の DB を開くと content_settings.imageParams が足され、既存行は既定なしのまま読める", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentSettings(contentRow());
+    first.close();
+
+    // v43 相当（content_settings.imageParams を持たない版）へ落として開き直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("ALTER TABLE content_settings DROP COLUMN imageParams");
+    raw.exec("PRAGMA user_version = 43");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.equal(migrated.readContentSettings()?.imageParams, null, "既存行は NULL = 既定なし");
+    migrated.saveContentSettings(
+      contentRow({ imageParams: { "openai/gpt-image-2": { aspect_ratio: "16:9", seed: 7 } } }),
+    );
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    assert.equal(
+      (
+        check.prepare("SELECT imageParams FROM content_settings WHERE id = 1").get() as {
+          imageParams: string | null;
+        }
+      ).imageParams,
+      '{"openai/gpt-image-2":{"aspect_ratio":"16:9","seed":7}}',
+    );
+    check.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.readContentSettings()?.imageParams, {
+      "openai/gpt-image-2": { aspect_ratio: "16:9", seed: 7 },
+    });
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("画像パラメータの既定はモデルごとに往復し、空の map と NULL を区別する", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    // 未設定は NULL。保存し直しても消えない
+    db.saveContentSettings(contentRow());
+    assert.equal(db.readContentSettings()?.imageParams, null);
+
+    db.saveContentSettings(
+      contentRow({
+        imageParams: {
+          "openai/gpt-image-2": { aspect_ratio: "16:9", seed: 7 },
+          "black-forest-labs/flux.2-max": { quality: "high" },
+        },
+      }),
+    );
+    assert.deepEqual(db.readContentSettings()?.imageParams, {
+      "openai/gpt-image-2": { aspect_ratio: "16:9", seed: 7 },
+      "black-forest-labs/flux.2-max": { quality: "high" },
+    });
+    // 別の列の更新（キーの上書き）でも既定を消さない
+    db.saveContentSettings(
+      contentRow({ imageParams: db.readContentSettings()?.imageParams ?? null, ...storedSecret(2) }),
+    );
+    assert.deepEqual(Object.keys(db.readContentSettings()?.imageParams ?? {}), [
+      "openai/gpt-image-2",
+      "black-forest-labs/flux.2-max",
+    ]);
+
+    // 全モデルの既定を消した状態（空の map）は `{}` として保存し、NULL と区別する
+    db.saveContentSettings(contentRow({ imageParams: {} }));
+    assert.deepEqual(db.readContentSettings()?.imageParams, {});
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(
+      (
+        check.prepare("SELECT imageParams FROM content_settings WHERE id = 1").get() as {
+          imageParams: string | null;
+        }
+      ).imageParams,
+      "{}",
+    );
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("壊れた content_settings.imageParams は既定なしへ落とさず、行の破損として例外にする", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentSettings(contentRow());
+    first.close();
+
+    for (const value of [
+      "{not json",
+      '["1:1"]',
+      '{"openai/gpt-image-2":"16:9"}',
+      '{"openai/gpt-image-2":{"seed":"42"}}',
+    ]) {
+      const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+      raw.prepare("UPDATE content_settings SET imageParams = ? WHERE id = 1").run(value);
+      raw.close();
+      const reopened = AppDb.open({ storeDir: dir });
+      // 行の破損は理由を固定文言にして 503 へ寄せる（保存値の断片を例外文言へ出さない）
+      assert.throws(
+        () => reopened.readContentSettings(),
+        (error: Error) => error.message.endsWith("app secret query failed"),
+        value,
+      );
+      reopened.close();
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

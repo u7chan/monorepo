@@ -18,6 +18,22 @@ const IMAGE_MODELS = [
   { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
 ];
 
+/** 宣言を持つモデル。パラメータの差分だけで導線が出ることを固定する */
+const DECLARING_MODELS = [
+  {
+    provider: "openrouter",
+    id: "openai/gpt-image-2",
+    name: "GPT Image 2",
+    parameters: {
+      aspect_ratio: { type: "enum" as const, values: ["1:1", "16:9"] },
+      seed: { type: "range" as const, min: 0, max: 1_000 },
+    },
+  },
+  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+];
+
+const MODEL = "openrouter/openai/gpt-image-2";
+
 const SPEECH_MODELS = [
   { provider: "openrouter", id: "google/gemini-3.8-flash-tts", name: "Gemini TTS", voices: ["Zephyr", "Aoede"] },
   { provider: "openrouter", id: "fish/audio", name: "Fish Audio", voices: [] },
@@ -40,7 +56,16 @@ function settings(
     disabledMessage: "無効",
     runtimeAvailable: true,
     bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
-    image: { model: "openai/gpt-image-2", models: IMAGE_MODELS, catalogSource: "live", fetchedAt: null, ...image },
+    image: {
+      model: "openai/gpt-image-2",
+      provider: "openrouter",
+      auth: { state: "configured", kind: "api_key" },
+      models: IMAGE_MODELS,
+      catalogSource: "live",
+      fetchedAt: null,
+      parametersByModel: {},
+      ...image,
+    },
     speech: {
       model: "google/gemini-3.8-flash-tts",
       voice: "Zephyr",
@@ -53,34 +78,91 @@ function settings(
   };
 }
 
-test("画像は試行のモデルが保存値と違うときだけ既定にできる", () => {
+test("画像は試行のモデルかパラメータが保存値と違うときだけ既定にできる", () => {
   assert.equal(
-    imageTrialDefaultTarget({ settings: settings(), trialModel: "openrouter/openai/gpt-image-2" }),
+    imageTrialDefaultTarget({
+      settings: settings(),
+      trialModel: "openrouter/openai/gpt-image-2",
+      trialParameters: null,
+    }),
     null,
     "保存値と同じなら導線を出さない",
   );
   assert.deepEqual(
-    imageTrialDefaultTarget({ settings: settings(), trialModel: "openrouter/google/gemini-image" }),
-    { provider: "openrouter", model: "google/gemini-image" },
-    "試行に使ったモデルを PUT の本文にする",
+    imageTrialDefaultTarget({
+      settings: settings(),
+      trialModel: "openrouter/google/gemini-image",
+      trialParameters: null,
+    }),
+    { provider: "openrouter", model: "google/gemini-image", parameters: {} },
+    "試行に使ったモデルを PUT の本文にし、未指定は既定なしとして揃える",
+  );
+});
+
+test("画像はモデルが同じでもパラメータが違えば既定にできる", () => {
+  const declaring = settings(
+    {},
+    {
+      models: DECLARING_MODELS,
+      parametersByModel: { "openai/gpt-image-2": { aspect_ratio: "1:1", seed: 7 } },
+    },
+  );
+  assert.equal(
+    imageTrialDefaultTarget({
+      settings: declaring,
+      trialModel: MODEL,
+      trialParameters: { aspect_ratio: "1:1", seed: 7 },
+    }),
+    null,
+    "モデルもパラメータも保存値と同じなら出さない",
+  );
+  assert.deepEqual(
+    imageTrialDefaultTarget({
+      settings: declaring,
+      trialModel: MODEL,
+      trialParameters: { aspect_ratio: "16:9", seed: 7 },
+    }),
+    { provider: "openrouter", model: "openai/gpt-image-2", parameters: { aspect_ratio: "16:9", seed: 7 } },
+    "パラメータだけ違っても、モデルと全項目を保存する（部分更新ではない）",
+  );
+  assert.deepEqual(
+    imageTrialDefaultTarget({ settings: declaring, trialModel: MODEL, trialParameters: null }),
+    { provider: "openrouter", model: "openai/gpt-image-2", parameters: {} },
+    "未指定で走った試行は既定なしへ揃える",
+  );
+  // 保存後（PUT の応答で parametersByModel が試行の値になった状態）は導線が消える
+  const saved = settings(
+    {},
+    { models: DECLARING_MODELS, parametersByModel: { "openai/gpt-image-2": { aspect_ratio: "16:9" } } },
+  );
+  assert.equal(
+    imageTrialDefaultTarget({ settings: saved, trialModel: MODEL, trialParameters: { aspect_ratio: "16:9" } }),
+    null,
+    "保存できたら導線は消える",
+  );
+  // 宣言が変わって選択肢に無い値になった試行は、そのまま送ると 400 になるため導線を出さない
+  assert.equal(
+    imageTrialDefaultTarget({ settings: saved, trialModel: MODEL, trialParameters: { aspect_ratio: "4:5" } }),
+    null,
+    "宣言の外の値は保存できない",
   );
 });
 
 test("画像のモデルを本文にできないときは導線を出さない", () => {
   assert.equal(
-    imageTrialDefaultTarget({ settings: settings(), trialModel: "openrouter/unknown/image" }),
+    imageTrialDefaultTarget({ settings: settings(), trialModel: "openrouter/unknown/image", trialParameters: null }),
     null,
     "カタログにも保存値にも無いモデルは保存できない",
   );
   const outside = settings({}, { model: "openrouter/retired/image" });
   assert.equal(
-    imageTrialDefaultTarget({ settings: outside, trialModel: "openrouter/retired/image" }),
+    imageTrialDefaultTarget({ settings: outside, trialModel: "openrouter/retired/image", trialParameters: null }),
     null,
     "保存値と同じならカタログ外でも出さない",
   );
   assert.deepEqual(
-    imageTrialDefaultTarget({ settings: outside, trialModel: "openrouter/openai/gpt-image-2" }),
-    { provider: "openrouter", model: "openai/gpt-image-2" },
+    imageTrialDefaultTarget({ settings: outside, trialModel: "openrouter/openai/gpt-image-2", trialParameters: null }),
+    { provider: "openrouter", model: "openai/gpt-image-2", parameters: {} },
     "カタログ外の保存値でも、カタログにあるモデルへは切り替えられる",
   );
 });
@@ -150,7 +232,11 @@ test("保存後は保存値が試行の値になり、下書きを捨てれば�
 
   const savedImage = settings({}, { model: "google/gemini-image" });
   assert.equal(
-    imageTrialDefaultTarget({ settings: savedImage, trialModel: "openrouter/google/gemini-image" }),
+    imageTrialDefaultTarget({
+      settings: savedImage,
+      trialModel: "openrouter/google/gemini-image",
+      trialParameters: null,
+    }),
     null,
     "画像も保存後は導線が消える",
   );

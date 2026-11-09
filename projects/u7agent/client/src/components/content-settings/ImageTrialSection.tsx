@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import {
   evidenceNote,
   hasStoredArtifact,
+  imageParameterChips,
+  imageParameterNote,
+  imageTrialParameters,
+  imageTrialProviderBlockedReason,
   imageTrialRequest,
   latestTrial,
   trialArtifactSummary,
@@ -12,6 +16,12 @@ import {
   trialPanelState,
   trialStartBlockedReason,
 } from "../../lib/contentTrials";
+import {
+  IMAGE_PARAMETER_DEFAULT_LABEL,
+  imageModelParameterDeclarations,
+  imageParameterFields,
+  type ImageParameterDraft,
+} from "../../lib/imageParameters";
 import { imageTrialDefaultTarget } from "../../lib/trialDefault";
 import type {
   ContentSettingsResponse,
@@ -21,6 +31,7 @@ import type {
   UpdateContentImageBody,
 } from "../../types";
 import { ZoomableImage } from "../ImageZoom";
+import { SelectField } from "../SelectField";
 import { TrialArtifactMeta, TrialResultViewport } from "./TrialResultViewport";
 import { TrialEmptyNote, TrialNoteLines, TrialRunControls, TrialRunSection } from "./TrialRun";
 import { TrialDefaultAction, UNCONFIGURED_BLOCKED_NOTE } from "./TrialDefaultAction";
@@ -43,6 +54,9 @@ export type ImageTrialSectionProps = {
   /** 試行のプロンプト下書き。面を切り替えても失わないよう、呼び出し側が持つ */
   prompt: string;
   onChangePrompt: (prompt: string) => void;
+  /** 試行の生成パラメータの下書き。プロンプトと同じく保存しない（宣言に無いキーは呼び出し側が落とす） */
+  parameters: ImageParameterDraft;
+  onChangeParameters: (parameters: ImageParameterDraft) => void;
   onStart: (input: CreateContentTrialBody) => Promise<boolean>;
   onCancel: (id: string) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
@@ -66,6 +80,8 @@ export function ImageTrialSection({
   onMakeDefault,
   prompt,
   onChangePrompt,
+  parameters,
+  onChangeParameters,
   onStart,
   onCancel,
   onDelete,
@@ -100,9 +116,16 @@ export function ImageTrialSection({
       cancelled = true;
     };
   }, [latestId, onLoadTrial]);
-  // 同じモデルを保存しても何も変わらないため、結果との差分があるときだけ導線を出す
-  const defaultTarget = latest ? imageTrialDefaultTarget({ settings, trialModel: latest.model }) : null;
+  // 同じモデル・同じパラメータを保存しても何も変わらないため、結果との差分があるときだけ導線を出す
+  const defaultTarget = latest
+    ? imageTrialDefaultTarget({ settings, trialModel: latest.model, trialParameters: latest.parameters })
+    : null;
   const defaultBlockedReason = settings.configured ? null : UNCONFIGURED_BLOCKED_NOTE;
+  const providerBlocked = imageTrialProviderBlockedReason(settings.image.provider);
+  // 入力欄はモデルの宣言から作る。宣言が読めないモデルは欄を出さない（不明を既定として見せない）
+  const declarations = imageModelParameterDeclarations(settings.image.models, model);
+  const fields = imageParameterFields(declarations);
+  const parameterCheck = imageTrialParameters(declarations, parameters);
   const blocked = trialStartBlockedReason({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,
@@ -110,8 +133,14 @@ export function ImageTrialSection({
     keyAvailable: settings.keyAvailable,
     running: running !== null,
     prompt,
+    providerBlockedReason: providerBlocked,
+    parameterBlockedReason: parameterCheck.ok ? null : parameterCheck.error,
   });
   const stored = latest !== null && hasStoredArtifact(latest);
+  const startTrial = () => {
+    if (!parameterCheck.ok) return;
+    void onStart(imageTrialRequest({ model, prompt, parameters: parameterCheck.parameters, origin: "form" }));
+  };
 
   return (
     <TrialRunSection description="画面の値で生成だけを試します。モデルの保存値は変えません。送ったプロンプトと結果はアプリのデータ領域に履歴として残ります（時間ベースでは消えません）。">
@@ -127,12 +156,73 @@ export function ImageTrialSection({
         />
       </label>
 
+      {fields.length === 0 ? null : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {fields.map((field) => {
+            const value = parameters[field.name] ?? "";
+            const set = (next: string) => onChangeParameters({ ...parameters, [field.name]: next });
+            return (
+              <div key={field.name} className="grid content-start gap-1">
+                <label className="grid min-w-0 gap-1">
+                  <span className="text-2xs text-ink-muted">{field.name}</span>
+                  {field.kind === "enum" ? (
+                    <SelectField
+                      aria-label={`試行の ${field.name}`}
+                      value={value}
+                      disabled={busy}
+                      onChange={(event) => set(event.currentTarget.value)}
+                    >
+                      <option value="">{IMAGE_PARAMETER_DEFAULT_LABEL}</option>
+                      {field.values.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </SelectField>
+                  ) : (
+                    <input
+                      className="field min-w-0 text-xs"
+                      type="number"
+                      inputMode="numeric"
+                      min={field.min}
+                      max={field.max}
+                      value={value}
+                      placeholder={IMAGE_PARAMETER_DEFAULT_LABEL}
+                      aria-label={`試行の ${field.name}`}
+                      disabled={busy}
+                      onChange={(event) => set(event.currentTarget.value)}
+                    />
+                  )}
+                </label>
+                {value === "" ? null : (
+                  <button type="button" className="btn-quiet w-fit" disabled={busy} onClick={() => set("")}>
+                    既定に戻す
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 空欄の扱いは入力欄のすぐ下に書く（宣言に応じて何を指定できるか） */}
+      <p className="text-2xs leading-relaxed text-ink-muted">{imageParameterNote(declarations)}</p>
+
+      {providerBlocked === null ? null : (
+        <p
+          role="status"
+          className="rounded border border-line bg-base px-2 py-1.5 text-2xs leading-relaxed text-ink-muted"
+        >
+          {providerBlocked}
+        </p>
+      )}
+
       <TrialRunControls
         busy={busy}
         running={running !== null}
         panel={panel}
         blocked={blocked}
-        onStart={() => void onStart(imageTrialRequest({ model, prompt, origin: "form" }))}
+        onStart={startTrial}
         onCancel={() => {
           if (running) void onCancel(running.id);
         }}
@@ -151,6 +241,7 @@ export function ImageTrialSection({
           running={running !== null}
           sentNoun="プロンプト"
           variant="latest"
+          chips={imageParameterChips(latest.parameters)}
           artifact={
             stored ? (
               <div className="grid gap-1">
@@ -169,7 +260,7 @@ export function ImageTrialSection({
           defaultAction={
             <TrialDefaultAction
               key={latest.id}
-              label="このモデルを既定にする"
+              label="このモデルと設定を既定にする"
               target={defaultTarget}
               disabled={busy || settingsBusy}
               blockedReason={defaultBlockedReason}

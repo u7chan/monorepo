@@ -199,16 +199,17 @@
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/content` | `configured` / `provider` / `enabled` / `disabledMessage` / `runtimeAvailable` / `image` / `speech` / `bgm`。画像・TTSはモデル一覧、BGMは固定モデル・形式・モデル仕様の尺を返す。純粋読取でAPIキーは返さず、生成APIも呼ばない |
+| GET | `/api/settings/content` | `configured` / `provider` / `enabled` / `disabledMessage` / `runtimeAvailable` / `image` / `speech` / `bgm`。画像は生成元と認証状態、画像・TTSはモデル一覧、BGMは固定モデル・形式・モデル仕様の尺を返す。純粋読取でAPIキー・トークンを返さず、生成APIも呼ばず、OAuth の解決もしない |
 | PUT | `/api/settings/content` | `{ enabled }`。画像・音声・BGM 共通の有効 / 無効（キーと選択は保持。行が無ければ 400）。保存した瞬間から既存のセッションの次の呼び出しにも効く |
-| PUT | `/api/settings/content/image` | `{ provider, model }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400） |
+| PUT | `/api/settings/content/image` | `{ provider, model, parameters? }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400）。`parameters` は生成パラメータの既定で、**省略 = 据え置き / `{}` = そのモデルの既定を削除 / 値あり = 置き換え**（`model` を切り替えても他のモデルの既定は残る）。宣言外の値は 400 で保存しない（[image-generation.md](image-generation.md#画像パラメータの既定)） |
+| PUT | `/api/settings/content/image/provider` | `{ provider }`（`openrouter` / `codex`）。画像の生成元だけを切り替える。キー登録を伴わないため行が無くても受け付け、`content_settings` のキー・モデル・音声・トグルは変えない（[image-generation.md](image-generation.md#画像の生成元provider)） |
 | PUT | `/api/settings/content/speech` | `{ model, voice }`。キーと画像モデルを保持したまま音声モデル / ボイスを更新（行が無ければ 400） |
 | PUT | `/api/settings/content/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
 | DELETE | `/api/settings/content/key` | 行ごと削除して未設定へ戻す（冪等） |
 | POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
 | POST | `/api/settings/content/speech/catalog/refresh` | 音声カタログの再取得。応答は画像と同じ形 |
-| POST | `/api/settings/content/trials` | `{ kind, model, prompt, voice?, instructions?, speed?, force? }`。試行ジョブを開始し、202 で `{ trial, reused: false }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409）。BGM の `model` は固定値だけで、BGM の同時実行はチャットの `generate_bgm` と枠を共有する（空きが無ければ行を作らず 409）。同じ入力の保存済み成功（現在のキー世代・成果物ファイルあり）があれば provider を呼ばず 200 `{ trial, reused: true }`。`force: true` は保存済み結果を無視する。置き場のディスクの空きが 1 件分に満たないときは、行を作らず 503 `{ error, code: "disk_shortage" }` で拒否する（クレジットは消費しない） |
-| GET | `/api/settings/content/trials` | `{ items, keyEpoch, artifactUsage, artifactWarning, nextBefore, hasMore }`。新しい順の履歴（`?kind=` で絞る）。`?limit=`（上限あり）と `?before=`（前のページの `nextBefore`）でページを進め、`?state=running` は実行中の行だけを返す。`items` は要約で、本文と演技指示は `GET .../trials/:id` だけが返す。取得のたびに `running` の取り残しと成果物の置き場を再照合する |
+| POST | `/api/settings/content/trials` | `{ kind, model, prompt, voice?, instructions?, speed?, parameters?, force? }`。試行ジョブを開始し、202 で `{ trial, reused: false }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409）。`parameters` は画像の生成パラメータで、画像のときだけ受け付けてモデルの宣言と突き合わせてから provider を呼ぶ（宣言外・宣言不明・透過できない形式は 400 で課金しない）。BGM の `model` は固定値だけで、BGM の同時実行はチャットの `generate_bgm` と枠を共有する（空きが無ければ行を作らず 409）。同じ入力の保存済み成功（現在のキー世代・成果物ファイルあり）があれば provider を呼ばず 200 `{ trial, reused: true }`。`force: true` は保存済み結果を無視する。置き場のディスクの空きが 1 件分に満たないときは、行を作らず 503 `{ error, code: "disk_shortage" }` で拒否する（クレジットは消費しない） |
+| GET | `/api/settings/content/trials` | `{ items, keyEpoch, artifactUsage, artifactWarning, nextBefore, hasMore }`。新しい順の履歴（`?kind=` で絞る）。`?limit=`（上限あり）と `?before=`（前のページの `nextBefore`）でページを進め、`?state=running` は実行中の行だけを返す。`items` は要約で、本文と演技指示は `GET .../trials/:id` だけが返す。送信時の `parameters` と音声の `voice` / `speed` は要約にも載る（未指定は null）ので、全文を取得しなくても再生成の入力を組み立てられる。取得のたびに `running` の取り残しと成果物の置き場を再照合する |
 | GET | `/api/settings/content/trials/:id` | `{ trial }`。本文と演技指示を含む全文。終端の記録に失敗している間は `recorded: false` でメモリの状態を返す |
 | GET | `/api/settings/content/trials/:id/raw` | 保存済みの成果物。`Content-Type` は保存時に確定した MIME で、`Accept-Ranges: bytes` / `X-Content-Type-Options: nosniff` / `Cache-Control: no-store`。単一の `Range` を満たすときは 206 + `Content-Range`、満たせないときは 416 + `Content-Range: bytes */<size>`（本文は JSON のエラーなので `Content-Type: application/json`。契約は [api-files.md](api-files.md#画像配信raw) と同じ）。`?download=1` で `Content-Disposition: attachment` |
 | POST | `/api/settings/content/trials/:id/cancel` | 実行中の試行だけを中断して `{ trial }`。終端は 409 |
@@ -232,9 +233,12 @@
   "runtimeAvailable": true,
   "image": {
     "model": "openai/gpt-image-2",
+    "provider": "openrouter",
+    "auth": { "state": "configured", "kind": "api_key" },
     "models": [{ "provider": "openrouter", "id": "openai/gpt-image-2", "name": "OpenAI: GPT Image 2" }],
     "catalogSource": "live",
-    "fetchedAt": 1740000000000
+    "fetchedAt": 1740000000000,
+    "parametersByModel": { "openai/gpt-image-2": { "aspect_ratio": "16:9" } }
   },
   "speech": {
     "model": "google/gemini-3.8-flash-tts",
@@ -271,12 +275,13 @@
 
 - `configured` は `content_settings` に行があるか。`false` のとき `provider` / `image.model` / `speech.model` / `bgm.model` は `null`（行が無い = 未設定）。
 - `image` / `speech` / `bgm` は兄弟の表示項目。`bgm` は `{ model, format, expectedDurationSeconds }` で形式と尺は固定のモデル仕様（生成物の実測値ではない）。値とDTOの正は `server/src/bgm.ts` / `server/src/schema.ts`。BGM専用の保存APIは追加せず、変更系もGETと同じbgmを返す（[bgm-generation.md](bgm-generation.md)）。
-- `image.models` は live カタログ（OpenRouter の画像モデル API）で、UI はこの一覧からだけモデルを選べる。`catalogSource` は `live` / `stored` / `sdk` で、`live` 以外は取得に失敗した状態（`stored` = 前回の成功を DB キャッシュから、`sdk` = SDK 同梱）を表し、`fetchedAt` は最後に live を取得できた時刻（`sdk` は `null`）。キー値はどの応答にも含めない（[image-generation.md](image-generation.md#モデルカタログ)）
+- `image.provider` は画像の生成元（`openrouter` / `codex`。行が無ければ既定の `openrouter`）で、`image.auth` は選択中の provider の認証状態（`configured` / `missing` / `expired` と `kind`）だけを返す。**GET はどちらも保存値の読取だけで判定し、OAuth のトークン解決・更新・外部通信をしない**。`image.models` は OpenRouter を選んでいるときだけ返し、Codex のときは空配列（画像モデルを選ばない。ルーティングモデルを画像モデルとして返さない）。
+- `image.models` は live カタログ（OpenRouter の画像モデル API）で、UI はこの一覧からだけモデルを選べる。各要素は `provider` / `id` / `name` と、宣言があるときだけ `parameters`（生成パラメータの宣言）を持つ。`image.parametersByModel` は保存済みの生成パラメータの既定（bare なモデル id → 値）で、**各エントリをそのモデルの宣言で絞る**。宣言が読めないモデルのエントリは空になる（[image-generation.md](image-generation.md#画像パラメータの既定)）。`catalogSource` は `live` / `stored` / `sdk` で、`live` 以外は取得に失敗した状態（`stored` = 前回の成功を DB キャッシュから、`sdk` = SDK 同梱）を表し、`fetchedAt` は最後に live を取得できた時刻（`sdk` は `null`）。キー値はどの応答にも含めない（[image-generation.md](image-generation.md#モデルカタログ)）
 - `speech.models` は live カタログ（OpenRouter の音声モデル一覧 API）で、`voices` に話者の宣言を含む。`catalogSource` は `live` / `stored` / `default` で、`default` は「live もキャッシュも無く、同梱の既定 1 件を見ている」を表す。`voice` の空文字は「指定なし」（宣言が無いモデルで送らない）。`content_settings` の音声列が `NULL` の既存行は、既定モデルと先頭ボイスへフォールバックして返す（[speech-generation.md](speech-generation.md#モデルカタログ)）
 - `runtimeAvailable` は `/api/settings/models` と同じく「SDK ランタイムの初期化に成功したか」。`false` のときキー登録は 503 `not_stored`（`retainSecret` が no-op になり保護できないため）。選択変更と削除は runtime に依存しない
 - POST の `catalogError` は**今回の取得だけ**の結果で、`null` なら成功。失敗しても一覧と `catalogSource` は前のままで、503 にはしない（設定ではなくキャッシュの更新なので `state` も付けない）
 - 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映を持たないため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`
-- 400: 行が無いのに PUT（`コンテンツ生成のAPIキーが未設定です。先にキーを登録してください`）、`openrouter` 以外の provider、カタログ外の model、画像 / 音声のカタログ外モデル、宣言があるモデルで宣言外のボイス、8..2048 文字外のキー、形が違う本文。音声カタログが `default` のときはカタログ照合をしない（[speech-generation.md](speech-generation.md#モデルカタログ)）。BGM 専用の設定は持たず、試行の `model` は固定値だけを受け付ける（[bgm-generation.md](bgm-generation.md#試行設定画面)）
+- 400: 行が無いのに PUT（`コンテンツ生成のAPIキーが未設定です。先にキーを登録してください`）、`openrouter` 以外の provider、画像の生成元が `openrouter` / `codex` 以外、カタログ外の model、宣言外の画像パラメータ（宣言に無いキー・宣言の外の値・宣言が読めないモデルへの値）、画像 / 音声のカタログ外モデル、宣言があるモデルで宣言外のボイス、8..2048 文字外のキー、形が違う本文。音声カタログが `default` のときはカタログ照合をしない（[speech-generation.md](speech-generation.md#モデルカタログ)）。BGM 専用の設定は持たず、試行の `model` は固定値だけを受け付ける（[bgm-generation.md](bgm-generation.md#試行設定画面)）
 - `keyEpoch` はキーの世代で、**上書きと（行があったときの）削除で進む**。新規保存と未設定の削除では動かさない。試行の証拠は「現在の `keyEpoch` と現在のモデル」に一致する成功だけを数えるため、旧キーの実績が現在のキーの確認として扱われない（[image-generation.md](image-generation.md#設定画面)）
 - キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`。削除すると行ごと消え、`generate_image` / `generate_speech` / `generate_bgm` は次のセッション作成・復元から公開されなくなる（既存liveセッションの execute は実行時にキー無効エラーを返す）。
 
@@ -355,7 +360,8 @@
 - 成果物はアプリデータ領域の兄弟 `<storeDir>/trials` に `<trialId>.<ext>` で置き（`server/src/content-trial-artifacts.ts`）、行には相対名・バイト数・形式・寸法だけを持つ。`generated/` にもプロジェクトにも DB の BLOB にも置かず、サンドボックスを要求しない
 - 保存できる形式は種別ごとに固定する。画像は png / jpeg / webp で、宣言 MIME と実バイトの両方を `saveableImageFormat` の許可リストに通し、実バイトの形式を正にする。音声は mp3 / wav で、宣言 MIME と実バイト（RIFF/WAVE・mp3 のフレーム同期 / ID3）を見る。pcm の応答は生成器と同じ関数で RIFF を付けて wav にする。BGM は生成器が形式を宣言せずバイトだけを返すため、宣言 MIME は固定の `audio/mpeg` とし、実バイトが MP3 として読めるものだけを保存する（wav は通さない）。svg / html / 不明な MIME / 宣言と実体のずれは**保存の前に**拒否する
 - 生成が成功して成果物を保存し、終端を `succeeded` として記録できたときだけ成功とする。保存に失敗したら分類 `storage`（課金済み）の `failed` にして成功として見せない。終端を記録できなかった成果物は消し、メモリの失敗（`failed` / `storage`）を `recorded: false` で返す
-- 同じ入力の保存済み成功があり、現在のキー世代で成果物ファイルが残っているときは provider を呼ばず 200 `{ trial, reused: true }` を返す（課金せず、新しい成功としても記録しない）。入力は画像と BGM が「種別 / モデル / プロンプト」、音声が「種別 / モデル / 本文 / ボイス / 演技指示 / 話速」で、音声の 3 つは NULL（未指定）同士も一致として扱う。`force: true` はこの再利用をせず、履歴の [もう一度生成] だけが送る
+- 同じ入力の保存済み成功があり、現在のキー世代で成果物ファイルが残っているときは provider を呼ばず 200 `{ trial, reused: true }` を返す（課金せず、新しい成功としても記録しない）。入力は画像が「種別 / 生成元 / モデル / プロンプト / 画像のパラメータ」、BGM が「種別 / モデル / プロンプト」、音声が「種別 / モデル / 本文 / ボイス / 演技指示 / 話速」で、音声の 3 つと画像のパラメータは NULL（未指定）同士も一致として扱う。`force: true` はこの再利用をせず、履歴の [もう一度生成] だけが送る
+- 画像の生成パラメータは画像の試行だけが受け付け（音声 / BGM に付いていたら 400）、宣言と突き合わせてから provider を呼ぶ。**正規化（許可リストのキーだけ・未指定は載せない・キー順固定）した JSON を行のスナップショットにし、再利用の照合にもその値を使う**（表示用の別列は作らない。同じ正規化から 2 列を作ると片方だけ更新する余地ができる）。正規化の規則を変えると旧い行の再利用が外れるだけで、壊れはしない。宣言が読めないモデルでは明示のパラメータを受けない（既定が無いので「落とす」対象も無い）。`background: "transparent"` は実効の `output_format` が png / webp のときだけ通し、`output_format` を省略しても宣言に png / webp が無ければ止める（宣言から読めないときは通す）。壊れた保存値は未指定へ落とさず、503 / 行の破損として見せる（[persistence.md](persistence.md#アプリデータsqlite)）
 - 音声の入力（本文・ボイス・演技指示・話速）は行のスナップショットとして履歴に残し、同じ入力の照合にも使う。課金前の検証はカタログのモデル、宣言があるモデルのボイス、本文と演技指示の長さ、正の `speed`
 - BGM は入力が prompt と固定モデルだけで、音声の 3 列は null。モデルが固定値（`BGM_MODEL`）でないときは 400。**BGM の同時実行はチャットの `generate_bgm` と同じプロセス内の枠（`BGM_MAX_CONCURRENT`）を共有し、試行用の別枠を足さない**ので、チャットで 2 本走っている間は試行を開始できず、逆も同じ（枠が無いときは行を作らず 409）。期限は `BGM_TIMEOUT_MS` を provider の呼び出しだけに掛け、失敗は `provider-failure` の分類へ写す（[bgm-generation.md](bgm-generation.md#試行設定画面)）
 - モデルを受け付けない 400 の文言は種別ごとに変える（画像は「カタログに無い画像モデル…」、音声は「カタログに無い音声モデル…」、BGM は「BGMのモデルは固定です…」）。画像の文言を他の種別へ出さない

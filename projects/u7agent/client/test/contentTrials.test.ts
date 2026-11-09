@@ -14,6 +14,11 @@ import {
   groupTrialsByMonth,
   hasRunningTrial,
   hasStoredArtifact,
+  imageParameterChips,
+  imageParameterNote,
+  imageTrialDraftOf,
+  imageTrialParameterRows,
+  imageTrialParameters,
   imageTrialRequest,
   trialEvidence,
   latestTrial,
@@ -48,8 +53,15 @@ import {
   trialStartBlockedReason,
   trialStateLabel,
 } from "../src/lib/contentTrials";
+import {
+  IMAGE_PARAMETER_DEFAULT_LABEL,
+  IMAGE_PARAMETER_SEED_MAX,
+  imageModelParameterDeclarations,
+  imageParameterFields,
+  pruneImageTrialParameters,
+} from "../src/lib/imageParameters";
 import { imageScreenModel } from "../src/lib/contentSettings";
-import type { ContentTrial } from "../src/types";
+import type { ContentTrial, ImageModel, ImageParameterValues } from "../src/types";
 
 const MODEL = "openrouter/openai/gpt-image-2";
 const OTHER_MODEL = "openrouter/black-forest-labs/flux.2-max";
@@ -65,6 +77,7 @@ function trial(overrides: Partial<ContentTrial> = {}): ContentTrial {
     voice: null,
     instructions: null,
     speed: null,
+    parameters: null,
     state: "succeeded",
     keyEpoch: 1,
     artifactState: "stored",
@@ -878,5 +891,147 @@ test("続きのページは末尾に足し、重複した行は位置を保っ�
       ["trial-2", "canceled"],
       ["trial-3", "succeeded"],
     ],
+  );
+});
+
+// --- 画像の生成パラメータ ---
+
+/** 宣言の見本。enum / range / 受け付けるだけ（boolean）の 3 種を含む */
+const MODEL_ENTRIES: ImageModel[] = [
+  {
+    provider: "openrouter",
+    id: "openai/gpt-image-2",
+    name: "GPT Image 2",
+    parameters: {
+      aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+      quality: { type: "enum", values: ["high", "low"] },
+      resolution: { type: "boolean" },
+      seed: { type: "range", min: 0, max: 1_000 },
+    },
+  },
+  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+];
+
+test("モデルの宣言はカタログを provider/id で引き、宣言の無いモデルは不明として扱う", () => {
+  assert.deepEqual(imageModelParameterDeclarations(MODEL_ENTRIES, MODEL), MODEL_ENTRIES[0]?.parameters);
+  assert.equal(imageModelParameterDeclarations(MODEL_ENTRIES, OTHER_MODEL), undefined);
+  assert.equal(imageModelParameterDeclarations(MODEL_ENTRIES, ""), undefined);
+});
+
+test("入力欄は宣言にある enum と seed だけを、許可リストの順で出す", () => {
+  assert.deepEqual(imageParameterFields(MODEL_ENTRIES[0]?.parameters), [
+    { name: "aspect_ratio", kind: "enum", values: ["1:1", "16:9"] },
+    { name: "quality", kind: "enum", values: ["high", "low"] },
+    { name: "seed", kind: "integer", min: 0, max: 1_000 },
+  ]);
+  // 値の語彙が読めない boolean の宣言だけでは欄を作らない（不明を既定として見せない）
+  assert.deepEqual(imageParameterFields({ quality: { type: "boolean" } }), []);
+  // seed は「受け付ける」だけの宣言でも整数欄を出す（値の型は 1 つしかない）
+  assert.deepEqual(imageParameterFields({ seed: { type: "boolean" } }), [
+    { name: "seed", kind: "integer", min: 0, max: IMAGE_PARAMETER_SEED_MAX },
+  ]);
+  assert.deepEqual(imageParameterFields(undefined), []);
+});
+
+test("モデルを切り替えたら、新しい宣言に無いキーを下書きから落とす", () => {
+  const draft = { aspect_ratio: "16:9", quality: "high", seed: "42" };
+  assert.deepEqual(
+    pruneImageTrialParameters(
+      { aspect_ratio: { type: "enum", values: ["16:9"] }, seed: { type: "range", min: 0, max: 1_000 } },
+      draft,
+    ),
+    { aspect_ratio: "16:9", seed: "42" },
+  );
+  // 選択肢に無い enum の値も落とす（欄が未指定に見えるのに要求へ残るのを避ける）
+  assert.deepEqual(pruneImageTrialParameters({ aspect_ratio: { type: "enum", values: ["1:1"] } }, draft), {});
+  // 宣言が読めないモデルでは全部落とす
+  assert.deepEqual(pruneImageTrialParameters(undefined, draft), {});
+  // 何も落とさないときは同じ参照を返す（呼び出し側の state 更新を無限に起こさない）
+  const kept = { seed: "42" };
+  assert.equal(pruneImageTrialParameters({ seed: { type: "range", min: 0, max: 1_000 } }, kept), kept);
+});
+
+test("下書きからは宣言にある明示値だけを送り、宣言の外の値は課金前に止める", () => {
+  const declarations = MODEL_ENTRIES[0]?.parameters;
+  assert.deepEqual(imageTrialParameters(declarations, { aspect_ratio: "16:9", seed: "42", quality: "" }), {
+    ok: true,
+    parameters: { aspect_ratio: "16:9", seed: 42 },
+  });
+  // 宣言に無いキー（別モデルの値・現在の保存値）は載せない
+  assert.deepEqual(imageTrialParameters(declarations, { output_format: "png", resolution: "2K" }), {
+    ok: true,
+    parameters: {},
+  });
+  const outOfRange = imageTrialParameters(declarations, { seed: "1001" });
+  assert.equal(outOfRange.ok, false);
+  assert.match(outOfRange.ok ? "" : outOfRange.error, /seed は 0 以上 1000 以下の整数.*クレジットは消費していません/);
+  const fraction = imageTrialParameters(declarations, { seed: "1.5" });
+  assert.equal(fraction.ok, false);
+  const undeclared = imageTrialParameters(declarations, { quality: "medium" });
+  assert.equal(undeclared.ok, false);
+  assert.match(undeclared.ok ? "" : undeclared.error, /quality に指定できない値です: medium/);
+});
+
+test("画像の試行の要求は明示したパラメータだけを載せ、空なら送らない", () => {
+  const parameters: ImageParameterValues = { aspect_ratio: "16:9", seed: 42 };
+  assert.deepEqual(imageTrialRequest({ model: MODEL, prompt: "a cat", parameters, origin: "another-take" }), {
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+    parameters: { aspect_ratio: "16:9", seed: 42 },
+    force: true,
+  });
+  // 空の object は送らない（宣言の無いモデルへ送ると 400 になる）
+  assert.deepEqual(imageTrialRequest({ model: MODEL, prompt: "a cat", parameters: {}, origin: "form" }), {
+    kind: "image",
+    model: MODEL,
+    prompt: "a cat",
+  });
+});
+
+test("履歴から画像の下書きを戻すと、プロンプトと明示値が戻り、seed は整数欄の文字列になる", () => {
+  const draft = imageTrialDraftOf(trial({ prompt: "a cat", parameters: { aspect_ratio: "16:9", seed: 42 } }));
+  assert.deepEqual(draft, { prompt: "a cat", parameters: { aspect_ratio: "16:9", seed: "42" } });
+  assert.deepEqual(imageTrialDraftOf(trial({ prompt: "a cat", parameters: null })), {
+    prompt: "a cat",
+    parameters: {},
+  });
+});
+
+test("結果カードのチップは明示値だけを出し、未指定は出さない", () => {
+  assert.deepEqual(imageParameterChips({ seed: 42, aspect_ratio: "16:9" }), ["aspect_ratio=16:9", "seed=42"]);
+  assert.deepEqual(imageParameterChips({}), []);
+  assert.deepEqual(imageParameterChips(null), []);
+});
+
+test("履歴の詳細は宣言に応じた全行を出し、未指定はモデル既定として書く", () => {
+  assert.deepEqual(
+    imageTrialParameterRows({
+      parameters: { aspect_ratio: "16:9", seed: 42 },
+      declarations: MODEL_ENTRIES[0]?.parameters,
+    }),
+    [
+      { name: "aspect_ratio", value: "16:9" },
+      { name: "resolution", value: IMAGE_PARAMETER_DEFAULT_LABEL },
+      { name: "quality", value: IMAGE_PARAMETER_DEFAULT_LABEL },
+      { name: "seed", value: "42" },
+    ],
+  );
+  // 宣言が今は読めないモデルでも、送った値がある行は残す（送信時の値を現在の宣言で消さない）
+  assert.deepEqual(imageTrialParameterRows({ parameters: { quality: "high" }, declarations: undefined }), [
+    { name: "quality", value: "high" },
+  ]);
+  assert.deepEqual(imageTrialParameterRows({ parameters: null, declarations: undefined }), []);
+  assert.equal(IMAGE_PARAMETER_DEFAULT_LABEL, "モデル既定（provider）");
+});
+
+test("設定画面の注記は宣言に応じて指定できるパラメータを挙げ、宣言が無ければ provider の既定と書く", () => {
+  assert.equal(
+    imageParameterNote(MODEL_ENTRIES[0]?.parameters),
+    "指定できるパラメータ: aspect_ratio / quality / seed。空欄は provider の既定で生成します。",
+  );
+  assert.match(
+    imageParameterNote(undefined),
+    /このモデルは生成パラメータを宣言していないため、サイズ・品質・出力形式は provider の既定で生成します/,
   );
 });

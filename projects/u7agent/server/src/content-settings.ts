@@ -19,16 +19,29 @@ import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import { MutationLock } from "./model-settings";
 import type { ContentTrialSource } from "./content-trials";
 import { REDACTED } from "./redact";
-import type { ContentSettingsRow } from "./app-db";
+import type { ContentSettingsRow, ImageParameterDefaults, ImageSettingsRow } from "./app-db";
 import type { AppSecretCipher } from "./secret-crypto";
 import type { ImageCatalog } from "./image-catalog";
-import { IMAGE_PROVIDER_ID, type ContentGenerationConfig, type ImageGenerationSettings } from "./images";
+import {
+  IMAGE_PROVIDER_ID,
+  declaredImageParameters,
+  imageParameterBody,
+  isImageProviderId,
+  normalizeImageParameters,
+  type CodexAuth,
+  type ContentGenerationConfig,
+  type ImageAuthStatus,
+  type ImageGenerationSettings,
+  type ImageProviderId,
+  type ImageToolAvailability,
+} from "./images";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "./speech-catalog";
 import { type SpeechGenerationSettings } from "./speech";
 import {
   type ContentMutationResponse,
   type ContentSettingsResponse,
   type ImageCatalogRefreshResponse,
+  type ImageParameterValues,
   type SpeechCatalogRefreshResponse,
 } from "./schema";
 
@@ -44,6 +57,8 @@ export const CONTENT_KEY_NOT_STORED_MESSAGE = "コンテンツ生成のAPIキー
 export const CONTENT_SETTINGS_NOT_STORED_MESSAGE = "コンテンツ生成の設定をアプリデータ（SQLite）へ保存できませんでした";
 export const CONTENT_SETTINGS_UNCONFIGURED_MESSAGE = "コンテンツ生成のAPIキーが未設定です。先にキーを登録してください";
 export const CONTENT_PROVIDER_UNSUPPORTED_MESSAGE = "コンテンツ生成のプロバイダーは openrouter だけです";
+/** 画像の生成元の切り替え。キーも生成も伴わないため、未設定の行でも受け付ける */
+export const CONTENT_IMAGE_PROVIDER_UNSUPPORTED_MESSAGE = "画像の生成元は openrouter か codex だけです";
 export const CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE = "カタログに無い画像モデルは指定できません";
 export const CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE = "カタログに無い音声モデルは指定できません";
 export const CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE = "この音声モデルが対応していない声は指定できません";
@@ -68,6 +83,9 @@ export interface ContentSettingsDb {
   readContentKeyEpoch(): number;
   /** キーの保存・上書き・削除で 1 つ進め、進めた後の値を返す */
   advanceContentKeyEpoch(): number;
+  /** 画像の生成元。行が無ければ undefined = 既定（openrouter） */
+  readImageSettings(): ImageSettingsRow | undefined;
+  saveImageSettings(settings: ImageSettingsRow): void;
 }
 
 export interface ContentSettingsOptions {
@@ -84,6 +102,11 @@ export interface ContentSettingsOptions {
   speechCatalog: SpeechCatalog;
   /** PiBff の注入面。**同じロックの内側**で呼び、次に作るセッションへ即時反映する */
   setContentGeneration: (config: ContentGenerationConfig) => void;
+  /**
+   * Codex の認証。`status` は GET の表示用の純粋読取（トークン解決も外部通信もしない）、`resolve` は
+   * 生成の実行時だけ呼ぶ。未設定の環境（runtime なし）は両方とも未認証を返す。
+   */
+  codexAuth: { status: () => ImageAuthStatus; resolve: () => Promise<CodexAuth | undefined> };
   /** health / ログへ出す前の文言境界（可変マスカー） */
   maskError: (text: string) => string;
 }
@@ -102,6 +125,12 @@ export class ContentSettingsService {
   #setContentGeneration: (config: ContentGenerationConfig) => void;
   #maskError: (text: string) => string;
   #appCipher: AppSecretCipher | null;
+  #codexAuth: { status: () => ImageAuthStatus; resolve: () => Promise<CodexAuth | undefined> };
+  /** 画像の生成元と Codex 用の枠。書込はこのサービスだけなので、DB を毎回読み直さずここに持つ */
+  #imageProvider: ImageProviderId = IMAGE_PROVIDER_ID;
+  #codexParams: string | null = null;
+  /** content_settings の現在値。ツール公開の判定を DB の読取失敗に巻き込まないための写し */
+  #row: ContentSettingsRow | undefined;
   #lock = new MutationLock();
   /**
    * 復号済みの APIキー。画像 / 音声 / BGM / 試行へ渡すためにメモリだけに持ち、
@@ -125,6 +154,7 @@ export class ContentSettingsService {
     this.#setContentGeneration = options.setContentGeneration;
     this.#maskError = options.maskError;
     this.#appCipher = options.appCipher ?? null;
+    this.#codexAuth = options.codexAuth;
   }
 
   /**
@@ -217,6 +247,83 @@ export class ContentSettingsService {
     return { provider: row.provider, model: speech.model, voice: speech.voice, apiKey };
   }
 
+  /**
+   * 画像の認証状態。OpenRouter は復号済みのキーがあるか、Codex は auth.json の保存値を読むだけで
+   * 判定する（トークンの解決・更新・外部通信を GET で起こさない）。
+   */
+  #imageAuthStatus(provider: ImageProviderId): ImageAuthStatus {
+    if (provider === IMAGE_PROVIDER_ID) {
+      return { state: this.#keyState.keyAvailable ? "configured" : "missing", kind: "api_key" };
+    }
+    try {
+      return this.#codexAuth.status();
+    } catch (error) {
+      // 読取の失敗を「サインイン済み」と断定しない
+      console.warn(`[u7agent] codex auth status read failed: ${this.#maskError(messageFor(error))}`);
+      return { state: "missing", kind: null };
+    }
+  }
+
+  /**
+   * 画像ツールの公開状態。OpenRouter はキーの行とその復号が要るが、**Codex は行を要らない**
+   * （キー削除で行が無くなってもサインインだけで使える）。理由は provider で分ける。
+   */
+  #imageAvailability(row: ContentSettingsRow | undefined): ImageToolAvailability {
+    if (row !== undefined && !row.enabled) return { enabled: false, reason: "app_disabled" };
+    if (this.#imageProvider === "codex") {
+      const auth = this.#imageAuthStatus("codex");
+      // `expired` も公開する: access token の期限切れは SDK が生成時の `getAuth()` で更新できる。
+      // ここで落とすと解決の機会が無く、refresh token が生きていてもサインインし直しを強いられる
+      return auth.state === "missing" ? { enabled: false, reason: "no_auth" } : { enabled: true, reason: null };
+    }
+    if (row === undefined || this.#apiKey === null) return { enabled: false, reason: "no_key" };
+    return { enabled: true, reason: null };
+  }
+
+  /** 実行のたびに読む画像の設定。Codex はキーを使わないため、行が無くても undefined にしない */
+  #currentImageSettings(): ImageGenerationSettings | undefined {
+    if (this.#imageProvider === "codex") {
+      return { provider: "codex", resolveAuth: () => this.#codexAuth.resolve() };
+    }
+    const row = this.#row;
+    const apiKey = this.#apiKey;
+    if (!row || apiKey === null) return undefined;
+    // 既定は保存中のモデルの分だけを渡し、宣言との突き合わせ（宣言外のキーを落とす）はツール側で行う
+    const parameters = row.imageParams?.[row.imageModel];
+    return { provider: IMAGE_PROVIDER_ID, model: row.imageModel, apiKey, ...(parameters ? { parameters } : {}) };
+  }
+
+  /**
+   * 保存する既定を組み立てる。`{}` はそのモデルの既定を削除し、値はそのモデルの宣言と突き合わせて
+   * 宣言外なら 400 にする（保存しない）。他のモデルの既定には触らない。
+   */
+  #updatedImageParams(
+    current: ImageParameterDefaults | null,
+    model: string,
+    parameters: ImageParameterValues,
+  ): ImageParameterDefaults {
+    const next: ImageParameterDefaults = { ...current };
+    if (Object.keys(imageParameterBody(parameters)).length === 0) {
+      delete next[model];
+      return next;
+    }
+    const validated = normalizeImageParameters(this.#catalog.parametersOf(model), parameters);
+    if (!validated.ok) throw badRequest(this.#reflectedValue(validated.message, this.#apiKey));
+    return { ...next, [model]: validated.values };
+  }
+
+  /**
+   * GET / 変更系の応答へ載せる既定。**各エントリをそのモデルの宣言で絞る**（保存中のモデルの宣言で
+   * 全エントリを絞ると、切替先の正当な値まで消える）。宣言が読めないモデルは空のエントリにする。
+   */
+  #parametersByModel(imageParams: ImageParameterDefaults | null): Record<string, ImageParameterValues> {
+    const byModel: Record<string, ImageParameterValues> = {};
+    for (const [model, parameters] of Object.entries(imageParams ?? {})) {
+      byModel[model] = declaredImageParameters(this.#catalog.parametersOf(model), parameters);
+    }
+    return byModel;
+  }
+
   /** GET。純粋読取で、キー値は返さない（DB の失敗は 503 のまま伝える） */
   settings(): ContentSettingsResponse {
     const row = this.#db.readContentSettings();
@@ -234,9 +341,13 @@ export class ContentSettingsService {
       runtimeAvailable: this.#runtimeAvailable,
       image: {
         model: row?.imageModel ?? null,
-        models: catalog.entries,
+        provider: this.#imageProvider,
+        auth: this.#imageAuthStatus(this.#imageProvider),
+        // Codex は画像モデルを選ばない。一覧も出さない（ルーティングモデルを画像モデルとして見せない）
+        models: this.#imageProvider === IMAGE_PROVIDER_ID ? catalog.entries : [],
         catalogSource: catalog.source,
         fetchedAt: catalog.fetchedAt,
+        parametersByModel: this.#parametersByModel(row?.imageParams ?? null),
       },
       speech: {
         model: speech?.model ?? null,
@@ -320,6 +431,7 @@ export class ContentSettingsService {
         speechModel: existing?.speechModel ?? null,
         speechVoice: existing?.speechVoice ?? null,
         enabled: existing?.enabled ?? true,
+        imageParams: existing?.imageParams ?? null,
         ciphertext: encrypted.ciphertext,
         nonce: encrypted.nonce,
         keyVersion: encrypted.keyVersion,
@@ -367,8 +479,16 @@ export class ContentSettingsService {
     });
   }
 
-  /** provider / model の変更。キーは保持し、行が無ければ 400（キー登録が先） */
-  async putSelection(input: { provider: string; model: string }): Promise<ContentMutationOutcome> {
+  /**
+   * provider / model の変更。キーは保持し、行が無ければ 400（キー登録が先）。
+   * `parameters` は省略 = 据え置き / `{}` = そのモデルの既定を削除 / 値あり = 置き換えで、
+   * 宣言外の値は 400（保存しない）。`models` はこの操作では変えない。
+   */
+  async putSelection(input: {
+    provider: string;
+    model: string;
+    parameters?: ImageParameterValues | undefined;
+  }): Promise<ContentMutationOutcome> {
     return this.#lock.run(async () => {
       let existing: ContentSettingsRow | undefined;
       try {
@@ -391,7 +511,18 @@ export class ContentSettingsService {
             : this.#reflectedValue(input.model, this.#apiKey);
         throw badRequest(`${CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE}: ${reflected}`);
       }
-      const next: ContentSettingsRow = { ...existing, provider: input.provider, imageModel: input.model };
+      // 宣言外の値は保存しない（不明な宣言へ値を残すと、実行時に黙って落ちる設定になる）。
+      // 入力を反射する文言はマスカーを通す（値にキーを誤って渡されても 400 から再露出させない）
+      const nextImageParams =
+        input.parameters === undefined
+          ? existing.imageParams
+          : this.#updatedImageParams(existing.imageParams, input.model, input.parameters);
+      const next: ContentSettingsRow = {
+        ...existing,
+        provider: input.provider,
+        imageModel: input.model,
+        imageParams: nextImageParams,
+      };
       try {
         this.#db.saveContentSettings(next);
       } catch {
@@ -400,6 +531,25 @@ export class ContentSettingsService {
       }
       this.#apply(next);
       return { status: 200, response: this.#applied(next) };
+    });
+  }
+
+  /**
+   * 画像の生成元の変更。キーも生成も伴わないため、未設定の行でも受け付ける（Codex はキーを使わない）。
+   * `content_settings` は触らないので、切り替えても OpenRouter のキー・モデルは残る（キー削除でも消えない）。
+   */
+  async putImageProvider(provider: string): Promise<ContentMutationOutcome> {
+    return this.#lock.run(async () => {
+      if (!isImageProviderId(provider)) throw badRequest(CONTENT_IMAGE_PROVIDER_UNSUPPORTED_MESSAGE);
+      try {
+        this.#db.saveImageSettings({ provider, codexParams: this.#codexParams });
+      } catch {
+        console.warn("[u7agent] image settings save failed");
+        return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
+      }
+      this.#imageProvider = provider;
+      this.#apply(this.#row);
+      return { status: 200, response: this.#applied(this.#row) };
     });
   }
 
@@ -487,6 +637,7 @@ export class ContentSettingsService {
       this.#catalog.loadStored();
       this.#speechCatalog.loadStored();
       this.#loadKeyEpoch();
+      this.#loadImageSettings();
       let row: ContentSettingsRow | undefined;
       let readFailed = false;
       try {
@@ -521,7 +672,10 @@ export class ContentSettingsService {
       read: () => {
         const row = this.#db.readContentSettings();
         return {
-          row: row ? { imageModel: row.imageModel, enabled: row.enabled } : undefined,
+          // 試行は v1 では OpenRouter 固定。Codex の試行はサービス側で明示的に拒否する
+          row: row
+            ? { imageModel: row.imageModel, enabled: row.enabled, imageProvider: this.#imageProvider }
+            : undefined,
           apiKey: this.#apiKey,
         };
       },
@@ -529,7 +683,22 @@ export class ContentSettingsService {
       speechModels: () => this.#speechCatalog.snapshot().entries.map((entry) => entry.id),
       // 宣言があるモデルだけ配列を返し、無いモデルは自由記述を受ける（PUT /speech と同じ規則）
       speechVoices: (model) => this.#speechCatalog.voicesOf(model),
+      // 試行の画像モデルはカタログの `provider/id` で来るため、bare id に落としてから宣言を引く
+      imageParameters: (model) => this.#catalog.parametersOf(model),
     };
+  }
+
+  /** 起動時に 1 回だけ画像の生成元を読む。読めないときは既定（openrouter）のままで、警告だけを残す */
+  #loadImageSettings(): void {
+    try {
+      const settings = this.#db.readImageSettings();
+      this.#imageProvider = isImageProviderId(settings?.provider ?? "")
+        ? (settings?.provider as ImageProviderId)
+        : IMAGE_PROVIDER_ID;
+      this.#codexParams = settings?.codexParams ?? null;
+    } catch (error) {
+      console.warn(`[u7agent] image settings read failed: ${this.#maskError(messageFor(error))}`);
+    }
   }
 
   /** 起動時に 1 回だけ世代を読む。読めないときは 0 のままで、次の保存 / 削除で DB の値から進む */
@@ -555,14 +724,18 @@ export class ContentSettingsService {
    * 実行時の課金前チェックは `disabled`（トグルだけ）を読み、キー未設定はキー無効エラーへ落とす。
    */
   #apply(row: ContentSettingsRow | undefined): void {
+    this.#row = row;
     this.#setContentGeneration({
       // 「設定行がある」「enabled」「キーを使える」の積。行や enabled だけでツールを開かない
       enabled: row !== undefined && row.enabled && this.#keyState.keyAvailable,
       configured: row !== undefined,
       disabled: row !== undefined && !row.enabled,
-      read: () => (this.#apiKey === null ? undefined : currentImageSettings(this.#db, this.#apiKey)),
+      // 認証は呼ぶたびに読む（Codex のサインインは setContentGeneration を呼ばないため）
+      imageAvailability: () => this.#imageAvailability(this.#row),
+      read: () => this.#currentImageSettings(),
       // 実行のたびに現在のカタログを引く。形式の宣言を一覧から絞り込んだあとも、保存済みの選択はここで拾える
       readOutputFormats: (model) => this.#catalog.outputFormatsOf(model),
+      readParameters: (model) => this.#catalog.parametersOf(model),
       checkImageInput: (model, signal) => this.#catalog.checkImageInput(model, signal),
       readSpeech: () => this.#currentSpeechSettings(),
       readBgm: () => {
@@ -619,9 +792,12 @@ export class ContentSettingsService {
       runtimeAvailable: this.#runtimeAvailable,
       image: {
         model: row?.imageModel ?? null,
-        models: catalog.entries,
+        provider: this.#imageProvider,
+        auth: this.#imageAuthStatus(this.#imageProvider),
+        models: this.#imageProvider === IMAGE_PROVIDER_ID ? catalog.entries : [],
         catalogSource: catalog.source,
         fetchedAt: catalog.fetchedAt,
+        parametersByModel: this.#parametersByModel(row?.imageParams ?? null),
       },
       speech: {
         model: speech.model,
@@ -634,12 +810,6 @@ export class ContentSettingsService {
       bgm: bgmSettings(row !== undefined),
     };
   }
-}
-
-/** 画像ツールの語彙（`model`）へ写す。DB の列名 `imageModel` は設定面の語彙なので、対応はこの 1 箇所に閉じる */
-function currentImageSettings(db: ContentSettingsDb, apiKey: string): ImageGenerationSettings | undefined {
-  const row = db.readContentSettings();
-  return row ? { provider: row.provider, model: row.imageModel, apiKey } : undefined;
 }
 
 function badRequest(message: string): Error & { statusCode: number } {

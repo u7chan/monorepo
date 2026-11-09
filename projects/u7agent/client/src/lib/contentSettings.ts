@@ -3,9 +3,12 @@
  * 選択肢の組み立て・入力の後始末・保存後の文言・確認文をテストできるようにする。
  */
 import type {
+  ContentImageAuth,
   ContentImageSettings,
   ContentSettingsResponse,
   ContentSpeechSettings,
+  ImageGenerationProvider,
+  ImageParameterValues,
   ModelRef,
   SpeechCatalogRefreshResponse,
   SpeechModel,
@@ -13,6 +16,8 @@ import type {
   UpdateContentSpeechBody,
 } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
+import { imageModelParameterDeclarations, imageParameterDraftOf, imageParameterFields } from "./imageParameters";
+import type { ImageParameterDraft, ImageParameterField } from "./imageParameters";
 import { messageTimeLabel, type MessageTimeOptions } from "./messageTime";
 import { modelRefKey, type ProviderBadge } from "./modelSettings";
 
@@ -23,15 +28,112 @@ export const CONTENT_KEY_SAVED_NOTE =
   "コンテンツ生成のAPIキーを保存しました。新しい会話から generate_image・generate_speech・generate_bgm を使えます。";
 export const CONTENT_KEY_DELETED_NOTE =
   "コンテンツ生成のAPIキーを削除しました。generate_image・generate_speech・generate_bgm は新しい会話から使えません。";
-export const CONTENT_MODEL_SAVED_NOTE = "画像生成のモデルを保存しました。";
+/** 画像の [保存] の成功注記。`onSaveSelection` はモデルと既定のパラメータ（値あり / 省略）を送るため、両方を書く */
+export const CONTENT_IMAGE_SAVED_NOTE = "画像生成のモデルと既定を保存しました。";
 export const CONTENT_SPEECH_SAVED_NOTE = "音声生成のモデルとボイスを保存しました。";
+
+/** 画像の生成元の選択肢。radio の並び・表示名・案内をここ 1 箇所で作る */
+export interface ImageProviderOption {
+  value: ImageGenerationProvider;
+  label: string;
+  description: string;
+}
+
+export const IMAGE_PROVIDER_OPTIONS: readonly ImageProviderOption[] = [
+  {
+    value: "openrouter",
+    label: "OpenRouter",
+    description: "APIキーと画像モデルを指定します。音声 / BGM もこのAPIキーを使います。",
+  },
+  {
+    value: "codex",
+    label: "Codex",
+    description:
+      "ChatGPT のサインインで生成します。画像モデルはバックエンドが選び（不明と表示）、参照画像の編集はできません。利用枠は ChatGPT の画像生成枠です。",
+  },
+];
+
+/** 生成元の表示名。見出し・削除の確認文などで使う */
+export function contentImageProviderLabel(provider: ImageGenerationProvider): string {
+  return IMAGE_PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ?? provider;
+}
+
+/**
+ * 生成元の切り替えの注記。既存の会話にも次の呼び出しから効くことと、未設定からの有効化だけは
+ * 新しい会話が要ることを書き分ける（ツール一覧をセッション作成時に固定するため）。
+ */
+export function contentImageProviderNote(provider: ImageGenerationProvider): string {
+  return `画像の生成元を ${contentImageProviderLabel(provider)} に変更しました。他方の設定は残ります。ツールを持つ既存の会話でも、次の呼び出しから新しい生成元を使います（未設定から有効にしたときだけ、ツールが無い会話には新しい会話が必要です）。`;
+}
+
+/** 認証状態のバッジ。保存済みでも使えない値を「設定済み」と誤表示しない */
+export function imageAuthBadge(auth: ContentImageAuth): ProviderBadge {
+  if (auth.state === "configured") return { label: "認証済み", tone: "ok" };
+  if (auth.state === "expired") return { label: "認証の期限切れ", tone: "warn" };
+  return { label: "未認証", tone: "muted" };
+}
+
+/** Codex のサインイン案内。APIキーを画像利用の前提にしないため、登録先を名指しする */
+export const CODEX_SIGN_IN_NOTICE =
+  "Codex のサインインが見つかりません。Pi / Codex CLI で openai-codex にサインインするか、設定 → モデル（/settings/models）のサインインを使ってください。APIキーは不要です。";
+export const CODEX_SIGN_IN_EXPIRED_NOTICE =
+  "Codex のサインインの期限が切れています。生成を実行するとサインインの更新を試みます。更新に失敗するときは、設定 → モデル（/settings/models）で openai-codex にサインインし直してください。";
+export const OPENROUTER_IMAGE_KEY_NOTICE =
+  "OpenRouter のAPIキーが未設定です。下の欄で登録すると generate_image を使えます。";
+/** 暗号文はあるが復号できない / 未評価のキー。「未設定」と書くと保存済みの値を捨てる案内になる */
+export const OPENROUTER_IMAGE_KEY_UNUSABLE_NOTICE =
+  "保存済みの OpenRouter のAPIキーを使えません。下の欄で登録し直すと generate_image を使えます。";
+
+/**
+ * 認証が足りないときの案内。使えるときは null。
+ * `image.auth` は値を持たないため、OpenRouter の「保存済みだが使えない」はキーの状態で書き分ける
+ * （同じ画面のバッジ / 警告と同じ事実を、同じ語で伝える）。
+ */
+export function imageAuthNotice(
+  settings: Pick<ContentSettingsResponse, "keyStored" | "keyAvailable" | "keyErrorMessage" | "image">,
+): string | null {
+  const { auth, provider } = settings.image;
+  if (provider === "codex") {
+    if (auth.state === "configured") return null;
+    return auth.state === "expired" ? CODEX_SIGN_IN_EXPIRED_NOTICE : CODEX_SIGN_IN_NOTICE;
+  }
+  if (auth.state === "configured") return null;
+  const unusable = settings.keyStored && !settings.keyAvailable;
+  if (!unusable) return OPENROUTER_IMAGE_KEY_NOTICE;
+  return settings.keyErrorMessage ?? OPENROUTER_IMAGE_KEY_UNUSABLE_NOTICE;
+}
+
+/** APIキー欄を出すか。Codex はキーを使わないため、画像タブでは欄ごと隠す（音声 / BGM のタブでは出す） */
+export function imageKeySectionVisible(provider: ImageGenerationProvider): boolean {
+  return provider === "openrouter";
+}
+
+/** Codex は画像モデルを選ばないため、モデル一覧と保存フォームを出さない */
+export function imageModelSectionVisible(provider: ImageGenerationProvider): boolean {
+  return provider === "openrouter";
+}
+
+/** 音声 / BGM が OpenRouter のAPIキーを必要とする旨。Codex を選んでも音声は使えないことを明示する */
+export const SPEECH_NEEDS_OPENROUTER_KEY_NOTE =
+  "音声 / BGM は OpenRouter のAPIキーで生成します。画像の生成元に Codex を選んでいても、音声 / BGM を使うには OpenRouter のAPIキーが必要です。";
+
+/** 画像タブの生成元欄の見出し */
+export const CONTENT_IMAGE_PROVIDER_HEADING = "画像の生成元";
 
 /** 音声カタログ更新後に現在値を確認できなかったときの注記。確認できるまで音声の設定を保存させない */
 export const SPEECH_SYNC_FAILED_NOTE =
   "音声モデル一覧は取得しましたが、現在の設定を確認できませんでした。再読み込みするまで音声の設定は保存できません。";
 
 /** 実行中の操作。null なら操作なし */
-export type ContentSavingAction = "enabled" | "key" | "delete" | "selection" | "catalog" | "speech" | "speech-catalog";
+export type ContentSavingAction =
+  | "enabled"
+  | "key"
+  | "delete"
+  | "provider"
+  | "selection"
+  | "catalog"
+  | "speech"
+  | "speech-catalog";
 
 /**
  * 有効 / 無効を保存したときの注記。ツール一覧はセッション作成時に固定するため、OFF は既存の会話に
@@ -351,9 +453,141 @@ export function speechSaveDisabled(input: { busy: boolean; synced: boolean; dirt
 }
 
 /** 選択中の選択肢を PUT の本文へ。provider を決められないときは null (保存させない) */
-export function imageModelSelection(options: ImageModelOption[], value: string): UpdateContentImageBody | null {
+export function imageModelSelection(
+  options: readonly ImageModelOption[],
+  value: string,
+): UpdateContentImageBody | null {
   const option = options.find((entry) => entry.value === value);
   return option?.model ? { provider: option.model.provider, model: option.model.id } : null;
+}
+
+/** 既定の入力の未指定ラベル。保存値を持たないことは provider の既定への委譲として書く */
+export const IMAGE_DEFAULT_NONE_LABEL = "既定なし（provider 既定）";
+
+/** 既定の入力欄の注記。保存した既定がいつ使われるかと、試行の入力と別であることを伝える */
+export const IMAGE_DEFAULT_NOTE =
+  "保存した既定は generate_image の引数を省略したときに使います。空欄は既定なし（provider 既定）で、試行の入力とは別に保存します。";
+
+/** 画面のモデル（`provider/id`）に対応する既定の保存キー（bare なモデル id）。選択肢に無ければ null */
+export function imageDefaultModelId(options: readonly ImageModelOption[], model: string): string | null {
+  return options.find((option) => option.value === model)?.model?.id ?? null;
+}
+
+/** 既定の入力の下書き。編集したモデルと組にし、別のモデルへ値を持ち越さない */
+export interface ImageDefaultsDraft {
+  model: string;
+  values: ImageParameterDraft;
+}
+
+/** 保存値を入力欄の値として比べるための文字列。未指定は空欄 */
+function defaultDraftValue(value: string | number | undefined): string {
+  return value === undefined ? "" : String(value);
+}
+
+/**
+ * 既定の入力が保存値と違うか。欄に無いキーは画面から変えられないため比べない（宣言が変わっても
+ * 保存できない差分を作らない）。モデルだけを見ていた判定にパラメータを足す。
+ */
+export function imageDefaultDirty(
+  fields: readonly ImageParameterField[],
+  draft: ImageParameterDraft,
+  saved: ImageParameterValues,
+): boolean {
+  return fields.some((field) => (draft[field.name] ?? "").trim() !== defaultDraftValue(saved[field.name]));
+}
+
+/** 既定として送る値と、保存値から変わっていないか */
+export interface ImageDefaultBody {
+  /** そのモデルの全項目（入力欄に載る宣言の値だけ。未指定は持たない） */
+  parameters: ImageParameterValues;
+  /** 保存値と同じ。同じなら [保存] は `parameters` を省略する */
+  unchanged: boolean;
+}
+
+/**
+ * [保存] で送る `parameters`。PUT は部分更新ではない（値あり = そのモデルの既定を丸ごと置き換える）ため、
+ * 編集が 1 つでもあれば**宣言にある全項目**を返し、編集が無ければ `unchanged` にして省略させる。
+ * `{}`（解除）をここで作らないのは、切替先モデルの既定を意図せず消さないため。
+ */
+export function imageDefaultBody(
+  fields: readonly ImageParameterField[],
+  draft: ImageParameterDraft,
+  saved: ImageParameterValues,
+): ({ ok: true } & ImageDefaultBody) | { ok: false; error: string } {
+  const parameters: ImageParameterValues = {};
+  for (const field of fields) {
+    const raw = (draft[field.name] ?? "").trim();
+    if (raw === "") continue;
+    if (field.kind === "integer") {
+      const value = Number(raw);
+      if (!Number.isInteger(value) || value < field.min || value > field.max) {
+        return { ok: false, error: `${field.name} は ${field.min} 以上 ${field.max} 以下の整数で入力してください` };
+      }
+      parameters[field.name] = value;
+      continue;
+    }
+    if (!field.values.includes(raw)) return { ok: false, error: `${field.name} に指定できない値です: ${raw}` };
+    parameters[field.name] = raw;
+  }
+  return { ok: true, parameters, unchanged: !imageDefaultDirty(fields, draft, saved) };
+}
+
+/** 既定の入力の面。入力欄・現在値・[保存] で送る本文・[既定を解除] の活性を 1 箇所で決める */
+export interface ImageDefaultsScreen {
+  /** 宣言に応じた入力欄。宣言が無いモデルは空（不明を既定として見せない） */
+  fields: ImageParameterField[];
+  /** 入力欄に出す値。下書きは選択中のモデルの分だけ使い、切替先は保存済みの既定を出す */
+  values: ImageParameterDraft;
+  /** 保存済みの既定（そのモデルの全項目。未保存は空） */
+  saved: ImageParameterValues;
+  /** 保存値と違うか */
+  dirty: boolean;
+  /** [保存] の本文。値が宣言の外なら error にする */
+  body: ({ ok: true } & ImageDefaultBody) | { ok: false; error: string };
+  /** [既定を解除] を押せるか。保存済みの既定が無ければ押しても変わらない */
+  clearDisabled: boolean;
+}
+
+/**
+ * 既定の入力欄を決める。下書きは編集したモデルの分だけを使うため、モデルを切り替えた時点で
+ * 前のモデルの値は表示にも保存にも残らない（宣言外のキーを持ち越さない）。
+ */
+export function imageDefaultsScreen(
+  settings: Pick<ContentSettingsResponse, "provider" | "image">,
+  model: string,
+  draft: ImageDefaultsDraft | null,
+): ImageDefaultsScreen {
+  const modelId = imageDefaultModelId(imageModelOptions(settings), model);
+  const saved = modelId === null ? {} : (settings.image.parametersByModel[modelId] ?? {});
+  const fields = imageParameterFields(imageModelParameterDeclarations(settings.image.models, model));
+  const values = draft !== null && draft.model === model ? draft.values : imageParameterDraftOf(saved);
+  return {
+    fields,
+    values,
+    saved,
+    dirty: imageDefaultDirty(fields, values, saved),
+    body: imageDefaultBody(fields, values, saved),
+    clearDisabled: Object.keys(saved).length === 0,
+  };
+}
+
+/** [既定を解除] の本文。`{}` はそのモデルの既定だけを消し、他のモデルの既定には触らない */
+export function imageDefaultClearSelection(
+  options: readonly ImageModelOption[],
+  model: string,
+): UpdateContentImageBody | null {
+  const selection = imageModelSelection(options, model);
+  return selection === null ? null : { ...selection, parameters: {} };
+}
+
+/** 画像の [保存] を止める条件。モデルの差分だけでなく既定のパラメータの編集でも押せるようにする */
+export function imageSelectionSaveDisabled(input: {
+  busy: boolean;
+  modelDirty: boolean;
+  defaultsDirty: boolean;
+  invalid: boolean;
+}): boolean {
+  return input.busy || input.invalid || !(input.modelDirty || input.defaultsDirty);
 }
 
 /** キー入力の後始末。保存できたときだけ空へ戻し、失敗時は再入力を避けて残す */

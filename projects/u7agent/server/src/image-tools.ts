@@ -8,14 +8,24 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { messageFor } from "./http";
 import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import {
+  CODEX_AUTH_UNAVAILABLE_MESSAGE,
+  CODEX_IMAGE_MODEL_LABEL,
   IMAGE_ABORTED_MESSAGE,
+  IMAGE_PARAMETER_NAMES,
+  IMAGE_PARAMETER_SEED_MAX,
+  declaredImageParameters,
   isUnsaveableOutputOnly,
+  normalizeImageParameters,
   saveableImageFormat,
+  type CodexAuth,
   type GeneratedImage,
+  type ImageGenerationInput,
   type ImageGenerationResult,
   type ImageGenerationSettings,
+  type ImageParameterDeclarations,
   type SaveableImageFormat,
 } from "./images";
+import type { ImageParameterValues } from "./schema";
 import {
   imageInputReferenceOf,
   imageInputScopeOf,
@@ -39,9 +49,11 @@ export const IMAGE_TOOL_SLUG_MAX_LENGTH = 40;
 export const IMAGE_TOOL_DESCRIPTION =
   "Generate an image from a text prompt, or edit a source image passed in `input_images`, and save the result in the working directory. " +
   "Returns the working-directory-relative path of the saved file. " +
-  "Show the generated image in your reply as a Markdown image, for example ![alt](generated/name.png).";
+  "Show the generated image in your reply as a Markdown image, for example ![alt](generated/name.png). " +
+  "Pass `aspect_ratio`, `resolution`, `quality`, `output_format`, `background` or `seed` only when the user asked for that shape, quality or format.";
 
 export const IMAGE_TOOL_GUIDELINES = [
+  "Pass the image parameter arguments (`aspect_ratio` / `resolution` / `quality` / `output_format` / `background` / `seed`) only when the user asked for that shape, quality or format; omit them to keep the model default.",
   "Use generate_image only when the user asks for a new image or an edit of an image they named; it costs provider credits.",
   "For an edit, pass the source image path in `input_images`. Omit it for a new image: the provider then never receives a reference image.",
   "The input image is sent to the external provider unchanged (EXIF included), and the result is a new file: the source file is never overwritten or moved.",
@@ -49,9 +61,61 @@ export const IMAGE_TOOL_GUIDELINES = [
   "After generating, show the saved file as a Markdown image using the working-directory-relative path returned by the tool instead of pasting the path alone.",
 ];
 
+/**
+ * モデルの宣言が引数を許さないときの文言。理由の後ろに課金前であることを添える
+ * （宣言の正は `normalizeImageParameters`、こちらはその理由をツールの文言へ包むだけ）。
+ */
+export function imageParameterRejectedMessage(reason: string): string {
+  return `${reason}。生成は行っていません（クレジットは消費していません）`;
+}
+
+/** `background: transparent` と jpeg の同時指定を止める文言。jpeg は透明を表現できない */
+export const IMAGE_TOOL_TRANSPARENT_JPEG_MESSAGE =
+  "background: transparent は保存形式 jpeg と同時に指定できません（生成は行っていません。クレジットは消費していません）。output_format に png か webp を指定してください";
+
+/** 宣言に png / webp が 1 つも無いモデルで `background: transparent` を止める文言 */
+export const IMAGE_TOOL_TRANSPARENT_UNSAVEABLE_MESSAGE =
+  "この画像モデルは png / webp を宣言していないため、透明な背景の画像を保存できません（生成は行っていません。クレジットは消費していません）。設定 → コンテンツ生成 で別の画像モデルを選んでください";
+
+/** Codex は画像モデルを持たず、引数も受け付けない。黙って捨てずに課金前に止める */
+export const CODEX_PARAMETERS_MESSAGE =
+  "Codex では画像パラメータ（aspect_ratio / resolution / quality / output_format / background / seed）を指定できません。引数を外して生成してください（画像は生成しておらず、クレジットも消費していません）";
+
+/** パラメータの行が無いときの文言。行の位置を固定するため、未指定でも必ず出す */
+export const IMAGE_TOOL_PARAMETER_DEFAULT_LINE = "パラメータ: 指定なし（モデル既定）";
+
 /** 保存できる形式を 1 つも宣言していないモデルを生成前に止めるときの文言。課金前であることを明示する */
 export const IMAGE_TOOL_UNSAVEABLE_MODEL_MESSAGE =
   "この画像モデルは png / jpeg / webp を返さないため、生成は行っていません（クレジットは消費していません）。設定 → コンテンツ生成 で別の画像モデルを選んでください";
+
+/**
+ * Codex の結果本文のモデル行。画像モデルが返らないため、ルーティングモデルを画像モデルとして出さない。
+ * 1 行目を `モデル:` で固定するのは、バッジの読み取り（`generationInfo.ts`）が行の位置に依存するため。
+ */
+export const CODEX_MODEL_LINE = `モデル: ${CODEX_IMAGE_MODEL_LABEL}`;
+
+/** 生成元が Codex であることを示す行。2 行目（保存パス）の後ろに置く */
+export const CODEX_PROVIDER_LINE = "プロバイダー: Codex";
+
+/** Codex は参照画像を受け付けない。読めば課金前に止まるが、読む前に拒否してフォールバックしない */
+export const CODEX_INPUT_IMAGES_MESSAGE =
+  "Codex は参照画像の編集に対応していません。input_images を外して新規生成してください（画像は生成しておらず、クレジットも消費していません）";
+
+/**
+ * Codex の実行時認証を解く。解決できなければ provider を呼ばずに固定文言で止める
+ * （解けない理由を「未設定」と推測せず、サインイン案内へ寄せる）。
+ */
+async function requireCodexAuth(settings: Extract<ImageGenerationSettings, { provider: "codex" }>): Promise<CodexAuth> {
+  let auth: CodexAuth | undefined;
+  try {
+    auth = await settings.resolveAuth();
+  } catch {
+    // SDK の失敗文言にはトークンが混ざり得る。外へ出すのは固定文言だけにする
+    throw new Error(CODEX_AUTH_UNAVAILABLE_MESSAGE);
+  }
+  if (!auth) throw new Error(CODEX_AUTH_UNAVAILABLE_MESSAGE);
+  return auth;
+}
 
 /** 有効なときだけ system prompt へ足す。生成物の場所と本文での示し方を固定する */
 export const IMAGE_GENERATION_PROMPT_LINES = [
@@ -93,6 +157,42 @@ const generateImageSchema = Type.Object({
       { minItems: 1, maxItems: 1 },
     ),
   ),
+  aspect_ratio: Type.Optional(
+    Type.String({
+      description:
+        "Optional aspect ratio declared by the selected image model (for example `16:9`). Set it only when the user asked for that shape; the value must be one the model declares.",
+    }),
+  ),
+  resolution: Type.Optional(
+    Type.String({
+      description:
+        "Optional resolution declared by the selected image model (whatever the model names, for example `1K`). Set it only when the user asked for that size; the value must be one the model declares.",
+    }),
+  ),
+  quality: Type.Optional(
+    Type.String({
+      description:
+        "Optional quality declared by the selected image model (for example `high`). Set it only when the user asked for that quality; the value must be one the model declares.",
+    }),
+  ),
+  output_format: Type.Optional(
+    Type.String({
+      description:
+        "Optional output format the selected image model declares and the app can save (`png` / `jpeg` / `webp`). Set it only when the user asked for that format.",
+    }),
+  ),
+  background: Type.Optional(
+    Type.String({
+      description:
+        "Optional background declared by the selected image model (for example `transparent`). `transparent` cannot be combined with the `jpeg` output format and needs a model that declares png or webp.",
+    }),
+  ),
+  seed: Type.Optional(
+    Type.Number({
+      description:
+        "Optional seed for a model that declares it: an integer from 0 to 2147483647. Set it only when the user asked to reproduce or vary a result.",
+    }),
+  ),
 });
 type GenerateImageParams = Static<typeof generateImageSchema>;
 
@@ -117,6 +217,82 @@ function resolveImageInputTargets(
     uploadsDirRel: options.uploadsDirRel,
   };
   return inputImages.map((path) => resolveImageInputPath(path, context));
+}
+
+/** 引数で明示された値だけを集める。省略したキーは送らず、provider の既定に任せる */
+function explicitImageParameters(params: GenerateImageParams): ImageParameterValues | undefined {
+  const values: ImageParameterValues = {
+    ...(params.aspect_ratio === undefined ? {} : { aspect_ratio: params.aspect_ratio }),
+    ...(params.resolution === undefined ? {} : { resolution: params.resolution }),
+    ...(params.quality === undefined ? {} : { quality: params.quality }),
+    ...(params.output_format === undefined ? {} : { output_format: params.output_format }),
+    ...(params.background === undefined ? {} : { background: params.background }),
+    ...(params.seed === undefined ? {} : { seed: params.seed }),
+  };
+  return IMAGE_PARAMETER_NAMES.some((name) => values[name] !== undefined) ? values : undefined;
+}
+
+/**
+ * 引数の値と、保存済みの既定をキー単位で合成する（明示引数 > 既定）。既定はモデルの宣言に収まるキー
+ * だけを残し、宣言が読めないモデルでは 1 つも使わない。既定を勝手に送ると、要求と実際の生成が
+ * 食い違ったまま履歴に残る。
+ */
+function mergedImageParameters(
+  declared: ImageParameterDeclarations | undefined,
+  explicit: ImageParameterValues | undefined,
+  defaults: ImageParameterValues | undefined,
+): ImageParameterValues {
+  return { ...declaredImageParameters(declared, defaults), ...explicit };
+}
+
+/**
+ * 引数をモデル宣言と突き合わせ、送る値を決める。宣言の外は理由付きで止める（宣言が無いモデルへ
+ * 値を送ると、要求と実際の生成が食い違ったまま履歴に残る）。
+ */
+function effectiveImageParameters(
+  declared: ImageParameterDeclarations | undefined,
+  explicit: ImageParameterValues | undefined,
+): ImageParameterValues {
+  // 宣言が `boolean`（受け付けるの意味）でも seed の型契約は崩さない
+  if (
+    explicit?.seed !== undefined &&
+    (!Number.isInteger(explicit.seed) || explicit.seed < 0 || explicit.seed > IMAGE_PARAMETER_SEED_MAX)
+  ) {
+    throw new Error(imageParameterRejectedMessage(`seed に指定できない値です: ${String(explicit.seed)}`));
+  }
+  const validated = normalizeImageParameters(declared, explicit);
+  if (!validated.ok) throw new Error(imageParameterRejectedMessage(validated.message));
+  return validated.values;
+}
+
+/**
+ * `background: transparent` を保存できるか。jpeg は透明を表現できず、宣言に png / webp が 1 つも無い
+ * モデルでは透明な結果を保存できない（宣言が読めないときだけ通す）。
+ */
+function transparentRejection(
+  values: ImageParameterValues,
+  declaredFormats: readonly string[] | undefined,
+): string | undefined {
+  if (values.background !== "transparent") return undefined;
+  if (values.output_format !== undefined) {
+    return saveableImageFormat(values.output_format) === "jpeg" ? IMAGE_TOOL_TRANSPARENT_JPEG_MESSAGE : undefined;
+  }
+  if (!declaredFormats || declaredFormats.length === 0) return undefined;
+  const keepsAlpha = declaredFormats.some((format) => {
+    const saveable = saveableImageFormat(format);
+    return saveable === "png" || saveable === "webp";
+  });
+  return keepsAlpha ? undefined : IMAGE_TOOL_TRANSPARENT_UNSAVEABLE_MESSAGE;
+}
+
+/** 3 行目に置くパラメータ行。未指定でも行を出して位置を固定する */
+function imageParameterLine(values: ImageParameterValues): string {
+  const pairs: string[] = [];
+  for (const name of IMAGE_PARAMETER_NAMES) {
+    const value = values[name];
+    if (value !== undefined) pairs.push(`${name}=${String(value)}`);
+  }
+  return pairs.length === 0 ? IMAGE_TOOL_PARAMETER_DEFAULT_LINE : `パラメータ: ${pairs.join(", ")}`;
 }
 
 /**
@@ -201,6 +377,8 @@ export interface ImageToolDefinitionOptions {
   readEnabled?: () => boolean;
   /** 実行のたびに読むカタログの形式宣言。未知名・宣言なしは undefined（＝止めない） */
   readOutputFormats: (model: string) => readonly string[] | undefined;
+  /** 実行のたびに読むカタログのパラメータ宣言。未知名・宣言なしは undefined（＝不明） */
+  readParameters: (model: string) => ImageParameterDeclarations | undefined;
   /**
    * 参照画像の編集が可能かを課金前に確かめる。可なら undefined、止めるときは理由の文言。
    * 新規生成（`input_images` 省略時）は呼ばない。
@@ -208,14 +386,11 @@ export interface ImageToolDefinitionOptions {
   checkImageInput: (model: string, signal?: AbortSignal | undefined) => Promise<string | undefined>;
   /** サンドボックスから参照画像のバイトを取る。scope は BFF が決めた root 相対の許可範囲 */
   readImageInput: (path: string, scope: readonly string[], signal?: AbortSignal | undefined) => Promise<Uint8Array>;
-  generate: (input: {
-    provider: string;
-    model: string;
-    prompt: string;
-    apiKey: string;
-    signal?: AbortSignal | undefined;
-    inputReferences?: readonly string[] | undefined;
-  }) => Promise<ImageGenerationResult>;
+  /**
+   * 生成元を決めて 1 回だけ生成する。`apiKey` は OpenRouter のときだけ、Codex は解決済みの認証を渡す
+   * （ツール側で provider の分岐を持たない）。
+   */
+  generate: (input: ImageGenerationInput) => Promise<ImageGenerationResult>;
 }
 
 export function createImageToolDefinitions(options: ImageToolDefinitionOptions): ToolDefinition[] {
@@ -235,24 +410,50 @@ export function createImageToolDefinitions(options: ImageToolDefinitionOptions):
       const explicit = params.path === undefined ? undefined : parseToolPath(params.path);
       const targets = resolveImageInputTargets(params.input_images, options);
       const settings = readCurrentSettings(options.readSettings);
-      // 保存名を決める段で初めて分かると生成だけが成功して課金が残るため、provider を叩く前に止める
-      if (isUnsaveableOutputOnly(options.readOutputFormats(settings.model))) {
+      // Codex は参照画像を送れない。サンドボックスから読む前に拒否し、参照なしの生成へ黙って変えない
+      if (settings.provider === "codex" && targets.length > 0) throw new Error(CODEX_INPUT_IMAGES_MESSAGE);
+      const requested = explicitImageParameters(params);
+      // Codex は画像モデルを持たず引数も受け付けない。黙って捨てると結果本文と実際の要求が食い違う
+      if (settings.provider === "codex" && requested !== undefined) throw new Error(CODEX_PARAMETERS_MESSAGE);
+      // 宣言と既定は OpenRouter のときだけ引く。Codex は既定を 1 つも持たない（同じ map を混ぜない）
+      const declared = settings.provider === "openrouter" ? options.readParameters(settings.model) : undefined;
+      const defaults = settings.provider === "openrouter" ? settings.parameters : undefined;
+      const parameters = effectiveImageParameters(declared, mergedImageParameters(declared, requested, defaults));
+      // 保存名を決める段で初めて分かると生成だけが成功して課金が残るため、provider を叩く前に止める。
+      // Codex は画像モデルを選ばず、返る形式も宣言しない（保存の可否は応答の形式で決まる）
+      if (settings.provider === "openrouter" && isUnsaveableOutputOnly(options.readOutputFormats(settings.model))) {
         throw new Error(IMAGE_TOOL_UNSAVEABLE_MODEL_MESSAGE);
       }
+      if (settings.provider === "openrouter" && parameters.background === "transparent") {
+        const rejection = transparentRejection(parameters, options.readOutputFormats(settings.model));
+        if (rejection !== undefined) throw new Error(rejection);
+      }
       const references = await readImageInputReferences(targets, options, signal);
-      if (references.length > 0) {
+      if (references.length > 0 && settings.provider === "openrouter") {
         // 参照を使う編集は、モデル宣言と endpoint 宣言の両方を課金前に確かめる
         const reason = await options.checkImageInput(settings.model, signal);
         if (reason !== undefined) throw new Error(reason);
       }
-      const result = await options.generate({
-        provider: settings.provider,
-        model: settings.model,
-        prompt: params.prompt,
-        apiKey: settings.apiKey,
-        signal,
-        ...(references.length > 0 ? { inputReferences: references.map((reference) => reference.dataUrl) } : {}),
-      });
+      const inputReferences = references.map((reference) => reference.dataUrl);
+      const parameterInput = Object.keys(parameters).length > 0 ? { parameters } : {};
+      const result =
+        settings.provider === "codex"
+          ? await options.generate({
+              provider: "codex",
+              auth: await requireCodexAuth(settings),
+              prompt: params.prompt,
+              ...parameterInput,
+              signal,
+            })
+          : await options.generate({
+              provider: "openrouter",
+              model: settings.model,
+              prompt: params.prompt,
+              apiKey: settings.apiKey,
+              ...parameterInput,
+              signal,
+              ...(references.length > 0 ? { inputReferences } : {}),
+            });
       if (!result.ok) throw new Error(result.message);
 
       // 明示 path は拡張子も含めてそのまま使う。省略時だけ mimeType から決める
@@ -270,15 +471,21 @@ export function createImageToolDefinitions(options: ImageToolDefinitionOptions):
       // 使用モデルを結果本文へ残す。投影 (toolResultSummary) は先頭 900 文字で切るため、
       // 長い path でもモデルが欠けないよう先頭の行に置く。会話履歴は session.jsonl の toolResult を正とするため、
       // ここに載せた行が (ライブ / 復元後の両方で) ツール履歴の出力として見える (docs/image-generation.md)
+      // Codex は画像モデルを知らないので、ルーティングモデルを出さずに固定の表示名と生成元を書く。
+      // パラメータ行は 3 行目（index 2）に固定し、未指定でも行を出す（`generationInfo.ts` の読み取り位置を動かさない）
+      const parameterLine = imageParameterLine(parameters);
+      const header =
+        settings.provider === "codex"
+          ? `${CODEX_MODEL_LINE}\n画像を生成して保存しました: ${path}\n${parameterLine}\n${CODEX_PROVIDER_LINE}`
+          : `モデル: ${settings.model}\n画像を生成して保存しました: ${path}\n${parameterLine}`;
       return {
         content: [
           {
             type: "text",
             text:
-              `モデル: ${settings.model}\n` +
-              `画像を生成して保存しました: ${path}\n` +
+              `${header}\n` +
               `本文に示すときは Markdown 画像 ![alt](${path}) で示してください。` +
-              // 編集元は 2 行目より後に置き、投影の切詰めでモデル行・保存パス行が落ちない位置を守る
+              // 編集元は保存パス行より後に置き、投影の切詰めでモデル行・保存パス行が落ちない位置を守る
               (references.length > 0 ? `\n編集元: ${targets.map((target) => target.display).join(", ")}` : ""),
           },
         ],

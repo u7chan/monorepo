@@ -93,6 +93,7 @@ import type {
   CreatePromptBody,
   UpdateCloudflareSettingsBody,
   UpdateContentImageBody,
+  UpdateContentImageProviderBody,
   UpdateContentSpeechBody,
   UpdateCustomProviderBody,
   UpdateModelAvailabilityBody,
@@ -877,6 +878,18 @@ export const putContentEnabled = async (enabled: boolean): Promise<ContentMutati
 /** 画像モデルの変更。キーは保持され、行が無ければ 400 */
 export const putContentImageSettings = async (input: UpdateContentImageBody): Promise<ContentMutationResponse> => {
   const res = await client.api.settings.content.image.$put({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ContentMutationResponse;
+};
+
+/**
+ * 画像の生成元（openrouter / codex）の変更。キーもモデルも伴わず、行が無くても受け付ける
+ * （Codex はAPIキーを使わない）。切り替えても他方の設定は消えない。
+ */
+export const putContentImageProvider = async (
+  input: UpdateContentImageProviderBody,
+): Promise<ContentMutationResponse> => {
+  const res = await client.api.settings.content.image.provider.$put({ json: input });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ContentMutationResponse;
 };

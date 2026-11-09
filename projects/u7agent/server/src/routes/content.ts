@@ -6,6 +6,7 @@ import type {
   CreateContentTrialBody,
   UpdateContentEnabledBody,
   UpdateContentImageBody,
+  UpdateContentImageProviderBody,
   UpdateContentSpeechBody,
 } from "../schema";
 
@@ -31,6 +32,10 @@ export function createContentSettingsRoutes({
 
     putSelection: async (c: Context, body: UpdateContentImageBody) =>
       respond(c, await contentSettings.putSelection(body)),
+
+    // 画像の生成元（openrouter / codex）の切り替え。キーもモデルも伴わないため、未設定の行でも受け付ける
+    putImageProvider: async (c: Context, body: UpdateContentImageProviderBody) =>
+      respond(c, await contentSettings.putImageProvider(body.provider)),
 
     putSpeechSelection: async (c: Context, body: UpdateContentSpeechBody) =>
       respond(c, await contentSettings.putSpeechSelection(body)),

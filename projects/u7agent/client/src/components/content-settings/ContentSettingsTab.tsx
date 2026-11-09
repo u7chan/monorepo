@@ -4,10 +4,23 @@ import {
   imageCatalogNotice,
   contentKeyErrorNotice,
   contentKeyStatusBadge,
+  CONTENT_IMAGE_PROVIDER_HEADING,
+  IMAGE_DEFAULT_NONE_LABEL,
+  IMAGE_DEFAULT_NOTE,
+  IMAGE_PROVIDER_OPTIONS,
+  contentImageProviderLabel,
+  imageAuthBadge,
+  imageAuthNotice,
+  imageDefaultClearSelection,
+  imageDefaultsScreen,
+  imageKeySectionVisible,
+  imageModelSectionVisible,
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
   imageScreenModel,
+  imageSelectionSaveDisabled,
+  SPEECH_NEEDS_OPENROUTER_KEY_NOTE,
   contentProviderId,
   contentProviderLabel,
   keyDraftAfterSave,
@@ -15,12 +28,14 @@ import {
   speechSaveDisabled,
   speechScreenSelection,
   speechSelection,
+  type ImageDefaultsDraft,
   type SpeechScreenSelection,
   type ContentSavingAction,
 } from "../../lib/contentSettings";
 import {
   EMPTY_SPEECH_TRIAL_DRAFT,
   bgmTrialRequest,
+  imageTrialDraftOf,
   imageTrialRequest,
   speechTrialDraftOf,
   speechTrialRequest,
@@ -28,12 +43,18 @@ import {
   trialCapacityWarningNote,
   trialStorageNote,
 } from "../../lib/contentTrials";
+import {
+  imageModelParameterDeclarations,
+  pruneImageTrialParameters,
+  type ImageParameterDraft,
+} from "../../lib/imageParameters";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import { cn } from "../../lib/cn";
 import type { ContentSubsection } from "../../lib/settingsNav";
 import type {
   ContentSettingsResponse,
   ContentTrial,
+  ImageGenerationProvider,
   ContentTrialSummary,
   ContentTrialArtifactUsageValue,
   ContentTrialArtifactWarningValue,
@@ -68,6 +89,8 @@ export type ContentSettingsTabProps = {
   onSetEnabled: (enabled: boolean) => Promise<boolean>;
   onSaveKey: (apiKey: string) => Promise<boolean>;
   onDeleteKey: () => Promise<boolean>;
+  /** 画像の生成元（OpenRouter / Codex）を切り替える。キーもモデルも伴わない */
+  onSaveImageProvider: (provider: ImageGenerationProvider) => Promise<boolean>;
   onSaveSelection: (input: UpdateContentImageBody) => Promise<boolean>;
   /** 画像モデル一覧の再取得。失敗しても一覧は前のまま残る */
   onRefreshCatalog: () => Promise<boolean>;
@@ -122,6 +145,7 @@ export function ContentSettingsTab({
   onSetEnabled,
   onSaveKey,
   onDeleteKey,
+  onSaveImageProvider,
   onSaveSelection,
   onRefreshCatalog,
   onSaveSpeech,
@@ -150,9 +174,13 @@ export function ContentSettingsTab({
   const [apiKey, setApiKey] = useState("");
   // 面の下書きはこの画面が持ち続ける。面をタブで出し分けても unmount しないため、未保存の選択を失わない
   const [imageDraft, setImageDraft] = useState<string | null>(null);
+  // 既定のパラメータの下書きも面を切り替えて失わないよう、この画面が持つ（モデルごとに組で持つ）
+  const [imageDefaultsDraft, setImageDefaultsDraft] = useState<ImageDefaultsDraft | null>(null);
   const [speechDraft, setSpeechDraft] = useState<SpeechDraft>(EMPTY_SPEECH_DRAFT);
   // 試行のプロンプトは保存しない（履歴にだけ残す）。面を切り替えても失わないよう、この画面が持つ
   const [trialPrompt, setTrialPrompt] = useState("");
+  // 画像の生成パラメータも同じ扱い。宣言に無いキーはモデルの切替でここから落とす
+  const [trialParameters, setTrialParameters] = useState<ImageParameterDraft>({});
   // 音声の試行の本文・演技指示・話速も同じ扱い（保存値へ書き戻さない）
   const [speechTrialDraft, setSpeechTrialDraft] = useState(EMPTY_SPEECH_TRIAL_DRAFT);
   // BGM の試行のプロンプトも保存しない（履歴にだけ残す）
@@ -170,10 +198,19 @@ export function ContentSettingsTab({
   const providerName = contentProviderLabel(settings.provider);
   const keyError = contentKeyErrorNotice(settings);
   const capacityWarning = trialCapacityWarningNote(trialArtifactWarning);
+  // モデルを切り替えたら、新しい宣言に無いキーを下書きから落とす（隠れた値が要求に残ると 400 になる）。
+  // 落とすのは画面の state だけで、保存値には触らない
+  const trialParameterDeclarations = imageModelParameterDeclarations(settings.image.models, screenModel);
+  const keptTrialParameters = pruneImageTrialParameters(trialParameterDeclarations, trialParameters);
+  if (keptTrialParameters !== trialParameters) setTrialParameters(keptTrialParameters);
 
   // 未設定へ戻ったら下書きを捨てる。面の unmount で消えていた挙動を持ち上げた側で明示的に保つ
-  if (!settings.configured && (imageDraft !== null || speechDraft.model !== null || speechDraft.voice !== null)) {
+  if (
+    !settings.configured &&
+    (imageDraft !== null || imageDefaultsDraft !== null || speechDraft.model !== null || speechDraft.voice !== null)
+  ) {
     setImageDraft(null);
+    setImageDefaultsDraft(null);
     setSpeechDraft(EMPTY_SPEECH_DRAFT);
   }
   // キーを消したら設定パネルも閉じる（開いたままの空のフォームを残さない）
@@ -193,6 +230,7 @@ export function ContentSettingsTab({
   const saveTrialModel = async (input: UpdateContentImageBody): Promise<boolean> => {
     if (!(await onSaveSelection(input))) return false;
     setImageDraft(null);
+    setImageDefaultsDraft(null);
     return true;
   };
 
@@ -205,8 +243,10 @@ export function ContentSettingsTab({
   /** 履歴の「この内容で編集」。全文を下書きへ戻して、その種別の生成タブを開く */
   const prefillTrial = (trial: ContentTrial): void => {
     if (trial.kind === "image") {
+      const draft = imageTrialDraftOf(trial);
       setImageDraft(trial.model);
-      setTrialPrompt(trial.prompt);
+      setTrialPrompt(draft.prompt);
+      setTrialParameters(draft.parameters);
     } else if (trial.kind === "speech") {
       setSpeechDraft({ model: trial.model, voice: trial.voice ?? "" });
       setSpeechTrialDraft(speechTrialDraftOf(trial));
@@ -219,7 +259,14 @@ export function ContentSettingsTab({
   /** 履歴の「もう一度生成」。確認のうえ、保存済みの結果を再利用せず新しい試行として課金する */
   const anotherTake = async (trial: ContentTrial): Promise<boolean> => {
     if (trial.kind === "image") {
-      return onStartTrial(imageTrialRequest({ model: trial.model, prompt: trial.prompt, origin: "another-take" }));
+      return onStartTrial(
+        imageTrialRequest({
+          model: trial.model,
+          prompt: trial.prompt,
+          parameters: trial.parameters ?? undefined,
+          origin: "another-take",
+        }),
+      );
     }
     if (trial.kind === "speech") {
       const request = speechTrialRequest({
@@ -262,11 +309,15 @@ export function ContentSettingsTab({
     );
   }
 
+  const imageProvider = settings.image.provider;
+  const keyVisible = contentSubsection !== "image" || imageKeySectionVisible(imageProvider);
   const settingsSummary = [
     settings.enabled ? "有効" : "無効",
     settings.keyStored ? (settings.keyAvailable ? "キー設定済み" : "キーを利用できません") : "キー未設定",
     contentSubsection === "image"
-      ? imageModelValue(settings) || "モデル未選択"
+      ? imageProvider === "codex"
+        ? "Codex（画像モデル不明）"
+        : imageModelValue(settings) || "モデル未選択"
       : contentSubsection === "speech"
         ? `${speechSelectionOfScreen.selectedModel}${
             speechSelectionOfScreen.selectedVoice === "" ? "" : ` · ${speechSelectionOfScreen.selectedVoice}`
@@ -311,6 +362,16 @@ export function ContentSettingsTab({
           <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
             {keyError}
           </p>
+        ) : null}
+
+        {/* 生成元はキー未設定でも選べるよう、設定パネルの外に出す（Codex はAPIキーを使わない） */}
+        {contentSubsection === "image" ? (
+          <ImageProviderSection
+            settings={settings}
+            busy={busy}
+            onSave={onSaveImageProvider}
+            onSaved={() => setImageDraft(null)}
+          />
         ) : null}
 
         {/* 設定は要約 1 行を既定にし、変えるときだけ開く。生成と結果を同じ画面に収める */}
@@ -371,21 +432,29 @@ export function ContentSettingsTab({
                 )}
               </section>
 
-              {keySection}
+              {keyVisible ? keySection : null}
+              {imageProvider === "codex" ? (
+                <p className="text-2xs leading-relaxed text-ink-muted">{SPEECH_NEEDS_OPENROUTER_KEY_NOTE}</p>
+              ) : null}
 
               {contentSubsection === "image" ? (
-                <ImageModelSection
-                  settings={settings}
-                  busy={busy}
-                  refreshing={saving === "catalog"}
-                  selectedModel={screenModel}
-                  onChangeDraft={setImageDraft}
-                  onSave={onSaveSelection}
-                  onRefresh={onRefreshCatalog}
-                  trials={trials}
-                  trialKeyEpoch={trialKeyEpoch}
-                  trialNow={trialNow}
-                />
+                // Codex は画像モデルを選ばないため、画像タブでは何も出さない（BGM の欄へ落とさない）
+                imageModelSectionVisible(imageProvider) ? (
+                  <ImageModelSection
+                    settings={settings}
+                    busy={busy}
+                    refreshing={saving === "catalog"}
+                    selectedModel={screenModel}
+                    onChangeDraft={setImageDraft}
+                    defaultsDraft={imageDefaultsDraft}
+                    onChangeDefaultsDraft={setImageDefaultsDraft}
+                    onSave={onSaveSelection}
+                    onRefresh={onRefreshCatalog}
+                    trials={trials}
+                    trialKeyEpoch={trialKeyEpoch}
+                    trialNow={trialNow}
+                  />
+                ) : null
               ) : contentSubsection === "speech" ? (
                 <SpeechModelSection
                   settings={settings}
@@ -406,10 +475,11 @@ export function ContentSettingsTab({
               )}
             </div>
           </section>
-        ) : (
-          // 未設定では保存される設定を出さず、キー入力だけを出す（下書きの破棄は上で行う）
+        ) : // 未設定では保存される設定を出さず、キー入力だけを出す（下書きの破棄は上で行う）。
+        // Codex はAPIキーを使わないため、そのときはキー欄を出さない
+        keyVisible ? (
           keySection
-        )}
+        ) : null}
 
         {contentSubsection === "image" ? (
           <ImageTrialSection
@@ -423,6 +493,8 @@ export function ContentSettingsTab({
             onMakeDefault={saveTrialModel}
             prompt={trialPrompt}
             onChangePrompt={setTrialPrompt}
+            parameters={keptTrialParameters}
+            onChangeParameters={setTrialParameters}
             onStart={onStartTrial}
             onCancel={onCancelTrial}
             onDelete={onDeleteTrial}
@@ -504,6 +576,83 @@ export function ContentSettingsTab({
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * 画像の生成元。キー未設定でも選べるよう、設定パネルの外に出す（Codex はAPIキーを使わない）。
+ * 認証の有無は保存値を読んだ結果（`settings.image.auth`）を出すだけで、この画面から解決しない。
+ */
+function ImageProviderSection({
+  settings,
+  busy,
+  onSave,
+  onSaved,
+}: {
+  settings: ContentSettingsResponse;
+  busy: boolean;
+  onSave: (provider: ImageGenerationProvider) => Promise<boolean>;
+  onSaved: () => void;
+}) {
+  const current = settings.image.provider;
+  const notice = imageAuthNotice(settings);
+  return (
+    <section className="grid gap-2 rounded-lg border border-line bg-raised px-3 py-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">
+          {CONTENT_IMAGE_PROVIDER_HEADING}
+        </h3>
+        <ProviderBadgeTag badge={imageAuthBadge(settings.image.auth)} />
+        <span className="text-2xs text-ink-ghost">{contentImageProviderLabel(current)}</span>
+      </div>
+      <div role="radiogroup" aria-label={CONTENT_IMAGE_PROVIDER_HEADING} className="grid gap-1.5">
+        {IMAGE_PROVIDER_OPTIONS.map((option) => (
+          <label
+            key={option.value}
+            className={cn(
+              "flex min-w-0 items-start gap-2 rounded-lg border px-2.5 py-2",
+              option.value === current ? "border-accent/60 bg-soft" : "border-line bg-base",
+              busy ? "opacity-60" : null,
+            )}
+          >
+            <input
+              type="radio"
+              name="content-image-provider"
+              className="mt-0.5"
+              value={option.value}
+              checked={option.value === current}
+              disabled={busy}
+              onChange={() => {
+                if (option.value === current) return;
+                void onSave(option.value).then((saved) => {
+                  if (saved) onSaved();
+                });
+              }}
+            />
+            <span className="grid min-w-0 gap-0.5">
+              <span className="text-xs font-semibold text-ink-strong">{option.label}</span>
+              <span className="text-2xs leading-relaxed text-ink-muted">{option.description}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {notice === null ? null : (
+        <p
+          role="status"
+          className="rounded border border-warn/40 bg-base px-2 py-1.5 text-2xs leading-relaxed text-warn"
+        >
+          {notice}
+        </p>
+      )}
+      {current === "codex" ? (
+        <p className="text-2xs leading-relaxed text-ink-muted">{SPEECH_NEEDS_OPENROUTER_KEY_NOTE}</p>
+      ) : null}
+      <p className="text-2xs leading-relaxed text-ink-muted">
+        生成元を切り替えても、他方のキーとモデルは残ります。切り替えは保存した瞬間から
+        <strong>既存の会話</strong>
+        の次の呼び出しにも効きます（未設定から有効にしたときだけ、ツールを持たない会話には新しい会話が必要です）。
+      </p>
+    </section>
   );
 }
 
@@ -623,13 +772,15 @@ function BgmModelSection({
   );
 }
 
-/** モデル選択。カタログ外の保存値も「（カタログ外）」として選択肢の先頭に残す */
+/** モデル選択と、そのモデルの既定のパラメータ。[保存] はモデルとパラメータを 1 回の PUT で送る */
 function ImageModelSection({
   settings,
   busy,
   refreshing,
   selectedModel,
   onChangeDraft,
+  defaultsDraft,
+  onChangeDefaultsDraft,
   onSave,
   onRefresh,
   trials,
@@ -642,6 +793,9 @@ function ImageModelSection({
   /** 画面で選択中のモデル（下書き優先）。試行と証拠も同じ値を使う */
   selectedModel: string;
   onChangeDraft: (draft: string | null) => void;
+  /** 既定のパラメータの下書き。編集したモデルと組で持つ */
+  defaultsDraft: ImageDefaultsDraft | null;
+  onChangeDefaultsDraft: (draft: ImageDefaultsDraft | null) => void;
   onSave: (input: UpdateContentImageBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
   trials: readonly ContentTrialSummary[] | null;
@@ -650,12 +804,26 @@ function ImageModelSection({
 }) {
   const options = imageModelOptions(settings);
   const savedModel = imageModelValue(settings);
-  const dirty = selectedModel !== savedModel;
+  const defaults = imageDefaultsScreen(settings, selectedModel, defaultsDraft);
+  const modelDirty = selectedModel !== savedModel;
+  const dirty = modelDirty || defaults.dirty;
 
   const submit = async () => {
-    const input = imageModelSelection(options, selectedModel);
+    if (!defaults.body.ok) return;
+    const selection = imageModelSelection(options, selectedModel);
+    if (!selection) return;
+    // 編集が無ければ parameters を省く（値ありは置き換えなので、触っていない既定を送り直さない）
+    const input = defaults.body.unchanged ? selection : { ...selection, parameters: defaults.body.parameters };
+    if (!(await onSave(input))) return;
+    onChangeDraft(null);
+    onChangeDefaultsDraft(null);
+  };
+
+  // 解除は画面のモデルに対する 1 回の PUT。選んでいるモデルに保存済みの既定が無ければ押せない
+  const clearDefaults = async () => {
+    const input = imageDefaultClearSelection(options, selectedModel);
     if (!input) return;
-    if (await onSave(input)) onChangeDraft(null);
+    if (await onSave(input)) onChangeDefaultsDraft(null);
   };
 
   return (
@@ -678,15 +846,83 @@ function ImageModelSection({
             </option>
           ))}
         </SelectField>
-        <button type="button" className="btn-primary" disabled={busy || !dirty} onClick={() => void submit()}>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={imageSelectionSaveDisabled({
+            busy,
+            modelDirty,
+            defaultsDirty: defaults.dirty,
+            invalid: !defaults.body.ok,
+          })}
+          onClick={() => void submit()}
+        >
           <CheckIcon />
           保存
         </button>
       </div>
+      {/* 既定はモデルの宣言に応じた欄だけを出す。宣言が無ければ「既定なし」だけを書く */}
+      {defaults.fields.length === 0 ? null : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {defaults.fields.map((field) => {
+            const value = defaults.values[field.name] ?? "";
+            const set = (next: string) =>
+              onChangeDefaultsDraft({ model: selectedModel, values: { ...defaults.values, [field.name]: next } });
+            return (
+              <label key={field.name} className="grid min-w-0 gap-1">
+                <span className="text-2xs text-ink-muted">{field.name}</span>
+                {field.kind === "enum" ? (
+                  <SelectField
+                    aria-label={`既定の ${field.name}`}
+                    value={value}
+                    disabled={busy}
+                    onChange={(event) => set(event.currentTarget.value)}
+                  >
+                    <option value="">{IMAGE_DEFAULT_NONE_LABEL}</option>
+                    {field.values.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </SelectField>
+                ) : (
+                  <input
+                    className="field min-w-0 text-xs"
+                    type="number"
+                    inputMode="numeric"
+                    min={field.min}
+                    max={field.max}
+                    value={value}
+                    placeholder={IMAGE_DEFAULT_NONE_LABEL}
+                    aria-label={`既定の ${field.name}`}
+                    disabled={busy}
+                    onChange={(event) => set(event.currentTarget.value)}
+                  />
+                )}
+              </label>
+            );
+          })}
+        </div>
+      )}
+      {defaults.body.ok ? null : (
+        <p role="alert" className="text-2xs break-words text-warn">
+          {defaults.body.error}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="btn-quiet"
+          disabled={busy || defaults.clearDisabled}
+          onClick={() => void clearDefaults()}
+        >
+          <TrashIcon />
+          既定を解除
+        </button>
+        <p className="min-w-0 text-2xs leading-relaxed text-ink-muted">{IMAGE_DEFAULT_NOTE}</p>
+      </div>
       {/* キーの有効性は緑のバッジにせず、現在のキー世代と選択中モデルの実績だけを証拠として出す */}
       <EvidenceLine trials={trials} model={selectedModel} keyEpoch={trialKeyEpoch} now={trialNow} />
-      {/* サイズ・品質・出力形式の UI は持たない理由だけを残す。provider は見出しに出ている */}
-      <p className="text-2xs leading-relaxed text-ink-muted">サイズ・品質・出力形式は provider の既定を使います。</p>
       <div className="flex flex-wrap items-center gap-2">
         {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
         <p className="min-w-0">

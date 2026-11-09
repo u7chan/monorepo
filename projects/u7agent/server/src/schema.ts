@@ -211,8 +211,10 @@ export type ToolGroup = z.infer<typeof ToolGroupSchema>;
 /**
  * アプリ側でツールを使えない理由のコード。文言はクライアントの lib が持ち、応答にはコードだけを載せる
  * (既存の分担は `client/src/lib/fileSkills.ts` / `client/src/lib/settingsNotes.ts`)。
+ * `no_key` は OpenRouter のキー未登録、`no_auth` は Codex のサインインが無いことを表す
+ * (画像は選択 provider の認証で決まる。docs/api-catalog.md)。
  */
-export const ToolUnavailableReasonSchema = z.enum(["deploy_allowlist", "app_disabled", "no_key"]);
+export const ToolUnavailableReasonSchema = z.enum(["deploy_allowlist", "app_disabled", "no_key", "no_auth"]);
 export type ToolUnavailableReason = z.infer<typeof ToolUnavailableReasonSchema>;
 
 /**
@@ -1250,11 +1252,60 @@ export const UpdateModelAvailabilityBodySchema = z.object({
 });
 export type UpdateModelAvailabilityBody = z.infer<typeof UpdateModelAvailabilityBodySchema>;
 
+/**
+ * 画像生成のパラメータ値。**6 キー固定の strict object** で、`seed` だけが整数、他は文字列。
+ * `z.record` で受けると `"42"` と `42` で正規化キーが変わるため、キーを明示する。
+ */
+export const ImageParameterValuesSchema = z
+  .object({
+    aspect_ratio: z.string().min(1).optional(),
+    resolution: z.string().min(1).optional(),
+    quality: z.string().min(1).optional(),
+    output_format: z.string().min(1).optional(),
+    background: z.string().min(1).optional(),
+    /** 0 以上 2^31-1 以下の整数（`server/src/images.ts` の宣言検証と同じ上限） */
+    seed: z
+      .number()
+      .int()
+      .min(0)
+      .max(2 ** 31 - 1)
+      .optional(),
+  })
+  .strict();
+export type ImageParameterValues = z.infer<typeof ImageParameterValuesSchema>;
+
+/**
+ * 生成パラメータの宣言 1 件。`boolean` は「そのパラメータを受け付ける」の意味で、値は送らない。
+ * 宣言の正規化（未知キーの除去・`output_format` の積）は `server/src/images.ts` が行う。
+ */
+export const ImageParameterDescriptorSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("enum"), values: z.array(z.string()) }),
+  z.object({ type: z.literal("range"), min: z.number(), max: z.number() }),
+  z.object({ type: z.literal("boolean") }),
+]);
+
+/** 宣言の集まり。名前は許可リストの 6 つに固定し、読めなかった項目は載せない */
+export const ImageParameterDeclarationsSchema = z
+  .object({
+    aspect_ratio: ImageParameterDescriptorSchema.optional(),
+    resolution: ImageParameterDescriptorSchema.optional(),
+    quality: ImageParameterDescriptorSchema.optional(),
+    output_format: ImageParameterDescriptorSchema.optional(),
+    background: ImageParameterDescriptorSchema.optional(),
+    seed: ImageParameterDescriptorSchema.optional(),
+  })
+  .strict();
+
 /** 画像生成のカタログ 1 件。provider は将来の追加に備えて載せ、値は開放しない */
 export const ImageModelSchema = z.object({
   provider: z.string(),
   id: z.string(),
   name: z.string(),
+  /**
+   * live が宣言する生成パラメータ。宣言が無い / 読めないモデル（SDK 同梱・古いキャッシュ）は載せない
+   * （＝不明）。画面はこれだけを見て選択肢を描き、サーバーは送信本文と生成前検証に使う。
+   */
+  parameters: ImageParameterDeclarationsSchema.optional(),
 });
 export type ImageModel = z.infer<typeof ImageModelSchema>;
 
@@ -1282,17 +1333,40 @@ export const SpeechCatalogSourceSchema = z.enum(["live", "stored", "default"]);
 export type SpeechCatalogSource = z.infer<typeof SpeechCatalogSourceSchema>;
 
 /**
+ * 画像の生成元。値の正は `server/src/images.ts` の `IMAGE_GENERATION_PROVIDERS`。
+ * provider 間の自動フォールバックはなく、設定で明示的に選んだ片方だけを使う。
+ */
+export const ImageGenerationProviderSchema = z.enum(["openrouter", "codex"]);
+export type ImageGenerationProvider = z.infer<typeof ImageGenerationProviderSchema>;
+
+/** 画像の認証状態。値を伏せたまま「使えるか / 何を入れれば使えるか」だけを返す */
+export const ContentImageAuthSchema = z.object({
+  state: z.enum(["configured", "missing", "expired"]),
+  kind: z.enum(["api_key", "oauth"]).nullable(),
+});
+export type ContentImageAuth = z.infer<typeof ContentImageAuthSchema>;
+
+/**
  * GET /api/settings/content の `image`。`configured: false` のとき `model` は null（行が無い = 未設定）。
  * 音声など別の生成物を足すときは、この兄弟として項目を増やす（`image` の形は変えない）。
  */
 export const ContentImageSettingsSchema = z.object({
   model: z.string().nullable(),
-  /** 選択肢。live カタログ（取得できないときは前回の一覧 / SDK 同梱） */
+  /** 画像の生成元。既定は openrouter（行が無いときも openrouter） */
+  provider: ImageGenerationProviderSchema,
+  /** 選択中の provider が使える認証を持っているか。値そのものは返さない */
+  auth: ContentImageAuthSchema,
+  /** 選択肢。Codex は画像モデルを選ばないため空配列（ルーティングモデルを画像モデルとして見せない） */
   models: z.array(ImageModelSchema),
   /** 上の models の出どころ。live 以外は取得に失敗した状態 */
   catalogSource: ImageCatalogSourceSchema,
   /** live を最後に取得できた時刻 (epoch ms)。SDK 同梱を表示しているときは null */
   fetchedAt: z.number().nullable(),
+  /**
+   * 保存済みの生成パラメータの既定（bare なモデル id → 値）。各エントリはそのモデルの宣言で
+   * 絞り、宣言が読めないモデルのエントリは空になる（画面は空のエントリに欄を出さない）。
+   */
+  parametersByModel: z.record(z.string(), ImageParameterValuesSchema),
 });
 export type ContentImageSettings = z.infer<typeof ContentImageSettingsSchema>;
 
@@ -1397,6 +1471,7 @@ export type ContentTrialArtifact = z.infer<typeof ContentTrialArtifactSchema>;
  * `recorded: false` は「終端を DB へ記録できず、メモリの状態を返している」を表し、
  * この間の行は `running` のまま保存されている（docs/api-settings.md）。APIキーは載らない。
  * 音声の `voice` / `speed` は送信時のスナップショットで、画像と BGM の行は null。
+ * `parameters` も送信時のスナップショットで、未指定（未指定のまま生成した行を含む）は null。
  */
 export const ContentTrialSummarySchema = z.object({
   id: z.string(),
@@ -1407,6 +1482,11 @@ export const ContentTrialSummarySchema = z.object({
   promptPreview: z.string(),
   voice: z.string().nullable(),
   speed: z.number().nullable(),
+  /**
+   * 画像の生成パラメータ（許可リストのキーだけ）。未指定は null で、[もう一度生成] は全文の取得を待たずに
+   * この値を使える（`ContentTrialSchema` も要約を extends するため全文にも載る）。
+   */
+  parameters: ImageParameterValuesSchema.nullable(),
   state: ContentTrialStateSchema,
   keyEpoch: z.number(),
   artifactState: ContentTrialArtifactStateSchema,
@@ -1477,6 +1557,7 @@ export type ContentTrialDeleteResponse = z.infer<typeof ContentTrialDeleteRespon
  * POST /api/settings/content/trials。試行は画面の値で実行し、設定には反映しない。
  * 種別ごとに同時 1 本で、実行中は 409。`voice` / `instructions` / `speed` は音声のときだけ受け付け、
  * 音声の試行の入力スナップショットとして履歴に残る（同じ入力の再利用もこの 3 つで照合する）。
+ * `parameters` は画像のときだけ受け付け、宣言との突き合わせは課金前に行う（同じ入力の再利用もこの値で照合する）。
  * BGM の `model` は固定で、それ以外は 400（設定画面は固定値を送る）。
  */
 export const CreateContentTrialBodySchema = z.object({
@@ -1490,6 +1571,8 @@ export const CreateContentTrialBodySchema = z.object({
   voice: z.string().max(200).optional(),
   instructions: z.string().max(CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH).optional(),
   speed: z.number().optional(),
+  /** 画像の生成パラメータ。未指定は送らず、モデルが宣言した範囲だけを通す */
+  parameters: ImageParameterValuesSchema.optional(),
 });
 export type CreateContentTrialBody = z.infer<typeof CreateContentTrialBodySchema>;
 
@@ -1676,12 +1759,26 @@ export const ContentMutationErrorSchema = z.object({
 });
 export type ContentMutationError = z.infer<typeof ContentMutationErrorSchema>;
 
-/** provider / model の変更。キーは保持したまま差し替える（行が無ければ 400） */
+/**
+ * provider / model の変更。キーは保持したまま差し替える（行が無ければ 400）。
+ * `parameters` は保存する生成パラメータの既定で、省略 = 据え置き / `{}` = そのモデルの既定を削除 /
+ * 値あり = 置き換え。値はモデルの宣言と突き合わせ、宣言外は 400 にする（保存しない）。
+ */
 export const UpdateContentImageBodySchema = z.object({
   provider: z.string(),
   model: z.string(),
+  parameters: ImageParameterValuesSchema.optional(),
 });
 export type UpdateContentImageBody = z.infer<typeof UpdateContentImageBodySchema>;
+
+/**
+ * PUT /api/settings/content/image/provider。画像の生成元の切り替えで、キーもモデルも伴わない。
+ * 未設定の行でも受け付ける（Codex は APIキーを使わない）。
+ */
+export const UpdateContentImageProviderBodySchema = z.object({
+  provider: ImageGenerationProviderSchema,
+});
+export type UpdateContentImageProviderBody = z.infer<typeof UpdateContentImageProviderBodySchema>;
 
 /**
  * 音声モデル / 話者の変更。キーと provider は保持したまま差し替える（行が無ければ 400）。

@@ -9,15 +9,20 @@ import { DatabaseSync } from "node:sqlite";
 import { spaceDirRel } from "./app-paths";
 import { BUILTIN_PROMPTS } from "./builtin-catalog";
 import { httpError, messageFor } from "./http";
-import type { ImageInputDeclaration } from "./images";
+import {
+  imageParameterBody,
+  imageParameterDeclarationsOf,
+  type ImageInputDeclaration,
+  type ImageParameterDeclarations,
+} from "./images";
 import type { SecretKind } from "./secret-crypto";
-import { AGENT_PROMPT_LIMIT, PROMPT_LABEL_MAX, PROMPT_TEXT_MAX } from "./schema";
-import type { AgentDef, ModelRef, NotificationResult, Project, PromptRef, Space } from "./schema";
+import { AGENT_PROMPT_LIMIT, ImageParameterValuesSchema, PROMPT_LABEL_MAX, PROMPT_TEXT_MAX } from "./schema";
+import type { AgentDef, ImageParameterValues, ModelRef, NotificationResult, Project, PromptRef, Space } from "./schema";
 import type { SpeechAudioFormat } from "./speech";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 41;
+export const APP_DB_SCHEMA_VERSION = 44;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -99,10 +104,31 @@ export interface ContentSettingsRow {
   speechModel: string | null;
   speechVoice: string | null;
   enabled: boolean;
+  /**
+   * 画像の生成パラメータの既定（bare なモデル id → 値）。null = 既定なし、`{}` = 空の map を保存済み
+   * （v43 → v44 の加算移行で足した列で、既存行は NULL のまま）。
+   */
+  imageParams: ImageParameterDefaults | null;
   /** APIキーの暗号文。null = キー未設定 */
   ciphertext: Uint8Array | null;
   nonce: Uint8Array | null;
   keyVersion: number | null;
+}
+
+/**
+ * モデル id をキーにした生成パラメータの既定。画面が使う `provider/id` ではなく bare id をキーにし、
+ * `PUT /api/settings/content/image` の `model` と揃える。
+ */
+export type ImageParameterDefaults = Record<string, ImageParameterValues>;
+
+/**
+ * 画像の生成元の保存行。**行が無い = 既定（openrouter）**で、キー削除では消さない別テーブルに持つ。
+ * OpenRouter のモデルは `content_settings.imageModel` が正のまま（同じ値を 2 箇所へ写さない）。
+ * `codexParams` は将来の Codex 用パラメータの枠で、v1 の API / 画面は読み書きしない（値は保持する）。
+ */
+export interface ImageSettingsRow {
+  provider: string;
+  codexParams: string | null;
 }
 
 /**
@@ -127,6 +153,8 @@ export interface ContentTrialArtifactRow {
 export interface ContentTrialRow {
   id: string;
   kind: string;
+  /** 生成元。NULL の既存行は openrouter として読む（v42 で足した列） */
+  provider: string;
   /** 送信時のモデル (`provider/id`)。現在の保存値とは別に持つ */
   model: string;
   prompt: string;
@@ -134,6 +162,11 @@ export interface ContentTrialRow {
   voice: string | null;
   instructions: string | null;
   speed: number | null;
+  /**
+   * 画像の入力スナップショット。null = 未指定（v42 → v43 で足した列）。表示用の別列は持たず、
+   * 保存する正規化 JSON をそのまま再利用の照合に使う
+   */
+  parameters: ImageParameterValues | null;
   state: string;
   keyEpoch: number;
   artifactState: string;
@@ -190,6 +223,11 @@ export interface ImageCatalogModelRow {
   outputFormats?: string[] | undefined;
   /** live が宣言する画像入力の能力。無い行（この項目より前のキャッシュ）は「不明」として読む */
   input?: ImageInputDeclaration | undefined;
+  /**
+   * live が宣言する生成パラメータ。無い行（この項目より前のキャッシュ）と壊れた descriptor は
+   * 「宣言なし」として読む（列は増やさない）
+   */
+  parameters?: ImageParameterDeclarations | undefined;
 }
 
 /**
@@ -471,6 +509,7 @@ CREATE TABLE IF NOT EXISTS custom_providers (
  * APIキーは v30 -> v31 で平文列から AEAD の暗号文へ移し、3 列 NULL = キー未設定にした。
  * 音声の `speechModel` / `speechVoice` は v15 -> v16 の列追加で、既存行は NULL になる
  * （NULL は既定へフォールバックする。docs/speech-generation.md）。
+ * 画像の生成パラメータの既定は v43 -> v44 の列追加で、NULL = 既定なし（空 map とは区別して読む）。
  */
 const CONTENT_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS content_settings (
@@ -482,7 +521,8 @@ CREATE TABLE IF NOT EXISTS content_settings (
   enabled     INTEGER NOT NULL DEFAULT 1,
   ciphertext  BLOB,
   nonce       BLOB,
-  keyVersion  INTEGER
+  keyVersion  INTEGER,
+  imageParams TEXT
 );
 `;
 
@@ -494,6 +534,7 @@ CREATE TABLE IF NOT EXISTS content_settings (
  * 容量は `succeeded` かつ `artifactState = 'stored'` の `artifactBytes` を合計して出す (走査しない)。
  * 音声の入力スナップショットは `voice` / `instructions` / `speed` に持ち、同じ入力の再利用もこの 3 列で照合する
  * (v39 -> v40。画像の行は 3 列とも NULL)。
+ * 生成元は `provider`（v41 -> v42。NULL の既存行は openrouter として読む。v1 の試行は openrouter だけ）。
  * **`DROP_TABLES` に入れない**: 古いビルドへ戻したとき (#recreate) はこのテーブルを知らないので放置され、
  * 新ビルドへ戻すと #migrate() の `CREATE TABLE IF NOT EXISTS` がそのまま合流させる。
  */
@@ -506,6 +547,7 @@ CREATE TABLE IF NOT EXISTS content_trials (
   voice          TEXT,
   instructions   TEXT,
   speed          REAL,
+  imageParams    TEXT,
   state          TEXT NOT NULL,
   keyEpoch       INTEGER NOT NULL,
   artifactState  TEXT NOT NULL,
@@ -519,7 +561,8 @@ CREATE TABLE IF NOT EXISTS content_trials (
   failureMessage TEXT,
   startedAt      INTEGER NOT NULL,
   finishedAt     INTEGER,
-  durationMs     INTEGER
+  durationMs     INTEGER,
+  provider       TEXT
 );
 CREATE INDEX IF NOT EXISTS content_trials_started ON content_trials (startedAt);
 `;
@@ -778,6 +821,20 @@ const AGENT_PROMPTS_TABLE = `CREATE TABLE IF NOT EXISTS agent_prompts (
   UNIQUE (agentId, position)
 );`;
 
+/**
+ * v41 -> v42 で足したテーブル。画像の生成元（openrouter / codex）を 1 行だけ持ち、**行が無い = 既定**。
+ * `content_settings` の行と分ける理由は、OpenRouter キーの削除（行ごと消す）で Codex の選択まで
+ * 消えないようにするため。**`DROP_TABLES` に入れる**: 失ってはいけない値を持たない設定の写しで、
+ * 戻すと既定 (openrouter) へ戻るだけ。
+ */
+const IMAGE_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS image_settings (
+  id          INTEGER PRIMARY KEY CHECK (id = 1),
+  provider    TEXT NOT NULL,
+  codexParams TEXT
+);
+`;
+
 const CREATE_TABLES = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -809,6 +866,7 @@ ${MODEL_SETTINGS_TABLE}
 ${PROVIDER_MEMOS_TABLE}
 ${CUSTOM_PROVIDERS_TABLE}
 ${CONTENT_SETTINGS_TABLE}
+${IMAGE_SETTINGS_TABLE}
 ${CONTENT_KEY_EPOCH_TABLE}
 ${CONTENT_TRIALS_TABLE}
 ${IMAGE_CATALOG_TABLE}
@@ -839,6 +897,7 @@ DROP TABLE IF EXISTS model_settings;
 DROP TABLE IF EXISTS provider_memos;
 DROP TABLE IF EXISTS custom_providers;
 DROP TABLE IF EXISTS content_settings;
+DROP TABLE IF EXISTS image_settings;
 DROP TABLE IF EXISTS image_catalog;
 DROP TABLE IF EXISTS speech_catalog;
 DROP TABLE IF EXISTS speech_formats;
@@ -997,10 +1056,18 @@ function contentSettingsOf(row: Row): ContentSettingsRow | undefined {
     speechVoice: optionalText(row.speechVoice) ?? null,
     // 足した列なので、手編集で NULL にされた行も既定 (ON) として読む
     enabled: Number(row.enabled) !== 0,
+    imageParams: imageParameterDefaultsOf(row.imageParams),
     ciphertext: secret?.ciphertext ?? null,
     nonce: secret?.nonce ?? null,
     keyVersion: secret?.keyVersion ?? null,
   };
+}
+
+/** 画像の生成元。行が無ければ undefined（既定 openrouter）。空文字は未設定として読む */
+function imageSettingsOf(row: Row): ImageSettingsRow | undefined {
+  const provider = optionalText(row.provider);
+  if (!provider) return undefined;
+  return { provider, codexParams: optionalText(row.codexParams) ?? null };
 }
 
 /**
@@ -1022,12 +1089,15 @@ function contentTrialOf(row: Row): ContentTrialRow {
   return {
     id,
     kind,
+    // 列を足す前に書かれた行は NULL で、v1 の試行は openrouter だけだった
+    provider: optionalText(row.provider) ?? "openrouter",
     model,
     // 空のプロンプトは作らないが、手編集された行は空のまま返す (履歴を消さない)
     prompt: optionalText(row.prompt) ?? "",
     voice: optionalText(row.voice) ?? null,
     instructions: optionalText(row.instructions) ?? null,
     speed: optionalNumber(row.speed) ?? null,
+    parameters: imageParametersOf(row.imageParams),
     state,
     keyEpoch,
     artifactState,
@@ -1039,6 +1109,64 @@ function contentTrialOf(row: Row): ContentTrialRow {
     finishedAt: optionalNumber(row.finishedAt),
     durationMs: optionalNumber(row.durationMs),
   };
+}
+
+/**
+ * 正規化したパラメータの保存値。許可リストのキーだけを許可リストの順で載せ、未指定は null にする
+ * （同じ正規化から表示用の別列を作ると片方だけ更新する余地ができる）。
+ */
+function imageParamsJsonOf(parameters: ImageParameterValues | null): string | null {
+  if (!parameters) return null;
+  const body = imageParameterBody(parameters);
+  return Object.keys(body).length === 0 ? null : JSON.stringify(body);
+}
+
+/** モデルごとの既定の保存値。null は NULL（既定なし）のまま書き、空 map は `{}` として残す */
+function imageParameterDefaultsJsonOf(defaults: ImageParameterDefaults | null): string | null {
+  return defaults === null ? null : JSON.stringify(defaults);
+}
+
+/**
+ * モデルごとの既定を読む。壊れた保存値は未設定へ落とさず、行の破損として例外にする（利用者データなので
+ * `image_catalog` のキャッシュとは扱いが違う）。
+ */
+function imageParameterDefaultsOf(value: unknown): ImageParameterDefaults | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") throw new Error("content_settings.imageParams is not a valid parameters map");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("content_settings.imageParams is not valid JSON");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("content_settings.imageParams is not a valid parameters map");
+  }
+  const defaults: ImageParameterDefaults = {};
+  for (const [model, parameters] of Object.entries(parsed)) {
+    const result = ImageParameterValuesSchema.safeParse(parameters);
+    if (!result.success) throw new Error("content_settings.imageParams is not a valid parameters map");
+    defaults[model] = result.data;
+  }
+  return defaults;
+}
+
+/**
+ * 利用者が指定したパラメータを読む。壊れた保存値は未指定へ落とさず、行の破損として例外にする
+ * （キャッシュであるカタログの宣言とは扱いが違う）。
+ */
+function imageParametersOf(value: unknown): ImageParameterValues | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") throw new Error("content_trials.imageParams is not a valid parameters object");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("content_trials.imageParams is not valid JSON");
+  }
+  const result = ImageParameterValuesSchema.safeParse(parsed);
+  if (!result.success) throw new Error("content_trials.imageParams is not a valid parameters object");
+  return result.data;
 }
 
 /** 成果物のメタデータ。`stored` 以外は null で、`stored` で欠けた列は破損として失敗させる */
@@ -1072,23 +1200,27 @@ function imageCatalogModelsOf(value: unknown): ImageCatalogModelRow[] | undefine
   const models: ImageCatalogModelRow[] = [];
   for (const entry of parsed) {
     if (typeof entry !== "object" || entry === null) return undefined;
-    const { id, name, outputFormats, input } = entry as {
+    const { id, name, outputFormats, input, parameters } = entry as {
       id?: unknown;
       name?: unknown;
       outputFormats?: unknown;
       input?: unknown;
+      parameters?: unknown;
     };
     if (typeof id !== "string" || id === "" || typeof name !== "string") return undefined;
-    // 形式 / 入力の宣言は任意フィールド。形が違えば「宣言なし」として読み、id / 表示名が正しい行まで捨てない
+    // 形式 / 入力 / 生成パラメータの宣言は任意フィールド。形が違えば「宣言なし」として読み、
+    // id / 表示名が正しい行まで捨てない
     const formats = Array.isArray(outputFormats)
       ? outputFormats.filter((format): format is string => typeof format === "string" && format !== "")
       : [];
     const declaration = imageInputDeclarationOf(input);
+    const declaredParameters = imageParameterDeclarationsOf(parameters);
     models.push({
       id,
       name,
       ...(formats.length > 0 ? { outputFormats: formats } : {}),
       ...(declaration ? { input: declaration } : {}),
+      ...(declaredParameters ? { parameters: declaredParameters } : {}),
     });
   }
   return models;
@@ -1718,9 +1850,13 @@ export class AppDb {
       this.#renameTableIfNeeded("image_settings", "content_settings");
       this.#renameColumnIfNeeded("content_settings", "model", "imageModel");
       this.#query((db) => db.exec(CONTENT_SETTINGS_TABLE));
+      // v41 -> v42: 画像の生成元を持つ別テーブル（content_settings の行と分ける）
+      this.#query((db) => db.exec(IMAGE_SETTINGS_TABLE));
       // v37 -> v38: 試行ジョブの履歴と、キー削除でも消えないキー世代
       this.#query((db) => db.exec(CONTENT_KEY_EPOCH_TABLE));
       this.#query((db) => db.exec(CONTENT_TRIALS_TABLE));
+      // v41 -> v42: 試行の生成元。既存行は NULL で、読むときに openrouter へ寄せる
+      this.#addColumnIfMissing("content_trials", "provider", "TEXT");
       // v38 -> v39: 試行の成果物のメタデータ。既存行は `charged = 0` / 成果物なしで読む
       this.#addColumnIfMissing("content_trials", "charged", "INTEGER NOT NULL DEFAULT 0");
       this.#addColumnIfMissing("content_trials", "artifactPath", "TEXT");
@@ -1732,6 +1868,8 @@ export class AppDb {
       this.#addColumnIfMissing("content_trials", "voice", "TEXT");
       this.#addColumnIfMissing("content_trials", "instructions", "TEXT");
       this.#addColumnIfMissing("content_trials", "speed", "REAL");
+      // v42 -> v43: 画像の試行の入力スナップショット。既存行は NULL（未指定）のまま読む
+      this.#addColumnIfMissing("content_trials", "imageParams", "TEXT");
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SPEECH_CATALOG_TABLE));
       // v40 -> v41: 形式の学習結果。既存行を書き換えず、未学習 (行なし) から始まる
@@ -1766,6 +1904,8 @@ export class AppDb {
       this.#addColumnIfMissing("content_settings", "speechVoice", "TEXT");
       // v25 以前に無い有効 / 無効。既存行は ON で埋める (キーがあるのに止まって見えないように)
       this.#addColumnIfMissing("content_settings", "enabled", "INTEGER NOT NULL DEFAULT 1");
+      // v43 -> v44: 画像の生成パラメータの既定（モデル id → 値の map）。既存行は NULL（既定なし）のまま読む
+      this.#addColumnIfMissing("content_settings", "imageParams", "TEXT");
       // v16 以前の agents に無い列。NULL = 未指定 (全可視) として読む。`#migrate()` は agents を
       // 作らないため、テーブルを持たない壊れた DB では列追加を飛ばす (ALTER で起動できなくしない)
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "commonSkillNames", "TEXT");
@@ -2079,10 +2219,11 @@ export class AppDb {
 
   /** 行が無ければ undefined。空文字へ手編集された行も未設定として読む (キーは暗号文だけを返す) */
   readContentSettings(): ContentSettingsRow | undefined {
-    const row = this.#secretQuery(
-      (db) => db.prepare("SELECT * FROM content_settings WHERE id = 1").get() as Row | undefined,
-    );
-    return row ? contentSettingsOf(row) : undefined;
+    // 行の写像も #secretQuery の内側で行う（手編集された列の破損を、未設定へ落とさず 503 に寄せる）
+    return this.#secretQuery((db) => {
+      const row = db.prepare("SELECT * FROM content_settings WHERE id = 1").get() as Row | undefined;
+      return row ? contentSettingsOf(row) : undefined;
+    });
   }
 
   /** 登録と上書きで同じ (id = 1 の upsert)。単一ステートメントなので自動コミットで確定する */
@@ -2091,11 +2232,12 @@ export class AppDb {
       db
         .prepare(
           `INSERT INTO content_settings
-             (id, provider, imageModel, speechModel, speechVoice, enabled, ciphertext, nonce, keyVersion)
-           VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, provider, imageModel, speechModel, speechVoice, enabled, imageParams, ciphertext, nonce, keyVersion)
+           VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, imageModel = excluded.imageModel,
              speechModel = excluded.speechModel, speechVoice = excluded.speechVoice, enabled = excluded.enabled,
-             ciphertext = excluded.ciphertext, nonce = excluded.nonce, keyVersion = excluded.keyVersion`,
+             imageParams = excluded.imageParams, ciphertext = excluded.ciphertext, nonce = excluded.nonce,
+             keyVersion = excluded.keyVersion`,
         )
         .run(
           settings.provider,
@@ -2103,6 +2245,7 @@ export class AppDb {
           settings.speechModel,
           settings.speechVoice,
           settings.enabled ? 1 : 0,
+          imageParameterDefaultsJsonOf(settings.imageParams),
           settings.ciphertext,
           settings.nonce,
           settings.keyVersion,
@@ -2113,6 +2256,24 @@ export class AppDb {
   /** 行を消して未設定へ戻す (キー削除は provider / imageModel も含めて行ごと消す)。復号は不要 */
   deleteContentSettings(): boolean {
     return this.#secretQuery((db) => db.prepare("DELETE FROM content_settings WHERE id = 1").run().changes > 0);
+  }
+
+  /** 行が無ければ undefined（既定 openrouter）。キー削除でもこの行は消さない */
+  readImageSettings(): ImageSettingsRow | undefined {
+    const row = this.#query((db) => db.prepare("SELECT * FROM image_settings WHERE id = 1").get() as Row | undefined);
+    return row ? imageSettingsOf(row) : undefined;
+  }
+
+  /** provider の保存。id = 1 の upsert で、codexParams は渡された行の値をそのまま書く */
+  saveImageSettings(settings: ImageSettingsRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO image_settings (id, provider, codexParams) VALUES (1, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, codexParams = excluded.codexParams`,
+        )
+        .run(settings.provider, settings.codexParams),
+    );
   }
 
   // --- content trials (履歴。時間ベースの自動削除はしない) ---
@@ -2147,19 +2308,21 @@ export class AppDb {
       db
         .prepare(
           `INSERT INTO content_trials
-             (id, kind, model, prompt, voice, instructions, speed, state, keyEpoch, artifactState, charged, artifactPath,
-              artifactBytes, artifactFormat, artifactWidth, artifactHeight, failureCode, failureMessage,
-              startedAt, finishedAt, durationMs)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             (id, kind, provider, model, prompt, voice, instructions, speed, imageParams, state, keyEpoch,
+              artifactState, charged, artifactPath, artifactBytes, artifactFormat, artifactWidth, artifactHeight,
+              failureCode, failureMessage, startedAt, finishedAt, durationMs)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           row.id,
           row.kind,
+          row.provider,
           row.model,
           row.prompt,
           row.voice,
           row.instructions,
           row.speed,
+          imageParamsJsonOf(row.parameters),
           row.state,
           row.keyEpoch,
           row.artifactState,
@@ -2222,17 +2385,20 @@ export class AppDb {
   }
 
   /**
-   * 同じ入力（種別 / モデル / プロンプト / 音声のパラメーター）の保存済み成功。あれば provider を呼ばずに
-   * その結果を見せる (課金しない)。並びは新しい順の先頭 1 件で、`artifactState = 'stored'` だけを対象にする。
-   * 音声の 3 列は `IS` で比べ、NULL（未指定）同士も一致させる。
+   * 同じ入力（種別 / 生成元 / モデル / プロンプト / 音声のパラメーター / 画像のパラメーター）の保存済み成功。
+   * あれば provider を呼ばずにその結果を見せる (課金しない)。並びは新しい順の先頭 1 件で、
+   * `artifactState = 'stored'` だけを対象にする。音声の 3 列と `imageParams` は `IS` で比べ、
+   * NULL（未指定）同士も一致させる。
    */
   findReusableContentTrial(input: {
     kind: string;
+    provider: string;
     model: string;
     prompt: string;
     voice: string | null;
     instructions: string | null;
     speed: number | null;
+    parameters: ImageParameterValues | null;
     keyEpoch: number;
   }): ContentTrialRow | undefined {
     const row = this.#query(
@@ -2240,16 +2406,24 @@ export class AppDb {
         db
           .prepare(
             `SELECT * FROM content_trials
-             WHERE kind = ? AND model = ? AND prompt = ?
-               AND voice IS ? AND instructions IS ? AND speed IS ?
+             WHERE kind = ? AND COALESCE(provider, 'openrouter') IS ? AND model = ? AND prompt = ?
+               AND voice IS ? AND instructions IS ? AND speed IS ? AND imageParams IS ?
                AND keyEpoch = ?
                AND state = 'succeeded' AND artifactState = 'stored'
                AND artifactPath IS NOT NULL
              ORDER BY startedAt DESC, rowid DESC LIMIT 1`,
           )
-          .get(input.kind, input.model, input.prompt, input.voice, input.instructions, input.speed, input.keyEpoch) as
-          | Row
-          | undefined,
+          .get(
+            input.kind,
+            input.provider,
+            input.model,
+            input.prompt,
+            input.voice,
+            input.instructions,
+            input.speed,
+            imageParamsJsonOf(input.parameters),
+            input.keyEpoch,
+          ) as Row | undefined,
     );
     return row ? contentTrialOf(row) : undefined;
   }

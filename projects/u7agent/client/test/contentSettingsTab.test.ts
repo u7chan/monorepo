@@ -46,7 +46,16 @@ function settings(
     disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
     runtimeAvailable: true,
     bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
-    image: { model: "openai/gpt-image-2", models: MODELS, catalogSource: "live", fetchedAt: null, ...image },
+    image: {
+      model: "openai/gpt-image-2",
+      provider: "openrouter",
+      auth: { state: "configured", kind: "api_key" },
+      models: MODELS,
+      catalogSource: "live",
+      fetchedAt: null,
+      parametersByModel: {},
+      ...image,
+    },
     speech: {
       model: "google/gemini-3.8-flash-tts",
       voice: "Zephyr",
@@ -93,6 +102,7 @@ function render(
         onSetEnabled: async () => true,
         onSaveKey: async () => true,
         onDeleteKey: async () => true,
+        onSaveImageProvider: async () => true,
         onSaveSelection: async () => true,
         onRefreshCatalog: async () => true,
         onSaveSpeech: async () => true,
@@ -276,7 +286,12 @@ test("設定済みでは上書き保存・削除・モデル選択を出し、�
     /<p[^>]*><span class="rounded border[^"]*">モデル一覧は OpenRouter から取得しました/,
     "文をチップにしても段落のセマンティクスを残す",
   );
-  assert.ok(html.includes("サイズ・品質・出力形式は provider の既定を使います"), "設定できる範囲の説明を残す");
+  assert.ok(
+    html.includes(
+      "このモデルは生成パラメータを宣言していないため、サイズ・品質・出力形式は provider の既定で生成します",
+    ),
+    "宣言が無いモデルでは provider の既定で生成することを出す",
+  );
   assert.equal(html.includes("プロバイダー: OpenRouter"), false, "見出しと重複する provider 名を本文で繰り返さない");
   assert.ok(html.includes(">カタログ更新</button>"));
   const input = /<input[^>]*type="password"[^>]*>/.exec(html)?.[0] ?? "";
@@ -316,7 +331,7 @@ test("選択中の面だけを出し、もう一方の面は描かない", () =>
   assert.ok(speech.includes("保存される設定"), "音声の保存見出しを出す");
   assert.ok(speech.includes('aria-label="音声生成のモデル"'), "音声の面のモデル選択を出す");
   assert.equal(speech.includes('aria-label="コンテンツ生成のモデル"'), false, "画像のモデル欄は出さない");
-  assert.equal(speech.includes("サイズ・品質・出力形式は provider の既定を使います"), false, "画像の説明も出さない");
+  assert.equal(speech.includes("このモデルは生成パラメータを宣言していないため"), false, "画像の説明も出さない");
 });
 
 test("設定済みでは音声のモデルとボイスを出し、宣言のあるボイスを選択肢にする", () => {
@@ -503,6 +518,7 @@ const TRIAL_BASE: ContentTrial = {
   voice: null,
   instructions: null,
   speed: null,
+  parameters: null,
   state: "succeeded",
   keyEpoch: 0,
   artifactState: "stored",
@@ -528,7 +544,7 @@ test("キー未設定では、結果カードから既定へ保存する導線�
   assert.equal(html.includes("保存される設定"), false, "保存フォームは出さない（既存の意図）");
   assert.match(
     html,
-    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?このモデルを既定にする/,
+    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?このモデルと設定を既定にする/,
     "保存できないので導線を押せなくする",
   );
   assert.ok(html.includes("APIキーが未設定のため保存できません。"), "押せない理由をその場に出す");
@@ -671,8 +687,8 @@ test("履歴の詳細は「もう一度生成」を出し、確認のうえ課�
   });
   assert.ok(fresh.includes("もう一度生成は確認のうえ新しい試行として課金されます。"));
 });
-test("結果のモデルが保存値と違うときだけ、このモデルを既定にする導線を出す", () => {
-  const button = "このモデルを既定にする";
+test("結果のモデルが保存値と違うときだけ、このモデルと設定を既定にする導線を出す", () => {
+  const button = "このモデルと設定を既定にする";
   const other = render({ trials: [{ ...TRIAL_BASE, model: "openrouter/google/gemini-image" }] });
   assert.ok(other.includes(button), "別モデルで試した結果からは既定にできる");
 
@@ -736,6 +752,7 @@ const SPEECH_TRIAL_BASE: ContentTrial = {
   voice: "Aoede",
   instructions: "落ち着いた声で",
   speed: 1.1,
+  parameters: null,
   state: "succeeded",
   keyEpoch: 0,
   artifactState: "stored",
@@ -858,6 +875,101 @@ test("画像と音声の履歴は互いの面に出さない", () => {
   assert.equal(speech.includes("a cat on a sofa"), false, "画像の履歴は音声タブに混ぜない");
 });
 
+// --- 試行ジョブ（画像の生成パラメータ） ---
+// 入力から要求への変換（宣言外の値の除去・seed の検証）と、履歴から下書きへの復元は
+// lib/contentTrials の純関数テスト（contentTrials.test.ts）が見る。ここは描画の出し分けだけを固定する。
+
+/** 宣言を持つ画像モデル。入力欄・チップ・履歴の行を出す条件を作る */
+const DECLARING_MODELS: ContentImageSettings["models"] = [
+  {
+    provider: "openrouter",
+    id: "openai/gpt-image-2",
+    name: "GPT Image 2",
+    parameters: {
+      aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+      seed: { type: "range", min: 0, max: 1_000 },
+    },
+  },
+];
+
+test("画像の試行の入力はモデルの宣言に応じて出し、宣言が無いパラメータは欄にしない", () => {
+  const declared = render({ image: { models: DECLARING_MODELS } });
+  assert.match(declared, /aria-label="試行の aspect_ratio"/, "enum は選択欄にする");
+  assert.ok(declared.includes(">16:9</option>"), "宣言された値を候補にする");
+  assert.match(declared, /<input[^>]*type="number"[^>]*aria-label="試行の seed"/, "seed は整数入力にする");
+  assert.ok(declared.includes("モデル既定（provider）"), "先頭の選択肢と入力の案内に未指定を出す");
+  assert.equal(declared.includes('aria-label="試行の quality"'), false, "宣言の無いパラメータは欄にしない");
+  assert.ok(declared.includes("指定できるパラメータ: aspect_ratio / seed"), "宣言に応じた説明を出す");
+
+  // 宣言が読めないモデル（SDK 同梱・旧キャッシュ）では欄を出さず、不明を既定として見せない
+  const undeclared = render();
+  assert.equal(undeclared.includes('aria-label="試行の aspect_ratio"'), false);
+  assert.equal(undeclared.includes('aria-label="試行の seed"'), false);
+});
+
+test("画像のモデルの下に、宣言に応じた既定のパラメータを出し、保存済みの値を選んだ状態にする", () => {
+  const html = render({
+    image: { models: DECLARING_MODELS, parametersByModel: { "openai/gpt-image-2": { aspect_ratio: "1:1", seed: 7 } } },
+  });
+  assert.match(html, /aria-label="既定の aspect_ratio"/, "enum は選択欄にする");
+  assert.ok(html.includes("既定なし（provider 既定）"), "未指定の選択肢を出す");
+  assert.match(html, /<input[^>]*type="number"[^>]*aria-label="既定の seed"[^>]*value="7"/, "保存済みの seed を出す");
+  assert.ok(html.includes(">1:1</option>"), "保存済みの enum を候補にする");
+  assert.ok(html.includes("既定を解除"), "既定の解除の導線を出す");
+  assert.ok(html.includes("generate_image の引数を省略したときに使います"), "保存した既定がいつ使われるかを書く");
+
+  // 宣言が読めないモデル（SDK 同梱・旧キャッシュ）では欄を出さず、不明を既定として見せない
+  const undeclared = render();
+  assert.equal(undeclared.includes('aria-label="既定の aspect_ratio"'), false);
+  assert.equal(undeclared.includes('aria-label="既定の seed"'), false);
+});
+
+test("[既定を解除] は保存済みの既定が無ければ押せず、あるときだけ押せる", () => {
+  const none = render({ image: { models: DECLARING_MODELS } });
+  assert.match(none, /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?既定を解除/, "消す既定が無ければ押せない");
+  const saved = render({
+    image: { models: DECLARING_MODELS, parametersByModel: { "openai/gpt-image-2": { seed: 7 } } },
+  });
+  assert.match(saved, /<button[^>]*(?<!disabled="")>(?:(?!<\/button>)[\s\S])*?既定を解除/, "保存済みなら押せる");
+});
+
+test("保存していない既定の変更が無ければ [保存] は押せない（モデルと同じ差分だけで見ない判定を揃える）", () => {
+  const html = render({
+    image: { models: DECLARING_MODELS, parametersByModel: { "openai/gpt-image-2": { seed: 7 } } },
+  });
+  assert.match(
+    html,
+    /<button[^>]*class="btn-primary"[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?保存/,
+    "差が無ければ押せない",
+  );
+  assert.equal(html.includes("未保存"), false, "保存値のままなら未保存を出さない");
+});
+
+test("結果カードのチップは要約のパラメータの明示値だけで、未指定は出さない", () => {
+  const declared = render({
+    image: { models: DECLARING_MODELS },
+    trials: [{ ...TRIAL_BASE, parameters: { aspect_ratio: "16:9" } }],
+  });
+  assert.ok(declared.includes("aspect_ratio=16:9"), "明示した値だけをチップにする");
+  assert.equal(declared.includes("seed="), false, "未指定はチップにしない");
+
+  const none = render({ image: { models: DECLARING_MODELS }, trials: [TRIAL_BASE] });
+  assert.equal(none.includes("aspect_ratio="), false, "未指定の行はチップを出さない");
+});
+
+test("履歴の詳細は宣言に応じた全行を出し、未指定はモデル既定（provider）と表示する", () => {
+  const html = render({
+    subsection: "history",
+    image: { models: DECLARING_MODELS },
+    trials: [{ ...TRIAL_BASE, parameters: { seed: 7 } }],
+  });
+  assert.ok(html.includes(">aspect_ratio<"), "宣言にあるキーの行を出す");
+  assert.ok(html.includes(">seed<"), "送った値のあるキーの行を出す");
+  assert.ok(html.includes(">7<"), "送った値はスナップショットをそのまま出す");
+  assert.ok(html.includes("モデル既定（provider）"), "未指定はモデル既定として書く");
+  assert.equal(html.includes(">quality<"), false, "宣言に無いキーの行は出さない");
+});
+
 test("キー未設定では、音声の結果カードから既定へ保存する導線も押せない", () => {
   const html = render({
     configured: false,
@@ -909,6 +1021,7 @@ const BGM_TRIAL_BASE: ContentTrial = {
   voice: null,
   instructions: null,
   speed: null,
+  parameters: null,
   state: "succeeded",
   keyEpoch: 0,
   artifactState: "stored",
@@ -1080,4 +1193,58 @@ test("履歴に続きのページがあるときだけ「さらに読み込む�
   assert.equal(without.includes("さらに読み込む"), false);
   const withMore = render({ subsection: "history", trials: [TRIAL_BASE], trialHasMore: true });
   assert.ok(withMore.includes("さらに読み込む"), "続きがあることを出す");
+});
+
+// --- 画像の生成元（OpenRouter / Codex） ---
+
+test("生成元の radio を出し、Codex ではAPIキー欄とモデル一覧を出さない", () => {
+  const codex = render({
+    image: { provider: "codex", auth: { state: "configured", kind: "oauth" }, models: [] },
+  });
+  assert.match(codex, /画像の生成元/, "生成元の見出しを出す");
+  assert.match(codex, /<input type="radio"[^>]*checked=""[^>]*value="codex"/, "Codex を選択済みで出す");
+  assert.match(codex, /type="radio"[^>]*value="openrouter"/, "OpenRouter も選べる");
+  assert.equal(codex.includes('type="password"'), false, "Codex ではAPIキー欄を出さない");
+  assert.equal(codex.includes('aria-label="コンテンツ生成のモデル"'), false, "Codex ではモデル一覧を出さない");
+  assert.ok(codex.includes("Codex（画像モデル不明）"), "画像モデルを偽らない");
+  assert.ok(codex.includes("音声 / BGM は OpenRouter のAPIキーで生成します"), "音声 / BGM の前提を明示する");
+
+  const openrouter = render();
+  assert.ok(openrouter.includes('type="password"'), "OpenRouter ではAPIキー欄を出す");
+  assert.ok(openrouter.includes('aria-label="コンテンツ生成のモデル"'), "OpenRouter ではモデル一覧を出す");
+});
+
+test("Codex のサインインが無いときは案内を出し、試行は押せない理由として出す", () => {
+  const html = render({
+    image: { provider: "codex", auth: { state: "missing", kind: null }, models: [] },
+  });
+  assert.ok(html.includes("openai-codex にサインイン"), "サインインの案内を出す");
+  assert.ok(html.includes("APIキーは不要"), "キー登録を促さない");
+  assert.ok(html.includes("Codex はチャットからのみ生成できます"), "試行が使えない理由を出す");
+  // 未設定（キーの行が無い）でも生成元は選べる
+  const unconfigured = render({ configured: false });
+  assert.match(unconfigured, /画像の生成元/, "キー未設定でも生成元を選べる");
+});
+
+test("Codex の認証が切れているときは再サインインを案内する", () => {
+  const html = render({
+    image: { provider: "codex", auth: { state: "expired", kind: "oauth" }, models: [] },
+  });
+  assert.ok(html.includes("期限が切れています"));
+  assert.ok(html.includes("/settings/models"));
+});
+
+test("画像タブで Codex を選んでも「保存される設定」に BGM の固定モデルを出さない", () => {
+  // 画像タブの分岐が else で BGM の面へ落ちると、画像の生成元が Codex のときだけ BGM の欄が出ていた
+  const codex = render({
+    image: { provider: "codex", auth: { state: "configured", kind: "oauth" }, models: [] },
+  });
+  assert.equal(codex.includes('aria-label="BGM生成の固定モデル"'), false, "画像タブに BGM の保存される設定を出さない");
+  assert.equal(codex.includes('aria-label="音声生成のモデル"'), false, "画像タブに音声の設定を出さない");
+  // 画像の設定そのものは OpenRouter のときだけ出る（Codex では何も出さない）
+  assert.equal(codex.includes('aria-label="コンテンツ生成のモデル"'), false);
+  assert.ok(render().includes('aria-label="コンテンツ生成のモデル"'), "OpenRouter では画像モデルを出す");
+  // 音声 / BGM のタブは従来どおりそれぞれの設定を出す
+  assert.ok(render({ subsection: "bgm" }).includes('aria-label="BGM生成の固定モデル"'));
+  assert.match(render({ subsection: "speech" }), /aria-label="音声生成のモデル"/);
 });

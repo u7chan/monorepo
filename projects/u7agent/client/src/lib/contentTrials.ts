@@ -11,8 +11,19 @@ import type {
   ContentTrialStateValue,
   ContentTrialSummary,
   CreateContentTrialBody,
+  ImageGenerationProvider,
+  ImageParameterValues,
 } from "../types";
 import { speechSpeed } from "./contentSettings";
+import {
+  IMAGE_PARAMETER_DEFAULT_LABEL,
+  IMAGE_PARAMETER_ORDER,
+  imageParameterFields,
+  imageParameterDraftOf,
+  type ImageParameterDeclarations,
+  type ImageParameterDraft,
+  type ImageParameterName,
+} from "./imageParameters";
 import { messageTimeLabel, yearMonthLabel, type MessageTimeOptions } from "./messageTime";
 import { formatDurationMs } from "./usageFormat";
 
@@ -267,14 +278,32 @@ export function trialStartBlockedReason(input: {
   prompt: string;
   /** 空のときの文言。音声は「本文」、画像は既定の「プロンプト」 */
   emptyPromptReason?: string;
+  /** 種別そのものが試行を受け付けない理由（画像の Codex）。他の条件より先に出す */
+  providerBlockedReason?: string | null | undefined;
+  /** 生成パラメータの入力の誤り（画像）。空のプロンプトより後に出す */
+  parameterBlockedReason?: string | null | undefined;
 }): string | null {
   if (!input.runtimeAvailable) return "ランタイムが利用できないため試行できません";
+  if (input.providerBlockedReason) return input.providerBlockedReason;
   if (!input.configured) return "APIキーを登録すると試行できます";
   if (!input.enabled) return "全体が OFF のため試行できません（履歴は残ります）";
   if (!input.keyAvailable) return "保存済みのAPIキーを使えないため試行できません";
   if (input.running) return "実行中です。完了するか中断してください";
   if (input.prompt.trim() === "") return input.emptyPromptReason ?? "プロンプトを入力してください";
+  if (input.parameterBlockedReason) return input.parameterBlockedReason;
   return null;
+}
+
+/**
+ * Codex は試行を受け付けない（server も 400 で拒否する）。文言を画面と API で揃え、
+ * 「押せるのに必ず失敗する」ボタンを作らない。
+ */
+export const CODEX_TRIAL_UNSUPPORTED_NOTE =
+  "Codex はチャットからのみ生成できます。試行は OpenRouter を選んだときに使えます。";
+
+/** 画像の試行を provider の理由で止めるときの文言。試行できるときは null */
+export function imageTrialProviderBlockedReason(provider: ImageGenerationProvider): string | null {
+  return provider === "codex" ? CODEX_TRIAL_UNSUPPORTED_NOTE : null;
 }
 
 /** 種別の表示名。削除の注記など、画面の文言に使う */
@@ -581,13 +610,107 @@ function forceForOrigin(origin: TrialRequestOrigin): { force?: true } {
   return origin === "another-take" ? { force: true } : {};
 }
 
+/**
+ * 下書きから送る値を作る。宣言に無いキーは載せず、空欄は「未指定」として送らない。
+ * 宣言の外の値は課金前にここで止める（server の検証と同じ判断を、送る前に画面でも行う）。
+ */
+export function imageTrialParameters(
+  declarations: ImageParameterDeclarations | undefined,
+  draft: ImageParameterDraft,
+): { ok: true; parameters: ImageParameterValues } | { ok: false; error: string } {
+  const fields = imageParameterFields(declarations);
+  const parameters: ImageParameterValues = {};
+  for (const field of fields) {
+    const raw = (draft[field.name] ?? "").trim();
+    if (raw === "") continue;
+    if (field.kind === "integer") {
+      const value = Number(raw);
+      if (!Number.isInteger(value) || value < field.min || value > field.max) {
+        return {
+          ok: false,
+          error: `${field.name} は ${field.min} 以上 ${field.max} 以下の整数で入力してください（クレジットは消費していません）`,
+        };
+      }
+      parameters[field.name] = value;
+      continue;
+    }
+    if (!field.values.includes(raw)) {
+      return { ok: false, error: `${field.name} に指定できない値です: ${raw}（クレジットは消費していません）` };
+    }
+    parameters[field.name] = raw;
+  }
+  return { ok: true, parameters };
+}
+
 /** 画像の試行の要求。モデルは画面の値（保存前の下書きを含む）をそのまま使う */
 export function imageTrialRequest(input: {
   model: string;
   prompt: string;
+  /** 明示した値だけ。空のまま送ると宣言の無いモデルは 400 になるため、1 つも無ければ送らない */
+  parameters?: ImageParameterValues;
   origin: TrialRequestOrigin;
 }): CreateContentTrialBody {
-  return { kind: "image", model: input.model, prompt: input.prompt, ...forceForOrigin(input.origin) };
+  const parameters = input.parameters;
+  const explicit = parameters !== undefined && Object.keys(parameters).length > 0 ? parameters : undefined;
+  return {
+    kind: "image",
+    model: input.model,
+    prompt: input.prompt,
+    ...(explicit === undefined ? {} : { parameters: explicit }),
+    ...forceForOrigin(input.origin),
+  };
+}
+
+/** 履歴の試行から画像の下書きを戻す（[この内容で生成]）。`seed` は整数欄の文字列として戻す */
+export function imageTrialDraftOf(trial: Pick<ContentTrial, "prompt" | "parameters">): {
+  prompt: string;
+  parameters: ImageParameterDraft;
+} {
+  return { prompt: trial.prompt, parameters: imageParameterDraftOf(trial.parameters) };
+}
+
+/** 結果カードのチップ。要約のスナップショットにある明示値だけを、キーと値のまま並べる */
+export function imageParameterChips(parameters: ImageParameterValues | null): string[] {
+  if (!parameters) return [];
+  const chips: string[] = [];
+  for (const name of IMAGE_PARAMETER_ORDER) {
+    const value = parameters[name];
+    if (value !== undefined) chips.push(`${name}=${value}`);
+  }
+  return chips;
+}
+
+/** 履歴の詳細の 1 行 */
+export interface ImageParameterRow {
+  name: ImageParameterName;
+  /** 送った値。未指定は `IMAGE_PARAMETER_DEFAULT_LABEL` */
+  value: string;
+}
+
+/**
+ * 履歴の詳細の全行。宣言に応じて並べ、未指定は「モデル既定（provider）」と書く。値は試行のスナップショットを
+ * 正とし、現在の保存値とは混ぜない（宣言が今は読めないキーでも、送った値がある行は残す）。
+ */
+export function imageTrialParameterRows(input: {
+  parameters: ImageParameterValues | null;
+  declarations: ImageParameterDeclarations | undefined;
+}): ImageParameterRow[] {
+  const rows: ImageParameterRow[] = [];
+  for (const name of IMAGE_PARAMETER_ORDER) {
+    const value = input.parameters?.[name];
+    if (input.declarations?.[name] === undefined && value === undefined) continue;
+    rows.push({ name, value: value === undefined ? IMAGE_PARAMETER_DEFAULT_LABEL : String(value) });
+  }
+  return rows;
+}
+
+/** 設定画面の注記。宣言に応じて「何を指定できるか」を書き、空欄は provider の既定だと伝える */
+export function imageParameterNote(declarations: ImageParameterDeclarations | undefined): string {
+  const fields = imageParameterFields(declarations);
+  if (fields.length === 0) {
+    return "このモデルは生成パラメータを宣言していないため、サイズ・品質・出力形式は provider の既定で生成します。";
+  }
+  return `指定できるパラメータ: ${fields.map((field) => field.name).join(" / ")}。空欄は provider の既定で生成します。`;
 }
 
 /** 音声の試行の下書き。本文・演技指示・話速は試行にだけ使い、履歴にスナップショットとして残る */
