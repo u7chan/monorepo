@@ -4,16 +4,16 @@ import { trialArtifactUrl, trialHistoryRow } from "../../lib/contentTrials";
 import { cn } from "../../lib/cn";
 import type { ContentTrialSummary } from "../../types";
 import { CopyButton } from "../chat/CopyButton";
-import { DownloadIcon, TrashIcon } from "../icons";
+import { DownloadIcon, PencilIcon, RefreshIcon, TrashIcon } from "../icons";
 
 /**
  * 1 つの結果。生成タブの直近の結果（`latest`）と、履歴タブの詳細（`history`）で同じ骨格を使う。
  * 状態・失敗・課金・送った内容・成果物は共通で、面ごとに違うのは成果物の見せ方と、
- * 結果から次へ進む導線（既定へ保存 / この内容で生成 / もう一度生成）だけにする。
+ * 結果から次へ進む導線（既定へ保存 / この内容で編集 / もう一度生成）だけにする。
  *
  * `latest` は生成直後に同じ画面で閉じるためのカードなので、入力欄へ戻す導線は置かない
  * （プロンプトの入力欄はすぐ上にある）。`history` は履歴を読む面なので、プロンプトのコピーと
- * 「この内容で生成」を出す。
+ * 「この内容で編集」を出す。
  */
 export function TrialResultViewport({
   trial,
@@ -36,9 +36,9 @@ export function TrialResultViewport({
   params,
   /** 結果から既定へ保存する導線（画像・音声だけ）。BGM は保存する設定を持たない */
   defaultAction,
-  /** この内容を生成タブへ戻す（履歴だけ）。生成タブは入力欄が同じ画面にあるため渡さない */
+  /** この内容を生成タブの入力欄へ戻す（履歴だけ）。生成タブは入力欄が同じ画面にあるため渡さない */
   onPrefill,
-  /** もう一度生成する（履歴だけ）。新しい試行として課金される */
+  /** もう一度生成する（履歴だけ）。確認のうえ新しい試行として課金される */
   onAnotherTake,
   onDelete,
   variant = "history",
@@ -140,11 +140,13 @@ export function TrialResultViewport({
       <div className="flex flex-wrap items-center gap-2">
         {onPrefill === undefined ? null : (
           <button type="button" className="btn-primary" disabled={busy} onClick={() => void onPrefill()}>
-            この内容で生成
+            <PencilIcon />
+            この内容で編集
           </button>
         )}
         {onAnotherTake === undefined ? null : (
           <button type="button" className="btn-quiet" disabled={busy || running} onClick={() => void onAnotherTake()}>
+            <RefreshIcon />
             もう一度生成
           </button>
         )}
@@ -164,7 +166,9 @@ export function TrialResultViewport({
       {/* 下書きを捨てるのは呼び出し側。ここは保存の進行と失敗の注記だけを持つ */}
       {latest ? null : defaultAction}
       {latest ? null : (
-        <p className="text-2xs leading-relaxed text-ink-faint">もう一度生成は新しい試行として課金されます。</p>
+        <p className="text-2xs leading-relaxed text-ink-faint">
+          もう一度生成は確認のうえ新しい試行として課金されます。
+        </p>
       )}
     </div>
   );

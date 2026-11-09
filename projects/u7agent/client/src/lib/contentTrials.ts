@@ -2,6 +2,7 @@
  * 設定 → コンテンツ生成の試行ジョブの表示変換。DOM に依存しない純関数だけを置き、
  * 状態ラベル・証拠の判定・タブの印の優先順位・履歴の行をテストできるようにする。
  */
+import type { ConfirmRequest } from "./confirmDialog";
 import type { ContentSubsection } from "./settingsNav";
 import type {
   ContentTrial,
@@ -557,9 +558,24 @@ export async function removeTrialThenRefresh(input: {
 
 /**
  * 試行の要求の出どころ。`force`（保存済みの結果を再利用しない）を付けるのは履歴の [もう一度生成] だけで、
- * 通常の [試行する] と履歴の [この内容で生成] は再利用してよい。
+ * 通常の [試行する] と履歴の [この内容で編集] は再利用してよい。
  */
 export type TrialRequestOrigin = "form" | "history" | "another-take";
+
+/**
+ * 履歴の [もう一度生成] の確認。課金される操作なので、送る内容とモデルを確かめてから始める。
+ * 一覧の要約（`promptPreview`）を使い、全文の取得は確認の後に行う（キャンセルで取得を無駄にしない）。
+ */
+export function anotherTakeConfirmRequest(trial: ContentTrialSummary): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: "もう一度生成",
+    subject: { label: trial.kind === "speech" ? "送る本文" : "送るプロンプト", value: trial.promptPreview },
+    body: [`${trialKindLabel(trial.kind)}の試行を ${trial.model} で新しく開始します。保存済みの結果は使いません。`],
+    notes: ["生成のたびに課金されます。失敗・中断・タイムアウトでも課金される場合があります。"],
+    confirmLabel: "生成する",
+  };
+}
 
 function forceForOrigin(origin: TrialRequestOrigin): { force?: true } {
   return origin === "another-take" ? { force: true } : {};
@@ -620,7 +636,7 @@ export function speechTrialRequest(input: {
   return { ok: true, input: { kind: "speech", ...request.input, ...forceForOrigin(input.origin) } };
 }
 
-/** 履歴の試行から音声の下書きを戻す（「この内容で生成」）。話速は欄の値として小数 2 桁まで出す */
+/** 履歴の試行から音声の下書きを戻す（「この内容で編集」）。話速は欄の値として小数 2 桁まで出す */
 export function speechTrialDraftOf(trial: Pick<ContentTrial, "prompt" | "instructions" | "speed">): SpeechTrialDraft {
   return {
     text: trial.prompt,

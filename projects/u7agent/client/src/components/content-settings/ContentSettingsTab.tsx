@@ -87,7 +87,7 @@ export type ContentSettingsTabProps = {
   trialLoadingMore: boolean;
   /** 選択行を画面へ知らせる（全文の取得は画面が行う） */
   onSelectTrial: (id: string | null) => void;
-  /** 履歴の行の全文を取る（直近の結果の表示・再実行・この内容で生成） */
+  /** 履歴の行の全文を取る（直近の結果の表示・再実行・この内容で編集） */
   onLoadTrial: (id: string) => Promise<ContentTrial | null>;
   /** 続きのページを読む */
   onLoadMoreTrials: () => Promise<boolean>;
@@ -202,7 +202,7 @@ export function ContentSettingsTab({
     return true;
   };
 
-  /** 履歴の「この内容で生成」。全文を下書きへ戻して、その種別の生成タブを開く */
+  /** 履歴の「この内容で編集」。全文を下書きへ戻して、その種別の生成タブを開く */
   const prefillTrial = (trial: ContentTrial): void => {
     if (trial.kind === "image") {
       setImageDraft(trial.model);
@@ -216,7 +216,7 @@ export function ContentSettingsTab({
     onSelectContentSubsection?.(trial.kind);
   };
 
-  /** 履歴の「もう一度生成」。保存済みの結果を再利用せず、新しい試行として課金する */
+  /** 履歴の「もう一度生成」。確認のうえ、保存済みの結果を再利用せず新しい試行として課金する */
   const anotherTake = async (trial: ContentTrial): Promise<boolean> => {
     if (trial.kind === "image") {
       return onStartTrial(imageTrialRequest({ model: trial.model, prompt: trial.prompt, origin: "another-take" }));
