@@ -1362,6 +1362,11 @@ export const ContentImageSettingsSchema = z.object({
   catalogSource: ImageCatalogSourceSchema,
   /** live を最後に取得できた時刻 (epoch ms)。SDK 同梱を表示しているときは null */
   fetchedAt: z.number().nullable(),
+  /**
+   * 保存済みの生成パラメータの既定（bare なモデル id → 値）。各エントリはそのモデルの宣言で
+   * 絞り、宣言が読めないモデルのエントリは空になる（画面は空のエントリに欄を出さない）。
+   */
+  parametersByModel: z.record(z.string(), ImageParameterValuesSchema),
 });
 export type ContentImageSettings = z.infer<typeof ContentImageSettingsSchema>;
 
@@ -1754,10 +1759,15 @@ export const ContentMutationErrorSchema = z.object({
 });
 export type ContentMutationError = z.infer<typeof ContentMutationErrorSchema>;
 
-/** provider / model の変更。キーは保持したまま差し替える（行が無ければ 400） */
+/**
+ * provider / model の変更。キーは保持したまま差し替える（行が無ければ 400）。
+ * `parameters` は保存する生成パラメータの既定で、省略 = 据え置き / `{}` = そのモデルの既定を削除 /
+ * 値あり = 置き換え。値はモデルの宣言と突き合わせ、宣言外は 400 にする（保存しない）。
+ */
 export const UpdateContentImageBodySchema = z.object({
   provider: z.string(),
   model: z.string(),
+  parameters: ImageParameterValuesSchema.optional(),
 });
 export type UpdateContentImageBody = z.infer<typeof UpdateContentImageBodySchema>;
 

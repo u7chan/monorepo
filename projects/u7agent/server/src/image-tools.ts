@@ -13,6 +13,7 @@ import {
   IMAGE_ABORTED_MESSAGE,
   IMAGE_PARAMETER_NAMES,
   IMAGE_PARAMETER_SEED_MAX,
+  declaredImageParameters,
   isUnsaveableOutputOnly,
   normalizeImageParameters,
   saveableImageFormat,
@@ -232,6 +233,19 @@ function explicitImageParameters(params: GenerateImageParams): ImageParameterVal
 }
 
 /**
+ * 引数の値と、保存済みの既定をキー単位で合成する（明示引数 > 既定）。既定はモデルの宣言に収まるキー
+ * だけを残し、宣言が読めないモデルでは 1 つも使わない。既定を勝手に送ると、要求と実際の生成が
+ * 食い違ったまま履歴に残る。
+ */
+function mergedImageParameters(
+  declared: ImageParameterDeclarations | undefined,
+  explicit: ImageParameterValues | undefined,
+  defaults: ImageParameterValues | undefined,
+): ImageParameterValues {
+  return { ...declaredImageParameters(declared, defaults), ...explicit };
+}
+
+/**
  * 引数をモデル宣言と突き合わせ、送る値を決める。宣言の外は理由付きで止める（宣言が無いモデルへ
  * 値を送ると、要求と実際の生成が食い違ったまま履歴に残る）。
  */
@@ -401,10 +415,10 @@ export function createImageToolDefinitions(options: ImageToolDefinitionOptions):
       const requested = explicitImageParameters(params);
       // Codex は画像モデルを持たず引数も受け付けない。黙って捨てると結果本文と実際の要求が食い違う
       if (settings.provider === "codex" && requested !== undefined) throw new Error(CODEX_PARAMETERS_MESSAGE);
-      const parameters = effectiveImageParameters(
-        settings.provider === "openrouter" ? options.readParameters(settings.model) : undefined,
-        requested,
-      );
+      // 宣言と既定は OpenRouter のときだけ引く。Codex は既定を 1 つも持たない（同じ map を混ぜない）
+      const declared = settings.provider === "openrouter" ? options.readParameters(settings.model) : undefined;
+      const defaults = settings.provider === "openrouter" ? settings.parameters : undefined;
+      const parameters = effectiveImageParameters(declared, mergedImageParameters(declared, requested, defaults));
       // 保存名を決める段で初めて分かると生成だけが成功して課金が残るため、provider を叩く前に止める。
       // Codex は画像モデルを選ばず、返る形式も宣言しない（保存の可否は応答の形式で決まる）
       if (settings.provider === "openrouter" && isUnsaveableOutputOnly(options.readOutputFormats(settings.model))) {

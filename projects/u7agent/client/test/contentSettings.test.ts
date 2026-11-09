@@ -69,6 +69,7 @@ function settings(
       ],
       catalogSource: "live",
       fetchedAt: null,
+      parametersByModel: {},
       ...image,
     },
     speech: {

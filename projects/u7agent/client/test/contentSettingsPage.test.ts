@@ -40,6 +40,7 @@ const CONTENT_SETTINGS: ContentSettingsResponse = {
     ],
     catalogSource: "live",
     fetchedAt: null,
+    parametersByModel: {},
   },
   speech: {
     model: "google/gemini-3.8-flash-tts",

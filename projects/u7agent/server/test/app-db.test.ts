@@ -11,6 +11,7 @@ import {
   APP_DB_FILENAME,
   APP_DB_SCHEMA_VERSION,
   type AssistantMetricsRow,
+  type ContentSettingsRow,
   type ContentTrialRow,
   type CustomProviderRow,
   type SecretRow,
@@ -878,6 +879,7 @@ test("migrates a v7 db, discards the plaintext content key and keeps the selecti
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(1).ciphertext,
       nonce: storedSecret(1).nonce,
@@ -889,6 +891,7 @@ test("migrates a v7 db, discards the plaintext content key and keeps the selecti
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(2).ciphertext,
       nonce: storedSecret(2).nonce,
@@ -899,6 +902,7 @@ test("migrates a v7 db, discards the plaintext content key and keeps the selecti
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(2).ciphertext,
       nonce: storedSecret(2).nonce,
@@ -912,6 +916,7 @@ test("migrates a v7 db, discards the plaintext content key and keeps the selecti
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(2).ciphertext,
       nonce: storedSecret(2).nonce,
@@ -926,7 +931,18 @@ test("migrates a v7 db, discards the plaintext content key and keeps the selecti
     const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
-      ["id", "provider", "imageModel", "speechModel", "speechVoice", "enabled", "ciphertext", "nonce", "keyVersion"],
+      [
+        "id",
+        "provider",
+        "imageModel",
+        "speechModel",
+        "speechVoice",
+        "enabled",
+        "ciphertext",
+        "nonce",
+        "keyVersion",
+        "imageParams",
+      ],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -966,6 +982,7 @@ test("migrates a v8 db additively and keeps the image catalog cache across reope
         imageModel: "openai/gpt-image-2",
         speechModel: null,
         speechVoice: null,
+        imageParams: null,
         enabled: true,
         ciphertext: null,
         nonce: null,
@@ -1214,6 +1231,7 @@ test("a content settings row with empty values reads as unset", () => {
       imageModel: "",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: null,
       nonce: null,
@@ -1804,6 +1822,7 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: null,
       nonce: null,
@@ -1814,6 +1833,7 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(3).ciphertext,
       nonce: storedSecret(3).nonce,
@@ -1827,6 +1847,7 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ...storedSecret(3),
     });
@@ -1846,7 +1867,18 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
     assert.deepEqual(
       columns.map((column) => column.name),
       // 加算移行の列追加は末尾に付き、平文の apiKey は消える (読み書きは名前で行う)
-      ["id", "provider", "imageModel", "speechModel", "speechVoice", "enabled", "ciphertext", "nonce", "keyVersion"],
+      [
+        "id",
+        "provider",
+        "imageModel",
+        "speechModel",
+        "speechVoice",
+        "enabled",
+        "imageParams",
+        "ciphertext",
+        "nonce",
+        "keyVersion",
+      ],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -1884,6 +1916,7 @@ CREATE TABLE content_settings (
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: null,
       nonce: null,
@@ -1908,6 +1941,7 @@ test("a round trip through the v14 schema keeps content settings readable", () =
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(4).ciphertext,
       nonce: storedSecret(4).nonce,
@@ -1927,6 +1961,7 @@ test("a round trip through the v14 schema keeps content settings readable", () =
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ...storedSecret(4),
     });
@@ -1962,6 +1997,7 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: null,
       nonce: null,
@@ -1972,6 +2008,7 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(5).ciphertext,
       nonce: storedSecret(5).nonce,
@@ -1984,7 +2021,18 @@ test("migrates a v15 db additively by adding the speech columns", () => {
     assert.deepEqual(
       columns.map((column) => column.name),
       // 加算移行の列追加は末尾に付き、平文の apiKey は消える (読み書きは名前で行う)
-      ["id", "provider", "imageModel", "speechModel", "speechVoice", "enabled", "ciphertext", "nonce", "keyVersion"],
+      [
+        "id",
+        "provider",
+        "imageModel",
+        "speechModel",
+        "speechVoice",
+        "enabled",
+        "imageParams",
+        "ciphertext",
+        "nonce",
+        "keyVersion",
+      ],
     );
     assert.equal(check.prepare("SELECT count(*) AS n FROM speech_catalog").get()?.n, 0, "キャッシュは未取得で始まる");
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
@@ -1996,6 +2044,7 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      imageParams: null,
       enabled: true,
       ...storedSecret(5),
     });
@@ -2881,6 +2930,7 @@ test("migrates a v30 db by discarding plaintext keys and keeping the non-key col
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: "Kore",
+      imageParams: null,
       enabled: false,
       ciphertext: null,
       nonce: null,
@@ -2911,6 +2961,7 @@ test("migrates a v30 db by discarding plaintext keys and keeping the non-key col
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ciphertext: storedSecret(2).ciphertext,
       nonce: storedSecret(2).nonce,
@@ -3801,6 +3852,7 @@ test("v41 の DB を開くと image_settings と content_trials.provider が足�
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      imageParams: null,
       enabled: true,
       ...storedSecret(1),
     });
@@ -3980,4 +4032,139 @@ test("image_settings は 1 行の upsert で、codexParams をそのまま往復
   db.saveImageSettings({ provider: "openrouter", codexParams: null });
   assert.deepEqual(db.readImageSettings(), { provider: "openrouter", codexParams: null });
   db.close();
+});
+
+/** 既定を持つ content_settings の行。他の列は往復の検査に要る最小だけを埋める */
+function contentRow(overrides: Partial<ContentSettingsRow> = {}): ContentSettingsRow {
+  return {
+    provider: "openrouter",
+    imageModel: "openai/gpt-image-2",
+    speechModel: null,
+    speechVoice: null,
+    enabled: true,
+    imageParams: null,
+    ...storedSecret(1),
+    ...overrides,
+  };
+}
+
+test("v43 の DB を開くと content_settings.imageParams が足され、既存行は既定なしのまま読める", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentSettings(contentRow());
+    first.close();
+
+    // v43 相当（content_settings.imageParams を持たない版）へ落として開き直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("ALTER TABLE content_settings DROP COLUMN imageParams");
+    raw.exec("PRAGMA user_version = 43");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.equal(migrated.readContentSettings()?.imageParams, null, "既存行は NULL = 既定なし");
+    migrated.saveContentSettings(
+      contentRow({ imageParams: { "openai/gpt-image-2": { aspect_ratio: "16:9", seed: 7 } } }),
+    );
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    assert.equal(
+      (
+        check.prepare("SELECT imageParams FROM content_settings WHERE id = 1").get() as {
+          imageParams: string | null;
+        }
+      ).imageParams,
+      '{"openai/gpt-image-2":{"aspect_ratio":"16:9","seed":7}}',
+    );
+    check.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.readContentSettings()?.imageParams, {
+      "openai/gpt-image-2": { aspect_ratio: "16:9", seed: 7 },
+    });
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("画像パラメータの既定はモデルごとに往復し、空の map と NULL を区別する", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    // 未設定は NULL。保存し直しても消えない
+    db.saveContentSettings(contentRow());
+    assert.equal(db.readContentSettings()?.imageParams, null);
+
+    db.saveContentSettings(
+      contentRow({
+        imageParams: {
+          "openai/gpt-image-2": { aspect_ratio: "16:9", seed: 7 },
+          "black-forest-labs/flux.2-max": { quality: "high" },
+        },
+      }),
+    );
+    assert.deepEqual(db.readContentSettings()?.imageParams, {
+      "openai/gpt-image-2": { aspect_ratio: "16:9", seed: 7 },
+      "black-forest-labs/flux.2-max": { quality: "high" },
+    });
+    // 別の列の更新（キーの上書き）でも既定を消さない
+    db.saveContentSettings(
+      contentRow({ imageParams: db.readContentSettings()?.imageParams ?? null, ...storedSecret(2) }),
+    );
+    assert.deepEqual(Object.keys(db.readContentSettings()?.imageParams ?? {}), [
+      "openai/gpt-image-2",
+      "black-forest-labs/flux.2-max",
+    ]);
+
+    // 全モデルの既定を消した状態（空の map）は `{}` として保存し、NULL と区別する
+    db.saveContentSettings(contentRow({ imageParams: {} }));
+    assert.deepEqual(db.readContentSettings()?.imageParams, {});
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(
+      (
+        check.prepare("SELECT imageParams FROM content_settings WHERE id = 1").get() as {
+          imageParams: string | null;
+        }
+      ).imageParams,
+      "{}",
+    );
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("壊れた content_settings.imageParams は既定なしへ落とさず、行の破損として例外にする", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentSettings(contentRow());
+    first.close();
+
+    for (const value of [
+      "{not json",
+      '["1:1"]',
+      '{"openai/gpt-image-2":"16:9"}',
+      '{"openai/gpt-image-2":{"seed":"42"}}',
+    ]) {
+      const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+      raw.prepare("UPDATE content_settings SET imageParams = ? WHERE id = 1").run(value);
+      raw.close();
+      const reopened = AppDb.open({ storeDir: dir });
+      // 行の破損は理由を固定文言にして 503 へ寄せる（保存値の断片を例外文言へ出さない）
+      assert.throws(
+        () => reopened.readContentSettings(),
+        (error: Error) => error.message.endsWith("app secret query failed"),
+        value,
+      );
+      reopened.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

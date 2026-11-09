@@ -22,7 +22,7 @@ import type { SpeechAudioFormat } from "./speech";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 43;
+export const APP_DB_SCHEMA_VERSION = 44;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -104,11 +104,22 @@ export interface ContentSettingsRow {
   speechModel: string | null;
   speechVoice: string | null;
   enabled: boolean;
+  /**
+   * 画像の生成パラメータの既定（bare なモデル id → 値）。null = 既定なし、`{}` = 空の map を保存済み
+   * （v43 → v44 の加算移行で足した列で、既存行は NULL のまま）。
+   */
+  imageParams: ImageParameterDefaults | null;
   /** APIキーの暗号文。null = キー未設定 */
   ciphertext: Uint8Array | null;
   nonce: Uint8Array | null;
   keyVersion: number | null;
 }
+
+/**
+ * モデル id をキーにした生成パラメータの既定。画面が使う `provider/id` ではなく bare id をキーにし、
+ * `PUT /api/settings/content/image` の `model` と揃える。
+ */
+export type ImageParameterDefaults = Record<string, ImageParameterValues>;
 
 /**
  * 画像の生成元の保存行。**行が無い = 既定（openrouter）**で、キー削除では消さない別テーブルに持つ。
@@ -498,6 +509,7 @@ CREATE TABLE IF NOT EXISTS custom_providers (
  * APIキーは v30 -> v31 で平文列から AEAD の暗号文へ移し、3 列 NULL = キー未設定にした。
  * 音声の `speechModel` / `speechVoice` は v15 -> v16 の列追加で、既存行は NULL になる
  * （NULL は既定へフォールバックする。docs/speech-generation.md）。
+ * 画像の生成パラメータの既定は v43 -> v44 の列追加で、NULL = 既定なし（空 map とは区別して読む）。
  */
 const CONTENT_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS content_settings (
@@ -509,7 +521,8 @@ CREATE TABLE IF NOT EXISTS content_settings (
   enabled     INTEGER NOT NULL DEFAULT 1,
   ciphertext  BLOB,
   nonce       BLOB,
-  keyVersion  INTEGER
+  keyVersion  INTEGER,
+  imageParams TEXT
 );
 `;
 
@@ -1043,6 +1056,7 @@ function contentSettingsOf(row: Row): ContentSettingsRow | undefined {
     speechVoice: optionalText(row.speechVoice) ?? null,
     // 足した列なので、手編集で NULL にされた行も既定 (ON) として読む
     enabled: Number(row.enabled) !== 0,
+    imageParams: imageParameterDefaultsOf(row.imageParams),
     ciphertext: secret?.ciphertext ?? null,
     nonce: secret?.nonce ?? null,
     keyVersion: secret?.keyVersion ?? null,
@@ -1105,6 +1119,36 @@ function imageParamsJsonOf(parameters: ImageParameterValues | null): string | nu
   if (!parameters) return null;
   const body = imageParameterBody(parameters);
   return Object.keys(body).length === 0 ? null : JSON.stringify(body);
+}
+
+/** モデルごとの既定の保存値。null は NULL（既定なし）のまま書き、空 map は `{}` として残す */
+function imageParameterDefaultsJsonOf(defaults: ImageParameterDefaults | null): string | null {
+  return defaults === null ? null : JSON.stringify(defaults);
+}
+
+/**
+ * モデルごとの既定を読む。壊れた保存値は未設定へ落とさず、行の破損として例外にする（利用者データなので
+ * `image_catalog` のキャッシュとは扱いが違う）。
+ */
+function imageParameterDefaultsOf(value: unknown): ImageParameterDefaults | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") throw new Error("content_settings.imageParams is not a valid parameters map");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("content_settings.imageParams is not valid JSON");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("content_settings.imageParams is not a valid parameters map");
+  }
+  const defaults: ImageParameterDefaults = {};
+  for (const [model, parameters] of Object.entries(parsed)) {
+    const result = ImageParameterValuesSchema.safeParse(parameters);
+    if (!result.success) throw new Error("content_settings.imageParams is not a valid parameters map");
+    defaults[model] = result.data;
+  }
+  return defaults;
 }
 
 /**
@@ -1860,6 +1904,8 @@ export class AppDb {
       this.#addColumnIfMissing("content_settings", "speechVoice", "TEXT");
       // v25 以前に無い有効 / 無効。既存行は ON で埋める (キーがあるのに止まって見えないように)
       this.#addColumnIfMissing("content_settings", "enabled", "INTEGER NOT NULL DEFAULT 1");
+      // v43 -> v44: 画像の生成パラメータの既定（モデル id → 値の map）。既存行は NULL（既定なし）のまま読む
+      this.#addColumnIfMissing("content_settings", "imageParams", "TEXT");
       // v16 以前の agents に無い列。NULL = 未指定 (全可視) として読む。`#migrate()` は agents を
       // 作らないため、テーブルを持たない壊れた DB では列追加を飛ばす (ALTER で起動できなくしない)
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "commonSkillNames", "TEXT");
@@ -2173,10 +2219,11 @@ export class AppDb {
 
   /** 行が無ければ undefined。空文字へ手編集された行も未設定として読む (キーは暗号文だけを返す) */
   readContentSettings(): ContentSettingsRow | undefined {
-    const row = this.#secretQuery(
-      (db) => db.prepare("SELECT * FROM content_settings WHERE id = 1").get() as Row | undefined,
-    );
-    return row ? contentSettingsOf(row) : undefined;
+    // 行の写像も #secretQuery の内側で行う（手編集された列の破損を、未設定へ落とさず 503 に寄せる）
+    return this.#secretQuery((db) => {
+      const row = db.prepare("SELECT * FROM content_settings WHERE id = 1").get() as Row | undefined;
+      return row ? contentSettingsOf(row) : undefined;
+    });
   }
 
   /** 登録と上書きで同じ (id = 1 の upsert)。単一ステートメントなので自動コミットで確定する */
@@ -2185,11 +2232,12 @@ export class AppDb {
       db
         .prepare(
           `INSERT INTO content_settings
-             (id, provider, imageModel, speechModel, speechVoice, enabled, ciphertext, nonce, keyVersion)
-           VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, provider, imageModel, speechModel, speechVoice, enabled, imageParams, ciphertext, nonce, keyVersion)
+           VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, imageModel = excluded.imageModel,
              speechModel = excluded.speechModel, speechVoice = excluded.speechVoice, enabled = excluded.enabled,
-             ciphertext = excluded.ciphertext, nonce = excluded.nonce, keyVersion = excluded.keyVersion`,
+             imageParams = excluded.imageParams, ciphertext = excluded.ciphertext, nonce = excluded.nonce,
+             keyVersion = excluded.keyVersion`,
         )
         .run(
           settings.provider,
@@ -2197,6 +2245,7 @@ export class AppDb {
           settings.speechModel,
           settings.speechVoice,
           settings.enabled ? 1 : 0,
+          imageParameterDefaultsJsonOf(settings.imageParams),
           settings.ciphertext,
           settings.nonce,
           settings.keyVersion,

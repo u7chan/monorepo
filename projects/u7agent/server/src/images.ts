@@ -207,6 +207,27 @@ function imageParameterValueAllowed(
 }
 
 /**
+ * 既定値（保存値）のうち、モデルの宣言に収まるキーだけを残す。宣言が読めないモデルでは 1 つも残さない。
+ * 利用者が明示した値ではないので、落としたキーで生成を止めず provider の既定へ委ねる。
+ */
+export function declaredImageParameters(
+  declarations: ImageParameterDeclarations | undefined,
+  values: ImageParameterValues | undefined,
+): ImageParameterValues {
+  const kept: ImageParameterValues = {};
+  if (!declarations) return kept;
+  for (const name of IMAGE_PARAMETER_NAMES) {
+    const value = values?.[name];
+    const descriptor = declarations[name];
+    if (value === undefined || !descriptor) continue;
+    if (!imageParameterValueAllowed(name, descriptor, value)) continue;
+    // name ごとに値の型が違う（seed だけ数値）ため、検証済みの 1 キーをそのまま写す
+    Object.assign(kept, { [name]: value });
+  }
+  return kept;
+}
+
+/**
  * 明示された値をモデルの宣言と突き合わせる。宣言の無いモデル・宣言に無いキー・宣言の外の値は通さない
  * （不明は送らない）。通った値はそのまま送信本文の材料になる。
  */
@@ -297,6 +318,11 @@ export interface OpenRouterImageGenerationSettings {
   provider: typeof IMAGE_PROVIDER_ID;
   model: string;
   apiKey: string;
+  /**
+   * 保存済みの生成パラメータの既定（キー単位）。宣言との突き合わせは使う側（ツール）が
+   * `declaredImageParameters` で行う。Codex は既定を持たない（同じ map を共有しない）。
+   */
+  parameters?: ImageParameterValues | undefined;
 }
 
 export interface CodexImageGenerationSettings {
