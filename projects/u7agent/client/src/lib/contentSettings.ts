@@ -8,6 +8,7 @@ import type {
   ContentSettingsResponse,
   ContentSpeechSettings,
   ImageGenerationProvider,
+  ImageParameterValues,
   ModelRef,
   SpeechCatalogRefreshResponse,
   SpeechModel,
@@ -15,6 +16,8 @@ import type {
   UpdateContentSpeechBody,
 } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
+import { imageModelParameterDeclarations, imageParameterDraftOf, imageParameterFields } from "./imageParameters";
+import type { ImageParameterDraft, ImageParameterField } from "./imageParameters";
 import { messageTimeLabel, type MessageTimeOptions } from "./messageTime";
 import { modelRefKey, type ProviderBadge } from "./modelSettings";
 
@@ -25,7 +28,8 @@ export const CONTENT_KEY_SAVED_NOTE =
   "コンテンツ生成のAPIキーを保存しました。新しい会話から generate_image・generate_speech・generate_bgm を使えます。";
 export const CONTENT_KEY_DELETED_NOTE =
   "コンテンツ生成のAPIキーを削除しました。generate_image・generate_speech・generate_bgm は新しい会話から使えません。";
-export const CONTENT_MODEL_SAVED_NOTE = "画像生成のモデルを保存しました。";
+/** 画像の [保存] の成功注記。`onSaveSelection` はモデルと既定のパラメータ（値あり / 省略）を送るため、両方を書く */
+export const CONTENT_IMAGE_SAVED_NOTE = "画像生成のモデルと既定を保存しました。";
 export const CONTENT_SPEECH_SAVED_NOTE = "音声生成のモデルとボイスを保存しました。";
 
 /** 画像の生成元の選択肢。radio の並び・表示名・案内をここ 1 箇所で作る */
@@ -449,9 +453,141 @@ export function speechSaveDisabled(input: { busy: boolean; synced: boolean; dirt
 }
 
 /** 選択中の選択肢を PUT の本文へ。provider を決められないときは null (保存させない) */
-export function imageModelSelection(options: ImageModelOption[], value: string): UpdateContentImageBody | null {
+export function imageModelSelection(
+  options: readonly ImageModelOption[],
+  value: string,
+): UpdateContentImageBody | null {
   const option = options.find((entry) => entry.value === value);
   return option?.model ? { provider: option.model.provider, model: option.model.id } : null;
+}
+
+/** 既定の入力の未指定ラベル。保存値を持たないことは provider の既定への委譲として書く */
+export const IMAGE_DEFAULT_NONE_LABEL = "既定なし（provider 既定）";
+
+/** 既定の入力欄の注記。保存した既定がいつ使われるかと、試行の入力と別であることを伝える */
+export const IMAGE_DEFAULT_NOTE =
+  "保存した既定は generate_image の引数を省略したときに使います。空欄は既定なし（provider 既定）で、試行の入力とは別に保存します。";
+
+/** 画面のモデル（`provider/id`）に対応する既定の保存キー（bare なモデル id）。選択肢に無ければ null */
+export function imageDefaultModelId(options: readonly ImageModelOption[], model: string): string | null {
+  return options.find((option) => option.value === model)?.model?.id ?? null;
+}
+
+/** 既定の入力の下書き。編集したモデルと組にし、別のモデルへ値を持ち越さない */
+export interface ImageDefaultsDraft {
+  model: string;
+  values: ImageParameterDraft;
+}
+
+/** 保存値を入力欄の値として比べるための文字列。未指定は空欄 */
+function defaultDraftValue(value: string | number | undefined): string {
+  return value === undefined ? "" : String(value);
+}
+
+/**
+ * 既定の入力が保存値と違うか。欄に無いキーは画面から変えられないため比べない（宣言が変わっても
+ * 保存できない差分を作らない）。モデルだけを見ていた判定にパラメータを足す。
+ */
+export function imageDefaultDirty(
+  fields: readonly ImageParameterField[],
+  draft: ImageParameterDraft,
+  saved: ImageParameterValues,
+): boolean {
+  return fields.some((field) => (draft[field.name] ?? "").trim() !== defaultDraftValue(saved[field.name]));
+}
+
+/** 既定として送る値と、保存値から変わっていないか */
+export interface ImageDefaultBody {
+  /** そのモデルの全項目（入力欄に載る宣言の値だけ。未指定は持たない） */
+  parameters: ImageParameterValues;
+  /** 保存値と同じ。同じなら [保存] は `parameters` を省略する */
+  unchanged: boolean;
+}
+
+/**
+ * [保存] で送る `parameters`。PUT は部分更新ではない（値あり = そのモデルの既定を丸ごと置き換える）ため、
+ * 編集が 1 つでもあれば**宣言にある全項目**を返し、編集が無ければ `unchanged` にして省略させる。
+ * `{}`（解除）をここで作らないのは、切替先モデルの既定を意図せず消さないため。
+ */
+export function imageDefaultBody(
+  fields: readonly ImageParameterField[],
+  draft: ImageParameterDraft,
+  saved: ImageParameterValues,
+): ({ ok: true } & ImageDefaultBody) | { ok: false; error: string } {
+  const parameters: ImageParameterValues = {};
+  for (const field of fields) {
+    const raw = (draft[field.name] ?? "").trim();
+    if (raw === "") continue;
+    if (field.kind === "integer") {
+      const value = Number(raw);
+      if (!Number.isInteger(value) || value < field.min || value > field.max) {
+        return { ok: false, error: `${field.name} は ${field.min} 以上 ${field.max} 以下の整数で入力してください` };
+      }
+      parameters[field.name] = value;
+      continue;
+    }
+    if (!field.values.includes(raw)) return { ok: false, error: `${field.name} に指定できない値です: ${raw}` };
+    parameters[field.name] = raw;
+  }
+  return { ok: true, parameters, unchanged: !imageDefaultDirty(fields, draft, saved) };
+}
+
+/** 既定の入力の面。入力欄・現在値・[保存] で送る本文・[既定を解除] の活性を 1 箇所で決める */
+export interface ImageDefaultsScreen {
+  /** 宣言に応じた入力欄。宣言が無いモデルは空（不明を既定として見せない） */
+  fields: ImageParameterField[];
+  /** 入力欄に出す値。下書きは選択中のモデルの分だけ使い、切替先は保存済みの既定を出す */
+  values: ImageParameterDraft;
+  /** 保存済みの既定（そのモデルの全項目。未保存は空） */
+  saved: ImageParameterValues;
+  /** 保存値と違うか */
+  dirty: boolean;
+  /** [保存] の本文。値が宣言の外なら error にする */
+  body: ({ ok: true } & ImageDefaultBody) | { ok: false; error: string };
+  /** [既定を解除] を押せるか。保存済みの既定が無ければ押しても変わらない */
+  clearDisabled: boolean;
+}
+
+/**
+ * 既定の入力欄を決める。下書きは編集したモデルの分だけを使うため、モデルを切り替えた時点で
+ * 前のモデルの値は表示にも保存にも残らない（宣言外のキーを持ち越さない）。
+ */
+export function imageDefaultsScreen(
+  settings: Pick<ContentSettingsResponse, "provider" | "image">,
+  model: string,
+  draft: ImageDefaultsDraft | null,
+): ImageDefaultsScreen {
+  const modelId = imageDefaultModelId(imageModelOptions(settings), model);
+  const saved = modelId === null ? {} : (settings.image.parametersByModel[modelId] ?? {});
+  const fields = imageParameterFields(imageModelParameterDeclarations(settings.image.models, model));
+  const values = draft !== null && draft.model === model ? draft.values : imageParameterDraftOf(saved);
+  return {
+    fields,
+    values,
+    saved,
+    dirty: imageDefaultDirty(fields, values, saved),
+    body: imageDefaultBody(fields, values, saved),
+    clearDisabled: Object.keys(saved).length === 0,
+  };
+}
+
+/** [既定を解除] の本文。`{}` はそのモデルの既定だけを消し、他のモデルの既定には触らない */
+export function imageDefaultClearSelection(
+  options: readonly ImageModelOption[],
+  model: string,
+): UpdateContentImageBody | null {
+  const selection = imageModelSelection(options, model);
+  return selection === null ? null : { ...selection, parameters: {} };
+}
+
+/** 画像の [保存] を止める条件。モデルの差分だけでなく既定のパラメータの編集でも押せるようにする */
+export function imageSelectionSaveDisabled(input: {
+  busy: boolean;
+  modelDirty: boolean;
+  defaultsDirty: boolean;
+  invalid: boolean;
+}): boolean {
+  return input.busy || input.invalid || !(input.modelDirty || input.defaultsDirty);
 }
 
 /** キー入力の後始末。保存できたときだけ空へ戻し、失敗時は再入力を避けて残す */

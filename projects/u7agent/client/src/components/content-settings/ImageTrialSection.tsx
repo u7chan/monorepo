@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react";
 import {
-  IMAGE_PARAMETER_DEFAULT_LABEL,
   evidenceNote,
   hasStoredArtifact,
-  imageModelParameterDeclarations,
   imageParameterChips,
-  imageParameterFields,
+  imageParameterNote,
   imageTrialParameters,
   imageTrialProviderBlockedReason,
   imageTrialRequest,
@@ -17,8 +15,13 @@ import {
   trialHistoryRow,
   trialPanelState,
   trialStartBlockedReason,
-  type ImageParameterDraft,
 } from "../../lib/contentTrials";
+import {
+  IMAGE_PARAMETER_DEFAULT_LABEL,
+  imageModelParameterDeclarations,
+  imageParameterFields,
+  type ImageParameterDraft,
+} from "../../lib/imageParameters";
 import { imageTrialDefaultTarget } from "../../lib/trialDefault";
 import type {
   ContentSettingsResponse,
@@ -113,8 +116,10 @@ export function ImageTrialSection({
       cancelled = true;
     };
   }, [latestId, onLoadTrial]);
-  // 同じモデルを保存しても何も変わらないため、結果との差分があるときだけ導線を出す
-  const defaultTarget = latest ? imageTrialDefaultTarget({ settings, trialModel: latest.model }) : null;
+  // 同じモデル・同じパラメータを保存しても何も変わらないため、結果との差分があるときだけ導線を出す
+  const defaultTarget = latest
+    ? imageTrialDefaultTarget({ settings, trialModel: latest.model, trialParameters: latest.parameters })
+    : null;
   const defaultBlockedReason = settings.configured ? null : UNCONFIGURED_BLOCKED_NOTE;
   const providerBlocked = imageTrialProviderBlockedReason(settings.image.provider);
   // 入力欄はモデルの宣言から作る。宣言が読めないモデルは欄を出さない（不明を既定として見せない）
@@ -200,6 +205,9 @@ export function ImageTrialSection({
         </div>
       )}
 
+      {/* 空欄の扱いは入力欄のすぐ下に書く（宣言に応じて何を指定できるか） */}
+      <p className="text-2xs leading-relaxed text-ink-muted">{imageParameterNote(declarations)}</p>
+
       {providerBlocked === null ? null : (
         <p
           role="status"
@@ -252,7 +260,7 @@ export function ImageTrialSection({
           defaultAction={
             <TrialDefaultAction
               key={latest.id}
-              label="このモデルを既定にする"
+              label="このモデルと設定を既定にする"
               target={defaultTarget}
               disabled={busy || settingsBusy}
               blockedReason={defaultBlockedReason}

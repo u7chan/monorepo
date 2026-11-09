@@ -544,7 +544,7 @@ test("キー未設定では、結果カードから既定へ保存する導線�
   assert.equal(html.includes("保存される設定"), false, "保存フォームは出さない（既存の意図）");
   assert.match(
     html,
-    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?このモデルを既定にする/,
+    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?このモデルと設定を既定にする/,
     "保存できないので導線を押せなくする",
   );
   assert.ok(html.includes("APIキーが未設定のため保存できません。"), "押せない理由をその場に出す");
@@ -687,8 +687,8 @@ test("履歴の詳細は「もう一度生成」を出し、確認のうえ課�
   });
   assert.ok(fresh.includes("もう一度生成は確認のうえ新しい試行として課金されます。"));
 });
-test("結果のモデルが保存値と違うときだけ、このモデルを既定にする導線を出す", () => {
-  const button = "このモデルを既定にする";
+test("結果のモデルが保存値と違うときだけ、このモデルと設定を既定にする導線を出す", () => {
+  const button = "このモデルと設定を既定にする";
   const other = render({ trials: [{ ...TRIAL_BASE, model: "openrouter/google/gemini-image" }] });
   assert.ok(other.includes(button), "別モデルで試した結果からは既定にできる");
 
@@ -905,6 +905,44 @@ test("画像の試行の入力はモデルの宣言に応じて出し、宣言�
   const undeclared = render();
   assert.equal(undeclared.includes('aria-label="試行の aspect_ratio"'), false);
   assert.equal(undeclared.includes('aria-label="試行の seed"'), false);
+});
+
+test("画像のモデルの下に、宣言に応じた既定のパラメータを出し、保存済みの値を選んだ状態にする", () => {
+  const html = render({
+    image: { models: DECLARING_MODELS, parametersByModel: { "openai/gpt-image-2": { aspect_ratio: "1:1", seed: 7 } } },
+  });
+  assert.match(html, /aria-label="既定の aspect_ratio"/, "enum は選択欄にする");
+  assert.ok(html.includes("既定なし（provider 既定）"), "未指定の選択肢を出す");
+  assert.match(html, /<input[^>]*type="number"[^>]*aria-label="既定の seed"[^>]*value="7"/, "保存済みの seed を出す");
+  assert.ok(html.includes(">1:1</option>"), "保存済みの enum を候補にする");
+  assert.ok(html.includes("既定を解除"), "既定の解除の導線を出す");
+  assert.ok(html.includes("generate_image の引数を省略したときに使います"), "保存した既定がいつ使われるかを書く");
+
+  // 宣言が読めないモデル（SDK 同梱・旧キャッシュ）では欄を出さず、不明を既定として見せない
+  const undeclared = render();
+  assert.equal(undeclared.includes('aria-label="既定の aspect_ratio"'), false);
+  assert.equal(undeclared.includes('aria-label="既定の seed"'), false);
+});
+
+test("[既定を解除] は保存済みの既定が無ければ押せず、あるときだけ押せる", () => {
+  const none = render({ image: { models: DECLARING_MODELS } });
+  assert.match(none, /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?既定を解除/, "消す既定が無ければ押せない");
+  const saved = render({
+    image: { models: DECLARING_MODELS, parametersByModel: { "openai/gpt-image-2": { seed: 7 } } },
+  });
+  assert.match(saved, /<button[^>]*(?<!disabled="")>(?:(?!<\/button>)[\s\S])*?既定を解除/, "保存済みなら押せる");
+});
+
+test("保存していない既定の変更が無ければ [保存] は押せない（モデルと同じ差分だけで見ない判定を揃える）", () => {
+  const html = render({
+    image: { models: DECLARING_MODELS, parametersByModel: { "openai/gpt-image-2": { seed: 7 } } },
+  });
+  assert.match(
+    html,
+    /<button[^>]*class="btn-primary"[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?保存/,
+    "差が無ければ押せない",
+  );
+  assert.equal(html.includes("未保存"), false, "保存値のままなら未保存を出さない");
 });
 
 test("結果カードのチップは要約のパラメータの明示値だけで、未指定は出さない", () => {
