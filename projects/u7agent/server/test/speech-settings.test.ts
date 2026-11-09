@@ -120,6 +120,7 @@ function stubImageCatalog(): ImageCatalog {
   return {
     snapshot: () => snapshot,
     outputFormatsOf: () => undefined,
+    parametersOf: () => undefined,
     imageInputOf: () => undefined,
     checkImageInput: async () => undefined,
     loadStored: () => {},

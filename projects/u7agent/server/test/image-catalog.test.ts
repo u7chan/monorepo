@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ImageCatalogRow } from "../src/app-db";
+import type { ImageParameterDeclarations } from "../src/images";
 import {
   createImageCatalog,
   IMAGE_CATALOG_ERROR_RATE_LIMITED,
@@ -138,7 +139,13 @@ test("live の形式宣言を取り込み、保存できる形式だけを一覧
   });
   assert.equal(await catalog.refresh(), null);
   assert.deepEqual(catalog.snapshot().entries, [
-    { provider: "openrouter", id: "raster/mixed", name: "Mixed" },
+    {
+      provider: "openrouter",
+      id: "raster/mixed",
+      name: "Mixed",
+      // 形式の宣言は保存できる形式との積で生成パラメータとしても載る
+      parameters: { output_format: { type: "enum", values: ["png"] } },
+    },
     { provider: "openrouter", id: "raster/declared", name: "Declared" },
     { provider: "openrouter", id: "declared/none", name: "None" },
     { provider: "openrouter", id: "malformed/values", name: "Malformed" },
@@ -154,7 +161,12 @@ test("live の形式宣言を取り込み、保存できる形式だけを一覧
       fetchedAt: 1000,
       models: [
         { id: "vector/only", name: "Vector", outputFormats: ["svg"] },
-        { id: "raster/mixed", name: "Mixed", outputFormats: ["png", "svg"] },
+        {
+          id: "raster/mixed",
+          name: "Mixed",
+          outputFormats: ["png", "svg"],
+          parameters: { output_format: { type: "enum", values: ["png"] } },
+        },
         { id: "raster/declared", name: "Declared", outputFormats: ["jpeg"] },
         { id: "declared/none", name: "None" },
         { id: "malformed/values", name: "Malformed" },
@@ -504,4 +516,112 @@ test("endpoint の宣言が無いモデルは慣例パスを編集実行時に�
   assert.equal(await catalog.checkImageInput("openai/gpt-image-2"), undefined);
   assert.equal(calls[1].url, "https://openrouter.ai/api/v1/images/models/openai/gpt-image-2/endpoints");
   assert.equal(calls[1].headers?.get("authorization"), null, "認証ヘッダを付けている");
+});
+
+// --- 生成パラメータの宣言（enum / range / boolean）。画面の選択肢と送信本文の材料になる ---
+
+/** 2026-10-23 に実 URL で観測した形に合わせた固定 fixture。実 API は呼ばない */
+const LIVE_WITH_PARAMETERS = [
+  {
+    id: "openai/gpt-image-2",
+    name: "GPT Image 2",
+    supported_parameters: {
+      aspect_ratio: { type: "enum", values: ["1:1", "16:9", "auto"] },
+      quality: { type: "enum", values: ["low", "high"] },
+      background: { type: "boolean" },
+      seed: { type: "range", min: 0, max: 4_294_967_295 },
+      output_format: { type: "enum", values: ["png", "svg"] },
+      // 許可リスト外のキーは宣言として読まない
+      n: { type: "range", min: 1, max: 10 },
+      input_references: { type: "range", min: 1, max: 16 },
+    },
+  },
+  {
+    id: "broken/descriptors",
+    name: "Broken",
+    supported_parameters: {
+      aspect_ratio: { type: "enum", values: [] },
+      resolution: { type: "enum" },
+      quality: { type: "range", min: "1", max: 2 },
+      output_format: { type: "enum", values: ["svg"] },
+    },
+  },
+];
+
+function jsonCatalog(data: unknown[]): typeof fetch {
+  return (async () => jsonResponse({ data })) as typeof fetch;
+}
+
+test("live の生成パラメータ宣言を取り込み、未知キー・壊れた descriptor・空の積を落とす", async () => {
+  const store = new FakeCatalogStore();
+  const catalog = createImageCatalog({ store, sdkCatalog: () => [], fetchImpl: jsonCatalog(LIVE_WITH_PARAMETERS) });
+  assert.equal(await catalog.refresh(), null);
+
+  assert.deepEqual(catalog.parametersOf("openai/gpt-image-2"), {
+    aspect_ratio: { type: "enum", values: ["1:1", "16:9", "auto"] },
+    quality: { type: "enum", values: ["low", "high"] },
+    // output_format の values は保存できる形式（png / jpeg / webp）との積にする
+    output_format: { type: "enum", values: ["png"] },
+    background: { type: "boolean" },
+    // seed は受け付ける上限（2^31-1）で切る
+    seed: { type: "range", min: 0, max: 2_147_483_647 },
+  });
+  assert.equal(catalog.parametersOf("broken/descriptors"), undefined, "読めた descriptor が 1 つも無い");
+  assert.equal(catalog.parametersOf("ghost/model"), undefined, "カタログに無い id は不明");
+  // 積が空になった output_format は宣言なし扱い。形式の判定（svg のみ）は従来どおり一覧から落とす
+  assert.deepEqual(catalog.outputFormatsOf("broken/descriptors"), ["svg"]);
+  assert.equal(
+    catalog.snapshot().entries.some((entry) => entry.id === "broken/descriptors"),
+    false,
+    "保存できない形式しか宣言しないモデルは一覧から落とす",
+  );
+  assert.deepEqual(
+    store.row?.models.map((model) => model.parameters),
+    [
+      {
+        aspect_ratio: { type: "enum", values: ["1:1", "16:9", "auto"] },
+        quality: { type: "enum", values: ["low", "high"] },
+        output_format: { type: "enum", values: ["png"] },
+        background: { type: "boolean" },
+        seed: { type: "range", min: 0, max: 2_147_483_647 },
+      },
+      undefined,
+    ],
+  );
+});
+
+test("snapshot は生成パラメータの宣言を載せ、画像入力の宣言は載せない", async () => {
+  const store = new FakeCatalogStore();
+  const catalog = createImageCatalog({ store, sdkCatalog: () => [], fetchImpl: jsonCatalog(LIVE_WITH_PARAMETERS) });
+  await catalog.refresh();
+  const entry = catalog.snapshot().entries.find((candidate) => candidate.id === "openai/gpt-image-2");
+  assert.deepEqual(Object.keys(entry ?? {}).sort(), ["id", "name", "parameters", "provider"]);
+  assert.deepEqual(entry?.parameters?.quality, { type: "enum", values: ["low", "high"] });
+});
+
+test("キャッシュの生成パラメータ宣言も読み、一覧から落ちたモデルも parametersOf で引ける", () => {
+  const parameters: ImageParameterDeclarations = {
+    resolution: { type: "enum", values: ["1K", "2K"] },
+    output_format: { type: "enum", values: ["webp"] },
+  };
+  const store = new FakeCatalogStore();
+  store.row = {
+    fetchedAt: 500,
+    models: [
+      { id: "vector/only", name: "Vector", outputFormats: ["svg"], parameters: { seed: { type: "boolean" } } },
+      { id: "google/gemini-3-pro-image", name: "Gemini 3 Pro Image", parameters },
+      { id: "openai/gpt-image-2", name: "GPT Image 2" },
+    ],
+  };
+  const catalog = createImageCatalog({ store, sdkCatalog: () => [], fetchImpl: jsonCatalog(LIVE_WITH_PARAMETERS) });
+  catalog.loadStored();
+
+  assert.deepEqual(catalog.parametersOf("google/gemini-3-pro-image"), parameters);
+  assert.deepEqual(catalog.parametersOf("vector/only"), { seed: { type: "boolean" } });
+  assert.equal(catalog.parametersOf("openai/gpt-image-2"), undefined, "宣言の無い行は不明");
+  assert.deepEqual(
+    catalog.snapshot().entries.map((entry) => entry.id),
+    ["google/gemini-3-pro-image", "openai/gpt-image-2"],
+    "一覧から落ちたモデルの宣言も残す",
+  );
 });
