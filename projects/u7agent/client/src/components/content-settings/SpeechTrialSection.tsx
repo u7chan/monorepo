@@ -102,6 +102,8 @@ export function SpeechTrialSection({
       setLatestDetail(null);
       return;
     }
+    // 行が変わった直後に前の行の全文を新しい行のものとして出さない（取れるまでは抜粋）
+    setLatestDetail(null);
     void onLoadTrial(latestId).then((trial) => {
       if (!cancelled) setLatestDetail(trial);
     });
