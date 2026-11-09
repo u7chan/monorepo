@@ -4,7 +4,7 @@ import { trialArtifactUrl, trialHistoryRow } from "../../lib/contentTrials";
 import { cn } from "../../lib/cn";
 import type { ContentTrialSummary } from "../../types";
 import { CopyButton } from "../chat/CopyButton";
-import { TrashIcon } from "../icons";
+import { DownloadIcon, TrashIcon } from "../icons";
 
 /**
  * 1 つの結果。生成タブの直近の結果（`latest`）と、履歴タブの詳細（`history`）で同じ骨格を使う。
@@ -190,6 +190,7 @@ export function TrialArtifactMeta({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="text-2xs text-ink-muted">{label}</span>
         <a className="btn-quiet" href={trialArtifactUrl(trialId, { download: true })}>
+          <DownloadIcon small />
           ダウンロード
         </a>
       </div>

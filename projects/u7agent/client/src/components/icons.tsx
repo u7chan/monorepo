@@ -595,6 +595,47 @@ export function ImageIcon() {
   );
 }
 
+/** 音声（TTS）の試行。履歴の行の印に使う。マイクの輪郭だけで音声と読ませる */
+export function SpeechIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-5 shrink-0"
+    >
+      <rect x="6.1" y="2.4" width="3.8" height="6.4" rx="1.9" />
+      <path d="M4.4 7.3v.6a3.6 3.6 0 0 0 7.2 0v-.6" />
+      <path d="M8 11.5v2.1" />
+      <path d="M5.7 13.6h4.6" />
+    </svg>
+  );
+}
+
+/** BGM の試行。履歴の行の印に使う。8 分音符 2 つを連桁で結び、音声のマイクと形で区別する */
+export function MusicIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-5 shrink-0"
+    >
+      <path d="M6.3 11.2V4.3l5.4-1.2v6.6" />
+      <circle cx="5.15" cy="11.2" r="1.25" fill="currentColor" stroke="none" />
+      <circle cx="10.55" cy="9.7" r="1.25" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** Web 検索 (設定ナビ)。虫眼鏡 */
 export function SearchIcon() {
   return (

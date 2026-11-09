@@ -8,7 +8,7 @@ import {
 } from "../../lib/contentTrials";
 import { cn } from "../../lib/cn";
 import type { ContentTrialSummary } from "../../types";
-import { TrashIcon } from "../icons";
+import { ImageIcon, MusicIcon, SpeechIcon, TrashIcon } from "../icons";
 
 /** 成功 / 失敗の絞り込み。中止・中断はどちらにも含めない */
 export const TRIAL_OUTCOME_OPTIONS: { value: TrialOutcomeFilter; label: string }[] = [
@@ -184,7 +184,10 @@ export function TrialHistoryRow({
   row: TrialHistoryRow;
   selected: boolean;
   busy: boolean;
-  /** 左の印。保存済みの画像だけサムネイルを出し、音声 / BGM は種類の名前を出す */
+  /**
+   * 左の印。保存済みの画像だけサムネイルを出し、音声 / BGM は種類のアイコンを塗り面に置く
+   * （輪郭だけの文字は行の背景に沈んで、種類が読み取りにくい）
+   */
   thumbnail: { kind: "image"; url: string | null } | { kind: "speech" } | { kind: "bgm" };
   /** 音声のボイス（送信時の値）。画像と BGM の行は省略する */
   voice?: string | null;
@@ -199,10 +202,26 @@ export function TrialHistoryRow({
       )}
     >
       {thumbnail.kind === "image" && thumbnail.url !== null ? (
-        <img src={thumbnail.url} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded object-cover" />
+        <img
+          src={thumbnail.url}
+          alt=""
+          loading="lazy"
+          className="image-canvas-bright h-10 w-10 shrink-0 rounded-md object-cover"
+        />
+      ) : thumbnail.kind === "image" ? (
+        <span
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-line bg-soft text-ink-faint"
+          title="結果は保存されていません（記録のみ）"
+          aria-hidden="true"
+        >
+          <ImageIcon />
+        </span>
       ) : (
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded border border-line text-2xs text-ink-ghost">
-          {thumbnail.kind === "image" ? "記録" : thumbnail.kind === "speech" ? "音声" : "BGM"}
+        <span
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-accent text-on-accent"
+          aria-hidden="true"
+        >
+          {thumbnail.kind === "speech" ? <SpeechIcon /> : <MusicIcon />}
         </span>
       )}
       <button

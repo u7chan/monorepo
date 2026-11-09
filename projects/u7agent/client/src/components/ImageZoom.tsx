@@ -13,10 +13,12 @@ export type ZoomableImageProps = {
   variant: ImageZoomVariant;
   /** 添付サムネイルの高さ。singleColumn はチャットの密度が高く、狭い viewport では画像を小さく保つ */
   singleColumn?: boolean;
+  /** 透過した画像の下地に市松を敷く（コンテンツ生成の試行だけ）。拡大表示にも同じ下地を使う */
+  checker?: boolean;
 };
 
 // dialog の配置と焦点復帰は docs/markdown.md の「画像の拡大表示」を参照。
-export function ZoomableImage({ src, alt, title, variant, singleColumn = false }: ZoomableImageProps) {
+export function ZoomableImage({ src, alt, title, variant, singleColumn = false, checker = false }: ZoomableImageProps) {
   const [open, setOpen] = useState(false);
   // 失敗画像を button で包まない理由は docs/markdown.md の「画像の拡大表示」を参照。
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
@@ -43,6 +45,7 @@ export function ZoomableImage({ src, alt, title, variant, singleColumn = false }
         variant === "chip" && "size-7 shrink-0 rounded object-cover",
         variant === "attachment" && "rounded-lg border border-line object-contain",
         variant === "attachment" && (singleColumn ? "max-h-32" : "max-h-44"),
+        checker && "image-canvas-bright",
       )}
     />
   );
@@ -85,7 +88,12 @@ export function ZoomableImage({ src, alt, title, variant, singleColumn = false }
               }}
               className="m-0 flex h-dvh max-h-none w-screen max-w-none items-center justify-center border-0 bg-transparent p-0"
             >
-              <img src={src} alt={alt} title={title} className="max-h-full max-w-full object-contain" />
+              <img
+                src={src}
+                alt={alt}
+                title={title}
+                className={cn("max-h-full max-w-full object-contain", checker && "image-canvas-bright")}
+              />
               <button
                 type="button"
                 aria-label="閉じる"
