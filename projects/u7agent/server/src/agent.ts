@@ -1150,6 +1150,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 readEnabled: () => !contentGenerationDisabled(contentGeneration.config),
                 readSettings: () => contentGeneration.config?.read(),
                 readOutputFormats: (model) => contentGeneration.config?.readOutputFormats(model),
+                readParameters: (model) => contentGeneration.config?.readParameters(model),
                 checkImageInput: async (model, signal) =>
                   contentGeneration.config
                     ? contentGeneration.config.checkImageInput(model, signal)

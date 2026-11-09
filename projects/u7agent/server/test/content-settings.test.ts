@@ -17,7 +17,13 @@ import {
   type ContentSettingsDb,
 } from "../src/content-settings";
 import { CONTENT_DISABLED_MESSAGE, contentGenerationDisabled } from "../src/content-disabled";
-import { IMAGE_PROVIDER_ID, type CodexAuth, type ContentGenerationConfig, type ImageAuthStatus } from "../src/images";
+import {
+  IMAGE_PROVIDER_ID,
+  type CodexAuth,
+  type ContentGenerationConfig,
+  type ImageAuthStatus,
+  type ImageParameterDeclarations,
+} from "../src/images";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "../src/speech-catalog";
 import { bgmSettings, BGM_MODEL } from "../src/bgm";
@@ -155,6 +161,8 @@ function createFakeCatalog(
     models?: { provider: string; id: string; name: string }[];
     /** モデル id → 形式の宣言。生成前ガードへ渡る値をここで固定する */
     outputFormats?: Record<string, string[]>;
+    /** モデル id → パラメータ宣言。generate_image の引数検証へ渡る値をここで固定する */
+    parameters?: Record<string, ImageParameterDeclarations>;
     source?: ImageCatalogSnapshot["source"];
     fetchedAt?: number | null;
     refreshError?: string | null;
@@ -173,7 +181,7 @@ function createFakeCatalog(
   const catalog: ImageCatalog = {
     snapshot: () => state.snapshot,
     outputFormatsOf: (model) => options.outputFormats?.[model],
-    parametersOf: () => undefined,
+    parametersOf: (model) => options.parameters?.[model],
     imageInputOf: () => undefined,
     checkImageInput: async () => undefined,
     loadStored: () => {
@@ -195,6 +203,7 @@ function createService(
     cipher?: ReturnType<typeof testAppCipher> | null;
     models?: { provider: string; id: string; name: string }[];
     outputFormats?: Record<string, string[]>;
+    parameters?: Record<string, ImageParameterDeclarations>;
     source?: ImageCatalogSnapshot["source"];
     fetchedAt?: number | null;
     refreshError?: string | null;
@@ -320,13 +329,18 @@ test("キー登録はマスカー → DB → 注入の順に通し、行が無�
   );
 });
 
-test("注入した config は一覧から落ちたモデルの形式宣言も引ける（生成前ガードの経路）", async () => {
+test("注入した config は一覧から落ちたモデルの形式宣言・パラメータ宣言も引ける（生成前ガードの経路）", async () => {
   const { service, latest } = createService({
     outputFormats: { "recraft/recraft-v4.1-vector": ["svg"] },
+    parameters: { "recraft/recraft-v4.1-vector": { aspect_ratio: { type: "enum", values: ["16:9"] } } },
   });
   await service.putKey(KEY);
   assert.deepEqual(latest()?.readOutputFormats("recraft/recraft-v4.1-vector"), ["svg"]);
   assert.equal(latest()?.readOutputFormats(DEFAULT_IMAGE_MODEL), undefined, "宣言なし・未知名は止めない");
+  assert.deepEqual(latest()?.readParameters("recraft/recraft-v4.1-vector"), {
+    aspect_ratio: { type: "enum", values: ["16:9"] },
+  });
+  assert.equal(latest()?.readParameters(DEFAULT_IMAGE_MODEL), undefined, "宣言なし・未知名は不明として渡す");
 });
 
 test("カタログの再取得は失敗しても一覧を返し、固定文言だけを catalogError に載せる", async () => {
