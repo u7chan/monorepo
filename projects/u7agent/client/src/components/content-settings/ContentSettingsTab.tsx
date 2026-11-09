@@ -63,6 +63,7 @@ import type {
   UpdateContentSpeechBody,
 } from "../../types";
 import { CollapsibleNotice } from "../CollapsibleNotice";
+import { Fold } from "../Fold";
 import { ArrowRightIcon, CheckIcon, ChevronDownIcon, GearIcon, TrashIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
 import { useConfirm } from "../ConfirmProvider";
@@ -374,14 +375,16 @@ export function ContentSettingsTab({
           />
         ) : null}
 
-        {/* 設定は要約 1 行を既定にし、変えるときだけ開く。生成と結果を同じ画面に収める */}
+        {/* 設定は要約 1 行を既定にし、変えるときだけ開く。生成と結果を同じ画面に収める。
+            開閉は高さの遷移 (Fold) で見せる。中身は閉じている間も残す: キー入力と選択の下書きを
+            開閉のたびに捨てない (inert でフォーカスと読み上げの対象からは外す) */}
         {settings.configured ? (
           <section className="rounded-lg border border-line bg-raised">
             <button
               type="button"
               aria-expanded={settingsOpen}
               onClick={() => setSettingsOpen((open) => !open)}
-              className="flex w-full min-w-0 items-center gap-2.5 px-3 py-2 text-left"
+              className="flex w-full min-w-0 items-center gap-2.5 rounded-lg px-3 py-2 text-left"
             >
               <span className="grid size-7 shrink-0 place-items-center rounded-md bg-accent-wash text-accent-text">
                 <GearIcon />
@@ -397,83 +400,85 @@ export function ContentSettingsTab({
                 <ChevronDownIcon />
               </span>
             </button>
-            <div hidden={!settingsOpen} className="grid gap-3 border-t border-line px-3 py-3">
-              {/* 実行時トグルはタブの外に置く。画像・音声・BGM は同じキー / 課金を共有するので 1 つに閉じる */}
-              <section
-                className={cn(
-                  "grid gap-2 rounded-lg border p-3",
-                  settings.enabled ? "border-line bg-soft" : "border-warn/50 bg-raised",
-                )}
-              >
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">有効 / 無効</div>
-                    <p className="mt-0.5 text-xs text-ink">アプリ全体の生成を止めます（画像・音声・BGM で共通）。</p>
+            <Fold open={settingsOpen} keepMounted>
+              <div className="grid gap-3 border-t border-line px-3 py-3">
+                {/* 実行時トグルはタブの外に置く。画像・音声・BGM は同じキー / 課金を共有するので 1 つに閉じる */}
+                <section
+                  className={cn(
+                    "grid gap-2 rounded-lg border p-3",
+                    settings.enabled ? "border-line bg-soft" : "border-warn/50 bg-raised",
+                  )}
+                >
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">有効 / 無効</div>
+                      <p className="mt-0.5 text-xs text-ink">アプリ全体の生成を止めます（画像・音声・BGM で共通）。</p>
+                    </div>
+                    <ToggleSwitch
+                      checked={settings.enabled}
+                      label={settings.enabled ? "有効" : "無効"}
+                      disabled={busy}
+                      onChange={(next) => void onSetEnabled(next)}
+                    />
                   </div>
-                  <ToggleSwitch
-                    checked={settings.enabled}
-                    label={settings.enabled ? "有効" : "無効"}
-                    disabled={busy}
-                    onChange={(next) => void onSetEnabled(next)}
-                  />
-                </div>
-                <p className="text-2xs leading-relaxed text-ink-muted">
-                  OFF にすると <code>generate_image</code>・<code>generate_speech</code>・<code>generate_bgm</code>{" "}
-                  は生成を行わず、固定の文言で失敗します。OFF は保存した瞬間から
-                  <strong>既存のセッション</strong>にも次の呼び出しから効きます（会話の作り直しもデプロイも
-                  要りません）。ON に戻したとき、OFF の間に作った会話にはツールが無いため新しい会話が必要です。
-                  キーと選択は残ります。
-                </p>
-                {settings.enabled ? null : (
-                  <p className="rounded border border-line bg-base px-2 py-1.5 text-2xs leading-relaxed text-ink-muted">
-                    無効の間、モデルへはこの文言だけが返ります:
-                    <span className="text-ink">{settings.disabledMessage}</span>
+                  <p className="text-2xs leading-relaxed text-ink-muted">
+                    OFF にすると <code>generate_image</code>・<code>generate_speech</code>・<code>generate_bgm</code>{" "}
+                    は生成を行わず、固定の文言で失敗します。OFF は保存した瞬間から
+                    <strong>既存のセッション</strong>にも次の呼び出しから効きます（会話の作り直しもデプロイも
+                    要りません）。ON に戻したとき、OFF の間に作った会話にはツールが無いため新しい会話が必要です。
+                    キーと選択は残ります。
                   </p>
-                )}
-              </section>
+                  {settings.enabled ? null : (
+                    <p className="rounded border border-line bg-base px-2 py-1.5 text-2xs leading-relaxed text-ink-muted">
+                      無効の間、モデルへはこの文言だけが返ります:
+                      <span className="text-ink">{settings.disabledMessage}</span>
+                    </p>
+                  )}
+                </section>
 
-              {keyVisible ? keySection : null}
-              {imageProvider === "codex" ? (
-                <p className="text-2xs leading-relaxed text-ink-muted">{SPEECH_NEEDS_OPENROUTER_KEY_NOTE}</p>
-              ) : null}
+                {keyVisible ? keySection : null}
+                {imageProvider === "codex" ? (
+                  <p className="text-2xs leading-relaxed text-ink-muted">{SPEECH_NEEDS_OPENROUTER_KEY_NOTE}</p>
+                ) : null}
 
-              {contentSubsection === "image" ? (
-                // Codex は画像モデルを選ばないため、画像タブでは何も出さない（BGM の欄へ落とさない）
-                imageModelSectionVisible(imageProvider) ? (
-                  <ImageModelSection
+                {contentSubsection === "image" ? (
+                  // Codex は画像モデルを選ばないため、画像タブでは何も出さない（BGM の欄へ落とさない）
+                  imageModelSectionVisible(imageProvider) ? (
+                    <ImageModelSection
+                      settings={settings}
+                      busy={busy}
+                      refreshing={saving === "catalog"}
+                      selectedModel={screenModel}
+                      onChangeDraft={setImageDraft}
+                      defaultsDraft={imageDefaultsDraft}
+                      onChangeDefaultsDraft={setImageDefaultsDraft}
+                      onSave={onSaveSelection}
+                      onRefresh={onRefreshCatalog}
+                      trials={trials}
+                      trialKeyEpoch={trialKeyEpoch}
+                      trialNow={trialNow}
+                    />
+                  ) : null
+                ) : contentSubsection === "speech" ? (
+                  <SpeechModelSection
                     settings={settings}
                     busy={busy}
-                    refreshing={saving === "catalog"}
-                    selectedModel={screenModel}
-                    onChangeDraft={setImageDraft}
-                    defaultsDraft={imageDefaultsDraft}
-                    onChangeDefaultsDraft={setImageDefaultsDraft}
-                    onSave={onSaveSelection}
-                    onRefresh={onRefreshCatalog}
+                    synced={speechSynced}
+                    refreshing={saving === "speech-catalog"}
+                    draft={speechDraft}
+                    onChangeDraft={setSpeechDraft}
+                    onSave={onSaveSpeech}
+                    onRefresh={onRefreshSpeechCatalog}
+                    selection={speechSelectionOfScreen}
                     trials={trials}
-                    trialKeyEpoch={trialKeyEpoch}
+                    keyEpoch={trialKeyEpoch}
                     trialNow={trialNow}
                   />
-                ) : null
-              ) : contentSubsection === "speech" ? (
-                <SpeechModelSection
-                  settings={settings}
-                  busy={busy}
-                  synced={speechSynced}
-                  refreshing={saving === "speech-catalog"}
-                  draft={speechDraft}
-                  onChangeDraft={setSpeechDraft}
-                  onSave={onSaveSpeech}
-                  onRefresh={onRefreshSpeechCatalog}
-                  selection={speechSelectionOfScreen}
-                  trials={trials}
-                  keyEpoch={trialKeyEpoch}
-                  trialNow={trialNow}
-                />
-              ) : (
-                <BgmModelSection settings={settings} trials={trials} keyEpoch={trialKeyEpoch} now={trialNow} />
-              )}
-            </div>
+                ) : (
+                  <BgmModelSection settings={settings} trials={trials} keyEpoch={trialKeyEpoch} now={trialNow} />
+                )}
+              </div>
+            </Fold>
           </section>
         ) : // 未設定では保存される設定を出さず、キー入力だけを出す（下書きの破棄は上で行う）。
         // Codex はAPIキーを使わないため、そのときはキー欄を出さない

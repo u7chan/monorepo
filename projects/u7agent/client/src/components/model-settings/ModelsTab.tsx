@@ -17,6 +17,7 @@ import {
   type CandidateGroup,
 } from "../../lib/modelSettings";
 import type { ModelsSettingsResponse, RuntimeModelsResponse, UpdateModelAvailabilityBody } from "../../types";
+import { Fold } from "../Fold";
 import { CheckIcon, DisclosureChevronIcon } from "../icons";
 import { ProviderIcon } from "../ProviderIcon";
 import { ModelDefaultPicker } from "./ModelDefaultPicker";
@@ -331,12 +332,16 @@ function CandidateGroupSection({
 }) {
   const expanded = forceOpen || open;
   return (
-    <details
-      className="overflow-hidden rounded-lg border border-line bg-soft"
-      open={expanded}
-      onToggle={(event) => onToggle(group.provider, event.currentTarget.open)}
-    >
-      <summary className="disclosure-summary flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-2 transition-colors outline-none hover:bg-raised/60 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
+    <div className="overflow-hidden rounded-lg border border-line bg-soft">
+      {/* 開閉は高さの遷移 (Fold) で見せる。開く側も閉じる側も同じ長さで動かすため、details ではなく
+          aria-expanded のボタンと .tree-fold を使う (details::details-content の遷移は Safari で効かない)。
+          折りたたみ中の行は描画しない: 一覧は provider ごとに数百行になり得て、閉じたまま残すと重い */}
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => onToggle(group.provider, !expanded)}
+        className="tree-fold-toggle flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-2 text-left transition-colors outline-none hover:bg-raised/60 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
+      >
         <DisclosureChevronIcon />
         <ProviderIcon provider={group.provider} name={group.name} />
         <span className="min-w-0 flex-1">
@@ -351,8 +356,8 @@ function CandidateGroupSection({
             </span>
           </>
         )}
-      </summary>
-      {expanded ? (
+      </button>
+      <Fold open={expanded}>
         <div className="grid gap-1 border-t border-line p-2">
           {group.warning ? (
             <p className="rounded-md border border-warn/40 bg-raised px-2.5 py-1.5 text-2xs leading-relaxed text-warn">
@@ -410,7 +415,7 @@ function CandidateGroupSection({
             </>
           )}
         </div>
-      ) : null}
-    </details>
+      </Fold>
+    </div>
   );
 }

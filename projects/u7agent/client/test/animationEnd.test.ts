@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { finishOnAnimationEnd } from "../src/lib/animationEnd";
+import { finishOnAnimationEnd, finishOnTransitionEnd } from "../src/lib/animationEnd";
 
 test("対象のアニメーション終了で完了し、タイムアウトと重なっても一度だけ呼ぶ", (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -56,4 +56,43 @@ test("cleanup 後はイベントでもタイムアウトでも完了処理を呼
   panel.dispatchEvent(new Event("animationend"));
   t.mock.timers.tick(10_000);
   assert.equal(close.mock.callCount(), 0);
+});
+
+/** `transitionend` は propertyName を持つ。テスト用に最小の TransitionEvent もどきを作る */
+function transitionEnd(propertyName: string, target?: EventTarget): Event {
+  const event = new Event("transitionend");
+  Object.defineProperty(event, "propertyName", { value: propertyName });
+  if (target !== undefined) Object.defineProperty(event, "target", { value: target });
+  return event;
+}
+
+test("指定した property の遷移の終了で完了する", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const fold = new EventTarget();
+  const close = t.mock.fn();
+  finishOnTransitionEnd(fold, "180ms", "grid-template-rows", close);
+  fold.dispatchEvent(transitionEnd("color"));
+  assert.equal(close.mock.callCount(), 0, "色の遷移では終わらせない");
+  fold.dispatchEvent(transitionEnd("grid-template-rows"));
+  fold.dispatchEvent(transitionEnd("grid-template-rows"));
+  assert.equal(close.mock.callCount(), 1, "タイムアウトと重なっても一度だけ呼ぶ");
+});
+
+test("子孫の遷移では完了せず、対象自身の遷移を待つ", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const fold = new EventTarget();
+  const close = t.mock.fn();
+  finishOnTransitionEnd(fold, "180ms", "grid-template-rows", close);
+  fold.dispatchEvent(transitionEnd("grid-template-rows", new EventTarget()));
+  assert.equal(close.mock.callCount(), 0);
+  fold.dispatchEvent(transitionEnd("grid-template-rows"));
+  assert.equal(close.mock.callCount(), 1);
+});
+
+test("遷移を切っていても (none) 保険の時間で完了する", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const close = t.mock.fn();
+  finishOnTransitionEnd(new EventTarget(), "none", "grid-template-rows", close);
+  t.mock.timers.tick(1_000);
+  assert.equal(close.mock.callCount(), 1);
 });
