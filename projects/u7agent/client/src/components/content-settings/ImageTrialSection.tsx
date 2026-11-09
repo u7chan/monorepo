@@ -163,6 +163,7 @@ export function ImageTrialSection({
             ) : null
           }
           prompt={latestDetail?.prompt ?? trialHistoryRow(latest, keyEpoch).promptPreview}
+          promptComplete={latestDetail !== null}
           defaultAction={
             <TrialDefaultAction
               key={latest.id}

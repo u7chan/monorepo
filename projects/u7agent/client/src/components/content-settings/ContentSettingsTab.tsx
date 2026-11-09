@@ -87,7 +87,7 @@ export type ContentSettingsTabProps = {
   trialLoadingMore: boolean;
   /** 選択行を画面へ知らせる（全文の取得は画面が行う） */
   onSelectTrial: (id: string | null) => void;
-  /** 履歴の行の全文を取る（直近の結果の表示・再実行・入力欄に戻す） */
+  /** 履歴の行の全文を取る（直近の結果の表示・再実行・この内容で生成） */
   onLoadTrial: (id: string) => Promise<ContentTrial | null>;
   /** 続きのページを読む */
   onLoadMoreTrials: () => Promise<boolean>;
@@ -228,10 +228,12 @@ export function ContentSettingsTab({
         voice: trial.voice ?? "",
         origin: "another-take",
       });
-      return request.ok ? onStartTrial(request.input) : false;
+      if (!request.ok) throw new Error(request.error);
+      return onStartTrial(request.input);
     }
     const request = bgmTrialRequest({ prompt: trial.prompt, model: settings.bgm.model ?? "", origin: "another-take" });
-    return request.ok ? onStartTrial(request.input) : false;
+    if (!request.ok) throw new Error(request.error);
+    return onStartTrial(request.input);
   };
 
   // 履歴タブは生成の設定を持たない。設定の保存中でも履歴は読める（削除と再生成だけが trialBusy に従う）

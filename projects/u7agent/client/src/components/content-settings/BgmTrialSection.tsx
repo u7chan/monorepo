@@ -205,6 +205,7 @@ function BgmResultViewport({
         ) : null
       }
       prompt={detail?.prompt ?? trialHistoryRow(trial, currentKeyEpoch).promptPreview}
+      promptComplete={detail !== null}
       onDelete={onDelete}
     />
   );

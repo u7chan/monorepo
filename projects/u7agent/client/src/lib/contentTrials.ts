@@ -556,8 +556,8 @@ export async function removeTrialThenRefresh(input: {
 }
 
 /**
- * 試行の要求の出どころ。`force`（保存済みの結果を再利用しない）を付けるのは結果カードの [別のテイクを生成]
- * だけで、通常の [試行する] と履歴行の [もう一度試す] は再利用してよい。
+ * 試行の要求の出どころ。`force`（保存済みの結果を再利用しない）を付けるのは履歴の [もう一度生成] だけで、
+ * 通常の [試行する] と履歴の [この内容で生成] は再利用してよい。
  */
 export type TrialRequestOrigin = "form" | "history" | "another-take";
 
@@ -620,7 +620,7 @@ export function speechTrialRequest(input: {
   return { ok: true, input: { kind: "speech", ...request.input, ...forceForOrigin(input.origin) } };
 }
 
-/** 履歴の試行から音声の下書きを戻す（「入力欄に戻す」）。話速は欄の値として小数 2 桁まで出す */
+/** 履歴の試行から音声の下書きを戻す（「この内容で生成」）。話速は欄の値として小数 2 桁まで出す */
 export function speechTrialDraftOf(trial: Pick<ContentTrial, "prompt" | "instructions" | "speed">): SpeechTrialDraft {
   return {
     text: trial.prompt,

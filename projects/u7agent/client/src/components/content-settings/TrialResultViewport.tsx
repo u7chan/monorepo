@@ -28,6 +28,8 @@ export function TrialResultViewport({
   artifact,
   /** 送った内容の本体（全文を取れるまでは一覧の抜粋） */
   prompt,
+  /** 全文を取得できているか。false の間は抜粋と明示し、コピーを出さない */
+  promptComplete = true,
   /** 送った内容に添える面固有の 1 行（音声の演技指示と話速）。無い面は省略 */
   promptDetail,
   /** 履歴の詳細に出すパラメータ表（形式・実寸・サイズなど）。生成タブの直近の結果では省略する */
@@ -44,12 +46,14 @@ export function TrialResultViewport({
   trial: ContentTrialSummary;
   currentKeyEpoch: number;
   busy: boolean;
-  /** 同じ種別の実行中の試行があるか（別のテイクを重ねない） */
+  /** 同じ種別の実行中の試行があるか（もう一度生成を重ねない） */
   running: boolean;
   sentNoun: string;
   chips?: readonly string[];
   artifact: ReactNode | null;
   prompt: string;
+  /** 全文を取得できているか。false の間は抜粋と明示し、コピーを出さない（欠けた文面をコピーさせない） */
+  promptComplete?: boolean;
   promptDetail?: string;
   params?: ReactNode;
   defaultAction?: ReactNode;
@@ -107,20 +111,28 @@ export function TrialResultViewport({
 
       <div className="grid gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-2xs font-semibold text-ink-faint">送った{sentNoun}</span>
+          <span className="text-2xs font-semibold text-ink-faint">
+            送った{sentNoun}
+            {promptComplete ? null : "（抜粋）"}
+          </span>
           <span className="flex-1" />
-          <CopyButton
-            copied={copiedId === copyId}
-            failure={copyFailure(copyId)}
-            onClick={() => void copyMessage(prompt, copyId)}
-            label={`送った${sentNoun}をコピー`}
-            compact
-          />
+          {promptComplete ? (
+            <CopyButton
+              copied={copiedId === copyId}
+              failure={copyFailure(copyId)}
+              onClick={() => void copyMessage(prompt, copyId)}
+              label={`送った${sentNoun}をコピー`}
+              compact
+            />
+          ) : null}
         </div>
         <p className="rounded-lg border border-line bg-base px-2.5 py-2 text-2xs break-words whitespace-pre-wrap text-ink">
           {prompt}
         </p>
         {promptDetail === undefined ? null : <p className="text-2xs text-ink-muted">{promptDetail}</p>}
+        {promptComplete ? null : (
+          <p className="text-2xs text-ink-faint">全文を取得中です。取得できるまでコピーはできません。</p>
+        )}
       </div>
 
       {params}

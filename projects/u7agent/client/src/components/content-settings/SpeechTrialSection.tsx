@@ -251,6 +251,7 @@ export function SpeechTrialSection({
             ) : null
           }
           prompt={latestDetail?.prompt ?? trialHistoryRow(latest, keyEpoch).promptPreview}
+          promptComplete={latestDetail !== null}
           promptDetail={`演技指示: ${snapshot?.instructions ?? "読み込み中…"} · 話速: ${snapshot?.speed ?? speedLabel}`}
           defaultAction={
             <TrialDefaultAction

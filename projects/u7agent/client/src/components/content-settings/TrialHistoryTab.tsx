@@ -148,8 +148,12 @@ export function TrialHistoryTab({
 
   const anotherTake = () =>
     withFullTrial(async (full) => {
-      if (!(await onAnotherTake(full))) {
-        setActionError("生成を開始できませんでした。画面の注記を確認してください。");
+      try {
+        if (!(await onAnotherTake(full))) {
+          setActionError("生成を開始できませんでした。画面の注記を確認してください。");
+        }
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : "生成を開始できませんでした。");
       }
     });
 
@@ -178,10 +182,15 @@ export function TrialHistoryTab({
           chips={selected.kind === "speech" ? [`ボイス: ${selected.voice ?? "モデル既定"}`] : undefined}
           artifact={
             hasStoredArtifact(selected) ? (
-              <TrialHistoryArtifact trial={selected} expectedDurationSeconds={settings.bgm.expectedDurationSeconds} />
+              <TrialHistoryArtifact
+                key={selected.id}
+                trial={selected}
+                expectedDurationSeconds={settings.bgm.expectedDurationSeconds}
+              />
             ) : null
           }
           prompt={selectedDetail?.prompt ?? trialHistoryRow(selected, keyEpoch).promptPreview}
+          promptComplete={selectedDetail !== null}
           promptDetail={
             selected.kind === "speech"
               ? `演技指示: ${selectedDetail === null ? "読み込み中…" : speechTrialSnapshotLabels(selectedDetail).instructions} · 話速: ${
@@ -245,7 +254,7 @@ export function TrialHistoryTab({
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)]">
       {/* 狭い幅の詳細では、絞り込みを出さない（一覧へ戻る導線と詳細だけを見せる） */}
-      {singleColumn && narrowDetail ? null : (
+      {singleColumn && narrowDetail && selected !== null ? null : (
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2">
           <TrialHistoryFilters
             kind={kindFilter}

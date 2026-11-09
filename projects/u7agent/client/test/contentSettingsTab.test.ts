@@ -99,7 +99,7 @@ function render(
         onRefreshSpeechCatalog: async () => true,
         speechSynced: options.speechSynced ?? true,
         trials: options.trials ?? [],
-        trialDetail: options.trialDetail ?? options.trials?.[0] ?? null,
+        trialDetail: options.trialDetail !== undefined ? options.trialDetail : (options.trials?.[0] ?? null),
         trialHasMore: options.trialHasMore ?? false,
         trialLoadingMore: false,
         onSelectTrial: () => {},
@@ -148,6 +148,21 @@ test("履歴タブは設定を持たず、全種別の一覧と詳細を出す",
   assert.ok(html.includes("送ったプロンプトをコピー"), "プロンプトのコピーを出す");
   assert.ok(html.includes(">種別<"), "パラメータの表を出す");
   assert.ok(html.includes(">キー世代<"), "キー世代を出す");
+});
+
+test("全文を取得できるまでプロンプトは抜粋と明示し、コピーさせない", () => {
+  // 生成タブの静的描画では全文の取得 effect が走らないため、抜粋のままになる
+  const latest = render({ trials: [TRIAL_BASE] });
+  assert.ok(latest.includes("送ったプロンプト（抜粋）"), "抜粋であることをラベルに出す");
+  assert.ok(latest.includes("全文を取得中です。取得できるまでコピーはできません。"), "コピーできない理由を出す");
+  assert.equal(latest.includes("送ったプロンプトをコピー"), false, "抜粋をコピーさせない");
+
+  const loading = render({ subsection: "history", trials: [TRIAL_BASE], trialDetail: null });
+  assert.ok(loading.includes("送ったプロンプト（抜粋）"), "履歴の詳細も取得中は抜粋と明示する");
+  assert.equal(loading.includes("送ったプロンプトをコピー"), false);
+
+  const loaded = render({ subsection: "history", trials: [TRIAL_BASE], trialDetail: TRIAL_BASE });
+  assert.ok(loaded.includes("送ったプロンプトをコピー"), "全文を取れたらコピーを出す");
 });
 
 test("履歴が 0 件でも容量を出し、条件に合う行が無いことを伝える", () => {
