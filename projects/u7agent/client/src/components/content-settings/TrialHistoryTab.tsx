@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
+  anotherTakeConfirmRequest,
   filteredTrials,
   groupTrialsByMonth,
   hasStoredArtifact,
@@ -54,9 +55,9 @@ export type TrialHistoryTabProps = {
   onLoadMore: () => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onDeleteAll: (kind?: ContentTrial["kind"]) => Promise<boolean>;
-  /** 「この内容で生成」。全文を取れた行だけ渡す */
+  /** 「この内容で編集」。全文を取れた行だけ渡す */
   onPrefill: (trial: ContentTrial) => void;
-  /** 「もう一度生成」。新しい試行として課金する */
+  /** 「もう一度生成」。確認のうえ新しい試行として課金する */
   onAnotherTake: (trial: ContentTrial) => Promise<boolean>;
 };
 
@@ -146,8 +147,11 @@ export function TrialHistoryTab({
       onPrefill(full);
     });
 
-  const anotherTake = () =>
-    withFullTrial(async (full) => {
+  const anotherTake = async () => {
+    if (selected === null) return;
+    // 課金される操作なので、全文を取りに行く前に送る内容とモデルを確認させる
+    if (!(await confirm(anotherTakeConfirmRequest(selected)))) return;
+    await withFullTrial(async (full) => {
       try {
         if (!(await onAnotherTake(full))) {
           setActionError("生成を開始できませんでした。画面の注記を確認してください。");
@@ -156,6 +160,7 @@ export function TrialHistoryTab({
         setActionError(error instanceof Error ? error.message : "生成を開始できませんでした。");
       }
     });
+  };
 
   const detailView =
     selected === null ? (

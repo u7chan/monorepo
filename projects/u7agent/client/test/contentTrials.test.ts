@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  anotherTakeConfirmRequest,
   appendTrialSummaries,
   BGM_TRIAL_PROMPT_MAX_LENGTH,
   bgmDurationLabel,
@@ -825,6 +826,20 @@ test("試行の要求は別のテイクだけが force を付け、通常の試�
     ok: true,
     input: { kind: "bgm", model: "google/lyria-3-clip-preview", prompt: "静かな夜のピアノ", force: true },
   });
+});
+
+test("もう一度生成の確認は送る内容とモデル・課金を示す", () => {
+  const image = anotherTakeConfirmRequest(trial({ promptPreview: "a cat" }));
+  const imageBody = image.body?.join("\n") ?? "";
+  assert.equal(image.title, "もう一度生成");
+  assert.deepEqual(image.subject, { label: "送るプロンプト", value: "a cat" });
+  assert.ok(imageBody.includes(MODEL), "どのモデルで走るかを示す");
+  assert.match(imageBody, /画像の試行/, "どの種別の試行かを示す");
+  assert.match(image.notes?.join("\n") ?? "", /課金/, "課金されることを示す");
+  assert.equal(image.confirmLabel, "生成する");
+
+  const speech = anotherTakeConfirmRequest(trial({ kind: "speech", promptPreview: "こんにちは" }));
+  assert.deepEqual(speech.subject, { label: "送る本文", value: "こんにちは" }, "音声は本文と呼ぶ");
 });
 
 test("BGM の実測尺は読めた秒数だけを出し、未読は — にする", () => {

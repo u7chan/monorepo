@@ -143,7 +143,7 @@ test("履歴タブは設定を持たず、全種別の一覧と詳細を出す",
   assert.ok(html.includes("種別絞り込み"), "種別の絞り込みを出す");
   assert.ok(html.includes("モデル絞り込み"), "モデルの絞り込みを出す");
   assert.ok(html.includes("成功失敗の絞り込み"), "成功 / 失敗の絞り込みを出す");
-  assert.ok(html.includes("この内容で生成"), "入力欄へ戻す導線を出す");
+  assert.ok(html.includes("この内容で編集"), "入力欄へ戻す導線を出す");
   assert.ok(html.includes("もう一度生成"), "再生成の導線を出す");
   assert.ok(html.includes("送ったプロンプトをコピー"), "プロンプトのコピーを出す");
   assert.ok(html.includes(">種別<"), "パラメータの表を出す");
@@ -659,17 +659,17 @@ test("保存できなかった成功は課金済みを明示し、成功とし�
   assert.equal(html.includes("/raw"), false);
 });
 
-test("履歴の詳細は「もう一度生成」を出し、課金されることを添える", () => {
+test("履歴の詳細は「もう一度生成」を出し、確認のうえ課金されることを添える", () => {
   const html = render({ subsection: "history", trials: [TRIAL_BASE] });
   assert.ok(html.includes("もう一度生成"), "履歴からは新しい試行を始められる");
-  assert.ok(html.includes("もう一度生成は新しい試行として課金されます。"), "課金の注記");
-  assert.ok(html.includes("この内容で生成"), "入力欄へ戻す導線");
+  assert.ok(html.includes("もう一度生成は確認のうえ新しい試行として課金されます。"), "課金の注記");
+  assert.ok(html.includes("この内容で編集"), "入力欄へ戻す導線");
   // 保存済みが無い（失敗した）行も同じ
   const fresh = render({
     subsection: "history",
     trials: [{ ...TRIAL_BASE, state: "failed", failureCode: "timeout", artifactState: "none", artifact: null }],
   });
-  assert.ok(fresh.includes("もう一度生成は新しい試行として課金されます。"));
+  assert.ok(fresh.includes("もう一度生成は確認のうえ新しい試行として課金されます。"));
 });
 test("結果のモデルが保存値と違うときだけ、このモデルを既定にする導線を出す", () => {
   const button = "このモデルを既定にする";
