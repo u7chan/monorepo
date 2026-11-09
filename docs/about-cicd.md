@@ -2,7 +2,7 @@
 
 このリポジトリでは、GitHub Actions を使って `projects/` 配下の Docker 対応プロジェクトを検証し、配布用イメージを GitHub Container Registry（GHCR）へ送信します。
 
-- **CI** は `main` 向けのプルリクエスト（PR）で動き、OSS ライセンスと Docker ビルドを検証します。
+- **CI** は `main` 向けのプルリクエスト（PR）と `epic/*` を base にする子 PR で動き、OSS ライセンスと Docker ビルドを検証します。
 - **CD** は `main` への push または手動操作で動き、`final` ステージのイメージを GHCR へ送信します。
 - デプロイ先の定義は、このリポジトリでは管理しません。CD の責務は、イメージの送信と古いイメージの削除依頼までです。
 
@@ -11,7 +11,7 @@
 | 項目 | CI | CD |
 | --- | --- | --- |
 | ワークフロー | `.github/workflows/pullrequest-check.yml` | `.github/workflows/docker-build.yml` |
-| 起動条件 | `main` 向け PR の作成・更新 | `main` への push、または手動実行 |
+| 起動条件 | `main` 向け PR、または `epic/*` を base にする子 PR の作成・更新 | `main` への push、または手動実行 |
 | 主な目的 | 変更内容の検証 | 配布用イメージの作成と送信 |
 | Docker の対象 | `test` ステージ。存在しない場合は既定ステージ | `final` ステージがあるプロジェクトのみ |
 | レジストリへの送信 | しない | GHCR へ送信する |
@@ -19,7 +19,7 @@
 
 ```mermaid
 flowchart TB
-  PR["main 向け PR"] --> CI["CI"]
+  PR["main 向け PR<br/>epic 子 PR"] --> CI["CI"]
   CI --> LICENSE["依存定義の変更を検出<br/>OSS ライセンスを確認"]
   CI --> CI_PROJECTS["変更プロジェクトを検出<br/>Dockerfile の有無を確認"]
   CI_PROJECTS --> CI_BUILD["test ステージをビルド<br/>なければ既定ステージをビルド"]
@@ -74,7 +74,7 @@ CI は `test` ステージを指定してビルドします。ただし、現在
 
 ### 起動条件
 
-`main` 向け PR の作成・更新時に `.github/workflows/pullrequest-check.yml` が起動します。
+`main` 向け PR と、`epic/*` を base にする子 PR の作成・更新時に `.github/workflows/pullrequest-check.yml` が起動します。
 ワークフロー自体にはパスの絞り込みがないため、`docs/` だけを変更した PR でも起動しますが、対象がなければライセンスの実スキャンと Docker ビルドは行いません。
 
 同じ PR で新しい実行が始まると、進行中の古い実行はキャンセルされます。

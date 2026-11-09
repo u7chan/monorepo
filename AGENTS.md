@@ -10,7 +10,7 @@
   - 内部・外部URLも確認し、環境固有情報・機密情報・識別情報を含むものは置換する。これらを含まない一般公開の公式資料等のURLは掲載してよい。
   - 加工後の成果物を共有・公開前に再確認する。安全性を確認できない場合は掲載せず、ユーザーに相談する。
 - PRのマージは基本 `squash merge`（1 PR = 1 コミットで履歴を保つ）。複数人が共同するブランチなど、個別コミットを履歴に残す必要がある場合のみ merge commit を検討する。
-- `epic/<topic>` を base にする子 PR は、その epic についてユーザーが squash マージを明示許可しているとき（Epic Issue に記録する）に限り、レビュー役の LGTM が PR に記録され、CI が成功し、LGTM の後に head が変わっていないことを確認して `squash merge` してよい（`gh pr merge --squash --auto --delete-branch`）。子 PR は `- ref: #<no>` とし、クローズは epic → main の PR にまとめる。`epic/<topic>` → main の PR は人間がマージし、段階を main に残すため `merge commit` を使う。
+- `epic/<topic>` を base にする子 PR は、その epic についてユーザーが squash マージを明示許可しているとき（Epic Issue に記録する）に限り、レビュー役の LGTM が PR に記録され、CI が成功し、LGTM の後に head が変わっていないことを確認して `squash merge` してよい（`gh pr merge <n> --squash --match-head-commit <reviewed_head>`。`--auto` は使わない。このリポジトリは auto-merge 無効で required checks も無いため、CI の成功はエージェントが確認する）。子 PR は `- ref: #<no>` とし、クローズは epic → main の PR にまとめる。`epic/<topic>` → main の PR は人間がマージし、段階を main に残すため `merge commit` を使う。
 - PRのフィードバックに対応したら、必ず当該コメントに返信する。インラインコメントでない場合は `Re: ` をつけて全体コメントで返信する。
 - コミットメッセージはプレフィックスをつけて英語で記述する（例: `feat(portfolio): add custom field`）
 - コミットログには `Why` を書く。
