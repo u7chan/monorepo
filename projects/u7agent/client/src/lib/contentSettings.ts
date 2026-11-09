@@ -28,7 +28,8 @@ export const CONTENT_KEY_SAVED_NOTE =
   "コンテンツ生成のAPIキーを保存しました。新しい会話から generate_image・generate_speech・generate_bgm を使えます。";
 export const CONTENT_KEY_DELETED_NOTE =
   "コンテンツ生成のAPIキーを削除しました。generate_image・generate_speech・generate_bgm は新しい会話から使えません。";
-export const CONTENT_MODEL_SAVED_NOTE = "画像生成のモデルを保存しました。";
+/** 画像の [保存] の成功注記。`onSaveSelection` はモデルと既定のパラメータ（値あり / 省略）を送るため、両方を書く */
+export const CONTENT_IMAGE_SAVED_NOTE = "画像生成のモデルと既定を保存しました。";
 export const CONTENT_SPEECH_SAVED_NOTE = "音声生成のモデルとボイスを保存しました。";
 
 /** 画像の生成元の選択肢。radio の並び・表示名・案内をここ 1 箇所で作る */

@@ -13,7 +13,7 @@ import {
 import {
   CONTENT_KEY_DELETED_NOTE,
   CONTENT_KEY_SAVED_NOTE,
-  CONTENT_MODEL_SAVED_NOTE,
+  CONTENT_IMAGE_SAVED_NOTE,
   CONTENT_SETTINGS_NOTE,
   CONTENT_SPEECH_SAVED_NOTE,
   SPEECH_SYNC_FAILED_NOTE,
@@ -101,7 +101,7 @@ export function useContentSettings() {
 
   const saveSelection = useCallback(
     (input: UpdateContentImageBody): Promise<boolean> =>
-      runMutation("selection", CONTENT_MODEL_SAVED_NOTE, () => putContentImageSettings(input)),
+      runMutation("selection", CONTENT_IMAGE_SAVED_NOTE, () => putContentImageSettings(input)),
     [runMutation],
   );
 
