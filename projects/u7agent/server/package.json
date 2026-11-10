@@ -14,7 +14,7 @@
   "dependencies": {
     "@hono/node-server": "^2.1.6",
     "@hono/zod-validator": "^0.9.1",
-    "hono": "^4.13.16",
+    "hono": "^4.13.17",
     "playwright-core": "1.65.0",
     "tsx": "^4.23.15",
     "yaml": ">=2.9.0 <3",
