@@ -8,6 +8,7 @@ import {
   type MouseEvent,
   type Ref,
   type RefObject,
+  type SyntheticEvent,
 } from "react";
 import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api";
 import { useExitPhase } from "../hooks/useExitPhase";
@@ -16,7 +17,7 @@ import { isAudioName, isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
 import { lineNumbers } from "../lib/codeLines";
 import { selectCopyTarget } from "../lib/copyToClipboard";
-import { buildPreviewCode, isHtmlPath, isMarkdownPath, previewCopyText } from "../lib/fileCode";
+import { buildPreviewCode, isHtmlPath, isMarkdownPath, isSvgPath, previewCopyText } from "../lib/fileCode";
 import { filePreviewErrorHint } from "../lib/filePreviewError";
 import {
   FILE_PREVIEW_FULLSCREEN_CLOSE_LABEL,
@@ -35,6 +36,7 @@ import {
 } from "../lib/fileTabs";
 import { fileTreeBreadcrumbs, fileTreeFetchPath, fileTreeParentPath } from "../lib/fileTree";
 import { imageMetaLabel, type ImageDimensions } from "../lib/imageMeta";
+import { svgDataUrl } from "../lib/svgPreview";
 import { LoadingMark } from "./LoadingMark";
 import { SegmentedControl } from "./SegmentedControl";
 import { MarkdownFilePreview } from "./markdown/MarkdownFilePreview";
@@ -143,11 +145,12 @@ export function FilePreview({
   const text = result?.text;
   const mode = previewModeFor(modes, activePath);
   // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)。画像 / 音声も raw の
-  // <img> / <audio> に任せる。Markdown は描画側が本文を使うため、プレビューでも取得する (HTML / 画像 / 音声とはここが違う)
+  // <img> / <audio> に任せる。Markdown / SVG は描画に本文を使うため、プレビューでも取得する
   const showHtml = mode === "preview" && isHtmlPath(activePath);
   const showImage = mode === "preview" && isImageName(activePath);
   const showAudio = mode === "preview" && isAudioName(activePath);
   const showMarkdown = mode === "preview" && isMarkdownPath(activePath);
+  const showSvg = mode === "preview" && isSvgPath(activePath);
   const skipFetch = showHtml || showImage || showAudio;
   // ストレージ有効モードはブラウザから見たポートが分かってからだけ選べる (client にポートを焼き込まない)
   const storageEnabled = filePreviewPort !== undefined && previewOriginFor(origins, activePath) === "storage";
@@ -160,17 +163,30 @@ export function FilePreview({
   const newTabSrc =
     filePreviewPort === undefined ? fileHtmlPreviewUrl(fetchPath) : fileStoragePreviewUrl(fetchPath, filePreviewPort);
   // ハイライトをタブごとに保持しない理由は docs/file-preview.md。
-  // Markdown のプレビューは本文をそのまま描くため、ソース用の変換 (ハイライト) は走らせない
+  // Markdown / SVG のプレビューは本文をそのまま描くため、ソース用の変換 (ハイライト) は走らせない
   const code = useMemo(
-    () => (skipFetch || showMarkdown || text === undefined ? null : buildPreviewCode(text, activePath)),
-    [skipFetch, showMarkdown, text, activePath],
+    () => (skipFetch || showMarkdown || showSvg || text === undefined ? null : buildPreviewCode(text, activePath)),
+    [skipFetch, showMarkdown, showSvg, text, activePath],
   );
   // プレビューの相対画像は、表示中のファイルと同じディレクトリを基準にする (fetchPath の親)
   const markdownDir = fileTreeParentPath(fetchPath);
   const markdownRawUrl = useCallback((path: string) => fileRawUrl(path, previewVersion), [previewVersion]);
-  const imageMeta = showImage
-    ? imageMetaLabel(activeSize, loadedImage?.path === activePath ? loadedImage.dimensions : undefined)
-    : null;
+  // SVG は本文を data URL にして <img> で描く (スクリプトも外部参照も動かない静止画)。
+  // 空のファイルは既存の「（空のファイル）」へ倒す
+  const svgPreview = useMemo(
+    () => (showSvg && text !== undefined && text !== "" ? svgDataUrl(text) : null),
+    [showSvg, text],
+  );
+  const handleImageLoad = (event: SyntheticEvent<HTMLImageElement>) => {
+    setLoadedImage({
+      path: activePath,
+      dimensions: { width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight },
+    });
+  };
+  const imageMeta =
+    showImage || showSvg
+      ? imageMetaLabel(activeSize, loadedImage?.path === activePath ? loadedImage.dimensions : undefined)
+      : null;
 
   // 表示中のタブがバーの外 (横スクロール) へ隠れないようにする
   useEffect(() => {
@@ -225,7 +241,7 @@ export function FilePreview({
           行として本文の外に残す */}
       <div className="flex items-center gap-3 px-4 py-1.5">
         <FileBreadcrumb rootPath={rootPath} activePath={activePath} onReveal={onReveal} />
-        {isHtmlPath(activePath) || isMarkdownPath(activePath) ? (
+        {isHtmlPath(activePath) || isMarkdownPath(activePath) || isSvgPath(activePath) ? (
           <SegmentedControl
             items={PREVIEW_MODES}
             value={mode}
@@ -295,15 +311,29 @@ export function FilePreview({
           <img
             src={fileRawUrl(fetchPath, previewVersion)}
             alt={`${fetchPath} のプレビュー`}
-            onLoad={(event) =>
-              setLoadedImage({
-                path: activePath,
-                dimensions: { width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight },
-              })
-            }
+            onLoad={handleImageLoad}
             className="max-h-full max-w-full object-contain"
           />
         </div>
+      ) : showSvg ? (
+        svgPreview === null ? (
+          text === undefined ? (
+            <p className="flex px-4 py-2">
+              <LoadingMark />
+            </p>
+          ) : (
+            <p className="px-4 py-2 text-xs text-ink-muted">（空のファイル）</p>
+          )
+        ) : (
+          <div className="image-canvas flex min-h-40 flex-1 items-center justify-center overflow-auto p-2">
+            <img
+              src={svgPreview}
+              alt={`${fetchPath} のプレビュー`}
+              onLoad={handleImageLoad}
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
+        )
       ) : showAudio ? (
         // 再生とシークはブラウザの操作に任せ、再生位置は保存しない。src は画像と同じ版付きの raw URL
         <div className="min-h-0 flex-1 overflow-auto p-4">

@@ -45,7 +45,7 @@
 
 ## 保存できない形式のモデル
 
-SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品として対応しない**。SVG は `RAW_IMAGE_CONTENT_TYPES` / client の `IMAGE_EXTENSIONS` / `fileKind.ts` / `agents.ts` の 4 箇所で意図的に締め出しており（同一オリジンでスクリプトが動くため）、保存・プレビュー・raw 配信は開けない。代わりに選択肢から外し、「保存名を決める段で初めて失敗して課金だけが残る」経路を閉じる。
+SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品として対応しない**。SVG は `RAW_IMAGE_CONTENT_TYPES` / client の `IMAGE_EXTENSIONS` / `fileKind.ts` / `agents.ts` の 4 箇所で意図的に締め出しており（同一オリジンでスクリプトが動くため）、保存・生成結果のプレビュー・raw 配信は開けない。**ファイルプレビューだけは例外**で、取得した本文を `<img>` の data URL にして静止画として描く（raw を配らず、スクリプトも動かない。[file-preview.md](file-preview.md#svg-プレビュー)）。代わりに選択肢から外し、「保存名を決める段で初めて失敗して課金だけが残る」経路を閉じる。
 
 - 判定規則: カタログが形式を宣言していて（`outputFormats` が空でなく）、その中に png / jpeg / webp が 1 つも無いときだけ「保存できない」と確定する。宣言なし・カタログに無い id は止めない（`isUnsaveableOutputOnly()`）
 - 一覧: 上の判定に当たるモデルは `GET /api/settings/content` の `image.models` に出ない。UI から選べず、`PUT /api/settings/content/image` もカタログ外として 400 にする
@@ -379,7 +379,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 - `provider.only` による endpoint の pin（対応 / 非対応が混在するモデルは編集対象外）
 - 専用の編集ボタン・before/after 比較・画像版管理 UI（自然言語と既存のファイル保存・表示で行う）
 - `size` の指定と複数枚生成、ツール結果への画像 content（解像度・品質・出力形式は宣言にあるものだけを対象にする。svg-only の除外と生成前ガードは [保存できない形式のモデル](#保存できない形式のモデル)）
-- SVG（vectorization）の保存・プレビュー・raw 配信。svg-only モデルを選択肢から外し、保存形式と同じく png / jpeg / webp だけを通す（[保存できない形式のモデル](#保存できない形式のモデル)）
+- 生成結果としての SVG（vectorization）の保存・プレビュー・raw 配信。svg-only モデルを選択肢から外し、保存形式と同じく png / jpeg / webp だけを通す（[保存できない形式のモデル](#保存できない形式のモデル)）
 - バッジのモデルを[カタログ](#モデルカタログ)の表示名へ解決すること。表示名はいつでも変わるので、履歴に残った実行時の id をそのまま出す
 - 生成物のキャプションのための同一ファイル追跡（ハッシュや内容）。別ターンでの再掲・`cp` したコピー・リネーム後の画像には出ない（[生成物のキャプション](#生成物のキャプション)）
 - キャプションからの追加の導線（クリックで設定を開く / モデルを切り替える）、動画・SVG へのキャプション、画像の alt 表示の変更

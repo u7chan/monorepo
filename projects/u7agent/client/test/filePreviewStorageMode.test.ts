@@ -108,6 +108,23 @@ test("画像は raw URL とサイズを表示し、HTML 用の切替や本文コ
   assert.ok(!html.includes("run-spinner"), "本文を取得している");
 });
 
+test("SVG は既定でプレビューになり、本文の取得待ちとサイズだけを出して raw には読まない", () => {
+  const html = renderPreview({ paths: ["room.svg"], activePath: "room.svg", activeSize: 3_378 });
+  // 本文を data URL にするため、画像 / 音声の raw と違って取得待ちの印が出る
+  assert.ok(html.includes("run-spinner"), "本文を取得していない");
+  assert.ok(html.includes("読み込み中…"), "待ちの印の読み上げが無い");
+  assert.match(html, /aria-pressed="true"[^>]*>プレビュー</, "SVG の既定がプレビューでない");
+  // サイズはツリーの行から出し、寸法は <img> の読み込み後に足す
+  assert.ok(html.includes("3.3 KB"), "サイズが出ていない");
+  // raw の配信 allowlist は変えない (SVG は data URL で描く)
+  assert.ok(!html.includes("/api/files/raw?path=room.svg"), "SVG を raw で読んでいる");
+  // HTML 用の操作 (iframe / 別オリジン / 新しいタブ) は SVG に出さない
+  assert.ok(!html.includes("<iframe"), "iframe を使っている");
+  assert.ok(!html.includes("別オリジン"), "別オリジンのスイッチがある");
+  assert.ok(!html.includes("新しいタブで開く"), "新しいタブの導線がある");
+  assert.ok(!html.includes("本文をコピー"), "プレビュー中に本文コピーがある");
+});
+
 test("音声は raw URL の <audio controls> で再生し、本文の取得もエラー帯も出さない", () => {
   const html = renderPreview({ paths: ["bgm.mp3"], activePath: "bgm.mp3", previewVersion: 7 });
   const audio = html.match(/<audio\b[^>]*>/)?.[0];
