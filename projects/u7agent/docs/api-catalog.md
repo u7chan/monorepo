@@ -311,3 +311,23 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 
 - リクエストボディの形と型は `server/src/schema.ts` の body スキーマで検証する。必須判定と正規化（trim / 上限 / 未知キー）は `server/src/agents.ts` が正で、許容範囲は上記のとおり。
 - エージェント名の必須チェックや `model` / `thinkingLevel` の正規化・日本語エラー文言は `agents.ts` 側が持つ。body スキーマを厳格化しないのは、空 body の PATCH を no-op として通し、必須判定をカタログの文言のまま残すため。
+
+## 定義のバックアップ
+
+設定 → バックアップ（`/settings/backup`）の API は [backup.md](backup.md) の形式だけを扱い、エージェント / 定型プロンプト / 共通スキルの定義を持ち出す。`server/src/routes/backup.ts` が入口で、差分と適用は `server/src/backup/` に閉じる。
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/backup/export/check` | 書き出す対象の件数・見積りサイズ・スキル export の可否・ファイル名を返す。dry-run import はしない軽い見積りで、復元可否は保証しない |
+| GET | `/api/backup/export` | バックアップ ZIP をストリームで返す。保存名は UTC の日付 |
+| POST | `/api/backup/restore?dryRun=true` | 何も変更せず、現在との差分・削除対象・警告・ブロッカーを返す |
+| POST | `/api/backup/restore` | 同じ ZIP を再 plan して適用する。ブロッカーが残っていれば 409 で何も変更しない |
+| POST | `/api/backup/reset` | ユーザー定義エージェント / 自作プロンプト / 共通スキルを全削除する |
+
+- `targets` は query の繰り返しで絞る。export は省略時に全対象、restore は manifest の部分集合だけを許可する（省略時は manifest の全対象）。
+- restore は raw の ZIP body を受けるため `bodyGuard` より前に登録する。`content-length` の事前 413 と読み取り中の上限監視を入れ、受信は private な一時ディレクトリへ spool して必ず消す。
+- `export/check` / `export` / `restore` / `reset` はプロセス内の 1 本の排他で直列化し、進行中は 409 の `busy` を返す。
+- スキルの検証は既存の取り込み（`planSkillsImport` と同じ `importSkills({ dryRun: true })`）を再利用し、`invalid` だけでなく 400 / 413 も skills 対象のブロッカーとして 200 の plan に載せる。外側 ZIP の 400 とは分ける。
+- DB トランザクションのコミット前に失敗した 503 にだけ `state: "not_stored"` を付ける。コミット後にスキルだけ失敗した場合は 200 の `complete: false`（partial）で、`not_stored` は付けない。
+
+**スキル画面の「エクスポート / インポート」との違い。** スキル画面（`/settings/skills`）のエクスポート / インポートは共通スキルだけを対象にした ZIP で、インポートは同名を選んで置き換えるマージ操作である（[api-session-state.md](api-session-state.md) ではなく [ファイルスキル](#ファイルスキルagentsskills)）。バックアップ画面の「書き出す / 復元する」はエージェントと定型プロンプトも含む 1 つの ZIP で、復元は対象ごとの全置換（バックアップに無い既存の定義は削除）である。同じ語にしない。

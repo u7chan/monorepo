@@ -75,6 +75,14 @@ function createContentOf(value: unknown): { label: string; prompt: string } {
   };
 }
 
+/**
+ * バックアップからの取り込み用。ID の形式は呼び出し側 (backup/format.ts) が決め、ここは
+ * 作成と同じ本文の検証だけを使う (上限・trim・必須を二重実装しない)。
+ */
+export function importedPromptContent(input: unknown): { label: string; prompt: string } {
+  return createContentOf(input);
+}
+
 /** 種別と ID はサーバーが管理する。入力での組み込みへの昇格・置換は黙って無視せず 400 にする */
 function rejectManagedKeys(input: unknown): void {
   const record = input as Record<string, unknown> | null;

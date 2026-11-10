@@ -5,7 +5,12 @@ import type { HistoryPage } from "../src/types";
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const {
   ApiError,
+  applyBackupRestore,
+  backupExportUrl,
   cancelOAuthLogin,
+  getBackupExportCheck,
+  planBackupRestore,
+  resetDefinitions,
   checkCloudflareConnection,
   contentTrialStartFailure,
   deleteWebSearchApiKey,
@@ -721,4 +726,60 @@ test("Web 検索のテスト検索はクエリを本文で送り、失敗も応�
     "クエリは URL ではなく本文へ載せる (ログに自由文を残さない)",
   );
   assert.deepEqual(await requests[0]!.json(), { query: "今日は何の日？" });
+});
+
+test("バックアップの復元は raw の ZIP を target の繰り返しで送り、書き出しの URL は export を指す", async (t) => {
+  // 検査するのは、check の query、plan と apply が同じ File を raw で送ること、全削除の path、
+  // そして本文を fetch せずに組み立てる保存の URL (<a download> の href)
+  const requests: Request[] = [];
+  const bodies: number[][] = [];
+  const check = {
+    targets: ["prompts", "agents"],
+    entries: [{ target: "prompts", count: 1, bytes: 10 }],
+    bytes: 1024,
+    fileName: "u7agent-backup-2024-05-06.zip",
+  };
+  const plan = {
+    manifest: { app: "u7agent", schema: 1, exportedAt: "2024-05-06T07:08:09.000Z", targets: ["prompts", "agents"] },
+    selected: ["prompts", "agents"],
+    plans: [],
+    changed: true,
+    blocked: false,
+    kept: ["skills"],
+  };
+  const result = { complete: true, plan, applied: [], failed: [] };
+  const reset = { complete: true, agents: 1, prompts: 1, skills: 0, failed: [] };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    bodies.push([...new Uint8Array(await request.arrayBuffer())]);
+    const url = new URL(request.url);
+    if (url.pathname === "/api/backup/export/check") return Response.json(check);
+    if (url.pathname === "/api/backup/reset") return Response.json(reset);
+    return Response.json(url.searchParams.get("dryRun") === "true" ? plan : result);
+  });
+
+  const zip = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], "u7agent-backup.zip");
+  assert.deepEqual(await getBackupExportCheck(["prompts", "agents"]), check);
+  assert.deepEqual(await planBackupRestore(zip, ["prompts", "agents"]), plan);
+  assert.deepEqual(await applyBackupRestore(zip, ["prompts", "agents"]), result);
+  assert.deepEqual(await resetDefinitions(), reset);
+
+  assert.deepEqual(
+    requests.map((request) => `${request.method} ${new URL(request.url).pathname}${new URL(request.url).search}`),
+    [
+      "GET /api/backup/export/check?targets=prompts&targets=agents",
+      "POST /api/backup/restore?dryRun=true&targets=prompts&targets=agents",
+      "POST /api/backup/restore?targets=prompts&targets=agents",
+      "POST /api/backup/reset",
+    ],
+  );
+  // plan と apply は同じ File をそのまま送る (サーバーは受信した ZIP とその時点の状態で再判定する)
+  assert.deepEqual(bodies.slice(1, 3), [
+    [0x50, 0x4b, 0x03, 0x04],
+    [0x50, 0x4b, 0x03, 0x04],
+  ]);
+  const exportUrl = new URL(backupExportUrl(["agents"]));
+  assert.equal(exportUrl.pathname, "/api/backup/export");
+  assert.equal(exportUrl.search, "?targets=agents");
 });
