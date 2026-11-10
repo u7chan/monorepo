@@ -58,11 +58,15 @@ SDK の `agent_settled` は、BFF が持つ追加入力の注入完了を意味�
 - アイドルの SDK へ `steer()` だけを残さない。BFF の終端処理中や手動圧縮中は待機だけを保持し、終端後に先頭から次の実行を開始する。
 - `session.steeringMode` が `"all"` でない SDK（旧 SDK）は、実キューが先頭 1 件しか見えず一括ドレインの前提が成り立たないため、一括配送をせず 1 件ずつ渡す。
 
+## キャッシュの温め直し（cacheWarming）
+
+プロンプトキャッシュを温め直す機能は `"off"` に固定する（`createSessionSettings`）。SDK 1.5.1 の既定 `"idle"` は実行と実行のあいだにもプロバイダーへ課金対象のリクエストを送るため、利用者が起こしていない通信を作らない。温め直しの使用量は `usage` entry としてだけ残り、run の usage や所要時間には現れない。
+
 ## 自動再試行（SDK の retry）
 
 モデルの一時的なレート制限などは、pi SDK の agent-level リトライ（`SettingsManager` の `retry: { enabled: true, maxRetries: 2 }`）に任せる。**BFF は `prompt()` を再発行しない**（ユーザーメッセージやツール実行を二重に走らせない）。backoff は SDK の指数バックオフで、既定は 2 秒 → 4 秒。プロバイダーの `Retry-After` ヘッダーや本文の「Please try again in Xs」は SDK では使われないため、待機時間を上流の指定として保証しない。
 
-SDK 1.5.0 で観測する順序（スタブではなく SDK 実体の回帰テストで固定）:
+SDK 1.5.1 で観測する順序（スタブではなく SDK 実体の回帰テストで固定）:
 
 ```text
 message_end(assistant, error, usage.total = 0)  失敗試行

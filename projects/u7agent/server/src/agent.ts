@@ -816,7 +816,9 @@ type SessionCompactionSettings = NonNullable<Parameters<typeof SettingsManager.i
 
 /**
  * セッション 1 件分の in-memory 設定。SDK の設定ファイルを読ませず、値の出所をここへ寄せる。
- * retry は BFF の budget と揃え、steering は `SESSION_STEERING_MODE` を正とする
+ * retry は BFF の budget と揃え、steering は `SESSION_STEERING_MODE` を正とする。
+ * cacheWarming は既定に任せない: SDK 1.5.1 の既定 `"idle"` は実行と実行のあいだにも
+ * プロバイダーへ課金対象のリクエストを送るため、利用者が起こしていない通信を作らない
  */
 export function createSessionSettings(
   compaction: SessionCompactionSettings,
@@ -825,6 +827,7 @@ export function createSessionSettings(
     compaction,
     retry: { enabled: true, maxRetries: 2 },
     steeringMode: SESSION_STEERING_MODE,
+    cacheWarming: "off",
   };
 }
 

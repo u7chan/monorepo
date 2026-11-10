@@ -16,7 +16,7 @@ available とカタログは起動時に一度だけ読むのではなく、`rea
 
 `PI_MODELS` / `PI_MODEL` / `PI_PROVIDER` は読まない。設定されていても無視し、`GET /api/settings/models` の `ignoredEnvironmentVariables` と起動ログで移行（削除）を促す。
 
-モデル能力（対応する Effort の段階）は `@earendil-works/pi-ai` の公開ヘルパー `getSupportedThinkingLevels` / `clampThinkingLevel` を使う。`@earendil-works/pi-ai` は SDK と同じ版を直接依存として持ち、推移依存の内部パスや dist 深部は import しない。`typebox` も SDK と同じ版を直接依存として持ち、`Type` / `Static` は `@earendil-works/pi-ai` から再エクスポートされないため `typebox` から import する（`ToolDefinition` の `TSchema` / `Static` と型を揃え、二重インスタンスを作らないためでもある）。SDK 1.5.0 からツール引数の検証は `@earendil-works/pi-schema` で動くので、JSON Schema の外にある TypeBox の機能（`Type.Refine()` / `Type.BigInt()` / `Type.Undefined()` / codec / `Format.Set()`）はツール引数には効かない。ツールのパラメータは JSON Schema で表せる範囲だけで書く。
+モデル能力（対応する Effort の段階）は `@earendil-works/pi-ai` の公開ヘルパー `getSupportedThinkingLevels` / `clampThinkingLevel` を使う。`@earendil-works/pi-ai` は SDK と同じ版を直接依存として持ち、推移依存の内部パスや dist 深部は import しない。`typebox` も SDK と同じ版を直接依存として持ち、`Type` / `Static` は `@earendil-works/pi-ai` から再エクスポートされないため `typebox` から import する（`ToolDefinition` の `TSchema` / `Static` と型を揃え、二重インスタンスを作らないためでもある）。SDK 1.5.0 からツール引数の検証は `@earendil-works/pi-schema` で動くので、JSON Schema の外にある TypeBox の機能（`Type.Refine()` / codec / `Format.Set()` など）はツール引数には効かない。`Type.BigInt()` / `Type.Undefined()` は SDK 1.5.1 から TypeBox と同じ変換（`"42"` / `42` は `42n`、`null` は `undefined`）で通るが、u7agent のツールは使わない。ツールのパラメータは JSON Schema で表せる範囲だけで書く。
 
 `thinkingLevel` の非対応値は SDK がモデル能力で補正する（BFF では模倣しない）。既定の Effort は `PI_THINKING` → `medium` の順で決まる。
 

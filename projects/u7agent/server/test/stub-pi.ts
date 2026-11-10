@@ -1501,6 +1501,8 @@ export interface StubPiOptions {
   /** provider の登録 / 解除の模倣。throw すると所有境界と degraded の分類を検証できる */
   onRegisterProvider?: (provider: string) => void;
   onUnregisterProvider?: (provider: string) => void;
+  /** 終了時の資格情報書込待ち。close() が完了を待つことを検証できる */
+  onSettleCredentialWrites?: () => Promise<void> | void;
   /**
    * OAuth サインインの模倣。`interaction.notify` / `interaction.prompt` を呼べば、UI が見る状態遷移
    * (認可 URL・貼り付け待ち・中断) を再現できる。throw すると失敗系 (port 競合など) を検証できる。
@@ -1581,6 +1583,8 @@ export interface StubModelRuntime {
   unregisterProvider(provider: string): void;
   login(provider: string, type: string, interaction: AuthInteraction, options?: LoginOptions): Promise<unknown>;
   logout(provider: string, options?: { signal?: AbortSignal }): Promise<void>;
+  /** 終了時に書き込み中の資格情報を待つ。スタブでは何も書かないので即座に返すのが既定 */
+  settleCredentialWrites(): Promise<void>;
 }
 
 export function createStubModelRuntime(
@@ -1663,6 +1667,9 @@ export function createStubModelRuntime(
       runtimeKeys.delete(provider);
       configured.set(provider, false);
       oauthProviders.delete(provider);
+    },
+    settleCredentialWrites: async () => {
+      await options.onSettleCredentialWrites?.();
     },
   };
 }
