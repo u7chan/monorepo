@@ -72,7 +72,7 @@ export const CODEX_RESPONSE_MAX_BYTES = 48 * 1024 * 1024;
 export const CODEX_GENERATION_TIMEOUT_MS = 300_000;
 
 export const CODEX_AUTH_INVALID_MESSAGE =
-  "Codex のサインインが失効しています。設定 → モデル で openai-codex にサインインし直してください";
+  "Codex のサインイン（openai-codex）が失効しています。pi を起動して /login から openai-codex にサインインし直してください";
 export const CODEX_USAGE_LIMIT_MESSAGE =
   "ChatGPT の画像生成枠が不足しているか、混雑しています。時間をおいて試してください";
 /** タイムアウト・中断の後は枠が消費されている可能性がある（自動再送はしない） */
