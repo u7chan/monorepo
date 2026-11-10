@@ -12,6 +12,13 @@ test("close() は資格情報の書込完了を待ってから返る", async () 
   const writing = new Promise<void>((resolve) => {
     release = resolve;
   });
+  // 待機を close() の最初の await に固定しない (契約は「返る前に待つ」だけ)。
+  // 呼び出しの順序に依存せず待てるよう、stub 側から通知する
+  let notifyCalled: () => void = () => {};
+  const called = new Promise<void>((resolve) => {
+    notifyCalled = resolve;
+  });
+
   const bff = await createBffApp({
     cwd: "/tmp/project",
     sessionStoreDir: null,
@@ -19,6 +26,7 @@ test("close() は資格情報の書込完了を待ってから返る", async () 
       createStubPi({
         onSettleCredentialWrites: () => {
           settleCalls += 1;
+          notifyCalled();
           return writing;
         },
       }),
@@ -29,9 +37,8 @@ test("close() は資格情報の書込完了を待ってから返る", async () 
   const closing = bff.close().then(() => {
     closed = true;
   });
-  // close() の本体は同期に走り始めるため、待機の呼び出しはこの時点で観測できる
+  await called;
   assert.equal(settleCalls, 1);
-  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(closed, false, "書込みが終わるまで close() は返らない");
 
   release();
