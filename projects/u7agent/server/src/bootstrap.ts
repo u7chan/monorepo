@@ -9,6 +9,9 @@ import type { AgentCatalog } from "./agents";
 import { createPromptCatalog } from "./prompts";
 import type { PromptCatalog } from "./prompts";
 import { createArchiveSettings } from "./archive-settings";
+import { createBackupService } from "./backup/service";
+import type { BackupModelResolver } from "./backup/plan";
+import type { BackupService } from "./backup/service";
 import type { ArchiveSettings } from "./archive-settings";
 import { BUILTIN_SKILLS } from "./builtin-skills";
 import { createDeviceIdStore, DEVICE_ID_PATH } from "./device-id";
@@ -147,6 +150,11 @@ export type CreateBffAppOptions = {
   serveProbe?: ServeProbe;
   /** プローブ先のホスト。未指定は PI_SANDBOX_URL のホスト (同一ホストのサンドボックス) */
   serveHost?: string;
+  /**
+   * バックアップの復元で使う実効モデルの判定。未指定は pi の実効一覧から組み立てる
+   * (pi なしは判断せず、モデルを保持したまま警告する)。
+   */
+  backupModels?: BackupModelResolver;
 };
 
 export type SessionStoreStatus = {
@@ -172,6 +180,8 @@ export type BffContext = {
   skillSandbox: SandboxSkillFileClient | null;
   /** 共通スキルの持ち出し / 取り込み。null なら 503 */
   skillArchiveSandbox: SandboxSkillArchiveClient | null;
+  /** 定義だけのバックアップ (書き出し / 復元 / 全削除)。DB とスキルを 1 本の排他で扱う */
+  backup: BackupService;
   sessionStore: SessionStoreStatus;
   /** アプリデータ (プロジェクト / カタログ) の DB。status() を health へ出す */
   appDb: AppDb;
@@ -547,6 +557,45 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   await sharedContents.recoverInterrupted().catch((error) => {
     console.warn(`[u7agent] shared content recovery failed: ${maskError(messageFor(error))}`);
   });
+  /**
+   * 復元でのモデルの可否は、セッション作成と同じ実効一覧で判定する。APIキー未設定で一覧が空、
+   * またはカタログが取れていないときは判断せず保持する (docs/backup.md)。
+   */
+  const backupModels: BackupModelResolver =
+    opts.backupModels ??
+    ((model) => {
+      if (!pi || pi.availabilityError) return "unknown";
+      const runtimeCatalog = pi.modelCatalog;
+      if (!runtimeCatalog || runtimeCatalog.catalogCount === 0) return "unknown";
+      const inCatalog = runtimeCatalog.providers.some(
+        (provider) => provider.provider === model.provider && provider.models.some((entry) => entry.id === model.id),
+      );
+      if (!inCatalog) return "not_in_catalog";
+      let allowed: { provider: string; id: string }[] | null = null;
+      try {
+        allowed = appDb.readModelSettings()?.allowedModels ?? null;
+      } catch {
+        // 許可リストを読めないときは「明示的な除外」を判断しない (モデルを落とさない)
+        allowed = null;
+      }
+      if (allowed && !allowed.some((ref) => ref.provider === model.provider && ref.id === model.id)) {
+        return "not_allowed";
+      }
+      if (pi.modelOptions.length === 0) return "unknown";
+      return pi.resolveModel(model) ? "available" : "unknown";
+    });
+
+  const backup = createBackupService({
+    db: appDb,
+    workspace,
+    skillSandbox,
+    skillArchive: skillArchiveSandbox,
+    models: backupModels,
+    // 組み込みスキルは同梱物が正で、ツールは pi の実効一覧。どちらも取れない構成では判定しない
+    knownSkills: () => ({ builtin: BUILTIN_SKILLS.map((skill) => skill.name) }),
+    knownTools: () => pi?.toolCatalog().map((tool) => tool.name),
+  });
+
   return {
     cwd,
     pi,
@@ -559,6 +608,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     runtimeDiagnostics,
     skillSandbox,
     skillArchiveSandbox,
+    backup,
     sessionStore,
     appDb,
     notifications,

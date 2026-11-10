@@ -273,6 +273,26 @@ function makeAgent(input: DefinitionInput, promptIds: string[], id: string = ran
   return agent;
 }
 
+/**
+ * バックアップからの取り込み用。`makeAgent` の検証 (アイコン・モデル・許可リスト・上限) をそのまま使い、
+ * `text()` の切り詰めで長すぎる値が黙って短く保存されるのを防ぐため、先に長さだけを見る。
+ * 長さの上限は `makeAgent` が `text()` へ渡している値と同じで、ここでは保存形を作らない。
+ */
+export function importedAgent(input: unknown, promptIds: string[], id: string): AgentRecord {
+  const record = input as { name?: unknown; description?: unknown; systemPrompt?: unknown } | null;
+  const limits: [unknown, number, string][] = [
+    [record?.name, 8_000, "Agent name"],
+    [record?.description, 300, "Agent description"],
+    [record?.systemPrompt, 8_000, "Agent system prompt"],
+  ];
+  for (const [value, max, name] of limits) {
+    if (typeof value === "string" && value.trim().length > max) {
+      throw invalid(`${name} must be at most ${max} characters`);
+    }
+  }
+  return makeAgent(input, promptIds, id);
+}
+
 export interface AgentCatalog {
   /** ビルトインの汎用エージェント。ユーザー定義の一覧には入れない */
   builtinAgent(): AgentDef;

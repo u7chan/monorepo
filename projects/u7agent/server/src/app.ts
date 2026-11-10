@@ -11,6 +11,7 @@ import { bodyGuard, jsonBodyValidator, messageFor, statusCodeOf } from "./http";
 import { mutationOriginGuard } from "./mutation-origin";
 import { DEFAULT_PREVIEW_PORT } from "./preview-port";
 import { createArchiveRoutes } from "./routes/archive";
+import { createBackupRoutes } from "./routes/backup";
 import { createCatalogRoutes } from "./routes/catalog";
 import { createPromptRoutes } from "./routes/prompts";
 import { createFileRoutes } from "./routes/files";
@@ -152,6 +153,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     sharedContentExclusions,
     skillSandbox,
     skillArchiveSandbox,
+    backup,
   } = await createBffContext(opts);
   const appData = appDataGuard(appDb);
   const spaces = new SpaceStore(appDb);
@@ -184,6 +186,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
   const promptRoutes = createPromptRoutes({ prompts });
   const skillFileRoutes = createSkillFileRoutes({ sandbox: skillSandbox, archive: skillArchiveSandbox });
+  const backupRoutes = createBackupRoutes({ backup });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
   const sessionRoutes = createSessionRoutes({ store, workspace, spaces, serve });
   const notificationRoutes = createNotificationRoutes({ notifications });
@@ -213,6 +216,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .post("/api/sessions/:id/files", (c) => sessionRoutes.uploadFile(c))
     // スキルの取り込みも raw の ZIP を中継する (JSON 化されると展開できない)
     .post("/api/skills/files/import", (c) => skillFileRoutes.import(c))
+    // バックアップの復元も raw の ZIP を受ける。plan (dryRun) と apply が同じ本文を通る
+    .post("/api/backup/restore", (c) => backupRoutes.restore(c))
     .use("/api/*", bodyGuard)
     .use("/api/*", spaceContextGuard(spaces, store))
     .get("/api/spaces", appData, (c) => c.json({ spaces: spaces.list() }))
@@ -380,6 +385,10 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     // セッション未確定 (新規チャット) の一覧
     .get("/api/skills/session", appData, sessionRoutes.previewSkills)
+    // 定義だけの持ち出し / 復元 / 全削除。restore (raw body) は上の bodyGuard より前に登録してある
+    .get("/api/backup/export/check", appData, backupRoutes.exportCheck)
+    .get("/api/backup/export", appData, backupRoutes.exportZip)
+    .post("/api/backup/reset", appDataMutation, backupRoutes.reset)
     .get("/api/sessions", appData, sessionRoutes.list)
     .post(
       "/api/sessions",
@@ -822,6 +831,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         (path === "/api/spaces" ||
           path.startsWith("/api/secrets") ||
           path.startsWith("/api/prompts") ||
+          path.startsWith("/api/backup") ||
           ["/api/serve/start", "/api/serve/stop"].includes(path))
       ) {
         return c.json({ error: messageFor(error), state: "not_stored" as const }, 503);

@@ -1,10 +1,16 @@
 import { hc } from "hono/client";
 import type { AppType } from "server";
 import { encodeFilePathParam } from "./lib/fileUrl";
+import { ALL_BACKUP_TARGETS } from "./lib/backupFlow";
 import type {
   AgentDef,
   ArchiveSettingsResponse,
   AskUserAnswer,
+  BackupExportCheck,
+  BackupResetResult,
+  BackupRestorePlan,
+  BackupRestoreResult,
+  BackupTarget,
   CancelQueuedResult,
   CatalogResponse,
   CloudflareConnectionCheckResponse,
@@ -507,6 +513,61 @@ export const applySkillsImport = async (file: File, replace: readonly string[]):
   });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as SandboxSkillsImportApply;
+};
+
+/**
+ * 設定 → バックアップ。書き出しの見積りは `targets` で絞れる (省略は全部)。
+ * 復元の plan / apply は raw の ZIP を送るため `hc` を使わず、同じ `File` を 2 回送る。
+ */
+const backupQuery = (targets: readonly BackupTarget[], extra: Record<string, string> = {}): URLSearchParams => {
+  const params = new URLSearchParams(extra);
+  for (const target of targets) params.append("targets", target);
+  return params;
+};
+
+/** raw body の経路は `hc` を使わないため、同一オリジンの絶対 URL をここで組み立てる */
+const backupUrl = (path: string, params: URLSearchParams): string => `${location.origin}${path}?${params.toString()}`;
+
+export const getBackupExportCheck = async (
+  targets: readonly BackupTarget[] = ALL_BACKUP_TARGETS,
+): Promise<BackupExportCheck> => {
+  const response = await fetch(backupUrl("/api/backup/export/check", backupQuery(targets)));
+  if (!response.ok) throw await apiError(response);
+  return (await response.json()) as BackupExportCheck;
+};
+
+/** 書き出しの URL (`<a download>` の href)。保存名は応答の `Content-Disposition` が決める */
+export const backupExportUrl = (targets: readonly BackupTarget[] = ALL_BACKUP_TARGETS): string =>
+  backupUrl("/api/backup/export", backupQuery(targets));
+
+/** 復元の plan。何も変更せず、現在との差分・削除対象・警告・ブロッカーを返す */
+export const planBackupRestore = async (file: File, targets: readonly BackupTarget[]): Promise<BackupRestorePlan> => {
+  const response = await fetch(backupUrl("/api/backup/restore", backupQuery(targets, { dryRun: "true" })), {
+    method: "POST",
+    body: file,
+  });
+  if (!response.ok) throw await apiError(response);
+  return (await response.json()) as BackupRestorePlan;
+};
+
+/** 復元の適用。plan と同じ `File` を送り、サーバーがその時点の状態で再判定する */
+export const applyBackupRestore = async (
+  file: File,
+  targets: readonly BackupTarget[],
+): Promise<BackupRestoreResult> => {
+  const response = await fetch(backupUrl("/api/backup/restore", backupQuery(targets)), {
+    method: "POST",
+    body: file,
+  });
+  if (!response.ok) throw await apiError(response);
+  return (await response.json()) as BackupRestoreResult;
+};
+
+/** ユーザー定義エージェント / 自作プロンプト / 共通スキルの全削除 */
+export const resetDefinitions = async (): Promise<BackupResetResult> => {
+  const response = await client.api.backup.reset.$post();
+  if (!response.ok) throw await apiError(response);
+  return (await response.json()) as BackupResetResult;
 };
 
 // 並び順と件数上限はサーバーが決めるため、クライアントでは再ソートしない

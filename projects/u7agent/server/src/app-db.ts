@@ -2943,11 +2943,14 @@ export class AppDb {
    * 採用する id の絞り込みはカタログ側が行う (docs/api-catalog.md)。
    */
   reorderAgents(ids: readonly string[]): void {
-    this.transaction(() => {
-      this.#query((db) => {
-        const update = db.prepare("UPDATE agents SET sortOrder = ? WHERE id = ?");
-        ids.forEach((id, index) => update.run(index + 1, id));
-      });
+    this.transaction(() => this.#reorderAgentsInTransaction(ids));
+  }
+
+  /** 既存のトランザクション内から呼ぶ本体。単体で呼ばない (BEGIN の入れ子を作らない) */
+  #reorderAgentsInTransaction(ids: readonly string[]): void {
+    this.#query((db) => {
+      const update = db.prepare("UPDATE agents SET sortOrder = ? WHERE id = ?");
+      ids.forEach((id, index) => update.run(index + 1, id));
     });
   }
 
@@ -3048,11 +3051,14 @@ export class AppDb {
    * 採用する id の絞り込みはカタログ側が行う (docs/api-catalog.md)。
    */
   reorderPrompts(ids: readonly string[]): void {
-    this.transaction(() => {
-      this.#query((db) => {
-        const update = db.prepare("UPDATE prompts SET sortOrder = ? WHERE id = ?");
-        ids.forEach((id, index) => update.run(index + 1, id));
-      });
+    this.transaction(() => this.#reorderPromptsInTransaction(ids));
+  }
+
+  /** 既存のトランザクション内から呼ぶ本体。単体で呼ばない (BEGIN の入れ子を作らない) */
+  #reorderPromptsInTransaction(ids: readonly string[]): void {
+    this.#query((db) => {
+      const update = db.prepare("UPDATE prompts SET sortOrder = ? WHERE id = ?");
+      ids.forEach((id, index) => update.run(index + 1, id));
     });
   }
 
@@ -3069,6 +3075,61 @@ export class AppDb {
   /** 使用中の行は外部キー (ON DELETE RESTRICT) でも消せない。戻り値は消せたか */
   deletePrompt(id: string): boolean {
     return this.#query((db) => db.prepare("DELETE FROM prompts WHERE id = ? AND kind = 'custom'").run(id).changes > 0);
+  }
+
+  /**
+   * バックアップの差分適用。同一行は呼び出し側が除き、ここは「削除するエージェント → プロンプトの
+   * upsert → エージェントの upsert → 削除するプロンプト → 並べ替え」の順で 1 トランザクションに閉じる。
+   * この順序でないと `agent_prompts.promptId` の ON DELETE RESTRICT に当たる (docs/backup.md)。
+   */
+  applyDefinitions(batch: {
+    deleteAgentIds: readonly string[];
+    promptUpserts: readonly PromptRow[];
+    agentUpserts: readonly StoredAgent[];
+    deletePromptIds: readonly string[];
+    agentOrder: readonly string[];
+    promptOrder: readonly string[];
+  }): void {
+    this.transaction(() => {
+      for (const id of batch.deleteAgentIds) {
+        this.#query((db) => db.prepare("DELETE FROM agents WHERE id = ?").run(id));
+      }
+      for (const row of batch.promptUpserts) this.#upsertPromptInTransaction(row);
+      for (const agent of batch.agentUpserts) this.#saveAgent(agent);
+      for (const id of batch.deletePromptIds) {
+        this.#query((db) => db.prepare("DELETE FROM prompts WHERE id = ? AND kind = 'custom'").run(id));
+      }
+      if (batch.agentOrder.length > 0) this.#reorderAgentsInTransaction(batch.agentOrder);
+      if (batch.promptOrder.length > 0) this.#reorderPromptsInTransaction(batch.promptOrder);
+    });
+  }
+
+  /** 組み込み行は書き換えない (条件で守り、サービス側の判定が漏れても定義が変わらないようにする) */
+  #upsertPromptInTransaction(row: PromptRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO prompts (id, kind, label, prompt, sortOrder)
+           VALUES (?, 'custom', ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM prompts))
+           ON CONFLICT(id) DO UPDATE SET label = excluded.label, prompt = excluded.prompt
+           WHERE prompts.kind = 'custom'`,
+        )
+        .run(row.id, row.label, row.prompt),
+    );
+  }
+
+  /**
+   * 全削除。エージェントを先に消し、その後で自作プロンプトを消す (残った紐づけで RESTRICT に当たらない)。
+   * ユーザー定義 (サンプルを含む) だけが対象で、組み込みプロンプトには触らない。
+   */
+  deleteAllDefinitions(): { agents: number; prompts: number } {
+    return this.transaction(() => {
+      const agents = this.#query((db) => Number(db.prepare("DELETE FROM agents").run().changes));
+      const prompts = this.#query((db) =>
+        Number(db.prepare("DELETE FROM prompts WHERE kind = 'custom'").run().changes),
+      );
+      return { agents, prompts };
+    });
   }
 
   /** 全マスタの使用先 (エージェント ID とマスタ ID の組)。一覧の `usedBy` を 1 クエリで組む */

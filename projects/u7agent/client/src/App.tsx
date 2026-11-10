@@ -27,6 +27,7 @@ import { SessionHandoffDialog, type SessionHandoffRequest } from "./components/S
 import { SessionTitleDialog } from "./components/SessionTitleDialog";
 import { SessionTitleNotice } from "./components/SessionTitleNotice";
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
+import { BackupSettingsPage } from "./components/BackupSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { WebSearchSettingsPage } from "./components/WebSearchSettingsPage";
 import { SessionTitleSettingsPage } from "./components/SessionTitleSettingsPage";
@@ -983,6 +984,9 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             onOpenSharingExclusions={() => openSharingSubsection("exclusions")}
           />
         );
+      case "backup":
+        // 復元 / 全削除はカタログ (定義とマスタ) を変えるため、成功後に取り直す
+        return <BackupSettingsPage {...pageProps} refreshCatalog={refreshCatalog} />;
       case "appearance":
         return (
           <AppearancePage

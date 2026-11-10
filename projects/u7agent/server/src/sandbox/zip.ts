@@ -16,6 +16,11 @@ export interface ZipEntry {
   name: string;
   /** 内容を読む絶対パス。ディレクトリエントリは undefined */
   source?: string;
+  /**
+   * メモリ上の内容。生成した JSON のように一時ファイルへ出す必要が無いものに使う
+   * (`source` を渡した場合はファイルを優先し、両方指定は呼び出し側の誤りとして扱わない)。
+   */
+  data?: Uint8Array;
   /** DOS 時刻の元にする更新時刻。省略時は現在時刻 */
   mtime?: Date;
 }
@@ -242,9 +247,11 @@ async function* writeZip(entries: readonly ZipEntry[]): AsyncGenerator<Buffer> {
     let crc = 0;
     let size = 0;
     let compressedSize = 0;
-    if (!isDirectory && entry.source) {
+    if (!isDirectory && (entry.source || entry.data)) {
       const stats = { size: 0, crc: 0 };
-      const source = createReadStream(entry.source);
+      const source = entry.source
+        ? createReadStream(entry.source)
+        : Readable.from([Buffer.from(entry.data as Uint8Array)]);
       const statsStream = statBytes(stats);
       const body =
         compression === "deflate" ? source.pipe(statsStream).pipe(createDeflateRaw()) : source.pipe(statsStream);

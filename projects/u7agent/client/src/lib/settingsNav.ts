@@ -11,6 +11,7 @@ export type SettingsSection =
   | "prompts"
   | "skills"
   | "files"
+  | "backup"
   | "appearance"
   | "models"
   | "content"
@@ -43,6 +44,9 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
   { section: "notifications", label: "通知" },
   { section: "appearance", label: "外観" },
   { section: "files", label: "ファイル" },
+  // 定義の持ち出しと復元は「ファイル」の隣に置く (対象はワークスペースではなくアプリの定義)。
+  // 破壊的な全削除を持つため、編集を持つ設定の列には混ぜない
+  { section: "backup", label: "バックアップ" },
   // 編集を持たない診断だけの画面なので最後に置く
   { section: "runtime", label: "ランタイム" },
 ];

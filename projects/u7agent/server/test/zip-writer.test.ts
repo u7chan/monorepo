@@ -3,11 +3,12 @@
 // 実ファイルを読むので、一時ディレクトリに作って createZipStream へ渡す。
 
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { crc32, createZipStream, zipCompressionFor, type ZipEntry } from "../src/sandbox/zip";
+import { extractZipEntry, readZipArchive } from "../src/sandbox/zip-read";
 import { parseZip } from "./zip-reader";
 
 function makeRoot(prefix: string): string {
@@ -129,4 +130,31 @@ test("存在しないファイルはストリームの途中で失敗する（�
     { name: "gone.txt", source: join(root, "does-not-exist.txt") },
   ];
   await assert.rejects(collect(createZipStream(entries)));
+});
+
+test("data で渡した内容は一時ファイル無しで書き、readZipArchive で読み戻せる", async () => {
+  const root = makeRoot("data");
+  const archive = join(root, "bundle.zip");
+  const payload = Buffer.from(JSON.stringify({ prompts: [{ id: "p-1", label: "見出し", prompt: "本文" }] }), "utf8");
+  const bytes = await collect(
+    createZipStream([
+      { name: "manifest.json", data: Buffer.from('{"app":"u7agent"}') },
+      { name: "prompts.json", data: payload },
+    ]),
+  );
+  writeFileSync(archive, bytes);
+
+  const read = await readZipArchive(archive, { maxBytes: 1024 * 1024, maxEntries: 10 });
+  assert.deepEqual(
+    read.entries.map((entry) => entry.name),
+    ["manifest.json", "prompts.json"],
+  );
+  const entry = read.entries.find((item) => item.name === "prompts.json");
+  assert.ok(entry);
+  assert.equal(entry.size, payload.length);
+
+  const target = join(root, "prompts.out.json");
+  const extracted = await extractZipEntry({ archive, entry, target, dataLimit: read.dataLimit });
+  assert.equal(extracted.size, payload.length);
+  assert.equal(readFileSync(target, "utf8"), payload.toString("utf8"));
 });
