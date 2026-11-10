@@ -39,9 +39,23 @@ test("close() は資格情報の書込完了を待ってから返る", async () 
   });
   await called;
   assert.equal(settleCalls, 1);
+  // close() は書込とは別の後始末 (試行・ストア・アプリ DB の close) も await する。待機を外した実装は
+  // ここで進み切って閉じるため、残りが終わる機会を与えてから「まだ閉じていない」ことを見る
+  await allowCloseStepsToFinish(() => closed);
   assert.equal(closed, false, "書込みが終わるまで close() は返らない");
 
   release();
   await closing;
   assert.equal(closed, true);
 });
+
+/**
+ * close() の残りが進み切るだけの時間を与える。待機を外した実装はこの間に閉じるため、
+ * その場合は短絡して assertion の失敗位置を保つ
+ */
+async function allowCloseStepsToFinish(isClosed: () => boolean): Promise<void> {
+  const deadline = Date.now() + 100;
+  while (!isClosed() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
