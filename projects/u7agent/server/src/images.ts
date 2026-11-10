@@ -312,7 +312,7 @@ export interface CodexAuth {
 export const CODEX_IMAGE_MODEL_LABEL = "Codex（画像モデル不明）";
 
 export const CODEX_AUTH_UNAVAILABLE_MESSAGE =
-  "Codex の認証を確認できませんでした。設定 → モデル で openai-codex にサインインしてください（画像は生成しておらず、クレジットも消費していません）";
+  "Codex の認証（openai-codex）を確認できませんでした。pi を起動して /login から openai-codex にサインインしてください（画像は生成しておらず、クレジットも消費していません）";
 
 export interface OpenRouterImageGenerationSettings {
   provider: typeof IMAGE_PROVIDER_ID;

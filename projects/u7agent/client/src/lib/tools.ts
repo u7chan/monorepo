@@ -21,7 +21,7 @@ const UNAVAILABLE_NOTES: Record<ToolUnavailableReason, string> = {
   deploy_allowlist: "この構成では無効です（PI_AGENT_TOOLS）。チェックしても使えません",
   app_disabled: "アプリ側で無効です。チェックしても使えません",
   no_key: "キーが未設定です。チェックしても使えません",
-  no_auth: "認証が未設定です（Codex はサインインが必要です）。チェックしても使えません",
+  no_auth: "認証が未設定です（Codex は pi の /login で openai-codex にサインインが必要です）。チェックしても使えません",
 };
 
 /** サーバーが理由コードを増やしても画面を壊さないよう、未知の値は汎用の文言へ落とす */
