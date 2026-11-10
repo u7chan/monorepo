@@ -1,5 +1,12 @@
-import { useMemo, useState, useSyncExternalStore, type ChangeEvent } from "react";
-import { applyBackupRestore, backupExportUrl, getBackupExportCheck, planBackupRestore, resetDefinitions } from "../api";
+import { useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
+import {
+  ApiError,
+  applyBackupRestore,
+  backupExportUrl,
+  getBackupExportCheck,
+  planBackupRestore,
+  resetDefinitions,
+} from "../api";
 import {
   BACKUP_EXPORT_HEADING,
   BACKUP_PAGE_TITLE,
@@ -10,8 +17,8 @@ import {
   BACKUP_KEPT_NOTE,
   BACKUP_SKILL_LIMITS_NOTE,
 } from "../lib/backup";
-import { ALL_BACKUP_TARGETS, createBackup, type Backup, type BackupState } from "../lib/backupFlow";
-import type { BackupExportCheck, BackupTarget } from "../types";
+import { ALL_BACKUP_TARGETS, createBackup, createBackupStore, type BackupState } from "../lib/backupFlow";
+import type { BackupExportCheck, BackupRestorePlan, BackupTarget } from "../types";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { BackupExportTargets } from "./backup/BackupExportTargets";
 import { BackupResetDialog } from "./backup/BackupResetDialog";
@@ -21,6 +28,11 @@ export type BackupSettingsPageProps = SettingsPageProps & {
   /** 復元 / 全削除の後のカタログ取り直し */
   refreshCatalog: () => Promise<unknown> | void;
 };
+
+/** 復元の 409 `blocked` が添える再 plan を ApiError から取り出す */
+function blockedPlanOf(error: unknown): BackupRestorePlan | null {
+  return error instanceof ApiError ? (error.plan ?? null) : null;
+}
 
 /** 設定 → バックアップ。書き出し / 復元 / 全削除の 3 つだけを置く (docs/backup.md) */
 export function BackupSettingsPage({
@@ -32,9 +44,15 @@ export function BackupSettingsPage({
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: BACKUP_PLAINTEXT_NOTE, error: false });
   const [targets, setTargets] = useState<BackupTarget[]>([...ALL_BACKUP_TARGETS]);
   const [resetCheck, setResetCheck] = useState<BackupExportCheck | null>(null);
-
-  const backup = useMemo<Backup>(
-    () =>
+  const [exportCheck, setExportCheck] = useState<BackupExportCheck | null>(null);
+  // App の再描画のたびに `refreshCatalog` の identity は変わる。ストアの deps に直接入れると
+  // 画面が再描画されるたびに作り直され、開いているダイアログが idle に戻る
+  const refreshRef = useRef(refreshCatalog);
+  useEffect(() => {
+    refreshRef.current = refreshCatalog;
+  }, [refreshCatalog]);
+  const [store] = useState(() =>
+    createBackupStore((reload) =>
       createBackup({
         checkExport: getBackupExportCheck,
         exportUrl: backupExportUrl,
@@ -48,14 +66,31 @@ export function BackupSettingsPage({
         planRestore: planBackupRestore,
         applyRestore: applyBackupRestore,
         resetDefinitions,
-        reload: () => {
-          void refreshCatalog();
-        },
+        blockedPlan: blockedPlanOf,
+        reload,
         note: (text, error) => setNote({ text, error }),
       }),
-    [refreshCatalog],
+    ),
   );
+  store.update({ reload: () => void refreshRef.current() });
+  const backup = store.backup;
   const state = useSyncExternalStore(backup.subscribe, backup.state) as BackupState;
+
+  // 選んだ対象の件数と書き出し可否を押す前に出す (取得できなくても操作は止めない)
+  useEffect(() => {
+    let stale = false;
+    void getBackupExportCheck(targets).then(
+      (check) => {
+        if (!stale) setExportCheck(check);
+      },
+      () => {
+        if (!stale) setExportCheck(null);
+      },
+    );
+    return () => {
+      stale = true;
+    };
+  }, [targets]);
 
   const toggleExportTarget = (target: BackupTarget) => {
     const next = targets.includes(target) ? targets.filter((item) => item !== target) : [...targets, target];
@@ -105,6 +140,7 @@ export function BackupSettingsPage({
             <BackupExportTargets
               targets={targets}
               all={ALL_BACKUP_TARGETS}
+              check={exportCheck}
               disabled={exporting}
               onToggle={toggleExportTarget}
             />

@@ -24,7 +24,8 @@ import type {
 /** 復元の段階。plan は何も変更せず、適用するのは review で確認した後だけ */
 export type BackupRestoreFlow =
   | { status: "idle" }
-  | { status: "planning"; fileName: string; selected: BackupTarget[] }
+  /** `selected: null` は「まだ対象を決めていない」= targets を省略して manifest の全対象で plan する */
+  | { status: "planning"; fileName: string; selected: BackupTarget[] | null }
   | {
       status: "review";
       fileName: string;
@@ -62,9 +63,15 @@ export type BackupDeps = {
   exportUrl: (targets: readonly BackupTarget[]) => string;
   /** 保存の開始 (DOM を触る唯一の場所) */
   startDownload: (url: string, name: string) => void;
-  planRestore: (file: File, targets: readonly BackupTarget[]) => Promise<BackupRestorePlan>;
+  /** `targets` が undefined なら query を省き、サーバーに manifest の全対象を決めさせる */
+  planRestore: (file: File, targets: readonly BackupTarget[] | undefined) => Promise<BackupRestorePlan>;
   applyRestore: (file: File, targets: readonly BackupTarget[]) => Promise<BackupRestoreResult>;
   resetDefinitions: () => Promise<BackupResetResult>;
+  /**
+   * 復元の 409 が添える再 plan を取り出す。plan 取得後に定義が変わった場合、古い plan を
+   * 表示し続けずに最新のブロッカーを出すために使う (解釈は注入側が持つ)。
+   */
+  blockedPlan: (error: unknown) => BackupRestorePlan | null;
   /** 復元 / 全削除の後のカタログ取り直し */
   reload: () => void;
   note: (text: string, error: boolean) => void;
@@ -88,6 +95,25 @@ export type Backup = {
 };
 
 export const ALL_BACKUP_TARGETS: readonly BackupTarget[] = ["prompts", "agents", "skills"];
+
+/**
+ * 画面の再描画で状態機械を作り直さないための束。`reload` は毎回の描画で差し替えるが、
+ * ストアは最初の 1 回だけ作る (`useState` の初期化と同じ契約)。
+ * deps の関数 identity が毎回変わっても、開いているダイアログを idle に戻さない。
+ */
+export function createBackupStore(create: (reload: () => void) => Backup): {
+  backup: Backup;
+  update: (handlers: { reload: () => void }) => void;
+} {
+  let reload: () => void = () => {};
+  const backup = create(() => reload());
+  return {
+    backup,
+    update: (handlers) => {
+      reload = handlers.reload;
+    },
+  };
+}
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -139,13 +165,13 @@ export function createBackup(deps: BackupDeps): Backup {
     }
   };
 
-  const planWith = async (selected: readonly BackupTarget[]): Promise<BackupRestorePlan | null> => {
+  const planWith = async (selected: readonly BackupTarget[] | null): Promise<BackupRestorePlan | null> => {
     if (!file) return null;
     const request = ++generation;
     const zip = file;
-    setRestore({ status: "planning", fileName: zip.name, selected: [...selected] });
+    setRestore({ status: "planning", fileName: zip.name, selected: selected === null ? null : [...selected] });
     try {
-      const plan = await deps.planRestore(zip, selected);
+      const plan = await deps.planRestore(zip, selected ?? undefined);
       if (request !== generation) return null;
       setRestore({ status: "review", fileName: zip.name, selected: [...plan.selected], plan, confirmed: false });
       return plan;
@@ -168,8 +194,9 @@ export function createBackup(deps: BackupDeps): Backup {
       return;
     }
     file = selected;
-    // 対象はまず全部で plan し、応答の manifest.targets で実際に含まれる対象を絞る
-    await planWith(ALL_BACKUP_TARGETS);
+    // 初回は targets を送らない。バックアップは対象を選んで書き出せるため、全対象を送ると
+    // manifest の部分集合の外に出て 400 になる (サーバーに manifest の全対象を決めさせる)
+    await planWith(null);
   };
 
   const toggleTarget = async (target: BackupTarget) => {
@@ -214,7 +241,20 @@ export function createBackup(deps: BackupDeps): Backup {
       deps.reload();
     } catch (error) {
       if (request !== generation) return;
-      // 409 (ブロッカー / busy) は何も変わっていないので、確認をやり直せる review へ戻す
+      // 409 `blocked` は再 plan を添えてくる。古い plan を出したまま再試行させないよう取り込む
+      const blocked = deps.blockedPlan(error);
+      if (blocked) {
+        setRestore({
+          status: "review",
+          fileName: flow.fileName,
+          selected: [...blocked.selected],
+          plan: blocked,
+          confirmed: false,
+        });
+        deps.note(errorText(error), true);
+        return;
+      }
+      // 409 (busy) などは何も変わっていないので、確認をやり直せる review へ戻す
       setRestore({ ...flow, confirmed: false });
       deps.note(errorText(error), true);
       deps.reload();

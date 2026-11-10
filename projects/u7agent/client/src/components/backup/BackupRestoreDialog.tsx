@@ -16,16 +16,17 @@ import {
   backupCountsSummary,
   backupNeedsDeleteConfirm,
   backupRemovedNames,
+  backupTargetPlanOf,
   backupTotalSummary,
   backupWarningTexts,
 } from "../../lib/backup";
 import type { BackupRestoreFlow } from "../../lib/backupFlow";
-import type { BackupTargetPlan } from "../../types";
+import type { BackupTarget, BackupTargetPlan } from "../../types";
 
 export type BackupRestoreDialogProps = {
   flow: Exclude<BackupRestoreFlow, { status: "idle" } | { status: "done" }>;
   singleColumn?: boolean;
-  onToggleTarget: (target: "prompts" | "agents" | "skills") => void;
+  onToggleTarget: (target: BackupTarget) => void;
   onConfirmed: (value: boolean) => void;
   onApply: () => void;
   onClose: () => void;
@@ -130,12 +131,14 @@ export function BackupRestoreDialog({
                 <p className="break-words text-ink-soft">選択した対象に変更はありません。</p>
               ) : null}
 
-              {plan.plans.map((item) => (
+              {/* 行は manifest の全対象ぶん出す。OFF にした対象は plan から消えるため、
+                  plans を回すとトグルが消えて再 ON できなくなる */}
+              {plan.manifest.targets.map((target) => (
                 <TargetSection
-                  key={item.target}
-                  plan={item}
-                  included={plan.manifest.targets.includes(item.target)}
-                  selected={plan.selected.includes(item.target)}
+                  key={target}
+                  target={target}
+                  plan={backupTargetPlanOf(plan, target)}
+                  selected={plan.selected.includes(target)}
                   busy={busy}
                   onToggle={onToggleTarget}
                 />
@@ -202,40 +205,37 @@ export function BackupRestoreDialog({
 }
 
 function TargetSection({
+  target,
   plan,
-  included,
   selected,
   busy,
   onToggle,
 }: {
-  plan: BackupTargetPlan;
-  included: boolean;
+  target: BackupTarget;
+  /** 置き換えない対象は plan に載らない (件数も差分も出さない) */
+  plan: BackupTargetPlan | undefined;
   selected: boolean;
   busy: boolean;
-  onToggle: (target: "prompts" | "agents" | "skills") => void;
+  onToggle: (target: BackupTarget) => void;
 }) {
   return (
     <div className="grid gap-1 rounded-lg border border-line px-2.5 py-2">
       <div className="flex min-w-0 items-center gap-2">
-        {included ? (
-          <label className="flex min-w-0 flex-1 items-center gap-2">
-            <input
-              type="checkbox"
-              className="accent-focus"
-              checked={selected}
-              disabled={busy}
-              onChange={() => onToggle(plan.target)}
-            />
-            <span className="min-w-0 truncate text-xs text-ink-strong">{BACKUP_TARGET_LABELS[plan.target]}</span>
-          </label>
-        ) : (
-          <span className="min-w-0 flex-1 truncate text-xs text-ink-ghost">
-            {BACKUP_TARGET_LABELS[plan.target]} (バックアップに含まれない)
-          </span>
-        )}
-        <span className="shrink-0 text-2xs text-ink-ghost">{backupCountsSummary(plan.counts)}</span>
+        <label className="flex min-w-0 flex-1 items-center gap-2">
+          <input
+            type="checkbox"
+            className="accent-focus"
+            checked={selected}
+            disabled={busy}
+            onChange={() => onToggle(target)}
+          />
+          <span className="min-w-0 truncate text-xs text-ink-strong">{BACKUP_TARGET_LABELS[target]}</span>
+        </label>
+        <span className="shrink-0 text-2xs text-ink-ghost">
+          {plan ? backupCountsSummary(plan.counts) : "置き換えない"}
+        </span>
       </div>
-      {plan.items.length > 0 ? (
+      {plan && plan.items.length > 0 ? (
         <ul className="grid gap-0.5 text-2xs leading-4 text-ink-muted">
           {plan.items.map((item) => (
             <li key={`${item.status}-${item.id}`} className="flex min-w-0 items-center gap-2">
@@ -250,7 +250,7 @@ function TargetSection({
           {plan.truncated ? <li className="text-ink-ghost">一覧は上限の件数まで表示しています</li> : null}
         </ul>
       ) : null}
-      {plan.blocker ? (
+      {plan?.blocker ? (
         <p className="text-2xs leading-4 break-words text-warn">{backupBlockerText(plan.blocker)}</p>
       ) : null}
     </div>

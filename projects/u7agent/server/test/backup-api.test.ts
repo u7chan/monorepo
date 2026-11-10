@@ -7,6 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
 import { BACKUP_MAX_BYTES } from "../src/backup/format";
+import { BACKUP_JSON_MAX_BYTES } from "../src/schema";
 import type { BackupModelResolver } from "../src/backup/plan";
 import {
   SandboxRequestError,
@@ -67,7 +68,14 @@ interface SkillsFixture {
   workspace: SandboxWorkspaceClient;
   skillSandbox: SandboxSkillFileClient;
   skillArchive: SandboxSkillArchiveClient;
-  state: { installed: string[]; planEntries: SandboxSkillImportPlanEntry[]; deleted: string[]; applied: string[] };
+  state: {
+    installed: string[];
+    planEntries: SandboxSkillImportPlanEntry[];
+    deleted: string[];
+    applied: string[];
+    /** apply で置換できずに skipped になるスキル (protectReason などの想定) */
+    applySkipped: { name: string; reason: string }[];
+  };
   /** 排他の検証用。設定すると listSkills がここで待つ */
   gate?: { entered: Promise<void>; release: () => void };
 }
@@ -79,6 +87,7 @@ function skillsFixture(names: string[] = []): SkillsFixture {
     planEntries: [],
     deleted: [],
     applied: [],
+    applySkipped: [],
   };
   const fixture: SkillsFixture = {
     state,
@@ -96,17 +105,22 @@ function skillsFixture(names: string[] = []): SkillsFixture {
       }),
       createSkillFile: async () => ({ relativePath: "", fileVersion: "" }),
       saveSkillFile: async () => ({ relativePath: "", fileVersion: "" }),
-      previewSkillDelete: async (relativePath: string) => ({
-        relativePath,
-        name: relativePath.split("/").pop() ?? "",
-        dir: relativePath.replace(/\/SKILL\.md$/, ""),
-        treeVersion: "b".repeat(64),
-        entries: 1,
-        bytes: 10,
-        files: ["SKILL.md"],
-      }),
+      // サンドボックスは SKILL.md のパスだけを受け付ける (フォルダを渡すと 400)
+      previewSkillDelete: async (relativePath: string) => {
+        assert.match(relativePath, /^\.agents\/skills\/[^/]+\/SKILL\.md$/, "削除は SKILL.md のパスで要求する");
+        return {
+          relativePath,
+          name: relativePath.split("/").at(-2) ?? "",
+          dir: relativePath.replace(/\/SKILL\.md$/, ""),
+          treeVersion: "b".repeat(64),
+          entries: 1,
+          bytes: 10,
+          files: ["SKILL.md"],
+        };
+      },
       deleteSkillFolder: async (relativePath: string) => {
-        const name = relativePath.split("/").pop() ?? "";
+        assert.match(relativePath, /^\.agents\/skills\/[^/]+\/SKILL\.md$/, "削除は SKILL.md のパスで要求する");
+        const name = relativePath.split("/").at(-2) ?? "";
         state.deleted.push(name);
         state.installed = state.installed.filter((item) => item !== name);
       },
@@ -128,8 +142,10 @@ function skillsFixture(names: string[] = []): SkillsFixture {
         if (input.dryRun.length > 0) {
           return { skills: state.planEntries, entries: state.planEntries.length, bytes: 10 };
         }
+        const skipped = state.applySkipped;
         const applied = state.planEntries
           .filter((entry) => entry.status === "new" || entry.status === "conflict")
+          .filter((entry) => !skipped.some((item) => item.name === entry.name))
           .map((entry) => ({
             name: entry.name,
             relativePath: `.agents/skills/${entry.name}/SKILL.md`,
@@ -137,7 +153,7 @@ function skillsFixture(names: string[] = []): SkillsFixture {
             replaced: entry.status === "conflict",
           }));
         state.applied.push(...applied.map((entry) => entry.name));
-        return { applied, skipped: [], entries: state.planEntries.length, bytes: 10 };
+        return { applied, skipped, entries: state.planEntries.length, bytes: 10 };
       },
     },
   };
@@ -728,6 +744,112 @@ test(".agents/skills が無いときは 0 件として扱い、空の skills.zip
     const exported = await bff.app.request("/api/backup/export?targets=skills");
     assert.equal(exported.status, 200);
     assert.ok((await exported.arrayBuffer()).byteLength > 0);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("スキル一覧が取れないときは skills をブロックし、置換を始めない", async () => {
+  const skills = skillsFixture(["alpha"]);
+  skills.state.planEntries = [{ name: "fresh", status: "new" }];
+  skills.workspace = {
+    ...skills.workspace,
+    listSkills: async () => {
+      throw new SandboxRequestError("サンドボックスのスキル一覧を取得できません", 502);
+    },
+  } as SandboxWorkspaceClient;
+  const bff = await makeApp({ skills });
+  try {
+    const backup = await exportBackup(bff.app, ["skills"]);
+    const plan = (await (await restore(bff.app, backup, "?dryRun=true&targets=skills")).json()) as {
+      blocked: boolean;
+      plans: { blocker: { code: string } | null }[];
+    };
+    assert.equal(plan.blocked, true);
+    assert.equal(plan.plans[0].blocker?.code, "skill_unreadable");
+
+    assert.equal((await restore(bff.app, backup, "?targets=skills")).status, 409);
+    // 何も置換していない (全置換を黙って部分適用にしない)
+    assert.deepEqual(skills.state.applied, []);
+    assert.deepEqual(skills.state.deleted, []);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("置換できなかったスキル (skipped) は partial にし、削除まで進めない", async () => {
+  const skills = skillsFixture(["keep", "old"]);
+  skills.state.planEntries = [
+    { name: "keep", status: "conflict" },
+    { name: "fresh", status: "new" },
+  ];
+  skills.state.applySkipped = [{ name: "keep", reason: "SKILL.md がシンボリックリンクのため置換できません" }];
+  const bff = await makeApp({ skills });
+  try {
+    const backup = await exportBackup(bff.app, ["skills"]);
+    const response = await restore(bff.app, backup, "?targets=skills");
+    assert.equal(response.status, 200);
+    const result = (await response.json()) as {
+      complete: boolean;
+      applied: { target: string }[];
+      failed: { target: string; message: string }[];
+    };
+    assert.equal(result.complete, false);
+    assert.deepEqual(result.applied, []);
+    assert.equal(result.failed.length, 1);
+    assert.match(result.failed[0].message, /keep/);
+    // 置換できていないので、バックアップに無いスキルの削除には進まない
+    assert.deepEqual(skills.state.deleted, []);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("スキルを選択していない復元では、既存の共通スキル名を警告にしない", async () => {
+  const skills = skillsFixture(["alpha"]);
+  const bff = await makeApp({ skills });
+  try {
+    const archive = await bundle({
+      "manifest.json": MANIFEST(["agents"]),
+      "agents.json": JSON.stringify({
+        agents: [
+          {
+            id: "agent-a",
+            name: "A",
+            description: "",
+            systemPrompt: "",
+            commonSkillNames: ["alpha"],
+            builtinSkillNames: ["not-a-skill"],
+          },
+        ],
+      }),
+    });
+    const plan = (await (await restore(bff.app, archive, "?dryRun=true")).json()) as {
+      plans: { target: string; warnings: { code: string; name?: string }[] }[];
+    };
+    const agentPlan = plan.plans.find((item) => item.target === "agents");
+    // 一覧にある共通スキルは警告しない。組み込みは既知の一覧と照合するので警告になる
+    assert.deepEqual(
+      agentPlan?.warnings.map((warning) => [warning.code, warning.name]),
+      [["builtin_skill_not_found", "not-a-skill"]],
+    );
+  } finally {
+    await bff.close();
+  }
+});
+
+test("JSON の合計が上限を超えるバンドルは 400 で断る", async () => {
+  const bff = await makeApp({});
+  try {
+    // 1 エントリで上限を超える (展開前にサイズで止める)
+    const oversized = Buffer.alloc(BACKUP_JSON_MAX_BYTES + 1024, 0x20);
+    const archive = await bundle({
+      "manifest.json": MANIFEST(["agents"]),
+      "agents.json": oversized,
+    });
+    const response = await restore(bff.app, archive);
+    assert.equal(response.status, 400);
+    assert.match(((await response.json()) as { error: string }).error, /Backup JSON is too large/);
   } finally {
     await bff.close();
   }

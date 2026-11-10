@@ -105,13 +105,19 @@ export function backupNeedsDeleteConfirm(plan: BackupRestorePlan): boolean {
   return plan.plans.some((item) => plan.selected.includes(item.target) && item.counts.removed > 0);
 }
 
-/** 削除される名前。上限で打ち切り、「ほか n 件」を添える */
+/**
+ * 削除される名前。上限で打ち切り、「ほか n 件」を添える。
+ * 残数は表示済みの行ではなく全件 (`counts.removed`) から出す (サーバーは items を打ち切るため)。
+ */
 export function backupRemovedNames(plan: BackupRestorePlan, limit = 5): string[] {
-  const names = plan.plans
-    .filter((item) => plan.selected.includes(item.target))
-    .flatMap((item) => item.items.filter((entry) => entry.status === "removed").map((entry) => entry.name));
-  if (names.length <= limit) return names;
-  return [...names.slice(0, limit), `ほか ${names.length - limit} 件`];
+  const selectedPlans = plan.plans.filter((item) => plan.selected.includes(item.target));
+  const names = selectedPlans.flatMap((item) =>
+    item.items.filter((entry) => entry.status === "removed").map((entry) => entry.name),
+  );
+  const total = selectedPlans.reduce((sum, item) => sum + item.counts.removed, 0);
+  const shown = names.slice(0, limit);
+  if (total <= shown.length) return shown;
+  return [...shown, `ほか ${total - shown.length} 件`];
 }
 
 export function backupWarningsOf(plan: BackupRestorePlan): string[] {
@@ -144,6 +150,11 @@ export function backupTargetPlanOf(plan: BackupRestorePlan, target: BackupTarget
 /** 書き出し前の確認に出す件数。スキルは件数だけを出し、復元可否は restore plan で確かめる */
 export function backupExportSummary(check: BackupExportCheck): string {
   return check.entries.map((entry) => `${BACKUP_TARGET_LABELS[entry.target]} ${entry.count} 件`).join(" / ");
+}
+
+/** 1 対象分の件数。見積りに無ければ undefined (0 件と「まだ取れていない」を区別する) */
+export function backupExportCountOf(check: BackupExportCheck | null, target: BackupTarget): number | undefined {
+  return check?.entries.find((entry) => entry.target === target)?.count;
 }
 
 /** 書き出しの可否。スキルだけが `available: false` になり得る */

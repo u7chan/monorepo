@@ -238,29 +238,42 @@ export function createBackupService(deps: BackupServiceDeps): BackupService {
 
     const currentAgents = deps.db.listAgents();
     const universe = promptUniverse(parsed);
-    const currentSkills = skillsSelected ? await listCommonSkills(deps.workspace) : { names: [], error: null };
+    // 一覧はスキルを置き換えるときの削除対象と、エージェントの許可リストの警告の両方で使う。
+    // 置き換えるときに取れないと「バックアップに無い既存スキル」を決められないため、
+    // 何も変更せずブロックする (一覧が取れないまま全置換を成功にしない)
+    const currentSkills =
+      skillsSelected || agentsSelected ? await listCommonSkills(deps.workspace) : { names: [], error: null };
     const skillRun = skillsSelected && parsed.skillsZip ? await dryRunSkills(parsed.skillsZip) : null;
+    const listingBlocker: BackupBlocker | null =
+      !skillsSelected || currentSkills.error === null
+        ? null
+        : { code: "skill_unreadable", message: messageFor(currentSkills.error), names: [] };
     const skills: SkillDraft | null = skillRun
       ? {
           importPlan: skillRun.importPlan,
           plan: planSkills({
             current: currentSkills.names,
             importPlan: skillRun.importPlan,
-            blocker: skillRun.blocker,
+            blocker: skillRun.blocker ?? listingBlocker,
           }),
         }
       : null;
 
     const known = deps.knownSkills?.();
-    // スキルを置き換えるときは、適用後の一覧 (取り込む分) を正にして名前の警告を出す
-    const commonAfter = skills ? (skills.importPlan?.skills ?? []).map((entry) => entry.name) : currentSkills.names;
+    // 名前の警告は「適用後の一覧」が分かるときだけ出す。スキルを置き換えるなら取り込む分、
+    // 置き換えないなら現在の一覧で、どちらも取得できていないときは警告しない (誤警告を作らない)
+    const commonAfter: ReadonlySet<string> | undefined = skills
+      ? new Set((skills.importPlan?.skills ?? []).map((entry) => entry.name))
+      : currentSkills.error === null
+        ? new Set(currentSkills.names)
+        : undefined;
     const tools = deps.knownTools?.();
 
     const normalized: NormalizedAgent[] = parsed.agents.map((entry) =>
       normalizeBackupAgent(entry, {
         promptUniverse: universe,
         model: deps.models,
-        knownCommonSkills: new Set(commonAfter),
+        knownCommonSkills: commonAfter,
         knownBuiltinSkills: known?.builtin ? new Set(known.builtin) : undefined,
         knownTools: tools ? new Set(tools) : undefined,
       }),
@@ -314,7 +327,15 @@ export function createBackupService(deps: BackupServiceDeps): BackupService {
       } else {
         try {
           const check = await deps.skillArchive.checkSkillsExport();
-          entries.push({ target: "skills", count: check.entries, bytes: check.bytes, available: true });
+          // `entries` は ZIP のエントリ数 (SKILL.md と付随ファイル) なので、画面の件数には
+          // 発見済みフォルダ数を使う。一覧が取れないときだけエントリ数で代用する
+          const listed = await listCommonSkills(deps.workspace);
+          entries.push({
+            target: "skills",
+            count: listed.error === null ? listed.names.length : check.entries,
+            bytes: check.bytes,
+            available: true,
+          });
           bytes += check.bytes;
         } catch (error) {
           // `.agents/skills` が無い (404) は 0 件として扱い、空の skills.zip を書き出す
@@ -336,7 +357,9 @@ export function createBackupService(deps: BackupServiceDeps): BackupService {
   const deleteSkill = async (name: string): Promise<void> => {
     const sandbox = deps.skillSandbox;
     if (!sandbox) throw new Error("Sandbox is not configured for skills");
-    const relativePath = `${COMMON_SKILLS_DIR}/${name}`;
+    // サンドボックスの削除 API はスキルのファイル (.agents/skills/<name>/SKILL.md) を受ける
+    // (フォルダを渡すと 400 になり、全削除も復元も失敗する)
+    const relativePath = `${COMMON_SKILLS_DIR}/${name}/SKILL.md`;
     for (let attempt = 0; ; attempt += 1) {
       const preview = await sandbox.previewSkillDelete(relativePath);
       try {
@@ -362,8 +385,22 @@ export function createBackupService(deps: BackupServiceDeps): BackupService {
         return [{ target: "skills", message: "The skills archive could not be applied" }];
       }
       const applied = result as SandboxSkillsImportApply;
-      // 適用に失敗したものは残す。既存スキルを全滅させないよう、削除は適用の後だけ行う
+      // 計画で取り込むと決めたスキルが applied にも skipped にも無い / 置換できずに skipped に
+      // 入った場合は、全置換として未完了なので partial にする (内容が同一の skipped は成功扱い)
       const imported = new Set(applied.applied.map((item) => item.name));
+      const skipped = new Set(applied.skipped.map((item) => item.name));
+      for (const item of applied.skipped) {
+        if (!draft.plan.importNames.includes(item.name)) continue;
+        failed.push({ target: "skills", message: `${item.name}: ${item.reason}` });
+      }
+      for (const name of draft.plan.importNames) {
+        if (imported.has(name) || skipped.has(name)) continue;
+        failed.push({ target: "skills", message: `${name}: not applied` });
+      }
+      // 取り込みに失敗したら削除まで進めない (置換できていないスキルを消して被害を広げない)。
+      // 再実行すれば残りの適用と削除が続く
+      if (failed.length > 0) return failed;
+      // 適用に失敗したものは残す。既存スキルを全滅させないよう、削除は適用の後だけ行う
       for (const name of draft.plan.deleteNames) {
         if (imported.has(name)) continue;
         try {

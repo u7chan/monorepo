@@ -12,7 +12,7 @@ import {
   backupTotalSummary,
   backupWarningTexts,
 } from "../src/lib/backup";
-import { createBackup, isBackupFileName } from "../src/lib/backupFlow";
+import { createBackup, createBackupStore, isBackupFileName } from "../src/lib/backupFlow";
 import type { BackupRestorePlan, BackupRestoreResult, BackupTarget } from "../src/types";
 
 const COUNTS = { added: 0, updated: 0, identical: 0, removed: 0, reordered: 0 };
@@ -53,7 +53,8 @@ function deferred<T>() {
 }
 
 interface Calls {
-  plan: [string, string[]][];
+  /** 初回 plan は targets を送らない (undefined) */
+  plan: [string, readonly BackupTarget[] | undefined][];
   apply: [string, string[]][];
   download: [string, string][];
   notes: string[];
@@ -61,7 +62,7 @@ interface Calls {
 
 function makeBackup(
   options: {
-    plan?: (targets: readonly BackupTarget[]) => Promise<BackupRestorePlan>;
+    plan?: (targets: readonly BackupTarget[] | undefined) => Promise<BackupRestorePlan>;
     apply?: (targets: readonly BackupTarget[]) => Promise<BackupRestoreResult>;
   } = {},
 ) {
@@ -77,14 +78,18 @@ function makeBackup(
     exportUrl: (targets) => `http://localhost/api/backup/export?targets=${targets.join(",")}`,
     startDownload: (url, name) => calls.download.push([url, name]),
     planRestore: async (file, targets) => {
-      calls.plan.push([file.name, [...targets]]);
-      return options.plan ? options.plan(targets) : planOf({ selected: [...targets] });
+      calls.plan.push([file.name, targets === undefined ? undefined : [...targets]]);
+      // サーバーは targets 省略時に manifest の全対象を選ぶ
+      return options.plan
+        ? options.plan(targets)
+        : planOf({ selected: targets === undefined ? ["prompts", "agents"] : [...targets] });
     },
     applyRestore: async (file, targets) => {
       calls.apply.push([file.name, [...targets]]);
       return options.apply ? options.apply(targets) : { complete: true, plan: planOf(), applied: [], failed: [] };
     },
     resetDefinitions: async () => ({ complete: true, agents: 2, prompts: 1, skills: 1, failed: [] }),
+    blockedPlan: (error) => (error as { plan?: BackupRestorePlan } | null)?.plan ?? null,
     reload: () => {
       reloads += 1;
     },
@@ -162,6 +167,7 @@ test("書き出しは check の保存名で URL を開き、進行中は二重�
     planRestore: async () => planOf(),
     applyRestore: async () => ({ complete: true, plan: planOf(), applied: [], failed: [] }),
     resetDefinitions: async () => ({ complete: true, agents: 0, prompts: 0, skills: 0, failed: [] }),
+    blockedPlan: () => null,
     reload: () => {},
     note: (text) => calls.notes.push(text),
   });
@@ -176,8 +182,8 @@ test("ファイル選択で全体 plan を取り、削除があるときはチ�
   const flow = backup.state().restore;
   assert.equal(flow.status, "review");
   if (flow.status !== "review") return;
-  // 最初は対象をすべて (= サーバーの全対象) で plan する
-  assert.deepEqual(calls.plan, [["u7agent-backup.zip", ["prompts", "agents", "skills"]]]);
+  // 初回は targets を送らない (一部の対象だけの ZIP でも 400 にしない)
+  assert.deepEqual(calls.plan, [["u7agent-backup.zip", undefined]]);
   assert.deepEqual(flow.plan.manifest.targets, ["prompts", "agents"]);
   assert.equal(flow.confirmed, false);
 
@@ -257,6 +263,89 @@ test("適用の失敗は確認へ戻して理由を出し、再試行できる",
   // もう一度送れる (サーバーは受信した ZIP で再判定する)
   await backup.apply();
   assert.equal(calls.apply.length, 2);
+});
+
+test("削除件数は打ち切られた行ではなく counts から数える", () => {
+  // items は 5 件までしか載らないが、実際の削除は 60 件
+  const plan = planOf({
+    selected: ["prompts"],
+    plans: [
+      {
+        target: "prompts",
+        counts: { ...COUNTS, removed: 60 },
+        items: ["a", "b", "c", "d", "e"].map((id) => ({ id, name: `name-${id}`, status: "removed" as const })),
+        truncated: true,
+        total: 0,
+        warnings: [],
+        blocker: null,
+      },
+    ],
+  });
+  assert.deepEqual(backupRemovedNames(plan), ["name-a", "name-b", "name-c", "name-d", "name-e", "ほか 55 件"]);
+});
+
+test("適用の 409 blocked が添える再 plan を取り込み、古い plan を表示し続けない", async () => {
+  const fresh = withRemoval(["prompts"]);
+  fresh.blocked = true;
+  fresh.changed = false;
+  fresh.plans[0].blocker = { code: "prompt_in_use", message: "raw", names: ["Greeting"] };
+  const { backup, calls } = makeBackup({
+    apply: async () => {
+      throw Object.assign(new Error("The backup cannot be restored as selected"), {
+        code: "blocked",
+        plan: fresh,
+      });
+    },
+  });
+  await backup.selectRestoreFile(zip());
+  backup.setConfirmed(true);
+  await backup.apply();
+  const flow = backup.state().restore;
+  assert.equal(flow.status, "review");
+  if (flow.status !== "review") return;
+  // 409 の plan が表示に反映され、確認はやり直しになる
+  assert.deepEqual(flow.plan, fresh);
+  assert.equal(flow.confirmed, false);
+  assert.equal(calls.notes.at(-1), "The backup cannot be restored as selected");
+});
+
+test("再描画で reload が差し替わってもストアは作り直さず、開いたダイアログを保つ", async () => {
+  let reloads = 0;
+  const store = createBackupStore((reload) =>
+    createBackup({
+      checkExport: async (targets) => ({ targets: [...targets], entries: [], bytes: 0, fileName: "x.zip" }),
+      exportUrl: () => "http://localhost/api/backup/export",
+      startDownload: () => {},
+      planRestore: async () => planOf(),
+      applyRestore: async () => ({ complete: true, plan: planOf(), applied: [], failed: [] }),
+      resetDefinitions: async () => ({ complete: true, agents: 0, prompts: 0, skills: 0, failed: [] }),
+      blockedPlan: () => null,
+      reload,
+      note: () => {},
+    }),
+  );
+  await store.backup.selectRestoreFile(zip());
+  assert.equal(store.backup.state().restore.status, "review");
+  const mounted = store.backup;
+  // App の再描画に相当する (deps の差し替え)
+  store.update({ reload: () => (reloads += 1) });
+  assert.equal(store.backup, mounted);
+  assert.equal(store.backup.state().restore.status, "review");
+  // 作り直すと idle に戻る (これが再描画でダイアログが閉じる原因だった)
+  const recreated = createBackupStore((reload) =>
+    createBackup({
+      checkExport: async (targets) => ({ targets: [...targets], entries: [], bytes: 0, fileName: "x.zip" }),
+      exportUrl: () => "http://localhost/api/backup/export",
+      startDownload: () => {},
+      planRestore: async () => planOf(),
+      applyRestore: async () => ({ complete: true, plan: planOf(), applied: [], failed: [] }),
+      resetDefinitions: async () => ({ complete: true, agents: 0, prompts: 0, skills: 0, failed: [] }),
+      blockedPlan: () => null,
+      reload,
+      note: () => {},
+    }),
+  );
+  assert.equal(recreated.backup.state().restore.status, "idle");
 });
 
 test("全削除は確認を開いてから 1 回だけ実行する", async () => {

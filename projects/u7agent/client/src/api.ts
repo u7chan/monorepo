@@ -116,12 +116,16 @@ export interface ApiErrorDetails {
   state?: "not_stored";
   /** 応答の本文が持つ機械可読なコード（開始拒否の空き不足など）。分類できない失敗は undefined */
   code?: string;
+  /** バックアップの復元が 409 で返す再 plan。画面はこれを表示に取り込む */
+  plan?: BackupRestorePlan;
 }
 
 export class ApiError extends Error {
   public readonly state?: "not_stored";
   /** 応答の本文の `code`。文言ではなくこの値で分岐する（サーバーは固定文言を変えうる） */
   public readonly code?: string;
+  /** 復元の 409 が添える再 plan。ダイアログの表示を最新にするために使う */
+  public readonly plan?: BackupRestorePlan;
 
   constructor(
     message: string,
@@ -132,6 +136,7 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.state = details.state;
     this.code = details.code;
+    this.plan = details.plan;
   }
 }
 
@@ -318,9 +323,14 @@ async function apiError(res: Response): Promise<ApiError> {
     typeof body === "object" && body !== null && "code" in body && typeof body.code === "string"
       ? body.code
       : undefined;
+  const plan =
+    typeof body === "object" && body !== null && "plan" in body && typeof body.plan === "object" && body.plan !== null
+      ? (body.plan as BackupRestorePlan)
+      : undefined;
   return new ApiError(message, res.status, {
     ...(state === undefined ? {} : { state }),
     ...(code === undefined ? {} : { code }),
+    ...(plan === undefined ? {} : { plan }),
   });
 }
 
@@ -540,9 +550,12 @@ export const getBackupExportCheck = async (
 export const backupExportUrl = (targets: readonly BackupTarget[] = ALL_BACKUP_TARGETS): string =>
   backupUrl("/api/backup/export", backupQuery(targets));
 
-/** 復元の plan。何も変更せず、現在との差分・削除対象・警告・ブロッカーを返す */
-export const planBackupRestore = async (file: File, targets: readonly BackupTarget[]): Promise<BackupRestorePlan> => {
-  const response = await fetch(backupUrl("/api/backup/restore", backupQuery(targets, { dryRun: "true" })), {
+/**
+ * 復元の plan。何も変更せず、現在との差分・削除対象・警告・ブロッカーを返す。
+ * `targets` を省略するとサーバーが manifest の全対象を使う (一部の対象だけの ZIP でも 400 にしない)。
+ */
+export const planBackupRestore = async (file: File, targets?: readonly BackupTarget[]): Promise<BackupRestorePlan> => {
+  const response = await fetch(backupUrl("/api/backup/restore", backupQuery(targets ?? [], { dryRun: "true" })), {
     method: "POST",
     body: file,
   });

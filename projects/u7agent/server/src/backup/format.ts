@@ -152,8 +152,14 @@ export async function readBackup(path: string, options: ReadBackupOptions): Prom
   const manifestEntry = entries.get(BACKUP_MANIFEST_ENTRY);
   if (!manifestEntry) throw invalid("Backup manifest is missing");
 
+  // JSON の上限は 3 本の合計で見る (1 本ずつ 16 MiB を通すと合計 48 MiB まで展開でき、
+  // `BACKUP_MAX_BYTES` の見積りと合わなくなる)
+  let jsonBytes = 0;
   const readJson = async (entry: ZipReadEntry): Promise<unknown> => {
-    if (entry.size > BACKUP_JSON_MAX_BYTES) throw invalid(`Backup entry is too large: ${entry.name}`);
+    jsonBytes += entry.size;
+    if (jsonBytes > BACKUP_JSON_MAX_BYTES) {
+      throw invalid(`Backup JSON is too large (max ${BACKUP_JSON_MAX_BYTES} bytes)`);
+    }
     const target = join(options.dir, entry.name);
     await extractZipEntry({ archive: path, entry, target, dataLimit: archive.dataLimit });
     const text = await readFile(target, "utf8");
