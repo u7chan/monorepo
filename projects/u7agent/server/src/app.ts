@@ -861,6 +861,9 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     sharedContents,
     sharedContentExclusions,
     close: async () => {
+      // 資格情報の書込み (OAuth のトークン更新) を中断すると、更新済みの refresh token を保存できず
+      // 次回起動が invalid_grant になる。プロセス終了前に完了を待つ
+      await pi?.modelRuntime.settleCredentialWrites();
       // 実行中の試行はプロセスの close でだけ interrupt する (リクエストの signal には結び付けない)
       await contentTrials.close();
       // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
