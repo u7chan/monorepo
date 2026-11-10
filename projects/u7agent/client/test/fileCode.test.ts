@@ -8,6 +8,7 @@ import {
   FILE_PREVIEW_MAX_TOKENS,
   isHtmlPath,
   isMarkdownPath,
+  isSvgPath,
   previewCopyText,
   previewLang,
 } from "../src/lib/fileCode";
@@ -179,5 +180,15 @@ test("Markdown を描画するパスを判定する", () => {
     "",
   ]) {
     assert.equal(isMarkdownPath(path), false, path);
+  }
+});
+
+test("SVG を画像として描くパスを判定する", () => {
+  for (const path of ["a.svg", "A.SVG", "dir/b.Svg", "dir.v2/page.svg"]) {
+    assert.equal(isSvgPath(path), true, path);
+  }
+  // raw の allowlist とは別で、拡張子だけを見る (.svgz は圧縮形式なので対象外)
+  for (const path of ["a.svgz", "a.svg.txt", "a.html", "svg", ".svg", "dir/.svg", ""]) {
+    assert.equal(isSvgPath(path), false, path);
   }
 });

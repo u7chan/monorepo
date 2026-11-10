@@ -4,7 +4,7 @@
  */
 
 import { isAudioName, isImageName } from "./attachments";
-import { isHtmlPath, isMarkdownPath } from "./fileCode";
+import { isHtmlPath, isMarkdownPath, isSvgPath } from "./fileCode";
 
 /**
  * 同時に開けるタブ数。超えたら最も古いタブを閉じる。
@@ -23,14 +23,17 @@ export type PreviewMode = "source" | "preview";
 export type PreviewModes = Record<string, PreviewMode>;
 
 /**
- * タブの表示モード。既定は HTML (iframe)・Markdown (`MarkdownView`)・画像 (raw の `<img>`)・音声 (raw の `<audio>`) がプレビューで、
- * 他の拡張子はソース。本文と同じく own property だけを見る (`constructor` や `__proto__` のような名前のパスを
- * 「選択済み」と誤認しないため)。
+ * タブの表示モード。既定は HTML (iframe)・Markdown (`MarkdownView`)・SVG (data URL の `<img>`)・画像 (raw の
+ * `<img>`)・音声 (raw の `<audio>`) がプレビューで、他の拡張子はソース。本文と同じく own property だけを見る
+ * (`constructor` や `__proto__` のような名前のパスを「選択済み」と誤認しないため)。
  */
 export function previewModeFor(modes: PreviewModes, path: string): PreviewMode {
   const mode = Object.hasOwn(modes, path) ? modes[path] : undefined;
   return (
-    mode ?? (isHtmlPath(path) || isMarkdownPath(path) || isImageName(path) || isAudioName(path) ? "preview" : "source")
+    mode ??
+    (isHtmlPath(path) || isMarkdownPath(path) || isSvgPath(path) || isImageName(path) || isAudioName(path)
+      ? "preview"
+      : "source")
   );
 }
 

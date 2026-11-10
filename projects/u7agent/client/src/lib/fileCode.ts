@@ -58,16 +58,28 @@ export function previewLang(path: string): string | null {
   return name === "dockerfile" ? "bash" : null;
 }
 
-/**
- * プレビューで描画する対象か。拡張子の判定は previewLang と同じ規則 (ドットファイルは拡張子と見なさない) で、
- * `.xhtml` / `.svg` は対象外にする。拡張子の判定はサーバーの文書分岐と同じ規則 (docs/file-preview.md)。
- */
-export function isHtmlPath(path: string): boolean {
+/** 拡張子を小文字で取る。拡張子なしとドットファイルは undefined (previewLang と同じ規則)。 */
+function fileExtension(path: string): string | undefined {
   const name = (path.split("/").pop() ?? "").toLowerCase();
   const dot = name.lastIndexOf(".");
-  if (dot <= 0) return false;
-  const extension = name.slice(dot + 1);
+  return dot <= 0 ? undefined : name.slice(dot + 1);
+}
+
+/**
+ * プレビューで HTML として描画する対象か。`.xhtml` は対象外にする。拡張子の判定はサーバーの文書分岐と
+ * 同じ規則 (docs/file-preview.md)。
+ */
+export function isHtmlPath(path: string): boolean {
+  const extension = fileExtension(path);
   return extension === "html" || extension === "htm";
+}
+
+/**
+ * プレビューで画像として描く対象か。raw 配信の allowlist とは別で、SVG は本文を `<img>` へ渡す
+ * (docs/file-preview.md#svg-プレビュー)。
+ */
+export function isSvgPath(path: string): boolean {
+  return fileExtension(path) === "svg";
 }
 
 /**
