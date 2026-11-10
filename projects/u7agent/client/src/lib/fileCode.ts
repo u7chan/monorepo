@@ -75,7 +75,7 @@ export function isHtmlPath(path: string): boolean {
 }
 
 /**
- * プレビューで静止画像として描く対象か。raw 配信の allowlist とは別で、SVG は本文を `<img>` へ渡す
+ * プレビューで画像として描く対象か。raw 配信の allowlist とは別で、SVG は本文を `<img>` へ渡す
  * (docs/file-preview.md#svg-プレビュー)。
  */
 export function isSvgPath(path: string): boolean {

@@ -183,7 +183,7 @@ test("Markdown を描画するパスを判定する", () => {
   }
 });
 
-test("SVG を静止画像として描くパスを判定する", () => {
+test("SVG を画像として描くパスを判定する", () => {
   for (const path of ["a.svg", "A.SVG", "dir/b.Svg", "dir.v2/page.svg"]) {
     assert.equal(isSvgPath(path), true, path);
   }

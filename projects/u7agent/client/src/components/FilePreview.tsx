@@ -36,7 +36,7 @@ import {
 } from "../lib/fileTabs";
 import { fileTreeBreadcrumbs, fileTreeFetchPath, fileTreeParentPath } from "../lib/fileTree";
 import { imageMetaLabel, type ImageDimensions } from "../lib/imageMeta";
-import { svgDataUrl } from "../lib/svgPreview";
+import { svgPreviewUrl } from "../lib/svgPreview";
 import { LoadingMark } from "./LoadingMark";
 import { SegmentedControl } from "./SegmentedControl";
 import { MarkdownFilePreview } from "./markdown/MarkdownFilePreview";
@@ -171,12 +171,9 @@ export function FilePreview({
   // プレビューの相対画像は、表示中のファイルと同じディレクトリを基準にする (fetchPath の親)
   const markdownDir = fileTreeParentPath(fetchPath);
   const markdownRawUrl = useCallback((path: string) => fileRawUrl(path, previewVersion), [previewVersion]);
-  // SVG は本文を data URL にして <img> で描く (スクリプトも外部参照も動かない静止画)。
-  // 空のファイルは既存の「（空のファイル）」へ倒す
-  const svgPreview = useMemo(
-    () => (showSvg && text !== undefined && text !== "" ? svgDataUrl(text) : null),
-    [showSvg, text],
-  );
+  // SVG は本文を data URL にして <img> で描く (スクリプトも外部参照も動かない画像)。
+  // 空白だけの本文は XML として描けないため、既存の「（空のファイル）」へ倒す
+  const svgPreview = useMemo(() => (showSvg && text !== undefined ? svgPreviewUrl(text) : null), [showSvg, text]);
   const handleImageLoad = (event: SyntheticEvent<HTMLImageElement>) => {
     setLoadedImage({
       path: activePath,

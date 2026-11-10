@@ -18,3 +18,11 @@ export function svgDataUrl(text: string): string {
   }
   return `data:image/svg+xml;base64,${btoa(binary)}`;
 }
+
+/**
+ * プレビューで `<img>` に渡す URL。空白だけの本文は XML のルート要素を持たず、画像として読み込めないため
+ * 空のファイルとして null を返す。
+ */
+export function svgPreviewUrl(text: string): string | null {
+  return text.trim() === "" ? null : svgDataUrl(text);
+}

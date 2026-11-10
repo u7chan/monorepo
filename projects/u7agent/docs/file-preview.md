@@ -1,6 +1,6 @@
 # ファイルプレビューの表示（行番号 / シンタックスハイライト / HTML・Markdown・SVG 描画 / 画像・音声）
 
-ファイル画面（`FileTreePage` / `SessionFilesPanel` / スキル設定のファイルタブ → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html/<root 相対>` を iframe で描画し、Markdown は同じ本文をチャットと共通の `MarkdownView` で描画し、SVG は同じ本文を data URL の `<img>` で静止画として描き、画像 / 音声は `GET /api/files/raw` を `<img>` / `<audio>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、SVG の data URL は `client/src/lib/svgPreview.ts`、Markdown の相対パスは `client/src/lib/markdownAsset.ts`、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api-files.md](api-files.md#テキストプレビュー) を参照する。
+ファイル画面（`FileTreePage` / `SessionFilesPanel` / スキル設定のファイルタブ → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html/<root 相対>` を iframe で描画し、Markdown は同じ本文をチャットと共通の `MarkdownView` で描画し、SVG は同じ本文を data URL の `<img>` で画像として描き、画像 / 音声は `GET /api/files/raw` を `<img>` / `<audio>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、SVG の data URL は `client/src/lib/svgPreview.ts`、Markdown の相対パスは `client/src/lib/markdownAsset.ts`、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api-files.md](api-files.md#テキストプレビュー) を参照する。
 
 ツリーの表示は [file-tree.md](file-tree.md)、行の操作は [file-actions.md](file-actions.md) を参照する。
 
@@ -11,7 +11,7 @@
 3. **DOM 文字列を作らない**: `innerHTML` / `dangerouslySetInnerHTML` / インライン `style` を使わない（本番の CSP は `style-src 'self'`）。行番号もクラスと CSS だけで出す。`client/test/filePreviewSafety.test.ts` の限定的な安全性検査で補助する（[検査範囲](testing.md#残す限定的な検査)）。
 4. **行番号と本文を 1 対 1 にする**: 番号の列は本文と同じ行送りで重ね、行数は本文から数える。ブラウザーの末尾改行の扱いに依存させない。
 5. **HTML の描画は応答ヘッダと iframe 属性で隔離する**: iframe の src は `GET /api/files/html/<root 相対>` で、既定はストレージ有効モードの別オリジン（別リスナー）、パス行のスイッチでアプリと同一オリジンの隔離へ戻せる（後述）。同じルートが文書と相対アセット（画像 / テキスト）を配るが、拡張子ごとに CSP / Content-Type を分ける。クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は、親の CSP を継承してインライン style / script が動かないため使わない。
-6. **SVG は静止画像としてだけ描く**: 取得した本文を data URL の `<img>` に渡す。`<img>` に載せた SVG はスクリプトも外部参照も動かないため、raw の allowlist も iframe も広げない（[SVG プレビュー](#svg-プレビュー)）。
+6. **SVG は画像としてだけ描く**: 取得した本文を data URL の `<img>` に渡す。`<img>` に載せた SVG は secure animated mode（宣言的アニメーションは動くが、スクリプトと外部参照は動かない）になるため、raw の allowlist も iframe も広げない（[SVG プレビュー](#svg-プレビュー)）。
 
 ## パイプライン
 
@@ -177,7 +177,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ### クライアントの振る舞い
 
-- 既定はプレビュー。他の拡張子は従来どおりソース表示で、ソース / プレビュー の切替は HTML と Markdown のタブに出し、別オリジンのスイッチは HTML のタブにだけ出す
+- 既定はプレビュー。他の拡張子は従来どおりソース表示で、ソース / プレビュー の切替は HTML と Markdown と SVG のタブに出し、別オリジンのスイッチは HTML のタブにだけ出す
 - iframe の src は `client/src/api.ts` の `fileHtmlPreviewUrl(path)` が組み立てるパス形式の URL で、path はセグメント単位で encode する（`client/src/lib/fileUrl.ts`）。ストレージ有効側の URL は `fileStoragePreviewUrl(path, port)` で組み立てる（`http://<location.hostname>:<port>` の別オリジン。`location.host` は使わない = dev はアプリが Vite の 3000 に居るため）。ポリシー（CSP の段階）はクライアントへ配らない
 - パス行の別オリジンのスイッチ（`ToggleSwitch` の `size="sm"`。パス行の ソース / プレビュー と同じ高さに揃える）がタブごとの配信元を切り替える（`role="switch"` + `aria-checked`）。**既定は ON（別オリジン）**で、OFF にすると現行どおりの同一オリジン URL + `allow-scripts` へ戻る。切替は iframe の src が変わる = プレビューが再読み込みされる。`title` には押した結果を状態別に書き、OFF のときは「別オリジンで開き直し、localStorage などを使えるようにします」、ON のときは「アプリと同じオリジンで開き直し、localStorage などを使えなくします」にする
 - ポートは health の `filePreviewPort`（ブラウザから見たポート）で受ける。未取得の間はスイッチを無効にし、client にポートを焼き込まない。既定が ON でもポートが無ければ隔離のまま開く（`aria-checked` も実体に合わせる）。`App` が health から受けて、ファイルを開ける面（設定 → ファイル / チャットの作業フォルダ面（右パネル / sheet）/ チャットのスキル面 / 設定 → スキルのファイルタブ）の `FileBrowser` へ prop で渡す（面ごとに health を取り直さない）
@@ -222,7 +222,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - 画像は**表示中のファイルのディレクトリ基準**で `GET /api/files/raw` の URL へ解決する（`client/src/lib/markdownAsset.ts` の `resolveMarkdownAssetPath` と `components/markdown/MarkdownImageRefs.tsx` の `MarkdownFileImageProvider`。チャット本文の cwd 基準の provider をこの部分木だけ差し替える）
   - 先頭の `/` はワークスペース root からの絶対パス、`..` はワークスペース root で止める（root の外へ出る src は解決しない）。ファイル名に無い `?` / `#` 以降は落とし、前後の空白は無視する
   - 解決できない src は入力をそのまま使う。Markdown 記法側の `safeUrl` が scheme 付き・`//`・空白付きを既に落とすため、描画される画像は同一オリジンの相対パスだけになる
-  - 配信できる実体は raw の allowlist に従う（`.svg`・動画・フォントは 400 で表示できない）。SVG ファイル自体は、そのファイルをタブで開けば静止画としてプレビューできる（後述）。URL に raw の版（`previewVersion`）を付けるので、「再読み込み」で画像も取り直す
+  - 配信できる実体は raw の allowlist に従う（`.svg`・動画・フォントは 400 で表示できない）。SVG ファイル自体は、そのファイルをタブで開けば画像としてプレビューできる（後述）。URL に raw の版（`previewVersion`）を付けるので、「再読み込み」で画像も取り直す
 - 読み幅はチャットと同じ `max-w-220` に収め、広い面では中央へ寄せる（横に長いコード・表・図はそれぞれの枠で横スクロールする）
 - 本文の行数（`md · N 行`）とコピーはソース表示のときだけ出す（HTML と同じ扱い。コピーの正規化は [コピー](#コピー)）
 - 相対リンク（`[t](./other.md)`）でワークスペースのファイルをタブとして開く導線は持たない（アプリの URL へ解決され、リンク切れになる）。外部 URL のリンクは従来どおり新しいタブで開く
@@ -231,15 +231,16 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 
 ## SVG プレビュー
 
-`.svg` のタブ（`isSvgPath`）は、行番号付きのソース表示と静止画像のプレビューを切り替えられる。**既定はプレビュー**で、切替はパス行の ソース / プレビュー（HTML / Markdown と共通の `SegmentedControl`。別オリジンのスイッチは出さない）。
+`.svg` のタブ（`isSvgPath`）は、行番号付きのソース表示と画像のプレビューを切り替えられる。**既定はプレビュー**で、切替はパス行の ソース / プレビュー（HTML / Markdown と共通の `SegmentedControl`。別オリジンのスイッチは出さない）。
 
 - 本文は HTML / Markdown と同じ `GET /api/files/preview` で取得し、`client/src/lib/svgPreview.ts` の `svgDataUrl` で `data:image/svg+xml;base64,…` にして `<img>` の src へ渡す。サーバーに SVG 用のルートを足さず、raw の allowlist も変えない
 - base64 にするのは、percent encoding が非 ASCII で最大 9 倍に膨らむため（本文は 2 MiB まで取得できる）。本文はタブごとに保持し、ソース表示へ切り替えても取り直さない
-- **`<img>` に載せた SVG はスクリプトも外部参照も動かない**（SVG の secure static mode）。インラインの `<style>`、gradient / filter、CSS アニメーション、SMIL、`data:` の画像は描ける。外部の画像 / CSS / フォント（`<image href="./a.png">` など）は読み込まれない
-- raw の allowlist に SVG を足さないのは、raw を直接ナビゲートされると同一オリジンの文書としてスクリプトが動くため。iframe の文書として配る案も、SVG に期待するのは静止画であり、HTML と同じ信頼モデルへ広げる理由がないので採らない
-- 空のファイルは画像と同じく「（空のファイル）」、本文の取得前は `LoadingMark` を出す（本文を取得するので、画像 / 音声 / HTML のプレビューとはここが違う）
+- **`<img>` に載せた SVG は secure animated mode になり、スクリプトも外部参照も動かない**。インラインの `<style>`、gradient / filter、CSS アニメーション、SMIL、`data:` の画像は描ける。外部の画像 / CSS / フォント（`<image href="./a.png">` など）は読み込まれない
+- raw の allowlist に SVG を足さないのは、raw を直接ナビゲートされると同一オリジンの文書としてスクリプトが動くため。iframe の文書として配る案も、SVG に期待するのは画像であり、HTML と同じ信頼モデルへ広げる理由がないので採らない
+- 本文が空、または空白だけなら「（空のファイル）」を出す（XML のルート要素が無く、`<img>` では画像として読み込めないため）。本文の取得前は `LoadingMark` を出す（本文を取得するので、画像 / 音声 / HTML のプレビューとはここが違う）
+- XML として不正な本文は、画像プレビューと同じくブラウザーの読み込み失敗表示になる（アプリ側のエラー文言は出さない）
 - パス行の寸法 · サイズは画像と同じ `imageMetaLabel`。`width` / `height` を持たない SVG は `<img>` の内在サイズ（ブラウザーの既定）になる
-- ソース表示の行数とコピーは Markdown と同じくプレビュー中は出さない。リンクのクリック・文字の選択・スクリプトは動かない（静止画として扱う）
+- ソース表示の行数とコピーは Markdown と同じくプレビュー中は出さない。リンクのクリック・文字の選択・スクリプトは動かない（画像として扱う）
 - 添付のサムネイル・画像生成の保存形式・raw 配信は変えない（[session-files.md](session-files.md)、[image-generation.md](image-generation.md#保存できない形式のモデル)）
 
 ## 画像プレビュー
@@ -282,7 +283,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 | `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と Markdown と SVG と画像と音声だけプレビュー）/ 表示モードと配信元の選択の保持と破棄（配信元の既定は別オリジン = ストレージ有効）/ タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モードと配信元）/ 保存値からの復元（表示中の繰り上がりと上限） |
 | `client/test/toggleSwitch.test.ts` | 名前付きの role=switch / aria-checked / disabled / 実 handler の状態反転 |
 | `client/test/filePreviewStorageMode.test.ts` | HTML の sandbox・配信元・切替の公開状態とポート未取得時の隔離 / srcdoc・blob・data 文書の禁止 / 別タブの noopener と操作名 / 画像の raw URL・メタ・HTML 用操作の非表示 / 音声の `<audio controls>`・raw URL・本文を取得しないこと / SVG の既定・取得待ち・raw URL を出さないこと（SSR） |
-| `client/test/svgPreview.test.ts` | SVG の data URL（MIME / 日本語とチャンク境界の往復 / `#` を生で残さない / 空文字） |
+| `client/test/svgPreview.test.ts` | SVG の data URL（MIME / 日本語とチャンク境界の往復 / `#` を生で残さない / 空文字）と、空白だけの本文を空のファイル扱いにすること |
 | `client/test/filePreviewMarkdown.test.ts` | Markdown のタブの既定（プレビュー）とソース / プレビューの公開状態 / 他拡張子に切替を出さないこと / HTML 用の操作を出さないこと / 描画した本文と dir 基準の画像 URL / 解決できない src の扱い（SSR） |
 | `client/test/markdownAsset.test.ts` | 相対 src の解決（dir 基準 / `.` と空セグメントの畳み方 / `..` の往復と root 外の拒否 / 先頭 `/` / `?`・`#` の除去 / 前後の空白）と、外部 URL・fragment だけの不採用 |
 | `client/test/imageRefresh.test.ts` | 実フックの同一 mount での再描画安定性・run 終了・手動更新 / 実 Markdown と FileBrowser → FilePreview の描画を通した面間・再 mount の URL 非衝突（SSR） |

@@ -1,7 +1,7 @@
 // SVG プレビューの data URL。ブラウザーの XML パーサーに渡る前の文字列だけを固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { svgDataUrl } from "../src/lib/svgPreview";
+import { svgDataUrl, svgPreviewUrl } from "../src/lib/svgPreview";
 
 const PREFIX = "data:image/svg+xml;base64,";
 
@@ -26,4 +26,11 @@ test("チャンク境界をまたぐ本文も欠けずに往復する (String.fr
 
 test("空文字でも data URL を返す (描画側は空のファイルを別に扱う)", () => {
   assert.equal(decode(svgDataUrl("")), "");
+});
+
+test("空白だけの本文は画像として描けないので空のファイル扱いにする", () => {
+  assert.equal(svgPreviewUrl(""), null);
+  assert.equal(svgPreviewUrl("\n\n"), null);
+  assert.equal(svgPreviewUrl("  \t\n"), null);
+  assert.equal(decode(svgPreviewUrl("<svg/>") ?? ""), "<svg/>");
 });

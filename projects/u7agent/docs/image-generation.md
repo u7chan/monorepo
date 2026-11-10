@@ -45,7 +45,7 @@
 
 ## 保存できない形式のモデル
 
-SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品として対応しない**。SVG は `RAW_IMAGE_CONTENT_TYPES` / client の `IMAGE_EXTENSIONS` / `fileKind.ts` / `agents.ts` の 4 箇所で意図的に締め出しており（同一オリジンでスクリプトが動くため）、保存・生成結果のプレビュー・raw 配信は開けない。**ファイルプレビューだけは例外**で、取得した本文を `<img>` の data URL にして静止画として描く（raw を配らず、スクリプトも動かない。[file-preview.md](file-preview.md#svg-プレビュー)）。代わりに選択肢から外し、「保存名を決める段で初めて失敗して課金だけが残る」経路を閉じる。
+SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品として対応しない**。SVG は `RAW_IMAGE_CONTENT_TYPES` / client の `IMAGE_EXTENSIONS` / `fileKind.ts` / `agents.ts` の 4 箇所で意図的に締め出しており（同一オリジンでスクリプトが動くため）、保存・生成結果のプレビュー・raw 配信は開けない。**ファイルプレビューだけは例外**で、取得した本文を `<img>` の data URL にして画像として描く（raw を配らず、スクリプトも動かない。[file-preview.md](file-preview.md#svg-プレビュー)）。代わりに選択肢から外し、「保存名を決める段で初めて失敗して課金だけが残る」経路を閉じる。
 
 - 判定規則: カタログが形式を宣言していて（`outputFormats` が空でなく）、その中に png / jpeg / webp が 1 つも無いときだけ「保存できない」と確定する。宣言なし・カタログに無い id は止めない（`isUnsaveableOutputOnly()`）
 - 一覧: 上の判定に当たるモデルは `GET /api/settings/content` の `image.models` に出ない。UI から選べず、`PUT /api/settings/content/image` もカタログ外として 400 にする
