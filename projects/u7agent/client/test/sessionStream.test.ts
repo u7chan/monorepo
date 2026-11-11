@@ -341,7 +341,6 @@ test("切断で消した thinking の末尾は、リプレイされた status �
   // 無音を検知した時点で hook が流す action (useSessionEvents の onDisconnect と同じ)
   const silent = chatReducer(record.actions.reduce(chatReducer, initialChatState), { type: "thinkingCleared" });
   assert.equal(silent.thinkingText, undefined);
-  assert.equal(silent.thinkingOpen, true, "2 行領域は run の終端まで残す");
 
   // 再接続でリプレイされる status はサーバーが thinking を落としているため、古い tail を再表示しない
   const replayed = chatReducer(silent, {
@@ -350,14 +349,13 @@ test("切断で消した thinking の末尾は、リプレイされた status �
     text: "考え中…",
   });
   assert.equal(replayed.thinkingText, undefined);
-  assert.equal(replayed.thinkingOpen, true);
   // 新しい live の delta で tail が戻る
   const resumed = chatReducer(replayed, { type: "status", state: "thinking", text: "考え中…", thinking: "再開" });
   assert.equal(resumed.thinkingText, "再開");
 });
 
 // What: 通常の切断 (EventSource.onerror が CONNECTING のまま戻る) でも、ライブの thinking 末尾を
-// 消して 2 行領域を残す。CLOSED だけが「切れた」ではないため、入口 (handleSseError) を通して確かめる。
+// 消す。CLOSED だけが「切れた」ではないため、入口 (handleSseError) を通して確かめる。
 test("SSE の error は CONNECTING でも thinking の末尾を消し、CLOSED のときだけ張り直す", () => {
   const tail = chatReducer(initialChatState, {
     type: "status",
@@ -376,7 +374,6 @@ test("SSE の error は CONNECTING でも thinking の末尾を消し、CLOSED �
   assert.deepEqual(calls, ["disconnect"], "CONNECTING でも tail を消し、張り直しは予約しない");
   const cleared = chatReducer(tail, { type: "thinkingCleared" });
   assert.equal(cleared.thinkingText, undefined, "古い tail を残さない");
-  assert.equal(cleared.thinkingOpen, true, "2 行領域は run の終端まで残す");
 
   // 復帰できない応答 (502 など) は CLOSED になり、張り直しをスケジュールする
   const closed: string[] = [];

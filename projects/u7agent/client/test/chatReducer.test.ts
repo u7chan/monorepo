@@ -1639,6 +1639,45 @@ test("旧サーバー (pendingSends 無し) の resync は待機の表示を変�
   );
 });
 
+// What: エコーは送信応答より先に描画される。payload が先に同じ送信を配ったときに新しいバブルを
+// 足すと、応答が届くまで同じ発言が 2 件並び、追従中のスクロールが跳ねる
+test("payload が先に配った pending 送信は、同じ本文のエコーへ寄せて二重にしない", () => {
+  const echoed = chatReducer(initialChatState, { type: "localUser", text: "考えて", at: 10 });
+  const resynced = chatReducer(echoed, {
+    type: "resync",
+    payload: pendingPayload([{ sendId: "send-1", runId: "run-1", text: "考えて", at: 10, state: "running" }]),
+  });
+
+  assert.deepEqual(
+    resynced.bubbles
+      .filter((bubble) => bubble.role === "user")
+      .map((bubble) => [bubble.text, bubble.sendId, bubble.runId]),
+    [["考えて", "send-1", "run-1"]],
+    "エコーへ送信IDと run id を結び付け、バブルを増やさない",
+  );
+
+  // 送信応答が遅れて届いても、同じバブルのまま受け取る
+  const echoedBack = chatReducer(resynced, { type: "echoSendId", sendId: "send-1", runId: "run-1" });
+  assert.equal(echoedBack.bubbles.filter((bubble) => bubble.role === "user").length, 1);
+});
+
+test("payload の pending 送信は、本文が違うエコーへ送信IDを結び付けない", () => {
+  const echoed = chatReducer(initialChatState, { type: "localUser", text: "自分の本文", at: 10 });
+  const resynced = chatReducer(echoed, {
+    type: "resync",
+    payload: pendingPayload([{ sendId: "send-other", runId: "run-x", text: "別の本文", at: 9, state: "running" }]),
+  });
+
+  assert.deepEqual(
+    resynced.bubbles.filter((bubble) => bubble.role === "user").map((bubble) => [bubble.text, bubble.sendId]),
+    [
+      ["自分の本文", undefined],
+      ["別の本文", "send-other"],
+    ],
+    "別クライアントの送信をエコーへ結び付けない",
+  );
+});
+
 test("run_start はその run の待機を解除し、開始の合図は状態イベントでは落とさない", () => {
   const queued = queuedEcho(initialChatState, "待機する本文", "run-b", 1);
   const started = chatReducer(queued, {
@@ -5476,12 +5515,11 @@ function thinkingState(runId = "run-1"): ChatState {
   return chatReducer(started, { type: "status", state: "thinking", text: "考え中…", thinking: "末尾の思考" });
 }
 
-test("thinking の末尾は status で入り、phase が移っても領域は閉じず text だけ消える", () => {
+test("thinking の末尾は status で入り、phase が移ると text だけ消える", () => {
   const thinking = thinkingState();
   assert.equal(thinking.thinkingText, "末尾の思考");
-  assert.equal(thinking.thinkingOpen, true);
 
-  // writing / tool / question では tail を消すが、2 行領域は run の終端まで残す
+  // writing / tool / question では tail を消す
   for (const [state, text] of [
     ["writing", "応答を書いています…"],
     ["tool", "bash を実行中…"],
@@ -5489,7 +5527,6 @@ test("thinking の末尾は status で入り、phase が移っても領域は閉
   ] as const) {
     const next = chatReducer(thinking, { type: "status", state, text });
     assert.equal(next.thinkingText, undefined, `${state} で tail を消す`);
-    assert.equal(next.thinkingOpen, true, `${state} で領域を閉じない`);
     assert.equal(next.activity, text, "phase のラベルは status の文言を使う");
   }
 });
@@ -5502,7 +5539,6 @@ test("status の再送では phase のラベルを変えず、tail だけを差�
   // thinking を載せない status は tail のクリアを意味する
   const cleared = chatReducer(resent, { type: "status", state: "thinking", text: "考え中…" });
   assert.equal(cleared.thinkingText, undefined);
-  assert.equal(cleared.thinkingOpen, true);
 });
 
 test("旧サーバー / 取りこぼしに備えて text / toolStart / assistantEnd でも tail を消す", () => {
@@ -5515,37 +5551,25 @@ test("旧サーバー / 取りこぼしに備えて text / toolStart / assistant
   assert.equal(chatReducer(thinking, { type: "assistantEnd", assistantId: "run-1:1" }).thinkingText, undefined);
 });
 
-test("切断を検知したら tail だけを消し、2 行領域は run の終端まで残す", () => {
+test("切断を検知したら tail だけを消す", () => {
   const thinking = thinkingState();
   const disconnected = chatReducer(thinking, { type: "thinkingCleared" });
   assert.equal(disconnected.thinkingText, undefined);
-  assert.equal(disconnected.thinkingOpen, true, "次の delta で同じ領域へ戻せる");
   // リプレイされた status は thinking を載せない (古い tail を再表示しない)
   const replayed = chatReducer(disconnected, { type: "status", state: "thinking", text: "考え中…" });
   assert.equal(replayed.thinkingText, undefined);
-  assert.equal(replayed.thinkingOpen, true);
 });
 
-test("resync は同じ run なら領域を開いたまま text だけ消し、run が変われば閉じる", () => {
+test("resync / runEnd / newChat は tail を落とす", () => {
   const thinking = thinkingState("run-1");
-  const sameRun = chatReducer(thinking, { type: "resync", payload: liveThinkingPayload("run-1") });
-  assert.equal(sameRun.thinkingText, undefined);
-  assert.equal(sameRun.thinkingOpen, true, "設定変更 / 圧縮 / context_edit の resync で閉じない");
+  assert.equal(
+    chatReducer(thinking, { type: "resync", payload: liveThinkingPayload("run-1") }).thinkingText,
+    undefined,
+  );
 
-  const otherRun = chatReducer(thinking, { type: "resync", payload: liveThinkingPayload("run-2") });
-  assert.equal(otherRun.thinkingOpen, false, "run が変わったら閉じる");
-
-  const ended = chatReducer(thinking, { type: "resync", payload: { ...runningPayload(), status: "idle", run: null } });
-  assert.equal(ended.thinkingOpen, false, "run が終わっていたら閉じる");
-});
-
-test("runEnd / newChat で tail と 2 行領域を閉じる", () => {
-  const thinking = thinkingState();
   const ended = chatReducer(thinking, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0 });
   assert.equal(ended.thinkingText, undefined);
-  assert.equal(ended.thinkingOpen, false);
 
   const fresh = chatReducer(thinking, { type: "newChat" });
   assert.equal(fresh.thinkingText, undefined);
-  assert.equal(fresh.thinkingOpen, false);
 });

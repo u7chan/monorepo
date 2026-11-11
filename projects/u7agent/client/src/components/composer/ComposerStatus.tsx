@@ -141,7 +141,7 @@ export function ComposerStatus({
   activity,
   activityState,
   thinkingText,
-  thinkingOpen = false,
+  sending = false,
   runningSince,
   runTools = {},
   queueDepth = 0,
@@ -167,14 +167,11 @@ export function ComposerStatus({
    */
   activityState?: string;
   /**
-   * 実行中の thinking 末尾 (live 専用。SSE `status.thinking`)。状態行の下の 2 行領域に出す
+   * 実行中の thinking 末尾 (live 専用。SSE `status.thinking`)。状態行の下の固定領域に出す
    */
   thinkingText?: string;
-  /**
-   * この run で thinking を観測したか。一度開いたら run の終端まで領域と高さを保つ
-   * (writing / tool では text だけが消える)
-   */
-  thinkingOpen?: boolean;
+  /** 送信の通信中。状態行が「送信中…」を出すため、圧縮の理由行は出さない */
+  sending?: boolean;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
   /** 回答待ちの控除と、実行中ツールの 1 行表示に使う */
@@ -236,25 +233,17 @@ export function ComposerStatus({
   const showRetry = card !== undefined && onRetry !== undefined;
   // 領域の高さは thinking の有無で変えず、罫線だけを出す (空の枠が引用の帯に見えるため)
   const thought = liveThoughtSnippet(thinkingText ?? "");
-  // カードだけの状態でも描画する (activity は空にして文言をカードへ移す)。thinking の 2 行領域を
-  // 開いている間は活動文言が空でも領域を残す (開閉で入力欄の位置を動かさない)
-  if (
-    !showActivity &&
-    !thinkingOpen &&
-    notice === undefined &&
-    !gauge &&
-    !modelSlot &&
-    onCompact === undefined &&
-    !showRetry
-  )
+  // カードだけの状態でも描画する (activity は空にして文言をカードへ移す)
+  if (!showActivity && notice === undefined && !gauge && !modelSlot && onCompact === undefined && !showRetry)
     return null;
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
   // 押せない理由は状態行の下に 1 行で出す (押せない間の説明を hover だけに閉じると、タッチ端末で読めない)
   const compactBlocked = onCompact !== undefined && compactDisabled && compactDisabledReason !== undefined;
   const retryBlocked = showRetry && retryDisabled && retryDisabledReason !== undefined;
-  // 実行中・待機中・圧縮中は状態行が実行状態を示すため、圧縮の理由行を出さない (出し入れで composer の高さを動かさない)
-  const compactReasonVisible = compactBlocked && !compactionBusy(runStatus);
+  // 実行中・待機中・圧縮中・送信中は状態行が実行状態を示すため、圧縮の理由行を出さない
+  // (出し入れで composer の高さを動かさない)
+  const compactReasonVisible = compactBlocked && !compactionBusy(runStatus) && !sending;
   // 無効な操作と実際の理由だけを並べる (再実行だけが無効なときに圧縮の文言を出さない)
   const blockedNotice = blockedButtonsNotice({
     compact: compactReasonVisible ? compactDisabledReason : undefined,
@@ -361,22 +350,22 @@ export function ComposerStatus({
           )}
         </div>
       </div>
-      {/* 実行中の thinking の末尾。状態行の下に 2 行分の固定領域を置き、テキスト量では高さを変えない
-          (docs/ui-layout.md)。読み上げは状態行の phase ラベルだけにし、tail は aria-hidden にする */}
-      {thinkingOpen ? (
-        <div
-          className={cn(
-            "live-thought mb-1.5 pl-2.5 text-1xs leading-relaxed break-words whitespace-pre-line text-ink-soft",
-            // 罫線は空の箱を見せないため text があるときだけ。forced-colors でも透明な罫線が
-            // 色を付け直されないよう、太さごと外す (余白は常に同じで高さは変えない)
-            thought === "" ? null : "border-l-2 border-line-strong",
-          )}
-          title={thinkingText}
-          aria-hidden="true"
-        >
-          <span>{thought}</span>
-        </div>
-      ) : null}
+      {/* 実行中の thinking の末尾。状態行の下に 2 行分の固定領域を置き、テキスト量・改行・折り返しでは
+          高さを変えない。領域は thinking の有無・run の終端でも開閉せず、常に同じ高さを確保する
+          (開閉で会話の見える範囲が動くため。docs/ui-layout.md)。読み上げは状態行の phase ラベルだけにし、
+          tail は aria-hidden にする */}
+      <div
+        className={cn(
+          "live-thought mb-1.5 pl-2.5 text-1xs leading-relaxed break-words whitespace-pre-line text-ink-soft",
+          // 罫線は空の箱を見せないため text があるときだけ。forced-colors でも透明な罫線が
+          // 色を付け直されないよう、太さごと外す (余白は常に同じで高さは変えない)
+          thought === "" ? null : "border-l-2 border-line-strong",
+        )}
+        title={thinkingText}
+        aria-hidden="true"
+      >
+        <span>{thought}</span>
+      </div>
       {queueReason === undefined && blockedNotice === undefined && notice === undefined ? null : (
         // 説明 (待機の理由 / 作用の結果 / 押せない理由) の 1 行。待機の理由を活動と同じ行に置くと、
         // 幅が足りないときに両方が折り返すため、状態行の外へ出す。作用の結果だけは自分の live region で
