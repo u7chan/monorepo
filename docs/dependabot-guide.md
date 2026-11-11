@@ -9,7 +9,7 @@
 
 | 項目 | 方針 |
 | --- | --- |
-| 対応するパッケージ管理 | Bun、pnpm、uv |
+| 対応するパッケージ管理 | Bun、pnpm、uv、Docker（ベースイメージ） |
 | 更新頻度 | 週次 |
 | 同時に開く PR | プロジェクトごとに `1` 件 |
 | minor / patch 更新 | プロジェクト単位で一つの PR にまとめる |
@@ -43,6 +43,7 @@ Dependabot PR が作成されたら、次の順に確認します。
 | Bun | `package.json`、`bun.lock` |
 | pnpm | `package.json`、`pnpm-lock.yaml` |
 | uv | `pyproject.toml`、`uv.lock` |
+| Docker | `Dockerfile`（ベースイメージを版と digest で固定しているもの） |
 
 ### 2. `updates` を追加する
 
@@ -112,6 +113,31 @@ Dependabot に pnpm 専用の `package-ecosystem` 値はないため、pnpm を�
         - "minor"
         - "patch"
 ```
+
+#### Docker
+
+Docker のエントリは lockfile から判定できないため、自動メンテの対象外として手で追加します。同じディレクトリに `npm` などのエントリがあってもよく、`directory` は共通で構いません。グループ名は区別できるようにプロジェクト名に `-docker` を付けます。
+
+```yaml
+- package-ecosystem: "docker"
+  directory: "/projects/your-docker-project"
+  schedule:
+    interval: "weekly"
+  open-pull-requests-limit: 1
+  rebase-strategy: "disabled"
+  labels:
+    - "dependabot-auto-process"
+  groups:
+    your-docker-project-docker-minor-and-patch:
+      applies-to: version-updates
+      patterns:
+        - "*"
+      update-types:
+        - "minor"
+        - "patch"
+```
+
+Dependabot が digest を更新できるのは、Dockerfile 側で既に digest を固定している場合だけです。`FROM image:tag` のままだとタグの更新だけが対象になるため、ベースイメージは版と digest の両方で固定します。
 
 ### 3. 設定を確認する
 

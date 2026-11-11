@@ -1,5 +1,8 @@
 # Keep Node and pnpm aligned with the monorepo CI.
-FROM node:26-trixie-slim AS base
+# 26.13.1 は 2026-11-11 のセキュリティリリース版。可変タグ (`26-trixie-slim`) のままだと同じ
+# コミットでも再ビルドで中身が変わるため、版と digest で固定する。digest は linux/amd64 と
+# arm64 を含むマルチアーキテクチャの manifest index で、プラットフォーム別 manifest ではない。
+FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS base
 RUN npm install --global pnpm@10.34.5
 WORKDIR /app
 
@@ -26,7 +29,9 @@ COPY server/package.json ./server/package.json
 # fd は pi SDK の find ツールが起動する。find は git 管理外でも動くよう --no-require-git (fd 9.0 で追加) を渡す。
 # apt の fd-find はベースイメージの追随でこの要件を割る版 (bookworm は 8.6.0) に戻り得るため、
 # trixie (fd-find 10.2.0) でも取得方式は変えずリリースバイナリを固定する。test / final の両方で使う。
-FROM node:26-trixie-slim AS fd
+# ベースは base と同じ版・digest に固定する。ARG で共通化すると dependabot の docker 更新が
+# FROM 行のリテラルを書き換えられないので、値を 2 か所に書く。
+FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS fd
 COPY scripts/install-fd.mjs /tmp/install-fd.mjs
 RUN node /tmp/install-fd.mjs /usr/local/bin
 

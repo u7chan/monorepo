@@ -12,7 +12,9 @@ It loads the existing `.github/dependabot.yml`, preserves settings for
 directories that are still present, adds missing entries, removes stale entries,
 normalizes group names, and waits for explicit approval before writing the file.
 Every generated or existing entry contains the required
-`dependabot-auto-process` label while preserving any other labels.
+`dependabot-auto-process` label while preserving any other labels. Entries for
+ecosystems the script does not derive from lockfiles (`docker`, `github-actions`,
+...) are kept as they are.
 
 ## Running the script
 
@@ -32,14 +34,18 @@ python3 .agents/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
 
 1. Checks `git status --porcelain -- .github/dependabot.yml` and stops if there
    are staged or unstaged changes.
-2. Parses the existing `dependabot.yml` into directory-indexed text blocks.
+2. Parses the existing `dependabot.yml` into text blocks indexed by
+   `(directory, package-ecosystem)`.
 3. Scans `projects/*/` and detects the ecosystem from lockfiles.
    The lockfile mappings are `bun.lock` or `bun.lockb` → `bun`,
    `pnpm-lock.yaml` → `npm`, and `uv.lock` → `uv`.
 4. Builds the desired entry list:
-   - If a directory already exists in `dependabot.yml`, reuse its settings
-     (`schedule`, `open-pull-requests-limit`, `rebase-strategy`, etc.) and only
-     normalize `package-ecosystem`, `directory`, and the group name.
+   - If a `(directory, package-ecosystem)` pair already exists in
+     `dependabot.yml`, reuse its settings (`schedule`, `open-pull-requests-limit`,
+     `rebase-strategy`, etc.) and only normalize `package-ecosystem`,
+     `directory`, and the group name.
+   - Entries whose ecosystem is not `bun` / `npm` / `uv` are out of scope and
+     kept untouched except for the required label.
    - If a directory is new, create it from the default template.
 5. Writes a preview to `.github/dependabot.yml.preview` and shows `diff -u`.
 6. Prompts `Apply changes? [y/N]`. If approved, copies the preview to
@@ -59,6 +65,9 @@ python3 .agents/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
 - If no lockfile is found, the directory is excluded from Dependabot.
 - If an existing entry points to a directory that no longer exists, it is removed.
 - If an existing entry points to a directory whose lockfile is gone, it is removed.
+- If two entries share a directory but use different ecosystems (an `npm` entry
+  and a `docker` entry, for example), both are kept. Only the lockfile-derived
+  ecosystem is rewritten; the other is left as written.
 
 ## Required label and coverage validation
 
@@ -71,8 +80,10 @@ labels:
 
 When an existing entry already has labels, the script preserves them and adds
 the required label if necessary. After YAML parsing, coverage validation
-requires exactly one entry for every detected project and the required label
-on every entry. A missing label causes validation to fail.
+requires exactly one entry for every detected `(directory, package-ecosystem)`
+pair and the required label on every entry. An entry whose ecosystem is not
+detected from a lockfile (such as `docker`) is never reported as stale. A
+missing label causes validation to fail.
 
 Run the focused tests with:
 
