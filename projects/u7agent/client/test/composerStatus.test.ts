@@ -567,12 +567,11 @@ test("描画: 操作の結果 (取り消しの失敗理由) を状態行の下�
   assert.ok(!render({ activity: "実行中…" }).includes('role="status"'), "結果が無ければ行ごと出さない");
 });
 
-test("描画: thinking の末尾は状態行の下の 2 行領域に出し、読み上げの対象から外す", () => {
+test("描画: thinking の末尾は状態行の下の固定領域に出し、読み上げの対象から外す", () => {
   const html = render({
     activity: "考え中…",
     activityState: "thinking",
     thinkingText: "1 行目の思考\n2 行目の思考\n3 行目の思考",
-    thinkingOpen: true,
   });
 
   const region = html.indexOf("live-thought");
@@ -588,8 +587,12 @@ test("描画: thinking の末尾は状態行の下の 2 行領域に出し、読
   assert.ok(!html.slice(liveStart, liveEnd).includes("3 行目の思考"), "tail を live region に入れない");
 });
 
-test("描画: 2 行領域は text が無くても高さを保ち、phase が移っても閉じない", () => {
-  const empty = render({ activity: "考え中…", thinkingText: undefined, thinkingOpen: true });
+test("描画: 固定領域は thinking の有無・phase で開閉せず、常に同じ高さを確保する", () => {
+  // What: 領域の開閉で composer と会話の見える範囲が動かないよう、tail が無いときも箱を出す
+  const idle = render({ activity: "", modelSlot: slot() });
+  assert.ok(idle.includes("live-thought"), "run の前から領域を確保する");
+
+  const empty = render({ activity: "考え中…", thinkingText: undefined });
   const emptyRegion = empty.indexOf("live-thought");
   assert.ok(emptyRegion >= 0, "空でも領域を残す");
   assert.ok(empty.slice(empty.lastIndexOf("<div", emptyRegion)).includes("></span>"), "中身は空");
@@ -597,7 +600,7 @@ test("描画: 2 行領域は text が無くても高さを保ち、phase が移�
   assert.equal(emptyTag.includes("border-l-2"), false, "空のときは罫線を出さない");
   assert.ok(emptyTag.includes("pl-2.5"), "テキストが来たときに余白を足さない");
 
-  const filled = render({ activity: "考え中…", thinkingText: "思考", thinkingOpen: true });
+  const filled = render({ activity: "考え中…", thinkingText: "思考" });
   const filledRegion = filled.indexOf("live-thought");
   const filledTag = filled.slice(filled.lastIndexOf("<div", filledRegion), filled.indexOf(">", filledRegion) + 1);
   assert.ok(filledTag.includes("border-line-strong"), "テキストがあるときだけ罫線を出す");
@@ -606,7 +609,6 @@ test("描画: 2 行領域は text が無くても高さを保ち、phase が移�
     activity: "応答を書いています…",
     activityState: "writing",
     thinkingText: undefined,
-    thinkingOpen: true,
   });
   assert.ok(writing.includes("live-thought"), "writing に移っても領域を残す");
 
@@ -615,12 +617,32 @@ test("描画: 2 行領域は text が無くても高さを保ち、phase が移�
     activityState: "tool",
     runStatus: "running",
     runTools: { t1: runningTool("t1", "bash", "ls") },
-    thinkingOpen: true,
   });
   assert.ok(tool.includes("live-thought"), "tool に移っても領域を残す");
 });
 
-test("描画: thinking を観測していない間は 2 行領域を出さない", () => {
-  const html = render({ activity: "考え中…", activityState: "thinking" });
-  assert.equal(html.includes("live-thought"), false, "run の最初から空白を出さない");
+test("描画: 送信中は状態行が理由を兼ね、圧縮の理由行で高さを動かさない", () => {
+  const html = render({
+    activity: "送信中…",
+    modelSlot: slot(),
+    onCompact: () => {},
+    compactDisabled: true,
+    compactDisabledReason: "送信中",
+    runStatus: "idle",
+    sending: true,
+  });
+
+  assert.ok(html.includes('disabled=""'), "圧縮ボタンは引き続き無効");
+  assert.equal(html.includes("今は圧縮できません"), false, "送信中の理由行を出さない");
+
+  // 応答待ちを抜ければ、押せない理由を説明の行に出す
+  const settled = render({
+    activity: "",
+    modelSlot: slot(),
+    onCompact: () => {},
+    compactDisabled: true,
+    compactDisabledReason: "設定の変更中",
+    sending: false,
+  });
+  assert.ok(settled.includes("今は圧縮できません（設定の変更中）"));
 });

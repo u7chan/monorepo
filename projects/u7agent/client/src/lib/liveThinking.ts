@@ -1,5 +1,5 @@
 /**
- * 実行中の thinking 末尾の表示規則。状態行の下の 2 行領域に収める文字列だけを作る
+ * 実行中の thinking 末尾の表示規則。状態行の下の固定領域に収める文字列だけを作る
  * (見た目と高さは `client/src/styles/index.css` の `.live-thought` が持つ)。
  */
 

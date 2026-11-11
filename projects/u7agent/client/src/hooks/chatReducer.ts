@@ -181,11 +181,6 @@ export type ChatState = {
   /** 実行中の thinking 末尾 (live 専用)。SSE の `status.thinking` だけが入れる */
   thinkingText?: string;
   /**
-   * この run で thinking を観測したか。2 行領域を一度開いたら run の終端まで閉じない
-   * (writing / tool へ移っても高さを動かさないため)
-   */
-  thinkingOpen?: boolean;
-  /**
    * `liveHostAssistantIds` を採用した run の id。切断中に前の run が終わり次の run が始まると
    * (`run_start` のリプレイなしで) `resync` だけが届くため、run が変わったら前ターンの host を
    * 復元しない。どちらかが不明 (旧サーバー) なときは run の変更を判定できないので保持する
@@ -276,8 +271,7 @@ export type ChatAction =
    */
   | { type: "status"; state: string; text: string; thinking?: string }
   /**
-   * 切断 (error / 無音 / 明示再接続) を検知した時点で tail だけを消す。2 行領域 (`thinkingOpen`) は
-   * run の終端まで維持し、次の thinking delta で tail を戻す
+   * 切断 (error / 無音 / 明示再接続) を検知した時点で tail だけを消す。次の thinking delta で戻す
    */
   | { type: "thinkingCleared" }
   | { type: "queued"; sendId?: string; position: number; queueDepth: number }
@@ -351,7 +345,6 @@ export const initialChatState: ChatState = {
   activity: "",
   activityState: undefined,
   thinkingText: undefined,
-  thinkingOpen: false,
   notice: undefined,
   sessionModel: undefined,
   sessionThinkingLevel: undefined,
@@ -1657,6 +1650,32 @@ function applyPendingSends(
   }
   for (const send of pendingSends) {
     if (seen.has(send.sendId)) continue;
+    // エコーは送信応答より先に描画される。payload が先に pending 送信を配ったときに同じ本文を
+    // もう 1 件足すと、応答が届くまで 1 フレームだけ同じ発言が 2 件並び、追従中のスクロールが跳ねる。
+    // 送信IDを持たないエコーが同じ本文なら、そのエコーへ送信IDを結び付ける (pending から外れた
+    // 旧経路のエコーも、まだ履歴 item になっていなければ同じ発言なので対象にする)
+    const adopted = next.findIndex(
+      (bubble) =>
+        bubble.entryId === undefined &&
+        bubble.role === "user" &&
+        bubble.sendId === undefined &&
+        bubble.unsent !== true &&
+        canonicalUserText(bubble.text) === canonicalUserText(send.text),
+    );
+    if (adopted !== -1) {
+      const bubble = next[adopted];
+      if (send.state === "unsent") pending.delete(bubble.id);
+      else pending.add(bubble.id);
+      next[adopted] = {
+        ...bubble,
+        sendId: send.sendId,
+        ...(send.runId === undefined ? {} : { runId: send.runId }),
+        ...(send.state === "unsent"
+          ? { unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
+          : { unsent: false, accepted: true, confirmed: true, ...sendStateOf(send) }),
+      };
+      continue;
+    }
     const id = cursor++;
     if (send.state === "unsent") {
       next.push({
@@ -1791,7 +1810,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         activity: "",
         activityState: undefined,
         thinkingText: undefined,
-        thinkingOpen: false,
         // 履歴ごと入れ替わるので、前の履歴の操作の結果は持ち越さない
         notice: undefined,
         handoff: undefined,
@@ -2082,12 +2100,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 活動の由来は status イベントだけが入れる (復帰時の文言は状態ではなくお知らせなので持たない)
         activityState: undefined,
         // thinking の末尾は live 専用で payload に載らない。同じ run の resync (設定変更 / 圧縮 /
-        // context_edit) では領域を開いたまま text だけ消し、run が変わった / 終わったなら閉じる
+        // context_edit) でも次に届く status で戻る
         thinkingText: undefined,
-        thinkingOpen:
-          status === "running" && payload.run?.id !== undefined && payload.run.id === state.currentRunId
-            ? state.thinkingOpen
-            : false,
         sessionModel: payload.model,
         sessionThinkingLevel: payload.thinkingLevel,
         sessionAgentId: payload.agent?.id,
@@ -2448,9 +2462,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         compactionStartedAt: undefined,
         activity: "実行を開始しました",
         activityState: undefined,
-        // 前の run の tail と 2 行領域を引き継がない (この run で thinking を観測したら開く)
+        // 前の run の tail を引き継がない
         thinkingText: undefined,
-        thinkingOpen: false,
         // 前の run の保留値・再試行状態を引き継がない (累計は結果表示用に残す)
         pendingUsage: undefined,
         pendingMetrics: undefined,
@@ -2502,12 +2515,16 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "echoSendId": {
-      // 送信応答の送信IDを、未対応付けの最古のエコーへ結び付ける (送信は直列なので順序で足りる)。
-      // run_start が応答より先に届いていても、送信IDで自分の送信と厳密に対応付く
-      const echoId = state.pendingEchoIds.find((id) => {
-        const bubble = state.bubbles.find((item) => item.id === id);
-        return bubble !== undefined && bubble.sendId === undefined;
-      });
+      // 送信応答の送信IDを、未対応付けのエコーへ結び付ける (送信は直列なので順序で足りる)。
+      // payload が先に送信IDを結び付けたエコーは、そのバブルを対象にする
+      const echoId =
+        state.bubbles.find(
+          (bubble) => bubble.role === "user" && bubble.entryId === undefined && bubble.sendId === action.sendId,
+        )?.id ??
+        state.pendingEchoIds.find((id) => {
+          const bubble = state.bubbles.find((item) => item.id === id);
+          return bubble !== undefined && bubble.sendId === undefined;
+        });
       if (echoId === undefined) return state;
       // payload が先にバブルを足していたら、ローカルのエコーへ寄せて重複を作らない
       // (同じ送信IDのバブルが 2 件残ると再送 / 破棄が二重に見える)
@@ -2913,8 +2930,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         activity: action.text || "処理中…",
         activityState: action.state || undefined,
         thinkingText,
-        // 一度開いた 2 行領域は run の終端まで閉じない (writing / tool で text だけ消す)
-        thinkingOpen: state.thinkingOpen === true || thinkingText !== undefined,
       };
     }
 
@@ -3101,9 +3116,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         toolBubbleIds: {},
         activity,
         activityState: undefined,
-        // run が終わったら tail も 2 行領域も閉じる
+        // run が終わったら tail を落とす
         thinkingText: undefined,
-        thinkingOpen: false,
         // 開始直後の演出は run の終了でも必ず落とす
         startingRunId: undefined,
         // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)

@@ -32,7 +32,6 @@ export type UseSessionEventsParams = {
   onClosed: () => void;
   /**
    * 切断を検知した (error / 無音 / 明示再接続)。再接続中の古い tail を見せないために使う
-   * （2 行領域は run の終端まで残す）
    */
   onDisconnect?: () => void;
   /** セッションを開いた / 切り替えた (診断の記録対象を合わせる) */
