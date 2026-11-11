@@ -53,6 +53,7 @@ export function ServiceTab({
             state={service}
             hostname={location.hostname}
             port={health?.previewPort}
+            serviceOrigin={health?.serviceOrigin}
             onStop={() => void service.stop()}
             onOpenSession={onOpenSession}
           />

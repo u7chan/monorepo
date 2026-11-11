@@ -33,6 +33,9 @@ export function createHealthRoutes({
   archiveSettings,
   filePreviewPort,
   previewPort,
+  appOrigin,
+  filePreviewOrigin,
+  serviceOrigin,
 }: {
   pi: PiBff | null;
   initError: string | undefined;
@@ -43,6 +46,10 @@ export function createHealthRoutes({
   /** プレビュー オリジン (別リスナー) のブラウザから見たポート。公開ポートは待受と限らない */
   filePreviewPort: number;
   previewPort: number;
+  /** ブラウザから見た公開オリジン。未設定は health のキー自体を出さない (古い client との互換) */
+  appOrigin?: string;
+  filePreviewOrigin?: string;
+  serviceOrigin?: string;
 }) {
   return {
     health: (c: Context) => {
@@ -80,6 +87,11 @@ export function createHealthRoutes({
         // クライアントはストレージ有効モードの iframe の URL をこれで組み立てる (client にポートを焼き込まない)
         filePreviewPort,
         previewPort,
+        // 公開オリジンは設定済みのときだけ載せる (未設定はキー自体を出さない)。ポートは常に残し、
+        // 古い client と新しい server、新しい client と古い server のどちらでも動くようにする
+        ...(appOrigin === undefined ? {} : { appOrigin }),
+        ...(filePreviewOrigin === undefined ? {} : { filePreviewOrigin }),
+        ...(serviceOrigin === undefined ? {} : { serviceOrigin }),
         // バージョン表示はモデル診断の撤去後も残す（接続状態カードが使う）
         versions: runtimeVersionInfo(),
         // クライアントは行にダウンロードを出すかの判定に使う。設定ストアの実効値が正で、download / check も同じ値を使う

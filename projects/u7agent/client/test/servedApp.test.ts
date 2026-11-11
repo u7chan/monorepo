@@ -39,6 +39,21 @@ test("サービス URL は hostname と health のポートで組み、未取得
   for (const port of [undefined, 0, -1, 65536, 1.5, NaN]) assert.equal(servedAppUrl("localhost", port), undefined);
 });
 
+test("公開オリジンがあればそれを優先し、壊れた値はポート方式へ落とす", () => {
+  // TLS 終端の後ろでは scheme が変わるため、ポートが無くても公開オリジンだけで URL を作る
+  assert.equal(servedAppUrl("app.test", undefined, "https://service.example.com"), "https://service.example.com/");
+  // 末尾の / は 1 つに揃える
+  assert.equal(servedAppUrl("app.test", 8016, "https://service.example.com/"), "https://service.example.com/");
+  for (const origin of [
+    "service.example.com",
+    "ftp://service.example.com",
+    "https://service.example.com/app",
+    "https://service.example.com?x=1",
+  ]) {
+    assert.equal(servedAppUrl("app.test", 8016, origin), "http://app.test:8016/", origin);
+  }
+});
+
 test("表の 5 行を状態・リンク・操作へ写す", () => {
   // 到達可 + mine: 稼働中 + リンク + 停止
   const running = servedAppView(

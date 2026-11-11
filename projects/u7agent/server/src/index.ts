@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createBffApp } from "./app";
 import { resolveFilePreviewListenPort, resolveFilePreviewPort } from "./file-preview-port";
+import { publicOriginsLogLine, resolvePublicOrigins } from "./public-origin";
 import { resolvePreviewPort, resolveServiceListenPort } from "./preview-port";
 import { createServiceProxy } from "./service-proxy";
 import { sandboxHostFromUrl } from "./serve";
@@ -23,15 +24,20 @@ const FILE_PREVIEW_PORT = resolveFilePreviewPort(process.env.PI_FILE_PREVIEW_POR
 const SERVICE_LISTEN_PORT = resolveServiceListenPort(process.env.PI_SERVICE_LISTEN_PORT);
 // 未設定ならサービス リスナーへ寄せる (公開する配備では公開ポートを明示する)
 const PREVIEW_PORT = resolvePreviewPort(process.env.PI_PREVIEW_PORT, SERVICE_LISTEN_PORT);
+// ブラウザから見た公開オリジン。TLS 終端の後ろでは scheme が変わるため、未設定なら現行の挙動のまま
+const PUBLIC_ORIGINS = resolvePublicOrigins(process.env);
 
 async function main() {
   const bff = await createBffApp({
     cwd: process.env.PI_APP_CWD || REPO_ROOT,
     filePreviewPort: FILE_PREVIEW_PORT,
     previewPort: PREVIEW_PORT,
+    ...PUBLIC_ORIGINS,
   });
   serve({ fetch: bff.app.fetch, port: PORT, hostname: HOST }, (info) => {
     console.log(`[u7agent] http://${HOST}:${info.port}`);
+    const publicOrigins = publicOriginsLogLine(PUBLIC_ORIGINS);
+    if (publicOrigins !== undefined) console.log(`[u7agent] public origins: ${publicOrigins}`);
     console.log(`[u7agent] working directory: ${bff.pi?.cwd || process.cwd()}`);
     console.log(
       bff.sessionStore.ok
@@ -64,7 +70,10 @@ async function main() {
   });
 
   // 3 本目のリスナー = サービス オリジン。キャッシュ ヘッダを正規化してサンドボックスの 8080 へ転送する
-  const serviceApp = createServiceProxy({ host: sandboxHostFromUrl(process.env.PI_SANDBOX_URL) });
+  const serviceApp = createServiceProxy({
+    host: sandboxHostFromUrl(process.env.PI_SANDBOX_URL),
+    ...(PUBLIC_ORIGINS.serviceOrigin === undefined ? {} : { serviceOrigin: PUBLIC_ORIGINS.serviceOrigin }),
+  });
   serve({ fetch: serviceApp.fetch, port: SERVICE_LISTEN_PORT, hostname: HOST }, (info) => {
     console.log(`[u7agent] service: http://${HOST}:${info.port} (browser: ${PREVIEW_PORT})`);
   });

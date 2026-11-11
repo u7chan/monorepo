@@ -66,6 +66,8 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 両ヘッダの無い curl 等の直接クライアントは従来どおり許可する。これはブラウザの CSRF 対策であり認証でもネットワーク隔離でもない。Vite の dev proxy は外部 Host を保持し、ブラウザの Origin と一致するため許可される。転送ヘッダ（`X-Forwarded-*`）は検証に使わない。リバースプロキシを追加する場合は外部 Host を保持すること。GET と HTML プレビューの契約は変えない。
 
+TLS 終端をリバースプロキシへ置くと、要求 URL のオリジンは `http://<host>` のままブラウザの `Origin` は `https://<host>` になる。env `PI_APP_ORIGIN` が設定されているときは、その origin も要求元として許可する。**設定時も要求 URL 自身のオリジンは許可し続ける**（移行期間に直通ポート経由の HTTP 操作を壊さないため）。`Sec-Fetch-Site` の検査は設定に関係なく現行のまま。
+
 ## 型の共有
 
 - `server/src/app.ts` はルートをチェーン形式で定義し `AppType` を export。client は `hc<AppType>(location.origin)` で型付きクライアントを構築する（`client/src/api.ts`）。SSE は型付け対象外で、`EventEntry` のみ server から型 import する。
@@ -76,7 +78,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `modelOptions` / `defaultThinkingLevel` / `cwd` / `versions` / `filePreviewPort`）と永続化の状態。認証が無い場合は `errorCode: "authentication_required"`、保存された許可リストと利用可能モデルが交差しない場合は `errorCode: "model_whitelist_empty"` |
+| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `modelOptions` / `defaultThinkingLevel` / `cwd` / `versions` / `filePreviewPort`、設定時のみ `appOrigin` / `filePreviewOrigin` / `serviceOrigin`）と永続化の状態。認証が無い場合は `errorCode: "authentication_required"`、保存された許可リストと利用可能モデルが交差しない場合は `errorCode: "model_whitelist_empty"` |
 
 `ready` は「ランタイムが使え、利用可能モデルが 1 つ以上ある」の意で、アプリ既定モデル（`model`）が使えるかとは独立している。`model` はあくまでアプリ既定（新規セッションで明示も定義も無いときに使う値）で、チャットごとの実効モデルではない。チャットの実効モデルはセッションの payload / 一覧の `model` を参照する。利用可能な候補があるのに保存された既定モデルが無いときは `model` を返さず `defaultModelUnset: true` にする（候補の先頭で代用しない。この状態でモデル無指定のセッション作成は 503。候補 0 件は `defaultModelUnset` ではなく可用性エラーの側で表す）。設定 → モデル で保存した既定モデルが利用不能でも候補が他にあれば `ready: true` と `defaultModelError` を返し、別モデルへは自動で切り替えない。`sandboxConfigured` は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が揃っているか（未設定ならセッション作成が 503 になる）を示す。`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読まない（設定されていても無視する）。
 
@@ -111,6 +113,8 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 `archive.excludeNames` はダウンロード ZIP から落とす名前の**実効値**（[ダウンロード](api-files.md#ダウンロード)）。設定ストア（[アーカイブの除外名](api-files.md#アーカイブの除外名)）が唯一の決定点で、未設定なら既定の一覧、上書きされていればその一覧になる。UI は行にダウンロードを出すかの判定だけに使い、実際の拒否は `GET /api/files/download/check` が行う（このフィールドの形と意味は変えない）。
 
 `filePreviewPort` は**ブラウザから見た**プレビュー オリジンのポート（env `PI_FILE_PREVIEW_PORT`、既定 4318）で、クライアントは別オリジンの iframe の URL をこれで組み立てる。BFF の待受は別 env `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で、公開する配備は `<公開ポート>:<待受ポート>` の対応で公開し、公開ポートを `PI_FILE_PREVIEW_PORT` へ渡す（値の解決と検証は起動時に 1 回で、1〜65535 の整数以外は起動が止まる。2 つの env は独立で、同じ値へ揃えるのは `pnpm dev` だけ）。
+
+`appOrigin` / `filePreviewOrigin` / `serviceOrigin` は**設定済みのときだけ**返す任意のキーで、env `PI_APP_ORIGIN` / `PI_FILE_PREVIEW_ORIGIN` / `PI_PREVIEW_ORIGIN` の origin をそのまま載せる。TCP の待受ポートとは独立で、TLS 終端の後ろでもブラウザから見た scheme + host を渡せるようにするための値。未設定ならキー自体を返さない（古い client は知らないキーを無視し、新しい client はポート方式へ落ちる）。`filePreviewPort` / `previewPort` は常に返す。値は起動時に検証し、http(s) の origin 以外（相対 URL・パス・クエリ・フラグメント・資格情報）は起動を止める（末尾の `/` は除いて受け取り、空文字と空白だけは未設定）。
 
 `previewPort` はサンドボックスで serve したサービスのブラウザから見たポート（env `PI_PREVIEW_PORT`。未設定はサービス リスナーの待受へ寄せて既定 4319。公開する配備は公開ポートを渡す）。`filePreviewPort` とは別で、常に返す。起動時に 1〜65535 の整数として検証し、不正値は起動を止める。稼働中かどうかを示す値ではなく、client は `location.hostname` と組み合わせて別タブの URL を作る。このポートを待つ BFF の 3 本目のリスナー（待受 env `PI_SERVICE_LISTEN_PORT`、既定 4319）が、受けた要求を `PI_SANDBOX_URL` のホストの 8080 へ転送し、キャッシュ ヘッダを `Cache-Control: no-store` に正規化する（転送の契約は [serve の契約](sandbox.md#serveサービスの公開と起動停止)）。
 

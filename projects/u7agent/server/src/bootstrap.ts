@@ -88,6 +88,15 @@ export type CreateBffAppOptions = {
   filePreviewPort?: number;
   /** serve した成果物のブラウザから見たポート。起動時に検証済みの値を渡す */
   previewPort?: number;
+  /**
+   * ブラウザから見たアプリのオリジン (env `PI_APP_ORIGIN`)。TLS 終端の後ろで Origin が `https://<host>` に
+   * なるため、Origin 検査の許可先へ足す。未指定は現行 (リクエスト自身の origin だけ)
+   */
+  appOrigin?: string;
+  /** ブラウザから見たプレビュー オリジン (env `PI_FILE_PREVIEW_ORIGIN`)。iframe の src と CSP の frame-src に使う */
+  filePreviewOrigin?: string;
+  /** ブラウザから見たサービス オリジン (env `PI_PREVIEW_ORIGIN`)。サービスリンクと Location の書き換えに使う */
+  serviceOrigin?: string;
   /** 会話ストアの絶対パス。null で永続化なし。未指定は PI_SESSION_STORE → 既定 (<agentDir>/u7agent/sessions) */
   sessionStoreDir?: string | null;
   /** 通知送信のテスト用。省略時は globalThis.fetch */

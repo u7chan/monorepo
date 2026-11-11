@@ -41,6 +41,8 @@ export type SessionFilesPanelProps = {
   excludeNames: readonly string[];
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
   filePreviewPort?: number;
+  /** プレビュー オリジン (health の filePreviewOrigin)。設定済みならポートより優先する */
+  filePreviewOrigin?: string;
   /** run が終わった回数 (ChatState.runEndSeq)。増えるたびに一覧と開いている本文を取り直す */
   runEndSeq: number;
   /**
@@ -74,6 +76,7 @@ function SessionFilesContent({
   envScope,
   excludeNames,
   filePreviewPort,
+  filePreviewOrigin,
   runEndSeq,
   onClose,
   openRequest,
@@ -190,6 +193,7 @@ function SessionFilesContent({
                 hiddenNames={SESSION_FILES_HIDDEN_NAMES}
                 excludeNames={excludeNames}
                 filePreviewPort={filePreviewPort}
+                filePreviewOrigin={filePreviewOrigin}
                 openRequest={fileRefRequestForKind(openRequest ?? null, "work")}
                 onHandled={onHandled}
                 canRef={!singleColumn}
@@ -338,6 +342,7 @@ export function SkillFilesContent({
   singleColumn,
   runEndSeq,
   filePreviewPort,
+  filePreviewOrigin,
   openRequest,
   onHandled,
   onBack,
@@ -351,6 +356,7 @@ export function SkillFilesContent({
   /** run の終了回数。作業フォルダ面と同じく、増えるたびに一覧と本文を取り直す */
   runEndSeq: number;
   filePreviewPort?: number;
+  filePreviewOrigin?: string;
   openRequest?: FileRefRequest | null;
   onHandled?: (seq: number) => void;
   onBack: () => void;
@@ -399,6 +405,7 @@ export function SkillFilesContent({
             readOnly
             excludeNames={[]}
             filePreviewPort={filePreviewPort}
+            filePreviewOrigin={filePreviewOrigin}
             openRequest={fileRefRequestForKind(openRequest ?? null, "skill")}
             onHandled={onHandled}
           />
@@ -418,6 +425,7 @@ function SessionFilesFace({ singleColumn, ...props }: SessionFilesPanelProps & {
         singleColumn={singleColumn}
         runEndSeq={props.runEndSeq}
         filePreviewPort={props.filePreviewPort}
+        filePreviewOrigin={props.filePreviewOrigin}
         openRequest={props.openRequest}
         onHandled={props.onHandled}
         onBack={props.onBackToWork}

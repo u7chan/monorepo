@@ -47,6 +47,8 @@ export type SkillSettingsPageProps = SettingsPageProps & {
   catalog?: CatalogResponse;
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
   filePreviewPort?: number;
+  /** プレビュー オリジン (health の filePreviewOrigin)。設定済みならポートより優先する */
+  filePreviewOrigin?: string;
   /** ワークスペース root の絶対パス (health.cwd)。ファイルタブの行の絶対パスをコピーする導線に使う */
   rootCwd?: string;
 };
@@ -95,6 +97,7 @@ type SkillView = "list" | "detail";
 export function SkillSettingsPage({
   catalog,
   filePreviewPort,
+  filePreviewOrigin,
   rootCwd,
   singleColumn = false,
   onBack,
@@ -466,6 +469,7 @@ export function SkillSettingsPage({
       detail={selectedFileSkillDetail}
       usage={usage}
       filePreviewPort={filePreviewPort}
+      filePreviewOrigin={filePreviewOrigin}
       rootCwd={rootCwd}
       singleColumn={singleColumn}
     />

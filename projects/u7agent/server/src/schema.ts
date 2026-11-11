@@ -1879,6 +1879,12 @@ export const HealthSchema = z.object({
   filePreviewPort: z.number().optional(),
   /** サンドボックスで serve した成果物のブラウザから見たポート */
   previewPort: z.number().optional(),
+  /** ブラウザから見たアプリのオリジン (env `PI_APP_ORIGIN`)。未設定はキー自体を返さない */
+  appOrigin: z.string().optional(),
+  /** ブラウザから見たプレビュー オリジン (env `PI_FILE_PREVIEW_ORIGIN`)。未設定はキー自体を返さない */
+  filePreviewOrigin: z.string().optional(),
+  /** ブラウザから見たサービス オリジン (env `PI_PREVIEW_ORIGIN`)。未設定はキー自体を返さない */
+  serviceOrigin: z.string().optional(),
   /** 実行中の SDK バージョン。ランタイムの診断とは独立に出し続ける */
   versions: RuntimeVersionsSchema.optional(),
   /** ダウンロード ZIP の除外規則の実効値。UI は行にダウンロードを出すかの判定に使う */

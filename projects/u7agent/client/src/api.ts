@@ -1,6 +1,7 @@
 import { hc } from "hono/client";
 import type { AppType } from "server";
 import { encodeFilePathParam } from "./lib/fileUrl";
+import { publicOrigin } from "./lib/publicOrigin";
 import { ALL_BACKUP_TARGETS } from "./lib/backupFlow";
 import type {
   AgentDef,
@@ -672,12 +673,18 @@ export const fileHtmlPreviewUrl = (path: string): string =>
   client.api.files.html[":path{.+}"].$url({ param: { path: encodeFilePathParam(path) } }).toString();
 
 /**
- * ストレージ有効モードの HTML プレビュー URL (別オリジンの iframe の src)。ポートは health から受ける
- * (client に焼き込まない)。location.host ではなく hostname + port を組むのは、dev でアプリが Vite の
- * 3000 に居り BFF が別ポートのため (相対ルートはアプリ オリジンに解決されてしまう)。
+ * ストレージ有効モードの HTML プレビュー URL (別オリジンの iframe の src)。公開オリジン (health の
+ * filePreviewOrigin) を優先し、無ければ health のポートから組む (client にポートを焼き込まない)。
+ * location.host ではなく hostname + port を組むのは、dev でアプリが Vite の 3000 に居り BFF が別ポートのため
+ * (相対ルートはアプリ オリジンに解決されてしまう)。どちらも無ければ URL を作らない。
  */
-export const fileStoragePreviewUrl = (path: string, filePreviewPort: number): string =>
-  `http://${location.hostname}:${filePreviewPort}/api/files/html/${encodeFilePathParam(path)}`;
+export const fileStoragePreviewUrl = (path: string, target: { origin?: string; port?: number }): string | undefined => {
+  const relative = `/api/files/html/${encodeFilePathParam(path)}`;
+  const origin = publicOrigin(target.origin);
+  if (origin !== undefined) return `${origin}${relative}`;
+  if (target.port === undefined) return undefined;
+  return `http://${location.hostname}:${target.port}${relative}`;
+};
 
 /**
  * 画像プレビュー用の raw URL。path はワークスペース root 相対で、配信できるのは allowlist の画像だけ。

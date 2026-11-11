@@ -2,7 +2,7 @@
 
 追加時の判断基準は [AGENTS.md](../AGENTS.md#テスト方針)。実行は `pnpm check`。server の API・sandbox・secrets・session persistence テストは減らさず、client の reducer、parser、パス解決、保存・fallback、制御ロジックも自動テストする。
 
-サービスの公開経路は server 側の振る舞いテストで固定する。`server/test/service-proxy.test.ts` が、3 本目のリスナーからサンドボックスの 8080 への転送（メソッド / パス / クエリ / ボディ / ストリーミング / `Range` / `Content-Encoding` の透過、ホップバイホップ ヘッダの除去）、キャッシュ ヘッダの `Cache-Control: no-store` への正規化、GET / HEAD の再検証ヘッダの遮断、`Location` の書き換え、上流停止時の 502 を検査する。ポートの解決（`PI_SERVICE_LISTEN_PORT` / `PI_PREVIEW_PORT`）と `pnpm dev` が同じ値を渡すことは `server/test/preview-port.test.ts` が検査する。
+サービスの公開経路は server 側の振る舞いテストで固定する。`server/test/service-proxy.test.ts` が、3 本目のリスナーからサンドボックスの 8080 への転送（メソッド / パス / クエリ / ボディ / ストリーミング / `Range` / `Content-Encoding` の透過、ホップバイホップ ヘッダの除去）、キャッシュ ヘッダの `Cache-Control: no-store` への正規化、GET / HEAD の再検証ヘッダの遮断、`Location` の書き換え（env `PI_PREVIEW_ORIGIN` があればその origin）、上流停止時の 502 を検査する。ポートの解決（`PI_SERVICE_LISTEN_PORT` / `PI_PREVIEW_PORT`）と `pnpm dev` が同じ値を渡すことは `server/test/preview-port.test.ts` が検査する。
 
 ## 会話タイトルの受入
 

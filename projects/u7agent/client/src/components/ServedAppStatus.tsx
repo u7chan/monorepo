@@ -28,6 +28,8 @@ import { ExternalLinkIcon, PowerIcon, RunSpinnerIcon, StopIcon } from "./icons";
 export type ServedAppProps = {
   /** health の previewPort (ブラウザから見たポート)。未取得ならリンクを出さない */
   port?: number;
+  /** health の serviceOrigin (ブラウザから見たサービス オリジン)。設定済みならポートより優先する */
+  serviceOrigin?: string;
   /** 閲覧中の会話から見た状態。未取得 (初回 / 会話切替直後 / 取得失敗) は undefined */
   status?: ServeStatus | null;
   /** 取得に失敗した。リンクも操作も出さない (到達不可と区別する) */
@@ -93,6 +95,7 @@ function StartingBadge() {
  */
 export function ServedAppGroup({
   port,
+  serviceOrigin,
   status,
   failed,
   starting,
@@ -123,7 +126,7 @@ export function ServedAppGroup({
     );
   }
   if (failed || view.kind === "none") return null;
-  const href = view.canOpen ? servedAppUrl(location.hostname, port) : undefined;
+  const href = view.canOpen ? servedAppUrl(location.hostname, port, serviceOrigin) : undefined;
   return (
     <span className="inline-flex items-center gap-2">
       <ServeBadge view={view} />
@@ -169,7 +172,16 @@ function ServeSeparator() {
 }
 
 /** singleColumn は幅を増やさないため、停止中の起動も状態メニューも同じ 1 枠に収める。 */
-export function ServedAppIndicator({ port, status, failed, starting, onStart, onStop, onCancel }: ServedAppProps) {
+export function ServedAppIndicator({
+  port,
+  serviceOrigin,
+  status,
+  failed,
+  starting,
+  onStart,
+  onStop,
+  onCancel,
+}: ServedAppProps) {
   const view = servedAppView(status);
   const menuId = useId();
   const triggerId = `${menuId}-trigger`;
@@ -265,7 +277,7 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
     const current = items.findIndex((item) => item === document.activeElement);
     items[nextRowMenuIndex(current, items.length, event.key === "ArrowDown" ? "next" : "previous")]?.focus();
   };
-  const href = view.canOpen ? servedAppUrl(location.hostname, port) : undefined;
+  const href = view.canOpen ? servedAppUrl(location.hostname, port, serviceOrigin) : undefined;
   const items: Array<{
     key: string;
     icon: ReactNode;

@@ -142,7 +142,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 - path はクライアントがセグメント単位で percent encoding する（`client/src/lib/fileUrl.ts`）。Hono 側（`:path{.+}`）は 1 回だけ decode する。文書 / アセット / エラー文書の分岐と応答ヘッダ（`Cache-Control: no-store` / `X-Content-Type-Options: nosniff`）は 2 つのオリジンで同じで、CORS ヘッダは付けない
 - プレビュー オリジンは認証を持たない（アプリと同じ）。待受は env `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で、ポート使用中は BFF の起動が止まる（`scripts/dev.mjs` も同じ値の空きを先に確認する）。**待受とブラウザから見た値は独立で、ずれると iframe は繋がらない**ため、`pnpm dev` は `PI_FILE_PREVIEW_PORT` を正として両方を揃える（待受 env しか無いときはその値へ寄せる）
 
-クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は使わない。アプリの本番 CSP（`default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-src 'self' http://*:<プレビュー ポート>`）は `srcdoc` / `blob:` の iframe に継承され、インラインの style / script がブロックされるため描画できない（`frame-src` を明示した後は `blob:` / `data:` がこの一覧に含まれないため、フレーム自体も拒否される。`media-src` は同 origin の raw ルートだけを許し、フレームの許可は広げない）。Chromium に本番相当の CSP を当てて確認済み。`frame-src` に `'self'` を残すのは、落とすとスイッチで別オリジンを OFF にした（隔離へ戻した）ときの同一オリジン フレームが拒否されるため。
+クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は使わない。アプリの本番 CSP（`default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-src 'self' <プレビュー オリジン>`）は `srcdoc` / `blob:` の iframe に継承され、インラインの style / script がブロックされるため描画できない（`frame-src` を明示した後は `blob:` / `data:` がこの一覧に含まれないため、フレーム自体も拒否される。`media-src` は同 origin の raw ルートだけを許し、フレームの許可は広げない）。Chromium に本番相当の CSP を当てて確認済み。`frame-src` に `'self'` を残すのは、落とすとスイッチで別オリジンを OFF にした（隔離へ戻した）ときの同一オリジン フレームが拒否されるため。
 
 ### 隔離（CSP と sandbox）
 
@@ -169,7 +169,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 - `connect-src` はどの段階にも無い。`fetch` / XHR は `default-src 'none'` にフォールバックして止まる
 - アプリ オリジンの `sandbox allow-scripts` によりオペークオリジンになり、親 DOM へ触れない（`localStorage` / cookie は SecurityError）
-- 有効モードの文書のオリジンはプレビュー オリジンになり、`localStorage` / `sessionStorage` / IndexedDB はそのオリジン（scheme + host + port）の保存領域へ入る。**アプリの storage とは分離される**が、同じオリジンを使う他のプレビューとは共有される（サーバーには保存しない）。**ポートを変えると保存領域も別になる**ので、`PI_FILE_PREVIEW_PORT=4319 pnpm dev` でプレビューだけ 4319 にした dev は既定の 4318 とは別の `localStorage` を見る（`pnpm dev` の並行起動にはサンドボックス / BFF / Vite のポートも別に要る。[frontend.md](frontend.md#開発フローと配信)）。cookie はオリジンではなくホスト単位で決まるため分離されない（後述の[できないこと](#できないこと残リスク)）
+- 有効モードの文書のオリジンはプレビュー オリジンになり、`localStorage` / `sessionStorage` / IndexedDB はそのオリジン（scheme + host + port）の保存領域へ入る。**アプリの storage とは分離される**が、同じオリジンを使う他のプレビューとは共有される（サーバーには保存しない）。**オリジン（scheme + host + port）を変えると保存領域も別になる**ので、`PI_FILE_PREVIEW_PORT=4319 pnpm dev` でプレビューだけ 4319 にした dev は既定の 4318 とは別の `localStorage` を見る（`pnpm dev` の並行起動にはサンドボックス / BFF / Vite のポートも別に要る。[frontend.md](frontend.md#開発フローと配信)）。cookie はオリジンではなくホスト単位で決まるため分離されない（後述の[できないこと](#できないこと残リスク)）
 - iframe 属性は CSP と同じフラグを書く。スクリプトの有効 / 無効は切り替えない（クライアントの切替は ソース / プレビュー の 2 択 + 別オリジンの ON / OFF）
 - 本文は 2 MiB のテキストとして取得する（`FilePreviewSchema` を通す）。サンドボックス側の API は増やさず、新規依存も足さない
 - 200 の応答は文書 / アセットとも `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を付ける（文書は CSP も）
@@ -178,9 +178,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 ### クライアントの振る舞い
 
 - 既定はプレビュー。他の拡張子は従来どおりソース表示で、ソース / プレビュー の切替は HTML と Markdown と SVG のタブに出し、別オリジンのスイッチは HTML のタブにだけ出す
-- iframe の src は `client/src/api.ts` の `fileHtmlPreviewUrl(path)` が組み立てるパス形式の URL で、path はセグメント単位で encode する（`client/src/lib/fileUrl.ts`）。ストレージ有効側の URL は `fileStoragePreviewUrl(path, port)` で組み立てる（`http://<location.hostname>:<port>` の別オリジン。`location.host` は使わない = dev はアプリが Vite の 3000 に居るため）。ポリシー（CSP の段階）はクライアントへ配らない
+- iframe の src は `client/src/api.ts` の `fileHtmlPreviewUrl(path)` が組み立てるパス形式の URL で、path はセグメント単位で encode する（`client/src/lib/fileUrl.ts`）。ストレージ有効側の URL は `fileStoragePreviewUrl(path, { origin, port })` で組み立てる（health の origin を優先し、無ければ `http://<location.hostname>:<port>` の別オリジン。`location.host` は使わない = dev はアプリが Vite の 3000 に居るため）。ポリシー（CSP の段階）はクライアントへ配らない
 - パス行の別オリジンのスイッチ（`ToggleSwitch` の `size="sm"`。パス行の ソース / プレビュー と同じ高さに揃える）がタブごとの配信元を切り替える（`role="switch"` + `aria-checked`）。**既定は ON（別オリジン）**で、OFF にすると現行どおりの同一オリジン URL + `allow-scripts` へ戻る。切替は iframe の src が変わる = プレビューが再読み込みされる。`title` には押した結果を状態別に書き、OFF のときは「別オリジンで開き直し、localStorage などを使えるようにします」、ON のときは「アプリと同じオリジンで開き直し、localStorage などを使えなくします」にする
-- ポートは health の `filePreviewPort`（ブラウザから見たポート）で受ける。未取得の間はスイッチを無効にし、client にポートを焼き込まない。既定が ON でもポートが無ければ隔離のまま開く（`aria-checked` も実体に合わせる）。`App` が health から受けて、ファイルを開ける面（設定 → ファイル / チャットの作業フォルダ面（右パネル / sheet）/ チャットのスキル面 / 設定 → スキルのファイルタブ）の `FileBrowser` へ prop で渡す（面ごとに health を取り直さない）
+- プレビュー先は health の `filePreviewOrigin`（env `PI_FILE_PREVIEW_ORIGIN`）を優先し、無ければ `filePreviewPort`（ブラウザから見たポート）で組む。どちらも未取得の間はスイッチを無効にし、client にポートを焼き込まない。TLS 終端の後ろでは scheme が変わるため、公開する配備は origin を渡す（origin があればポートは要らない）。CSP の `frame-src` も同じ値を使う（origin が無ければ `http://*:<プレビュー ポート>`）。既定が ON でもプレビュー先が無ければ隔離のまま開く（`aria-checked` も実体に合わせる）。`App` が health から受けて、ファイルを開ける面（設定 → ファイル / チャットの作業フォルダ面（右パネル / sheet）/ チャットのスキル面 / 設定 → スキルのファイルタブ）の `FileBrowser` へ prop で渡す（面ごとに health を取り直さない）
 - 配信元の選択はタブごとに保持し、タブを閉じると既定（ストレージ有効）へ戻る（`previewOriginFor` / `withPreviewOrigin` / `dropClosedPreviewOrigins` / `renamePreviewOrigins`）。表示モードと違い**保存はしない**ので、F5 と タブを閉じて開き直すと既定（ON）から始まる
 - **配信元の切替は iframe の `key` を変えて要素ごと作り直す**。Chromium はナビゲーション開始時の sandbox フラグで文書を作るため、同じ更新で `src` と `sandbox` を書き換えると古いフラグ（`allow-scripts`）のまま読み込まれ、後から属性を直しても再ナビゲーションされない（CSP の `sandbox allow-scripts allow-same-origin allow-pointer-lock` は要素側の制限を打ち消せない = 和集合）。sandbox 属性が変わらないタブ間の切替は作り直さない（`src` だけが変わり、フラグはそのまま正しい）
 - 表示モードの選択もタブごとに保持し、タブを閉じると捨てる（`previewModeFor` / `withPreviewMode` / `dropClosedPreviewModes`）。state は `FileBrowser` が持つ。選択は「タブを閉じるまで」が条件で、「再読み込み」は `FilePreview` を remount して本文だけを捨てる（本文はタブごとに保持するが、選択は再取得では戻さない）
@@ -192,8 +192,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 HTML プレビューのパス行のアイコンボタンで、描画中の文書をブラウザの新しいタブで開く（`client/src/components/FilePreview.tsx` の `ExternalLinkIcon`。アイコンだけなので `aria-label` / `title` に `新しいタブで開く` を持つ）。
 
 - `<a href target="_blank" rel="noreferrer noopener">` にする。`window.open` は使わない（ポップアップブロッカー / 中クリック / URL のコピーをブラウザの標準に任せる）
-- 開く先は**常に別オリジンの `fileStoragePreviewUrl(fetchPath, filePreviewPort)`**（iframe と同じ `GET /api/files/html/<root 相対>`）。別タブを出す目的が `localStorage` を使えることなので、パス行の別オリジンのスイッチとは連動させない（OFF にしていても別タブはストレージ有効側で開く）。path を組み立て直さないのは、セグメント単位の encode と「相対参照を文書と同じディレクトリで解決する」前提を iframe と共有するため
-- ポート未取得の間だけ同一オリジンの `fileHtmlPreviewUrl(fetchPath)` へ倒す（client にポートを焼き込まない）
+- 開く先は**常に別オリジンの `fileStoragePreviewUrl(fetchPath, { origin, port })`**（iframe と同じ `GET /api/files/html/<root 相対>`）。別タブを出す目的が `localStorage` を使えることなので、パス行の別オリジンのスイッチとは連動させない（OFF にしていても別タブはストレージ有効側で開く）。path を組み立て直さないのは、セグメント単位の encode と「相対参照を文書と同じディレクトリで解決する」前提を iframe と共有するため
+- プレビュー先（origin も port も）未取得の間だけ同一オリジンの `fileHtmlPreviewUrl(fetchPath)` へ倒す（client にポートを焼き込まない）
 - 出すのはプレビュー中だけ（`showHtml`）。ソース表示から開くと、見えている本文と違うもの（描画された文書）が出る
 - 別タブの文書にもプレビュー オリジンの CSP（`sandbox allow-scripts allow-same-origin allow-pointer-lock`）がトップレベル文書として効く。オリジンが文書自身のものなので `localStorage` / `IndexedDB` / pointer lock が使え、iframe のストレージ有効モードと同じ保存領域を共有する（ゲームのセーブを別タブで続けられる）。`allow-modals` / `allow-downloads` / `allow-popups` は足していないため `alert` / `confirm` とダウンロードは動かない（`form-action 'none'` と `connect-src` 無しも iframe と同じ）。`rel="noreferrer noopener"` と合わせて、アプリ側の面へは触れない
 - プレビュー オリジンへ到達できない環境では、新しいタブは接続できない（iframe は別オリジンを OFF にすれば隔離で表示できる。[できないこと](#できないこと残リスク)）
@@ -312,7 +312,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 | `client/test/sessionFilesPath.test.ts` | 帯のパスの分割（未所属の 2 段 / プロジェクトの 1 段 / 末尾の `/` / root `.` / 1 段だけ）/ 絶対パスの組み立て（root `.` は `rootCwd` そのまま・未取得は undefined）/ ⋯ の項目と disabled の理由（片方だけ・両方）/ 全 disabled で ⋯ を出さず理由を常設すること（SSR） |
 | `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
-| `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileRawUrl` が version 指定時だけ `v` を付け、未指定時の URL を保つこと / `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること / `fileStoragePreviewUrl` が hostname + ポートで別オリジンの URL を組み立てること |
+| `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileRawUrl` が version 指定時だけ `v` を付け、未指定時の URL を保つこと / `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること / `fileStoragePreviewUrl` が公開オリジンを優先し、無ければ hostname + ポートで別オリジンの URL を組み立てること（どちらも無ければ URL を作らない） |
 | `client/test/filePreviewError.test.ts` | 共通スキル配下の `Path not found` にだけ補助文を出すこと（作業フォルダ側・接頭辞の別名・他のエラーでは出さない） |
 | `server/test/file-stat.test.ts` | サンドボックスの `GET /v1/files/stat`（通常ファイル 200 と symlink の実パス / 本文を読まないためバイナリ・UTF-8 不正・上限超過も 200 / 不存在と壊れた symlink の 404 / ディレクトリ・root 自身・root 外・不正要求の 400 / 認証） |
 | `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし / リスナーごとの sandbox 段）/ `GET /api/files/html/<path>` の文書・画像・音声・テキストアセット・400 の分岐と percent decoding（音声は raw・テキストは preview の使い分けと動画 / フォントの 400 を含む）/ ヘッダ（CSP / `no-store` / `nosniff`）/ `previewApp` の storage 有効 CSP（文書は HTML・アセットは CSP 無しの JSON）とマウント範囲（HTML プレビュー ルートだけ）/ `GET /api/files/raw` が画像と音声を配り、`.svg` / `.html` / 動画 / テキストを 400 で拒むこと / `Range` の status・`Content-Range`・`Accept-Ranges` の中継（206 と 416）/ 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 / `POST /api/files/rename` の委譲と body 検証・エラー写像（409 の透過を含む）・契約外の応答の 502 / `GET /api/files/stat` の本文を取らない委譲と no-store・200 / 404 / 400 の透過・確認不能の 502 / 未設定の 503 |
@@ -326,7 +326,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 | `server/test/sandbox-delete-dir.test.ts` | `DELETE /v1/dirs`（`recursive` の解釈 / 空ディレクトリ / 非空の 400 と部分削除なし / 配下ごとの削除と接頭辞境界 / パス形式と root 外・不存在・非ディレクトリ・symlink の 400・404 / 配下 symlink のリンクだけの削除 / 一覧上限外の子 / `__proto__` / 認証） |
 | `server/test/sandbox-client.test.ts` | NDJSON / JSON 経路の写像と、`deleteDirectory` が `DELETE /v1/dirs?recursive=true` を呼び 204 の本文を読まないこと / `renameEntry` が `POST /v1/files/rename` を呼び、409 を文言ごと透過すること / `rawFile` が `Range` を付けて送り status・`Content-Range`・`Accept-Ranges` を中継すること（416 は例外にしない） |
 | `server/test/sandbox-rename.test.ts` | `POST /v1/files/rename`（ファイル / ディレクトリの改名と応答パス / 大文字小文字だけの変更 / 同名 409 と変更なし / 不正な名前・パス形式の 400 / 不存在 404 / root 外 400 / symlink の 400 とリンク先の維持・symlink への上書きの 409 / symlink ディレクトリ経由 / 認証） |
-| `server/test/static.test.ts` | SPA フォールバック（拡張子なしの画面 URL / `/api`・`/assets` の境界 / `Accept` / 未ビルド 503）と、アプリ CSP の `frame-src`（`'self'` + プレビュー オリジンのポート）と `media-src 'self'`（同 origin の raw ルートだけを鳴らす） |
+| `server/test/static.test.ts` | SPA フォールバック（拡張子なしの画面 URL / `/api`・`/assets` の境界 / `Accept` / 未ビルド 503）と、アプリ CSP の `frame-src`（`'self'` + プレビュー オリジンのポート。env の公開オリジンがあるときはその origin）と `media-src 'self'`（同 origin の raw ルートだけを鳴らす） |
 
 ## 参照
 

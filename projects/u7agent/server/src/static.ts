@@ -23,16 +23,17 @@ const CONTENT_TYPES: Record<string, string> = {
 
 // エージェントのアイコンは data URL を <img> で描くため、img-src だけ data: を許す (script-src は 'self' のまま)。
 // 音声は同 origin の raw ルート (試行の成果物 / ファイルプレビュー) だけを鳴らすため、media-src は 'self' に閉じる
-const staticCsp = (filePreviewPort: number) =>
+const staticCsp = (filePreviewPort: number, filePreviewOrigin?: string) =>
   "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; " +
   // 別オリジンを OFF にしたときの同一オリジン フレームと、既定の別オリジン (プレビュー リスナー) のフレームを許可する。
   // 'self' を落とすと frame-src が default-src にフォールバックしなくなり、OFF のときのプレビューが拒否される
-  `frame-src 'self' http://*:${filePreviewPort}`;
+  // (公開オリジンが設定されている場合も 'self' は同じ理由で残す)
+  `frame-src 'self' ${filePreviewOrigin ?? `http://*:${filePreviewPort}`}`;
 
 /** SPA フォールバックの対象外にする prefix。`/api` と `/assets` そのものも含める (`/apix` とは区別する) */
 const FALLBACK_EXCLUDED_PREFIXES = ["/api", "/assets"];
 
-export function serveClientAssets(clientDistDir: string, filePreviewPort: number) {
+export function serveClientAssets(clientDistDir: string, filePreviewPort: number, filePreviewOrigin?: string) {
   return async (c: Context) => {
     let pathname: string;
     try {
@@ -47,19 +48,20 @@ export function serveClientAssets(clientDistDir: string, filePreviewPort: number
       c.req.header("accept"),
       clientDistDir,
       filePreviewPort,
+      filePreviewOrigin,
     );
     return response ?? c.json({ error: "Not found" }, 404);
   };
 }
 
-function clientBuildMissingResponse(filePreviewPort: number): Response {
+function clientBuildMissingResponse(filePreviewPort: number, filePreviewOrigin?: string): Response {
   return new Response("Client build missing. Run: pnpm build", {
     status: 503,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": staticCsp(filePreviewPort),
+      "Content-Security-Policy": staticCsp(filePreviewPort, filePreviewOrigin),
     },
   });
 }
@@ -75,6 +77,7 @@ async function serveClientAsset(
   accept: string | undefined,
   clientDistDir: string,
   filePreviewPort: number,
+  filePreviewOrigin?: string,
 ): Promise<Response | null> {
   if (pathname !== "/" && !pathname.startsWith("/")) return null;
   const relativePath = pathname === "/" || pathname === "/index.html" ? "index.html" : pathname.slice(1);
@@ -83,17 +86,17 @@ async function serveClientAsset(
   if (filePath !== clientDistDir && !filePath.startsWith(clientDistDir + sep)) return null;
 
   const result = await readDistFile(filePath);
-  if (result.kind === "ok") return staticFileResponse(result.body, relativePath, filePreviewPort);
+  if (result.kind === "ok") return staticFileResponse(result.body, relativePath, filePreviewPort, filePreviewOrigin);
   // 未ビルドなら案内を出し、それ以外は 404 にする。
   if (relativePath === "index.html") {
-    return result.kind === "missing" ? clientBuildMissingResponse(filePreviewPort) : null;
+    return result.kind === "missing" ? clientBuildMissingResponse(filePreviewPort, filePreviewOrigin) : null;
   }
   if (result.kind === "error") return null;
 
   if (!isSpaFallback(pathname, method, accept)) return null;
   const index = await readDistFile(resolve(clientDistDir, "index.html"));
-  if (index.kind === "ok") return staticFileResponse(index.body, "index.html", filePreviewPort);
-  return index.kind === "missing" ? clientBuildMissingResponse(filePreviewPort) : null;
+  if (index.kind === "ok") return staticFileResponse(index.body, "index.html", filePreviewPort, filePreviewOrigin);
+  return index.kind === "missing" ? clientBuildMissingResponse(filePreviewPort, filePreviewOrigin) : null;
 }
 
 /**
@@ -138,7 +141,12 @@ async function readDistFile(filePath: string): Promise<DistFile> {
   }
 }
 
-function staticFileResponse(body: Buffer, relativePath: string, filePreviewPort: number): Response {
+function staticFileResponse(
+  body: Buffer,
+  relativePath: string,
+  filePreviewPort: number,
+  filePreviewOrigin?: string,
+): Response {
   // Vite はハッシュ付きファイルを assets/ 配下に出すため長期キャッシュ、それ以外は no-cache。
   // キャッシュは要求された URL ではなく実際に配信するファイルで決める (フォールバックの index.html は no-cache)。
   const isHashedAsset = relativePath.startsWith("assets/");
@@ -147,7 +155,7 @@ function staticFileResponse(body: Buffer, relativePath: string, filePreviewPort:
       "Content-Type": CONTENT_TYPES[extname(relativePath)] ?? "application/octet-stream",
       "Cache-Control": isHashedAsset ? "public, max-age=31536000, immutable" : "no-cache",
       "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": staticCsp(filePreviewPort),
+      "Content-Security-Policy": staticCsp(filePreviewPort, filePreviewOrigin),
     },
   });
 }

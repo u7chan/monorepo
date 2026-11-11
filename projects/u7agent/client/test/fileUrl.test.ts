@@ -70,24 +70,29 @@ test("fileHtmlPreviewUrl はクエリではなくパス形式で同一オリジ�
   for (const [path, url] of cases) assert.equal(fileHtmlPreviewUrl(path), url, path);
 });
 
-test("fileStoragePreviewUrl は hostname と health のポートで別オリジンの URL を組み立てる", async () => {
+test("fileStoragePreviewUrl は公開オリジンを優先し、無ければ health のポートで別オリジンの URL を組み立てる", async () => {
   // dev はアプリが Vite の 3000 に居るため、location.host (3000) ではなく hostname + health のポートを使う
   Object.defineProperty(globalThis, "location", {
     value: { origin: "http://localhost:3000", hostname: "localhost" },
     configurable: true,
   });
   const { fileStoragePreviewUrl } = await import("../src/api");
-  const cases: Array<[string, number, string]> = [
-    ["a.html", 4318, "http://localhost:4318/api/files/html/a.html"],
-    ["dir/a b.png", 8017, "http://localhost:8017/api/files/html/dir/a%20b.png"],
-    ["a#b.txt", 4318, "http://localhost:4318/api/files/html/a%23b.txt"],
+  const cases: Array<[string, { origin?: string; port?: number }, string]> = [
+    ["a.html", { port: 4318 }, "http://localhost:4318/api/files/html/a.html"],
+    ["dir/a b.png", { port: 8017 }, "http://localhost:8017/api/files/html/dir/a%20b.png"],
+    ["a#b.txt", { port: 4318 }, "http://localhost:4318/api/files/html/a%23b.txt"],
     [
       "日本語/画像.png",
-      4318,
+      { port: 4318 },
       "http://localhost:4318/api/files/html/%E6%97%A5%E6%9C%AC%E8%AA%9E/%E7%94%BB%E5%83%8F.png",
     ],
+    // TLS 終端の後ろでは scheme が変わるため、公開オリジンがあればポートが無くても URL を作る
+    ["a.html", { origin: "https://preview.example.com" }, "https://preview.example.com/api/files/html/a.html"],
+    // 壊れた origin は port 方式へ落とす (URL を組み立てられない値は焼き込まない)
+    ["a.html", { origin: "preview.example.com", port: 4318 }, "http://localhost:4318/api/files/html/a.html"],
   ];
-  for (const [path, port, url] of cases) assert.equal(fileStoragePreviewUrl(path, port), url, path);
+  for (const [path, target, url] of cases) assert.equal(fileStoragePreviewUrl(path, target), url, path);
+  assert.equal(fileStoragePreviewUrl("a.html", {}), undefined);
 });
 
 test("fileDownloadUrl は path をクエリで渡し、サーバー側の 1 回の decode で元に戻る", async () => {
