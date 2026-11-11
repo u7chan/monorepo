@@ -66,7 +66,8 @@ async function main() {
 
   // 2 本目のリスナー = プレビュー オリジン。ポート使用中はここで例外になり起動が止まる
   serve({ fetch: bff.previewApp.fetch, port: FILE_PREVIEW_LISTEN_PORT, hostname: HOST }, (info) => {
-    console.log(`[u7agent] preview: http://${HOST}:${info.port} (browser: ${FILE_PREVIEW_PORT})`);
+    const browserOrigin = PUBLIC_ORIGINS.filePreviewOrigin ?? FILE_PREVIEW_PORT;
+    console.log(`[u7agent] preview: http://${HOST}:${info.port} (browser: ${browserOrigin})`);
   });
 
   // 3 本目のリスナー = サービス オリジン。キャッシュ ヘッダを正規化してサンドボックスの 8080 へ転送する
@@ -75,7 +76,8 @@ async function main() {
     ...(PUBLIC_ORIGINS.serviceOrigin === undefined ? {} : { serviceOrigin: PUBLIC_ORIGINS.serviceOrigin }),
   });
   serve({ fetch: serviceApp.fetch, port: SERVICE_LISTEN_PORT, hostname: HOST }, (info) => {
-    console.log(`[u7agent] service: http://${HOST}:${info.port} (browser: ${PREVIEW_PORT})`);
+    const browserOrigin = PUBLIC_ORIGINS.serviceOrigin ?? PREVIEW_PORT;
+    console.log(`[u7agent] service: http://${HOST}:${info.port} (browser: ${browserOrigin})`);
   });
 
   const shutdown = async () => {

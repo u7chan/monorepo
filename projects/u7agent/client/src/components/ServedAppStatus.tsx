@@ -26,7 +26,7 @@ import { MenuItem } from "./MenuItem";
 import { ExternalLinkIcon, PowerIcon, RunSpinnerIcon, StopIcon } from "./icons";
 
 export type ServedAppProps = {
-  /** health の previewPort (ブラウザから見たポート)。未取得ならリンクを出さない */
+  /** health の previewPort (ブラウザから見たポート)。serviceOrigin も無ければリンクを出さない */
   port?: number;
   /** health の serviceOrigin (ブラウザから見たサービス オリジン)。設定済みならポートより優先する */
   serviceOrigin?: string;

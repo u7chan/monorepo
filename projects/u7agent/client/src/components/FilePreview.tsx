@@ -69,7 +69,7 @@ export type FilePreviewProps = {
   modes: PreviewModes;
   /** タブごとのプレビューの配信元。親が持つ (表示モードと同じく remount で失わないため) */
   origins: PreviewOrigins;
-  /** プレビュー オリジンのブラウザから見たポート (health の filePreviewPort)。未取得の間は切替を無効にする */
+  /** プレビュー オリジンのブラウザから見たポート (health の filePreviewPort)。origin も無いときは切替を無効にする */
   filePreviewPort?: number;
   /** プレビュー オリジン (health の filePreviewOrigin)。設定済みならポートより優先する */
   filePreviewOrigin?: string;
