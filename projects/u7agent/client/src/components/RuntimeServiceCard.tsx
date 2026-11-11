@@ -8,17 +8,20 @@ export function RuntimeServiceCard({
   state,
   hostname,
   port,
+  serviceOrigin,
   onStop,
   onOpenSession,
 }: {
   state: RuntimeServeState;
   hostname: string;
   port?: number;
+  /** ブラウザから見たサービス オリジン (health の serviceOrigin)。設定済みならポートより優先する */
+  serviceOrigin?: string;
   onStop: () => void;
   onOpenSession?: (sessionId: string, spaceId?: string) => void;
 }) {
   const { status, loading, failed, stopping, error } = state;
-  const href = status?.reachable ? servedAppUrl(hostname, port) : undefined;
+  const href = status?.reachable ? servedAppUrl(hostname, port, serviceOrigin) : undefined;
   return (
     <section className="grid gap-2 rounded-lg border border-line bg-soft p-3" aria-label="公開中のサービス">
       <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">公開中のサービス</h3>

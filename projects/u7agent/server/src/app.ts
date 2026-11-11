@@ -122,6 +122,9 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     clientDistDir = DEFAULT_CLIENT_DIST_DIR,
     filePreviewPort = DEFAULT_FILE_PREVIEW_PORT,
     previewPort = DEFAULT_PREVIEW_PORT,
+    appOrigin,
+    filePreviewOrigin,
+    serviceOrigin,
   } = opts;
   const {
     cwd,
@@ -171,6 +174,9 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     archiveSettings,
     filePreviewPort,
     previewPort,
+    ...(appOrigin === undefined ? {} : { appOrigin }),
+    ...(filePreviewOrigin === undefined ? {} : { filePreviewOrigin }),
+    ...(serviceOrigin === undefined ? {} : { serviceOrigin }),
   });
   const runtimeRoutes = createRuntimeRoutes({
     pi,
@@ -208,7 +214,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const serveRoutes = createServeRoutes({ serve });
 
   const app = new Hono()
-    .use("/api/*", mutationOriginGuard)
+    .use("/api/*", mutationOriginGuard(appOrigin))
     .use("/api/sessions/*", sessionSpaceGuard(spaces, store))
     // 設定 → ファイル のドラッグ＆ドロップは本文を raw で流すため、bodyGuard より先に登録する
     .post("/api/files/upload", (c) => fileRoutes.upload(c))
@@ -817,7 +823,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => titleSummaryRoutes.put(c, c.req.valid("json")),
     )
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
-    .get("*", serveClientAssets(clientDistDir, filePreviewPort))
+    .get("*", serveClientAssets(clientDistDir, filePreviewPort, filePreviewOrigin))
     .notFound((c) => c.json({ error: "Not found" }, 404))
     .onError((error, c) => {
       // hono validator の JSON パース失敗 (HTTPException 400) は契約の文言に寄せる

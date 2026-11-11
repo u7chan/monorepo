@@ -69,8 +69,10 @@ export type FilePreviewProps = {
   modes: PreviewModes;
   /** タブごとのプレビューの配信元。親が持つ (表示モードと同じく remount で失わないため) */
   origins: PreviewOrigins;
-  /** プレビュー オリジンのブラウザから見たポート (health の filePreviewPort)。未取得の間は切替を無効にする */
+  /** プレビュー オリジンのブラウザから見たポート (health の filePreviewPort)。origin も無いときは切替を無効にする */
   filePreviewPort?: number;
+  /** プレビュー オリジン (health の filePreviewOrigin)。設定済みならポートより優先する */
+  filePreviewOrigin?: string;
   /** 表示中のタブのサイズ (ツリーの取得済みの行から引く)。未取得は undefined で、画像のメタは寸法だけになる */
   activeSize?: number;
   /** パンくずのクリック。ツリーと同じ画面 root 相対パスを渡す (ツリーでその位置を示す) */
@@ -93,6 +95,7 @@ export function FilePreview({
   modes,
   origins,
   filePreviewPort,
+  filePreviewOrigin,
   activeSize,
   onReveal,
   onModeChange,
@@ -152,16 +155,17 @@ export function FilePreview({
   const showMarkdown = mode === "preview" && isMarkdownPath(activePath);
   const showSvg = mode === "preview" && isSvgPath(activePath);
   const skipFetch = showHtml || showImage || showAudio;
-  // ストレージ有効モードはブラウザから見たポートが分かってからだけ選べる (client にポートを焼き込まない)
-  const storageEnabled = filePreviewPort !== undefined && previewOriginFor(origins, activePath) === "storage";
-  const htmlPreviewSrc =
-    filePreviewPort !== undefined && storageEnabled
-      ? fileStoragePreviewUrl(fetchPath, filePreviewPort)
-      : fileHtmlPreviewUrl(fetchPath);
+  // ストレージ有効モードはブラウザから見たプレビュー先 (オリジンかポート) が分かってからだけ選べる
+  // (client にポートを焼き込まない)。公開オリジンがあればポートは要らない
+  const storageTarget = { origin: filePreviewOrigin, port: filePreviewPort };
+  const storageAvailable = filePreviewOrigin !== undefined || filePreviewPort !== undefined;
+  const storageEnabled = storageAvailable && previewOriginFor(origins, activePath) === "storage";
+  const htmlPreviewSrc = storageEnabled
+    ? (fileStoragePreviewUrl(fetchPath, storageTarget) ?? fileHtmlPreviewUrl(fetchPath))
+    : fileHtmlPreviewUrl(fetchPath);
   // 新しいタブはパス行の切替と関係なく常に別オリジンで開く (storage を使えるのが別タブを出す目的)。
-  // ポート未取得の間だけ同一オリジンへ倒す
-  const newTabSrc =
-    filePreviewPort === undefined ? fileHtmlPreviewUrl(fetchPath) : fileStoragePreviewUrl(fetchPath, filePreviewPort);
+  // プレビュー先が分からない間だけ同一オリジンへ倒す
+  const newTabSrc = fileStoragePreviewUrl(fetchPath, storageTarget) ?? fileHtmlPreviewUrl(fetchPath);
   // ハイライトをタブごとに保持しない理由は docs/file-preview.md。
   // Markdown / SVG のプレビューは本文をそのまま描くため、ソース用の変換 (ハイライト) は走らせない
   const code = useMemo(
@@ -252,7 +256,7 @@ export function FilePreview({
           <ToggleSwitch
             size="sm"
             checked={storageEnabled}
-            disabled={filePreviewPort === undefined}
+            disabled={!storageAvailable}
             label="別オリジン"
             title={storageEnabled ? PREVIEW_ORIGIN_OFF_NOTE : PREVIEW_ORIGIN_ON_NOTE}
             onChange={(next) => onOriginChange(activePath, next ? "storage" : "app")}

@@ -37,6 +37,7 @@ export function FileSkillPanel({
   detail,
   usage,
   filePreviewPort,
+  filePreviewOrigin,
   rootCwd,
   singleColumn = false,
 }: {
@@ -47,6 +48,8 @@ export function FileSkillPanel({
   usage?: SkillUsage;
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
   filePreviewPort?: number;
+  /** プレビュー オリジン (health の filePreviewOrigin)。設定済みならポートより優先する */
+  filePreviewOrigin?: string;
   /** ワークスペース root の絶対パス (health.cwd)。行の絶対パスをコピーする導線に使う */
   rootCwd?: string;
   /** 一覧が隠れる幅か。狭いときはメタと説明を詰めて本文へ高さを譲る */
@@ -198,6 +201,7 @@ export function FileSkillPanel({
               readOnly
               excludeNames={[]}
               filePreviewPort={filePreviewPort}
+              filePreviewOrigin={filePreviewOrigin}
             />
           </div>
         ) : undefined

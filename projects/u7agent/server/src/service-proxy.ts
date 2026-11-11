@@ -45,6 +45,11 @@ export interface ServiceProxyOptions {
   host?: string;
   /** 転送先ポート。テスト以外は既定の 8080 固定 (任意ポートは受けない) */
   port?: number;
+  /**
+   * ブラウザから見たサービスのオリジン (env `PI_PREVIEW_ORIGIN`)。TLS 終端の後ろではリクエスト自身の
+   * origin が `http://<host>` になるため、`Location` の書き換え先をこちらへ寄せる。未指定はリクエスト自身の origin
+   */
+  serviceOrigin?: string;
 }
 
 /** `Connection` が名指ししたヘッダもホップバイホップなので落とす */
@@ -115,11 +120,13 @@ function forwardResponse(
 export function createServiceProxy(options: ServiceProxyOptions = {}) {
   const port = options.port ?? SERVE_LISTEN_PORT;
   const host = options.host?.trim() || undefined;
+  const serviceOrigin = options.serviceOrigin;
 
   const app = new Hono();
   app.all("*", async (c) => {
     if (!host) return unreachableResponse();
     const url = new URL(c.req.url);
+    const browserOrigin = serviceOrigin ?? url.origin;
     const method = c.req.method;
     const drop = hopByHopNames(c.req.raw.headers.get("connection") ?? undefined);
     const revalidate = method === "GET" || method === "HEAD";
@@ -135,7 +142,7 @@ export function createServiceProxy(options: ServiceProxyOptions = {}) {
       // Node の fetch は Content-Encoding を復号してヘッダだけ残すため、バイト列をそのまま扱う
       const upstreamRequest = httpRequest(
         { host, port, method, path: `${url.pathname}${url.search}`, headers },
-        (upstream) => resolve(forwardResponse(upstream, url.origin, host, method)),
+        (upstream) => resolve(forwardResponse(upstream, browserOrigin, host, method)),
       );
       upstreamRequest.once("error", () => resolve(unreachableResponse()));
       c.req.raw.signal.addEventListener("abort", () => upstreamRequest.destroy(), { once: true });

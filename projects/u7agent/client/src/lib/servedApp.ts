@@ -4,8 +4,15 @@
  */
 import type { RunStatus, ServeStatus, SessionSummary } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
+import { publicOrigin } from "./publicOrigin";
 
-export function servedAppUrl(hostname: string, port: number | undefined): string | undefined {
+/**
+ * サービスを開く URL。公開オリジン (TLS 終端の後ろでは scheme が変わる) があればそれを優先し、
+ * 未設定・壊れた値なら現行どおり hostname と health のポートから組む。
+ */
+export function servedAppUrl(hostname: string, port: number | undefined, origin?: string): string | undefined {
+  const base = publicOrigin(origin);
+  if (base !== undefined) return `${base}/`;
   if (!hostname || port === undefined || !Number.isInteger(port) || port < 1 || port > 65535) return undefined;
   return `http://${hostname}:${port}/`;
 }
@@ -292,15 +299,17 @@ export function servedAppRowHref({
   failed,
   hostname,
   port,
+  origin,
 }: {
   row: ServeRowState;
   status?: ServeStatus | null;
   failed: boolean;
   hostname: string;
   port?: number;
+  origin?: string;
 }): string | undefined {
   if (!row.episode || failed || !servedAppView(status).canOpen) return undefined;
-  return servedAppUrl(hostname, port);
+  return servedAppUrl(hostname, port, origin);
 }
 
 /**

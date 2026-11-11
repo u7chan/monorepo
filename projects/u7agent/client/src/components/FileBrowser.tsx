@@ -129,6 +129,8 @@ export type FileBrowserProps = {
   shareBlockedReason?: string;
   /** プレビュー オリジン (別オリジン) のブラウザから見たポート。health から受け取り、未取得は undefined */
   filePreviewPort?: number;
+  /** プレビュー オリジン (health の filePreviewOrigin)。設定済みならポートより優先する */
+  filePreviewOrigin?: string;
 };
 
 /**
@@ -153,6 +155,7 @@ export function FileBrowser({
   canShareSessionRoot = false,
   shareBlockedReason,
   filePreviewPort,
+  filePreviewOrigin,
 }: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
   // 行の絶対パスを組み立てる 1 箇所。行は画面の root を知らないので、描画側から渡す
@@ -548,6 +551,7 @@ export function FileBrowser({
             modes={previewModes}
             origins={previewOrigins}
             filePreviewPort={filePreviewPort}
+            filePreviewOrigin={filePreviewOrigin}
             activeSize={activeSize}
             onModeChange={(path: string, mode: PreviewMode) =>
               setPreviewModes((prev) => withPreviewMode(prev, path, mode))

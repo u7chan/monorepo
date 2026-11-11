@@ -565,6 +565,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   }, [app.chat.runStatus, app.sessionId, activeSession?.projectId, spaceSessions, app.serve, confirm]);
   const serveProps = {
     port: app.health?.previewPort,
+    serviceOrigin: app.health?.serviceOrigin,
     status: serve.status,
     failed: serve.failed,
     starting: serve.starting,
@@ -961,6 +962,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             {...pageProps}
             catalog={app.catalog}
             filePreviewPort={app.health?.filePreviewPort}
+            filePreviewOrigin={app.health?.filePreviewOrigin}
             rootCwd={app.health?.cwd}
           />
         );
@@ -974,6 +976,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             rootCwd={app.health?.cwd}
             excludeNames={excludeNames}
             filePreviewPort={app.health?.filePreviewPort}
+            filePreviewOrigin={app.health?.filePreviewOrigin}
             archiveSettings={app.archiveSettings}
             filesSubsection={
               route.view === "settings" && route.section === "files"
@@ -1271,6 +1274,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                 onOpenNav={sidebarDocked ? undefined : openNav}
                 compact={compactTapTargets}
                 previewPort={app.health?.previewPort}
+                serviceOrigin={app.health?.serviceOrigin}
                 hostname={location.hostname}
               />
             </div>
@@ -1285,6 +1289,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             envScope={envScope ?? {}}
             excludeNames={excludeNames}
             filePreviewPort={app.health?.filePreviewPort}
+            filePreviewOrigin={app.health?.filePreviewOrigin}
             runEndSeq={app.chat.runEndSeq}
             shareBlockedReason={shareBlockedReason}
             onClose={closeSessionFiles}
@@ -1309,6 +1314,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           envScope={envScope ?? {}}
           excludeNames={excludeNames}
           filePreviewPort={app.health?.filePreviewPort}
+          filePreviewOrigin={app.health?.filePreviewOrigin}
           runEndSeq={app.chat.runEndSeq}
           shareBlockedReason={shareBlockedReason}
           onClose={closeSessionFilesSheet}

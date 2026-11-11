@@ -36,18 +36,21 @@ export function activityServiceView({
   launching,
   hostname,
   port,
+  origin,
 }: {
   status: RuntimeServeStatus | null;
   failed: boolean;
   launching?: { title?: string; command?: string };
   hostname: string;
   port?: number;
+  /** ブラウザから見たサービス オリジン (health の serviceOrigin)。設定済みならポートより優先する */
+  origin?: string;
 }): ActivityServiceView {
   if (failed) return { kind: "failed", label: "状態を取得できません", canStop: false };
   if (!status) return { kind: "loading", label: "状態を取得しています…", canStop: false };
   if (launching) return { kind: "starting", label: "起動中…", launching, canStop: false };
   if (!status.reachable) return { kind: "stopped", label: "停止中", canStop: false };
-  const url = servedAppUrl(hostname, port);
+  const url = servedAppUrl(hostname, port, origin);
   return {
     kind: status.owner ? "running" : "unknown",
     label: status.owner ? "稼働中" : "稼働中（起動元不明）",
@@ -87,6 +90,7 @@ export function activityRowServe({
   starting,
   hostname,
   port,
+  origin,
 }: {
   row: Pick<ActivityRow, "sessionId" | "kind" | "serveCommand">;
   status: RuntimeServeStatus | null;
@@ -95,13 +99,15 @@ export function activityRowServe({
   starting: string | null;
   hostname: string;
   port?: number;
+  /** ブラウザから見たサービス オリジン (health の serviceOrigin)。設定済みならポートより優先する */
+  origin?: string;
 }): ActivityRowServe {
   if (failed || !status) return NO_ROW_ACTION;
   const served = status.reachable && status.owner?.sessionId === row.sessionId;
   if (starting === row.sessionId) return { served, action: "starting", disabled: true };
   const disabled = starting !== null;
   if (served) {
-    const url = servedAppUrl(hostname, port);
+    const url = servedAppUrl(hostname, port, origin);
     return url === undefined
       ? { served: true, action: "none", disabled }
       : { served: true, action: "open", disabled, url };

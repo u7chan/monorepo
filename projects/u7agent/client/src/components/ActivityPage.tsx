@@ -35,8 +35,10 @@ export type ActivityPageProps = {
   onOpenNav?: () => void;
   /** モバイルヘッダの帯 (641–900px と singleColumn)。タップ領域を 44px 以上にする */
   compact?: boolean;
-  /** health の previewPort (ブラウザから見た公開ポート)。未取得なら「開く」を出さない */
+  /** health の previewPort (ブラウザから見た公開ポート)。serviceOrigin も無ければ「開く」を出さない */
   previewPort?: number;
+  /** health の serviceOrigin (ブラウザから見たサービス オリジン)。設定済みならポートより優先する */
+  serviceOrigin?: string;
   /** ブラウザから見たホスト (公開 URL を組む) */
   hostname: string;
 };
@@ -63,6 +65,7 @@ export function ActivityPage({
   onOpenNav,
   compact = false,
   previewPort,
+  serviceOrigin,
   hostname,
 }: ActivityPageProps) {
   const now = useActivityNow();
@@ -111,6 +114,7 @@ export function ActivityPage({
     launching,
     hostname,
     port: previewPort,
+    origin: serviceOrigin,
   });
   const start = (row: ActivityRow) => {
     const status = service.status;
@@ -237,6 +241,7 @@ export function ActivityPage({
                           starting: service.starting,
                           hostname,
                           port: previewPort,
+                          origin: serviceOrigin,
                         })}
                         compact={compact}
                         error={startError?.sessionId === row.sessionId ? startError.message : undefined}

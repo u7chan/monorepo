@@ -63,6 +63,7 @@ export function SingleColumnBar({
         failed: serve.failed,
         hostname: location.hostname,
         port: serve.port,
+        origin: serve.serviceOrigin,
       })
     : undefined;
 

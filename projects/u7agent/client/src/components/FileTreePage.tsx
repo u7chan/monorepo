@@ -24,6 +24,8 @@ export type FileTreePageProps = SettingsPageProps & {
   excludeNames: readonly string[];
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
   filePreviewPort?: number;
+  /** プレビュー オリジン (health の filePreviewOrigin)。設定済みならポートより優先する */
+  filePreviewOrigin?: string;
   /** 「ダウンロードの除外」タブの中身。下書き / 保存の状態は facade が持つ */
   archiveSettings: ArchiveSettings;
   /** URL が決めるタブ。既定はファイルツリー (lib/settingsNav.ts) */
@@ -46,6 +48,7 @@ export function FileTreePage({
   rootCwd,
   excludeNames,
   filePreviewPort,
+  filePreviewOrigin,
   archiveSettings,
   filesSubsection = DEFAULT_FILES_SUBSECTION,
   onSelectFilesSubsection,
@@ -189,6 +192,7 @@ export function FileTreePage({
                 canRename
                 excludeNames={excludeNames}
                 filePreviewPort={filePreviewPort}
+                filePreviewOrigin={filePreviewOrigin}
               />
             </FileBrowserScrollArea>
           </FileDropZone>
