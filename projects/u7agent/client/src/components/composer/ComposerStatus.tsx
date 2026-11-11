@@ -170,7 +170,7 @@ export function ComposerStatus({
    * 実行中の thinking 末尾 (live 専用。SSE `status.thinking`)。状態行の下の固定領域に出す
    */
   thinkingText?: string;
-  /** 送信の通信中。状態行が「送信中…」を出すため、圧縮の理由行は出さない */
+  /** 送信の通信中。状態行が「送信中…」を出すため、圧縮と再実行の理由行は出さない */
   sending?: boolean;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
@@ -241,13 +241,14 @@ export function ComposerStatus({
   // 押せない理由は状態行の下に 1 行で出す (押せない間の説明を hover だけに閉じると、タッチ端末で読めない)
   const compactBlocked = onCompact !== undefined && compactDisabled && compactDisabledReason !== undefined;
   const retryBlocked = showRetry && retryDisabled && retryDisabledReason !== undefined;
-  // 実行中・待機中・圧縮中・送信中は状態行が実行状態を示すため、圧縮の理由行を出さない
+  // 実行中・待機中・圧縮中・送信中は状態行が実行状態を示すため、押せない理由の行を出さない
   // (出し入れで composer の高さを動かさない)
   const compactReasonVisible = compactBlocked && !compactionBusy(runStatus) && !sending;
+  const retryReasonVisible = retryBlocked && !sending;
   // 無効な操作と実際の理由だけを並べる (再実行だけが無効なときに圧縮の文言を出さない)
   const blockedNotice = blockedButtonsNotice({
     compact: compactReasonVisible ? compactDisabledReason : undefined,
-    retry: retryBlocked ? retryDisabledReason : undefined,
+    retry: retryReasonVisible ? retryDisabledReason : undefined,
   });
 
   return (
@@ -273,7 +274,7 @@ export function ComposerStatus({
           <ReloadButton
             onClick={onRetry}
             disabled={retryDisabled}
-            aria-describedby={retryBlocked ? reasonId : undefined}
+            aria-describedby={retryReasonVisible ? reasonId : undefined}
             className={cn(singleColumn && "w-full")}
           >
             {singleColumn ? RUN_RETRY_LABEL_SINGLE_COLUMN : RUN_RETRY_LABEL}
@@ -378,7 +379,7 @@ export function ComposerStatus({
           )}
           {queueReason === undefined ? null : <p className="m-0 min-w-0 break-words">{queueReason}</p>}
           {blockedNotice === undefined ? null : (
-            // aria-describedby (圧縮ボタン) の参照先は押せない理由だけに残す
+            // aria-describedby (圧縮・再実行ボタン) の参照先は押せない理由だけに残す
             <p id={reasonId} className="m-0 min-w-0 break-words">
               {blockedNotice}
             </p>

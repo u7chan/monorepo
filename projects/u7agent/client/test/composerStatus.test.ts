@@ -525,6 +525,44 @@ test("描画: 再実行が押せないときは理由を 1 行で出し、圧縮
   assert.ok(!html.includes('aria-label="再実行"'), "押せるときと同じく可視のラベルで名前を伝える");
 });
 
+test("描画: 送信中は状態行が理由を兼ね、再実行の理由行も出さない", () => {
+  // What: 再実行可能な失敗の後に新しい本文を送っている間、状態行の「送信中…」と重なる
+  // 理由行を出さない。カード本体 (失敗の 1 文とボタン) は残す
+  const sending = render({
+    activity: "送信中…",
+    modelSlot: slot(),
+    runStatus: "error",
+    runError: failure,
+    onRetry: () => {},
+    retryDisabled: true,
+    retryDisabledReason: "送信中",
+    sending: true,
+  });
+
+  assert.ok(sending.includes(failure.text), "失敗の 1 文は送信中も残す");
+  assert.ok(sending.includes("再実行"), "再実行カードは送信中も残す");
+  assert.ok(sending.includes('disabled=""'), "再実行ボタンは押せないままにする");
+  assert.equal(sending.includes("今は再実行できません"), false, "送信中の理由行を出さない");
+  assert.equal(sending.includes("aria-describedby"), false, "存在しない理由行を指さない");
+
+  // 送信を待ち終われば、押せない理由を説明の行に出す
+  const settled = render({
+    activity: "",
+    modelSlot: slot(),
+    runStatus: "error",
+    runError: failure,
+    onRetry: () => {},
+    retryDisabled: true,
+    retryDisabledReason: "設定の変更中",
+    sending: false,
+  });
+
+  const paragraph = /<p id="([^"]+)" class="[^"]*">([^<]*)<\/p>/.exec(settled);
+  assert.ok(paragraph, "送信中を抜けたら理由行を出す");
+  assert.equal(paragraph[2], "今は再実行できません（設定の変更中）");
+  assert.ok(settled.includes(`aria-describedby="${paragraph[1]}"`), "理由を読み上げへ渡す");
+});
+
 test("描画: 圧縮と再実行が同時に無効なときも理由の行は 1 つにまとめる", () => {
   const html = render({
     activity: "",
