@@ -593,6 +593,14 @@ test("描画: 2 行領域は text が無くても高さを保ち、phase が移�
   const emptyRegion = empty.indexOf("live-thought");
   assert.ok(emptyRegion >= 0, "空でも領域を残す");
   assert.ok(empty.slice(empty.lastIndexOf("<div", emptyRegion)).includes("></span>"), "中身は空");
+  const emptyTag = empty.slice(empty.lastIndexOf("<div", emptyRegion), empty.indexOf(">", emptyRegion) + 1);
+  assert.equal(emptyTag.includes("border-l-2"), false, "空のときは罫線を出さない");
+  assert.ok(emptyTag.includes("pl-2.5"), "テキストが来たときに余白を足さない");
+
+  const filled = render({ activity: "考え中…", thinkingText: "思考", thinkingOpen: true });
+  const filledRegion = filled.indexOf("live-thought");
+  const filledTag = filled.slice(filled.lastIndexOf("<div", filledRegion), filled.indexOf(">", filledRegion) + 1);
+  assert.ok(filledTag.includes("border-line-strong"), "テキストがあるときだけ罫線を出す");
 
   const writing = render({
     activity: "応答を書いています…",

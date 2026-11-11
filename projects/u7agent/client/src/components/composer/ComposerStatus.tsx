@@ -234,6 +234,8 @@ export function ComposerStatus({
   // 再実行カードは時間をおけば回復し得る失敗だけに出す (停止・成功・キュー待ちでは出さない)
   const card = retryableRunError(runStatus, runError);
   const showRetry = card !== undefined && onRetry !== undefined;
+  // 領域の高さは thinking の有無で変えず、罫線だけを出す (空の枠が引用の帯に見えるため)
+  const thought = liveThoughtSnippet(thinkingText ?? "");
   // カードだけの状態でも描画する (activity は空にして文言をカードへ移す)。thinking の 2 行領域を
   // 開いている間は活動文言が空でも領域を残す (開閉で入力欄の位置を動かさない)
   if (
@@ -363,11 +365,16 @@ export function ComposerStatus({
           (docs/ui-layout.md)。読み上げは状態行の phase ラベルだけにし、tail は aria-hidden にする */}
       {thinkingOpen ? (
         <div
-          className="live-thought mb-1.5 border-l-2 border-line-strong pl-2.5 text-1xs leading-relaxed break-words whitespace-pre-line text-ink-soft"
+          className={cn(
+            "live-thought mb-1.5 pl-2.5 text-1xs leading-relaxed break-words whitespace-pre-line text-ink-soft",
+            // 罫線は空の箱を見せないため text があるときだけ。forced-colors でも透明な罫線が
+            // 色を付け直されないよう、太さごと外す (余白は常に同じで高さは変えない)
+            thought === "" ? null : "border-l-2 border-line-strong",
+          )}
           title={thinkingText}
           aria-hidden="true"
         >
-          <span>{liveThoughtSnippet(thinkingText ?? "")}</span>
+          <span>{thought}</span>
         </div>
       ) : null}
       {queueReason === undefined && blockedNotice === undefined && notice === undefined ? null : (
