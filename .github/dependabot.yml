@@ -168,3 +168,22 @@ updates:
         update-types:
           - "minor"
           - "patch"
+
+  # ベースイメージの更新。lockfile を持たないので bun のエントリとは分ける。
+  # Dockerfile が版 + digest で固定しているため、パッチ版と digest の更新 PR はここで受ける。
+  - package-ecosystem: "docker"
+    directory: "/projects/usage-portal"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 1
+    rebase-strategy: "disabled"
+    labels:
+      - "dependabot-auto-process"
+    groups:
+      usage-portal-docker-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

@@ -26,7 +26,7 @@ OpenCode Go の接続確認）を持つ。
 
 ## 起動
 
-Bun 1.3 系を使う。`bun:sqlite` と HTML import に依存するため、Node.js では起動しない。
+Bun 1.4 系を使う。`bun:sqlite` と HTML import に依存するため、Node.js では起動しない。
 
 ```bash
 cd projects/usage-portal
@@ -196,6 +196,7 @@ rm credentials/opencode-key.json
 ## Docker
 
 `test` ステージは `bun install --frozen-lockfile` の後に `bun run check` を実行する。`final` ステージは非 root（uid/gid 1000）で `bun src/server.ts` を起動する。
+どちらも `oven/bun` のパッチ版（1.4.4 / 1.4.4-slim）を digest で固定している。
 
 ```bash
 docker build --target test -t usage-portal-test ./projects/usage-portal

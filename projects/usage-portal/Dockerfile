@@ -1,11 +1,14 @@
-# Bun のバージョンは monorepo の他プロジェクトと揃える。HTML のバンドルと SQLite は Bun が持つため、final に Node.js は入れない。
-ARG BUN_VERSION=1.3.14
+# HTML import (バンドラ) と bun:sqlite に依存するので、Node.js へは寄せずに Bun を使う。final にも Node.js は入れない。
+# 1.4.4 は 2026-11 時点の修正済み安定版 (`latest` と同一 digest)。可変タグのままだと同じコミットでも
+# 再ビルドで中身が変わるため、版と digest で固定する。digest は linux/amd64 と arm64 を含むマルチ
+# アーキテクチャの manifest index で、プラットフォーム別 manifest ではない。通常版と slim 版で digest は別。
+# ARG で共通化すると Dependabot の docker 更新が FROM 行のリテラルを書き換えられないので、値を 2 か所に書く。
 ARG COMMIT_HASH=""
 
 # -----------------------------------------------
 # base stage
 # -----------------------------------------------
-FROM oven/bun:${BUN_VERSION} AS base
+FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS base
 
 WORKDIR /app
 
@@ -50,7 +53,7 @@ RUN bun install --frozen-lockfile --production
 # -----------------------------------------------
 # final stage
 # -----------------------------------------------
-FROM oven/bun:${BUN_VERSION}-slim AS final
+FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS final
 
 # 上流 API は HTTPS を使う。slim には CA の束が入っていない。
 RUN apt-get update \
