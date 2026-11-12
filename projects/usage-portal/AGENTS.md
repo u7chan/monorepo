@@ -8,7 +8,7 @@ OpenCode Go の接続確認）を持つ。
 
 ## Tech Stack
 
-- Bun 1.3（runtime / package manager / bundler / test）
+- Bun 1.4（runtime / package manager / bundler / test）
 - TypeScript（strict）+ Preact 11（client）
 - Hono（BFF）。`AppType` を server 側の型の正として export する
 - `bun:sqlite`（ORM なし）
