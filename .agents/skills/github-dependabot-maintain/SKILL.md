@@ -145,7 +145,8 @@ After approval, write `.github/dependabot.yml`. Then run:
 
     python3 -c "import yaml; yaml.safe_load(open('.github/dependabot.yml'))"
 
-Finally, rerun the scan from Step 2 and confirm every detected project has exactly one entry.
+Finally, rerun the scan from Step 2 and confirm every detected
+`(directory, package-ecosystem)` pair has exactly one entry.
 
 Coverage validation must also confirm that every entry contains
 `dependabot-auto-process`; a missing label is a validation error. Coverage is
@@ -169,7 +170,8 @@ Run the skill tests with:
 - [ ] Unmanaged ecosystems (`docker`, `github-actions`, ...) were preserved
 - [ ] User approved the diff before writing
 - [ ] YAML syntax passes `python3 -c "import yaml; yaml.safe_load(...)"`
-- [ ] Scan results and entries are 1:1 after writing
+- [ ] Every detected `(directory, package-ecosystem)` pair has exactly one entry
+      after writing
 - [ ] Coverage validation detects a missing required label
 
 ## References
