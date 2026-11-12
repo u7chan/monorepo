@@ -10,6 +10,8 @@ ARG COMMIT_HASH=""
 # Bun のパッチ版と OS パッケージが変わるため、版と digest で固定する。digest は linux/amd64 と arm64 を
 # 含むマルチアーキテクチャの manifest index で、プラットフォーム別 manifest ではない。slim は別の
 # manifest なので final 側で個別に固定する。更新は Dependabot の docker エントリで受ける。
+# package.json の devDependency `bun` も同じ版で固定している。`bun run` は node_modules/.bin を PATH の
+# 先頭に足すため、ここだけ上げると scripts 内の `bun`（start / test）が古いまま動く。更新時は両方揃える。
 FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS base
 
 WORKDIR /app
