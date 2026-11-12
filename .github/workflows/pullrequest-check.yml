@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6.1.0
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           # PRのベースブランチとの差分取得に必要な履歴深度
