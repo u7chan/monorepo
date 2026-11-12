@@ -6,7 +6,13 @@ ARG COMMIT_HASH=""
 # -----------------------------------------------
 # base stage
 # -----------------------------------------------
-FROM oven/bun:1 AS base
+# 1.4.4 は Node2Shell の修正が入る最初の安定版。可変タグ (`1`) のままだと同じコミットでも再ビルドで
+# Bun のパッチ版と OS パッケージが変わるため、版と digest で固定する。digest は linux/amd64 と arm64 を
+# 含むマルチアーキテクチャの manifest index で、プラットフォーム別 manifest ではない。slim は別の
+# manifest なので final 側で個別に固定する。更新は Dependabot の docker エントリで受ける。
+# package.json の devDependency `bun` も同じ版で固定している。`bun run` は node_modules/.bin を PATH の
+# 先頭に足すため、ここだけ上げると scripts 内の `bun`（start / test）が古いまま動く。更新時は両方揃える。
+FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS base
 
 WORKDIR /app
 
@@ -34,7 +40,7 @@ RUN bun install --frozen-lockfile
 # -----------------------------------------------
 # final stage
 # -----------------------------------------------
-FROM oven/bun:1-slim AS final
+FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS final
 
 WORKDIR /app
 
