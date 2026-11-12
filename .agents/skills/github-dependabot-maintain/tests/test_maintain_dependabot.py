@@ -261,6 +261,27 @@ updates:
         self.assertIn("  # docker は手書きの設定\n", rendered)
         self.assertNotIn("\n\n\n", rendered)
 
+    def test_desired_text_keeps_entry_settings_when_lockfile_switches(self) -> None:
+        # lockfile の種類が変わっても、同じ directory の既存設定 (ignore など) を引き継ぐ
+        text = """version: 2
+updates:
+  - package-ecosystem: "bun"
+    directory: "/projects/example"
+    labels:
+      - "dependabot-auto-process"
+    ignore:
+      - dependency-name: "@scope/*"
+"""
+
+        header, entries = MAINTAIN.parse_entries(text)
+        rendered = MAINTAIN.build_desired_text(
+            header, entries, {"/projects/example": "npm"}
+        )
+
+        entry = yaml.safe_load(rendered)["updates"][0]
+        self.assertEqual(entry["package-ecosystem"], "npm")
+        self.assertEqual(entry["ignore"], [{"dependency-name": "@scope/*"}])
+
     def test_desired_text_appends_missing_project_entry(self) -> None:
         header, entries = MAINTAIN.parse_entries("version: 2\nupdates:\n")
 

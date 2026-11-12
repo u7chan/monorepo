@@ -143,7 +143,7 @@ Dependabot が digest を更新できるのは、Dockerfile 側で既に digest 
 
 - `package-ecosystem` が実際のパッケージ管理ツールと一致している
 - `directory` がマニフェストとロックファイルのあるディレクトリを指している
-- グループ名が `{project}-minor-and-patch` 形式になっている
+- グループ名が `{project}-minor-and-patch` 形式（Docker は `{project}-docker-minor-and-patch`）になっている
 - `update-types` に `major` を含めていない
 - 既存プロジェクトの `updates` と重複していない
 - マージ後、GitHub 上に Dependabot の設定エラーが表示されていない

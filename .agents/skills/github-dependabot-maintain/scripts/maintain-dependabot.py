@@ -349,7 +349,14 @@ def build_desired_text(
             desired_blocks.append(ensure_required_label(block))
             continue
         if (directory, ecosystem) not in detected_pairs:
-            # lockfile が消えた / プロジェクトが無くなった管理対象のエントリ
+            replacement = detected.get(directory)
+            if replacement is None:
+                # lockfile が消えた / プロジェクトが無くなった管理対象のエントリ
+                continue
+            # lockfile の種類が変わっただけのエントリ。同じ位置のまま引き継いで
+            # ignore などの個別設定を落とさない。
+            desired_blocks.append(normalize_block(block, replacement, directory))
+            seen_pairs.add((directory, replacement))
             continue
         desired_blocks.append(normalize_block(block, ecosystem, directory))
         seen_pairs.add((directory, ecosystem))

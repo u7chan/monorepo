@@ -65,6 +65,10 @@ python3 .agents/skills/github-dependabot-maintain/scripts/maintain-dependabot.py
 - If no lockfile is found, the directory is excluded from Dependabot.
 - If an existing entry points to a directory that no longer exists, it is removed.
 - If an existing entry points to a directory whose lockfile is gone, it is removed.
+- If the lockfile switches to another ecosystem (for example `bun.lock` to
+  `pnpm-lock.yaml`), the existing block keeps its position and per-project
+  settings (`ignore`, `schedule`, ...) and only `package-ecosystem` and the
+  group name are rewritten.
 - If two entries share a directory but use different ecosystems (an `npm` entry
   and a `docker` entry, for example), both are kept. Only the lockfile-derived
   ecosystem is rewritten; the other is left as written.

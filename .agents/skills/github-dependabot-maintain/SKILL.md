@@ -11,7 +11,7 @@ description: >
 
 Keep `.github/dependabot.yml` in sync with the actual `projects/` layout.
 Adds missing Dependabot entries, removes stale entries, normalizes group names,
-sorts entries alphabetically by `directory`, and requires the
+keeps the existing entry order, and requires the
 `dependabot-auto-process` label on every entry.
 
 ## When to Use This Skill
@@ -27,8 +27,9 @@ sorts entries alphabetically by `directory`, and requires the
 2. Scan immediate subdirectories of `projects/`
 3. Detect each project's ecosystem from its lockfile
 4. Compare scan results with existing `updates:` entries
-5. Add missing entries, remove stale entries, normalize group names, and sort
-   (unmanaged ecosystems such as `docker` keep their block as it is)
+5. Add missing entries, remove stale entries, normalize group names, and append
+   new entries sorted by `directory` (existing entries keep their file order;
+   unmanaged ecosystems such as `docker` keep their block as it is)
 6. Show the diff and ask for approval
 7. Write the file only after approval
 8. Validate YAML syntax and recheck coverage
@@ -163,7 +164,8 @@ Run the skill tests with:
 - [ ] Ecosystems were detected from lockfiles
 - [ ] Existing entry settings were preserved except group names
 - [ ] `dependabot-auto-process` is present on every generated and existing entry
-- [ ] Entries are sorted alphabetically by `directory`
+- [ ] New entries were appended in `directory` order and existing entries kept
+      their order
 - [ ] Unmanaged ecosystems (`docker`, `github-actions`, ...) were preserved
 - [ ] User approved the diff before writing
 - [ ] YAML syntax passes `python3 -c "import yaml; yaml.safe_load(...)"`
