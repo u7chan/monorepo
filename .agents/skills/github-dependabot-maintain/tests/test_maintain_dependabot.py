@@ -149,6 +149,150 @@ class MaintainDependabotTests(unittest.TestCase):
 
         MAINTAIN.validate_coverage(config, {"/projects/example": "bun"})
 
+    def test_parse_entries_keys_by_directory_and_ecosystem(self) -> None:
+        text = """version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/projects/example"
+
+  - package-ecosystem: "docker"
+    directory: "/projects/example"
+"""
+
+        _, entries = MAINTAIN.parse_entries(text)
+
+        self.assertEqual(
+            sorted(entries),
+            [("/projects/example", "docker"), ("/projects/example", "npm")],
+        )
+
+    def test_unmanaged_ecosystem_entry_is_not_stale(self) -> None:
+        config = yaml.safe_load(
+            """
+            version: 2
+            updates:
+              - package-ecosystem: npm
+                directory: /projects/example
+                labels:
+                  - dependabot-auto-process
+              - package-ecosystem: docker
+                directory: /projects/example
+                labels:
+                  - dependabot-auto-process
+            """
+        )
+
+        MAINTAIN.validate_coverage(config, {"/projects/example": "npm"})
+
+    def test_stale_managed_ecosystem_entry_is_reported(self) -> None:
+        config = yaml.safe_load(
+            """
+            version: 2
+            updates:
+              - package-ecosystem: npm
+                directory: /projects/removed
+                labels:
+                  - dependabot-auto-process
+            """
+        )
+
+        with self.assertRaisesRegex(ValueError, "stale updates entry"):
+            MAINTAIN.validate_coverage(config, {})
+
+    def test_desired_text_keeps_unmanaged_entry_and_single_blank_line(self) -> None:
+        # 管理外の docker エントリが消えず、エントリ間の空行が二重にならないことも見る
+        text = """version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/projects/example"
+    labels:
+      - "dependabot-auto-process"
+
+  - package-ecosystem: "docker"
+    directory: "/projects/example"
+    labels:
+      - "dependabot-auto-process"
+
+  - package-ecosystem: "npm"
+    directory: "/projects/removed"
+    labels:
+      - "dependabot-auto-process"
+"""
+
+        header, entries = MAINTAIN.parse_entries(text)
+        rendered = MAINTAIN.build_desired_text(
+            header, entries, {"/projects/example": "npm"}
+        )
+
+        self.assertNotIn("removed", rendered)
+        self.assertIn('    directory: "/projects/example"', rendered)
+        updates = yaml.safe_load(rendered)["updates"]
+        self.assertEqual(
+            [entry["package-ecosystem"] for entry in updates],
+            ["npm", "docker"],
+        )
+        self.assertNotIn("\n\n\n", rendered)
+
+    def test_comment_before_entry_is_kept_when_normalizing(self) -> None:
+        # エントリ直前のコメントは、groups の正規化で消えてはいけない
+        text = """version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/projects/example"
+    labels:
+      - "dependabot-auto-process"
+    groups:
+      example-minor-and-patch:
+        patterns:
+          - "*"
+
+  # docker は手書きの設定
+  - package-ecosystem: "docker"
+    directory: "/projects/example"
+    labels:
+      - "dependabot-auto-process"
+"""
+
+        header, entries = MAINTAIN.parse_entries(text)
+        rendered = MAINTAIN.build_desired_text(
+            header, entries, {"/projects/example": "npm"}
+        )
+
+        self.assertIn("  # docker は手書きの設定\n", rendered)
+        self.assertNotIn("\n\n\n", rendered)
+
+    def test_desired_text_keeps_entry_settings_when_lockfile_switches(self) -> None:
+        # lockfile の種類が変わっても、同じ directory の既存設定 (ignore など) を引き継ぐ
+        text = """version: 2
+updates:
+  - package-ecosystem: "bun"
+    directory: "/projects/example"
+    labels:
+      - "dependabot-auto-process"
+    ignore:
+      - dependency-name: "@scope/*"
+"""
+
+        header, entries = MAINTAIN.parse_entries(text)
+        rendered = MAINTAIN.build_desired_text(
+            header, entries, {"/projects/example": "npm"}
+        )
+
+        entry = yaml.safe_load(rendered)["updates"][0]
+        self.assertEqual(entry["package-ecosystem"], "npm")
+        self.assertEqual(entry["ignore"], [{"dependency-name": "@scope/*"}])
+
+    def test_desired_text_appends_missing_project_entry(self) -> None:
+        header, entries = MAINTAIN.parse_entries("version: 2\nupdates:\n")
+
+        rendered = MAINTAIN.build_desired_text(
+            header, entries, {"/projects/example": "bun"}
+        )
+
+        entry = yaml.safe_load(rendered)["updates"][0]
+        self.assertEqual(entry["package-ecosystem"], "bun")
+        self.assertEqual(entry["directory"], "/projects/example")
+
 
 if __name__ == "__main__":
     unittest.main()

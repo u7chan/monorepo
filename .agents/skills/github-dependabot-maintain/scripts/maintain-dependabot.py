@@ -15,6 +15,9 @@ CONFIG = Path(".github/dependabot.yml")
 PROJECTS = Path("projects")
 REQUIRED_LABEL = "dependabot-auto-process"
 EXCLUDED_CATEGORIES = ("_labs", "_samples")
+# このスクリプトが lockfile から判定して書き換える ecosystem。docker などそれ以外の
+# ecosystem のエントリは手書きの設定として触らずに残す。
+MANAGED_ECOSYSTEMS = ("bun", "npm", "uv")
 
 
 def detect_ecosystem(project_dir: Path) -> str | None:
@@ -46,20 +49,28 @@ def scan_projects(projects: Path = PROJECTS) -> dict[str, str]:
     return detected
 
 
-def parse_entries(text: str) -> tuple[str, dict[str, list[str]]]:
-    """Split dependabot.yml into header and directory-indexed entry blocks.
+def parse_entries(text: str) -> tuple[str, dict[tuple[str, str], list[str]]]:
+    """Split dependabot.yml into header and entry blocks indexed by (dir, ecosystem).
 
     The file is expected to follow the simple two-space indentation structure
     produced by this repository. Each entry starts with ``  - package-ecosystem``
-    and contains a ``    directory: ...`` line.
+    and contains a ``    directory: ...`` line. A directory can hold more than
+    one entry (an npm entry and a docker entry, for example), so the ecosystem
+    is part of the key.
     """
     lines = text.splitlines()
     header_lines: list[str] = []
-    entries: dict[str, list[str]] = {}
-    current_dir: str | None = None
+    entries: dict[tuple[str, str], list[str]] = {}
+    current_key: tuple[str, str] | None = None
+    current_ecosystem: str | None = None
     current_block: list[str] = []
     state = "header"
     dir_re = re.compile(r'^    directory:\s*"?([^"]+)"?\s*$')
+    ecosystem_re = re.compile(r'^  - package-ecosystem:\s*"?([^"]+)"?\s*$')
+
+    def flush() -> None:
+        if current_key is not None:
+            entries[current_key] = current_block
 
     for line in lines:
         if state == "header":
@@ -68,24 +79,53 @@ def parse_entries(text: str) -> tuple[str, dict[str, list[str]]]:
                 state = "entries"
             continue
 
-        if line.startswith("  - package-ecosystem:"):
-            if current_dir is not None:
-                entries[current_dir] = current_block
-            current_dir = None
+        ecosystem_match = ecosystem_re.match(line)
+        if ecosystem_match:
+            flush()
+            current_ecosystem = ecosystem_match.group(1)
+            current_key = None
             current_block = [line]
             continue
 
-        if current_dir is None and current_block:
+        if current_key is None and current_block and current_ecosystem is not None:
             m = dir_re.match(line)
             if m:
-                current_dir = m.group(1)
+                current_key = (m.group(1), current_ecosystem)
 
         current_block.append(line)
 
-    if current_dir is not None:
-        entries[current_dir] = current_block
+    flush()
+
+    # 次のエントリの直前にあるコメントは、次のエントリを説明していることが多い。
+    # 直前のブロックに残すと、groups の正規化で消えるので、次のブロックの先頭へ移す。
+    keys = list(entries)
+    for index in range(len(keys) - 1):
+        key = keys[index]
+        content, comments = split_trailing_comments(entries[key])
+        if not comments:
+            continue
+        entries[key] = content
+        next_key = keys[index + 1]
+        entries[next_key] = comments + entries[next_key]
 
     return "\n".join(header_lines), entries
+
+
+def split_trailing_comments(block: list[str]) -> tuple[list[str], list[str]]:
+    """Split a block into its content and the comment run at its end."""
+    split_at = len(block)
+    comments: list[str] = []
+    while split_at > 0:
+        line = block[split_at - 1]
+        if line.strip() == "":
+            split_at -= 1
+            continue
+        if line.lstrip().startswith("#"):
+            comments.insert(0, line)
+            split_at -= 1
+            continue
+        break
+    return list(block[:split_at]), comments
 
 
 def normalize_block(block: list[str], ecosystem: str, directory: str) -> list[str]:
@@ -244,16 +284,17 @@ def coverage_errors(config: Any, detected: dict[str, str]) -> list[str]:
     if not isinstance(updates, list):
         return ["configuration must contain an updates list"]
 
-    directory_counts: Counter[str] = Counter()
+    pair_counts: Counter[tuple[str, str]] = Counter()
     for index, entry in enumerate(updates, start=1):
         if not isinstance(entry, dict):
             errors.append(f"updates entry {index} must be a mapping")
             continue
 
         directory = entry.get("directory")
-        if isinstance(directory, str):
-            directory_counts[directory] += 1
-            entry_name = directory
+        ecosystem = entry.get("package-ecosystem")
+        if isinstance(directory, str) and isinstance(ecosystem, str):
+            pair_counts[(directory, ecosystem)] += 1
+            entry_name = f"{directory} ({ecosystem})"
         else:
             entry_name = f"entry {index}"
 
@@ -264,16 +305,22 @@ def coverage_errors(config: Any, detected: dict[str, str]) -> list[str]:
             )
 
     for directory in sorted(detected):
-        count = directory_counts[directory]
+        expected = (directory, detected[directory])
+        count = pair_counts[expected]
         if count == 0:
             errors.append(f"missing updates entry for {directory}")
         elif count != 1:
             errors.append(
-                f"{directory} must have exactly one updates entry (found {count})"
+                f"{directory} must have exactly one {detected[directory]} "
+                f"updates entry (found {count})"
             )
 
-    for directory in sorted(set(directory_counts) - set(detected)):
-        errors.append(f"stale updates entry for {directory}")
+    # 管理外の ecosystem (docker など) は lockfile から期待値を導けないので、余分とは
+    # 判定しない。管理対象の ecosystem だけを stale の対象にする。
+    expected_pairs = {(dir, eco) for dir, eco in detected.items()}
+    for pair in sorted(set(pair_counts) - expected_pairs):
+        if pair[1] in MANAGED_ECOSYSTEMS:
+            errors.append(f"stale updates entry for {pair[0]} ({pair[1]})")
 
     return errors
 
@@ -284,6 +331,56 @@ def validate_coverage(config: Any, detected: dict[str, str]) -> None:
     if errors:
         details = "\n".join(f"- {error}" for error in errors)
         raise ValueError(f"coverage validation failed:\n{details}")
+
+
+def build_desired_text(
+    header: str,
+    existing_entries: dict[tuple[str, str], list[str]],
+    detected: dict[str, str],
+) -> str:
+    """Render the config: rewrite managed entries, keep the rest, append missing ones."""
+    detected_pairs = {(directory, eco) for directory, eco in detected.items()}
+
+    desired_blocks: list[list[str]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for directory, ecosystem in existing_entries:
+        block = existing_entries[(directory, ecosystem)]
+        if ecosystem not in MANAGED_ECOSYSTEMS:
+            desired_blocks.append(ensure_required_label(block))
+            continue
+        if (directory, ecosystem) not in detected_pairs:
+            replacement = detected.get(directory)
+            if replacement is None:
+                # lockfile が消えた / プロジェクトが無くなった管理対象のエントリ
+                continue
+            # lockfile の種類が変わっただけのエントリ。同じ位置のまま引き継いで
+            # ignore などの個別設定を落とさない。
+            desired_blocks.append(normalize_block(block, replacement, directory))
+            seen_pairs.add((directory, replacement))
+            continue
+        desired_blocks.append(normalize_block(block, ecosystem, directory))
+        seen_pairs.add((directory, ecosystem))
+
+    for directory in sorted(detected.keys()):
+        ecosystem = detected[directory]
+        if (directory, ecosystem) in seen_pairs:
+            continue
+        desired_blocks.append(build_new_block(ecosystem, directory))
+
+    desired_lines = header.splitlines()
+    for i, block in enumerate(desired_blocks):
+        if i > 0:
+            desired_lines.append("")
+        # 既存ブロックは次のエントリとの間の空行を抱えているので、区切りの空行と重ならないよう落とす
+        trimmed = list(block)
+        while trimmed and trimmed[-1] == "":
+            trimmed.pop()
+        desired_lines.extend(trimmed)
+
+    desired_text = "\n".join(desired_lines)
+    if not desired_text.endswith("\n"):
+        desired_text += "\n"
+    return desired_text
 
 
 def main() -> int:
@@ -312,26 +409,8 @@ def main() -> int:
     # 3. Scan projects
     detected = scan_projects()
 
-    # 4. Build desired blocks, preserving existing settings
-    desired_blocks: list[list[str]] = []
-    for directory in sorted(detected.keys()):
-        ecosystem = detected[directory]
-        if directory in existing_entries:
-            block = normalize_block(existing_entries[directory], ecosystem, directory)
-        else:
-            block = build_new_block(ecosystem, directory)
-        desired_blocks.append(block)
-
-    # 5. Compose desired text with blank lines between entries
-    desired_lines = header.splitlines()
-    for i, block in enumerate(desired_blocks):
-        if i > 0:
-            desired_lines.append("")
-        desired_lines.extend(block)
-
-    desired_text = "\n".join(desired_lines)
-    if not desired_text.endswith("\n"):
-        desired_text += "\n"
+    # 4. Compose the desired config
+    desired_text = build_desired_text(header, existing_entries, detected)
 
     # 6. Write preview
     preview_path = CONFIG.with_suffix(".yml.preview")

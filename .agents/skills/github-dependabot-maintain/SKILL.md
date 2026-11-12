@@ -11,7 +11,7 @@ description: >
 
 Keep `.github/dependabot.yml` in sync with the actual `projects/` layout.
 Adds missing Dependabot entries, removes stale entries, normalizes group names,
-sorts entries alphabetically by `directory`, and requires the
+keeps the existing entry order, and requires the
 `dependabot-auto-process` label on every entry.
 
 ## When to Use This Skill
@@ -27,7 +27,9 @@ sorts entries alphabetically by `directory`, and requires the
 2. Scan immediate subdirectories of `projects/`
 3. Detect each project's ecosystem from its lockfile
 4. Compare scan results with existing `updates:` entries
-5. Add missing entries, remove stale entries, normalize group names, and sort
+5. Add missing entries, remove stale entries, normalize group names, and append
+   new entries sorted by `directory` (existing entries keep their file order;
+   unmanaged ecosystems such as `docker` keep their block as it is)
 6. Show the diff and ask for approval
 7. Write the file only after approval
 8. Validate YAML syntax and recheck coverage
@@ -49,6 +51,13 @@ Ignore these directories under `projects/`:
 - `_samples/`
 - Nested subdirectories
 - Any directory without a recognized lockfile
+
+## Unmanaged ecosystems
+
+Entries whose `package-ecosystem` is not `bun` / `npm` / `uv` (for example `docker`
+for a pinned base image, or `github-actions`) are hand-written settings that
+lockfiles cannot derive. The script keeps those blocks as they are, only adds
+the required label when it is missing, and never treats them as stale.
 
 ## Ecosystem Detection
 
@@ -136,10 +145,13 @@ After approval, write `.github/dependabot.yml`. Then run:
 
     python3 -c "import yaml; yaml.safe_load(open('.github/dependabot.yml'))"
 
-Finally, rerun the scan from Step 2 and confirm every detected project has exactly one entry.
+Finally, rerun the scan from Step 2 and confirm every detected
+`(directory, package-ecosystem)` pair has exactly one entry.
 
 Coverage validation must also confirm that every entry contains
-`dependabot-auto-process`; a missing label is a validation error.
+`dependabot-auto-process`; a missing label is a validation error. Coverage is
+checked per `(directory, package-ecosystem)` pair, so one directory can hold a
+lockfile entry and a `docker` entry side by side.
 
 Run the skill tests with:
 
@@ -153,10 +165,13 @@ Run the skill tests with:
 - [ ] Ecosystems were detected from lockfiles
 - [ ] Existing entry settings were preserved except group names
 - [ ] `dependabot-auto-process` is present on every generated and existing entry
-- [ ] Entries are sorted alphabetically by `directory`
+- [ ] New entries were appended in `directory` order and existing entries kept
+      their order
+- [ ] Unmanaged ecosystems (`docker`, `github-actions`, ...) were preserved
 - [ ] User approved the diff before writing
 - [ ] YAML syntax passes `python3 -c "import yaml; yaml.safe_load(...)"`
-- [ ] Scan results and entries are 1:1 after writing
+- [ ] Every detected `(directory, package-ecosystem)` pair has exactly one entry
+      after writing
 - [ ] Coverage validation detects a missing required label
 
 ## References
