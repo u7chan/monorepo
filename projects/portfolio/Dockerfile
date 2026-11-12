@@ -1,5 +1,4 @@
 # Node 26 LTS (EOL 2029-04). jsdom 30 requires ^22.22.2 || ^24.15.0 || >=26.0.0, so Node 26 is in range and Node 25 is not.
-ARG NODE_VERSION=26
 ARG USERNAME=vscode
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
@@ -9,7 +8,11 @@ ARG COMMIT_HASH=""
 # base stage
 # -----------------------------------------------
 FROM oven/bun:debian AS bun
-FROM node:${NODE_VERSION}-slim AS base
+# 26.13.1 は 2026-11-11 のセキュリティリリース版。可変タグ (`26-slim`) のままだと同じコミットでも
+# 再ビルドで中身が変わるため、版と digest で固定する。digest は linux/amd64 と arm64 を含む
+# マルチアーキテクチャの manifest index で、プラットフォーム別 manifest ではない。`-trixie-slim` を
+# 明示するのは、ベースが trixie から動いたときに apt で入れる postgresql-client などが変わるため。
+FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS base
 
 WORKDIR /app
 

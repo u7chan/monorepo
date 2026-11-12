@@ -42,7 +42,7 @@ bun run format
 bun run test
 ```
 
-Node 26 以上 (LTS) を使用してください（Docker / CI も 26 に固定、jsdom 30 の engines は `>=26.0.0` を含みます）。Node 26 は不完全なグローバル `localStorage` を提供し jsdom 環境を汚染するため（[vitest-dev/vitest#8757](https://github.com/vitest-dev/vitest/issues/8757)）、`test` 系スクリプトは `NODE_OPTIONS=--no-experimental-webstorage` で無効化しています（Node 26.13 でもこのフラグは有効です）。
+Node 26 以上 (LTS) を使用してください（Docker / CI も 26 系で、版は `Dockerfile` のベースイメージを正とします。jsdom 30 の engines は `>=26.0.0` を含みます）。Node 26 は不完全なグローバル `localStorage` を提供し jsdom 環境を汚染するため（[vitest-dev/vitest#8757](https://github.com/vitest-dev/vitest/issues/8757)）、`test` 系スクリプトは `NODE_OPTIONS=--no-experimental-webstorage` で無効化しています（Node 26.13 でもこのフラグは有効です）。
 
 ### Test Coverage
 
