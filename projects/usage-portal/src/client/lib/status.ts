@@ -24,6 +24,11 @@ export function deriveProviderStatus(input: StatusInput): ProviderStatus {
     return { label: "未接続", tone: "neutral", symbol: "○" };
   }
 
+  // 更新停止に含めると、待てば自動で戻るように読める。契約を直すまで戻らないため分ける。
+  if (input.provider === "opencode-go" && input.errorCode === "subscription_required") {
+    return { label: "契約エラー", tone: "attention", symbol: "■" };
+  }
+
   if (input.provider === "codex" && input.errorCode === "reauth_required") {
     return { label: "再サインイン", tone: "attention", symbol: "▲" };
   }

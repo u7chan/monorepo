@@ -340,6 +340,24 @@ describe("POST /api/opencode/accounts", () => {
     }
   });
 
+  test("契約なしのキーは invalid_key と混ぜず subscription_required にする", async () => {
+    const h = harness({
+      fetchUsage: async () => {
+        throw new ProviderError("subscription_required", "OpenCode Go のサブスクリプションが必要です");
+      },
+    });
+    const response = await request(h.app, "/api/opencode/accounts", {
+      method: "POST",
+      cookie: await cookie(h.app),
+      body: { name: "メイン", icon: "🦊", apiKey: KEY },
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "subscription_required" });
+    expect(h.accounts.list()).toEqual([]);
+    expect(h.refreshes).toBe(0);
+  });
+
   test("検証できたら 201 で保存し、検証済みの snapshot を同じ source id に書く", async () => {
     const h = harness();
     const cookieValue = await cookie(h.app);

@@ -18,6 +18,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_name: `名前は 1〜${MAX_OPENCODE_ACCOUNT_NAME_LENGTH} 文字で入力してください。`,
   invalid_icon: "アイコンを選び直してください。",
   invalid_key: "このキーは受け付けられませんでした。値を確かめてください。",
+  subscription_required:
+    "このキーには OpenCode Go のサブスクリプションがありません。契約状況（期限切れ・支払い）を確認してください。",
   invalid_request: "入力の形式が正しくありません。",
   limit_reached: `登録できるアカウントは ${MAX_OPENCODE_ACCOUNTS} 件までです。`,
   not_found: "このアカウントはすでに削除されています。画面を更新してください。",
