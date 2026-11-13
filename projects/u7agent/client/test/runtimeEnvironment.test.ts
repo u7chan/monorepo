@@ -19,6 +19,7 @@ import {
   runtimeDiagnosticText,
   runtimeEnvironmentSummary,
   runtimeFetchStateOf,
+  runtimeGitConfigRow,
   runtimeIntegrationRows,
   runtimeModelRows,
 } from "../src/lib/runtimeEnvironment";
@@ -746,4 +747,40 @@ test("値の改行は空白へ畳み、コピー本文の行構造を壊さな�
   assert.ok(text.includes("- 作業ディレクトリ (cwd): /work space"));
   assert.ok(text.includes("- Web 検索: tavily（api .example · 有効）"));
   assert.ok(text.includes("- bash: 5.2.37 (extra)"));
+});
+
+test("Git の設定の診断は未対応・準備失敗・準備済みと dubious ownership を出し分ける", () => {
+  const unsupported = runtimeGitConfigRow({ capabilities: [], gitConfig: null });
+  assert.equal(unsupported.value, "未対応");
+  assert.match(unsupported.note ?? "", /git-config-v1/);
+  assert.match(unsupported.note ?? "", /bash は動きます/);
+
+  // capability があっても gitConfig を返さない旧 sandbox は同じ「未対応」に倒す
+  assert.deepEqual(runtimeGitConfigRow({ capabilities: ["git-config-v1"], gitConfig: null }), unsupported);
+
+  const failed = runtimeGitConfigRow({
+    capabilities: ["git-config-v1"],
+    gitConfig: { state: "failed", path: "/home/node/.config/u7agent/gitconfig", reason: "symlink" },
+  });
+  assert.equal(failed.value, "準備に失敗");
+  assert.match(failed.note ?? "", /symlink/);
+  assert.match(failed.note ?? "", /\/home\/node\/\.config\/u7agent\/gitconfig/);
+
+  const ready = runtimeGitConfigRow({
+    capabilities: ["git-config-v1"],
+    gitConfig: { state: "ready", path: "/home/node/.config/u7agent/gitconfig" },
+  });
+  assert.equal(ready.value, "準備済み");
+  assert.match(ready.note ?? "", /\/home\/node/);
+
+  const dubious = runtimeGitConfigRow({
+    capabilities: ["git-config-v1"],
+    gitConfig: {
+      state: "ready",
+      path: "/home/node/.config/u7agent/gitconfig",
+      ownershipWarnings: [{ cwd: "projects/a" }, { cwd: "." }],
+    },
+  });
+  assert.match(dubious.note ?? "", /dubious ownership/);
+  assert.match(dubious.note ?? "", /projects\/a, \./);
 });

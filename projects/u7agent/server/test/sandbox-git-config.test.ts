@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
-import { lstat, mkdir, readFile, rename, symlink } from "node:fs/promises";
+import { lstat, mkdir, readFile, rename, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -289,3 +289,33 @@ test("準備できない HOME では gitConfig 付きの bash だけを止める
   assert.equal(legacy.ok, true, legacy.text);
   assert.match(legacy.text, /legacy-ok/);
 });
+
+test(
+  "dubious ownership を cwd ごとに 1 回だけ検出し、runtime info に出す",
+  { skip: !CAN_RUN_BASH && SKIP_REASON },
+  async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "pi-git-owner-"));
+    const home = tmpHome(t, "pi-git-owner-home-");
+    const calls = join(root, "calls.txt");
+    const fakeGit = join(root, "fake-git");
+    // 所有ユーザーを変えられない環境でも検出経路を固定できるよう、git の出力だけを差し替える
+    await writeFile(
+      fakeGit,
+      `#!/bin/sh\nprintf 'call\\n' >> ${JSON.stringify(calls)}\nprintf "fatal: detected dubious ownership in repository at '%s'\\n" "$2" >&2\nexit 128\n`,
+      { mode: 0o755 },
+    );
+    const service = createSandboxService({ token: TOKEN, rootCwd: root, homeDir: home, gitPath: fakeGit });
+
+    const first = await runBash(service, "true", { userName: "u7chan", userEmail: "u7chan@example.com" });
+    assert.equal(first.ok, true, first.text);
+    const second = await runBash(service, "true", { userName: "u7chan", userEmail: "u7chan@example.com" });
+    assert.equal(second.ok, true, second.text);
+
+    const info = (await (
+      await service.app.request("/v1/runtime/info", { headers: authHeaders() })
+    ).json()) as SandboxRuntimeInfo;
+    assert.deepEqual(info.gitConfig.ownershipWarnings, [{ cwd: "." }]);
+    // cwd が同じ 2 回目は git を打たない
+    assert.equal((await readFile(calls, "utf8")).trim().split("\n").length, 1);
+  },
+);

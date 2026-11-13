@@ -283,7 +283,7 @@ GUI は一時ストアと実ファイル fixture で、desktop と singleColumn 
 
 ## Git identity の受入
 
-自動検証は `server/test/git-identity.test.ts`（値の規則と INI の quote）、`server/test/git-settings-api.test.ts`（GET / PUT / DELETE・片方だけの 400・DB 永続化・same-origin の 403・DB 障害時の 503 と `null`）、`server/test/sandbox-git-config.test.ts`（固定パスの 0600・原子的な書換・内容一致時の skip と親 symlink の再検査・HOME が write root の内側なら拒否・runtime info の `git-config-v1` と `gitConfig`・global config の実効・未設定時の commit 失敗・repo local の優先・`git config --global` の書込拒否・予約名の剥がしと旧 BFF 互換・準備失敗時の bash だけの fail-closed）、`client/test/gitSettings.test.ts`（入力規則と保存可否）、`client/test/runtimeEnvironment.test.ts`（capability 不一致と準備失敗の診断表示）で行う。
+自動検証は `server/test/git-identity.test.ts`（値の規則と INI の quote）、`server/test/git-settings-api.test.ts`（GET / PUT / DELETE・片方だけの 400・DB 永続化・same-origin の 403・DB 障害時の 503 と `null`・壊れた保存値の null 化）、`server/test/sandbox-git-config.test.ts`（固定パスの 0600・原子的な書換・内容一致時の skip と親 symlink の再検査・HOME が write root の内側なら拒否・runtime info の `git-config-v1` と `gitConfig`・global config の実効・未設定時の commit 失敗・repo local の優先・`git config --global` の書込拒否・予約名の剥がしと旧 BFF 互換・準備失敗時の bash だけの fail-closed・`dubious ownership` の cwd 単位の検出とキャッシュ）、`server/test/app-db.test.ts`（v44 → v45 の加算移行）、`server/test/remote-tools.test.ts` と `server/test/sandbox-client.test.ts`（bash だけに `gitConfig` を付け、未設定も `null` で送る）、`client/test/gitSettings.test.ts`（入力規則と保存可否）、`client/test/runtimeEnvironment.test.ts`（未対応 / 準備失敗 / 準備済みと `ownershipWarnings` の診断表示）で行う。
 
 GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の実サンドボックスで、desktop と singleColumn の両方を確認する。
 

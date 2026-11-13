@@ -4090,6 +4090,38 @@ test("v43 の DB を開くと content_settings.imageParams が足され、既存
   }
 });
 
+test("v44 の DB を開くと git_settings が足され、未設定から保存できる", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.close();
+
+    // v44 相当（git_settings を持たない版）へ落として開き直す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE git_settings");
+    raw.exec("PRAGMA user_version = 44");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.equal(migrated.readGitSettings(), undefined, "既存 DB は行なし = 未設定から始まる");
+    migrated.saveGitSettings({ userName: "u7chan", userEmail: "u7chan@example.com" });
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    assert.ok(tableNames(check).includes("git_settings"));
+    check.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.readGitSettings(), { userName: "u7chan", userEmail: "u7chan@example.com" });
+    reopened.clearGitSettings();
+    assert.equal(reopened.readGitSettings(), undefined);
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("画像パラメータの既定はモデルごとに往復し、空の map と NULL を区別する", () => {
   const dir = tempStoreDir();
   try {

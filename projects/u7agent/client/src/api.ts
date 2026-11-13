@@ -1261,10 +1261,7 @@ export const deleteWebSearchApiKey = async (provider: WebSearchProviderId): Prom
   return (await res.json()) as WebSearchMutationResponse;
 };
 
-/**
- * 設定 → 会話タイトル。AI 要約の On/Off・要約モデル・定義を持つ。行が無い = 既定 (Off) で、
- * 本会話のモデルとは独立している。
- */
+/** 設定 → Git。グローバルな identity（user.name / user.email）を読む。未設定は両方 null */
 export const getGitSettings = async (): Promise<GitSettingsResponse> => {
   const res = await client.api.settings.git.$get();
   if (!res.ok) throw await apiError(res);
@@ -1285,6 +1282,10 @@ export const deleteGitSettings = async (): Promise<GitSettingsMutationResponse> 
   return res.json();
 };
 
+/**
+ * 設定 → 会話タイトル。AI 要約の On/Off・要約モデル・定義を持つ。行が無い = 既定 (Off) で、
+ * 本会話のモデルとは独立している。
+ */
 export const getTitleSummarySettings = async (): Promise<TitleSummarySettingsResponse> => {
   const res = await client.api.settings["session-title"].$get();
   if (!res.ok) throw await apiError(res);
