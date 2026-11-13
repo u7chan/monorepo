@@ -22,6 +22,7 @@ import {
   runtimeDiagnosticText,
   runtimeEnvironmentRows,
   runtimeEnvironmentStatusRow,
+  runtimeGitConfigRow,
   runtimeFetchStateOf,
   runtimeIntegrationRows,
   runtimeModelRows,
@@ -222,6 +223,7 @@ export function EnvironmentView({
               <dl className="grid gap-2 text-xs sm:grid-cols-2">
                 <EnvironmentStatusItem state="connected" />
                 {infoItems(runtimeEnvironmentRows(environment.value.environment, environment.value.landlock))}
+                {infoItems([runtimeGitConfigRow(environment.value)])}
               </dl>
             ) : (
               <EnvironmentStatusItem state={environment.value.state} />

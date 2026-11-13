@@ -39,6 +39,8 @@ import type {
   FileStat,
   FileUpload,
   GitInfo,
+  GitSettingsMutationResponse,
+  GitSettingsResponse,
   Health,
   HistoryPage,
   ImageCatalogRefreshResponse,
@@ -1257,6 +1259,27 @@ export const deleteWebSearchApiKey = async (provider: WebSearchProviderId): Prom
   });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as WebSearchMutationResponse;
+};
+
+/** 設定 → Git。グローバルな identity（user.name / user.email）を読む。未設定は両方 null */
+export const getGitSettings = async (): Promise<GitSettingsResponse> => {
+  const res = await client.api.settings.git.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 両方必須。片方だけの保存はサーバーが 400 で拒否する */
+export const putGitSettings = async (userName: string, userEmail: string): Promise<GitSettingsMutationResponse> => {
+  const res = await client.api.settings.git.$put({ json: { userName, userEmail } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 未設定へ戻す（冪等）。次の bash から useConfigOnly だけの config になる */
+export const deleteGitSettings = async (): Promise<GitSettingsMutationResponse> => {
+  const res = await client.api.settings.git.$delete();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
 };
 
 /**

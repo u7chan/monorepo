@@ -20,7 +20,7 @@ import {
   SETTINGS_SECTION_KEY,
 } from "../src/lib/settingsNav";
 
-test("設定ナビは 14 項目をこの順で持つ", () => {
+test("設定ナビは 15 項目をこの順で持つ", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => [item.section, item.label]),
     [
@@ -39,6 +39,8 @@ test("設定ナビは 14 項目をこの順で持つ", () => {
       ["notifications", "通知"],
       ["appearance", "外観"],
       ["files", "ファイル"],
+      // Git の identity はファイルと同じ「エージェントの作業環境」の設定で、commit の前提
+      ["git", "Git"],
       // 定義の持ち出し / 復元は、編集を持つ設定の列に混ぜず「ファイル」の隣に置く
       ["backup", "バックアップ"],
       ["runtime", "ランタイム"],

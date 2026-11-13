@@ -13,6 +13,7 @@ import { Composer } from "./components/Composer";
 import { useConfirm } from "./components/ConfirmProvider";
 import { ContentSettingsPage } from "./components/ContentSettingsPage";
 import { FileTreePage } from "./components/FileTreePage";
+import { GitSettingsPage } from "./components/GitSettingsPage";
 import { NavSheet } from "./components/NavSheet";
 import { ModelSettingsPage } from "./components/ModelSettingsPage";
 import { NotificationSettingsPage } from "./components/NotificationSettingsPage";
@@ -987,6 +988,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             onOpenSharingExclusions={() => openSharingSubsection("exclusions")}
           />
         );
+      case "git":
+        return <GitSettingsPage {...pageProps} />;
       case "backup":
         // 復元 / 全削除はカタログ (定義とマスタ) を変えるため、成功後に取り直す
         return <BackupSettingsPage {...pageProps} refreshCatalog={refreshCatalog} />;

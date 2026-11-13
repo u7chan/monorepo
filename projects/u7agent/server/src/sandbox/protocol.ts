@@ -66,6 +66,11 @@ export interface SandboxExecuteRequestBody {
    * (params やコマンド文字列には入れない)。
    */
   env?: Record<string, string>;
+  /**
+   * この実行だけの Git identity。`null` は「identity なし」で、`useConfigOnly` だけの global config を
+   * 使う。省略は旧 BFF 互換 (剥がしも GIT_CONFIG_* の注入もしない)。
+   */
+  gitConfig?: SandboxGitConfig | null;
 }
 
 /** POST /v1/dirs のリクエストボディ。path は rootCwd 相対。 */
@@ -120,6 +125,33 @@ export interface SandboxRuntimeInfo {
   environment: SandboxRuntimeEnvironment;
   commands: SandboxRuntimeCommand[];
   landlock: SandboxLandlockStatus;
+  /** このサンドボックスが実装している機能 (BFF が旧版との差を警告する)。現行は "git-config-v1" だけ */
+  capabilities: string[];
+  /** アプリの global gitconfig の準備結果。失敗しても read / write / serve は動く */
+  gitConfig: SandboxGitConfigStatus;
+}
+
+/** アプリが管理する global gitconfig の capability 名。旧 sandbox はこれを返さない */
+export const SANDBOX_GIT_CONFIG_CAPABILITY = "git-config-v1";
+
+/** bash 実行ごとに受け取る identity。両方揃っているものだけを受け付ける */
+export interface SandboxGitConfig {
+  userName: string;
+  userEmail: string;
+}
+
+/**
+ * アプリの global gitconfig (`~/.config/u7agent/gitconfig`) の準備結果。
+ * `failed` でも read / write / serve は動かし、gitConfig 付きの bash だけを fail-closed にする。
+ */
+export interface SandboxGitConfigStatus {
+  state: "ready" | "failed";
+  /** 解決した絶対パス。利用者が権限を直せるよう、失敗時も返す */
+  path: string;
+  /** `failed` のときだけ入る理由分類 */
+  reason?: "home_unavailable" | "inside_workspace" | "symlink" | "write_failed";
+  /** dubious ownership を検出した root 相対の cwd（cwd ごとに 1 回だけ調べる。上限あり） */
+  ownershipWarnings?: { cwd: string }[];
 }
 
 /**

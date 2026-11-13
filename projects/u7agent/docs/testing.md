@@ -281,6 +281,22 @@ GUI は一時ストアと実ファイル fixture で、desktop と singleColumn 
 - スキルだけが失敗した partial の後、再実行で残りが適用される。
 - 狭い幅 / singleColumn でダイアログが全画面になり、`Escape` で背面の設定ページへ戻らず、適用中は閉じない。
 
+## Git identity の受入
+
+自動検証は `server/test/git-identity.test.ts`（値の規則と INI の quote）、`server/test/git-settings-api.test.ts`（GET / PUT / DELETE・片方だけの 400・DB 永続化・same-origin の 403・DB 障害時の 503 と `null`・壊れた保存値の null 化）、`server/test/sandbox-git-config.test.ts`（固定パスの 0600・原子的な書換・内容一致時の skip と親 symlink の再検査・HOME が write root の内側なら拒否・runtime info の `git-config-v1` と `gitConfig`・global config の実効・未設定時の commit 失敗・repo local の優先・`git config --global` の書込拒否・予約名の剥がしと旧 BFF 互換・準備失敗時の bash だけの fail-closed・`dubious ownership` の cwd 単位の検出とキャッシュ）、`server/test/app-db.test.ts`（v44 → v45 の加算移行）、`server/test/remote-tools.test.ts` と `server/test/sandbox-client.test.ts`（bash だけに `gitConfig` を付け、未設定も `null` で送る）、`client/test/gitSettings.test.ts`（入力規則と保存可否）、`client/test/runtimeEnvironment.test.ts`（未対応 / 準備失敗 / 準備済みと `ownershipWarnings` の診断表示）で行う。
+
+GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の実サンドボックスで、desktop と singleColumn の両方を確認する。
+
+自動受入は `scripts/check-git-settings.js` を Playwright の `run-code` で流す（保存・検証・再読み込み・確認ダイアログ・same-origin の 403・実行環境の診断・予約名の既存行を 1 回で確かめる。予約名の既存行は API で作れないため、スクリプト冒頭の手順で fixture の `store/u7agent.db` へ直接 seed する）。
+
+- [ ] 設定 → Git（`/settings/git`）で名前とメールアドレスを保存すると「設定済み」になり、リロード・BFF 再起動後も残る。「未設定に戻す」は確認の後で実行され、リロード後も未設定のまま（冪等に 2 回実行できる）
+- [ ] 片方だけ・空・内部の改行・`<` `>`・形状違反は保存できず、理由が入力欄の近くに出る。サーバーへ直接送っても 400 で何も保存されない
+- [ ] 未設定のバッジが出ている間は、repo local の identity が無い repo の `git commit` が「Author identity unknown」で失敗する。設定後は `git config --global user.name` / `git config --global user.email` が保存値になり、commit できる
+- [ ] repo local の `user.name` / `user.email` がある repo は、アプリの identity が未設定でも設定済みでも、local の値で commit できる
+- [ ] エージェントの `git config --global user.name hacked` は `EACCES` で失敗し、もう一度 `git config --global user.name` を読んでもアプリの値のまま。ホスト側の `~/.gitconfig` は変わらない
+- [ ] 作業環境 → 環境変数の既存行に `GIT_CONFIG_COUNT` などを置いても bash は 400 にならず、一覧に「予約名のため無視」が出る。子プロセスの `printenv` にその名前は無く、`GIT_SSH_COMMAND` は残る
+- [ ] 設定 → ランタイム → 環境（`/settings/runtime/environment`）の実行環境カードに「Git の設定」が出て、準備済みなら解決パス、`git-config-v1` が無い旧 sandbox なら「未対応」と bash は動く旨が出る。`dubious ownership` を検出した cwd があればその旨が出る
+
 ## GUI の最小受入
 
 チャットの末尾追従は、`pnpm dev` で起動した実画面に対し、Playwright スキルの `pw.sh` から次の受入スクリプトを実行できる（モノレポルートを cwd にする）。API と SSE をブラウザ内でスタブするため LLM は呼び出さない。新しい headless セッションで実行し、終わったら `close` する。

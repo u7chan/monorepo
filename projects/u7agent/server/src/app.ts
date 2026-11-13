@@ -8,7 +8,7 @@ import { createBffContext } from "./bootstrap";
 import type { CreateBffAppOptions } from "./bootstrap";
 import { DEFAULT_FILE_PREVIEW_PORT } from "./file-preview-port";
 import { bodyGuard, jsonBodyValidator, messageFor, statusCodeOf } from "./http";
-import { mutationOriginGuard } from "./mutation-origin";
+import { mutationOriginGuard, sameOriginOnlyGuard } from "./mutation-origin";
 import { DEFAULT_PREVIEW_PORT } from "./preview-port";
 import { createArchiveRoutes } from "./routes/archive";
 import { createBackupRoutes } from "./routes/backup";
@@ -30,6 +30,7 @@ import { createSkillFileRoutes } from "./routes/skill-files";
 import { createSessionRoutes } from "./routes/sessions";
 import { createWebSearchSettingsRoutes } from "./routes/web-search";
 import { createTitleSummaryRoutes } from "./routes/title-summary";
+import { createGitSettingsRoutes } from "./routes/git-settings";
 import { createSecretScope } from "./secrets";
 import { createSpaceDelete } from "./space-delete";
 import { SpaceStore } from "./spaces";
@@ -71,6 +72,7 @@ import {
   UpdateNotificationsBodySchema,
   UpdateProviderKeyBodySchema,
   UpdateTitleSummaryBodySchema,
+  UpdateGitSettingsBodySchema,
   UpdateWebSearchBodySchema,
   UpdateWebSearchKeyBodySchema,
   UpdateWebSearchProviderBodySchema,
@@ -148,6 +150,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     webSearchTest,
     titleSummarySettings,
     titleSummaryTest,
+    gitSettings,
     serve,
     secrets,
     cloudflareSettings,
@@ -204,6 +207,9 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const sharedContentExclusionsRoutes = createSharedContentExclusionsRoutes({ sharedContentExclusions });
   const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings, test: webSearchTest });
   const titleSummaryRoutes = createTitleSummaryRoutes({ titleSummarySettings, test: titleSummaryTest });
+  // Git の設定は全会話の commit identity を変えられるため、PUT / DELETE だけ same-origin 要求に絞る
+  const sameOriginOnly = sameOriginOnlyGuard(appOrigin);
+  const gitSettingsRoutes = createGitSettingsRoutes({ gitSettings });
   // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
   const secretRoutes = createSecretRoutes({
     secrets,
@@ -812,6 +818,16 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       // クエリは自由文なので、ログや履歴に残る URL ではなく本文で受け取る
       (c) => webSearchSettingsRoutes.test(c, c.req.valid("json")),
     )
+    .get("/api/settings/git", appData, gitSettingsRoutes.list)
+    .put(
+      "/api/settings/git",
+      sameOriginOnly,
+      jsonBodyValidator(UpdateGitSettingsBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => gitSettingsRoutes.put(c, c.req.valid("json")),
+    )
+    .delete("/api/settings/git", sameOriginOnly, (c) => gitSettingsRoutes.clear(c))
     .get("/api/settings/session-title", appData, titleSummaryRoutes.list)
     .post("/api/settings/session-title/test", appData, titleSummaryRoutes.test)
     .put(
@@ -870,6 +886,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     webSearchSettings,
     webSearchTest,
     titleSummarySettings,
+    gitSettings,
     serve,
     secrets,
     cloudflareSettings,

@@ -444,6 +444,9 @@ const bff = await createBffApp({
   cwd,
   sessionStoreDir: store,
   workspace,
+  // 実行環境の診断タブも同じ一時サンドボックスへ向ける (workspace を渡すと env 由来の
+  // 診断クライアントが作られないため、明示的に注入する)
+  runtimeDiagnostics: workspace,
   moveSandbox: workspace,
   handoffSandbox: workspace,
   // 共有の公開前プレビュー (計画) も同じ口から引く。渡さないとダイアログのプレビューが必ず 503 になる

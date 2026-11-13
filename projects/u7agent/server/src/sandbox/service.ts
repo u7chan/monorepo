@@ -23,7 +23,7 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -46,7 +46,8 @@ import { Hono } from "hono";
 import { COMMON_SKILLS_DIR } from "../app-paths";
 import { DEFAULT_ARCHIVE_EXCLUDE_NAMES } from "../archive-rules";
 import { parseByteRange } from "../byte-range";
-import { isInjectableEnvName } from "../env-names";
+import { isGitIdentityEnvName, isInjectableEnvName } from "../env-names";
+import { gitIdentityProblem, type GitIdentity } from "../git-identity";
 import { fitsImageInputPixels, IMAGE_INPUT_MAX_BYTES, inspectImageInput } from "../image-format";
 import { SECRET_MASTER_KEY_ENV, SECRET_MASTER_KEY_FILE_ENV } from "../secret-crypto";
 import {
@@ -64,6 +65,7 @@ import {
   type ArchivePlanLimits,
 } from "./archive";
 import { GIT_INFO_TIMEOUT_MS, readWorkspaceGitInfo } from "./git-info";
+import { detectDubiousOwnership, gitConfigTarget, prepareGitConfig, type GitConfigFailureReason } from "./git-config";
 import {
   fixedLandlockWriteRoots,
   landlockRulesEnv,
@@ -109,6 +111,9 @@ import {
   type SandboxFileEntry,
   type SandboxFileListing,
   type SandboxFileUpload,
+  type SandboxGitConfig,
+  type SandboxGitConfigStatus,
+  SANDBOX_GIT_CONFIG_CAPABILITY,
   type SandboxHandoffRollback,
   type SandboxHandoffWrite,
   type SandboxLandlockStatus,
@@ -140,6 +145,9 @@ import { createZipStream } from "./zip";
 /** サンドボックスが提供する作業用ツール名 (bash のみローカル出力をストリームする) */
 export const SANDBOX_TOOL_NAMES = ["bash", "read", "edit", "write", "grep", "find", "ls"] as const;
 
+/** `gitConfig.ownershipWarnings` に残す cwd の上限。診断の応答を cwd の数だけ大きくしない */
+export const GIT_OWNERSHIP_WARNING_LIMIT = 20;
+
 type AnyToolDefinition = ToolDefinition<any, any, any>;
 type ExecuteUpdateCallback = NonNullable<Parameters<AnyToolDefinition["execute"]>[3]>;
 
@@ -163,6 +171,8 @@ export interface SandboxServiceOptions {
   gitInfoTimeoutMs?: number;
   /** テストで差し替える git の実行パス (既定は信頼ディレクトリから解決した git) */
   gitPath?: string;
+  /** テストで差し替える HOME。既定は os.homedir() (HOME 優先、無ければ passwd) */
+  homeDir?: string;
   /** テストで差し替える実行環境の診断 (既定は実プロセスでコマンドを検出する) */
   probeRuntimeInfo?: (rootCwd: string) => Promise<SandboxRuntimeProbeResult>;
   /** テストで差し替えるラッパーの解決 (既定は固定パスの実体を確認して解決する) */
@@ -2249,6 +2259,47 @@ export function parseInjectedEnv(value: unknown): Record<string, string> | undef
 }
 
 /**
+ * gitConfig 付きの実行から、Git の identity / config を差し替える名前を落とす。
+ * 既存行を 400 にすると、旧 BFF が送っている間そのフォルダの bash が全滅するため黙って落とす。
+ */
+export function withoutGitIdentityEnv(env: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!env) return undefined;
+  const kept: Record<string, string> = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (!isGitIdentityEnvName(name)) kept[name] = value;
+  }
+  return Object.keys(kept).length > 0 ? kept : undefined;
+}
+
+/**
+ * 実行要求の `gitConfig`。省略 (undefined) は旧 BFF 互換で、null は「identity なし」。
+ * 値の規則は BFF の設定 API と同じく git-identity.ts を見る。
+ */
+export function parseGitConfig(value: unknown): SandboxGitConfig | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error("gitConfig must be an object or null");
+  const { userName, userEmail } = value as { userName?: unknown; userEmail?: unknown };
+  const problem = gitIdentityProblem({ userName, userEmail });
+  if (problem) throw new Error(problem);
+  return { userName: (userName as string).trim(), userEmail: (userEmail as string).trim() };
+}
+
+/** gitConfig 付きの bash を準備できなかったときの理由。パスを含め、権限の修正先を分かるようにする */
+function gitConfigFailureMessage(reason: GitConfigFailureReason, path: string): string {
+  switch (reason) {
+    case "home_unavailable":
+      return "Git の設定を書くホームディレクトリを解決できません";
+    case "inside_workspace":
+      return `Git の設定の置き場所がワークスペースまたは書き込み許可 root の内側になります: ${path}`;
+    case "symlink":
+      return `Git の設定の親ディレクトリが symlink です: ${path}`;
+    default:
+      return `Git の設定を書けませんでした: ${path}`;
+  }
+}
+
+/**
  * `writeScope` の検証。root 相対のディレクトリと、無ければ作ってよいかの宣言だけを受け付ける。
  * BFF 内部実行 (serve) 専用で、モデルはツール引数から指定できない。
  */
@@ -2386,6 +2437,73 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       return { path: target, create: entry.create === true };
     });
 
+  // --- アプリの global gitconfig。置き場所は HOME 配下の固定パスで、write root の外側にある ---
+  const gitTarget = gitConfigTarget(options.homeDir ?? homedir());
+  const gitStatus: { state: "ready" | "failed"; reason?: GitConfigFailureReason } = { state: "ready" };
+  const ownershipChecked = new Map<string, boolean>();
+  const ownershipWarnings: { cwd: string }[] = [];
+
+  const gitConfigStatus = (): SandboxGitConfigStatus => ({
+    state: gitStatus.state,
+    path: gitTarget.path,
+    ...(gitStatus.reason ? { reason: gitStatus.reason } : {}),
+    ...(ownershipWarnings.length > 0 ? { ownershipWarnings } : {}),
+  });
+
+  /** identity を config へ書く。失敗は次回の exec で再試行できるよう、状態だけを覚えて返す */
+  const prepareGitForBash = async (
+    identity: GitIdentity | null,
+    roots: readonly LandlockWriteRoot[],
+  ): Promise<string | undefined> => {
+    const result = await prepareGitConfig({
+      target: gitTarget,
+      identity,
+      forbiddenRoots: [lexicalRoot, ...roots.map((root) => root.path)],
+    });
+    if (result.ok) {
+      gitStatus.state = "ready";
+      delete gitStatus.reason;
+      return undefined;
+    }
+    gitStatus.state = "failed";
+    gitStatus.reason = result.reason;
+    return gitConfigFailureMessage(result.reason, gitTarget.path);
+  };
+
+  /**
+   * system config の `safe.directory` を落とした副作用を、cwd ごとに 1 回だけ確認する。
+   * 結果は diagnostics (`GET /v1/runtime/info`) にだけ出し、bash の結果には混ぜない。
+   */
+  const checkGitOwnership = async (executionCwd: string, requestedCwd: string): Promise<void> => {
+    if (ownershipChecked.has(executionCwd)) return;
+    const dubious = await detectDubiousOwnership({ gitPath, cwd: executionCwd, configPath: gitTarget.path });
+    ownershipChecked.set(executionCwd, dubious);
+    if (!dubious) return;
+    const entry = { cwd: requestedCwd || "." };
+    if (ownershipWarnings.some((item) => item.cwd === entry.cwd)) return;
+    ownershipWarnings.push(entry);
+    // 診断の応答を cwd の数だけ大きくしない（古い検出から落とす）
+    if (ownershipWarnings.length > GIT_OWNERSHIP_WARNING_LIMIT) ownershipWarnings.shift();
+  };
+
+  // 書込を直列化する。起動時の useConfigOnly が後から届いて、最初の exec の identity を
+  // 上書きする競合を作らない (内容が同じなら prepareGitForBash 側が書かない)
+  let gitPrepareTail: Promise<unknown> = Promise.resolve();
+  const queueGitPrepare = (
+    identity: GitIdentity | null,
+    roots: readonly LandlockWriteRoot[],
+  ): Promise<string | undefined> => {
+    const run = gitPrepareTail.then(
+      () => prepareGitForBash(identity, roots),
+      () => prepareGitForBash(identity, roots),
+    );
+    gitPrepareTail = run.catch(() => undefined);
+    return run;
+  };
+
+  // 起動時に useConfigOnly だけの config を用意する。失敗しても read / write / serve は動かす
+  const startupGitPrepare = queueGitPrepare(null, fixedLandlockRoots).catch(() => undefined);
+
   /**
    * cwd ごとのツール定義。パス解決の起点が定義に焼き込まれるため、実行 cwd ごとに生成して再利用する。
    * key は realpath 解決済みの絶対パス (symlink 経由の別名で重複生成しない) と要求 cwd の lexical 形の組。
@@ -2511,7 +2629,13 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   app.get("/v1/runtime/info", async (c) => {
     try {
       const [info, landlock] = await Promise.all([probeRuntimeInfo(rootCwd), landlockStatus()]);
-      return c.json({ ...info, landlock });
+      await startupGitPrepare;
+      return c.json({
+        ...info,
+        landlock,
+        capabilities: [SANDBOX_GIT_CONFIG_CAPABILITY],
+        gitConfig: gitConfigStatus(),
+      });
     } catch (error) {
       console.warn(`[u7agent-sandbox] runtime info failed: ${messageFor(error)}`);
       return c.json({ error: "実行環境の診断に失敗しました" }, 500);
@@ -2577,7 +2701,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
       return c.json({ error: messageFor(error) }, statusCode as 400);
     }
-    const { toolCallId, params, cwd, env, writeScope } = (body ?? {}) as SandboxExecuteRequestBody;
+    const { toolCallId, params, cwd, env, writeScope, gitConfig } = (body ?? {}) as SandboxExecuteRequestBody;
     if (params !== undefined && (typeof params !== "object" || params === null || Array.isArray(params))) {
       return c.json({ error: "params must be an object" }, 400);
     }
@@ -2587,6 +2711,12 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     let injected: Record<string, string> | undefined;
     try {
       injected = parseInjectedEnv(env);
+    } catch (error) {
+      return c.json({ error: messageFor(error) }, 400);
+    }
+    let requestedGitConfig: SandboxGitConfig | null | undefined;
+    try {
+      requestedGitConfig = parseGitConfig(gitConfig);
     } catch (error) {
       return c.json({ error: messageFor(error) }, 400);
     }
@@ -2616,6 +2746,16 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       } catch (error) {
         const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
         return c.json({ error: messageFor(error) }, statusCode as 400);
+      }
+    }
+    // gitConfig 付きの実行だけ、予約名を落として GIT_CONFIG_GLOBAL / GIT_CONFIG_NOSYSTEM を足す。
+    // 旧 BFF からの実行 (gitConfig 省略) では従来どおり何も剥がさない。
+    let gitConfigFailure: string | undefined;
+    if (toolName === "bash" && requestedGitConfig !== undefined) {
+      injected = withoutGitIdentityEnv(injected);
+      gitConfigFailure = await queueGitPrepare(requestedGitConfig, bashRoots ?? []);
+      if (!gitConfigFailure) {
+        injected = { ...injected, GIT_CONFIG_GLOBAL: gitTarget.path, GIT_CONFIG_NOSYSTEM: "1" };
       }
     }
     // bash だけが子プロセスを持つため、env は bash にだけ渡す (他のツールは値を使わないし、
@@ -2662,6 +2802,12 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
             if (toolName === "bash") {
               const reason = await bashUnavailableReason();
               if (reason) throw new Error(`bash を実行できません: ${reason}`);
+            }
+            // アプリの gitconfig を書けないときは、identity を必要とする bash だけを止める
+            // (read / write / serve と gitConfig の無い旧 BFF の実行は続ける)。
+            if (gitConfigFailure) throw new Error(`bash を実行できません: ${gitConfigFailure}`);
+            if (toolName === "bash" && requestedGitConfig !== undefined) {
+              await checkGitOwnership(executionCwd, cwd ?? "");
             }
             const runTool = async () => {
               throwIfAborted(abort.signal);

@@ -229,6 +229,7 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
       "/settings/notifications",
       "/settings/appearance",
       "/settings/files",
+      "/settings/git",
       "/settings/backup",
       "/settings/runtime",
     ],

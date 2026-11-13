@@ -67,6 +67,25 @@ test("forwards onUpdate, resolves with the result payload, and sends auth header
   });
 });
 
+test("forwards the per-exec gitConfig (null も含む) to the sandbox", async () => {
+  const { calls, impl } = stubFetch(() =>
+    ndjsonResponse([`${JSON.stringify({ type: "result", payload: { content: [] } })}\n`]),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: impl });
+  await client.execute("bash", {
+    params: { command: "true" },
+    gitConfig: { userName: "u7chan", userEmail: "u7chan@example.com" },
+  });
+  await client.execute("bash", { params: { command: "true" }, gitConfig: null });
+  assert.deepEqual(
+    calls.map((call) => JSON.parse(String(call.init?.body))),
+    [
+      { params: { command: "true" }, gitConfig: { userName: "u7chan", userEmail: "u7chan@example.com" } },
+      { params: { command: "true" }, gitConfig: null },
+    ],
+  );
+});
+
 test("forwards the session cwd to the sandbox and omits it for the workspace root", async () => {
   const { calls, impl } = stubFetch(() =>
     ndjsonResponse([

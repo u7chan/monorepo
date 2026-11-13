@@ -31,6 +31,27 @@ export const RESERVED_ENV_NAMES: readonly string[] = [
 /** ブラウザのバンドルへ値を埋め込むスタックの接頭辞。シークレットでは登録を拒否する */
 export const PUBLIC_ENV_PREFIXES: readonly string[] = ["VITE_", "NEXT_PUBLIC_", "REACT_APP_", "PUBLIC_"];
 
+/**
+ * Git の identity / config を差し替える名前。アプリは `GIT_CONFIG_GLOBAL` と `GIT_CONFIG_NOSYSTEM` を
+ * この 2 つだけ注入し、残りはサンドボックスが gitConfig 付きの実行から落とす (docs/sandbox.md)。
+ * `EMAIL` は `useConfigOnly=true` の下で commit できないことを実測済みなので予約しない。
+ */
+export const GIT_IDENTITY_ENV_NAMES: readonly string[] = [
+  "GIT_CONFIG",
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_SYSTEM",
+  "GIT_CONFIG_NOSYSTEM",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_AUTHOR_NAME",
+  "GIT_AUTHOR_EMAIL",
+  "GIT_COMMITTER_NAME",
+  "GIT_COMMITTER_EMAIL",
+];
+
+/** `GIT_CONFIG_KEY_0` / `GIT_CONFIG_VALUE_0` のような添字付きの名前 */
+const GIT_IDENTITY_ENV_PREFIXES: readonly string[] = ["GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"];
+
 /** 正規化後 (大文字) の使用可能文字。先頭の数字は不可 */
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
@@ -49,6 +70,15 @@ export function isReservedEnvName(name: string): boolean {
 }
 
 /**
+ * Git の identity を差し替える予約名か。登録の拒否と、gitConfig 付き実行からの剥がしの両方で使う。
+ * isInjectableEnvName には含めない: 旧 BFF が送る既存行を 400 にせず、gitConfig の無い実行では従来どおり
+ * 子プロセスへ渡すため (予約の対象は新規登録だけ)。
+ */
+export function isGitIdentityEnvName(name: string): boolean {
+  return GIT_IDENTITY_ENV_NAMES.includes(name) || GIT_IDENTITY_ENV_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
+
+/**
  * 使えない名前の理由 (人間向け)。使えるときは undefined。
  * 正規化後の名前を受ける (trim / 大文字化は呼び出し側の入口で 1 回だけ行う)。
  */
@@ -62,6 +92,7 @@ export function envNameProblem(name: string): string | undefined {
     return `${name} は予約された接頭辞 (${RESERVED_ENV_PREFIXES.join(" / ")}) のため使えません`;
   }
   if (RESERVED_ENV_NAMES.includes(name)) return `${name} は起動経路を変えるため使えません`;
+  if (isGitIdentityEnvName(name)) return `${name} は Git の identity を差し替えるため使えません`;
   return undefined;
 }
 

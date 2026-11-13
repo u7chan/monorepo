@@ -52,6 +52,12 @@ export const ENV_SHORT_SECRET_NOTE = "短い値は自動マスクされません
 /** 前後の空白 / 改行を除去したときの注記。加工した事実を必ず出す */
 export const ENV_TRIM_NOTE = "前後に空白 / 改行があったため除去しました";
 
+/**
+ * Git の identity を差し替える予約名の既存行。行は残るが、エージェントの bash へは渡らない
+ * (docs/sandbox.md#git-identity)。
+ */
+export const ENV_IGNORED_BY_GIT_NOTE = "予約名のため無視（Git の設定が使われます）";
+
 /** 名前の入力プレビュー。保存・注入・表示の正規化 (trim + 大文字化) と同じ結果を見せる */
 export function envNamePreview(raw: string): string {
   return raw.trim().toUpperCase();

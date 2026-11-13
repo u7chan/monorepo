@@ -35,6 +35,7 @@ const item = (overrides: Partial<SecretItem> = {}): SecretItem => ({
   name: "API_KEY",
   kind: "secret",
   updatedAt: 1_700_000_000_000,
+  ignoredByGit: false,
   ...overrides,
 });
 

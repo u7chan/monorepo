@@ -39,6 +39,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 会話タイトルの設定（設定 → 会話タイトル `/settings/session-title`） | `GET/PUT /api/settings/session-title`、`POST /api/settings/session-title/test` | [api-settings.md](api-settings.md)、[session-title.md](session-title.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | [api-sharing.md](api-sharing.md)、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 共有コンテンツ（公開・更新・停止・再公開・削除）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare`、`/api/settings/shared-content-exclusions` | [api-sharing.md](api-sharing.md)、[static-sharing-api.md](static-sharing-api.md#api-契約) |
+| Git の identity（設定 → Git `/settings/git`。`PUT` / `DELETE` は same-origin のみ） | `GET/PUT/DELETE /api/settings/git` | [api-settings.md](api-settings.md#git-の設定)、[sandbox.md](sandbox.md#git-identity) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | [api-settings.md](api-settings.md)、[secrets.md](secrets.md#作業フォルダの環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview`・`/export`・`/export/check`・`/import` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-session-turns.md](api-session-turns.md#get-apiskillssession) |
 | 定型プロンプト（設定 → 定型プロンプト `/settings/prompts`） | `GET/POST /api/prompts`、`PATCH /api/prompts/order`、`GET/PATCH/PUT/DELETE /api/prompts/:id` | [api-catalog.md](api-catalog.md#定型プロンプトのマスタと参照) |

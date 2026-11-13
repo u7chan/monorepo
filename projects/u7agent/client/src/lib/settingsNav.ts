@@ -11,6 +11,7 @@ export type SettingsSection =
   | "prompts"
   | "skills"
   | "files"
+  | "git"
   | "backup"
   | "appearance"
   | "models"
@@ -44,6 +45,9 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
   { section: "notifications", label: "通知" },
   { section: "appearance", label: "外観" },
   { section: "files", label: "ファイル" },
+  // Git の identity はファイルと同じ「エージェントの作業環境」の設定。commit の前提なので、
+  // 定義の持ち出し (バックアップ) より前に置く
+  { section: "git", label: "Git" },
   // 定義の持ち出しと復元は「ファイル」の隣に置く (対象はワークスペースではなくアプリの定義)。
   // 破壊的な全削除を持つため、編集を持つ設定の列には混ぜない
   { section: "backup", label: "バックアップ" },

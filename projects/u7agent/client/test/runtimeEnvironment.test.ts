@@ -19,6 +19,7 @@ import {
   runtimeDiagnosticText,
   runtimeEnvironmentSummary,
   runtimeFetchStateOf,
+  runtimeGitConfigRow,
   runtimeIntegrationRows,
   runtimeModelRows,
 } from "../src/lib/runtimeEnvironment";
@@ -47,6 +48,8 @@ const CONNECTED: RuntimeEnvironmentResponse = {
   },
   commands: [{ name: "curl", version: "8.14.1" }],
   landlock: { state: "enabled", abi: 6, minAbi: 3 },
+  capabilities: ["git-config-v1"],
+  gitConfig: { state: "ready", path: "/home/node/.config/u7agent/gitconfig" },
 };
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const IN_USE: RuntimeInUseResponse = {
@@ -590,6 +593,7 @@ test("一括コピー本文は画面と同じ見出し・値・注記を markdow
       "- 実行ユーザー: node（非 root）",
       "- ワークスペース: /workspace",
       "- Landlock: 有効（ABI 6）（bash の作成・書き込み・削除は許可 root の外で EACCES になります。）",
+      "- Git の設定: 準備済み（/home/node/.config/u7agent/gitconfig）",
       "",
       "## 利用可能なコマンド",
       "- curl: 8.14.1",
@@ -691,6 +695,8 @@ test("root 実行とコマンドなしとバージョン不明をそのままコ
         environment: { os: "Debian", arch: "aarch64", user: "root", isRoot: true, workspace: "/workspace" },
         commands: [{ name: "xz", version: null }],
         landlock: { state: "unavailable", abi: null, minAbi: 3, reason: "wrapper_missing" },
+        capabilities: CONNECTED.capabilities,
+        gitConfig: CONNECTED.gitConfig,
       },
     },
   });
@@ -706,7 +712,14 @@ test("root 実行とコマンドなしとバージョン不明をそのままコ
     inUse: { status: "ready", value: IN_USE },
     environment: {
       status: "ready",
-      value: { state: "connected", environment: CONNECTED.environment, commands: [], landlock: CONNECTED.landlock },
+      value: {
+        state: "connected",
+        environment: CONNECTED.environment,
+        commands: [],
+        landlock: CONNECTED.landlock,
+        capabilities: CONNECTED.capabilities,
+        gitConfig: CONNECTED.gitConfig,
+      },
     },
   });
   assert.ok(empty.includes("検出できたコマンドはありません。"));
@@ -725,6 +738,8 @@ test("値の改行は空白へ畳み、コピー本文の行構造を壊さな�
         environment: { os: "Debian", arch: "x86_64", user: "node", isRoot: false, workspace: "/w" },
         commands: [{ name: "bash", version: "5.2.37\n(extra)" }],
         landlock: CONNECTED.landlock,
+        capabilities: CONNECTED.capabilities,
+        gitConfig: CONNECTED.gitConfig,
       },
     },
   });
@@ -732,4 +747,40 @@ test("値の改行は空白へ畳み、コピー本文の行構造を壊さな�
   assert.ok(text.includes("- 作業ディレクトリ (cwd): /work space"));
   assert.ok(text.includes("- Web 検索: tavily（api .example · 有効）"));
   assert.ok(text.includes("- bash: 5.2.37 (extra)"));
+});
+
+test("Git の設定の診断は未対応・準備失敗・準備済みと dubious ownership を出し分ける", () => {
+  const unsupported = runtimeGitConfigRow({ capabilities: [], gitConfig: null });
+  assert.equal(unsupported.value, "未対応");
+  assert.match(unsupported.note ?? "", /git-config-v1/);
+  assert.match(unsupported.note ?? "", /bash は動きます/);
+
+  // capability があっても gitConfig を返さない旧 sandbox は同じ「未対応」に倒す
+  assert.deepEqual(runtimeGitConfigRow({ capabilities: ["git-config-v1"], gitConfig: null }), unsupported);
+
+  const failed = runtimeGitConfigRow({
+    capabilities: ["git-config-v1"],
+    gitConfig: { state: "failed", path: "/home/node/.config/u7agent/gitconfig", reason: "symlink" },
+  });
+  assert.equal(failed.value, "準備に失敗");
+  assert.match(failed.note ?? "", /symlink/);
+  assert.match(failed.note ?? "", /\/home\/node\/\.config\/u7agent\/gitconfig/);
+
+  const ready = runtimeGitConfigRow({
+    capabilities: ["git-config-v1"],
+    gitConfig: { state: "ready", path: "/home/node/.config/u7agent/gitconfig" },
+  });
+  assert.equal(ready.value, "準備済み");
+  assert.match(ready.note ?? "", /\/home\/node/);
+
+  const dubious = runtimeGitConfigRow({
+    capabilities: ["git-config-v1"],
+    gitConfig: {
+      state: "ready",
+      path: "/home/node/.config/u7agent/gitconfig",
+      ownershipWarnings: [{ cwd: "projects/a" }, { cwd: "." }],
+    },
+  });
+  assert.match(dubious.note ?? "", /dubious ownership/);
+  assert.match(dubious.note ?? "", /projects\/a, \./);
 });

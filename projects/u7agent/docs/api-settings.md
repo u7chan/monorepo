@@ -378,6 +378,29 @@
 
 `configured`（設定行の有無）と `keyStored`（暗号文の有無）・`keyAvailable`（復号できて生成ツールへ渡せる）・`keyEvaluated` / `keyErrorMessage` は別の軸で、実効の公開ゲートは「行がある」「`enabled`」「`keyAvailable`」の積。`configured: true` / `keyStored: true` / `keyAvailable: false` でも画面はキーの削除・置換を出す。未評価（runtime 無し / 起動時に DB を読めなかった）は `keyEvaluated: false` と「まだ確認できていない」固定文言で、誤鍵・破損と断定しない（[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。
 
+## Git の設定
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/settings/git` | `{ userName, userEmail, configured }`。行が無ければ両方 null と `configured: false` |
+| PUT | `/api/settings/git` | `{ userName, userEmail }`。両方必須。片方だけ・空・制御文字 / 改行 / NUL・`<` `>`・形状違反は 400。成功は GET と同じ形 + `state: "applied"` |
+| DELETE | `/api/settings/git` | 未設定へ戻す（冪等）。成功は GET と同じ形 + `state: "applied"` |
+
+`applied` は「アプリ DB に保存済みで、サンドボックスへは次の bash から反映」を意味する（既存のセッションや実行中の bash には遡及しない）。値の規則と INI の quote は `server/src/git-identity.ts`、保存は `git_settings` の 1 行が正で、片方だけの行は未設定として読む。DB 障害時は GET が 503、変更系は 503 `{ error, state: "not_stored" }`。DB を読めないときに BFF が bash へ送る値は `null`（`useConfigOnly` だけの config）で、古い identity を使い回さない。
+
+```json
+// GET /api/settings/git (200。未設定)
+{ "userName": null, "userEmail": null, "configured": false }
+
+// PUT /api/settings/git (200)
+{ "userName": "u7chan", "userEmail": "u7chan@example.com", "configured": true, "state": "applied" }
+
+// PUT /api/settings/git (400。片方だけ)
+{ "error": "Git のメールアドレスを入力してください" }
+```
+
+**`PUT` / `DELETE` は同じオリジンのブラウザ要求だけを受け付ける**（`Origin` が要求 URL の origin と一致するか、`Sec-Fetch-Site: same-origin`。どちらも無ければ 403）。認証ではない defense-in-depth で、サンドボックスから BFF に到達できる配備では、この API が全会話の identity を変える直接のバイパスになる（[sandbox.md](sandbox.md#git-identity)）。作業環境 → 環境変数の一覧は、既存の予約名の行に「予約名のため無視」を出す（[secrets.md](secrets.md#作業フォルダの環境変数)）。
+
 ## 作業フォルダの環境変数
 
 作業フォルダ（cwd）単位の名前と値。種別は平文で保存する `variable` と、AEAD で暗号化する `secret`。設計（名前 / 値の規則、注入経路、保証範囲）は [secrets.md](secrets.md#作業フォルダの環境変数) を正とする。

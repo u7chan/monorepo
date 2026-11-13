@@ -10,7 +10,12 @@ import {
 } from "./content-trials";
 import { TRIAL_ARTIFACT_FORMATS } from "./content-trial-artifacts";
 import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
-import type { SandboxLandlockStatus, SandboxRuntimeCommand, SandboxRuntimeEnvironment } from "./sandbox/protocol";
+import type {
+  SandboxGitConfigStatus,
+  SandboxLandlockStatus,
+  SandboxRuntimeCommand,
+  SandboxRuntimeEnvironment,
+} from "./sandbox/protocol";
 import type { SecretKind } from "./secret-crypto";
 
 export const SpaceSchema = z.object({ id: z.string(), name: z.string(), createdAt: z.number() });
@@ -1839,6 +1844,17 @@ export const SandboxRuntimeInfoSchema = z.object({
     minAbi: z.number(),
     reason: z.enum(["wrapper_missing", "unsupported", "abi_unsupported", "probe_failed"]).optional(),
   }),
+  /** 旧 sandbox は返さない。BFF は空配列として読み、capability の不一致を diagnostics に出す */
+  capabilities: z.array(z.string()).optional(),
+  /** 旧 sandbox は返さない。null は「アプリの global config を管理していない」 */
+  gitConfig: z
+    .object({
+      state: z.enum(["ready", "failed"]),
+      path: z.string(),
+      reason: z.enum(["home_unavailable", "inside_workspace", "symlink", "write_failed"]).optional(),
+      ownershipWarnings: z.array(z.object({ cwd: z.string() })).optional(),
+    })
+    .optional(),
 });
 
 /**
@@ -1851,11 +1867,15 @@ export type RuntimeEnvironmentResponse =
       environment: SandboxRuntimeEnvironment;
       commands: SandboxRuntimeCommand[];
       landlock: SandboxLandlockStatus;
+      /** サンドボックスが実装している機能。旧版は空で、BFF が git-config-v1 の不一致を警告する */
+      capabilities: string[];
+      /** アプリの global gitconfig の状態。旧版は null */
+      gitConfig: SandboxGitConfigStatus | null;
     }
   | { state: Exclude<RuntimeEnvironmentState, "connected"> };
 
 /** クライアントへ配るため、ワイヤ契約の共通項目も schema 経由で再 export する */
-export type { SandboxLandlockStatus, SandboxRuntimeCommand, SandboxRuntimeEnvironment };
+export type { SandboxGitConfigStatus, SandboxLandlockStatus, SandboxRuntimeCommand, SandboxRuntimeEnvironment };
 
 /** client/src/types.ts の Health に加え、ルート固有のフィールドを optional で許容する。 */
 export const HealthSchema = z.object({
@@ -2501,6 +2521,8 @@ export const SecretItemSchema = z.object({
   kind: SecretKindSchema,
   /** epoch ms */
   updatedAt: z.number(),
+  /** Git の identity を差し替える予約名。gitConfig 付きの bash では子プロセスへ渡らない */
+  ignoredByGit: z.boolean(),
 });
 export type SecretItem = z.infer<typeof SecretItemSchema>;
 
@@ -3028,6 +3050,33 @@ export const UpdateTitleSummaryBodySchema = z.object({
   definition: z.string().optional(),
 });
 export type UpdateTitleSummaryBody = z.infer<typeof UpdateTitleSummaryBodySchema>;
+
+// --- Git のグローバル identity (設定 → Git) ---
+
+/**
+ * GET /api/settings/git の応答。未設定は両方 null と configured: false で表し、
+ * 片方だけ保存された状態は作らない (片方だけの PUT は 400)。
+ */
+export const GitSettingsResponseSchema = z.object({
+  userName: z.string().nullable(),
+  userEmail: z.string().nullable(),
+  /** 両方が保存されているか。設定画面の「Git identity 未設定」バッジの根拠 */
+  configured: z.boolean(),
+});
+export type GitSettingsResponse = z.infer<typeof GitSettingsResponseSchema>;
+
+/** 変更系の応答。`applied` は「DB 保存済みで、サンドボックスへは次の bash から反映」の意 */
+export const GitSettingsMutationResponseSchema = GitSettingsResponseSchema.extend({
+  state: z.literal("applied"),
+});
+export type GitSettingsMutationResponse = z.infer<typeof GitSettingsMutationResponseSchema>;
+
+/** 両方必須。片方だけ・空・制御文字・`<` `>`・形状違反は server/src/git-identity.ts が 400 にする */
+export const UpdateGitSettingsBodySchema = z.object({
+  userName: z.string(),
+  userEmail: z.string(),
+});
+export type UpdateGitSettingsBody = z.infer<typeof UpdateGitSettingsBodySchema>;
 
 /**
  * GET /api/runtime/in-use。設定 → ランタイム の環境タブが「いま何が使われるか」を 1 回で読む。

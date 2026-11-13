@@ -23,3 +23,22 @@ export function mutationOriginGuard(appOrigin?: string) {
     await next();
   };
 }
+
+/**
+ * Git の設定 API 専用の厳格な検査。上の mutationOriginGuard はヘッダの無い直接クライアントを許可するが、
+ * この設定は全会話の commit identity を変えられるため、ブラウザの same-origin 要求だけを通す。
+ * サンドボックスから BFF へ到達できる配備では直接のバイパスになるので、認証の代わりではないが
+ * defense-in-depth として置く (docs/sandbox.md#git-identity)。
+ */
+export function sameOriginOnlyGuard(appOrigin?: string) {
+  return async (c: Context, next: () => Promise<void>) => {
+    const origin = c.req.header("origin");
+    const site = c.req.header("sec-fetch-site");
+    const targetOrigin = new URL(c.req.url).origin;
+    const originAllowed = origin !== undefined && (origin === targetOrigin || origin === appOrigin);
+    if (!originAllowed && site !== "same-origin") {
+      return c.json({ error: "Same-origin request required" }, 403);
+    }
+    await next();
+  };
+}
