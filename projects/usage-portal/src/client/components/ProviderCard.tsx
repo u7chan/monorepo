@@ -35,6 +35,10 @@ export function ProviderCard(props: {
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const activeWindow = chartWindows.find((window) => window.id === selectedWindowId) ?? pickTrendWindow(chartWindows);
   const activeTrend = activeWindow ? (source.trends.find((trend) => trend.windowId === activeWindow.id) ?? null) : null;
+  const retryHint =
+    source.error?.code === "subscription_required"
+      ? "契約の反映後、自動で取得し直します。"
+      : "5 分後に自動で再試行します。";
 
   return (
     <article class="up-card up-provider">
@@ -73,14 +77,14 @@ export function ProviderCard(props: {
         <div class="up-empty">
           <p class="up-caption">前回取得した値を表示しています。</p>
           {source.error ? <p class="up-caption">{source.error.message}</p> : null}
-          <p class="up-caption">5 分後に自動で再試行します。</p>
+          <p class="up-caption">{retryHint}</p>
         </div>
       ) : null}
 
       {source.state === "error" ? (
         <div class="up-empty">
           <p class="up-caption">{source.error ? source.error.message : "利用枠を取得できませんでした。"}</p>
-          <p class="up-caption">5 分後に自動で再試行します。</p>
+          <p class="up-caption">{retryHint}</p>
         </div>
       ) : null}
 

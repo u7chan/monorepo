@@ -98,10 +98,18 @@ export async function fetchOpenCodeUsage(options: {
     throw new ProviderError("upstream", "OpenCode Go に接続できませんでした");
   }
 
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     throw new ProviderError(
       "config",
       "OpenCode Go の API キーが受け付けられませんでした。画面から登録し直してください",
+    );
+  }
+
+  // 401 とまとめると、契約切れでもキーの再登録を促してしまい、直らない操作へ誘導する。
+  if (response.status === 403) {
+    throw new ProviderError(
+      "subscription_required",
+      "OpenCode Go のサブスクリプションが必要です。契約状況（期限切れ・支払い）を確認してください",
     );
   }
 

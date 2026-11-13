@@ -420,7 +420,8 @@ type CodexLoginState = {
 - `status` は parse の検証にだけ使い、`ok` 以外なら provider の `limitReached` / note に反映する。window の値は `percent` と `resetsAt` だけを持つ
 - `resetsAt` は ISO 8601。parse できない場合はリセット時刻不明として扱う
 - Cloudflare の判定を避けるため、`User-Agent: usage-portal/<version>` を明示する
-- 401 / 403 は認証エラーとして扱い、キーの値をログや画面に出さない
+- 401 はキー無効、403 は契約なし（`EntitlementError`）として分ける。キーの値はログや画面に出さない
+- 403 は「契約エラー」として表示し、キーの再登録を促さない。契約の反映後は次の取得で戻る
 - API key は静的。OPENCODE_API_KEY を変更したらコンテナを再作成する
 
 ### 5.4 上流 API の扱い
@@ -605,7 +606,7 @@ CREATE TABLE usage_sample (
 ```
 
 - `state` は `loading` / `ok` / `stale` / `error`
-- `error` は `{ code, message, at }`。`code` は `not_connected` / `reauth_required` / `upstream` / `schema` / `config` の固定 enum。生の response body は入れない
+- `error` は `{ code, message, at }`。`code` は `not_connected` / `reauth_required` / `subscription_required` / `upstream` / `schema` / `config` の固定 enum。生の response body は入れない
 - `trend` は点が 2 未満なら null
 - `trend` は最新 snapshot で最も `usedPercent` が高い枠を対象にする。同値なら `durationSeconds` が短い方。sample を 30 分 bucket に丸め、最大 48 点にする
 - provider の `plan` は、Codex の `plus` / `pro` などを表示用の `Plus` / `Pro` に写す。未知の値は raw のまま出す
@@ -726,10 +727,11 @@ CREATE TABLE usage_sample (
 | `loading` | 取得中 | neutral |
 | Codex 未接続 | 未接続 | neutral。サインインを促す |
 | Codex 再認証が必要 | 再サインイン | attention。サインインを促す |
+| OpenCode Go の契約なし（`subscription_required`） | 契約エラー | attention。前回の値は残し、キーの再登録は促さない |
 
 - 色だけで区別しない。状態ラベルには記号（円 / 三角 / 四角 / 横線）と文言を付ける
 - `stale` は「最後に成功した値」であることを明示する。`error` は値がないことを明示する
-- エラー時は「5 分後に自動で再試行します」と添える。再試行ボタンは置かない
+- エラー時は「5 分後に自動で再試行します」と添える。再試行ボタンは置かない。契約なしのときは「契約の反映後、自動で取得し直します」に差し替える
 - Codex 未接続のカードは、利用枠の代わりに「Sign in with ChatGPT」を主操作として出す
 - Codex の認証切れは「再サインインが必要です」と出し、同じパネルへ導く
 
