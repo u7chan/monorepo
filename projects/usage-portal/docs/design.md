@@ -82,9 +82,9 @@ Bun + Hono BFF
 
 ### 3.1 リポジトリの分担
 
-| リポジトリ | 役割 |
-| --- | --- |
-| `u7chan/monorepo` | `projects/usage-portal` の実装、Dockerfile、テスト、GHCR への image push |
+| リポジトリ                  | 役割                                                                                |
+| --------------------------- | ----------------------------------------------------------------------------------- |
+| `u7chan/monorepo`           | `projects/usage-portal` の実装、Dockerfile、テスト、GHCR への image push            |
 | `u7chan/self-hosted-runner` | `deploy/usage-portal.yml`、`deploy/targets.json`、manual deploy の target、運用手順 |
 
 monorepo の CD が `ghcr.io/u7chan/monorepo/usage-portal` を push した後に、self-hosted-runner の manual deploy で `usage-portal` target を実行する。
@@ -143,7 +143,13 @@ services:
       - ${DATA_PATH:-/home/u7chan/deploy/usage-portal/data}:/app/data
       - ${CREDENTIAL_DIR:-/home/u7chan/deploy/usage-portal/credentials}:/app/credentials
     healthcheck:
-      test: [CMD, bun, -e, "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          CMD,
+          bun,
+          -e,
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -275,13 +281,13 @@ PIN_HASH_B64=<base64url of $argon2id$...>
 
 ### 4.6 認証 API
 
-| Method | Path | 認証 | 内容 |
-| --- | --- | --- | --- |
-| GET | `/api/auth/session` | 不要 | `{ authenticated, expiresAt }`。cookie の検証だけを行う |
-| POST | `/api/auth/login` | 不要 | `{ pin: string }`。成功で cookie を設定 |
-| POST | `/api/auth/logout` | 必要 | cookie を削除して 204 |
-| GET | `/api/usage` | 必要 | 利用枠のスナップショット |
-| GET | `/api/health` | 不要 | コンテナ用。利用枠は返さない |
+| Method | Path                | 認証 | 内容                                                    |
+| ------ | ------------------- | ---- | ------------------------------------------------------- |
+| GET    | `/api/auth/session` | 不要 | `{ authenticated, expiresAt }`。cookie の検証だけを行う |
+| POST   | `/api/auth/login`   | 不要 | `{ pin: string }`。成功で cookie を設定                 |
+| POST   | `/api/auth/logout`  | 必要 | cookie を削除して 204                                   |
+| GET    | `/api/usage`        | 必要 | 利用枠のスナップショット                                |
+| GET    | `/api/health`       | 不要 | コンテナ用。利用枠は返さない                            |
 
 - login の body は 1 KiB まで。`pin` は文字列 6 桁だけを受け付ける
 - login の失敗は `401 { error: "invalid_pin" }`、ロック中は `429 { error: "rate_limited", retryAfterSeconds }`
@@ -295,14 +301,14 @@ PIN_HASH_B64=<base64url of $argon2id$...>
 
 ### 5.1 Codex
 
-| 項目 | 内容 |
-| --- | --- |
-| Endpoint | `GET https://chatgpt.com/backend-api/wham/usage` |
-| 認証 | コンテナ内の `/app/credentials/auth.json` の `openai-codex`（OAuth） |
-| 窓の対応 | `limit_window_seconds` が 6 時間以下なら rolling、8 日以下なら weekly、それ以上は monthly |
-| Header | `Authorization: Bearer <access>`、`chatgpt-account-id: <accountId>` |
-| 使う値 | `plan_type`、`rate_limit.primary_window.used_percent`、`rate_limit.secondary_window.used_percent`、`rate_limit.limit_reached`、`credits.has_credits`、`rate_limit_reset_credits.available_count` |
-| 保存しない値 | `email`、`user_id`、上流の生 JSON。`account_id` と token は Pi SDK 管理の `auth.json` にだけ置き、Portal の DB / API / 画面には出さない |
+| 項目         | 内容                                                                                                                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Endpoint     | `GET https://chatgpt.com/backend-api/wham/usage`                                                                                                                                                 |
+| 認証         | コンテナ内の `/app/credentials/auth.json` の `openai-codex`（OAuth）                                                                                                                             |
+| 窓の対応     | `limit_window_seconds` が 6 時間以下なら rolling、8 日以下なら weekly、それ以上は monthly                                                                                                        |
+| Header       | `Authorization: Bearer <access>`、`chatgpt-account-id: <accountId>`                                                                                                                              |
+| 使う値       | `plan_type`、`rate_limit.primary_window.used_percent`、`rate_limit.secondary_window.used_percent`、`rate_limit.limit_reached`、`credits.has_credits`、`rate_limit_reset_credits.available_count` |
+| 保存しない値 | `email`、`user_id`、上流の生 JSON。`account_id` と token は Pi SDK 管理の `auth.json` にだけ置き、Portal の DB / API / 画面には出さない                                                          |
 
 - `primary_window` / `secondary_window` は null を許容する。現在のプランでは片方だけ返る場合がある
 - 枠の名前は固定値にせず、`limit_window_seconds` から作る（rolling / weekly / monthly）。値が読めない場合は rolling に寄せる
@@ -381,13 +387,13 @@ type CodexLoginState = {
 
 #### 操作
 
-| Method | Path | 認証 | 内容 |
-| --- | --- | --- | --- |
-| GET | `/api/codex/auth` | 必要 | `{ signedIn, login }`。`login` は進行中・終端状態 |
-| POST | `/api/codex/login` | 必要 | サインイン開始。進行中の二重開始は 409 |
-| POST | `/api/codex/login/respond` | 必要 | `{ value: string }`。`select` の選択肢 ID または貼り付け URL |
-| DELETE | `/api/codex/login` | 必要 | 進行中のサインインを中断。終端状態は消す |
-| POST | `/api/codex/logout` | 必要 | 保存済み OAuth を削除 |
+| Method | Path                       | 認証 | 内容                                                         |
+| ------ | -------------------------- | ---- | ------------------------------------------------------------ |
+| GET    | `/api/codex/auth`          | 必要 | `{ signedIn, login }`。`login` は進行中・終端状態            |
+| POST   | `/api/codex/login`         | 必要 | サインイン開始。進行中の二重開始は 409                       |
+| POST   | `/api/codex/login/respond` | 必要 | `{ value: string }`。`select` の選択肢 ID または貼り付け URL |
+| DELETE | `/api/codex/login`         | 必要 | 進行中のサインインを中断。終端状態は消す                     |
+| POST   | `/api/codex/logout`        | 必要 | 保存済み OAuth を削除                                        |
 
 #### 画面の流れ
 
@@ -407,13 +413,13 @@ type CodexLoginState = {
 
 ### 5.3 OpenCode Go
 
-| 項目 | 内容 |
-| --- | --- |
-| Endpoint | `GET https://opencode.ai/inference/go/v1/usage` |
-| 認証 | `OPENCODE_API_KEY`（`.env`） |
-| Header | `Authorization: <key>`（`Bearer` を付けない）、`Accept: application/json` |
-| 使う値 | `usage.rolling`、`usage.weekly`、`usage.monthly` の `status` / `percent` / `resetsAt` |
-| 保存しない値 | API key、上流の生 JSON |
+| 項目         | 内容                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------- |
+| Endpoint     | `GET https://opencode.ai/inference/go/v1/usage`                                       |
+| 認証         | `OPENCODE_API_KEY`（`.env`）                                                          |
+| Header       | `Authorization: <key>`（`Bearer` を付けない）、`Accept: application/json`             |
+| 使う値       | `usage.rolling`、`usage.weekly`、`usage.monthly` の `status` / `percent` / `resetsAt` |
+| 保存しない値 | API key、上流の生 JSON                                                                |
 
 - `percent` は 0〜100 の百分率として扱う（0.5 は 0.5%）
 - 表示対象は `rolling` / `weekly` / `monthly` の 3 窓。API が返した窓をすべて表示し、欠損した窓は行を出さない（通常は 3 つ）
@@ -440,21 +446,21 @@ Client は provider 固有の JSON を知らない。BFF が次の形に揃え�
 type ProviderId = "codex" | "opencode-go";
 
 type UsageWindow = {
-  id: string;                 // "primary" | "rolling" | ...
-  label: string;              // "ローリング" | "週次" | "月次"
+  id: string; // "primary" | "rolling" | ...
+  label: string; // "ローリング" | "週次" | "月次"
   durationSeconds: number | null;
-  usedPercent: number;        // 0-100。表示用に clamp する
-  resetsAt: number | null;    // epoch ms
+  usedPercent: number; // 0-100。表示用に clamp する
+  resetsAt: number | null; // epoch ms
 };
 
 type ProviderSnapshot = {
   provider: ProviderId;
-  name: string;               // "Codex" | "OpenCode Go"
-  plan: string | null;        // "Plus" など
-  capturedAt: number;         // epoch ms
+  name: string; // "Codex" | "OpenCode Go"
+  plan: string | null; // "Plus" など
+  capturedAt: number; // epoch ms
   limitReached: boolean;
   windows: UsageWindow[];
-  notes: string[];            // "リセット枠 2回" など、0 件なら空
+  notes: string[]; // "リセット枠 2回" など、0 件なら空
 };
 ```
 
@@ -464,13 +470,13 @@ type ProviderSnapshot = {
 
 ### 枠のラベル
 
-| provider | 元 | ラベル |
-| --- | --- | --- |
-| Codex | `primary_window` | `limit_window_seconds` が 6 時間以下なら「ローリング」、8 日以下なら「週次」、それ以上は「月次」 |
-| Codex | `secondary_window` | 同上 |
-| OpenCode Go | `rolling` | ローリング |
-| OpenCode Go | `weekly` | 週次 |
-| OpenCode Go | `monthly` | 月次 |
+| provider    | 元                 | ラベル                                                                                           |
+| ----------- | ------------------ | ------------------------------------------------------------------------------------------------ |
+| Codex       | `primary_window`   | `limit_window_seconds` が 6 時間以下なら「ローリング」、8 日以下なら「週次」、それ以上は「月次」 |
+| Codex       | `secondary_window` | 同上                                                                                             |
+| OpenCode Go | `rolling`          | ローリング                                                                                       |
+| OpenCode Go | `weekly`           | 週次                                                                                             |
+| OpenCode Go | `monthly`          | 月次                                                                                             |
 
 同じ provider 内でラベルが重複した場合は、短い方から「第1枠」「第2枠」を後ろに付ける。実際には発生しにくいが、表示の一意性を保つため。
 
@@ -617,13 +623,13 @@ CREATE TABLE usage_sample (
 
 `state` の決め方:
 
-| 条件 | state |
-| --- | --- |
-| snapshot なし、error なし | `loading` |
-| snapshot なし、error あり | `error` |
-| snapshot あり、error あり | `stale` |
-| snapshot あり、error なし、`now - capturedAt > 2 * sampleIntervalMs` | `stale` |
-| それ以外 | `ok` |
+| 条件                                                                 | state     |
+| -------------------------------------------------------------------- | --------- |
+| snapshot なし、error なし                                            | `loading` |
+| snapshot なし、error あり                                            | `error`   |
+| snapshot あり、error あり                                            | `stale`   |
+| snapshot あり、error なし、`now - capturedAt > 2 * sampleIntervalMs` | `stale`   |
+| それ以外                                                             | `ok`      |
 
 ## 8. 画面
 
@@ -716,16 +722,16 @@ CREATE TABLE usage_sample (
 
 ### 8.5 状態
 
-| 状態 | ラベル | 表示 |
-| --- | --- | --- |
-| `ok`、全枠 80% 未満 | 利用可能 | success |
-| `ok`、いずれかの枠が 80% 以上 | 残りわずか | attention |
-| 上限到達（`limitReached` または 100% 以上） | 上限到達 | attention |
-| `stale` | 更新停止 | attention。前回の値は残す |
-| `error` | 取得エラー | attention。空状態を出す |
-| `loading` | 取得中 | neutral |
-| Codex 未接続 | 未接続 | neutral。サインインを促す |
-| Codex 再認証が必要 | 再サインイン | attention。サインインを促す |
+| 状態                                        | ラベル       | 表示                        |
+| ------------------------------------------- | ------------ | --------------------------- |
+| `ok`、全枠 80% 未満                         | 利用可能     | success                     |
+| `ok`、いずれかの枠が 80% 以上               | 残りわずか   | attention                   |
+| 上限到達（`limitReached` または 100% 以上） | 上限到達     | attention                   |
+| `stale`                                     | 更新停止     | attention。前回の値は残す   |
+| `error`                                     | 取得エラー   | attention。空状態を出す     |
+| `loading`                                   | 取得中       | neutral                     |
+| Codex 未接続                                | 未接続       | neutral。サインインを促す   |
+| Codex 再認証が必要                          | 再サインイン | attention。サインインを促す |
 
 - 色だけで区別しない。状態ラベルには記号（円 / 三角 / 四角 / 横線）と文言を付ける
 - `stale` は「最後に成功した値」であることを明示する。`error` は値がないことを明示する
@@ -910,16 +916,16 @@ image push より先に self-hosted-runner の deploy 定義をマージする�
 
 ## 13. ADR 候補
 
-| 決定 | 採用 | 採用しない案 | 理由 |
-| --- | --- | --- | --- |
-| 状態の取得 | BFF が 5 分ごとにポーリング、client は 60 秒ごとに GET | SSE / WebSocket | 変化が遅く、操作もない。再接続と差分適用のコストに見合わない |
-| 保存 | SQLite に snapshot と 30 日分の sample | メモリのみ | 再起動後も前回値を出せ、24 時間の推移を描ける |
-| Codex の認証 | 専用 agent dir + Pi SDK `ModelRuntime` + u7agent と同じ SiWC の Web サインイン | ホスト Pi の auth.json 共有 / OAuth 自前実装 / CLI サインイン | 共有は refresh token の競合を招く。自前実装はローテーションの保守コストが高い。CLI はスマホから扱いにくい |
-| 使用量の表示 | `pi-console` と同じく、取得できた窓だけを出す。Codex の週次が無いアカウントでは行を出さない | 常に 3 窓を並べ、無い窓を `—` で出す | 実データに無い窓を「0%」や「利用不可」として見せると、利用枠の有無を誤解する |
-| 入口の認証 | 6 桁 PIN + 署名 cookie + レート制限 + 期限バナー | 認証なし / Basic 認証 | 読み取り専用でも利用状況は見せたくない。ユーザー管理を持たずに済む |
-| 公開範囲 | 自宅 LAN / VPN のみ、HTTP | インターネット公開 / TLS 必須 | 自宅 LAN と VPN の内側だけなら HTTP で足りる。TLS は必要になった時点で前段に置く |
-| 配布 | monorepo image + self-hosted-runner Compose | Docker を使わない | 既存の手動デプロイ基盤に乗せる |
-| スタイル | 素の CSS + CSS 変数 | Tailwind / CSS Modules | `hwc` と同じく依存を増やさず、Bun のバンドラで完結させる |
+| 決定         | 採用                                                                                        | 採用しない案                                                  | 理由                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 状態の取得   | BFF が 5 分ごとにポーリング、client は 60 秒ごとに GET                                      | SSE / WebSocket                                               | 変化が遅く、操作もない。再接続と差分適用のコストに見合わない                                              |
+| 保存         | SQLite に snapshot と 30 日分の sample                                                      | メモリのみ                                                    | 再起動後も前回値を出せ、24 時間の推移を描ける                                                             |
+| Codex の認証 | 専用 agent dir + Pi SDK `ModelRuntime` + u7agent と同じ SiWC の Web サインイン              | ホスト Pi の auth.json 共有 / OAuth 自前実装 / CLI サインイン | 共有は refresh token の競合を招く。自前実装はローテーションの保守コストが高い。CLI はスマホから扱いにくい |
+| 使用量の表示 | `pi-console` と同じく、取得できた窓だけを出す。Codex の週次が無いアカウントでは行を出さない | 常に 3 窓を並べ、無い窓を `—` で出す                          | 実データに無い窓を「0%」や「利用不可」として見せると、利用枠の有無を誤解する                              |
+| 入口の認証   | 6 桁 PIN + 署名 cookie + レート制限 + 期限バナー                                            | 認証なし / Basic 認証                                         | 読み取り専用でも利用状況は見せたくない。ユーザー管理を持たずに済む                                        |
+| 公開範囲     | 自宅 LAN / VPN のみ、HTTP                                                                   | インターネット公開 / TLS 必須                                 | 自宅 LAN と VPN の内側だけなら HTTP で足りる。TLS は必要になった時点で前段に置く                          |
+| 配布         | monorepo image + self-hosted-runner Compose                                                 | Docker を使わない                                             | 既存の手動デプロイ基盤に乗せる                                                                            |
+| スタイル     | 素の CSS + CSS 変数                                                                         | Tailwind / CSS Modules                                        | `hwc` と同じく依存を増やさず、Bun のバンドラで完結させる                                                  |
 
 ## 14. 決定事項
 
