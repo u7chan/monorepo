@@ -1,8 +1,14 @@
 # -----------------------------------------------
 # base stage
 # -----------------------------------------------
-FROM oven/bun:alpine AS bun
-FROM node:26-alpine AS base
+# Bun は final の実行バイナリ、Node.js はベース OS と `node` コマンドのために含む。どちらも可変タグ
+# (`alpine`) のままだと同じコミットの再ビルドで中身が変わるため、版と digest で固定する。1.4.4 は
+# Node2Shell の修正が入る最初の Bun 安定版、26.13.1 は 2026-11 の Node.js セキュリティリリース版。
+# digest は linux/amd64 と arm64 を含むマルチアーキテクチャの manifest index で、プラットフォーム別
+# manifest ではない。Bun と Node.js は別イメージなので個別に固定する。更新は Dependabot の
+# `/projects/file-server` docker エントリで受ける。アプリの実行主体は Bun のまま変えない。
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS bun
+FROM node:26.13.1-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS base
 
 WORKDIR /app
 
