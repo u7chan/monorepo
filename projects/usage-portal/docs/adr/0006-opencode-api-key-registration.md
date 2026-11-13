@@ -40,11 +40,11 @@ Codex は Portal 専用の `CREDENTIAL_DIR` に `auth.json` を置き、Web UI �
   タイマーで再試行される。
 - API は PIN セッション必須とし、応答・ログ・DB にキーを出さない。
 
-| Method | Path | 内容 |
-| --- | --- | --- |
-| GET | `/api/opencode/auth` | `{ configured, savedAt }`。値は返さない |
-| PUT | `/api/opencode/key` | `{ apiKey }`。検証して保存。失敗は `invalid_key` / `unavailable` |
-| DELETE | `/api/opencode/key` | キーと snapshot / error を削除して 204 |
+| Method | Path                 | 内容                                                             |
+| ------ | -------------------- | ---------------------------------------------------------------- |
+| GET    | `/api/opencode/auth` | `{ configured, savedAt }`。値は返さない                          |
+| PUT    | `/api/opencode/key`  | `{ apiKey }`。検証して保存。失敗は `invalid_key` / `unavailable` |
+| DELETE | `/api/opencode/key`  | キーと snapshot / error を削除して 204                           |
 
 採用しない案:
 

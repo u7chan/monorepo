@@ -83,29 +83,29 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 
 ## API
 
-| Method | Path | 認証 | 内容 |
-| --- | --- | --- | --- |
-| `GET` | `/api/health` | 不要 | `{ ok, service, db, auth }`。常に 200 か 503（利用枠は返さない） |
-| `GET` | `/api/auth/session` | 不要 | `{ state: "setup_required" \| "unauthenticated" \| "authenticated", expiresAt? }`。常に 200 |
-| `POST` | `/api/auth/setup` | 不要 | `{ "pin": "123456" }`。PIN 未設定のときだけ受け付け、成功で cookie を発行（201） |
-| `POST` | `/api/auth/login` | 不要 | `{ "pin": "123456" }`。成功で cookie を発行（200）。失敗は 401、5 回失敗で 15 分ロック（429 + `Retry-After`） |
-| `POST` | `/api/auth/logout` | 不要 | cookie を消す（204） |
-| `GET` | `/api/usage` | 必要 | `{ generatedAt, sampleIntervalMs, sources[] }`。未認証は 401、認証設定が壊れていれば 503 |
-| `GET` | `/api/codex/auth` | 必要 | `{ signedIn, login }`。`login` は進行中・終端のサインイン状態 |
-| `POST` | `/api/codex/login` | 必要 | サインイン開始（202）。進行中の二重開始は 409 |
-| `POST` | `/api/codex/login/respond` | 必要 | `{ "value": "..." }`。`select` の選択肢 ID か、ブラウザの最後の URL（204） |
-| `DELETE` | `/api/codex/login` | 必要 | 進行中のサインインを中断（204、冪等） |
-| `POST` | `/api/codex/logout` | 必要 | 保存済み OAuth を削除し、Codex の snapshot と error を消す（204）。推移の sample は同じアカウントの再サインイン用に残す |
-| `GET` | `/api/probe/models` | 必要 | `{ codex: [...], opencodeGo: [...] }`。`{ id, name, thinkingLevels, cost }`。ネットワークは叩かない |
-| `GET` | `/api/codex/probe` | 必要 | `{ codex: { model, thinking } \| null }`。未設定は `null` |
-| `PUT` | `/api/codex/probe` | 必要 | `{ model, thinking }` → 200 `{ codex }`。catalog に無ければ `invalid_model` / `invalid_thinking`（400） |
-| `DELETE` | `/api/codex/probe` | 必要 | 設定を解除（200 `{ codex: null }`） |
-| `POST` | `/api/codex/check` | 必要 | 最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未設定は 409 `not_configured`、同時実行は 409 `in_progress` |
-| `GET` | `/api/opencode/accounts` | 必要 | `{ accounts: [{ id, name, icon, savedAt, probeModel, probeThinking }] }`。キーは返さない |
-| `POST` | `/api/opencode/accounts` | 必要 | `{ name, icon, apiKey, probeModel?, probeThinking? }` → 201 `{ account }`。検証して保存。失敗は `invalid_name` / `invalid_icon` / `invalid_key` / `subscription_required` / `invalid_probe` / `invalid_model` / `invalid_thinking`（400）、`limit_reached`（409）、`unavailable`（503） |
-| `PUT` | `/api/opencode/accounts/:id` | 必要 | `{ name?, icon?, apiKey?, probeModel?, probeThinking? }` → 200 `{ account }`。未知の id は 404 |
-| `POST` | `/api/opencode/accounts/:id/check` | 必要 | そのキーで最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未知の id は 404、未設定は 409 `not_configured` |
-| `DELETE` | `/api/opencode/accounts/:id` | 必要 | アカウントと snapshot / error / sample を削除（204）。未知の id は 404 |
+| Method   | Path                               | 認証 | 内容                                                                                                                                                                                                                                                          |
+| -------- | ---------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/health`                      | 不要 | `{ ok, service, db, auth }`。常に 200 か 503（利用枠は返さない）                                                                                                                                                                                              |
+| `GET`    | `/api/auth/session`                | 不要 | `{ state: "setup_required" \| "unauthenticated" \| "authenticated", expiresAt? }`。常に 200                                                                                                                                                                   |
+| `POST`   | `/api/auth/setup`                  | 不要 | `{ "pin": "123456" }`。PIN 未設定のときだけ受け付け、成功で cookie を発行（201）                                                                                                                                                                              |
+| `POST`   | `/api/auth/login`                  | 不要 | `{ "pin": "123456" }`。成功で cookie を発行（200）。失敗は 401、5 回失敗で 15 分ロック（429 + `Retry-After`）                                                                                                                                                 |
+| `POST`   | `/api/auth/logout`                 | 不要 | cookie を消す（204）                                                                                                                                                                                                                                          |
+| `GET`    | `/api/usage`                       | 必要 | `{ generatedAt, sampleIntervalMs, sources[] }`。未認証は 401、認証設定が壊れていれば 503                                                                                                                                                                      |
+| `GET`    | `/api/codex/auth`                  | 必要 | `{ signedIn, login }`。`login` は進行中・終端のサインイン状態                                                                                                                                                                                                 |
+| `POST`   | `/api/codex/login`                 | 必要 | サインイン開始（202）。進行中の二重開始は 409                                                                                                                                                                                                                 |
+| `POST`   | `/api/codex/login/respond`         | 必要 | `{ "value": "..." }`。`select` の選択肢 ID か、ブラウザの最後の URL（204）                                                                                                                                                                                    |
+| `DELETE` | `/api/codex/login`                 | 必要 | 進行中のサインインを中断（204、冪等）                                                                                                                                                                                                                         |
+| `POST`   | `/api/codex/logout`                | 必要 | 保存済み OAuth を削除し、Codex の snapshot と error を消す（204）。推移の sample は同じアカウントの再サインイン用に残す                                                                                                                                       |
+| `GET`    | `/api/probe/models`                | 必要 | `{ codex: [...], opencodeGo: [...] }`。`{ id, name, thinkingLevels, cost }`。ネットワークは叩かない                                                                                                                                                           |
+| `GET`    | `/api/codex/probe`                 | 必要 | `{ codex: { model, thinking } \| null }`。未設定は `null`                                                                                                                                                                                                     |
+| `PUT`    | `/api/codex/probe`                 | 必要 | `{ model, thinking }` → 200 `{ codex }`。catalog に無ければ `invalid_model` / `invalid_thinking`（400）                                                                                                                                                       |
+| `DELETE` | `/api/codex/probe`                 | 必要 | 設定を解除（200 `{ codex: null }`）                                                                                                                                                                                                                           |
+| `POST`   | `/api/codex/check`                 | 必要 | 最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未設定は 409 `not_configured`、同時実行は 409 `in_progress`                                                                                                                                                  |
+| `GET`    | `/api/opencode/accounts`           | 必要 | `{ accounts: [{ id, name, icon, savedAt, probeModel, probeThinking }] }`。キーは返さない                                                                                                                                                                      |
+| `POST`   | `/api/opencode/accounts`           | 必要 | `{ name, icon, apiKey, probeModel?, probeThinking? }` → 201 `{ account }`。検証して保存。失敗は `invalid_name` / `invalid_icon` / `invalid_key` / `subscription_required` / `invalid_probe` / `invalid_model` / `invalid_thinking`（400）、`limit_reached`（409）、`unavailable`（503） |
+| `PUT`    | `/api/opencode/accounts/:id`       | 必要 | `{ name?, icon?, apiKey?, probeModel?, probeThinking? }` → 200 `{ account }`。未知の id は 404                                                                                                                                                                |
+| `POST`   | `/api/opencode/accounts/:id/check` | 必要 | そのキーで最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未知の id は 404、未設定は 409 `not_configured`                                                                                                                                                    |
+| `DELETE` | `/api/opencode/accounts/:id`       | 必要 | アカウントと snapshot / error / sample を削除（204）。未知の id は 404                                                                                                                                                                                        |
 
 状態を変える要求（`POST` / `PUT` / `DELETE`）は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。
 応答はすべて `Cache-Control: no-store`。ログインの試行制限は接続元ごとに数え、同時に届いた要求も直列化して 5 回を超えて照合しない。
@@ -115,7 +115,7 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 `model_unavailable`、それ以外と stream の異常終了は `unavailable`。応答本文と上流のエラー文は返さない。
 Codex の 5 時間窓が API に返らないアカウントがあるため、「開始済み」の判定は持たない（再送しても 5 時間は延びない）。
 
-`sources[]` は source ごとに独立して失敗する。`id` は `codex` またはアカウントの uuid、`provider` は `codex` / 
+`sources[]` は source ごとに独立して失敗する。`id` は `codex` またはアカウントの uuid、`provider` は `codex` /
 `opencode-go`、`account` は OpenCode Go の `{ id, name, icon }`（Codex は `null`）で、並びは Codex → 登録順。
 `state` は `loading` / `ok` / `stale` / `error`、`error.code` は `not_connected` / `reauth_required` / `subscription_required` / `upstream` / `schema` /
 `config` の固定値で、上流の本文は含まない。未サインインの Codex は `not_connected` になり、画面では「未接続」と出す。
@@ -181,16 +181,16 @@ rm credentials/opencode-key.json
 
 `bun run dev` / `bun run start` はカレントディレクトリの `.env` を自動で読む（Bun の挙動）。雛形は [.env.example](.env.example)。
 
-| 変数 | 既定 | 内容 |
-| --- | --- | --- |
-| `HOST` | `0.0.0.0` | 待ち受けアドレス |
-| `PORT` | `3000` | 待ち受けポート |
-| `DATA_DIR` | `/app/data` | SQLite と認証状態（`pin-hash` / `session-key`）、送信の設定（`settings.json`）の置き場。起動時に 0700 で作り、配下のファイルを 0600 にする |
-| `CREDENTIAL_DIR` | `/app/credentials` | Codex の `auth.json` / `device-id` と OpenCode Go の `opencode-accounts.json` の置き場。起動時に 0700、配下のファイルを 0600 にする |
-| `POLL_INTERVAL_MS` | `300000` | 上流を取りに行く間隔。1 分未満・非整数は起動しない |
-| `COMMIT_HASH` | なし | build 時に埋め込む。`User-Agent: usage-portal/<version>` の version になる |
-| `TRUST_PROXY` | `0` | `1` のときだけ `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-For` を信頼する。TLS 終端を前段に置く構成で使う |
-| `COOKIE_SECURE` | `auto` | `1` なら常に cookie へ `Secure` を付ける。`auto` は要求が HTTPS のときだけ付ける（`TRUST_PROXY=1` なら転送ヘッダーも見る） |
+| 変数               | 既定               | 内容                                                                                                                                       |
+| ------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `HOST`             | `0.0.0.0`          | 待ち受けアドレス                                                                                                                           |
+| `PORT`             | `3000`             | 待ち受けポート                                                                                                                             |
+| `DATA_DIR`         | `/app/data`        | SQLite と認証状態（`pin-hash` / `session-key`）、送信の設定（`settings.json`）の置き場。起動時に 0700 で作り、配下のファイルを 0600 にする |
+| `CREDENTIAL_DIR`   | `/app/credentials` | Codex の `auth.json` / `device-id` と OpenCode Go の `opencode-accounts.json` の置き場。起動時に 0700、配下のファイルを 0600 にする        |
+| `POLL_INTERVAL_MS` | `300000`           | 上流を取りに行く間隔。1 分未満・非整数は起動しない                                                                                         |
+| `COMMIT_HASH`      | なし               | build 時に埋め込む。`User-Agent: usage-portal/<version>` の version になる                                                                 |
+| `TRUST_PROXY`      | `0`                | `1` のときだけ `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-For` を信頼する。TLS 終端を前段に置く構成で使う                     |
+| `COOKIE_SECURE`    | `auto`             | `1` なら常に cookie へ `Secure` を付ける。`auto` は要求が HTTPS のときだけ付ける（`TRUST_PROXY=1` なら転送ヘッダーも見る）                 |
 
 `PI_CODING_AGENT_DIR` は Dockerfile で `CREDENTIAL_DIR` と同じ値にしている。PIN とセッション鍵は環境変数では渡さない。
 
