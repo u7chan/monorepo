@@ -61,12 +61,12 @@ OpenCode Go を複数のアカウントで使い分けているが、v1 は API 
 
 すべて PIN セッション必須。GET 以外は同一 `Origin` 必須、`Cache-Control: no-store`、body は 1 KiB まで。
 
-| Method | Path | 内容 |
-| --- | --- | --- |
-| GET | `/api/opencode/accounts` | `{ accounts: [{ id, name, icon, savedAt }] }` |
-| POST | `/api/opencode/accounts` | `{ name, icon, apiKey }` → 201 `{ account }` |
-| PUT | `/api/opencode/accounts/:id` | `{ name?, icon?, apiKey? }` → 200 `{ account }` |
-| DELETE | `/api/opencode/accounts/:id` | 204 |
+| Method | Path                         | 内容                                            |
+| ------ | ---------------------------- | ----------------------------------------------- |
+| GET    | `/api/opencode/accounts`     | `{ accounts: [{ id, name, icon, savedAt }] }`   |
+| POST   | `/api/opencode/accounts`     | `{ name, icon, apiKey }` → 201 `{ account }`    |
+| PUT    | `/api/opencode/accounts/:id` | `{ name?, icon?, apiKey? }` → 200 `{ account }` |
+| DELETE | `/api/opencode/accounts/:id` | 204                                             |
 
 - エラーは `invalid_name` / `invalid_icon` / `invalid_key` / `invalid_request`（400）、`not_found`（404）、
   `limit_reached`（409）、`unavailable`（503）。キーの値も末尾も応答・ログ・DB に出さない。
