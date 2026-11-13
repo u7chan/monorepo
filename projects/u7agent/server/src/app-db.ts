@@ -22,7 +22,7 @@ import type { SpeechAudioFormat } from "./speech";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 44;
+export const APP_DB_SCHEMA_VERSION = 45;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -213,6 +213,16 @@ export interface TitleSummarySettingsRow {
   /** 保存済みの Effort。null は未指定 (実行時にモデルの最小段階へフォールバックする) */
   thinkingLevel: string | null;
   definition: string;
+}
+
+/**
+ * Git のグローバル identity の保存行。**行が無い = 未設定**で、両方揃って 1 行。
+ * サンドボックスへは exec のたびにこの行を読み、未設定・読取失敗は useConfigOnly だけの config にする
+ * (docs/sandbox.md#git-identity)。
+ */
+export interface GitSettingsRow {
+  userName: string;
+  userEmail: string;
 }
 
 /** カタログ 1 件の保存形。provider は v1 では openrouter 固定なので id と表示名、あれば形式 / 入力の宣言を残す */
@@ -719,6 +729,18 @@ CREATE TABLE IF NOT EXISTS title_summary_settings (
 `;
 
 /**
+ * v44 -> v45 で足したテーブル。Git のグローバル identity を 1 行だけ持つ。
+ * 行が無い = 未設定で、両方揃っているときだけサービスが identity として扱う。
+ */
+const GIT_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS git_settings (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  userName  TEXT NOT NULL,
+  userEmail TEXT NOT NULL
+);
+`;
+
+/**
  * provider メモは retainSecret に登録しない方針なので、SQLite の例外文言に値が写り得る。
  * ログ・health・503 へは、この値を含まない固定文言だけを渡す。
  */
@@ -876,6 +898,7 @@ ${SERVE_COMMANDS_TABLE}
 ${WEB_SEARCH_SETTINGS_TABLE}
 ${WEB_SEARCH_PROVIDER_KEYS_TABLE}
 ${TITLE_SUMMARY_SETTINGS_TABLE}
+${GIT_SETTINGS_TABLE}
 ${SECRETS_TABLE}
 ${SHARED_CONTENTS_TABLE}
 ${CLOUDFLARE_SETTINGS_TABLE}
@@ -905,6 +928,7 @@ DROP TABLE IF EXISTS serve_commands;
 DROP TABLE IF EXISTS web_search_settings;
 DROP TABLE IF EXISTS web_search_provider_keys;
 DROP TABLE IF EXISTS title_summary_settings;
+DROP TABLE IF EXISTS git_settings;
 DROP TABLE IF EXISTS assistant_metrics;
 `;
 // secrets / shared_contents / cloudflare_settings / shared_content_settings は意図的に含めない
@@ -1878,6 +1902,8 @@ export class AppDb {
       this.#query((db) => db.exec(WEB_SEARCH_SETTINGS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_PROVIDER_KEYS_TABLE));
       this.#query((db) => db.exec(TITLE_SUMMARY_SETTINGS_TABLE));
+      // v44 -> v45: Git のグローバル identity。既存 DB は行の無い (未設定) 状態から始まる
+      this.#query((db) => db.exec(GIT_SETTINGS_TABLE));
       this.#query((db) => db.exec(SECRETS_TABLE));
       this.#query((db) => db.exec(SHARED_CONTENTS_TABLE));
       this.#query((db) => db.exec(CLOUDFLARE_SETTINGS_TABLE));
@@ -2734,6 +2760,34 @@ export class AppDb {
         )
         .run(settings.enabled ? 1 : 0, settings.model, settings.thinkingLevel, settings.definition),
     );
+  }
+
+  // --- git settings (1 行だけ。行が無い = 未設定) ---
+
+  /** 行が無ければ undefined = 未設定。片方だけの行は壊れた保存値として未設定に倒す */
+  readGitSettings(): GitSettingsRow | undefined {
+    const row = this.#query((db) => db.prepare("SELECT * FROM git_settings WHERE id = 1").get() as Row | undefined);
+    if (!row) return undefined;
+    const userName = text(row.userName);
+    const userEmail = text(row.userEmail);
+    return userName && userEmail ? { userName, userEmail } : undefined;
+  }
+
+  /** 保存は id = 1 の upsert (title_summary_settings と同じ形)。両方揃った行だけを受ける */
+  saveGitSettings(settings: GitSettingsRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO git_settings (id, userName, userEmail) VALUES (1, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET userName = excluded.userName, userEmail = excluded.userEmail`,
+        )
+        .run(settings.userName, settings.userEmail),
+    );
+  }
+
+  /** 未設定へ戻す。行が無いときも成功 (冪等) */
+  clearGitSettings(): void {
+    this.#query((db) => db.prepare("DELETE FROM git_settings WHERE id = 1").run());
   }
 
   // --- web search provider keys (1 行 1 provider。行が無い = キー未設定) ---

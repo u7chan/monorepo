@@ -8,6 +8,7 @@ import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
 import {
   canSubmitEnvDraft,
   canSubmitEnvValue,
+  ENV_IGNORED_BY_GIT_NOTE,
   ENV_KIND_LEGEND,
   ENV_PROJECT_NOTE,
   ENV_SAVE_LABEL,
@@ -533,6 +534,11 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
                     >
                       {fileTimeLabel(item.updatedAt)}
                     </time>
+                    {item.ignoredByGit ? (
+                      <span className="shrink-0 rounded-full border border-line px-2 py-0.5 text-2xs text-ink-muted">
+                        {ENV_IGNORED_BY_GIT_NOTE}
+                      </span>
+                    ) : null}
                     <RowMenu
                       name={item.name}
                       actions={[

@@ -9,6 +9,7 @@ import {
   FileIcon,
   FolderIcon,
   GaugeIcon,
+  GitBranchIcon,
   ImageIcon,
   KeyIcon,
   SearchIcon,
@@ -33,6 +34,7 @@ const SECTION_ICONS: Record<SettingsSection, ReactNode> = {
   notifications: <BellIcon />,
   appearance: <ThemeIcon />,
   files: <FileIcon />,
+  git: <GitBranchIcon />,
   backup: <DownloadIcon />,
   runtime: <GaugeIcon />,
 };

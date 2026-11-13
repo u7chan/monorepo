@@ -26,6 +26,7 @@ import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
 import { createWebSearchTest, type WebSearchTest } from "./web-search-test";
 import { TitleSummarySettingsService } from "./title-summary-settings";
+import { GitSettingsService } from "./git-settings";
 import {
   createTitleSummaryGenerate,
   createTitleSummaryTest,
@@ -212,6 +213,8 @@ export type BffContext = {
   webSearchTest: WebSearchTest | null;
   /** 会話タイトルの AI 要約の設定 (On/Off・要約モデル・定義)。保存はサーバー側だけで行う */
   titleSummarySettings: TitleSummarySettingsService;
+  /** Git のグローバル identity (設定 → Git)。bash へは exec のたびに渡す */
+  gitSettings: GitSettingsService;
   /** 設定画面の「動作確認」。生成できない環境 (pi なし) は null */
   titleSummaryTest: TitleSummaryTest | null;
   /** serve (サービス) の状態と起動・停止。GUI とエージェントの serve ツールが同じ実体を使う */
@@ -408,6 +411,10 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // 会話タイトルの AI 要約はモデル / 定義を DB で持つ。生成は会話ストアが判定し、ここは設定と 1 回の呼び出しだけ。
   const titleSummarySettings = new TitleSummarySettingsService({ db: appDb, models: () => pi?.modelOptions ?? [] });
   await titleSummarySettings.applyStored();
+  // Git の identity はサンドボックスの global gitconfig へ exec のたびに写す。DB が読めないときは null
+  // (= useConfigOnly だけ) に倒し、古い identity を使い回さない
+  const gitSettings = new GitSettingsService({ db: appDb });
+  pi?.setGitIdentity(gitSettings);
   const titleSummaryGenerate: TitleSummaryGenerate | null =
     opts.titleSummaryGenerate !== undefined
       ? opts.titleSummaryGenerate
@@ -630,6 +637,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     webSearchTest,
     titleSummarySettings,
     titleSummaryTest,
+    gitSettings,
     serve,
     secrets,
     cloudflareSettings,

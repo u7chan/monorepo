@@ -6,7 +6,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import type { SecretRow } from "./app-db";
-import { envNameProblem, isPublicEnvName, normalizeEnvName } from "./env-names";
+import { envNameProblem, isGitIdentityEnvName, isPublicEnvName, normalizeEnvName } from "./env-names";
 import { httpError } from "./http";
 import { MIN_SECRET_LENGTH } from "./redact";
 import { SecretKeyError, type SecretCipher, type SecretKind } from "./secret-crypto";
@@ -22,6 +22,8 @@ export interface SecretListItem {
   kind: SecretKind;
   /** epoch ms */
   updatedAt: number;
+  /** Git の identity を差し替える予約名。既存行は残るが、gitConfig 付きの bash では子プロセスへ渡らない */
+  ignoredByGit: boolean;
 }
 
 /** 値の表示 / 変更フォーム用。値は「変数」だけに載り、シークレットでは常に省略される */
@@ -169,7 +171,13 @@ export function secretGeneration(rows: readonly SecretRow[]): string {
 }
 
 function itemOf(row: SecretRow): SecretListItem {
-  return { secretId: row.secretId, name: row.name, kind: row.kind, updatedAt: row.updatedAt };
+  return {
+    secretId: row.secretId,
+    name: row.name,
+    kind: row.kind,
+    updatedAt: row.updatedAt,
+    ignoredByGit: isGitIdentityEnvName(row.name),
+  };
 }
 
 export interface SecretServiceOptions {
@@ -316,7 +324,7 @@ export class SecretService {
       });
     }
     return {
-      item: { secretId: row.secretId, name: row.name, kind: row.kind, updatedAt },
+      item: itemOf({ ...row, updatedAt }),
       trimmed,
       generation: this.#generation(scope.cwd),
     };

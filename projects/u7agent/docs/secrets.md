@@ -99,6 +99,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - 使用可能文字は半角英数字と `_` だけ（先頭は英字か `_`）。長さは正規化後 1〜64 文字。前後の空白は trim してから検証する
 - trim → 大文字化して保存・一意性判定・注入・表示を揃える。UI は入力中に正規化後の名前をプレビューする。**変更はできず**、変えたいときは削除して作り直す
 - `PI_*` / `PI_SANDBOX_*` / `U7AGENT_*` と、実行制御系（`PATH` / `HOME` / `NODE_OPTIONS` / `NODE_PATH` / `LD_PRELOAD` / `LD_LIBRARY_PATH` / `PYTHONPATH` / `PYTHONSTARTUP` / `BASH_ENV` / `IFS` / `SHELLOPTS` / `PS4`）は拒否する
+- Git の identity / config を差し替える名前（`GIT_CONFIG` / `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` / `GIT_CONFIG_NOSYSTEM` / `GIT_CONFIG_COUNT` / `GIT_CONFIG_PARAMETERS` / `GIT_CONFIG_KEY_*` / `GIT_CONFIG_VALUE_*` / `GIT_AUTHOR_NAME` / `GIT_AUTHOR_EMAIL` / `GIT_COMMITTER_NAME` / `GIT_COMMITTER_EMAIL`）は新規登録を拒否する。既存行は 400 にせず残し、bash では「予約名のため無視」として一覧に出す（[sandbox.md](sandbox.md#git-identity)）。`EMAIL` は予約しない（`useConfigOnly=true` の下では commit できないことを実測済みで、汎用名を奪わない）
 - `VITE_*` / `NEXT_PUBLIC_*` / `REACT_APP_*` / `PUBLIC_*` は、値がブラウザのバンドルへ入るスタックのため**シークレットでは拒否**する（変数では許可する）
 
 値:

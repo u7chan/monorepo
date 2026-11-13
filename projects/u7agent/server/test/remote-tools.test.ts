@@ -262,3 +262,61 @@ test("read は旧カタログの仮想パスを横取りせず、ファイルと
   assert.equal(calls.length, 1, "旧仮想パスは BFF で解決しない");
   assert.equal(calls[0]?.tool, "read");
 });
+
+test("Git identity は bash へだけ渡し、exec のたびに解決する", async () => {
+  const calls: { tool: string; gitConfig?: unknown }[] = [];
+  const client = {
+    execute: async (tool: string, input: { gitConfig?: unknown }) => {
+      calls.push({ tool, ...(input.gitConfig === undefined ? {} : { gitConfig: input.gitConfig }) });
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  } as unknown as SandboxToolClient;
+  let current: { userName: string; userEmail: string } | null = { userName: "u7chan", userEmail: "u7chan@example.com" };
+  const definitions = createRemoteToolDefinitions({
+    cwd: ROOT,
+    rootCwd: ROOT,
+    sandboxCwd: "",
+    client,
+    masker: createSecretMasker([]),
+    tools: ["bash", "ls"],
+    gitConfigForExec: () => current,
+  });
+  for (const name of ["bash", "ls"]) {
+    const definition = definitions.find((entry) => entry.name === name);
+    assert.ok(definition, `${name} のリモート定義が作られる`);
+    await definition.execute("call-1", { command: "true", path: "." }, undefined, undefined, { cwd: ROOT } as never);
+  }
+  // 未設定も null として送る (省略すると旧 BFF 扱いになり useConfigOnly が効かない)
+  current = null;
+  const bash = definitions.find((entry) => entry.name === "bash");
+  assert.ok(bash);
+  await bash.execute("call-2", { command: "true" }, undefined, undefined, { cwd: ROOT } as never);
+
+  assert.deepEqual(calls, [
+    { tool: "bash", gitConfig: { userName: "u7chan", userEmail: "u7chan@example.com" } },
+    { tool: "ls" },
+    { tool: "bash", gitConfig: null },
+  ]);
+});
+
+test("解決源が未注入なら gitConfig を送らない (従来挙動)", async () => {
+  const calls: { tool: string; gitConfig?: unknown }[] = [];
+  const client = {
+    execute: async (tool: string, input: { gitConfig?: unknown }) => {
+      calls.push({ tool, ...(input.gitConfig === undefined ? {} : { gitConfig: input.gitConfig }) });
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  } as unknown as SandboxToolClient;
+  const definitions = createRemoteToolDefinitions({
+    cwd: ROOT,
+    rootCwd: ROOT,
+    sandboxCwd: "",
+    client,
+    masker: createSecretMasker([]),
+    tools: ["bash"],
+  });
+  const bash = definitions.find((entry) => entry.name === "bash");
+  assert.ok(bash);
+  await bash.execute("call-1", { command: "true" }, undefined, undefined, { cwd: ROOT } as never);
+  assert.deepEqual(calls, [{ tool: "bash" }]);
+});

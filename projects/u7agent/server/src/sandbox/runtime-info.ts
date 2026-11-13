@@ -258,10 +258,10 @@ async function environmentInfo(rootCwd: string): Promise<SandboxRuntimeEnvironme
 }
 
 /**
- * `probeSandboxRuntime` の戻り値。`landlock` はラッパーの解決を持つ service が足す
- * (このモジュールはコマンド検出だけを担う)。
+ * `probeSandboxRuntime` の戻り値。`landlock` / `capabilities` / `gitConfig` はラッパーと
+ * gitconfig の実体を持つ service が足す (このモジュールはコマンド検出だけを担う)。
  */
-export type SandboxRuntimeProbeResult = Omit<SandboxRuntimeInfo, "landlock">;
+export type SandboxRuntimeProbeResult = Omit<SandboxRuntimeInfo, "landlock" | "capabilities" | "gitConfig">;
 
 /**
  * allowlist の各コマンドを解決し、実在するものだけを検出順 (allowlist の順) で返す。

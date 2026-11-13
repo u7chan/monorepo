@@ -22,6 +22,8 @@ const INFO: SandboxRuntimeInfo = {
     { name: "npm", version: null },
   ],
   landlock: { state: "enabled", abi: 6, minAbi: 3 },
+  capabilities: ["git-config-v1"],
+  gitConfig: { state: "ready", path: "/home/node/.config/u7agent/gitconfig" },
 };
 
 async function createApp(runtimeDiagnostics: SandboxRuntimeDiagnostics | null): Promise<Hono> {
@@ -65,6 +67,8 @@ test("returns the sandbox environment and commands as connected", async () => {
     environment: INFO.environment,
     commands: INFO.commands,
     landlock: INFO.landlock,
+    capabilities: INFO.capabilities,
+    gitConfig: INFO.gitConfig,
   });
 });
 

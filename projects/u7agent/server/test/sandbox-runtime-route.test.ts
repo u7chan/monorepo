@@ -18,9 +18,12 @@ function authHeaders(): Record<string, string> {
 
 test("serves the runtime info only with a valid token and keeps /healthz public", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-runtime-"));
+  // HOME を root の内側にして、実ホームへ書かずに「準備できない」応答の形も固定する
+  const homeDir = join(root, "home");
   const service = createSandboxService({
     token: TOKEN,
     rootCwd: root,
+    homeDir,
     probeRuntimeInfo: async (workspaceRoot): Promise<SandboxRuntimeProbeResult> => ({
       environment: { os: "Test OS 1.0", arch: "x86_64", user: "tester", isRoot: false, workspace: workspaceRoot },
       commands: [
@@ -57,6 +60,8 @@ test("serves the runtime info only with a valid token and keeps /healthz public"
       { name: "node", version: null },
     ],
     landlock: { state: "enabled", abi: 4, minAbi: 3 },
+    capabilities: ["git-config-v1"],
+    gitConfig: { state: "failed", path: join(homeDir, ".config/u7agent/gitconfig"), reason: "inside_workspace" },
   });
 });
 

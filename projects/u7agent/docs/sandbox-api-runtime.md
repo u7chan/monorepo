@@ -20,7 +20,9 @@
     { "name": "curl", "version": "8.14.1" },
     { "name": "npm", "version": null }
   ],
-  "landlock": { "state": "enabled", "abi": 6, "minAbi": 3 }
+  "landlock": { "state": "enabled", "abi": 6, "minAbi": 3 },
+  "capabilities": ["git-config-v1"],
+  "gitConfig": { "state": "ready", "path": "/home/node/.config/u7agent/gitconfig" }
 }
 ```
 
@@ -28,6 +30,8 @@
 - `commands` は固定 allowlist（`curl` / `node` / `npm` / `npx` / `python3` / `uv` / `git` / `rg` / `fd` / `jq` / `file` / `tar` / `gzip` / `unzip` / `zip` / `xz` / `openssl` / `bash`）のうち実在したものだけを allowlist の順で返す。Dockerfile のビルド用ステージにしか無いツールは含まれない。`version` は出力から抽出・正規化した値で、存在は確認できたが取れなかったときは `null`（UI は「バージョン不明」）。検出できなかったコマンドは一覧に含めない
 - `landlock` は bash に適用する Landlock の状態。`state` は `enabled` / `unavailable`、`abi` はカーネルが対応する ABI（取れなければ `null`）、`minAbi` は実行に要求する最低 ABI（3）。`unavailable` のときだけ `reason`（`wrapper_missing` / `unsupported` / `abi_unsupported` / `probe_failed`）を付け、`enabled` 以外では bash を実行しない。ラッパーのパスや内部エラーは返さない（[sandbox.md](sandbox.md#パスと並行実行)）
 - `version` は生の stdout / stderr を返さない。抽出は数字とドットだけの最初のトークンで、警告や内部パスは落とす
+- `capabilities` はこのサンドボックスが実装している機能。現行は `git-config-v1` だけを返す。旧版はこのキーを返さないので、BFF は空配列として読み、`GET /api/runtime/environment` の diagnostics に「Git の設定 = 未対応」を出す（bash は止めない）
+- `gitConfig` はアプリの global gitconfig（[Git identity](sandbox.md#git-identity)）の準備結果。`state` は `ready` / `failed`、`path` は解決した絶対パス（失敗時も返す）、`failed` のときだけ `reason`（`home_unavailable` / `inside_workspace` / `symlink` / `write_failed`）を持つ。`ownershipWarnings` は `dubious ownership` を検出した root 相対の cwd の一覧（cwd ごとに 1 回だけ調べ、古い検出から落とす上限あり）。旧版はこのキーを返さない
 
 ### 検出の安全性と上限
 

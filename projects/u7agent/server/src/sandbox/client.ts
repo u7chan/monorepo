@@ -13,6 +13,7 @@ import {
   type SandboxFilePreview,
   type SandboxFileStat,
   type SandboxFileUpload,
+  type SandboxGitConfig,
   type SandboxGitInfo,
   type SandboxHandoffRead,
   type SandboxHandoffRollback,
@@ -99,6 +100,11 @@ export interface SandboxExecuteInput {
    * 値は params (ツール引数) やコマンド文字列には混ぜず、リクエストの別フィールドとして送る。
    */
   env?: Record<string, string>;
+  /**
+   * この実行だけの Git identity。`null` は「identity なし」(useConfigOnly だけ) で、省略は旧 sandbox 互換。
+   * bash のときだけ送る (BFF の serve 起動 env には付けない)。
+   */
+  gitConfig?: SandboxGitConfig | null;
   signal?: AbortSignal | undefined;
   onUpdate?: ((partial: { content: unknown; details?: unknown }) => void) | undefined;
 }
@@ -1252,6 +1258,7 @@ async function execute(
           cwd: input.cwd,
           writeScope: input.writeScope,
           env: input.env,
+          gitConfig: input.gitConfig,
         }),
         signal: controller.signal,
       });

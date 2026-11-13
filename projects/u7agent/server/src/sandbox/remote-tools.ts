@@ -64,11 +64,16 @@ export interface RemoteToolDefinitionOptions {
    * bash のときだけサンドボックスへ渡す。未指定なら注入なし
    */
   envForCwd?: (sandboxCwd: string) => Record<string, string>;
+  /**
+   * この実行の Git identity。exec のたびに解決し、bash のときだけ送る。`null` は「未設定」で、
+   * サンドボックスは `useConfigOnly` だけの config を使う。未指定 (旧 sandbox 構成) なら送らない。
+   */
+  gitConfigForExec?: () => { userName: string; userEmail: string } | null;
 }
 
 /** 戻り値は customTools として SDK へ渡す。すべて秘密マスクで包む。 */
 export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions): ToolDefinition[] {
-  const { cwd, rootCwd, sandboxCwd, client, masker, tools, builtinSkillNames, envForCwd } = options;
+  const { cwd, rootCwd, sandboxCwd, client, masker, tools, builtinSkillNames, envForCwd, gitConfigForExec } = options;
   const definitions: ToolDefinition[] = [];
   for (const name of tools) {
     if (!(REMOTE_TOOL_NAMES as readonly string[]).includes(name)) {
@@ -105,11 +110,15 @@ export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions
             // セッションの cwd は rootCwd 相対で渡し、サンドボックス側で root 配下の実パスへ解決させる。
             // 環境変数 (作業フォルダの「変数」) は子プロセスを起こす bash にだけ足す。
             const env = name === "bash" ? envForCwd?.(sandboxCwd) : undefined;
+            // gitConfig は常に付ける (未設定も null で伝え、useConfigOnly を効かせる)。
+            // 付けないと旧 BFF と同じ「何もしない」になり、未設定の端末で仮 identity が復活する
+            const gitConfig = name === "bash" && gitConfigForExec ? gitConfigForExec() : undefined;
             const result = await client.execute(name, {
               toolCallId,
               params,
               cwd: sandboxCwd || undefined,
               ...(env && Object.keys(env).length > 0 ? { env } : {}),
+              ...(gitConfig !== undefined ? { gitConfig } : {}),
               signal,
               onUpdate: onUpdate as ((partial: { content: unknown; details?: unknown }) => void) | undefined,
             });

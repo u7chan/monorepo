@@ -16,7 +16,7 @@ import type { SpeechFormatStore, SpeechGenerationInput, SpeechGenerationResult }
 import type { BgmGenerationInput } from "../src/bgm";
 import { toolCatalog } from "../src/tool-catalog";
 import type { WebSearchRuntimeConfig } from "../src/web-search-tool";
-import type { SessionEnvSource } from "../src/agent";
+import type { GitIdentitySource, SessionEnvSource } from "../src/agent";
 import { createMutableSecretMasker } from "../src/redact";
 import type {
   AgentDef,
@@ -1709,6 +1709,7 @@ export function createStubPi(options: StubPiOptions = {}) {
   const investigateHosts: InvestigateHost[] = [];
   // 環境変数 (作業環境 → 環境変数) の解決源。bootstrap が注入する
   const sessionEnvs: SessionEnvSource[] = [];
+  const gitIdentitySources: GitIdentitySource[] = [];
   let refreshCount = 0;
   return {
     cwd: "/tmp/project",
@@ -1807,6 +1808,10 @@ export function createStubPi(options: StubPiOptions = {}) {
     sessionEnvs,
     setSessionEnv: (source: SessionEnvSource) => {
       sessionEnvs.push(source);
+    },
+    gitIdentitySources,
+    setGitIdentity: (source: GitIdentitySource) => {
+      gitIdentitySources.push(source);
     },
     retainSecret: (value: string) => {
       retainedSecrets.push(value);

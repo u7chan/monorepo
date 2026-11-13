@@ -69,6 +69,21 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 - `write` / `edit` はセッションの作業ディレクトリと `<root>/.agents/skills` の内側だけに書ける。判定は SDK が解決した絶対パスを `resolve()` で `..` まで畳んだうえで行うが、**実在する候補は `realpath` で解決した実パスと許可 root の実パスを比較する**ため、cwd 内に置いた外部向け symlink 経由の脱出も拒否する（root 内を指す symlink は通す）。**許可 root の実パスは判定のたびに解決し直す**（未作成の root を祖先で固定すると、後から symlink に置き換えられたときに root 外を通してしまう）。拒否は 200 の `error` イベントで返す（HTTP 400 の JSON ラッパーをモデルに見せない）。`read` / `grep` / `find` / `ls` は制限しない（[projects.md](projects.md#write--edit-の書き込み範囲)）
 - 実行は toolCallId / executionId 単位で独立し、複数セッションの並行実行でも要求と出力が混線しない。ブラウザ切断はランに影響せず、明示停止（`POST /stop` → `session.abort()`）だけが対象のツール実行を中断する
 
+## Git identity
+
+エージェントの bash の commit が、未設定の端末で `user@host` の仮 identity になる事故を減らす。設定 → Git（`/settings/git`）の `user.name` / `user.email` をアプリ DB に 1 行だけ持ち、サンドボックスの global gitconfig へ bash の実行ごとに写す。
+
+- BFF は `POST /v1/tools/:tool/execute` の `gitConfig` に identity か `null` を入れて送る（未設定・DB 読取失敗は `null`）。`null` は「何もしない」ではなく「`useConfigOnly` だけの config を使う」を意味し、DB 障害で古い identity を使い回さない。
+- サンドボックスは `~/.config/u7agent/gitconfig`（`HOME` は `os.homedir()`）を固定パスとして temp + rename で原子的に書き、`[user]` の `name` / `email` と `useConfigOnly = true` だけを持つ。内容が同じなら書かないが、比較の前にも親の `lstat` を通す。
+- 置き場所はワークスペース root と全 Landlock write root の外側でなければならず、親ディレクトリ（`~/.config` / `~/.config/u7agent`）と既存ファイルが symlink なら書かない。これでエージェントの `git config --global` は `EACCES` になり、アプリの config を書き換えられない。書込は実行ごとに直列化し、起動時の `useConfigOnly` が最初の exec の identity を上書きしない。
+- `gitConfig` がある bash だけ、注入 env から予約名を落として `GIT_CONFIG_GLOBAL` と `GIT_CONFIG_NOSYSTEM=1` を足す。`GIT_SSH_COMMAND` / `GIT_SSL_CAINFO` / `GIT_TERMINAL_PROMPT` / `GIT_PROXY_COMMAND` は予約しない。`gitConfig` の無い実行（旧 BFF / serve 起動）は従来どおりで、既存の環境変数を剥がさない。
+- 準備に失敗したときは `gitConfig` 付きの bash だけを fail-closed にし、read / write / serve / ファイル API は動かす。失敗理由と解決パスは `GET /v1/runtime/info` に常時出し、権限を直した後の次 exec で再準備する（再起動不要）。
+- `GIT_CONFIG_NOSYSTEM=1` は system config の `user.*` を落とすが、`safe.directory` の供給源も落とす。cwd ごとに `git -C <cwd> rev-parse` を 1 回だけ打って `dubious ownership` を検出し、runtime info の `gitConfig.ownershipWarnings` に出す。**system config の `safe.directory` に依存していた配備は、workspace の所有ユーザーをサンドボックスの実行ユーザーへ `chown` する。**
+- 優先順位: repo local の `.git/config` が最優先。セッション固有の `.gitconfig` を使うコマンドは `GIT_CONFIG_GLOBAL` を明示的に上書きする（明示設定なので許容）。ホストの `~/.gitconfig` は読まれない。`serve` で起動するアプリの git と、BFF のホスト `~/.gitconfig` は変えない。
+- この機能が消すのは「黙って仮 identity になる事故」だけで、明示的な捏造（repo local / `-c` / `GIT_AUTHOR_*` / `GIT_COMMITTER_*`）は防がない。エージェントの system prompt でも捏造を禁じるが、強制は git の設定に閉じる（wrapper / hook による完全強制は非ゴール）。
+- BFF の API 認証は既存の全体課題で、この機能の対象外。**サンドボックスから BFF に到達できる配備では、この設定 API が全会話の identity を変える直接のバイパスになる。** defense-in-depth として、`PUT` / `DELETE /api/settings/git` だけ `Origin` か `Sec-Fetch-Site: same-origin` を要求する（認証ではない）。
+- 旧 sandbox は `git-config-v1` capability を返さない。BFF はその不一致を runtime diagnostics に出し、bash は止めない。逆に旧 BFF は `gitConfig` を送らず、sandbox は従来どおり動く。
+
 ## 配布イメージと起動契約
 
 - イメージは BFF とサンドボックスで共用し、`command` だけ差し替える（`node --import tsx src/sandbox/index.ts`）。CD（`final` ステージ）の単一イメージ前提を維持する

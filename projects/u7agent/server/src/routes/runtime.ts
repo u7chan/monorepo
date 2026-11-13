@@ -88,6 +88,10 @@ export function createRuntimeRoutes({
           environment: parsed.data.environment,
           commands: parsed.data.commands,
           landlock: parsed.data.landlock,
+          // 旧 sandbox は capabilities / gitConfig を返さない。空配列と null にして、UI が
+          // git-config-v1 の不一致を警告できるようにする (bash は止めない)
+          capabilities: parsed.data.capabilities ?? [],
+          gitConfig: parsed.data.gitConfig ?? null,
         });
       } catch (error) {
         const failure = error instanceof SandboxRuntimeError ? error.failure : "probe_failed";

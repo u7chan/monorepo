@@ -8,6 +8,7 @@ import type {
   RuntimeEnvironmentState,
   RuntimeInUseContent,
   RuntimeInUseResponse,
+  SandboxGitConfigStatus,
   SandboxLandlockStatus,
   SandboxRuntimeCommand,
   SandboxRuntimeEnvironment,
@@ -153,6 +154,50 @@ export function runtimeEnvironmentRows(
     { label: "ワークスペース", value: environment.workspace },
     runtimeLandlockRow(landlock),
   ];
+}
+
+/**
+ * Git の identity を書く global gitconfig の状態行。旧サンドボックスは capability を返さないため、
+ * 「未対応」を明示して bash は動くが identity は反映されないことを伝える (docs/sandbox.md#git-identity)。
+ */
+export function runtimeGitConfigRow(response: {
+  capabilities: readonly string[];
+  gitConfig: SandboxGitConfigStatus | null;
+}): RuntimeInfoRow {
+  const label = "Git の設定";
+  if (!response.capabilities.includes("git-config-v1") || response.gitConfig === null) {
+    return {
+      label,
+      value: "未対応",
+      note: "サンドボックスが git-config-v1 に対応していません。bash は動きますが、設定した Git identity は反映されません。",
+    };
+  }
+  const git = response.gitConfig;
+  const ownership =
+    git.ownershipWarnings && git.ownershipWarnings.length > 0
+      ? `dubious ownership を検出しました（cwd: ${git.ownershipWarnings.map((item) => item.cwd).join(", ")}）。ワークスペースの所有ユーザーをサンドボックスに合わせてください。`
+      : undefined;
+  if (git.state === "failed") {
+    return {
+      label,
+      value: "準備に失敗",
+      note: [gitConfigFailureReason(git.reason), git.path, ownership].filter(Boolean).join(" · "),
+    };
+  }
+  return { label, value: "準備済み", note: [git.path, ownership].filter(Boolean).join(" · ") };
+}
+
+function gitConfigFailureReason(reason: SandboxGitConfigStatus["reason"]): string {
+  switch (reason) {
+    case "home_unavailable":
+      return "ホームディレクトリを解決できません";
+    case "inside_workspace":
+      return "置き場所がワークスペースまたは書き込み許可 root の内側です";
+    case "symlink":
+      return "親ディレクトリが symlink です";
+    default:
+      return "書き込めません（権限を確認してください）";
+  }
 }
 
 /** Landlock の状態行。ABI と適用可否だけを出し、ラッパーのパスや内部エラーは出さない */
@@ -518,6 +563,7 @@ function environmentLines(environment: RuntimeFetchState<RuntimeEnvironmentRespo
   return [
     runtimeEnvironmentStatusRow("connected"),
     ...runtimeEnvironmentRows(environment.value.environment, environment.value.landlock),
+    runtimeGitConfigRow(environment.value),
   ].map(rowLine);
 }
 
