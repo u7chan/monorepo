@@ -59,4 +59,10 @@ describe("deriveProviderStatus", () => {
       "取得エラー",
     );
   });
+
+  test("OpenCode Go の契約なしは更新停止ではなく契約エラーにする", () => {
+    expect(
+      status({ provider: "opencode-go", state: "stale", errorCode: "subscription_required", usedPercents: [12] }),
+    ).toEqual({ label: "契約エラー", tone: "attention", symbol: "■" });
+  });
 });

@@ -102,7 +102,7 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `DELETE` | `/api/codex/probe`                 | 必要 | 設定を解除（200 `{ codex: null }`）                                                                                                                                                                                                                           |
 | `POST`   | `/api/codex/check`                 | 必要 | 最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未設定は 409 `not_configured`、同時実行は 409 `in_progress`                                                                                                                                                  |
 | `GET`    | `/api/opencode/accounts`           | 必要 | `{ accounts: [{ id, name, icon, savedAt, probeModel, probeThinking }] }`。キーは返さない                                                                                                                                                                      |
-| `POST`   | `/api/opencode/accounts`           | 必要 | `{ name, icon, apiKey, probeModel?, probeThinking? }` → 201 `{ account }`。検証して保存。失敗は `invalid_name` / `invalid_icon` / `invalid_key` / `invalid_probe` / `invalid_model` / `invalid_thinking`（400）、`limit_reached`（409）、`unavailable`（503） |
+| `POST`   | `/api/opencode/accounts`           | 必要 | `{ name, icon, apiKey, probeModel?, probeThinking? }` → 201 `{ account }`。検証して保存。失敗は `invalid_name` / `invalid_icon` / `invalid_key` / `subscription_required` / `invalid_probe` / `invalid_model` / `invalid_thinking`（400）、`limit_reached`（409）、`unavailable`（503） |
 | `PUT`    | `/api/opencode/accounts/:id`       | 必要 | `{ name?, icon?, apiKey?, probeModel?, probeThinking? }` → 200 `{ account }`。未知の id は 404                                                                                                                                                                |
 | `POST`   | `/api/opencode/accounts/:id/check` | 必要 | そのキーで最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未知の id は 404、未設定は 409 `not_configured`                                                                                                                                                    |
 | `DELETE` | `/api/opencode/accounts/:id`       | 必要 | アカウントと snapshot / error / sample を削除（204）。未知の id は 404                                                                                                                                                                                        |
@@ -117,7 +117,7 @@ Codex の 5 時間窓が API に返らないアカウントがあるため、「
 
 `sources[]` は source ごとに独立して失敗する。`id` は `codex` またはアカウントの uuid、`provider` は `codex` /
 `opencode-go`、`account` は OpenCode Go の `{ id, name, icon }`（Codex は `null`）で、並びは Codex → 登録順。
-`state` は `loading` / `ok` / `stale` / `error`、`error.code` は `not_connected` / `reauth_required` / `upstream` / `schema` /
+`state` は `loading` / `ok` / `stale` / `error`、`error.code` は `not_connected` / `reauth_required` / `subscription_required` / `upstream` / `schema` /
 `config` の固定値で、上流の本文は含まない。未サインインの Codex は `not_connected` になり、画面では「未接続」と出す。
 
 ## Codex のサインイン
@@ -162,7 +162,8 @@ OpenCode Go の API キーは `.env` ではなく画面から登録する。ア�
 1. 右上の `⋮` メニューで「アカウントを追加」を押す（未登録なら一覧の案内カードからも開ける）
 2. 名前・アイコン・API キーを入れて「追加する」。BFF が上流の usage endpoint に 1 回問い合わせ、
    受け付けられたときだけ保存する
-3. 受け付けられなければ入力欄の下に理由が出る。アカウントは保存されない
+3. 受け付けられなければ入力欄の下に理由が出る。アカウントは保存されない。403（契約なし）は
+   `subscription_required` として、キーの誤りと区別して表示する
 4. 名前・アイコンを変えるときはカード右上の `⋮` →「編集」、キーを変えるときも同じ場所で新しいキーを入れる（空欄なら変更しない）
 5. 消すときはカード右上の `⋮` →「削除」→「削除する」
 

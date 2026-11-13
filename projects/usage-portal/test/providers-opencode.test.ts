@@ -1,5 +1,5 @@
 // OpenCode Go の応答を 3 窓へ正規化し、欠損を 0% と誤表示しないことを固定する。
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { fetchOpenCodeUsage, parseOpenCodeUsage } from "../src/server/providers/opencode-go";
 import { ProviderError } from "../src/server/providers/types";
 
@@ -109,6 +109,12 @@ describe("parseOpenCodeUsage", () => {
 });
 
 describe("fetchOpenCodeUsage", () => {
+  const realFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
   test("キー未登録は上流へ出ず not_connected になる", async () => {
     const error: unknown = await fetchOpenCodeUsage({
       apiKey: null,
@@ -118,5 +124,30 @@ describe("fetchOpenCodeUsage", () => {
 
     expect(error).toBeInstanceOf(ProviderError);
     expect((error as ProviderError).code).toBe("not_connected");
+  });
+
+  test("401 はキー無効、403 は契約なしとして分ける", async () => {
+    async function fetchWithStatus(status: number): Promise<ProviderError> {
+      globalThis.fetch = (async () => new Response("{}", { status })) as unknown as typeof fetch;
+
+      const error: unknown = await fetchOpenCodeUsage({
+        apiKey: "sk-test",
+        userAgent: "usage-portal/test",
+        now: () => CAPTURED,
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ProviderError);
+
+      return error as ProviderError;
+    }
+
+    const unauthorized = await fetchWithStatus(401);
+    const forbidden = await fetchWithStatus(403);
+
+    expect(unauthorized.code).toBe("config");
+    expect(unauthorized.message).toContain("API キー");
+    expect(forbidden.code).toBe("subscription_required");
+    expect(forbidden.message).toContain("サブスクリプション");
+    expect(forbidden.message).not.toContain("API キー");
   });
 });

@@ -19,7 +19,13 @@ export type ProviderSnapshot = {
 };
 
 /** 画面が分岐に使える固定の分類。上流の文言や例外文をそのまま入れない。 */
-export type ProviderErrorCode = "not_connected" | "reauth_required" | "upstream" | "schema" | "config";
+export type ProviderErrorCode =
+  | "not_connected"
+  | "reauth_required"
+  | "subscription_required"
+  | "upstream"
+  | "schema"
+  | "config";
 
 export class ProviderError extends Error {
   readonly code: ProviderErrorCode;

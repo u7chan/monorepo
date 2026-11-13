@@ -15,6 +15,7 @@ export type OpenCodeApiError =
   | "invalid_name"
   | "invalid_icon"
   | "invalid_key"
+  | "subscription_required"
   | "invalid_probe"
   | "invalid_model"
   | "invalid_thinking"
@@ -66,10 +67,17 @@ export function createOpenCodeApi(options: {
       return { ok: true, snapshot: await options.fetchUsage(apiKey) };
     } catch (error) {
       // 通信断を「キーが違う」と出すと、正しいキーを入れ直し続けることになる。
-      return {
-        ok: false,
-        error: error instanceof ProviderError && error.code === "config" ? "invalid_key" : "unavailable",
-      };
+      if (error instanceof ProviderError) {
+        if (error.code === "config") {
+          return { ok: false, error: "invalid_key" };
+        }
+
+        if (error.code === "subscription_required") {
+          return { ok: false, error: "subscription_required" };
+        }
+      }
+
+      return { ok: false, error: "unavailable" };
     }
   }
 
