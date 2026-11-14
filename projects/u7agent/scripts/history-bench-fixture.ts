@@ -134,6 +134,7 @@ function recordOf(sessionManager: NonNullable<PiSessionLike["sessionManager"]>):
     entrySends: new Map(),
     runInitialSends: new Map(),
     injectedSends: new Set(),
+    inputGeneration: 0,
     stopping: false,
     cancelling: 0,
     unsentSends: [],

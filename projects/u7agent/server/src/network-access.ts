@@ -26,6 +26,11 @@ export function networkAccessMode(raw: string | undefined = process.env[NETWORK_
  */
 export class NetworkAccessApprovals {
   private readonly approved = new Set<string>();
+  /**
+   * 拒否した接続先 (会話 id -> ホスト -> 拒否した時点の入力世代)。承認の記録と違い、ホストごとに持つ。
+   * 同じ世代のままなら同じホストへの再要求を抑止し、ユーザー入力が増えたら抑止しない
+   */
+  private readonly denials = new Map<string, Map<string, number>>();
 
   /** このセッションが 443 を開いてよいか。モードが `allow` なら常に真、`deny` なら常に偽 */
   allows(sessionId: string, mode: NetworkAccessMode = networkAccessMode()): boolean {
@@ -46,6 +51,32 @@ export class NetworkAccessApprovals {
   /** 承認の可否。診断とテストが状態を読む */
   isApproved(sessionId: string): boolean {
     return this.approved.has(sessionId);
+  }
+
+  /**
+   * 拒否を記録する。ホストはカードに出た値 (正規化済み) を渡す。大文字小文字だけ違う別表記を
+   * 別の拒否にしないよう、キーでは小文字化する
+   */
+  recordDenial(sessionId: string, host: string, generation: number): void {
+    const hosts = this.denials.get(sessionId) ?? new Map<string, number>();
+    hosts.set(host.toLowerCase(), generation);
+    this.denials.set(sessionId, hosts);
+  }
+
+  /**
+   * 同じホストへの再要求を抑止すべきか。別ホストは別の確認なので通し、ユーザー入力が増えた
+   * (= 世代が進んだ) 場合も通す
+   */
+  isDenied(sessionId: string, host: string, generation: number): boolean {
+    return this.denials.get(sessionId)?.get(host.toLowerCase()) === generation;
+  }
+
+  /**
+   * 拒否の記録を捨てる。承認 (443 全体が開く)・会話削除・sweep で使う。停止では消さない
+   * (停止後の run は新しい入力から始まるため、消しても結果が変わらない)
+   */
+  clearDenials(sessionId: string): void {
+    this.denials.delete(sessionId);
   }
 }
 

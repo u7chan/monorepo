@@ -740,6 +740,7 @@ export class SessionStore {
       entrySends: new Map(),
       runInitialSends: new Map(),
       injectedSends: new Set(),
+      inputGeneration: 0,
       stopping: false,
       cancelling: 0,
       unsentSends: [],
@@ -1754,6 +1755,8 @@ export class SessionStore {
    * ディスク保存を待たず resync を配り、次の assistant の delta より先に新しい user を見せる。
    */
   private noteUserInjected(record: SessionRecord, run: RunState, message: object): void {
+    // 拒否の抑止を解く世代。対応の取れない user でも「モデルへ入った新しい入力」なので数える
+    record.inputGeneration += 1;
     if (!run.initialInjected) {
       run.initialInjected = true;
       record.userMessageSends.set(message, { sendId: run.initialSendId, runId: run.id });
@@ -2003,6 +2006,12 @@ export class SessionStore {
     return {
       allows: (sessionId) => this.networkAccess.allows(sessionId),
       mode: () => networkAccessMode(),
+      isDenied: (sessionId, host) => {
+        const record = this.records.get(sessionId);
+        // record を引けないときは抑止しない。拒否の記録は record と同じ寿命でしか意味を持たず、
+        // この後 ask が Session not found で断る
+        return record === undefined ? false : this.networkAccess.isDenied(sessionId, host, record.inputGeneration);
+      },
       ask: (sessionId, toolCallId, questions, signal) => {
         const record = this.records.get(sessionId);
         if (!record) return Promise.reject(new Error(`Session not found: ${sessionId}`));
@@ -2093,8 +2102,16 @@ export class SessionStore {
     const ordered = [...answers].sort((a, b) => a.index - b.index);
     // 承認は回答の受理時に BFF 側で記録する。ツールの戻り値やラベル文字列から確定しない
     if (pending.kind === "network_access") {
-      if (approvalOf(ordered[0])) this.networkAccess.approve(record.id);
-      else this.networkAccess.revoke(record.id);
+      if (approvalOf(ordered[0])) {
+        this.networkAccess.approve(record.id);
+        // 承認は 443 全体を開くので、ホストごとの拒否の記録は残さない
+        this.networkAccess.clearDenials(record.id);
+      } else {
+        this.networkAccess.revoke(record.id);
+        // 拒否はカードに出た接続先だけの話。別ホストは次の確認として通す
+        const host = pending.questions[0]?.host;
+        if (host !== undefined) this.networkAccess.recordDenial(record.id, host, record.inputGeneration);
+      }
     }
     settleQuestion(pending, () => pending.resolve(ordered));
     return { status: "ok" };
@@ -2567,6 +2584,7 @@ export class SessionStore {
       }
       // 承認は live な record の有無に依らず消す (sweep 済みの会話も消せる。同じ id の再利用へ持ち越さない)
       this.networkAccess.revoke(id);
+      this.networkAccess.clearDenials(id);
       const record = this.records.get(id);
       if (record) {
         record.queue = [];
@@ -3233,6 +3251,7 @@ export class SessionStore {
           this.records.delete(id);
           // dispose / sweep は会話の削除ではないが、メモリから外した承認を残すと次のロードで効き続ける
           this.networkAccess.revoke(id);
+          this.networkAccess.clearDenials(id);
         })();
         this.lifecycle.set(id, promise);
         try {
