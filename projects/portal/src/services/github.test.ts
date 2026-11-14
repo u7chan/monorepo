@@ -208,6 +208,9 @@ describe("dispatchDeploy", () => {
     await expect(dispatchDeploy("usage-portal", "team/tag")).rejects.toMatchObject({
       status: 400,
     });
+    await expect(dispatchDeploy("usage-portal", "latest")).rejects.toMatchObject({
+      status: 400,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

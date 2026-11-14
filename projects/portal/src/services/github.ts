@@ -2,7 +2,7 @@
 // デプロイの実体は workflow に任せ、portal は対象とイメージタグを渡すだけにする。
 
 import type { ImageTagOption } from "../types/container";
-import { isValidDeployTarget, isValidImageTag } from "../lib/image";
+import { isDeployableImageTag, isValidDeployTarget } from "../lib/image";
 
 const GITHUB_API = "https://api.github.com";
 const PACKAGE_OWNER = "u7chan";
@@ -103,7 +103,7 @@ export function toImageTagOptions(versions: PackageVersion[]): ImageTagOption[] 
     for (const tag of version.metadata?.container?.tags ?? []) {
       // latest は可変タグで、require_image_tag の target が拒否する。
       // 同じ version の sha-* を選べば最新ビルドへ更新できる。
-      if (!tag || tag === "latest" || !isValidImageTag(tag) || seen.has(tag)) continue;
+      if (!tag || !isDeployableImageTag(tag) || seen.has(tag)) continue;
       seen.add(tag);
       options.push({ tag, createdAt: version.created_at });
     }
@@ -156,7 +156,7 @@ export async function dispatchDeploy(target: string, tag: string): Promise<strin
   if (!isValidDeployTarget(target)) {
     throw new GithubServiceError(`Invalid deploy target: ${target}`, 400);
   }
-  if (!isValidImageTag(tag)) {
+  if (!isDeployableImageTag(tag)) {
     throw new GithubServiceError(`Invalid image tag: ${tag}`, 400);
   }
 

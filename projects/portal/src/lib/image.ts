@@ -54,6 +54,14 @@ export function isValidImageTag(tag: string): boolean {
 }
 
 /**
+ * デプロイに渡せるタグか。latest は可変で、require_image_tag の target が
+ * 拒否するため、選択肢にも送信にも使わない。
+ */
+export function isDeployableImageTag(tag: string): boolean {
+  return isValidImageTag(tag) && tag !== "latest";
+}
+
+/**
  * compose project 名として受け付けられる形式か。
  * deploy target は workflow 側でも targets.json と照合されるが、ここでも
  * GitHub へ渡す前に形を限定する。

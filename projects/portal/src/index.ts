@@ -8,7 +8,7 @@ import {
   runContainerAction,
   type ContainerAction,
 } from "./services/docker";
-import { isValidImageTag, monorepoProject, parseImageReference } from "./lib/image";
+import { isDeployableImageTag, monorepoProject, parseImageReference } from "./lib/image";
 import { isJsonRequest, isSameOriginRequest } from "./lib/request";
 import {
   DEPLOY_WORKFLOW_URL,
@@ -189,7 +189,7 @@ const server = serve({
         if (typeof containerId !== "string" || typeof tag !== "string") {
           return Response.json({ error: "containerId and tag are required" }, { status: 400 });
         }
-        if (!isValidImageTag(tag)) {
+        if (!isDeployableImageTag(tag)) {
           return Response.json({ error: "Invalid image tag" }, { status: 400 });
         }
 

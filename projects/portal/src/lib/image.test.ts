@@ -2,6 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  isDeployableImageTag,
   isValidDeployTarget,
   isValidImageTag,
   monorepoProject,
@@ -83,6 +84,18 @@ describe("isValidImageTag", () => {
   test("128 文字を超えるタグは拒否する", () => {
     expect(isValidImageTag(`a${"b".repeat(127)}`)).toBe(true);
     expect(isValidImageTag(`a${"b".repeat(128)}`)).toBe(false);
+  });
+});
+
+describe("isDeployableImageTag", () => {
+  test("latest は送信対象にしない", () => {
+    expect(isDeployableImageTag("latest")).toBe(false);
+    expect(isDeployableImageTag("sha-0ff5c144")).toBe(true);
+    expect(isDeployableImageTag("manual-test-abc1234")).toBe(true);
+  });
+
+  test("Docker のタグとして不正な文字列は拒否する", () => {
+    expect(isDeployableImageTag("team/tag")).toBe(false);
   });
 });
 
