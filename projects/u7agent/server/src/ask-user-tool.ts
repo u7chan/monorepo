@@ -37,6 +37,11 @@ export const ASK_USER_GUIDELINES = [
 export interface AskUserToolDetails {
   questions: AskUserQuestion[];
   answers: AskUserAnswer[];
+  /**
+   * 質問をユーザーに出さずに断った結果。引数からは「聞かなかった」ことを区別できないため、
+   * 履歴の投影はこの印があるカードを復元しない (承認ツールだけが付ける)
+   */
+  notAsked?: true;
 }
 
 export interface AskUserHost {

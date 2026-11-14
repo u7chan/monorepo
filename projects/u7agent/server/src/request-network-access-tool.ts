@@ -21,7 +21,7 @@ export const REQUEST_NETWORK_ACCESS_DESCRIPTION =
 export const REQUEST_NETWORK_ACCESS_GUIDELINES = [
   "Call this only after an outbound HTTPS connection from bash failed with a permission error (EACCES) or a connection error you believe is the egress policy.",
   "Put the host you need to reach in `host` (for example `ja.wikipedia.org`) and explain what you fetch and why in `reason`, in one or two sentences without repeating the host. The question and the choices are fixed by the app.",
-  "After the user allows it, retry the same command. If they deny it, continue without network access and ask again only when the user asks you to retry.",
+  "After the user allows it, retry the same command. If they deny it, continue without network access and ask again only after the user sends a new instruction. A denial blocks that host; another host is a new question.",
 ];
 
 /** カードの見出し。質問文と選択肢はここで固定する (モデルに書かせない) */
@@ -85,6 +85,8 @@ export interface NetworkAccessHost {
   allows(sessionId: string): boolean;
   /** 現在のモード。`allow` は質問せずに許可、`deny` は承認しても開かない */
   mode(): NetworkAccessMode;
+  /** この接続先が、新しいユーザー入力を待つ拒否の状態か。世代の比較は SessionStore が持つ */
+  isDenied(sessionId: string, host: string): boolean;
   /** 承認の質問を 1 問だけ出し、回答まで待つ。待機の所有は SessionStore 側 */
   ask(
     sessionId: string,
@@ -112,6 +114,58 @@ const requestNetworkAccessSchema = Type.Object({
   }),
 });
 type RequestNetworkAccessParams = Static<typeof requestNetworkAccessSchema>;
+
+/** 拒否済みの接続先へ、ユーザー入力を挟まずに再要求されたときの 1 文 */
+const DENIED_TEXT =
+  "この接続先はユーザーが拒否しました。ユーザーの新しい指示を待ってください。別の接続先ならあらためて承認を求められます。";
+
+/** 接続先が分からない要求の 1 文。何を許可するか分からないカードを作らない */
+const HOST_REQUIRED_TEXT = "接続先のホストを特定できませんでした。host に接続先を書いて、もう一度呼び出してください。";
+
+/**
+ * 承認カードを出すかどうかと、出さない理由。ツール本体とライブ配信が同じ判定を通る
+ * (投影だけ別条件にすると、カードを出さなかった要求が UI にだけ残る)
+ */
+export type NetworkAccessOutcome =
+  | { kind: "ask"; sessionId: string; host: string }
+  | { kind: "always-allow" }
+  | { kind: "always-deny" }
+  | { kind: "no-session" }
+  | { kind: "no-host" }
+  | { kind: "denied" };
+
+export function networkAccessOutcome(input: {
+  mode: NetworkAccessMode;
+  sessionId: string | undefined;
+  host: string | undefined;
+  isDenied: (sessionId: string, host: string) => boolean;
+}): NetworkAccessOutcome {
+  // 承認が要らない / 承認しても開かないモードではカードを出さない (押しても何も変わらない質問をしない)
+  if (input.mode === "allow") return { kind: "always-allow" };
+  if (input.mode === "deny") return { kind: "always-deny" };
+  // id を解決できないと承認を記録できない。開かないまま止める (fail-closed)
+  if (input.sessionId === undefined) return { kind: "no-session" };
+  if (input.host === undefined) return { kind: "no-host" };
+  // 拒否の抑止はプロンプトの指示ではなくここで決める (モデルの再呼び出しを仕様で止める)
+  if (input.isDenied(input.sessionId, input.host)) return { kind: "denied" };
+  return { kind: "ask", sessionId: input.sessionId, host: input.host };
+}
+
+const OUTCOME_TEXT: Record<Exclude<NetworkAccessOutcome["kind"], "ask">, string> = {
+  "always-allow": "この環境では外向き通信は常に許可されています。承認は不要です。",
+  "always-deny": "この環境では外向き通信は拒否されています。承認しても開きません。",
+  "no-session": "会話を特定できないため、この通信は許可できません。",
+  "no-host": HOST_REQUIRED_TEXT,
+  denied: DENIED_TEXT,
+};
+
+/**
+ * カードを出さない結果に付ける印。引数からは「聞かなかった」ことを区別できないため、
+ * 履歴の投影はこの印を正にしてカードを復元しない
+ */
+export function notAskedNetworkAccess(details: unknown): boolean {
+  return typeof details === "object" && details !== null && (details as { notAsked?: unknown }).notAsked === true;
+}
 
 /** 承認の結果をモデルへ返す 1 文。選択肢のラベル文字列は解釈せず、`approval` の真偽だけを読む */
 function resultText(approved: boolean): string {
@@ -141,33 +195,25 @@ export function createRequestNetworkAccessToolDefinitions(options: {
     exposure: "model-only",
     async execute(toolCallId, params: RequestNetworkAccessParams, signal) {
       const questions = networkAccessQuestions(params.reason ?? "", params.host);
-      const mode = options.host.mode();
-      // 承認が要らない / 承認しても開かないモードではカードを出さない (押しても何も変わらない質問をしない)
-      if (mode === "allow") {
-        return {
-          content: [{ type: "text", text: "この環境では外向き通信は常に許可されています。承認は不要です。" }],
-          details: { questions, answers: [] } satisfies AskUserToolDetails,
-        };
-      }
-      if (mode === "deny") {
-        return {
-          content: [{ type: "text", text: "この環境では外向き通信は拒否されています。承認しても開きません。" }],
-          details: { questions, answers: [] } satisfies AskUserToolDetails,
-          isError: true,
-        };
-      }
       const sessionId = options.sessionId();
-      if (sessionId === undefined) {
-        // id を解決できないと承認を記録できない。開かないまま止める (fail-closed)
+      const outcome = networkAccessOutcome({
+        mode: options.host.mode(),
+        sessionId,
+        // ホストはカードに出る値 (正規化済み) を正とし、拒否の記録と突き合わせる
+        host: questions[0]?.host,
+        isDenied: (id, host) => options.host.isDenied(id, host),
+      });
+      if (outcome.kind !== "ask") {
         return {
-          content: [{ type: "text", text: "会話を特定できないため、この通信は許可できません。" }],
-          details: { questions, answers: [] } satisfies AskUserToolDetails,
-          isError: true,
+          content: [{ type: "text", text: OUTCOME_TEXT[outcome.kind] }],
+          details: { questions, answers: [], notAsked: true } satisfies AskUserToolDetails,
+          // 常に許可の環境は失敗ではない (モデルに「止まった」と思わせない)
+          ...(outcome.kind === "always-allow" ? {} : { isError: true }),
         };
       }
       let answers: AskUserAnswer[];
       try {
-        answers = await options.host.ask(sessionId, toolCallId, questions, signal);
+        answers = await options.host.ask(outcome.sessionId, toolCallId, questions, signal);
       } catch {
         // abort / 取り消しでは throw しない。details を残し、停止後の再読込でもカードを復元できるようにする
         return {

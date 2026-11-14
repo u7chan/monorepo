@@ -88,6 +88,11 @@ export interface RunEventBridgeDeps {
    * 呼び出し側はメッセージの参照を控えて履歴 item の run id に対応付ける
    */
   onPromptMessage?: (message: object) => void;
+  /**
+   * tool_start でこの呼び出しの質問をカードにしないか。承認ツールは「聞かなかった」ことを結果でしか
+   * 判定できないため、実行前の時点でツール本体と同じ判定を渡す
+   */
+  hidesQuestions?: (toolName: string, args: unknown) => boolean;
   /** assistant の message_end。応答IDを保存注記へ対応付けるために同じ参照を控える */
   onAssistantMessage?: (message: object, assistantId: string) => void;
   /**
@@ -137,6 +142,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     emitResync,
     onPersist,
     onPromptMessage,
+    hidesQuestions,
     onAssistantMessage,
     onAssistantMetrics,
     onRetryScheduled,
@@ -375,8 +381,11 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           // 履歴 (projectMessages) と同じ関数で判定する。結果はまだ無いので isError は載せない
           const ref = classifySkillRead(event.args, { cwd, toolName: event.toolName ?? "" });
           const skill = ref ? skillLoadOf({ id, ref, masker }) : undefined;
-          // ask_user は質問を args から導出する。導出できる間はカードを出す (tool_end で回答が付く)
-          const questions = askUserQuestionsOf(event.toolName ?? "", event.args, masker);
+          // ask_user は質問を args から導出する。導出できる間はカードを出す (tool_end で回答が付く)。
+          // 承認ツールは待機を登録しない呼び出しがあるため、実行前の判定でカードを止める
+          const questions = hidesQuestions?.(event.toolName ?? "", event.args)
+            ? undefined
+            : askUserQuestionsOf(event.toolName ?? "", event.args, masker);
           // SDK は実行時刻を持たないため、イベントの到着時刻で測る (messageMetrics と同じ流儀)
           const startedAt = Date.now();
           const tool: ToolCall = {

@@ -17,11 +17,13 @@ import {
   type NetworkAccessHost,
 } from "../src/request-network-access-tool";
 import { LANDLOCK_ALLOWED_PORTS, LANDLOCK_PORTS_WITHOUT_HTTPS, landlockAllowedPorts } from "../src/sandbox/landlock";
-import type { AskUserAnswer, AskUserQuestion } from "../src/schema";
-import { askUserAnswersOf, askUserQuestionsOf } from "../src/session-projection";
+import type { AskUserAnswer, AskUserQuestion, MessageMetrics, SSEEventType } from "../src/schema";
+import { askUserAnswersOf, askUserQuestionsOf, projectMessages } from "../src/session-projection";
 import { createSecretMasker } from "../src/redact";
+import { createRunEventBridge } from "../src/run-events";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
-import { SessionStore, type PiRuntimeLike, type PiSessionLike } from "../src/sessions";
+import { SessionStore, type PiRuntimeLike, type PiSessionLike, type SessionRecord } from "../src/sessions";
+import { asPiBff, createStubPi, waitFor } from "./stub-pi";
 
 const CWD = "/tmp/project";
 const masker = createSecretMasker([]);
@@ -74,11 +76,13 @@ function createHost(options: {
   mode?: "allow" | "ask" | "deny";
   answers?: AskUserAnswer[];
   reject?: boolean;
+  denied?: boolean;
 }): NetworkAccessHost & { calls: number } {
   const host = {
     calls: 0,
     allows: () => false,
     mode: () => options.mode ?? "ask",
+    isDenied: () => options.denied === true,
     async ask(): Promise<AskUserAnswer[]> {
       host.calls += 1;
       if (options.reject) throw new Error("aborted");
@@ -86,6 +90,19 @@ function createHost(options: {
     },
   };
   return host;
+}
+
+/** カードを開いて拒否の回答を返す (拒否の記録は回答の受理時に入る) */
+async function denyHost(
+  store: SessionStore,
+  host: NetworkAccessHost,
+  record: SessionRecord,
+  toolCallId: string,
+  target: string,
+): Promise<void> {
+  const pending = host.ask(record.id, toolCallId, networkAccessQuestions("r", target), undefined);
+  store.answerQuestion(record, toolCallId, [{ index: 0, approval: false }]);
+  await pending;
 }
 
 test("モードは env から解決し、未知の値は allow に倒す", () => {
@@ -200,7 +217,13 @@ test("allow と deny では質問せず、ask だけがホストへ委譲する"
 
   const askHost = createHost({ mode: "ask", answers: [{ index: 0, approval: false }] });
   const [askTool] = createRequestNetworkAccessToolDefinitions({ enabled: true, sessionId: () => "s1", host: askHost });
-  const askResult = (await askTool?.execute("call-1", { reason: "r" }, undefined, undefined, {} as never)) as {
+  const askResult = (await askTool?.execute(
+    "call-1",
+    { reason: "r", host: "example.com" },
+    undefined,
+    undefined,
+    {} as never,
+  )) as {
     content: { text?: string }[];
     details: { questions: AskUserQuestion[]; answers: AskUserAnswer[] };
   };
@@ -213,7 +236,13 @@ test("allow と deny では質問せず、ask だけがホストへ委譲する"
 test("承認待ちの停止では details を残し、承認は確定しない", async () => {
   const host = createHost({ mode: "ask", reject: true });
   const [tool] = createRequestNetworkAccessToolDefinitions({ enabled: true, sessionId: () => "s1", host });
-  const result = (await tool?.execute("call-1", { reason: "r" }, undefined, undefined, {} as never)) as {
+  const result = (await tool?.execute(
+    "call-1",
+    { reason: "r", host: "example.com" },
+    undefined,
+    undefined,
+    {} as never,
+  )) as {
     content: { text?: string }[];
     details: { answers: AskUserAnswer[] };
     isError?: boolean;
@@ -358,7 +387,7 @@ test("承認の sessionId は実行時に解決し、解決できなければ質
   assert.equal(host.calls, 0, "id が無いまま質問を出さない");
 
   id = "s1";
-  await tool?.execute("call-1", { reason: "r" }, undefined, undefined, {} as never);
+  await tool?.execute("call-1", { reason: "r", host: "example.com" }, undefined, undefined, {} as never);
   assert.equal(host.calls, 1, "作成後の id で質問する");
 });
 
@@ -383,6 +412,229 @@ test("sweep と、sweep 済みの会話の削除でも承認を失効する", as
   persistent.networkAccess.approve(deleted.id);
   assert.equal(await persistent.deleteSession(deleted.id), true, "descriptor だけでも削除できる");
   assert.equal(persistent.networkAccess.isApproved(deleted.id), false);
+});
+
+// 拒否の key は (会話, ホスト)。大文字小文字の違いは同じ拒否として扱い、別ホスト・別会話・新しい入力では通す。
+test("拒否の記録はホスト単位で、同じ世代のあいだだけ同じホストの再要求を抑止する", () => {
+  const approvals = new NetworkAccessApprovals();
+  approvals.recordDenial("s1", "Example.com", 3);
+
+  assert.equal(approvals.isDenied("s1", "example.com", 3), true, "表記の大小は同じ拒否");
+  assert.equal(approvals.isDenied("s1", "example.com", 4), false, "新しい入力では解錠する");
+  assert.equal(approvals.isDenied("s1", "other.example", 3), false, "別ホストは別の確認");
+  assert.equal(approvals.isDenied("s2", "example.com", 3), false, "別会話へ持ち越さない");
+
+  approvals.recordDenial("s1", "a.example", 5);
+  approvals.clearDenials("s1");
+  assert.equal(approvals.isDenied("s1", "example.com", 3), false);
+  assert.equal(approvals.isDenied("s1", "a.example", 5), false, "承認・削除ではホストを問わず捨てる");
+});
+
+// 拒否の抑止をプロンプトの指示ではなく BFF の判定にする。カードを出さないので ask は呼ばれない。
+test("拒否済みのホストと接続先不明の要求ではカードを出さず、別ホストなら聞く", async () => {
+  const deniedHost = createHost({ denied: true });
+  const [deniedTool] = createRequestNetworkAccessToolDefinitions({
+    enabled: true,
+    sessionId: () => "s1",
+    host: deniedHost,
+  });
+  const deniedResult = (await deniedTool?.execute(
+    "call-1",
+    { reason: "r", host: "example.com" },
+    undefined,
+    undefined,
+    {} as never,
+  )) as { content: { text?: string }[]; details: { answers: AskUserAnswer[] }; isError?: boolean };
+  assert.equal(deniedHost.calls, 0, "拒否済みなら聞き直さない");
+  assert.equal(deniedResult.isError, true);
+  assert.match(deniedResult.content[0]?.text ?? "", /拒否しました/);
+  assert.deepEqual(deniedResult.details.answers, []);
+
+  const unknownHost = createHost({});
+  const [unknownTool] = createRequestNetworkAccessToolDefinitions({
+    enabled: true,
+    sessionId: () => "s1",
+    host: unknownHost,
+  });
+  const unknownResult = (await unknownTool?.execute(
+    "call-2",
+    { reason: "レジストリから取得する" },
+    undefined,
+    undefined,
+    {} as never,
+  )) as { content: { text?: string }[]; isError?: boolean };
+  assert.equal(unknownHost.calls, 0, "接続先を特定できないままユーザーへ聞かない");
+  assert.equal(unknownResult.isError, true);
+  assert.match(unknownResult.content[0]?.text ?? "", /host/);
+});
+
+// 世代は user の注入回数。拒否したあとの新しい送信でだけ解錠し、別ホストは最初から通す。
+test("拒否は新しいユーザー入力で解錠し、停止では解錠しない", async () => {
+  const store = createStore();
+  const record = await store.create();
+  const host = store.networkAccessHost();
+
+  const deny = async (toolCallId: string, target: string) => {
+    const pending = host.ask(record.id, toolCallId, networkAccessQuestions("r", target), undefined);
+    store.answerQuestion(record, toolCallId, [{ index: 0, approval: false }]);
+    await pending;
+  };
+  await deny("call-1", "example.com");
+  assert.equal(host.isDenied(record.id, "example.com"), true);
+  assert.equal(host.isDenied(record.id, "other.example"), false, "別ホストは次の確認として通す");
+
+  await store.stop(record);
+  assert.equal(host.isDenied(record.id, "example.com"), true, "停止では消さない");
+});
+
+// 承認は 443 全体を開くので、ホストごとの拒否の記録を残す理由がない。
+test("承認・会話削除・sweep で拒否の記録を捨てる", async () => {
+  const store = createStore();
+  const record = await store.create();
+  const host = store.networkAccessHost();
+  const generation = store.inputGeneration(record.id);
+
+  const deny = async (toolCallId: string, target: string) => {
+    const pending = host.ask(record.id, toolCallId, networkAccessQuestions("r", target), undefined);
+    store.answerQuestion(record, toolCallId, [{ index: 0, approval: false }]);
+    await pending;
+  };
+  const approve = async (toolCallId: string, target: string) => {
+    const pending = host.ask(record.id, toolCallId, networkAccessQuestions("r", target), undefined);
+    store.answerQuestion(record, toolCallId, [{ index: 0, approval: true }]);
+    await pending;
+  };
+
+  await deny("call-1", "example.com");
+  await approve("call-2", "other.example");
+  assert.equal(store.networkAccess.isDenied(record.id, "example.com", generation), false, "承認で消える");
+
+  await deny("call-3", "example.com");
+  assert.equal(await store.deleteSession(record.id), true);
+  assert.equal(store.networkAccess.isDenied(record.id, "example.com", generation), false, "削除で消える");
+
+  const swept = await store.create();
+  const sweptGeneration = store.inputGeneration(swept.id);
+  const sweptPending = host.ask(swept.id, "call-4", networkAccessQuestions("r", "example.com"), undefined);
+  store.answerQuestion(swept, "call-4", [{ index: 0, approval: false }]);
+  await sweptPending;
+  assert.equal(store.networkAccess.isDenied(swept.id, "example.com", sweptGeneration), true);
+  swept.lastUsedAt = Date.now() - 24 * 60 * 60 * 1000;
+  await store.sweep();
+  assert.equal(store.networkAccess.isDenied(swept.id, "example.com", sweptGeneration), false, "sweep で消える");
+});
+
+// カードを出さない判定はツール本体とライブ配信で共有する。ここが true のときだけ質問を投影する。
+test("カードを出すかは、モード・接続先・拒否の記録で決まる", async () => {
+  const store = createStore();
+  const record = await store.create();
+  const host = store.networkAccessHost();
+  const args = { reason: "記事を読む", host: "example.com" };
+
+  assert.equal(store.showsNetworkAccessCard(record.id, args), false, "既定の allow はカードを出さない");
+  assert.equal(store.showsNetworkAccessCard(record.id, { reason: "記事を読む" }), false, "接続先を特定できない");
+
+  const previous = process.env.PI_SANDBOX_NETWORK_POLICY;
+  process.env.PI_SANDBOX_NETWORK_POLICY = "ask";
+  try {
+    assert.equal(store.showsNetworkAccessCard(record.id, args), true);
+    await denyHost(store, host, record, "call-1", "example.com");
+    assert.equal(store.showsNetworkAccessCard(record.id, args), false, "拒否済みのホストはカードを出さない");
+    assert.equal(
+      store.showsNetworkAccessCard(record.id, { reason: "別の記事", host: "other.example" }),
+      true,
+      "別ホストはカードを出す",
+    );
+  } finally {
+    if (previous === undefined) delete process.env.PI_SANDBOX_NETWORK_POLICY;
+    else process.env.PI_SANDBOX_NETWORK_POLICY = previous;
+  }
+});
+
+// 引数からは「聞かなかった」ことを区別できない。結果の印がある呼び出しは履歴でもカードにしない。
+test("カードを出さずに断った要求は、履歴の投影でもカードにしない", () => {
+  const call = { reason: "記事を読む", host: "example.com" };
+  const projected = projectMessages(
+    {
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "call-1", name: REQUEST_NETWORK_ACCESS_TOOL_NAME, arguments: call }],
+        },
+        {
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: REQUEST_NETWORK_ACCESS_TOOL_NAME,
+          isError: true,
+          content: [{ type: "text", text: "拒否済み" }],
+          details: { questions: networkAccessQuestions("記事を読む", "example.com"), answers: [], notAsked: true },
+        },
+      ],
+    } as unknown as PiSessionLike,
+    new WeakMap<object, MessageMetrics>(),
+    masker,
+    CWD,
+  );
+  assert.equal(projected[0]?.tools?.length, 1, "ツール自体は履歴に残す");
+  assert.equal(projected[0]?.tools?.[0]?.questions, undefined, "カードは復元しない");
+});
+
+// ライブ配信も同じ判定を通す。待機を登録しない呼び出しに tool_start の質問を載せない。
+test("カードを出さない呼び出しは、ライブの tool_start でも質問を配らない", () => {
+  const events: { type: SSEEventType; data: Record<string, unknown> }[] = [];
+  const bridge = createRunEventBridge({
+    runId: "run-1",
+    session: { messages: [] } as unknown as PiSessionLike,
+    masker,
+    cwd: CWD,
+    tools: new Map(),
+    toolTimings: new Map(),
+    messageMetrics: new WeakMap<object, MessageMetrics>(),
+    compactionMeta: new Map(),
+    emit: (type, data) => {
+      events.push({ type, data: data as Record<string, unknown> });
+    },
+    emitResync: () => {},
+    hidesQuestions: (toolName) => toolName === REQUEST_NETWORK_ACCESS_TOOL_NAME,
+    onRetryScheduled: () => {},
+    onRetryAttemptStart: () => {},
+    onRetryEnd: () => {},
+    onSettled: () => {},
+  });
+  bridge.listener({
+    type: "tool_execution_start",
+    toolCallId: "call-1",
+    toolName: REQUEST_NETWORK_ACCESS_TOOL_NAME,
+    args: { reason: "記事を読む", host: "example.com" },
+  } as never);
+  const started = events.find((entry) => entry.type === "tool_start");
+  assert.ok(started, "tool_start を配る");
+  assert.equal(started.data["questions"], undefined, "質問は載せない");
+});
+
+// 世代は「モデルへ入った user の数」。同じ run への追加入力でも解錠される必要がある。
+test("user メッセージの注入で世代が進み、拒否が解錠される", async () => {
+  const store = new SessionStore({
+    pi: asPiBff(createStubPi()),
+    catalog: createAgentCatalog(),
+    masker,
+    rootCwd: CWD,
+  });
+  try {
+    const record = await store.create();
+    const host = store.networkAccessHost();
+    const pending = host.ask(record.id, "call-1", networkAccessQuestions("r", "example.com"), undefined);
+    store.answerQuestion(record, "call-1", [{ index: 0, approval: false }]);
+    await pending;
+    assert.equal(host.isDenied(record.id, "example.com"), true);
+    assert.equal(store.inputGeneration(record.id), 0, "拒否の時点ではまだ入力が無い");
+
+    store.postMessage(record, "もう一度取得してみて");
+    await waitFor(() => store.inputGeneration(record.id) > 0, 3000, "user の注入");
+    assert.equal(host.isDenied(record.id, "example.com"), false, "新しい入力で解錠する");
+  } finally {
+    await store.close();
+  }
 });
 
 // 承認の key は SDK のセッション id。永続化なしの通常会話で SDK が別 id を発行すると、承認要求が
