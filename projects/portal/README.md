@@ -154,6 +154,7 @@ docker build -t portal .
 - `latest` は可変タグなので選択肢に出さない。最新ビルドは同じ version の `sha-*` を選ぶ（`require_image_tag` の target でもそのまま使える）
 - portal 自身は一覧から除外しているため、portal の更新は従来どおり Manual Deploy を使う
 - タグ一覧は GitHub Packages から取得し、デプロイは self-hosted-runner の `manual-deploy.yml` を `workflow_dispatch` で起動する
+- 各タグにはイメージの作成日を `YYYY-MM-DD`（JST）で表示する。一覧は新しい順に並ぶ
 - 成功すると Actions へのリンクを表示する。コンテナの再作成は Actions 側で行う
 
 ホスト側の `.env`（Manual Deploy が読む `ENV_FILE`）に 2 つの token を置く。

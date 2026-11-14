@@ -3,6 +3,7 @@
 
 import { useEffect, useId, useRef } from "react";
 import type { DeployController } from "../hooks/useDeploy";
+import { formatTagDate } from "../lib/tagDate";
 
 function DeployIcon() {
   return (
@@ -136,7 +137,7 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
             <option value="">No tags found</option>
           ) : (
             deploy.tags.map((option) => {
-              const date = option.createdAt?.slice(5, 10);
+              const date = formatTagDate(option.createdAt);
               const current = option.tag === deploy.currentTag ? " (current)" : "";
               return (
                 <option key={option.tag} value={option.tag}>
@@ -164,7 +165,7 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
         </button>
       </div>
       <p className="mt-1.5 text-[11px] text-fg-3">
-        The container is recreated with the selected image.
+        Dates are the image creation date (JST). The container is recreated with the selected image.
       </p>
       {deploy.error && (
         <p role="alert" className="mt-1.5 text-[11px] text-dead">
