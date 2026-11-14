@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   sessionTitleNoticeText,
+  sessionTitleResummarizeBlockedReason,
   sessionTitleResummarizeConfirmRequest,
   sessionTitleSkipReasonText,
   sessionTitleStatusOf,
@@ -65,6 +66,22 @@ test("完了のお知らせは成功時に現在のタイトル、失敗時に�
   const skipped = sessionTitleNoticeText(summary("skipped", { skipReason: "disabled" }), "仮タイトル");
   assert.equal(skipped.heading, "AI要約をスキップしました");
   assert.equal(skipped.detail, "AI要約は Off です");
+});
+
+test("再要約は AI要約 Off・モデル未選択・モデル利用不可では理由を出して押させない", () => {
+  const ready = { enabled: true, model: "openai/gpt-5", modelAvailable: true };
+  assert.equal(sessionTitleResummarizeBlockedReason(ready), undefined);
+  // 設定を取得できていないうちは押させ、サーバーの 409 に任せる
+  assert.equal(sessionTitleResummarizeBlockedReason(null), undefined);
+  assert.equal(
+    sessionTitleResummarizeBlockedReason({ ...ready, enabled: false }),
+    "AI要約を On にすると再要約できます。",
+  );
+  assert.equal(sessionTitleResummarizeBlockedReason({ ...ready, model: null }), "要約モデルを選ぶと再要約できます。");
+  assert.equal(
+    sessionTitleResummarizeBlockedReason({ ...ready, modelAvailable: false }),
+    "選択した要約モデルが現在利用できないため、再要約できません。",
+  );
 });
 
 test("再要約の確認は手動タイトルを置き換えることを押す前に伝える", () => {

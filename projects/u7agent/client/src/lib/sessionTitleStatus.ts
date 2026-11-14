@@ -3,7 +3,7 @@
  * 色は「状態の意味」だけを持ち、チップ (面) ではなく点と文字で出す。
  */
 import type { ConfirmRequest } from "./confirmDialog";
-import type { SessionTitleSummary, TitleSkipReason } from "../types";
+import type { SessionTitleSummary, TitleSkipReason, TitleSummarySettingsResponse } from "../types";
 
 export type SessionTitleTone = "accent" | "danger" | "warn" | "muted";
 
@@ -61,6 +61,20 @@ export function sessionTitleStatusOf(summary: SessionTitleSummary | undefined): 
         description: sessionTitleSkipReasonText(attempt.skipReason),
       };
   }
+}
+
+/**
+ * 再要約を受け付けない設定の理由。設定を取得できていない (null / undefined) ときは判定せず、
+ * 押させたままサーバーの 409 の理由へ倒す。
+ */
+export function sessionTitleResummarizeBlockedReason(
+  settings: Pick<TitleSummarySettingsResponse, "enabled" | "model" | "modelAvailable"> | null | undefined,
+): string | undefined {
+  if (!settings) return undefined;
+  if (!settings.enabled) return "AI要約を On にすると再要約できます。";
+  if (!settings.model) return "要約モデルを選ぶと再要約できます。";
+  if (!settings.modelAvailable) return "選択した要約モデルが現在利用できないため、再要約できません。";
+  return undefined;
 }
 
 /** 完了のお知らせの本文。状態ごとにタイトル / 理由を 1 文へまとめる */
