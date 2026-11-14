@@ -149,7 +149,7 @@ const ENVIRONMENT: RuntimeEnvironmentResponse = {
   state: "connected",
   environment: { os: "Debian", arch: "x86_64", user: "node", isRoot: false, workspace: "/workspace" },
   commands: [{ name: "curl", version: "8.14.1" }],
-  landlock: { state: "unavailable", abi: null, minAbi: 3, reason: "wrapper_missing" },
+  landlock: { state: "unavailable", abi: null, minAbi: 4, reason: "wrapper_missing" },
   capabilities: ["git-config-v1"],
   gitConfig: { state: "ready", path: "/home/node/.config/u7agent/gitconfig" },
 };

@@ -216,7 +216,7 @@ TLS 終端をリバースプロキシへ置くと、要求 URL のオリジン�
     { "name": "curl", "version": "8.14.1" },
     { "name": "npm", "version": null }
   ],
-  "landlock": { "state": "enabled", "abi": 6, "minAbi": 3 }
+  "landlock": { "state": "enabled", "abi": 6, "minAbi": 4 }
 }
 ```
 
