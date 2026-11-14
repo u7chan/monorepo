@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError } from "../api";
+import { ApiError, getTitleSummarySettings } from "../api";
 import { useSpaceApi } from "../SpaceContext";
 import { cn } from "../lib/cn";
 import { effortLabel } from "../lib/composerSettings";
 import { fileTimeLabel } from "../lib/messageTime";
 import { formatCost } from "../lib/usageFormat";
 import {
+  sessionTitleResummarizeBlockedReason,
   sessionTitleResummarizeConfirmRequest,
   sessionTitleStatusOf,
   type SessionTitleTone,
 } from "../lib/sessionTitleStatus";
-import type { SessionTitleSummary } from "../types";
+import type { SessionTitleSummary, TitleSummarySettingsResponse } from "../types";
 import { useConfirm } from "./ConfirmProvider";
 import { CloseIcon, RunSpinnerIcon, SparkleIcon, WarningIcon } from "./icons";
 
@@ -56,6 +57,7 @@ export function SessionTitleDialog({
   const [currentSummary, setCurrentSummary] = useState(titleSummary);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [titleSettings, setTitleSettings] = useState<TitleSummarySettingsResponse | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -69,6 +71,19 @@ export function SessionTitleDialog({
     return () => previousFocusRef.current?.focus();
   }, []);
 
+  // 再要約を受け付けるかはサーバーの設定が正。取得前と取得失敗は押させたまま 409 の理由へ倒す
+  useEffect(() => {
+    let cancelled = false;
+    void getTitleSummarySettings()
+      .then((settings) => {
+        if (!cancelled) setTitleSettings(settings);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // 一覧の取り直し / 別タブの更新で親の値が変わったら追随する。再要約の応答は先に local へ入る
   useEffect(() => {
     setCurrentTitle(title);
@@ -78,6 +93,7 @@ export function SessionTitleDialog({
   const status = sessionTitleStatusOf(currentSummary);
   const attempt = currentSummary?.attempt;
   const pending = busy || attempt?.state === "pending";
+  const blockedReason = sessionTitleResummarizeBlockedReason(titleSettings);
 
   const resummarize = async () => {
     if (!(await confirm(sessionTitleResummarizeConfirmRequest(currentTitle, currentSummary)))) return;
@@ -118,8 +134,9 @@ export function SessionTitleDialog({
             <p className="text-2xs text-ink-faint">この会話のタイトル</p>
           </div>
         </div>
-        <button type="button" onClick={onClose} aria-label="閉じる" className="icon-button size-8">
+        <button type="button" onClick={onClose} className="btn-quiet">
           <CloseIcon />
+          閉じる
         </button>
       </header>
 
@@ -166,8 +183,9 @@ export function SessionTitleDialog({
           </dl>
         ) : (
           <p className="rounded-lg border border-line bg-soft px-3 py-2.5 leading-relaxed text-ink-soft">
-            この会話ではまだ AI 要約を実行していません。再要約を押すと、保存済みのモデルと Effort で 1
-            回だけ実行します。
+            {blockedReason === undefined
+              ? "この会話ではまだ AI 要約を実行していません。再要約を押すと、保存済みのモデルと Effort で 1 回だけ実行します。"
+              : "この会話ではまだ AI 要約を実行していません。"}
           </p>
         )}
 
@@ -195,22 +213,25 @@ export function SessionTitleDialog({
       </div>
 
       <footer className="grid gap-2 border-t border-line px-4 py-3">
+        {blockedReason ? <p className="text-2xs leading-relaxed text-ink-muted">{blockedReason}</p> : null}
         <div className="flex items-center justify-between gap-2">
-          <button type="button" onClick={onClose} className="btn-quiet">
-            閉じる
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="text-xs text-accent-text underline underline-offset-2 hover:text-accent"
+          >
+            設定を開く
           </button>
-          <button type="button" onClick={() => void resummarize()} disabled={pending} className="btn-primary">
+          <button
+            type="button"
+            onClick={() => void resummarize()}
+            disabled={pending || blockedReason !== undefined}
+            className="btn-primary"
+          >
             {pending ? <RunSpinnerIcon tone="on-accent" /> : <SparkleIcon />}
             {pending ? "要約中…" : "再要約"}
           </button>
         </div>
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="justify-self-start text-xs text-accent-text underline underline-offset-2 hover:text-accent"
-        >
-          設定を開く
-        </button>
       </footer>
     </dialog>
   );
