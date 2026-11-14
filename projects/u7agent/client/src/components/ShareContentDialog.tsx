@@ -21,7 +21,7 @@ import {
 } from "../lib/sharedContents";
 import { sharePreviewSummary } from "../lib/sharedContentPreview";
 import type { SharedContentResponse } from "../types";
-import { ExternalLinkIcon, QrCodeIcon, RunSpinnerIcon, ShareIcon, WarningIcon } from "./icons";
+import { CloseIcon, ExternalLinkIcon, QrCodeIcon, RunSpinnerIcon, ShareIcon, WarningIcon } from "./icons";
 import { CollapsibleNotice } from "./CollapsibleNotice";
 import { LoadingMark } from "./LoadingMark";
 import { QrCodeDialog } from "./QrCodeDialog";
@@ -167,8 +167,14 @@ export function ShareContentDialogView({
           <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">SHARE</div>
           <h2 className="text-md font-semibold text-ink-strong">共有</h2>
         </div>
-        <button type="button" onClick={onClose} className="btn-quiet">
-          閉じる
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="閉じる"
+          title="閉じる"
+          className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
+        >
+          <CloseIcon />
         </button>
       </header>
 
@@ -290,7 +296,7 @@ export function ShareContentDialogView({
           </div>
         </div>
 
-        {/* 受付した後の閉じる導線はヘッダに 1 つだけにする (同じラベルのボタンを 2 つ並べない) */}
+        {/* 受付した後はフッターを出さず、ヘッダーの X だけを閉じる導線にする */}
         {started ? null : (
           <footer className="grid shrink-0 gap-1.5 border-t border-line px-4 py-3">
             {/* 副次の新規作成は Worker を 1 つ増やすので、押す前に行を添える */}

@@ -51,6 +51,7 @@ export function SessionTitleDialog({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const api = useSpaceApi();
   const confirm = useConfirm();
   const [currentTitle, setCurrentTitle] = useState(title);
@@ -69,6 +70,11 @@ export function SessionTitleDialog({
       dialog.focus();
     }
     return () => previousFocusRef.current?.focus();
+  }, []);
+
+  // 初期焦点は閉じる導線に置く (読むだけの面で、Enter に意味を持たせない)
+  useEffect(() => {
+    closeRef.current?.focus();
   }, []);
 
   // 再要約を受け付けるかはサーバーの設定が正。取得前と取得失敗は押させたまま 409 の理由へ倒す
@@ -134,9 +140,15 @@ export function SessionTitleDialog({
             <p className="text-2xs text-ink-faint">この会話のタイトル</p>
           </div>
         </div>
-        <button type="button" onClick={onClose} className="btn-quiet">
+        <button
+          ref={closeRef}
+          type="button"
+          onClick={onClose}
+          aria-label="閉じる"
+          title="閉じる"
+          className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
+        >
           <CloseIcon />
-          閉じる
         </button>
       </header>
 
@@ -218,7 +230,7 @@ export function SessionTitleDialog({
           <button
             type="button"
             onClick={onOpenSettings}
-            className="text-xs text-accent-text underline underline-offset-2 hover:text-accent"
+            className="inline-flex items-center text-xs text-accent-text underline underline-offset-2 hover:text-accent singleColumn:min-h-11"
           >
             設定を開く
           </button>
@@ -226,7 +238,7 @@ export function SessionTitleDialog({
             type="button"
             onClick={() => void resummarize()}
             disabled={pending || blockedReason !== undefined}
-            className="btn-primary"
+            className="btn-primary singleColumn:min-h-11"
           >
             {pending ? <RunSpinnerIcon tone="on-accent" /> : <SparkleIcon />}
             {pending ? "要約中…" : "再要約"}

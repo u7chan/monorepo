@@ -6,7 +6,7 @@ import {
   SKILL_IMPORT_APPLIED_REPLACED_NOTE,
   SKILL_IMPORT_APPLYING_LABEL,
   SKILL_IMPORT_APPLY_LABEL,
-  SKILL_IMPORT_CLOSE_LABEL,
+  SKILL_IMPORT_CANCEL_LABEL,
   SKILL_IMPORT_DIALOG_TITLE,
   SKILL_IMPORT_FILE_LABEL,
   SKILL_IMPORT_NOTHING_NOTE,
@@ -21,6 +21,7 @@ import {
 } from "../../lib/fileSkills";
 import { replaceableSkillNames, skillImportCounts, type SkillImportFlow } from "../../lib/skillArchive";
 import type { SandboxSkillImportPlanEntry, SandboxSkillsImportApply } from "../../types";
+import { CloseIcon } from "../icons";
 
 export type SkillImportDialogProps = {
   /** idle では開かない (mount しない) */
@@ -48,6 +49,7 @@ export function SkillImportDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const headerCloseRef = useRef<HTMLButtonElement>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
   const busy = flow.status === "applying";
   const plan = flow.status === "review" || flow.status === "applying" ? flow.plan : null;
@@ -73,6 +75,11 @@ export function SkillImportDialog({
   useEffect(() => {
     closeRef.current?.focus();
   }, []);
+
+  // 適用するとフッターごと取り消しが消えるので、焦点を残る閉じる導線へ移す
+  useEffect(() => {
+    if (flow.status === "applied") headerCloseRef.current?.focus();
+  }, [flow.status]);
 
   // 一部だけ選んだ状態は「全選択」にしない (すべて選んだ / 選んでいない の 2 値では表せない)
   useEffect(() => {
@@ -107,9 +114,22 @@ export function SkillImportDialog({
           : "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] rounded-xl border shadow-panel",
       )}
     >
-      <header className="shrink-0 border-b border-line px-4 py-3.5">
-        <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">SKILLS</div>
-        <h2 className="text-md font-semibold text-ink-strong">{SKILL_IMPORT_DIALOG_TITLE}</h2>
+      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
+        <div className="min-w-0">
+          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">SKILLS</div>
+          <h2 className="text-md font-semibold text-ink-strong">{SKILL_IMPORT_DIALOG_TITLE}</h2>
+        </div>
+        <button
+          ref={headerCloseRef}
+          type="button"
+          onClick={onClose}
+          aria-label="閉じる"
+          title="閉じる"
+          disabled={busy}
+          className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
+        >
+          <CloseIcon />
+        </button>
       </header>
 
       <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
@@ -169,17 +189,17 @@ export function SkillImportDialog({
           {flow.status === "applied" ? <SkillImportResult result={flow.result} /> : null}
         </div>
 
-        <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-3">
-          <button
-            ref={closeRef}
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="btn-quiet singleColumn:min-h-11"
-          >
-            {SKILL_IMPORT_CLOSE_LABEL}
-          </button>
-          {flow.status === "applied" ? null : (
+        {flow.status === "applied" ? null : (
+          <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-3">
+            <button
+              ref={closeRef}
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              className="btn-quiet singleColumn:min-h-11"
+            >
+              {SKILL_IMPORT_CANCEL_LABEL}
+            </button>
             <button
               type="submit"
               disabled={busy || !counts || counts.imported === 0}
@@ -187,8 +207,8 @@ export function SkillImportDialog({
             >
               {busy ? SKILL_IMPORT_APPLYING_LABEL : SKILL_IMPORT_APPLY_LABEL}
             </button>
-          )}
-        </footer>
+          </footer>
+        )}
       </form>
     </dialog>
   );

@@ -6,13 +6,14 @@ import {
   BACKUP_RESET_APPLY_LABEL,
   BACKUP_RESET_CHECK_LABEL,
   BACKUP_RESET_DIALOG_TITLE,
-  BACKUP_RESTORE_CLOSE_LABEL,
+  BACKUP_RESTORE_CANCEL_LABEL,
   BACKUP_SKILL_LIMITS_NOTE,
   BACKUP_TARGET_LABELS,
   backupResetDoneNote,
 } from "../../lib/backup";
 import type { BackupResetFlow } from "../../lib/backupFlow";
 import type { BackupExportCheck } from "../../types";
+import { CloseIcon } from "../icons";
 
 export type BackupResetDialogProps = {
   flow: Exclude<BackupResetFlow, { status: "idle" }>;
@@ -31,6 +32,7 @@ export function BackupResetDialog({ flow, check, singleColumn = false, onApply, 
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const headerCloseRef = useRef<HTMLButtonElement>(null);
   const [confirmed, setConfirmed] = useState(false);
   const busy = flow.status === "applying";
   const done = flow.status === "done";
@@ -50,6 +52,11 @@ export function BackupResetDialog({ flow, check, singleColumn = false, onApply, 
   useEffect(() => {
     closeRef.current?.focus();
   }, []);
+
+  // 完了するとフッターごと取り消しが消えるので、焦点を残る閉じる導線へ移す
+  useEffect(() => {
+    if (done) headerCloseRef.current?.focus();
+  }, [done]);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -76,9 +83,22 @@ export function BackupResetDialog({ flow, check, singleColumn = false, onApply, 
           : "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] rounded-xl border shadow-panel",
       )}
     >
-      <header className="shrink-0 border-b border-line px-4 py-3.5">
-        <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">BACKUP</div>
-        <h2 className="text-md font-semibold text-ink-strong">{BACKUP_RESET_DIALOG_TITLE}</h2>
+      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
+        <div className="min-w-0">
+          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">BACKUP</div>
+          <h2 className="text-md font-semibold text-ink-strong">{BACKUP_RESET_DIALOG_TITLE}</h2>
+        </div>
+        <button
+          ref={headerCloseRef}
+          type="button"
+          onClick={onClose}
+          aria-label="閉じる"
+          title="閉じる"
+          disabled={busy}
+          className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
+        >
+          <CloseIcon />
+        </button>
       </header>
 
       <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
@@ -110,22 +130,22 @@ export function BackupResetDialog({ flow, check, singleColumn = false, onApply, 
           )}
         </div>
 
-        <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-3">
-          <button
-            ref={closeRef}
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="btn-quiet singleColumn:min-h-11"
-          >
-            {BACKUP_RESTORE_CLOSE_LABEL}
-          </button>
-          {done ? null : (
+        {done ? null : (
+          <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-3">
+            <button
+              ref={closeRef}
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              className="btn-quiet singleColumn:min-h-11"
+            >
+              {BACKUP_RESTORE_CANCEL_LABEL}
+            </button>
             <button type="submit" disabled={busy || !confirmed} className="btn-danger singleColumn:min-h-11">
               {busy ? BACKUP_RESET_APPLYING_LABEL : BACKUP_RESET_APPLY_LABEL}
             </button>
-          )}
-        </footer>
+          </footer>
+        )}
       </form>
     </dialog>
   );

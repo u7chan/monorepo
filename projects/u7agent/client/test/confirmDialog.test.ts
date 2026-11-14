@@ -40,6 +40,8 @@ test("確認は見出し・対象の行・等幅の行・補足・ボタンを�
   assert.ok(html.includes("エージェントが実行中です。"), "補足が無い");
   assert.match(html, />キャンセル</);
   assert.match(html, />停止して起動</);
+  // 確認型のヘッダーはタイトルだけで、閉じるはフッターのキャンセルに任せる
+  assert.equal(html.includes('aria-label="閉じる"'), false, "確認のヘッダーに閉じるを置かない");
 });
 
 test("対象の一覧: 名前と状態を並べ、省略した件数を最後に出す", () => {

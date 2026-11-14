@@ -30,7 +30,8 @@ export const BACKUP_RESTORE_PLANNING_NOTE = "バックアップを検証して�
 export const BACKUP_RESTORE_NOT_ZIP_NOTE = ".zip のバックアップファイルを選んでください。";
 export const BACKUP_RESTORE_APPLYING_LABEL = "復元しています…";
 export const BACKUP_RESTORE_APPLY_LABEL = "復元する";
-export const BACKUP_RESTORE_CLOSE_LABEL = "閉じる";
+/** 実行前の取り消し。画面を閉じる X はヘッダーが持つので、フッターは実行しない側の名前だけにする */
+export const BACKUP_RESTORE_CANCEL_LABEL = "キャンセル";
 export const BACKUP_RESTORE_DELETE_CHECK_LABEL = "既存の定義が削除されることを理解しました";
 export const BACKUP_RESET_DIALOG_TITLE = "定義をすべて削除";
 export const BACKUP_RESET_CHECK_LABEL = "書き出し済み、または失ってもよい";
