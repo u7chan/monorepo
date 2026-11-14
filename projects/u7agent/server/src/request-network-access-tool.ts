@@ -36,11 +36,17 @@ const NETWORK_ACCESS_HOST_MAX = 253;
 /** 理由文からホスト名を拾う。`host` を書かなかったモデルと、`host` を持たない保存済みの args のための控え */
 const HOST_IN_REASON = /\b((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})\b/i;
 
-/** 接続先の表記ゆれ (scheme / path / port) を落とす。チップにはホスト名だけを出す */
+/** ホスト名として出せる文字だけか。資格情報や別の秘密値が混ざった表記はチップに出さない */
+const HOST_NAME_ONLY = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
+
+/** 接続先の表記ゆれ (scheme / userinfo / path / port) を落とす。チップにはホスト名だけを出す */
 export function normalizeNetworkAccessHost(raw: string): string {
   const withoutScheme = raw.trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
-  const withoutPath = withoutScheme.split(/[/?#]/)[0] ?? "";
-  return withoutPath.replace(/:\d{1,5}$/, "").slice(0, NETWORK_ACCESS_HOST_MAX);
+  const authority = withoutScheme.split(/[/?#]/)[0] ?? "";
+  // userinfo は承認の対象ではない。秘密 URL の資格情報をホスト名として残さない
+  const withoutUserInfo = authority.slice(authority.lastIndexOf("@") + 1);
+  const host = withoutUserInfo.replace(/:\d{1,5}$/, "").slice(0, NETWORK_ACCESS_HOST_MAX);
+  return HOST_NAME_ONLY.test(host) ? host : "";
 }
 
 /**

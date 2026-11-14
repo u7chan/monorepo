@@ -301,7 +301,7 @@ function AskUserForm({
           {question.header ? (
             <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">{question.header}</span>
           ) : null}
-          <p className="m-0 text-1sm font-semibold break-words text-ink">
+          <p className={cn("m-0 text-1sm break-words text-ink", approval ? "font-semibold" : "font-medium")}>
             {approvalQuestion?.title ?? question.question}
           </p>
           {approval && question.host !== undefined ? (
