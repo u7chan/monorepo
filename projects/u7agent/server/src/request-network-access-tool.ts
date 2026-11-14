@@ -20,7 +20,7 @@ export const REQUEST_NETWORK_ACCESS_DESCRIPTION =
 export const REQUEST_NETWORK_ACCESS_GUIDELINES = [
   "Call this only after an outbound HTTPS connection from bash failed with a permission error (EACCES) or a connection error you believe is the egress policy.",
   "Explain in `reason` what you need to reach and why, in one or two sentences. The question and the choices are fixed by the app.",
-  "After the user allows it, retry the same command. If they deny it, do not ask again in the same run; continue without network access.",
+  "After the user allows it, retry the same command. If they deny it, continue without network access and ask again only when the user asks you to retry.",
 ];
 
 /** カードの見出し。質問文と選択肢はここで固定する (モデルに書かせない) */
@@ -87,7 +87,7 @@ type RequestNetworkAccessParams = Static<typeof requestNetworkAccessSchema>;
 function resultText(approved: boolean): string {
   return approved
     ? "ユーザーが許可しました。同じ操作をもう一度実行してください。"
-    : "ユーザーが拒否しました。同じ操作を繰り返さず、外向き通信なしで続けてください。";
+    : "ユーザーが拒否しました。外向き通信なしで続けてください。ユーザーが再実行を求めたら、もう一度承認を求めてください。";
 }
 
 export function createRequestNetworkAccessToolDefinitions(options: {

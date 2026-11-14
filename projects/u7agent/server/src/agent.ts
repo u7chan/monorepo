@@ -141,7 +141,7 @@ export function appendSystemPrompt(
     builtinSkillEnabled(name, options.builtinSkillNames) && options.allowNaturalInvocationBuiltin !== false;
   const serveSkillClause = builtinSkillVisible("serve") ? " and follow the bundled `serve` skill" : "";
   const networkAccessClause = options.requestNetworkAccess
-    ? "\nOutbound HTTPS (443) may be denied by this conversation's network policy. When a connection fails with a permission error (`EACCES`) or curl reports it could not connect and you still need that host, call `request_network_access` with a short reason and retry the same command only after the user allows it. Do not ask again after the user denies it."
+    ? "\nOutbound HTTPS (443) may be denied by this conversation's network policy. When a connection fails with a permission error (`EACCES`) or curl reports it could not connect and you still need that host, call `request_network_access` with a short reason and retry the same command only after the user allows it. If the user denies it, stop and say so; ask again only when the user asks you to retry."
     : "";
   const skillCreatorClause = builtinSkillVisible("skill-creator")
     ? ", and follow the bundled `skill-creator` skill for the location, layout, frontmatter and verification"
