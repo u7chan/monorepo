@@ -97,6 +97,20 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 - 同梱ブラウザは deny-all proxy と fixture を `listen(0)` ではなく呼び出しごとの予約ポート（`18100-18199`）で待ち受ける（`server/src/browser/ports.ts`）。待受がレンジの外に出ると、Chromium 自身の loopback 接続が `EACCES` になる
 - エージェントには `appendSystemPrompt` で「ローカルサーバーは 8080 か 18000-18099 を使う」と伝える
 
+### セッション単位の egress ポリシー（承認）
+
+443 は全宛先に開くため、モデルは任意の HTTPS サイトを読める。会話ごとの承認でこれを絞れる。
+
+- モードは env `PI_SANDBOX_NETWORK_POLICY` の `allow` / `ask` / `deny`。**既定は `allow`**（承認の UI を持たない経路で `bash` の HTTPS が黙って止まるのを避ける）
+- `ask` は**未承認の間だけ 443 を許可ポートから外す**。承認は会話（SDK のセッション id）単位で、BFF のメモリにだけ置く。DB に保存せず、会話をまたがない
+- `deny` は承認しても開かない。`allow` は承認ツールを出さない
+- 承認は `request_network_access(reason)` で求める。質問文と「許可 / 拒否」の 2 択は BFF が固定し、モデルには `reason`（説明文）だけを書かせる。カードは `ask_user` と同じものを使う
+- 承認の記録は `SessionStore` が回答の受理時に行う。ツールの戻り値や選択肢のラベル文字列からは確定しない
+- abort（停止）と会話削除で未承認へ戻す。`investigate` の子は親と別のセッション id を持つため、親の承認を継承しない
+- 8080 / 18000-18099 / 18100-18199 は承認と無関係に許可する。ローカルサーバーの確認と同梱ブラウザを承認待ちで止めないため
+- BFF は exec ごとに `networkAccess`（`true` / `false`）をサンドボックスへ送る。サンドボックスは定義のキャッシュへ焼き込まず、`networkAccess` が付いた実行ではキャッシュを使わない
+- 旧 sandbox は `egress-policy-v1` capability を返さない。BFF はその不一致を runtime diagnostics に出し、bash は止めない（承認と拒否は効かない）
+
 ## 配布イメージと起動契約
 
 - イメージは BFF とサンドボックスで共用し、`command` だけ差し替える（`node --import tsx src/sandbox/index.ts`）。CD（`final` ステージ）の単一イメージ前提を維持する

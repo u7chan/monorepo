@@ -24,6 +24,8 @@ export interface ToolAvailability {
   webSearch: boolean;
   serve: boolean;
   askUser: boolean;
+  /** bash の外向き TCP 443 の承認を求められるか (BFF がホストを注入しているか) */
+  requestNetworkAccess: boolean;
   investigate: boolean;
 }
 
@@ -71,6 +73,12 @@ const TOOL_REGISTRY: readonly ToolRegistryEntry[] = [
     gate: "serve",
   },
   { name: "ask_user", description: "選択肢つきの質問をユーザーへ出す", group: "app", gate: "askUser" },
+  {
+    name: "request_network_access",
+    description: "bash の外向き HTTPS をこの会話で許可するようユーザーへ求める",
+    group: "app",
+    gate: "requestNetworkAccess",
+  },
   { name: "investigate", description: "調査を子エージェントへ委譲する", group: "app", gate: "investigate" },
 ];
 

@@ -5,6 +5,7 @@
  */
 import { Type, type Static } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { PendingQuestionKind } from "./session-record";
 import {
   ASK_USER_DESCRIPTION_MAX,
   ASK_USER_HEADER_MAX,
@@ -157,6 +158,8 @@ export function parseAskUserAnswers(details: unknown): AskUserAnswer[] | undefin
     const text = typeof record.text === "string" ? record.text : "";
     if (text.trim() !== "") answer.text = text;
     if (record.skipped === true) answer.skipped = true;
+    // 承認は `false` も意味を持つ (拒否)。`undefined` (未回答) と区別して写す
+    if (typeof record.approval === "boolean") answer.approval = record.approval;
     answers.push(answer);
   }
   answers.sort((a, b) => a.index - b.index);
@@ -196,10 +199,12 @@ export function validateAskUserQuestions(questions: readonly AskUserQuestion[]):
 /**
  * 回答の検証。全質問に 1 つずつ答え、各回答は `selected` / `text` / `skipped` のどれかを持つ。
  * `skipped` と `selected` / `text` の同時指定は 400 にする (選択と自由記入の同時指定は正しい形)。
+ * 承認を求める待機 (`network_access`) だけが `approval` を持て、他の項目とは排他。
  */
 export function validateAskUserAnswers(
   questions: readonly AskUserQuestion[],
   answers: readonly AskUserAnswer[],
+  kind: PendingQuestionKind = "ask_user",
 ): string | undefined {
   if (answers.length !== questions.length) return "answers must cover every question";
   const seen = new Set<number>();
@@ -209,6 +214,18 @@ export function validateAskUserAnswers(
     seen.add(answer.index);
     const selected = (answer.selected ?? []).filter((value) => value.trim() !== "");
     const text = (answer.text ?? "").trim();
+    if (kind === "network_access") {
+      // 承認の待機に `approval` も `skipped` も無い回答は、拒否とも未回答とも解釈できない
+      if (answer.approval === undefined && answer.skipped !== true) {
+        return `answers[${answer.index}] needs approval (or skipped)`;
+      }
+      if (answer.approval !== undefined && (answer.skipped === true || selected.length > 0 || text !== "")) {
+        return "approval cannot be combined with selected, text or skipped";
+      }
+      continue;
+    }
+    // ask_user 側の `approval` は受け付けない (モデルの文言や回答の中身から承認を推定しない)
+    if (answer.approval !== undefined) return "approval is only accepted for request_network_access";
     if (answer.skipped === true) {
       if (selected.length > 0 || text !== "") return "skipped cannot be combined with selected or text";
       continue;
@@ -227,6 +244,10 @@ export function formatAskUserAnswers(questions: readonly AskUserQuestion[], answ
     const answer = byIndex.get(index);
     if (!answer || answer.skipped === true) {
       lines.push("   - 回答なし（ユーザーは「回答しない」を選択）");
+      continue;
+    }
+    if (answer.approval !== undefined) {
+      lines.push(`   - 承認: ${answer.approval ? "許可" : "拒否"}`);
       continue;
     }
     if (answer.selected && answer.selected.length > 0) lines.push(`   - 選択: ${answer.selected.join(", ")}`);

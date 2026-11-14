@@ -390,12 +390,15 @@ export type AskUserQuestion = z.infer<typeof AskUserQuestionSchema>;
 /**
  * 質問への回答。`index` は questions の添字で、質問文の文字列では引かない (同じ質問文が 2 つあると壊れる)。
  * `skipped` は質問ごとの「回答しない」で、`selected` / `text` とは排他 (両方指定は 400)。
+ * `approval` は承認を求めるツール (`request_network_access`) の回答だけで受け付け、他の項目とも排他。
+ * `false` は「拒否」で、`undefined` (未回答) と区別する。
  */
 export const AskUserAnswerSchema = z.object({
   index: z.number().int().min(0),
   selected: z.array(z.string().max(ASK_USER_LABEL_MAX)).max(ASK_USER_OPTIONS_MAX).optional(),
   text: z.string().max(ASK_USER_ANSWER_TEXT_MAX).optional(),
   skipped: z.boolean().optional(),
+  approval: z.boolean().optional(),
 });
 export type AskUserAnswer = z.infer<typeof AskUserAnswerSchema>;
 

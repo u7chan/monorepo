@@ -33,6 +33,8 @@ import { allowsNaturalInvocation, type AgentCatalog } from "./agents";
 import { createInvestigateRunner, type InvestigateRunner } from "./investigate-runner";
 import type { InvestigateHost } from "./investigate-tool";
 import { validateAskUserAnswers, type AskUserHost } from "./ask-user-tool";
+import { NetworkAccessApprovals, approvalOf, networkAccessMode } from "./network-access";
+import type { NetworkAccessHost } from "./request-network-access-tool";
 import { stripAttachedFiles } from "./attachments";
 import { compactionsOf, recordCompactionOutcome } from "./compaction-view";
 import { projectSessionDiagnostics } from "./diagnostics";
@@ -55,6 +57,7 @@ import { withoutThinking } from "./live-thinking";
 import type {
   CreateSessionOptions,
   PendingQuestion,
+  PendingQuestionKind,
   PostMessageResultInternal,
   QueuedSend,
   RunState,
@@ -403,6 +406,11 @@ export class SessionStore {
   masker: SecretMasker;
   /** セッションの cwd 解決元。未指定なら projectId を受け付けない (未所属のみ) */
   projects: ProjectStore | null;
+  /**
+   * bash の外向き TCP 443 を開いてよいセッション (メモリのみ)。abort と会話削除で未承認へ戻し、
+   * 再起動では失われる (DB へ保存しない)。
+   */
+  networkAccess: NetworkAccessApprovals = new NetworkAccessApprovals();
   records: Map<string, SessionRecord>;
   sweeper: ReturnType<typeof setInterval>;
   /** 会話ストアの絶対パス。null は永続化なし */
@@ -1923,6 +1931,8 @@ export class SessionStore {
       // 先に task を持ち、abort の後にその settle を待つ (abort は SDK の待機で、保存待ちは覆わない)。
       // SDK の abort() は abortCompaction() も呼ぶため、圧縮中もこれ 1 つで巻き戻せる
       const compaction = record.compactionTask;
+      // 承認は run の実行状態に依らず停止で未承認へ戻す (何も走っていないときの停止も同じ意図)
+      this.networkAccess.revoke(record.id);
       if (record.run?.status === "running" || record.session.isStreaming || record.compacting) {
         // 待機中は aborted の assistant が投影に残らず stopReason では判定できないため、要求を控えておく
         if (record.run?.status === "running") record.run.stopRequested = true;
@@ -1984,6 +1994,22 @@ export class SessionStore {
   }
 
   /**
+   * egress ポリシーの実体。モードは env から毎回読み (既定 `allow`)、承認はこのストアのメモリに置く。
+   * 承認の key は SDK のセッション id なので、investigate の子は親と別の id を持ち承認を継承しない。
+   */
+  networkAccessHost(): NetworkAccessHost {
+    return {
+      allows: (sessionId) => this.networkAccess.allows(sessionId),
+      mode: () => networkAccessMode(),
+      ask: (sessionId, toolCallId, questions, signal) => {
+        const record = this.records.get(sessionId);
+        if (!record) return Promise.reject(new Error(`Session not found: ${sessionId}`));
+        return this.askQuestion(record, toolCallId, questions, signal, "network_access");
+      },
+    };
+  }
+
+  /**
    * investigate ツールの実体。親 (cwd と現在のモデル) をここで解決して runner へ渡す。
    * 子の掃除は親 run の signal に寄せるため、専用のフックは持たない。
    */
@@ -2017,10 +2043,12 @@ export class SessionStore {
     toolCallId: string,
     questions: AskUserQuestion[],
     signal: AbortSignal | undefined,
+    kind: PendingQuestionKind = "ask_user",
   ): Promise<AskUserAnswer[]> {
     return new Promise<AskUserAnswer[]>((resolve, reject) => {
       const pending: PendingQuestion = {
         questions: [...questions],
+        kind,
         createdAt: Date.now(),
         resolve,
         reject,
@@ -2057,10 +2085,15 @@ export class SessionStore {
     const pending = record.questions.get(toolCallId);
     if (!pending) return { status: "missing" };
     if (pending.settled) return { status: "answered" };
-    const error = validateAskUserAnswers(pending.questions, answers);
+    const error = validateAskUserAnswers(pending.questions, answers, pending.kind);
     if (error) return { status: "invalid", error };
     // 質問順に揃える (details / モデル向け text の並びを送信順に依存させない)
     const ordered = [...answers].sort((a, b) => a.index - b.index);
+    // 承認は回答の受理時に BFF 側で記録する。ツールの戻り値やラベル文字列から確定しない
+    if (pending.kind === "network_access") {
+      if (approvalOf(ordered[0])) this.networkAccess.approve(record.id);
+      else this.networkAccess.revoke(record.id);
+    }
     settleQuestion(pending, () => pending.resolve(ordered));
     return { status: "ok" };
   }
@@ -2535,6 +2568,8 @@ export class SessionStore {
         record.queue = [];
         // 削除は finish を通らないため、回答待ちもここで取り消す (abort の signal に依存しない)
         this.cancelQuestions(record);
+        // 会話を消したら承認も消す (同じ id が再利用されても前の承認を引き継がない)
+        this.networkAccess.revoke(record.id);
         // 先に task を持ち、abort の後にその settle を待つ (削除中の保存は persist のガードが no-op にする)
         const compaction = record.compactionTask;
         if (this.isBusy(record) || record.session.isStreaming) await record.session.abort().catch(() => {});
@@ -3235,6 +3270,7 @@ export class SessionStore {
       // 先に task を持ち、abort の後にその settle を待つ (closing でも保存は行われ、終端配信と pump だけ止まる)
       const compaction = record.compactionTask;
       this.cancelQuestions(record);
+      this.networkAccess.revoke(record.id);
       // 進行中のタイトル要約も外部呼び出しを止める (結果は次の起動へ持ち越さない)
       this.cancelTitleSummary(record);
       if (this.isBusy(record)) await record.session.abort().catch(() => {});

@@ -8,6 +8,7 @@ import type { ModelCatalogRefreshAttempt, PiBff } from "../src/agent";
 import type { ModelSelection } from "../src/agent";
 import { MODEL_UNSET_MESSAGE } from "../src/agent";
 import type { AskUserHost } from "../src/ask-user-tool";
+import type { NetworkAccessHost } from "../src/request-network-access-tool";
 import type { CustomProviderRuntimeConfig } from "../src/custom-providers";
 import type { ContentGenerationConfig, ImageGenerationInput, ImageGenerationResult } from "../src/images";
 import type { InvestigateHost } from "../src/investigate-tool";
@@ -1705,6 +1706,8 @@ export function createStubPi(options: StubPiOptions = {}) {
   const serveHosts: ServeToolHost[] = [];
   // ask_user ツールの実体 (bootstrap が注入する)。待機の所有は実物と同じく store 側にある
   const askUserHosts: AskUserHost[] = [];
+  // egress ポリシーの実体 (bootstrap が注入する)。承認の記録は実物と同じく store 側にある
+  const networkAccessHosts: NetworkAccessHost[] = [];
   // investigate ツールの実体 (bootstrap が注入する)。子は record に載らないので、記録するだけ
   const investigateHosts: InvestigateHost[] = [];
   // 環境変数 (作業環境 → 環境変数) の解決源。bootstrap が注入する
@@ -1741,6 +1744,7 @@ export function createStubPi(options: StubPiOptions = {}) {
         webSearch: webSearchConfigs.at(-1)?.readEnabled() ?? true,
         serve: serveHosts.length > 0,
         askUser: askUserHosts.length > 0,
+        requestNetworkAccess: networkAccessHosts.length > 0,
         investigate: investigateHosts.length > 0,
       }),
     sessions,
@@ -1800,6 +1804,10 @@ export function createStubPi(options: StubPiOptions = {}) {
     askUserHosts,
     setAskUser: (host: AskUserHost) => {
       askUserHosts.push(host);
+    },
+    networkAccessHosts,
+    setNetworkAccess: (host: NetworkAccessHost) => {
+      networkAccessHosts.push(host);
     },
     investigateHosts,
     setInvestigate: (host: InvestigateHost) => {

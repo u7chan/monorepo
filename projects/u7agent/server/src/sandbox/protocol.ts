@@ -71,6 +71,11 @@ export interface SandboxExecuteRequestBody {
    * 使う。省略は旧 BFF 互換 (剥がしも GIT_CONFIG_* の注入もしない)。
    */
   gitConfig?: SandboxGitConfig | null;
+  /**
+   * この実行の子プロセスが 443 を connect してよいか。`false` のとき許可ポートから 443 を外す
+   * (8080 / 18000-18099 / 18100-18199 は残す)。省略は旧 BFF 互換で、443 を含む従来の許可ポート。
+   */
+  networkAccess?: boolean;
 }
 
 /** POST /v1/dirs のリクエストボディ。path は rootCwd 相対。 */
@@ -125,7 +130,7 @@ export interface SandboxRuntimeInfo {
   environment: SandboxRuntimeEnvironment;
   commands: SandboxRuntimeCommand[];
   landlock: SandboxLandlockStatus;
-  /** このサンドボックスが実装している機能 (BFF が旧版との差を警告する)。現行は "git-config-v1" だけ */
+  /** このサンドボックスが実装している機能 (BFF が旧版との差を警告する)。docs/sandbox-api-runtime.md を正とする */
   capabilities: string[];
   /** アプリの global gitconfig の準備結果。失敗しても read / write / serve は動く */
   gitConfig: SandboxGitConfigStatus;
@@ -133,6 +138,12 @@ export interface SandboxRuntimeInfo {
 
 /** アプリが管理する global gitconfig の capability 名。旧 sandbox はこれを返さない */
 export const SANDBOX_GIT_CONFIG_CAPABILITY = "git-config-v1";
+
+/**
+ * exec ごとの `networkAccess` を受け付ける capability 名。旧 sandbox はこれを返さず、`networkAccess` を
+ * 無視して常に 443 を開く (BFF は診断で「未対応」と出し、bash は止めない)。
+ */
+export const SANDBOX_EGRESS_POLICY_CAPABILITY = "egress-policy-v1";
 
 /** bash 実行ごとに受け取る identity。両方揃っているものだけを受け付ける */
 export interface SandboxGitConfig {

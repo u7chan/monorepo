@@ -594,6 +594,7 @@ test("一括コピー本文は画面と同じ見出し・値・注記を markdow
       "- ワークスペース: /workspace",
       "- Landlock: 有効（ABI 6）（bash の作成・書き込み・削除は許可 root の外で EACCES になります。）",
       "- Git の設定: 準備済み（/home/node/.config/u7agent/gitconfig）",
+      "- 外向き通信の承認: 未対応（サンドボックスが egress-policy-v1 に対応していません。bash は動きますが、承認と拒否は効きません。）",
       "",
       "## 利用可能なコマンド",
       "- curl: 8.14.1",

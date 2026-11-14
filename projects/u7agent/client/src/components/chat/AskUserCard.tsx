@@ -12,6 +12,7 @@ import {
   askUserUnresolvedCount,
   closeAskUserCard,
   emptyAskUserDrafts,
+  isApprovalCard,
   isPendingAskUserCard,
   nextUnresolvedAskUserIndex,
   toggleAskUserOption,
@@ -185,6 +186,7 @@ function AskUserForm({
   sending,
   error,
   singleColumn,
+  approval,
   onChange,
   onMove,
   onSkip,
@@ -197,6 +199,8 @@ function AskUserForm({
   sending: boolean;
   error?: string | undefined;
   singleColumn: boolean;
+  /** 承認の 2 択として描く。自由記入は出さず、選択肢の押下で approval を立てる */
+  approval: boolean;
   onChange: (next: AskUserDraft) => void;
   onMove: (delta: number) => void;
   onSkip: () => void;
@@ -244,25 +248,32 @@ function AskUserForm({
         </div>
       </div>
       <div role="group" aria-label={question.question} className="grid divide-y divide-line/60">
-        {options.map((option) => (
+        {options.map((option, optionIndex) => (
           <OptionRow
             key={option.label}
             option={option}
-            pressed={draft.selected.includes(option.label)}
-            multiSelect={question.multiSelect === true}
+            pressed={approval ? draft.approval === (optionIndex === 0) : draft.selected.includes(option.label)}
+            multiSelect={approval ? false : question.multiSelect === true}
             disabled={sending}
-            onToggle={() => onChange(toggleAskUserOption(draft, option.label, question.multiSelect === true))}
+            onToggle={() =>
+              approval
+                ? // 承認は 2 択の排他。押した方をそのまま真偽へ写す (ラベル文字列では判定しない)
+                  onChange({ ...draft, selected: [], text: "", skipped: false, approval: optionIndex === 0 })
+                : onChange(toggleAskUserOption(draft, option.label, question.multiSelect === true))
+            }
           />
         ))}
-        <TextRow
-          question={question}
-          draft={draft}
-          multiSelect={question.multiSelect === true}
-          singleColumn={singleColumn}
-          disabled={sending}
-          onChange={(text) => onChange({ ...draft, text, skipped: false })}
-          onAdvance={onAdvance}
-        />
+        {approval ? null : (
+          <TextRow
+            question={question}
+            draft={draft}
+            multiSelect={question.multiSelect === true}
+            singleColumn={singleColumn}
+            disabled={sending}
+            onChange={(text) => onChange({ ...draft, text, skipped: false })}
+            onAdvance={onAdvance}
+          />
+        )}
       </div>
       <div
         className={cn(
@@ -279,6 +290,8 @@ function AskUserForm({
             "送信中…"
           ) : multi && last && unresolved > 0 ? (
             <span className="text-warn">未回答の質問が {unresolved} 件あります</span>
+          ) : draft.approval !== undefined ? (
+            draft.approval ? "許可" : "拒否"
           ) : draft.skipped ? (
             "回答しない"
           ) : selected > 0 ? (
@@ -445,6 +458,7 @@ export function AskUserCard({
           sending={sending}
           error={error}
           singleColumn={singleColumn}
+          approval={isApprovalCard(card)}
           onChange={(next) => {
             setError(undefined);
             setDrafts((current) => current.map((draft, i) => (i === index ? next : draft)));

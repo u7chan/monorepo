@@ -39,7 +39,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 
 ## `POST /v1/tools/:tool/execute`
 
-リクエストボディは `{ toolCallId?: string, params?: object, cwd?: string, writeScope?: Array<{ path: string, create?: boolean }>, env?: Record<string, string>, gitConfig?: { userName: string, userEmail: string } | null }`。応答は `Content-Type: application/x-ndjson` で、1 イベント 1 行:
+リクエストボディは `{ toolCallId?: string, params?: object, cwd?: string, writeScope?: Array<{ path: string, create?: boolean }>, env?: Record<string, string>, gitConfig?: { userName: string, userEmail: string } | null, networkAccess?: boolean }`。応答は `Content-Type: application/x-ndjson` で、1 イベント 1 行:
 
 ```jsonl
 {"type":"start","executionId":"…"}
@@ -50,6 +50,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 - `cwd` — 実行する作業ディレクトリ（root 相対。省略・空文字は root）。`..` や symlink を経由して root の外へ解決する指定、実在しないディレクトリ、ディレクトリ以外は 400 / 404（`GET /v1/files` と同じ検証を通す）。ツール定義（パス解決の起点）は解決後の実パスごとに生成して再利用する
 - `writeScope` — **BFF 内部実行（serve の観測・記録・起動・停止）専用の書き込み許可 root**（root 相対の配列。`create: true` は実在しなければ mkdir してから許可する）。省略時はエージェントの `bash` として要求 cwd から基準集合を導出し、指定時は**その配列だけ**を要求由来の root にする（`cwd: ""` の root へは落ちない）。`..` で root の外を指す指定や形の不正は 400。モデルはツール引数から指定できず、BFF の serve 操作だけが渡す（[sandbox.md](sandbox.md#serveサービスの公開と起動停止)）。固定の `/tmp`・ホームのキャッシュ・デバイスファイルは全実行で共通
 - `gitConfig` — この実行だけの Git identity。BFF がアプリ DB から読み、bash のときだけ付ける。`null` は「identity なし」で、`useConfigOnly` だけの global config を使う。省略は旧 BFF 互換で、予約名の剥がしも `GIT_CONFIG_*` の注入もしない。付いている実行では `GIT_CONFIG` / `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` / `GIT_CONFIG_NOSYSTEM` / `GIT_CONFIG_COUNT` / `GIT_CONFIG_PARAMETERS` / `GIT_CONFIG_KEY_*` / `GIT_CONFIG_VALUE_*` / `GIT_AUTHOR_*` / `GIT_COMMITTER_*` を注入 env から黙って落とし、`GIT_CONFIG_GLOBAL` と `GIT_CONFIG_NOSYSTEM=1` を足す（既存行でも 400 にしない。[sandbox.md](sandbox.md#git-identity)）
+- `networkAccess` — この実行の子プロセスが 443 を connect してよいか。`false` のとき許可ポートから 443 を外す（8080 / 18000-18099 / 18100-18199 は残す）。省略は旧 BFF 互換で、443 を含む従来の許可ポート。`undefined` / `true` / `false` 以外（`null` / 文字列 / 数値）は 400。bash のときだけ送る（[sandbox.md](sandbox.md#セッション単位の-egress-ポリシー承認)）
 - `env` — この実行の子プロセスへ足す環境変数（作業フォルダの「変数」と、serve 起動時の「変数 + シークレット」）。`bash` のときだけ使い、`spawnHook` で親 env へ重ねる。名前は `isInjectableEnvName()`（大文字の `[A-Z_][A-Z0-9_]*`・64 文字以内・`PI_*` / `PI_SANDBOX_*` / `U7AGENT_*` と実行制御系を拒否）を通るものだけで、値の NUL も拒否する。`PI_SANDBOX_TOKEN` と master key（`U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE`）はこの後で必ず剥がす（子プロセスへ渡さない）
 - `bash` は **Landlock のラッパー経由で実行**し、ファイルの作成・書き込み・削除・rename・truncate を許可 root の外側で `EACCES` にする（起動 cwd は基準集合に含み、子孫へ継承される）。外向きの TCP は接続先ポートが `443` / `8080` / `18000-18099` / `18100-18199` に限られ、それ以外は `EACCES` になる（[sandbox.md](sandbox.md#外向き-tcp-の制限)）。ラッパーが使えない / ABI 4 未満の環境では実行せず、`error` イベントで理由を返す
 - `write` / `edit` の書き込み先は、実行 cwd（`cwd` を解決した実パス）、要求 cwd の lexical 形（`resolve(PI_SANDBOX_CWD, cwd)`）、および `<PI_SANDBOX_CWD>/.agents/skills` の内側だけ。SDK が解決した絶対パスを `resolve()` で `..` まで畳み、**実在する候補は `realpath` で許可 root の実パスと比較する**（root 内を指す symlink は通し、root 外を指す symlink と壊れた symlink は拒否する）。**許可 root の実パスは判定のたびに解決し直す**（未作成の root を祖先の実パスで固定しない）。外側は拒否する（[projects.md](projects.md#write--edit-の書き込み範囲)）

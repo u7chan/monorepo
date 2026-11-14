@@ -89,8 +89,16 @@ export interface QueuedSend {
  * ask_user の待機 1 件。settle 済みも map に残し (tools と同じ寿命)、同じ toolCallId への
  * 2 回目の回答を「回答済み」= 409 にする。掃除は次の run の startRun が行う。
  */
+/** 回答待ちの種別。`network_access` の回答だけが `approval` を持てる */
+export type PendingQuestionKind = "ask_user" | "network_access";
+
 export interface PendingQuestion {
   questions: AskUserQuestion[];
+  /**
+   * この待機が期待する回答の種別。`network_access` だけが `approval` を受け付け、`ask_user` 側に
+   * `approval` が来たら 400 にする (モデルのラベルや受信した answer から種別を推定しない)。
+   */
+  kind: PendingQuestionKind;
   /** 質問を開いた時刻。一覧の回答待ち経過時間の起点にする */
   createdAt: number;
   resolve: (answers: AskUserAnswer[]) => void;

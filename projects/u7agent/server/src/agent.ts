@@ -17,6 +17,12 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { COMMON_SKILLS_DIR } from "./app-paths";
 import { createAskUserToolDefinitions, ASK_USER_TOOL_NAME, withAskUserTool, type AskUserHost } from "./ask-user-tool";
+import {
+  REQUEST_NETWORK_ACCESS_TOOL_NAME,
+  createRequestNetworkAccessToolDefinitions,
+  withRequestNetworkAccessTool,
+  type NetworkAccessHost,
+} from "./request-network-access-tool";
 import { builtinSkillEnabled } from "./builtin-skills";
 import { createBgmGenerator, type BgmGenerationInput } from "./bgm";
 import { contentGenerationDisabled } from "./content-disabled";
@@ -119,6 +125,8 @@ export function appendSystemPrompt(
     imageGeneration?: boolean;
     speechGeneration?: boolean;
     bgmGeneration?: boolean;
+    /** 承認ツールを公開しているか。外しているときに存在しないツールを案内しない */
+    requestNetworkAccess?: boolean;
     /** エージェント定義の組み込みスキル許可リスト。外したスキルへの案内文はここで落とす */
     builtinSkillNames?: readonly string[] | undefined;
     /**
@@ -132,6 +140,9 @@ export function appendSystemPrompt(
   const builtinSkillVisible = (name: string) =>
     builtinSkillEnabled(name, options.builtinSkillNames) && options.allowNaturalInvocationBuiltin !== false;
   const serveSkillClause = builtinSkillVisible("serve") ? " and follow the bundled `serve` skill" : "";
+  const networkAccessClause = options.requestNetworkAccess
+    ? "\nOutbound HTTPS (443) may be denied by this conversation's network policy. When a connection fails with a permission error (`EACCES`) or curl reports it could not connect and you still need that host, call `request_network_access` with a short reason and retry the same command only after the user allows it. Do not ask again after the user denies it."
+    : "";
   const skillCreatorClause = builtinSkillVisible("skill-creator")
     ? ", and follow the bundled `skill-creator` skill for the location, layout, frontmatter and verification"
     : "";
@@ -151,7 +162,7 @@ In deployment it is a non-root Linux container where apt-get install fails.
 
 Networking: use curl for HTTP(S) (e.g. \`curl -fsSL -o <path> <url>\`).
 Prefer curl over one-off \`node -e\` fetch scripts; use node fetch only as a fallback when curl is missing.
-Outbound TCP is limited to ports 443, 8080 and 18000-18099. Start any local server you check with on 8080 or 18000-18099; other ports are unreachable.
+Outbound TCP is limited to ports 443, 8080 and 18000-18099. Start any local server you check with on 8080 or 18000-18099; other ports are unreachable.${networkAccessClause}
 In the deployed container: node 26, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl, python 3.13, uv, chromium (headless, u7agent-browser).
 Not installed there: wget, ffmpeg, imagemagick.
 
@@ -384,6 +395,7 @@ export interface PiBff {
    * ask_user ツールの実体を注入する。待機の所有は SessionStore が持ち、ツールはここの ask を await する
    */
   setAskUser(host: AskUserHost): void;
+  setNetworkAccess(host: NetworkAccessHost): void;
   /**
    * investigate ツールの実体を注入する。子の生成と並列の所有は SessionStore 側の runner が持ち、
    * ツールはここの investigate を await する
@@ -731,6 +743,7 @@ const APP_TOOL_NAMES = [
   BGM_TOOL_NAME,
   SERVE_TOOL_NAME,
   ASK_USER_TOOL_NAME,
+  REQUEST_NETWORK_ACCESS_TOOL_NAME,
   INVESTIGATE_TOOL_NAME,
 ] as const;
 
@@ -770,19 +783,22 @@ export function sessionToolPlan(input: {
     sandbox,
     enabled,
     names: withInvestigateTool(
-      withAskUserTool(
-        withWebSearchTool(
-          withServeTool(
-            sessionToolNames(sandbox, {
-              image: enabled.has(IMAGE_TOOL_NAME),
-              speech: enabled.has(SPEECH_TOOL_NAME),
-              bgm: enabled.has(BGM_TOOL_NAME),
-            }),
-            enabled.has(SERVE_TOOL_NAME),
+      withRequestNetworkAccessTool(
+        withAskUserTool(
+          withWebSearchTool(
+            withServeTool(
+              sessionToolNames(sandbox, {
+                image: enabled.has(IMAGE_TOOL_NAME),
+                speech: enabled.has(SPEECH_TOOL_NAME),
+                bgm: enabled.has(BGM_TOOL_NAME),
+              }),
+              enabled.has(SERVE_TOOL_NAME),
+            ),
+            enabled.has(WEB_SEARCH_TOOL_NAME),
           ),
-          enabled.has(WEB_SEARCH_TOOL_NAME),
+          enabled.has(ASK_USER_TOOL_NAME),
         ),
-        enabled.has(ASK_USER_TOOL_NAME),
+        enabled.has(REQUEST_NETWORK_ACCESS_TOOL_NAME),
       ),
       enabled.has(INVESTIGATE_TOOL_NAME),
     ),
@@ -958,6 +974,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const askUserHost: { value: AskUserHost | null } = { value: null };
   // investigate の実体も bootstrap が注入する。子の生成と並列の所有者は SessionStore 側の runner
   const investigateHost: { value: InvestigateHost | null } = { value: null };
+  // egress ポリシーの実体も bootstrap が注入する。未注入なら承認ツールを公開しない
+  const networkAccessHost: { value: NetworkAccessHost | null } = { value: null };
   // 変数 (作業環境 → 環境変数) の解決源も同じく bootstrap が注入する。未注入なら env 無しで実行する
   const sessionEnv: { value: SessionEnvSource | null } = { value: null };
   // Git の identity も同じく bootstrap が注入する。未注入なら gitConfig を送らない (従来挙動)
@@ -1010,6 +1028,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       webSearch: webSearch.config.readEnabled(),
       serve: serveHost.value?.configured === true,
       askUser: askUserHost.value !== null,
+      requestNetworkAccess: networkAccessHost.value !== null,
       investigate: investigateHost.value !== null,
     };
   }
@@ -1104,6 +1123,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
               imageGeneration: appTool(IMAGE_TOOL_NAME),
               speechGeneration: appTool(SPEECH_TOOL_NAME),
               bgmGeneration: appTool(BGM_TOOL_NAME),
+              requestNetworkAccess: appTool(REQUEST_NETWORK_ACCESS_TOOL_NAME),
               ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
               allowNaturalInvocationBuiltin: naturalInvocationBuiltin,
             }),
@@ -1147,6 +1167,14 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           // 解決は exec のたびに行う (設定の変更は次の bash から効く)
           envForCwd: () => sessionEnv.value?.variablesFor(relativeCwd) ?? {},
           ...(gitIdentity.value ? { gitConfigForExec: () => gitIdentity.value?.identityForExec() ?? null } : {}),
+          // 承認は exec のたびに解決する (同じ会話の途中で変わる)。key は SDK の sessionId なので、
+          // investigate の子は親の承認を継承しない
+          ...(networkAccessHost.value
+            ? {
+                networkAccessForExec: () =>
+                  sessionId === undefined || networkAccessHost.value?.allows(sessionId) === true,
+              }
+            : {}),
         }),
         ...(investigation
           ? []
@@ -1211,6 +1239,12 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 enabled: appTool(ASK_USER_TOOL_NAME),
                 sessionId: ownerSessionId ?? sessionId,
                 host: askUserHost.value as AskUserHost,
+              }),
+              ...createRequestNetworkAccessToolDefinitions({
+                enabled: appTool(REQUEST_NETWORK_ACCESS_TOOL_NAME),
+                // 承認の key は exec 側と同じ SDK の sessionId にする (owner の id で記録すると exec が読めない)
+                sessionId,
+                host: networkAccessHost.value as NetworkAccessHost,
               }),
               ...createInvestigateToolDefinitions({
                 enabled: appTool(INVESTIGATE_TOOL_NAME),
@@ -1286,6 +1320,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     },
     setAskUser(host) {
       askUserHost.value = host;
+    },
+    setNetworkAccess(host) {
+      networkAccessHost.value = host;
     },
     setInvestigate(host) {
       investigateHost.value = host;

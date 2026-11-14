@@ -7,6 +7,7 @@ import { investigationTools, sessionToolPlan, type SessionToolPlan } from "../sr
 import { ASK_USER_TOOL_NAME } from "../src/ask-user-tool";
 import { IMAGE_TOOL_NAME } from "../src/image-tools";
 import { INVESTIGATE_TOOL_NAME } from "../src/investigate-tool";
+import { REQUEST_NETWORK_ACCESS_TOOL_NAME } from "../src/request-network-access-tool";
 import { REMOTE_TOOL_NAMES } from "../src/sandbox/remote-tools";
 import { SERVE_TOOL_NAME } from "../src/serve-tool";
 import { SPEECH_TOOL_NAME } from "../src/speech-tools";
@@ -24,6 +25,7 @@ const OPEN: ToolAvailability = {
   webSearch: true,
   serve: true,
   askUser: true,
+  requestNetworkAccess: true,
   investigate: true,
 };
 
@@ -35,6 +37,7 @@ const APP_TOOL_NAMES = [
   BGM_TOOL_NAME,
   SERVE_TOOL_NAME,
   ASK_USER_TOOL_NAME,
+  REQUEST_NETWORK_ACCESS_TOOL_NAME,
   INVESTIGATE_TOOL_NAME,
 ];
 
@@ -46,6 +49,7 @@ const REGISTERED_APP_NAMES = [
   SERVE_TOOL_NAME,
   WEB_SEARCH_TOOL_NAME,
   ASK_USER_TOOL_NAME,
+  REQUEST_NETWORK_ACCESS_TOOL_NAME,
   INVESTIGATE_TOOL_NAME,
 ];
 
@@ -58,7 +62,7 @@ function entry(name: string, availability: ToolAvailability = OPEN) {
 /** 意図的に全 OFF にした組み合わせは、アプリ側の理由コードとして出る */
 test("レジストリは作業ツールとアプリのツールを種別つきで並べる", () => {
   const catalog = toolCatalog(OPEN);
-  assert.equal(catalog.length, 14);
+  assert.equal(catalog.length, 15);
   assert.deepEqual(
     catalog.filter((tool) => tool.group === "sandbox").map((tool) => tool.name),
     ALL_SANDBOX_TOOLS,
@@ -145,6 +149,7 @@ test("アプリのツールはキー・認証・実行時トグル・実体の�
     [WEB_SEARCH_TOOL_NAME, { webSearch: false }],
     [SERVE_TOOL_NAME, { serve: false }],
     [ASK_USER_TOOL_NAME, { askUser: false }],
+    [REQUEST_NETWORK_ACCESS_TOOL_NAME, { requestNetworkAccess: false }],
     [INVESTIGATE_TOOL_NAME, { investigate: false }],
   ] as const) {
     const tool = entry(name, { ...OPEN, ...patch });

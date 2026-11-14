@@ -544,6 +544,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   pi?.setServe(createServeToolHost(serve));
   // ask_user の待機は run 状態と同じ SessionStore が持つ。ツール定義はこのホストへ委譲する
   pi?.setAskUser(store.askUserHost());
+  // egress の承認も同じ SessionStore が持つ (メモリのみ、abort / 削除で未承認へ戻す)
+  pi?.setNetworkAccess(store.networkAccessHost());
   // investigate の子 runner も SessionStore が持つ。子は record に載せず、親 run の signal で止める
   pi?.setInvestigate(store.investigateHost());
   // 公開と接続確認が同じ client 設定（base URL / timeout / fetch）を使うよう、factory はここ 1 箇所に置く

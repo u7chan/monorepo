@@ -148,7 +148,7 @@ test("runtime info は git-config-v1 と準備結果を返す", { skip: !CAN_RUN
   const response = await service.app.request("/v1/runtime/info", { headers: authHeaders() });
   assert.equal(response.status, 200);
   const info = (await response.json()) as SandboxRuntimeInfo;
-  assert.deepEqual(info.capabilities, ["git-config-v1"]);
+  assert.deepEqual(info.capabilities, ["git-config-v1", "egress-policy-v1"]);
   assert.equal(info.gitConfig.state, "ready");
   assert.equal(info.gitConfig.path, join(home, ".config/u7agent", GIT_CONFIG_FILENAME));
 });

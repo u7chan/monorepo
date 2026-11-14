@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1279,5 +1279,71 @@ test(
     assert.equal(nested.status, 200, nested.body.error ?? "");
     assert.equal(nested.body.path, "dirB/nested");
     assert.deepEqual(nested.body.entries, []);
+  },
+);
+
+// exec ごとの egress ポリシー。許可ポートの集合は定義に焼き込まれるため、同じ cwd で切り替えても
+// 前の exec の値を使い回さないことを、実際に子プロセスから見える env で確かめる。
+test("networkAccess は undefined / true / false だけを受け付ける", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-net-type-"));
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+  for (const value of [null, "false", 0, 1, [], {}]) {
+    const executed = await executeTool(service.app, "bash", { params: { command: "true" }, networkAccess: value });
+    assert.equal(executed.status, 400, `networkAccess=${JSON.stringify(value)} must be rejected`);
+    assert.match(executed.error ?? "", /networkAccess/);
+  }
+});
+
+test(
+  "networkAccess が false の exec だけ 443 を拒否し、切り替えが次の exec へ反映される",
+  { skip: !CAN_RUN_BASH && SKIP_REASON },
+  async () => {
+    // ラッパーは U7AGENT_LANDLOCK_* を子へ残さないため、env ではなく接続の errno で確かめる。
+    // 拒否は EACCES (13)、listener が無いだけなら ECONNREFUSED (111)。
+    const probe = spawnSync("python3", ["--version"], { encoding: "utf8" });
+    if (probe.status !== 0) {
+      // python3 が無い環境では errno を取れないので、この検証だけ飛ばす
+      return;
+    }
+    const root = mkdtempSync(join(tmpdir(), "pi-sbx-net-ports-"));
+    writeFileSync(
+      join(root, "probe.py"),
+      [
+        "import socket",
+        "for port in (443, 8080):",
+        "    s = socket.socket(); s.settimeout(1)",
+        "    try:",
+        "        s.connect(('127.0.0.1', port)); print(port, 'ok')",
+        "    except OSError as e:",
+        "        print(port, e.errno)",
+        "    finally:",
+        "        s.close()",
+        "",
+      ].join("\n"),
+    );
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+    const readErrnos = async (body: Record<string, unknown> = {}): Promise<Record<string, string>> => {
+      const text = await bashText(service.app, "python3 probe.py", body);
+      const parsed: Record<string, string> = {};
+      for (const line of text.split("\n")) {
+        const [port, value] = line.trim().split(/\s+/);
+        if (port !== undefined && value !== undefined) parsed[port] = value;
+      }
+      return parsed;
+    };
+
+    // 省略は旧 BFF 互換で 443 も許可される (listener が無いので refused)
+    const legacy = await readErrnos();
+    assert.equal(legacy["443"], "111");
+    assert.equal(legacy["8080"], "111");
+
+    const denied = await readErrnos({ networkAccess: false });
+    assert.equal(denied["443"], "13", "未承認の exec は 443 を EACCES で拒否する");
+    // 8080 は承認と無関係に許可したまま (拒否ではなく refused)
+    assert.equal(denied["8080"], "111");
+
+    // 同じ cwd で true へ切り替えると、次の exec から 443 が開く (定義のキャッシュに焼き込まれない)
+    assert.equal((await readErrnos({ networkAccess: true }))["443"], "111");
+    assert.equal((await readErrnos({ networkAccess: false }))["443"], "13");
   },
 );

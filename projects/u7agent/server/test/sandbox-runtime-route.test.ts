@@ -60,7 +60,7 @@ test("serves the runtime info only with a valid token and keeps /healthz public"
       { name: "node", version: null },
     ],
     landlock: { state: "enabled", abi: 4, minAbi: 4 },
-    capabilities: ["git-config-v1"],
+    capabilities: ["git-config-v1", "egress-policy-v1"],
     gitConfig: { state: "failed", path: join(homeDir, ".config/u7agent/gitconfig"), reason: "inside_workspace" },
   });
 });

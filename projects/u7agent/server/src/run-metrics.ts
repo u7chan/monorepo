@@ -1,4 +1,5 @@
 import { ASK_USER_TOOL_NAME } from "./ask-user-tool";
+import { REQUEST_NETWORK_ACCESS_TOOL_NAME } from "./request-network-access-tool";
 import type { ToolCall } from "./schema";
 
 type ToolInterval = Pick<ToolCall, "name" | "startedAt" | "endedAt">;
@@ -10,7 +11,13 @@ type ToolInterval = Pick<ToolCall, "name" | "startedAt" | "endedAt">;
 export function askUserWaitTotalMs(tools: Iterable<ToolInterval>, at: number): number {
   const intervals: Array<{ startedAt: number; endedAt: number }> = [];
   for (const tool of tools) {
-    if (tool.name !== ASK_USER_TOOL_NAME || tool.startedAt === undefined) continue;
+    // 承認待ちもユーザーの応答待ちなので、同じ「待ち時間」として数える
+    if (
+      (tool.name !== ASK_USER_TOOL_NAME && tool.name !== REQUEST_NETWORK_ACCESS_TOOL_NAME) ||
+      tool.startedAt === undefined
+    ) {
+      continue;
+    }
     const endedAt = Math.min(tool.endedAt ?? at, at);
     if (endedAt > tool.startedAt) intervals.push({ startedAt: tool.startedAt, endedAt });
   }
