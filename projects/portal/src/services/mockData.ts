@@ -1,4 +1,4 @@
-import type { Container } from "../types/container";
+import type { Container, ImageTagOption } from "../types/container";
 
 // 各種状態のコンテナデータ
 export const mockContainers: Container[] = [
@@ -57,6 +57,8 @@ export const mockContainers: Container[] = [
       4318: "https://preview.agent.home.arpa",
       4319: "https://service.agent.home.arpa",
     },
+    deployTarget: "u7agent",
+    canDeploy: true,
     created: "2024-01-18T11:00:00Z",
   },
   // running状態 - DB
@@ -149,6 +151,13 @@ export const mockContainers: Container[] = [
     ports: [],
     created: "2024-01-19T12:00:00Z",
   },
+];
+
+// デプロイ UI のモック用タグ。実環境では GitHub Packages から取得する。
+export const mockImageTags: ImageTagOption[] = [
+  { tag: "latest", createdAt: "2026-11-13T13:06:22Z" },
+  { tag: "sha-0ff5c144", createdAt: "2026-11-13T13:06:22Z" },
+  { tag: "manual-test-abc1234", createdAt: "2026-11-12T09:00:00Z" },
 ];
 
 // 大量データ生成（レイアウトテスト用）

@@ -1,6 +1,7 @@
 // Docker CLIサービス - Bun.$ を使用してdockerコマンドを実行
 
 import type { Container, PortMapping, DockerContainerRaw } from "../types/container";
+import { isValidDeployTarget, monorepoProject } from "../lib/image";
 import { mockContainers, isMockMode } from "./mockData";
 
 export type ContainerAction = "start" | "stop";
@@ -70,6 +71,26 @@ export function normalizeName(name: string): string {
 const URL_LABEL = "portal.url";
 const URL_LABEL_PREFIX = `${URL_LABEL}.`;
 const HIDDEN_LABEL = "portal.hidden";
+const COMPOSE_PROJECT_LABEL = "com.docker.compose.project";
+
+/**
+ * docker ps の Labels（カンマ区切り）から compose project を読む。
+ * deploy target は compose の -p で付く project 名と同じ。
+ */
+export function parseComposeProject(labels: string | undefined): string | undefined {
+  if (!labels) return undefined;
+
+  for (const pair of labels.split(",")) {
+    const index = pair.indexOf("=");
+    if (index < 0) continue;
+    if (pair.slice(0, index).trim() !== COMPOSE_PROJECT_LABEL) continue;
+
+    const value = pair.slice(index + 1).trim();
+    return value || undefined;
+  }
+
+  return undefined;
+}
 
 export interface ContainerLinks {
   /** 単一の入口。`portal.url` を付けたコンテナは公開ポートのタイルを出さない */
@@ -179,6 +200,14 @@ export function parseContainer(raw: DockerContainerRaw): Container {
   const created = raw.CreatedAt || "";
   const command = raw.Command || "";
   const links = parseLinkLabels(raw.Labels);
+  const deployTarget = parseComposeProject(raw.Labels);
+  // 主コンテナだけを対象にする。sidecar も同じ compose project を共有するため、
+  // 名前が project と一致しないコンテナには Deploy を出さない。
+  const canDeploy =
+    monorepoProject(image) !== undefined &&
+    deployTarget !== undefined &&
+    isValidDeployTarget(deployTarget) &&
+    deployTarget === name;
 
   return {
     id,
@@ -192,6 +221,8 @@ export function parseContainer(raw: DockerContainerRaw): Container {
     urls: links.urls,
     url: links.url,
     hidden: links.hidden,
+    deployTarget,
+    canDeploy,
   };
 }
 

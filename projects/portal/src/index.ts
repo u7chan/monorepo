@@ -8,11 +8,39 @@ import {
   runContainerAction,
   type ContainerAction,
 } from "./services/docker";
+import { isValidImageTag, monorepoProject, parseImageReference } from "./lib/image";
+import { isJsonRequest, isSameOriginRequest } from "./lib/request";
+import {
+  DEPLOY_WORKFLOW_URL,
+  GithubServiceError,
+  dispatchDeploy,
+  listImageTags,
+} from "./services/github";
+import { mockImageTags } from "./services/mockData";
 
 // モックモード表示
 const isMockMode = process.env.USE_MOCK_DATA === "true";
 if (isMockMode) {
   console.log("🎭 MOCK MODE ENABLED - Using mock container data");
+}
+
+function deployErrorResponse(error: unknown): Response {
+  if (error instanceof GithubServiceError) {
+    return Response.json(
+      { error: "Deploy request failed", message: error.message },
+      { status: error.status },
+    );
+  }
+
+  console.error("Deploy request failed:", error);
+  return Response.json(
+    { error: "Deploy request failed", message: "Unexpected error" },
+    { status: 500 },
+  );
+}
+
+function crossOriginResponse(): Response {
+  return Response.json({ error: "Cross-origin request is not allowed" }, { status: 403 });
 }
 
 const server = serve({
@@ -52,6 +80,10 @@ const server = serve({
 
     "/api/containers/:id/:action": {
       async POST(req) {
+        if (!isSameOriginRequest(req)) {
+          return crossOriginResponse();
+        }
+
         const { id, action } = req.params;
 
         if (action !== "start" && action !== "stop") {
@@ -84,6 +116,119 @@ const server = serve({
             },
             { status },
           );
+        }
+      },
+    },
+
+    "/api/containers/:id/deploy-options": {
+      async GET(req) {
+        try {
+          const containers = await fetchContainers(true);
+          const container = containers.find((c) => c.id === req.params.id);
+
+          if (!container) {
+            return Response.json({ error: "Container not found" }, { status: 404 });
+          }
+          if (!container.canDeploy || !container.deployTarget) {
+            return Response.json(
+              { error: "Image switching is not available for this container" },
+              { status: 409 },
+            );
+          }
+
+          const project = monorepoProject(container.image);
+          if (!project) {
+            return Response.json(
+              { error: "Image switching is not available for this image" },
+              { status: 409 },
+            );
+          }
+
+          const currentTag = parseImageReference(container.image).tag ?? null;
+
+          if (isMockMode) {
+            return Response.json({
+              target: container.deployTarget,
+              currentTag,
+              tags: mockImageTags,
+            });
+          }
+
+          return Response.json({
+            target: container.deployTarget,
+            currentTag,
+            tags: await listImageTags(project),
+          });
+        } catch (error) {
+          return deployErrorResponse(error);
+        }
+      },
+    },
+
+    "/api/deployments": {
+      async POST(req) {
+        if (!isSameOriginRequest(req)) {
+          return crossOriginResponse();
+        }
+        if (!isJsonRequest(req)) {
+          return Response.json({ error: "Content-Type must be application/json" }, { status: 415 });
+        }
+
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+        }
+
+        if (typeof body !== "object" || body === null) {
+          return Response.json({ error: "Invalid request body" }, { status: 400 });
+        }
+
+        const { containerId, tag } = body as Record<string, unknown>;
+        if (typeof containerId !== "string" || typeof tag !== "string") {
+          return Response.json({ error: "containerId and tag are required" }, { status: 400 });
+        }
+        if (!isValidImageTag(tag)) {
+          return Response.json({ error: "Invalid image tag" }, { status: 400 });
+        }
+
+        try {
+          const containers = await fetchContainers(true);
+          const container = containers.find((c) => c.id === containerId);
+
+          if (!container) {
+            return Response.json({ error: "Container not found" }, { status: 404 });
+          }
+          if (
+            !container.canDeploy ||
+            !container.deployTarget ||
+            !monorepoProject(container.image)
+          ) {
+            return Response.json(
+              { error: "Image switching is not available for this container" },
+              { status: 409 },
+            );
+          }
+
+          if (isMockMode) {
+            return Response.json(
+              {
+                target: container.deployTarget,
+                tag,
+                workflowUrl: DEPLOY_WORKFLOW_URL,
+              },
+              { status: 202 },
+            );
+          }
+
+          const workflowUrl = await dispatchDeploy(container.deployTarget, tag);
+          return Response.json(
+            { target: container.deployTarget, tag, workflowUrl },
+            { status: 202 },
+          );
+        } catch (error) {
+          return deployErrorResponse(error);
         }
       },
     },

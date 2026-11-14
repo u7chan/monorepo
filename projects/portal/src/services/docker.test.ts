@@ -7,6 +7,7 @@ import {
   filterContainers,
   isPortalContainer,
   normalizeName,
+  parseComposeProject,
   parseContainer,
   parseContainerList,
   parseLinkLabels,
@@ -633,5 +634,84 @@ describe("container actions", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(ContainerActionError);
     }
+  });
+});
+
+describe("parseComposeProject", () => {
+  test("compose project ラベルを読む", () => {
+    expect(
+      parseComposeProject("com.docker.compose.service=portal,com.docker.compose.project=portal"),
+    ).toBe("portal");
+  });
+
+  test("キーと値の前後の空白を無視する", () => {
+    expect(parseComposeProject(" com.docker.compose.project = usage-portal ")).toBe("usage-portal");
+  });
+
+  test("ラベルがなければ undefined", () => {
+    expect(parseComposeProject(undefined)).toBeUndefined();
+    expect(parseComposeProject("")).toBeUndefined();
+    expect(parseComposeProject("com.docker.compose.service=portal")).toBeUndefined();
+  });
+
+  test("値が空なら undefined", () => {
+    expect(parseComposeProject("com.docker.compose.project=")).toBeUndefined();
+  });
+});
+
+describe("parseContainer deploy metadata", () => {
+  test("monorepo の GHCR イメージと compose project が一致すれば canDeploy", () => {
+    const raw: DockerContainerRaw = {
+      ID: "abc123def456",
+      Names: "/usage-portal",
+      State: "running",
+      Status: "Up",
+      Image: "ghcr.io/u7chan/monorepo/usage-portal:sha-abc1234",
+      Labels: "com.docker.compose.project=usage-portal",
+    };
+
+    const result = parseContainer(raw);
+
+    expect(result.deployTarget).toBe("usage-portal");
+    expect(result.canDeploy).toBe(true);
+  });
+
+  test("sidecar は canDeploy にしない", () => {
+    const raw: DockerContainerRaw = {
+      ID: "abc123def456",
+      Names: "/u7agent-sandbox",
+      State: "running",
+      Status: "Up",
+      Image: "ghcr.io/u7chan/monorepo/u7agent:sha-abc1234",
+      Labels: "com.docker.compose.project=u7agent",
+    };
+
+    expect(parseContainer(raw).canDeploy).toBe(false);
+  });
+
+  test("Docker Hub のイメージは canDeploy にしない", () => {
+    const raw: DockerContainerRaw = {
+      ID: "abc123def456",
+      Names: "/caddy",
+      State: "running",
+      Status: "Up",
+      Image: "caddy:2.11.7",
+      Labels: "com.docker.compose.project=edge",
+    };
+
+    expect(parseContainer(raw).canDeploy).toBe(false);
+  });
+
+  test("compose project がなければ canDeploy にしない", () => {
+    const raw: DockerContainerRaw = {
+      ID: "abc123def456",
+      Names: "/usage-portal",
+      State: "running",
+      Status: "Up",
+      Image: "ghcr.io/u7chan/monorepo/usage-portal:sha-abc1234",
+      Labels: "com.docker.compose.service=usage-portal",
+    };
+
+    expect(parseContainer(raw).canDeploy).toBe(false);
   });
 });
