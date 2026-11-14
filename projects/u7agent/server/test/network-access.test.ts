@@ -26,9 +26,10 @@ import { SessionStore, type PiRuntimeLike, type PiSessionLike } from "../src/ses
 const CWD = "/tmp/project";
 const masker = createSecretMasker([]);
 
-function sessionStub(): PiSessionLike {
+/** 実 SDK と同じく、渡された id をそのままセッション id にする */
+function sessionStub(sessionId = "pi-network-access"): PiSessionLike {
   return {
-    sessionId: "pi-network-access",
+    sessionId,
     model: { provider: "stub", id: "stub-model" },
     thinkingLevel: "low",
     messages: [],
@@ -52,7 +53,9 @@ function sessionStub(): PiSessionLike {
 
 function createStore(options: { storeDir?: string } = {}): SessionStore {
   return new SessionStore({
-    pi: { createSession: async () => ({ session: sessionStub() }) } as unknown as PiRuntimeLike,
+    pi: {
+      createSession: async (input?: { sessionId?: string }) => ({ session: sessionStub(input?.sessionId) }),
+    } as unknown as PiRuntimeLike,
     catalog: createAgentCatalog(),
     masker,
     rootCwd: CWD,
@@ -336,4 +339,28 @@ test("sweep と、sweep 済みの会話の削除でも承認を失効する", as
   persistent.networkAccess.approve(deleted.id);
   assert.equal(await persistent.deleteSession(deleted.id), true, "descriptor だけでも削除できる");
   assert.equal(persistent.networkAccess.isApproved(deleted.id), false);
+});
+
+// 承認の key は SDK のセッション id。永続化なしの通常会話で SDK が別 id を発行すると、承認要求が
+// SessionStore の record に届かず、exec 側も別の key を読んで永久に未承認になる。
+test("永続化なしでも SDK のセッション id は record.id と一致し、承認が exec に効く", async () => {
+  const previous = process.env.PI_SANDBOX_NETWORK_POLICY;
+  process.env.PI_SANDBOX_NETWORK_POLICY = "ask";
+  try {
+    const store = createStore();
+    const record = await store.create();
+    assert.equal(record.session.sessionId, record.id, "SDK の id を record と揃える");
+
+    const host = store.networkAccessHost();
+    assert.equal(host.allows(record.session.sessionId), false);
+    // 承認要求は SDK の id で登録され、同じ id で回答できる
+    const pending = host.ask(record.session.sessionId, "call-1", networkAccessQuestions("r"), undefined);
+    assert.equal(store.answerQuestion(record, "call-1", [{ index: 0, approval: true }]).status, "ok");
+    await pending;
+    // 次の exec が読む key でも承認済みになる
+    assert.equal(host.allows(record.session.sessionId), true);
+  } finally {
+    if (previous === undefined) delete process.env.PI_SANDBOX_NETWORK_POLICY;
+    else process.env.PI_SANDBOX_NETWORK_POLICY = previous;
+  }
 });

@@ -619,7 +619,9 @@ export class SessionStore {
       model: model ?? agent.model,
       thinkingLevel: thinkingLevel ?? agent.thinkingLevel,
       cwd: workdir,
-      ...(this.storeDir ? { sessionId: id } : {}),
+      // 承認の key は SDK のセッション id。永続化の有無で食い違うと、承認要求が record に届かないため、
+      // 永続化なしでも同じ id を渡す (investigate の子は createChildSession が別 id を発行する)
+      sessionId: id,
       // 所有権の束縛は永続化の有無に依らない (serve ツールは常に会話 id を持つ)
       ownerSessionId: id,
       promptSnapshot,
