@@ -74,6 +74,7 @@ test("公開はcontentゲートとtoolNamesの積で固定し、調査子とremo
     webSearch: false,
     serve: false,
     askUser: false,
+    requestNetworkAccess: false,
     investigate: false,
   };
   for (const configured of [false, true]) {

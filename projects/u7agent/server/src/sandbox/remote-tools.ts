@@ -69,6 +69,11 @@ export interface RemoteToolDefinitionOptions {
    * サンドボックスは `useConfigOnly` だけの config を使う。未指定 (旧 sandbox 構成) なら送らない。
    */
   gitConfigForExec?: () => { userName: string; userEmail: string } | null;
+  /**
+   * この実行で 443 を開いてよいか。exec のたびに解決し、bash のときだけ送る。未指定なら送らない
+   * (旧 BFF と同じく従来の許可ポート)。
+   */
+  networkAccessForExec?: () => boolean;
 }
 
 /** 戻り値は customTools として SDK へ渡す。すべて秘密マスクで包む。 */
@@ -113,12 +118,15 @@ export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions
             // gitConfig は常に付ける (未設定も null で伝え、useConfigOnly を効かせる)。
             // 付けないと旧 BFF と同じ「何もしない」になり、未設定の端末で仮 identity が復活する
             const gitConfig = name === "bash" && gitConfigForExec ? gitConfigForExec() : undefined;
+            // egress ポリシーも exec のたびに解決する (承認は同じ会話の途中で変わる)
+            const networkAccess = name === "bash" ? options.networkAccessForExec?.() : undefined;
             const result = await client.execute(name, {
               toolCallId,
               params,
               cwd: sandboxCwd || undefined,
               ...(env && Object.keys(env).length > 0 ? { env } : {}),
               ...(gitConfig !== undefined ? { gitConfig } : {}),
+              ...(networkAccess !== undefined ? { networkAccess } : {}),
               signal,
               onUpdate: onUpdate as ((partial: { content: unknown; details?: unknown }) => void) | undefined,
             });

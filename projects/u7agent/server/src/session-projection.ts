@@ -5,6 +5,7 @@
 import { basename, dirname, resolve } from "node:path";
 import { APP_DIR_REL } from "./app-paths";
 import { ASK_USER_TOOL_NAME, deriveAskUserQuestions, parseAskUserAnswers } from "./ask-user-tool";
+import { REQUEST_NETWORK_ACCESS_TOOL_NAME, deriveNetworkAccessQuestions } from "./request-network-access-tool";
 import { SKILL_FILE_NAME } from "./builtin-skills";
 import type { PiSessionLike } from "./pi-runtime";
 import { assistantModelLabel, parseUsage } from "./pi-runtime";
@@ -427,8 +428,13 @@ export function askUserQuestionsOf(
   args: unknown,
   masker: SecretMasker,
 ): AskUserQuestion[] | undefined {
-  if (toolName !== ASK_USER_TOOL_NAME) return undefined;
-  const questions = deriveAskUserQuestions(args);
+  // 承認ツールも同じカードで描く (質問は BFF が固定し、モデルの `reason` だけを説明文として使う)
+  const questions =
+    toolName === ASK_USER_TOOL_NAME
+      ? deriveAskUserQuestions(args)
+      : toolName === REQUEST_NETWORK_ACCESS_TOOL_NAME
+        ? deriveNetworkAccessQuestions(args)
+        : undefined;
   if (!questions) return undefined;
   return questions.map((question) => ({
     ...question,
@@ -454,7 +460,7 @@ export function askUserAnswersOf(
   details: unknown,
   masker: SecretMasker,
 ): AskUserAnswer[] | undefined {
-  if (toolName !== ASK_USER_TOOL_NAME) return undefined;
+  if (toolName !== ASK_USER_TOOL_NAME && toolName !== REQUEST_NETWORK_ACCESS_TOOL_NAME) return undefined;
   const answers = parseAskUserAnswers(details);
   if (!answers) return undefined;
   return answers.map((answer) => ({

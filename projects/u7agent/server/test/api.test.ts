@@ -1422,6 +1422,7 @@ test("GET /api/agents はアプリ側の可否つきでツールの一覧を返�
         ["generate_bgm", "app", false, "no_key"],
         ["serve", "app", true, undefined],
         ["ask_user", "app", true, undefined],
+        ["request_network_access", "app", true, undefined],
         ["investigate", "app", true, undefined],
       ],
     );

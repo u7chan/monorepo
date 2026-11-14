@@ -37,6 +37,7 @@ test("長いランの色は 1 分から残す", () => {
 
 const openAsk = (startedAt?: number) => ({ name: "ask_user", startedAt, endedAt: undefined });
 const closedAsk = (startedAt: number, endedAt: number) => ({ name: "ask_user", startedAt, endedAt });
+const openApproval = (startedAt?: number) => ({ name: "request_network_access", startedAt, endedAt: undefined });
 
 // What: 控除は名前が ask_user のカードだけを対象にし、閉じた区間と開いた区間を同じ規則で数える。
 // 開いたままの質問を評価時刻で閉じるため、値は now に対して単調になる。
@@ -46,6 +47,9 @@ test("回答待ちの和は ask_user の区間だけを足す", () => {
   assert.equal(askUserWaitTotalMs([openAsk(1_000)], 4_000), 3_000, "開いた区間は評価時刻まで");
   assert.equal(askUserWaitTotalMs([closedAsk(1_000, 9_000)], 5_000), 4_000, "評価時刻より後の終了は切り詰める");
   assert.equal(askUserWaitTotalMs([openAsk()], 10_000), 0, "startedAt が無いカードは区間を作らない");
+  // 承認待ちも同じくユーザーの応答待ち。サーバー側 (run-metrics.ts) と同じ集合を数える
+  assert.equal(askUserWaitTotalMs([openApproval(1_000)], 4_000), 3_000);
+  assert.equal(askUserWaitTotalMs([openAsk(1_000), openApproval(2_000)], 4_000), 3_000, "重なりは和集合");
 });
 
 // What: 並行した 2 枚は和集合で数え、同じ実時間を二重に引かない。

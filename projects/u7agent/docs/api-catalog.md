@@ -40,7 +40,7 @@
 - ビルトインは編集できない前提なので、model / Effort も固定（どちらも未指定 = アプリ既定）。変更はチャット単位の Model / Effort ピッカーで行う（[model-effort.md](model-effort.md)）。
 - `POST /api/sessions` の `agentId` 省略時はこのビルトインを使うので、ユーザー定義が 0 件でもセッションを作れる。
 - GET の応答は同梱の組み込みスキルを `builtinSkills`（各件 `{ name, description, version }`）でも返す。これは全エージェントへ注がれる **ambient** なスキルで、既定は全部 ON。外すのはエージェント定義の `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。エージェント編集のスキル欄はこれをチェック可能な行として出し、外した分はそのエージェントの会話へ読み込まれない。ビルトインの閲覧ビューは許可リストを持たない（= 常に全部 ON）ので、チェックを出さず共通 / 組み込みを読み取り専用で並べる。`/api/skills/files` はサンドボックス未設定で 503 になるため使わず、BFF 起動時に読み込み済みの registry をそのまま載せる。
-- GET の応答はアプリが扱うツールも `tools`（各件 `{ name, description, group, available, reason? }`）で返す。`group` はサンドボックスで動く `sandbox` と BFF ローカルの `app` で、画面のグループ分けに使う。`available` と `reason` は**取得時点のアプリ側の実効**（`PI_AGENT_TOOLS` / コンテンツ生成のキー / Web 検索の実行時トグル / `serve` の実体 / `ask_user` / `investigate`）で、エージェントの許可リストは掛けない（[ツール許可リスト](#ツール許可リスト)）。理由の文言はクライアント側の対応表が持ち、応答にはコードだけを載せる。
+- GET の応答はアプリが扱うツールも `tools`（各件 `{ name, description, group, available, reason? }`）で返す。`group` はサンドボックスで動く `sandbox` と BFF ローカルの `app` で、画面のグループ分けに使う。`available` と `reason` は**取得時点のアプリ側の実効**（`PI_AGENT_TOOLS` / コンテンツ生成のキー / Web 検索の実行時トグル / `serve` の実体 / `ask_user` / `request_network_access` / `investigate`）で、エージェントの許可リストは掛けない（[ツール許可リスト](#ツール許可リスト)）。理由の文言はクライアント側の対応表が持ち、応答にはコードだけを載せる。
 - 初期状態の `agents` には、ユーザー定義のサンプルとしてずんだもん `agent-zundamon`（`systemPrompt` に語尾の指示）が 1 体入る。`DELETE /api/agents/:id` で削除できる。サンプルは DB を新規作成したときだけ入るため、削除した定義は再起動でも戻らない。
 
 ```json
@@ -293,7 +293,7 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 - GET は未指定のときキーを省略し、`[]` はそのまま返す。
 - 上限は 200 件 / 1 件 200 文字で、trim / 空文字の除去 / 重複排除は保存時に行い、非配列と上限超過は 400。上限はスキル名とは別の定数（ツール名はワークスペースの名前に縛られないため、同じ根拠を使い回さない）。
 - 実在しない名前も保存できる（一覧の入れ替えで保存値を書き換えない）。実行時は無視され、エージェント編集のツール欄は「見つかりません」として出す。
-- **実効はアプリ側の可否との積**で、どちらかが OFF なら OFF。アプリ側には `PI_AGENT_TOOLS`（デプロイ側の上限）、コンテンツ生成のキーと有効 / 無効、Web 検索の実行時トグル、`serve` / `ask_user` / `investigate` の実体の有無が入る。`available: false` の行はチェックが入っていても使えず、理由（`deploy_allowlist` / `app_disabled` / `no_key` / `no_auth`）を画面の行に出す。
+- **実効はアプリ側の可否との積**で、どちらかが OFF なら OFF。アプリ側には `PI_AGENT_TOOLS`（デプロイ側の上限）、コンテンツ生成のキーと有効 / 無効、Web 検索の実行時トグル、`serve` / `ask_user` / `request_network_access` / `investigate` の実体の有無が入る。`available: false` の行はチェックが入っていても使えず、理由（`deploy_allowlist` / `app_disabled` / `no_key` / `no_auth`）を画面の行に出す。
 - `generate_image` は**設定で選んだ生成元（`openrouter` / `codex`）の認証**で決まる。OpenRouter は APIキーの行が無い / 復号できないときが `no_key`、Codex はサインインが無いときが `no_auth` で、`content_settings` の行が無いことだけを理由に落とさない（Codex はキーを使わない。サインインの期限切れは公開し、更新は生成時に SDK へ委ねる）。設定のトグルが OFF なら provider によらず `app_disabled`。
 - `generate_speech` / `generate_bgm` は OpenRouter のキーが要るため、**キーの行が無いときだけ `no_key`**、行があって設定で OFF なら `app_disabled` になる（キーの再登録を促さない）。Codex のサインインだけでは開かない。
 - `generate_bgm` も画像・TTSと同じ共有キーのゲートを使うBFFローカルツール。`toolNames` の積を登録名・定義・カタログに揃え、調査子やremoteツールには公開しない（[bgm-generation.md](bgm-generation.md)）。

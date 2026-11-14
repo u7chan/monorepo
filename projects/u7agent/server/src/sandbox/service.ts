@@ -68,6 +68,7 @@ import { GIT_INFO_TIMEOUT_MS, readWorkspaceGitInfo } from "./git-info";
 import { detectDubiousOwnership, gitConfigTarget, prepareGitConfig, type GitConfigFailureReason } from "./git-config";
 import {
   fixedLandlockWriteRoots,
+  landlockAllowedPorts,
   landlockRulesEnv,
   landlockUnavailableMessage,
   LANDLOCK_MIN_ABI,
@@ -114,6 +115,7 @@ import {
   type SandboxGitConfig,
   type SandboxGitConfigStatus,
   SANDBOX_GIT_CONFIG_CAPABILITY,
+  SANDBOX_EGRESS_POLICY_CAPABILITY,
   type SandboxHandoffRollback,
   type SandboxHandoffWrite,
   type SandboxLandlockStatus,
@@ -2395,17 +2397,21 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       return { ...context, env };
     };
 
-  /** bash の定義。注入する env と許可 root はリクエストごとに違うため、差があるときはキャッシュしない */
+  /** bash の定義。注入する env と許可 root・許可ポートはリクエストごとに違うため、差があるときはキャッシュしない */
   const bashFor = (
     cwd: string,
     roots: readonly LandlockWriteRoot[],
     injected?: Record<string, string>,
+    networkAccess = true,
   ): AnyToolDefinition =>
     createBashToolDefinition(cwd, {
       exposeSessionEnvironment: false,
       // 未解決でも SDK の既定 shell へは落とさず、実行の入口 (bashUnavailableReason) で断る
       shellPath: landlockExec,
-      spawnHook: spawnHookWithEnv(injected, landlockRulesEnv({ shell: targetShell ?? "", roots })),
+      spawnHook: spawnHookWithEnv(
+        injected,
+        landlockRulesEnv({ shell: targetShell ?? "", roots, allowedPorts: landlockAllowedPorts(networkAccess) }),
+      ),
     });
 
   const lexicalRoot = resolve(rootCwd);
@@ -2633,7 +2639,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       return c.json({
         ...info,
         landlock,
-        capabilities: [SANDBOX_GIT_CONFIG_CAPABILITY],
+        capabilities: [SANDBOX_GIT_CONFIG_CAPABILITY, SANDBOX_EGRESS_POLICY_CAPABILITY],
         gitConfig: gitConfigStatus(),
       });
     } catch (error) {
@@ -2701,12 +2707,18 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
       return c.json({ error: messageFor(error) }, statusCode as 400);
     }
-    const { toolCallId, params, cwd, env, writeScope, gitConfig } = (body ?? {}) as SandboxExecuteRequestBody;
+    const { toolCallId, params, cwd, env, writeScope, gitConfig, networkAccess } = (body ??
+      {}) as SandboxExecuteRequestBody;
     if (params !== undefined && (typeof params !== "object" || params === null || Array.isArray(params))) {
       return c.json({ error: "params must be an object" }, 400);
     }
     if (cwd !== undefined && typeof cwd !== "string") {
       return c.json({ error: "cwd must be a string" }, 400);
+    }
+    // 型を足すだけでは runtime 検証にならない (受信側は body を assertion して個別に parse する)。
+    // null / 文字列 / 数値はここで 400 にし、undefined / true / false だけを通す
+    if (networkAccess !== undefined && typeof networkAccess !== "boolean") {
+      return c.json({ error: "networkAccess must be a boolean" }, 400);
     }
     let injected: Record<string, string> | undefined;
     try {
@@ -2759,10 +2771,11 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       }
     }
     // bash だけが子プロセスを持つため、env は bash にだけ渡す (他のツールは値を使わないし、
-    // 渡しても値が経路に増えるだけ)。scope も定義に焼き込む必要があるため、指定があるときはキャッシュしない。
+    // 渡しても値が経路に増えるだけ)。scope と networkAccess も定義に焼き込む必要があるため、
+    // 指定があるときはキャッシュしない (false -> true の変更が次の exec に反映されなくなる)。
     const definition =
-      toolName === "bash" && (injected !== undefined || requestedScope !== undefined)
-        ? bashFor(executionCwd, bashRoots ?? [], injected)
+      toolName === "bash" && (injected !== undefined || requestedScope !== undefined || networkAccess !== undefined)
+        ? bashFor(executionCwd, bashRoots ?? [], injected, networkAccess !== false)
         : registryFor(executionCwd, writeScopeFor(cwd ?? "", executionCwd)).get(toolName);
     if (!definition) {
       return c.json({ error: `Unknown tool: ${toolName}` }, 404);

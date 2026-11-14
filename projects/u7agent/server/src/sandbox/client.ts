@@ -105,6 +105,11 @@ export interface SandboxExecuteInput {
    * bash のときだけ送る (BFF の serve 起動 env には付けない)。
    */
   gitConfig?: SandboxGitConfig | null;
+  /**
+   * この実行の子プロセスが 443 を connect してよいか。bash のときだけ送る。省略は旧 BFF 互換
+   * (旧 sandbox は無視して常に 443 を開く)。
+   */
+  networkAccess?: boolean;
   signal?: AbortSignal | undefined;
   onUpdate?: ((partial: { content: unknown; details?: unknown }) => void) | undefined;
 }
@@ -1259,6 +1264,7 @@ async function execute(
           writeScope: input.writeScope,
           env: input.env,
           gitConfig: input.gitConfig,
+          networkAccess: input.networkAccess,
         }),
         signal: controller.signal,
       });

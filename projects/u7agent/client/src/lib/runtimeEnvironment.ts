@@ -187,6 +187,22 @@ export function runtimeGitConfigRow(response: {
   return { label, value: "準備済み", note: [git.path, ownership].filter(Boolean).join(" · ") };
 }
 
+/**
+ * 承認で bash の外向き HTTPS を制御できるかの行。旧サンドボックスは `egress-policy-v1` を返さず、
+ * `PI_SANDBOX_NETWORK_POLICY` が `ask` / `deny` でも 443 が開いたままになる (bash は止めない)。
+ */
+export function runtimeEgressPolicyRow(response: { capabilities: readonly string[] }): RuntimeInfoRow {
+  const label = "外向き通信の承認";
+  if (!response.capabilities.includes("egress-policy-v1")) {
+    return {
+      label,
+      value: "未対応",
+      note: "サンドボックスが egress-policy-v1 に対応していません。bash は動きますが、承認と拒否は効きません。",
+    };
+  }
+  return { label, value: "対応", note: "未承認のとき、bash の外向き TCP から 443 を外します。" };
+}
+
 function gitConfigFailureReason(reason: SandboxGitConfigStatus["reason"]): string {
   switch (reason) {
     case "home_unavailable":
@@ -564,6 +580,7 @@ function environmentLines(environment: RuntimeFetchState<RuntimeEnvironmentRespo
     runtimeEnvironmentStatusRow("connected"),
     ...runtimeEnvironmentRows(environment.value.environment, environment.value.landlock),
     runtimeGitConfigRow(environment.value),
+    runtimeEgressPolicyRow(environment.value),
   ].map(rowLine);
 }
 

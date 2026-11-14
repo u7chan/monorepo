@@ -1,5 +1,5 @@
 import type { ToolCall } from "../types";
-import { ASK_USER_TOOL_NAME } from "./askUser";
+import { ASK_USER_TOOL_NAME, REQUEST_NETWORK_ACCESS_TOOL_NAME } from "./askUser";
 
 type ToolInterval = Pick<ToolCall, "name" | "startedAt" | "endedAt">;
 
@@ -7,7 +7,13 @@ type ToolInterval = Pick<ToolCall, "name" | "startedAt" | "endedAt">;
 export function askUserWaitTotalMs(tools: Iterable<ToolInterval>, at: number): number {
   const intervals: Array<{ startedAt: number; endedAt: number }> = [];
   for (const tool of tools) {
-    if (tool.name !== ASK_USER_TOOL_NAME || tool.startedAt === undefined) continue;
+    // 承認待ちもユーザーの応答待ちなので、サーバー側 (run-metrics.ts) と同じく待ち時間から引く
+    if (
+      (tool.name !== ASK_USER_TOOL_NAME && tool.name !== REQUEST_NETWORK_ACCESS_TOOL_NAME) ||
+      tool.startedAt === undefined
+    ) {
+      continue;
+    }
     const endedAt = Math.min(tool.endedAt ?? at, at);
     if (endedAt > tool.startedAt) intervals.push({ startedAt: tool.startedAt, endedAt });
   }

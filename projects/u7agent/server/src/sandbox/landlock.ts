@@ -28,6 +28,21 @@ export const LANDLOCK_ALLOWED_PORTS = [
   `${BROWSER_PORT_RANGE_START}-${BROWSER_PORT_RANGE_END}`,
 ].join(",");
 
+/**
+ * 443 を外した集合。セッションの egress ポリシーが「未承認 / 拒否」のときに使う。ローカルサーバーの確認と
+ * 同梱ブラウザは承認と無関係に動かす必要があるため、8080 とブラウザのレンジは残す。
+ */
+export const LANDLOCK_PORTS_WITHOUT_HTTPS = [
+  "8080",
+  "18000-18099",
+  `${BROWSER_PORT_RANGE_START}-${BROWSER_PORT_RANGE_END}`,
+].join(",");
+
+/** exec ごとの許可ポート集合。`networkAccess` が偽のときだけ 443 を落とす */
+export function landlockAllowedPorts(networkAccess: boolean): string {
+  return networkAccess ? LANDLOCK_ALLOWED_PORTS : LANDLOCK_PORTS_WITHOUT_HTTPS;
+}
+
 /** ラッパーの `--abi` 診断の期限 */
 export const LANDLOCK_PROBE_TIMEOUT_MS = 2000;
 
@@ -72,13 +87,15 @@ export function fixedLandlockWriteRoots(home = homedir()): LandlockWriteRoot[] {
 export function landlockRulesEnv(input: {
   shell: string;
   roots: readonly LandlockWriteRoot[];
+  /** 許可する connect 先ポート。省略は 443 を含む既定集合 (旧来の挙動) */
+  allowedPorts?: string;
 }): Record<string, string> {
   return {
     U7AGENT_LANDLOCK_SHELL: input.shell,
     U7AGENT_LANDLOCK_RULES: JSON.stringify(
       input.roots.map((root) => ({ path: root.path, create: root.create === true })),
     ),
-    U7AGENT_LANDLOCK_NET_PORTS: LANDLOCK_ALLOWED_PORTS,
+    U7AGENT_LANDLOCK_NET_PORTS: input.allowedPorts ?? LANDLOCK_ALLOWED_PORTS,
     U7AGENT_LANDLOCK_MIN_ABI: String(LANDLOCK_MIN_ABI),
   };
 }

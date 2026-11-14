@@ -9,6 +9,14 @@ import type { ConfirmRequest } from "./confirmDialog";
 /** サーバーの同名定数は types.ts の再配布に載らないため、クライアント側に置く */
 export const ASK_USER_TOOL_NAME = "ask_user";
 
+/** 承認を求めるツール。質問と選択肢はサーバーが固定し、クライアントは 2 択として描く */
+export const REQUEST_NETWORK_ACCESS_TOOL_NAME = "request_network_access";
+
+/** カードが承認の 2 択か。`ask_user` と同じカードを使い、描画だけを変える */
+export function isApprovalCard(card: ToolCard): boolean {
+  return card.name === REQUEST_NETWORK_ACCESS_TOOL_NAME;
+}
+
 /**
  * SSE の status はリプレイされないため復帰の文言はクライアントが持ち、サーバーの run-events.ts と
  * 同じ文字列を二重に定義する (types.ts は型だけを再配布する契約)。
@@ -20,6 +28,8 @@ export type AskUserDraft = {
   selected: string[];
   text: string;
   skipped: boolean;
+  /** 承認の 2 択だけが使う。`false` (拒否) と `undefined` (未回答) を区別する */
+  approval?: boolean;
 };
 
 /** 質問を持ち、回答がまだ届かず、ツールも終わっていない = 回答待ち */
@@ -59,7 +69,7 @@ export function askUserDraftAt(drafts: readonly AskUserDraft[], index: number): 
 
 /** 質問 1 つ分が回答済みか (「回答しない」は回答済みとして扱う) */
 export function askUserDraftResolved(draft: AskUserDraft): boolean {
-  return draft.skipped || draft.selected.length > 0 || draft.text.trim() !== "";
+  return draft.approval !== undefined || draft.skipped || draft.selected.length > 0 || draft.text.trim() !== "";
 }
 
 /** 質問 1 つ分の選択数。自由記入も 1 件として数える (カードの「N 件選択」) */
@@ -155,6 +165,8 @@ export function askUserAnswersClosing(drafts: readonly AskUserDraft[]): AskUserA
 /** 記録に出す 1 行。選択と自由記入を並べ、回答なしは undefined (表示側で「回答なし」を出す) */
 export function askUserAnswerText(answer: AskUserAnswer | undefined): string | undefined {
   if (answer === undefined || answer.skipped === true) return undefined;
+  // 承認は選択肢のラベルではなく真偽で持つ (ラベルは表示のためだけ)
+  if (answer.approval !== undefined) return answer.approval ? "許可" : "拒否";
   const parts = [...(answer.selected ?? []), ...(answer.text ? [answer.text] : [])];
   return parts.length > 0 ? parts.join("、") : undefined;
 }
@@ -170,6 +182,7 @@ export function askUserAnsweredNothing(answers: readonly AskUserAnswer[] | undef
 /** 送信する回答。index は質問の並びで振る (サーバーは index の集合が全質問と一致することを要求する) */
 export function askUserAnswersFromDrafts(drafts: readonly AskUserDraft[]): AskUserAnswer[] {
   return drafts.map((draft, index) => {
+    if (draft.approval !== undefined) return { index, approval: draft.approval };
     if (draft.skipped) return { index, skipped: true };
     const text = draft.text.trim();
     return {
