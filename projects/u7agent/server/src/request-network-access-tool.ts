@@ -1,6 +1,7 @@
 /**
  * BFF ローカルの `request_network_access` ツール。bash の外向き TCP 443 がポリシーで塞がれているとき、
- * モデルがユーザーへ承認を求める。質問文と選択肢は BFF が固定し、モデルには説明文 (`reason`) だけを書かせる。
+ * モデルがユーザーへ承認を求める。質問文と選択肢は BFF が固定し、モデルには接続先 (`host`) と説明文 (`reason`)
+ * だけを書かせる。
  *
  * 承認の記録は SessionStore が回答の受理時に行う。ここは「聞いて、回答をそのまま details へ写す」だけで、
  * ツールの戻り値から承認を確定しない (`docs/sandbox.md`)。
@@ -19,26 +20,48 @@ export const REQUEST_NETWORK_ACCESS_DESCRIPTION =
 
 export const REQUEST_NETWORK_ACCESS_GUIDELINES = [
   "Call this only after an outbound HTTPS connection from bash failed with a permission error (EACCES) or a connection error you believe is the egress policy.",
-  "Explain in `reason` what you need to reach and why, in one or two sentences. The question and the choices are fixed by the app.",
+  "Put the host you need to reach in `host` (for example `ja.wikipedia.org`) and explain what you fetch and why in `reason`, in one or two sentences without repeating the host. The question and the choices are fixed by the app.",
   "After the user allows it, retry the same command. If they deny it, continue without network access and ask again only when the user asks you to retry.",
 ];
 
 /** カードの見出し。質問文と選択肢はここで固定する (モデルに書かせない) */
-export const NETWORK_ACCESS_QUESTION_HEADER = "通信の許可";
+export const NETWORK_ACCESS_QUESTION_HEADER = "外部通信の許可";
 export const NETWORK_ACCESS_QUESTION = "この通信を許可しますか？";
 export const NETWORK_ACCESS_APPROVE_LABEL = "許可";
 export const NETWORK_ACCESS_DENY_LABEL = "拒否";
 
+/** 接続先として表示する文字列の上限 (DNS の最長ホスト名) */
+const NETWORK_ACCESS_HOST_MAX = 253;
+
+/** 理由文からホスト名を拾う。`host` を書かなかったモデルと、`host` を持たない保存済みの args のための控え */
+const HOST_IN_REASON = /\b((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})\b/i;
+
+/** ホスト名として出せる文字だけか。資格情報や別の秘密値が混ざった表記はチップに出さない */
+const HOST_NAME_ONLY = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
+
+/** 接続先の表記ゆれ (scheme / userinfo / path / port) を落とす。チップにはホスト名だけを出す */
+export function normalizeNetworkAccessHost(raw: string): string {
+  const withoutScheme = raw.trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  const authority = withoutScheme.split(/[/?#]/)[0] ?? "";
+  // userinfo は承認の対象ではない。秘密 URL の資格情報をホスト名として残さない
+  const withoutUserInfo = authority.slice(authority.lastIndexOf("@") + 1);
+  const host = withoutUserInfo.replace(/:\d{1,5}$/, "").slice(0, NETWORK_ACCESS_HOST_MAX);
+  return HOST_NAME_ONLY.test(host) ? host : "";
+}
+
 /**
- * `reason` から固定 1 問を組み立てる。ライブ (`run-events`)、payload、履歴 (`session-projection`) の
- * 3 経路が同じ関数を通る (片方だけ別の組み立てをしない)。
+ * `host` と `reason` から固定 1 問を組み立てる。ライブ (`run-events`)、payload、履歴 (`session-projection`) の
+ * 3 経路が同じ関数を通る (片方だけ別の組み立てをしない)。質問文は承認カードが
+ * `"\n\n"` で見出しと説明に割る (docs/ask-user.md)。
  */
-export function networkAccessQuestions(reason: string): AskUserQuestion[] {
+export function networkAccessQuestions(reason: string, host?: string): AskUserQuestion[] {
   const detail = reason.trim().slice(0, ASK_USER_QUESTION_MAX);
+  const target = normalizeNetworkAccessHost(host ?? "") || (HOST_IN_REASON.exec(detail)?.[1] ?? "");
   return [
     {
       header: NETWORK_ACCESS_QUESTION_HEADER,
       question: detail === "" ? NETWORK_ACCESS_QUESTION : `${NETWORK_ACCESS_QUESTION}\n\n${detail}`,
+      ...(target === "" ? {} : { host: target }),
       type: "choice",
       options: [{ label: NETWORK_ACCESS_APPROVE_LABEL }, { label: NETWORK_ACCESS_DENY_LABEL }],
     },
@@ -51,9 +74,10 @@ export function networkAccessQuestions(reason: string): AskUserQuestion[] {
  */
 export function deriveNetworkAccessQuestions(raw: unknown): AskUserQuestion[] | undefined {
   if (!raw || typeof raw !== "object") return undefined;
-  const reason = (raw as { reason?: unknown }).reason;
+  const { reason, host } = raw as { reason?: unknown; host?: unknown };
   if (reason !== undefined && typeof reason !== "string") return undefined;
-  return networkAccessQuestions(typeof reason === "string" ? reason : "");
+  if (host !== undefined && typeof host !== "string") return undefined;
+  return networkAccessQuestions(typeof reason === "string" ? reason : "", typeof host === "string" ? host : undefined);
 }
 
 export interface NetworkAccessHost {
@@ -76,6 +100,12 @@ export function withRequestNetworkAccessTool(base: readonly string[], enabled: b
 }
 
 const requestNetworkAccessSchema = Type.Object({
+  host: Type.Optional(
+    Type.String({
+      description:
+        "Host you need to reach, e.g. `ja.wikipedia.org`. Shown as the target of the approval card; do not repeat it in reason.",
+    }),
+  ),
   reason: Type.String({
     description:
       "Why you need outbound HTTPS, in one or two sentences (what you fetch and what for). Shown under the fixed question.",
@@ -110,7 +140,7 @@ export function createRequestNetworkAccessToolDefinitions(options: {
     // codemode のスクリプトからは呼ばせない (ユーザーへの承認要求はモデル自身のターンでだけ行う)
     exposure: "model-only",
     async execute(toolCallId, params: RequestNetworkAccessParams, signal) {
-      const questions = networkAccessQuestions(params.reason ?? "");
+      const questions = networkAccessQuestions(params.reason ?? "", params.host);
       const mode = options.host.mode();
       // 承認が要らない / 承認しても開かないモードではカードを出さない (押しても何も変わらない質問をしない)
       if (mode === "allow") {

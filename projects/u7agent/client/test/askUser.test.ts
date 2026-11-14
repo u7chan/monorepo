@@ -32,6 +32,7 @@ import {
   isPendingAskUserCard,
   nextUnresolvedAskUserIndex,
   pendingAskUserQuestionCount,
+  splitApprovalQuestion,
   toggleAskUserOption,
   type AskUserCloseState,
   type AskUserDraft,
@@ -655,4 +656,72 @@ test("回答待ちのカードは、閉じたときの結果を押す前に示�
 
   assert.match(html, /閉じると、未回答の質問 2 件は「回答なし」で送信されます/, "未回答の件数つきで示す");
   assert.match(html, /aria-label="質問を閉じる（未回答は回答なしで送る）"/, "✕ の読み上げ名は現行の意味を保つ");
+});
+
+const APPROVAL_QUESTIONS: AskUserQuestion[] = [
+  {
+    header: "外部通信の許可",
+    host: "ja.wikipedia.org",
+    question:
+      "この通信を許可しますか？\n\n指定された日本語版 Wikipedia の記事を取得し、本文に基づいて要点をまとめるために必要です。",
+    type: "choice",
+    options: [{ label: "許可" }, { label: "拒否" }],
+  },
+];
+
+function approvalCard(id: string, phase: ToolCard["phase"], answers?: AskUserAnswer[]): ToolCard {
+  return {
+    id,
+    name: "request_network_access",
+    args: "{}",
+    phase,
+    output: "",
+    questions: APPROVAL_QUESTIONS,
+    ...(answers ? { answers } : {}),
+  };
+}
+
+function renderApproval(card: ToolCard): string {
+  return renderToStaticMarkup(
+    createElement(
+      ConfirmProvider,
+      null,
+      createElement(AskUserCard, {
+        card,
+        answerable: true,
+        onAnswer: async (): Promise<{ ok: true }> => ({ ok: true }),
+        singleColumn: false,
+      }),
+    ),
+  );
+}
+
+test("承認カードは固定の質問文と接続先を分けて出し、理由は本文に置く", () => {
+  // 質問文の分割は表示の都合 (サーバーは固定文言と理由を "\n\n" で連結して返す)
+  assert.deepEqual(splitApprovalQuestion(APPROVAL_QUESTIONS[0] as AskUserQuestion), {
+    title: "この通信を許可しますか？",
+    detail: "指定された日本語版 Wikipedia の記事を取得し、本文に基づいて要点をまとめるために必要です。",
+  });
+  assert.deepEqual(splitApprovalQuestion({ question: "理由の無い質問" }), { title: "理由の無い質問" });
+
+  const html = renderApproval(approvalCard("call-1", "running"));
+  assert.match(html, /この通信を許可しますか？/, "見出しは固定の質問文だけ");
+  assert.match(html, /指定された日本語版 Wikipedia の記事を取得し/, "理由は本文として別に出す");
+  assert.match(html, /ja\.wikipedia\.org/, "接続先のチップを出す");
+  assert.match(html, /HTTPS · 443/);
+  assert.match(html, /この会話のあいだ、bash から ja\.wikipedia\.org:443 を開きます/, "許可で何が起きるかを添える");
+  assert.match(html, /外部通信なしで作業を続けます/);
+});
+
+test("承認の記録は質問文を繰り返さず、許可・拒否・未回答を区別する", () => {
+  const approved = renderApproval(approvalCard("call-1", "done", [{ index: 0, approval: true }]));
+  assert.match(approved, /外部通信を許可/);
+  // 理由は title (ホバー) にだけ残し、行には出さない
+  assert.doesNotMatch(approved.replaceAll(/title="[^"]*"/g, ""), /指定された日本語版 Wikipedia の記事を取得し/);
+  assert.match(approved, /title="指定された日本語版 Wikipedia の記事を取得し/);
+  assert.match(approved, /ja\.wikipedia\.org/);
+
+  assert.match(renderApproval(approvalCard("call-2", "done", [{ index: 0, approval: false }])), /外部通信を拒否/);
+  assert.match(renderApproval(approvalCard("call-3", "done", [{ index: 0, skipped: true }])), /外部通信は未回答/);
+  assert.match(renderApproval(approvalCard("call-4", "done")), /外部通信は未回答/);
 });

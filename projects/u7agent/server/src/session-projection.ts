@@ -420,6 +420,20 @@ function toolCallsOf(
 }
 
 /**
+ * 承認の args は `host` / `reason` を先にマスクしてから導出する。正規化は scheme と path を落とすため、
+ * 導出後の完全一致マスクでは登録済みの秘密 URL に一致せず、資格情報が `host` に残る。
+ */
+function maskNetworkAccessArgs(args: unknown, masker: SecretMasker): unknown {
+  if (!args || typeof args !== "object") return args;
+  const { host, reason } = args as { host?: unknown; reason?: unknown };
+  return {
+    ...args,
+    ...(typeof host === "string" ? { host: masker.mask(host) } : {}),
+    ...(typeof reason === "string" ? { reason: masker.mask(reason) } : {}),
+  };
+}
+
+/**
  * 質問 / 回答は args と toolResult の `details` 由来で、content に掛かる secret マスク (`secret-guard.ts`
  * のインライン拡張) を通らない。DTO に載せる前にここで必ずマスクする。
  */
@@ -433,13 +447,14 @@ export function askUserQuestionsOf(
     toolName === ASK_USER_TOOL_NAME
       ? deriveAskUserQuestions(args)
       : toolName === REQUEST_NETWORK_ACCESS_TOOL_NAME
-        ? deriveNetworkAccessQuestions(args)
+        ? deriveNetworkAccessQuestions(maskNetworkAccessArgs(args, masker))
         : undefined;
   if (!questions) return undefined;
   return questions.map((question) => ({
     ...question,
     question: masker.mask(question.question),
     ...(question.header !== undefined ? { header: masker.mask(question.header) } : {}),
+    ...(question.host !== undefined ? { host: masker.mask(question.host) } : {}),
     ...(question.placeholder !== undefined ? { placeholder: masker.mask(question.placeholder) } : {}),
     ...(question.options
       ? {

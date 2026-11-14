@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ToolCard } from "../../hooks/chatReducer";
 import {
+  approvalRecordLabel,
   askUserAnswerText,
   askUserAnsweredNothing,
   askUserAnswersFromDrafts,
@@ -15,6 +16,7 @@ import {
   isApprovalCard,
   isPendingAskUserCard,
   nextUnresolvedAskUserIndex,
+  splitApprovalQuestion,
   toggleAskUserOption,
   type AskUserCloseState,
   type AskUserDraft,
@@ -23,7 +25,18 @@ import { cn } from "../../lib/cn";
 import { isImeComposingEnter } from "../../lib/composerKeys";
 import type { AskUserAnswer, AskUserQuestion } from "../../types";
 import { useConfirm } from "../ConfirmProvider";
-import { ArrowRightIcon, CheckIcon, ChevronIcon, ChevronLeftIcon, CloseIcon, PencilIcon } from "../icons";
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  ChevronIcon,
+  ChevronLeftIcon,
+  CloseIcon,
+  GlobeIcon,
+  LockIcon,
+  PencilIcon,
+  ShieldCheckIcon,
+  ShieldOffIcon,
+} from "../icons";
 
 type AnswerResult = { ok: true } | { ok: false; error: string };
 
@@ -50,21 +63,41 @@ function ChoiceMark({ checked }: { checked: boolean }) {
 
 /**
  * 選択肢 1 行。単一選択は行そのものが選択の印になり、番号や枠は出さない (選択中は面と文字色で示す)。
- * multiSelect のときだけチェックを出す。
+ * multiSelect のときだけチェックを出す。承認の 2 択だけは行頭のアイコンと色で意味を出す。
  */
 function OptionRow({
   option,
   pressed,
   multiSelect,
   disabled,
+  icon,
+  hint,
+  tone,
   onToggle,
 }: {
   option: { label: string; description?: string | undefined };
   pressed: boolean;
   multiSelect: boolean;
   disabled: boolean;
+  /** 承認の 2 択だけが使う行頭のアイコン (許可 / 拒否) */
+  icon?: ReactNode;
+  /** 承認の 2 択だけが使う補足 (押すと何が起きるか) */
+  hint?: string;
+  tone?: "allow" | "deny";
   onToggle: () => void;
 }) {
+  const pressedTone =
+    tone === "allow"
+      ? "bg-ok/10 text-ok-text"
+      : tone === "deny"
+        ? "bg-danger/10 text-danger-text"
+        : "bg-accent-wash text-accent-text";
+  const iconTone =
+    tone === "allow"
+      ? "border-ok/50 bg-ok/15 text-ok-text"
+      : tone === "deny"
+        ? "border-danger/50 bg-danger/15 text-danger-text"
+        : "border-accent/40 bg-accent-wash text-accent-text";
   return (
     <button
       type="button"
@@ -73,14 +106,35 @@ function OptionRow({
       onClick={onToggle}
       className={cn(
         "flex min-h-10 w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors",
-        pressed ? "bg-accent-wash text-accent-text" : "text-ink hover:bg-soft/40",
+        pressed
+          ? pressedTone
+          : cn(
+              "text-ink",
+              tone === "allow" ? "hover:bg-ok/5" : tone === "deny" ? "hover:bg-danger/5" : "hover:bg-soft/40",
+            ),
         disabled && "cursor-not-allowed opacity-45",
       )}
     >
-      {multiSelect ? <ChoiceMark checked={pressed} /> : null}
+      {icon !== undefined ? (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "grid size-5 shrink-0 place-items-center rounded-md border",
+            pressed ? iconTone : "border-line-strong text-ink-faint",
+          )}
+        >
+          {icon}
+        </span>
+      ) : multiSelect ? (
+        <ChoiceMark checked={pressed} />
+      ) : null}
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span className="text-1sm break-words">{option.label}</span>
-        {option.description ? <span className="text-2xs break-words text-ink-faint">{option.description}</span> : null}
+        {option.description ? (
+          <span className="text-2xs break-words text-ink-faint">{option.description}</span>
+        ) : hint !== undefined ? (
+          <span className="text-2xs break-words text-ink-faint">{hint}</span>
+        ) : null}
       </span>
     </button>
   );
@@ -220,6 +274,16 @@ function AskUserForm({
   // いまの質問以外の未回答。「→」が送信ではなくその質問へ戻す動きになる判定 (advance と同じ)
   const pendingOthers = drafts.filter((item, i) => i !== index && !askUserDraftResolved(item)).length;
   const options = question.options ?? [];
+  // 承認の 2 択は、固定の質問文 (見出し) とモデルの理由 (本文) を分けて出す。分割は表示だけが行う
+  const approvalQuestion = approval ? splitApprovalQuestion(question) : undefined;
+  const approvalHints: [string, string] | undefined = approval
+    ? [
+        question.host === undefined
+          ? "この会話のあいだ、bash からの外向き HTTPS (443) を開きます"
+          : `この会話のあいだ、bash から ${question.host}:443 を開きます`,
+        "外部通信なしで作業を続けます",
+      ]
+    : undefined;
   return (
     <div className="grid">
       <div
@@ -228,11 +292,34 @@ function AskUserForm({
           singleColumn ? "px-2.5 py-1.5" : "px-3 py-2",
         )}
       >
-        <div className="grid min-w-0 gap-0.5">
+        {approval ? (
+          <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg border border-accent/30 bg-accent-wash text-accent-bright">
+            <GlobeIcon />
+          </span>
+        ) : null}
+        <div className="grid min-w-0 flex-1 gap-0.5">
           {question.header ? (
             <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">{question.header}</span>
           ) : null}
-          <p className="m-0 text-1sm font-medium break-words text-ink">{question.question}</p>
+          <p className={cn("m-0 text-1sm break-words text-ink", approval ? "font-semibold" : "font-medium")}>
+            {approvalQuestion?.title ?? question.question}
+          </p>
+          {approval && question.host !== undefined ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="inline-flex h-6 max-w-full items-center rounded-md border border-accent/30 bg-accent-wash px-2 font-mono text-1xs text-accent-text">
+                <span className="truncate">{question.host}</span>
+              </span>
+              <span className="inline-flex items-center gap-1 font-mono text-2xs text-ink-muted">
+                <LockIcon />
+                HTTPS · 443
+              </span>
+            </div>
+          ) : null}
+          {approvalQuestion?.detail !== undefined ? (
+            <p title={approvalQuestion.detail} className="m-0 mt-1 line-clamp-2 text-xs leading-relaxed text-ink-soft">
+              {approvalQuestion.detail}
+            </p>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <QuestionPager index={index} count={questions.length} disabled={sending} onMove={onMove} />
@@ -255,6 +342,13 @@ function AskUserForm({
             pressed={approval ? draft.approval === (optionIndex === 0) : draft.selected.includes(option.label)}
             multiSelect={approval ? false : question.multiSelect === true}
             disabled={sending}
+            {...(approval
+              ? {
+                  icon: optionIndex === 0 ? <CheckIcon /> : <CloseIcon />,
+                  tone: optionIndex === 0 ? ("allow" as const) : ("deny" as const),
+                  hint: approvalHints?.[optionIndex],
+                }
+              : {})}
             onToggle={() =>
               approval
                 ? // 承認は 2 択の排他。押した方をそのまま真偽へ写す (ラベル文字列では判定しない)
@@ -291,11 +385,9 @@ function AskUserForm({
           ) : multi && last && unresolved > 0 ? (
             <span className="text-warn">未回答の質問が {unresolved} 件あります</span>
           ) : draft.approval !== undefined ? (
-            draft.approval ? (
-              "許可"
-            ) : (
-              "拒否"
-            )
+            <span className={draft.approval ? "text-ok-text" : "text-danger-text"}>
+              {draft.approval ? "許可" : "拒否"}
+            </span>
           ) : draft.skipped ? (
             "回答しない"
           ) : selected > 0 ? (
@@ -362,7 +454,54 @@ function AskUserRecord({
 }
 
 /**
+ * 承認の記録。質問文を繰り返さず、接続先と結果だけを 1 行で出す。
+ * 置き場所はツール履歴の直後 (MessageView) で、本文を押し下げない。
+ */
+function ApprovalRecord({
+  question,
+  answers,
+  singleColumn,
+  waiting,
+}: {
+  question: AskUserQuestion | undefined;
+  answers: AskUserAnswer[] | undefined;
+  singleColumn: boolean;
+  waiting: boolean;
+}) {
+  const answer = answers?.find((item) => item.index === 0);
+  const allowed = answer?.approval === true;
+  const denied = answer?.approval === false;
+  const tone = allowed ? "text-ok-text" : denied ? "text-danger-text" : "text-ink-faint";
+  const detail = question === undefined ? undefined : splitApprovalQuestion(question).detail;
+  return (
+    <div
+      title={detail}
+      className="flex min-h-8 min-w-0 items-center gap-2 rounded-lg border border-line/70 bg-panel px-2.5 text-1xs"
+    >
+      <span aria-hidden="true" className={cn("shrink-0", tone)}>
+        {allowed ? <ShieldCheckIcon /> : <ShieldOffIcon />}
+      </span>
+      <span className={cn("shrink-0 font-medium", tone)}>{approvalRecordLabel(answer)}</span>
+      {question?.host !== undefined ? (
+        <>
+          <span className="text-ink-ghost">·</span>
+          <span className="min-w-0 truncate font-mono text-2xs text-ink-faint">{question.host}</span>
+          {singleColumn ? null : (
+            <>
+              <span className="text-ink-ghost">·</span>
+              <span className="shrink-0 font-mono text-2xs text-ink-ghost">HTTPS 443</span>
+            </>
+          )}
+        </>
+      ) : null}
+      {waiting ? <span className="ml-auto shrink-0 text-2xs text-ink-faint">送信中…</span> : null}
+    </div>
+  );
+}
+
+/**
  * ask_user の質問カード。回答待ちは 1 問ずつ出す入力 (ページ切り替え)、回答後は Q&A の記録として出す。
+ * 承認ツールは同じカードを使い、入力と記録だけを承認向けに変える (docs/ask-user.md)。
  * 回答の所有は run 側 (runTools) にあり、このカードは `answers` が届くまで待つ。
  */
 export function AskUserCard({
@@ -388,6 +527,7 @@ export function AskUserCard({
   const waiting = answerable && isPendingAskUserCard(card);
   const answers = recordAnswers(card, drafts, sent);
   const showForm = waiting && answers === undefined;
+  const approval = isApprovalCard(card);
   const index = Math.min(page, Math.max(questions.length - 1, 0));
   // 確認を開いている間のカードの生存。unmount の cleanup と settle (`showForm` が false) のどちらでも
   // 閉じられなくなる (確定時の会話へ古い card.id の回答を送らない)
@@ -451,7 +591,9 @@ export function AskUserCard({
         "grid min-w-0 overflow-hidden",
         showForm
           ? "gap-0 rounded-xl border border-line bg-panel"
-          : "gap-3 rounded-xl border border-line/70 bg-soft/20 px-3 py-2.5",
+          : approval
+            ? ""
+            : "gap-3 rounded-xl border border-line/70 bg-soft/20 px-3 py-2.5",
       )}
     >
       {showForm ? (
@@ -462,7 +604,7 @@ export function AskUserCard({
           sending={sending}
           error={error}
           singleColumn={singleColumn}
-          approval={isApprovalCard(card)}
+          approval={approval}
           onChange={(next) => {
             setError(undefined);
             setDrafts((current) => current.map((draft, i) => (i === index ? next : draft)));
@@ -478,6 +620,8 @@ export function AskUserCard({
           onAdvance={advance}
           onClose={close}
         />
+      ) : approval ? (
+        <ApprovalRecord question={questions[0]} answers={answers} singleColumn={singleColumn} waiting={waiting} />
       ) : (
         <AskUserRecord
           questions={questions}

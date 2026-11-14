@@ -7,6 +7,7 @@ import { selectCopyTarget } from "../../lib/copyToClipboard";
 import { MESSAGE_MEASURE_CLASS } from "../../lib/messageColumn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { splitSkillBlock } from "../../lib/skillBlock";
+import { isApprovalCard } from "../../lib/askUser";
 import { nonSkillToolCards, type SkillBadge } from "../../lib/skillLoad";
 import type { GenerationInfo } from "../../lib/generationInfo";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
@@ -146,6 +147,9 @@ export function MessageView({
   // スキル読み込みはバッジ、ask_user は専用カードへ出し、ツール履歴の件数・サマリー・コピーからは外す
   const toolCards = nonSkillToolCards(bubble.tools);
   const questionCards = isUser ? [] : bubble.tools.filter((card) => card.questions?.length);
+  // 承認カードは判断の材料としてツール履歴の直後に置き、本文の下へは回さない (docs/ask-user.md#ui)
+  const approvalCards = questionCards.filter(isApprovalCard);
+  const questionCardsAfterBody = questionCards.filter((card) => !isApprovalCard(card));
   const ringRef = useRef<HTMLDivElement>(null);
   // コピーに失敗したときに選択状態にする本文 (添付の注記とスキルブロックを除いた、コピーと同じ範囲)
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -171,6 +175,22 @@ export function MessageView({
       reveal="message"
     />
   ) : null;
+  /** ask_user のカード。承認カードはツール履歴の直後、それ以外は本文の後に置く */
+  const renderQuestionCards = (cards: ToolCard[]) =>
+    cards.length === 0 ? null : (
+      <div className={cn("grid", singleColumn ? "mt-2 gap-2" : "mt-2.5 gap-2.5")}>
+        {cards.map((card) => (
+          <AskUserCard
+            key={card.id}
+            card={card}
+            answerable={answerable === true && onAnswerQuestion !== undefined}
+            onAnswer={onAnswerQuestion ?? rejectAnswer}
+            singleColumn={singleColumn}
+          />
+        ))}
+      </div>
+    );
+
   return (
     <article
       className={cn(
@@ -270,6 +290,7 @@ export function MessageView({
             onCopyTool={onCopyTool}
           />
         ) : null}
+        {renderQuestionCards(approvalCards)}
         {/* 本文より上に置く (役割の分担は docs/image-generation.md#チャットのバッジ) */}
         {!isUser ? <GenerationBadgeList cards={toolCards} singleColumn={singleColumn} /> : null}
         {bubble.text ? (
@@ -306,19 +327,7 @@ export function MessageView({
             singleColumn={singleColumn}
           />
         ) : null}
-        {questionCards.length > 0 ? (
-          <div className={cn("grid", singleColumn ? "mt-2 gap-2" : "mt-2.5 gap-2.5")}>
-            {questionCards.map((card) => (
-              <AskUserCard
-                key={card.id}
-                card={card}
-                answerable={answerable === true && onAnswerQuestion !== undefined}
-                onAnswer={onAnswerQuestion ?? rejectAnswer}
-                singleColumn={singleColumn}
-              />
-            ))}
-          </div>
-        ) : null}
+        {renderQuestionCards(questionCardsAfterBody)}
         {isUser && bubble.unsent ? (
           <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
             <span className="text-2xs text-warn">送信が中断されました</span>
