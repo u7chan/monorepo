@@ -1,6 +1,9 @@
 // egress ポリシーの契約: モード解決 / 承認のメモリ / 許可ポートの切り替え / 承認ツール / 投影 / 回答の往復。
 // 実ネットワークへは出ない (サンドボックスの Landlock は landlock-exec.py 側の検査で担保する)。
 import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createAgentCatalog } from "../src/agents";
 import { validateAskUserAnswers } from "../src/ask-user-tool";
@@ -17,6 +20,7 @@ import { LANDLOCK_ALLOWED_PORTS, LANDLOCK_PORTS_WITHOUT_HTTPS, landlockAllowedPo
 import type { AskUserAnswer, AskUserQuestion } from "../src/schema";
 import { askUserAnswersOf, askUserQuestionsOf } from "../src/session-projection";
 import { createSecretMasker } from "../src/redact";
+import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionStore, type PiRuntimeLike, type PiSessionLike } from "../src/sessions";
 
 const CWD = "/tmp/project";
@@ -46,12 +50,19 @@ function sessionStub(): PiSessionLike {
   } as unknown as PiSessionLike;
 }
 
-function createStore(): SessionStore {
+function createStore(options: { storeDir?: string } = {}): SessionStore {
   return new SessionStore({
     pi: { createSession: async () => ({ session: sessionStub() }) } as unknown as PiRuntimeLike,
     catalog: createAgentCatalog(),
     masker,
     rootCwd: CWD,
+    ...(options.storeDir === undefined
+      ? {}
+      : {
+          storeDir: options.storeDir,
+          // 永続化すると作業フォルダの作成が要る。実ファイルは使わないので、呼び出しだけ受ける
+          workspace: { createDir: async (path: string) => ({ path }) } as unknown as SandboxWorkspaceClient,
+        }),
   });
 }
 
@@ -136,7 +147,11 @@ test("承認の質問は reason から固定 1 問を組み立て、選択肢は
 
 test("allow と deny では質問せず、ask だけがホストへ委譲する", async () => {
   const allowHost = createHost({ mode: "allow" });
-  const [allowTool] = createRequestNetworkAccessToolDefinitions({ enabled: true, sessionId: "s1", host: allowHost });
+  const [allowTool] = createRequestNetworkAccessToolDefinitions({
+    enabled: true,
+    sessionId: () => "s1",
+    host: allowHost,
+  });
   const allowResult = (await allowTool?.execute("call-1", { reason: "r" }, undefined, undefined, {} as never)) as {
     content: { text?: string }[];
     details: { answers: AskUserAnswer[] };
@@ -147,7 +162,11 @@ test("allow と deny では質問せず、ask だけがホストへ委譲する"
   assert.equal(allowResult.isError, undefined);
 
   const denyHost = createHost({ mode: "deny" });
-  const [denyTool] = createRequestNetworkAccessToolDefinitions({ enabled: true, sessionId: "s1", host: denyHost });
+  const [denyTool] = createRequestNetworkAccessToolDefinitions({
+    enabled: true,
+    sessionId: () => "s1",
+    host: denyHost,
+  });
   const denyResult = (await denyTool?.execute("call-1", { reason: "r" }, undefined, undefined, {} as never)) as {
     isError?: boolean;
   };
@@ -155,7 +174,7 @@ test("allow と deny では質問せず、ask だけがホストへ委譲する"
   assert.equal(denyResult.isError, true);
 
   const askHost = createHost({ mode: "ask", answers: [{ index: 0, approval: false }] });
-  const [askTool] = createRequestNetworkAccessToolDefinitions({ enabled: true, sessionId: "s1", host: askHost });
+  const [askTool] = createRequestNetworkAccessToolDefinitions({ enabled: true, sessionId: () => "s1", host: askHost });
   const askResult = (await askTool?.execute("call-1", { reason: "r" }, undefined, undefined, {} as never)) as {
     content: { text?: string }[];
     details: { questions: AskUserQuestion[]; answers: AskUserAnswer[] };
@@ -168,7 +187,7 @@ test("allow と deny では質問せず、ask だけがホストへ委譲する"
 
 test("承認待ちの停止では details を残し、承認は確定しない", async () => {
   const host = createHost({ mode: "ask", reject: true });
-  const [tool] = createRequestNetworkAccessToolDefinitions({ enabled: true, sessionId: "s1", host });
+  const [tool] = createRequestNetworkAccessToolDefinitions({ enabled: true, sessionId: () => "s1", host });
   const result = (await tool?.execute("call-1", { reason: "r" }, undefined, undefined, {} as never)) as {
     content: { text?: string }[];
     details: { answers: AskUserAnswer[] };
@@ -276,4 +295,45 @@ test("別セッションの承認は混ざらず、承認の無いセッショ�
     if (previous === undefined) delete process.env.PI_SANDBOX_NETWORK_POLICY;
     else process.env.PI_SANDBOX_NETWORK_POLICY = previous;
   }
+});
+
+// 承認の key になるセッション id は、永続化なしの会話では作成後にしか決まらない (SDK が発行する)。
+// 定義の生成時に固定すると undefined のままになり、ask / deny を迂回してしまう。
+test("承認の sessionId は実行時に解決し、解決できなければ質問せずに断る", async () => {
+  let id: string | undefined;
+  const host = createHost({ mode: "ask" });
+  const [tool] = createRequestNetworkAccessToolDefinitions({ enabled: true, sessionId: () => id, host });
+  const unresolved = (await tool?.execute("call-1", { reason: "r" }, undefined, undefined, {} as never)) as {
+    isError?: boolean;
+    content: { text?: string }[];
+  };
+  assert.equal(unresolved.isError, true);
+  assert.equal(host.calls, 0, "id が無いまま質問を出さない");
+
+  id = "s1";
+  await tool?.execute("call-1", { reason: "r" }, undefined, undefined, {} as never);
+  assert.equal(host.calls, 1, "作成後の id で質問する");
+});
+
+// sweep は会話の削除ではないが、メモリから外した承認を残すと次のロードで効き続ける。
+test("sweep と、sweep 済みの会話の削除でも承認を失効する", async () => {
+  const store = createStore();
+  const swept = await store.create();
+  store.networkAccess.approve(swept.id);
+  swept.lastUsedAt = Date.now() - 24 * 60 * 60 * 1000;
+  await store.sweep();
+  assert.equal(store.get(swept.id), undefined, "sweep でメモリから外れる");
+  assert.equal(store.networkAccess.isApproved(swept.id), false, "sweep でも承認を残さない");
+
+  // live な record が無い状態の削除でも失効する (descriptor だけが残っている経路)。
+  // descriptor は永続化した会話にしか残らないため、storeDir を渡して同じ経路を通す
+  const storeDir = await mkdtemp(join(tmpdir(), "pi-net-access-"));
+  const persistent = createStore({ storeDir });
+  const deleted = await persistent.create();
+  deleted.lastUsedAt = Date.now() - 24 * 60 * 60 * 1000;
+  await persistent.sweep();
+  assert.equal(persistent.get(deleted.id), undefined, "sweep でメモリから外れる");
+  persistent.networkAccess.approve(deleted.id);
+  assert.equal(await persistent.deleteSession(deleted.id), true, "descriptor だけでも削除できる");
+  assert.equal(persistent.networkAccess.isApproved(deleted.id), false);
 });

@@ -92,11 +92,14 @@ function resultText(approved: boolean): string {
 
 export function createRequestNetworkAccessToolDefinitions(options: {
   enabled: boolean;
-  sessionId?: string | undefined;
+  /**
+   * 承認の key になる SDK のセッション id。定義の生成時点では決まらない (永続化なしの会話は SDK が
+   * 発行する) ため、実行のたびに解決する。
+   */
+  sessionId: () => string | undefined;
   host: NetworkAccessHost;
 }): ToolDefinition[] {
-  const sessionId = options.sessionId;
-  if (!options.enabled || !sessionId) return [];
+  if (!options.enabled) return [];
   const definition: ToolDefinition<typeof requestNetworkAccessSchema> = {
     name: REQUEST_NETWORK_ACCESS_TOOL_NAME,
     label: REQUEST_NETWORK_ACCESS_TOOL_NAME,
@@ -119,6 +122,15 @@ export function createRequestNetworkAccessToolDefinitions(options: {
       if (mode === "deny") {
         return {
           content: [{ type: "text", text: "この環境では外向き通信は拒否されています。承認しても開きません。" }],
+          details: { questions, answers: [] } satisfies AskUserToolDetails,
+          isError: true,
+        };
+      }
+      const sessionId = options.sessionId();
+      if (sessionId === undefined) {
+        // id を解決できないと承認を記録できない。開かないまま止める (fail-closed)
+        return {
+          content: [{ type: "text", text: "会話を特定できないため、この通信は許可できません。" }],
           details: { questions, answers: [] } satisfies AskUserToolDetails,
           isError: true,
         };

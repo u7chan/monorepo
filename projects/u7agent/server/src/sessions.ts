@@ -2563,13 +2563,13 @@ export class SessionStore {
         const meta = this.records.get(id)?.meta ?? this.descriptors.get(id);
         if (meta && (meta.spaceId ?? "default") !== expectSpaceId) return false;
       }
+      // 承認は live な record の有無に依らず消す (sweep 済みの会話も消せる。同じ id の再利用へ持ち越さない)
+      this.networkAccess.revoke(id);
       const record = this.records.get(id);
       if (record) {
         record.queue = [];
         // 削除は finish を通らないため、回答待ちもここで取り消す (abort の signal に依存しない)
         this.cancelQuestions(record);
-        // 会話を消したら承認も消す (同じ id が再利用されても前の承認を引き継がない)
-        this.networkAccess.revoke(record.id);
         // 先に task を持ち、abort の後にその settle を待つ (削除中の保存は persist のガードが no-op にする)
         const compaction = record.compactionTask;
         if (this.isBusy(record) || record.session.isStreaming) await record.session.abort().catch(() => {});
@@ -3229,6 +3229,8 @@ export class SessionStore {
           if (record.persistError || record.writer?.error || record.sendsError) return;
           record.session.dispose?.();
           this.records.delete(id);
+          // dispose / sweep は会話の削除ではないが、メモリから外した承認を残すと次のロードで効き続ける
+          this.networkAccess.revoke(id);
         })();
         this.lifecycle.set(id, promise);
         try {

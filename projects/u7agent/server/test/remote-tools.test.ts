@@ -299,6 +299,42 @@ test("Git identity は bash へだけ渡し、exec のたびに解決する", as
   ]);
 });
 
+test("egress ポリシーは bash へだけ渡し、exec のたびに解決する", async () => {
+  const calls: { tool: string; networkAccess?: unknown }[] = [];
+  const client = {
+    execute: async (tool: string, input: { networkAccess?: unknown }) => {
+      calls.push({ tool, ...(input.networkAccess === undefined ? {} : { networkAccess: input.networkAccess }) });
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  } as unknown as SandboxToolClient;
+  let current = false;
+  const definitions = createRemoteToolDefinitions({
+    cwd: ROOT,
+    rootCwd: ROOT,
+    sandboxCwd: "",
+    client,
+    masker: createSecretMasker([]),
+    tools: ["bash", "ls"],
+    networkAccessForExec: () => current,
+  });
+  for (const name of ["bash", "ls"]) {
+    const definition = definitions.find((entry) => entry.name === name);
+    assert.ok(definition, `${name} のリモート定義が作られる`);
+    await definition.execute("call-1", { command: "true", path: "." }, undefined, undefined, { cwd: ROOT } as never);
+  }
+  // 承認は会話の途中で変わる。定義の生成時に固定せず、次の exec から新しい値を使う
+  current = true;
+  const bash = definitions.find((entry) => entry.name === "bash");
+  assert.ok(bash);
+  await bash.execute("call-2", { command: "true" }, undefined, undefined, { cwd: ROOT } as never);
+
+  assert.deepEqual(calls, [
+    { tool: "bash", networkAccess: false },
+    { tool: "ls" },
+    { tool: "bash", networkAccess: true },
+  ]);
+});
+
 test("解決源が未注入なら gitConfig を送らない (従来挙動)", async () => {
   const calls: { tool: string; gitConfig?: unknown }[] = [];
   const client = {

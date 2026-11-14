@@ -291,7 +291,11 @@ function AskUserForm({
           ) : multi && last && unresolved > 0 ? (
             <span className="text-warn">未回答の質問が {unresolved} 件あります</span>
           ) : draft.approval !== undefined ? (
-            draft.approval ? "許可" : "拒否"
+            draft.approval ? (
+              "許可"
+            ) : (
+              "拒否"
+            )
           ) : draft.skipped ? (
             "回答しない"
           ) : selected > 0 ? (

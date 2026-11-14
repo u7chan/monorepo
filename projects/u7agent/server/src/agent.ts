@@ -1134,6 +1134,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     });
     await resourceLoader.reload();
 
+    // 承認の key に使う SDK のセッション id。永続化なしの会話は createSession に id が来ず、
+    // SDK が発行するため、作成後に実際の id で埋める (定義の生成時点では決まらない)。
+    const sdkSessionId: { value: string | undefined } = { value: sessionId };
     const options: CreateAgentSessionOptions = {
       cwd: sessionCwd,
       agentDir,
@@ -1168,11 +1171,13 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           envForCwd: () => sessionEnv.value?.variablesFor(relativeCwd) ?? {},
           ...(gitIdentity.value ? { gitConfigForExec: () => gitIdentity.value?.identityForExec() ?? null } : {}),
           // 承認は exec のたびに解決する (同じ会話の途中で変わる)。key は SDK の sessionId なので、
-          // investigate の子は親の承認を継承しない
+          // investigate の子は親の承認を継承しない。id を解決できないときは開かない (fail-closed)
           ...(networkAccessHost.value
             ? {
-                networkAccessForExec: () =>
-                  sessionId === undefined || networkAccessHost.value?.allows(sessionId) === true,
+                networkAccessForExec: () => {
+                  const id = sdkSessionId.value;
+                  return id !== undefined && networkAccessHost.value?.allows(id) === true;
+                },
               }
             : {}),
         }),
@@ -1242,8 +1247,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
               }),
               ...createRequestNetworkAccessToolDefinitions({
                 enabled: appTool(REQUEST_NETWORK_ACCESS_TOOL_NAME),
-                // 承認の key は exec 側と同じ SDK の sessionId にする (owner の id で記録すると exec が読めない)
-                sessionId,
+                // 承認の key は exec 側と同じ SDK の sessionId にする (owner の id で記録すると exec が読めない)。
+                // 定義の生成時点では id が決まらないため、実行時に解決する
+                sessionId: () => sdkSessionId.value,
                 host: networkAccessHost.value as NetworkAccessHost,
               }),
               ...createInvestigateToolDefinitions({
@@ -1256,7 +1262,10 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       ],
     };
 
-    return { session: (await createAgentSession(options)).session, promptSnapshot: snapshot };
+    const { session } = await createAgentSession(options);
+    // 永続化なしの会話はここで初めて id が決まる。承認の key を exec 側と揃えるため、作成分で埋める
+    sdkSessionId.value = session.sessionId ?? sessionId;
+    return { session, promptSnapshot: snapshot };
   }
 
   return {
