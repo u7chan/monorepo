@@ -21,10 +21,13 @@ function refuseSocket(socket: Socket, onDeny: (target: string) => void, target: 
 }
 
 /**
- * 127.0.0.1 の一時ポート (port 0) で待受する。ポートを固定しないのは、同時実行の別の呼び出しと
- * 衝突させないため (設計は docs/sandbox.md の serve と同じ「実割当ポートを使う」方針)。
+ * 127.0.0.1 で待受する。`port` を省くと一時ポート (port 0) になる。サンドボックスでは
+ * 呼び出しごとの予約レンジ (ports.ts) を渡す: Landlock は接続先ポートしか制限できないため、
+ * 待受が許可ポートの外に出ると Chromium 自身の接続が EACCES で落ちる。
  */
-export async function startDenyAllProxy(options: { onDeny?: (target: string) => void } = {}): Promise<DenyAllProxy> {
+export async function startDenyAllProxy(
+  options: { port?: number; onDeny?: (target: string) => void } = {},
+): Promise<DenyAllProxy> {
   const onDeny = options.onDeny ?? (() => {});
   const denyRequest = (req: IncomingMessage, res: ServerResponse): void => {
     onDeny(req.url ?? "");
@@ -42,7 +45,7 @@ export async function startDenyAllProxy(options: { onDeny?: (target: string) => 
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+    server.listen(options.port ?? 0, "127.0.0.1", resolve);
   });
   const address = server.address();
   if (!address || typeof address !== "object") throw new Error("deny-all proxy のポートを取得できません");

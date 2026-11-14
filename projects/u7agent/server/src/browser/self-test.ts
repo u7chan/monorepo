@@ -81,8 +81,9 @@ function deniedTargets(session: BrowserSession, host: string): string[] {
 export async function runSelfTest(session: BrowserSession, options: SelfTestOptions = {}): Promise<string[]> {
   const denyTimeoutMs = options.denyTimeoutMs ?? DENY_TIMEOUT_MS;
   const checks: string[] = [];
-  const closedPort = await reserveClosedPort();
+  const closedPort = await reserveClosedPort(session.ports.closed);
   const fixture = await startLoopbackFixture({
+    port: session.ports.fixture,
     redirects: {
       "/redirect/external-host": EXTERNAL_HOST,
       "/redirect/external-ip": EXTERNAL_IP,

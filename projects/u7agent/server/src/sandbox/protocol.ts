@@ -114,7 +114,7 @@ export interface SandboxLandlockStatus {
   state: "enabled" | "unavailable";
   /** カーネルが対応する Landlock ABI。取得できなければ null */
   abi: number | null;
-  /** 実行に要求する最低 ABI。ABI 3 未満では truncate を制限できない */
+  /** 実行に要求する最低 ABI。ABI 4 未満では外向きの TCP を制限できない */
   minAbi: number;
   /** `unavailable` のときだけ入る理由分類 */
   reason?: "wrapper_missing" | "unsupported" | "abi_unsupported" | "probe_failed";

@@ -28,7 +28,7 @@
 
 実装は 2 段にする。
 
-1. **ブラウザのネットワーク層で止める（本命）**: ラッパーが 127.0.0.1 の一時ポートを bind して deny-all proxy を立て、`--proxy-server` でそこへ向ける。`--proxy-bypass-list=<-loopback>;127.0.0.1;localhost;[::1]` で Chromium の暗黙のバイパス規則を外し、許可するループバックだけを明示登録する。非ループバックの通信（redirect 先・サブリソース・iframe・popup・WebSocket）はすべて proxy に到達して拒否される。proxy のポートは CLI 自身が所有するので、`ip_unprivileged_port_start` や capability に依存せず、他プロセスに奪われない
+1. **ブラウザのネットワーク層で止める（本命）**: ラッパーが 127.0.0.1 の予約ポート（`18100-18199`。`server/src/browser/ports.ts`）を bind して deny-all proxy を立て、`--proxy-server` でそこへ向ける。`--proxy-bypass-list=<-loopback>;127.0.0.1;localhost;[::1]` で Chromium の暗黙のバイパス規則を外し、許可するループバックだけを明示登録する。非ループバックの通信（redirect 先・サブリソース・iframe・popup・WebSocket）はすべて proxy に到達して拒否される。proxy のポートは CLI 自身が所有するので、`ip_unprivileged_port_start` や capability に依存せず、他プロセスに奪われない
 2. `route` / `routeWebSocket` でループバック以外を明示的に拒否する（エラーの意味を分かりやすくする）
 
 1 が要る理由は 2 つある。**Playwright の route ハンドラーは redirect では最初の URL にしか呼ばれない**（採用版の型定義に明記があり、実装も redirected request を `Fetch.continueRequest` で通す）。加えて **Chromium の暗黙バイパス規則はループバックだけでなく link-local（`169.254/16` / `fe80::/10`）も含む**ため、proxy を置くだけでは IP literal の redirect で抜けられる。`<-loopback>` で暗黙規則を外し、ループバックを明示登録して初めて「ループバック以外は通らない」が成立する。

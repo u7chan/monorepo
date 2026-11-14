@@ -11,6 +11,16 @@ export const CALL_DEADLINE_MS = 120_000;
  */
 export const MAX_CONCURRENT_CALLS = 3;
 
+/**
+ * ブラウザの待受に予約するポート範囲。サンドボックスの Landlock は接続先のポート番号しか
+ * 制限できないため、待受を固定レンジに寄せて許可ポートへ入れる (docs/sandbox.md)。
+ */
+export const BROWSER_PORT_RANGE_START = 18100;
+export const BROWSER_PORT_RANGE_END = 18199;
+
+/** 1 呼び出しが使うポート数。proxy / fixture / 閉じた検証用の 3 つで、枠ごとに重ならない */
+export const PORTS_PER_CALL = 3;
+
 /** 既定の viewport。デスクトップ幅を既定にし、スマホ幅の確認は `--width` / `--height` で行う */
 export const VIEWPORT = { width: 1280, height: 720 } as const;
 

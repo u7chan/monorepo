@@ -43,6 +43,8 @@ export interface FixtureRequestContext {
 export type FixtureHandler = (context: FixtureRequestContext) => FixtureResponse;
 
 export interface LoopbackFixtureOptions {
+  /** 待受ポート。サンドボックスでは呼び出しごとの予約レンジを渡す (省略時は port 0) */
+  port?: number;
   redirects?: Record<string, string>;
   responses?: Record<string, FixtureHandler>;
 }
@@ -159,12 +161,17 @@ function originOf(server: Server): string {
   return `http://127.0.0.1:${address.port}`;
 }
 
-/** 一度 bind してから閉じた loopback のポート。接続が必ず失敗する宛先を作る (requestfailed の検査用) */
-export async function reserveClosedPort(): Promise<number> {
+/**
+ * 一度 bind してから閉じた loopback のポート。接続が必ず失敗する宛先を作る (requestfailed の検査用)。
+ *
+ * `port` を渡すとそのポートを使う。サンドボックスでは呼び出しごとに予約されたポートを渡し、
+ * 同じ呼び出しの fixture がそのポートを掴まないようにする (ports.ts)。省略時は port 0。
+ */
+export async function reserveClosedPort(port = 0): Promise<number> {
   const server = createServer();
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+    server.listen(port, "127.0.0.1", resolve);
   });
   const address = server.address();
   if (!address || typeof address !== "object") throw new Error("閉じたポートを取得できません");
@@ -213,7 +220,7 @@ export async function startLoopbackFixture(options: LoopbackFixtureOptions = {})
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+    server.listen(options.port ?? 0, "127.0.0.1", resolve);
   });
   const origin = originOf(server);
   const wsUrl = origin.replace(/^http/, "ws") + "/ws";

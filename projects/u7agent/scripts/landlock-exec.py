@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Landlock の exec ラッパー。bash を起動する前に許可 root の外への書き込みを EACCES にする。
+"""Landlock の exec ラッパー。bash を起動する前に許可 root の外への書き込みと、許可外ポートへの接続を EACCES にする。
 
 pi SDK の `BashToolOptions.shellPath` に渡す前提で、SDK と同じ引数 (`-c <command>`) を受け取り、
 環境変数 `U7AGENT_LANDLOCK_*` を読んでから本物の shell (U7AGENT_LANDLOCK_SHELL) を exec する。
@@ -17,8 +17,11 @@ SYS_ADD_RULE = 445
 SYS_RESTRICT_SELF = 446
 CREATE_RULESET_VERSION = 1
 RULE_PATH_BENEATH = 1
+RULE_NET_PORT = 2
 PR_SET_NO_NEW_PRIVS = 38
-MIN_ABI_DEFAULT = 3
+MIN_ABI_DEFAULT = 4
+# network の権利 (CONNECT_TCP) は ABI 4 で入った。FS だけなら 3 でも動くが、要求は 4 に揃える
+NET_MIN_ABI = 4
 EXIT_FAILURE = 125
 ENV_PREFIX = "U7AGENT_LANDLOCK_"
 
@@ -34,6 +37,10 @@ FS_MAKE_BLOCK = 1 << 11
 FS_MAKE_SYM = 1 << 12
 FS_REFER = 1 << 13
 FS_TRUNCATE = 1 << 14
+
+# kernel の landlock.h は BIND_TCP を bit 0、CONNECT_TCP を bit 1 に置く
+NET_BIND_TCP = 1 << 0
+NET_CONNECT_TCP = 1 << 1
 
 # ディレクトリに許可する書き込み系の権利。内容への作成 / 削除 / rename をまとめて許可する
 DIR_WRITE_ACCESS = (
@@ -56,12 +63,21 @@ libc.syscall.restype = ctypes.c_long
 
 
 class RulesetAttr(ctypes.Structure):
-    # ABI 3 で必要なのは handled_access_fs だけ。ABI 4 以降のフィールドは 0 のまま渡す
-    _fields_ = [("handled_access_fs", ctypes.c_uint64)]
+    # ABI 4 で handled_access_net、ABI 6 で scoped が増える。使わない分は 0 のまま渡す
+    # (カーネルは必要な分だけ読み、残りが 0 であることを要求する)
+    _fields_ = [
+        ("handled_access_fs", ctypes.c_uint64),
+        ("handled_access_net", ctypes.c_uint64),
+        ("scoped", ctypes.c_uint64),
+    ]
 
 
 class PathBeneathAttr(ctypes.Structure):
     _fields_ = [("allowed_access", ctypes.c_uint64), ("parent_fd", ctypes.c_int64)]
+
+
+class NetPortAttr(ctypes.Structure):
+    _fields_ = [("allowed_access", ctypes.c_uint64), ("port", ctypes.c_uint64)]
 
 
 def fail(message):
@@ -101,6 +117,12 @@ def allowed_access(stats, abi):
     return access
 
 
+def add_net_rule(ruleset_fd, port):
+    rule = NetPortAttr(NET_CONNECT_TCP, port)
+    if libc.syscall(SYS_ADD_RULE, ruleset_fd, RULE_NET_PORT, ctypes.byref(rule), 0) < 0:
+        fail("cannot allow port %d: %s" % (port, errno_message()))
+
+
 def add_rule(ruleset_fd, path, create, abi):
     if create:
         # 無ければ作ってよいと宣言された root だけを mkdir する (要求由来のパスは作らない)
@@ -125,6 +147,45 @@ def add_rule(ruleset_fd, path, create, abi):
             fail("cannot restrict %s: %s" % (path, errno_message()))
     finally:
         os.close(path_fd)
+
+
+def parse_port(text, token):
+    try:
+        port = int(text)
+    except ValueError:
+        fail("%sNET_PORTS is not a port or range: %s" % (ENV_PREFIX, token))
+    if port < 1 or port > 65535:
+        fail("%sNET_PORTS is out of range: %s" % (ENV_PREFIX, token))
+    return port
+
+
+def parse_net_ports(raw):
+    """`443,8080,18000-18099` を展開する。未設定は None で、net を扱わない (後方互換)。
+
+    空文字は空リスト (扱うが許可 0 件 = すべての connect を拒否) になる。未設定と同じにしない。
+    """
+    if raw is None:
+        return None
+    ports = []
+    seen = set()
+    for item in raw.split(","):
+        token = item.strip()
+        if not token:
+            continue
+        if "-" in token:
+            start_text, _, end_text = token.partition("-")
+            start = parse_port(start_text, token)
+            end = parse_port(end_text, token)
+            if end < start:
+                fail("%sNET_PORTS has a reversed range: %s" % (ENV_PREFIX, token))
+            candidates = range(start, end + 1)
+        else:
+            candidates = (parse_port(token, token),)
+        for port in candidates:
+            if port not in seen:
+                seen.add(port)
+                ports.append(port)
+    return ports
 
 
 def parse_rules(raw):
@@ -170,6 +231,7 @@ def main(argv):
     if not shell:
         fail("%sSHELL is not set" % ENV_PREFIX)
     rules = parse_rules(os.environ.get(ENV_PREFIX + "RULES", "[]"))
+    net_ports = parse_net_ports(os.environ.get(ENV_PREFIX + "NET_PORTS"))
     min_abi = read_min_abi()
 
     abi = create_ruleset_version()
@@ -177,13 +239,21 @@ def main(argv):
         fail("landlock is not supported: %s" % errno_message())
     if abi < min_abi:
         fail("landlock ABI %d is older than the required %d" % (abi, min_abi))
+    if net_ports is not None and abi < NET_MIN_ABI:
+        fail("landlock ABI %d cannot restrict the network (ABI %d or newer is required)" % (abi, NET_MIN_ABI))
 
-    ruleset = RulesetAttr(handled_access(abi))
+    ruleset = RulesetAttr(
+        handled_access(abi),
+        NET_CONNECT_TCP if net_ports is not None else 0,
+        0,
+    )
     ruleset_fd = libc.syscall(SYS_CREATE_RULESET, ctypes.byref(ruleset), ctypes.sizeof(ruleset), 0)
     if ruleset_fd < 0:
         fail("cannot create a landlock ruleset: %s" % errno_message())
     for rule in rules:
         add_rule(ruleset_fd, rule["path"], rule.get("create") is True, abi)
+    for port in net_ports or ():
+        add_net_rule(ruleset_fd, port)
 
     if libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
         fail("cannot set no_new_privs: %s" % errno_message())

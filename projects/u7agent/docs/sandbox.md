@@ -84,12 +84,25 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 - BFF の API 認証は既存の全体課題で、この機能の対象外。**サンドボックスから BFF に到達できる配備では、この設定 API が全会話の identity を変える直接のバイパスになる。** defense-in-depth として、`PUT` / `DELETE /api/settings/git` だけ `Origin` か `Sec-Fetch-Site: same-origin` を要求する（認証ではない）。
 - 旧 sandbox は `git-config-v1` capability を返さない。BFF はその不一致を runtime diagnostics に出し、bash は止めない。逆に旧 BFF は `gitConfig` を送らず、sandbox は従来どおり動く。
 
+## 外向き TCP の制限
+
+`bash` の子プロセスは、Landlock ABI 4 の `LANDLOCK_ACCESS_NET_CONNECT_TCP` により、**接続先ポート**を許可リストへ限定される。アドレスでは絞れない（カーネルの制約）ため、許可したポートは宛先を問わず開く。
+
+- 許可: `443`（npm / PyPI / GitHub などの HTTPS）、`8080`（`serve`）、`18000-18099`（`serve` の debug）、`18100-18199`（同梱ブラウザの待受）
+- 80 は許可しない。クラウドメタデータ（`169.254.169.254:80`）も同時に塞がる
+- `BIND_TCP` は扱わない。ローカルサーバーの listen を壊さないため
+- UDP は対象外。DNS は UDP で通り、TCP の DNS（fallback）は許可外なので拒否される
+- ラッパーへは `U7AGENT_LANDLOCK_NET_PORTS` で渡す。**未設定は net を扱わない**（ラッパーを単独で呼ぶ経路との互換）、**空文字は扱うが許可 0 件**（すべての connect を拒否）、**不正値は fail-closed**（exec しない）。サンドボックス service は exec のたびに必ず値を注入する
+- 許可ポートを組み立てるのは BFF ではなくサンドボックス service（`server/src/sandbox/landlock.ts` の `landlockRulesEnv`）
+- 同梱ブラウザは deny-all proxy と fixture を `listen(0)` ではなく呼び出しごとの予約ポート（`18100-18199`）で待ち受ける（`server/src/browser/ports.ts`）。待受がレンジの外に出ると、Chromium 自身の loopback 接続が `EACCES` になる
+- エージェントには `appendSystemPrompt` で「ローカルサーバーは 8080 か 18000-18099 を使う」と伝える
+
 ## 配布イメージと起動契約
 
 - イメージは BFF とサンドボックスで共用し、`command` だけ差し替える（`node --import tsx src/sandbox/index.ts`）。CD（`final` ステージ）の単一イメージ前提を維持する
 - イメージには bash / git / ripgrep / fd を事前搭載する。ripgrep・fd はサンドボックス内で必要。fd は pi SDK の find ツールが渡す `--no-require-git`（fd 9.0 で追加）を満たす必要があり、apt の fd-find はベースイメージの追随で要件を割る版（bookworm は 8.6.0）に戻り得るため、`scripts/install-fd.mjs` でリリースバイナリ（sha256 固定）を `test` / `final` の両ステージへ入れる（trixie の fd-find は 10.2.0 で条件を満たすが、取得方式は変えていない）
 - **Landlock ラッパー（`scripts/landlock-exec.py` → イメージの `/usr/local/bin/u7agent-landlock`）を同梱する**。bash はこのラッパー経由でしか起動せず、ラッパーを解決できなければ実行しない。Python 実装なので `python3` が要る（`final` は既存の apt のもの）。dev は `pnpm dev` が `$HOME/.local/libexec/u7agent` へ、`/bin/sh` の入口（`u7agent-landlock`）と python の本体（`u7agent-landlock.py`）の 2 ファイルで配置する（許可 root の外に置き、エージェント自身に書き換えられないようにするため。単体でフォークを起こすときは `node scripts/install-landlock.mjs`）
-- ラッパーの前提は **Linux かつ Landlock ABI 3 以上（カーネル 6.2 以上）**と、Landlock の 3 syscall を通す **Docker 24 以上**（既定 seccomp profile）。`test` ステージにも python3 とラッパーを入れ、ビルド時に `--abi` と「許可 root の外への書き込みが拒否されること」を probe する（テストの skip に頼らずビルドを失敗させる）。`final` には probe を置かない
+- ラッパーの前提は **Linux かつ Landlock ABI 4 以上（カーネル 6.7 以上）**と、Landlock の syscall を通す **Docker 24 以上**（既定 seccomp profile）。`test` ステージにも python3 とラッパーを入れ、ビルド時に `--abi`、「許可 root の外への書き込みが拒否されること」、「許可外ポートへの connect が `EACCES` になること」を probe する（テストの skip に頼らずビルドを失敗させる）。`final` には probe を置かない
 - HTTP 取得とアセット検証用に curl / jq / file / unzip / xz / zip も入れる。curl を正規手段にして `node -e` のワンライナー fetch へ迂回させないのが目的で、この一覧は `server/src/agent.ts` の `appendSystemPrompt` が名指しする。apt 行から落ちた場合は `final` ステージの `command -v` 検査でビルドが失敗する
 - Python は 3.13 系（ベースイメージ trixie の apt `python3`。実測 3.13.5）と uv（`ghcr.io/astral-sh/uv:0.12.18` から `/uv` / `/uvx` を COPY）を入れる。`python3-pip` は入れない — pip が要るのは `uv venv --seed` か `python3 -m venv` の ensurepip だけで、uv の経路は `uv pip install --python .venv/bin/python` で完結する。`command -v` 検査は uv を COPY した後の apt の RUN にあり、`python3` と `uv` も見る
 - Python の依存は**作業ディレクトリ直下の `.venv`** に入れる。イメージ内の `/home/node` はコンテナのレイヤに属し、永続マウントは `/workspace`（と会話ストア）にしかないため、`~/.local` や `uv tool` の既定先に置いた依存は再作成で消える。`.venv` は作成時の絶対パスを内部に持つので、同じイメージ・同じマウント先・同じ絶対パスなら再作成後もそのまま使える（`uv venv` の既定は system Python を使い、`pyvenv.cfg` の `home` は apt の `/usr/bin` を指す）。`--target` / `--prefix` を作業ディレクトリ内で使うことは方針として防いでいないが、`~/.local` 全体（`uv tool` の既定先を含む）は Landlock の許可 root の外なので bash の子プロセスからは書けない（pnpm 用の `~/.local/share/pnpm` だけを許可している。[残存リスク](#残存リスク)）
@@ -103,10 +116,11 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 - サービス オリジンを公開するにはデプロイ側の変更が要る。公開ポートをサンドボックスの 8080 ではなく BFF のサービス リスナーへ向け、その値を `PI_PREVIEW_PORT` に渡す。TLS 終端を挟む配備は、公開ポートの代わりに公開オリジンを `PI_PREVIEW_ORIGIN` へ渡す。Compose 構成の正本はデプロイ側リポジトリにある（[persistence.md](persistence.md)）
 - 非rootコンテナ・別プロセスは完全な隔離ではない。同一ユーザーのサンドボックス内では会話間のセキュリティ分離はなく、ファイル・ポート・Git の共有情報は競合し得る
 - ホスト上の別プロセスとして起動したサンドボックスは BFF と同一ユーザー・同一環境になる。親シェルから export した APIキーは継承され、同一ユーザーが読める認証ファイル（`~/.pi/agent/auth.json` など）も読める。この構成の分離はプロセス分離であり、コンテナ分離ではない（`U7AGENT_SECRET_MASTER_KEY` も親シェルから継承するが、`bash` の子プロセスからは剥がす）
-- サンドボックスから外向きの通信は制限していない。ツールで実行したコードはネットワークへ到達できる。ネットワーク制限・リソース上限の具体値はデプロイ側の運用に委ねる
+- 外向きの通信は **TCP の接続先ポートだけ**を制限する（[外向き TCP の制限](#外向き-tcp-の制限)）。UDP は対象外で、DNS トンネルと QUIC による迂回は残る。許可したポート（443 / 8080 / 18000-18099 / 18100-18199）は全宛先に開くため、そのポートで待ち受ける内部サービスには届く
+- リソース上限（CPU / メモリ / ディスク / プロセス数）はデプロイ側の運用に委ねる
 - ユーザーが作業領域へ置いたファイルの内容はツールから読める。認証情報を作業領域へ置かない運用とする
 - `write` / `edit` の許可場所はファイルツールのポリシーだが、bash 側は Landlock で強制される。同じプロジェクトの複数セッションは cwd を共有するため互いのファイルは壊せ、`/tmp` と `/dev/shm` も全セッション共有。読み取りは制限しないため、プロンプトインジェクションによる既存ファイルの持ち出しは残る
 - Landlock は `chmod` / `chown` / `utime` / `setxattr` を制限できない（カーネルドキュメントの limitations）。許可 root の外でもファイル属性は変更できるため、**内容の作成・変更・削除・rename・truncate までが保証**で、他プロジェクトの破壊を完全には防げない。同じ理由で `flock` / `stat` / `chdir` も制限しない
-- Landlock のない環境（Linux 6.2 未満、macOS、ラッパー未配置）では `bash` を実行できない（fail-closed）。dev は同一ユーザーで動くため、`~/.cache` / `~/.npm` の許可は開発者本人の実キャッシュへの書き込み許可になる。`pnpm dev` で検証するときは `PI_SESSION_STORE` を設定し、既定スペースの未所属 cwd が root になる縮退（root 全体が許可される）を避ける（[projects.md](projects.md#write--edit-の書き込み範囲)）
-- ABI 4（Linux 6.8）では device ioctl が対象外（ABI 5 で追加）。外向き通信の制限（Landlock の network 権利、egress 制限）も対象外
+- Landlock のない環境（Linux 6.7 未満、macOS、ラッパー未配置）では `bash` を実行できない（fail-closed）。dev は同一ユーザーで動くため、`~/.cache` / `~/.npm` の許可は開発者本人の実キャッシュへの書き込み許可になる。`pnpm dev` で検証するときは `PI_SESSION_STORE` を設定し、既定スペースの未所属 cwd が root になる縮退（root 全体が許可される）を避ける（[projects.md](projects.md#write--edit-の書き込み範囲)）
+- ABI 4（Linux 6.8）では device ioctl が対象外（ABI 5 で追加）
 - bash ツールの出力が切り詰められた場合、フル出力はサンドボックス内の一時ファイルへ書かれる。ファイル自体はマスクされないが、それを読むツール出力はマスクされる（[secrets.md](secrets.md)）

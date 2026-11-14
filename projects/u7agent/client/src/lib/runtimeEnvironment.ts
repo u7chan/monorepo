@@ -221,9 +221,9 @@ function runtimeLandlockReason(landlock: SandboxLandlockStatus): string {
     case "wrapper_missing":
       return "ラッパーが見つかりません（pnpm dev が配置します）";
     case "unsupported":
-      return "カーネルが Landlock に対応していません（Linux 6.2 以上が必要です）";
+      return "カーネルが Landlock に対応していません（Linux 6.7 以上が必要です）";
     case "abi_unsupported":
-      return `ABI ${landlock.abi ?? "不明"} は ${landlock.minAbi} 未満です（Linux 6.2 以上が必要です）`;
+      return `ABI ${landlock.abi ?? "不明"} は ${landlock.minAbi} 未満です（Linux 6.7 以上が必要です）`;
     default:
       return "診断に失敗しました";
   }

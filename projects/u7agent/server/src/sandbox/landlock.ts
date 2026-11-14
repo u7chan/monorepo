@@ -8,12 +8,25 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { SandboxLandlockStatus } from "./protocol";
 import { resolveTrustedExecutable, runtimeProbeEnv, RUNTIME_PROBE_PATH_DIRS } from "./runtime-info";
+import { BROWSER_PORT_RANGE_END, BROWSER_PORT_RANGE_START } from "../browser/limits";
 
 /** ラッパーのファイル名。イメージは `/usr/local/bin`、dev は `$HOME/.local/libexec/u7agent` に置く */
 export const LANDLOCK_WRAPPER_NAME = "u7agent-landlock";
 
-/** ABI 3 (Linux 6.2) 未満は truncate を制限できないため、実行しない */
-export const LANDLOCK_MIN_ABI = 3;
+/** ABI 4 (Linux 6.7) 未満は外向きの TCP を制限できないため、実行しない */
+export const LANDLOCK_MIN_ABI = 4;
+
+/**
+ * bash の子プロセスが connect してよいポート。443 は npm / PyPI / GitHub などの HTTPS、8080 は `serve`、
+ * 18000-18099 は `serve` の debug、18100-18199 は同梱ブラウザの待受 (browser/limits.ts と揃える)。
+ * 80 は許可しない (クラウドメタデータも同時に塞ぐ)。
+ */
+export const LANDLOCK_ALLOWED_PORTS = [
+  "443",
+  "8080",
+  "18000-18099",
+  `${BROWSER_PORT_RANGE_START}-${BROWSER_PORT_RANGE_END}`,
+].join(",");
 
 /** ラッパーの `--abi` 診断の期限 */
 export const LANDLOCK_PROBE_TIMEOUT_MS = 2000;
@@ -65,6 +78,7 @@ export function landlockRulesEnv(input: {
     U7AGENT_LANDLOCK_RULES: JSON.stringify(
       input.roots.map((root) => ({ path: root.path, create: root.create === true })),
     ),
+    U7AGENT_LANDLOCK_NET_PORTS: LANDLOCK_ALLOWED_PORTS,
     U7AGENT_LANDLOCK_MIN_ABI: String(LANDLOCK_MIN_ABI),
   };
 }
@@ -122,9 +136,9 @@ export function landlockUnavailableMessage(status: SandboxLandlockStatus): strin
     case "wrapper_missing":
       return "Landlock のラッパーが見つかりません (イメージの /usr/local/bin/u7agent-landlock、dev は pnpm dev が配置)";
     case "unsupported":
-      return "このカーネルは Landlock に対応していません (Linux 6.2 以上が必要です)";
+      return "このカーネルは Landlock に対応していません (Linux 6.7 以上が必要です)";
     case "abi_unsupported":
-      return `Landlock ABI ${status.abi ?? "不明"} は ${status.minAbi} 未満です (Linux 6.2 以上が必要です)`;
+      return `Landlock ABI ${status.abi ?? "不明"} は ${status.minAbi} 未満です (Linux 6.7 以上が必要です)`;
     default:
       return "Landlock の診断に失敗しました (設定 → ランタイム の環境タブを確認してください)";
   }

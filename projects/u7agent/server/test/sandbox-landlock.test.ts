@@ -8,6 +8,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   fixedLandlockWriteRoots,
+  LANDLOCK_ALLOWED_PORTS,
   LANDLOCK_MIN_ABI,
   landlockRulesEnv,
   landlockUnavailableMessage,
@@ -88,6 +89,15 @@ test("passes the rights and roots as JSON env and never falls back without a wra
   });
   assert.equal(env.U7AGENT_LANDLOCK_SHELL, "/bin/bash");
   assert.equal(env.U7AGENT_LANDLOCK_MIN_ABI, String(LANDLOCK_MIN_ABI));
+  // 許可ポートは net 制限の 1 箇所で決める。80 を入れないのはメタデータも一緒に塞ぐため
+  assert.equal(env.U7AGENT_LANDLOCK_NET_PORTS, LANDLOCK_ALLOWED_PORTS);
+  const allowed = env.U7AGENT_LANDLOCK_NET_PORTS.split(",");
+  assert.ok(allowed.includes("443"));
+  assert.ok(allowed.includes("8080"));
+  assert.ok(allowed.includes("18000-18099"));
+  assert.ok(allowed.includes("18100-18199"));
+  assert.ok(!allowed.includes("80"));
+  assert.ok(!allowed.includes("4317"));
   // 作業フォルダの環境変数からは U7AGENT_* を注入できないため、この env が上書きされる経路は無い
   assert.deepEqual(JSON.parse(env.U7AGENT_LANDLOCK_RULES), [
     { path: "/workspace/proj", create: false },
