@@ -1142,3 +1142,80 @@ export function CompactIcon() {
     </svg>
   );
 }
+
+/** 外部通信の承認カード。接続先を示す地球 */
+export function GlobeIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5"
+    >
+      <circle cx="8" cy="8" r="5.75" />
+      <path d="M2.25 8h11.5" />
+      <path d="M8 2.25c1.5 1.6 2.25 3.55 2.25 5.75S9.5 12.15 8 13.75C6.5 12.15 5.75 10.2 5.75 8S6.5 3.85 8 2.25z" />
+    </svg>
+  );
+}
+
+/** 接続の条件 (HTTPS / 443) を示す鍵 */
+export function LockIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3"
+    >
+      <rect x="3" y="7" width="10" height="6.5" rx="1.5" />
+      <path d="M5.25 7V5.25a2.75 2.75 0 0 1 5.5 0V7" />
+    </svg>
+  );
+}
+
+/** 承認済みの記録 */
+export function ShieldCheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5"
+    >
+      <path d="M8 2l4.75 2v3.75c0 2.9-1.95 5.35-4.75 6.25-2.8-.9-4.75-3.35-4.75-6.25V4z" />
+      <path d="M5.9 8.1l1.5 1.5 2.9-3" />
+    </svg>
+  );
+}
+
+/** 拒否・未回答の記録 */
+export function ShieldOffIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5"
+    >
+      <path d="M8 2l4.75 2v3.75c0 2.9-1.95 5.35-4.75 6.25-2.8-.9-4.75-3.35-4.75-6.25V4z" />
+      <path d="M6.25 6.25l3.5 3.5M9.75 6.25l-3.5 3.5" />
+    </svg>
+  );
+}

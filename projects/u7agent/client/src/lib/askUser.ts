@@ -18,6 +18,23 @@ export function isApprovalCard(card: ToolCard): boolean {
 }
 
 /**
+ * 承認カードの見出しと説明。サーバーは固定の質問文とモデルの理由を `"\n\n"` で連結して返すため、
+ * 表示だけが見出し行と本文に割る (旧い保存データも同じ形)。
+ */
+export function splitApprovalQuestion(question: AskUserQuestion): { title: string; detail?: string } {
+  const [title = question.question, ...rest] = question.question.split("\n\n");
+  const detail = rest.join("\n\n").trim();
+  return detail === "" ? { title } : { title, detail };
+}
+
+/** 承認の記録の文言。`false` (拒否) と `undefined` (未回答) を区別する */
+export function approvalRecordLabel(answer: AskUserAnswer | undefined): string {
+  if (answer?.approval === true) return "外部通信を許可";
+  if (answer?.approval === false) return "外部通信を拒否";
+  return "外部通信は未回答";
+}
+
+/**
  * SSE の status はリプレイされないため復帰の文言はクライアントが持ち、サーバーの run-events.ts と
  * 同じ文字列を二重に定義する (types.ts は型だけを再配布する契約)。
  */

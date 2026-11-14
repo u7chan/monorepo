@@ -440,6 +440,7 @@ export function askUserQuestionsOf(
     ...question,
     question: masker.mask(question.question),
     ...(question.header !== undefined ? { header: masker.mask(question.header) } : {}),
+    ...(question.host !== undefined ? { host: masker.mask(question.host) } : {}),
     ...(question.placeholder !== undefined ? { placeholder: masker.mask(question.placeholder) } : {}),
     ...(question.options
       ? {

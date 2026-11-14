@@ -93,7 +93,7 @@ References are relative to /workspace/.agents/skills/writer.
 
 `ask_user`（[ask-user.md](ask-user.md)）の質問と回答は、`ToolCall.questions` / `ToolCall.answers` としてライブ（`tool_start` / `tool_end` / `run.toolCalls`）と履歴（`messages[].tools`）の両方に載る。`questions` は args から、`answers` は toolResult の `details` から導出し、どちらも**DTO に載せる前に** mask する（`content` に掛かる `tool_result` 拡張を通らないため）。
 
-- `questions` は `{ question, header?, type?, options?, multiSelect?, placeholder? }` の配列（1〜4）。上限違反や形が壊れた args は DTO に載せず、通常のツール履歴のエラーとして見せる
+- `questions` は `{ question, header?, host?, type?, options?, multiSelect?, placeholder? }` の配列（1〜4）。`host` は承認ツール（`request_network_access`）だけが載せる接続先。上限違反や形が壊れた args は DTO に載せず、通常のツール履歴のエラーとして見せる
 - `answers` は `{ index, selected?, text?, skipped? }` の配列。`skipped` は質問ごとの「回答しない」で `selected` / `text` とは排他。停止・中止では空配列になり、カードを「回答なしで終了」として復元できる（未回答 = キーが無い、とは区別する）
 - `run.toolCalls` は待機中もこのフィールドを持ち、リロード / SSE 再接続の復帰に使う。クライアントは `answers` が無く `done: false` のカードを回答待ちとして扱う
 

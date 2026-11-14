@@ -379,6 +379,8 @@ export const AskUserQuestionSchema = z.object({
   question: z.string(),
   /** カードの短い見出し */
   header: z.string().optional(),
+  /** 承認ツールが示す接続先。カードは host + HTTPS 443 のチップで表示する */
+  host: z.string().optional(),
   /** 省略時は options の有無で決める (UI は options の有無だけを見る) */
   type: z.enum(["choice", "text"]).optional(),
   options: z.array(AskUserOptionSchema).optional(),

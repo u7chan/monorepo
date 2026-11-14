@@ -148,6 +148,22 @@ test("承認の質問は reason から固定 1 問を組み立て、選択肢は
   assert.equal(long?.question.length, "この通信を許可しますか？\n\n".length + 500);
 });
 
+test("接続先は host 引数を正規化して持ち、未指定なら reason から拾う", () => {
+  const [direct] = networkAccessQuestions("記事を取得する", "https://ja.wikipedia.org/wiki/x?q=1");
+  assert.equal(direct?.host, "ja.wikipedia.org");
+  assert.equal(direct?.header, "外部通信の許可");
+  // ポートはチップに出さない (承認で開くのは 443 だけ)
+  assert.equal(networkAccessQuestions("記事を取得する", "example.com:8443")[0]?.host, "example.com");
+  // 理由文にだけホストがある旧い要求でも、接続先のチップを出せる
+  assert.equal(networkAccessQuestions("ja.wikipedia.org の記事を取得する")[0]?.host, "ja.wikipedia.org");
+  assert.equal(networkAccessQuestions("記事を取得する")[0]?.host, undefined);
+  assert.deepEqual(
+    deriveNetworkAccessQuestions({ reason: "記事を取得する", host: "ja.wikipedia.org" }),
+    networkAccessQuestions("記事を取得する", "ja.wikipedia.org"),
+  );
+  assert.equal(deriveNetworkAccessQuestions({ reason: "r", host: 1 }), undefined);
+});
+
 test("allow と deny では質問せず、ask だけがホストへ委譲する", async () => {
   const allowHost = createHost({ mode: "allow" });
   const [allowTool] = createRequestNetworkAccessToolDefinitions({
