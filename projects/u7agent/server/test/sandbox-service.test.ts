@@ -21,7 +21,7 @@ const HAS_BASH = existsSync("/bin/bash");
 /** 解決済みのラッパー。テスト中に HOME を差し替えても同じ実体を使う */
 const LANDLOCK_WRAPPER = resolveLandlockWrapper();
 /**
- * bash の実行には Landlock ラッパーの同梱と ABI 3 以上が必要 (使えない環境ではサンドボックスが実行を拒否する)。
+ * bash の実行には Landlock ラッパーの同梱と ABI 4 以上が必要 (使えない環境ではサンドボックスが実行を拒否する)。
  * ローカルでは HAS_BASH と同じ作法で skip し、CI は Dockerfile の probe で検査する。
  */
 const HAS_LANDLOCK = (() => {
@@ -31,7 +31,7 @@ const HAS_LANDLOCK = (() => {
 })();
 const CAN_RUN_BASH = HAS_BASH && HAS_LANDLOCK;
 const SKIP_REASON = HAS_BASH
-  ? "Landlock (ABI 3+) is not available on this platform"
+  ? "Landlock (ABI 4+) is not available on this platform"
   : "bash is not available on this platform";
 const HAS_FD = (() => {
   for (const name of ["fd", "fdfind"]) {

@@ -47,7 +47,7 @@ const CONNECTED: RuntimeEnvironmentResponse = {
     workspace: "/workspace",
   },
   commands: [{ name: "curl", version: "8.14.1" }],
-  landlock: { state: "enabled", abi: 6, minAbi: 3 },
+  landlock: { state: "enabled", abi: 6, minAbi: 4 },
   capabilities: ["git-config-v1"],
   gitConfig: { state: "ready", path: "/home/node/.config/u7agent/gitconfig" },
 };
@@ -694,7 +694,7 @@ test("root 実行とコマンドなしとバージョン不明をそのままコ
         state: "connected",
         environment: { os: "Debian", arch: "aarch64", user: "root", isRoot: true, workspace: "/workspace" },
         commands: [{ name: "xz", version: null }],
-        landlock: { state: "unavailable", abi: null, minAbi: 3, reason: "wrapper_missing" },
+        landlock: { state: "unavailable", abi: null, minAbi: 4, reason: "wrapper_missing" },
         capabilities: CONNECTED.capabilities,
         gitConfig: CONNECTED.gitConfig,
       },

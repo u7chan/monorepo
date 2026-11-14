@@ -31,7 +31,7 @@ test("serves the runtime info only with a valid token and keeps /healthz public"
         { name: "node", version: null },
       ],
     }),
-    probeLandlock: async () => ({ state: "enabled", abi: 4, minAbi: 3 }),
+    probeLandlock: async () => ({ state: "enabled", abi: 4, minAbi: 4 }),
   });
 
   const unauthorized = await service.app.request("/v1/runtime/info");
@@ -59,7 +59,7 @@ test("serves the runtime info only with a valid token and keeps /healthz public"
       { name: "curl", version: "8.14.1" },
       { name: "node", version: null },
     ],
-    landlock: { state: "enabled", abi: 4, minAbi: 3 },
+    landlock: { state: "enabled", abi: 4, minAbi: 4 },
     capabilities: ["git-config-v1"],
     gitConfig: { state: "failed", path: join(homeDir, ".config/u7agent/gitconfig"), reason: "inside_workspace" },
   });

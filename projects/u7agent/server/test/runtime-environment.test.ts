@@ -21,7 +21,7 @@ const INFO: SandboxRuntimeInfo = {
     { name: "node", version: "24.18.0" },
     { name: "npm", version: null },
   ],
-  landlock: { state: "enabled", abi: 6, minAbi: 3 },
+  landlock: { state: "enabled", abi: 6, minAbi: 4 },
   capabilities: ["git-config-v1"],
   gitConfig: { state: "ready", path: "/home/node/.config/u7agent/gitconfig" },
 };

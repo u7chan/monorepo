@@ -26,7 +26,7 @@ const CAN_RUN_BASH = HAS_BASH && HAS_LANDLOCK && HAS_GIT;
 const SKIP_REASON = !HAS_BASH
   ? "bash is not available on this platform"
   : !HAS_LANDLOCK
-    ? "Landlock (ABI 3+) is not available on this platform"
+    ? "Landlock (ABI 4+) is not available on this platform"
     : "git is not available on this platform";
 
 function authHeaders(): Record<string, string> {

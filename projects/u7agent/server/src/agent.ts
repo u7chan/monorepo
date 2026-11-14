@@ -151,6 +151,7 @@ In deployment it is a non-root Linux container where apt-get install fails.
 
 Networking: use curl for HTTP(S) (e.g. \`curl -fsSL -o <path> <url>\`).
 Prefer curl over one-off \`node -e\` fetch scripts; use node fetch only as a fallback when curl is missing.
+Outbound TCP is limited to ports 443, 8080 and 18000-18099. Start any local server you check with on 8080 or 18000-18099; other ports are unreachable.
 In the deployed container: node 26, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl, python 3.13, uv, chromium (headless, u7agent-browser).
 Not installed there: wget, ffmpeg, imagemagick.
 

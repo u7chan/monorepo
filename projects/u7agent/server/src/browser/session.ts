@@ -10,6 +10,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import { acquireConcurrencySlot, type ConcurrencySlot } from "./concurrency";
 import { CALL_DEADLINE_MS, VIEWPORT } from "./limits";
 import { browserArguments, installReachPolicy } from "./policy";
+import { browserPortsForSlot, type BrowserPorts } from "./ports";
 import { startDenyAllProxy, type DenyAllProxy } from "./proxy";
 import { cleanupStaleCallDirs, createCallDirs, type CallDirs } from "./temp";
 
@@ -24,6 +25,11 @@ export interface BrowserSession {
   context: BrowserContext;
   page: Page;
   dirs: CallDirs;
+  /**
+   * この呼び出しが待ち受けるポート (proxy / fixture / 閉じた検証用)。サンドボックスの Landlock は
+   * 接続先ポートしか制限できないため、待受を許可レンジ内に収める (ports.ts)。
+   */
+  readonly ports: BrowserPorts;
   /** proxy が拒否した宛先。proxy を経由して拒否されたことを確かめるために見る */
   readonly denials: readonly string[];
   readonly timedOut: boolean;
@@ -50,6 +56,7 @@ export async function openBrowserSession(options: OpenBrowserSessionOptions = {}
   const denials: string[] = [];
   let dirs: CallDirs | undefined;
   let slot: ConcurrencySlot | undefined;
+  let ports: BrowserPorts | undefined;
   let proxy: DenyAllProxy | undefined;
   let browser: Browser | undefined;
   let context: BrowserContext | undefined;
@@ -92,7 +99,10 @@ export async function openBrowserSession(options: OpenBrowserSessionOptions = {}
     if (stale.length > 0) log(`終了済みの一時領域を回収しました (${stale.length} 件)`);
     // 上限に達していたらブラウザを起動せずに落とす (資源の入場制御)
     slot = await acquireConcurrencySlot({ log });
-    proxy = await startDenyAllProxy({ onDeny: (target) => denials.push(target) });
+    // 枠の番号から待受ポートを決める。レンジ内の空き探索をしないのは、閉じた検証用ポートを
+    // 同じ呼び出しの fixture が取り直すのを構造で防ぐため (ports.ts)
+    ports = browserPortsForSlot(slot.index);
+    proxy = await startDenyAllProxy({ port: ports.proxy, onDeny: (target) => denials.push(target) });
     timer = setTimeout(() => {
       timedOut = true;
       log(`期限 (${deadlineMs} ms) を超えたため中断します`);
@@ -111,6 +121,7 @@ export async function openBrowserSession(options: OpenBrowserSessionOptions = {}
       context,
       page,
       dirs,
+      ports,
       denials,
       get timedOut() {
         return timedOut;

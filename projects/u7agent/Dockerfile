@@ -60,6 +60,7 @@ COPY scripts/steering-send.ts ./scripts/steering-send.ts
 COPY scripts/bench-history-*.ts scripts/history-bench-fixture.ts scripts/tsconfig.json ./scripts/
 COPY scripts/install-landlock.mjs ./scripts/install-landlock.mjs
 COPY scripts/landlock-exec.py ./scripts/landlock-exec.py
+COPY scripts/landlock-net-probe.py ./scripts/landlock-net-probe.py
 # shell-quote.mjs は install-browser-cli.mjs と install-landlock.mjs の共有 module (テストも読む)
 COPY scripts/shell-quote.mjs ./scripts/shell-quote.mjs
 # docs:check は docs / AGENTS.md / README.md / .env.example のリンクとパスを実ファイルと突き合わせる。
@@ -71,16 +72,27 @@ COPY scripts/docs-check.mjs scripts/docs-text.mjs ./scripts/
 # EACCES になることまで見る (テスト側の skip 条件ではなくビルドを失敗させる)。
 COPY scripts/landlock-exec.py /usr/local/bin/u7agent-landlock
 RUN chmod 0755 /usr/local/bin/u7agent-landlock \
-    && test "$(/usr/local/bin/u7agent-landlock --abi)" -ge 3 \
+    && test "$(/usr/local/bin/u7agent-landlock --abi)" -ge 4 \
     && mkdir -p /tmp/landlock-probe/allowed /tmp/landlock-probe/denied \
     && U7AGENT_LANDLOCK_SHELL=/bin/bash \
+       U7AGENT_LANDLOCK_MIN_ABI=4 \
        U7AGENT_LANDLOCK_RULES='[{"path":"/tmp/landlock-probe/allowed","create":true},{"path":"/dev/null"}]' \
        /usr/local/bin/u7agent-landlock -c 'echo ok > /tmp/landlock-probe/allowed/written' \
     && test -f /tmp/landlock-probe/allowed/written \
     && ! U7AGENT_LANDLOCK_SHELL=/bin/bash \
+         U7AGENT_LANDLOCK_MIN_ABI=4 \
          U7AGENT_LANDLOCK_RULES='[{"path":"/tmp/landlock-probe/allowed","create":true},{"path":"/dev/null"}]' \
          /usr/local/bin/u7agent-landlock -c 'echo no > /tmp/landlock-probe/denied/written' 2>/dev/null \
     && test ! -f /tmp/landlock-probe/denied/written \
+    && U7AGENT_LANDLOCK_SHELL=/bin/bash \
+       U7AGENT_LANDLOCK_NET_PORTS=443 \
+       /usr/local/bin/u7agent-landlock -c 'python3 /app/scripts/landlock-net-probe.py 1 denied' \
+    && U7AGENT_LANDLOCK_SHELL=/bin/bash \
+       U7AGENT_LANDLOCK_NET_PORTS=1 \
+       /usr/local/bin/u7agent-landlock -c 'python3 /app/scripts/landlock-net-probe.py 1 refused' \
+    && ! U7AGENT_LANDLOCK_SHELL=/bin/bash \
+         U7AGENT_LANDLOCK_NET_PORTS=abc \
+         /usr/local/bin/u7agent-landlock -c 'true' 2>/dev/null \
     && rm -rf /tmp/landlock-probe
 # u7agent-browser はサーバー側の CLI を呼ぶ入口。cwd を保つため /app を絶対パスで埋め込む。
 COPY scripts/install-browser-cli.mjs ./scripts/install-browser-cli.mjs
@@ -113,9 +125,10 @@ RUN set -eux; \
     mkdir -p /tmp/u7agent-browser-probe; \
     cd /tmp/u7agent-browser-probe; \
     U7AGENT_LANDLOCK_SHELL=/bin/bash; \
-    U7AGENT_LANDLOCK_MIN_ABI=3; \
+    U7AGENT_LANDLOCK_MIN_ABI=4; \
+    U7AGENT_LANDLOCK_NET_PORTS=443,8080,18000-18099,18100-18199; \
     U7AGENT_LANDLOCK_RULES='[{"path":"/tmp/u7agent-browser-probe","create":true},{"path":"/tmp"},{"path":"/home/node/.cache","create":true},{"path":"/home/node/.npm","create":true},{"path":"/home/node/.local/share/pnpm","create":true},{"path":"/dev/null"},{"path":"/dev/shm"}]'; \
-    export U7AGENT_LANDLOCK_SHELL U7AGENT_LANDLOCK_MIN_ABI U7AGENT_LANDLOCK_RULES; \
+    export U7AGENT_LANDLOCK_SHELL U7AGENT_LANDLOCK_MIN_ABI U7AGENT_LANDLOCK_NET_PORTS U7AGENT_LANDLOCK_RULES; \
     wrap() { /usr/local/bin/u7agent-landlock -c "$1"; }; \
     wrap 'u7agent-browser --self-test' > /tmp/u7agent-browser-probe/1.log 2>&1 & p1=$!; \
     wrap 'env -u PLAYWRIGHT_BROWSERS_PATH u7agent-browser --self-test' > /tmp/u7agent-browser-probe/2.log 2>&1 & p2=$!; \
