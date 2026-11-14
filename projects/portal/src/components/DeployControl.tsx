@@ -3,7 +3,7 @@
 
 import { useEffect, useId, useRef } from "react";
 import type { DeployController } from "../hooks/useDeploy";
-import { formatTagDate } from "../lib/tagDate";
+import { formatTagDateTime } from "../lib/tagDateTime";
 
 function DeployIcon() {
   return (
@@ -117,6 +117,12 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
   const disabled =
     deploy.loading || deploy.pending || deploy.tags.length === 0 || !deploy.selectedTag;
 
+  // 選択中の値は選択欄の幅に収まらず秒が切れることがあるため、作成日時は
+  // 欄の外にも出して、開かなくても読めるようにする。
+  const selectedCreatedAt = formatTagDateTime(
+    deploy.tags.find((option) => option.tag === deploy.selectedTag)?.createdAt,
+  );
+
   return (
     <div onKeyDown={handleKeyDown}>
       <div className="flex flex-wrap items-center gap-2">
@@ -137,11 +143,11 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
             <option value="">No tags found</option>
           ) : (
             deploy.tags.map((option) => {
-              const date = formatTagDate(option.createdAt);
+              const createdAt = formatTagDateTime(option.createdAt);
               const current = option.tag === deploy.currentTag ? " (current)" : "";
               return (
                 <option key={option.tag} value={option.tag}>
-                  {`${option.tag}${date ? ` · ${date}` : ""}${current}`}
+                  {`${option.tag}${createdAt ? ` · ${createdAt}` : ""}${current}`}
                 </option>
               );
             })
@@ -165,7 +171,12 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
         </button>
       </div>
       <p className="mt-1.5 text-[11px] text-fg-3">
-        Dates are the image creation date (JST). The container is recreated with the selected image.
+        {selectedCreatedAt ? (
+          <>
+            Created at <span className="font-mono">{selectedCreatedAt}</span> (JST).{" "}
+          </>
+        ) : null}
+        The container is recreated with the selected image.
       </p>
       {deploy.error && (
         <p role="alert" className="mt-1.5 text-[11px] text-dead">
