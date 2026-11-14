@@ -90,12 +90,13 @@ http://localhost:3000 でアクセス
 
 `.env` ファイルを作成するか、`.env.example` をコピーして使用してください。
 
-| 変数名                | 説明                                              | デフォルト    |
-| --------------------- | ------------------------------------------------- | ------------- |
-| `PORTAL_HOST`         | ポートリンクのホスト名                            | `localhost`   |
-| `USE_MOCK_DATA`       | モックデータモードを有効化                        | `false`       |
-| `NODE_ENV`            | 実行環境                                          | `development` |
-| `PORTAL_GITHUB_TOKEN` | デプロイ UI 用の fine-grained PAT（サーバーのみ） | なし          |
+| 変数名                | 説明                                                          | デフォルト    |
+| --------------------- | ------------------------------------------------------------- | ------------- |
+| `PORTAL_HOST`         | ポートリンクのホスト名                                        | `localhost`   |
+| `USE_MOCK_DATA`       | モックデータモードを有効化                                    | `false`       |
+| `NODE_ENV`            | 実行環境                                                      | `development` |
+| `PORTAL_GHCR_TOKEN`   | タグ一覧用の classic PAT（`read:packages`、サーバーのみ）     | なし          |
+| `PORTAL_GITHUB_TOKEN` | デプロイ起動用の fine-grained PAT（Actions = Read and write） | なし          |
 
 ```bash
 # リモートホストのコンテナにアクセスする場合
@@ -150,22 +151,26 @@ docker build -t portal .
 
 - 対象: `ghcr.io/u7chan/monorepo/<project>` の主コンテナだけ
 - Docker Hub と第三者の GHCR（`ghcr.io/amir20/dozzle` など）はタグを切り替えない（`Deploy` を出さない）
+- `latest` は可変タグなので選択肢に出さない。最新ビルドは同じ version の `sha-*` を選ぶ（`require_image_tag` の target でもそのまま使える）
 - portal 自身は一覧から除外しているため、portal の更新は従来どおり Manual Deploy を使う
 - タグ一覧は GitHub Packages から取得し、デプロイは self-hosted-runner の `manual-deploy.yml` を `workflow_dispatch` で起動する
 - 成功すると Actions へのリンクを表示する。コンテナの再作成は Actions 側で行う
 
-ホスト側の `.env`（Manual Deploy が読む `ENV_FILE`）に token を置く。
+ホスト側の `.env`（Manual Deploy が読む `ENV_FILE`）に 2 つの token を置く。
 
 ```bash
+# タグ一覧用: classic PAT（read:packages）
+PORTAL_GHCR_TOKEN=ghp_xxx
+
+# デプロイ起動用: fine-grained PAT（Actions = Read and write）
 PORTAL_GITHUB_TOKEN=github_pat_xxx
 ```
 
-- fine-grained PAT を使う
-  - `u7chan/self-hosted-runner`: Actions = Read and write
-  - `u7chan/monorepo`: Packages = Read
-- `.env` は 600 にし、リポジトリへ commit しない
+- `PORTAL_GHCR_TOKEN`: GitHub Packages / Container registry は fine-grained PAT 非対応のため classic PAT を使う。`read:packages` だけを付ける
+- `PORTAL_GITHUB_TOKEN`: `u7chan/self-hosted-runner` の Actions = Read and write
+- `.env` は 600 にし、リポジトリへ commit しない。どちらも有効期限を設定する
 - token の変更は portal の再作成で反映する
-- token が無い・失効している場合、`Deploy` は 503 を返す。一覧表示と start/stop は動き続ける
+- どちらかが無い・失効している場合、タグ一覧または `Deploy` が 503 を返す。一覧表示と start/stop は動き続ける
 
 ## ホーム画面への追加
 

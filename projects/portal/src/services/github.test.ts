@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { dispatchDeploy, listImageTags, toImageTagOptions } from "./github";
 
 const originalFetch = globalThis.fetch;
-const originalToken = process.env.PORTAL_GITHUB_TOKEN;
+const originalDeployToken = process.env.PORTAL_GITHUB_TOKEN;
+const originalGhcrToken = process.env.PORTAL_GHCR_TOKEN;
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -14,20 +15,26 @@ function response(body: unknown, status = 200): Response {
 }
 
 beforeEach(() => {
-  process.env.PORTAL_GITHUB_TOKEN = "test-token";
+  process.env.PORTAL_GITHUB_TOKEN = "deploy-token";
+  process.env.PORTAL_GHCR_TOKEN = "ghcr-token";
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  if (originalToken === undefined) {
+  if (originalDeployToken === undefined) {
     delete process.env.PORTAL_GITHUB_TOKEN;
   } else {
-    process.env.PORTAL_GITHUB_TOKEN = originalToken;
+    process.env.PORTAL_GITHUB_TOKEN = originalDeployToken;
+  }
+  if (originalGhcrToken === undefined) {
+    delete process.env.PORTAL_GHCR_TOKEN;
+  } else {
+    process.env.PORTAL_GHCR_TOKEN = originalGhcrToken;
   }
 });
 
 describe("toImageTagOptions", () => {
-  test("新しい version のタグを先に並べる", () => {
+  test("新しい version のタグを先に並べ、latest は含めない", () => {
     const versions = [
       {
         created_at: "2026-11-12T00:00:00Z",
@@ -40,7 +47,6 @@ describe("toImageTagOptions", () => {
     ];
 
     expect(toImageTagOptions(versions)).toEqual([
-      { tag: "latest", createdAt: "2026-11-13T00:00:00Z" },
       { tag: "sha-new", createdAt: "2026-11-13T00:00:00Z" },
       { tag: "sha-old", createdAt: "2026-11-12T00:00:00Z" },
     ]);
@@ -50,16 +56,16 @@ describe("toImageTagOptions", () => {
     const versions = [
       {
         created_at: "2026-11-13T00:00:00Z",
-        metadata: { container: { tags: ["latest"] } },
+        metadata: { container: { tags: ["sha-dup"] } },
       },
       {
         created_at: "2026-11-12T00:00:00Z",
-        metadata: { container: { tags: ["latest"] } },
+        metadata: { container: { tags: ["sha-dup"] } },
       },
     ];
 
     expect(toImageTagOptions(versions)).toEqual([
-      { tag: "latest", createdAt: "2026-11-13T00:00:00Z" },
+      { tag: "sha-dup", createdAt: "2026-11-13T00:00:00Z" },
     ]);
   });
 
@@ -75,11 +81,11 @@ describe("toImageTagOptions", () => {
     expect(toImageTagOptions(versions)).toEqual([]);
   });
 
-  test("Docker のタグとして不正な文字列は無視する", () => {
+  test("Docker のタグとして不正な文字列と latest は無視する", () => {
     const versions = [
       {
         created_at: "2026-11-13T00:00:00Z",
-        metadata: { container: { tags: ["", "team/tag", "sha-ok"] } },
+        metadata: { container: { tags: ["", "team/tag", "latest", "sha-ok"] } },
       },
     ];
 
@@ -87,15 +93,26 @@ describe("toImageTagOptions", () => {
       { tag: "sha-ok", createdAt: "2026-11-13T00:00:00Z" },
     ]);
   });
+
+  test("latest だけの version は選択肢を返さない", () => {
+    const versions = [
+      {
+        created_at: "2026-11-13T00:00:00Z",
+        metadata: { container: { tags: ["latest"] } },
+      },
+    ];
+
+    expect(toImageTagOptions(versions)).toEqual([]);
+  });
 });
 
 describe("listImageTags", () => {
-  test("GitHub Packages API からタグを取得する", async () => {
+  test("GHCR 用の token で GitHub Packages API からタグを取得する", async () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
         "https://api.github.com/users/u7chan/packages/container/monorepo%2Fportal/versions?per_page=100",
       );
-      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-token");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer ghcr-token");
       return response([
         {
           created_at: "2026-11-13T13:06:22Z",
@@ -107,17 +124,19 @@ describe("listImageTags", () => {
 
     await expect(listImageTags("portal")).resolves.toEqual([
       { tag: "sha-0ff5c144", createdAt: "2026-11-13T13:06:22Z" },
-      { tag: "latest", createdAt: "2026-11-13T13:06:22Z" },
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  test("token がなければ 503 を返す", async () => {
-    delete process.env.PORTAL_GITHUB_TOKEN;
+  test("GHCR 用の token がなければ 503 を返す", async () => {
+    delete process.env.PORTAL_GHCR_TOKEN;
     const fetchMock = mock(async () => response([]));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await expect(listImageTags("portal")).rejects.toMatchObject({ status: 503 });
+    await expect(listImageTags("portal")).rejects.toMatchObject({
+      status: 503,
+      message: "Image tags are not configured. Set PORTAL_GHCR_TOKEN on the host.",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -142,13 +161,13 @@ describe("listImageTags", () => {
 });
 
 describe("dispatchDeploy", () => {
-  test("manual-deploy を target と tag 付きで起動する", async () => {
+  test("deploy 用の token で manual-deploy を target と tag 付きで起動する", async () => {
     const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
         "https://api.github.com/repos/u7chan/self-hosted-runner/actions/workflows/manual-deploy.yml/dispatches",
       );
       expect(init?.method).toBe("POST");
-      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-token");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer deploy-token");
       expect(JSON.parse(String(init?.body))).toEqual({
         ref: "main",
         inputs: {
@@ -165,6 +184,18 @@ describe("dispatchDeploy", () => {
       "https://github.com/u7chan/self-hosted-runner/actions/workflows/manual-deploy.yml",
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("deploy 用の token がなければ 503 を返す", async () => {
+    delete process.env.PORTAL_GITHUB_TOKEN;
+    const fetchMock = mock(async () => new Response(null, { status: 204 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(dispatchDeploy("usage-portal", "sha-abc1234")).rejects.toMatchObject({
+      status: 503,
+      message: "Deploy is not configured. Set PORTAL_GITHUB_TOKEN on the host.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("不正な target と tag はリクエスト前に拒否する", async () => {

@@ -81,12 +81,12 @@ export function useDeploy(container: Container): DeployController {
       const nextCurrent = typeof data?.currentTag === "string" ? data.currentTag : "";
       const hasCurrent =
         nextCurrent.length > 0 && nextTags.some((option) => option.tag === nextCurrent);
-      const options =
-        hasCurrent || nextCurrent.length === 0 ? nextTags : [{ tag: nextCurrent }, ...nextTags];
 
-      setTags(options);
+      // 現在のタグが一覧にない場合（latest は API で除外する）は、
+      // 先頭の不変タグを初期選択にする。
+      setTags(nextTags);
       setCurrentTag(nextCurrent);
-      setSelectedTag(hasCurrent ? nextCurrent : (options[0]?.tag ?? ""));
+      setSelectedTag(hasCurrent ? nextCurrent : (nextTags[0]?.tag ?? ""));
     } catch (loadError) {
       setTags([]);
       setSelectedTag("");

@@ -66,9 +66,12 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
   const selectRef = useRef<HTMLSelectElement | null>(null);
   const successRef = useRef<HTMLAnchorElement | null>(null);
 
+  // 読み込み中は select が disabled で focus できない。有効になった時点で移す。
   useEffect(() => {
-    selectRef.current?.focus();
-  }, []);
+    if (!deploy.loading) {
+      selectRef.current?.focus();
+    }
+  }, [deploy.loading]);
 
   // パネルが成功表示に切り替わると select が消えるため、次の操作先へフォーカスを移す。
   useEffect(() => {

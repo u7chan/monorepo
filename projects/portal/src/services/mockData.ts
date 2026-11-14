@@ -155,7 +155,6 @@ export const mockContainers: Container[] = [
 
 // デプロイ UI のモック用タグ。実環境では GitHub Packages から取得する。
 export const mockImageTags: ImageTagOption[] = [
-  { tag: "latest", createdAt: "2026-11-13T13:06:22Z" },
   { tag: "sha-0ff5c144", createdAt: "2026-11-13T13:06:22Z" },
   { tag: "manual-test-abc1234", createdAt: "2026-11-12T09:00:00Z" },
 ];

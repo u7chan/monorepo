@@ -32,15 +32,26 @@ interface PackageVersion {
   };
 }
 
-function getToken(): string | undefined {
-  return process.env.PORTAL_GITHUB_TOKEN?.trim() || undefined;
+function getToken(name: "PORTAL_GITHUB_TOKEN" | "PORTAL_GHCR_TOKEN"): string | undefined {
+  return process.env[name]?.trim() || undefined;
 }
 
-function requireToken(): string {
-  const token = getToken();
+function requireDeployToken(): string {
+  const token = getToken("PORTAL_GITHUB_TOKEN");
   if (!token) {
     throw new GithubServiceError(
       "Deploy is not configured. Set PORTAL_GITHUB_TOKEN on the host.",
+      503,
+    );
+  }
+  return token;
+}
+
+function requireGhcrToken(): string {
+  const token = getToken("PORTAL_GHCR_TOKEN");
+  if (!token) {
+    throw new GithubServiceError(
+      "Image tags are not configured. Set PORTAL_GHCR_TOKEN on the host.",
       503,
     );
   }
@@ -90,7 +101,9 @@ export function toImageTagOptions(versions: PackageVersion[]): ImageTagOption[] 
 
   for (const version of [...versions].sort((a, b) => b.created_at.localeCompare(a.created_at))) {
     for (const tag of version.metadata?.container?.tags ?? []) {
-      if (!tag || !isValidImageTag(tag) || seen.has(tag)) continue;
+      // latest は可変タグで、require_image_tag の target が拒否する。
+      // 同じ version の sha-* を選べば最新ビルドへ更新できる。
+      if (!tag || tag === "latest" || !isValidImageTag(tag) || seen.has(tag)) continue;
       seen.add(tag);
       options.push({ tag, createdAt: version.created_at });
     }
@@ -104,7 +117,7 @@ export async function listImageTags(project: string): Promise<ImageTagOption[]> 
     throw new GithubServiceError(`Invalid image project: ${project}`, 400);
   }
 
-  const token = requireToken();
+  const token = requireGhcrToken();
   const packageName = encodeURIComponent(`${PACKAGE_PREFIX}/${project}`);
   const url = `${GITHUB_API}/users/${PACKAGE_OWNER}/packages/container/${packageName}/versions?per_page=100`;
 
@@ -147,7 +160,7 @@ export async function dispatchDeploy(target: string, tag: string): Promise<strin
     throw new GithubServiceError(`Invalid image tag: ${tag}`, 400);
   }
 
-  const token = requireToken();
+  const token = requireDeployToken();
   const url = `${GITHUB_API}/repos/${DEPLOY_REPOSITORY}/actions/workflows/${DEPLOY_WORKFLOW}/dispatches`;
 
   let response: Response;
