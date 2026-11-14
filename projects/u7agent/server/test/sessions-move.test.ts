@@ -13,6 +13,7 @@ import { sessionUploadsRel, sessionWorkdirRel, spaceDirRel } from "../src/app-pa
 import type { SandboxHandoffClient, SandboxMoveClient, SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SandboxRequestError } from "../src/sandbox/client";
 import { HANDOFF_FILE_NAME } from "../src/handoff-memo";
+import { networkAccessQuestions } from "../src/request-network-access-tool";
 import { SessionMoveResponseSchema } from "../src/schema";
 import { createAgentCatalog } from "../src/agents";
 import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
@@ -1697,6 +1698,42 @@ test("answers success with cleanupPending when the history removal fails, and cl
       // 古い履歴は残らず、空の履歴で開き直せる
       assert.deepEqual((await jsonBody(bff.app.request(`/api/sessions/${id}`))).messages, []);
       assert.deepEqual(bff.appDb.loadAssistantMetrics(id), [], "片付けで履歴を消したらメタの行も消す");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+// 同じスペースへの引き継ぎでも record は作り直される。拒否の記録は会話 ID で残るため、世代を record に
+// 持たせると 0 に戻って古い拒否と一致し、引き継ぎ後の新しい入力でもカードが出なくなる。
+test("拒否の世代は record の作り直しで巻き戻らず、引き継ぎ後の新しい入力で解錠する", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      // 最初の入力 (世代 1) を観測してから拒否する
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "記事を取得して" }));
+      await waitFor(() => bff.store.inputGeneration(id) === 1, 5000, "最初の入力");
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+
+      const record = bff.store.get(id)!;
+      const host = bff.store.networkAccessHost();
+      const pending = host.ask(id, "call-1", networkAccessQuestions("r", "example.com"), undefined);
+      bff.store.answerQuestion(record, "call-1", [{ index: 0, approval: false }]);
+      await pending;
+      assert.equal(bff.store.networkAccess.isDenied(id, "example.com", bff.store.inputGeneration(id)), true);
+
+      assert.equal((await moveTo(bff, id, "default")).status, 200, "同じスペースへの引き継ぎ");
+      const recreated = await bff.store.resolve(id);
+      assert.ok(recreated);
+      assert.notEqual(recreated, record, "引き継ぎで record は作り直される");
+      assert.equal(bff.store.inputGeneration(id), 1, "世代を巻き戻さない");
+
+      // 引き継ぎ後の新しい入力で、拒否したホストのカードを出せるようになる
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "もう一度取得して" }));
+      await waitFor(() => bff.store.inputGeneration(id) === 2, 5000, "引き継ぎ後の入力");
+      assert.equal(bff.store.networkAccess.isDenied(id, "example.com", bff.store.inputGeneration(id)), false);
     } finally {
       await bff.close();
     }

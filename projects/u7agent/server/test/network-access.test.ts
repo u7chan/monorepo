@@ -17,11 +17,12 @@ import {
   type NetworkAccessHost,
 } from "../src/request-network-access-tool";
 import { LANDLOCK_ALLOWED_PORTS, LANDLOCK_PORTS_WITHOUT_HTTPS, landlockAllowedPorts } from "../src/sandbox/landlock";
-import type { AskUserAnswer, AskUserQuestion } from "../src/schema";
-import { askUserAnswersOf, askUserQuestionsOf } from "../src/session-projection";
+import type { AskUserAnswer, AskUserQuestion, MessageMetrics, SSEEventType } from "../src/schema";
+import { askUserAnswersOf, askUserQuestionsOf, projectMessages } from "../src/session-projection";
 import { createSecretMasker } from "../src/redact";
+import { createRunEventBridge } from "../src/run-events";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
-import { SessionStore, type PiRuntimeLike, type PiSessionLike } from "../src/sessions";
+import { SessionStore, type PiRuntimeLike, type PiSessionLike, type SessionRecord } from "../src/sessions";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
 
 const CWD = "/tmp/project";
@@ -89,6 +90,19 @@ function createHost(options: {
     },
   };
   return host;
+}
+
+/** カードを開いて拒否の回答を返す (拒否の記録は回答の受理時に入る) */
+async function denyHost(
+  store: SessionStore,
+  host: NetworkAccessHost,
+  record: SessionRecord,
+  toolCallId: string,
+  target: string,
+): Promise<void> {
+  const pending = host.ask(record.id, toolCallId, networkAccessQuestions("r", target), undefined);
+  store.answerQuestion(record, toolCallId, [{ index: 0, approval: false }]);
+  await pending;
 }
 
 test("モードは env から解決し、未知の値は allow に倒す", () => {
@@ -478,7 +492,7 @@ test("承認・会話削除・sweep で拒否の記録を捨てる", async () =>
   const store = createStore();
   const record = await store.create();
   const host = store.networkAccessHost();
-  const generation = record.inputGeneration;
+  const generation = store.inputGeneration(record.id);
 
   const deny = async (toolCallId: string, target: string) => {
     const pending = host.ask(record.id, toolCallId, networkAccessQuestions("r", target), undefined);
@@ -500,7 +514,7 @@ test("承認・会話削除・sweep で拒否の記録を捨てる", async () =>
   assert.equal(store.networkAccess.isDenied(record.id, "example.com", generation), false, "削除で消える");
 
   const swept = await store.create();
-  const sweptGeneration = swept.inputGeneration;
+  const sweptGeneration = store.inputGeneration(swept.id);
   const sweptPending = host.ask(swept.id, "call-4", networkAccessQuestions("r", "example.com"), undefined);
   store.answerQuestion(swept, "call-4", [{ index: 0, approval: false }]);
   await sweptPending;
@@ -508,6 +522,94 @@ test("承認・会話削除・sweep で拒否の記録を捨てる", async () =>
   swept.lastUsedAt = Date.now() - 24 * 60 * 60 * 1000;
   await store.sweep();
   assert.equal(store.networkAccess.isDenied(swept.id, "example.com", sweptGeneration), false, "sweep で消える");
+});
+
+// カードを出さない判定はツール本体とライブ配信で共有する。ここが true のときだけ質問を投影する。
+test("カードを出すかは、モード・接続先・拒否の記録で決まる", async () => {
+  const store = createStore();
+  const record = await store.create();
+  const host = store.networkAccessHost();
+  const args = { reason: "記事を読む", host: "example.com" };
+
+  assert.equal(store.showsNetworkAccessCard(record.id, args), false, "既定の allow はカードを出さない");
+  assert.equal(store.showsNetworkAccessCard(record.id, { reason: "記事を読む" }), false, "接続先を特定できない");
+
+  const previous = process.env.PI_SANDBOX_NETWORK_POLICY;
+  process.env.PI_SANDBOX_NETWORK_POLICY = "ask";
+  try {
+    assert.equal(store.showsNetworkAccessCard(record.id, args), true);
+    await denyHost(store, host, record, "call-1", "example.com");
+    assert.equal(store.showsNetworkAccessCard(record.id, args), false, "拒否済みのホストはカードを出さない");
+    assert.equal(
+      store.showsNetworkAccessCard(record.id, { reason: "別の記事", host: "other.example" }),
+      true,
+      "別ホストはカードを出す",
+    );
+  } finally {
+    if (previous === undefined) delete process.env.PI_SANDBOX_NETWORK_POLICY;
+    else process.env.PI_SANDBOX_NETWORK_POLICY = previous;
+  }
+});
+
+// 引数からは「聞かなかった」ことを区別できない。結果の印がある呼び出しは履歴でもカードにしない。
+test("カードを出さずに断った要求は、履歴の投影でもカードにしない", () => {
+  const call = { reason: "記事を読む", host: "example.com" };
+  const projected = projectMessages(
+    {
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "call-1", name: REQUEST_NETWORK_ACCESS_TOOL_NAME, arguments: call }],
+        },
+        {
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: REQUEST_NETWORK_ACCESS_TOOL_NAME,
+          isError: true,
+          content: [{ type: "text", text: "拒否済み" }],
+          details: { questions: networkAccessQuestions("記事を読む", "example.com"), answers: [], notAsked: true },
+        },
+      ],
+    } as unknown as PiSessionLike,
+    new WeakMap<object, MessageMetrics>(),
+    masker,
+    CWD,
+  );
+  assert.equal(projected[0]?.tools?.length, 1, "ツール自体は履歴に残す");
+  assert.equal(projected[0]?.tools?.[0]?.questions, undefined, "カードは復元しない");
+});
+
+// ライブ配信も同じ判定を通す。待機を登録しない呼び出しに tool_start の質問を載せない。
+test("カードを出さない呼び出しは、ライブの tool_start でも質問を配らない", () => {
+  const events: { type: SSEEventType; data: Record<string, unknown> }[] = [];
+  const bridge = createRunEventBridge({
+    runId: "run-1",
+    session: { messages: [] } as unknown as PiSessionLike,
+    masker,
+    cwd: CWD,
+    tools: new Map(),
+    toolTimings: new Map(),
+    messageMetrics: new WeakMap<object, MessageMetrics>(),
+    compactionMeta: new Map(),
+    emit: (type, data) => {
+      events.push({ type, data: data as Record<string, unknown> });
+    },
+    emitResync: () => {},
+    hidesQuestions: (toolName) => toolName === REQUEST_NETWORK_ACCESS_TOOL_NAME,
+    onRetryScheduled: () => {},
+    onRetryAttemptStart: () => {},
+    onRetryEnd: () => {},
+    onSettled: () => {},
+  });
+  bridge.listener({
+    type: "tool_execution_start",
+    toolCallId: "call-1",
+    toolName: REQUEST_NETWORK_ACCESS_TOOL_NAME,
+    args: { reason: "記事を読む", host: "example.com" },
+  } as never);
+  const started = events.find((entry) => entry.type === "tool_start");
+  assert.ok(started, "tool_start を配る");
+  assert.equal(started.data["questions"], undefined, "質問は載せない");
 });
 
 // 世代は「モデルへ入った user の数」。同じ run への追加入力でも解錠される必要がある。
@@ -525,10 +627,10 @@ test("user メッセージの注入で世代が進み、拒否が解錠される
     store.answerQuestion(record, "call-1", [{ index: 0, approval: false }]);
     await pending;
     assert.equal(host.isDenied(record.id, "example.com"), true);
-    assert.equal(record.inputGeneration, 0, "拒否の時点ではまだ入力が無い");
+    assert.equal(store.inputGeneration(record.id), 0, "拒否の時点ではまだ入力が無い");
 
     store.postMessage(record, "もう一度取得してみて");
-    await waitFor(() => record.inputGeneration > 0, 3000, "user の注入");
+    await waitFor(() => store.inputGeneration(record.id) > 0, 3000, "user の注入");
     assert.equal(host.isDenied(record.id, "example.com"), false, "新しい入力で解錠する");
   } finally {
     await store.close();

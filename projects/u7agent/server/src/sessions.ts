@@ -34,7 +34,12 @@ import { createInvestigateRunner, type InvestigateRunner } from "./investigate-r
 import type { InvestigateHost } from "./investigate-tool";
 import { validateAskUserAnswers, type AskUserHost } from "./ask-user-tool";
 import { NetworkAccessApprovals, approvalOf, networkAccessMode } from "./network-access";
-import type { NetworkAccessHost } from "./request-network-access-tool";
+import {
+  REQUEST_NETWORK_ACCESS_TOOL_NAME,
+  deriveNetworkAccessQuestions,
+  networkAccessOutcome,
+  type NetworkAccessHost,
+} from "./request-network-access-tool";
 import { stripAttachedFiles } from "./attachments";
 import { compactionsOf, recordCompactionOutcome } from "./compaction-view";
 import { projectSessionDiagnostics } from "./diagnostics";
@@ -411,6 +416,11 @@ export class SessionStore {
    * 再起動では失われる (DB へ保存しない)。
    */
   networkAccess: NetworkAccessApprovals = new NetworkAccessApprovals();
+  /**
+   * 会話ごとの user 注入回数 (拒否の抑止を解く世代)。record は引き継ぎ (move) と resolve で
+   * 作り直されるため、record に持つとカウンタが 0 に戻って残った拒否と一致してしまう
+   */
+  private readonly inputGenerations = new Map<string, number>();
   records: Map<string, SessionRecord>;
   sweeper: ReturnType<typeof setInterval>;
   /** 会話ストアの絶対パス。null は永続化なし */
@@ -740,7 +750,6 @@ export class SessionStore {
       entrySends: new Map(),
       runInitialSends: new Map(),
       injectedSends: new Set(),
-      inputGeneration: 0,
       stopping: false,
       cancelling: 0,
       unsentSends: [],
@@ -1749,6 +1758,26 @@ export class SessionStore {
   }
 
   /**
+   * この引数の `request_network_access` が承認カードを出すか。ライブ配信とツール本体が同じ判定を通る
+   * (どちらかだけ別の条件にすると、カードを出さなかった要求が片側にだけ残る)
+   */
+  showsNetworkAccessCard(sessionId: string, args: unknown): boolean {
+    return (
+      networkAccessOutcome({
+        mode: networkAccessMode(),
+        sessionId,
+        host: deriveNetworkAccessQuestions(args)?.[0]?.host,
+        isDenied: (id, host) => this.networkAccess.isDenied(id, host, this.inputGeneration(id)),
+      }).kind === "ask"
+    );
+  }
+
+  /** 拒否の抑止を解く世代 (user メッセージの注入回数)。record より長く持ち、削除で捨てる */
+  inputGeneration(sessionId: string): number {
+    return this.inputGenerations.get(sessionId) ?? 0;
+  }
+
+  /**
    * user メッセージの注入を観測し、送信IDと実行IDを対応付ける。SDK は実キューから取り出した順に
    * user を渡すため、開始送信の次に届く user は控えている `handedOff` の先頭で、本文一致に依存せず
    * 対応が取れる。取り出しの印は実キュー件数から導出するため、ここでは立てない。
@@ -1756,7 +1785,7 @@ export class SessionStore {
    */
   private noteUserInjected(record: SessionRecord, run: RunState, message: object): void {
     // 拒否の抑止を解く世代。対応の取れない user でも「モデルへ入った新しい入力」なので数える
-    record.inputGeneration += 1;
+    this.inputGenerations.set(record.id, this.inputGeneration(record.id) + 1);
     if (!run.initialInjected) {
       run.initialInjected = true;
       record.userMessageSends.set(message, { sendId: run.initialSendId, runId: run.id });
@@ -2007,10 +2036,9 @@ export class SessionStore {
       allows: (sessionId) => this.networkAccess.allows(sessionId),
       mode: () => networkAccessMode(),
       isDenied: (sessionId, host) => {
-        const record = this.records.get(sessionId);
         // record を引けないときは抑止しない。拒否の記録は record と同じ寿命でしか意味を持たず、
         // この後 ask が Session not found で断る
-        return record === undefined ? false : this.networkAccess.isDenied(sessionId, host, record.inputGeneration);
+        return this.networkAccess.isDenied(sessionId, host, this.inputGeneration(sessionId));
       },
       ask: (sessionId, toolCallId, questions, signal) => {
         const record = this.records.get(sessionId);
@@ -2110,7 +2138,7 @@ export class SessionStore {
         this.networkAccess.revoke(record.id);
         // 拒否はカードに出た接続先だけの話。別ホストは次の確認として通す
         const host = pending.questions[0]?.host;
-        if (host !== undefined) this.networkAccess.recordDenial(record.id, host, record.inputGeneration);
+        if (host !== undefined) this.networkAccess.recordDenial(record.id, host, this.inputGeneration(record.id));
       }
     }
     settleQuestion(pending, () => pending.resolve(ordered));
@@ -2585,6 +2613,7 @@ export class SessionStore {
       // 承認は live な record の有無に依らず消す (sweep 済みの会話も消せる。同じ id の再利用へ持ち越さない)
       this.networkAccess.revoke(id);
       this.networkAccess.clearDenials(id);
+      this.inputGenerations.delete(id);
       const record = this.records.get(id);
       if (record) {
         record.queue = [];
@@ -3252,6 +3281,7 @@ export class SessionStore {
           // dispose / sweep は会話の削除ではないが、メモリから外した承認を残すと次のロードで効き続ける
           this.networkAccess.revoke(id);
           this.networkAccess.clearDenials(id);
+          this.inputGenerations.delete(id);
         })();
         this.lifecycle.set(id, promise);
         try {
@@ -3427,6 +3457,9 @@ export class SessionStore {
       toolTimings: record.toolTimings,
       messageMetrics: record.messageMetrics,
       compactionMeta: record.compactionMeta,
+      // 承認カードを出さない呼び出し (拒否済み・接続先不明など) は、ライブでも質問を投影しない
+      hidesQuestions: (toolName, args) =>
+        toolName === REQUEST_NETWORK_ACCESS_TOOL_NAME && !this.showsNetworkAccessCard(record.id, args),
       emit: (type, data) => this.emit(record, type, data),
       // 遅延した resync (context_edit の microtask) が次のランへ漏れないよう、ラン ID を確認してから配る
       emitResync: (reason) => {

@@ -5,7 +5,11 @@
 import { basename, dirname, resolve } from "node:path";
 import { APP_DIR_REL } from "./app-paths";
 import { ASK_USER_TOOL_NAME, deriveAskUserQuestions, parseAskUserAnswers } from "./ask-user-tool";
-import { REQUEST_NETWORK_ACCESS_TOOL_NAME, deriveNetworkAccessQuestions } from "./request-network-access-tool";
+import {
+  REQUEST_NETWORK_ACCESS_TOOL_NAME,
+  deriveNetworkAccessQuestions,
+  notAskedNetworkAccess,
+} from "./request-network-access-tool";
 import { SKILL_FILE_NAME } from "./builtin-skills";
 import type { PiSessionLike } from "./pi-runtime";
 import { assistantModelLabel, parseUsage } from "./pi-runtime";
@@ -399,8 +403,12 @@ function toolCallsOf(
     if (classifySkillRead(call.arguments, { cwd, toolName: call.name })) continue;
     const result = toolResults.get(call.id);
     if (!result) continue;
-    // ask_user の質問 / 回答は詳細 DTO。skill と違い、ライブと履歴の両方で同じ ToolCall が持つ
-    const questions = askUserQuestionsOf(call.name, call.arguments, masker);
+    // ask_user の質問 / 回答は詳細 DTO。skill と違い、ライブと履歴の両方で同じ ToolCall が持つ。
+    // 承認ツールはカードを出さずに断った呼び出しがあり、引数からは区別できないので結果の印を正にする
+    const questions =
+      call.name === REQUEST_NETWORK_ACCESS_TOOL_NAME && notAskedNetworkAccess(result.details)
+        ? undefined
+        : askUserQuestionsOf(call.name, call.arguments, masker);
     const answers = askUserAnswersOf(call.name, result.details, masker);
     const timing = toolTimings.get(call.id);
     calls.push({

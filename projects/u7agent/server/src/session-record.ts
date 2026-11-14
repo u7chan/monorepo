@@ -196,11 +196,6 @@ export interface SessionRecord {
    * `running` として扱い、保存が確定したら消す
    */
   injectedSends: Set<string>;
-  /**
-   * モデルへ注入した user メッセージの通算回数。拒否後の再要求を抑止する判定の世代に使う。
-   * `injectedSends` は JSONL へ保存した時点で消えるため件数を代用できず、減らないカウンタを別に持つ
-   */
-  inputGeneration: number;
   /** stop の処理中。新規送信を 409 にし、回収後の自動配送を止める */
   stopping: boolean;
   /** 進行中の SDK steering 受付 (取消・停止と直列化する) の末尾。`steer()` の完了順を受付順に保つ */
