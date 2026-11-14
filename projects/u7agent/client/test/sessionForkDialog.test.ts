@@ -47,8 +47,7 @@ test("注記はボタン行の上に置き、理由が長くてもボタンの�
   const html = render();
   const footer = html.slice(html.indexOf("<footer"));
   assert.ok(
-    footer.indexOf("分岐した会話には分岐元のリンクが出ます。") <
-      footer.indexOf('<div class="flex items-center justify-end'),
+    footer.indexOf("分岐した会話には分岐元のリンクが出ます。") < footer.indexOf(">キャンセル<"),
     "注記がボタン行の外 (上) に無い",
   );
 });
@@ -58,8 +57,7 @@ test("実行できない理由は警告として上に出し、確定を無効�
   assert.ok(html.includes('role="alert"'));
   const footer = html.slice(html.indexOf("<footer"));
   assert.ok(
-    footer.indexOf("実行中・キュー待ちは分岐できません。") <
-      footer.indexOf('<div class="flex items-center justify-end'),
+    footer.indexOf("実行中・キュー待ちは分岐できません。") < footer.indexOf(">キャンセル<"),
     "理由がボタン行の外 (上) に無い",
   );
   assert.match(html, /<button[^>]*type="submit"[^>]*disabled=""/);

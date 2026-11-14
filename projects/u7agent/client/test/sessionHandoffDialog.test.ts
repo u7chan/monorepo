@@ -102,8 +102,6 @@ test("ヘッダーは X だけで閉じ、注記はフッターのボタン行�
   assert.equal(html.includes(">閉じる<"), false, "ヘッダーに閉じるの文字を置かない");
   const footer = html.slice(html.indexOf("<footer"));
   assert.ok(footer.indexOf(">キャンセル<") < footer.indexOf(">引き継ぐ<"), "主操作がキャンセルの左にある");
-  assert.ok(
-    footer.indexOf("</p>") < footer.indexOf('<div class="flex items-center justify-end'),
-    "注記がボタン行の外 (上) に無い",
-  );
+  const note = sessionHandoffDialogText("決済画面の検証").note;
+  assert.ok(footer.indexOf(note) < footer.indexOf(">キャンセル<"), "注記がボタン行の外 (上) に無い");
 });
