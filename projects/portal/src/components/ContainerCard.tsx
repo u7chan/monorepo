@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import type { Container, PortMapping } from "../types/container";
 import { useConfig } from "../hooks/useConfig";
 import { useCopy } from "../hooks/useCopy";
+import { useDeploy } from "../hooks/useDeploy";
 import { CopyButton, REVEAL_CARD } from "./CopyButton";
 import { ConfirmPopover } from "./ConfirmPopover";
+import { DeployButton, DeployPanel } from "./DeployControl";
 import { buildPortUrl, describePort, describeUrl, isHttpsUrl, orderLinks } from "../lib/ports";
 import {
   getContainerAction,
@@ -465,6 +467,7 @@ function ContainerActionSlot({ container, pendingAction, onAction }: ContainerCa
 export function ContainerCard({ container, pendingAction, onAction }: ContainerCardProps) {
   const { config } = useConfig();
   const host = config?.host || "localhost";
+  const deploy = useDeploy(container);
 
   return (
     <article
@@ -489,12 +492,19 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
         <div className="min-w-0 flex-1">
           <ImageField image={container.image} />
         </div>
+        {container.canDeploy && <DeployButton deploy={deploy} />}
         <ContainerActionSlot
           container={container}
           pendingAction={pendingAction}
           onAction={onAction}
         />
       </div>
+
+      {container.canDeploy && deploy.isOpen && (
+        <div className="border-t border-line px-4 py-3">
+          <DeployPanel deploy={deploy} />
+        </div>
+      )}
     </article>
   );
 }
@@ -505,37 +515,48 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
 export function ContainerListItem({ container, pendingAction, onAction }: ContainerCardProps) {
   const { config } = useConfig();
   const host = config?.host || "localhost";
+  const deploy = useDeploy(container);
 
   return (
     <article
       className="group/card rounded-xl border border-line bg-ink-900 p-4
-                 transition-colors duration-150 hover:border-line-strong
-                 md:flex md:items-center md:gap-6 md:py-3"
+                 transition-colors duration-150 hover:border-line-strong"
     >
-      <div className="min-w-0 md:w-[27%] md:shrink-0">
-        <h3
-          className="truncate text-[14px] leading-5 font-semibold tracking-[-0.01em] text-fg"
-          title={container.name}
-        >
-          {container.name}
-        </h3>
-        <div className="mt-1">
-          <ImageField image={container.image} />
+      <div className="md:flex md:items-center md:gap-6">
+        <div className="min-w-0 md:w-[27%] md:shrink-0">
+          <h3
+            className="truncate text-[14px] leading-5 font-semibold tracking-[-0.01em] text-fg"
+            title={container.name}
+          >
+            {container.name}
+          </h3>
+          <div className="mt-1">
+            <ImageField image={container.image} />
+          </div>
+        </div>
+
+        <div className="mt-3 min-w-0 md:mt-0 md:flex-1">
+          <ContainerLinks container={container} host={host} dense />
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-4 md:mt-0 md:shrink-0 md:justify-end">
+          <StatusLabel container={container} />
+          <div className="flex items-center gap-2">
+            {container.canDeploy && <DeployButton deploy={deploy} />}
+            <ContainerActionSlot
+              container={container}
+              pendingAction={pendingAction}
+              onAction={onAction}
+            />
+          </div>
         </div>
       </div>
 
-      <div className="mt-3 min-w-0 md:mt-0 md:flex-1">
-        <ContainerLinks container={container} host={host} dense />
-      </div>
-
-      <div className="mt-3 flex items-center justify-between gap-4 md:mt-0 md:shrink-0 md:justify-end">
-        <StatusLabel container={container} />
-        <ContainerActionSlot
-          container={container}
-          pendingAction={pendingAction}
-          onAction={onAction}
-        />
-      </div>
+      {container.canDeploy && deploy.isOpen && (
+        <div className="mt-3 border-t border-line pt-3">
+          <DeployPanel deploy={deploy} />
+        </div>
+      )}
     </article>
   );
 }

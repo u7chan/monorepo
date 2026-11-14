@@ -12,6 +12,7 @@ Bun + React + TypeScriptで構築された、Dockerコンテナを可視化・�
 - **フィルタリング**: 全て/実行中/停止中でフィルタ可能（件数付き）
 - **自動更新**: 30秒ごとに自動リフレッシュ
 - **PWA**: manifest と 192 / 512px のアイコン、iOS ホーム画面用の 180px アイコンを配信
+- **イメージタグの切り替え**: monorepo の CD が GHCR に push したイメージだけ、タグを選んで再デプロイできる。デプロイは self-hosted-runner の `manual-deploy.yml` を起動する
 - **モックデータモード**: Docker不要でUI開発・レイアウト確認が可能
 
 ## デザイン方針
@@ -89,11 +90,13 @@ http://localhost:3000 でアクセス
 
 `.env` ファイルを作成するか、`.env.example` をコピーして使用してください。
 
-| 変数名          | 説明                       | デフォルト    |
-| --------------- | -------------------------- | ------------- |
-| `PORTAL_HOST`   | ポートリンクのホスト名     | `localhost`   |
-| `USE_MOCK_DATA` | モックデータモードを有効化 | `false`       |
-| `NODE_ENV`      | 実行環境                   | `development` |
+| 変数名                | 説明                                                          | デフォルト    |
+| --------------------- | ------------------------------------------------------------- | ------------- |
+| `PORTAL_HOST`         | ポートリンクのホスト名                                        | `localhost`   |
+| `USE_MOCK_DATA`       | モックデータモードを有効化                                    | `false`       |
+| `NODE_ENV`            | 実行環境                                                      | `development` |
+| `PORTAL_GHCR_TOKEN`   | タグ一覧用の classic PAT（`read:packages`、サーバーのみ）     | なし          |
+| `PORTAL_GITHUB_TOKEN` | デプロイ起動用の fine-grained PAT（Actions = Read and write） | なし          |
 
 ```bash
 # リモートホストのコンテナにアクセスする場合
@@ -142,6 +145,33 @@ docker build -t portal .
 
 このリポジトリでは本番用 Docker Compose 定義を管理していません。CD で GHCR に push された `ghcr.io/u7chan/monorepo/portal:<tag>` を、deploy 実行側の定義から参照してください。
 
+### イメージタグの切り替え（デプロイ UI）
+
+カード/行の `Deploy` から、monorepo の CD が GHCR に push したイメージのタグを選んで再デプロイできます。
+
+- 対象: `ghcr.io/u7chan/monorepo/<project>` の主コンテナだけ
+- Docker Hub と第三者の GHCR（`ghcr.io/amir20/dozzle` など）はタグを切り替えない（`Deploy` を出さない）
+- `latest` は可変タグなので選択肢に出さない。最新ビルドは同じ version の `sha-*` を選ぶ（`require_image_tag` の target でもそのまま使える）
+- portal 自身は一覧から除外しているため、portal の更新は従来どおり Manual Deploy を使う
+- タグ一覧は GitHub Packages から取得し、デプロイは self-hosted-runner の `manual-deploy.yml` を `workflow_dispatch` で起動する
+- 成功すると Actions へのリンクを表示する。コンテナの再作成は Actions 側で行う
+
+ホスト側の `.env`（Manual Deploy が読む `ENV_FILE`）に 2 つの token を置く。
+
+```bash
+# タグ一覧用: classic PAT（read:packages）
+PORTAL_GHCR_TOKEN=ghp_xxx
+
+# デプロイ起動用: fine-grained PAT（Actions = Read and write）
+PORTAL_GITHUB_TOKEN=github_pat_xxx
+```
+
+- `PORTAL_GHCR_TOKEN`: GitHub Packages / Container registry は fine-grained PAT 非対応のため classic PAT を使う。`read:packages` だけを付ける
+- `PORTAL_GITHUB_TOKEN`: `u7chan/self-hosted-runner` の Actions = Read and write
+- `.env` は 600 にし、リポジトリへ commit しない。どちらも有効期限を設定する
+- token の変更は portal の再作成で反映する
+- どちらかが無い・失効している場合、タグ一覧または `Deploy` が 503 を返す。一覧表示と start/stop は動き続ける
+
 ## ホーム画面への追加
 
 iOS の Safari では共有メニューの「ホーム画面に追加」、Android / PC ではブラウザのインストール機能から追加する。
@@ -152,11 +182,13 @@ Service Worker やオフライン対応は追加していないため、起動�
 
 ## APIエンドポイント
 
-| エンドポイント     | メソッド | 説明                                                |
-| ------------------ | -------- | --------------------------------------------------- |
-| `/api/containers`  | GET      | コンテナ一覧取得（`?filter=all\|running\|stopped`） |
-| `/api/hello`       | GET/PUT  | ヘルスチェック用                                    |
-| `/api/hello/:name` | GET      | パスパラメータ例                                    |
+| エンドポイント                       | メソッド | 説明                                                |
+| ------------------------------------ | -------- | --------------------------------------------------- |
+| `/api/containers`                    | GET      | コンテナ一覧取得（`?filter=all\|running\|stopped`） |
+| `/api/hello`                         | GET/PUT  | ヘルスチェック用                                    |
+| `/api/hello/:name`                   | GET      | パスパラメータ例                                    |
+| `/api/containers/:id/deploy-options` | GET      | デプロイ可能なイメージタグ一覧を返す                |
+| `/api/deployments`                   | POST     | 選択したタグで `manual-deploy.yml` を起動する       |
 
 ## プロジェクト構造
 

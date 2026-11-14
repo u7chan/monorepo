@@ -29,6 +29,36 @@ export interface Container {
   url?: string;
   // インフラ用でリンクを出さない（portal.hidden）
   hidden?: boolean;
+  // デプロイ対象の compose project。monorepo の GHCR イメージの主コンテナだけ入る
+  deployTarget?: string;
+  // portal からイメージタグを切り替えられるか
+  canDeploy?: boolean;
+}
+
+/**
+ * イメージタグの選択肢
+ */
+export interface ImageTagOption {
+  tag: string;
+  createdAt?: string;
+}
+
+/**
+ * デプロイ可能なタグ一覧のレスポンス
+ */
+export interface DeployOptionsResponse {
+  target: string;
+  currentTag: string | null;
+  tags: ImageTagOption[];
+}
+
+/**
+ * デプロイ起動のレスポンス
+ */
+export interface DeployResponse {
+  target: string;
+  tag: string;
+  workflowUrl: string;
 }
 
 /**
