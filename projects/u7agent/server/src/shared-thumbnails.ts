@@ -25,7 +25,8 @@ export const SHARED_THUMBNAIL_MIME = "image/png";
 
 /** 保存名の形。外から来たパスを fs へ渡さないため、id はこの文字種だけを通す */
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-const FILE_NAME_PATTERN = /^([A-Za-z0-9_-]{1,64})\.png$/;
+/** `<id>.<version>.png`。version は行の `thumbnailUpdatedAt`（単調増加） */
+const FILE_NAME_PATTERN = /^([A-Za-z0-9_-]{1,64})\.(\d{1,16})\.png$/;
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -150,7 +151,8 @@ export function inspectSharedThumbnailPng(bytes: Uint8Array): SharedThumbnailIns
   }
   if (header === undefined || !ended || offset !== bytes.byteLength || data.length === 0) return undefined;
   // 非インターレースでは、展開後の長さは IHDR だけで決まる。ここが合わなければ寸法とデータが食い違う
-  const expected = header.height * (1 + header.width * header.channels);
+  const stride = 1 + header.width * header.channels;
+  const expected = header.height * stride;
   let inflated: Buffer;
   try {
     inflated = inflateSync(Buffer.concat(data), { maxOutputLength: expected });
@@ -158,17 +160,29 @@ export function inspectSharedThumbnailPng(bytes: Uint8Array): SharedThumbnailIns
     return undefined;
   }
   if (inflated.byteLength !== expected) return undefined;
+  // 各走査線の先頭はフィルタ種別 (0〜4)。展開長と CRC が正しくても、配信先で復号できない値は保存しない
+  for (let row = 0; row < header.height; row += 1) {
+    if (inflated[row * stride]! > 4) return undefined;
+  }
   return { width: header.width, height: header.height };
 }
 
+export interface SharedThumbnailEntry {
+  id: string;
+  /** 行の `thumbnailUpdatedAt` と同じ単調増加の版 */
+  version: number;
+}
+
 export interface SharedThumbnailStore {
-  /** `<id>.png` を書く。一時名へ書いてから rename する（途中のファイルを見せない） */
-  write(id: string, bytes: Uint8Array): Promise<void>;
-  read(id: string): Promise<Uint8Array | undefined>;
+  /** `<id>.<version>.png` を書く。版ごとに別名なので、既存の画像を上書きしない */
+  write(id: string, version: number, bytes: Uint8Array): Promise<void>;
+  read(id: string, version: number): Promise<Uint8Array | undefined>;
   /** 無くても成功として扱う（冪等） */
-  remove(id: string): Promise<void>;
-  /** 置き場にある id。ディレクトリが無ければ空 */
-  listIds(): Promise<string[]>;
+  remove(id: string, version: number): Promise<void>;
+  /** その共有物の実体をすべて消す（共有物の削除） */
+  removeAll(id: string): Promise<void>;
+  /** 置き場の (id, version)。ディレクトリが無ければ空 */
+  listEntries(): Promise<SharedThumbnailEntry[]>;
 }
 
 /**
@@ -176,39 +190,55 @@ export interface SharedThumbnailStore {
  * 名前の検査をここに閉じるため、パスを作る経路は 1 つだけになる。
  */
 export function createSharedThumbnailStore(dir: string): SharedThumbnailStore {
-  const pathOf = (id: string): string => {
+  const nameOf = (id: string, version: number): string => {
     if (!ID_PATTERN.test(id)) throw new Error("共有物 ID が不正です");
-    return join(dir, `${id}.png`);
+    if (!Number.isSafeInteger(version) || version <= 0) throw new Error("サムネイルの版が不正です");
+    return `${id}.${version}.png`;
   };
+  const pathOf = (id: string, version: number): string => join(dir, nameOf(id, version));
   return {
-    write: async (id, bytes) => {
+    write: async (id, version, bytes) => {
       await mkdir(dir, { recursive: true, mode: 0o700 });
-      const temporary = `${pathOf(id)}.${randomBytes(4).toString("hex")}.tmp`;
+      const target = pathOf(id, version);
+      const temporary = `${target}.${randomBytes(4).toString("hex")}.tmp`;
       await writeFile(temporary, bytes, { mode: 0o600 });
-      await rename(temporary, pathOf(id));
+      await rename(temporary, target);
     },
-    read: async (id) => {
+    read: async (id, version) => {
       try {
-        const buffer = await readFile(pathOf(id));
+        const buffer = await readFile(pathOf(id, version));
         return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
         throw error;
       }
     },
-    remove: async (id) => {
-      await rm(pathOf(id), { force: true });
+    remove: async (id, version) => {
+      await rm(pathOf(id, version), { force: true });
     },
-    listIds: async () => {
-      try {
-        return (await readdir(dir)).flatMap((name) => {
-          const id = FILE_NAME_PATTERN.exec(name)?.[1];
-          return id === undefined ? [] : [id];
-        });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-        throw error;
+    removeAll: async (id) => {
+      if (!ID_PATTERN.test(id)) return;
+      for (const entry of await list(dir)) {
+        if (entry.id === id) await rm(join(dir, `${entry.id}.${entry.version}.png`), { force: true });
       }
     },
+    listEntries: async () => list(dir),
   };
+}
+
+async function list(dir: string): Promise<SharedThumbnailEntry[]> {
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  return names.flatMap((name) => {
+    const match = FILE_NAME_PATTERN.exec(name);
+    if (match === null) return [];
+    const version = Number(match[2]);
+    if (!Number.isSafeInteger(version) || version <= 0) return [];
+    return [{ id: match[1]!, version }];
+  });
 }

@@ -13,6 +13,7 @@ import {
   thumbnailFrame,
   thumbnailKeyStep,
   thumbnailMaxZoom,
+  thumbnailFailureNeedsRefetch,
   thumbnailSourceProblem,
   withSharedContentThumbnail,
 } from "../src/lib/sharedThumbnail";
@@ -156,4 +157,14 @@ test("一覧の差し替えは版を巻き戻さず、解除は未設定へ倒�
   assert.equal(cleared[0]?.thumbnail, null);
   // 対象外の行はそのまま
   assert.deepEqual(cleared[1], other);
+});
+
+test("失敗の分類: BFF が保存していないと確定したときだけ一覧を取り直さない", () => {
+  // 413 / 415 / 422 / 404 は BFF がこの要求で保存していないことを示す
+  assert.equal(thumbnailFailureNeedsRefetch({ state: "not_stored" }), false);
+  // 中継の 502 や通信断は結果不明。再取得して確定状態へ寄せる
+  assert.equal(thumbnailFailureNeedsRefetch(new Error("network")), true);
+  assert.equal(thumbnailFailureNeedsRefetch({ status: 502 }), true);
+  assert.equal(thumbnailFailureNeedsRefetch({ state: undefined }), true);
+  assert.equal(thumbnailFailureNeedsRefetch(null), true);
 });

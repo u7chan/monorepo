@@ -152,6 +152,15 @@ export function thumbnailKeyStep(
 }
 
 /**
+ * サムネイル操作の失敗で一覧を取り直すか。BFF が `state: "not_stored"`（この要求で保存していない）と
+ * 確定した失敗だけ取り直さない。中継の 502 や通信断は結果不明なので、再取得して確定状態へ寄せる。
+ */
+export function thumbnailFailureNeedsRefetch(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("state" in error)) return true;
+  return (error as { state?: unknown }).state !== "not_stored";
+}
+
+/**
  * 配信 URL。版をクエリに載せるので、差し替えると別 URL になり、変わらなければキャッシュから出る。
  * サーバーも `immutable` を返すため、この URL に版を含めないと差し替えが反映されない。
  */

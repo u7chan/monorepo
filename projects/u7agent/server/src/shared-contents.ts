@@ -27,7 +27,12 @@ import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "./sandbo
 import type { SandboxDownloadPlan } from "./sandbox/protocol";
 import { extractZipEntry, readZipArchive, type ZipReadEntry } from "./sandbox/zip-read";
 import type { SharedContentExclusions } from "./shared-content-exclusions";
-import { SHARED_THUMBNAIL_MAX_BYTES, inspectSharedThumbnailPng, type SharedThumbnailStore } from "./shared-thumbnails";
+import {
+  SHARED_THUMBNAIL_MAX_BYTES,
+  inspectSharedThumbnailPng,
+  type SharedThumbnailEntry,
+  type SharedThumbnailStore,
+} from "./shared-thumbnails";
 import { effectiveSharedContentExcludeNames } from "./shared-content-rules";
 import type {
   CreateSharedContentBody,
@@ -153,6 +158,11 @@ export interface SharedContentStore {
    * 公開ライフサイクルの時刻 (`updatedAt`) は変えない
    */
   updateSharedContentThumbnail(id: string, thumbnail: SharedContentThumbnail | null): boolean;
+  /**
+   * 実体が見つからなかったときの未設定化。読んだ後に差し替えられていたら何もしない
+   * （古い GET の不在補正が新しい版を消さないため、版が一致する行だけを消す）
+   */
+  clearSharedContentThumbnail(id: string, expectedUpdatedAt: number): boolean;
   /** provider 側の削除が成功したあとにだけ呼ぶ */
   deleteSharedContent(id: string): void;
 }
@@ -275,36 +285,46 @@ export class SharedContentsService {
 
   /**
    * サムネイルの差し替え。公開状態を見ない（公開中でも差し替えられる）。
-   * 検証 → 書き込み → 行の更新の順で進め、行が消えていたら書いたファイルを残さない。
-   * 行の更新に失敗したときは以前の画像を残し、未保存として返す。
+   * 版は単調増加にし、版ごとに別のファイルへ書く。行の更新に失敗したら追加した版だけを消すので、
+   * 以前の画像は残る（未保存が確定した失敗で既存を保持する）。
    */
   async setThumbnail(id: string, bytes: Uint8Array): Promise<SharedContentThumbnail> {
     return this.#mutateThumbnail(id, async () => {
-      this.#requireRow(id);
       const store = this.#requireThumbnails(SHARED_CONTENT_THUMBNAIL_STORE_ERROR);
+      const row = this.#requireRow(id);
       if (bytes.byteLength > SHARED_THUMBNAIL_MAX_BYTES) throw httpError(413, SHARED_CONTENT_THUMBNAIL_TOO_LARGE);
       const inspected = inspectSharedThumbnailPng(bytes);
       if (!inspected) throw httpError(422, SHARED_CONTENT_THUMBNAIL_INVALID);
+      const previous = row.thumbnail ?? null;
+      // 時計が同じ値・逆戻りしても版が衝突しない。URL の `?v=` とキャッシュの同一性をここで保証する
+      const updatedAt = Math.max(this.#now(), (previous?.updatedAt ?? 0) + 1);
       const thumbnail: SharedContentThumbnail = {
-        updatedAt: this.#now(),
+        updatedAt,
         width: inspected.width,
         height: inspected.height,
         bytes: bytes.byteLength,
       };
       try {
-        await store.write(id, bytes);
+        await store.write(id, updatedAt, bytes);
       } catch {
         throw httpError(503, SHARED_CONTENT_THUMBNAIL_STORE_ERROR);
       }
+      let stored: boolean;
       try {
-        if (this.#store.updateSharedContentThumbnail(id, thumbnail)) return thumbnail;
+        stored = this.#store.updateSharedContentThumbnail(id, thumbnail);
       } catch {
-        await store.remove(id).catch(() => {});
+        // 追加した版だけを消す。以前の画像と行は触らない
+        await store.remove(id, updatedAt).catch(() => {});
         throw httpError(503, SHARED_CONTENT_STORE_ERROR);
       }
-      // 書き込みの間に共有物が消えた。孤児を残さず 404 にする
-      await store.remove(id).catch(() => {});
-      throw httpError(404, "Shared content not found");
+      if (!stored) {
+        // 書き込みの間に共有物が消えた。孤児を残さず 404 にする
+        await store.remove(id, updatedAt).catch(() => {});
+        throw httpError(404, "Shared content not found");
+      }
+      // 行が新しい版を指したので、古い実体を片付ける（失敗しても孤児として再照合が回収する）
+      if (previous) await store.remove(id, previous.updatedAt).catch(() => {});
+      return thumbnail;
     });
   }
 
@@ -316,14 +336,15 @@ export class SharedContentsService {
     const store = this.#requireThumbnails(SHARED_CONTENT_THUMBNAIL_READ_ERROR);
     let bytes: Uint8Array | undefined;
     try {
-      bytes = await store.read(id);
+      bytes = await store.read(id, thumbnail.updatedAt);
     } catch {
       throw httpError(503, SHARED_CONTENT_THUMBNAIL_READ_ERROR);
     }
     if (!bytes) {
-      // 実体が無い行は未設定として扱い、一覧や公開の操作を止めない
+      // 実体が無い行は未設定として扱い、一覧や公開の操作を止めない。
+      // 読んでいる間に差し替えられていたら、新しい版には触らない
       try {
-        this.#store.updateSharedContentThumbnail(id, null);
+        this.#store.clearSharedContentThumbnail(id, thumbnail.updatedAt);
       } catch {
         // 次の再照合でもう一度揃える
       }
@@ -335,7 +356,7 @@ export class SharedContentsService {
   /** サムネイルだけを外す（共有物自体は消さない）。未設定でも成功として扱う */
   async removeThumbnail(id: string): Promise<void> {
     await this.#mutateThumbnail(id, async () => {
-      this.#requireRow(id);
+      const row = this.#requireRow(id);
       const store = this.#requireThumbnails(SHARED_CONTENT_THUMBNAIL_STORE_ERROR);
       try {
         if (!this.#store.updateSharedContentThumbnail(id, null)) throw httpError(404, "Shared content not found");
@@ -344,13 +365,13 @@ export class SharedContentsService {
         throw httpError(503, SHARED_CONTENT_STORE_ERROR);
       }
       // 行は未設定になった。消せなくても孤児として起動時の再照合が回収する
-      await store.remove(id).catch(() => {});
+      if (row.thumbnail) await store.remove(id, row.thumbnail.updatedAt).catch(() => {});
     });
   }
 
   /**
    * 起動時の再照合。行が「存在の正」なので、実体の無い行は未設定に倒し、
-   * 行の無い / 未設定のファイルは消す（削除と書き込みの途中で落ちた場合の後始末）。
+   * 行の指さないファイルは消す（削除と書き込みの途中で落ちた場合の後始末）。
    */
   async reconcileThumbnails(): Promise<void> {
     const store = this.#thumbnails;
@@ -361,26 +382,26 @@ export class SharedContentsService {
     } catch {
       return;
     }
-    const stored = new Map(rows.map((row) => [row.id, row]));
-    let files: string[];
+    let entries: SharedThumbnailEntry[];
     try {
-      files = await store.listIds();
+      entries = await store.listEntries();
     } catch {
       return;
     }
-    const present = new Set(files);
+    const present = new Set(entries.map((entry) => `${entry.id}:${entry.version}`));
     for (const row of rows) {
-      if (!row.thumbnail || present.has(row.id)) continue;
+      const thumbnail = row.thumbnail ?? null;
+      if (!thumbnail || present.has(`${row.id}:${thumbnail.updatedAt}`)) continue;
       try {
-        this.#store.updateSharedContentThumbnail(row.id, null);
+        this.#store.clearSharedContentThumbnail(row.id, thumbnail.updatedAt);
       } catch {
         // 次の起動でもう一度揃える（一覧は未設定として読むので表示は壊れない）
       }
     }
-    for (const id of files) {
-      const row = stored.get(id);
-      if (row?.thumbnail) continue;
-      await store.remove(id).catch(() => {});
+    const referenced = new Set(rows.flatMap((row) => (row.thumbnail ? [`${row.id}:${row.thumbnail.updatedAt}`] : [])));
+    for (const entry of entries) {
+      if (referenced.has(`${entry.id}:${entry.version}`)) continue;
+      await store.remove(entry.id, entry.version).catch(() => {});
     }
   }
 
@@ -575,7 +596,7 @@ export class SharedContentsService {
         throw httpError(503, SHARED_CONTENT_STORE_ERROR);
       }
       // 行が消えたあとの片付け。失敗しても孤児として起動時の再照合が回収する
-      await this.#thumbnails?.remove(id).catch(() => {});
+      await this.#thumbnails?.removeAll(id).catch(() => {});
     });
   }
 

@@ -39,7 +39,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 | OAuth サインインの agent host ID（`<agentDir>/u7agent/device-id`） | 残る（agent dir を永続マウントした場合）。マウントしていなければ消え、次のサインインで別の ID になる（BFF が書く Pi 側のファイル・[model-settings.md](model-settings.md#oauth-サインイン)） |
 | アプリデータの DB（`PI_SESSION_STORE/u7agent.db`） | 残る（ストアを永続ボリュームに置いた場合） |
 | 公開した静的コンテンツ（アプリデータの SQLite、`shared_contents`） | 残る（ストアを永続ボリュームに置いた場合）。Cloudflare 側の公開物は別に残る（[static-sharing.md](static-sharing.md)） |
-| 共有物のサムネイル（`PI_SESSION_STORE/shared-thumbnails/<id>.png`） | 残る（ストアを永続ボリュームに置いた場合）。行はアプリデータの SQLite が持ち、実体は DB の兄弟に置く。会話の削除では消さず、共有物を削除したときだけ片付ける。バックアップには含まれない（[backup.md](backup.md)） |
+| 共有物のサムネイル（`PI_SESSION_STORE/shared-thumbnails/<id>.<version>.png`） | 残る（ストアを永続ボリュームに置いた場合）。行はアプリデータの SQLite が持ち、実体は DB の兄弟に置く。会話の削除では消さず、共有物を削除したときだけ片付ける。バックアップには含まれない（[backup.md](backup.md)） |
 | Cloudflare の資格情報（アプリデータの SQLite、`cloudflare_settings`） | 残る（ストアを永続ボリュームに置いた場合）。master key を失うと復号できず、トークンの再登録が要る |
 | `/workspace` 以外に保存したデータ・後からインストールしたツール | 原則残らない |
 | 実行中のプロセス | 中断される |

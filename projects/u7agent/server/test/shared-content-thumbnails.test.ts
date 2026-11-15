@@ -1,100 +1,25 @@
 // 共有物のサムネイル。PNG の構造検証、保存・配信・削除の HTTP 契約、行と実体の再照合を検証する。
-// 画像はすべてこのファイルで組み立てた架空の PNG で、実在の画像は使わない。
+// 画像はすべて `shared-thumbnail-fixtures.ts` の架空の PNG で、実在の画像は使わない。
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { deflateSync } from "node:zlib";
 import { createBffApp } from "../src/app";
 import {
   SHARED_THUMBNAIL_DIR_NAME,
   SHARED_THUMBNAIL_MAX_BYTES,
   inspectSharedThumbnailPng,
 } from "../src/shared-thumbnails";
+import { png, textChunk } from "./shared-thumbnail-fixtures";
 
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-
-const CRC_TABLE = (() => {
-  const table = new Uint32Array(256);
-  for (let n = 0; n < 256; n += 1) {
-    let value = n;
-    for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-    table[n] = value >>> 0;
+/** 置き場のファイル名（版ごとの名前をそのまま返す） */
+async function thumbnails(dir: string): Promise<string[]> {
+  try {
+    return (await readdir(join(dir, SHARED_THUMBNAIL_DIR_NAME))).sort();
+  } catch {
+    return [];
   }
-  return table;
-})();
-
-function crc32(bytes: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (const byte of bytes) crc = CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function u32(value: number): Uint8Array {
-  return new Uint8Array([(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff]);
-}
-
-function concat(chunks: readonly Uint8Array[]): Uint8Array {
-  const size = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-/** PNG のチャンク。type は 4 文字、crc を差し替えると破損を作れる */
-function chunk(type: string, body: Uint8Array, crcOverride?: number): Uint8Array {
-  const typed = new Uint8Array([...type].map((char) => char.charCodeAt(0)));
-  const crcBody = concat([typed, body]);
-  return concat([u32(body.byteLength), typed, body, u32(crcOverride ?? crc32(crcBody))]);
-}
-
-interface PngOptions {
-  width: number;
-  height: number;
-  colorType?: number;
-  bitDepth?: number;
-  interlace?: number;
-  /** 前後に足すチャンク（メタデータの混入を作る） */
-  extra?: readonly Uint8Array[];
-  /** 実際のデータは宣言より小さく作る（寸法とデータの食い違い） */
-  shrinkData?: boolean;
-  /** 末尾に足す不正なバイト（IEND 後の余剰） */
-  trailing?: number;
-  /** IHDR の CRC を壊す */
-  corrupt?: boolean;
-}
-
-function png(options: PngOptions): Uint8Array {
-  const { width, height, colorType = 6, bitDepth = 8, interlace = 0 } = options;
-  const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[colorType] ?? 4;
-  const dataWidth = width * channels;
-  const rows = options.shrinkData ? height - 1 : height;
-  const raw = new Uint8Array(rows * (1 + dataWidth));
-  for (let row = 0; row < rows; row += 1) {
-    raw[row * (1 + dataWidth)] = 0;
-    for (let column = 0; column < dataWidth; column += 1) {
-      raw[row * (1 + dataWidth) + 1 + column] = (row + column) % 256;
-    }
-  }
-  const header = concat([u32(width), u32(height), new Uint8Array([bitDepth, colorType, 0, 0, interlace])]);
-  return concat([
-    new Uint8Array(PNG_SIGNATURE),
-    chunk("IHDR", header, options.corrupt ? 0 : undefined),
-    ...(options.extra ?? []),
-    chunk("IDAT", new Uint8Array(deflateSync(raw))),
-    chunk("IEND", new Uint8Array()),
-    ...(options.trailing === undefined ? [] : [new Uint8Array(options.trailing)]),
-  ]);
-}
-
-function textChunk(keyword: string, value: string): Uint8Array {
-  const body = new Uint8Array([...keyword].map((char) => char.charCodeAt(0)).concat([0]));
-  return chunk("tEXt", concat([body, new Uint8Array([...value].map((char) => char.charCodeAt(0)))]));
 }
 
 async function setup() {
@@ -168,6 +93,13 @@ test("壊れた PNG（切断・CRC・余剰バイト・寸法とデータの食�
   assert.equal(inspectSharedThumbnailPng(png({ width: 800, height: 500, shrinkData: true })), undefined);
   assert.equal(inspectSharedThumbnailPng(new Uint8Array(0)), undefined);
   assert.equal(inspectSharedThumbnailPng(new Uint8Array([0x89, 0x50, 0x4e, 0x47])), undefined);
+});
+
+test("走査線のフィルタ種別が 0〜4 の範囲外の PNG を拒否する（配信先で復号できない画像を保存しない）", () => {
+  assert.ok(inspectSharedThumbnailPng(png({ width: 800, height: 500, filterByte: 4 })));
+  for (const filterByte of [5, 6, 255]) {
+    assert.equal(inspectSharedThumbnailPng(png({ width: 800, height: 500, filterByte })), undefined, `${filterByte}`);
+  }
 });
 
 test("メタデータ付きの PNG は通さない（再描画で落ちるはずの情報を持ち込ませない）", () => {
@@ -247,7 +179,7 @@ test("受け入れの失敗は固定文言と状態を返し、行と実体を�
 
     const detail = (await (await bff.app.request("/api/shared-contents/thumb1")).json()) as any;
     assert.equal(detail.thumbnail, null, "失敗した要求でメタは入らない");
-    await assert.rejects(() => readFile(join(dir, SHARED_THUMBNAIL_DIR_NAME, "thumb1.png")));
+    assert.deepEqual(await thumbnails(dir), [], "失敗した要求でファイルは残らない");
   } finally {
     await restore();
   }
@@ -268,7 +200,7 @@ test("サムネイルだけを外せる。未設定でも 204 で、共有物の
     assert.equal((await bff.app.request("/api/shared-contents/thumb1/thumbnail")).status, 404);
     const detail = (await (await bff.app.request("/api/shared-contents/thumb1")).json()) as any;
     assert.equal(detail.thumbnail, null);
-    await assert.rejects(() => readFile(join(dir, SHARED_THUMBNAIL_DIR_NAME, "thumb1.png")));
+    assert.deepEqual(await thumbnails(dir), []);
     assert.equal((await bff.app.request("/api/shared-contents/nope/thumbnail", { method: "DELETE" })).status, 404);
   } finally {
     await restore();
@@ -282,7 +214,7 @@ test("共有物を削除するとサムネイルの実体も残さない", async
     await bff.app.request("/api/shared-contents/thumb1/thumbnail", put(png({ width: 800, height: 500 })));
     // provider 側の削除は行が未受付 (remoteId が null) なので走らない
     assert.equal((await bff.app.request("/api/shared-contents/thumb1", { method: "DELETE" })).status, 204);
-    await assert.rejects(() => readFile(join(dir, SHARED_THUMBNAIL_DIR_NAME, "thumb1.png")));
+    assert.deepEqual(await thumbnails(dir), []);
   } finally {
     await restore();
   }
@@ -294,14 +226,20 @@ test("起動時の再照合で、行の無いファイルを消し、実体の�
     const thumbnailDir = join(dir, SHARED_THUMBNAIL_DIR_NAME);
     await mkdir(thumbnailDir, { recursive: true });
     // 行が無いファイル
-    await writeFile(join(thumbnailDir, "orphan.png"), png({ width: 800, height: 500 }));
+    await writeFile(join(thumbnailDir, "orphan.1.png"), png({ width: 800, height: 500 }));
+    // 行が指さない古い版（差し替えの途中で落ちた残骸）
+    await writeFile(join(thumbnailDir, "old.1.png"), png({ width: 800, height: 500 }));
+    seed("old");
+    bff.appDb.updateSharedContentThumbnail("old", { updatedAt: 2, width: 800, height: 500, bytes: 10 });
+    await writeFile(join(thumbnailDir, "old.2.png"), png({ width: 800, height: 500 }));
     // 実体が無い行
     seed("ghost");
     bff.appDb.updateSharedContentThumbnail("ghost", { updatedAt: 5, width: 800, height: 500, bytes: 10 });
 
     await bff.sharedContents.reconcileThumbnails();
 
-    await assert.rejects(() => readFile(join(thumbnailDir, "orphan.png")));
+    assert.deepEqual(await thumbnails(dir), ["old.2.png"]);
+    assert.equal(bff.appDb.getSharedContent("old")?.thumbnail?.updatedAt, 2, "行が指す版は残す");
     assert.equal(bff.appDb.getSharedContent("ghost")?.thumbnail, null);
     assert.equal((await bff.app.request("/api/shared-contents/ghost/thumbnail")).status, 404);
   } finally {

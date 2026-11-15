@@ -2727,6 +2727,23 @@ export class AppDb {
     );
   }
 
+  /**
+   * 実体が見つからなかったときの未設定化。読んだ後に行が差し替わっていたら何もしない
+   * （古い GET の不在補正が新しい版を消さないよう、版が一致する行だけを消す）。
+   */
+  clearSharedContentThumbnail(id: string, expectedUpdatedAt: number): boolean {
+    return this.#query(
+      (db) =>
+        db
+          .prepare(
+            `UPDATE shared_contents
+                  SET thumbnailUpdatedAt = NULL, thumbnailWidth = NULL, thumbnailHeight = NULL, thumbnailBytes = NULL
+                WHERE id = ? AND thumbnailUpdatedAt = ?`,
+          )
+          .run(id, expectedUpdatedAt).changes > 0,
+    );
+  }
+
   getSharedContent(id: string): SharedContentRow | undefined {
     const row = this.#query(
       (db) => db.prepare("SELECT * FROM shared_contents WHERE id = ?").get(id) as Row | undefined,

@@ -10,7 +10,7 @@ import {
   resumeSharedContent,
   stopSharedContent,
 } from "../api";
-import { withSharedContentThumbnail } from "../lib/sharedThumbnail";
+import { thumbnailFailureNeedsRefetch, withSharedContentThumbnail } from "../lib/sharedThumbnail";
 import {
   settleAcceptedAfterMutation,
   settleAcceptedSharedContent,
@@ -272,8 +272,8 @@ export function useSharedContentsManager() {
       } catch (error) {
         const message = messageFor(error);
         setState((prev) => ({ ...prev, error: { id, message } }));
-        // BFF の応答が無い失敗は結果不明。未保存と断定せず、確定した状態を取り直す
-        if (!(error instanceof ApiError)) void loadList();
+        // 中継の 502 や通信断は結果不明。未保存と断定せず、確定した状態を取り直す
+        if (thumbnailFailureNeedsRefetch(error)) void loadList();
         return { ok: false, message };
       }
     },
@@ -291,7 +291,7 @@ export function useSharedContentsManager() {
       } catch (error) {
         const message = messageFor(error);
         setState((prev) => ({ ...prev, error: { id, message } }));
-        if (!(error instanceof ApiError)) void loadList();
+        if (thumbnailFailureNeedsRefetch(error)) void loadList();
         return { ok: false, message };
       }
     },
