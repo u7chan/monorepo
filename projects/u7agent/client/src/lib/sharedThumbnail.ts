@@ -152,6 +152,21 @@ export function thumbnailKeyStep(
 }
 
 /**
+ * 一覧の枠へ画像をまとめて落としたときに添える理由。2 枚目以降は設定できない。
+ */
+export const THUMBNAIL_DROP_EXTRA_NOTE = "一度に設定できる画像は 1 枚です。最初の 1 枚を読み込みました";
+
+/**
+ * ドロップされたファイルから、サムネイルに使う 1 枚を選ぶ。枠は 1 枚しか持てないので、増えた分は
+ * 捨てた枚数として返し、画面が理由を出せるようにする（黙って落とさない）。
+ */
+export function thumbnailDropPick<T>(files: readonly T[]): { file: T; ignored: number } | undefined {
+  const [first] = files;
+  if (first === undefined) return undefined;
+  return { file: first, ignored: files.length - 1 };
+}
+
+/**
  * サムネイル操作の失敗で一覧を取り直すか。BFF が `state: "not_stored"`（この要求で保存していない）と
  * 確定した失敗だけ取り直さない。中継の 502 や通信断は結果不明なので、再取得して確定状態へ寄せる。
  */

@@ -6,6 +6,7 @@ import {
   clampThumbnailCrop,
   panThumbnailCrop,
   sharedContentThumbnailUrl,
+  THUMBNAIL_DROP_EXTRA_NOTE,
   thumbnailKeyStep,
   thumbnailMaxZoom,
   THUMBNAIL_ASPECT,
@@ -34,6 +35,8 @@ function messageFor(error: unknown): string {
 
 export type SharedThumbnailDialogProps = {
   item: SharedContentResponse;
+  /** 枠へドロップして開いたときの画像と、使わなかった枚数。開いた直後に `画像を選ぶ` と同じ経路で読み込む */
+  dropped: { file: File; ignored: number } | null;
   onClose: () => void;
   /** 保存。失敗した理由は BFF の固定文言をそのまま返し、ダイアログ内に出す */
   onSave: (bytes: Uint8Array) => Promise<{ ok: boolean; message?: string }>;
@@ -43,9 +46,9 @@ export type SharedThumbnailDialogProps = {
 /**
  * 共有物のサムネイルを選び、16:10 で切り抜いて保存するダイアログ。
  * 位置はドラッグ / タッチ / 矢印キー、倍率はスライダーか +/- で調整でき、保存と解除も同じ面で行う。
- * 未保存で閉じれば既存の画像は変わらない（保存は押したときだけ送る）。
+ * 未保存で閉じれば既存の画像は変わらない（保存は押したときだけ送る）。枠へのドロップもこの面へ合流させる。
  */
-export function SharedThumbnailDialog({ item, onClose, onSave, onClear }: SharedThumbnailDialogProps) {
+export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear }: SharedThumbnailDialogProps) {
   const confirm = useConfirm();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -56,6 +59,8 @@ export function SharedThumbnailDialog({ item, onClose, onSave, onClear }: Shared
   const [crop, setCrop] = useState<ThumbnailCrop>(INITIAL_THUMBNAIL_CROP);
   const [busy, setBusy] = useState<"reading" | "saving" | "clearing" | null>(null);
   const [error, setError] = useState<string | undefined>(undefined);
+  // 落とした画像を 1 枚だけ使った理由。選び直したら消す
+  const [notice, setNotice] = useState<string | undefined>(undefined);
   const dragRef = useRef<{ x: number; y: number; crop: ThumbnailCrop } | null>(null);
 
   // 開いたらモーダルにし、閉じたら焦点を元の行へ戻す（QR と同じ作法）
@@ -84,19 +89,29 @@ export function SharedThumbnailDialog({ item, onClose, onSave, onClear }: Shared
     drawThumbnailPreview(canvas, source, crop);
   }, [source, crop]);
 
-  const pick = async (file: File) => {
+  const pick = async (file: File, note?: string) => {
     setError(undefined);
+    setNotice(undefined);
     setBusy("reading");
     try {
       const next = await loadThumbnailSource(file);
       setSource(next);
       setCrop(INITIAL_THUMBNAIL_CROP);
+      // 読めて初めて「1 枚だけ使った」と言える。読めなかったときはエラーだけを残す
+      setNotice(note);
     } catch (pickError) {
       setError(messageFor(pickError));
     } finally {
       setBusy(null);
     }
   };
+
+  // 開いたときの 1 回だけ読む。閉じたあとの差し替えは「画像を選ぶ」から行う
+  useEffect(() => {
+    if (dropped === null) return;
+    void pick(dropped.file, dropped.ignored > 0 ? THUMBNAIL_DROP_EXTRA_NOTE : undefined);
+    // dropped は開いた時点の値で、以後は変わらない
+  }, []);
 
   const save = async () => {
     if (!source || busy !== null) return;
@@ -283,6 +298,9 @@ export function SharedThumbnailDialog({ item, onClose, onSave, onClear }: Shared
             <p role="alert" className="text-2xs break-words text-danger-text">
               {error}
             </p>
+          )}
+          {notice === undefined ? null : (
+            <p className="text-2xs leading-relaxed break-words text-ink-muted">{notice}</p>
           )}
         </div>
 

@@ -1,5 +1,6 @@
 // What: サムネイルの切り抜き計算（16:10・原寸を超えない出力・倍率の上限・キーボード操作・版付き URL・
-// 一覧の版を巻き戻さない差し替え）を固定する。canvas と File のデコードは DOM 依存なのでここでは扱わない。
+// 一覧の版を巻き戻さない差し替え・ドロップで使う 1 枚の選び方）を固定する。
+// canvas と File のデコードは DOM 依存なのでここでは扱わない。
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -10,6 +11,7 @@ import {
   panThumbnailCrop,
   sharedContentThumbnailUrl,
   thumbnailCropRect,
+  thumbnailDropPick,
   thumbnailFrame,
   thumbnailKeyStep,
   thumbnailMaxZoom,
@@ -157,6 +159,14 @@ test("一覧の差し替えは版を巻き戻さず、解除は未設定へ倒�
   assert.equal(cleared[0]?.thumbnail, null);
   // 対象外の行はそのまま
   assert.deepEqual(cleared[1], other);
+});
+
+test("ドロップ: 最初の 1 枚だけを使い、残りは捨てた枚数として返す", () => {
+  // 枠は 1 枚しか持てない。空のドロップでは何も開かない
+  assert.equal(thumbnailDropPick([]), undefined);
+  assert.deepEqual(thumbnailDropPick(["a"]), { file: "a", ignored: 0 });
+  // 2 枚目以降は枚数だけを返し、画面が理由を出せるようにする
+  assert.deepEqual(thumbnailDropPick(["a", "b", "c"]), { file: "a", ignored: 2 });
 });
 
 test("失敗の分類: BFF が保存していないと確定したときだけ一覧を取り直さない", () => {
