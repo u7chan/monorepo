@@ -1,4 +1,4 @@
-export type StatusTone = "success" | "attention" | "neutral";
+export type StatusTone = "success" | "attention" | "danger" | "neutral";
 
 export type ProviderStatus = {
   label: string;

@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
 import { buildHealthReport, type AuthStatus, type DatabaseStatus } from "../src/server/health";
-import { EMPTY_USAGE, stubCodexApi, stubOpenCodeApi, stubProbeApi } from "./support";
+import { EMPTY_USAGE, stubCodexApi, stubOpenCodeApi, stubOpenCodeStatus, stubProbeApi } from "./support";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +25,7 @@ function appWith(db: DatabaseStatus, auth: AuthStatus) {
     codex: stubCodexApi(),
     probe: stubProbeApi(),
     opencode: stubOpenCodeApi(),
+    openCodeStatus: stubOpenCodeStatus,
   });
 }
 

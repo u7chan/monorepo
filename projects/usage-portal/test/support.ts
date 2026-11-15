@@ -5,11 +5,16 @@ import type { ProbeApi } from "../src/server/probe/api";
 import type { ProbeCatalog } from "../src/server/probe/catalog";
 import type { ProviderSnapshot } from "../src/server/providers/types";
 import type { UsagePayload } from "../src/server/usage";
+import type { OpenCodeStatusPayload } from "../src/shared/opencode-status";
 
 export const BASE_TIME = 1_800_000_000_000;
 
 /** 認証だけを試すテスト用の空の利用枠。provider の取得には触れない。 */
 export const EMPTY_USAGE: UsagePayload = { generatedAt: 0, sampleIntervalMs: 300_000, sources: [] };
+
+export async function stubOpenCodeStatus(): Promise<OpenCodeStatusPayload> {
+  return { state: "error", snapshot: null };
+}
 
 export function stubCodexApi(overrides: Partial<CodexApi> = {}): CodexApi {
   return {

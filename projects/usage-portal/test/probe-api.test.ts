@@ -11,7 +11,7 @@ import { createProbeRunner, type ProbeStreamProvider } from "../src/server/probe
 import { readProbeCatalog } from "../src/server/probe/catalog";
 import type { ProbeOutcome } from "../src/server/probe/service";
 import { createProbeSettings, PROBE_SETTINGS_FILE } from "../src/server/probe/settings";
-import { BASE_TIME, EMPTY_USAGE, stubAccount, stubCodexApi, stubOpenCodeApi } from "./support";
+import { BASE_TIME, EMPTY_USAGE, stubAccount, stubCodexApi, stubOpenCodeApi, stubOpenCodeStatus } from "./support";
 
 const PIN = "123456";
 const ORIGIN = "http://localhost";
@@ -88,6 +88,7 @@ function harness(
     usage: () => EMPTY_USAGE,
     codex: stubCodexApi(),
     opencode: stubOpenCodeApi({ list: () => ids.map((id) => stubAccount({ id })) }),
+    openCodeStatus: stubOpenCodeStatus,
     probe,
     health: () => buildHealthReport("ok", auth.status()),
     now: () => BASE_TIME,

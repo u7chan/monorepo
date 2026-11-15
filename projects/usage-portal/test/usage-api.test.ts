@@ -11,7 +11,7 @@ import { buildHealthReport } from "../src/server/health";
 import { openCodeSourceId } from "../src/server/opencode/accounts";
 import { parseCodexUsage } from "../src/server/providers/codex";
 import { createUsageReader, type UsagePayload, type UsageSourceAccount } from "../src/server/usage";
-import { BASE_TIME, stubCodexApi, stubOpenCodeApi, usageSnapshot, stubProbeApi } from "./support";
+import { BASE_TIME, stubCodexApi, stubOpenCodeApi, usageSnapshot, stubProbeApi, stubOpenCodeStatus } from "./support";
 
 const PIN = "123456";
 const ORIGIN = "http://localhost";
@@ -56,6 +56,7 @@ function harness(
     codex: stubCodexApi(),
     probe: stubProbeApi(),
     opencode: stubOpenCodeApi(),
+    openCodeStatus: stubOpenCodeStatus,
     health: () => buildHealthReport("ok", auth.status()),
     now: () => clock,
     clientKey: () => "test-client",
