@@ -4,6 +4,7 @@ import { fetchOpenCodeStatus, parseOpenCodeStatusPayload, type UsageSource } fro
 import {
   deriveOpenCodeStatus,
   hasActiveOpenCodeSource,
+  mergeOpenCodeStatusPayload,
   serviceStatusLabel,
   statusReasonLabel,
 } from "../src/client/lib/opencode-status";
@@ -78,6 +79,54 @@ describe("hasActiveOpenCodeSource", () => {
       expect(
         hasActiveOpenCodeSource([source({ state: "stale", error: { code, message: "テスト用", at: BASE_TIME } })]),
       ).toBe(true);
+    }
+  });
+});
+
+describe("mergeOpenCodeStatusPayload", () => {
+  test("前回値が無い取得失敗は取得不可にする", () => {
+    for (const incoming of [null, { state: "error", snapshot: null }] satisfies (OpenCodeStatusPayload | null)[]) {
+      expect(mergeOpenCodeStatusPayload(null, incoming)).toEqual({ state: "error", snapshot: null });
+    }
+  });
+
+  test("HTTP 200 の error 応答でもブラウザの前回値・理由・モデル・日時を残す", () => {
+    const previous: OpenCodeStatusPayload = {
+      state: "ok",
+      snapshot: snapshot({
+        status: "degraded",
+        reason: "latency",
+        models: [{ id: "model-a", status: "degraded", reason: "latency" }],
+        incidents: [{ startedAt: BASE_TIME, status: "degraded", reason: "latency", models: ["model-a"] }],
+      }),
+    };
+    const result = mergeOpenCodeStatusPayload(previous, { state: "error", snapshot: null });
+
+    expect(result).toEqual({ state: "stale", snapshot: previous.snapshot });
+    expect(deriveOpenCodeStatus(result, BASE_TIME).label).toBe("更新停止");
+  });
+
+  test("通信失敗が続いてもブラウザの前回値を失わない", () => {
+    const previous: OpenCodeStatusPayload = { state: "ok", snapshot: snapshot() };
+    const failed = mergeOpenCodeStatusPayload(previous, null);
+
+    expect(mergeOpenCodeStatusPayload(failed, { state: "error", snapshot: null })).toEqual({
+      state: "stale",
+      snapshot: previous.snapshot,
+    });
+  });
+
+  test("snapshot が返ったらサーバーの最新値と取得状態を使う", () => {
+    const previous: OpenCodeStatusPayload = { state: "stale", snapshot: snapshot() };
+
+    for (const state of ["ok", "stale"] as const) {
+      const incoming: OpenCodeStatusPayload = {
+        state,
+        snapshot: snapshot({ updatedAt: BASE_TIME + 60_000, status: "outage" }),
+      };
+
+      expect(mergeOpenCodeStatusPayload(previous, incoming)).toBe(incoming);
+      expect(mergeOpenCodeStatusPayload(null, incoming)).toBe(incoming);
     }
   });
 });

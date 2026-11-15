@@ -19,6 +19,17 @@ export function hasActiveOpenCodeSource(sources: readonly UsageSource[]): boolea
   );
 }
 
+export function mergeOpenCodeStatusPayload(
+  previous: OpenCodeStatusPayload | null,
+  incoming: OpenCodeStatusPayload | null,
+): OpenCodeStatusPayload {
+  if (incoming?.snapshot) {
+    return incoming;
+  }
+
+  return { state: previous?.snapshot ? "stale" : "error", snapshot: previous?.snapshot ?? null };
+}
+
 export function serviceStatusLabel(status: ServiceStatus): ProviderStatus {
   switch (status) {
     case "operational":
