@@ -189,7 +189,7 @@ test("注意: 既定で畳んだ details に入れ、summary の 1 行だけで�
 });
 
 // What: 受付後は切り替えられないタブ行を出さず、確定のボタンも出さない
-test("受付後: タブ行と確定のボタンを出さず、結果だけを見せる", () => {
+test("受付後: タブ行と確定のボタンを出さず、公開対象と結果を出す", () => {
   for (const share of [
     controller({ submitting: true }),
     controller({ items: [item()], activeId: "abc123" }),
@@ -198,6 +198,7 @@ test("受付後: タブ行と確定のボタンを出さず、結果だけを見
     const html = render(share);
     assert.deepEqual(tabs(html), [], "受付後はタブを描画しない");
     assert.equal(html.includes('role="tablist"'), false, "空のタブ行を残さない");
+    assert.ok(html.includes(">dist<"), "公開対象のパスは受付後も残す");
     assert.equal(html.includes(">共有する<"), false);
     assert.equal(html.includes(">キャンセル<"), false);
   }
