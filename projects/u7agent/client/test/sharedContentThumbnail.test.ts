@@ -34,6 +34,7 @@ const render = (content: SharedContentResponse, options: { narrow?: boolean; dis
       narrow: options.narrow ?? false,
       disabled: options.disabled ?? false,
       onOpen: () => {},
+      onDropFiles: () => {},
     }),
   );
 

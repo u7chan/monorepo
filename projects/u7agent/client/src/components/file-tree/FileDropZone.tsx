@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useFileDropTarget } from "../../hooks/useFileDropTarget";
 import { cn } from "../../lib/cn";
-import { isFileDrag, UPLOAD_LIMIT_NOTE } from "../../lib/fileUpload";
+import { UPLOAD_LIMIT_NOTE } from "../../lib/fileUpload";
 import { UploadIcon } from "../icons";
 
 export type FileDropZoneProps = {
@@ -19,70 +20,10 @@ export type FileDropZoneProps = {
  * 操作は持たない (docs/file-upload.md)。社内の「行を入力欄へ参照」ドラッグは `Files` を含まないので通さない。
  */
 export function FileDropZone({ onFiles, hint, children, className }: FileDropZoneProps) {
-  const [active, setActive] = useState(false);
-  // dragenter は子要素をまたぐたびに入る。enter / leave を数えて、面の外へ出たときだけ閉じる
-  const depthRef = useRef(0);
-  const reset = useCallback(() => {
-    depthRef.current = 0;
-    setActive(false);
-  }, []);
-
-  // 面の外でドロップした / ドラッグを取り消したときも、オーバーレイを残さない
-  useEffect(() => {
-    if (!active) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") reset();
-    };
-    window.addEventListener("dragend", reset);
-    window.addEventListener("drop", reset);
-    window.addEventListener("blur", reset);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("dragend", reset);
-      window.removeEventListener("drop", reset);
-      window.removeEventListener("blur", reset);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [active, reset]);
-
-  const hasFiles = (event: DragEvent<HTMLDivElement>) => isFileDrag(Array.from(event.dataTransfer.types));
-
-  const handleDragEnter = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return;
-    event.preventDefault();
-    depthRef.current += 1;
-    setActive(true);
-  };
-
-  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-  };
-
-  const handleDragLeave = () => {
-    // types が空になるブラウザーでも閉じられるよう、leave では Files の判定をやり直さない
-    // (対象外のドラッグでは depth が 0 のままで、何も起きない)
-    depthRef.current = Math.max(0, depthRef.current - 1);
-    if (depthRef.current === 0) setActive(false);
-  };
-
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    const files = Array.from(event.dataTransfer.files);
-    if (!hasFiles(event) && files.length === 0) return;
-    event.preventDefault();
-    reset();
-    if (files.length > 0) onFiles(files);
-  };
+  const { active, handlers } = useFileDropTarget({ onFiles });
 
   return (
-    <div
-      className={cn("relative", className)}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
+    <div className={cn("relative", className)} {...handlers}>
       {children}
       {active ? (
         // ポインターを透過させ、下のツリーへドロップさせたままオーバーレイだけを見せる

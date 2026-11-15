@@ -17,6 +17,7 @@ import {
 } from "../../lib/sharedContents";
 import { renameInputValue } from "../../lib/confirmDialog";
 import { keepSharedContentHeadingVisible } from "../../lib/sharedContentsScroll";
+import { thumbnailDropPick } from "../../lib/sharedThumbnail";
 import type { SessionSummary, SharedContentResponse, SharedContentStatusValue } from "../../types";
 import { workdirBusyKind } from "../../lib/sessionBusy";
 import { DisclosureChevronIcon, KeyIcon, ShareIcon, WarningIcon } from "../icons";
@@ -56,8 +57,11 @@ export function SharedContentsTab({
   const narrow = useViewportWidth() < NARROW_MAX_WIDTH;
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const [qrId, setQrId] = useState<string | null>(null);
-  // サムネイルの編集対象。行が一覧から消えたら開かない（公開状態では閉じない）
-  const [thumbnailId, setThumbnailId] = useState<string | null>(null);
+  // サムネイルの編集対象。枠へドロップして開いたときは、読み込む画像も一緒に持つ
+  const [thumbnailEdit, setThumbnailEdit] = useState<{
+    id: string;
+    dropped: { file: File; ignored: number } | null;
+  } | null>(null);
   // 見出しを畳む状態。状態ごとのまとまりは画面の都合なので保存しない（開き直したら全部開く）
   const [collapsed, setCollapsed] = useState<ReadonlySet<SharedContentStatusValue>>(() => new Set());
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -90,7 +94,7 @@ export function SharedContentsTab({
   const sessionMissing = (item: SharedContentResponse) => sharedContentSessionMissing(item, sessionIds, sessionsLoaded);
   // 対象は一覧から引き直す。差し替えで版が変わっても、開いたままのダイアログが同じ行を指す
   const thumbnailTarget =
-    thumbnailId === null ? null : (contents.items.find((item) => item.id === thumbnailId) ?? null);
+    thumbnailEdit === null ? null : (contents.items.find((item) => item.id === thumbnailEdit.id) ?? null);
 
   useLayoutEffect(() => {
     const toggled = toggledHeadingRef.current;
@@ -147,7 +151,13 @@ export function SharedContentsTab({
               void copyMessage(url, id);
             }}
             onOpenThumbnail={() => {
-              setThumbnailId(item.id);
+              setThumbnailEdit({ id: item.id, dropped: null });
+            }}
+            onDropThumbnailFiles={(files) => {
+              // 枠は 1 枚しか持てない。2 枚目以降は捨てた理由をダイアログに出す
+              const dropped = thumbnailDropPick(files);
+              if (dropped === undefined) return;
+              setThumbnailEdit({ id: item.id, dropped });
             }}
             onQr={() => {
               setQrId(item.id);
@@ -246,7 +256,8 @@ export function SharedContentsTab({
       {thumbnailTarget === null ? null : (
         <SharedThumbnailDialog
           item={thumbnailTarget}
-          onClose={() => setThumbnailId(null)}
+          dropped={thumbnailEdit?.dropped ?? null}
+          onClose={() => setThumbnailEdit(null)}
           onSave={(bytes) => contents.setThumbnail(thumbnailTarget.id, bytes)}
           onClear={() => contents.clearThumbnail(thumbnailTarget.id)}
         />
