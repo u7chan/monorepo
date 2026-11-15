@@ -91,12 +91,14 @@ export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear 
 
   const pick = async (file: File, note?: string) => {
     setError(undefined);
-    setNotice(note);
+    setNotice(undefined);
     setBusy("reading");
     try {
       const next = await loadThumbnailSource(file);
       setSource(next);
       setCrop(INITIAL_THUMBNAIL_CROP);
+      // 読めて初めて「1 枚だけ使った」と言える。読めなかったときはエラーだけを残す
+      setNotice(note);
     } catch (pickError) {
       setError(messageFor(pickError));
     } finally {

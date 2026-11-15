@@ -53,15 +53,18 @@ export function useFileDropTarget({ onFiles, disabled = false }: FileDropTargetO
 
   const handlers: FileDropHandlers = {
     onDragEnter: (event) => {
-      if (disabled || !hasFiles(event)) return;
+      if (!hasFiles(event)) return;
       event.preventDefault();
+      if (disabled) return;
       depthRef.current += 1;
       setActive(true);
     },
     onDragOver: (event) => {
-      if (disabled || !hasFiles(event)) return;
+      if (!hasFiles(event)) return;
+      // 受け付けない間も既定の動作（画像を開いて面を離れる）は止める。drop は dragover を
+      // preventDefault した面にしか届かないため、止める場所は drop ではなくここ
       event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
+      event.dataTransfer.dropEffect = disabled ? "none" : "copy";
     },
     onDragLeave: () => {
       // types が空になるブラウザーでも閉じられるよう、leave では Files の判定をやり直さない
@@ -71,7 +74,6 @@ export function useFileDropTarget({ onFiles, disabled = false }: FileDropTargetO
     onDrop: (event) => {
       const files = Array.from(event.dataTransfer.files);
       if (!hasFiles(event) && files.length === 0) return;
-      // 受け付けない間も既定の動作は止める。止めないと画像を開いて画面ごと離れる
       event.preventDefault();
       reset();
       if (disabled || files.length === 0) return;
