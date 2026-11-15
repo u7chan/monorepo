@@ -26,6 +26,7 @@ const item = (overrides: Partial<SharedContentResponse> = {}): SharedContentResp
   publishedAt: PUBLISHED_AT,
   stoppedAt: null,
   lastError: null,
+  thumbnail: null,
   ...overrides,
 });
 

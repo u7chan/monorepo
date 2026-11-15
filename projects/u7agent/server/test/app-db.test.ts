@@ -2593,6 +2593,10 @@ test("migrates a v23 db additively and adds the sharing tables", () => {
       "publishedAt",
       "stoppedAt",
       "lastError",
+      "thumbnailUpdatedAt",
+      "thumbnailWidth",
+      "thumbnailHeight",
+      "thumbnailBytes",
     ]);
     assert.deepEqual(columnNames(check, "cloudflare_settings"), [
       "id",

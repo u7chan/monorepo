@@ -48,6 +48,7 @@ class FakeStore implements SharedContentStore {
   failAnyUpdate = false;
   failNameUpdate = false;
   failDeleteRow = false;
+  failThumbnailUpdate = false;
 
   insertSharedContent(row: SharedContentRow): void {
     if (this.failInsert) throw new Error("db insert boom");
@@ -82,6 +83,14 @@ class FakeStore implements SharedContentStore {
     const row = this.rows.get(id);
     if (!row) throw new Error("missing row");
     this.rows.set(id, { ...row, name });
+  }
+
+  updateSharedContentThumbnail(id: string, thumbnail: SharedContentRow["thumbnail"]): boolean {
+    if (this.failThumbnailUpdate) throw new Error("db thumbnail boom");
+    const row = this.rows.get(id);
+    if (!row) return false;
+    this.rows.set(id, { ...row, thumbnail });
+    return true;
   }
 
   getSharedContent(id: string): SharedContentRow | undefined {

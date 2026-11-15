@@ -68,6 +68,7 @@ const base: SharedContentResponse = {
   publishedAt: null,
   stoppedAt: null,
   lastError: null,
+  thumbnail: null,
 };
 
 /** 公開が一度でも成功した時刻。`publishedAt` が無い published / stopped は未デプロイ（要更新） */

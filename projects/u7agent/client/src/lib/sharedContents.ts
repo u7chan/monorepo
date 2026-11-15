@@ -606,6 +606,22 @@ export function sharedContentDeleteConfirm(item: SharedContentResponse): Confirm
   };
 }
 
+/**
+ * サムネイルだけを外す確認。共有物と公開 URL は残るが、画像は元に戻せないことを示す
+ * （外す入口はサムネイルのダイアログの中だけで、共有物の削除とは別の操作）。
+ */
+export function sharedContentThumbnailClearConfirm(item: SharedContentResponse): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: "サムネイルを外す",
+    subject: { label: "共有物", value: item.name },
+    body: ["この共有物のサムネイルを外します。共有物と公開 URL は残ります。"],
+    notes: ["外した画像は元に戻せません。設定し直すときは画像を選び直します。"],
+    confirmLabel: "外す",
+    danger: true,
+  };
+}
+
 /** 確認に並べる対象名の上限。超えた分は「ほか n 件」に畳む */
 export const SHARED_CONTENT_STOP_ALL_TARGET_LIMIT = 5;
 

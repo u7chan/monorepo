@@ -173,6 +173,8 @@ export type {
   SharedContentsResponse,
   SharedContentStatusValue,
   SharedContentStopResponse,
+  SharedContentThumbnail,
+  SharedContentThumbnailResponse,
   SkillLoad,
   SpeechCatalogRefreshResponse,
   SpeechModel,

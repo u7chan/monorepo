@@ -22,7 +22,7 @@ import type { SpeechAudioFormat } from "./speech";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 46;
+export const APP_DB_SCHEMA_VERSION = 47;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -335,6 +335,17 @@ export type SharedContentStatus = "publishing" | "published" | "stopped" | "fail
  */
 export type SharedContentSourceKind = "directory" | "session-root";
 
+/**
+ * 共有物のサムネイルのメタデータ。実体は `<storeDir>/shared-thumbnails/<id>.png` に置き、
+ * 行は「存在の正」だけを持つ (docs/persistence.md)。
+ */
+export interface SharedContentThumbnailRow {
+  updatedAt: number;
+  width: number;
+  height: number;
+  bytes: number;
+}
+
 export interface SharedContentRow {
   id: string;
   /** 公開元のセッション。セッションを削除しても行は残す */
@@ -357,6 +368,8 @@ export interface SharedContentRow {
   publishedAt: number | null;
   stoppedAt: number | null;
   lastError: string | null;
+  /** 未設定は null。列が無い時代の行も null として読む */
+  thumbnail?: SharedContentThumbnailRow | null;
 }
 
 /**
@@ -780,7 +793,11 @@ CREATE TABLE IF NOT EXISTS shared_contents (
   updatedAt   INTEGER NOT NULL,
   publishedAt INTEGER,
   stoppedAt   INTEGER,
-  lastError   TEXT
+  lastError   TEXT,
+  thumbnailUpdatedAt INTEGER,
+  thumbnailWidth INTEGER,
+  thumbnailHeight INTEGER,
+  thumbnailBytes INTEGER
 );
 CREATE UNIQUE INDEX IF NOT EXISTS shared_contents_remote ON shared_contents (provider, providerAccount, remoteId);
 `;
@@ -1048,7 +1065,19 @@ function sharedContentOf(row: Row): SharedContentRow {
     publishedAt: optionalNumber(row.publishedAt),
     stoppedAt: optionalNumber(row.stoppedAt),
     lastError: optionalText(row.lastError) ?? null,
+    thumbnail: sharedContentThumbnailOf(row),
   };
+}
+
+/** 4 列が揃っている行だけをサムネイルありとして読む (手編集や途中の移行で半端な行を作らない) */
+function sharedContentThumbnailOf(row: Row): SharedContentThumbnailRow | null {
+  const updatedAt = optionalNumber(row.thumbnailUpdatedAt);
+  const width = optionalNumber(row.thumbnailWidth);
+  const height = optionalNumber(row.thumbnailHeight);
+  const bytes = optionalNumber(row.thumbnailBytes);
+  if (updatedAt === null || width === null || height === null || bytes === null) return null;
+  if (width <= 0 || height <= 0 || bytes <= 0) return null;
+  return { updatedAt, width, height, bytes };
 }
 
 /** 手編集で空文字にされた provider / imageModel の行は未設定として読む (メモと同じ規約) */
@@ -1946,6 +1975,11 @@ export class AppDb {
       this.#addColumnIfMissing("spaces", "sortOrder", "INTEGER");
       // v27 以前の共有物に無い列 (公開元の種類)。既存行は配下ディレクトリの公開として埋める
       this.#addColumnIfMissing("shared_contents", "sourceKind", "TEXT NOT NULL DEFAULT 'directory'");
+      // v46 -> v47: サムネイルのメタ。既存行は 4 列とも NULL = 未設定として読む
+      this.#addColumnIfMissing("shared_contents", "thumbnailUpdatedAt", "INTEGER");
+      this.#addColumnIfMissing("shared_contents", "thumbnailWidth", "INTEGER");
+      this.#addColumnIfMissing("shared_contents", "thumbnailHeight", "INTEGER");
+      this.#addColumnIfMissing("shared_contents", "thumbnailBytes", "INTEGER");
       // v19 以前に無い列 (質問通知)。既存行は既定 (ON) で埋める
       this.#addColumnIfMissing("notification_settings", "askUser", "INTEGER NOT NULL DEFAULT 1");
       // v30 -> v31: 平文の APIキー / Webhook URL を落とし、暗号文の列だけを持つ形へ移す
@@ -2667,6 +2701,30 @@ export class AppDb {
    */
   updateSharedContentName(id: string, name: string): void {
     this.#query((db) => db.prepare("UPDATE shared_contents SET name = ? WHERE id = ?").run(name, id));
+  }
+
+  /**
+   * サムネイルのメタだけを差し替える (`null` で未設定)。`updatedAt` は触らない:
+   * 一覧の「更新」は公開ライフサイクルの時刻で、画像の差し替えで動くと成果物が変わったと誤読される。
+   * 行が既に無ければ false を返し、呼び出し側が競合として扱えるようにする。
+   */
+  updateSharedContentThumbnail(id: string, thumbnail: SharedContentThumbnailRow | null): boolean {
+    return this.#query(
+      (db) =>
+        db
+          .prepare(
+            `UPDATE shared_contents
+                SET thumbnailUpdatedAt = ?, thumbnailWidth = ?, thumbnailHeight = ?, thumbnailBytes = ?
+              WHERE id = ?`,
+          )
+          .run(
+            thumbnail?.updatedAt ?? null,
+            thumbnail?.width ?? null,
+            thumbnail?.height ?? null,
+            thumbnail?.bytes ?? null,
+            id,
+          ).changes > 0,
+    );
   }
 
   getSharedContent(id: string): SharedContentRow | undefined {

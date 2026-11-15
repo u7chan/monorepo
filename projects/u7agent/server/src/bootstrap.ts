@@ -64,6 +64,7 @@ import {
 } from "./secret-crypto";
 import { ServeService, sandboxHostFromUrl, type ServeProbe } from "./serve";
 import { SharedContentsService } from "./shared-contents";
+import { SHARED_THUMBNAIL_DIR_NAME, createSharedThumbnailStore } from "./shared-thumbnails";
 import { createSharedContentExclusions } from "./shared-content-exclusions";
 import type { SharedContentExclusions } from "./shared-content-exclusions";
 import { createServeToolHost } from "./serve-tool";
@@ -566,6 +567,9 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     maskError,
     secretValues: () => pi?.secretMasker.secrets ?? [],
     exclusions: sharedContentExclusions,
+    // サムネイルも DB と同じ領域の兄弟 (`<storeDir>/shared-thumbnails`) に置く。
+    // 永続化なしの構成 (storeDir が無い) では保存できないので、配信も 503 になる
+    thumbnails: storeDir ? createSharedThumbnailStore(join(storeDir, SHARED_THUMBNAIL_DIR_NAME)) : null,
   });
   const cloudflareConnection = new CloudflareConnectionService({
     credentials: cloudflareSettings,
@@ -574,6 +578,10 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // 中断した公開を起動時に回収する。失敗しても起動は止めず、行は publishing + lastError のまま残す
   await sharedContents.recoverInterrupted().catch((error) => {
     console.warn(`[u7agent] shared content recovery failed: ${maskError(messageFor(error))}`);
+  });
+  // サムネイルの行と実体を揃える。行の無いファイルを消し、実体の無い行を未設定へ倒す
+  await sharedContents.reconcileThumbnails().catch((error) => {
+    console.warn(`[u7agent] shared content thumbnail reconciliation failed: ${maskError(messageFor(error))}`);
   });
   /**
    * 復元でのモデルの可否は、セッション作成と同じ実効一覧で判定する。APIキー未設定で一覧が空、
