@@ -55,6 +55,18 @@ export function isRescuedApproval(card: ToolCard, networkAccess: SessionNetworkA
   return networkAccess?.mode === "ask" && networkAccess.approved && deniedApprovalOf(card) !== undefined;
 }
 
+/**
+ * 押した直後の「許可済み」表示 (done) を捨てるか。押した時点の payload から別の状態が届き、
+ * 承認が立っていなければ、応答直後のつなぎより権威ある状態を優先する (停止・削除で戻る)。
+ */
+export function rescuedApprovalExpired(
+  done: boolean,
+  current: SessionNetworkAccess | undefined,
+  atRescue: SessionNetworkAccess | undefined,
+): boolean {
+  return done && current !== atRescue && current?.approved !== true;
+}
+
 /** 救済の後も exec は自動で再試行されない。押した後の補足と、再読込後の記録に出す */
 export const APPROVAL_RESCUE_NOTE = "この会話では外部通信を許可済みです。失敗したコマンドは再実行してください。";
 

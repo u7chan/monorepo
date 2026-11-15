@@ -20,6 +20,7 @@ import {
   isRescuableApproval,
   isRescuedApproval,
   nextUnresolvedAskUserIndex,
+  rescuedApprovalExpired,
   splitApprovalQuestion,
   toggleAskUserOption,
   type AskUserCloseState,
@@ -566,6 +567,8 @@ export function AskUserCard({
     sending: false,
     done: false,
   });
+  /** 押した時点の payload。その後届いた権威ある状態と区別する (done は応答直後のつなぎ) */
+  const rescuedFrom = useRef<SessionNetworkAccess | undefined>(undefined);
   const confirm = useConfirm();
 
   const waiting = answerable && isPendingAskUserCard(card);
@@ -634,8 +637,14 @@ export function AskUserCard({
     if (host === undefined || onApproveNetworkAccess === undefined || rescue.sending) return;
     setRescue({ sending: true, done: false });
     const result = await onApproveNetworkAccess(host);
+    if (result.ok) rescuedFrom.current = networkAccess;
     setRescue(result.ok ? { sending: false, done: true } : { sending: false, done: false, error: result.error });
   };
+  // 停止・会話削除で承認が失効したら、応答直後の「許可済み」表示を捨てて導線を戻す
+  useEffect(() => {
+    if (!rescuedApprovalExpired(rescue.done, networkAccess, rescuedFrom.current)) return;
+    setRescue({ sending: false, done: false });
+  }, [networkAccess, rescue.done]);
   // 押した直後は応答で、その後の再読込は payload で承認済みになる。どちらでも同じ補足を出す
   const rescued = rescue.done || isRescuedApproval(card, networkAccess);
   const canRescue = !rescued && isRescuableApproval(card, networkAccess) && onApproveNetworkAccess !== undefined;

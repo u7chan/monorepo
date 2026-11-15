@@ -249,6 +249,36 @@ test("拒否の記録が無くても許可へ変えられるが、不正なホ�
   }
 });
 
+test("承認の変更 (回答・停止) は resync で配り、押したカードを許可済みのままにしない", async () => {
+  const previous = process.env.PI_SANDBOX_NETWORK_POLICY;
+  process.env.PI_SANDBOX_NETWORK_POLICY = "ask";
+  try {
+    const store = createStore();
+    const record = await store.create();
+    const events: { type: SSEEventType; data: Record<string, unknown> }[] = [];
+    store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
+    const host = store.networkAccessHost();
+
+    // 通常のカードで許可した場合も、拒否済みカードの導線を持つクライアントへ状態を配る
+    const pending = host.ask(record.id, "call-1", networkAccessQuestions("r", "example.com"), undefined);
+    assert.equal(store.answerQuestion(record, "call-1", [{ index: 0, approval: true }]).status, "ok");
+    await pending;
+    const approved = events.filter((entry) => entry.type === "resync")[0];
+    assert.ok(approved, "承認の受理で resync を配る");
+    assert.deepEqual((approved.data as { networkAccess?: unknown }).networkAccess, { mode: "ask", approved: true });
+
+    // 停止で承認を失効したら、押したカードを「許可済み」のままにしない
+    events.length = 0;
+    await store.stop(record);
+    const revoked = events.filter((entry) => entry.type === "resync")[0];
+    assert.ok(revoked, "承認が変わった停止で resync を配る");
+    assert.deepEqual((revoked.data as { networkAccess?: unknown }).networkAccess, { mode: "ask", approved: false });
+  } finally {
+    if (previous === undefined) delete process.env.PI_SANDBOX_NETWORK_POLICY;
+    else process.env.PI_SANDBOX_NETWORK_POLICY = previous;
+  }
+});
+
 test("承認済みの会話ではカードを出さず、同じ操作の再実行を促す", async () => {
   const host = createHost({ mode: "ask", approved: true });
   const [tool] = createRequestNetworkAccessToolDefinitions({ enabled: true, sessionId: () => "s1", host });

@@ -33,6 +33,7 @@ import {
   isRescuableApproval,
   isRescuedApproval,
   nextUnresolvedAskUserIndex,
+  rescuedApprovalExpired,
   pendingAskUserQuestionCount,
   splitApprovalQuestion,
   toggleAskUserOption,
@@ -773,6 +774,15 @@ test("拒否済みカードの救済は、承認モードで未承認のとき�
   assert.equal(isRescuedApproval(denied, { mode: "ask", approved: true }), true);
   assert.equal(isRescuedApproval(denied, { mode: "allow", approved: true }), false, "承認で開いたときだけ出す");
   assert.equal(isRescuedApproval(approvalCard("call-4", "done", [{ index: 0, approval: true }]), ask), false);
+});
+
+test("押した後の「許可済み」は、権威ある状態が届いたら捨てる", () => {
+  const ask = { mode: "ask", approved: false } as const;
+  const approved = { mode: "ask", approved: true } as const;
+  assert.equal(rescuedApprovalExpired(true, ask, ask), false, "同じ payload の間は応答直後の表示を保つ");
+  assert.equal(rescuedApprovalExpired(true, approved, ask), false, "承認済みは payload の表示に任せる");
+  assert.equal(rescuedApprovalExpired(true, ask, approved), true, "停止で失効したら導線を戻す");
+  assert.equal(rescuedApprovalExpired(false, ask, approved), false);
 });
 
 test("拒否の記録は「許可に変更」を出し、押した後は再実行の補足に変わる", () => {
