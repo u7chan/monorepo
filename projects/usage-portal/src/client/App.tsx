@@ -36,12 +36,14 @@ import { LoginScreen } from "./components/LoginScreen";
 import { Modal } from "./components/Modal";
 import { OpenCodeAccountCard } from "./components/OpenCodeAccountCard";
 import { OpenCodeAccountForm, type OpenCodeAccountActions } from "./components/OpenCodeAccountForm";
+import { OpenCodeStatusPanel } from "./components/OpenCodeStatusPanel";
 import { OverflowMenu, type MenuItem } from "./components/OverflowMenu";
 import { ProbeSettingsForm } from "./components/ProbeSettingsForm";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { formatClock } from "./lib/format";
 import { orderSources } from "./lib/order";
+import { hasActiveOpenCodeSource } from "./lib/opencode-status";
 import { readProbeLoad } from "./lib/probe";
 import { type ViewMode, browserStorage, readViewMode, writeViewMode } from "./lib/view-mode";
 import { expiryNotice } from "./time";
@@ -531,6 +533,7 @@ function Dashboard(props: {
           </span>
         </p>
       </div>
+      {hasActiveOpenCodeSource(sources) ? <OpenCodeStatusPanel now={clock} onUnauthorized={onUnauthorized} /> : null}
       <div class="up-providers" data-density={viewMode}>
         {sources.map((source) =>
           source.provider === "codex" ? (

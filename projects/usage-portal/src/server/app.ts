@@ -2,6 +2,7 @@ import { bodyLimit } from "hono/body-limit";
 import { getConnInfo } from "hono/bun";
 import { Hono } from "hono";
 import type { Context } from "hono";
+import type { OpenCodeStatusPayload } from "../shared/opencode-status";
 import type { AuthService } from "./auth";
 import type { CodexApi } from "./codex/api";
 import { CodexLoginError } from "./codex/login";
@@ -37,6 +38,7 @@ export type AppDeps = {
   usage: () => UsagePayload;
   codex: CodexApi;
   opencode: OpenCodeApi;
+  openCodeStatus: () => Promise<OpenCodeStatusPayload>;
   probe: ProbeApi;
   rateLimiter?: RateLimiter;
   clientKey?: (c: Context) => string;
@@ -239,6 +241,8 @@ export function createApp(deps: AppDeps) {
   });
 
   app.get("/api/opencode/accounts", requireSession, (c) => c.json({ accounts: deps.opencode.list() }));
+
+  app.get("/api/opencode/status", requireSession, async (c) => c.json(await deps.openCodeStatus()));
 
   app.post(
     "/api/opencode/accounts",

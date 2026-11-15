@@ -18,6 +18,7 @@ import {
 import { buildHealthReport } from "./server/health";
 import { createOpenCodeAccounts, openCodeSourceId } from "./server/opencode/accounts";
 import { createOpenCodeApi } from "./server/opencode/api";
+import { createOpenCodeStatusReader } from "./server/opencode/status";
 import { createProbeApi } from "./server/probe/api";
 import { createProbeRunner } from "./server/probe/service";
 import { createProbeSettings } from "./server/probe/settings";
@@ -136,6 +137,7 @@ const app = createApp({
   cookieSecure: config.cookieSecure,
   codex,
   opencode,
+  openCodeStatus: createOpenCodeStatusReader({ userAgent }),
   probe,
   usage: createUsageReader({
     db: database,

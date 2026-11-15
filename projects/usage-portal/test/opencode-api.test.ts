@@ -18,7 +18,7 @@ import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "../src/server/providers";
 import { ProviderError } from "../src/server/providers/types";
 import { createSampler, type UsageFetcher } from "../src/server/sampler";
 import { createUsageReader, type UsagePayload } from "../src/server/usage";
-import { BASE_TIME, stubCodexApi, usageSnapshot, stubProbeApi } from "./support";
+import { BASE_TIME, stubCodexApi, usageSnapshot, stubProbeApi, stubOpenCodeStatus } from "./support";
 
 const PIN = "123456";
 const ORIGIN = "http://localhost";
@@ -116,6 +116,7 @@ function harness(
     codex: stubCodexApi(),
     probe: stubProbeApi(),
     opencode,
+    openCodeStatus: stubOpenCodeStatus,
     health: () => buildHealthReport("ok", auth.status()),
     now: () => clock,
     clientKey: () => "test-client",
