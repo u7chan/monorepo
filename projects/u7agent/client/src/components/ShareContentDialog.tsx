@@ -21,7 +21,7 @@ import {
 } from "../lib/sharedContents";
 import { sharePreviewSummary } from "../lib/sharedContentPreview";
 import type { SharedContentResponse } from "../types";
-import { CloseIcon, ExternalLinkIcon, QrCodeIcon, RunSpinnerIcon, ShareIcon, WarningIcon } from "./icons";
+import { CloseIcon, ExternalLinkIcon, GearIcon, QrCodeIcon, RunSpinnerIcon, ShareIcon, WarningIcon } from "./icons";
 import { CollapsibleNotice } from "./CollapsibleNotice";
 import { LoadingMark } from "./LoadingMark";
 import { QrCodeDialog } from "./QrCodeDialog";
@@ -44,6 +44,8 @@ export type ShareContentDialogProps = {
   runBlockedReason?: string;
   singleColumn?: boolean;
   onClose: () => void;
+  /** 結果から 設定 → 共有（`/settings/sharing`）へ移る。押す前にこのダイアログを閉じる */
+  onOpenSharingSettings: () => void;
 };
 
 /**
@@ -67,6 +69,8 @@ export type ShareContentDialogViewProps = {
   runBlockedReason?: string;
   singleColumn?: boolean;
   onClose: () => void;
+  /** 結果から 設定 → 共有（`/settings/sharing`）へ移る。押す前にこのダイアログを閉じる */
+  onOpenSharingSettings: () => void;
 };
 
 /** ダイアログの 2 タブ。開閉で捨てるローカル状態で、URL には載せない */
@@ -78,6 +82,7 @@ export function ShareContentDialogView({
   runBlockedReason,
   singleColumn = false,
   onClose,
+  onOpenSharingSettings,
 }: ShareContentDialogViewProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -95,7 +100,7 @@ export function ShareContentDialogView({
   // (公開が終わったと確認できるまで、閉じても続く案内を消さない)
   const busy =
     share.submitting || (share.activeId !== null && (active === undefined || active.status === "publishing"));
-  // 受付後は結果と再送の導線を混ぜないため「公開」タブへ固定する (一覧は 設定 → 共有 で管理する)
+  // 受付後はタブ行を隠すため、本文は「公開」側に固定する (一覧は 設定 → 共有 で管理する)
   const activeTab: ShareTab = started ? "publish" : tab;
 
   useEffect(() => {
@@ -134,6 +139,12 @@ export function ShareContentDialogView({
     if (busy || started || primary.kind === "publishing" || runBlockedReason !== undefined) return;
     setTab("publish");
     void share.share(target.directory, name);
+  };
+
+  // 設定面へ移る前にモーダルを閉じる (設定面の上にダイアログを残さない)
+  const openSharingSettings = () => {
+    onClose();
+    onOpenSharingSettings();
   };
 
   return (
@@ -179,32 +190,29 @@ export function ShareContentDialogView({
       </header>
 
       <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-        {/* タブは本文と外へ分けて固定する (切り替えてもヘッダ・フッターの位置が動かない) */}
-        <div role="tablist" aria-label="共有の表示" className="flex min-w-0 shrink-0 gap-1 border-b border-line px-4">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "publish"}
-            onClick={() => setTab("publish")}
-            className={cn("tab-item", activeTab === "publish" && "tab-item-active")}
-          >
-            公開
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "items"}
-            // 受付後は結果と一覧の導線を混ぜないため「公開」タブに固定する
-            disabled={started}
-            onClick={() => setTab("items")}
-            className={cn(
-              "tab-item disabled:cursor-not-allowed disabled:opacity-45",
-              activeTab === "items" && "tab-item-active",
-            )}
-          >
-            共有物（{share.items.length}）
-          </button>
-        </div>
+        {/* 受付後は切り替えられないため、タブ行ごと隠す (結果と一覧の導線を混ぜない) */}
+        {started ? null : (
+          <div role="tablist" aria-label="共有の表示" className="flex min-w-0 shrink-0 gap-1 border-b border-line px-4">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "publish"}
+              onClick={() => setTab("publish")}
+              className={cn("tab-item", activeTab === "publish" && "tab-item-active")}
+            >
+              公開
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "items"}
+              onClick={() => setTab("items")}
+              className={cn("tab-item", activeTab === "items" && "tab-item-active")}
+            >
+              共有物（{share.items.length}）
+            </button>
+          </div>
+        )}
 
         {/* スクロールは本文にだけ残す。切り替えない面も描いたまま hidden で隠し、開閉で入力欄を作り直さない */}
         <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto px-4 py-3.5 text-xs leading-relaxed">
@@ -263,6 +271,14 @@ export function ShareContentDialogView({
             )}
 
             {started ? <ShareOutcome active={active} submitting={share.submitting} onQr={setQrId} /> : null}
+
+            {/* 停止・削除・改名はこのダイアログに置かないため、管理面への出口をここに 1 本だけ作る */}
+            {started && !share.submitting ? (
+              <button type="button" onClick={openSharingSettings} className="btn-quiet w-fit singleColumn:min-h-11">
+                <GearIcon />
+                共有物を管理
+              </button>
+            ) : null}
 
             {/* 閉じると受付済みの表示は失われるが、公開はサーバー側で続く。閉じるは塞がない */}
             {busy ? <p className="text-1xs break-words text-ink-muted">{SHARE_CLOSE_HINT}</p> : null}

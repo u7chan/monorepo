@@ -703,6 +703,13 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     [navigate],
   );
 
+  // 共有ダイアログの結果から 設定 → 共有 へ移る。ダイアログ自身は閉じるので、ここでは
+  // singleColumn のシートだけを閉じる (設定面を modal が覆ったままにしない)
+  const openSharingSettingsFromDialog = useCallback(() => {
+    closeSessionFilesSheet();
+    openSharingSubsection(DEFAULT_SHARING_SUBSECTION);
+  }, [closeSessionFilesSheet, openSharingSubsection]);
+
   // ランタイムのタブ切替も同じく URL へ集約する
   const openRuntimeSubsection = useCallback(
     (subsection: RuntimeSubsection) => {
@@ -1296,6 +1303,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             filePreviewOrigin={app.health?.filePreviewOrigin}
             runEndSeq={app.chat.runEndSeq}
             shareBlockedReason={shareBlockedReason}
+            onOpenSharingSettings={openSharingSettingsFromDialog}
             onClose={closeSessionFiles}
             openRequest={pendingFileRef}
             onHandled={app.ackFileRef}
@@ -1321,6 +1329,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           filePreviewOrigin={app.health?.filePreviewOrigin}
           runEndSeq={app.chat.runEndSeq}
           shareBlockedReason={shareBlockedReason}
+          onOpenSharingSettings={openSharingSettingsFromDialog}
           onClose={closeSessionFilesSheet}
           openRequest={pendingFileRef}
           onHandled={app.ackFileRef}
