@@ -261,6 +261,28 @@ function stopAllButton(html: string): string {
   return html.match(/<button[^>]*aria-label="[^"]*停止[^"]*"[^>]*>/)?.[0] ?? "";
 }
 
+test("共有コンテンツ: 状態見出しを一覧上端に固定する", () => {
+  const html = render(
+    cloudflare(),
+    { items: [contentItem(), contentItem({ id: "b", status: "stopped", stoppedAt: 2_000 })] },
+    "contents",
+  );
+  const headings = [...html.matchAll(/<section[^>]*><h2[^>]*class="([^"]+)"[^>]*>/g)];
+  assert.equal(headings.length, 2);
+  for (const [, classes] of headings) {
+    for (const expected of ["sticky", "top-0", "z-10", "bg-panel"]) {
+      assert.ok(classes.split(" ").includes(expected), `${expected} が見出しにある`);
+    }
+  }
+  const scroller = html.match(/<div class="([^"]*overflow-y-auto[^"]*)"><div class="([^"]*max-w-5xl[^"]*)">/);
+  assert.ok(scroller);
+  assert.ok(scroller[1].includes("scroll-pt-10"));
+  assert.ok(scroller[1].includes("singleColumn:scroll-pt-12"));
+  assert.equal(scroller[1].split(" ").includes("py-4"), false);
+  assert.ok(scroller[2].split(" ").includes("py-4"));
+  assert.match(html, /class="[^"]*overflow-y-auto[^"]*"[\s\S]*class="[^"]*overflow-clip[^"]*"[\s\S]*<section/);
+});
+
 test("共有コンテンツ: 一括停止は稼働中の件数を出し、押せる状態にする", () => {
   const html = render(
     cloudflare(),

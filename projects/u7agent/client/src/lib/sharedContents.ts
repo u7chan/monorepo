@@ -421,30 +421,7 @@ function qrAction(): SharedContentAction & { kind: "qr" } {
   return { kind: "qr", label: "QR コード" };
 }
 
-/** デスクトップの操作行に並べる主操作。停止 / 削除と表示名の変更は ⋯ へ送り、行を増やさない */
-export function sharedContentActions(
-  item: SharedContentResponse,
-  { sessionMissing, sessionBusy: busy = false }: { sessionMissing: boolean; sessionBusy?: boolean },
-): SharedContentAction[] {
-  if (isSharedContentUndeployed(item)) return [updateAction(sessionMissing, busy)];
-  switch (item.status) {
-    case "published":
-      return [
-        { kind: "open", label: "開く" },
-        ...(sharedContentUrlLive(item) ? [qrAction()] : []),
-        updateAction(sessionMissing, busy),
-      ];
-    case "stopped":
-      return [{ kind: "resume", label: "再公開" }];
-    case "failed":
-      return [retryAction(busy)];
-    case "publishing":
-      // 結果不明は停止だけを受け付ける。確定していない公開中には操作を出さない
-      return item.lastError === null ? [] : [{ kind: "stop", label: "停止" }];
-  }
-}
-
-/** ⋯ に入る操作。開く / 更新は主操作としてカード側に置く */
+/** ⋯ に入る操作。開く / 更新は主操作として行に置く */
 export type SharedContentMenuKind = Extract<SharedContentActionKind, "qr" | "rename" | "update" | "stop" | "delete">;
 
 /**
@@ -453,11 +430,7 @@ export type SharedContentMenuKind = Extract<SharedContentActionKind, "qr" | "ren
  */
 export function sharedContentMenuActions(
   item: SharedContentResponse,
-  {
-    sessionMissing,
-    narrow,
-    sessionBusy: busy = false,
-  }: { sessionMissing: boolean; narrow: boolean; sessionBusy?: boolean },
+  { sessionMissing, sessionBusy: busy = false }: { sessionMissing: boolean; sessionBusy?: boolean },
 ): (SharedContentAction & { kind: SharedContentMenuKind })[] {
   if (item.status === "publishing") return [];
   const rename = { kind: "rename", label: "名前を変更" } as const;
@@ -465,11 +438,11 @@ export function sharedContentMenuActions(
   if (isSharedContentUndeployed(item)) return [rename, remove];
   switch (item.status) {
     case "published":
-      // 狭い面の主操作は「開く」だけなので、更新と QR もここに入れる（PC の行には QR がある）
+      // 行の操作は開くだけなので、更新と QR は幅を問わずここへ置く
       return [
         rename,
-        ...(narrow ? [updateAction(sessionMissing, busy)] : []),
-        ...(narrow && sharedContentUrlLive(item) ? [qrAction()] : []),
+        updateAction(sessionMissing, busy),
+        ...(sharedContentUrlLive(item) ? [qrAction()] : []),
         { kind: "stop", label: "停止" },
         remove,
       ];
@@ -477,6 +450,37 @@ export function sharedContentMenuActions(
     case "failed":
       return [rename, remove];
   }
+}
+
+/**
+ * ⋯ の先頭に置く時刻。行からは「更新」だけを出し、公開 / 停止の時刻はここへ逃がす
+ * （行は状態の主操作と更新時刻だけを見る場所にし、増える時刻で行の高さを変えない）。
+ */
+export function sharedContentMenuTimes(
+  item: Pick<SharedContentResponse, "publishedAt" | "stoppedAt">,
+): { label: string; at: number }[] {
+  const times: { label: string; at: number }[] = [];
+  if (item.publishedAt !== null) times.push({ label: "公開", at: item.publishedAt });
+  if (item.stoppedAt !== null) times.push({ label: "停止", at: item.stoppedAt });
+  return times;
+}
+
+/** 一覧の見出し。並びは `visibleSharedContents` の状態順と一致させる（見出しをまたいで並びが戻らない） */
+export const SHARED_CONTENT_GROUPS: readonly { key: SharedContentStatusValue; label: string }[] = [
+  { key: "published", label: "公開済み" },
+  { key: "publishing", label: "処理中" },
+  { key: "failed", label: "失敗" },
+  { key: "stopped", label: "停止中" },
+];
+
+/** 状態ごとのまとまり。空の状態は落とし、件数の出所を 1 つにする */
+export function sharedContentGroups(
+  items: readonly SharedContentResponse[],
+): { key: SharedContentStatusValue; label: string; items: SharedContentResponse[] }[] {
+  return SHARED_CONTENT_GROUPS.map((group) => ({
+    ...group,
+    items: items.filter((item) => item.status === group.key),
+  })).filter((group) => group.items.length > 0);
 }
 
 /**
@@ -492,8 +496,8 @@ export function sharedContentQrTarget(
   return item !== undefined && sharedContentUrlLive(item) ? item : null;
 }
 
-/** 狭い面の主操作。未デプロイは更新、結果不明は停止、公開中は主操作なし（⋯ も出さない） */
-export function sharedContentPrimaryAction(
+/** 行に出す操作。未デプロイは更新、結果不明は停止、公開中は無し（⋯ も出さない） */
+export function sharedContentRowAction(
   item: SharedContentResponse,
   { sessionMissing, sessionBusy: busy = false }: { sessionMissing: boolean; sessionBusy?: boolean },
 ): SharedContentAction | null {
@@ -510,7 +514,7 @@ export function sharedContentPrimaryAction(
   }
 }
 
-/** 操作中の表示。カードの操作を全部止め、何をしているかを出す */
+/** 操作中の表示。行の操作を全部止め、何をしているかを出す */
 export type SharedContentBusyKind = "rename" | "update" | "stop" | "resume" | "retry" | "delete";
 
 export function sharedContentBusyLabel(kind: SharedContentBusyKind): string {

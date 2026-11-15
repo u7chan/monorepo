@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useConfirm, usePrompt } from "../ConfirmProvider";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import type { SharedContentsManager } from "../../hooks/useSharedContentsManager";
 import { useViewportWidth } from "../../hooks/useViewportWidth";
 import {
   sharedContentDeleteConfirm,
+  sharedContentGroups,
   sharedContentRenameRequest,
   sharedContentSession,
   sharedContentSessionMissing,
@@ -15,14 +16,15 @@ import {
   visibleSharedContents,
 } from "../../lib/sharedContents";
 import { renameInputValue } from "../../lib/confirmDialog";
-import type { SessionSummary, SharedContentResponse } from "../../types";
+import { keepSharedContentHeadingVisible } from "../../lib/sharedContentsScroll";
+import type { SessionSummary, SharedContentResponse, SharedContentStatusValue } from "../../types";
 import { workdirBusyKind } from "../../lib/sessionBusy";
-import { KeyIcon, ShareIcon, WarningIcon } from "../icons";
+import { DisclosureChevronIcon, KeyIcon, ShareIcon, WarningIcon } from "../icons";
 import { LoadingMark } from "../LoadingMark";
 import { QrCodeDialog } from "../QrCodeDialog";
-import { SharedContentCard } from "./SharedContentCard";
+import { SharedContentRow } from "./SharedContentRow";
 
-/** 操作をカード内に並べるか、主操作 + コピー + ⋯ に畳むかの境界。モックの狭い面に合わせる */
+/** 操作を本文の下へ落とす境界。狭い面では行を 1 列にし、主操作と ⋯ を右寄せにする */
 const NARROW_MAX_WIDTH = 600;
 
 export type SharedContentsTabProps = {
@@ -31,7 +33,7 @@ export type SharedContentsTabProps = {
   cloudflareConfigured: boolean | undefined;
   /** 全スペースの会話。共有物の会話が一覧に無ければ削除済みとみなす */
   sessions: readonly SessionSummary[];
-  /** 会話一覧がいま信頼できるか。信頼できない間は「削除済み」と言い切らない */
+  /** 会話一覧がいま信頼できるか。信頼できない間は「削除済み」と言い切らず、更新も無効にしない */
   sessionsLoaded: boolean;
   filter: SharedContentsFilter;
   onOpenConnections: () => void;
@@ -53,8 +55,16 @@ export function SharedContentsTab({
   const narrow = useViewportWidth() < NARROW_MAX_WIDTH;
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const [qrId, setQrId] = useState<string | null>(null);
+  // 見出しを畳む状態。状態ごとのまとまりは画面の都合なので保存しない（開き直したら全部開く）
+  const [collapsed, setCollapsed] = useState<ReadonlySet<SharedContentStatusValue>>(() => new Set());
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const toggledHeadingRef = useRef<{ button: HTMLButtonElement; scrollTop: number; expanding: boolean } | null>(null);
+  const groupId = useId();
   const sessionIds = useMemo(() => new Set(sessions.map((session) => session.sessionId)), [sessions]);
   const visible = visibleSharedContents(contents.items, filter);
+  const groups = sharedContentGroups(visible);
+  // フィルタ中は 1 つの状態しか残らないので、見出しは絞り込みの言い換えにしかならない
+  const grouped = filter === "all" && groups.length > 1;
   // 共有物の会話と同じ作業フォルダ (同じプロジェクト) で実行中の会話があれば、更新と再試行を押せなくする
   // (未所属の会話は会話ごとの scratch なので、兄弟は存在しない)
   const sessionBusyIds = useMemo(() => {
@@ -76,6 +86,14 @@ export function SharedContentsTab({
   const bulkActive = contents.bulkStop?.running === true;
   const sessionMissing = (item: SharedContentResponse) => sharedContentSessionMissing(item, sessionIds, sessionsLoaded);
 
+  useLayoutEffect(() => {
+    const toggled = toggledHeadingRef.current;
+    const scroller = scrollerRef.current;
+    toggledHeadingRef.current = null;
+    if (toggled === null || scroller === null) return;
+    keepSharedContentHeadingVisible(scroller, toggled.button, toggled.expanding ? toggled.scrollTop : undefined);
+  }, [collapsed]);
+
   const update = async (item: SharedContentResponse) => {
     if (sessionMissing(item)) return;
     if (!(await confirm(sharedContentUpdateConfirm(item)))) return;
@@ -91,10 +109,70 @@ export function SharedContentsTab({
     if (!(await confirm(sharedContentDeleteConfirm(item)))) return;
     await contents.remove(item.id);
   };
+  const toggleGroup = (key: SharedContentStatusValue) => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const rows = (items: readonly SharedContentResponse[]) => (
+    <ul className="divide-y divide-line">
+      {items.map((item) => (
+        <li key={item.id} className="min-w-0">
+          <SharedContentRow
+            item={item}
+            narrow={narrow}
+            sessionMissing={sessionMissing(item)}
+            sessionBusy={sessionBusyIds.has(item.id)}
+            session={sharedContentSession(item, sessions, sessionsLoaded)}
+            onOpenSession={onOpenSession}
+            busy={contents.busy.find((entry) => entry.id === item.id) ?? null}
+            bulkActive={bulkActive}
+            error={
+              contents.bulkStop?.failures.find((failure) => failure.id === item.id)?.message ??
+              (contents.error?.id === item.id ? contents.error.message : undefined)
+            }
+            copied={copiedId === item.id}
+            copyFailure={copyFailure(item.id)}
+            onCopy={(url, id) => {
+              void copyMessage(url, id);
+            }}
+            onQr={() => {
+              setQrId(item.id);
+            }}
+            onUpdate={() => {
+              void update(item);
+            }}
+            onRename={() => {
+              void rename(item);
+            }}
+            onStop={() => {
+              void contents.stop(item.id);
+            }}
+            onResume={() => {
+              void contents.resume(item.id);
+            }}
+            onRetry={() => {
+              void contents.retry(item.id);
+            }}
+            onDelete={() => {
+              void remove(item);
+            }}
+          />
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
-    <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
-      <div className="mx-auto grid max-w-3xl gap-3">
+    <div
+      ref={scrollerRef}
+      className="min-h-0 min-w-0 scroll-pt-10 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 singleColumn:scroll-pt-12"
+    >
+      <div className="mx-auto grid max-w-5xl gap-3 py-4">
         {cloudflareConfigured === false ? <NoCredentialsBanner onOpenConnections={onOpenConnections} /> : null}
         {contents.failed ? <ListFailureBanner message={contents.listError} /> : null}
 
@@ -112,52 +190,44 @@ export function SharedContentsTab({
         {contents.items.length === 0 ? null : visible.length === 0 ? (
           <p className="px-1 py-4 text-center text-1xs text-ink-muted">この状態の共有物はありません。</p>
         ) : (
-          <ul className="grid min-w-0 gap-2.5">
-            {visible.map((item) => (
-              <li key={item.id} className="min-w-0">
-                <SharedContentCard
-                  item={item}
-                  narrow={narrow}
-                  sessionMissing={sessionMissing(item)}
-                  sessionBusy={sessionBusyIds.has(item.id)}
-                  session={sharedContentSession(item, sessions, sessionsLoaded)}
-                  onOpenSession={onOpenSession}
-                  busy={contents.busy.find((entry) => entry.id === item.id) ?? null}
-                  bulkActive={bulkActive}
-                  error={
-                    contents.bulkStop?.failures.find((failure) => failure.id === item.id)?.message ??
-                    (contents.error?.id === item.id ? contents.error.message : undefined)
-                  }
-                  copied={copiedId === item.id}
-                  copyFailure={copyFailure(item.id)}
-                  onCopy={(url, id) => {
-                    void copyMessage(url, id);
-                  }}
-                  onQr={() => {
-                    setQrId(item.id);
-                  }}
-                  onUpdate={() => {
-                    void update(item);
-                  }}
-                  onRename={() => {
-                    void rename(item);
-                  }}
-                  onStop={() => {
-                    void contents.stop(item.id);
-                  }}
-                  onResume={() => {
-                    void contents.resume(item.id);
-                  }}
-                  onRetry={() => {
-                    void contents.retry(item.id);
-                  }}
-                  onDelete={() => {
-                    void remove(item);
-                  }}
-                />
-              </li>
-            ))}
-          </ul>
+          // 1 件 1 枠のカードをやめ、面を 1 つにして行を区切り線で並べる。
+          // overflow-clip は sticky の基準を作らないので、見出しは一覧のスクロールに追従する
+          <div className="overflow-clip rounded-xl border border-line bg-panel">
+            {grouped
+              ? groups.map((group) => {
+                  const headingId = `${groupId}-${group.key}`;
+                  const listId = `${groupId}-${group.key}-list`;
+                  const isCollapsed = collapsed.has(group.key);
+                  return (
+                    <section key={group.key} aria-labelledby={headingId}>
+                      <h2 id={headingId} className="sticky top-0 z-10 m-0 border-b border-line bg-panel">
+                        <button
+                          type="button"
+                          aria-expanded={!isCollapsed}
+                          aria-controls={listId}
+                          onClick={(event) => {
+                            const scroller = scrollerRef.current;
+                            toggledHeadingRef.current = scroller
+                              ? { button: event.currentTarget, scrollTop: scroller.scrollTop, expanding: isCollapsed }
+                              : null;
+                            toggleGroup(group.key);
+                          }}
+                          className="tree-fold-toggle flex min-h-9 w-full items-center gap-2 px-4 py-2 text-left text-2xs text-ink-muted transition-colors hover:bg-hover hover:text-ink singleColumn:min-h-11"
+                        >
+                          <DisclosureChevronIcon />
+                          <span className="font-semibold text-ink-soft">{group.label}</span>
+                          <span className="text-ink-faint tabular-nums">{group.items.length}</span>
+                        </button>
+                      </h2>
+                      {/* 畳んだときも aria-controls の指す先を残す（hidden で読み上げと焦点から外す） */}
+                      <div id={listId} hidden={isCollapsed}>
+                        {rows(group.items)}
+                      </div>
+                    </section>
+                  );
+                })
+              : rows(visible)}
+          </div>
         )}
       </div>
 
@@ -191,7 +261,7 @@ function NoCredentialsBanner({ onOpenConnections }: { onOpenConnections: () => v
 }
 
 /**
- * 一覧全体の取得失敗。1 件の操作失敗（カード内）と混ぜず、表示中の内容が古いことを伝える。
+ * 一覧全体の取得失敗。1 件の操作失敗（行の中）と混ぜず、表示中の内容が古いことを伝える。
  * BFF の固定文言があるときは言い換えずにそのまま見出しへ出す。
  */
 function ListFailureBanner({ message }: { message: string | null }) {
