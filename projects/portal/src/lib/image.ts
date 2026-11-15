@@ -1,6 +1,8 @@
 // イメージ参照の解析。タグ切り替えの対象を「この monorepo の CD が GHCR に push した
 // イメージ」に限定するため、レジストリ・リポジトリ・タグの分解を 1 箇所にまとめる。
 
+import type { ImageTagOption } from "../types/container";
+
 const MONOREPO_IMAGE_PREFIX = "ghcr.io/u7chan/monorepo/";
 const PROJECT_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const TAG_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
@@ -59,6 +61,38 @@ export function isValidImageTag(tag: string): boolean {
  */
 export function isDeployableImageTag(tag: string): boolean {
   return isValidImageTag(tag) && tag !== "latest";
+}
+
+function tagBuiltAt(tags: readonly ImageTagOption[], tag: string): number | undefined {
+  const createdAt = tags.find((option) => option.tag === tag)?.createdAt;
+  if (!createdAt) {
+    return undefined;
+  }
+
+  const time = Date.parse(createdAt);
+  return Number.isNaN(time) ? undefined : time;
+}
+
+/**
+ * 選択したタグが current より前のビルドか。
+ *
+ * 確認は操作ミスへのガードレールなので、比較できないときは出さない。
+ * 誤爆すると確認自体が読み飛ばされ、本来止めたい切り替えも素通りする。
+ * createdAt が同じ sha-* と manual-* は同じビルドなので、切り替えても対象外。
+ */
+export function isOlderImageTag(
+  tags: readonly ImageTagOption[],
+  currentTag: string,
+  selectedTag: string,
+): boolean {
+  const current = tagBuiltAt(tags, currentTag);
+  const selected = tagBuiltAt(tags, selectedTag);
+
+  if (current === undefined || selected === undefined) {
+    return false;
+  }
+
+  return selected < current;
 }
 
 /**

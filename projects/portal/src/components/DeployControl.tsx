@@ -1,9 +1,11 @@
 // イメージタグの選択 UI。デプロイはコンテナの再作成を伴うため、一覧の行を
 // その場で展開し、対象のイメージのすぐ近くで確認できるようにする。
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { DeployController } from "../hooks/useDeploy";
+import { isOlderImageTag } from "../lib/image";
 import { formatTagDateTime } from "../lib/tagDateTime";
+import { ConfirmPopover } from "./ConfirmPopover";
 
 function DeployIcon() {
   return (
@@ -66,6 +68,8 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
   const selectId = useId();
   const selectRef = useRef<HTMLSelectElement | null>(null);
   const successRef = useRef<HTMLAnchorElement | null>(null);
+  const deployButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // 読み込み中は select が disabled で focus できない。有効になった時点で移す。
   useEffect(() => {
@@ -123,6 +127,23 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
     deploy.tags.find((option) => option.tag === deploy.selectedTag)?.createdAt,
   );
 
+  const rollingBack = isOlderImageTag(deploy.tags, deploy.currentTag, deploy.selectedTag);
+  const rollbackDescription = [
+    `The running image is ${deploy.currentTag}.`,
+    selectedCreatedAt ? `This image was built ${selectedCreatedAt} (JST).` : null,
+    "If the running image has migrated its database, the older code may fail to start or lose data.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const handleDeploy = () => {
+    if (rollingBack) {
+      setConfirmOpen((open) => !open);
+      return;
+    }
+    void deploy.submit();
+  };
+
   return (
     <div onKeyDown={handleKeyDown}>
       <div className="flex flex-wrap items-center gap-2">
@@ -133,7 +154,10 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
           ref={selectRef}
           id={selectId}
           value={deploy.selectedTag}
-          onChange={(event) => deploy.selectTag(event.target.value)}
+          onChange={(event) => {
+            setConfirmOpen(false);
+            deploy.selectTag(event.target.value);
+          }}
           disabled={deploy.loading || deploy.pending}
           className="h-8 min-w-[14rem] flex-1 rounded-md border border-line bg-ink-900 px-2 font-mono text-[12px] text-fg disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -153,14 +177,35 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
             })
           )}
         </select>
-        <button
-          type="button"
-          onClick={() => void deploy.submit()}
-          disabled={disabled}
-          className="h-8 rounded-md border border-line px-3 text-[12px] font-medium text-fg-2 transition-colors hover:border-line-strong hover:bg-ink-800 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {deploy.pending ? "Starting…" : "Deploy"}
-        </button>
+        <div className="relative shrink-0">
+          <button
+            ref={deployButtonRef}
+            type="button"
+            onClick={handleDeploy}
+            disabled={disabled}
+            aria-haspopup={rollingBack ? "dialog" : undefined}
+            aria-expanded={rollingBack ? confirmOpen : undefined}
+            className="h-8 rounded-md border border-line px-3 text-[12px] font-medium text-fg-2 transition-colors hover:border-line-strong hover:bg-ink-800 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {deploy.pending ? "Starting…" : "Deploy"}
+          </button>
+
+          {rollingBack && (
+            <ConfirmPopover
+              open={confirmOpen}
+              anchorRef={deployButtonRef}
+              title={`Roll back to ${deploy.selectedTag}?`}
+              description={rollbackDescription}
+              confirmLabel="Roll back"
+              pending={deploy.pending}
+              onConfirm={() => {
+                setConfirmOpen(false);
+                void deploy.submit();
+              }}
+              onClose={() => setConfirmOpen(false)}
+            />
+          )}
+        </div>
         <button
           type="button"
           onClick={deploy.close}
