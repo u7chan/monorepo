@@ -164,7 +164,7 @@ export interface WebSearchToolOptions {
   timeoutMs?: number;
   /** 切り詰めの前に掛ける。`maskSafe` は切り詰めで欠けた断片を拾えない */
   masker: SecretMasker;
-  /** 省くと常に有効（既定 ON） */
+  /** 省くと無効（既定 OFF） */
   readEnabled?: () => boolean;
   /** 省くと既定（Exa） */
   readProvider?: () => WebSearchProviderId;
@@ -201,7 +201,7 @@ export interface WebSearchRunner {
 export function createWebSearchRunner(options: WebSearchToolOptions): WebSearchRunner {
   const baseFetch = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? WEB_SEARCH_TIMEOUT_MS;
-  const readEnabled = options.readEnabled ?? ((): boolean => true);
+  const readEnabled = options.readEnabled ?? ((): boolean => false);
   const readProvider = options.readProvider ?? ((): WebSearchProviderId => DEFAULT_WEB_SEARCH_PROVIDER);
   const readApiKey = options.readApiKey ?? ((): undefined => undefined);
   const readNow = options.now ?? ((): Date => new Date());

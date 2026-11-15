@@ -28,7 +28,7 @@ import {
   type BackupPrompt,
   type BackupTarget,
 } from "../schema";
-import { BUILTIN_AGENT_ID, BUILTIN_PROMPTS } from "../builtin-catalog";
+import { BUILTIN_AGENT_ID } from "../builtin-catalog";
 import { SANDBOX_MAX_UPLOAD_BYTES } from "../sandbox/protocol";
 import { extractZipEntry, readZipArchive, type ZipReadEntry } from "../sandbox/zip-read";
 
@@ -44,8 +44,6 @@ const BACKUP_MAX_ENTRIES = 16;
 
 /** エージェント ID の長さの上限。プロンプト ID は API と同じ `PROMPT_ID_MAX` で見る */
 const BACKUP_AGENT_ID_MAX = 200;
-
-const BUILTIN_PROMPT_IDS = new Set(BUILTIN_PROMPTS.map((entry) => entry.id));
 
 function invalid(message: string): Error {
   return httpError(400, message);
@@ -76,10 +74,9 @@ function normalizeId(value: string, name: string, max: number): string {
   return id;
 }
 
-/** 組み込み ID は「定義としての混入」だけを拒否する (参照は許可する) */
+/** 定型プロンプト 1 件。ID は参照と同じ規則で正規化する */
 function validatePromptEntry(entry: BackupPrompt): BackupPrompt {
   const id = normalizeId(entry.id, "Prompt", PROMPT_ID_MAX);
-  if (BUILTIN_PROMPT_IDS.has(id)) throw invalid(`Built-in prompt cannot be part of a backup: ${id}`);
   const label = entry.label.trim();
   if (!label) throw invalid(`Prompt label is required: ${id}`);
   if (label.length > PROMPT_LABEL_MAX) throw invalid(`Prompt label must be at most ${PROMPT_LABEL_MAX} characters`);

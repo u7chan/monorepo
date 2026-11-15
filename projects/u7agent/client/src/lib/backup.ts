@@ -38,7 +38,7 @@ export const BACKUP_RESET_CHECK_LABEL = "書き出し済み、または失って
 export const BACKUP_RESET_APPLY_LABEL = "すべて削除する";
 export const BACKUP_RESET_APPLYING_LABEL = "削除しています…";
 export const BACKUP_KEPT_NOTE =
-  "組み込みのエージェント / 定型プロンプト / スキル、会話、プロジェクト、ワークスペースのファイル、設定、API キー、共有コンテンツ、プロジェクト側スキルは残ります。";
+  "組み込みのエージェント / スキル、会話、プロジェクト、ワークスペースのファイル、設定、API キー、共有コンテンツ、プロジェクト側スキルは残ります。";
 export const BACKUP_SKILL_LIMITS_NOTE =
   "スキルの symlink / 特殊ファイル / 実行権限は復元されません。SKILL.md を持たない直下の項目は対象外として残ります。";
 export const BACKUP_NO_CHANGES_NOTE = "選択した対象に変更はありません。";

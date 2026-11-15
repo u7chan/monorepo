@@ -379,7 +379,6 @@ test("v13 DB と所属欠落の会話は加算移行し、既存のカタログ�
     "existing-test-key",
     "暗号文を保ったまま復号できる",
   );
-  assert.equal(f.bff.appDb.getAgent("agent-zundamon")?.name, "ずんだもん");
   const list = await jsonBody(f.bff.app.request("/api/sessions"));
   assert.equal(list.sessions[0].spaceId, "default");
   const payload = await jsonBody(f.bff.app.request(`/api/sessions/${session.sessionId}`));

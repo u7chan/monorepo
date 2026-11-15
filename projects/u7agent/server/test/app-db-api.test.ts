@@ -87,8 +87,8 @@ test("projects and agents survive a restart", async () => {
       ["proj-a"],
     );
     assert.deepEqual(
-      agents.agents.map((entry: { id: string }) => entry.id).sort(),
-      ["agent-zundamon", agent.agent.id].sort(),
+      agents.agents.map((entry: { id: string }) => entry.id),
+      [agent.agent.id],
     );
     await second.close();
   });

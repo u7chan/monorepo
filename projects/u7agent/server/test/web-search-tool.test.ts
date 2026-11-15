@@ -109,7 +109,9 @@ function tool(
       }),
     masker: options.masker ?? createMutableSecretMasker([]),
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-    ...(options.readEnabled === undefined ? {} : { readEnabled: options.readEnabled }),
+    // 検索の整形・失敗を確かめるテストが既定で動くよう、ヘルパーでは有効を渡す。
+    // 既定 OFF 自体は下の専用テストで確かめる
+    readEnabled: options.readEnabled ?? ((): boolean => true),
     ...(options.readProvider === undefined ? {} : { readProvider: options.readProvider }),
     ...(options.readApiKey === undefined ? {} : { readApiKey: options.readApiKey }),
     now: options.now ?? ((): Date => FIXED_NOW),
@@ -273,6 +275,7 @@ test("now を渡さない既定は実行時の現在日時を使う", async () =
   const definitions = createWebSearchToolDefinitions({
     fetchImpl: stub.fetchImpl,
     masker: createMutableSecretMasker([]),
+    readEnabled: () => true,
   });
   const text = await run(definitions[0], { query: "q" });
   assert.match(
@@ -495,11 +498,20 @@ test("無効の間は検索せず固定文言で失敗し、ON に戻ると同�
   assert.equal(stub.calls.length, 1, "OFF へ戻すと再び送らなくなる");
 });
 
-test("readEnabled を渡さない既定は有効、readProvider を渡さない既定は Exa", async () => {
+test("readEnabled を渡さない既定は無効、readProvider を渡さない既定は Exa", async () => {
   const stub = stubFetch(() => exaResults([{ title: "T", url: "https://example.com" }]));
+  const [definition] = createWebSearchToolDefinitions({
+    fetchImpl: stub.fetchImpl,
+    masker: createMutableSecretMasker([]),
+    now: () => FIXED_NOW,
+  });
+  const error = await rejection(run(definition, { query: "q" }));
+  assert.equal(error.message, WEB_SEARCH_DISABLED_MESSAGE);
+  assert.equal(stub.calls.length, 0, "既定では上流へ送らない");
+
+  // provider の既定は Exa のまま (有効にすれば動く)
   assert.ok((await run(tool({ fetchImpl: stub.fetchImpl }), { query: "q" })).includes("出典:"));
   assert.equal(stub.calls[0].url, EXA_ENDPOINT);
-  assert.equal(stub.calls.length, 1);
 });
 
 test("設定を読めないときは上流へ送らずに固定文言で失敗する", async () => {
@@ -533,6 +545,7 @@ test("runner はツールと同じ本文と、送った provider / 件数を返�
   const runner = createWebSearchRunner({
     fetchImpl: stub.fetchImpl,
     masker: createMutableSecretMasker([]),
+    readEnabled: () => true,
     now: () => FIXED_NOW,
   });
   const result = await runner.run("q");

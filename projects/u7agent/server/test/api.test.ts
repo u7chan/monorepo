@@ -10,7 +10,6 @@ import { VERSION } from "@earendil-works/pi-coding-agent";
 import { AUTH_REQUIRED_MESSAGE, MODEL_UNSET_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
-import { BUILTIN_AGENT_PROMPT_IDS, BUILTIN_PROMPTS } from "../src/builtin-catalog";
 import { AGENT_ORDER_IDS_MAX, PROMPT_ORDER_IDS_MAX } from "../src/schema";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_USAGE } from "./stub-pi";
@@ -1046,7 +1045,7 @@ test("catalog endpoints reorder agents and answer the normalized order", async (
     const before = await jsonBody(app.request("/api/agents"));
     assert.deepEqual(
       before.agents.map((agent: { id: string }) => agent.id),
-      ["agent-zundamon", a.id, b.id, c.id],
+      [a.id, b.id, c.id],
       "作成順で返る",
     );
     // sortOrder は app-db の中に閉じる (AgentDef と応答形を変えない)
@@ -1065,7 +1064,7 @@ test("catalog endpoints reorder agents and answer the normalized order", async (
     // 未知の id・重複・ビルトインは捨て、渡さなかった行は元の相対順で末尾に回る
     assert.deepEqual(
       body.agents.map((agent: { id: string }) => agent.id),
-      [c.id, "agent-zundamon", a.id, b.id],
+      [c.id, a.id, b.id],
     );
     // 定義は順序で書き換えない
     assert.deepEqual(
@@ -1087,7 +1086,7 @@ test("catalog endpoints reorder agents and answer the normalized order", async (
     // 欠落・不正な形・件数超過は 400 で、並びを変えない
     for (const payload of [
       {},
-      { ids: "agent-zundamon" },
+      { ids: "not-an-array" },
       { ids: Array.from({ length: AGENT_ORDER_IDS_MAX + 1 }, (_, index) => `agent-${index}`) },
     ]) {
       const rejected = await app.request("/api/agents/order", jsonPatch(payload));
@@ -1103,23 +1102,14 @@ test("catalog endpoints reorder agents and answer the normalized order", async (
   }
 });
 
-test("prompt master endpoints expose built-ins, usage and custom CRUD", async () => {
+test("prompt master endpoints expose no built-ins and support custom CRUD", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
-    // 組み込み 3 件は読み取り専用のマスタで、汎用アシスタントの固定参照が使用先に出る
+    // 組み込みの定型プロンプトは持たない。汎用アシスタントも参照しない
     const initial = await jsonBody(app.request("/api/prompts"));
-    assert.deepEqual(
-      initial.prompts.map((prompt: { id: string; kind: string }) => [prompt.kind, prompt.id]),
-      BUILTIN_PROMPTS.map((prompt) => ["builtin", prompt.id]),
-    );
-    for (const prompt of initial.prompts) {
-      assert.deepEqual(prompt.usedBy, [{ agentId: "agent-general", agentName: "汎用アシスタント", builtin: true }]);
-    }
-    assert.deepEqual(
-      (await jsonBody(app.request("/api/agents"))).builtinAgent.prompts.map((prompt: { id: string }) => prompt.id),
-      BUILTIN_AGENT_PROMPT_IDS,
-    );
+    assert.deepEqual(initial.prompts, []);
+    assert.equal(Object.hasOwn((await jsonBody(app.request("/api/agents"))).builtinAgent, "prompts"), false);
 
     // 自作は作成でき、ラベルと本文は trim して保存する
     const created = await app.request("/api/prompts", jsonPost({ label: " 押す ", prompt: " 送る " }));
@@ -1130,10 +1120,10 @@ test("prompt master endpoints expose built-ins, usage and custom CRUD", async ()
     assert.equal(custom.prompt, "送る");
     assert.deepEqual(custom.usedBy, []);
 
-    // 種別と ID は入力で決められない (組み込みへの昇格・置換を許さない)
+    // 種別と ID は入力で決められない
     for (const body of [
       { label: "a", prompt: "b", kind: "builtin" },
-      { label: "a", prompt: "b", id: BUILTIN_PROMPTS[0].id },
+      { label: "a", prompt: "b", id: "prompt-x" },
     ]) {
       const rejected = await app.request("/api/prompts", jsonPost(body));
       assert.equal(rejected.status, 400, JSON.stringify(body));
@@ -1165,25 +1155,17 @@ test("prompt master endpoints expose built-ins, usage and custom CRUD", async ()
     assert.equal(updatedPrompt.label, "押し直す");
     assert.equal(updatedPrompt.prompt, "送る");
 
-    // 組み込みは編集も削除も 400、未知は 404
-    const builtinId = BUILTIN_PROMPTS[0].id;
-    assert.equal((await app.request(`/api/prompts/${builtinId}`, jsonPatch({ label: "書き換え" }))).status, 400);
-    assert.equal((await app.request(`/api/prompts/${builtinId}`, { method: "DELETE" })).status, 400);
+    // 未知は 404
     assert.equal((await app.request("/api/prompts/prompt-missing", { method: "DELETE" })).status, 404);
     assert.equal((await app.request("/api/prompts/prompt-missing", jsonPatch({ label: "x" }))).status, 404);
-    // 組み込みの内容は変わっていない
-    assert.deepEqual(
-      (await jsonBody(app.request("/api/prompts"))).prompts.find((prompt: { id: string }) => prompt.id === builtinId),
-      (await jsonBody(app.request("/api/prompts"))).prompts[0],
-    );
 
     // エージェントは順序付きの promptIds で参照し、応答には解決済みのラベル・本文が載る
-    const agent = await app.request("/api/agents", jsonPost({ name: "参照あり", promptIds: [custom.id, builtinId] }));
+    const agent = await app.request("/api/agents", jsonPost({ name: "参照あり", promptIds: [custom.id] }));
     assert.equal(agent.status, 201);
     const agentBody = (await jsonBody(agent)).agent;
     assert.deepEqual(
       agentBody.prompts.map((prompt: { id: string }) => prompt.id),
-      [custom.id, builtinId],
+      [custom.id],
     );
 
     // 旧 suggestions の直接書き込みは黙って捨てず 400
@@ -1194,11 +1176,17 @@ test("prompt master endpoints expose built-ins, usage and custom CRUD", async ()
     }
 
     // 未知・重複・7 件以上は 400 で、保存済みの参照を変えない
-    const tooMany = [...BUILTIN_AGENT_PROMPT_IDS, custom.id];
+    const extras = [];
+    for (let index = 0; index < 6; index += 1) {
+      extras.push(
+        (await jsonBody(await app.request("/api/prompts", jsonPost({ label: `E${index}`, prompt: `P${index}` }))))
+          .prompt.id,
+      );
+    }
     for (const promptIds of [
       [custom.id, custom.id],
       [custom.id, "prompt-missing"],
-      [...tooMany, ...BUILTIN_AGENT_PROMPT_IDS, custom.id],
+      [custom.id, ...extras],
     ]) {
       const rejected = await app.request(`/api/agents/${agentBody.id}`, jsonPatch({ promptIds }));
       assert.equal(rejected.status, 400, JSON.stringify(promptIds));
@@ -1208,7 +1196,7 @@ test("prompt master endpoints expose built-ins, usage and custom CRUD", async ()
     );
     assert.deepEqual(
       afterReject.prompts.map((prompt: { id: string }) => prompt.id),
-      [custom.id, builtinId],
+      [custom.id],
     );
 
     // 使用中の自作マスタは 409 で拒否し、使用先を返す。何も消えない
@@ -1256,7 +1244,7 @@ test("prompt master endpoints expose built-ins, usage and custom CRUD", async ()
   }
 });
 
-test("prompt order endpoint keeps built-ins first, normalizes ids and rejects invalid bodies", async () => {
+test("prompt order endpoint normalizes ids and rejects invalid bodies", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
@@ -1266,21 +1254,19 @@ test("prompt order endpoint keeps built-ins first, normalizes ids and rejects in
         (await jsonBody(await app.request("/api/prompts", jsonPost({ label, prompt: `${label} の本文` })))).prompt,
       );
     }
-    const builtinIds = BUILTIN_PROMPTS.map((prompt) => prompt.id);
-
-    // 未知の id・重複・組み込みは捨て、渡されなかった自作は元の相対順で末尾に回す
+    // 未知の id・重複は捨て、渡されなかった自作は元の相対順で末尾に回す
     const reordered = await app.request(
       "/api/prompts/order",
-      jsonPatch({ ids: [custom[2].id, "prompt-missing", custom[1].id, custom[2].id, builtinIds[0]] }),
+      jsonPatch({ ids: [custom[2].id, "prompt-missing", custom[1].id, custom[2].id] }),
     );
     assert.equal(reordered.status, 200);
     assert.deepEqual(
       (await jsonBody(reordered)).prompts.map((prompt: { id: string }) => prompt.id),
-      [...builtinIds, custom[2].id, custom[1].id, custom[0].id],
+      [custom[2].id, custom[1].id, custom[0].id],
     );
     assert.deepEqual(
       (await jsonBody(app.request("/api/prompts"))).prompts.map((prompt: { id: string }) => prompt.id),
-      [...builtinIds, custom[2].id, custom[1].id, custom[0].id],
+      [custom[2].id, custom[1].id, custom[0].id],
       "応答の順が以後の GET と一致する",
     );
 
@@ -1297,15 +1283,15 @@ test("prompt order endpoint keeps built-ins first, normalizes ids and rejects in
     }
     assert.deepEqual(
       (await jsonBody(app.request("/api/prompts"))).prompts.map((prompt: { id: string }) => prompt.id),
-      [...builtinIds, custom[2].id, custom[1].id, custom[0].id],
+      [custom[2].id, custom[1].id, custom[0].id],
     );
 
-    // 組み込みだけを渡しても先頭固定のまま (自作は現行順)
-    const builtinOnly = await app.request("/api/prompts/order", jsonPatch({ ids: [builtinIds[2]] }));
-    assert.equal(builtinOnly.status, 200);
+    // 未知の id だけを渡しても現行順のまま
+    const unknownOnly = await app.request("/api/prompts/order", jsonPatch({ ids: ["prompt-missing"] }));
+    assert.equal(unknownOnly.status, 200);
     assert.deepEqual(
-      (await jsonBody(builtinOnly)).prompts.map((prompt: { id: string }) => prompt.id),
-      [...builtinIds, custom[2].id, custom[1].id, custom[0].id],
+      (await jsonBody(unknownOnly)).prompts.map((prompt: { id: string }) => prompt.id),
+      [custom[2].id, custom[1].id, custom[0].id],
     );
   } finally {
     await bff.close();
@@ -1416,7 +1402,7 @@ test("GET /api/agents はアプリ側の可否つきでツールの一覧を返�
         ["grep", "sandbox", false, "deploy_allowlist"],
         ["find", "sandbox", false, "deploy_allowlist"],
         ["ls", "sandbox", false, "deploy_allowlist"],
-        ["web_search", "app", true, undefined],
+        ["web_search", "app", false, "app_disabled"],
         ["generate_image", "app", false, "no_key"],
         ["generate_speech", "app", false, "no_key"],
         ["generate_bgm", "app", false, "no_key"],
@@ -1466,25 +1452,15 @@ test("組み込みスキルはカタログ応答の対象外で、旧カタロ�
   }
 });
 
-test("初期状態はユーザー定義が 1 件で、ずんだもんは通常のユーザー定義として削除できる", async () => {
+test("初期状態はユーザー定義が 0 件で、ビルトインだけでセッションを作れる", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
     const initial = await jsonBody(app.request("/api/agents"));
-    assert.deepEqual(
-      initial.agents.map((agent: { id: string }) => agent.id),
-      ["agent-zundamon"],
-    );
-    assert.match(initial.agents[0].systemPrompt, /なのだ/);
-    assert.equal(Object.hasOwn(initial.agents[0], "skillIds"), false);
+    assert.deepEqual(initial.agents, []);
+    assert.equal(initial.builtinAgent.id, "agent-general");
+    assert.equal(Object.hasOwn(initial.builtinAgent, "skillIds"), false);
 
-    // ビルトインと同じ応答形で返り、DELETE も通常の定義と同じく通る
-    const deleted = await app.request("/api/agents/agent-zundamon", { method: "DELETE" });
-    assert.equal(deleted.status, 200);
-    assert.deepEqual(await jsonBody(deleted), { ok: true });
-    assert.deepEqual((await jsonBody(app.request("/api/agents"))).agents, []);
-
-    // セッションの既定はビルトインが担うので、削除後も作成できる
     const created = await app.request("/api/sessions", jsonPost({}));
     assert.equal(created.status, 201);
     assert.equal((await jsonBody(created)).agent.id, "agent-general");

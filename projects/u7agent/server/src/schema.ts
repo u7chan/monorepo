@@ -127,7 +127,7 @@ export const AgentSuggestionSchema = z.object({
 });
 export type AgentSuggestion = z.infer<typeof AgentSuggestionSchema>;
 
-/** マスタの種別。組み込みは閲覧・参照のみ、自作だけが編集・削除できる */
+/** マスタの種別。現在は自作のみで、旧版の builtin 行は起動時に消す */
 export const PromptKindSchema = z.enum(["builtin", "custom"]);
 export type PromptKind = z.infer<typeof PromptKindSchema>;
 
@@ -152,7 +152,7 @@ export const PromptRefSchema = z.object({
 });
 export type PromptRef = z.infer<typeof PromptRefSchema>;
 
-/** マスタの使用先 1 件。組み込みの汎用アシスタントの固定参照も含める */
+/** マスタの使用先 1 件。旧クライアント互換のため builtin を持つ (現在は常に false) */
 export const PromptUsageSchema = z.object({
   agentId: z.string(),
   agentName: z.string(),
@@ -165,7 +165,7 @@ export type PromptUsage = z.infer<typeof PromptUsageSchema>;
 export const PromptDefSchema = PromptRefSchema.extend({ usedBy: z.array(PromptUsageSchema) });
 export type PromptDef = z.infer<typeof PromptDefSchema>;
 
-/** `GET /api/prompts` の応答。並びはサーバーが決める (組み込みが先、自作は保存した順) */
+/** `GET /api/prompts` の応答。並びはサーバーが決める (保存した順) */
 export const PromptsResponseSchema = z.object({ prompts: z.array(PromptDefSchema) });
 export type PromptsResponse = z.infer<typeof PromptsResponseSchema>;
 
@@ -2913,7 +2913,7 @@ export type SessionDiagnostics = z.infer<typeof SessionDiagnosticsSchema>;
 
 /**
  * GET / PUT /api/settings/web-search。`web_search` の有効 / 無効と既定 provider を持つ。
- * 行が無い = 既定（有効 / 先頭の provider）なので、初期状態でも `enabled: true` が返る。
+ * 行が無い = 既定（無効 / 先頭の provider）なので、初期状態では `enabled: false` が返る。
  */
 export const WebSearchProviderIdSchema = z.enum(WEB_SEARCH_PROVIDER_IDS);
 export type WebSearchProviderId = z.infer<typeof WebSearchProviderIdSchema>;

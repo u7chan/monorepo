@@ -266,9 +266,9 @@ GUI は有料 API を使わない一時ストアと実ファイル fixture で�
 
 ## 定型プロンプトの受入
 
-自動検証は `server/test/prompts.test.ts`（新規 DB / 移行 / 再起動での組み込みの同期と非重複、組み込み行の非上書き、参照の順序の保持と再起動、同文の別マスタをまとめないこと、エージェント削除でマスタと他の参照が残ること、外部キー・位置の範囲・重複・使用中の削除の制約、保存途中の失敗で部分適用が残らないこと、旧 `suggestions` の変換・同文の非統合・空の既存設定・不正値での失敗と巻き戻し・修正後の再試行、マスタの並べ替えの正規化・永続・組み込みの先頭固定・追加の末尾追加・v35 からの加算移行）、`server/test/agents.test.ts`（参照の解決・未知 / 重複 / 上限超過の拒否・旧キーの 400）、`server/test/api.test.ts`（`/api/prompts` の CRUD・組み込みの 400・使用中の 409 と `usedBy`・`promptIds` の拒否で既存の参照が変わらないこと・`PATCH /api/prompts/order` の正規化と入力不正の 400）、`client/test/promptSettings.test.ts`（下書き・入力の検証・使用先と削除できない理由・選択 / 解除 / 並べ替え・上限・選択面の描画・自作だけのグリップ・確定順の共有カタログへの反映）で行う。
+自動検証は `server/test/prompts.test.ts`（新規 DB / 再起動で組み込み行を持たないこと、旧 `builtin` 行と参照の削除、参照の順序の保持と再起動、同文の別マスタをまとめないこと、エージェント削除でマスタと他の参照が残ること、外部キー・位置の範囲・重複・使用中の削除の制約、保存途中の失敗で部分適用が残らないこと、旧 `suggestions` の変換・同文の非統合・空の既存設定・不正値での失敗と巻き戻し・修正後の再試行、マスタの並べ替えの正規化・永続・追加の末尾追加・v35 からの加算移行）、`server/test/agents.test.ts`（参照の解決・未知 / 重複 / 上限超過の拒否・旧キーの 400）、`server/test/api.test.ts`（`/api/prompts` の CRUD・使用中の 409 と `usedBy`・`promptIds` の拒否で既存の参照が変わらないこと・`PATCH /api/prompts/order` の正規化と入力不正の 400）、`client/test/promptSettings.test.ts`（下書き・入力の検証・使用先と削除できない理由・選択 / 解除 / 並べ替え・上限・選択面の描画・自作だけのグリップ・確定順の共有カタログへの反映）で行う。
 
-GUI は有料 API を使わない一時ストアで、desktop と singleColumn の両方について次を見る。マスタの一覧から組み込みを開くと閲覧のみで、自作の作成 → 編集 → 使用先の表示 → 使用中の削除が押せないこと → エージェントで紐づけを解除 → 削除できること。自作の行はグリップのドラッグで並べ替えられ、組み込みは先頭固定でグリップが出ないこと、F5 / 別タブでも同じ並びになり、検索中は並べ替えられないこと。エージェントの定型タブで組み込みと自作を選び、並べ替えと解除ができ、6 件で追加が止まり理由が読めること。エージェントを削除してもマスタが独立画面に残ること。既存の「ボタン → チップ → 本文と結合して送信」とタイトル（`titleSource`）が変わらないこと。保存の失敗時に入力が残り、成功していない変更が成功として通知されないこと。
+GUI は有料 API を使わない一時ストアで、desktop と singleColumn の両方について次を見る。マスタの一覧は初期状態で空で、自作の作成 → 編集 → 使用先の表示 → 使用中の削除が押せないこと → エージェントで紐づけを解除 → 削除できること。自作の行はグリップのドラッグで並べ替えられ、F5 / 別タブでも同じ並びになり、検索中は並べ替えられないこと。エージェントの定型タブで自作を選び、並べ替えと解除ができ、6 件で追加が止まり理由が読めること。エージェントを削除してもマスタが独立画面に残ること。既存の「ボタン → チップ → 本文と結合して送信」とタイトル（`titleSource`）が変わらないこと。保存の失敗時に入力が残り、成功していない変更が成功として通知されないこと。
 
 ## バックアップの受入
 
@@ -284,13 +284,13 @@ GUI は一時ストアと実ファイル fixture で、desktop と singleColumn 
 
 ## Git identity の受入
 
-自動検証は `server/test/git-identity.test.ts`（値の規則と INI の quote）、`server/test/git-settings-api.test.ts`（GET / PUT / DELETE・片方だけの 400・DB 永続化・same-origin の 403・DB 障害時の 503 と `null`・壊れた保存値の null 化）、`server/test/sandbox-git-config.test.ts`（固定パスの 0600・原子的な書換・内容一致時の skip と親 symlink の再検査・HOME が write root の内側なら拒否・runtime info の `git-config-v1` と `gitConfig`・global config の実効・未設定時の commit 失敗・repo local の優先・`git config --global` の書込拒否・予約名の剥がしと旧 BFF 互換・準備失敗時の bash だけの fail-closed・`dubious ownership` の cwd 単位の検出とキャッシュ）、`server/test/app-db.test.ts`（v44 → v45 の加算移行）、`server/test/remote-tools.test.ts` と `server/test/sandbox-client.test.ts`（bash だけに `gitConfig` を付け、未設定も `null` で送る）、`client/test/gitSettings.test.ts`（入力規則と保存可否）、`client/test/runtimeEnvironment.test.ts`（未対応 / 準備失敗 / 準備済みと `ownershipWarnings` の診断表示）で行う。
+自動検証は `server/test/git-identity.test.ts`（値の規則と INI の quote）、`server/test/git-settings-api.test.ts`（GET / PUT / DELETE・片方だけの 400・DB 永続化・same-origin の 403・DB 障害時の 503 と `null`・壊れた保存値の null 化）、`server/test/sandbox-git-config.test.ts`（固定パスの 0600・原子的な書換・内容一致時の skip と親 symlink の再検査・HOME が write root の内側なら拒否・runtime info の `git-config-v1` と `gitConfig`・global config の実効・未設定時の commit 失敗・repo local の優先・`git config --global` の書込拒否・予約名の剥がしと旧 BFF 互換・準備失敗時の bash だけの fail-closed・`dubious ownership` の cwd 単位の検出とキャッシュ）、`server/test/app-db.test.ts`（v44 → v45 の加算移行、v45 → v46 の初期 identity、明示的に消した行が再起動で戻らないこと）、`server/test/remote-tools.test.ts` と `server/test/sandbox-client.test.ts`（bash だけに `gitConfig` を付け、未設定も `null` で送る）、`client/test/gitSettings.test.ts`（入力規則と保存可否）、`client/test/runtimeEnvironment.test.ts`（未対応 / 準備失敗 / 準備済みと `ownershipWarnings` の診断表示）で行う。
 
 GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の実サンドボックスで、desktop と singleColumn の両方を確認する。
 
 自動受入は `scripts/check-git-settings.js` を Playwright の `run-code` で流す（保存・検証・再読み込み・確認ダイアログ・same-origin の 403・実行環境の診断・予約名の既存行を 1 回で確かめる。予約名の既存行は API で作れないため、スクリプト冒頭の手順で fixture の `store/u7agent.db` へ直接 seed する）。
 
-- [ ] 設定 → Git（`/settings/git`）で名前とメールアドレスを保存すると「設定済み」になり、リロード・BFF 再起動後も残る。「未設定に戻す」は確認の後で実行され、リロード後も未設定のまま（冪等に 2 回実行できる）
+- [ ] 新規 DB の設定 → Git（`/settings/git`）は `u7agent` / `u7agent@example.com` の初期 identity で「設定済み」になり、名前とメールアドレスを保存するとその値に変わり、リロード・BFF 再起動後も残る。「未設定に戻す」は確認の後で実行され、リロード後も未設定のまま（冪等に 2 回実行できる）
 - [ ] 片方だけ・空・内部の改行・`<` `>`・形状違反は保存できず、理由が入力欄の近くに出る。サーバーへ直接送っても 400 で何も保存されない
 - [ ] 未設定のバッジが出ている間は、repo local の identity が無い repo の `git commit` が「Author identity unknown」で失敗する。設定後は `git config --global user.name` / `git config --global user.email` が保存値になり、commit できる
 - [ ] repo local の `user.name` / `user.email` がある repo は、アプリの identity が未設定でも設定済みでも、local の値で commit できる
@@ -343,6 +343,7 @@ pw.sh close
 - [ ] 引き継ぎのダイアログ（行の ⋯）が Escape と「キャンセル」で閉じ、閉じた後に焦点が有効な操作に戻る（desktop は ⋯ へ戻り、singleColumn は ⋯ ではなくドロワーを開く前に焦点があった要素へ戻る。退場後にモーダルを開く契約の帰結で、詳細は [ui-layout.md](ui-layout.md#サイドバー)）。エージェント・スペース・メモを選び直せる。送信中は確定と閉じる導線が押せず、409（実行中 / 設定変更中）などの失敗はダイアログ内に出て一覧の状態が変わらない。singleColumn ではドロワーが閉じ切ってから開く
 - [ ] ファイルツリーの折りたたみで隠れた枝へ Tab が入らない。親フォルダを閉じると配下の子孫も閉じ、開き直しても子孫は閉じたまま。画面往復・F5 後もその状態が復元され、開いているファイルのタブと表示モードは維持される。
 - [ ] 設定 → モデル（プロバイダー）と設定 → コンテンツ生成（`/settings/content`）と設定 → Web 検索（`/settings/web-search`）と設定 → ファイル → ダウンロードの除外（`/settings/files/archive`）と設定 → 会話スペース（`/settings/spaces`）のオレンジの注意書きが既定で 1 行に畳まれ、展開で全文が読める。折りたたみ中も要点（キーは暗号化して保存・送信先・共有範囲など）が読め、reduced motion でも開閉できる。
+- [ ] 設定 → Web 検索（`/settings/web-search`）は初期状態で無効。有効にしてから新しく作成した会話では `web_search` が公開され、次の呼び出しから検索できる。OFF で作成した会話は、その後 ON にしてもツール一覧が増えない（既存の公開契約）。ON で作成した会話は OFF→ON に戻すと検索できる。再起動後も設定は残る。
 - [ ] 設定 → モデル → プロバイダー（`/settings/models/providers`）で、キーと OAuth の両方を使える provider が認証方法のタブ（`APIキー` / `サインイン`）になり、実効側が既定で開いて「使用中」が出る。開始を押すと空タブが開き、認可 URL が届いたらそのタブが同意画面へ遷移して、この面には遷移できた補足が出る（popup をブロックすると `承認ページを開く` のリンクが出る）。進行中は主文と補助行が併記され、デバイスコード方式ではコードと承認ページのリンクが出る（popup をブロックしたときもリンクとコピーで承認ページへ行ける）。貼り付けは「別のマシンのブラウザで承認する場合」を開いた中で `input` があるときだけ使え、送信後は受け付けていない旨が出る。別のマシンのブラウザで承認して完了でき、[サインアウト] が `サインイン` タブの中にある。10 分放置すると自動的に中断される（[model-settings.md](model-settings.md#oauth-サインイン)）
 - [ ] この画面でサインインを完了できない provider では、`サインイン` タブの中に理由（同じ agent dir の `pi /login`）が出て開始の操作が無く、`APIキー` タブの導線と [サインアウト] は残る
 - [ ] 設定 → モデル → プロバイダー（`/settings/models/providers`）のカスタムプロバイダーで、baseUrl とAPIキーを入れて [モデル一覧から選ぶ] を押すと検索付きの popover に `GET {baseUrl}/models` の ID が出て、選ぶとモデル ID 欄に入り contextWindow へフォーカスが移る。モデル ID は手入力のまま保存でき、一覧に無い ID では警告だけが出る。401 / 404 / タイムアウトでは一覧が開かず、分類と `HTTP <status>` がモデル ID の行に出る。baseUrl か APIキーを編集すると前の一覧と結果が消え、再取得できる。 保存した定義はアプリ DB に残り、BFF を再起動しても同じ provider / model が一覧と「モデルを選ぶ」タブに残る（APIキーは再入力しない）。master key 未設定の構成では「保存済み（未反映）」と固定文言が出て、[再同期] は失敗し、削除はできる。

@@ -111,11 +111,11 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 
 第三者ホストを**その場で止めたい**ときのための、アプリ全体の OFF スイッチ。環境変数（起動時に固定）ではないので、デプロイも再起動も要らない。
 
-- 正はアプリ DB の `web_search_settings`（id = 1 の 1 行、`enabled` と `provider`）で、**行が無い = 既定（有効 / Exa）**。無効化のためにデプロイを要する設計にしないことが目的なので、既定は ON（[persistence.md](persistence.md#アプリデータsqlite)）
+- 正はアプリ DB の `web_search_settings`（id = 1 の 1 行、`enabled` と `provider`）で、**行が無い = 既定（無効 / Exa）**。第三者ホストへの送信を既定にせず、使うときだけ有効にする（[persistence.md](persistence.md#アプリデータsqlite)）
 - ツールは `execute` のたびに `readEnabled()` を読む。**セッション作成時に凍結しない**ため、OFF にした瞬間から既存のセッションの次の呼び出しにも効く（ツール一覧は新しい会話にしか効かないので、実行時に拒否する）
 - OFF の間は検索も送信もしない。provider の `fetch` を呼ばず、固定文言 `WEB_SEARCH_DISABLED_MESSAGE`（「Web 検索は無効化されています。有効にするには 設定 → Web 検索 を開いてください。」）で throw する。設定画面は API が返す `disabledMessage` をそのまま出す
 - 経路は 設定サービス（`server/src/web-search-settings.ts`）→ `PiBff.setWebSearch()` → ツールの `readEnabled()` / `readProvider()` / `readApiKey()`。書き込みと `applyStored()` は `MutationLock` の内側で直列化する（コンテンツ生成と同じ形）
-- DB を読めない起動でも**有効 / Exa** で立ち、警告だけを残す（行が無い = 既定と同じ扱いにし、読めないだけで検索を黙って止めない）。設定 API は DB の 503 で気付ける（[persistence.md](persistence.md#アプリデータsqlite)）
+- DB を読めない起動でも**無効 / Exa** で立ち、警告だけを残す（行が無い = 既定と同じ扱いにする）。設定 API は DB の 503 で気付ける（[persistence.md](persistence.md#アプリデータsqlite)）
 - モデルから見るとツールは存在したままなので、無効時もモデルは呼べて、そのたびに固定文言の失敗が返る（無駄な往復を避けたくなったら system prompt / `promptGuidelines` への反映を別途検討する）。日時依存の質問を `web_search` へ誘導する指針のぶん、OFF 中の空振り呼び出しは増える
 
 ## 設定（既定 provider と APIキー）
@@ -172,7 +172,7 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 | --- | --- |
 | `server/test/web-search-providers.test.ts` | provider の一覧 / 未知の id の畳み込み / Exa の `tools/call` の URL・`Accept`・固定引数 / Exa の `data:` 行の解釈 / `results[]` の正規化（highlights → text）/ 公開日（Exa `publishedDate` / Tavily `published_date` の string / 非文字列 / 空文字 / 無し）/ Exa の失敗分類（`isError`・レート制限・JSON でない `content[0].text`・HTTP 406 / 500 / 429）/ Tavily の Bearer と本文 / Tavily の `results[]` の正規化 / Tavily のステータス分類（400 / 401 / 422 / 429 / 432 / 433 / 500）/ キー未設定は上流へ送らない |
 | `server/test/web-search-tool.test.ts` | 引数 `query`（空文字・空白のみを拒否）/ 結果の整形（先頭の現在日時行と provider 行（既定 Exa / 切り替え後 Tavily / 0 件 / 失敗文言 / 設定読取失敗・無効化では無し / 投影の切詰め内に残る）・JST 境界・公開日の JST 変換と欠落 / parse 不能 / 非文字列 / 空文字・出典一覧・highlights の採用）/ 1 件と合計の切り詰め（日時行込み）/ 既定は Exa / 既定 provider の実行時切り替え / provider が失敗しても別 provider へ fallback しない / キー未設定・拒否の固定文言 / 失敗の種類 → 日時行付きの固定文言 / ネットワーク例外（マスクして 500 字まで）/ タイムアウト / ユーザー中断 / `results: []` が正常系（日時行付き）/ 切り詰め前のマスク / 指針の文言 / 無効の間は送らず、ON に戻ると同じ定義で検索する / 設定の読取失敗も日時行付きで送らずに固定文言 / `web_search` がサンドボックスの allowlist に入らないこと |
-| `server/test/web-search-settings.test.ts` | 行が無い = 既定（有効 / Exa）/ PUT の往復と写しの差し替え（enabled / provider / キー）/ 未知の provider とキー不要 provider へのキー操作が 400 / マスカー登録が DB より前 / 応答にキー値を載せない / キー削除の冪等 / 保存できないときは 503 で写しも変えない / 保存後の読取失敗でも 200 / 起動時に DB を読めないときは既定で立つ / 起動時に保存済みのキーを保護対象へ入れる |
+| `server/test/web-search-settings.test.ts` | 行が無い = 既定（無効 / Exa）/ PUT の往復と写しの差し替え（enabled / provider / キー）/ 未知の provider とキー不要 provider へのキー操作が 400 / マスカー登録が DB より前 / 応答にキー値を載せない / キー削除の冪等 / 保存できないときは 503 で写しも変えない / 保存後の読取失敗でも 200 / 起動時に DB を読めないときは既定（無効）で立つ / 起動時に保存済みのキーを保護対象へ入れる |
 | `server/test/web-search-settings-api.test.ts` | `GET` / `PUT /api/settings/web-search`、`PUT /provider`、`PUT`・`DELETE /providers/:provider/key` の往復、`state: "applied"`、再起動後も残ること、Zod 検証での 400、応答にキー値を出さないこと |
 | `server/test/web-search-test-api.test.ts` | `POST /api/settings/web-search/test` の本文（日時行・provider 行・出典・抜粋）と `provider` / `resultCount` / `durationMs`、クエリの trim、会話も設定も変えないこと、無効・キー未設定は上流へ送らないこと、失敗も 200 の固定文言、応答にキー値を出さないこと、空 / 空白 / 上限超過 / JSON でない本文の 400（上限ちょうどは 200）、実行環境が無いときの 503 |
 | `server/test/app-db.test.ts` | v11 → v12 → v13 の加算移行、`web_search_settings.provider` の既定、`web_search_provider_keys` の往復と upsert・削除 |

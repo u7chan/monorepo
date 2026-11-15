@@ -34,6 +34,14 @@ const jsonPut = (payload: unknown): RequestInit => ({
 });
 const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
+/** 既定は無効なので、検索を実行するテストだけ明示的に有効にする */
+const enableWebSearch = async (app: {
+  request: (input: string, init?: RequestInit) => Response | Promise<Response>;
+}) => {
+  const response = await app.request("/api/settings/web-search", jsonPut({ enabled: true }));
+  assert.equal(response.status, 200);
+};
+
 async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-web-search-test-"));
   try {
@@ -93,6 +101,7 @@ test("テスト検索はモデルへ返る本文と同じ整形を返し、会�
       webSearchTestFetch: stub.fetchImpl,
     });
     try {
+      await enableWebSearch(bff.app);
       const before = await jsonBody(await bff.app.request("/api/settings/web-search"));
       const response = await bff.app.request(
         "/api/settings/web-search/test",
@@ -129,7 +138,7 @@ test("OFF の間は上流へ送らず、モデルへ返るのと同じ固定文�
       webSearchTestFetch: stub.fetchImpl,
     });
     try {
-      await bff.app.request("/api/settings/web-search", jsonPut({ enabled: false }));
+      // 行が無い = 既定の OFF のまま
       const body = await jsonBody(await bff.app.request("/api/settings/web-search/test", jsonPost({ query: "q" })));
       assert.equal(body.ok, false);
       assert.equal(body.output, WEB_SEARCH_DISABLED_MESSAGE, "日時行を付けない固定文言");
@@ -153,6 +162,7 @@ test("キー未設定は上流へ送らず、provider 行付きの固定文言�
       webSearchTestFetch: stub.fetchImpl,
     });
     try {
+      await enableWebSearch(bff.app);
       await bff.app.request("/api/settings/web-search/provider", jsonPut({ provider: "tavily" }));
       const body = await jsonBody(await bff.app.request("/api/settings/web-search/test", jsonPost({ query: "q" })));
       assert.equal(body.ok, false);
@@ -180,6 +190,7 @@ test("上流の失敗は固定文言へ写し、保存済みのキー値を応�
       webSearchTestFetch: stub.fetchImpl,
     });
     try {
+      await enableWebSearch(bff.app);
       await bff.app.request("/api/settings/web-search/provider", jsonPut({ provider: "tavily" }));
       await bff.app.request("/api/settings/web-search/providers/tavily/key", jsonPut({ apiKey: SECRET }));
       const limited = await jsonBody(await bff.app.request("/api/settings/web-search/test", jsonPost({ query: "q" })));
@@ -204,6 +215,7 @@ test("本文が契約に合わないテスト検索は 400 で、上流へ送ら
       webSearchTestFetch: stub.fetchImpl,
     });
     try {
+      await enableWebSearch(bff.app);
       const invalid: RequestInit[] = [
         jsonPost({ query: "" }),
         jsonPost({ query: "   " }),

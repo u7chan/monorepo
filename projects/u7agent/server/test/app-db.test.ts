@@ -47,26 +47,22 @@ const agent = (id: string): AgentDef => ({
 
 const project = (id: string, cwd: string): Project => ({ id, name: id, cwd, createdAt: 1 });
 
-test("an in-memory db has no path and holds the seed", () => {
+test("an in-memory db has no path, no seed agents and the default git identity", () => {
   const db = AppDb.open({ storeDir: null });
   assert.deepEqual(db.status(), { path: null, ok: true });
-  assert.deepEqual(
-    db.listAgents().map((entry) => entry.id),
-    ["agent-zundamon"],
-  );
+  assert.deepEqual(db.listAgents(), []);
+  assert.deepEqual(db.readGitSettings(), { userName: "u7agent", userEmail: "u7agent@example.com" });
   db.close();
 });
 
-test("a new file db is seeded once and a deleted sample does not come back", () => {
+test("a new file db does not seed agents and keeps a deleted definition deleted", () => {
   const dir = tempStoreDir();
   try {
     const first = AppDb.open({ storeDir: dir });
     assert.deepEqual(first.status(), { path: join(dir, APP_DB_FILENAME), ok: true });
-    assert.deepEqual(
-      first.listAgents().map((entry) => entry.id),
-      ["agent-zundamon"],
-    );
-    assert.equal(first.deleteAgent("agent-zundamon"), true);
+    assert.deepEqual(first.listAgents(), []);
+    first.saveAgent(agent("a1"));
+    first.deleteAgent("a1");
     first.close();
 
     // 同じディレクトリを開き直す = 再起動。既存の DB なので seed しない
@@ -82,7 +78,6 @@ test("keeps projects and agents across reopen", () => {
   const dir = tempStoreDir();
   try {
     const first = AppDb.open({ storeDir: dir });
-    first.deleteAgent("agent-zundamon");
     first.insertProject(project("p1", "proj-a"));
     first.saveAgent({ ...agent("a1"), icon: "data:image/png;base64,AA==", thinkingLevel: "high" });
     first.close();
@@ -102,7 +97,6 @@ test("persists the natural-invocation flags per scope and normalizes true to the
   const dir = tempStoreDir();
   try {
     const first = AppDb.open({ storeDir: dir });
-    first.deleteAgent("agent-zundamon");
     first.saveAgent({ ...agent("manual"), allowNaturalInvocationBuiltin: false, allowNaturalInvocationFile: false });
     first.saveAgent({ ...agent("builtin-only"), allowNaturalInvocationBuiltin: false });
     first.saveAgent(agent("default"));
@@ -201,7 +195,6 @@ test("recreates the tables without the seed when the schema version differs", ()
 
 test("rolls back a transaction that fails in the middle", () => {
   const db = AppDb.open({ storeDir: null });
-  db.deleteAgent("agent-zundamon");
   db.saveAgent(agent("kept"));
 
   // name は NOT NULL。2 件目の書き込みで失敗させ、1 件目が残らないことを見る
@@ -1689,7 +1682,7 @@ test("migrates a v11 db additively and keeps the web search toggle across reopen
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    // 加算移行なので既存の行は残り、web_search_settings は行が無い = 既定（有効 / Exa）
+    // 加算移行なので既存の行は残り、web_search_settings は行が無い = 既定（無効 / Exa）
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.equal(first.readWebSearchSettings(), undefined);
     first.saveWebSearchSettings({ enabled: false, provider: "tavily" });
@@ -3587,7 +3580,7 @@ test("v37 の DB を開くと試行のテーブルとキー世代が足され、
         .listAgents()
         .map((entry) => entry.id)
         .sort(),
-      ["a1", "agent-zundamon"],
+      ["a1"],
     );
     migrated.close();
   } finally {
@@ -4090,7 +4083,7 @@ test("v43 の DB を開くと content_settings.imageParams が足され、既存
   }
 });
 
-test("v44 の DB を開くと git_settings が足され、未設定から保存できる", () => {
+test("v44 の DB を開くと git_settings が足され、初期 identity から保存できる", () => {
   const dir = tempStoreDir();
   try {
     const first = AppDb.open({ storeDir: dir });
@@ -4103,8 +4096,11 @@ test("v44 の DB を開くと git_settings が足され、未設定から保存�
     raw.close();
 
     const migrated = AppDb.open({ storeDir: dir });
-    assert.equal(migrated.readGitSettings(), undefined, "既存 DB は行なし = 未設定から始まる");
-    migrated.saveGitSettings({ userName: "u7chan", userEmail: "u7chan@example.com" });
+    assert.deepEqual(migrated.readGitSettings(), {
+      userName: "u7agent",
+      userEmail: "u7agent@example.com",
+    });
+    migrated.saveGitSettings({ userName: "u7agent2", userEmail: "u7agent2@example.com" });
     migrated.close();
 
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
@@ -4113,10 +4109,32 @@ test("v44 の DB を開くと git_settings が足され、未設定から保存�
     check.close();
 
     const reopened = AppDb.open({ storeDir: dir });
-    assert.deepEqual(reopened.readGitSettings(), { userName: "u7chan", userEmail: "u7chan@example.com" });
+    assert.deepEqual(reopened.readGitSettings(), { userName: "u7agent2", userEmail: "u7agent2@example.com" });
+    // 明示的に消した行は再起動で戻らない (初期値は移行時の 1 回だけ)
     reopened.clearGitSettings();
-    assert.equal(reopened.readGitSettings(), undefined);
     reopened.close();
+    const cleared = AppDb.open({ storeDir: dir });
+    assert.equal(cleared.readGitSettings(), undefined);
+    cleared.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("v45 の DB は既存の git identity を初期値で上書きしない", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveGitSettings({ userName: "custom", userEmail: "custom@example.com" });
+    first.close();
+
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("PRAGMA user_version = 45");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.deepEqual(migrated.readGitSettings(), { userName: "custom", userEmail: "custom@example.com" });
+    migrated.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

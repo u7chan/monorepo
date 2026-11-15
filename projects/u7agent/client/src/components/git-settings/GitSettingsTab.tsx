@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 import {
   GIT_IDENTITY_CLEAR_CONFIRM,
+  GIT_IDENTITY_PLACEHOLDER_EMAIL,
+  GIT_IDENTITY_PLACEHOLDER_NAME,
   GIT_IDENTITY_SET_BADGE,
   GIT_IDENTITY_UNSET_BADGE,
   GIT_IDENTITY_UNSET_NOTE,
@@ -85,7 +87,7 @@ export function GitSettingsTab({ settings, saving, onSave, onClear }: GitSetting
                 className="field text-xs"
                 type="text"
                 value={userName}
-                placeholder="例: u7chan"
+                placeholder={`例: ${GIT_IDENTITY_PLACEHOLDER_NAME}`}
                 autoComplete="name"
                 spellCheck={false}
                 disabled={saving !== null}
@@ -98,7 +100,7 @@ export function GitSettingsTab({ settings, saving, onSave, onClear }: GitSetting
                 className="field text-xs"
                 type="email"
                 value={userEmail}
-                placeholder="例: u7chan@example.com"
+                placeholder={`例: ${GIT_IDENTITY_PLACEHOLDER_EMAIL}`}
                 autoComplete="email"
                 spellCheck={false}
                 disabled={saving !== null}

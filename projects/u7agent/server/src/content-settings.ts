@@ -335,7 +335,7 @@ export class ContentSettingsService {
       configured: row !== undefined,
       provider: row?.provider ?? null,
       keyEpoch: this.#keyEpoch,
-      // 行が無い = 未設定。トグルの既定は ON（Web 検索の「行が無い = 有効」と同じ読み替え）
+      // 行が無い = 未設定。トグルの既定は ON（キー未登録なら configured がゲートになる）
       enabled: row?.enabled ?? true,
       disabledMessage: CONTENT_DISABLED_MESSAGE,
       runtimeAvailable: this.#runtimeAvailable,

@@ -1207,7 +1207,7 @@ export const renameSharedContent = async (id: string, name: string): Promise<Sha
 
 /**
  * 設定 → Web 検索。有効 / 無効の 1 つだけを返し、無効時にモデルへ返る固定文言も載せる。
- * 正はアプリ DB の `web_search_settings` で、行が無い = 既定（有効）。
+ * 正はアプリ DB の `web_search_settings` で、行が無い = 既定（無効）。
  */
 export const getWebSearchSettings = async (): Promise<WebSearchSettingsResponse> => {
   const res = await client.api.settings["web-search"].$get();

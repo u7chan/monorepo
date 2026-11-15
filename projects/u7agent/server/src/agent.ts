@@ -959,11 +959,11 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     },
   });
   const bgmGenerator = createBgmGenerator({ maskText: maskError });
-  // Web 検索の設定も DB を正とする WebSearchSettingsService が写す。既定は有効 / Exa で、
+  // Web 検索の設定も DB を正とする WebSearchSettingsService が写す。既定は無効 / Exa で、
   // ツールは execute のたびにここを読む（セッション作成時に凍結しない）
   const webSearch: { config: WebSearchRuntimeConfig } = {
     config: {
-      readEnabled: () => true,
+      readEnabled: () => false,
       readProvider: () => DEFAULT_WEB_SEARCH_PROVIDER,
       readApiKey: () => undefined,
     },

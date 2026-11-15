@@ -220,7 +220,7 @@ test("書き出す → 変更する → 復元で元に戻り、2 回目の plan
       exportCheck.entries.map((entry) => [entry.target, entry.count]),
       [
         ["prompts", 1],
-        ["agents", 2],
+        ["agents", 1],
       ],
     );
 
@@ -248,8 +248,8 @@ test("書き出す → 変更する → 復元で元に戻り、2 回目の plan
     assert.equal(plan.changed, true);
     assert.equal(plan.blocked, false);
     const agentPlan = plan.plans.find((item) => item.target === "agents");
-    // バックアップの 2 体は同一、後から足した 1 体だけが削除対象
-    assert.deepEqual(agentPlan?.counts, { added: 0, updated: 0, identical: 2, removed: 1, reordered: 0 });
+    // バックアップの 1 体は同一、後から足した 1 体だけが削除対象
+    assert.deepEqual(agentPlan?.counts, { added: 0, updated: 0, identical: 1, removed: 1, reordered: 0 });
     // 名前が変わった行は更新で、削除対象もプレビューに出る
     assert.deepEqual(
       plan.plans.find((item) => item.target === "prompts")?.items.map((item) => item.status),
@@ -269,7 +269,7 @@ test("書き出す → 変更する → 復元で元に戻り、2 回目の plan
     const agents = (await (await bff.app.request("/api/agents")).json()) as {
       agents: { id: string; name: string }[];
     };
-    assert.deepEqual(agents.agents.map((item) => item.name).sort(), ["Coder", "ずんだもん"]);
+    assert.deepEqual(agents.agents.map((item) => item.name).sort(), ["Coder"]);
     assert.ok(agents.agents.some((item) => item.id === agent.id));
 
     const again = await restore(bff.app, backup, "?dryRun=true");
@@ -345,15 +345,6 @@ test("壊れたバンドルは 400 で断り、何も変更しない", async () 
         bundle({
           "manifest.json": `{"app":"u7agent","schema":1,"exportedAt":"x","targets":["prompts"],"x":1}`,
           "prompts.json": prompts,
-        }),
-      ],
-      [
-        "組み込みプロンプトの混入",
-        bundle({
-          "manifest.json": MANIFEST(["prompts"]),
-          "prompts.json": JSON.stringify({
-            prompts: [{ id: "prompt-builtin-check-tests", label: "L", prompt: "P" }],
-          }),
         }),
       ],
       [
@@ -501,7 +492,7 @@ test("スキルの invalid は skills だけをブロックし、skills を外�
     const narrowed = await restore(bff.app, backup, "?targets=agents");
     assert.equal(narrowed.status, 200);
     const agents = (await (await bff.app.request("/api/agents")).json()) as { agents: { name: string }[] };
-    assert.deepEqual(agents.agents.map((item) => item.name).sort(), ["Temp", "ずんだもん"]);
+    assert.deepEqual(agents.agents.map((item) => item.name).sort(), ["Temp"]);
     assert.deepEqual(skills.state.deleted, []);
   } finally {
     await bff.close();
@@ -545,15 +536,12 @@ test("全削除はユーザー定義のエージェント / 自作プロンプ�
     assert.equal(response.status, 200);
     const result = (await response.json()) as { complete: boolean; agents: number; prompts: number; skills: number };
     assert.equal(result.complete, true);
-    assert.equal(result.agents, 1);
+    assert.equal(result.agents, 0);
     assert.equal(result.prompts, 1);
     assert.equal(result.skills, 2);
 
-    const prompts = (await (await bff.app.request("/api/prompts")).json()) as { prompts: { kind: string }[] };
-    assert.deepEqual(
-      prompts.prompts.map((item) => item.kind),
-      ["builtin", "builtin", "builtin"],
-    );
+    const prompts = (await (await bff.app.request("/api/prompts")).json()) as { prompts: unknown[] };
+    assert.deepEqual(prompts.prompts, []);
     const agents = (await (await bff.app.request("/api/agents")).json()) as { agents: unknown[] };
     assert.deepEqual(agents.agents, []);
   } finally {
@@ -708,7 +696,7 @@ test("スキルの適用だけが失敗したら partial を返し、再実行�
       ["skills"],
     );
     const agents = (await (await bff.app.request("/api/agents")).json()) as { agents: { name: string }[] };
-    assert.deepEqual(agents.agents.map((item) => item.name).sort(), ["Temp", "ずんだもん"]);
+    assert.deepEqual(agents.agents.map((item) => item.name).sort(), ["Temp"]);
 
     // 再実行では DB の差分が 0 になり、スキルだけが適用される
     failApply = false;

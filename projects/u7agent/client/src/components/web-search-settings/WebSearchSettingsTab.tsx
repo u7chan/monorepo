@@ -102,7 +102,7 @@ export function WebSearchSettingsTab({
           <MetaChip>既定 {providerDef.name}</MetaChip>
         </section>
 
-        {/* 既定は ON。止めたい依存をその場で切るのが目的なので、確認ダイアログは挟まない */}
+        {/* 既定は OFF。使いたいときだけ有効にする（確認ダイアログは挟まない） */}
         <section
           className={cn(
             "grid gap-2 rounded-lg border p-3",

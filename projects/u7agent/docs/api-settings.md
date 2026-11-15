@@ -114,7 +114,7 @@
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/web-search` | `enabled` / `provider`（既定）/ `providers[]`（id・名前・送信先・キーの要否・`configured`）/ `disabledMessage`。純粋読取で、行が無ければ `enabled: true` / `provider: "exa"`（既定）。APIキーの値は返さない |
+| GET | `/api/settings/web-search` | `enabled` / `provider`（既定）/ `providers[]`（id・名前・送信先・キーの要否・`configured`）/ `disabledMessage`。純粋読取で、行が無ければ `enabled: false` / `provider: "exa"`（既定）。APIキーの値は返さない |
 | PUT | `/api/settings/web-search` | `{ enabled }`。保存した瞬間から、既存のセッションの次の `web_search` 呼び出しにも効く |
 | PUT | `/api/settings/web-search/provider` | `{ provider }`。既定の provider を差し替える（`enabled` は保持）。未知の provider は 400 |
 | PUT | `/api/settings/web-search/providers/:provider/key` | `{ apiKey }`。provider のキーを登録・上書き。キー不要 / 未知の provider は 400 |
@@ -124,9 +124,9 @@
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。変更系は 503 に `state: "not_stored"` を付け、何も保存していないことを示す。トグルの意味、provider の抽象化、失敗時の契約は [web-search.md](web-search.md) を正とする。
 
 ```json
-// GET /api/settings/web-search (200。行が無い = 既定（有効 / Exa）)
+// GET /api/settings/web-search (200。行が無い = 既定（無効 / Exa）)
 {
-  "enabled": true,
+  "enabled": false,
   "provider": "exa",
   "providers": [
     {
@@ -142,7 +142,7 @@
 }
 
 // PUT /api/settings/web-search (200。変更系は GET と同じ形 + state)
-{ "enabled": false, "provider": "tavily", "providers": ["…"], "disabledMessage": "…", "state": "applied" }
+{ "enabled": true, "provider": "tavily", "providers": ["…"], "disabledMessage": "…", "state": "applied" }
 
 // PUT /api/settings/web-search (503。何も保存していない)
 { "error": "Web 検索の設定をアプリデータ（SQLite）へ保存できませんでした", "state": "not_stored" }
@@ -386,14 +386,14 @@
 | PUT | `/api/settings/git` | `{ userName, userEmail }`。両方必須。片方だけ・空・制御文字 / 改行 / NUL・`<` `>`・形状違反は 400。成功は GET と同じ形 + `state: "applied"` |
 | DELETE | `/api/settings/git` | 未設定へ戻す（冪等）。成功は GET と同じ形 + `state: "applied"` |
 
-`applied` は「アプリ DB に保存済みで、サンドボックスへは次の bash から反映」を意味する（既存のセッションや実行中の bash には遡及しない）。値の規則と INI の quote は `server/src/git-identity.ts`、保存は `git_settings` の 1 行が正で、片方だけの行は未設定として読む。DB 障害時は GET が 503、変更系は 503 `{ error, state: "not_stored" }`。DB を読めないときに BFF が bash へ送る値は `null`（`useConfigOnly` だけの config）で、古い identity を使い回さない。
+`applied` は「アプリ DB に保存済みで、サンドボックスへは次の bash から反映」を意味する（既存のセッションや実行中の bash には遡及しない）。値の規則と INI の quote は `server/src/git-identity.ts`、保存は `git_settings` の 1 行が正で、片方だけの行は未設定として読む。新規 DB と v45 以前から移行した DB には、初期 identity（`u7agent` / `u7agent@example.com`）が 1 回だけ入る（既存行は上書きしない）。DB 障害時は GET が 503、変更系は 503 `{ error, state: "not_stored" }`。DB を読めないときに BFF が bash へ送る値は `null`（`useConfigOnly` だけの config）で、古い identity を使い回さない。
 
 ```json
 // GET /api/settings/git (200。未設定)
 { "userName": null, "userEmail": null, "configured": false }
 
 // PUT /api/settings/git (200)
-{ "userName": "u7chan", "userEmail": "u7chan@example.com", "configured": true, "state": "applied" }
+{ "userName": "u7agent2", "userEmail": "u7agent2@example.com", "configured": true, "state": "applied" }
 
 // PUT /api/settings/git (400。片方だけ)
 { "error": "Git のメールアドレスを入力してください" }

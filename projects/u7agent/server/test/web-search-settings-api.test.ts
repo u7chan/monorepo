@@ -34,7 +34,7 @@ async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
 }
 
 const defaultSettings = (tavilyConfigured = false) => ({
-  enabled: true,
+  enabled: false,
   provider: "exa",
   providers: [
     {
@@ -63,34 +63,34 @@ const defaultSettings = (tavilyConfigured = false) => ({
   disabledMessage: WEB_SEARCH_DISABLED_MESSAGE,
 });
 
-test("GET は既定（有効 / Exa）、PUT は適用されて再取得と再起動後も残る", async () => {
+test("GET は既定（無効 / Exa）、PUT は適用されて再取得と再起動後も残る", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi();
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       assert.deepEqual(await jsonBody(await bff.app.request("/api/settings/web-search")), defaultSettings());
-      // 行が無い = 既定なので、起動直後の写しも有効 / Exa
-      assert.equal(pi.webSearchConfigs.at(-1)?.readEnabled(), true);
+      // 行が無い = 既定なので、起動直後の写しも無効 / Exa
+      assert.equal(pi.webSearchConfigs.at(-1)?.readEnabled(), false);
       assert.equal(pi.webSearchConfigs.at(-1)?.readProvider(), "exa");
 
-      const off = await jsonBody(
-        await bff.app.request("/api/settings/web-search", jsonRequest("PUT", { enabled: false })),
+      const on = await jsonBody(
+        await bff.app.request("/api/settings/web-search", jsonRequest("PUT", { enabled: true })),
       );
-      assert.deepEqual(off, { ...defaultSettings(), enabled: false, state: "applied" });
-      // 実行中のセッションが読む写しも、同じ注入面を通して OFF になる
-      assert.equal(pi.webSearchConfigs.at(-1)?.readEnabled(), false);
+      assert.deepEqual(on, { ...defaultSettings(), enabled: true, state: "applied" });
+      // 実行中のセッションが読む写しも、同じ注入面を通して ON になる
+      assert.equal(pi.webSearchConfigs.at(-1)?.readEnabled(), true);
 
       const tavily = await jsonBody(
         await bff.app.request("/api/settings/web-search/provider", jsonRequest("PUT", { provider: "tavily" })),
       );
       assert.equal(tavily.state, "applied");
       assert.equal(tavily.provider, "tavily");
-      assert.equal(tavily.enabled, false, "provider の変更でトグルを戻さない");
+      assert.equal(tavily.enabled, true, "provider の変更でトグルを戻さない");
       assert.equal(pi.webSearchConfigs.at(-1)?.readProvider(), "tavily");
 
       assert.deepEqual(await jsonBody(await bff.app.request("/api/settings/web-search")), {
         ...defaultSettings(),
-        enabled: false,
+        enabled: true,
         provider: "tavily",
       });
     } finally {
@@ -101,7 +101,7 @@ test("GET は既定（有効 / Exa）、PUT は適用されて再取得と再起
     const row = check.prepare("SELECT id, enabled, provider FROM web_search_settings").get() as
       | { id: number; enabled: number; provider: string }
       | undefined;
-    assert.deepEqual({ ...row }, { id: 1, enabled: 0, provider: "tavily" }, "1 行だけを持つ");
+    assert.deepEqual({ ...row }, { id: 1, enabled: 1, provider: "tavily" }, "1 行だけを持つ");
     check.close();
 
     const restarted = await createBffApp({
@@ -113,7 +113,7 @@ test("GET は既定（有効 / Exa）、PUT は適用されて再取得と再起
     try {
       assert.deepEqual(await jsonBody(await restarted.app.request("/api/settings/web-search")), {
         ...defaultSettings(),
-        enabled: false,
+        enabled: true,
         provider: "tavily",
       });
     } finally {

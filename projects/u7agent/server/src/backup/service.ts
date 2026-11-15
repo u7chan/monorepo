@@ -11,7 +11,6 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { AppDb, PromptRow, StoredAgent } from "../app-db";
 import { COMMON_SKILLS_DIR } from "../app-paths";
-import { BUILTIN_AGENT_PROMPT_IDS, BUILTIN_PROMPTS } from "../builtin-catalog";
 import { httpError, messageFor } from "../http";
 import {
   BACKUP_AGENTS_FILE_ENTRY,
@@ -187,8 +186,7 @@ export function createBackupService(deps: BackupServiceDeps): BackupService {
 
   /** 適用後の DB に存在するプロンプト ID。agents の参照はこの集合で正規化する */
   const promptUniverse = (parsed: ParsedBackup): Set<string> => {
-    const ids = new Set<string>(BUILTIN_PROMPTS.map((entry) => entry.id));
-    for (const id of BUILTIN_AGENT_PROMPT_IDS) ids.add(id);
+    const ids = new Set<string>();
     if (parsed.selected.includes("prompts")) {
       for (const entry of parsed.prompts) ids.add(entry.id);
     } else {

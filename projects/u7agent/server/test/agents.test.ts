@@ -3,7 +3,6 @@ import test from "node:test";
 import { appendSystemPrompt, composePromptSnapshot, investigationSystemPrompt, investigationTools } from "../src/agent";
 import { allowsNaturalInvocation, createAgentCatalog } from "../src/agents";
 import { AppDb } from "../src/app-db";
-import { BUILTIN_AGENT_PROMPT_IDS, BUILTIN_PROMPTS } from "../src/builtin-catalog";
 import { createPromptCatalog } from "../src/prompts";
 import { SKILL_NAME_MAX, SKILL_NAMES_MAX, TOOL_NAME_MAX, TOOL_NAMES_MAX } from "../src/schema";
 
@@ -21,25 +20,19 @@ test("the built-in agent keeps model and thinkingLevel unspecified", () => {
   assert.equal(Object.hasOwn(agent, "thinkingLevel"), false);
 });
 
-test("ships the generic agent as the built-in and the zundamon sample as a user definition", () => {
+test("ships the generic agent as the built-in and no sample user definitions", () => {
   const catalog = createAgentCatalog();
   const agent = catalog.builtinAgent();
   assert.equal(agent.id, "agent-general");
   assert.equal(agent.name, "汎用アシスタント");
-  // 既定のエージェント自身は役割もスキル割り当てを持たない (口調のサンプルはユーザー定義側に置く)
+  // 既定のエージェント自身は役割もスキル / 定型プロンプトの割り当ても持たない
   assert.equal(agent.systemPrompt, "");
   assert.equal(agent.allowNaturalInvocationBuiltin, false, "既定のエージェントは自然文で発火しない");
   assert.equal(agent.allowNaturalInvocationFile, false, "ファイルスキル側も同じく発火しない");
   assert.equal(Object.hasOwn(agent, "skillIds"), false);
+  assert.equal(Object.hasOwn(agent, "prompts"), false);
 
-  const samples = catalog.listAgents();
-  assert.deepEqual(
-    samples.map((sample) => sample.id),
-    ["agent-zundamon"],
-    "初期状態のユーザー定義はずんだもんだけ",
-  );
-  assert.equal(samples[0].name, "ずんだもん");
-  assert.match(samples[0].systemPrompt, /なのだ/);
+  assert.deepEqual(catalog.listAgents(), [], "初期状態のユーザー定義は無い");
   // スキルの実体は DB ではなくファイル側にあるので、カタログ応答に定義は載らない
   assert.equal(Object.hasOwn(catalog.snapshot(), "skills"), false);
 });
@@ -51,20 +44,10 @@ test("keeps the built-in agent out of the user-defined list", () => {
   assert.equal(catalog.removeAgent("agent-general"), false);
   assert.equal(catalog.getAgent("agent-general")?.id, "agent-general");
 
-  // ユーザー定義はサンプルも含めて 0 件まで減らせる (ビルトインが居るので非空の保証は不要)
+  // ユーザー定義は 0 件まで減らせる (ビルトインが居るので非空の保証は不要)
   const created = catalog.createAgent({ name: "消せる定義" });
   assert.equal(catalog.removeAgent(created.id), true);
-  assert.equal(catalog.removeAgent("agent-zundamon"), true);
   assert.deepEqual(catalog.listAgents(), []);
-});
-
-test("treats the zundamon sample as a normal user definition", () => {
-  const catalog = createAgentCatalog();
-
-  // 削除でき、新しい DB のカタログでは seed で戻る
-  assert.equal(catalog.removeAgent("agent-zundamon"), true);
-  assert.equal(catalog.getAgent("agent-zundamon"), undefined);
-  assert.equal(createAgentCatalog().getAgent("agent-zundamon")?.name, "ずんだもん");
 });
 
 test("creates and updates agents with an independent model / thinkingLevel", () => {
@@ -118,8 +101,6 @@ test("creates and updates agents with an independent model / thinkingLevel", () 
 
 test("reorderAgents は既存の id だけを採用し、渡さなかった行を元の順で末尾に回す", () => {
   const catalog = createAgentCatalog();
-  // seed のずんだもんを外し、並べ替えの対象を 3 件に絞る
-  catalog.removeAgent("agent-zundamon");
   const a = catalog.createAgent({ name: "A" });
   const b = catalog.createAgent({ name: "B" });
   const c = catalog.createAgent({ name: "C" });
@@ -161,7 +142,7 @@ test("reorderAgents はビルトインを含まないユーザー定義だけを
   const reordered = catalog.reorderAgents(["agent-general", agent.id]);
   assert.deepEqual(
     reordered.map((entry) => entry.id),
-    [agent.id, "agent-zundamon"],
+    [agent.id],
   );
   assert.equal(catalog.builtinAgent().id, "agent-general");
 });
@@ -191,21 +172,10 @@ test("rejects the removed skillIds on create and update", () => {
   assert.equal(Object.hasOwn(catalog.getAgent(created.id) ?? {}, "skillIds"), false);
 });
 
-test("the built-in agent resolves the fixed built-in prompt masters", () => {
+test("the built-in agent has no prompt references and new agents get none automatically", () => {
   const { catalog } = testCatalog();
-  const builtin = catalog.builtinAgent();
-  assert.deepEqual(
-    builtin.prompts?.map((prompt) => prompt.id),
-    [...BUILTIN_AGENT_PROMPT_IDS],
-    "組み込みの参照は固定 ID で、順序がそのまま表示順になる",
-  );
-  for (const prompt of builtin.prompts ?? []) {
-    assert.equal(prompt.kind, "builtin");
-    // 本文の正はマスタ側だけ (エージェント定義へ写さない)
-    assert.equal(prompt.prompt, BUILTIN_PROMPTS.find((entry) => entry.id === prompt.id)?.prompt);
-  }
+  assert.equal(Object.hasOwn(catalog.builtinAgent(), "prompts"), false);
 
-  // 新しく作る自作エージェントへ組み込みを自動で足さない
   const created = catalog.createAgent({ name: "定型なし" });
   assert.equal(Object.hasOwn(created, "prompts"), false);
 });
@@ -311,7 +281,7 @@ test("deleting an agent keeps the master and other references", () => {
   assert.equal(catalog.removeAgent(remove.id), true);
   assert.deepEqual(
     prompts.list().map((entry) => entry.id),
-    [...BUILTIN_AGENT_PROMPT_IDS, prompt.id],
+    [prompt.id],
     "エージェントを消してもマスタは残る",
   );
   assert.deepEqual(prompts.get(prompt.id)?.usedBy, [{ agentId: keep.id, agentName: "残す", builtin: false }]);
@@ -323,19 +293,6 @@ test("deleting an agent keeps the master and other references", () => {
 
 test("public agents copy the resolved prompts of the internal catalog", () => {
   const { catalog, prompts } = testCatalog();
-
-  // ビルトイン (ユーザー定義の外) も応答のたびにコピーを返し、書き換えても内部に残らない
-  const internalBuiltin = catalog.getAgent("agent-general")?.prompts;
-  const exportedBuiltin = catalog.builtinAgent().prompts;
-  assert.ok(internalBuiltin && exportedBuiltin);
-  assert.notEqual(exportedBuiltin, internalBuiltin);
-  assert.notEqual(exportedBuiltin[0], internalBuiltin[0]);
-  exportedBuiltin[0].label = "書き換え";
-  exportedBuiltin.push({ id: "extra", kind: "custom", label: "追加", prompt: "追加のプロンプト" });
-  assert.deepEqual(
-    catalog.getAgent("agent-general")?.prompts?.map((prompt) => prompt.label),
-    BUILTIN_PROMPTS.map((prompt) => prompt.label),
-  );
 
   const prompt = prompts.create({ label: "l", prompt: "p" });
   const agent = catalog.createAgent({ name: "参照あり", promptIds: [prompt.id] });
