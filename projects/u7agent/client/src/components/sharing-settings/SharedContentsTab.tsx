@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useConfirm, usePrompt } from "../ConfirmProvider";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import type { SharedContentsManager } from "../../hooks/useSharedContentsManager";
@@ -16,6 +16,7 @@ import {
   visibleSharedContents,
 } from "../../lib/sharedContents";
 import { renameInputValue } from "../../lib/confirmDialog";
+import { keepSharedContentHeadingVisible } from "../../lib/sharedContentsScroll";
 import type { SessionSummary, SharedContentResponse, SharedContentStatusValue } from "../../types";
 import { workdirBusyKind } from "../../lib/sessionBusy";
 import { DisclosureChevronIcon, KeyIcon, ShareIcon, WarningIcon } from "../icons";
@@ -56,6 +57,8 @@ export function SharedContentsTab({
   const [qrId, setQrId] = useState<string | null>(null);
   // 見出しを畳む状態。状態ごとのまとまりは画面の都合なので保存しない（開き直したら全部開く）
   const [collapsed, setCollapsed] = useState<ReadonlySet<SharedContentStatusValue>>(() => new Set());
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const toggledHeadingRef = useRef<{ button: HTMLButtonElement; scrollTop: number; expanding: boolean } | null>(null);
   const groupId = useId();
   const sessionIds = useMemo(() => new Set(sessions.map((session) => session.sessionId)), [sessions]);
   const visible = visibleSharedContents(contents.items, filter);
@@ -82,6 +85,14 @@ export function SharedContentsTab({
   // 一括停止中は一覧全体の操作を止める（現在の 1 件は busy が別に持つ）
   const bulkActive = contents.bulkStop?.running === true;
   const sessionMissing = (item: SharedContentResponse) => sharedContentSessionMissing(item, sessionIds, sessionsLoaded);
+
+  useLayoutEffect(() => {
+    const toggled = toggledHeadingRef.current;
+    const scroller = scrollerRef.current;
+    toggledHeadingRef.current = null;
+    if (toggled === null || scroller === null) return;
+    keepSharedContentHeadingVisible(scroller, toggled.button, toggled.expanding ? toggled.scrollTop : undefined);
+  }, [collapsed]);
 
   const update = async (item: SharedContentResponse) => {
     if (sessionMissing(item)) return;
@@ -157,7 +168,10 @@ export function SharedContentsTab({
   );
 
   return (
-    <div className="min-h-0 min-w-0 scroll-pt-10 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 singleColumn:scroll-pt-12">
+    <div
+      ref={scrollerRef}
+      className="min-h-0 min-w-0 scroll-pt-10 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 singleColumn:scroll-pt-12"
+    >
       <div className="mx-auto grid max-w-5xl gap-3 py-4">
         {cloudflareConfigured === false ? <NoCredentialsBanner onOpenConnections={onOpenConnections} /> : null}
         {contents.failed ? <ListFailureBanner message={contents.listError} /> : null}
@@ -191,7 +205,13 @@ export function SharedContentsTab({
                           type="button"
                           aria-expanded={!isCollapsed}
                           aria-controls={listId}
-                          onClick={() => toggleGroup(group.key)}
+                          onClick={(event) => {
+                            const scroller = scrollerRef.current;
+                            toggledHeadingRef.current = scroller
+                              ? { button: event.currentTarget, scrollTop: scroller.scrollTop, expanding: isCollapsed }
+                              : null;
+                            toggleGroup(group.key);
+                          }}
                           className="tree-fold-toggle flex min-h-9 w-full items-center gap-2 px-4 py-2 text-left text-2xs text-ink-muted transition-colors hover:bg-hover hover:text-ink singleColumn:min-h-11"
                         >
                           <DisclosureChevronIcon />
