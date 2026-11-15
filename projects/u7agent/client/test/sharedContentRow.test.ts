@@ -30,6 +30,7 @@ const item = (overrides: Partial<SharedContentResponse> = {}): SharedContentResp
   publishedAt: PUBLISHED_AT,
   stoppedAt: null,
   lastError: null,
+  thumbnail: null,
   ...overrides,
 });
 
@@ -64,6 +65,7 @@ function render(
       copied,
       copyFailure: undefined,
       onQr: () => {},
+      onOpenThumbnail: () => {},
       onCopy: () => {},
       onRename: () => {},
       onUpdate: () => {},
@@ -214,6 +216,7 @@ test("メタ情報: 公開元・会話・更新を ・ で区切って 1 行に�
       copied: false,
       copyFailure: undefined,
       onQr: () => {},
+      onOpenThumbnail: () => {},
       onCopy: () => {},
       onRename: () => {},
       onUpdate: () => {},
@@ -322,6 +325,7 @@ test("コピー失敗: URL を選択してコピーする逃げ道を示す", ()
       copied: false,
       copyFailure: "denied",
       onQr: () => {},
+      onOpenThumbnail: () => {},
       onCopy: () => {},
       onRename: () => {},
       onUpdate: () => {},

@@ -231,6 +231,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .post("/api/skills/files/import", (c) => skillFileRoutes.import(c))
     // バックアップの復元も raw の ZIP を受ける。plan (dryRun) と apply が同じ本文を通る
     .post("/api/backup/restore", (c) => backupRoutes.restore(c))
+    // サムネイルは raw の PNG (最大 2 MiB) を受けるので、64 KiB で読み切る bodyGuard より前に登録する
+    .put("/api/shared-contents/:id/thumbnail", appDataMutation, (c) => sharedContentRoutes.putThumbnail(c))
     .use("/api/*", bodyGuard)
     .use("/api/*", spaceContextGuard(spaces, store))
     .get("/api/spaces", appData, (c) => c.json({ spaces: spaces.list() }))
@@ -788,6 +790,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .post("/api/shared-contents/:id/stop", appDataMutation, sharedContentRoutes.stop)
     .post("/api/shared-contents/:id/resume", appDataMutation, sharedContentRoutes.resume)
     .delete("/api/shared-contents/:id", appDataMutation, sharedContentRoutes.remove)
+    .get("/api/shared-contents/:id/thumbnail", appData, sharedContentRoutes.thumbnail)
+    .delete("/api/shared-contents/:id/thumbnail", appDataMutation, sharedContentRoutes.removeThumbnail)
     .post("/api/settings/content/image/catalog/refresh", (c) => contentSettingsRoutes.refreshCatalog(c))
     .post("/api/settings/content/speech/catalog/refresh", (c) => contentSettingsRoutes.refreshSpeechCatalog(c))
     .get("/api/settings/web-search", appData, webSearchSettingsRoutes.list)

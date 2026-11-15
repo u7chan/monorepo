@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   deleteSharedContent,
+  deleteSharedContentThumbnail,
   getAllSharedContents,
   publishSharedContent,
+  putSharedContentThumbnail,
   renameSharedContent,
   resumeSharedContent,
   stopSharedContent,
 } from "../api";
+import { thumbnailFailureNeedsRefetch, withSharedContentThumbnail } from "../lib/sharedThumbnail";
 import {
   settleAcceptedAfterMutation,
   settleAcceptedSharedContent,
@@ -254,6 +257,47 @@ export function useSharedContentsManager() {
     [loadList],
   );
 
+  /**
+   * サムネイルの保存。公開状態を見ないので、公開中でも受け付ける（行の他の操作は止めない）。
+   * 保存より前に発行した一覧で新しい版を上書きしないよう、応答を適用する前に通し番号を進める。
+   * 戻り値はダイアログが失敗の理由をその場で出すために使う（行の `error` にも残す）。
+   */
+  const setThumbnail = useCallback(
+    async (id: string, bytes: Uint8Array): Promise<{ ok: boolean; message?: string }> => {
+      try {
+        const { thumbnail } = await putSharedContentThumbnail(id, bytes);
+        appliedSeq.current = ++requestSeq.current;
+        setState((prev) => ({ ...prev, items: withSharedContentThumbnail(prev.items, id, thumbnail), error: null }));
+        return { ok: true };
+      } catch (error) {
+        const message = messageFor(error);
+        setState((prev) => ({ ...prev, error: { id, message } }));
+        // 中継の 502 や通信断は結果不明。未保存と断定せず、確定した状態を取り直す
+        if (thumbnailFailureNeedsRefetch(error)) void loadList();
+        return { ok: false, message };
+      }
+    },
+    [loadList],
+  );
+
+  /** サムネイルだけを外す。共有物の行と他の操作には触らない */
+  const clearThumbnail = useCallback(
+    async (id: string): Promise<{ ok: boolean; message?: string }> => {
+      try {
+        await deleteSharedContentThumbnail(id);
+        appliedSeq.current = ++requestSeq.current;
+        setState((prev) => ({ ...prev, items: withSharedContentThumbnail(prev.items, id, null), error: null }));
+        return { ok: true };
+      } catch (error) {
+        const message = messageFor(error);
+        setState((prev) => ({ ...prev, error: { id, message } }));
+        if (thumbnailFailureNeedsRefetch(error)) void loadList();
+        return { ok: false, message };
+      }
+    },
+    [loadList],
+  );
+
   const publishing = !state.bulkStop?.running && sharedContentsPolling(state.items, acceptedPublishing);
   useEffect(() => {
     if (!publishing) return;
@@ -277,6 +321,8 @@ export function useSharedContentsManager() {
     rename,
     remove,
     stopAll,
+    setThumbnail,
+    clearThumbnail,
   };
 }
 

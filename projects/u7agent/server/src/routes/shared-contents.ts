@@ -1,7 +1,12 @@
 import type { Context } from "hono";
-import { messageFor, statusCodeOf } from "../http";
+import { messageFor, readRawBody, statusCodeOf } from "../http";
 import type { CreateSharedContentBody, RenameSharedContentBody } from "../schema";
-import { SharedContentStoredFailure, type SharedContentsService } from "../shared-contents";
+import {
+  SHARED_CONTENT_THUMBNAIL_TOO_LARGE,
+  SharedContentStoredFailure,
+  type SharedContentsService,
+} from "../shared-contents";
+import { SHARED_THUMBNAIL_MAX_BYTES, SHARED_THUMBNAIL_MIME } from "../shared-thumbnails";
 
 /**
  * 共有コンテンツの管理 API。作成・更新・再公開は 202 で受け付け、状態は GET で読む。
@@ -90,6 +95,55 @@ export function createSharedContentRoutes({ sharedContents }: { sharedContents: 
         return c.body(null, 204);
       } catch (error) {
         return failure(c, error);
+      }
+    },
+
+    /**
+     * サムネイルの PNG を raw で受ける。`Content-Type` と実バイト数だけをここで見て、
+     * PNG の構造検証は service（保存と同じ層）に置く。
+     */
+    putThumbnail: async (c: Context) => {
+      const id = c.req.param("id") ?? "";
+      const contentType = (c.req.header("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+      if (contentType !== SHARED_THUMBNAIL_MIME) {
+        return c.json({ error: "PNG でない画像は保存できません", state: "not_stored" as const }, 415);
+      }
+      try {
+        const bytes = await readRawBody(c.req.raw, SHARED_THUMBNAIL_MAX_BYTES, SHARED_CONTENT_THUMBNAIL_TOO_LARGE);
+        return c.json({ thumbnail: await sharedContents.setThumbnail(id, bytes) }, 200);
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    /** サムネイルだけを外す。未設定でも 204（結果不明の再試行で 404 にしない） */
+    removeThumbnail: async (c: Context) => {
+      try {
+        await sharedContents.removeThumbnail(c.req.param("id") ?? "");
+        return c.body(null, 204);
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    /**
+     * 保存済みのサムネイル。版を URL に載せる前提なので長期キャッシュを許可し、
+     * 内容が変われば `?v=` が変わる（`no-store` にすると一覧のたびに 2 MiB を取り直す）。
+     */
+    thumbnail: async (c: Context) => {
+      try {
+        const { bytes } = await sharedContents.readThumbnail(c.req.param("id") ?? "");
+        const body =
+          bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes.buffer : bytes.slice().buffer;
+        return c.body(body as ArrayBuffer, 200, {
+          "Content-Type": SHARED_THUMBNAIL_MIME,
+          // 行のメタではなく実バイト数を返す（実体が外部で置き換わっても長さを偽らない）
+          "Content-Length": String(bytes.byteLength),
+          "Cache-Control": "private, max-age=31536000, immutable",
+          "X-Content-Type-Options": "nosniff",
+        });
+      } catch (error) {
+        return readFailure(c, error);
       }
     },
   };

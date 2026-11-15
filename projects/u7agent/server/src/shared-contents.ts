@@ -22,11 +22,17 @@ import {
   type CloudflareAssetsApi,
 } from "./cloudflare-api";
 import type { SharedContentRow, SharedContentSourceKind, SharedContentStatus } from "./app-db";
-import { httpError, messageFor } from "./http";
+import { httpError, messageFor, statusCodeOf } from "./http";
 import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "./sandbox/client";
 import type { SandboxDownloadPlan } from "./sandbox/protocol";
 import { extractZipEntry, readZipArchive, type ZipReadEntry } from "./sandbox/zip-read";
 import type { SharedContentExclusions } from "./shared-content-exclusions";
+import {
+  SHARED_THUMBNAIL_MAX_BYTES,
+  inspectSharedThumbnailPng,
+  type SharedThumbnailEntry,
+  type SharedThumbnailStore,
+} from "./shared-thumbnails";
 import { effectiveSharedContentExcludeNames } from "./shared-content-rules";
 import type {
   CreateSharedContentBody,
@@ -35,6 +41,7 @@ import type {
   SharedContentPreviewResponse,
   SharedContentResponse,
   SharedContentStopResponse,
+  SharedContentThumbnail,
 } from "./schema";
 
 /** Cloudflare の上限と u7agent の ZIP 上限の厳しいほう */
@@ -78,6 +85,14 @@ export const SHARED_CONTENT_READ_ERROR = "共有コンテンツを読み取れ�
 export const SHARED_CONTENT_NAME_REQUIRED = "表示名を入力してください";
 /** 作業フォルダ全体の公開はプロジェクト会話では受け付けない (公開範囲がプロジェクト全体になるため) */
 export const SHARED_CONTENT_PROJECT_SESSION_ROOT = "プロジェクトの会話では作業フォルダ全体を共有できません";
+/** サムネイルは公開の状態と独立して差し替える。進行中の排他は共有物の削除との取り違えを防ぐだけ */
+export const SHARED_CONTENT_THUMBNAIL_BUSY = "サムネイルを保存中です。完了してから操作してください";
+export const SHARED_CONTENT_THUMBNAIL_INVALID = "画像を読み取れませんでした。別の画像を選んでください";
+export const SHARED_CONTENT_THUMBNAIL_TOO_LARGE = "画像が大きすぎます。2 MiB 以下の画像を選んでください";
+export const SHARED_CONTENT_THUMBNAIL_NONE = "サムネイルが設定されていません";
+/** 配信に失敗したとき。再読み込みで直る一過性の失敗と、実体の不在を区別しない */
+export const SHARED_CONTENT_THUMBNAIL_READ_ERROR = "サムネイルを読み取れませんでした";
+export const SHARED_CONTENT_THUMBNAIL_STORE_ERROR = "サムネイルを保存できませんでした";
 
 /** ソースの検証・取得で止まったことを表す。message は利用者向けの固定文言だけ */
 class SharedContentSourceError extends Error {
@@ -138,6 +153,16 @@ export interface SharedContentStore {
   listPublishingSharedContents(): SharedContentRow[];
   /** 表示名だけを変える。状態と時刻 (`updatedAt` / `publishedAt` / `stoppedAt`) は変えない */
   updateSharedContentName(id: string, name: string): void;
+  /**
+   * サムネイルのメタだけを変える。行が既に無ければ false（削除との競合を呼び出し側が検出する）。
+   * 公開ライフサイクルの時刻 (`updatedAt`) は変えない
+   */
+  updateSharedContentThumbnail(id: string, thumbnail: SharedContentThumbnail | null): boolean;
+  /**
+   * 実体が見つからなかったときの未設定化。読んだ後に差し替えられていたら何もしない
+   * （古い GET の不在補正が新しい版を消さないため、版が一致する行だけを消す）
+   */
+  clearSharedContentThumbnail(id: string, expectedUpdatedAt: number): boolean;
   /** provider 側の削除が成功したあとにだけ呼ぶ */
   deleteSharedContent(id: string): void;
 }
@@ -170,6 +195,11 @@ export interface SharedContentsOptions {
   secretValues: () => readonly string[];
   /** 共有の除外名の実効値。プレビューと公開の受付時にだけ読み、ジョブ実行時には読み直さない */
   exclusions: Pick<SharedContentExclusions, "effectiveNames">;
+  /**
+   * サムネイルの実体の置き場（会話ストア直下の `shared-thumbnails`）。
+   * 永続化なしの構成では未設定で、保存・配信・削除は全て 503 になる
+   */
+  thumbnails?: SharedThumbnailStore | null;
   now?: () => number;
   newId?: () => string;
   tempRoot?: string;
@@ -197,6 +227,9 @@ export class SharedContentsService {
   /** 共有物 id 単位の排他。公開ジョブ自体はこのロックの外で走る */
   #lock = new SharedContentLock();
   #active = new Set<string>();
+  /** サムネイル専用の排他。公開処理とは独立させる（公開の所要時間に引きずらない） */
+  #thumbnailLock = new SharedContentLock();
+  #thumbnails: SharedThumbnailStore | null;
 
   constructor(options: SharedContentsOptions) {
     this.#store = options.store;
@@ -212,6 +245,7 @@ export class SharedContentsService {
     this.#now = options.now ?? Date.now;
     this.#newId = options.newId ?? (() => randomBytes(5).toString("hex"));
     this.#tempRoot = options.tempRoot ?? tmpdir();
+    this.#thumbnails = options.thumbnails ?? null;
   }
 
   list(sessionId?: string): SharedContentResponse[] {
@@ -247,6 +281,129 @@ export class SharedContentsService {
       throw httpError(503, SHARED_CONTENT_STORE_ERROR);
     }
     return toResponse({ ...row, name });
+  }
+
+  /**
+   * サムネイルの差し替え。公開状態を見ない（公開中でも差し替えられる）。
+   * 版は単調増加にし、版ごとに別のファイルへ書く。行の更新に失敗したら追加した版だけを消すので、
+   * 以前の画像は残る（未保存が確定した失敗で既存を保持する）。
+   */
+  async setThumbnail(id: string, bytes: Uint8Array): Promise<SharedContentThumbnail> {
+    return this.#mutateThumbnail(id, async () => {
+      const store = this.#requireThumbnails(SHARED_CONTENT_THUMBNAIL_STORE_ERROR);
+      const row = this.#requireRow(id);
+      if (bytes.byteLength > SHARED_THUMBNAIL_MAX_BYTES) throw httpError(413, SHARED_CONTENT_THUMBNAIL_TOO_LARGE);
+      const inspected = inspectSharedThumbnailPng(bytes);
+      if (!inspected) throw httpError(422, SHARED_CONTENT_THUMBNAIL_INVALID);
+      const previous = row.thumbnail ?? null;
+      // 時計が同じ値・逆戻りしても版が衝突しない。URL の `?v=` とキャッシュの同一性をここで保証する。
+      // 起点は解除しても残る版 (`thumbnailVersion`) にする。解除で 0 に戻すと、同じ版・同じ URL が再利用される
+      const updatedAt = Math.max(this.#now(), (row.thumbnailVersion ?? previous?.updatedAt ?? 0) + 1);
+      const thumbnail: SharedContentThumbnail = {
+        updatedAt,
+        width: inspected.width,
+        height: inspected.height,
+        bytes: bytes.byteLength,
+      };
+      try {
+        await store.write(id, updatedAt, bytes);
+      } catch {
+        throw httpError(503, SHARED_CONTENT_THUMBNAIL_STORE_ERROR);
+      }
+      let stored: boolean;
+      try {
+        stored = this.#store.updateSharedContentThumbnail(id, thumbnail);
+      } catch {
+        // 追加した版だけを消す。以前の画像と行は触らない
+        await store.remove(id, updatedAt).catch(() => {});
+        throw httpError(503, SHARED_CONTENT_STORE_ERROR);
+      }
+      if (!stored) {
+        // 書き込みの間に共有物が消えた。孤児を残さず 404 にする
+        await store.remove(id, updatedAt).catch(() => {});
+        throw httpError(404, "Shared content not found");
+      }
+      // 行が新しい版を指したので、古い実体を片付ける（失敗しても孤児として再照合が回収する）
+      if (previous) await store.remove(id, previous.updatedAt).catch(() => {});
+      return thumbnail;
+    });
+  }
+
+  /** 保存済みのサムネイル。行のメタが無い、または実体が無いときは 404 */
+  async readThumbnail(id: string): Promise<{ bytes: Uint8Array; thumbnail: SharedContentThumbnail }> {
+    const row = this.#requireRow(id);
+    const thumbnail = row.thumbnail ?? null;
+    if (!thumbnail) throw httpError(404, SHARED_CONTENT_THUMBNAIL_NONE);
+    const store = this.#requireThumbnails(SHARED_CONTENT_THUMBNAIL_READ_ERROR);
+    let bytes: Uint8Array | undefined;
+    try {
+      bytes = await store.read(id, thumbnail.updatedAt);
+    } catch {
+      throw httpError(503, SHARED_CONTENT_THUMBNAIL_READ_ERROR);
+    }
+    if (!bytes) {
+      // 実体が無い行は未設定として扱い、一覧や公開の操作を止めない。
+      // 読んでいる間に差し替えられていたら、新しい版には触らない
+      try {
+        this.#store.clearSharedContentThumbnail(id, thumbnail.updatedAt);
+      } catch {
+        // 次の再照合でもう一度揃える
+      }
+      throw httpError(404, SHARED_CONTENT_THUMBNAIL_NONE);
+    }
+    return { bytes, thumbnail };
+  }
+
+  /** サムネイルだけを外す（共有物自体は消さない）。未設定でも成功として扱う */
+  async removeThumbnail(id: string): Promise<void> {
+    await this.#mutateThumbnail(id, async () => {
+      const row = this.#requireRow(id);
+      const store = this.#requireThumbnails(SHARED_CONTENT_THUMBNAIL_STORE_ERROR);
+      try {
+        if (!this.#store.updateSharedContentThumbnail(id, null)) throw httpError(404, "Shared content not found");
+      } catch (error) {
+        if (statusCodeOf(error) !== undefined) throw error;
+        throw httpError(503, SHARED_CONTENT_STORE_ERROR);
+      }
+      // 行は未設定になった。消せなくても孤児として起動時の再照合が回収する
+      if (row.thumbnail) await store.remove(id, row.thumbnail.updatedAt).catch(() => {});
+    });
+  }
+
+  /**
+   * 起動時の再照合。行が「存在の正」なので、実体の無い行は未設定に倒し、
+   * 行の指さないファイルは消す（削除と書き込みの途中で落ちた場合の後始末）。
+   */
+  async reconcileThumbnails(): Promise<void> {
+    const store = this.#thumbnails;
+    if (!store) return;
+    let rows: SharedContentRow[];
+    try {
+      rows = this.#store.listSharedContents();
+    } catch {
+      return;
+    }
+    let entries: SharedThumbnailEntry[];
+    try {
+      entries = await store.listEntries();
+    } catch {
+      return;
+    }
+    const present = new Set(entries.map((entry) => `${entry.id}:${entry.version}`));
+    for (const row of rows) {
+      const thumbnail = row.thumbnail ?? null;
+      if (!thumbnail || present.has(`${row.id}:${thumbnail.updatedAt}`)) continue;
+      try {
+        this.#store.clearSharedContentThumbnail(row.id, thumbnail.updatedAt);
+      } catch {
+        // 次の起動でもう一度揃える（一覧は未設定として読むので表示は壊れない）
+      }
+    }
+    const referenced = new Set(rows.flatMap((row) => (row.thumbnail ? [`${row.id}:${row.thumbnail.updatedAt}`] : [])));
+    for (const entry of entries) {
+      if (referenced.has(`${entry.id}:${entry.version}`)) continue;
+      await store.remove(entry.id, entry.version).catch(() => {});
+    }
   }
 
   /**
@@ -439,7 +596,21 @@ export class SharedContentsService {
       } catch {
         throw httpError(503, SHARED_CONTENT_STORE_ERROR);
       }
+      // 行が消えたあとの片付け。失敗しても孤児として起動時の再照合が回収する
+      await this.#thumbnails?.removeAll(id).catch(() => {});
     });
+  }
+
+  /** サムネイルは公開処理のロックに乗せない（公開の所要時間に引きずられない） */
+  async #mutateThumbnail<T>(id: string, task: () => Promise<T>): Promise<T> {
+    const run = this.#thumbnailLock.tryRun(id, task);
+    if (!run) throw httpError(409, SHARED_CONTENT_THUMBNAIL_BUSY);
+    return run;
+  }
+
+  #requireThumbnails(message: string): SharedThumbnailStore {
+    if (!this.#thumbnails) throw httpError(503, message);
+    return this.#thumbnails;
   }
 
   /** 同じ id の操作を排他する。進行中なら状態を読まずに 409 を返す */
@@ -1211,5 +1382,6 @@ function toResponse(row: SharedContentRow): SharedContentResponse {
     publishedAt: row.publishedAt,
     stoppedAt: row.stoppedAt,
     lastError: row.lastError,
+    thumbnail: row.thumbnail ?? null,
   };
 }

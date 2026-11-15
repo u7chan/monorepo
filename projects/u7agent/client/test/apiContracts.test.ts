@@ -480,6 +480,7 @@ test("共有物の名前の変更は PATCH で id と名前だけを送り、失
       publishedAt: 1,
       stoppedAt: null,
       lastError: null,
+      thumbnail: null,
     });
   t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
     requests.push(new Request(input, init));

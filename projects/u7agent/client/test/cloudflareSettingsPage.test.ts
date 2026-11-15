@@ -106,6 +106,8 @@ function contents(overrides: Partial<SharedContentsManager> = {}): SharedContent
     rename: async () => {},
     remove: async () => {},
     stopAll: async () => {},
+    setThumbnail: async () => ({ ok: true }),
+    clearThumbnail: async () => ({ ok: true }),
     ...overrides,
   };
 }
@@ -126,6 +128,7 @@ function contentItem(overrides: Partial<SharedContentResponse> = {}): SharedCont
     publishedAt: 1_000,
     stoppedAt: null,
     lastError: null,
+    thumbnail: null,
     ...overrides,
   };
 }

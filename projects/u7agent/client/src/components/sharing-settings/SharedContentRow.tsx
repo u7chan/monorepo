@@ -31,6 +31,7 @@ import {
   WarningIcon,
 } from "../icons";
 import { SharedContentMenu } from "./SharedContentMenu";
+import { SharedContentThumbnail } from "./SharedContentThumbnail";
 
 export type SharedContentRowProps = {
   item: SharedContentResponse;
@@ -53,6 +54,8 @@ export type SharedContentRowProps = {
   copied: boolean;
   copyFailure: string | undefined;
   onCopy: (url: string, id: string) => void;
+  /** 行のサムネイルを開く。公開中でも押せる（⋯ の表示条件に乗せない） */
+  onOpenThumbnail: () => void;
   onQr: () => void;
   onRename: () => void;
   onUpdate: () => void;
@@ -138,6 +141,7 @@ export function SharedContentRow({
   copied,
   copyFailure,
   onCopy,
+  onOpenThumbnail,
   onQr,
   onRename,
   onUpdate,
@@ -252,6 +256,7 @@ export function SharedContentRow({
       aria-busy={busy !== null}
       className={cn("flex min-w-0 gap-4 px-4 py-3 transition-colors", narrow ? "flex-col gap-y-2" : "items-center")}
     >
+      <SharedContentThumbnail item={item} narrow={narrow} disabled={bulkActive} onOpen={onOpenThumbnail} />
       <div className="grid min-w-0 flex-1 gap-1">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           {/* 長い表示名でも行を押し下げすぎないよう 2 行で切る（全文は title で読める） */}

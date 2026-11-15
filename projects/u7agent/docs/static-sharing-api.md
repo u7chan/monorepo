@@ -16,6 +16,9 @@
 | `POST` | `/api/shared-contents/:id/stop` | 停止（200）。未公開の行は `status: "failed"` を返す |
 | `POST` | `/api/shared-contents/:id/resume` | 再公開（202）。公開実績の無い行は 409 |
 | `PATCH` | `/api/shared-contents/:id` | 表示名の変更（200、変更後の DTO） |
+| `PUT` | `/api/shared-contents/:id/thumbnail` | サムネイルの PNG を raw で保存（200、`{ thumbnail }`） |
+| `GET` | `/api/shared-contents/:id/thumbnail` | 保存済みのサムネイル（PNG） |
+| `DELETE` | `/api/shared-contents/:id/thumbnail` | サムネイルだけを外す（204） |
 | `DELETE` | `/api/shared-contents/:id` | 削除（204） |
 | `GET` | `/api/settings/cloudflare` | 登録状態（トークンは返さない） |
 | `PUT` | `/api/settings/cloudflare` | 登録・更新 |
@@ -40,6 +43,20 @@
 - `limited: false` のときだけ `index.html` 不在と 1 ファイル 25 MiB 超を `problems` に入れる。問題なしと言い切らない
 - パス不正 400 / セッションなし 404 / `directory` がファイル 409 / サンドボックス未設定 503。Cloudflare の資格情報は使わない
 - `GET /api/shared-contents/:id` と衝突しないよう、専用のルートを先に登録する
+
+### サムネイル
+
+一覧・詳細の `thumbnail` は `{ updatedAt, width, height, bytes }` か `null` で、実体は含まない（一覧の取得が画像を読まない）。`updatedAt` は配信 URL の版で、クライアントは `?v=<updatedAt>` を付ける。
+
+- `PUT` は本文を raw の PNG として受ける（`Content-Type: image/png` 必須）。`bodyGuard` の 64 KiB 上限より前に登録し、実受信バイト数を数えて 2 MiB で打ち切る。宣言された `Content-Length` だけを信じない
+- サーバーは署名・チャンク長・CRC・`IEND`・後続バイトの不在、IHDR のビット深度 / インターリース / 寸法（`width * 5 === height * 8`、320〜1600）、`IDAT` の展開長を見る。メタデータのチャンク（`tEXt` / `zTXt` / `iTXt` / `eXIf`）は 422 で拒否する
+- 版ごとに別のファイル (`<id>.<version>.png`) へ書き、最後に行のメタを更新する。行の更新に失敗したときは追加した版だけを消す（以前の画像を残す。未保存が確定した失敗）。書き込み中に共有物が消えていたら 404 にしてファイルを残さない
+- `updatedAt` は単調増加。時計が同値・逆行しても進み、解除してから保存し直しても戻らないので、`?v=` とファイル名が衝突しない（解除では版の列を消さない）
+- 保存の結果が不明な失敗（中継の 502 など）は「保存していない」と断定せず、クライアントは一覧を取り直して確定状態へ寄せる。`state: "not_stored"` の失敗だけを確定した不受理として扱う
+- 成功は 200 で `{ thumbnail }`。失敗は 413 / 415 / 422 / 404 / 409（同じ共有物のサムネイル操作が進行中）/ 503（実体の置き場が無い）。本文の検証失敗と 413 / 415 / 422 には `state: "not_stored"` を付ける
+- `GET` は `Content-Type: image/png` / `Content-Length` / `nosniff` と `Cache-Control: private, max-age=31536000, immutable` を返す。未設定・実体の不在は 404。実体が無い行は未設定として扱い、一覧や公開の操作を止めない
+- `DELETE` は未設定でも 204（結果不明の再試行で 404 にしない）。共有物の削除では実体も片付け、失敗しても孤児として起動時の再照合が回収する
+- サムネイルは公開処理のロックに乗らない。公開中（`publishing`）でも保存・差し替え・解除を受け付ける
 
 **除外が入る前（Phase 1）は `excludeNames` が空配列で、公開も `exclude=[]` のままだった。** 現在は最後の Phase で追加した「公開の除外」（[公開の除外](static-sharing-design.md#公開の除外)）が実効値になり、同じダイアログの `excludeNames` と `skipped` に反映される。共有物（`shared_contents`）は除外を記録しないため、設定を変えて既存の公開物が変わるのは次の更新から。
 

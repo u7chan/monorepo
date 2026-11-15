@@ -29,6 +29,7 @@ const item: SharedContentResponse = {
   publishedAt: 2,
   stoppedAt: null,
   lastError: null,
+  thumbnail: null,
 };
 
 test("管理 API: 全件一覧は sessionId を付けず、更新と再試行は publish を使う", async (t) => {

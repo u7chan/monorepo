@@ -105,6 +105,39 @@ export async function bodyGuard(c: Context, next: () => Promise<void>) {
   await next();
 }
 
+/**
+ * raw の本文を上限付きで読む（画像の受け取り用）。`bodyGuard` の 64 KiB とは別に呼び出し側が上限を決める。
+ * 宣言された `Content-Length` ではなく実受信バイト数で判定するため、途中で打ち切られてもメモリは増えない。
+ */
+export async function readRawBody(
+  request: Request,
+  maxBytes: number,
+  message = "Request body is too large",
+): Promise<Uint8Array> {
+  const body = request.body;
+  if (!body) return new Uint8Array();
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw httpError(413, message);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 /** サンドボックスの 4xx はそのまま、接続失敗は 502 に寄せる。応答の本文の形は呼び出し側が決める。 */
 export function sandboxFailureStatus(error: unknown): number {
   return error instanceof SandboxRequestError ? error.status : 502;

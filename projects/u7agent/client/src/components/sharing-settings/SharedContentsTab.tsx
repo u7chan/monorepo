@@ -23,6 +23,7 @@ import { DisclosureChevronIcon, KeyIcon, ShareIcon, WarningIcon } from "../icons
 import { LoadingMark } from "../LoadingMark";
 import { QrCodeDialog } from "../QrCodeDialog";
 import { SharedContentRow } from "./SharedContentRow";
+import { SharedThumbnailDialog } from "./SharedThumbnailDialog";
 
 /** 操作を本文の下へ落とす境界。狭い面では行を 1 列にし、主操作と ⋯ を右寄せにする */
 const NARROW_MAX_WIDTH = 600;
@@ -55,6 +56,8 @@ export function SharedContentsTab({
   const narrow = useViewportWidth() < NARROW_MAX_WIDTH;
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const [qrId, setQrId] = useState<string | null>(null);
+  // サムネイルの編集対象。行が一覧から消えたら開かない（公開状態では閉じない）
+  const [thumbnailId, setThumbnailId] = useState<string | null>(null);
   // 見出しを畳む状態。状態ごとのまとまりは画面の都合なので保存しない（開き直したら全部開く）
   const [collapsed, setCollapsed] = useState<ReadonlySet<SharedContentStatusValue>>(() => new Set());
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -85,6 +88,9 @@ export function SharedContentsTab({
   // 一括停止中は一覧全体の操作を止める（現在の 1 件は busy が別に持つ）
   const bulkActive = contents.bulkStop?.running === true;
   const sessionMissing = (item: SharedContentResponse) => sharedContentSessionMissing(item, sessionIds, sessionsLoaded);
+  // 対象は一覧から引き直す。差し替えで版が変わっても、開いたままのダイアログが同じ行を指す
+  const thumbnailTarget =
+    thumbnailId === null ? null : (contents.items.find((item) => item.id === thumbnailId) ?? null);
 
   useLayoutEffect(() => {
     const toggled = toggledHeadingRef.current;
@@ -139,6 +145,9 @@ export function SharedContentsTab({
             copyFailure={copyFailure(item.id)}
             onCopy={(url, id) => {
               void copyMessage(url, id);
+            }}
+            onOpenThumbnail={() => {
+              setThumbnailId(item.id);
             }}
             onQr={() => {
               setQrId(item.id);
@@ -233,6 +242,14 @@ export function SharedContentsTab({
 
       {qrId === null ? null : (
         <QrCodeDialog item={sharedContentQrTarget(contents.items, qrId)} onClose={() => setQrId(null)} />
+      )}
+      {thumbnailTarget === null ? null : (
+        <SharedThumbnailDialog
+          item={thumbnailTarget}
+          onClose={() => setThumbnailId(null)}
+          onSave={(bytes) => contents.setThumbnail(thumbnailTarget.id, bytes)}
+          onClear={() => contents.clearThumbnail(thumbnailTarget.id)}
+        />
       )}
     </div>
   );

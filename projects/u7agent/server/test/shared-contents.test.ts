@@ -2,6 +2,7 @@
 // 検証・状態遷移・秘密値検査・復帰規則を固定する。
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -31,6 +32,8 @@ import {
   validateSharedAssetEntries,
   type SharedContentStore,
 } from "../src/shared-contents";
+import { createSharedThumbnailStore, type SharedThumbnailStore } from "../src/shared-thumbnails";
+import { png } from "./shared-thumbnail-fixtures";
 
 const ROOT = "/workspace";
 const SESSION_CWD = "/workspace/projects/app";
@@ -48,6 +51,7 @@ class FakeStore implements SharedContentStore {
   failAnyUpdate = false;
   failNameUpdate = false;
   failDeleteRow = false;
+  failThumbnailUpdate = false;
 
   insertSharedContent(row: SharedContentRow): void {
     if (this.failInsert) throw new Error("db insert boom");
@@ -82,6 +86,27 @@ class FakeStore implements SharedContentStore {
     const row = this.rows.get(id);
     if (!row) throw new Error("missing row");
     this.rows.set(id, { ...row, name });
+  }
+
+  updateSharedContentThumbnail(id: string, thumbnail: SharedContentRow["thumbnail"]): boolean {
+    if (this.failThumbnailUpdate) throw new Error("db thumbnail boom");
+    const row = this.rows.get(id);
+    if (!row) return false;
+    // 解除でも版は残す（実 DB と同じ）。次に保存するときの起点が消えると版が再利用される
+    this.rows.set(id, {
+      ...row,
+      thumbnail: thumbnail ?? null,
+      ...(thumbnail ? { thumbnailVersion: thumbnail.updatedAt } : {}),
+    });
+    return true;
+  }
+
+  clearSharedContentThumbnail(id: string, expectedUpdatedAt: number): boolean {
+    const row = this.rows.get(id);
+    const version = row?.thumbnailVersion ?? row?.thumbnail?.updatedAt ?? null;
+    if (!row || version !== expectedUpdatedAt) return false;
+    this.rows.set(id, { ...row, thumbnail: null });
+    return true;
   }
 
   getSharedContent(id: string): SharedContentRow | undefined {
@@ -209,6 +234,10 @@ interface SetupOptions {
   plan?: SandboxDownloadPlan | Error;
   /** 共有の除外名の実効値 (省略時は空 = 除外なし) */
   exclusions?: { effectiveNames: () => string[] };
+  /** 時計。省略時は呼ぶたびに +1 の単調な値 */
+  now?: () => number;
+  /** サムネイルの置き場。省略時は未設定 (保存は 503) */
+  thumbnails?: SharedThumbnailStore;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -257,8 +286,9 @@ function setup(options: SetupOptions = {}) {
     maskError: (text) => text,
     secretValues: () => options.secretValues ?? [],
     exclusions: options.exclusions ?? { effectiveNames: () => [] },
-    now: () => (clock += 1),
+    now: options.now ?? (() => (clock += 1)),
     newId: () => `id${++counter}`,
+    thumbnails: options.thumbnails ?? null,
   });
   return { service, store, downloadCalls, planCalls, busyCalls, cloudflare, zip };
 }
@@ -2388,5 +2418,164 @@ test("プレビューの異常系はセッションなし 404 / パス不正 400
     });
   } finally {
     zip4.cleanup();
+  }
+});
+
+/** サムネイルの置き場を作る。テストごとに片付ける */
+async function thumbnailStore(): Promise<{ dir: string; store: SharedThumbnailStore; cleanup: () => Promise<void> }> {
+  const dir = await mkdtemp(join(tmpdir(), "u7agent-shared-thumb-contents-"));
+  return {
+    dir,
+    store: createSharedThumbnailStore(join(dir, "shared-thumbnails")),
+    cleanup: () => rm(dir, { recursive: true, force: true }),
+  };
+}
+
+const thumbRow = (id: string): SharedContentRow => rowOf(id) as SharedContentRow;
+
+test("サムネイルの差し替えで行の更新が失敗しても、以前の画像と行は残る", async () => {
+  const thumbnails = await thumbnailStore();
+  try {
+    const { service, store } = setup({ thumbnails: thumbnails.store });
+    store.insertSharedContent(thumbRow("id1"));
+    const first = await service.setThumbnail("id1", png({ width: 800, height: 500, filterByte: 0 }));
+    const firstBytes = (await service.readThumbnail("id1")).bytes;
+
+    store.failThumbnailUpdate = true;
+    await assert.rejects(
+      () => service.setThumbnail("id1", png({ width: 640, height: 400 })),
+      (error: any) => error.statusCode === 503,
+    );
+    store.failThumbnailUpdate = false;
+
+    assert.equal(service.get("id1").thumbnail?.updatedAt, first.updatedAt, "行は差し替え前のまま");
+    assert.deepEqual((await service.readThumbnail("id1")).bytes, firstBytes, "以前の画像を配信できる");
+    assert.deepEqual(
+      (await thumbnails.store.listEntries()).map((entry) => entry.version),
+      [first.updatedAt],
+      "失敗した版の実体を残さない",
+    );
+  } finally {
+    await thumbnails.cleanup();
+  }
+});
+
+test("時計が同値・逆行してもサムネイルの版は単調に増え、同じ URL にならない", async () => {
+  const thumbnails = await thumbnailStore();
+  try {
+    let now = 5_000;
+    const { service, store } = setup({ thumbnails: thumbnails.store, now: () => now });
+    store.insertSharedContent(thumbRow("id1"));
+
+    const first = await service.setThumbnail("id1", png({ width: 800, height: 500 }));
+    now = 4_000; // 時計が逆行
+    const second = await service.setThumbnail("id1", png({ width: 720, height: 450 }));
+    now = 4_000; // 同じ値
+    const third = await service.setThumbnail("id1", png({ width: 640, height: 400 }));
+    // 解除しても版は戻らない（同じ版・同じ URL を再利用しない）
+    await service.removeThumbnail("id1");
+    const fourth = await service.setThumbnail("id1", png({ width: 800, height: 500 }));
+
+    assert.ok(second.updatedAt > first.updatedAt);
+    assert.ok(third.updatedAt > second.updatedAt);
+    assert.ok(fourth.updatedAt > third.updatedAt);
+    assert.deepEqual(
+      (await thumbnails.store.listEntries()).map((entry) => entry.version),
+      [fourth.updatedAt],
+      "版が衝突せず、差し替えのたびに古い実体は消える",
+    );
+  } finally {
+    await thumbnails.cleanup();
+  }
+});
+
+test("古い GET の不在補正は、読み込み中に差し替えられた新しい版を消さない", async () => {
+  const thumbnails = await thumbnailStore();
+  try {
+    const base = thumbnails.store;
+    let duringRead: (() => Promise<void>) | undefined;
+    const store: SharedThumbnailStore = {
+      ...base,
+      read: async (id, version) => {
+        const hook = duringRead;
+        duringRead = undefined;
+        if (hook) {
+          await hook();
+          return undefined;
+        }
+        return base.read(id, version);
+      },
+    };
+    const { service, store: rows } = setup({ thumbnails: store });
+    rows.insertSharedContent(thumbRow("id1"));
+    await service.setThumbnail("id1", png({ width: 800, height: 500 }));
+    const next = png({ width: 640, height: 400 });
+    duringRead = async () => {
+      await service.setThumbnail("id1", next);
+    };
+
+    // 古い版の実体が無い → 404。ただし行は既に新しい版へ進んでいる
+    await assert.rejects(
+      () => service.readThumbnail("id1"),
+      (error: any) => error.statusCode === 404,
+    );
+    const after = service.get("id1").thumbnail;
+    assert.ok(after);
+    assert.deepEqual((await service.readThumbnail("id1")).bytes, next, "新しい版は未設定にされない");
+
+    await service.reconcileThumbnails();
+    assert.deepEqual(
+      (await store.listEntries()).map((entry) => entry.version),
+      [after.updatedAt],
+    );
+    assert.ok(service.get("id1").thumbnail, "再照合でも新しい版は消えない");
+  } finally {
+    await thumbnails.cleanup();
+  }
+});
+
+test("古い GET の不在補正は、解除して保存し直した新しい版を消さない", async () => {
+  const thumbnails = await thumbnailStore();
+  try {
+    const base = thumbnails.store;
+    let duringRead: (() => Promise<void>) | undefined;
+    const store: SharedThumbnailStore = {
+      ...base,
+      read: async (id, version) => {
+        const hook = duringRead;
+        duringRead = undefined;
+        if (hook) {
+          await hook();
+          return undefined;
+        }
+        return base.read(id, version);
+      },
+    };
+    const { service, store: rows } = setup({ thumbnails: store });
+    rows.insertSharedContent(thumbRow("id1"));
+    const first = await service.setThumbnail("id1", png({ width: 800, height: 500 }));
+    const next = png({ width: 640, height: 400 });
+    // 読取りを保留している間に、解除して別の画像を保存する（版は単調増加で first より後）
+    duringRead = async () => {
+      await service.removeThumbnail("id1");
+      await service.setThumbnail("id1", next);
+    };
+
+    await assert.rejects(
+      () => service.readThumbnail("id1"),
+      (error: any) => error.statusCode === 404,
+    );
+    const after = service.get("id1").thumbnail;
+    assert.ok(after);
+    assert.ok(after.updatedAt > first.updatedAt);
+    assert.deepEqual((await service.readThumbnail("id1")).bytes, next, "解除後の新しい版は未設定にされない");
+
+    await service.reconcileThumbnails();
+    assert.deepEqual(
+      (await store.listEntries()).map((entry) => entry.version),
+      [after.updatedAt],
+    );
+  } finally {
+    await thumbnails.cleanup();
   }
 });

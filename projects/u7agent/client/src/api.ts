@@ -93,6 +93,7 @@ import type {
   SharedContentResponse,
   SharedContentsResponse,
   SharedContentStopResponse,
+  SharedContentThumbnailResponse,
   SpeechCatalogRefreshResponse,
   StopResult,
   ThinkingLevel,
@@ -1207,6 +1208,30 @@ export const renameSharedContent = async (id: string, name: string): Promise<Sha
   const res = await client.api["shared-contents"][":id"].$patch({ param: { id }, json: { name } });
   if (!res.ok) throw await apiError(res);
   return res.json();
+};
+
+/**
+ * サムネイルの保存（差し替え）。本文は PNG の実バイトを raw で送る（JSON にしない）。
+ * hc は JSON 本文を前提にするため、raw を送るこの 1 本だけ fetch を使う。
+ * 公開状態を見ないので、公開処理中でも送れる。
+ */
+export const putSharedContentThumbnail = async (
+  id: string,
+  bytes: Uint8Array,
+): Promise<SharedContentThumbnailResponse> => {
+  const response = await fetch(`/api/shared-contents/${encodeURIComponent(id)}/thumbnail`, {
+    method: "PUT",
+    headers: { "Content-Type": "image/png" },
+    body: bytes as unknown as BodyInit,
+  });
+  if (!response.ok) throw await apiError(response);
+  return (await response.json()) as SharedContentThumbnailResponse;
+};
+
+/** サムネイルだけを外す。未設定でも成功する（204） */
+export const deleteSharedContentThumbnail = async (id: string): Promise<void> => {
+  const res = await client.api["shared-contents"][":id"].thumbnail.$delete({ param: { id } });
+  if (!res.ok) throw await apiError(res);
 };
 
 /**
