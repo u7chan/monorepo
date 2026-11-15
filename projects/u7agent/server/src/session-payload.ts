@@ -10,7 +10,15 @@ import type { SessionRecord } from "./session-record";
 import { displayableMessages, projectMessages, truncate, unprojectedAssistantMeta } from "./session-projection";
 import { titleSummaryOf } from "./session-title";
 import { batchesSteering, sdkQueueLength, takenSendIdsOf } from "./session-steering";
-import type { PendingSend, RunStatus, ServeCommand, SessionPayload, SessionSummary, ThinkingLevel } from "./schema";
+import type {
+  PendingSend,
+  RunStatus,
+  ServeCommand,
+  SessionNetworkAccess,
+  SessionPayload,
+  SessionSummary,
+  ThinkingLevel,
+} from "./schema";
 
 const PROMPT_TEXT_MAX = 300;
 
@@ -77,6 +85,7 @@ export function projectSessionPayload({
   projectId,
   masker,
   rootCwd,
+  networkAccess,
 }: {
   record: SessionRecord;
   status: RunStatus;
@@ -85,6 +94,8 @@ export function projectSessionPayload({
   masker: SecretMasker;
   /** 相対 cwd を絶対へ解決し、スキル読み込み判定をライブ経路と同じ cwd に揃えるために使う */
   rootCwd: string;
+  /** この会話の egress の実効状態。承認は BFF のメモリだけにあり、exec のたびに同じ値を読む */
+  networkAccess: SessionNetworkAccess;
 }): SessionPayload {
   const { session } = record;
   const availableThinkingLevels = (session.getAvailableThinkingLevels() ??
@@ -177,6 +188,7 @@ export function projectSessionPayload({
       : {}),
     ...(record.meta.parentSessionId ? { parentSessionId: record.meta.parentSessionId } : {}),
     ...(context ? { context } : {}),
+    networkAccess,
   };
 }
 

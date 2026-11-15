@@ -758,6 +758,20 @@ export type SessionHandoffState = z.infer<typeof SessionHandoffStateSchema>;
 export const ResyncReasonSchema = z.enum(["attempt_discarded"]);
 export type ResyncReason = z.infer<typeof ResyncReasonSchema>;
 
+/** bash の外向き HTTPS を会話ごとにどう扱うか。`ask` だけが承認カードを出す */
+export const NetworkAccessModeSchema = z.enum(["allow", "ask", "deny"]);
+export type NetworkAccessMode = z.infer<typeof NetworkAccessModeSchema>;
+
+/**
+ * この会話の egress の実効状態。`approved` は BFF のメモリだけにあり、停止・会話削除・sweep で戻る。
+ * 拒否済みカードの「許可に変更」を出す条件と、押した後の表示に使う (旧サーバーはキーを省略する)。
+ */
+export const SessionNetworkAccessSchema = z.object({
+  mode: NetworkAccessModeSchema,
+  approved: z.boolean(),
+});
+export type SessionNetworkAccess = z.infer<typeof SessionNetworkAccessSchema>;
+
 export const SessionPayloadSchema = z.object({
   spaceId: z.string().optional(),
   sessionId: z.string(),
@@ -806,6 +820,8 @@ export const SessionPayloadSchema = z.object({
   context: ContextUsageSchema.optional(),
   /** 直前の引き継ぎの状態。引き継ぎを受けていない会話と旧サーバーは省略する */
   handoff: SessionHandoffStateSchema.optional(),
+  /** この会話の egress の実効状態。旧サーバーはキーを省略する (省略 = 承認の状態を出さない) */
+  networkAccess: SessionNetworkAccessSchema.optional(),
   /** 分岐元の会話 id。分岐した会話だけが載せ、親のタイトルは一覧から引く (旧サーバーは省略する) */
   parentSessionId: z.string().optional(),
 });
@@ -2346,6 +2362,18 @@ export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;
  */
 export const AnswerQuestionBodySchema = z.object({ answers: z.array(AskUserAnswerSchema) });
 export type AnswerQuestionBody = z.infer<typeof AnswerQuestionBodySchema>;
+
+/** 拒否済みの承認カードから許可へ変える要求。接続先はカードに出たホストをそのまま渡す */
+export const ApproveNetworkAccessBodySchema = z.object({ host: z.string().min(1).max(253) });
+export type ApproveNetworkAccessBody = z.infer<typeof ApproveNetworkAccessBodySchema>;
+
+export const ApproveNetworkAccessResponseSchema = z.object({
+  ok: z.literal(true),
+  host: z.string(),
+  mode: NetworkAccessModeSchema,
+  approved: z.literal(true),
+});
+export type ApproveNetworkAccessResponse = z.infer<typeof ApproveNetworkAccessResponseSchema>;
 
 export const CreateSessionBodySchema = z.object({
   spaceId: z.string().optional(),

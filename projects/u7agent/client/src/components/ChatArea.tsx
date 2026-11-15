@@ -17,7 +17,7 @@ import { generationCaptionsOf } from "../lib/generationInfo";
 import { modelRefKey } from "../lib/modelSettings";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
 import { nonSkillToolCards, skillBadgesOf } from "../lib/skillLoad";
-import type { AskUserAnswer, CompactionInfo, ModelOption, PromptRef } from "../types";
+import type { AskUserAnswer, CompactionInfo, ModelOption, PromptRef, SessionNetworkAccess } from "../types";
 import { AgentIcon } from "./AgentIcon";
 import { CompactionDivider } from "./chat/CompactionDivider";
 import { ContextBoundary } from "./chat/ContextBoundary";
@@ -74,6 +74,10 @@ export type ChatAreaProps = {
     toolCallId: string,
     answers: AskUserAnswer[],
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** この会話の egress の承認状態。拒否済みカードの救済の可否に使う (旧サーバーは undefined) */
+  networkAccess?: SessionNetworkAccess;
+  /** 拒否済みの承認カードを、モデルを介さずに許可へ変える */
+  onApproveNetworkAccess?: (host: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので同期を止める */
   visible?: boolean;
   /** 進行中のターンの assistant バブル id (ChatState.currentAssistantId)。ツール履歴のコピーを
@@ -111,6 +115,8 @@ export function ChatArea({
   onDiscardUnsent,
   answerable = false,
   onAnswerQuestion,
+  networkAccess,
+  onApproveNetworkAccess,
   visible = true,
   currentAssistantId = null,
   startingRunId,
@@ -334,6 +340,8 @@ export function ChatArea({
         queueStarted={startingRunId !== undefined && bubble.runId === startingRunId}
         onStartFlashEnd={onStartFlashEnd}
         onAnswerQuestion={onAnswerQuestion}
+        {...(networkAccess === undefined ? {} : { networkAccess })}
+        {...(onApproveNetworkAccess === undefined ? {} : { onApproveNetworkAccess })}
       />
     );
   }

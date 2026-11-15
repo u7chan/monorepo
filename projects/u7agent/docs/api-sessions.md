@@ -89,6 +89,7 @@
   "status": "running",
   "queueDepth": 0,
   "pinned": false,
+  "networkAccess": { "mode": "ask", "approved": false },
   "lastSeq": 42,
   "eventGeneration": "a1b2c3d4",
   "title": "…",
@@ -193,6 +194,8 @@
 `pendingSends` の並び（受理順）は再送で実際のキューの並びと入れ替わる（再送は末尾へ積まれ、受理の記録は元の位置に残る）ため、順位は並びから数えず `position` を読む。クライアントは未保存の送信を「未送信」へ切り替え、配送に残る送信は受理済みの pending として保つ（別タブの再送中に表示から消さない。履歴の初回応答前でもバブルを足す）。手元にバブルが無い未送信は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendSendId` へ `sendId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した実行の送信は配送対象から外れて `unsent` になる**（`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う（`state` があっても `position` が無いときは順位が不明として扱う）。
 
 `handoff` は直前の引き継ぎの状態（`{ operationId, at, memo, consumed, cleanupPending }`）。`operationId` は引き継ぎごとのランダムな 8 hex、`memo` は `HANDOFF.md` を書いたか、`consumed` は引き継ぎ後に最初の送信を受理済みか（未送信の破棄では戻らない）、`cleanupPending` は片付けが残っているか。チップ「HANDOFF.mdを参照」は `memo && !consumed` のときだけ出す（表示はクライアントのメモリではなくこの値から導出する。 [ui-layout.md](ui-layout.md#スペース)）。引き継ぎを受けていない会話と旧サーバーはキーを省略する。
+
+`networkAccess` は bash の外向き HTTPS の実効状態（`{ mode, approved }`）。`mode` は環境の `PI_SANDBOX_NETWORK_POLICY`（`allow` / `ask` / `deny`）、`approved` はこの会話の承認が立っているか。承認は BFF のメモリだけにあり、停止・会話削除・sweep で戻る。クライアントは拒否済みカードの「許可に変更」を `mode === "ask" && !approved` のときだけ出し、押した後の表示にもこの値を使う。旧サーバーはキーを省略する（救済の導線を出さない）。詳細は [sandbox.md](sandbox.md#セッション単位の-egress-ポリシー承認) と [api-session-turns.md](api-session-turns.md#post-apisessionsidnetwork-accessapprove)。
 
 JSONL が破損している（SDK が追記する entry type / message role を store が知らない、途中の行が壊れている等）セッションを開く要求は 409（store のパスを含む文言）で拒否する。原本は書き換えず、一覧にも残る（[session-files.md](session-files.md#会話の保存)）。開けなかったときのクライアントの移り先は [frontend.md](frontend.md#クライアントの-effect-契約) を参照。
 

@@ -38,6 +38,7 @@ import { sessionSpaceGuard, spaceContextGuard } from "./space-context";
 import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
   AnswerQuestionBodySchema,
+  ApproveNetworkAccessBodySchema,
   CreateSharedContentBodySchema,
   RenameSharedContentBodySchema,
   CreateContentTrialBodySchema,
@@ -494,6 +495,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => sessionRoutes.answerQuestion(c, c.req.valid("json")),
+    )
+    // 拒否済みの承認カードからの許可。回答待ちは settle 済みなので、回答 API ではなく専用の操作で受ける
+    .post(
+      "/api/sessions/:id/network-access/approve",
+      appData,
+      zValidator("json", ApproveNetworkAccessBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "host is required" }, 400),
+      ),
+      (c) => sessionRoutes.approveNetworkAccess(c, c.req.valid("json")),
     )
     // 待機キューからの 1 件だけの取り消し (実行は止めず、本文は未送信として残す)
     .delete("/api/sessions/:id/queue/:sendId", appData, sessionRoutes.cancelQueued)

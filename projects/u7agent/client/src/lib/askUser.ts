@@ -2,7 +2,7 @@
  * ask_user のカード状態と入力の純関数。カードの描画・「回答する」の有効条件・Composer の送信
  * ブロックが同じ判定を共有する (片方だけ変えると「回答済みなのに送信不可」が起きる)。
  */
-import type { AskUserAnswer, AskUserQuestion, RunStatus, ToolCall } from "../types";
+import type { AskUserAnswer, AskUserQuestion, RunStatus, SessionNetworkAccess, ToolCall } from "../types";
 import type { ToolCard } from "./chatTypes";
 import type { ConfirmRequest } from "./confirmDialog";
 
@@ -33,6 +33,33 @@ export function approvalRecordLabel(answer: AskUserAnswer | undefined): string {
   if (answer?.approval === false) return "外部通信を拒否";
   return "外部通信は未回答";
 }
+
+/** 拒否の回答を持つ承認カードか。拒否済みカードの救済はこの記録だけが対象 */
+function deniedApprovalOf(card: ToolCard): AskUserAnswer | undefined {
+  if (card.name !== REQUEST_NETWORK_ACCESS_TOOL_NAME) return undefined;
+  const answer = card.answers?.find((item) => item.index === 0);
+  return answer?.approval === false ? answer : undefined;
+}
+
+/**
+ * 拒否済みの承認カードを、モデルを介さずに許可へ変えられるか。押せるのは現在の会話だけで、
+ * 承認がまだ立っていないときだけ出す (押した後は payload の承認状態で消える)
+ */
+export function isRescuableApproval(card: ToolCard, networkAccess: SessionNetworkAccess | undefined): boolean {
+  if (networkAccess?.mode !== "ask" || networkAccess.approved) return false;
+  return deniedApprovalOf(card) !== undefined && card.questions?.[0]?.host !== undefined;
+}
+
+/** 拒否した記録の会話が、いまは承認で開いているか (押した後 / 別タブ / 再読込) */
+export function isRescuedApproval(card: ToolCard, networkAccess: SessionNetworkAccess | undefined): boolean {
+  return networkAccess?.mode === "ask" && networkAccess.approved && deniedApprovalOf(card) !== undefined;
+}
+
+/** 救済の後も exec は自動で再試行されない。押した後の補足と、再読込後の記録に出す */
+export const APPROVAL_RESCUE_NOTE = "この会話では外部通信を許可済みです。失敗したコマンドは再実行してください。";
+
+/** 許可に変更で開く範囲。承認は会話単位で、接続先ごとではない */
+export const APPROVAL_RESCUE_HINT = "この会話の外向き HTTPS (443) を開きます";
 
 /**
  * SSE の status はリプレイされないため復帰の文言はクライアントが持ち、サーバーの run-events.ts と

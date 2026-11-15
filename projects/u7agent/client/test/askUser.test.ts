@@ -30,6 +30,8 @@ import {
   emptyAskUserDrafts,
   isPendingAskUser,
   isPendingAskUserCard,
+  isRescuableApproval,
+  isRescuedApproval,
   nextUnresolvedAskUserIndex,
   pendingAskUserQuestionCount,
   splitApprovalQuestion,
@@ -39,7 +41,15 @@ import {
 } from "../src/lib/askUser";
 import { deriveComposerSettings } from "../src/lib/composerSettings";
 import { nonSkillToolCards } from "../src/lib/skillLoad";
-import type { AskUserAnswer, AskUserQuestion, HistoryPage, RunPayload, SessionPayload, ToolCall } from "../src/types";
+import type {
+  AskUserAnswer,
+  AskUserQuestion,
+  HistoryPage,
+  RunPayload,
+  SessionNetworkAccess,
+  SessionPayload,
+  ToolCall,
+} from "../src/types";
 
 const QUESTIONS: AskUserQuestion[] = [
   { question: "どちらで進めますか", header: "方式", options: [{ label: "A 案" }, { label: "B 案" }] },
@@ -669,6 +679,11 @@ const APPROVAL_QUESTIONS: AskUserQuestion[] = [
   },
 ];
 
+/** 接続先を持たない旧い保存データ。ホストが無いと拒否記録を特定できない */
+const APPROVAL_QUESTIONS_WITHOUT_HOST: AskUserQuestion[] = [
+  { question: "この通信を許可しますか？", type: "choice", options: [{ label: "許可" }, { label: "拒否" }] },
+];
+
 function approvalCard(id: string, phase: ToolCard["phase"], answers?: AskUserAnswer[]): ToolCard {
   return {
     id,
@@ -681,7 +696,13 @@ function approvalCard(id: string, phase: ToolCard["phase"], answers?: AskUserAns
   };
 }
 
-function renderApproval(card: ToolCard): string {
+function renderApproval(
+  card: ToolCard,
+  options: {
+    networkAccess?: SessionNetworkAccess;
+    onApproveNetworkAccess?: (host: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  } = {},
+): string {
   return renderToStaticMarkup(
     createElement(
       ConfirmProvider,
@@ -691,6 +712,10 @@ function renderApproval(card: ToolCard): string {
         answerable: true,
         onAnswer: async (): Promise<{ ok: true }> => ({ ok: true }),
         singleColumn: false,
+        ...(options.networkAccess === undefined ? {} : { networkAccess: options.networkAccess }),
+        ...(options.onApproveNetworkAccess === undefined
+          ? {}
+          : { onApproveNetworkAccess: options.onApproveNetworkAccess }),
       }),
     ),
   );
@@ -724,4 +749,62 @@ test("承認の記録は質問文を繰り返さず、許可・拒否・未回�
   assert.match(renderApproval(approvalCard("call-2", "done", [{ index: 0, approval: false }])), /外部通信を拒否/);
   assert.match(renderApproval(approvalCard("call-3", "done", [{ index: 0, skipped: true }])), /外部通信は未回答/);
   assert.match(renderApproval(approvalCard("call-4", "done")), /外部通信は未回答/);
+});
+
+test("拒否済みカードの救済は、承認モードで未承認のときだけ出る", () => {
+  const denied = approvalCard("call-1", "done", [{ index: 0, approval: false }]);
+  const ask = { mode: "ask", approved: false } as const;
+  assert.equal(isRescuableApproval(denied, ask), true);
+  assert.equal(isRescuableApproval(denied, { mode: "ask", approved: true }), false, "承認済みなら押す先が無い");
+  assert.equal(isRescuableApproval(denied, { mode: "allow", approved: false }), false, "allow は常に開いている");
+  assert.equal(isRescuableApproval(denied, { mode: "deny", approved: false }), false, "deny は承認しても開かない");
+  assert.equal(isRescuableApproval(denied, undefined), false, "旧サーバーは状態を出さない");
+  assert.equal(
+    isRescuableApproval(approvalCard("call-2", "done", [{ index: 0, approval: true }]), ask),
+    false,
+    "許可済みの記録は対象外",
+  );
+  assert.equal(isRescuableApproval(approvalCard("call-3", "done"), ask), false, "未回答は対象外");
+  assert.equal(
+    isRescuableApproval({ ...denied, questions: APPROVAL_QUESTIONS_WITHOUT_HOST }, ask),
+    false,
+    "接続先が無いと拒否記録を特定できない",
+  );
+  assert.equal(isRescuedApproval(denied, { mode: "ask", approved: true }), true);
+  assert.equal(isRescuedApproval(denied, { mode: "allow", approved: true }), false, "承認で開いたときだけ出す");
+  assert.equal(isRescuedApproval(approvalCard("call-4", "done", [{ index: 0, approval: true }]), ask), false);
+});
+
+test("拒否の記録は「許可に変更」を出し、押した後は再実行の補足に変わる", () => {
+  const denied = approvalCard("call-1", "done", [{ index: 0, approval: false }]);
+  const approve = async (): Promise<{ ok: true }> => ({ ok: true });
+  const rescuable = renderApproval(denied, {
+    networkAccess: { mode: "ask", approved: false },
+    onApproveNetworkAccess: approve,
+  });
+  assert.match(rescuable, /許可に変更/);
+  assert.match(rescuable, /title="この会話の外向き HTTPS \(443\) を開きます"/, "押すと開く範囲を添える");
+  assert.doesNotMatch(rescuable, /外部通信を許可済み/, "押す前は補足を出さない");
+
+  const rescued = renderApproval(denied, {
+    networkAccess: { mode: "ask", approved: true },
+    onApproveNetworkAccess: approve,
+  });
+  assert.doesNotMatch(rescued, /許可に変更/, "承認済みなら導線を消す");
+  assert.match(rescued, /この会話では外部通信を許可済みです/, "押した後と再読込後の補足");
+  assert.match(rescued, /失敗したコマンドは再実行してください/);
+
+  // コールバック未接続・承認モードでない・拒否以外の記録には導線を出さない
+  assert.doesNotMatch(renderApproval(denied, { networkAccess: { mode: "ask", approved: false } }), /許可に変更/);
+  assert.doesNotMatch(
+    renderApproval(denied, { networkAccess: { mode: "allow", approved: false }, onApproveNetworkAccess: approve }),
+    /許可に変更/,
+  );
+  assert.doesNotMatch(
+    renderApproval(approvalCard("call-2", "done", [{ index: 0, approval: true }]), {
+      networkAccess: { mode: "ask", approved: false },
+      onApproveNetworkAccess: approve,
+    }),
+    /許可に変更/,
+  );
 });

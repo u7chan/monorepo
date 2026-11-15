@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ToolCard } from "../../hooks/chatReducer";
 import {
+  APPROVAL_RESCUE_HINT,
+  APPROVAL_RESCUE_NOTE,
   approvalRecordLabel,
   askUserAnswerText,
   askUserAnsweredNothing,
@@ -15,6 +17,8 @@ import {
   emptyAskUserDrafts,
   isApprovalCard,
   isPendingAskUserCard,
+  isRescuableApproval,
+  isRescuedApproval,
   nextUnresolvedAskUserIndex,
   splitApprovalQuestion,
   toggleAskUserOption,
@@ -23,7 +27,7 @@ import {
 } from "../../lib/askUser";
 import { cn } from "../../lib/cn";
 import { isImeComposingEnter } from "../../lib/composerKeys";
-import type { AskUserAnswer, AskUserQuestion } from "../../types";
+import type { AskUserAnswer, AskUserQuestion, SessionNetworkAccess } from "../../types";
 import { useConfirm } from "../ConfirmProvider";
 import {
   ArrowRightIcon,
@@ -456,17 +460,27 @@ function AskUserRecord({
 /**
  * 承認の記録。質問文を繰り返さず、接続先と結果だけを 1 行で出す。
  * 置き場所はツール履歴の直後 (MessageView) で、本文を押し下げない。
+ * 拒否の記録には、モデルを介さずに許可へ変える導線と、失敗した exec は再実行が要る旨を出す。
  */
 function ApprovalRecord({
   question,
   answers,
   singleColumn,
   waiting,
+  rescue,
 }: {
   question: AskUserQuestion | undefined;
   answers: AskUserAnswer[] | undefined;
   singleColumn: boolean;
   waiting: boolean;
+  /** 拒否済みカードの救済。押せない (他クライアントで承認済み等) ときは note だけを出す */
+  rescue?: {
+    available: boolean;
+    sending: boolean;
+    note?: string;
+    error?: string;
+    onApprove: () => void;
+  };
 }) {
   const answer = answers?.find((item) => item.index === 0);
   const allowed = answer?.approval === true;
@@ -474,27 +488,47 @@ function ApprovalRecord({
   const tone = allowed ? "text-ok-text" : denied ? "text-danger-text" : "text-ink-faint";
   const detail = question === undefined ? undefined : splitApprovalQuestion(question).detail;
   return (
-    <div
-      title={detail}
-      className="flex min-h-8 min-w-0 items-center gap-2 rounded-lg border border-line/70 bg-panel px-2.5 text-1xs"
-    >
-      <span aria-hidden="true" className={cn("shrink-0", tone)}>
-        {allowed ? <ShieldCheckIcon /> : <ShieldOffIcon />}
-      </span>
-      <span className={cn("shrink-0 font-medium", tone)}>{approvalRecordLabel(answer)}</span>
-      {question?.host !== undefined ? (
-        <>
-          <span className="text-ink-ghost">·</span>
-          <span className="min-w-0 truncate font-mono text-2xs text-ink-faint">{question.host}</span>
-          {singleColumn ? null : (
-            <>
-              <span className="text-ink-ghost">·</span>
-              <span className="shrink-0 font-mono text-2xs text-ink-ghost">HTTPS 443</span>
-            </>
-          )}
-        </>
+    <div className="grid gap-1 rounded-lg border border-line/70 bg-panel px-2.5 py-1.5">
+      <div title={detail} className="flex min-h-5 min-w-0 items-center gap-2 text-1xs">
+        <span aria-hidden="true" className={cn("shrink-0", tone)}>
+          {allowed ? <ShieldCheckIcon /> : <ShieldOffIcon />}
+        </span>
+        <span className={cn("shrink-0 font-medium", tone)}>{approvalRecordLabel(answer)}</span>
+        {question?.host !== undefined ? (
+          <>
+            <span className="text-ink-ghost">·</span>
+            <span className="min-w-0 truncate font-mono text-2xs text-ink-faint">{question.host}</span>
+            {singleColumn ? null : (
+              <>
+                <span className="text-ink-ghost">·</span>
+                <span className="shrink-0 font-mono text-2xs text-ink-ghost">HTTPS 443</span>
+              </>
+            )}
+          </>
+        ) : null}
+        {waiting ? (
+          <span className="ml-auto shrink-0 text-2xs text-ink-faint">送信中…</span>
+        ) : rescue?.available ? (
+          <button
+            type="button"
+            title={APPROVAL_RESCUE_HINT}
+            disabled={rescue.sending}
+            onClick={rescue.onApprove}
+            className="btn-quiet ml-auto min-h-7 shrink-0 px-2 text-2xs"
+          >
+            {rescue.sending ? "変更中…" : "許可に変更"}
+          </button>
+        ) : null}
+      </div>
+      {rescue?.error !== undefined ? (
+        <p role="alert" className="m-0 text-2xs text-danger-text">
+          {rescue.error}
+        </p>
+      ) : rescue?.note !== undefined ? (
+        <p role="status" className="m-0 text-2xs text-ink-soft">
+          {rescue.note}
+        </p>
       ) : null}
-      {waiting ? <span className="ml-auto shrink-0 text-2xs text-ink-faint">送信中…</span> : null}
     </div>
   );
 }
@@ -509,12 +543,18 @@ export function AskUserCard({
   answerable,
   onAnswer,
   singleColumn,
+  networkAccess,
+  onApproveNetworkAccess,
 }: {
   card: ToolCard;
   /** 実行中の run に属するカードだけ回答できる (履歴の復元は記録表示のみ) */
   answerable: boolean;
   onAnswer: (toolCallId: string, answers: AskUserAnswer[]) => Promise<AnswerResult>;
   singleColumn: boolean;
+  /** この会話の egress の実効状態。旧サーバーは undefined で、拒否の救済を出さない */
+  networkAccess?: SessionNetworkAccess;
+  /** 拒否済みの承認カードを、モデルを介さずに許可へ変える。未指定は導線を出さない */
+  onApproveNetworkAccess?: (host: string) => Promise<AnswerResult>;
 }) {
   const questions = card.questions ?? [];
   const [drafts, setDrafts] = useState<AskUserDraft[]>(() => emptyAskUserDrafts(questions));
@@ -522,6 +562,10 @@ export function AskUserCard({
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string>();
+  const [rescue, setRescue] = useState<{ sending: boolean; done: boolean; error?: string }>({
+    sending: false,
+    done: false,
+  });
   const confirm = useConfirm();
 
   const waiting = answerable && isPendingAskUserCard(card);
@@ -584,6 +628,28 @@ export function AskUserCard({
     });
   };
 
+  /** 拒否済みカードからの許可。押したホストだけを送り、結果は記録の行に出す */
+  const rescueApproval = async (): Promise<void> => {
+    const host = questions[0]?.host;
+    if (host === undefined || onApproveNetworkAccess === undefined || rescue.sending) return;
+    setRescue({ sending: true, done: false });
+    const result = await onApproveNetworkAccess(host);
+    setRescue(result.ok ? { sending: false, done: true } : { sending: false, done: false, error: result.error });
+  };
+  // 押した直後は応答で、その後の再読込は payload で承認済みになる。どちらでも同じ補足を出す
+  const rescued = rescue.done || isRescuedApproval(card, networkAccess);
+  const canRescue = !rescued && isRescuableApproval(card, networkAccess) && onApproveNetworkAccess !== undefined;
+  const approvalRescue =
+    approval && (canRescue || rescued || rescue.error !== undefined)
+      ? {
+          available: canRescue,
+          sending: rescue.sending,
+          ...(rescued ? { note: APPROVAL_RESCUE_NOTE } : {}),
+          ...(rescue.error === undefined ? {} : { error: rescue.error }),
+          onApprove: () => void rescueApproval(),
+        }
+      : undefined;
+
   return (
     <section
       aria-label={showForm ? "エージェントからの質問" : "エージェントからの質問と回答"}
@@ -621,7 +687,13 @@ export function AskUserCard({
           onClose={close}
         />
       ) : approval ? (
-        <ApprovalRecord question={questions[0]} answers={answers} singleColumn={singleColumn} waiting={waiting} />
+        <ApprovalRecord
+          question={questions[0]}
+          answers={answers}
+          singleColumn={singleColumn}
+          waiting={waiting}
+          {...(approvalRescue === undefined ? {} : { rescue: approvalRescue })}
+        />
       ) : (
         <AskUserRecord
           questions={questions}

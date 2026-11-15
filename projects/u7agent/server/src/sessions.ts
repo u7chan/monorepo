@@ -33,11 +33,12 @@ import { allowsNaturalInvocation, type AgentCatalog } from "./agents";
 import { createInvestigateRunner, type InvestigateRunner } from "./investigate-runner";
 import type { InvestigateHost } from "./investigate-tool";
 import { validateAskUserAnswers, type AskUserHost } from "./ask-user-tool";
-import { NetworkAccessApprovals, approvalOf, networkAccessMode } from "./network-access";
+import { NetworkAccessApprovals, approvalOf, networkAccessMode, type NetworkAccessMode } from "./network-access";
 import {
   REQUEST_NETWORK_ACCESS_TOOL_NAME,
   deriveNetworkAccessQuestions,
   networkAccessOutcome,
+  normalizeNetworkAccessHost,
   type NetworkAccessHost,
 } from "./request-network-access-tool";
 import { stripAttachedFiles } from "./attachments";
@@ -1767,6 +1768,7 @@ export class SessionStore {
         mode: networkAccessMode(),
         sessionId,
         host: deriveNetworkAccessQuestions(args)?.[0]?.host,
+        approved: this.networkAccess.isApproved(sessionId),
         isDenied: (id, host) => this.networkAccess.isDenied(id, host, this.inputGeneration(id)),
       }).kind === "ask"
     );
@@ -2035,6 +2037,7 @@ export class SessionStore {
     return {
       allows: (sessionId) => this.networkAccess.allows(sessionId),
       mode: () => networkAccessMode(),
+      isApproved: (sessionId) => this.networkAccess.isApproved(sessionId),
       isDenied: (sessionId, host) => {
         // record を引けないときは抑止しない。拒否の記録は record と同じ寿命でしか意味を持たず、
         // この後 ask が Session not found で断る
@@ -2046,6 +2049,27 @@ export class SessionStore {
         return this.askQuestion(record, toolCallId, questions, signal, "network_access");
       },
     };
+  }
+
+  /**
+   * 拒否済みの承認カードから、モデルを介さずに許可へ変える。モデルが再要求しないと救済できない
+   * 状態を、ユーザーの直接の判断で開くための経路 (docs/sandbox.md)。承認は会話単位なので 443 全体が開き、
+   * 押したカードのホストの拒否記録だけを消す (ほかのホストの記録は #2452 でホスト単位になるまで残す)。
+   */
+  approveDeniedNetworkAccess(
+    record: SessionRecord,
+    rawHost: string,
+  ): { status: "ok"; host: string; mode: NetworkAccessMode } | { status: "invalid-host" } | { status: "disabled" } {
+    const host = normalizeNetworkAccessHost(rawHost);
+    if (host === "") return { status: "invalid-host" };
+    const mode = networkAccessMode();
+    if (mode === "deny") return { status: "disabled" };
+    record.lastUsedAt = Date.now();
+    this.networkAccess.approve(record.id);
+    this.networkAccess.clearDenial(record.id, host);
+    // 承認の状態は payload に載る。別タブと、押したカード自身の表示を揃える
+    if (mode === "ask") this.emitResync(record);
+    return { status: "ok", host, mode };
   }
 
   /**
@@ -2315,6 +2339,7 @@ export class SessionStore {
       projectId: this.projectIdOf(record),
       masker: this.masker,
       rootCwd: this.rootCwd,
+      networkAccess: { mode: networkAccessMode(), approved: this.networkAccess.isApproved(record.id) },
     });
   }
 

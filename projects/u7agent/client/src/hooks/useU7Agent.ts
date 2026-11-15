@@ -11,6 +11,7 @@ import { chatReducer, initialChatState } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
 import {
   answerChatQuestion,
+  approveDeniedNetworkAccess,
   cancelQueuedMessage,
   discardUnsentMessage,
   resendUnsentMessage,
@@ -63,6 +64,7 @@ export type SendMessageOptions = {
 export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
   const {
     answerQuestion: answerQuestionApi,
+    approveNetworkAccess: approveNetworkAccessApi,
     cancelQueuedMessage: cancelQueuedApi,
     discardUnsentMessage: discardUnsentApi,
     postMessage,
@@ -395,6 +397,17 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     [resyncSession, sessionIdRef],
   );
 
+  /** 拒否済みの承認カードから許可へ変える。回答待ちではなく、押したホストだけを送る */
+  const approveNetworkAccess = useCallback(
+    (host: string) =>
+      approveDeniedNetworkAccess(host, {
+        sessionIdRef,
+        recover: resyncSession,
+        approve: approveNetworkAccessApi,
+      }),
+    [resyncSession, sessionIdRef],
+  );
+
   const deleteProject = useCallback(
     async (projectId: string): Promise<void> => {
       const project = projects.find((item) => item.id === projectId);
@@ -557,6 +570,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     discardUnsent,
     cancelQueued,
     answerQuestion,
+    approveNetworkAccess,
     compactSession,
     loadOlderHistory,
     deleteSession,
