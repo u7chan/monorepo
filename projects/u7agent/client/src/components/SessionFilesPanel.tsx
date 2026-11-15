@@ -50,6 +50,8 @@ export type SessionFilesPanelProps = {
    * 誰が実行中かの判定は `App` が会話一覧込みで行う (プロジェクト会話は cwd を共有するため)
    */
   shareBlockedReason?: string;
+  /** 共有ダイアログの結果から 設定 → 共有 へ移る。ダイアログは自分で閉じ、compact のシートは App が閉じる */
+  onOpenSharingSettings: () => void;
   onClose: () => void;
   /** 未消費のファイル参照の要求 (App の pending)。適用は FileBrowser が行う */
   openRequest?: FileRefRequest | null;
@@ -85,6 +87,7 @@ function SessionFilesContent({
   canShareSessionRoot,
   projectSession,
   shareBlockedReason,
+  onOpenSharingSettings,
   singleColumn,
 }: SessionFilesPanelProps & { singleColumn: boolean }) {
   const [manualReload, setManualReload] = useState(0);
@@ -223,6 +226,7 @@ function SessionFilesContent({
           runBlockedReason={shareBlockedReason}
           singleColumn={singleColumn}
           onClose={() => setShareTarget(null)}
+          onOpenSharingSettings={onOpenSharingSettings}
         />
       ) : null}
     </>

@@ -96,6 +96,7 @@ function render(
       share,
       ...(runBlockedReason === undefined ? {} : { runBlockedReason }),
       onClose: () => {},
+      onOpenSharingSettings: () => {},
     }),
   );
 }
@@ -187,21 +188,36 @@ test("注意: 既定で畳んだ details に入れ、summary の 1 行だけで�
   for (const note of SHARE_CONFIRM_NOTES) assert.ok(html.includes(note), `確認の条件が抜けている: ${note}`);
 });
 
-// What: 受付後は「公開」に固定して 2 つ目のタブを選べなくし、確定のボタンを出さない
-test("受付後: 「公開」タブが選択されたまま、2 つ目のタブは選べず、確定のボタンも出さない", () => {
+// What: 受付後は切り替えられないタブ行を出さず、確定のボタンも出さない
+test("受付後: タブ行と確定のボタンを出さず、公開対象と結果を出す", () => {
   for (const share of [
     controller({ submitting: true }),
     controller({ items: [item()], activeId: "abc123" }),
     controller({ items: [item({ status: "published", publishedAt: PUBLISHED_AT })], activeId: "abc123" }),
   ]) {
     const html = render(share);
-    const list = tabs(html);
-    assert.match(list[0].tag, /aria-selected="true"/);
-    assert.equal(isDisabled(list[0].tag), false);
-    assert.match(list[1].tag, /aria-selected="false"/);
-    assert.ok(isDisabled(list[1].tag), "受付後は 2 つ目のタブを選べない");
+    assert.deepEqual(tabs(html), [], "受付後はタブを描画しない");
+    assert.equal(html.includes('role="tablist"'), false, "空のタブ行を残さない");
+    assert.ok(html.includes(">dist<"), "公開対象のパスは受付後も残す");
     assert.equal(html.includes(">共有する<"), false);
     assert.equal(html.includes(">キャンセル<"), false);
+  }
+});
+
+// What: 受付後だけ管理面へのボタンを出し、確定前の確認画面には出さない
+// (停止・削除・改名はこのダイアログに置かず、設定 → 共有 の一覧へ渡す)
+test("管理: 受付後に「共有物を管理」を出し、確認画面と受付中には出さない", () => {
+  assert.equal(hasAction(render(controller()), "共有物を管理"), false, "確認画面には出さない");
+  assert.equal(hasAction(render(controller({ submitting: true })), "共有物を管理"), false, "受付中はまだ出さない");
+  for (const share of [
+    controller({ items: [item()], activeId: "abc123" }),
+    controller({ items: [item({ status: "published", publishedAt: PUBLISHED_AT })], activeId: "abc123" }),
+    // 一覧がまだ追いついていない受付直後でも、管理面へは逃がせる
+    controller({ items: [], activeId: "abc123" }),
+  ]) {
+    const html = render(share);
+    assert.ok(hasAction(html, "共有物を管理"), "管理面へのボタンが無い");
+    assert.equal(isDisabled(actionTag(html, "共有物を管理")), false);
   }
 });
 
