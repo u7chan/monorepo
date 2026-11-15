@@ -157,8 +157,8 @@ export function SharedContentsTab({
   );
 
   return (
-    <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
-      <div className="mx-auto grid max-w-5xl gap-3">
+    <div className="min-h-0 min-w-0 scroll-pt-10 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 singleColumn:scroll-pt-12">
+      <div className="mx-auto grid max-w-5xl gap-3 py-4">
         {cloudflareConfigured === false ? <NoCredentialsBanner onOpenConnections={onOpenConnections} /> : null}
         {contents.failed ? <ListFailureBanner message={contents.listError} /> : null}
 
@@ -186,7 +186,7 @@ export function SharedContentsTab({
                   const isCollapsed = collapsed.has(group.key);
                   return (
                     <section key={group.key} aria-labelledby={headingId}>
-                      <h2 id={headingId} className="m-0 border-b border-line bg-panel">
+                      <h2 id={headingId} className="sticky top-0 z-10 m-0 border-b border-line bg-panel">
                         <button
                           type="button"
                           aria-expanded={!isCollapsed}
