@@ -172,7 +172,7 @@ export function BackupSettingsPage({
               {BACKUP_RESET_HEADING}
             </h3>
             <p className="text-2xs leading-relaxed break-words text-ink-muted">
-              ユーザー定義のエージェント（サンプルを含む）、自作の定型プロンプト、共通スキルを削除します。元に戻せません。
+              ユーザー定義のエージェント、自作の定型プロンプト、共通スキルを削除します。元に戻せません。
             </p>
             <button type="button" className="btn-danger w-fit singleColumn:min-h-11" onClick={() => void openReset()}>
               {BACKUP_RESET_HEADING}
