@@ -155,21 +155,18 @@ image_path=monorepo/<project-name> image_tag=<generated-tag>
 
 ## 古いイメージの削除依頼
 
-GHCR への送信後、`cleanup-docker-images` アクションが `repository_dispatch` を送ります。現行の通知先は `u7chan/self-hosted-runner` です。送信先では、各プロジェクトの新しいイメージを `3` 件残す設定です。
+GHCR への送信後、`cleanup-docker-images` アクションが `repository_dispatch` を送ります。現行の通知先は `u7chan/self-hosted-runner` です。保持数は送信先の cleanup workflow が決め、monorepo は保持数を指定しません。
 
 ```json
 {
   "event_type": "deploy_local_trigger",
   "client_payload": {
-    "image_path": "monorepo/portfolio,monorepo/u7chat",
-    "keep_count": "3",
-    "cleanup_mode": "normal"
+    "image_path": "monorepo/portfolio,monorepo/u7chat"
   }
 }
 ```
 
 - `image_path` は `monorepo/<project-name>` のカンマ区切りです。
-- `cleanup_mode` は、自動実行では `normal`、手動実行では `manual` です。
 - この通知はデプロイを指示するものではなく、GHCR に保持するイメージ数の整理を依頼します。
 
 ## カスタムアクションの役割
@@ -183,7 +180,7 @@ GHCR への送信後、`cleanup-docker-images` アクションが `repository_di
 | `set-image-tag` | イベント名、手動実行の ref | `image_tag`、`image_tags`、`commit_sha` |
 | `build-docker-images` | `stage`、`image_tags` | ビルド済み Docker イメージ |
 | `push-docker-images` | 認証情報、`image_tags` | GHCR イメージ、`project_names_csv` |
-| `cleanup-docker-images` | `project-names-csv`、保持数、実行モードなど | 削除処理を始める `repository_dispatch` |
+| `cleanup-docker-images` | `project-names-csv` | 削除処理を始める `repository_dispatch` |
 
 `build-docker-images` は、checkout したソースの短縮コミットハッシュを `COMMIT_HASH` ビルド引数として渡します。プロジェクトルートに `pre-docker-build.sh` がある場合は、Docker ビルドの前に実行します。
 

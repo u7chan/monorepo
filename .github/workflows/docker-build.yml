@@ -134,5 +134,3 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           repo-name: ${{ secrets.PRIVATE_REPO_NAME }}
           project-names-csv: ${{ steps.push_images.outputs.project_names_csv }}
-          keep-count: "3"
-          cleanup-mode: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'normal' }}

@@ -11,14 +11,6 @@ inputs:
   project-names-csv:
     description: "Comma separated project names used to build monorepo image paths"
     required: true
-  keep-count:
-    description: "Number of images to keep"
-    required: false
-    default: "3"
-  cleanup-mode:
-    description: "Cleanup mode"
-    required: false
-    default: "normal"
 
 runs:
   using: composite
@@ -29,6 +21,4 @@ runs:
         ${{ github.action_path }}/cleanup-docker-images.sh \
           "${{ inputs.token }}" \
           "${{ inputs.repo-name }}" \
-          "${{ inputs.project-names-csv }}" \
-          "${{ inputs.keep-count }}" \
-          "${{ inputs.cleanup-mode }}"
+          "${{ inputs.project-names-csv }}"

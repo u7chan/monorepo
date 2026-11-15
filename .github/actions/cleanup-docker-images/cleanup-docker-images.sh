@@ -9,8 +9,6 @@ set -e
 TOKEN="$1"
 REPO_NAME="$2"
 PROJECT_NAMES_CSV="$3"
-KEEP_COUNT="${4:-3}"
-CLEANUP_MODE="${5:-normal}"
 
 # 引数のチェック
 if [[ -z "$TOKEN" ]]; then
@@ -29,8 +27,6 @@ if [[ -z "$PROJECT_NAMES_CSV" ]]; then
 fi
 
 echo "Triggering cleanup for projects: $PROJECT_NAMES_CSV"
-echo "Keeping $KEEP_COUNT most recent images"
-echo "Cleanup mode: $CLEANUP_MODE"
 
 IMAGE_PATHS_CSV=""
 IFS=',' read -ra PROJECT_NAMES <<< "$PROJECT_NAMES_CSV"
@@ -65,9 +61,7 @@ curl -fsS -X POST \
   -d '{
     "event_type": "deploy_local_trigger",
     "client_payload": {
-      "image_path": "'"$IMAGE_PATHS_CSV"'",
-      "keep_count": "'"$KEEP_COUNT"'",
-      "cleanup_mode": "'"$CLEANUP_MODE"'"
+      "image_path": "'"$IMAGE_PATHS_CSV"'"
     }
   }'
 
