@@ -5,6 +5,7 @@ import { publicOrigin } from "./lib/publicOrigin";
 import { ALL_BACKUP_TARGETS } from "./lib/backupFlow";
 import type {
   AgentDef,
+  ApproveNetworkAccessResponse,
   ArchiveSettingsResponse,
   AskUserAnswer,
   BackupExportCheck,
@@ -218,6 +219,9 @@ export function createSpaceApi(spaceId: string) {
       read<{ ok: true }>(
         session.questions[":toolCallId"].answer.$post({ param: { id, toolCallId }, json: { answers } }),
       ),
+    /** 拒否済みの承認カードから許可へ変える。host はカードに出た接続先をそのまま渡す */
+    approveNetworkAccess: (id: string, host: string) =>
+      read<ApproveNetworkAccessResponse>(session["network-access"].approve.$post({ param: { id }, json: { host } })),
     uploadSessionFile: (id: string, file: File) =>
       read<SessionFileUpload>(
         fetch(scope(session.files.$url({ param: { id }, query: { name: file.name } })), {

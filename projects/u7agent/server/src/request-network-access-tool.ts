@@ -85,6 +85,8 @@ export interface NetworkAccessHost {
   allows(sessionId: string): boolean;
   /** 現在のモード。`allow` は質問せずに許可、`deny` は承認しても開かない */
   mode(): NetworkAccessMode;
+  /** この会話がすでに承認済みか (停止・削除・sweep で戻る) */
+  isApproved(sessionId: string): boolean;
   /** この接続先が、新しいユーザー入力を待つ拒否の状態か。世代の比較は SessionStore が持つ */
   isDenied(sessionId: string, host: string): boolean;
   /** 承認の質問を 1 問だけ出し、回答まで待つ。待機の所有は SessionStore 側 */
@@ -130,6 +132,7 @@ export type NetworkAccessOutcome =
   | { kind: "ask"; sessionId: string; host: string }
   | { kind: "always-allow" }
   | { kind: "always-deny" }
+  | { kind: "already-approved" }
   | { kind: "no-session" }
   | { kind: "no-host" }
   | { kind: "denied" };
@@ -138,6 +141,7 @@ export function networkAccessOutcome(input: {
   mode: NetworkAccessMode;
   sessionId: string | undefined;
   host: string | undefined;
+  approved: boolean;
   isDenied: (sessionId: string, host: string) => boolean;
 }): NetworkAccessOutcome {
   // 承認が要らない / 承認しても開かないモードではカードを出さない (押しても何も変わらない質問をしない)
@@ -145,6 +149,9 @@ export function networkAccessOutcome(input: {
   if (input.mode === "deny") return { kind: "always-deny" };
   // id を解決できないと承認を記録できない。開かないまま止める (fail-closed)
   if (input.sessionId === undefined) return { kind: "no-session" };
+  // 承認済みならカードを出さない。拒否済みカードからの許可の直後や、モデルが承認の完了前に
+  // 再要求したときに、済んだ判断を聞き直さない
+  if (input.approved) return { kind: "already-approved" };
   if (input.host === undefined) return { kind: "no-host" };
   // 拒否の抑止はプロンプトの指示ではなくここで決める (モデルの再呼び出しを仕様で止める)
   if (input.isDenied(input.sessionId, input.host)) return { kind: "denied" };
@@ -154,6 +161,7 @@ export function networkAccessOutcome(input: {
 const OUTCOME_TEXT: Record<Exclude<NetworkAccessOutcome["kind"], "ask">, string> = {
   "always-allow": "この環境では外向き通信は常に許可されています。承認は不要です。",
   "always-deny": "この環境では外向き通信は拒否されています。承認しても開きません。",
+  "already-approved": "この会話では外向き通信が許可済みです。同じ操作をもう一度実行してください。",
   "no-session": "会話を特定できないため、この通信は許可できません。",
   "no-host": HOST_REQUIRED_TEXT,
   denied: DENIED_TEXT,
@@ -201,14 +209,15 @@ export function createRequestNetworkAccessToolDefinitions(options: {
         sessionId,
         // ホストはカードに出る値 (正規化済み) を正とし、拒否の記録と突き合わせる
         host: questions[0]?.host,
+        approved: sessionId !== undefined && options.host.isApproved(sessionId),
         isDenied: (id, host) => options.host.isDenied(id, host),
       });
       if (outcome.kind !== "ask") {
         return {
           content: [{ type: "text", text: OUTCOME_TEXT[outcome.kind] }],
           details: { questions, answers: [], notAsked: true } satisfies AskUserToolDetails,
-          // 常に許可の環境は失敗ではない (モデルに「止まった」と思わせない)
-          ...(outcome.kind === "always-allow" ? {} : { isError: true }),
+          // 常に許可の環境と承認済みの会話は失敗ではない (モデルに「止まった」と思わせない)
+          ...(outcome.kind === "always-allow" || outcome.kind === "already-approved" ? {} : { isError: true }),
         };
       }
       let answers: AskUserAnswer[];

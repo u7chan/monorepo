@@ -12,7 +12,7 @@ import { nonSkillToolCards, type SkillBadge } from "../../lib/skillLoad";
 import type { GenerationInfo } from "../../lib/generationInfo";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
 import { turnEndText, type TurnEnd } from "../../lib/turnEnd";
-import type { AskUserAnswer, RunOutcome } from "../../types";
+import type { AskUserAnswer, RunOutcome, SessionNetworkAccess } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { MarkdownCaptionProvider } from "../markdown/MarkdownImageRefs";
 import { MarkdownView } from "../markdown/MarkdownView";
@@ -82,6 +82,8 @@ export function MessageView({
   queueStarted = false,
   onStartFlashEnd,
   onAnswerQuestion,
+  networkAccess,
+  onApproveNetworkAccess,
   animate = true,
   turnEnd,
 }: {
@@ -128,6 +130,10 @@ export function MessageView({
     toolCallId: string,
     answers: AskUserAnswer[],
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** この会話の egress の承認状態。拒否済みの承認カードを許可へ変えられるかの根拠 (旧サーバーは undefined) */
+  networkAccess?: SessionNetworkAccess;
+  /** 拒否済みの承認カードを、モデルを介さずに許可へ変える */
+  onApproveNetworkAccess?: (host: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** 登場アニメーション。仮想スクロールで再マウントする履歴 item では再生しない (既定 true) */
   animate?: boolean;
   /** このターンの結末 (そのターン最後の応答にだけ渡る。導出は chatItems) */
@@ -186,6 +192,8 @@ export function MessageView({
             answerable={answerable === true && onAnswerQuestion !== undefined}
             onAnswer={onAnswerQuestion ?? rejectAnswer}
             singleColumn={singleColumn}
+            {...(networkAccess === undefined ? {} : { networkAccess })}
+            {...(onApproveNetworkAccess === undefined ? {} : { onApproveNetworkAccess })}
           />
         ))}
       </div>

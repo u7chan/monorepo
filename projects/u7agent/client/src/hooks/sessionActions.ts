@@ -1,5 +1,6 @@
 import type { Dispatch, RefObject } from "react";
 import type {
+  ApproveNetworkAccessResponse,
   AskUserAnswer,
   Health,
   PostMessageResult,
@@ -338,6 +339,34 @@ export async function answerChatQuestion(
     const result = await deps.answer(id, toolCallId, answers);
     if (deps.sessionIdRef.current !== id) return { ok: false, error: "会話が切り替わりました" };
     return result;
+  } catch (error) {
+    const status = isApiFailure(error) ? (error as { status: number }).status : undefined;
+    if (status === 409 || status === 404) void deps.recover();
+    return { ok: false, error: messageFor(error) };
+  }
+}
+
+export type ApproveNetworkAccessDeps = {
+  sessionIdRef: RefObject<string>;
+  /** モードが deny に変わった / 会話が消えたときに、カードの表示を権威ある状態へ戻す */
+  recover: () => Promise<unknown>;
+  approve: (sessionId: string, host: string) => Promise<ApproveNetworkAccessResponse>;
+};
+
+/**
+ * 拒否済みの承認カードから許可へ変える。モデルを介さないので、カードに出ている接続先だけを送る。
+ * すでに失敗したコマンドは再実行されないため、カード側は結果と再実行の要否を出す。
+ */
+export async function approveDeniedNetworkAccess(
+  host: string,
+  deps: ApproveNetworkAccessDeps,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const id = deps.sessionIdRef.current;
+  if (!id) return { ok: false, error: "会話がありません" };
+  try {
+    await deps.approve(id, host);
+    if (deps.sessionIdRef.current !== id) return { ok: false, error: "会話が切り替わりました" };
+    return { ok: true };
   } catch (error) {
     const status = isApiFailure(error) ? (error as { status: number }).status : undefined;
     if (status === 409 || status === 404) void deps.recover();

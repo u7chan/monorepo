@@ -28,6 +28,7 @@ import type {
   RunRetryState,
   RunStatus,
   SessionHandoffState,
+  SessionNetworkAccess,
   SessionPayload,
   SessionTitleSummary,
   SkillLoad,
@@ -125,6 +126,11 @@ export type ChatState = {
    * 会話の状態から導出するために持ち、クライアントのメモリだけで持たない。
    */
   handoff?: SessionHandoffState;
+  /**
+   * この会話の egress の実効状態 (payload の networkAccess)。拒否済みカードを許可へ変えられるかの
+   * 判定に使い、旧サーバーは undefined (救済の導線を出さない)。
+   */
+  networkAccess?: SessionNetworkAccess;
   supportsThinking: boolean;
   availableThinkingLevels: ThinkingLevel[];
   context?: ContextUsage;
@@ -350,6 +356,8 @@ export const initialChatState: ChatState = {
   sessionThinkingLevel: undefined,
   sessionAgentId: undefined,
   sessionAgentName: undefined,
+  // 旧サーバーは payload に載せないため undefined。承認の救済は出さない
+  networkAccess: undefined,
   supportsThinking: false,
   availableThinkingLevels: [],
   context: undefined,
@@ -2108,6 +2116,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         sessionAgentName: payload.agent?.name,
         // 引き継ぎの状態も payload だけを正とする (旧サーバーは載せない = undefined)
         handoff: payload.handoff,
+        // egress の承認状態も payload だけを正とする (旧サーバーは載せない = undefined)
+        networkAccess: payload.networkAccess,
         supportsThinking: payload.supportsThinking ?? false,
         availableThinkingLevels: payload.availableThinkingLevels ?? [],
         context: payload.context,

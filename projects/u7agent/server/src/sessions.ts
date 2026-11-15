@@ -33,11 +33,12 @@ import { allowsNaturalInvocation, type AgentCatalog } from "./agents";
 import { createInvestigateRunner, type InvestigateRunner } from "./investigate-runner";
 import type { InvestigateHost } from "./investigate-tool";
 import { validateAskUserAnswers, type AskUserHost } from "./ask-user-tool";
-import { NetworkAccessApprovals, approvalOf, networkAccessMode } from "./network-access";
+import { NetworkAccessApprovals, approvalOf, networkAccessMode, type NetworkAccessMode } from "./network-access";
 import {
   REQUEST_NETWORK_ACCESS_TOOL_NAME,
   deriveNetworkAccessQuestions,
   networkAccessOutcome,
+  normalizeNetworkAccessHost,
   type NetworkAccessHost,
 } from "./request-network-access-tool";
 import { stripAttachedFiles } from "./attachments";
@@ -1767,6 +1768,7 @@ export class SessionStore {
         mode: networkAccessMode(),
         sessionId,
         host: deriveNetworkAccessQuestions(args)?.[0]?.host,
+        approved: this.networkAccess.isApproved(sessionId),
         isDenied: (id, host) => this.networkAccess.isDenied(id, host, this.inputGeneration(id)),
       }).kind === "ask"
     );
@@ -1966,6 +1968,7 @@ export class SessionStore {
       // SDK の abort() は abortCompaction() も呼ぶため、圧縮中もこれ 1 つで巻き戻せる
       const compaction = record.compactionTask;
       // 承認は run の実行状態に依らず停止で未承認へ戻す (何も走っていないときの停止も同じ意図)
+      const approvalChanged = this.networkAccess.isApproved(record.id);
       this.networkAccess.revoke(record.id);
       if (record.run?.status === "running" || record.session.isStreaming || record.compacting) {
         // 待機中は aborted の assistant が投影に残らず stopReason では判定できないため、要求を控えておく
@@ -1989,8 +1992,9 @@ export class SessionStore {
       }
       if (released) record.sendsDirty = true;
       this.writeSends(record);
-      // 回収で待機や未送信の割当が変わったときだけ、購読者の表示を揃える
-      if (cleared.length + stragglers.length > 0 || released) this.emitResync(record);
+      // 回収で待機や未送信の割当が変わったときだけ、購読者の表示を揃える。承認を失効したときも
+      // payload の networkAccess を配り直す (押したカードを許可済みのままにしない)
+      if (cleared.length + stragglers.length > 0 || released || approvalChanged) this.emitResync(record);
       return { ok: true, status: this.statusOf(record) };
     } finally {
       record.stopping = false;
@@ -2035,6 +2039,7 @@ export class SessionStore {
     return {
       allows: (sessionId) => this.networkAccess.allows(sessionId),
       mode: () => networkAccessMode(),
+      isApproved: (sessionId) => this.networkAccess.isApproved(sessionId),
       isDenied: (sessionId, host) => {
         // record を引けないときは抑止しない。拒否の記録は record と同じ寿命でしか意味を持たず、
         // この後 ask が Session not found で断る
@@ -2046,6 +2051,27 @@ export class SessionStore {
         return this.askQuestion(record, toolCallId, questions, signal, "network_access");
       },
     };
+  }
+
+  /**
+   * 拒否済みの承認カードから、モデルを介さずに許可へ変える。モデルが再要求しないと救済できない
+   * 状態を、ユーザーの直接の判断で開くための経路 (docs/sandbox.md)。承認は会話単位なので 443 全体が開き、
+   * 押したカードのホストの拒否記録だけを消す (ほかのホストの記録は #2452 でホスト単位になるまで残す)。
+   */
+  approveDeniedNetworkAccess(
+    record: SessionRecord,
+    rawHost: string,
+  ): { status: "ok"; host: string; mode: NetworkAccessMode } | { status: "invalid-host" } | { status: "disabled" } {
+    const host = normalizeNetworkAccessHost(rawHost);
+    if (host === "") return { status: "invalid-host" };
+    const mode = networkAccessMode();
+    if (mode === "deny") return { status: "disabled" };
+    record.lastUsedAt = Date.now();
+    this.networkAccess.approve(record.id);
+    this.networkAccess.clearDenial(record.id, host);
+    // 承認の状態は payload に載る。別タブと、押したカード自身の表示を揃える
+    if (mode === "ask") this.emitResync(record);
+    return { status: "ok", host, mode };
   }
 
   /**
@@ -2129,12 +2155,15 @@ export class SessionStore {
     // 質問順に揃える (details / モデル向け text の並びを送信順に依存させない)
     const ordered = [...answers].sort((a, b) => a.index - b.index);
     // 承認は回答の受理時に BFF 側で記録する。ツールの戻り値やラベル文字列から確定しない
+    let approvalChanged = false;
     if (pending.kind === "network_access") {
       if (approvalOf(ordered[0])) {
+        approvalChanged = !this.networkAccess.isApproved(record.id);
         this.networkAccess.approve(record.id);
         // 承認は 443 全体を開くので、ホストごとの拒否の記録は残さない
         this.networkAccess.clearDenials(record.id);
       } else {
+        approvalChanged = this.networkAccess.isApproved(record.id);
         this.networkAccess.revoke(record.id);
         // 拒否はカードに出た接続先だけの話。別ホストは次の確認として通す
         const host = pending.questions[0]?.host;
@@ -2142,6 +2171,9 @@ export class SessionStore {
       }
     }
     settleQuestion(pending, () => pending.resolve(ordered));
+    // 承認の実効が変わったら、回答していないクライアントの表示も揃える。カードを出さない判断は
+    // payload の networkAccess を読むため、古いままだと済んだ承認を聞き直す表示が残る
+    if (approvalChanged) this.emitResync(record);
     return { status: "ok" };
   }
 
@@ -2315,6 +2347,7 @@ export class SessionStore {
       projectId: this.projectIdOf(record),
       masker: this.masker,
       rootCwd: this.rootCwd,
+      networkAccess: { mode: networkAccessMode(), approved: this.networkAccess.isApproved(record.id) },
     });
   }
 

@@ -1195,6 +1195,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                   onDiscardUnsent={handleDiscardUnsent}
                   answerable={app.chat.runStatus === "running"}
                   onAnswerQuestion={app.answerQuestion}
+                  networkAccess={app.chat.networkAccess}
+                  onApproveNetworkAccess={app.approveNetworkAccess}
                   currentAssistantId={app.chat.currentAssistantId}
                   startingRunId={app.chat.startingRunId}
                   onStartFlashEnd={handleStartFlashEnd}

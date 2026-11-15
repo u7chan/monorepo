@@ -5,9 +5,9 @@
  * 既定を `allow` にするのは後方互換のため。`ask` を既定にすると、承認の UI を持たない経路 (API 直叩き・
  * 旧クライアント) で `bash` の HTTPS が黙って止まる。
  */
-import type { AskUserAnswer } from "./schema";
+import type { AskUserAnswer, NetworkAccessMode } from "./schema";
 
-export type NetworkAccessMode = "allow" | "ask" | "deny";
+export type { NetworkAccessMode } from "./schema";
 
 export const NETWORK_ACCESS_MODE_ENV = "PI_SANDBOX_NETWORK_POLICY";
 
@@ -77,6 +77,17 @@ export class NetworkAccessApprovals {
    */
   clearDenials(sessionId: string): void {
     this.denials.delete(sessionId);
+  }
+
+  /**
+   * 1 つのホストの拒否だけを捨てる。拒否済みカードからの許可はこのホストだけを解く
+   * (承認そのものは会話単位のままで、ホスト単位の制限は #2452 の範囲)
+   */
+  clearDenial(sessionId: string, host: string): void {
+    const hosts = this.denials.get(sessionId);
+    if (hosts === undefined) return;
+    hosts.delete(host.toLowerCase());
+    if (hosts.size === 0) this.denials.delete(sessionId);
   }
 }
 

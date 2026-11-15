@@ -121,6 +121,23 @@ References are relative to /workspace/.agents/skills/writer.
 - 回答はツールの戻り値としてモデルへ渡る。`content` は `tool_result` 拡張で mask され、`details` は DTO 構築時に mask する（[secrets.md](secrets.md#レイヤー)）。回答待ちの間はランが `running` のままで、手動 compaction は 409 になる
 - 認可・CSRF は他の `POST /api/*` と同じ経路（`bodyGuard` + Origin / `Sec-Fetch-Site` 検査）。回答の権限はセッションの閲覧と同じで、新しい権限は足さない
 
+## `POST /api/sessions/:id/network-access/approve`
+
+拒否済みの承認カード（`request_network_access`）から、モデルを介さずに許可へ変える。拒否した回答は settle 済みで回答 API は 409、再起動後は待機自体が無いため、過去の判断を変更する操作として別に受ける（[sandbox.md](sandbox.md#セッション単位の-egress-ポリシー承認)）。
+
+```json
+// request
+{ "host": "ja.wikipedia.org" }
+// response (200)
+{ "ok": true, "host": "ja.wikipedia.org", "mode": "ask", "approved": true }
+```
+
+- `host` はカードに出た接続先をそのまま渡す。BFF が正規化し、空・不正な表記は 400。拒否の記録は会話とホストの組で持つため、押したホストの記録だけを消す
+- 承認は会話単位（443 全体）。`PI_SANDBOX_NETWORK_POLICY=deny` は 409 で、`allow` は既に開いているため状態を変えずに 200 を返す。拒否の記録が無くても承認できる（記録はメモリのみで、再起動後は消えるため）
+- 承認の実効状態は `GET /api/sessions/:id` の `networkAccess` に載る。拒否済みカードの「許可に変更」は、これが `{ mode: "ask", approved: false }` のときだけ出る
+- 失敗済みの exec は自動で再実行されない。押した後の再実行はクライアントの操作に任せる
+- 認可・CSRF は回答 API と同じ（新しい権限は足さない）
+
 ## `GET /api/sessions/:id/skills`
 
 セッションで使えるスキルの一覧（チャットの入力補助）。**本文は載せない**（送信時に取り直す）ため、一覧と優先順位の表示に使う。

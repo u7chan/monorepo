@@ -77,11 +77,13 @@ function createHost(options: {
   answers?: AskUserAnswer[];
   reject?: boolean;
   denied?: boolean;
+  approved?: boolean;
 }): NetworkAccessHost & { calls: number } {
   const host = {
     calls: 0,
     allows: () => false,
     mode: () => options.mode ?? "ask",
+    isApproved: () => options.approved === true,
     isDenied: () => options.denied === true,
     async ask(): Promise<AskUserAnswer[]> {
       host.calls += 1;
@@ -185,6 +187,117 @@ test("接続先は host 引数を正規化して持ち、未指定なら reason 
     networkAccessQuestions("記事を取得する", "ja.wikipedia.org"),
   );
   assert.equal(deriveNetworkAccessQuestions({ reason: "r", host: 1 }), undefined);
+});
+
+test("拒否済みカードからの許可は承認を立て、押したホストの拒否だけを消す", async () => {
+  const previous = process.env.PI_SANDBOX_NETWORK_POLICY;
+  process.env.PI_SANDBOX_NETWORK_POLICY = "ask";
+  try {
+    const store = createStore();
+    const record = await store.create();
+    const host = store.networkAccessHost();
+    const generation = store.inputGeneration(record.id);
+    await denyHost(store, host, record, "call-1", "example.com");
+    await denyHost(store, host, record, "call-2", "other.example");
+    assert.equal(host.isDenied(record.id, "example.com"), true);
+
+    // カードの接続先は表記ゆれを含み得る。正規化して記録と突き合わせる
+    const result = store.approveDeniedNetworkAccess(record, "https://Example.com:443/path");
+    assert.deepEqual(result, { status: "ok", host: "Example.com", mode: "ask" });
+    assert.equal(host.allows(record.id), true, "押した後は exec が 443 を開ける");
+    assert.equal(
+      store.networkAccess.isDenied(record.id, "example.com", generation),
+      false,
+      "押したホストの拒否は消える",
+    );
+    assert.equal(
+      store.networkAccess.isDenied(record.id, "other.example", generation),
+      true,
+      "別ホストの拒否記録は消さない",
+    );
+    // 承認済みが拒否の抑止より先に効く (同じ会話で別ホストを聞き直さない)
+    assert.equal(store.showsNetworkAccessCard(record.id, { reason: "r", host: "other.example" }), false);
+    assert.deepEqual(store.payload(record).networkAccess, { mode: "ask", approved: true });
+  } finally {
+    if (previous === undefined) delete process.env.PI_SANDBOX_NETWORK_POLICY;
+    else process.env.PI_SANDBOX_NETWORK_POLICY = previous;
+  }
+});
+
+test("拒否の記録が無くても許可へ変えられるが、不正なホストと deny モードは断る", async () => {
+  const previous = process.env.PI_SANDBOX_NETWORK_POLICY;
+  process.env.PI_SANDBOX_NETWORK_POLICY = "ask";
+  try {
+    const store = createStore();
+    const record = await store.create();
+    assert.equal(store.approveDeniedNetworkAccess(record, "not a host").status, "invalid-host");
+    assert.equal(store.approveDeniedNetworkAccess(record, "").status, "invalid-host");
+    assert.equal(store.networkAccessHost().allows(record.id), false, "断った要求では開かない");
+
+    // 再起動で拒否の記録は消えるが、履歴の拒否カードからは許可へ変えられる
+    assert.equal(store.approveDeniedNetworkAccess(record, "example.com").status, "ok");
+    assert.equal(store.networkAccessHost().allows(record.id), true);
+
+    process.env.PI_SANDBOX_NETWORK_POLICY = "deny";
+    const denied = createStore();
+    const deniedRecord = await denied.create();
+    assert.equal(denied.approveDeniedNetworkAccess(deniedRecord, "example.com").status, "disabled");
+    assert.equal(denied.networkAccessHost().allows(deniedRecord.id), false, "deny は承認しても開かない");
+  } finally {
+    if (previous === undefined) delete process.env.PI_SANDBOX_NETWORK_POLICY;
+    else process.env.PI_SANDBOX_NETWORK_POLICY = previous;
+  }
+});
+
+test("承認の変更 (回答・停止) は resync で配り、押したカードを許可済みのままにしない", async () => {
+  const previous = process.env.PI_SANDBOX_NETWORK_POLICY;
+  process.env.PI_SANDBOX_NETWORK_POLICY = "ask";
+  try {
+    const store = createStore();
+    const record = await store.create();
+    const events: { type: SSEEventType; data: Record<string, unknown> }[] = [];
+    store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
+    const host = store.networkAccessHost();
+
+    // 通常のカードで許可した場合も、拒否済みカードの導線を持つクライアントへ状態を配る
+    const pending = host.ask(record.id, "call-1", networkAccessQuestions("r", "example.com"), undefined);
+    assert.equal(store.answerQuestion(record, "call-1", [{ index: 0, approval: true }]).status, "ok");
+    await pending;
+    const approved = events.filter((entry) => entry.type === "resync")[0];
+    assert.ok(approved, "承認の受理で resync を配る");
+    assert.deepEqual((approved.data as { networkAccess?: unknown }).networkAccess, { mode: "ask", approved: true });
+
+    // 停止で承認を失効したら、押したカードを「許可済み」のままにしない
+    events.length = 0;
+    await store.stop(record);
+    const revoked = events.filter((entry) => entry.type === "resync")[0];
+    assert.ok(revoked, "承認が変わった停止で resync を配る");
+    assert.deepEqual((revoked.data as { networkAccess?: unknown }).networkAccess, { mode: "ask", approved: false });
+  } finally {
+    if (previous === undefined) delete process.env.PI_SANDBOX_NETWORK_POLICY;
+    else process.env.PI_SANDBOX_NETWORK_POLICY = previous;
+  }
+});
+
+test("承認済みの会話ではカードを出さず、同じ操作の再実行を促す", async () => {
+  const host = createHost({ mode: "ask", approved: true });
+  const [tool] = createRequestNetworkAccessToolDefinitions({ enabled: true, sessionId: () => "s1", host });
+  const result = (await tool?.execute(
+    "call-1",
+    { reason: "r", host: "example.com" },
+    undefined,
+    undefined,
+    {} as never,
+  )) as {
+    content: { text?: string }[];
+    details: { answers: AskUserAnswer[]; notAsked?: boolean };
+    isError?: boolean;
+  };
+  assert.equal(host.calls, 0, "承認済みなら聞き直さない");
+  assert.match(result.content[0]?.text ?? "", /許可済み/);
+  assert.equal(result.isError, undefined, "承認済みは失敗ではない");
+  assert.deepEqual(result.details.answers, []);
+  assert.equal(result.details.notAsked, true, "履歴の投影にカードを残さない");
 });
 
 test("allow と deny では質問せず、ask だけがホストへ委譲する", async () => {
@@ -428,6 +541,17 @@ test("拒否の記録はホスト単位で、同じ世代のあいだだけ同�
   approvals.clearDenials("s1");
   assert.equal(approvals.isDenied("s1", "example.com", 3), false);
   assert.equal(approvals.isDenied("s1", "a.example", 5), false, "承認・削除ではホストを問わず捨てる");
+});
+
+test("拒否の記録はホスト単位でも捨てられる", () => {
+  const approvals = new NetworkAccessApprovals();
+  approvals.recordDenial("s1", "Example.com", 3);
+  approvals.recordDenial("s1", "other.example", 3);
+  approvals.clearDenial("s1", "example.com");
+  assert.equal(approvals.isDenied("s1", "example.com", 3), false, "押したホストだけを解く");
+  assert.equal(approvals.isDenied("s1", "other.example", 3), true, "別ホストの拒否は残す");
+  approvals.clearDenial("s1", "missing.example");
+  assert.equal(approvals.isDenied("s1", "other.example", 3), true, "記録のないホストを消しても他へ影響しない");
 });
 
 // 拒否の抑止をプロンプトの指示ではなく BFF の判定にする。カードを出さないので ask は呼ばれない。

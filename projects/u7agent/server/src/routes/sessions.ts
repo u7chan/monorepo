@@ -17,6 +17,7 @@ import type { SpaceStore } from "../spaces";
 import {
   FileUploadSchema,
   type AnswerQuestionBody,
+  type ApproveNetworkAccessBody,
   type CreateSessionBody,
   type ForkSessionBody,
   type MoveSessionBody,
@@ -370,6 +371,19 @@ export function createSessionRoutes({
       if (result.status === "answered") return c.json({ error: "この質問には回答済みです" }, 409);
       if (result.status === "invalid") return c.json({ error: result.error }, 400);
       return c.json({ ok: true });
+    },
+
+    /**
+     * 拒否済みの承認カードから許可へ変える。拒否した回答は既に settle 済みで、回答 API は 409 になるため
+     * 別の操作として受ける。承認は会話単位で、押したカードのホストの拒否記録だけを消す。
+     */
+    approveNetworkAccess: async (c: Context, body: ApproveNetworkAccessBody) => {
+      const record = await resolveRecord(c);
+      if (!record) return c.json({ error: "Session not found" }, 404);
+      const result = store.approveDeniedNetworkAccess(record, body.host);
+      if (result.status === "invalid-host") return c.json({ error: "接続先のホストを特定できませんでした" }, 400);
+      if (result.status === "disabled") return c.json({ error: "この環境では外向き通信を許可できません" }, 409);
+      return c.json({ ok: true, host: result.host, mode: result.mode, approved: true });
     },
 
     /**
