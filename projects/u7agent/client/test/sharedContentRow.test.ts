@@ -1,6 +1,6 @@
-// 管理一覧の共有物カードの描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
+// 管理一覧の共有物の行の描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
 // URL・コピー・メタ情報・操作の出し分けを固定する（停止中の URL は公開実績がある行だけ。
-// 名前を変更と破壊的な操作は ⋯ に集約し、行には状態ごとの主操作だけを並べる）。
+// 行は状態ごとの主操作 1 つだけを持ち、更新 / QR / 停止 / 名前の変更 / 削除は ⋯ に集める）。
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -9,7 +9,7 @@ import { SHARED_CONTENT_SESSION_MISSING_NOTE, SHARED_CONTENT_UNDEPLOYED_NOTE } f
 import type { SharedContentResponse } from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { SharedContentCard } = await import("../src/components/sharing-settings/SharedContentCard");
+const { SharedContentRow } = await import("../src/components/sharing-settings/SharedContentRow");
 
 const URL_PUBLISHED = "https://u7s-abc123.demo.workers.dev/";
 /** 公開が一度でも成功した時刻。`publishedAt` が無い published / stopped は未デプロイ（要更新） */
@@ -41,16 +41,18 @@ function render(
     sessionBusy = false,
     busy = null,
     bulkActive = false,
+    copied = false,
   }: {
     narrow?: boolean;
     sessionMissing?: boolean;
     sessionBusy?: boolean;
     busy?: { kind: "rename" } | null;
     bulkActive?: boolean;
+    copied?: boolean;
   } = {},
 ): string {
   return renderToStaticMarkup(
-    createElement(SharedContentCard, {
+    createElement(SharedContentRow, {
       item: content,
       narrow,
       sessionMissing,
@@ -59,7 +61,7 @@ function render(
       busy,
       bulkActive,
       error: undefined,
-      copied: false,
+      copied,
       copyFailure: undefined,
       onQr: () => {},
       onCopy: () => {},
@@ -88,6 +90,11 @@ function buttonLabels(html: string): string[] {
  */
 function menuHtml(html: string): string {
   return divBlock(html, 'popover="auto"');
+}
+
+/** ⋯ を除いた行の本文。行に出していない時刻が混ざっていないかを見る */
+function rowHtml(html: string): string {
+  return html.replace(menuHtml(html), "");
 }
 
 /** 指定の属性を持つ div を、入れ子を数えて閉じタグまで切り出す */
@@ -132,15 +139,31 @@ function buttonTag(html: string, label: string): string {
   return button.slice(0, button.indexOf(">") + 1);
 }
 
-test("公開済み: URL バーにコピーを置き、行は開く / QR コード / 更新、⋯ に名前を変更 / 停止 / 削除を出す", () => {
+test("公開済み: URL にコピーを添え、行は開くだけ、⋯ に名前 / 更新 / QR / 停止 / 削除を出す", () => {
   const html = render(item());
   assert.match(html, /公開済み/);
   assert.ok(html.includes(URL_PUBLISHED), "URL を出す");
-  assert.ok(html.includes(`href="${URL_PUBLISHED}"`), "開くは外部リンクとして出す");
+  assert.ok(html.includes(`href="${URL_PUBLISHED}"`), "URL は開けるリンクにする");
   assert.ok(html.includes('aria-label="URL をコピー"'), "コピーは URL の右端のアイコンボタン");
-  assert.deepEqual(rowLabels(html), ["開く", "QR コード", "更新"]);
-  assert.deepEqual(menuLabels(html), ["名前を変更", "停止", "削除"]);
+  assert.deepEqual(rowLabels(html), ["開く"]);
+  assert.deepEqual(menuLabels(html), ["名前を変更", "更新", "QR コード", "停止", "削除"]);
   assert.equal(html.includes(SHARED_CONTENT_UNDEPLOYED_NOTE), false);
+});
+
+test("⋯ の先頭: 行から落とした公開 / 停止の時刻だけを出す", () => {
+  const html = render(item({ stoppedAt: 2_000 }));
+  const menu = menuHtml(html);
+  assert.match(menu, /<dt[^>]*>公開<\/dt>/, "公開の時刻は ⋯ に出す");
+  assert.match(menu, /<dt[^>]*>停止<\/dt>/, "停止の時刻は ⋯ に出す");
+  // 行のメタは更新だけにする（時刻の数で行の高さを変えない）
+  const row = rowHtml(html);
+  assert.match(row, /<b[^>]*>更新<\/b>/);
+  assert.doesNotMatch(row, /<b[^>]*>公開<\/b>/);
+  assert.doesNotMatch(row, /<b[^>]*>停止<\/b>/);
+  // 一度も公開していない行は ⋯ の補足を出さない（空の見出しを作らない）
+  const never = menuHtml(render(item({ status: "failed", publishedAt: null })));
+  assert.doesNotMatch(never, /<dt[^>]*>公開<\/dt>/);
+  assert.doesNotMatch(never, /<dt[^>]*>停止<\/dt>/);
 });
 
 test("公開済みの ⋯: 名前の変更が先頭で、破壊的な削除は最後に置く", () => {
@@ -149,10 +172,10 @@ test("公開済みの ⋯: 名前の変更が先頭で、破壊的な削除は�
   assert.equal(labels.at(-1), "削除");
 });
 
-test("狭い面の公開済み: 主操作は開くだけで、更新と QR も ⋯ に入れる", () => {
+test("狭い面の公開済み: 幅で操作を分けず、行は開くだけにする", () => {
   const html = render(item(), { narrow: true });
   assert.ok(html.includes(`href="${URL_PUBLISHED}"`), "主操作の開くをリンクで出す");
-  assert.ok(html.includes('aria-label="URL をコピー"'), "コピーは URL バーに残す");
+  assert.ok(html.includes('aria-label="URL をコピー"'), "コピーは URL の右端に残す");
   assert.deepEqual(rowLabels(html), ["開く"]);
   assert.deepEqual(menuLabels(html), ["名前を変更", "更新", "QR コード", "停止", "削除"]);
 });
@@ -167,41 +190,20 @@ test("操作中: ⋯ を出さず、二度目の操作を始められない", ()
 test("一括停止中: 個別の操作と ⋯ を止め、外部リンクは残す", () => {
   const html = render(item(), { bulkActive: true });
   assert.equal(html.includes("その他の操作"), false, "⋯ を出さない");
-  assert.ok(buttonTag(html, "更新").includes("disabled"), "更新を押せない");
   const copy = buttonMarkup(html).find((markup) => markup.includes('aria-label="URL をコピー"')) ?? "";
   assert.ok(copy.includes("disabled"), "URL コピーを押せない");
   assert.ok(html.includes(`href="${URL_PUBLISHED}"`), "外部リンクの閲覧は残す");
 });
 
 test("コピー成功: アイコンのラベルをコピー済みへ変える", () => {
-  const html = renderToStaticMarkup(
-    createElement(SharedContentCard, {
-      item: item(),
-      narrow: false,
-      sessionMissing: false,
-      sessionBusy: false,
-      session: undefined,
-      busy: null,
-      error: undefined,
-      copied: true,
-      copyFailure: undefined,
-      onQr: () => {},
-      onCopy: () => {},
-      onRename: () => {},
-      onUpdate: () => {},
-      onStop: () => {},
-      onResume: () => {},
-      onRetry: () => {},
-      onDelete: () => {},
-    }),
-  );
+  const html = render(item(), { copied: true });
   assert.ok(html.includes('aria-label="URL をコピーしました"'));
   assert.equal(html.includes('aria-label="URL をコピー"'), false);
 });
 
-test("メタ情報: 公開元・会話・時刻を ・ で区切って 1 行に並べる", () => {
+test("メタ情報: 公開元・会話・更新を ・ で区切って 1 行に並べる", () => {
   const html = renderToStaticMarkup(
-    createElement(SharedContentCard, {
+    createElement(SharedContentRow, {
       item: item(),
       narrow: false,
       sessionMissing: false,
@@ -255,7 +257,7 @@ test("正常な停止中: URL は淡色の記録として残し、開く / コ�
   assert.ok(html.includes(URL_PUBLISHED), "停止中でも URL は残す");
   assert.equal(html.includes(`href="${URL_PUBLISHED}"`), false, "停止中は開かせない");
   assert.equal(html.includes('aria-label="URL をコピー"'), false, "停止中はコピーさせない");
-  assert.equal(html.includes("bg-raised"), false, "URL バーを出さない（コピーの無いバーを残さない）");
+  assert.equal(html.includes("bg-raised"), false, "URL のバーを出さない（コピーの無いバーを残さない）");
   assert.deepEqual(rowLabels(html), ["再公開"]);
   assert.deepEqual(menuLabels(html), ["名前を変更", "削除"]);
   assert.equal(html.includes(SHARED_CONTENT_UNDEPLOYED_NOTE), false);
@@ -309,7 +311,7 @@ test("公開中: URL を出さず、完了したら表示することを添え�
 
 test("コピー失敗: URL を選択してコピーする逃げ道を示す", () => {
   const html = renderToStaticMarkup(
-    createElement(SharedContentCard, {
+    createElement(SharedContentRow, {
       item: item(),
       narrow: false,
       sessionMissing: false,

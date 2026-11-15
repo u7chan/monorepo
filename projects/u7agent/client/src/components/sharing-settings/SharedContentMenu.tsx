@@ -28,6 +28,8 @@ export type SharedContentMenuProps = {
   /** ⋯ の読み上げ名に含める共有物の名前 */
   name: string;
   actions: readonly (SharedContentAction & { kind: SharedContentMenuKind })[];
+  /** 行から落とした時刻。項目より前の補足として置き、空なら出さない */
+  meta?: readonly { label: string; value: string; title?: string }[];
   onSelect: (kind: SharedContentMenuKind) => void;
 };
 
@@ -35,7 +37,7 @@ export type SharedContentMenuProps = {
  * 狭い面の共有物カードの ⋯。native popover なので top layer に載り、一覧のスクロール枠に切られない。
  * 外側クリックと Escape は標準の light dismiss に任せ、スクロールでは位置がずれる前に閉じる。
  */
-export function SharedContentMenu({ name, actions, onSelect }: SharedContentMenuProps) {
+export function SharedContentMenu({ name, actions, meta = [], onSelect }: SharedContentMenuProps) {
   const menuId = useId();
   const triggerId = `${menuId}-trigger`;
   const [open, setOpen] = useState(false);
@@ -176,32 +178,46 @@ export function SharedContentMenu({ name, actions, onSelect }: SharedContentMenu
         ref={popoverRef}
         id={menuId}
         popover="auto"
-        role="menu"
-        aria-labelledby={triggerId}
         onKeyDown={onKeyDown}
         onBlur={onBlur}
         className="popover-panel fixed inset-auto m-0 w-max min-w-44 scrollbar-thin overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel"
       >
-        {actions.map((action, index) => (
-          <MenuItem
-            key={action.kind}
-            ref={(element) => {
-              itemsRef.current[index] = element;
-            }}
-            role="menuitem"
-            tabIndex={-1}
-            icon={iconFor(action.kind)}
-            label={action.label}
-            description={action.reason}
-            descriptionKind="disclosure"
-            danger={action.danger === true}
-            disabled={action.disabled === true}
-            onClick={() => {
-              closeBySelection();
-              onSelect(action.kind);
-            }}
-          />
-        ))}
+        {/* メニューの外に置く。role="menu" の中へ非 menuitem を混ぜると、読み上げが項目だけに絞られたときに
+            補足が落ちる。開いた直後の焦点は項目へ移すので、この行は browse でだけ読まれる */}
+        {meta.length === 0 ? null : (
+          <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 border-b border-line px-2.5 pt-1.5 pb-2 text-2xs">
+            {meta.map((entry) => (
+              <div key={entry.label} className="contents">
+                <dt className="text-ink-faint">{entry.label}</dt>
+                <dd className="m-0 text-right text-ink-soft tabular-nums" title={entry.title}>
+                  {entry.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        <div role="menu" aria-labelledby={triggerId}>
+          {actions.map((action, index) => (
+            <MenuItem
+              key={action.kind}
+              ref={(element) => {
+                itemsRef.current[index] = element;
+              }}
+              role="menuitem"
+              tabIndex={-1}
+              icon={iconFor(action.kind)}
+              label={action.label}
+              description={action.reason}
+              descriptionKind="disclosure"
+              danger={action.danger === true}
+              disabled={action.disabled === true}
+              onClick={() => {
+                closeBySelection();
+                onSelect(action.kind);
+              }}
+            />
+          ))}
+        </div>
       </div>
     </>
   );

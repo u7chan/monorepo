@@ -24,13 +24,15 @@ import {
   sharePrimaryAction,
   shareStatusView,
   shareUpdateNote,
-  sharedContentActions,
   sharedContentBusyLabel,
   sharedContentDeleteConfirm,
   sharedContentFilterCounts,
   sharedContentInFlightCount,
+  sharedContentGroups,
   sharedContentMenuActions,
-  sharedContentPrimaryAction,
+  sharedContentMenuTimes,
+  sharedContentRowAction,
+  SHARED_CONTENT_GROUPS,
   sharedContentRenameRequest,
   sharedContentSession,
   sharedContentSessionMissing,
@@ -260,23 +262,76 @@ test("受付した 1 件の反映: 同じ id は差し替え、未取得なら�
   assert.deepEqual(withSharedContent([other], published), [published, other]);
 });
 
-test("操作行: 状態ごとの主操作だけを並べ、停止 / 削除は行に出さない", () => {
-  const kinds = (overrides: Partial<SharedContentResponse>) =>
-    sharedContentActions(item(overrides), { sessionMissing: false }).map((action) => action.kind);
-  assert.deepEqual(kinds({ status: "published", publishedAt: PUBLISHED_AT }), ["open", "qr", "update"]);
-  assert.deepEqual(kinds({ status: "published", publishedAt: PUBLISHED_AT, lastError: "更新に失敗しました" }), [
-    "open",
-    "qr",
+test("行の操作: 状態ごとの主操作だけを 1 つ出し、更新 / QR / 停止 / 削除は ⋯ へ送る", () => {
+  const row = (overrides: Partial<SharedContentResponse>) =>
+    sharedContentRowAction(item(overrides), { sessionMissing: false })?.kind;
+  const menu = (overrides: Partial<SharedContentResponse>) =>
+    sharedContentMenuActions(item(overrides), { sessionMissing: false }).map((action) => action.kind);
+  const published = { status: "published", publishedAt: PUBLISHED_AT } as const;
+  assert.equal(row(published), "open");
+  assert.equal(row({ ...published, lastError: "更新に失敗しました" }), "open");
+  assert.deepEqual(menu(published), ["rename", "update", "qr", "stop", "delete"]);
+  assert.deepEqual(menu({ ...published, lastError: "更新に失敗しました" }), [
+    "rename",
     "update",
+    "qr",
+    "stop",
+    "delete",
   ]);
-  assert.deepEqual(kinds({ status: "stopped", publishedAt: PUBLISHED_AT }), ["resume"]);
-  assert.deepEqual(kinds({ status: "failed" }), ["retry"]);
-  assert.deepEqual(kinds({ status: "publishing" }), []);
-  assert.deepEqual(kinds({ status: "publishing", lastError: "公開の結果を確認できませんでした" }), ["stop"]);
+  assert.equal(row({ status: "stopped", publishedAt: PUBLISHED_AT }), "resume");
+  assert.deepEqual(menu({ status: "stopped", publishedAt: PUBLISHED_AT }), ["rename", "delete"]);
+  assert.equal(row({ status: "failed" }), "retry");
+  assert.deepEqual(menu({ status: "failed" }), ["rename", "delete"]);
+  assert.equal(row({ status: "publishing" }), undefined);
+  assert.equal(row({ status: "publishing", lastError: "公開の結果を確認できませんでした" }), "stop");
   // 実体が無いのに開かせたり再公開させたりしない。解消は更新（同じ URL へ上げ直す）と削除だけ
-  assert.deepEqual(kinds({ status: "published" }), ["update"]);
-  assert.deepEqual(kinds({ status: "stopped" }), ["update"]);
-  assert.deepEqual(kinds({ status: "published", lastError: "公開に失敗しました" }), ["update"]);
+  for (const status of ["published", "stopped"] as const) {
+    assert.equal(row({ status }), "update", status);
+    assert.deepEqual(menu({ status }), ["rename", "delete"], status);
+  }
+  assert.equal(row({ status: "published", lastError: "公開に失敗しました" }), "update");
+});
+
+test("一覧の見出し: 状態の順にまとまり、空の状態と件数の出所を 1 つにする", () => {
+  const items = [
+    item({ id: "a", status: "stopped" }),
+    item({ id: "b", status: "published", publishedAt: PUBLISHED_AT }),
+    item({ id: "c", status: "published", publishedAt: PUBLISHED_AT }),
+    item({ id: "d", status: "failed" }),
+  ];
+  // 見出しの並びは visibleSharedContents の状態順と一致する（見出しをまたいで並びが戻らない）
+  assert.deepEqual(
+    SHARED_CONTENT_GROUPS.map((group) => group.key),
+    ["published", "publishing", "failed", "stopped"],
+  );
+  assert.deepEqual(
+    sharedContentGroups(items).map((group) => [group.key, group.label, group.items.map((entry) => entry.id)]),
+    [
+      ["published", "公開済み", ["b", "c"]],
+      ["failed", "失敗", ["d"]],
+      ["stopped", "停止中", ["a"]],
+    ],
+  );
+  // 未デプロイは status が published のままなので公開済みのまとまりに入る（絞り込みの件数と一致）
+  const undeployed = sharedContentGroups([item({ status: "published" })]);
+  assert.deepEqual(
+    undeployed.map((group) => [group.key, group.items.length]),
+    [["published", 1]],
+  );
+  assert.deepEqual(sharedContentGroups([]), []);
+});
+
+test("⋯ の時刻: 行から落とした公開 / 停止だけを、ある行だけ並べる", () => {
+  assert.deepEqual(sharedContentMenuTimes(item({ status: "published", publishedAt: PUBLISHED_AT })), [
+    { label: "公開", at: PUBLISHED_AT },
+  ]);
+  assert.deepEqual(sharedContentMenuTimes(item({ status: "stopped", publishedAt: PUBLISHED_AT, stoppedAt: 2_000 })), [
+    { label: "公開", at: PUBLISHED_AT },
+    { label: "停止", at: 2_000 },
+  ]);
+  // 一度も公開していない行は補足を出さない（空の見出しを作らない）
+  assert.deepEqual(sharedContentMenuTimes(item({ status: "failed" })), []);
+  assert.deepEqual(sharedContentMenuTimes(item({ status: "publishing" })), []);
 });
 
 test("実行中: 共有・更新・再試行を理由付きで無効にし、読み取りと逃げ道は残す", () => {
@@ -293,57 +348,46 @@ test("実行中: 共有・更新・再試行を理由付きで無効にし、読
   assert.equal(shareRunBlockedReason("other"), SHARE_WORKDIR_RUNNING_NOTE);
 
   // 管理一覧: 更新だけを理由付きで無効にし、開く・QR・停止・削除は残す
-  const published = sharedContentActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
+  const busyMenu = sharedContentMenuActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
     sessionMissing: false,
     sessionBusy: true,
   });
-  const update = published.find((action) => action.kind === "update");
+  const update = busyMenu.find((action) => action.kind === "update");
   assert.equal(update?.disabled, true);
   assert.equal(update?.reason, SHARED_CONTENT_UPDATE_RUNNING_NOTE);
   assert.deepEqual(
-    published.filter((action) => action.disabled !== true).map((action) => action.kind),
-    ["open", "qr"],
+    busyMenu.filter((action) => action.disabled !== true).map((action) => action.kind),
+    ["rename", "qr", "stop", "delete"],
   );
   assert.deepEqual(
-    sharedContentMenuActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
+    sharedContentRowAction(item({ status: "published", publishedAt: PUBLISHED_AT }), {
       sessionMissing: false,
-      narrow: true,
       sessionBusy: true,
-    }).map((action) => [action.kind, action.disabled === true]),
-    [
-      ["rename", false],
-      ["update", true],
-      ["qr", false],
-      ["stop", false],
-      ["delete", false],
-    ],
+    }),
+    { kind: "open", label: "開く" },
   );
   // 未デプロイ行の主操作 (更新) も同じ理由で止める
-  const undeployed = sharedContentPrimaryAction(item({ status: "published" }), {
+  const undeployed = sharedContentRowAction(item({ status: "published" }), {
     sessionMissing: false,
     sessionBusy: true,
   });
   assert.equal(undeployed?.disabled, true);
   assert.equal(undeployed?.reason, SHARED_CONTENT_UPDATE_RUNNING_NOTE);
   // failed 行の唯一の復旧導線 (公開を再試行) も、更新と同じ publish を叩くので実行中は止める
-  for (const action of [
-    ...sharedContentActions(item({ status: "failed" }), { sessionMissing: false, sessionBusy: true }),
-    sharedContentPrimaryAction(item({ status: "failed" }), { sessionMissing: false, sessionBusy: true }),
-  ]) {
-    assert.equal(action?.kind, "retry");
-    assert.equal(action?.disabled, true);
-    assert.equal(action?.reason, SHARED_CONTENT_UPDATE_RUNNING_NOTE);
-  }
+  const retry = sharedContentRowAction(item({ status: "failed" }), { sessionMissing: false, sessionBusy: true });
+  assert.equal(retry?.kind, "retry");
+  assert.equal(retry?.disabled, true);
+  assert.equal(retry?.reason, SHARED_CONTENT_UPDATE_RUNNING_NOTE);
   // 再公開 (resume) は成果物を読まないので、実行中でも押せる
   assert.deepEqual(
-    sharedContentActions(item({ status: "stopped", publishedAt: PUBLISHED_AT }), {
+    sharedContentRowAction(item({ status: "stopped", publishedAt: PUBLISHED_AT }), {
       sessionMissing: false,
       sessionBusy: true,
     }),
-    [{ kind: "resume", label: "再公開" }],
+    { kind: "resume", label: "再公開" },
   );
   // セッション削除済みの理由が優先する (更新できない理由が 2 つあるときは恒久的なほうを出す)
-  const missing = sharedContentPrimaryAction(item({ status: "published" }), {
+  const missing = sharedContentRowAction(item({ status: "published" }), {
     sessionMissing: true,
     sessionBusy: true,
   });
@@ -411,117 +455,100 @@ test("同じ作業フォルダの他会話: プロジェクト会話だけ兄弟
 });
 
 test("セッション削除済み: 更新だけを理由付きで無効にし、停止・再公開・削除は残す", () => {
-  const published = sharedContentActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
+  // 行の主操作 (開く) はソースを読まないので残す
+  assert.deepEqual(
+    sharedContentRowAction(item({ status: "published", publishedAt: PUBLISHED_AT }), { sessionMissing: true }),
+    { kind: "open", label: "開く" },
+  );
+  // 更新は行から ⋯ へ移したので、無効にするのも ⋯ の項目
+  const menu = sharedContentMenuActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
     sessionMissing: true,
   });
-  const update = published.find((action) => action.kind === "update");
+  const update = menu.find((action) => action.kind === "update");
   assert.equal(update?.disabled, true);
   assert.equal(update?.reason, SHARED_CONTENT_SESSION_MISSING_NOTE);
   assert.deepEqual(
-    published.filter((action) => action.disabled !== true).map((action) => action.kind),
-    ["open", "qr"],
-  );
-  // ⋯ の更新も同じ理由で無効にする（狭い面の主操作は開くだけなので、更新はここにしかない）
-  const menu = sharedContentMenuActions(item({ status: "published", publishedAt: PUBLISHED_AT }), {
-    sessionMissing: true,
-    narrow: true,
-  });
-  assert.deepEqual(
-    menu.map((action) => [action.kind, action.disabled === true]),
-    [
-      ["rename", false],
-      ["update", true],
-      ["qr", false],
-      ["stop", false],
-      ["delete", false],
-    ],
+    menu.filter((action) => action.disabled !== true).map((action) => action.kind),
+    ["rename", "qr", "stop", "delete"],
   );
   assert.deepEqual(
-    sharedContentActions(item({ status: "stopped", publishedAt: PUBLISHED_AT }), { sessionMissing: true }).map(
-      (action) => action.kind,
-    ),
-    ["resume"],
+    sharedContentRowAction(item({ status: "stopped", publishedAt: PUBLISHED_AT }), { sessionMissing: true }),
+    { kind: "resume", label: "再公開" },
   );
 });
 
 test("未デプロイのセッション削除済み: 更新だけを理由付きで無効にし、削除は残す", () => {
   for (const status of ["published", "stopped"] as const) {
-    const desktop = sharedContentActions(item({ status }), { sessionMissing: true });
     assert.deepEqual(
-      desktop.map((action) => [action.kind, action.disabled === true]),
-      [["update", true]],
+      sharedContentRowAction(item({ status }), { sessionMissing: true }),
+      {
+        kind: "update",
+        label: "更新",
+        disabled: true,
+        reason: SHARED_CONTENT_SESSION_MISSING_NOTE,
+      },
       status,
     );
-    assert.equal(desktop[0].reason, SHARED_CONTENT_SESSION_MISSING_NOTE);
-    const primary = sharedContentPrimaryAction(item({ status }), { sessionMissing: true });
-    assert.deepEqual(primary, {
-      kind: "update",
-      label: "更新",
-      disabled: true,
-      reason: SHARED_CONTENT_SESSION_MISSING_NOTE,
-    });
-    // ... は名前を変更と削除だけ（行 / 主操作に出ている更新を重ねない）
+    // ⋯ は名前を変更と削除だけ（行に出ている更新を重ねない）
     assert.deepEqual(
-      sharedContentMenuActions(item({ status }), { sessionMissing: true, narrow: true }).map((action) => action.kind),
+      sharedContentMenuActions(item({ status }), { sessionMissing: true }).map((action) => action.kind),
       ["rename", "delete"],
+      status,
     );
   }
 });
 
-test("⋯ の操作: 名前を変更を先頭に置き、行に出ていない操作だけを幅ごとに並べる", () => {
-  const menu = (overrides: Partial<SharedContentResponse>, narrow: boolean) =>
-    sharedContentMenuActions(item(overrides), { sessionMissing: false, narrow }).map((action) => action.kind);
+test("⋯ の操作: 名前を変更を先頭、削除を最後に置き、行に出ていない操作だけを並べる", () => {
+  const menu = (overrides: Partial<SharedContentResponse>) =>
+    sharedContentMenuActions(item(overrides), { sessionMissing: false }).map((action) => action.kind);
   const published = { status: "published", publishedAt: PUBLISHED_AT } as const;
-  // PC は行に更新があるので ⋯ には重ねない。狭い面は主操作が開くだけなので更新も入れる
-  assert.deepEqual(menu(published, false), ["rename", "stop", "delete"]);
-  assert.deepEqual(menu(published, true), ["rename", "update", "qr", "stop", "delete"]);
-  assert.deepEqual(menu({ status: "published" }, false), ["rename", "delete"]);
-  assert.deepEqual(menu({ status: "stopped" }, false), ["rename", "delete"]);
-  assert.deepEqual(menu({ status: "stopped", publishedAt: PUBLISHED_AT }, true), ["rename", "delete"]);
-  assert.deepEqual(menu({ status: "failed" }, false), ["rename", "delete"]);
-  // 公開中はどちらの幅でも ⋯ を出さない（状態が確定してから変更する）
-  assert.deepEqual(menu({ status: "publishing" }, false), []);
-  assert.deepEqual(menu({ status: "publishing", lastError: "公開の結果を確認できませんでした" }, true), []);
+  // 幅で中身は変えない（行は常に主操作 1 つなので、更新と QR は ⋯ にしかない）
+  assert.deepEqual(menu(published), ["rename", "update", "qr", "stop", "delete"]);
+  assert.deepEqual(menu({ status: "published" }), ["rename", "delete"]);
+  assert.deepEqual(menu({ status: "stopped" }), ["rename", "delete"]);
+  assert.deepEqual(menu({ status: "stopped", publishedAt: PUBLISHED_AT }), ["rename", "delete"]);
+  assert.deepEqual(menu({ status: "failed" }), ["rename", "delete"]);
+  // 公開中は ⋯ を出さない（状態が確定してから変更する）
+  assert.deepEqual(menu({ status: "publishing" }), []);
+  assert.deepEqual(menu({ status: "publishing", lastError: "公開の結果を確認できませんでした" }), []);
   assert.equal(
-    sharedContentMenuActions(item(published), { sessionMissing: false, narrow: false }).at(-1)?.danger,
+    sharedContentMenuActions(item(published), { sessionMissing: false }).at(-1)?.danger,
     true,
     "削除は破壊的な操作として示す",
   );
-  const primary = (overrides: Partial<SharedContentResponse>) =>
-    sharedContentPrimaryAction(item(overrides), { sessionMissing: false });
-  assert.equal(primary({ status: "published", publishedAt: PUBLISHED_AT })?.kind, "open");
-  assert.equal(primary({ status: "stopped", publishedAt: PUBLISHED_AT })?.kind, "resume");
-  assert.equal(primary({ status: "failed" })?.kind, "retry");
-  assert.equal(primary({ status: "publishing" }), null);
+  const row = (overrides: Partial<SharedContentResponse>) =>
+    sharedContentRowAction(item(overrides), { sessionMissing: false });
+  assert.equal(row({ status: "published", publishedAt: PUBLISHED_AT })?.kind, "open");
+  assert.equal(row({ status: "stopped", publishedAt: PUBLISHED_AT })?.kind, "resume");
+  assert.equal(row({ status: "failed" })?.kind, "retry");
+  assert.equal(row({ status: "publishing" }), null);
   // 未デプロイは「開く」も「再公開」も出さず、主操作を更新にする（セッションが生きていれば押せる）
-  assert.deepEqual(primary({ status: "published" }), { kind: "update", label: "更新" });
-  assert.deepEqual(primary({ status: "stopped" }), { kind: "update", label: "更新" });
-  assert.deepEqual(primary({ status: "publishing", lastError: "公開の結果を確認できませんでした" }), {
+  assert.deepEqual(row({ status: "published" }), { kind: "update", label: "更新" });
+  assert.deepEqual(row({ status: "stopped" }), { kind: "update", label: "更新" });
+  assert.deepEqual(row({ status: "publishing", lastError: "公開の結果を確認できませんでした" }), {
     kind: "stop",
     label: "停止",
   });
 });
 
-test("QR: 公開済みで URL があるときだけ行と ⋯ に出す", () => {
+test("QR: 公開済みで URL があるときだけ ⋯ に出す", () => {
   const live = { status: "published", publishedAt: PUBLISHED_AT } as const;
   const row = (overrides: Partial<SharedContentResponse>) =>
-    sharedContentActions(item(overrides), { sessionMissing: false }).map((action) => action.kind);
-  const menu = (overrides: Partial<SharedContentResponse>, narrow: boolean) =>
-    sharedContentMenuActions(item(overrides), { sessionMissing: false, narrow }).map((action) => action.kind);
+    sharedContentRowAction(item(overrides), { sessionMissing: false })?.kind;
+  const menu = (overrides: Partial<SharedContentResponse>) =>
+    sharedContentMenuActions(item(overrides), { sessionMissing: false }).map((action) => action.kind);
 
-  assert.deepEqual(row(live), ["open", "qr", "update"]);
-  assert.deepEqual(menu(live, true), ["rename", "update", "qr", "stop", "delete"]);
-  // PC の ⋯ には行と重ねない
-  assert.deepEqual(menu(live, false), ["rename", "stop", "delete"]);
+  assert.equal(row(live), "open");
+  assert.deepEqual(menu(live), ["rename", "update", "qr", "stop", "delete"]);
 
   // 公開済みでも URL が無い / 外部に実体が無い（未デプロイ）なら QR を出さない
-  assert.deepEqual(row({ ...live, publicUrl: null }), ["open", "update"]);
-  assert.deepEqual(menu({ ...live, publicUrl: null }, true), ["rename", "update", "stop", "delete"]);
-  assert.deepEqual(row({ ...live, publishedAt: null }), ["update"]);
+  assert.equal(row({ ...live, publicUrl: null }), "open");
+  assert.deepEqual(menu({ ...live, publicUrl: null }), ["rename", "update", "stop", "delete"]);
+  assert.equal(row({ ...live, publishedAt: null }), "update");
 
   for (const status of ["stopped", "failed", "publishing"] as const) {
-    assert.equal(row({ status, publishedAt: PUBLISHED_AT }).includes("qr"), false, status);
-    assert.equal(menu({ status, publishedAt: PUBLISHED_AT }, true).includes("qr"), false, status);
+    assert.notEqual(row({ status, publishedAt: PUBLISHED_AT }), "qr", status);
+    assert.equal(menu({ status, publishedAt: PUBLISHED_AT }).includes("qr"), false, status);
   }
 });
 
