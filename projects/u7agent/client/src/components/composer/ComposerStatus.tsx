@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useElapsedMs } from "../../hooks/useElapsedMs";
 import { pendingAskUserQuestionCount } from "../../lib/askUser";
+import { RESUMED_RUN_ACTIVITY } from "../../lib/chatActivity";
 import { cn } from "../../lib/cn";
 import { compactionBusy } from "../../lib/composerSettings";
 import { elapsedBeatIndex, formatElapsed, isElapsedTier, runElapsedMs } from "../../lib/elapsed";
@@ -211,7 +212,7 @@ export function ComposerStatus({
   const elapsedMs = useElapsedMs(runningSince);
   // 実行中のツールは状態行の 1 行に出す。文言は短い間隔で間引き、消えたらサーバーの活動へ戻す
   const liveView = useLiveToolView(liveToolStatusView(liveToolStatus(runTools, runStatus)));
-  const activityText = liveView?.text ?? activity;
+  const activityText = liveView?.text ?? (!singleColumn && activity === RESUMED_RUN_ACTIVITY ? "実行中…" : activity);
   // 実行中の経過。ms と表示文を組で持つ (演出の判定は ms、表示は文)
   let elapsed: { ms: number; text: string } | null = null;
   if (runningSince !== undefined && elapsedMs !== undefined) {
@@ -291,7 +292,7 @@ export function ComposerStatus({
               // ツール名は短い間隔で変わるため、読み上げの連発を避けて live の対象から外す。
               // 活動の語 (考え中 / 応答を書いています) だけを polite で読む
               aria-live={liveView === undefined ? "polite" : "off"}
-              title={liveView?.title ?? activity}
+              title={liveView?.title ?? activityText}
               className={cn("min-w-0 flex-1 truncate", shimmer && liveView === undefined && "activity-shimmer")}
             >
               {activityText}
