@@ -370,6 +370,11 @@ export interface SharedContentRow {
   lastError: string | null;
   /** 未設定は null。列が無い時代の行も null として読む */
   thumbnail?: SharedContentThumbnailRow | null;
+  /**
+   * 最後に使った版。**解除しても消さない**（同じ版が再利用されると、`?v=` が衝突して
+   * 差し替えがキャッシュから出なくなる）。未設定のまま一度も保存していなければ null
+   */
+  thumbnailVersion?: number | null;
 }
 
 /**
@@ -1066,10 +1071,16 @@ function sharedContentOf(row: Row): SharedContentRow {
     stoppedAt: optionalNumber(row.stoppedAt),
     lastError: optionalText(row.lastError) ?? null,
     thumbnail: sharedContentThumbnailOf(row),
+    thumbnailVersion: sharedContentThumbnailVersionOf(row),
   };
 }
 
 /** 4 列が揃っている行だけをサムネイルありとして読む (手編集や途中の移行で半端な行を作らない) */
+function sharedContentThumbnailVersionOf(row: Row): number | null {
+  const version = optionalNumber(row.thumbnailUpdatedAt);
+  return version !== null && version > 0 ? version : null;
+}
+
 function sharedContentThumbnailOf(row: Row): SharedContentThumbnailRow | null {
   const updatedAt = optionalNumber(row.thumbnailUpdatedAt);
   const width = optionalNumber(row.thumbnailWidth);
@@ -2709,22 +2720,30 @@ export class AppDb {
    * 行が既に無ければ false を返し、呼び出し側が競合として扱えるようにする。
    */
   updateSharedContentThumbnail(id: string, thumbnail: SharedContentThumbnailRow | null): boolean {
-    return this.#query(
-      (db) =>
+    // 解除でも版 (`thumbnailUpdatedAt`) は残す。次に保存するときの起点が消えると、同じ版が
+    // 再利用されて `?v=` とファイル名が衝突する
+    return this.#query((db) => {
+      if (thumbnail === null) {
+        return (
+          db
+            .prepare(
+              `UPDATE shared_contents
+                  SET thumbnailWidth = NULL, thumbnailHeight = NULL, thumbnailBytes = NULL
+                WHERE id = ?`,
+            )
+            .run(id).changes > 0
+        );
+      }
+      return (
         db
           .prepare(
             `UPDATE shared_contents
                 SET thumbnailUpdatedAt = ?, thumbnailWidth = ?, thumbnailHeight = ?, thumbnailBytes = ?
               WHERE id = ?`,
           )
-          .run(
-            thumbnail?.updatedAt ?? null,
-            thumbnail?.width ?? null,
-            thumbnail?.height ?? null,
-            thumbnail?.bytes ?? null,
-            id,
-          ).changes > 0,
-    );
+          .run(thumbnail.updatedAt, thumbnail.width, thumbnail.height, thumbnail.bytes, id).changes > 0
+      );
+    });
   }
 
   /**
@@ -2737,7 +2756,7 @@ export class AppDb {
         db
           .prepare(
             `UPDATE shared_contents
-                  SET thumbnailUpdatedAt = NULL, thumbnailWidth = NULL, thumbnailHeight = NULL, thumbnailBytes = NULL
+                  SET thumbnailWidth = NULL, thumbnailHeight = NULL, thumbnailBytes = NULL
                 WHERE id = ? AND thumbnailUpdatedAt = ?`,
           )
           .run(id, expectedUpdatedAt).changes > 0,

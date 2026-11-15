@@ -296,8 +296,9 @@ export class SharedContentsService {
       const inspected = inspectSharedThumbnailPng(bytes);
       if (!inspected) throw httpError(422, SHARED_CONTENT_THUMBNAIL_INVALID);
       const previous = row.thumbnail ?? null;
-      // 時計が同じ値・逆戻りしても版が衝突しない。URL の `?v=` とキャッシュの同一性をここで保証する
-      const updatedAt = Math.max(this.#now(), (previous?.updatedAt ?? 0) + 1);
+      // 時計が同じ値・逆戻りしても版が衝突しない。URL の `?v=` とキャッシュの同一性をここで保証する。
+      // 起点は解除しても残る版 (`thumbnailVersion`) にする。解除で 0 に戻すと、同じ版・同じ URL が再利用される
+      const updatedAt = Math.max(this.#now(), (row.thumbnailVersion ?? previous?.updatedAt ?? 0) + 1);
       const thumbnail: SharedContentThumbnail = {
         updatedAt,
         width: inspected.width,

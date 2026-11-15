@@ -92,13 +92,19 @@ class FakeStore implements SharedContentStore {
     if (this.failThumbnailUpdate) throw new Error("db thumbnail boom");
     const row = this.rows.get(id);
     if (!row) return false;
-    this.rows.set(id, { ...row, thumbnail });
+    // 解除でも版は残す（実 DB と同じ）。次に保存するときの起点が消えると版が再利用される
+    this.rows.set(id, {
+      ...row,
+      thumbnail: thumbnail ?? null,
+      ...(thumbnail ? { thumbnailVersion: thumbnail.updatedAt } : {}),
+    });
     return true;
   }
 
   clearSharedContentThumbnail(id: string, expectedUpdatedAt: number): boolean {
     const row = this.rows.get(id);
-    if (!row || (row.thumbnail?.updatedAt ?? null) !== expectedUpdatedAt) return false;
+    const version = row?.thumbnailVersion ?? row?.thumbnail?.updatedAt ?? null;
+    if (!row || version !== expectedUpdatedAt) return false;
     this.rows.set(id, { ...row, thumbnail: null });
     return true;
   }
@@ -2466,12 +2472,16 @@ test("時計が同値・逆行してもサムネイルの版は単調に増え�
     const second = await service.setThumbnail("id1", png({ width: 720, height: 450 }));
     now = 4_000; // 同じ値
     const third = await service.setThumbnail("id1", png({ width: 640, height: 400 }));
+    // 解除しても版は戻らない（同じ版・同じ URL を再利用しない）
+    await service.removeThumbnail("id1");
+    const fourth = await service.setThumbnail("id1", png({ width: 800, height: 500 }));
 
     assert.ok(second.updatedAt > first.updatedAt);
     assert.ok(third.updatedAt > second.updatedAt);
+    assert.ok(fourth.updatedAt > third.updatedAt);
     assert.deepEqual(
       (await thumbnails.store.listEntries()).map((entry) => entry.version),
-      [third.updatedAt],
+      [fourth.updatedAt],
       "版が衝突せず、差し替えのたびに古い実体は消える",
     );
   } finally {
@@ -2519,6 +2529,52 @@ test("古い GET の不在補正は、読み込み中に差し替えられた新
       [after.updatedAt],
     );
     assert.ok(service.get("id1").thumbnail, "再照合でも新しい版は消えない");
+  } finally {
+    await thumbnails.cleanup();
+  }
+});
+
+test("古い GET の不在補正は、解除して保存し直した新しい版を消さない", async () => {
+  const thumbnails = await thumbnailStore();
+  try {
+    const base = thumbnails.store;
+    let duringRead: (() => Promise<void>) | undefined;
+    const store: SharedThumbnailStore = {
+      ...base,
+      read: async (id, version) => {
+        const hook = duringRead;
+        duringRead = undefined;
+        if (hook) {
+          await hook();
+          return undefined;
+        }
+        return base.read(id, version);
+      },
+    };
+    const { service, store: rows } = setup({ thumbnails: store });
+    rows.insertSharedContent(thumbRow("id1"));
+    const first = await service.setThumbnail("id1", png({ width: 800, height: 500 }));
+    const next = png({ width: 640, height: 400 });
+    // 読取りを保留している間に、解除して別の画像を保存する（版は単調増加で first より後）
+    duringRead = async () => {
+      await service.removeThumbnail("id1");
+      await service.setThumbnail("id1", next);
+    };
+
+    await assert.rejects(
+      () => service.readThumbnail("id1"),
+      (error: any) => error.statusCode === 404,
+    );
+    const after = service.get("id1").thumbnail;
+    assert.ok(after);
+    assert.ok(after.updatedAt > first.updatedAt);
+    assert.deepEqual((await service.readThumbnail("id1")).bytes, next, "解除後の新しい版は未設定にされない");
+
+    await service.reconcileThumbnails();
+    assert.deepEqual(
+      (await store.listEntries()).map((entry) => entry.version),
+      [after.updatedAt],
+    );
   } finally {
     await thumbnails.cleanup();
   }

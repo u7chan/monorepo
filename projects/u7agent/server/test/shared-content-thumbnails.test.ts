@@ -190,7 +190,9 @@ test("サムネイルだけを外せる。未設定でも 204 で、共有物の
   try {
     seed("thumb1");
     const bytes = png({ width: 800, height: 500 });
-    await bff.app.request("/api/shared-contents/thumb1/thumbnail", put(bytes));
+    const savedBody = (await (
+      await bff.app.request("/api/shared-contents/thumb1/thumbnail", put(bytes))
+    ).json()) as any;
 
     const removed = await bff.app.request("/api/shared-contents/thumb1/thumbnail", { method: "DELETE" });
     assert.equal(removed.status, 204);
@@ -200,7 +202,14 @@ test("サムネイルだけを外せる。未設定でも 204 で、共有物の
     assert.equal((await bff.app.request("/api/shared-contents/thumb1/thumbnail")).status, 404);
     const detail = (await (await bff.app.request("/api/shared-contents/thumb1")).json()) as any;
     assert.equal(detail.thumbnail, null);
-    assert.deepEqual(await thumbnails(dir), []);
+    assert.deepEqual(await thumbnails(dir), [], "解除で実体も消える");
+
+    // 解除してから保存し直しても版は戻らない（同じ版・同じ URL を再利用しない）
+    const reSaved = (await (
+      await bff.app.request("/api/shared-contents/thumb1/thumbnail", put(png({ width: 640, height: 400 })))
+    ).json()) as any;
+    assert.ok(reSaved.thumbnail.updatedAt > savedBody.thumbnail.updatedAt);
+    assert.equal((await thumbnails(dir)).length, 1);
     assert.equal((await bff.app.request("/api/shared-contents/nope/thumbnail", { method: "DELETE" })).status, 404);
   } finally {
     await restore();
