@@ -201,6 +201,7 @@ test("描画: モデル / Effort の入口とゲージは aria-live の外へ置
   t.mock.timers.enable({ apis: ["Date"], now: NOW });
   const html = render({
     activity: "実行中…（タブを閉じても処理は続きます）",
+    singleColumn: true,
     runningSince: Date.now(),
     context,
     modelSlot: slot(),
@@ -213,6 +214,24 @@ test("描画: モデル / Effort の入口とゲージは aria-live の外へ置
   assert.ok(!live.includes("GLM-5.3 Flash"), "モデル / Effort の入口は毎回読み上げない");
   assert.ok(!live.includes("Context"), "ゲージは毎回読み上げない");
   assert.ok(html.includes("(実行 0s)"), "経過時間は run の経過だと分かる形で aria-hidden の別スパンに出す");
+});
+
+test("描画: 復帰時の説明はデスクトップで重複を避け、singleColumn では維持する", () => {
+  const activity = "実行中…（タブを閉じても処理は続きます）";
+  const desktop = render({ activity });
+  const singleColumn = render({ activity, singleColumn: true });
+
+  assert.match(desktop, /aria-live="polite" title="実行中…"[^>]*>実行中…<\/span>/);
+  assert.ok(!desktop.includes("タブを閉じても"), "デスクトップでは説明を状態行に重ねない");
+  assert.match(singleColumn, /aria-live="polite" title="実行中…（タブを閉じても処理は続きます）"/);
+  assert.ok(singleColumn.includes(`>${activity}</span>`), "singleColumn では説明を読み上げにも残す");
+});
+
+test("描画: 復帰時以外の活動はデスクトップでも変更しない", () => {
+  const activity = "実行中…（追加情報）";
+  const html = render({ activity });
+  assert.ok(html.includes(`title="${activity}"`));
+  assert.ok(html.includes(`>${activity}</span>`));
 });
 
 test("描画: 活動欄はツールの有無で折り返しを変えず、常に1行に切る", () => {

@@ -9,6 +9,7 @@ import {
 } from "../lib/chatHistory";
 import type { HistoryMergeResult } from "../lib/chatHistory";
 import { ASK_USER_WAITING_TEXT, isPendingAskUser, pendingAskUserQuestionCount } from "../lib/askUser";
+import { RESUMED_RUN_ACTIVITY } from "../lib/chatActivity";
 import { compactionDividerIndex } from "../lib/compaction";
 import type { Bubble, ChatHistoryState, CompactionMarker, ToolCard } from "../lib/chatTypes";
 import { isToolHostBubble } from "../lib/chatTypes";
@@ -2138,10 +2139,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 回答待ちの判定に status を使わないのは、resync ではリプレイされないため
         next = {
           ...next,
-          activity:
-            pendingAskUserQuestionCount(runTools, status) > 0
-              ? ASK_USER_WAITING_TEXT
-              : "実行中…（タブを閉じても処理は続きます）",
+          activity: pendingAskUserQuestionCount(runTools, status) > 0 ? ASK_USER_WAITING_TEXT : RESUMED_RUN_ACTIVITY,
         };
       } else if (status === "compacting") next = { ...next, activity: "会話を整理中…" };
       else if (status === "queued") next = { ...next, activity: "" };
