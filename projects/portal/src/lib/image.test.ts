@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   isDeployableImageTag,
+  isOlderImageTag,
   isValidDeployTarget,
   isValidImageTag,
   monorepoProject,
@@ -96,6 +97,53 @@ describe("isDeployableImageTag", () => {
 
   test("Docker のタグとして不正な文字列は拒否する", () => {
     expect(isDeployableImageTag("team/tag")).toBe(false);
+  });
+});
+
+describe("isOlderImageTag", () => {
+  const tags = [
+    { tag: "sha-new", createdAt: "2026-11-13T13:06:22Z" },
+    { tag: "manual-new", createdAt: "2026-11-13T13:06:22Z" },
+    { tag: "sha-old", createdAt: "2026-11-12T09:00:00Z" },
+  ];
+
+  test("選択タグが current より前のビルドなら true", () => {
+    expect(isOlderImageTag(tags, "sha-new", "sha-old")).toBe(true);
+  });
+
+  test("選択タグが current より後、または同じビルドなら false", () => {
+    expect(isOlderImageTag(tags, "sha-old", "sha-new")).toBe(false);
+    expect(isOlderImageTag(tags, "sha-new", "manual-new")).toBe(false);
+    expect(isOlderImageTag(tags, "sha-new", "sha-new")).toBe(false);
+  });
+
+  test("current が一覧に無い、または latest なら比較せず false", () => {
+    expect(isOlderImageTag(tags, "sha-gone", "sha-old")).toBe(false);
+    expect(isOlderImageTag(tags, "latest", "sha-old")).toBe(false);
+    expect(isOlderImageTag(tags, "", "sha-old")).toBe(false);
+  });
+
+  test("選択タグが一覧に無い、または空なら比較せず false", () => {
+    expect(isOlderImageTag(tags, "sha-new", "sha-gone")).toBe(false);
+    expect(isOlderImageTag(tags, "sha-new", "")).toBe(false);
+    expect(isOlderImageTag([], "sha-new", "sha-old")).toBe(false);
+  });
+
+  test("日時が無い、または解析できないタグは比較せず false", () => {
+    const partial = [
+      { tag: "sha-new", createdAt: "2026-11-13T13:06:22Z" },
+      { tag: "sha-old" },
+      { tag: "sha-broken", createdAt: "not-a-date" },
+    ];
+    expect(isOlderImageTag(partial, "sha-new", "sha-old")).toBe(false);
+    expect(isOlderImageTag(partial, "sha-new", "sha-broken")).toBe(false);
+    expect(
+      isOlderImageTag(
+        [{ tag: "sha-new" }, { tag: "sha-old", createdAt: "2026-11-12T09:00:00Z" }],
+        "sha-new",
+        "sha-old",
+      ),
+    ).toBe(false);
   });
 });
 
