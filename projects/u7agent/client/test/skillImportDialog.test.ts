@@ -43,6 +43,13 @@ function render(flow: Exclude<SkillImportFlow, { status: "idle" }>): string {
   );
 }
 
+/** ヘッダーの閉じる (X)。文字を持たないので読み上げ名で引く */
+function closeButtonTag(html: string): string {
+  const tag = html.match(/<button[^>]*aria-label="閉じる"[^>]*>/)?.[0];
+  assert.ok(tag, "ヘッダーの閉じるが無い");
+  return tag;
+}
+
 /** plan の 1 行 = 1 件。チェックボックスは conflict の行と「同名をすべて選ぶ」だけに出す */
 function checkboxes(html: string): string[] {
   return [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((match) => match[0]);
@@ -110,10 +117,19 @@ test("インポートするスキルが 1 つも無いときは理由を出し�
   assert.match(html, disabledApplyButton());
 });
 
-test("適用中は閉じるボタンもインポートも押せない", () => {
+test("実行前はヘッダーの X とフッターのキャンセルを出し、文字ラベルの閉じるを置かない", () => {
+  const html = render({ status: "review", fileName: "skills.zip", plan: PLAN, replace: [] });
+  assert.ok(closeButtonTag(html).includes('title="閉じる"'));
+  assert.equal(html.includes(">閉じる<"), false, "文字ラベルの閉じるを置かない");
+  const footer = html.slice(html.indexOf("<footer"));
+  assert.ok(footer.indexOf(">キャンセル<") < footer.indexOf(`>${SKILL_IMPORT_APPLY_LABEL}<`), "主操作が右端に無い");
+});
+
+test("適用中は閉じる導線もインポートも押せない", () => {
   const html = render({ status: "applying", fileName: "skills.zip", plan: PLAN, replace: ["gamma"] });
   assert.ok(html.includes(SKILL_IMPORT_APPLYING_LABEL));
-  assert.match(html, /<button[^>]*disabled=""[^>]*>閉じる<\/button>/);
+  assert.ok(closeButtonTag(html).includes('disabled=""'), "適用中にヘッダーの X を押せてしまう");
+  assert.match(html, /<button[^>]*disabled=""[^>]*>キャンセル<\/button>/);
 });
 
 test("適用後はインポートしたスキルと省略した理由を出し、インポートの操作を消す", () => {
@@ -134,4 +150,7 @@ test("適用後はインポートしたスキルと省略した理由を出し�
   assert.ok(html.includes("内容が同一"));
   assert.ok(!html.includes(`>${SKILL_IMPORT_APPLY_LABEL}<`), "適用後に取り込みのボタンが残っている");
   assert.equal(checkboxes(html).length, 0, "適用後に選択が残っている");
+  // 完了後はフッターを出さず、ヘッダーの X だけを出口にする
+  assert.equal(html.includes("<footer"), false, "適用後にフッターが残っている");
+  assert.equal(closeButtonTag(html).includes('disabled="'), false, "完了後に閉じる導線が無効になっている");
 });

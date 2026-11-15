@@ -88,3 +88,20 @@ test("プロジェクト所属では移動先スペースを出さず、メモ�
   // 未所属ではプロジェクトの注意を出さない
   assert.ok(!render().includes("リポジトリ直下"), "未所属にプロジェクトの注意が出ている");
 });
+
+/** ヘッダーの閉じる。文字を持たないので読み上げ名で引く */
+function closeButtonTag(html: string): string {
+  const tag = html.match(/<button[^>]*aria-label="閉じる"[^>]*>/)?.[0];
+  assert.ok(tag, "ヘッダーの閉じるが無い");
+  return tag;
+}
+
+test("ヘッダーは X だけで閉じ、注記はフッターのボタン行の上に置く", () => {
+  const html = render();
+  assert.ok(closeButtonTag(html).includes('title="閉じる"'), "hover の補助が無い");
+  assert.equal(html.includes(">閉じる<"), false, "ヘッダーに閉じるの文字を置かない");
+  const footer = html.slice(html.indexOf("<footer"));
+  assert.ok(footer.indexOf(">キャンセル<") < footer.indexOf(">引き継ぐ<"), "主操作がキャンセルの左にある");
+  const note = sessionHandoffDialogText("決済画面の検証").note;
+  assert.ok(footer.indexOf(note) < footer.indexOf(">キャンセル<"), "注記がボタン行の外 (上) に無い");
+});

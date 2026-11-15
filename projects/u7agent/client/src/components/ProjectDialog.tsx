@@ -23,6 +23,7 @@ const MODES: { value: ProjectMode; label: string }[] = [
 export function ProjectDialog({ onClose, onCreate, singleColumn = false }: ProjectDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const [mode, setMode] = useState<ProjectMode>("create");
   const [path, setPath] = useState(WORKSPACE_ROOT);
   const [directories, setDirectories] = useState<FileEntry[] | null>(null);
@@ -42,6 +43,11 @@ export function ProjectDialog({ onClose, onCreate, singleColumn = false }: Proje
       dialog.focus();
     }
     return () => previousFocusRef.current?.focus();
+  }, []);
+
+  // 初期焦点は取り消し側に置く (Enter でプロジェクトを作らせない)
+  useEffect(() => {
+    cancelRef.current?.focus();
   }, []);
 
   // 選択中のディレクトリが外部で消えていたら、ここでエラーとして見える (自動更新はしない)
@@ -120,6 +126,14 @@ export function ProjectDialog({ onClose, onCreate, singleColumn = false }: Proje
       aria-modal="true"
       aria-label="プロジェクトを追加"
       tabIndex={-1}
+      // Escape はダイアログだけを閉じる (設定ページの「戻る」など背面の keydown へ届かせない)
+      onKeyDown={(event) => {
+        if (event.key === "Escape") event.stopPropagation();
+      }}
+      // 作成中は閉じさせない (作ったプロジェクトを取りこぼさない)
+      onCancel={(event) => {
+        if (busy) event.preventDefault();
+      }}
       className={cn(
         "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
         singleColumn
@@ -132,9 +146,15 @@ export function ProjectDialog({ onClose, onCreate, singleColumn = false }: Proje
           <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">PROJECT</div>
           <h2 className="text-md font-semibold text-ink-strong">プロジェクトを追加</h2>
         </div>
-        <button type="button" onClick={onClose} className="btn-quiet" disabled={busy}>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="閉じる"
+          title="閉じる"
+          disabled={busy}
+          className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
+        >
           <CloseIcon />
-          閉じる
         </button>
       </header>
 
@@ -223,18 +243,24 @@ export function ProjectDialog({ onClose, onCreate, singleColumn = false }: Proje
           </div>
         </div>
 
-        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3">
+        <footer className="grid shrink-0 gap-1.5 border-t border-line px-4 py-3">
           <p
             role={footerNote.danger ? "alert" : undefined}
             className={cn(
-              "min-w-0 flex-1 text-1xs leading-relaxed",
+              "min-w-0 text-1xs leading-relaxed",
               footerNote.danger ? "text-danger-text" : "text-ink-muted",
             )}
           >
             {footerNote.text}
           </p>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className="btn-quiet singleColumn:min-h-11" disabled={busy}>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              ref={cancelRef}
+              type="button"
+              onClick={onClose}
+              className="btn-quiet singleColumn:min-h-11"
+              disabled={busy}
+            >
               キャンセル
             </button>
             <button type="submit" disabled={!canSubmit} className="btn-primary singleColumn:min-h-11">

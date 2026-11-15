@@ -113,6 +113,10 @@ export function SessionHandoffDialog({
       onKeyDown={(event) => {
         if (event.key === "Escape") event.stopPropagation();
       }}
+      // 引き継ぎ中は閉じさせない (移した会話を取りこぼさない)
+      onCancel={(event) => {
+        if (busy) event.preventDefault();
+      }}
       className={cn(
         "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
         singleColumn
@@ -125,9 +129,15 @@ export function SessionHandoffDialog({
           <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">HANDOFF</div>
           <h2 className="text-md font-semibold text-ink-strong">{text.title}</h2>
         </div>
-        <button type="button" onClick={onClose} className="btn-quiet" disabled={busy}>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="閉じる"
+          title="閉じる"
+          className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
+          disabled={busy}
+        >
           <CloseIcon />
-          閉じる
         </button>
       </header>
 
@@ -206,17 +216,17 @@ export function SessionHandoffDialog({
           </div>
         </div>
 
-        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3">
+        <footer className="grid shrink-0 gap-1.5 border-t border-line px-4 py-3">
           <p
             role={error || blockedNote ? "alert" : undefined}
             className={cn(
-              "min-w-0 flex-1 text-1xs leading-relaxed",
+              "min-w-0 text-1xs leading-relaxed",
               error || blockedNote ? "text-danger-text" : "text-ink-muted",
             )}
           >
             {error || blockedNote || text.note}
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end gap-2">
             <button
               ref={cancelRef}
               type="button"

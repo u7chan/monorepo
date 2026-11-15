@@ -5,10 +5,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { BackupRestoreFlow } from "../src/lib/backupFlow";
-import type { BackupExportCheck, BackupRestorePlan } from "../src/types";
+import type { BackupExportCheck, BackupResetResult, BackupRestorePlan } from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { BackupRestoreDialog } = await import("../src/components/backup/BackupRestoreDialog");
+const { BackupResetDialog } = await import("../src/components/backup/BackupResetDialog");
 const { BackupExportTargets } = await import("../src/components/backup/BackupExportTargets");
 
 const COUNTS = { added: 0, updated: 0, identical: 0, removed: 0, reordered: 0 };
@@ -65,6 +66,10 @@ test("OFF にした対象も行として残り、未チェックのトグルで�
   // 選択中の 1 対象だけがチェックされる (オフの対象は unchecked のまま押せる)
   assert.equal(markup.split('checked=""').length - 1, 1);
   assert.ok(markup.includes("追加 1"));
+  // 閉じるはヘッダーの X、フッターは実行しない側のキャンセル
+  assert.match(markup, /<button[^>]*aria-label="閉じる"[^>]*>/);
+  assert.equal(markup.includes(">閉じる<"), false, "フッターに閉じるを残さない");
+  assert.ok(markup.includes(">キャンセル<"));
 });
 
 test("plan が全対象を選んでいれば追加の確認は出ず、両方チェックされる", () => {
@@ -121,4 +126,44 @@ test("書き出しの対象は件数と書き出せない理由を押す前に�
   assert.ok(markup.includes("定型プロンプト 1 件 / エージェント 1 件 / 共通スキル 2 件"));
   assert.ok(markup.includes("共通スキルを書き出せません"));
   assert.ok(markup.includes("サンドボックスが未設定です"));
+});
+
+/** ヘッダーの閉じる (X)。文字を持たないので読み上げ名で引く */
+function closeButtonTag(html: string): string {
+  const tag = html.match(/<button[^>]*aria-label="閉じる"[^>]*>/)?.[0];
+  assert.ok(tag, "ヘッダーの閉じるが無い");
+  return tag;
+}
+
+function renderReset(
+  flow: { status: "confirm" } | { status: "applying" } | { status: "done"; result: BackupResetResult },
+): string {
+  return renderToStaticMarkup(
+    createElement(BackupResetDialog, {
+      flow,
+      check: null,
+      onApply: () => {},
+      onClose: () => {},
+    }),
+  );
+}
+
+test("全削除の確認はヘッダーの X とフッターのキャンセルで閉じ、実行は danger", () => {
+  const html = renderReset({ status: "confirm" });
+  assert.ok(closeButtonTag(html).includes('title="閉じる"'));
+  assert.equal(html.includes(">閉じる<"), false, "フッターに閉じるを残さない");
+  assert.ok(html.includes(">キャンセル<"), "実行しない側の名前がキャンセルでない");
+  const footer = html.slice(html.indexOf("<footer"));
+  assert.ok(footer.indexOf(">キャンセル<") < footer.indexOf(">すべて削除する<"), "主操作が右端に無い");
+  assert.match(html, /<button[^>]*class="[^"]*btn-danger[^"]*"[^>]*>すべて削除する</);
+});
+
+test("全削除の完了後はフッターを出さず、ヘッダーの X だけにする", () => {
+  const html = renderReset({
+    status: "done",
+    result: { complete: true, agents: 1, prompts: 2, skills: 3, failed: [] },
+  });
+  assert.equal(html.includes("<footer"), false, "完了後にフッターが残っている");
+  assert.equal(closeButtonTag(html).includes('disabled="'), false, "完了後に閉じる導線が無効になっている");
+  assert.ok(html.includes("削除しました"));
 });

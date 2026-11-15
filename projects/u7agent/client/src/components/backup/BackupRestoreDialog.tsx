@@ -4,7 +4,7 @@ import {
   BACKUP_KEPT_NOTE,
   BACKUP_RESTORE_APPLYING_LABEL,
   BACKUP_RESTORE_APPLY_LABEL,
-  BACKUP_RESTORE_CLOSE_LABEL,
+  BACKUP_RESTORE_CANCEL_LABEL,
   BACKUP_RESTORE_DELETE_CHECK_LABEL,
   BACKUP_RESTORE_DIALOG_TITLE,
   BACKUP_RESTORE_PLANNING_NOTE,
@@ -22,6 +22,7 @@ import {
 } from "../../lib/backup";
 import type { BackupRestoreFlow } from "../../lib/backupFlow";
 import type { BackupTarget, BackupTargetPlan } from "../../types";
+import { CloseIcon } from "../icons";
 
 export type BackupRestoreDialogProps = {
   flow: Exclude<BackupRestoreFlow, { status: "idle" } | { status: "done" }>;
@@ -97,9 +98,21 @@ export function BackupRestoreDialog({
           : "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] rounded-xl border shadow-panel",
       )}
     >
-      <header className="shrink-0 border-b border-line px-4 py-3.5">
-        <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">BACKUP</div>
-        <h2 className="text-md font-semibold text-ink-strong">{BACKUP_RESTORE_DIALOG_TITLE}</h2>
+      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
+        <div className="min-w-0">
+          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">BACKUP</div>
+          <h2 className="text-md font-semibold text-ink-strong">{BACKUP_RESTORE_DIALOG_TITLE}</h2>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="閉じる"
+          title="閉じる"
+          disabled={busy}
+          className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
+        >
+          <CloseIcon />
+        </button>
       </header>
 
       <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
@@ -193,7 +206,7 @@ export function BackupRestoreDialog({
             disabled={busy}
             className="btn-quiet singleColumn:min-h-11"
           >
-            {BACKUP_RESTORE_CLOSE_LABEL}
+            {BACKUP_RESTORE_CANCEL_LABEL}
           </button>
           <button type="submit" disabled={busy || !canApply} className="btn-danger singleColumn:min-h-11">
             {busy ? BACKUP_RESTORE_APPLYING_LABEL : BACKUP_RESTORE_APPLY_LABEL}

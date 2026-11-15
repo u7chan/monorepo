@@ -161,7 +161,8 @@ export const SKILL_IMPORT_FILE_LABEL = "インポートする ZIP";
 export const SKILL_IMPORT_PLANNING_NOTE = "ZIP の内容を確認しています…";
 export const SKILL_IMPORT_APPLY_LABEL = "インポート";
 export const SKILL_IMPORT_APPLYING_LABEL = "インポートしています…";
-export const SKILL_IMPORT_CLOSE_LABEL = "閉じる";
+/** 実行前の取り消し。画面を閉じる X はヘッダーが持つので、フッターは実行しない側の名前だけにする */
+export const SKILL_IMPORT_CANCEL_LABEL = "キャンセル";
 export const SKILL_IMPORT_NOTHING_NOTE = "インポートするスキルがありません。";
 export const SKILL_IMPORT_PLAN_HEADING = "インポートする内容";
 export const SKILL_IMPORT_SELECT_ALL_LABEL = "同名をすべて選ぶ";

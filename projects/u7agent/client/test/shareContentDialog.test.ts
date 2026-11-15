@@ -107,6 +107,13 @@ function actionTag(html: string, label: string): string {
   return button.slice(0, button.indexOf(">") + 1);
 }
 
+/** ヘッダーの閉じる (X)。文字を持たないので読み上げ名で引く */
+function closeButtonTag(html: string): string {
+  const tag = html.match(/<button[^>]*aria-label="閉じる"[^>]*>/)?.[0];
+  assert.ok(tag, "ヘッダーの閉じるが無い");
+  return tag;
+}
+
 /** ボタンの有無。無いことを固定するときに使う（`actionTag` は無ければ落ちる） */
 function hasAction(html: string, label: string): boolean {
   return (html.match(/<button[^>]*>[\s\S]*?<\/button>/g) ?? []).some(
@@ -387,12 +394,20 @@ test("受付直後: 一覧に active がまだ無い間も、閉じても公開�
   assert.ok(html.includes(SHARE_CLOSE_HINT));
 });
 
+// 閉じるは X だけ。文字を置かず、読み上げ名と hover の補助で意味を伝える
+test("ヘッダーの閉じるは X だけで、文字ラベルを置かない", () => {
+  const html = render(controller());
+  assert.ok(closeButtonTag(html).includes('title="閉じる"'));
+  assert.equal(hasAction(html, "閉じる"), false, "文字ラベルの閉じるを置かない");
+  assert.equal(actionTag(html, "キャンセル").includes("disabled"), false);
+});
+
 // 閉じるは塞がない (公開はサーバー側で続く)。ただし閉じたことでキャンセルされたと誤解させない
 test("受付中: 共有するを押せず、公開を受け付けたことを知らせる", () => {
   const html = render(controller({ submitting: true }));
   assert.match(html, /公開を受け付けています/);
   assert.ok(html.includes(SHARE_CLOSE_HINT));
-  assert.equal(actionTag(html, "閉じる").includes("disabled"), false);
+  assert.equal(closeButtonTag(html).includes('disabled="'), false);
   // 受付中は確定のボタンごと出さない (二重送信の経路を作らない)
   assert.equal(html.includes(">共有する<"), false);
   // 受付した後は確認の条件を出さない (同じディレクトリを二重に公開しない)
@@ -404,7 +419,7 @@ test("公開中: 状態だけを出し、開く / コピーはまだ出さず、
   assert.match(html, /公開中/);
   assert.ok(html.includes("共有 ID: "));
   assert.ok(html.includes(SHARE_CLOSE_HINT));
-  assert.equal(actionTag(html, "閉じる").includes("disabled"), false);
+  assert.equal(closeButtonTag(html).includes('disabled="'), false);
   assert.equal(html.includes("URL をコピー"), false);
   assert.equal(html.includes(">開く<"), false);
 });
