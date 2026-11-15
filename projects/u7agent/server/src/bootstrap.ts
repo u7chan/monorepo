@@ -389,7 +389,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     maskError,
   });
   await contentTrials.applyStored();
-  // Web 検索は「既定 ON / Exa」なので、行が無ければそのまま立ち、設定行とキーがあるときだけ写す。
+  // Web 検索は「既定 OFF / Exa」なので、行が無ければ無効のまま立ち、設定行とキーがあるときだけ写す。
   // コンテンツ生成と同じく、写しはロックの内側で差し替える (設定 API と起動時の適用を直列化する)
   const webSearchSettings = new WebSearchSettingsService({
     db: appDb,

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { spaceDirRel } from "./app-paths";
-import { BUILTIN_PROMPTS } from "./builtin-catalog";
+import { DEFAULT_GIT_IDENTITY } from "./git-identity";
 import { httpError, messageFor } from "./http";
 import {
   imageParameterBody,
@@ -22,7 +22,7 @@ import type { SpeechAudioFormat } from "./speech";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 45;
+export const APP_DB_SCHEMA_VERSION = 46;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -192,7 +192,7 @@ export interface NotificationSettingsRow {
 }
 
 /**
- * Web 検索の設定の保存行。**行が無い = 既定（有効 / Exa）**で、行があるときは enabled と provider が正。
+ * Web 検索の設定の保存行。**行が無い = 既定（無効 / Exa）**で、行があるときは enabled と provider が正。
  * 保存値は 0 / 1 のどちらかで、API では boolean に読み替える。provider は未知の値もそのまま返し、
  * 既定への畳み込みはサービス側で行う（docs/web-search.md）。
  */
@@ -665,7 +665,7 @@ CREATE TABLE IF NOT EXISTS secrets (
 
 /**
  * v11 -> v12 で足したテーブル。`web_search` の有効 / 無効と既定 provider を 1 行だけ持ち、
- * **行が無い = 既定（有効 / exa）**。コンテンツ生成（`content_settings`）と並ぶツール公開の状態で、
+ * **行が無い = 既定（無効 / exa）**。コンテンツ生成（`content_settings`）と並ぶツール公開の状態で、
  * 行があるときは `enabled` と `provider` が正。`provider` の列は v12 -> v13 で足した（docs/web-search.md）。
  */
 const WEB_SEARCH_SETTINGS_TABLE = `
@@ -730,7 +730,7 @@ CREATE TABLE IF NOT EXISTS title_summary_settings (
 
 /**
  * v44 -> v45 で足したテーブル。Git のグローバル identity を 1 行だけ持つ。
- * 行が無い = 未設定で、両方揃っているときだけサービスが identity として扱う。
+ * v45 -> v46 で初期 identity を入れ、行が無ければ未設定として読む (両方揃っているときだけ有効)。
  */
 const GIT_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS git_settings (
@@ -936,20 +936,6 @@ DROP TABLE IF EXISTS assistant_metrics;
 // 含める (行が消えても、再起動後の表示が SDK 記録値の概算へ戻るだけ)。speech_formats も同じ派生データで、
 // 消えても形式違いの 400 が 1 往復増えるだけ。
 // 列追加も #migrate() にだけ足し、既存行を書き換える移行はしない。
-
-/**
- * DB を新規作成したときだけ入れるサンプル定義 (作り直しでは入れない)。
- * 口調のように会話全体へ常時効かせたい指示はスキルではなくエージェントの systemPrompt に置く。
- */
-const SEED_AGENTS: AgentDef[] = [
-  {
-    id: "agent-zundamon",
-    name: "ずんだもん",
-    description: "「〜なのだ」「〜のだ」の語尾で話す",
-    systemPrompt:
-      "ずんだもんの口調で話してください。文末は「〜なのだ」「〜のだ」にし、一人称は「ボク」を使ってください。内容や説明の正確さは変えず、口調だけを変えてください。コード・コマンド・ファイルパス・エラーメッセージは書き換えず、そのまま示してください。",
-  },
-];
 
 type Row = Record<string, unknown>;
 
@@ -1475,13 +1461,13 @@ export class AppDb {
       db.exec("PRAGMA foreign_keys = ON");
       const instance = new AppDb(db, path, sanitize);
       const version = instance.#schemaVersion();
-      // user_version が 0 = 未初期化 (新規ファイル・0 バイトの残骸・メモリ DB)。このときだけ seed する
+      // user_version が 0 = 未初期化 (新規ファイル・0 バイトの残骸・メモリ DB)。このときだけ初期値を入れる
       if (version === 0) instance.#recreate(true);
       // 古い版は加算的に移行する (定義を消さない)。未知の新しい版だけ従来どおり作り直す
       else if (version < APP_DB_SCHEMA_VERSION) instance.#migrate();
       else if (version > APP_DB_SCHEMA_VERSION) instance.#recreate(false);
-      // 組み込みプロンプトは新規作成・移行・再起動のすべてで固定 ID へ同期する (自作行は上書きしない)
-      instance.#syncBuiltinPrompts();
+      // 廃止した組み込みプロンプトの行を、新規作成・移行・再起動のすべての経路で消す
+      instance.#removeBuiltinPrompts();
       return instance;
     } catch (error) {
       try {
@@ -1810,19 +1796,19 @@ export class AppDb {
     });
   }
 
-  /** DROP → CREATE → user_version → (未初期化なら) seed を 1 トランザクションで行う */
-  #recreate(seed: boolean): void {
+  /** DROP → CREATE → user_version → (新規なら) 初期値を 1 トランザクションで行う */
+  #recreate(fresh: boolean): void {
     this.#query((db) => db.exec("BEGIN"));
     try {
       this.#query((db) => db.exec(DROP_TABLES));
       this.#query((db) => db.exec(CREATE_TABLES));
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
-      if (seed) this.#seed();
+      if (fresh) this.#insertDefaultGitIdentity();
       this.#query((db) => db.exec("COMMIT"));
       // 既存 DB の作り直しはデータが消える経路なので警告として出す
-      if (seed) console.log(`[u7agent] app db created (schema ${APP_DB_SCHEMA_VERSION})`);
-      else console.error(`[u7agent] app db recreated without seed (schema ${APP_DB_SCHEMA_VERSION})`);
+      if (fresh) console.log(`[u7agent] app db created (schema ${APP_DB_SCHEMA_VERSION})`);
+      else console.error(`[u7agent] app db recreated without defaults (schema ${APP_DB_SCHEMA_VERSION})`);
     } catch (error) {
       try {
         this.#query((db) => db.exec("ROLLBACK"));
@@ -1833,23 +1819,30 @@ export class AppDb {
     }
   }
 
-  #seed(): void {
-    for (const agent of SEED_AGENTS) this.#saveAgent(agent);
+  /** 初期 identity。行が既にある DB は上書きしない (利用者が消した行を再挿入しない) */
+  #insertDefaultGitIdentity(): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO git_settings (id, userName, userEmail)
+           SELECT 1, ?, ? WHERE NOT EXISTS (SELECT 1 FROM git_settings WHERE id = 1)`,
+        )
+        .run(DEFAULT_GIT_IDENTITY.userName, DEFAULT_GIT_IDENTITY.userEmail),
+    );
   }
 
   /**
-   * 組み込みプロンプトを固定 ID で同期する。新規 DB・移行後・再起動のどの経路でも通るよう
-   * `open()` から呼ぶ (新規 DB 専用の #seed に置かない)。既存の自作行には当たらない条件を付ける。
+   * アプリ同梱の組み込みプロンプトを廃止したため、旧版が残した行と、その参照を消す。
+   * 新規 DB・移行後・再起動のどの経路でも通るよう `open()` から呼ぶ。
    */
-  #syncBuiltinPrompts(): void {
+  #removeBuiltinPrompts(): void {
     this.transaction(() => {
       this.#query((db) => {
-        const upsert = db.prepare(
-          `INSERT INTO prompts (id, kind, label, prompt) VALUES (?, 'builtin', ?, ?)
-           ON CONFLICT(id) DO UPDATE SET label = excluded.label, prompt = excluded.prompt
-           WHERE prompts.kind = 'builtin'`,
-        );
-        for (const entry of BUILTIN_PROMPTS) upsert.run(entry.id, entry.label, entry.prompt);
+        // 壊れた旧 DB は agents を持たないことがある。参照表が無ければ行も無いので、マスタだけ消す
+        if (this.#tableExists("agents") && this.#tableExists("agent_prompts")) {
+          db.exec("DELETE FROM agent_prompts WHERE promptId IN (SELECT id FROM prompts WHERE kind = 'builtin')");
+        }
+        db.exec("DELETE FROM prompts WHERE kind = 'builtin'");
       });
     });
   }
@@ -1902,8 +1895,9 @@ export class AppDb {
       this.#query((db) => db.exec(WEB_SEARCH_SETTINGS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_PROVIDER_KEYS_TABLE));
       this.#query((db) => db.exec(TITLE_SUMMARY_SETTINGS_TABLE));
-      // v44 -> v45: Git のグローバル identity。既存 DB は行の無い (未設定) 状態から始まる
+      // v44 -> v45: Git のグローバル identity。v45 -> v46 で初期 identity を入れる
       this.#query((db) => db.exec(GIT_SETTINGS_TABLE));
+      this.#insertDefaultGitIdentity();
       this.#query((db) => db.exec(SECRETS_TABLE));
       this.#query((db) => db.exec(SHARED_CONTENTS_TABLE));
       this.#query((db) => db.exec(CLOUDFLARE_SETTINGS_TABLE));
@@ -2707,9 +2701,9 @@ export class AppDb {
     this.#query((db) => db.prepare("DELETE FROM shared_contents WHERE id = ?").run(id));
   }
 
-  // --- web search settings (1 行だけ。行が無い = 既定（有効 / exa）) ---
+  // --- web search settings (1 行だけ。行が無い = 既定（無効 / exa）) ---
 
-  /** 行が無ければ undefined = 既定（有効 / exa）。0 / 1 以外へ手編集された行も 1 として読む */
+  /** 行が無ければ undefined = 既定（無効 / exa）。0 / 1 以外へ手編集された行も 1 として読む */
   readWebSearchSettings(): WebSearchSettingsRow | undefined {
     const row = this.#query(
       (db) => db.prepare("SELECT * FROM web_search_settings WHERE id = 1").get() as Row | undefined,
@@ -3026,7 +3020,7 @@ export class AppDb {
     this.transaction(() => this.#saveAgent(agent));
   }
 
-  /** 既存のトランザクション内から呼ぶ本体 (#seed など)。単体で呼ばない */
+  /** 既存のトランザクション内から呼ぶ本体 (移行など)。単体で呼ばない */
   #saveAgent(agent: StoredAgent): void {
     this.#query((db) => {
       db.prepare(

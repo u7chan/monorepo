@@ -224,11 +224,8 @@ test("applyDefinitions は削除 → 追加の順で適用し、使用中のプ�
     assert.deepEqual(db.getAgent("agent-2")?.promptIds, ["prompt-new"]);
     assert.equal(db.getAgent("agent-1"), undefined);
     assert.deepEqual(
-      db
-        .listAgents()
-        .map((row) => row.id)
-        .sort(),
-      ["agent-2", "agent-zundamon"],
+      db.listAgents().map((row) => row.id),
+      ["agent-2"],
     );
   } finally {
     db.close();
@@ -244,8 +241,7 @@ test("deleteAllDefinitions は使用中のプロンプトがあってもエー�
     assert.ok(removed.agents >= 1);
     assert.equal(removed.prompts, 1);
     assert.equal(db.listAgents().length, 0);
-    // 組み込みプロンプトは残る
-    assert.ok(db.listPrompts().some((row) => row.kind === "builtin"));
+    assert.deepEqual(db.listPrompts(), []);
   } finally {
     db.close();
   }

@@ -15,6 +15,12 @@ export interface GitIdentity {
   userEmail: string;
 }
 
+/** 新規 DB と v45 以前から移行した DB に入れる初期 identity。消したあとは再挿入しない */
+export const DEFAULT_GIT_IDENTITY: GitIdentity = {
+  userName: "u7agent",
+  userEmail: "u7agent@example.com",
+};
+
 /** 制御文字・NUL・改行は INI の行構造と子プロセスの env を壊すため、値として受け付けない */
 // oxlint-disable-next-line no-control-regex -- INI の行構造と子プロセスの env を壊す値を意図的に検出する
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;

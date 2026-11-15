@@ -1,18 +1,18 @@
 # エージェント / スキル API
 
-規約と索引は [api.md](api.md) を参照する。エージェント定義は `server/src/agents.ts` のカタログで、実体はアプリデータの SQLite へ保存し、再起動後も残る（[persistence.md](persistence.md)）。スキルはファイル（`.agents/skills`）と組み込みだけを正とし、GUI で登録する DB カタログは無い。本文中の JSON の `id` は形を示す任意の例で、ビルトインは汎用アシスタント `agent-general`。初期状態はユーザー定義のサンプル `agent-zundamon`（ずんだもん）1 体。
+規約と索引は [api.md](api.md) を参照する。エージェント定義は `server/src/agents.ts` のカタログで、実体はアプリデータの SQLite へ保存し、再起動後も残る（[persistence.md](persistence.md)）。スキルはファイル（`.agents/skills`）と組み込みだけを正とし、GUI で登録する DB カタログは無い。本文中の JSON の `id` は形を示す任意の例で、ビルトインは汎用アシスタント `agent-general`。初期状態のユーザー定義エージェントと定型プロンプトは空。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）の一覧（同梱の組み込みスキルを `builtinSkills`、アプリが扱うツールを `tools` で含む） |
 | POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, commonSkillNames?, builtinSkillNames?, toolNames?, icon?, model?, thinkingLevel?, promptIds? }` |
 | PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` / `commonSkillNames` / `builtinSkillNames` / `toolNames` の `null` と `promptIds: []` は指定解除。ビルトインは 400） |
-| GET | `/api/prompts` | 定型プロンプトのマスタ一覧 `{ prompts }`（使用先 `usedBy` つき、組み込みが先で自作は保存した順） |
+| GET | `/api/prompts` | 定型プロンプトのマスタ一覧 `{ prompts }`（使用先 `usedBy` つき、保存した順） |
 | POST | `/api/prompts` | 自作マスタの作成 `{ label, prompt }`（種別と ID はサーバーが決める） |
-| PATCH | `/api/prompts/order` | 表示順の保存 `{ ids }`（応答は並べ替え後の `{ prompts }`。組み込みは対象外） |
+| PATCH | `/api/prompts/order` | 表示順の保存 `{ ids }`（応答は並べ替え後の `{ prompts }`） |
 | GET | `/api/prompts/:id` | マスタ 1 件 `{ prompt }` |
-| PATCH / PUT | `/api/prompts/:id` | 自作マスタの更新（キー省略は保持。組み込みは 400） |
-| DELETE | `/api/prompts/:id` | 自作マスタの削除（使用中は 409 + `usedBy`、組み込みは 400、未知は 404） |
+| PATCH / PUT | `/api/prompts/:id` | 自作マスタの更新（キー省略は保持） |
+| DELETE | `/api/prompts/:id` | 自作マスタの削除（使用中は 409 + `usedBy`、未知は 404） |
 | PATCH | `/api/agents/order` | 表示順の保存 `{ ids }`（応答は並べ替え後の `{ agents }`。ビルトインは対象外） |
 | DELETE | `/api/agents/:id` | エージェント削除（ビルトインは 400。ユーザー定義は 0 件まで減らせる） |
 | GET | `/api/skills/files` | ファイルスキル（`.agents/skills`）と組み込みスキルの一覧 |
@@ -28,7 +28,7 @@
 - 保存は全件を 1 トランザクションで書き直し、途中で失敗したら 1 つも書かない。件数の上限は body スキーマが持つ。
 
 ```json
-{ "ids": ["agent-example", "agent-zundamon"] }
+{ "ids": ["agent-example", "agent-example-2"] }
 ```
 
 ## ビルトインの汎用エージェント
@@ -41,7 +41,7 @@
 - `POST /api/sessions` の `agentId` 省略時はこのビルトインを使うので、ユーザー定義が 0 件でもセッションを作れる。
 - GET の応答は同梱の組み込みスキルを `builtinSkills`（各件 `{ name, description, version }`）でも返す。これは全エージェントへ注がれる **ambient** なスキルで、既定は全部 ON。外すのはエージェント定義の `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。エージェント編集のスキル欄はこれをチェック可能な行として出し、外した分はそのエージェントの会話へ読み込まれない。ビルトインの閲覧ビューは許可リストを持たない（= 常に全部 ON）ので、チェックを出さず共通 / 組み込みを読み取り専用で並べる。`/api/skills/files` はサンドボックス未設定で 503 になるため使わず、BFF 起動時に読み込み済みの registry をそのまま載せる。
 - GET の応答はアプリが扱うツールも `tools`（各件 `{ name, description, group, available, reason? }`）で返す。`group` はサンドボックスで動く `sandbox` と BFF ローカルの `app` で、画面のグループ分けに使う。`available` と `reason` は**取得時点のアプリ側の実効**（`PI_AGENT_TOOLS` / コンテンツ生成のキー / Web 検索の実行時トグル / `serve` の実体 / `ask_user` / `request_network_access` / `investigate`）で、エージェントの許可リストは掛けない（[ツール許可リスト](#ツール許可リスト)）。理由の文言はクライアント側の対応表が持ち、応答にはコードだけを載せる。
-- 初期状態の `agents` には、ユーザー定義のサンプルとしてずんだもん `agent-zundamon`（`systemPrompt` に語尾の指示）が 1 体入る。`DELETE /api/agents/:id` で削除できる。サンプルは DB を新規作成したときだけ入るため、削除した定義は再起動でも戻らない。
+- 初期状態の `agents` は空。利用者が作成した定義だけが保存され、再起動後も残る。
 
 ```json
 {
@@ -49,25 +49,15 @@
     "id": "agent-general",
     "name": "汎用アシスタント",
     "description": "役割や口調を設定していない既定のエージェント",
-    "systemPrompt": "",
-    "prompts": [
-      { "id": "prompt-builtin-project-overview", "kind": "builtin", "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }
-    ]
+    "systemPrompt": ""
   },
   "builtinSkills": [{ "name": "skill-creator", "description": "スキルの作成を依頼されたときに使う", "version": "3" }],
   "tools": [
     { "name": "read", "description": "ファイルの内容を読む（スキル本文の読み込みも含む）", "group": "sandbox", "available": true },
     { "name": "web_search", "description": "Web を検索して上位ページの抜粋を取る", "group": "app", "available": false, "reason": "app_disabled" }
   ],
-  "prompts": [{ "id": "prompt-builtin-project-overview", "kind": "builtin", "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }],
-  "agents": [
-    {
-      "id": "agent-zundamon",
-      "name": "ずんだもん",
-      "description": "「〜なのだ」「〜のだ」の語尾で話す",
-      "systemPrompt": "ずんだもんの口調で話してください。…"
-    }
-  ]
+  "prompts": [],
+  "agents": []
 }
 ```
 
@@ -208,19 +198,19 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 
 空の会話に出す定型文は、エージェントから独立したアプリ共通のマスタ（`prompts`）として持つ。エージェントはマスタを順序付きの `promptIds` で参照し、応答では解決済みの `prompts`（`{ id, kind, label, prompt }` の配列）として載る。空の会話の firstview に `label` のボタンとして並び、押すと入力欄のチップになり、送信時に本文と結合される（セッションタイトルの元は結合前の本文）。
 
-- マスタの種別は `builtin` と `custom`。組み込みは閲覧・参照のみで、編集・削除は 400。同じ本文を使いたいときは自作として登録する。
+- マスタの種別は `custom`。アプリ同梱の組み込みマスタは持たず、旧版の `builtin` 行は起動時に消す。
 - `GET /api/agents` の `prompts` は選択肢（全マスタ）で、`agents[].prompts` は各エージェントが参照している解決済みの値。どちらも並びはサーバーが決め、表示の同一性は `id`（同じ本文の別マスタを本文でまとめない）。
-- エージェントの作成・更新は `promptIds` を受け、**未指定は現状維持、`[]` は全解除**。未知・重複・上限超過は保存の前に 400 で断り、部分保存しない。新しい自作エージェントへ組み込みを自動では足さない。
+- エージェントの作成・更新は `promptIds` を受け、**未指定は現状維持、`[]` は全解除**。未知・重複・上限超過は保存の前に 400 で断り、部分保存しない。
 - 旧 `suggestions` の書き込みは 400（`suggestions is no longer supported; use promptIds`）。黙って捨てて保存成功と誤認させない。
 - マスタは `label` / `prompt` を trim して保存し、上限はそれぞれ 60 / 500 文字（超過は切らずに 400）。**作成は両項目が必須**で、未指定・空文字は保存前に 400（更新は省略した項目を現在値のまま保つ）。一意制約は付けず、同文の別マスタを持てる。マスタ全体の件数に上限は掛けず、エージェント 1 体の参照上限だけを DB と API の両方で守る。
 - 使用中の削除は 409 で、応答の `usedBy`（`{ agentId, agentName, builtin }`）に使用先を返す。データは変更しない。エージェントを削除してもマスタは残り、参照だけが外部キーの `ON DELETE CASCADE` で消える。
-- 組み込みの汎用アシスタントは固定 ID の 3 件をコード上の一覧から参照する（`agent_prompts` の行は持たず、外部キーは弱めない）。この参照は変更できず、`usedBy` では `builtin: true` として出る。
+- 組み込みの汎用アシスタントは定型プロンプトを参照しない。`usedBy` の `builtin` は旧クライアントとの互換のため形だけ残り、現在は常に `false`。
 
 ```json
 {
   "id": "agent-example",
   "name": "コード実装",
-  "promptIds": ["prompt-builtin-project-overview", "prompt-example-custom"]
+  "promptIds": ["prompt-example-custom", "prompt-example-custom-2"]
 }
 ```
 
@@ -229,8 +219,8 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 一覧の並びは端末ごとの表示設定ではなく、マスタのプロパティとしてアプリデータへ保存する。正をサーバーの配列順にすれば、設定一覧とエージェントの定型タブの候補が同じ順で揃う（[persistence.md](persistence.md#アプリデータsqlite)）。
 
 - GET の `prompts` は保存された並び順で返る。`sortOrder` は app-db の内部に閉じ、`PromptDef` と応答形は変えない。
-- 組み込みは同梱の定義順で先頭固定とし、並べ替えの対象にしない（`ids` に渡しても捨てる）。自作だけが動く。
-- `ids` の正規化はエージェントの表示順と同じ: 採用するのは既存の自作の id だけで、未知の id・重複・組み込みは捨て、渡されなかった行は元の相対順で末尾に回す。`[]` と全件未知は現行順のまま。応答は正規化後の一覧で、これが以後の GET と一致する。
+- 組み込みマスタは持たないため、並べ替えの対象はすべて自作になる。
+- `ids` の正規化はエージェントの表示順と同じ: 採用するのは既存の自作の id だけで、未知の id・重複は捨て、渡されなかった行は元の相対順で末尾に回す。`[]` と全件未知は現行順のまま。応答は正規化後の一覧で、これが以後の GET と一致する。
 - 追加したマスタは末尾に付く。更新（PATCH / PUT）とエージェントの参照の保存では位置を動かさない。
 - 保存は全件を 1 トランザクションで書き直し、途中で失敗したら 1 つも書かない。400 = 本文が不正、503 = DB 障害（[エージェントの表示順](#エージェントの表示順) と同じ方針）。
 

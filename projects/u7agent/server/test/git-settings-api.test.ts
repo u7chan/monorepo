@@ -27,38 +27,41 @@ async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
-test("GET は未設定、PUT は保存して次の bash 用の identity になり、DELETE は冪等に戻す", async () => {
+test("GET は初期 identity、PUT は保存して次の bash 用の identity になり、DELETE は冪等に未設定へ戻す", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi();
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       assert.deepEqual(await jsonBody(await bff.app.request("/api/settings/git")), {
-        userName: null,
-        userEmail: null,
-        configured: false,
+        userName: "u7agent",
+        userEmail: "u7agent@example.com",
+        configured: true,
       });
       assert.ok(pi.gitIdentitySources.length > 0, "setGitIdentity が注入されていない");
-      assert.equal(pi.gitIdentitySources.at(-1)?.identityForExec(), null);
+      assert.deepEqual(pi.gitIdentitySources.at(-1)?.identityForExec(), {
+        userName: "u7agent",
+        userEmail: "u7agent@example.com",
+      });
 
       const saved = await jsonBody(
         await bff.app.request(
           "/api/settings/git",
-          jsonRequest("PUT", { userName: "u7chan", userEmail: "u7chan@example.com" }),
+          jsonRequest("PUT", { userName: "u7agent2", userEmail: "u7agent2@example.com" }),
         ),
       );
       assert.deepEqual(saved, {
-        userName: "u7chan",
-        userEmail: "u7chan@example.com",
+        userName: "u7agent2",
+        userEmail: "u7agent2@example.com",
         configured: true,
         state: "applied",
       });
       assert.deepEqual(pi.gitIdentitySources.at(-1)?.identityForExec(), {
-        userName: "u7chan",
-        userEmail: "u7chan@example.com",
+        userName: "u7agent2",
+        userEmail: "u7agent2@example.com",
       });
       assert.deepEqual(await jsonBody(await bff.app.request("/api/settings/git")), {
-        userName: "u7chan",
-        userEmail: "u7chan@example.com",
+        userName: "u7agent2",
+        userEmail: "u7agent2@example.com",
         configured: true,
       });
 
@@ -95,9 +98,9 @@ test("片方だけ・空・制御文字・形状違反は 400 で保存しない
         assert.ok(((await response.json()) as { error?: string }).error);
       }
       assert.deepEqual(await jsonBody(await bff.app.request("/api/settings/git")), {
-        userName: null,
-        userEmail: null,
-        configured: false,
+        userName: "u7agent",
+        userEmail: "u7agent@example.com",
+        configured: true,
       });
     } finally {
       await bff.close();

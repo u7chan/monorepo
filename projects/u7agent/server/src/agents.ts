@@ -1,16 +1,10 @@
 /**
- * エージェントカタログ。定義はアプリデータの SQLite (app-db.ts) に保存し、
- * 再起動しても残る。サンプル定義は DB を新規作成したときだけ入る (app-db.ts の SEED_AGENTS)。
+ * エージェントカタログ。定義はアプリデータの SQLite (app-db.ts) に保存し、再起動しても残る。
  * スキルはファイル (`.agents/skills`) を正とし、このカタログは定義を持たない (docs/api-catalog.md)。
  */
 import { randomUUID } from "node:crypto";
 import { AppDb, type StoredAgent } from "./app-db";
-import {
-  BUILTIN_AGENT_DESCRIPTION,
-  BUILTIN_AGENT_ID,
-  BUILTIN_AGENT_NAME,
-  BUILTIN_AGENT_PROMPT_IDS,
-} from "./builtin-catalog";
+import { BUILTIN_AGENT_DESCRIPTION, BUILTIN_AGENT_ID, BUILTIN_AGENT_NAME } from "./builtin-catalog";
 import { httpError } from "./http";
 import { createPromptCatalog, type PromptCatalog } from "./prompts";
 import { SKILL_NAME_MAX, SKILL_NAMES_MAX, TOOL_NAME_MAX, TOOL_NAMES_MAX, ThinkingLevelSchema } from "./schema";
@@ -36,9 +30,8 @@ type DefinitionInput = unknown;
 /**
  * 常に 1 体居る汎用アシスタント。DB の行にはせず、ユーザー定義が 0 件でもセッションを
  * 作れる保証をこの分離で持つ (ユーザー定義の一覧には現れず、削除も編集もできない)。
- * 既定のエージェントはスキルを割り当てず、共通 / 組み込みは許可リスト未指定 = 全部 ON になる。
- * 閲覧ビューはその実効の一覧を読み取り専用で出す (なりきりは SEED_AGENTS のサンプルとして別に置く)。
- * 定型プロンプトは組み込みマスタを固定 ID で参照し、本文をここへ二重に定義しない。
+ * 既定のエージェントはスキルも定型プロンプトも割り当てず、共通 / 組み込みスキルは
+ * 許可リスト未指定 = 全部 ON になる。閲覧ビューはその実効の一覧を読み取り専用で出す。
  */
 const BUILTIN_AGENT: AgentRecord = {
   id: BUILTIN_AGENT_ID,
@@ -49,8 +42,6 @@ const BUILTIN_AGENT: AgentRecord = {
   // (スコープ別の 2 キーをどちらも false にし、`allowsNaturalInvocation` でも id で倒す)
   allowNaturalInvocationBuiltin: false,
   allowNaturalInvocationFile: false,
-  // 固定参照。`agent_prompts` には書かず、解決はカタログ側で行う (外部キーは弱めない)
-  promptIds: [...BUILTIN_AGENT_PROMPT_IDS],
 };
 
 function copy<T>(value: T): T {

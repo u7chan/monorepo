@@ -122,11 +122,11 @@ function providers(tavilyConfigured: boolean) {
   ];
 }
 
-test("行が無い = 既定（有効 / Exa）で、GET は provider 一覧と固定文言も返す", async () => {
+test("行が無い = 既定（無効 / Exa）で、GET は provider 一覧と固定文言も返す", async () => {
   const db = new FakeWebSearchDb();
   const { service, injected, current } = openService(db);
   assert.deepEqual(service.settings(), {
-    enabled: true,
+    enabled: false,
     provider: "exa",
     providers: providers(false),
     disabledMessage: WEB_SEARCH_DISABLED_MESSAGE,
@@ -134,7 +134,7 @@ test("行が無い = 既定（有効 / Exa）で、GET は provider 一覧と固
 
   await service.applyStored();
   assert.equal(injected.length, 1, "起動時にも写す");
-  assert.equal(current()?.readEnabled(), true);
+  assert.equal(current()?.readEnabled(), false);
   assert.equal(current()?.readProvider(), "exa");
   assert.equal(current()?.readApiKey("tavily"), undefined);
 });
@@ -143,16 +143,16 @@ test("PUT で保存し、同じサービスからは次の GET と写しが変�
   const db = new FakeWebSearchDb();
   const { service, injected, current } = openService(db);
 
-  const off = await service.putEnabled(false);
-  assert.equal(off.status, 200);
-  assert.deepEqual(db.row, { enabled: false, provider: "exa" }, "保存は 0 / 1 ではなく boolean で受ける");
-  assert.equal(current()?.readEnabled(), false, "OFF が実行時の写しへ入る");
-  assert.equal(service.settings().enabled, false);
-
   const on = await service.putEnabled(true);
   assert.equal(on.status, 200);
-  assert.deepEqual(db.row, { enabled: true, provider: "exa" });
-  assert.equal(current()?.readEnabled(), true, "ON に戻すと同じ写しが true を返す");
+  assert.deepEqual(db.row, { enabled: true, provider: "exa" }, "保存は 0 / 1 ではなく boolean で受ける");
+  assert.equal(current()?.readEnabled(), true, "ON が実行時の写しへ入る");
+  assert.equal(service.settings().enabled, true);
+
+  const off = await service.putEnabled(false);
+  assert.equal(off.status, 200);
+  assert.deepEqual(db.row, { enabled: false, provider: "exa" });
+  assert.equal(current()?.readEnabled(), false, "OFF に戻すと同じ写しが false を返す");
   assert.equal(injected.length, 2, "注入は 1 回の PUT につき 1 回");
 });
 
@@ -284,7 +284,7 @@ test("行を読めないときの更新は 503 not_stored で、写しも変え�
   assert.throws(() => service.settings());
 });
 
-test("起動時に DB を読めないときは既定（有効 / Exa）で立ち、警告だけを残す", async () => {
+test("起動時に DB を読めないときは既定（無効 / Exa）で立ち、警告だけを残す", async () => {
   const db = new FakeWebSearchDb();
   db.failRead = true;
   const errors: string[] = [];
@@ -294,7 +294,7 @@ test("起動時に DB を読めないときは既定（有効 / Exa）で立ち�
   });
 
   await service.applyStored();
-  assert.equal(current()?.readEnabled(), true, "読めないだけで検索を黙って止めない");
+  assert.equal(current()?.readEnabled(), false, "読めないときは既定の無効へ倒す");
   assert.equal(current()?.readProvider(), "exa");
   assert.equal(errors.length, 1, "ログには残す");
 });
@@ -313,7 +313,7 @@ test("起動時に保存済みの provider とキーを写し、キーは保護�
   assert.equal(current()?.readApiKey("tavily"), SECRET);
 });
 
-test("保存値の provider が未知でも既定へ畳んで立ち、検索は止めない", async () => {
+test("保存値の provider が未知でも既定へ畳んで立つ", async () => {
   const db = new FakeWebSearchDb();
   db.row = { enabled: true, provider: "brave" };
   const { service, current } = openService(db);

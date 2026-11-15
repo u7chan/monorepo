@@ -9,7 +9,6 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { AppDb, APP_DB_FILENAME, APP_DB_SCHEMA_VERSION } from "../src/app-db";
 import { createAgentCatalog } from "../src/agents";
-import { BUILTIN_AGENT_PROMPT_IDS, BUILTIN_PROMPTS } from "../src/builtin-catalog";
 import { createPromptCatalog } from "../src/prompts";
 import { AGENT_PROMPT_LIMIT } from "../src/schema";
 
@@ -28,75 +27,47 @@ function memoryCatalog() {
   return { db, prompts, catalog: createAgentCatalog({ db, prompts }) };
 }
 
-test("a new db ships the built-in masters once and never duplicates them on reopen", () => {
+test("a new db has no built-in prompt masters and the removal does not come back on reopen", () => {
   const dir = tempStoreDir();
   try {
     const first = AppDb.open({ storeDir: dir });
-    assert.deepEqual(
-      first.listPrompts().map((prompt) => [prompt.kind, prompt.id]),
-      BUILTIN_PROMPTS.map((prompt) => ["builtin", prompt.id]),
-    );
+    assert.deepEqual(first.listPrompts(), []);
     first.close();
 
-    // 再起動しても組み込み行は増えない (固定 ID への同期)
     const second = AppDb.open({ storeDir: dir });
-    assert.deepEqual(
-      second.listPrompts().map((prompt) => prompt.id),
-      [...BUILTIN_AGENT_PROMPT_IDS],
-    );
+    assert.deepEqual(second.listPrompts(), []);
     second.close();
 
-    // 古いビルドが作り直す経路 (#recreate) でも同じ
+    // 古いビルドが作り直す経路 (#recreate) でも組み込み行を作らない
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
     raw.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION + 1}`);
     raw.close();
     const recreated = AppDb.open({ storeDir: dir });
-    assert.deepEqual(
-      recreated.listPrompts().map((prompt) => prompt.id),
-      [...BUILTIN_AGENT_PROMPT_IDS],
-    );
+    assert.deepEqual(recreated.listPrompts(), []);
     recreated.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("built-in rows keep the bundled content and are never overwritten or removed through the catalog", () => {
+test("opening the db removes retired built-in rows and their agent references", () => {
   const dir = tempStoreDir();
   try {
-    const [first] = BUILTIN_PROMPTS;
-    // 組み込み ID の行が手で custom に変えられていても、起動時の同期は上書きしない (種別が違えば触らない)
-    AppDb.open({ storeDir: dir }).close();
-    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
-    raw
-      .prepare("UPDATE prompts SET kind = 'custom', label = ?, prompt = ? WHERE id = ?")
-      .run("手元の行", "手元の本文", first.id);
-    raw.close();
+    const first = AppDb.open({ storeDir: dir });
+    first.insertPrompt({ id: "prompt-builtin-old", kind: "builtin", label: "旧", prompt: "旧い本文" });
+    first.saveAgent({
+      id: "agent-old",
+      name: "旧",
+      description: "",
+      systemPrompt: "",
+      promptIds: ["prompt-builtin-old"],
+    });
+    first.close();
 
     const reopened = AppDb.open({ storeDir: dir });
-    assert.deepEqual(reopened.getPrompt(first.id), {
-      id: first.id,
-      kind: "custom",
-      label: "手元の行",
-      prompt: "手元の本文",
-    });
+    assert.equal(reopened.getPrompt("prompt-builtin-old"), undefined);
+    assert.equal(reopened.getAgent("agent-old")?.promptIds, undefined);
     reopened.close();
-
-    const memory = AppDb.open({ storeDir: null });
-    const catalog = createPromptCatalog({ db: memory });
-    assert.throws(
-      () => catalog.update(BUILTIN_PROMPTS[0].id, { label: "書き換え" }),
-      (error: Error & { statusCode?: number }) => error.statusCode === 400,
-    );
-    assert.throws(
-      () => catalog.remove(BUILTIN_PROMPTS[0].id),
-      (error: Error & { statusCode?: number }) => error.statusCode === 400,
-    );
-    assert.deepEqual(
-      catalog.list().map((prompt) => prompt.prompt),
-      BUILTIN_PROMPTS.map((prompt) => prompt.prompt),
-    );
-    memory.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -121,7 +92,7 @@ test("prompt references keep their order across reopen and never merge same-cont
 
     const second = AppDb.open({ storeDir: dir });
     assert.deepEqual(second.getAgent("agent-order")?.promptIds, [c.id, a.id, b.id]);
-    assert.equal(new Set(second.listPrompts().map((prompt) => prompt.id)).size, 3 + BUILTIN_PROMPTS.length);
+    assert.equal(new Set(second.listPrompts().map((prompt) => prompt.id)).size, 3);
     second.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -464,7 +435,7 @@ test("a too-long or empty stored suggestion fails the migration instead of being
   }
 });
 
-test("prompt masters can be reordered without moving built-ins, and the order survives reopen", () => {
+test("prompt masters can be reordered, and the order survives reopen", () => {
   const dir = tempStoreDir();
   try {
     const first = AppDb.open({ storeDir: dir });
@@ -472,37 +443,36 @@ test("prompt masters can be reordered without moving built-ins, and the order su
     const a = prompts.create({ label: "A", prompt: "A の本文" });
     const b = prompts.create({ label: "B", prompt: "B の本文" });
     const c = prompts.create({ label: "C", prompt: "C の本文" });
-    const builtinIds = BUILTIN_PROMPTS.map((prompt) => prompt.id);
 
-    // 未知の id・重複・組み込みは捨て、渡されなかった自作は元の相対順で末尾へ回す
-    const reordered = prompts.reorder([c.id, "prompt-missing", b.id, c.id, builtinIds[0]]);
+    // 未知の id・重複は捨て、渡されなかった自作は元の相対順で末尾へ回す
+    const reordered = prompts.reorder([c.id, "prompt-missing", b.id, c.id]);
     assert.deepEqual(
       reordered.map((prompt) => prompt.id),
-      [...builtinIds, c.id, b.id, a.id],
+      [c.id, b.id, a.id],
     );
-    // 組み込みは並べ替えの対象にしない (先頭固定)
+    // 未知の id だけでは現行順のまま
     assert.deepEqual(
-      prompts.reorder([builtinIds[2], a.id]).map((prompt) => prompt.id),
-      [...builtinIds, a.id, c.id, b.id],
+      prompts.reorder(["prompt-missing"]).map((prompt) => prompt.id),
+      [c.id, b.id, a.id],
     );
-    // 空の指定と全件未知は現行順のまま
+    // 空の指定も現行順のまま
     assert.deepEqual(
       prompts.reorder([]).map((prompt) => prompt.id),
-      [...builtinIds, a.id, c.id, b.id],
+      [c.id, b.id, a.id],
     );
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
     assert.deepEqual(
       second.listPrompts().map((prompt) => prompt.id),
-      [...builtinIds, a.id, c.id, b.id],
+      [c.id, b.id, a.id],
       "再起動しても保存した順を保つ",
     );
     const reopened = createPromptCatalog({ db: second });
     const d = reopened.create({ label: "D", prompt: "D の本文" });
     assert.deepEqual(
       reopened.list().map((prompt) => prompt.id),
-      [...builtinIds, a.id, c.id, b.id, d.id],
+      [c.id, b.id, a.id, d.id],
       "追加したマスタは末尾に付く",
     );
     second.close();

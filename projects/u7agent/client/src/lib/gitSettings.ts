@@ -6,6 +6,10 @@
 export const GIT_USER_NAME_MAX_LENGTH = 100;
 export const GIT_USER_EMAIL_MAX_LENGTH = 254;
 
+/** 空欄の例。サーバーが新規 DB に入れる初期 identity と同じ値にする */
+export const GIT_IDENTITY_PLACEHOLDER_NAME = "u7agent";
+export const GIT_IDENTITY_PLACEHOLDER_EMAIL = "u7agent@example.com";
+
 /** 制御文字・NUL・改行と `<` `>` は server と同じく受け付けない */
 // oxlint-disable-next-line no-control-regex -- server と同じ規則で、INI と env を壊す値を意図的に検出する
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;

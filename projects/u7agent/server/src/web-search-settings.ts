@@ -34,7 +34,7 @@ export const WEB_SEARCH_RUNTIME_UNAVAILABLE_MESSAGE =
   "ランタイムが利用できないため、Web 検索の APIキーを変更できません";
 
 export interface WebSearchSettingsDb {
-  /** 行が無ければ undefined = 既定（有効 / exa） */
+  /** 行が無ければ undefined = 既定（無効 / exa） */
   readWebSearchSettings(): WebSearchSettingsRow | undefined;
   saveWebSearchSettings(settings: WebSearchSettingsRow): void;
   /** 行が無ければ undefined = キー未設定。値は暗号文で、復号はサービスが行う */
@@ -77,9 +77,9 @@ export class WebSearchSettingsService {
   #retainSecret: (value: string) => void;
   #maskError: (text: string) => string;
   #lock = new MutationLock();
-  #state: WebSearchState = { enabled: true, provider: DEFAULT_WEB_SEARCH_PROVIDER, keys: new Map() };
+  #state: WebSearchState = { enabled: false, provider: DEFAULT_WEB_SEARCH_PROVIDER, keys: new Map() };
   #runtime: WebSearchRuntimeConfig = {
-    readEnabled: () => true,
+    readEnabled: () => false,
     readProvider: () => DEFAULT_WEB_SEARCH_PROVIDER,
     readApiKey: () => undefined,
   };
@@ -100,7 +100,7 @@ export class WebSearchSettingsService {
   /** GET。DB の失敗はそのまま 503 として伝える（設定画面が気付ける経路を残す）。キー値は返さない */
   settings(): WebSearchSettingsResponse {
     const row = this.#db.readWebSearchSettings();
-    return this.#response(row?.enabled ?? true, webSearchProviderIdOf(row?.provider), (provider) => ({
+    return this.#response(row?.enabled ?? false, webSearchProviderIdOf(row?.provider), (provider) => ({
       // 暗号文の有無だけを読み、復号はしない
       stored: this.#db.readWebSearchProviderKey(provider) !== undefined,
       state: this.#secretStates.get(provider) ?? appSecretUnevaluated(),
@@ -126,7 +126,7 @@ export class WebSearchSettingsService {
       const id = this.#knownProvider(provider);
       const stored = this.#readStored();
       if (!stored.ok) return { status: 503, error: WEB_SEARCH_SETTINGS_NOT_STORED_MESSAGE };
-      const enabled = stored.row?.enabled ?? true;
+      const enabled = stored.row?.enabled ?? false;
       if (!this.#save({ enabled, provider: id })) {
         return { status: 503, error: WEB_SEARCH_SETTINGS_NOT_STORED_MESSAGE };
       }
@@ -185,7 +185,7 @@ export class WebSearchSettingsService {
     });
   }
 
-  /** DB を読めないだけで検索を黙って止めない（行が無い = 既定と同じ扱いにする） */
+  /** 起動時に DB を読む。読めないときは既定（無効 / Exa）へ倒し、警告だけを残す */
   async applyStored(): Promise<void> {
     await this.#lock.run(async () => {
       let row: WebSearchSettingsRow | undefined;
@@ -203,7 +203,7 @@ export class WebSearchSettingsService {
         // 途中まで復号できたキーも保護対象へは残す（写しは既定へ倒すだけで、値は捨てない）
         console.error(`[u7agent] web search settings unavailable: ${this.#maskError(messageFor(error))}`);
       }
-      this.#state = { enabled: row?.enabled ?? true, provider: webSearchProviderIdOf(row?.provider), keys };
+      this.#state = { enabled: row?.enabled ?? false, provider: webSearchProviderIdOf(row?.provider), keys };
       this.#apply();
     });
   }

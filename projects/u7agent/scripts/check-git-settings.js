@@ -8,7 +8,8 @@
  *   pw.sh run-code --filename=projects/u7agent/scripts/check-git-settings.js
  *   pw.sh close
  *
- * アプリ DB は一時ストアなので、何度でも最初の「未設定」から再現できる。
+ * アプリ DB は一時ストアなので、何度でも再現できる。新規 DB の初期 identity はこのスクリプトの
+ * 冒頭で DELETE し、以降は「未設定」から始める。
  * 予約名の既存行（アップグレード前の DB）は API が予約名を拒否するため、fixture の store に直接 1 行入れておく:
  *   SID=$(curl -s http://127.0.0.1:17980/api/sessions | jq -r '.sessions[0].sessionId')
  *   node -e 'const {DatabaseSync}=require("node:sqlite");const db=new DatabaseSync(process.argv[1]);db.prepare(
@@ -33,6 +34,18 @@ async function checkGitSettings(page) {
     return { status: response.status(), body };
   };
 
+  // 新規 DB は初期 identity を持つため、未設定の受入は明示的に消してから始める
+  const initialDefault = await api("/api/settings/git");
+  check(
+    initialDefault.body?.userName === "u7agent" &&
+      initialDefault.body?.userEmail === "u7agent@example.com" &&
+      initialDefault.body?.configured === true,
+    `初期 identity が u7agent ではない: ${JSON.stringify(initialDefault.body)}`,
+  );
+  await page.request.delete(`${base}/api/settings/git`, {
+    headers: { Origin: base, "Sec-Fetch-Site": "same-origin" },
+  });
+
   // 1. 未設定のバッジとフォーム
   await page.goto(`${base}/settings/git`);
   await page.getByRole("heading", { name: "Git", exact: true }).waitFor({ timeout: 10_000 });
@@ -53,7 +66,7 @@ async function checkGitSettings(page) {
   check(await saveButton.isDisabled(), "空欄のまま保存できる");
 
   // 2. 片方だけ / 形状違反は保存できない（クライアント側で止める）
-  await nameInput.fill("u7chan");
+  await nameInput.fill("u7agent2");
   check(await saveButton.isDisabled(), "メールアドレスが空でも保存できる");
   check(await textIncludes("Git のメールアドレスを入力してください"), "片方だけの理由が出ない");
 
@@ -62,20 +75,20 @@ async function checkGitSettings(page) {
   check(await textIncludes("Git のメールアドレスの形式が正しくありません"), "形状違反の理由が出ない");
 
   // 内部の改行・値は server でも拒否される。ここでは < > を確かめる
-  await emailInput.fill("u7chan@example.com");
-  await nameInput.fill("u7<chan");
+  await emailInput.fill("u7agent2@example.com");
+  await nameInput.fill("u7<agent2");
   check(await saveButton.isDisabled(), "< を含む名前でも保存できる");
   check(await textIncludes("Git の名前とメールアドレスに < と > は使えません"), "< > の理由が出ない");
 
   // 3. 保存
-  await nameInput.fill("u7chan");
+  await nameInput.fill("u7agent2");
   await saveButton.click();
   await waitText("保存しました");
   await waitText("設定済み");
   const saved = await api("/api/settings/git");
   check(
-    saved.body?.userName === "u7chan" &&
-      saved.body?.userEmail === "u7chan@example.com" &&
+    saved.body?.userName === "u7agent2" &&
+      saved.body?.userEmail === "u7agent2@example.com" &&
       saved.body?.configured === true,
     `保存後の GET が一致しない: ${JSON.stringify(saved.body)}`,
   );
@@ -83,8 +96,8 @@ async function checkGitSettings(page) {
   // 4. 再読み込みしても保存値とバッジが残る
   await page.reload();
   await page.getByRole("heading", { name: "Git", exact: true }).waitFor({ timeout: 10_000 });
-  check((await nameInput.inputValue()) === "u7chan", "再読み込みで名前が戻らない");
-  check((await emailInput.inputValue()) === "u7chan@example.com", "再読み込みでメールが戻らない");
+  check((await nameInput.inputValue()) === "u7agent2", "再読み込みで名前が戻らない");
+  check((await emailInput.inputValue()) === "u7agent2@example.com", "再読み込みでメールが戻らない");
   check(await textIncludes("設定済み"), "再読み込みでバッジが設定済みにならない");
 
   // 5. same-origin の防護（ヘッダ無しの直接クライアントは 403）
@@ -98,7 +111,7 @@ async function checkGitSettings(page) {
   });
   check(crossOrigin.status() === 403, `別 origin の PUT が 403 でない: ${crossOrigin.status()}`);
   const unchanged = await api("/api/settings/git");
-  check(unchanged.body?.userName === "u7chan", "拒否された PUT が保存値を変えた");
+  check(unchanged.body?.userName === "u7agent2", "拒否された PUT が保存値を変えた");
 
   // 6. 確認ダイアログのキャンセルでは消えない
   await clearButton.click();
@@ -108,7 +121,7 @@ async function checkGitSettings(page) {
   check(cancelFocused, "確認ダイアログの初期焦点がキャンセルでない");
   await dialog.getByRole("button", { name: "キャンセル" }).click();
   await dialog.waitFor({ state: "hidden" });
-  check((await nameInput.inputValue()) === "u7chan", "キャンセルで名前が消えた");
+  check((await nameInput.inputValue()) === "u7agent2", "キャンセルで名前が消えた");
   check((await api("/api/settings/git")).body?.configured === true, "キャンセルで保存値が消えた");
 
   // 7. クリア（冪等）

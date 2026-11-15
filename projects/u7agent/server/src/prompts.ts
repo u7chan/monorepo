@@ -5,7 +5,6 @@
  */
 import { randomUUID } from "node:crypto";
 import type { AppDb, PromptRow } from "./app-db";
-import { BUILTIN_AGENT_ID, BUILTIN_AGENT_NAME, BUILTIN_AGENT_PROMPT_IDS } from "./builtin-catalog";
 import { httpError } from "./http";
 import { AGENT_PROMPT_LIMIT, PROMPT_LABEL_MAX, PROMPT_TEXT_MAX } from "./schema";
 import type { PromptDef, PromptRef, PromptUsage } from "./schema";
@@ -16,18 +15,18 @@ export interface PromptUsageConflict extends Error {
 }
 
 export interface PromptCatalog {
-  /** 一覧 (組み込みが先、その中は定義順。自作は保存した順)。各件に使用先を付ける */
+  /** 一覧 (保存した順)。各件に使用先を付ける */
   list(): PromptDef[];
   get(id: string): PromptDef | undefined;
   /** 作成。kind と ID はサーバーが決める (入力からは指定できない) */
   create(input: unknown): PromptDef;
-  /** 更新。組み込み・未知は拒否する */
+  /** 更新。旧 builtin 行・未知は拒否する */
   update(id: string, input: unknown): PromptDef;
-  /** 削除。組み込みは 400、使用中は 409、未知は 404 */
+  /** 削除。旧 builtin 行は 400、使用中は 409、未知は 404 */
   remove(id: string): void;
   /**
    * 表示順の更新。応答と以後の一覧は、正規化したあとの順で返る。
-   * 未知の id・重複・組み込みは捨て、渡されなかった行は元の相対順で末尾に回す。
+   * 未知の id・重複は捨て、渡されなかった行は元の相対順で末尾に回す。
    */
   reorder(ids: readonly string[]): PromptDef[];
   /** 全マスタを参照形で返す (エージェントの選択肢。使用先は含めない) */
@@ -83,7 +82,7 @@ export function importedPromptContent(input: unknown): { label: string; prompt: 
   return createContentOf(input);
 }
 
-/** 種別と ID はサーバーが管理する。入力での組み込みへの昇格・置換は黙って無視せず 400 にする */
+/** 種別と ID はサーバーが管理する。入力での指定は黙って無視せず 400 にする */
 function rejectManagedKeys(input: unknown): void {
   const record = input as Record<string, unknown> | null;
   if (record && Object.hasOwn(record, "id")) throw httpError(400, "Prompt id is assigned by the server");
@@ -97,12 +96,9 @@ function inUseError(usedBy: PromptUsage[]): PromptUsageConflict {
 }
 
 export function createPromptCatalog({ db }: { db: AppDb }): PromptCatalog {
-  /** 使用先。組み込みの汎用アシスタントの固定参照も含め、DB の紐づけと区別する */
+  /** 使用先。組み込みの汎用アシスタントは定型プロンプトを参照しないため、DB の紐づけだけを返す */
   const usageOf = (promptId: string, links: { agentId: string; promptId: string }[], names: Map<string, string>) => {
     const usedBy: PromptUsage[] = [];
-    if (BUILTIN_AGENT_PROMPT_IDS.includes(promptId)) {
-      usedBy.push({ agentId: BUILTIN_AGENT_ID, agentName: BUILTIN_AGENT_NAME, builtin: true });
-    }
     for (const link of links) {
       if (link.promptId !== promptId) continue;
       usedBy.push({ agentId: link.agentId, agentName: names.get(link.agentId) ?? "", builtin: false });
@@ -150,7 +146,7 @@ export function createPromptCatalog({ db }: { db: AppDb }): PromptCatalog {
       if (!current) throw httpError(404, "Prompt not found");
       if (current.kind === "builtin") throw httpError(400, "Built-in prompt cannot be updated");
       const content = contentOf(input, { label: current.label, prompt: current.prompt });
-      // 行が消えていた場合は対象なしとして扱う (組み込みは条件側でも更新しない)
+      // 行が消えていた場合は対象なしとして扱う (旧 builtin 行は条件側でも更新しない)
       if (!db.updatePrompt({ ...current, ...content })) throw httpError(404, "Prompt not found");
       return get(id) ?? definitionOf({ ...current, ...content }, []);
     },
@@ -172,7 +168,7 @@ export function createPromptCatalog({ db }: { db: AppDb }): PromptCatalog {
     },
 
     reorder(ids) {
-      // 組み込みは定義順の先頭固定。並べ替えの対象は自作だけで、未知の id を捨てる方針は
+      // 並べ替えの対象は自作だけで、未知の id を捨てる方針は
       // エージェントの並べ替えと同じ (docs/api-catalog.md)
       const current = db.listPrompts().filter((row) => row.kind === "custom");
       const known = new Set(current.map((row) => row.id));
