@@ -34,6 +34,7 @@ import {
   normalizeAllowedModels,
   oauthLoginNote,
   oauthPanelView,
+  OAUTH_POPUP_OPENED_NOTICE,
   OAUTH_PREPARING_NOTICE,
   providerAuthBadge,
   providerCredentialTabs,
@@ -1010,6 +1011,10 @@ test("カタログ更新の 503 は一覧を差し替えず、失敗の注記だ
 });
 
 // --- OAuth サインイン ---
+
+test("空タブを開いた補足は動詞句を前置きしない", () => {
+  assert.equal(OAUTH_POPUP_OPENED_NOTICE, "承認ページを開きました。");
+});
 
 test("サインインの注記は進行中のときだけ操作の文言を出し、終端は既定へ戻す", () => {
   const running: OAuthLoginState = {

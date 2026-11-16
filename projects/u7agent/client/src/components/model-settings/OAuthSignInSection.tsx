@@ -192,10 +192,7 @@ export function OAuthSignInSection({
             </form>
           ) : null}
           {view.showPopupNotice ? (
-            <p className="text-2xs leading-relaxed text-ink-muted">
-              {view.loginLabel}
-              {OAUTH_POPUP_OPENED_NOTICE}
-            </p>
+            <p className="text-2xs leading-relaxed text-ink-muted">{OAUTH_POPUP_OPENED_NOTICE}</p>
           ) : null}
           {view.showFallbackLink && view.authUrl ? (
             <div className="flex flex-wrap items-center gap-2">

@@ -639,7 +639,7 @@ test("承認待ちは主文と補助行を併記し、代替経路と貼り付�
   assert.ok(html.includes("ブラウザからのコールバックを待っています"), "補助行として併記する");
   assert.equal(html.includes("Sign in with ChatGPT</button>"), false, "進行中は開始ボタンを出さない");
   assert.match(html, /<a[^>]*href="https:\/\/auth\.example\.test\/authorize"/, "遷移できていないのでリンクを出す");
-  assert.equal(html.includes("の承認ページが開きます。"), false, "遷移できていないときは補足を出さない");
+  assert.equal(html.includes("承認ページを開きました。"), false, "遷移できていないときは補足を出さない");
   assert.ok(html.includes("別のマシンのブラウザで承認する場合"), "代替経路を折りたたみに畳む");
   assert.ok(html.includes("この URL を別のマシンのブラウザで開いて承認し"), "折りたたみの中に手順を出す");
   assert.ok(html.includes("同じホストで別のサインインを同時に進めると"), "ポート競合の注意を折りたたみの中へ移す");
@@ -708,7 +708,7 @@ test("デバイスコードは折りたたみを使わず、コードと承認�
   );
   assert.ok(html.includes(">URL をコピー</button>"), "折りたたみを出さない副状態でもコピーの導線を出す");
   assert.equal(html.includes("別のマシンのブラウザで承認する場合"), false, "折りたたみを使わない");
-  assert.equal(html.includes("の承認ページが開きます。"), false, "遷移できていないので補足は出さない");
+  assert.equal(html.includes("承認ページを開きました。"), false, "遷移できていないので補足は出さない");
 });
 
 test("終端は結果と [閉じる] だけを残し、進行中の導線を落とす", () => {

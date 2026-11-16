@@ -1030,10 +1030,6 @@ export const OAUTH_LOGIN_SELECT_ID_MAX_LENGTH = 128;
 export const CredentialKindSchema = z.enum(["oauth", "api_key"]);
 export type CredentialKind = z.infer<typeof CredentialKindSchema>;
 
-/**
- * 設定 → モデルの OAuth サインインの状態。進行中の認可 URL はこの state としてだけクライアントへ渡し、
- * 完了・失敗・キャンセルでは落とす。生の例外文言・トークン・client_id はどのフィールドにも載せない。
- */
 export const OAuthLoginSelectOptionSchema = z.object({
   /** SDK が返す選択肢の id。画面はこの値をそのまま POST する */
   id: z.string(),
@@ -1049,6 +1045,10 @@ export const OAuthLoginSelectSchema = z.object({
 });
 export type OAuthLoginSelect = z.infer<typeof OAuthLoginSelectSchema>;
 
+/**
+ * 設定 → モデルの OAuth サインインの状態。進行中の認可 URL はこの state としてだけクライアントへ渡し、
+ * 完了・失敗・キャンセルでは落とす。生の例外文言・トークン・client_id はどのフィールドにも載せない。
+ */
 export const OAuthLoginStateSchema = z.object({
   status: z.enum(["running", "succeeded", "failed", "cancelled"]),
   /** 進行中に開く URL (認可 URL / デバイスコードの確認 URL)。running 以外と未発行は null */

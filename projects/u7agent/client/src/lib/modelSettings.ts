@@ -319,8 +319,8 @@ export const OAUTH_UNSUPPORTED_NOTICE =
 export const OAUTH_IDLE_NOTICE = "ブラウザのタブで承認すると、この画面の表示が自動で更新されます。";
 /** 進行中の主文。認可 URL がまだ届いていない間の 1 行 (届いた後はサーバーの定数を使う) */
 export const OAUTH_PREPARING_NOTICE = "認可の準備をしています。";
-/** 空タブを遷移できたときの補足。`oauthLoginLabel` の後ろに連結する */
-export const OAUTH_POPUP_OPENED_NOTICE = "の承認ページが開きます。";
+/** 空タブを遷移できたときの補足。動詞句の action を前置きすると「〜にサインインの承認ページ」と壊れる */
+export const OAUTH_POPUP_OPENED_NOTICE = "承認ページを開きました。";
 /** 空タブを遷移できなかったときに出すフォールバックのリンク。補足とは排他 */
 export const OAUTH_FALLBACK_LINK_TEXT = "承認ページを開く";
 /** 折りたたみ (別のマシンのブラウザ) の summary と説明・注意 */
