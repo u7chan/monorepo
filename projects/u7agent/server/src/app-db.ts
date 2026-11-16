@@ -2029,6 +2029,9 @@ export class AppDb {
       this.#addColumnIfMissing("content_trials", "imageParams", "TEXT");
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SPEECH_CATALOG_TABLE));
+      // v47 -> v48: 任意のコストマスタの接続先と、取得に成功した価格スナップショット
+      this.#query((db) => db.exec(CONTENT_COST_SETTINGS_TABLE));
+      this.#query((db) => db.exec(CONTENT_COST_CATALOG_TABLE));
       // v40 -> v41: 形式の学習結果。既存行を書き換えず、未学習 (行なし) から始まる
       this.#query((db) => db.exec(SPEECH_FORMATS_TABLE));
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));

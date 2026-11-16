@@ -10,6 +10,7 @@
 - `PUT /api/settings/content/cost-url` は `{ enabled, url }` を 1 回で保存し、保存時に取得しない。行が無くても受け付ける（キー未登録でも価格だけ設定できる）
 - `enabled: true` は URL 必須。`enabled: false` は URL を保持したまま保存でき、`enabled: false` + 空 URL は行の削除として扱う
 - 保存時は URL の形だけを見る（`http` / `https`、ホスト名必須、IP リテラルと認証情報は拒否）。DNS 解決と SSRF 判定は取得時に行い、保存時に外部へ問い合わせない
+- BFF に利用者認証は無い。設定画面へ到達できる利用者が URL を設定できる前提で、到達範囲を LAN / VPN に限る運用は変えない
 
 ## マスタの応答
 
