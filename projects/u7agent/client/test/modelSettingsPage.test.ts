@@ -795,6 +795,9 @@ test("openai-codex はキーなしの行として一覧に戻り、OAuth のサ�
   assert.ok(html.includes(">Codex にサインイン</button>"), "Codex のサインインを出す");
   assert.equal(html.includes('aria-label="OpenAI Codex の認証方法"'), false, "APIキーのタブは出さない");
   assert.equal(html.includes("Sign in with ChatGPT"), false, "openai の SIWC を混ぜない");
+  assert.ok(html.includes("Codex の OAuth でのみ認証します"), "APIキーではなく OAuth だけであることを出す");
+  assert.equal(html.includes("環境変数や認証ファイルで設定します"), false, "環境変数のキーがあるように見せない");
+  assert.ok(html.includes("メモ（キー本体は書かないでください）"), "メモ欄は残す");
 });
 
 test("方式選択はラジオと [この方式で続ける] を出し、URL / 貼り付けの導線を出さない", () => {
