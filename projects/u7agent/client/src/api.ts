@@ -929,6 +929,16 @@ export const submitOAuthLoginCode = async (provider: string, code: string): Prom
   return (await res.json()) as ModelsSettingsResponse;
 };
 
+/** 進行中の select prompt に、選んだ選択肢 id を返す */
+export const selectOAuthLoginMethod = async (provider: string, id: string): Promise<ModelsSettingsResponse> => {
+  const res = await client.api.settings.models[":provider"].login.select.$post({
+    param: { provider },
+    json: { id },
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelsSettingsResponse;
+};
+
 /** 進行中のサインインの中断と、終端した結果表示の消去（どちらも冪等） */
 export const cancelOAuthLogin = async (provider: string): Promise<ModelsSettingsResponse> => {
   const res = await client.api.settings.models[":provider"].login.$delete({ param: { provider } });

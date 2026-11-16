@@ -40,6 +40,7 @@ const {
   getRuntimeDebugServeStatus,
   getRuntimeServeStatus,
   logoutOAuthProvider,
+  selectOAuthLoginMethod,
   startContentTrial,
   startOAuthLogin,
   startRuntimeServe,
@@ -609,6 +610,7 @@ test("OAuth サインインは provider のパスへ開始 / 送信 / 中断 / �
   });
   await startOAuthLogin("openai");
   await submitOAuthLoginCode("openai", "http://127.0.0.1:1455/auth/callback?code=x");
+  await selectOAuthLoginMethod("openai-codex", "browser");
   await cancelOAuthLogin("openai");
   await logoutOAuthProvider("openai");
   assert.deepEqual(
@@ -616,11 +618,13 @@ test("OAuth サインインは provider のパスへ開始 / 送信 / 中断 / �
     [
       ["POST", "/api/settings/models/openai/login"],
       ["POST", "/api/settings/models/openai/login/code"],
+      ["POST", "/api/settings/models/openai-codex/login/select"],
       ["DELETE", "/api/settings/models/openai/login"],
       ["POST", "/api/settings/models/openai/logout"],
     ],
   );
   assert.deepEqual(await requests[1].json(), { code: "http://127.0.0.1:1455/auth/callback?code=x" });
+  assert.deepEqual(await requests[2].json(), { id: "browser" });
 });
 
 test("OAuth サインインの 409 は理由と HTTP status を保つ", async (t) => {

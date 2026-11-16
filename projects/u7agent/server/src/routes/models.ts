@@ -113,6 +113,10 @@ export function createModelSettingsRoutes({
     submitOAuthLoginCode: (c: Context, code: string) =>
       oauthResponse(c, () => oauthLogin.submitCode(c.req.param("provider") ?? "", code)),
 
+    /** 進行中の select prompt に、選んだ選択肢 id を返す */
+    submitOAuthLoginSelection: (c: Context, id: string) =>
+      oauthResponse(c, () => oauthLogin.submitSelection(c.req.param("provider") ?? "", id)),
+
     /** 進行中のサインインの中断と、終端した結果表示の消去 (どちらも冪等) */
     cancelOAuthLogin: (c: Context) => oauthResponse(c, () => oauthLogin.cancel(c.req.param("provider") ?? "")),
 

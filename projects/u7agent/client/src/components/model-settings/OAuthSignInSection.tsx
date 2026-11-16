@@ -11,6 +11,7 @@ import {
   OAUTH_NOTES,
   OAUTH_PASTE_UNAVAILABLE_NOTICE,
   OAUTH_POPUP_OPENED_NOTICE,
+  OAUTH_LOGIN_SELECT_CONTINUE_TEXT,
   OAUTH_SIGNED_IN_NOTE,
   oauthPanelView,
 } from "../../lib/modelSettings";
@@ -26,6 +27,7 @@ export type OAuthSignInSectionProps = {
   heading?: boolean;
   onLogin: (provider: string) => Promise<boolean>;
   onSubmitCode: (provider: string, code: string) => Promise<boolean>;
+  onSelectMethod: (provider: string, id: string) => Promise<boolean>;
   onCancel: (provider: string) => Promise<boolean>;
   onSignOut: (provider: string) => Promise<boolean>;
 };
@@ -34,9 +36,9 @@ export type OAuthSignInSectionProps = {
  * provider 詳細の OAuth サインイン。進行中の主文と補助行・認可 URL・貼り付け・[中断] を出し、終端したら
  * 結果を残す (消すのは [閉じる])。表示条件とボタン名は `oauthPanelView()` が決める。
  *
- * 開始クリックで空タブを先に開き、認可 URL が届いたらそのタブを遷移させる。遷移できなかったときだけ
- * リンクへフォールバックし、自分が開いたまま遷移していないタブは失敗・中断・期限切れ・アンマウントで閉じる
- * (他のタブは閉じない)。
+ * 開始クリックで空タブを先に開き、認可 URL が届いたらそのタブを遷移させる。方式選択がある flow では
+ * 選択待ちの間だけ閉じ、方式を選んだクリックで開き直す。遷移できなかったときだけリンクへフォールバックし、
+ * 自分が開いたまま遷移していないタブは失敗・中断・期限切れ・アンマウントで閉じる (他のタブは閉じない)。
  */
 export function OAuthSignInSection({
   provider,
@@ -45,11 +47,13 @@ export function OAuthSignInSection({
   heading = true,
   onLogin,
   onSubmitCode,
+  onSelectMethod,
   onCancel,
   onSignOut,
 }: OAuthSignInSectionProps) {
   // 貼り付けは provider ごとの一時入力。provider を切り替えると親がこの要素を作り直す (key=provider)
   const [code, setCode] = useState("");
+  const [method, setMethod] = useState("");
   const [copied, setCopied] = useState(false);
   const [popupNavigated, setPopupNavigated] = useState(false);
   // 自分が開いた空タブ。遷移済みかも同じ箱で持ち、unmount の cleanup が最新の値を見るようにする
@@ -57,6 +61,9 @@ export function OAuthSignInSection({
   const view = oauthPanelView(provider, { popupNavigated });
   const login = view.login;
   const input = login?.input ?? null;
+  const methods = view.select?.options ?? [];
+  // 選択肢が差し替わったときは先頭へ戻す。props は非同期に届くので state の初期値には固定しない
+  const methodId = methods.some((option) => option.id === method) ? method : (methods[0]?.id ?? "");
   const disabled = !runtimeAvailable || busy;
   const running = view.running;
   const finished = login !== null && login.status !== "running";
@@ -93,6 +100,11 @@ export function OAuthSignInSection({
   useEffect(() => {
     if (finished) closeUnusedPopup();
   }, [finished, closeUnusedPopup]);
+  // 開始クリックで開いた空タブは、方式の選択待ちに入った時点で閉じる。方式を選んだクリックで開き直す
+  const methodPending = running && view.select !== null;
+  useEffect(() => {
+    if (methodPending) closeUnusedPopup();
+  }, [methodPending, closeUnusedPopup]);
   // パネルのアンマウント (provider の切替・画面の離脱) でも同じ後始末をする
   useEffect(() => closeUnusedPopup, [closeUnusedPopup]);
 
@@ -113,6 +125,17 @@ export function OAuthSignInSection({
   const submitCode = async () => {
     // 送れたときだけ入力を消す (失敗したら貼り付け直せるように残す)
     if (await onSubmitCode(provider.provider, code)) setCode("");
+  };
+
+  const submitMethod = async () => {
+    if (methodId === "") return;
+    // 認可 URL / 確認 URL の遷移先を、選択クリック (ユーザー操作) の中で先に開く
+    const previous = popupRef.current;
+    const reusable = previous && !previous.navigated && !previous.tab.closed ? previous.tab : null;
+    const tab = reusable ?? window.open("about:blank", "_blank");
+    popupRef.current = tab ? { tab, navigated: false } : null;
+    setPopupNavigated(false);
+    if (!(await onSelectMethod(provider.provider, methodId))) closeUnusedPopup();
   };
 
   const copyAuthUrl = async () => {
@@ -137,6 +160,37 @@ export function OAuthSignInSection({
         <div className="grid gap-1.5 rounded-md border border-line bg-soft px-2.5 py-2">
           {view.instructions ? <p className="text-2xs leading-relaxed text-ink">{view.instructions}</p> : null}
           {view.progress ? <p className="text-2xs leading-relaxed text-ink-muted">{view.progress}</p> : null}
+          {view.select ? (
+            <form
+              className="grid gap-1.5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitMethod();
+              }}
+            >
+              <fieldset className="grid gap-1">
+                <legend className="text-2xs leading-relaxed text-ink">{view.select.message}</legend>
+                {view.select.options.map((option) => (
+                  <label key={option.id} className="flex items-center gap-1.5 text-2xs leading-relaxed text-ink">
+                    <input
+                      type="radio"
+                      name={`oauth-method-${provider.provider}`}
+                      value={option.id}
+                      checked={methodId === option.id}
+                      disabled={disabled}
+                      onChange={() => setMethod(option.id)}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </fieldset>
+              <div>
+                <button type="submit" className="btn-primary" disabled={disabled || methodId === ""}>
+                  {OAUTH_LOGIN_SELECT_CONTINUE_TEXT}
+                </button>
+              </div>
+            </form>
+          ) : null}
           {view.showPopupNotice ? (
             <p className="text-2xs leading-relaxed text-ink-muted">
               {view.loginLabel}

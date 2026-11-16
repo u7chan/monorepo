@@ -49,7 +49,7 @@ export const IMAGE_PROVIDER_OPTIONS: readonly ImageProviderOption[] = [
     value: "codex",
     label: "Codex",
     description:
-      "OpenAI Codex のサインイン（openai-codex）で生成します。設定 → モデルの「Sign in with ChatGPT」とは別の資格情報で、pi の /login から入ります。画像モデルはバックエンドが選び（不明と表示）、参照画像の編集はできません。利用枠は ChatGPT の画像生成枠です。",
+      "OpenAI Codex のサインイン（openai-codex）で生成します。設定 → モデル（/settings/models）の「OpenAI Codex」からサインインします。同じ画面の「Sign in with ChatGPT」は別の資格情報（openai）で、Codex の画像生成には使われません。画像モデルはバックエンドが選び（不明と表示）、参照画像の編集はできません。利用枠は ChatGPT の画像生成枠です。",
   },
 ];
 
@@ -75,13 +75,13 @@ export function imageAuthBadge(auth: ContentImageAuth): ProviderBadge {
 
 /**
  * Codex のサインイン案内。APIキーを画像利用の前提にしないため、登録先を名指しする。
- * 設定 → モデルの「Sign in with ChatGPT」は `openai` の資格情報で、Codex が読む `openai-codex` とは別物
- * （`server/src/oauth-login.ts` の許可リストにも無く、この画面からは入れられない）。同じ案内を出さない。
+ * 設定 → モデルの「Sign in with ChatGPT」は `openai` の資格情報で、Codex が読む `openai-codex` とは別物。
+ * 同じ画面の「OpenAI Codex」行からサインインでき、`openai` の行とは併用できる。
  */
 export const CODEX_SIGN_IN_NOTICE =
-  "Codex のサインイン（openai-codex）が見つかりません。pi を起動して /login から openai-codex にサインインしてください。APIキーは不要です。設定 → モデル（/settings/models）の「Sign in with ChatGPT」は別の資格情報（openai）で、Codex の画像生成には使われません。";
+  "Codex のサインイン（openai-codex）が見つかりません。設定 → モデル（/settings/models）の「OpenAI Codex」からサインインしてください。APIキーは不要です。同じ画面の「Sign in with ChatGPT」は別の資格情報（openai）で、Codex の画像生成には使われません。";
 export const CODEX_SIGN_IN_EXPIRED_NOTICE =
-  "Codex のサインイン（openai-codex）の期限が切れています。生成を実行するとサインインの更新を試みます。更新に失敗するときは、pi を起動して /login から openai-codex にサインインし直してください。";
+  "Codex のサインイン（openai-codex）の期限が切れています。生成を実行するとサインインの更新を試みます。更新に失敗するときは、設定 → モデル（/settings/models）の「OpenAI Codex」からサインインし直してください。";
 export const OPENROUTER_IMAGE_KEY_NOTICE =
   "OpenRouter のAPIキーが未設定です。下の欄で登録すると generate_image を使えます。";
 /** 暗号文はあるが復号できない / 未評価のキー。「未設定」と書くと保存済みの値を捨てる案内になる */

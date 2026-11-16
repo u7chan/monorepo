@@ -103,6 +103,7 @@ export function ModelSettingsView({
     probeCustom,
     startLogin,
     submitLoginCode,
+    selectLoginMethod,
     cancelLogin,
     signOut,
   } = modelSettings;
@@ -187,6 +188,7 @@ export function ModelSettingsView({
             onResync={resync}
             onLogin={startLogin}
             onSubmitLoginCode={submitLoginCode}
+            onSelectLoginMethod={selectLoginMethod}
             onCancelLogin={cancelLogin}
             onSignOut={signOut}
             onCreateCustom={createCustom}

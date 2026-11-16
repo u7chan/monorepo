@@ -58,6 +58,7 @@ export type ProvidersTabProps = {
   onResync: (provider: string) => Promise<boolean>;
   onLogin: (provider: string) => Promise<boolean>;
   onSubmitLoginCode: (provider: string, code: string) => Promise<boolean>;
+  onSelectLoginMethod: (provider: string, id: string) => Promise<boolean>;
   onCancelLogin: (provider: string) => Promise<boolean>;
   onSignOut: (provider: string) => Promise<boolean>;
   /** カスタムプロバイダー（オンメモリ）の作成・更新・削除 */
@@ -93,6 +94,7 @@ export function ProvidersTab({
   onResync,
   onLogin,
   onSubmitLoginCode,
+  onSelectLoginMethod,
   onCancelLogin,
   onSignOut,
   onCreateCustom,
@@ -381,6 +383,7 @@ export function ProvidersTab({
                   onResync={onResync}
                   onLogin={onLogin}
                   onSubmitLoginCode={onSubmitLoginCode}
+                  onSelectLoginMethod={onSelectLoginMethod}
                   onCancelLogin={onCancelLogin}
                   onSignOut={onSignOut}
                   drafts={drafts}
@@ -484,6 +487,7 @@ function ProviderDetail({
   onResync,
   onLogin,
   onSubmitLoginCode,
+  onSelectLoginMethod,
   onCancelLogin,
   onSignOut,
   drafts,
@@ -503,6 +507,7 @@ function ProviderDetail({
   onResync: (provider: string) => Promise<boolean>;
   onLogin: (provider: string) => Promise<boolean>;
   onSubmitLoginCode: (provider: string, code: string) => Promise<boolean>;
+  onSelectLoginMethod: (provider: string, id: string) => Promise<boolean>;
   onCancelLogin: (provider: string) => Promise<boolean>;
   onSignOut: (provider: string) => Promise<boolean>;
   drafts: Record<string, ProviderDraft>;
@@ -557,6 +562,7 @@ function ProviderDetail({
       heading={heading}
       onLogin={onLogin}
       onSubmitCode={onSubmitLoginCode}
+      onSelectMethod={onSelectLoginMethod}
       onCancel={onCancelLogin}
       onSignOut={onSignOut}
     />

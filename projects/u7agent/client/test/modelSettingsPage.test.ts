@@ -133,6 +133,7 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
     }),
     startLogin: async () => true,
     submitLoginCode: async () => true,
+    selectLoginMethod: async () => true,
     cancelLogin: async () => true,
     signOut: async () => true,
     ...overrides,
@@ -538,6 +539,7 @@ function loginState(status: OAuthLoginState["status"], overrides: Partial<OAuthL
     instructions: null,
     progress: null,
     input: null,
+    select: null,
     userCode: null,
     error: null,
     ...overrides,
@@ -776,6 +778,54 @@ test("片方の経路しか無い provider はタブを出さず、セクショ�
     "キーを登録できない provider はタブにしない",
   );
   assert.ok(oauthHtml.includes(">OAuth サインイン</div>"), "セクションの見出しを残す");
+});
+
+test("openai-codex はキーなしの行として一覧に戻り、OAuth のサインインを出す", () => {
+  const codex = provider({
+    provider: "openai-codex",
+    name: "OpenAI Codex",
+    canSetApiKey: false,
+    supportsOAuth: true,
+    canSignInHere: true,
+  });
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [codex] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.ok(html.includes("OpenAI Codex"), "provider 行を出す");
+  assert.ok(html.includes(">Codex にサインイン</button>"), "Codex のサインインを出す");
+  assert.equal(html.includes('aria-label="OpenAI Codex の認証方法"'), false, "APIキーのタブは出さない");
+  assert.equal(html.includes("Sign in with ChatGPT"), false, "openai の SIWC を混ぜない");
+});
+
+test("方式選択はラジオと [この方式で続ける] を出し、URL / 貼り付けの導線を出さない", () => {
+  const selecting = provider({
+    provider: "openai-codex",
+    name: "OpenAI Codex",
+    canSetApiKey: false,
+    supportsOAuth: true,
+    canSignInHere: true,
+    login: loginState("running", {
+      select: {
+        message: "サインイン方法を選んでください",
+        options: [
+          { id: "browser", label: "ブラウザ（この端末）" },
+          { id: "device_code", label: "デバイスコード（スマホ向け）" },
+        ],
+      },
+    }),
+  });
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [selecting] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.ok(html.includes("サインイン方法を選んでください"), "select の文言を出す");
+  assert.ok(html.includes("ブラウザ（この端末）"), "選択肢を出す");
+  assert.ok(html.includes("デバイスコード（スマホ向け）"), "2 つ目の選択肢を出す");
+  assert.match(html, /<input[^>]*type="radio"[^>]*value="browser"/, "radio で選ばせる");
+  assert.ok(html.includes(">この方式で続ける</button>"), "選択を返すボタンを出す");
+  assert.equal(html.includes("認可の準備をしています。"), false, "選択中は準備中の主文を出さない");
+  assert.equal(html.includes("別のマシンのブラウザで承認する場合"), false, "貼り付けの折りたたみを出さない");
+  assert.equal(html.includes(">OAuth でサインイン</button>"), false, "進行中は開始ボタンを出さない");
+  assert.match(html, /<button[^>]*>(?:(?!<\/button>)[\s\S])*中断<\/button>/, "中断は出す");
 });
 
 test("この画面でサインインできない provider は開始も手順も出さず、理由と [サインアウト] を出す", () => {

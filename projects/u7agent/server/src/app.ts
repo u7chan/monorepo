@@ -82,6 +82,7 @@ import {
   UpdatePromptBodySchema,
   UpdateSharedContentExclusionsBodySchema,
   SubmitOAuthLoginCodeBodySchema,
+  SubmitOAuthLoginSelectBodySchema,
   UpdateSecretBodySchema,
   UpdateSessionNotifyBodySchema,
   UpdateSessionPinnedBodySchema,
@@ -682,6 +683,13 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => modelSettingsRoutes.submitOAuthLoginCode(c, c.req.valid("json").code),
+    )
+    .post(
+      "/api/settings/models/:provider/login/select",
+      jsonBodyValidator(SubmitOAuthLoginSelectBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => modelSettingsRoutes.submitOAuthLoginSelection(c, c.req.valid("json").id),
     )
     .delete("/api/settings/models/:provider/login", modelSettingsRoutes.cancelOAuthLogin)
     .post("/api/settings/models/:provider/logout", modelSettingsRoutes.logoutOAuth)
