@@ -223,11 +223,10 @@ test("履歴の行は現在より古いキー世代を「旧キー」として�
   assert.equal(trialHistoryRow(trial({ keyEpoch: 2 }), 2).keyEpochLabel, null);
 });
 
-test("面の状態は runtime 不可 → 未設定 → 同期未確認 → 全体 OFF → 実行中 → 空 の順に決まる", () => {
-  const base = { runtimeAvailable: true, configured: true, enabled: true, synced: true, trials: [] as ContentTrial[] };
+test("面の状態は runtime 不可 → 未設定 → 全体 OFF → 実行中 → 空 の順に決まる", () => {
+  const base = { runtimeAvailable: true, configured: true, enabled: true, trials: [] as ContentTrial[] };
   assert.equal(trialPanelState({ ...base, runtimeAvailable: false, configured: false }), "runtime_unavailable");
   assert.equal(trialPanelState({ ...base, configured: false, enabled: false }), "unconfigured");
-  assert.equal(trialPanelState({ ...base, synced: false, enabled: false }), "unsynced");
   assert.equal(trialPanelState({ ...base, enabled: false }), "disabled");
   assert.equal(trialPanelState({ ...base, trials: [trial({ state: "running", finishedAt: null })] }), "running");
   assert.equal(trialPanelState(base), "empty");
@@ -241,7 +240,6 @@ test("面の状態の 1 行は、どの状態でも空文字を返さず 3 タ�
     "runtime_unavailable",
     "unconfigured",
     "disabled",
-    "unsynced",
     "empty",
     "running",
     "failed",
@@ -253,7 +251,6 @@ test("面の状態の 1 行は、どの状態でも空文字を返さず 3 タ�
     "ランタイムが利用できないため試行できません。",
     "APIキーが未設定です。履歴だけを表示しています。",
     "全体が OFF です。履歴は残り、新規の生成だけを止めています。",
-    "音声の設定を確認できていません。試行はできますが、既定への保存はできません。",
     "まだ試行していません。",
     "生成中です。画面を離れても続きます。",
     "直近の試行は失敗しました。",

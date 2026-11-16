@@ -89,7 +89,7 @@ export function ContentSettingsView({
     settings?.configured === true || trialList.length > 0 || contentSubsection === "history" ? (
       <SettingsTabs
         items={CONTENT_SUBSECTIONS.map((item) => {
-          // 印の優先順位は 実行中 > 同期未確認 > 新着結果（`tabIndicator` が 1 箇所で決める）
+          // 印の優先順位は 実行中 > 新着結果（`tabIndicator` が 1 箇所で決める）
           const indicator = tabIndicator({
             label: item.label,
             running: trialList.some(

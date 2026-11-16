@@ -25,11 +25,6 @@ import { TrialArtifactMeta, TrialResultViewport } from "./TrialResultViewport";
 import { TrialEmptyNote, TrialNoteLines, TrialRunControls, TrialRunSection } from "./TrialRun";
 import { TrialDefaultAction, UNCONFIGURED_BLOCKED_NOTE } from "./TrialDefaultAction";
 
-/**
- * 未同期の間、結果カードから既定へ保存できない理由。同じ `PUT /speech` を呼ぶ保存フォームが止まるのと
- * 同じ状態を指す（短く書く）。
- */
-
 export type SpeechTrialSectionProps = {
   settings: ContentSettingsResponse;
   /** 画面で選択中のモデル（下書き優先）。保存前でも画面の値で試行する */
@@ -83,8 +78,6 @@ export function SpeechTrialSection({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,
     enabled: settings.enabled,
-    // 同期未確認は保存だけを止める状態で、試行は画面の値でできる（バナーと既定への保存の理由で伝える）
-    synced: true,
     trials: list,
   });
   const running = list.find((trial) => trial.state === "running") ?? null;

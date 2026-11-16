@@ -178,7 +178,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `c
 - 一覧の取得中に開始 / 中断したときは、その取得の応答で画面を巻き戻さない（画像と同じ規則。開始した実行中の行を消さず、ポーリングも続ける）
 - 音声の長さ（尺）は保存時に読めないため出さない（mp3 / wav のデコードを持たない）。所要時間は試行の実測を出す
 - クライアントは生成中に入力と実行を無効化し、課金の条件（生成は 1 回ごと / 同じ入力の保存済み結果があるときは課金されない）と、失敗・中断・タイムアウトでも課金されうることを伝える（後者は 3 タブ共通の注記）。履歴の [もう一度生成] は確認ダイアログを挟み、force で新しい試行として課金されることを伝える。失敗時は分類済みの文言を出し、入力は保つ（そのまま直して再試行できる）。本文が空 / 話速が不正なときは送信前に止める（**この検証に当たったときはサーバーの 400 文言ではなくクライアントの文言を出す**）
-- 音声の同期が取れていない間（`speechSynced === false`）も試行（開始と履歴・再生）は使える。保存値を書き換えず、画面で選んだ値をそのまま試すだけなので、開始の入力欄に保存ボタン用の未同期ゲート（`value=""` / `disabled` / 「（未確認）」）は持ち込まない。結果カードから既定へ保存する導線だけは例外で、同じ `PUT` を呼ぶため保存フォームと同じゲートに従う
+- 試行（開始と履歴・再生）は、保存値を書き換えず画面で選んだ値で行う。開始の入力欄に保存フォーム用のゲート（`value=""` / `disabled`）は持ち込まない。結果カードから既定へ保存する導線だけは例外で、同じ `PUT` を呼ぶため保存フォームと同じ状態（キー未設定・保存中）で止める
 - 表示の正は `client/src/lib/contentTrials.ts`（試行の要求（`force` を付ける出どころ）・スナップショットの復元・履歴の行）と `client/src/lib/contentSettings.ts`（モデル / ボイス / 話速の増減）の純関数、既定へ保存する対象は `client/src/lib/trialDefault.ts`、描画は `client/src/components/content-settings/SpeechTrialSection.tsx` と 3 タブ共通の `client/src/components/content-settings/TrialRun.tsx` / `TrialResultViewport.tsx` / `TrialHistory.tsx` に閉じる（ボイス欄のラベルと並びは `client/src/lib/speechVoices.ts` の純関数、描画は `client/src/components/content-settings/SpeechVoiceOptions.tsx` に出し、保存フォームと共有する）。再生そのものは自動テストせず GUI 受入にする（[testing.md](testing.md)）
 
 ## API

@@ -93,7 +93,6 @@ export function ImageTrialSection({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,
     enabled: settings.enabled,
-    synced: true,
     trials: list,
   });
   const running = list.find((trial) => trial.state === "running") ?? null;
