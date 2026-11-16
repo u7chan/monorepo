@@ -469,9 +469,12 @@ export function FileBrowser({
             hasTabs && !stacked && "@2xl:w-(--file-tree-width) @2xl:flex-none",
           )}
         >
+          {/* スクロール枠自身を位置指定にする: 行の中の絶対配置 (読み込み中の印の sr-only の文字など) が
+              枠の外の祖先を基準にすると、枠が切っている箱が外側の scrollable overflow として数えられ、
+              外装 (面のスクロール) の範囲が行の位置まで伸びる (docs/file-tree.md) */}
           <div
             className={cn(
-              "scrollbar-stable min-h-0 w-full scrollbar-thin overflow-x-hidden overflow-y-auto",
+              "scrollbar-stable relative min-h-0 w-full scrollbar-thin overflow-x-hidden overflow-y-auto",
               // 選べるのは上下 2 段でタブがあるときだけ。左右 2 段とタブ無しは容器の高さに従う
               hasTabs && stacked ? "file-tree-height" : "h-full",
             )}

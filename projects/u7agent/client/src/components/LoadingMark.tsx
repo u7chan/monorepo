@@ -7,7 +7,10 @@ import { RunSpinnerIcon } from "./icons";
  */
 export function LoadingMark() {
   return (
-    <span role="status" className="inline-flex items-center gap-2">
+    // sr-only の文字は絶対配置で、位置指定の無い祖先を基準にする。スクロール枠 (閉じた枝の中など) が
+    // 位置指定を持たないと、枠が切っている印の箱が外側の scrollable overflow として数えられ、
+    // 外装のスクロール範囲が印の位置まで伸びる。印自身を基準にして、印の箱の中で閉じる
+    <span role="status" className="relative inline-flex items-center gap-2">
       <RunSpinnerIcon />
       <span className="sr-only">読み込み中…</span>
     </span>
