@@ -19,7 +19,7 @@
     "db:prompt-templates:seed": "dotenv -- bun run src/db/seeders/seed-prompt-templates.ts"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.6",
+    "@hono/node-server": "^2.1.8",
     "@hono/standard-validator": "^0.4.1",
     "@hono/structured-logger": "^1.0.0",
     "@monaco-editor/react": "^4.7.0",
@@ -28,9 +28,9 @@
     "@tanstack/react-router": "^1.170.46",
     "crypto-js": "^4.2.0",
     "drizzle-orm": "^0.45.4",
-    "hono": "^4.13.17",
+    "hono": "^4.13.18",
     "monaco-editor": "^0.57.0",
-    "openai": "^7.55.0",
+    "openai": "^7.56.0",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "react": "^19.3.1",
