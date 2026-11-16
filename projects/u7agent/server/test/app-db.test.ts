@@ -1016,6 +1016,74 @@ test("migrates a v8 db additively and keeps the image catalog cache across reope
   }
 });
 
+test("the content cost settings and price snapshot survive reopen and unreadable rows are treated as unset", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    // 行が無い = 未設定。OFF の投影は呼び出し側が作る
+    assert.equal(first.readContentCostSettings(), undefined);
+    assert.equal(first.readContentCostCatalog(), undefined);
+
+    first.saveContentCostSettings({ enabled: true, url: "https://cost-master.example.com/api/models" });
+    first.saveContentCostCatalog({
+      fetchedAt: 1000,
+      sourceUrl: "https://cost-master.example.com/api/models",
+      version: 3,
+      models: [
+        {
+          modelId: "acme/image-a",
+          unit: "image",
+          variant: "",
+          costUsd: 0.04,
+          currency: "USD",
+          enabled: false,
+          note: "高価",
+        },
+      ],
+    });
+    assert.deepEqual(first.readContentCostSettings(), {
+      enabled: true,
+      url: "https://cost-master.example.com/api/models",
+    });
+    assert.deepEqual(first.readContentCostCatalog(), {
+      fetchedAt: 1000,
+      sourceUrl: "https://cost-master.example.com/api/models",
+      version: 3,
+      models: [
+        {
+          modelId: "acme/image-a",
+          unit: "image",
+          variant: "",
+          costUsd: 0.04,
+          currency: "USD",
+          enabled: false,
+          note: "高価",
+        },
+      ],
+    });
+    first.close();
+
+    // 派生データなので、壊れた行は未取得として読み、設定の読取を失敗させない
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("UPDATE content_cost_catalog SET models = ? WHERE id = 1").run('{"not":"array"}');
+    raw.close();
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readContentCostSettings(), {
+      enabled: true,
+      url: "https://cost-master.example.com/api/models",
+    });
+    assert.equal(second.readContentCostCatalog(), undefined);
+
+    second.deleteContentCostSettings();
+    second.deleteContentCostCatalog();
+    assert.equal(second.readContentCostSettings(), undefined);
+    assert.equal(second.readContentCostCatalog(), undefined);
+    second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("the image catalog cache keeps the output format declaration across reopen", () => {
   const dir = tempStoreDir();
   try {

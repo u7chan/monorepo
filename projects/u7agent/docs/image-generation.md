@@ -20,6 +20,7 @@
 
 - 取得は **API キーを使わない**（一覧 API は認証を見ないので、認証ヘッダも付けない）。キーの有無・有効性とは独立で、**キーの死活チェックには使えない**（無効なキーでも 200 が返る）
 - 取得契機は 起動時（`content_settings` に行があるとき）/ 手動の [カタログ更新]。`GET /api/settings/content` はネットワークに触らず、メモリ上の現在値を返すだけ。キー保存にも紐づけない（設定の変更を外部 API の待ち時間へ巻き込まない）
+- 手動の [カタログ更新] は、一覧と同時にコストマスタ（任意設定）から価格と `visible` も取る。未設定・OFF・取得失敗でも一覧の取得は従来どおりで、価格は `--` / 全件表示に倒れる（[content-cost.md](content-cost.md)）
 - 期限は 10 秒（`IMAGE_CATALOG_TIMEOUT_MS`）+ リトライなし。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
 - 取得成功時だけ DB（`image_catalog`）へ `id` と表示名、あれば出力形式の宣言（`outputFormats`）と画像入力の宣言（`input`）、生成パラメータの宣言（`parameters`）を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
 - 生成パラメータの宣言は `supported_parameters` から読み、名前を `aspect_ratio` / `resolution` / `quality` / `output_format` / `background` / `seed` に限る。descriptor は `enum`（`values`）/ `range`（`min` / `max`）/ `boolean` の 3 種類だけで、`boolean` は「そのパラメータを受け付ける」の意味（値そのものは送らない）。`seed` の値は 0 以上 2^31-1 以下の整数で、宣言がそれを超えていてもこの範囲に切る
@@ -41,7 +42,7 @@
 - `live`: 「モデル一覧は OpenRouter から取得しました（最終取得: 3時間前）」
 - `stored`: 「OpenRouter から取得できなかったため、前回の一覧を表示しています（最終取得: …）」
 - `sdk`: 「OpenRouter から取得できていないため、SDK の組み込み一覧を表示しています」
-- [カタログ更新] は `POST /api/settings/content/image/catalog/refresh`。**常に 200** で現在の一覧を返し、今回の取得に失敗したときだけ `catalogError`（固定文言）を載せる。UI は既存の注記で「取得できませんでした。表示中の一覧は変わりません。」と出す
+- [カタログ更新] は `POST /api/settings/content/catalog/refresh`（画像・音声・価格をまとめて取る）。**常に 200** で現在値を返し、今回の取得に失敗した系統だけ `errors.image` / `errors.speech` / `errors.cost` に固定文言を載せる。UI は既存の注記で「取得できませんでした。表示中の一覧は変わりません。」と出す
 
 ## 保存できない形式のモデル
 
@@ -336,7 +337,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 | PUT | `/api/settings/content/image/provider` | `{ provider }`。画像の生成元を切り替える。キー登録を伴わないため行が無くても受け付ける（[画像の生成元（provider）](#画像の生成元provider)） |
 | PUT | `/api/settings/content/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
 | DELETE | `/api/settings/content/key` | 行ごと削除（未設定へ戻す。冪等） |
-| POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `models` / `catalogSource` / `fetchedAt` / `catalogError` を返す（失敗時も一覧は返す） |
+| POST | `/api/settings/content/catalog/refresh` | 手動の [カタログ更新]。画像・音声の一覧と価格をまとめて取り直し、常に 200 で現在値 + `errors`（系統別）を返す（失敗時も前の一覧と価格を返す） |
 
 - `catalogSource` は `live` / `stored` / `sdk` で、`image.models` の出どころを表す（[モデルカタログ](#モデルカタログ)）。`live` 以外は取得に失敗している状態で、`fetchedAt` は最後に live を取得できた時刻（`sdk` のときは `null`）
 
@@ -357,7 +358,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 | `server/test/image-input.test.ts` | 参照画像のパス解決（cwd 相対 / 添付の絶対パス / 未所属・プロジェクト・追加スペースで起点がずれない）/ 拒否規則（`..`・範囲外・URL・data URL・バックスラッシュ・空）/ 実バイトの形式判定（PNG・JPEG・WebP、無拡張子・拡張子違い、壊れたヘッダ）/ 上限（10 MiB・40 メガピクセル）/ 入力の base64・data URL の除去 |
 | `server/test/sandbox-image-input.test.ts` | `GET /v1/files/image-input` の許可範囲（scope 外・実在しない範囲・root 外 symlink）/ 実バイト判定 / 上限 413 / scope 数の上限 |
 | `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、有効 / 無効の切替（キーと選択を保つ・行が無ければ 400・保存失敗は 503 で写しも変えない・キー上書きが OFF を引き継ぐ）、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式・パラメータ宣言 / 画像パラメータの既定の保存（モデルごと・2 回目以降も残る）、省略 / `{}` / 値ありの 3 通り、宣言外の 400 と文言のマスク、宣言が読めないモデルの扱い、`parametersByModel` のエントリごとの絞り込み |
-| `server/test/content-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、`PUT /api/settings/content` の有効 / 無効（行が無ければ 400）、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `image.models` の形（SDK 同梱カタログは 3 キーのまま、宣言を持つモデルだけ `parameters` が加わる）/ `image.parametersByModel` と PUT の `parameters`（応答・GET・モデル切替で消えないこと・`{}` での削除・宣言外の 400）/ 壊れた `imageParams` の 503 `not_stored` |
+| `server/test/content-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、`PUT /api/settings/content` の有効 / 無効（行が無ければ 400）、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 統合 refresh の 200 と系統別 `errors` / `image.models` の形（価格・表示可否・メモは常に載り、宣言を持つモデルだけ `parameters` が加わる）/ `image.parametersByModel` と PUT の `parameters`（応答・GET・モデル切替で消えないこと・`{}` での削除・宣言外の 400）/ 壊れた `imageParams` の 503 `not_stored` |
 | `server/test/content-trials.test.ts` / `server/test/content-trials-api.test.ts` | 試行の開始 / 取得 / キャンセル / 完了 / 失敗 / 中断の状態遷移と終端の不変性、完了直前のキャンセル、遅い結果の破棄、実行中の削除拒否、種別ごとの同時 1 本と provider が終わるまでのスロット保持、キャンセルで abort すること、起動時と一覧取得時の `running` → `interrupted`、終端の記録失敗からの再試行、close の中断、開始前の検証（未設定 / OFF / runtime 不可 / カタログ外 / 空・長すぎるプロンプト / 宣言外・宣言不明・透過できない形式の画像のパラメータ）、失敗文言のマスク、APIキーが応答・履歴に載らないこと、キー削除後も履歴を読めること、成果物の保存と `storage` の分類（課金済み）、保存できない形式・大きさの保存前拒否、同じ入力の再利用（現在のキー世代・成果物ファイルの存在、画像のパラメータの一致・不一致・未指定同士、provider を呼ばず新しい成功を記録しない）、`force` の新規生成、raw 配信の MIME と `nosniff` / `no-store` / `?download=1`、未知の id とパスを混ぜた要求の拒否、保存していない行の 404、成果物の削除、起動時の孤児掃除、実行中ジョブ（保存後・終端更新前）のファイルを消さないこと、一覧の取得中に確定したジョブの成果物を消さないこと（その後の raw 配信・容量・再利用も壊れないこと）、容量が保存済みの成功だけを数えること、時間ベースの自動削除が無いこと |
 | `server/test/content-trial-artifacts.test.ts` | 保存できる形式の許可リスト（png / jpeg / webp と、svg / html / 不明 MIME の保存前拒否）、実バイトからの寸法、壊れた base64 と上限超過、保存名が `<trialId>.<ext>` に固定されること、置き場の外を指す名前の拒否、読み書き・削除・一覧 |
 | `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`enabled` の列追加（既存行は ON）と往復、`image_catalog` の upsert と壊れた行（health を落とさない）、形式 / 画像入力 / 生成パラメータの宣言の往復と形違いの読み方、`content_settings.imageParams` の往復（空の map と NULL の区別）と v43 → v44 の加算移行、壊れた JSON の行の破損 |
@@ -373,7 +374,8 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 - OpenAI provider の実装（OpenRouter の差し替え点だけ残す。Codex のアダプタは `server/src/codex-images.ts` に閉じる）
 - キーの有効性のチェック（live カタログの取得は API キーを見ないため兼用できない。やるなら別 API）
 - TTL / バックグラウンドでのカタログ自動再取得（契機は起動と手動 [カタログ更新] だけ）
-- コスト表示、プロバイダー登録済みキーの流用、エージェント単位の生成元の上書き
+- 価格や `visible` を理由にした生成の拒否・モデル切替（価格は表示だけ。[content-cost.md](content-cost.md)）
+- プロバイダー登録済みキーの流用、エージェント単位の生成元の上書き
 - 参照画像による**部分編集**（マスク / 領域指定 / レイヤー）。変更対象外のピクセルを厳密に保つことは保証しない（[参照画像による編集](#参照画像による編集)）
 - 複数の参照画像、複数枚の出力、入力の自動縮小・自動変換、外部 URL を直接の入力にすること
 - `provider.only` による endpoint の pin（対応 / 非対応が混在するモデルは編集対象外）

@@ -199,15 +199,15 @@
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/content` | `configured` / `provider` / `enabled` / `disabledMessage` / `runtimeAvailable` / `image` / `speech` / `bgm`。画像は生成元と認証状態、画像・TTSはモデル一覧、BGMは固定モデル・形式・モデル仕様の尺を返す。純粋読取でAPIキー・トークンを返さず、生成APIも呼ばず、OAuth の解決もしない |
+| GET | `/api/settings/content` | `configured` / `provider` / `enabled` / `disabledMessage` / `runtimeAvailable` / `image` / `speech` / `bgm`。画像は生成元と認証状態、価格（`prices` / `visible` / `note`）とコストマスタの接続状態（`image.cost`）、画像・TTSはモデル一覧、BGMは固定モデル・形式・モデル仕様の尺を返す。純粋読取でAPIキー・トークンを返さず、生成APIも呼ばず、OAuth の解決もしない |
 | PUT | `/api/settings/content` | `{ enabled }`。画像・音声・BGM 共通の有効 / 無効（キーと選択は保持。行が無ければ 400）。保存した瞬間から既存のセッションの次の呼び出しにも効く |
 | PUT | `/api/settings/content/image` | `{ provider, model, parameters? }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400）。`parameters` は生成パラメータの既定で、**省略 = 据え置き / `{}` = そのモデルの既定を削除 / 値あり = 置き換え**（`model` を切り替えても他のモデルの既定は残る）。宣言外の値は 400 で保存しない（[image-generation.md](image-generation.md#画像パラメータの既定)） |
 | PUT | `/api/settings/content/image/provider` | `{ provider }`（`openrouter` / `codex`）。画像の生成元だけを切り替える。キー登録を伴わないため行が無くても受け付け、`content_settings` のキー・モデル・音声・トグルは変えない（[image-generation.md](image-generation.md#画像の生成元provider)） |
 | PUT | `/api/settings/content/speech` | `{ model, voice }`。キーと画像モデルを保持したまま音声モデル / ボイスを更新（行が無ければ 400） |
 | PUT | `/api/settings/content/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
 | DELETE | `/api/settings/content/key` | 行ごと削除して未設定へ戻す（冪等） |
-| POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
-| POST | `/api/settings/content/speech/catalog/refresh` | 音声カタログの再取得。応答は画像と同じ形 |
+| PUT | `/api/settings/content/cost-url` | `{ enabled, url }`。コストマスタの接続先とトグルを保存する（保存時に取得しない）。`enabled: true` は URL 必須で、`enabled: false` + 空 URL は行の削除。行が無くても受け付け、URL の形（http / https・ホスト名・IP リテラルと認証情報の拒否）は保存時に検証する（[content-cost.md](content-cost.md)） |
+| POST | `/api/settings/content/catalog/refresh` | 手動の [カタログ更新]。画像・音声の一覧と価格をまとめて取り直し、**常に 200** で `GET` と同じ形 + `errors: { image?, speech?, cost? }` を返す。1 系統の失敗で他の結果を捨てず、失敗した系統は前回の値を保つ |
 | POST | `/api/settings/content/trials` | `{ kind, model, prompt, voice?, instructions?, speed?, parameters?, force? }`。試行ジョブを開始し、202 で `{ trial, reused: false }`（開始直後は実行中）を返す。実行中は種別ごとに 1 本だけ（409）。`parameters` は画像の生成パラメータで、画像のときだけ受け付けてモデルの宣言と突き合わせてから provider を呼ぶ（宣言外・宣言不明・透過できない形式は 400 で課金しない）。BGM の `model` は固定値だけで、BGM の同時実行はチャットの `generate_bgm` と枠を共有する（空きが無ければ行を作らず 409）。同じ入力の保存済み成功（現在のキー世代・成果物ファイルあり）があれば provider を呼ばず 200 `{ trial, reused: true }`。`force: true` は保存済み結果を無視する。置き場のディスクの空きが 1 件分に満たないときは、行を作らず 503 `{ error, code: "disk_shortage" }` で拒否する（クレジットは消費しない） |
 | GET | `/api/settings/content/trials` | `{ items, keyEpoch, artifactUsage, artifactWarning, nextBefore, hasMore }`。新しい順の履歴（`?kind=` で絞る）。`?limit=`（上限あり）と `?before=`（前のページの `nextBefore`）でページを進め、`?state=running` は実行中の行だけを返す。`items` は要約で、本文と演技指示は `GET .../trials/:id` だけが返す。送信時の `parameters` と音声の `voice` / `speed` は要約にも載る（未指定は null）ので、全文を取得しなくても再生成の入力を組み立てられる。取得のたびに `running` の取り残しと成果物の置き場を再照合する |
 | GET | `/api/settings/content/trials/:id` | `{ trial }`。本文と演技指示を含む全文。終端の記録に失敗している間は `recorded: false` でメモリの状態を返す |
@@ -235,10 +235,20 @@
     "model": "openai/gpt-image-2",
     "provider": "openrouter",
     "auth": { "state": "configured", "kind": "api_key" },
-    "models": [{ "provider": "openrouter", "id": "openai/gpt-image-2", "name": "OpenAI: GPT Image 2" }],
+    "models": [
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-image-2",
+        "name": "OpenAI: GPT Image 2",
+        "prices": [{ "unit": "image", "variant": "", "costUsd": 0.04, "currency": "USD" }],
+        "visible": true,
+        "note": null
+      }
+    ],
     "catalogSource": "live",
     "fetchedAt": 1740000000000,
-    "parametersByModel": { "openai/gpt-image-2": { "aspect_ratio": "16:9" } }
+    "parametersByModel": { "openai/gpt-image-2": { "aspect_ratio": "16:9" } },
+    "cost": { "enabled": true, "url": "https://cost-master.example.com/api/models", "fetchedAt": 1740000000000, "version": 3 }
   },
   "speech": {
     "model": "google/gemini-3.8-flash-tts",
@@ -256,32 +266,34 @@
   }
 }
 
-// POST /api/settings/content/image/catalog/refresh (200。取得に失敗しても 200 で一覧は前のまま)
+// POST /api/settings/content/catalog/refresh (200。取得に失敗しても 200 で前回値を返す)
+// GET と同じ形に errors が加わる。失敗した系統だけが載り、成功した系統の結果は捨てない
 {
-  "models": [{ "provider": "openrouter", "id": "openai/gpt-image-2", "name": "OpenAI: GPT Image 2" }],
-  "catalogSource": "stored",
-  "fetchedAt": 1740000000000,
-  "catalogError": "モデル一覧の取得がタイムアウトしました"
-}
-
-// POST /api/settings/content/speech/catalog/refresh (200。形は画像と同じ)
-{
-  "models": [{ "provider": "openrouter", "id": "google/gemini-3.8-flash-tts", "name": "Google: Gemini 3.8 Flash TTS", "voices": ["Zephyr", "Kore"] }],
-  "catalogSource": "default",
-  "fetchedAt": null,
-  "catalogError": "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）"
+  "image": {
+    "models": [{ "provider": "openrouter", "id": "openai/gpt-image-2", "name": "OpenAI: GPT Image 2", "prices": [], "visible": true, "note": null }],
+    "catalogSource": "stored",
+    "fetchedAt": 1740000000000,
+    "parametersByModel": {},
+    "cost": { "enabled": true, "url": "https://cost-master.example.com/api/models", "fetchedAt": 1740000000000, "version": 3 }
+  },
+  "speech": {
+    "models": [{ "provider": "openrouter", "id": "google/gemini-3.8-flash-tts", "name": "Google: Gemini 3.8 Flash TTS", "voices": ["Zephyr", "Kore"] }],
+    "catalogSource": "default",
+    "fetchedAt": null
+  },
+  "errors": { "image": "モデル一覧の取得がタイムアウトしました" }
 }
 ```
 
 - `configured` は `content_settings` に行があるか。`false` のとき `provider` / `image.model` / `speech.model` / `bgm.model` は `null`（行が無い = 未設定）。
 - `image` / `speech` / `bgm` は兄弟の表示項目。`bgm` は `{ model, format, expectedDurationSeconds }` で形式と尺は固定のモデル仕様（生成物の実測値ではない）。値とDTOの正は `server/src/bgm.ts` / `server/src/schema.ts`。BGM専用の保存APIは追加せず、変更系もGETと同じbgmを返す（[bgm-generation.md](bgm-generation.md)）。
 - `image.provider` は画像の生成元（`openrouter` / `codex`。行が無ければ既定の `openrouter`）で、`image.auth` は選択中の provider の認証状態（`configured` / `missing` / `expired` と `kind`）だけを返す。**GET はどちらも保存値の読取だけで判定し、OAuth のトークン解決・更新・外部通信をしない**。`image.models` は OpenRouter を選んでいるときだけ返し、Codex のときは空配列（画像モデルを選ばない。ルーティングモデルを画像モデルとして返さない）。
-- `image.models` は live カタログ（OpenRouter の画像モデル API）で、UI はこの一覧からだけモデルを選べる。各要素は `provider` / `id` / `name` と、宣言があるときだけ `parameters`（生成パラメータの宣言）を持つ。`image.parametersByModel` は保存済みの生成パラメータの既定（bare なモデル id → 値）で、**各エントリをそのモデルの宣言で絞る**。宣言が読めないモデルのエントリは空になる（[image-generation.md](image-generation.md#画像パラメータの既定)）。`catalogSource` は `live` / `stored` / `sdk` で、`live` 以外は取得に失敗した状態（`stored` = 前回の成功を DB キャッシュから、`sdk` = SDK 同梱）を表し、`fetchedAt` は最後に live を取得できた時刻（`sdk` は `null`）。キー値はどの応答にも含めない（[image-generation.md](image-generation.md#モデルカタログ)）
+- `image.models` は live カタログ（OpenRouter の画像モデル API）で、UI はこの一覧からだけモデルを選べる。各要素は `provider` / `id` / `name`、宣言があるときだけ `parameters`（生成パラメータの宣言）、コストマスタの投影として `prices`（出力側の単価。不明は空配列）/ `visible`（false でも一覧からは落とさない）/ `note`（人手メモ。無ければ null）を持つ。`image.cost` は `{ enabled, url, fetchedAt, version }`（未設定・OFF でも null にせず `enabled: false` / `url: null` を返す。[content-cost.md](content-cost.md)）。`image.parametersByModel` は保存済みの生成パラメータの既定（bare なモデル id → 値）で、**各エントリをそのモデルの宣言で絞る**。宣言が読めないモデルのエントリは空になる（[image-generation.md](image-generation.md#画像パラメータの既定)）。`catalogSource` は `live` / `stored` / `sdk` で、`live` 以外は取得に失敗した状態（`stored` = 前回の成功を DB キャッシュから、`sdk` = SDK 同梱）を表し、`fetchedAt` は最後に live を取得できた時刻（`sdk` は `null`）。キー値はどの応答にも含めない（[image-generation.md](image-generation.md#モデルカタログ)）
 - `speech.models` は live カタログ（OpenRouter の音声モデル一覧 API）で、`voices` に話者の宣言を含む。`catalogSource` は `live` / `stored` / `default` で、`default` は「live もキャッシュも無く、同梱の既定 1 件を見ている」を表す。`voice` の空文字は「指定なし」（宣言が無いモデルで送らない）。`content_settings` の音声列が `NULL` の既存行は、既定モデルと先頭ボイスへフォールバックして返す（[speech-generation.md](speech-generation.md#モデルカタログ)）
 - `runtimeAvailable` は `/api/settings/models` と同じく「SDK ランタイムの初期化に成功したか」。`false` のときキー登録は 503 `not_stored`（`retainSecret` が no-op になり保護できないため）。選択変更と削除は runtime に依存しない
-- POST の `catalogError` は**今回の取得だけ**の結果で、`null` なら成功。失敗しても一覧と `catalogSource` は前のままで、503 にはしない（設定ではなくキャッシュの更新なので `state` も付けない）
+- 統合 refresh の `errors` は**今回の取得だけ**の結果で、成功した系統のキーは載らない。失敗しても一覧・価格・`catalogSource` は前のままで、503 にはしない（設定ではなくキャッシュの更新なので `state` も付けない）
 - 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映を持たないため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`
-- 400: 行が無いのに PUT（`コンテンツ生成のAPIキーが未設定です。先にキーを登録してください`）、`openrouter` 以外の provider、画像の生成元が `openrouter` / `codex` 以外、カタログ外の model、宣言外の画像パラメータ（宣言に無いキー・宣言の外の値・宣言が読めないモデルへの値）、画像 / 音声のカタログ外モデル、宣言があるモデルで宣言外のボイス、8..2048 文字外のキー、形が違う本文。音声カタログが `default` のときはカタログ照合をしない（[speech-generation.md](speech-generation.md#モデルカタログ)）。BGM 専用の設定は持たず、試行の `model` は固定値だけを受け付ける（[bgm-generation.md](bgm-generation.md#試行設定画面)）
+- 400: 行が無いのに PUT（`コンテンツ生成のAPIキーが未設定です。先にキーを登録してください`）、`openrouter` 以外の provider、`enabled: true` で空のコストURL・http / https 以外・IP リテラル・認証情報付きのコストURL、画像の生成元が `openrouter` / `codex` 以外、カタログ外の model、宣言外の画像パラメータ（宣言に無いキー・宣言の外の値・宣言が読めないモデルへの値）、画像 / 音声のカタログ外モデル、宣言があるモデルで宣言外のボイス、8..2048 文字外のキー、形が違う本文。音声カタログが `default` のときはカタログ照合をしない（[speech-generation.md](speech-generation.md#モデルカタログ)）。BGM 専用の設定は持たず、試行の `model` は固定値だけを受け付ける（[bgm-generation.md](bgm-generation.md#試行設定画面)）
 - `keyEpoch` はキーの世代で、**上書きと（行があったときの）削除で進む**。新規保存と未設定の削除では動かさない。試行の証拠は「現在の `keyEpoch` と現在のモデル」に一致する成功だけを数えるため、旧キーの実績が現在のキーの確認として扱われない（[image-generation.md](image-generation.md#設定画面)）
 - キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`。削除すると行ごと消え、`generate_image` / `generate_speech` / `generate_bgm` は次のセッション作成・復元から公開されなくなる（既存liveセッションの execute は実行時にキー無効エラーを返す）。
 

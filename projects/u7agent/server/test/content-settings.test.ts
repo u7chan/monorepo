@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ContentSettingsRow, ImageParameterDefaults, ImageSettingsRow } from "../src/app-db";
 import type { ImageCatalog, ImageCatalogSnapshot } from "../src/image-catalog";
+import type { ContentCostCatalog } from "../src/content-cost";
 import {
   DEFAULT_IMAGE_MODEL,
   CONTENT_KEY_NOT_STORED_MESSAGE,
@@ -52,6 +53,17 @@ function stubSpeechCatalog(): SpeechCatalog {
     snapshot: () => ({ entries: [SPEECH_STUB], source: "default", fetchedAt: null }),
     voicesOf: (model) => (model === SPEECH_STUB.id ? SPEECH_STUB.voices : undefined),
     loadStored: () => {},
+    refresh: async () => null,
+  };
+}
+
+/** コストマスタの最小 stub。ここでは投影が既定（価格なし・全件表示）のままであることだけを見る */
+function stubContentCostCatalog(): ContentCostCatalog {
+  return {
+    loadStored: () => {},
+    state: () => ({ enabled: false, url: null, fetchedAt: null, version: null }),
+    projection: () => new Map(),
+    saveSettings: () => ({ status: 200 }),
     refresh: async () => null,
   };
 }
@@ -215,6 +227,8 @@ function createService(
       status: () => ImageAuthStatus;
       resolve: () => Promise<CodexAuth | undefined>;
     };
+    /** コストマスタ連携。未指定は未設定（投影なし・取得なし） */
+    cost?: ContentCostCatalog;
   } = {},
 ) {
   const db = options.db ?? new FakeContentDb();
@@ -230,6 +244,7 @@ function createService(
     },
     catalog: fake.catalog,
     speechCatalog: stubSpeechCatalog(),
+    cost: options.cost ?? stubContentCostCatalog(),
     codexAuth: options.codexAuth ?? {
       status: () => ({ state: "missing" as const, kind: null }),
       resolve: async () => undefined,
@@ -266,10 +281,20 @@ test("GET は行が無いとき未設定を返し、キーを載せない", () =
       model: null,
       provider: "openrouter",
       auth: { state: "missing", kind: "api_key" },
-      models: [{ provider: IMAGE_PROVIDER_ID, id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" }],
+      models: [
+        {
+          provider: IMAGE_PROVIDER_ID,
+          id: DEFAULT_IMAGE_MODEL,
+          name: "GPT Image 2",
+          prices: [],
+          visible: true,
+          note: null,
+        },
+      ],
       catalogSource: "live",
       fetchedAt: null,
       parametersByModel: {},
+      cost: { enabled: false, url: null, fetchedAt: null, version: null },
     },
     speech: {
       model: null,
@@ -348,27 +373,32 @@ test("注入した config は一覧から落ちたモデルの形式宣言・パ
   assert.equal(latest()?.readParameters(DEFAULT_IMAGE_MODEL), undefined, "宣言なし・未知名は不明として渡す");
 });
 
-test("カタログの再取得は失敗しても一覧を返し、固定文言だけを catalogError に載せる", async () => {
+test("カタログの再取得は失敗しても現在値を返し、失敗を系統ごとの errors に載せる", async () => {
   const failing = createService({
     refreshError: "モデル一覧の取得がタイムアウトしました",
     source: "stored",
     fetchedAt: 500,
   });
-  assert.deepEqual(await failing.service.refreshCatalog(), {
-    models: [{ provider: IMAGE_PROVIDER_ID, id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" }],
-    catalogSource: "stored",
-    fetchedAt: 500,
-    catalogError: "モデル一覧の取得がタイムアウトしました",
-  });
+  const failed = await failing.service.refreshCatalog();
+  assert.deepEqual(failed.image.models, [
+    {
+      provider: IMAGE_PROVIDER_ID,
+      id: DEFAULT_IMAGE_MODEL,
+      name: "GPT Image 2",
+      prices: [],
+      visible: true,
+      note: null,
+    },
+  ]);
+  assert.equal(failed.image.catalogSource, "stored");
+  assert.equal(failed.image.fetchedAt, 500);
+  assert.deepEqual(failed.errors, { image: "モデル一覧の取得がタイムアウトしました" });
   assert.equal(failing.catalog.refreshes, 1);
 
   const ok = createService();
-  assert.deepEqual(await ok.service.refreshCatalog(), {
-    models: [{ provider: IMAGE_PROVIDER_ID, id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" }],
-    catalogSource: "live",
-    fetchedAt: null,
-    catalogError: null,
-  });
+  const succeeded = await ok.service.refreshCatalog();
+  assert.equal(succeeded.image.catalogSource, "live");
+  assert.deepEqual(succeeded.errors, {});
 });
 
 test("キー上書きは選択済みの provider / model と有効 / 無効を保つ", async () => {

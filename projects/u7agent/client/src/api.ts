@@ -21,6 +21,7 @@ import type {
   CreateCustomProviderBody,
   CustomProviderProbeBody,
   CustomProviderProbeResponse,
+  ContentCatalogRefreshResponse,
   ContentMutationResponse,
   ContentSettingsResponse,
   ContentTrialDeleteResponse,
@@ -44,7 +45,6 @@ import type {
   GitSettingsResponse,
   Health,
   HistoryPage,
-  ImageCatalogRefreshResponse,
   ModelCatalogRefreshResponse,
   ModelMutationResponse,
   ModelRef,
@@ -94,7 +94,6 @@ import type {
   SharedContentsResponse,
   SharedContentStopResponse,
   SharedContentThumbnailResponse,
-  SpeechCatalogRefreshResponse,
   StopResult,
   ThinkingLevel,
   TitleSummarySettingsResponse,
@@ -1336,22 +1335,13 @@ export const postTitleSummaryTest = async (): Promise<TitleSummaryTestResponse> 
 };
 
 /**
- * 画像モデル一覧の再取得。取得できなくても 200 で、失敗は catalogError にだけ載る（一覧は手元に残る）。
- * 設定は変わらないため、応答は一覧と出どころだけを返す。
+ * モデル一覧と価格の再取得。取得できなくても 200 で、失敗は系統ごとの `errors` にだけ載る
+ * （一覧も価格も手元に残る）。応答は GET と同じ形なので、そのまま次の状態にできる。
  */
-export const refreshImageCatalog = async (): Promise<ImageCatalogRefreshResponse> => {
-  const res = await client.api.settings.content.image.catalog.refresh.$post();
+export const refreshContentCatalog = async (): Promise<ContentCatalogRefreshResponse> => {
+  const res = await client.api.settings.content.catalog.refresh.$post();
   if (!res.ok) throw await apiError(res);
-  return (await res.json()) as ImageCatalogRefreshResponse;
-};
-
-/**
- * 音声モデル一覧の再取得。形と失敗の扱いは画像と同じ（常に 200 で、失敗は catalogError にだけ載る）。
- */
-export const refreshSpeechCatalog = async (): Promise<SpeechCatalogRefreshResponse> => {
-  const res = await client.api.settings.content.speech.catalog.refresh.$post();
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as SpeechCatalogRefreshResponse;
+  return (await res.json()) as ContentCatalogRefreshResponse;
 };
 
 export const getRuntimeServeStatus = async (signal?: AbortSignal): Promise<RuntimeServeStatus> => {

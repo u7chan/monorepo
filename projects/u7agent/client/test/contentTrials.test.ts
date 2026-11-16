@@ -902,6 +902,9 @@ const MODEL_ENTRIES: ImageModel[] = [
     provider: "openrouter",
     id: "openai/gpt-image-2",
     name: "GPT Image 2",
+    prices: [],
+    visible: true,
+    note: null,
     parameters: {
       aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
       quality: { type: "enum", values: ["high", "low"] },
@@ -909,7 +912,7 @@ const MODEL_ENTRIES: ImageModel[] = [
       seed: { type: "range", min: 0, max: 1_000 },
     },
   },
-  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image", prices: [], visible: true, note: null },
 ];
 
 test("モデルの宣言はカタログを provider/id で引き、宣言の無いモデルは不明として扱う", () => {

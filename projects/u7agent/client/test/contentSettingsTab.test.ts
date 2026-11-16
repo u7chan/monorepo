@@ -14,8 +14,8 @@ import type { ContentSubsection } from "../src/lib/settingsNav";
 import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings, ContentTrial } from "../src/types";
 
 const MODELS = [
-  { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
-  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+  { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2", prices: [], visible: true, note: null },
+  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image", prices: [], visible: true, note: null },
 ];
 
 const SPEECH_MODELS = [
@@ -54,6 +54,7 @@ function settings(
       catalogSource: "live",
       fetchedAt: null,
       parametersByModel: {},
+      cost: { enabled: false, url: null, fetchedAt: null, version: null },
       ...image,
     },
     speech: {
@@ -890,6 +891,9 @@ const DECLARING_MODELS: ContentImageSettings["models"] = [
     provider: "openrouter",
     id: "openai/gpt-image-2",
     name: "GPT Image 2",
+    prices: [],
+    visible: true,
+    note: null,
     parameters: {
       aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
       seed: { type: "range", min: 0, max: 1_000 },

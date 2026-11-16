@@ -50,9 +50,16 @@ const liveCatalogFetch: typeof fetch = async () =>
     { status: 200, headers: { "content-type": "application/json" } },
   );
 
+/** 画像側の live カタログ stub。統合 refresh が画像も取るため、形の違う応答を返さない */
+const liveImageCatalogFetch: typeof fetch = async () =>
+  new Response(JSON.stringify({ data: [{ id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" }] }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+
 /** 画像側も同じ stub に固定する（このファイルの対象ではないが、起動時の取得を実 API へ行かせない） */
 const openBff = (options: Parameters<typeof createBffApp>[0] = {}) =>
-  createBffApp({ ...options, imageCatalogFetch: liveCatalogFetch, speechCatalogFetch: liveCatalogFetch });
+  createBffApp({ ...options, imageCatalogFetch: liveImageCatalogFetch, speechCatalogFetch: liveCatalogFetch });
 
 test("GET は行が無いとき音声も未設定で返し、キーを載せない", async () => {
   await withStoreDir(async (dir) => {
@@ -151,7 +158,7 @@ test("宣言が無いモデルでも、キーをボイスとして保存する�
     const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       // live の一覧を読み込んでから、宣言が無い fish/audio へキーをボイスとして送る
-      await bff.app.request("/api/settings/content/speech/catalog/refresh", { method: "POST" });
+      await bff.app.request("/api/settings/content/catalog/refresh", { method: "POST" });
       await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
       const put = await bff.app.request("/api/settings/content/speech", jsonPut({ model: OTHER_MODEL, voice: KEY }));
       assert.equal((await put).status, 400, "キーと同じ値は音声の設定に保存しない");
@@ -178,7 +185,7 @@ test("ランタイムなしで再起動すると、保存済みキーは未評�
       workspace: null,
     });
     try {
-      await first.app.request("/api/settings/content/speech/catalog/refresh", { method: "POST" });
+      await first.app.request("/api/settings/content/catalog/refresh", { method: "POST" });
       await first.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
     } finally {
       await first.close();
@@ -211,7 +218,7 @@ test("ランタイムなしでも、キーを含む入力の 400 から値を反
       workspace: null,
     });
     try {
-      await first.app.request("/api/settings/content/speech/catalog/refresh", { method: "POST" });
+      await first.app.request("/api/settings/content/catalog/refresh", { method: "POST" });
       await first.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
     } finally {
       await first.close();
@@ -252,7 +259,7 @@ test("カタログ外モデル / 宣言外の声 / 形が違う本文は 400", a
     });
     try {
       // live をカタログへ取り込んでから検証する（default のときは照合しない）
-      await bff.app.request("/api/settings/content/speech/catalog/refresh", { method: "POST" });
+      await bff.app.request("/api/settings/content/catalog/refresh", { method: "POST" });
       await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
       for (const body of [
         { model: "ghost/model", voice: "" },
@@ -276,7 +283,7 @@ test("カタログが default のときは保存済みの選択を照合せず�
       sessionStoreDir: dir,
       pi: asPiBff(createStubPi()),
       workspace: null,
-      imageCatalogFetch: liveCatalogFetch,
+      imageCatalogFetch: liveImageCatalogFetch,
       speechCatalogFetch: async () => new Response("boom", { status: 503 }),
     });
     try {
@@ -301,7 +308,7 @@ test("カタログが default のときは保存済みの選択を照合せず�
   });
 });
 
-test("音声カタログの再取得は 200 で一覧を返し、失敗は catalogError にだけ載せる", async () => {
+test("音声カタログの再取得は 200 で現在値を返し、失敗は errors に系統別で載せる", async () => {
   await withStoreDir(async (dir) => {
     const bff = await openBff({
       cwd: "/tmp/project",
@@ -311,16 +318,16 @@ test("音声カタログの再取得は 200 で一覧を返し、失敗は catal
     });
     try {
       const refreshed = await jsonBody(
-        await bff.app.request("/api/settings/content/speech/catalog/refresh", { method: "POST" }),
+        await bff.app.request("/api/settings/content/catalog/refresh", { method: "POST" }),
       );
-      assert.equal(refreshed.catalogError, null);
-      assert.equal(refreshed.catalogSource, "live");
-      assert.equal(typeof refreshed.fetchedAt, "number");
+      assert.deepEqual(refreshed.errors, {});
+      assert.equal(refreshed.speech.catalogSource, "live");
+      assert.equal(typeof refreshed.speech.fetchedAt, "number");
       assert.deepEqual(
-        refreshed.models.map((model: any) => model.id),
+        refreshed.speech.models.map((model: any) => model.id),
         [DEFAULT_SPEECH_MODEL, OTHER_MODEL],
       );
-      assert.deepEqual(refreshed.models[0].voices, ["Zephyr", "Kore"]);
+      assert.deepEqual(refreshed.speech.models[0].voices, ["Zephyr", "Kore"]);
     } finally {
       await bff.close();
     }
@@ -332,17 +339,18 @@ test("音声カタログの再取得は 200 で一覧を返し、失敗は catal
       sessionStoreDir: dir,
       pi: asPiBff(createStubPi()),
       workspace: null,
-      imageCatalogFetch: liveCatalogFetch,
+      imageCatalogFetch: liveImageCatalogFetch,
       speechCatalogFetch: async () => new Response("boom", { status: 503 }),
     });
     try {
-      const response = await bff.app.request("/api/settings/content/speech/catalog/refresh", { method: "POST" });
+      const response = await bff.app.request("/api/settings/content/catalog/refresh", { method: "POST" });
       assert.equal(response.status, 200, "取得できなくても 200 で一覧を失わせない");
       const body = await jsonBody(response);
-      assert.equal(body.catalogError, "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）");
-      assert.equal(body.catalogSource, "default");
-      assert.equal(body.fetchedAt, null);
-      assert.equal(body.models.length, 1, "同梱の既定を返す");
+      assert.equal(body.errors.speech, "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）");
+      assert.equal(body.errors.image, undefined, "成功した系統の結果を捨てない");
+      assert.equal(body.speech.catalogSource, "default");
+      assert.equal(body.speech.fetchedAt, null);
+      assert.equal(body.speech.models.length, 1, "同梱の既定を返す");
     } finally {
       await bff.close();
     }
@@ -399,7 +407,7 @@ test("アプリ DB が使えないときは音声の変更系も 503 not_stored 
       sessionStoreDir: filePath,
       pi: asPiBff(createStubPi()),
       workspace: null,
-      imageCatalogFetch: liveCatalogFetch,
+      imageCatalogFetch: liveImageCatalogFetch,
       speechCatalogFetch: liveCatalogFetch,
     });
     try {

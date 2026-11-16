@@ -4,6 +4,7 @@ import type { ContentSettingsService, ContentMutationOutcome } from "../content-
 import type { ContentTrialsService } from "../content-trials";
 import type {
   CreateContentTrialBody,
+  UpdateContentCostBody,
   UpdateContentEnabledBody,
   UpdateContentImageBody,
   UpdateContentImageProviderBody,
@@ -42,12 +43,12 @@ export function createContentSettingsRoutes({
 
     putKey: async (c: Context, apiKey: string) => respond(c, await contentSettings.putKey(apiKey)),
 
+    putCost: async (c: Context, body: UpdateContentCostBody) => respond(c, await contentSettings.putCost(body)),
+
     deleteKey: async (c: Context) => respond(c, await contentSettings.deleteKey()),
 
-    // 取得できなくても 200。一覧を失わせず、失敗は catalogError だけに載せる（DB のガードも通さない）
+    // 取得できなくても 200。一覧と価格を失わせず、失敗は errors だけに系統別で載せる（DB のガードも通さない）
     refreshCatalog: async (c: Context) => c.json(await contentSettings.refreshCatalog()),
-
-    refreshSpeechCatalog: async (c: Context) => c.json(await contentSettings.refreshSpeechCatalog()),
 
     // 試行は 202 で開始し、状態は GET で取る。画面の寿命にも、リクエストの signal にも結び付けない。
     // 同じ入力の保存済み成功があるときは provider を呼ばず 200 + `reused: true` を返す（課金しない）

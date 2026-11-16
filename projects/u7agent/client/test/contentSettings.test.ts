@@ -37,8 +37,6 @@ import {
   speechSelection,
   speechSpeed,
   speechSpeedStep,
-  speechSettingsAfterRefresh,
-  speechSyncedAfterRefresh,
   speechVoiceDraft,
   speechVoiceMode,
   speechVoiceValue,
@@ -69,13 +67,28 @@ function settings(
       provider: "openrouter",
       auth: { state: "configured", kind: "api_key" },
       models: [
-        { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
-        { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
-        { provider: "openrouter", id: "mystery/image", name: "GPT Image 2" },
+        {
+          provider: "openrouter",
+          id: "openai/gpt-image-2",
+          name: "GPT Image 2",
+          prices: [],
+          visible: true,
+          note: null,
+        },
+        {
+          provider: "openrouter",
+          id: "google/gemini-image",
+          name: "Gemini Image",
+          prices: [],
+          visible: true,
+          note: null,
+        },
+        { provider: "openrouter", id: "mystery/image", name: "GPT Image 2", prices: [], visible: true, note: null },
       ],
       catalogSource: "live",
       fetchedAt: null,
       parametersByModel: {},
+      cost: { enabled: false, url: null, fetchedAt: null, version: null },
       ...image,
     },
     speech: {
@@ -117,9 +130,9 @@ test("name が空のモデルは id を表示名にして id 順に並べる", (
     settings({
       model: "mystery/mid",
       models: [
-        { provider: "openrouter", id: "mystery/zeta", name: "" },
-        { provider: "openrouter", id: "mystery/mid", name: "" },
-        { provider: "openrouter", id: "mystery/alpha", name: "" },
+        { provider: "openrouter", id: "mystery/zeta", name: "", prices: [], visible: true, note: null },
+        { provider: "openrouter", id: "mystery/mid", name: "", prices: [], visible: true, note: null },
+        { provider: "openrouter", id: "mystery/alpha", name: "", prices: [], visible: true, note: null },
       ],
     }),
   );
@@ -134,9 +147,30 @@ test("表示名の比較はケースを無視せず、小文字始まりを大�
     settings({
       model: null,
       models: [
-        { provider: "openrouter", id: "xai/grok-imagine", name: "xAI: Grok Imagine Image 2.0" },
-        { provider: "openrouter", id: "black-forest-labs/flux", name: "Black Forest Labs: FLUX 3" },
-        { provider: "openrouter", id: "google/gemini-image", name: "Google: Gemini 2.5 Flash Image" },
+        {
+          provider: "openrouter",
+          id: "xai/grok-imagine",
+          name: "xAI: Grok Imagine Image 2.0",
+          prices: [],
+          visible: true,
+          note: null,
+        },
+        {
+          provider: "openrouter",
+          id: "black-forest-labs/flux",
+          name: "Black Forest Labs: FLUX 3",
+          prices: [],
+          visible: true,
+          note: null,
+        },
+        {
+          provider: "openrouter",
+          id: "google/gemini-image",
+          name: "Google: Gemini 2.5 Flash Image",
+          prices: [],
+          visible: true,
+          note: null,
+        },
       ],
     }),
   );
@@ -185,6 +219,9 @@ const DECLARING_MODELS: ImageModel[] = [
     provider: "openrouter",
     id: "openai/gpt-image-2",
     name: "GPT Image 2",
+    prices: [],
+    visible: true,
+    note: null,
     parameters: {
       aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
       quality: { type: "enum", values: ["high", "low"] },
@@ -192,7 +229,7 @@ const DECLARING_MODELS: ImageModel[] = [
       seed: { type: "range", min: 0, max: 1_000 },
     },
   },
-  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image", prices: [], visible: true, note: null },
 ];
 
 const MODEL = "openrouter/openai/gpt-image-2";
@@ -451,57 +488,7 @@ test("モデル切替時のボイスは新しいモデルの先頭へ寄せ、�
   assert.equal(speechVoiceDraft({ draft: "Kore", modelChanged: true, option: fish, savedVoice: "Zephyr" }), "Kore");
 });
 
-test("音声カタログ再取得後は server の現在値へ同期し、表示と実行時のボイスを食い違わせない", () => {
-  const reordered = [
-    {
-      provider: "openrouter",
-      id: "google/gemini-3.8-flash-tts",
-      name: "Google: Gemini 3.8 Flash TTS",
-      voices: ["Kore", "Zephyr"],
-    },
-  ];
-  const previous = settings({}, {}, { voice: "Zephyr" });
-  const refreshed = { models: reordered, catalogSource: "live" as const, fetchedAt: 2000 };
-  const current = settings({}, {}, { voice: "Kore", models: reordered, fetchedAt: 2000 });
-
-  assert.deepEqual(
-    speechSettingsAfterRefresh(previous, refreshed, current),
-    current,
-    "GET が取れていれば server の現在値（NULL ボイスのフォールバックを含む）を正とする",
-  );
-
-  // GET が取れなかったときだけ、一覧と出どころを差し替える（ボイスは据え置き）
-  const patched = speechSettingsAfterRefresh(previous, refreshed, null);
-  assert.equal(patched?.speech.voice, "Zephyr");
-  assert.equal(patched?.speech.fetchedAt, 2000);
-  assert.deepEqual(patched?.speech.models, reordered);
-  assert.equal(speechSettingsAfterRefresh(null, refreshed, null), null);
-
-  // 再現条件: 保存ボイスが NULL（旧一覧の先頭 Zephyr を見せている）で、再取得が [Kore, Zephyr] を返して成功し、
-  // 直後の GET だけ失敗する。実行時は Kore へ解決するため、旧 Zephyr を現在値として扱ってはいけない
-  assert.equal(
-    speechSyncedAfterRefresh(true, { catalogError: null }, null),
-    false,
-    "一覧が変わったのに現在値を確認できない",
-  );
-  assert.equal(speechSyncedAfterRefresh(true, { catalogError: null }, current), true, "成功した GET で確認できる");
-  assert.equal(
-    speechSyncedAfterRefresh(true, { catalogError: "モデル一覧の取得がタイムアウトしました" }, null),
-    true,
-    "既に同期済みで一覧が変わらない再取得の失敗は、以前の値を現在値のまま保つ",
-  );
-  // 未同期の状態から再取得を試み、上流が 503 + POST は 200（catalogError あり）+ GET も失敗する組合せ。
-  // 成功した GET が取れるまで未同期のままにする（旧値へ戻さない）
-  assert.equal(
-    speechSyncedAfterRefresh(
-      false,
-      { catalogError: "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）" },
-      null,
-    ),
-    false,
-    "未同期は GET が成功するまで false のまま",
-  );
-  assert.equal(speechSyncedAfterRefresh(false, { catalogError: null }, current), true, "成功した GET で復帰する");
+test("音声の保存は未同期・実行中・変更なしのときだけ止める", () => {
   assert.equal(speechSaveDisabled({ busy: false, synced: false, dirty: true }), true, "同期できない間は保存させない");
   assert.equal(speechSaveDisabled({ busy: false, synced: true, dirty: true }), false);
   assert.equal(speechSaveDisabled({ busy: false, synced: true, dirty: false }), true, "変更が無ければ保存しない");
