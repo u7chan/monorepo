@@ -160,3 +160,70 @@ body {
   color: var(--cm-muted);
   font-size: 0.75rem;
 }
+
+.upload {
+  margin-top: 24px;
+  padding: 16px;
+  background: var(--cm-surface);
+  border: 1px solid var(--cm-line);
+  border-radius: 10px;
+}
+
+.upload h2 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.upload-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 10px;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+}
+
+.field select {
+  padding: 2px 6px;
+  font: inherit;
+  color: inherit;
+  background: var(--cm-bg);
+  border: 1px solid var(--cm-line);
+  border-radius: 6px;
+}
+
+.link {
+  color: var(--cm-accent);
+  font-size: 0.8125rem;
+}
+
+.upload button {
+  padding: 4px 12px;
+  font: inherit;
+  color: var(--cm-bg);
+  background: var(--cm-accent);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.upload button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.note.ok {
+  color: var(--cm-accent);
+}
+
+code {
+  padding: 0 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+}
