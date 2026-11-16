@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 import { copyToClipboard } from "../../lib/copyToClipboard";
 import {
+  OAUTH_COPY_CODE_TEXT,
   OAUTH_COPY_DONE_TEXT,
   OAUTH_COPY_URL_TEXT,
   OAUTH_FALLBACK_LINK_TEXT,
@@ -55,6 +56,7 @@ export function OAuthSignInSection({
   const [code, setCode] = useState("");
   const [method, setMethod] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
   const [popupNavigated, setPopupNavigated] = useState(false);
   // 自分が開いた空タブ。遷移済みかも同じ箱で持ち、unmount の cleanup が最新の値を見るようにする
   const popupRef = useRef<{ tab: Window; navigated: boolean } | null>(null);
@@ -149,6 +151,17 @@ export function OAuthSignInSection({
     }
   };
 
+  const copyUserCode = async () => {
+    if (view.userCode === null) return;
+    try {
+      await copyToClipboard(view.userCode);
+      setCopiedCode(true);
+      window.setTimeout(() => setCopiedCode(false), 1500);
+    } catch {
+      // コピーできない環境では、表示中のコードを選択して手でコピーできる
+    }
+  };
+
   return (
     <section className="grid gap-1.5">
       {heading ? (
@@ -208,9 +221,14 @@ export function OAuthSignInSection({
             </div>
           ) : null}
           {view.userCode ? (
-            <p className="text-2xs leading-relaxed text-ink">
-              コード: <code className="text-ink-strong">{view.userCode}</code>
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-2xs leading-relaxed text-ink">
+                コード: <code className="break-all text-ink-strong">{view.userCode}</code>
+              </p>
+              <button type="button" className="btn-quiet" onClick={() => void copyUserCode()}>
+                {copiedCode ? OAUTH_COPY_DONE_TEXT : OAUTH_COPY_CODE_TEXT}
+              </button>
+            </div>
           ) : null}
           {view.showManual ? (
             <details className="rounded-md border border-line bg-raised text-2xs leading-relaxed text-ink-muted">

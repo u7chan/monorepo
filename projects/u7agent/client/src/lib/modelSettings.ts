@@ -331,6 +331,7 @@ export const OAUTH_MANUAL_PORT_NOTE =
   "同じホストで別のサインインを同時に進めると、ポートの競合で失敗することがあります。";
 /** 折りたたみの中のコピー操作 ([URL をコピー] は認可 URL があるときだけ有効) */
 export const OAUTH_COPY_URL_TEXT = "URL をコピー";
+export const OAUTH_COPY_CODE_TEXT = "コードをコピー";
 export const OAUTH_COPY_DONE_TEXT = "コピーしました";
 /** 折りたたみは出ているが貼り付けを受け付けていないときの 1 行 (サーバーも 400 を返す) */
 export const OAUTH_PASTE_UNAVAILABLE_NOTICE = "いまは貼り付けを受け付けていません。";

@@ -701,6 +701,7 @@ test("デバイスコードは折りたたみを使わず、コードと承認�
   });
   assert.ok(html.includes(DEVICE_INSTRUCTIONS), "コード入力の案内を主文にする");
   assert.ok(html.includes("ABCD-1234"), "コードをパネルに出す");
+  assert.ok(html.includes(">コードをコピー</button>"), "コードのコピーをコードの隣に出す");
   assert.match(
     html,
     /<a[^>]*href="https:\/\/auth\.example\.test\/device"/,
