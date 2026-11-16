@@ -8,7 +8,7 @@
 import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
 import { httpError, messageFor } from "./http";
 import { MutationLock } from "./model-settings";
-import type { OAuthLoginState } from "./schema";
+import type { OAuthLoginSelect, OAuthLoginSelectOption, OAuthLoginState } from "./schema";
 
 export const OAUTH_LOGIN_RUNTIME_UNAVAILABLE_MESSAGE = "ランタイムが利用できないため、サインインできません";
 export const OAUTH_LOGIN_TARGET_MESSAGE = "このプロバイダーはサインインに対応していません";
@@ -16,7 +16,7 @@ export const OAUTH_LOGIN_IN_PROGRESS_MESSAGE = "このプロバイダーはサ�
 export const OAUTH_LOGIN_NOT_RUNNING_MESSAGE = "進行中のサインインがありません";
 export const OAUTH_LOGIN_NO_INPUT_MESSAGE = "いまは貼り付けを受け付けていません";
 export const OAUTH_LOGIN_UNSUPPORTED_MESSAGE =
-  "この画面では扱えないサインイン方式です。貼り付けコードとデバイスコードの方式だけに対応しています";
+  "この画面では扱えないサインイン方式です。テキスト入力や秘密情報の入力を求める方式には対応していません";
 export const OAUTH_LOGIN_FAILED_MESSAGE = "サインインに失敗しました。もう一度試してください";
 export const OAUTH_LOGIN_FAILED_PORT_MESSAGE =
   "認可のコールバックポート（1455）が使用中です。同じマシンで動いている pi / Codex CLI のサインインを終了してから、もう一度試してください";
@@ -37,7 +37,16 @@ export const OAUTH_LOGIN_DEVICE_CODE_INSTRUCTIONS =
   "ブラウザでこの URL を開き、画面に表示されたコードを入力して承認してください";
 export const OAUTH_LOGIN_INPUT_MESSAGE = "ブラウザの最後の画面の URL を貼り付けてください";
 export const OAUTH_LOGIN_INPUT_PLACEHOLDER = "ブラウザの最後の画面の URL";
+export const OAUTH_LOGIN_SELECT_MESSAGE = "サインイン方法を選んでください";
+export const OAUTH_LOGIN_NO_SELECTION_MESSAGE = "いまはサインイン方法の選択を受け付けていません";
+export const OAUTH_LOGIN_INVALID_SELECTION_MESSAGE = "そのサインイン方法は選べません";
 const OAUTH_LOGIN_PROGRESS_FALLBACK = "サインインの処理を進めています";
+
+/** select の選択肢 id を画面用の固定文言へ寄せる。未知の id は id をそのまま出し、SDK の英語 label は出さない */
+const SELECT_OPTION_LABELS: Record<string, string> = {
+  browser: "ブラウザ（この端末）",
+  device_code: "デバイスコード（スマホ向け）",
+};
 
 /** SDK が送る進捗の英語文言のうち、意味が確定しているものだけを日本語へ寄せる (他は汎用の文言) */
 const PROGRESS_MESSAGES: readonly (readonly [RegExp, string])[] = [
@@ -46,15 +55,23 @@ const PROGRESS_MESSAGES: readonly (readonly [RegExp, string])[] = [
   [/listening for oauth callback/i, "ブラウザからのコールバックを待っています"],
 ];
 
-/** 貼り付け欄で扱えない対話 (`select` / `text` / `secret`) を来たことを示す印。文言は画面へ出さない */
+/** 扱えない対話 (`text` / `secret`、形が不正な `select`) を示す印。文言は画面へ出さない */
 const UNSUPPORTED_PROMPT_MARKER = "u7agent:unsupported-auth-prompt";
 
 /**
  * この画面でサインインを完了できる provider の許可リスト。flow が求める対話は静的な metadata に現れず、
- * `select` / `text` を求める flow も開始するまで分からないため、id で許可する (fail-closed)。SDK が OAuth の
- * provider を足しても自動では増えないので、見直しが要る (docs/model-settings.md#oauth-サインイン)。
+ * 開始するまで分からないため id で許可する (fail-closed)。`select` は汎用に扱うが、`text` / `secret` を
+ * 求める flow は対象外。SDK が OAuth の provider を足しても自動では増えないので、見直しが要る
+ * (docs/model-settings.md#oauth-サインイン)。
  */
-const SIGN_IN_SUPPORTED_PROVIDERS: readonly string[] = ["openai", "openrouter", "xai", "meta", "kimi-coding"];
+const SIGN_IN_SUPPORTED_PROVIDERS: readonly string[] = [
+  "openai",
+  "openai-codex",
+  "openrouter",
+  "xai",
+  "meta",
+  "kimi-coding",
+];
 
 /**
  * この画面 (設定 → モデル → プロバイダー) でサインインを完了できるか。OAuth を持たない provider と許可リストに
@@ -101,6 +118,19 @@ function safeAuthUrl(value: string): string | null {
   }
 }
 
+/** select の選択肢を検証し、画面用の固定 label へ寄せる。空・重複・空文字は fail-closed */
+function selectOptions(options: readonly { id: string; label: string }[]): OAuthLoginSelectOption[] | null {
+  if (options.length === 0) return null;
+  const seen = new Set<string>();
+  const result: OAuthLoginSelectOption[] = [];
+  for (const option of options) {
+    if (option.id === "" || option.label === "" || seen.has(option.id)) return null;
+    seen.add(option.id);
+    result.push({ id: option.id, label: SELECT_OPTION_LABELS[option.id] ?? option.id });
+  }
+  return result;
+}
+
 function progressMessage(message: string): string {
   for (const [pattern, text] of PROGRESS_MESSAGES) {
     if (pattern.test(message)) return text;
@@ -141,7 +171,7 @@ export interface OAuthLoginOptions {
   reapplyStoredKey?: (provider: string) => Promise<void>;
   /** ログへ出す前の文言境界 (可変マスカー) */
   maskError: (text: string) => string;
-  /** 認可 URL が届くまで開始の応答を待つ上限。0 で待たない */
+  /** 認可 URL / select が届くまで開始の応答を待つ上限。0 で待たない */
   waitForAuthUrlMs?: number;
   /** SDK の logout の期限 */
   logoutTimeoutMs?: number;
@@ -161,10 +191,18 @@ class LoginCancelledError extends Error {
   }
 }
 
+/** 進行中の 1 つの prompt。`select` のときだけ選択肢 id の集合を持つ */
+interface PendingPrompt {
+  kind: "manual_code" | "select";
+  ids: ReadonlySet<string>;
+  resolve: (value: string) => void;
+  reject: (error: unknown) => void;
+}
+
 /**
- * 1 provider 分の進行状態と SDK との対話。SDK は同じ `interaction` を通じて認可 URL を通知し、コールバックが
- * 届かない場合だけ `manual_code` の貼り付けを待つ。貼り付けは SDK がコールバックと競争させるため、
- * 応答しないまま待ち続けてよい (中断のときだけ signal で閉じる)。
+ * 1 provider 分の進行状態と SDK との対話。SDK は同じ `interaction` を通じて認可 URL を通知し、方式の選択
+ * (`select`) と、コールバックが届かない場合の `manual_code` の貼り付けを待つ。貼り付けは SDK が
+ * コールバックと競争させるため、応答しないまま待ち続けてよい (中断のときだけ signal で閉じる)。
  */
 class OAuthLoginSession {
   readonly provider: string;
@@ -174,11 +212,12 @@ class OAuthLoginSession {
   instructions: string | null = null;
   progress: string | null = null;
   input: { message: string; placeholder: string } | null = null;
+  select: OAuthLoginSelect | null = null;
   userCode: string | null = null;
   error: string | null = null;
 
   #controller = new AbortController();
-  #pending: { resolve: (value: string) => void; reject: (error: unknown) => void } | null = null;
+  #pending: PendingPrompt | null = null;
   #finishing = false;
   #revision = 0;
   #waiters: (() => void)[] = [];
@@ -210,6 +249,7 @@ class OAuthLoginSession {
       instructions: this.instructions,
       progress: this.progress,
       input: this.input,
+      select: this.select,
       userCode: this.userCode,
       error: this.error,
     };
@@ -231,18 +271,33 @@ class OAuthLoginSession {
     this.#bump();
   }
 
-  /** 貼り付け待ち。`manual_code` だけを受け付け、他の対話は固定文言の失敗へ倒す */
+  /** 貼り付け待ち / 方式選択。`manual_code` と `select` だけを受け付け、他の対話は固定文言の失敗へ倒す */
   #prompt(prompt: AuthPrompt): Promise<string> {
-    if (prompt.type !== "manual_code") return Promise.reject(new Error(UNSUPPORTED_PROMPT_MARKER));
+    if (prompt.type !== "manual_code" && prompt.type !== "select") {
+      return Promise.reject(new Error(UNSUPPORTED_PROMPT_MARKER));
+    }
     const signal = prompt.signal ?? this.#controller.signal;
     // 中断が先に終端を確定させたあとの prompt は受け付けない。abort 済みの signal へ listener を足しても
     // abort イベントは再発火しないため、ここで見ないと入力欄を立てたまま待ち続けてコールバックサーバーが閉じない
     if (this.status !== "running" || signal.aborted) return Promise.reject(new LoginCancelledError());
-    this.input = { message: OAUTH_LOGIN_INPUT_MESSAGE, placeholder: OAUTH_LOGIN_INPUT_PLACEHOLDER };
+
+    const options = prompt.type === "select" ? selectOptions(prompt.options) : [];
+    if (prompt.type === "select" && options === null) {
+      return Promise.reject(new Error(UNSUPPORTED_PROMPT_MARKER));
+    }
+    if (prompt.type === "select") {
+      this.select = { message: OAUTH_LOGIN_SELECT_MESSAGE, options: options ?? [] };
+      this.input = null;
+    } else {
+      this.input = { message: OAUTH_LOGIN_INPUT_MESSAGE, placeholder: OAUTH_LOGIN_INPUT_PLACEHOLDER };
+      this.select = null;
+    }
     this.#bump();
     return new Promise<string>((resolve, reject) => {
       let settled = false;
-      const pending = {
+      const pending: PendingPrompt = {
+        kind: prompt.type,
+        ids: new Set((options ?? []).map((option) => option.id)),
         resolve: (value: string) => done(() => resolve(value)),
         reject: (error: unknown) => done(() => reject(error)),
       };
@@ -252,6 +307,7 @@ class OAuthLoginSession {
         signal.removeEventListener("abort", onAbort);
         if (this.#pending === pending) this.#pending = null;
         this.input = null;
+        this.select = null;
         this.#bump();
         action();
       };
@@ -264,9 +320,18 @@ class OAuthLoginSession {
   /** 貼り付けの受け取り。待っていないときは false (route が 400 へ寄せる) */
   submitCode(code: string): boolean {
     const pending = this.#pending;
-    if (!pending) return false;
+    if (pending?.kind !== "manual_code") return false;
     pending.resolve(code);
     return true;
+  }
+
+  /** 方式選択の受け取り。待っている select が無い / 選択肢に無い id は受け付けない */
+  submitSelection(id: string): "ok" | "not_pending" | "invalid" {
+    const pending = this.#pending;
+    if (pending?.kind !== "select") return "not_pending";
+    if (!pending.ids.has(id)) return "invalid";
+    pending.resolve(id);
+    return "ok";
   }
 
   /** 進行中の値。終端と、成功の公開待ちへ入るときに落とす */
@@ -275,6 +340,7 @@ class OAuthLoginSession {
     this.instructions = null;
     this.progress = null;
     this.input = null;
+    this.select = null;
     this.userCode = null;
   }
 
@@ -383,7 +449,8 @@ export class OAuthLoginService {
 
   /**
    * サインインの開始。SDK の login は応答を待たずにバックグラウンドで走らせ、完了・失敗・キャンセルで
-   * 公開 state を 1 回再計算する。認可 URL だけは発行まで短く待って応答へ載せる (届かなければ次の GET が拾う)。
+   * 公開 state を 1 回再計算する。最初の表示 (認可 URL / select) だけは発行まで短く待って応答へ載せる
+   * (届かなければ次の GET が拾う)。
    */
   async start(provider: string): Promise<OAuthLoginOutcome> {
     const session = await this.#lock.run(async () => {
@@ -398,7 +465,10 @@ export class OAuthLoginService {
       return created;
     });
     if (this.#waitForAuthUrlMs > 0) {
-      await session.waitFor(() => session.authUrl !== null || session.status !== "running", this.#waitForAuthUrlMs);
+      await session.waitFor(
+        () => session.authUrl !== null || session.select !== null || session.status !== "running",
+        this.#waitForAuthUrlMs,
+      );
     }
     return { status: 200 };
   }
@@ -423,6 +493,16 @@ export class OAuthLoginService {
     const session = this.#logins.get(provider);
     if (session?.status !== "running") throw httpError(400, OAUTH_LOGIN_NOT_RUNNING_MESSAGE);
     if (!session.submitCode(code)) throw httpError(400, OAUTH_LOGIN_NO_INPUT_MESSAGE);
+    return { status: 200 };
+  }
+
+  /** 進行中の select に、選んだ選択肢 id を返す。待っていない / 選択肢に無い id は 400 */
+  async submitSelection(provider: string, id: string): Promise<OAuthLoginOutcome> {
+    const session = this.#logins.get(provider);
+    if (session?.status !== "running") throw httpError(400, OAUTH_LOGIN_NOT_RUNNING_MESSAGE);
+    const result = session.submitSelection(id);
+    if (result === "not_pending") throw httpError(400, OAUTH_LOGIN_NO_SELECTION_MESSAGE);
+    if (result === "invalid") throw httpError(400, OAUTH_LOGIN_INVALID_SELECTION_MESSAGE);
     return { status: 200 };
   }
 

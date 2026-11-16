@@ -15,6 +15,7 @@ import {
   putProviderMemo,
   refreshModelCatalog,
   resyncProviderApiKey,
+  selectOAuthLoginMethod,
   startOAuthLogin,
   submitOAuthLoginCode,
 } from "../api";
@@ -31,6 +32,7 @@ import {
   OAUTH_LOGIN_CODE_NOTE,
   OAUTH_LOGIN_DONE_NOTE,
   OAUTH_LOGIN_POLL_MS,
+  OAUTH_LOGIN_SELECT_NOTE,
   OAUTH_LOGIN_SIGNOUT_NOTE,
   OAUTH_LOGIN_STARTED_NOTE,
   refreshModelsForAuthChange,
@@ -372,6 +374,14 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     [runOAuth],
   );
 
+  const selectLoginMethod = useCallback(
+    (provider: string, id: string) =>
+      runOAuth(provider, () => selectOAuthLoginMethod(provider, id), {
+        note: (state) => oauthLoginNote(state, OAUTH_LOGIN_SELECT_NOTE),
+      }),
+    [runOAuth],
+  );
+
   /** 中断と結果表示の消去は同じ入口。中断できたときだけ中断の注記を出す */
   const cancelLogin = useCallback(
     (provider: string) =>
@@ -439,6 +449,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     probeCustom,
     startLogin,
     submitLoginCode,
+    selectLoginMethod,
     cancelLogin,
     signOut,
   };

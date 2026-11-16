@@ -50,6 +50,9 @@ export function ApiKeySection({
   const { apiKey, memo } = draft;
   const savedMemo = provider.memo ?? "";
   const memoDirty = memo.trim() !== savedMemo;
+  // openai-codex は APIキーの口を SDK が持たない。環境変数の案内を出すと別の認証があるように見える
+  const oauthOnlyCodex =
+    provider.provider === "openai-codex" && provider.supportsOAuth && !provider.canSetApiKey && !provider.managed;
 
   // 保存値が変わったときだけ入力値を合わせる (同じ内容の再取得で編集中の下書きを消さない)。
   // mount 直後 (provider 切替) は同期しない。memo だけを更新し、入力中の apiKey を巻き戻さない
@@ -74,63 +77,71 @@ export function ApiKeySection({
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-1.5">
-        {heading ? <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">APIキー</div> : null}
-        <div className="flex flex-wrap items-center gap-2">
-          {provider.canSetApiKey ? (
-            <form
-              className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit();
-              }}
-            >
-              <input
-                className="field min-w-0 flex-1 text-xs"
-                type="password"
-                value={apiKey}
-                placeholder={provider.managed ? "新しいAPIキー（上書き）" : "APIキー"}
-                aria-label={`${provider.name} のAPIキー`}
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(event) => onChangeDraft(provider.provider, { apiKey: event.currentTarget.value })}
-              />
-              <button type="submit" className="btn-primary" disabled={busy || apiKey.length === 0}>
-                <CheckIcon />
-                {provider.managed ? "上書き保存" : "保存"}
-              </button>
-            </form>
-          ) : (
-            <p className="min-w-0 flex-1 text-2xs text-ink-ghost">
-              この provider のキーは環境変数や認証ファイルで設定します（この画面からは登録できません）。
-            </p>
-          )}
-          {provider.managed ? (
-            <button
-              type="button"
-              className="btn-quiet"
-              disabled={busy}
-              onClick={() => {
-                void (async () => {
-                  if (!(await confirm(deleteConfirmRequest(provider.name)))) return;
-                  void onDelete(provider.provider);
-                })();
-              }}
-            >
-              <TrashIcon />
-              削除
-            </button>
-          ) : null}
-          {resyncAvailable(provider) ? (
-            <ReloadButton disabled={busy} onClick={() => void onResync(provider.provider)}>
-              {saving ? "再同期中" : "再同期"}
-            </ReloadButton>
-          ) : null}
-        </div>
-        <p className="text-2xs leading-relaxed text-ink-muted">
-          キーを保存して「モデルを選ぶ」タブに戻ると、利用可能なモデルが増えることがあります。
+      {oauthOnlyCodex ? (
+        <p className="text-2xs leading-relaxed text-ink-ghost">
+          この provider は Codex の OAuth でのみ認証します（APIキーは使えません）。
         </p>
-      </div>
+      ) : (
+        <div className="grid gap-1.5">
+          {heading ? (
+            <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">APIキー</div>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {provider.canSetApiKey ? (
+              <form
+                className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submit();
+                }}
+              >
+                <input
+                  className="field min-w-0 flex-1 text-xs"
+                  type="password"
+                  value={apiKey}
+                  placeholder={provider.managed ? "新しいAPIキー（上書き）" : "APIキー"}
+                  aria-label={`${provider.name} のAPIキー`}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => onChangeDraft(provider.provider, { apiKey: event.currentTarget.value })}
+                />
+                <button type="submit" className="btn-primary" disabled={busy || apiKey.length === 0}>
+                  <CheckIcon />
+                  {provider.managed ? "上書き保存" : "保存"}
+                </button>
+              </form>
+            ) : (
+              <p className="min-w-0 flex-1 text-2xs text-ink-ghost">
+                この provider のキーは環境変数や認証ファイルで設定します（この画面からは登録できません）。
+              </p>
+            )}
+            {provider.managed ? (
+              <button
+                type="button"
+                className="btn-quiet"
+                disabled={busy}
+                onClick={() => {
+                  void (async () => {
+                    if (!(await confirm(deleteConfirmRequest(provider.name)))) return;
+                    void onDelete(provider.provider);
+                  })();
+                }}
+              >
+                <TrashIcon />
+                削除
+              </button>
+            ) : null}
+            {resyncAvailable(provider) ? (
+              <ReloadButton disabled={busy} onClick={() => void onResync(provider.provider)}>
+                {saving ? "再同期中" : "再同期"}
+              </ReloadButton>
+            ) : null}
+          </div>
+          <p className="text-2xs leading-relaxed text-ink-muted">
+            キーを保存して「モデルを選ぶ」タブに戻ると、利用可能なモデルが増えることがあります。
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-1.5">
         {/* キー入力とは別の form にして、Enter がキーの保存を走らせないようにする */}

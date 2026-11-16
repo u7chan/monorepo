@@ -1023,9 +1023,27 @@ export const PROVIDER_MEMO_MAX_LENGTH = 500;
 /** OAuth サインインで貼り付ける URL / コードの上限。中身の検証は SDK が行うので、長さだけを境界にする */
 export const OAUTH_LOGIN_CODE_MAX_LENGTH = 4_096;
 
+/** OAuth サインインの選択肢 id の上限。SDK の公開値は短いが、壊れた入力を state へ載せない */
+export const OAUTH_LOGIN_SELECT_ID_MAX_LENGTH = 128;
+
 /** 資格情報の種別。SDK が見ている値と、auth.json の保存値 (表示専用) の両方に使う */
 export const CredentialKindSchema = z.enum(["oauth", "api_key"]);
 export type CredentialKind = z.infer<typeof CredentialKindSchema>;
+
+export const OAuthLoginSelectOptionSchema = z.object({
+  /** SDK が返す選択肢の id。画面はこの値をそのまま POST する */
+  id: z.string(),
+  /** 画面用の固定文言。SDK の英語 label は載せない */
+  label: z.string(),
+});
+export type OAuthLoginSelectOption = z.infer<typeof OAuthLoginSelectOptionSchema>;
+
+/** 進行中の select prompt。選択肢の id / label だけを公開し、SDK の message は固定文言へ寄せる */
+export const OAuthLoginSelectSchema = z.object({
+  message: z.string(),
+  options: z.array(OAuthLoginSelectOptionSchema),
+});
+export type OAuthLoginSelect = z.infer<typeof OAuthLoginSelectSchema>;
 
 /**
  * 設定 → モデルの OAuth サインインの状態。進行中の認可 URL はこの state としてだけクライアントへ渡し、
@@ -1041,6 +1059,8 @@ export const OAuthLoginStateSchema = z.object({
   progress: z.string().nullable(),
   /** 貼り付け待ちの入力欄。null = 入力を受け付けていない */
   input: z.object({ message: z.string(), placeholder: z.string() }).nullable(),
+  /** 進行中の方式選択 (SDK の select)。null = 選択待ちではない */
+  select: OAuthLoginSelectSchema.nullable(),
   /** デバイスコード方式のユーザーコード。null = この方式ではない */
   userCode: z.string().nullable(),
   /** failed のときの画面用の固定文言。null = 失敗以外 */
@@ -1270,6 +1290,12 @@ export const SubmitOAuthLoginCodeBodySchema = z.object({
   code: z.string().trim().min(1).max(OAUTH_LOGIN_CODE_MAX_LENGTH),
 });
 export type SubmitOAuthLoginCodeBody = z.infer<typeof SubmitOAuthLoginCodeBodySchema>;
+
+/** OAuth サインインの方式選択。進行中の select の選択肢 id だけを受け付ける */
+export const SubmitOAuthLoginSelectBodySchema = z.object({
+  id: z.string().trim().min(1).max(OAUTH_LOGIN_SELECT_ID_MAX_LENGTH),
+});
+export type SubmitOAuthLoginSelectBody = z.infer<typeof SubmitOAuthLoginSelectBodySchema>;
 
 /** 利用可能なモデルの一括保存。両方 null が「未設定へ戻す」なので DELETE は持たない */
 export const UpdateModelAvailabilityBodySchema = z.object({

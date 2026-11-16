@@ -133,6 +133,7 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
     }),
     startLogin: async () => true,
     submitLoginCode: async () => true,
+    selectLoginMethod: async () => true,
     cancelLogin: async () => true,
     signOut: async () => true,
     ...overrides,
@@ -538,6 +539,7 @@ function loginState(status: OAuthLoginState["status"], overrides: Partial<OAuthL
     instructions: null,
     progress: null,
     input: null,
+    select: null,
     userCode: null,
     error: null,
     ...overrides,
@@ -637,7 +639,7 @@ test("承認待ちは主文と補助行を併記し、代替経路と貼り付�
   assert.ok(html.includes("ブラウザからのコールバックを待っています"), "補助行として併記する");
   assert.equal(html.includes("Sign in with ChatGPT</button>"), false, "進行中は開始ボタンを出さない");
   assert.match(html, /<a[^>]*href="https:\/\/auth\.example\.test\/authorize"/, "遷移できていないのでリンクを出す");
-  assert.equal(html.includes("の承認ページが開きます。"), false, "遷移できていないときは補足を出さない");
+  assert.equal(html.includes("承認ページを開きました。"), false, "遷移できていないときは補足を出さない");
   assert.ok(html.includes("別のマシンのブラウザで承認する場合"), "代替経路を折りたたみに畳む");
   assert.ok(html.includes("この URL を別のマシンのブラウザで開いて承認し"), "折りたたみの中に手順を出す");
   assert.ok(html.includes("同じホストで別のサインインを同時に進めると"), "ポート競合の注意を折りたたみの中へ移す");
@@ -699,6 +701,7 @@ test("デバイスコードは折りたたみを使わず、コードと承認�
   });
   assert.ok(html.includes(DEVICE_INSTRUCTIONS), "コード入力の案内を主文にする");
   assert.ok(html.includes("ABCD-1234"), "コードをパネルに出す");
+  assert.ok(html.includes(">コードをコピー</button>"), "コードのコピーをコードの隣に出す");
   assert.match(
     html,
     /<a[^>]*href="https:\/\/auth\.example\.test\/device"/,
@@ -706,7 +709,7 @@ test("デバイスコードは折りたたみを使わず、コードと承認�
   );
   assert.ok(html.includes(">URL をコピー</button>"), "折りたたみを出さない副状態でもコピーの導線を出す");
   assert.equal(html.includes("別のマシンのブラウザで承認する場合"), false, "折りたたみを使わない");
-  assert.equal(html.includes("の承認ページが開きます。"), false, "遷移できていないので補足は出さない");
+  assert.equal(html.includes("承認ページを開きました。"), false, "遷移できていないので補足は出さない");
 });
 
 test("終端は結果と [閉じる] だけを残し、進行中の導線を落とす", () => {
@@ -776,6 +779,57 @@ test("片方の経路しか無い provider はタブを出さず、セクショ�
     "キーを登録できない provider はタブにしない",
   );
   assert.ok(oauthHtml.includes(">OAuth サインイン</div>"), "セクションの見出しを残す");
+});
+
+test("openai-codex はキーなしの行として一覧に戻り、OAuth のサインインを出す", () => {
+  const codex = provider({
+    provider: "openai-codex",
+    name: "OpenAI Codex",
+    canSetApiKey: false,
+    supportsOAuth: true,
+    canSignInHere: true,
+  });
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [codex] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.ok(html.includes("OpenAI Codex"), "provider 行を出す");
+  assert.ok(html.includes(">Codex にサインイン</button>"), "Codex のサインインを出す");
+  assert.equal(html.includes('aria-label="OpenAI Codex の認証方法"'), false, "APIキーのタブは出さない");
+  assert.equal(html.includes("Sign in with ChatGPT"), false, "openai の SIWC を混ぜない");
+  assert.ok(html.includes("Codex の OAuth でのみ認証します"), "APIキーではなく OAuth だけであることを出す");
+  assert.equal(html.includes("環境変数や認証ファイルで設定します"), false, "環境変数のキーがあるように見せない");
+  assert.ok(html.includes("メモ（キー本体は書かないでください）"), "メモ欄は残す");
+});
+
+test("方式選択はラジオと [この方式で続ける] を出し、URL / 貼り付けの導線を出さない", () => {
+  const selecting = provider({
+    provider: "openai-codex",
+    name: "OpenAI Codex",
+    canSetApiKey: false,
+    supportsOAuth: true,
+    canSignInHere: true,
+    login: loginState("running", {
+      select: {
+        message: "サインイン方法を選んでください",
+        options: [
+          { id: "browser", label: "ブラウザ（この端末）" },
+          { id: "device_code", label: "デバイスコード（スマホ向け）" },
+        ],
+      },
+    }),
+  });
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [selecting] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.ok(html.includes("サインイン方法を選んでください"), "select の文言を出す");
+  assert.ok(html.includes("ブラウザ（この端末）"), "選択肢を出す");
+  assert.ok(html.includes("デバイスコード（スマホ向け）"), "2 つ目の選択肢を出す");
+  assert.match(html, /<input[^>]*type="radio"[^>]*value="browser"/, "radio で選ばせる");
+  assert.ok(html.includes(">この方式で続ける</button>"), "選択を返すボタンを出す");
+  assert.equal(html.includes("認可の準備をしています。"), false, "選択中は準備中の主文を出さない");
+  assert.equal(html.includes("別のマシンのブラウザで承認する場合"), false, "貼り付けの折りたたみを出さない");
+  assert.equal(html.includes(">OAuth でサインイン</button>"), false, "進行中は開始ボタンを出さない");
+  assert.match(html, /<button[^>]*>(?:(?!<\/button>)[\s\S])*中断<\/button>/, "中断は出す");
 });
 
 test("この画面でサインインできない provider は開始も手順も出さず、理由と [サインアウト] を出す", () => {

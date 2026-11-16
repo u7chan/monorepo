@@ -173,7 +173,7 @@ cp generated/cafe-1.png assets/cafe-latest.png
 
 `GET /api/settings/content` は `image.provider` と `image.auth { state, kind }` を返すが、**保存値の読取だけで判定する**。OpenRouter は復号済みのキーがあるか、Codex は Pi の `auth.json` に保存された資格情報の種別と期限だけを見る（トークンの解決・更新・外部通信を GET で起こさない）。認証の値そのものは応答・ログ・health へ出さない。
 
-- Codex の認証は、Pi の `auth.json` に保存された `openai-codex` の OAuth（`pi` の `/login` で入れる）をそのまま使う。設定 → モデル の「Sign in with ChatGPT」は `openai` の別の資格情報で、Codex の画像生成には使わない。Codex CLI の `~/.codex/auth.json` も読まない。画像用の APIキーは要求しない
+- Codex の認証は、Pi の `auth.json` に保存された `openai-codex` の OAuth をそのまま使う。設定 → モデル（`/settings/models`）の「OpenAI Codex」行からサインイン / サインアウトでき、同じ agent dir を使う `pi /login` でも同じ `auth.json` に入る。同じ画面の「Sign in with ChatGPT」は `openai` の別の資格情報で、Codex の画像生成には使わない。`openai` と `openai-codex` は別キーなので併用できる。Codex CLI の `~/.codex/auth.json` も読まない。画像用の APIキーは要求しない
 - サインインの確認だけを行うため、サインイン・サインアウトの後に設定画面を開き直す必要はない（ツール一覧の判定も保存値の読取だけを行う）
 
 ### 実行
