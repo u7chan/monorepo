@@ -17,7 +17,7 @@
 
 - `src/server.ts` が `Bun.serve` の入口。`index.html` の HTML import を `/` に、それ以外を Hono に渡す。マスタは起動時に 1 回だけ読む（`src/server/master-file.ts`）。
 - `src/server/app.ts` が API の Hono app。`/api/models` と `/api/health` だけを持つ。状態は依存として注入し、テストは `app.request()` で叩く。
-- `src/server/master.ts` がマスタの検証・正規化・応答の組み立て。純関数だけを置く。壊れた行は落とし、トップレベルが壊れたファイルは「読めない」として 503 に倒す（空の一覧を返して価格を消さない）。
+- `src/server/master.ts` がマスタの検証・正規化・応答の組み立て。純関数だけを置く。壊れた行は落とし、どちらかのファイルが読めないときは 503 に倒す（空の一覧を返して価格と判断を消さない）。
 - `src/server/generate.ts` が価格の取り込み。上流の取得も同じ関数に閉じ、`fetch` を注入できる。失敗したモデルは前回の行を残し、`endpoints: []` は価格なしを確定する。上流の応答本文はログにもファイルにも出さない。
 - `src/shared/contract.ts` が応答の型の正。u7agent 側の DTO とは別で、`billable` はここまで。
 - `src/shared/format.ts` が単価と鮮度の整形。client とスクリプトの出力で共有する。

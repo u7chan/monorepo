@@ -147,13 +147,14 @@ async function rowsOfModel(
 
   for (const endpoint of endpoints) {
     if (typeof endpoint !== "object" || endpoint === null) {
-      continue;
+      return null;
     }
 
     const pricing = (endpoint as { pricing?: unknown }).pricing;
 
+    // 契約外（項目名の変更など）を「価格なしを確定」と同じ経路へ流すと、前回の行が黙って消える
     if (!Array.isArray(pricing)) {
-      continue;
+      return null;
     }
 
     for (const raw of pricing) {

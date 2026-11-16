@@ -141,14 +141,13 @@ function parsePriceRow(item: unknown): PriceRow | { reason: DropReason } {
   };
 }
 
-export type JudgmentParseResult = {
-  rows: Map<string, JudgmentRow>;
-  dropped: DroppedRow[];
-};
+export type JudgmentParseResult =
+  | { ok: true; rows: Map<string, JudgmentRow>; dropped: DroppedRow[] }
+  | { ok: false; reason: "shape" | "models" };
 
 /**
- * 人手の判断。壊れた行と矛盾（同じモデルで enabled が食い違う）は落とし、既定（表示する）へ倒す。
- * 隠す判断を誤って適用するより、表示される方が害が小さい。
+ * 人手の判断。行の破損は落として既定（表示する）へ倒すが、ファイル全体が読めないときは失敗にする。
+ * 判断が 1 件も適用されないまま「全部表示」を配信すると、隠したつもりのモデルが黙って戻る。
  */
 export function parseJudgmentFile(value: unknown): JudgmentParseResult {
   const rows = new Map<string, JudgmentRow>();
@@ -156,15 +155,13 @@ export function parseJudgmentFile(value: unknown): JudgmentParseResult {
   const dropped: DroppedRow[] = [];
 
   if (typeof value !== "object" || value === null) {
-    dropped.push({ modelId: "", reason: "shape" });
-    return { rows, dropped };
+    return { ok: false, reason: "shape" };
   }
 
   const models = (value as { models?: unknown }).models;
 
   if (!Array.isArray(models)) {
-    dropped.push({ modelId: "", reason: "shape" });
-    return { rows, dropped };
+    return { ok: false, reason: "models" };
   }
 
   for (const item of models) {
@@ -213,7 +210,7 @@ export function parseJudgmentFile(value: unknown): JudgmentParseResult {
     });
   }
 
-  return { rows, dropped };
+  return { ok: true, rows, dropped };
 }
 
 /** 価格行に人手の判断を重ね、応答の形へ写す。`enabled` の既定は true（判断が無い = 隠さない） */

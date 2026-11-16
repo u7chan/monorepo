@@ -58,9 +58,10 @@ bun run start # bun src/server.ts
 { "ok": true, "service": "cost-master", "masterFetchedAt": 1794600000000, "version": 3 }
 ```
 
-価格もモデル一覧も含めない。マスタを読めていないときは `ok: false` と null を返し、`/api/models` は
-`503 { "error": "master_unavailable" }` になる。空の一覧を返さないのは、u7agent に「価格が消えた」と
-誤解させず、前回の値を持たせるため。
+価格もモデル一覧も含めない。**どちらかのファイルが読めないとき**は `ok: false` と null を返し、`/api/models` は
+`503 { "error": "master_unavailable" }` になる。空の一覧を返さないのは、u7agent に「価格が消えた」と誤解させず、
+前回の値を持たせるため。`enabled.json` の失敗も 503 に倒すのは、判断が 1 件も適用されないまま
+「全部表示」を配信すると、隠したつもりのモデルが黙って戻るため（行単位の破損は既定へ倒す）。
 
 ## マスタのメンテ
 

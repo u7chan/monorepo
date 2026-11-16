@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { MasterState } from "./app";
-import { buildPayload, parseJudgmentFile, parsePriceFile, type DroppedRow, type PriceMasterFile } from "./master";
+import { buildPayload, parseJudgmentFile, parsePriceFile, type DroppedRow } from "./master";
 
 export type LoadResult = {
   state: MasterState;
@@ -16,7 +16,7 @@ export function loadMaster(pricesPath: URL, judgmentsPath: URL): LoadResult {
   const prices = readJson(pricesPath);
 
   if (prices === undefined) {
-    return { state: { ok: false }, dropped: [], reason: "prices_missing" };
+    return { state: { ok: false }, dropped: [], reason: "prices_read_failed" };
   }
 
   const parsedPrices = parsePriceFile(prices);
@@ -25,7 +25,17 @@ export function loadMaster(pricesPath: URL, judgmentsPath: URL): LoadResult {
     return { state: { ok: false }, dropped: [], reason: `prices_invalid:${parsedPrices.reason}` };
   }
 
-  const judgments = parseJudgmentFile(readJson(judgmentsPath));
+  const rawJudgments = readJson(judgmentsPath);
+
+  if (rawJudgments === undefined) {
+    return { state: { ok: false }, dropped: [], reason: "judgments_read_failed" };
+  }
+
+  const judgments = parseJudgmentFile(rawJudgments);
+
+  if (!judgments.ok) {
+    return { state: { ok: false }, dropped: [], reason: `judgments_invalid:${judgments.reason}` };
+  }
 
   return {
     state: {
@@ -42,18 +52,7 @@ export function loadMaster(pricesPath: URL, judgmentsPath: URL): LoadResult {
   };
 }
 
-export function readMasterFile(path: URL): PriceMasterFile | null {
-  const value = readJson(path);
-
-  if (value === undefined) {
-    return null;
-  }
-
-  const parsed = parsePriceFile(value);
-
-  return parsed.ok ? { version: parsed.version, fetchedAt: parsed.fetchedAt, models: parsed.rows } : null;
-}
-
+/** JSON として読めない（無い / 壊れている）をまとめて undefined にする。どちらも運用では「配布物が違う」 */
 function readJson(path: URL): unknown | undefined {
   let text: string;
 

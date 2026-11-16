@@ -107,7 +107,6 @@ describe("generatePrices", () => {
               ],
             },
             { pricing: [] },
-            {},
           ],
         }),
       }),
@@ -116,6 +115,30 @@ describe("generatePrices", () => {
     expect(result.file.models).toEqual([
       { modelId: "a", billable: "output_image", unit: "image", variant: "", costUsd: 0 },
     ]);
+  });
+
+  test("pricing が配列でない契約外応答は失敗として前回の行を残す（価格なしを確定しない）", async () => {
+    const previous: PriceMasterFile = {
+      version: 2,
+      fetchedAt: 1,
+      models: [{ modelId: "a", billable: "output_image", unit: "image", variant: "", costUsd: 0.03 }],
+    };
+
+    for (const endpoints of [[{ prices: [] }], [{}], ["nope"]]) {
+      const result = ok(
+        await run(
+          {
+            [LIST]: json({ data: [{ id: "a", endpoints: ENDPOINTS("a") }] }),
+            [ENDPOINTS("a")]: json({ endpoints }),
+          },
+          previous,
+        ),
+      );
+
+      expect(result.file.models).toEqual(previous.models);
+      expect(result.file.version).toBe(2);
+      expect(result.summary.failed).toEqual(["a"]);
+    }
   });
 
   test("取得に失敗したモデルは前回の行を残す", async () => {
