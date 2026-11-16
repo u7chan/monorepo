@@ -8,6 +8,7 @@ import type {
   ContentSettingsResponse,
   ContentSpeechSettings,
   ImageGenerationProvider,
+  ImageModelPrice,
   ImageParameterValues,
   ModelRef,
   SpeechModel,
@@ -30,6 +31,8 @@ export const CONTENT_KEY_DELETED_NOTE =
 /** 画像の [保存] の成功注記。`onSaveSelection` はモデルと既定のパラメータ（値あり / 省略）を送るため、両方を書く */
 export const CONTENT_IMAGE_SAVED_NOTE = "画像生成のモデルと既定を保存しました。";
 export const CONTENT_SPEECH_SAVED_NOTE = "音声生成のモデルとボイスを保存しました。";
+/** コストマスタの保存。取得はしないため「取得した」とは書かない */
+export const CONTENT_COST_SAVED_NOTE = "コストマスタの設定を保存しました。価格の取得は [カタログ更新] で行います。";
 
 /** 画像の生成元の選択肢。radio の並び・表示名・案内をここ 1 箇所で作る */
 export interface ImageProviderOption {
@@ -132,7 +135,7 @@ export type ContentSavingAction =
   | "selection"
   | "catalog"
   | "speech"
-  | "speech-catalog";
+  | "cost";
 
 /**
  * 有効 / 無効を保存したときの注記。ツール一覧はセッション作成時に固定するため、OFF は既存の会話に
@@ -197,9 +200,82 @@ export function imageCatalogNotice(
   }
 }
 
-/** [再取得] の結果。失敗しても一覧は前のまま残るので、変わらないことを文言で伝える（画像 / 音声で同じ） */
-export function catalogRefreshNote(catalogError: string | null): string {
-  return catalogError === null ? "モデル一覧を取得しました。" : `${catalogError}。表示中の一覧は変わりません。`;
+/** [カタログ更新] の結果。失敗した系統ごとに、一覧と価格のどちらが変わらないかを伝える */
+export function contentCatalogRefreshNote(
+  scope: "image" | "speech",
+  errors: { image?: string | undefined; speech?: string | undefined; cost?: string | undefined },
+): { text: string; error: boolean } {
+  const parts: string[] = [];
+  if (scope === "image" && errors.image !== undefined) {
+    parts.push(`${errors.image}。表示中の一覧は変わりません。`);
+  }
+  if (scope === "image" && errors.cost !== undefined) {
+    parts.push("価格を取得できませんでした。表示中の価格は変わりません。");
+  }
+  if (scope === "speech" && errors.speech !== undefined) {
+    parts.push(`${errors.speech}。表示中の一覧は変わりません。`);
+  }
+  return parts.length === 0
+    ? { text: "モデル一覧を取得しました。", error: false }
+    : { text: parts.join(" "), error: true };
+}
+
+/** 価格 1 件の単位ごとの表記。token は 1M token あたりへ換算する（1 枚の実額ではない） */
+const IMAGE_PRICE_UNITS = {
+  image: { suffix: "/枚", factor: 1 },
+  megapixel: { suffix: "/MP", factor: 1 },
+  token: { suffix: "/1M tok", factor: 1_000_000 },
+  request: { suffix: "/回", factor: 1 },
+} as const;
+const IMAGE_PRICE_UNIT_ORDER = ["image", "megapixel", "token", "request"] as const;
+const IMAGE_PRICE_TOKEN_NOTE = "token 建ての単価です（1 枚あたりの実額ではありません）";
+
+/** `$0.00` を出さない。不明は `--`、宣言された無料は `$0` */
+function formatPriceAmount(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return "--";
+  if (value === 0) return "$0";
+  const rounded = value >= 1 ? value.toFixed(2) : value.toFixed(4);
+  return `$${String(Number(rounded))}`;
+}
+
+/**
+ * 価格の表示。**基本単価（`variant: ""`）を優先**し、無いモデルだけ同じ unit の中で範囲を出す
+ * （加算オプションを基本単価の範囲に混ぜない）。unit が複数あるときは image → megapixel → token → request の順。
+ */
+export function imagePriceDisplay(prices: readonly ImageModelPrice[]): { label: string; note: string | null } {
+  const unit = IMAGE_PRICE_UNIT_ORDER.find((candidate) => prices.some((price) => price.unit === candidate));
+  if (unit === undefined) return { label: "--", note: null };
+  const rows = prices.filter((price) => price.unit === unit);
+  const spec = IMAGE_PRICE_UNITS[unit];
+  const format = (costUsd: number): string => `${formatPriceAmount(costUsd * spec.factor)}${spec.suffix}`;
+  const basic = rows.find((price) => price.variant === "");
+  let label: string;
+  if (basic !== undefined) {
+    label = format(basic.costUsd);
+  } else {
+    const amounts = rows.map((price) => price.costUsd * spec.factor);
+    const min = Math.min(...amounts);
+    const max = Math.max(...amounts);
+    label =
+      min === max
+        ? `${formatPriceAmount(min)}${spec.suffix}`
+        : `${formatPriceAmount(min)}〜${formatPriceAmount(max)}${spec.suffix}`;
+  }
+  return { label, note: unit === "token" ? IMAGE_PRICE_TOKEN_NOTE : null };
+}
+
+/** コストマスタの状態。未設定は出さず、停止中（前回取得）と未取得を別の文言にする */
+export function imageCostNotice(
+  cost: ContentImageSettings["cost"],
+  options: MessageTimeOptions = {},
+): { text: string; tone: "muted" | "warn" } | null {
+  if (cost.url === null) return null;
+  const at = cost.fetchedAt === null ? "" : `（前回取得: ${messageTimeLabel(cost.fetchedAt, options)}）`;
+  if (!cost.enabled) return { text: `コスト表示は停止中${at}`, tone: "warn" };
+  if (cost.fetchedAt === null) {
+    return { text: "価格はまだ取得していません（[カタログ更新] で取得します）", tone: "warn" };
+  }
+  return { text: `価格の最終取得: ${messageTimeLabel(cost.fetchedAt, options)}`, tone: "muted" };
 }
 
 export interface ImageModelOption {
@@ -225,7 +301,7 @@ export function imageModelOptions(settings: Pick<ContentSettingsResponse, "provi
   const options: ImageModelOption[] = image.models
     .map((entry) => ({
       value: modelRefKey({ provider: entry.provider, id: entry.id }),
-      label: optionLabel(entry, (nameCounts.get(entry.name) ?? 0) > 1),
+      label: imageOptionLabel(entry, (nameCounts.get(entry.name) ?? 0) > 1),
       model: { provider: entry.provider, id: entry.id },
     }))
     .sort((a, b) => compareOptionLabels(a.label, b.label));
@@ -244,6 +320,72 @@ export function imageModelOptions(settings: Pick<ContentSettingsResponse, "provi
 function optionLabel(entry: { id: string; name: string }, duplicated: boolean): string {
   if (entry.name === "") return entry.id;
   return duplicated ? `${entry.name}（${entry.id}）` : entry.name;
+}
+
+/** 画像の選択肢は価格を添える。不明はチップの `--` に任せ、既定（未設定）の一覧を長くしない */
+function imageOptionLabel(
+  entry: { id: string; name: string; prices: readonly ImageModelPrice[] },
+  duplicated: boolean,
+): string {
+  const label = optionLabel(entry, duplicated);
+  const price = imagePriceDisplay(entry.prices);
+  return price.label === "--" ? label : `${label}（${price.label}）`;
+}
+
+/**
+ * 描画用の画像モデル選択肢。`imageModelOptions()` は全件のまま残し（PUT 本文の解決・既定の保存キー・
+ * 試行の既定化が使う）、ここだけが `visible: false` を落とす。保存中の値が無効でも選択欄が空にならないよう、
+ * 現在値だけは専用ラベルで残す。
+ */
+export function visibleImageModelOptions(
+  settings: Pick<ContentSettingsResponse, "provider" | "image">,
+): ImageModelOption[] {
+  const all = imageModelOptions(settings);
+  const savedValue = imageModelValue(settings);
+  const hidden = new Set(
+    settings.image.models
+      .filter((entry) => !entry.visible)
+      .map((entry) => modelRefKey({ provider: entry.provider, id: entry.id })),
+  );
+  const options = all.filter((option) => !hidden.has(option.value));
+  const saved = all.find((option) => option.value === savedValue);
+  if (saved !== undefined && hidden.has(savedValue)) {
+    const entry = settings.image.models.find(
+      (candidate) => modelRefKey({ provider: candidate.provider, id: candidate.id }) === savedValue,
+    );
+    const name = entry?.name || saved.model?.id || savedValue;
+    options.unshift({ ...saved, label: `${name}（一覧に出していません・保存済み）` });
+  }
+  return options;
+}
+
+/** 一覧に出していない件数。選択肢から黙って消えたように見せないために注記する */
+export function hiddenImageModelCount(settings: Pick<ContentSettingsResponse, "image">): number {
+  return settings.image.models.filter((entry) => !entry.visible).length;
+}
+
+/**
+ * 保存中の値が選択肢の既定から外れている理由。**カタログに無い**と**マスタで無効**を別の文言にし、
+ * どちらも保存値は保持する（保存・試行の照合はサーバーが現在の一覧をそのまま使う）。
+ */
+export function imageModelVisibilityNotice(
+  settings: Pick<ContentSettingsResponse, "provider" | "image">,
+): { kind: "missing" | "hidden"; text: string } | null {
+  const savedValue = imageModelValue(settings);
+  if (savedValue === "") return null;
+  const entry = settings.image.models.find(
+    (candidate) => modelRefKey({ provider: candidate.provider, id: candidate.id }) === savedValue,
+  );
+  if (entry === undefined) {
+    return { kind: "missing", text: "保存中のモデルはカタログにありません（保存済みの値のまま使えます）。" };
+  }
+  if (!entry.visible) {
+    return {
+      kind: "hidden",
+      text: "保存中のモデルはコストマスタで一覧に出さない設定です（保存済みのためこのまま使えます）。",
+    };
+  }
+  return null;
 }
 
 /** 表示名の昇順。`localeCompare` はロケール依存を持ち込むため使わず、ASCII の単純比較にする */
@@ -417,9 +559,9 @@ export function speechScreenSelection(
   };
 }
 
-/** 音声の保存を止める条件。同期できていない間は、表示が現在値と限らないため保存させない */
-export function speechSaveDisabled(input: { busy: boolean; synced: boolean; dirty: boolean }): boolean {
-  return input.busy || !input.synced || !input.dirty;
+/** 音声の保存を止める条件。保存中と、変更が無いときだけ止める */
+export function speechSaveDisabled(input: { busy: boolean; dirty: boolean }): boolean {
+  return input.busy || !input.dirty;
 }
 
 /** 選択中の選択肢を PUT の本文へ。provider を決められないときは null (保存させない) */

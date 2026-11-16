@@ -29,7 +29,6 @@ import { TrialDefaultAction, UNCONFIGURED_BLOCKED_NOTE } from "./TrialDefaultAct
  * 未同期の間、結果カードから既定へ保存できない理由。同じ `PUT /speech` を呼ぶ保存フォームが止まるのと
  * 同じ状態を指す（短く書く）。
  */
-const SYNC_BLOCKED_NOTE = "サーバーの現在の設定を確認できていないため、再読み込みするまで保存できません。";
 
 export type SpeechTrialSectionProps = {
   settings: ContentSettingsResponse;
@@ -44,8 +43,6 @@ export type SpeechTrialSectionProps = {
   busy: boolean;
   /** 設定の保存中。既定の保存を重ねない（試行の `busy` とは別の軸） */
   settingsBusy: boolean;
-  /** サーバーの現在値を確認できているか。false の間は保存フォームと同じく既定の保存も止める */
-  synced: boolean;
   /** 試行のモデルとボイスを既定として保存する。成功したら呼び出し側が下書きを捨てる */
   onMakeDefault: (input: UpdateContentSpeechBody) => Promise<boolean>;
   /** 本文・演技指示・話速の下書き。面を切り替えても失わないよう、呼び出し側が持つ */
@@ -71,7 +68,6 @@ export function SpeechTrialSection({
   note,
   busy,
   settingsBusy,
-  synced,
   onMakeDefault,
   draft,
   onChangeDraft,
@@ -115,8 +111,8 @@ export function SpeechTrialSection({
   const defaultTarget = latest
     ? speechTrialDefaultTarget({ settings, trialModel: latest.model, trialVoice: latest.voice })
     : null;
-  // 保存フォームと同じゲート。直近の結果は未設定・未同期でも読めるが、同じ PUT を呼ぶ保存は止める
-  const defaultBlockedReason = !settings.configured ? UNCONFIGURED_BLOCKED_NOTE : synced ? null : SYNC_BLOCKED_NOTE;
+  // 直近の結果は未設定でも読めるが、同じ PUT を呼ぶ保存は止める
+  const defaultBlockedReason = !settings.configured ? UNCONFIGURED_BLOCKED_NOTE : null;
   const blocked = trialStartBlockedReason({
     runtimeAvailable: settings.runtimeAvailable,
     configured: settings.configured,

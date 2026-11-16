@@ -346,14 +346,8 @@ export interface TabIndicator {
   ariaLabel: string | null;
 }
 
-export function tabIndicator(input: {
-  label: string;
-  running: boolean;
-  unsynced: boolean;
-  newResult: boolean;
-}): TabIndicator {
+export function tabIndicator(input: { label: string; running: boolean; newResult: boolean }): TabIndicator {
   if (input.running) return { dot: "accent", pulse: true, ariaLabel: `${input.label}（生成中）` };
-  if (input.unsynced) return { dot: "warn", pulse: false, ariaLabel: `${input.label}（現在の設定を確認できません）` };
   if (input.newResult) return { dot: "warn", pulse: false, ariaLabel: `${input.label}（新しい結果があります）` };
   return { dot: null, pulse: false, ariaLabel: null };
 }

@@ -102,6 +102,7 @@ import type {
   UpdatePromptBody,
   CreatePromptBody,
   UpdateCloudflareSettingsBody,
+  UpdateContentCostBody,
   UpdateContentImageBody,
   UpdateContentImageProviderBody,
   UpdateContentSpeechBody,
@@ -1342,6 +1343,13 @@ export const postTitleSummaryTest = async (): Promise<TitleSummaryTestResponse> 
   const res = await client.api.settings["session-title"].test.$post();
   if (!res.ok) throw await apiError(res);
   return res.json();
+};
+
+/** コストマスタの接続先とトグル。保存時に取得しない（価格は [カタログ更新] で取る） */
+export const putContentCost = async (input: UpdateContentCostBody): Promise<ContentMutationResponse> => {
+  const res = await client.api.settings.content["cost-url"].$put({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ContentMutationResponse;
 };
 
 /**

@@ -79,9 +79,8 @@ function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSetti
     saveImageProvider: async () => true,
     saveSelection: async () => true,
     saveSpeech: async () => true,
+    saveCost: async () => true,
     refreshCatalog: async () => true,
-    refreshSpeechCatalog: async () => true,
-    speechSynced: true,
     ...overrides,
   };
 }
@@ -238,18 +237,6 @@ test("取得に失敗したときは、この画面の理由をそのまま出�
   assert.ok(html.includes("コンテンツ生成の設定を読み込めませんでした。接続できません"));
 });
 
-test("音声の同期が取れていない間だけ、音声タブに警告ドットと状態つきの読み上げ名を出す", () => {
-  const unsynced = render(contentSettings({ speechSynced: false }));
-  assert.match(
-    unsynced,
-    /<button[^>]*role="tab"[^>]*aria-label="音声（TTS）（現在の設定を確認できません）"[^>]*>音声（TTS）<span[\s\S]*?bg-warn[^>]*><\/span>/,
-    "開かなくても対処が要ることが分かるようにする",
-  );
-  const synced = render(contentSettings());
-  assert.equal(synced.includes('aria-label="音声（TTS）"'), false, "同期中は状態を足さない");
-  assert.equal(/(?:role="tab")[\s\S]*?音声（TTS）<span/.test(synced), false, "同期中はドットを出さない");
-});
-
 test("試行の注記は設定の注記を隠さない（出どころごとに別の行へ出す）", () => {
   const trialNote = { text: "試行を開始しました。画面を離れても続きます。", error: false };
   const settingsNote = { text: "画像APIキーが無効です。設定を確認してください", error: true };
@@ -308,4 +295,12 @@ test("BGM のタブにも実行中と新着の印を出し、開けば消える"
   assert.match(finished, /aria-label="音楽（BGM）（新しい結果があります）"/);
   const cleared = render(contentSettings(), { newResults: [], contentSubsection: "image" });
   assert.equal(cleared.includes("（新しい結果があります）"), false);
+});
+
+test("帯の操作はカタログ更新と再読み込みを別の行に分け、取り直しの入口を 1 つに見せる", () => {
+  const html = render(contentSettings());
+  assert.equal((html.match(/>カタログ更新<\/button>/g) ?? []).length, 1, "カタログ更新は帯に 1 つだけ");
+  assert.equal((html.match(/>再読み込み<\/button>/g) ?? []).length, 1, "再読み込みは帯に 1 つだけ");
+  assert.ok(html.indexOf("カタログ更新") < html.indexOf("再読み込み"), "上流から取り直す操作を先に置く");
+  assert.match(html, /class="grid justify-items-end gap-1\.5"/, "別の行に分ける");
 });

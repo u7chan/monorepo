@@ -78,9 +78,8 @@ export function ContentSettingsView({
     saveImageProvider,
     saveSelection,
     saveSpeech,
+    saveCost,
     refreshCatalog,
-    refreshSpeechCatalog,
-    speechSynced,
   } = contentSettings;
   // 取得前は面の中身が無い。未設定でも試行の履歴があれば読めるようにタブを出す（新規生成だけを止める）
   const trialList = contentTrials.trials ?? [];
@@ -98,7 +97,6 @@ export function ContentSettingsView({
                 (item.subsection === "history" || trialKindSubsection(trial.kind) === item.subsection) &&
                 trial.state === "running",
             ),
-            unsynced: item.subsection === "speech" && !speechSynced,
             // 履歴は全種別を 1 つの一覧に出すため、どの種別の新着でも 1 つの印にまとめる
             newResult:
               item.subsection === "history"
@@ -131,16 +129,27 @@ export function ContentSettingsView({
       toolbar={
         <TabToolbar
           actions={
-            <ReloadButton
-              onClick={() => {
-                void reload();
-                // 試行の一覧も同じ面の操作として取り直す（取得中の試行はポーリングが拾う）
-                void contentTrials.reload();
-              }}
-              disabled={reloading}
-            >
-              再読み込み
-            </ReloadButton>
+            // 上流から取り直す操作と、表示を作り直すだけの操作を別の行に分ける（ui-layout.md）
+            <div className="grid justify-items-end gap-1.5">
+              <button
+                type="button"
+                className="btn-quiet"
+                disabled={saving !== null}
+                onClick={() => void refreshCatalog()}
+              >
+                {saving === "catalog" ? "更新中" : "カタログ更新"}
+              </button>
+              <ReloadButton
+                onClick={() => {
+                  void reload();
+                  // 試行の一覧も同じ面の操作として取り直す（取得中の試行はポーリングが拾う）
+                  void contentTrials.reload();
+                }}
+                disabled={reloading}
+              >
+                再読み込み
+              </ReloadButton>
+            </div>
           }
         />
       }
@@ -172,10 +181,8 @@ export function ContentSettingsView({
             return saved;
           }}
           onSaveSelection={saveSelection}
-          onRefreshCatalog={refreshCatalog}
           onSaveSpeech={saveSpeech}
-          onRefreshSpeechCatalog={refreshSpeechCatalog}
-          speechSynced={speechSynced}
+          onSaveCost={saveCost}
           trials={contentTrials.trials}
           onSelectContentSubsection={onSelectContentSubsection}
           trialDetail={contentTrials.detail}

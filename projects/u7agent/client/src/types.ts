@@ -196,6 +196,7 @@ export type {
   UpdateAgentBody,
   UpdateArchiveSettingsBody,
   UpdateCloudflareSettingsBody,
+  UpdateContentCostBody,
   UpdateContentImageBody,
   UpdateContentImageProviderBody,
   UpdateContentSpeechBody,

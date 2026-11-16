@@ -74,7 +74,6 @@ function render(
     image?: Partial<ContentImageSettings>;
     speech?: Partial<ContentSpeechSettings>;
     saving?: ContentSavingAction | null;
-    speechSynced?: boolean;
     /** URL が決める面。この component は選択中の面だけを描く (既定は画像生成) */
     subsection?: ContentSubsection;
     /** 試行の一覧と操作の状態 (画像の面だけが使う) */
@@ -105,10 +104,8 @@ function render(
         onDeleteKey: async () => true,
         onSaveImageProvider: async () => true,
         onSaveSelection: async () => true,
-        onRefreshCatalog: async () => true,
         onSaveSpeech: async () => true,
-        onRefreshSpeechCatalog: async () => true,
-        speechSynced: options.speechSynced ?? true,
+        onSaveCost: async () => true,
         trials: options.trials ?? [],
         trialDetail: options.trialDetail !== undefined ? options.trialDetail : (options.trials?.[0] ?? null),
         trialHasMore: options.trialHasMore ?? false,
@@ -299,7 +296,6 @@ test("設定済みでは上書き保存・削除・モデル選択を出し、�
     "宣言が無いモデルでは provider の既定で生成することを出す",
   );
   assert.equal(html.includes("プロバイダー: OpenRouter"), false, "見出しと重複する provider 名を本文で繰り返さない");
-  assert.ok(html.includes(">カタログ更新</button>"));
   const input = /<input[^>]*type="password"[^>]*>/.exec(html)?.[0] ?? "";
   assert.ok(input.includes('value=""'), "保存済みのキーは入力欄へ戻さない");
 });
@@ -310,12 +306,6 @@ test("取得できていないときは一覧の出どころを警告色のチ�
   assert.match(stored, /border-warn\/40 text-warn"[^>]*>OpenRouter から取得できなかった/);
   const sdk = render({ image: { catalogSource: "sdk", fetchedAt: null } });
   assert.ok(sdk.includes("SDK の組み込み一覧を表示しています"));
-});
-
-test("カタログ更新中はボタンを更新中にする", () => {
-  const html = render({ saving: "catalog" });
-  assert.ok(html.includes("更新中"), "進行中を出す");
-  assert.match(html, /<button[^>]*class="btn-quiet"[^>]*disabled=""[^>]*><[^>]*>.*更新中/s, "連打できないようにする");
 });
 
 test("カタログ外の保存済みモデルも選択肢に残す", () => {
@@ -405,25 +395,6 @@ test("音声カタログも取得できていないときは警告色のチッ�
   assert.match(html, /border-warn\/40 text-warn"[^>]*>OpenRouter から取得できていない/);
 });
 
-test("現在の設定を確認できないときは音声を「（未確認）」にして保存させない", () => {
-  const html = render({ subsection: "speech", speechSynced: false });
-  assert.equal(html.match(/（未確認）/g)?.length, 2, "モデルとボイスの両方を未確認として出す");
-  assert.ok(
-    html.includes("サーバーから現在の設定を取得できなかったため、表示しているモデルとボイスが最新とは限りません"),
-    "同期できていないことを知らせる",
-  );
-  assert.match(html, /aria-label="音声生成のモデル"[^>]*disabled=""/, "モデルを触らせない");
-  assert.match(html, /aria-label="音声生成のボイス"[^>]*disabled=""/, "ボイスを触らせない");
-  // 同期できたら未確認の表示は出さない
-  const synced = render({ subsection: "speech" });
-  assert.equal(synced.includes("（未確認）"), false);
-});
-
-test("音声カタログの更新中は音声側のボタンだけを更新中にする", () => {
-  const html = render({ subsection: "speech", saving: "speech-catalog" });
-  assert.equal(html.match(/更新中/g)?.length, 1, "音声側の 1 つだけを更新中にする");
-});
-
 test("平文の注意は既定で畳み、1 行の要点を出す", () => {
   const html = render();
   assert.match(
@@ -474,16 +445,6 @@ test("音声セクションの下部に試行の入力を出し、未設定で�
   });
   assert.ok(unset.includes("設定に反映しない試行"), "キー保存前も試行の面を出す");
   assert.ok(unset.includes("APIキーが未設定です"), "履歴だけを表示していることを伝える");
-});
-
-test("音声の同期が取れていない間も試行は使える（保存のゲートを持ち込まない）", () => {
-  const html = render({ subsection: "speech", speechSynced: false });
-  // class に `disabled:` が含まれるため、属性としての disabled だけを否定する
-  assert.match(html, /<textarea[^>]*aria-label="試行の本文"(?![^>]*\sdisabled=)/, "本文も触れる");
-  assert.match(html, /<input[^>]*aria-label="試行の演技指示"(?![^>]*\sdisabled=)/, "演技指示も触れる");
-  // 未同期は保存だけを止める。試行の開始を理由にしない（本文が空なので主ボタンは本文の理由で無効）
-  assert.equal(html.includes("ランタイムが利用できないため試行できません"), false);
-  assert.equal(html.includes("現在の設定を取得できなかった"), true, "未同期はバナーで知らせる");
 });
 
 test("runtimeAvailable: false では音声の試行の主ボタンも無効にする", () => {
@@ -811,27 +772,6 @@ test("音声は結果のモデルとボイスが保存値と違うときだけ�
     trials: [SPEECH_TRIAL_BASE],
   });
   assert.ok(modelDiff.includes(button), "モデルが違えば既定にできる");
-});
-
-test("音声の設定を確認できない間は、結果カードからの既定の保存も止めて理由を出す", () => {
-  const blocked = render({ subsection: "speech", speechSynced: false, trials: [SPEECH_TRIAL_BASE] });
-  assert.match(
-    blocked,
-    /<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*?このモデルとボイスを既定にする/,
-    "保存フォームと同じく押せなくする",
-  );
-  assert.ok(
-    blocked.includes("サーバーの現在の設定を確認できていないため、再読み込みするまで保存できません。"),
-    "押せない理由を出す",
-  );
-
-  const allowed = render({ subsection: "speech", trials: [SPEECH_TRIAL_BASE] });
-  assert.equal(allowed.includes("サーバーの現在の設定を確認できていないため"), false, "同期できていれば理由を出さない");
-  assert.equal(
-    allowed.includes("APIキーが未設定のため保存できません。"),
-    false,
-    "設定済みではキー未設定の理由を出さない",
-  );
 });
 
 test("音声の実行中はプレイヤーを出さず、状態だけを示す", () => {
@@ -1259,4 +1199,44 @@ test("画像タブで Codex を選んでも「保存される設定」に BGM �
   // 音声 / BGM のタブは従来どおりそれぞれの設定を出す
   assert.ok(render({ subsection: "bgm" }).includes('aria-label="BGM生成の固定モデル"'));
   assert.match(render({ subsection: "speech" }), /aria-label="音声生成のモデル"/);
+});
+
+test("モデル欄に価格とメモを出し、一覧に出していない件数と保存値の扱いを添える", () => {
+  const html = render({
+    image: {
+      model: "acme/image-b",
+      models: [
+        {
+          provider: "openrouter",
+          id: "acme/image-a",
+          name: "Acme A",
+          prices: [{ unit: "image", variant: "", costUsd: 0.04, currency: "USD" }],
+          visible: true,
+          note: null,
+        },
+        { provider: "openrouter", id: "acme/image-b", name: "Acme B", prices: [], visible: false, note: "高価" },
+      ],
+    },
+  });
+  assert.ok(html.includes("価格 --"), "保存中のモデルの価格が無いことを出す");
+  assert.ok(html.includes("1 件は一覧に出していません"));
+  assert.ok(html.includes("Acme B（一覧に出していません・保存済み）"), "現在値は選択肢に残す");
+  assert.ok(html.includes("保存中のモデルはコストマスタで一覧に出さない設定です"));
+  assert.ok(html.includes("高価"), "マスタのメモを出す");
+  assert.equal(html.includes(">カタログ更新</button>"), false, "カタログ更新は本文に置かない");
+});
+
+test("コストURLは OFF の間だけ非活性にし、停止中は価格の代わりに由来へ出す", () => {
+  const off = render({
+    image: {
+      cost: { enabled: false, url: "https://cost-master.example.com/api/models", fetchedAt: 0, version: 3 },
+    },
+  });
+  assert.ok(off.includes("コスト表示"));
+  assert.match(off, /aria-label="コストマスタのURL"[^>]*disabled=""/, "OFF では URL を編集させない");
+  assert.ok(off.includes("コスト表示は停止中"), "停止中を由来に出す");
+  assert.ok(off.includes("価格 --"), "価格は出さない（-- へ倒す）");
+
+  const unset = render({ image: { cost: { enabled: false, url: null, fetchedAt: null, version: null } } });
+  assert.equal(unset.includes("コスト表示は停止中"), false, "未設定を停止中と混同しない");
 });

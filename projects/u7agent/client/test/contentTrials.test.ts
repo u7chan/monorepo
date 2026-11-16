@@ -334,23 +334,18 @@ test("試行の開始を止める理由は上から順に 1 つだけ返し、�
   assert.match(trialStartBlockedReason({ ...base, prompt: "   " }) ?? "", /プロンプトを入力/);
 });
 
-test("タブの印は 実行中 > 同期未確認 > 新着結果 の順に 1 つだけ出す", () => {
-  assert.deepEqual(tabIndicator({ label: "画像生成", running: true, unsynced: true, newResult: true }), {
+test("タブの印は 実行中 > 新着結果 の順に 1 つだけ出す", () => {
+  assert.deepEqual(tabIndicator({ label: "画像生成", running: true, newResult: true }), {
     dot: "accent",
     pulse: true,
     ariaLabel: "画像生成（生成中）",
   });
-  assert.deepEqual(tabIndicator({ label: "音声（TTS）", running: false, unsynced: true, newResult: true }), {
-    dot: "warn",
-    pulse: false,
-    ariaLabel: "音声（TTS）（現在の設定を確認できません）",
-  });
-  assert.deepEqual(tabIndicator({ label: "画像生成", running: false, unsynced: false, newResult: true }), {
+  assert.deepEqual(tabIndicator({ label: "画像生成", running: false, newResult: true }), {
     dot: "warn",
     pulse: false,
     ariaLabel: "画像生成（新しい結果があります）",
   });
-  assert.deepEqual(tabIndicator({ label: "画像生成", running: false, unsynced: false, newResult: false }), {
+  assert.deepEqual(tabIndicator({ label: "画像生成", running: false, newResult: false }), {
     dot: null,
     pulse: false,
     ariaLabel: null,
@@ -428,7 +423,7 @@ test("試行の種別は設定タブの面へ写し、BGM も自分のタブへ�
   assert.equal(trialKindSubsection("bgm"), "bgm");
   // BGM の印は BGM タブにだけ出す（画像・音声のタブへ混ぜない）
   const running = trial({ id: "bgm-1", kind: "bgm" });
-  assert.deepEqual(tabIndicator({ label: "音楽（BGM）", running: true, unsynced: false, newResult: false }), {
+  assert.deepEqual(tabIndicator({ label: "音楽（BGM）", running: true, newResult: false }), {
     dot: "accent",
     pulse: true,
     ariaLabel: "音楽（BGM）（生成中）",
