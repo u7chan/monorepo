@@ -1,14 +1,24 @@
 import index from "../index.html";
 import { createApp } from "./server/app";
 import { loadConfig } from "./server/config";
-import { loadMaster } from "./server/master-file";
+import { createMasterStore } from "./server/master-store";
+import { MASTER_KINDS } from "./shared/contract";
 
 const config = loadConfig(process.env);
-const loaded = loadMaster(
-  new URL("./server/data/prices.json", import.meta.url),
-  new URL("./server/data/enabled.json", import.meta.url),
-);
-const app = createApp({ master: () => loaded.state });
+const store = createMasterStore({
+  dir: config.masterDir,
+  bundledDir: new URL("./server/data/", import.meta.url).pathname,
+  log: (line) => console.log(`[cost-master] ${line}`),
+});
+
+try {
+  store.ensureSeed();
+} catch {
+  // volume を用意できなくても起動は続ける。読めなければ /api/models が 503 を返し、health で分かる
+  console.error("[cost-master] マスタの置き場を用意できませんでした");
+}
+
+const app = createApp({ master: () => store.state(), store });
 
 const server = Bun.serve({
   hostname: config.host,
@@ -18,18 +28,23 @@ const server = Bun.serve({
   fetch: (request) => app.fetch(request),
 });
 
-console.log(`cost-master を起動しました: http://${config.host}:${server.port}`);
+const state = store.state();
 
-if (loaded.state.ok) {
+console.log(`cost-master を起動しました: http://${config.host}:${server.port}`);
+console.log(`マスタ: ${config.masterDir}`);
+
+if (state.ok) {
   console.log(
-    `master: version ${loaded.state.payload.version} / ${loaded.state.payload.models.length} 行 / fetchedAt ${new Date(loaded.state.payload.fetchedAt).toISOString()}`,
+    `version ${state.payload.version} / ${state.payload.models.length} 行 / fetchedAt ${new Date(state.payload.fetchedAt).toISOString()}`,
   );
 } else {
-  console.error(`master を読めませんでした: ${loaded.reason ?? "unknown"}（/api/models は 503 を返します）`);
+  console.error("マスタを読めませんでした（/api/models は 503 を返します）");
 }
 
-for (const dropped of loaded.dropped) {
-  console.warn(`master の行を落としました: ${dropped.modelId || "(no modelId)"} (${dropped.reason})`);
+for (const kind of MASTER_KINDS) {
+  if (store.raw(kind) === null) {
+    console.warn(`マスタのファイルがありません: ${kind}.json`);
+  }
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

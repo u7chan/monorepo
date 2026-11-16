@@ -2,8 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { loadConfig } from "../src/server/config";
 
 describe("loadConfig", () => {
-  test("未設定なら 0.0.0.0:3100 で待ち受ける", () => {
-    expect(loadConfig({})).toMatchObject({ host: "0.0.0.0", port: 3100 });
+  test("未設定なら 0.0.0.0:3100 で待ち受け、マスタは ./data に置く", () => {
+    expect(loadConfig({})).toMatchObject({ host: "0.0.0.0", port: 3100, masterDir: "./data" });
+  });
+
+  test("MASTER_DIR でマスタの置き場を変える", () => {
+    expect(loadConfig({ MASTER_DIR: "/app/data" }).masterDir).toBe("/app/data");
+    expect(loadConfig({ MASTER_DIR: "  " }).masterDir).toBe("./data");
   });
 
   test("HOST / PORT を読み、空白だけの値は既定へ倒す", () => {

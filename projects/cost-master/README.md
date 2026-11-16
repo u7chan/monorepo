@@ -19,6 +19,7 @@ bun run start # bun src/server.ts
 | --- | --- | --- |
 | `HOST` | `0.0.0.0` | 待ち受けアドレス。LAN / VPN の内側からのみ到達させる |
 | `PORT` | `3100` | 待ち受けポート |
+| `MASTER_DIR` | `./data` | マスタの置き場。コンテナでは volume を mount した `/app/data` |
 
 ## API
 
@@ -58,6 +59,15 @@ bun run start # bun src/server.ts
 { "ok": true, "service": "cost-master", "masterFetchedAt": 1794600000000, "version": 3 }
 ```
 
+`GET /api/master/{prices,enabled}` — 現在のファイルをそのままダウンロード（編集の起点）。
+
+`PUT /api/master/{prices,enabled}` — raw JSON をそのまま置き換える。`Content-Type: application/json`、1 MiB まで。
+
+- 検証は起動時の読み込みより厳しく、**1 行でも不正なら全体を拒否**する（`400 { error: "invalid", reason }`）
+- 置き換えるとマスタを読めなくなる場合は `reason: "master"` で拒否する（「反映したのに 503」を作らない）
+- `Origin` が別ホストの要求は 403。`Origin` の無い要求（curl など）は通す
+- 成功すると `{ applied: true, ok: true, service, masterFetchedAt, version }`
+
 価格もモデル一覧も含めない。**どちらかのファイルが読めないとき**は `ok: false` と null を返し、`/api/models` は
 `503 { "error": "master_unavailable" }` になる。空の一覧を返さないのは、u7agent に「価格が消えた」と誤解させず、
 前回の値を持たせるため。`enabled.json` の失敗も 503 に倒すのは、判断が 1 件も適用されないまま
@@ -65,12 +75,15 @@ bun run start # bun src/server.ts
 
 ## マスタのメンテ
 
-マスタは由来の違う 2 ファイルに分ける。片方の更新がもう片方を上書きしないようにするため。
+マスタは `MASTER_DIR` に置く。コンテナでは volume を mount するので、**再デプロイせずに更新できる**。
+起動時に volume が空なら、image に同梱した初期値をコピーする（以後 image 側は読まない）。
+
+由来の違う 2 ファイルに分ける。片方の更新がもう片方を上書きしないようにするため。
 
 | ファイル | 由来 | 触り方 |
 | --- | --- | --- |
-| `src/server/data/prices.json` | OpenRouter の endpoints API から機械生成 | 手で編集しない |
-| `src/server/data/enabled.json` | 人の判断とメモ | 手で編集する |
+| `prices.json` | OpenRouter の endpoints API から機械生成 | `bun run generate` の出力をアップロード |
+| `enabled.json` | 人の判断とメモ | 画面からダウンロードして編集し、アップロード |
 
 `enabled.json` に行が無いモデルは `enabled: true`（一覧に出す）として扱う。隠す判断だけを明示する。
 
@@ -82,23 +95,33 @@ bun run start # bun src/server.ts
 }
 ```
 
-同じ `modelId` を `enabled` の違う値で 2 回書いた行は、両方とも無視する（隠す判断を誤って適用しない）。
+同じ `modelId` を `enabled` の違う値で 2 回書いた行があると、アップロードは拒否される（起動時の読み込みでは
+両方落として既定へ倒すが、アップロードは人の明示操作なので黙って捨てない）。
+
+### 更新の手順
+
+1. 画面（`/`）の「マスタの更新」で種類を選び、[現在の … をダウンロード] を押す
+2. 手元で編集する（価格は次の「価格の取り込み」で作る）
+3. 同じ欄でファイルを選び [アップロード] を押す
+4. 反映は即時（リクエストごとに mtime を見て読み直す）。直前の内容は `<kind>.json.bak` に 1 世代だけ残る
+
+失敗したときは反映されない（ファイルは変わらない）。理由は画面に固定文言で出る。
 
 ### 価格の取り込み
 
 ```bash
 bun run generate -- --dry-run   # 件数と差分だけ出す
-bun run generate                # prices.json を書き換える
+bun run generate                # src/server/data/prices.json を書き換える（そのファイルをアップロードする）
 ```
 
 - 上流の一覧 API と、モデルごとの endpoints API を叩く。どちらも無料で、キーは使わない
 - 同じ `(modelId, billable, unit, variant)` が複数 endpoint にあるときは**最大単価**を採る（上流の並び順に依存させない）
 - 取得に失敗したモデルは前回の行を残す。`endpoints` が空のモデルは「価格なし」を確定し、前回の行を残さない
-- `prices.json` の `version` は価格行が変わったときだけ進む。`fetchedAt` は取り込みのたびに更新する
+- `version` は価格行が変わったときだけ進む。`fetchedAt` は取り込みのたびに更新する
 - 上流の応答本文はログにもファイルにも出さない（件数・モデル id・差分だけを出す）
 
-取り込んだら `prices.json` をコミットしてデプロイする。マスタはデプロイ時に 1 回だけ読み、リクエストごとには
-再読込しない。
+**サーバーは上流へ出ない。** 取り込みは手元（または任意の作業環境）で実行し、できた `prices.json` を画面から
+アップロードする。
 
 ### 更新の目安
 
@@ -127,5 +150,7 @@ bun run check      # lint → fmt:check → typecheck → test → docs:check
 ## セキュリティの前提
 
 - 利用者認証を持たない。到達できる範囲を LAN / VPN に限る
-- 書き込み API・DB・管理画面を持たない。判断の変更は `enabled.json` の編集とデプロイで行う
+- 書き込みはマスタの置き換え（`PUT /api/master/:kind`）だけ。DB を持たず、アップロードは same-origin のみ通す。
+  認証が無いぶん、到達できる範囲（LAN / VPN）が唯一の統制になる
+- 扱うのは公開情報の価格と「一覧に出すか」だけで、秘密も個人情報も持たない
 - 価格は公開情報だけで、秘密も個人情報も持たない

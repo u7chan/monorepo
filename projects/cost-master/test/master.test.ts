@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { loadMaster } from "../src/server/master-file";
 import { buildPayload, parseJudgmentFile, parsePriceFile, type PriceRow } from "../src/server/master";
 
 const ROW: PriceRow = {
@@ -181,34 +180,5 @@ describe("buildPayload", () => {
 
     expect(payload.models.map((model) => `${model.unit}:${model.variant}`)).toEqual(["image:", "image:2k", "token:"]);
     expect(payload.models.every((model) => !model.enabled && model.note === "高価")).toBe(true);
-  });
-});
-
-describe("loadMaster", () => {
-  const pricesPath = new URL("../src/server/data/prices.json", import.meta.url);
-  const judgmentsPath = new URL("../src/server/data/enabled.json", import.meta.url);
-
-  test("コミットされているマスタを読める（壊れたまま配布しない）", () => {
-    const loaded = loadMaster(pricesPath, judgmentsPath);
-
-    expect(loaded.reason).toBeNull();
-    expect(loaded.state.ok).toBe(true);
-    expect(loaded.state.ok && loaded.state.payload.models.length).toBeGreaterThan(0);
-    expect(loaded.state.ok && loaded.state.payload.version).toBeGreaterThan(0);
-    expect(loaded.dropped).toEqual([]);
-  });
-
-  test("価格ファイルが無い・壊れているときは読めない", () => {
-    const missing = loadMaster(new URL("../src/server/data/unknown.json", import.meta.url), judgmentsPath);
-
-    expect(missing.reason).toBe("prices_read_failed");
-    expect(missing.state).toEqual({ ok: false });
-  });
-
-  test("判断ファイルが無い・壊れているときは読めない（判断が消えた状態を配信しない）", () => {
-    const missing = loadMaster(pricesPath, new URL("../src/server/data/unknown.json", import.meta.url));
-
-    expect(missing.reason).toBe("judgments_read_failed");
-    expect(missing.state).toEqual({ ok: false });
   });
 });

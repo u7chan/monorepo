@@ -7,6 +7,14 @@ export const PROVIDER = "openrouter";
 
 export const SERVICE_NAME = "cost-master";
 
+/** マスタのファイル種別。画面からのダウンロード / アップロードの対象 */
+export const MASTER_KINDS = ["prices", "enabled"] as const;
+export type MasterKind = (typeof MASTER_KINDS)[number];
+
+export function isMasterKind(value: string): value is MasterKind {
+  return (MASTER_KINDS as readonly string[]).includes(value);
+}
+
 /** `fetchedAt` は epoch ms。u7agent の `catalogSource` / `fetchedAt` と同じ単位に揃える */
 export type CostModelPrice = {
   provider: string;
