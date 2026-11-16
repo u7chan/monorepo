@@ -133,7 +133,7 @@ describe("parseJudgmentFile", () => {
     expect(parsed.ok && parsed.dropped).toEqual([{ modelId: "a", reason: "conflict" }]);
   });
 
-  test("同じモデルの同じ enabled は 1 つに畳む", () => {
+  test("同じモデルの同じ enabled は 1 つに畳み、重複として記録する（アップロードでは拒否する）", () => {
     const parsed = parseJudgmentFile({
       models: [
         { modelId: "a", enabled: false, note: "1 枚 $0.06" },
@@ -142,6 +142,7 @@ describe("parseJudgmentFile", () => {
     });
 
     expect(parsed.ok && parsed.rows.get("a")).toEqual({ modelId: "a", enabled: false, note: "1 枚 $0.06" });
+    expect(parsed.ok && parsed.dropped).toEqual([{ modelId: "a", reason: "duplicate" }]);
   });
 });
 

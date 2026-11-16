@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync
 import { join } from "node:path";
 import { MASTER_KINDS, type MasterKind } from "../shared/contract";
 import type { MasterState } from "./app";
-import { buildPayload, parseJudgmentFile, parsePriceFile } from "./master";
+import { buildPayload, parseJudgmentFile, parsePriceFile, type DroppedRow } from "./master";
 
 export type ReplaceResult = { ok: true; state: MasterState } | { ok: false; reason: string };
 
@@ -30,11 +30,19 @@ export function createMasterStore(input: {
   function ensureSeed(): void {
     mkdirSync(input.dir, { recursive: true });
 
-    for (const kind of MASTER_KINDS) {
-      if (existsSync(pathOf(kind))) {
-        continue;
-      }
+    const present = MASTER_KINDS.filter((kind) => existsSync(pathOf(kind)));
 
+    if (present.length === MASTER_KINDS.length) {
+      return;
+    }
+
+    // 片方だけある volume を「空」と見なすと、消した判断を image の初期値で黙って上書きする
+    if (present.length > 0) {
+      input.log(`マスタが一部だけあります（${present.join(", ")}）。image からのコピーはしません`);
+      return;
+    }
+
+    for (const kind of MASTER_KINDS) {
       copyFileSync(join(input.bundledDir, `${kind}.json`), pathOf(kind));
       input.log(`マスタを image からコピーしました: ${kind}.json`);
     }
@@ -61,7 +69,14 @@ export function createMasterStore(input: {
   }
 
   function parseState(): MasterState {
-    return parseStateFrom(readText(pathOf("prices")), readText(pathOf("enabled")));
+    const parsed = parseMaster(readText(pathOf("prices")), readText(pathOf("enabled")));
+
+    // 起動時は行を落として既定へ倒す。黙って落とすと「隠したつもりが隠れていない」に気付けない
+    for (const dropped of parsed.dropped) {
+      input.log(`マスタの行を落としました: ${dropped.modelId || "(no modelId)"} (${dropped.reason})`);
+    }
+
+    return parsed.state;
   }
 
   return {
@@ -98,12 +113,12 @@ export function createMasterStore(input: {
       }
 
       // 片方だけ差し替えて全体が読めなくなるなら反映しない（「反映したのに 503」を作らない）
-      const preview = parseStateFrom(
+      const preview = parseMaster(
         kind === "prices" ? text : readText(pathOf("prices")),
         kind === "enabled" ? text : readText(pathOf("enabled")),
       );
 
-      if (!preview.ok) {
+      if (!preview.state.ok) {
         return { ok: false, reason: "master" };
       }
 
@@ -119,45 +134,51 @@ export function createMasterStore(input: {
       renameSync(temp, path);
       cache = null;
 
-      return { ok: true, state: preview };
+      return { ok: true, state: preview.state };
     },
   };
 }
 
+type ParsedMaster = { state: MasterState; dropped: DroppedRow[] };
+
 /** アップロードは人の明示操作なので、起動時の読み込みと違って 1 行でも不正なら全体を拒否する */
-function parseStateFrom(pricesText: string | null, enabledText: string | null): MasterState {
+function parseMaster(pricesText: string | null, enabledText: string | null): ParsedMaster {
+  const unavailable: ParsedMaster = { state: { ok: false }, dropped: [] };
   const prices = pricesText === null ? undefined : tryParse(pricesText);
 
   if (prices === undefined) {
-    return { ok: false };
+    return unavailable;
   }
 
   const parsedPrices = parsePriceFile(prices);
 
   if (!parsedPrices.ok) {
-    return { ok: false };
+    return unavailable;
   }
 
   const enabled = enabledText === null ? undefined : tryParse(enabledText);
 
   if (enabled === undefined) {
-    return { ok: false };
+    return unavailable;
   }
 
   const parsedJudgments = parseJudgmentFile(enabled);
 
   if (!parsedJudgments.ok) {
-    return { ok: false };
+    return unavailable;
   }
 
   return {
-    ok: true,
-    payload: buildPayload({
-      version: parsedPrices.version,
-      fetchedAt: parsedPrices.fetchedAt,
-      rows: parsedPrices.rows,
-      judgments: parsedJudgments.rows,
-    }),
+    state: {
+      ok: true,
+      payload: buildPayload({
+        version: parsedPrices.version,
+        fetchedAt: parsedPrices.fetchedAt,
+        rows: parsedPrices.rows,
+        judgments: parsedJudgments.rows,
+      }),
+    },
+    dropped: [...parsedPrices.dropped, ...parsedJudgments.dropped],
   };
 }
 

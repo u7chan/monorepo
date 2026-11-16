@@ -198,6 +198,9 @@ export function parseJudgmentFile(value: unknown): JudgmentParseResult {
         rows.delete(row.modelId);
         conflicted.add(row.modelId);
         dropped.push({ modelId: row.modelId, reason: "conflict" });
+      } else {
+        // 同じ判断の重複は先勝ち。アップロードでは「落とした行がある」として全体を拒否する
+        dropped.push({ modelId: row.modelId, reason: "duplicate" });
       }
 
       continue;

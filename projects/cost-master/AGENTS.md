@@ -2,8 +2,9 @@
 
 モノレポの `projects/cost-master`。リポジトリ共通の規約は [ルートの AGENTS.md](../../AGENTS.md) を参照する。
 
-コンテンツ生成モデルの価格と「一覧に出す / 出さない」の判断を返す read-only サービス。自宅 LAN または VPN の
-内側で動かし、u7agent から手動の [カタログ更新] のときだけ読む。書き込み API・DB・認証は持たない。
+コンテンツ生成モデルの価格と「一覧に出す / 出さない」の判断を返すサービス。自宅 LAN または VPN の内側で
+動かし、u7agent から手動の [カタログ更新] のときだけ読む。読み取りの API と、マスタを置き換えるアップロード
+だけを持ち、DB と認証は持たない。
 
 ## Tech Stack
 
@@ -16,9 +17,9 @@
 ## 構成
 
 - `src/server.ts` が `Bun.serve` の入口。`index.html` の HTML import を `/` に、それ以外を Hono に渡す。マスタの置き場（`MASTER_DIR`）を用意して `master-store` を組み立てる。
-- `src/server/app.ts` が API の Hono app。`/api/models` と `/api/health` だけを持つ。状態は依存として注入し、テストは `app.request()` で叩く。
+- `src/server/app.ts` が API の Hono app。`/api/models` / `/api/health`（読み取り）と `/api/master/:kind`（ダウンロード / アップロード）を持つ。状態は依存として注入し、テストは `app.request()` で叩く。
 - `src/server/master.ts` がマスタの検証・正規化・応答の組み立て。純関数だけを置く。壊れた行は落とし、どちらかのファイルが読めないときは 503 に倒す（空の一覧を返して価格と判断を消さない）。
-- `src/server/master-store.ts` が `MASTER_DIR` の読み書き。起動時に volume が空なら image 同梱の初期値をコピーし、リクエストごとに mtime を見て読み直す（再起動なしで反映）。アップロードは 1 行でも不正なら全体を拒否し、tmp + rename で置き換えて直前の内容を `.bak` に残す。
+- `src/server/master-store.ts` が `MASTER_DIR` の読み書き。起動時に volume にマスタが 1 つも無ければ image 同梱の初期値をコピーし（片方だけあるときはコピーしない）、リクエストごとに mtime を見て読み直す（再起動なしで反映）。アップロードは 1 行でも不正なら全体を拒否し、tmp + rename で置き換えて直前の内容を `.bak` に残す。
 - `src/server/generate.ts` が価格の取り込み。上流の取得も同じ関数に閉じ、`fetch` を注入できる。失敗したモデルは前回の行を残し、`endpoints: []` は価格なしを確定する。上流の応答本文はログにもファイルにも出さない。**サーバーは上流へ出ない**（取り込みは手元で実行し、結果をアップロードする）。
 - `src/server/app.ts` は `/api/models` / `/api/health`（読み取り）と `/api/master/:kind`（ダウンロード / アップロード）を持つ。アップロードは same-origin だけ通し、認証は持たない（LAN / VPN の内側という前提を変えない）。
 - `src/shared/contract.ts` が応答の型の正。u7agent 側の DTO とは別で、`billable` はここまで。

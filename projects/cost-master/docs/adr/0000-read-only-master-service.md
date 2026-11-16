@@ -51,7 +51,7 @@ BFF が価格を取りに行くと、設定画面の更新がモデル数ぶん�
 待たずに変えたい」という出発点に対して、判断 1 件の変更にも image の再ビルドが必要になり、目的を満たして
 いなかった。
 
-そこでマスタを `MASTER_DIR`（volume）に移し、`GET /api/master/{prices,enabled}` でダウンロード、
+そこでマスタを `MASTER_DIR`（volume）に移し、volume に 1 つも無いときだけ image 同梱の初期値を seed し、`GET /api/master/{prices,enabled}` でダウンロード、
 `PUT /api/master/{prices,enabled}` で置き換える。リクエストごとに mtime を見て読み直すので再起動は要らない。
 
 - **認証は持たない。** 守るのは「一覧に出すか」という表示だけの情報で、秘密も会計も無い。統制は到達範囲

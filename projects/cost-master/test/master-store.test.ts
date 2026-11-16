@@ -53,11 +53,25 @@ describe("ensureSeed", () => {
   test("既にあるファイルは上書きしない", () => {
     const dir = newDir();
     writeFileSync(join(dir, "enabled.json"), ENABLED_HIDDEN);
+    writeFileSync(join(dir, "prices.json"), readFileSync(join(BUNDLED, "prices.json")));
     const store = newStore(dir);
 
     store.ensureSeed();
 
     expect(readFileSync(join(dir, "enabled.json"), "utf8")).toBe(ENABLED_HIDDEN);
+  });
+
+  test("片方だけある volume にはコピーしない（消した判断を image で上書きしない）", () => {
+    const dir = newDir();
+    writeFileSync(join(dir, "enabled.json"), ENABLED_HIDDEN);
+    const store = newStore(dir);
+
+    store.ensureSeed();
+
+    expect(() => readFileSync(join(dir, "prices.json"), "utf8")).toThrow();
+    expect(logs).toContain("マスタが一部だけあります（enabled）。image からのコピーはしません");
+    // コピーしないので、マスタは読めない（空の一覧を返さない）
+    expect(store.state()).toEqual({ ok: false });
   });
 });
 
@@ -94,6 +108,16 @@ describe("state", () => {
     expect(hidden.every((model) => model.modelId === "krea/krea-2-large")).toBe(true);
   });
 
+  test("落とした行は起動ログに出す（黙って既定へ倒さない）", () => {
+    const dir = newDir();
+    writeFileSync(join(dir, "prices.json"), readFileSync(join(BUNDLED, "prices.json")));
+    writeFileSync(join(dir, "enabled.json"), JSON.stringify({ models: [{ modelId: "a", enabled: "false" }] }));
+
+    newStore(dir).state();
+
+    expect(logs).toContain("マスタの行を落としました: a (enabled)");
+  });
+
   test("壊れたファイルは読めないとして返す（空の一覧にしない）", () => {
     const dir = newDir();
     writeFileSync(join(dir, "prices.json"), "{ not json");
@@ -125,6 +149,22 @@ describe("replace", () => {
 
     expect(store.replace("enabled", "{ not json")).toEqual({ ok: false, reason: "json" });
     expect(readFileSync(join(dir, "enabled.json"), "utf8")).toBe(JSON.stringify({ models: [] }));
+  });
+
+  test("同じモデルの重複した判断も拒否する（黙って 1 行に畳まない）", () => {
+    const dir = newDir();
+    writeFileSync(join(dir, "prices.json"), readFileSync(join(BUNDLED, "prices.json")));
+    writeFileSync(join(dir, "enabled.json"), JSON.stringify({ models: [] }));
+    const store = newStore(dir);
+
+    const duplicated = JSON.stringify({
+      models: [
+        { modelId: "a", enabled: false, note: "first" },
+        { modelId: "a", enabled: false, note: "second" },
+      ],
+    });
+
+    expect(store.replace("enabled", duplicated)).toEqual({ ok: false, reason: "rows" });
   });
 
   test("1 行でも不正な判断は全体を拒否する（起動時の読み込みと違って黙って落とさない）", () => {
