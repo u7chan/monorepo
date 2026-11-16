@@ -1,6 +1,7 @@
 // 入力欄の上の状態行 (活動 / モデル - Effort の入口 / Context ゲージ) の描画。
 // 入口のスロットを出す条件と配置、読み上げに載せる範囲 (aria-live) を react-dom/server で固定する。
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -282,6 +283,16 @@ test("描画: 実行中の経過時間は 10 秒の拍の枠に出し、1 分以
   });
   assert.match(long, />1m 3\ds</, "1 分を超えたら分と秒で出す");
   assert.ok(long.includes("elapsed-beat-tier"), "長いランは色を残す");
+});
+
+// What: 実行中の経過時間のスロットは 8.5ch を確保する。7ch に戻すと 100h 10m が入らず、
+// レビューで見つかった「表示領域が伸びる」回帰が戻るため、CSS の宣言をテストで固定する。
+test("描画: 実行中の経過時間のスロットは 8.5ch を確保する", () => {
+  const css = readFileSync(new URL("../src/styles/index.css", import.meta.url), "utf8");
+  const slot = /\.elapsed-slot\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  assert.match(slot, /min-width:\s*8\.5ch;/);
+  assert.match(slot, /text-align:\s*right;/);
+  assert.match(slot, /white-space:\s*nowrap;/);
 });
 
 // What: 状態行の数字は run 全体の経過で、直前のツールの所要時間ではない。
