@@ -16,6 +16,13 @@ test("formatElapsed は秒・分・時で刻む", () => {
   assert.equal(formatElapsed(-50), "0s");
 });
 
+// What: 状態行の固定幅スロット (`.elapsed-slot`) の上限。999h 59m までを 8.5ch に収め、
+// 1000h 以降は 9 文字になり得るため、そこから先は表示が伸びる (docs/frontend.md)。
+test("固定幅スロットの上限は 999h 59m", () => {
+  assert.equal(formatElapsed(999 * 3_600_000 + 59 * 60_000), "999h 59m");
+  assert.equal(formatElapsed(1000 * 3_600_000 + 10 * 60_000), "1000h 10m");
+});
+
 // What: 演出の拍の境界を 10 秒の刻みで固定する。桁は毎秒変わっても、演出はこの境界でしか出さない。
 test("演出の拍は 10 秒ごとに変わる", () => {
   assert.equal(elapsedBeatIndex(0), 0);

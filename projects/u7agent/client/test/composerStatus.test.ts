@@ -1,6 +1,7 @@
 // 入力欄の上の状態行 (活動 / モデル - Effort の入口 / Context ゲージ) の描画。
 // 入口のスロットを出す条件と配置、読み上げに載せる範囲 (aria-live) を react-dom/server で固定する。
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -213,7 +214,10 @@ test("描画: モデル / Effort の入口とゲージは aria-live の外へ置
   assert.ok(live.includes("実行中…（タブを閉じても処理は続きます）"), "活動テキストは読み上げる");
   assert.ok(!live.includes("GLM-5.3 Flash"), "モデル / Effort の入口は毎回読み上げない");
   assert.ok(!live.includes("Context"), "ゲージは毎回読み上げない");
-  assert.ok(html.includes("(実行 0s)"), "経過時間は run の経過だと分かる形で aria-hidden の別スパンに出す");
+  assert.ok(html.includes("elapsed-slot"), "経過時間は固定幅のスロットに出す");
+  assert.ok(html.includes('title="実行の経過時間"'), "実行の経過と分かる title を持つ");
+  assert.ok(html.includes(">0s<"), "経過時間は aria-hidden の別スパンに出す");
+  assert.equal(html.includes("(実行"), false, "実行のラベルは出さない");
 });
 
 test("描画: 復帰時の説明はデスクトップで重複を避け、singleColumn では維持する", () => {
@@ -277,8 +281,18 @@ test("描画: 実行中の経過時間は 10 秒の拍の枠に出し、1 分以
     runningSince: Date.now() - 90_000,
     modelSlot: slot(),
   });
-  assert.match(long, /\(実行 1m 3\ds\)/, "1 分を超えたら分と秒で出す");
+  assert.match(long, />1m 3\ds</, "1 分を超えたら分と秒で出す");
   assert.ok(long.includes("elapsed-beat-tier"), "長いランは色を残す");
+});
+
+// What: 実行中の経過時間のスロットは 8.5ch を確保する。7ch に戻すと 100h 10m が入らず、
+// レビューで見つかった「表示領域が伸びる」回帰が戻るため、CSS の宣言をテストで固定する。
+test("描画: 実行中の経過時間のスロットは 8.5ch を確保する", () => {
+  const css = readFileSync(new URL("../src/styles/index.css", import.meta.url), "utf8");
+  const slot = /\.elapsed-slot\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  assert.match(slot, /min-width:\s*8\.5ch;/);
+  assert.match(slot, /text-align:\s*right;/);
+  assert.match(slot, /white-space:\s*nowrap;/);
 });
 
 // What: 状態行の数字は run 全体の経過で、直前のツールの所要時間ではない。
@@ -294,8 +308,8 @@ test("描画: 経過時間は直近ツールの所要時間ではなく run 全�
     },
   });
 
-  assert.match(html, /\(実行 1m 1[01]s\)/, "run の経過を出す");
-  assert.ok(!html.includes("(実行 2s)"), "ツールの所要時間を run の経過として出さない");
+  assert.match(html, />1m 1[01]s</, "run の経過を出す");
+  assert.ok(!html.includes(">2s<"), "ツールの所要時間を run の経過として出さない");
 });
 
 test("描画: 実行中の経過時間は回答待ち (ask_user の区間) を除く", (t) => {
@@ -319,7 +333,7 @@ test("描画: 実行中の経過時間は回答待ち (ask_user の区間) を�
     runTools: { q1: open("q1", now - 60_000), q2: open("q2", now - 50_000) },
   });
 
-  assert.match(html, /\(実行 10s\)/, "待機 60 秒を引いた 10 秒を出す");
+  assert.match(html, />10s</, "待機 60 秒を引いた 10 秒を出す");
   assert.ok(!html.includes("elapsed-beat-tier"), "待機を引いた値で色を判定する");
 });
 
@@ -334,7 +348,7 @@ test("描画: 回答が届いたカードは待機の続きから数え、開始
     runStatus: "running",
     runTools: { q1: { ...base, id: "q1", done: true, startedAt: now - 60_000, endedAt: now - 50_000 } },
   });
-  assert.match(answered, /\(実行 1m 0s\)/, "待機 10 秒だけを引いて続きを数える");
+  assert.match(answered, />1m 0s</, "待機 10 秒だけを引いて続きを数える");
 
   const noStart = render({
     activity: "実行中…",
@@ -342,7 +356,7 @@ test("描画: 回答が届いたカードは待機の続きから数え、開始
     runStatus: "running",
     runTools: { q1: { ...base, id: "q1", endedAt: now - 50_000 } },
   });
-  assert.match(noStart, /\(実行 1m 1[01]s\)/, "startedAt が無ければ待機を含めて数える");
+  assert.match(noStart, />1m 1[01]s</, "startedAt が無ければ待機を含めて数える");
 });
 
 test("描画: 圧縮中の経過時間は前の run の回答待ちを引かない", (t) => {
@@ -366,7 +380,7 @@ test("描画: 圧縮中の経過時間は前の run の回答待ちを引かな�
     },
   });
 
-  assert.match(html, /\(実行 1m 1[01]s\)/, "圧縮の起点からの経過をそのまま出す");
+  assert.match(html, />1m 1[01]s</, "圧縮の起点からの経過をそのまま出す");
 });
 
 // --- 手動圧縮の導線 ---

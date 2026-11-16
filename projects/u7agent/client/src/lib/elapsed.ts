@@ -48,7 +48,11 @@ export function runElapsedMs({
   return Math.max(0, at - startedAt - askUserWaitTotalMs(tools, at));
 }
 
-/** 実行中インジケータの経過時間 (1 秒ごとに更新する表示なので秒未満は出さない。locale 非依存) */
+/**
+ * 経過時間の表記 (`1m 5s`)。実行中の状態行では、必ず固定幅のスロット (`elapsed-slot`) に
+ * 入れて使う (文字列の幅は秒の桁で変わるため、幅が動く場所に直接置くと状態行が揺れる)。
+ * 完了したターンの所要時間 (turnEnd) は静的なのでそのまま使う。秒未満は切り捨てる。locale 非依存。
+ */
 export function formatElapsed(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1000));
   if (seconds < 60) return `${seconds}s`;

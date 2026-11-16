@@ -299,17 +299,17 @@ export function ComposerStatus({
             </span>
             {/* 毎秒変わる数字は aria-live の外に置く (読み上げの連発を避ける) */}
             {elapsed === null ? null : (
-              // key に拍の番号を渡し、10 秒ごとに作り直して演出を先頭から流す。数字は同じ要素の
-              // テキストを書き換えるだけなので、桁が変わっても演出は再スタートしない
+              // 数字の幅は秒の桁で変わる。実行のラベルを外した分を左の余白に回した
+              // 固定幅のスロットへ入れ、表示領域の端が動かないようにする。拍の key は
+              // 内側の文字だけに付け、10 秒ごとの演出でスロットを揺らさない
               <span
-                key={beat}
                 aria-hidden="true"
-                className={cn(
-                  "elapsed-beat shrink-0 font-sans text-2xs tabular-nums",
-                  isElapsedTier(elapsed.ms) ? "elapsed-beat-tier" : "",
-                )}
+                title="実行の経過時間"
+                className="elapsed-slot shrink-0 font-sans text-2xs tabular-nums"
               >
-                (実行 {elapsed.text})
+                <span key={beat} className={cn("elapsed-beat", isElapsedTier(elapsed.ms) ? "elapsed-beat-tier" : "")}>
+                  {elapsed.text}
+                </span>
               </span>
             )}
           </span>
