@@ -186,14 +186,13 @@ export function trialHistoryRow(trial: ContentTrialSummary, currentKeyEpoch: num
 }
 
 /**
- * 試行の面の状態。未設定 / runtime 不可 / 全体 OFF / 同期未確認 / 空 / 実行中 / 失敗 / 中断の
+ * 試行の面の状態。未設定 / runtime 不可 / 全体 OFF / 空 / 実行中 / 失敗 / 中断の
  * どれを主に出すかを 1 箇所で決める（文言は呼び出し側が写す）。
  */
 export type TrialPanelState =
   | "runtime_unavailable"
   | "unconfigured"
   | "disabled"
-  | "unsynced"
   | "empty"
   | "running"
   | "failed"
@@ -204,14 +203,10 @@ export function trialPanelState(input: {
   runtimeAvailable: boolean;
   configured: boolean;
   enabled: boolean;
-  /** 音声の同期が確認できていない。画像の面では常に true */
-  synced: boolean;
   trials: readonly ContentTrialSummary[];
 }): TrialPanelState {
   if (!input.runtimeAvailable) return "runtime_unavailable";
   if (!input.configured) return "unconfigured";
-  // 同期未確認は保存だけを止める状態で、試行は画面の値でできる（面では注記に留める）
-  if (!input.synced) return "unsynced";
   if (!input.enabled) return "disabled";
   if (input.trials.some((trial) => trial.state === "running")) return "running";
   const latest = input.trials[0];
@@ -233,8 +228,6 @@ export function trialPanelNote(panel: TrialPanelState): string {
       return "APIキーが未設定です。履歴だけを表示しています。";
     case "disabled":
       return "全体が OFF です。履歴は残り、新規の生成だけを止めています。";
-    case "unsynced":
-      return "音声の設定を確認できていません。試行はできますが、既定への保存はできません。";
     case "empty":
       return "まだ試行していません。";
     case "running":
@@ -337,8 +330,8 @@ export function trialKindSubsection(kind: ContentTrialSummary["kind"]): ContentS
 }
 
 /**
- * タブの印。優先順位は 実行中（accent の点 + pulse）> 同期未確認（warn の点、開いても消えない）>
- * 新着結果（warn の点、開いたら消える）。読み上げ名も状態ごとに分ける。
+ * タブの印。優先順位は 実行中（accent の点 + pulse）> 新着結果（warn の点、開いたら消える）。
+ * 読み上げ名も状態ごとに分ける。
  */
 export interface TabIndicator {
   dot: "accent" | "warn" | null;
@@ -346,14 +339,8 @@ export interface TabIndicator {
   ariaLabel: string | null;
 }
 
-export function tabIndicator(input: {
-  label: string;
-  running: boolean;
-  unsynced: boolean;
-  newResult: boolean;
-}): TabIndicator {
+export function tabIndicator(input: { label: string; running: boolean; newResult: boolean }): TabIndicator {
   if (input.running) return { dot: "accent", pulse: true, ariaLabel: `${input.label}（生成中）` };
-  if (input.unsynced) return { dot: "warn", pulse: false, ariaLabel: `${input.label}（現在の設定を確認できません）` };
   if (input.newResult) return { dot: "warn", pulse: false, ariaLabel: `${input.label}（新しい結果があります）` };
   return { dot: null, pulse: false, ariaLabel: null };
 }

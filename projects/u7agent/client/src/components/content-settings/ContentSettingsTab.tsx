@@ -2,6 +2,11 @@ import { useState } from "react";
 import {
   deleteContentKeyConfirmRequest,
   imageCatalogNotice,
+  imageCostNotice,
+  hiddenImageModelCount,
+  imageModelVisibilityNotice,
+  imagePriceDisplay,
+  visibleImageModelOptions,
   contentKeyErrorNotice,
   contentKeyStatusBadge,
   CONTENT_IMAGE_PROVIDER_HEADING,
@@ -59,13 +64,13 @@ import type {
   ContentTrialArtifactUsageValue,
   ContentTrialArtifactWarningValue,
   CreateContentTrialBody,
+  UpdateContentCostBody,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
 } from "../../types";
 import { CollapsibleNotice } from "../CollapsibleNotice";
 import { Fold } from "../Fold";
 import { ArrowRightIcon, CheckIcon, ChevronDownIcon, GearIcon, TrashIcon } from "../icons";
-import { ReloadButton } from "../ReloadButton";
 import { useConfirm } from "../ConfirmProvider";
 import { ProviderIcon } from "../ProviderIcon";
 import { SelectField } from "../SelectField";
@@ -93,13 +98,9 @@ export type ContentSettingsTabProps = {
   /** 画像の生成元（OpenRouter / Codex）を切り替える。キーもモデルも伴わない */
   onSaveImageProvider: (provider: ImageGenerationProvider) => Promise<boolean>;
   onSaveSelection: (input: UpdateContentImageBody) => Promise<boolean>;
-  /** 画像モデル一覧の再取得。失敗しても一覧は前のまま残る */
-  onRefreshCatalog: () => Promise<boolean>;
   onSaveSpeech: (input: UpdateContentSpeechBody) => Promise<boolean>;
-  /** 音声モデル一覧の再取得。失敗しても一覧は前のまま残る */
-  onRefreshSpeechCatalog: () => Promise<boolean>;
-  /** 音声の表示が server の実効値と一致しているか。false の間は保存を止める */
-  speechSynced: boolean;
+  /** コストマスタの接続先とトグル。保存時に取得しない */
+  onSaveCost: (input: UpdateContentCostBody) => Promise<boolean>;
   /** タブを切り替える（履歴への導線と、履歴から生成タブへ戻す導線） */
   onSelectContentSubsection?: (subsection: ContentSubsection) => void;
   /** 試行の一覧（要約。取得前は null）。表示する種別はタブが決める */
@@ -148,10 +149,8 @@ export function ContentSettingsTab({
   onDeleteKey,
   onSaveImageProvider,
   onSaveSelection,
-  onRefreshCatalog,
   onSaveSpeech,
-  onRefreshSpeechCatalog,
-  speechSynced,
+  onSaveCost,
   onSelectContentSubsection,
   trials,
   trialDetail,
@@ -178,6 +177,8 @@ export function ContentSettingsTab({
   // 既定のパラメータの下書きも面を切り替えて失わないよう、この画面が持つ（モデルごとに組で持つ）
   const [imageDefaultsDraft, setImageDefaultsDraft] = useState<ImageDefaultsDraft | null>(null);
   const [speechDraft, setSpeechDraft] = useState<SpeechDraft>(EMPTY_SPEECH_DRAFT);
+  // コストURLとトグルは [保存] 1 回で送る。null はサーバー値へ追随する
+  const [costDraft, setCostDraft] = useState<{ enabled: boolean; url: string } | null>(null);
   // 試行のプロンプトは保存しない（履歴にだけ残す）。面を切り替えても失わないよう、この画面が持つ
   const [trialPrompt, setTrialPrompt] = useState("");
   // 画像の生成パラメータも同じ扱い。宣言に無いキーはモデルの切替でここから落とす
@@ -436,6 +437,14 @@ export function ContentSettingsTab({
                   )}
                 </section>
 
+                <ContentCostSection
+                  settings={settings}
+                  busy={busy}
+                  draft={costDraft}
+                  onChangeDraft={setCostDraft}
+                  onSave={onSaveCost}
+                />
+
                 {keyVisible ? keySection : null}
                 {imageProvider === "codex" ? (
                   <p className="text-2xs leading-relaxed text-ink-muted">{SPEECH_NEEDS_OPENROUTER_KEY_NOTE}</p>
@@ -447,13 +456,11 @@ export function ContentSettingsTab({
                     <ImageModelSection
                       settings={settings}
                       busy={busy}
-                      refreshing={saving === "catalog"}
                       selectedModel={screenModel}
                       onChangeDraft={setImageDraft}
                       defaultsDraft={imageDefaultsDraft}
                       onChangeDefaultsDraft={setImageDefaultsDraft}
                       onSave={onSaveSelection}
-                      onRefresh={onRefreshCatalog}
                       trials={trials}
                       trialKeyEpoch={trialKeyEpoch}
                       trialNow={trialNow}
@@ -463,12 +470,9 @@ export function ContentSettingsTab({
                   <SpeechModelSection
                     settings={settings}
                     busy={busy}
-                    synced={speechSynced}
-                    refreshing={saving === "speech-catalog"}
                     draft={speechDraft}
                     onChangeDraft={setSpeechDraft}
                     onSave={onSaveSpeech}
-                    onRefresh={onRefreshSpeechCatalog}
                     selection={speechSelectionOfScreen}
                     trials={trials}
                     keyEpoch={trialKeyEpoch}
@@ -515,7 +519,6 @@ export function ContentSettingsTab({
             note={trialNote}
             busy={trialBusy}
             settingsBusy={busy}
-            synced={speechSynced}
             onMakeDefault={saveTrialSpeech}
             draft={speechTrialDraft}
             onChangeDraft={setSpeechTrialDraft}
@@ -777,24 +780,87 @@ function BgmModelSection({
   );
 }
 
+/**
+ * コストマスタの接続先。価格は手動の [カタログ更新] のときだけ取りに行く。未設定でも従来どおり動くため、
+ * OFF の間は URL を残したまま入力欄だけを非活性にする。
+ */
+function ContentCostSection({
+  settings,
+  busy,
+  draft,
+  onChangeDraft,
+  onSave,
+}: {
+  settings: ContentSettingsResponse;
+  busy: boolean;
+  draft: { enabled: boolean; url: string } | null;
+  onChangeDraft: (draft: { enabled: boolean; url: string } | null) => void;
+  onSave: (input: UpdateContentCostBody) => Promise<boolean>;
+}) {
+  const current = draft ?? { enabled: settings.image.cost.enabled, url: settings.image.cost.url ?? "" };
+  const dirty = draft !== null;
+
+  const submit = async () => {
+    if (await onSave(current)) onChangeDraft(null);
+  };
+
+  return (
+    <section className="grid gap-2 border-t border-line pt-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">コスト表示</div>
+          <p className="mt-0.5 text-xs text-ink">モデルの価格と「一覧に出すか」を任意のコストマスタから写します。</p>
+        </div>
+        <ToggleSwitch
+          checked={current.enabled}
+          label={current.enabled ? "ON" : "OFF"}
+          disabled={busy}
+          onChange={(enabled) => onChangeDraft({ ...current, enabled })}
+        />
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <input
+          className="field min-w-0 flex-1 text-xs"
+          type="url"
+          inputMode="url"
+          value={current.url}
+          placeholder="https://cost-master.example.com/api/models"
+          aria-label="コストマスタのURL"
+          autoComplete="off"
+          spellCheck={false}
+          disabled={busy || !current.enabled}
+          onChange={(event) => onChangeDraft({ ...current, url: event.currentTarget.value })}
+        />
+        <button type="button" className="btn-primary" disabled={busy || !dirty} onClick={() => void submit()}>
+          <CheckIcon />
+          保存
+        </button>
+      </div>
+      <p className="text-2xs leading-relaxed break-words text-ink-muted">
+        {current.enabled
+          ? "手動の [カタログ更新] のときだけ取得します（起動時・定期・再読み込みでは取りに行きません）。"
+          : "OFF の間は取得も価格表示もしません。URL は保存したまま残ります。"}{" "}
+        未設定なら価格は表示されず、モデルの選択・保存・試行は今までどおり動きます。
+      </p>
+    </section>
+  );
+}
+
 /** モデル選択と、そのモデルの既定のパラメータ。[保存] はモデルとパラメータを 1 回の PUT で送る */
 function ImageModelSection({
   settings,
   busy,
-  refreshing,
   selectedModel,
   onChangeDraft,
   defaultsDraft,
   onChangeDefaultsDraft,
   onSave,
-  onRefresh,
   trials,
   trialKeyEpoch,
   trialNow,
 }: {
   settings: ContentSettingsResponse;
   busy: boolean;
-  refreshing: boolean;
   /** 画面で選択中のモデル（下書き優先）。試行と証拠も同じ値を使う */
   selectedModel: string;
   onChangeDraft: (draft: string | null) => void;
@@ -802,13 +868,19 @@ function ImageModelSection({
   defaultsDraft: ImageDefaultsDraft | null;
   onChangeDefaultsDraft: (draft: ImageDefaultsDraft | null) => void;
   onSave: (input: UpdateContentImageBody) => Promise<boolean>;
-  onRefresh: () => Promise<boolean>;
   trials: readonly ContentTrialSummary[] | null;
   trialKeyEpoch: number;
   trialNow: number;
 }) {
+  // 解決（PUT 本文・既定の保存キー）は全件の一覧、描画は visible で絞った一覧を使う
   const options = imageModelOptions(settings);
+  const choices = visibleImageModelOptions(settings);
   const savedModel = imageModelValue(settings);
+  const selectedEntry = settings.image.models.find((entry) => `${entry.provider}/${entry.id}` === selectedModel);
+  const price = imagePriceDisplay(selectedEntry?.prices ?? []);
+  const hiddenCount = hiddenImageModelCount(settings);
+  const visibility = imageModelVisibilityNotice(settings);
+  const cost = imageCostNotice(settings.image.cost);
   const defaults = imageDefaultsScreen(settings, selectedModel, defaultsDraft);
   const modelDirty = selectedModel !== savedModel;
   const dirty = modelDirty || defaults.dirty;
@@ -845,7 +917,7 @@ function ImageModelSection({
           disabled={busy}
           onChange={(event) => onChangeDraft(event.currentTarget.value)}
         >
-          {options.map((option) => (
+          {choices.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
@@ -866,6 +938,23 @@ function ImageModelSection({
           保存
         </button>
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <MetaChip tone={price.label === "--" ? "warn" : "muted"}>価格 {price.label}</MetaChip>
+        {hiddenCount === 0 ? null : <MetaChip tone="muted">{`${hiddenCount} 件は一覧に出していません`}</MetaChip>}
+        {cost === null ? null : <MetaChip tone={cost.tone}>{cost.text}</MetaChip>}
+      </div>
+      {selectedEntry?.note ? (
+        <p className="text-2xs leading-relaxed break-words text-ink-muted">{selectedEntry.note}</p>
+      ) : null}
+      {price.note === null ? null : <p className="text-2xs leading-relaxed text-ink-muted">{price.note}</p>}
+      {visibility === null ? null : (
+        <p
+          role="status"
+          className="rounded border border-warn/40 bg-base px-2 py-1.5 text-2xs leading-relaxed text-warn"
+        >
+          {visibility.text}
+        </p>
+      )}
       {/* 既定はモデルの宣言に応じた欄だけを出す。宣言が無ければ「既定なし」だけを書く */}
       {defaults.fields.length === 0 ? null : (
         <div className="grid gap-2 sm:grid-cols-2">
@@ -935,9 +1024,6 @@ function ImageModelSection({
             {imageCatalogNotice(settings.image)}
           </MetaChip>
         </p>
-        <ReloadButton disabled={busy} onClick={() => void onRefresh()}>
-          {refreshing ? "更新中" : "カタログ更新"}
-        </ReloadButton>
       </div>
     </section>
   );
@@ -950,12 +1036,9 @@ function ImageModelSection({
 function SpeechModelSection({
   settings,
   busy,
-  synced,
-  refreshing,
   draft,
   onChangeDraft,
   onSave,
-  onRefresh,
   selection,
   trials,
   keyEpoch,
@@ -963,12 +1046,9 @@ function SpeechModelSection({
 }: {
   settings: ContentSettingsResponse;
   busy: boolean;
-  synced: boolean;
-  refreshing: boolean;
   draft: SpeechDraft;
   onChangeDraft: (draft: SpeechDraft) => void;
   onSave: (input: UpdateContentSpeechBody) => Promise<boolean>;
-  onRefresh: () => Promise<boolean>;
   /** 画面のモデル / ボイス。保存フォーム・証拠・試行で同じ解決を使う */
   selection: SpeechScreenSelection;
   trials: readonly ContentTrialSummary[] | null;
@@ -978,7 +1058,6 @@ function SpeechModelSection({
   const { options, selectedModel, selectedOption, selectedVoice, textMode, dirty } = selection;
 
   const submit = async () => {
-    if (!synced) return;
     const input = speechSelection(options, selectedModel, selectedVoice);
     if (!input) return;
     if (await onSave(input)) onChangeDraft(EMPTY_SPEECH_DRAFT);
@@ -987,21 +1066,14 @@ function SpeechModelSection({
   return (
     <section className="grid gap-1.5 border-t border-line pt-3">
       <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">保存される設定</h3>
-      {/* 同期できていない間は、旧い表示を現在値として見せない（保存も speechSaveDisabled が止める） */}
-      {synced ? null : (
-        <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
-          サーバーから現在の設定を取得できなかったため、表示しているモデルとボイスが最新とは限りません。再読み込みするまで保存できません。
-        </p>
-      )}
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <SelectField
           wrapperClassName="min-w-0 flex-1"
           aria-label="音声生成のモデル"
-          value={synced ? selectedModel : ""}
-          disabled={busy || !synced}
+          value={selectedModel}
+          disabled={busy}
           onChange={(event) => onChangeDraft({ model: event.currentTarget.value, voice: null })}
         >
-          {synced ? null : <option value="">（未確認）</option>}
           {options.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
@@ -1013,30 +1085,29 @@ function SpeechModelSection({
         {textMode ? (
           <input
             className="field min-w-0 flex-1 text-xs"
-            value={synced ? selectedVoice : ""}
+            value={selectedVoice}
             aria-label="音声生成のボイス"
-            placeholder={synced ? "モデル既定（空欄のまま送ります）" : "（未確認）"}
+            placeholder="モデル既定（空欄のまま送ります）"
             autoComplete="off"
             spellCheck={false}
-            disabled={busy || !synced}
+            disabled={busy}
             onChange={(event) => onChangeDraft({ ...draft, voice: event.currentTarget.value })}
           />
         ) : (
           <SelectField
             wrapperClassName="min-w-0 flex-1"
             aria-label="音声生成のボイス"
-            value={synced ? selectedVoice : ""}
-            disabled={busy || !synced}
+            value={selectedVoice}
+            disabled={busy}
             onChange={(event) => onChangeDraft({ ...draft, voice: event.currentTarget.value })}
           >
-            {synced ? null : <option value="">（未確認）</option>}
             <SpeechVoiceOptions modelId={selectedModel} voices={selectedOption?.model?.voices} />
           </SelectField>
         )}
         <button
           type="button"
           className="btn-primary"
-          disabled={speechSaveDisabled({ busy, synced, dirty })}
+          disabled={speechSaveDisabled({ busy, dirty })}
           onClick={() => void submit()}
         >
           <CheckIcon />
@@ -1057,9 +1128,6 @@ function SpeechModelSection({
             {speechCatalogNotice(settings.speech)}
           </MetaChip>
         </p>
-        <ReloadButton disabled={busy} onClick={() => void onRefresh()}>
-          {refreshing ? "更新中" : "カタログ更新"}
-        </ReloadButton>
       </div>
     </section>
   );

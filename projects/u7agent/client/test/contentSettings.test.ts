@@ -4,8 +4,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  catalogRefreshNote,
+  contentCatalogRefreshNote,
   contentEnabledNote,
+  hiddenImageModelCount,
+  imageCostNotice,
+  imageModelVisibilityNotice,
+  imagePriceDisplay,
+  visibleImageModelOptions,
   contentKeyErrorNotice,
   contentKeyStatusBadge,
   contentProviderId,
@@ -390,12 +395,20 @@ test("モデル一覧の注記は取得元と最終取得時刻を示す", () =>
   );
 });
 
-test("再取得の注記は成功と失敗を区別し、失敗でも一覧が残ることを伝える", () => {
-  assert.equal(catalogRefreshNote(null), "モデル一覧を取得しました。");
-  assert.equal(
-    catalogRefreshNote("モデル一覧の取得がタイムアウトしました"),
-    "モデル一覧の取得がタイムアウトしました。表示中の一覧は変わりません。",
-  );
+test("再取得の注記は成功と失敗を区別し、一覧と価格のどちらが変わらないかを分ける", () => {
+  assert.deepEqual(contentCatalogRefreshNote("image", {}), { text: "モデル一覧を取得しました。", error: false });
+  assert.deepEqual(contentCatalogRefreshNote("image", { image: "モデル一覧の取得がタイムアウトしました" }), {
+    text: "モデル一覧の取得がタイムアウトしました。表示中の一覧は変わりません。",
+    error: true,
+  });
+  assert.deepEqual(contentCatalogRefreshNote("image", { cost: "コストマスタを取得できませんでした" }), {
+    text: "価格を取得できませんでした。表示中の価格は変わりません。",
+    error: true,
+  });
+  assert.deepEqual(contentCatalogRefreshNote("speech", { cost: "コストマスタを取得できませんでした" }), {
+    text: "モデル一覧を取得しました。",
+    error: false,
+  });
 });
 
 test("音声モデルの選択肢は表示名の昇順に並べ、同名は id を添え、カタログ外の現在値を先頭に残す", () => {
@@ -488,11 +501,10 @@ test("モデル切替時のボイスは新しいモデルの先頭へ寄せ、�
   assert.equal(speechVoiceDraft({ draft: "Kore", modelChanged: true, option: fish, savedVoice: "Zephyr" }), "Kore");
 });
 
-test("音声の保存は未同期・実行中・変更なしのときだけ止める", () => {
-  assert.equal(speechSaveDisabled({ busy: false, synced: false, dirty: true }), true, "同期できない間は保存させない");
-  assert.equal(speechSaveDisabled({ busy: false, synced: true, dirty: true }), false);
-  assert.equal(speechSaveDisabled({ busy: false, synced: true, dirty: false }), true, "変更が無ければ保存しない");
-  assert.equal(speechSaveDisabled({ busy: true, synced: true, dirty: true }), true);
+test("音声の保存は実行中と変更なしのときだけ止める", () => {
+  assert.equal(speechSaveDisabled({ busy: false, dirty: true }), false);
+  assert.equal(speechSaveDisabled({ busy: false, dirty: false }), true, "変更が無ければ保存しない");
+  assert.equal(speechSaveDisabled({ busy: true, dirty: true }), true);
 });
 
 test("音声モデル一覧の注記は取得元と最終取得時刻を示し、default は同梱を見ていることを伝える", () => {
@@ -667,4 +679,97 @@ test("Codex では APIキー欄とモデル一覧を出さない（OpenRouter �
   assert.equal(imageKeySectionVisible("codex"), false);
   assert.equal(imageModelSectionVisible("openrouter"), true);
   assert.equal(imageModelSectionVisible("codex"), false);
+});
+
+test("価格は基本単価を優先し、無いときだけ同じ単位の範囲を出し、不明と無料を混ぜない", () => {
+  assert.deepEqual(imagePriceDisplay([]), { label: "--", note: null });
+  assert.deepEqual(imagePriceDisplay([{ unit: "image", variant: "", costUsd: 0, currency: "USD" }]), {
+    label: "$0/枚",
+    note: null,
+  });
+  assert.equal(
+    imagePriceDisplay([
+      { unit: "image", variant: "", costUsd: 0.04, currency: "USD" },
+      { unit: "image", variant: "style_references", costUsd: 0.2, currency: "USD" },
+    ]).label,
+    "$0.04/枚",
+    "加算オプションを基本単価の範囲に混ぜない",
+  );
+  assert.equal(
+    imagePriceDisplay([
+      { unit: "megapixel", variant: "768", costUsd: 0.01, currency: "USD" },
+      { unit: "megapixel", variant: "1024", costUsd: 0.02, currency: "USD" },
+    ]).label,
+    "$0.01〜$0.02/MP",
+  );
+  assert.deepEqual(imagePriceDisplay([{ unit: "token", variant: "", costUsd: 0.000008, currency: "USD" }]), {
+    label: "$8/1M tok",
+    note: "token 建ての単価です（1 枚あたりの実額ではありません）",
+  });
+  assert.equal(imagePriceDisplay([{ unit: "request", variant: "", costUsd: 0.02, currency: "USD" }]).label, "$0.02/回");
+  assert.equal(
+    imagePriceDisplay([{ unit: "second" as never, variant: "", costUsd: 0.5, currency: "USD" }]).label,
+    "--",
+    "未知の unit は整形しない",
+  );
+});
+
+test("描画用の選択肢は visible だけを外し、保存中の無効値は専用ラベルで残す", () => {
+  const models: ImageModel[] = [
+    {
+      provider: "openrouter",
+      id: "acme/image-a",
+      name: "Acme A",
+      prices: [{ unit: "image", variant: "", costUsd: 0.04, currency: "USD" }],
+      visible: true,
+      note: null,
+    },
+    { provider: "openrouter", id: "acme/image-b", name: "Acme B", prices: [], visible: false, note: "高価" },
+  ];
+  const saved = settings({ models, model: "acme/image-b" });
+  assert.deepEqual(
+    visibleImageModelOptions(saved).map((option) => option.label),
+    ["Acme B（一覧に出していません・保存済み）", "Acme A（$0.04/枚）"],
+  );
+  assert.equal(hiddenImageModelCount(saved), 1);
+  assert.deepEqual(imageModelVisibilityNotice(saved), {
+    kind: "hidden",
+    text: "保存中のモデルはコストマスタで一覧に出さない設定です（保存済みのためこのまま使えます）。",
+  });
+  // PUT 本文の解決は全件の一覧を使う（無効でも保存済みの値のまま送れる）
+  assert.deepEqual(
+    imageModelOptions(saved).map((option) => option.value),
+    ["openrouter/acme/image-a", "openrouter/acme/image-b"],
+  );
+
+  const missing = settings({ models, model: "stale/model" });
+  assert.equal(imageModelVisibilityNotice(missing)?.kind, "missing");
+  assert.ok(visibleImageModelOptions(missing).some((option) => option.value === "openrouter/stale/model"));
+});
+
+test("コストの由来は未設定と停止中と未取得を分け、停止中は前回取得を添える", () => {
+  assert.equal(imageCostNotice({ enabled: false, url: null, fetchedAt: null, version: null }), null);
+  assert.deepEqual(
+    imageCostNotice(
+      { enabled: false, url: "https://cost-master.example.com/api/models", fetchedAt: 0, version: 3 },
+      { timeZone: "Asia/Tokyo", now: 0 },
+    ),
+    { text: "コスト表示は停止中（前回取得: 09:00）", tone: "warn" },
+  );
+  assert.deepEqual(
+    imageCostNotice({
+      enabled: true,
+      url: "https://cost-master.example.com/api/models",
+      fetchedAt: null,
+      version: null,
+    }),
+    { text: "価格はまだ取得していません（[カタログ更新] で取得します）", tone: "warn" },
+  );
+  assert.equal(
+    imageCostNotice(
+      { enabled: true, url: "https://cost-master.example.com/api/models", fetchedAt: 0, version: 3 },
+      { timeZone: "Asia/Tokyo", now: 0 },
+    )?.tone,
+    "muted",
+  );
 });

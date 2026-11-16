@@ -55,6 +55,14 @@
 - 既存の svg-only の絞り込み（`isUnsaveableOutputOnly()`）は変えない。`visible` はこれと独立した表示条件
 - 変更系の応答（キー保存・トグル・選択など）にも同じ `image.cost` と価格が乗る（`ContentMutationResponseSchema` が `ContentSettingsResponseSchema` を拡張しているため）
 
+## 画面表示
+
+- モデル欄のチップと選択肢に価格を出す。整形の正は `client/src/lib/contentSettings.ts` の `imagePriceDisplay()`（基本単価優先・範囲・`--`・`$0`・token の換算）
+- `visible: false` は**描画の選択肢からだけ**外す。`imageModelOptions()` は全件のまま残し、`visibleImageModelOptions()` が現在値だけ専用ラベルで残す。保存中の値が無効なら「一覧に出していない・保存済み」の警告を出す
+- 一覧に載せなかった件数は「N 件は一覧に出していません」と注記する（黙って消えたように見せない）
+- コストURLと ON/OFF は設定パネルの共有カードに置き、[保存] 1 回で両方を送る。OFF の間は URL の入力欄を非活性にし、サーバーは `prices: []` を返すため価格のチップは `価格 --` に倒れる（チップ自体は残す）。由来のチップに「コスト表示は停止中（前回取得: …）」を出し、未設定とは区別する
+- [カタログ更新] はページの帯に 1 つだけ置く。表示を作り直すだけの [再読み込み] とは行を分ける（[ui-layout.md](ui-layout.md#モードごとの構成)）
+
 ## API
 
 | メソッド | パス | 説明 |
