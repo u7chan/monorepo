@@ -9,6 +9,7 @@ import {
   CONTENT_TRIAL_STATES,
 } from "./content-trials";
 import { TRIAL_ARTIFACT_FORMATS } from "./content-trial-artifacts";
+import { COST_UNITS } from "./content-cost";
 import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
 import type {
   SandboxGitConfigStatus,
@@ -1348,6 +1349,17 @@ export const ImageParameterDeclarationsSchema = z
   })
   .strict();
 
+/** 価格 1 件。`billable`（上流の語彙）は DTO へ持ち込まない。`variant` は加算オプションを含む */
+export const ImageModelPriceSchema = z.object({
+  unit: z.enum(COST_UNITS),
+  /** 無ければ ""（基本単価）。画面は空の行を基本として扱い、無いときだけ範囲を出す */
+  variant: z.string(),
+  costUsd: z.number(),
+  /** 契約は USD 固定（上流が通貨を宣言しないためマスタが付与する） */
+  currency: z.literal("USD"),
+});
+export type ImageModelPrice = z.infer<typeof ImageModelPriceSchema>;
+
 /** 画像生成のカタログ 1 件。provider は将来の追加に備えて載せ、値は開放しない */
 export const ImageModelSchema = z.object({
   provider: z.string(),
@@ -1358,6 +1370,12 @@ export const ImageModelSchema = z.object({
    * （＝不明）。画面はこれだけを見て選択肢を描き、サーバーは送信本文と生成前検証に使う。
    */
   parameters: ImageParameterDeclarationsSchema.optional(),
+  /** 出力側の単価。不明（マスタに無い・読めない）は空配列で、`0` とは区別する */
+  prices: z.array(ImageModelPriceSchema),
+  /** マスタの人手判断。false でも一覧（`image.models`）からは落とさず、画面の選択肢から外すだけ */
+  visible: z.boolean(),
+  /** マスタの人手メモ。無ければ null */
+  note: z.string().nullable(),
 });
 export type ImageModel = z.infer<typeof ImageModelSchema>;
 
@@ -1419,6 +1437,18 @@ export const ContentImageSettingsSchema = z.object({
    * 絞り、宣言が読めないモデルのエントリは空になる（画面は空のエントリに欄を出さない）。
    */
   parametersByModel: z.record(z.string(), ImageParameterValuesSchema),
+  /**
+   * コストマスタの接続先と最後に取得できた時刻。未設定・OFF でも null にせず、`enabled: false` /
+   * `url: null` を返す（`prices` は全件空、`visible` は全件 true に投影する）。
+   */
+  cost: z.object({
+    enabled: z.boolean(),
+    url: z.string().nullable(),
+    /** 価格スナップショットを最後に取得できた時刻 (epoch ms)。未取得は null */
+    fetchedAt: z.number().nullable(),
+    /** マスタの世代。未取得・契約外で読めないときは null */
+    version: z.number().nullable(),
+  }),
 });
 export type ContentImageSettings = z.infer<typeof ContentImageSettingsSchema>;
 
@@ -1799,30 +1829,31 @@ export const UpdateCloudflareSettingsBodySchema = z.object({
 export type UpdateCloudflareSettingsBody = z.infer<typeof UpdateCloudflareSettingsBodySchema>;
 
 /**
- * POST /api/settings/content/image/catalog/refresh。設定は変えず、取得できなくても 200 で現在の一覧を返す
- * （`catalogError` にだけ失敗の固定文言を載せる。一覧を失わせない）。
+ * POST /api/settings/content/catalog/refresh。取得できなくても常に 200 で、その時点の
+ * `ContentSettingsResponse` と同じ形を返す。失敗は系統ごとに `errors` へ分け、1 系統の失敗で
+ * 他の結果を捨てない（一覧も前回値のまま返す）。
  */
-export const ImageCatalogRefreshResponseSchema = z.object({
-  models: z.array(ImageModelSchema),
-  catalogSource: ImageCatalogSourceSchema,
-  fetchedAt: z.number().nullable(),
-  /** 今回の取得結果。null なら成功 */
-  catalogError: z.string().nullable(),
+export const ContentCatalogRefreshErrorsSchema = z.object({
+  image: z.string().optional(),
+  speech: z.string().optional(),
+  cost: z.string().optional(),
 });
-export type ImageCatalogRefreshResponse = z.infer<typeof ImageCatalogRefreshResponseSchema>;
+export type ContentCatalogRefreshErrors = z.infer<typeof ContentCatalogRefreshErrorsSchema>;
+
+export const ContentCatalogRefreshResponseSchema = ContentSettingsResponseSchema.extend({
+  errors: ContentCatalogRefreshErrorsSchema,
+});
+export type ContentCatalogRefreshResponse = z.infer<typeof ContentCatalogRefreshResponseSchema>;
 
 /**
- * POST /api/settings/content/speech/catalog/refresh。形は画像の再取得と同じで、取得できなくても 200 で
- * 現在の一覧を返し、`catalogError` にだけ失敗の固定文言を載せる（一覧を失わせない）。
+ * PUT /api/settings/content/cost-url。コストマスタの接続先とトグルを 1 回で保存する。
+ * `enabled: true` は URL 必須で、`enabled: false` + 空 URL は行の削除（未設定）として扱う。
  */
-export const SpeechCatalogRefreshResponseSchema = z.object({
-  models: z.array(SpeechModelSchema),
-  catalogSource: SpeechCatalogSourceSchema,
-  fetchedAt: z.number().nullable(),
-  /** 今回の取得結果。null なら成功 */
-  catalogError: z.string().nullable(),
+export const UpdateContentCostBodySchema = z.object({
+  enabled: z.boolean(),
+  url: z.string().max(2048),
 });
-export type SpeechCatalogRefreshResponse = z.infer<typeof SpeechCatalogRefreshResponseSchema>;
+export type UpdateContentCostBody = z.infer<typeof UpdateContentCostBodySchema>;
 
 /** 変更系の失敗応答（何も変わっていない）。400 は error のみ */
 export const ContentMutationErrorSchema = z.object({

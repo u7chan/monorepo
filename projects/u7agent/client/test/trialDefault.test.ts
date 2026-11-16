@@ -14,8 +14,8 @@ import {
 import type { ContentSettingsResponse, UpdateContentImageBody } from "../src/types";
 
 const IMAGE_MODELS = [
-  { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
-  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+  { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2", prices: [], visible: true, note: null },
+  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image", prices: [], visible: true, note: null },
 ];
 
 /** 宣言を持つモデル。パラメータの差分だけで導線が出ることを固定する */
@@ -24,12 +24,15 @@ const DECLARING_MODELS = [
     provider: "openrouter",
     id: "openai/gpt-image-2",
     name: "GPT Image 2",
+    prices: [],
+    visible: true,
+    note: null,
     parameters: {
       aspect_ratio: { type: "enum" as const, values: ["1:1", "16:9"] },
       seed: { type: "range" as const, min: 0, max: 1_000 },
     },
   },
-  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image", prices: [], visible: true, note: null },
 ];
 
 const MODEL = "openrouter/openai/gpt-image-2";
@@ -64,6 +67,7 @@ function settings(
       catalogSource: "live",
       fetchedAt: null,
       parametersByModel: {},
+      cost: { enabled: false, url: null, fetchedAt: null, version: null },
       ...image,
     },
     speech: {

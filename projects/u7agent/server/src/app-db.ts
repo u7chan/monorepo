@@ -22,7 +22,7 @@ import type { SpeechAudioFormat } from "./speech";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 47;
+export const APP_DB_SCHEMA_VERSION = 48;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -266,6 +266,43 @@ export interface SpeechCatalogRow {
   /** 最後に live を取得できた時刻 (epoch ms) */
   fetchedAt: number;
   models: SpeechCatalogModelRow[];
+}
+
+/**
+ * コストマスタの接続先。**行が無い = 未設定**で、`enabled: false` + 空 URL は行を消す
+ * （キー削除で行ごと消える `content_settings` とは別に持つ。docs/persistence.md）。
+ */
+export interface ContentCostSettingsRow {
+  enabled: boolean;
+  /** http / https のホスト名。空にはならない（空は未設定として読む） */
+  url: string;
+}
+
+/** 価格スナップショットの 1 行。出力側の単価だけを、モデル単位の判断を写して持つ */
+export interface ContentCostCatalogModelRow {
+  modelId: string;
+  unit: string;
+  /** 解像度ティアとは限らない（加算オプションを含む）。無ければ "" */
+  variant: string;
+  costUsd: number;
+  currency: string;
+  /** マスタの人手判断。同じモデルの行は同じ値になる（マスタが繰り返す） */
+  enabled: boolean;
+  note: string | null;
+}
+
+/**
+ * コストマスタの価格スナップショット。**行が無い = 未取得**で、取得に失敗したときは前回の行を残す。
+ * 派生データなので、壊れた行は未取得として読み、設定 API を 503 にしない。
+ */
+export interface ContentCostCatalogRow {
+  /** 取得した時刻 (epoch ms) */
+  fetchedAt: number;
+  /** 取得元の URL。設定の URL と一致しないスナップショットは使わない */
+  sourceUrl: string;
+  /** マスタの世代。契約外で読めないときは null */
+  version: number | null;
+  models: ContentCostCatalogModelRow[];
 }
 
 /**
@@ -632,6 +669,33 @@ CREATE TABLE IF NOT EXISTS speech_catalog (
 `;
 
 /**
+ * v47 -> v48 で足したテーブル。コストマスタの接続先を 1 行だけ持ち、**行が無い = 未設定**。
+ * `content_settings` に足さない理由は、キー削除が行ごと消すテーブルへ、キーと独立の運用設定を
+ * 同居させないため。**`DROP_TABLES` に入れる**: 失ってはいけない値を持たず、戻すと未設定になるだけ。
+ */
+const CONTENT_COST_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS content_cost_settings (
+  id      INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL,
+  url     TEXT NOT NULL
+);
+`;
+
+/**
+ * v47 -> v48 で足したテーブル。取得に成功した価格スナップショットを 1 行だけ残す
+ * （`image_catalog` と同じ派生キャッシュ。docs/persistence.md）。取得失敗時は行を消さず前回値を使う。
+ */
+const CONTENT_COST_CATALOG_TABLE = `
+CREATE TABLE IF NOT EXISTS content_cost_catalog (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  fetchedAt INTEGER NOT NULL,
+  sourceUrl TEXT NOT NULL,
+  version   INTEGER,
+  models    TEXT NOT NULL
+);
+`;
+
+/**
  * v40 -> v41 で足したテーブル。モデルごとの応答形式 (mp3 / pcm) の学習結果を 1 行 1 モデルで持つ。
  * **行が無い = 未学習** (mp3 から試す)。一覧 API が宣言しない形式を生成の 400 と応答から学ぶ派生データ
  * なので、読めない行は未学習として読み、health を落とさない (docs/speech-generation.md)。
@@ -915,6 +979,8 @@ ${CONTENT_KEY_EPOCH_TABLE}
 ${CONTENT_TRIALS_TABLE}
 ${IMAGE_CATALOG_TABLE}
 ${SPEECH_CATALOG_TABLE}
+${CONTENT_COST_SETTINGS_TABLE}
+${CONTENT_COST_CATALOG_TABLE}
 ${SPEECH_FORMATS_TABLE}
 ${SERVE_COMMANDS_TABLE}
 ${WEB_SEARCH_SETTINGS_TABLE}
@@ -945,6 +1011,8 @@ DROP TABLE IF EXISTS content_settings;
 DROP TABLE IF EXISTS image_settings;
 DROP TABLE IF EXISTS image_catalog;
 DROP TABLE IF EXISTS speech_catalog;
+DROP TABLE IF EXISTS content_cost_settings;
+DROP TABLE IF EXISTS content_cost_catalog;
 DROP TABLE IF EXISTS speech_formats;
 DROP TABLE IF EXISTS serve_commands;
 DROP TABLE IF EXISTS web_search_settings;
@@ -1329,6 +1397,38 @@ function speechCatalogModelsOf(value: unknown): SpeechCatalogModelRow[] | undefi
     models.push(names.length > 0 ? { id, name, voices: names } : { id, name });
   }
   return models;
+}
+
+/**
+ * コストスナップショット行。`image_catalog` と同じ派生データなので、JSON が壊れていても、
+ * 1 行でも形が違えば「未取得」として読む（取得し直せば直る。health の失敗にはしない）。
+ */
+function contentCostCatalogOf(row: Row): ContentCostCatalogRow | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text(row.models));
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(parsed)) return undefined;
+  const models: ContentCostCatalogModelRow[] = [];
+  for (const entry of parsed) {
+    if (typeof entry !== "object" || entry === null) return undefined;
+    const { modelId, unit, variant, costUsd, currency, enabled, note } = entry as Record<string, unknown>;
+    if (typeof modelId !== "string" || modelId === "") return undefined;
+    if (typeof unit !== "string" || unit === "") return undefined;
+    if (typeof variant !== "string") return undefined;
+    if (typeof costUsd !== "number" || !Number.isFinite(costUsd) || costUsd < 0) return undefined;
+    if (typeof currency !== "string" || typeof enabled !== "boolean") return undefined;
+    if (note !== null && typeof note !== "string") return undefined;
+    models.push({ modelId, unit, variant, costUsd, currency, enabled, note });
+  }
+  const fetchedAt = Number(row.fetchedAt);
+  const sourceUrl = text(row.sourceUrl);
+  const version = optionalNumber(row.version);
+  if (!Number.isInteger(fetchedAt) || fetchedAt < 0 || sourceUrl === "") return undefined;
+  if (version !== null && (!Number.isInteger(version) || version < 0)) return undefined;
+  return { fetchedAt, sourceUrl, version, models };
 }
 
 function serveCommandOf(row: Row): ServeCommandRow {
@@ -1929,6 +2029,9 @@ export class AppDb {
       this.#addColumnIfMissing("content_trials", "imageParams", "TEXT");
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SPEECH_CATALOG_TABLE));
+      // v47 -> v48: 任意のコストマスタの接続先と、取得に成功した価格スナップショット
+      this.#query((db) => db.exec(CONTENT_COST_SETTINGS_TABLE));
+      this.#query((db) => db.exec(CONTENT_COST_CATALOG_TABLE));
       // v40 -> v41: 形式の学習結果。既存行を書き換えず、未学習 (行なし) から始まる
       this.#query((db) => db.exec(SPEECH_FORMATS_TABLE));
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
@@ -2944,6 +3047,64 @@ export class AppDb {
     const fetchedAt = Number(row.fetchedAt);
     if (!models || !Number.isFinite(fetchedAt)) return undefined;
     return { fetchedAt, models };
+  }
+
+  // --- content cost settings (1 行だけ。行が無い = 未設定) ---
+
+  /** 行が無い / 空 URL の行は undefined（未設定。GET は OFF の投影を返す） */
+  readContentCostSettings(): ContentCostSettingsRow | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM content_cost_settings WHERE id = 1").get() as Row | undefined,
+    );
+    if (!row) return undefined;
+    const url = text(row.url);
+    if (url === "") return undefined;
+    return { enabled: Number(row.enabled) === 1, url };
+  }
+
+  /** id = 1 の upsert。URL を空にする保存は呼び出し側が行の削除にする */
+  saveContentCostSettings(settings: ContentCostSettingsRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO content_cost_settings (id, enabled, url) VALUES (1, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, url = excluded.url`,
+        )
+        .run(settings.enabled ? 1 : 0, settings.url),
+    );
+  }
+
+  /** 行を消して未設定へ戻す（未設定でも false を返すだけで失敗にはしない） */
+  deleteContentCostSettings(): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM content_cost_settings WHERE id = 1").run().changes > 0);
+  }
+
+  // --- content cost catalog (価格スナップショット 1 行) ---
+
+  /** 行が無い / 形が崩れているときは undefined（未取得として `--` の表示へ倒す。health の失敗にはしない） */
+  readContentCostCatalog(): ContentCostCatalogRow | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM content_cost_catalog WHERE id = 1").get() as Row | undefined,
+    );
+    return row ? contentCostCatalogOf(row) : undefined;
+  }
+
+  /** 取得成功時の上書き (id = 1 の upsert)。派生データなので、失敗しても前回値で続行する */
+  saveContentCostCatalog(row: ContentCostCatalogRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO content_cost_catalog (id, fetchedAt, sourceUrl, version, models) VALUES (1, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET fetchedAt = excluded.fetchedAt, sourceUrl = excluded.sourceUrl,
+             version = excluded.version, models = excluded.models`,
+        )
+        .run(row.fetchedAt, row.sourceUrl, row.version, JSON.stringify(row.models)),
+    );
+  }
+
+  /** 接続先の変更・解除で前回値を破棄する（別マスタの価格を現在値として出さない） */
+  deleteContentCostCatalog(): void {
+    this.#query((db) => db.prepare("DELETE FROM content_cost_catalog WHERE id = 1").run());
   }
 
   // --- speech formats (モデルごとの応答形式の学習結果) ---

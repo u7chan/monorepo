@@ -21,7 +21,8 @@ import type { ContentTrialSource } from "./content-trials";
 import { REDACTED } from "./redact";
 import type { ContentSettingsRow, ImageParameterDefaults, ImageSettingsRow } from "./app-db";
 import type { AppSecretCipher } from "./secret-crypto";
-import type { ImageCatalog } from "./image-catalog";
+import type { ImageCatalog, ImageCatalogSnapshot } from "./image-catalog";
+import type { ContentCostCatalog } from "./content-cost";
 import {
   IMAGE_PROVIDER_ID,
   declaredImageParameters,
@@ -38,11 +39,11 @@ import {
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "./speech-catalog";
 import { type SpeechGenerationSettings } from "./speech";
 import {
+  type ContentCatalogRefreshResponse,
   type ContentMutationResponse,
   type ContentSettingsResponse,
-  type ImageCatalogRefreshResponse,
+  type ImageModel,
   type ImageParameterValues,
-  type SpeechCatalogRefreshResponse,
 } from "./schema";
 
 /** キー登録で作る行の既定モデル（直後に画面から変更できる） */
@@ -100,6 +101,8 @@ export interface ContentSettingsOptions {
   catalog: ImageCatalog;
   /** 音声の選択肢と話者の宣言。画像とは別の一覧を引く */
   speechCatalog: SpeechCatalog;
+  /** 価格と「一覧に出す / 出さない」の判断。未設定・OFF なら投影しない */
+  cost: ContentCostCatalog;
   /** PiBff の注入面。**同じロックの内側**で呼び、次に作るセッションへ即時反映する */
   setContentGeneration: (config: ContentGenerationConfig) => void;
   /**
@@ -122,6 +125,7 @@ export class ContentSettingsService {
   #retainSecret: (value: string) => void;
   #catalog: ImageCatalog;
   #speechCatalog: SpeechCatalog;
+  #cost: ContentCostCatalog;
   #setContentGeneration: (config: ContentGenerationConfig) => void;
   #maskError: (text: string) => string;
   #appCipher: AppSecretCipher | null;
@@ -151,6 +155,7 @@ export class ContentSettingsService {
     this.#retainSecret = options.retainSecret;
     this.#catalog = options.catalog;
     this.#speechCatalog = options.speechCatalog;
+    this.#cost = options.cost;
     this.#setContentGeneration = options.setContentGeneration;
     this.#maskError = options.maskError;
     this.#appCipher = options.appCipher ?? null;
@@ -324,6 +329,23 @@ export class ContentSettingsService {
     return byModel;
   }
 
+  /** 画像の一覧に価格と表示可否をマージする。**この 1 箇所だけ**が `visible` を決める（保存・試行は見ない） */
+  #imageModels(catalog: ImageCatalogSnapshot): ImageModel[] {
+    const projection = this.#cost.projection();
+    return catalog.entries.map((entry) => {
+      const cost = projection.get(entry.id);
+      return {
+        provider: entry.provider,
+        id: entry.id,
+        name: entry.name,
+        ...(entry.parameters ? { parameters: entry.parameters } : {}),
+        prices: cost?.prices ?? [],
+        visible: cost?.visible ?? true,
+        note: cost?.note ?? null,
+      };
+    });
+  }
+
   /** GET。純粋読取で、キー値は返さない（DB の失敗は 503 のまま伝える） */
   settings(): ContentSettingsResponse {
     const row = this.#db.readContentSettings();
@@ -344,10 +366,11 @@ export class ContentSettingsService {
         provider: this.#imageProvider,
         auth: this.#imageAuthStatus(this.#imageProvider),
         // Codex は画像モデルを選ばない。一覧も出さない（ルーティングモデルを画像モデルとして見せない）
-        models: this.#imageProvider === IMAGE_PROVIDER_ID ? catalog.entries : [],
+        models: this.#imageProvider === IMAGE_PROVIDER_ID ? this.#imageModels(catalog) : [],
         catalogSource: catalog.source,
         fetchedAt: catalog.fetchedAt,
         parametersByModel: this.#parametersByModel(row?.imageParams ?? null),
+        cost: this.#cost.state(),
       },
       speech: {
         model: speech?.model ?? null,
@@ -361,36 +384,34 @@ export class ContentSettingsService {
   }
 
   /**
-   * live カタログの再取得。取得できなくても 200 で現在の一覧を返し、UI 注記用の固定文言を
-   * `catalogError` に載せる（一覧を失わせない）。設定は変わらないため configured / provider / model は返さない。
+   * 手動の [カタログ更新]。モデル一覧と価格をまとめて取り直し、取得できなくても 200 で現在値を返す。
+   * 失敗は系統ごとに `errors` へ分け、一系統の失敗で他の結果を捨てない。OFF のコストは取得しない。
    */
-  async refreshCatalog(): Promise<ImageCatalogRefreshResponse> {
+  async refreshCatalog(): Promise<ContentCatalogRefreshResponse> {
     return this.#lock.run(async () => {
-      const catalogError = await this.#catalog.refresh();
-      const catalog = this.#catalog.snapshot();
+      const image = await this.#catalog.refresh();
+      const speech = await this.#speechCatalog.refresh();
+      const cost = await this.#cost.refresh();
       return {
-        models: catalog.entries,
-        catalogSource: catalog.source,
-        fetchedAt: catalog.fetchedAt,
-        catalogError,
+        ...this.settings(),
+        errors: {
+          ...(image === null ? {} : { image }),
+          ...(speech === null ? {} : { speech }),
+          ...(cost === null ? {} : { cost }),
+        },
       };
     });
   }
 
   /**
-   * live 音声カタログの再取得。画像と同じく、取得できなくても 200 で現在の一覧を返し、失敗は
-   * `catalogError` にだけ載せる（設定は変わらないため configured / provider / model は返さない）。
+   * コストマスタの接続先とトグル。保存時に取得せず、行が無い（未設定）でも受け付ける
+   * （キー未登録でも設定できる。価格はキーの有無と独立）。
    */
-  async refreshSpeechCatalog(): Promise<SpeechCatalogRefreshResponse> {
+  async putCost(input: { enabled: boolean; url: string }): Promise<ContentMutationOutcome> {
     return this.#lock.run(async () => {
-      const catalogError = await this.#speechCatalog.refresh();
-      const catalog = this.#speechCatalog.snapshot();
-      return {
-        models: catalog.entries,
-        catalogSource: catalog.source,
-        fetchedAt: catalog.fetchedAt,
-        catalogError,
-      };
+      const outcome = this.#cost.saveSettings(input);
+      if (outcome.status !== 200) return { status: outcome.status, error: outcome.error };
+      return { status: 200, response: this.#applied(this.#row) };
     });
   }
 
@@ -636,6 +657,7 @@ export class ContentSettingsService {
     await this.#lock.run(async () => {
       this.#catalog.loadStored();
       this.#speechCatalog.loadStored();
+      this.#cost.loadStored();
       this.#loadKeyEpoch();
       this.#loadImageSettings();
       let row: ContentSettingsRow | undefined;
@@ -794,10 +816,11 @@ export class ContentSettingsService {
         model: row?.imageModel ?? null,
         provider: this.#imageProvider,
         auth: this.#imageAuthStatus(this.#imageProvider),
-        models: this.#imageProvider === IMAGE_PROVIDER_ID ? catalog.entries : [],
+        models: this.#imageProvider === IMAGE_PROVIDER_ID ? this.#imageModels(catalog) : [],
         catalogSource: catalog.source,
         fetchedAt: catalog.fetchedAt,
         parametersByModel: this.#parametersByModel(row?.imageParams ?? null),
+        cost: this.#cost.state(),
       },
       speech: {
         model: speech.model,

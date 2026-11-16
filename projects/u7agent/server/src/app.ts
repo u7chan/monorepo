@@ -63,6 +63,7 @@ import {
   UpdateAgentBodySchema,
   UpdateArchiveSettingsBodySchema,
   UpdateContentEnabledBodySchema,
+  UpdateContentCostBodySchema,
   UpdateContentImageBodySchema,
   UpdateContentImageProviderBodySchema,
   UpdateContentKeyBodySchema,
@@ -734,6 +735,14 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       ),
       (c) => contentSettingsRoutes.putSpeechSelection(c, c.req.valid("json")),
     )
+    .put(
+      "/api/settings/content/cost-url",
+      appDataMutation,
+      jsonBodyValidator(UpdateContentCostBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => contentSettingsRoutes.putCost(c, c.req.valid("json")),
+    )
     .delete("/api/settings/content/key", appDataMutation, contentSettingsRoutes.deleteKey)
     // 試行ジョブ。設定を変えないため appDataMutation は使わない（state: "not_stored" を返さない）
     .delete("/api/settings/content/trials", appData, contentSettingsRoutes.removeAllTrials)
@@ -800,8 +809,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .delete("/api/shared-contents/:id", appDataMutation, sharedContentRoutes.remove)
     .get("/api/shared-contents/:id/thumbnail", appData, sharedContentRoutes.thumbnail)
     .delete("/api/shared-contents/:id/thumbnail", appDataMutation, sharedContentRoutes.removeThumbnail)
-    .post("/api/settings/content/image/catalog/refresh", (c) => contentSettingsRoutes.refreshCatalog(c))
-    .post("/api/settings/content/speech/catalog/refresh", (c) => contentSettingsRoutes.refreshSpeechCatalog(c))
+    .post("/api/settings/content/catalog/refresh", appData, (c) => contentSettingsRoutes.refreshCatalog(c))
     .get("/api/settings/web-search", appData, webSearchSettingsRoutes.list)
     .put(
       "/api/settings/web-search",

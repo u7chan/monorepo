@@ -23,6 +23,7 @@ import { createTrialDiskCheck, type TrialStatfs } from "./content-trial-disk-spa
 import { createImageCatalog } from "./image-catalog";
 import { CODEX_PROVIDER_ID, codexAuthOf, codexAuthStatusOf } from "./codex-images";
 import { createSpeechCatalog } from "./speech-catalog";
+import { createContentCostCatalog, type ContentCostOptions } from "./content-cost";
 import { WebSearchSettingsService } from "./web-search-settings";
 import { createWebSearchTest, type WebSearchTest } from "./web-search-test";
 import { TitleSummarySettingsService } from "./title-summary-settings";
@@ -111,6 +112,8 @@ export type CreateBffAppOptions = {
   imageCatalogFetch?: typeof fetch;
   /** 音声モデル一覧取得のテスト用。省略時は globalThis.fetch */
   speechCatalogFetch?: typeof fetch;
+  /** コストマスタ取得のテスト用。省略時は接続先の検証つきの HTTP 取得 */
+  contentCostFetch?: ContentCostOptions["fetchImpl"];
   /**
    * 試行の成果物の置き場の空き確認のテスト用。省略時は `fs/promises` の `statfs`。
    * 未対応の fs を模すときは失敗するものを渡す。
@@ -339,12 +342,16 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // 音声モデルは SDK にカタログが無いため、取得できないときは前回の成功（アプリ DB）→ 同梱の既定 1 件へ落ちる。
   // 取得は画像と同じくキーを見ない（一覧 API は認証不要）
   const speechCatalog = createSpeechCatalog({ store: appDb, fetchImpl: opts.speechCatalogFetch });
+  // 価格と「一覧に出す / 出さない」の判断はコストマスタが持ち、ここは取得して写すだけ。
+  // 取得は手動の [カタログ更新] のときだけ（起動時は保持値の読込のみ）
+  const costCatalog = createContentCostCatalog({ store: appDb, fetchImpl: opts.contentCostFetch });
   const contentSettings = new ContentSettingsService({
     db: appDb,
     runtimeAvailable: pi !== null,
     retainSecret: pi ? pi.retainSecret : () => {},
     catalog: imageCatalog,
     speechCatalog,
+    cost: costCatalog,
     setContentGeneration: pi ? pi.setContentGeneration : () => {},
     // 表示には auth.json の保存値だけを使う（GET でトークン解決・外部通信を起こさない）。
     // 生成の実行時だけ SDK に解決させ、返ったアクセストークンはマスカーへ入れてから使う

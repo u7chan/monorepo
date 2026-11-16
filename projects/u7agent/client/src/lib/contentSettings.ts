@@ -10,7 +10,6 @@ import type {
   ImageGenerationProvider,
   ImageParameterValues,
   ModelRef,
-  SpeechCatalogRefreshResponse,
   SpeechModel,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
@@ -123,10 +122,6 @@ export const SPEECH_NEEDS_OPENROUTER_KEY_NOTE =
 
 /** 画像タブの生成元欄の見出し */
 export const CONTENT_IMAGE_PROVIDER_HEADING = "画像の生成元";
-
-/** 音声カタログ更新後に現在値を確認できなかったときの注記。確認できるまで音声の設定を保存させない */
-export const SPEECH_SYNC_FAILED_NOTE =
-  "音声モデル一覧は取得しましたが、現在の設定を確認できませんでした。再読み込みするまで音声の設定は保存できません。";
 
 /** 実行中の操作。null なら操作なし */
 export type ContentSavingAction =
@@ -420,35 +415,6 @@ export function speechScreenSelection(
     textMode: speechVoiceMode(selectedOption) === "text",
     dirty: selectedModel !== savedModel || selectedVoice !== savedVoice,
   };
-}
-
-/**
- * 音声カタログ再取得後の状態。一覧の並びが変わると NULL ボイスのフォールバック（先頭）も変わるため、
- * server の現在値（GET）が取れていればそれを正とし、取れなかったときだけ一覧の項目を差し替える。
- * 差し替えた状態を現在値とみなすかは `speechSyncedAfterRefresh` が決める（確認できない間は
- * 「（未確認）」として保存を止める）。
- */
-export function speechSettingsAfterRefresh(
-  previous: ContentSettingsResponse | null,
-  refreshed: Pick<SpeechCatalogRefreshResponse, "models" | "catalogSource" | "fetchedAt">,
-  current: ContentSettingsResponse | null,
-): ContentSettingsResponse | null {
-  if (current !== null) return current;
-  return previous === null ? null : { ...previous, speech: { ...previous.speech, ...refreshed } };
-}
-
-/**
- * 再取得後に server の実効値を確認できたか。成功した GET だけが「確認できた」の根拠で、一覧が変わったのに
- * 現在値を取れないときは false にする。既に同期済みなら、一覧が変わらない再取得の失敗（`catalogError`）は
- * 以前の値を現在値のまま保つが、未同期の状態は成功した GET が取れるまで false のままにする。
- */
-export function speechSyncedAfterRefresh(
-  previousSynced: boolean,
-  response: Pick<SpeechCatalogRefreshResponse, "catalogError">,
-  current: ContentSettingsResponse | null,
-): boolean {
-  if (current !== null) return true;
-  return previousSynced && response.catalogError !== null;
 }
 
 /** 音声の保存を止める条件。同期できていない間は、表示が現在値と限らないため保存させない */

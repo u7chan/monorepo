@@ -11,6 +11,7 @@ import {
   type ContentSettingsDb,
 } from "../src/content-settings";
 import type { ImageCatalog, ImageCatalogSnapshot } from "../src/image-catalog";
+import type { ContentCostCatalog } from "../src/content-cost";
 import { IMAGE_PROVIDER_ID, type ContentGenerationConfig } from "../src/images";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog, type SpeechCatalogSnapshot } from "../src/speech-catalog";
@@ -135,6 +136,17 @@ function stubImageCatalog(): ImageCatalog {
   };
 }
 
+/** コストマスタの最小 stub。音声側では投影を使わない（v1 は画像のみ） */
+function stubContentCostCatalog(): ContentCostCatalog {
+  return {
+    loadStored: () => {},
+    state: () => ({ enabled: false, url: null, fetchedAt: null, version: null }),
+    projection: () => new Map(),
+    saveSettings: () => ({ status: 200 }),
+    refresh: async () => null,
+  };
+}
+
 function createService(
   options: {
     db?: FakeContentDb;
@@ -160,6 +172,7 @@ function createService(
     retainSecret: () => {},
     catalog: stubImageCatalog(),
     speechCatalog: fake.catalog,
+    cost: stubContentCostCatalog(),
     codexAuth: { status: () => ({ state: "missing" as const, kind: null }), resolve: async () => undefined },
     setContentGeneration: (config) => {
       configs.push(config);
@@ -315,27 +328,27 @@ test("DB 失敗は 503 not_stored にして、理由の分類だけを残す", a
   });
 });
 
-test("再取得は失敗しても一覧を返し、固定文言だけを catalogError に載せる", async () => {
+test("再取得は失敗しても現在値を返し、失敗を系統ごとの errors に載せる", async () => {
   const failing = createService({
     refreshError: "モデル一覧の取得がタイムアウトしました",
     speechSource: "stored",
     speechFetchedAt: 500,
   });
-  assert.deepEqual(await failing.service.refreshSpeechCatalog(), {
+  const failed = await failing.service.refreshCatalog();
+  assert.deepEqual(failed.speech, {
+    model: null,
+    voice: "",
     models: LIVE_MODELS,
     catalogSource: "stored",
     fetchedAt: 500,
-    catalogError: "モデル一覧の取得がタイムアウトしました",
   });
+  assert.deepEqual(failed.errors, { speech: "モデル一覧の取得がタイムアウトしました" });
   assert.equal(failing.catalog.refreshes, 1);
 
   const ok = createService();
-  assert.deepEqual(await ok.service.refreshSpeechCatalog(), {
-    models: LIVE_MODELS,
-    catalogSource: "live",
-    fetchedAt: null,
-    catalogError: null,
-  });
+  const succeeded = await ok.service.refreshCatalog();
+  assert.equal(succeeded.speech.catalogSource, "live");
+  assert.deepEqual(succeeded.errors, {});
 });
 
 test("起動時の適用は画像と同じ順にキャッシュを読んで live を試し、有効化時に読取口を差し替える", async () => {

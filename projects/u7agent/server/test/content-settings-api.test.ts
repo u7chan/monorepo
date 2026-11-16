@@ -60,9 +60,22 @@ const liveCatalogFetch: typeof fetch = async () =>
     { status: 200, headers: { "content-type": "application/json" } },
   );
 
-/** createBffApp の薄い包み。カタログ取得だけを stub に固定する */
+/** 統合 refresh が音声も取るため、実 API を叩かせないための固定応答 */
+const liveSpeechCatalogFetch: typeof fetch = async () =>
+  new Response(
+    JSON.stringify({
+      data: [{ id: "google/gemini-3.8-flash-tts", name: "Google: Gemini 3.8 Flash TTS", supported_voices: ["Zephyr"] }],
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+
+/** createBffApp の薄い包み。カタログ取得を stub に固定する（統合 refresh は画像と音声を両方取る） */
 const openBff = (options: Parameters<typeof createBffApp>[0] = {}) =>
-  createBffApp({ ...options, imageCatalogFetch: liveCatalogFetch });
+  createBffApp({
+    speechCatalogFetch: liveSpeechCatalogFetch,
+    ...options,
+    imageCatalogFetch: options.imageCatalogFetch ?? liveCatalogFetch,
+  });
 
 test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載らない", async () => {
   await withStoreDir(async (dir) => {
@@ -85,7 +98,7 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
         ),
       );
       for (const model of before.image.models) {
-        assert.deepEqual(Object.keys(model).sort(), ["id", "name", "provider"]);
+        assert.deepEqual(Object.keys(model).sort(), ["id", "name", "note", "prices", "provider", "visible"]);
       }
 
       // 行が無い状態の選択変更は 400（キー登録が先）
@@ -375,7 +388,7 @@ test("同じキーの上書き保存でもマスカーの登録は増えず、2 
   });
 });
 
-test("モデル一覧の再取得は 200 で一覧を返し、失敗は catalogError にだけ載せる", async () => {
+test("モデル一覧の再取得は 200 で現在値を返し、失敗は errors に系統別で載せる", async () => {
   await withStoreDir(async (dir) => {
     const bff = await openBff({
       cwd: "/tmp/project",
@@ -385,24 +398,28 @@ test("モデル一覧の再取得は 200 で一覧を返し、失敗は catalogE
     });
     try {
       const refreshed = await jsonBody(
-        await bff.app.request("/api/settings/content/image/catalog/refresh", { method: "POST" }),
+        await bff.app.request("/api/settings/content/catalog/refresh", { method: "POST" }),
       );
-      assert.equal(refreshed.catalogError, null);
-      assert.equal(refreshed.catalogSource, "live");
-      assert.equal(typeof refreshed.fetchedAt, "number");
+      assert.deepEqual(refreshed.errors, {}, "未設定のコストは取得せず、失敗も立てない");
+      assert.equal(refreshed.image.catalogSource, "live");
+      assert.equal(typeof refreshed.image.fetchedAt, "number");
       assert.deepEqual(
-        refreshed.models.map((model: any) => model.id),
+        refreshed.image.models.map((model: any) => model.id),
         [CATALOG_MODEL, DEFAULT_IMAGE_MODEL],
       );
-      // 宣言を持つモデルだけ parameters が加わり、宣言の無いモデルは 3 キーのまま
+      // 宣言を持つモデルだけ parameters が加わり、宣言の無いモデルは価格と表示可否だけが加わる
       assert.deepEqual(
-        refreshed.models.map((model: any) => Object.keys(model).sort()),
+        refreshed.image.models.map((model: any) => Object.keys(model).sort()),
         [
-          ["id", "name", "provider"],
-          ["id", "name", "parameters", "provider"],
+          ["id", "name", "note", "prices", "provider", "visible"],
+          ["id", "name", "note", "parameters", "prices", "provider", "visible"],
         ],
       );
-      assert.deepEqual(refreshed.models[1].parameters, {
+      // マスタ未設定では価格不明（空配列）と全件表示が投影される
+      assert.deepEqual(refreshed.image.models[0].prices, []);
+      assert.equal(refreshed.image.models[0].visible, true);
+      assert.deepEqual(refreshed.image.cost, { enabled: false, url: null, fetchedAt: null, version: null });
+      assert.deepEqual(refreshed.image.models[1].parameters, {
         aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
         quality: { type: "enum", values: ["low", "high"] },
         seed: { type: "range", min: 0, max: 2_147_483_647 },
@@ -419,15 +436,17 @@ test("モデル一覧の再取得は 200 で一覧を返し、失敗は catalogE
       pi: asPiBff(createStubPi()),
       workspace: null,
       imageCatalogFetch: async () => new Response("boom", { status: 503 }),
+      speechCatalogFetch: liveSpeechCatalogFetch,
     });
     try {
-      const response = await bff.app.request("/api/settings/content/image/catalog/refresh", { method: "POST" });
+      const response = await bff.app.request("/api/settings/content/catalog/refresh", { method: "POST" });
       assert.equal(response.status, 200, "取得できなくても 200 で一覧を失わせない");
       const body = await jsonBody(response);
-      assert.equal(body.catalogError, "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）");
-      assert.equal(body.catalogSource, "sdk");
-      assert.equal(body.fetchedAt, null);
-      assert.ok(body.models.length > 0, "前の一覧を返す");
+      assert.equal(body.errors.image, "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）");
+      assert.equal(body.errors.speech, undefined, "成功した系統の結果を捨てない");
+      assert.equal(body.image.catalogSource, "sdk");
+      assert.equal(body.image.fetchedAt, null);
+      assert.ok(body.image.models.length > 0, "前の一覧を返す");
     } finally {
       await bff.close();
     }
@@ -441,7 +460,7 @@ test("画像パラメータの既定は PUT の応答と GET の parametersByMod
     try {
       await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
       // 宣言は live 一覧から読むため、先に取得しておく（キー保存は取得しない）
-      await bff.app.request("/api/settings/content/image/catalog/refresh", { method: "POST" });
+      await bff.app.request("/api/settings/content/catalog/refresh", { method: "POST" });
 
       const saved = await jsonBody(
         await bff.app.request(
@@ -510,7 +529,7 @@ test("宣言外の画像パラメータは 400 で、値は文言にそのまま
     });
     try {
       await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
-      await bff.app.request("/api/settings/content/image/catalog/refresh", { method: "POST" });
+      await bff.app.request("/api/settings/content/catalog/refresh", { method: "POST" });
       const rejected = await bff.app.request(
         "/api/settings/content/image",
         jsonPut({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, parameters: { quality: KEY } }),

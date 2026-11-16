@@ -7,8 +7,7 @@ import {
   putContentImageProvider,
   putContentImageSettings,
   putContentSpeechSettings,
-  refreshImageCatalog,
-  refreshSpeechCatalog as requestSpeechCatalogRefresh,
+  refreshContentCatalog,
 } from "../api";
 import {
   CONTENT_KEY_DELETED_NOTE,
@@ -16,12 +15,9 @@ import {
   CONTENT_IMAGE_SAVED_NOTE,
   CONTENT_SETTINGS_NOTE,
   CONTENT_SPEECH_SAVED_NOTE,
-  SPEECH_SYNC_FAILED_NOTE,
   contentImageProviderNote,
   catalogRefreshNote,
   contentEnabledNote,
-  speechSettingsAfterRefresh,
-  speechSyncedAfterRefresh,
   type ContentSavingAction,
 } from "../lib/contentSettings";
 import { validateApiKey } from "../lib/modelSettings";
@@ -112,70 +108,47 @@ export function useContentSettings() {
   );
 
   /**
-   * モデル一覧の再取得。設定は変わらないので、一覧と出どころだけを差し替える
+   * モデル一覧と価格の再取得。応答は GET と同じ形なので、そのまま次の状態にする
    * （GET と同じ形の応答を待っている別の読み込みに上書きさせないため、invalidatePendingLoads で無効化する）。
+   * 注記は面に応じて、その面が読む系統の失敗だけを出す。
    */
-  const refreshCatalog = useCallback(async (): Promise<boolean> => {
-    setSaving("catalog");
-    try {
-      const response = await refreshImageCatalog();
-      invalidatePendingLoads();
-      setSettings((previous) =>
-        previous === null
-          ? previous
-          : {
-              ...previous,
-              image: {
-                ...previous.image,
-                models: response.models,
-                catalogSource: response.catalogSource,
-                fetchedAt: response.fetchedAt,
-              },
-            },
-      );
-      setNote({ text: catalogRefreshNote(response.catalogError), error: response.catalogError !== null });
-      return response.catalogError === null;
-    } catch (error) {
-      setNote({ text: `モデル一覧を取得できませんでした。${messageFor(error)}`, error: true });
-      return false;
-    } finally {
-      setSaving(null);
-    }
-  }, [invalidatePendingLoads, setNote, setSaving, setSettings]);
-
-  /**
-   * 音声モデル一覧の再取得。形も失敗の扱いも画像と同じだが、一覧の並びが変わると NULL ボイスの
-   * フォールバック（先頭）も変わるため、表示を server の現在値へ合わせる。確認できないまま
-   * 古い表示を現在値として扱うと実行時の解決と食い違うので、その間は保存を止める。
-   */
-  const refreshSpeechCatalog = useCallback(async (): Promise<boolean> => {
-    setSaving("speech-catalog");
-    try {
-      const response = await requestSpeechCatalogRefresh();
-      invalidatePendingLoads();
-      let current: ContentSettingsResponse | null = null;
+  const refreshCatalogState = useCallback(
+    async (systems: readonly ("image" | "speech" | "cost")[]): Promise<boolean> => {
+      setSaving(systems.includes("speech") ? "speech-catalog" : "catalog");
       try {
-        current = await getContentSettings();
-      } catch {
-        // 一覧は取れているので、選べる候補だけを新しいものへ差し替える（下で同期状態を落とす）
+        const response = await refreshContentCatalog();
+        const { errors, ...snapshot } = response;
+        invalidatePendingLoads();
+        setSettings(snapshot);
+        // 応答はサーバーの現在値そのものなので、一覧の並びが変わっても表示の同期は崩れない
+        setSpeechSynced(true);
+        const messages = systems
+          .map((system) => errors[system])
+          .filter((message): message is string => typeof message === "string");
+        setNote({
+          text: catalogRefreshNote(messages.length === 0 ? null : messages.join("。")),
+          error: messages.length > 0,
+        });
+        return messages.length === 0;
+      } catch (error) {
+        setNote({ text: `モデル一覧を取得できませんでした。${messageFor(error)}`, error: true });
+        return false;
+      } finally {
+        setSaving(null);
       }
-      const synced = speechSyncedAfterRefresh(speechSynced, response, current);
-      invalidatePendingLoads();
-      setSettings((previous) => speechSettingsAfterRefresh(previous, response, current));
-      setSpeechSynced(synced);
-      setNote(
-        synced
-          ? { text: catalogRefreshNote(response.catalogError), error: response.catalogError !== null }
-          : { text: SPEECH_SYNC_FAILED_NOTE, error: true },
-      );
-      return synced && response.catalogError === null;
-    } catch (error) {
-      setNote({ text: `モデル一覧を取得できませんでした。${messageFor(error)}`, error: true });
-      return false;
-    } finally {
-      setSaving(null);
-    }
-  }, [invalidatePendingLoads, setNote, setSaving, setSettings, speechSynced]);
+    },
+    [invalidatePendingLoads, setNote, setSaving, setSettings],
+  );
+
+  const refreshCatalog = useCallback(
+    (): Promise<boolean> => refreshCatalogState(["image", "cost"]),
+    [refreshCatalogState],
+  );
+
+  const refreshSpeechCatalog = useCallback(
+    (): Promise<boolean> => refreshCatalogState(["speech"]),
+    [refreshCatalogState],
+  );
 
   return {
     settings,

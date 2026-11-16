@@ -35,12 +35,20 @@ const CONTENT_SETTINGS: ContentSettingsResponse = {
     provider: "openrouter",
     auth: { state: "configured", kind: "api_key" },
     models: [
-      { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
-      { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+      { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2", prices: [], visible: true, note: null },
+      {
+        provider: "openrouter",
+        id: "google/gemini-image",
+        name: "Gemini Image",
+        prices: [],
+        visible: true,
+        note: null,
+      },
     ],
     catalogSource: "live",
     fetchedAt: null,
     parametersByModel: {},
+    cost: { enabled: false, url: null, fetchedAt: null, version: null },
   },
   speech: {
     model: "google/gemini-3.8-flash-tts",
