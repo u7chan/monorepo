@@ -15,8 +15,11 @@ import {
   OAUTH_LOGIN_IN_PROGRESS_MESSAGE,
   OAUTH_LOGIN_INPUT_MESSAGE,
   OAUTH_LOGIN_INPUT_PLACEHOLDER,
+  OAUTH_LOGIN_INVALID_SELECTION_MESSAGE,
   OAUTH_LOGIN_NOT_RUNNING_MESSAGE,
   OAUTH_LOGIN_NO_INPUT_MESSAGE,
+  OAUTH_LOGIN_NO_SELECTION_MESSAGE,
+  OAUTH_LOGIN_SELECT_MESSAGE,
   OAUTH_LOGIN_TARGET_MESSAGE,
   OAUTH_LOGIN_TIMED_OUT_MESSAGE,
   OAUTH_LOGIN_UNSUPPORTED_MESSAGE,
@@ -220,8 +223,8 @@ test("OAuth を持たない provider の開始は 400、ランタイム無しは
  * この表は `server/src/oauth-login.ts` の許可リストを固定する。組み込み provider の OAuth が増減したら
  * 下の網羅テストが落ちるので、分類を見直して両方を直す (SDK には追随しない)。
  */
-const SIGN_IN_SUPPORTED = ["kimi-coding", "meta", "openai", "openrouter", "xai"];
-const SIGN_IN_UNSUPPORTED = ["anthropic", "github-copilot", "openai-codex", "radius"];
+const SIGN_IN_SUPPORTED = ["kimi-coding", "meta", "openai", "openai-codex", "openrouter", "xai"];
+const SIGN_IN_UNSUPPORTED = ["anthropic", "github-copilot", "radius"];
 
 test("サインインの可否は許可リストと OAuth の有無の両方で決まる", () => {
   for (const provider of SIGN_IN_SUPPORTED) {
@@ -250,18 +253,116 @@ test("OAuth を持つ組み込み provider は許可リストか既知の未対�
 
 test("login API はサインインの可否を見ない (画面に出さない provider でも開始はできる)", async () => {
   const runtime = fakeRuntime({
-    providers: [{ provider: "openai-codex", supportsOAuth: true }],
+    providers: [{ provider: "github-copilot", supportsOAuth: true }],
     login: (_provider, interaction) =>
-      interaction
-        .prompt({ type: "select", message: "Select login method", options: [{ id: "a", label: "A" }] })
-        .then(() => undefined),
+      interaction.prompt({ type: "text", message: "Enter a token" }).then(() => undefined),
   });
   const { instance } = service(runtime.runtime);
   // 直接叩いた場合は従来どおり開始を受け、扱えない対話で固定文言へ倒す (表示だけを制御する)
-  assert.equal((await instance.start("openai-codex")).status, 200);
-  const failed = await waitForState(instance, "openai-codex", (state) => state.status === "failed");
+  assert.equal((await instance.start("github-copilot")).status, 200);
+  const failed = await waitForState(instance, "github-copilot", (state) => state.status === "failed");
   assert.equal(failed.error, OAUTH_LOGIN_UNSUPPORTED_MESSAGE);
-  assert.deepEqual(runtime.calls.login, ["openai-codex"]);
+  assert.deepEqual(runtime.calls.login, ["github-copilot"]);
+});
+
+test("select を進行中の状態として公開し、選んだ id を SDK へ返す", async () => {
+  const choices: string[] = [];
+  const runtime = fakeRuntime({
+    providers: [{ provider: "openai-codex", supportsOAuth: true }],
+    login: async (_provider, interaction) => {
+      choices.push(
+        await interaction.prompt({
+          type: "select",
+          message: "Select OpenAI Codex login method:",
+          options: [
+            { id: "browser", label: "Browser login (default)" },
+            { id: "device_code", label: "Device code login (headless)" },
+            { id: "custom", label: "Custom English label" },
+          ],
+        }),
+      );
+      interaction.notify({ type: "device_code", userCode: "AB-12", verificationUri: AUTH_URL });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    },
+  });
+  const { instance } = service(runtime.runtime);
+  await instance.start("openai-codex");
+  const running = await waitForState(instance, "openai-codex", (state) => state.select !== null);
+  assert.equal(running.status, "running");
+  assert.equal(running.select?.message, OAUTH_LOGIN_SELECT_MESSAGE, "SDK の英語 message は使わない");
+  assert.deepEqual(
+    running.select?.options,
+    [
+      { id: "browser", label: "ブラウザ（この端末）" },
+      { id: "device_code", label: "デバイスコード（スマホ向け）" },
+      { id: "custom", label: "custom" },
+    ],
+    "既知の id は固定日本語、未知の id は id を出し、SDK の英語 label は出さない",
+  );
+  assert.equal(running.input, null, "select 待ちでは貼り付け欄を立てない");
+  assert.equal(
+    (await instance.submitCode("openai-codex", "code").catch((error) => error)).message,
+    OAUTH_LOGIN_NO_INPUT_MESSAGE,
+    "select 待ちに貼り付けは受け付けない",
+  );
+  assert.equal(
+    (await instance.submitSelection("openai-codex", "not-an-option").catch((error) => error)).message,
+    OAUTH_LOGIN_INVALID_SELECTION_MESSAGE,
+    "選択肢に無い id は 400",
+  );
+  assert.equal((await instance.submitSelection("openai-codex", "device_code")).status, 200);
+  const device = await waitForState(instance, "openai-codex", (state) => state.userCode !== null);
+  assert.equal(device.select, null, "選択を返したら選択欄を落とす");
+  assert.equal(device.userCode, "AB-12");
+  assert.deepEqual(choices, ["device_code"], "選んだ id をそのまま SDK へ渡す");
+  await instance.cancel("openai-codex");
+});
+
+test("select で browser を選ぶと認可 URL の待機へ進む", async () => {
+  const runtime = fakeRuntime({
+    providers: [{ provider: "openai-codex", supportsOAuth: true }],
+    login: async (_provider, interaction) => {
+      assert.equal(
+        await interaction.prompt({
+          type: "select",
+          message: "Select",
+          options: [{ id: "browser", label: "Browser" }],
+        }),
+        "browser",
+      );
+      interaction.notify({ type: "auth_url", url: AUTH_URL });
+      await interaction.prompt({ type: "manual_code", message: "Paste", placeholder: "url" });
+    },
+  });
+  const { instance } = service(runtime.runtime);
+  await instance.start("openai-codex");
+  await waitForState(instance, "openai-codex", (state) => state.select !== null);
+  assert.equal((await instance.submitSelection("openai-codex", "browser")).status, 200);
+  const authorizing = await waitForState(instance, "openai-codex", (state) => state.authUrl !== null);
+  assert.equal(authorizing.instructions, OAUTH_LOGIN_AUTHORIZE_INSTRUCTIONS);
+  assert.equal(authorizing.select, null);
+  await instance.submitCode("openai-codex", "http://127.0.0.1:1455/auth/callback?code=abc");
+  assert.equal(
+    (await waitForState(instance, "openai-codex", (state) => state.status === "succeeded")).status,
+    "succeeded",
+  );
+});
+
+test("select が届いたら開始の応答を待たずに返す", async () => {
+  const runtime = fakeRuntime({
+    providers: [{ provider: "openai-codex", supportsOAuth: true }],
+    login: (_provider, interaction) =>
+      interaction
+        .prompt({ type: "select", message: "Select", options: [{ id: "browser", label: "Browser" }] })
+        .then(() => undefined),
+  });
+  const { instance } = service(runtime.runtime, { waitForAuthUrlMs: 500 });
+  const startedAt = Date.now();
+  await instance.start("openai-codex");
+  const elapsed = Date.now() - startedAt;
+  assert.ok(elapsed < 400, `select の到着で開始を返す (${elapsed}ms)`);
+  assert.equal(instance.stateOf("openai-codex")?.select?.options[0]?.id, "browser");
+  await instance.cancel("openai-codex");
 });
 
 test("貼り付けは待機中だけ受け付け、返した値が SDK へ渡る", async () => {
@@ -477,18 +578,98 @@ test("port 競合と拒否は生の英語ではなく固定日本語になる", 
   assert.ok(!JSON.stringify(unknown).includes("secret-token"), "未知の失敗は生の文言を応答へ出さない");
 });
 
-test("select / text の対話はこの画面では扱わず、固定文言で失敗する", async () => {
+test("text / secret の対話はこの画面では扱わず、固定文言で失敗する", async () => {
+  for (const type of ["text", "secret"] as const) {
+    const runtime = fakeRuntime({
+      login: (_provider, interaction) => interaction.prompt({ type, message: "Enter a value" }).then(() => undefined),
+    });
+    const { instance } = service(runtime.runtime);
+    await instance.start("openai");
+    const failed = await waitForState(instance, "openai", (state) => state.status === "failed");
+    assert.equal(failed.error, OAUTH_LOGIN_UNSUPPORTED_MESSAGE, type);
+    assert.equal(failed.input, null);
+    assert.equal(failed.select, null);
+  }
+});
+
+test("形が不正な select は fail-closed で固定文言の失敗にする", async () => {
+  const cases: { id: string; label: string }[][] = [
+    [],
+    [
+      { id: "a", label: "A" },
+      { id: "a", label: "B" },
+    ],
+    [{ id: "", label: "A" }],
+    [{ id: "a", label: "" }],
+  ];
+  for (const options of cases) {
+    const runtime = fakeRuntime({
+      login: (_provider, interaction) =>
+        interaction.prompt({ type: "select", message: "Select", options }).then(() => undefined),
+    });
+    const { instance } = service(runtime.runtime);
+    await instance.start("openai");
+    const failed = await waitForState(instance, "openai", (state) => state.status === "failed");
+    assert.equal(failed.error, OAUTH_LOGIN_UNSUPPORTED_MESSAGE);
+    assert.equal(failed.select, null);
+  }
+});
+
+test("方式選択は待機中だけ受け付け、進行中でなければ 400", async () => {
+  const runtime = fakeRuntime({ login: (_provider, interaction) => pendingLogin(interaction) });
+  const { instance } = service(runtime.runtime);
+  assert.equal(
+    (await instance.submitSelection("openai", "browser").catch((error) => error)).message,
+    OAUTH_LOGIN_NOT_RUNNING_MESSAGE,
+  );
+  await instance.start("openai");
+  await waitForState(instance, "openai", (state) => state.input !== null);
+  assert.equal(
+    (await instance.submitSelection("openai", "browser").catch((error) => error)).message,
+    OAUTH_LOGIN_NO_SELECTION_MESSAGE,
+    "貼り付け待ちに方式の選択は受け付けない",
+  );
+  await instance.cancel("openai");
+});
+
+test("方式選択の待機中に中断すると選択欄を落とし、以後の選択は 400", async () => {
   const runtime = fakeRuntime({
+    providers: [{ provider: "openai-codex", supportsOAuth: true }],
     login: (_provider, interaction) =>
       interaction
-        .prompt({ type: "select", message: "Select login method", options: [{ id: "a", label: "A" }] })
+        .prompt({ type: "select", message: "Select", options: [{ id: "browser", label: "Browser" }] })
         .then(() => undefined),
   });
   const { instance } = service(runtime.runtime);
-  await instance.start("openai");
-  const failed = await waitForState(instance, "openai", (state) => state.status === "failed");
-  assert.equal(failed.error, OAUTH_LOGIN_UNSUPPORTED_MESSAGE);
-  assert.equal(failed.input, null);
+  await instance.start("openai-codex");
+  await waitForState(instance, "openai-codex", (state) => state.select !== null);
+  assert.equal((await instance.cancel("openai-codex")).status, 200);
+  const cancelled = await waitForState(instance, "openai-codex", (state) => state.status === "cancelled");
+  assert.equal(cancelled.select, null);
+  assert.equal(
+    (await instance.submitSelection("openai-codex", "browser").catch((error) => error)).message,
+    OAUTH_LOGIN_NOT_RUNNING_MESSAGE,
+  );
+});
+
+test("方式選択の待機中に期限が来たら選択欄を落とす", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const runtime = fakeRuntime({
+    providers: [{ provider: "openai-codex", supportsOAuth: true }],
+    login: (_provider, interaction) =>
+      interaction
+        .prompt({ type: "select", message: "Select", options: [{ id: "browser", label: "Browser" }] })
+        .then(() => undefined),
+  });
+  const { instance } = service(runtime.runtime, { loginDeadlineMs: DEADLINE_MS });
+  await instance.start("openai-codex");
+  assert.equal(instance.stateOf("openai-codex")?.select?.options[0]?.id, "browser");
+  t.mock.timers.tick(DEADLINE_MS);
+  const expired = instance.stateOf("openai-codex");
+  assert.equal(expired?.status, "failed");
+  assert.equal(expired?.error, OAUTH_LOGIN_TIMED_OUT_MESSAGE);
+  assert.equal(expired?.select, null);
+  await flushAsync();
 });
 
 test("固定文言の分類は既知の理由だけを写す", () => {

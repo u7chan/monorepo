@@ -11,6 +11,8 @@ import { DEVICE_ID_PATH } from "../src/device-id";
 import {
   OAUTH_LOGIN_FAILED_PORT_MESSAGE,
   OAUTH_LOGIN_IN_PROGRESS_MESSAGE,
+  OAUTH_LOGIN_INVALID_SELECTION_MESSAGE,
+  OAUTH_LOGIN_SELECT_MESSAGE,
   OAUTH_LOGIN_TARGET_MESSAGE,
   OAUTH_LOGOUT_TARGET_MESSAGE,
 } from "../src/oauth-login";
@@ -54,23 +56,23 @@ function stubOptions(options: StubPiOptions = {}): StubPiOptions {
   };
 }
 
-function providerOf(response: { providers: ProviderAuthSetting[] }): ProviderAuthSetting {
-  const entry = response.providers.find((provider) => provider.provider === "openai");
-  assert.ok(entry, "openai の行がある");
+function providerOf(response: { providers: ProviderAuthSetting[] }, provider = "openai"): ProviderAuthSetting {
+  const entry = response.providers.find((candidate) => candidate.provider === provider);
+  assert.ok(entry, `${provider} の行がある`);
   return entry;
 }
 
-async function getProvider(bff: Bff): Promise<ProviderAuthSetting> {
+async function getProvider(bff: Bff, provider = "openai"): Promise<ProviderAuthSetting> {
   const response = await bff.app.request("/api/settings/models");
   assert.equal(response.status, 200);
-  return providerOf((await response.json()) as ModelsSettingsResponse);
+  return providerOf((await response.json()) as ModelsSettingsResponse, provider);
 }
 
 /** サインインはサーバー側で進むため、GET を読み直して待つ (クライアントのポーリングと同じ形) */
-async function waitForProvider(bff: Bff, predicate: (entry: ProviderAuthSetting) => boolean) {
+async function waitForProvider(bff: Bff, predicate: (entry: ProviderAuthSetting) => boolean, provider = "openai") {
   const deadline = Date.now() + 3_000;
   for (;;) {
-    const entry = await getProvider(bff);
+    const entry = await getProvider(bff, provider);
     if (predicate(entry)) return entry;
     if (Date.now() > deadline) throw new Error("provider state did not reach the expected condition");
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -137,6 +139,75 @@ test("開始 / コード送信 / 完了の流れで認可 URL と完了状態を
       assert.match(loginCall?.deviceId ?? "", UUID_PATTERN);
       assert.equal(loginCall?.agentName, "u7agent");
       assert.equal((await readFile(join(dir, DEVICE_ID_PATH), "utf8")).trim(), loginCall?.deviceId);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("select を公開し、選んだ方式を /login/select で受け付ける", async () => {
+  await withStoreDir(async (dir) => {
+    let selected: string | undefined;
+    const pi = createStubPi({
+      agentDir: dir,
+      providers: [{ provider: "openai-codex", name: "OpenAI Codex", supportsOAuth: true, canSetApiKey: false }],
+      onOAuthLogin: async (_provider, interaction) => {
+        selected = await interaction.prompt({
+          type: "select",
+          message: "Select OpenAI Codex login method:",
+          options: [
+            { id: "browser", label: "Browser login (default)" },
+            { id: "device_code", label: "Device code login (headless)" },
+          ],
+        });
+        interaction.notify({ type: "device_code", userCode: "AB-12", verificationUri: AUTH_URL });
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      },
+    });
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const startedResponse = await bff.app.request("/api/settings/models/openai-codex/login", { method: "POST" });
+      assert.equal(startedResponse.status, 200);
+      const codex = providerOf((await startedResponse.json()) as ModelsSettingsResponse, "openai-codex");
+      assert.equal(codex.canSignInHere, true, "許可リストに openai-codex が入る");
+      assert.equal(codex.login?.select?.message, OAUTH_LOGIN_SELECT_MESSAGE);
+      assert.deepEqual(codex.login?.select?.options, [
+        { id: "browser", label: "ブラウザ（この端末）" },
+        { id: "device_code", label: "デバイスコード（スマホ向け）" },
+      ]);
+      assert.equal(codex.login?.input, null, "select 待ちでは貼り付け欄を出さない");
+
+      const empty = await bff.app.request("/api/settings/models/openai-codex/login/select", postJson({ id: "   " }));
+      assert.equal(empty.status, 400, "空の id は route の zod が拒否する");
+      const tooLong = await bff.app.request(
+        "/api/settings/models/openai-codex/login/select",
+        postJson({ id: "x".repeat(129) }),
+      );
+      assert.equal(tooLong.status, 400, "上限を超える id は route の zod が拒否する");
+      const invalid = await bff.app.request(
+        "/api/settings/models/openai-codex/login/select",
+        postJson({ id: "not-an-option" }),
+      );
+      assert.equal(invalid.status, 400);
+      assert.equal(((await invalid.json()) as { error: string }).error, OAUTH_LOGIN_INVALID_SELECTION_MESSAGE);
+
+      const chosen = await bff.app.request(
+        "/api/settings/models/openai-codex/login/select",
+        postJson({ id: "device_code" }),
+      );
+      assert.equal(chosen.status, 200);
+      assert.equal(selected, "device_code", "選んだ id を SDK へ渡す");
+      const after = await waitForProvider(bff, (entry) => entry.login?.userCode !== null, "openai-codex");
+      assert.equal(after.login?.select, null, "選択後は select を落とす");
+      assert.equal(after.login?.userCode, "AB-12");
+      await waitForProvider(bff, (entry) => entry.login?.status === "succeeded", "openai-codex");
+
+      // サインアウトはこの provider の auth.json だけを消す (別 provider の資格情報は触らない)
+      const logout = await bff.app.request("/api/settings/models/openai-codex/logout", { method: "POST" });
+      assert.equal(logout.status, 200);
+      const signedOut = providerOf((await logout.json()) as ModelsSettingsResponse, "openai-codex");
+      assert.equal(signedOut.credentialKind, null);
+      assert.equal(signedOut.auth.configured, false);
     } finally {
       await bff.close();
     }

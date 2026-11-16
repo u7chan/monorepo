@@ -11,6 +11,7 @@ import type {
   ModelMutationResponse,
   ModelRef,
   ModelsSettingsResponse,
+  OAuthLoginSelect,
   OAuthLoginState,
   ProviderAuthSetting,
   RuntimeModelsResponse,
@@ -26,6 +27,19 @@ export const API_KEY_MAX_LENGTH = 2048;
 export const MEMO_MAX_LENGTH = 500;
 
 export const MODEL_SETTINGS_NOTE = "登録したキーは保存され、再起動後も使われます。登録済みのキーは再表示しません。";
+
+/** SDK に loginLabel が無い provider の画面用の名前。badge は名詞、ボタンは動作で出す */
+const OAUTH_LOGIN_LABELS: Record<string, { name: string; action: string }> = {
+  "openai-codex": { name: "Codex の OAuth", action: "Codex にサインイン" },
+};
+
+function oauthName(provider: ProviderAuthSetting): string {
+  return provider.oauthLoginLabel ?? OAUTH_LOGIN_LABELS[provider.provider]?.name ?? "OAuth";
+}
+
+function oauthAction(provider: ProviderAuthSetting): string {
+  return provider.oauthLoginLabel ?? OAUTH_LOGIN_LABELS[provider.provider]?.action ?? "OAuth でサインイン";
+}
 
 export type ProviderBadgeTone = "ok" | "muted" | "warn";
 
@@ -45,7 +59,7 @@ function authSourceLabel(provider: ProviderAuthSetting): string {
     }
     case "stored":
       // auth.json の保存値は OAuth と APIキーで意味が違う。種別が不明なら出所だけを出す
-      if (provider.credentialKind === "oauth") return `保存済み（auth.json）: ${provider.oauthLoginLabel ?? "OAuth"}`;
+      if (provider.credentialKind === "oauth") return `保存済み（auth.json）: ${oauthName(provider)}`;
       return provider.credentialKind === "api_key" ? "保存済み（auth.json）: APIキー" : "保存済み（auth.json）";
     case "models_json_key":
       return "models.json のキー";
@@ -103,7 +117,7 @@ export function degradedNotice(provider: ProviderAuthSetting): string | undefine
  */
 export function hiddenStoredOAuthNotice(provider: ProviderAuthSetting): string | undefined {
   if (!provider.hiddenStoredOAuth) return undefined;
-  const label = provider.oauthLoginLabel ?? "OAuth";
+  const label = oauthName(provider);
   // 削除が未反映の間は DB 行が無く [削除] を出せず、DELETE も 400 になる。押せる [再同期] を案内する
   if (provider.degraded === "remove") {
     return `この画面のキーが優先され、${label} は使われていません。[再同期] でキーの削除を反映してください。`;
@@ -260,6 +274,8 @@ export const OAUTH_LOGIN_POLL_MS = 2_000;
 export const OAUTH_LOGIN_STARTED_NOTE = "サインインを開始しました。ブラウザで認可ページを開いて承認してください。";
 export const OAUTH_LOGIN_CODE_NOTE = "貼り付けた URL を送信しました。完了まで待っています。";
 export const OAUTH_LOGIN_CANCEL_NOTE = "サインインを中断しました。";
+export const OAUTH_LOGIN_SELECT_NOTE = "サインイン方法を選択しました。表示に従って承認してください。";
+export const OAUTH_LOGIN_SELECT_CONTINUE_TEXT = "この方式で続ける";
 export const OAUTH_LOGIN_DONE_NOTE = "サインインしました。利用可能なモデルを更新しています。";
 export const OAUTH_LOGIN_SIGNOUT_NOTE = "サインアウトしました。認証情報は Pi の auth.json から削除されました。";
 
@@ -295,7 +311,7 @@ export async function refreshModelsForAuthChange(input: {
  * 出す。手順が「同一マシンのブラウザ」を前提にしているため、この provider のカードへは混ぜない。
  */
 export const OAUTH_UNSUPPORTED_NOTICE =
-  "このプロバイダーのサインインは、この画面では扱えない対話（候補の選択やテキスト入力）を必要とする方式です。同じ agent dir を使う pi /login でサインインしてください（手順は docs/model-settings.md の OAuth サインイン）。";
+  "このプロバイダーは、この画面のサインイン対象に含まれていません。同じ agent dir を使う pi /login でサインインしてください（手順は docs/model-settings.md の OAuth サインイン）。";
 
 // --- OAuth サインインの文言 (常時表示の説明はクライアントの純関数が持つ) ---
 
@@ -303,8 +319,8 @@ export const OAUTH_UNSUPPORTED_NOTICE =
 export const OAUTH_IDLE_NOTICE = "ブラウザのタブで承認すると、この画面の表示が自動で更新されます。";
 /** 進行中の主文。認可 URL がまだ届いていない間の 1 行 (届いた後はサーバーの定数を使う) */
 export const OAUTH_PREPARING_NOTICE = "認可の準備をしています。";
-/** 空タブを遷移できたときの補足。`oauthLoginLabel` の後ろに連結する */
-export const OAUTH_POPUP_OPENED_NOTICE = "の承認ページが開きます。";
+/** 空タブを遷移できたときの補足。動詞句の action を前置きすると「〜にサインインの承認ページ」と壊れる */
+export const OAUTH_POPUP_OPENED_NOTICE = "承認ページを開きました。";
 /** 空タブを遷移できなかったときに出すフォールバックのリンク。補足とは排他 */
 export const OAUTH_FALLBACK_LINK_TEXT = "承認ページを開く";
 /** 折りたたみ (別のマシンのブラウザ) の summary と説明・注意 */
@@ -315,6 +331,7 @@ export const OAUTH_MANUAL_PORT_NOTE =
   "同じホストで別のサインインを同時に進めると、ポートの競合で失敗することがあります。";
 /** 折りたたみの中のコピー操作 ([URL をコピー] は認可 URL があるときだけ有効) */
 export const OAUTH_COPY_URL_TEXT = "URL をコピー";
+export const OAUTH_COPY_CODE_TEXT = "コードをコピー";
 export const OAUTH_COPY_DONE_TEXT = "コピーしました";
 /** 折りたたみは出ているが貼り付けを受け付けていないときの 1 行 (サーバーも 400 を返す) */
 export const OAUTH_PASTE_UNAVAILABLE_NOTICE = "いまは貼り付けを受け付けていません。";
@@ -333,6 +350,7 @@ export const OAUTH_SIGNED_IN_NOTE = "すでにサインイン済みです（再�
 export type OAuthPanelState =
   | "unconfigured"
   | "signed-in"
+  | "awaiting-method"
   | "awaiting-url"
   | "awaiting-authorization"
   | "awaiting-code"
@@ -359,6 +377,8 @@ export interface OAuthPanelView {
   loginLabel: string;
   /** 進行中 / 直近の結果。null = 未開始 */
   login: OAuthLoginState | null;
+  /** 進行中の方式選択 (SDK の select)。null = 選択待ちではない */
+  select: OAuthLoginSelect | null;
   /** [サインアウト] を出すか。auth.json の OAuth が実効のときと、この画面のキーが覆っているとき */
   signOut: boolean;
   /** すでにサインイン済みか。再サインインの注記に使う */
@@ -408,6 +428,7 @@ export function oauthPanelView(provider: ProviderAuthSetting, options: OAuthPane
   // 認可 URL とコードは進行中の値。終端や再同期の途中では落とす (サーバーも進行中だけを載せる)
   const authUrl = running ? (login?.authUrl ?? null) : null;
   const userCode = running ? (login?.userCode ?? null) : null;
+  const select = running ? (login?.select ?? null) : null;
   const showManual = running && authUrl !== null && userCode === null;
   // 貼り付けフォームは `input` があるときだけ。送信後 (null へ戻る) は受け付けていないことを出す
   const pasteOpen = login !== null && login.input !== null;
@@ -418,25 +439,28 @@ export function oauthPanelView(provider: ProviderAuthSetting, options: OAuthPane
         : "unconfigured"
       : login.status !== "running"
         ? login.status
-        : userCode !== null
-          ? "device-code"
-          : authUrl === null
-            ? "awaiting-url"
-            : login.input !== null
-              ? "awaiting-code"
-              : "awaiting-authorization";
+        : select !== null
+          ? "awaiting-method"
+          : userCode !== null
+            ? "device-code"
+            : authUrl === null
+              ? "awaiting-url"
+              : login.input !== null
+                ? "awaiting-code"
+                : "awaiting-authorization";
   return {
     visible: provider.supportsOAuth && !provider.orphan,
     canSignIn,
     ...(canSignIn ? {} : { unsupportedNotice: OAUTH_UNSUPPORTED_NOTICE }),
-    loginLabel: provider.oauthLoginLabel ?? "OAuth でサインイン",
+    loginLabel: oauthAction(provider),
     login,
+    select,
     signOut: provider.hiddenStoredOAuth || provider.credentialKind === "oauth",
     signedIn,
     state,
     running,
     notice: state === "unconfigured" ? OAUTH_IDLE_NOTICE : null,
-    instructions: running ? (login?.instructions ?? OAUTH_PREPARING_NOTICE) : null,
+    instructions: running && select === null ? (login?.instructions ?? OAUTH_PREPARING_NOTICE) : null,
     progress: running ? (login?.progress ?? null) : null,
     userCode,
     authUrl,

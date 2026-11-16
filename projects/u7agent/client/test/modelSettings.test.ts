@@ -34,6 +34,7 @@ import {
   normalizeAllowedModels,
   oauthLoginNote,
   oauthPanelView,
+  OAUTH_POPUP_OPENED_NOTICE,
   OAUTH_PREPARING_NOTICE,
   providerAuthBadge,
   providerCredentialTabs,
@@ -99,6 +100,7 @@ function loginState(status: OAuthLoginState["status"], overrides: Partial<OAuthL
     instructions: null,
     progress: null,
     input: null,
+    select: null,
     userCode: null,
     error: null,
     ...overrides,
@@ -386,13 +388,15 @@ test("カスタムプロバイダーは専用セクションが持つため、�
   assert.deepEqual(groups.unconfigured, []);
 });
 
-test("この画面でサインインできずキーも保存行も無い provider は一覧から落とす", () => {
+test("この画面でサインインできずキーも保存行も無い provider は一覧から落とす（openai-codex は残す）", () => {
   const response = settings({
     providers: [
       // 落とす: OAuth はあるがここでサインインできず、キーの登録も無く、カタログ内でキー保存行を持たない
-      provider({ provider: "openai-codex", supportsOAuth: true, canSetApiKey: false }),
+      provider({ provider: "radius", supportsOAuth: true, canSetApiKey: false }),
       // 残す: キーを登録できる (anthropic / radius / github-copilot と同じ形)
       provider({ provider: "anthropic", supportsOAuth: true, canSetApiKey: true }),
+      // 残す: この画面で select を返せるようになった openai-codex
+      provider({ provider: "openai-codex", supportsOAuth: true, canSignInHere: true, canSetApiKey: false }),
       provider({ provider: "openai", supportsOAuth: true, canSignInHere: true, canSetApiKey: true }),
       // 残す: カタログ外のキー行・メモだけの行・保存行 (削除と再同期の導線を消さない)
       provider({ provider: "orphan-oauth", supportsOAuth: true, canSetApiKey: false, orphan: true, managed: true }),
@@ -409,8 +413,8 @@ test("この画面でサインインできずキーも保存行も無い provide
   );
   assert.deepEqual(
     groups.unconfigured.map((entry) => entry.provider),
-    ["anthropic", "openai", "plain"],
-    "openai-codex だけを落とす",
+    ["anthropic", "openai-codex", "openai", "plain"],
+    "radius だけを落とし、openai-codex は残す",
   );
 });
 
@@ -422,30 +426,30 @@ test("一覧から落とした provider でも「モデルを選ぶ」タブの�
     versions: { piCodingAgent: "1.3.0" },
     providers: [
       {
-        provider: "openai-codex",
+        provider: "radius",
         auth: { configured: true, source: "stored", environmentVariables: [] },
-        models: [{ id: "gpt-5-codex", name: "GPT-5 Codex", available: true }],
+        models: [{ id: "radius-a", name: "Radius A", available: true }],
       },
     ],
   };
   const response = settings({
-    allowedModels: ["openai-codex/gpt-5-codex"],
+    allowedModels: ["radius/radius-a"],
     providers: [
       provider({
-        provider: "openai-codex",
-        name: "OpenAI Codex (legacy)",
+        provider: "radius",
+        name: "Radius (legacy)",
         auth: { configured: true, source: "stored", environmentVariables: [] },
         supportsOAuth: true,
         canSetApiKey: false,
         credentialKind: "oauth",
-        oauthLoginLabel: "Sign in with ChatGPT",
+        oauthLoginLabel: "Sign in with Radius",
       }),
     ],
   });
   assert.deepEqual(groupProviders(response, catalog).unconfigured, [], "プロバイダータブの一覧からは落とす");
-  const [group] = candidateGroups({ allowed: ["openai-codex/gpt-5-codex"], defaultModel: null }, catalog, response);
-  assert.equal(group?.name, "OpenAI Codex (legacy)");
-  assert.deepEqual(group?.badge, { label: "保存済み（auth.json）: Sign in with ChatGPT", tone: "ok" });
+  const [group] = candidateGroups({ allowed: ["radius/radius-a"], defaultModel: null }, catalog, response);
+  assert.equal(group?.name, "Radius (legacy)");
+  assert.deepEqual(group?.badge, { label: "保存済み（auth.json）: Sign in with Radius", tone: "ok" });
 });
 
 test("providerUsage は model の最初の / で provider を分け、会話数と最新の最終使用を返す", () => {
@@ -1008,6 +1012,10 @@ test("カタログ更新の 503 は一覧を差し替えず、失敗の注記だ
 
 // --- OAuth サインイン ---
 
+test("空タブを開いた補足は動詞句を前置きしない", () => {
+  assert.equal(OAUTH_POPUP_OPENED_NOTICE, "承認ページを開きました。");
+});
+
 test("サインインの注記は進行中のときだけ操作の文言を出し、終端は既定へ戻す", () => {
   const running: OAuthLoginState = {
     status: "running",
@@ -1015,6 +1023,7 @@ test("サインインの注記は進行中のときだけ操作の文言を出�
     instructions: null,
     progress: null,
     input: null,
+    select: null,
     userCode: null,
     error: null,
   };
@@ -1033,6 +1042,7 @@ test("応答から provider のサインイン状態だけを取る", () => {
     instructions: null,
     progress: null,
     input: null,
+    select: null,
     userCode: null,
     error: null,
   };
@@ -1062,6 +1072,20 @@ test("OAuth のサインインは loginLabel をボタン名にし、OAuth を�
     "Sign in with ChatGPT",
   );
   assert.equal(oauthPanelView(provider({ supportsOAuth: true })).loginLabel, "OAuth でサインイン");
+  assert.equal(
+    oauthPanelView(provider({ provider: "openai-codex", supportsOAuth: true })).loginLabel,
+    "Codex にサインイン",
+    "SDK に loginLabel が無い openai-codex は Codex の名前で出す",
+  );
+});
+
+test("openai-codex の保存済み OAuth は Codex の OAuth として表示する", () => {
+  const stored = provider({
+    provider: "openai-codex",
+    credentialKind: "oauth",
+    auth: { configured: true, source: "stored", environmentVariables: [] },
+  });
+  assert.equal(providerAuthBadge(stored).label, "保存済み（auth.json）: Codex の OAuth");
 });
 
 test("サインアウトは auth.json の OAuth が実効 / 覆われているときだけ出し、進行中の状態をそのまま渡す", () => {
@@ -1120,6 +1144,30 @@ test("サインインできる provider では理由を出さず、サインイ�
 
 // 進行中は主状態 + 副状態 (デバイスコード → 承認待ち → URL 未着 の順) で出し分ける。
 // 貼り付けは折りたたみの中だけで、フォームは input があるときだけ出す
+test("方式選択は進行中の主状態として出し、貼り付けや URL の導線は出さない", () => {
+  const view = oauthPanelView(
+    provider({
+      supportsOAuth: true,
+      canSignInHere: true,
+      login: loginState("running", {
+        select: {
+          message: "サインイン方法を選んでください",
+          options: [
+            { id: "browser", label: "ブラウザ（この端末）" },
+            { id: "device_code", label: "デバイスコード（スマホ向け）" },
+          ],
+        },
+      }),
+    }),
+  );
+  assert.equal(view.state, "awaiting-method");
+  assert.equal(view.select?.options.length, 2);
+  assert.equal(view.instructions, null, "選択中は準備中の主文を出さない");
+  assert.equal(view.showManual, false);
+  assert.equal(view.showFallbackLink, false);
+  assert.equal(view.userCode, null);
+  assert.equal(view.authUrl, null);
+});
 test("進行中の副状態はデバイスコード → 承認待ち → URL 未着の順に決まる", () => {
   const awaitingUrl = oauthPanelView(
     provider({ supportsOAuth: true, canSignInHere: true, login: loginState("running") }),
@@ -1275,11 +1323,13 @@ test("終端は進行中の値を持たず、状態だけを残す", () => {
         authUrl: AUTH_URL,
         userCode: "ABCD-1234",
         input: { message: "貼り付け", placeholder: "URL" },
+        select: { message: "選択", options: [{ id: "browser", label: "ブラウザ" }] },
       }),
     }),
   );
   assert.equal(stale.authUrl, null);
   assert.equal(stale.userCode, null);
+  assert.equal(stale.select, null);
   assert.equal(stale.showManual, false);
 });
 

@@ -1227,8 +1227,8 @@ test("Codex のサインインが無いときは案内を出し、試行は押�
   const html = render({
     image: { provider: "codex", auth: { state: "missing", kind: null }, models: [] },
   });
-  assert.ok(html.includes("openai-codex にサインイン"), "サインインの案内を出す");
-  assert.ok(html.includes("/login"), "pi の /login を案内する");
+  assert.ok(html.includes("OpenAI Codex"), "サインインの案内を出す");
+  assert.ok(html.includes("/settings/models"), "設定 → モデルを案内する");
   assert.ok(html.includes("Sign in with ChatGPT"), "設定 → モデルのサインインが別の資格情報だと明示する");
   assert.ok(html.includes("APIキーは不要"), "キー登録を促さない");
   assert.ok(html.includes("Codex はチャットからのみ生成できます"), "試行が使えない理由を出す");
@@ -1242,8 +1242,8 @@ test("Codex の認証が切れているときは再サインインを案内す�
     image: { provider: "codex", auth: { state: "expired", kind: "oauth" }, models: [] },
   });
   assert.ok(html.includes("期限が切れています"));
-  assert.ok(html.includes("/login"), "再サインインは pi の /login を案内する");
-  assert.equal(html.includes("/settings/models"), false, "この画面から入れない設定画面を指さない");
+  assert.ok(html.includes("/settings/models"), "再サインインは設定 → モデルを案内する");
+  assert.ok(html.includes("OpenAI Codex"), "登録先を名指しする");
 });
 
 test("画像タブで Codex を選んでも「保存される設定」に BGM の固定モデルを出さない", () => {
