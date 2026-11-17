@@ -202,7 +202,7 @@
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/content` | `configured` / `provider` / `enabled` / `disabledMessage` / `runtimeAvailable` / `image` / `speech` / `bgm`。画像は生成元と認証状態、価格（`prices` / `visible` / `note`）とコストマスタの接続状態（`image.cost`）、画像・TTSはモデル一覧、BGMは固定モデル・形式・モデル仕様の尺を返す。純粋読取でAPIキー・トークンを返さず、生成APIも呼ばず、OAuth の解決もしない |
+| GET | `/api/settings/content` | `configured` / `provider` / `enabled` / `disabledMessage` / `runtimeAvailable` / `image` / `speech` / `cost` / `bgm`。画像は生成元と認証状態、画像・TTSは価格（`prices` / `visible` / `note`）付きのモデル一覧、`cost` はコストマスタの接続状態、BGMは固定モデル・形式・モデル仕様の尺を返す。純粋読取でAPIキー・トークンを返さず、生成APIも呼ばず、OAuth の解決もしない |
 | PUT | `/api/settings/content` | `{ enabled }`。画像・音声・BGM 共通の有効 / 無効（キーと選択は保持。行が無ければ 400）。保存した瞬間から既存のセッションの次の呼び出しにも効く |
 | PUT | `/api/settings/content/image` | `{ provider, model, parameters? }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400）。`parameters` は生成パラメータの既定で、**省略 = 据え置き / `{}` = そのモデルの既定を削除 / 値あり = 置き換え**（`model` を切り替えても他のモデルの既定は残る）。宣言外の値は 400 で保存しない（[image-generation.md](image-generation.md#画像パラメータの既定)） |
 | PUT | `/api/settings/content/image/provider` | `{ provider }`（`openrouter` / `codex`）。画像の生成元だけを切り替える。キー登録を伴わないため行が無くても受け付け、`content_settings` のキー・モデル・音声・トグルは変えない（[image-generation.md](image-generation.md#画像の生成元provider)） |
@@ -243,25 +243,33 @@
         "provider": "openrouter",
         "id": "openai/gpt-image-2",
         "name": "OpenAI: GPT Image 2",
-        "prices": [{ "unit": "image", "variant": "", "costUsd": 0.04, "currency": "USD" }],
+        "prices": [{ "unit": "image", "side": "output", "variant": "", "costUsd": 0.04, "currency": "USD" }],
         "visible": true,
         "note": null
       }
     ],
     "catalogSource": "live",
     "fetchedAt": 1740000000000,
-    "parametersByModel": { "openai/gpt-image-2": { "aspect_ratio": "16:9" } },
-    "cost": { "enabled": true, "url": "https://cost-master.example.com/api/models", "fetchedAt": 1740000000000, "version": 3 }
+    "parametersByModel": { "openai/gpt-image-2": { "aspect_ratio": "16:9" } }
   },
   "speech": {
     "model": "google/gemini-3.8-flash-tts",
     "voice": "Zephyr",
     "models": [
-      { "provider": "openrouter", "id": "google/gemini-3.8-flash-tts", "name": "Google: Gemini 3.8 Flash TTS", "voices": ["Zephyr", "Kore"] }
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-3.8-flash-tts",
+        "name": "Google: Gemini 3.8 Flash TTS",
+        "voices": ["Zephyr", "Kore"],
+        "prices": [{ "unit": "character", "side": "input", "variant": "", "costUsd": 0.000015, "currency": "USD" }],
+        "visible": true,
+        "note": null
+      }
     ],
     "catalogSource": "live",
     "fetchedAt": 1740000000000
   },
+  "cost": { "enabled": true, "url": "https://cost-master.example.com/api/models", "fetchedAt": 1740000000000, "version": 3 },
   "bgm": {
     "model": "google/lyria-3-clip-preview",
     "format": "mp3",
@@ -276,14 +284,14 @@
     "models": [{ "provider": "openrouter", "id": "openai/gpt-image-2", "name": "OpenAI: GPT Image 2", "prices": [], "visible": true, "note": null }],
     "catalogSource": "stored",
     "fetchedAt": 1740000000000,
-    "parametersByModel": {},
-    "cost": { "enabled": true, "url": "https://cost-master.example.com/api/models", "fetchedAt": 1740000000000, "version": 3 }
+    "parametersByModel": {}
   },
   "speech": {
-    "models": [{ "provider": "openrouter", "id": "google/gemini-3.8-flash-tts", "name": "Google: Gemini 3.8 Flash TTS", "voices": ["Zephyr", "Kore"] }],
+    "models": [{ "provider": "openrouter", "id": "google/gemini-3.8-flash-tts", "name": "Google: Gemini 3.8 Flash TTS", "voices": ["Zephyr", "Kore"], "prices": [], "visible": true, "note": null }],
     "catalogSource": "default",
     "fetchedAt": null
   },
+  "cost": { "enabled": true, "url": "https://cost-master.example.com/api/models", "fetchedAt": 1740000000000, "version": 3 },
   "errors": { "image": "モデル一覧の取得がタイムアウトしました" }
 }
 ```
@@ -291,8 +299,8 @@
 - `configured` は `content_settings` に行があるか。`false` のとき `provider` / `image.model` / `speech.model` / `bgm.model` は `null`（行が無い = 未設定）。
 - `image` / `speech` / `bgm` は兄弟の表示項目。`bgm` は `{ model, format, expectedDurationSeconds }` で形式と尺は固定のモデル仕様（生成物の実測値ではない）。値とDTOの正は `server/src/bgm.ts` / `server/src/schema.ts`。BGM専用の保存APIは追加せず、変更系もGETと同じbgmを返す（[bgm-generation.md](bgm-generation.md)）。
 - `image.provider` は画像の生成元（`openrouter` / `codex`。行が無ければ既定の `openrouter`）で、`image.auth` は選択中の provider の認証状態（`configured` / `missing` / `expired` と `kind`）だけを返す。**GET はどちらも保存値の読取だけで判定し、OAuth のトークン解決・更新・外部通信をしない**。`image.models` は OpenRouter を選んでいるときだけ返し、Codex のときは空配列（画像モデルを選ばない。ルーティングモデルを画像モデルとして返さない）。
-- `image.models` は live カタログ（OpenRouter の画像モデル API）で、UI はこの一覧からだけモデルを選べる。各要素は `provider` / `id` / `name`、宣言があるときだけ `parameters`（生成パラメータの宣言）、コストマスタの投影として `prices`（出力側の単価。不明は空配列）/ `visible`（false でも一覧からは落とさない）/ `note`（人手メモ。無ければ null）を持つ。`image.cost` は `{ enabled, url, fetchedAt, version }`（未設定・OFF でも null にせず `enabled: false` / `url: null` を返す。[content-cost.md](content-cost.md)）。`image.parametersByModel` は保存済みの生成パラメータの既定（bare なモデル id → 値）で、**各エントリをそのモデルの宣言で絞る**。宣言が読めないモデルのエントリは空になる（[image-generation.md](image-generation.md#画像パラメータの既定)）。`catalogSource` は `live` / `stored` / `sdk` で、`live` 以外は取得に失敗した状態（`stored` = 前回の成功を DB キャッシュから、`sdk` = SDK 同梱）を表し、`fetchedAt` は最後に live を取得できた時刻（`sdk` は `null`）。キー値はどの応答にも含めない（[image-generation.md](image-generation.md#モデルカタログ)）
-- `speech.models` は live カタログ（OpenRouter の音声モデル一覧 API）で、`voices` に話者の宣言を含む。`catalogSource` は `live` / `stored` / `default` で、`default` は「live もキャッシュも無く、同梱の既定 1 件を見ている」を表す。`voice` の空文字は「指定なし」（宣言が無いモデルで送らない）。`content_settings` の音声列が `NULL` の既存行は、既定モデルと先頭ボイスへフォールバックして返す（[speech-generation.md](speech-generation.md#モデルカタログ)）
+- `image.models` は live カタログ（OpenRouter の画像モデル API）で、UI はこの一覧からだけモデルを選べる。各要素は `provider` / `id` / `name`、宣言があるときだけ `parameters`（生成パラメータの宣言）、コストマスタの投影として `prices`（出力側の単価。不明は空配列）/ `visible`（false でも一覧からは落とさない）/ `note`（人手メモ。無ければ null）を持つ。`cost` は画像・音声で共有する `{ enabled, url, fetchedAt, version }`（未設定・OFF でも null にせず `enabled: false` / `url: null` を返す。[content-cost.md](content-cost.md)）。`image.parametersByModel` は保存済みの生成パラメータの既定（bare なモデル id → 値）で、**各エントリをそのモデルの宣言で絞る**。宣言が読めないモデルのエントリは空になる（[image-generation.md](image-generation.md#画像パラメータの既定)）。`catalogSource` は `live` / `stored` / `sdk` で、`live` 以外は取得に失敗した状態（`stored` = 前回の成功を DB キャッシュから、`sdk` = SDK 同梱）を表し、`fetchedAt` は最後に live を取得できた時刻（`sdk` は `null`）。キー値はどの応答にも含めない（[image-generation.md](image-generation.md#モデルカタログ)）
+- `speech.models` は live カタログ（OpenRouter の音声モデル一覧 API）で、`voices` に話者の宣言を含み、`prices`（入力 / 出力の単価。不明は空配列）/ `visible` / `note` を画像と同じ規則で持つ。`catalogSource` は `live` / `stored` / `default` で、`default` は「live もキャッシュも無く、同梱の既定 1 件を見ている」を表す。`voice` の空文字は「指定なし」（宣言が無いモデルで送らない）。`content_settings` の音声列が `NULL` の既存行は、既定モデルと先頭ボイスへフォールバックして返す（[speech-generation.md](speech-generation.md#モデルカタログ)）
 - `runtimeAvailable` は `/api/settings/models` と同じく「SDK ランタイムの初期化に成功したか」。`false` のときキー登録は 503 `not_stored`（`retainSecret` が no-op になり保護できないため）。選択変更と削除は runtime に依存しない
 - 統合 refresh の `errors` は**今回の取得だけ**の結果で、成功した系統のキーは載らない。失敗しても一覧・価格・`catalogSource` は前のままで、503 にはしない（設定ではなくキャッシュの更新なので `state` も付けない）
 - 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映を持たないため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`

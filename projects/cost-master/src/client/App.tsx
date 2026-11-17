@@ -2,7 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { MASTER_KINDS, type CostMasterPayload, type MasterKind } from "../shared/contract";
 import { formatCost, formatFetchedAt } from "../shared/format";
 import { fetchModels, masterDownloadUrl, updateJudgment, uploadMaster } from "./api";
-import { groupByModel, sortGroups, summarize, withModelEnabled, type ModelGroup, type ModelSort } from "./models";
+import {
+  groupByModel,
+  priceKey,
+  sideOf,
+  sortGroups,
+  summarize,
+  withModelEnabled,
+  type ModelGroup,
+  type ModelSort,
+} from "./models";
 
 type LoadState =
   | { status: "loading" }
@@ -183,7 +192,8 @@ function ModelRow({
       {group.note === null ? null : <p class="note">{group.note}</p>}
       <ul class="prices">
         {group.prices.map((price) => (
-          <li key={`${price.unit}:${price.variant}`}>
+          <li key={priceKey(price)}>
+            {sideOf(price) === "input" ? <span class="badge">入力</span> : null}
             <span class="price">{formatCost(price.costUsd, price.unit)}</span>
             {price.variant === "" ? null : <span class="variant">{price.variant}</span>}
           </li>

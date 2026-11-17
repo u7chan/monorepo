@@ -7,7 +7,7 @@ import {
   contentCatalogRefreshNote,
   contentEnabledNote,
   hiddenImageModelCount,
-  imageCostNotice,
+  costNotice,
   imageModelVisibilityNotice,
   imagePriceDisplay,
   visibleImageModelOptions,
@@ -40,8 +40,12 @@ import {
   speechDefaultVoice,
   speechModelOptions,
   speechModelValue,
+  speechPriceDisplay,
   speechSaveDisabled,
   speechSelection,
+  speechModelVisibilityNotice,
+  visibleSpeechModelOptions,
+  hiddenSpeechModelCount,
   speechSpeed,
   speechSpeedStep,
   speechVoiceDraft,
@@ -69,6 +73,7 @@ function settings(
     disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
     runtimeAvailable: true,
     bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
+    cost: { enabled: false, url: null, fetchedAt: null, version: null },
     image: {
       model: "openai/gpt-image-2",
       provider: "openrouter",
@@ -95,7 +100,6 @@ function settings(
       catalogSource: "live",
       fetchedAt: null,
       parametersByModel: {},
-      cost: { enabled: false, url: null, fetchedAt: null, version: null },
       ...image,
     },
     speech: {
@@ -107,9 +111,20 @@ function settings(
           id: "google/gemini-3.8-flash-tts",
           name: "Google: Gemini 3.8 Flash TTS",
           voices: ["Zephyr", "Kore"],
+          prices: [],
+          visible: true,
+          note: null,
         },
-        { provider: "openrouter", id: "fish/audio", name: "Fish Audio" },
-        { provider: "openrouter", id: "mystery/tts", name: "Google: Gemini 3.8 Flash TTS", voices: ["Aoede"] },
+        { provider: "openrouter", id: "fish/audio", name: "Fish Audio", prices: [], visible: true, note: null },
+        {
+          provider: "openrouter",
+          id: "mystery/tts",
+          name: "Google: Gemini 3.8 Flash TTS",
+          voices: ["Aoede"],
+          prices: [],
+          visible: true,
+          note: null,
+        },
       ],
       catalogSource: "live",
       fetchedAt: null,
@@ -408,8 +423,8 @@ test("再取得の注記は成功と失敗を区別し、一覧と価格のど�
     error: true,
   });
   assert.deepEqual(contentCatalogRefreshNote("speech", { cost: "コストマスタを取得できませんでした" }), {
-    text: "モデル一覧を取得しました。",
-    error: false,
+    text: "価格を取得できませんでした。表示中の価格は変わりません。",
+    error: true,
   });
 });
 
@@ -442,9 +457,16 @@ test("音声モデルの選択肢は表示名の昇順に並べ、同名は id �
 test("カタログの並びが取得元で変わっても選択肢は同じ表示名の昇順になる", () => {
   // 取得元で変わる 2 通りの並び（live は新しい順、SDK 同梱は id 順）を与える
   const live = [
-    { provider: "openrouter", id: "heygen/voice-1", name: "HeyGen: Voice 1" },
-    { provider: "openrouter", id: "fish/audio", name: "Fish Audio" },
-    { provider: "openrouter", id: "elevenlabs/eleven-v4", name: "ElevenLabs: Eleven v4" },
+    { provider: "openrouter", id: "heygen/voice-1", name: "HeyGen: Voice 1", prices: [], visible: true, note: null },
+    { provider: "openrouter", id: "fish/audio", name: "Fish Audio", prices: [], visible: true, note: null },
+    {
+      provider: "openrouter",
+      id: "elevenlabs/eleven-v4",
+      name: "ElevenLabs: Eleven v4",
+      prices: [],
+      visible: true,
+      note: null,
+    },
   ];
   const sdk = [...live].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const labelsOf = (models: typeof live) =>
@@ -683,32 +705,38 @@ test("Codex ではモデル一覧を出さない（OpenRouter では出す）", 
 
 test("価格は基本単価を優先し、無いときだけ同じ単位の範囲を出し、不明と無料を混ぜない", () => {
   assert.deepEqual(imagePriceDisplay([]), { label: "--", note: null });
-  assert.deepEqual(imagePriceDisplay([{ unit: "image", variant: "", costUsd: 0, currency: "USD" }]), {
+  assert.deepEqual(imagePriceDisplay([{ unit: "image", side: "output", variant: "", costUsd: 0, currency: "USD" }]), {
     label: "$0/枚",
     note: null,
   });
   assert.equal(
     imagePriceDisplay([
-      { unit: "image", variant: "", costUsd: 0.04, currency: "USD" },
-      { unit: "image", variant: "style_references", costUsd: 0.2, currency: "USD" },
+      { unit: "image", side: "output", variant: "", costUsd: 0.04, currency: "USD" },
+      { unit: "image", side: "output", variant: "style_references", costUsd: 0.2, currency: "USD" },
     ]).label,
     "$0.04/枚",
     "加算オプションを基本単価の範囲に混ぜない",
   );
   assert.equal(
     imagePriceDisplay([
-      { unit: "megapixel", variant: "768", costUsd: 0.01, currency: "USD" },
-      { unit: "megapixel", variant: "1024", costUsd: 0.02, currency: "USD" },
+      { unit: "megapixel", side: "output", variant: "768", costUsd: 0.01, currency: "USD" },
+      { unit: "megapixel", side: "output", variant: "1024", costUsd: 0.02, currency: "USD" },
     ]).label,
     "$0.01〜$0.02/MP",
   );
-  assert.deepEqual(imagePriceDisplay([{ unit: "token", variant: "", costUsd: 0.000008, currency: "USD" }]), {
-    label: "$8/1M tok",
-    note: "token 建ての単価です（1 枚あたりの実額ではありません）",
-  });
-  assert.equal(imagePriceDisplay([{ unit: "request", variant: "", costUsd: 0.02, currency: "USD" }]).label, "$0.02/回");
+  assert.deepEqual(
+    imagePriceDisplay([{ unit: "token", side: "output", variant: "", costUsd: 0.000008, currency: "USD" }]),
+    {
+      label: "$8/1M tok",
+      note: "token 建ての単価です（1 枚あたりの実額ではありません）",
+    },
+  );
   assert.equal(
-    imagePriceDisplay([{ unit: "second" as never, variant: "", costUsd: 0.5, currency: "USD" }]).label,
+    imagePriceDisplay([{ unit: "request", side: "output", variant: "", costUsd: 0.02, currency: "USD" }]).label,
+    "$0.02/回",
+  );
+  assert.equal(
+    imagePriceDisplay([{ unit: "second" as never, side: "output", variant: "", costUsd: 0.5, currency: "USD" }]).label,
     "--",
     "未知の unit は整形しない",
   );
@@ -720,7 +748,7 @@ test("描画用の選択肢は visible だけを外し、保存中の無効値�
       provider: "openrouter",
       id: "acme/image-a",
       name: "Acme A",
-      prices: [{ unit: "image", variant: "", costUsd: 0.04, currency: "USD" }],
+      prices: [{ unit: "image", side: "output", variant: "", costUsd: 0.04, currency: "USD" }],
       visible: true,
       note: null,
     },
@@ -762,29 +790,32 @@ test("表示名のベンダー前置きは見出しへ切り、区切りが無�
 });
 
 test("価格順のキーは単位を先に見て、価格が読めないモデルを末尾へ回す", () => {
-  assert.deepEqual(imagePriceSortKey([{ unit: "image", variant: "", costUsd: 0.04, currency: "USD" }]), {
-    unit: 0,
-    amount: 0.04,
-  });
+  assert.deepEqual(
+    imagePriceSortKey([{ unit: "image", side: "output", variant: "", costUsd: 0.04, currency: "USD" }]),
+    {
+      unit: 0,
+      amount: 0.04,
+    },
+  );
   // 基本単価（variant: ""）を優先し、無いときは同じ単位の最小額を使う
   assert.deepEqual(
     imagePriceSortKey([
-      { unit: "image", variant: "2k", costUsd: 0.2, currency: "USD" },
-      { unit: "image", variant: "1k", costUsd: 0.1, currency: "USD" },
+      { unit: "image", side: "output", variant: "2k", costUsd: 0.2, currency: "USD" },
+      { unit: "image", side: "output", variant: "1k", costUsd: 0.1, currency: "USD" },
     ]),
     { unit: 0, amount: 0.1 },
   );
   assert.deepEqual(
     imagePriceSortKey([
-      { unit: "token", variant: "", costUsd: 0.00003, currency: "USD" },
-      { unit: "image", variant: "", costUsd: 0.2, currency: "USD" },
+      { unit: "token", side: "output", variant: "", costUsd: 0.00003, currency: "USD" },
+      { unit: "image", side: "output", variant: "", costUsd: 0.2, currency: "USD" },
     ]),
     { unit: 0, amount: 0.2 },
     "表示に使う単位（image 優先）と同じ単位で比べる",
   );
   assert.deepEqual(imagePriceSortKey([]), { unit: 4, amount: Number.POSITIVE_INFINITY });
   assert.deepEqual(
-    imagePriceSortKey([{ unit: "image", variant: "", costUsd: -1, currency: "USD" }]),
+    imagePriceSortKey([{ unit: "image", side: "output", variant: "", costUsd: -1, currency: "USD" }]),
     { unit: 4, amount: Number.POSITIVE_INFINITY },
     "負の単価は価格として並べない",
   );
@@ -796,7 +827,7 @@ test("選択肢はベンダー順と価格順に並べ替え、見出しの軸�
       provider: "openrouter",
       id: "google/nano-banana",
       name: "Google: Nano Banana",
-      prices: [{ unit: "image", variant: "", costUsd: 0.039, currency: "USD" }],
+      prices: [{ unit: "image", side: "output", variant: "", costUsd: 0.039, currency: "USD" }],
       visible: true,
       note: null,
     },
@@ -804,7 +835,7 @@ test("選択肢はベンダー順と価格順に並べ替え、見出しの軸�
       provider: "openrouter",
       id: "black-forest-labs/flux",
       name: "Black Forest Labs: FLUX 3",
-      prices: [{ unit: "image", variant: "", costUsd: 0.015, currency: "USD" }],
+      prices: [{ unit: "image", side: "output", variant: "", costUsd: 0.015, currency: "USD" }],
       visible: true,
       note: null,
     },
@@ -812,7 +843,7 @@ test("選択肢はベンダー順と価格順に並べ替え、見出しの軸�
       provider: "openrouter",
       id: "google/nano-banana-pro",
       name: "Google: Nano Banana Pro",
-      prices: [{ unit: "image", variant: "", costUsd: 0.12, currency: "USD" }],
+      prices: [{ unit: "image", side: "output", variant: "", costUsd: 0.12, currency: "USD" }],
       visible: true,
       note: null,
     },
@@ -820,7 +851,7 @@ test("選択肢はベンダー順と価格順に並べ替え、見出しの軸�
       provider: "openrouter",
       id: "google/nano-banana-token",
       name: "Google: Nano Banana 2",
-      prices: [{ unit: "token", variant: "", costUsd: 0.00003, currency: "USD" }],
+      prices: [{ unit: "token", side: "output", variant: "", costUsd: 0.00003, currency: "USD" }],
       visible: true,
       note: null,
     },
@@ -875,16 +906,16 @@ test("選択肢はベンダー順と価格順に並べ替え、見出しの軸�
 });
 
 test("コストの由来は未設定と停止中と未取得を分け、停止中は前回取得を添える", () => {
-  assert.equal(imageCostNotice({ enabled: false, url: null, fetchedAt: null, version: null }), null);
+  assert.equal(costNotice({ enabled: false, url: null, fetchedAt: null, version: null }), null);
   assert.deepEqual(
-    imageCostNotice(
+    costNotice(
       { enabled: false, url: "https://cost-master.example.com/api/models", fetchedAt: 0, version: 3 },
       { timeZone: "Asia/Tokyo", now: 0 },
     ),
     { text: "コスト表示は停止中（前回取得: 09:00）", tone: "warn" },
   );
   assert.deepEqual(
-    imageCostNotice({
+    costNotice({
       enabled: true,
       url: "https://cost-master.example.com/api/models",
       fetchedAt: null,
@@ -893,10 +924,76 @@ test("コストの由来は未設定と停止中と未取得を分け、停止�
     { text: "価格はまだ取得していません（[カタログ更新] で取得します）", tone: "warn" },
   );
   assert.equal(
-    imageCostNotice(
+    costNotice(
       { enabled: true, url: "https://cost-master.example.com/api/models", fetchedAt: 0, version: 3 },
       { timeZone: "Asia/Tokyo", now: 0 },
     )?.tone,
     "muted",
   );
+});
+
+test("音声の価格は入力側を主、出力側を副にし、単位ごとの係数と注記を付ける", () => {
+  assert.deepEqual(speechPriceDisplay([]), { primary: null, secondary: null, note: null });
+  assert.deepEqual(
+    speechPriceDisplay([{ unit: "character", side: "input", variant: "", costUsd: 0.000015, currency: "USD" }]),
+    {
+      primary: { side: "input", text: "$15/M 文字" },
+      secondary: null,
+      note: "文字数あたりの単価です（数え方は provider に従います）",
+    },
+  );
+  assert.equal(
+    speechPriceDisplay([{ unit: "byte", side: "input", variant: "", costUsd: 0.00001, currency: "USD" }]).primary?.text,
+    "$10/M bytes",
+  );
+  assert.equal(
+    speechPriceDisplay([{ unit: "minute", side: "output", variant: "", costUsd: 0.15, currency: "USD" }]).primary?.text,
+    "$0.15/分",
+  );
+  assert.equal(
+    speechPriceDisplay([{ unit: "character", side: "input", variant: "", costUsd: 0, currency: "USD" }]).primary?.text,
+    "$0/M 文字",
+    "宣言された 0 は $0",
+  );
+
+  const tokens = speechPriceDisplay([
+    { unit: "token", side: "output", variant: "", costUsd: 0.000009, currency: "USD" },
+    { unit: "token", side: "input", variant: "", costUsd: 0.0000005, currency: "USD" },
+  ]);
+  assert.deepEqual(tokens.primary, { side: "input", text: "$0.5/M tok" });
+  assert.deepEqual(tokens.secondary, { side: "output", text: "$9/M tok" });
+  assert.match(tokens.note ?? "", /token 建て/);
+});
+
+test("音声の選択肢は価格を添え、非表示は描画だけから外して保存値は残す", () => {
+  const models = [
+    {
+      provider: "openrouter",
+      id: "tts/a",
+      name: "A",
+      prices: [
+        {
+          unit: "character" as const,
+          side: "input" as const,
+          variant: "",
+          costUsd: 0.000015,
+          currency: "USD" as const,
+        },
+      ],
+      visible: true,
+      note: null,
+    },
+    { provider: "openrouter", id: "tts/b", name: "B", prices: [], visible: false, note: "高価" },
+  ];
+  const labels = speechModelOptions(settings({}, {}, { model: "tts/b", models })).map((option) => option.label);
+  assert.deepEqual(labels, ["A（$15/M 文字）", "B"]);
+
+  const visible = visibleSpeechModelOptions(settings({}, {}, { model: "tts/b", models }));
+  assert.deepEqual(
+    visible.map((option) => option.label),
+    ["B（一覧に出していません・保存済み）", "A（$15/M 文字）"],
+  );
+  assert.equal(hiddenSpeechModelCount(settings({}, {}, { model: "tts/b", models })), 1);
+  assert.equal(speechModelVisibilityNotice(settings({}, {}, { model: "tts/b", models }))?.kind, "hidden");
+  assert.equal(speechModelVisibilityNotice(settings({}, {}, { model: "tts/c", models }))?.kind, "missing");
 });

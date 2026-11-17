@@ -278,10 +278,12 @@ export interface ContentCostSettingsRow {
   url: string;
 }
 
-/** 価格スナップショットの 1 行。出力側の単価だけを、モデル単位の判断を写して持つ */
+/** 価格スナップショットの 1 行。入力 / 出力の単価を、モデル単位の判断を写して持つ */
 export interface ContentCostCatalogModelRow {
   modelId: string;
   unit: string;
+  /** 旧スナップショット（この項目より前）は `output` として読む */
+  side: "input" | "output";
   /** 解像度ティアとは限らない（加算オプションを含む）。無ければ "" */
   variant: string;
   costUsd: number;
@@ -1414,14 +1416,16 @@ function contentCostCatalogOf(row: Row): ContentCostCatalogRow | undefined {
   const models: ContentCostCatalogModelRow[] = [];
   for (const entry of parsed) {
     if (typeof entry !== "object" || entry === null) return undefined;
-    const { modelId, unit, variant, costUsd, currency, enabled, note } = entry as Record<string, unknown>;
+    const { modelId, unit, side, variant, costUsd, currency, enabled, note } = entry as Record<string, unknown>;
     if (typeof modelId !== "string" || modelId === "") return undefined;
     if (typeof unit !== "string" || unit === "") return undefined;
+    const normalizedSide = side === undefined ? "output" : side;
+    if (normalizedSide !== "input" && normalizedSide !== "output") continue;
     if (typeof variant !== "string") return undefined;
     if (typeof costUsd !== "number" || !Number.isFinite(costUsd) || costUsd < 0) return undefined;
     if (typeof currency !== "string" || typeof enabled !== "boolean") return undefined;
     if (note !== null && typeof note !== "string") return undefined;
-    models.push({ modelId, unit, variant, costUsd, currency, enabled, note });
+    models.push({ modelId, unit, side: normalizedSide, variant, costUsd, currency, enabled, note });
   }
   const fetchedAt = Number(row.fetchedAt);
   const sourceUrl = text(row.sourceUrl);

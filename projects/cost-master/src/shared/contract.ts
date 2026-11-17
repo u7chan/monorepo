@@ -1,6 +1,24 @@
 /** 上流の `unit` 語彙。これ以外の行はマスタに載せない（表示側が単価を整形できないため） */
-export const COST_UNITS = ["image", "megapixel", "token", "request"] as const;
+export const COST_UNITS = ["image", "megapixel", "token", "character", "byte", "minute", "request"] as const;
 export type CostUnit = (typeof COST_UNITS)[number];
+
+/**
+ * 価格行が「何を」請求するか。画像は出力だけ、TTS は入力（文字・バイト・トークン）と
+ * 出力（音声トークン・分）の両方を返す。
+ */
+export const COST_BILLABLES = ["output_image", "input_text", "output_audio"] as const;
+export type CostBillable = (typeof COST_BILLABLES)[number];
+
+export function isCostBillable(value: unknown): value is CostBillable {
+  return typeof value === "string" && (COST_BILLABLES as readonly string[]).includes(value);
+}
+
+/** 表示用の入力 / 出力。`billable` の語彙を DTO へ持ち込まないための正規化 */
+export type CostSide = "input" | "output";
+
+export function sideOfBillable(billable: string): CostSide {
+  return billable.startsWith("input_") ? "input" : "output";
+}
 
 /** 上流が複数 provider を返しても、この版では 1 つに固定する */
 export const PROVIDER = "openrouter";

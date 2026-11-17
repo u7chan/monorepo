@@ -24,8 +24,11 @@ const SPEECH_MODELS = [
     id: "google/gemini-3.8-flash-tts",
     name: "Google: Gemini 3.8 Flash TTS",
     voices: ["Zephyr", "Kore"],
+    prices: [],
+    visible: true,
+    note: null,
   },
-  { provider: "openrouter", id: "fish/audio", name: "Fish Audio" },
+  { provider: "openrouter", id: "fish/audio", name: "Fish Audio", prices: [], visible: true, note: null },
 ];
 
 /** `image` / `speech` の中身を差し替える (provider など設定面の値は render の引数から渡す) */
@@ -46,6 +49,7 @@ function settings(
     disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
     runtimeAvailable: true,
     bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
+    cost: { enabled: false, url: null, fetchedAt: null, version: null },
     image: {
       model: "openai/gpt-image-2",
       provider: "openrouter",
@@ -54,7 +58,6 @@ function settings(
       catalogSource: "live",
       fetchedAt: null,
       parametersByModel: {},
-      cost: { enabled: false, url: null, fetchedAt: null, version: null },
       ...image,
     },
     speech: {
@@ -102,7 +105,6 @@ function render(
         onSaveImageProvider: async () => true,
         onSaveSelection: async () => true,
         onSaveSpeech: async () => true,
-        onSaveCost: async () => true,
         onRefreshCatalog: () => {},
         trials: options.trials ?? [],
         trialDetail: options.trialDetail !== undefined ? options.trialDetail : (options.trials?.[0] ?? null),
@@ -313,6 +315,9 @@ test("google のモデルでも属性を引ける声が無ければグループ�
       id: "google/gemini-3.8-flash-tts",
       name: "Google: Gemini 3.8 Flash TTS",
       voices: ["Ghost"],
+      prices: [],
+      visible: true,
+      note: null,
     },
   ];
   const html = render({ subsection: "speech", speech: { models, voice: "Ghost" } });
@@ -327,6 +332,9 @@ test("Object.prototype の名前のボイスでも描画を壊さず、未知の
       id: "google/gemini-3.8-flash-tts",
       name: "Google: Gemini 3.8 Flash TTS",
       voices: ["constructor", "Kore"],
+      prices: [],
+      visible: true,
+      note: null,
     },
   ];
   const html = render({ subsection: "speech", speech: { models, voice: "Kore" } });
@@ -1149,7 +1157,7 @@ test("モデル欄に価格とメモを出し、一覧に出していない件�
           provider: "openrouter",
           id: "acme/image-a",
           name: "Acme A",
-          prices: [{ unit: "image", variant: "", costUsd: 0.04, currency: "USD" }],
+          prices: [{ unit: "image", side: "output", variant: "", costUsd: 0.04, currency: "USD" }],
           visible: true,
           note: null,
         },
@@ -1191,20 +1199,30 @@ test("[カタログ更新] は一覧を持つ面にだけ置き、Codex と BGM 
   );
 });
 
-test("コストURLは OFF の間だけ非活性にし、停止中は価格の代わりに由来へ出す", () => {
-  const off = render({
-    image: {
-      cost: { enabled: false, url: "https://cost-master.example.com/api/models", fetchedAt: 0, version: 3 },
+test("音声タブは入力側の単価を主、出力側を副にし、非表示のモデルを選択肢から外す", () => {
+  const html = render({
+    subsection: "speech",
+    speech: {
+      models: [
+        {
+          provider: "openrouter",
+          id: "google/gemini-3.8-flash-tts",
+          name: "Google: Gemini 3.8 Flash TTS",
+          voices: ["Zephyr", "Kore"],
+          prices: [
+            { unit: "token", side: "input", variant: "", costUsd: 0.0000005, currency: "USD" },
+            { unit: "token", side: "output", variant: "", costUsd: 0.000009, currency: "USD" },
+          ],
+          visible: true,
+          note: "入出力の両方で課金",
+        },
+        { provider: "openrouter", id: "fish/audio", name: "Fish Audio", prices: [], visible: false, note: null },
+      ],
     },
   });
-  assert.ok(off.includes("コスト表示"));
-  assert.match(off, /aria-label="コストマスタのURL"[^>]*disabled=""/, "OFF では URL を編集させない");
-  assert.ok(off.includes("コスト表示は停止中"), "停止中を由来に出す");
-  assert.ok(off.includes("価格 --"), "価格は出さない（-- へ倒す）");
-  // 価格を出すのは画像タブだけなので、コストマスタの設定もそこにだけ置く
-  assert.equal(render({ subsection: "speech" }).includes("コスト表示"), false, "音声タブには出さない");
-  assert.equal(render({ subsection: "bgm" }).includes("コスト表示"), false, "BGM タブには出さない");
-
-  const unset = render({ image: { cost: { enabled: false, url: null, fetchedAt: null, version: null } } });
-  assert.equal(unset.includes("コスト表示は停止中"), false, "未設定を停止中と混同しない");
+  assert.ok(html.includes("価格 入力 $0.5/M tok"));
+  assert.ok(html.includes("出力 $9/M tok"));
+  assert.ok(html.includes("1 件は一覧に出していません"));
+  assert.ok(html.includes("入出力の両方で課金"));
+  assert.equal(html.includes("Fish Audio"), false, "非表示のモデルは選択肢に出さない");
 });

@@ -36,7 +36,7 @@ import {
   type ImageProviderId,
   type ImageToolAvailability,
 } from "./images";
-import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "./speech-catalog";
+import { DEFAULT_SPEECH_MODEL, type SpeechCatalog, type SpeechCatalogSnapshot } from "./speech-catalog";
 import { type SpeechGenerationSettings } from "./speech";
 import {
   type ContentCatalogRefreshResponse,
@@ -44,6 +44,7 @@ import {
   type ContentSettingsResponse,
   type ImageModel,
   type ImageParameterValues,
+  type SpeechModel,
 } from "./schema";
 
 /** キー登録で作る行の既定モデル（直後に画面から変更できる） */
@@ -339,6 +340,24 @@ export class ContentSettingsService {
         id: entry.id,
         name: entry.name,
         ...(entry.parameters ? { parameters: entry.parameters } : {}),
+        // 画像は出力側だけを出す（音声の入力行が同じモデルに来ても混ぜない）
+        prices: (cost?.prices ?? []).filter((price) => price.side === "output"),
+        visible: cost?.visible ?? true,
+        note: cost?.note ?? null,
+      };
+    });
+  }
+
+  /** 音声の一覧に価格と表示可否をマージする。画像と同じく、`visible` を決めるのはこの 1 箇所だけ */
+  #speechModels(catalog: SpeechCatalogSnapshot): SpeechModel[] {
+    const projection = this.#cost.projection();
+    return catalog.entries.map((entry) => {
+      const cost = projection.get(entry.id);
+      return {
+        provider: entry.provider,
+        id: entry.id,
+        name: entry.name,
+        ...(entry.voices ? { voices: entry.voices } : {}),
         prices: cost?.prices ?? [],
         visible: cost?.visible ?? true,
         note: cost?.note ?? null,
@@ -370,15 +389,15 @@ export class ContentSettingsService {
         catalogSource: catalog.source,
         fetchedAt: catalog.fetchedAt,
         parametersByModel: this.#parametersByModel(row?.imageParams ?? null),
-        cost: this.#cost.state(),
       },
       speech: {
         model: speech?.model ?? null,
         voice: speech?.voice ?? "",
-        models: speechCatalog.entries,
+        models: this.#speechModels(speechCatalog),
         catalogSource: speechCatalog.source,
         fetchedAt: speechCatalog.fetchedAt,
       },
+      cost: this.#cost.state(),
       bgm: bgmSettings(row !== undefined),
     };
   }
@@ -820,15 +839,15 @@ export class ContentSettingsService {
         catalogSource: catalog.source,
         fetchedAt: catalog.fetchedAt,
         parametersByModel: this.#parametersByModel(row?.imageParams ?? null),
-        cost: this.#cost.state(),
       },
       speech: {
         model: speech.model,
         voice: speech.voice,
-        models: speechCatalog.entries,
+        models: this.#speechModels(speechCatalog),
         catalogSource: speechCatalog.source,
         fetchedAt: speechCatalog.fetchedAt,
       },
+      cost: this.#cost.state(),
       state: "applied",
       bgm: bgmSettings(row !== undefined),
     };

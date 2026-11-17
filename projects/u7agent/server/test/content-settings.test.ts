@@ -44,6 +44,9 @@ const SPEECH_STUB = {
   voices: ["Zephyr", "Kore"],
 };
 
+/** 一覧の投影（価格・表示可否・メモ）を足した DTO */
+const SPEECH_DTO = { ...SPEECH_STUB, prices: [], visible: true, note: null };
+
 /**
  * 音声カタログの最小 stub。内容の検証は speech-settings.test.ts が持ち、ここでは設定サービスの
  * 音声部分が応答の形へ漏れないことだけを見る（既定の全件を返すと期待値が long になる）。
@@ -294,15 +297,15 @@ test("GET は行が無いとき未設定を返し、キーを載せない", () =
       catalogSource: "live",
       fetchedAt: null,
       parametersByModel: {},
-      cost: { enabled: false, url: null, fetchedAt: null, version: null },
     },
     speech: {
       model: null,
       voice: "",
-      models: [SPEECH_STUB],
+      models: [SPEECH_DTO],
       catalogSource: "default",
       fetchedAt: null,
     },
+    cost: { enabled: false, url: null, fetchedAt: null, version: null },
   });
 });
 

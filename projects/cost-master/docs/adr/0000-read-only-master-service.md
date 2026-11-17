@@ -99,3 +99,21 @@ BFF が価格を取りに行くと、設定画面の更新がモデル数ぶん�
 - token 建てのモデルは 1 枚単価を出さない（1M token あたりで出す）。1 枚の実額は測らない。
 - マスタは git の履歴から外れる（volume が正）。変更の記録は `.bak` と画面の操作だけになるため、
   「いつ何を隠したか」を残したい場合は監査ログを足す（この版では持たない）。
+
+### 音声（TTS）の価格も同じマスタに載せる（2026-11-17 追加）
+
+音声の一覧 `GET /api/v1/models?output_modalities=speech` は `pricing.prompt` / `completion` を返すが、
+**請求単位を持たない**。実測では 39 モデルが文字（30）/ UTF-8 バイト（4）/ text+audio トークン（3）/
+出力秒（1）/ 不明（1）に分かれ、`prompt` をそのまま「1M tok」と表示すると取り違える。特に
+`bytedance-seed/seed-audio-1-0` は `prompt: 0` / `completion: 0.0025` なので、素直に写すと無料に見える。
+
+そこで、金額はモデルごとの `/endpoints`（provider ごとの `prompt` / `completion`）から、単位は
+モデルページの markdown alternate（`llms.txt` の `## Pricing`）から読む。金額は数値 API を正とし、
+テキストからは単位語だけを写す。`minute` だけは秒→分の係数（×60）を llms の金額で検算し、
+食い違えばそのモデルの前回行を残す（60 倍の誤表示を黙って出さない）。
+
+- 画像の「出力側だけ」は画像固有の規則で、音声は入力側（文字・バイト・トークン）が主。
+  `billable` を `output_image` / `input_text` / `output_audio` に増やし、表示側は `side` に正規化する
+- provider 横断は画像と同じく**最大**を採る（音声は provider 間で最大 6 倍の差がある）
+- `:free` は `/endpoints` が 0 を返すので `$0`。`llms.txt` は base の価格を返すため、金額には使わない
+- 単位語が未知・混在・`llms.txt` の形式変更のときは、そのモデルの前回行を残す（確定した「価格なし」だけ落とす）

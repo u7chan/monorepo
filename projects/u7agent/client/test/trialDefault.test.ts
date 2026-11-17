@@ -38,8 +38,16 @@ const DECLARING_MODELS = [
 const MODEL = "openrouter/openai/gpt-image-2";
 
 const SPEECH_MODELS = [
-  { provider: "openrouter", id: "google/gemini-3.8-flash-tts", name: "Gemini TTS", voices: ["Zephyr", "Aoede"] },
-  { provider: "openrouter", id: "fish/audio", name: "Fish Audio", voices: [] },
+  {
+    provider: "openrouter",
+    id: "google/gemini-3.8-flash-tts",
+    name: "Gemini TTS",
+    voices: ["Zephyr", "Aoede"],
+    prices: [],
+    visible: true,
+    note: null,
+  },
+  { provider: "openrouter", id: "fish/audio", name: "Fish Audio", voices: [], prices: [], visible: true, note: null },
 ];
 
 function settings(
@@ -59,6 +67,7 @@ function settings(
     disabledMessage: "無効",
     runtimeAvailable: true,
     bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
+    cost: { enabled: false, url: null, fetchedAt: null, version: null },
     image: {
       model: "openai/gpt-image-2",
       provider: "openrouter",
@@ -67,7 +76,6 @@ function settings(
       catalogSource: "live",
       fetchedAt: null,
       parametersByModel: {},
-      cost: { enabled: false, url: null, fetchedAt: null, version: null },
       ...image,
     },
     speech: {

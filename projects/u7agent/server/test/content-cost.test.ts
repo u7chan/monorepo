@@ -195,7 +195,7 @@ test("opt-in のときだけ取得時の接続先検査を private 宛へ広げ�
   assert.equal(seen.length, 1);
 });
 
-test("マージは出力側の単価だけを残し、重複は最大単価へ潰し、0 と不明を区別する", async () => {
+test("許可した billable だけを残し、入力と出力を side で分け、重複は最大単価へ潰し、0 と不明を区別する", async () => {
   const store = new FakeCostStore();
   const catalog = createContentCostCatalog({
     store,
@@ -205,8 +205,13 @@ test("マージは出力側の単価だけを残し、重複は最大単価へ�
         masterOf([
           priceRow({ variant: "", costUsd: 0.04, note: "汎用" }),
           priceRow({ variant: "", costUsd: 0.09 }),
-          // 入力側は表示に使わない
+          // 許可外の billable は表示に使わない
           priceRow({ billable: "input_image", costUsd: 0.001 }),
+          // 音声は入力と出力の両方を持つ。同じ unit でも side が違えば別の行
+          priceRow({ modelId: "acme/tts", billable: "input_text", unit: "character", costUsd: 0.00002 }),
+          priceRow({ modelId: "acme/tts", billable: "output_audio", unit: "minute", costUsd: 0.15 }),
+          priceRow({ modelId: "acme/tts-token", billable: "input_text", unit: "token", costUsd: 0.0000005 }),
+          priceRow({ modelId: "acme/tts-token", billable: "output_audio", unit: "token", costUsd: 0.000009 }),
           // 未知の unit / 負の単価 / USD 以外 / 型違いは行ごと捨てる（0 にしない）
           priceRow({ unit: "second", variant: "x", costUsd: 0.5 }),
           priceRow({ variant: "negative", costUsd: -1 }),
@@ -228,21 +233,29 @@ test("マージは出力側の単価だけを残し、重複は最大単価へ�
 
   const projection = catalog.projection();
   assert.deepEqual(projection.get("acme/image-a"), {
-    prices: [{ unit: "image", variant: "", costUsd: 0.09, currency: "USD" }],
+    prices: [{ unit: "image", side: "output", variant: "", costUsd: 0.09, currency: "USD" }],
     visible: true,
     note: "汎用",
   });
   assert.deepEqual(projection.get("acme/image-b"), {
-    prices: [{ unit: "image", variant: "", costUsd: 0.25, currency: "USD" }],
+    prices: [{ unit: "image", side: "output", variant: "", costUsd: 0.25, currency: "USD" }],
     visible: false,
     note: "高価",
   });
   assert.deepEqual(projection.get("acme/image-c")?.prices, [
-    { unit: "image", variant: "", costUsd: 0, currency: "USD" },
+    { unit: "image", side: "output", variant: "", costUsd: 0, currency: "USD" },
   ]);
   assert.deepEqual(projection.get("acme/image-d")?.prices, [
-    { unit: "megapixel", variant: "1024", costUsd: 0.02, currency: "USD" },
-    { unit: "megapixel", variant: "768", costUsd: 0.015, currency: "USD" },
+    { unit: "megapixel", side: "output", variant: "1024", costUsd: 0.02, currency: "USD" },
+    { unit: "megapixel", side: "output", variant: "768", costUsd: 0.015, currency: "USD" },
+  ]);
+  assert.deepEqual(projection.get("acme/tts")?.prices, [
+    { unit: "character", side: "input", variant: "", costUsd: 0.00002, currency: "USD" },
+    { unit: "minute", side: "output", variant: "", costUsd: 0.15, currency: "USD" },
+  ]);
+  assert.deepEqual(projection.get("acme/tts-token")?.prices, [
+    { unit: "token", side: "input", variant: "", costUsd: 0.0000005, currency: "USD" },
+    { unit: "token", side: "output", variant: "", costUsd: 0.000009, currency: "USD" },
   ]);
   assert.equal(projection.has("acme/image-e"), false);
   assert.deepEqual(catalog.state(), { enabled: true, url: COST_URL, fetchedAt: 1_000, version: 3 });
@@ -500,6 +513,22 @@ test("統合 refresh は価格と visible をマージし、無効なモデル�
           masterOf([
             priceRow(),
             priceRow({ modelId: "acme/image-b", costUsd: 0.25, enabled: false, note: "高価" }),
+            // 画像は入力側を表示しない
+            priceRow({ modelId: "acme/image-a", billable: "input_text", unit: "character", costUsd: 0.00002 }),
+            // 音声は入力と出力の両方を写す
+            priceRow({
+              modelId: "google/gemini-3.8-flash-tts",
+              billable: "input_text",
+              unit: "character",
+              costUsd: 0.000015,
+              note: "音声",
+            }),
+            priceRow({
+              modelId: "google/gemini-3.8-flash-tts",
+              billable: "output_audio",
+              unit: "minute",
+              costUsd: 0.15,
+            }),
             // live に無いモデルは一覧へ足さない
             priceRow({ modelId: "acme/ghost" }),
           ]),
@@ -513,7 +542,7 @@ test("統合 refresh は価格と visible をマージし、無効なモデル�
         await bff.app.request("/api/settings/content/cost-url", jsonPut({ enabled: true, url: COST_URL })),
       );
       assert.equal(saved.state, "applied");
-      assert.deepEqual(saved.image.cost, { enabled: true, url: COST_URL, fetchedAt: null, version: null });
+      assert.deepEqual(saved.cost, { enabled: true, url: COST_URL, fetchedAt: null, version: null });
       assert.equal(costFetches, 0, "保存では取得しない");
 
       const refreshed = await jsonBody(
@@ -521,23 +550,45 @@ test("統合 refresh は価格と visible をマージし、無効なモデル�
       );
       assert.deepEqual(refreshed.errors, {});
       assert.equal(costFetches, 1);
-      assert.deepEqual(refreshed.image.cost, {
+      assert.deepEqual(refreshed.cost, {
         enabled: true,
         url: COST_URL,
-        fetchedAt: Number(refreshed.image.cost.fetchedAt),
+        fetchedAt: Number(refreshed.cost.fetchedAt),
         version: 3,
       });
-      assert.equal(typeof refreshed.image.cost.fetchedAt, "number");
+      assert.equal(typeof refreshed.cost.fetchedAt, "number");
       assert.deepEqual(
         refreshed.image.models.map((model: any) => [model.id, model.visible, model.prices]),
         [
-          ["acme/image-a", true, [{ unit: "image", variant: "", costUsd: 0.04, currency: "USD" }]],
-          ["acme/image-b", false, [{ unit: "image", variant: "", costUsd: 0.25, currency: "USD" }]],
+          ["acme/image-a", true, [{ unit: "image", side: "output", variant: "", costUsd: 0.04, currency: "USD" }]],
+          ["acme/image-b", false, [{ unit: "image", side: "output", variant: "", costUsd: 0.25, currency: "USD" }]],
           ["acme/image-c", true, []],
         ],
       );
       assert.equal(refreshed.image.models[1].note, "高価", "無効の理由を画面へ渡す");
       assert.ok(!refreshed.image.models.some((model: any) => model.id === "acme/ghost"), "一覧の正は live");
+      assert.deepEqual(
+        refreshed.speech.models.map((model: any) => [model.id, model.visible, model.note]),
+        [["google/gemini-3.8-flash-tts", true, "音声"]],
+      );
+      assert.deepEqual(
+        refreshed.speech.models[0].prices,
+        [
+          { unit: "character", side: "input", variant: "", costUsd: 0.000015, currency: "USD" },
+          { unit: "minute", side: "output", variant: "", costUsd: 0.15, currency: "USD" },
+        ],
+        "音声は入力と出力の両方を返す",
+      );
+
+      // 変更系の応答（#applied）にも同じ価格が乗る
+      const speechSaved = await jsonBody(
+        await bff.app.request(
+          "/api/settings/content/speech",
+          jsonPut({ model: "google/gemini-3.8-flash-tts", voice: "Zephyr" }),
+        ),
+      );
+      assert.equal(speechSaved.state, "applied");
+      assert.deepEqual(speechSaved.speech.models[0].prices, refreshed.speech.models[0].prices);
 
       // visible: false は表示の投影だけで、保存の照合には影響しない
       const selected = await bff.app.request(
@@ -557,10 +608,12 @@ test("統合 refresh は価格と visible をマージし、無効なモデル�
       const off = await jsonBody(
         await bff.app.request("/api/settings/content/cost-url", jsonPut({ enabled: false, url: COST_URL })),
       );
-      assert.equal(off.image.cost.enabled, false);
-      assert.equal(typeof off.image.cost.fetchedAt, "number", "停止中でも前回取得を返す");
+      assert.equal(off.cost.enabled, false);
+      assert.equal(typeof off.cost.fetchedAt, "number", "停止中でも前回取得を返す");
       assert.ok(off.image.models.every((model: any) => model.visible === true));
       assert.ok(off.image.models.every((model: any) => model.prices.length === 0));
+      assert.ok(off.speech.models.every((model: any) => model.prices.length === 0));
+      assert.ok(off.speech.models.every((model: any) => model.visible === true));
 
       const refreshedOff = await jsonBody(
         await bff.app.request("/api/settings/content/catalog/refresh", { method: "POST" }),
@@ -603,8 +656,8 @@ test("cost-url の検証は ON の URL 必須と接続先の形を見て、失�
       const failed = await jsonBody(await bff.app.request("/api/settings/content/catalog/refresh", { method: "POST" }));
       assert.deepEqual(failed.errors, { cost: COST_CATALOG_ERROR_RATE_LIMITED });
       assert.ok(!JSON.stringify(failed.errors).includes(COST_URL), "失敗の文言に接続先を出さない");
-      assert.equal(failed.image.cost.enabled, true);
-      assert.equal(failed.image.cost.fetchedAt, null, "取得できていないので前回値は無い");
+      assert.equal(failed.cost.enabled, true);
+      assert.equal(failed.cost.fetchedAt, null, "取得できていないので前回値は無い");
       assert.ok(failed.image.models.every((model: any) => model.prices.length === 0));
       assert.ok(failed.image.models.every((model: any) => model.visible === true));
     } finally {
@@ -624,6 +677,7 @@ test("URL が一致しない価格スナップショットは現在値として�
       {
         modelId: "acme/image-a",
         unit: "image",
+        side: "output",
         variant: "",
         costUsd: 0.04,
         currency: "USD",

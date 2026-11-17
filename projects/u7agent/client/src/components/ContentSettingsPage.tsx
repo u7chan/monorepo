@@ -10,7 +10,7 @@ import {
 } from "../lib/contentSettings";
 import { tabIndicator, trialKindSubsection } from "../lib/contentTrials";
 import { CONTENT_SUBSECTIONS, DEFAULT_CONTENT_SUBSECTION, type ContentSubsection } from "../lib/settingsNav";
-import { ContentSettingsTab } from "./content-settings/ContentSettingsTab";
+import { ContentCostSection, ContentSettingsTab } from "./content-settings/ContentSettingsTab";
 import { ContentKeySection } from "./content-settings/ContentKeySection";
 import { useConfirm } from "./ConfirmProvider";
 import { ProviderBadgeTag } from "./model-settings/ProviderBadgeTag";
@@ -95,10 +95,17 @@ export function ContentSettingsView({
   // キーの入力は带の下に出し、[変更] で開く。未設定のときは最初から開けて、最初の 1 手を探させない
   const [apiKey, setApiKey] = useState("");
   const [keyOpenDraft, setKeyOpenDraft] = useState<boolean | null>(null);
+  // コスト URL と ON/OFF は画像・音声で共有するため、タブの外（帯）に置く。null はサーバー値へ追随する
+  const [costOpen, setCostOpen] = useState(false);
+  const [costDraft, setCostDraft] = useState<{ enabled: boolean; url: string } | null>(null);
   const confirm = useConfirm();
   const keyOpen = keyOpenDraft ?? settings?.configured === false;
   const providerName = settings === null ? "" : contentProviderLabel(settings.provider);
   const keyError = settings === null ? null : contentKeyErrorNotice(settings);
+  // 価格を出す面（画像が OpenRouter のとき / 音声）だけに、コスト表示の入口を出す
+  const showCost =
+    settings !== null &&
+    (contentSubsection === "speech" || (contentSubsection === "image" && settings.image.provider === "openrouter"));
 
   const submitKey = async () => {
     setApiKey(keyDraftAfterSave(apiKey, await saveKey(apiKey)));
@@ -198,6 +205,23 @@ export function ContentSettingsView({
                       {keyOpen ? "閉じる" : settings.keyStored ? "変更" : "登録"}
                     </button>
                   </span>
+                  {showCost ? (
+                    <>
+                      <span aria-hidden="true" className="h-4 w-px bg-line-strong" />
+                      <span className="flex flex-wrap items-center gap-1.5 text-2xs text-ink-soft">
+                        コスト表示
+                        <button
+                          type="button"
+                          className="link-quiet"
+                          aria-expanded={costOpen}
+                          aria-label="コストマスタの設定"
+                          onClick={() => setCostOpen(!costOpen)}
+                        >
+                          {costOpen ? "閉じる" : "設定"}
+                        </button>
+                      </span>
+                    </>
+                  ) : null}
                 </div>
               )
             }
@@ -234,6 +258,18 @@ export function ContentSettingsView({
                 onChange={setApiKey}
                 onSubmit={submitKey}
                 onRemove={removeKey}
+              />
+            </div>
+          ) : null}
+          {/* コストの設定は帯の下に開く。価格を出さない面では入口ごと出さない（帯の左をタブ依存にしない） */}
+          {settings !== null && showCost && costOpen ? (
+            <div className="border-b border-line bg-soft px-4 py-2.5">
+              <ContentCostSection
+                settings={settings}
+                busy={saving !== null}
+                draft={costDraft}
+                onChangeDraft={setCostDraft}
+                onSave={saveCost}
               />
             </div>
           ) : null}
@@ -279,7 +315,6 @@ export function ContentSettingsView({
           }}
           onSaveSelection={saveSelection}
           onSaveSpeech={saveSpeech}
-          onSaveCost={saveCost}
           onRefreshCatalog={() => void refreshCatalog()}
           trials={contentTrials.trials}
           onSelectContentSubsection={onSelectContentSubsection}

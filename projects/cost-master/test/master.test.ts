@@ -33,11 +33,11 @@ describe("parsePriceFile", () => {
     });
   });
 
-  test("出力側でない行・未知 unit・負や非数値の単価・空の modelId を落とす", () => {
+  test("許可外の billable・未知 unit・負や非数値の単価・空の modelId を落とす", () => {
     const parsed = parsePriceFile(
       priceFile([
         { ...ROW, billable: "input_image" },
-        { ...ROW, billable: "input_text", unit: "token" },
+        { ...ROW, billable: "output_video" },
         { ...ROW, unit: "second" },
         { ...ROW, costUsd: -0.01 },
         { ...ROW, costUsd: "0.06" },
@@ -58,6 +58,20 @@ describe("parsePriceFile", () => {
       "model-id",
       "variant",
       "shape",
+    ]);
+  });
+
+  test("音声の入力・出力の行を受け付ける", () => {
+    const parsed = parsePriceFile(
+      priceFile([
+        { modelId: "tts/a", billable: "input_text", unit: "character", variant: "", costUsd: 0.000015 },
+        { modelId: "tts/a", billable: "output_audio", unit: "minute", variant: "", costUsd: 0.15 },
+      ]),
+    );
+
+    expect(parsed.ok && parsed.rows).toEqual([
+      { modelId: "tts/a", billable: "input_text", unit: "character", variant: "", costUsd: 0.000015 },
+      { modelId: "tts/a", billable: "output_audio", unit: "minute", variant: "", costUsd: 0.15 },
     ]);
   });
 

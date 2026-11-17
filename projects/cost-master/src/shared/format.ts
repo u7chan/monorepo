@@ -1,27 +1,25 @@
-const UNIT_SUFFIX: Record<string, string> = {
-  image: "/枚",
-  megapixel: "/MP",
-  token: "/1M tok",
-  request: "/回",
+const UNIT_FORMAT: Record<string, { suffix: string; scale: number }> = {
+  image: { suffix: "/枚", scale: 1 },
+  megapixel: { suffix: "/MP", scale: 1 },
+  token: { suffix: "/1M tok", scale: 1_000_000 },
+  character: { suffix: "/1M 文字", scale: 1_000_000 },
+  byte: { suffix: "/1M bytes", scale: 1_000_000 },
+  minute: { suffix: "/分", scale: 1 },
+  request: { suffix: "/回", scale: 1 },
 };
-
-/** token 建ては 1 枚の実額ではないため、1M token あたりに揃えて桁を読めるようにする */
-const TOKEN_SCALE = 1_000_000;
 
 /**
  * `$` を付けた単価。未知の `unit` は整形しない（サーバーが落としている前提の防御）。
  * 6 桁で切るのは、上流の最小単価（$0.000006）でも 0 に潰れないため。
  */
 export function formatCost(costUsd: number, unit: string): string {
-  const suffix = UNIT_SUFFIX[unit];
+  const format = UNIT_FORMAT[unit];
 
-  if (suffix === undefined || !Number.isFinite(costUsd) || costUsd < 0) {
+  if (format === undefined || !Number.isFinite(costUsd) || costUsd < 0) {
     return "--";
   }
 
-  const value = unit === "token" ? costUsd * TOKEN_SCALE : costUsd;
-
-  return `$${trimFraction(value)}${suffix}`;
+  return `$${trimFraction(costUsd * format.scale)}${format.suffix}`;
 }
 
 function trimFraction(value: number): string {

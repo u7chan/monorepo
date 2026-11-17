@@ -30,6 +30,7 @@ const CONTENT_SETTINGS: ContentSettingsResponse = {
   disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
   runtimeAvailable: true,
   bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
+  cost: { enabled: false, url: null, fetchedAt: null, version: null },
   image: {
     model: "openai/gpt-image-2",
     provider: "openrouter",
@@ -48,7 +49,6 @@ const CONTENT_SETTINGS: ContentSettingsResponse = {
     catalogSource: "live",
     fetchedAt: null,
     parametersByModel: {},
-    cost: { enabled: false, url: null, fetchedAt: null, version: null },
   },
   speech: {
     model: "google/gemini-3.8-flash-tts",
@@ -59,6 +59,9 @@ const CONTENT_SETTINGS: ContentSettingsResponse = {
         id: "google/gemini-3.8-flash-tts",
         name: "Google: Gemini 3.8 Flash TTS",
         voices: ["Zephyr", "Kore"],
+        prices: [],
+        visible: true,
+        note: null,
       },
     ],
     catalogSource: "live",
@@ -141,6 +144,16 @@ function render(
     ),
   );
 }
+
+test("コスト設定の入口は価格を出す面だけに出す", () => {
+  assert.ok(render(contentSettings(), { contentSubsection: "image" }).includes("コスト表示"));
+  assert.ok(render(contentSettings(), { contentSubsection: "speech" }).includes("コスト表示"));
+  assert.equal(render(contentSettings(), { contentSubsection: "bgm" }).includes("コスト表示"), false);
+  const codex = contentSettings({
+    settings: { ...CONTENT_SETTINGS, image: { ...CONTENT_SETTINGS.image, provider: "codex" } },
+  });
+  assert.equal(render(codex, { contentSubsection: "image" }).includes("コスト表示"), false);
+});
 
 test("設定済みでは画像・TTS・BGM・履歴のタブを出し、既定は画像生成", () => {
   const html = render(contentSettings());

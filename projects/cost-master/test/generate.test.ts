@@ -25,7 +25,7 @@ function stubFetch(routes: Record<string, () => Response>): typeof fetch {
 }
 
 function run(routes: Record<string, () => Response>, previous: PriceMasterFile | null = null): Promise<GenerateResult> {
-  return generatePrices({ fetchImpl: stubFetch(routes), previous, now: () => NOW });
+  return generatePrices({ fetchImpl: stubFetch(routes), previous, now: () => NOW, speech: false });
 }
 
 function ok(result: GenerateResult): Extract<GenerateResult, { ok: true }> {
