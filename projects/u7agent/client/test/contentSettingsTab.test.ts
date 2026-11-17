@@ -106,6 +106,7 @@ function render(
         onSaveSelection: async () => true,
         onSaveSpeech: async () => true,
         onSaveCost: async () => true,
+        onRefreshCatalog: () => {},
         trials: options.trials ?? [],
         trialDetail: options.trialDetail !== undefined ? options.trialDetail : (options.trials?.[0] ?? null),
         trialHasMore: options.trialHasMore ?? false,
@@ -1223,7 +1224,33 @@ test("モデル欄に価格とメモを出し、一覧に出していない件�
   assert.ok(html.includes("Acme B（一覧に出していません・保存済み）"), "現在値は選択肢に残す");
   assert.ok(html.includes("保存中のモデルはコストマスタで一覧に出さない設定です"));
   assert.ok(html.includes("高価"), "マスタのメモを出す");
-  assert.equal(html.includes(">カタログ更新</button>"), false, "カタログ更新は本文に置かない");
+});
+
+test("[カタログ更新] は一覧を持つ面にだけ置き、Codex と BGM では出さない", () => {
+  const image = render();
+  assert.equal((image.match(/>カタログ更新<\/button>/g) ?? []).length, 1, "画像タブ（OpenRouter）に 1 つだけ");
+  assert.ok(
+    image.indexOf("カタログ更新") > image.indexOf('aria-label="コンテンツ生成のモデル"'),
+    "一覧の出どころの行に置く（モデルの選択より後）",
+  );
+
+  // Codex は画像モデルの一覧を出さないので、押す対象が無い。無効化ではなく面ごと出さない
+  assert.equal(render({ image: { provider: "codex", models: [] } }).includes("カタログ更新"), false);
+  assert.equal(render({ subsection: "bgm" }).includes("カタログ更新"), false, "BGM は一覧を持たない");
+  // 音声の一覧も OpenRouter のカタログ由来なので、画像が Codex でも要る
+  assert.equal((render({ subsection: "speech" }).match(/>カタログ更新<\/button>/g) ?? []).length, 1);
+
+  const refreshing = render({ saving: "catalog" });
+  assert.match(
+    refreshing,
+    /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*更新中/,
+    "取得中は [更新中] にして押せなくする",
+  );
+  assert.match(
+    render({ saving: "selection" }),
+    /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*カタログ更新/,
+    "別の保存の実行中も重ねない",
+  );
 });
 
 test("コストURLは OFF の間だけ非活性にし、停止中は価格の代わりに由来へ出す", () => {
@@ -1236,6 +1263,9 @@ test("コストURLは OFF の間だけ非活性にし、停止中は価格の代
   assert.match(off, /aria-label="コストマスタのURL"[^>]*disabled=""/, "OFF では URL を編集させない");
   assert.ok(off.includes("コスト表示は停止中"), "停止中を由来に出す");
   assert.ok(off.includes("価格 --"), "価格は出さない（-- へ倒す）");
+  // 価格を出すのは画像タブだけなので、コストマスタの設定もそこにだけ置く
+  assert.equal(render({ subsection: "speech" }).includes("コスト表示"), false, "音声タブには出さない");
+  assert.equal(render({ subsection: "bgm" }).includes("コスト表示"), false, "BGM タブには出さない");
 
   const unset = render({ image: { cost: { enabled: false, url: null, fetchedAt: null, version: null } } });
   assert.equal(unset.includes("コスト表示は停止中"), false, "未設定を停止中と混同しない");

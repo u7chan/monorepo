@@ -125,31 +125,22 @@ export function ContentSettingsView({
           ? "画像・音声・BGM の試行をまとめて確認します。チャットの生成は含みません。"
           : "画像・音声・BGMの生成に使う OpenRouter のAPIキーとモデルを確認・設定します。"
       }
-      // タブが無い（未設定 / 取得前）間も取り直せるよう、面のツールバーは常に出す
+      // タブが無い（未設定 / 取得前）間も取り直せるよう、面のツールバーは常に出す。
+      // 帯に置く取り直しは [再読み込み] だけにする: 上流から取り直す [カタログ更新] は、
+      // 一覧の出どころを書いている行（各タブのモデル節）に置き、一覧を持たない面には出さない
       toolbar={
         <TabToolbar
           actions={
-            // 上流から取り直す操作と、表示を作り直すだけの操作を別の行に分ける（ui-layout.md）
-            <div className="grid justify-items-end gap-1.5">
-              <button
-                type="button"
-                className="btn-quiet"
-                disabled={saving !== null}
-                onClick={() => void refreshCatalog()}
-              >
-                {saving === "catalog" ? "更新中" : "カタログ更新"}
-              </button>
-              <ReloadButton
-                onClick={() => {
-                  void reload();
-                  // 試行の一覧も同じ面の操作として取り直す（取得中の試行はポーリングが拾う）
-                  void contentTrials.reload();
-                }}
-                disabled={reloading}
-              >
-                再読み込み
-              </ReloadButton>
-            </div>
+            <ReloadButton
+              onClick={() => {
+                void reload();
+                // 試行の一覧も同じ面の操作として取り直す（取得中の試行はポーリングが拾う）
+                void contentTrials.reload();
+              }}
+              disabled={reloading}
+            >
+              再読み込み
+            </ReloadButton>
           }
         />
       }
@@ -183,6 +174,7 @@ export function ContentSettingsView({
           onSaveSelection={saveSelection}
           onSaveSpeech={saveSpeech}
           onSaveCost={saveCost}
+          onRefreshCatalog={() => void refreshCatalog()}
           trials={contentTrials.trials}
           onSelectContentSubsection={onSelectContentSubsection}
           trialDetail={contentTrials.detail}

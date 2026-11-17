@@ -297,10 +297,12 @@ test("BGM のタブにも実行中と新着の印を出し、開けば消える"
   assert.equal(cleared.includes("（新しい結果があります）"), false);
 });
 
-test("帯の操作はカタログ更新と再読み込みを別の行に分け、取り直しの入口を 1 つに見せる", () => {
+test("帯の操作は再読み込みだけにし、上流から取り直す操作は一覧の出どころの行へ置く", () => {
   const html = render(contentSettings());
-  assert.equal((html.match(/>カタログ更新<\/button>/g) ?? []).length, 1, "カタログ更新は帯に 1 つだけ");
-  assert.equal((html.match(/>再読み込み<\/button>/g) ?? []).length, 1, "再読み込みは帯に 1 つだけ");
-  assert.ok(html.indexOf("カタログ更新") < html.indexOf("再読み込み"), "上流から取り直す操作を先に置く");
-  assert.match(html, /class="grid justify-items-end gap-1\.5"/, "別の行に分ける");
+  assert.equal((html.match(/>再読み込み<\/button>/g) ?? []).length, 1, "帯の取り直しは再読み込み 1 つだけ");
+  assert.equal((html.match(/>カタログ更新<\/button>/g) ?? []).length, 1, "カタログ更新は本文に 1 つだけ");
+  // 本文の先頭 (画像モデルの選択) より上 = 帯。カタログ更新はその下の一覧の出どころの行に置く
+  const body = html.indexOf('aria-label="コンテンツ生成のモデル"');
+  assert.ok(html.indexOf("再読み込み") < body, "再読み込みは帯に残す");
+  assert.ok(html.indexOf("カタログ更新") > body, "カタログ更新は一覧の出どころの行に置く");
 });

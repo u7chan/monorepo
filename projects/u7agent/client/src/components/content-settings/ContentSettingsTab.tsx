@@ -69,6 +69,7 @@ import type {
   UpdateContentSpeechBody,
 } from "../../types";
 import { CollapsibleNotice } from "../CollapsibleNotice";
+import { CatalogRefreshButton } from "./CatalogRefreshButton";
 import { Fold } from "../Fold";
 import { ArrowRightIcon, CheckIcon, ChevronDownIcon, GearIcon, TrashIcon } from "../icons";
 import { useConfirm } from "../ConfirmProvider";
@@ -101,6 +102,11 @@ export type ContentSettingsTabProps = {
   onSaveSpeech: (input: UpdateContentSpeechBody) => Promise<boolean>;
   /** コストマスタの接続先とトグル。保存時に取得しない */
   onSaveCost: (input: UpdateContentCostBody) => Promise<boolean>;
+  /**
+   * 上流からモデル一覧と価格を取り直す 1 操作。一覧を持つ面（画像 / 音声）だけに置くので、
+   * 帯ではなく各面のモデル節へ渡す
+   */
+  onRefreshCatalog: () => void;
   /** タブを切り替える（履歴への導線と、履歴から生成タブへ戻す導線） */
   onSelectContentSubsection?: (subsection: ContentSubsection) => void;
   /** 試行の一覧（要約。取得前は null）。表示する種別はタブが決める */
@@ -151,6 +157,7 @@ export function ContentSettingsTab({
   onSaveSelection,
   onSaveSpeech,
   onSaveCost,
+  onRefreshCatalog,
   onSelectContentSubsection,
   trials,
   trialDetail,
@@ -437,14 +444,6 @@ export function ContentSettingsTab({
                   )}
                 </section>
 
-                <ContentCostSection
-                  settings={settings}
-                  busy={busy}
-                  draft={costDraft}
-                  onChangeDraft={setCostDraft}
-                  onSave={onSaveCost}
-                />
-
                 {keyVisible ? keySection : null}
                 {imageProvider === "codex" ? (
                   <p className="text-2xs leading-relaxed text-ink-muted">{SPEECH_NEEDS_OPENROUTER_KEY_NOTE}</p>
@@ -461,6 +460,11 @@ export function ContentSettingsTab({
                       defaultsDraft={imageDefaultsDraft}
                       onChangeDefaultsDraft={setImageDefaultsDraft}
                       onSave={onSaveSelection}
+                      costDraft={costDraft}
+                      onChangeCostDraft={setCostDraft}
+                      onSaveCost={onSaveCost}
+                      catalogRefreshing={saving === "catalog"}
+                      onRefreshCatalog={onRefreshCatalog}
                       trials={trials}
                       trialKeyEpoch={trialKeyEpoch}
                       trialNow={trialNow}
@@ -473,6 +477,8 @@ export function ContentSettingsTab({
                     draft={speechDraft}
                     onChangeDraft={setSpeechDraft}
                     onSave={onSaveSpeech}
+                    catalogRefreshing={saving === "catalog"}
+                    onRefreshCatalog={onRefreshCatalog}
                     selection={speechSelectionOfScreen}
                     trials={trials}
                     keyEpoch={trialKeyEpoch}
@@ -855,6 +861,11 @@ function ImageModelSection({
   defaultsDraft,
   onChangeDefaultsDraft,
   onSave,
+  costDraft,
+  onChangeCostDraft,
+  onSaveCost,
+  catalogRefreshing,
+  onRefreshCatalog,
   trials,
   trialKeyEpoch,
   trialNow,
@@ -868,6 +879,13 @@ function ImageModelSection({
   defaultsDraft: ImageDefaultsDraft | null;
   onChangeDefaultsDraft: (draft: ImageDefaultsDraft | null) => void;
   onSave: (input: UpdateContentImageBody) => Promise<boolean>;
+  /** コストマスタの下書き。価格を出すのはこの面だけなので、共有カードではなくここへ置く */
+  costDraft: { enabled: boolean; url: string } | null;
+  onChangeCostDraft: (draft: { enabled: boolean; url: string } | null) => void;
+  onSaveCost: (input: UpdateContentCostBody) => Promise<boolean>;
+  /** [カタログ更新] の実行中。一覧と価格の取得は 1 本なので、帯ではなくこの面の状態で示す */
+  catalogRefreshing: boolean;
+  onRefreshCatalog: () => void;
   trials: readonly ContentTrialSummary[] | null;
   trialKeyEpoch: number;
   trialNow: number;
@@ -1017,13 +1035,23 @@ function ImageModelSection({
       </div>
       {/* キーの有効性は緑のバッジにせず、現在のキー世代と選択中モデルの実績だけを証拠として出す */}
       <EvidenceLine trials={trials} model={selectedModel} keyEpoch={trialKeyEpoch} now={trialNow} />
-      <div className="flex flex-wrap items-center gap-2">
+      {/* 価格を出すのはこの面だけなので、コストマスタの接続先もここに置く（音声 / BGM には出さない） */}
+      <ContentCostSection
+        settings={settings}
+        busy={busy}
+        draft={costDraft}
+        onChangeDraft={onChangeCostDraft}
+        onSave={onSaveCost}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
         {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
         <p className="min-w-0">
           <MetaChip wrap tone={settings.image.catalogSource === "live" ? "muted" : "warn"}>
             {imageCatalogNotice(settings.image)}
           </MetaChip>
         </p>
+        {/* 一覧の出どころを書いている行に、その一覧を取り直す操作を置く */}
+        <CatalogRefreshButton refreshing={catalogRefreshing} disabled={busy} onClick={onRefreshCatalog} />
       </div>
     </section>
   );
@@ -1039,6 +1067,8 @@ function SpeechModelSection({
   draft,
   onChangeDraft,
   onSave,
+  catalogRefreshing,
+  onRefreshCatalog,
   selection,
   trials,
   keyEpoch,
@@ -1049,6 +1079,9 @@ function SpeechModelSection({
   draft: SpeechDraft;
   onChangeDraft: (draft: SpeechDraft) => void;
   onSave: (input: UpdateContentSpeechBody) => Promise<boolean>;
+  /** [カタログ更新] の実行中。音声の一覧も OpenRouter のカタログ由来なので、画像が Codex でも出す */
+  catalogRefreshing: boolean;
+  onRefreshCatalog: () => void;
   /** 画面のモデル / ボイス。保存フォーム・証拠・試行で同じ解決を使う */
   selection: SpeechScreenSelection;
   trials: readonly ContentTrialSummary[] | null;
@@ -1121,13 +1154,15 @@ function SpeechModelSection({
         出力形式は選ばず、provider が返した形式（mp3 /
         wav）で保存します。読み上げる文章だけを渡し、演技指示は本文に書かせません。長文は分けて複数回呼ばせます。
       </p>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
         <p className="min-w-0">
           <MetaChip wrap tone={settings.speech.catalogSource === "live" ? "muted" : "warn"}>
             {speechCatalogNotice(settings.speech)}
           </MetaChip>
         </p>
+        {/* 音声の一覧も同じカタログから来るので、一覧の出どころの行に取り直しを置く */}
+        <CatalogRefreshButton refreshing={catalogRefreshing} disabled={busy} onClick={onRefreshCatalog} />
       </div>
     </section>
   );
