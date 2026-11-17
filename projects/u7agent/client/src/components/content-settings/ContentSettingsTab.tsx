@@ -1,14 +1,11 @@
 import { useState } from "react";
 import {
-  deleteContentKeyConfirmRequest,
   imageCatalogNotice,
   imageCostNotice,
   hiddenImageModelCount,
   imageModelVisibilityNotice,
   imagePriceDisplay,
   visibleImageModelOptions,
-  contentKeyErrorNotice,
-  contentKeyStatusBadge,
   CONTENT_IMAGE_PROVIDER_HEADING,
   IMAGE_DEFAULT_NONE_LABEL,
   IMAGE_DEFAULT_NOTE,
@@ -18,7 +15,6 @@ import {
   imageAuthNotice,
   imageDefaultClearSelection,
   imageDefaultsScreen,
-  imageKeySectionVisible,
   imageModelSectionVisible,
   imageModelOptions,
   imageModelSelection,
@@ -28,7 +24,6 @@ import {
   SPEECH_NEEDS_OPENROUTER_KEY_NOTE,
   contentProviderId,
   contentProviderLabel,
-  keyDraftAfterSave,
   speechCatalogNotice,
   speechSaveDisabled,
   speechScreenSelection,
@@ -53,7 +48,6 @@ import {
   pruneImageTrialParameters,
   type ImageParameterDraft,
 } from "../../lib/imageParameters";
-import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import { cn } from "../../lib/cn";
 import type { ContentSubsection } from "../../lib/settingsNav";
 import type {
@@ -69,9 +63,9 @@ import type {
   UpdateContentSpeechBody,
 } from "../../types";
 import { CollapsibleNotice } from "../CollapsibleNotice";
+import { CatalogRefreshButton } from "./CatalogRefreshButton";
 import { Fold } from "../Fold";
 import { ArrowRightIcon, CheckIcon, ChevronDownIcon, GearIcon, TrashIcon } from "../icons";
-import { useConfirm } from "../ConfirmProvider";
 import { ProviderIcon } from "../ProviderIcon";
 import { SelectField } from "../SelectField";
 import { ToggleSwitch } from "../ToggleSwitch";
@@ -91,16 +85,17 @@ export type ContentSettingsTabProps = {
   singleColumn?: boolean;
   /** 実行中の操作。null なら操作なし */
   saving: ContentSavingAction | null;
-  /** 有効 / 無効（画像・音声・BGM 共通の 1 つのトグル）。キーと選択は残したまま止められる */
-  onSetEnabled: (enabled: boolean) => Promise<boolean>;
-  onSaveKey: (apiKey: string) => Promise<boolean>;
-  onDeleteKey: () => Promise<boolean>;
   /** 画像の生成元（OpenRouter / Codex）を切り替える。キーもモデルも伴わない */
   onSaveImageProvider: (provider: ImageGenerationProvider) => Promise<boolean>;
   onSaveSelection: (input: UpdateContentImageBody) => Promise<boolean>;
   onSaveSpeech: (input: UpdateContentSpeechBody) => Promise<boolean>;
   /** コストマスタの接続先とトグル。保存時に取得しない */
   onSaveCost: (input: UpdateContentCostBody) => Promise<boolean>;
+  /**
+   * 上流からモデル一覧と価格を取り直す 1 操作。一覧を持つ面（画像 / 音声）だけに置くので、
+   * 帯ではなく各面のモデル節へ渡す
+   */
+  onRefreshCatalog: () => void;
   /** タブを切り替える（履歴への導線と、履歴から生成タブへ戻す導線） */
   onSelectContentSubsection?: (subsection: ContentSubsection) => void;
   /** 試行の一覧（要約。取得前は null）。表示する種別はタブが決める */
@@ -134,23 +129,21 @@ export type ContentSettingsTabProps = {
 };
 
 /**
- * 設定 → コンテンツ生成の本文。生成タブは「設定（キー・有効/無効・モデル）」と
+ * 設定 → コンテンツ生成の本文。生成タブは「タブ固有の設定（モデル・ボイス・既定）」と
  * 「設定に反映しない 1 回の試行 + 直近の結果」だけを持ち、履歴は専用のタブ（`TrialHistoryTab`）へ分ける。
+ * 有効 / 無効とAPIキーはアプリ全体（3 種別共通）の設定なので、この本文ではなくページの帯が持つ。
  * `PUT /api/settings/content/image` と `.../speech` は行が無いと 400 のため、モデル選択はキー保存に成功してから現れる。
- * APIキーは画像と音声で 1 つ共有する（音声だけを無効にするトグルは持たない）。
  */
 export function ContentSettingsTab({
   settings,
   contentSubsection,
   singleColumn = false,
   saving,
-  onSetEnabled,
-  onSaveKey,
-  onDeleteKey,
   onSaveImageProvider,
   onSaveSelection,
   onSaveSpeech,
   onSaveCost,
+  onRefreshCatalog,
   onSelectContentSubsection,
   trials,
   trialDetail,
@@ -169,9 +162,6 @@ export function ContentSettingsTab({
   onDeleteTrial,
   onDeleteAllTrials,
 }: ContentSettingsTabProps) {
-  // 保存したキーは再表示しないため、入力は常に空から始め、保存できたときだけ消す
-  const confirm = useConfirm();
-  const [apiKey, setApiKey] = useState("");
   // 面の下書きはこの画面が持ち続ける。面をタブで出し分けても unmount しないため、未保存の選択を失わない
   const [imageDraft, setImageDraft] = useState<string | null>(null);
   // 既定のパラメータの下書きも面を切り替えて失わないよう、この画面が持つ（モデルごとに組で持つ）
@@ -196,9 +186,6 @@ export function ContentSettingsTab({
   // 音声タブのモデル / ボイスも画面の値（下書き優先）。未設定でも履歴を出すため、タブの外側で解決する
   const speechSelectionOfScreen = speechScreenSelection(settings, speechDraft);
   const busy = saving !== null;
-  const runtimeAvailable = settings.runtimeAvailable;
-  const providerName = contentProviderLabel(settings.provider);
-  const keyError = contentKeyErrorNotice(settings);
   const capacityWarning = trialCapacityWarningNote(trialArtifactWarning);
   // モデルを切り替えたら、新しい宣言に無いキーを下書きから落とす（隠れた値が要求に残ると 400 になる）。
   // 落とすのは画面の state だけで、保存値には触らない
@@ -217,16 +204,6 @@ export function ContentSettingsTab({
   }
   // キーを消したら設定パネルも閉じる（開いたままの空のフォームを残さない）
   if (!settings.configured && settingsOpen) setSettingsOpen(false);
-
-  const submitKey = async () => {
-    setApiKey(keyDraftAfterSave(apiKey, await onSaveKey(apiKey)));
-  };
-
-  const removeKey = async () => {
-    if (!(await confirm(deleteContentKeyConfirmRequest(providerName)))) return;
-    // 削除できたときだけ入力を捨てる (失敗時に打ちかけの値を消さない)
-    if (await onDeleteKey()) setApiKey("");
-  };
 
   // 試行の結果を既定へ上げる。保存できたら下書きを捨て、画面を保存値へ追随させる（未保存表示を残さない）
   const saveTrialModel = async (input: UpdateContentImageBody): Promise<boolean> => {
@@ -311,60 +288,72 @@ export function ContentSettingsTab({
     );
   }
 
+  const providerName = contentProviderLabel(settings.provider);
   const imageProvider = settings.image.provider;
-  const keyVisible = contentSubsection !== "image" || imageKeySectionVisible(imageProvider);
-  const settingsSummary = [
-    settings.enabled ? "有効" : "無効",
-    settings.keyStored ? (settings.keyAvailable ? "キー設定済み" : "キーを利用できません") : "キー未設定",
+  // 設定は既定で畳む。タブ固有の設定（モデル・ボイス・既定）だけを入れ、
+  // アプリ全体の有効 / 無効とAPIキーはページの帯が持つ
+  const tabSettings =
+    contentSubsection === "image" ? (
+      // Codex は画像モデルを選ばないため、画像タブでは何も出さない（BGM の欄へ落とさない）
+      imageModelSectionVisible(imageProvider) ? (
+        <ImageModelSection
+          settings={settings}
+          busy={busy}
+          selectedModel={screenModel}
+          onChangeDraft={setImageDraft}
+          defaultsDraft={imageDefaultsDraft}
+          onChangeDefaultsDraft={setImageDefaultsDraft}
+          onSave={onSaveSelection}
+          costDraft={costDraft}
+          onChangeCostDraft={setCostDraft}
+          onSaveCost={onSaveCost}
+          catalogRefreshing={saving === "catalog"}
+          onRefreshCatalog={onRefreshCatalog}
+          trials={trials}
+          trialKeyEpoch={trialKeyEpoch}
+          trialNow={trialNow}
+        />
+      ) : null
+    ) : contentSubsection === "speech" ? (
+      <SpeechModelSection
+        settings={settings}
+        busy={busy}
+        draft={speechDraft}
+        onChangeDraft={setSpeechDraft}
+        onSave={onSaveSpeech}
+        catalogRefreshing={saving === "catalog"}
+        onRefreshCatalog={onRefreshCatalog}
+        selection={speechSelectionOfScreen}
+        trials={trials}
+        keyEpoch={trialKeyEpoch}
+        trialNow={trialNow}
+      />
+    ) : (
+      <BgmModelSection settings={settings} trials={trials} keyEpoch={trialKeyEpoch} now={trialNow} />
+    );
+  // 要約はタブ固有の値だけにする（有効 / 無効とキーは帯が常に出している）
+  const settingsSummary =
     contentSubsection === "image"
-      ? imageProvider === "codex"
-        ? "Codex（画像モデル不明）"
-        : imageModelValue(settings) || "モデル未選択"
+      ? imageModelValue(settings) || "モデル未選択"
       : contentSubsection === "speech"
         ? `${speechSelectionOfScreen.selectedModel}${
             speechSelectionOfScreen.selectedVoice === "" ? "" : ` · ${speechSelectionOfScreen.selectedVoice}`
           }`
-        : (settings.bgm.model ?? "モデル未取得"),
-  ].join(" · ");
-
-  const keySection = (
-    <ContentKeySection
-      settings={settings}
-      apiKey={apiKey}
-      busy={busy}
-      runtimeAvailable={runtimeAvailable}
-      providerName={providerName}
-      onChange={setApiKey}
-      onSubmit={submitKey}
-      onRemove={removeKey}
-    />
-  );
+        : (settings.bgm.model ?? "モデル未取得");
 
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
       <div className="mx-auto grid max-w-3xl gap-3">
         {/* このタブがどの provider の設定かを最初に示す。provider が増えたら settings.provider に追随する。
-            件数と一覧の出どころはプロバイダータブと同じチップで揃える */}
+            件数と一覧の出どころはプロバイダータブと同じチップで揃える（キーの状態は帯が持つ） */}
         <section className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line pb-2">
           <ProviderIcon provider={contentProviderId(settings.provider)} name={providerName} variant="heading" />
           <h2 className="text-md font-semibold text-ink-strong">{providerName}</h2>
           <code className="text-2xs text-ink-ghost">{contentProviderId(settings.provider)}</code>
-          <ProviderBadgeTag badge={contentKeyStatusBadge(settings.keyStored, settings.keyAvailable)} />
           <MetaChip>画像 {settings.image.models.length}</MetaChip>
           <MetaChip>音声 {settings.speech.models.length}</MetaChip>
         </section>
-        {runtimeAvailable ? null : (
-          <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
-            ランタイムが利用できないため、コンテンツ生成のAPIキーの登録・上書き・削除はできません。サーバーの起動ログを確認してください。
-          </p>
-        )}
         <SecurityNotice />
-        {keyError ? (
-          // 未評価 / 復号失敗 / master key 未設定の文言はサーバーが返したものをそのまま出す
-          <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
-            {keyError}
-          </p>
-        ) : null}
 
         {/* 生成元はキー未設定でも選べるよう、設定パネルの外に出す（Codex はAPIキーを使わない） */}
         {contentSubsection === "image" ? (
@@ -377,9 +366,10 @@ export function ContentSettingsTab({
         ) : null}
 
         {/* 設定は要約 1 行を既定にし、変えるときだけ開く。生成と結果を同じ画面に収める。
-            開閉は高さの遷移 (Fold) で見せる。中身は閉じている間も残す: キー入力と選択の下書きを
-            開閉のたびに捨てない (inert でフォーカスと読み上げの対象からは外す) */}
-        {settings.configured ? (
+            開閉は高さの遷移 (Fold) で見せる。中身は閉じている間も残す: 選択の下書きを
+            開閉のたびに捨てない (inert でフォーカスと読み上げの対象からは外す)。
+            入れるものが無い面（Codex の画像タブ）では畳みごと出さない */}
+        {settings.configured && tabSettings !== null ? (
           <section className="rounded-lg border border-line bg-raised">
             <button
               type="button"
@@ -402,92 +392,9 @@ export function ContentSettingsTab({
               </span>
             </button>
             <Fold open={settingsOpen} keepMounted>
-              <div className="grid gap-3 border-t border-line px-3 py-3">
-                {/* 実行時トグルはタブの外に置く。画像・音声・BGM は同じキー / 課金を共有するので 1 つに閉じる */}
-                <section
-                  className={cn(
-                    "grid gap-2 rounded-lg border p-3",
-                    settings.enabled ? "border-line bg-soft" : "border-warn/50 bg-raised",
-                  )}
-                >
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">有効 / 無効</div>
-                      <p className="mt-0.5 text-xs text-ink">アプリ全体の生成を止めます（画像・音声・BGM で共通）。</p>
-                    </div>
-                    <ToggleSwitch
-                      checked={settings.enabled}
-                      label={settings.enabled ? "有効" : "無効"}
-                      disabled={busy}
-                      onChange={(next) => void onSetEnabled(next)}
-                    />
-                  </div>
-                  <p className="text-2xs leading-relaxed text-ink-muted">
-                    OFF にすると <code>generate_image</code>・<code>generate_speech</code>・<code>generate_bgm</code>{" "}
-                    は生成を行わず、固定の文言で失敗します。OFF は保存した瞬間から
-                    <strong>既存のセッション</strong>にも次の呼び出しから効きます（会話の作り直しもデプロイも
-                    要りません）。ON に戻したとき、OFF の間に作った会話にはツールが無いため新しい会話が必要です。
-                    キーと選択は残ります。
-                  </p>
-                  {settings.enabled ? null : (
-                    <p className="rounded border border-line bg-base px-2 py-1.5 text-2xs leading-relaxed text-ink-muted">
-                      無効の間、モデルへはこの文言だけが返ります:
-                      <span className="text-ink">{settings.disabledMessage}</span>
-                    </p>
-                  )}
-                </section>
-
-                <ContentCostSection
-                  settings={settings}
-                  busy={busy}
-                  draft={costDraft}
-                  onChangeDraft={setCostDraft}
-                  onSave={onSaveCost}
-                />
-
-                {keyVisible ? keySection : null}
-                {imageProvider === "codex" ? (
-                  <p className="text-2xs leading-relaxed text-ink-muted">{SPEECH_NEEDS_OPENROUTER_KEY_NOTE}</p>
-                ) : null}
-
-                {contentSubsection === "image" ? (
-                  // Codex は画像モデルを選ばないため、画像タブでは何も出さない（BGM の欄へ落とさない）
-                  imageModelSectionVisible(imageProvider) ? (
-                    <ImageModelSection
-                      settings={settings}
-                      busy={busy}
-                      selectedModel={screenModel}
-                      onChangeDraft={setImageDraft}
-                      defaultsDraft={imageDefaultsDraft}
-                      onChangeDefaultsDraft={setImageDefaultsDraft}
-                      onSave={onSaveSelection}
-                      trials={trials}
-                      trialKeyEpoch={trialKeyEpoch}
-                      trialNow={trialNow}
-                    />
-                  ) : null
-                ) : contentSubsection === "speech" ? (
-                  <SpeechModelSection
-                    settings={settings}
-                    busy={busy}
-                    draft={speechDraft}
-                    onChangeDraft={setSpeechDraft}
-                    onSave={onSaveSpeech}
-                    selection={speechSelectionOfScreen}
-                    trials={trials}
-                    keyEpoch={trialKeyEpoch}
-                    trialNow={trialNow}
-                  />
-                ) : (
-                  <BgmModelSection settings={settings} trials={trials} keyEpoch={trialKeyEpoch} now={trialNow} />
-                )}
-              </div>
+              <div className="grid gap-3 border-t border-line px-3 py-3">{tabSettings}</div>
             </Fold>
           </section>
-        ) : // 未設定では保存される設定を出さず、キー入力だけを出す（下書きの破棄は上で行う）。
-        // Codex はAPIキーを使わないため、そのときはキー欄を出さない
-        keyVisible ? (
-          keySection
         ) : null}
 
         {contentSubsection === "image" ? (
@@ -569,6 +476,12 @@ export function ContentSettingsTab({
         )}
 
         <section className="grid gap-1 border-t border-line pt-3 text-2xs leading-relaxed text-ink-muted">
+          <p>
+            <code>generate_image</code>・<code>generate_speech</code>・<code>generate_bgm</code> は、 画面上部の [有効]
+            スイッチでまとめて止まります（OFF は保存した瞬間から
+            <strong>既存のセッション</strong>にも次の呼び出しから効きます。ON に戻したとき、OFF の間に作った
+            会話にはツールが無いため新しい会話が必要です。キーと選択は残ります）。
+          </p>
           <p>
             保存したキーは<strong>新しい会話</strong>
             から使えます（ツール一覧はセッション作成時に固定されます）。削除しても既存の会話にはツールが残り、実行時にキー無効エラーになります。
@@ -659,77 +572,6 @@ function ImageProviderSection({
         生成元を切り替えても、他方のキーとモデルは残ります。切り替えは保存した瞬間から
         <strong>既存の会話</strong>
         の次の呼び出しにも効きます（未設定から有効にしたときだけ、ツールを持たない会話には新しい会話が必要です）。
-      </p>
-    </section>
-  );
-}
-
-/**
- * APIキーの入力。保存済みのキーは再表示しないため、欄は常に空から始める。
- * 設定パネルの中と、未設定の画面の両方で同じものを使う（未設定では設定パネルを出さない）。
- */
-function ContentKeySection({
-  settings,
-  apiKey,
-  busy,
-  runtimeAvailable,
-  providerName,
-  onChange,
-  onSubmit,
-  onRemove,
-}: {
-  settings: ContentSettingsResponse;
-  apiKey: string;
-  busy: boolean;
-  runtimeAvailable: boolean;
-  providerName: string;
-  onChange: (value: string) => void;
-  onSubmit: () => Promise<void>;
-  onRemove: () => Promise<void>;
-}) {
-  return (
-    <section className="grid gap-1.5">
-      <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">APIキー</div>
-      <div className="flex flex-wrap items-center gap-2">
-        <form
-          className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void onSubmit();
-          }}
-        >
-          <input
-            className="field min-w-0 flex-1 text-xs"
-            type="password"
-            value={apiKey}
-            placeholder={settings.keyStored ? "新しいコンテンツ生成のAPIキー（上書き）" : "コンテンツ生成のAPIキー"}
-            aria-label="コンテンツ生成のAPIキー"
-            autoComplete="off"
-            spellCheck={false}
-            disabled={!runtimeAvailable}
-            onChange={(event) => onChange(event.currentTarget.value)}
-          />
-          <button type="submit" className="btn-primary" disabled={!runtimeAvailable || busy || apiKey.length === 0}>
-            <CheckIcon />
-            {settings.keyStored ? "上書き保存" : "保存"}
-          </button>
-        </form>
-        {settings.keyStored ? (
-          <button
-            type="button"
-            className="btn-quiet"
-            disabled={!runtimeAvailable || busy}
-            onClick={() => void onRemove()}
-          >
-            <TrashIcon />
-            削除
-          </button>
-        ) : null}
-      </div>
-      <p className="text-2xs leading-relaxed text-ink-muted">
-        {providerName} のコンテンツ生成（画像 / 音声 /
-        BGM）で共有するキーです。プロバイダータブで登録したキーとは別に管理し、 流用しません。キーは{" "}
-        {API_KEY_MIN_LENGTH} 文字以上で入力します。
       </p>
     </section>
   );
@@ -855,6 +697,11 @@ function ImageModelSection({
   defaultsDraft,
   onChangeDefaultsDraft,
   onSave,
+  costDraft,
+  onChangeCostDraft,
+  onSaveCost,
+  catalogRefreshing,
+  onRefreshCatalog,
   trials,
   trialKeyEpoch,
   trialNow,
@@ -868,6 +715,13 @@ function ImageModelSection({
   defaultsDraft: ImageDefaultsDraft | null;
   onChangeDefaultsDraft: (draft: ImageDefaultsDraft | null) => void;
   onSave: (input: UpdateContentImageBody) => Promise<boolean>;
+  /** コストマスタの下書き。価格を出すのはこの面だけなので、共有カードではなくここへ置く */
+  costDraft: { enabled: boolean; url: string } | null;
+  onChangeCostDraft: (draft: { enabled: boolean; url: string } | null) => void;
+  onSaveCost: (input: UpdateContentCostBody) => Promise<boolean>;
+  /** [カタログ更新] の実行中。一覧と価格の取得は 1 本なので、帯ではなくこの面の状態で示す */
+  catalogRefreshing: boolean;
+  onRefreshCatalog: () => void;
   trials: readonly ContentTrialSummary[] | null;
   trialKeyEpoch: number;
   trialNow: number;
@@ -1017,13 +871,23 @@ function ImageModelSection({
       </div>
       {/* キーの有効性は緑のバッジにせず、現在のキー世代と選択中モデルの実績だけを証拠として出す */}
       <EvidenceLine trials={trials} model={selectedModel} keyEpoch={trialKeyEpoch} now={trialNow} />
-      <div className="flex flex-wrap items-center gap-2">
+      {/* 価格を出すのはこの面だけなので、コストマスタの接続先もここに置く（音声 / BGM には出さない） */}
+      <ContentCostSection
+        settings={settings}
+        busy={busy}
+        draft={costDraft}
+        onChangeDraft={onChangeCostDraft}
+        onSave={onSaveCost}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
         {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
         <p className="min-w-0">
           <MetaChip wrap tone={settings.image.catalogSource === "live" ? "muted" : "warn"}>
             {imageCatalogNotice(settings.image)}
           </MetaChip>
         </p>
+        {/* 一覧の出どころを書いている行に、その一覧を取り直す操作を置く */}
+        <CatalogRefreshButton refreshing={catalogRefreshing} disabled={busy} onClick={onRefreshCatalog} />
       </div>
     </section>
   );
@@ -1039,6 +903,8 @@ function SpeechModelSection({
   draft,
   onChangeDraft,
   onSave,
+  catalogRefreshing,
+  onRefreshCatalog,
   selection,
   trials,
   keyEpoch,
@@ -1049,6 +915,9 @@ function SpeechModelSection({
   draft: SpeechDraft;
   onChangeDraft: (draft: SpeechDraft) => void;
   onSave: (input: UpdateContentSpeechBody) => Promise<boolean>;
+  /** [カタログ更新] の実行中。音声の一覧も OpenRouter のカタログ由来なので、画像が Codex でも出す */
+  catalogRefreshing: boolean;
+  onRefreshCatalog: () => void;
   /** 画面のモデル / ボイス。保存フォーム・証拠・試行で同じ解決を使う */
   selection: SpeechScreenSelection;
   trials: readonly ContentTrialSummary[] | null;
@@ -1121,13 +990,15 @@ function SpeechModelSection({
         出力形式は選ばず、provider が返した形式（mp3 /
         wav）で保存します。読み上げる文章だけを渡し、演技指示は本文に書かせません。長文は分けて複数回呼ばせます。
       </p>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
         <p className="min-w-0">
           <MetaChip wrap tone={settings.speech.catalogSource === "live" ? "muted" : "warn"}>
             {speechCatalogNotice(settings.speech)}
           </MetaChip>
         </p>
+        {/* 音声の一覧も同じカタログから来るので、一覧の出どころの行に取り直しを置く */}
+        <CatalogRefreshButton refreshing={catalogRefreshing} disabled={busy} onClick={onRefreshCatalog} />
       </div>
     </section>
   );

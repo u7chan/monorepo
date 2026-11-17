@@ -109,11 +109,6 @@ export function imageAuthNotice(
   return settings.keyErrorMessage ?? OPENROUTER_IMAGE_KEY_UNUSABLE_NOTICE;
 }
 
-/** APIキー欄を出すか。Codex はキーを使わないため、画像タブでは欄ごと隠す（音声 / BGM のタブでは出す） */
-export function imageKeySectionVisible(provider: ImageGenerationProvider): boolean {
-  return provider === "openrouter";
-}
-
 /** Codex は画像モデルを選ばないため、モデル一覧と保存フォームを出さない */
 export function imageModelSectionVisible(provider: ImageGenerationProvider): boolean {
   return provider === "openrouter";
