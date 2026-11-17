@@ -254,12 +254,14 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 
 ## 設定画面
 
-設定 → コンテンツ生成の「画像生成」タブ（`/settings/content`。既定。音声（TTS）は `/settings/content/speech`）。表示の正は `client/src/lib/contentSettings.ts` の純関数（モデルの宣言から入力欄を組み立てる規則は `client/src/lib/imageParameters.ts`）、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` に閉じる。APIキー・provider の見出し・注意書きは面の外で音声と共有し、本文は選択中の面だけを描く。
+設定 → コンテンツ生成の「画像生成」タブ（`/settings/content`。既定。音声（TTS）は `/settings/content/speech`）。表示の正は `client/src/lib/contentSettings.ts` の純関数（モデルの宣言から入力欄を組み立てる規則は `client/src/lib/imageParameters.ts`）、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx`（本文）と `client/src/components/ContentSettingsPage.tsx`（帯と共通の設定）に閉じる。本文は選択中の面だけを描く。
 
 - タブは 画像生成 / 音声（TTS） / 音楽（BGM） / 履歴 の 4 つ。生成の 3 タブは「設定 + その場の 1 回の試行 + 直近の結果」だけを持ち、履歴は `/settings/content/history` の専用タブが全種別をまとめて見る。生成タブは開いている種別の一覧だけを取り、履歴タブは種別で絞らずに全種別を取る（`client/src/lib/settingsNav.ts` の `CONTENT_SUBSECTIONS`）
-- 未設定ではキー入力だけを出す（保存される設定とタブ行は無い）。ただし試行の履歴があるときは、タブ行と履歴タブを出して履歴を読めるようにする（新規生成だけを止める）。`PUT /api/settings/content/image` は行が無いと 400 のため、モデル選択と削除はキー保存（`PUT /api/settings/content/key`）に成功してから現れる
-- タブ行の下の provider 見出し（ロゴ + 表示名 + provider id + 登録状態バッジ + `画像 <n>` / `音声 <n>`）を出す。件数チップはタブ文脈でどちらの件数か分かるよう、面の名前を接頭する。ロゴは `client/src/components/ProviderIcon.tsx` の `providerIconKey()` で引き、表示名と id は `contentProviderId()` / `contentProviderLabel()` が決める。v1 は openrouter だけなので未設定（`null`）でも OpenRouter を出し、provider が増えれば `settings.provider` に追随して同じ見出しのロゴが切り替わる（対応表に無い provider は頭文字のタイルへ落ちる）。件数と登録状態のチップはプロバイダータブと同じ `MetaChip` を使う
-- 登録状態バッジ（設定済み / 未設定）は上部の見出しに出す（プロバイダータブと同じ見た目。`contentKeyStatusBadge()`）。キー欄の補足には provider 名（OpenRouter）を添え、モデル欄に出る `OpenAI: …` と混同させない
+- **有効 / 無効とAPIキーは 3 種別共通なので、タブの外（帯の左）に置く。** 帯は「アプリ全体」の見出し + 有効 / 無効のスイッチ + `OpenRouter キー <状態> [変更]` を持ち、どのタブでも同じ位置に出す（履歴タブでも止められる）。キーの入力は [変更] で開く 1 行で、未設定のときは最初から開く。状態の理由（未評価 / 復号失敗 / master key 未設定）と無効時の固定文言は、開かなくても読めるよう帯の直下に出す。行が無い（未設定）間は `PUT /api/settings/content` が 400 のため、スイッチ自体を出さない（キーは未設定のまま帯に出す）
+- タブ固有の設定（モデル・ボイス・既定のパラメータ・コスト表示）は本文の「設定」の畳みに入れ、要約 1 行もタブ固有の値だけにする（有効 / 無効とキーは帯が常に出しているので混ぜない）。入れるものが無い面（生成元が Codex の画像タブ）では畳みごと出さない
+- 未設定では本文にキー入力も設定の畳みも出さず、タブ行と試行の面だけを出す（理由は試行の面が持つ）。ただし試行の履歴があるときは、履歴タブも出して読めるようにする（新規生成だけを止める）。`PUT /api/settings/content/image` は行が無いと 400 のため、モデル選択と削除はキー保存（`PUT /api/settings/content/key`）に成功してから現れる
+- タブ行の下の provider 見出し（ロゴ + 表示名 + provider id + `画像 <n>` / `音声 <n>`）を出す。件数チップはタブ文脈でどちらの件数か分かるよう、面の名前を接頭する。ロゴは `client/src/components/ProviderIcon.tsx` の `providerIconKey()` で引き、表示名と id は `contentProviderId()` / `contentProviderLabel()` が決める。v1 は openrouter だけなので未設定（`null`）でも OpenRouter を出し、provider が増えれば `settings.provider` に追随して同じ見出しのロゴが切り替わる（対応表に無い provider は頭文字のタイルへ落ちる）。件数と登録状態のチップはプロバイダータブと同じ `MetaChip` を使う
+- 登録状態バッジ（設定済み / 未設定 / 利用不可）は帯のキーの行に出す（プロバイダータブと同じ見た目。`contentKeyStatusBadge()`）。本文の見出しには重ねない（同じ状態を 1 画面に 2 回出さない）。キー欄の補足には provider 名（OpenRouter）を添え、モデル欄に出る `OpenAI: …` と混同させない
 - キーは `type="password"` / `autoComplete="off"` で、保存値を再表示しない（常に空から入力する）。[上書き保存] は成功したときだけ入力を消し、[削除] は共通の確認ダイアログ（`deleteContentKeyConfirmRequest()`。対象の provider は clamp した行に出す）の後に行ごと消して未設定へ戻す
 - 設定は既定で要約 1 行（有効 / 無効・キーの状態・選択中のモデル（音声はボイスも））に畳み、[変更] で展開する。展開した中に 有効 / 無効・APIキー・保存される設定 を置き、生成と結果を同じ画面に収める。開閉は高さの遷移（`Fold`）で見せ、中身は畳んでいる間も残す（inert で外すだけ。入力中のキーや選択を開閉で捨てない）。未設定では要約を出さず、キー入力だけを出す
 - 有効 / 無効のトグルは**タブの外に 1 つだけ**置く（画像・音声・BGM のどのタブでも同じパネルに出る）。ラベルは「アプリ全体の生成を止めます（画像・音声・BGM で共通）」で、OFF の間は API が返す `disabledMessage` をその場に出す。未設定（キーが無い）では止める対象が無いため出さない。保存に成功したらエージェントのツール一覧を取り直す（エージェント編集のツール欄が取得時点のスナップショットを見るため）

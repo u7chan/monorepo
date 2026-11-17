@@ -137,7 +137,7 @@
 
 ## キーの扱い
 
-APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `ciphertext` / `nonce` / `keyVersion`）。登録・削除・上書きは画像と同じ `PUT /api/settings/content/key` で、音声専用のキーは持たない。キーは暗号化して保存し、復号した値は `retainSecret()` でマスクしてから音声ツールへ渡す。
+APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `ciphertext` / `nonce` / `keyVersion`）。登録・削除・上書きは画像と同じ `PUT /api/settings/content/key` で、音声専用のキーは持たない。画面ではタブに依存しない設定として、設定 → コンテンツ生成の帯にキーの状態と [変更] を出す（入力はタブではなく帯の下に開く。[image-generation.md](image-generation.md#設定画面)）。キーは暗号化して保存し、復号した値は `retainSecret()` でマスクしてから音声ツールへ渡す。
 
 - 3 列が NULL の行は「キー未設定」で、`enabled` が ON でも生成ツールを開かない
 - キーと同じ値を `speechModel` / `speechVoice` に保存させない。キーが分かる操作では、値を伏せた 400 で拒否する（黙って消さない）。キーを復号できない状態での音声選択の更新は 503 にし、比較できないまま保存しない

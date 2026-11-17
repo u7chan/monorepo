@@ -99,9 +99,6 @@ function render(
         settings: settings(image, overrides, speech),
         contentSubsection: subsection,
         saving,
-        onSetEnabled: async () => true,
-        onSaveKey: async () => true,
-        onDeleteKey: async () => true,
         onSaveImageProvider: async () => true,
         onSaveSelection: async () => true,
         onSaveSpeech: async () => true,
@@ -128,18 +125,19 @@ function render(
   );
 }
 
-test("設定は要約 1 行を既定にし、変更でキーとモデルを開く", () => {
+test("設定はタブ固有の値だけを要約 1 行にまとめ、畳んだ中にモデル選択を残す", () => {
   const html = render();
   assert.match(html, /aria-expanded="false"/, "既定は畳む");
   assert.ok(html.includes(">設定<"), "設定の見出しを出す");
-  assert.ok(html.includes("有効 · キー設定済み · openrouter/openai/gpt-image-2"), "現在値を 1 行にまとめる");
+  assert.ok(html.includes("openrouter/openai/gpt-image-2"), "現在値を 1 行にまとめる");
+  assert.equal(html.includes("有効 ·"), false, "有効 / 無効は带が出すので要約に混ぜない");
+  assert.equal(html.includes("キー設定済み"), false, "キーの状態も带が出す");
   assert.ok(html.includes(">変更<"), "展開する操作を出す");
   // 開閉は高さの遷移 (Fold) が持ち、中身は閉じている間も残す (inert で外すだけ)
   assert.ok(
     html.includes('class="tree-fold" data-open="false" inert=""'),
     "閉じている間も開閉の入れ物を置く（中身は keepMounted で残る）",
   );
-  assert.ok(html.includes('type="password"'), "展開した中にキー入力を残す（inert で外すだけ）");
   assert.ok(html.includes('aria-label="コンテンツ生成のモデル"'), "展開した中にモデル選択を残す");
   assert.ok(html.includes("履歴を見る"), "履歴は専用タブへ案内する");
 });
@@ -185,7 +183,7 @@ test("履歴が 0 件でも容量を出し、条件に合う行が無いこと�
   assert.ok(html.includes("条件に合う履歴はありません。"), "空の案内を出す");
 });
 
-test("未設定ではキー入力だけを出し、モデル選択と削除は出さない", () => {
+test("未設定では設定の畳みもモデル選択も出さず、理由は試行の面に出す", () => {
   const html = render({
     configured: false,
     keyStored: false,
@@ -193,54 +191,19 @@ test("未設定ではキー入力だけを出し、モデル選択と削除は�
     provider: null,
     image: { model: null, catalogSource: "sdk", fetchedAt: null },
   });
-  assert.ok(html.includes('type="password"'), "キー入力を出す");
-  assert.match(html, /<input[^>]*(?:autoComplete|autocomplete)="off"/, "再表示しない前提なので autocomplete を切る");
-  assert.ok(
-    html.includes("OpenRouter のコンテンツ生成（画像 / 音声 / BGM）で共有するキーです"),
-    "どの provider のキーかと、別管理であることを出す",
-  );
-  assert.equal(html.includes("画像生成専用のキー"), false, "音声と共有するため画像専用とは書かない");
-  assert.ok(html.includes(">未設定<"), "未設定バッジを出す");
-  assert.equal(html.includes("設定済み"), false, "未設定では設定済みと言わない");
+  assert.equal(html.includes(">設定<"), false, "保存できる設定が無い間は畳みを出さない");
   assert.equal(html.includes("<select"), false, "モデル選択はキー保存後にだけ出す");
-  assert.equal(html.includes(">削除</button>"), false, "削除もキー保存後にだけ出す");
-  assert.equal(html.includes(">カタログ更新</button>"), false, "カタログ更新もモデル欄と同じくキー保存後にだけ出す");
+  assert.equal(html.includes(">カタログ更新</button>"), false, "カタログ更新も一覧が出てから");
   assert.equal(html.includes("出力形式は選ばず"), false, "音声の保存欄もキー保存後にだけ出す");
+  assert.ok(html.includes("APIキーが未設定です"), "理由は試行の面が持つ（キー入力は带が出す）");
 });
 
-test("有効 / 無効はタブの外に 1 つだけ出し、画像・音声・BGM 共通だと伝える", () => {
-  for (const subsection of ["image", "speech", "bgm"] as const) {
-    const html = render({ subsection });
-    assert.ok(html.includes("有効 / 無効"), `${subsection} でも同じトグルを出す`);
-    assert.equal(html.split("有効 / 無効").length - 1, 1, "面ごとに複製しない");
-    assert.ok(html.includes("アプリ全体の生成を止めます（画像・音声・BGM で共通）"));
-    assert.ok(html.includes(">有効<"), "現在値のラベルを出す");
-    assert.ok(html.includes("既存のセッション"), "会話を作り直さなくても効くことを伝える");
-    assert.ok(html.includes("キーと選択は残ります"), "削除との違いを伝える");
-    assert.ok(html.includes("OFF の間に作った会話にはツールが無い"), "ON で既存の会話すべてが使えると誤解させない");
-  }
-});
-
-test("無効のときは固定文言と警告色を出し、未設定ではトグル自体を出さない", () => {
-  const disabled = render({ enabled: false });
-  assert.ok(disabled.includes(">無効<"));
-  assert.ok(disabled.includes("コンテンツ生成は無効化されています"));
-  assert.match(disabled, /border-warn\/50 bg-raised/, "止まっていることが見た目で分かる");
-
-  const unset = render({
-    configured: false,
-    provider: null,
-    image: { model: null, catalogSource: "sdk", fetchedAt: null },
-  });
-  assert.equal(unset.includes("有効 / 無効"), false, "キーが無ければ止める対象が無いので出さない");
-});
-
-test("見出しに provider のロゴ・名前・id とキーの登録状態を出す", () => {
+test("見出しに provider のロゴ・名前・id とカタログの件数を出す", () => {
   const html = render();
   assert.match(html, /<svg[^>]*viewBox="0 0 24 24"/, "ロゴを出す (プロバイダータブと同じ対応表を引く)");
   assert.ok(html.includes(">OpenRouter</h2>"), "provider の表示名を出す");
   assert.ok(html.includes(">openrouter</code>"), "モデル欄の id 表記と結び付くように provider id も出す");
-  assert.ok(html.includes(">設定済み<"), "登録状態を provider の見出しへ出す");
+  assert.equal(html.includes(">設定済み<"), false, "キーの状態は带が持つので見出しへ重ねない");
   assert.ok(
     html.includes('rounded border px-1.5 py-0.5 text-2xs whitespace-nowrap border-line text-ink-muted">画像 2<'),
     "カタログの件数もプロバイダータブと同じチップで出す",
@@ -261,7 +224,7 @@ test("未設定でも、これから登録するキーの provider の見出し�
   });
   assert.match(html, /<svg[^>]*viewBox="0 0 24 24"/, "この画面で登録するキーの provider のロゴを出す");
   assert.ok(html.includes(">OpenRouter</h2>"), "未設定でも同じ provider の名前を出す");
-  assert.ok(html.includes(">未設定<"), "登録状態は未設定のまま出す");
+  assert.equal(html.includes(">未設定<"), false, "登録状態は带が持つので見出しへ重ねない");
 });
 
 test("対応表に無い provider の見出しは頭文字のタイルへ落とす", () => {
@@ -270,11 +233,10 @@ test("対応表に無い provider の見出しは頭文字のタイルへ落と�
   assert.ok(html.includes(">faux-image</h2>"), "知らない provider は id のまま出す");
 });
 
-test("設定済みでは上書き保存・削除・モデル選択を出し、保存済みキーを入力欄へ戻さない", () => {
+test("設定済みではモデル選択を出し、キーの操作は本文へ戻さない", () => {
   const html = render();
-  assert.ok(html.includes("上書き保存"));
-  assert.ok(html.includes(">設定済み<"), "設定済みバッジを出す");
-  assert.ok(html.includes(">削除</button>"));
+  assert.equal(html.includes('type="password"'), false, "キーの入力は带の [変更] の中だけ");
+  assert.equal(html.includes("上書き保存"), false, "キーの操作も带が持つ");
   assert.ok(html.includes("<select"), "モデル選択を出す");
   assert.ok(html.includes('value="openrouter/openai/gpt-image-2"'), "保存済みモデルを選択した状態で出す");
   assert.ok(html.includes("GPT Image 2"));
@@ -297,8 +259,6 @@ test("設定済みでは上書き保存・削除・モデル選択を出し、�
     "宣言が無いモデルでは provider の既定で生成することを出す",
   );
   assert.equal(html.includes("プロバイダー: OpenRouter"), false, "見出しと重複する provider 名を本文で繰り返さない");
-  const input = /<input[^>]*type="password"[^>]*>/.exec(html)?.[0] ?? "";
-  assert.ok(input.includes('value=""'), "保存済みのキーは入力欄へ戻さない");
 });
 
 test("取得できていないときは一覧の出どころを警告色のチップで出す", () => {
@@ -410,15 +370,6 @@ test("平文の注意は既定で畳み、1 行の要点を出す", () => {
   );
 });
 
-test("runtimeAvailable: false ではキー操作だけを無効化し、モデル変更は残す", () => {
-  const html = render({ runtimeAvailable: false });
-  assert.ok(html.includes("ランタイムが利用できないため"), "変更できないことを先に伝える");
-  assert.match(html, /<input[^>]*type="password"[^>]*disabled=""/, "キー入力を disable する");
-  assert.match(html, /<button[^>]*class="btn-quiet"[^>]*disabled=""/, "削除を disable する");
-  // モデルの変更は SDK に触れないため、runtime が無くてもサーバーは受け付ける
-  assert.doesNotMatch(html, /<select[^>]*disabled=""/, "モデル選択は disable しない");
-});
-
 test("runtimeAvailable: false でも音声の選択は残す", () => {
   const html = render({ runtimeAvailable: false, subsection: "speech" });
   assert.ok(html.includes('aria-label="音声生成のモデル"'));
@@ -460,19 +411,6 @@ test("runtimeAvailable: false では音声の試行の主ボタンも無効に�
   const available = render({ subsection: "speech" });
   assert.equal(available.includes("ランタイムが利用できないため試行できません"), false);
   assert.match(available, /（本文を入力してください）/);
-});
-
-test("保存済みでも復号できないキーは、利用不可として理由と削除・再入力を出す", () => {
-  const html = render({
-    keyStored: true,
-    keyAvailable: false,
-    keyEvaluated: false,
-    keyErrorMessage: "保存済みのキーを復号できるかまだ確認できていません",
-  });
-  assert.ok(html.includes(">利用不可<"), "復号できないキーを設定済みと出さない");
-  assert.ok(html.includes("保存済みのキーを復号できるかまだ確認できていません"), "固定文言をそのまま出す");
-  assert.ok(html.includes("上書き保存"), "再入力の導線を残す");
-  assert.ok(html.includes(">削除</button>"), "削除の導線を残す");
 });
 
 // --- 試行ジョブ（画像） ---
@@ -1147,20 +1085,21 @@ test("履歴に続きのページがあるときだけ「さらに読み込む�
 
 // --- 画像の生成元（OpenRouter / Codex） ---
 
-test("生成元の radio を出し、Codex ではAPIキー欄とモデル一覧を出さない", () => {
+test("生成元の radio を出し、Codex ではモデル一覧を出さない", () => {
   const codex = render({
     image: { provider: "codex", auth: { state: "configured", kind: "oauth" }, models: [] },
   });
   assert.match(codex, /画像の生成元/, "生成元の見出しを出す");
   assert.match(codex, /<input type="radio"[^>]*checked=""[^>]*value="codex"/, "Codex を選択済みで出す");
   assert.match(codex, /type="radio"[^>]*value="openrouter"/, "OpenRouter も選べる");
-  assert.equal(codex.includes('type="password"'), false, "Codex ではAPIキー欄を出さない");
+  assert.equal(codex.includes('type="password"'), false, "キーの入力は本文ではなく带が持つ");
   assert.equal(codex.includes('aria-label="コンテンツ生成のモデル"'), false, "Codex ではモデル一覧を出さない");
-  assert.ok(codex.includes("Codex（画像モデル不明）"), "画像モデルを偽らない");
+  assert.equal(codex.includes(">設定<"), false, "モデルが無い面は設定の畳みごと出さない");
+  assert.ok(codex.includes("画像モデルはバックエンドが選び（不明と表示）"), "画像モデルを偽らない");
   assert.ok(codex.includes("音声 / BGM は OpenRouter のAPIキーで生成します"), "音声 / BGM の前提を明示する");
 
   const openrouter = render();
-  assert.ok(openrouter.includes('type="password"'), "OpenRouter ではAPIキー欄を出す");
+  assert.equal(openrouter.includes('type="password"'), false, "OpenRouter でもキーの入力は带が持つ");
   assert.ok(openrouter.includes('aria-label="コンテンツ生成のモデル"'), "OpenRouter ではモデル一覧を出す");
 });
 

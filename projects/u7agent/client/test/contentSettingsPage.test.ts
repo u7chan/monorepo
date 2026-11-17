@@ -155,7 +155,9 @@ test("設定済みでは画像・TTS・BGM・履歴のタブを出し、既定�
   assert.ok(html.includes("履歴"), "履歴のタブを出す");
   assert.ok(html.includes('aria-label="コンテンツ生成のモデル"'), "本文は画像の面を出す");
   assert.equal(html.includes("試行の本文"), false, "もう一方の面は出さない");
-  assert.ok(html.includes('type="password"'), "APIキーの入力を出す");
+  // キーの入力は带の [変更] の下に開く。保存済みなら既定は閉じる（開いても値を戻さない）
+  assert.ok(html.includes(">変更<"), "キーの導線を带に出す");
+  assert.equal(html.includes('type="password"'), false, "保存済みのキー入力は既定で閉じる");
   assert.equal(html.includes("モデル候補を保存"), false, "モデルの保存バーは出さない");
   // タブの切替は URL 経由で親へ渡す
   const calls: ContentSubsection[] = [];
@@ -184,7 +186,8 @@ test("URLがBGMを指すと固定モデルの読取専用面と試行の面を�
 test("URL が音声を指すときは音声タブを選び、音声の面だけを出す", () => {
   const html = render(contentSettings(), { contentSubsection: "speech" });
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>音声（TTS）/, "選んだタブを示す");
-  assert.ok(html.includes('type="password"'), "APIキーはタブの外で共有する");
+  assert.ok(html.includes("キー"), "APIキーはタブの外（带）で共有する");
+  assert.equal(html.includes('type="password"'), false, "保存済みのキー入力は既定で閉じる");
   assert.ok(html.includes('aria-label="音声生成のモデル"'), "音声の面を出す");
   assert.equal(html.includes('aria-label="コンテンツ生成のモデル"'), false, "画像の面は出さない");
 });
@@ -206,7 +209,7 @@ test("取り直しはタブ行の下のツールバーへ出し、本文の枠�
   assert.ok(tabsAt >= 0, "タブ行を出す");
   assert.ok(html.indexOf("再読み込み") > tabsAt, "再読み込みはタブ行より下に出す");
   assert.ok(
-    html.indexOf("再読み込み") < html.indexOf('aria-label="コンテンツ生成のAPIキー"'),
+    html.indexOf("再読み込み") < html.indexOf('aria-label="コンテンツ生成のモデル"'),
     "ツールバーは本文より上に出す",
   );
 
@@ -223,7 +226,8 @@ test("取り直しはタブ行の下のツールバーへ出し、本文の枠�
 test("未設定ではタブ行を出さず、キー入力だけを出す", () => {
   const html = render(contentSettings({ settings: { ...CONTENT_SETTINGS, configured: false, provider: null } }));
   assert.equal(html.includes('role="tablist"'), false, "キーを保存して初めて選べるようになるため出さない");
-  assert.ok(html.includes('type="password"'), "キー入力は出す");
+  assert.ok(html.includes('type="password"'), "未設定ではキー入力を最初から開く");
+  assert.ok(html.includes(">閉じる<"), "開いていることを示す");
   assert.equal(html.includes('aria-label="コンテンツ生成のモデル"'), false, "面は出さない");
 });
 
@@ -305,4 +309,81 @@ test("帯の操作は再読み込みだけにし、上流から取り直す操�
   const body = html.indexOf('aria-label="コンテンツ生成のモデル"');
   assert.ok(html.indexOf("再読み込み") < body, "再読み込みは帯に残す");
   assert.ok(html.indexOf("カタログ更新") > body, "カタログ更新は一覧の出どころの行に置く");
+});
+
+// --- 帯の左（アプリ全体の設定） ---
+
+test("アプリ全体の有効 / 無効とキーの状態は、タブを変えても同じ 1 か所に出す", () => {
+  for (const subsection of ["image", "speech", "bgm", "history"] as const) {
+    const html = render(contentSettings(), { contentSubsection: subsection });
+    assert.equal(
+      html.split('aria-label="コンテンツ生成を有効にする（画像・音声・BGM 共通）"').length - 1,
+      1,
+      `${subsection} タブでもトグルは 1 つ`,
+    );
+    assert.ok(html.includes("アプリ全体"), `${subsection} タブでも何の設定かを帯に書く`);
+  }
+  // タブ固有の設定（本文の畳み）には持たない
+  const html = render(contentSettings());
+  assert.equal(html.includes("有効 / 無効"), false, "本文の設定へは戻さない");
+  assert.equal(html.includes("既存のセッション</strong>にも"), true, "効き方は本文の注記で読める");
+});
+
+test("無効のときはスイッチを [無効] にし、モデルへ返る文言を帯の直下に出す", () => {
+  const html = render(contentSettings({ settings: { ...CONTENT_SETTINGS, enabled: false } }));
+  assert.match(html, /role="switch"[^>]*aria-checked="false"/, "止まっていることをスイッチで示す");
+  assert.ok(html.includes(">無効<"), "現在値をラベルに出す");
+  assert.ok(html.includes("無効の間、モデルへはこの文言だけが返ります"));
+  assert.ok(html.includes(CONTENT_SETTINGS.disabledMessage), "サーバーの固定文言をそのまま出す");
+
+  const enabled = render(contentSettings());
+  assert.match(enabled, /role="switch"[^>]*aria-checked="true"/);
+  assert.equal(enabled.includes("無効の間、モデルへは"), false, "有効の間は出さない");
+});
+
+test("行が無い（未設定）間は有効 / 無効を出さず、キー入力を最初から開く", () => {
+  const html = render(
+    contentSettings({ settings: { ...CONTENT_SETTINGS, configured: false, keyStored: false, keyAvailable: false } }),
+  );
+  assert.equal(html.includes('aria-label="コンテンツ生成を有効にする（画像・音声・BGM 共通）"'), false);
+  // 行が無いと PUT が 400 になるため、押せないスイッチを残さない
+  assert.equal(html.includes('role="switch"'), false, "行が無い間はトグル自体を出さない");
+  assert.ok(html.includes(">未設定<"), "キーの状態は帯が持つ");
+  assert.match(html, /<button[^>]*aria-expanded="true"[^>]*>(?:(?!<\/button>)[\s\S])*閉じる/, "最初から開く");
+  assert.ok(html.includes('type="password"'), "キー入力を出す");
+  assert.ok(html.includes(">保存<"), "未設定では新規保存");
+  assert.equal(html.includes(">削除</button>"), false, "削除はキー保存後にだけ出す");
+});
+
+test("キーの入力は [変更] で開き、保存済みの値は欄へ戻さない", () => {
+  const html = render(contentSettings());
+  assert.match(html, /<button[^>]*aria-expanded="false"[^>]*>(?:(?!<\/button>)[\s\S])*変更/, "既定は閉じる");
+  assert.ok(html.includes(">設定済み<"), "状態は帯に出す");
+  assert.equal(html.includes('type="password"'), false, "閉じている間は入力欄を出さない");
+  assert.equal(html.includes("上書き保存"), false);
+});
+
+test("runtimeAvailable: false ではキーの操作だけを無効化する", () => {
+  // キーの入力は未設定のとき開いているので、その状態で無効化を見る
+  const html = render(
+    contentSettings({ settings: { ...CONTENT_SETTINGS, configured: false, runtimeAvailable: false } }),
+  );
+  assert.ok(html.includes("ランタイムが利用できないため"), "変更できないことを先に伝える");
+  assert.match(html, /<input[^>]*type="password"[^>]*disabled=""/, "キー入力を disable する");
+});
+
+test("復号できないキーは、帯の直下に理由を出して [変更] から入れ直させる", () => {
+  const html = render(
+    contentSettings({
+      settings: {
+        ...CONTENT_SETTINGS,
+        keyAvailable: false,
+        keyEvaluated: false,
+        keyErrorMessage: "保存済みのキーを復号できるかまだ確認できていません",
+      },
+    }),
+  );
+  assert.ok(html.includes(">利用不可<"), "復号できないキーを設定済みと出さない");
+  assert.ok(html.includes("保存済みのキーを復号できるかまだ確認できていません"), "固定文言をそのまま出す");
+  assert.ok(html.includes(">変更<"), "入れ直しの導線を带に残す");
 });
