@@ -1,4 +1,4 @@
-import type { CostMasterPayload, CostModelPrice } from "../shared/contract";
+import { COST_UNITS, type CostMasterPayload, type CostModelPrice } from "../shared/contract";
 
 export type ModelGroup = {
   modelId: string;
@@ -82,6 +82,43 @@ function variantOrder(variant: string): { numeric: boolean; value: number } {
   const prefix = match?.[1];
 
   return prefix === undefined ? { numeric: false, value: 0 } : { numeric: true, value: Number(prefix) };
+}
+
+export type ModelSort = "name" | "cost";
+
+/** 一覧の並び順。名前順は応答の順（`modelId` 昇順）、単価順は同じ unit の中で先頭の価格行の安い順 */
+export function sortGroups(groups: readonly ModelGroup[], sort: ModelSort): ModelGroup[] {
+  const next = [...groups];
+
+  next.sort(sort === "cost" ? compareByCost : compareByName);
+
+  return next;
+}
+
+function compareByName(a: ModelGroup, b: ModelGroup): number {
+  return a.modelId < b.modelId ? -1 : a.modelId > b.modelId ? 1 : 0;
+}
+
+function compareByCost(a: ModelGroup, b: ModelGroup): number {
+  const left = a.prices[0];
+  const right = b.prices[0];
+
+  if (left === undefined || right === undefined) {
+    return compareByName(a, b);
+  }
+
+  // 単位の違う単価（$0.04/枚 と $0.00003/token）は比べられないので、まず unit で分ける
+  const unit = COST_UNITS.indexOf(left.unit) - COST_UNITS.indexOf(right.unit);
+
+  if (unit !== 0) {
+    return unit;
+  }
+
+  if (left.costUsd !== right.costUsd) {
+    return left.costUsd - right.costUsd;
+  }
+
+  return comparePrices(left, right) || compareByName(a, b);
 }
 
 export type MasterSummary = { models: number; rows: number; hidden: number };

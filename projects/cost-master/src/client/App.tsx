@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { MASTER_KINDS, type CostMasterPayload, type MasterKind } from "../shared/contract";
 import { formatCost, formatFetchedAt } from "../shared/format";
 import { fetchModels, masterDownloadUrl, updateJudgment, uploadMaster } from "./api";
-import { groupByModel, summarize, withModelEnabled, type ModelGroup } from "./models";
+import { groupByModel, sortGroups, summarize, withModelEnabled, type ModelGroup, type ModelSort } from "./models";
 
 type LoadState =
   | { status: "loading" }
@@ -120,18 +120,39 @@ function ModelList({
   pending: string | null;
   onToggle: (modelId: string, enabled: boolean) => void;
 }) {
-  const groups = groupByModel(payload.models);
+  const [sort, setSort] = useState<ModelSort>("name");
+  const groups = sortGroups(groupByModel(payload.models), sort);
 
   if (groups.length === 0) {
     return <p class="note">価格が宣言されているモデルがありません。prices.json をアップロードしてください。</p>;
   }
 
   return (
-    <ul class="models">
-      {groups.map((group) => (
-        <ModelRow key={group.modelId} group={group} busy={pending === group.modelId} onToggle={onToggle} />
-      ))}
-    </ul>
+    <>
+      <div class="list-head">
+        <label class="field">
+          <span>並び順</span>
+          <select
+            value={sort}
+            onChange={(event) => setSort((event.currentTarget as HTMLSelectElement).value as ModelSort)}
+          >
+            <option value="name">名前順</option>
+            <option value="cost">単価の安い順</option>
+          </select>
+        </label>
+      </div>
+      {sort === "cost" ? (
+        <p class="note">
+          単価の単位が違うモデルは比べられないため、image → megapixel → token → request
+          の順にまとめ、その中で安い順に並べています。
+        </p>
+      ) : null}
+      <ul class="models">
+        {groups.map((group) => (
+          <ModelRow key={group.modelId} group={group} busy={pending === group.modelId} onToggle={onToggle} />
+        ))}
+      </ul>
+    </>
   );
 }
 
