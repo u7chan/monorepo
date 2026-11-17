@@ -41,6 +41,54 @@ export function masterDownloadUrl(kind: MasterKind): string {
   return `/api/master/${kind}`;
 }
 
+export type JudgmentResult = { ok: true } | { ok: false; message: string };
+
+/** 1 モデルの判断を 1 行だけ変える。成功しても値は返らないので、呼び出し側が要求値を反映する */
+export async function updateJudgment(modelId: string, enabled: boolean): Promise<JudgmentResult> {
+  let response: Response;
+
+  try {
+    response = await fetch("/api/judgments", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ modelId, enabled }),
+    });
+  } catch {
+    return { ok: false, message: "更新できませんでした（接続を確認してください）" };
+  }
+
+  if (!response.ok) {
+    return { ok: false, message: judgmentErrorMessage(response.status, await readReason(response)) };
+  }
+
+  return { ok: true };
+}
+
+/** 更新の失敗理由は固定文言に寄せる。アップロードの上限（1 MiB）と文言を共有しない */
+export function judgmentErrorMessage(status: number, reason: string): string {
+  if (status === 413) {
+    return "送信内容が大きすぎます";
+  }
+
+  if (status === 403) {
+    return "この画面以外からの操作は受け付けません";
+  }
+
+  if (status === 503) {
+    return "マスタを読めないため反映できません。再読み込みして確認してください";
+  }
+
+  if (status !== 400) {
+    return `反映できませんでした (HTTP ${status})`;
+  }
+
+  if (reason === "rows") {
+    return "現在の enabled.json に不正な行があります。ダウンロードして直し、アップロードしてください";
+  }
+
+  return "送信内容が不正です。画面を再読み込みしてやり直してください";
+}
+
 async function readReason(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { reason?: unknown };

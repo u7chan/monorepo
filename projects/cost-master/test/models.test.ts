@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { groupByModel, summarize } from "../src/client/models";
+import { groupByModel, summarize, withModelEnabled } from "../src/client/models";
 import type { CostModelPrice } from "../src/shared/contract";
 
 function price(overrides: Partial<CostModelPrice> = {}): CostModelPrice {
@@ -57,5 +57,32 @@ describe("summarize", () => {
     ]);
 
     expect(summary).toEqual({ models: 2, rows: 3, hidden: 1 });
+  });
+});
+
+describe("withModelEnabled", () => {
+  const payload = {
+    version: 3,
+    fetchedAt: 1_794_600_000_000,
+    models: [
+      price({ modelId: "a", unit: "image", enabled: true }),
+      price({ modelId: "a", unit: "token", enabled: true }),
+      price({ modelId: "b", enabled: true }),
+    ],
+  };
+
+  test("同じモデルの行すべてに反映し、他のモデルと世代は変えない", () => {
+    const next = withModelEnabled(payload, "a", false);
+
+    expect(next.models.filter((model) => model.modelId === "a").every((model) => !model.enabled)).toBe(true);
+    expect(next.models.find((model) => model.modelId === "b")?.enabled).toBe(true);
+    expect(next.version).toBe(payload.version);
+    expect(next.fetchedAt).toBe(payload.fetchedAt);
+  });
+
+  test("元の payload を書き換えない", () => {
+    withModelEnabled(payload, "a", false);
+
+    expect(payload.models.every((model) => model.enabled)).toBe(true);
   });
 });

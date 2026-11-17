@@ -216,6 +216,45 @@ export function parseJudgmentFile(value: unknown): JudgmentParseResult {
   return { ok: true, rows, dropped };
 }
 
+export type JudgmentPlan = { changed: false } | { changed: true; text: string };
+
+/**
+ * 画面からの 1 行更新の計画。有効値の既定 true は `buildPayload` と同じ規則。
+ * 一致する行が複数ある入力は想定外（呼び出し側が `parseJudgmentFile` の `dropped` で先に止める）。
+ */
+export function planJudgment(value: unknown, modelId: string, enabled: boolean): JudgmentPlan | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const models = (value as { models?: unknown }).models;
+
+  if (!Array.isArray(models)) {
+    return null;
+  }
+
+  const index = models.findIndex((item) => isJudgmentRowOf(item, modelId));
+  const current = index === -1 ? true : (models[index] as { enabled?: unknown }).enabled === true;
+
+  if (current === enabled) {
+    return { changed: false };
+  }
+
+  const next = models.slice();
+
+  if (index === -1) {
+    next.push({ modelId, enabled });
+  } else {
+    next[index] = { ...(models[index] as Record<string, unknown>), enabled };
+  }
+
+  return { changed: true, text: JSON.stringify({ ...(value as Record<string, unknown>), models: next }, null, 2) };
+}
+
+function isJudgmentRowOf(item: unknown, modelId: string): boolean {
+  return typeof item === "object" && item !== null && (item as { modelId?: unknown }).modelId === modelId;
+}
+
 /** 価格行に人手の判断を重ね、応答の形へ写す。`enabled` の既定は true（判断が無い = 隠さない） */
 export function buildPayload(input: {
   version: number;

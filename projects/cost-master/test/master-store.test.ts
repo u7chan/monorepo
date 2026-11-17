@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { planJudgment } from "../src/server/master";
 import { createMasterStore, type MasterStore } from "../src/server/master-store";
 
 const BUNDLED = new URL("../src/server/data/", import.meta.url).pathname;
@@ -218,5 +219,36 @@ describe("replace", () => {
 
     expect(result.ok && result.state.ok && result.state.payload.version).toBe(7);
     expect(store.raw("prices")).toBe(`${input}\n`);
+  });
+});
+
+describe("画面からの判断の反映", () => {
+  test("1 行を足し、直前のファイルを .bak に残す", () => {
+    const dir = newDir();
+    writeFileSync(join(dir, "prices.json"), readFileSync(join(BUNDLED, "prices.json")));
+    writeFileSync(join(dir, "enabled.json"), JSON.stringify({ models: [] }));
+    const store = newStore(dir);
+    const before = readFileSync(join(dir, "enabled.json"), "utf8");
+    const plan = planJudgment(JSON.parse(before), "krea/krea-2-large", false);
+
+    expect(plan?.changed).toBe(true);
+
+    const result = store.replace("enabled", plan?.changed ? plan.text : "");
+
+    expect(result.ok).toBe(true);
+    expect(modelsOf(store).find((model) => model.modelId === "krea/krea-2-large")?.enabled).toBe(false);
+    expect(readFileSync(join(dir, "enabled.json.bak"), "utf8")).toBe(before);
+  });
+
+  test("不正な行を含む置き換えは拒否し、ファイルを変えない", () => {
+    const dir = newDir();
+    writeFileSync(join(dir, "enabled.json"), JSON.stringify({ models: [] }));
+    const store = newStore(dir);
+
+    expect(store.replace("enabled", JSON.stringify({ models: [{ modelId: "a" }] }))).toEqual({
+      ok: false,
+      reason: "rows",
+    });
+    expect(readFileSync(join(dir, "enabled.json"), "utf8")).toBe(JSON.stringify({ models: [] }));
   });
 });

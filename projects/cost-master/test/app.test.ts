@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createApp, healthOf, MASTER_UPLOAD_MAX_BYTES, type MasterState } from "../src/server/app";
+import { createApp, healthOf, JUDGMENT_MAX_BYTES, MASTER_UPLOAD_MAX_BYTES, type MasterState } from "../src/server/app";
 import type { MasterStore } from "../src/server/master-store";
 import type { CostMasterPayload } from "../src/shared/contract";
 
@@ -183,5 +183,174 @@ describe("その他", () => {
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "not_found" });
+  });
+});
+
+describe("PUT /api/judgments", () => {
+  const ENDPOINT = "/api/judgments";
+
+  function bodyOf(body: unknown) {
+    return {
+      method: "PUT",
+      body: typeof body === "string" ? body : JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    };
+  }
+
+  function recordingStore(
+    raw: () => string | null,
+    replaced: { ok: true } | { ok: false; reason: string } = { ok: true },
+  ) {
+    const written: string[] = [];
+    const store = fakeStore({
+      raw: () => raw(),
+      replace: (_kind, text) => {
+        written.push(text);
+
+        return replaced.ok ? { ok: true, state: { ok: true, payload: PAYLOAD } } : replaced;
+      },
+    });
+
+    return { store, written };
+  }
+
+  test("1 行を足して置き換え、applied だけを返す", async () => {
+    const { store, written } = recordingStore(() => '{ "models": [] }');
+    const response = await appOf({ ok: true, payload: PAYLOAD }, store).request(
+      ENDPOINT,
+      bodyOf({ modelId: "krea/krea-2-large", enabled: false }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ applied: true });
+    expect(written).toHaveLength(1);
+    expect(JSON.parse(written[0] ?? "")).toEqual({ models: [{ modelId: "krea/krea-2-large", enabled: false }] });
+  });
+
+  test("有効値が同じなら書かずに 200（.bak を回さない）", async () => {
+    const { store, written } = recordingStore(() => JSON.stringify({ models: [{ modelId: "a", enabled: false }] }));
+    const response = await appOf({ ok: true, payload: PAYLOAD }, store).request(
+      ENDPOINT,
+      bodyOf({ modelId: "a", enabled: false }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ applied: true });
+    expect(written).toHaveLength(0);
+  });
+
+  test("形の違う要求は理由付きで 400", async () => {
+    const app = appOf({ ok: true, payload: PAYLOAD });
+    const cases: [unknown, string][] = [
+      ["this is invalid", "body"],
+      [[], "body"],
+      [{ enabled: false }, "model-id"],
+      [{ modelId: "", enabled: false }, "model-id"],
+      [{ modelId: "a", enabled: "false" }, "enabled"],
+    ];
+
+    for (const [body, reason] of cases) {
+      const response = await app.request(ENDPOINT, bodyOf(body));
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid", reason });
+    }
+  });
+
+  test("落とされる行があるファイルは、要求値によらず 400（rows）", async () => {
+    const duplicated = JSON.stringify({
+      models: [
+        { modelId: "a", enabled: false },
+        { modelId: "a", enabled: false },
+      ],
+    });
+    const { store, written } = recordingStore(() => duplicated);
+    const response = await appOf({ ok: true, payload: PAYLOAD }, store).request(
+      ENDPOINT,
+      bodyOf({ modelId: "a", enabled: false }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid", reason: "rows" });
+    expect(written).toHaveLength(0);
+  });
+
+  test("置き換えが拒否されたら 400（rows）/ 503（master）", async () => {
+    const rows = recordingStore(() => JSON.stringify({ models: [] }), { ok: false, reason: "rows" });
+    const rowsResponse = await appOf({ ok: true, payload: PAYLOAD }, rows.store).request(
+      ENDPOINT,
+      bodyOf({ modelId: "a", enabled: false }),
+    );
+
+    expect(rowsResponse.status).toBe(400);
+    expect(await rowsResponse.json()).toEqual({ error: "invalid", reason: "rows" });
+
+    const master = recordingStore(() => JSON.stringify({ models: [] }), { ok: false, reason: "master" });
+    const masterResponse = await appOf({ ok: true, payload: PAYLOAD }, master.store).request(
+      ENDPOINT,
+      bodyOf({ modelId: "a", enabled: false }),
+    );
+
+    expect(masterResponse.status).toBe(503);
+    expect(await masterResponse.json()).toEqual({ error: "master_unavailable" });
+  });
+
+  test("マスタが読めないときは、要求値によらず 503（no-op でも 200 にしない）", async () => {
+    const { store } = recordingStore(() => JSON.stringify({ models: [{ modelId: "a", enabled: false }] }));
+
+    expect((await appOf({ ok: false }, store).request(ENDPOINT, bodyOf({ modelId: "a", enabled: false }))).status).toBe(
+      503,
+    );
+    expect((await appOf({ ok: false }, store).request(ENDPOINT, bodyOf({ modelId: "a", enabled: true }))).status).toBe(
+      503,
+    );
+  });
+
+  test("元のファイルが無い・壊れているときは 503", async () => {
+    const missing = recordingStore(() => null);
+    const missingResponse = await appOf({ ok: true, payload: PAYLOAD }, missing.store).request(
+      ENDPOINT,
+      bodyOf({ modelId: "a", enabled: false }),
+    );
+
+    expect(missingResponse.status).toBe(503);
+    expect(await missingResponse.json()).toEqual({ error: "master_unavailable" });
+
+    const broken = recordingStore(() => "{ not json");
+    const brokenResponse = await appOf({ ok: true, payload: PAYLOAD }, broken.store).request(
+      ENDPOINT,
+      bodyOf({ modelId: "a", enabled: false }),
+    );
+
+    expect(brokenResponse.status).toBe(503);
+    expect(await brokenResponse.json()).toEqual({ error: "master_unavailable" });
+  });
+
+  test("別オリジンは 403、同一オリジンと Origin 無しは通す", async () => {
+    const app = appOf({ ok: true, payload: PAYLOAD });
+    const crossOrigin = await app.request(ENDPOINT, {
+      ...bodyOf({ modelId: "a", enabled: false }),
+      headers: { "Content-Type": "application/json", Host: "cost.home.arpa", Origin: "https://evil.example" },
+    });
+
+    expect(crossOrigin.status).toBe(403);
+    expect(await crossOrigin.json()).toEqual({ error: "cross_origin" });
+
+    const sameOrigin = await app.request(ENDPOINT, {
+      ...bodyOf({ modelId: "a", enabled: false }),
+      headers: { "Content-Type": "application/json", Host: "cost.home.arpa", Origin: "https://cost.home.arpa" },
+    });
+
+    expect(sameOrigin.status).toBe(200);
+  });
+
+  test("上限を超える本文は 413", async () => {
+    const response = await appOf({ ok: true, payload: PAYLOAD }).request(ENDPOINT, {
+      method: "PUT",
+      body: "x".repeat(JUDGMENT_MAX_BYTES + 1),
+    });
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: "too_large" });
   });
 });

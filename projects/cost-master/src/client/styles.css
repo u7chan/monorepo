@@ -135,6 +135,30 @@ body {
   color: var(--cm-warn);
 }
 
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.toggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--cm-accent);
+  cursor: pointer;
+}
+
+.toggle input:disabled {
+  cursor: default;
+}
+
+.toggle:has(input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .prices {
   display: grid;
   gap: 2px;

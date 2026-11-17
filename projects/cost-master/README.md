@@ -23,7 +23,7 @@ bun run start # bun src/server.ts
 
 ## API
 
-認証は無い。書き込み API も無い。応答は `Cache-Control: no-store`。
+認証は無い。書き込みは判断の更新とマスタの置き換えだけで、どちらも same-origin のみ通す。応答は `Cache-Control: no-store`。
 
 `GET /api/models`
 
@@ -68,6 +68,19 @@ bun run start # bun src/server.ts
 - `Origin` が別ホストの要求は 403。`Origin` の無い要求（curl など）は通す
 - 成功すると `{ applied: true, ok: true, service, masterFetchedAt, version }`
 
+`PUT /api/judgments` — 1 モデルの判断だけを変える（画面のチェックボックス）。`Content-Type: application/json`、16 KiB まで。
+
+```json
+{ "modelId": "krea/krea-2-large", "enabled": false }
+```
+
+- 成功すると `{ "applied": true }`。現在の有効値（行が無ければ `true`）と同じならファイルを書かずに 200 を返す
+- 既存行は `enabled` だけを書き換え、`note` と行の位置は保つ。行が無ければ末尾に足す。`true` に戻しても行は消さない
+- 現在のファイルに落とされる行（重複・食い違い・型違い）があるときは、要求値によらず
+  `400 { error: "invalid", reason: "rows" }`。ダウンロードして直し、アップロードし直す
+- どちらかのファイルが壊れているときは `503 { "error": "master_unavailable" }`（`/api/models` と同じ扱い）
+- `Origin` が別ホストの要求は 403。`Origin` の無い要求（curl など）は通す
+
 価格もモデル一覧も含めない。**どちらかのファイルが読めないとき**は `ok: false` と null を返し、`/api/models` は
 `503 { "error": "master_unavailable" }` になる。空の一覧を返さないのは、u7agent に「価格が消えた」と誤解させず、
 前回の値を持たせるため。`enabled.json` の失敗も 503 に倒すのは、判断が 1 件も適用されないまま
@@ -84,9 +97,11 @@ bun run start # bun src/server.ts
 | ファイル | 由来 | 触り方 |
 | --- | --- | --- |
 | `prices.json` | OpenRouter の endpoints API から機械生成 | `bun run generate` の出力をアップロード |
-| `enabled.json` | 人の判断とメモ | 画面からダウンロードして編集し、アップロード |
+| `enabled.json` | 人の判断とメモ | 画面のチェックボックス（一括はダウンロードして編集し、アップロード） |
 
-`enabled.json` に行が無いモデルは `enabled: true`（一覧に出す）として扱う。隠す判断だけを明示する。
+`enabled.json` に行が無いモデルは `enabled: true`（一覧に出す）として扱う。チェックボックスで `true` に
+戻しても行は残るので、行が無いことと `enabled: true` はどちらも「一覧に出す」を意味する。`prices.json` に
+無い `modelId` の行は無視される（消さない。モデルが次の取り込みで戻ることがある）。
 
 ```json
 {
@@ -101,12 +116,22 @@ bun run start # bun src/server.ts
 
 ### 更新の手順
 
-1. 画面（`/`）の「マスタの更新」で種類を選び、[現在の … をダウンロード] を押す
+判断（1 モデルずつ）:
+
+1. 画面（`/`）の一覧でチェックボックスを切り替える
+2. 反映は即時。u7agent の一覧は [カタログ更新] を押すまで変わらない
+
+判断（一括・復旧）と価格:
+
+1. 「マスタの更新」で種類を選び、[現在の … をダウンロード] を押す
 2. 手元で編集する（価格は次の「価格の取り込み」で作る）
 3. 同じ欄でファイルを選び [アップロード] を押す
 4. 反映は即時（リクエストごとに mtime を見て読み直す）。直前の内容は `<kind>.json.bak` に 1 世代だけ残る
 
 失敗したときは反映されない（ファイルは変わらない）。理由は画面に固定文言で出る。
+
+チェックボックスの操作も `.bak` を更新する。1 世代しか残らないので、戻す用のファイルは先に
+ダウンロードしておく。
 
 ### 価格の取り込み
 
@@ -151,6 +176,6 @@ bun run check      # lint → fmt:check → typecheck → test → docs:check
 ## セキュリティの前提
 
 - 利用者認証を持たない。到達できる範囲を LAN / VPN に限る
-- 書き込みはマスタの置き換え（`PUT /api/master/:kind`）だけ。DB を持たず、アップロードは same-origin のみ通す。
-  認証が無いぶん、到達できる範囲（LAN / VPN）が唯一の統制になる
+- 書き込みは判断の更新（`PUT /api/judgments`）とマスタの置き換え（`PUT /api/master/:kind`）。DB を持たず、
+  どちらも same-origin のみ通す。認証が無いぶん、到達できる範囲（LAN / VPN）が唯一の統制になる
 - 扱うのは公開情報の価格と「一覧に出すか」だけで、秘密も個人情報も持たない

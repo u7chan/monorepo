@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildPayload, parseJudgmentFile, parsePriceFile, type PriceRow } from "../src/server/master";
+import { buildPayload, parseJudgmentFile, parsePriceFile, planJudgment, type PriceRow } from "../src/server/master";
 
 const ROW: PriceRow = {
   modelId: "krea/krea-2-large",
@@ -181,5 +181,61 @@ describe("buildPayload", () => {
 
     expect(payload.models.map((model) => `${model.unit}:${model.variant}`)).toEqual(["image:", "image:2k", "token:"]);
     expect(payload.models.every((model) => !model.enabled && model.note === "高価")).toBe(true);
+  });
+});
+
+describe("planJudgment", () => {
+  test("行が無ければ末尾に足す", () => {
+    const plan = planJudgment({ models: [{ modelId: "b", enabled: false }] }, "a", false);
+
+    expect(plan).not.toBeNull();
+    expect(plan?.changed).toBe(true);
+    expect(plan?.changed && JSON.parse(plan.text)).toEqual({
+      models: [
+        { modelId: "b", enabled: false },
+        { modelId: "a", enabled: false },
+      ],
+    });
+  });
+
+  test("既存行は enabled だけ変え、note・未知のキー・位置を保つ", () => {
+    const plan = planJudgment(
+      {
+        models: [
+          { modelId: "a", enabled: false, note: "高価", why: "計測" },
+          { modelId: "b", enabled: false },
+        ],
+      },
+      "a",
+      true,
+    );
+
+    expect(plan?.changed).toBe(true);
+    expect(plan?.changed && JSON.parse(plan.text)).toEqual({
+      models: [
+        { modelId: "a", enabled: true, note: "高価", why: "計測" },
+        { modelId: "b", enabled: false },
+      ],
+    });
+  });
+
+  test("有効値が要求値と同じなら changed: false（行が無いモデルへの true も同じ）", () => {
+    expect(planJudgment({ models: [{ modelId: "a", enabled: true }] }, "a", true)).toEqual({ changed: false });
+    expect(planJudgment({ models: [] }, "a", true)).toEqual({ changed: false });
+  });
+
+  test("ルートがオブジェクトでない・models が配列でない入力は null", () => {
+    for (const value of [null, [], "x", { models: {} }, { models: "x" }]) {
+      expect(planJudgment(value, "a", false)).toBeNull();
+    }
+  });
+
+  test("トップレベルの未知のキーも残す", () => {
+    const plan = planJudgment({ models: [], generatedBy: "x" }, "a", false);
+
+    expect(plan?.changed && JSON.parse(plan.text)).toEqual({
+      models: [{ modelId: "a", enabled: false }],
+      generatedBy: "x",
+    });
   });
 });
