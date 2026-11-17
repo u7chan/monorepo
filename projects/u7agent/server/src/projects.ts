@@ -7,22 +7,15 @@ import { randomUUID } from "node:crypto";
 import { isAbsolute, posix, resolve, sep } from "node:path";
 import { APP_DIR_REL, isAppDirPath } from "./app-paths";
 import { AppDb } from "./app-db";
+import { httpError, type HttpError } from "./errors";
 import type { Project } from "./schema";
 
-interface HttpLikeError extends Error {
-  statusCode?: number;
+function badRequest(message: string): HttpError {
+  return httpError(400, message);
 }
 
-function badRequest(message: string): HttpLikeError {
-  const error = new Error(message) as HttpLikeError;
-  error.statusCode = 400;
-  return error;
-}
-
-function conflict(message: string): HttpLikeError {
-  const error = new Error(message) as HttpLikeError;
-  error.statusCode = 409;
-  return error;
+function conflict(message: string): HttpError {
+  return httpError(409, message);
 }
 
 /** パス区切りは "/" へ正規化する。Windows では "\" も区切りとして扱う (脱出の見落としを防ぐ)。 */

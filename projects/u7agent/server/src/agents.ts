@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { AppDb, type StoredAgent } from "./app-db";
 import { BUILTIN_AGENT_DESCRIPTION, BUILTIN_AGENT_ID, BUILTIN_AGENT_NAME } from "./builtin-catalog";
-import { httpError } from "./http";
+import { httpError, type HttpError } from "./http";
 import { createPromptCatalog, type PromptCatalog } from "./prompts";
 import { SKILL_NAME_MAX, SKILL_NAMES_MAX, TOOL_NAME_MAX, TOOL_NAMES_MAX, ThinkingLevelSchema } from "./schema";
 import type {
@@ -17,10 +17,6 @@ import type {
   ThinkingLevel,
   ToolCatalogEntry,
 } from "./schema";
-
-export interface HttpError extends Error {
-  statusCode?: number;
-}
 
 type AgentRecord = StoredAgent;
 
@@ -54,9 +50,7 @@ function text(value: unknown, fallback = "", maxLength = 8_000): string {
 }
 
 function invalid(message: string): HttpError {
-  const error = new Error(message) as HttpError;
-  error.statusCode = 400;
-  return error;
+  return httpError(400, message);
 }
 
 function publicAgent(agent: AgentRecord, resolvePrompts: (ids: readonly string[]) => PromptRef[]): AgentDef {

@@ -28,7 +28,7 @@ import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
 import { buildHandoffSection, HANDOFF_FILE_NAME, type HandoffMemoSection } from "./handoff-memo";
 import type { AssistantMetricsRow, AssistantMetricsStore, CwdKeyStore } from "./app-db";
-import { messageFor } from "./errors";
+import { httpError, messageFor, type HttpError } from "./errors";
 import { sandboxFailureStatus } from "./http";
 import { allowsNaturalInvocation, type AgentCatalog } from "./agents";
 import { createInvestigateRunner, type InvestigateRunner } from "./investigate-runner";
@@ -177,19 +177,9 @@ const COMPACTION_TOO_SMALL = "Nothing to compact (session too small)";
 const COMPACTION_ALREADY = "Already compacted";
 const COMPACTION_CANCELLED = "Compaction cancelled";
 
-export interface HttpLikeError extends Error {
-  statusCode?: number;
-}
-
-function httpError(statusCode: number, message: string): HttpLikeError {
-  const error = new Error(message) as HttpLikeError;
-  error.statusCode = statusCode;
-  return error;
-}
-
 /** compaction の失敗理由。応答の status と、終端 status イベントの文言を組で持つ */
 interface CompactionFailure {
-  error: HttpLikeError;
+  error: HttpError;
   text: string;
 }
 

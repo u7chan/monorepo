@@ -11,7 +11,7 @@ import {
   appSecretUnevaluated,
   type AppSecretState,
 } from "./app-secrets";
-import { messageFor } from "./http";
+import { httpError, messageFor, type HttpError } from "./http";
 import { MutationLock } from "./model-settings";
 import {
   DEFAULT_WEB_SEARCH_PROVIDER,
@@ -346,8 +346,6 @@ export class WebSearchSettingsService {
   }
 }
 
-function badRequest(message: string): Error & { statusCode: number } {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = 400;
-  return error;
+function badRequest(message: string): HttpError {
+  return httpError(400, message);
 }
