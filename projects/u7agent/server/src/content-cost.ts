@@ -87,8 +87,9 @@ export interface CostRequestOptions {
   /** テストで差し替える DNS。既定は `dns/promises` の lookup（全 IP） */
   lookup?: (host: string) => Promise<{ address: string; family: number }[]>;
   /**
-   * テストでループバックのローカルサーバーへ繋ぐための検査の差し替え。既定は `isGlobalAddress`。
-   * 本番の経路では差し替えない（保存時と取得時の両方で接続先を制限する）。
+   * 接続先の検査の差し替え。既定は `isGlobalAddress`。本番で差し替えるのは
+   * `PI_CONTENT_COST_ALLOW_PRIVATE` の opt-in のときだけ（`allowPrivateHosts` 経由）で、
+   * 保存時と取得時の両方で接続先を制限する点は変えない。テストはループバックのサーバーへ繋ぐのに使う。
    */
   allowAddress?: (address: string) => boolean;
 }
@@ -100,6 +101,11 @@ export interface ContentCostOptions {
   /** テストで固定する時計 */
   now?: () => number;
   timeoutMs?: number;
+  /**
+   * LAN / VPN の中でだけ到達できる master（同一 Docker ネットワークのサービス名など）を許可する opt-in。
+   * 既定は false で、グローバルな接続先だけを通す。env の解釈は `allowPrivateCostHost()`。
+   */
+  allowPrivateHosts?: boolean;
 }
 
 export interface ContentCostCatalog {
@@ -213,6 +219,61 @@ function isGlobalIpv6(address: string): boolean {
   if (first === 0x0064 && second === 0xff9b) return false;
   return true;
 }
+
+/**
+ * LAN / VPN の中でだけ到達できるアドレス（プライベート・CGNAT・ULA）。
+ * ループバックとリンクローカルは含めない（master へ届かず、BFF 自身やメタデータへの経路になる）。
+ */
+export function isPrivateNetworkAddress(address: string): boolean {
+  const version = isIP(address);
+  if (version === 4) return isPrivateIpv4(address);
+  if (version === 6) return isPrivateIpv6(address);
+  return false;
+}
+
+function isPrivateIpv4(address: string): boolean {
+  const parts = address.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = parts as [number, number, number, number];
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  // 100.64.0.0/10 (CGNAT)
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  return false;
+}
+
+function isPrivateIpv6(address: string): boolean {
+  const groups = ipv6Groups(address);
+  if (!groups) return false;
+  // IPv4-mapped (::ffff:0:0/96) は埋め込みの IPv4 として判定する
+  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff) {
+    const v4 = `${groups[6]! >> 8}.${groups[6]! & 0xff}.${groups[7]! >> 8}.${groups[7]! & 0xff}`;
+    return isPrivateIpv4(v4);
+  }
+  // fc00::/7 (ULA)
+  return (groups[0]! & 0xfe00) === 0xfc00;
+}
+
+/** LAN / VPN 内の master をサービス名で指す環境でだけ true にする opt-in の env */
+export const CONTENT_COST_ALLOW_PRIVATE_ENV = "PI_CONTENT_COST_ALLOW_PRIVATE";
+
+/**
+ * env の値を解釈する。未設定・未知の値は false（従来どおりグローバルだけを許可）へ倒す。
+ * 接続先の制限は安全側の設定なので、設定ミスで緩まない向きに倒す（`networkAccessMode()` とは逆）。
+ */
+export function allowPrivateCostHost(raw: string | undefined = process.env[CONTENT_COST_ALLOW_PRIVATE_ENV]): boolean {
+  const value = raw?.trim().toLowerCase();
+  return value === "1" || value === "true";
+}
+
+/** 取得時に許可する接続先。opt-in のときだけ LAN 内向けを足す */
+export function allowCostMasterAddress(address: string, allowPrivate: boolean): boolean {
+  return isGlobalAddress(address) || (allowPrivate && isPrivateNetworkAddress(address));
+}
+
+/** `allowPrivateHosts` のときに `requestCostMaster()` へ渡す検査 */
+const allowPrivateCostAddress = (address: string): boolean => allowCostMasterAddress(address, true);
 
 /** URL のホストが IP リテラルか（IPv6 の角括弧を外して判定する） */
 function isIpLiteralHost(hostname: string): boolean {
@@ -439,6 +500,7 @@ export function createContentCostCatalog(options: ContentCostOptions): ContentCo
   const now = options.now ?? (() => Date.now());
   const timeoutMs = options.timeoutMs ?? COST_MASTER_TIMEOUT_MS;
   const fetchCost = options.fetchImpl ?? requestCostMaster;
+  const allowAddress = options.allowPrivateHosts === true ? allowPrivateCostAddress : undefined;
 
   let settings: ContentCostSettingsRow | undefined;
   let snapshot: CostSnapshot | undefined;
@@ -529,7 +591,11 @@ export function createContentCostCatalog(options: ContentCostOptions): ContentCo
       if (costUrlError(settings.url) !== undefined) return COST_CATALOG_ERROR_BLOCKED;
       let outcome: CostHttpOutcome;
       try {
-        outcome = await fetchCost(new URL(settings.url), { timeoutMs, maxBytes: COST_MASTER_MAX_BYTES });
+        outcome = await fetchCost(new URL(settings.url), {
+          timeoutMs,
+          maxBytes: COST_MASTER_MAX_BYTES,
+          ...(allowAddress === undefined ? {} : { allowAddress }),
+        });
       } catch {
         outcome = { error: COST_CATALOG_ERROR_UNKNOWN };
       }

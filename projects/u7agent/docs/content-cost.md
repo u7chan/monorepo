@@ -28,7 +28,10 @@
 ## 取得
 
 - 取得は **ON かつ手動の [カタログ更新]** のときだけ。起動時・定期・`GET /api/settings/content` では上流に出ない。OFF と未設定では master へリクエストしない
-- `http` / `https` のみ。ホスト名を必須にし、DNS で解決した**すべての IP** がグローバルであることを要求する（loopback / プライベート / リンクローカル / IPv6 ULA / CGNAT / マルチキャスト / unspecified / documentation を拒否）
+- `http` / `https` のみ。ホスト名を必須にし、DNS で解決した**すべての IP** を取得のたびに検査する
+- 既定で許可するのはグローバルな接続先だけ（loopback / プライベート / リンクローカル / IPv6 ULA / CGNAT / マルチキャスト / unspecified / documentation を拒否）
+- 同一 Docker ネットワーク上のマスタをサービス名で指すとき（`http://<サービス名>:<ポート>/api/models`）は解決先がプライベートになるため、`PI_CONTENT_COST_ALLOW_PRIVATE=1` で**プライベート / CGNAT / IPv6 ULA だけ**を追加で許可する。ループバックとリンクローカルは opt-in でも拒否する（マスタへ届かず、メタデータへの経路になるため）。TLS 終端を Caddy に任せないので、内部 CA を u7agent へ配る必要もない
+- `PI_CONTENT_COST_ALLOW_PRIVATE` は未設定・未知の値なら無効（従来どおりグローバルだけ）へ倒す。接続先の制限は安全側の設定なので、設定ミスで緩まない向きに倒す
 - DNS は 1 回だけ解決し、検証した IP へ接続する（再解決させると rebinding の窓が残る）。リダイレクトは追わず、認証ヘッダは付けない
 - 期限は 10 秒、応答本文は 1 MiB、行は 2,000 件。超えたら契約外として `errors.cost` に倒す
 - 失敗は timeout / 混雑（429・5xx）/ 接続先の拒否 / 契約外 / 不明の固定文言へ分類し、上流の本文・URL・接続先はログにも応答にも出さない
