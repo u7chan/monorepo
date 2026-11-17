@@ -46,7 +46,7 @@ import { Hono } from "hono";
 import { COMMON_SKILLS_DIR } from "../app-paths";
 import { DEFAULT_ARCHIVE_EXCLUDE_NAMES } from "../archive-rules";
 import { parseByteRange } from "../byte-range";
-import { messageFor } from "../errors";
+import { httpError, messageFor, type HttpError } from "../errors";
 import { isGitIdentityEnvName, isInjectableEnvName } from "../env-names";
 import { gitIdentityProblem, type GitIdentity } from "../git-identity";
 import { fitsImageInputPixels, IMAGE_INPUT_MAX_BYTES, inspectImageInput } from "../image-format";
@@ -841,8 +841,8 @@ async function linkUniqueName(tempPath: string, dirAbs: string, name: string): P
   throw pathError(500, "Cannot save the uploaded file");
 }
 
-function pathError(statusCode: number, message: string): Error & { statusCode: number } {
-  return Object.assign(new Error(message), { statusCode });
+function pathError(statusCode: number, message: string): HttpError {
+  return httpError(statusCode, message);
 }
 
 /**

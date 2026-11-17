@@ -5,7 +5,7 @@
  */
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { messageFor } from "../errors";
+import { httpError, messageFor, type HttpError } from "../errors";
 import {
   SANDBOX_MAX_ARCHIVE_BYTES,
   SANDBOX_MAX_ARCHIVE_ENTRIES,
@@ -80,8 +80,8 @@ export const SKILLS_EXPORT_NAME = "skills.zip";
  */
 export const SKILLS_ARCHIVE_EXCLUDE_NAMES: readonly string[] = [".git"];
 
-function archiveError(statusCode: number, message: string): Error & { statusCode: number } {
-  return Object.assign(new Error(message), { statusCode });
+function archiveError(statusCode: number, message: string): HttpError {
+  return httpError(statusCode, message);
 }
 
 /** 単体ファイルと ZIP で同じ文言を使う（利用者にとっては「大きすぎて持ち出せない」の 1 種類） */
