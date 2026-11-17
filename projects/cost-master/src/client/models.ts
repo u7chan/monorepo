@@ -1,4 +1,4 @@
-import type { CostModelPrice } from "../shared/contract";
+import type { CostMasterPayload, CostModelPrice } from "../shared/contract";
 
 export type ModelGroup = {
   modelId: string;
@@ -93,5 +93,13 @@ export function summarize(models: readonly CostModelPrice[]): MasterSummary {
     models: groups.length,
     rows: models.length,
     hidden: groups.filter((group) => !group.enabled).length,
+  };
+}
+
+/** 画面で確定した判断を 1 モデル分だけ反映する。同じモデルに価格行が複数あるので全行を揃える */
+export function withModelEnabled(payload: CostMasterPayload, modelId: string, enabled: boolean): CostMasterPayload {
+  return {
+    ...payload,
+    models: payload.models.map((model) => (model.modelId === modelId ? { ...model, enabled } : model)),
   };
 }

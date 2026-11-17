@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { MASTER_KINDS, type CostMasterPayload, type MasterKind } from "../shared/contract";
 import { formatCost, formatFetchedAt } from "../shared/format";
-import { fetchModels, masterDownloadUrl, uploadMaster } from "./api";
-import { groupByModel, summarize, type ModelGroup } from "./models";
+import { fetchModels, masterDownloadUrl, updateJudgment, uploadMaster } from "./api";
+import { groupByModel, summarize, withModelEnabled, type ModelGroup } from "./models";
 
 type LoadState =
   | { status: "loading" }
@@ -12,7 +12,13 @@ type LoadState =
 export function App() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [nonce, setNonce] = useState(0);
-  const reload = useCallback(() => setNonce((value) => value + 1), []);
+  const [pending, setPending] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
+  const reload = useCallback(() => {
+    // アップロードで直した直後に、前回のトグル失敗の案内を残さない
+    setToggleError(null);
+    setNonce((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -32,20 +38,44 @@ export function App() {
     return () => controller.abort();
   }, [nonce]);
 
+  // 一覧を読み込み中へ戻すと選択位置も失うので、成功時は取得し直さず確定した値だけを差し替える
+  const toggle = useCallback(async (modelId: string, enabled: boolean) => {
+    setPending(modelId);
+    setToggleError(null);
+
+    try {
+      const result = await updateJudgment(modelId, enabled);
+
+      if (!result.ok) {
+        setToggleError(result.message);
+        return;
+      }
+
+      setState((current) =>
+        current.status === "ok"
+          ? { status: "ok", payload: withModelEnabled(current.payload, modelId, enabled) }
+          : current,
+      );
+    } finally {
+      setPending(null);
+    }
+  }, []);
+
   return (
     <main class="page">
       <header class="head">
         <h1>Cost Master</h1>
         <p class="lead">
-          コンテンツ生成モデルの価格と「一覧に出す / 出さない」の判断。マスタは下の欄からアップロードすると
-          再起動なしで反映される。
+          コンテンツ生成モデルの価格と「一覧に出す / 出さない」の判断。チェックボックスで切り替えると
+          再起動なしで反映される。u7agent の一覧は [カタログ更新] を押すまで変わらない。
         </p>
         {state.status === "ok" ? <Summary payload={state.payload} /> : null}
       </header>
 
       {state.status === "loading" ? <p class="note">読み込み中…</p> : null}
       {state.status === "error" ? <p class="note error">{state.message}</p> : null}
-      {state.status === "ok" ? <ModelList payload={state.payload} /> : null}
+      {toggleError === null ? null : <p class="note error">{toggleError}</p>}
+      {state.status === "ok" ? <ModelList payload={state.payload} pending={pending} onToggle={toggle} /> : null}
 
       <MasterUpload onUploaded={reload} />
     </main>
@@ -81,7 +111,15 @@ function Summary({ payload }: { payload: CostMasterPayload }) {
   );
 }
 
-function ModelList({ payload }: { payload: CostMasterPayload }) {
+function ModelList({
+  payload,
+  pending,
+  onToggle,
+}: {
+  payload: CostMasterPayload;
+  pending: string | null;
+  onToggle: (modelId: string, enabled: boolean) => void;
+}) {
   const groups = groupByModel(payload.models);
 
   if (groups.length === 0) {
@@ -91,18 +129,35 @@ function ModelList({ payload }: { payload: CostMasterPayload }) {
   return (
     <ul class="models">
       {groups.map((group) => (
-        <ModelRow key={group.modelId} group={group} />
+        <ModelRow key={group.modelId} group={group} busy={pending === group.modelId} onToggle={onToggle} />
       ))}
     </ul>
   );
 }
 
-function ModelRow({ group }: { group: ModelGroup }) {
+function ModelRow({
+  group,
+  busy,
+  onToggle,
+}: {
+  group: ModelGroup;
+  busy: boolean;
+  onToggle: (modelId: string, enabled: boolean) => void;
+}) {
   return (
     <li class="model">
       <div class="model-head">
         <span class="model-id">{group.modelId}</span>
-        <span class={group.enabled ? "badge" : "badge off"}>{group.enabled ? "一覧に出す" : "一覧に出さない"}</span>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            checked={group.enabled}
+            disabled={busy}
+            aria-label={`${group.modelId} を一覧に出す`}
+            onChange={(event) => onToggle(group.modelId, (event.currentTarget as HTMLInputElement).checked)}
+          />
+          <span class={group.enabled ? "badge" : "badge off"}>{group.enabled ? "一覧に出す" : "一覧に出さない"}</span>
+        </label>
       </div>
       {group.note === null ? null : <p class="note">{group.note}</p>}
       <ul class="prices">
@@ -159,8 +214,9 @@ function MasterUpload({ onUploaded }: { onUploaded: () => void }) {
     <section class="upload">
       <h2>マスタの更新</h2>
       <p class="note">
-        現在のファイルをダウンロードして編集し、アップロードすると再起動なしで反映されます。直前の内容は
-        <code>.bak</code> に 1 世代残ります。反映した内容は元に戻せないため、先にダウンロードしておいてください。
+        一括で変えるときや、判断を戻すときに使います。アップロードすると再起動なしで反映され、直前のファイルは
+        <code>.bak</code> に 1 世代だけ残ります。チェックボックスの操作もこの <code>.bak</code> を上書きするため、
+        戻す用のファイルは先にダウンロードしておいてください。
       </p>
       <div class="upload-row">
         <label class="field">
