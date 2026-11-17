@@ -38,3 +38,24 @@ export function initialSelectMenuIndex(value: string, values: string[]): number 
   const index = values.indexOf(value);
   return index === -1 ? 0 : index;
 }
+
+export type SelectMenuFilterable = {
+  label: string;
+  detail?: string | undefined;
+  description?: string | undefined;
+  group?: string | undefined;
+};
+
+/**
+ * 検索語での絞り込み。行に見えている語（見出し・主表示・副表示・説明）のどれかに含めば残す。
+ * 見出しも対象にするのは、見出しの語を前置きしない行（ベンダー名を省いた行）を名前で引けるようにするため。
+ */
+export function filterSelectMenuOptions<T extends SelectMenuFilterable>(options: readonly T[], query: string): T[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return [...options];
+  return options.filter((option) =>
+    [option.label, option.detail ?? "", option.description ?? "", option.group ?? ""].some((text) =>
+      text.toLowerCase().includes(needle),
+    ),
+  );
+}

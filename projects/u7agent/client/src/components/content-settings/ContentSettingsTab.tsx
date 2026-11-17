@@ -17,10 +17,12 @@ import {
   imageDefaultsScreen,
   imageModelSectionVisible,
   imageModelOptions,
+  imageModelPickerRows,
   imageModelSelection,
   imageModelValue,
   imageScreenModel,
   imageSelectionSaveDisabled,
+  type ImageModelSort,
   SPEECH_NEEDS_OPENROUTER_KEY_NOTE,
   contentProviderId,
   contentProviderLabel,
@@ -67,7 +69,9 @@ import { CatalogRefreshButton } from "./CatalogRefreshButton";
 import { Fold } from "../Fold";
 import { ArrowRightIcon, CheckIcon, ChevronDownIcon, GearIcon, TrashIcon } from "../icons";
 import { ProviderIcon } from "../ProviderIcon";
+import { SegmentedControl } from "../SegmentedControl";
 import { SelectField } from "../SelectField";
+import { SelectMenu, type SelectMenuOption } from "../SelectMenu";
 import { ToggleSwitch } from "../ToggleSwitch";
 import { MetaChip } from "../model-settings/MetaChip";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
@@ -688,6 +692,12 @@ function ContentCostSection({
   );
 }
 
+/** モデル一覧の並び替え。見出しの軸も切り替わる（ベンダー / 価格の単位） */
+const IMAGE_MODEL_SORT_ITEMS = [
+  { value: "vendor", label: "ベンダー" },
+  { value: "price", label: "価格" },
+] as const satisfies readonly { value: ImageModelSort; label: string }[];
+
 /** モデル選択と、そのモデルの既定のパラメータ。[保存] はモデルとパラメータを 1 回の PUT で送る */
 function ImageModelSection({
   settings,
@@ -729,6 +739,16 @@ function ImageModelSection({
   // 解決（PUT 本文・既定の保存キー）は全件の一覧、描画は visible で絞った一覧を使う
   const options = imageModelOptions(settings);
   const choices = visibleImageModelOptions(settings);
+  // 並び順は一覧の見え方だけの話なので、保存値とは別に画面が持つ
+  const [modelSort, setModelSort] = useState<ImageModelSort>("vendor");
+  const pickerOptions: SelectMenuOption<string>[] = imageModelPickerRows(choices, modelSort).map((row) => ({
+    value: row.value,
+    label: row.label,
+    triggerLabel: row.fullLabel,
+    // 価格不明は行にもトリガーにも出さない（選択中の価格は下のチップが警告付きで出す）
+    detail: row.price === "--" ? undefined : row.price,
+    group: row.group,
+  }));
   const savedModel = imageModelValue(settings);
   const selectedEntry = settings.image.models.find((entry) => `${entry.provider}/${entry.id}` === selectedModel);
   const price = imagePriceDisplay(selectedEntry?.prices ?? []);
@@ -764,19 +784,27 @@ function ImageModelSection({
         {dirty ? <span className="text-2xs text-warn">未保存</span> : null}
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <SelectField
-          wrapperClassName="min-w-0 flex-1"
-          aria-label="コンテンツ生成のモデル"
+        <SelectMenu
+          label="コンテンツ生成のモデル"
+          options={pickerOptions}
           value={selectedModel}
           disabled={busy}
-          onChange={(event) => onChangeDraft(event.currentTarget.value)}
-        >
-          {choices.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </SelectField>
+          searchable
+          searchPlaceholder="モデル名 / ベンダーで絞り込み"
+          triggerClassName="min-w-0 flex-1"
+          controls={
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-2xs text-ink-faint">並び順</span>
+              <SegmentedControl
+                items={IMAGE_MODEL_SORT_ITEMS}
+                value={modelSort}
+                onChange={setModelSort}
+                ariaLabel="モデルの並び順"
+              />
+            </div>
+          }
+          onChange={(next) => onChangeDraft(next)}
+        />
         <button
           type="button"
           className="btn-primary"

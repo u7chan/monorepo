@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { SelectMenu } from "../src/components/SelectMenu";
 import {
+  filterSelectMenuOptions,
   initialSelectMenuIndex,
   nextSelectMenuIndex,
   selectMenuPlacement,
@@ -114,4 +115,58 @@ test("印 (leading) は行とトリガーの左に出し、無い行では幅を
 test("無効のときはトリガーを押せなくする", () => {
   assert.match(render({ disabled: true }), /<button[^>]*aria-label="検索プロバイダー"[^>]*\sdisabled=""/);
   assert.equal(/\sdisabled=""/.test(render()), false, "既定は押せる");
+});
+
+test("絞り込みは見出し・副表示・説明のどれでも当て、空の語では全件を残す", () => {
+  assert.deepEqual(
+    filterSelectMenuOptions([...OPTIONS], "").map((option) => option.value),
+    ["exa", "tavily"],
+  );
+  assert.deepEqual(
+    filterSelectMenuOptions([...OPTIONS], "  ").map((option) => option.value),
+    ["exa", "tavily"],
+    "空白だけの語は絞り込まない",
+  );
+  assert.deepEqual(
+    filterSelectMenuOptions([...OPTIONS], "TAVILY").map((option) => option.value),
+    ["tavily"],
+    "大文字小文字を無視して主表示に当てる",
+  );
+  assert.deepEqual(
+    filterSelectMenuOptions([...OPTIONS], "exa.ai").map((option) => option.value),
+    ["exa"],
+    "副表示（ホスト名）でも引ける",
+  );
+  assert.deepEqual(
+    filterSelectMenuOptions([...OPTIONS], "平文").map((option) => option.value),
+    ["tavily"],
+    "説明でも引ける",
+  );
+  assert.deepEqual(
+    filterSelectMenuOptions([...OPTIONS], "キー登録").map((option) => option.value),
+    ["tavily"],
+    "見出しでも引ける (見出しの語を前置きしない行を名前で辿れる)",
+  );
+  assert.deepEqual(filterSelectMenuOptions([...OPTIONS], "brave"), []);
+});
+
+test("検索できる一覧は検索欄と操作の行を listbox の外に出す", () => {
+  const html = renderToStaticMarkup(
+    createElement(SelectMenu, {
+      label: "検索プロバイダー",
+      value: "exa" as const,
+      options: [...OPTIONS],
+      searchable: true,
+      searchPlaceholder: "プロバイダーで絞り込み",
+      controls: createElement("button", { type: "button" }, "並び順"),
+      onChange: () => {},
+    }),
+  );
+  assert.match(html, /<input[^>]*type="search"[^>]*aria-label="プロバイダーで絞り込み"/);
+  assert.ok(html.includes(">並び順</button>"), "操作は呼び出し側の見た目のまま出す");
+  // 検索と操作の行は listbox より前に置く (行以外を listbox の中に入れない)
+  assert.ok(html.indexOf('type="search"') < html.indexOf('role="listbox"'));
+  assert.ok(html.indexOf(">並び順</button>") < html.indexOf('role="listbox"'));
+  // 検索欄を持たない呼び出しでは今までどおり出さない
+  assert.equal(render().includes('type="search"'), false);
 });
