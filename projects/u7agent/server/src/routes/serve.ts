@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { messageFor } from "../errors";
 import { sandboxFailure } from "../http";
 import type {
   RuntimeDebugServeStopBody,
@@ -93,8 +94,4 @@ export function createServeRoutes({ serve }: { serve: ServeService }) {
       }
     },
   };
-}
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

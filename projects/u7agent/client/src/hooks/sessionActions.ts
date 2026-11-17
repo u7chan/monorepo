@@ -1,4 +1,5 @@
 import type { Dispatch, RefObject } from "react";
+import { messageFor } from "../lib/errors";
 import type {
   ApproveNetworkAccessResponse,
   AskUserAnswer,
@@ -18,10 +19,6 @@ import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
  */
 function isApiFailure(error: unknown): boolean {
   return error instanceof Error && typeof (error as { status?: unknown }).status === "number";
-}
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**

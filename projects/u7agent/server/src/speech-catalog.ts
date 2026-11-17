@@ -4,6 +4,7 @@
  * 取得はキーの有無・有効性と独立に扱う（正は docs/speech-generation.md）。
  */
 import type { SpeechCatalogModelRow, SpeechCatalogRow } from "./app-db";
+import { messageFor } from "./errors";
 import { SPEECH_PROVIDER_ID } from "./speech";
 
 /** いま表示している一覧の出どころ。live 以外は取得に失敗した状態を表す */
@@ -236,9 +237,7 @@ export function createSpeechCatalog(options: SpeechCatalogOptions): SpeechCatalo
         source = "stored";
         fetchedAt = stored.fetchedAt;
       } catch (error) {
-        console.warn(
-          `[u7agent] speech catalog cache unavailable: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        console.warn(`[u7agent] speech catalog cache unavailable: ${messageFor(error)}`);
       }
     },
 

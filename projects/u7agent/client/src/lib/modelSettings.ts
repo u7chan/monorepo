@@ -18,6 +18,7 @@ import type {
   SessionSummary,
 } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
+import { messageFor } from "./errors";
 
 /** サーバーの検証と同じ境界。クライアントでも保存前に同じ理由で止める */
 export const API_KEY_MIN_LENGTH = 8;
@@ -608,7 +609,7 @@ export async function runModelCatalogRefresh(
       note: { text: modelCatalogRefreshNote(catalogError), error: catalogError !== null },
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = messageFor(error);
     return { applied: false, note: { text: `${MODEL_CATALOG_REFRESH_FAILURE_PREFIX}${message}`, error: true } };
   }
 }

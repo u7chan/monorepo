@@ -4,6 +4,7 @@
  * DOM も React も知らないので、呼び出し側のページが状態を受け取って描画に使う。
  */
 import { ApiError } from "../api";
+import { messageFor } from "./errors";
 
 export type ReorderState = {
   /** ドラッグ中の下書き順（並べ替え対象の id）。null = サーバーの確定順 */
@@ -49,10 +50,6 @@ export type ReorderFlow = {
    */
   settle(): void;
 };
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export function createReorderFlow(options: ReorderFlowOptions): ReorderFlow {
   let state: ReorderState = { draft: null, saving: false };

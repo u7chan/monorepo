@@ -9,6 +9,7 @@ import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import type { LookupFunction } from "node:net";
 import type { ContentCostCatalogModelRow, ContentCostCatalogRow, ContentCostSettingsRow } from "./app-db";
+import { messageFor } from "./errors";
 
 /** 上流の `unit` 語彙。これ以外の行は捨て、`0` へ丸めない */
 export const COST_UNITS = ["image", "megapixel", "token", "character", "byte", "minute", "request"] as const;
@@ -544,9 +545,7 @@ export function createContentCostCatalog(options: ContentCostOptions): ContentCo
       try {
         settings = store.readContentCostSettings();
       } catch (error) {
-        console.warn(
-          `[u7agent] content cost settings read failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        console.warn(`[u7agent] content cost settings read failed: ${messageFor(error)}`);
         settings = undefined;
       }
       snapshot = undefined;

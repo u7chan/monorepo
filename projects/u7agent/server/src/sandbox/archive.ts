@@ -5,6 +5,7 @@
  */
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { messageFor } from "../errors";
 import {
   SANDBOX_MAX_ARCHIVE_BYTES,
   SANDBOX_MAX_ARCHIVE_ENTRIES,
@@ -171,7 +172,7 @@ export async function walkArchive(input: {
 
   const visit = async (current: string, prefix: string, topLevel: boolean): Promise<void> => {
     const dirents = await readdir(current, { withFileTypes: true }).catch((error: unknown) => {
-      throw archiveError(400, `Cannot read directory: ${error instanceof Error ? error.message : String(error)}`);
+      throw archiveError(400, `Cannot read directory: ${messageFor(error)}`);
     });
     for (const dirent of [...dirents].sort(compareDirents)) {
       const name = dirent.name;
@@ -197,7 +198,7 @@ export async function walkArchive(input: {
       // 直下の通常ファイルはスキルフォルダではない (import の検証も同じ規則を要求する)
       if (topLevel && input.skillsOnly) continue;
       const stats = await lstat(target).catch((error: unknown) => {
-        throw archiveError(400, `Cannot read file: ${error instanceof Error ? error.message : String(error)}`);
+        throw archiveError(400, `Cannot read file: ${messageFor(error)}`);
       });
       addEntry(
         {

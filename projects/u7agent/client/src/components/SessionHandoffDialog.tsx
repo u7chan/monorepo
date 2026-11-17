@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Space } from "server";
 import { cn } from "../lib/cn";
+import { messageFor } from "../lib/errors";
 import { handoffAgentId, type HandoffAgentChoice, type SessionHandoffDialogText } from "../lib/sessionHandoff";
 import { MenuItem } from "./MenuItem";
 import { ToggleSwitch } from "./ToggleSwitch";
@@ -96,7 +97,7 @@ export function SessionHandoffDialog({
         onClose();
       } catch (err) {
         // 一覧の状態は巻き戻さず、理由だけをこの画面へ出す
-        setError(err instanceof Error ? err.message : String(err));
+        setError(messageFor(err));
         setBusy(false);
       }
     })();

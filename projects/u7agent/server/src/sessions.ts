@@ -28,6 +28,7 @@ import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
 import { buildHandoffSection, HANDOFF_FILE_NAME, type HandoffMemoSection } from "./handoff-memo";
 import type { AssistantMetricsRow, AssistantMetricsStore, CwdKeyStore } from "./app-db";
+import { messageFor } from "./errors";
 import { sandboxFailureStatus } from "./http";
 import { allowsNaturalInvocation, type AgentCatalog } from "./agents";
 import { createInvestigateRunner, type InvestigateRunner } from "./investigate-runner";
@@ -266,10 +267,6 @@ export interface SessionStoreOptions {
    * テストは上限と待ち時間を縮めた実体を渡す。
    */
   titleSummaryQueue?: TitleSummaryQueue | null;
-}
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function modelLabel(model?: { provider: string; id: string } | null): string | undefined {

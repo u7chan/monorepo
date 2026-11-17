@@ -7,6 +7,7 @@
  * API はどちらかを宣言しないため、mp3 を優先して送り、形式違いを示す 400 から使い分けを学習する。
  * ツール（`speech-tools.ts`）と設定画面の試行の両方がこの生成器を通る。
  */
+import { messageFor } from "./errors";
 import {
   classifyProviderFailure,
   parseJsonBody,
@@ -328,7 +329,7 @@ export function createSpeechGenerator(options: SpeechGeneratorOptions = {}): Spe
           );
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = messageFor(error);
         return classifyProviderFailure(
           { status, timedOut, aborted: aborted(), providerMessage: message, maskText },
           SPEECH_FAILURE_MESSAGES,

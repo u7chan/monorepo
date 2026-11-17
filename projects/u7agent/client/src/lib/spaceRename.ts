@@ -10,6 +10,7 @@
  */
 import type { Space } from "server";
 import { ApiError } from "../api";
+import { messageFor } from "./errors";
 
 /** 失敗の分類。文言は `spaceRenameNoteText` が持ち、ここは分類だけを渡す */
 export type SpaceRenameNoteKind =
@@ -35,10 +36,6 @@ export type SpaceRenameFlow = {
 export function spaceRenameNoteText(kind: SpaceRenameNoteKind, message: string): string {
   if (kind === "rejected") return `スペースの名前を変更できませんでした。${message}`;
   return `スペースの名前を変更できたか確認できません。再読み込みするとサーバーの名前に合わせます。（${message}）`;
-}
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function createSpaceRenameFlow(options: SpaceRenameFlowOptions): SpaceRenameFlow {

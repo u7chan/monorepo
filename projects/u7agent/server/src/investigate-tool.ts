@@ -5,6 +5,7 @@
  */
 import { Type, type Static } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { messageFor } from "./errors";
 import type { SecretMasker } from "./redact";
 import type { Usage } from "./schema";
 import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
@@ -81,10 +82,6 @@ type InvestigateParams = Static<typeof investigateSchema>;
 const STOPPED_MESSAGE = "停止しました";
 const TIMED_OUT_MESSAGE = "時間切れで打ち切りました";
 const FAILED_MESSAGE = "子エージェントの実行に失敗しました";
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * 報告の本文を作る。先に全文を mask する: 切り詰めてからでは、境界に掛かった秘密値が

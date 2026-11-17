@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useSpaceApi } from "../SpaceContext";
 import { clientBuildId } from "../lib/clientBuild";
 import { copyToClipboard } from "../lib/copyToClipboard";
+import { messageFor } from "../lib/errors";
 import {
   buildDiagnosticsReport,
   diagnosticsFileName,
@@ -17,10 +18,6 @@ import {
 } from "../lib/diagnostics";
 import type { SessionDiagnostics } from "../types";
 import type { ChatState } from "./chatReducer";
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** コピーの結果。失敗しても `text` は捨てず、そのままファイル保存へ回せるようにする */
 export type DiagnosticsCopyResult = {

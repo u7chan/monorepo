@@ -9,13 +9,10 @@ import {
   validateExcludeNames,
   type ArchiveSettingsDraft,
 } from "../lib/archiveSettings";
+import { messageFor } from "../lib/errors";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import type { ArchiveSettingsResponse } from "../types";
 import { createLoadingTracker, createRequestGate } from "./requestGate";
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * アーカイブの除外名の state と操作。行の出し分け（ツリーのダウンロードボタン）が保存の直後に追随する必要があるため、

@@ -7,6 +7,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { createConnection } from "node:net";
 import { SERVE_DIR_REL, SERVE_LOG_REL, SERVE_STATE_REL, serveDebugLogRel } from "./app-paths";
 import type { ServeCommandRow } from "./app-db";
+import { messageFor } from "./errors";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, httpError } from "./http";
 import { MutationLock } from "./model-settings";
 // serve 契約の待受ポート。プローブも待受 PID の特定も、サービス オリジンの転送先もこの値だけを見る
@@ -288,10 +289,6 @@ export interface ServeServiceOptions {
   startTimeoutMs?: number;
   stopTimeoutMs?: number;
   cacheMs?: number;
-}
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));

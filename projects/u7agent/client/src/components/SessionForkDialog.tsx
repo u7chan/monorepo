@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { cn } from "../lib/cn";
+import { messageFor } from "../lib/errors";
 import type { SessionForkDialogText, SessionForkRequest } from "../lib/sessionFork";
 import { forkRequest } from "../lib/sessionFork";
 import type { HandoffAgentChoice } from "../lib/sessionHandoff";
@@ -72,7 +73,7 @@ export function SessionForkDialog({
         onClose();
       } catch (err) {
         // 一覧の状態は巻き戻さず、理由だけをこの画面へ出す
-        setError(err instanceof Error ? err.message : String(err));
+        setError(messageFor(err));
         setBusy(false);
       }
     })();

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getSharedContentExclusions, resetSharedContentExclusions, updateSharedContentExclusions } from "../api";
+import { messageFor } from "../lib/errors";
 import {
   addExcludeName,
   archiveSettingsDirty,
@@ -12,10 +13,6 @@ import { validateSharedContentExcludeNames } from "../lib/sharedContentExclusion
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import type { SharedContentExclusionsResponse } from "../types";
 import { createLoadingTracker, createRequestGate } from "./requestGate";
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * 設定 → 共有「公開の除外」の state と操作。一覧の下書き・追加・削除はアーカイブの設定と同じ純関数を使い、

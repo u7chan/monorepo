@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { getFiles, type CreateProjectInput } from "../api";
 import { cn } from "../lib/cn";
+import { messageFor } from "../lib/errors";
 import { parentWorkspacePath, projectChildPath, WORKSPACE_ROOT, workspaceBaseName } from "../lib/projectPath";
 import type { FileEntry } from "../types";
 import { CloseIcon, FolderIcon } from "./icons";
@@ -60,7 +61,7 @@ export function ProjectDialog({ onClose, onCreate, singleColumn = false }: Proje
         const listing = await getFiles(path);
         if (!cancelled) setDirectories(listing.entries.filter((entry) => entry.type === "dir"));
       } catch (err) {
-        if (!cancelled) setListingError(err instanceof Error ? err.message : String(err));
+        if (!cancelled) setListingError(messageFor(err));
       }
     })();
     return () => {
@@ -107,7 +108,7 @@ export function ProjectDialog({ onClose, onCreate, singleColumn = false }: Proje
         // 閉じるまで busy を戻さない (成功後に二重送信できないように)
         onClose();
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(messageFor(err));
         setBusy(false);
       }
     })();

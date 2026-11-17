@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uploadWorkspaceFile } from "../api";
+import { messageFor } from "../lib/errors";
 import {
   mergeUploadTasks,
   planUploads,
@@ -30,10 +31,6 @@ export type WorkspaceUploads = {
   /** 決着済みの行だけ消す (送信中は残す) */
   dismiss: () => void;
 };
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * 設定 → ファイル と作業環境（作業フォルダ）のドラッグ＆ドロップの実行キュー。同時数 (`UPLOAD_CONCURRENCY`) と件数 / サイズの検査は

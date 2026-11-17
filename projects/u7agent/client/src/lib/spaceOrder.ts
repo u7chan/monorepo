@@ -11,6 +11,7 @@
  * 新しいページの確定した並びを巻き戻さないようにする。
  */
 import { ApiError } from "../api";
+import { messageFor } from "./errors";
 
 export type SpaceOrderState = {
   /** ドラッグ中の下書き順（既定スペースを除く id）。null = 確定済みの一覧の順 */
@@ -53,10 +54,6 @@ export type SpaceOrderFlow = {
   /** 確定。ドラッグしていなければ何もしない */
   commit(): Promise<void>;
 };
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export function createSpaceOrderFlow(options: SpaceOrderFlowOptions): SpaceOrderFlow {
   let state: SpaceOrderState = { draft: null, saving: false };
