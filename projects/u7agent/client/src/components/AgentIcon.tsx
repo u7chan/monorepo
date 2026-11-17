@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { isAgentIcon } from "../lib/agentIcon";
+import { agentPresetOf } from "../lib/agentPresets";
 import { cn } from "../lib/cn";
 import { SparkleIcon } from "./icons";
 
@@ -34,7 +35,7 @@ export function AgentIcon({
   variant,
   singleColumn = false,
 }: {
-  /** 未設定・形式違いは SparkleIcon にフォールバックする */
+  /** 未設定・未対応の preset・形式違いは SparkleIcon にフォールバックする */
   icon?: string;
   variant: AgentIconVariant;
   /** bubble だけ。狭い layout では 1 段小さくする */
@@ -42,7 +43,9 @@ export function AgentIcon({
 }) {
   // 読み込みに失敗した src を覚えて、同じ画像を再試行させず SparkleIcon へ切り替える
   const [failedIcon, setFailedIcon] = useState<string>();
-  const source = isAgentIcon(icon) ? icon : undefined;
+  // preset は同梱アセットの URL に解決する。未知の id と形式違いは source を持たず星へ落ちる
+  const preset = agentPresetOf(icon);
+  const source = preset?.src ?? (isAgentIcon(icon) && !icon.startsWith("preset:") ? icon : undefined);
   const showImage = source !== undefined && source !== failedIcon;
   return (
     <span

@@ -23,7 +23,7 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 - アクセントは面用途と線・リング用途でトークンを分ける。線・リング用途は各プリセットで隣接面に対して 3:1 以上（WCAG 1.4.11）を満たす
 - 文字サイズは Tailwind 既定の段に加えて小さい側の段を `@theme` に定義する。**`text-base` は色トークン `--color-base` が取るため使えない**（フォントサイズではなく色になる）
 - 字詰め（`palt`）は `body` 全体に当て、等幅の面だけ打ち消す
-- **BFF の CSP は `style-src 'self'`（インライン style 不可）。** テーマは外部 CSS + 属性切替だけで実装し、`<style>` の注入やインライン `style` 属性に頼らない。`img-src` だけ `data:` を許すのはエージェントのアイコン用（`script-src` は `'self'` のまま）
+- **BFF の CSP は `style-src 'self'`（インライン style 不可）。** テーマは外部 CSS + 属性切替だけで実装し、`<style>` の注入やインライン `style` 属性に頼らない。`img-src` だけ `data:` を許すのはアップロードされたエージェントアイコン用（同梱プリセットは `'self'` の WebP、`script-src` は `'self'` のまま）
 - フォントは自前ホストに限る（外部 CDN を使わない）。`devDependencies` に置くのはビルド段で焼き込み、実行時には要らないため（実行イメージと license check の対象を増やさない）。OFL の条文は `client/public/fonts/` で配る
 
 ## コンポーネントの契約

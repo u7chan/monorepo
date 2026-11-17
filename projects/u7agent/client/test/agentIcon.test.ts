@@ -35,10 +35,15 @@ test("fitIconSize はアスペクト比を保って箱へ収める", () => {
   assert.deepEqual(fitIconSize(1000, 500, 128), { width: 128, height: 64 });
 });
 
-test("isAgentIcon は webp / png の data URL だけを 16 KiB まで受理する", () => {
+test("isAgentIcon は data URL と preset ID を受理する", () => {
   assert.equal(isAgentIcon(dataUrl("webp", 1024)), true);
   assert.equal(isAgentIcon(dataUrl("png", 16 * 1024)), true);
   assert.equal(isAgentIcon(dataUrl("png", 16 * 1024 + 1)), false);
+
+  // プリセットは形だけを見る (実在は agentPresetOf が解決する)
+  assert.equal(isAgentIcon("preset:bot-mint"), true);
+  assert.equal(isAgentIcon("preset:a"), true);
+  assert.equal(isAgentIcon(`preset:${"a".repeat(32)}`), true);
 
   const rejected: unknown[] = [
     undefined,
@@ -50,6 +55,12 @@ test("isAgentIcon は webp / png の data URL だけを 16 KiB まで受理す�
     "data:image/jpeg;base64,/9j/4A==",
     "data:image/png;base64,",
     "data:image/png;base64,AAA",
+    "preset:",
+    "preset:Bot",
+    "preset:bot mint",
+    "preset:bot_mint",
+    `preset:${"a".repeat(33)}`,
+    "presetbot-mint",
   ];
   for (const value of rejected) {
     assert.equal(isAgentIcon(value), false, `must reject ${String(value)}`);
@@ -58,9 +69,10 @@ test("isAgentIcon は webp / png の data URL だけを 16 KiB まで受理す�
 
 test("agentIconOf はカタログから agentId のアイコンを引く", () => {
   const icon = dataUrl("webp", 64);
-  const agents = [agent("agent-general"), agent("agent-code", icon)];
+  const agents = [agent("agent-general"), agent("agent-code", icon), agent("agent-preset", "preset:bot-mint")];
 
   assert.equal(agentIconOf(agents, "agent-code"), icon);
+  assert.equal(agentIconOf(agents, "agent-preset"), "preset:bot-mint");
   // 未設定・未知の id・削除済みのセッションは undefined (表示側が SparkleIcon へ落とす)
   assert.equal(agentIconOf(agents, "agent-general"), undefined);
   assert.equal(agentIconOf(agents, "agent-missing"), undefined);

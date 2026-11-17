@@ -40,7 +40,7 @@ async function assertIndexResponse(response: Response, message: string): Promise
   assert.equal(response.headers.get("cache-control"), "no-cache", message);
   assert.equal(response.headers.get("x-content-type-options"), "nosniff", message);
   assert.match(response.headers.get("content-security-policy") || "", /default-src 'self'/, message);
-  // エージェントのアイコン (data URL) を <img> で描けること (script-src は緩めない)
+  // アップロード画像 (data URL) と同梱プリセット (self) のアイコンを <img> で描けること (script-src は緩めない)
   assert.match(response.headers.get("content-security-policy") || "", /img-src 'self' data:/, message);
   // 音声は同 origin の raw ルートだけを鳴らす (試行の成果物に blob: を使わない)
   assert.match(response.headers.get("content-security-policy") || "", /media-src 'self';/, message);
@@ -177,6 +177,15 @@ test("png assets are served as image/png", async () => {
     const icon = await request("/apple-touch-icon.png", { headers: { Accept: BROWSER_ACCEPT } });
     assert.equal(icon.status, 200);
     assert.equal(icon.headers.get("content-type"), "image/png");
+    assert.equal(icon.headers.get("cache-control"), "no-cache");
+  });
+});
+
+test("webp assets are served as image/webp", async () => {
+  await withDist({ "index.html": INDEX_HTML, "agent-icons/bot-mint.webp": "RIFF....WEBP" }, async (request) => {
+    const icon = await request("/agent-icons/bot-mint.webp", { headers: { Accept: BROWSER_ACCEPT } });
+    assert.equal(icon.status, 200);
+    assert.equal(icon.headers.get("content-type"), "image/webp");
     assert.equal(icon.headers.get("cache-control"), "no-cache");
   });
 });

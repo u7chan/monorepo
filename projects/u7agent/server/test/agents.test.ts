@@ -414,6 +414,28 @@ test("rejects icons that are not webp / png data URLs or exceed 16 KiB", () => {
   assert.equal(catalog.getAgent(agent.id)?.icon, atLimit);
 });
 
+test("accepts preset icon ids and rejects malformed ones", () => {
+  const catalog = createAgentCatalog();
+  const preset = catalog.createAgent({ name: "プリセット", icon: "preset:bot-mint" });
+  assert.equal(preset.icon, "preset:bot-mint");
+  assert.equal(catalog.getAgent(preset.id)?.icon, "preset:bot-mint");
+
+  const updated = catalog.updateAgent(preset.id, { icon: "preset:bot-aqua" });
+  assert.equal(updated?.icon, "preset:bot-aqua");
+
+  // 未知の ID も形が正しければ通す (表示側が星へ落とす)
+  const unknown = catalog.createAgent({ name: "未知", icon: "preset:not-bundled" });
+  assert.equal(unknown.icon, "preset:not-bundled");
+
+  for (const icon of ["preset:", "preset:Bot", "preset:bot mint", "preset:bot_mint", `preset:${"a".repeat(33)}`]) {
+    assert.throws(
+      () => catalog.createAgent({ name: "不正", icon }),
+      (error: Error & { statusCode?: number }) => error.statusCode === 400,
+      `must reject ${icon}`,
+    );
+  }
+});
+
 test("normalizes the common skill allowlist without collapsing undefined and []", () => {
   const catalog = createAgentCatalog();
 

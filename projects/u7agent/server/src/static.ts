@@ -13,6 +13,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".webp": "image/webp",
   ".json": "application/json; charset=utf-8",
   ".map": "application/json; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
@@ -21,7 +22,8 @@ const CONTENT_TYPES: Record<string, string> = {
   ".webmanifest": "application/manifest+json",
 };
 
-// エージェントのアイコンは data URL を <img> で描くため、img-src だけ data: を許す (script-src は 'self' のまま)。
+// エージェントのアイコンはアップロード画像の data URL と同梱プリセットの同一オリジン画像を <img> で描くため、
+// img-src だけ data: を許す (script-src は 'self' のまま)。
 // 音声は同 origin の raw ルート (試行の成果物 / ファイルプレビュー) だけを鳴らすため、media-src は 'self' に閉じる
 const staticCsp = (filePreviewPort: number, filePreviewOrigin?: string) =>
   "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; " +

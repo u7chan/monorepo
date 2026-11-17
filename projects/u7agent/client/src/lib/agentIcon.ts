@@ -9,6 +9,9 @@ const ICON_MAX_BYTES = 16 * 1024;
 /** server が受理する data URL だけを表示に使う (形式違い・壊れた値は SparkleIcon へ落とす) */
 const ICON_DATA_URL = /^data:image\/(?:webp|png);base64,([A-Za-z0-9+/]+={0,2})$/;
 
+/** 同梱プリセットの ID。文法は server (agents.ts の ICON_PRESET) と同じ */
+const ICON_PRESET = /^preset:[a-z0-9-]{1,32}$/;
+
 /** 正規の base64 は 4 の倍数。端数がある値は server も受理しないため、表示にも使わない */
 function isCanonicalBase64(payload: string): boolean {
   return payload.length % 4 === 0;
@@ -20,9 +23,13 @@ function base64Bytes(payload: string): number {
   return (payload.length / 4) * 3 - padding;
 }
 
-/** 表示できるアイコンか。未設定・形式違い・上限超えは false */
+/**
+ * 表示できるアイコンか。アップロード画像の data URL と、プリセットの `preset:<id>` を受理する。
+ * 未設定・形式違い・上限超えは false。プリセット ID の実在は `agentPresetOf` が解決する。
+ */
 export function isAgentIcon(value: unknown): value is string {
   if (typeof value !== "string") return false;
+  if (ICON_PRESET.test(value)) return true;
   const match = ICON_DATA_URL.exec(value);
   return match !== null && isCanonicalBase64(match[1]) && base64Bytes(match[1]) <= ICON_MAX_BYTES;
 }
