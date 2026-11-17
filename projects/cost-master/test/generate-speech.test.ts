@@ -131,6 +131,41 @@ describe("generateSpeechPrices", () => {
     expect(result.ok && result.summary.unpriced).toEqual(["tts/free"]);
   });
 
+  test("pricing を持たない endpoint は行だけ捨て、他の endpoint の単価を使う", async () => {
+    const result = await run({
+      [LIST]: list("tts/a"),
+      [ENDPOINTS("tts/a")]: json({
+        data: {
+          endpoints: [{ pricing: { prompt: "0.000015", completion: "0" } }, { provider_name: "Broken" }],
+        },
+      }),
+      [UNITS("tts/a")]: text(units("- Provider A: $15/M characters")),
+    });
+
+    expect(result.ok && result.rows).toEqual([
+      { modelId: "tts/a", billable: "input_text", unit: "character", variant: "", costUsd: 0.000015 },
+    ]);
+  });
+
+  test("公開 endpoint なしの宣言は endpoints の取得失敗より先に確定する", async () => {
+    const previous: PriceRow[] = [
+      { modelId: "tts/free", billable: "input_text", unit: "character", variant: "", costUsd: 0.00001 },
+    ];
+    const result = await run(
+      {
+        [LIST]: list("tts/free"),
+        // endpoints は引けないが、llms.txt が「公開 endpoint なし」と宣言している
+        [UNITS("tts/free")]: text(
+          "# TTS\n\n## Pricing\n\n`tts/free` has no public standard endpoint right now, so no current price is listed.\n\n## EU\n",
+        ),
+      },
+      previous,
+    );
+
+    expect(result.ok && result.rows).toEqual([]);
+    expect(result.ok && result.summary.unpriced).toEqual(["tts/free"]);
+  });
+
   test("llms.txt が読めないモデルは失敗として前回の行を残す", async () => {
     const previous: PriceRow[] = [
       { modelId: "tts/a", billable: "input_text", unit: "character", variant: "", costUsd: 0.00001 },

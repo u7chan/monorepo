@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
-import { ContentSettingsTab } from "../src/components/content-settings/ContentSettingsTab";
+import { ContentCostSection, ContentSettingsTab } from "../src/components/content-settings/ContentSettingsTab";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import type { ContentSavingAction } from "../src/lib/contentSettings";
 import type { ContentSubsection } from "../src/lib/settingsNav";
@@ -1197,6 +1197,35 @@ test("[カタログ更新] は一覧を持つ面にだけ置き、Codex と BGM 
     /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*カタログ更新/,
     "別の保存の実行中も重ねない",
   );
+});
+
+test("コスト設定は OFF の間 URL を編集させず、再開の条件を出す", () => {
+  const html = renderToStaticMarkup(
+    createElement(
+      ConfirmProvider,
+      null,
+      createElement(ContentCostSection, {
+        settings: settings(
+          {},
+          { cost: { enabled: false, url: "https://cost-master.example.com/api/models", fetchedAt: 0, version: 3 } },
+        ),
+        busy: false,
+        draft: null,
+        onChangeDraft: () => {},
+        onSave: async () => true,
+      }),
+    ),
+  );
+  assert.match(html, /aria-label="コストマスタのURL"[^>]*disabled=""/);
+  assert.ok(html.includes("OFF の間は取得も価格表示もしません"));
+});
+
+test("画像タブは停止中のコスト状態をチップに出す", () => {
+  const html = render({
+    cost: { enabled: false, url: "https://cost-master.example.com/api/models", fetchedAt: 0, version: 3 },
+  });
+  assert.ok(html.includes("コスト表示は停止中"));
+  assert.ok(html.includes("価格 --"));
 });
 
 test("音声タブは入力側の単価を主、出力側を副にし、非表示のモデルを選択肢から外す", () => {

@@ -165,15 +165,12 @@ function endpointPricingOf(body: unknown): EndpointPricing[] | undefined {
   const rows: EndpointPricing[] = [];
 
   for (const endpoint of endpoints) {
-    if (typeof endpoint !== "object" || endpoint === null) {
-      return undefined;
-    }
+    // pricing を持たない endpoint はその行だけ捨てる（1 provider の欠落でモデル全体を落とさない）
+    if (typeof endpoint !== "object" || endpoint === null) continue;
 
     const pricing = (endpoint as { pricing?: unknown }).pricing;
 
-    if (typeof pricing !== "object" || pricing === null) {
-      return undefined;
-    }
+    if (typeof pricing !== "object" || pricing === null) continue;
 
     rows.push({
       prompt: priceOf((pricing as { prompt?: unknown }).prompt),
@@ -181,7 +178,7 @@ function endpointPricingOf(body: unknown): EndpointPricing[] | undefined {
     });
   }
 
-  return rows;
+  return rows.length === 0 ? undefined : rows;
 }
 
 /** 文字列でも数値でも受ける。負・非数値・欠落は null（0 に丸めない） */
@@ -279,13 +276,7 @@ async function outcomeOf(
     return failed;
   }
 
-  if (endpointsBody === undefined || unitDoc === undefined) {
-    return failed;
-  }
-
-  const pricing = endpointPricingOf(endpointsBody);
-
-  if (pricing === undefined) {
+  if (unitDoc === undefined) {
     return failed;
   }
 
@@ -295,8 +286,19 @@ async function outcomeOf(
     return failed;
   }
 
+  // 「公開 endpoint なし」の確定は endpoints の取得成否より先に見る（価格なしを前回行で上書きしない）
   if (parsed.kind === "none") {
     return { kind: "none" };
+  }
+
+  if (endpointsBody === undefined) {
+    return failed;
+  }
+
+  const pricing = endpointPricingOf(endpointsBody);
+
+  if (pricing === undefined) {
+    return failed;
   }
 
   const rows = rowsOfModel(modelId, pricing, parsed.lines);
