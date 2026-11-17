@@ -23,7 +23,7 @@ import { createTrialDiskCheck, type TrialStatfs } from "./content-trial-disk-spa
 import { createImageCatalog } from "./image-catalog";
 import { CODEX_PROVIDER_ID, codexAuthOf, codexAuthStatusOf } from "./codex-images";
 import { createSpeechCatalog } from "./speech-catalog";
-import { createContentCostCatalog, type ContentCostOptions } from "./content-cost";
+import { allowPrivateCostHost, createContentCostCatalog, type ContentCostOptions } from "./content-cost";
 import { WebSearchSettingsService } from "./web-search-settings";
 import { createWebSearchTest, type WebSearchTest } from "./web-search-test";
 import { TitleSummarySettingsService } from "./title-summary-settings";
@@ -344,7 +344,12 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   const speechCatalog = createSpeechCatalog({ store: appDb, fetchImpl: opts.speechCatalogFetch });
   // 価格と「一覧に出す / 出さない」の判断はコストマスタが持ち、ここは取得して写すだけ。
   // 取得は手動の [カタログ更新] のときだけ（起動時は保持値の読込のみ）
-  const costCatalog = createContentCostCatalog({ store: appDb, fetchImpl: opts.contentCostFetch });
+  const costCatalog = createContentCostCatalog({
+    store: appDb,
+    fetchImpl: opts.contentCostFetch,
+    // 同一 Docker ネットワークのサービス名で master を指す運用では、解決先が private になる
+    allowPrivateHosts: allowPrivateCostHost(),
+  });
   const contentSettings = new ContentSettingsService({
     db: appDb,
     runtimeAvailable: pi !== null,

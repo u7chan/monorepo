@@ -16,10 +16,13 @@ import {
   CONTENT_COST_SETTINGS_NOT_STORED_MESSAGE,
   CONTENT_COST_URL_INVALID_MESSAGE,
   CONTENT_COST_URL_REQUIRED_MESSAGE,
+  allowCostMasterAddress,
+  allowPrivateCostHost,
   costProjectionOf,
   costUrlError,
   createContentCostCatalog,
   isGlobalAddress,
+  isPrivateNetworkAddress,
   requestCostMaster,
   type ContentCostStore,
 } from "../src/content-cost";
@@ -138,6 +141,58 @@ test("グローバルでないアドレス（loopback / private / link-local / U
   for (const address of ["8.8.8.8", "1.1.1.1", "2001:4860:4860::8888", "::ffff:8.8.8.8"]) {
     assert.equal(isGlobalAddress(address), true, address);
   }
+});
+
+test("opt-in は LAN 内向けだけを許可し、loopback・link-local・ドキュメント用は許可しない", () => {
+  for (const address of ["10.1.2.3", "172.20.0.1", "192.168.0.1", "100.64.0.1", "fd12:3456::1", "::ffff:192.168.1.9"]) {
+    assert.equal(isPrivateNetworkAddress(address), true, address);
+    assert.equal(allowCostMasterAddress(address, true), true, address);
+    assert.equal(allowCostMasterAddress(address, false), false, `${address} は既定で拒否`);
+  }
+  for (const address of ["127.0.0.1", "169.254.169.254", "::1", "fe80::1", "192.0.2.10", "ff02::1"]) {
+    assert.equal(isPrivateNetworkAddress(address), false, address);
+    assert.equal(allowCostMasterAddress(address, true), false, address);
+  }
+  // opt-in でもグローバルは従来どおり許可する
+  assert.equal(allowCostMasterAddress("8.8.8.8", true), true);
+  assert.equal(allowCostMasterAddress("8.8.8.8", false), true);
+});
+
+test("opt-in の env は未設定・未知の値を false へ倒す", () => {
+  assert.equal(allowPrivateCostHost("1"), true);
+  assert.equal(allowPrivateCostHost(" true "), true);
+  for (const raw of [undefined, "", "0", "false", "yes", "on"]) {
+    assert.equal(allowPrivateCostHost(raw), false, String(raw));
+  }
+});
+
+test("opt-in のときだけ取得時の接続先検査を private 宛へ広げる", async () => {
+  const seen: ((address: string) => boolean)[] = [];
+  const run = async (allowPrivateHosts: boolean | undefined): Promise<void> => {
+    const store = new FakeCostStore();
+    const catalog = createContentCostCatalog({
+      store,
+      ...(allowPrivateHosts === undefined ? {} : { allowPrivateHosts }),
+      fetchImpl: async (_url, options) => {
+        if (options.allowAddress !== undefined) seen.push(options.allowAddress);
+        return jsonResponse(masterOf([priceRow()]));
+      },
+    });
+    catalog.loadStored();
+    catalog.saveSettings({ enabled: true, url: COST_URL });
+    assert.equal(await catalog.refresh(), null);
+  };
+
+  await run(true);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]!("172.17.0.5"), true, "Docker の private 宛を通す");
+  assert.equal(seen[0]!("169.254.169.254"), false, "link-local は通さない");
+  assert.equal(seen[0]!("127.0.0.1"), false, "loopback は通さない");
+
+  // 既定（未指定）と false は従来どおり `isGlobalAddress` のまま差し替えない
+  await run(undefined);
+  await run(false);
+  assert.equal(seen.length, 1);
 });
 
 test("マージは出力側の単価だけを残し、重複は最大単価へ潰し、0 と不明を区別する", async () => {
