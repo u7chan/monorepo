@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { groupByModel, summarize, withModelEnabled } from "../src/client/models";
+import { groupByModel, sortGroups, summarize, withModelEnabled } from "../src/client/models";
 import type { CostModelPrice } from "../src/shared/contract";
 
 function price(overrides: Partial<CostModelPrice> = {}): CostModelPrice {
@@ -45,6 +45,55 @@ describe("groupByModel", () => {
     const groups = groupByModel([price({ enabled: false, note: "高価" })]);
 
     expect(groups[0]).toMatchObject({ enabled: false, note: "高価" });
+  });
+});
+
+describe("sortGroups", () => {
+  test("名前順は modelId の昇順にする", () => {
+    const groups = groupByModel([price({ modelId: "b" }), price({ modelId: "c" }), price({ modelId: "a" })]);
+
+    expect(sortGroups(groups, "name").map((group) => group.modelId)).toEqual(["a", "b", "c"]);
+  });
+
+  test("単価順は同じ unit の中で安い順にし、基本単価を使う", () => {
+    const groups = groupByModel([
+      price({ modelId: "x", variant: "2k", costUsd: 0.2 }),
+      price({ modelId: "x", variant: "", costUsd: 0.08 }),
+      price({ modelId: "y", costUsd: 0.05 }),
+      price({ modelId: "z", costUsd: 0.01 }),
+    ]);
+
+    expect(sortGroups(groups, "cost").map((group) => group.modelId)).toEqual(["z", "y", "x"]);
+  });
+
+  test("単位の違う単価は数値で比べず、image → megapixel → token → request の順に分ける", () => {
+    const groups = groupByModel([
+      price({ modelId: "request", unit: "request", costUsd: 0.02 }),
+      price({ modelId: "token", unit: "token", costUsd: 0.000001 }),
+      price({ modelId: "image", unit: "image", costUsd: 0.05 }),
+      price({ modelId: "megapixel", unit: "megapixel", costUsd: 0.01 }),
+    ]);
+
+    expect(sortGroups(groups, "cost").map((group) => group.modelId)).toEqual([
+      "image",
+      "megapixel",
+      "token",
+      "request",
+    ]);
+  });
+
+  test("同じ単価なら名前順にする", () => {
+    const groups = groupByModel([price({ modelId: "b", costUsd: 0.05 }), price({ modelId: "a", costUsd: 0.05 })]);
+
+    expect(sortGroups(groups, "cost").map((group) => group.modelId)).toEqual(["a", "b"]);
+  });
+
+  test("元の配列とグループを書き換えない", () => {
+    const groups = groupByModel([price({ modelId: "b", costUsd: 0.05 }), price({ modelId: "a", costUsd: 0.01 })]);
+
+    sortGroups(groups, "cost");
+
+    expect(groups.map((group) => group.modelId)).toEqual(["b", "a"]);
   });
 });
 

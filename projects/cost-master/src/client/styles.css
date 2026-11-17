@@ -93,6 +93,12 @@ body {
   color: var(--cm-warn);
 }
 
+.list-head {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
 .models {
   display: grid;
   gap: 8px;
