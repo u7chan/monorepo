@@ -268,7 +268,10 @@ export const AgentDefSchema = z.object({
    * (docs/api-catalog.md#ツール許可リスト)。
    */
   toolNames: z.array(z.string()).optional(),
-  /** webp / png の data URL。未指定のときはキー自体を省略する (null は保存・応答に現れない) */
+  /**
+   * プリセット ID (`preset:<id>`) または webp / png の data URL。未指定のときはキー自体を省略する
+   * (null は保存・応答に現れない)。プリセットの実体はクライアントが解決する
+   */
   icon: z.string().optional(),
   // 未指定のときはキー自体を省略する (null は保存・応答に現れない)
   model: ModelRefSchema.optional(),

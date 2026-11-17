@@ -1329,7 +1329,7 @@ test("catalog endpoints round-trip agent icons", async () => {
       jsonPatch({ icon: "data:image/svg+xml;base64,PHN2Zy8+" }),
     );
     assert.equal(wrongMime.status, 400);
-    assert.equal((await jsonBody(wrongMime)).error, "Icon must be a webp or png data URL");
+    assert.equal((await jsonBody(wrongMime)).error, "Icon must be a preset id or a webp or png data URL");
     const tooLarge = await app.request(
       `/api/agents/${createdAgent.id}`,
       jsonPatch({ icon: iconDataUrl("png", 16 * 1024 + 1) }),
@@ -1343,6 +1343,36 @@ test("catalog endpoints round-trip agent icons", async () => {
     const cleared = await app.request(`/api/agents/${createdAgent.id}`, jsonPatch({ icon: null }));
     assert.equal(cleared.status, 200);
     assert.equal(Object.hasOwn((await jsonBody(cleared)).agent, "icon"), false);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("catalog endpoints round-trip preset agent icons", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const created = await app.request("/api/agents", jsonPost({ name: "プリセット", icon: "preset:bot-mint" }));
+    assert.equal(created.status, 201);
+    const createdAgent = (await jsonBody(created)).agent;
+    assert.equal(createdAgent.icon, "preset:bot-mint");
+
+    const reloaded = await jsonBody(app.request("/api/agents"));
+    assert.equal(reloaded.agents.find((agent: { id: string }) => agent.id === createdAgent.id).icon, "preset:bot-mint");
+
+    const updated = await app.request(`/api/agents/${createdAgent.id}`, jsonPatch({ icon: "preset:bot-aqua" }));
+    assert.equal(updated.status, 200);
+    assert.equal((await jsonBody(updated)).agent.icon, "preset:bot-aqua");
+
+    // 形が違う preset は 400 で既存値を変えない
+    const malformed = await app.request(`/api/agents/${createdAgent.id}`, jsonPatch({ icon: "preset:Bot" }));
+    assert.equal(malformed.status, 400);
+    assert.equal((await jsonBody(malformed)).error, "Icon must be a preset id or a webp or png data URL");
+    const afterReject = await jsonBody(app.request("/api/agents"));
+    assert.equal(
+      afterReject.agents.find((agent: { id: string }) => agent.id === createdAgent.id).icon,
+      "preset:bot-aqua",
+    );
   } finally {
     await bff.close();
   }

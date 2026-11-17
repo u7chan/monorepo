@@ -2,7 +2,9 @@ import { useRef, useState, type Dispatch, type FormEvent, type SetStateAction } 
 import { createAgent, deleteAgent, updateAgent } from "../../api";
 import type { FileSkillsState } from "../../hooks/useFileSkills";
 import { fileToAgentIcon } from "../../lib/agentIconFile";
+import { AGENT_PRESETS, agentPresetValue } from "../../lib/agentPresets";
 import { allowlistCount, disableGroup, toggleAllowed } from "../../lib/agentAllowlist";
+import { cn } from "../../lib/cn";
 import {
   AGENT_TABS_ARIA_LABEL,
   AGENT_TAB_ASSIGN_LABEL,
@@ -58,7 +60,7 @@ export type AgentForm = {
    * 配列 = 明示リストで [] はすべて OFF)。実効はアプリ側の可否との積 (docs/api-catalog.md)。
    */
   toolNames?: string[] | null;
-  /** data URL。null は未設定で、保存時は「指定解除」として送る */
+  /** プリセット ID (`preset:<id>`) またはアップロード画像の data URL。null は未設定で、保存時は「指定解除」として送る */
   icon: string | null;
   /** null は保存時に「指定解除」として送る */
   model: ModelRef | null;
@@ -390,9 +392,34 @@ export function AgentEditorForm({
                     </div>
                     <div className="grid gap-1 text-1xs text-ink-soft">
                       アイコン
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-start gap-3">
                         <AgentIcon icon={form.icon ?? undefined} variant="preview" />
-                        <div className="grid gap-1.5">
+                        <div className="grid min-w-0 gap-2">
+                          <div className="flex flex-wrap gap-1.5" role="group" aria-label="プリセットアイコン">
+                            {AGENT_PRESETS.map((preset) => {
+                              const value = agentPresetValue(preset);
+                              const selected = form.icon === value;
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  title={preset.label}
+                                  aria-label={`${preset.label}のアイコン`}
+                                  aria-pressed={selected}
+                                  disabled={iconBusy}
+                                  onClick={() => setForm((prev) => ({ ...prev, icon: value }))}
+                                  className={cn(
+                                    "size-10 shrink-0 overflow-hidden rounded-lg border transition-colors disabled:opacity-50",
+                                    selected
+                                      ? "border-accent ring-1 ring-accent/40"
+                                      : "border-line hover:border-accent/50",
+                                  )}
+                                >
+                                  <img src={preset.src} alt="" className="size-full object-cover" />
+                                </button>
+                              );
+                            })}
+                          </div>
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
@@ -414,7 +441,8 @@ export function AgentEditorForm({
                             ) : null}
                           </div>
                           <p className="text-2xs leading-relaxed text-ink-faint">
-                            256×256 に縮小して保存します。未設定なら星のマークで表示します。
+                            プリセットを選ぶか、画像をアップロードできます。画像は 256×256
+                            に縮小して保存します。未設定なら星のマークで表示します。
                           </p>
                         </div>
                       </div>
