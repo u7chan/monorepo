@@ -5,6 +5,7 @@
  */
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { messageFor } from "./errors";
 
 /** master key を直接渡す環境変数。値の書式は parseMasterKeys() を参照 */
 export const SECRET_MASTER_KEY_ENV = "U7AGENT_SECRET_MASTER_KEY";
@@ -107,7 +108,7 @@ export function resolveMasterKeys(
   try {
     text = readFile(path);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = messageFor(error);
     throw new SecretKeyError(`${SECRET_MASTER_KEY_FILE_ENV} のファイルを読めません: ${message}`, "malformed");
   }
   return parseMasterKeys(text);

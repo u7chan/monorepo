@@ -7,6 +7,7 @@
  * 形式の正はサーバーの SessionSkillInfo で、ここは文言と取得先だけを持つ。
  */
 import type { SessionSkillInfo, SessionSkillsPreview, SessionSkillsResponse } from "../types";
+import { messageFor } from "./errors";
 
 export const SESSION_SKILL_SCOPE_LABEL: Record<SessionSkillInfo["scope"], string> = {
   project: "プロジェクト",
@@ -88,7 +89,7 @@ export async function fetchSessionSkills(
         reduceSessionSkills(previous, { ok: true, skills: response.skills, projectSkills: response.projectSkills }),
       );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = messageFor(error);
     if (canApply()) setState((previous) => reduceSessionSkills(previous, { ok: false, message }));
   }
 }

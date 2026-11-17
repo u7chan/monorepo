@@ -5,6 +5,7 @@
  * OAuth の失効・更新失敗は再サインインだけが復旧手段なので、APIキーの案内とは分類を分ける。
  */
 import { AUTH_REQUIRED_MESSAGE } from "./agent";
+import { messageFor } from "./errors";
 import type { RunErrorCode } from "./schema";
 
 /** 恒久的な利用枠・課金の枯渇。一時的な 429 より先に見て、再試行で回復すると案内しない */
@@ -47,10 +48,6 @@ const RATE_LIMIT_PATTERN =
 
 export interface RunErrorClassification {
   code: RunErrorCode;
-}
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**

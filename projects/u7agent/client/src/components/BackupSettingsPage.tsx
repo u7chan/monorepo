@@ -18,6 +18,7 @@ import {
   BACKUP_SKILL_LIMITS_NOTE,
 } from "../lib/backup";
 import { ALL_BACKUP_TARGETS, createBackup, createBackupStore, type BackupState } from "../lib/backupFlow";
+import { messageFor } from "../lib/errors";
 import type { BackupExportCheck, BackupRestorePlan, BackupTarget } from "../types";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { BackupExportTargets } from "./backup/BackupExportTargets";
@@ -112,7 +113,7 @@ export function BackupSettingsPage({
     } catch (error) {
       // 件数が取れなくても確認ダイアログは開く (件数だけを出さない)
       setResetCheck(null);
-      setNote({ text: error instanceof Error ? error.message : String(error), error: true });
+      setNote({ text: messageFor(error), error: true });
     }
     backup.openReset();
   };

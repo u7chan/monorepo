@@ -11,6 +11,7 @@ import { dirname } from "node:path";
 import { PassThrough, Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createInflateRaw } from "node:zlib";
+import { messageFor } from "../errors";
 import type { ArchiveLimits } from "./archive";
 import { crc32 } from "./zip";
 
@@ -56,9 +57,7 @@ function zipTooManyEntriesError(maxEntries: number): Error & { statusCode: numbe
  * 詳細 (絶対パスを含む OS メッセージ) はログにだけ残す。
  */
 function archiveUnreadableFailure(error: unknown): Error & { statusCode: number } {
-  console.warn(
-    `[u7agent-sandbox] 取り込みアーカイブを扱えませんでした: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  console.warn(`[u7agent-sandbox] 取り込みアーカイブを扱えませんでした: ${messageFor(error)}`);
   return Object.assign(new Error("Invalid ZIP archive: the received archive cannot be read"), { statusCode: 500 });
 }
 

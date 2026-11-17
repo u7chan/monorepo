@@ -4,6 +4,7 @@
  * 取得はキーの有無・有効性と独立に扱う（正は docs/image-generation.md）。
  */
 import type { ImageCatalogModelRow, ImageCatalogRow } from "./app-db";
+import { messageFor } from "./errors";
 import {
   IMAGE_ABORTED_MESSAGE,
   IMAGE_PROVIDER_ID,
@@ -399,9 +400,7 @@ export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
         source = "stored";
         fetchedAt = stored.fetchedAt;
       } catch (error) {
-        console.warn(
-          `[u7agent] image catalog cache unavailable: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        console.warn(`[u7agent] image catalog cache unavailable: ${messageFor(error)}`);
       }
     },
 

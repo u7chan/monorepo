@@ -8,6 +8,7 @@
  */
 import type { ImageApi, ImageModel } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
+import { messageFor } from "./errors";
 import {
   classifyProviderFailure,
   parseJsonBody,
@@ -631,7 +632,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
           maskText,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = messageFor(error);
         return classifyImageFailure({
           status,
           timedOut,

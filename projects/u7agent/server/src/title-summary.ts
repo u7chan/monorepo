@@ -5,6 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Api, AssistantMessage, Context, Model as PiAiModel } from "@earendil-works/pi-ai";
+import { messageFor } from "./errors";
 import type { ModelRef, ThinkingLevel, TitleSummaryTestResponse } from "./schema";
 import type { SecretMasker } from "./redact";
 import { truncate } from "./session-projection";
@@ -119,7 +120,7 @@ export function createTitleSummaryGenerate(
       if (!title) return errorResult("要約モデルの出力をタイトルとして使えません", usage);
       return { ok: true, title, usage };
     } catch (error) {
-      return errorResult(error instanceof Error ? error.message : String(error));
+      return errorResult(messageFor(error));
     }
 
     /** 失敗理由は外部由来の文字列を含むため、保存・表示の前にマスクして長さを抑える */

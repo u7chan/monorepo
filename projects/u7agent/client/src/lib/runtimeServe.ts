@@ -1,5 +1,6 @@
 import type { RuntimeServeStatus } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
+import { messageFor } from "./errors";
 
 export interface RuntimeServeState {
   status: RuntimeServeStatus | null;
@@ -95,7 +96,7 @@ export function createRuntimeServeController(deps: {
         refetch = false;
         return { kind: "started" };
       } catch (error) {
-        return { kind: "failed", error: error instanceof Error ? error.message : String(error) };
+        return { kind: "failed", error: messageFor(error) };
       } finally {
         update({ starting: null });
         // 取り消し・409 の後も、確認済みの世代で自動再試行はせず状態だけ取り直す
@@ -113,7 +114,7 @@ export function createRuntimeServeController(deps: {
         const next = await deps.stop({ generation });
         update({ status: next, failed: false, loading: false });
       } catch (error) {
-        update({ status: null, error: error instanceof Error ? error.message : String(error) });
+        update({ status: null, error: messageFor(error) });
       } finally {
         update({ stopping: false });
         // 取消や 409 の後も、確認済みの世代で自動再試行はせず状態だけ取り直す。

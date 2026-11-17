@@ -11,6 +11,7 @@ import {
   stopSharedContent,
 } from "../api";
 import { thumbnailFailureNeedsRefetch, withSharedContentThumbnail } from "../lib/sharedThumbnail";
+import { messageFor } from "../lib/errors";
 import {
   settleAcceptedAfterMutation,
   settleAcceptedSharedContent,
@@ -67,10 +68,6 @@ const INITIAL: SharedContentsManagerState = {
   error: null,
   bulkStop: null,
 };
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export function useSharedContentsManager() {
   const [state, setState] = useState<SharedContentsManagerState>(INITIAL);

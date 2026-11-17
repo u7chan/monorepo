@@ -46,6 +46,7 @@ import { Hono } from "hono";
 import { COMMON_SKILLS_DIR } from "../app-paths";
 import { DEFAULT_ARCHIVE_EXCLUDE_NAMES } from "../archive-rules";
 import { parseByteRange } from "../byte-range";
+import { messageFor } from "../errors";
 import { isGitIdentityEnvName, isInjectableEnvName } from "../env-names";
 import { gitIdentityProblem, type GitIdentity } from "../git-identity";
 import { fitsImageInputPixels, IMAGE_INPUT_MAX_BYTES, inspectImageInput } from "../image-format";
@@ -192,10 +193,6 @@ export interface SandboxService {
   app: Hono;
   executions: Map<string, AbortController>;
   close: () => void;
-}
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** 長さを漏らさないための定数時間比較 (sha256 で同じ長さに揃える)。 */

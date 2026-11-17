@@ -20,6 +20,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { CURRENT_SESSION_VERSION, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { SESSION_DIR_REL, assertSessionId, isSessionId, sessionWorkdirRel } from "./app-paths";
+import { messageFor } from "./errors";
 import {
   TitleAttemptSchema,
   type AgentPayloadInfo,
@@ -919,10 +920,6 @@ export class SessionFileWriter {
     this.lastPersistedId = entries.length > 0 ? ((entries[entries.length - 1].id as string) ?? null) : null;
     this.needsSeparator = false;
   }
-}
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** thinking level の保存値。SDK の型へ寄せるのは呼び出し側 */

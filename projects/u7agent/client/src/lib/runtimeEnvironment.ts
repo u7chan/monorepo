@@ -13,6 +13,7 @@ import type {
   SandboxRuntimeCommand,
   SandboxRuntimeEnvironment,
 } from "../types";
+import { messageFor } from "./errors";
 
 export type RuntimeEnvironmentSummary = {
   label: string;
@@ -488,7 +489,7 @@ function applyWhenSettled<T>(
   };
   return promise.then(
     (value) => notify({ ok: true, value }),
-    (reason) => notify({ ok: false, message: reason instanceof Error ? reason.message : String(reason) }),
+    (reason) => notify({ ok: false, message: messageFor(reason) }),
   );
 }
 

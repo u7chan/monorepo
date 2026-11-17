@@ -1,11 +1,9 @@
 /**
  * 設定資源の hook（`useSettingsResource`）と、同じ骨格を使う hook の文言。DOM に依存しない純関数だけを置く。
  */
+import { messageFor } from "./errors";
 
-/** 例外から画面に出す 1 行。Error 以外が投げられても文を空にしない */
-export function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export { messageFor };
 
 /**
  * 変更系の失敗の注記。何も保存されなかった (503 not_stored / 400) ことを文言で区別する。

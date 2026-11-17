@@ -5,6 +5,7 @@ import { fileToAgentIcon } from "../../lib/agentIconFile";
 import { AGENT_PRESETS, agentPresetValue } from "../../lib/agentPresets";
 import { allowlistCount, disableGroup, toggleAllowed } from "../../lib/agentAllowlist";
 import { cn } from "../../lib/cn";
+import { messageFor } from "../../lib/errors";
 import {
   AGENT_TABS_ARIA_LABEL,
   AGENT_TAB_ASSIGN_LABEL,
@@ -281,7 +282,7 @@ export function AgentEditorForm({
       if (editingIdRef.current !== target) return;
       setForm((prev) => ({ ...prev, icon }));
     } catch (error) {
-      onNote(error instanceof Error ? error.message : String(error), true);
+      onNote(messageFor(error), true);
     } finally {
       setIconBusy(false);
     }
@@ -297,7 +298,7 @@ export function AgentEditorForm({
       onNote("エージェントを保存しました。適用するには新しい会話を開始してください。");
       onDone?.();
     } catch (error) {
-      onNote(error instanceof Error ? error.message : String(error), true);
+      onNote(messageFor(error), true);
     }
   };
 
@@ -313,7 +314,7 @@ export function AgentEditorForm({
       onDone?.();
     } catch (error) {
       // 削除を拒否されたときはサーバーの文言をそのまま出す
-      onNote(error instanceof Error ? error.message : String(error), true);
+      onNote(messageFor(error), true);
     }
   };
 

@@ -4,6 +4,7 @@ import { ApiError } from "../api";
 import { useSpace } from "../SpaceContext";
 import type { ChatHistoryState } from "../lib/chatTypes";
 import { adoptKnownAgentId } from "../lib/agentSelection";
+import { messageFor } from "../lib/errors";
 import { renameInputValue } from "../lib/confirmDialog";
 import { createFileRefRequests } from "../lib/fileRefRequest";
 import type { FileRefTarget } from "../lib/fileRef";
@@ -41,10 +42,6 @@ const alwaysCurrent = () => true;
 /** 開けなかった理由。サーバーの 409 は「どのファイルが壊れているか」を含む */
 function sessionOpenFailureText(error: unknown): string {
   return error instanceof ApiError ? error.message : "セッションを開けませんでした";
-}
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export type UseSessionsParams = {

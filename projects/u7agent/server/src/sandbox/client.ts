@@ -2,6 +2,7 @@
  * BFF からサンドボックス ツール実行 API を呼ぶクライアント。NDJSON を execute() の契約
  * (onUpdate / result / abort) に写し替え、abort は cancel エンドポイントと接続切断の両方で伝播させる。
  */
+import { messageFor } from "../errors";
 import { IMAGE_INPUT_MAX_BYTES } from "../image-format";
 import {
   decodeSandboxEvent,
@@ -1360,8 +1361,4 @@ async function consumeStream(
   if (hooks.isOuterAborted()) throw new Error("Operation aborted");
   if (sawResult) return sawResult;
   throw new Error("サンドボックスが結果を返さずに切断しました");
-}
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

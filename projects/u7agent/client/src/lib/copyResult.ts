@@ -2,6 +2,7 @@
  * コピー結果の表示を持つ controller。`useMessageCopy` はこの controller を 1 つ持ち、
  * React の state へは `onChange` で写すだけにする (結果の適用可否とタイマーはここが正)。
  */
+import { messageFor } from "./errors";
 
 export type CopyFailure = { id: string; detail: string };
 
@@ -120,7 +121,7 @@ export function createCopyResultController({
         if (!holds()) return;
         reportError(error);
         // 失敗時は成功表示にしない (以前のクリップボード内容を成功と誤認させるため)
-        publish({ copiedId: "", failure: { id, detail: error instanceof Error ? error.message : String(error) } });
+        publish({ copiedId: "", failure: { id, detail: messageFor(error) } });
         scheduleFailureReset();
         return;
       }
