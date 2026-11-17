@@ -14,7 +14,11 @@ export function App() {
   const [nonce, setNonce] = useState(0);
   const [pending, setPending] = useState<string | null>(null);
   const [toggleError, setToggleError] = useState<string | null>(null);
-  const reload = useCallback(() => setNonce((value) => value + 1), []);
+  const reload = useCallback(() => {
+    // アップロードで直した直後に、前回のトグル失敗の案内を残さない
+    setToggleError(null);
+    setNonce((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
