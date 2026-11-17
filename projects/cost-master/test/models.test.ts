@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { groupByModel, sortGroups, summarize, withModelEnabled } from "../src/client/models";
+import { groupByModel, priceKey, sideOf, sortGroups, summarize, withModelEnabled } from "../src/client/models";
 import type { CostModelPrice } from "../src/shared/contract";
 
 function price(overrides: Partial<CostModelPrice> = {}): CostModelPrice {
@@ -16,6 +16,17 @@ function price(overrides: Partial<CostModelPrice> = {}): CostModelPrice {
     ...overrides,
   };
 }
+
+describe("priceKey", () => {
+  test("入力と出力は別の行として区別する", () => {
+    const input = price({ modelId: "tts/a", billable: "input_text", unit: "token" });
+    const output = price({ modelId: "tts/a", billable: "output_audio", unit: "token" });
+
+    expect(sideOf(input)).toBe("input");
+    expect(sideOf(output)).toBe("output");
+    expect(priceKey(input)).not.toBe(priceKey(output));
+  });
+});
 
 describe("groupByModel", () => {
   test("同じモデルの行をまとめ、初出の順を保つ", () => {

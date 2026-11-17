@@ -1,4 +1,10 @@
-import { COST_UNITS, type CostMasterPayload, type CostModelPrice } from "../shared/contract";
+import {
+  COST_UNITS,
+  sideOfBillable,
+  type CostMasterPayload,
+  type CostModelPrice,
+  type CostSide,
+} from "../shared/contract";
 
 export type ModelGroup = {
   modelId: string;
@@ -32,6 +38,15 @@ export function groupByModel(models: readonly CostModelPrice[]): ModelGroup[] {
   }
 
   return [...groups.values()];
+}
+
+/** 表示用の行キー。同じ unit / variant でも入力と出力は別の行なので side を含める */
+export function priceKey(price: CostModelPrice): string {
+  return `${sideOfBillable(price.billable)}:${price.unit}:${price.variant}`;
+}
+
+export function sideOf(price: CostModelPrice): CostSide {
+  return sideOfBillable(price.billable);
 }
 
 /** 単価は unit → variant（解像度の小さい順）→ billable で読む。文字列順だと 1.5k が 1k より前に来る */

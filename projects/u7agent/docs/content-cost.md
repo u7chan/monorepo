@@ -17,12 +17,12 @@
 `GET /api/models` が `{ version, fetchedAt, models: [...] }` を返す。1 行は `provider` / `modelId` / `billable` / `unit` / `variant` / `costUsd` / `currency` / `enabled` / `note` を持つ。
 
 - `provider` は `openrouter` だけを通す
-- 表示に使うのは**出力側の単価だけ**。`billable` が `output_` で始まる行だけを残す（`billable` と `unit` は直交するため、`unit` で出力を判定しない）
-- `unit` は `image` / `megapixel` / `token` / `request`。未知の `unit`、負・非数値の単価、`USD` 以外の通貨、形の違う行はその行だけを捨てる（`0` に丸めない）
+- `billable` は `output_image`（画像）/ `input_text` / `output_audio`（音声）の許可リスト。それ以外は行ごと捨てる。**画像は出力側だけ**を表示し、音声は入力側（文字・バイト・トークン）も指標になる（`billable` と `unit` は直交するため、`unit` で側を判定しない）
+- `unit` は `image` / `megapixel` / `token` / `character` / `byte` / `minute` / `request`。未知の `unit`、負・非数値の単価、`USD` 以外の通貨、形の違う行はその行だけを捨てる（`0` に丸めない）
 - 宣言された `0`（`:free` など）は無料として残す。行が無い・読めない「不明」とは別で、画面では前者が `$0`、後者が `--` になる
-- 同じ `(modelId, unit, variant)` が複数来たら最大の単価へ潰す（マスタが endpoint を潰している前提の防御。配列順に依存させない）。モデル単位の `enabled` は false を優先し、`note` は先頭の非 null
+- 同じ `(modelId, unit, side, variant)` が複数来たら最大の単価へ潰す（マスタが endpoint を潰している前提の防御。配列順に依存させない）。モデル単位の `enabled` は false を優先し、`note` は先頭の非 null
 - `variant` は解像度ティアとは限らず、`style_references` などの加算オプションを含む。`variant: ""` が基本単価で、無いときだけ同じ `unit` の中で範囲を出す
-- `billable` は上流の語彙で、マスタの応答から先（DTO）へは持ち込まない
+- `billable` は上流の語彙で、マスタの応答から先（DTO）へは持ち込まず、`side`（`input` / `output`）に正規化する
 - 通貨は `USD` 固定。上流が通貨を宣言しないためマスタが付与する。将来 `USD` 以外が来たら捨てる
 
 ## 取得
@@ -36,7 +36,7 @@
 - 期限は 10 秒、応答本文は 1 MiB、行は 2,000 件。超えたら契約外として `errors.cost` に倒す
 - 失敗は timeout / 混雑（429・5xx）/ 接続先の拒否 / 契約外 / 不明の固定文言へ分類し、上流の本文・URL・接続先はログにも応答にも出さない
 - 取得成功だけがスナップショット（`content_cost_catalog`）を置き換える。失敗・タイムアウト・契約外では前回の値と `visible` をそのまま使う（消さない・0 にしない・反転させない）
-- OFF でも保持値は残し、`GET` の `image.cost.fetchedAt` / `version` は返す（画面が「停止中（前回取得: …）」を出せる）。ON に戻すと同じ URL なら前回値から再開し、再取得は [カタログ更新] を待つ
+- OFF でも保持値は残し、`GET` の `cost.fetchedAt` / `version` は返す（画面が「停止中（前回取得: …）」を出せる）。ON に戻すと同じ URL なら前回値から再開し、再取得は [カタログ更新] を待つ
 - URL を変更したときは前回のスナップショットを破棄する（別マスタの価格を現在値として出さない）。URL が一致しないスナップショットは起動時にも読まない
 - スナップショットは派生データなので、壊れた行は「未取得」として読み、health や設定 API の 503 にしない
 
@@ -53,17 +53,18 @@
 | 単価が負・非数値・未知の `unit` | その行を捨てる（`0` にしない） |
 | 取得失敗・タイムアウト・契約外 | 前回の値を維持する |
 
-- `prices` は `(unit, variant)` で一意にし、`{ unit, variant, costUsd, currency }` だけを返す
+- `prices` は `(unit, side, variant)` で一意にし、`{ unit, side, variant, costUsd, currency }` だけを返す。画像は `side: "output"` の行だけを返し、音声は入力と出力の両方を返す（音声の並びは `client/src/lib/contentSettings.ts` の `speechPriceDisplay()` が 1 箇所で決める）
 - **除外は表示の投影だけ**。`visible: false` でも `PUT /api/settings/content/image` の照合（保存済みの選択の再保存・パラメータ保存）と試行の照合は現在の一覧をそのまま使う。生成はもともと一覧を見ない
 - 既存の svg-only の絞り込み（`isUnsaveableOutputOnly()`）は変えない。`visible` はこれと独立した表示条件
-- 変更系の応答（キー保存・トグル・選択など）にも同じ `image.cost` と価格が乗る（`ContentMutationResponseSchema` が `ContentSettingsResponseSchema` を拡張しているため）
+- 変更系の応答（キー保存・トグル・選択など）にも同じ `cost` と価格が乗る（`ContentMutationResponseSchema` が `ContentSettingsResponseSchema` を拡張しているため）
 
 ## 画面表示
 
-- モデル欄のチップと選択肢に価格を出す。整形の正は `client/src/lib/contentSettings.ts` の `imagePriceDisplay()`（基本単価優先・範囲・`--`・`$0`・token の換算）
+- 画像のモデル欄のチップと選択肢に価格を出す。整形の正は `client/src/lib/contentSettings.ts` の `imagePriceDisplay()`（基本単価優先・範囲・`--`・`$0`・token の換算）
+- 音声は入力側を主、出力側を副にしてチップを 2 つまで出し、選択肢のラベルにも主の単価を添える。整形は `speechPriceDisplay()`（`character` / `byte` / `token` は 1M あたり、`minute` は分あたり。`$0` と `--` を区別する）
 - `visible: false` は**描画の選択肢からだけ**外す。`imageModelOptions()` は全件のまま残し、`visibleImageModelOptions()` が現在値だけ専用ラベルで残す。保存中の値が無効なら「一覧に出していない・保存済み」の警告を出す
 - 一覧に載せなかった件数は「N 件は一覧に出していません」と注記する（黙って消えたように見せない）
-- コストURLと ON/OFF は画像タブのモデル節に置き、[保存] 1 回で両方を送る。**価格を出す面にだけ置く**（音声 / BGM タブと、生成元が Codex のときは出さない）。OFF の間は URL の入力欄を非活性にし、サーバーは `prices: []` を返すため価格のチップは `価格 --` に倒れる（チップ自体は残す）。由来のチップに「コスト表示は停止中（前回取得: …）」を出し、未設定とは区別する
+- コストURLと ON/OFF は画像・音声で共有するため**帯の左**に置き、[保存] 1 回で両方を送る。入口は**価格を出す面にだけ**出し（画像が OpenRouter のとき / 音声）、BGM と履歴、生成元が Codex のときは出さない。OFF の間は URL の入力欄を非活性にし、サーバーは `prices: []` を返すため価格のチップは `価格 --` に倒れる（チップ自体は残す）。由来のチップに「コスト表示は停止中（前回取得: …）」を出し、未設定とは区別する
 - [カタログ更新] は「一覧の出どころ」の行に置き、帯の [再読み込み] とは置き場所で役割を分ける。Codex（画像モデルの一覧を出さない）と BGM では出さない（[ui-layout.md](ui-layout.md#モードごとの構成)）
 
 ## API
@@ -80,5 +81,5 @@
 - 実額の記録、残高・クレジットの表示、予算上限の強制、請求台帳、会話の `usage.cost.total` への合算
 - 価格や `visible` を理由にした生成の拒否・再生成・モデル切替
 - 起動時・定期・バックグラウンドでの価格取得
-- 音声・BGM の価格表示（v1 は画像のみ）
+- BGM の価格表示（モデル固定で選択肢が無く、上流の JSON も 0 を返す）
 - 複数 URL・複数 provider の同時指定、マスタの編集（u7agent からは書き込まない）

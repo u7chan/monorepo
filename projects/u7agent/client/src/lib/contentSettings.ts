@@ -10,6 +10,7 @@ import type {
   ImageGenerationProvider,
   ImageModelPrice,
   ImageParameterValues,
+  ModelPrice,
   ModelRef,
   SpeechModel,
   UpdateContentImageBody,
@@ -204,7 +205,7 @@ export function contentCatalogRefreshNote(
   if (scope === "image" && errors.image !== undefined) {
     parts.push(`${errors.image}。表示中の一覧は変わりません。`);
   }
-  if (scope === "image" && errors.cost !== undefined) {
+  if ((scope === "image" || scope === "speech") && errors.cost !== undefined) {
     parts.push("価格を取得できませんでした。表示中の価格は変わりません。");
   }
   if (scope === "speech" && errors.speech !== undefined) {
@@ -237,7 +238,7 @@ function formatPriceAmount(value: number): string {
  * 価格の表示。**基本単価（`variant: ""`）を優先**し、無いモデルだけ同じ unit の中で範囲を出す
  * （加算オプションを基本単価の範囲に混ぜない）。unit が複数あるときは image → megapixel → token → request の順。
  */
-export function imagePriceDisplay(prices: readonly ImageModelPrice[]): { label: string; note: string | null } {
+export function imagePriceDisplay(prices: readonly ModelPrice[]): { label: string; note: string | null } {
   const unit = IMAGE_PRICE_UNIT_ORDER.find((candidate) => prices.some((price) => price.unit === candidate));
   if (unit === undefined) return { label: "--", note: null };
   const rows = prices.filter((price) => price.unit === unit);
@@ -260,8 +261,8 @@ export function imagePriceDisplay(prices: readonly ImageModelPrice[]): { label: 
 }
 
 /** コストマスタの状態。未設定は出さず、停止中（前回取得）と未取得を別の文言にする */
-export function imageCostNotice(
-  cost: ContentImageSettings["cost"],
+export function costNotice(
+  cost: ContentSettingsResponse["cost"],
   options: MessageTimeOptions = {},
 ): { text: string; tone: "muted" | "warn" } | null {
   if (cost.url === null) return null;
@@ -563,20 +564,127 @@ export function speechModelOptions(
     nameCounts.set(entry.name, (nameCounts.get(entry.name) ?? 0) + 1);
   }
   const options: SpeechModelOption[] = speech.models
-    .map((entry) => ({
-      value: entry.id,
-      label: optionLabel(entry, (nameCounts.get(entry.name) ?? 0) > 1),
-      model: entry,
-    }))
+    .map((entry) => {
+      const label = optionLabel(entry, (nameCounts.get(entry.name) ?? 0) > 1);
+      const price = speechPriceDisplay(entry.prices).primary;
+      return {
+        value: entry.id,
+        label: price === null ? label : `${label}（${price.text}）`,
+        model: entry,
+      };
+    })
     .sort((a, b) => compareOptionLabels(a.label, b.label));
   if (speech.model !== null && !options.some((option) => option.value === speech.model)) {
     options.unshift({
       value: speech.model,
       label: `${speech.model}（カタログ外）`,
-      model: { provider: provider ?? DEFAULT_CONTENT_PROVIDER, id: speech.model, name: "" },
+      model: {
+        provider: provider ?? DEFAULT_CONTENT_PROVIDER,
+        id: speech.model,
+        name: "",
+        prices: [],
+        visible: true,
+        note: null,
+      },
     });
   }
   return options;
+}
+
+/**
+ * 描画用の音声モデル選択肢。`speechModelOptions()` は全件のまま残し（PUT 本文の解決と試行が使う）、
+ * ここだけが `visible: false` を落とす。保存中の値は専用ラベルで残す。
+ */
+export function visibleSpeechModelOptions(
+  settings: Pick<ContentSettingsResponse, "provider" | "speech">,
+): SpeechModelOption[] {
+  const all = speechModelOptions(settings);
+  const savedValue = speechModelValue(settings);
+  const hidden = new Set(settings.speech.models.filter((entry) => !entry.visible).map((entry) => entry.id));
+  const options = all.filter((option) => !hidden.has(option.value));
+  const saved = all.find((option) => option.value === savedValue);
+  if (saved !== undefined && hidden.has(savedValue)) {
+    const entry = settings.speech.models.find((candidate) => candidate.id === savedValue);
+    const name = entry?.name || saved.model?.id || savedValue;
+    options.unshift({ ...saved, label: `${name}（一覧に出していません・保存済み）` });
+  }
+  return options;
+}
+
+/** 一覧に出していない件数。選択肢から黙って消えたように見せないために注記する */
+export function hiddenSpeechModelCount(settings: Pick<ContentSettingsResponse, "speech">): number {
+  return settings.speech.models.filter((entry) => !entry.visible).length;
+}
+
+/** 保存中のモデルが出どころから外れている理由。保存値は保持する（保存・試行の照合はサーバーが全件で行う） */
+export function speechModelVisibilityNotice(
+  settings: Pick<ContentSettingsResponse, "provider" | "speech">,
+): { kind: "missing" | "hidden"; text: string } | null {
+  const savedValue = speechModelValue(settings);
+  if (savedValue === "") return null;
+  const entry = settings.speech.models.find((candidate) => candidate.id === savedValue);
+  if (entry === undefined) {
+    return { kind: "missing", text: "保存中のモデルはカタログにありません（保存済みの値のまま使えます）。" };
+  }
+  if (!entry.visible) {
+    return {
+      kind: "hidden",
+      text: "保存中のモデルはコストマスタで一覧に出さない設定です（保存済みのためこのまま使えます）。",
+    };
+  }
+  return null;
+}
+
+/** 単価の入力 / 出力の見出し。チップと選択肢で同じ語を使う */
+export function speechPriceSideLabel(side: ModelPrice["side"]): string {
+  return side === "input" ? "入力" : "出力";
+}
+
+/** 音声の単価は入力側を主、出力側を副にする（Seed Audio のように出力だけのモデルもある） */
+const SPEECH_PRICE_UNITS = {
+  character: { suffix: "/M 文字", factor: 1_000_000, note: "文字数あたりの単価です（数え方は provider に従います）" },
+  byte: { suffix: "/M bytes", factor: 1_000_000, note: "UTF-8 バイト数あたりの単価です" },
+  token: { suffix: "/M tok", factor: 1_000_000, note: "token 建ての単価です（テキストと音声で数え方が異なります）" },
+  minute: { suffix: "/分", factor: 1, note: "音声の長さ（分）あたりの単価です" },
+  request: { suffix: "/回", factor: 1, note: null },
+} as const;
+const SPEECH_PRICE_UNIT_ORDER = ["character", "byte", "token", "minute", "request"] as const;
+
+export interface SpeechPriceDisplay {
+  /** 選択の指標にする側。入力があれば入力、無ければ出力 */
+  primary: { side: ModelPrice["side"]; text: string } | null;
+  secondary: { side: ModelPrice["side"]; text: string } | null;
+  note: string | null;
+}
+
+/**
+ * 音声の単価の表示。入力側を主にし、出力側があれば副として返す。**表示順はここ 1 箇所**で決める
+ * （生成物の並びは変えない）。`prices` が空なら `--`、宣言された 0 は `$0`。
+ */
+export function speechPriceDisplay(prices: readonly ModelPrice[]): SpeechPriceDisplay {
+  const usable = prices.filter((price) => price.unit in SPEECH_PRICE_UNITS);
+  if (usable.length === 0) return { primary: null, secondary: null, note: null };
+  const order = (price: ModelPrice): number =>
+    SPEECH_PRICE_UNIT_ORDER.indexOf(price.unit as (typeof SPEECH_PRICE_UNIT_ORDER)[number]);
+  const sorted = [...usable].sort((a, b) => (a.side === b.side ? order(a) - order(b) : a.side === "input" ? -1 : 1));
+  const format = (price: ModelPrice): string => {
+    const spec = SPEECH_PRICE_UNITS[price.unit as keyof typeof SPEECH_PRICE_UNITS];
+    return `${formatPriceAmount(price.costUsd * spec.factor)}${spec.suffix}`;
+  };
+  const primary = sorted[0] as ModelPrice;
+  const secondary = sorted.find((price) => price.side !== primary.side);
+  const notes = [
+    ...new Set(
+      sorted
+        .map((price) => SPEECH_PRICE_UNITS[price.unit as keyof typeof SPEECH_PRICE_UNITS].note)
+        .filter((note) => note !== null),
+    ),
+  ];
+  return {
+    primary: { side: primary.side, text: format(primary) },
+    secondary: secondary === undefined ? null : { side: secondary.side, text: format(secondary) },
+    note: notes.length === 0 ? null : notes.join(" "),
+  };
 }
 
 /** 選択欄の現在値。行が無い (未設定) ときは空文字 */

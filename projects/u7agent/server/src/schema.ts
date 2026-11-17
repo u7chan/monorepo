@@ -9,7 +9,7 @@ import {
   CONTENT_TRIAL_STATES,
 } from "./content-trials";
 import { TRIAL_ARTIFACT_FORMATS } from "./content-trial-artifacts";
-import { COST_UNITS } from "./content-cost";
+import { COST_SIDES, COST_UNITS } from "./content-cost";
 import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
 import type {
   SandboxGitConfigStatus,
@@ -1353,15 +1353,20 @@ export const ImageParameterDeclarationsSchema = z
   .strict();
 
 /** 価格 1 件。`billable`（上流の語彙）は DTO へ持ち込まない。`variant` は加算オプションを含む */
-export const ImageModelPriceSchema = z.object({
+export const ModelPriceSchema = z.object({
   unit: z.enum(COST_UNITS),
+  /** 入力側 / 出力側。画像は出力だけ、音声は指標になる側をそのまま返す */
+  side: z.enum(COST_SIDES),
   /** 無ければ ""（基本単価）。画面は空の行を基本として扱い、無いときだけ範囲を出す */
   variant: z.string(),
   costUsd: z.number(),
   /** 契約は USD 固定（上流が通貨を宣言しないためマスタが付与する） */
   currency: z.literal("USD"),
 });
-export type ImageModelPrice = z.infer<typeof ImageModelPriceSchema>;
+export type ModelPrice = z.infer<typeof ModelPriceSchema>;
+
+/** 画像だけを扱う既存コードの別名。中身は `ModelPrice` と同じ（音声と共有する） */
+export type ImageModelPrice = ModelPrice;
 
 /** 画像生成のカタログ 1 件。provider は将来の追加に備えて載せ、値は開放しない */
 export const ImageModelSchema = z.object({
@@ -1374,7 +1379,7 @@ export const ImageModelSchema = z.object({
    */
   parameters: ImageParameterDeclarationsSchema.optional(),
   /** 出力側の単価。不明（マスタに無い・読めない）は空配列で、`0` とは区別する */
-  prices: z.array(ImageModelPriceSchema),
+  prices: z.array(ModelPriceSchema),
   /** マスタの人手判断。false でも一覧（`image.models`）からは落とさず、画面の選択肢から外すだけ */
   visible: z.boolean(),
   /** マスタの人手メモ。無ければ null */
@@ -1395,6 +1400,12 @@ export const SpeechModelSchema = z.object({
   id: z.string(),
   name: z.string(),
   voices: z.array(z.string()).optional(),
+  /** 入力 / 出力の単価。不明（マスタに無い・読めない）は空配列で、`0` とは区別する */
+  prices: z.array(ModelPriceSchema),
+  /** マスタの人手判断。false でも一覧からは落とさず、画面の選択肢から外すだけ */
+  visible: z.boolean(),
+  /** マスタの人手メモ。無ければ null */
+  note: z.string().nullable(),
 });
 export type SpeechModel = z.infer<typeof SpeechModelSchema>;
 
@@ -1440,18 +1451,6 @@ export const ContentImageSettingsSchema = z.object({
    * 絞り、宣言が読めないモデルのエントリは空になる（画面は空のエントリに欄を出さない）。
    */
   parametersByModel: z.record(z.string(), ImageParameterValuesSchema),
-  /**
-   * コストマスタの接続先と最後に取得できた時刻。未設定・OFF でも null にせず、`enabled: false` /
-   * `url: null` を返す（`prices` は全件空、`visible` は全件 true に投影する）。
-   */
-  cost: z.object({
-    enabled: z.boolean(),
-    url: z.string().nullable(),
-    /** 価格スナップショットを最後に取得できた時刻 (epoch ms)。未取得は null */
-    fetchedAt: z.number().nullable(),
-    /** マスタの世代。未取得・契約外で読めないときは null */
-    version: z.number().nullable(),
-  }),
 });
 export type ContentImageSettings = z.infer<typeof ContentImageSettingsSchema>;
 
@@ -1509,6 +1508,19 @@ export const ContentSettingsResponseSchema = z.object({
   runtimeAvailable: z.boolean(),
   image: ContentImageSettingsSchema,
   speech: ContentSpeechSettingsSchema,
+  /**
+   * コストマスタの接続先と最後に取得できた時刻。画像・音声で共有するタブ非依存の設定。
+   * 未設定・OFF でも null にせず、`enabled: false` / `url: null` を返す
+   * （`prices` は全件空、`visible` は全件 true に投影する）。
+   */
+  cost: z.object({
+    enabled: z.boolean(),
+    url: z.string().nullable(),
+    /** 価格スナップショットを最後に取得できた時刻 (epoch ms)。未取得は null */
+    fetchedAt: z.number().nullable(),
+    /** マスタの世代。未取得・契約外で読めないときは null */
+    version: z.number().nullable(),
+  }),
   bgm: ContentBgmSettingsSchema,
 });
 export type ContentSettingsResponse = z.infer<typeof ContentSettingsResponseSchema>;

@@ -90,6 +90,9 @@ const LIVE_MODELS = [
   { provider: SPEECH_PROVIDER_ID, id: "fish/audio", name: "Fish Audio" },
 ];
 
+/** 一覧の投影（価格・表示可否・メモ）を足した DTO */
+const SPEECH_DTO = LIVE_MODELS.map((entry) => ({ ...entry, prices: [], visible: true, note: null }));
+
 function createFakeSpeechCatalog(
   options: {
     models?: typeof LIVE_MODELS;
@@ -136,7 +139,7 @@ function stubImageCatalog(): ImageCatalog {
   };
 }
 
-/** コストマスタの最小 stub。音声側では投影を使わない（v1 は画像のみ） */
+/** コストマスタの最小 stub。このファイルでは投影を検証しない（価格は content-cost / content-settings のテストが持つ） */
 function stubContentCostCatalog(): ContentCostCatalog {
   return {
     loadStored: () => {},
@@ -207,7 +210,7 @@ test("GET は音声列が NULL の既存行を既定モデルと先頭ボイス�
   assert.deepEqual(settings.speech, {
     model: DEFAULT_SPEECH_MODEL,
     voice: "Zephyr",
-    models: LIVE_MODELS,
+    models: SPEECH_DTO,
     catalogSource: "live",
     fetchedAt: null,
   });
@@ -233,7 +236,7 @@ test("PUT はモデル / ボイスを保存し、キーと画像の選択を保�
   assert.deepEqual(outcome.response.speech, {
     model: "fish/audio",
     voice: "any-voice-id",
-    models: LIVE_MODELS,
+    models: SPEECH_DTO,
     catalogSource: "live",
     fetchedAt: null,
   });
@@ -338,7 +341,7 @@ test("再取得は失敗しても現在値を返し、失敗を系統ごとの e
   assert.deepEqual(failed.speech, {
     model: null,
     voice: "",
-    models: LIVE_MODELS,
+    models: SPEECH_DTO,
     catalogSource: "stored",
     fetchedAt: 500,
   });

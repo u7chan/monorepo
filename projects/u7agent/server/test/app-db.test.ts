@@ -1033,11 +1033,22 @@ test("the content cost settings and price snapshot survive reopen and unreadable
         {
           modelId: "acme/image-a",
           unit: "image",
+          side: "output",
           variant: "",
           costUsd: 0.04,
           currency: "USD",
           enabled: false,
           note: "高価",
+        },
+        {
+          modelId: "acme/tts-a",
+          unit: "character",
+          side: "input",
+          variant: "",
+          costUsd: 0.000015,
+          currency: "USD",
+          enabled: true,
+          note: null,
         },
       ],
     });
@@ -1053,11 +1064,22 @@ test("the content cost settings and price snapshot survive reopen and unreadable
         {
           modelId: "acme/image-a",
           unit: "image",
+          side: "output",
           variant: "",
           costUsd: 0.04,
           currency: "USD",
           enabled: false,
           note: "高価",
+        },
+        {
+          modelId: "acme/tts-a",
+          unit: "character",
+          side: "input",
+          variant: "",
+          costUsd: 0.000015,
+          currency: "USD",
+          enabled: true,
+          note: null,
         },
       ],
     });
@@ -1079,6 +1101,41 @@ test("the content cost settings and price snapshot survive reopen and unreadable
     assert.equal(second.readContentCostSettings(), undefined);
     assert.equal(second.readContentCostCatalog(), undefined);
     second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a cost snapshot from before the side column reads as output", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    db.saveContentCostCatalog({
+      fetchedAt: 1,
+      sourceUrl: "https://cost-master.example.com/api/models",
+      version: 1,
+      models: [],
+    });
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("UPDATE content_cost_catalog SET models = ? WHERE id = 1").run(
+      JSON.stringify([
+        {
+          modelId: "acme/image-a",
+          unit: "image",
+          variant: "",
+          costUsd: 0.04,
+          currency: "USD",
+          enabled: true,
+          note: null,
+        },
+      ]),
+    );
+    raw.close();
+    db.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.equal(reopened.readContentCostCatalog()?.models[0]?.side, "output");
+    reopened.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

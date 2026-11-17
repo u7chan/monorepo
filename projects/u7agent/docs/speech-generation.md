@@ -38,6 +38,10 @@
 
 選択肢の出どころは live 以外を「取得に失敗している状態」として区別し、最後に live を取得できた時刻を添える（黙って古い一覧を見せない）。`default` は同梱の既定を見ていることを文言で伝える。文言と表示の正は `client/src/lib/contentSettings.ts` の純関数。[カタログ更新] は `POST /api/settings/content/catalog/refresh` で、**常に 200** の応答に現在値と系統別の `errors` を載せる（音声の失敗は `errors.speech`）。
 
+- モデル欄のチップと選択肢に、コストマスタから写した単価を出す。**入力側（文字・バイト・入力トークン）を主、出力側（音声トークン・分）を副**にし、整形と並びは `speechPriceDisplay()` に閉じる（[content-cost.md](content-cost.md#画面表示)）
+- `visible: false` は**描画の選択肢からだけ**外し、保存中の値は専用ラベルで残す。一覧に載せなかった件数と、保存値が非表示・カタログ外である理由を注記する（画像と同じ規則）
+- コスト URL と ON/OFF は画像・音声で共有するため、画像タブではなく帯の左に置く
+
 ### ボイスの宣言
 
 - `supported_voices` があるモデルは、その一覧から選ぶ。モデルを切り替えるとボイスは新しいモデルの先頭へ寄せる（宣言が変わって保存値が宣言外になったときも同じ）
@@ -190,7 +194,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `c
 | POST | `/api/settings/content/trials` | `{ kind: "speech", model, prompt, voice?, instructions?, speed?, force? }`。[試行](#試行パラメーターのプレイグラウンド)。202 で開始し、同じ入力の保存済み成功（現在のキー世代・成果物ファイルあり）は 200 `{ trial, reused: true }`。`force: true` は保存済み結果を無視する |
 | GET | `/api/settings/content/trials/:id/raw` | 保存済み音声の配信（`audio/mpeg` / `audio/wav`、`nosniff` / `no-store`、単一 `Range` の 206 / 416、`?download=1` で添付） |
 
-- `GET /api/settings/content` の `speech` は `model` / `voice` / `models`（`voices` を含む）/ `catalogSource` / `fetchedAt`。`models` は live が取得できれば live、できなければ前回の一覧、どちらも無ければ同梱の 1 件
+- `GET /api/settings/content` の `speech` は `model` / `voice` / `models`（`voices` と `prices` / `visible` / `note` を含む）/ `catalogSource` / `fetchedAt`。コストマスタの状態は兄弟の `cost` が持つ。`models` は live が取得できれば live、できなければ前回の一覧、どちらも無ければ同梱の 1 件
 - 400: 行が無い、`catalogSource` が `live` / `stored` でカタログ外のモデル、宣言があるモデルで宣言外のボイス（`default` のときは照合しない）
 - 変更系の応答は GET と同じ形 + `state: "applied"`。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`。詳細と例は [api-settings.md](api-settings.md#コンテンツ生成)
 - 試行は設定を変えないため `state` を付けず、`appData`（DB ゲート）だけを通す。400（行なし / 課金前の検証）、503（runtime 不可 / DB 不能）、409（同じ種別の実行中）。provider の失敗は試行の `failed` に分類を載せ、自動では再試行しない（[api-settings.md](api-settings.md#コンテンツ生成)）

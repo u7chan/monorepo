@@ -1,7 +1,14 @@
 {
-  "version": 1,
-  "fetchedAt": 1794835234905,
+  "version": 2,
+  "fetchedAt": 1794924126940,
   "models": [
+    {
+      "modelId": "assemblyai/assemblyai-tts-1",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000015
+    },
     {
       "modelId": "black-forest-labs/flux-3-image",
       "billable": "output_image",
@@ -101,6 +108,13 @@
       "costUsd": 0.03
     },
     {
+      "modelId": "bytedance-seed/seed-audio-1-0",
+      "billable": "output_audio",
+      "unit": "minute",
+      "variant": "",
+      "costUsd": 0.15
+    },
+    {
       "modelId": "bytedance-seed/seedream-4.5",
       "billable": "output_image",
       "unit": "image",
@@ -150,6 +164,118 @@
       "costUsd": 0.035
     },
     {
+      "modelId": "canopylabs/orpheus-3b-0.1-ft",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000015
+    },
+    {
+      "modelId": "deepgram/aura-2",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00003
+    },
+    {
+      "modelId": "deepgram/flux-tts",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000045
+    },
+    {
+      "modelId": "elevenlabs/eleven-flash-v2",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00004
+    },
+    {
+      "modelId": "elevenlabs/eleven-flash-v2.5",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00004
+    },
+    {
+      "modelId": "elevenlabs/eleven-multilingual-v2",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00008
+    },
+    {
+      "modelId": "elevenlabs/eleven-turbo-v2",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00004
+    },
+    {
+      "modelId": "elevenlabs/eleven-turbo-v2.5",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00004
+    },
+    {
+      "modelId": "elevenlabs/eleven-v3",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00008
+    },
+    {
+      "modelId": "elevenlabs/eleven-v3-conversational",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00004
+    },
+    {
+      "modelId": "elevenlabs/eleven-v4",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00008
+    },
+    {
+      "modelId": "elevenlabs/eleven-v4-turbo",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00004
+    },
+    {
+      "modelId": "fish-audio/drama-3",
+      "billable": "input_text",
+      "unit": "byte",
+      "variant": "",
+      "costUsd": 0.00001
+    },
+    {
+      "modelId": "fish-audio/s1",
+      "billable": "input_text",
+      "unit": "byte",
+      "variant": "",
+      "costUsd": 0.000015
+    },
+    {
+      "modelId": "fish-audio/s2-pro",
+      "billable": "input_text",
+      "unit": "byte",
+      "variant": "",
+      "costUsd": 0.000015
+    },
+    {
+      "modelId": "fish-audio/s2.1-pro",
+      "billable": "input_text",
+      "unit": "byte",
+      "variant": "",
+      "costUsd": 0.000015
+    },
+    {
       "modelId": "google/gemini-2.5-flash-image",
       "billable": "output_image",
       "unit": "token",
@@ -192,11 +318,81 @@
       "costUsd": 0.00003
     },
     {
+      "modelId": "google/gemini-3.1-flash-tts-preview",
+      "billable": "input_text",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 0.000001
+    },
+    {
+      "modelId": "google/gemini-3.1-flash-tts-preview",
+      "billable": "output_audio",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 0.00002
+    },
+    {
+      "modelId": "google/gemini-3.8-flash-lite-tts",
+      "billable": "input_text",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 5e-7
+    },
+    {
+      "modelId": "google/gemini-3.8-flash-lite-tts",
+      "billable": "output_audio",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 0.000006
+    },
+    {
+      "modelId": "google/gemini-3.8-flash-tts",
+      "billable": "input_text",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 5e-7
+    },
+    {
+      "modelId": "google/gemini-3.8-flash-tts",
+      "billable": "output_audio",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 0.000009
+    },
+    {
       "modelId": "google/gemini-nano-banana-2.1",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
       "costUsd": 0.00003
+    },
+    {
+      "modelId": "hexgrad/kokoro-82m",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000004
+    },
+    {
+      "modelId": "heygen/heygen-voice-1",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000015
+    },
+    {
+      "modelId": "heygen/heygen-voice-1-turbo",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000004
+    },
+    {
+      "modelId": "heygen/heygen-voice-1-turbo:free",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0
     },
     {
       "modelId": "krea/k3-edit",
@@ -311,6 +507,34 @@
       "costUsd": 0.000019
     },
     {
+      "modelId": "microsoft/mai-voice-2",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000022
+    },
+    {
+      "modelId": "microsoft/mai-voice-2-flash",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000015
+    },
+    {
+      "modelId": "microsoft/mai-voice-2.1",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000022
+    },
+    {
+      "modelId": "microsoft/mai-voice-2.1-flash",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000015
+    },
+    {
       "modelId": "minimax/minimax-h3-image",
       "billable": "output_image",
       "unit": "token",
@@ -323,6 +547,34 @@
       "unit": "token",
       "variant": "",
       "costUsd": 0.0000076
+    },
+    {
+      "modelId": "minimax/speech-2.8-hd",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.0001
+    },
+    {
+      "modelId": "minimax/speech-2.8-turbo",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00006
+    },
+    {
+      "modelId": "mistralai/voxtral-mini-tts-2603",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.0000176
+    },
+    {
+      "modelId": "mistralai/voxtral-mini-tts-3-0",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.0000143
     },
     {
       "modelId": "openai/gpt-5-image",
@@ -393,6 +645,20 @@
       "unit": "token",
       "variant": "",
       "costUsd": 0.00003
+    },
+    {
+      "modelId": "qwen/qwen-audio-3.0-tts-flash",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000015
+    },
+    {
+      "modelId": "qwen/qwen-audio-3.0-tts-plus",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.00002
     },
     {
       "modelId": "qwen/qwen-image-2.1-pro",
@@ -570,6 +836,13 @@
       "costUsd": 0.08
     },
     {
+      "modelId": "sesame/csm-1b",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000007
+    },
+    {
       "modelId": "sourceful/riverflow-v2-fast",
       "billable": "output_image",
       "unit": "image",
@@ -661,6 +934,13 @@
       "costUsd": 0.17
     },
     {
+      "modelId": "speechify/simba-3.5",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000015
+    },
+    {
       "modelId": "tencent/hy-image-v3.5-preview",
       "billable": "output_image",
       "unit": "token",
@@ -701,6 +981,13 @@
       "unit": "image",
       "variant": "medium_2k",
       "costUsd": 0.08
+    },
+    {
+      "modelId": "x-ai/grok-voice-tts-1.0",
+      "billable": "input_text",
+      "unit": "character",
+      "variant": "",
+      "costUsd": 0.000015
     }
   ]
 }

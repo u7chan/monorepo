@@ -1,8 +1,9 @@
 import { useState } from "react";
 import {
   imageCatalogNotice,
-  imageCostNotice,
+  costNotice,
   hiddenImageModelCount,
+  hiddenSpeechModelCount,
   imageModelVisibilityNotice,
   imagePriceDisplay,
   visibleImageModelOptions,
@@ -27,9 +28,13 @@ import {
   contentProviderId,
   contentProviderLabel,
   speechCatalogNotice,
+  speechModelVisibilityNotice,
+  speechPriceDisplay,
+  speechPriceSideLabel,
   speechSaveDisabled,
   speechScreenSelection,
   speechSelection,
+  visibleSpeechModelOptions,
   type ImageDefaultsDraft,
   type SpeechScreenSelection,
   type ContentSavingAction,
@@ -93,8 +98,6 @@ export type ContentSettingsTabProps = {
   onSaveImageProvider: (provider: ImageGenerationProvider) => Promise<boolean>;
   onSaveSelection: (input: UpdateContentImageBody) => Promise<boolean>;
   onSaveSpeech: (input: UpdateContentSpeechBody) => Promise<boolean>;
-  /** コストマスタの接続先とトグル。保存時に取得しない */
-  onSaveCost: (input: UpdateContentCostBody) => Promise<boolean>;
   /**
    * 上流からモデル一覧と価格を取り直す 1 操作。一覧を持つ面（画像 / 音声）だけに置くので、
    * 帯ではなく各面のモデル節へ渡す
@@ -146,7 +149,6 @@ export function ContentSettingsTab({
   onSaveImageProvider,
   onSaveSelection,
   onSaveSpeech,
-  onSaveCost,
   onRefreshCatalog,
   onSelectContentSubsection,
   trials,
@@ -171,8 +173,6 @@ export function ContentSettingsTab({
   // 既定のパラメータの下書きも面を切り替えて失わないよう、この画面が持つ（モデルごとに組で持つ）
   const [imageDefaultsDraft, setImageDefaultsDraft] = useState<ImageDefaultsDraft | null>(null);
   const [speechDraft, setSpeechDraft] = useState<SpeechDraft>(EMPTY_SPEECH_DRAFT);
-  // コストURLとトグルは [保存] 1 回で送る。null はサーバー値へ追随する
-  const [costDraft, setCostDraft] = useState<{ enabled: boolean; url: string } | null>(null);
   // 試行のプロンプトは保存しない（履歴にだけ残す）。面を切り替えても失わないよう、この画面が持つ
   const [trialPrompt, setTrialPrompt] = useState("");
   // 画像の生成パラメータも同じ扱い。宣言に無いキーはモデルの切替でここから落とす
@@ -308,9 +308,6 @@ export function ContentSettingsTab({
           defaultsDraft={imageDefaultsDraft}
           onChangeDefaultsDraft={setImageDefaultsDraft}
           onSave={onSaveSelection}
-          costDraft={costDraft}
-          onChangeCostDraft={setCostDraft}
-          onSaveCost={onSaveCost}
           catalogRefreshing={saving === "catalog"}
           onRefreshCatalog={onRefreshCatalog}
           trials={trials}
@@ -630,7 +627,7 @@ function BgmModelSection({
  * コストマスタの接続先。価格は手動の [カタログ更新] のときだけ取りに行く。未設定でも従来どおり動くため、
  * OFF の間は URL を残したまま入力欄だけを非活性にする。
  */
-function ContentCostSection({
+export function ContentCostSection({
   settings,
   busy,
   draft,
@@ -643,7 +640,7 @@ function ContentCostSection({
   onChangeDraft: (draft: { enabled: boolean; url: string } | null) => void;
   onSave: (input: UpdateContentCostBody) => Promise<boolean>;
 }) {
-  const current = draft ?? { enabled: settings.image.cost.enabled, url: settings.image.cost.url ?? "" };
+  const current = draft ?? { enabled: settings.cost.enabled, url: settings.cost.url ?? "" };
   const dirty = draft !== null;
 
   const submit = async () => {
@@ -707,9 +704,6 @@ function ImageModelSection({
   defaultsDraft,
   onChangeDefaultsDraft,
   onSave,
-  costDraft,
-  onChangeCostDraft,
-  onSaveCost,
   catalogRefreshing,
   onRefreshCatalog,
   trials,
@@ -725,10 +719,6 @@ function ImageModelSection({
   defaultsDraft: ImageDefaultsDraft | null;
   onChangeDefaultsDraft: (draft: ImageDefaultsDraft | null) => void;
   onSave: (input: UpdateContentImageBody) => Promise<boolean>;
-  /** コストマスタの下書き。価格を出すのはこの面だけなので、共有カードではなくここへ置く */
-  costDraft: { enabled: boolean; url: string } | null;
-  onChangeCostDraft: (draft: { enabled: boolean; url: string } | null) => void;
-  onSaveCost: (input: UpdateContentCostBody) => Promise<boolean>;
   /** [カタログ更新] の実行中。一覧と価格の取得は 1 本なので、帯ではなくこの面の状態で示す */
   catalogRefreshing: boolean;
   onRefreshCatalog: () => void;
@@ -754,7 +744,7 @@ function ImageModelSection({
   const price = imagePriceDisplay(selectedEntry?.prices ?? []);
   const hiddenCount = hiddenImageModelCount(settings);
   const visibility = imageModelVisibilityNotice(settings);
-  const cost = imageCostNotice(settings.image.cost);
+  const cost = costNotice(settings.cost);
   const defaults = imageDefaultsScreen(settings, selectedModel, defaultsDraft);
   const modelDirty = selectedModel !== savedModel;
   const dirty = modelDirty || defaults.dirty;
@@ -899,14 +889,6 @@ function ImageModelSection({
       </div>
       {/* キーの有効性は緑のバッジにせず、現在のキー世代と選択中モデルの実績だけを証拠として出す */}
       <EvidenceLine trials={trials} model={selectedModel} keyEpoch={trialKeyEpoch} now={trialNow} />
-      {/* 価格を出すのはこの面だけなので、コストマスタの接続先もここに置く（音声 / BGM には出さない） */}
-      <ContentCostSection
-        settings={settings}
-        busy={busy}
-        draft={costDraft}
-        onChangeDraft={onChangeCostDraft}
-        onSave={onSaveCost}
-      />
       <div className="flex flex-wrap items-center justify-between gap-2">
         {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
         <p className="min-w-0">
@@ -953,6 +935,13 @@ function SpeechModelSection({
   trialNow: number;
 }) {
   const { options, selectedModel, selectedOption, selectedVoice, textMode, dirty } = selection;
+  // 解決（PUT 本文）は全件、描画は visible で絞った一覧を使う
+  const choices = visibleSpeechModelOptions(settings);
+  const selectedEntry = settings.speech.models.find((entry) => entry.id === selectedModel);
+  const price = speechPriceDisplay(selectedEntry?.prices ?? []);
+  const hiddenCount = hiddenSpeechModelCount(settings);
+  const visibility = speechModelVisibilityNotice(settings);
+  const cost = costNotice(settings.cost);
 
   const submit = async () => {
     const input = speechSelection(options, selectedModel, selectedVoice);
@@ -971,7 +960,7 @@ function SpeechModelSection({
           disabled={busy}
           onChange={(event) => onChangeDraft({ model: event.currentTarget.value, voice: null })}
         >
-          {options.map((option) => (
+          {choices.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
@@ -1011,6 +1000,28 @@ function SpeechModelSection({
           保存
         </button>
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <MetaChip tone={price.primary === null ? "warn" : "muted"}>
+          価格 {price.primary === null ? "--" : `${speechPriceSideLabel(price.primary.side)} ${price.primary.text}`}
+        </MetaChip>
+        {price.secondary === null ? null : (
+          <MetaChip tone="muted">{`${speechPriceSideLabel(price.secondary.side)} ${price.secondary.text}`}</MetaChip>
+        )}
+        {hiddenCount === 0 ? null : <MetaChip tone="muted">{`${hiddenCount} 件は一覧に出していません`}</MetaChip>}
+        {cost === null ? null : <MetaChip tone={cost.tone}>{cost.text}</MetaChip>}
+      </div>
+      {selectedEntry?.note ? (
+        <p className="text-2xs leading-relaxed break-words text-ink-muted">{selectedEntry.note}</p>
+      ) : null}
+      {price.note === null ? null : <p className="text-2xs leading-relaxed text-ink-muted">{price.note}</p>}
+      {visibility === null ? null : (
+        <p
+          role="status"
+          className="rounded border border-warn/40 bg-base px-2 py-1.5 text-2xs leading-relaxed text-warn"
+        >
+          {visibility.text}
+        </p>
+      )}
       {/* キーの有効性は緑のバッジにせず、現在のキー世代と選択中のモデル / ボイスの実績だけを証拠として出す */}
       <EvidenceLine trials={trials} model={selectedModel} voice={selectedVoice} keyEpoch={keyEpoch} now={trialNow} />
       {/* 出力形式の選択 UI は持たない。形式は生成器が provider の応答から確定する（mp3 / wav） */}

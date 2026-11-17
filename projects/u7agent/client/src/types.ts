@@ -84,6 +84,7 @@ export type {
   HistoryPage,
   ImageModel,
   ImageModelPrice,
+  ModelPrice,
   ImageParameterValues,
   MessageMetrics,
   ModelCatalogRefreshResponse,

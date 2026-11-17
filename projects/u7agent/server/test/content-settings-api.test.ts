@@ -418,7 +418,7 @@ test("モデル一覧の再取得は 200 で現在値を返し、失敗は error
       // マスタ未設定では価格不明（空配列）と全件表示が投影される
       assert.deepEqual(refreshed.image.models[0].prices, []);
       assert.equal(refreshed.image.models[0].visible, true);
-      assert.deepEqual(refreshed.image.cost, { enabled: false, url: null, fetchedAt: null, version: null });
+      assert.deepEqual(refreshed.cost, { enabled: false, url: null, fetchedAt: null, version: null });
       assert.deepEqual(refreshed.image.models[1].parameters, {
         aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
         quality: { type: "enum", values: ["low", "high"] },

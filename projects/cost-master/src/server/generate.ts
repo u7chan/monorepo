@@ -1,13 +1,10 @@
+import { readJson } from "./fetch-json";
+import { generateSpeechPrices, type SpeechPriceSummary } from "./generate-speech";
 import { isCostUnit, isOutputBillable, priceKey, type PriceMasterFile, type PriceRow } from "./master";
 
-/** 上流は無料の一覧 API だけを叩く。`/images` は呼ばない（課金を伴う実測をしない） */
+/** 上流は無料の一覧 API だけを叩く。課金を伴う実測はしない */
 export const UPSTREAM_ORIGIN = "https://openrouter.ai";
 export const IMAGE_MODELS_PATH = "/api/v1/images/models";
-export const USER_AGENT = "cost-master-generator/0.1.0";
-
-/** 応答本文は保存もログもしないが、壊れた上流でメモリを食い潰さないための上限 */
-export const MAX_RESPONSE_BYTES = 1_048_576;
-export const REQUEST_TIMEOUT_MS = 15_000;
 
 export type PriceDiff = {
   added: PriceRow[];
@@ -21,19 +18,22 @@ export type GenerateSummary = {
   noPrice: number;
   failed: string[];
   rows: number;
+  speech: SpeechPriceSummary;
   changed: boolean;
   diff: PriceDiff;
 };
 
 export type GenerateResult =
   | { ok: true; file: PriceMasterFile; summary: GenerateSummary }
-  | { ok: false; reason: "list_failed" | "list_shape" };
+  | { ok: false; reason: "list_failed" | "list_shape" | "speech_list_failed" | "speech_list_shape" };
 
 export type GenerateInput = {
   fetchImpl: typeof fetch;
   previous: PriceMasterFile | null;
   now: () => number;
   origin?: string;
+  /** 音声の取得も含める（既定 true）。画像だけを見るテストは false にする */
+  speech?: boolean;
 };
 
 /**
@@ -72,22 +72,42 @@ export async function generatePrices(input: GenerateInput): Promise<GenerateResu
   }
 
   const previousRows = input.previous?.models ?? [];
+  let speech: SpeechPriceSummary = { models: 0, priced: 0, unpriced: [], failed: [], rows: 0 };
+
+  if (input.speech !== false) {
+    const speechResult = await generateSpeechPrices({
+      fetchImpl: input.fetchImpl,
+      origin,
+      previous: previousRows,
+    });
+
+    if (!speechResult.ok) {
+      return { ok: false, reason: speechResult.reason === "list_failed" ? "speech_list_failed" : "speech_list_shape" };
+    }
+
+    speech = speechResult.summary;
+    rows.push(...speechResult.rows);
+  }
+
   const diff = diffRows(previousRows, rows);
   const changed = diff.added.length + diff.removed.length + diff.changed.length > 0;
   const version = (input.previous?.version ?? 0) + (changed || input.previous === null ? 1 : 0);
 
   const pricedModels = new Set(rows.map((row) => row.modelId));
-  const failedModels = new Set(failed);
+  const failedModels = new Set([...failed, ...speech.failed]);
 
   return {
     ok: true,
     file: { version, fetchedAt: input.now(), models: sortRows(rows) },
     summary: {
-      models: models.length,
+      models: models.length + speech.models,
       priced: pricedModels.size,
-      noPrice: models.filter((model) => !pricedModels.has(model.modelId) && !failedModels.has(model.modelId)).length,
-      failed,
+      noPrice:
+        models.filter((model) => !pricedModels.has(model.modelId) && !failedModels.has(model.modelId)).length +
+        speech.unpriced.length,
+      failed: [...failed, ...speech.failed],
       rows: rows.length,
+      speech,
       changed,
       diff,
     },
@@ -209,51 +229,6 @@ function priceRowOf(raw: unknown, modelId: string): PriceRow | null {
     variant: typeof variant === "string" ? variant : "",
     costUsd,
   };
-}
-
-async function readJson(fetchImpl: typeof fetch, url: URL): Promise<unknown | undefined> {
-  let response: Response;
-
-  try {
-    response = await fetchImpl(url, {
-      method: "GET",
-      headers: { Accept: "application/json", "User-Agent": USER_AGENT },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-  } catch {
-    return undefined;
-  }
-
-  if (!response.ok) {
-    await discard(response);
-    return undefined;
-  }
-
-  let text: string;
-
-  try {
-    text = await response.text();
-  } catch {
-    return undefined;
-  }
-
-  if (text.length > MAX_RESPONSE_BYTES) {
-    return undefined;
-  }
-
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-async function discard(response: Response): Promise<void> {
-  try {
-    await response.body?.cancel();
-  } catch {
-    // 失敗の分類には使わない。読み捨てられなくても結果は変わらない
-  }
 }
 
 function groupByModel(rows: readonly PriceRow[]): Map<string, PriceRow[]> {

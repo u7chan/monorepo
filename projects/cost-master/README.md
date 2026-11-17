@@ -48,7 +48,8 @@ bun run start # bun src/server.ts
 ```
 
 - `variant` は宣言が無ければ `""`。解像度ティアとは限らず、`style_references` のような加算オプションも入る
-- `billable` は出力側（`output_*`）だけ。入力側の単価は選択の指標ではないため返さない
+- `billable` は `output_image`（画像）/ `input_text` / `output_audio`（音声）。画像は出力側だけを返し、音声は入力側（文字・バイト・トークン）の行も返す
+- `unit` は `image` / `megapixel` / `token` / `character` / `byte` / `minute` / `request`
 - 価格が宣言されていないモデルは行を作らない（u7agent 側は `--` を表示する）
 - `enabled: false` のモデルも行を返す（「マスタにあるが無効」と「マスタに無い」を区別できるようにする）
 - `currency` は `USD` 固定。上流は通貨を宣言しないため、master が付与する
@@ -145,6 +146,8 @@ bun run generate                # src/server/data/prices.json を書き換える
 ```
 
 - 上流の一覧 API と、モデルごとの endpoints API を叩く。どちらも無料で、キーは使わない
+- 音声（TTS）は別系統で、一覧（`/api/v1/models?output_modalities=speech`）→ モデルごとの `/endpoints`（金額）と `llms.txt`（`## Pricing` の単位語だけ）を読む。金額は endpoints の数値が正で、`minute` だけ llms の金額で検算する。1 モデル 2 リクエストを並列 6 で引く
+- 音声の単位語が未知・混在ならそのモデルは失敗し、前回の行を残す。`llms.txt` が「公開 endpoint なし」と宣言していれば「価格なし」を確定し、前回の行を落とす
 - 同じ `(modelId, billable, unit, variant)` が複数 endpoint にあるときは**最大単価**を採る（上流の並び順に依存させない）
 - 取得に失敗したモデルは前回の行を残す。`endpoints` が空のモデルは「価格なし」を確定し、前回の行を残さない
 - `version` は価格行が変わったときだけ進む。`fetchedAt` は取り込みのたびに更新する

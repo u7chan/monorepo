@@ -9,6 +9,12 @@ describe("formatCost", () => {
     expect(formatCost(0.02, "request")).toBe("$0.02/回");
   });
 
+  test("音声の単位も整形する（文字・バイトは 1M、分はそのまま）", () => {
+    expect(formatCost(0.000015, "character")).toBe("$15/1M 文字");
+    expect(formatCost(0.00001, "byte")).toBe("$10/1M bytes");
+    expect(formatCost(0.15, "minute")).toBe("$0.15/分");
+  });
+
   test("小数の末尾 0 を残さない", () => {
     expect(formatCost(0.06, "image")).toBe("$0.06/枚");
     expect(formatCost(0.5, "image")).toBe("$0.5/枚");

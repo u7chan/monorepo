@@ -11,8 +11,22 @@ import type { LookupFunction } from "node:net";
 import type { ContentCostCatalogModelRow, ContentCostCatalogRow, ContentCostSettingsRow } from "./app-db";
 
 /** 上流の `unit` 語彙。これ以外の行は捨て、`0` へ丸めない */
-export const COST_UNITS = ["image", "megapixel", "token", "request"] as const;
+export const COST_UNITS = ["image", "megapixel", "token", "character", "byte", "minute", "request"] as const;
 export type CostUnit = (typeof COST_UNITS)[number];
+
+/** 入力 / 出力の区別。マスタの `billable` はここへ正規化してから DTO に載せる */
+export const COST_SIDES = ["input", "output"] as const;
+export type CostSide = (typeof COST_SIDES)[number];
+
+const COST_BILLABLES = ["output_image", "input_text", "output_audio"] as const;
+
+function isCostBillable(value: unknown): value is string {
+  return typeof value === "string" && (COST_BILLABLES as readonly string[]).includes(value);
+}
+
+export function costSideOf(billable: string): CostSide {
+  return billable.startsWith("input_") ? "input" : "output";
+}
 
 export const COST_MASTER_TIMEOUT_MS = 10_000;
 /** URL が利用者入力なので、既存のカタログ取得と違い本文と行数に上限を置く */
@@ -33,9 +47,10 @@ export const CONTENT_COST_URL_INVALID_MESSAGE =
 export const CONTENT_COST_SETTINGS_NOT_STORED_MESSAGE =
   "コストマスタの設定をアプリデータ（SQLite）へ保存できませんでした";
 
-/** 応答へ載せる価格 1 件。`billable`（上流の語彙）はここへ持ち込まない */
+/** 応答へ載せる価格 1 件。`billable`（上流の語彙）はここへ持ち込まず、`side` に正規化する */
 export interface CostPrice {
   unit: CostUnit;
+  side: CostSide;
   variant: string;
   costUsd: number;
   currency: "USD";
@@ -111,7 +126,7 @@ export interface ContentCostOptions {
 export interface ContentCostCatalog {
   /** 起動時に 1 回だけ DB の設定とスナップショットを読む（外部へは出ない） */
   loadStored(): void;
-  /** `image.cost` の投影。未設定・OFF でも保持している `fetchedAt` / `version` を返す */
+  /** `cost` の投影。未設定・OFF でも保持している `fetchedAt` / `version` を返す */
   state(): ContentCostState;
   /** modelId → 価格 / 表示可否。OFF・未設定なら空（呼び出し側は全件を表示の既定にする） */
   projection(): Map<string, CostProjection>;
@@ -298,7 +313,7 @@ export function costUrlError(raw: string): string | undefined {
   return undefined;
 }
 
-/** マスタ応答の 1 行。`billable` は出力側だけを通し、語彙はここで捨てる */
+/** マスタ応答の 1 行。`billable` は許可リストだけを通し、`side` に正規化する */
 function costMasterRowsOf(body: unknown): { version: number | null; models: ContentCostCatalogModelRow[] } | undefined {
   if (typeof body !== "object" || body === null) return undefined;
   const { version, models } = body as { version?: unknown; models?: unknown };
@@ -316,8 +331,7 @@ function costMasterRowsOf(body: unknown): { version: number | null; models: Cont
     // 単一 provider の版なので、違う provider の行は表示に混ぜない
     if (provider !== "openrouter") continue;
     if (typeof modelId !== "string" || modelId === "") continue;
-    // 表示に使うのは出力側の単価だけ。`unit` で判定せず `billable` で判定する
-    if (typeof billable !== "string" || !billable.startsWith("output_")) continue;
+    if (!isCostBillable(billable)) continue;
     if (!isCostUnit(unit)) continue;
     if (variant !== undefined && typeof variant !== "string") continue;
     if (typeof costUsd !== "number" || !Number.isFinite(costUsd) || costUsd < 0) continue;
@@ -327,6 +341,7 @@ function costMasterRowsOf(body: unknown): { version: number | null; models: Cont
     rows.push({
       modelId,
       unit,
+      side: costSideOf(billable),
       variant: variant ?? "",
       costUsd,
       currency: "USD",
@@ -338,7 +353,7 @@ function costMasterRowsOf(body: unknown): { version: number | null; models: Cont
 }
 
 /**
- * 同じ `(modelId, unit, variant)` を最大の単価へ潰す（マスタが endpoint を潰している前提の防御。
+ * 同じ `(modelId, unit, side, variant)` を最大の単価へ潰す（マスタが endpoint を潰している前提の防御。
  * 配列順に依存させない）。モデル単位の `enabled` は false を優先し、`note` は入力順の先頭の非 null。
  */
 function dedupeCostRows(rows: readonly ContentCostCatalogModelRow[]): ContentCostCatalogModelRow[] {
@@ -350,7 +365,7 @@ function dedupeCostRows(rows: readonly ContentCostCatalogModelRow[]): ContentCos
       enabled: (model?.enabled ?? true) && row.enabled,
       note: model?.note ?? row.note,
     });
-    const key = `${row.modelId}\u0000${row.unit}\u0000${row.variant}`;
+    const key = `${row.modelId}\u0000${row.unit}\u0000${row.side}\u0000${row.variant}`;
     const previous = byPrice.get(key);
     if (previous === undefined || row.costUsd > previous.costUsd) byPrice.set(key, row);
   }
@@ -362,6 +377,7 @@ function dedupeCostRows(rows: readonly ContentCostCatalogModelRow[]): ContentCos
     .sort((a, b) =>
       a.modelId === b.modelId
         ? COST_UNITS.indexOf(a.unit as CostUnit) - COST_UNITS.indexOf(b.unit as CostUnit) ||
+          COST_SIDES.indexOf(a.side) - COST_SIDES.indexOf(b.side) ||
           a.variant.localeCompare(b.variant)
         : a.modelId.localeCompare(b.modelId),
     );
@@ -379,9 +395,17 @@ export function costProjectionOf(snapshot: CostSnapshot | undefined, enabled: bo
     if (row.enabled === false) current.visible = false;
     if (current.note === null && row.note !== null) current.note = row.note;
     if (isCostUnit(row.unit)) {
-      const key = `${row.unit}\u0000${row.variant}`;
-      const existing = current.prices.findIndex((price) => `${price.unit}\u0000${price.variant}` === key);
-      const price: CostPrice = { unit: row.unit, variant: row.variant, costUsd: row.costUsd, currency: "USD" };
+      const key = `${row.unit}\u0000${row.side}\u0000${row.variant}`;
+      const existing = current.prices.findIndex(
+        (price) => `${price.unit}\u0000${price.side}\u0000${price.variant}` === key,
+      );
+      const price: CostPrice = {
+        unit: row.unit,
+        side: row.side,
+        variant: row.variant,
+        costUsd: row.costUsd,
+        currency: "USD",
+      };
       if (existing === -1) current.prices.push(price);
       else if (price.costUsd > current.prices[existing]!.costUsd) current.prices[existing] = price;
     }

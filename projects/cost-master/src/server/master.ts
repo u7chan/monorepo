@@ -1,4 +1,11 @@
-import { COST_UNITS, PROVIDER, type CostMasterPayload, type CostModelPrice, type CostUnit } from "../shared/contract";
+import {
+  COST_UNITS,
+  PROVIDER,
+  isCostBillable,
+  type CostMasterPayload,
+  type CostModelPrice,
+  type CostUnit,
+} from "../shared/contract";
 
 /** `src/server/data/prices.json` の 1 行。請求単位（billable）ごとに持つ */
 export type PriceRow = {
@@ -51,7 +58,10 @@ export function isCostUnit(value: unknown): value is CostUnit {
   return typeof value === "string" && (COST_UNITS as readonly string[]).includes(value);
 }
 
-/** 出力側の単価だけを選択の指標にする。`unit` では判定しない（`input_image` + `token` が実在する） */
+/**
+ * 画像の取り込みで使う「出力側だけ」の判定。`unit` では判定しない（`input_image` + `token` が実在する）。
+ * マスタの検証は画像に限らないので `isCostBillable` を使う。
+ */
 export function isOutputBillable(value: unknown): value is string {
   return typeof value === "string" && value.startsWith(BILLABLE_PREFIX);
 }
@@ -116,7 +126,7 @@ function parsePriceRow(item: unknown): PriceRow | { reason: DropReason } {
     return { reason: "model-id" };
   }
 
-  if (!isOutputBillable(row.billable)) {
+  if (!isCostBillable(row.billable)) {
     return { reason: "billable" };
   }
 
