@@ -20,6 +20,9 @@ import {
   imageAuthNotice,
   imageCatalogNotice,
   imageModelOptions,
+  imageModelNameParts,
+  imageModelPickerRows,
+  imagePriceSortKey,
   imageModelSectionVisible,
   contentImageProviderLabel,
   contentImageProviderNote,
@@ -726,7 +729,12 @@ test("描画用の選択肢は visible だけを外し、保存中の無効値�
   const saved = settings({ models, model: "acme/image-b" });
   assert.deepEqual(
     visibleImageModelOptions(saved).map((option) => option.label),
-    ["Acme B（一覧に出していません・保存済み）", "Acme A（$0.04/枚）"],
+    ["Acme B（一覧に出していません・保存済み）", "Acme A"],
+    "表示名に価格を混ぜない（行の右端が price を持つ）",
+  );
+  assert.deepEqual(
+    visibleImageModelOptions(saved).map((option) => option.price),
+    ["--", "$0.04/枚"],
   );
   assert.equal(hiddenImageModelCount(saved), 1);
   assert.deepEqual(imageModelVisibilityNotice(saved), {
@@ -742,6 +750,128 @@ test("描画用の選択肢は visible だけを外し、保存中の無効値�
   const missing = settings({ models, model: "stale/model" });
   assert.equal(imageModelVisibilityNotice(missing)?.kind, "missing");
   assert.ok(visibleImageModelOptions(missing).some((option) => option.value === "openrouter/stale/model"));
+});
+
+test("表示名のベンダー前置きは見出しへ切り、区切りが無ければそのまま行に出す", () => {
+  assert.deepEqual(imageModelNameParts("Google: Nano Banana 2"), { vendor: "Google", name: "Nano Banana 2" });
+  // 見出しと行のどちらかが空になる切り方はしない（読めない行を作らない）
+  assert.deepEqual(imageModelNameParts(": モデル"), { vendor: "", name: ": モデル" });
+  assert.deepEqual(imageModelNameParts("Google:"), { vendor: "", name: "Google:" });
+  assert.deepEqual(imageModelNameParts("Acme A"), { vendor: "", name: "Acme A" });
+  assert.deepEqual(imageModelNameParts("openai/gpt-image-2"), { vendor: "", name: "openai/gpt-image-2" });
+});
+
+test("価格順のキーは単位を先に見て、価格が読めないモデルを末尾へ回す", () => {
+  assert.deepEqual(imagePriceSortKey([{ unit: "image", variant: "", costUsd: 0.04, currency: "USD" }]), {
+    unit: 0,
+    amount: 0.04,
+  });
+  // 基本単価（variant: ""）を優先し、無いときは同じ単位の最小額を使う
+  assert.deepEqual(
+    imagePriceSortKey([
+      { unit: "image", variant: "2k", costUsd: 0.2, currency: "USD" },
+      { unit: "image", variant: "1k", costUsd: 0.1, currency: "USD" },
+    ]),
+    { unit: 0, amount: 0.1 },
+  );
+  assert.deepEqual(
+    imagePriceSortKey([
+      { unit: "token", variant: "", costUsd: 0.00003, currency: "USD" },
+      { unit: "image", variant: "", costUsd: 0.2, currency: "USD" },
+    ]),
+    { unit: 0, amount: 0.2 },
+    "表示に使う単位（image 優先）と同じ単位で比べる",
+  );
+  assert.deepEqual(imagePriceSortKey([]), { unit: 4, amount: Number.POSITIVE_INFINITY });
+  assert.deepEqual(
+    imagePriceSortKey([{ unit: "image", variant: "", costUsd: -1, currency: "USD" }]),
+    { unit: 4, amount: Number.POSITIVE_INFINITY },
+    "負の単価は価格として並べない",
+  );
+});
+
+test("選択肢はベンダー順と価格順に並べ替え、見出しの軸も切り替える", () => {
+  const models: ImageModel[] = [
+    {
+      provider: "openrouter",
+      id: "google/nano-banana",
+      name: "Google: Nano Banana",
+      prices: [{ unit: "image", variant: "", costUsd: 0.039, currency: "USD" }],
+      visible: true,
+      note: null,
+    },
+    {
+      provider: "openrouter",
+      id: "black-forest-labs/flux",
+      name: "Black Forest Labs: FLUX 3",
+      prices: [{ unit: "image", variant: "", costUsd: 0.015, currency: "USD" }],
+      visible: true,
+      note: null,
+    },
+    {
+      provider: "openrouter",
+      id: "google/nano-banana-pro",
+      name: "Google: Nano Banana Pro",
+      prices: [{ unit: "image", variant: "", costUsd: 0.12, currency: "USD" }],
+      visible: true,
+      note: null,
+    },
+    {
+      provider: "openrouter",
+      id: "google/nano-banana-token",
+      name: "Google: Nano Banana 2",
+      prices: [{ unit: "token", variant: "", costUsd: 0.00003, currency: "USD" }],
+      visible: true,
+      note: null,
+    },
+    { provider: "openrouter", id: "acme/image", name: "Acme Image", prices: [], visible: true, note: null },
+  ];
+  const options = imageModelOptions(settings({ models, model: null }));
+
+  const vendor = imageModelPickerRows(options, "vendor");
+  assert.deepEqual(
+    vendor.map((row) => [row.group, row.label]),
+    [
+      ["", "Acme Image"],
+      ["Black Forest Labs", "FLUX 3"],
+      ["Google", "Nano Banana"],
+      ["Google", "Nano Banana 2"],
+      ["Google", "Nano Banana Pro"],
+    ],
+    "ベンダー見出しの下ではベンダー名を繰り返さない (大文字小文字はそのまま比較する)",
+  );
+  assert.deepEqual(
+    vendor.map((row) => row.price),
+    ["--", "$0.015/枚", "$0.039/枚", "$30/1M tok", "$0.12/枚"],
+  );
+  assert.deepEqual(
+    vendor.map((row) => row.fullLabel),
+    [
+      "Acme Image",
+      "Black Forest Labs: FLUX 3",
+      "Google: Nano Banana",
+      "Google: Nano Banana 2",
+      "Google: Nano Banana Pro",
+    ],
+    "トリガーには見出しで省いたベンダー名を戻す",
+  );
+
+  const price = imageModelPickerRows(options, "price");
+  assert.deepEqual(
+    price.map((row) => [row.group, row.label]),
+    [
+      ["1 枚あたり", "Black Forest Labs: FLUX 3"],
+      ["1 枚あたり", "Google: Nano Banana"],
+      ["1 枚あたり", "Google: Nano Banana Pro"],
+      ["1M token あたり", "Google: Nano Banana 2"],
+      ["価格不明", "Acme Image"],
+    ],
+    "価格順は同じ単位の中で安い順、単価が読めないモデルは末尾",
+  );
+  assert.deepEqual(
+    price.map((row) => row.price),
+    ["$0.015/枚", "$0.039/枚", "$0.12/枚", "$30/1M tok", "--"],
+  );
 });
 
 test("コストの由来は未設定と停止中と未取得を分け、停止中は前回取得を添える", () => {

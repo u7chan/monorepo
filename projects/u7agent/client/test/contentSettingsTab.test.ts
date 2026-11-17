@@ -237,9 +237,8 @@ test("設定済みではモデル選択を出し、キーの操作は本文へ�
   const html = render();
   assert.equal(html.includes('type="password"'), false, "キーの入力は带の [変更] の中だけ");
   assert.equal(html.includes("上書き保存"), false, "キーの操作も带が持つ");
-  assert.ok(html.includes("<select"), "モデル選択を出す");
-  assert.ok(html.includes('value="openrouter/openai/gpt-image-2"'), "保存済みモデルを選択した状態で出す");
-  assert.ok(html.includes("GPT Image 2"));
+  assert.match(html, /aria-haspopup="listbox"/, "モデル選択を出す");
+  assert.match(html, /aria-selected="true"[\s\S]{0,400}?GPT Image 2/, "保存済みモデルを選択した状態で出す");
   assert.ok(html.includes("モデル一覧は OpenRouter から取得しました"), "一覧の出どころを出す");
   assert.ok(
     html.includes(
@@ -272,7 +271,7 @@ test("取得できていないときは一覧の出どころを警告色のチ�
 test("カタログ外の保存済みモデルも選択肢に残す", () => {
   const html = render({ image: { model: "stale/model" } });
   assert.ok(html.includes("stale/model（カタログ外）"), "現在の保存値を選択肢に出す");
-  assert.ok(html.includes('value="openrouter/stale/model"'));
+  assert.match(html, /aria-selected="true"[\s\S]{0,400}?stale\/model（カタログ外）/, "保存値の行を選択状態にする");
   assert.ok(html.includes("Gemini Image"), "カタログの他の候補も失わない");
 });
 

@@ -276,7 +276,16 @@ export function imageCostNotice(
 export interface ImageModelOption {
   /** 選択欄の値。`provider/id` 表記 */
   value: string;
+  /** 表示名（ベンダー名を含む）。価格は `price` が持つ */
   label: string;
+  /** 見出しに使うベンダー名。表示名が「ベンダー: モデル名」でないときは空文字 */
+  vendor: string;
+  /** ベンダー名を除いた行の表示名。見出しの下では同じ語を繰り返さない */
+  name: string;
+  /** 価格の表記。不明は `--` */
+  price: string;
+  /** 価格順の比較キー。単位が違う単価は比べられないため、単位から見る */
+  priceKey: { unit: number; amount: number };
   /** PUT の本文を作るための参照。provider を決められない保存値では null */
   model: ModelRef | null;
 }
@@ -294,19 +303,20 @@ export function imageModelOptions(settings: Pick<ContentSettingsResponse, "provi
     nameCounts.set(entry.name, (nameCounts.get(entry.name) ?? 0) + 1);
   }
   const options: ImageModelOption[] = image.models
-    .map((entry) => ({
-      value: modelRefKey({ provider: entry.provider, id: entry.id }),
-      label: imageOptionLabel(entry, (nameCounts.get(entry.name) ?? 0) > 1),
-      model: { provider: entry.provider, id: entry.id },
-    }))
+    .map((entry) =>
+      imageModelOption({
+        value: modelRefKey({ provider: entry.provider, id: entry.id }),
+        label: optionLabel(entry, (nameCounts.get(entry.name) ?? 0) > 1),
+        prices: entry.prices,
+        model: { provider: entry.provider, id: entry.id },
+      }),
+    )
     .sort((a, b) => compareOptionLabels(a.label, b.label));
   if (provider !== null && image.model !== null && !options.some((option) => option.model?.id === image.model)) {
     const model = { provider, id: image.model };
-    options.unshift({
-      value: modelRefKey(model),
-      label: `${image.model}（カタログ外）`,
-      model,
-    });
+    options.unshift(
+      imageModelOption({ value: modelRefKey(model), label: `${image.model}（カタログ外）`, prices: [], model }),
+    );
   }
   return options;
 }
@@ -317,14 +327,116 @@ function optionLabel(entry: { id: string; name: string }, duplicated: boolean): 
   return duplicated ? `${entry.name}（${entry.id}）` : entry.name;
 }
 
-/** 画像の選択肢は価格を添える。不明はチップの `--` に任せ、既定（未設定）の一覧を長くしない */
-function imageOptionLabel(
-  entry: { id: string; name: string; prices: readonly ImageModelPrice[] },
-  duplicated: boolean,
-): string {
-  const label = optionLabel(entry, duplicated);
-  const price = imagePriceDisplay(entry.prices);
-  return price.label === "--" ? label : `${label}（${price.label}）`;
+/**
+ * 表示名を「ベンダー: モデル名」で割る。上流の表示名はベンダーを前置きするが、区切りが無い
+ * （自分で付けた名前・id だけの名前）ときは見出しを作らず、行にそのまま出す。
+ */
+export function imageModelNameParts(label: string): { vendor: string; name: string } {
+  const index = label.indexOf(": ");
+  if (index <= 0) return { vendor: "", name: label };
+  const vendor = label.slice(0, index).trim();
+  const name = label.slice(index + 2).trim();
+  return vendor === "" || name === "" ? { vendor: "", name: label } : { vendor, name };
+}
+
+/** 選択肢 1 件。価格は表示用の文字列と並び替え用のキーを別に持ち、行とトリガーで使い分ける */
+function imageModelOption(input: {
+  value: string;
+  label: string;
+  prices: readonly ImageModelPrice[];
+  model: ModelRef | null;
+}): ImageModelOption {
+  return {
+    value: input.value,
+    label: input.label,
+    ...imageModelNameParts(input.label),
+    price: imagePriceDisplay(input.prices).label,
+    priceKey: imagePriceSortKey(input.prices),
+    model: input.model,
+  };
+}
+
+/**
+ * 価格順の比較キー。**単位が違う単価は同じ金額として比べられない**（1 枚と 1M token は桁も意味も違う）ため、
+ * 単位の順を先に見る。価格が読めないモデルは末尾へ回す。
+ */
+export function imagePriceSortKey(prices: readonly ImageModelPrice[]): { unit: number; amount: number } {
+  for (const [index, unit] of IMAGE_PRICE_UNIT_ORDER.entries()) {
+    const rows = prices.filter((price) => price.unit === unit && Number.isFinite(price.costUsd) && price.costUsd >= 0);
+    if (rows.length === 0) continue;
+    const factor = IMAGE_PRICE_UNITS[unit].factor;
+    const basic = rows.find((price) => price.variant === "");
+    const amount =
+      basic !== undefined ? basic.costUsd * factor : Math.min(...rows.map((price) => price.costUsd * factor));
+    return { unit: index, amount };
+  }
+  return { unit: IMAGE_PRICE_UNIT_ORDER.length, amount: Number.POSITIVE_INFINITY };
+}
+
+/** 価格順の見出し。単位が変わると数字の意味も変わるので、同じ一覧に混ぜない */
+const IMAGE_PRICE_UNIT_LABELS: Record<(typeof IMAGE_PRICE_UNIT_ORDER)[number], string> = {
+  image: "1 枚あたり",
+  megapixel: "1 MP あたり",
+  token: "1M token あたり",
+  request: "1 回あたり",
+};
+const IMAGE_PRICE_UNKNOWN_GROUP = "価格不明";
+
+/** 価格順の見出し。`unit` は `IMAGE_PRICE_UNIT_ORDER` の位置で、末尾は価格が読めない行を指す */
+function imagePriceGroupLabel(unit: number): string {
+  const key = IMAGE_PRICE_UNIT_ORDER[unit];
+  return key === undefined ? IMAGE_PRICE_UNKNOWN_GROUP : IMAGE_PRICE_UNIT_LABELS[key];
+}
+
+/** 画像モデルの並び順。見出しの軸も切り替える（ベンダー / 価格の単位） */
+export type ImageModelSort = "vendor" | "price";
+
+/** 選択欄の 1 行。見出しは連続する同じ値ごとに 1 つだけ描く */
+export interface ImageModelPickerRow {
+  value: string;
+  /** 行の主表示 */
+  label: string;
+  /** トリガーの表示名。行で省いたベンダー名を戻す */
+  fullLabel: string;
+  /** 行の右端に出す価格。不明は `--` */
+  price: string;
+  /** 見出し。空文字なら見出し無し */
+  group: string;
+}
+
+/**
+ * 画像モデルの選択肢を並べ替える。ベンダー順は見出しをベンダーにし、価格順は見出しを単価の単位にする
+ * （価格の比較は単位の中でだけ意味を持つ）。名前が同じときは表示名で決める（並びを入力順に依存させない）。
+ */
+export function imageModelPickerRows(
+  options: readonly ImageModelOption[],
+  sort: ImageModelSort,
+): ImageModelPickerRow[] {
+  if (sort === "price") {
+    return [...options]
+      .sort(
+        (a, b) =>
+          a.priceKey.unit - b.priceKey.unit ||
+          a.priceKey.amount - b.priceKey.amount ||
+          compareOptionLabels(a.label, b.label),
+      )
+      .map((option) => ({
+        value: option.value,
+        label: option.label,
+        fullLabel: option.label,
+        price: option.price,
+        group: imagePriceGroupLabel(option.priceKey.unit),
+      }));
+  }
+  return [...options]
+    .sort((a, b) => compareOptionLabels(a.vendor, b.vendor) || compareOptionLabels(a.label, b.label))
+    .map((option) => ({
+      value: option.value,
+      label: option.name,
+      fullLabel: option.label,
+      price: option.price,
+      group: option.vendor,
+    }));
 }
 
 /**
@@ -349,7 +461,14 @@ export function visibleImageModelOptions(
       (candidate) => modelRefKey({ provider: candidate.provider, id: candidate.id }) === savedValue,
     );
     const name = entry?.name || saved.model?.id || savedValue;
-    options.unshift({ ...saved, label: `${name}（一覧に出していません・保存済み）` });
+    options.unshift(
+      imageModelOption({
+        value: saved.value,
+        label: `${name}（一覧に出していません・保存済み）`,
+        prices: entry?.prices ?? [],
+        model: saved.model,
+      }),
+    );
   }
   return options;
 }

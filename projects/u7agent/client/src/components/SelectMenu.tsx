@@ -12,7 +12,12 @@ import {
 } from "react";
 import { cn } from "../lib/cn";
 import { popoverLeft, popoverTop, popoverWidth } from "../lib/popoverPlacement";
-import { initialSelectMenuIndex, nextSelectMenuIndex, selectMenuPlacement } from "../lib/selectMenu";
+import {
+  filterSelectMenuOptions,
+  initialSelectMenuIndex,
+  nextSelectMenuIndex,
+  selectMenuPlacement,
+} from "../lib/selectMenu";
 import { CheckIcon } from "./icons";
 
 /** 一覧の幅の下限。説明の 1 行が読める幅を確保する */
@@ -22,6 +27,8 @@ export type SelectMenuOption<TValue extends string = string> = {
   value: TValue;
   /** 行とトリガーの主表示 */
   label: string;
+  /** トリガーにだけ出す表示名。行が見出しの下で短く書けるときに使う */
+  triggerLabel?: string;
   /** 行とトリガーに右端そろえで出す副表示 (ホスト名 / ID など) */
   detail?: string;
   /** 行の下に出す 1 行の説明。折り返さず省略する */
@@ -45,6 +52,12 @@ export type SelectMenuProps<TValue extends string = string> = {
   onChange: (value: TValue) => void;
   /** トリガーの寸法だけを呼び出し側で足す (見た目は field のまま)。未指定は今までどおり */
   triggerClassName?: string;
+  /** 選択肢が多いときに検索欄を出す。開いたら検索へ焦点を移す */
+  searchable?: boolean;
+  /** 検索欄の placeholder。何で絞れるかを欄の中で示す */
+  searchPlaceholder?: string;
+  /** 一覧の上に置く操作 (並び順の切替など)。listbox の外に置く */
+  controls?: ReactNode;
 };
 
 /**
@@ -59,18 +72,26 @@ export function SelectMenu<TValue extends string = string>({
   disabled = false,
   onChange,
   triggerClassName,
+  searchable = false,
+  searchPlaceholder,
+  controls,
 }: SelectMenuProps<TValue>) {
   const menuId = useId();
   const triggerId = useId();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
   const noteRef = useRef<HTMLParagraphElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const selected = options.find((option) => option.value === value);
+  // 絞り込みは開くたびに空へ戻す。前回の検索語で開き直すと、選ぼうとした一覧が欠けて見える
+  const visible = searchable ? filterSelectMenuOptions(options, query) : options;
   const groups: { group: string | undefined; items: SelectMenuOption<TValue>[] }[] = [];
-  for (const option of options) {
+  for (const option of visible) {
     const last = groups[groups.length - 1];
     if (last !== undefined && last.group === option.group) last.items.push(option);
     else groups.push({ group: option.group, items: [option] });
@@ -87,8 +108,11 @@ export function SelectMenu<TValue extends string = string>({
     const width = popoverWidth(Math.max(anchor.width, MIN_WIDTH), viewport.width);
     popover.style.width = `${width}px`;
     const { above, maxHeight } = selectMenuPlacement(anchor, viewport.height);
-    // 注記を下端に残すため、上限は一覧から注記の高さを引いて当てる
-    const chrome = (noteRef.current?.getBoundingClientRect().height ?? 0) + 2;
+    // 注記と検索の行を下端・上端に残すため、上限は一覧からそれらの高さを引いて当てる
+    const chrome =
+      (noteRef.current?.getBoundingClientRect().height ?? 0) +
+      (headerRef.current?.getBoundingClientRect().height ?? 0) +
+      2;
     list.style.maxHeight = `${Math.max(0, maxHeight - chrome)}px`;
     popover.style.left = `${popoverLeft(anchor, width, viewport.width)}px`;
     popover.style.top = `${popoverTop(anchor, popover.getBoundingClientRect().height, above, viewport.height)}px`;
@@ -131,13 +155,19 @@ export function SelectMenu<TValue extends string = string>({
   const openMenu = () => {
     const popover = popoverRef.current;
     if (popover === null) return;
+    setQuery("");
     popover.showPopover();
     place();
     setOpen(true);
+    // 検索できる一覧は行ではなく検索から入る (件数が多い一覧を矢印だけで辿らせない)
+    if (searchable) {
+      searchRef.current?.focus();
+      return;
+    }
     focusItem(
       initialSelectMenuIndex(
         value,
-        options.map((option) => option.value),
+        visible.map((option) => option.value),
       ),
     );
   };
@@ -195,6 +225,29 @@ export function SelectMenu<TValue extends string = string>({
     popoverRef.current?.hidePopover();
   };
 
+  /** 検索欄のキー。Escape は App (設定からチャットへ戻る) へ届かせず、Enter は外側の form を送信させない */
+  const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    // 検索欄から一覧へ抜ける 1 手。↓ は選択中の行 (無ければ先頭)、↑ は末尾へ入る
+    event.preventDefault();
+    focusItem(
+      event.key === "ArrowDown"
+        ? initialSelectMenuIndex(
+            value,
+            visible.map((option) => option.value),
+          )
+        : visible.length - 1,
+    );
+  };
+
   const select = (next: TValue) => {
     if (next !== value) onChange(next);
     // フォーカスは外さない: blur すると native の復帰が起きず、トリガーへ戻らない
@@ -225,7 +278,9 @@ export function SelectMenu<TValue extends string = string>({
         )}
       >
         {selected?.leading ? <span className="shrink-0">{selected.leading}</span> : null}
-        <span className="min-w-0 flex-1 truncate text-xs text-ink">{selected?.label ?? ""}</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-ink">
+          {selected?.triggerLabel ?? selected?.label ?? ""}
+        </span>
         {selected?.detail ? (
           <span className="shrink-0 font-mono text-2xs text-ink-faint">{selected.detail}</span>
         ) : null}
@@ -251,13 +306,39 @@ export function SelectMenu<TValue extends string = string>({
         popover="auto"
         className="popover-panel fixed inset-auto m-0 overflow-hidden rounded-lg border border-line bg-panel shadow-panel"
       >
+        {/* 検索と操作は一覧の外に置く (listbox の中に option 以外を置かない)。高さは place() が一覧から引く */}
+        {searchable || controls ? (
+          <div ref={headerRef} className="grid gap-1.5 border-b border-line p-1.5">
+            {searchable ? (
+              <input
+                ref={searchRef}
+                type="search"
+                className="field min-h-7 min-w-0 px-2 py-0.5 text-xs singleColumn:text-md"
+                value={query}
+                placeholder={searchPlaceholder ?? "絞り込み"}
+                aria-label={searchPlaceholder ?? "絞り込み"}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => setQuery(event.currentTarget.value)}
+                onKeyDown={onSearchKeyDown}
+              />
+            ) : null}
+            {controls}
+          </div>
+        ) : null}
+        {visible.length === 0 ? (
+          <p className="px-2.5 py-1.5 text-2xs text-ink-muted singleColumn:text-xs">該当する項目がありません。</p>
+        ) : null}
         <div
           ref={listRef}
           role="listbox"
           aria-labelledby={triggerId}
           aria-label={label}
           onKeyDown={onListKeyDown}
-          className="grid scrollbar-thin overflow-x-hidden overflow-y-auto p-1 singleColumn:p-2"
+          className={cn(
+            "grid scrollbar-thin overflow-x-hidden overflow-y-auto p-1 singleColumn:p-2",
+            visible.length === 0 && "hidden",
+          )}
         >
           {groups.map((section) => (
             <div key={section.group ?? ""} role="group" aria-label={section.group}>
@@ -267,7 +348,7 @@ export function SelectMenu<TValue extends string = string>({
                 </span>
               ) : null}
               {section.items.map((option) => {
-                const index = options.indexOf(option);
+                const index = visible.indexOf(option);
                 return (
                   <button
                     key={option.value}
