@@ -192,6 +192,7 @@ export function ContentSettingsView({
                       type="button"
                       className="link-quiet"
                       aria-expanded={keyOpen}
+                      aria-label="コンテンツ生成のAPIキーの設定"
                       onClick={() => setKeyOpenDraft(!keyOpen)}
                     >
                       {keyOpen ? "閉じる" : settings.keyStored ? "変更" : "登録"}

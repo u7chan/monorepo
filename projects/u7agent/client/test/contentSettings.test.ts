@@ -19,7 +19,6 @@ import {
   imageAuthBadge,
   imageAuthNotice,
   imageCatalogNotice,
-  imageKeySectionVisible,
   imageModelOptions,
   imageModelSectionVisible,
   contentImageProviderLabel,
@@ -674,9 +673,7 @@ test("OpenRouter のキーが保存済みでも使えないときは「未設定
   assert.match(authNotice("openrouter", { state: "missing", kind: "api_key" }) ?? "", /未設定/);
 });
 
-test("Codex では APIキー欄とモデル一覧を出さない（OpenRouter では出す）", () => {
-  assert.equal(imageKeySectionVisible("openrouter"), true);
-  assert.equal(imageKeySectionVisible("codex"), false);
+test("Codex ではモデル一覧を出さない（OpenRouter では出す）", () => {
   assert.equal(imageModelSectionVisible("openrouter"), true);
   assert.equal(imageModelSectionVisible("codex"), false);
 });

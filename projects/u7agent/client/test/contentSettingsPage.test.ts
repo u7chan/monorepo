@@ -349,7 +349,11 @@ test("行が無い（未設定）間は有効 / 無効を出さず、キー入�
   // 行が無いと PUT が 400 になるため、押せないスイッチを残さない
   assert.equal(html.includes('role="switch"'), false, "行が無い間はトグル自体を出さない");
   assert.ok(html.includes(">未設定<"), "キーの状態は帯が持つ");
-  assert.match(html, /<button[^>]*aria-expanded="true"[^>]*>(?:(?!<\/button>)[\s\S])*閉じる/, "最初から開く");
+  assert.match(
+    html,
+    /<button(?=[^>]*aria-label="コンテンツ生成のAPIキーの設定")(?=[^>]*aria-expanded="true")[^>]*>[^<]*閉じる/,
+    "最初から開く",
+  );
   assert.ok(html.includes('type="password"'), "キー入力を出す");
   assert.ok(html.includes(">保存<"), "未設定では新規保存");
   assert.equal(html.includes(">削除</button>"), false, "削除はキー保存後にだけ出す");
@@ -357,7 +361,12 @@ test("行が無い（未設定）間は有効 / 無効を出さず、キー入�
 
 test("キーの入力は [変更] で開き、保存済みの値は欄へ戻さない", () => {
   const html = render(contentSettings());
-  assert.match(html, /<button[^>]*aria-expanded="false"[^>]*>(?:(?!<\/button>)[\s\S])*変更/, "既定は閉じる");
+  // 本文の「設定」の畳みも [変更] なので、キーの行は読み上げ名で特定する
+  assert.match(
+    html,
+    /<button(?=[^>]*aria-label="コンテンツ生成のAPIキーの設定")(?=[^>]*aria-expanded="false")[^>]*>[^<]*変更/,
+    "既定は閉じる",
+  );
   assert.ok(html.includes(">設定済み<"), "状態は帯に出す");
   assert.equal(html.includes('type="password"'), false, "閉じている間は入力欄を出さない");
   assert.equal(html.includes("上書き保存"), false);
