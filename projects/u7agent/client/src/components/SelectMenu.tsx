@@ -194,11 +194,6 @@ export function SelectMenu<TValue extends string = string>({
   };
 
   const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape") {
-      // 止めないと App の Escape (設定ページからチャットへ戻る) まで届く。閉じるのは標準挙動に任せる
-      event.stopPropagation();
-      return;
-    }
     const direction =
       event.key === "ArrowDown"
         ? "next"
@@ -225,12 +220,19 @@ export function SelectMenu<TValue extends string = string>({
     popoverRef.current?.hidePopover();
   };
 
-  /** 検索欄のキー。Escape は App (設定からチャットへ戻る) へ届かせず、Enter は外側の form を送信させない */
+  /**
+   * Escape は native の light dismiss も閉じるが、App の Escape (設定ページからチャットへ戻る) へは
+   * 届かせない。止めるのはトリガーと popover を包むここ 1 か所にする (検索欄・操作・行のどこに
+   * フォーカスがあっても同じように守る)。閉じている間は App の Escape をそのまま通す。
+   */
+  const onKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
+    if (event.key !== "Escape") return;
+    if (!popoverRef.current?.matches(":popover-open")) return;
+    event.stopPropagation();
+  };
+
+  /** 検索欄のキー。Enter は外側の form を送信させない */
   const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape") {
-      event.stopPropagation();
-      return;
-    }
     if (event.key === "Enter") {
       event.preventDefault();
       return;
@@ -256,7 +258,7 @@ export function SelectMenu<TValue extends string = string>({
 
   return (
     // トリガーとポップアップを 1 つのフォーカス範囲として扱う (display: contents は欄の flex 配置を変えない)
-    <span className="contents" onBlur={onFocusOut}>
+    <span className="contents" onBlur={onFocusOut} onKeyDown={onKeyDown}>
       {/* 長い見出し (会話タイトルなど) で祖先を広げない。min-w-0 が無いと、幅を内容から決める grid / flex の中では
           見出しの 1 行がトリガーの最小幅になり、truncate が効かないまま親ごと横へはみ出す */}
       <button
