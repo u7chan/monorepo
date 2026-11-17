@@ -164,7 +164,7 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 
 プリセットは `preset:<id>`（id は `[a-z0-9-]{1,32}`）で保存する。サーバーは id の形だけを検証し、実在はクライアントが解決する（未知の id と読み込み失敗は星へ落ちる）。
 
-- 同梱するのは 8 体のボット顔。`client/public/agent-icons/` に 256×256 WebP（`bot-mint.webp` など、実測 3.5〜7.2 KiB）で置き、設定 → エージェント のアイコングリッドから選ぶ。保存値と表示先の対応は `client/src/lib/agentPresets.ts` が正。
+- 同梱するのは 8 体のボット顔。`client/public/agent-icons/` に 256×256 WebP（`bot-mint.webp` など、実測 3.5〜7.0 KiB）で置き、設定 → エージェント のアイコングリッドから選ぶ。保存値と表示先の対応は `client/src/lib/agentPresets.ts` が正。
 - プリセットを選んだあと画像をアップロードすると data URL に置き換わり、`icon: null` で解除する。どちらも同じ `icon` 1 フィールドを使う。
 - バックアップの export / import は `preset:` を文字列としてそのまま往復する。この形式を知らない版へ戻すと import は 400（形式追加時の既知の制限）。
 - セッションはアイコンのスナップショットを持たない（`AgentPayloadInfo` は変更しない）。assistant の表示名は作成時のスナップショット（`SessionPayload.agent.name`）、アイコンは `agentId` からカタログを live 解決する。そのため定義を編集すると、既存セッションの名前は古いままアイコンだけが変わる。

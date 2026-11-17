@@ -60,7 +60,7 @@ export type AgentForm = {
    * 配列 = 明示リストで [] はすべて OFF)。実効はアプリ側の可否との積 (docs/api-catalog.md)。
    */
   toolNames?: string[] | null;
-  /** data URL。null は未設定で、保存時は「指定解除」として送る */
+  /** プリセット ID (`preset:<id>`) またはアップロード画像の data URL。null は未設定で、保存時は「指定解除」として送る */
   icon: string | null;
   /** null は保存時に「指定解除」として送る */
   model: ModelRef | null;
