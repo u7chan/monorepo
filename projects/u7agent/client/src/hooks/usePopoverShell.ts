@@ -308,15 +308,18 @@ export function usePopoverShell(place: PopoverPlace, margin: number, options: Po
   /**
    * トリガーの ↑↓ で開く (`openOnArrowKeys: true` の画面だけ)。押したときと同じ経路 (click) を通すので、
    * 開く前に取得や絞り込みの初期化がある画面も同じ手順になる。既定で開かないのは、これまで矢印に
-   * 反応していなかったトリガーの操作を増やさないため
+   * 反応しなかったトリガーの操作を増やさないため
    */
   const onTriggerKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>) => {
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
       // 矢印で開かない画面では触らない (base どおり既定動作 = ページのスクロールに任せる)
       if (!openOnArrowKeys) return;
-      // 既定動作を止めてから、押したときと同じ経路へ渡す
+      // 既定動作 (ページのスクロール) を止める
       event.preventDefault();
+      // 開いている間の矢印では何もしない。click へ渡すと toggle が閉じてしまい、開いたままの一覧が
+      // 矢印で消える (焦点がトリガーへ戻れる包み型の画面で到達する)
+      if (popoverRef.current?.matches(":popover-open")) return;
       triggerRef.current?.click();
     },
     [openOnArrowKeys],
