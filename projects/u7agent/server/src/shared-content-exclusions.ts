@@ -31,7 +31,7 @@ export function createSharedContentExclusions({ db }: SharedContentExclusionsOpt
   return {
     /** 保存行（未設定は undefined）。DB の失敗は 503 として投げる */
     read(): string[] | undefined {
-      return db.readSharedContentExcludeNames();
+      return db.sharedContents.readSharedContentExcludeNames();
     },
 
     /**
@@ -40,7 +40,7 @@ export function createSharedContentExclusions({ db }: SharedContentExclusionsOpt
      */
     effectiveNames(): string[] {
       try {
-        return resolveSharedContentExcludeNames(db.readSharedContentExcludeNames());
+        return resolveSharedContentExcludeNames(db.sharedContents.readSharedContentExcludeNames());
       } catch (error) {
         console.warn(`[u7agent] 共有の除外名を読めません: ${messageFor(error)}`);
         return [...DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES];
@@ -48,7 +48,7 @@ export function createSharedContentExclusions({ db }: SharedContentExclusionsOpt
     },
 
     response(): SharedContentExclusionsResponse {
-      return responseOf(db.readSharedContentExcludeNames());
+      return responseOf(db.sharedContents.readSharedContentExcludeNames());
     },
 
     /** 正規化して検証し、上書きとして保存する。不正は 400（画面は理由をそのまま出す） */
@@ -56,13 +56,13 @@ export function createSharedContentExclusions({ db }: SharedContentExclusionsOpt
       const normalized = normalizeSharedContentExcludeNames(names);
       const reason = validateSharedContentExcludeNames(normalized);
       if (reason) throw httpError(400, reason);
-      db.saveSharedContentExcludeNames(normalized);
+      db.sharedContents.saveSharedContentExcludeNames(normalized);
       return responseOf(normalized);
     },
 
     /** 保存行を消して未設定へ戻す（既定名を保存し直さない） */
     reset(): SharedContentExclusionsResponse {
-      db.resetSharedContentExcludeNames();
+      db.sharedContents.resetSharedContentExcludeNames();
       return responseOf(undefined);
     },
   };

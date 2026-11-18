@@ -1,6 +1,6 @@
 # データの永続化と再デプロイ時の挙動
 
-何がどこに残り、再作成・再デプロイで何が消えるかの契約。保存の実装は `server/src/session-store.ts` と `server/src/app-db.ts`、セッション別の置き場は [session-files.md](session-files.md) を参照する。
+何がどこに残り、再作成・再デプロイで何が消えるかの契約。保存の実装は `server/src/session-store.ts` と `server/src/app-db.ts`（ドメイン別の SQL は `server/src/shared-content-repository.ts` へ分けている）、セッション別の置き場は [session-files.md](session-files.md) を参照する。
 
 ## 現状
 

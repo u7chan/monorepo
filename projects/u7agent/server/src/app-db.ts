@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { spaceDirRel } from "./app-paths";
+import { jsonArrayColumn, jsonObject, optionalBlob, optionalNumber, optionalText, text, type Row } from "./db-values";
 import { DEFAULT_GIT_IDENTITY } from "./git-identity";
 import { httpError, messageFor } from "./http";
 import {
@@ -19,6 +20,14 @@ import type { SecretKind } from "./secret-crypto";
 import { AGENT_PROMPT_LIMIT, ImageParameterValuesSchema, PROMPT_LABEL_MAX, PROMPT_TEXT_MAX } from "./schema";
 import type { AgentDef, ImageParameterValues, ModelRef, NotificationResult, Project, PromptRef, Space } from "./schema";
 import type { SpeechAudioFormat } from "./speech";
+import {
+  SharedContentRepository,
+  type SharedContentRow,
+  type SharedContentSourceKind,
+  type SharedContentStatus,
+  type SharedContentThumbnailRow,
+} from "./shared-content-repository";
+export type { SharedContentRow, SharedContentSourceKind, SharedContentStatus, SharedContentThumbnailRow };
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
@@ -355,65 +364,6 @@ export interface SecretRow {
   sortOrder: number;
   createdAt: number;
   updatedAt: number;
-}
-
-/**
- * 公開した静的成果物の状態。値の検査はサービス側で行い、状態を増やすときに列の移行を要さないよう
- * テーブル側の CHECK にはしない (docs/static-sharing-design.md)。
- */
-export type SharedContentStatus = "publishing" | "published" | "stopped" | "failed";
-
-/**
- * Cloudflare へ公開した静的成果物の記録。管理操作の主語は u7agent 側の id で、provider 固有の識別子は
- * remoteId に閉じる。sourcePath はワークスペース root 相対で、作業フォルダが消えても行は残す
- * (docs/static-sharing-design.md#共有物のライフサイクル)。
- */
-/**
- * 公開元の種類。`session-root` はセッションの作業フォルダ自身、`directory` はその配下のディレクトリ。
- * 公開元の表示と、作業フォルダ全体を公開したことの説明にだけ使う。
- */
-export type SharedContentSourceKind = "directory" | "session-root";
-
-/**
- * 共有物のサムネイルのメタデータ。実体は `<storeDir>/shared-thumbnails/<id>.png` に置き、
- * 行は「存在の正」だけを持つ (docs/persistence.md)。
- */
-export interface SharedContentThumbnailRow {
-  updatedAt: number;
-  width: number;
-  height: number;
-  bytes: number;
-}
-
-export interface SharedContentRow {
-  id: string;
-  /** 公開元のセッション。セッションを削除しても行は残す */
-  sessionId: string;
-  /** 一覧に出す表示名。URL には使わない */
-  name: string;
-  /** ワークスペース root 相対のディレクトリ (`""` は root) */
-  sourcePath: string;
-  /** 省略は `directory` (旧テストのリテラルと、列が無い時代の行を同じ形で読む) */
-  sourceKind?: SharedContentSourceKind;
-  provider: string;
-  /** 公開先のアカウント識別子。公開の受付時に確定して保存し、以後変えない。未受付なら null */
-  providerAccount: string | null;
-  /** provider 側の公開単位の識別子 (Cloudflare は script 名)。受付時に確定して保存する。未受付なら null */
-  remoteId: string | null;
-  publicUrl: string | null;
-  status: SharedContentStatus;
-  createdAt: number;
-  updatedAt: number;
-  publishedAt: number | null;
-  stoppedAt: number | null;
-  lastError: string | null;
-  /** 未設定は null。列が無い時代の行も null として読む */
-  thumbnail?: SharedContentThumbnailRow | null;
-  /**
-   * 最後に使った版。**解除しても消さない**（同じ版が再利用されると、`?v=` が衝突して
-   * 差し替えがキャッシュから出なくなる）。未設定のまま一度も保存していなければ null
-   */
-  thumbnailVersion?: number | null;
 }
 
 /**
@@ -1029,46 +979,6 @@ DROP TABLE IF EXISTS assistant_metrics;
 // 消えても形式違いの 400 が 1 往復増えるだけ。
 // 列追加も #migrate() にだけ足し、既存行を書き換える移行はしない。
 
-type Row = Record<string, unknown>;
-
-function text(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function optionalText(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined;
-}
-
-/** NULL を不明のまま読む (移行前の行を 0 と混同しない) */
-function optionalNumber(value: unknown): number | null {
-  return value === null || value === undefined ? null : Number(value);
-}
-
-/** 自分で書いた JSON 列だけを読む。壊れていたら黙って空にせず例外にして 503 側で見せる */
-function jsonArray<T>(value: unknown): T[] | undefined {
-  if (typeof value !== "string") return undefined;
-  const parsed: unknown = JSON.parse(value);
-  return Array.isArray(parsed) ? (parsed as T[]) : undefined;
-}
-
-function jsonObject<T>(value: unknown): T | undefined {
-  if (typeof value !== "string") return undefined;
-  const parsed: unknown = JSON.parse(value);
-  return parsed && typeof parsed === "object" ? (parsed as T) : undefined;
-}
-
-/**
- * 保存行の JSON 配列を読む。JSON.parse の文言は値の断片を写すため、テーブル / 列だけを示して
- * 503 へ渡す (health とログで、どの行を直せばよいか分かるようにする)。
- */
-function jsonArrayColumn<T>(table: string, column: string, value: unknown): T[] | undefined {
-  try {
-    return jsonArray<T>(value);
-  } catch {
-    throw new Error(`${table}.${column} is not valid JSON`);
-  }
-}
-
 function projectOf(row: Row): Project {
   return {
     id: text(row.id),
@@ -1109,56 +1019,6 @@ function customProviderOf(row: Row): CustomProviderRow {
     maxTokens: optionalNumber(row.maxTokens) ?? 0,
     ...secret,
   };
-}
-
-/** 未知の状態は公開中 / 公開済みへ寄せず、行の破損として失敗させる */
-function sharedContentStatusOf(value: unknown): SharedContentStatus {
-  if (value === "publishing" || value === "published" || value === "stopped" || value === "failed") return value;
-  throw new Error("shared_contents.status is invalid");
-}
-
-/** 未知の種類は公開元の表示を誤らせないよう、行の破損として失敗させる */
-function sharedContentSourceKindOf(value: unknown): SharedContentSourceKind {
-  if (value === "session-root" || value === "directory") return value;
-  throw new Error("shared_contents.sourceKind is invalid");
-}
-
-function sharedContentOf(row: Row): SharedContentRow {
-  return {
-    id: text(row.id),
-    sessionId: text(row.sessionId),
-    name: text(row.name),
-    sourcePath: text(row.sourcePath),
-    sourceKind: sharedContentSourceKindOf(row.sourceKind),
-    provider: text(row.provider),
-    providerAccount: optionalText(row.providerAccount) ?? null,
-    remoteId: optionalText(row.remoteId) ?? null,
-    publicUrl: optionalText(row.publicUrl) ?? null,
-    status: sharedContentStatusOf(row.status),
-    createdAt: Number(row.createdAt),
-    updatedAt: Number(row.updatedAt),
-    publishedAt: optionalNumber(row.publishedAt),
-    stoppedAt: optionalNumber(row.stoppedAt),
-    lastError: optionalText(row.lastError) ?? null,
-    thumbnail: sharedContentThumbnailOf(row),
-    thumbnailVersion: sharedContentThumbnailVersionOf(row),
-  };
-}
-
-/** 4 列が揃っている行だけをサムネイルありとして読む (手編集や途中の移行で半端な行を作らない) */
-function sharedContentThumbnailVersionOf(row: Row): number | null {
-  const version = optionalNumber(row.thumbnailUpdatedAt);
-  return version !== null && version > 0 ? version : null;
-}
-
-function sharedContentThumbnailOf(row: Row): SharedContentThumbnailRow | null {
-  const updatedAt = optionalNumber(row.thumbnailUpdatedAt);
-  const width = optionalNumber(row.thumbnailWidth);
-  const height = optionalNumber(row.thumbnailHeight);
-  const bytes = optionalNumber(row.thumbnailBytes);
-  if (updatedAt === null || width === null || height === null || bytes === null) return null;
-  if (width <= 0 || height <= 0 || bytes <= 0) return null;
-  return { updatedAt, width, height, bytes };
 }
 
 /** 手編集で空文字にされた provider / imageModel の行は未設定として読む (メモと同じ規約) */
@@ -1458,11 +1318,6 @@ function assistantMetricsOf(row: Row): AssistantMetricsRow {
   };
 }
 
-/** BLOB 列は Uint8Array。手編集で TEXT にされた行は「保存値が欠けている」として null で読む */
-function optionalBlob(value: unknown): Uint8Array | null {
-  return value instanceof Uint8Array ? value : null;
-}
-
 /** 未知の種別は秘密側へ寄せる (復号できない行を平文として扱わない) */
 function secretOf(row: Row): SecretRow {
   return {
@@ -1579,6 +1434,12 @@ export class AppDb {
   #storedValueErrors = new Map<string, string>();
   #sanitizeError: (text: string) => string;
 
+  /**
+   * 共有コンテンツの読み書き。SQL は `shared-content-repository.ts` が持ち、ここは接続を貸す。
+   * 同じ接続を共有するので、`transaction()` の内側から他のドメインの書き込みと混ぜられる
+   */
+  readonly sharedContents: SharedContentRepository;
+
   private constructor(
     db: DatabaseSync | null,
     path: string | null,
@@ -1589,6 +1450,7 @@ export class AppDb {
     this.#path = path;
     this.#sanitizeError = sanitizeError;
     this.#error = error;
+    this.sharedContents = new SharedContentRepository({ query: (fn, key) => this.#query(fn, key) });
   }
 
   static open({ storeDir, sanitizeError }: OpenAppDbOptions): AppDb {
@@ -2189,32 +2051,19 @@ export class AppDb {
   }
 
   // --- shared content settings (共有の除外名。1 行だけ。行が無い = 未設定) ---
+  // 実体は `sharedContents`。store の port (`SharedContentStore` など) とテストが `db.<method>` を
+  // 直接使うため、公開面だけここに残す
 
   readSharedContentExcludeNames(): string[] | undefined {
-    return this.#query((db) => {
-      const row = db.prepare("SELECT * FROM shared_content_settings WHERE id = 1").get() as Row | undefined;
-      if (!row) return undefined;
-      const names = jsonArrayColumn<string>("shared_content_settings", "excludeNames", row.excludeNames);
-      // 行がある以上は配列のはず。壊れた値は黙って既定へ落とさず、archive_settings と同じく 503 にする
-      if (!names) throw new Error("shared_content_settings.excludeNames is not a JSON array");
-      return names;
-    }, "shared_content_settings");
+    return this.sharedContents.readSharedContentExcludeNames();
   }
 
   saveSharedContentExcludeNames(names: readonly string[]): void {
-    this.#query((db) =>
-      db
-        .prepare(
-          `INSERT INTO shared_content_settings (id, excludeNames) VALUES (1, ?)
-           ON CONFLICT(id) DO UPDATE SET excludeNames = excluded.excludeNames`,
-        )
-        .run(JSON.stringify(names)),
-    );
+    this.sharedContents.saveSharedContentExcludeNames(names);
   }
 
-  /** 行を消して未設定へ戻す (既定名を保存し直すと、以後の既定の更新に追随しなくなる) */
   resetSharedContentExcludeNames(): boolean {
-    return this.#query((db) => db.prepare("DELETE FROM shared_content_settings WHERE id = 1").run().changes > 0);
+    return this.sharedContents.resetSharedContentExcludeNames();
   }
 
   // --- provider credentials (GUI から登録したプロバイダー API キー) ---
@@ -2744,54 +2593,12 @@ export class AppDb {
     return this.#query((db) => db.prepare("DELETE FROM cloudflare_settings WHERE id = 1").run().changes > 0);
   }
 
-  /**
-   * 別のアカウントで公開した共有物が残っているか。未受付 (providerAccount が NULL) の行は
-   * まだ何も公開していないため対象外にする。
-   */
-  hasSharedContentsForOtherAccount(accountId: string): boolean {
-    const row = this.#query(
-      (db) =>
-        db
-          .prepare(
-            "SELECT 1 AS found FROM shared_contents WHERE providerAccount IS NOT NULL AND providerAccount <> ? LIMIT 1",
-          )
-          .get(accountId) as Row | undefined,
-    );
-    return row !== undefined;
-  }
-
-  // --- shared contents (1 行 1 共有物) ---
+  // --- shared contents (1 行 1 共有物。実体は `sharedContents`) ---
 
   insertSharedContent(row: SharedContentRow): void {
-    this.#query((db) =>
-      db
-        .prepare(
-          `INSERT INTO shared_contents
-             (id, sessionId, name, sourcePath, sourceKind, provider, providerAccount, remoteId, publicUrl, status,
-              createdAt, updatedAt, publishedAt, stoppedAt, lastError)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          row.id,
-          row.sessionId,
-          row.name,
-          row.sourcePath,
-          row.sourceKind ?? "directory",
-          row.provider,
-          row.providerAccount,
-          row.remoteId,
-          row.publicUrl,
-          row.status,
-          row.createdAt,
-          row.updatedAt,
-          row.publishedAt,
-          row.stoppedAt,
-          row.lastError,
-        ),
-    );
+    this.sharedContents.insertSharedContent(row);
   }
 
-  /** 状態と時刻だけを更新する。ID / ソース / provider の識別子は公開後に変えない */
   updateSharedContentState(
     id: string,
     patch: {
@@ -2802,104 +2609,39 @@ export class AppDb {
       lastError: string | null;
     },
   ): void {
-    this.#query((db) =>
-      db
-        .prepare(
-          `UPDATE shared_contents
-              SET status = ?, updatedAt = ?, publishedAt = ?, stoppedAt = ?, lastError = ?
-            WHERE id = ?`,
-        )
-        .run(patch.status, patch.updatedAt, patch.publishedAt, patch.stoppedAt, patch.lastError, id),
-    );
+    this.sharedContents.updateSharedContentState(id, patch);
   }
 
-  /**
-   * 表示名だけを変える。`updatedAt` は触らない: 一覧の「更新」は公開ライフサイクルの時刻で、
-   * 名前の変更で並びや時刻が動くと「成果物が変わった」と誤読される。
-   */
   updateSharedContentName(id: string, name: string): void {
-    this.#query((db) => db.prepare("UPDATE shared_contents SET name = ? WHERE id = ?").run(name, id));
+    this.sharedContents.updateSharedContentName(id, name);
   }
 
-  /**
-   * サムネイルのメタだけを差し替える (`null` で未設定)。`updatedAt` は触らない:
-   * 一覧の「更新」は公開ライフサイクルの時刻で、画像の差し替えで動くと成果物が変わったと誤読される。
-   * 行が既に無ければ false を返し、呼び出し側が競合として扱えるようにする。
-   */
   updateSharedContentThumbnail(id: string, thumbnail: SharedContentThumbnailRow | null): boolean {
-    // 解除でも版 (`thumbnailUpdatedAt`) は残す。次に保存するときの起点が消えると、同じ版が
-    // 再利用されて `?v=` とファイル名が衝突する
-    return this.#query((db) => {
-      if (thumbnail === null) {
-        return (
-          db
-            .prepare(
-              `UPDATE shared_contents
-                  SET thumbnailWidth = NULL, thumbnailHeight = NULL, thumbnailBytes = NULL
-                WHERE id = ?`,
-            )
-            .run(id).changes > 0
-        );
-      }
-      return (
-        db
-          .prepare(
-            `UPDATE shared_contents
-                SET thumbnailUpdatedAt = ?, thumbnailWidth = ?, thumbnailHeight = ?, thumbnailBytes = ?
-              WHERE id = ?`,
-          )
-          .run(thumbnail.updatedAt, thumbnail.width, thumbnail.height, thumbnail.bytes, id).changes > 0
-      );
-    });
+    return this.sharedContents.updateSharedContentThumbnail(id, thumbnail);
   }
 
-  /**
-   * 実体が見つからなかったときの未設定化。読んだ後に行が差し替わっていたら何もしない
-   * （古い GET の不在補正が新しい版を消さないよう、版が一致する行だけを消す）。
-   */
   clearSharedContentThumbnail(id: string, expectedUpdatedAt: number): boolean {
-    return this.#query(
-      (db) =>
-        db
-          .prepare(
-            `UPDATE shared_contents
-                  SET thumbnailWidth = NULL, thumbnailHeight = NULL, thumbnailBytes = NULL
-                WHERE id = ? AND thumbnailUpdatedAt = ?`,
-          )
-          .run(id, expectedUpdatedAt).changes > 0,
-    );
+    return this.sharedContents.clearSharedContentThumbnail(id, expectedUpdatedAt);
   }
 
   getSharedContent(id: string): SharedContentRow | undefined {
-    const row = this.#query(
-      (db) => db.prepare("SELECT * FROM shared_contents WHERE id = ?").get(id) as Row | undefined,
-    );
-    return row ? sharedContentOf(row) : undefined;
+    return this.sharedContents.getSharedContent(id);
   }
 
   listSharedContents(sessionId?: string): SharedContentRow[] {
-    return this.#query((db) =>
-      (
-        (sessionId === undefined
-          ? db.prepare("SELECT * FROM shared_contents ORDER BY createdAt DESC, id DESC").all()
-          : db
-              .prepare("SELECT * FROM shared_contents WHERE sessionId = ? ORDER BY createdAt DESC, id DESC")
-              .all(sessionId)) as Row[]
-      ).map(sharedContentOf),
-    );
+    return this.sharedContents.listSharedContents(sessionId);
   }
 
   listPublishingSharedContents(): SharedContentRow[] {
-    return this.#query((db) =>
-      (
-        db.prepare("SELECT * FROM shared_contents WHERE status = 'publishing' ORDER BY createdAt ASC").all() as Row[]
-      ).map(sharedContentOf),
-    );
+    return this.sharedContents.listPublishingSharedContents();
   }
 
-  /** 行を消す。provider 側の削除が成功したあとにだけ呼ぶ */
   deleteSharedContent(id: string): void {
-    this.#query((db) => db.prepare("DELETE FROM shared_contents WHERE id = ?").run(id));
+    this.sharedContents.deleteSharedContent(id);
+  }
+
+  hasSharedContentsForOtherAccount(accountId: string): boolean {
+    return this.sharedContents.hasSharedContentsForOtherAccount(accountId);
   }
 
   // --- web search settings (1 行だけ。行が無い = 既定（無効 / exa）) ---
