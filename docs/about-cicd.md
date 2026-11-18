@@ -3,7 +3,7 @@
 このリポジトリでは、GitHub Actions を使って `projects/` 配下の Docker 対応プロジェクトを検証し、配布用イメージを GitHub Container Registry（GHCR）へ送信します。
 
 - **CI** は `main` 向けのプルリクエスト（PR）と `epic/*` を base にする子 PR で動き、OSS ライセンスと Docker ビルドを検証します。
-- **CD** は `main` への push または手動操作で動き、`final` ステージのイメージを GHCR へ送信します。
+- **CD** は `main` への push または手動操作で動き、`final` ステージのイメージを GHCR へ送信します。`projects` 配下の `docs` だけを変更した push では起動しません。
 - デプロイ先の定義は、このリポジトリでは管理しません。CD の責務は、イメージの送信と古いイメージの削除依頼までです。
 
 ## CI と CD の違い
@@ -11,11 +11,11 @@
 | 項目 | CI | CD |
 | --- | --- | --- |
 | ワークフロー | `.github/workflows/pullrequest-check.yml` | `.github/workflows/docker-build.yml` |
-| 起動条件 | `main` 向け PR、または `epic/*` を base にする子 PR の作成・更新 | `main` への push、または手動実行 |
+| 起動条件 | `main` 向け PR、または `epic/*` を base にする子 PR の作成・更新 | `main` への push（`projects` 配下の `docs` のみを除く）、または手動実行 |
 | 主な目的 | 変更内容の検証 | 配布用イメージの作成と送信 |
 | Docker の対象 | `test` ステージ。存在しない場合は既定ステージ | `final` ステージがあるプロジェクトのみ |
 | レジストリへの送信 | しない | GHCR へ送信する |
-| イメージタグ | `latest`（ローカルのビルド結果のみ） | 自動実行は `latest` と `sha-<short sha>`、手動実行は生成タグ |
+| イメージタグ | `latest`（ローカルのビルド結果のみ） | 自動実行は `latest` と `sha-<short sha>`、手動実行は生成タグ。`docs` のみの push では作られない |
 
 ```mermaid
 flowchart TB
@@ -24,7 +24,7 @@ flowchart TB
   CI --> CI_PROJECTS["変更プロジェクトを検出<br/>Dockerfile の有無を確認"]
   CI_PROJECTS --> CI_BUILD["test ステージをビルド<br/>なければ既定ステージをビルド"]
 
-  PUSH["main への push"] --> AUTO["CD：自動実行"]
+  PUSH["main への push"] --> AUTO["CD：自動実行<br/>docs のみは起動しない"]
   MANUAL["Run workflow"] --> MANUAL_CD["CD：手動実行"]
   AUTO --> FINAL["最新 main の final ステージをビルド"]
   MANUAL_CD --> FINAL
@@ -68,7 +68,7 @@ CMD ["./start.sh"]
 CI は `test` ステージを指定してビルドします。ただし、現在のビルドスクリプトは `test` ステージがない場合にターゲット指定を外し、Dockerfile の既定ステージをビルドします。
 一方、CD は対象検出の時点で `final` ステージの有無を確認するため、`final` ステージがないプロジェクトを送信しません。
 
-自動実行の CD は変更の検出に push の差分を使いますが、ビルドするソースはジョブ開始時点の最新 `main` です。`Dockerfile` の有無と `final` ステージの判定も、checkout した最新 `main` の内容で行います。
+自動実行の CD は変更の検出に push の差分を使いますが、ビルドするソースはジョブ開始時点の最新 `main` です。`Dockerfile` の有無と `final` ステージの判定も、checkout した最新 `main` の内容で行います。`projects` 配下の `docs` だけを変更した push では、ワークフロー自体が起動しません。
 
 ## CI：PR の変更を検証する
 
@@ -112,7 +112,7 @@ gh api repos/<owner>/<repository>/actions/permissions/fork-pr-contributor-approv
 
 ### 自動実行
 
-`main` への push で `.github/workflows/docker-build.yml` が起動します。
+`main` への push で `.github/workflows/docker-build.yml` が起動します。ただし `projects` 配下の `docs` だけを変更した push では起動しません（`paths-ignore`）。`docs` は `final` ステージへ同梱しない方針のため、同梱が必要なファイルは `docs` 以外のディレクトリへ置きます。
 
 1. ジョブ開始時点の最新 `main` を checkout する（push の SHA には固定しない）
 2. push の `before`〜`after` の差分から変更プロジェクトを検出する
@@ -121,9 +121,9 @@ gh api repos/<owner>/<repository>/actions/permissions/fork-pr-contributor-approv
 5. `ghcr.io/<owner>/<repository>/<project>:latest` と `:sha-<short sha>` へ送信する
 6. 送信したプロジェクトを対象に、古いイメージの削除を依頼する
 
-CD は同じブランチの実行を直列に処理し、後続の push があっても進行中の実行をキャンセルしません。ただし GitHub Actions は concurrency グループ内の実行順を保証しません（FIFO で処理されますが、順序は起動時刻ではなく待機開始時刻に依存します）。そのため CD は実行順に依存せず、ビルド元をジョブ開始時点の最新 `main` にすることで、すべての push の CD が成功したときに最後の成功した実行が最新状態へ収束するようにしています。
+CD は同じブランチの実行を直列に処理し、後続の push があっても進行中の実行をキャンセルしません。ただし GitHub Actions は concurrency グループ内の実行順を保証しません（FIFO で処理されますが、順序は起動時刻ではなく待機開始時刻に依存します）。そのため CD は実行順に依存せず、ビルド元をジョブ開始時点の最新 `main` にすることで、すべての push の CD が成功したときに最後の成功した実行が最新状態へ収束するようにしています。`projects` 配下の `docs` だけを変更した push では CD が起動しないため、その push はこの判定に含めません。
 
-> 実行が失敗またはキャンセルされた push の変更対象プロジェクトは、その後の push が別プロジェクトだけを変更した場合は再ビルドされません。
+> 実行が失敗またはキャンセルされた push の変更対象プロジェクトは、その後の push が別プロジェクトだけを変更した場合は再ビルドされません。`docs` のみの push でも再ビルドされません。失敗した自動 CD の `latest` を更新するには、失敗した実行を再実行するか、そのプロジェクトのコードを変更する push を行います。手動実行は `manual-*` タグだけを作り、`latest` / `sha-*` は更新しません。
 
 ### 手動実行
 
@@ -141,10 +141,10 @@ CD は同じブランチの実行を直列に処理し、後続の push があ�
 
 | 実行方法 | タグ |
 | --- | --- |
-| `main` への push | `latest`、`sha-<short sha>` |
+| `main` への push（`docs` のみを除く） | `latest`、`sha-<short sha>` |
 | 手動実行 | `manual-<sanitized-ref>-<short-sha>` |
 
-自動実行の `sha-<short sha>` は、その実行で実際にビルドした `main` のコミットです（`latest` と同じイメージを指します）。CD のログにはビルド元の SHA、プロジェクト、push したタグが出力されます。手動実行は入力した ref のタグだけを push し、`latest` は更新しません。
+自動実行の `sha-<short sha>` は、その実行で実際にビルドした `main` のコミットです（`latest` と同じイメージを指します）。CD のログにはビルド元の SHA、プロジェクト、push したタグが出力されます。手動実行は入力した ref のタグだけを push し、`latest` は更新しません。`docs` のみの push では CD が起動しないため、`sha-*` タグが main の HEAD に存在しないことがあります。デプロイでは、そのプロジェクトを最後にビルドしたコミットのタグを指定します。
 
 手動実行のタグでは、入力した ref を小文字へ変換し、タグに使えない文字を `-` へ置換します。完了ログには、デプロイ側へ渡す値が次の形式で表示されます。
 
@@ -212,9 +212,13 @@ workflow が使う外部 action は `.github/workflows/actions.lock` で commit 
 4. CD の場合は、`Dockerfile` に `AS final` があるか確認する
 5. push の差分基点（`github.event.before`）を解決できない場合、CD は対象 0 件として成功せず、エラーで停止する。エラーになった場合はログの `cannot resolve` を確認する
 
+### docs のみの push で CD が起動しない
+
+`projects` 配下の `docs` だけを変更した push では、CD は意図的に起動しません。デプロイが必要な場合は、そのプロジェクトを最後にビルドしたコミットの `sha-*` タグを指定するか、CD を手動実行して `manual-*` タグを作ります。手動実行は `latest` を更新しません。
+
 ### `:latest` がどのコミットのイメージか確認する
 
-CD のログにビルド元の SHA（`build_source_sha=`）と push したタグが出ます。イメージ側では `sha-<short sha>` タグで同じイメージを取得できます。
+CD のログにビルド元の SHA（`build_source_sha=`）と push したタグが出ます。イメージ側では `sha-<short sha>` タグで同じイメージを取得できます。docs のみの push では `sha-*` タグが作られないため、その場合はそのプロジェクトを最後にビルドしたコミットのタグを使います。
 
 ```bash
 docker pull ghcr.io/u7chan/monorepo/u7agent:sha-<short sha>

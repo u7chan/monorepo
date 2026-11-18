@@ -114,7 +114,7 @@ docker build -t cicd-ci-sample:test --target=test --progress plain .
 
 ### mainブランチへのマージ時（CD）
 
-1. PRがマージされると、`docker-build.yml` が発火
+1. PRがマージされると、`docker-build.yml` が発火（`projects/<name>/docs` だけの変更では発火しない）
 2. `get-changed-directories` で変更ディレクトリを検出
 3. `get-changed-projects`（`required-stage: final`）で`final`ステージを持つプロジェクトを絞り込み
 4. **このプロジェクトは`final`ステージを持たないため、CD対象外となりスキップされる**
