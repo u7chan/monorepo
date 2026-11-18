@@ -2,7 +2,7 @@
 # 1.4.4 は 2026-11 時点の修正済み安定版 (`latest` と同一 digest)。可変タグのままだと同じコミットでも
 # 再ビルドで中身が変わるため、版と digest で固定する。digest は linux/amd64 と arm64 を含むマルチ
 # アーキテクチャの manifest index で、プラットフォーム別 manifest ではない。通常版と slim 版で digest は別。
-# ARG で共通化すると Dependabot の docker 更新が FROM 行のリテラルを書き換えられないので、値を 2 か所に書く。
+# ARG で共通化すると Dependabot の docker 更新が FROM 行のリテラルを書き換えられないので、値を各 FROM 行に書く。
 ARG COMMIT_HASH=""
 
 # -----------------------------------------------
@@ -51,6 +51,39 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 # -----------------------------------------------
+# claude cli stage
+#   公式 CLI をビルド時に落として checksum を突き合わせ、final にはバイナリだけを渡す。
+#   final に curl / jq を残さないことと、image の層を増やさないことが目的。
+#   版を上げるときは CLAUDE_CODE_VERSION を変えて、adapter の fixture（test/providers-claude.test.ts）を
+#   実際の出力と突き合わせ直す。
+# -----------------------------------------------
+FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS claude-cli
+
+ARG CLAUDE_CODE_VERSION="2.1.327"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl jq \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+    case "$(uname -m)" in \
+        x86_64|amd64) platform="linux-x64" ;; \
+        aarch64|arm64) platform="linux-arm64" ;; \
+        *) echo "未対応のアーキテクチャです: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    base="https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}"; \
+    curl -fsSL "$base/manifest.json" -o /tmp/manifest.json; \
+    checksum="$(jq -r --arg platform "$platform" '.platforms[$platform].checksum // empty' /tmp/manifest.json)"; \
+    test -n "$checksum"; \
+    curl -fsSL "$base/$platform/claude" -o /tmp/claude; \
+    echo "$checksum  /tmp/claude" | sha256sum -c -; \
+    mkdir -p /opt/claude; \
+    install -m 0755 /tmp/claude /opt/claude/claude; \
+    rm -f /tmp/claude /tmp/manifest.json; \
+    CLAUDE_CONFIG_DIR=/tmp/claude-check /opt/claude/claude --version; \
+    rm -rf /tmp/claude-check
+
+# -----------------------------------------------
 # final stage
 # -----------------------------------------------
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS final
@@ -68,6 +101,7 @@ ENV COMMIT_HASH=${COMMIT_HASH} \
     PORT=3000 \
     DATA_DIR=/app/data \
     CREDENTIAL_DIR=/app/credentials \
+    CLAUDE_CONFIG_DIR=/app/credentials/claude \
     PI_CODING_AGENT_DIR=/app/credentials
 
 WORKDIR /app
@@ -76,10 +110,15 @@ COPY --from=production-dependencies --chown=bun:bun /app/node_modules ./node_mod
 COPY --chown=bun:bun package.json index.html tsconfig.json ./
 COPY --chown=bun:bun src ./src
 
+# 公式 CLI は未改変のバイナリを入れる。root 所有の 0755 にして、実行ユーザー (bun) からは
+# 書き換えられないようにする。これが自動更新を止める仕組みで、版は上の ARG で固定する。
+COPY --from=claude-cli --chown=root:root /opt/claude/claude /usr/local/bin/claude
+
 # DATA_DIR と CREDENTIAL_DIR は volume の mount point。イメージ側でも 0700 にしておく。
-RUN mkdir -p /app/data /app/credentials \
-    && chown bun:bun /app/data /app/credentials \
-    && chmod 0700 /app/data /app/credentials
+# CLAUDE_CONFIG_DIR は CLI が資格情報を書く場所で、docker exec でサインインする先でもある。
+RUN mkdir -p /app/data /app/credentials /app/credentials/claude \
+    && chown bun:bun /app/data /app/credentials /app/credentials/claude \
+    && chmod 0700 /app/data /app/credentials /app/credentials/claude
 
 USER bun
 

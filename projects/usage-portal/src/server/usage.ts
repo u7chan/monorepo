@@ -1,7 +1,8 @@
 import { loadProviderUsage, loadSamples, type DatabaseHandle } from "./db";
 import { CODEX_SOURCE_ID } from "./codex/source";
 import { openCodeSourceId } from "./opencode/accounts";
-import { CODEX_PROVIDER } from "./providers";
+import { CLAUDE_PROVIDER, CODEX_PROVIDER, OPENCODE_PROVIDER } from "./providers";
+import { CLAUDE_REFRESH_INTERVAL_MS } from "./providers/claude";
 import type { ProviderId, UsageWindow } from "./providers/types";
 import { decideProviderState, type ProviderState, type UsageError } from "./state";
 import { buildTrend, trendSpanMs, type Trend } from "./trend";
@@ -39,8 +40,8 @@ export type UsagePayload = {
 type SourceEntry = { sourceId: string; provider: ProviderId; account: UsageSourceAccount | null };
 
 /**
- * `/api/usage` の応答を SQLite から組み立てる。上流へは取りに行かない（sampler だけが取得する）。
- * 並びは Codex → 登録順のアカウント。アカウントが 0 件でも Codex の行は返す。
+ * `/api/usage` の応答を SQLite から組み立てる。上流へは取りに行かない（取得は sampler と Claude の更新だけ）。
+ * 並びは Codex → 登録順のアカウント → Claude。アカウントが 0 件でも Codex と Claude の行は返す。
  */
 export function createUsageReader(options: {
   db: DatabaseHandle;
@@ -66,24 +67,25 @@ export function createUsageReader(options: {
       sources: entries.map((entry) => {
         const { snapshot, error } = stored.get(entry.sourceId) ?? { snapshot: null, error: null };
         const capturedAt = snapshot?.capturedAt ?? null;
-        const intervalMs = options.intervalFor(entry.provider);
+        const schedule = scheduleFor(entry.provider, options.intervalFor);
 
         return {
-          id: entry.account?.id ?? CODEX_SOURCE_ID,
+          id: entry.account?.id ?? entry.provider,
           provider: entry.provider,
-          // Codex の名前と plan は snapshot 由来。アカウントは登録した名前だけを使う。
-          name: entry.account?.name ?? snapshot?.name ?? CODEX_PROVIDER.name,
+          // Codex と Claude の名前と plan は snapshot 由来。アカウントは登録した名前だけを使う。
+          name: entry.account?.name ?? snapshot?.name ?? PROVIDER_NAMES[entry.provider],
           plan: entry.account ? null : (snapshot?.plan ?? null),
           account: entry.account,
           state: decideProviderState({
             snapshotCapturedAt: capturedAt,
             hasError: error !== null,
             now,
-            intervalMs,
+            staleAfterMs: schedule.staleAfterMs,
           }),
           capturedAt,
-          fetchIntervalMs: intervalMs,
-          nextFetchAt: options.nextFetchAt?.(entry.sourceId) ?? null,
+          fetchIntervalMs: schedule.fetchIntervalMs,
+          // 周期取得の無い Claude は次回予定を持たない。カードのバーも出さない。
+          nextFetchAt: entry.provider === "claude" ? null : (options.nextFetchAt?.(entry.sourceId) ?? null),
           error,
           limitReached: snapshot?.limitReached ?? false,
           windows: snapshot?.windows ?? [],
@@ -103,7 +105,31 @@ function collectSources(codexSourceId: string, accounts: readonly UsageSourceAcc
       provider: "opencode-go" as const,
       account,
     })),
+    { sourceId: CLAUDE_PROVIDER.id, provider: "claude", account: null },
   ];
+}
+
+const PROVIDER_NAMES: Record<ProviderId, string> = {
+  codex: CODEX_PROVIDER.name,
+  "opencode-go": OPENCODE_PROVIDER.name,
+  claude: CLAUDE_PROVIDER.name,
+};
+
+/**
+ * 周期取得の provider は「2 間隔」を stale の閾値にする。画面を開いたときだけ取る Claude は、
+ * 取得間隔そのものを閾値にする（ADR 0022）。
+ */
+function scheduleFor(
+  provider: ProviderId,
+  intervalFor: (provider: ProviderId) => number,
+): { fetchIntervalMs: number; staleAfterMs: number } {
+  if (provider === "claude") {
+    return { fetchIntervalMs: CLAUDE_REFRESH_INTERVAL_MS, staleAfterMs: CLAUDE_REFRESH_INTERVAL_MS };
+  }
+
+  const intervalMs = intervalFor(provider);
+
+  return { fetchIntervalMs: intervalMs, staleAfterMs: 2 * intervalMs };
 }
 
 /** 窓ごとに、その窓の期間ぶんの sample を読む。窓が 3 つでも 1 source あたり 3 クエリで済む。 */

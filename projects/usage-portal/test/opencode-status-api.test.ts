@@ -7,7 +7,15 @@ import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
 import { buildHealthReport } from "../src/server/health";
 import type { OpenCodeStatusPayload } from "../src/shared/opencode-status";
-import { BASE_TIME, EMPTY_USAGE, stubCodexApi, stubOpenCodeApi, stubProbeApi, stubFetchIntervals } from "./support";
+import {
+  BASE_TIME,
+  EMPTY_USAGE,
+  stubClaudeApi,
+  stubCodexApi,
+  stubOpenCodeApi,
+  stubProbeApi,
+  stubFetchIntervals,
+} from "./support";
 
 const dirs: string[] = [];
 
@@ -23,6 +31,7 @@ function harness(payload: OpenCodeStatusPayload = { state: "error", snapshot: nu
     auth,
     usage: () => EMPTY_USAGE,
     codex: stubCodexApi(),
+    claude: stubClaudeApi(),
     opencode: stubOpenCodeApi(),
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),

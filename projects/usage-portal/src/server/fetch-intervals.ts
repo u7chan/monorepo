@@ -1,12 +1,12 @@
 import type { DatabaseHandle } from "./db";
 import { loadFetchIntervals, saveFetchInterval } from "./db";
-import type { ProviderId } from "./providers/types";
+import type { FetchIntervalProvider } from "../shared/fetch-interval";
 
 export type FetchIntervalStore = {
   /** 保存値が無ければ既定値（env か 10 分）を返す。 */
-  get: (provider: ProviderId) => number;
-  list: () => Record<ProviderId, number>;
-  set: (provider: ProviderId, intervalMs: number) => void;
+  get: (provider: FetchIntervalProvider) => number;
+  list: () => Record<FetchIntervalProvider, number>;
+  set: (provider: FetchIntervalProvider, intervalMs: number) => void;
 };
 
 /**
@@ -31,7 +31,7 @@ export function createFetchIntervalStore(options: {
     }
   }
 
-  function get(provider: ProviderId): number {
+  function get(provider: FetchIntervalProvider): number {
     return read().get(provider) ?? options.defaultMs;
   }
 

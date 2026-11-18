@@ -5,6 +5,7 @@ import type { Context } from "hono";
 import { isFetchIntervalMinutes, isFetchIntervalProvider, type FetchIntervalProvider } from "../shared/fetch-interval";
 import type { OpenCodeStatusPayload } from "../shared/opencode-status";
 import type { AuthService } from "./auth";
+import type { ClaudeRefreshMode, ClaudeRefreshResult } from "./claude/service";
 import type { CodexApi } from "./codex/api";
 import { CodexLoginError } from "./codex/login";
 import type { HealthReport } from "./health";
@@ -39,6 +40,8 @@ export type AppDeps = {
   usage: () => UsagePayload;
   codex: CodexApi;
   opencode: OpenCodeApi;
+  /** Claude の導入。自動と手動の区別だけを受け取り、起動の可否は service が決める。 */
+  claude: { refresh: (mode: ClaudeRefreshMode) => Promise<ClaudeRefreshResult> };
   openCodeStatus: () => Promise<OpenCodeStatusPayload>;
   probe: ProbeApi;
   fetchIntervals: {
@@ -391,6 +394,21 @@ export function createApp(deps: AppDeps) {
     return result.ok ? c.body(null, 204) : openCodeError(c, result.error);
   });
 
+  app.post(
+    "/api/claude/refresh",
+    requireSession,
+    bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }),
+    async (c) => {
+      const mode = readClaudeRefreshMode(await readJsonObject(c));
+
+      if (mode === null) {
+        return c.json({ error: "invalid_request" as const }, 400);
+      }
+
+      return c.json(await deps.claude.refresh(mode));
+    },
+  );
+
   return app;
 }
 
@@ -473,6 +491,15 @@ async function readJsonObject(c: Context): Promise<Record<string, unknown> | nul
   } catch {
     return null;
   }
+}
+
+/** 取得を起こすのは画面と手動更新だけ。body を省いた要求は自動として扱う。 */
+function readClaudeRefreshMode(body: Record<string, unknown> | null): ClaudeRefreshMode | null {
+  if (body === null || body.mode === undefined || body.mode === "auto") {
+    return "auto";
+  }
+
+  return body.mode === "manual" ? "manual" : null;
 }
 
 function openCodeError(c: Context, error: OpenCodeApiError): Response {

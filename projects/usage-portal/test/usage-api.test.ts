@@ -13,6 +13,7 @@ import { parseCodexUsage } from "../src/server/providers/codex";
 import { createUsageReader, type UsagePayload, type UsageSourceAccount } from "../src/server/usage";
 import {
   BASE_TIME,
+  stubClaudeApi,
   stubCodexApi,
   stubOpenCodeApi,
   usageSnapshot,
@@ -63,6 +64,7 @@ function harness(
       codexSourceId: options.codexSourceId,
     }),
     codex: stubCodexApi(),
+    claude: stubClaudeApi(),
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode: stubOpenCodeApi(),
@@ -119,16 +121,20 @@ describe("GET /api/usage", () => {
     expect(await response.json()).toEqual({ error: "unauthorized" });
   });
 
-  test("アカウント 0 件でも Codex だけを返し、未取得は loading", async () => {
+  test("アカウント 0 件でも Codex と Claude を返し、未取得は loading", async () => {
     const h = harness();
     const payload = await readUsage(h, await sessionCookie(h.app));
 
     expect(payload.sources.map((source) => [source.id, source.provider, source.name, source.state])).toEqual([
       ["codex", "codex", "Codex", "loading"],
+      ["claude", "claude", "Claude", "loading"],
     ]);
     expect(payload.sources[0]?.account).toBeNull();
     expect(payload.sources[0]?.fetchIntervalMs).toBe(INTERVAL);
     expect(payload.sources[0]?.nextFetchAt).toBe(BASE_TIME + INTERVAL);
+    // Claude は周期取得をしないので、次回予定を持たない（カードのバーも出ない）。
+    expect(payload.sources[1]?.nextFetchAt).toBeNull();
+    expect(payload.sources[1]?.fetchIntervalMs).toBe(900_000);
     expect(payload.generatedAt).toBe(BASE_TIME);
   });
 
@@ -140,6 +146,7 @@ describe("GET /api/usage", () => {
       ["codex", "codex", "Codex"],
       [MAIN_ID, "opencode-go", "メイン"],
       [SUB_ID, "opencode-go", "サブ"],
+      ["claude", "claude", "Claude"],
     ]);
     expect(payload.sources[1]?.account).toEqual({ id: MAIN_ID, name: "メイン", icon: "🦊" });
     expect(payload.sources[1]?.plan).toBeNull();
@@ -314,7 +321,7 @@ describe("GET /api/usage", () => {
 
     const payload = await readUsage(h, cookie);
 
-    expect(payload.sources.map((source) => source.state)).toEqual(["ok", "error", "loading"]);
+    expect(payload.sources.map((source) => source.state)).toEqual(["ok", "error", "loading", "loading"]);
   });
 
   test("snapshot と error が両方あれば前回の値を stale として返す", async () => {
@@ -415,5 +422,11 @@ describe("provider ごとの取得間隔", () => {
     expect(codex?.nextFetchAt).toBe(BASE_TIME + 300_000);
     expect(openCode?.fetchIntervalMs).toBe(1_800_000);
     expect(openCode?.nextFetchAt).toBeNull();
+
+    const claude = payload.sources.find((source) => source.provider === "claude");
+
+    // 設定できる間隔は Codex / OpenCode Go だけで、Claude は 15 分固定。
+    expect(claude?.fetchIntervalMs).toBe(900_000);
+    expect(claude?.nextFetchAt).toBeNull();
   });
 });

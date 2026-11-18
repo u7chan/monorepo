@@ -34,7 +34,7 @@ export type Trend = {
   resets: number[];
 };
 
-export type ProviderId = "codex" | "opencode-go";
+export type ProviderId = "codex" | "opencode-go" | "claude";
 export type ProviderState = "loading" | "ok" | "stale" | "error";
 
 /** 画面のヘッダーに出すアカウントの識別情報。キーは受け取らない。 */
@@ -126,6 +126,14 @@ export type CodexProbeRead = { ok: true; value: CodexProbeConfig | null };
 
 /** 送信の結果。応答本文は受け取らない。 */
 export type ProbeCheckOutcome = { ok: true; latencyMs: number } | { ok: false; error: string };
+
+/** Claude の手動更新・画面を開いたときの取得の結果。 */
+export type ClaudeRefreshMode = "auto" | "manual";
+
+export type ClaudeRefreshOutcome =
+  | { state: "refreshed" }
+  | { state: "skipped"; reason: "fresh" | "cooldown" }
+  | { state: "failed"; error: string };
 
 export type OpenCodeAccountOutcome<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -487,6 +495,48 @@ export async function refreshOpenCodeAccount(id: string): Promise<boolean | null
   return typeof body === "object" && body !== null && (body as { ok?: unknown }).ok === true;
 }
 
+/**
+ * Claude の利用枠を取り直す。`auto` は前回から 15 分以内なら server が起動しない。
+ * 失敗は `{ state: "failed" }`、通信の失敗は `null` として区別する。
+ */
+export async function refreshClaudeUsage(mode: ClaudeRefreshMode): Promise<ClaudeRefreshOutcome | Unauthorized | null> {
+  const response = await fetch("/api/claude/refresh", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+
+  if (response.status === 401) {
+    return { unauthorized: true };
+  }
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return parseClaudeRefresh(await response.json().catch(() => null));
+}
+
+export function parseClaudeRefresh(body: unknown): ClaudeRefreshOutcome | null {
+  const state = readString(body, "state");
+
+  if (state === "refreshed") {
+    return { state };
+  }
+
+  if (state === "skipped") {
+    const reason = readString(body, "reason");
+
+    return reason === "fresh" || reason === "cooldown" ? { state, reason } : null;
+  }
+
+  if (state === "failed") {
+    return { state, error: readString(body, "error") ?? "unavailable" };
+  }
+
+  return null;
+}
+
 export async function deleteOpenCodeAccount(id: string): Promise<boolean> {
   const response = await fetch(`/api/opencode/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
 
@@ -603,7 +653,7 @@ function parseSource(value: unknown): UsageSource | null {
   const id = readString(value, "id");
   const provider = readString(value, "provider");
 
-  if (!id || (provider !== "codex" && provider !== "opencode-go")) {
+  if (!id || (provider !== "codex" && provider !== "opencode-go" && provider !== "claude")) {
     return null;
   }
 

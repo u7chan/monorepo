@@ -36,10 +36,7 @@ export function ProviderCard(props: {
   const activeWindow = chartWindows.find((window) => window.id === selectedWindowId) ?? pickTrendWindow(chartWindows);
   const activeTrend = activeWindow ? (source.trends.find((trend) => trend.windowId === activeWindow.id) ?? null) : null;
   const intervalLabel = formatFetchInterval(source.fetchIntervalMs);
-  const retryHint =
-    source.error?.code === "subscription_required"
-      ? "契約の反映後、⋮ の「利用枠を取得し直す」で再開できます。自動確認は 6 時間ごとです。"
-      : `${intervalLabel}後に自動で再試行します。`;
+  const hint = retryHint(source, intervalLabel);
   const capturedAt = source.capturedAt;
   const ageLabel = capturedAt === null ? null : describeAge(props.now - capturedAt);
   // バーの経過は capturedAt ごとに固定する。再描画のたびに経過を計算し直すと
@@ -107,14 +104,14 @@ export function ProviderCard(props: {
               : `${formatClock(capturedAt)} に取得した値を表示しています。`}
           </p>
           {source.error ? <p class="up-caption">{source.error.message}</p> : null}
-          <p class="up-caption">{retryHint}</p>
+          <p class="up-caption">{hint}</p>
         </div>
       ) : null}
 
       {source.state === "error" ? (
         <div class="up-empty">
           <p class="up-caption">{source.error ? source.error.message : "利用枠を取得できませんでした。"}</p>
-          <p class="up-caption">{retryHint}</p>
+          <p class="up-caption">{hint}</p>
         </div>
       ) : null}
 
@@ -134,7 +131,11 @@ export function ProviderCard(props: {
           activeWindowId={activeWindow.id}
           trend={activeTrend}
           generatedAt={props.generatedAt}
-          intervalMs={source.fetchIntervalMs}
+          emptyMessage={
+            source.provider === "claude"
+              ? "履歴を収集中です（画面を開いたときに記録）。"
+              : `履歴を収集中です（${intervalLabel}ごとに記録）。`
+          }
           onSelect={setSelectedWindowId}
         />
       ) : null}
@@ -145,7 +146,11 @@ export function ProviderCard(props: {
             ? "まだ取得していません"
             : [
                 // 簡易表示では間隔まで出さず、値の古さだけを残す。
-                props.compact ? null : `${intervalLabel}間隔`,
+                props.compact
+                  ? null
+                  : source.provider === "claude"
+                    ? "画面を開いたときと手動更新で取得"
+                    : `${intervalLabel}間隔`,
                 ageLabel,
               ]
                 .filter((part) => part !== null)
@@ -165,4 +170,17 @@ export function ProviderCard(props: {
       {props.children}
     </article>
   );
+}
+
+/** 自動再取得が無い Claude だけ、取り直す入口をメニューだと伝える。 */
+function retryHint(source: UsageSource, intervalLabel: string): string {
+  if (source.provider === "claude") {
+    return source.error?.code === "subscription_required"
+      ? "契約の反映後、⋮ の「更新」で再開できます。"
+      : "⋮ の「更新」で取り直せます。";
+  }
+
+  return source.error?.code === "subscription_required"
+    ? "契約の反映後、⋮ の「利用枠を取得し直す」で再開できます。自動確認は 6 時間ごとです。"
+    : `${intervalLabel}後に自動で再試行します。`;
 }

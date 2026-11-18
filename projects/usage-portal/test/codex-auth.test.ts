@@ -171,7 +171,9 @@ describe("createCodexAuth", () => {
     await auth.credential().catch(() => undefined);
 
     // SDK は空の auth.json を用意するが、置き場は資格情報ディレクトリの中だけ。
-    expect(readdirSync(credentialDir)).toEqual(["auth.json"]);
+    // Claude の設定ディレクトリは、CLI が資格情報を書く場所として同じ階層に置く。
+    expect(readdirSync(credentialDir).sort()).toEqual(["auth.json", "claude"]);
     expect(mode(join(credentialDir, "auth.json"))).toBe(0o600);
+    expect(mode(join(credentialDir, "claude"))).toBe(0o700);
   });
 });

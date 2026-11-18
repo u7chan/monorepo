@@ -1,4 +1,4 @@
-export type ProviderId = "codex" | "opencode-go";
+export type ProviderId = "codex" | "opencode-go" | "claude";
 
 export type UsageWindow = {
   id: string;
