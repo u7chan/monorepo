@@ -89,7 +89,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 ## 配布
 
-main にマージされると、CD が配布イメージを GHCR（`ghcr.io/u7chan/monorepo/u7agent:latest`）へ push します。CD の仕組みは [モノレポのCI/CD](../../docs/about-cicd.md) を参照してください。
+main にコードがマージされると、CD が配布イメージを GHCR（`ghcr.io/u7chan/monorepo/u7agent:latest`）へ push します。`docs` だけを変更したマージでは push されません。CD の仕組みは [モノレポのCI/CD](../../docs/about-cicd.md) を参照してください。
 
 ## ドキュメント
 

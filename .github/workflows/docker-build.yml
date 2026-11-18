@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - main
+    # docs は final ステージへ同梱しないため、ドキュメントだけの push では CD を起動しない
+    paths-ignore:
+      - 'projects/**/docs/**'
   workflow_dispatch:
     inputs:
       ref:
