@@ -71,6 +71,7 @@ export type PopoverShell = {
  * (`lib/popoverPlacement.ts` / `lib/agentPicker.ts` / `lib/rowMenu.ts` / `lib/selectMenu.ts`) が持ち、
  * ここは「どの系統の結果を `popover.style` へ書くか」だけを知る (計算を共有すると role と寄せ方が混ざる)。
  * 任意の要素は個別の引数で受け、渡されたものだけが有効になる (設定束やフラグは持たない)。
+ * `place` は `placeNow` の依存なので、呼び出し側で identity を固定する (毎描画で変わると配置と購読を張り直す)。
  */
 export function usePopoverShell(
   place: PopoverPlace,
