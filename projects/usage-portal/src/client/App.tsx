@@ -390,9 +390,10 @@ function Dashboard(props: {
   }, [loadCodex, loadUsage]);
 
   const refreshAccountUsage = useCallback(
-    async (id: string): Promise<boolean> => {
+    async (id: string): Promise<boolean | null> => {
       const ok = await refreshOpenCodeAccount(id);
 
+      // 失敗しても、保存された error をカードへ出すために取り直す。
       await loadUsage();
 
       return ok;

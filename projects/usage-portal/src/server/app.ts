@@ -375,9 +375,14 @@ export function createApp(deps: AppDeps) {
   });
 
   app.post("/api/opencode/accounts/:id/refresh", requireSession, async (c) => {
-    const refreshed = await deps.opencode.refresh(c.req.param("id") ?? "");
+    const result = await deps.opencode.refresh(c.req.param("id") ?? "");
 
-    return refreshed ? c.body(null, 204) : c.json({ error: "not_found" as const }, 404);
+    // 取得を試した結果まで返す。204 だけだと、失敗しても画面が成功として扱ってしまう。
+    if (result === "not_found") {
+      return c.json({ error: "not_found" as const }, 404);
+    }
+
+    return c.json({ ok: result === "ok" });
   });
 
   app.delete("/api/opencode/accounts/:id", requireSession, async (c) => {

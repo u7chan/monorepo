@@ -148,7 +148,9 @@ const probe = createProbeApi({
     credential: () => codexAuth.credential(),
     userAgent,
     kick: () => sampler.kick("codex"),
-    kickOpenCode: (accountId) => sampler.refreshSource(openCodeSourceId(accountId)),
+    kickOpenCode: async (accountId) => {
+      await sampler.refreshSource(openCodeSourceId(accountId));
+    },
     now: Date.now,
     log,
   }),

@@ -92,7 +92,7 @@ function harness(
             }
           },
           tick: async () => {},
-          refreshSource: async () => {},
+          refreshSource: async () => true,
           nextFetchAt: () => null,
           reschedule: () => {},
         } satisfies ReturnType<typeof createSampler>)
@@ -784,25 +784,51 @@ describe("変更後の再取得", () => {
 });
 
 describe("POST /api/opencode/accounts/:id/refresh", () => {
-  test("既知のアカウントは取り直して 204、未知は 404", async () => {
+  test("既知のアカウントは取り直して結果を返し、未知は 404", async () => {
+    const calls: string[] = [];
+    let fail = false;
     const h = harness({
       fetchers: ({ accounts }) =>
         accounts.list().map((account) => ({
           sourceId: openCodeSourceId(account.id),
           provider: OPENCODE_PROVIDER,
-          fetch: async () => usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME }),
+          fetch: async () => {
+            calls.push(account.id);
+
+            if (fail) {
+              throw new ProviderError("upstream", "利用枠を取得できませんでした");
+            }
+
+            return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
+          },
         })),
     });
     const cookieValue = await cookie(h.app);
     const account = await createAccount(h, cookieValue);
+
+    // 作成時の再取得で 1 回呼ばれている。ここから先だけを数える。
+    expect(calls).toEqual([account.id]);
+    calls.length = 0;
 
     const refreshed = await request(h.app, `/api/opencode/accounts/${account.id}/refresh`, {
       method: "POST",
       cookie: cookieValue,
     });
 
-    expect(refreshed.status).toBe(204);
-    expect(h.keys).toEqual([KEY]);
+    expect(refreshed.status).toBe(200);
+    expect(await refreshed.json()).toEqual({ ok: true });
+    expect(calls).toEqual([account.id]);
+
+    fail = true;
+
+    const failed = await request(h.app, `/api/opencode/accounts/${account.id}/refresh`, {
+      method: "POST",
+      cookie: cookieValue,
+    });
+
+    expect(failed.status).toBe(200);
+    expect(await failed.json()).toEqual({ ok: false });
+    expect(calls).toEqual([account.id, account.id]);
 
     const missing = await request(h.app, "/api/opencode/accounts/unknown/refresh", {
       method: "POST",
@@ -810,7 +836,7 @@ describe("POST /api/opencode/accounts/:id/refresh", () => {
     });
 
     expect(missing.status).toBe(404);
-    expect(h.keys).toEqual([KEY]);
+    expect(calls).toEqual([account.id, account.id]);
   });
 
   test("未認証は 401", async () => {
@@ -839,7 +865,7 @@ describe("排他区間内の存在確認", () => {
       accounts,
       db,
       sampler: {
-        refreshSource: async () => {},
+        refreshSource: async () => true,
         exclusive: async (fn: () => void) => {
           // キー検証を終えた直後に、別の要求が削除した状態を作る。
           accounts.remove(account.id);

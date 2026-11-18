@@ -23,7 +23,7 @@ export function OpenCodeAccountCard(props: {
   models: readonly ProbeModel[];
   onCheck: (id: string) => Promise<ProbeCheckOutcome>;
   /** 停止中のアカウントも含め、利用枠を取り直す。 */
-  onRefreshUsage: (id: string) => Promise<boolean>;
+  onRefreshUsage: (id: string) => Promise<boolean | null>;
 }) {
   const [panel, setPanel] = useState<Panel>("closed");
   const [busy, setBusy] = useState(false);
@@ -106,7 +106,15 @@ export function OpenCodeAccountCard(props: {
     try {
       const ok = await props.onRefreshUsage(identity.id);
 
-      setRefreshMessage(ok ? "利用枠を取り直しました。" : "利用枠を取り直せませんでした。");
+      setRefreshMessage(
+        ok === null
+          ? "通信に失敗しました。もう一度試してください。"
+          : ok
+            ? "利用枠を取り直しました。"
+            : "取り直しましたが、取得に失敗しました。カードの内容を確認してください。",
+      );
+    } catch {
+      setRefreshMessage("通信に失敗しました。もう一度試してください。");
     } finally {
       setRefreshing(false);
     }

@@ -42,7 +42,8 @@ export type Sampler = {
   /** 予定を待たずに取り直す。provider を省略すると全 source。進行中の取得は完了後にもう 1 回走らせる。 */
   kick: (provider?: ProviderId) => Promise<void>;
   /** 停止中の source も含めて 1 つだけ取り直す。再契約後の再開に使う。 */
-  refreshSource: (sourceId: string) => Promise<void>;
+  /** 取り直しに成功したら true。存在しない source と取得失敗は false。 */
+  refreshSource: (sourceId: string) => Promise<boolean>;
   /**
    * 進行中の取得と重ならない区間で `fn` を実行し、その後に取り直す。
    * サインアウトで消した snapshot を、先に始まっていた取得が書き戻すのを防ぐための入口。
@@ -79,7 +80,7 @@ export function createSampler(options: {
   // source ごとの次回取得予定。行が無い source は起動直後・追加直後として扱う。
   const nextDueAt = new Map<string, number>();
   // source ごとの進行中取得。別 provider の取得を互いに待たせない。
-  const running = new Map<string, Promise<void>>();
+  const running = new Map<string, Promise<boolean>>();
   // exclusive を呼んだ順に直列化する。前の変更後の再取得が終わるまで、次の変更を始めない。
   let exclusiveChain: Promise<void> = Promise.resolve();
   // 変更中は tick から取得を始めない。待機中に始まった取得が、削除した snapshot を書き戻すのを防ぐ。
@@ -87,7 +88,7 @@ export function createSampler(options: {
   // 鎖に並んだ 2 つ目が始まる前の隙間でも tick を止めるため。
   const pendingMutations = new Map<ProviderId | "all", number>();
 
-  function runFetcher(fetcher: UsageFetcher): Promise<void> {
+  function runFetcher(fetcher: UsageFetcher): Promise<boolean> {
     const paused = fetcher.pausedUntil !== null && fetcher.pausedUntil !== undefined;
 
     // 開始時点で次回を決める。取得が長引いても間隔を詰めない。停止中の source は長い間隔で再確認する。
@@ -106,6 +107,8 @@ export function createSampler(options: {
         if (paused) {
           nextDueAt.set(fetcher.sourceId, options.now() + options.intervalFor(fetcher.provider.id));
         }
+
+        return true;
       } catch (error) {
         const failure = toProviderError(error);
 
@@ -115,14 +118,20 @@ export function createSampler(options: {
           at: options.now(),
         });
 
-        // 契約エラーは待っても直らない。通常の間隔で叩き続けず、長い間隔で再確認する。
-        if (failure.code === "subscription_required") {
-          nextDueAt.set(fetcher.sourceId, options.now() + PAUSED_RETRY_INTERVAL_MS);
-        }
+        // 契約エラーだけを 6 時間後に回す。他の失敗で停止を引きずらない。
+        nextDueAt.set(
+          fetcher.sourceId,
+          options.now() +
+            (failure.code === "subscription_required"
+              ? PAUSED_RETRY_INTERVAL_MS
+              : options.intervalFor(fetcher.provider.id)),
+        );
 
         // 上流の本文や例外文は残さない。どの source がどの分類で落ちたかだけを残す。
         // source id は account の uuid を含むが、キーも名前も含まない。
         log(`${describeFetcher(fetcher)}: ${failure.code} (${failure.message})`);
+
+        return false;
       }
     })().finally(() => {
       running.delete(fetcher.sourceId);
@@ -197,7 +206,7 @@ export function createSampler(options: {
     }
   }
 
-  /** 進行中の取得を待ってから、対象の source をもう一度取り直す。 */
+  /** 進行中の取得を待ってから、対象の source をもう一度取り直す。停止中の source は明示操作まで含めない。 */
   async function refresh(provider?: ProviderId): Promise<void> {
     const selected = options.fetchers().filter((fetcher) => provider === undefined || fetcher.provider.id === provider);
     const ids = new Set(selected.map((fetcher) => fetcher.sourceId));
@@ -207,7 +216,14 @@ export function createSampler(options: {
       await Promise.allSettled(inFlight);
     }
 
-    const again = options.fetchers().filter((fetcher) => ids.has(fetcher.sourceId) && !running.has(fetcher.sourceId));
+    const again = options
+      .fetchers()
+      .filter(
+        (fetcher) =>
+          ids.has(fetcher.sourceId) &&
+          !running.has(fetcher.sourceId) &&
+          (fetcher.pausedUntil === null || fetcher.pausedUntil === undefined),
+      );
 
     if (again.length === 0) {
       return;
@@ -268,7 +284,7 @@ export function createSampler(options: {
   }
 
   // 停止中の source も、明示的な再開だけは予定を無視して取り直す。
-  function refreshSource(sourceId: string): Promise<void> {
+  function refreshSource(sourceId: string): Promise<boolean> {
     const task = exclusiveChain.then(async () => {
       const inFlight = running.get(sourceId);
 
@@ -279,13 +295,17 @@ export function createSampler(options: {
       const fetcher = options.fetchers().find((candidate) => candidate.sourceId === sourceId);
 
       if (!fetcher || running.has(sourceId)) {
-        return;
+        return false;
       }
 
-      await execute([fetcher]).catch(() => log("取得結果を保存できませんでした"));
+      // runFetcher は失敗を自分で保存して false を返す。ここまで例外は上がらない。
+      return runFetcher(fetcher);
     });
 
-    exclusiveChain = task.catch(() => undefined);
+    exclusiveChain = task.then(
+      () => undefined,
+      () => undefined,
+    );
 
     return task;
   }
@@ -300,6 +320,17 @@ export function createSampler(options: {
       }
 
       const current = nextDueAt.get(fetcher.sourceId);
+      const pausedUntil = fetcher.pausedUntil ?? null;
+
+      // 停止中の source は再確認時刻より前倒ししない。間隔を短くしても停止は破らない。
+      if (pausedUntil !== null) {
+        nextDueAt.set(
+          fetcher.sourceId,
+          Math.max(pausedUntil, current === undefined ? pausedUntil : Math.min(current, next)),
+        );
+
+        continue;
+      }
 
       // 短くしたときは前倒しし、長くしたときは既に近い予定を遅らせない。
       nextDueAt.set(fetcher.sourceId, current === undefined ? now : Math.min(current, next));

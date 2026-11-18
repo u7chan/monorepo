@@ -49,7 +49,7 @@ export function stubOpenCodeApi(overrides: Partial<OpenCodeApi> = {}): OpenCodeA
     create: async () => ({ ok: true, value: stubAccount() }),
     update: async () => ({ ok: true, value: stubAccount() }),
     remove: async () => ({ ok: true, value: null }),
-    refresh: async () => true,
+    refresh: async () => "ok",
     ...overrides,
   };
 }

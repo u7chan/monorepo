@@ -692,3 +692,106 @@ describe("停止中の source", () => {
     expect(calls).toBe(1);
   });
 });
+
+describe("停止の維持", () => {
+  test("停止中でも subscription_required 以外の失敗なら通常の間隔へ戻す", async () => {
+    let clock = BASE_TIME;
+    let calls = 0;
+    const sampler = createSampler({
+      db: open(),
+      fetchers: () => [
+        {
+          sourceId: ACCOUNT_SOURCE_ID,
+          provider: OPENCODE_PROVIDER,
+          pausedUntil: BASE_TIME,
+          fetch: async () => {
+            calls += 1;
+
+            throw new ProviderError("upstream", "利用枠を取得できませんでした");
+          },
+        },
+      ],
+      intervalFor: () => 300_000,
+      now: () => clock,
+      log: () => {},
+    });
+
+    await sampler.tick();
+    expect(calls).toBe(1);
+    // 停止の理由が契約エラーではないので、6 時間待たず通常の間隔で再試行する。
+    expect(sampler.nextFetchAt(ACCOUNT_SOURCE_ID)).toBe(BASE_TIME + 300_000);
+
+    clock += 300_000;
+    await sampler.tick();
+    expect(calls).toBe(2);
+  });
+
+  test("reschedule は停止中の source を再確認時刻より前倒ししない", async () => {
+    let clock = BASE_TIME;
+    let calls = 0;
+    const pausedUntil = BASE_TIME + PAUSED_RETRY_INTERVAL_MS;
+    const sampler = createSampler({
+      db: open(),
+      fetchers: () => [
+        {
+          sourceId: ACCOUNT_SOURCE_ID,
+          provider: OPENCODE_PROVIDER,
+          pausedUntil,
+          fetch: async () => {
+            calls += 1;
+
+            return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: clock });
+          },
+        },
+      ],
+      intervalFor: () => 300_000,
+      now: () => clock,
+      log: () => {},
+    });
+
+    sampler.reschedule("opencode-go");
+    expect(sampler.nextFetchAt(ACCOUNT_SOURCE_ID)).toBe(pausedUntil);
+
+    await sampler.tick();
+    expect(calls).toBe(0);
+
+    clock = pausedUntil;
+    await sampler.tick();
+    expect(calls).toBe(1);
+  });
+
+  test("アカウント変更後の再取得は停止中の source を起こさない", async () => {
+    const calls: string[] = [];
+    const sampler = createSampler({
+      db: open(),
+      fetchers: () => [
+        {
+          sourceId: ACCOUNT_SOURCE_ID,
+          provider: OPENCODE_PROVIDER,
+          pausedUntil: BASE_TIME + PAUSED_RETRY_INTERVAL_MS,
+          fetch: async () => {
+            calls.push("paused");
+
+            return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
+          },
+        },
+        {
+          sourceId: "opencode-go:22222222-2222-4222-8222-222222222222",
+          provider: OPENCODE_PROVIDER,
+          fetch: async () => {
+            calls.push("active");
+
+            return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
+          },
+        },
+      ],
+      intervalFor: () => 300_000,
+      now: () => BASE_TIME,
+      log: () => {},
+    });
+
+    await sampler.exclusive(() => {}, { provider: "opencode-go" });
+
+    expect(calls).toEqual(["active"]);
+  });
+});

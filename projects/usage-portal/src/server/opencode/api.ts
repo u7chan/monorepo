@@ -26,6 +26,9 @@ export type OpenCodeApiError =
 
 export type OpenCodeApiResult<T> = { ok: true; value: T } | { ok: false; error: OpenCodeApiError };
 
+/** 明示的な再取得の結果。`failed` は取得を試したが上流で失敗したことを示す。 */
+export type OpenCodeRefreshResult = "ok" | "failed" | "not_found";
+
 /** body の生の値。検証はこの module が持つ（route は形だけを見る）。 */
 export type OpenCodeInput = {
   name?: unknown;
@@ -45,7 +48,7 @@ export type OpenCodeApi = {
   update: (id: string, input: OpenCodeInput) => Promise<OpenCodeApiResult<OpenCodeAccount>>;
   remove: (id: string) => Promise<OpenCodeApiResult<null>>;
   /** 停止中のアカウントも含め、利用枠を取り直す。再契約後の再開に使う。 */
-  refresh: (id: string) => Promise<boolean>;
+  refresh: (id: string) => Promise<OpenCodeRefreshResult>;
 };
 
 class AccountMissingError extends Error {}
@@ -259,12 +262,10 @@ export function createOpenCodeApi(options: {
     },
     async refresh(id) {
       if (options.accounts.get(id) === null) {
-        return false;
+        return "not_found";
       }
 
-      await options.sampler.refreshSource(openCodeSourceId(id));
-
-      return true;
+      return (await options.sampler.refreshSource(openCodeSourceId(id))) ? "ok" : "failed";
     },
     async remove(id) {
       const removed = { done: false };
