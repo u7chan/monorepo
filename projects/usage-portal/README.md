@@ -329,3 +329,4 @@ bun run check
 - [docs/adr/0018-codex-trend-across-signout.md](docs/adr/0018-codex-trend-across-signout.md) — Codex の推移をサインアウト後も同じアカウントで引き継ぐ
 - [docs/adr/0020-opencode-service-status.md](docs/adr/0020-opencode-service-status.md) — 有効な Go カードがあるときだけ公式の稼働状況を表示する
 - [docs/adr/0021-opencode-monthly-order.md](docs/adr/0021-opencode-monthly-order.md) — OpenCode Go のカードを月次の残り順に並べる
+- [docs/adr/0022-claude-usage-via-cli.md](docs/adr/0022-claude-usage-via-cli.md) — Claude の利用枠を公式 CLI の `/usage` で、画面を開いたときと手動更新だけ取る
