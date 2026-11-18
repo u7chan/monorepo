@@ -1779,7 +1779,36 @@ function attachAssistantTurnEnd(
   return bubbles;
 }
 
-export function chatReducer(state: ChatState, action: ChatAction): ChatState {
+/** 履歴の同期を受け持つアクション (この関数へ委譲する種別だけを抜き出す) */
+type HistoryChatAction = Extract<
+  ChatAction,
+  {
+    type:
+      | "newChat"
+      | "resetHistory"
+      | "resync"
+      | "resyncHistory"
+      | "historyGap"
+      | "historyGapFailed"
+      | "prependHistory"
+      | "historyLoading"
+      | "historyUnsupported";
+  }
+>;
+
+/** 実行の開始から終端までを受け持つアクション (この関数へ委譲する種別だけを抜き出す) */
+type RunChatAction = Extract<
+  ChatAction,
+  {
+    type: "runStart" | "runEnd" | "setRun" | "retry" | "usage" | "status" | "assistantEnd" | "text" | "thinkingCleared";
+  }
+>;
+
+/**
+ * 履歴の同期 (新規チャット / 再同期 / ページの取り込み) を受け持つ。payload からの組み直しが大きく、
+ * 送信キューやツールカードとは独立して読めるため `chatReducer` から切り出した。意味と順序は変えない。
+ */
+function applyHistoryAction(state: ChatState, action: HistoryChatAction): ChatState {
   switch (action.type) {
     case "newChat": {
       // 未作成チャットは sessionModel 等の実効値を持たず、表示は composerSettings が担う。
@@ -2368,7 +2397,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         context: action.payload.context,
       };
     }
+  }
+}
 
+/**
+ * 実行 (run) の開始から終端までと、その間に届く本文・usage・状態を受け持つ。`chatReducer` から委譲される。
+ * 履歴の組み直しとは独立した遷移なので、ここへ切り出しても意味は変わらない。
+ */
+function applyRunAction(state: ChatState, action: RunChatAction): ChatState {
+  switch (action.type) {
     case "runStart": {
       // 自分の送信を実行する run は run id で厳密に照合する。run id が分からないエコー (応答待ち) は
       // 照合せず保持し、別クライアントの同一文面 entry を誤って自分のものにしない。
@@ -2503,6 +2540,294 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         })(),
       };
     }
+
+    case "text": {
+      // 本文が来たら thinking の末尾は用済み (旧サーバー / 取りこぼした status への保険)
+      if (state.thinkingText !== undefined) state = { ...state, thinkingText: undefined };
+      const key = action.assistantId;
+      if (key !== undefined) {
+        const existing = state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === key);
+        if (existing !== undefined) {
+          const withTarget = {
+            ...state,
+            currentAssistantId: existing.id,
+            currentAssistantKey: key,
+            toolTargetAssistantId: undefined,
+          };
+          const withBubble = attachRunToolCards(withTarget, false);
+          return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
+        }
+        // ツールだけの host があれば、そのカードをこの本文 item にする (確定履歴と同じ形)
+        const opened = adoptToolHost(closeCurrentAssistant(state), key) ?? openAssistantForKey(state, action.at, key);
+        const withBubble = attachRunToolCards(opened, false);
+        return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
+      }
+      // 旧サーバーの delta は従来どおり開いている応答へ積む
+      const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
+      return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
+    }
+
+    case "assistantEnd": {
+      if (state.thinkingText !== undefined) state = { ...state, thinkingText: undefined };
+      const key = action.assistantId;
+      const target =
+        key !== undefined
+          ? state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === key)
+          : state.currentAssistantId === null
+            ? undefined
+            : state.bubbles.find((bubble) => bubble.id === state.currentAssistantId);
+      if (target === undefined) {
+        if (key !== undefined) {
+          // 本文なしの ask_user など、まだバブルが無い応答の確定モデルは応答IDごとに控える。
+          // 後から合成するバブル (ensureAssistant / appendOwnedAssistant) が同じキーを読む
+          return action.model === undefined
+            ? state
+            : {
+                ...state,
+                assistantMeta: {
+                  ...state.assistantMeta,
+                  [key]: { ...state.assistantMeta[key], assistantId: key, model: action.model },
+                },
+              };
+        }
+        return state.toolTargetAssistantId === undefined
+          ? state
+          : { ...state, currentAssistantId: null, currentAssistantKey: undefined, toolTargetAssistantId: undefined };
+      }
+      const closesCurrent =
+        state.currentAssistantId === target.id || (key !== undefined && state.currentAssistantKey === key);
+      // 本文の応答が確定した時点で、同じターンの本文なし応答のカードをこの応答へ寄せる (投影と同じ所有者)
+      return withCarriedToolCards({
+        ...state,
+        currentAssistantId: closesCurrent ? null : state.currentAssistantId,
+        currentAssistantKey: closesCurrent ? undefined : state.currentAssistantKey,
+        toolTargetAssistantId: closesCurrent ? target.id : state.toolTargetAssistantId,
+        bubbles: state.bubbles.map((bubble) =>
+          bubble.id === target.id
+            ? { ...bubble, settled: true, ...(action.model === undefined ? {} : { model: action.model }) }
+            : bubble,
+        ),
+        closedAssistantTexts:
+          key !== undefined || target.text === ""
+            ? state.closedAssistantTexts
+            : [...new Set([...state.closedAssistantTexts, target.text])],
+      });
+    }
+
+    case "usage": {
+      // ツールループは 1 バブルに統合されるため、後続メッセージの値で上書きされる (仕様)。
+      const next = action.context ? { ...state, context: action.context } : state;
+      const keyTarget =
+        action.assistantId === undefined
+          ? undefined
+          : state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === action.assistantId);
+      if (keyTarget !== undefined) {
+        return updateBubble(next, keyTarget.id, (b) => ({
+          ...b,
+          usage: action.usage ?? b.usage,
+          metrics: action.metrics ?? b.metrics,
+        }));
+      }
+      if (action.assistantId !== undefined) {
+        return {
+          ...next,
+          pendingUsage: action.usage ?? state.pendingUsage,
+          pendingMetrics: action.metrics ?? state.pendingMetrics,
+        };
+      }
+      if (state.currentAssistantId !== null) {
+        return updateBubble(next, state.currentAssistantId, (b) => ({
+          ...b,
+          usage: action.usage ?? b.usage,
+          metrics: action.metrics ?? b.metrics,
+        }));
+      }
+      // まだ本文もツールカードも届いていない (tool 呼び出しだけの message_end が先に届く)。
+      // 直前の run のバブルを書き換えず、値を保留して次に作るバブルへ回す。
+      return {
+        ...next,
+        pendingUsage: action.usage ?? state.pendingUsage,
+        pendingMetrics: action.metrics ?? state.pendingMetrics,
+      };
+    }
+
+    case "status": {
+      // state は演出の条件 (thinking のときだけ活動ラベルに光を流す)、text は表示文言。
+      // thinking の末尾は live 専用で、載っていない status は tail のクリアを意味する
+      const thinkingText = action.state === "thinking" && action.thinking ? action.thinking : undefined;
+      return {
+        ...state,
+        activity: action.text || "処理中…",
+        activityState: action.state || undefined,
+        thinkingText,
+      };
+    }
+
+    case "thinkingCleared":
+      // 切断した tail を見せ続けない。領域は次の delta のために残す
+      return state.thinkingText === undefined ? state : { ...state, thinkingText: undefined };
+
+    case "retry": {
+      const retryState = mergeRetrySnapshot(state, action.retry, action.serverNow, action.receivedAt);
+      return {
+        ...state,
+        ...retryState,
+        retryCount: action.totalRetryCount,
+        // 再試行の待機は生成中ではない (状態行の文言はクライアントが導出する)
+        activityState: undefined,
+      };
+    }
+
+    case "runEnd": {
+      const { status, queueDepth } = action;
+      // 自分の run が終わったら、その run のエコーは run_start 待ちを卒業する (履歴 item に run id が
+      // 載らない縮退時は、ページ到着時に本文での突き合わせへ戻す)
+      const initialSendId = action.runId === undefined ? undefined : state.runInitialSendIds[action.runId];
+      const pendingEchoIds =
+        action.runId === undefined
+          ? state.pendingEchoIds
+          : state.pendingEchoIds.filter((id) => {
+              const bubble = state.bubbles.find((item) => item.id === id);
+              if (bubble === undefined) return true;
+              return initialSendId !== undefined ? bubble.sendId !== initialSendId : bubble.runId !== action.runId;
+            });
+      // 失敗の分類コードは status === "error" のときだけ保持する (停止と例外が同時でもカードを出さない)
+      const runError = runErrorFrom(status, action.errorCode, action.error);
+      const runStatus: RunStatus = queueDepth > 0 ? "queued" : status === "completed" ? "idle" : status;
+      // カードを出すときだけ状態行のエラー文言を空にし、同じ 1 文を二重に出さない。
+      // キュー待ちを挟んだ run は queued なのでカードを出さず、現行の文言を維持する
+      const cardShown = retryableRunError(runStatus, runError) !== undefined;
+      let activity: string;
+      if (status === "stopped") activity = "停止しました";
+      else if (status === "error") activity = cardShown ? "" : `エラー: ${action.error || "実行に失敗しました"}`;
+      // 件数はコンポーザー直上のブロックが正なので、活動の語だけで示す
+      else activity = "完了";
+      // 確定した応答のバブルは resync でも残す (履歴ページが届くまでの表示を維持する)
+      const settledCurrent =
+        state.currentAssistantId === null
+          ? state
+          : updateBubble(state, state.currentAssistantId, (bubble) => ({ ...bubble, settled: true }));
+      // 本文 item が現れないまま run が終わったターンは、host を確定履歴の item 境界へ揃えて確定する
+      // (本文を持たない応答ごとに 1 item。投影と同じ形にして、resync / F5 でヘッダーが動かないようにする)
+      const settled = settleToolHosts(settledCurrent);
+      // run_end の所要時間と結末は、その run の user パブルへ写す (entryId の有無を問わず runId 一致)。
+      // 未送信のターンは導出側が行を落とす。終端以外の status では値を付けない
+      const outcome = runOutcomeOf(status);
+      const normalized = normalizeInitialSend(settled.bubbles, initialSendId);
+      const withTurnEnd =
+        action.runId === undefined || outcome === undefined || action.durationMs === undefined
+          ? { ...settled, bubbles: normalized }
+          : {
+              ...settled,
+              bubbles: attachTurnEnd(normalized, action.runId, initialSendId, outcome, action.durationMs),
+            };
+      const bubbles =
+        action.runId === undefined || outcome === undefined || action.durationMs === undefined
+          ? withTurnEnd.bubbles
+          : attachAssistantTurnEnd(
+              withTurnEnd.bubbles,
+              action.runId,
+              initialSendId,
+              outcome,
+              action.durationMs,
+              state.currentAssistantId,
+            );
+      // assistant_end を取りこぼしても、run が終われば本文の応答は確定している (投影と同じ所有者へ寄せる)
+      const carriedBubbles = carryToolCardsToAnswers(bubbles, state.currentAssistantId).bubbles;
+      return {
+        ...withTurnEnd,
+        bubbles: carriedBubbles,
+        pendingEchoIds,
+        stateSeq: state.stateSeq + 1,
+        currentAssistantId: null,
+        currentAssistantKey: undefined,
+        currentRunId: undefined,
+        closedAssistantTexts: [],
+        toolTargetAssistantId: undefined,
+        // ターンが終われば host は確定済みの item になる (次の resync で印を戻さない)
+        liveHostAssistantIds: [],
+        liveHostRunId: undefined,
+        toolBubbleIds: {},
+        activity,
+        activityState: undefined,
+        // run が終わったら tail を落とす
+        thinkingText: undefined,
+        // 開始直後の演出は run の終了でも必ず落とす
+        startingRunId: undefined,
+        // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)
+        runEndSeq: withTurnEnd.runEndSeq + 1,
+        runStartedAt: undefined,
+        compactionStartedAt: undefined,
+        runStatus,
+        queueDepth,
+        // 履歴反映後の最新値 (usage イベントの context は 1 応答分古い)
+        context: action.context ?? state.context,
+        // バブルが作られないまま run が終わった保留値は、次の run へ持ち越さない
+        pendingUsage: undefined,
+        pendingMetrics: undefined,
+        // アクティブな再試行は終了で消す。累計は結果表示のため残す
+        retry: undefined,
+        retryRemainingMs: undefined,
+        retryReceivedAt: undefined,
+        retryCount: action.totalRetryCount ?? state.retryCount,
+        runError,
+        // 実行を開始した送信は、停止の控えから外す (遅れて届いた 202 で未送信へ戻さない)
+        clearedSendIds:
+          initialSendId === undefined
+            ? withTurnEnd.clearedSendIds
+            : withTurnEnd.clearedSendIds.filter((id) => id !== initialSendId),
+        // 終わった実行の対応は残さない (同じ run id は再利用しない)
+        runInitialSendIds: (() => {
+          if (action.runId === undefined) return withTurnEnd.runInitialSendIds;
+          const next = { ...withTurnEnd.runInitialSendIds };
+          delete next[action.runId];
+          return next;
+        })(),
+      };
+    }
+
+    case "setRun":
+      // 要求後に終端や次の run が入っていれば、遅れて届いた停止応答で状態 (実行状態・待機件数・
+      // 活動文言) を戻さない。描画を挟まない同じバッチでも順序が決まるよう reducer で判定する
+      if (action.stateSeq !== undefined && action.stateSeq !== state.stateSeq) return state;
+      return {
+        ...state,
+        runStatus: action.runStatus,
+        // 圧縮の起点は resync が持つ。応答などで compacting 以外へ移すときは残さない
+        compactionStartedAt: action.runStatus === "compacting" ? state.compactionStartedAt : undefined,
+        queueDepth: action.queueDepth ?? state.queueDepth,
+        activity: action.activity ?? state.activity,
+        // 応答で権威ある状態へ移した時点で演出も外す (status が来ない経路で光り続けない)
+        activityState: undefined,
+        // 送信の応答や停止の応答で権威ある状態へ移った時点でカードを消す (run_start が遅れても古い失敗を残さない)
+        runError: undefined,
+      };
+  }
+}
+
+export function chatReducer(state: ChatState, action: ChatAction): ChatState {
+  switch (action.type) {
+    case "newChat":
+    case "resetHistory":
+    case "resync":
+    case "resyncHistory":
+    case "historyGap":
+    case "historyGapFailed":
+    case "prependHistory":
+    case "historyLoading":
+    case "historyUnsupported":
+      return applyHistoryAction(state, action);
+
+    case "runStart":
+    case "runEnd":
+    case "setRun":
+    case "retry":
+    case "usage":
+    case "status":
+    case "assistantEnd":
+    case "text":
+    case "thinkingCleared":
+      return applyRunAction(state, action);
 
     case "localUser": {
       const next = appendBubble(state, "user", action.text, action.at);
@@ -2673,79 +2998,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     }
 
-    case "text": {
-      // 本文が来たら thinking の末尾は用済み (旧サーバー / 取りこぼした status への保険)
-      if (state.thinkingText !== undefined) state = { ...state, thinkingText: undefined };
-      const key = action.assistantId;
-      if (key !== undefined) {
-        const existing = state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === key);
-        if (existing !== undefined) {
-          const withTarget = {
-            ...state,
-            currentAssistantId: existing.id,
-            currentAssistantKey: key,
-            toolTargetAssistantId: undefined,
-          };
-          const withBubble = attachRunToolCards(withTarget, false);
-          return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
-        }
-        // ツールだけの host があれば、そのカードをこの本文 item にする (確定履歴と同じ形)
-        const opened = adoptToolHost(closeCurrentAssistant(state), key) ?? openAssistantForKey(state, action.at, key);
-        const withBubble = attachRunToolCards(opened, false);
-        return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
-      }
-      // 旧サーバーの delta は従来どおり開いている応答へ積む
-      const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
-      return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
-    }
-
-    case "assistantEnd": {
-      if (state.thinkingText !== undefined) state = { ...state, thinkingText: undefined };
-      const key = action.assistantId;
-      const target =
-        key !== undefined
-          ? state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === key)
-          : state.currentAssistantId === null
-            ? undefined
-            : state.bubbles.find((bubble) => bubble.id === state.currentAssistantId);
-      if (target === undefined) {
-        if (key !== undefined) {
-          // 本文なしの ask_user など、まだバブルが無い応答の確定モデルは応答IDごとに控える。
-          // 後から合成するバブル (ensureAssistant / appendOwnedAssistant) が同じキーを読む
-          return action.model === undefined
-            ? state
-            : {
-                ...state,
-                assistantMeta: {
-                  ...state.assistantMeta,
-                  [key]: { ...state.assistantMeta[key], assistantId: key, model: action.model },
-                },
-              };
-        }
-        return state.toolTargetAssistantId === undefined
-          ? state
-          : { ...state, currentAssistantId: null, currentAssistantKey: undefined, toolTargetAssistantId: undefined };
-      }
-      const closesCurrent =
-        state.currentAssistantId === target.id || (key !== undefined && state.currentAssistantKey === key);
-      // 本文の応答が確定した時点で、同じターンの本文なし応答のカードをこの応答へ寄せる (投影と同じ所有者)
-      return withCarriedToolCards({
-        ...state,
-        currentAssistantId: closesCurrent ? null : state.currentAssistantId,
-        currentAssistantKey: closesCurrent ? undefined : state.currentAssistantKey,
-        toolTargetAssistantId: closesCurrent ? target.id : state.toolTargetAssistantId,
-        bubbles: state.bubbles.map((bubble) =>
-          bubble.id === target.id
-            ? { ...bubble, settled: true, ...(action.model === undefined ? {} : { model: action.model }) }
-            : bubble,
-        ),
-        closedAssistantTexts:
-          key !== undefined || target.text === ""
-            ? state.closedAssistantTexts
-            : [...new Set([...state.closedAssistantTexts, target.text])],
-      });
-    }
-
     case "toolStart": {
       if (state.thinkingText !== undefined) state = { ...state, thinkingText: undefined };
       const call: ToolCall = {
@@ -2872,43 +3124,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, runTools: { ...state.runTools, [action.id]: { ...call, progress: action.text } } };
     }
 
-    case "usage": {
-      // ツールループは 1 バブルに統合されるため、後続メッセージの値で上書きされる (仕様)。
-      const next = action.context ? { ...state, context: action.context } : state;
-      const keyTarget =
-        action.assistantId === undefined
-          ? undefined
-          : state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === action.assistantId);
-      if (keyTarget !== undefined) {
-        return updateBubble(next, keyTarget.id, (b) => ({
-          ...b,
-          usage: action.usage ?? b.usage,
-          metrics: action.metrics ?? b.metrics,
-        }));
-      }
-      if (action.assistantId !== undefined) {
-        return {
-          ...next,
-          pendingUsage: action.usage ?? state.pendingUsage,
-          pendingMetrics: action.metrics ?? state.pendingMetrics,
-        };
-      }
-      if (state.currentAssistantId !== null) {
-        return updateBubble(next, state.currentAssistantId, (b) => ({
-          ...b,
-          usage: action.usage ?? b.usage,
-          metrics: action.metrics ?? b.metrics,
-        }));
-      }
-      // まだ本文もツールカードも届いていない (tool 呼び出しだけの message_end が先に届く)。
-      // 直前の run のバブルを書き換えず、値を保留して次に作るバブルへ回す。
-      return {
-        ...next,
-        pendingUsage: action.usage ?? state.pendingUsage,
-        pendingMetrics: action.metrics ?? state.pendingMetrics,
-      };
-    }
-
     case "compaction": {
       // 同じ状態を続けて resync が配る。ここでは SSE が途切れた場合にも回数と要約を残すため、
       // 1 件分を entry id で差し替える (messages の置き換えは resync が担う)。
@@ -2928,22 +3143,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         activityState: undefined,
       };
     }
-
-    case "status": {
-      // state は演出の条件 (thinking のときだけ活動ラベルに光を流す)、text は表示文言。
-      // thinking の末尾は live 専用で、載っていない status は tail のクリアを意味する
-      const thinkingText = action.state === "thinking" && action.thinking ? action.thinking : undefined;
-      return {
-        ...state,
-        activity: action.text || "処理中…",
-        activityState: action.state || undefined,
-        thinkingText,
-      };
-    }
-
-    case "thinkingCleared":
-      // 切断した tail を見せ続けない。領域は次の delta のために残す
-      return state.thinkingText === undefined ? state : { ...state, thinkingText: undefined };
 
     case "queued": {
       // 自分の送信の待機を SSE が先に配る経路 (応答より前) でも送信IDで対応付ける
@@ -3040,142 +3239,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "startFlashEnd":
       // リングの広がりが終わった合図。演出を持たないときに落としても何も変わらない
       return state.startingRunId === undefined ? state : { ...state, startingRunId: undefined };
-
-    case "retry": {
-      const retryState = mergeRetrySnapshot(state, action.retry, action.serverNow, action.receivedAt);
-      return {
-        ...state,
-        ...retryState,
-        retryCount: action.totalRetryCount,
-        // 再試行の待機は生成中ではない (状態行の文言はクライアントが導出する)
-        activityState: undefined,
-      };
-    }
-
-    case "runEnd": {
-      const { status, queueDepth } = action;
-      // 自分の run が終わったら、その run のエコーは run_start 待ちを卒業する (履歴 item に run id が
-      // 載らない縮退時は、ページ到着時に本文での突き合わせへ戻す)
-      const initialSendId = action.runId === undefined ? undefined : state.runInitialSendIds[action.runId];
-      const pendingEchoIds =
-        action.runId === undefined
-          ? state.pendingEchoIds
-          : state.pendingEchoIds.filter((id) => {
-              const bubble = state.bubbles.find((item) => item.id === id);
-              if (bubble === undefined) return true;
-              return initialSendId !== undefined ? bubble.sendId !== initialSendId : bubble.runId !== action.runId;
-            });
-      // 失敗の分類コードは status === "error" のときだけ保持する (停止と例外が同時でもカードを出さない)
-      const runError = runErrorFrom(status, action.errorCode, action.error);
-      const runStatus: RunStatus = queueDepth > 0 ? "queued" : status === "completed" ? "idle" : status;
-      // カードを出すときだけ状態行のエラー文言を空にし、同じ 1 文を二重に出さない。
-      // キュー待ちを挟んだ run は queued なのでカードを出さず、現行の文言を維持する
-      const cardShown = retryableRunError(runStatus, runError) !== undefined;
-      let activity: string;
-      if (status === "stopped") activity = "停止しました";
-      else if (status === "error") activity = cardShown ? "" : `エラー: ${action.error || "実行に失敗しました"}`;
-      // 件数はコンポーザー直上のブロックが正なので、活動の語だけで示す
-      else activity = "完了";
-      // 確定した応答のバブルは resync でも残す (履歴ページが届くまでの表示を維持する)
-      const settledCurrent =
-        state.currentAssistantId === null
-          ? state
-          : updateBubble(state, state.currentAssistantId, (bubble) => ({ ...bubble, settled: true }));
-      // 本文 item が現れないまま run が終わったターンは、host を確定履歴の item 境界へ揃えて確定する
-      // (本文を持たない応答ごとに 1 item。投影と同じ形にして、resync / F5 でヘッダーが動かないようにする)
-      const settled = settleToolHosts(settledCurrent);
-      // run_end の所要時間と結末は、その run の user パブルへ写す (entryId の有無を問わず runId 一致)。
-      // 未送信のターンは導出側が行を落とす。終端以外の status では値を付けない
-      const outcome = runOutcomeOf(status);
-      const normalized = normalizeInitialSend(settled.bubbles, initialSendId);
-      const withTurnEnd =
-        action.runId === undefined || outcome === undefined || action.durationMs === undefined
-          ? { ...settled, bubbles: normalized }
-          : {
-              ...settled,
-              bubbles: attachTurnEnd(normalized, action.runId, initialSendId, outcome, action.durationMs),
-            };
-      const bubbles =
-        action.runId === undefined || outcome === undefined || action.durationMs === undefined
-          ? withTurnEnd.bubbles
-          : attachAssistantTurnEnd(
-              withTurnEnd.bubbles,
-              action.runId,
-              initialSendId,
-              outcome,
-              action.durationMs,
-              state.currentAssistantId,
-            );
-      // assistant_end を取りこぼしても、run が終われば本文の応答は確定している (投影と同じ所有者へ寄せる)
-      const carriedBubbles = carryToolCardsToAnswers(bubbles, state.currentAssistantId).bubbles;
-      return {
-        ...withTurnEnd,
-        bubbles: carriedBubbles,
-        pendingEchoIds,
-        stateSeq: state.stateSeq + 1,
-        currentAssistantId: null,
-        currentAssistantKey: undefined,
-        currentRunId: undefined,
-        closedAssistantTexts: [],
-        toolTargetAssistantId: undefined,
-        // ターンが終われば host は確定済みの item になる (次の resync で印を戻さない)
-        liveHostAssistantIds: [],
-        liveHostRunId: undefined,
-        toolBubbleIds: {},
-        activity,
-        activityState: undefined,
-        // run が終わったら tail を落とす
-        thinkingText: undefined,
-        // 開始直後の演出は run の終了でも必ず落とす
-        startingRunId: undefined,
-        // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)
-        runEndSeq: withTurnEnd.runEndSeq + 1,
-        runStartedAt: undefined,
-        compactionStartedAt: undefined,
-        runStatus,
-        queueDepth,
-        // 履歴反映後の最新値 (usage イベントの context は 1 応答分古い)
-        context: action.context ?? state.context,
-        // バブルが作られないまま run が終わった保留値は、次の run へ持ち越さない
-        pendingUsage: undefined,
-        pendingMetrics: undefined,
-        // アクティブな再試行は終了で消す。累計は結果表示のため残す
-        retry: undefined,
-        retryRemainingMs: undefined,
-        retryReceivedAt: undefined,
-        retryCount: action.totalRetryCount ?? state.retryCount,
-        runError,
-        // 実行を開始した送信は、停止の控えから外す (遅れて届いた 202 で未送信へ戻さない)
-        clearedSendIds:
-          initialSendId === undefined
-            ? withTurnEnd.clearedSendIds
-            : withTurnEnd.clearedSendIds.filter((id) => id !== initialSendId),
-        // 終わった実行の対応は残さない (同じ run id は再利用しない)
-        runInitialSendIds: (() => {
-          if (action.runId === undefined) return withTurnEnd.runInitialSendIds;
-          const next = { ...withTurnEnd.runInitialSendIds };
-          delete next[action.runId];
-          return next;
-        })(),
-      };
-    }
-
-    case "setRun":
-      // 要求後に終端や次の run が入っていれば、遅れて届いた停止応答で状態 (実行状態・待機件数・
-      // 活動文言) を戻さない。描画を挟まない同じバッチでも順序が決まるよう reducer で判定する
-      if (action.stateSeq !== undefined && action.stateSeq !== state.stateSeq) return state;
-      return {
-        ...state,
-        runStatus: action.runStatus,
-        // 圧縮の起点は resync が持つ。応答などで compacting 以外へ移すときは残さない
-        compactionStartedAt: action.runStatus === "compacting" ? state.compactionStartedAt : undefined,
-        queueDepth: action.queueDepth ?? state.queueDepth,
-        activity: action.activity ?? state.activity,
-        // 応答で権威ある状態へ移した時点で演出も外す (status が来ない経路で光り続けない)
-        activityState: undefined,
-        // 送信の応答や停止の応答で権威ある状態へ移った時点でカードを消す (run_start が遅れても古い失敗を残さない)
-        runError: undefined,
-      };
 
     case "clearNotice":
       // 保持の解除は利用者の操作の **開始** だけ。応答 (setRun / queueCanceled など) で消すと、
