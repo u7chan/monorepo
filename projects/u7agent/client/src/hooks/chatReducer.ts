@@ -1638,11 +1638,7 @@ function applyPendingSends(
       next.push({
         ...bubble,
         ...(bubble.sendId === undefined && key !== undefined ? { sendId: key } : {}),
-        unsent: true,
-        accepted: false,
-        confirmed: false,
-        ...CLEARED_TURN_END,
-        ...QUEUE_CLEARED,
+        ...UNSENT_CLEARED,
       });
       continue;
     }
@@ -1680,7 +1676,7 @@ function applyPendingSends(
         sendId: send.sendId,
         ...(send.runId === undefined ? {} : { runId: send.runId }),
         ...(send.state === "unsent"
-          ? { unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
+          ? { ...UNSENT_CLEARED }
           : { unsent: false, accepted: true, confirmed: true, ...sendStateOf(send) }),
       };
       continue;
@@ -1732,6 +1728,37 @@ const CLEARED_TURN_END = { runDurationMs: undefined, runOutcome: undefined } as 
 
 /** 待機を抜けたバブルへ古い順位を残さない (表示の導出は queued だけを見る) */
 const QUEUE_CLEARED = { queued: undefined, queuedState: undefined, queuePosition: undefined } as const;
+
+/**
+ * 破棄された送信の表示。待機の印と実行の結末を落として未送信へ戻す (片方だけ落とすと、待機の順位が
+ * 残ったまま再送の対象になる)
+ */
+const UNSENT_CLEARED = {
+  unsent: true,
+  accepted: false,
+  confirmed: false,
+  ...CLEARED_TURN_END,
+  ...QUEUE_CLEARED,
+} as const;
+
+/**
+ * 応答 (`echoSendId`) が結び付ける待機の順位。待機の順位は応答が配る (押し込んだ直後の queueDepth)。
+ * run_start が先に届いた run は既に走っているので、遅れて届いた応答で待機中にはしない。payload が
+ * 先に待機を配っていればそちらを採る。要求後に新しい状態 (resync / 終端 / 待機の変化) が届いていれば、
+ * 古い待機スナップショットは捨てる。同じ送信IDの queued が応答より先に届いていれば、その位置を
+ * 応答へ引き継ぐ (どの時点の配列を見るかを 1 箇所に閉じる)
+ */
+function echoedQueuePosition(
+  state: ChatState,
+  action: { sendId: string; queuePosition?: number; stateSeq?: number },
+  duplicate: Bubble | undefined,
+  prompt: string | undefined,
+): number | undefined {
+  const snapshotCurrent = action.stateSeq === undefined || action.stateSeq === state.stateSeq;
+  const carriedPosition = snapshotCurrent ? undefined : state.queuedSnapshots[action.sendId]?.position;
+  const echoedPosition = snapshotCurrent ? action.queuePosition : carriedPosition;
+  return duplicate?.queuePosition ?? (prompt === undefined ? echoedPosition : undefined);
+}
 
 /** run が終わったことを、その実行を開始した送信のバブルへだけ写す (追加入力へ複製しない) */
 function attachTurnEnd(
@@ -2805,29 +2832,113 @@ function applyRunAction(state: ChatState, action: RunChatAction): ChatState {
   }
 }
 
-export function chatReducer(state: ChatState, action: ChatAction): ChatState {
-  switch (action.type) {
-    case "newChat":
-    case "resetHistory":
-    case "resync":
-    case "resyncHistory":
-    case "historyGap":
-    case "historyGapFailed":
-    case "prependHistory":
-    case "historyLoading":
-    case "historyUnsupported":
-      return applyHistoryAction(state, action);
+/** 送信キューを受け持つアクション (この関数へ委譲する種別だけを抜き出す) */
+type QueueChatAction = Extract<
+  ChatAction,
+  {
+    type:
+      | "queued"
+      | "queueCleared"
+      | "queueCanceled"
+      | "localUser"
+      | "echoSendId"
+      | "resendUnsent"
+      | "resendFailed"
+      | "unsentDiscarded"
+      | "dropLocalUser";
+  }
+>;
 
-    case "runStart":
-    case "runEnd":
-    case "setRun":
-    case "retry":
-    case "usage":
-    case "status":
-    case "assistantEnd":
-    case "text":
-    case "thinkingCleared":
-      return applyRunAction(state, action);
+/** 送信キュー (待機の位置 / 取り消し / エコーと送信IDの対応付け / 再送) を受け持つ */
+function applyQueueAction(state: ChatState, action: QueueChatAction): ChatState {
+  switch (action.type) {
+    case "queued": {
+      // 自分の送信の待機を SSE が先に配る経路 (応答より前) でも送信IDで対応付ける
+      const bubbles =
+        action.sendId === undefined
+          ? state.bubbles
+          : state.bubbles.map((bubble) =>
+              bubble.sendId === action.sendId && bubble.entryId === undefined
+                ? {
+                    ...bubble,
+                    accepted: true,
+                    queued: true,
+                    queuedState: "queued" as const,
+                    queuePosition: action.position,
+                  }
+                : bubble,
+            );
+      // 送信IDがまだ結び付いていないエコーには、この送信の待機位置として控えて応答時に引き継ぐ
+      const bound = action.sendId !== undefined && bubbles.some((bubble) => bubble.sendId === action.sendId);
+      const queuedSnapshots =
+        action.sendId === undefined
+          ? state.queuedSnapshots
+          : bound
+            ? withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId])
+            : { ...state.queuedSnapshots, [action.sendId]: { position: action.position } };
+      return {
+        ...state,
+        bubbles,
+        queuedSnapshots,
+        stateSeq: state.stateSeq + 1,
+        // 圧縮中は体感の状態を compacting のまま保つ (実際に走っているのは圧縮)
+        runStatus: state.runStatus === "compacting" ? "compacting" : "running",
+        queueDepth: action.queueDepth,
+        // 件数はコンポーザー直上のブロックが正。状態行は活動の語だけを出す
+        activity: state.runStatus === "compacting" ? "圧縮中…" : "実行中…",
+        activityState: undefined,
+      };
+    }
+
+    case "queueCleared": {
+      // 破棄された待機メッセージは実行されない。送信IDが分かる分を未送信へ切り替え、
+      // 「送信済み」の見た目のまま残さない。応答 (echoSendId) がまだ届いていないエコーは送信IDが
+      // 無いため特定できず、控えを残して対応付いた時点で切り替える
+      const cleared = new Set(action.sendIds ?? []);
+      const bubbles = state.bubbles.map((bubble) => {
+        // 送信IDを持たない旧サーバーのバブルは run id で突き合わせる
+        const key = bubble.sendId ?? bubble.runId;
+        const markUnsent = key !== undefined && cleared.has(key) && bubble.unsent !== true;
+        // キューそのものが空になったので、送信IDが分からない分 (旧サーバー) の待機也表示を戻す
+        if (!markUnsent && bubble.queued !== true) return bubble;
+        return markUnsent ? { ...bubble, ...UNSENT_CLEARED } : { ...bubble, ...QUEUE_CLEARED };
+      });
+      const pendingEchoIds = state.pendingEchoIds.filter((id) => {
+        const bubble = bubbles.find((item) => item.id === id);
+        return bubble?.unsent !== true;
+      });
+      return {
+        ...state,
+        bubbles,
+        pendingEchoIds,
+        stateSeq: state.stateSeq + 1,
+        queuedSnapshots: withoutQueuedSnapshots(state.queuedSnapshots, action.sendIds ?? []),
+        // 取りこぼしを防ぐため直近の分だけ持ち、対応が取れたら消す
+        clearedSendIds: [...state.clearedSendIds, ...cleared].slice(-20),
+        queueDepth: 0,
+        activity: "待機キューを取り消しました",
+        activityState: undefined,
+        // 破棄で待機が消えたので、開始直後の演出も残さない
+        startingRunId: undefined,
+      };
+    }
+
+    case "queueCanceled": {
+      // 取り消した送信を未送信へ戻す。resync が成功応答より先に届く経路があるため、既に未送信なら
+      // 何もしない (状態行の文言は足さず、バブルが変わることを結果の提示にする)
+      const target = state.bubbles.find((bubble) => bubble.sendId === action.sendId);
+      if (!target || target.unsent === true) return state;
+      return {
+        ...state,
+        bubbles: state.bubbles.map((bubble) =>
+          bubble.sendId === action.sendId ? { ...bubble, ...UNSENT_CLEARED } : bubble,
+        ),
+        stateSeq: state.stateSeq + 1,
+        queuedSnapshots: withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId]),
+        // 未送信は pendingEchoIds に残さない (残すと取り消し後の再送で同じ id が二重に載る)
+        pendingEchoIds: state.pendingEchoIds.filter((id) => id !== target.id),
+      };
+    }
 
     case "localUser": {
       const next = appendBubble(state, "user", action.text, action.at);
@@ -2866,14 +2977,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       );
       // run_start が応答より先に届いていれば、控えた本文でローカルエコーを差し替える
       const prompt = action.runId === undefined ? undefined : state.runPrompts[action.runId];
-      // 待機の順位は応答が配る (押し込んだ直後の queueDepth)。run_start が先に届いた run は既に走って
-      // いるので、遅れて届いた応答で待機中にはしない。payload が先に待機を配っていればそちらを採る。
-      // 要求後に新しい状態 (resync / 終端 / 待機の変化) が届いていれば、古い待機スナップショットを捨てる
-      const snapshotCurrent = action.stateSeq === undefined || action.stateSeq === state.stateSeq;
-      // 同じ送信IDの queued が応答より先に届いていれば、その待機位置を応答へ引き継ぐ
-      const carriedPosition = snapshotCurrent ? undefined : state.queuedSnapshots[action.sendId]?.position;
-      const echoedPosition = snapshotCurrent ? action.queuePosition : carriedPosition;
-      const queuePosition = duplicate?.queuePosition ?? (prompt === undefined ? echoedPosition : undefined);
+      const queuePosition = echoedQueuePosition(state, action, duplicate, prompt);
       const queued = duplicate !== undefined ? duplicate.queued === true : queuePosition !== undefined;
       const consumedSnapshots = withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId]);
       const withSendId = updateBubble(
@@ -2931,9 +3035,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...withSendId,
           runPrompts,
           bubbles: withSendId.bubbles.map((bubble) =>
-            bubble.id === echoId
-              ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
-              : bubble,
+            bubble.id === echoId ? { ...bubble, ...UNSENT_CLEARED } : bubble,
           ),
           pendingEchoIds: withSendId.pendingEchoIds.filter((id) => id !== echoId),
           clearedSendIds: state.clearedSendIds.filter((id) => id !== action.sendId),
@@ -2997,7 +3099,20 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         pendingEchoIds: state.pendingEchoIds.slice(0, -1),
       };
     }
+  }
+}
 
+/** ツールカードと圧縮を受け持つアクション (この関数へ委譲する種別だけを抜き出す) */
+type ToolChatAction = Extract<
+  ChatAction,
+  {
+    type: "toolStart" | "toolEnd" | "toolProgress" | "compaction";
+  }
+>;
+
+/** ツールカード (開始 / 終了 / 進捗) と圧縮の取り込みを受け持つ */
+function applyToolAction(state: ChatState, action: ToolChatAction): ChatState {
+  switch (action.type) {
     case "toolStart": {
       if (state.thinkingText !== undefined) state = { ...state, thinkingText: undefined };
       const call: ToolCall = {
@@ -3143,115 +3258,85 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         activityState: undefined,
       };
     }
+  }
+}
 
-    case "queued": {
-      // 自分の送信の待機を SSE が先に配る経路 (応答より前) でも送信IDで対応付ける
-      const bubbles =
-        action.sendId === undefined
-          ? state.bubbles
-          : state.bubbles.map((bubble) =>
-              bubble.sendId === action.sendId && bubble.entryId === undefined
-                ? {
-                    ...bubble,
-                    accepted: true,
-                    queued: true,
-                    queuedState: "queued" as const,
-                    queuePosition: action.position,
-                  }
-                : bubble,
-            );
-      // 送信IDがまだ結び付いていないエコーには、この送信の待機位置として控えて応答時に引き継ぐ
-      const bound = action.sendId !== undefined && bubbles.some((bubble) => bubble.sendId === action.sendId);
-      const queuedSnapshots =
-        action.sendId === undefined
-          ? state.queuedSnapshots
-          : bound
-            ? withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId])
-            : { ...state.queuedSnapshots, [action.sendId]: { position: action.position } };
-      return {
-        ...state,
-        bubbles,
-        queuedSnapshots,
-        stateSeq: state.stateSeq + 1,
-        // 圧縮中は体感の状態を compacting のまま保つ (実際に走っているのは圧縮)
-        runStatus: state.runStatus === "compacting" ? "compacting" : "running",
-        queueDepth: action.queueDepth,
-        // 件数はコンポーザー直上のブロックが正。状態行は活動の語だけを出す
-        activity: state.runStatus === "compacting" ? "圧縮中…" : "実行中…",
-        activityState: undefined,
-      };
-    }
+/** 通知と表示を受け持つアクション (この関数へ委譲する種別だけを抜き出す) */
+type NoticeChatAction = Extract<
+  ChatAction,
+  {
+    type: "notice" | "clearNotice" | "setActivity" | "startFlashEnd";
+  }
+>;
 
-    case "queueCleared": {
-      // 破棄された待機メッセージは実行されない。送信IDが分かる分を未送信へ切り替え、
-      // 「送信済み」の見た目のまま残さない。応答 (echoSendId) がまだ届いていないエコーは送信IDが
-      // 無いため特定できず、控えを残して対応付いた時点で切り替える
-      const cleared = new Set(action.sendIds ?? []);
-      const bubbles = state.bubbles.map((bubble) => {
-        // 送信IDを持たない旧サーバーのバブルは run id で突き合わせる
-        const key = bubble.sendId ?? bubble.runId;
-        const markUnsent = key !== undefined && cleared.has(key) && bubble.unsent !== true;
-        // キューそのものが空になったので、送信IDが分からない分 (旧サーバー) の待機也表示を戻す
-        if (!markUnsent && bubble.queued !== true) return bubble;
-        return markUnsent
-          ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
-          : { ...bubble, ...QUEUE_CLEARED };
-      });
-      const pendingEchoIds = state.pendingEchoIds.filter((id) => {
-        const bubble = bubbles.find((item) => item.id === id);
-        return bubble?.unsent !== true;
-      });
-      return {
-        ...state,
-        bubbles,
-        pendingEchoIds,
-        stateSeq: state.stateSeq + 1,
-        queuedSnapshots: withoutQueuedSnapshots(state.queuedSnapshots, action.sendIds ?? []),
-        // 取りこぼしを防ぐため直近の分だけ持ち、対応が取れたら消す
-        clearedSendIds: [...state.clearedSendIds, ...cleared].slice(-20),
-        queueDepth: 0,
-        activity: "待機キューを取り消しました",
-        activityState: undefined,
-        // 破棄で待機が消えたので、開始直後の演出も残さない
-        startingRunId: undefined,
-      };
-    }
-
-    case "queueCanceled": {
-      // 取り消した送信を未送信へ戻す。resync が成功応答より先に届く経路があるため、既に未送信なら
-      // 何もしない (状態行の文言は足さず、バブルが変わることを結果の提示にする)
-      const target = state.bubbles.find((bubble) => bubble.sendId === action.sendId);
-      if (!target || target.unsent === true) return state;
-      return {
-        ...state,
-        bubbles: state.bubbles.map((bubble) =>
-          bubble.sendId === action.sendId
-            ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
-            : bubble,
-        ),
-        stateSeq: state.stateSeq + 1,
-        queuedSnapshots: withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId]),
-        // 未送信は pendingEchoIds に残さない (残すと取り消し後の再送で同じ id が二重に載る)
-        pendingEchoIds: state.pendingEchoIds.filter((id) => id !== target.id),
-      };
-    }
-
-    case "startFlashEnd":
-      // リングの広がりが終わった合図。演出を持たないときに落としても何も変わらない
-      return state.startingRunId === undefined ? state : { ...state, startingRunId: undefined };
+/** 操作の結果と活動行、開始演出の終わりを受け持つ */
+function applyNoticeAction(state: ChatState, action: NoticeChatAction): ChatState {
+  switch (action.type) {
+    case "notice":
+      // 押した結果は活動文言と別に持つ。後続の status / resync が activity を戻しても、この 1 行は
+      // 次の操作かセッション切替まで残る (取り消しの成否が読めないまま消えるのを避ける)
+      return { ...state, notice: action.text };
 
     case "clearNotice":
       // 保持の解除は利用者の操作の **開始** だけ。応答 (setRun / queueCanceled など) で消すと、
       // 先に始めた要求の後着応答が、その後に出た別の操作の結果を消す
       return state.notice === undefined ? state : { ...state, notice: undefined };
 
-    case "notice":
-      // 押した結果は活動文言と別に持つ。後続の status / resync が activity を戻しても、この 1 行は
-      // 次の操作かセッション切替まで残る (取り消しの成否が読めないまま消えるのを避ける)
-      return { ...state, notice: action.text };
-
     case "setActivity":
       // 実行とは別の知らせ (設定変更 / 接続エラーなど) を活動行へ出す。演出の対象外
       return { ...state, activity: action.text, activityState: undefined };
+
+    case "startFlashEnd":
+      // リングの広がりが終わった合図。演出を持たないときに落としても何も変わらない
+      return state.startingRunId === undefined ? state : { ...state, startingRunId: undefined };
+  }
+}
+
+export function chatReducer(state: ChatState, action: ChatAction): ChatState {
+  switch (action.type) {
+    case "newChat":
+    case "resetHistory":
+    case "resync":
+    case "resyncHistory":
+    case "historyGap":
+    case "historyGapFailed":
+    case "prependHistory":
+    case "historyLoading":
+    case "historyUnsupported":
+      return applyHistoryAction(state, action);
+
+    case "runStart":
+    case "runEnd":
+    case "setRun":
+    case "retry":
+    case "usage":
+    case "status":
+    case "assistantEnd":
+    case "text":
+    case "thinkingCleared":
+      return applyRunAction(state, action);
+
+    case "queued":
+    case "queueCleared":
+    case "queueCanceled":
+    case "localUser":
+    case "echoSendId":
+    case "resendUnsent":
+    case "resendFailed":
+    case "unsentDiscarded":
+    case "dropLocalUser":
+      return applyQueueAction(state, action);
+
+    case "toolStart":
+    case "toolEnd":
+    case "toolProgress":
+    case "compaction":
+      return applyToolAction(state, action);
+
+    case "notice":
+    case "clearNotice":
+    case "setActivity":
+    case "startFlashEnd":
+      return applyNoticeAction(state, action);
   }
 }
