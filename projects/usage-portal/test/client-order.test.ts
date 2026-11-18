@@ -71,6 +71,38 @@ describe("orderSources", () => {
     ]);
   });
 
+  test("OpenCode Go は月次の残りが多い順に並ぶ", () => {
+    const least = source("least", "ok", windows(100, 100, 99));
+    const most = source("most", "ok", windows(40, 60, 34));
+    const middle = source("middle", "ok", windows(0, 30, 75));
+
+    expect(orderSources([least, most, middle]).map((item) => item.id)).toEqual(["most", "middle", "least"]);
+  });
+
+  test("月次を持たない Codex は位置を変えない", () => {
+    const codex = source("codex", "ok", [window("primary", "週次", 95)]);
+    const least = source("least", "ok", windows(0, 10, 99));
+    const most = source("most", "ok", windows(0, 10, 20));
+
+    expect(orderSources([codex, least, most]).map((item) => item.id)).toEqual(["codex", "most", "least"]);
+  });
+
+  test("月次を読めないカードは位置を保つ", () => {
+    const least = source("least", "ok", windows(0, 10, 99));
+    const loading = source("loading", "loading", []);
+    const most = source("most", "ok", windows(0, 10, 20));
+
+    expect(orderSources([least, loading, most]).map((item) => item.id)).toEqual(["most", "loading", "least"]);
+  });
+
+  test("月次の窓だけが欠けたカードは位置を保つ", () => {
+    const least = source("least", "ok", windows(0, 10, 99));
+    const partial = source("partial", "ok", [window("rolling", "ローリング", 10), window("weekly", "週次", 20)]);
+    const most = source("most", "ok", windows(0, 10, 20));
+
+    expect(orderSources([least, partial, most]).map((item) => item.id)).toEqual(["most", "partial", "least"]);
+  });
+
   test("取得前・取得失敗のカードは元の位置に残す", () => {
     const loading = source("loading", "loading", []);
     const exhausted = source("exhausted", "ok", windows(100, 100, 100));
