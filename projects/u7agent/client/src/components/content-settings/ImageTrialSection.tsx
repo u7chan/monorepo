@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   evidenceNote,
   hasStoredArtifact,
@@ -7,13 +6,11 @@ import {
   imageTrialParameters,
   imageTrialProviderBlockedReason,
   imageTrialRequest,
-  latestTrial,
   trialArtifactSummary,
   trialArtifactUrl,
   trialDimensionLabel,
   trialEvidence,
   trialHistoryRow,
-  trialPanelState,
   trialStartBlockedReason,
 } from "../../lib/contentTrials";
 import {
@@ -23,6 +20,7 @@ import {
   type ImageParameterDraft,
 } from "../../lib/imageParameters";
 import { imageTrialDefaultTarget } from "../../lib/trialDefault";
+import { useTrialSection } from "../../hooks/useTrialSection";
 import type {
   ContentSettingsResponse,
   ContentTrial,
@@ -87,34 +85,7 @@ export function ImageTrialSection({
   onDelete,
   onLoadTrial,
 }: ImageTrialSectionProps) {
-  // 一覧は全種別を 1 回で取るため、面ごとに自分の種別だけを出す（音声の履歴を混ぜない）
-  const list = (trials ?? []).filter((trial) => trial.kind === "image");
-  const panel = trialPanelState({
-    runtimeAvailable: settings.runtimeAvailable,
-    configured: settings.configured,
-    enabled: settings.enabled,
-    trials: list,
-  });
-  const running = list.find((trial) => trial.state === "running") ?? null;
-  const latest = latestTrial(list);
-  const latestId = latest?.id ?? null;
-  // 一覧は抜粋しか持たないため、直近の行の全文を取る。行が変わったら前の全文を残さない
-  const [latestDetail, setLatestDetail] = useState<ContentTrial | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    if (latestId === null) {
-      setLatestDetail(null);
-      return;
-    }
-    // 行が変わった直後に前の行の全文を新しい行のものとして出さない（取れるまでは抜粋）
-    setLatestDetail(null);
-    void onLoadTrial(latestId).then((trial) => {
-      if (!cancelled) setLatestDetail(trial);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [latestId, onLoadTrial]);
+  const { panel, running, latest, latestDetail } = useTrialSection({ kind: "image", settings, trials, onLoadTrial });
   // 同じモデル・同じパラメータを保存しても何も変わらないため、結果との差分があるときだけ導線を出す
   const defaultTarget = latest
     ? imageTrialDefaultTarget({ settings, trialModel: latest.model, trialParameters: latest.parameters })
