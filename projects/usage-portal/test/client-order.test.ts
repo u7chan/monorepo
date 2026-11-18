@@ -95,6 +95,14 @@ describe("orderSources", () => {
     expect(orderSources([least, loading, most]).map((item) => item.id)).toEqual(["most", "loading", "least"]);
   });
 
+  test("月次の窓だけが欠けたカードは位置を保つ", () => {
+    const least = source("least", "ok", windows(0, 10, 99));
+    const partial = source("partial", "ok", [window("rolling", "ローリング", 10), window("weekly", "週次", 20)]);
+    const most = source("most", "ok", windows(0, 10, 20));
+
+    expect(orderSources([least, partial, most]).map((item) => item.id)).toEqual(["most", "partial", "least"]);
+  });
+
   test("取得前・取得失敗のカードは元の位置に残す", () => {
     const loading = source("loading", "loading", []);
     const exhausted = source("exhausted", "ok", windows(100, 100, 100));
