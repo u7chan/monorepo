@@ -60,8 +60,9 @@ HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更
 ## 画面の読み方
 
 ゲージの下の行は、先頭のバッジがリセットまでの残り時間（「あと 12 日」）、続く淡色の文字がリセット日時を表す。
-すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。
-表示の判断は [ADR 0008](docs/adr/0008-remaining-gauge-and-window-trend.md)、[ADR 0015](docs/adr/0015-reset-line-badge.md)、[ADR 0016](docs/adr/0016-exhausted-cards-last.md) を参照する。
+すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。使い切っていない OpenCode Go のカードは、
+月次の残りが多い順に並ぶ。Codex と、月次を読めないカードは元の位置に残る。
+表示の判断は [ADR 0008](docs/adr/0008-remaining-gauge-and-window-trend.md)、[ADR 0015](docs/adr/0015-reset-line-badge.md)、[ADR 0016](docs/adr/0016-exhausted-cards-last.md)、[ADR 0021](docs/adr/0021-opencode-monthly-order.md) を参照する。
 
 ### OpenCode Go の稼働状況
 
@@ -135,7 +136,8 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 Codex の 5 時間窓が API に返らないアカウントがあるため、「開始済み」の判定は持たない（再送しても 5 時間は延びない）。
 
 `sources[]` は source ごとに独立して失敗する。`id` は `codex` またはアカウントの uuid、`provider` は `codex` /
-`opencode-go`、`account` は OpenCode Go の `{ id, name, icon }`（Codex は `null`）で、並びは Codex → 登録順。
+`opencode-go`、`account` は OpenCode Go の `{ id, name, icon }`（Codex は `null`）で、応答の並びは Codex → 登録順。
+画面はこの並びを使い切ったカードの移動（ADR 0016）と月次の残り順（ADR 0021）で並べ替える。
 `state` は `loading` / `ok` / `stale` / `error`、`error.code` は `not_connected` / `reauth_required` / `subscription_required` / `upstream` / `schema` /
 `config` の固定値で、上流の本文は含まない。未サインインの Codex は `not_connected` になり、画面では「未接続」と出す。
 
@@ -326,3 +328,4 @@ bun run check
 - [docs/adr/0017-probe-prompts.md](docs/adr/0017-probe-prompts.md) — 最小プロンプトの送信（5 時間窓の開始と接続確認）
 - [docs/adr/0018-codex-trend-across-signout.md](docs/adr/0018-codex-trend-across-signout.md) — Codex の推移をサインアウト後も同じアカウントで引き継ぐ
 - [docs/adr/0020-opencode-service-status.md](docs/adr/0020-opencode-service-status.md) — 有効な Go カードがあるときだけ公式の稼働状況を表示する
+- [docs/adr/0021-opencode-monthly-order.md](docs/adr/0021-opencode-monthly-order.md) — OpenCode Go のカードを月次の残り順に並べる
