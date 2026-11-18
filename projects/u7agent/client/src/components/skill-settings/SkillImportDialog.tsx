@@ -6,7 +6,6 @@ import {
   SKILL_IMPORT_APPLIED_REPLACED_NOTE,
   SKILL_IMPORT_APPLYING_LABEL,
   SKILL_IMPORT_APPLY_LABEL,
-  SKILL_IMPORT_CANCEL_LABEL,
   SKILL_IMPORT_DIALOG_TITLE,
   SKILL_IMPORT_FILE_LABEL,
   SKILL_IMPORT_NOTHING_NOTE,
@@ -21,7 +20,7 @@ import {
 } from "../../lib/fileSkills";
 import { replaceableSkillNames, skillImportCounts, type SkillImportFlow } from "../../lib/skillArchive";
 import type { SandboxSkillImportPlanEntry, SandboxSkillsImportApply } from "../../types";
-import { CloseIcon } from "../icons";
+import { WorkDialog } from "../WorkDialog";
 
 export type SkillImportDialogProps = {
   /** idle では開かない (mount しない) */
@@ -46,8 +45,6 @@ export function SkillImportDialog({
   onApply,
   onClose,
 }: SkillImportDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const headerCloseRef = useRef<HTMLButtonElement>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
@@ -58,23 +55,6 @@ export function SkillImportDialog({
   const selectedCount = conflictNames.filter((name) => replace.includes(name)).length;
   const counts = plan ? skillImportCounts(plan, replace) : null;
   const allSelected = conflictNames.length > 0 && selectedCount === conflictNames.length;
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!dialog.open) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      dialog.showModal();
-    } else if (!dialog.contains(document.activeElement)) {
-      dialog.focus();
-    }
-    return () => previousFocusRef.current?.focus();
-  }, []);
-
-  // 初期焦点は取り消し側に置く (インポートする量を確認してから押させる)
-  useEffect(() => {
-    closeRef.current?.focus();
-  }, []);
 
   // 適用するとフッターごと取り消しが消えるので、焦点を残る閉じる導線へ移す
   useEffect(() => {
@@ -93,124 +73,79 @@ export function SkillImportDialog({
   };
 
   return (
-    <dialog
-      ref={dialogRef}
+    <WorkDialog
+      eyebrow="SKILLS"
+      title={SKILL_IMPORT_DIALOG_TITLE}
+      busy={busy}
       onClose={onClose}
-      aria-modal="true"
-      aria-label={SKILL_IMPORT_DIALOG_TITLE}
-      tabIndex={-1}
-      // Escape はダイアログだけを閉じる (設定ページの「戻る」など背面の keydown へ届かせない)
-      onKeyDown={(event) => {
-        if (event.key === "Escape") event.stopPropagation();
-      }}
-      // 適用中は結果を取りこぼさないよう閉じさせない (一覧の取り直しは適用後 1 回)
-      onCancel={(event) => {
-        if (busy) event.preventDefault();
-      }}
-      className={cn(
-        "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
-        singleColumn
-          ? "m-0 h-dvh max-h-none w-screen max-w-none rounded-none border-0"
-          : "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] rounded-xl border shadow-panel",
-      )}
+      onSubmit={submit}
+      initialFocusRef={closeRef}
+      // 適用するとフッター (キャンセル) が消えるので、焦点を残る閉じる導線へ移せるようにする
+      closeButtonRef={headerCloseRef}
+      // 適用後は実行するものが残らない。出口はヘッダーの X だけにする
+      submit={
+        flow.status === "applied"
+          ? undefined
+          : {
+              label: busy ? SKILL_IMPORT_APPLYING_LABEL : SKILL_IMPORT_APPLY_LABEL,
+              tone: "primary",
+              disabled: busy || !counts || counts.imported === 0,
+            }
+      }
+      width="wide"
+      body="dense"
+      singleColumn={singleColumn}
     >
-      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
-        <div className="min-w-0">
-          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">SKILLS</div>
-          <h2 className="text-md font-semibold text-ink-strong">{SKILL_IMPORT_DIALOG_TITLE}</h2>
-        </div>
-        <button
-          ref={headerCloseRef}
-          type="button"
-          onClick={onClose}
-          aria-label="閉じる"
-          title="閉じる"
-          disabled={busy}
-          className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
-        >
-          <CloseIcon />
-        </button>
-      </header>
+      <div className="grid gap-0.5">
+        <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
+          {SKILL_IMPORT_FILE_LABEL}
+        </span>
+        <span className="min-w-0 truncate text-ink-strong" title={flow.fileName}>
+          {flow.fileName}
+        </span>
+      </div>
 
-      <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-        <div className="grid min-h-0 flex-1 scrollbar-thin content-start gap-3 overflow-y-auto px-4 py-3.5 text-xs leading-relaxed">
-          <div className="grid gap-0.5">
-            <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
-              {SKILL_IMPORT_FILE_LABEL}
-            </span>
-            <span className="min-w-0 truncate text-ink-strong" title={flow.fileName}>
-              {flow.fileName}
-            </span>
-          </div>
+      {flow.status === "planning" ? <p className="break-words text-ink-soft">{SKILL_IMPORT_PLANNING_NOTE}</p> : null}
+      {plan ? <p className="break-words text-ink-muted">{skillImportPlanNote(plan.entries, plan.bytes)}</p> : null}
+      {counts ? (
+        <p className="break-words text-ink-soft">{skillImportSummary(counts.imported, counts.replaced)}</p>
+      ) : null}
+      {counts && counts.imported === 0 ? <p className="break-words text-warn">{SKILL_IMPORT_NOTHING_NOTE}</p> : null}
 
-          {flow.status === "planning" ? (
-            <p className="break-words text-ink-soft">{SKILL_IMPORT_PLANNING_NOTE}</p>
-          ) : null}
-          {plan ? <p className="break-words text-ink-muted">{skillImportPlanNote(plan.entries, plan.bytes)}</p> : null}
-          {counts ? (
-            <p className="break-words text-ink-soft">{skillImportSummary(counts.imported, counts.replaced)}</p>
-          ) : null}
-          {counts && counts.imported === 0 ? (
-            <p className="break-words text-warn">{SKILL_IMPORT_NOTHING_NOTE}</p>
-          ) : null}
-
-          {plan ? (
-            <div className="grid gap-1">
-              <div className="flex min-w-0 items-center justify-between gap-2">
-                <h3 className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
-                  {SKILL_IMPORT_PLAN_HEADING}
-                </h3>
-                {conflictNames.length > 0 ? (
-                  <label className="flex shrink-0 items-center gap-1.5 text-2xs text-ink-soft">
-                    <input
-                      ref={selectAllRef}
-                      type="checkbox"
-                      className="accent-focus"
-                      checked={allSelected}
-                      disabled={busy}
-                      onChange={(event) => onSetReplaceAll(event.currentTarget.checked)}
-                    />
-                    {SKILL_IMPORT_SELECT_ALL_LABEL}
-                  </label>
-                ) : null}
-              </div>
-              {plan.skills.map((entry) => (
-                <SkillImportPlanRow
-                  key={entry.name}
-                  entry={entry}
-                  selected={replace.includes(entry.name)}
-                  busy={busy}
-                  onToggle={onToggleReplace}
+      {plan ? (
+        <div className="grid gap-1">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <h3 className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
+              {SKILL_IMPORT_PLAN_HEADING}
+            </h3>
+            {conflictNames.length > 0 ? (
+              <label className="flex shrink-0 items-center gap-1.5 text-2xs text-ink-soft">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  className="accent-focus"
+                  checked={allSelected}
+                  disabled={busy}
+                  onChange={(event) => onSetReplaceAll(event.currentTarget.checked)}
                 />
-              ))}
-            </div>
-          ) : null}
-
-          {flow.status === "applied" ? <SkillImportResult result={flow.result} /> : null}
+                {SKILL_IMPORT_SELECT_ALL_LABEL}
+              </label>
+            ) : null}
+          </div>
+          {plan.skills.map((entry) => (
+            <SkillImportPlanRow
+              key={entry.name}
+              entry={entry}
+              selected={replace.includes(entry.name)}
+              busy={busy}
+              onToggle={onToggleReplace}
+            />
+          ))}
         </div>
+      ) : null}
 
-        {flow.status === "applied" ? null : (
-          <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-3">
-            <button
-              ref={closeRef}
-              type="button"
-              onClick={onClose}
-              disabled={busy}
-              className="btn-quiet singleColumn:min-h-11"
-            >
-              {SKILL_IMPORT_CANCEL_LABEL}
-            </button>
-            <button
-              type="submit"
-              disabled={busy || !counts || counts.imported === 0}
-              className="btn-primary singleColumn:min-h-11"
-            >
-              {busy ? SKILL_IMPORT_APPLYING_LABEL : SKILL_IMPORT_APPLY_LABEL}
-            </button>
-          </footer>
-        )}
-      </form>
-    </dialog>
+      {flow.status === "applied" ? <SkillImportResult result={flow.result} /> : null}
+    </WorkDialog>
   );
 }
 

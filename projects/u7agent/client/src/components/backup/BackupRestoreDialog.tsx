@@ -1,10 +1,9 @@
-import { useEffect, useRef, type FormEvent } from "react";
+import { useRef, type FormEvent } from "react";
 import { cn } from "../../lib/cn";
 import {
   BACKUP_KEPT_NOTE,
   BACKUP_RESTORE_APPLYING_LABEL,
   BACKUP_RESTORE_APPLY_LABEL,
-  BACKUP_RESTORE_CANCEL_LABEL,
   BACKUP_RESTORE_DELETE_CHECK_LABEL,
   BACKUP_RESTORE_DIALOG_TITLE,
   BACKUP_RESTORE_PLANNING_NOTE,
@@ -22,7 +21,7 @@ import {
 } from "../../lib/backup";
 import type { BackupRestoreFlow } from "../../lib/backupFlow";
 import type { BackupTarget, BackupTargetPlan } from "../../types";
-import { CloseIcon } from "../icons";
+import { WorkDialog } from "../WorkDialog";
 
 export type BackupRestoreDialogProps = {
   flow: Exclude<BackupRestoreFlow, { status: "idle" } | { status: "done" }>;
@@ -46,8 +45,6 @@ export function BackupRestoreDialog({
   onApply,
   onClose,
 }: BackupRestoreDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const busy = flow.status === "applying";
   const plan = flow.status === "review" || flow.status === "applying" ? flow.plan : null;
@@ -56,164 +53,106 @@ export function BackupRestoreDialog({
   const canApply = plan ? backupCanApply(plan, confirmed) : false;
   const removed = plan ? backupRemovedNames(plan) : [];
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!dialog.open) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      dialog.showModal();
-    } else if (!dialog.contains(document.activeElement)) {
-      dialog.focus();
-    }
-    return () => previousFocusRef.current?.focus();
-  }, []);
-
-  // 初期焦点は取り消し側に置く (削除を伴う操作を確認してから押させる)
-  useEffect(() => {
-    closeRef.current?.focus();
-  }, []);
-
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (flow.status === "review" && canApply) onApply();
   };
 
   return (
-    <dialog
-      ref={dialogRef}
+    <WorkDialog
+      eyebrow="BACKUP"
+      title={BACKUP_RESTORE_DIALOG_TITLE}
+      busy={busy}
       onClose={onClose}
-      aria-modal="true"
-      aria-label={BACKUP_RESTORE_DIALOG_TITLE}
-      tabIndex={-1}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") event.stopPropagation();
+      onSubmit={submit}
+      initialFocusRef={closeRef}
+      submit={{
+        label: busy ? BACKUP_RESTORE_APPLYING_LABEL : BACKUP_RESTORE_APPLY_LABEL,
+        tone: "danger",
+        disabled: busy || !canApply,
       }}
-      onCancel={(event) => {
-        if (busy) event.preventDefault();
-      }}
-      className={cn(
-        "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
-        singleColumn
-          ? "m-0 h-dvh max-h-none w-screen max-w-none rounded-none border-0"
-          : "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] rounded-xl border shadow-panel",
-      )}
+      width="wide"
+      body="dense"
+      singleColumn={singleColumn}
     >
-      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
-        <div className="min-w-0">
-          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">BACKUP</div>
-          <h2 className="text-md font-semibold text-ink-strong">{BACKUP_RESTORE_DIALOG_TITLE}</h2>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="閉じる"
-          title="閉じる"
-          disabled={busy}
-          className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
-        >
-          <CloseIcon />
-        </button>
-      </header>
+      <div className="grid gap-0.5">
+        <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">FILE</span>
+        <span className="min-w-0 truncate text-ink-strong" title={flow.fileName}>
+          {flow.fileName}
+        </span>
+      </div>
 
-      <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-        <div className="grid min-h-0 flex-1 scrollbar-thin content-start gap-3 overflow-y-auto px-4 py-3.5 text-xs leading-relaxed">
-          <div className="grid gap-0.5">
-            <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">FILE</span>
-            <span className="min-w-0 truncate text-ink-strong" title={flow.fileName}>
-              {flow.fileName}
-            </span>
-          </div>
+      {flow.status === "planning" ? <p className="break-words text-ink-soft">{BACKUP_RESTORE_PLANNING_NOTE}</p> : null}
 
-          {flow.status === "planning" ? (
-            <p className="break-words text-ink-soft">{BACKUP_RESTORE_PLANNING_NOTE}</p>
+      {plan ? (
+        <>
+          <p className="break-words text-ink-muted">{backupTotalSummary(plan)}</p>
+          {plan.blocked ? (
+            <p className="rounded-lg border border-warn/50 bg-warn/10 px-2.5 py-2 text-2xs leading-relaxed break-words text-warn">
+              {plan.plans
+                .flatMap((item) =>
+                  item.blocker ? [`${BACKUP_TARGET_LABELS[item.target]}: ${backupBlockerText(item.blocker)}`] : [],
+                )
+                .join(" / ")}
+            </p>
+          ) : null}
+          {!plan.changed && !plan.blocked ? (
+            <p className="break-words text-ink-soft">選択した対象に変更はありません。</p>
           ) : null}
 
-          {plan ? (
-            <>
-              <p className="break-words text-ink-muted">{backupTotalSummary(plan)}</p>
-              {plan.blocked ? (
-                <p className="rounded-lg border border-warn/50 bg-warn/10 px-2.5 py-2 text-2xs leading-relaxed break-words text-warn">
-                  {plan.plans
-                    .flatMap((item) =>
-                      item.blocker ? [`${BACKUP_TARGET_LABELS[item.target]}: ${backupBlockerText(item.blocker)}`] : [],
-                    )
-                    .join(" / ")}
-                </p>
-              ) : null}
-              {!plan.changed && !plan.blocked ? (
-                <p className="break-words text-ink-soft">選択した対象に変更はありません。</p>
-              ) : null}
-
-              {/* 行は manifest の全対象ぶん出す。OFF にした対象は plan から消えるため、
+          {/* 行は manifest の全対象ぶん出す。OFF にした対象は plan から消えるため、
                   plans を回すとトグルが消えて再 ON できなくなる */}
-              {plan.manifest.targets.map((target) => (
-                <TargetSection
-                  key={target}
-                  target={target}
-                  plan={backupTargetPlanOf(plan, target)}
-                  selected={plan.selected.includes(target)}
-                  busy={busy}
-                  onToggle={onToggleTarget}
-                />
-              ))}
+          {plan.manifest.targets.map((target) => (
+            <TargetSection
+              key={target}
+              target={target}
+              plan={backupTargetPlanOf(plan, target)}
+              selected={plan.selected.includes(target)}
+              busy={busy}
+              onToggle={onToggleTarget}
+            />
+          ))}
 
-              {backupWarningTexts(plan.plans.flatMap((item) => item.warnings)).length > 0 ? (
-                <div className="grid gap-1">
-                  <h3 className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">警告</h3>
-                  <ul className="grid gap-0.5 text-2xs leading-4 break-words text-warn">
-                    {backupWarningTexts(plan.plans.flatMap((item) => item.warnings)).map((text) => (
-                      <li key={text}>{text}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {removed.length > 0 ? (
-                <div className="grid gap-1">
-                  <h3 className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">削除される定義</h3>
-                  <ul className="grid gap-0.5 text-2xs leading-4 break-words text-ink-soft">
-                    {removed.map((name) => (
-                      <li key={name}>{name}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {needsConfirm ? (
-                <label className="flex items-start gap-2 rounded-lg border border-warn/50 bg-warn/10 px-2.5 py-2 text-2xs leading-relaxed text-ink-strong">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 accent-focus"
-                    checked={confirmed}
-                    disabled={busy}
-                    onChange={(event) => onConfirmed(event.currentTarget.checked)}
-                  />
-                  <span className="min-w-0 break-words">{BACKUP_RESTORE_DELETE_CHECK_LABEL}</span>
-                </label>
-              ) : null}
-
-              <p className="text-2xs leading-relaxed break-words text-ink-muted">{BACKUP_KEPT_NOTE}</p>
-              <p className="text-2xs leading-relaxed break-words text-ink-muted">{BACKUP_SKILL_LIMITS_NOTE}</p>
-            </>
+          {backupWarningTexts(plan.plans.flatMap((item) => item.warnings)).length > 0 ? (
+            <div className="grid gap-1">
+              <h3 className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">警告</h3>
+              <ul className="grid gap-0.5 text-2xs leading-4 break-words text-warn">
+                {backupWarningTexts(plan.plans.flatMap((item) => item.warnings)).map((text) => (
+                  <li key={text}>{text}</li>
+                ))}
+              </ul>
+            </div>
           ) : null}
-        </div>
 
-        <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-3">
-          <button
-            ref={closeRef}
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="btn-quiet singleColumn:min-h-11"
-          >
-            {BACKUP_RESTORE_CANCEL_LABEL}
-          </button>
-          <button type="submit" disabled={busy || !canApply} className="btn-danger singleColumn:min-h-11">
-            {busy ? BACKUP_RESTORE_APPLYING_LABEL : BACKUP_RESTORE_APPLY_LABEL}
-          </button>
-        </footer>
-      </form>
-    </dialog>
+          {removed.length > 0 ? (
+            <div className="grid gap-1">
+              <h3 className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">削除される定義</h3>
+              <ul className="grid gap-0.5 text-2xs leading-4 break-words text-ink-soft">
+                {removed.map((name) => (
+                  <li key={name}>{name}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {needsConfirm ? (
+            <label className="flex items-start gap-2 rounded-lg border border-warn/50 bg-warn/10 px-2.5 py-2 text-2xs leading-relaxed text-ink-strong">
+              <input
+                type="checkbox"
+                className="mt-0.5 accent-focus"
+                checked={confirmed}
+                disabled={busy}
+                onChange={(event) => onConfirmed(event.currentTarget.checked)}
+              />
+              <span className="min-w-0 break-words">{BACKUP_RESTORE_DELETE_CHECK_LABEL}</span>
+            </label>
+          ) : null}
+
+          <p className="text-2xs leading-relaxed break-words text-ink-muted">{BACKUP_KEPT_NOTE}</p>
+          <p className="text-2xs leading-relaxed break-words text-ink-muted">{BACKUP_SKILL_LIMITS_NOTE}</p>
+        </>
+      ) : null}
+    </WorkDialog>
   );
 }
 
