@@ -45,6 +45,46 @@ export function formatSpan(milliseconds: number): string {
   return `${Math.max(1, Math.round(milliseconds / MINUTE_MS))}分`;
 }
 
+/** 取得間隔。分単位の整数で出す（300000 → `5 分`）。 */
+export function formatFetchInterval(milliseconds: number): string {
+  return `${Math.max(1, Math.round(milliseconds / MINUTE_MS))} 分`;
+}
+
+/** 取得からの経過。稼働中の画面で「いまの値か」を判断するために使う。 */
+export function describeAge(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds) || milliseconds < MINUTE_MS) {
+    return "たった今";
+  }
+
+  if (milliseconds < HOUR_MS) {
+    return `${Math.floor(milliseconds / MINUTE_MS)} 分前`;
+  }
+
+  if (milliseconds < DAY_MS) {
+    return `${Math.floor(milliseconds / HOUR_MS)} 時間前`;
+  }
+
+  return `${Math.floor(milliseconds / DAY_MS)} 日前`;
+}
+
+/**
+ * 次の取得までの進み具合。バーの長さだけに使い、0〜1 の外へは出さない。
+ * 満タンで止まるのは「予定を過ぎても来ていない」という意味なので、循環させない。
+ */
+export function fetchProgress(capturedAt: number, now: number, intervalMs: number): number {
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    return 1;
+  }
+
+  const elapsed = now - capturedAt;
+
+  if (!Number.isFinite(elapsed)) {
+    return 0;
+  }
+
+  return Math.min(1, Math.max(0, elapsed / intervalMs));
+}
+
 /** 保存されている履歴の長さ。分だけは「分分」にならないよう単位を付けない。 */
 export function describeCoverage(milliseconds: number): string {
   if (milliseconds >= DAY_MS) {

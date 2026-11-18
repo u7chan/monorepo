@@ -249,23 +249,6 @@ h2 {
   border-radius: var(--up-radius-card);
 }
 
-.up-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--up-space-3);
-  margin-bottom: var(--up-space-4);
-}
-
-.up-toolbar-fetched {
-  color: var(--up-muted);
-}
-
-.up-auto {
-  color: var(--up-success);
-}
-
 .up-button-secondary {
   border-color: var(--up-line);
   background: transparent;
@@ -559,6 +542,7 @@ h2 {
 
 @media (prefers-reduced-motion: reduce) {
   .up-meter-fill,
+  .up-fetch-fill,
   .up-service-status-content,
   .up-service-status-chevron {
     transition: none;
@@ -588,6 +572,24 @@ h2 {
   justify-content: space-between;
   gap: var(--up-space-2);
   margin-top: auto;
+}
+
+/* 次の取得までの進み具合。利用率メーターと見間違えないよう、細い線だけにする。 */
+.up-fetch {
+  flex-basis: 100%;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--up-raised);
+}
+
+.up-fetch-fill {
+  display: block;
+  height: 100%;
+  background: var(--up-muted);
+  transform-origin: left center;
+  /* 描画のたびに 0 からやり直さない。長さは clock の間隔に合わせて要素側で上書きする。 */
+  transition: transform 30s linear;
 }
 
 .up-trend {

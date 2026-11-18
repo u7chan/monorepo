@@ -1,7 +1,8 @@
 import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
 import type { UsageSource } from "../api";
-import { formatClock } from "../lib/format";
+import { describeAge, fetchProgress, formatClock, formatFetchInterval } from "../lib/format";
+import { CLOCK_TICK_MS } from "../time";
 import { deriveProviderStatus, showsWindows } from "../lib/status";
 import { findBlockedWindows, pickTrendWindow } from "../lib/windows";
 import { AccountIcon } from "./AccountIcon";
@@ -14,6 +15,8 @@ export function ProviderCard(props: {
   now: number;
   /** 推移の右端。再取得のたびにグラフが横にずれないよう、描画時刻ではなく応答時刻を使う。 */
   generatedAt: number | null;
+  /** 上流を取りに行く間隔。バーの進み具合と「次はいつか」の文言に使う。 */
+  intervalMs: number | null;
   /** 推移を省いてカードを短くする。3 件をスクロールせず見たいときの表示。 */
   compact?: boolean;
   /** provider ごとの操作（編集・削除など）。見出しの右に置く。 */
@@ -38,7 +41,17 @@ export function ProviderCard(props: {
   const retryHint =
     source.error?.code === "subscription_required"
       ? "契約の反映後、自動で取得し直します。"
-      : "5 分後に自動で再試行します。";
+      : props.intervalMs === null
+        ? "しばらくしてから自動で再試行します。"
+        : `${formatFetchInterval(props.intervalMs)}後に自動で再試行します。`;
+  const intervalLabel = props.intervalMs === null ? null : formatFetchInterval(props.intervalMs);
+  const capturedAt = source.capturedAt;
+  const ageLabel = capturedAt === null ? null : describeAge(props.now - capturedAt);
+  // 予定を過ぎて満タンのまま止まる状態を正常系として出す。失敗・停止中はバーを出さず、文言で示す。
+  const progress =
+    source.state === "ok" && capturedAt !== null && props.intervalMs !== null
+      ? fetchProgress(capturedAt, props.now + CLOCK_TICK_MS, props.intervalMs)
+      : null;
 
   return (
     <article class="up-card up-provider">
@@ -75,7 +88,11 @@ export function ProviderCard(props: {
 
       {source.state === "stale" ? (
         <div class="up-empty">
-          <p class="up-caption">前回取得した値を表示しています。</p>
+          <p class="up-caption">
+            {capturedAt === null
+              ? "前回取得した値を表示しています。"
+              : `${formatClock(capturedAt)} に取得した値を表示しています。`}
+          </p>
           {source.error ? <p class="up-caption">{source.error.message}</p> : null}
           <p class="up-caption">{retryHint}</p>
         </div>
@@ -110,8 +127,25 @@ export function ProviderCard(props: {
 
       <footer class="up-provider-foot">
         <p class="up-caption">
-          {source.capturedAt === null ? "まだ取得していません" : `最終取得 ${formatClock(source.capturedAt)}`}
+          {capturedAt === null
+            ? "まだ取得していません"
+            : [
+                // 簡易表示では間隔まで出さず、値の古さだけを残す。
+                !props.compact && intervalLabel !== null ? `${intervalLabel}間隔` : null,
+                ageLabel,
+              ]
+                .filter((part) => part !== null)
+                .join("・")}
         </p>
+        {progress === null ? null : (
+          <div class="up-fetch" aria-hidden="true">
+            <span
+              key={capturedAt}
+              class="up-fetch-fill"
+              style={{ transform: `scaleX(${progress})`, transitionDuration: `${CLOCK_TICK_MS}ms` }}
+            />
+          </div>
+        )}
       </footer>
 
       {props.children}

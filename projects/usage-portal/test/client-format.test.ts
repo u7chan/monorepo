@@ -1,11 +1,14 @@
 // 画面に出す文言の境界（まもなく / 分 / 時間 / 日、% の丸め、日時）を固定する。
 import { describe, expect, test } from "bun:test";
 import {
+  describeAge,
   describeCoverage,
   describeRemaining,
   describeReset,
+  fetchProgress,
   formatClock,
   formatDateTime,
+  formatFetchInterval,
   formatMonthDay,
   formatPercent,
   formatSpan,
@@ -71,6 +74,40 @@ describe("formatSpan / describeCoverage", () => {
     expect(describeCoverage(5 * HOUR)).toBe("5 時間分");
     expect(describeCoverage(3 * DAY + 2 * HOUR)).toBe("3 日分");
     expect(describeCoverage(30 * 1000)).toBe("1 分");
+  });
+});
+
+describe("fetch interval and age", () => {
+  test("取得間隔は分で出す", () => {
+    expect(formatFetchInterval(5 * MINUTE)).toBe("5 分");
+    expect(formatFetchInterval(10 * MINUTE)).toBe("10 分");
+    expect(formatFetchInterval(2 * HOUR)).toBe("120 分");
+    // 0 は「0 分間隔」と出さず、下限へ寄せる。
+    expect(formatFetchInterval(0)).toBe("1 分");
+  });
+
+  test("経過は切り捨てで出す", () => {
+    expect(describeAge(-1000)).toBe("たった今");
+    expect(describeAge(MINUTE - 1)).toBe("たった今");
+    expect(describeAge(MINUTE)).toBe("1 分前");
+    expect(describeAge(12 * MINUTE + 59_000)).toBe("12 分前");
+    expect(describeAge(HOUR)).toBe("1 時間前");
+    expect(describeAge(2 * DAY + 23 * HOUR)).toBe("2 日前");
+    expect(describeAge(Number.NaN)).toBe("たった今");
+  });
+
+  test("進捗は 0〜1 に収め、予定を過ぎたら満タンで止める", () => {
+    const interval = 10 * MINUTE;
+    const capturedAt = 1_000_000;
+
+    expect(fetchProgress(capturedAt, capturedAt, interval)).toBe(0);
+    expect(fetchProgress(capturedAt, capturedAt + interval / 2, interval)).toBe(0.5);
+    // 取得時刻がクライアントの時計より先でも負にしない。
+    expect(fetchProgress(capturedAt, capturedAt - MINUTE, interval)).toBe(0);
+    // 循環させず、満タンのまま止める。
+    expect(fetchProgress(capturedAt, capturedAt + 3 * interval, interval)).toBe(1);
+    expect(fetchProgress(capturedAt, capturedAt + MINUTE, 0)).toBe(1);
+    expect(fetchProgress(Number.NaN, capturedAt, interval)).toBe(0);
   });
 });
 

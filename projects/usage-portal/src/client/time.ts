@@ -5,6 +5,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** 期限の 3 日前から再ログインを促す。 */
 export const EXPIRY_NOTICE_MS = 3 * DAY_MS;
 
+/** 「あと N 分」と進捗バーを進める間隔。バーの transition の長さもこれに合わせる。 */
+export const CLOCK_TICK_MS = 30_000;
+
 export function lockSecondsLeft(lockedUntil: number, now: number): number {
   return Math.max(0, Math.ceil((lockedUntil - now) / 1000));
 }

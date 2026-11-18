@@ -41,12 +41,11 @@ import { OverflowMenu, type MenuItem } from "./components/OverflowMenu";
 import { ProbeSettingsForm } from "./components/ProbeSettingsForm";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { ViewModeToggle } from "./components/ViewModeToggle";
-import { formatClock } from "./lib/format";
 import { orderSources } from "./lib/order";
 import { hasActiveOpenCodeSource } from "./lib/opencode-status";
 import { readProbeLoad } from "./lib/probe";
 import { type ViewMode, browserStorage, readViewMode, writeViewMode } from "./lib/view-mode";
-import { expiryNotice } from "./time";
+import { CLOCK_TICK_MS, expiryNotice } from "./time";
 
 type View =
   | { kind: "loading" }
@@ -144,7 +143,7 @@ function Layout(props: { children: ComponentChildren; tools?: ComponentChildren;
       </header>
       <main class="up-main">{props.children}</main>
       <footer class="up-footer">
-        <span class="up-caption">5 分ごとに取得 · 利用枠の確認と最小プロンプトの送信</span>
+        <span class="up-caption">利用枠の確認と最小プロンプトの送信</span>
       </footer>
     </>
   );
@@ -175,7 +174,7 @@ function Dashboard(props: {
 
   // 「あと N 日」と期限バナーを操作なしでも進める。
   useEffect(() => {
-    const timer = setInterval(() => setClock(Date.now()), 30_000);
+    const timer = setInterval(() => setClock(Date.now()), CLOCK_TICK_MS);
 
     return () => clearInterval(timer);
   }, []);
@@ -522,17 +521,6 @@ function Dashboard(props: {
       menu={<OverflowMenu label="メニュー" items={menu} />}
     >
       {expiry ? <SessionExpiryBanner remaining={expiry} onRelogin={props.onRelogin} /> : null}
-      <div class="up-toolbar">
-        <p class="up-caption">
-          <span class="up-auto" aria-hidden="true">
-            ●
-          </span>{" "}
-          <span>自動更新（60 秒）</span>
-          <span class="up-toolbar-fetched">
-            {usage ? ` · 最終取得 ${formatClock(usage.generatedAt)}` : " · 取得中…"}
-          </span>
-        </p>
-      </div>
       {hasActiveOpenCodeSource(sources) ? <OpenCodeStatusPanel now={clock} onUnauthorized={onUnauthorized} /> : null}
       <div class="up-providers" data-density={viewMode}>
         {sources.map((source) =>
@@ -542,6 +530,7 @@ function Dashboard(props: {
               source={source}
               now={clock}
               generatedAt={usage?.generatedAt ?? null}
+              intervalMs={usage?.sampleIntervalMs ?? null}
               compact={compact}
               auth={codex}
               actions={codexActions}
@@ -556,6 +545,7 @@ function Dashboard(props: {
               source={source}
               now={clock}
               generatedAt={usage?.generatedAt ?? null}
+              intervalMs={usage?.sampleIntervalMs ?? null}
               compact={compact}
               actions={openCodeActions}
               account={accounts.accounts.find((candidate) => candidate.id === source.id) ?? null}
