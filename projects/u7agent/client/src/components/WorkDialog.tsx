@@ -24,9 +24,26 @@ export type WorkDialogProps = {
    * 呼び出し側の ref 名は問わない (`cancelRef` / `closeRef` のどちらでも渡せる)
    */
   initialFocusRef: RefObject<HTMLButtonElement | null>;
-  note: WorkDialogNote;
-  /** 主ボタン。`tone` は元に戻せない操作だけ danger にする */
-  submit: { label: string; tone: "primary" | "danger"; disabled: boolean };
+  /**
+   * ヘッダーの X の ref。完了でフッター (キャンセル) が消える面は、焦点を残る閉じる導線である X へ移す
+   */
+  closeButtonRef?: RefObject<HTMLButtonElement | null>;
+  /**
+   * 主ボタン。**省略するとフッターを描かない**: 結果を残す面は、完了後に X だけを閉じる導線として残す
+   * (docs/ui-layout.md の「段階で出口を変える」)
+   */
+  submit?: { label: string; tone: "primary" | "danger"; disabled: boolean };
+  /** フッターの注記。省略するとフッターはアクション行だけになる (注記行は任意) */
+  note?: WorkDialogNote;
+  /** ヘッダーとフォームの間の帯 (タブ行など、本文の外に置く操作) */
+  toolbar?: ReactNode;
+  /** 幅。`wide` は一覧・複数列を持つ面 (narrow は 1 列の確認) */
+  width?: "narrow" | "wide";
+  /**
+   * 本文の組み方。`prose` は説明文を積む面、`dense` は行の多い一覧を持つ面 (項目間を詰める)、
+   * `fields` は入力欄を積む面 (行間は各欄が持つ)。行間・項目間は殻が持ち、呼び出し側は class を渡さない
+   */
+  body?: "prose" | "dense" | "fields";
   singleColumn?: boolean;
   /** 本文 (スクロール領域の中身)。選択 UI・トグル・確認文言は呼び出し側が持つ */
   children: ReactNode;
@@ -39,6 +56,13 @@ export type WorkDialogProps = {
  * Escape / X / キャンセルを止め、初期焦点はキャンセルに置く。背面の inert 化・Tab の拘束・Escape の
  * 終了は `showModal()` の標準挙動に任せ、開く前に当たっていた要素へ焦点を戻す。
  */
+/** 本文の組み方。行間・項目間・文字の大きさは殻が持ち、呼び出し側は class を渡さない (docs/frontend.md) */
+const BODY_CLASS = {
+  prose: "grid min-h-0 flex-1 scrollbar-thin content-start gap-3.5 overflow-y-auto px-4 py-3.5 text-xs leading-relaxed",
+  dense: "grid min-h-0 flex-1 scrollbar-thin content-start gap-3 overflow-y-auto px-4 py-3.5 text-xs leading-relaxed",
+  fields: "grid min-h-0 flex-1 scrollbar-thin content-start gap-3.5 overflow-y-auto px-4 py-3.5",
+} as const;
+
 export function WorkDialog({
   eyebrow,
   title,
@@ -46,8 +70,12 @@ export function WorkDialog({
   onClose,
   onSubmit,
   initialFocusRef,
-  note,
+  closeButtonRef,
   submit,
+  note,
+  toolbar,
+  width = "narrow",
+  body = "prose",
   singleColumn = false,
   children,
 }: WorkDialogProps) {
@@ -72,6 +100,27 @@ export function WorkDialog({
     initialFocusRef.current?.focus();
   }, [initialFocusRef]);
 
+  const actions = (
+    <>
+      <button
+        ref={initialFocusRef}
+        type="button"
+        onClick={onClose}
+        className="btn-quiet singleColumn:min-h-11"
+        disabled={busy}
+      >
+        キャンセル
+      </button>
+      <button
+        type="submit"
+        disabled={submit?.disabled ?? true}
+        className={submit?.tone === "danger" ? "btn-danger singleColumn:min-h-11" : "btn-primary singleColumn:min-h-11"}
+      >
+        {submit?.label}
+      </button>
+    </>
+  );
+
   return (
     <dialog
       ref={dialogRef}
@@ -91,7 +140,9 @@ export function WorkDialog({
         "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
         singleColumn
           ? "m-0 h-dvh max-h-none w-screen max-w-none rounded-none border-0"
-          : "m-auto max-h-[min(88dvh,760px)] w-[min(420px,92vw)] rounded-xl border shadow-panel",
+          : width === "wide"
+            ? "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] rounded-xl border shadow-panel"
+            : "m-auto max-h-[min(88dvh,760px)] w-[min(420px,92vw)] rounded-xl border shadow-panel",
       )}
     >
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
@@ -100,6 +151,7 @@ export function WorkDialog({
           <h2 className="text-md font-semibold text-ink-strong">{title}</h2>
         </div>
         <button
+          ref={closeButtonRef}
           type="button"
           onClick={onClose}
           aria-label="閉じる"
@@ -111,40 +163,29 @@ export function WorkDialog({
         </button>
       </header>
 
-      <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
-        <div className="grid min-h-0 flex-1 scrollbar-thin content-start gap-3.5 overflow-y-auto px-4 py-3.5 text-xs leading-relaxed">
-          {children}
-        </div>
+      {toolbar}
 
-        <footer className="grid shrink-0 gap-1.5 border-t border-line px-4 py-3">
-          {/* 注記はボタン行の上に固定する (長い理由でボタンが縦中央に浮かない) */}
-          <p
-            role={note.danger ? "alert" : undefined}
-            className={cn("min-w-0 text-1xs leading-relaxed", note.danger ? "text-danger-text" : "text-ink-muted")}
-          >
-            {note.text}
-          </p>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              ref={initialFocusRef}
-              type="button"
-              onClick={onClose}
-              className="btn-quiet singleColumn:min-h-11"
-              disabled={busy}
+      <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+        <div className={BODY_CLASS[body]}>{children}</div>
+
+        {/* 主ボタンが無い = 実行するものが残っていない面。出口はヘッダーの X だけにする */}
+        {submit === undefined ? null : note === undefined ? (
+          // 注記を持たない面はアクション行だけ。注記ありの面は注記を上に固定する
+          // (長い理由でボタンが縦中央に浮かない)
+          <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-3">
+            {actions}
+          </footer>
+        ) : (
+          <footer className="grid shrink-0 gap-1.5 border-t border-line px-4 py-3">
+            <p
+              role={note.danger ? "alert" : undefined}
+              className={cn("min-w-0 text-1xs leading-relaxed", note.danger ? "text-danger-text" : "text-ink-muted")}
             >
-              キャンセル
-            </button>
-            <button
-              type="submit"
-              disabled={submit.disabled}
-              className={
-                submit.tone === "danger" ? "btn-danger singleColumn:min-h-11" : "btn-primary singleColumn:min-h-11"
-              }
-            >
-              {submit.label}
-            </button>
-          </div>
-        </footer>
+              {note.text}
+            </p>
+            <div className="flex items-center justify-end gap-2">{actions}</div>
+          </footer>
+        )}
       </form>
     </dialog>
   );
