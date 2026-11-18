@@ -12,9 +12,9 @@ import {
 } from "./request-network-access-tool";
 import { SKILL_FILE_NAME } from "./builtin-skills";
 import type { PiSessionLike } from "./pi-runtime";
+import { computeMessageMetrics } from "./message-metrics";
 import { assistantModelLabel, parseUsage } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
-import { computeMessageMetrics } from "./run-events";
 import type {
   AskUserAnswer,
   AskUserQuestion,
