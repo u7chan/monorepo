@@ -5,7 +5,6 @@ import {
   describeCoverage,
   describeRemaining,
   describeReset,
-  fetchProgress,
   formatClock,
   formatDateTime,
   formatFetchInterval,
@@ -94,20 +93,6 @@ describe("fetch interval and age", () => {
     expect(describeAge(HOUR)).toBe("1 時間前");
     expect(describeAge(2 * DAY + 23 * HOUR)).toBe("2 日前");
     expect(describeAge(Number.NaN)).toBe("たった今");
-  });
-
-  test("進捗は 0〜1 に収め、予定を過ぎたら満タンで止める", () => {
-    const interval = 10 * MINUTE;
-    const capturedAt = 1_000_000;
-
-    expect(fetchProgress(capturedAt, capturedAt, interval)).toBe(0);
-    expect(fetchProgress(capturedAt, capturedAt + interval / 2, interval)).toBe(0.5);
-    // 取得時刻がクライアントの時計より先でも負にしない。
-    expect(fetchProgress(capturedAt, capturedAt - MINUTE, interval)).toBe(0);
-    // 循環させず、満タンのまま止める。
-    expect(fetchProgress(capturedAt, capturedAt + 3 * interval, interval)).toBe(1);
-    expect(fetchProgress(capturedAt, capturedAt + MINUTE, 0)).toBe(1);
-    expect(fetchProgress(Number.NaN, capturedAt, interval)).toBe(0);
   });
 });
 

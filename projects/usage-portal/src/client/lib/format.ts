@@ -67,24 +67,6 @@ export function describeAge(milliseconds: number): string {
   return `${Math.floor(milliseconds / DAY_MS)} 日前`;
 }
 
-/**
- * 次の取得までの進み具合。バーの長さだけに使い、0〜1 の外へは出さない。
- * 満タンで止まるのは「予定を過ぎても来ていない」という意味なので、循環させない。
- */
-export function fetchProgress(capturedAt: number, now: number, intervalMs: number): number {
-  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
-    return 1;
-  }
-
-  const elapsed = now - capturedAt;
-
-  if (!Number.isFinite(elapsed)) {
-    return 0;
-  }
-
-  return Math.min(1, Math.max(0, elapsed / intervalMs));
-}
-
 /** 保存されている履歴の長さ。分だけは「分分」にならないよう単位を付けない。 */
 export function describeCoverage(milliseconds: number): string {
   if (milliseconds >= DAY_MS) {

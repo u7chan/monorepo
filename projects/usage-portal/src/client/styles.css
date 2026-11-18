@@ -542,10 +542,14 @@ h2 {
 
 @media (prefers-reduced-motion: reduce) {
   .up-meter-fill,
-  .up-fetch-fill,
   .up-service-status-content,
   .up-service-status-chevron {
     transition: none;
+  }
+
+  /* バーは動きで意味を伝える装飾なので、動きを減らす設定では出さない。文言は残る。 */
+  .up-fetch {
+    display: none;
   }
 }
 
@@ -588,8 +592,20 @@ h2 {
   height: 100%;
   background: var(--up-muted);
   transform-origin: left center;
-  /* 描画のたびに 0 からやり直さない。長さは clock の間隔に合わせて要素側で上書きする。 */
-  transition: transform 30s linear;
+  /* 間隔と経過は要素側で渡す。取得から満タンまでを 1 本で描き、再描画でやり直さない。 */
+  animation-name: up-fetch-grow;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes up-fetch-grow {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
 }
 
 .up-trend {

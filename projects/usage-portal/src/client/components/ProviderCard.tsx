@@ -1,8 +1,7 @@
 import type { ComponentChildren } from "preact";
-import { useState } from "preact/hooks";
+import { useMemo, useState } from "preact/hooks";
 import type { UsageSource } from "../api";
-import { describeAge, fetchProgress, formatClock, formatFetchInterval } from "../lib/format";
-import { CLOCK_TICK_MS } from "../time";
+import { describeAge, formatClock, formatDateTime, formatFetchInterval } from "../lib/format";
 import { deriveProviderStatus, showsWindows } from "../lib/status";
 import { findBlockedWindows, pickTrendWindow } from "../lib/windows";
 import { AccountIcon } from "./AccountIcon";
@@ -47,11 +46,21 @@ export function ProviderCard(props: {
   const intervalLabel = props.intervalMs === null ? null : formatFetchInterval(props.intervalMs);
   const capturedAt = source.capturedAt;
   const ageLabel = capturedAt === null ? null : describeAge(props.now - capturedAt);
-  // 予定を過ぎて満タンのまま止まる状態を正常系として出す。失敗・停止中はバーを出さず、文言で示す。
-  const progress =
-    source.state === "ok" && capturedAt !== null && props.intervalMs !== null
-      ? fetchProgress(capturedAt, props.now + CLOCK_TICK_MS, props.intervalMs)
-      : null;
+  // バーの経過は capturedAt ごとに固定する。再描画のたびに経過を計算し直すと
+  // animation-delay が変わり、アニメーションが先頭からやり直しになる。
+  // 予定を過ぎて満タンのまま止まる状態を正常系として出す。失敗・停止中はバーを出さない。
+  const bar = useMemo(() => {
+    if (source.state !== "ok" || source.capturedAt === null || props.intervalMs === null) {
+      return null;
+    }
+
+    return {
+      capturedAt: source.capturedAt,
+      intervalMs: props.intervalMs,
+      elapsedMs: Math.max(0, props.now - source.capturedAt),
+    };
+    // props.now は依存に入れない。マウント時の経過をそのままバーの開始位置にする。
+  }, [source.state, source.capturedAt, props.intervalMs]);
 
   return (
     <article class="up-card up-provider">
@@ -126,7 +135,7 @@ export function ProviderCard(props: {
       ) : null}
 
       <footer class="up-provider-foot">
-        <p class="up-caption">
+        <p class="up-caption" title={capturedAt === null ? undefined : `${formatDateTime(capturedAt)} に取得`}>
           {capturedAt === null
             ? "まだ取得していません"
             : [
@@ -137,12 +146,12 @@ export function ProviderCard(props: {
                 .filter((part) => part !== null)
                 .join("・")}
         </p>
-        {progress === null ? null : (
+        {bar === null ? null : (
           <div class="up-fetch" aria-hidden="true">
             <span
-              key={capturedAt}
+              key={bar.capturedAt}
               class="up-fetch-fill"
-              style={{ transform: `scaleX(${progress})`, transitionDuration: `${CLOCK_TICK_MS}ms` }}
+              style={{ animationDuration: `${bar.intervalMs}ms`, animationDelay: `-${bar.elapsedMs}ms` }}
             />
           </div>
         )}
