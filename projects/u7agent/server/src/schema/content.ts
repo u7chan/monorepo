@@ -1,6 +1,5 @@
 /** コンテンツ生成 (画像 / 音声 / BGM / 試行 / 価格表) の DTO。DTO のフィールド名と optional の扱いは client と揃える。 */
-import { COST_SIDES, COST_UNITS } from "../content-vocabulary";
-import { TRIAL_ARTIFACT_FORMATS } from "../content-trial-artifacts";
+import { COST_SIDES, COST_UNITS, TRIAL_ARTIFACT_FORMATS } from "../content-vocabulary";
 import {
   CONTENT_TRIAL_ARTIFACT_STATES,
   CONTENT_TRIAL_FAILURE_CODES,
