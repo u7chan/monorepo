@@ -8,6 +8,8 @@ import {
   loadFetchIntervals,
   openDatabase,
   saveFetchInterval,
+  saveProviderError,
+  loadProviderErrors,
   SCHEMA_VERSION,
   verifyDatabase,
   type DatabaseHandle,
@@ -185,6 +187,26 @@ describe("fetch_interval", () => {
       new Map([
         ["codex", 600_000],
         ["opencode-go", 1_800_000],
+      ]),
+    );
+  });
+});
+
+describe("provider_error の一括読み出し", () => {
+  test("停止判定に使う分類と時刻を source ごとに返す", () => {
+    const handle = open();
+
+    saveProviderError(handle, "opencode-go:11111111-1111-4111-8111-111111111111", {
+      code: "subscription_required",
+      message: "契約が必要です",
+      at: 1234,
+    });
+    saveProviderError(handle, "codex", { code: "upstream", message: "取得できません", at: 5678 });
+
+    expect(loadProviderErrors(handle)).toEqual(
+      new Map([
+        ["opencode-go:11111111-1111-4111-8111-111111111111", { code: "subscription_required", at: 1234 }],
+        ["codex", { code: "upstream", at: 5678 }],
       ]),
     );
   });

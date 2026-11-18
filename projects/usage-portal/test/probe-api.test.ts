@@ -71,6 +71,7 @@ function harness(
         credential: async () => ({ accessToken: "token" }),
         userAgent: "usage-portal-test/0.0.0",
         kick: async () => {},
+        kickOpenCode: async () => {},
         log: () => {},
         providers: { codex: neverCalled, opencodeGo: neverCalled },
       })

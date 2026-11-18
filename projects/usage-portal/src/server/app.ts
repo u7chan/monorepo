@@ -374,6 +374,17 @@ export function createApp(deps: AppDeps) {
     return result.ok ? c.json({ latencyMs: result.latencyMs }) : probeError(c, result.error);
   });
 
+  app.post("/api/opencode/accounts/:id/refresh", requireSession, async (c) => {
+    const result = await deps.opencode.refresh(c.req.param("id") ?? "");
+
+    // 取得を試した結果まで返す。204 だけだと、失敗しても画面が成功として扱ってしまう。
+    if (result === "not_found") {
+      return c.json({ error: "not_found" as const }, 404);
+    }
+
+    return c.json({ ok: result === "ok" });
+  });
+
   app.delete("/api/opencode/accounts/:id", requireSession, async (c) => {
     const result = await deps.opencode.remove(c.req.param("id") ?? "");
 

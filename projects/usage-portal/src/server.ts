@@ -27,7 +27,8 @@ import { fetchIntervalMs } from "./shared/fetch-interval";
 import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "./server/providers";
 import { fetchCodexUsage } from "./server/providers/codex";
 import { fetchOpenCodeUsage } from "./server/providers/opencode-go";
-import { createSampler, type UsageFetcher } from "./server/sampler";
+import { createSampler, PAUSED_RETRY_INTERVAL_MS, type UsageFetcher } from "./server/sampler";
+import { loadProviderErrors } from "./server/db";
 import { staticRoutes } from "./server/static";
 import { createUsageReader } from "./server/usage";
 import { readPackageVersion, userAgentFor } from "./server/version";
@@ -96,21 +97,32 @@ try {
 }
 
 // 取得のたびに評価する。アカウントの追加・削除が再起動なしで次の取得から反映される。
-const fetchers = (): UsageFetcher[] => [
-  {
-    // サインイン中はアカウント別のキーへ書き、未接続時だけ base キーに error を書く。
-    sourceId: codexSourceId(codexAuth.accountId()),
-    provider: CODEX_PROVIDER,
-    // source id の accountId はログへ出さない。
-    logLabel: CODEX_PROVIDER.id,
-    fetch: () => fetchCodexUsage({ source: codexAuth, userAgent, now: Date.now }),
-  },
-  ...openCodeAccounts.list().map((account) => ({
-    sourceId: openCodeSourceId(account.id),
-    provider: OPENCODE_PROVIDER,
-    fetch: () => fetchOpenCodeUsage({ apiKey: openCodeAccounts.apiKey(account.id), userAgent, now: Date.now }),
-  })),
-];
+const fetchers = (): UsageFetcher[] => {
+  const errors = loadProviderErrors(database);
+
+  return [
+    {
+      // サインイン中はアカウント別のキーへ書き、未接続時だけ base キーに error を書く。
+      sourceId: codexSourceId(codexAuth.accountId()),
+      provider: CODEX_PROVIDER,
+      // source id の accountId はログへ出さない。
+      logLabel: CODEX_PROVIDER.id,
+      fetch: () => fetchCodexUsage({ source: codexAuth, userAgent, now: Date.now }),
+    },
+    ...openCodeAccounts.list().map((account) => {
+      const sourceId = openCodeSourceId(account.id);
+      const error = errors.get(sourceId);
+
+      return {
+        sourceId,
+        provider: OPENCODE_PROVIDER,
+        // 契約エラーで止めたアカウントは、取得間隔ではなく失敗時刻から 6 時間後の再確認に落とす。
+        pausedUntil: error?.code === "subscription_required" ? error.at + PAUSED_RETRY_INTERVAL_MS : null,
+        fetch: () => fetchOpenCodeUsage({ apiKey: openCodeAccounts.apiKey(account.id), userAgent, now: Date.now }),
+      };
+    }),
+  ];
+};
 // env の POLL_INTERVAL_MS は、画面から設定していない provider の既定値として使う。
 const fetchIntervals = createFetchIntervalStore({ db: database, defaultMs: config.pollIntervalMs, log });
 const sampler = createSampler({
@@ -136,6 +148,9 @@ const probe = createProbeApi({
     credential: () => codexAuth.credential(),
     userAgent,
     kick: () => sampler.kick("codex"),
+    kickOpenCode: async (accountId) => {
+      await sampler.refreshSource(openCodeSourceId(accountId));
+    },
     now: Date.now,
     log,
   }),

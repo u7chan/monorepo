@@ -101,6 +101,17 @@ export function loadFetchIntervals(handle: DatabaseHandle): Map<string, number> 
   return new Map(rows.map((row) => [row.provider, row.interval_ms]));
 }
 
+/** 停止判定に使う失敗の分類と時刻を、source ごとにまとめて読む。 */
+export function loadProviderErrors(handle: DatabaseHandle): Map<string, { code: string; at: number }> {
+  const rows = handle.db.query("SELECT provider, failed_at, code FROM provider_error").all() as {
+    provider: string;
+    failed_at: number;
+    code: string;
+  }[];
+
+  return new Map(rows.map((row) => [row.provider, { code: row.code, at: row.failed_at }]));
+}
+
 export function saveFetchInterval(handle: DatabaseHandle, provider: string, intervalMs: number): void {
   handle.db
     .query(`

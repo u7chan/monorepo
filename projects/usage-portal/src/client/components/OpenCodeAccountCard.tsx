@@ -22,11 +22,15 @@ export function OpenCodeAccountCard(props: {
   /** 接続確認のモデル選択肢。catalog を取得できていなければ空。 */
   models: readonly ProbeModel[];
   onCheck: (id: string) => Promise<ProbeCheckOutcome>;
+  /** 停止中のアカウントも含め、利用枠を取り直す。 */
+  onRefreshUsage: (id: string) => Promise<boolean | null>;
 }) {
   const [panel, setPanel] = useState<Panel>("closed");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
   const identity = props.source.account;
@@ -95,10 +99,33 @@ export function OpenCodeAccountCard(props: {
     setMessage(null);
   };
 
+  const refreshUsage = async (): Promise<void> => {
+    setRefreshing(true);
+    setRefreshMessage(null);
+
+    try {
+      const ok = await props.onRefreshUsage(identity.id);
+
+      setRefreshMessage(
+        ok === null
+          ? "通信に失敗しました。もう一度試してください。"
+          : ok
+            ? "利用枠を取り直しました。"
+            : "取り直しましたが、取得に失敗しました。カードの内容を確認してください。",
+      );
+    } catch {
+      setRefreshMessage("通信に失敗しました。もう一度試してください。");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const configured = account !== null && account.probeModel !== null && account.probeThinking !== null;
   const items: MenuItem[] = [
     // 編集中に probe の設定を消さないよう、一覧が揃うまでは開かせない。
     { label: "編集", onSelect: () => show("edit"), disabled: busy || account === null },
+    // 停止中でも使える再開の入口。probe の設定に依存しない。
+    { label: "利用枠を取得し直す", onSelect: () => void refreshUsage(), disabled: busy || refreshing },
     // 設定済みのアカウントだけ、そのキーで推論できるかを確かめられる。
     ...(configured ? [{ label: "接続確認", onSelect: () => void check(), disabled: busy || checking }] : []),
     { label: "削除", onSelect: () => show("delete"), disabled: busy, danger: true },
@@ -112,6 +139,15 @@ export function OpenCodeAccountCard(props: {
       compact={props.compact}
       headerMenu={<OverflowMenu label="このアカウントの操作" items={items} />}
     >
+      {refreshing ? (
+        <p class="up-caption" role="status">
+          利用枠を取り直しています…
+        </p>
+      ) : refreshMessage ? (
+        <p class="up-caption" role="status">
+          {refreshMessage}
+        </p>
+      ) : null}
       {checkMessage ? (
         <p class="up-caption" role="status">
           {checkMessage}

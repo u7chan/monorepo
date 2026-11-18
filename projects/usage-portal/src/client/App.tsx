@@ -29,6 +29,7 @@ import {
   fetchUsage,
   logout,
   logoutCodex,
+  refreshOpenCodeAccount,
   respondCodexLogin,
   saveCodexProbe,
   saveFetchInterval,
@@ -388,6 +389,18 @@ function Dashboard(props: {
     return ok;
   }, [loadCodex, loadUsage]);
 
+  const refreshAccountUsage = useCallback(
+    async (id: string): Promise<boolean | null> => {
+      const ok = await refreshOpenCodeAccount(id);
+
+      // 失敗しても、保存された error をカードへ出すために取り直す。
+      await loadUsage();
+
+      return ok;
+    },
+    [loadUsage],
+  );
+
   const createAccount = useCallback(
     async (input: OpenCodeAccountInput): Promise<string | null> => {
       let outcome: Awaited<ReturnType<typeof createOpenCodeAccount>>;
@@ -637,6 +650,7 @@ function Dashboard(props: {
               account={accounts.accounts.find((candidate) => candidate.id === source.id) ?? null}
               models={catalog?.opencodeGo ?? []}
               onCheck={checkAccount}
+              onRefreshUsage={refreshAccountUsage}
             />
           ),
         )}

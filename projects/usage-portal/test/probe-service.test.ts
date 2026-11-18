@@ -116,6 +116,7 @@ function createRunner(
   } = {},
 ) {
   const kicked: number[] = [];
+  const kickedOpenCode: string[] = [];
   const logs: string[] = [];
   const runner = createProbeRunner({
     settings: settings(overrides.config === undefined ? { model: "gpt-6-luna", thinking: "low" } : overrides.config),
@@ -130,6 +131,9 @@ function createRunner(
     kick: async () => {
       kicked.push(Date.now());
     },
+    kickOpenCode: async (accountId) => {
+      kickedOpenCode.push(accountId);
+    },
     timeoutMs: overrides.timeoutMs ?? 1_000,
     now: overrides.now,
     log: (message) => logs.push(message),
@@ -139,7 +143,7 @@ function createRunner(
     },
   });
 
-  return { runner, kicked, logs };
+  return { runner, kicked, kickedOpenCode, logs };
 }
 
 describe("checkCodex", () => {
@@ -241,6 +245,7 @@ describe("checkCodex", () => {
       accounts: accounts(null),
       credential: async () => ({ accessToken: "token" }),
       userAgent: "usage-portal-test/0.0.0",
+      kickOpenCode: async () => {},
       kick: () => {
         kicked += 1;
 
@@ -265,6 +270,7 @@ describe("checkCodex", () => {
       accounts: accounts(null),
       credential: async () => ({ accessToken: "token" }),
       userAgent: "usage-portal-test/0.0.0",
+      kickOpenCode: async () => {},
       kick: async () => {
         throw new Error("kick failed");
       },
@@ -278,6 +284,20 @@ describe("checkCodex", () => {
 });
 
 describe("checkOpenCode", () => {
+  test("上流に届いたら、そのアカウントの利用枠を取り直す", async () => {
+    const { runner, kickedOpenCode } = createRunner({ opencodeGo: { status: 200 } });
+
+    expect((await runner.checkOpenCode("account-1")).ok).toBe(true);
+    expect(kickedOpenCode).toEqual(["account-1"]);
+  });
+
+  test("上流に届かなければ取り直さない", async () => {
+    const { runner, kickedOpenCode } = createRunner({ opencodeGo: { status: null } });
+
+    expect((await runner.checkOpenCode("account-1")).ok).toBe(false);
+    expect(kickedOpenCode).toEqual([]);
+  });
+
   test("未設定・未知のアカウント・キー欠損は not_configured", async () => {
     const noProbe = createRunner({ account: stubAccount() });
     const noKey = createRunner({ apiKey: null });
