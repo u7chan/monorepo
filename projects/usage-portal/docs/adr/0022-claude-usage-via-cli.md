@@ -31,7 +31,7 @@ Codex と OpenCode Go は 5 分ごとにバックグラウンドで取る（ADR 
     保存済みの値を使う。
   - Claude カードの `⋮` メニューの「更新」。15 分の制限は受けないが、前回の試行から 60 秒は空ける。
     Codex と OpenCode Go のカードには足さない。
-- 画面を開いている間の定期取得はしない。15 分より古い値は `stale` として出し、更新は手動にする。
+- 画面を開いている間の定期取得はしない。取得から 15 分を超えた値は `stale` として出し、更新は手動にする。
 - 取得は認証必須・同一 origin 検査つきの `POST /api/claude/refresh`。`GET /api/usage` は今までどおり SQLite を
   読むだけで、上流へ取りに行かない。同時要求は single-flight、CLI のタイムアウトは 15 秒で、超えたら kill する。
 - 失敗しても自動では再試行しない。次に取るのは、15 分後以降に画面を開いたときか手動更新。
@@ -42,8 +42,10 @@ Codex と OpenCode Go は 5 分ごとにバックグラウンドで取る（ADR 
   `result`（文字列）を読む。トークンを取り出して API を直接叩かない。`.credentials.json` も読まない。
 - 子プロセスには `PATH` / `HOME` / `CLAUDE_CONFIG_DIR` / `TZ=UTC` だけを渡し、cwd は空の一時ディレクトリにする。
 - `Current session` を rolling（18000 秒）、`Current week (all models)` を weekly（604800 秒）の窓にする。
-  `N% used` と `resets <日時> (<IANA タイムゾーン>)` を読む。日時は年が無いので、括弧内のタイムゾーンで
-  解釈して、今より後で最も近い日時を採る。
+  `N% used` と `resets <日時> (<IANA タイムゾーン>)` を読む。日時は通常 `Nov 19, 12:50am`（分が 0 なら `6am`）の
+  ように年が無く、リセットが翌年に落ちるとき（年末の週次など）だけ `Jan 2, 2027, 3am` のように年が付く。
+  CLI はリセットの年が今年と違うときに年を足すため。年が無ければ括弧内のタイムゾーンで解釈して、今より後で
+  最も近い日時を採り、年があればその年を使う。年と時刻の区切りは `, ` と ` at ` のどちらも受ける。
 - 認識できる行だけを窓にする。1 つも読めなければ `schema` エラー。モデル別の窓などは Max の出力を確認してから足す。
 - 正規化した `ProviderSnapshot`（`provider: "claude"`、source id は `claude` 固定、plan は `subscriptionType`）と
   sample だけを既存のテーブルへ保存する。CLI の出力本文は DB・ログ・応答に残さない。
@@ -80,8 +82,10 @@ Codex と OpenCode Go は 5 分ごとにバックグラウンドで取る（ADR 
 ## 影響
 
 - 画面を見ていない間は更新されない。sample は画面を開いた時刻にだけ増え、推移に欠けが出る。欠けのつなぎ方は実装 PR で決める。
-- `stale` の判定は Claude だけ 15 分を基準にする（30 分で `stale`）。`sampleIntervalMs` を provider 共通のままにしない。
-- 出力は公開契約ではない。文面が変わったら `schema` エラーになる。adapter は fixture で固定し、CLI の版を上げるときに差分を見る。
+- `stale` は取得から 15 分を超えたときに切り替える（決定と同じ 15 分）。`decideProviderState` は
+  `2 * sampleIntervalMs` 固定をやめ、provider ごとの閾値を受け取る。Codex と OpenCode Go は今までどおり
+  周期の 2 倍（10 分）にする。
+- 出力は公開契約ではない。文面が変わったら `schema` エラーになる。adapter は、年が付く出力（年末）を含めた fixture で固定し、CLI の版を上げるときに差分を見る。
 - image は CLI のぶん大きくなる（ホストで見た版の実体は約 370 MB）。
 - ログインには期限（`loginExpiresAt`、約 30 日）がある。使うたびに延びるかは未確認で、切れたら端末で再ログインする。
 - `claude auth status` がネットワークへ出るかは未確認。出るなら、取得の前段に置く設計を見直す。
