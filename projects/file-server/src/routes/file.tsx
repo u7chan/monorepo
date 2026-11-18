@@ -5,8 +5,10 @@ import { FileViewer } from "../components/file-viewer"
 import type { AppBindings } from "../types"
 import { toBrowseLocation } from "../utils/auth"
 import {
+  ACTIVE_CONTENT_PREVIEW_CSP,
   archiveFileName,
   createDirectoryArchive,
+  encodeVirtualPath,
   isActiveContent,
   isPreviewableBinary,
   isTextMime,
@@ -14,6 +16,7 @@ import {
   notAFileResponse,
   readBinaryFileResponse,
   resolveRequestedFile,
+  resolveRequestedFileAtPath,
   toArrayBuffer,
 } from "../utils/fileRouteUtils"
 import {
@@ -23,6 +26,18 @@ import {
 } from "../utils/requestUtils"
 
 const fileRoutes = new Hono<AppBindings>()
+
+function decodePreviewPath(encodedPath: string): string | null {
+  try {
+    return encodedPath
+      .split("/")
+      .filter(Boolean)
+      .map(decodeURIComponent)
+      .join("/")
+  } catch {
+    return null
+  }
+}
 
 fileRoutes.get("/", async (c) => {
   const resolved = await resolveRequestedFile(c, "File does not exist")
@@ -52,9 +67,12 @@ fileRoutes.get("/", async (c) => {
 
   const isInPublicScope = resolved.requestPath.startsWith("public/")
   const isHtmlOrSvg = isActiveContent(resolved.resolvedPath, resolved.mimeType)
+  const encodedRequestPath = encodeVirtualPath(resolved.requestPath)
   const publicUrl =
-    isInPublicScope && isHtmlOrSvg
-      ? `/${resolved.requestPath.split("/").map(encodeURIComponent).join("/")}`
+    isInPublicScope && isHtmlOrSvg ? `/${encodedRequestPath}` : undefined
+  const previewUrl =
+    !isInPublicScope && isHtmlOrSvg
+      ? `/file/preview/${encodedRequestPath}`
       : undefined
 
   if (isText || forceTextView) {
@@ -69,6 +87,7 @@ fileRoutes.get("/", async (c) => {
         isEditing={isEditing}
         allowEdit={!forceTextView}
         publicUrl={publicUrl}
+        previewUrl={previewUrl}
       />,
     )
   }
@@ -98,6 +117,41 @@ fileRoutes.get("/", async (c) => {
     "Content-Type": resolved.responseMimeType,
     "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolved.resolvedPath))}`,
   }
+  return new Response(toArrayBuffer(contentBuffer), { headers })
+})
+
+fileRoutes.get("/preview/*", async (c) => {
+  const encodedPath = c.req.path.replace(/^\/file\/preview\/?/, "")
+  const requestPath = decodePreviewPath(encodedPath)
+  if (!requestPath) {
+    return errorResponse(c, "PathError", "Invalid path", 400)
+  }
+
+  const resolved = await resolveRequestedFileAtPath(
+    c,
+    requestPath,
+    "File does not exist",
+  )
+  if ("response" in resolved) {
+    return resolved.response
+  }
+
+  if (!resolved.stat.isFile()) {
+    return notAFileResponse(c)
+  }
+
+  const contentBuffer = await readFile(resolved.resolvedPath)
+  const headers: Record<string, string> = {
+    "Content-Type": resolved.responseMimeType,
+    "Content-Disposition": "inline",
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+  }
+
+  if (isActiveContent(resolved.resolvedPath, resolved.mimeType)) {
+    headers["Content-Security-Policy"] = ACTIVE_CONTENT_PREVIEW_CSP
+  }
+
   return new Response(toArrayBuffer(contentBuffer), { headers })
 })
 

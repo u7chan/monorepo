@@ -14,6 +14,14 @@ const ACTIVE_MIME_TYPES = new Set([
 
 const ACTIVE_EXTENSIONS = new Set([".html", ".htm", ".xhtml", ".svg"])
 
+/**
+ * The preview route shares the app origin, so the rendered document has to run
+ * in an opaque origin. `allow-same-origin` is deliberately omitted: with it the
+ * page could call the authenticated API with the viewer's cookies, which is
+ * exactly why `/file/raw` refuses to serve active content.
+ */
+export const ACTIVE_CONTENT_PREVIEW_CSP = "sandbox allow-scripts"
+
 export function isActiveContent(filePath: string, mimeType: string): boolean {
   if (ACTIVE_MIME_TYPES.has(mimeType)) {
     return true
@@ -34,6 +42,9 @@ export const isPreviewableBinary = (mimeType: string) =>
   mimeType.startsWith("image/") ||
   mimeType.startsWith("video/") ||
   mimeType === "application/pdf"
+
+export const encodeVirtualPath = (requestPath: string) =>
+  requestPath.split("/").map(encodeURIComponent).join("/")
 
 export const toArrayBuffer = (contentBuffer: Buffer): ArrayBuffer =>
   contentBuffer.buffer.slice(
@@ -110,8 +121,15 @@ export async function resolveRequestedFile(
   c: Context<AppBindings>,
   notFoundMessage: string,
 ) {
+  return resolveRequestedFileAtPath(c, getRequestPath(c), notFoundMessage)
+}
+
+export async function resolveRequestedFileAtPath(
+  c: Context<AppBindings>,
+  requestPath: string,
+  notFoundMessage: string,
+) {
   const baseDir = getUploadDir(c)
-  const requestPath = getRequestPath(c)
   const user = c.get("user") ?? { type: "anonymous" as const }
 
   const result = resolveVirtualPath(baseDir, user, requestPath)
