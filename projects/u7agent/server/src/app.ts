@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import type { MiddlewareHandler } from "hono";
+import type { Env, MiddlewareHandler, Schema } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { zValidator } from "@hono/zod-validator";
 import type { AppDb } from "./app-db";
@@ -122,29 +122,39 @@ function appDataGuard(appDb: AppDb, { notStored = false }: { notStored?: boolean
   };
 }
 
+/** raw 本文の受け方とガードの掛かり方を含む、ルート登録に必要な一式 */
+type BffRoutes = ReturnType<typeof createBffRoutes>;
+
+/**
+ * BFF の Hono アプリを組む。ルートは同じインスタンスへ登録フェーズの順で足す
+ * (`AppType` はこの戻り値の `app` から推論され、client の `hc` が依存する)。
+ */
 export async function createBffApp(opts: CreateBffAppOptions = {}) {
+  const context = await createBffContext(opts);
+  const routes = createBffRoutes(context, opts);
+  // 同じインスタンスへ、フェーズの順に登録する。Hono は登録順に照合するので、この順序が契約
+  // (raw 本文のルートは bodyGuard より前、`PATCH /api/spaces/order` は `:id` より前)。
+  const entry = useEntryGuards(new Hono(), routes);
+  const raw = registerRawBodyRoutes(entry, routes);
+  const guarded = useBodyGuards(raw, routes);
+  const routed = registerDomainRoutes(guarded, routes);
+  const app = registerFallbacks(routed, routes);
+
+  // プレビュー専用リスナー (別オリジン)。HTML 文書とその兄弟アセットのルートだけを載せ、
+  // 書き込み系 API を置かない (storage を有効にした文書からアプリの面を叩けないようにする)。
+  const previewApp = new Hono().get("/api/files/html/:path{.+}", routes.previewFileRoutes.html);
+
   const {
-    clientDistDir = DEFAULT_CLIENT_DIST_DIR,
-    filePreviewPort = DEFAULT_FILE_PREVIEW_PORT,
-    previewPort = DEFAULT_PREVIEW_PORT,
-    appOrigin,
-    filePreviewOrigin,
-    serviceOrigin,
-  } = opts;
-  const {
-    cwd,
-    pi,
-    initError,
+    store,
     catalog,
     prompts,
     projects,
-    store,
-    workspace,
+    pi,
+    initError,
     sessionStore,
     appDb,
     notifications,
     archiveSettings,
-    runtimeDiagnostics,
     modelSettings,
     oauthLogin,
     contentSettings,
@@ -152,7 +162,6 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     webSearchSettings,
     webSearchTest,
     titleSummarySettings,
-    titleSummaryTest,
     gitSettings,
     serve,
     secrets,
@@ -160,71 +169,62 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     cloudflareConnection,
     sharedContents,
     sharedContentExclusions,
-    skillSandbox,
-    skillArchiveSandbox,
-    backup,
-  } = await createBffContext(opts);
-  const appData = appDataGuard(appDb);
-  const spaces = new SpaceStore(appDb);
-  // 変更系は「何も保存していない」ことを state でも示す
-  const appDataMutation = appDataGuard(appDb, { notStored: true });
-  // 削除は会話ストア・ワークスペース・公開サービスの 3 つを跨ぐため、実体をここで組む
-  const spaceDelete = createSpaceDelete({ spaces, store, workspace, serve, appDb });
+  } = context;
 
-  const healthRoutes = createHealthRoutes({
+  return {
+    app,
+    /** 別オリジンで配るプレビュー リスナー (server/src/index.ts が 2 本目の serve() に渡す) */
+    previewApp,
+    store,
+    catalog,
+    prompts,
+    projects,
     pi,
     initError,
-    cwd,
-    store,
+    sessionStore,
     appDb,
+    notifications,
     archiveSettings,
-    filePreviewPort,
-    previewPort,
-    ...(appOrigin === undefined ? {} : { appOrigin }),
-    ...(filePreviewOrigin === undefined ? {} : { filePreviewOrigin }),
-    ...(serviceOrigin === undefined ? {} : { serviceOrigin }),
-  });
-  const runtimeRoutes = createRuntimeRoutes({
-    pi,
-    runtimeDiagnostics,
+    modelSettings,
+    oauthLogin,
     contentSettings,
+    contentTrials,
     webSearchSettings,
+    webSearchTest,
     titleSummarySettings,
-    cloudflareSettings,
-  });
-  const fileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "isolated" });
-  // プレビュー専用リスナー (別オリジン) 用。storage を有効にするため、応答は HTML プレビューのルートだけにする
-  const previewFileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "storage" });
-  const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
-  const promptRoutes = createPromptRoutes({ prompts });
-  const skillFileRoutes = createSkillFileRoutes({ sandbox: skillSandbox, archive: skillArchiveSandbox });
-  const backupRoutes = createBackupRoutes({ backup });
-  const projectRoutes = createProjectRoutes({ projects, store, workspace });
-  const sessionRoutes = createSessionRoutes({ store, workspace, spaces, serve });
-  const notificationRoutes = createNotificationRoutes({ notifications });
-  const archiveRoutes = createArchiveRoutes({ archiveSettings });
-  const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings, oauthLogin });
-  const contentSettingsRoutes = createContentSettingsRoutes({ contentSettings, contentTrials });
-  const cloudflareSettingsRoutes = createCloudflareSettingsRoutes({ cloudflareSettings, cloudflareConnection });
-  const sharedContentRoutes = createSharedContentRoutes({ sharedContents });
-  const sharedContentExclusionsRoutes = createSharedContentExclusionsRoutes({ sharedContentExclusions });
-  const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings, test: webSearchTest });
-  const titleSummaryRoutes = createTitleSummaryRoutes({ titleSummarySettings, test: titleSummaryTest });
-  // Git の設定は全会話の commit identity を変えられるため、PUT / DELETE だけ same-origin 要求に絞る
-  const sameOriginOnly = sameOriginOnlyGuard(appOrigin);
-  const gitSettingsRoutes = createGitSettingsRoutes({ gitSettings });
-  // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
-  const secretRoutes = createSecretRoutes({
+    gitSettings,
+    serve,
     secrets,
-    scope: createSecretScope({ sessions: store, projects }),
-  });
-  // serve は実績 (app-db) と稼働判定 (プローブ / サンドボックス) の両方を読むため、
-  // アプリデータが使えないときは 503 で止める (空の実績へ黙って落とさない)
-  const serveRoutes = createServeRoutes({ serve });
+    cloudflareSettings,
+    cloudflareConnection,
+    sharedContents,
+    sharedContentExclusions,
+    close: async () => {
+      // 資格情報の書込み (OAuth のトークン更新) を中断すると、更新済みの refresh token を保存できず
+      // 次回起動が invalid_grant になる。プロセス終了前に完了を待つ
+      await pi?.modelRuntime.settleCredentialWrites();
+      // 実行中の試行はプロセスの close でだけ interrupt する (リクエストの signal には結び付けない)
+      await contentTrials.close();
+      // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
+      notifications.close();
+      await store.close();
+      appDb.close();
+    },
+  };
+}
 
-  const app = new Hono()
-    .use("/api/*", mutationOriginGuard(appOrigin))
-    .use("/api/sessions/*", sessionSpaceGuard(spaces, store))
+export type AppType = Awaited<ReturnType<typeof createBffApp>>["app"];
+
+/** 0. 全 API の入口ガード。raw 本文のルートにも掛けるので最初に置く */
+function useEntryGuards<E extends Env, S extends Schema>(app: Hono<E, S>, routes: BffRoutes) {
+  const { mutationOrigin, sessionSpace } = routes;
+  return app.use("/api/*", mutationOrigin).use("/api/sessions/*", sessionSpace);
+}
+
+/** 1. raw 本文を受けるルート。`bodyGuard` が本文を読み切る前に登録する */
+function registerRawBodyRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, routes: BffRoutes) {
+  const { appDataMutation, fileRoutes, skillFileRoutes, backupRoutes, sessionRoutes, sharedContentRoutes } = routes;
+  const withRawBody = app
     // 設定 → ファイル のドラッグ＆ドロップは本文を raw で流すため、bodyGuard より先に登録する
     .post("/api/files/upload", (c) => fileRoutes.upload(c))
     // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
@@ -234,9 +234,47 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     // バックアップの復元も raw の ZIP を受ける。plan (dryRun) と apply が同じ本文を通る
     .post("/api/backup/restore", (c) => backupRoutes.restore(c))
     // サムネイルは raw の PNG (最大 2 MiB) を受けるので、64 KiB で読み切る bodyGuard より前に登録する
-    .put("/api/shared-contents/:id/thumbnail", appDataMutation, (c) => sharedContentRoutes.putThumbnail(c))
-    .use("/api/*", bodyGuard)
-    .use("/api/*", spaceContextGuard(spaces, store))
+    .put("/api/shared-contents/:id/thumbnail", appDataMutation, (c) => sharedContentRoutes.putThumbnail(c));
+  return withRawBody;
+}
+
+/** 2. 本文を読み切る `bodyGuard` と、スペースを解決する `spaceContextGuard` */
+function useBodyGuards<E extends Env, S extends Schema>(app: Hono<E, S>, routes: BffRoutes) {
+  const { spaceContext } = routes;
+  return app.use("/api/*", bodyGuard).use("/api/*", spaceContext);
+}
+
+/** 3. 通常のルート (ドメイン別)。ここまでで本文とスペースは解決済み */
+function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, routes: BffRoutes) {
+  const {
+    appData,
+    appDataMutation,
+    sameOriginOnly,
+    spaces,
+    spaceDelete,
+    healthRoutes,
+    runtimeRoutes,
+    fileRoutes,
+    catalogRoutes,
+    promptRoutes,
+    skillFileRoutes,
+    backupRoutes,
+    projectRoutes,
+    sessionRoutes,
+    notificationRoutes,
+    archiveRoutes,
+    modelSettingsRoutes,
+    contentSettingsRoutes,
+    cloudflareSettingsRoutes,
+    sharedContentRoutes,
+    sharedContentExclusionsRoutes,
+    webSearchSettingsRoutes,
+    titleSummaryRoutes,
+    gitSettingsRoutes,
+    secretRoutes,
+    serveRoutes,
+  } = routes;
+  const routed = app
     .get("/api/spaces", appData, (c) => c.json({ spaces: spaces.list() }))
     .post(
       "/api/spaces",
@@ -867,7 +905,14 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => titleSummaryRoutes.put(c, c.req.valid("json")),
-    )
+    );
+  return routed;
+}
+
+/** 4. 未マッチの GET を拾う catch-all と 404 / エラー応答。最後に置く */
+function registerFallbacks<E extends Env, S extends Schema>(app: Hono<E, S>, routes: BffRoutes) {
+  const { clientDistDir, filePreviewPort, filePreviewOrigin } = routes;
+  const finished = app
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
     .get("*", serveClientAssets(clientDistDir, filePreviewPort, filePreviewOrigin))
     .notFound((c) => c.json({ error: "Not found" }, 404))
@@ -890,25 +935,35 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       }
       return c.json({ error: messageFor(error) }, (statusCodeOf(error) ?? 500) as ContentfulStatusCode);
     });
+  return finished;
+}
 
-  // プレビュー専用リスナー (別オリジン)。HTML 文書とその兄弟アセットのルートだけを載せ、
-  // 書き込み系 API を置かない (storage を有効にした文書からアプリの面を叩けないようにする)。
-  const previewApp = new Hono().get("/api/files/html/:path{.+}", previewFileRoutes.html);
-
-  return {
-    app,
-    /** 別オリジンで配るプレビュー リスナー (server/src/index.ts が 2 本目の serve() に渡す) */
-    previewApp,
-    store,
+/**
+ * ルートのハンドラとガードを組む。フェーズ関数はここで作った一式を受け取るだけにして、
+ * 登録順 (ガード → raw 本文 → bodyGuard → 通常 → catch-all) を `createBffApp` に集める。
+ */
+function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, opts: CreateBffAppOptions) {
+  const {
+    clientDistDir = DEFAULT_CLIENT_DIST_DIR,
+    filePreviewPort = DEFAULT_FILE_PREVIEW_PORT,
+    previewPort = DEFAULT_PREVIEW_PORT,
+    appOrigin,
+    filePreviewOrigin,
+    serviceOrigin,
+  } = opts;
+  const {
+    cwd,
+    pi,
+    initError,
     catalog,
     prompts,
     projects,
-    pi,
-    initError,
-    sessionStore,
+    store,
+    workspace,
     appDb,
     notifications,
     archiveSettings,
+    runtimeDiagnostics,
     modelSettings,
     oauthLogin,
     contentSettings,
@@ -916,6 +971,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     webSearchSettings,
     webSearchTest,
     titleSummarySettings,
+    titleSummaryTest,
     gitSettings,
     serve,
     secrets,
@@ -923,18 +979,103 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     cloudflareConnection,
     sharedContents,
     sharedContentExclusions,
-    close: async () => {
-      // 資格情報の書込み (OAuth のトークン更新) を中断すると、更新済みの refresh token を保存できず
-      // 次回起動が invalid_grant になる。プロセス終了前に完了を待つ
-      await pi?.modelRuntime.settleCredentialWrites();
-      // 実行中の試行はプロセスの close でだけ interrupt する (リクエストの signal には結び付けない)
-      await contentTrials.close();
-      // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
-      notifications.close();
-      await store.close();
-      appDb.close();
-    },
+    skillSandbox,
+    skillArchiveSandbox,
+    backup,
+  } = context;
+  const appData = appDataGuard(appDb);
+  const spaces = new SpaceStore(appDb);
+  // 変更系は「何も保存していない」ことを state でも示す
+  const appDataMutation = appDataGuard(appDb, { notStored: true });
+  // 削除は会話ストア・ワークスペース・公開サービスの 3 つを跨ぐため、実体をここで組む
+  const spaceDelete = createSpaceDelete({ spaces, store, workspace, serve, appDb });
+
+  const healthRoutes = createHealthRoutes({
+    pi,
+    initError,
+    cwd,
+    store,
+    appDb,
+    archiveSettings,
+    filePreviewPort,
+    previewPort,
+    ...(appOrigin === undefined ? {} : { appOrigin }),
+    ...(filePreviewOrigin === undefined ? {} : { filePreviewOrigin }),
+    ...(serviceOrigin === undefined ? {} : { serviceOrigin }),
+  });
+  const runtimeRoutes = createRuntimeRoutes({
+    pi,
+    runtimeDiagnostics,
+    contentSettings,
+    webSearchSettings,
+    titleSummarySettings,
+    cloudflareSettings,
+  });
+  const fileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "isolated" });
+  // プレビュー専用リスナー (別オリジン) 用。storage を有効にするため、応答は HTML プレビューのルートだけにする
+  const previewFileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "storage" });
+  const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
+  const promptRoutes = createPromptRoutes({ prompts });
+  const skillFileRoutes = createSkillFileRoutes({ sandbox: skillSandbox, archive: skillArchiveSandbox });
+  const backupRoutes = createBackupRoutes({ backup });
+  const projectRoutes = createProjectRoutes({ projects, store, workspace });
+  const sessionRoutes = createSessionRoutes({ store, workspace, spaces, serve });
+  const notificationRoutes = createNotificationRoutes({ notifications });
+  const archiveRoutes = createArchiveRoutes({ archiveSettings });
+  const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings, oauthLogin });
+  const contentSettingsRoutes = createContentSettingsRoutes({ contentSettings, contentTrials });
+  const cloudflareSettingsRoutes = createCloudflareSettingsRoutes({ cloudflareSettings, cloudflareConnection });
+  const sharedContentRoutes = createSharedContentRoutes({ sharedContents });
+  const sharedContentExclusionsRoutes = createSharedContentExclusionsRoutes({ sharedContentExclusions });
+  const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings, test: webSearchTest });
+  const titleSummaryRoutes = createTitleSummaryRoutes({ titleSummarySettings, test: titleSummaryTest });
+  // Git の設定は全会話の commit identity を変えられるため、PUT / DELETE だけ same-origin 要求に絞る
+  const gitSettingsRoutes = createGitSettingsRoutes({ gitSettings });
+  // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
+  const secretRoutes = createSecretRoutes({
+    secrets,
+    scope: createSecretScope({ sessions: store, projects }),
+  });
+  // serve は実績 (app-db) と稼働判定 (プローブ / サンドボックス) の両方を読むため、
+  // アプリデータが使えないときは 503 で止める (空の実績へ黙って落とさない)
+  const serveRoutes = createServeRoutes({ serve });
+  const mutationOrigin = mutationOriginGuard(appOrigin);
+  const sessionSpace = sessionSpaceGuard(spaces, store);
+  const spaceContext = spaceContextGuard(spaces, store);
+  const sameOriginOnly = sameOriginOnlyGuard(appOrigin);
+  return {
+    appData,
+    appDataMutation,
+    mutationOrigin,
+    sessionSpace,
+    spaceContext,
+    sameOriginOnly,
+    spaces,
+    spaceDelete,
+    healthRoutes,
+    runtimeRoutes,
+    fileRoutes,
+    previewFileRoutes,
+    catalogRoutes,
+    promptRoutes,
+    skillFileRoutes,
+    backupRoutes,
+    projectRoutes,
+    sessionRoutes,
+    notificationRoutes,
+    archiveRoutes,
+    modelSettingsRoutes,
+    contentSettingsRoutes,
+    cloudflareSettingsRoutes,
+    sharedContentRoutes,
+    sharedContentExclusionsRoutes,
+    webSearchSettingsRoutes,
+    titleSummaryRoutes,
+    gitSettingsRoutes,
+    secretRoutes,
+    serveRoutes,
+    clientDistDir,
+    filePreviewPort,
+    filePreviewOrigin,
   };
 }
-
-export type AppType = Awaited<ReturnType<typeof createBffApp>>["app"];
