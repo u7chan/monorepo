@@ -681,6 +681,11 @@ describe("auth", () => {
     expect(isPathTraversal("file..name.txt")).toBe(false)
     expect(isPathTraversal("docs..")).toBe(false)
     expect(isPathTraversal("")).toBe(false)
+    // A parent segment is invalid even when it normalizes back inside the
+    // caller's own scope; authorization runs on `parts` before normalization.
+    expect(isPathTraversal("private/alice/../admin/secret.txt")).toBe(true)
+    expect(isPathTraversal("private/alice/../../.auth/users.json")).toBe(true)
+    expect(isPathTraversal("report\u0000.html")).toBe(true)
   })
 
   it("rejects invalid username entries in users file", async () => {

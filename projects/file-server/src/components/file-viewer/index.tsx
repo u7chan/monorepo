@@ -15,6 +15,7 @@ interface FileViewerProps {
   isEditing?: boolean
   allowEdit?: boolean
   publicUrl?: string
+  previewUrl?: string
 }
 
 export const FileViewer: FC<FileViewerProps> = ({
@@ -25,6 +26,7 @@ export const FileViewer: FC<FileViewerProps> = ({
   isEditing = false,
   allowEdit = true,
   publicUrl,
+  previewUrl,
 }) => {
   const encodedPath = path ? encodeURIComponent(path) : ""
   const fileUrl = `/file/raw?path=${encodedPath}`
@@ -37,6 +39,7 @@ export const FileViewer: FC<FileViewerProps> = ({
           fileName={fileName}
           path={path}
           publicUrl={publicUrl}
+          previewUrl={previewUrl}
           isEditing={true}
           showEdit={allowEdit}
           showCopy={true}
@@ -50,6 +53,7 @@ export const FileViewer: FC<FileViewerProps> = ({
         fileName={fileName}
         path={path}
         publicUrl={publicUrl}
+        previewUrl={previewUrl}
         showEdit={allowEdit}
         showCopy={true}
       >

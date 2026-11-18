@@ -18,6 +18,7 @@ Integrating systems publish into `public/` through the REST API; see "External I
 ## File Raw and Download Routes
 
 - `GET /file/raw` — preview-only route. Blocks `text/html`, `application/xhtml+xml`, `image/svg+xml`, and extensions `.html`, `.htm`, `.xhtml`, `.svg` with `403`. SVG is treated as source view (not embedded image) and is also blocked. Existing image/video/PDF preview behavior is preserved.
+- `GET /file/preview/*` — sandboxed rendered view for active content. Uses the same path validation and role checks as the other file routes, and takes the virtual path as URL segments (`/file/preview/private/<user>/page.html`) so relative assets resolve through the same route. Active content is served with `Content-Security-Policy: sandbox allow-scripts` (no `allow-same-origin`), `X-Content-Type-Options: nosniff` and `Cache-Control: private, no-store`, so the document runs in an opaque origin and cannot read app storage or call the authenticated API with the viewer's cookie. Scripts still run, but CORS-backed loads (fetch, ES modules, web fonts) are blocked. Non-active files are served with their normal MIME type, equivalent to `/file/raw`.
 - `GET /file/download` — download route. Always returns `Content-Disposition: attachment`. Supports all file types including HTML and SVG. Applies the same path validation and authorization rules as other file routes.
 
 ## Commands
@@ -97,7 +98,7 @@ adding screens.
 - `src/components/uiStyles.ts` - Shared surface, field and text class tokens
 - `src/components/buttonStyles.ts` - Shared button tones and sizes
 - `src/utils/` - Utilities (incl. `virtualPath.ts` for scope resolution)
-- `tests/` - Tests (auth, read, upload, create-file, delete, mkdir, update, rename, move, public-route)
+- `tests/` - Tests (auth, read, upload, create-file, delete, mkdir, update, rename, move, public-route, file-preview)
 - `tests/helpers/` - `createTestApp.ts` and `auth.ts` helpers
 
 ### List Refresh (HTMX)
@@ -157,14 +158,14 @@ All browse/API requests use a virtual path that maps to one of two scopes:
 
 ## File Viewer Behavior for HTML/SVG
 
-| Scope | Source view | Public URL button | Download button |
+| Scope | Source view | Rendered view button | Download button |
 |---|---|---|---|
 | `public/` | ✓ | ✓ (opens `/public/...` in new tab) | ✓ |
-| `private/` | ✓ | — | ✓ |
+| `private/` | ✓ | ✓ (opens sandboxed `/file/preview/...` in new tab) | ✓ |
 
 - HTML/XHTML/SVG files are always shown as source (text) in the viewer, regardless of scope.
-- The public URL button appears only for `public/` HTML/XHTML/SVG files and opens the rendered page at `/public/...` in a new tab.
-- Path segments are percent-encoded in the generated public URL (supports spaces, Japanese characters, `#`, `?`, etc.).
+- The rendered view button opens a new tab. `public/` files are served for real at `/public/...`; private files go through `GET /file/preview/...`, which adds a sandbox CSP because private content must not run with the app origin.
+- Path segments are percent-encoded in the generated URLs (supports spaces, Japanese characters, `#`, `?`, etc.).
 
 ## Authentication
 

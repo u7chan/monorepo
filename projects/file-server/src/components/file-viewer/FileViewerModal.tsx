@@ -8,12 +8,14 @@ import { CopyIcon } from "../icons/CopyIcon"
 import { DownloadIcon } from "../icons/DownloadIcon"
 import { EditIcon } from "../icons/EditIcon"
 import { ExternalLinkIcon } from "../icons/ExternalLinkIcon"
+import { PreviewIcon } from "../icons/PreviewIcon"
 import { modalSurfaceClassName, verticalDividerClassName } from "../uiStyles"
 
 interface FileViewerModalProps {
   fileName?: string
   path?: string
   publicUrl?: string
+  previewUrl?: string
   isEditing?: boolean
   showEdit?: boolean
   showCopy?: boolean
@@ -25,6 +27,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
   fileName,
   path,
   publicUrl,
+  previewUrl,
   isEditing = false,
   showEdit = false,
   showCopy = false,
@@ -44,6 +47,19 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
       className={secondaryIconButtonClassName}
     >
       <DownloadIcon />
+    </a>
+  ) : null
+
+  const previewButton = previewUrl ? (
+    <a
+      href={previewUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Preview"
+      aria-label="Preview"
+      className={secondaryIconButtonClassName}
+    >
+      <PreviewIcon />
     </a>
   ) : null
 
@@ -101,7 +117,11 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
   )
 
   const hasToolbarActions = Boolean(
-    downloadButton || publicUrlButton || copyButton || editButton,
+    downloadButton ||
+      previewButton ||
+      publicUrlButton ||
+      copyButton ||
+      editButton,
   )
 
   const panelClassName =
@@ -166,6 +186,7 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
             </h2>
             <div className="flex shrink-0 items-center gap-1">
               {downloadButton}
+              {previewButton}
               {publicUrlButton}
               {copyButton}
               {editButton}
