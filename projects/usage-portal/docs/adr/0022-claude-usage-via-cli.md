@@ -101,6 +101,8 @@ Codex と OpenCode Go は 5 分ごとにバックグラウンドで取る（ADR 
   `apiProvider` / `loginExpiresAt` などで、`authMethod` は `claude.ai` / `api_key` / `api_key_helper` / `oauth_token` /
   `third_party` / `none` を取る。`loginExpiresAt` は ISO 8601 の文字列（または `null`）で、`subscriptionType` は
   `authMethod` が `claude.ai` のときだけ入る。
+- 自動と手動の区別は `POST /api/claude/refresh` の body で受け取る。画面以外の要求が `manual` を名乗っても、
+  60 秒の下限と single-flight は効くが、15 分の窓は明示操作として越えられる（1 人用の LAN 内アプリなので許容する）。
 - `/usage` の `result` は、前文のあとに 1 窓 1 行を並べる。行は
   `Current session: 12% used · resets Nov 19, 12:50am (America/Los_Angeles)` の形で、率は切り捨ての整数、
   区切りは ` · resets `。括弧内は CLI プロセスのローカルなタイムゾーン名（`TZ=UTC` にすれば `UTC`）で、
