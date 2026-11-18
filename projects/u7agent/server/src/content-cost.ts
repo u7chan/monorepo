@@ -10,13 +10,9 @@ import { isIP } from "node:net";
 import type { LookupFunction } from "node:net";
 import type { ContentCostCatalogModelRow, ContentCostCatalogRow, ContentCostSettingsRow } from "./app-db";
 import { messageFor } from "./errors";
+import { COST_SIDES, COST_UNITS } from "./content-vocabulary";
 
-/** 上流の `unit` 語彙。これ以外の行は捨て、`0` へ丸めない */
-export const COST_UNITS = ["image", "megapixel", "token", "character", "byte", "minute", "request"] as const;
 export type CostUnit = (typeof COST_UNITS)[number];
-
-/** 入力 / 出力の区別。マスタの `billable` はここへ正規化してから DTO に載せる */
-export const COST_SIDES = ["input", "output"] as const;
 export type CostSide = (typeof COST_SIDES)[number];
 
 const COST_BILLABLES = ["output_image", "input_text", "output_audio"] as const;
