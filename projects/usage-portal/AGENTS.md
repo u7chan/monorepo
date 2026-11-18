@@ -66,4 +66,4 @@ Docker は `docker build --target test -t usage-portal-test ./projects/usage-por
 - [README.md](README.md) — 起動方法、環境変数、Docker、セキュリティの前提
 - [docs/design.md](docs/design.md) — 設計（親 checkout からの写し）
 - [docs/adr/](docs/adr) — スタック、状態取得、認証と公開範囲、利用枠の保存、Codex のサインイン、OpenCode Go のアカウント、残量表示と推移の期間、窓の停止表示とメニュー、表示の密度、Codex のサインアウト、ゲージの印、リセット行のバッジ、使い切ったカードの並び、最小プロンプトの送信、Codex の推移の引き継ぎ、OpenCode Go の契約エラーの決定、OpenCode Go の月次順の並び、Claude の利用枠の取得（公式 CLI・画面を開いたときと手動更新のみ）、取得状況の表示（間隔・経過・進捗バー）、provider ごとの取得間隔、契約エラーのアカウントの停止と再開
-- ADR を足すときは、起票時に `origin/main` の docs/adr/ で最新番号を確認する。並行して進む PR 同士で番号が重複しないようにする。
+- ADR を足すときは、起票時と PR 作成時に `origin/main` の docs/adr/ で最新番号を確認する。番号を決めた後に main が進むことがあるため、`origin/main` を取り込むときとレビューでも重複していないか確かめる。
