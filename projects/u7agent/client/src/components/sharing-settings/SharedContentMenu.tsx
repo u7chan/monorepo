@@ -68,6 +68,7 @@ export function SharedContentMenu({ name, actions, meta = [], onSelect }: Shared
       </button>
       <div
         {...menu.popoverProps}
+        {...menu.exitProps}
         id={menuId}
         popover="auto"
         className="popover-panel fixed inset-auto m-0 w-max min-w-44 scrollbar-thin overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel"

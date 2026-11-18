@@ -88,9 +88,18 @@ export function rowMenuAnchorVisible(anchor: RowMenuRect, clips: readonly RowMen
   );
 }
 
-/** ↑↓ の移動先。端では止まる (循環しない)。`index` が -1 (フォーカスが項目の外) のときは端の項目へ入る */
-export function nextRowMenuIndex(index: number, length: number, direction: "next" | "previous"): number {
+/**
+ * 一覧の移動先。端では止まる (循環しない)。`index` が -1 (フォーカスが項目の外) のときは端の項目へ入る。
+ * ↑↓ に加えて Home / End も受ける (native の listbox と同じ移動を、どの画面でも同じ規則で行う)
+ */
+export function nextRowMenuIndex(
+  index: number,
+  length: number,
+  direction: "next" | "previous" | "first" | "last",
+): number {
   if (length <= 0) return -1;
+  if (direction === "first") return 0;
+  if (direction === "last") return length - 1;
   if (index < 0) return direction === "next" ? 0 : length - 1;
   return direction === "next" ? Math.min(index + 1, length - 1) : Math.max(index - 1, 0);
 }

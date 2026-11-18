@@ -1,13 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  type FocusEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-} from "react";
+import { useCallback, useEffect, useId, useRef } from "react";
 import { cn } from "../../lib/cn";
 import {
   SESSION_SKILL_BODY_NOTE,
@@ -21,6 +12,8 @@ import {
   skillCommandText,
 } from "../../lib/sessionSkills";
 import { skillPickerLayout, skillPickerLeft, skillPickerTop, skillPickerWidth } from "../../lib/skillPicker";
+import { POPOVER_MARGIN } from "../../lib/popoverPlacement";
+import { usePopoverShell, type PopoverPlaceInput } from "../../hooks/usePopoverShell";
 import type { SessionSkillsState } from "../../hooks/useSessionSkills";
 import { SkillListIcon } from "../icons";
 
@@ -53,8 +46,7 @@ export function SkillPicker({
   onReload: () => void;
 }) {
   const pickerId = useId();
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
+  // 本文と注記の高さは place / size が測るので、要素はここで持つ (popover の開閉は hook が持つ)
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLParagraphElement | null>(null);
   const groups = state.status === "ready" ? groupSessionSkills(state.skills) : [];
@@ -68,111 +60,65 @@ export function SkillPicker({
         ? `スキル一覧（${notice.text}）`
         : "スキル一覧（選択で /skill: を入力）";
 
-  const place = useCallback(() => {
-    const popover = popoverRef.current;
-    const body = bodyRef.current;
-    const trigger = triggerRef.current;
-    if (popover === null || body === null || trigger === null) return;
-    const anchor = trigger.getBoundingClientRect();
-    const viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
-    // 幅と高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
-    const width = skillPickerWidth(viewport.width);
-    const { above, maxHeight } = skillPickerLayout(anchor, viewport, singleColumn);
-    popover.style.width = `${width}px`;
-    // 上限はスクロールする本文に当てる。popover は flex にできない (UA の「閉じている間は display: none」を
-    // ユーティリティの display が打ち消す) ため、注記の高さは本文から引いて残す
-    const chrome = (footerRef.current?.getBoundingClientRect().height ?? 0) + 2;
-    body.style.maxHeight = `${Math.max(0, maxHeight - chrome)}px`;
-    popover.style.left = `${skillPickerLeft(anchor, width, viewport.width)}px`;
-    popover.style.top = `${skillPickerTop(anchor, popover.getBoundingClientRect().height, above, viewport.height)}px`;
-  }, [singleColumn]);
+  // 幅と高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる。
+  // 上限はスクロールする本文に当てる。popover は flex にできない (UA の「閉じている間は display: none」を
+  // ユーティリティの display が打ち消す) ため、注記の高さは本文から引いて残す
+  const sizePicker = useCallback(
+    ({ popover, trigger, viewport }: PopoverPlaceInput) => {
+      if (trigger === null) return;
+      const anchor = trigger.getBoundingClientRect();
+      const { maxHeight } = skillPickerLayout(anchor, viewport, singleColumn);
+      popover.style.width = `${skillPickerWidth(viewport.width)}px`;
+      const chrome = (footerRef.current?.getBoundingClientRect().height ?? 0) + 2;
+      if (bodyRef.current !== null) bodyRef.current.style.maxHeight = `${Math.max(0, maxHeight - chrome)}px`;
+    },
+    [singleColumn],
+  );
 
-  // 開いている間は commit のたびに置き直す。window の resize ハンドラは React の再レンダー
-  // (singleColumn ⇄ desktop の切替など) より先に走り、動く前の rect を読んでしまう
-  useLayoutEffect(() => {
-    if (open) place();
-  });
+  const place = useCallback(
+    ({ popover, trigger, viewport }: PopoverPlaceInput) => {
+      if (trigger === null) return null;
+      const anchor = trigger.getBoundingClientRect();
+      const width = skillPickerWidth(viewport.width);
+      const { above } = skillPickerLayout(anchor, viewport, singleColumn);
+      return {
+        left: skillPickerLeft(anchor, width, viewport.width),
+        top: skillPickerTop(anchor, popover.getBoundingClientRect().height, above, viewport.height),
+      };
+    },
+    [singleColumn],
+  );
 
-  // 開閉の正は popover の状態。標準の close (Escape / light dismiss / Tab での退出) をここで観測して親へ写す。
-  // 開くきっかけはトリガーだけなので、開いた通知はここでは送らない (押下と `toggle` で二重に伝えない)
-  useEffect(() => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    const onToggle = (event: Event) => {
-      if ((event as ToggleEvent).newState === "open") return;
-      onOpenChange(false);
-    };
-    popover.addEventListener("toggle", onToggle);
-    return () => popover.removeEventListener("toggle", onToggle);
-  }, [onOpenChange]);
-
-  // 親から畳まれたとき (送信の成立) だけ popover を閉じる。開くのはトリガーだけにする
-  // (再取得の完了などの再描画で勝手に開き直さない)
-  useEffect(() => {
-    const popover = popoverRef.current;
-    if (popover === null || !popover.matches(":popover-open")) return;
-    if (!open) popover.hidePopover();
-  }, [open]);
-  // 開いている間だけ位置を取り直す。scroll は capture で受けないと親のスクロール枠の分を拾えない
-  useEffect(() => {
-    if (!open) return;
-    const onMove = () => place();
-    window.addEventListener("scroll", onMove, true);
-    window.addEventListener("resize", onMove);
-    return () => {
-      window.removeEventListener("scroll", onMove, true);
-      window.removeEventListener("resize", onMove);
-    };
-  }, [open, place]);
-
-  const toggle = (event: MouseEvent<HTMLButtonElement>) => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    // popoverTarget はトリガー自身の押下を light dismiss の対象外にするためだけに付ける。既定の activation
-    // behavior は同じトグルを二重に走らせるので止め、開閉を showPopover / hidePopover に寄せる
-    event.preventDefault();
-    if (popover.matches(":popover-open")) {
-      popover.hidePopover();
-      return;
-    }
-    // 閉じている間の rect は 0 なので、出してから置く。取り直しは呼び出し側 (Composer) が行う
-    onOpenChange(true);
-    popover.showPopover();
-    place();
-  };
+  // 開いた直後の焦点はトリガーに残す (一覧は Tab で入る)。開閉は親が持ち、標準の close も
+  // `onOpenChange` で伝わる
+  const { triggerProps, popoverProps, containerProps, close } = usePopoverShell(
+    place,
+    POPOVER_MARGIN,
+    ({ place: placeNow }) => placeNow(),
+    ({ close: closeNow }) => closeNow(),
+    sizePicker,
+    () => null,
+    onOpenChange,
+  );
 
   /** 一覧の選択はコマンドの挿入だけ。本文の展開は送信時に BFF が行う (docs/api-session-turns.md) */
   const select = (name: string) => {
-    popoverRef.current?.hidePopover();
+    close();
     onSelect(name);
   };
 
-  // Escape は native の light dismiss も閉じるが、App の Escape (設定ページからチャットへ戻る) へ
-  // 届かせないため、トリガーとポップアップの両方を含むここで止める
-  const onKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
-    if (event.key !== "Escape") return;
-    event.stopPropagation();
-  };
-
-  /**
-   * フォーカスが外へ出たら閉じる。native popover は Tab では閉じないため自前で見る。
-   * 監視は**トリガーとポップアップの両方**を包むここに置く: 開いた直後のフォーカスはトリガーにあり、
-   * Shift+Tab や (行が無いときの) Tab はポップアップの中を経由せずに外へ出るため、
-   * ポップアップ側だけの `onBlur` では取りこぼす。
-   */
-  const onFocusOut = (event: FocusEvent<HTMLSpanElement>) => {
-    const next = event.relatedTarget;
-    // トリガー → 行、行 → 行の移動は閉じる操作ではない (トリガーへ戻る移動もここに含まれる)
-    if (next instanceof Node && event.currentTarget.contains(next)) return;
-    popoverRef.current?.hidePopover();
-  };
+  // 親から畳まれたとき (送信の成立) だけ閉じる。開くのはトリガーだけにする
+  // (再取得の完了などの再描画で勝手に開き直さない)
+  useEffect(() => {
+    if (!open) close();
+  }, [close, open]);
 
   return (
     // トリガーとポップアップを 1 つのフォーカス範囲として扱う (display: contents は行の flex 配置を変えない)
-    <span className="contents" onKeyDown={onKeyDown} onBlur={onFocusOut}>
+    <span className="contents" {...containerProps}>
       <button
         type="button"
-        ref={triggerRef}
+        {...triggerProps}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={pickerId}
@@ -181,7 +127,6 @@ export function SkillPicker({
         popoverTarget={pickerId}
         popoverTargetAction="toggle"
         disabled={!enabled}
-        onClick={toggle}
         className={cn(
           "grid shrink-0 cursor-pointer place-items-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-45",
           singleColumn ? "size-9" : "size-7",
@@ -198,7 +143,7 @@ export function SkillPicker({
       {/* popover の UA 既定 (fixed 以外に margin / border / padding / overflow を持つ) を打ち消してから
           テーマのトークンを当てる。位置と幅は place() が left / top / width / max-height を直接書く */}
       <div
-        ref={popoverRef}
+        {...popoverProps}
         id={pickerId}
         popover="auto"
         role="dialog"

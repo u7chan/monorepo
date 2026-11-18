@@ -127,6 +127,7 @@ export function RowMenu<K extends RowMenuActionKind>({
           ここ (popover 自身) のスクロールへ逃がす */}
       <div
         {...menu.popoverProps}
+        {...menu.exitProps}
         id={menuId}
         popover="auto"
         role="menu"

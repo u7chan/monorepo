@@ -1,21 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type FocusEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-} from "react";
-import {
-  AGENT_PICKER_MARGIN,
-  AGENT_PICKER_LIST_MAX_HEIGHT,
-  agentPickerPlacement,
-  nextAgentOptionIndex,
-} from "../../lib/agentPicker";
+import { useCallback, useId, useRef } from "react";
+import { AGENT_PICKER_MARGIN, AGENT_PICKER_LIST_MAX_HEIGHT, agentPickerPlacement } from "../../lib/agentPicker";
 import { cn } from "../../lib/cn";
+import { usePopoverShell, type PopoverPlaceInput } from "../../hooks/usePopoverShell";
 import type { AgentDef } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { MenuItem } from "../MenuItem";
@@ -40,146 +26,46 @@ export function AgentPicker({
 }) {
   const pickerId = useId();
   const triggerId = `${pickerId}-trigger`;
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
-  const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
-  // トリガーの押下は click より先にフォーカスを奪う。その focusout で閉じると直後の click が
-  // 開き直してトグルが効かないため、押している間だけ focusout での終了を保留する
-  const pressingTriggerRef = useRef(false);
   const selected = agents.find((agent) => agent.id === agentId);
   const selectedIndex = agents.findIndex((agent) => agent.id === agentId);
 
-  const place = useCallback(() => {
-    const popover = popoverRef.current;
-    const trigger = triggerRef.current;
-    if (popover === null || trigger === null) return;
+  // 幅を先に確定させる: max-width で折り返しと内部スクロールが決まり、rect が最終の大きさになる
+  const sizePicker = useCallback(({ popover, trigger, viewport, margin }: PopoverPlaceInput & { margin: number }) => {
+    if (trigger === null) return;
     const anchor = trigger.getBoundingClientRect();
-    const viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
-    // 幅を先に確定させる: max-width で折り返しと内部スクロールが決まり、rect が最終の大きさになる
     popover.style.minWidth = `${anchor.width}px`;
-    popover.style.maxWidth = `${viewport.width - AGENT_PICKER_MARGIN * 2}px`;
+    popover.style.maxWidth = `${viewport.width - margin * 2}px`;
     const list = listRef.current;
     if (list !== null) {
       // 高さの上限はスクロールする一覧に当てる (検索欄を持つ面と同じ作法)。一覧以外の高さは
       // popover と一覧の rect の差で測る。上限が既定より広いときは既定のままにする
       const chrome = popover.getBoundingClientRect().height - list.getBoundingClientRect().height;
-      const available = viewport.height - AGENT_PICKER_MARGIN * 2 - chrome;
+      const available = viewport.height - margin * 2 - chrome;
       list.style.maxHeight = `${Math.max(0, Math.min(AGENT_PICKER_LIST_MAX_HEIGHT, available))}px`;
     }
-    const { left, top } = agentPickerPlacement(anchor, popover.getBoundingClientRect(), viewport);
-    popover.style.left = `${left}px`;
-    popover.style.top = `${top}px`;
   }, []);
 
-  // 開いている間は commit のたびに置き直す。window の resize ハンドラは React の再レンダー
-  // (singleColumn ⇄ desktop の切替など) より先に走り、動く前の rect を読んでしまう
-  useLayoutEffect(() => {
-    if (open) place();
-  });
-
-  // 開閉の正は popover の状態。標準の close (Escape / light dismiss) もここで観測して aria-expanded へ写す
-  useEffect(() => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    const onToggle = (event: Event) => setOpen((event as ToggleEvent).newState === "open");
-    popover.addEventListener("toggle", onToggle);
-    return () => popover.removeEventListener("toggle", onToggle);
+  const place = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
+    if (trigger === null) return null;
+    return agentPickerPlacement(trigger.getBoundingClientRect(), popover.getBoundingClientRect(), viewport);
   }, []);
 
-  // 開いている間だけ位置を取り直す。scroll は capture で受けないと親のスクロール枠の分を拾えない
-  useEffect(() => {
-    if (!open) return;
-    const onMove = () => place();
-    window.addEventListener("scroll", onMove, true);
-    window.addEventListener("resize", onMove);
-    return () => {
-      window.removeEventListener("scroll", onMove, true);
-      window.removeEventListener("resize", onMove);
-    };
-  }, [open, place]);
-
-  const focusSelected = () => {
-    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null);
-    items[selectedIndex < 0 ? 0 : selectedIndex]?.focus();
-  };
-
-  const openPicker = () => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    // 開いた状態で ↑↓ を受けても showPopover を二重に呼ばない (InvalidStateError を避ける)
-    if (popover.matches(":popover-open")) {
-      focusSelected();
-      return;
-    }
-    popover.showPopover();
-    place();
-    focusSelected();
-  };
-
-  const toggle = (event: MouseEvent<HTMLButtonElement>) => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    pressingTriggerRef.current = false;
-    // popoverTarget はトリガー自身の押下を light dismiss の対象外にするためだけに付ける。既定の activation
-    // behavior は同じトグルを二重に走らせるので止め、開閉を showPopover / hidePopover に寄せる
-    event.preventDefault();
-    if (popover.matches(":popover-open")) {
-      popover.hidePopover();
-      return;
-    }
-    openPicker();
-  };
-
-  const onTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    // 既定動作 (ページのスクロール) を止め、native select と同じく選択中の行から入る
-    event.preventDefault();
-    openPicker();
-  };
-
-  const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape") {
-      // 止めないと App の Escape (設定ページからチャットへ戻る) まで届く。閉じるのは標準挙動に任せる
-      event.stopPropagation();
-      return;
-    }
-    const direction =
-      event.key === "ArrowDown"
-        ? "next"
-        : event.key === "ArrowUp"
-          ? "previous"
-          : event.key === "Home"
-            ? "first"
-            : event.key === "End"
-              ? "last"
-              : null;
-    // Enter / Space は native の button に任せる
-    if (direction === null) return;
-    // 既定動作 (リストの外のスクロール) を止める
-    event.preventDefault();
-    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null);
-    const current = items.findIndex((item) => item === document.activeElement);
-    items[nextAgentOptionIndex(current, items.length, direction)]?.focus();
-  };
-
-  const onListBlur = (event: FocusEvent<HTMLDivElement>) => {
-    const next = event.relatedTarget;
-    if (next instanceof Node && popoverRef.current?.contains(next)) return;
-    if (next === triggerRef.current && pressingTriggerRef.current) {
-      // トリガーへの押下で移るフォーカスは閉じる操作ではない (閉じるかどうかは click 側が決める)
-      pressingTriggerRef.current = false;
-      return;
-    }
-    // native popover は Tab では閉じないため、外へのフォーカス移動は自前で閉じる
-    popoverRef.current?.hidePopover();
-  };
+  // ツリーのスクロールでも閉じずトリガーへ追随させ、焦点が外れたら閉じる (この画面の殻の使い方)。
+  // 開いた直後は選択中の行へ入る (native select と同じ)
+  const picker = usePopoverShell(
+    place,
+    AGENT_PICKER_MARGIN,
+    ({ place: placeNow }) => placeNow(),
+    ({ close }) => close(),
+    sizePicker,
+    (items) => items[Math.min(Math.max(selectedIndex, 0), items.length - 1)] ?? null,
+  );
 
   const selectAgent = (next: string) => {
     if (next !== agentId) onChangeAgent(next);
     // フォーカスは外さない: blur すると native の復帰が起きず、トリガーへ戻らない
-    popoverRef.current?.hidePopover();
+    picker.close();
   };
 
   return (
@@ -187,26 +73,14 @@ export function AgentPicker({
       <span className={agentFrameClass(singleColumn)}>
         <button
           type="button"
-          ref={triggerRef}
+          {...picker.triggerProps}
           id={triggerId}
           aria-haspopup="listbox"
-          aria-expanded={open}
           aria-controls={pickerId}
           aria-label={selected === undefined ? "エージェントを選択" : `エージェントを選択（${selected.name}）`}
           popoverTarget={pickerId}
           popoverTargetAction="toggle"
           disabled={agents.length === 0}
-          onPointerDown={() => {
-            pressingTriggerRef.current = true;
-          }}
-          onPointerUp={() => {
-            pressingTriggerRef.current = false;
-          }}
-          onPointerCancel={() => {
-            pressingTriggerRef.current = false;
-          }}
-          onClick={toggle}
-          onKeyDown={onTriggerKeyDown}
           className={cn(
             "peer cursor-pointer disabled:cursor-not-allowed disabled:opacity-55",
             agentBoxClass(singleColumn),
@@ -240,22 +114,19 @@ export function AgentPicker({
       {/* popover の UA 既定 (fixed 以外に margin / border / padding / overflow を持つ) を打ち消してから
           テーマのトークンを当てる。位置と幅は place() が left / top / min-width / max-width を直接書く */}
       <div
-        ref={popoverRef}
+        {...picker.popoverProps}
+        {...picker.exitProps}
         id={pickerId}
         popover="auto"
         role="listbox"
         aria-labelledby={triggerId}
-        onKeyDown={onListKeyDown}
-        onBlur={onListBlur}
         className="popover-panel fixed inset-auto m-0 w-max overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel singleColumn:p-2"
       >
         <div ref={listRef} className="scrollbar-thin overflow-y-auto">
           {agents.map((agent, index) => (
             <MenuItem
               key={agent.id}
-              ref={(element) => {
-                itemsRef.current[index] = element;
-              }}
+              ref={picker.itemRef(index)}
               role="option"
               tabIndex={-1}
               icon={<AgentIcon icon={agent.icon} variant="list" />}
