@@ -87,12 +87,10 @@ export function RowMenu<K extends RowMenuActionKind>({
   }, []);
 
   // ツリーのスクロールでも閉じず ⋯ へ追随させ、焦点が外れたら閉じる (この画面の殻の使い方)
-  const menu = usePopoverShell(
-    placeMenu,
-    ROW_MENU_MARGIN,
-    ({ place }) => place(),
-    ({ close }) => close(),
-  );
+  const menu = usePopoverShell(placeMenu, ROW_MENU_MARGIN, {
+    reposition: ({ place }) => place(),
+    exitOnBlur: ({ close }) => close(),
+  });
 
   return (
     <>

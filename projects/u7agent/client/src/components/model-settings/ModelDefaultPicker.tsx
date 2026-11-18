@@ -53,17 +53,16 @@ export function ModelDefaultPicker({
 
   // 開いた直後は検索欄へ入る (候補が多く、絞り込む方が速い)。絞り込みは開くたびに空へ戻す
   // (前回の検索語で開き直すと、選ぼうとした一覧が欠けて見える)。外への移動で閉じるのは hook が持つ
-  const picker = usePopoverShell(
-    place,
-    AGENT_PICKER_MARGIN,
-    ({ place: placeNow }) => placeNow(),
-    ({ close }) => close(),
-    sizePicker,
-    () => {
+  const picker = usePopoverShell(place, AGENT_PICKER_MARGIN, {
+    reposition: ({ place: placeNow }) => placeNow(),
+    exitOnBlur: ({ close }) => close(),
+    size: sizePicker,
+    openOnArrowKeys: true,
+    openFocus: () => {
       setQuery("");
       return searchRef.current;
     },
-  );
+  });
 
   const selectOption = (key: string | null) => {
     if (key !== value) onChange(key);

@@ -7,7 +7,7 @@ import {
 } from "../../lib/customProviders";
 import { popoverLeft, popoverTop, popoverWidth } from "../../lib/popoverPlacement";
 import { POPOVER_MARGIN } from "../../lib/popoverPlacement";
-import { selectMenuPlacement } from "../../lib/selectMenu";
+import { initialSelectMenuIndex, selectMenuPlacement } from "../../lib/selectMenu";
 import { usePopoverShell, type PopoverPlaceInput } from "../../hooks/usePopoverShell";
 import { CheckIcon } from "../icons";
 
@@ -70,10 +70,13 @@ export function ModelIdPicker({ value, loading, disabled, onRequest, onPick }: M
   const { triggerProps, popoverProps, exitProps, itemRef, isOpen, open, close } = usePopoverShell(
     place,
     POPOVER_MARGIN,
-    ({ place: placeNow }) => placeNow(),
-    ({ close: closeNow }) => closeNow(),
-    sizePicker,
-    () => searchRef.current,
+    {
+      reposition: ({ place: placeNow }) => placeNow(),
+      exitOnBlur: ({ close: closeNow }) => closeNow(),
+      size: sizePicker,
+      openOnArrowKeys: true,
+      openFocus: () => searchRef.current,
+    },
   );
 
   /** 一覧を取り直してから開く。取得中は押しても開かない (二重の要求を出さない) */
@@ -96,10 +99,18 @@ export function ModelIdPicker({ value, loading, disabled, onRequest, onPick }: M
     else void requestAndOpen();
   };
 
-  /** 検索欄のキー。Enter は外側の登録フォームを送信させない (↑↓ は hook が一覧へ抜ける) */
+  /** 検索欄のキー。Enter は外側の登録フォームを送信させない (行の決定は一覧側の button が担う) */
   const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== "Enter") return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    // 検索欄から一覧へ抜ける 1 手。↓ は選択中の行 (無ければ先頭)、↑ は末尾へ入る
     event.preventDefault();
+    const items = listRef.current?.querySelectorAll<HTMLButtonElement>("button[role='option']") ?? [];
+    const index = event.key === "ArrowDown" ? initialSelectMenuIndex(value, choices) : items.length - 1;
+    items[Math.min(Math.max(index, 0), items.length - 1)]?.focus();
   };
 
   const select = (id: string) => {
@@ -117,12 +128,6 @@ export function ModelIdPicker({ value, loading, disabled, onRequest, onPick }: M
         aria-label={CUSTOM_PROVIDER_PROBE_LABEL}
         disabled={disabled || loading}
         onClick={(event) => {
-          event.preventDefault();
-          toggle();
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-          // 既定のスクロールを止める。取得は click と同じ経路に任せ、開いたら検索へ焦点を移す
           event.preventDefault();
           toggle();
         }}

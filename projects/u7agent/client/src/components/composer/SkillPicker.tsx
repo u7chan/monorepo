@@ -91,15 +91,14 @@ export function SkillPicker({
 
   // 開いた直後の焦点はトリガーに残す (一覧は Tab で入る)。開閉は親が持ち、標準の close も
   // `onOpenChange` で伝わる
-  const { triggerProps, popoverProps, containerProps, close } = usePopoverShell(
-    place,
-    POPOVER_MARGIN,
-    ({ place: placeNow }) => placeNow(),
-    ({ close: closeNow }) => closeNow(),
-    sizePicker,
-    () => null,
+  const { triggerProps, popoverProps, containerProps, close } = usePopoverShell(place, POPOVER_MARGIN, {
+    reposition: ({ place: placeNow }) => placeNow(),
+    exitOnBlur: ({ close: closeNow }) => closeNow(),
+    size: sizePicker,
+    // 開いた直後の焦点はトリガーに残す (一覧は Tab で入る)
+    openFocus: () => null,
     onOpenChange,
-  );
+  });
 
   /** 一覧の選択はコマンドの挿入だけ。本文の展開は送信時に BFF が行う (docs/api-session-turns.md) */
   const select = (name: string) => {

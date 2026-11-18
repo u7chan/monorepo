@@ -53,14 +53,13 @@ export function AgentPicker({
 
   // ツリーのスクロールでも閉じずトリガーへ追随させ、焦点が外れたら閉じる (この画面の殻の使い方)。
   // 開いた直後は選択中の行へ入る (native select と同じ)
-  const picker = usePopoverShell(
-    place,
-    AGENT_PICKER_MARGIN,
-    ({ place: placeNow }) => placeNow(),
-    ({ close }) => close(),
-    sizePicker,
-    (items) => items[Math.min(Math.max(selectedIndex, 0), items.length - 1)] ?? null,
-  );
+  const picker = usePopoverShell(place, AGENT_PICKER_MARGIN, {
+    reposition: ({ place: placeNow }) => placeNow(),
+    exitOnBlur: ({ close }) => close(),
+    size: sizePicker,
+    openOnArrowKeys: true,
+    openFocus: (items) => items[Math.min(Math.max(selectedIndex, 0), items.length - 1)] ?? null,
+  });
 
   const selectAgent = (next: string) => {
     if (next !== agentId) onChangeAgent(next);

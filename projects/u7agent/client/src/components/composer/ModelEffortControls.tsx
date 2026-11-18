@@ -74,15 +74,14 @@ export function ModelEffortPicker({
 
   // 開いた直後の焦点はトリガーに残す (そのまま Tab で中の select へ入る)。開閉は親が持ち、
   // 標準の close も `onOpenChange` で伝わる
-  const { triggerProps, popoverProps, containerProps, close } = usePopoverShell(
-    place,
-    POPOVER_MARGIN,
-    ({ place: placeNow }) => placeNow(),
-    ({ close: closeNow }) => closeNow(),
-    sizePicker,
-    () => null,
+  const { triggerProps, popoverProps, containerProps, close } = usePopoverShell(place, POPOVER_MARGIN, {
+    reposition: ({ place: placeNow }) => placeNow(),
+    exitOnBlur: ({ close: closeNow }) => closeNow(),
+    size: sizePicker,
+    // 開いた直後の焦点はトリガーに残す (そのまま Tab で中の select へ入る)
+    openFocus: () => null,
     onOpenChange,
-  );
+  });
 
   // 親から畳まれたとき (送信の成立) だけ閉じる。開くのはトリガーだけにする (設定変更の完了などの
   // 再描画で勝手に開き直さない)

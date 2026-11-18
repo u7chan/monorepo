@@ -108,13 +108,12 @@ export function SelectMenu<TValue extends string = string>({
 
   // 検索できる一覧は行ではなく検索から入る (件数が多い一覧を矢印だけで辿らせない)。絞り込みは
   // 開くたびに空へ戻す (前回の検索語で一覧が欠けて見えるのを避ける)
-  const menu = usePopoverShell(
-    place,
-    POPOVER_MARGIN,
-    ({ place: placeNow }) => placeNow(),
-    ({ close }) => close(),
-    sizeMenu,
-    (items) => {
+  const menu = usePopoverShell(place, POPOVER_MARGIN, {
+    reposition: ({ place: placeNow }) => placeNow(),
+    exitOnBlur: ({ close }) => close(),
+    size: sizeMenu,
+    openOnArrowKeys: true,
+    openFocus: (items) => {
       if (searchable) {
         setQuery("");
         return searchRef.current;
@@ -125,7 +124,7 @@ export function SelectMenu<TValue extends string = string>({
       );
       return items[Math.min(Math.max(index, 0), items.length - 1)] ?? null;
     },
-  );
+  });
 
   /** 検索欄のキー。Enter は外側の form を送信させない (↑↓ は一覧の選択中の行 / 末尾へ抜ける) */
   const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {

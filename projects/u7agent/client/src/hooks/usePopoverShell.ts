@@ -40,6 +40,28 @@ export type PopoverSize = (input: PopoverPlaceInput & { margin: number }) => voi
  */
 export type PopoverOpenFocus = (items: readonly HTMLButtonElement[]) => HTMLElement | null;
 
+/**
+ * 画面ごとに選ぶ任意の要素。渡したものだけが有効になる (全部を 1 つの設定として扱わない)。
+ * コールバックは最新のものが使われるので、呼び出し側で identity を固定しなくてよい。
+ */
+export interface PopoverShellOptions {
+  /** scroll / resize の再配置。`cause` で「置き直す / 閉じる」を選ぶ */
+  reposition?: PopoverReposition;
+  /** focus が外へ出たときの終了。付ける要素は画面が選ぶ (`exitProps` / `containerProps`) */
+  exitOnBlur?: PopoverExitOnBlur;
+  /** 寸法の上限を書く。省略すると hook が `margin` から書く */
+  size?: PopoverSize;
+  /** 開いた直後の焦点。省略すると最初の有効な項目へ移す */
+  openFocus?: PopoverOpenFocus;
+  /**
+   * トリガーの ↑↓ でも開く (native select と同じ作法)。既定は開かない: 矢印で開く画面だけが true にする
+   * (⋯ ボタンなど、これまで矢印に反応していなかったトリガーの操作を増やさない)
+   */
+  openOnArrowKeys?: boolean;
+  /** 開閉の通知 (標準の close も含む)。親が開閉を持つ画面向け */
+  onOpenChange?: (open: boolean) => void;
+}
+
 /** 任意の要素へ渡す動作。どちらを選ぶかは呼び出し側が決め、hook は両方を等しく扱う */
 export type PopoverActions = {
   /** いまの位置へ置き直す (幅 / 高さの上限も書き直す) */
@@ -60,7 +82,10 @@ export type PopoverShell = {
     ref: RefObject<HTMLButtonElement | null>;
     "aria-expanded": boolean;
     onClick: (event: MouseEvent<HTMLButtonElement>) => void;
-    /** ↑↓ で開く (native select と同じ作法)。既に開いていれば `openFocus` の位置へ焦点を移す */
+    /**
+     * ↑↓ で開く。`openOnArrowKeys` を渡した画面だけが反応し、既に開いていれば `openFocus` の
+     * 位置へ焦点を移す (渡していない画面では何もしない)
+     */
     onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
     onPointerDown: () => void;
     onPointerUp: () => void;
@@ -83,8 +108,9 @@ export type PopoverShell = {
     onBlur: (event: FocusEvent<HTMLElement>) => void;
   };
   /**
-   * トリガーと popover を包む要素向け。開いている間の Escape を App へ通さず、
-   * 包みの外へ focus が出たら閉じる (開いた直後の焦点がトリガーに残る画面はこちらを使う)
+   * トリガーと popover を包む要素向け。開いている間の Escape を外へ通さず、包みの外へ focus が
+   * 出たら閉じる (開いた直後の焦点がトリガーに残る画面は、Escape が popover ではなくトリガーで
+   * 起きるためこちらを使う)
    */
   containerProps: {
     onKeyDown: (event: KeyboardEvent<HTMLElement>) => void;
@@ -106,18 +132,11 @@ export type PopoverShell = {
  * 配置の書き込み / 任意の後始末を 1 か所にまとめる。位置そのものは系統ごとの純関数
  * (`lib/popoverPlacement.ts` / `lib/agentPicker.ts` / `lib/rowMenu.ts` / `lib/selectMenu.ts`) が持ち、
  * ここは「どの系統の結果を `popover.style` へ書くか」だけを知る (計算を共有すると role と寄せ方が混ざる)。
- * 任意の要素は個別の引数で受け、渡されたものだけが有効になる (設定束やフラグは持たない)。
+ * 任意の要素は `options` で受け、渡されたものだけが有効になる。
  * `place` は `placeNow` の依存なので、呼び出し側で identity を固定する (毎描画で変わると配置と購読を張り直す)。
  */
-export function usePopoverShell(
-  place: PopoverPlace,
-  margin: number,
-  reposition?: PopoverReposition,
-  exitOnBlur?: PopoverExitOnBlur,
-  size?: PopoverSize,
-  openFocus?: PopoverOpenFocus,
-  onOpenChange?: (open: boolean) => void,
-): PopoverShell {
+export function usePopoverShell(place: PopoverPlace, margin: number, options: PopoverShellOptions = {}): PopoverShell {
+  const { reposition, exitOnBlur, size, openFocus, openOnArrowKeys, onOpenChange } = options;
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLElement | null>(null);
   const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
@@ -278,26 +297,35 @@ export function usePopoverShell(
     // 矢印で候補を選ぶ native の select は横取りしない
     if (direction === null || event.defaultPrevented) return;
     if (event.target instanceof HTMLSelectElement) return;
+    // 既定動作 (popover の外のスクロール) を止める。項目が 0 件でも止める (空の一覧で動かさない)
+    event.preventDefault();
     const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null && !item.disabled);
     if (items.length === 0) return;
-    // 既定動作 (popover の外のスクロール) を止める
-    event.preventDefault();
     const current = items.findIndex((item) => item === document.activeElement);
     items[nextRowMenuIndex(current, items.length, direction)]?.focus();
   }, []);
 
-  /** トリガーの ↑↓ で開く (native select と同じ作法)。開いているときは `openFocus` の位置へ焦点を移す */
+  /**
+   * トリガーの ↑↓ で開く (`openOnArrowKeys: true` の画面だけ)。押したときと同じ経路 (click) を通すので、
+   * 開く前に取得や絞り込みの初期化がある画面も同じ手順になる。既定で開かないのは、これまで矢印に
+   * 反応していなかったトリガーの操作を増やさないため
+   */
   const onTriggerKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>) => {
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-      // 既定動作 (ページのスクロール) を止める
+      // 矢印で開かない画面では触らない (base どおり既定動作 = ページのスクロールに任せる)
+      if (!openOnArrowKeys) return;
+      // 既定動作を止めてから、押したときと同じ経路へ渡す
       event.preventDefault();
-      open();
+      triggerRef.current?.click();
     },
-    [open],
+    [openOnArrowKeys],
   );
 
-  /** 開いている間だけ、トリガーを包む要素で Escape を止める (閉じている間は App の Escape を通す) */
+  /**
+   * 開いている間だけ、トリガーを包む要素で Escape を止める (閉じている間は素通しにする)。
+   * 開いた直後の焦点がトリガーに残る画面は、Escape が popover ではなくトリガーで起きるためこちらを使う
+   */
   const onContainerKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== "Escape") return;
     if (!popoverRef.current?.matches(":popover-open")) return;
