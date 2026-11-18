@@ -558,6 +558,51 @@ describe("排他区間中の tick", () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
 
     expect(calls).toEqual(["codex"]);
-    expect(loadProviderUsage(handle, [ACCOUNT_SOURCE_ID]).get(ACCOUNT_SOURCE_ID)?.snapshot).toBeNull();
+    const accountSourceId = "opencode-go:00000000-0000-4000-8000-000000000000";
+
+    expect(loadProviderUsage(handle, [accountSourceId]).get(accountSourceId)?.snapshot).toBeNull();
+  });
+});
+
+describe("provider を絞った排他区間", () => {
+  test("別 provider の変更待ちは、関係ない provider の取得を止めない", async () => {
+    const handle = open();
+    const gate = deferred();
+    const calls: string[] = [];
+    let clock = BASE_TIME;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: () => [
+        codexFetcher(async () => {
+          calls.push("codex");
+
+          return usageSnapshot({ capturedAt: clock });
+        }),
+        accountFetcher(async () => {
+          calls.push("opencode");
+          await gate.promise;
+
+          return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: clock });
+        }),
+      ],
+      intervalFor: () => 5 * 60 * 1000,
+      now: () => clock,
+      log: () => {},
+    });
+
+    const first = sampler.tick();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(calls).toEqual(["codex", "opencode"]);
+
+    clock += 5 * 60 * 1000;
+
+    const mutation = sampler.exclusive(() => {}, { provider: "opencode-go", refresh: false });
+
+    await sampler.tick();
+    expect(calls).toEqual(["codex", "opencode", "codex"]);
+
+    gate.resolve();
+    await Promise.all([first, mutation]);
   });
 });

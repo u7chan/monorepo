@@ -583,7 +583,9 @@ function Dashboard(props: {
       label: "取得間隔",
       onSelect: () => {
         setConfiguringIntervals(true);
-        // 開いた時点の値を読む。前回の GET が失敗していても、ここで取り直せる。
+        // 開いた時点の値を必ず読み直す。古い値のまま保存して、他の端末の設定を上書きしないため。
+        setFetchIntervals(null);
+        setFetchIntervalsFailed(false);
         void loadFetchIntervals();
       },
     },

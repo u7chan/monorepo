@@ -24,7 +24,7 @@ export function FetchIntervalForm(props: {
     selectableMinutes(props.intervals),
   );
   // env の POLL_INTERVAL_MS が一覧に無い値（1 分など）だと、そのままでは選択欄に表示できない。
-  const outsideOptions = usesOutsideOptions(props.intervals);
+  const outside = outsideOptions(props.intervals);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -60,9 +60,11 @@ export function FetchIntervalForm(props: {
         はアカウントごとに取得するため、回数は「間隔 × アカウント数」になります。
       </p>
 
-      {outsideOptions ? (
+      {outside.length > 0 ? (
         <p class="up-caption">
-          現在は一覧にない間隔（環境変数の設定）で動いています。保存すると、一覧から選んだ値に切り替わります。
+          {`現在は ${outside
+            .map((provider) => `${PROVIDER_LABELS[provider]} ${describeInterval(props.intervals[provider])}`)
+            .join("・")}（環境変数の設定）で動いています。保存すると、一覧から選んだ値に切り替わります。`}
         </p>
       ) : null}
 
@@ -122,11 +124,17 @@ function selectableMinutesOf(milliseconds: number): number {
     : DEFAULT_FETCH_INTERVAL_MINUTES;
 }
 
-function usesOutsideOptions(intervals: FetchIntervals): boolean {
-  return (
-    !(FETCH_INTERVAL_OPTIONS_MINUTES as readonly number[]).includes(intervals.codex / 60_000) ||
-    !(FETCH_INTERVAL_OPTIONS_MINUTES as readonly number[]).includes(intervals["opencode-go"] / 60_000)
+function outsideOptions(intervals: FetchIntervals): FetchIntervalProvider[] {
+  return FETCH_INTERVAL_PROVIDERS.filter(
+    (provider) => !(FETCH_INTERVAL_OPTIONS_MINUTES as readonly number[]).includes(intervals[provider] / 60_000),
   );
+}
+
+/** env の値は一覧の分に丸まらないことがある（90 秒など）。そのままの値を出す。 */
+function describeInterval(milliseconds: number): string {
+  const minutes = milliseconds / 60_000;
+
+  return Number.isInteger(minutes) ? `${minutes} 分` : `${minutes.toFixed(1)} 分`;
 }
 
 function toMilliseconds(minutes: Record<FetchIntervalProvider, number>): FetchIntervals {

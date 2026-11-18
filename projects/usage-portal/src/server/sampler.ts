@@ -71,8 +71,9 @@ export function createSampler(options: {
   // exclusive を呼んだ順に直列化する。前の変更後の再取得が終わるまで、次の変更を始めない。
   let exclusiveChain: Promise<void> = Promise.resolve();
   // 変更中は tick から取得を始めない。待機中に始まった取得が、削除した snapshot を書き戻すのを防ぐ。
-  // 呼んだ時点で数える。鎖に並んだ 2 つ目が始まる前の隙間でも、tick を止めるため。
-  let pendingMutations = 0;
+  // provider ごとに数え、関係ない provider の取得まで止めない。呼んだ時点で数えるのは、
+  // 鎖に並んだ 2 つ目が始まる前の隙間でも tick を止めるため。
+  const pendingMutations = new Map<ProviderId | "all", number>();
 
   function runFetcher(fetcher: UsageFetcher): Promise<void> {
     // 開始時点で次回を決める。取得が長引いても間隔を詰めない。
@@ -119,16 +120,20 @@ export function createSampler(options: {
     });
   }
 
-  function tick(): Promise<void> {
-    if (pendingMutations > 0) {
-      return Promise.resolve();
-    }
+  function isMutating(provider: ProviderId): boolean {
+    return (pendingMutations.get("all") ?? 0) > 0 || (pendingMutations.get(provider) ?? 0) > 0;
+  }
 
+  function tick(): Promise<void> {
     const now = options.now();
     const due = options.fetchers().filter((fetcher) => {
       const scheduledAt = nextDueAt.get(fetcher.sourceId);
 
-      return !running.has(fetcher.sourceId) && (scheduledAt === undefined || scheduledAt <= now);
+      return (
+        !isMutating(fetcher.provider.id) &&
+        !running.has(fetcher.sourceId) &&
+        (scheduledAt === undefined || scheduledAt <= now)
+      );
     });
 
     return due.length === 0 ? Promise.resolve() : execute(due);
@@ -193,13 +198,20 @@ export function createSampler(options: {
   function exclusive(fn: () => void, exclusiveOptions: ExclusiveOptions = {}): Promise<void> {
     const refreshAfter = exclusiveOptions.refresh ?? true;
     const provider = exclusiveOptions.provider;
-    pendingMutations += 1;
+    const key = provider ?? "all";
+
+    pendingMutations.set(key, (pendingMutations.get(key) ?? 0) + 1);
 
     const task = exclusiveChain.then(async () => {
       try {
-        // 待つあいだ tick は新しい取得を始めない。開始済みの取得だけを待てばよい。
-        while (running.size > 0) {
-          await Promise.allSettled([...running.values()]);
+        // 待つあいだ tick は同じ provider の取得を始めない。開始済みの取得だけを待てばよい。
+        const providers = new Map(options.fetchers().map((fetcher) => [fetcher.sourceId, fetcher.provider.id]));
+        const inFlight = [...running.entries()]
+          .filter(([sourceId]) => provider === undefined || providers.get(sourceId) === provider)
+          .map(([, running]) => running);
+
+        if (inFlight.length > 0) {
+          await Promise.allSettled(inFlight);
         }
 
         fn();
@@ -208,7 +220,13 @@ export function createSampler(options: {
           await refresh(provider);
         }
       } finally {
-        pendingMutations -= 1;
+        const remaining = (pendingMutations.get(key) ?? 1) - 1;
+
+        if (remaining > 0) {
+          pendingMutations.set(key, remaining);
+        } else {
+          pendingMutations.delete(key);
+        }
       }
     });
 

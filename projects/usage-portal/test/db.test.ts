@@ -143,7 +143,10 @@ describe("v1 からの migration", () => {
         PRIMARY KEY (provider, window_id, captured_at)
       ) WITHOUT ROWID;
 
+      INSERT INTO provider_snapshot (provider, captured_at, snapshot_json) VALUES ('codex', 1, '{}');
       INSERT INTO provider_error (provider, failed_at, code, message) VALUES ('codex', 1, 'upstream', 'x');
+      INSERT INTO usage_sample (provider, window_id, captured_at, used_percent, resets_at)
+        VALUES ('codex', 'weekly', 1, 50, NULL);
       PRAGMA user_version = 1;
     `);
     legacy.close();
@@ -163,6 +166,8 @@ describe("v1 からの migration", () => {
       provider: "codex",
       code: "upstream",
     });
+    expect(handle.db.query("SELECT COUNT(*) AS count FROM provider_snapshot").get()).toEqual({ count: 1 });
+    expect(handle.db.query("SELECT COUNT(*) AS count FROM usage_sample").get()).toEqual({ count: 1 });
   });
 });
 
