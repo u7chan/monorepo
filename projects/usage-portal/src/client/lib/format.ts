@@ -45,6 +45,28 @@ export function formatSpan(milliseconds: number): string {
   return `${Math.max(1, Math.round(milliseconds / MINUTE_MS))}分`;
 }
 
+/** 取得間隔。分単位の整数で出す（300000 → `5 分`）。 */
+export function formatFetchInterval(milliseconds: number): string {
+  return `${Math.max(1, Math.round(milliseconds / MINUTE_MS))} 分`;
+}
+
+/** 取得からの経過。稼働中の画面で「いまの値か」を判断するために使う。 */
+export function describeAge(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds) || milliseconds < MINUTE_MS) {
+    return "たった今";
+  }
+
+  if (milliseconds < HOUR_MS) {
+    return `${Math.floor(milliseconds / MINUTE_MS)} 分前`;
+  }
+
+  if (milliseconds < DAY_MS) {
+    return `${Math.floor(milliseconds / HOUR_MS)} 時間前`;
+  }
+
+  return `${Math.floor(milliseconds / DAY_MS)} 日前`;
+}
+
 /** 保存されている履歴の長さ。分だけは「分分」にならないよう単位を付けない。 */
 export function describeCoverage(milliseconds: number): string {
   if (milliseconds >= DAY_MS) {
