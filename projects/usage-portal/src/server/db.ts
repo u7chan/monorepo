@@ -5,7 +5,7 @@ import type { ProviderSnapshot } from "./providers/types";
 import type { SamplePoint } from "./trend";
 import type { UsageError } from "./state";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** 単一キー時代の OpenCode Go の source id。起動時の掃除でだけ使う。 */
 const LEGACY_OPENCODE_SOURCE_ID = "opencode-go";
@@ -40,6 +40,12 @@ const MIGRATIONS: readonly string[] = [
     resets_at INTEGER,
     PRIMARY KEY (provider, window_id, captured_at)
   ) WITHOUT ROWID;
+  `,
+  `
+  CREATE TABLE fetch_interval (
+    provider TEXT PRIMARY KEY,
+    interval_ms INTEGER NOT NULL
+  );
   `,
 ];
 
@@ -84,6 +90,25 @@ export function verifyDatabase(handle: DatabaseHandle): boolean {
 }
 
 export type StoredProviderUsage = { snapshot: ProviderSnapshot | null; error: UsageError | null };
+
+/** provider ごとに保存した取得間隔。行が無い provider は env か既定値を使う。 */
+export function loadFetchIntervals(handle: DatabaseHandle): Map<string, number> {
+  const rows = handle.db.query("SELECT provider, interval_ms FROM fetch_interval").all() as {
+    provider: string;
+    interval_ms: number;
+  }[];
+
+  return new Map(rows.map((row) => [row.provider, row.interval_ms]));
+}
+
+export function saveFetchInterval(handle: DatabaseHandle, provider: string, intervalMs: number): void {
+  handle.db
+    .query(`
+      INSERT INTO fetch_interval (provider, interval_ms) VALUES (?, ?)
+      ON CONFLICT(provider) DO UPDATE SET interval_ms = excluded.interval_ms
+    `)
+    .run(provider, intervalMs);
+}
 
 /** 成功した 1 回分を 1 transaction で書く。snapshot と sample と error が食い違う中間状態を残さない。 */
 export function saveProviderSnapshot(handle: DatabaseHandle, sourceId: string, snapshot: ProviderSnapshot): void {

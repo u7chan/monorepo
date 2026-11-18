@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
+import { DEFAULT_FETCH_INTERVAL_MINUTES } from "../shared/fetch-interval";
 import { MAX_OPENCODE_ACCOUNTS } from "../shared/opencode-account";
 import logo from "./assets/logo.png";
 import {
@@ -8,6 +9,7 @@ import {
   type OpenCodeAccount,
   type OpenCodeAccountInput,
   type OpenCodeAccountPatch,
+  type FetchIntervals,
   type ProbeCatalog,
   type ProbeCheckOutcome,
   type UsagePayload,
@@ -20,6 +22,7 @@ import {
   deleteOpenCodeAccount,
   fetchCodexAuth,
   fetchCodexProbe,
+  fetchFetchIntervals,
   fetchOpenCodeAccounts,
   fetchProbeModels,
   fetchSession,
@@ -28,10 +31,12 @@ import {
   logoutCodex,
   respondCodexLogin,
   saveCodexProbe,
+  saveFetchInterval,
   startCodexLogin,
   updateOpenCodeAccount,
 } from "./api";
 import { CodexCard } from "./components/CodexCard";
+import { FetchIntervalForm } from "./components/FetchIntervalForm";
 import { LoginScreen } from "./components/LoginScreen";
 import { Modal } from "./components/Modal";
 import { OpenCodeAccountCard } from "./components/OpenCodeAccountCard";
@@ -163,6 +168,8 @@ function Dashboard(props: {
   const [clock, setClock] = useState(() => Date.now());
   const [adding, setAdding] = useState(false);
   const [configuring, setConfiguring] = useState(false);
+  const [configuringIntervals, setConfiguringIntervals] = useState(false);
+  const [fetchIntervals, setFetchIntervals] = useState<FetchIntervals | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(() => readViewMode(browserStorage()));
   const changeViewMode = useCallback((mode: ViewMode) => {
     setViewMode(mode);
@@ -283,10 +290,25 @@ function Dashboard(props: {
     }
   }, [onUnauthorized]);
 
+  const loadFetchIntervals = useCallback(async () => {
+    const result = await fetchFetchIntervals();
+
+    if (result && "unauthorized" in result) {
+      onUnauthorized();
+
+      return;
+    }
+
+    if (result) {
+      setFetchIntervals(result);
+    }
+  }, [onUnauthorized]);
+
   useEffect(() => {
     void loadCodex();
     void loadProbe();
-  }, [loadCodex, loadProbe]);
+    void loadFetchIntervals();
+  }, [loadCodex, loadProbe, loadFetchIntervals]);
 
   // アカウントの一覧は初回だけ取る。追加・削除・名前の変更のあとにだけ取り直す。
   useEffect(() => {
@@ -421,6 +443,42 @@ function Dashboard(props: {
     [refreshAfterChange],
   );
 
+  // 変更した provider だけを順に保存する。どれかが失敗したらそこで止め、画面に理由を出す。
+  const saveFetchIntervals = useCallback(
+    async (next: FetchIntervals): Promise<string | null> => {
+      let current = fetchIntervals;
+
+      for (const provider of ["codex", "opencode-go"] as const) {
+        if (current !== null && current[provider] === next[provider]) {
+          continue;
+        }
+
+        const outcome = await saveFetchInterval(provider, Math.round(next[provider] / 60_000));
+
+        if (!outcome.ok) {
+          if (outcome.error === "unauthorized") {
+            onUnauthorized();
+
+            return "セッションが切れました。もう一度 PIN を入力してください。";
+          }
+
+          return outcome.error === "invalid"
+            ? "選べない間隔です。画面を読み直してください。"
+            : "保存できませんでした。もう一度試してください。";
+        }
+
+        current = outcome.intervals;
+        setFetchIntervals(outcome.intervals);
+      }
+
+      // 次回の予定が変わっているので、カードのバーと文言を取り直す。
+      await loadUsage();
+
+      return null;
+    },
+    [fetchIntervals, loadUsage, onUnauthorized],
+  );
+
   const saveProbe = useCallback(
     async (config: CodexProbeConfig): Promise<string | null> => {
       const outcome = await saveCodexProbe(config);
@@ -510,6 +568,7 @@ function Dashboard(props: {
       onSelect: () => setAdding(true),
       disabled: atLimit,
     },
+    { label: "取得間隔", onSelect: () => setConfiguringIntervals(true) },
     { label: "ログアウト", onSelect: () => void signOut(), danger: true },
   ];
 
@@ -530,7 +589,6 @@ function Dashboard(props: {
               source={source}
               now={clock}
               generatedAt={usage?.generatedAt ?? null}
-              intervalMs={usage?.sampleIntervalMs ?? null}
               compact={compact}
               auth={codex}
               actions={codexActions}
@@ -545,7 +603,6 @@ function Dashboard(props: {
               source={source}
               now={clock}
               generatedAt={usage?.generatedAt ?? null}
-              intervalMs={usage?.sampleIntervalMs ?? null}
               compact={compact}
               actions={openCodeActions}
               account={accounts.accounts.find((candidate) => candidate.id === source.id) ?? null}
@@ -579,6 +636,11 @@ function Dashboard(props: {
           )}
         </Modal>
       ) : null}
+      {configuringIntervals ? (
+        <Modal title="取得間隔" onClose={() => setConfiguringIntervals(false)}>
+          {(close) => <FetchIntervalForm intervals={fetchIntervals} onSave={saveFetchIntervals} onClose={close} />}
+        </Modal>
+      ) : null}
       {configuring ? (
         <Modal title="Codex の開始設定" onClose={() => setConfiguring(false)}>
           {(close) => (
@@ -601,6 +663,8 @@ function placeholderSources(accounts: readonly OpenCodeAccount[]): UsageSource[]
   const placeholder = {
     state: "loading" as const,
     capturedAt: null,
+    fetchIntervalMs: DEFAULT_FETCH_INTERVAL_MINUTES * 60_000,
+    nextFetchAt: null,
     error: null,
     limitReached: false,
     windows: [],

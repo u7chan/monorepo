@@ -68,7 +68,7 @@ describe("createSampler", () => {
           throw new ProviderError("config", "OpenCode Go の API キーが設定されていません");
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: (message) => logs.push(message),
     });
@@ -102,7 +102,7 @@ describe("createSampler", () => {
           },
         },
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: (message) => logs.push(message),
     });
@@ -129,7 +129,7 @@ describe("createSampler", () => {
             return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
           },
         })),
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -168,7 +168,7 @@ describe("createSampler", () => {
           },
         }));
       },
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -196,7 +196,7 @@ describe("createSampler", () => {
           throw new ProviderError("upstream", "Codex の取得に失敗しました（HTTP 500）");
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -219,7 +219,7 @@ describe("createSampler", () => {
           throw new Error("token=secret-sentinel");
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: (message) => logs.push(message),
     });
@@ -252,7 +252,7 @@ describe("createSampler", () => {
           return usageSnapshot({ capturedAt: BASE_TIME + calls });
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -285,7 +285,7 @@ describe("createSampler", () => {
           throw new ProviderError("not_connected", "Codex にサインインしていません");
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -316,7 +316,7 @@ describe("exclusive", () => {
           return usageSnapshot();
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -351,7 +351,7 @@ describe("exclusive", () => {
           return usageSnapshot();
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -374,5 +374,127 @@ describe("exclusive", () => {
 
     expect(stored?.snapshot).toBeNull();
     expect(stored?.error?.code).toBe("not_connected");
+  });
+});
+
+describe("provider ごとの間隔", () => {
+  const MINUTE = 60 * 1000;
+
+  function scheduled(): {
+    sampler: ReturnType<typeof createSampler>;
+    calls: string[];
+    advance: (ms: number) => void;
+  } {
+    const handle = open();
+    const calls: string[] = [];
+    let clock = BASE_TIME;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: () => [
+        codexFetcher(async () => {
+          calls.push("codex");
+
+          return usageSnapshot({ capturedAt: clock });
+        }),
+        accountFetcher(async () => {
+          calls.push("opencode");
+
+          return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: clock });
+        }),
+      ],
+      intervalFor: (provider) => (provider === "codex" ? 5 * MINUTE : 10 * MINUTE),
+      now: () => clock,
+      log: () => {},
+    });
+
+    return {
+      sampler,
+      calls,
+      advance(ms) {
+        clock += ms;
+      },
+    };
+  }
+
+  test("予定を過ぎた source だけを取り直す", async () => {
+    const { sampler, calls, advance } = scheduled();
+
+    await sampler.tick();
+    expect(calls).toEqual(["codex", "opencode"]);
+
+    advance(5 * MINUTE);
+    await sampler.tick();
+    expect(calls).toEqual(["codex", "opencode", "codex"]);
+
+    advance(5 * MINUTE);
+    await sampler.tick();
+    expect(calls).toEqual(["codex", "opencode", "codex", "codex", "opencode"]);
+  });
+
+  test("kick は指定した provider だけを取り直す", async () => {
+    const { sampler, calls } = scheduled();
+
+    await sampler.tick();
+    await sampler.kick("opencode-go");
+
+    expect(calls).toEqual(["codex", "opencode", "opencode"]);
+  });
+
+  test("reschedule は次回予定を前倒しし、nextFetchAt に出す", async () => {
+    const handle = open();
+    let clock = BASE_TIME;
+    let interval = 60 * MINUTE;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: () => [codexFetcher(async () => usageSnapshot({ capturedAt: clock }))],
+      intervalFor: () => interval,
+      now: () => clock,
+      log: () => {},
+    });
+
+    await sampler.tick();
+    expect(sampler.nextFetchAt("codex")).toBe(BASE_TIME + 60 * MINUTE);
+
+    interval = 5 * MINUTE;
+    sampler.reschedule("codex");
+    expect(sampler.nextFetchAt("codex")).toBe(BASE_TIME + 5 * MINUTE);
+  });
+
+  test("1 つの source の取得中でも、別の source は予定どおり取る", async () => {
+    const handle = open();
+    const gate = deferred();
+    const calls: string[] = [];
+    let clock = BASE_TIME;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: () => [
+        codexFetcher(async () => {
+          calls.push("codex");
+          await gate.promise;
+
+          return usageSnapshot({ capturedAt: clock });
+        }),
+        accountFetcher(async () => {
+          calls.push("opencode");
+
+          return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: clock });
+        }),
+      ],
+      intervalFor: (provider) => (provider === "codex" ? 60 * MINUTE : 5 * MINUTE),
+      now: () => clock,
+      log: () => {},
+    });
+
+    const first = sampler.tick();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(calls).toEqual(["codex", "opencode"]);
+
+    clock += 5 * MINUTE;
+    await sampler.tick();
+    expect(calls).toEqual(["codex", "opencode", "opencode"]);
+
+    gate.resolve();
+    await first;
   });
 });

@@ -18,8 +18,9 @@ const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_PORT = 3000;
 const DEFAULT_DATA_DIR = "/app/data";
 const DEFAULT_CREDENTIAL_DIR = "/app/credentials";
-const DEFAULT_POLL_INTERVAL_MS = 5 * 60 * 1000;
-/** 上流のレート制限を自分で踏まないための下限。 */
+/** 保存値が無い provider の取得間隔。画面からは 5 分以上を選べる。 */
+const DEFAULT_POLL_INTERVAL_MS = 10 * 60 * 1000;
+/** 上流のレート制限を自分で踏まないための下限。env でだけ下げられる。 */
 const MIN_POLL_INTERVAL_MS = 60 * 1000;
 
 export function loadConfig(env: Record<string, string | undefined>, packageVersion: string): ServerConfig {

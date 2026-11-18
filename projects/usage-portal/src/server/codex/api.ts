@@ -39,7 +39,7 @@ export function createCodexApi(options: {
       // サインアウト後は前回の snapshot を出さない。sample は残し、同じアカウントで戻ったときに
       // 推移を続けられるようにする。先に始まっていた取得が書き戻さないよう、削除は
       // sampler の排他区間で行い、その後に取り直す（取り直しは未接続の error だけを書く）。
-      await options.sampler.exclusive(() => deleteProviderState(options.db, sourceId));
+      await options.sampler.exclusive(() => deleteProviderState(options.db, sourceId), { provider: "codex" });
     },
   };
 }

@@ -14,8 +14,6 @@ export function ProviderCard(props: {
   now: number;
   /** 推移の右端。再取得のたびにグラフが横にずれないよう、描画時刻ではなく応答時刻を使う。 */
   generatedAt: number | null;
-  /** 上流を取りに行く間隔。バーの進み具合と「次はいつか」の文言に使う。 */
-  intervalMs: number | null;
   /** 推移を省いてカードを短くする。3 件をスクロールせず見たいときの表示。 */
   compact?: boolean;
   /** provider ごとの操作（編集・削除など）。見出しの右に置く。 */
@@ -37,30 +35,35 @@ export function ProviderCard(props: {
   const [selectedWindowId, setSelectedWindowId] = useState<string | null>(null);
   const activeWindow = chartWindows.find((window) => window.id === selectedWindowId) ?? pickTrendWindow(chartWindows);
   const activeTrend = activeWindow ? (source.trends.find((trend) => trend.windowId === activeWindow.id) ?? null) : null;
+  const intervalLabel = formatFetchInterval(source.fetchIntervalMs);
   const retryHint =
     source.error?.code === "subscription_required"
       ? "契約の反映後、自動で取得し直します。"
-      : props.intervalMs === null
-        ? "しばらくしてから自動で再試行します。"
-        : `${formatFetchInterval(props.intervalMs)}後に自動で再試行します。`;
-  const intervalLabel = props.intervalMs === null ? null : formatFetchInterval(props.intervalMs);
+      : `${intervalLabel}後に自動で再試行します。`;
   const capturedAt = source.capturedAt;
   const ageLabel = capturedAt === null ? null : describeAge(props.now - capturedAt);
   // バーの経過は capturedAt ごとに固定する。再描画のたびに経過を計算し直すと
   // animation-delay が変わり、アニメーションが先頭からやり直しになる。
   // 予定を過ぎて満タンのまま止まる状態を正常系として出す。失敗・停止中はバーを出さない。
   const bar = useMemo(() => {
-    if (source.state !== "ok" || source.capturedAt === null || props.intervalMs === null) {
+    if (source.state !== "ok" || source.capturedAt === null || source.nextFetchAt === null) {
+      return null;
+    }
+
+    // 次回予定は sampler が決めた値。取得にかかった時間も含むので、capturedAt + 間隔 で近似しない。
+    const durationMs = source.nextFetchAt - source.capturedAt;
+
+    if (!(durationMs > 0)) {
       return null;
     }
 
     return {
       capturedAt: source.capturedAt,
-      intervalMs: props.intervalMs,
-      elapsedMs: Math.max(0, props.now - source.capturedAt),
+      durationMs,
+      elapsedMs: Math.min(durationMs, Math.max(0, props.now - source.capturedAt)),
     };
     // props.now は依存に入れない。マウント時の経過をそのままバーの開始位置にする。
-  }, [source.state, source.capturedAt, props.intervalMs]);
+  }, [source.state, source.capturedAt, source.nextFetchAt]);
 
   return (
     <article class="up-card up-provider">
@@ -130,6 +133,7 @@ export function ProviderCard(props: {
           activeWindowId={activeWindow.id}
           trend={activeTrend}
           generatedAt={props.generatedAt}
+          intervalMs={source.fetchIntervalMs}
           onSelect={setSelectedWindowId}
         />
       ) : null}
@@ -140,7 +144,7 @@ export function ProviderCard(props: {
             ? "まだ取得していません"
             : [
                 // 簡易表示では間隔まで出さず、値の古さだけを残す。
-                !props.compact && intervalLabel !== null ? `${intervalLabel}間隔` : null,
+                props.compact ? null : `${intervalLabel}間隔`,
                 ageLabel,
               ]
                 .filter((part) => part !== null)
@@ -151,7 +155,7 @@ export function ProviderCard(props: {
             <span
               key={bar.capturedAt}
               class="up-fetch-fill"
-              style={{ animationDuration: `${bar.intervalMs}ms`, animationDelay: `-${bar.elapsedMs}ms` }}
+              style={{ animationDuration: `${bar.durationMs}ms`, animationDelay: `-${bar.elapsedMs}ms` }}
             />
           </div>
         )}

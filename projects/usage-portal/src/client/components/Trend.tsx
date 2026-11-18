@@ -1,6 +1,6 @@
 import type { Trend, UsageWindow } from "../api";
 import { buildTimeTicks, buildValueAxis } from "../lib/chart";
-import { describeCoverage, formatSpan, remainingPercent } from "../lib/format";
+import { describeCoverage, formatFetchInterval, formatSpan, remainingPercent } from "../lib/format";
 
 /** 線が枠に貼り付かないよう、上下に少し余白を残す（viewBox の %）。 */
 const PLOT_PADDING = 4;
@@ -10,6 +10,8 @@ export function TrendChart(props: {
   activeWindowId: string;
   trend: Trend | null;
   generatedAt: number | null;
+  /** このカードの取得間隔。まだ点が 1 つも無いときの説明に使う。 */
+  intervalMs: number;
   onSelect: (windowId: string) => void;
 }) {
   const title = props.trend ? `残りの推移（${formatSpan(props.trend.spanMs)}）` : "残りの推移";
@@ -34,16 +36,20 @@ export function TrendChart(props: {
           </div>
         ) : null}
       </div>
-      {props.trend ? <Chart trend={props.trend} generatedAt={props.generatedAt} /> : <ChartEmpty />}
+      {props.trend ? (
+        <Chart trend={props.trend} generatedAt={props.generatedAt} intervalMs={props.intervalMs} />
+      ) : (
+        <ChartEmpty intervalMs={props.intervalMs} />
+      )}
     </div>
   );
 }
 
-function ChartEmpty() {
-  return <p class="up-caption">履歴を収集中です（5 分ごとに記録）。</p>;
+function ChartEmpty(props: { intervalMs: number }) {
+  return <p class="up-caption">{`履歴を収集中です（${formatFetchInterval(props.intervalMs)}ごとに記録）。`}</p>;
 }
 
-function Chart(props: { trend: Trend; generatedAt: number | null }) {
+function Chart(props: { trend: Trend; generatedAt: number | null; intervalMs: number }) {
   const points = props.trend.points;
   const remaining = points.map((point) => ({ at: point.at, value: remainingPercent(point.usedPercent) }));
   const axis = buildValueAxis(remaining.map((point) => point.value));
@@ -51,7 +57,7 @@ function Chart(props: { trend: Trend; generatedAt: number | null }) {
   const last = remaining.at(-1);
 
   if (!axis || !first || !last) {
-    return <ChartEmpty />;
+    return <ChartEmpty intervalMs={props.intervalMs} />;
   }
 
   const endAt = Math.max(props.generatedAt ?? last.at, last.at);

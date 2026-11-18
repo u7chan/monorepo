@@ -24,6 +24,8 @@ function source(id: string, state: ProviderState, meters: UsageWindow[]): UsageS
     account: null,
     state,
     capturedAt: null,
+    fetchIntervalMs: 600_000,
+    nextFetchAt: null,
     error: null,
     limitReached: false,
     windows: meters,

@@ -3,7 +3,7 @@ export const OPENCODE_ACCOUNT_ICONS = ["🦊", "🐼", "🐧", "🐳", "🦉", "
 
 export type OpenCodeAccountIcon = (typeof OPENCODE_ACCOUNT_ICONS)[number];
 
-/** 上限。上流アクセスは 5 分 × 件数になるため、1 時間あたりの呼び出しを抑える。 */
+/** 上限。上流アクセスは取得間隔 × 件数になるため、1 時間あたりの呼び出しを抑える。 */
 export const MAX_OPENCODE_ACCOUNTS = 10;
 
 /**

@@ -1,3 +1,4 @@
+import type { FetchIntervalProvider } from "../shared/fetch-interval";
 import { type OpenCodeStatusPayload, readServiceStatus, readStatusReason } from "../shared/opencode-status";
 
 export type { OpenCodeStatusPayload } from "../shared/opencode-status";
@@ -48,6 +49,10 @@ export type UsageSource = {
   account: UsageSourceAccount | null;
   state: ProviderState;
   capturedAt: number | null;
+  /** この source の取得間隔。カードの文言とバーの長さに使う。 */
+  fetchIntervalMs: number;
+  /** 次回の取得予定。まだ決まっていなければ null。 */
+  nextFetchAt: number | null;
   error: { code: string; message: string; at: number } | null;
   limitReached: boolean;
   windows: UsageWindow[];
@@ -56,7 +61,7 @@ export type UsageSource = {
   trends: Trend[];
 };
 
-export type UsagePayload = { generatedAt: number; sampleIntervalMs: number; sources: UsageSource[] };
+export type UsagePayload = { generatedAt: number; sources: UsageSource[] };
 
 export type CodexLoginOption = { id: string; label: string };
 
@@ -183,6 +188,59 @@ export async function fetchUsage(): Promise<UsagePayload | Unauthorized | null> 
   }
 
   return parseUsage(await response.json().catch(() => null));
+}
+
+/** provider ごとの取得間隔。画面全体で 1 つの設定なので、ログイン後に 1 回だけ取る。 */
+export async function fetchFetchIntervals(): Promise<FetchIntervals | Unauthorized | null> {
+  const response = await fetch("/api/settings/fetch-intervals", { headers: { accept: "application/json" } });
+
+  if (response.status === 401) {
+    return { unauthorized: true };
+  }
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return parseFetchIntervals(await response.json().catch(() => null));
+}
+
+export type FetchIntervalOutcome =
+  | { ok: true; intervals: FetchIntervals }
+  | { ok: false; error: "unauthorized" | "invalid" | "unavailable" };
+
+export async function saveFetchInterval(
+  provider: FetchIntervalProvider,
+  minutes: number,
+): Promise<FetchIntervalOutcome> {
+  const response = await fetch("/api/settings/fetch-intervals", {
+    method: "PUT",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ provider, minutes }),
+  });
+  const body: unknown = await response.json().catch(() => null);
+
+  if (response.ok) {
+    const intervals = parseFetchIntervals(body);
+
+    return intervals ? { ok: true, intervals } : { ok: false, error: "unavailable" };
+  }
+
+  if (response.status === 401) {
+    return { ok: false, error: "unauthorized" };
+  }
+
+  return { ok: false, error: response.status === 400 ? "invalid" : "unavailable" };
+}
+
+export type FetchIntervals = Record<FetchIntervalProvider, number>;
+
+function parseFetchIntervals(body: unknown): FetchIntervals | null {
+  const intervals = readObject(body, "intervals");
+  const codex = readNumber(intervals, "codex");
+  const openCode = readNumber(intervals, "opencode-go");
+
+  return codex === null || openCode === null ? null : { codex, "opencode-go": openCode };
 }
 
 export async function fetchCodexAuth(): Promise<CodexAuthState | Unauthorized | null> {
@@ -454,7 +512,6 @@ export function parseUsage(body: unknown): UsagePayload | null {
 
   return {
     generatedAt: readNumber(body, "generatedAt") ?? Date.now(),
-    sampleIntervalMs: readNumber(body, "sampleIntervalMs") ?? 300_000,
     sources,
   };
 }
@@ -550,6 +607,9 @@ function parseSource(value: unknown): UsageSource | null {
     account: parseSourceAccount(readObject(value, "account")),
     state,
     capturedAt: readNumber(value, "capturedAt"),
+    // 古い server と画面が混ざってもカードを落とさない。欠けたら既定の 10 分として描く。
+    fetchIntervalMs: readNumber(value, "fetchIntervalMs") ?? 600_000,
+    nextFetchAt: readNumber(value, "nextFetchAt"),
     error:
       error && readString(error, "code")
         ? {

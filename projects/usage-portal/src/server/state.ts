@@ -12,7 +12,8 @@ export function decideProviderState(options: {
   snapshotCapturedAt: number | null;
   hasError: boolean;
   now: number;
-  sampleIntervalMs: number;
+  /** この source の取得間隔。停滞の判定を provider ごとの設定に合わせる。 */
+  intervalMs: number;
 }): ProviderState {
   if (options.snapshotCapturedAt === null) {
     return options.hasError ? "error" : "loading";
@@ -22,5 +23,5 @@ export function decideProviderState(options: {
     return "stale";
   }
 
-  return options.now - options.snapshotCapturedAt > 2 * options.sampleIntervalMs ? "stale" : "ok";
+  return options.now - options.snapshotCapturedAt > 2 * options.intervalMs ? "stale" : "ok";
 }

@@ -12,7 +12,6 @@ export function OpenCodeAccountCard(props: {
   source: UsageSource;
   now: number;
   generatedAt: number | null;
-  intervalMs: number | null;
   compact?: boolean;
   actions: OpenCodeAccountActions;
   /**
@@ -36,13 +35,7 @@ export function OpenCodeAccountCard(props: {
   // アカウントが無いカードは操作の対象にならない。メニューもパネルも出さない。
   if (!identity) {
     return (
-      <ProviderCard
-        source={props.source}
-        now={props.now}
-        generatedAt={props.generatedAt}
-        intervalMs={props.intervalMs}
-        compact={props.compact}
-      />
+      <ProviderCard source={props.source} now={props.now} generatedAt={props.generatedAt} compact={props.compact} />
     );
   }
 
@@ -116,7 +109,6 @@ export function OpenCodeAccountCard(props: {
       source={props.source}
       now={props.now}
       generatedAt={props.generatedAt}
-      intervalMs={props.intervalMs}
       compact={props.compact}
       headerMenu={<OverflowMenu label="このアカウントの操作" items={items} />}
     >

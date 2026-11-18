@@ -6,7 +6,7 @@ const NOW = 1_800_000_000_000;
 const INTERVAL = 300_000;
 
 function decide(snapshotCapturedAt: number | null, hasError: boolean) {
-  return decideProviderState({ snapshotCapturedAt, hasError, now: NOW, sampleIntervalMs: INTERVAL });
+  return decideProviderState({ snapshotCapturedAt, hasError, now: NOW, intervalMs: INTERVAL });
 }
 
 describe("decideProviderState", () => {
