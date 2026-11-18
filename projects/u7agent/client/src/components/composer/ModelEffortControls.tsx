@@ -1,24 +1,16 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  type FocusEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-} from "react";
+import { useCallback, useEffect, useId, useMemo } from "react";
 import { effortChoices, effortLabel, type ComposerSettings } from "../../lib/composerSettings";
 import { cn } from "../../lib/cn";
 import { modelChoices, unavailableModelChoice } from "../../lib/modelChoices";
 import {
+  POPOVER_MARGIN,
   popoverAvailableHeight,
   popoverLeft,
   popoverOpensAbove,
   popoverTop,
   popoverWidth,
 } from "../../lib/popoverPlacement";
+import { usePopoverShell, type PopoverPlaceInput } from "../../hooks/usePopoverShell";
 import type { ModelRef, ThinkingLevel } from "../../types";
 import { SelectField } from "../SelectField";
 import { ChevronDownIcon } from "../icons";
@@ -51,8 +43,6 @@ export function ModelEffortPicker({
   onChangeThinkingLevel: (level: ThinkingLevel) => void;
 }) {
   const pickerId = useId();
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
   // 注意文は popover の中だけに出す。畳んでいるときはモデルが使えない警告だけを入力欄の下へ残す
   const notice = settings.modelWarning ?? settings.effortNotice;
   const label = settings.modelLabel ?? "未選択";
@@ -62,100 +52,49 @@ export function ModelEffortPicker({
   // 開いても選べるモデルが無い導線を残さない。実行中・設定変更中も開ける (中の select が無効のまま)
   const unavailable = settings.modelOptions.length === 0 && !settings.model;
 
-  const place = useCallback(() => {
-    const popover = popoverRef.current;
-    const trigger = triggerRef.current;
-    if (popover === null || trigger === null) return;
+  // 幅と高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
+  const sizePicker = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
+    if (trigger === null) return;
     const anchor = trigger.getBoundingClientRect();
-    const viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
-    // 幅と高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
     const above = popoverOpensAbove(anchor, viewport.height);
-    const width = popoverWidth(MODEL_EFFORT_PICKER_WIDTH, viewport.width);
-    popover.style.width = `${width}px`;
+    popover.style.width = `${popoverWidth(MODEL_EFFORT_PICKER_WIDTH, viewport.width)}px`;
     popover.style.maxHeight = `${popoverAvailableHeight(anchor, viewport.height, above)}px`;
-    popover.style.left = `${popoverLeft(anchor, width, viewport.width)}px`;
-    popover.style.top = `${popoverTop(anchor, popover.getBoundingClientRect().height, above, viewport.height)}px`;
   }, []);
 
-  // 開いている間は commit のたびに置き直す。window の resize ハンドラは React の再レンダー
-  // (singleColumn ⇄ desktop の切替など) より先に走り、動く前の rect を読んでしまう
-  useLayoutEffect(() => {
-    if (open) place();
+  const place = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
+    if (trigger === null) return null;
+    const anchor = trigger.getBoundingClientRect();
+    const above = popoverOpensAbove(anchor, viewport.height);
+    const width = popoverWidth(MODEL_EFFORT_PICKER_WIDTH, viewport.width);
+    return {
+      left: popoverLeft(anchor, width, viewport.width),
+      top: popoverTop(anchor, popover.getBoundingClientRect().height, above, viewport.height),
+    };
+  }, []);
+
+  // 開いた直後の焦点はトリガーに残す (そのまま Tab で中の select へ入る)。開閉は親が持ち、
+  // 標準の close も `onOpenChange` で伝わる
+  const { triggerProps, popoverProps, containerProps, close } = usePopoverShell(place, POPOVER_MARGIN, {
+    reposition: ({ place: placeNow }) => placeNow(),
+    exitOnBlur: ({ close: closeNow }) => closeNow(),
+    size: sizePicker,
+    // 開いた直後の焦点はトリガーに残す (そのまま Tab で中の select へ入る)
+    openFocus: () => null,
+    onOpenChange,
   });
 
-  // 開閉の正は popover の状態。標準の close (Escape / light dismiss / Tab での退出) をここで観測して親へ写す。
-  // 開くきっかけはトリガーだけなので、開いた通知はここでは送らない (押下と `toggle` で二重に伝えない)
+  // 親から畳まれたとき (送信の成立) だけ閉じる。開くのはトリガーだけにする (設定変更の完了などの
+  // 再描画で勝手に開き直さない)
   useEffect(() => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    const onToggle = (event: Event) => {
-      if ((event as ToggleEvent).newState === "open") return;
-      onOpenChange(false);
-    };
-    popover.addEventListener("toggle", onToggle);
-    return () => popover.removeEventListener("toggle", onToggle);
-  }, [onOpenChange]);
-
-  // 親から畳まれたとき (送信の成立) だけ popover を閉じる。開くのはトリガーだけにする
-  // (設定変更の完了などの再描画で勝手に開き直さない)
-  useEffect(() => {
-    const popover = popoverRef.current;
-    if (popover === null || !popover.matches(":popover-open")) return;
-    if (!open) popover.hidePopover();
-  }, [open]);
-
-  // 開いている間だけ位置を取り直す。scroll は capture で受けないと親のスクロール枠の分を拾えない
-  useEffect(() => {
-    if (!open) return;
-    const onMove = () => place();
-    window.addEventListener("scroll", onMove, true);
-    window.addEventListener("resize", onMove);
-    return () => {
-      window.removeEventListener("scroll", onMove, true);
-      window.removeEventListener("resize", onMove);
-    };
-  }, [open, place]);
-
-  const toggle = (event: MouseEvent<HTMLButtonElement>) => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    // popoverTarget はトリガー自身の押下を light dismiss の対象外にするためだけに付ける。既定の activation
-    // behavior は同じトグルを二重に走らせるので止め、開閉を showPopover / hidePopover に寄せる
-    event.preventDefault();
-    if (popover.matches(":popover-open")) {
-      popover.hidePopover();
-      return;
-    }
-    onOpenChange(true);
-    popover.showPopover();
-    place();
-  };
-
-  // Escape は native の light dismiss も閉じるが、App の Escape (設定ページからチャットへ戻る) へ
-  // 届かせないため、トリガーとポップアップの両方を含むここで止める
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Escape") return;
-    event.stopPropagation();
-  };
-
-  /**
-   * フォーカスが外へ出たら閉じる。native popover は Tab では閉じないため自前で見る。
-   * 監視は**トリガーとポップアップの両方**を包むここに置く: 開いた直後のフォーカスはトリガーにあり、
-   * Shift+Tab はポップアップの中を経由せずに外へ出るため、ポップアップ側だけの `onBlur` では取りこぼす。
-   */
-  const onFocusOut = (event: FocusEvent<HTMLDivElement>) => {
-    const next = event.relatedTarget;
-    // トリガー → select、select → select の移動は閉じる操作ではない (トリガーへ戻る移動もここに含まれる)
-    if (next instanceof Node && event.currentTarget.contains(next)) return;
-    popoverRef.current?.hidePopover();
-  };
+    if (!open) close();
+  }, [close, open]);
 
   return (
     // トリガーとポップアップを 1 つのフォーカス範囲として扱う (display: contents は行の flex 配置を変えない)
-    <div className="contents" onKeyDown={onKeyDown} onBlur={onFocusOut}>
+    <div className="contents" {...containerProps}>
       <button
         type="button"
-        ref={triggerRef}
+        {...triggerProps}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={pickerId}
@@ -163,7 +102,6 @@ export function ModelEffortPicker({
         title={settings.model}
         popoverTarget={pickerId}
         popoverTargetAction="toggle"
-        onClick={toggle}
         disabled={unavailable}
         className={cn(
           "composer-model-trigger hover:text-accent-text focus-visible:text-accent-text",
@@ -178,7 +116,7 @@ export function ModelEffortPicker({
       {/* popover の UA 既定 (fixed 以外に margin / border / padding / overflow を持つ) を打ち消してから
           テーマのトークンを当てる。位置と幅は place() が left / top / width / max-height を直接書く */}
       <div
-        ref={popoverRef}
+        {...popoverProps}
         id={pickerId}
         popover="auto"
         role="dialog"

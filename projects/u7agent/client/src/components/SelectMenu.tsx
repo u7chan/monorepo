@@ -1,23 +1,8 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type FocusEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-  type ReactNode,
-} from "react";
+import { useCallback, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "../lib/cn";
-import { popoverLeft, popoverTop, popoverWidth } from "../lib/popoverPlacement";
-import {
-  filterSelectMenuOptions,
-  initialSelectMenuIndex,
-  nextSelectMenuIndex,
-  selectMenuPlacement,
-} from "../lib/selectMenu";
+import { POPOVER_MARGIN, popoverLeft, popoverTop, popoverWidth } from "../lib/popoverPlacement";
+import { filterSelectMenuOptions, initialSelectMenuIndex, selectMenuPlacement } from "../lib/selectMenu";
+import { usePopoverShell, type PopoverPlaceInput } from "../hooks/usePopoverShell";
 import { CheckIcon } from "./icons";
 
 /** 一覧の幅の下限。説明の 1 行が読める幅を確保する */
@@ -78,14 +63,10 @@ export function SelectMenu<TValue extends string = string>({
 }: SelectMenuProps<TValue>) {
   const menuId = useId();
   const triggerId = useId();
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
   const noteRef = useRef<HTMLParagraphElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const selected = options.find((option) => option.value === value);
   // 絞り込みは開くたびに空へ戻す。前回の検索語で開き直すと、選ぼうとした一覧が欠けて見える
@@ -97,141 +78,55 @@ export function SelectMenu<TValue extends string = string>({
     else groups.push({ group: option.group, items: [option] });
   }
 
-  const place = useCallback(() => {
-    const popover = popoverRef.current;
-    const trigger = triggerRef.current;
-    const list = listRef.current;
-    if (popover === null || trigger === null || list === null) return;
+  // 幅と高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
+  const sizeMenu = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
+    if (trigger === null) return;
     const anchor = trigger.getBoundingClientRect();
-    const viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
-    // 幅と高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
-    const width = popoverWidth(Math.max(anchor.width, MIN_WIDTH), viewport.width);
-    popover.style.width = `${width}px`;
-    const { above, maxHeight } = selectMenuPlacement(anchor, viewport.height);
-    // 注記と検索の行を下端・上端に残すため、上限は一覧からそれらの高さを引いて当てる
-    const chrome =
-      (noteRef.current?.getBoundingClientRect().height ?? 0) +
-      (headerRef.current?.getBoundingClientRect().height ?? 0) +
-      2;
-    list.style.maxHeight = `${Math.max(0, maxHeight - chrome)}px`;
-    popover.style.left = `${popoverLeft(anchor, width, viewport.width)}px`;
-    popover.style.top = `${popoverTop(anchor, popover.getBoundingClientRect().height, above, viewport.height)}px`;
-  }, []);
-
-  // 開いている間は commit のたびに置き直す (行数や注記の高さが変わっても追従させる)
-  useLayoutEffect(() => {
-    if (open) place();
-  });
-
-  // 開閉の正は popover の状態。標準の close (Escape / light dismiss / Tab での退出) を観測して写す
-  useEffect(() => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    const onToggle = (event: Event) => {
-      if ((event as ToggleEvent).newState === "open") return;
-      setOpen(false);
-    };
-    popover.addEventListener("toggle", onToggle);
-    return () => popover.removeEventListener("toggle", onToggle);
-  }, []);
-
-  // 開いている間だけ位置を取り直す。scroll は capture で受けないと、設定の本文のスクロールを拾えない
-  useEffect(() => {
-    if (!open) return;
-    const onMove = () => place();
-    window.addEventListener("scroll", onMove, true);
-    window.addEventListener("resize", onMove);
-    return () => {
-      window.removeEventListener("scroll", onMove, true);
-      window.removeEventListener("resize", onMove);
-    };
-  }, [open, place]);
-
-  const focusItem = (index: number) => {
-    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null);
-    items[Math.min(Math.max(index, 0), items.length - 1)]?.focus();
-  };
-
-  const openMenu = () => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    setQuery("");
-    popover.showPopover();
-    place();
-    setOpen(true);
-    // 検索できる一覧は行ではなく検索から入る (件数が多い一覧を矢印だけで辿らせない)
-    if (searchable) {
-      searchRef.current?.focus();
-      return;
+    popover.style.width = `${popoverWidth(Math.max(anchor.width, MIN_WIDTH), viewport.width)}px`;
+    const list = listRef.current;
+    if (list !== null) {
+      const { maxHeight } = selectMenuPlacement(anchor, viewport.height);
+      // 注記と検索の行を下端・上端に残すため、上限は一覧からそれらの高さを引いて当てる
+      const chrome =
+        (noteRef.current?.getBoundingClientRect().height ?? 0) +
+        (headerRef.current?.getBoundingClientRect().height ?? 0) +
+        2;
+      list.style.maxHeight = `${Math.max(0, maxHeight - chrome)}px`;
     }
-    focusItem(
-      initialSelectMenuIndex(
+  }, []);
+
+  const place = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
+    if (trigger === null) return null;
+    const anchor = trigger.getBoundingClientRect();
+    const width = popoverWidth(Math.max(anchor.width, MIN_WIDTH), viewport.width);
+    const { above } = selectMenuPlacement(anchor, viewport.height);
+    return {
+      left: popoverLeft(anchor, width, viewport.width),
+      top: popoverTop(anchor, popover.getBoundingClientRect().height, above, viewport.height),
+    };
+  }, []);
+
+  // 検索できる一覧は行ではなく検索から入る (件数が多い一覧を矢印だけで辿らせない)。絞り込みは
+  // 開くたびに空へ戻す (前回の検索語で一覧が欠けて見えるのを避ける)
+  const menu = usePopoverShell(place, POPOVER_MARGIN, {
+    reposition: ({ place: placeNow }) => placeNow(),
+    exitOnBlur: ({ close }) => close(),
+    size: sizeMenu,
+    openOnArrowKeys: true,
+    openFocus: (items) => {
+      if (searchable) {
+        setQuery("");
+        return searchRef.current;
+      }
+      const index = initialSelectMenuIndex(
         value,
         visible.map((option) => option.value),
-      ),
-    );
-  };
+      );
+      return items[Math.min(Math.max(index, 0), items.length - 1)] ?? null;
+    },
+  });
 
-  const toggle = (event: MouseEvent<HTMLButtonElement>) => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    // popoverTarget はトリガー自身の押下を light dismiss の対象外にするためだけに付ける。既定の activation
-    // behavior は同じトグルを二重に走らせるので止め、開閉を showPopover / hidePopover に寄せる
-    event.preventDefault();
-    if (popover.matches(":popover-open")) {
-      popover.hidePopover();
-      return;
-    }
-    openMenu();
-  };
-
-  const onTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    // 既定動作 (ページのスクロール) を止め、native select と同じく選択中の行から入る
-    event.preventDefault();
-    if (popoverRef.current?.matches(":popover-open")) return;
-    openMenu();
-  };
-
-  const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const direction =
-      event.key === "ArrowDown"
-        ? "next"
-        : event.key === "ArrowUp"
-          ? "previous"
-          : event.key === "Home"
-            ? "first"
-            : event.key === "End"
-              ? "last"
-              : null;
-    // Enter / Space は native の button に任せる (押した行がそのまま確定する)
-    if (direction === null) return;
-    event.preventDefault();
-    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null);
-    const current = items.findIndex((item) => item === document.activeElement);
-    focusItem(nextSelectMenuIndex(current, items.length, direction));
-  };
-
-  /** フォーカスが外へ出たら閉じる。native popover は Tab では閉じないため自前で見る */
-  const onFocusOut = (event: FocusEvent<HTMLSpanElement>) => {
-    const next = event.relatedTarget;
-    // トリガー → 行、行 → 行の移動は閉じる操作ではない
-    if (next instanceof Node && event.currentTarget.contains(next)) return;
-    popoverRef.current?.hidePopover();
-  };
-
-  /**
-   * Escape は native の light dismiss も閉じるが、App の Escape (設定ページからチャットへ戻る) へは
-   * 届かせない。止めるのはトリガーと popover を包むここ 1 か所にする (検索欄・操作・行のどこに
-   * フォーカスがあっても同じように守る)。閉じている間は App の Escape をそのまま通す。
-   */
-  const onKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
-    if (event.key !== "Escape") return;
-    if (!popoverRef.current?.matches(":popover-open")) return;
-    event.stopPropagation();
-  };
-
-  /** 検索欄のキー。Enter は外側の form を送信させない */
+  /** 検索欄のキー。Enter は外側の form を送信させない (↑↓ は一覧の選択中の行 / 末尾へ抜ける) */
   const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -240,40 +135,38 @@ export function SelectMenu<TValue extends string = string>({
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     // 検索欄から一覧へ抜ける 1 手。↓ は選択中の行 (無ければ先頭)、↑ は末尾へ入る
     event.preventDefault();
-    focusItem(
+    const items = listRef.current?.querySelectorAll<HTMLButtonElement>("button[role='option']") ?? [];
+    const index =
       event.key === "ArrowDown"
         ? initialSelectMenuIndex(
             value,
             visible.map((option) => option.value),
           )
-        : visible.length - 1,
-    );
+        : items.length - 1;
+    items[Math.min(Math.max(index, 0), items.length - 1)]?.focus();
   };
 
   const select = (next: TValue) => {
     if (next !== value) onChange(next);
     // フォーカスは外さない: blur すると native の復帰が起きず、トリガーへ戻らない
-    popoverRef.current?.hidePopover();
+    menu.close();
   };
 
   return (
     // トリガーとポップアップを 1 つのフォーカス範囲として扱う (display: contents は欄の flex 配置を変えない)
-    <span className="contents" onBlur={onFocusOut} onKeyDown={onKeyDown}>
+    <span className="contents" {...menu.containerProps}>
       {/* 長い見出し (会話タイトルなど) で祖先を広げない。min-w-0 が無いと、幅を内容から決める grid / flex の中では
           見出しの 1 行がトリガーの最小幅になり、truncate が効かないまま親ごと横へはみ出す */}
       <button
         type="button"
-        ref={triggerRef}
+        {...menu.triggerProps}
         id={triggerId}
         aria-haspopup="listbox"
-        aria-expanded={open}
         aria-controls={menuId}
         aria-label={label}
         popoverTarget={menuId}
         popoverTargetAction="toggle"
         disabled={disabled}
-        onClick={toggle}
-        onKeyDown={onTriggerKeyDown}
         className={cn(
           "field flex min-w-0 cursor-pointer items-center gap-2 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-55",
           triggerClassName,
@@ -303,7 +196,7 @@ export function SelectMenu<TValue extends string = string>({
       {/* popover の UA 既定 (fixed 以外に margin / border / padding / overflow を持つ) を打ち消してから
           テーマのトークンを当てる */}
       <div
-        ref={popoverRef}
+        {...menu.popoverProps}
         id={menuId}
         popover="auto"
         className="popover-panel fixed inset-auto m-0 overflow-hidden rounded-lg border border-line bg-panel shadow-panel"
@@ -336,7 +229,6 @@ export function SelectMenu<TValue extends string = string>({
           role="listbox"
           aria-labelledby={triggerId}
           aria-label={label}
-          onKeyDown={onListKeyDown}
           className={cn(
             "grid scrollbar-thin overflow-x-hidden overflow-y-auto p-1 singleColumn:p-2",
             visible.length === 0 && "hidden",
@@ -354,9 +246,7 @@ export function SelectMenu<TValue extends string = string>({
                 return (
                   <button
                     key={option.value}
-                    ref={(element) => {
-                      itemsRef.current[index] = element;
-                    }}
+                    ref={menu.itemRef(index)}
                     type="button"
                     role="option"
                     aria-selected={option.value === value}

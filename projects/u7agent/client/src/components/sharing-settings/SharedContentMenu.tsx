@@ -45,12 +45,10 @@ export function SharedContentMenu({ name, actions, meta = [], onSelect }: Shared
 
   // 一覧のスクロールでは閉じ (浮かせたメニューが元のカードから離れて残らないようにする)、
   // 窓の resize では位置だけ取り直し、焦点が外れたら閉じる
-  const menu = usePopoverShell(
-    placeMenu,
-    ROW_MENU_MARGIN,
-    ({ cause, place, close }) => (cause === "scroll" ? close() : place()),
-    ({ close }) => close(),
-  );
+  const menu = usePopoverShell(placeMenu, ROW_MENU_MARGIN, {
+    reposition: ({ cause, place, close }) => (cause === "scroll" ? close() : place()),
+    exitOnBlur: ({ close }) => close(),
+  });
 
   return (
     <>
@@ -68,6 +66,7 @@ export function SharedContentMenu({ name, actions, meta = [], onSelect }: Shared
       </button>
       <div
         {...menu.popoverProps}
+        {...menu.exitProps}
         id={menuId}
         popover="auto"
         className="popover-panel fixed inset-auto m-0 w-max min-w-44 scrollbar-thin overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel"
