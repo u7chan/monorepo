@@ -458,6 +458,11 @@ describe("provider ごとの間隔", () => {
     interval = 5 * MINUTE;
     sampler.reschedule("codex");
     expect(sampler.nextFetchAt("codex")).toBe(BASE_TIME + 5 * MINUTE);
+
+    // 長くしても、既に近い予定は遅らせない。
+    interval = 60 * MINUTE;
+    sampler.reschedule("codex");
+    expect(sampler.nextFetchAt("codex")).toBe(BASE_TIME + 5 * MINUTE);
   });
 
   test("1 つの source の取得中でも、別の source は予定どおり取る", async () => {
@@ -496,5 +501,63 @@ describe("provider ごとの間隔", () => {
 
     gate.resolve();
     await first;
+  });
+});
+
+describe("排他区間中の tick", () => {
+  test("変更の待機中に tick が始めた取得は、削除した snapshot を書き戻さない", async () => {
+    const handle = open();
+    const codexGate = deferred();
+    const accountGate = deferred();
+    const calls: string[] = [];
+    let accounts = 0;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: () => [
+        codexFetcher(async () => {
+          calls.push("codex");
+          await codexGate.promise;
+
+          return usageSnapshot({ capturedAt: BASE_TIME });
+        }),
+        ...Array.from({ length: accounts }, (_, index) => ({
+          sourceId: `opencode-go:0000000${index}-0000-4000-8000-000000000000`,
+          provider: OPENCODE_PROVIDER,
+          fetch: async () => {
+            calls.push(`account-${index}`);
+            await accountGate.promise;
+
+            return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
+          },
+        })),
+      ],
+      intervalFor: () => 300_000,
+      now: () => BASE_TIME,
+      log: () => {},
+    });
+
+    // Codex の取得を進行中にし、その待機中にアカウントを増やす。
+    const inFlight = sampler.tick();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(calls).toEqual(["codex"]);
+
+    accounts = 1;
+
+    const logout = sampler.exclusive(() => deleteProviderUsage(handle, "codex"), { refresh: false });
+
+    // 変更中に tick が来ても、新しい取得は始めない。
+    await sampler.tick();
+    expect(calls).toEqual(["codex"]);
+
+    codexGate.resolve();
+    await Promise.all([inFlight, logout]);
+
+    // 開始していないので、書き戻す取得も無い。
+    accountGate.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(calls).toEqual(["codex"]);
+    expect(loadProviderUsage(handle, [ACCOUNT_SOURCE_ID]).get(ACCOUNT_SOURCE_ID)?.snapshot).toBeNull();
   });
 });

@@ -59,6 +59,7 @@ export function ProviderCard(props: {
 
     return {
       capturedAt: source.capturedAt,
+      nextFetchAt: source.nextFetchAt,
       durationMs,
       elapsedMs: Math.min(durationMs, Math.max(0, props.now - source.capturedAt)),
     };
@@ -153,7 +154,7 @@ export function ProviderCard(props: {
         {bar === null ? null : (
           <div class="up-fetch" aria-hidden="true">
             <span
-              key={bar.capturedAt}
+              key={`${bar.capturedAt}:${bar.nextFetchAt}`}
               class="up-fetch-fill"
               style={{ animationDuration: `${bar.durationMs}ms`, animationDelay: `-${bar.elapsedMs}ms` }}
             />

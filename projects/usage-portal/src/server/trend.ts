@@ -16,7 +16,7 @@ const DAY_MS = 24 * HOUR_MS;
 
 /** 1 本のグラフに載せる点の上限。bucket を広げてこれを超えないようにする。 */
 export const TREND_MAX_POINTS = 48;
-/** 取得間隔の最短は 5 分。それより短い bucket に分けても点は増えない。 */
+/** 画面から選べる最短は 5 分。env で 1 分まで下げられるが、点を増やさないため bucket は 5 分のまま。 */
 const MIN_BUCKET_MS = 5 * MINUTE_MS;
 /** sample の保持期間（30 日）より長くさかのぼっても描くものは無い。 */
 export const MAX_TREND_SPAN_MS = 30 * DAY_MS;

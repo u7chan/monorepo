@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
-import { DEFAULT_FETCH_INTERVAL_MINUTES } from "../shared/fetch-interval";
+import { DEFAULT_FETCH_INTERVAL_MINUTES, FETCH_INTERVAL_PROVIDERS } from "../shared/fetch-interval";
 import { MAX_OPENCODE_ACCOUNTS } from "../shared/opencode-account";
 import logo from "./assets/logo.png";
 import {
@@ -170,6 +170,7 @@ function Dashboard(props: {
   const [configuring, setConfiguring] = useState(false);
   const [configuringIntervals, setConfiguringIntervals] = useState(false);
   const [fetchIntervals, setFetchIntervals] = useState<FetchIntervals | null>(null);
+  const [fetchIntervalsFailed, setFetchIntervalsFailed] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(() => readViewMode(browserStorage()));
   const changeViewMode = useCallback((mode: ViewMode) => {
     setViewMode(mode);
@@ -298,6 +299,8 @@ function Dashboard(props: {
 
       return;
     }
+
+    setFetchIntervalsFailed(result === null);
 
     if (result) {
       setFetchIntervals(result);
@@ -446,10 +449,15 @@ function Dashboard(props: {
   // 変更した provider だけを順に保存する。どれかが失敗したらそこで止め、画面に理由を出す。
   const saveFetchIntervals = useCallback(
     async (next: FetchIntervals): Promise<string | null> => {
-      let current = fetchIntervals;
+      if (fetchIntervals === null) {
+        return "取得間隔を読み込めていません。メニューを開き直してください。";
+      }
 
-      for (const provider of ["codex", "opencode-go"] as const) {
-        if (current !== null && current[provider] === next[provider]) {
+      let current = fetchIntervals;
+      let error: string | null = null;
+
+      for (const provider of FETCH_INTERVAL_PROVIDERS) {
+        if (current[provider] === next[provider]) {
           continue;
         }
 
@@ -462,19 +470,22 @@ function Dashboard(props: {
             return "セッションが切れました。もう一度 PIN を入力してください。";
           }
 
-          return outcome.error === "invalid"
-            ? "選べない間隔です。画面を読み直してください。"
-            : "保存できませんでした。もう一度試してください。";
+          error =
+            outcome.error === "invalid"
+              ? "選べない間隔です。画面を読み直してください。"
+              : "保存できませんでした。もう一度試してください。";
+
+          break;
         }
 
         current = outcome.intervals;
         setFetchIntervals(outcome.intervals);
       }
 
-      // 次回の予定が変わっているので、カードのバーと文言を取り直す。
+      // 途中で失敗しても、保存できた provider の次回予定は変わっている。カードのバーと文言を取り直す。
       await loadUsage();
 
-      return null;
+      return error;
     },
     [fetchIntervals, loadUsage, onUnauthorized],
   );
@@ -568,7 +579,14 @@ function Dashboard(props: {
       onSelect: () => setAdding(true),
       disabled: atLimit,
     },
-    { label: "取得間隔", onSelect: () => setConfiguringIntervals(true) },
+    {
+      label: "取得間隔",
+      onSelect: () => {
+        setConfiguringIntervals(true);
+        // 開いた時点の値を読む。前回の GET が失敗していても、ここで取り直せる。
+        void loadFetchIntervals();
+      },
+    },
     { label: "ログアウト", onSelect: () => void signOut(), danger: true },
   ];
 
@@ -638,7 +656,33 @@ function Dashboard(props: {
       ) : null}
       {configuringIntervals ? (
         <Modal title="取得間隔" onClose={() => setConfiguringIntervals(false)}>
-          {(close) => <FetchIntervalForm intervals={fetchIntervals} onSave={saveFetchIntervals} onClose={close} />}
+          {(close) =>
+            fetchIntervals === null ? (
+              <div class="up-form">
+                <p
+                  class={fetchIntervalsFailed ? "up-error" : "up-caption"}
+                  role={fetchIntervalsFailed ? "alert" : undefined}
+                >
+                  {fetchIntervalsFailed ? "取得間隔を読み込めませんでした。" : "取得間隔を読み込んでいます。"}
+                </p>
+                <div class="up-form-actions">
+                  <button
+                    type="button"
+                    class="up-button up-button-secondary"
+                    onClick={() => void loadFetchIntervals()}
+                    disabled={!fetchIntervalsFailed}
+                  >
+                    再読み込み
+                  </button>
+                  <button type="button" class="up-button up-button-secondary" onClick={close}>
+                    閉じる
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <FetchIntervalForm intervals={fetchIntervals} onSave={saveFetchIntervals} onClose={close} />
+            )
+          }
         </Modal>
       ) : null}
       {configuring ? (

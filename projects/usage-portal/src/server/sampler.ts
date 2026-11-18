@@ -70,6 +70,9 @@ export function createSampler(options: {
   const running = new Map<string, Promise<void>>();
   // exclusive を呼んだ順に直列化する。前の変更後の再取得が終わるまで、次の変更を始めない。
   let exclusiveChain: Promise<void> = Promise.resolve();
+  // 変更中は tick から取得を始めない。待機中に始まった取得が、削除した snapshot を書き戻すのを防ぐ。
+  // 呼んだ時点で数える。鎖に並んだ 2 つ目が始まる前の隙間でも、tick を止めるため。
+  let pendingMutations = 0;
 
   function runFetcher(fetcher: UsageFetcher): Promise<void> {
     // 開始時点で次回を決める。取得が長引いても間隔を詰めない。
@@ -117,6 +120,10 @@ export function createSampler(options: {
   }
 
   function tick(): Promise<void> {
+    if (pendingMutations > 0) {
+      return Promise.resolve();
+    }
+
     const now = options.now();
     const due = options.fetchers().filter((fetcher) => {
       const scheduledAt = nextDueAt.get(fetcher.sourceId);
@@ -186,20 +193,23 @@ export function createSampler(options: {
   function exclusive(fn: () => void, exclusiveOptions: ExclusiveOptions = {}): Promise<void> {
     const refreshAfter = exclusiveOptions.refresh ?? true;
     const provider = exclusiveOptions.provider;
+    pendingMutations += 1;
+
     const task = exclusiveChain.then(async () => {
-      const inFlight = [...running.values()];
+      try {
+        // 待つあいだ tick は新しい取得を始めない。開始済みの取得だけを待てばよい。
+        while (running.size > 0) {
+          await Promise.allSettled([...running.values()]);
+        }
 
-      if (inFlight.length > 0) {
-        await Promise.allSettled(inFlight);
+        fn();
+
+        if (refreshAfter) {
+          await refresh(provider);
+        }
+      } finally {
+        pendingMutations -= 1;
       }
-
-      fn();
-
-      if (!refreshAfter) {
-        return;
-      }
-
-      await refresh(provider);
     });
 
     exclusiveChain = task.catch(() => undefined);

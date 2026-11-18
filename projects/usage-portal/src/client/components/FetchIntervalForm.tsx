@@ -12,21 +12,19 @@ const PROVIDER_LABELS: Record<FetchIntervalProvider, string> = {
   "opencode-go": "OpenCode Go",
 };
 
-const FALLBACK: FetchIntervals = {
-  codex: DEFAULT_FETCH_INTERVAL_MINUTES * 60_000,
-  "opencode-go": DEFAULT_FETCH_INTERVAL_MINUTES * 60_000,
-};
-
 /** 取得間隔はサーバー全体で 1 つ。端末ごとではないことを文言で示す。 */
 export function FetchIntervalForm(props: {
-  intervals: FetchIntervals | null;
+  /** 読み込み済みの現在値。未取得のまま開かせない（保存で既存値を上書きしないため）。 */
+  intervals: FetchIntervals;
   /** 変更した provider だけを保存する。成功なら null、失敗なら画面に出す文言。 */
   onSave: (next: FetchIntervals) => Promise<string | null>;
   onClose: () => void;
 }) {
   const [minutes, setMinutes] = useState<Record<FetchIntervalProvider, number>>(() =>
-    toMinutes(props.intervals ?? FALLBACK),
+    selectableMinutes(props.intervals),
   );
+  // env の POLL_INTERVAL_MS が一覧に無い値（1 分など）だと、そのままでは選択欄に表示できない。
+  const outsideOptions = usesOutsideOptions(props.intervals);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -61,6 +59,12 @@ export function FetchIntervalForm(props: {
         上流の利用枠を取りに行く間隔です。この設定はサーバー全体に効き、登録済みの端末すべてに反映されます。 OpenCode Go
         はアカウントごとに取得するため、回数は「間隔 × アカウント数」になります。
       </p>
+
+      {outsideOptions ? (
+        <p class="up-caption">
+          現在は一覧にない間隔（環境変数の設定）で動いています。保存すると、一覧から選んだ値に切り替わります。
+        </p>
+      ) : null}
 
       {FETCH_INTERVAL_PROVIDERS.map((provider) => (
         <label class="up-field" key={provider}>
@@ -102,11 +106,27 @@ export function FetchIntervalForm(props: {
   );
 }
 
-function toMinutes(intervals: FetchIntervals): Record<FetchIntervalProvider, number> {
+function selectableMinutes(intervals: FetchIntervals): Record<FetchIntervalProvider, number> {
   return {
-    codex: Math.round(intervals.codex / 60_000),
-    "opencode-go": Math.round(intervals["opencode-go"] / 60_000),
+    codex: selectableMinutesOf(intervals.codex),
+    "opencode-go": selectableMinutesOf(intervals["opencode-go"]),
   };
+}
+
+/** 一覧にない値は既定へ寄せる。空の選択欄や、そのまま保存して 400 になる状態を作らない。 */
+function selectableMinutesOf(milliseconds: number): number {
+  const minutes = milliseconds / 60_000;
+
+  return (FETCH_INTERVAL_OPTIONS_MINUTES as readonly number[]).includes(minutes)
+    ? minutes
+    : DEFAULT_FETCH_INTERVAL_MINUTES;
+}
+
+function usesOutsideOptions(intervals: FetchIntervals): boolean {
+  return (
+    !(FETCH_INTERVAL_OPTIONS_MINUTES as readonly number[]).includes(intervals.codex / 60_000) ||
+    !(FETCH_INTERVAL_OPTIONS_MINUTES as readonly number[]).includes(intervals["opencode-go"] / 60_000)
+  );
 }
 
 function toMilliseconds(minutes: Record<FetchIntervalProvider, number>): FetchIntervals {
