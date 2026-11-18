@@ -53,11 +53,6 @@ import {
   UsageSchema,
 } from "./schema/messages";
 
-export const SpaceSchema = z.object({ id: z.string(), name: z.string(), createdAt: z.number() });
-export type Space = z.infer<typeof SpaceSchema>;
-export const CreateSpaceBodySchema = z.object({ name: z.string().trim().min(1).max(80) });
-/** PATCH /api/spaces/:id。入力の規則は作成と同じ (重複名は許可し、同一性は id が持つ) */
-export const RenameSpaceBodySchema = CreateSpaceBodySchema;
 /**
  * 入力欄のチップ 1 件。label がボタン文言、prompt が送信文字列。
  * 定型プロンプトのマスタ (`PromptRefSchema`) と、マスタに属さない引き継ぎのチップが同じ形を使う。
@@ -247,22 +242,6 @@ export const AgentPayloadInfoSchema = z.object({
   toolNames: z.array(z.string()).optional(),
 });
 export type AgentPayloadInfo = z.infer<typeof AgentPayloadInfoSchema>;
-/**
- * ワークスペース内のプロジェクト。cwd は rootCwd 相対で、DB へ写せるよう列はこの 4 つに保つ。
- * 後から所属を変える API は無いため、配下セッションの cwd も作成時に固定される。
- */
-export const ProjectSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  /** rootCwd 相対の正規化パス (root 自身は登録できない) */
-  cwd: z.string(),
-  createdAt: z.number(),
-});
-export type Project = z.infer<typeof ProjectSchema>;
-export const ProjectsResponseSchema = z.object({
-  projects: z.array(ProjectSchema),
-});
-export type ProjectsResponse = z.infer<typeof ProjectsResponseSchema>;
 /**
  * 会話の引き継ぎの状態。`consumed` は引き継ぎ後に最初に受理した送信で立ち、
  * チップ (HANDOFF.md を参照) の表示条件になる。旧サーバーは載せない (省略 = 引き継ぎなし)。
@@ -1833,12 +1812,6 @@ export const CreateSessionBodySchema = z.object({
   notify: z.boolean().optional(),
 });
 export type CreateSessionBody = z.infer<typeof CreateSessionBodySchema>;
-export const CreateProjectBodySchema = z.object({
-  cwd: z.string(),
-  name: z.string().optional(),
-  create: z.boolean().optional(),
-});
-export type CreateProjectBody = z.infer<typeof CreateProjectBodySchema>;
 /** チャット設定変更。省略は現在値維持、null・空 body は 400 */
 export const UpdateSessionSettingsBodySchema = z.object({
   model: ModelRefSchema.optional(),
@@ -2114,17 +2087,6 @@ export type UpdatePromptBody = z.infer<typeof UpdatePromptBodySchema>;
 export const AGENT_ORDER_IDS_MAX = 200;
 export const ReorderAgentsBodySchema = z.object({ ids: z.array(z.string()).max(AGENT_ORDER_IDS_MAX) });
 export type ReorderAgentsBody = z.infer<typeof ReorderAgentsBodySchema>;
-/**
- * スペースの並べ替えで受ける id の上限。形と上限だけを見る点は `ReorderAgentsBodySchema` と同じで、
- * 未知の id・重複・既定スペースの扱いは `SpaceStore.reorder` が正。
- */
-export const SPACE_ORDER_IDS_MAX = 200;
-export const ReorderSpacesBodySchema = z.object({ ids: z.array(z.string()).max(SPACE_ORDER_IDS_MAX) });
-export type ReorderSpacesBody = z.infer<typeof ReorderSpacesBodySchema>;
-
-// ---------------------------------------------------------------------------
-// SSE イベント (sessions.ts の emit 呼び出しを正とする)
-// ---------------------------------------------------------------------------
 export const EventDataSchemas = {
   // `startedAt` は payload の `run.startedAt` と同じ値。クライアントは受信時刻ではなくこれを使う
   // (切断中に始まった run の `run_start` がリプレイされても開始時刻がぶれない)
@@ -2692,3 +2654,4 @@ export type BackupResetResult = z.infer<typeof BackupResetResultSchema>;
 
 export * from "./schema/common";
 export * from "./schema/messages";
+export * from "./schema/spaces";
