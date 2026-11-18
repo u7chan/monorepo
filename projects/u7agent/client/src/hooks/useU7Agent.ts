@@ -2,6 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } 
 import { getHealth } from "../api";
 import { useSpaceApi } from "../SpaceContext";
 import { attachmentRejection, attachmentsForSend, attachmentsForSession, type Attachment } from "../lib/attachments";
+import { messageFor } from "../lib/errors";
 import { entryResolvedInitially } from "../lib/route";
 import { projectDeleteConfirmRequest } from "../lib/sidebarProjects";
 import { useConfirm } from "../components/ConfirmProvider";
@@ -39,10 +40,6 @@ export type { SettingsSelection };
  * project 一覧・選択は useProjects、session の一覧・lifecycle・SSE は useSessions、
  * 送信 / 停止の手順は sessionActions、Model / Effort の導出は lib/composerSettings。
  */
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export type UseU7AgentOptions = {
   /** `/s/<id>` が指定する会話。一覧のロード後にこの会話だけを選ぶ */
   pendingSessionId?: string;

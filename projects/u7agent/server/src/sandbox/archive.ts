@@ -5,6 +5,7 @@
  */
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { httpError, messageFor, type HttpError } from "../errors";
 import {
   SANDBOX_MAX_ARCHIVE_BYTES,
   SANDBOX_MAX_ARCHIVE_ENTRIES,
@@ -79,8 +80,8 @@ export const SKILLS_EXPORT_NAME = "skills.zip";
  */
 export const SKILLS_ARCHIVE_EXCLUDE_NAMES: readonly string[] = [".git"];
 
-function archiveError(statusCode: number, message: string): Error & { statusCode: number } {
-  return Object.assign(new Error(message), { statusCode });
+function archiveError(statusCode: number, message: string): HttpError {
+  return httpError(statusCode, message);
 }
 
 /** 単体ファイルと ZIP で同じ文言を使う（利用者にとっては「大きすぎて持ち出せない」の 1 種類） */
@@ -171,7 +172,7 @@ export async function walkArchive(input: {
 
   const visit = async (current: string, prefix: string, topLevel: boolean): Promise<void> => {
     const dirents = await readdir(current, { withFileTypes: true }).catch((error: unknown) => {
-      throw archiveError(400, `Cannot read directory: ${error instanceof Error ? error.message : String(error)}`);
+      throw archiveError(400, `Cannot read directory: ${messageFor(error)}`);
     });
     for (const dirent of [...dirents].sort(compareDirents)) {
       const name = dirent.name;
@@ -197,7 +198,7 @@ export async function walkArchive(input: {
       // 直下の通常ファイルはスキルフォルダではない (import の検証も同じ規則を要求する)
       if (topLevel && input.skillsOnly) continue;
       const stats = await lstat(target).catch((error: unknown) => {
-        throw archiveError(400, `Cannot read file: ${error instanceof Error ? error.message : String(error)}`);
+        throw archiveError(400, `Cannot read file: ${messageFor(error)}`);
       });
       addEntry(
         {

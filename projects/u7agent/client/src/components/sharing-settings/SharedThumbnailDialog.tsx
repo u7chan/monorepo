@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../ConfirmProvider";
+import { messageFor } from "../../lib/errors";
 import { sharedContentThumbnailClearConfirm } from "../../lib/sharedContents";
 import {
   INITIAL_THUMBNAIL_CROP,
@@ -28,10 +29,6 @@ import { LoadingMark } from "../LoadingMark";
  */
 const PREVIEW_WIDTH = 480;
 const PREVIEW_HEIGHT = Math.round(PREVIEW_WIDTH / THUMBNAIL_ASPECT);
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export type SharedThumbnailDialogProps = {
   item: SharedContentResponse;

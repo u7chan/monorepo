@@ -1,14 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type FocusEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-} from "react";
+import { useCallback, useId, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "../../lib/cn";
 import {
   CUSTOM_PROVIDER_PROBE_LABEL,
@@ -16,7 +6,9 @@ import {
   filterModelIds,
 } from "../../lib/customProviders";
 import { popoverLeft, popoverTop, popoverWidth } from "../../lib/popoverPlacement";
-import { initialSelectMenuIndex, nextSelectMenuIndex, selectMenuPlacement } from "../../lib/selectMenu";
+import { POPOVER_MARGIN } from "../../lib/popoverPlacement";
+import { initialSelectMenuIndex, selectMenuPlacement } from "../../lib/selectMenu";
+import { usePopoverShell, type PopoverPlaceInput } from "../../hooks/usePopoverShell";
 import { CheckIcon } from "../icons";
 
 const MIN_WIDTH = 260;
@@ -42,166 +34,110 @@ export type ModelIdPickerProps = {
  */
 export function ModelIdPicker({ value, loading, disabled, onRequest, onPick }: ModelIdPickerProps) {
   const pickerId = useId();
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
-  const [open, setOpen] = useState(false);
   const [ids, setIds] = useState<readonly string[]>([]);
   const [query, setQuery] = useState("");
   const requesting = useRef(false);
   const choices = filterModelIds(ids, query);
 
-  const place = useCallback(() => {
-    const popover = popoverRef.current;
-    const trigger = triggerRef.current;
-    const list = listRef.current;
-    if (popover === null || trigger === null || list === null) return;
+  // 幅と一覧の高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
+  const sizePicker = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
+    if (trigger === null) return;
     const anchor = trigger.getBoundingClientRect();
-    const viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
-    const width = popoverWidth(Math.max(anchor.width, MIN_WIDTH), viewport.width);
-    popover.style.width = `${width}px`;
-    const { above, maxHeight } = selectMenuPlacement(anchor, viewport.height);
-    // 検索欄と一覧の外枠の高さを引いた分だけを一覧のスクロールに当てる
-    const chrome = popover.getBoundingClientRect().height - list.getBoundingClientRect().height;
-    list.style.maxHeight = `${Math.max(0, maxHeight - chrome)}px`;
-    popover.style.left = `${popoverLeft(anchor, width, viewport.width)}px`;
-    popover.style.top = `${popoverTop(anchor, popover.getBoundingClientRect().height, above, viewport.height)}px`;
-  }, []);
-
-  useLayoutEffect(() => {
-    if (open) place();
-  });
-
-  // 開閉の正は native popover。Escape / light dismiss も観測して aria-expanded へ写す
-  useEffect(() => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    const onToggle = (event: Event) => setOpen((event as ToggleEvent).newState === "open");
-    popover.addEventListener("toggle", onToggle);
-    return () => popover.removeEventListener("toggle", onToggle);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const onMove = () => place();
-    window.addEventListener("scroll", onMove, true);
-    window.addEventListener("resize", onMove);
-    return () => {
-      window.removeEventListener("scroll", onMove, true);
-      window.removeEventListener("resize", onMove);
-    };
-  }, [open, place]);
-
-  const focusItem = (index: number) => {
-    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null);
-    items[Math.min(Math.max(index, 0), items.length - 1)]?.focus();
-  };
-
-  const openWith = (next: readonly string[]) => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    setIds(next);
-    setQuery("");
-    popover.showPopover();
-    place();
-    searchRef.current?.focus();
-  };
-
-  const toggle = async (event: MouseEvent<HTMLButtonElement>) => {
-    const popover = popoverRef.current;
-    if (popover === null || disabled || loading || requesting.current) return;
-    event.preventDefault();
-    if (popover.matches(":popover-open")) {
-      popover.hidePopover();
-      return;
+    popover.style.width = `${popoverWidth(Math.max(anchor.width, MIN_WIDTH), viewport.width)}px`;
+    const list = listRef.current;
+    if (list !== null) {
+      // 検索欄と一覧の外枠の高さを引いた分だけを一覧のスクロールに当てる
+      const { maxHeight } = selectMenuPlacement(anchor, viewport.height);
+      const chrome = popover.getBoundingClientRect().height - list.getBoundingClientRect().height;
+      list.style.maxHeight = `${Math.max(0, maxHeight - chrome)}px`;
     }
+  }, []);
+
+  const place = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
+    if (trigger === null) return null;
+    const anchor = trigger.getBoundingClientRect();
+    const width = popoverWidth(Math.max(anchor.width, MIN_WIDTH), viewport.width);
+    const { above } = selectMenuPlacement(anchor, viewport.height);
+    return {
+      left: popoverLeft(anchor, width, viewport.width),
+      top: popoverTop(anchor, popover.getBoundingClientRect().height, above, viewport.height),
+    };
+  }, []);
+
+  // 開いた直後は検索欄へ入る (自由入力の欄なので、一覧を辿るより打つ方が速い)
+  const { triggerProps, popoverProps, exitProps, itemRef, isOpen, open, close } = usePopoverShell(
+    place,
+    POPOVER_MARGIN,
+    {
+      reposition: ({ place: placeNow }) => placeNow(),
+      exitOnBlur: ({ close: closeNow }) => closeNow(),
+      size: sizePicker,
+      openOnArrowKeys: true,
+      openFocus: () => searchRef.current,
+    },
+  );
+
+  /** 一覧を取り直してから開く。取得中は押しても開かない (二重の要求を出さない) */
+  const requestAndOpen = async () => {
+    if (disabled || loading || requesting.current) return;
     requesting.current = true;
     try {
       const next = await onRequest();
-      if (next.length > 0) openWith(next);
+      if (next.length === 0) return;
+      setIds(next);
+      setQuery("");
+      open();
     } finally {
       requesting.current = false;
     }
   };
 
-  const onTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    // 既定のスクロールを止める。取得は click と同じ経路に任せ、開いたら検索へ焦点を移す
-    event.preventDefault();
-    triggerRef.current?.click();
+  const toggle = () => {
+    if (isOpen) close();
+    else void requestAndOpen();
   };
 
-  const stopEscape = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Escape") return;
-    // 止めないと App の Escape (設定ページからチャットへ戻る) まで届く
-    event.stopPropagation();
-  };
-
+  /** 検索欄のキー。Enter は外側の登録フォームを送信させない (行の決定は一覧側の button が担う) */
   const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    stopEscape(event);
-    // 検索欄の Enter で外側の登録フォームを submit しない (行の決定は一覧側の button が担う)
     if (event.key === "Enter") {
       event.preventDefault();
       return;
     }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    // 検索欄から一覧へ抜ける 1 手。↓ は選択中の行 (無ければ先頭)、↑ は末尾へ入る
     event.preventDefault();
-    // ↓ は選択中の行 (無ければ先頭)、↑ は末尾へ入る。Search 欄から一覧へ抜けるための 1 手
-    focusItem(event.key === "ArrowDown" ? initialSelectMenuIndex(value, choices) : choices.length - 1);
-  };
-
-  const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    stopEscape(event);
-    const direction =
-      event.key === "ArrowDown"
-        ? "next"
-        : event.key === "ArrowUp"
-          ? "previous"
-          : event.key === "Home"
-            ? "first"
-            : event.key === "End"
-              ? "last"
-              : null;
-    if (direction === null) return;
-    event.preventDefault();
-    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null);
-    const current = items.findIndex((item) => item === document.activeElement);
-    focusItem(nextSelectMenuIndex(current, items.length, direction));
-  };
-
-  /** フォーカスが外へ出たら閉じる。native popover は Tab では閉じないため自前で見る */
-  const onFocusOut = (event: FocusEvent<HTMLSpanElement>) => {
-    const next = event.relatedTarget;
-    if (next instanceof Node && event.currentTarget.contains(next)) return;
-    popoverRef.current?.hidePopover();
+    const items = listRef.current?.querySelectorAll<HTMLButtonElement>("button[role='option']") ?? [];
+    const index = event.key === "ArrowDown" ? initialSelectMenuIndex(value, choices) : items.length - 1;
+    items[Math.min(Math.max(index, 0), items.length - 1)]?.focus();
   };
 
   const select = (id: string) => {
-    popoverRef.current?.hidePopover();
+    close();
     onPick(id);
   };
 
   return (
-    <span className="contents" onBlur={onFocusOut}>
+    <span className="contents" {...exitProps}>
       <button
         type="button"
-        ref={triggerRef}
+        {...triggerProps}
         aria-haspopup="listbox"
-        aria-expanded={open}
         aria-controls={pickerId}
         aria-label={CUSTOM_PROVIDER_PROBE_LABEL}
         disabled={disabled || loading}
-        onClick={(event) => void toggle(event)}
-        onKeyDown={onTriggerKeyDown}
+        onClick={(event) => {
+          event.preventDefault();
+          toggle();
+        }}
         className="btn-quiet min-h-8 shrink-0 whitespace-nowrap"
       >
         {loading ? CUSTOM_PROVIDER_PROBE_PENDING_LABEL : CUSTOM_PROVIDER_PROBE_LABEL}
       </button>
 
       <div
-        ref={popoverRef}
+        {...popoverProps}
         id={pickerId}
         popover="auto"
         className="popover-panel fixed inset-auto m-0 overflow-hidden rounded-lg border border-line bg-panel shadow-panel"
@@ -227,7 +163,6 @@ export function ModelIdPicker({ value, loading, disabled, onRequest, onPick }: M
           ref={listRef}
           role="listbox"
           aria-label="モデル一覧"
-          onKeyDown={onListKeyDown}
           className={cn(
             "grid scrollbar-thin overflow-x-hidden overflow-y-auto p-1 singleColumn:p-2",
             choices.length === 0 && "hidden",
@@ -236,9 +171,7 @@ export function ModelIdPicker({ value, loading, disabled, onRequest, onPick }: M
           {choices.map((id, index) => (
             <button
               key={id}
-              ref={(element) => {
-                itemsRef.current[index] = element;
-              }}
+              ref={itemRef(index)}
               type="button"
               role="option"
               aria-selected={id === value}

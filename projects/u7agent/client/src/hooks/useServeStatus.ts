@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSpaceApi } from "../SpaceContext";
+import { messageFor } from "../lib/errors";
 import { canApplyServeAction, canApplyStatus, type ServeSelection } from "../lib/serveStatus";
 import { NO_SERVE_ROW, openServedApp, servedAppRow, type ServeRowState } from "../lib/servedApp";
 import type { ServeStatus } from "../types";
@@ -28,10 +29,6 @@ const IDLE: ServeState = { status: null, failed: false, starting: false, error: 
 
 /** 状態取得の期限。応答が返らないまま飛行中の印が残り、ポーリングが止まるのを防ぐ */
 const SERVE_STATUS_TIMEOUT_MS = 15_000;
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export function useServeStatus({ sessionId }: { sessionId: string }) {
   const { getServeStatus, startServe, stopServe } = useSpaceApi();

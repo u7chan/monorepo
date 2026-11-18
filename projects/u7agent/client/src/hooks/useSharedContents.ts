@@ -6,6 +6,7 @@ import {
   getSharedContents,
   publishSharedContent,
 } from "../api";
+import { messageFor } from "../lib/errors";
 import {
   settleAcceptedDetail,
   settleAcceptedSharedContent,
@@ -52,10 +53,6 @@ const INITIAL: SharedContentsState = {
   error: undefined,
   submitting: false,
 };
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export function useSharedContents({ sessionId, directory }: { sessionId: string; directory: string }) {
   const [state, setState] = useState<SharedContentsState>(INITIAL);

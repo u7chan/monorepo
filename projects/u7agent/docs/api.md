@@ -71,8 +71,8 @@ TLS 終端をリバースプロキシへ置くと、要求 URL のオリジン�
 
 ## 型の共有
 
-- `server/src/app.ts` はルートをチェーン形式で定義し `AppType` を export。client は `hc<AppType>(location.origin)` で型付きクライアントを構築する（`client/src/api.ts`）。SSE は型付け対象外で、`EventEntry` のみ server から型 import する。
-- ルートチェーン以外の実装は `server/src/routes/`（ハンドラ）、`server/src/http.ts`（body ガード / エラー変換）、`server/src/static.ts`（静的配信 / CSP）、`server/src/bootstrap.ts`（pi ランタイムと store の組み立て）に分かれている。ルートの追加・変更は `app.ts` のチェーンと該当する route モジュールを読めば済む。
+- `server/src/app.ts` は同じ `Hono` インスタンスへ登録フェーズの順（入口ガード → raw 本文のルート → `bodyGuard` → 通常のルート → catch-all）にルートを足し、`AppType` を export。client は `hc<AppType>(location.origin)` で型付きクライアントを構築する（`client/src/api.ts`）。SSE は型付け対象外で、`EventEntry` のみ server から型 import する。
+- ルート登録の外側の実装は `server/src/routes/`（ハンドラ）、`server/src/http.ts`（body ガード / エラー変換）、`server/src/static.ts`（静的配信 / CSP）、`server/src/bootstrap.ts`（pi ランタイムと store の組み立て）に分かれている。ルートの追加・変更は `app.ts` のフェーズ関数（raw 本文を受けるルートは `registerRawBodyRoutes`、通常は `registerDomainRoutes`）と該当する route モジュールを読めば済む。
 - server / client の両 tsconfig は `moduleResolution: bundler` + noEmit。server は tsx で実行するため拡張子なし import で統一し、client は workspace package `server` のソースを型として直接参照する。
 
 ## ヘルスチェック

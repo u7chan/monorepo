@@ -53,7 +53,7 @@ desktop / singleColumn とも設定ナビの「会話スペース」から作成
 
 ## ポップアップの出入り
 
-native `popover="auto"` のパネルは、見た目の出入りだけを `@layer components` の共通クラスで共有する。開閉の入口（トリガー / light dismiss / `Escape` / `Tab` での退出）とフォーカス、位置と大きさは各コンポーネントが持つ。
+native `popover="auto"` のパネルは、見た目の出入りだけを `@layer components` の共通クラスで共有する。開閉の入口（トリガー / light dismiss / `Escape` / `Tab` での退出。一覧を選ぶピッカーはトリガーの矢印キーでも開く）とフォーカスは `client/src/hooks/usePopoverShell.ts` が持つ。位置と大きさは系統ごとの純関数が計算し、`popover.style` へ書くのも同じ hook（大きさの上限だけは、スクロールする内側へ当てる画面のために呼び出し側が書ける）。
 
 - **scale を使わない。** 開いた直後に `getBoundingClientRect()` から位置を決めるため、scale は rect の高さに乗って位置がずれる。translate は高さを変えないので計測に影響しない
 - **`display` に値を持つユーティリティを当てない。** UA の「閉じている間は `display: none`」が消え、パネルが常時見える

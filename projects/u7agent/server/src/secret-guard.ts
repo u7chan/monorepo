@@ -4,6 +4,7 @@
  */
 import { type InlineExtension, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { findEnvKeys } from "@earendil-works/pi-ai/compat";
+import { messageFor } from "./errors";
 import { createSecretMasker, MIN_SECRET_LENGTH, maskTextContentParts, type SecretMasker } from "./redact";
 
 type AnyToolDefinition = ToolDefinition<any, any, any>;
@@ -61,7 +62,7 @@ export function extraSecretVarNames(env: NodeJS.ProcessEnv): string[] {
 
 /** メッセージに秘密値が含まれるときだけ、マスクした Error に差し替える。 */
 function throwMasked(error: unknown, masker: SecretMasker): never {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = messageFor(error);
   const masked = masker.mask(message);
   if (masked === message) throw error;
   throw new Error(masked);

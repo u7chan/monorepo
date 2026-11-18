@@ -1,14 +1,13 @@
 import type { Context, Env, Input, MiddlewareHandler, TypedResponse } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
+import { httpError, messageFor, type HttpError } from "./errors";
 import { SandboxRequestError } from "./sandbox/client";
 
 /** bodyGuard が読み切って text 化する JSON body の上限 */
 const MAX_BODY_BYTES = 64 * 1024;
 
-export function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export { httpError, messageFor, type HttpError };
 
 export function statusCodeOf(error: unknown): number | undefined {
   if (error && typeof error === "object" && "statusCode" in error) {
@@ -16,12 +15,6 @@ export function statusCodeOf(error: unknown): number | undefined {
     if (typeof value === "number") return value;
   }
   return undefined;
-}
-
-export function httpError(statusCode: number, message: string): Error {
-  const error = new Error(message);
-  (error as { statusCode?: number }).statusCode = statusCode;
-  return error;
 }
 
 /** 検証失敗時に route 側が返す応答。戻り値型に渡すことで 400 の応答型を route の契約に残す */

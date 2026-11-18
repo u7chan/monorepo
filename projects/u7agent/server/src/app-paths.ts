@@ -38,6 +38,9 @@ export function assertSessionId(id: string): void {
 /** 共通スキル (`.agents/skills`) の置き場 (workspace root 相対)。プロジェクトスキルは `<session cwd>/.agents/skills` */
 export const COMMON_SKILLS_DIR = ".agents/skills";
 
+/** 共通スキル置き場の root 相対セグメント。分割はここだけで行う (`.split("/")` を各所に書かない) */
+export const COMMON_SKILLS_SEGMENTS = COMMON_SKILLS_DIR.split("/");
+
 /** `<appdir>` 自身と配下。プロジェクトとして登録できない (ファイル画面の root には置けない)。 */
 export function isAppDirPath(relative: string): boolean {
   return relative === APP_DIR_REL || relative.startsWith(`${APP_DIR_REL}/`);

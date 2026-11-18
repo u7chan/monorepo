@@ -1,18 +1,6 @@
+import { Fragment, useCallback, useId, useRef, type ReactNode } from "react";
+import { usePopoverShell, type PopoverPlaceInput } from "../hooks/usePopoverShell";
 import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type FocusEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-  type ReactNode,
-} from "react";
-import {
-  nextRowMenuIndex,
   rowMenuAnchorVisible,
   rowMenuDescriptionKind,
   rowMenuPlacement,
@@ -85,139 +73,36 @@ export function RowMenu<K extends RowMenuActionKind>({
 }: RowMenuProps<K>) {
   const menuId = useId();
   const triggerId = `${menuId}-trigger`;
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const anchorRef = useRef<HTMLSpanElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
-  // ⋯ の mousedown は click より先にフォーカスを奪う。その focusout で閉じると直後の click が
-  // 開き直してトグルが効かないため、⋯ を押している間だけ focusout での終了を保留する
-  const pressingTriggerRef = useRef(false);
 
-  const place = useCallback(() => {
-    const popover = popoverRef.current;
+  // 幅 / 高さの上限は hook が margin から書き、ここは ⋯ の箱を基準にした left / top だけを返す。
+  // 箱 (24px) は button ではなくこの span なので、place が見る rect を行の高さまで広げない
+  const placeMenu = useCallback(({ popover, viewport }: PopoverPlaceInput) => {
     const anchorElement = anchorRef.current;
-    if (popover === null || anchorElement === null) return;
-    const viewport = {
-      width: document.documentElement.clientWidth,
-      height: document.documentElement.clientHeight,
-    };
-    // 幅 / 高さの上限を測る前に書く: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
-    // (上限が無いと、項目の多いメニューが低い窓で viewport をはみ出し、下部の項目へ届かない)
-    popover.style.maxWidth = `${Math.max(0, viewport.width - ROW_MENU_MARGIN * 2)}px`;
-    popover.style.maxHeight = `${Math.max(0, viewport.height - ROW_MENU_MARGIN * 2)}px`;
+    if (anchorElement === null) return null;
     const anchor = anchorElement.getBoundingClientRect();
-    if (!rowMenuAnchorVisible(anchor, visibleClips(anchorElement))) {
-      popover.hidePopover();
-      return;
-    }
-    const { left, top } = rowMenuPlacement(anchor, popover.getBoundingClientRect(), viewport);
-    popover.style.left = `${left}px`;
-    popover.style.top = `${top}px`;
+    // ⋯ が clip (ツリーのスクロール枠 / viewport) の外へ出ていたら開かない (見えていない行の操作を残さない)
+    if (!rowMenuAnchorVisible(anchor, visibleClips(anchorElement))) return null;
+    return rowMenuPlacement(anchor, popover.getBoundingClientRect(), viewport);
   }, []);
 
-  // 開いている間は commit のたびに置き直す。window の resize ハンドラは React の再レンダー
-  // (サイドバーの docked ⇄ overlay など) より先に走り、動く前の rect を読んでしまう。commit 後なら
-  // DOM は更新済みなので、ここで読む rect が新しい配置を指す
-  useLayoutEffect(() => {
-    if (open) place();
+  // ツリーのスクロールでも閉じず ⋯ へ追随させ、焦点が外れたら閉じる (この画面の殻の使い方)
+  const menu = usePopoverShell(placeMenu, ROW_MENU_MARGIN, {
+    reposition: ({ place }) => place(),
+    exitOnBlur: ({ close }) => close(),
   });
-
-  // 開閉の正は popover の状態。標準の close (Escape / light dismiss) もここで観測して aria-expanded へ写す
-  useEffect(() => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    const onToggle = (event: Event) => setOpen((event as ToggleEvent).newState === "open");
-    popover.addEventListener("toggle", onToggle);
-    return () => popover.removeEventListener("toggle", onToggle);
-  }, []);
-
-  // 開いている間だけ位置を取り直す。scroll は capture で受けないとツリーのスクロール枠の分を拾えない
-  useEffect(() => {
-    if (!open) return;
-    const onMove = () => place();
-    window.addEventListener("scroll", onMove, true);
-    window.addEventListener("resize", onMove);
-    return () => {
-      window.removeEventListener("scroll", onMove, true);
-      window.removeEventListener("resize", onMove);
-    };
-  }, [open, place]);
-
-  const toggle = (event: MouseEvent<HTMLButtonElement>) => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    pressingTriggerRef.current = false;
-    // popoverTarget は ⋯ 自身の押下を light dismiss の対象外にするためだけに付ける。既定の activation
-    // behavior は同じトグルを二重に走らせるので止め、開閉を showPopover / hidePopover に寄せる
-    event.preventDefault();
-    if (popover.matches(":popover-open")) {
-      popover.hidePopover();
-      return;
-    }
-    popover.showPopover();
-    place();
-    itemsRef.current.find((item) => item !== null && !item.disabled)?.focus();
-  };
-
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape") {
-      // 止めないと App の Escape (設定ページからチャットへ戻る) まで届く。閉じるのは標準挙動に任せる
-      event.stopPropagation();
-      return;
-    }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    // 既定動作 (メニュー外のスクロール) を止める
-    event.preventDefault();
-    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null && !item.disabled);
-    const current = items.findIndex((item) => item === document.activeElement);
-    items[nextRowMenuIndex(current, items.length, event.key === "ArrowDown" ? "next" : "previous")]?.focus();
-  };
-
-  const onBlur = (event: FocusEvent<HTMLDivElement>) => {
-    const next = event.relatedTarget;
-    if (next instanceof Node && popoverRef.current?.contains(next)) return;
-    if (next === triggerRef.current && pressingTriggerRef.current) {
-      // ⋯ への押下で移るフォーカスは閉じる操作ではない (閉じるかどうかは click 側が決める)
-      pressingTriggerRef.current = false;
-      return;
-    }
-    popoverRef.current?.hidePopover();
-  };
-
-  const closeBySelection = () => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    const active = document.activeElement;
-    if (active instanceof HTMLElement && popover.contains(active)) active.blur();
-    popover.hidePopover();
-    // 選択後は ⋯ へ焦点を戻す (メニューの項目は消えるため、この後の確認ダイアログが「開いたボタン」を
-    // 控えて閉じたときに戻せるようにする)
-    triggerRef.current?.focus();
-  };
 
   return (
     <>
       <button
         type="button"
-        ref={triggerRef}
+        {...menu.triggerProps}
         id={triggerId}
         aria-haspopup="menu"
-        aria-expanded={open}
         aria-label={copied ? "コピーしました" : `${name} の操作`}
         title={copied ? "コピーしました" : undefined}
         popoverTarget={menuId}
         popoverTargetAction="toggle"
-        onPointerDown={() => {
-          pressingTriggerRef.current = true;
-        }}
-        onPointerUp={() => {
-          pressingTriggerRef.current = false;
-        }}
-        onPointerCancel={() => {
-          pressingTriggerRef.current = false;
-        }}
-        onClick={toggle}
         className={cn(
           "group grid h-6 w-6 shrink-0 place-items-center singleColumn:h-11",
           touchTarget === "toolbar" && "singleColumn:w-11",
@@ -239,13 +124,12 @@ export function RowMenu<K extends RowMenuActionKind>({
           テーマのトークンを当てる。位置は place() が left / top を直接書く。高さの上限を超えたぶんは
           ここ (popover 自身) のスクロールへ逃がす */}
       <div
-        ref={popoverRef}
+        {...menu.popoverProps}
+        {...menu.exitProps}
         id={menuId}
         popover="auto"
         role="menu"
         aria-labelledby={triggerId}
-        onKeyDown={onKeyDown}
-        onBlur={onBlur}
         className="popover-panel fixed inset-auto m-0 w-max min-w-40 scrollbar-thin overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel singleColumn:min-w-48 singleColumn:p-2"
       >
         {actions.map((action, index) => (
@@ -253,9 +137,7 @@ export function RowMenu<K extends RowMenuActionKind>({
             {/* 破壊的な操作は色だけでなく位置 (末尾) と区切りでも示す */}
             {action.danger === true && index > 0 ? <div aria-hidden="true" className="mx-1 my-1 h-px bg-line" /> : null}
             <MenuItem
-              ref={(element) => {
-                itemsRef.current[index] = element;
-              }}
+              ref={menu.itemRef(index)}
               role="menuitem"
               tabIndex={-1}
               icon={ACTION_ICONS[action.kind]}
@@ -267,7 +149,7 @@ export function RowMenu<K extends RowMenuActionKind>({
               disabled={action.disabled === true}
               onClick={() => {
                 // 確認ダイアログ / prompt をメニューの背後に出さない (開いたままだと隠れる)
-                closeBySelection();
+                menu.closeBySelection();
                 onSelect(action.kind);
               }}
             />

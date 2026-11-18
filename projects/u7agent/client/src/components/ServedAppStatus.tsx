@@ -1,16 +1,7 @@
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, type ReactNode } from "react";
+import { usePopoverShell, type PopoverPlaceInput } from "../hooks/usePopoverShell";
 import { cn } from "../lib/cn";
-import { nextRowMenuIndex, rowMenuPlacement, ROW_MENU_MARGIN, type RowMenuDescriptionKind } from "../lib/rowMenu";
+import { rowMenuPlacement, ROW_MENU_MARGIN, type RowMenuDescriptionKind } from "../lib/rowMenu";
 import {
   openServedApp,
   servedAppMenuSeparators,
@@ -185,57 +176,24 @@ export function ServedAppIndicator({
   const view = servedAppView(status);
   const menuId = useId();
   const triggerId = `${menuId}-trigger`;
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const place = useCallback(() => {
-    const popover = popoverRef.current;
-    const trigger = triggerRef.current;
-    if (popover === null || trigger === null) return;
-    const viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
-    // 幅も viewport の内側に収める。cwd とコマンドは長さが決まらないため、`w-max` のままだと menu が
-    // 画面より広くなり、右端の項目と command が切れる。測る前に書いて、位置と大きさを同じ測定で決める
-    popover.style.maxWidth = `${Math.max(0, viewport.width - ROW_MENU_MARGIN * 2)}px`;
-    // 折り返した行数も決まらないため、高さも同じく viewport に収める (あふれは menu 内のスクロールへ逃がす)
-    popover.style.maxHeight = `${Math.max(0, viewport.height - ROW_MENU_MARGIN * 2)}px`;
-    const { left, top } = rowMenuPlacement(trigger.getBoundingClientRect(), popover.getBoundingClientRect(), viewport);
-    popover.style.left = `${left}px`;
-    popover.style.top = `${top}px`;
+  // cwd とコマンドは長さが決まらないため、`w-max` のままだと menu が画面より広くなり、右端の項目と
+  // command が切れる。幅 / 高さの上限は hook が margin から書くので、ここは left / top だけを返す
+  const placeMenu = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
+    if (trigger === null) return null;
+    return rowMenuPlacement(trigger.getBoundingClientRect(), popover.getBoundingClientRect(), viewport);
   }, []);
 
-  // 開いている間は commit のたびに置き直す (幅の変化やレイアウト切替に追随する)
-  useLayoutEffect(() => {
-    if (open) place();
-  });
+  // スクロール / resize の再配置と focus 退出での終了は持たない (開いている間の再配置は hook が
+  // commit ごとに行い、閉じる経路は項目の選択と [起動をキャンセル] だけ)
+  const { triggerProps, popoverProps, itemRef, close } = usePopoverShell(placeMenu, ROW_MENU_MARGIN);
 
-  const onToggle = useCallback((event: Event) => {
-    setOpen((event as ToggleEvent).newState === "open");
-  }, []);
-
-  /**
-   * 開閉の正は popover の状態 (Escape / 外側クリックの light dismiss もここで観測する)。
-   * status の取得前は popover 自体を描画しないため、Effect ではなく ref の付け外しで購読を更新する
-   * (依存配列が空の Effect だと、初回取得後に mount した popover を購読できない)。
-   */
-  const attachPopover = useCallback(
-    (element: HTMLDivElement | null) => {
-      const previous = popoverRef.current;
-      if (previous) previous.removeEventListener("toggle", onToggle);
-      popoverRef.current = element;
-      if (element === null) return;
-      element.addEventListener("toggle", onToggle);
-      setOpen(element.matches(":popover-open"));
-    },
-    [onToggle],
-  );
-
-  // 起動の確認待ちが終わったらメニューを閉じる (古い状態のメニューを残さない)
+  // 起動の確認待ちが終わったらメニューを閉じる (古い状態のメニューを残さない)。close は identity が
+  // 固定なので、依存は starting だけで足りる (毎描画で閉じると、開いた直後に消える)
   useLayoutEffect(() => {
     if (starting) return;
-    popoverRef.current?.hidePopover();
-  }, [starting]);
+    close();
+  }, [close, starting]);
 
   if (failed || (!starting && view.kind === "none")) return null;
   if (!starting && view.kind === "stopped") {
@@ -253,30 +211,6 @@ export function ServedAppIndicator({
   }
 
   const tone = starting ? "serve-icon-accent" : ICON_TONE[view.tone];
-  const toggle = () => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    if (popover.matches(":popover-open")) popover.hidePopover();
-    else {
-      popover.showPopover();
-      place();
-      itemsRef.current[0]?.focus();
-    }
-  };
-  const close = () => popoverRef.current?.hidePopover();
-  // 矢印キーは RowMenu と同じ規則で項目のフォーカスを移す (tabIndex=-1 の項目を Tab でたどらせない)
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape") {
-      // 止めないと App の Escape (設定ページからチャットへ戻る) まで届く。閉じるのは標準挙動に任せる
-      event.stopPropagation();
-      return;
-    }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    event.preventDefault();
-    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null);
-    const current = items.findIndex((item) => item === document.activeElement);
-    items[nextRowMenuIndex(current, items.length, event.key === "ArrowDown" ? "next" : "previous")]?.focus();
-  };
   const href = view.canOpen ? servedAppUrl(location.hostname, port, serviceOrigin) : undefined;
   const items: Array<{
     key: string;
@@ -341,28 +275,22 @@ export function ServedAppIndicator({
     <>
       <button
         type="button"
-        ref={triggerRef}
+        {...triggerProps}
         id={triggerId}
         aria-haspopup="menu"
-        aria-expanded={open}
         aria-label={starting ? "サービスは起動中。メニューを開く" : view.ariaLabel}
         popoverTarget={menuId}
         popoverTargetAction="toggle"
-        onClick={(event) => {
-          event.preventDefault();
-          toggle();
-        }}
         className={cn("icon-button shrink-0", tone)}
       >
         {starting ? <RunSpinnerIcon /> : <ServeMark view={view} />}
       </button>
       <div
-        ref={attachPopover}
+        {...popoverProps}
         id={menuId}
         popover="auto"
         role="menu"
         aria-labelledby={triggerId}
-        onKeyDown={onKeyDown}
         className="popover-panel fixed inset-auto m-0 w-max min-w-52 overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel singleColumn:min-w-56 singleColumn:p-2"
       >
         <div className="grid gap-1 px-2 pt-1.5 pb-2">
@@ -381,9 +309,7 @@ export function ServedAppIndicator({
             {/* 通常の操作と危険な操作の間に区切りを入れる (並びは変えない。⋯ メニューと同じ見た目) */}
             {separators[index] ? <div aria-hidden="true" className="mx-1 my-1 h-px bg-line" /> : null}
             <MenuItem
-              ref={(element) => {
-                itemsRef.current[index] = element;
-              }}
+              ref={itemRef(index)}
               role="menuitem"
               tabIndex={-1}
               icon={item.icon}

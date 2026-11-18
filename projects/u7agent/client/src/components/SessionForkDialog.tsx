@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { cn } from "../lib/cn";
+import { messageFor } from "../lib/errors";
 import type { SessionForkDialogText, SessionForkRequest } from "../lib/sessionFork";
 import { forkRequest } from "../lib/sessionFork";
 import type { HandoffAgentChoice } from "../lib/sessionHandoff";
 import { MenuItem } from "./MenuItem";
-import { CloseIcon } from "./icons";
+import { WorkDialog } from "./WorkDialog";
 
 export type SessionForkDialogProps = {
   /** 対象と確認文言。文言は lib の純関数が組み立てる (共有の確認ダイアログに select を足さない) */
@@ -32,31 +33,12 @@ export function SessionForkDialog({
   onClose,
   onFork,
 }: SessionForkDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const currentAgent = agents.find((agent) => agent.current) ?? agents[0];
   const [agentId, setAgentId] = useState(() => currentAgent?.id ?? "");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const canFork = !busy && blockedNote === "" && agentId !== "";
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!dialog.open) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      dialog.showModal();
-    } else if (!dialog.contains(document.activeElement)) {
-      dialog.focus();
-    }
-    return () => previousFocusRef.current?.focus();
-  }, []);
-
-  // 初期焦点は取り消し側に置く (会話が増える操作を Enter で確定させない)
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -72,121 +54,62 @@ export function SessionForkDialog({
         onClose();
       } catch (err) {
         // 一覧の状態は巻き戻さず、理由だけをこの画面へ出す
-        setError(err instanceof Error ? err.message : String(err));
+        setError(messageFor(err));
         setBusy(false);
       }
     })();
   };
 
   return (
-    <dialog
-      ref={dialogRef}
+    <WorkDialog
+      eyebrow="FORK"
+      title={text.title}
+      busy={busy}
       onClose={onClose}
-      aria-modal="true"
-      aria-label={text.title}
-      tabIndex={-1}
-      // Escape はダイアログだけを閉じる (設定ページの「戻る」など背面の keydown へ届かせない)
-      onKeyDown={(event) => {
-        if (event.key === "Escape") event.stopPropagation();
-      }}
-      // 分岐中は閉じさせない (作った会話を取りこぼさない)
-      onCancel={(event) => {
-        if (busy) event.preventDefault();
-      }}
-      className={cn(
-        "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
-        singleColumn
-          ? "m-0 h-dvh max-h-none w-screen max-w-none rounded-none border-0"
-          : "m-auto max-h-[min(88dvh,760px)] w-[min(420px,92vw)] rounded-xl border shadow-panel",
-      )}
+      onSubmit={submit}
+      initialFocusRef={cancelRef}
+      note={{ text: error || blockedNote || text.note, danger: error !== "" || blockedNote !== "" }}
+      submit={{ label: text.confirmLabel, tone: "primary", disabled: !canFork }}
+      singleColumn={singleColumn}
     >
-      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
-        <div className="min-w-0">
-          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">FORK</div>
-          <h2 className="text-md font-semibold text-ink-strong">{text.title}</h2>
+      {text.subject ? (
+        <div className="grid gap-0.5">
+          <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">{text.subject.label}</span>
+          <span className="line-clamp-2 min-w-0 break-words text-ink-strong" title={text.subject.value}>
+            {text.subject.value}
+          </span>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="閉じる"
-          title="閉じる"
-          className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
-          disabled={busy}
-        >
-          <CloseIcon />
-        </button>
-      </header>
+      ) : null}
 
-      <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-        <div className="grid min-h-0 flex-1 scrollbar-thin content-start gap-3.5 overflow-y-auto px-4 py-3.5 text-xs leading-relaxed">
-          {text.subject ? (
-            <div className="grid gap-0.5">
-              <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
-                {text.subject.label}
-              </span>
-              <span className="line-clamp-2 min-w-0 break-words text-ink-strong" title={text.subject.value}>
-                {text.subject.value}
-              </span>
-            </div>
-          ) : null}
+      {text.body.map((paragraph) => (
+        <p key={paragraph} className="break-words text-ink-soft">
+          {paragraph}
+        </p>
+      ))}
 
-          {text.body.map((paragraph) => (
-            <p key={paragraph} className="break-words text-ink-soft">
-              {paragraph}
-            </p>
+      <div className="grid gap-1.5">
+        <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">{text.agentLabel}</span>
+        <div className="grid gap-1">
+          {agents.map((agent) => (
+            <MenuItem
+              key={agent.id}
+              label={agent.current ? `${agent.name}（現在）` : agent.name}
+              variant="choice"
+              selected={agent.id === agentId}
+              current="true"
+              onClick={() => {
+                setAgentId(agent.id);
+                setError("");
+              }}
+            />
           ))}
-
-          <div className="grid gap-1.5">
-            <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">{text.agentLabel}</span>
-            <div className="grid gap-1">
-              {agents.map((agent) => (
-                <MenuItem
-                  key={agent.id}
-                  label={agent.current ? `${agent.name}（現在）` : agent.name}
-                  variant="choice"
-                  selected={agent.id === agentId}
-                  current="true"
-                  onClick={() => {
-                    setAgentId(agent.id);
-                    setError("");
-                  }}
-                />
-              ))}
-            </div>
-            <p className={cn("break-words", agentId === currentAgent?.id ? "text-ink-muted" : "text-warn-text")}>
-              {agentId === currentAgent?.id
-                ? "現在のエージェントの役割・指示・ツールの許可をそのまま引き継ぎます。"
-                : text.agentNote}
-            </p>
-          </div>
         </div>
-
-        <footer className="grid shrink-0 gap-1.5 border-t border-line px-4 py-3">
-          <p
-            role={error || blockedNote ? "alert" : undefined}
-            className={cn(
-              "min-w-0 text-1xs leading-relaxed",
-              error || blockedNote ? "text-danger-text" : "text-ink-muted",
-            )}
-          >
-            {error || blockedNote || text.note}
-          </p>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              ref={cancelRef}
-              type="button"
-              onClick={onClose}
-              className="btn-quiet singleColumn:min-h-11"
-              disabled={busy}
-            >
-              キャンセル
-            </button>
-            <button type="submit" disabled={!canFork} className="btn-primary singleColumn:min-h-11">
-              {text.confirmLabel}
-            </button>
-          </div>
-        </footer>
-      </form>
-    </dialog>
+        <p className={cn("break-words", agentId === currentAgent?.id ? "text-ink-muted" : "text-warn-text")}>
+          {agentId === currentAgent?.id
+            ? "現在のエージェントの役割・指示・ツールの許可をそのまま引き継ぎます。"
+            : text.agentNote}
+        </p>
+      </div>
+    </WorkDialog>
   );
 }

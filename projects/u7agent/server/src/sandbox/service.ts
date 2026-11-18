@@ -5,7 +5,7 @@
  */
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
-import { realpath as realpathCallback, type Dirent, type Stats } from "node:fs";
+import type { Dirent, Stats } from "node:fs";
 import {
   access,
   link,
@@ -24,7 +24,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, parse, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
@@ -39,13 +39,13 @@ import {
   loadSkillsFromDir,
   withFileMutationQueue,
   type BashSpawnContext,
-  type LoadSkillsResult,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Hono } from "hono";
-import { COMMON_SKILLS_DIR } from "../app-paths";
+import { COMMON_SKILLS_DIR, COMMON_SKILLS_SEGMENTS } from "../app-paths";
 import { DEFAULT_ARCHIVE_EXCLUDE_NAMES } from "../archive-rules";
 import { parseByteRange } from "../byte-range";
+import { messageFor, pathError } from "../errors";
 import { isGitIdentityEnvName, isInjectableEnvName } from "../env-names";
 import { gitIdentityProblem, type GitIdentity } from "../git-identity";
 import { fitsImageInputPixels, IMAGE_INPUT_MAX_BYTES, inspectImageInput } from "../image-format";
@@ -64,6 +64,18 @@ import {
   type ArchivePlan,
   type ArchivePlanLimits,
 } from "./archive";
+import {
+  createWorkspaceDirectory,
+  deepestExistingReal,
+  isInsideRoot,
+  joinRequestPath,
+  realpathNative,
+  relativeToRoot,
+  resolveCommonSkillTarget,
+  skillScanFailure,
+  throwIfAborted,
+  type CommonSkillTarget,
+} from "./fs-path";
 import { GIT_INFO_TIMEOUT_MS, readWorkspaceGitInfo } from "./git-info";
 import { detectDubiousOwnership, gitConfigTarget, prepareGitConfig, type GitConfigFailureReason } from "./git-config";
 import {
@@ -194,10 +206,6 @@ export interface SandboxService {
   close: () => void;
 }
 
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** 長さを漏らさないための定数時間比較 (sha256 で同じ長さに揃える)。 */
 function tokensEqual(a: string, b: string): boolean {
   const ha = createHash("sha256").update(a).digest();
@@ -207,26 +215,6 @@ function tokensEqual(a: string, b: string): boolean {
 
 function normalizeToolCallId(value: unknown): string {
   return typeof value === "string" && value.length > 0 ? value : randomUUID();
-}
-
-/**
- * カーネルと同じ解決順 (symlink を辿ってから `..` を適用する) で実パスを返す。
- * 解決前に `..` を path.resolve で字句的に畳んではならない (例: root/linkOutside -> outside/nested で
- * root/linkOutside/.. は outside)。非 native の fs.realpath / fs.realpathSync も同じ字句畳みをするため native を使う。
- */
-function realpathNative(target: string): Promise<string> {
-  return new Promise((resolvePath, rejectPath) => {
-    realpathCallback.native(target, (error, resolved) => {
-      if (error) rejectPath(error);
-      else resolvePath(resolved);
-    });
-  });
-}
-
-/** 要求パスを字句正規化せずに root へ連結する (`..` の適用は realpath に任せる)。 */
-function joinRequestPath(root: string, requested: string): string {
-  if (!requested) return root;
-  return isAbsolute(requested) ? requested : `${root}${sep}${requested}`;
 }
 
 /** 上限を超えたボディは 413。 */
@@ -424,43 +412,6 @@ async function rollbackHandoffText(
     await unlink(target);
     return { deleted: true };
   });
-}
-
-/**
- * root 相対のディレクトリを mkdir -p 相当で作る。既存ディレクトリは成功扱い。
- * 作成前に既存の最も深い祖先を realpath で検証し、root 外を指す symlink を経由した作成を防ぐ。
- */
-async function createWorkspaceDirectory(rootCwd: string, requested: string): Promise<string> {
-  const root = await realpathNative(rootCwd).catch((error: unknown) => {
-    throw pathError(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`);
-  });
-
-  let candidate: string;
-  try {
-    candidate = resolve(root, requested || ".");
-  } catch {
-    throw pathError(400, `Invalid path: ${requested}`);
-  }
-  if (!isInsideRoot(root, candidate)) throw pathError(400, `Path outside the workspace: ${candidate}`);
-
-  const ancestor = await deepestExistingPath(candidate);
-  const realAncestor = await realpathNative(ancestor).catch((error: unknown) => {
-    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
-  });
-  if (!isInsideRoot(root, realAncestor)) throw pathError(400, `Path outside the workspace: ${realAncestor}`);
-
-  await mkdir(candidate, { recursive: true }).catch((error: unknown) => {
-    throw pathError(400, `Cannot create directory: ${messageFor(error)}`);
-  });
-
-  // 作成後に実パスで再検証する (途中の symlink が root 外を指していた場合を取り逃さない)
-  const target = await realpathNative(candidate).catch((error: unknown) => {
-    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
-  });
-  if (!isInsideRoot(root, target)) throw pathError(400, `Path outside the workspace: ${target}`);
-  const targetStat = await stat(target).catch(() => undefined);
-  if (!targetStat?.isDirectory()) throw pathError(400, `Not a directory: ${candidate}`);
-  return relativeToRoot(root, target);
 }
 
 /**
@@ -751,21 +702,6 @@ function downloadCheckFor(plan: DownloadPlan): SandboxDownloadCheck {
   };
 }
 
-/** 実在する最も深い祖先 (自身を含む)。root 配下の要求では必ず root 以前で止まる。 */ async function deepestExistingPath(
-  target: string,
-): Promise<string> {
-  let current = target;
-  for (;;) {
-    const exists = await stat(current)
-      .then(() => true)
-      .catch(() => false);
-    if (exists) return current;
-    const parent = dirname(current);
-    if (parent === current) return current;
-    current = parent;
-  }
-}
-
 /** 同名を上書きしない保存名の候補。`name-1.ext` と連番で進め、上限に達したらランダム suffix にする。 */
 const MAX_RENAME_ATTEMPTS = 100;
 
@@ -844,10 +780,6 @@ async function linkUniqueName(tempPath: string, dirAbs: string, name: string): P
   throw pathError(500, "Cannot save the uploaded file");
 }
 
-function pathError(statusCode: number, message: string): Error & { statusCode: number } {
-  return Object.assign(new Error(message), { statusCode });
-}
-
 /**
  * root 相対の要求パスを解決して一覧を返す。root 内外は「`..` の有無」ではなく realpath で解決した実パスで判定するため、
  * root 外にある symlink (`../link-in` など) から root 内へ解決する要求も 200 になる。
@@ -919,10 +851,6 @@ async function listWorkspaceSkills(
     });
   }
   return { skills };
-}
-
-function isInsideRoot(root: string, target: string): boolean {
-  return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
 
 /**
@@ -1045,21 +973,6 @@ interface WriteRoot {
   lexical: string | undefined;
 }
 
-/** 実在する最も深い祖先 (自身を含む) とその実パス。壊れた symlink では解決できないので undefined にする。 */
-async function deepestExistingReal(target: string): Promise<{ path: string; real: string } | undefined> {
-  let current = target;
-  for (;;) {
-    const stats = await lstat(current).catch(() => undefined);
-    if (stats) {
-      const real = await realpathNative(current).catch(() => undefined);
-      return real ? { path: current, real } : undefined;
-    }
-    const parent = dirname(current);
-    if (parent === current) return undefined;
-    current = parent;
-  }
-}
-
 async function resolveWriteRoots(scope: WriteScope): Promise<WriteRoot[]> {
   const roots: WriteRoot[] = [];
   for (const lexical of [scope.cwd, scope.lexicalCwd, scope.skillsDir]) {
@@ -1129,13 +1042,6 @@ function compareEntries(a: { name: string; type: "file" | "dir" }, b: { name: st
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
-/** root 相対の正規化パス。区切りは常に "/" (root は ".")。 */
-function relativeToRoot(root: string, target: string): string {
-  const rel = relative(root, target);
-  if (!rel) return ".";
-  return sep === "/" ? rel : rel.split(sep).join("/");
-}
-
 /**
  * 共通スキル (`.agents/skills`) の GUI CRUD の面倒な依存。service のオプションから組み立てる。
  * 走査の期限と削除の走査上限は既存の値をそのまま使う (GUI 用の別上限を作らない)。
@@ -1148,18 +1054,6 @@ interface SkillCrudContext {
   maxUploadBytes: number;
   /** 共通スキル置き場の外側 gate。SDK のファイル隊列より先に取る (順序を固定する) */
   gate: <T>(run: () => Promise<T>) => Promise<T>;
-}
-
-/** 共通スキル置き場の root 相対セグメント */
-const COMMON_SKILLS_SEGMENTS = COMMON_SKILLS_DIR.split("/");
-
-/** 共通スキルの変更対象。lexical は要求どおりの絶対パス、real は実在したときの実パス */
-interface CommonSkillTarget {
-  relativePath: string;
-  lexical: string;
-  real: string | undefined;
-  realRoot: string;
-  realSkillsDir: string | undefined;
 }
 
 /**
@@ -1178,11 +1072,6 @@ function createAsyncGate(): <T>(run: () => Promise<T>) => Promise<T> {
   };
 }
 
-/** 要求が既に中断されているなら変更前に拒否する (開始した IO を中断では止めない) */
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw pathError(400, "要求は中止されました");
-}
-
 /** JSON body から必要な文字列フィールドだけを読む。型違いと欠落は 400 にする (余分なキーは無視する) */
 function skillTextFieldsOf(
   body: unknown,
@@ -1198,68 +1087,6 @@ function skillTextFieldsOf(
     value[key] = raw;
   }
   return { ok: true, value };
-}
-
-/**
- * 共通スキルの SKILL.md (root 相対) を検証して解決する。workspace root 内であることに加え、root 相対の形
- * (`.agents/skills/<name>/SKILL.md`) と、最寄りの実在祖先の実パスの両方で共通スキル置き場の内側であることを
- * 要求する。置き場そのもの (`<skills>/SKILL.md`) は専用フォルダを特定できないので扱わない。
- */
-async function resolveCommonSkillTarget(input: {
-  rootCwd: string;
-  requested: string;
-  /** 実在しない対象を 404 にする (作成のときだけ false) */
-  mustExist: boolean;
-}): Promise<CommonSkillTarget> {
-  const { requested } = input;
-  const segments = requested.split("/");
-  if (!requested || requested.includes("\\") || requested.startsWith("/") || /^[A-Za-z]:/.test(requested)) {
-    throw pathError(400, `Invalid skill path: ${requested}`);
-  }
-  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
-    throw pathError(400, `Invalid skill path: ${requested}`);
-  }
-  if (!COMMON_SKILLS_SEGMENTS.every((segment, index) => segments[index] === segment)) {
-    throw pathError(400, `Not a common skill path: ${requested}`);
-  }
-  // SDK は hidden のディレクトリを辿らないので、発見され得ないパスは変更対象にしない
-  if (segments.slice(COMMON_SKILLS_SEGMENTS.length).some((segment) => segment.startsWith("."))) {
-    throw pathError(400, `Hidden directories are not skill folders: ${requested}`);
-  }
-  // `<skills>/<name>/SKILL.md` より浅い配置は、専用フォルダを安全に特定できないため変更しない
-  if (segments.length < COMMON_SKILLS_SEGMENTS.length + 2 || segments[segments.length - 1] !== "SKILL.md") {
-    throw pathError(400, `Cannot identify the skill folder of: ${requested}`);
-  }
-  const lexicalRoot = resolve(input.rootCwd);
-  const lexical = join(lexicalRoot, ...segments);
-  if (!isInsideRoot(lexicalRoot, lexical)) throw pathError(400, `Path outside the workspace: ${lexical}`);
-  const realRoot = await realpathNative(lexicalRoot).catch((error: unknown) => {
-    throw pathError(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`);
-  });
-  const realSkillsDir = await realpathNative(join(lexicalRoot, COMMON_SKILLS_DIR)).catch(() => undefined);
-  const real = await realpathNative(lexical).catch(() => undefined);
-  if (realSkillsDir === undefined) {
-    if (input.mustExist) throw pathError(404, `Path not found: ${lexical}`);
-    // 置き場がこれから作られるときは、最寄りの実在祖先が root 内であることだけを要求する
-    const anchor = await deepestExistingReal(lexical);
-    if (!anchor || !isInsideRoot(realRoot, anchor.real)) {
-      throw pathError(400, `Path outside the workspace: ${lexical}`);
-    }
-    return { relativePath: requested, lexical, real, realRoot, realSkillsDir };
-  }
-  if (!isInsideRoot(realRoot, realSkillsDir)) {
-    throw pathError(400, `Common skills directory resolves outside the workspace: ${COMMON_SKILLS_DIR}`);
-  }
-  if (real !== undefined) {
-    if (!isInsideRoot(realSkillsDir, real)) throw pathError(400, `Not a common skill path: ${requested}`);
-  } else {
-    if (input.mustExist) throw pathError(404, `Path not found: ${lexical}`);
-    const anchor = await deepestExistingReal(lexical);
-    if (!anchor || !isInsideRoot(realSkillsDir, anchor.real)) {
-      throw pathError(400, `Not a common skill path: ${requested}`);
-    }
-  }
-  return { relativePath: requested, lexical, real, realRoot, realSkillsDir };
 }
 
 /**
@@ -1362,16 +1189,6 @@ async function readCommonSkillDetail(
     editable,
     ...(reason === undefined ? {} : { reason }),
   };
-}
-
-/** SDK の走査結果を、スキルとして読めない / 診断があるときの理由にする (読めれば undefined) */
-function skillScanFailure(scanned: LoadSkillsResult): string | undefined {
-  if (scanned.skills.length !== 1 || !scanned.skills[0]) {
-    const detail = scanned.diagnostics.map((item) => item.message).join(" / ");
-    return `スキルとして読み込めません${detail ? `: ${detail}` : ""}`;
-  }
-  if (scanned.diagnostics.length > 0) return scanned.diagnostics.map((item) => item.message).join(" / ");
-  return undefined;
 }
 
 /**

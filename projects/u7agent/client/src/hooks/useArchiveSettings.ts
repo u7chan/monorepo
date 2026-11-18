@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { getArchiveSettings, resetArchiveSettings, updateArchiveSettings } from "../api";
 import {
   addExcludeName,
@@ -9,53 +9,35 @@ import {
   validateExcludeNames,
   type ArchiveSettingsDraft,
 } from "../lib/archiveSettings";
+import { messageFor } from "../lib/errors";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import type { ArchiveSettingsResponse } from "../types";
-import { createLoadingTracker, createRequestGate } from "./requestGate";
+import { useSettingsResource } from "./useSettingsResource";
 
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** 変更系の action 名。骨格は TAction | null を持つが、この画面は「保存中か」しか見ないので外へは boolean を出す */
+type ArchiveSavingAction = "save" | "reset";
 
 /**
  * アーカイブの除外名の state と操作。行の出し分け（ツリーのダウンロードボタン）が保存の直後に追随する必要があるため、
  * 設定ページを開いていなくても facade（useU7Agent）が起動時に読み込み、画面とツリーで同じ実効値を見る。
+ * 移行時の差は骨格側を正とした: 再読み込み成功で note は既定へ戻る（失敗の注記が成功後も残らない）。
+ * `saving` だけは画面の `disabled` と既存テストが boolean 前提なので boolean で返す。
  */
 export function useArchiveSettings() {
-  const [settings, setSettings] = useState<ArchiveSettingsResponse | null>(null);
-  const [draft, setDraftState] = useState<ArchiveSettingsDraft>(() => draftFromSettings(null));
-  const [saving, setSaving] = useState(false);
-  const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
-  const [reloading, setReloading] = useState(false);
-  const [beginLoad] = useState(createRequestGate);
-  // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
-  const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
+  const [draft, setDraft] = useState<ArchiveSettingsDraft>(() => draftFromSettings(null));
 
   /** 保存 / リセット / 再読み込みの応答を下書きごと適用する（編集は常に保存値から始め直す） */
-  const applySettings = useCallback((next: ArchiveSettingsResponse) => {
-    setSettings(next);
-    setDraftState(draftFromSettings(next));
+  const applyDraft = useCallback((next: ArchiveSettingsResponse) => {
+    setDraft(draftFromSettings(next));
   }, []);
 
-  const reload = useCallback(async (): Promise<void> => {
-    const canApply = beginLoad();
-    const finishReload = reloadTracker.begin();
-    try {
-      const next = await getArchiveSettings();
-      if (!canApply()) return;
-      applySettings(next);
-    } catch (error) {
-      if (canApply()) {
-        setNote({ text: `ダウンロードの除外名を読み込めませんでした。${messageFor(error)}`, error: true });
-      }
-    } finally {
-      finishReload();
-    }
-  }, [applySettings, beginLoad, reloadTracker]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  const { settings, note, saving, reloading, reload, setSettings, setNote, setSaving, invalidatePendingLoads } =
+    useSettingsResource<ArchiveSettingsResponse, ArchiveSavingAction>({
+      defaultNote: MEMORY_NOTE,
+      loadErrorLabel: "ダウンロードの除外名を読み込めませんでした。",
+      load: getArchiveSettings,
+      onApply: applyDraft,
+    });
 
   /** 1 件追加する。空と重複は何もせず、上限だけは理由を出す（名前の妥当性は保存時に見る） */
   const add = useCallback(
@@ -68,27 +50,27 @@ export function useArchiveSettings() {
         setNote({ text: `除外名は ${settings.maxNames} 件までです`, error: true });
         return false;
       }
-      setDraftState(next);
+      setDraft(next);
       // 直前の保存エラー（不正名など）は編集で解消しうるが、保存済みの案内に戻すと反映済みと読める
       setNote(excludeNamesNote(next, settings));
       return true;
     },
-    [draft, settings],
+    [draft, setNote, settings],
   );
 
   const remove = useCallback(
     (name: string): void => {
       const next = removeExcludeName(draft, name);
-      setDraftState(next);
+      setDraft(next);
       setNote(excludeNamesNote(next, settings));
     },
-    [draft, settings],
+    [draft, setNote, settings],
   );
 
   const discard = useCallback((): void => {
-    setDraftState(draftFromSettings(settings));
+    setDraft(draftFromSettings(settings));
     setNote({ text: MEMORY_NOTE, error: false });
-  }, [settings]);
+  }, [setNote, settings]);
 
   const save = useCallback(async (): Promise<boolean> => {
     if (!settings) return false;
@@ -98,43 +80,47 @@ export function useArchiveSettings() {
       setNote({ text: reason, error: true });
       return false;
     }
-    setSaving(true);
+    // 失敗の注記を「保存できませんでした。」で組み続けるため、runMutation（mutationErrorNote 固定）は通さない
+    setSaving("save");
     try {
       const next = await updateArchiveSettings(draft.excludeNames);
       // 保存中に始まった読み込みの応答で上書きされないよう、適用の前に世代を進める
-      beginLoad();
-      applySettings(next);
+      invalidatePendingLoads();
+      setSettings(next);
+      applyDraft(next);
       setNote({ text: "ダウンロードの除外名を保存しました。", error: false });
       return true;
     } catch (error) {
       setNote({ text: `保存できませんでした。${messageFor(error)}`, error: true });
       return false;
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
-  }, [applySettings, beginLoad, draft, settings]);
+  }, [applyDraft, draft, invalidatePendingLoads, setNote, setSaving, setSettings, settings]);
 
   const reset = useCallback(async (): Promise<boolean> => {
-    setSaving(true);
+    setSaving("reset");
     try {
       const next = await resetArchiveSettings();
-      beginLoad();
-      applySettings(next);
+      invalidatePendingLoads();
+      setSettings(next);
+      applyDraft(next);
       setNote({ text: "既定の一覧に戻しました。", error: false });
       return true;
     } catch (error) {
       setNote({ text: `既定に戻せませんでした。${messageFor(error)}`, error: true });
       return false;
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
-  }, [applySettings, beginLoad]);
+  }, [applyDraft, invalidatePendingLoads, setNote, setSaving, setSettings]);
 
   return {
     settings,
     draft,
     dirty: archiveSettingsDirty(draft, settings),
-    saving,
+    // 骨格の saving は action 名を持つが、画面（disabled）と既存テストは「保存中か」だけを使う
+    saving: saving !== null,
     reloading,
     note,
     add,

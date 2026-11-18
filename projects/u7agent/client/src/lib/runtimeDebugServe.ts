@@ -1,5 +1,6 @@
 import type { RuntimeDebugServeEntry, RuntimeDebugServeStatus } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
+import { messageFor } from "./errors";
 import { messageFullTimeLabel } from "./messageTime";
 
 /** デバッグ用 serve の一覧。公開カードとは別に取得し、失敗もデバッグ節の中だけで見せる */
@@ -91,7 +92,7 @@ export function createRuntimeDebugServeController(deps: {
         const status = await deps.getStatus().catch(() => null);
         if (status) update({ status, failed: false, loading: false });
       } catch (error) {
-        update({ error: error instanceof Error ? error.message : String(error) });
+        update({ error: messageFor(error) });
       } finally {
         update({ stoppingPort: null });
         // 取消や失敗の後も、確認した port で自動再試行はせず状態だけ取り直す。

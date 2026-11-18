@@ -13,7 +13,7 @@ import {
   appSecretUnevaluated,
   type AppSecretState,
 } from "./app-secrets";
-import { messageFor } from "./http";
+import { httpError, messageFor, type HttpError } from "./http";
 import { bgmSettings, BGM_MODEL } from "./bgm";
 import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import { MutationLock } from "./model-settings";
@@ -854,8 +854,6 @@ export class ContentSettingsService {
   }
 }
 
-function badRequest(message: string): Error & { statusCode: number } {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = 400;
-  return error;
+function badRequest(message: string): HttpError {
+  return httpError(400, message);
 }

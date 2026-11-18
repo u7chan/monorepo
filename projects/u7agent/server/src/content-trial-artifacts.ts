@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { inspectImageInput } from "./image-format";
+import { TRIAL_ARTIFACT_FORMATS } from "./content-vocabulary";
 import { saveableImageFormat, type SaveableImageFormat } from "./images";
 import { pcmToWav, type GeneratedSpeech } from "./speech";
 
@@ -25,8 +26,6 @@ export const TRIAL_ARTIFACT_MAX_BYTES = 16 * 1024 * 1024;
  */
 export const TRIAL_ARTIFACT_USAGE_WARNING_BYTES = 1024 * 1024 * 1024;
 
-/** 保存・配信できる形式。拡張子と配信 MIME はこの一覧に固定する */
-export const TRIAL_ARTIFACT_FORMATS = ["png", "jpeg", "webp", "mp3", "wav"] as const;
 export type TrialArtifactFormat = (typeof TRIAL_ARTIFACT_FORMATS)[number];
 
 /**
