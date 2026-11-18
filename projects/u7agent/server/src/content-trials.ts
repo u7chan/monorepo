@@ -5,6 +5,14 @@
  * 成果物はアプリデータ領域の `<storeDir>/trials` に `<trialId>.<ext>` で置き、行にはメタデータだけを持つ
  * （契約は docs/api-settings.md）。
  */
+import {
+  CONTENT_TRIAL_ARTIFACT_STATES,
+  CONTENT_TRIAL_FAILURE_CODES,
+  CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH,
+  CONTENT_TRIAL_KINDS,
+  CONTENT_TRIAL_PROMPT_MAX_LENGTH,
+  CONTENT_TRIAL_STATES,
+} from "./content-vocabulary";
 import { messageFor } from "./http";
 import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import {
@@ -44,38 +52,25 @@ import {
 import {
   SPEECH_GENERATION_TIMEOUT_MS,
   SPEECH_PROVIDER_ID,
-  SPEECH_TEXT_MAX_LENGTH,
   type SpeechGenerationInput,
   type SpeechGenerationResult,
 } from "./speech";
-import { PROVIDER_FAILURE_CODES } from "./provider-failure";
 import type { ContentTrialArtifactRow, ContentTrialRow } from "./app-db";
 import type { ImageParameterValues } from "./schema";
 
-/** 試行の種別。画像 / 音声 / BGM は同じレジストリ・DB・履歴の経路を使う */
-export const CONTENT_TRIAL_KINDS = ["image", "speech", "bgm"] as const;
 export type ContentTrialKind = (typeof CONTENT_TRIAL_KINDS)[number];
-
-/** 終端状態は不変で、`running` からしか遷移しない */
-export const CONTENT_TRIAL_STATES = ["running", "succeeded", "failed", "canceled", "interrupted"] as const;
 export type ContentTrialState = (typeof CONTENT_TRIAL_STATES)[number];
-
-/** 成果物の状態。`stored` は「保存に成功し、`succeeded` として確定した」ことを表す */
-export const CONTENT_TRIAL_ARTIFACT_STATES = ["none", "stored"] as const;
 export type ContentTrialArtifactState = (typeof CONTENT_TRIAL_ARTIFACT_STATES)[number];
-
-/**
- * 試行の失敗分類。provider の分類に、生成は成功したが成果物を保存できなかった `storage` を足す
- * （保存できていない結果を成功として見せない）。
- */
-export const CONTENT_TRIAL_FAILURE_CODES = [...PROVIDER_FAILURE_CODES, "storage"] as const;
 export type ContentTrialFailureCode = (typeof CONTENT_TRIAL_FAILURE_CODES)[number];
 
-/** プロンプトの上限。provider の上限ではなく、履歴に残す本文としての歯止め */
-export const CONTENT_TRIAL_PROMPT_MAX_LENGTH = 4_000;
-
-/** 音声の演技指示の上限。本文と同じ上限を課金前に見る */
-export const CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH = SPEECH_TEXT_MAX_LENGTH;
+export {
+  CONTENT_TRIAL_ARTIFACT_STATES,
+  CONTENT_TRIAL_FAILURE_CODES,
+  CONTENT_TRIAL_INSTRUCTIONS_MAX_LENGTH,
+  CONTENT_TRIAL_KINDS,
+  CONTENT_TRIAL_PROMPT_MAX_LENGTH,
+  CONTENT_TRIAL_STATES,
+};
 
 export const CONTENT_TRIAL_NOT_FOUND_MESSAGE = "試行が見つかりません";
 export const CONTENT_TRIAL_KIND_UNSUPPORTED_MESSAGE = "この種別の試行はまだ実行できません";
