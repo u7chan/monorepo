@@ -38,7 +38,7 @@ export function ProviderCard(props: {
   const intervalLabel = formatFetchInterval(source.fetchIntervalMs);
   const retryHint =
     source.error?.code === "subscription_required"
-      ? "契約の反映後、自動で取得し直します。"
+      ? "契約の反映後、⋮ の「利用枠を取得し直す」で再開できます。自動確認は 6 時間ごとです。"
       : `${intervalLabel}後に自動で再試行します。`;
   const capturedAt = source.capturedAt;
   const ageLabel = capturedAt === null ? null : describeAge(props.now - capturedAt);

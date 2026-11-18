@@ -6,6 +6,11 @@ export const SAMPLE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** 取得予定を確認する間隔。画面から選べる最短の 5 分より短くしておく。 */
 export const TICK_INTERVAL_MS = 60 * 1000;
+/**
+ * 契約エラーで止まった source を、自前で再確認するまでの間隔。
+ * 契約の反映は画面から「利用枠を取得し直す」で即時に試せる。こちらは取りこぼしの保険。
+ */
+export const PAUSED_RETRY_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /** source id は `codex:<account>` または `opencode-go:<uuid>`。1 つの provider に複数の source がぶら下がる。 */
 export type UsageFetcher = {
@@ -13,6 +18,11 @@ export type UsageFetcher = {
   provider: ProviderDefinition;
   /** ログに出す source の呼び名。source id にアカウント識別子が入る場合は伏せた値を渡す。 */
   logLabel?: string;
+  /**
+   * 契約エラーなど、待っても直らない失敗で止めている source の次回確認時刻。
+   * 通常の間隔では起こさず、この時刻まで tick の対象にしない。
+   */
+  pausedUntil?: number | null;
   fetch: () => Promise<ProviderSnapshot>;
 };
 
@@ -31,6 +41,8 @@ export type Sampler = {
   stop: () => void;
   /** 予定を待たずに取り直す。provider を省略すると全 source。進行中の取得は完了後にもう 1 回走らせる。 */
   kick: (provider?: ProviderId) => Promise<void>;
+  /** 停止中の source も含めて 1 つだけ取り直す。再契約後の再開に使う。 */
+  refreshSource: (sourceId: string) => Promise<void>;
   /**
    * 進行中の取得と重ならない区間で `fn` を実行し、その後に取り直す。
    * サインアウトで消した snapshot を、先に始まっていた取得が書き戻すのを防ぐための入口。
@@ -76,14 +88,24 @@ export function createSampler(options: {
   const pendingMutations = new Map<ProviderId | "all", number>();
 
   function runFetcher(fetcher: UsageFetcher): Promise<void> {
-    // 開始時点で次回を決める。取得が長引いても間隔を詰めない。
-    nextDueAt.set(fetcher.sourceId, options.now() + options.intervalFor(fetcher.provider.id));
+    const paused = fetcher.pausedUntil !== null && fetcher.pausedUntil !== undefined;
+
+    // 開始時点で次回を決める。取得が長引いても間隔を詰めない。停止中の source は長い間隔で再確認する。
+    nextDueAt.set(
+      fetcher.sourceId,
+      options.now() + (paused ? PAUSED_RETRY_INTERVAL_MS : options.intervalFor(fetcher.provider.id)),
+    );
 
     const task = (async () => {
       try {
         const snapshot = await fetcher.fetch();
 
         saveProviderSnapshot(options.db, fetcher.sourceId, snapshot);
+
+        // 停止中から戻った source は、成功した時点から通常の間隔で取る。
+        if (paused) {
+          nextDueAt.set(fetcher.sourceId, options.now() + options.intervalFor(fetcher.provider.id));
+        }
       } catch (error) {
         const failure = toProviderError(error);
 
@@ -92,6 +114,11 @@ export function createSampler(options: {
           message: failure.message,
           at: options.now(),
         });
+
+        // 契約エラーは待っても直らない。通常の間隔で叩き続けず、長い間隔で再確認する。
+        if (failure.code === "subscription_required") {
+          nextDueAt.set(fetcher.sourceId, options.now() + PAUSED_RETRY_INTERVAL_MS);
+        }
 
         // 上流の本文や例外文は残さない。どの source がどの分類で落ちたかだけを残す。
         // source id は account の uuid を含むが、キーも名前も含まない。
@@ -127,13 +154,10 @@ export function createSampler(options: {
   function tick(): Promise<void> {
     const now = options.now();
     const due = options.fetchers().filter((fetcher) => {
-      const scheduledAt = nextDueAt.get(fetcher.sourceId);
+      // 停止中の source は、エラー時刻から決めた再確認時刻まで起こさない。
+      const scheduledAt = nextDueAt.get(fetcher.sourceId) ?? fetcher.pausedUntil ?? 0;
 
-      return (
-        !isMutating(fetcher.provider.id) &&
-        !running.has(fetcher.sourceId) &&
-        (scheduledAt === undefined || scheduledAt <= now)
-      );
+      return !isMutating(fetcher.provider.id) && !running.has(fetcher.sourceId) && scheduledAt <= now;
     });
 
     return due.length === 0 ? Promise.resolve() : execute(due);
@@ -243,6 +267,29 @@ export function createSampler(options: {
     return task;
   }
 
+  // 停止中の source も、明示的な再開だけは予定を無視して取り直す。
+  function refreshSource(sourceId: string): Promise<void> {
+    const task = exclusiveChain.then(async () => {
+      const inFlight = running.get(sourceId);
+
+      if (inFlight) {
+        await Promise.allSettled([inFlight]);
+      }
+
+      const fetcher = options.fetchers().find((candidate) => candidate.sourceId === sourceId);
+
+      if (!fetcher || running.has(sourceId)) {
+        return;
+      }
+
+      await execute([fetcher]).catch(() => log("取得結果を保存できませんでした"));
+    });
+
+    exclusiveChain = task.catch(() => undefined);
+
+    return task;
+  }
+
   function reschedule(provider: ProviderId): void {
     const now = options.now();
     const next = now + options.intervalFor(provider);
@@ -263,6 +310,7 @@ export function createSampler(options: {
     start,
     stop,
     kick,
+    refreshSource,
     exclusive,
     tick,
     nextFetchAt: (sourceId) => nextDueAt.get(sourceId) ?? null,

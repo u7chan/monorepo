@@ -374,6 +374,12 @@ export function createApp(deps: AppDeps) {
     return result.ok ? c.json({ latencyMs: result.latencyMs }) : probeError(c, result.error);
   });
 
+  app.post("/api/opencode/accounts/:id/refresh", requireSession, async (c) => {
+    const refreshed = await deps.opencode.refresh(c.req.param("id") ?? "");
+
+    return refreshed ? c.body(null, 204) : c.json({ error: "not_found" as const }, 404);
+  });
+
   app.delete("/api/opencode/accounts/:id", requireSession, async (c) => {
     const result = await deps.opencode.remove(c.req.param("id") ?? "");
 

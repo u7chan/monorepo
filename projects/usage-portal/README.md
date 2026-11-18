@@ -20,6 +20,7 @@ OpenCode Go の接続確認）を持つ。
 - 送信の設定（モデルと思考レベル）を済ませると、Codex と OpenCode Go のカードの `⋮` に「接続確認」が出る。
   固定の最小プロンプトを 1 回だけ送り、応答本文は保存も表示もしない（[ADR 0017](docs/adr/0017-probe-prompts.md)）
 - OpenCode Go はアカウント（API キー）を最大 10 件登録でき、1 アカウント = 1 カードで並べる
+- 契約エラー（`subscription_required`）のアカウントは自動更新を 6 時間ごとの再確認に落とし、`⋮` の「利用枠を取得し直す」で即時に再開できる（[ADR 0024](docs/adr/0024-paused-account-retry.md)）
 - 有効な OpenCode Go カードが 1 件以上あれば、公式の稼働状況（正常・性能低下・障害）を共通の欄に表示する
 - PWA 用の manifest と 192 / 512px のアイコン、iOS ホーム画面用の 180px アイコンを配信する
 - `GET /api/health` は DB と認証状態だけを返し、利用枠や利用者情報を含まない
@@ -135,6 +136,7 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `POST`   | `/api/opencode/accounts`           | 必要 | `{ name, icon, apiKey, probeModel?, probeThinking? }` → 201 `{ account }`。検証して保存。失敗は `invalid_name` / `invalid_icon` / `invalid_key` / `subscription_required` / `invalid_probe` / `invalid_model` / `invalid_thinking`（400）、`limit_reached`（409）、`unavailable`（503） |
 | `PUT`    | `/api/opencode/accounts/:id`       | 必要 | `{ name?, icon?, apiKey?, probeModel?, probeThinking? }` → 200 `{ account }`。未知の id は 404                                                                                                                                                                |
 | `POST`   | `/api/opencode/accounts/:id/check` | 必要 | そのキーで最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未知の id は 404、未設定は 409 `not_configured`                                                                                                                                                    |
+| `POST`   | `/api/opencode/accounts/:id/refresh` | 必要 | そのアカウントの利用枠だけを取り直す（204）。停止中でも再開できる。未知の id は 404                                                                                                                                                                           |
 | `DELETE` | `/api/opencode/accounts/:id`       | 必要 | アカウントと snapshot / error / sample を削除（204）。未知の id は 404                                                                                                                                                                                        |
 
 状態を変える要求（`POST` / `PUT` / `DELETE`）は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。

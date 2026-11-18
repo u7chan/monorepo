@@ -471,6 +471,13 @@ async function requestProbeCheck(path: string): Promise<ProbeCheckOutcome> {
   return { ok: false, error: readString(body, "error") ?? "unavailable" };
 }
 
+/** 停止中のアカウントも含めて利用枠を取り直す。再契約後の再開に使う。 */
+export async function refreshOpenCodeAccount(id: string): Promise<boolean> {
+  const response = await fetch(`/api/opencode/accounts/${encodeURIComponent(id)}/refresh`, { method: "POST" });
+
+  return response.ok;
+}
+
 export async function deleteOpenCodeAccount(id: string): Promise<boolean> {
   const response = await fetch(`/api/opencode/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
 

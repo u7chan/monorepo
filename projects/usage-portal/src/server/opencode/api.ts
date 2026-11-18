@@ -44,6 +44,8 @@ export type OpenCodeApi = {
   create: (input: OpenCodeInput) => Promise<OpenCodeApiResult<OpenCodeAccount>>;
   update: (id: string, input: OpenCodeInput) => Promise<OpenCodeApiResult<OpenCodeAccount>>;
   remove: (id: string) => Promise<OpenCodeApiResult<null>>;
+  /** 停止中のアカウントも含め、利用枠を取り直す。再契約後の再開に使う。 */
+  refresh: (id: string) => Promise<boolean>;
 };
 
 class AccountMissingError extends Error {}
@@ -53,7 +55,7 @@ class AccountLimitError extends Error {}
 export function createOpenCodeApi(options: {
   accounts: OpenCodeAccounts;
   db: DatabaseHandle;
-  sampler: Pick<Sampler, "exclusive">;
+  sampler: Pick<Sampler, "exclusive" | "refreshSource">;
   fetchUsage: (apiKey: string) => Promise<ProviderSnapshot>;
   /** catalog の照合。catalog に無いモデルでストレージを壊さないため、保存時にだけ確かめる。 */
   validateProbe?: ProbeValidator;
@@ -254,6 +256,15 @@ export function createOpenCodeApi(options: {
       }
 
       return updated.account ? { ok: true, value: updated.account } : { ok: false, error: "unavailable" };
+    },
+    async refresh(id) {
+      if (options.accounts.get(id) === null) {
+        return false;
+      }
+
+      await options.sampler.refreshSource(openCodeSourceId(id));
+
+      return true;
     },
     async remove(id) {
       const removed = { done: false };

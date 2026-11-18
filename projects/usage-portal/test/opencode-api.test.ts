@@ -92,6 +92,7 @@ function harness(
             }
           },
           tick: async () => {},
+          refreshSource: async () => {},
           nextFetchAt: () => null,
           reschedule: () => {},
         } satisfies ReturnType<typeof createSampler>)
@@ -782,6 +783,44 @@ describe("変更後の再取得", () => {
   });
 });
 
+describe("POST /api/opencode/accounts/:id/refresh", () => {
+  test("既知のアカウントは取り直して 204、未知は 404", async () => {
+    const h = harness({
+      fetchers: ({ accounts }) =>
+        accounts.list().map((account) => ({
+          sourceId: openCodeSourceId(account.id),
+          provider: OPENCODE_PROVIDER,
+          fetch: async () => usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME }),
+        })),
+    });
+    const cookieValue = await cookie(h.app);
+    const account = await createAccount(h, cookieValue);
+
+    const refreshed = await request(h.app, `/api/opencode/accounts/${account.id}/refresh`, {
+      method: "POST",
+      cookie: cookieValue,
+    });
+
+    expect(refreshed.status).toBe(204);
+    expect(h.keys).toEqual([KEY]);
+
+    const missing = await request(h.app, "/api/opencode/accounts/unknown/refresh", {
+      method: "POST",
+      cookie: cookieValue,
+    });
+
+    expect(missing.status).toBe(404);
+    expect(h.keys).toEqual([KEY]);
+  });
+
+  test("未認証は 401", async () => {
+    const h = harness();
+    const response = await request(h.app, "/api/opencode/accounts/unknown/refresh", { method: "POST" });
+
+    expect(response.status).toBe(401);
+  });
+});
+
 describe("排他区間内の存在確認", () => {
   test("検証の後に消されたアカウントは not_found にし、snapshot を書き戻さない", async () => {
     const root = mkdtempSync(join(tmpdir(), "usage-portal-opencode-race-"));
@@ -800,6 +839,7 @@ describe("排他区間内の存在確認", () => {
       accounts,
       db,
       sampler: {
+        refreshSource: async () => {},
         exclusive: async (fn: () => void) => {
           // キー検証を終えた直後に、別の要求が削除した状態を作る。
           accounts.remove(account.id);

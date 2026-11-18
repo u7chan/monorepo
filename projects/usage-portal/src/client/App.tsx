@@ -29,6 +29,7 @@ import {
   fetchUsage,
   logout,
   logoutCodex,
+  refreshOpenCodeAccount,
   respondCodexLogin,
   saveCodexProbe,
   saveFetchInterval,
@@ -388,6 +389,17 @@ function Dashboard(props: {
     return ok;
   }, [loadCodex, loadUsage]);
 
+  const refreshAccountUsage = useCallback(
+    async (id: string): Promise<boolean> => {
+      const ok = await refreshOpenCodeAccount(id);
+
+      await loadUsage();
+
+      return ok;
+    },
+    [loadUsage],
+  );
+
   const createAccount = useCallback(
     async (input: OpenCodeAccountInput): Promise<string | null> => {
       let outcome: Awaited<ReturnType<typeof createOpenCodeAccount>>;
@@ -637,6 +649,7 @@ function Dashboard(props: {
               account={accounts.accounts.find((candidate) => candidate.id === source.id) ?? null}
               models={catalog?.opencodeGo ?? []}
               onCheck={checkAccount}
+              onRefreshUsage={refreshAccountUsage}
             />
           ),
         )}

@@ -75,6 +75,8 @@ export function createProbeRunner(options: {
   userAgent: string;
   /** Codex の送信後に利用枠を取り直す。失敗は probe の結果に混ぜない。 */
   kick: () => Promise<void>;
+  /** OpenCode Go の接続確認後に、そのアカウントの利用枠を取り直す。 */
+  kickOpenCode: (accountId: string) => Promise<void>;
   timeoutMs?: number;
   /** 送信後の再取得を待つ上限。 */
   kickWaitMs?: number;
@@ -129,9 +131,9 @@ export function createProbeRunner(options: {
   }
 
   /** kick が遅い環境で応答を止めない。失敗しても送信の結果は変えない。 */
-  async function kickOrGiveUp(): Promise<void> {
+  async function kickOrGiveUp(kick: () => Promise<void>): Promise<void> {
     await Promise.race([
-      options.kick().catch(() => log("送信後の利用枠の再取得に失敗しました")),
+      kick().catch(() => log("送信後の利用枠の再取得に失敗しました")),
       after(options.kickWaitMs ?? KICK_WAIT_MS, undefined),
     ]);
   }
@@ -179,7 +181,7 @@ export function createProbeRunner(options: {
         // 送信がネットワークに届いたら、成功・失敗を問わず 1 回取り直す。
         // kick の完了はリセット時刻の更新を意味しないので、待つが結果には混ぜない。
         if (reading.status !== null) {
-          await kickOrGiveUp();
+          await kickOrGiveUp(options.kick);
         }
 
         return outcome;
@@ -213,6 +215,11 @@ export function createProbeRunner(options: {
           timeoutMs,
           extra: { maxTokens: PROBE_MAX_TOKENS, sessionId: randomUUID() },
         });
+
+        // 送信がネットワークに届いたら、契約が戻っているかを利用枠でも確かめる。
+        if (reading.status !== null) {
+          await kickOrGiveUp(() => options.kickOpenCode(accountId));
+        }
 
         return classify(reading, "invalid_key");
       });
