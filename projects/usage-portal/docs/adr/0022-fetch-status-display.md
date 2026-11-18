@@ -49,7 +49,7 @@
 
 ## 影響
 
-- `src/client/lib/format.ts` に `formatFetchInterval` / `describeAge` / `fetchProgress` を追加する。
+- `src/client/lib/format.ts` に `formatFetchInterval` / `describeAge` を追加する。
 - `ProviderCard` が `intervalMs` を受け取り、フッターとバーを描く。`CodexCard` / `OpenCodeAccountCard` は
   `/api/usage` の `sampleIntervalMs` をそのまま渡す。
 - `styles.css` の `.up-toolbar` / `.up-toolbar-fetched` / `.up-auto` を削除し、`.up-fetch` / `.up-fetch-fill` を追加する。
