@@ -16,3 +16,11 @@ export type HttpError = Error & { statusCode: number };
 export function httpError(statusCode: number, message: string): HttpError {
   return Object.assign(new Error(message), { statusCode });
 }
+
+/**
+ * サンドボックスのパス検証で使う例外。呼び出し 164 箇所が名前で読んでいるため、`httpError` の別名を残す
+ * (文言と statusCode の対応は呼び出し側が決める)。
+ */
+export function pathError(statusCode: number, message: string): HttpError {
+  return httpError(statusCode, message);
+}
