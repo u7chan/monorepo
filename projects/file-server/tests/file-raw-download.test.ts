@@ -144,6 +144,46 @@ describe("GET /file/raw - active content blocking with auth", () => {
     expect(data.error.name).toBe("ActiveContentNotAllowed")
   })
 
+  it("should deny raw reads through a parent segment", async () => {
+    const session = await createTestSession("alice", SESSION_SECRET)
+    await mkdir(path.join(UPLOAD_DIR, "private", "admin"), { recursive: true })
+    await Bun.write(
+      path.join(UPLOAD_DIR, "private", "admin", "secret.png"),
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    )
+    const res = await app.request(
+      new Request(
+        "http://localhost/file/raw?path=private%2Falice%2F..%2Fadmin%2Fsecret.png",
+        { headers: { Cookie: session.cookie } },
+      ),
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it("should deny reading auth metadata through a parent segment", async () => {
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const res = await app.request(
+      new Request(
+        "http://localhost/file/download?path=private%2Falice%2F..%2F..%2F.auth%2Fusers.json",
+        { headers: { Cookie: session.cookie } },
+      ),
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it("should reject a NUL byte instead of returning 500", async () => {
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const res = await app.request(
+      new Request(
+        "http://localhost/file/raw?path=private%2Falice%2Freport%00.png",
+        {
+          headers: { Cookie: session.cookie },
+        },
+      ),
+    )
+    expect(res.status).toBe(403)
+  })
+
   it("should deny access to other user private file (403 Forbidden)", async () => {
     const session = await createTestSession("alice", SESSION_SECRET)
     await mkdir(path.join(UPLOAD_DIR, "private", "admin"), { recursive: true })

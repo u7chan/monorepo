@@ -114,9 +114,9 @@ describe("GET /file/preview/* - sandboxed active content", () => {
         "http://localhost/file/preview/private/..%2f..%2fsecret.html",
       ),
     )
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(400)
     const data = (await res.json()) as { error: { name: string } }
-    expect(data.error.name).toBe("Forbidden")
+    expect(data.error.name).toBe("PathError")
   })
 
   it("serves public active content with the same sandbox", async () => {
@@ -231,6 +231,48 @@ describe("GET /file/preview/* - with auth", () => {
     )
     expect(res.status).toBe(200)
     expect(await res.text()).toContain("mine")
+  })
+
+  it("denies encoded-separator traversal into another user's home", async () => {
+    const session = await createTestSession("alice", SESSION_SECRET)
+    await mkdir(path.join(UPLOAD_DIR, "private", "admin"), { recursive: true })
+    await Bun.write(
+      path.join(UPLOAD_DIR, "private", "admin", "secret.html"),
+      "<html><body>admin secret</body></html>",
+    )
+    const res = await app.request(
+      new Request(
+        "http://localhost/file/preview/private/alice/%2e%2e%2fadmin%2fsecret.html",
+        { headers: { Cookie: session.cookie } },
+      ),
+    )
+    expect(res.status).toBe(400)
+    expect(await res.text()).not.toContain("admin secret")
+  })
+
+  it("denies encoded-separator traversal into auth metadata", async () => {
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const res = await app.request(
+      new Request(
+        "http://localhost/file/preview/private/alice/%2e%2e%2f..%2f.auth%2fusers.json",
+        { headers: { Cookie: session.cookie } },
+      ),
+    )
+    expect(res.status).toBe(400)
+    expect(await res.text()).not.toContain("passwordHash")
+  })
+
+  it("rejects a NUL byte in the path instead of failing with 500", async () => {
+    const session = await createTestSession("alice", SESSION_SECRET)
+    const res = await app.request(
+      new Request(
+        "http://localhost/file/preview/private/alice/report%00.html",
+        {
+          headers: { Cookie: session.cookie },
+        },
+      ),
+    )
+    expect(res.status).toBe(400)
   })
 
   it("denies previewing another user's HTML", async () => {
