@@ -179,6 +179,7 @@ function Dashboard(props: {
   // 保存・削除より前に始まった GET の応答で、確定済みの一覧・カードを巻き戻さないための世代。
   const accountsGeneration = useRef(0);
   const usageGeneration = useRef(0);
+  const intervalsGeneration = useRef(0);
 
   // 「あと N 日」と期限バナーを操作なしでも進める。
   useEffect(() => {
@@ -292,7 +293,15 @@ function Dashboard(props: {
   }, [onUnauthorized]);
 
   const loadFetchIntervals = useCallback(async () => {
+    intervalsGeneration.current += 1;
+
+    const generation = intervalsGeneration.current;
     const result = await fetchFetchIntervals();
+
+    // 開き直しで先に発行した要求が後から返っても、新しい応答を古い値で上書きしない。
+    if (generation !== intervalsGeneration.current) {
+      return;
+    }
 
     if (result && "unauthorized" in result) {
       onUnauthorized();
