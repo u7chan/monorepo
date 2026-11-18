@@ -1,8 +1,8 @@
-# ADR 0024: 契約エラーのアカウントは自動更新を止め、明示的な再取得で再開する
+# ADR 0025: 契約エラーのアカウントは自動更新を止め、明示的な再取得で再開する
 
 - Status: accepted
 - Date: 2026-11-18
-- 関連: [ADR 0007](0007-opencode-multiple-accounts.md) の複数アカウント、[ADR 0019](0019-opencode-subscription-errors.md) の契約エラー、[ADR 0023](0023-provider-fetch-intervals.md) の取得間隔
+- 関連: [ADR 0007](0007-opencode-multiple-accounts.md) の複数アカウント、[ADR 0019](0019-opencode-subscription-errors.md) の契約エラー、[ADR 0024](0024-provider-fetch-intervals.md) の取得間隔
 
 ## 背景
 

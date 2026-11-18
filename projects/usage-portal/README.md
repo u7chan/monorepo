@@ -20,7 +20,7 @@ OpenCode Go の接続確認）を持つ。
 - 送信の設定（モデルと思考レベル）を済ませると、Codex と OpenCode Go のカードの `⋮` に「接続確認」が出る。
   固定の最小プロンプトを 1 回だけ送り、応答本文は保存も表示もしない（[ADR 0017](docs/adr/0017-probe-prompts.md)）
 - OpenCode Go はアカウント（API キー）を最大 10 件登録でき、1 アカウント = 1 カードで並べる
-- 契約エラー（`subscription_required`）のアカウントは自動更新を 6 時間ごとの再確認に落とし、`⋮` の「利用枠を取得し直す」で即時に再開できる（[ADR 0024](docs/adr/0024-paused-account-retry.md)）
+- 契約エラー（`subscription_required`）のアカウントは自動更新を 6 時間ごとの再確認に落とし、`⋮` の「利用枠を取得し直す」で即時に再開できる（[ADR 0025](docs/adr/0025-paused-account-retry.md)）
 - 有効な OpenCode Go カードが 1 件以上あれば、公式の稼働状況（正常・性能低下・障害）を共通の欄に表示する
 - PWA 用の manifest と 192 / 512px のアイコン、iOS ホーム画面用の 180px アイコンを配信する
 - `GET /api/health` は DB と認証状態だけを返し、利用枠や利用者情報を含まない
@@ -64,8 +64,8 @@ HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更
 カード下端の細いバーは、次の取得までの進み具合を表す。満タンで止まったまま値が変わらなければ、
 予定を過ぎても取得が来ていない。バーの上の文字は取得間隔と、最後に取得してからの経過時間で、
 正確な時刻はカーソルを合わせると出る。取得に失敗しているあいだはバーを出さず、前回値と状態ラベルで示す。
-バーは装飾で、判断は状態ラベルと文字で行う（[ADR 0022](docs/adr/0022-fetch-status-display.md)）。
-動きを減らす設定ではバーを出さず、文字だけで示す。間隔は provider ごとの設定（[ADR 0023](docs/adr/0023-provider-fetch-intervals.md)）で、
+バーは装飾で、判断は状態ラベルと文字で行う（[ADR 0023](docs/adr/0023-fetch-status-display.md)）。
+動きを減らす設定ではバーを出さず、文字だけで示す。間隔は provider ごとの設定（[ADR 0024](docs/adr/0024-provider-fetch-intervals.md)）で、
 `⋮` の「取得間隔」から変えられる。設定はサーバー全体に効く。
 
 ゲージの下の行は、先頭のバッジがリセットまでの残り時間（「あと 12 日」）、続く淡色の文字がリセット日時を表す。
@@ -343,3 +343,6 @@ bun run check
 - [docs/adr/0020-opencode-service-status.md](docs/adr/0020-opencode-service-status.md) — 有効な Go カードがあるときだけ公式の稼働状況を表示する
 - [docs/adr/0021-opencode-monthly-order.md](docs/adr/0021-opencode-monthly-order.md) — OpenCode Go のカードを月次の残り順に並べる
 - [docs/adr/0022-claude-usage-via-cli.md](docs/adr/0022-claude-usage-via-cli.md) — Claude の利用枠を公式 CLI の `/usage` で、画面を開いたときと手動更新だけ取る
+- [docs/adr/0023-fetch-status-display.md](docs/adr/0023-fetch-status-display.md) — 取得状況はカード内の間隔・経過・進捗バーで示す
+- [docs/adr/0024-provider-fetch-intervals.md](docs/adr/0024-provider-fetch-intervals.md) — 取得間隔は provider ごとに設定し、SQLite に保存する
+- [docs/adr/0025-paused-account-retry.md](docs/adr/0025-paused-account-retry.md) — 契約エラーのアカウントは自動更新を止め、明示的な再取得で再開する

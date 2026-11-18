@@ -1,8 +1,8 @@
-# ADR 0023: 取得間隔は provider ごとに設定し、SQLite に保存する
+# ADR 0024: 取得間隔は provider ごとに設定し、SQLite に保存する
 
 - Status: accepted
 - Date: 2026-11-18
-- 関連: [ADR 0001](0001-state-fetching.md) の client 60 秒 / BFF ポーリング、[ADR 0004](0004-usage-sampling-and-storage.md) の取得と保存、[ADR 0022](0022-fetch-status-display.md) の表示
+- 関連: [ADR 0001](0001-state-fetching.md) の client 60 秒 / BFF ポーリング、[ADR 0004](0004-usage-sampling-and-storage.md) の取得と保存、[ADR 0023](0023-fetch-status-display.md) の表示
 
 ## 背景
 
