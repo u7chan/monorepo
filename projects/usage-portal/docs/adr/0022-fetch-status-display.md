@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-11-18
 - 関連: [ADR 0001](0001-state-fetching.md) の client 60 秒 / BFF 5 分、[ADR 0013](0013-meter-status-icons.md) の状態ラベル
+- 一部置き換え: [ADR 0023](0023-provider-fetch-intervals.md)（取得間隔は source ごとの `fetchIntervalMs` / `nextFetchAt` になった）
 
 ## 背景
 

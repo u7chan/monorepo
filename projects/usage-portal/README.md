@@ -11,8 +11,9 @@ OpenCode Go の接続確認）を持つ。
 
 - Bun + TypeScript + Preact + Hono。CSS トークンは `--up-` 接頭辞で、`prefers-color-scheme` に追従する
 - 初回アクセスの PIN 登録、PIN ログイン、署名付きセッション cookie（30 日）、試行制限、期限バナー
-- BFF が 5 分ごとに Codex と OpenCode Go の利用枠を取り、SQLite に snapshot と sample を保存する
+- BFF が provider ごとの間隔（既定 10 分、5 / 10 / 30 / 60 / 120 分から選ぶ）で Codex と OpenCode Go の利用枠を取り、SQLite に snapshot と sample を保存する
 - 画面は 60 秒ごとに `/api/usage` を取得する。推移は窓ごとに描き、ローリング・週次・月次をタブで切り替える
+- 取得間隔は provider ごとに 5 / 10 / 30 / 60 / 120 分から選べる（既定 10 分、`⋮` の「取得間隔」）
 - 表示は「簡易」と「標準」を切り替えられる。簡易は推移と補足を省いて 3 件程度を 1 画面に収め、選択は localStorage に残す（[ADR 0011](docs/adr/0011-view-mode-toggle.md)）
 - 窓は月次 ⊃ 週次 ⊃ ローリングの入れ子で、外側が上限なら内側は「使用不可」と赤で出す（[ADR 0009](docs/adr/0009-window-blocking-and-five-hour-rolling.md)）
 - Codex は Web UI から Sign in with ChatGPT（デバイスコード / ブラウザ + 貼り付け）でサインインする
@@ -63,7 +64,8 @@ HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更
 予定を過ぎても取得が来ていない。バーの上の文字は取得間隔と、最後に取得してからの経過時間で、
 正確な時刻はカーソルを合わせると出る。取得に失敗しているあいだはバーを出さず、前回値と状態ラベルで示す。
 バーは装飾で、判断は状態ラベルと文字で行う（[ADR 0022](docs/adr/0022-fetch-status-display.md)）。
-動きを減らす設定ではバーを出さず、文字だけで示す。
+動きを減らす設定ではバーを出さず、文字だけで示す。間隔は provider ごとの設定（[ADR 0023](docs/adr/0023-provider-fetch-intervals.md)）で、
+`⋮` の「取得間隔」から変えられる。設定はサーバー全体に効く。
 
 ゲージの下の行は、先頭のバッジがリセットまでの残り時間（「あと 12 日」）、続く淡色の文字がリセット日時を表す。
 すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。使い切っていない OpenCode Go のカードは、
@@ -115,7 +117,9 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `POST`   | `/api/auth/setup`                  | 不要 | `{ "pin": "123456" }`。PIN 未設定のときだけ受け付け、成功で cookie を発行（201）                                                                                                                                                                              |
 | `POST`   | `/api/auth/login`                  | 不要 | `{ "pin": "123456" }`。成功で cookie を発行（200）。失敗は 401、5 回失敗で 15 分ロック（429 + `Retry-After`）                                                                                                                                                 |
 | `POST`   | `/api/auth/logout`                 | 不要 | cookie を消す（204）                                                                                                                                                                                                                                          |
-| `GET`    | `/api/usage`                       | 必要 | `{ generatedAt, sampleIntervalMs, sources[] }`。未認証は 401、認証設定が壊れていれば 503                                                                                                                                                                      |
+| `GET`    | `/api/usage`                       | 必要 | `{ generatedAt, sources[] }`。各 source は `fetchIntervalMs` と `nextFetchAt` を持つ。未認証は 401、認証設定が壊れていれば 503                                                                                                                                    |
+| `GET`    | `/api/settings/fetch-intervals`    | 必要 | `{ intervals: { codex, "opencode-go" } }`（ミリ秒）。未設定の provider は既定値                                                                                                                                                                               |
+| `PUT`    | `/api/settings/fetch-intervals`    | 必要 | `{ "provider": "codex", "minutes": 10 }`。5 / 10 / 30 / 60 / 120 以外は 400。サーバー全体に効く                                                                                                                                                              |
 | `GET`    | `/api/codex/auth`                  | 必要 | `{ signedIn, login }`。`login` は進行中・終端のサインイン状態                                                                                                                                                                                                 |
 | `POST`   | `/api/codex/login`                 | 必要 | サインイン開始（202）。進行中の二重開始は 409                                                                                                                                                                                                                 |
 | `POST`   | `/api/codex/login/respond`         | 必要 | `{ "value": "..." }`。`select` の選択肢 ID か、ブラウザの最後の URL（204）                                                                                                                                                                                    |
@@ -214,7 +218,7 @@ rm credentials/opencode-key.json
 | `PORT`             | `3000`             | 待ち受けポート                                                                                                                             |
 | `DATA_DIR`         | `/app/data`        | SQLite と認証状態（`pin-hash` / `session-key`）、送信の設定（`settings.json`）の置き場。起動時に 0700 で作り、配下のファイルを 0600 にする |
 | `CREDENTIAL_DIR`   | `/app/credentials` | Codex の `auth.json` / `device-id` と OpenCode Go の `opencode-accounts.json` の置き場。起動時に 0700、配下のファイルを 0600 にする        |
-| `POLL_INTERVAL_MS` | `300000`           | 上流を取りに行く間隔。1 分未満・非整数は起動しない                                                                                         |
+| `POLL_INTERVAL_MS` | `600000`           | 画面から設定していない provider の取得間隔。1 分未満・非整数は起動しない（画面から選べるのは 5 分以上）                                      |
 | `COMMIT_HASH`      | なし               | build 時に埋め込む。`User-Agent: usage-portal/<version>` の version になる                                                                 |
 | `TRUST_PROXY`      | `0`                | `1` のときだけ `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-For` を信頼する。TLS 終端を前段に置く構成で使う                     |
 | `COOKIE_SECURE`    | `auto`             | `1` なら常に cookie へ `Secure` を付ける。`auto` は要求が HTTPS のときだけ付ける（`TRUST_PROXY=1` なら転送ヘッダーも見る）                 |
@@ -255,7 +259,8 @@ src/server/session.ts         署名付き cookie の形式と検証
 src/server/rate-limit.ts      ログイン試行の制限
 src/server/config.ts          HOST / PORT / DATA_DIR / CREDENTIAL_DIR / POLL_INTERVAL_MS
 src/server/db.ts              SQLite の open / migration / snapshot・error・sample の読み書き
-src/server/sampler.ts         5 分ごとの取得（single-flight）と 30 日保持
+src/server/sampler.ts         source ごとのスケジュール取得（single-flight）と 30 日保持
+src/server/fetch-intervals.ts provider ごとの取得間隔（SQLite）
 src/server/usage.ts           /api/usage の応答（state と trends）の組み立て
 src/server/state.ts           snapshot と error から state を決める
 src/server/trend.ts           窓の期間と、推移の downsample

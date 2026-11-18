@@ -4,6 +4,7 @@ import { createAuthService } from "./server/auth";
 import { createCodexApi } from "./server/codex/api";
 import { createCodexAuth } from "./server/codex/auth";
 import { createCodexLoginService } from "./server/codex/login";
+import { createFetchIntervalStore } from "./server/fetch-intervals";
 import { codexSourceId } from "./server/codex/source";
 import { loadConfig } from "./server/config";
 import { prepareCredentialDir } from "./server/credential-dir";
@@ -22,6 +23,7 @@ import { createOpenCodeStatusReader } from "./server/opencode/status";
 import { createProbeApi } from "./server/probe/api";
 import { createProbeRunner } from "./server/probe/service";
 import { createProbeSettings } from "./server/probe/settings";
+import { fetchIntervalMs } from "./shared/fetch-interval";
 import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "./server/providers";
 import { fetchCodexUsage } from "./server/providers/codex";
 import { fetchOpenCodeUsage } from "./server/providers/opencode-go";
@@ -109,8 +111,16 @@ const fetchers = (): UsageFetcher[] => [
     fetch: () => fetchOpenCodeUsage({ apiKey: openCodeAccounts.apiKey(account.id), userAgent, now: Date.now }),
   })),
 ];
-const sampler = createSampler({ db: database, fetchers, intervalMs: config.pollIntervalMs, now: Date.now, log });
-const codexLogin = createCodexLoginService({ auth: codexAuth, onSuccess: () => sampler.kick(), log });
+// env の POLL_INTERVAL_MS は、画面から設定していない provider の既定値として使う。
+const fetchIntervals = createFetchIntervalStore({ db: database, defaultMs: config.pollIntervalMs, log });
+const sampler = createSampler({
+  db: database,
+  fetchers,
+  intervalFor: (provider) => fetchIntervals.get(provider),
+  now: Date.now,
+  log,
+});
+const codexLogin = createCodexLoginService({ auth: codexAuth, onSuccess: () => sampler.kick("codex"), log });
 const codex = createCodexApi({ auth: codexAuth, login: codexLogin, db: database, sampler });
 const opencode = createOpenCodeApi({
   accounts: openCodeAccounts,
@@ -125,7 +135,7 @@ const probe = createProbeApi({
     accounts: openCodeAccounts,
     credential: () => codexAuth.credential(),
     userAgent,
-    kick: () => sampler.kick(),
+    kick: () => sampler.kick("codex"),
     now: Date.now,
     log,
   }),
@@ -139,9 +149,20 @@ const app = createApp({
   opencode,
   openCodeStatus: createOpenCodeStatusReader({ userAgent }),
   probe,
+  fetchIntervals: {
+    read: () => fetchIntervals.list(),
+    write: (provider, minutes) => {
+      fetchIntervals.set(provider, fetchIntervalMs(minutes));
+      // 次回の予定だけを引き直す。設定の変更で上流をすぐ叩き直さない。
+      sampler.reschedule(provider);
+
+      return fetchIntervals.list();
+    },
+  },
   usage: createUsageReader({
     db: database,
-    sampleIntervalMs: config.pollIntervalMs,
+    intervalFor: (provider) => fetchIntervals.get(provider),
+    nextFetchAt: sampler.nextFetchAt,
     now: Date.now,
     accounts: () => openCodeAccounts.list(),
     codexSourceId: () => codexSourceId(codexAuth.accountId()),

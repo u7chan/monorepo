@@ -122,25 +122,29 @@ export function createOpenCodeApi(options: {
 
       try {
         // 上限と重複の判定は区間の内側でやり直す。検証中に増えたアカウントを数え落とさない。
-        await options.sampler.exclusive(() => {
-          if (options.accounts.list().length >= MAX_OPENCODE_ACCOUNTS) {
-            throw new AccountLimitError();
-          }
+        await options.sampler.exclusive(
+          () => {
+            if (options.accounts.list().length >= MAX_OPENCODE_ACCOUNTS) {
+              throw new AccountLimitError();
+            }
 
-          const previous = options.accounts.read();
+            const previous = options.accounts.read();
 
-          try {
-            const account = options.accounts.create({ name, icon, apiKey, ...probe });
+            try {
+              const account = options.accounts.create({ name, icon, apiKey, ...probe });
 
-            created.account = account;
-            saveProviderSnapshot(options.db, openCodeSourceId(account.id), verified.snapshot);
-          } catch (error) {
-            // DB に書けないなら、503 を返したのにアカウントだけ増える状態を残さない。
-            restoreQuietly(options.accounts, previous);
+              created.account = account;
+              saveProviderSnapshot(options.db, openCodeSourceId(account.id), verified.snapshot);
+            } catch (error) {
+              // DB に書けないなら、503 を返したのにアカウントだけ増える状態を残さない。
+              restoreQuietly(options.accounts, previous);
 
-            throw error;
-          }
-        });
+              throw error;
+            }
+          },
+          // 追加したアカウントの取得だけを走らせる。Codex まで取り直さない。
+          { provider: "opencode-go" },
+        );
       } catch (error) {
         return { ok: false, error: error instanceof AccountLimitError ? "limit_reached" : "unavailable" };
       }
@@ -243,7 +247,7 @@ export function createOpenCodeApi(options: {
             }
           },
           // 名前とアイコンだけの更新では上流も取り直さない（表示名の変更で全 source を叩かない）。
-          { refresh: snapshot !== null },
+          { refresh: snapshot !== null, provider: "opencode-go" },
         );
       } catch (error) {
         return { ok: false, error: error instanceof AccountMissingError ? "not_found" : "unavailable" };
@@ -255,22 +259,26 @@ export function createOpenCodeApi(options: {
       const removed = { done: false };
 
       try {
-        await options.sampler.exclusive(() => {
-          const previous = options.accounts.read();
+        await options.sampler.exclusive(
+          () => {
+            const previous = options.accounts.read();
 
-          try {
-            if (!options.accounts.remove(id)) {
-              throw new AccountMissingError();
+            try {
+              if (!options.accounts.remove(id)) {
+                throw new AccountMissingError();
+              }
+
+              removed.done = true;
+              deleteProviderUsage(options.db, openCodeSourceId(id));
+            } catch (error) {
+              restoreQuietly(options.accounts, previous);
+
+              throw error;
             }
-
-            removed.done = true;
-            deleteProviderUsage(options.db, openCodeSourceId(id));
-          } catch (error) {
-            restoreQuietly(options.accounts, previous);
-
-            throw error;
-          }
-        });
+          },
+          // 残った OpenCode Go のアカウントだけを取り直す。
+          { provider: "opencode-go" },
+        );
       } catch (error) {
         return { ok: false, error: error instanceof AccountMissingError ? "not_found" : "unavailable" };
       }

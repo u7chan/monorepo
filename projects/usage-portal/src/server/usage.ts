@@ -19,6 +19,10 @@ export type UsageSource = {
   account: UsageSourceAccount | null;
   state: ProviderState;
   capturedAt: number | null;
+  /** この source の取得間隔。画面はバーの長さと次回表示に使う。 */
+  fetchIntervalMs: number;
+  /** 次回の取得予定。まだ決まっていなければ null。 */
+  nextFetchAt: number | null;
   error: UsageError | null;
   limitReached: boolean;
   windows: UsageWindow[];
@@ -29,7 +33,6 @@ export type UsageSource = {
 
 export type UsagePayload = {
   generatedAt: number;
-  sampleIntervalMs: number;
   sources: UsageSource[];
 };
 
@@ -41,7 +44,10 @@ type SourceEntry = { sourceId: string; provider: ProviderId; account: UsageSourc
  */
 export function createUsageReader(options: {
   db: DatabaseHandle;
-  sampleIntervalMs: number;
+  /** provider ごとの取得間隔。停止判定と応答の両方で同じ値を使う。 */
+  intervalFor: (provider: ProviderId) => number;
+  /** sampler の次回予定。未定なら null を返す。 */
+  nextFetchAt?: (sourceId: string) => number | null;
   now: () => number;
   accounts?: () => readonly UsageSourceAccount[];
   /** Codex の履歴キー。サインイン中の ChatGPT アカウントで変わる。 */
@@ -57,10 +63,10 @@ export function createUsageReader(options: {
 
     return {
       generatedAt: now,
-      sampleIntervalMs: options.sampleIntervalMs,
       sources: entries.map((entry) => {
         const { snapshot, error } = stored.get(entry.sourceId) ?? { snapshot: null, error: null };
         const capturedAt = snapshot?.capturedAt ?? null;
+        const intervalMs = options.intervalFor(entry.provider);
 
         return {
           id: entry.account?.id ?? CODEX_SOURCE_ID,
@@ -73,9 +79,11 @@ export function createUsageReader(options: {
             snapshotCapturedAt: capturedAt,
             hasError: error !== null,
             now,
-            sampleIntervalMs: options.sampleIntervalMs,
+            intervalMs,
           }),
           capturedAt,
+          fetchIntervalMs: intervalMs,
+          nextFetchAt: options.nextFetchAt?.(entry.sourceId) ?? null,
           error,
           limitReached: snapshot?.limitReached ?? false,
           windows: snapshot?.windows ?? [],

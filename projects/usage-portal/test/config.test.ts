@@ -9,7 +9,7 @@ describe("loadConfig", () => {
       port: 3000,
       dataDir: "/app/data",
       credentialDir: "/app/credentials",
-      pollIntervalMs: 300_000,
+      pollIntervalMs: 600_000,
       development: true,
       version: "0.1.0",
       trustProxy: false,

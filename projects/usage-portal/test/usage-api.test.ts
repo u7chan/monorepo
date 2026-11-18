@@ -11,7 +11,15 @@ import { buildHealthReport } from "../src/server/health";
 import { openCodeSourceId } from "../src/server/opencode/accounts";
 import { parseCodexUsage } from "../src/server/providers/codex";
 import { createUsageReader, type UsagePayload, type UsageSourceAccount } from "../src/server/usage";
-import { BASE_TIME, stubCodexApi, stubOpenCodeApi, usageSnapshot, stubProbeApi, stubOpenCodeStatus } from "./support";
+import {
+  BASE_TIME,
+  stubCodexApi,
+  stubOpenCodeApi,
+  usageSnapshot,
+  stubProbeApi,
+  stubOpenCodeStatus,
+  stubFetchIntervals,
+} from "./support";
 
 const PIN = "123456";
 const ORIGIN = "http://localhost";
@@ -48,13 +56,15 @@ function harness(
     auth,
     usage: createUsageReader({
       db,
-      sampleIntervalMs: INTERVAL,
+      intervalFor: () => INTERVAL,
+      nextFetchAt: () => BASE_TIME + INTERVAL,
       now: () => clock,
       accounts: () => accounts,
       codexSourceId: options.codexSourceId,
     }),
     codex: stubCodexApi(),
     probe: stubProbeApi(),
+    fetchIntervals: stubFetchIntervals(),
     opencode: stubOpenCodeApi(),
     openCodeStatus: stubOpenCodeStatus,
     health: () => buildHealthReport("ok", auth.status()),
@@ -117,7 +127,8 @@ describe("GET /api/usage", () => {
       ["codex", "codex", "Codex", "loading"],
     ]);
     expect(payload.sources[0]?.account).toBeNull();
-    expect(payload.sampleIntervalMs).toBe(INTERVAL);
+    expect(payload.sources[0]?.fetchIntervalMs).toBe(INTERVAL);
+    expect(payload.sources[0]?.nextFetchAt).toBe(BASE_TIME + INTERVAL);
     expect(payload.generatedAt).toBe(BASE_TIME);
   });
 
@@ -383,5 +394,26 @@ describe("GET /api/usage", () => {
     }
 
     expect(body).not.toContain("sentinel");
+  });
+});
+
+describe("provider ごとの取得間隔", () => {
+  test("source ごとの間隔と次回予定を返す", () => {
+    const h = harness(ACCOUNTS);
+    const read = createUsageReader({
+      db: h.db,
+      intervalFor: (provider) => (provider === "codex" ? 300_000 : 1_800_000),
+      nextFetchAt: (sourceId) => (sourceId === "codex" ? BASE_TIME + 300_000 : null),
+      now: () => BASE_TIME,
+      accounts: () => ACCOUNTS,
+    });
+    const payload = read();
+    const codex = payload.sources.find((source) => source.provider === "codex");
+    const openCode = payload.sources.find((source) => source.provider === "opencode-go");
+
+    expect(codex?.fetchIntervalMs).toBe(300_000);
+    expect(codex?.nextFetchAt).toBe(BASE_TIME + 300_000);
+    expect(openCode?.fetchIntervalMs).toBe(1_800_000);
+    expect(openCode?.nextFetchAt).toBeNull();
   });
 });

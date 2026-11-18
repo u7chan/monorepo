@@ -1,9 +1,17 @@
 // SQLite の open / migration と、データの置き場の権限を固定する。
 import { afterEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, SCHEMA_VERSION, verifyDatabase, type DatabaseHandle } from "../src/server/db";
+import {
+  loadFetchIntervals,
+  openDatabase,
+  saveFetchInterval,
+  SCHEMA_VERSION,
+  verifyDatabase,
+  type DatabaseHandle,
+} from "../src/server/db";
 
 const dirs: string[] = [];
 const handles: DatabaseHandle[] = [];
@@ -39,7 +47,7 @@ afterEach(() => {
 });
 
 describe("openDatabase", () => {
-  test("v1 のテーブルを作り、user_version を 1 にする", () => {
+  test("v2 のテーブルを作り、user_version を 2 にする", () => {
     const { db, path } = open();
 
     const tables = db
@@ -47,7 +55,7 @@ describe("openDatabase", () => {
       .all()
       .map((row) => (row as { name: string }).name);
 
-    expect(tables).toEqual(["provider_error", "provider_snapshot", "usage_sample"]);
+    expect(tables).toEqual(["fetch_interval", "provider_error", "provider_snapshot", "usage_sample"]);
     expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: SCHEMA_VERSION });
     expect(path.endsWith("usage.sqlite")).toBe(true);
   });
@@ -103,5 +111,81 @@ describe("openDatabase", () => {
     handles.splice(handles.indexOf(handle), 1);
 
     expect(verifyDatabase(handle)).toBe(false);
+  });
+});
+
+describe("v1 からの migration", () => {
+  test("既存の行を残したまま v2 の fetch_interval を足す", () => {
+    const dataDir = tempDir();
+    const path = join(dataDir, "usage.sqlite");
+    const legacy = new Database(path, { create: true });
+
+    legacy.exec(`
+      CREATE TABLE provider_snapshot (
+        provider TEXT PRIMARY KEY,
+        captured_at INTEGER NOT NULL,
+        snapshot_json TEXT NOT NULL
+      );
+
+      CREATE TABLE provider_error (
+        provider TEXT PRIMARY KEY,
+        failed_at INTEGER NOT NULL,
+        code TEXT NOT NULL,
+        message TEXT NOT NULL
+      );
+
+      CREATE TABLE usage_sample (
+        provider TEXT NOT NULL,
+        window_id TEXT NOT NULL,
+        captured_at INTEGER NOT NULL,
+        used_percent REAL NOT NULL,
+        resets_at INTEGER,
+        PRIMARY KEY (provider, window_id, captured_at)
+      ) WITHOUT ROWID;
+
+      INSERT INTO provider_snapshot (provider, captured_at, snapshot_json) VALUES ('codex', 1, '{}');
+      INSERT INTO provider_error (provider, failed_at, code, message) VALUES ('codex', 1, 'upstream', 'x');
+      INSERT INTO usage_sample (provider, window_id, captured_at, used_percent, resets_at)
+        VALUES ('codex', 'weekly', 1, 50, NULL);
+      PRAGMA user_version = 1;
+    `);
+    legacy.close();
+
+    const handle = openDatabase(dataDir);
+
+    handles.push(handle);
+
+    const tables = handle.db
+      .query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+      .all()
+      .map((row) => (row as { name: string }).name);
+
+    expect(tables).toEqual(["fetch_interval", "provider_error", "provider_snapshot", "usage_sample"]);
+    expect(handle.db.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+    expect(handle.db.query("SELECT provider, code FROM provider_error").get()).toEqual({
+      provider: "codex",
+      code: "upstream",
+    });
+    expect(handle.db.query("SELECT COUNT(*) AS count FROM provider_snapshot").get()).toEqual({ count: 1 });
+    expect(handle.db.query("SELECT COUNT(*) AS count FROM usage_sample").get()).toEqual({ count: 1 });
+  });
+});
+
+describe("fetch_interval", () => {
+  test("provider ごとに保存し、上書きできる", () => {
+    const handle = open();
+
+    expect(loadFetchIntervals(handle).size).toBe(0);
+
+    saveFetchInterval(handle, "codex", 300_000);
+    saveFetchInterval(handle, "opencode-go", 1_800_000);
+    saveFetchInterval(handle, "codex", 600_000);
+
+    expect(loadFetchIntervals(handle)).toEqual(
+      new Map([
+        ["codex", 600_000],
+        ["opencode-go", 1_800_000],
+      ]),
+    );
   });
 });

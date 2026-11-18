@@ -13,6 +13,8 @@ function source(overrides: Partial<UsageSource> = {}): UsageSource {
     account: null,
     state: "ok",
     capturedAt: BASE_TIME,
+    fetchIntervalMs: 600_000,
+    nextFetchAt: BASE_TIME + 600_000,
     error: null,
     limitReached: false,
     windows: [

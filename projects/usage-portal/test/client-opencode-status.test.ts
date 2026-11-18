@@ -20,6 +20,8 @@ function source(overrides: Partial<UsageSource> = {}): UsageSource {
     account: { id: "account-a", name: "テスト用", icon: "🦊" },
     state: "ok",
     capturedAt: BASE_TIME,
+    fetchIntervalMs: 600_000,
+    nextFetchAt: BASE_TIME + 600_000,
     error: null,
     limitReached: false,
     windows: [{ id: "rolling", label: "ローリング", durationSeconds: null, usedPercent: 0, resetsAt: null }],

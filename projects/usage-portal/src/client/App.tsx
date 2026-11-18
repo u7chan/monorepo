@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
+import { DEFAULT_FETCH_INTERVAL_MINUTES, FETCH_INTERVAL_PROVIDERS } from "../shared/fetch-interval";
 import { MAX_OPENCODE_ACCOUNTS } from "../shared/opencode-account";
 import logo from "./assets/logo.png";
 import {
@@ -8,6 +9,7 @@ import {
   type OpenCodeAccount,
   type OpenCodeAccountInput,
   type OpenCodeAccountPatch,
+  type FetchIntervals,
   type ProbeCatalog,
   type ProbeCheckOutcome,
   type UsagePayload,
@@ -20,6 +22,7 @@ import {
   deleteOpenCodeAccount,
   fetchCodexAuth,
   fetchCodexProbe,
+  fetchFetchIntervals,
   fetchOpenCodeAccounts,
   fetchProbeModels,
   fetchSession,
@@ -28,10 +31,12 @@ import {
   logoutCodex,
   respondCodexLogin,
   saveCodexProbe,
+  saveFetchInterval,
   startCodexLogin,
   updateOpenCodeAccount,
 } from "./api";
 import { CodexCard } from "./components/CodexCard";
+import { FetchIntervalForm } from "./components/FetchIntervalForm";
 import { LoginScreen } from "./components/LoginScreen";
 import { Modal } from "./components/Modal";
 import { OpenCodeAccountCard } from "./components/OpenCodeAccountCard";
@@ -163,6 +168,9 @@ function Dashboard(props: {
   const [clock, setClock] = useState(() => Date.now());
   const [adding, setAdding] = useState(false);
   const [configuring, setConfiguring] = useState(false);
+  const [configuringIntervals, setConfiguringIntervals] = useState(false);
+  const [fetchIntervals, setFetchIntervals] = useState<FetchIntervals | null>(null);
+  const [fetchIntervalsFailed, setFetchIntervalsFailed] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(() => readViewMode(browserStorage()));
   const changeViewMode = useCallback((mode: ViewMode) => {
     setViewMode(mode);
@@ -171,6 +179,7 @@ function Dashboard(props: {
   // 保存・削除より前に始まった GET の応答で、確定済みの一覧・カードを巻き戻さないための世代。
   const accountsGeneration = useRef(0);
   const usageGeneration = useRef(0);
+  const intervalsGeneration = useRef(0);
 
   // 「あと N 日」と期限バナーを操作なしでも進める。
   useEffect(() => {
@@ -283,10 +292,35 @@ function Dashboard(props: {
     }
   }, [onUnauthorized]);
 
+  const loadFetchIntervals = useCallback(async () => {
+    intervalsGeneration.current += 1;
+
+    const generation = intervalsGeneration.current;
+    const result = await fetchFetchIntervals();
+
+    // 開き直しで先に発行した要求が後から返っても、新しい応答を古い値で上書きしない。
+    if (generation !== intervalsGeneration.current) {
+      return;
+    }
+
+    if (result && "unauthorized" in result) {
+      onUnauthorized();
+
+      return;
+    }
+
+    setFetchIntervalsFailed(result === null);
+
+    if (result) {
+      setFetchIntervals(result);
+    }
+  }, [onUnauthorized]);
+
   useEffect(() => {
     void loadCodex();
     void loadProbe();
-  }, [loadCodex, loadProbe]);
+    void loadFetchIntervals();
+  }, [loadCodex, loadProbe, loadFetchIntervals]);
 
   // アカウントの一覧は初回だけ取る。追加・削除・名前の変更のあとにだけ取り直す。
   useEffect(() => {
@@ -421,6 +455,50 @@ function Dashboard(props: {
     [refreshAfterChange],
   );
 
+  // 変更した provider だけを順に保存する。どれかが失敗したらそこで止め、画面に理由を出す。
+  const saveFetchIntervals = useCallback(
+    async (next: FetchIntervals): Promise<string | null> => {
+      if (fetchIntervals === null) {
+        return "取得間隔を読み込めていません。メニューを開き直してください。";
+      }
+
+      let current = fetchIntervals;
+      let error: string | null = null;
+
+      for (const provider of FETCH_INTERVAL_PROVIDERS) {
+        if (current[provider] === next[provider]) {
+          continue;
+        }
+
+        const outcome = await saveFetchInterval(provider, Math.round(next[provider] / 60_000));
+
+        if (!outcome.ok) {
+          if (outcome.error === "unauthorized") {
+            onUnauthorized();
+
+            return "セッションが切れました。もう一度 PIN を入力してください。";
+          }
+
+          error =
+            outcome.error === "invalid"
+              ? "選べない間隔です。画面を読み直してください。"
+              : "保存できませんでした。もう一度試してください。";
+
+          break;
+        }
+
+        current = outcome.intervals;
+        setFetchIntervals(outcome.intervals);
+      }
+
+      // 途中で失敗しても、保存できた provider の次回予定は変わっている。カードのバーと文言を取り直す。
+      await loadUsage();
+
+      return error;
+    },
+    [fetchIntervals, loadUsage, onUnauthorized],
+  );
+
   const saveProbe = useCallback(
     async (config: CodexProbeConfig): Promise<string | null> => {
       const outcome = await saveCodexProbe(config);
@@ -510,6 +588,16 @@ function Dashboard(props: {
       onSelect: () => setAdding(true),
       disabled: atLimit,
     },
+    {
+      label: "取得間隔",
+      onSelect: () => {
+        setConfiguringIntervals(true);
+        // 開いた時点の値を必ず読み直す。古い値のまま保存して、他の端末の設定を上書きしないため。
+        setFetchIntervals(null);
+        setFetchIntervalsFailed(false);
+        void loadFetchIntervals();
+      },
+    },
     { label: "ログアウト", onSelect: () => void signOut(), danger: true },
   ];
 
@@ -530,7 +618,6 @@ function Dashboard(props: {
               source={source}
               now={clock}
               generatedAt={usage?.generatedAt ?? null}
-              intervalMs={usage?.sampleIntervalMs ?? null}
               compact={compact}
               auth={codex}
               actions={codexActions}
@@ -545,7 +632,6 @@ function Dashboard(props: {
               source={source}
               now={clock}
               generatedAt={usage?.generatedAt ?? null}
-              intervalMs={usage?.sampleIntervalMs ?? null}
               compact={compact}
               actions={openCodeActions}
               account={accounts.accounts.find((candidate) => candidate.id === source.id) ?? null}
@@ -579,6 +665,37 @@ function Dashboard(props: {
           )}
         </Modal>
       ) : null}
+      {configuringIntervals ? (
+        <Modal title="取得間隔" onClose={() => setConfiguringIntervals(false)}>
+          {(close) =>
+            fetchIntervals === null ? (
+              <div class="up-form">
+                <p
+                  class={fetchIntervalsFailed ? "up-error" : "up-caption"}
+                  role={fetchIntervalsFailed ? "alert" : undefined}
+                >
+                  {fetchIntervalsFailed ? "取得間隔を読み込めませんでした。" : "取得間隔を読み込んでいます。"}
+                </p>
+                <div class="up-form-actions">
+                  <button
+                    type="button"
+                    class="up-button up-button-secondary"
+                    onClick={() => void loadFetchIntervals()}
+                    disabled={!fetchIntervalsFailed}
+                  >
+                    再読み込み
+                  </button>
+                  <button type="button" class="up-button up-button-secondary" onClick={close}>
+                    閉じる
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <FetchIntervalForm intervals={fetchIntervals} onSave={saveFetchIntervals} onClose={close} />
+            )
+          }
+        </Modal>
+      ) : null}
       {configuring ? (
         <Modal title="Codex の開始設定" onClose={() => setConfiguring(false)}>
           {(close) => (
@@ -601,6 +718,8 @@ function placeholderSources(accounts: readonly OpenCodeAccount[]): UsageSource[]
   const placeholder = {
     state: "loading" as const,
     capturedAt: null,
+    fetchIntervalMs: DEFAULT_FETCH_INTERVAL_MINUTES * 60_000,
+    nextFetchAt: null,
     error: null,
     limitReached: false,
     windows: [],

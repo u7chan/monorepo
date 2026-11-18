@@ -18,7 +18,14 @@ import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "../src/server/providers";
 import { ProviderError } from "../src/server/providers/types";
 import { createSampler, type UsageFetcher } from "../src/server/sampler";
 import { createUsageReader, type UsagePayload } from "../src/server/usage";
-import { BASE_TIME, stubCodexApi, usageSnapshot, stubProbeApi, stubOpenCodeStatus } from "./support";
+import {
+  BASE_TIME,
+  stubCodexApi,
+  usageSnapshot,
+  stubProbeApi,
+  stubOpenCodeStatus,
+  stubFetchIntervals,
+} from "./support";
 
 const PIN = "123456";
 const ORIGIN = "http://localhost";
@@ -84,10 +91,13 @@ function harness(
               refreshes += 1;
             }
           },
+          tick: async () => {},
+          nextFetchAt: () => null,
+          reschedule: () => {},
         } satisfies ReturnType<typeof createSampler>)
       : createSampler({
           db,
-          intervalMs: INTERVAL,
+          intervalFor: () => INTERVAL,
           now: () => clock,
           log: () => {},
           fetchers: () => options.fetchers?.({ accounts, db }) ?? [],
@@ -109,12 +119,13 @@ function harness(
     auth,
     usage: createUsageReader({
       db,
-      sampleIntervalMs: INTERVAL,
+      intervalFor: () => INTERVAL,
       now: () => clock,
       accounts: () => accounts.list(),
     }),
     codex: stubCodexApi(),
     probe: stubProbeApi(),
+    fetchIntervals: stubFetchIntervals(),
     opencode,
     openCodeStatus: stubOpenCodeStatus,
     health: () => buildHealthReport("ok", auth.status()),
@@ -732,8 +743,8 @@ describe("変更後の再取得", () => {
     const cookieValue = await cookie(h.app);
     const account = await createAccount(h, cookieValue);
 
-    // 作成は、変更後の再取得で全 source を 1 回ずつ叩く。
-    expect(calls).toEqual(["codex", `account:${account.id}`]);
+    // 作成は、追加したアカウントだけを取り直す。Codex は叩かない。
+    expect(calls).toEqual([`account:${account.id}`]);
 
     calls.length = 0;
 
@@ -756,7 +767,7 @@ describe("変更後の再取得", () => {
     });
 
     expect(rekeyed.status).toBe(200);
-    expect(calls).toEqual(["codex", `account:${account.id}`]);
+    expect(calls).toEqual([`account:${account.id}`]);
 
     calls.length = 0;
 
@@ -766,7 +777,8 @@ describe("変更後の再取得", () => {
     });
 
     expect(removed.status).toBe(204);
-    expect(calls).toEqual(["codex"]);
+    // 残った OpenCode Go のアカウントが無いので、取り直す対象も無い。
+    expect(calls).toEqual([]);
   });
 });
 

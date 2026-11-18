@@ -11,7 +11,6 @@ export function CodexCard(props: {
   source: UsageSource;
   now: number;
   generatedAt: number | null;
-  intervalMs: number | null;
   compact?: boolean;
   auth: CodexAuthState | null;
   actions: CodexActions;
@@ -107,7 +106,6 @@ export function CodexCard(props: {
       source={props.source}
       now={props.now}
       generatedAt={props.generatedAt}
-      intervalMs={props.intervalMs}
       compact={props.compact}
       headerMenu={<OverflowMenu label="Codex の操作" items={items} />}
     >

@@ -10,10 +10,26 @@ import type { OpenCodeStatusPayload } from "../src/shared/opencode-status";
 export const BASE_TIME = 1_800_000_000_000;
 
 /** 認証だけを試すテスト用の空の利用枠。provider の取得には触れない。 */
-export const EMPTY_USAGE: UsagePayload = { generatedAt: 0, sampleIntervalMs: 300_000, sources: [] };
+export const EMPTY_USAGE: UsagePayload = { generatedAt: 0, sources: [] };
 
 export async function stubOpenCodeStatus(): Promise<OpenCodeStatusPayload> {
   return { state: "error", snapshot: null };
+}
+
+export function stubFetchIntervals(): {
+  read: () => { codex: number; "opencode-go": number };
+  write: (provider: "codex" | "opencode-go", minutes: number) => { codex: number; "opencode-go": number };
+} {
+  let intervals = { codex: 600_000, "opencode-go": 600_000 };
+
+  return {
+    read: () => intervals,
+    write: (provider, minutes) => {
+      intervals = { ...intervals, [provider]: minutes * 60_000 };
+
+      return intervals;
+    },
+  };
 }
 
 export function stubCodexApi(overrides: Partial<CodexApi> = {}): CodexApi {

@@ -68,7 +68,7 @@ describe("createSampler", () => {
           throw new ProviderError("config", "OpenCode Go の API キーが設定されていません");
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: (message) => logs.push(message),
     });
@@ -102,7 +102,7 @@ describe("createSampler", () => {
           },
         },
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: (message) => logs.push(message),
     });
@@ -129,7 +129,7 @@ describe("createSampler", () => {
             return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
           },
         })),
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -168,7 +168,7 @@ describe("createSampler", () => {
           },
         }));
       },
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -196,7 +196,7 @@ describe("createSampler", () => {
           throw new ProviderError("upstream", "Codex の取得に失敗しました（HTTP 500）");
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -219,7 +219,7 @@ describe("createSampler", () => {
           throw new Error("token=secret-sentinel");
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: (message) => logs.push(message),
     });
@@ -252,7 +252,7 @@ describe("createSampler", () => {
           return usageSnapshot({ capturedAt: BASE_TIME + calls });
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -285,7 +285,7 @@ describe("createSampler", () => {
           throw new ProviderError("not_connected", "Codex にサインインしていません");
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -316,7 +316,7 @@ describe("exclusive", () => {
           return usageSnapshot();
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -351,7 +351,7 @@ describe("exclusive", () => {
           return usageSnapshot();
         }),
       ],
-      intervalMs: 300_000,
+      intervalFor: () => 300_000,
       now: () => BASE_TIME,
       log: () => {},
     });
@@ -374,5 +374,235 @@ describe("exclusive", () => {
 
     expect(stored?.snapshot).toBeNull();
     expect(stored?.error?.code).toBe("not_connected");
+  });
+});
+
+describe("provider ごとの間隔", () => {
+  const MINUTE = 60 * 1000;
+
+  function scheduled(): {
+    sampler: ReturnType<typeof createSampler>;
+    calls: string[];
+    advance: (ms: number) => void;
+  } {
+    const handle = open();
+    const calls: string[] = [];
+    let clock = BASE_TIME;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: () => [
+        codexFetcher(async () => {
+          calls.push("codex");
+
+          return usageSnapshot({ capturedAt: clock });
+        }),
+        accountFetcher(async () => {
+          calls.push("opencode");
+
+          return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: clock });
+        }),
+      ],
+      intervalFor: (provider) => (provider === "codex" ? 5 * MINUTE : 10 * MINUTE),
+      now: () => clock,
+      log: () => {},
+    });
+
+    return {
+      sampler,
+      calls,
+      advance(ms) {
+        clock += ms;
+      },
+    };
+  }
+
+  test("予定を過ぎた source だけを取り直す", async () => {
+    const { sampler, calls, advance } = scheduled();
+
+    await sampler.tick();
+    expect(calls).toEqual(["codex", "opencode"]);
+
+    advance(5 * MINUTE);
+    await sampler.tick();
+    expect(calls).toEqual(["codex", "opencode", "codex"]);
+
+    advance(5 * MINUTE);
+    await sampler.tick();
+    expect(calls).toEqual(["codex", "opencode", "codex", "codex", "opencode"]);
+  });
+
+  test("kick は指定した provider だけを取り直す", async () => {
+    const { sampler, calls } = scheduled();
+
+    await sampler.tick();
+    await sampler.kick("opencode-go");
+
+    expect(calls).toEqual(["codex", "opencode", "opencode"]);
+  });
+
+  test("reschedule は次回予定を前倒しし、nextFetchAt に出す", async () => {
+    const handle = open();
+    let clock = BASE_TIME;
+    let interval = 60 * MINUTE;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: () => [codexFetcher(async () => usageSnapshot({ capturedAt: clock }))],
+      intervalFor: () => interval,
+      now: () => clock,
+      log: () => {},
+    });
+
+    await sampler.tick();
+    expect(sampler.nextFetchAt("codex")).toBe(BASE_TIME + 60 * MINUTE);
+
+    interval = 5 * MINUTE;
+    sampler.reschedule("codex");
+    expect(sampler.nextFetchAt("codex")).toBe(BASE_TIME + 5 * MINUTE);
+
+    // 長くしても、既に近い予定は遅らせない。
+    interval = 60 * MINUTE;
+    sampler.reschedule("codex");
+    expect(sampler.nextFetchAt("codex")).toBe(BASE_TIME + 5 * MINUTE);
+  });
+
+  test("1 つの source の取得中でも、別の source は予定どおり取る", async () => {
+    const handle = open();
+    const gate = deferred();
+    const calls: string[] = [];
+    let clock = BASE_TIME;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: () => [
+        codexFetcher(async () => {
+          calls.push("codex");
+          await gate.promise;
+
+          return usageSnapshot({ capturedAt: clock });
+        }),
+        accountFetcher(async () => {
+          calls.push("opencode");
+
+          return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: clock });
+        }),
+      ],
+      intervalFor: (provider) => (provider === "codex" ? 60 * MINUTE : 5 * MINUTE),
+      now: () => clock,
+      log: () => {},
+    });
+
+    const first = sampler.tick();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(calls).toEqual(["codex", "opencode"]);
+
+    clock += 5 * MINUTE;
+    await sampler.tick();
+    expect(calls).toEqual(["codex", "opencode", "opencode"]);
+
+    gate.resolve();
+    await first;
+  });
+});
+
+describe("排他区間中の tick", () => {
+  test("変更の待機中に tick が始めた取得は、削除した snapshot を書き戻さない", async () => {
+    const handle = open();
+    const codexGate = deferred();
+    const accountGate = deferred();
+    const calls: string[] = [];
+    let accounts = 0;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: () => [
+        codexFetcher(async () => {
+          calls.push("codex");
+          await codexGate.promise;
+
+          return usageSnapshot({ capturedAt: BASE_TIME });
+        }),
+        ...Array.from({ length: accounts }, (_, index) => ({
+          sourceId: `opencode-go:0000000${index}-0000-4000-8000-000000000000`,
+          provider: OPENCODE_PROVIDER,
+          fetch: async () => {
+            calls.push(`account-${index}`);
+            await accountGate.promise;
+
+            return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: BASE_TIME });
+          },
+        })),
+      ],
+      intervalFor: () => 300_000,
+      now: () => BASE_TIME,
+      log: () => {},
+    });
+
+    // Codex の取得を進行中にし、その待機中にアカウントを増やす。
+    const inFlight = sampler.tick();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(calls).toEqual(["codex"]);
+
+    accounts = 1;
+
+    const logout = sampler.exclusive(() => deleteProviderUsage(handle, "codex"), { refresh: false });
+
+    // 変更中に tick が来ても、新しい取得は始めない。
+    await sampler.tick();
+    expect(calls).toEqual(["codex"]);
+
+    codexGate.resolve();
+    await Promise.all([inFlight, logout]);
+
+    // 開始していないので、書き戻す取得も無い。
+    accountGate.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(calls).toEqual(["codex"]);
+    const accountSourceId = "opencode-go:00000000-0000-4000-8000-000000000000";
+
+    expect(loadProviderUsage(handle, [accountSourceId]).get(accountSourceId)?.snapshot).toBeNull();
+  });
+});
+
+describe("provider を絞った排他区間", () => {
+  test("別 provider の変更待ちは、関係ない provider の取得を止めない", async () => {
+    const handle = open();
+    const gate = deferred();
+    const calls: string[] = [];
+    let clock = BASE_TIME;
+    const sampler = createSampler({
+      db: handle,
+      fetchers: () => [
+        codexFetcher(async () => {
+          calls.push("codex");
+
+          return usageSnapshot({ capturedAt: clock });
+        }),
+        accountFetcher(async () => {
+          calls.push("opencode");
+          await gate.promise;
+
+          return usageSnapshot({ provider: "opencode-go", name: "OpenCode Go", capturedAt: clock });
+        }),
+      ],
+      intervalFor: () => 5 * 60 * 1000,
+      now: () => clock,
+      log: () => {},
+    });
+
+    const first = sampler.tick();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(calls).toEqual(["codex", "opencode"]);
+
+    clock += 5 * 60 * 1000;
+
+    const mutation = sampler.exclusive(() => {}, { provider: "opencode-go", refresh: false });
+
+    await sampler.tick();
+    expect(calls).toEqual(["codex", "opencode", "codex"]);
+
+    gate.resolve();
+    await Promise.all([first, mutation]);
   });
 });

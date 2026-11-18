@@ -2,6 +2,7 @@ import { bodyLimit } from "hono/body-limit";
 import { getConnInfo } from "hono/bun";
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { isFetchIntervalMinutes, isFetchIntervalProvider, type FetchIntervalProvider } from "../shared/fetch-interval";
 import type { OpenCodeStatusPayload } from "../shared/opencode-status";
 import type { AuthService } from "./auth";
 import type { CodexApi } from "./codex/api";
@@ -40,6 +41,10 @@ export type AppDeps = {
   opencode: OpenCodeApi;
   openCodeStatus: () => Promise<OpenCodeStatusPayload>;
   probe: ProbeApi;
+  fetchIntervals: {
+    read: () => Record<FetchIntervalProvider, number>;
+    write: (provider: FetchIntervalProvider, minutes: number) => Record<FetchIntervalProvider, number>;
+  };
   rateLimiter?: RateLimiter;
   clientKey?: (c: Context) => string;
   now?: () => number;
@@ -243,6 +248,31 @@ export function createApp(deps: AppDeps) {
   app.get("/api/opencode/accounts", requireSession, (c) => c.json({ accounts: deps.opencode.list() }));
 
   app.get("/api/opencode/status", requireSession, async (c) => c.json(await deps.openCodeStatus()));
+
+  app.get("/api/settings/fetch-intervals", requireSession, (c) => c.json({ intervals: deps.fetchIntervals.read() }));
+
+  app.put(
+    "/api/settings/fetch-intervals",
+    requireSession,
+    bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }),
+    async (c) => {
+      const body = await readJsonObject(c);
+
+      if (!body) {
+        return c.json({ error: "invalid_request" as const }, 400);
+      }
+
+      // 選べる値は固定の一覧だけ。任意のミリ秒を受け付けると上流を叩く回数を画面から決められてしまう。
+      const provider = body.provider;
+      const minutes = body.minutes;
+
+      if (!isFetchIntervalProvider(provider) || !isFetchIntervalMinutes(minutes)) {
+        return c.json({ error: "invalid_request" as const }, 400);
+      }
+
+      return c.json({ intervals: deps.fetchIntervals.write(provider, minutes) });
+    },
+  );
 
   app.post(
     "/api/opencode/accounts",
