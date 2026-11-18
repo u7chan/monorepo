@@ -94,6 +94,7 @@ import type { TitleSummaryHost, TitleSummaryResult, TitleSummaryUsage } from "./
 import type { TitleSummaryRuntimeSettings } from "./title-summary-settings";
 import { TitleSummaryQueue, type TitleSummaryQueueResult } from "./title-summary-queue";
 import { contentText, displayableMessages, truncate } from "./session-projection";
+import { SessionRecordWrites, entriesOf, modelLabel } from "./session-record-writes";
 import type { SandboxHandoffClient, SandboxMoveClient, SandboxWorkspaceClient } from "./sandbox/client";
 import { SandboxRequestError } from "./sandbox/client";
 import {
@@ -115,9 +116,7 @@ import {
   sessionWorkdirRel,
   writeSessionMeta,
   writeSessionDir,
-  RUN_ID_FIELD,
   ASSISTANT_ID_FIELD,
-  SEND_ID_FIELD,
   writeSessionSends,
   type PromptSnapshot,
   type SessionEntryLike,
@@ -259,11 +258,6 @@ export interface SessionStoreOptions {
   titleSummaryQueue?: TitleSummaryQueue | null;
 }
 
-function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
-  if (!model) return undefined;
-  return `${model.provider}/${model.id}`;
-}
-
 /**
  * 応答 1 件分の保存行。metrics を観測できた応答だけを渡す前提で、行にできない応答は undefined を返す。
  * provider / model が無い応答を落とすのは、列が NOT NULL で、どのモデルの速度か言えない行は集計できないため。
@@ -324,12 +318,6 @@ export function parseEventCursor(raw: string | undefined): { generation?: string
   const seq = Number.parseInt(seqText, 10);
   if (!Number.isFinite(seq) || seq < 0) return undefined;
   return generation ? { generation, seq } : { seq };
-}
-
-function entriesOf(session: PiSessionLike): SessionEntryLike[] {
-  const manager = session.sessionManager as { getEntries?(): unknown[]; getBranch?(): unknown[] } | undefined;
-  const entries = manager?.getEntries?.() ?? manager?.getBranch?.() ?? [];
-  return Array.isArray(entries) ? (entries as SessionEntryLike[]) : [];
 }
 
 /** 会話の末尾 entry の id (分岐の境界)。entry が無ければ undefined */
@@ -460,6 +448,8 @@ export class SessionStore {
   titleSummaryQueue: TitleSummaryQueue;
   /** 送信対応記録の書込み (テスト差し替え用) */
   writeSendsFile: (storeDir: string, id: string, sends: SessionSends) => void;
+  /** 保存経路 (meta / JSONL / 送信対応記録)。順序と失敗時の扱いはこちらが持つ */
+  private readonly recordWrites: SessionRecordWrites;
   /** investigate の子 runner。子は record に載せず、並列と待ち行列の在庫をここに持つ */
   investigator: InvestigateRunner;
 
@@ -529,6 +519,15 @@ export class SessionStore {
     this.pendingMoves = new Set();
     this.closing = false;
     this.sweeping = false;
+    this.recordWrites = new SessionRecordWrites({
+      storeDir: () => this.storeDir,
+      rootCwd: this.rootCwd,
+      isLive: (record) => !this.deleting.has(record.id) && this.records.get(record.id) === record,
+      rememberMeta: (meta) => {
+        this.descriptors.set(meta.id, meta);
+      },
+      writeSendsFile: (storeDir, id, sends) => this.writeSendsFile(storeDir, id, sends),
+    });
     this.sweeper = setInterval(() => void this.sweep(), SWEEP_INTERVAL_MS);
     this.sweeper.unref?.();
   }
@@ -1015,7 +1014,7 @@ export class SessionStore {
       await this.persist(record, { jsonl: false });
     }
     // 突き合わせの結果を書き直す (書けなければ dirty のまま残り、次の persist / flush で再試行する)
-    if (record.sendsDirty) this.writeSends(record);
+    if (record.sendsDirty) this.recordWrites.writeSends(record);
     // 実効モデルのフォールバックは model_change の追記ごと保存する。件数の補正だけなら履歴は同じ
     // なので、writer を通さず meta だけを書き戻す (履歴が同じでも writer は全量を書き直す)
     const backfillCount =
@@ -1418,7 +1417,7 @@ export class SessionStore {
       if (pending?.runId !== undefined) {
         delete pending.runId;
         record.sendsDirty = true;
-        this.writeSends(record);
+        this.recordWrites.writeSends(record);
       }
       const entry: QueuedSend = { sendId, text, at: Date.now() };
       record.queue.push(entry);
@@ -1482,7 +1481,7 @@ export class SessionStore {
     if (this.isSendActive(record, sendId)) return "running";
     record.unsentSends.splice(index, 1);
     record.sendsDirty = true;
-    this.writeSends(record);
+    this.recordWrites.writeSends(record);
     this.emitResync(record);
     return "ok";
   }
@@ -1630,7 +1629,7 @@ export class SessionStore {
     if (send && send.runId !== runId) {
       send.runId = runId;
       record.sendsDirty = true;
-      this.writeSends(record);
+      this.recordWrites.writeSends(record);
     }
     const queued = record.queue.find((item) => item.sendId === sendId);
     if (queued) queued.runId = runId;
@@ -1735,7 +1734,7 @@ export class SessionStore {
           changed = true;
         }
         if (!changed || this.records.get(record.id) !== record) return;
-        this.writeSends(record);
+        this.recordWrites.writeSends(record);
         // 受付ごとではなくチェーン完了後に 1 回だけ配る (N 件の受理で payload を N 回配らない)
         this.emitResync(record);
       })
@@ -1792,7 +1791,7 @@ export class SessionStore {
       const position = record.queue.indexOf(steering);
       if (position !== -1) record.queue.splice(position, 1);
       record.sendsDirty = true;
-      this.writeSends(record);
+      this.recordWrites.writeSends(record);
     }
     queueMicrotask(() => {
       if (this.records.get(record.id) !== record) return;
@@ -1827,7 +1826,7 @@ export class SessionStore {
           this.releaseSteering(record, entry);
         }
       }
-      this.writeSends(record);
+      this.recordWrites.writeSends(record);
       this.emitResync(record);
       return;
     }
@@ -1843,7 +1842,7 @@ export class SessionStore {
       delete entry.handedOff;
       delete entry.steered;
     }
-    this.writeSends(record);
+    this.recordWrites.writeSends(record);
     this.emitResync(record);
   }
 
@@ -1855,81 +1854,7 @@ export class SessionStore {
     if (record.unsentSends.some((item) => item.sendId === sendId)) return;
     record.unsentSends.push({ sendId, ...(runId === undefined ? {} : { runId }), text, at: Date.now() });
     record.sendsDirty = true;
-    this.writeSends(record);
-  }
-
-  /**
-   * 渡された entry スナップショットのうち、JSONL へ書けた user entry の送信対応を控え、保存済みに
-   * なった分を「未送信」から外す。`persist` が writer へ渡したのと同じ配列を渡す (await 中に SDK が
-   * 追記した entry を保存済みにしないため)。
-   */
-  private syncSendMap(record: SessionRecord, entries: SessionEntryLike[]): void {
-    if (!record.writer || !this.storeDir) return;
-    let changed = false;
-    for (const entry of entries) {
-      if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") continue;
-      const message = entry.message as { role?: unknown } | undefined;
-      if (!message || message.role !== "user") continue;
-      const send = record.userMessageSends.get(message);
-      if (send === undefined) continue;
-      const known = record.entrySends.get(entry.id);
-      if (known?.sendId === send.sendId && known.runId === send.runId) continue;
-      record.entrySends.set(entry.id, send);
-      const index = record.unsentSends.findIndex((item) => item.sendId === send.sendId);
-      if (index !== -1) record.unsentSends.splice(index, 1);
-      record.injectedSends.delete(send.sendId);
-      changed = true;
-    }
-    if (changed) {
-      record.sendsDirty = true;
-      this.writeSends(record);
-    }
-  }
-
-  /**
-   * 送信対応記録の保存。失敗しても会話の実行 / 保存は止めず、dirty を残して次の persist / flush で
-   * やり直す (メモリだけ進めてディスクが古いままだと、再起動後に保存済みの送信を未送信として
-   * 再実行できてしまう)。
-   */
-  private writeSends(record: SessionRecord): boolean {
-    if (!record.writer || !this.storeDir) return true;
-    if (!record.sendsDirty) return true;
-    try {
-      this.writeSendsFile(this.storeDir, record.id, { unsent: record.unsentSends });
-      record.sendsDirty = false;
-      record.sendsError = undefined;
-      return true;
-    } catch (error) {
-      record.sendsError = messageFor(error);
-      console.warn(`[u7agent] 未送信記録の保存に失敗しました (${record.id}): ${record.sendsError}`);
-      return false;
-    }
-  }
-
-  /**
-   * user message entry へ送信IDと実行IDを写す。entry と送信の対応を JSONL 自身に持たせ、
-   * 別ファイル (sends.json) の書込みだけ失敗しても再起動後に対応を失わない。SDK は未知の
-   * フィールドをそのまま保持するため、SDK 形式は壊れない。
-   */
-  private annotateSendIds(record: SessionRecord, entries: SessionEntryLike[]): SessionEntryLike[] {
-    return entries.map((entry) => {
-      if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") return entry;
-      const message = entry.message as { role?: unknown } | undefined;
-      if (message?.role === "assistant") {
-        const assistantId = record.assistantMessageIds.get(message);
-        if (assistantId === undefined || entry[ASSISTANT_ID_FIELD] === assistantId) return entry;
-        return { ...entry, [ASSISTANT_ID_FIELD]: assistantId };
-      }
-      if (!message || message.role !== "user") return entry;
-      const send = record.userMessageSends.get(message) ?? record.entrySends.get(entry.id);
-      if (send === undefined) return entry;
-      if (entry[SEND_ID_FIELD] === send.sendId && entry[RUN_ID_FIELD] === send.runId) return entry;
-      return {
-        ...entry,
-        [SEND_ID_FIELD]: send.sendId,
-        ...(send.runId === undefined ? {} : { [RUN_ID_FIELD]: send.runId }),
-      };
-    });
+    this.recordWrites.writeSends(record);
   }
 
   /**
@@ -1978,7 +1903,7 @@ export class SessionStore {
         released = true;
       }
       if (released) record.sendsDirty = true;
-      this.writeSends(record);
+      this.recordWrites.writeSends(record);
       // 回収で待機や未送信の割当が変わったときだけ、購読者の表示を揃える。承認を失効したときも
       // payload の networkAccess を配り直す (押したカードを許可済みのままにしない)
       if (cleared.length + stragglers.length > 0 || released || approvalChanged) this.emitResync(record);
@@ -1999,7 +1924,7 @@ export class SessionStore {
     }
     if (cleared.length > 0) {
       record.sendsDirty = true;
-      this.writeSends(record);
+      this.recordWrites.writeSends(record);
     }
     return cleared;
   }
@@ -2754,7 +2679,7 @@ export class SessionStore {
     const toWorkdir = meta.projectCwd ?? this.scratchOf(this.workdirOwnerOf(meta), target);
     const toUploads = sessionUploadsRel(this.uploadsOwnerOf(meta), target);
     // 古い値の保存が移動後の meta を上書きしないよう、先に drain する
-    if (live) await this.drainRecordWrites(live);
+    if (live) await this.recordWrites.drain(live);
     // drain 中の setNotify / setTitle / setPinned を落とさないよう、最新の meta から組み立てる
     const current = live?.meta ?? this.descriptors.get(id) ?? meta;
     if (current.handoffCleanup) throw httpError(409, HANDOFF_CLEANUP_PENDING_MESSAGE);
@@ -2915,7 +2840,7 @@ export class SessionStore {
       live.session.dispose?.();
       this.records.delete(id);
       // dispose 後の書込みを drain してから消す (削除後に書き戻されて未送信が復活しないように)
-      await this.drainRecordWrites(live);
+      await this.recordWrites.drain(live);
     }
     try {
       await removeSessionHistory(storeDir, id);
@@ -3146,12 +3071,6 @@ export class SessionStore {
     }
   }
 
-  /** 進行中の保存を待つ (移動で meta を書き換える前に古い値の書込みを終わらせる) */
-  private async drainRecordWrites(record: SessionRecord): Promise<void> {
-    await record.persistTail.catch(() => {});
-    await record.writer?.flush().catch(() => {});
-  }
-
   /** 購読中の SSE を閉じる (移動は削除ではないためイベントは送らない。クライアントは一覧を取り直す) */
   private closeSubscribers(record: SessionRecord): void {
     const subscribers = [...record.subscribers];
@@ -3187,88 +3106,11 @@ export class SessionStore {
    * `jsonl: false` は履歴が変わっていない呼び出し用 (meta だけを書く)。
    */
   persist(record: SessionRecord, { jsonl = true }: { jsonl?: boolean } = {}): Promise<string | undefined> {
-    if (!record.writer || !this.storeDir) return Promise.resolve(undefined);
-    const storeDir = this.storeDir;
-    const run = async (): Promise<string | undefined> => {
-      // 削除済み・別世代に差し替わった record は書かない (store を復活させない)
-      if (this.deleting.has(record.id) || this.records.get(record.id) !== record) return undefined;
-      const session = record.session;
-      const meta: SessionMeta = {
-        ...record.meta,
-        id: record.id,
-        title: record.title,
-        lastUsedAt: record.lastUsedAt,
-        messageCount: displayableMessages(session, workspaceAbs(this.rootCwd, record.workdir)).length,
-        agentId: record.agentId,
-        agent: record.agent,
-        promptSnapshot: record.promptSnapshot,
-        ...(record.projectCwd ? { projectCwd: record.projectCwd } : {}),
-        ...(record.projectName ? { projectName: record.projectName } : {}),
-        ...(modelLabel(session.model) ? { model: modelLabel(session.model) } : {}),
-        ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
-      };
-      if (!meta.projectCwd) {
-        delete meta.projectCwd;
-        delete meta.projectName;
-      }
-      // record.meta の古い値を残さない (Off へ戻した会話が再起動で On に戻らないように)
-      if (record.notify) meta.notify = true;
-      else delete meta.notify;
-      if (record.pinned) meta.pinned = true;
-      else delete meta.pinned;
-      meta.titleOrigin = record.titleOrigin;
-      if (record.titleAttempt) meta.titleAttempt = record.titleAttempt;
-      else delete meta.titleAttempt;
-      if (record.titleRequest) meta.titleRequest = truncate(record.titleRequest, TITLE_REQUEST_MAX);
-      else delete meta.titleRequest;
-      record.meta = meta;
-      this.descriptors.set(record.id, meta);
-      // 今回の保存だけを評価する (過去の失敗は成功で消す)
-      let failure: string | undefined;
-      // writer へ渡すのと同じスナップショットを使う。await 中に SDK が追記した entry を
-      // 保存済みとして対応表へ入れない (次の保存で書かれる)。run id は entry 自身へ写す
-      const entries = this.annotateSendIds(record, entriesOf(session));
-      try {
-        await writeSessionMeta(storeDir, meta);
-        if (jsonl) {
-          await record.writer?.schedule(sessionHeaderOf(meta, workspaceAbs(this.rootCwd, record.workdir)), entries);
-        }
-      } catch (error) {
-        failure = messageFor(error);
-      }
-      failure = failure ?? record.writer?.error;
-      // JSONL に載った user entry だけを保存済みとして扱う (書けていない entry を対応表へ入れない)。
-      // meta だけの保存 (jsonl: false) では entry の保存を確かめられないので触らない
-      if (jsonl && !failure) this.syncSendMap(record, entries);
-      // 送信対応記録は失敗しても dirty を残し、次の persist / flush でやり直す
-      this.writeSends(record);
-      record.persistError = failure;
-      if (failure && record.persistErrorLogged !== failure) {
-        record.persistErrorLogged = failure;
-        console.warn(`[u7agent] セッションの保存に失敗しました (${record.id}): ${failure}`);
-      }
-      if (!failure) record.persistErrorLogged = undefined;
-      return failure;
-    };
-    const next = record.persistTail.then(run, run);
-    const result = next.catch((error: unknown) => {
-      const failure = messageFor(error);
-      record.persistError = failure;
-      if (record.persistErrorLogged !== failure) {
-        record.persistErrorLogged = failure;
-        console.warn(`[u7agent] セッションの保存に失敗しました (${record.id}): ${failure}`);
-      }
-      return failure;
-    });
-    record.persistTail = result.then(() => {});
-    return result;
+    return this.recordWrites.persist(record, { jsonl });
   }
 
   async flush(record: SessionRecord): Promise<boolean> {
-    await record.persistTail.catch(() => {});
-    await record.writer?.flush();
-    // 最後の persist で書けなかった送信対応記録をここでも試す (close / sweep の最終保存)
-    return this.writeSends(record);
+    return this.recordWrites.flush(record);
   }
 
   async sweep(): Promise<void> {
