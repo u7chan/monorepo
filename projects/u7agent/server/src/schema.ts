@@ -1,5 +1,10 @@
-/** API 契約の正。DTO のフィールド名と optional の扱いは client と揃える。 */
-import { z } from "zod";
+/**
+ * API 契約の正。DTO のフィールド名と optional の扱いは client と揃える。
+ * 実体はドメイン別の `schema/` に分け、このファイルはバレルとして再エクスポートする
+ * (呼び出し側の import 経路を変えないため)。
+ */
+import { COST_SIDES, COST_UNITS } from "./content-cost";
+import { TRIAL_ARTIFACT_FORMATS } from "./content-trial-artifacts";
 import {
   CONTENT_TRIAL_ARTIFACT_STATES,
   CONTENT_TRIAL_FAILURE_CODES,
@@ -8,9 +13,6 @@ import {
   CONTENT_TRIAL_PROMPT_MAX_LENGTH,
   CONTENT_TRIAL_STATES,
 } from "./content-trials";
-import { TRIAL_ARTIFACT_FORMATS } from "./content-trial-artifacts";
-import { COST_SIDES, COST_UNITS } from "./content-cost";
-import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
 import type {
   SandboxGitConfigStatus,
   SandboxLandlockStatus,
@@ -18,106 +20,29 @@ import type {
   SandboxRuntimeEnvironment,
 } from "./sandbox/protocol";
 import type { SecretKind } from "./secret-crypto";
+import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
+import { z } from "zod";
+import {
+  AskUserAnswerSchema,
+  AskUserQuestionSchema,
+  ModelRefSchema,
+  PROVIDER_API_KEY_MAX_LENGTH,
+  PROVIDER_API_KEY_MIN_LENGTH,
+  RunOutcomeSchema,
+  RunStatusSchema,
+  SKILL_NAMES_MAX,
+  SKILL_NAME_MAX,
+  SessionTitleSummarySchema,
+  TOOL_NAMES_MAX,
+  TOOL_NAME_MAX,
+  ThinkingLevelSchema,
+} from "./schema/common";
 
 export const SpaceSchema = z.object({ id: z.string(), name: z.string(), createdAt: z.number() });
 export type Space = z.infer<typeof SpaceSchema>;
 export const CreateSpaceBodySchema = z.object({ name: z.string().trim().min(1).max(80) });
 /** PATCH /api/spaces/:id。入力の規則は作成と同じ (重複名は許可し、同一性は id が持つ) */
 export const RenameSpaceBodySchema = CreateSpaceBodySchema;
-
-export const RunStatusSchema = z.enum(["idle", "running", "queued", "compacting", "completed", "stopped", "error"]);
-export type RunStatus = z.infer<typeof RunStatusSchema>;
-
-/**
- * ランが終端したときの結末。`RunStatusSchema` の部分集合で、ターンの結末の表示 (`Done` /
- * `Stopped` / `Failed`) に使う。終端以外 (`idle` / `running` / `queued` / `compacting`) は載せない
- */
-export const RunOutcomeSchema = z.enum(["completed", "stopped", "error"]);
-export type RunOutcome = z.infer<typeof RunOutcomeSchema>;
-
-export const ThinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
-export type ThinkingLevel = z.infer<typeof ThinkingLevelSchema>;
-
-/** 会話タイトルの由来。auto = 依頼本文、ai = AI 要約、manual = 手動改名 */
-export const TitleOriginSchema = z.enum(["auto", "ai", "manual"]);
-export type TitleOrigin = z.infer<typeof TitleOriginSchema>;
-
-export const TitleAttemptStateSchema = z.enum(["pending", "done", "failed", "skipped"]);
-export type TitleAttemptState = z.infer<typeof TitleAttemptStateSchema>;
-
-/** AI 要約を実行しなかった理由。画面の文言は client 側で写す */
-export const TitleSkipReasonSchema = z.enum([
-  "disabled",
-  "model-unset",
-  "manual",
-  "no-request",
-  "cancelled",
-  "settings-changed",
-  "not-ready",
-  "interrupted",
-]);
-export type TitleSkipReason = z.infer<typeof TitleSkipReasonSchema>;
-
-export const TitleAttemptSchema = z.object({
-  runId: z.string().min(1),
-  at: z.number().finite(),
-  state: TitleAttemptStateSchema,
-  /** 自動要約 / 会話メニューからの明示的な再要約 */
-  trigger: z.enum(["auto", "manual"]).optional(),
-  /** 予約時に確定したモデル (`provider/id`) */
-  model: z.string().optional(),
-  /** 予約時に確定した実効 Effort */
-  thinkingLevel: ThinkingLevelSchema.optional(),
-  /** 予約時の設定世代。保存後に設定が変わった結果は適用しない */
-  generation: z.number().optional(),
-  inputTokens: z.number().optional(),
-  outputTokens: z.number().optional(),
-  costTotal: z.number().optional(),
-  /** 生成にかかった時間 (順番待ちを含む)。画面の確認用 */
-  durationMs: z.number().optional(),
-  /** 失敗理由 (マスク済み・長さ上限あり)。依頼本文と生成タイトルは含めない */
-  error: z.string().optional(),
-  /** 実行しなかった理由 (skipped のとき) */
-  skipReason: TitleSkipReasonSchema.optional(),
-});
-export type TitleAttempt = z.infer<typeof TitleAttemptSchema>;
-
-/** 会話タイトルの由来と最新の AI 要約試行。タイトル本文は `title` が持つ */
-export const SessionTitleSummarySchema = z.object({
-  origin: TitleOriginSchema,
-  attempt: TitleAttemptSchema.optional(),
-});
-export type SessionTitleSummary = z.infer<typeof SessionTitleSummarySchema>;
-
-/** 設定画面の「動作確認」の結果。タイトルは保存しない */
-export const TitleSummaryTestResponseSchema = z.object({
-  ok: z.boolean(),
-  title: z.string().optional(),
-  error: z.string().optional(),
-  model: z.string().optional(),
-  thinkingLevel: ThinkingLevelSchema.optional(),
-  inputTokens: z.number().optional(),
-  outputTokens: z.number().optional(),
-  costTotal: z.number().optional(),
-  durationMs: z.number(),
-});
-export type TitleSummaryTestResponse = z.infer<typeof TitleSummaryTestResponseSchema>;
-
-/** 会話メニューからの再要約の結果。生成に失敗しても現在のタイトルと試行を返す */
-export const SessionTitleSummaryResponseSchema = z.object({
-  sessionId: z.string(),
-  title: z.string(),
-  titleSummary: SessionTitleSummarySchema,
-});
-export type SessionTitleSummaryResponse = z.infer<typeof SessionTitleSummaryResponseSchema>;
-
-/** 認証済みモデルの provider/id 参照 (SDK の Model そのものではない) */
-export const ModelRefSchema = z.object({
-  provider: z.string().min(1),
-  id: z.string().min(1),
-});
-export type ModelRef = z.infer<typeof ModelRefSchema>;
-
 /**
  * 入力欄のチップ 1 件。label がボタン文言、prompt が送信文字列。
  * 定型プロンプトのマスタ (`PromptRefSchema`) と、マスタに属さない引き継ぎのチップが同じ形を使う。
@@ -127,11 +52,9 @@ export const AgentSuggestionSchema = z.object({
   prompt: z.string(),
 });
 export type AgentSuggestion = z.infer<typeof AgentSuggestionSchema>;
-
 /** マスタの種別。現在は自作のみで、旧版の builtin 行は起動時に消す */
 export const PromptKindSchema = z.enum(["builtin", "custom"]);
 export type PromptKind = z.infer<typeof PromptKindSchema>;
-
 /**
  * マスタのラベル・本文・ID の上限。ラベルと本文は旧 `suggestions` の編集上限を引き継ぐ。
  * エージェント 1 体の参照上限は `AGENT_PROMPT_LIMIT` (マスタ全体には上限を掛けない)。
@@ -140,7 +63,6 @@ export const AGENT_PROMPT_LIMIT = 6;
 export const PROMPT_LABEL_MAX = 60;
 export const PROMPT_TEXT_MAX = 500;
 export const PROMPT_ID_MAX = 100;
-
 /**
  * エージェントに解決済みで載る定型プロンプト 1 件。表示の同一性は `id` で持ち、
  * 同じ本文の別マスタを本文でまとめない。
@@ -152,7 +74,6 @@ export const PromptRefSchema = z.object({
   prompt: z.string(),
 });
 export type PromptRef = z.infer<typeof PromptRefSchema>;
-
 /** マスタの使用先 1 件。旧クライアント互換のため builtin を持つ (現在は常に false) */
 export const PromptUsageSchema = z.object({
   agentId: z.string(),
@@ -161,59 +82,34 @@ export const PromptUsageSchema = z.object({
   builtin: z.boolean(),
 });
 export type PromptUsage = z.infer<typeof PromptUsageSchema>;
-
 /** `GET /api/prompts` の 1 件。使用先を伴い、削除できない理由を画面が説明できる */
 export const PromptDefSchema = PromptRefSchema.extend({ usedBy: z.array(PromptUsageSchema) });
 export type PromptDef = z.infer<typeof PromptDefSchema>;
-
 /** `GET /api/prompts` の応答。並びはサーバーが決める (保存した順) */
 export const PromptsResponseSchema = z.object({ prompts: z.array(PromptDefSchema) });
 export type PromptsResponse = z.infer<typeof PromptsResponseSchema>;
-
 /**
  * 並べ替えで受ける id の上限。形と上限だけを見る点は `ReorderAgentsBodySchema` と同じで、
  * 未知の id・重複・組み込みの扱いは `PromptCatalog.reorder` が正。
  */
 export const PROMPT_ORDER_IDS_MAX = 500;
-
 export const ReorderPromptsBodySchema = z.object({ ids: z.array(z.string()).max(PROMPT_ORDER_IDS_MAX) });
 export type ReorderPromptsBody = z.infer<typeof ReorderPromptsBodySchema>;
-
 /** `POST /api/prompts` の応答。作成した 1 件を使用先 (空) つきで返す */
 export const PromptResponseSchema = z.object({ prompt: PromptDefSchema });
 export type PromptResponse = z.infer<typeof PromptResponseSchema>;
-
 /**
  * 使用中の自作マスタの削除拒否 (409) の応答。どこで使われているかを画面がそのまま出せるようにする。
  * データは変更しない (docs/api-catalog.md)。
  */
 export const PromptDeleteConflictSchema = z.object({ error: z.string(), usedBy: z.array(PromptUsageSchema) });
 export type PromptDeleteConflict = z.infer<typeof PromptDeleteConflictSchema>;
-
-/**
- * スキル許可リスト (`commonSkillNames` / `builtinSkillNames`) の上限。配列全体は body の
- * 64 KiB でも押さえられるが、中身を正規化する防御線としてここにも置く。1 件の長さはワークスペースの
- * 1 セグメント名の上限 (`sandbox/protocol.ts` の `SANDBOX_MAX_ENTRY_NAME_LENGTH`) と揃える
- * (値は import せず複製。揃え方は `FilePreviewSchema` と同じ)。
- */
-export const SKILL_NAMES_MAX = 200;
-export const SKILL_NAME_MAX = 200;
-
-/**
- * ツール許可リストの上限。スキル名の上限 (`SKILL_NAME_MAX`) はワークスペースの 1 セグメント名を
- * 根拠にしているが、ツール名に同じ根拠は無い (SDK 組込みとアプリの定義が決める) ため別に持つ。
- * どちらも名前の保存を弾くための防御線で、値そのものに意味は無い。
- */
-export const TOOL_NAMES_MAX = 200;
-export const TOOL_NAME_MAX = 200;
-
 /**
  * ツール 1 件の種別。`sandbox` はサンドボックスで動く作業ツール、`app` は BFF ローカルのツール。
  * 画面のグループ分けに使う (`docs/api-catalog.md#ツール許可リスト`)。
  */
 export const ToolGroupSchema = z.enum(["sandbox", "app"]);
 export type ToolGroup = z.infer<typeof ToolGroupSchema>;
-
 /**
  * アプリ側でツールを使えない理由のコード。文言はクライアントの lib が持ち、応答にはコードだけを載せる
  * (既存の分担は `client/src/lib/fileSkills.ts` / `client/src/lib/settingsNotes.ts`)。
@@ -222,7 +118,6 @@ export type ToolGroup = z.infer<typeof ToolGroupSchema>;
  */
 export const ToolUnavailableReasonSchema = z.enum(["deploy_allowlist", "app_disabled", "no_key", "no_auth"]);
 export type ToolUnavailableReason = z.infer<typeof ToolUnavailableReasonSchema>;
-
 /**
  * `GET /api/agents` が返すツール 1 件 (`builtinSkills` と同じ位置づけ)。`available` は取得時点の
  * アプリ側の実効で、エージェントの許可リストは掛けない (許可リストと一緒に画面が判断する)。
@@ -236,7 +131,6 @@ export const ToolCatalogEntrySchema = z.object({
   reason: ToolUnavailableReasonSchema.optional(),
 });
 export type ToolCatalogEntry = z.infer<typeof ToolCatalogEntrySchema>;
-
 export const AgentDefSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -283,7 +177,6 @@ export const AgentDefSchema = z.object({
   prompts: z.array(PromptRefSchema).optional(),
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
-
 /**
  * アプリに同梱する組み込みスキル 1 件。エージェント定義の `builtinSkillNames`
  * でエージェント別に外すため、スキル欄の行に使う。
@@ -295,7 +188,6 @@ export const BuiltinSkillInfoSchema = z.object({
   version: z.string(),
 });
 export type BuiltinSkillInfo = z.infer<typeof BuiltinSkillInfoSchema>;
-
 /**
  * GET `/api/agents` の応答。`builtinAgent` はサーバー所有の汎用エージェントで、
  * `agents` (ユーザー定義) には含まれない。サーバーは常にオブジェクトを返し、
@@ -314,7 +206,6 @@ export const CatalogResponseSchema = z.object({
   prompts: z.array(PromptRefSchema),
 });
 export type CatalogResponse = z.infer<typeof CatalogResponseSchema>;
-
 /**
  * セッション作成時に meta へ固定するエージェントのスナップショット。
  * スキルの実体はファイル側の現行定義を使い、ここには割り当てを保存しない。
@@ -341,7 +232,6 @@ export const AgentPayloadInfoSchema = z.object({
   toolNames: z.array(z.string()).optional(),
 });
 export type AgentPayloadInfo = z.infer<typeof AgentPayloadInfoSchema>;
-
 /**
  * スキル読み込み 1 件 (`read` で basename が SKILL.md の呼び出し)。履歴の `ChatMessage.skillLoads` と
  * ライブの `ToolCall.skill` で同じ形を使う。name は frontmatter の name ではなく解決後の親ディレクトリ名。
@@ -358,56 +248,6 @@ export const SkillLoadSchema = z.object({
   isError: z.boolean().optional(),
 });
 export type SkillLoad = z.infer<typeof SkillLoadSchema>;
-
-/**
- * ask_user の上限。ツールのパラメータ検証 (`server/src/ask-user-tool.ts` が throw) と
- * DTO / リクエスト本体の検証が同じ値を使う。
- */
-export const ASK_USER_QUESTIONS_MIN = 1;
-export const ASK_USER_QUESTIONS_MAX = 4;
-export const ASK_USER_OPTIONS_MAX = 6;
-export const ASK_USER_QUESTION_MAX = 500;
-export const ASK_USER_HEADER_MAX = 40;
-export const ASK_USER_LABEL_MAX = 80;
-export const ASK_USER_DESCRIPTION_MAX = 200;
-export const ASK_USER_ANSWER_TEXT_MAX = 2000;
-
-/** ask_user の選択肢。選択は入力補助で、自由記入は常に受け付ける (`docs/ask-user.md`) */
-export const AskUserOptionSchema = z.object({
-  label: z.string(),
-  description: z.string().optional(),
-});
-export type AskUserOption = z.infer<typeof AskUserOptionSchema>;
-
-export const AskUserQuestionSchema = z.object({
-  question: z.string(),
-  /** カードの短い見出し */
-  header: z.string().optional(),
-  /** 承認ツールが示す接続先。カードは host + HTTPS 443 のチップで表示する */
-  host: z.string().optional(),
-  /** 省略時は options の有無で決める (UI は options の有無だけを見る) */
-  type: z.enum(["choice", "text"]).optional(),
-  options: z.array(AskUserOptionSchema).optional(),
-  multiSelect: z.boolean().optional(),
-  placeholder: z.string().optional(),
-});
-export type AskUserQuestion = z.infer<typeof AskUserQuestionSchema>;
-
-/**
- * 質問への回答。`index` は questions の添字で、質問文の文字列では引かない (同じ質問文が 2 つあると壊れる)。
- * `skipped` は質問ごとの「回答しない」で、`selected` / `text` とは排他 (両方指定は 400)。
- * `approval` は承認を求めるツール (`request_network_access`) の回答だけで受け付け、他の項目とも排他。
- * `false` は「拒否」で、`undefined` (未回答) と区別する。
- */
-export const AskUserAnswerSchema = z.object({
-  index: z.number().int().min(0),
-  selected: z.array(z.string().max(ASK_USER_LABEL_MAX)).max(ASK_USER_OPTIONS_MAX).optional(),
-  text: z.string().max(ASK_USER_ANSWER_TEXT_MAX).optional(),
-  skipped: z.boolean().optional(),
-  approval: z.boolean().optional(),
-});
-export type AskUserAnswer = z.infer<typeof AskUserAnswerSchema>;
-
 export const ToolCallSchema = z.object({
   id: z.string(),
   /** このツールを要求した assistant 応答のID (旧データは載らない) */
@@ -443,10 +283,8 @@ export const ToolCallSchema = z.object({
   endedAt: z.number().optional(),
 });
 export type ToolCall = z.infer<typeof ToolCallSchema>;
-
 /** ツール実行 1 件の開始 / 終了 (BFF 計測)。run を跨いでセッションに控え、履歴の投影へ写す */
 export type ToolTiming = { startedAt: number; endedAt: number };
-
 /** ラン失敗の公開分類。上流の原文は公開せず、このコードだけを SSE / payload に載せる */
 export const RunErrorCodeSchema = z.enum([
   "auth_required",
@@ -458,7 +296,6 @@ export const RunErrorCodeSchema = z.enum([
   "unknown",
 ]);
 export type RunErrorCode = z.infer<typeof RunErrorCodeSchema>;
-
 /**
  * 進行中の自動再試行。`waiting` は SDK の backoff 中 (retryAt まで)、`retrying` は次の
  * assistant の message_start を観測した後。`attempt` は現在の連続失敗系列の番号で、
@@ -473,7 +310,6 @@ export const RunRetryStateSchema = z.object({
   reason: RunErrorCodeSchema,
 });
 export type RunRetryState = z.infer<typeof RunRetryStateSchema>;
-
 export const RunPayloadSchema = z.object({
   id: z.string(),
   /** この実行を開始した送信のID。所要時間と結末はこの送信だけが持つ */
@@ -492,7 +328,6 @@ export const RunPayloadSchema = z.object({
   totalRetryCount: z.number(),
 });
 export type RunPayload = z.infer<typeof RunPayloadSchema>;
-
 /** pi SDK の AssistantMessage.usage。cost は SDK が算出済みで、プロバイダが請求額を報告する場合はそれを優先し、無ければ料金表から計算する (料金表が無いモデルは 0)。 */
 export const UsageSchema = z.object({
   input: z.number(),
@@ -513,7 +348,6 @@ export const UsageSchema = z.object({
   }),
 });
 export type Usage = z.infer<typeof UsageSchema>;
-
 /**
  * 応答時間のメタ。BFF がイベントの到着時刻で測った実測か、SDK が履歴へ記録した所要時間からの概算。
  * 由来は `source` で表し、未指定は実測として扱う (足し忘れた経路を概算扱いにしないため)。
@@ -527,7 +361,6 @@ export const MessageMetricsSchema = z.object({
   source: z.enum(["measured", "recorded"]).optional(),
 });
 export type MessageMetrics = z.infer<typeof MessageMetricsSchema>;
-
 /**
  * 本文を持たない assistant 応答の時刻 / usage / 応答時間。履歴 item にならない未回答の ask_user を
  * クライアントが復元するとき、元の応答の値を `assistantId` で引き当てるために payload へ載せる。
@@ -547,7 +380,6 @@ export const AssistantMetaSchema = z.object({
   metrics: MessageMetricsSchema.optional(),
 });
 export type AssistantMeta = z.infer<typeof AssistantMetaSchema>;
-
 /** SDK の getContextUsage。compaction 直後は tokens / percent が null になる。 */
 export const ContextUsageSchema = z.object({
   tokens: z.number().nullable(),
@@ -555,11 +387,9 @@ export const ContextUsageSchema = z.object({
   percent: z.number().nullable(),
 });
 export type ContextUsage = z.infer<typeof ContextUsageSchema>;
-
 /** pi SDK の compaction_end が返す理由。entry には保存されないため DTO 側で合成する。 */
 export const CompactionReasonSchema = z.enum(["manual", "threshold", "overflow"]);
 export type CompactionReason = z.infer<typeof CompactionReasonSchema>;
-
 /**
  * pi SDK の CompactionEntry をそのまま写せる形 (表示用の文字列へ潰さず、独自の連番 ID も振らない)。
  * reason と estimatedTokensAfter は entry に保存されないため、compaction_end を受けた時点の値を
@@ -589,7 +419,6 @@ export const CompactionInfoSchema = z.object({
   durationMs: z.number().optional(),
 });
 export type CompactionInfo = z.infer<typeof CompactionInfoSchema>;
-
 export const ChatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   text: z.string(),
@@ -615,7 +444,6 @@ export const ChatMessageSchema = z.object({
   skillLoads: z.array(SkillLoadSchema).optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
-
 /**
  * 履歴項目のコンテキスト状態。active = 現在の SDK context に生のまま残る、summarized = 最新の
  * compaction の要約へ置き換わった、excluded = context_edit などで context から外れた。
@@ -623,7 +451,6 @@ export type ChatMessage = z.infer<typeof ChatMessageSchema>;
  */
 export const HistoryContextStateSchema = z.enum(["active", "summarized", "excluded"]);
 export type HistoryContextState = z.infer<typeof HistoryContextStateSchema>;
-
 /**
  * ターンの結末。値の定義は `run_end` と同じで、キュー待ちと回答待ち (ask_user の実行区間) を含めず、
  * status を終端の 3 値へ絞ったもの。メタ行の `Done · 1m 20s` はこの値から作る
@@ -633,7 +460,6 @@ export const TurnEndSchema = z.object({
   durationMs: z.number(),
 });
 export type TurnEnd = z.infer<typeof TurnEndSchema>;
-
 /** 表示用の履歴 1 件。id は SDK entry の id で、ページのカーソルと重複排除に使う */
 export const HistoryMessageItemSchema = ChatMessageSchema.extend({
   kind: z.literal("message"),
@@ -662,7 +488,6 @@ export const HistoryMessageItemSchema = ChatMessageSchema.extend({
   turnEnd: TurnEndSchema.optional(),
 });
 export type HistoryMessageItem = z.infer<typeof HistoryMessageItemSchema>;
-
 /** 圧縮イベントそのもの。発生位置を entry の並びで持ち、区切りをここに置く */
 export const HistoryCompactionItemSchema = z.object({
   kind: z.literal("compaction"),
@@ -670,10 +495,8 @@ export const HistoryCompactionItemSchema = z.object({
   compaction: CompactionInfoSchema,
 });
 export type HistoryCompactionItem = z.infer<typeof HistoryCompactionItemSchema>;
-
 export const HistoryItemSchema = z.discriminatedUnion("kind", [HistoryMessageItemSchema, HistoryCompactionItemSchema]);
 export type HistoryItem = z.infer<typeof HistoryItemSchema>;
-
 /**
  * 202 で受理したが user entry としてまだ保存されていない送信。サーバー再起動でキューごと消えた分は
  * `unsent` として見せ、実行中 / キュー待ちの分は pending エコーのまま扱わせる (表示から消さない)。
@@ -700,7 +523,6 @@ export const PendingSendSchema = z.object({
   position: z.number().optional(),
 });
 export type PendingSend = z.infer<typeof PendingSendSchema>;
-
 /**
  * カーソル型の履歴ページ。items は古い→新しい、nextCursor はさらに古いページを取るための
  * 先頭 item の id。prevCursor は先頭 item の直前の item id (ページ間の連続性検証用)。
@@ -720,7 +542,6 @@ export const HistoryPageSchema = z.object({
   summarizedMessageCount: z.number(),
 });
 export type HistoryPage = z.infer<typeof HistoryPageSchema>;
-
 /**
  * ワークスペース内のプロジェクト。cwd は rootCwd 相対で、DB へ写せるよう列はこの 4 つに保つ。
  * 後から所属を変える API は無いため、配下セッションの cwd も作成時に固定される。
@@ -733,12 +554,10 @@ export const ProjectSchema = z.object({
   createdAt: z.number(),
 });
 export type Project = z.infer<typeof ProjectSchema>;
-
 export const ProjectsResponseSchema = z.object({
   projects: z.array(ProjectSchema),
 });
 export type ProjectsResponse = z.infer<typeof ProjectsResponseSchema>;
-
 /**
  * 会話の引き継ぎの状態。`consumed` は引き継ぎ後に最初に受理した送信で立ち、
  * チップ (HANDOFF.md を参照) の表示条件になる。旧サーバーは載せない (省略 = 引き継ぎなし)。
@@ -754,18 +573,15 @@ export const SessionHandoffStateSchema = z.object({
   cleanupPending: z.boolean(),
 });
 export type SessionHandoffState = z.infer<typeof SessionHandoffStateSchema>;
-
 /**
  * SSE の `resync` を配った理由。`attempt_discarded` は失敗試行の取り消し (SDK の context_edit) で、
  * 未確定のストリーミング応答を表示から捨てる唯一の理由。省略は同じ実行の継続を表す
  */
 export const ResyncReasonSchema = z.enum(["attempt_discarded"]);
 export type ResyncReason = z.infer<typeof ResyncReasonSchema>;
-
 /** bash の外向き HTTPS を会話ごとにどう扱うか。`ask` だけが承認カードを出す */
 export const NetworkAccessModeSchema = z.enum(["allow", "ask", "deny"]);
 export type NetworkAccessMode = z.infer<typeof NetworkAccessModeSchema>;
-
 /**
  * この会話の egress の実効状態。`approved` は BFF のメモリだけにあり、停止・会話削除・sweep で戻る。
  * 拒否済みカードの「許可に変更」を出す条件と、押した後の表示に使う (旧サーバーはキーを省略する)。
@@ -775,7 +591,6 @@ export const SessionNetworkAccessSchema = z.object({
   approved: z.boolean(),
 });
 export type SessionNetworkAccess = z.infer<typeof SessionNetworkAccessSchema>;
-
 export const SessionPayloadSchema = z.object({
   spaceId: z.string().optional(),
   sessionId: z.string(),
@@ -830,7 +645,6 @@ export const SessionPayloadSchema = z.object({
   parentSessionId: z.string().optional(),
 });
 export type SessionPayload = z.infer<typeof SessionPayloadSchema>;
-
 /** 作業ディレクトリ単位の serve 成功実績。一覧の会話と稼働記録の両方がこの形で cwd とコマンドを持つ */
 export const ServeCommandSchema = z.object({
   /** ワークスペース root 相対の作業ディレクトリ */
@@ -838,7 +652,6 @@ export const ServeCommandSchema = z.object({
   command: z.string(),
 });
 export type ServeCommand = z.infer<typeof ServeCommandSchema>;
-
 export const SessionSummarySchema = z.object({
   spaceId: z.string().optional(),
   sessionId: z.string(),
@@ -891,7 +704,6 @@ export const SessionSummarySchema = z.object({
   parentSessionId: z.string().optional(),
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
-
 /**
  * 直近の送信結果 (通常通知とテスト送信で共通の 1 件)。URL とレスポンス原文は入れない。
  * 応答が返らなかった (タイムアウト / ネットワーク / リダイレクト拒否) ときは status を省略する。
@@ -908,7 +720,6 @@ export const NotificationResultSchema = z.object({
   at: z.number(),
 });
 export type NotificationResult = z.infer<typeof NotificationResultSchema>;
-
 /**
  * GET / PUT `/api/notifications` の応答。保存済み URL もその断片も返さない (write-only)。
  * `configured` は暗号文の有無、`webhookAvailable` は復号できて送信に使えるかで、`webhookEvaluated` は
@@ -929,7 +740,6 @@ export const NotificationsResponseSchema = z.object({
   lastResult: NotificationResultSchema.optional(),
 });
 export type NotificationsResponse = z.infer<typeof NotificationsResponseSchema>;
-
 /**
  * GET / PUT / DELETE `/api/settings/archive` の応答。`excludeNames` は常に実効値で、
  * `overridden` が false のときは既定の一覧を使っている（行が無い）。
@@ -942,14 +752,12 @@ export const ArchiveSettingsResponseSchema = z.object({
   maxNameLength: z.number(),
 });
 export type ArchiveSettingsResponse = z.infer<typeof ArchiveSettingsResponseSchema>;
-
 /**
  * GET / PUT / DELETE `/api/settings/shared-content-exclusions` の応答。形はアーカイブの設定と同じで、
  * 一覧エディタも同じ部品を使う（既定値・適用範囲・保存先だけが違う）。
  */
 export const SharedContentExclusionsResponseSchema = ArchiveSettingsResponseSchema;
 export type SharedContentExclusionsResponse = z.infer<typeof SharedContentExclusionsResponseSchema>;
-
 export const ModelOptionSchema = z.object({
   provider: z.string(),
   id: z.string(),
@@ -958,7 +766,6 @@ export const ModelOptionSchema = z.object({
   thinkingLevels: z.array(ThinkingLevelSchema),
 });
 export type ModelOption = z.infer<typeof ModelOptionSchema>;
-
 export const RuntimeAuthSourceSchema = z.enum([
   "environment",
   "stored",
@@ -969,7 +776,6 @@ export const RuntimeAuthSourceSchema = z.enum([
   "unknown",
 ]);
 export type RuntimeAuthSource = z.infer<typeof RuntimeAuthSourceSchema>;
-
 /** 認証の出所だけを表す。ラベルや認証情報の値は API に含めない。 */
 export const RuntimeAuthSchema = z.object({
   configured: z.boolean(),
@@ -977,34 +783,29 @@ export const RuntimeAuthSchema = z.object({
   environmentVariables: z.array(z.string()),
 });
 export type RuntimeAuth = z.infer<typeof RuntimeAuthSchema>;
-
 export const RuntimeVersionsSchema = z.object({
   piCodingAgent: z.string(),
   piAi: z.string().optional(),
   commitHash: z.string().optional(),
 });
 export type RuntimeVersions = z.infer<typeof RuntimeVersionsSchema>;
-
 export const RuntimeCatalogModelSchema = z.object({
   id: z.string(),
   name: z.string(),
   available: z.boolean(),
 });
 export type RuntimeCatalogModel = z.infer<typeof RuntimeCatalogModelSchema>;
-
 export const RuntimeCatalogProviderSchema = z.object({
   provider: z.string(),
   auth: RuntimeAuthSchema,
   models: z.array(RuntimeCatalogModelSchema),
 });
 export type RuntimeCatalogProvider = z.infer<typeof RuntimeCatalogProviderSchema>;
-
 /**
  * GET /api/runtime/models と カタログ更新 の 503。カタログを取れなかった回に空の一覧で 200 を返さず、
  * 全 provider 未認証と区別できるようにする。
  */
 export const RUNTIME_MODELS_UNAVAILABLE_MESSAGE = "ランタイムのモデル情報を取得できません";
-
 /** GET /api/runtime/models。モデル一覧はこの API を開いたときだけ取得する。 */
 export const RuntimeModelsResponseSchema = z.object({
   catalogCount: z.number().int().nonnegative(),
@@ -1013,27 +814,15 @@ export const RuntimeModelsResponseSchema = z.object({
   providers: z.array(RuntimeCatalogProviderSchema),
 });
 export type RuntimeModelsResponse = z.infer<typeof RuntimeModelsResponseSchema>;
-
-/**
- * 設定 → モデルのAPIキー入力の境界。短い値は通常出力のマスカーの下限 (MIN_SECRET_LENGTH) と揃え、
- * 長い値は DB / メモリを守るために上限を置く。
- */
-export const PROVIDER_API_KEY_MIN_LENGTH = 8;
-export const PROVIDER_API_KEY_MAX_LENGTH = 2048;
-
 /** 設定 → モデルの provider メモの上限。秘密情報ではなく、長文でカードが伸びるのを抑える境界 */
 export const PROVIDER_MEMO_MAX_LENGTH = 500;
-
 /** OAuth サインインで貼り付ける URL / コードの上限。中身の検証は SDK が行うので、長さだけを境界にする */
 export const OAUTH_LOGIN_CODE_MAX_LENGTH = 4_096;
-
 /** OAuth サインインの選択肢 id の上限。SDK の公開値は短いが、壊れた入力を state へ載せない */
 export const OAUTH_LOGIN_SELECT_ID_MAX_LENGTH = 128;
-
 /** 資格情報の種別。SDK が見ている値と、auth.json の保存値 (表示専用) の両方に使う */
 export const CredentialKindSchema = z.enum(["oauth", "api_key"]);
 export type CredentialKind = z.infer<typeof CredentialKindSchema>;
-
 export const OAuthLoginSelectOptionSchema = z.object({
   /** SDK が返す選択肢の id。画面はこの値をそのまま POST する */
   id: z.string(),
@@ -1041,14 +830,12 @@ export const OAuthLoginSelectOptionSchema = z.object({
   label: z.string(),
 });
 export type OAuthLoginSelectOption = z.infer<typeof OAuthLoginSelectOptionSchema>;
-
 /** 進行中の select prompt。選択肢の id / label だけを公開し、SDK の message は固定文言へ寄せる */
 export const OAuthLoginSelectSchema = z.object({
   message: z.string(),
   options: z.array(OAuthLoginSelectOptionSchema),
 });
 export type OAuthLoginSelect = z.infer<typeof OAuthLoginSelectSchema>;
-
 /**
  * 設定 → モデルの OAuth サインインの状態。進行中の認可 URL はこの state としてだけクライアントへ渡し、
  * 完了・失敗・キャンセルでは落とす。生の例外文言・トークン・client_id はどのフィールドにも載せない。
@@ -1071,7 +858,6 @@ export const OAuthLoginStateSchema = z.object({
   error: z.string().nullable(),
 });
 export type OAuthLoginState = z.infer<typeof OAuthLoginStateSchema>;
-
 /** 設定 → モデルの 1 プロバイダー行。認証状態は出所だけで、値・ラベル・生の認証エラーは含めない。 */
 export const ProviderAuthSettingSchema = z.object({
   provider: z.string(),
@@ -1136,7 +922,6 @@ export const ProviderAuthSettingSchema = z.object({
   memo: z.string().nullable(),
 });
 export type ProviderAuthSetting = z.infer<typeof ProviderAuthSettingSchema>;
-
 /**
  * カスタムプロバイダーのモデル。1 provider = 1 model で、contextWindow は入力を必須にする
  * (OpenAI 互換 API からは取得できないため既定値を置かない)。
@@ -1147,7 +932,6 @@ export const CustomProviderModelSchema = z.object({
   maxTokens: z.number().int(),
 });
 export type CustomProviderModel = z.infer<typeof CustomProviderModelSchema>;
-
 /**
  * 設定 → モデルのカスタムプロバイダー 1 件。**キーは返さない** (有無だけを hasKey で表す)。
  * api は v1 では openai-completions 固定。定義はアプリ DB が正で、GET は復号しない。
@@ -1168,7 +952,6 @@ export const CustomProviderSummarySchema = z.object({
   degradedMessage: z.string().nullable().optional(),
 });
 export type CustomProviderSummary = z.infer<typeof CustomProviderSummarySchema>;
-
 /**
  * `/models` の probe の失敗分類。失敗も 200 の結果として返す (HTTP エラーにすると分類と
  * `httpStatus` がクライアントの汎用エラー経路へ落ちる)。
@@ -1183,7 +966,6 @@ export const CustomProviderProbeFailureSchema = z.enum([
   "unreachable",
 ]);
 export type CustomProviderProbeFailure = z.infer<typeof CustomProviderProbeFailureSchema>;
-
 /**
  * カスタムプロバイダーのモデル一覧取得の結果。`failure === null` が成功で、`message` も `httpStatus` も
  * null になる。失敗は `models: []` で `message` が非 null。**キーは載せない**。
@@ -1199,7 +981,6 @@ export const CustomProviderProbeResponseSchema = z.object({
   message: z.string().nullable(),
 });
 export type CustomProviderProbeResponse = z.infer<typeof CustomProviderProbeResponseSchema>;
-
 /** GET /api/settings/models。カタログ全件は載せず、利用可能なモデルは allowedModels だけが持つ */
 export const ModelsSettingsResponseSchema = z.object({
   runtimeAvailable: z.boolean(),
@@ -1217,13 +998,11 @@ export const ModelsSettingsResponseSchema = z.object({
   customProviders: z.array(CustomProviderSummarySchema),
 });
 export type ModelsSettingsResponse = z.infer<typeof ModelsSettingsResponseSchema>;
-
 /** 変更系 (PUT / DELETE / resync) の応答。GET と同型 + 必須の state (GET は state を持たない) */
 export const ModelMutationResponseSchema = ModelsSettingsResponseSchema.extend({
   state: z.enum(["applied", "applied_unsynced"]),
 });
 export type ModelMutationResponse = z.infer<typeof ModelMutationResponseSchema>;
-
 /**
  * POST /api/settings/models/catalog/refresh。設定は変えず、取得できなくても 200 で現在のカタログを返す
  * (`catalogError` にだけ今回の取得結果の固定文言を載せる。一覧を失わせない)。
@@ -1233,32 +1012,27 @@ export const ModelCatalogRefreshResponseSchema = RuntimeModelsResponseSchema.ext
   catalogError: z.string().nullable(),
 });
 export type ModelCatalogRefreshResponse = z.infer<typeof ModelCatalogRefreshResponseSchema>;
-
 /** 変更系の失敗応答 (何も変わっていない)。400 は error のみ */
 export const ModelMutationErrorSchema = z.object({
   error: z.string(),
   state: z.literal("not_stored"),
 });
 export type ModelMutationError = z.infer<typeof ModelMutationErrorSchema>;
-
 export const UpdateProviderKeyBodySchema = z.object({
   apiKey: z.string().min(PROVIDER_API_KEY_MIN_LENGTH).max(PROVIDER_API_KEY_MAX_LENGTH),
 });
 export type UpdateProviderKeyBody = z.infer<typeof UpdateProviderKeyBodySchema>;
-
 /** メモの保存。空文字は行を消して未設定へ戻す (trim は service が行う) */
 export const UpdateProviderMemoBodySchema = z.object({
   memo: z.string().max(PROVIDER_MEMO_MAX_LENGTH),
 });
 export type UpdateProviderMemoBody = z.infer<typeof UpdateProviderMemoBodySchema>;
-
 /** カスタムプロバイダーのモデル入力。上限と正の整数の検証は service が固定文言で行う */
 export const CustomProviderModelBodySchema = z.object({
   id: z.string(),
   contextWindow: z.number(),
   maxTokens: z.number().optional(),
 });
-
 /** カスタムプロバイダーの作成。id は作成後変更できない。キーは必須で、8..2048 文字 */
 export const CreateCustomProviderBodySchema = z.object({
   id: z.string(),
@@ -1268,7 +1042,6 @@ export const CreateCustomProviderBodySchema = z.object({
   model: CustomProviderModelBodySchema,
 });
 export type CreateCustomProviderBody = z.infer<typeof CreateCustomProviderBodySchema>;
-
 /** カスタムプロバイダーの更新。id は変更不可なので body に持たず、apiKey の空欄は既存の維持 */
 export const UpdateCustomProviderBodySchema = z.object({
   name: z.string().optional(),
@@ -1277,7 +1050,6 @@ export const UpdateCustomProviderBodySchema = z.object({
   model: CustomProviderModelBodySchema,
 });
 export type UpdateCustomProviderBody = z.infer<typeof UpdateCustomProviderBodySchema>;
-
 /**
  * モデル一覧の probe。`provider` を渡すと保存済みのキーを使えて (キーは応答に返らない)、
  * `apiKey` が空欄なら保存済みを維持する。どちらも無ければ service が 400 にする。
@@ -1288,26 +1060,22 @@ export const CustomProviderProbeBodySchema = z.object({
   apiKey: z.string().optional(),
 });
 export type CustomProviderProbeBody = z.infer<typeof CustomProviderProbeBodySchema>;
-
 /** OAuth サインインの貼り付け (ブラウザの最後の画面の URL / コード)。値は応答にもログにも載せない */
 export const SubmitOAuthLoginCodeBodySchema = z.object({
   code: z.string().trim().min(1).max(OAUTH_LOGIN_CODE_MAX_LENGTH),
 });
 export type SubmitOAuthLoginCodeBody = z.infer<typeof SubmitOAuthLoginCodeBodySchema>;
-
 /** OAuth サインインの方式選択。進行中の select の選択肢 id だけを受け付ける */
 export const SubmitOAuthLoginSelectBodySchema = z.object({
   id: z.string().trim().min(1).max(OAUTH_LOGIN_SELECT_ID_MAX_LENGTH),
 });
 export type SubmitOAuthLoginSelectBody = z.infer<typeof SubmitOAuthLoginSelectBodySchema>;
-
 /** 利用可能なモデルの一括保存。両方 null が「未設定へ戻す」なので DELETE は持たない */
 export const UpdateModelAvailabilityBodySchema = z.object({
   allowedModels: z.array(z.string()).nullable(),
   defaultModel: z.string().nullable(),
 });
 export type UpdateModelAvailabilityBody = z.infer<typeof UpdateModelAvailabilityBodySchema>;
-
 /**
  * 画像生成のパラメータ値。**6 キー固定の strict object** で、`seed` だけが整数、他は文字列。
  * `z.record` で受けると `"42"` と `42` で正規化キーが変わるため、キーを明示する。
@@ -1329,7 +1097,6 @@ export const ImageParameterValuesSchema = z
   })
   .strict();
 export type ImageParameterValues = z.infer<typeof ImageParameterValuesSchema>;
-
 /**
  * 生成パラメータの宣言 1 件。`boolean` は「そのパラメータを受け付ける」の意味で、値は送らない。
  * 宣言の正規化（未知キーの除去・`output_format` の積）は `server/src/images.ts` が行う。
@@ -1339,7 +1106,6 @@ export const ImageParameterDescriptorSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("range"), min: z.number(), max: z.number() }),
   z.object({ type: z.literal("boolean") }),
 ]);
-
 /** 宣言の集まり。名前は許可リストの 6 つに固定し、読めなかった項目は載せない */
 export const ImageParameterDeclarationsSchema = z
   .object({
@@ -1351,7 +1117,6 @@ export const ImageParameterDeclarationsSchema = z
     seed: ImageParameterDescriptorSchema.optional(),
   })
   .strict();
-
 /** 価格 1 件。`billable`（上流の語彙）は DTO へ持ち込まない。`variant` は加算オプションを含む */
 export const ModelPriceSchema = z.object({
   unit: z.enum(COST_UNITS),
@@ -1364,10 +1129,8 @@ export const ModelPriceSchema = z.object({
   currency: z.literal("USD"),
 });
 export type ModelPrice = z.infer<typeof ModelPriceSchema>;
-
 /** 画像だけを扱う既存コードの別名。中身は `ModelPrice` と同じ（音声と共有する） */
 export type ImageModelPrice = ModelPrice;
-
 /** 画像生成のカタログ 1 件。provider は将来の追加に備えて載せ、値は開放しない */
 export const ImageModelSchema = z.object({
   provider: z.string(),
@@ -1386,11 +1149,9 @@ export const ImageModelSchema = z.object({
   note: z.string().nullable(),
 });
 export type ImageModel = z.infer<typeof ImageModelSchema>;
-
 /** カタログの出どころ。live 以外は取得に失敗しており、前回の一覧か SDK 同梱を表示している */
 export const ImageCatalogSourceSchema = z.enum(["live", "stored", "sdk"]);
 export type ImageCatalogSource = z.infer<typeof ImageCatalogSourceSchema>;
-
 /**
  * 音声カタログ 1 件。`voices` は live が宣言する話者で、宣言が無いとき（Fish Audio / Seed Audio など）は
  * 載せない（UI は自由記述を許し、サーバーも生成前ガードをしない）。
@@ -1408,28 +1169,24 @@ export const SpeechModelSchema = z.object({
   note: z.string().nullable(),
 });
 export type SpeechModel = z.infer<typeof SpeechModelSchema>;
-
 /**
  * 音声カタログの出どころ。live 以外は取得に失敗しており、前回の一覧か同梱の既定 1 件を表示している。
  * 画像の `sdk` と同じ位置付けだが、同梱が SDK ではなく 1 件だけなので別名にする（docs/speech-generation.md）。
  */
 export const SpeechCatalogSourceSchema = z.enum(["live", "stored", "default"]);
 export type SpeechCatalogSource = z.infer<typeof SpeechCatalogSourceSchema>;
-
 /**
  * 画像の生成元。値の正は `server/src/images.ts` の `IMAGE_GENERATION_PROVIDERS`。
  * provider 間の自動フォールバックはなく、設定で明示的に選んだ片方だけを使う。
  */
 export const ImageGenerationProviderSchema = z.enum(["openrouter", "codex"]);
 export type ImageGenerationProvider = z.infer<typeof ImageGenerationProviderSchema>;
-
 /** 画像の認証状態。値を伏せたまま「使えるか / 何を入れれば使えるか」だけを返す */
 export const ContentImageAuthSchema = z.object({
   state: z.enum(["configured", "missing", "expired"]),
   kind: z.enum(["api_key", "oauth"]).nullable(),
 });
 export type ContentImageAuth = z.infer<typeof ContentImageAuthSchema>;
-
 /**
  * GET /api/settings/content の `image`。`configured: false` のとき `model` は null（行が無い = 未設定）。
  * 音声など別の生成物を足すときは、この兄弟として項目を増やす（`image` の形は変えない）。
@@ -1453,7 +1210,6 @@ export const ContentImageSettingsSchema = z.object({
   parametersByModel: z.record(z.string(), ImageParameterValuesSchema),
 });
 export type ContentImageSettings = z.infer<typeof ContentImageSettingsSchema>;
-
 /**
  * GET /api/settings/content の `speech`。行があるときは `model` / `voice` を返し、`NULL` の既存列は
  * 既定モデルと「そのモデルが宣言する先頭ボイス」へフォールバックして返す（UI に「（未設定）」を出さない）。
@@ -1471,14 +1227,12 @@ export const ContentSpeechSettingsSchema = z.object({
   fetchedAt: z.number().nullable(),
 });
 export type ContentSpeechSettings = z.infer<typeof ContentSpeechSettingsSchema>;
-
 export const ContentBgmSettingsSchema = z.object({
   model: z.string().nullable(),
   format: z.literal("mp3"),
   expectedDurationSeconds: z.literal(30),
 });
 export type ContentBgmSettings = z.infer<typeof ContentBgmSettingsSchema>;
-
 /**
  * GET /api/settings/content。`configured: false` のとき provider は null（行が無い = 未設定）。
  * APIキーは返さない。`enabled` はアプリ全体の有効 / 無効で、行が無いときは既定 (ON) を返す
@@ -1524,32 +1278,26 @@ export const ContentSettingsResponseSchema = z.object({
   bgm: ContentBgmSettingsSchema,
 });
 export type ContentSettingsResponse = z.infer<typeof ContentSettingsResponseSchema>;
-
 /** 変更系（PUT / DELETE）の応答。SDK への反映を持たないため `applied` だけを返す */
 export const ContentMutationResponseSchema = ContentSettingsResponseSchema.extend({
   state: z.literal("applied"),
 });
 export type ContentMutationResponse = z.infer<typeof ContentMutationResponseSchema>;
-
 /**
  * 試行ジョブの状態。終端（`succeeded` / `failed` / `canceled` / `interrupted`）は不変で、
  * `running` からしか遷移しない。値の正は `server/src/content-trials.ts`。
  */
 export const ContentTrialStateSchema = z.enum(CONTENT_TRIAL_STATES);
 export type ContentTrialStateValue = z.infer<typeof ContentTrialStateSchema>;
-
 /** 試行の種別。画像 / 音声 / BGM は同じジョブの仕組みと履歴を使う */
 export const ContentTrialKindSchema = z.enum(CONTENT_TRIAL_KINDS);
 export type ContentTrialKindValue = z.infer<typeof ContentTrialKindSchema>;
-
 /** 成果物の状態。`none` は保存していない行（段階 1 の行と、保存に失敗した成功）で `stored` は保存済み */
 export const ContentTrialArtifactStateSchema = z.enum(CONTENT_TRIAL_ARTIFACT_STATES);
 export type ContentTrialArtifactStateValue = z.infer<typeof ContentTrialArtifactStateSchema>;
-
 /** 保存できる成果物の形式。値の正は `server/src/content-trial-artifacts.ts` */
 export const ContentTrialArtifactFormatSchema = z.enum(TRIAL_ARTIFACT_FORMATS);
 export type ContentTrialArtifactFormatValue = z.infer<typeof ContentTrialArtifactFormatSchema>;
-
 /**
  * 保存済みの成果物のメタデータ。実体の置き場（パス）は応答に載せず、配信は trial id だけで引く。
  * 寸法は画像だけの値で、読めなかったときは null。
@@ -1561,7 +1309,6 @@ export const ContentTrialArtifactSchema = z.object({
   height: z.number().nullable(),
 });
 export type ContentTrialArtifact = z.infer<typeof ContentTrialArtifactSchema>;
-
 /**
  * 試行 1 件の要約。`prompt` と `instructions` は長いため一覧には載せず、選んだ行の全文は
  * `GET /api/settings/content/trials/:id` で取る（`promptPreview` は行に出す抜粋）。
@@ -1599,25 +1346,21 @@ export const ContentTrialSummarySchema = z.object({
   recorded: z.boolean(),
 });
 export type ContentTrialSummary = z.infer<typeof ContentTrialSummarySchema>;
-
 /** 試行 1 件の全文。要約に本文と演技指示を足した形（単体取得・開始・中断の応答） */
 export const ContentTrialSchema = ContentTrialSummarySchema.extend({
   prompt: z.string(),
   instructions: z.string().nullable(),
 });
 export type ContentTrial = z.infer<typeof ContentTrialSchema>;
-
 /** POST /api/settings/content/trials の 202（開始）と 200（同じ入力の再利用）と、GET / cancel の 200 */
 export const ContentTrialResponseSchema = z.object({ trial: ContentTrialSchema });
 export type ContentTrialResponse = z.infer<typeof ContentTrialResponseSchema>;
-
 /**
  * 開始の応答。`reused: true` は「同じ入力の保存済み成功を返した」を表し、provider を呼ばず課金しない
  * （status は 200、開始したときは 202）。
  */
 export const ContentTrialStartResponseSchema = z.object({ trial: ContentTrialSchema, reused: z.boolean() });
 export type ContentTrialStartResponse = z.infer<typeof ContentTrialStartResponseSchema>;
-
 /**
  * GET /api/settings/content/trials。`keyEpoch` は現在の世代で、各行の `keyEpoch` と比べて
  * 旧キーの実績を証拠から外す。並びは新しい順（時間ベースの自動削除はしない）。
@@ -1626,14 +1369,12 @@ export type ContentTrialStartResponse = z.infer<typeof ContentTrialStartResponse
  */
 export const ContentTrialArtifactUsageSchema = z.object({ count: z.number(), bytes: z.number() });
 export type ContentTrialArtifactUsageValue = z.infer<typeof ContentTrialArtifactUsageSchema>;
-
 /**
  * 保存容量の警告。しきい値は server の定数（`server/src/content-trial-artifacts.ts`）で、
  * `artifactUsage.bytes` がこれを**超えた**とき `warning: true`。
  */
 export const ContentTrialArtifactWarningSchema = z.object({ thresholdBytes: z.number(), warning: z.boolean() });
 export type ContentTrialArtifactWarningValue = z.infer<typeof ContentTrialArtifactWarningSchema>;
-
 export const ContentTrialListResponseSchema = z.object({
   items: z.array(ContentTrialSummarySchema),
   keyEpoch: z.number(),
@@ -1645,11 +1386,9 @@ export const ContentTrialListResponseSchema = z.object({
   hasMore: z.boolean(),
 });
 export type ContentTrialListResponse = z.infer<typeof ContentTrialListResponseSchema>;
-
 /** 削除の応答。個別削除は 0 / 1、すべて削除は消した件数（`running` は対象にしない） */
 export const ContentTrialDeleteResponseSchema = z.object({ removed: z.number() });
 export type ContentTrialDeleteResponse = z.infer<typeof ContentTrialDeleteResponseSchema>;
-
 /**
  * POST /api/settings/content/trials。試行は画面の値で実行し、設定には反映しない。
  * 種別ごとに同時 1 本で、実行中は 409。`voice` / `instructions` / `speed` は音声のときだけ受け付け、
@@ -1672,18 +1411,15 @@ export const CreateContentTrialBodySchema = z.object({
   parameters: ImageParameterValuesSchema.optional(),
 });
 export type CreateContentTrialBody = z.infer<typeof CreateContentTrialBodySchema>;
-
 /** 共有物の状態。値の正は `server/src/app-db.ts` の `SharedContentStatus` */
 export const SharedContentStatusSchema = z.enum(["publishing", "published", "stopped", "failed"]);
 export type SharedContentStatusValue = z.infer<typeof SharedContentStatusSchema>;
-
 /**
  * 公開元の種類。`session-root` はセッションの作業フォルダ自身 (GUI の `index.html` 行からの入口)、
  * `directory` はその配下のディレクトリ。値の正は `server/src/app-db.ts` の `SharedContentSourceKind`
  */
 export const SharedContentSourceKindSchema = z.enum(["directory", "session-root"]);
 export type SharedContentSourceKindValue = z.infer<typeof SharedContentSourceKindSchema>;
-
 /** GET /api/shared-contents と GET /api/shared-contents/:id。provider 固有の ID とアカウントは返さない */
 /**
  * 共有物のサムネイルのメタデータ。実体 (PNG) は `GET /api/shared-contents/:id/thumbnail` で別に取る。
@@ -1696,13 +1432,11 @@ export const SharedContentThumbnailSchema = z.object({
   bytes: z.number().int().nonnegative(),
 });
 export type SharedContentThumbnail = z.infer<typeof SharedContentThumbnailSchema>;
-
 /** PUT /api/shared-contents/:id/thumbnail の応答。差し替えた行のメタをその場で返す */
 export const SharedContentThumbnailResponseSchema = z.object({
   thumbnail: SharedContentThumbnailSchema,
 });
 export type SharedContentThumbnailResponse = z.infer<typeof SharedContentThumbnailResponseSchema>;
-
 export const SharedContentResponseSchema = z.object({
   id: z.string(),
   sessionId: z.string(),
@@ -1721,12 +1455,10 @@ export const SharedContentResponseSchema = z.object({
   thumbnail: SharedContentThumbnailSchema.nullable(),
 });
 export type SharedContentResponse = z.infer<typeof SharedContentResponseSchema>;
-
 export const SharedContentsResponseSchema = z.object({
   items: z.array(SharedContentResponseSchema),
 });
 export type SharedContentsResponse = z.infer<typeof SharedContentsResponseSchema>;
-
 /** POST /api/shared-contents。directory はセッションの作業ディレクトリ相対 */
 export const CreateSharedContentBodySchema = z.object({
   sessionId: z.string().min(1).max(64),
@@ -1734,27 +1466,23 @@ export const CreateSharedContentBodySchema = z.object({
   name: z.string().max(100).optional(),
 });
 export type CreateSharedContentBody = z.infer<typeof CreateSharedContentBodySchema>;
-
 /** PATCH /api/shared-contents/:id。表示名だけを変える (URL・状態・成果物は変えない) */
 export const RenameSharedContentBodySchema = z.object({
   name: z.string().min(1).max(100),
 });
 export type RenameSharedContentBody = z.infer<typeof RenameSharedContentBodySchema>;
-
 /** 作成・更新・再試行の受付応答。状態は GET で読む */
 export const SharedContentMutationResponseSchema = z.object({
   id: z.string(),
   status: z.literal("publishing"),
 });
 export type SharedContentMutationResponse = z.infer<typeof SharedContentMutationResponseSchema>;
-
 /** POST /api/shared-contents/:id/stop。停止は同期で確定する (200)。未公開の行は failed を返す */
 export const SharedContentStopResponseSchema = z.object({
   id: z.string(),
   status: z.union([z.literal("stopped"), z.literal("failed")]),
 });
 export type SharedContentStopResponse = z.infer<typeof SharedContentStopResponseSchema>;
-
 /**
  * GET /api/shared-contents/preview。公開前の見え方を返す補助で、確定は公開ジョブの検証。
  * `limited` (413) のときは走査が終わっていないため、件数・サイズ・index.html の有無は `null` にする。
@@ -1780,7 +1508,6 @@ export const SharedContentPreviewResponseSchema = z.object({
   problems: z.array(z.string()),
 });
 export type SharedContentPreviewResponse = z.infer<typeof SharedContentPreviewResponseSchema>;
-
 /**
  * GET /api/settings/cloudflare。トークンは返さず、登録状態とアカウント ID だけを返す。
  * `available: false` は master key が使えず、登録・復号が 503 になる状態。
@@ -1792,7 +1519,6 @@ export const CloudflareSettingsResponseSchema = z.object({
   unavailableReason: z.string().nullable(),
 });
 export type CloudflareSettingsResponse = z.infer<typeof CloudflareSettingsResponseSchema>;
-
 /**
  * 接続確認の失敗の分類。`CloudflareFailureKind` に、workers.dev サブドメインが空だった場合だけを
  * 接続確認側で足す（`CloudflareFailureKind` 自体は広げない）。
@@ -1810,7 +1536,6 @@ export const CloudflareConnectionFailureSchema = z.enum([
   "no_subdomain",
 ]);
 export type CloudflareConnectionFailure = z.infer<typeof CloudflareConnectionFailureSchema>;
-
 /**
  * POST /api/settings/cloudflare/check。保存済みの資格情報で Cloudflare へ届くかを確かめた結果で、
  * 失敗も 200 で返す。成功は `failure === null` かつ `subdomain` が非空、失敗は `subdomain === null`
@@ -1826,13 +1551,11 @@ export const CloudflareConnectionCheckResponseSchema = z.object({
   message: z.string().nullable(),
 });
 export type CloudflareConnectionCheckResponse = z.infer<typeof CloudflareConnectionCheckResponseSchema>;
-
 /** 変更系 (PUT / DELETE) の応答。何も保存されなかった 503 は `state: "not_stored"` */
 export const CloudflareMutationResponseSchema = CloudflareSettingsResponseSchema.extend({
   state: z.literal("applied"),
 });
 export type CloudflareMutationResponse = z.infer<typeof CloudflareMutationResponseSchema>;
-
 /**
  * PUT /api/settings/cloudflare。`apiToken` を省略した更新は保存済みトークンを維持する。
  * 形式の検証はサービス側で行い、値そのものは応答・ログへ出さない。
@@ -1842,7 +1565,6 @@ export const UpdateCloudflareSettingsBodySchema = z.object({
   apiToken: z.string().max(512).optional(),
 });
 export type UpdateCloudflareSettingsBody = z.infer<typeof UpdateCloudflareSettingsBodySchema>;
-
 /**
  * POST /api/settings/content/catalog/refresh。取得できなくても常に 200 で、その時点の
  * `ContentSettingsResponse` と同じ形を返す。失敗は系統ごとに `errors` へ分け、1 系統の失敗で
@@ -1854,12 +1576,10 @@ export const ContentCatalogRefreshErrorsSchema = z.object({
   cost: z.string().optional(),
 });
 export type ContentCatalogRefreshErrors = z.infer<typeof ContentCatalogRefreshErrorsSchema>;
-
 export const ContentCatalogRefreshResponseSchema = ContentSettingsResponseSchema.extend({
   errors: ContentCatalogRefreshErrorsSchema,
 });
 export type ContentCatalogRefreshResponse = z.infer<typeof ContentCatalogRefreshResponseSchema>;
-
 /**
  * PUT /api/settings/content/cost-url。コストマスタの接続先とトグルを 1 回で保存する。
  * `enabled: true` は URL 必須で、`enabled: false` + 空 URL は行の削除（未設定）として扱う。
@@ -1869,14 +1589,12 @@ export const UpdateContentCostBodySchema = z.object({
   url: z.string().max(2048),
 });
 export type UpdateContentCostBody = z.infer<typeof UpdateContentCostBodySchema>;
-
 /** 変更系の失敗応答（何も変わっていない）。400 は error のみ */
 export const ContentMutationErrorSchema = z.object({
   error: z.string(),
   state: z.literal("not_stored"),
 });
 export type ContentMutationError = z.infer<typeof ContentMutationErrorSchema>;
-
 /**
  * provider / model の変更。キーは保持したまま差し替える（行が無ければ 400）。
  * `parameters` は保存する生成パラメータの既定で、省略 = 据え置き / `{}` = そのモデルの既定を削除 /
@@ -1888,7 +1606,6 @@ export const UpdateContentImageBodySchema = z.object({
   parameters: ImageParameterValuesSchema.optional(),
 });
 export type UpdateContentImageBody = z.infer<typeof UpdateContentImageBodySchema>;
-
 /**
  * PUT /api/settings/content/image/provider。画像の生成元の切り替えで、キーもモデルも伴わない。
  * 未設定の行でも受け付ける（Codex は APIキーを使わない）。
@@ -1897,7 +1614,6 @@ export const UpdateContentImageProviderBodySchema = z.object({
   provider: ImageGenerationProviderSchema,
 });
 export type UpdateContentImageProviderBody = z.infer<typeof UpdateContentImageProviderBodySchema>;
-
 /**
  * 音声モデル / 話者の変更。キーと provider は保持したまま差し替える（行が無ければ 400）。
  * `voice` の空文字は「指定なし」で、宣言が無いモデルへの自由記述もここを通す（照合はサービス側）。
@@ -1907,7 +1623,6 @@ export const UpdateContentSpeechBodySchema = z.object({
   voice: z.string(),
 });
 export type UpdateContentSpeechBody = z.infer<typeof UpdateContentSpeechBodySchema>;
-
 /**
  * PUT /api/settings/content。有効 / 無効の切り替え。キーと選択は保持し、行が無ければ 400（キー登録が先）。
  * 画像・音声・BGM は 1 つのトグルを共有する。
@@ -1916,13 +1631,11 @@ export const UpdateContentEnabledBodySchema = z.object({
   enabled: z.boolean(),
 });
 export type UpdateContentEnabledBody = z.infer<typeof UpdateContentEnabledBodySchema>;
-
 /** 画像APIキーの登録・上書き。長さは provider_credentials と同じ */
 export const UpdateContentKeyBodySchema = z.object({
   apiKey: z.string().min(PROVIDER_API_KEY_MIN_LENGTH).max(PROVIDER_API_KEY_MAX_LENGTH),
 });
 export type UpdateContentKeyBody = z.infer<typeof UpdateContentKeyBodySchema>;
-
 /**
  * 設定 → ランタイムの実行環境カードが使う状態。`connected` だけが情報を持ち、他は理由の分類だけを返す
  * (URL / トークン / 内部エラーは載せない)。`connected` は診断 API の正常応答だけで、
@@ -1937,7 +1650,6 @@ export const RuntimeEnvironmentStateSchema = z.enum([
   "probe_failed",
 ]);
 export type RuntimeEnvironmentState = z.infer<typeof RuntimeEnvironmentStateSchema>;
-
 /**
  * サンドボックスの `GET /v1/runtime/info` の応答検証。ワイヤ契約の正は `sandbox/protocol.ts` の
  * `SandboxRuntimeInfo` で、ここは BFF が受けた応答を検証するための写し。
@@ -1969,7 +1681,6 @@ export const SandboxRuntimeInfoSchema = z.object({
     })
     .optional(),
 });
-
 /**
  * GET /api/runtime/environment の公開 DTO。未接続でも HTTP 200 で返し、UI は HTTP ステータスや
  * 文言ではなく `state` で分岐する。共通の項目は `sandbox/protocol.ts` の型をそのまま使う。
@@ -1986,10 +1697,8 @@ export type RuntimeEnvironmentResponse =
       gitConfig: SandboxGitConfigStatus | null;
     }
   | { state: Exclude<RuntimeEnvironmentState, "connected"> };
-
 /** クライアントへ配るため、ワイヤ契約の共通項目も schema 経由で再 export する */
 export type { SandboxGitConfigStatus, SandboxLandlockStatus, SandboxRuntimeCommand, SandboxRuntimeEnvironment };
-
 /** client/src/types.ts の Health に加え、ルート固有のフィールドを optional で許容する。 */
 export const HealthSchema = z.object({
   cwd: z.string().optional(),
@@ -2046,7 +1755,6 @@ export const HealthSchema = z.object({
     .optional(),
 });
 export type Health = z.infer<typeof HealthSchema>;
-
 /**
  * 作業領域の一覧 (サンドボックス GET /v1/files の応答をそのまま返す)。
  * ワイヤ契約の正は server/src/sandbox/protocol.ts で、ここは BFF が受けた応答の検証用。
@@ -2062,7 +1770,6 @@ export const FileEntrySchema = z.object({
   mtime: z.number().optional(),
 });
 export type FileEntry = z.infer<typeof FileEntrySchema>;
-
 export const FileListingSchema = z.object({
   /** root 相対の正規化パス (root は ".") */
   path: z.string(),
@@ -2070,21 +1777,18 @@ export const FileListingSchema = z.object({
   truncated: z.boolean(),
 });
 export type FileListing = z.infer<typeof FileListingSchema>;
-
 /**
  * 単一ファイルの存在確認 (BFF GET /api/files/stat とサンドボックス GET /v1/files/stat の応答)。
  * path は実在を確認できた通常ファイルの root 相対の正規化パス (root は ".")。本文は含まない。
  */
 export const FileStatSchema = z.object({ path: z.string() });
 export type FileStat = z.infer<typeof FileStatSchema>;
-
 /**
  * git 情報 (サンドボックス GET /v1/files/git の応答)。branch は HEAD のブランチ名で、detached HEAD は
  * 短縮 SHA。repo の外・git が無い環境は null で、UI はチップを出さないだけにする。
  */
 export const GitInfoSchema = z.object({ branch: z.string().nullable() });
 export type GitInfo = z.infer<typeof GitInfoSchema>;
-
 /**
  * テキストプレビュー (サンドボックス GET /v1/files/preview の応答)。
  * サンドボックス側の上限はバイト数で、ここは UTF-16 単位の防御。UTF-8 ではバイト数 ≥ 単位数なので通った文字列を弾かない。
@@ -2092,7 +1796,6 @@ export type GitInfo = z.infer<typeof GitInfoSchema>;
  */
 export const FilePreviewSchema = z.object({ text: z.string().max(2 * 1024 * 1024) });
 export type FilePreview = z.infer<typeof FilePreviewSchema>;
-
 /**
  * アップロード応答 (サンドボックス POST /v1/files/upload の応答をそのまま返す)。
  * path はセッションの作業フォルダ相対で、raw 表示 URL はクライアントが root 相対へ変換する。
@@ -2104,7 +1807,6 @@ export const FileUploadSchema = z.object({
   size: z.number(),
 });
 export type FileUpload = z.infer<typeof FileUploadSchema>;
-
 /**
  * リネーム (POST /api/files/rename) のリクエストボディ。path は root 相対のエントリ、name は 1 セグメントの新しい名前。
  * 名前の形式 (空・`.`・`..`・`/` など) とパスの検証はサンドボックスが行う。
@@ -2114,7 +1816,6 @@ export const RenameFileBodySchema = z.object({
   name: z.string(),
 });
 export type RenameFileBody = z.infer<typeof RenameFileBodySchema>;
-
 /**
  * リネーム応答 (サンドボックス POST /v1/files/rename の応答をそのまま返す)。
  * path は改名後のエントリのワークスペース root 相対パス。
@@ -2124,7 +1825,6 @@ export const FileRenameSchema = z.object({
   name: z.string(),
 });
 export type FileRename = z.infer<typeof FileRenameSchema>;
-
 /**
  * ダウンロードの事前チェック (BFF GET /api/files/download/check とサンドボックス GET /v1/files/download/check の応答)。
  * ワイヤ契約の正は server/src/sandbox/protocol.ts の `SandboxDownloadCheck`。
@@ -2139,7 +1839,6 @@ export const FileDownloadCheckSchema = z.object({
   skipped: z.array(z.string()),
 });
 export type FileDownloadCheck = z.infer<typeof FileDownloadCheckSchema>;
-
 /**
  * サンドボックス GET /v1/skills の応答。ワイヤ契約の正は server/src/sandbox/protocol.ts で、
  * ここは BFF が受けた応答の検証用。
@@ -2155,7 +1854,6 @@ export const SandboxSkillsSchema = z.object({
     }),
   ),
 });
-
 /**
  * ファイルスキル (`.agents/skills`) 1 件。catalog のスキル定義と違って読み取り専用で、編集・削除・
  * エージェント割り当ての対象外 (docs/api-catalog.md)。同名は優先順位で一意化され、
@@ -2168,7 +1866,6 @@ export const FileSkillShadowedSchema = z.object({
   relativePath: z.string(),
 });
 export type FileSkillShadowed = z.infer<typeof FileSkillShadowedSchema>;
-
 export const FileSkillInfoSchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -2188,11 +1885,9 @@ export const FileSkillInfoSchema = z.object({
   version: z.string().optional(),
 });
 export type FileSkillInfo = z.infer<typeof FileSkillInfoSchema>;
-
 /** GET /api/skills/files の応答 */
 export const FileSkillsResponseSchema = z.object({ skills: z.array(FileSkillInfoSchema) });
 export type FileSkillsResponse = z.infer<typeof FileSkillsResponseSchema>;
-
 /**
  * サンドボックス GET /v1/skills/file の応答。ワイヤ契約の正は server/src/sandbox/protocol.ts で、
  * ここは BFF が受けた応答の検証用。body は frontmatter を除いた原文 (trim しない)。
@@ -2211,21 +1906,18 @@ export const SandboxSkillFileDetailSchema = z.object({
   reason: z.string().optional(),
 });
 export type SandboxSkillFileDetail = z.infer<typeof SandboxSkillFileDetailSchema>;
-
 /** サンドボックス POST /v1/skills/file の応答 */
 export const SandboxSkillCreateResultSchema = z.object({
   relativePath: z.string(),
   fileVersion: z.string(),
 });
 export type SandboxSkillCreateResult = z.infer<typeof SandboxSkillCreateResultSchema>;
-
 /** サンドボックス PATCH /v1/skills/file の応答。変更なしの保存も同じ形で現在の版を返す */
 export const SandboxSkillSaveResultSchema = z.object({
   relativePath: z.string(),
   fileVersion: z.string(),
 });
 export type SandboxSkillSaveResult = z.infer<typeof SandboxSkillSaveResultSchema>;
-
 /** サンドボックス GET /v1/skills/file/delete-preview の応答。削除は treeVersion の一致を要求する */
 export const SandboxSkillDeletePreviewSchema = z.object({
   relativePath: z.string(),
@@ -2239,7 +1931,6 @@ export const SandboxSkillDeletePreviewSchema = z.object({
   files: z.array(z.string()),
 });
 export type SandboxSkillDeletePreview = z.infer<typeof SandboxSkillDeletePreviewSchema>;
-
 /**
  * サンドボックス POST /v1/skills/import の応答。ワイヤ契約の正は server/src/sandbox/protocol.ts で、
  * ここは BFF が受けた応答の検証用。plan は skills、apply は applied / skipped を返す。
@@ -2251,7 +1942,6 @@ export const SandboxSkillImportPlanEntrySchema = z.object({
   reason: z.string().optional(),
 });
 export type SandboxSkillImportPlanEntry = z.infer<typeof SandboxSkillImportPlanEntrySchema>;
-
 export const SandboxSkillsImportPlanSchema = z.object({
   skills: z.array(SandboxSkillImportPlanEntrySchema),
   /** 検証に使った ZIP の総エントリ数 (ディレクトリを含む) */
@@ -2260,7 +1950,6 @@ export const SandboxSkillsImportPlanSchema = z.object({
   bytes: z.number().int().nonnegative(),
 });
 export type SandboxSkillsImportPlan = z.infer<typeof SandboxSkillsImportPlanSchema>;
-
 export const SandboxSkillImportAppliedSchema = z.object({
   name: z.string(),
   /** `.agents/skills/<name>/SKILL.md` (root 相対) */
@@ -2270,13 +1959,11 @@ export const SandboxSkillImportAppliedSchema = z.object({
   replaced: z.boolean(),
 });
 export type SandboxSkillImportApplied = z.infer<typeof SandboxSkillImportAppliedSchema>;
-
 export const SandboxSkillImportSkippedSchema = z.object({
   name: z.string(),
   reason: z.string(),
 });
 export type SandboxSkillImportSkipped = z.infer<typeof SandboxSkillImportSkippedSchema>;
-
 export const SandboxSkillsImportApplySchema = z.object({
   applied: z.array(SandboxSkillImportAppliedSchema),
   skipped: z.array(SandboxSkillImportSkippedSchema),
@@ -2284,11 +1971,9 @@ export const SandboxSkillsImportApplySchema = z.object({
   bytes: z.number().int().nonnegative(),
 });
 export type SandboxSkillsImportApply = z.infer<typeof SandboxSkillsImportApplySchema>;
-
 /** 取り込みの応答は mode で形が違う (plan は skills、apply は applied / skipped) */
 export const SandboxSkillsImportResultSchema = z.union([SandboxSkillsImportPlanSchema, SandboxSkillsImportApplySchema]);
 export type SandboxSkillsImportResult = z.infer<typeof SandboxSkillsImportResultSchema>;
-
 /**
  * POST /api/skills/files の body。名前は GUI 新規の規則 (既存ファイルの保存名の互換とは別) で、
  * 実際の規則の判定はサンドボックス側の SDK 検証が行う。
@@ -2299,7 +1984,6 @@ export const CreateFileSkillBodySchema = z.object({
   body: z.string(),
 });
 export type CreateFileSkillBody = z.infer<typeof CreateFileSkillBodySchema>;
-
 /** PATCH /api/skills/files の body。name は受け付けず、fileVersion の一致を要求する */
 export const SaveFileSkillBodySchema = z.object({
   relativePath: z.string().min(1),
@@ -2308,7 +1992,6 @@ export const SaveFileSkillBodySchema = z.object({
   body: z.string(),
 });
 export type SaveFileSkillBody = z.infer<typeof SaveFileSkillBodySchema>;
-
 /**
  * セッションで使えるスキル 1 件 (GET /api/sessions/:id/skills)。設定の FileSkillInfo と違い、
  * プロジェクトスキルを含み、本文は持たない (送信時に取り直す)。
@@ -2334,7 +2017,6 @@ export const SessionSkillInfoSchema = z.object({
   shadows: z.array(z.string()),
 });
 export type SessionSkillInfo = z.infer<typeof SessionSkillInfoSchema>;
-
 /** GET /api/sessions/:id/skills の応答 */
 export const SessionSkillsResponseSchema = z.object({
   sessionId: z.string(),
@@ -2345,14 +2027,12 @@ export const SessionSkillsResponseSchema = z.object({
   skills: z.array(SessionSkillInfoSchema),
 });
 export type SessionSkillsResponse = z.infer<typeof SessionSkillsResponseSchema>;
-
 /**
  * GET /api/skills/session の応答。セッション未確定 (新規チャット) のプレビューなので sessionId を持たない。
  * `cwd` は未所属なら "" で、永続化されたセッションのスクラッチ (既定スペースは `.u7agent/sessions/<id>`) とは別の値。
  */
 export const SessionSkillsPreviewSchema = SessionSkillsResponseSchema.omit({ sessionId: true });
 export type SessionSkillsPreview = z.infer<typeof SessionSkillsPreviewSchema>;
-
 export const PostMessageResultSchema = z.object({
   queued: z.boolean(),
   queueDepth: z.number(),
@@ -2362,28 +2042,23 @@ export const PostMessageResultSchema = z.object({
   runId: z.string().optional(),
 });
 export type PostMessageResult = z.infer<typeof PostMessageResultSchema>;
-
 export const StopResultSchema = z.object({
   ok: z.literal(true),
   status: RunStatusSchema,
 });
 export type StopResult = z.infer<typeof StopResultSchema>;
-
 /** `DELETE /api/sessions/:id/unsent/:runId` の応答 */
 export const DiscardUnsentResultSchema = z.object({ ok: z.literal(true) });
 export type DiscardUnsentResult = z.infer<typeof DiscardUnsentResultSchema>;
-
 /** `DELETE /api/sessions/:id/queue/:runId` の応答。件数は resync の payload が正なので載せない */
 export const CancelQueuedResultSchema = z.object({ ok: z.literal(true) });
 export type CancelQueuedResult = z.infer<typeof CancelQueuedResultSchema>;
-
 /** `POST /api/sessions/:id/compact` の応答。完了まで待って実効状態を返す */
 export const SessionCompactionResultSchema = z.object({
   sessionId: z.string(),
   status: RunStatusSchema,
 });
 export type SessionCompactionResult = z.infer<typeof SessionCompactionResultSchema>;
-
 /**
  * `PATCH /api/sessions/:id/notify` の応答。live / 未ロードで同じ形にし、SDK セッションを開かない
  * 未ロードでも返せるよう会話全文 (`messages`) は載せない。
@@ -2393,14 +2068,12 @@ export const SessionNotifyResponseSchema = z.object({
   notify: z.boolean(),
 });
 export type SessionNotifyResponse = z.infer<typeof SessionNotifyResponseSchema>;
-
 /** `PATCH /api/sessions/:id/pin` の応答。live / 未ロードで同じ小さな DTO を返す。 */
 export const SessionPinnedResponseSchema = z.object({
   sessionId: z.string(),
   pinned: z.boolean(),
 });
 export type SessionPinnedResponse = z.infer<typeof SessionPinnedResponseSchema>;
-
 /**
  * `PATCH /api/sessions/:id/title` の応答。notify と同じく live / 未ロードで同じ形にし、
  * SDK セッションを開かない未ロードでも返せるよう会話全文 (`messages`) は載せない。
@@ -2411,7 +2084,6 @@ export const SessionTitleResponseSchema = z.object({
   title: z.string(),
 });
 export type SessionTitleResponse = z.infer<typeof SessionTitleResponseSchema>;
-
 /**
  * `POST /api/sessions/:id/move` の応答。移動後も会話全文は返さず、一覧の更新に必要な最小だけを返す。
  * `spaceId` は移動先で、`title` は一覧と同じ正規化 (未設定は「無題のセッション」) 後の値。
@@ -2430,7 +2102,6 @@ export type SessionMoveResponse = z.infer<typeof SessionMoveResponseSchema>;
 // リクエスト body スキーマ
 // route が見るのは JSON の形と型だけ。必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
 // ---------------------------------------------------------------------------
-
 export const PostMessageBodySchema = z.object({
   /** 通常の送信は必須。`resendRunId` を指定した再送では本文を送らず、サーバーが保存済みの本文を使う */
   text: z.string().optional(),
@@ -2447,18 +2118,15 @@ export const PostMessageBodySchema = z.object({
   resendRunId: z.string().optional(),
 });
 export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;
-
 /**
  * ask_user の回答。質問数と index の対応、`skipped` の排他は store が正 (route は JSON の形だけを見る)。
  * 全質問に 1 つずつ回答が要り、一部だけの回答は 400 になる。
  */
 export const AnswerQuestionBodySchema = z.object({ answers: z.array(AskUserAnswerSchema) });
 export type AnswerQuestionBody = z.infer<typeof AnswerQuestionBodySchema>;
-
 /** 拒否済みの承認カードから許可へ変える要求。接続先はカードに出たホストをそのまま渡す */
 export const ApproveNetworkAccessBodySchema = z.object({ host: z.string().min(1).max(253) });
 export type ApproveNetworkAccessBody = z.infer<typeof ApproveNetworkAccessBodySchema>;
-
 export const ApproveNetworkAccessResponseSchema = z.object({
   ok: z.literal(true),
   host: z.string(),
@@ -2466,7 +2134,6 @@ export const ApproveNetworkAccessResponseSchema = z.object({
   approved: z.literal(true),
 });
 export type ApproveNetworkAccessResponse = z.infer<typeof ApproveNetworkAccessResponseSchema>;
-
 export const CreateSessionBodySchema = z.object({
   spaceId: z.string().optional(),
   agentId: z.string().optional(),
@@ -2479,39 +2146,33 @@ export const CreateSessionBodySchema = z.object({
   notify: z.boolean().optional(),
 });
 export type CreateSessionBody = z.infer<typeof CreateSessionBodySchema>;
-
 export const CreateProjectBodySchema = z.object({
   cwd: z.string(),
   name: z.string().optional(),
   create: z.boolean().optional(),
 });
 export type CreateProjectBody = z.infer<typeof CreateProjectBodySchema>;
-
 /** チャット設定変更。省略は現在値維持、null・空 body は 400 */
 export const UpdateSessionSettingsBodySchema = z.object({
   model: ModelRefSchema.optional(),
   thinkingLevel: ThinkingLevelSchema.optional(),
 });
 export type UpdateSessionSettingsBody = z.infer<typeof UpdateSessionSettingsBodySchema>;
-
 /**
  * 会話ごとの通知トグル。model / thinkingLevel の設定変更とは別経路にして、
  * SDK の設定変更と busy 判定を通さずに実行中でも切り替えられるようにする。
  */
 export const UpdateSessionNotifyBodySchema = z.object({ notify: z.boolean() });
 export type UpdateSessionNotifyBody = z.infer<typeof UpdateSessionNotifyBodySchema>;
-
 /** 会話ごとのサイドバー固定。SDK に触れず busy 中も更新できる。 */
 export const UpdateSessionPinnedBodySchema = z.object({ pinned: z.boolean() });
 export type UpdateSessionPinnedBody = z.infer<typeof UpdateSessionPinnedBodySchema>;
-
 /**
  * 会話タイトルの変更。notify と同じく SDK に触らないため実行中でも変えられる。
  * 空・空白だけ・上限超えの正規化は store が正 (route は JSON の形だけを見る)。
  */
 export const UpdateSessionTitleBodySchema = z.object({ title: z.string() });
 export type UpdateSessionTitleBody = z.infer<typeof UpdateSessionTitleBodySchema>;
-
 /**
  * セッションの引き継ぎ (引っ越しの拡張)。要求元スペースは query (`sessionSpaceGuard` が照合する) で、
  * 本文は移動先・引き継ぎ先のエージェント・メモの有無を持つ。`agentId` の省略は現在のエージェントを維持し、
@@ -2523,7 +2184,6 @@ export const MoveSessionBodySchema = z.object({
   memo: z.boolean().optional(),
 });
 export type MoveSessionBody = z.infer<typeof MoveSessionBodySchema>;
-
 /**
  * 会話の分岐。`agentId` の省略は親のスナップショット (エージェント・スキル・ツールの許可) を維持し、
  * 指定時は引き継ぎと同じく現在の定義から作り直す。対象の会話とスペースは path / query で決まる。
@@ -2532,20 +2192,17 @@ export const ForkSessionBodySchema = z.object({
   agentId: z.string().min(1).optional(),
 });
 export type ForkSessionBody = z.infer<typeof ForkSessionBodySchema>;
-
 /**
  * serve (UI 上の呼称は「サービス」) の状態。稼働判定は常にプローブで、記録は表示と操作権限にだけ使う。
  * `owner.kind` の `mine` / `other` は記録と「いま待受しているプロセス」が一致したときだけ立つ。
  */
 export const ServeOwnerKindSchema = z.enum(["mine", "other", "unknown", "none"]);
 export type ServeOwnerKind = z.infer<typeof ServeOwnerKindSchema>;
-
 export const ServeOwnerSchema = z.object({
   kind: ServeOwnerKindSchema,
   /** `mine` / `other` のときだけ載る会話名 */
   title: z.string().optional(),
 });
-
 export const ServeStatusSchema = z.object({
   reachable: z.boolean(),
   owner: ServeOwnerSchema,
@@ -2560,7 +2217,6 @@ export const ServeStatusSchema = z.object({
   secretGeneration: z.string().nullable(),
 });
 export type ServeStatus = z.infer<typeof ServeStatusSchema>;
-
 /** 設定 → ランタイム。閲覧中の会話の実績ではなく、いま公開中のサービスを返す。 */
 export const RuntimeServeStatusSchema = z.object({
   reachable: z.boolean(),
@@ -2570,14 +2226,12 @@ export const RuntimeServeStatusSchema = z.object({
   command: ServeCommandSchema.nullable(),
 });
 export type RuntimeServeStatus = z.infer<typeof RuntimeServeStatusSchema>;
-
 export const RuntimeServeStopBodySchema = z
   .object({
     generation: z.string().min(1),
   })
   .strict();
 export type RuntimeServeStopBody = z.infer<typeof RuntimeServeStopBodySchema>;
-
 /** 起動。command はエージェントの serve ツールだけが渡す (GUI は実績をそのまま使う) */
 export const ServeStartBodySchema = z.object({
   sessionId: z.string().min(1),
@@ -2585,13 +2239,11 @@ export const ServeStartBodySchema = z.object({
   generation: z.string().nullable().optional(),
 });
 export type ServeStartBody = z.infer<typeof ServeStartBodySchema>;
-
 export const ServeStopBodySchema = z.object({
   sessionId: z.string().min(1),
   generation: z.string().nullable().optional(),
 });
 export type ServeStopBody = z.infer<typeof ServeStopBodySchema>;
-
 /**
  * 実行状況から全スペース横断で起動する。会話の所属スペースは問わない (全体管理の面) ため、
  * `/api/serve/start` と違って `?spaceId` との一致を要求しない。
@@ -2601,7 +2253,6 @@ export const RuntimeServeStartBodySchema = z.object({
   generation: z.string().nullable().optional(),
 });
 export type RuntimeServeStartBody = z.infer<typeof RuntimeServeStartBodySchema>;
-
 /**
  * 設定 → ランタイム のデバッグ一覧。行はレンジ走査で見付かった待受だけで、lease の無い行 (追跡外) は
  * `owner` / `command` / `startedAt` を null にする。`owner` は会話ストアに起動元が残っていて、待受ソケットが
@@ -2615,14 +2266,11 @@ export const RuntimeDebugServeEntrySchema = z.object({
   startedAt: z.number().nullable(),
 });
 export type RuntimeDebugServeEntry = z.infer<typeof RuntimeDebugServeEntrySchema>;
-
 export const RuntimeDebugServeStatusSchema = z.object({ servers: z.array(RuntimeDebugServeEntrySchema) });
 export type RuntimeDebugServeStatus = z.infer<typeof RuntimeDebugServeStatusSchema>;
-
 /** 停止対象はレンジ内のポートだけ (対象は常に「いまそのポートで待受している PID」で、世代照合は持たない) */
 export const RuntimeDebugServeStopBodySchema = z.object({ port: z.number().int() }).strict();
 export type RuntimeDebugServeStopBody = z.infer<typeof RuntimeDebugServeStopBodySchema>;
-
 /** `alreadyStopped` は「そのポートに待受が無い」を表し、成功として返す */
 export const RuntimeDebugServeStopResultSchema = z.object({
   port: z.number().int().nullable(),
@@ -2634,11 +2282,9 @@ export type RuntimeDebugServeStopResult = z.infer<typeof RuntimeDebugServeStopRe
 // ---------------------------------------------------------------------------
 // 環境変数 (作業環境 → 環境変数。docs/secrets.md)
 // ---------------------------------------------------------------------------
-
 /** 種別。型の正は secret-crypto.ts の SecretKind で、ここは同じ値であることを satisfies で固定する */
 export const SecretKindSchema = z.enum(["variable", "secret"] satisfies readonly [SecretKind, ...SecretKind[]]);
 export type SecretKindValue = z.infer<typeof SecretKindSchema>;
-
 /** 一覧 / 変更後に行が返す項目。値は種別に関係なく含めない (値は detail の変数だけ) */
 export const SecretItemSchema = z.object({
   secretId: z.string(),
@@ -2650,11 +2296,9 @@ export const SecretItemSchema = z.object({
   ignoredByGit: z.boolean(),
 });
 export type SecretItem = z.infer<typeof SecretItemSchema>;
-
 /** 値の表示 / 変更フォーム用。`value` は変数のときだけ入り、シークレットでは省略される */
 export const SecretDetailSchema = SecretItemSchema.extend({ value: z.string().optional() });
 export type SecretDetailResponse = z.infer<typeof SecretDetailSchema>;
-
 export const SecretsListSchema = z.object({
   items: z.array(SecretItemSchema),
   /** 変更のたびに変わる世代。serve の `secretGeneration` と比べて「再起動で反映」を出せる */
@@ -2663,7 +2307,6 @@ export const SecretsListSchema = z.object({
   projectScoped: z.boolean(),
 });
 export type SecretsListResponse = z.infer<typeof SecretsListSchema>;
-
 export const SecretMutationResponseSchema = z.object({
   item: SecretItemSchema,
   /** 前後の空白 / 改行を除去したか。UI はそのときだけ 1 行の注記を出す */
@@ -2671,16 +2314,13 @@ export const SecretMutationResponseSchema = z.object({
   generation: z.string(),
 });
 export type SecretMutationResponse = z.infer<typeof SecretMutationResponseSchema>;
-
 export const SecretRemovalResponseSchema = z.object({ removed: z.boolean(), generation: z.string() });
 export type SecretRemovalResponse = z.infer<typeof SecretRemovalResponseSchema>;
-
 /** 要求元は会話 (sessionId) か、まだ会話が無いプロジェクト起点の新規会話 (projectId) のどちらか一方 */
 const secretScopeShape = {
   sessionId: z.string().optional(),
   projectId: z.string().optional(),
 };
-
 /** 登録。名前 / 値の規則 (上限・拒否リスト・trim) は secrets.ts を正とする */
 export const CreateSecretBodySchema = z.object({
   ...secretScopeShape,
@@ -2689,23 +2329,19 @@ export const CreateSecretBodySchema = z.object({
   value: z.string(),
 });
 export type CreateSecretBody = z.infer<typeof CreateSecretBodySchema>;
-
 /** 値の上書き (名前と種別は変えられない) */
 export const UpdateSecretBodySchema = z.object({ ...secretScopeShape, value: z.string() });
 export type UpdateSecretBody = z.infer<typeof UpdateSecretBodySchema>;
-
 /**
  * 並べ替えで受ける id の上限。形と上限だけを見る点は `ReorderAgentsBodySchema` と同じで、
  * 未知の id・重複の扱いと cwd の照合は `SecretService.reorder` が正。
  */
 export const SECRET_ORDER_IDS_MAX = 500;
-
 export const ReorderSecretsBodySchema = z.object({
   ...secretScopeShape,
   ids: z.array(z.string()).max(SECRET_ORDER_IDS_MAX),
 });
 export type ReorderSecretsBody = z.infer<typeof ReorderSecretsBodySchema>;
-
 /** 通知設定の更新。キー省略は現在値の維持、webhookUrl / baseUrl の null は解除 */
 export const UpdateNotificationsBodySchema = z.object({
   enabled: z.boolean().optional(),
@@ -2714,15 +2350,12 @@ export const UpdateNotificationsBodySchema = z.object({
   baseUrl: z.string().nullish(),
 });
 export type UpdateNotificationsBody = z.infer<typeof UpdateNotificationsBodySchema>;
-
 /** アーカイブ除外名の更新。一覧は丸ごと差し替える（空配列は「除外なし」を表す） */
 export const UpdateArchiveSettingsBodySchema = z.object({ excludeNames: z.array(z.string()) });
 export type UpdateArchiveSettingsBody = z.infer<typeof UpdateArchiveSettingsBodySchema>;
-
 /** 共有の除外名の更新。同じく丸ごと差し替える */
 export const UpdateSharedContentExclusionsBodySchema = z.object({ excludeNames: z.array(z.string()) });
 export type UpdateSharedContentExclusionsBody = z.infer<typeof UpdateSharedContentExclusionsBodySchema>;
-
 // 全キー任意にするのは、空 body の PATCH を no-op として通し、必須判定を catalog の文言のまま残すため。
 // null は「指定解除」、キー省略は「現在値の維持」で、どちらも catalog が解釈する。
 const agentBodyShape = {
@@ -2762,13 +2395,10 @@ const agentBodyShape = {
    */
   suggestions: z.unknown().optional(),
 };
-
 export const CreateAgentBodySchema = z.object(agentBodyShape);
 export type CreateAgentBody = z.infer<typeof CreateAgentBodySchema>;
-
 export const UpdateAgentBodySchema = z.object(agentBodyShape);
 export type UpdateAgentBody = z.infer<typeof UpdateAgentBodySchema>;
-
 /**
  * マスタの作成 / 更新。種別と ID はサーバーが決める。**形は受けるが catalog が拒否する** (400)
  * (`suggestions` と同じ理由で、route が「キーがある」ことを説明できる形にする)。
@@ -2778,43 +2408,36 @@ const promptManagedKeys = {
   id: z.unknown().optional(),
   kind: z.unknown().optional(),
 };
-
 export const CreatePromptBodySchema = z.object({
   label: z.string().max(PROMPT_LABEL_MAX),
   prompt: z.string().max(PROMPT_TEXT_MAX),
   ...promptManagedKeys,
 });
 export type CreatePromptBody = z.infer<typeof CreatePromptBodySchema>;
-
 export const UpdatePromptBodySchema = z.object({
   label: z.string().max(PROMPT_LABEL_MAX).optional(),
   prompt: z.string().max(PROMPT_TEXT_MAX).optional(),
   ...promptManagedKeys,
 });
 export type UpdatePromptBody = z.infer<typeof UpdatePromptBodySchema>;
-
 /**
  * 並べ替えで受ける id の上限。全件を 1 回で渡す API なので、他の配列項目と同じく
  * 中身の正しさ (存在・重複) はカタログ側が正で、ここは形と上限だけを見る。
  */
 export const AGENT_ORDER_IDS_MAX = 200;
-
 export const ReorderAgentsBodySchema = z.object({ ids: z.array(z.string()).max(AGENT_ORDER_IDS_MAX) });
 export type ReorderAgentsBody = z.infer<typeof ReorderAgentsBodySchema>;
-
 /**
  * スペースの並べ替えで受ける id の上限。形と上限だけを見る点は `ReorderAgentsBodySchema` と同じで、
  * 未知の id・重複・既定スペースの扱いは `SpaceStore.reorder` が正。
  */
 export const SPACE_ORDER_IDS_MAX = 200;
-
 export const ReorderSpacesBodySchema = z.object({ ids: z.array(z.string()).max(SPACE_ORDER_IDS_MAX) });
 export type ReorderSpacesBody = z.infer<typeof ReorderSpacesBodySchema>;
 
 // ---------------------------------------------------------------------------
 // SSE イベント (sessions.ts の emit 呼び出しを正とする)
 // ---------------------------------------------------------------------------
-
 export const EventDataSchemas = {
   // `startedAt` は payload の `run.startedAt` と同じ値。クライアントは受信時刻ではなくこれを使う
   // (切断中に始まった run の `run_start` がリプレイされても開始時刻がぶれない)
@@ -2909,20 +2532,16 @@ export const EventDataSchemas = {
   resync: SessionPayloadSchema,
   session_deleted: z.object({ sessionId: z.string() }),
 } as const;
-
 export type SSEEventType = keyof typeof EventDataSchemas;
-
 export type SSEEventData = {
   [T in SSEEventType]: z.infer<(typeof EventDataSchemas)[T]>;
 };
-
 type EventEntryFor<T extends SSEEventType> = {
   seq: number;
   type: T;
   data: SSEEventData[T];
   at: number;
 };
-
 export type EventEntry = {
   [T in SSEEventType]: EventEntryFor<T>;
 }[SSEEventType];
@@ -2930,10 +2549,8 @@ export type EventEntry = {
 // ---------------------------------------------------------------------------
 // セッション診断 (GET /api/sessions/:id/diagnostics。docs/diagnostics.md)
 // ---------------------------------------------------------------------------
-
 /** diagnostics の items が持つ種別。SSE の型と 1:1 で、イベントを足すとこの enum も型で要求される */
 const SSEEventTypeSchema = z.enum(Object.keys(EventDataSchemas) as [SSEEventType, ...SSEEventType[]]);
-
 /**
  * 1 件のイベント。`data` は mask 済みの値をそのまま載せ、上限を超えた分だけ切り詰める (そのときは
  * `truncated` を立て、元の schema を満たさない可能性がある)。
@@ -2950,7 +2567,6 @@ export const DiagnosticsEventSchema = z.object({
   truncated: z.literal(true).optional(),
 });
 export type DiagnosticsEvent = z.infer<typeof DiagnosticsEventSchema>;
-
 /**
  * `GET /api/sessions/:id/diagnostics` の応答。不具合の切り分け用に、サーバー側の観測を 1 回ぶんまとめる。
  * 本文 (メッセージ / 質問 / 回答) は載せず、件数と mask 済みの要約だけを持つ。上限で落とした件数は
@@ -3030,14 +2646,12 @@ export const SessionDiagnosticsSchema = z.object({
   raw: z.object({ available: z.boolean(), bytes: z.number().optional() }),
 });
 export type SessionDiagnostics = z.infer<typeof SessionDiagnosticsSchema>;
-
 /**
  * GET / PUT /api/settings/web-search。`web_search` の有効 / 無効と既定 provider を持つ。
  * 行が無い = 既定（無効 / 先頭の provider）なので、初期状態では `enabled: false` が返る。
  */
 export const WebSearchProviderIdSchema = z.enum(WEB_SEARCH_PROVIDER_IDS);
 export type WebSearchProviderId = z.infer<typeof WebSearchProviderIdSchema>;
-
 /** provider 1 件の公開情報。`host` は外部送信先を画面で隠さないために出し、キーの値は返さない */
 export const WebSearchProviderSchema = z.object({
   id: WebSearchProviderIdSchema,
@@ -3056,7 +2670,6 @@ export const WebSearchProviderSchema = z.object({
   keyErrorMessage: z.string().nullable(),
 });
 export type WebSearchProvider = z.infer<typeof WebSearchProviderSchema>;
-
 export const WebSearchSettingsResponseSchema = z.object({
   enabled: z.boolean(),
   /** 既定の provider。設定した値が次の検索から使われる */
@@ -3066,42 +2679,35 @@ export const WebSearchSettingsResponseSchema = z.object({
   disabledMessage: z.string(),
 });
 export type WebSearchSettingsResponse = z.infer<typeof WebSearchSettingsResponseSchema>;
-
 /** 変更系（PUT / DELETE）の応答。即時反映なので `applied` だけを返す（コンテンツ生成と同じ契約） */
 export const WebSearchMutationResponseSchema = WebSearchSettingsResponseSchema.extend({
   state: z.literal("applied"),
 });
 export type WebSearchMutationResponse = z.infer<typeof WebSearchMutationResponseSchema>;
-
 /** トグルの変更。既存セッションにも次の呼び出しから効く（ツール側が毎回読む） */
 export const UpdateWebSearchBodySchema = z.object({
   enabled: z.boolean(),
 });
 export type UpdateWebSearchBody = z.infer<typeof UpdateWebSearchBodySchema>;
-
 /** 既定 provider の変更。provider の選択と「既定にする」は同じ操作にする（GUI もそう振る舞う） */
 export const UpdateWebSearchProviderBodySchema = z.object({
   provider: WebSearchProviderIdSchema,
 });
 export type UpdateWebSearchProviderBody = z.infer<typeof UpdateWebSearchProviderBodySchema>;
-
 /** provider の APIキーの登録・上書き。長さは provider_credentials / 画像と同じ */
 export const UpdateWebSearchKeyBodySchema = z.object({
   apiKey: z.string().min(PROVIDER_API_KEY_MIN_LENGTH).max(PROVIDER_API_KEY_MAX_LENGTH),
 });
 export type UpdateWebSearchKeyBody = z.infer<typeof UpdateWebSearchKeyBodySchema>;
-
 /**
  * テスト検索の入力。空白だけは 400 にし、上限は GUI の入力欄に合わせる
  * (チャットの `web_search` は provider 側の上限に任せていて、こことは独立)。
  */
 export const WEB_SEARCH_TEST_QUERY_MAX_LENGTH = 500;
-
 export const WebSearchTestBodySchema = z.object({
   query: z.string().trim().min(1).max(WEB_SEARCH_TEST_QUERY_MAX_LENGTH),
 });
 export type WebSearchTestBody = z.infer<typeof WebSearchTestBodySchema>;
-
 /** テスト検索が実際に送った provider。解決できなかった / 無効のときは null */
 export const WebSearchTestProviderSchema = z.object({
   id: WebSearchProviderIdSchema,
@@ -3109,7 +2715,6 @@ export const WebSearchTestProviderSchema = z.object({
   host: z.string(),
 });
 export type WebSearchTestProvider = z.infer<typeof WebSearchTestProviderSchema>;
-
 /**
  * テスト検索の応答。`output` は成功ならモデルへ返る本文、失敗なら throw する文言 (どちらもマスク済み) で、
  * 画面はそのまま出す。失敗も 200 で返し、保存状態は変えない (会話タイトルの動作確認と同じ契約)。
@@ -3123,14 +2728,12 @@ export const WebSearchTestResponseSchema = z.object({
   durationMs: z.number(),
 });
 export type WebSearchTestResponse = z.infer<typeof WebSearchTestResponseSchema>;
-
 /** 変更系の失敗応答（何も変わっていない） */
 export const WebSearchMutationErrorSchema = z.object({
   error: z.string(),
   state: z.literal("not_stored"),
 });
 export type WebSearchMutationError = z.infer<typeof WebSearchMutationErrorSchema>;
-
 /**
  * GET / PUT `/api/settings/session-title`。会話タイトルの AI 要約 (On/Off・要約モデル・Effort・定義) を持つ。
  * 行が無い = 既定 (Off・モデル未選択・Effort 未指定・既定の定義)。モデルは本会話のモデルと独立で、
@@ -3144,7 +2747,6 @@ export const TitleSummaryModelChoiceSchema = z.object({
   thinkingLevels: z.array(ThinkingLevelSchema),
 });
 export type TitleSummaryModelChoice = z.infer<typeof TitleSummaryModelChoiceSchema>;
-
 export const TitleSummarySettingsResponseSchema = z.object({
   enabled: z.boolean(),
   /** 選択中のモデル (`provider/id`)。未選択は null */
@@ -3162,7 +2764,6 @@ export const TitleSummarySettingsResponseSchema = z.object({
   modelAvailable: z.boolean(),
 });
 export type TitleSummarySettingsResponse = z.infer<typeof TitleSummarySettingsResponseSchema>;
-
 /**
  * 4 項目をまとめて保存する。省略した項目は保存値を保つ (Off から On への切替でモデルを消さない)。
  * thinkingLevel は null で未指定へ戻せる。モデルを変えて Effort を省略した場合、新しいモデルが
@@ -3177,7 +2778,6 @@ export const UpdateTitleSummaryBodySchema = z.object({
 export type UpdateTitleSummaryBody = z.infer<typeof UpdateTitleSummaryBodySchema>;
 
 // --- Git のグローバル identity (設定 → Git) ---
-
 /**
  * GET /api/settings/git の応答。未設定は両方 null と configured: false で表し、
  * 片方だけ保存された状態は作らない (片方だけの PUT は 400)。
@@ -3189,20 +2789,17 @@ export const GitSettingsResponseSchema = z.object({
   configured: z.boolean(),
 });
 export type GitSettingsResponse = z.infer<typeof GitSettingsResponseSchema>;
-
 /** 変更系の応答。`applied` は「DB 保存済みで、サンドボックスへは次の bash から反映」の意 */
 export const GitSettingsMutationResponseSchema = GitSettingsResponseSchema.extend({
   state: z.literal("applied"),
 });
 export type GitSettingsMutationResponse = z.infer<typeof GitSettingsMutationResponseSchema>;
-
 /** 両方必須。片方だけ・空・制御文字・`<` `>`・形状違反は server/src/git-identity.ts が 400 にする */
 export const UpdateGitSettingsBodySchema = z.object({
   userName: z.string(),
   userEmail: z.string(),
 });
 export type UpdateGitSettingsBody = z.infer<typeof UpdateGitSettingsBodySchema>;
-
 /**
  * GET /api/runtime/in-use。設定 → ランタイム の環境タブが「いま何が使われるか」を 1 回で読む。
  * カタログ・APIキー・OAuth トークン・暗号文は載せない（表示専用。詳細は docs/api.md）。
@@ -3218,7 +2815,6 @@ export const RuntimeInUseTitleSchema = z.object({
   modelAvailable: z.boolean(),
 });
 export type RuntimeInUseTitle = z.infer<typeof RuntimeInUseTitleSchema>;
-
 export const RuntimeInUseContentSchema = z.object({
   /** 設定行がある（キーの保存とは別） */
   configured: z.boolean(),
@@ -3233,7 +2829,6 @@ export const RuntimeInUseContentSchema = z.object({
   bgmModel: z.string().nullable(),
 });
 export type RuntimeInUseContent = z.infer<typeof RuntimeInUseContentSchema>;
-
 export const RuntimeInUseWebSearchSchema = z.object({
   enabled: z.boolean(),
   provider: WebSearchProviderIdSchema,
@@ -3241,7 +2836,6 @@ export const RuntimeInUseWebSearchSchema = z.object({
   host: z.string(),
 });
 export type RuntimeInUseWebSearch = z.infer<typeof RuntimeInUseWebSearchSchema>;
-
 export const RuntimeInUseCloudflareSchema = z.object({
   configured: z.boolean(),
   /** master key が使えるか（false は登録・復号が 503） */
@@ -3250,7 +2844,6 @@ export const RuntimeInUseCloudflareSchema = z.object({
   accountId: z.string().nullable(),
 });
 export type RuntimeInUseCloudflare = z.infer<typeof RuntimeInUseCloudflareSchema>;
-
 export const RuntimeInUseResponseSchema = z.object({
   title: RuntimeInUseTitleSchema,
   content: RuntimeInUseContentSchema,
@@ -3260,27 +2853,22 @@ export const RuntimeInUseResponseSchema = z.object({
 export type RuntimeInUseResponse = z.infer<typeof RuntimeInUseResponseSchema>;
 
 // --- バックアップ (定義の書き出し / 復元 / 全削除) ---
-
 /**
  * バックアップ ZIP の形式。`app` / `schema` が違うものは移行せず 400 にする (docs/backup.md)。
  * 形式の読み書きと検証は `server/src/backup/format.ts` が持ち、ここは境界の型だけを定義する。
  */
 export const BACKUP_APP = "u7agent";
 export const BACKUP_SCHEMA_VERSION = 1;
-
 /** JSON 3 本 (manifest / prompts / agents) の合計上限。ZIP 全体の上限とは別に持つ */
 export const BACKUP_JSON_MAX_BYTES = 16 * 1024 * 1024;
-
 /** バックアップ ZIP のトップレベルエントリ名。manifest.targets と実エントリを完全一致させる */
 export const BACKUP_MANIFEST_ENTRY = "manifest.json";
 export const BACKUP_PROMPTS_FILE_ENTRY = "prompts.json";
 export const BACKUP_AGENTS_FILE_ENTRY = "agents.json";
 export const BACKUP_SKILLS_ENTRY = "skills.zip";
-
 /** 復元で受ける対象。manifest の `targets` と query の `targets` はこの語彙だけを使う */
 export const BackupTargetSchema = z.enum(["prompts", "agents", "skills"]);
 export type BackupTarget = z.infer<typeof BackupTargetSchema>;
-
 export const BackupManifestSchema = z
   .object({
     app: z.string(),
@@ -3291,11 +2879,9 @@ export const BackupManifestSchema = z
   })
   .strict();
 export type BackupManifest = z.infer<typeof BackupManifestSchema>;
-
 /** 自作の定型プロンプト 1 件。並びが表示順で、ID はそのまま復元先の主キーになる */
 export const BackupPromptSchema = z.object({ id: z.string(), label: z.string(), prompt: z.string() }).strict();
 export type BackupPrompt = z.infer<typeof BackupPromptSchema>;
-
 /**
  * ユーザー定義エージェント 1 件。API の `AgentDef` と違い、解決済みの `prompts` ではなく
  * `promptIds` を持つ (本文は `prompts.json` に 1 回だけ書く)。
@@ -3318,24 +2904,19 @@ export const BackupAgentSchema = z
   })
   .strict();
 export type BackupAgent = z.infer<typeof BackupAgentSchema>;
-
 export const BackupPromptsFileSchema = z.object({ prompts: z.array(BackupPromptSchema) }).strict();
 export type BackupPromptsFile = z.infer<typeof BackupPromptsFileSchema>;
-
 export const BackupAgentsFileSchema = z.object({ agents: z.array(BackupAgentSchema) }).strict();
 export type BackupAgentsFile = z.infer<typeof BackupAgentsFileSchema>;
-
 /** 警告とブロッカーのコード。日本語の文言は `client/src/lib/backup.ts` が持つ */
 export const BackupWarningSchema = z.object({ code: z.string(), name: z.string().optional() });
 export type BackupWarning = z.infer<typeof BackupWarningSchema>;
-
 export const BackupBlockerSchema = z.object({
   code: z.string(),
   message: z.string(),
   names: z.array(z.string()),
 });
 export type BackupBlocker = z.infer<typeof BackupBlockerSchema>;
-
 export const BackupDiffStatusSchema = z.enum([
   "added",
   "updated",
@@ -3346,10 +2927,8 @@ export const BackupDiffStatusSchema = z.enum([
   "blocked",
 ]);
 export type BackupDiffStatus = z.infer<typeof BackupDiffStatusSchema>;
-
 export const BackupDiffItemSchema = z.object({ id: z.string(), name: z.string(), status: BackupDiffStatusSchema });
 export type BackupDiffItem = z.infer<typeof BackupDiffItemSchema>;
-
 /** 差分の件数。`reordered` は内容が同一で並びだけが変わる行を数える */
 export const BackupDiffCountsSchema = z.object({
   added: z.number().int().nonnegative(),
@@ -3359,7 +2938,6 @@ export const BackupDiffCountsSchema = z.object({
   reordered: z.number().int().nonnegative(),
 });
 export type BackupDiffCounts = z.infer<typeof BackupDiffCountsSchema>;
-
 export const BackupTargetPlanSchema = z.object({
   target: BackupTargetSchema,
   counts: BackupDiffCountsSchema,
@@ -3372,7 +2950,6 @@ export const BackupTargetPlanSchema = z.object({
   blocker: BackupBlockerSchema.nullable(),
 });
 export type BackupTargetPlan = z.infer<typeof BackupTargetPlanSchema>;
-
 export const BackupRestorePlanSchema = z.object({
   manifest: BackupManifestSchema,
   /** 実際に置き換える対象 (query で絞った結果) */
@@ -3385,16 +2962,13 @@ export const BackupRestorePlanSchema = z.object({
   kept: z.array(z.string()),
 });
 export type BackupRestorePlan = z.infer<typeof BackupRestorePlanSchema>;
-
 export const BackupAppliedSchema = z.object({
   target: BackupTargetSchema,
   counts: BackupDiffCountsSchema,
 });
 export type BackupApplied = z.infer<typeof BackupAppliedSchema>;
-
 export const BackupFailureSchema = z.object({ target: BackupTargetSchema, message: z.string() });
 export type BackupFailure = z.infer<typeof BackupFailureSchema>;
-
 /** apply の結果。DB は 1 トランザクション、スキルは別なので `complete: false` の partial を取り得る */
 export const BackupRestoreResultSchema = z.object({
   complete: z.boolean(),
@@ -3403,7 +2977,6 @@ export const BackupRestoreResultSchema = z.object({
   failed: z.array(BackupFailureSchema),
 });
 export type BackupRestoreResult = z.infer<typeof BackupRestoreResultSchema>;
-
 export const BackupExportTargetSchema = z.object({
   target: BackupTargetSchema,
   count: z.number().int().nonnegative(),
@@ -3413,7 +2986,6 @@ export const BackupExportTargetSchema = z.object({
   reason: z.string().optional(),
 });
 export type BackupExportTarget = z.infer<typeof BackupExportTargetSchema>;
-
 /** GET /api/backup/export/check。dry-run はせず、復元可否は restore plan で確かめる */
 export const BackupExportCheckSchema = z.object({
   targets: z.array(BackupTargetSchema),
@@ -3422,7 +2994,6 @@ export const BackupExportCheckSchema = z.object({
   fileName: z.string(),
 });
 export type BackupExportCheck = z.infer<typeof BackupExportCheckSchema>;
-
 export const BackupResetResultSchema = z.object({
   complete: z.boolean(),
   agents: z.number().int().nonnegative(),
@@ -3431,3 +3002,5 @@ export const BackupResetResultSchema = z.object({
   failed: z.array(BackupFailureSchema),
 });
 export type BackupResetResult = z.infer<typeof BackupResetResultSchema>;
+
+export * from "./schema/common";
