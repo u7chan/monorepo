@@ -132,7 +132,7 @@ export type ClaudeRefreshMode = "auto" | "manual";
 
 export type ClaudeRefreshOutcome =
   | { state: "refreshed" }
-  | { state: "skipped"; reason: "fresh" | "cooldown" }
+  | { state: "skipped"; reason: "fresh" | "cooldown" | "logout" }
   | { state: "failed"; error: string };
 
 export type OpenCodeAccountOutcome<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -527,7 +527,7 @@ export function parseClaudeRefresh(body: unknown): ClaudeRefreshOutcome | null {
   if (state === "skipped") {
     const reason = readString(body, "reason");
 
-    return reason === "fresh" || reason === "cooldown" ? { state, reason } : null;
+    return reason === "fresh" || reason === "cooldown" || reason === "logout" ? { state, reason } : null;
   }
 
   if (state === "failed") {
@@ -535,6 +535,13 @@ export function parseClaudeRefresh(body: unknown): ClaudeRefreshOutcome | null {
   }
 
   return null;
+}
+
+/** 公式 CLI のログアウトを BFF に頼む。成否だけを返し、応答本文は読まない。 */
+export async function logoutClaude(): Promise<boolean> {
+  const response = await fetch("/api/claude/logout", { method: "POST" });
+
+  return response.ok;
 }
 
 export async function deleteOpenCodeAccount(id: string): Promise<boolean> {

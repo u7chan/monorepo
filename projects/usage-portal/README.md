@@ -19,6 +19,8 @@ OpenCode Go の接続確認）を持つ。
 - Codex は Web UI から Sign in with ChatGPT（デバイスコード / ブラウザ + 貼り付け）でサインインする
 - Claude は公式 `claude` CLI の `/usage` を子プロセスで実行し、画面を開いたときと `⋮` の「更新」だけ取得する。
   開きっぱなしでも周期取得せず、取得から 15 分を過ぎたら「更新停止」と出す（[ADR 0022](docs/adr/0022-claude-usage-via-cli.md)）
+- Claude のカードは認証済みのときだけ出し、未接続のあいだは全体メニューの「Claude」から手順と「接続を確認」を開く。
+  カードの `⋮` の「ログアウトして非表示」は公式 CLI で資格情報を破棄してカードを消す（[ADR 0026](docs/adr/0026-claude-card-visibility-and-logout.md)）
 - Claude のサインインは Web UI で中継しない。初回は端末から `docker exec -it <コンテナ名> claude auth login` を実行する
 - 送信の設定（モデルと思考レベル）を済ませると、Codex と OpenCode Go のカードの `⋮` に「接続確認」が出る。
   固定の最小プロンプトを 1 回だけ送り、応答本文は保存も表示もしない（[ADR 0017](docs/adr/0017-probe-prompts.md)）
@@ -73,6 +75,7 @@ HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更
 
 ゲージの下の行は、先頭のバッジがリセットまでの残り時間（「あと 12 日」）、続く淡色の文字がリセット日時を表す。
 Claude のカードは周期取得を持たないため、取得の進み具合のバーを出さず、画面を開いたときと `⋮` の「更新」でだけ取り直す。
+未接続のあいだはカードを出さず、全体メニューの「Claude」に同じ手順と「接続を確認」を置く（[ADR 0026](docs/adr/0026-claude-card-visibility-and-logout.md)）。
 すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。使い切っていない OpenCode Go のカードは、
 月次の残りが多い順に並ぶ。Codex と、月次を読めないカードは元の位置に残る。
 表示の判断は [ADR 0008](docs/adr/0008-remaining-gauge-and-window-trend.md)、[ADR 0015](docs/adr/0015-reset-line-badge.md)、[ADR 0016](docs/adr/0016-exhausted-cards-last.md)、[ADR 0021](docs/adr/0021-opencode-monthly-order.md) を参照する。
@@ -141,7 +144,8 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `PUT`    | `/api/opencode/accounts/:id`       | 必要 | `{ name?, icon?, apiKey?, probeModel?, probeThinking? }` → 200 `{ account }`。未知の id は 404                                                                                                                                                                |
 | `POST`   | `/api/opencode/accounts/:id/check` | 必要 | そのキーで最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未知の id は 404、未設定は 409 `not_configured`                                                                                                                                                    |
 | `POST`   | `/api/opencode/accounts/:id/refresh` | 必要 | そのアカウントの利用枠だけを取り直す（200 `{ ok }`）。停止中でも再開できる。未知の id は 404                                                                                                                                                                  |
-| `POST`   | `/api/claude/refresh`              | 必要 | `{ "mode": "auto" \| "manual" }`（省略は `auto`）→ 200 `{ state: "refreshed" \| { state: "skipped", reason } \| { state: "failed", error } }`。自動は前回取得から 15 分以内なら CLI を起動せず、手動は前回の試行から 60 秒空ける |
+| `POST`   | `/api/claude/refresh`              | 必要 | `{ "mode": "auto" \| "manual" }`（省略は `auto`）→ 200 `{ state: "refreshed" \| { state: "skipped", reason } \| { state: "failed", error } }`。自動は前回取得から 15 分以内なら CLI を起動せず、手動は前回の試行から 60 秒空ける。ログアウト中は `skipped: logout` |
+| `POST`   | `/api/claude/logout`               | 必要 | 公式 CLI でログアウトし、Claude の snapshot と error を消す（204）。推移の sample は残す。CLI / DB の失敗は 503 `logout_failed` |
 | `DELETE` | `/api/opencode/accounts/:id`       | 必要 | アカウントと snapshot / error / sample を削除（204）。未知の id は 404                                                                                                                                                                                        |
 
 状態を変える要求（`POST` / `PUT` / `DELETE`）は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。
@@ -157,8 +161,8 @@ Codex の 5 時間窓が API に返らないアカウントがあるため、「
 Codex → 登録順 → Claude。
 画面はこの並びを使い切ったカードの移動（ADR 0016）と月次の残り順（ADR 0021）で並べ替える。
 `state` は `loading` / `ok` / `stale` / `error`、`error.code` は `not_connected` / `reauth_required` / `subscription_required` / `upstream` / `schema` /
-`config` の固定値で、上流の本文は含まない。未サインインの Codex と Claude は `not_connected` になり、画面では「未接続」と出す。
-Claude の `nextFetchAt` は常に `null`（周期取得が無い）。
+`config` の固定値で、上流の本文は含まない。未サインインの Codex と Claude は `not_connected` になり、Codex は画面では「未接続」と出す。
+Claude は `not_connected` のあいだカードを出さず、全体メニューの「Claude」から手順を開く。Claude の `nextFetchAt` は常に `null`（周期取得が無い）。
 
 ## Codex のサインイン
 
@@ -190,7 +194,13 @@ Claude は Web UI でサインインを中継しない。公式 `claude` CLI を
    ```
 
 2. 画面を開くか、Claude カードの `⋮` →「更新」を押す
-3. 未接続・再サインインのあいだは、カードに同じ手順を出す
+3. 未接続のあいだはカードが出ない。全体メニューの「Claude」に同じ手順を出し、サインイン後に「接続を確認」を押すとカードが戻る
+4. カードを隠すときは `⋮` →「ログアウトして非表示」→「ログアウトする」。公式 CLI が資格情報を破棄し、カードが消える
+
+ログアウトで資格情報は CLI が削除する。利用枠の履歴（sample）は残り、再ログイン後の推移に引き継がれる。
+`api_key_helper` など設定ファイル由来の API キーが残っている場合は、ログアウトしてもカードが戻ることがある。
+そのときは `subscription_required` のカードと Claude のモーダルに出る手順に従い、`CLAUDE_CONFIG_DIR` の設定から
+API キーの指定を外す（[ADR 0026](docs/adr/0026-claude-card-visibility-and-logout.md)）。
 
 資格情報は `CREDENTIAL_DIR`（既定 `/app/credentials`）の `claude/` に置き、ホストの `~/.claude` とは共有しない。
 image の `CLAUDE_CONFIG_DIR` は `CREDENTIAL_DIR/claude` にしてあるので、`docker exec` で実行する CLI も同じ場所を読む。
@@ -198,6 +208,7 @@ image の `CLAUDE_CONFIG_DIR` は `CREDENTIAL_DIR/claude` にしてあるので�
 
 取得は画面を開いたとき（初回表示とタブが見える状態へ戻ったとき）と手動更新だけ。前回の取得から 15 分以内なら
 CLI を起動せず保存済みの値を使い、手動更新は前回の試行から 60 秒空ける。失敗しても自動では再試行しない。
+カードが出ていないあいだは、全体メニューの「Claude」の「接続を確認」が手動更新と同じ経路になる。
 CLI の出力本文は DB・ログ・応答に残さず、正規化した利用枠と sample だけを保存する。
 
 ## 最小プロンプトの送信
@@ -281,7 +292,7 @@ docker run --rm -p 3000:3000 \
 マウントするときは所有者を合わせる（`install -d -m 700 -o 1000 -g 1000` 相当）。
 
 - `data/` には `usage.sqlite`、`session-key`、初回セットアップ後の `pin-hash` が入る。消すと PIN と履歴が初期化される
-- `credentials/` には Codex の `auth.json`（refresh token と account id）、`device-id`、OpenCode Go の `opencode-accounts.json`（API キーとアカウント名）、Claude の `claude/`（CLI 自身の設定と資格情報）が入る。**バックアップやログに出さない**
+- `credentials/` には Codex の `auth.json`（refresh token と account id）、`device-id`、OpenCode Go の `opencode-accounts.json`（API キーとアカウント名）、Claude の `claude/`（CLI 自身の設定と資格情報）が入る。**バックアップやログに出さない**。Claude の資格情報はカードの「ログアウトして非表示」で CLI が削除する
 
 ## ディレクトリ構成
 
@@ -318,6 +329,7 @@ src/client/lib/chart.ts       推移の縦軸レンジと横軸の目盛り
 src/client/lib/windows.ts     推移の初期表示に選ぶ窓
 src/client/lib/view-mode.ts  簡易 / 標準の保存値（localStorage）
 src/client/lib/status.ts      状態ラベルとしきい値
+src/client/lib/claude.ts      Claude のカードを出すかの判定と、カード・全体メニューで共通の文言
 src/client/lib/account-color.ts  アカウントのアイコン背景色（id のハッシュから選ぶ）
 src/client/components/        ログイン、source カード、meter、trend、アカウントの編集、送信の設定、表示の切り替え
 src/client/styles.css         CSS トークンとレイアウト
@@ -343,7 +355,7 @@ bun run check
 - 自宅 LAN または VPN の内側からだけ使う。インターネットへ公開しない。TLS 終端を前段（Caddy など）に置く場合は `TRUST_PROXY=1` を設定する
 - 画面は利用枠を変更しない。資格情報（Codex のサインイン、OpenCode Go のアカウント）の登録・変更・削除と、
   明示的に押したときの最小プロンプト 1 回の送信だけを行う（送るのはサーバ側の固定 1 文で、利用者の入力は混ぜない）
-- Claude は公式 CLI を未改変で使い、トークンと `.credentials.json` を直接読まない。サインインも Web UI で中継しない
+- Claude は公式 CLI を未改変で使い、トークンと `.credentials.json` を直接読まない。サインインもログアウトも Web UI で中継せず、CLI 自身に行わせる
 - 認証情報と DB の中身は API から返さない。`/api/health` は状態だけを返し、利用枠や利用者情報を含めない
 - SQLite と認証状態は `DATA_DIR`（0700）に置き、ファイルを 0600 にし、プロセスの先頭で `umask 077` を設定する
 - Codex の token・account id・email、OpenCode の API key は応答・ログ・DB に残さない。上流の応答本文も保存しない
@@ -387,3 +399,4 @@ bun run check
 - [docs/adr/0023-fetch-status-display.md](docs/adr/0023-fetch-status-display.md) — 取得状況はカード内の間隔・経過・進捗バーで示す
 - [docs/adr/0024-provider-fetch-intervals.md](docs/adr/0024-provider-fetch-intervals.md) — 取得間隔は provider ごとに設定し、SQLite に保存する
 - [docs/adr/0025-paused-account-retry.md](docs/adr/0025-paused-account-retry.md) — 契約エラーのアカウントは自動更新を止め、明示的な再取得で再開する
+- [docs/adr/0026-claude-card-visibility-and-logout.md](docs/adr/0026-claude-card-visibility-and-logout.md) — Claude のカードは認証済みのときだけ出し、非表示はログアウトにする

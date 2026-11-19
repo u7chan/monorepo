@@ -45,10 +45,17 @@ export function stubCodexApi(overrides: Partial<CodexApi> = {}): CodexApi {
 }
 
 /** 認証だけを試すテスト用。Claude の取得は呼ばれたら記録だけする。 */
-export type StubClaudeApi = { refresh: (mode: ClaudeRefreshMode) => Promise<ClaudeRefreshResult> };
+export type StubClaudeApi = {
+  refresh: (mode: ClaudeRefreshMode) => Promise<ClaudeRefreshResult>;
+  logout: () => Promise<boolean>;
+};
 
 export function stubClaudeApi(overrides: Partial<StubClaudeApi> = {}): StubClaudeApi {
-  return { refresh: async () => ({ state: "skipped", reason: "fresh" }), ...overrides };
+  return {
+    refresh: async () => ({ state: "skipped", reason: "fresh" }),
+    logout: async () => true,
+    ...overrides,
+  };
 }
 
 export function stubOpenCodeApi(overrides: Partial<OpenCodeApi> = {}): OpenCodeApi {

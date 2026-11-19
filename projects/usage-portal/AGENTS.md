@@ -24,8 +24,8 @@ OpenCode Go の接続確認）を持つ。
 - Codex の資格情報とサインインは `src/server/codex/`。OAuth は実装せず、Pi SDK の `ModelRuntime` を認証の境界としてだけ使う（[docs/adr/0005-codex-credentials-and-sign-in.md](docs/adr/0005-codex-credentials-and-sign-in.md)）。
 - OpenCode Go のアカウント（名前 / アイコン / API キー）は `src/server/opencode/accounts.ts` が `CREDENTIAL_DIR` の `opencode-accounts.json` に保存し、`/api/opencode/accounts` から登録・変更・削除する。入力規則は `src/shared/opencode-account.ts` を server と client で共有する。`.env` は使わない（[docs/adr/0006-opencode-api-key-registration.md](docs/adr/0006-opencode-api-key-registration.md), [docs/adr/0007-opencode-multiple-accounts.md](docs/adr/0007-opencode-multiple-accounts.md)）。
 - Go の公式稼働状況は `src/server/opencode/status.ts` が公開 API の `go` component だけを正規化する。利用枠の sampler とは別に、認証済みの `/api/opencode/status` 要求時に取得し、60 秒のメモリキャッシュと single-flight を共有する。client は契約・キーが有効なカードが 1 件以上あるときだけ表示・取得する。資格情報の送信・DB 保存はしない（[docs/adr/0020-opencode-service-status.md](docs/adr/0020-opencode-service-status.md)）。
-- Claude の利用枠は `src/server/claude/` と `src/server/providers/claude.ts`。公式 CLI を子プロセスで起動し、`claude auth status` で接続を判定してから `/usage` を読む。sampler には乗せず、`POST /api/claude/refresh` の auto（前回取得から 15 分）と manual（前回の試行から 60 秒）だけで取得する（[docs/adr/0022-claude-usage-via-cli.md](docs/adr/0022-claude-usage-via-cli.md)）。子プロセスへ渡す環境変数は `PATH` / `HOME` / `CLAUDE_CONFIG_DIR` / `TZ` だけ、cwd は空の一時ディレクトリ、期限は 15 秒。CLI の出力本文・メール・組織情報は保存もログもせず、正規化した snapshot と sample だけを残す。トークンと `.credentials.json` は直接読まない。
-- DB の `provider` 列は provider id ではなく source id（`codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>` / `claude`）を持つ。テーブル定義と `user_version` は v1 のまま（ADR 0007, 0018）。Claude も既存のテーブルへ追記し、schema は変えない。Codex のサインアウトは snapshot と error だけを消し、sample は同じアカウントの再サインイン用に残す。
+- Claude の利用枠は `src/server/claude/` と `src/server/providers/claude.ts`。公式 CLI を子プロセスで起動し、`claude auth status` で接続を判定してから `/usage` を読む。sampler には乗せず、`POST /api/claude/refresh` の auto（前回取得から 15 分）と manual（前回の試行から 60 秒）だけで取得する（[docs/adr/0022-claude-usage-via-cli.md](docs/adr/0022-claude-usage-via-cli.md)）。子プロセスへ渡す環境変数は `PATH` / `HOME` / `CLAUDE_CONFIG_DIR` / `TZ` だけ、cwd は空の一時ディレクトリ、期限は 15 秒。CLI の出力本文・メール・組織情報は保存もログもせず、正規化した snapshot と sample だけを残す。トークンと `.credentials.json` は直接読まない。カードは認証済みのときだけ出し、未接続のあいだは全体メニューの「Claude」に手順と「接続を確認」（manual と同じ）を置く。`POST /api/claude/logout` は `claude auth logout` を CLI で実行し、世代番号で進行中の取得の書き戻しを止めてから snapshot と error を消す（[docs/adr/0026-claude-card-visibility-and-logout.md](docs/adr/0026-claude-card-visibility-and-logout.md)）。
+- DB の `provider` 列は provider id ではなく source id（`codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>` / `claude`）を持つ。テーブル定義と `user_version` は v1 のまま（ADR 0007, 0018）。Claude も既存のテーブルへ追記し、schema は変えない。Codex のサインアウトと Claude のログアウトは snapshot と error だけを消し、sample は再サインイン用に残す。
 - 送信（5 時間窓の開始・接続確認）は `src/server/probe/`。エージェントは使わず、`@earendil-works/pi-ai` の
   `openaiCodexProvider()` / `opencodeGoProvider()` を直接呼ぶ。Codex の access token は `CodexAuth.credential()`
   から取り、`auth.json` は解析しない（[docs/adr/0017-probe-prompts.md](docs/adr/0017-probe-prompts.md)）。
@@ -33,7 +33,7 @@ OpenCode Go の接続確認）を持つ。
 - 送信で扱うのは status・`stopReason`・latency・固定のエラーコードだけ。プロンプトはサーバ側の固定 1 文で、
   応答本文・上流のエラー文は保存もログもせず、クライアントにも返さない。
 - `@earendil-works/pi-*` は u7agent と同じバージョンに固定する。マイナーでも破壊変更が入るため、Dependabot の自動更新には乗せず、migration とセットで手動更新する。
-- client は `src/client/api.ts` で API を呼ぶ。`hc` は validator を入れるまで request body の型を共有できないため使わない（ADR 0003）。状態管理・UI コンポーネント・日付整形のライブラリは足さない（[docs/adr/0000-stack-and-style.md](docs/adr/0000-stack-and-style.md)）。
+- client は `src/client/api.ts` で API を呼ぶ。`hc` は validator を入れるまで request body の型を共有できないため使わない（ADR 0003）。状態管理・UI コンポーネント・日付整形のライブラリは足さない（[docs/adr/0000-stack-and-style.md](docs/adr/0000-stack-and-style.md)）。Claude のカードを出すかの判定と、カード・全体メニューで共通の文言は `src/client/lib/claude.ts` に置く（[docs/adr/0026-claude-card-visibility-and-logout.md](docs/adr/0026-claude-card-visibility-and-logout.md)）。
 - `docs/design.md` は親 checkout の写し。このプロジェクトでは書き換えない。決定と背景は `docs/adr/` に足す。
 
 ## 検証
@@ -69,5 +69,5 @@ Docker は `docker build --target test -t usage-portal-test ./projects/usage-por
 
 - [README.md](README.md) — 起動方法、環境変数、Docker、セキュリティの前提
 - [docs/design.md](docs/design.md) — 設計（親 checkout からの写し）
-- [docs/adr/](docs/adr) — スタック、状態取得、認証と公開範囲、利用枠の保存、Codex のサインイン、OpenCode Go のアカウント、残量表示と推移の期間、窓の停止表示とメニュー、表示の密度、Codex のサインアウト、ゲージの印、リセット行のバッジ、使い切ったカードの並び、最小プロンプトの送信、Codex の推移の引き継ぎ、OpenCode Go の契約エラーの決定、OpenCode Go の月次順の並び、Claude の利用枠の取得（公式 CLI・画面を開いたときと手動更新のみ）、取得状況の表示（間隔・経過・進捗バー）、provider ごとの取得間隔、契約エラーのアカウントの停止と再開
+- [docs/adr/](docs/adr) — スタック、状態取得、認証と公開範囲、利用枠の保存、Codex のサインイン、OpenCode Go のアカウント、残量表示と推移の期間、窓の停止表示とメニュー、表示の密度、Codex のサインアウト、ゲージの印、リセット行のバッジ、使い切ったカードの並び、最小プロンプトの送信、Codex の推移の引き継ぎ、OpenCode Go の契約エラーの決定、OpenCode Go の月次順の並び、Claude の利用枠の取得（公式 CLI・画面を開いたときと手動更新のみ）、取得状況の表示（間隔・経過・進捗バー）、provider ごとの取得間隔、契約エラーのアカウントの停止と再開、Claude のカードの可視性とログアウト
 - ADR を足すときは、起票時と PR 作成時に `origin/main` の docs/adr/ で最新番号を確認する。番号を決めた後に main が進むことがあるため、`origin/main` を取り込むときとレビューでも重複していないか確かめる。

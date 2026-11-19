@@ -1,6 +1,7 @@
-// Claude の更新応答と、provider: claude の source を画面側で解釈できることを固定する。
-import { describe, expect, test } from "bun:test";
-import { parseClaudeRefresh, parseUsage } from "../src/client/api";
+// Claude の更新応答・ログアウト・カードを出す判定と、provider: claude の source を画面側で解釈できることを固定する。
+import { afterEach, describe, expect, test } from "bun:test";
+import { logoutClaude, parseClaudeRefresh, parseUsage } from "../src/client/api";
+import { claudeRefreshMessage, claudeStatusLabel, showsClaudeCard } from "../src/client/lib/claude";
 
 describe("parseClaudeRefresh", () => {
   test("refreshed / skipped の理由 / failed のコードだけを受け取る", () => {
@@ -9,6 +10,10 @@ describe("parseClaudeRefresh", () => {
     expect(parseClaudeRefresh({ state: "skipped", reason: "cooldown" })).toEqual({
       state: "skipped",
       reason: "cooldown",
+    });
+    expect(parseClaudeRefresh({ state: "skipped", reason: "logout" })).toEqual({
+      state: "skipped",
+      reason: "logout",
     });
     expect(parseClaudeRefresh({ state: "failed", error: "not_connected" })).toEqual({
       state: "failed",
@@ -21,6 +26,70 @@ describe("parseClaudeRefresh", () => {
     expect(parseClaudeRefresh({ state: "unknown" })).toBeNull();
     expect(parseClaudeRefresh(null)).toBeNull();
     expect(parseClaudeRefresh({ state: "failed" })).toEqual({ state: "failed", error: "unavailable" });
+  });
+});
+
+describe("showsClaudeCard", () => {
+  test("取得前と未接続はカードを出さない", () => {
+    expect(showsClaudeCard({ capturedAt: null, error: null })).toBe(false);
+    expect(showsClaudeCard({ capturedAt: null, error: { code: "not_connected" } })).toBe(false);
+    // snapshot と未接続の error が同時に残っていても、未接続を優先する。
+    expect(showsClaudeCard({ capturedAt: 1, error: { code: "not_connected" } })).toBe(false);
+  });
+
+  test("取得済みと、利用者が対処できる取得エラーはカードを出す", () => {
+    expect(showsClaudeCard({ capturedAt: 1, error: null })).toBe(true);
+
+    for (const code of ["reauth_required", "subscription_required", "upstream", "schema", "config"]) {
+      expect(showsClaudeCard({ capturedAt: null, error: { code } })).toBe(true);
+    }
+  });
+});
+
+describe("claudeStatusLabel", () => {
+  test("未接続と取得エラーを、次にすることの分かる文言にする", () => {
+    expect(claudeStatusLabel({ capturedAt: null, error: null })).toBe("確認していません");
+    expect(claudeStatusLabel({ capturedAt: null, error: { code: "not_connected" } })).toBe("未接続");
+    expect(claudeStatusLabel({ capturedAt: null, error: { code: "subscription_required" } })).toContain("Pro / Max");
+    expect(claudeStatusLabel({ capturedAt: null, error: { code: "upstream" } })).toContain("取得できません");
+    expect(claudeStatusLabel({ capturedAt: 1, error: null })).toBe("取得済み");
+  });
+});
+
+describe("claudeRefreshMessage", () => {
+  test("4 つの結果と通信失敗を固定文言にする", () => {
+    expect(claudeRefreshMessage(null)).toContain("通信に失敗");
+    expect(claudeRefreshMessage({ state: "refreshed" })).toContain("更新しました");
+    expect(claudeRefreshMessage({ state: "skipped", reason: "fresh" })).toContain("15 分以内");
+    expect(claudeRefreshMessage({ state: "skipped", reason: "cooldown" })).toContain("60 秒");
+    expect(claudeRefreshMessage({ state: "skipped", reason: "logout" })).toContain("ログアウト");
+    expect(claudeRefreshMessage({ state: "failed", error: "upstream" })).toContain("失敗");
+  });
+});
+
+describe("logoutClaude", () => {
+  const realFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("204 を成功、503 を失敗として真偽で返す", async () => {
+    const seen: { method: string | null } = { method: null };
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen.method = init?.method ?? null;
+      expect(String(input)).toBe("/api/claude/logout");
+
+      return new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+
+    expect(await logoutClaude()).toBe(true);
+    expect(seen.method).toBe("POST");
+
+    globalThis.fetch = (async () => new Response("{}", { status: 503 })) as unknown as typeof fetch;
+
+    expect(await logoutClaude()).toBe(false);
   });
 });
 

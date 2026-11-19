@@ -30,6 +30,7 @@ import {
   fetchSession,
   fetchUsage,
   logout,
+  logoutClaude,
   logoutCodex,
   refreshClaudeUsage,
   refreshOpenCodeAccount,
@@ -40,6 +41,7 @@ import {
   updateOpenCodeAccount,
 } from "./api";
 import { ClaudeCard } from "./components/ClaudeCard";
+import { ClaudeSettingsPanel } from "./components/ClaudeSettingsPanel";
 import { CodexCard } from "./components/CodexCard";
 import { FetchIntervalForm } from "./components/FetchIntervalForm";
 import { LoginScreen } from "./components/LoginScreen";
@@ -51,6 +53,7 @@ import { OverflowMenu, type MenuItem } from "./components/OverflowMenu";
 import { ProbeSettingsForm } from "./components/ProbeSettingsForm";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { ViewModeToggle } from "./components/ViewModeToggle";
+import { showsClaudeCard } from "./lib/claude";
 import { orderSources } from "./lib/order";
 import { hasActiveOpenCodeSource } from "./lib/opencode-status";
 import { readProbeLoad } from "./lib/probe";
@@ -176,6 +179,10 @@ function Dashboard(props: {
   const [configuringIntervals, setConfiguringIntervals] = useState(false);
   const [fetchIntervals, setFetchIntervals] = useState<FetchIntervals | null>(null);
   const [fetchIntervalsFailed, setFetchIntervalsFailed] = useState(false);
+  // Claude のカードが無いときだけ、全体メニューから同じ操作を開く。
+  const [configuringClaude, setConfiguringClaude] = useState(false);
+  // カードが消える操作の結果は、カードの中に出せない。
+  const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(() => readViewMode(browserStorage()));
   const changeViewMode = useCallback((mode: ViewMode) => {
     setViewMode(mode);
@@ -408,6 +415,8 @@ function Dashboard(props: {
   // 取得を試したときだけ取り直す。15 分以内の自動要求は何も変えないので、通信を増やさない。
   const refreshClaude = useCallback(
     async (mode: ClaudeRefreshMode): Promise<ClaudeRefreshOutcome | null> => {
+      setPageNotice(null);
+
       let outcome: Awaited<ReturnType<typeof refreshClaudeUsage>>;
 
       try {
@@ -449,6 +458,26 @@ function Dashboard(props: {
 
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [refreshClaude]);
+
+  // 資格情報はサーバーの CLI が破棄する。カードは /api/usage の読み直しで消える。
+  const signOutClaude = useCallback(async (): Promise<boolean> => {
+    let ok = false;
+
+    try {
+      ok = await logoutClaude();
+    } catch {
+      ok = false;
+    }
+
+    if (!ok) {
+      return false;
+    }
+
+    setPageNotice("Claude からログアウトしました。");
+    await loadUsage();
+
+    return true;
+  }, [loadUsage]);
 
   const createAccount = useCallback(
     async (input: OpenCodeAccountInput): Promise<string | null> => {
@@ -631,7 +660,12 @@ function Dashboard(props: {
   }, [onLoggedOut]);
 
   const expiry = expiryNotice(props.expiresAt, clock);
-  const sources = orderSources(usage?.sources ?? placeholderSources(accounts.accounts));
+  const claudeSource = usage?.sources.find((source) => source.provider === "claude") ?? null;
+  const claudeCardHidden = claudeSource !== null && !showsClaudeCard(claudeSource);
+  // カードが無いあいだは、同じ操作の入口を全体メニューに出す。
+  const sources = orderSources(usage?.sources ?? placeholderSources(accounts.accounts)).filter(
+    (source) => source.provider !== "claude" || showsClaudeCard(source),
+  );
   const codexActions = {
     onStart: startCodex,
     onRespond: respondCodex,
@@ -660,8 +694,27 @@ function Dashboard(props: {
         void loadFetchIntervals();
       },
     },
+    // カードが出ている間はメニューと役割が重複するので出さない。
+    ...(claudeCardHidden
+      ? [
+          {
+            label: "Claude",
+            onSelect: () => {
+              setPageNotice(null);
+              setConfiguringClaude(true);
+            },
+          },
+        ]
+      : []),
     { label: "ログアウト", onSelect: () => void signOut(), danger: true },
   ];
+
+  // 接続を確認してカードが出せる状態になったら、モーダルからカードへ切り替える。
+  useEffect(() => {
+    if (configuringClaude && claudeSource !== null && showsClaudeCard(claudeSource)) {
+      setConfiguringClaude(false);
+    }
+  }, [claudeSource, configuringClaude]);
 
   const compact = viewMode === "compact";
 
@@ -671,6 +724,11 @@ function Dashboard(props: {
       menu={<OverflowMenu label="メニュー" items={menu} />}
     >
       {expiry ? <SessionExpiryBanner remaining={expiry} onRelogin={props.onRelogin} /> : null}
+      {pageNotice ? (
+        <p class="up-page-status" role="status">
+          {pageNotice}
+        </p>
+      ) : null}
       {hasActiveOpenCodeSource(sources) ? <OpenCodeStatusPanel now={clock} onUnauthorized={onUnauthorized} /> : null}
       <div class="up-providers" data-density={viewMode}>
         {sources.map((source) => {
@@ -701,6 +759,7 @@ function Dashboard(props: {
                 generatedAt={usage?.generatedAt ?? null}
                 compact={compact}
                 onRefresh={() => refreshClaude("manual")}
+                onLogout={signOutClaude}
               />
             );
           }
@@ -774,6 +833,13 @@ function Dashboard(props: {
               <FetchIntervalForm intervals={fetchIntervals} onSave={saveFetchIntervals} onClose={close} />
             )
           }
+        </Modal>
+      ) : null}
+      {configuringClaude && claudeSource !== null ? (
+        <Modal title="Claude" onClose={() => setConfiguringClaude(false)}>
+          {(close) => (
+            <ClaudeSettingsPanel source={claudeSource} onRefresh={() => refreshClaude("manual")} onClose={close} />
+          )}
         </Modal>
       ) : null}
       {configuring ? (

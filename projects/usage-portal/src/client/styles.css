@@ -249,6 +249,16 @@ h2 {
   border-radius: var(--up-radius-card);
 }
 
+/* カードが消える操作の結果。次の操作までページの先頭に残す。 */
+.up-page-status {
+  margin: 0 0 var(--up-space-4);
+  padding: var(--up-space-3) var(--up-space-4);
+  background: var(--up-surface);
+  border: 1px solid var(--up-line);
+  border-radius: var(--up-radius-card);
+  font-size: var(--up-font-caption);
+}
+
 .up-button-secondary {
   border-color: var(--up-line);
   background: transparent;
