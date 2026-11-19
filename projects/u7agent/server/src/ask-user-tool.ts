@@ -18,8 +18,9 @@ import {
   type AskUserOption,
   type AskUserQuestion,
 } from "./schema";
+import { ASK_USER_TOOL_NAME } from "./wait-total";
 
-export const ASK_USER_TOOL_NAME = "ask_user";
+export { ASK_USER_TOOL_NAME };
 
 export const ASK_USER_DESCRIPTION =
   "Ask the user the questions you need and wait for the answers before continuing. " +

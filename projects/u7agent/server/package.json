@@ -25,6 +25,7 @@
     "typescript": "^7.0.2"
   },
   "exports": {
-    ".": "./src/app.ts"
+    ".": "./src/app.ts",
+    "./wait-total": "./src/wait-total.ts"
   }
 }

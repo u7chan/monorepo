@@ -3,14 +3,9 @@
  * ブロックが同じ判定を共有する (片方だけ変えると「回答済みなのに送信不可」が起きる)。
  */
 import type { AskUserAnswer, AskUserQuestion, RunStatus, SessionNetworkAccess, ToolCall } from "../types";
+import { REQUEST_NETWORK_ACCESS_TOOL_NAME } from "server/wait-total";
 import type { ToolCard } from "./chatTypes";
 import type { ConfirmRequest } from "./confirmDialog";
-
-/** サーバーの同名定数は types.ts の再配布に載らないため、クライアント側に置く */
-export const ASK_USER_TOOL_NAME = "ask_user";
-
-/** 承認を求めるツール。質問と選択肢はサーバーが固定し、クライアントは 2 択として描く */
-export const REQUEST_NETWORK_ACCESS_TOOL_NAME = "request_network_access";
 
 /** カードが承認の 2 択か。`ask_user` と同じカードを使い、描画だけを変える */
 export function isApprovalCard(card: ToolCard): boolean {
