@@ -5,6 +5,7 @@ import { describeAge, formatClock, formatDateTime, formatFetchInterval } from ".
 import { deriveProviderStatus, showsWindows } from "../lib/status";
 import { findBlockedWindows, pickTrendWindow } from "../lib/windows";
 import { AccountIcon } from "./AccountIcon";
+import { ProviderIcon } from "./ProviderIcon";
 import { StatusLabel } from "./StatusLabel";
 import { TrendChart } from "./Trend";
 import { UsageMeter } from "./UsageMeter";
@@ -67,6 +68,7 @@ export function ProviderCard(props: {
     <article class="up-card up-provider">
       <header class="up-provider-head">
         <div class="up-provider-title">
+          <ProviderIcon provider={source.provider} />
           {source.account ? <AccountIcon id={source.account.id} icon={source.account.icon} /> : null}
           <h2 class="up-provider-name">{source.name}</h2>
           {source.account ? (
@@ -133,7 +135,7 @@ export function ProviderCard(props: {
           generatedAt={props.generatedAt}
           emptyMessage={
             source.provider === "claude"
-              ? "履歴を収集中です（画面を開いたときに記録）。"
+              ? "履歴を収集中です（取得するたびに記録）。"
               : `履歴を収集中です（${intervalLabel}ごとに記録）。`
           }
           onSelect={setSelectedWindowId}

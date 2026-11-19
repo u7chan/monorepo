@@ -76,8 +76,9 @@ HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更
 ゲージの下の行は、先頭のバッジがリセットまでの残り時間（「あと 12 日」）、続く淡色の文字がリセット日時を表す。
 Claude のカードは周期取得を持たないため、取得の進み具合のバーを出さず、画面を開いたときと `⋮` の「更新」でだけ取り直す。
 未接続のあいだはカードを出さず、全体メニューの「Claude」に同じ手順と「接続を確認」を置く（[ADR 0026](docs/adr/0026-claude-card-visibility-and-logout.md)）。
+カードは Codex → Claude → 登録順のアカウントで並び、見出しの左に provider のロゴを置く（[ADR 0027](docs/adr/0027-provider-order-and-icons.md)）。
 すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。使い切っていない OpenCode Go のカードは、
-月次の残りが多い順に並ぶ。Codex と、月次を読めないカードは元の位置に残る。
+月次の残りが多い順に並ぶ。Codex・Claude と、月次を読めないカードは元の位置に残る。
 表示の判断は [ADR 0008](docs/adr/0008-remaining-gauge-and-window-trend.md)、[ADR 0015](docs/adr/0015-reset-line-badge.md)、[ADR 0016](docs/adr/0016-exhausted-cards-last.md)、[ADR 0021](docs/adr/0021-opencode-monthly-order.md) を参照する。
 
 ### OpenCode Go の稼働状況
@@ -158,7 +159,7 @@ Codex の 5 時間窓が API に返らないアカウントがあるため、「
 
 `sources[]` は source ごとに独立して失敗する。`id` は `codex`・`claude`・アカウントの uuid、`provider` は `codex` /
 `opencode-go` / `claude`、`account` は OpenCode Go の `{ id, name, icon }`（Codex と Claude は `null`）で、応答の並びは
-Codex → 登録順 → Claude。
+Codex → Claude → 登録順。
 画面はこの並びを使い切ったカードの移動（ADR 0016）と月次の残り順（ADR 0021）で並べ替える。
 `state` は `loading` / `ok` / `stale` / `error`、`error.code` は `not_connected` / `reauth_required` / `subscription_required` / `upstream` / `schema` /
 `config` の固定値で、上流の本文は含まない。未サインインの Codex と Claude は `not_connected` になり、Codex は画面では「未接続」と出す。
@@ -400,3 +401,4 @@ bun run check
 - [docs/adr/0024-provider-fetch-intervals.md](docs/adr/0024-provider-fetch-intervals.md) — 取得間隔は provider ごとに設定し、SQLite に保存する
 - [docs/adr/0025-paused-account-retry.md](docs/adr/0025-paused-account-retry.md) — 契約エラーのアカウントは自動更新を止め、明示的な再取得で再開する
 - [docs/adr/0026-claude-card-visibility-and-logout.md](docs/adr/0026-claude-card-visibility-and-logout.md) — Claude のカードは認証済みのときだけ出し、非表示はログアウトにする
+- [docs/adr/0027-provider-order-and-icons.md](docs/adr/0027-provider-order-and-icons.md) — カードは Codex → Claude → OpenCode Go の順に並べ、見出しに provider のロゴを置く

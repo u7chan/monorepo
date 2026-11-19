@@ -4,7 +4,8 @@
 - Date: 2026-10-29
 - 関連: [ADR 0009](0009-window-blocking-and-five-hour-rolling.md) の停止表示
 - 更新: [ADR 0021](0021-opencode-monthly-order.md) が、使い切っていない OpenCode Go のカードの並びを
-  月次の残り順にした。末尾へ回す規則と、月次を読めないカードを動かさない規則はこの ADR のまま。
+  月次の残り順にした。[ADR 0027](0027-provider-order-and-icons.md) が元の並びを Codex → Claude → 登録順にした。
+  末尾へ回す規則と、月次を読めないカードを動かさない規則はこの ADR のまま。
 
 ## 背景
 

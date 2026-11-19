@@ -41,7 +41,7 @@ type SourceEntry = { sourceId: string; provider: ProviderId; account: UsageSourc
 
 /**
  * `/api/usage` の応答を SQLite から組み立てる。上流へは取りに行かない（取得は sampler と Claude の更新だけ）。
- * 並びは Codex → 登録順のアカウント → Claude。アカウントが 0 件でも Codex と Claude の行は返す。
+ * 並びは Codex → Claude → 登録順のアカウント。アカウントが 0 件でも Codex と Claude の行は返す。
  */
 export function createUsageReader(options: {
   db: DatabaseHandle;
@@ -100,12 +100,12 @@ export function createUsageReader(options: {
 function collectSources(codexSourceId: string, accounts: readonly UsageSourceAccount[]): SourceEntry[] {
   return [
     { sourceId: codexSourceId, provider: "codex", account: null },
+    { sourceId: CLAUDE_PROVIDER.id, provider: "claude", account: null },
     ...accounts.map((account) => ({
       sourceId: openCodeSourceId(account.id),
       provider: "opencode-go" as const,
       account,
     })),
-    { sourceId: CLAUDE_PROVIDER.id, provider: "claude", account: null },
   ];
 }
 
