@@ -4,8 +4,8 @@ This distribution includes the following third-party software.
 @lobehub/icons-static-svg 1.95.1
 https://github.com/lobehub/lobe-icons
 ----------------------------------------------------------------------
-The provider logo paths in src/client/components/ProviderIcon.tsx are
-extracted from the icon set above. The logos themselves are trademarks
+The provider logo paths in src/client/lib/provider-icon.ts are extracted from
+the icon set above. The logos themselves are trademarks
 of their respective owners and are used only to identify the providers.
 ======================================================================
 

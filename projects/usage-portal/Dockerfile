@@ -38,6 +38,8 @@ COPY test ./test
 COPY scripts ./scripts
 COPY docs ./docs
 COPY README.md AGENTS.md .env.example ./
+# 帰属表示の同梱と参照先を test/license-notices.test.ts が読む。
+COPY Dockerfile THIRD_PARTY_NOTICES.txt ./
 
 RUN bun run check
 
