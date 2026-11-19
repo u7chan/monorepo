@@ -41,7 +41,10 @@ export type AppDeps = {
   codex: CodexApi;
   opencode: OpenCodeApi;
   /** Claude の導入。自動と手動の区別だけを受け取り、起動の可否は service が決める。 */
-  claude: { refresh: (mode: ClaudeRefreshMode) => Promise<ClaudeRefreshResult> };
+  claude: {
+    refresh: (mode: ClaudeRefreshMode) => Promise<ClaudeRefreshResult>;
+    logout: () => Promise<boolean>;
+  };
   openCodeStatus: () => Promise<OpenCodeStatusPayload>;
   probe: ProbeApi;
   fetchIntervals: {
@@ -408,6 +411,13 @@ export function createApp(deps: AppDeps) {
       return c.json(await deps.claude.refresh(mode));
     },
   );
+
+  // CLI の資格情報は service が公式コマンドで破棄し、アプリは読まない。
+  app.post("/api/claude/logout", requireSession, async (c) => {
+    const ok = await deps.claude.logout();
+
+    return ok ? c.body(null, 204) : c.json({ error: "logout_failed" as const }, 503);
+  });
 
   return app;
 }

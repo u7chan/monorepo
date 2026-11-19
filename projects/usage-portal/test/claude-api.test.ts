@@ -1,6 +1,6 @@
-// POST /api/claude/refresh の契約（認証・同一 origin・auto / manual の受け渡し）を固定する。
+// POST /api/claude/refresh と /api/claude/logout の契約（認証・同一 origin・結果の受け渡し）を固定する。
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/server/app";
@@ -21,10 +21,12 @@ const ORIGIN = "http://localhost";
 const BASE_TIME = 1_800_000_000_000;
 const dirs: string[] = [];
 
-function harness(result: ClaudeRefreshResult = { state: "refreshed" }) {
+function harness(options: { result?: ClaudeRefreshResult; logout?: () => Promise<boolean> } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "usage-portal-claude-api-"));
   const auth = createAuthService({ dataDir, now: () => BASE_TIME });
   const modes: ClaudeRefreshMode[] = [];
+  const logouts: number[] = [];
+  const result = options.result ?? { state: "refreshed" as const };
 
   dirs.push(dataDir);
   auth.ensureSessionKey();
@@ -39,6 +41,11 @@ function harness(result: ClaudeRefreshResult = { state: "refreshed" }) {
 
         return result;
       },
+      logout: async () => {
+        logouts.push(logouts.length + 1);
+
+        return options.logout ? await options.logout() : true;
+      },
     },
     opencode: stubOpenCodeApi(),
     openCodeStatus: stubOpenCodeStatus,
@@ -49,7 +56,7 @@ function harness(result: ClaudeRefreshResult = { state: "refreshed" }) {
     clientKey: () => "test-client",
   });
 
-  return { app, modes };
+  return { app, dataDir, modes, logouts };
 }
 
 async function cookie(app: ReturnType<typeof harness>["app"]): Promise<string> {
@@ -113,7 +120,7 @@ describe("POST /api/claude/refresh", () => {
   });
 
   test("manual をそのまま service へ渡し、結果を返す", async () => {
-    const { app, modes } = harness({ state: "refreshed" });
+    const { app, modes } = harness({ result: { state: "refreshed" } });
     const session = await cookie(app);
     const response = await post(
       app,
@@ -127,7 +134,7 @@ describe("POST /api/claude/refresh", () => {
   });
 
   test("body を省いた要求と mode: auto は自動として扱う", async () => {
-    const { app, modes } = harness({ state: "skipped", reason: "fresh" });
+    const { app, modes } = harness({ result: { state: "skipped", reason: "fresh" } });
     const session = await cookie(app);
 
     const withoutBody = await post(app, undefined, { origin: ORIGIN, cookie: session });
@@ -143,8 +150,22 @@ describe("POST /api/claude/refresh", () => {
     expect(modes).toEqual(["auto", "auto"]);
   });
 
+  test("ログアウト中は skipped: logout をそのまま返す", async () => {
+    const { app, modes } = harness({ result: { state: "skipped", reason: "logout" } });
+    const session = await cookie(app);
+    const response = await post(
+      app,
+      { mode: "auto" },
+      { "content-type": "application/json", origin: ORIGIN, cookie: session },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ state: "skipped", reason: "logout" });
+    expect(modes).toEqual(["auto"]);
+  });
+
   test("失敗の分類をそのまま返す", async () => {
-    const { app } = harness({ state: "failed", error: "not_connected" });
+    const { app } = harness({ result: { state: "failed", error: "not_connected" } });
     const session = await cookie(app);
     const response = await post(
       app,
@@ -168,5 +189,65 @@ describe("POST /api/claude/refresh", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "invalid_request" });
     expect(modes).toEqual([]);
+  });
+});
+
+async function postLogout(app: ReturnType<typeof harness>["app"], headers: Record<string, string>): Promise<Response> {
+  return await app.request(new Request(`${ORIGIN}/api/claude/logout`, { method: "POST", headers }));
+}
+
+describe("POST /api/claude/logout", () => {
+  test("成功は 204 で本文を返さない", async () => {
+    const { app, logouts } = harness();
+    const session = await cookie(app);
+    const response = await postLogout(app, { origin: ORIGIN, cookie: session });
+
+    expect(response.status).toBe(204);
+    expect(await response.text()).toBe("");
+    expect(logouts).toHaveLength(1);
+  });
+
+  test("未認証は 401 で CLI を起動しない", async () => {
+    const { app, logouts } = harness();
+    const response = await postLogout(app, { origin: ORIGIN });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(logouts).toEqual([]);
+  });
+
+  test("同一 origin 以外は 403 で CLI を起動しない", async () => {
+    const { app, logouts } = harness();
+    const session = await cookie(app);
+
+    const mismatched = await postLogout(app, { origin: "http://example.invalid", cookie: session });
+    const missing = await postLogout(app, { cookie: session });
+
+    expect(mismatched.status).toBe(403);
+    expect(missing.status).toBe(403);
+    expect(logouts).toEqual([]);
+  });
+
+  test("認証の設定が壊れていれば 503 misconfigured", async () => {
+    const { app, dataDir, logouts } = harness();
+    const session = await cookie(app);
+
+    writeFileSync(join(dataDir, "pin-hash"), "garbage\n");
+
+    const response = await postLogout(app, { origin: ORIGIN, cookie: session });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "misconfigured" });
+    expect(logouts).toEqual([]);
+  });
+
+  test("CLI か DB の失敗は 503 logout_failed", async () => {
+    const { app, logouts } = harness({ logout: async () => false });
+    const session = await cookie(app);
+    const response = await postLogout(app, { origin: ORIGIN, cookie: session });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "logout_failed" });
+    expect(logouts).toHaveLength(1);
   });
 });
