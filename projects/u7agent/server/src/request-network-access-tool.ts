@@ -11,8 +11,9 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { ASK_USER_QUESTION_MAX, type AskUserAnswer, type AskUserQuestion } from "./schema";
 import type { AskUserToolDetails } from "./ask-user-tool";
 import type { NetworkAccessMode } from "./network-access";
+import { REQUEST_NETWORK_ACCESS_TOOL_NAME } from "./wait-total";
 
-export const REQUEST_NETWORK_ACCESS_TOOL_NAME = "request_network_access";
+export { REQUEST_NETWORK_ACCESS_TOOL_NAME };
 
 export const REQUEST_NETWORK_ACCESS_DESCRIPTION =
   "Ask the user to allow outbound HTTPS (port 443) from bash for this conversation. " +

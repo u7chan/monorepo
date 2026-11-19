@@ -154,6 +154,55 @@
         "shadcn/no-arbitrary-values": "off",
         "shadcn/no-restyle": "off"
       }
+    },
+    {
+      "files": [
+        "server/src/wait-total.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "*"
+                ],
+                "message": "client \u306e bundle \u306b server \u306e\u4f9d\u5b58\u3092\u5165\u308c\u306a\u3044\u305f\u3081 import \u3092\u6301\u305f\u305b\u306a\u3044"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "client/**/*.{ts,tsx}"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "server",
+                "allowTypeImports": true,
+                "message": "\u30eb\u30fc\u30c8\u7d4c\u7531\u306f node:sqlite \u3092 client bundle \u306b\u5165\u308c\u308b\u3002runtime \u3067\u4f7f\u3046\u5024\u306f server/wait-total \u304b\u3089\u53d6\u308b"
+              }
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "server/*",
+                  "!server/wait-total"
+                ],
+                "allowTypeImports": true,
+                "message": "client \u304c runtime \u3067\u4f7f\u3046\u306e\u306f server/wait-total \u3060\u3051"
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }
