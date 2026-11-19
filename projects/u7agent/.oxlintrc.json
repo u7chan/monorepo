@@ -93,15 +93,15 @@
           "error",
           {
             "name": "confirm",
-            "message": "\u78ba\u8a8d\u306f\u5171\u901a\u306e ConfirmDialog (useConfirm) \u3092\u901a\u3059"
+            "message": "確認は共通の ConfirmDialog (useConfirm) を通す"
           },
           {
             "name": "prompt",
-            "message": "\u5165\u529b\u306f\u5171\u901a\u306e ConfirmDialog (usePrompt) \u3092\u901a\u3059"
+            "message": "入力は共通の ConfirmDialog (usePrompt) を通す"
           },
           {
             "name": "alert",
-            "message": "\u901a\u77e5\u306f\u753b\u9762\u5185\u306e\u8868\u793a\u3067\u51fa\u3059"
+            "message": "通知は画面内の表示で出す"
           }
         ],
         "no-restricted-properties": [
@@ -109,32 +109,32 @@
           {
             "object": "window",
             "property": "confirm",
-            "message": "\u78ba\u8a8d\u306f\u5171\u901a\u306e ConfirmDialog (useConfirm) \u3092\u901a\u3059"
+            "message": "確認は共通の ConfirmDialog (useConfirm) を通す"
           },
           {
             "object": "window",
             "property": "prompt",
-            "message": "\u5165\u529b\u306f\u5171\u901a\u306e ConfirmDialog (usePrompt) \u3092\u901a\u3059"
+            "message": "入力は共通の ConfirmDialog (usePrompt) を通す"
           },
           {
             "object": "globalThis",
             "property": "confirm",
-            "message": "\u78ba\u8a8d\u306f\u5171\u901a\u306e ConfirmDialog (useConfirm) \u3092\u901a\u3059"
+            "message": "確認は共通の ConfirmDialog (useConfirm) を通す"
           },
           {
             "object": "globalThis",
             "property": "prompt",
-            "message": "\u5165\u529b\u306f\u5171\u901a\u306e ConfirmDialog (usePrompt) \u3092\u901a\u3059"
+            "message": "入力は共通の ConfirmDialog (usePrompt) を通す"
           },
           {
             "object": "window",
             "property": "alert",
-            "message": "\u901a\u77e5\u306f\u753b\u9762\u5185\u306e\u8868\u793a\u3067\u51fa\u3059"
+            "message": "通知は画面内の表示で出す"
           },
           {
             "object": "globalThis",
             "property": "alert",
-            "message": "\u901a\u77e5\u306f\u753b\u9762\u5185\u306e\u8868\u793a\u3067\u51fa\u3059"
+            "message": "通知は画面内の表示で出す"
           }
         ]
       }
@@ -168,7 +168,7 @@
                 "group": [
                   "*"
                 ],
-                "message": "client \u306e bundle \u306b server \u306e\u4f9d\u5b58\u3092\u5165\u308c\u306a\u3044\u305f\u3081 import \u3092\u6301\u305f\u305b\u306a\u3044"
+                "message": "client の bundle に server の依存を入れないため import を持たせない"
               }
             ]
           }
@@ -187,7 +187,7 @@
               {
                 "name": "server",
                 "allowTypeImports": true,
-                "message": "\u30eb\u30fc\u30c8\u7d4c\u7531\u306f node:sqlite \u3092 client bundle \u306b\u5165\u308c\u308b\u3002runtime \u3067\u4f7f\u3046\u5024\u306f server/wait-total \u304b\u3089\u53d6\u308b"
+                "message": "ルート経由は node:sqlite を client bundle に入れる。runtime で使う値は server/wait-total から取る"
               }
             ],
             "patterns": [
@@ -197,7 +197,7 @@
                   "!server/wait-total"
                 ],
                 "allowTypeImports": true,
-                "message": "client \u304c runtime \u3067\u4f7f\u3046\u306e\u306f server/wait-total \u3060\u3051"
+                "message": "client が runtime で使うのは server/wait-total だけ"
               }
             ]
           }
