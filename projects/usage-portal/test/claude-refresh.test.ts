@@ -65,6 +65,7 @@ function harness(options: { auth?: unknown; usage?: string } = {}) {
   return {
     service,
     db,
+    cli,
     calls,
     logs,
     advance(ms: number) {
@@ -127,11 +128,50 @@ describe("createClaudeUsageService", () => {
     expect(h.authCalls()).toBe(2);
   });
 
-  test("失敗した直後の自動も 60 秒は空ける", async () => {
+  test("失敗直後の自動は 15 分たつまで CLI を起動せず、15 分後に 1 回だけ再試行する", async () => {
     const h = harness({ auth: { loggedIn: false, authMethod: "none" } });
 
+    // 20 分前の成功値は古いので、最初の auto は 1 回だけ試して失敗する。
+    saveProviderSnapshot(h.db, "claude", claudeSnapshot(BASE_TIME - 20 * MINUTE));
+
     await expect(h.service.refresh("auto")).resolves.toEqual({ state: "failed", error: "not_connected" });
-    await expect(h.service.refresh("auto")).resolves.toEqual({ state: "skipped", reason: "cooldown" });
+    expect(h.authCalls()).toBe(1);
+
+    // 失敗の時刻から 15 分たつまでは、タブに戻るたびの auto でも起動しない。
+    for (const minutes of [2, 2, 2]) {
+      h.advance(minutes * MINUTE);
+
+      await expect(h.service.refresh("auto")).resolves.toEqual({ state: "skipped", reason: "fresh" });
+    }
+
+    expect(h.authCalls()).toBe(1);
+
+    // 15 分を過ぎたら 1 回だけ再試行し、その直後はまた 15 分待つ。
+    h.advance(9 * MINUTE + 1);
+
+    await expect(h.service.refresh("auto")).resolves.toEqual({ state: "failed", error: "not_connected" });
+    expect(h.authCalls()).toBe(2);
+    await expect(h.service.refresh("auto")).resolves.toEqual({ state: "skipped", reason: "fresh" });
+    expect(h.authCalls()).toBe(2);
+  });
+
+  test("再起動しても、失敗直後の自動は 15 分たつまで CLI を起動しない", async () => {
+    const h = harness({ auth: { loggedIn: false, authMethod: "none" } });
+
+    saveProviderSnapshot(h.db, "claude", claudeSnapshot(BASE_TIME - 20 * MINUTE));
+
+    await expect(h.service.refresh("auto")).resolves.toEqual({ state: "failed", error: "not_connected" });
+    expect(h.authCalls()).toBe(1);
+
+    // 同じ DB を使う新しい service。失敗の時刻は provider_error に残っている。
+    const restarted = createClaudeUsageService({
+      db: h.db,
+      cli: h.cli,
+      now: () => BASE_TIME + MINUTE,
+      log: () => {},
+    });
+
+    await expect(restarted.refresh("auto")).resolves.toEqual({ state: "skipped", reason: "fresh" });
     expect(h.authCalls()).toBe(1);
   });
 
