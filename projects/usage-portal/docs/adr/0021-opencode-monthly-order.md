@@ -3,6 +3,8 @@
 - Status: accepted
 - Date: 2026-11-18
 - 関連: [ADR 0009](0009-window-blocking-and-five-hour-rolling.md) の窓の入れ子、[ADR 0016](0016-exhausted-cards-last.md) の並び
+- 更新: [ADR 0027](0027-provider-order-and-icons.md) が元の並びに Claude を加えた（Codex → Claude → 登録順）。
+  月次の残り順の規則はこの ADR のまま。
 
 ## 背景
 

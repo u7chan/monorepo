@@ -406,10 +406,10 @@ describe("POST /api/opencode/accounts", () => {
 
     expect(usage.sources.map((source) => `${source.provider}:${source.id}:${source.account?.name ?? "-"}`)).toEqual([
       "codex:codex:-",
-      `opencode-go:${account.id}:メイン`,
       "claude:claude:-",
+      `opencode-go:${account.id}:メイン`,
     ]);
-    expect(usage.sources[1]?.state).toBe("ok");
+    expect(usage.sources[2]?.state).toBe("ok");
     expect(JSON.stringify(usage)).not.toContain(KEY);
   });
 

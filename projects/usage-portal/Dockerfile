@@ -108,6 +108,8 @@ WORKDIR /app
 
 COPY --from=production-dependencies --chown=bun:bun /app/node_modules ./node_modules
 COPY --chown=bun:bun package.json index.html tsconfig.json ./
+# provider のロゴの帰属表示。MIT の条件で、配布物（この image）に含める。
+COPY --chown=bun:bun THIRD_PARTY_NOTICES.txt ./
 COPY --chown=bun:bun src ./src
 
 # 公式 CLI は未改変のバイナリを入れる。root 所有の 0755 にして、実行ユーザー (bun) からは

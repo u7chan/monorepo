@@ -138,19 +138,19 @@ describe("GET /api/usage", () => {
     expect(payload.generatedAt).toBe(BASE_TIME);
   });
 
-  test("Codex → 登録順のアカウントで並べ、アカウントの名前とアイコンを返す", async () => {
+  test("Codex → Claude → 登録順のアカウントで並べ、アカウントの名前とアイコンを返す", async () => {
     const h = harness(ACCOUNTS);
     const payload = await readUsage(h, await sessionCookie(h.app));
 
     expect(payload.sources.map((source) => [source.id, source.provider, source.name])).toEqual([
       ["codex", "codex", "Codex"],
+      ["claude", "claude", "Claude"],
       [MAIN_ID, "opencode-go", "メイン"],
       [SUB_ID, "opencode-go", "サブ"],
-      ["claude", "claude", "Claude"],
     ]);
-    expect(payload.sources[1]?.account).toEqual({ id: MAIN_ID, name: "メイン", icon: "🦊" });
-    expect(payload.sources[1]?.plan).toBeNull();
-    expect(payload.sources[1]?.state).toBe("loading");
+    expect(payload.sources[2]?.account).toEqual({ id: MAIN_ID, name: "メイン", icon: "🦊" });
+    expect(payload.sources[2]?.plan).toBeNull();
+    expect(payload.sources[2]?.state).toBe("loading");
   });
 
   test("snapshot を state ok として返し、窓の期間ぶんの推移を付ける", async () => {
@@ -291,8 +291,8 @@ describe("GET /api/usage", () => {
     });
 
     const payload = await readUsage(h, cookie);
-    const main = payload.sources[1];
-    const sub = payload.sources[2];
+    const main = payload.sources[2];
+    const sub = payload.sources[3];
 
     expect(main?.name).toBe("メイン");
     expect(main?.state).toBe("ok");
@@ -321,7 +321,7 @@ describe("GET /api/usage", () => {
 
     const payload = await readUsage(h, cookie);
 
-    expect(payload.sources.map((source) => source.state)).toEqual(["ok", "error", "loading", "loading"]);
+    expect(payload.sources.map((source) => source.state)).toEqual(["ok", "loading", "error", "loading"]);
   });
 
   test("snapshot と error が両方あれば前回の値を stale として返す", async () => {

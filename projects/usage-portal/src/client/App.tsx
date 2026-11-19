@@ -146,7 +146,7 @@ function Layout(props: { children: ComponentChildren; tools?: ComponentChildren;
           <img class="up-brand-logo" src={logo} width={32} height={32} alt="" />
           <span>Usage</span>
         </span>
-        <span class="up-caption">Codex / OpenCode Go / Claude</span>
+        <span class="up-caption">Codex / Claude / OpenCode Go</span>
         {props.tools || props.menu ? (
           <div class="up-header-actions">
             {props.tools}
@@ -875,6 +875,7 @@ function placeholderSources(accounts: readonly OpenCodeAccount[]): UsageSource[]
 
   return [
     { id: "codex", provider: "codex", name: "Codex", plan: null, account: null, ...placeholder },
+    { id: "claude", provider: "claude", name: "Claude", plan: null, account: null, ...placeholder },
     ...accounts.map((account) => ({
       id: account.id,
       provider: "opencode-go" as const,
@@ -883,6 +884,5 @@ function placeholderSources(accounts: readonly OpenCodeAccount[]): UsageSource[]
       account: { id: account.id, name: account.name, icon: account.icon },
       ...placeholder,
     })),
-    { id: "claude", provider: "claude", name: "Claude", plan: null, account: null, ...placeholder },
   ];
 }
