@@ -1,6 +1,6 @@
 # usage-portal
 
-Codex（ChatGPT サブスクリプション）と OpenCode Go の利用枠を 1 ページで確認するダッシュボード。
+Codex（ChatGPT サブスクリプション）・OpenCode Go・Claude（Pro / Max）の利用枠を 1 ページで確認するダッシュボード。
 自宅 LAN または VPN の内側から、スマホと PC で見る画面で、Docker コンテナとして動かす。
 利用枠の表示に加えて、設定したときだけ最小プロンプトを 1 回送る操作（Codex の 5 時間窓の開始と
 OpenCode Go の接続確認）を持つ。
@@ -17,6 +17,9 @@ OpenCode Go の接続確認）を持つ。
 - 表示は「簡易」と「標準」を切り替えられる。簡易は推移と補足を省いて 3 件程度を 1 画面に収め、選択は localStorage に残す（[ADR 0011](docs/adr/0011-view-mode-toggle.md)）
 - 窓は月次 ⊃ 週次 ⊃ ローリングの入れ子で、外側が上限なら内側は「使用不可」と赤で出す（[ADR 0009](docs/adr/0009-window-blocking-and-five-hour-rolling.md)）
 - Codex は Web UI から Sign in with ChatGPT（デバイスコード / ブラウザ + 貼り付け）でサインインする
+- Claude は公式 `claude` CLI の `/usage` を子プロセスで実行し、画面を開いたときと `⋮` の「更新」だけ取得する。
+  開きっぱなしでも周期取得せず、取得から 15 分を過ぎたら「更新停止」と出す（[ADR 0022](docs/adr/0022-claude-usage-via-cli.md)）
+- Claude のサインインは Web UI で中継しない。初回は端末から `docker exec -it <コンテナ名> claude auth login` を実行する
 - 送信の設定（モデルと思考レベル）を済ませると、Codex と OpenCode Go のカードの `⋮` に「接続確認」が出る。
   固定の最小プロンプトを 1 回だけ送り、応答本文は保存も表示もしない（[ADR 0017](docs/adr/0017-probe-prompts.md)）
 - OpenCode Go はアカウント（API キー）を最大 10 件登録でき、1 アカウント = 1 カードで並べる
@@ -69,6 +72,7 @@ HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更
 `⋮` の「取得間隔」から変えられる。設定はサーバー全体に効く。
 
 ゲージの下の行は、先頭のバッジがリセットまでの残り時間（「あと 12 日」）、続く淡色の文字がリセット日時を表す。
+Claude のカードは周期取得を持たないため、取得の進み具合のバーを出さず、画面を開いたときと `⋮` の「更新」でだけ取り直す。
 すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。使い切っていない OpenCode Go のカードは、
 月次の残りが多い順に並ぶ。Codex と、月次を読めないカードは元の位置に残る。
 表示の判断は [ADR 0008](docs/adr/0008-remaining-gauge-and-window-trend.md)、[ADR 0015](docs/adr/0015-reset-line-badge.md)、[ADR 0016](docs/adr/0016-exhausted-cards-last.md)、[ADR 0021](docs/adr/0021-opencode-monthly-order.md) を参照する。
@@ -137,6 +141,7 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `PUT`    | `/api/opencode/accounts/:id`       | 必要 | `{ name?, icon?, apiKey?, probeModel?, probeThinking? }` → 200 `{ account }`。未知の id は 404                                                                                                                                                                |
 | `POST`   | `/api/opencode/accounts/:id/check` | 必要 | そのキーで最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未知の id は 404、未設定は 409 `not_configured`                                                                                                                                                    |
 | `POST`   | `/api/opencode/accounts/:id/refresh` | 必要 | そのアカウントの利用枠だけを取り直す（200 `{ ok }`）。停止中でも再開できる。未知の id は 404                                                                                                                                                                  |
+| `POST`   | `/api/claude/refresh`              | 必要 | `{ "mode": "auto" \| "manual" }`（省略は `auto`）→ 200 `{ state: "refreshed" \| { state: "skipped", reason } \| { state: "failed", error } }`。自動は前回取得から 15 分以内なら CLI を起動せず、手動は前回の試行から 60 秒空ける |
 | `DELETE` | `/api/opencode/accounts/:id`       | 必要 | アカウントと snapshot / error / sample を削除（204）。未知の id は 404                                                                                                                                                                                        |
 
 状態を変える要求（`POST` / `PUT` / `DELETE`）は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。
@@ -147,11 +152,13 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 `model_unavailable`、それ以外と stream の異常終了は `unavailable`。応答本文と上流のエラー文は返さない。
 Codex の 5 時間窓が API に返らないアカウントがあるため、「開始済み」の判定は持たない（再送しても 5 時間は延びない）。
 
-`sources[]` は source ごとに独立して失敗する。`id` は `codex` またはアカウントの uuid、`provider` は `codex` /
-`opencode-go`、`account` は OpenCode Go の `{ id, name, icon }`（Codex は `null`）で、応答の並びは Codex → 登録順。
+`sources[]` は source ごとに独立して失敗する。`id` は `codex`・`claude`・アカウントの uuid、`provider` は `codex` /
+`opencode-go` / `claude`、`account` は OpenCode Go の `{ id, name, icon }`（Codex と Claude は `null`）で、応答の並びは
+Codex → 登録順 → Claude。
 画面はこの並びを使い切ったカードの移動（ADR 0016）と月次の残り順（ADR 0021）で並べ替える。
 `state` は `loading` / `ok` / `stale` / `error`、`error.code` は `not_connected` / `reauth_required` / `subscription_required` / `upstream` / `schema` /
-`config` の固定値で、上流の本文は含まない。未サインインの Codex は `not_connected` になり、画面では「未接続」と出す。
+`config` の固定値で、上流の本文は含まない。未サインインの Codex と Claude は `not_connected` になり、画面では「未接続」と出す。
+Claude の `nextFetchAt` は常に `null`（周期取得が無い）。
 
 ## Codex のサインイン
 
@@ -170,6 +177,28 @@ Codex の OAuth は自前実装せず、Pi SDK（`@earendil-works/pi-coding-agen
 
 コールバックポート（1455）は publish しない。コンテナ内の `127.0.0.1` に閉じるため、どのブラウザからでも
 デバイスコードか貼り付けで完了できるようにしてある。進行中の状態は BFF のメモリだけに置き、開始から 10 分で自動中断する。
+
+## Claude のサインイン
+
+Claude は Web UI でサインインを中継しない。公式 `claude` CLI を image に版固定で入れ、その CLI 自身に
+サインインさせる。このアプリはトークンも `.credentials.json` も直接読まない（[ADR 0022](docs/adr/0022-claude-usage-via-cli.md)）。
+
+1. 稼働中のコンテナへ入って、サブスクリプションのアカウントでサインインする
+
+   ```bash
+   docker exec -it <コンテナ名> claude auth login
+   ```
+
+2. 画面を開くか、Claude カードの `⋮` →「更新」を押す
+3. 未接続・再サインインのあいだは、カードに同じ手順を出す
+
+資格情報は `CREDENTIAL_DIR`（既定 `/app/credentials`）の `claude/` に置き、ホストの `~/.claude` とは共有しない。
+image の `CLAUDE_CONFIG_DIR` は `CREDENTIAL_DIR/claude` にしてあるので、`docker exec` で実行する CLI も同じ場所を読む。
+`bun run dev` で動かすときは `CLAUDE_CONFIG_DIR=./credentials/claude claude auth login` を使う。
+
+取得は画面を開いたとき（初回表示とタブが見える状態へ戻ったとき）と手動更新だけ。前回の取得から 15 分以内なら
+CLI を起動せず保存済みの値を使い、手動更新は前回の試行から 60 秒空ける。失敗しても自動では再試行しない。
+CLI の出力本文は DB・ログ・応答に残さず、正規化した利用枠と sample だけを保存する。
 
 ## 最小プロンプトの送信
 
@@ -225,12 +254,18 @@ rm credentials/opencode-key.json
 | `TRUST_PROXY`      | `0`                | `1` のときだけ `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-For` を信頼する。TLS 終端を前段に置く構成で使う                     |
 | `COOKIE_SECURE`    | `auto`             | `1` なら常に cookie へ `Secure` を付ける。`auto` は要求が HTTPS のときだけ付ける（`TRUST_PROXY=1` なら転送ヘッダーも見る）                 |
 
-`PI_CODING_AGENT_DIR` は Dockerfile で `CREDENTIAL_DIR` と同じ値にしている。PIN とセッション鍵は環境変数では渡さない。
+`PI_CODING_AGENT_DIR` は Dockerfile で `CREDENTIAL_DIR` と同じ値にしている。`CLAUDE_CONFIG_DIR` も Dockerfile で
+`CREDENTIAL_DIR/claude` にしている（Claude CLI が資格情報を書く場所で、アプリは子プロセスへ明示的に渡す）。
+PIN とセッション鍵は環境変数では渡さない。
 
 ## Docker
 
 `test` ステージは `bun install --frozen-lockfile` の後に `bun run check` を実行する。`final` ステージは非 root（uid/gid 1000）で `bun src/server.ts` を起動する。
 どちらも `oven/bun` のパッチ版（1.4.4 / 1.4.4-slim）を digest で固定している。
+
+`final` には公式 Claude Code CLI を、`downloads.claude.ai` の版固定バイナリを公式 manifest の checksum で検証して入れる
+（ビルド時に約 370 MB を取得する）。バイナリは root 所有の 0755 で置き、実行ユーザーからは書き換えられない。
+実行ユーザーはこのファイルを置き換えられないため、自動更新が試されても版は Dockerfile の `CLAUDE_CODE_VERSION` のまま固定される。
 
 ```bash
 docker build --target test -t usage-portal-test ./projects/usage-portal
@@ -246,7 +281,7 @@ docker run --rm -p 3000:3000 \
 マウントするときは所有者を合わせる（`install -d -m 700 -o 1000 -g 1000` 相当）。
 
 - `data/` には `usage.sqlite`、`session-key`、初回セットアップ後の `pin-hash` が入る。消すと PIN と履歴が初期化される
-- `credentials/` には Codex の `auth.json`（refresh token と account id）、`device-id`、OpenCode Go の `opencode-accounts.json`（API キーとアカウント名）が入る。**バックアップやログに出さない**
+- `credentials/` には Codex の `auth.json`（refresh token と account id）、`device-id`、OpenCode Go の `opencode-accounts.json`（API キーとアカウント名）、Claude の `claude/`（CLI 自身の設定と資格情報）が入る。**バックアップやログに出さない**
 
 ## ディレクトリ構成
 
@@ -268,7 +303,8 @@ src/server/state.ts           snapshot と error から state を決める
 src/server/trend.ts           窓の期間と、推移の downsample
 src/server/health.ts          /api/health の応答
 src/server/version.ts         version と User-Agent の組み立て
-src/server/providers/         Codex / OpenCode Go の adapter と正規化モデル
+src/server/providers/         Codex / OpenCode Go / Claude の adapter と正規化モデル
+src/server/claude/            Claude CLI の子プロセス起動と、取得の契機（single-flight、15 分 / 60 秒）
 src/server/codex/             Pi SDK の資格情報、SiWC の状態機械、/api/codex/*
 src/server/opencode/          OpenCode Go のアカウントの保存と /api/opencode/*
 src/server/opencode/status.ts  Go の公式稼働状況の正規化と、要求時の共有キャッシュ
@@ -307,11 +343,15 @@ bun run check
 - 自宅 LAN または VPN の内側からだけ使う。インターネットへ公開しない。TLS 終端を前段（Caddy など）に置く場合は `TRUST_PROXY=1` を設定する
 - 画面は利用枠を変更しない。資格情報（Codex のサインイン、OpenCode Go のアカウント）の登録・変更・削除と、
   明示的に押したときの最小プロンプト 1 回の送信だけを行う（送るのはサーバ側の固定 1 文で、利用者の入力は混ぜない）
+- Claude は公式 CLI を未改変で使い、トークンと `.credentials.json` を直接読まない。サインインも Web UI で中継しない
 - 認証情報と DB の中身は API から返さない。`/api/health` は状態だけを返し、利用枠や利用者情報を含めない
 - SQLite と認証状態は `DATA_DIR`（0700）に置き、ファイルを 0600 にし、プロセスの先頭で `umask 077` を設定する
 - Codex の token・account id・email、OpenCode の API key は応答・ログ・DB に残さない。上流の応答本文も保存しない
+- Claude の CLI 出力本文とメール・組織の情報は、DB・ログ・応答に残さない（読むのは `loggedIn` / `authMethod` /
+  `subscriptionType` / `loginExpiresAt` だけ）。子プロセスへ渡す環境変数は `PATH` / `HOME` / `CLAUDE_CONFIG_DIR` / `TZ` に絞り、
+  cwd は空の一時ディレクトリにする
 - 送信の成否は status・`stopReason`・latency・固定のエラーコードだけを扱い、プロンプトも応答も保存しない
-- `/app/credentials` は 0700、`auth.json` / `device-id` / `opencode-accounts.json` は 0600。ホストの Pi 資格情報とは共有しない
+- `/app/credentials` は 0700、`auth.json` / `device-id` / `opencode-accounts.json` は 0600、`claude/` は 0700。ホストの Pi 資格情報や `~/.claude` とは共有しない
 - `opencode-accounts.json` はアカウント数だけキーを平文で持つ。旧 `opencode-key.json` を残すとキーが二重に残るため、登録後に削除する
 - PIN、PIN ハッシュ、セッション鍵、cookie、API key、token をログに出さない
 - セッション cookie は `HttpOnly; SameSite=Lax`。`Secure` は `COOKIE_SECURE` / `TRUST_PROXY` に従う（既定は HTTPS の要求のときだけ付与）

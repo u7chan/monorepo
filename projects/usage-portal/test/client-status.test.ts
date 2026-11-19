@@ -65,4 +65,18 @@ describe("deriveProviderStatus", () => {
       status({ provider: "opencode-go", state: "stale", errorCode: "subscription_required", usedPercents: [12] }),
     ).toEqual({ label: "契約エラー", tone: "attention", symbol: "■" });
   });
+
+  test("Claude の契約なし・再サインインも provider ごとのラベルにする", () => {
+    expect(
+      status({ provider: "claude", state: "error", errorCode: "subscription_required", usedPercents: [] }),
+    ).toEqual({ label: "契約エラー", tone: "attention", symbol: "■" });
+    expect(status({ provider: "claude", state: "error", errorCode: "reauth_required", usedPercents: [] })).toEqual({
+      label: "再サインイン",
+      tone: "attention",
+      symbol: "▲",
+    });
+    expect(status({ provider: "claude", state: "error", errorCode: "not_connected", usedPercents: [] }).label).toBe(
+      "未接続",
+    );
+  });
 });

@@ -1,6 +1,8 @@
 import index from "../index.html";
 import { createApp } from "./server/app";
 import { createAuthService } from "./server/auth";
+import { createClaudeCli } from "./server/claude/cli";
+import { createClaudeUsageService } from "./server/claude/service";
 import { createCodexApi } from "./server/codex/api";
 import { createCodexAuth } from "./server/codex/auth";
 import { createCodexLoginService } from "./server/codex/login";
@@ -25,6 +27,8 @@ import { createProbeRunner } from "./server/probe/service";
 import { createProbeSettings } from "./server/probe/settings";
 import { fetchIntervalMs } from "./shared/fetch-interval";
 import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "./server/providers";
+import { CLAUDE_REFRESH_INTERVAL_MS } from "./server/providers/claude";
+import type { ProviderId } from "./server/providers/types";
 import { fetchCodexUsage } from "./server/providers/codex";
 import { fetchOpenCodeUsage } from "./server/providers/opencode-go";
 import { createSampler, PAUSED_RETRY_INTERVAL_MS, type UsageFetcher } from "./server/sampler";
@@ -125,14 +129,23 @@ const fetchers = (): UsageFetcher[] => {
 };
 // env の POLL_INTERVAL_MS は、画面から設定していない provider の既定値として使う。
 const fetchIntervals = createFetchIntervalStore({ db: database, defaultMs: config.pollIntervalMs, log });
+// 画面から設定できるのは Codex と OpenCode Go だけ。Claude は周期取得をせず、固定値を使う。
+const intervalFor = (provider: ProviderId): number =>
+  provider === "claude" ? CLAUDE_REFRESH_INTERVAL_MS : fetchIntervals.get(provider);
 const sampler = createSampler({
   db: database,
   fetchers,
-  intervalFor: (provider) => fetchIntervals.get(provider),
+  intervalFor,
   now: Date.now,
   log,
 });
 const codexLogin = createCodexLoginService({ auth: codexAuth, onSuccess: () => sampler.kick("codex"), log });
+const claude = createClaudeUsageService({
+  db: database,
+  cli: createClaudeCli({ credentialDir: config.credentialDir, env: process.env }),
+  now: Date.now,
+  log,
+});
 const codex = createCodexApi({ auth: codexAuth, login: codexLogin, db: database, sampler });
 const opencode = createOpenCodeApi({
   accounts: openCodeAccounts,
@@ -162,6 +175,7 @@ const app = createApp({
   cookieSecure: config.cookieSecure,
   codex,
   opencode,
+  claude,
   openCodeStatus: createOpenCodeStatusReader({ userAgent }),
   probe,
   fetchIntervals: {
@@ -176,7 +190,7 @@ const app = createApp({
   },
   usage: createUsageReader({
     db: database,
-    intervalFor: (provider) => fetchIntervals.get(provider),
+    intervalFor,
     nextFetchAt: sampler.nextFetchAt,
     now: Date.now,
     accounts: () => openCodeAccounts.list(),
@@ -211,6 +225,7 @@ console.log(
 );
 console.log(`Codex: ${codexAuth.signedIn() ? "サインイン済み" : "未接続"}`);
 console.log(`OpenCode Go: ${accountCount === 0 ? "アカウント未登録" : `アカウント ${accountCount} 件`}`);
+console.log("Claude: 画面を開いたときと手動更新で取得します");
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {

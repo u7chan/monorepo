@@ -1,3 +1,4 @@
+import type { ClaudeRefreshMode, ClaudeRefreshResult } from "../src/server/claude/service";
 import type { CodexApi } from "../src/server/codex/api";
 import type { OpenCodeAccount } from "../src/server/opencode/accounts";
 import type { OpenCodeApi } from "../src/server/opencode/api";
@@ -41,6 +42,13 @@ export function stubCodexApi(overrides: Partial<CodexApi> = {}): CodexApi {
     logout: async () => {},
     ...overrides,
   };
+}
+
+/** 認証だけを試すテスト用。Claude の取得は呼ばれたら記録だけする。 */
+export type StubClaudeApi = { refresh: (mode: ClaudeRefreshMode) => Promise<ClaudeRefreshResult> };
+
+export function stubClaudeApi(overrides: Partial<StubClaudeApi> = {}): StubClaudeApi {
+  return { refresh: async () => ({ state: "skipped", reason: "fresh" }), ...overrides };
 }
 
 export function stubOpenCodeApi(overrides: Partial<OpenCodeApi> = {}): OpenCodeApi {

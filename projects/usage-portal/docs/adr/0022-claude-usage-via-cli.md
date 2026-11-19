@@ -92,3 +92,26 @@ Codex と OpenCode Go は 5 分ごとにバックグラウンドで取る（ADR 
 - 規約の解釈は変わり得る。公式 CLI を未改変で使い、自分のアカウントだけを対象にする前提が崩れる変更（共有、
   複数アカウント、バイナリの改変、トークンの直接利用）は、この ADR を見直してから行う。
 - Codex と OpenCode Go の周期取得、ADR 0004 は変えない。Claude だけ取得の経路が別になる。
+
+## 実装時に確認したこと（CLI 2.1.327）
+
+実装 PR で、版固定した公式バイナリ（2.1.327）の中の生成コードを読んで確かめた事実。実機での実行結果ではない。
+
+- `claude auth status` は既定で JSON を返す（`--json` は既定、`--text` で別文面）。項目は `loggedIn` / `authMethod` /
+  `apiProvider` / `loginExpiresAt` などで、`authMethod` は `claude.ai` / `api_key` / `api_key_helper` / `oauth_token` /
+  `third_party` / `none` を取る。`loginExpiresAt` は ISO 8601 の文字列（または `null`）で、`subscriptionType` は
+  `authMethod` が `claude.ai` のときだけ入る。
+- 自動と手動の区別は `POST /api/claude/refresh` の body で受け取る。画面以外の要求が `manual` を名乗っても、
+  60 秒の下限と single-flight は効くが、15 分の窓は明示操作として越えられる（1 人用の LAN 内アプリなので許容する）。
+- `/usage` の `result` は、前文のあとに 1 窓 1 行を並べる。行は
+  `Current session: 12% used · resets Nov 19, 12:50am (America/Los_Angeles)` の形で、率は切り捨ての整数、
+  区切りは ` · resets `。括弧内は CLI プロセスのローカルなタイムゾーン名（`TZ=UTC` にすれば `UTC`）で、
+  年はリセットの年が今年と違うときだけ付き、分が 0 なら時だけを出す。
+- Max / Team では `Current week (Sonnet only)` と、モデルごとの `Current week (<モデル名>)` の行が加わる。
+  決定どおり、いまは `Current session` と `Current week (all models)` の 2 窓だけを読む。
+- CLI は `downloads.claude.ai` の版固定バイナリを、公式 manifest の checksum と突き合わせて入れられる。
+  実行ユーザーが書き換えられない場所（root 所有の 0755）に置けば、自動更新が試されても版は変わらない。
+
+未確認のまま残ること: `auth status` が実行時にネットワークへ出るか、ログイン期限が使うたびに延びるか、
+コンテナ内で `claude auth login` した資格情報が再起動後も残るか、Max の実出力、推移の欠けのつなぎ方、
+カードの並び順、自動更新の確認自体が走るか（置き換えはできないが、外部への更新確認の有無は未確認）。

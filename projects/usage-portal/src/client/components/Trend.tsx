@@ -1,6 +1,6 @@
 import type { Trend, UsageWindow } from "../api";
 import { buildTimeTicks, buildValueAxis } from "../lib/chart";
-import { describeCoverage, formatFetchInterval, formatSpan, remainingPercent } from "../lib/format";
+import { describeCoverage, formatSpan, remainingPercent } from "../lib/format";
 
 /** 線が枠に貼り付かないよう、上下に少し余白を残す（viewBox の %）。 */
 const PLOT_PADDING = 4;
@@ -10,8 +10,8 @@ export function TrendChart(props: {
   activeWindowId: string;
   trend: Trend | null;
   generatedAt: number | null;
-  /** このカードの取得間隔。まだ点が 1 つも無いときの説明に使う。 */
-  intervalMs: number;
+  /** まだ点が無いときの説明。記録の契機は provider ごとに違う。 */
+  emptyMessage: string;
   onSelect: (windowId: string) => void;
 }) {
   const title = props.trend ? `残りの推移（${formatSpan(props.trend.spanMs)}）` : "残りの推移";
@@ -37,19 +37,19 @@ export function TrendChart(props: {
         ) : null}
       </div>
       {props.trend ? (
-        <Chart trend={props.trend} generatedAt={props.generatedAt} intervalMs={props.intervalMs} />
+        <Chart trend={props.trend} generatedAt={props.generatedAt} emptyMessage={props.emptyMessage} />
       ) : (
-        <ChartEmpty intervalMs={props.intervalMs} />
+        <ChartEmpty message={props.emptyMessage} />
       )}
     </div>
   );
 }
 
-function ChartEmpty(props: { intervalMs: number }) {
-  return <p class="up-caption">{`履歴を収集中です（${formatFetchInterval(props.intervalMs)}ごとに記録）。`}</p>;
+function ChartEmpty(props: { message: string }) {
+  return <p class="up-caption">{props.message}</p>;
 }
 
-function Chart(props: { trend: Trend; generatedAt: number | null; intervalMs: number }) {
+function Chart(props: { trend: Trend; generatedAt: number | null; emptyMessage: string }) {
   const points = props.trend.points;
   const remaining = points.map((point) => ({ at: point.at, value: remainingPercent(point.usedPercent) }));
   const axis = buildValueAxis(remaining.map((point) => point.value));
@@ -57,7 +57,7 @@ function Chart(props: { trend: Trend; generatedAt: number | null; intervalMs: nu
   const last = remaining.at(-1);
 
   if (!axis || !first || !last) {
-    return <ChartEmpty intervalMs={props.intervalMs} />;
+    return <ChartEmpty message={props.emptyMessage} />;
   }
 
   const endAt = Math.max(props.generatedAt ?? last.at, last.at);

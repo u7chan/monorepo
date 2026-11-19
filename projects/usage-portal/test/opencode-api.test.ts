@@ -20,6 +20,7 @@ import { createSampler, type UsageFetcher } from "../src/server/sampler";
 import { createUsageReader, type UsagePayload } from "../src/server/usage";
 import {
   BASE_TIME,
+  stubClaudeApi,
   stubCodexApi,
   usageSnapshot,
   stubProbeApi,
@@ -125,6 +126,7 @@ function harness(
       accounts: () => accounts.list(),
     }),
     codex: stubCodexApi(),
+    claude: stubClaudeApi(),
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode,
@@ -405,6 +407,7 @@ describe("POST /api/opencode/accounts", () => {
     expect(usage.sources.map((source) => `${source.provider}:${source.id}:${source.account?.name ?? "-"}`)).toEqual([
       "codex:codex:-",
       `opencode-go:${account.id}:メイン`,
+      "claude:claude:-",
     ]);
     expect(usage.sources[1]?.state).toBe("ok");
     expect(JSON.stringify(usage)).not.toContain(KEY);

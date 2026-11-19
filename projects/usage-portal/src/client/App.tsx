@@ -4,6 +4,8 @@ import { DEFAULT_FETCH_INTERVAL_MINUTES, FETCH_INTERVAL_PROVIDERS } from "../sha
 import { MAX_OPENCODE_ACCOUNTS } from "../shared/opencode-account";
 import logo from "./assets/logo.png";
 import {
+  type ClaudeRefreshMode,
+  type ClaudeRefreshOutcome,
   type CodexAuthState,
   type CodexProbeConfig,
   type OpenCodeAccount,
@@ -29,6 +31,7 @@ import {
   fetchUsage,
   logout,
   logoutCodex,
+  refreshClaudeUsage,
   refreshOpenCodeAccount,
   respondCodexLogin,
   saveCodexProbe,
@@ -36,6 +39,7 @@ import {
   startCodexLogin,
   updateOpenCodeAccount,
 } from "./api";
+import { ClaudeCard } from "./components/ClaudeCard";
 import { CodexCard } from "./components/CodexCard";
 import { FetchIntervalForm } from "./components/FetchIntervalForm";
 import { LoginScreen } from "./components/LoginScreen";
@@ -139,7 +143,7 @@ function Layout(props: { children: ComponentChildren; tools?: ComponentChildren;
           <img class="up-brand-logo" src={logo} width={32} height={32} alt="" />
           <span>Usage</span>
         </span>
-        <span class="up-caption">Codex / OpenCode Go</span>
+        <span class="up-caption">Codex / OpenCode Go / Claude</span>
         {props.tools || props.menu ? (
           <div class="up-header-actions">
             {props.tools}
@@ -401,6 +405,51 @@ function Dashboard(props: {
     [loadUsage],
   );
 
+  // 取得を試したときだけ取り直す。15 分以内の自動要求は何も変えないので、通信を増やさない。
+  const refreshClaude = useCallback(
+    async (mode: ClaudeRefreshMode): Promise<ClaudeRefreshOutcome | null> => {
+      let outcome: Awaited<ReturnType<typeof refreshClaudeUsage>>;
+
+      try {
+        outcome = await refreshClaudeUsage(mode);
+      } catch {
+        return null;
+      }
+
+      if (outcome === null) {
+        return null;
+      }
+
+      if ("unauthorized" in outcome) {
+        onUnauthorized();
+
+        return null;
+      }
+
+      if (outcome.state !== "skipped") {
+        await loadUsage();
+      }
+
+      return outcome;
+    },
+    [loadUsage, onUnauthorized],
+  );
+
+  // 画面を開いたときと、タブが見える状態に戻ったときだけ取りに行く。開きっぱなしでは周期取得しない。
+  useEffect(() => {
+    void refreshClaude("auto");
+
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState === "visible") {
+        void refreshClaude("auto");
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [refreshClaude]);
+
   const createAccount = useCallback(
     async (input: OpenCodeAccountInput): Promise<string | null> => {
       let outcome: Awaited<ReturnType<typeof createOpenCodeAccount>>;
@@ -624,22 +673,39 @@ function Dashboard(props: {
       {expiry ? <SessionExpiryBanner remaining={expiry} onRelogin={props.onRelogin} /> : null}
       {hasActiveOpenCodeSource(sources) ? <OpenCodeStatusPanel now={clock} onUnauthorized={onUnauthorized} /> : null}
       <div class="up-providers" data-density={viewMode}>
-        {sources.map((source) =>
-          source.provider === "codex" ? (
-            <CodexCard
-              key={source.id}
-              source={source}
-              now={clock}
-              generatedAt={usage?.generatedAt ?? null}
-              compact={compact}
-              auth={codex}
-              actions={codexActions}
-              probe={probe}
-              catalog={catalog}
-              onConfigure={() => setConfiguring(true)}
-              onCheck={startCodexWindow}
-            />
-          ) : (
+        {sources.map((source) => {
+          if (source.provider === "codex") {
+            return (
+              <CodexCard
+                key={source.id}
+                source={source}
+                now={clock}
+                generatedAt={usage?.generatedAt ?? null}
+                compact={compact}
+                auth={codex}
+                actions={codexActions}
+                probe={probe}
+                catalog={catalog}
+                onConfigure={() => setConfiguring(true)}
+                onCheck={startCodexWindow}
+              />
+            );
+          }
+
+          if (source.provider === "claude") {
+            return (
+              <ClaudeCard
+                key={source.id}
+                source={source}
+                now={clock}
+                generatedAt={usage?.generatedAt ?? null}
+                compact={compact}
+                onRefresh={() => refreshClaude("manual")}
+              />
+            );
+          }
+
+          return (
             <OpenCodeAccountCard
               key={source.id}
               source={source}
@@ -652,8 +718,8 @@ function Dashboard(props: {
               onCheck={checkAccount}
               onRefreshUsage={refreshAccountUsage}
             />
-          ),
-        )}
+          );
+        })}
         {accounts.status === "ok" && accounts.accounts.length === 0 ? (
           <section class="up-card up-empty-provider">
             <h2 class="up-subheading">OpenCode Go</h2>
@@ -751,5 +817,6 @@ function placeholderSources(accounts: readonly OpenCodeAccount[]): UsageSource[]
       account: { id: account.id, name: account.name, icon: account.icon },
       ...placeholder,
     })),
+    { id: "claude", provider: "claude", name: "Claude", plan: null, account: null, ...placeholder },
   ];
 }

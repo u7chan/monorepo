@@ -14,6 +14,7 @@ import { buildHealthReport } from "../src/server/health";
 import {
   BASE_TIME,
   EMPTY_USAGE,
+  stubClaudeApi,
   stubOpenCodeApi,
   stubOpenCodeStatus,
   stubProbeApi,
@@ -78,6 +79,7 @@ function harness(
     auth,
     usage: () => EMPTY_USAGE,
     codex,
+    claude: stubClaudeApi(),
     opencode: stubOpenCodeApi(),
     openCodeStatus: stubOpenCodeStatus,
     probe: stubProbeApi(),

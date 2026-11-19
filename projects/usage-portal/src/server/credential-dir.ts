@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { claudeConfigDir } from "./claude/cli";
 import { CODEX_AUTH_FILE, CODEX_DEVICE_ID_FILE } from "./codex/auth";
 import { OPENCODE_ACCOUNTS_FILE } from "./opencode/accounts";
 
@@ -9,10 +10,16 @@ export const CREDENTIAL_FILES = [CODEX_AUTH_FILE, CODEX_DEVICE_ID_FILE, OPENCODE
 /**
  * 資格情報のディレクトリを 0700、既存のファイルを 0600 に揃える。
  * 0600 にできない状態で動かすと秘密が他ユーザーから読めるため、呼び出し側は失敗で起動を止める。
+ * Claude の設定ディレクトリも同じ扱いにする（CLI 自身が資格情報をそこへ書く）。
  */
 export function prepareCredentialDir(credentialDir: string): void {
   mkdirSync(credentialDir, { recursive: true, mode: 0o700 });
   chmodSync(credentialDir, 0o700);
+
+  const claudeDir = claudeConfigDir(credentialDir);
+
+  mkdirSync(claudeDir, { recursive: true, mode: 0o700 });
+  chmodSync(claudeDir, 0o700);
 
   for (const file of CREDENTIAL_FILES) {
     const path = join(credentialDir, file);

@@ -4,6 +4,7 @@ import { createAuthService } from "../src/server/auth";
 import { buildHealthReport, type AuthStatus, type DatabaseStatus } from "../src/server/health";
 import {
   EMPTY_USAGE,
+  stubClaudeApi,
   stubCodexApi,
   stubOpenCodeApi,
   stubOpenCodeStatus,
@@ -30,6 +31,7 @@ function appWith(db: DatabaseStatus, auth: AuthStatus) {
     health: () => buildHealthReport(db, auth),
     usage: () => EMPTY_USAGE,
     codex: stubCodexApi(),
+    claude: stubClaudeApi(),
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode: stubOpenCodeApi(),

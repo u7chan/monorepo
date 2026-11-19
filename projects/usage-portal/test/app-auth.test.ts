@@ -9,6 +9,7 @@ import { buildHealthReport } from "../src/server/health";
 import { SESSION_COOKIE_NAME } from "../src/server/session";
 import {
   EMPTY_USAGE,
+  stubClaudeApi,
   stubCodexApi,
   stubOpenCodeApi,
   stubOpenCodeStatus,
@@ -36,6 +37,7 @@ function harness(options: { clientKey?: boolean; trustProxy?: boolean; cookieSec
     health: () => buildHealthReport("ok", auth.status()),
     usage: () => EMPTY_USAGE,
     codex: stubCodexApi(),
+    claude: stubClaudeApi(),
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode: stubOpenCodeApi(),

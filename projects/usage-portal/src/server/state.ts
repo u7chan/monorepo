@@ -6,14 +6,15 @@ export type UsageError = { code: ProviderErrorCode; message: string; at: number 
 
 /**
  * snapshot と error から API の `state` を決める。
- * 取得が 2 周期止まっただけの snapshot を `ok` と出すと、止まっていることが画面から消える。
+ * 取得が閾値を超えて止まっただけの snapshot を `ok` と出すと、止まっていることが画面から消える。
+ * 閾値は provider ごとに渡す（周期取得は 2 間隔、画面を開いたときだけ取る provider はその間隔）。
  */
 export function decideProviderState(options: {
   snapshotCapturedAt: number | null;
   hasError: boolean;
   now: number;
-  /** この source の取得間隔。停滞の判定を provider ごとの設定に合わせる。 */
-  intervalMs: number;
+  /** この source の値を stale と見なすまでに許す古さ。 */
+  staleAfterMs: number;
 }): ProviderState {
   if (options.snapshotCapturedAt === null) {
     return options.hasError ? "error" : "loading";
@@ -23,5 +24,5 @@ export function decideProviderState(options: {
     return "stale";
   }
 
-  return options.now - options.snapshotCapturedAt > 2 * options.intervalMs ? "stale" : "ok";
+  return options.now - options.snapshotCapturedAt > options.staleAfterMs ? "stale" : "ok";
 }

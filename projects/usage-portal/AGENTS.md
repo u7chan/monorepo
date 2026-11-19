@@ -2,7 +2,7 @@
 
 モノレポの `projects/usage-portal`。リポジトリ共通の規約は [ルートの AGENTS.md](../../AGENTS.md) を参照する。
 
-Codex と OpenCode Go の利用枠を 1 ページで見るダッシュボード。自宅 LAN または VPN の内側で動かす。
+Codex（ChatGPT サブスクリプション）・OpenCode Go・Claude（Pro / Max）の利用枠を 1 ページで見るダッシュボード。自宅 LAN または VPN の内側で動かす。
 利用枠の表示に加えて、設定したときだけ固定の最小プロンプトを 1 回送る操作（Codex の 5 時間窓の開始と
 OpenCode Go の接続確認）を持つ。
 
@@ -24,7 +24,8 @@ OpenCode Go の接続確認）を持つ。
 - Codex の資格情報とサインインは `src/server/codex/`。OAuth は実装せず、Pi SDK の `ModelRuntime` を認証の境界としてだけ使う（[docs/adr/0005-codex-credentials-and-sign-in.md](docs/adr/0005-codex-credentials-and-sign-in.md)）。
 - OpenCode Go のアカウント（名前 / アイコン / API キー）は `src/server/opencode/accounts.ts` が `CREDENTIAL_DIR` の `opencode-accounts.json` に保存し、`/api/opencode/accounts` から登録・変更・削除する。入力規則は `src/shared/opencode-account.ts` を server と client で共有する。`.env` は使わない（[docs/adr/0006-opencode-api-key-registration.md](docs/adr/0006-opencode-api-key-registration.md), [docs/adr/0007-opencode-multiple-accounts.md](docs/adr/0007-opencode-multiple-accounts.md)）。
 - Go の公式稼働状況は `src/server/opencode/status.ts` が公開 API の `go` component だけを正規化する。利用枠の sampler とは別に、認証済みの `/api/opencode/status` 要求時に取得し、60 秒のメモリキャッシュと single-flight を共有する。client は契約・キーが有効なカードが 1 件以上あるときだけ表示・取得する。資格情報の送信・DB 保存はしない（[docs/adr/0020-opencode-service-status.md](docs/adr/0020-opencode-service-status.md)）。
-- DB の `provider` 列は provider id ではなく source id（`codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>`）を持つ。テーブル定義と `user_version` は v1 のまま（ADR 0007, 0018）。Codex のサインアウトは snapshot と error だけを消し、sample は同じアカウントの再サインイン用に残す。
+- Claude の利用枠は `src/server/claude/` と `src/server/providers/claude.ts`。公式 CLI を子プロセスで起動し、`claude auth status` で接続を判定してから `/usage` を読む。sampler には乗せず、`POST /api/claude/refresh` の auto（前回取得から 15 分）と manual（前回の試行から 60 秒）だけで取得する（[docs/adr/0022-claude-usage-via-cli.md](docs/adr/0022-claude-usage-via-cli.md)）。子プロセスへ渡す環境変数は `PATH` / `HOME` / `CLAUDE_CONFIG_DIR` / `TZ` だけ、cwd は空の一時ディレクトリ、期限は 15 秒。CLI の出力本文・メール・組織情報は保存もログもせず、正規化した snapshot と sample だけを残す。トークンと `.credentials.json` は直接読まない。
+- DB の `provider` 列は provider id ではなく source id（`codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>` / `claude`）を持つ。テーブル定義と `user_version` は v1 のまま（ADR 0007, 0018）。Claude も既存のテーブルへ追記し、schema は変えない。Codex のサインアウトは snapshot と error だけを消し、sample は同じアカウントの再サインイン用に残す。
 - 送信（5 時間窓の開始・接続確認）は `src/server/probe/`。エージェントは使わず、`@earendil-works/pi-ai` の
   `openaiCodexProvider()` / `opencodeGoProvider()` を直接呼ぶ。Codex の access token は `CodexAuth.credential()`
   から取り、`auth.json` は解析しない（[docs/adr/0017-probe-prompts.md](docs/adr/0017-probe-prompts.md)）。
@@ -51,6 +52,9 @@ Docker は `docker build --target test -t usage-portal-test ./projects/usage-por
 - 純関数（整形、判定、環境変数の検証）と BFF の契約（status、body、ヘッダー）を自動テストする。
 - SQLite と認証状態のファイルは一時ディレクトリに本物を作り、DDL、`user_version`、権限、排他を確認する。モックの DB は使わない。
 - provider の adapter は上流の応答を `unknown` として直接渡し、窓の欠損・0%・100 超・schema 変化を固定する。ネットワークは叩かない。
+- Claude の adapter は、公式 CLI の出力を写した fixture（年あり・年なし・分が 0・` at ` 区切り・未ログインの別文面）で固定する。
+  子プロセスは `Bun.spawn` を差し替えた偽 CLI で、環境変数・cwd・期限・single-flight・15 分 / 60 秒の制限を固定し、
+  実資格情報とネットワークは使わない。CLI の出力本文が DB・ログ・応答に残らないことも確かめる。
 - 送信の契約は、`streamSimple` だけを差し替えた偽 provider と偽 `fetch` で固定する（status の丸め・stream の終端・
   single-flight・timeout 後の解放・kick の有無）。実資格情報は使わない。
 - Codex のサインインは SDK を差し替えた状態機械としてテストする（`select` / `manual_code` / 中断 / 10 分の期限 / 生の文言を返さないこと）。
