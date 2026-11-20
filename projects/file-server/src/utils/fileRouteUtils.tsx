@@ -4,7 +4,13 @@ import type { Context } from "hono"
 import type { AppBindings } from "../types"
 import { lookupMimeType, normalizeResponseMimeType } from "./mimeType"
 import { isNodeErrorCode } from "./nodeError"
-import { errorResponse, getRequestPath, getUploadDir } from "./requestUtils"
+import {
+  errorResponse,
+  forbiddenResponse,
+  getRequestPath,
+  getUploadDir,
+  getUser,
+} from "./requestUtils"
 import { resolveVirtualPath } from "./virtualPath"
 
 const ACTIVE_MIME_TYPES = new Set([
@@ -160,12 +166,12 @@ export async function resolveRequestedFileAtPath(
   notFoundMessage: string,
 ) {
   const baseDir = getUploadDir(c)
-  const user = c.get("user") ?? { type: "anonymous" as const }
+  const user = getUser(c)
 
   const result = resolveVirtualPath(baseDir, user, requestPath)
 
   if (result.kind === "forbidden") {
-    return { response: errorResponse(c, "Forbidden", "Access denied", 403) }
+    return { response: forbiddenResponse(c) }
   }
   if (result.kind === "notFound" || result.kind === "synthetic") {
     return { response: errorResponse(c, "NotFound", notFoundMessage, 400) }

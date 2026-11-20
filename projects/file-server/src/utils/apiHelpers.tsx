@@ -3,7 +3,12 @@ import { FileList } from "../components/FileList"
 import type { AppBindings } from "../types"
 import { toBrowseLocation } from "./auth"
 import { resolveBrowseView } from "./browseContext"
-import { errorResponse, isHtmxRequest } from "./requestUtils"
+import {
+  errorResponse,
+  forbiddenResponse,
+  getUser,
+  isHtmxRequest,
+} from "./requestUtils"
 
 export async function renderFileListResponse(
   c: Context<AppBindings>,
@@ -14,12 +19,12 @@ export async function renderFileListResponse(
     encodeRedirectPath?: boolean
   },
 ) {
-  const user = c.get("user") ?? { type: "anonymous" as const }
+  const user = getUser(c)
   const browsePath = toBrowseLocation(user, virtualPath)
   const result = await resolveBrowseView(baseDir, user, browsePath)
 
   if (result.kind !== "view") {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
 
   if (isHtmxRequest(c)) {

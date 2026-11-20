@@ -21,6 +21,7 @@ import {
   signSession,
   verifyPassword,
 } from "../utils/auth"
+import { errorResponse } from "../utils/requestUtils"
 import { loadUsersFromFileWithCache } from "../utils/userConfigCache"
 
 interface LoginPageProps {
@@ -185,14 +186,10 @@ authRoutes.post("/login", async (c) => {
     users = await loadUsersFromFileWithCache(authConfig.usersFile)
   } catch (error) {
     console.error(error)
-    return c.json(
-      {
-        success: false,
-        error: {
-          name: "AuthConfigError",
-          message: "Failed to load users configuration",
-        },
-      },
+    return errorResponse(
+      c,
+      "AuthConfigError",
+      "Failed to load users configuration",
       500,
     )
   }
@@ -202,14 +199,10 @@ authRoutes.post("/login", async (c) => {
     sessionSecret = await loadSessionSecretWithCache(authConfig.authDir)
   } catch (error) {
     console.error(error)
-    return c.json(
-      {
-        success: false,
-        error: {
-          name: "AuthConfigError",
-          message: "Failed to load session secret",
-        },
-      },
+    return errorResponse(
+      c,
+      "AuthConfigError",
+      "Failed to load session secret",
       500,
     )
   }
