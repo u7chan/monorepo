@@ -81,7 +81,8 @@ adding screens.
   floating surfaces. Plain text rows (breadcrumbs) are not boxed.
 - Toggle state is expressed with `aria-pressed` / `aria-expanded` and Tailwind
   variants, not with class names that JavaScript adds and removes.
-- Scrollbars are styled once in `PageShell`: a 10px gutter with a transparent
+- Scrollbars are styled once in the page shell
+  (`src/components/pageShellStyles.ts`): a 10px gutter with a transparent
   track and a rounded slate-300 thumb inset 6px from the track ends, so no
   stepper arrows and no square track run into the rounded corners of the surface
   behind them (the native Windows scrollbar does both). Styling
@@ -102,6 +103,8 @@ adding screens.
 - `src/components/auth/` - Login page and its password toggle
 - `src/components/file-viewer/` - Viewer modal and per-type viewers
 - `src/components/markdown/` - Markdown rendering and the standalone preview page
+- `src/components/pageShellStyles.ts` - Global inline CSS for the shell
+- `src/components/pageShellScripts.ts` - Inline behavior for the shell
 - `src/components/uiStyles.ts` - Shared surface, field and text class tokens
 - `src/components/buttonStyles.ts` - Shared button tones and sizes
 - `src/utils/` - Utilities (incl. `virtualPath.ts` for scope resolution)
