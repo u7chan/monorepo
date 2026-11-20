@@ -10,9 +10,9 @@ export type PlainUser = {
 }
 
 /**
- * Why: every test file that exercises authentication seeded users.json with
- * the same bcrypt work factor and cache reset, so a lower cost would silently
- * not reach one of the copies.
+ * Why not keep a copy of this seeding in each test file: every copy has to
+ * repeat the bcrypt work factor and the cache reset, and lowering the cost for
+ * a faster suite would only reach the copies someone remembered to edit.
  */
 export async function writeUsersFile(
   authDir: string,
