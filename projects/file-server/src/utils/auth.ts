@@ -2,6 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import type { AppBindings, UserConfig } from "../types"
+import { isNodeErrorCode } from "./nodeError"
 
 const USERNAME_PATTERN = /^[a-z0-9_-]+$/
 const RESERVED_USERNAMES = new Set(["public", "private"])
@@ -82,8 +83,7 @@ async function readSessionSecretIfPresent(
     const sessionSecret = (await readFile(sessionSecretFile, "utf-8")).trim()
     return sessionSecret || null
   } catch (error) {
-    const errno = error as NodeJS.ErrnoException
-    if (errno.code === "ENOENT") {
+    if (isNodeErrorCode(error, "ENOENT")) {
       return null
     }
     throw error
@@ -110,8 +110,7 @@ export async function ensureSessionSecret(authDir: string): Promise<string> {
     resetSessionSecretCache()
     return sessionSecret
   } catch (error) {
-    const errno = error as NodeJS.ErrnoException
-    if (errno.code !== "EEXIST") {
+    if (!isNodeErrorCode(error, "EEXIST")) {
       throw error
     }
   }
