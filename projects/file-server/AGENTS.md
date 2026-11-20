@@ -96,8 +96,10 @@ adding screens.
 - `src/app.ts` - `createApp()` factory (initializes dirs, wires middleware + routes)
 - `src/middleware/auth.ts` - Auth middleware
 - `src/routes/` - Route definitions (admin, api, auth, browse, file, public)
-- `src/api/handlers.tsx` - API handlers
+- `src/api/handlers.tsx` - File CRUD API handlers
+- `src/api/moveHandlers.tsx` - Move and move-picker API handlers
 - `src/components/` - JSX components
+- `src/components/auth/` - Login page and its password toggle
 - `src/components/file-viewer/` - Viewer modal and per-type viewers
 - `src/components/markdown/` - Markdown rendering and the standalone preview page
 - `src/components/uiStyles.ts` - Shared surface, field and text class tokens

@@ -2,7 +2,8 @@
 node_modules/
 tmp/
 tmp-test/
-auth/
+# AUTH_DIR data directory at the project root; anchored so src/**/auth/ is tracked.
+/auth/
 users.dev.json
 
 .env
