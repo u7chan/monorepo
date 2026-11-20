@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "fetchedAt": 1794924126940,
+  "version": 3,
+  "fetchedAt": 1795178718333,
   "models": [
     {
       "modelId": "assemblyai/assemblyai-tts-1",
@@ -283,6 +283,34 @@
       "costUsd": 0.00003
     },
     {
+      "modelId": "google/gemini-2.5-flash-tts",
+      "billable": "input_text",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 5e-7
+    },
+    {
+      "modelId": "google/gemini-2.5-flash-tts",
+      "billable": "output_audio",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 0.00001
+    },
+    {
+      "modelId": "google/gemini-2.5-pro-tts",
+      "billable": "input_text",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 0.000001
+    },
+    {
+      "modelId": "google/gemini-2.5-pro-tts",
+      "billable": "output_audio",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 0.00002
+    },
+    {
       "modelId": "google/gemini-3-pro-image",
       "billable": "output_image",
       "unit": "token",
@@ -507,6 +535,20 @@
       "costUsd": 0.000019
     },
     {
+      "modelId": "microsoft/mai-image-2.7",
+      "billable": "output_image",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 0.000034
+    },
+    {
+      "modelId": "microsoft/mai-image-2.7-flash",
+      "billable": "output_image",
+      "unit": "token",
+      "variant": "",
+      "costUsd": 0.00001
+    },
+    {
       "modelId": "microsoft/mai-voice-2",
       "billable": "input_text",
       "unit": "character",
@@ -567,14 +609,14 @@
       "billable": "input_text",
       "unit": "character",
       "variant": "",
-      "costUsd": 0.0000176
+      "costUsd": 0.000016
     },
     {
       "modelId": "mistralai/voxtral-mini-tts-3-0",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
-      "costUsd": 0.0000143
+      "costUsd": 0.000013
     },
     {
       "modelId": "openai/gpt-5-image",
@@ -938,7 +980,7 @@
       "billable": "input_text",
       "unit": "character",
       "variant": "",
-      "costUsd": 0.000015
+      "costUsd": 0.00001125
     },
     {
       "modelId": "tencent/hy-image-v3.5-preview",
