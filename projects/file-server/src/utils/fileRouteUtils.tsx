@@ -1,8 +1,9 @@
-import { readdir, readFile } from "node:fs/promises"
+import { stat as fsStat, readdir, readFile } from "node:fs/promises"
 import * as path from "node:path"
 import type { Context } from "hono"
 import type { AppBindings } from "../types"
 import { lookupMimeType, normalizeResponseMimeType } from "./mimeType"
+import { isNodeErrorCode } from "./nodeError"
 import { errorResponse, getRequestPath, getUploadDir } from "./requestUtils"
 import { resolveVirtualPath } from "./virtualPath"
 
@@ -173,7 +174,6 @@ export async function resolveRequestedFileAtPath(
   const { resolvedPath } = result
 
   try {
-    const { stat: fsStat } = await import("node:fs/promises")
     const statResult = await fsStat(resolvedPath)
     const mimeType = lookupMimeType(resolvedPath)
     return {
@@ -185,12 +185,7 @@ export async function resolveRequestedFileAtPath(
       mimeType,
     }
   } catch (err: unknown) {
-    const isEnoent =
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: string }).code === "ENOENT"
-    if (isEnoent) {
+    if (isNodeErrorCode(err, "ENOENT")) {
       return { response: errorResponse(c, "NotFound", notFoundMessage, 400) }
     }
     throw err
