@@ -14,12 +14,9 @@ import {
   isPreviewableBinary,
   isTextMime,
   MARKDOWN_PREVIEW_CSP,
-  notADirectoryResponse,
-  notAFileResponse,
   readBinaryFileResponse,
-  resolveRequestedFile,
-  resolveRequestedFileAtPath,
-  toArrayBuffer,
+  readFileResponse,
+  resolveRequestedEntry,
 } from "../utils/fileRouteUtils"
 import {
   errorResponse,
@@ -59,13 +56,12 @@ function decodePreviewPath(encodedPath: string): string | null {
 }
 
 fileRoutes.get("/", async (c) => {
-  const resolved = await resolveRequestedFile(c, "File does not exist")
+  const resolved = await resolveRequestedEntry(c, {
+    notFoundMessage: "File does not exist",
+    kind: "file",
+  })
   if ("response" in resolved) {
     return resolved.response
-  }
-
-  if (!resolved.stat.isFile()) {
-    return notAFileResponse(c)
   }
 
   // Why check the extension too: `mime-types` returns application/octet-stream
@@ -143,17 +139,13 @@ fileRoutes.get("/preview/*", async (c) => {
     return invalidPathResponse(c)
   }
 
-  const resolved = await resolveRequestedFileAtPath(
-    c,
+  const resolved = await resolveRequestedEntry(c, {
+    notFoundMessage: "File does not exist",
+    kind: "file",
     requestPath,
-    "File does not exist",
-  )
+  })
   if ("response" in resolved) {
     return resolved.response
-  }
-
-  if (!resolved.stat.isFile()) {
-    return notAFileResponse(c)
   }
 
   if (isMarkdownFile(resolved.resolvedPath, resolved.mimeType)) {
@@ -173,7 +165,6 @@ fileRoutes.get("/preview/*", async (c) => {
     )
   }
 
-  const contentBuffer = await readFile(resolved.resolvedPath)
   const headers: Record<string, string> = {
     "Content-Type": resolved.responseMimeType,
     "Content-Disposition": "inline",
@@ -185,17 +176,16 @@ fileRoutes.get("/preview/*", async (c) => {
     headers["Content-Security-Policy"] = ACTIVE_CONTENT_PREVIEW_CSP
   }
 
-  return new Response(toArrayBuffer(contentBuffer), { headers })
+  return readFileResponse(resolved.resolvedPath, headers)
 })
 
 fileRoutes.get("/raw", async (c) => {
-  const resolved = await resolveRequestedFile(c, "File does not exist")
+  const resolved = await resolveRequestedEntry(c, {
+    notFoundMessage: "File does not exist",
+    kind: "file",
+  })
   if ("response" in resolved) {
     return resolved.response
-  }
-
-  if (!resolved.stat.isFile()) {
-    return notAFileResponse(c)
   }
 
   if (isActiveContent(resolved.resolvedPath, resolved.mimeType)) {
@@ -214,32 +204,27 @@ fileRoutes.get("/raw", async (c) => {
 })
 
 fileRoutes.get("/download", async (c) => {
-  const resolved = await resolveRequestedFile(c, "File does not exist")
+  const resolved = await resolveRequestedEntry(c, {
+    notFoundMessage: "File does not exist",
+    kind: "file",
+  })
   if ("response" in resolved) {
     return resolved.response
   }
 
-  if (!resolved.stat.isFile()) {
-    return notAFileResponse(c)
-  }
-
-  const contentBuffer = await readFile(resolved.resolvedPath)
-  return new Response(toArrayBuffer(contentBuffer), {
-    headers: {
-      "Content-Type": resolved.responseMimeType,
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolved.resolvedPath))}`,
-    },
+  return readFileResponse(resolved.resolvedPath, {
+    "Content-Type": resolved.responseMimeType,
+    "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolved.resolvedPath))}`,
   })
 })
 
 fileRoutes.get("/archive", async (c) => {
-  const resolved = await resolveRequestedFile(c, "Directory does not exist")
+  const resolved = await resolveRequestedEntry(c, {
+    notFoundMessage: "Directory does not exist",
+    kind: "directory",
+  })
   if ("response" in resolved) {
     return resolved.response
-  }
-
-  if (!resolved.stat.isDirectory()) {
-    return notADirectoryResponse(c)
   }
 
   const { body, error } = await createDirectoryArchive(resolved.resolvedPath)
