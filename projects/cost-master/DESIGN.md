@@ -104,7 +104,7 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 - **Segmented control**（`role=radiogroup` + ネイティブの radio）: 溝 Fill strong（角丸 `9px`、内側 `2px`）、
   選択中は Thumb のつまみ（ライトは白、ダークは `#636366`。角丸 `7px`、Segment thumb の影）と太字。
   一覧の種類・並び順と、更新するマスタの種類に使う。
-- **種類のセグメント**: 各項目に 14px の線画アイコンと件数（Micro、`tabular-nums`）を置く。アイコンは Muted、
+- **種類のセグメント**: 各項目に 16px の線画アイコンと件数（Micro、`tabular-nums`）を置く。アイコンは Muted、
   選択中は Ink。件数は行ではなくモデルの数。並び順のセグメントは文字だけにして、2 つを形で区別する。
 - **Form row**: `padding: 12px 16px`、行の間は 0.5px の区切り線。ラベルは Muted 13px。
 - **Notice**: 地 Surface、角丸 `8px`、`padding: 10px 14px`。文字は Muted / Positive / Warn、成功と失敗は左に文字色の 3px の帯（`inset 3px 0 0 currentColor`）。失敗は `role="alert"`、

@@ -237,6 +237,7 @@ function ModelList({
   const [sort, setSort] = useState<ModelSort>("name");
   const allGroups = groupByModel(payload.models);
   const groups = sortGroups(filterByKind(allGroups, kind), sort);
+  const units = unitsOf(groups);
 
   if (allGroups.length === 0) {
     return <p class="notice">価格が宣言されているモデルがありません。prices.json をアップロードしてください。</p>;
@@ -261,10 +262,10 @@ function ModelList({
       </div>
       {kind === "speech" ? (
         <p class="caption">
-          音声モデルの多くは入力（文字数・バイト・トークン）の単価だけを返します。出力（音声トークン・分）の行があるときは、入力の行に「入力」タグが付きます。
+          音声モデルの多くは入力（文字数・バイト・トークン）の単価だけを返します。入力側の行には「入力」タグが付きます。
         </p>
       ) : null}
-      {sort === "cost" ? <p class="caption">{costCaption(kind, unitsOf(groups))}</p> : null}
+      {sort === "cost" && units.length > 0 ? <p class="caption">{costCaption(kind, units)}</p> : null}
       {groups.length === 0 ? (
         <p class="notice">{KIND_LABEL[kind]}のモデルがありません。</p>
       ) : (

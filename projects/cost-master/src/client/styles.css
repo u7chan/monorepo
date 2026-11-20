@@ -199,14 +199,6 @@ body {
   min-width: 0;
 }
 
-.section-title .count {
-  margin-left: 6px;
-  color: var(--cm-muted);
-  font-size: 13px;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-}
-
 .caption {
   margin: 6px 4px 0;
   color: var(--cm-muted);
