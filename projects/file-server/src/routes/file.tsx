@@ -24,6 +24,8 @@ import {
 } from "../utils/fileRouteUtils"
 import {
   errorResponse,
+  getUser,
+  invalidPathResponse,
   isHtmxRequest,
   renderWithShell,
 } from "../utils/requestUtils"
@@ -77,7 +79,7 @@ fileRoutes.get("/", async (c) => {
 
   if (!isHtmx) {
     const parentDir = toBrowseLocation(
-      c.get("user") ?? { type: "anonymous" as const },
+      getUser(c),
       path.dirname(resolved.requestPath),
     )
     const redirectPath =
@@ -148,7 +150,7 @@ fileRoutes.get("/preview/*", async (c) => {
   const encodedPath = c.req.path.replace(/^\/file\/preview\/?/, "")
   const requestPath = decodePreviewPath(encodedPath)
   if (!requestPath) {
-    return errorResponse(c, "PathError", "Invalid path", 400)
+    return invalidPathResponse(c)
   }
 
   const resolved = await resolveRequestedFileAtPath(

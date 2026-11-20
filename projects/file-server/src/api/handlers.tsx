@@ -28,7 +28,10 @@ import { isNodeErrorCode } from "../utils/nodeError"
 import { isPathTraversal } from "../utils/pathTraversal"
 import {
   errorResponse,
+  forbiddenResponse,
   getUploadDir,
+  getUser,
+  invalidPathResponse,
   isHtmxRequest,
 } from "../utils/requestUtils"
 import {
@@ -61,17 +64,17 @@ function isInvalidNodeName(name: string): boolean {
 
 export async function listFilesHandler(c: Context<AppBindings>) {
   const baseDir = getUploadDir(c)
-  const user = c.get("user") ?? { type: "anonymous" as const }
+  const user = getUser(c)
   const subPath = c.req.path.replace(BASE_PATH_REGEX, "")
 
   if (isPathTraversal(subPath)) {
-    return errorResponse(c, "PathError", "Invalid path", 400)
+    return invalidPathResponse(c)
   }
 
   const result = resolveVirtualPath(baseDir, user, subPath)
 
   if (result.kind === "forbidden") {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
   if (result.kind === "notFound") {
     return errorResponse(c, "DirNotFound", "Directory does not exist", 400)
@@ -109,12 +112,12 @@ export async function uploadFileHandler(c: Context<AppBindings>) {
 
   const { files, path: filePathParam } = validatedData.data
   const baseDir = getUploadDir(c)
-  const user = c.get("user") ?? { type: "anonymous" as const }
+  const user = getUser(c)
 
   const virtualPath = filePathParam || "public"
 
   if (!requireWritePermission(user, virtualPath)) {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
 
   const results = {
@@ -168,14 +171,14 @@ export async function deleteFileHandler(c: Context<AppBindings>) {
   }
   const { path: filePathParam } = validatedData
   const baseDir = getUploadDir(c)
-  const user = c.get("user") ?? { type: "anonymous" as const }
+  const user = getUser(c)
 
   if (isPathTraversal(filePathParam)) {
-    return errorResponse(c, "PathError", "Invalid path", 400)
+    return invalidPathResponse(c)
   }
 
   if (!requireWritePermission(user, filePathParam)) {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
 
   const targetPath = path.join(baseDir, filePathParam)
@@ -217,14 +220,14 @@ export async function mkdirHandler(c: Context<AppBindings>) {
   }
   const { path: dirPathParam, folder } = validatedData
   const baseDir = getUploadDir(c)
-  const user = c.get("user") ?? { type: "anonymous" as const }
+  const user = getUser(c)
 
   if (isPathTraversal(dirPathParam) || isInvalidNodeName(folder)) {
-    return errorResponse(c, "PathError", "Invalid path", 400)
+    return invalidPathResponse(c)
   }
 
   if (!requireWritePermission(user, dirPathParam)) {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
 
   const targetDir = path.join(baseDir, dirPathParam)
@@ -247,14 +250,14 @@ export async function createFileHandler(c: Context<AppBindings>) {
   }
   const { path: dirPathParam, file } = validatedData
   const baseDir = getUploadDir(c)
-  const user = c.get("user") ?? { type: "anonymous" as const }
+  const user = getUser(c)
 
   if (isPathTraversal(dirPathParam) || isInvalidNodeName(file)) {
-    return errorResponse(c, "PathError", "Invalid path", 400)
+    return invalidPathResponse(c)
   }
 
   if (!requireWritePermission(user, dirPathParam)) {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
 
   const targetDir = path.join(baseDir, dirPathParam)
@@ -278,14 +281,14 @@ export async function renameHandler(c: Context<AppBindings>) {
   }
   const { path: currentPathParam, name } = validatedData
   const baseDir = getUploadDir(c)
-  const user = c.get("user") ?? { type: "anonymous" as const }
+  const user = getUser(c)
 
   if (isPathTraversal(currentPathParam) || isInvalidNodeName(name)) {
-    return errorResponse(c, "PathError", "Invalid path", 400)
+    return invalidPathResponse(c)
   }
 
   if (!requireWritePermission(user, currentPathParam)) {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
 
   const parentPath = path.dirname(currentPathParam)
@@ -344,7 +347,7 @@ export async function moveHandler(c: Context<AppBindings>) {
   }
   const { path: sourcePathParam, destination: destinationParam } = validatedData
   const baseDir = getUploadDir(c)
-  const user = c.get("user") ?? { type: "anonymous" as const }
+  const user = getUser(c)
 
   if (
     isPathTraversal(sourcePathParam) ||
@@ -352,21 +355,21 @@ export async function moveHandler(c: Context<AppBindings>) {
     containsParentSegment(sourcePathParam) ||
     containsParentSegment(destinationParam)
   ) {
-    return errorResponse(c, "PathError", "Invalid path", 400)
+    return invalidPathResponse(c)
   }
 
   const normalizedSource = normalizeRelativePath(sourcePathParam)
   const normalizedDestination = normalizeRelativePath(destinationParam)
 
   if (!normalizedSource) {
-    return errorResponse(c, "PathError", "Invalid path", 400)
+    return invalidPathResponse(c)
   }
 
   if (!requireWritePermission(user, normalizedSource)) {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
   if (!requireWritePermission(user, normalizedDestination)) {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
 
   const crossScopeError = checkCrossScopeMove(
@@ -476,7 +479,7 @@ export async function movePickerHandler(c: Context<AppBindings>) {
   const sourceParam = c.req.query("source") ?? ""
   const destParam = c.req.query("dest")
   const baseDir = getUploadDir(c)
-  const user = c.get("user") ?? { type: "anonymous" as const }
+  const user = getUser(c)
 
   if (
     !sourceParam ||
@@ -495,7 +498,7 @@ export async function movePickerHandler(c: Context<AppBindings>) {
   }
 
   if (!requireWritePermission(user, normalizedSource)) {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
 
   const scope = getMoveScope(normalizedSource)
@@ -560,14 +563,14 @@ export async function updateFileHandler(c: Context<AppBindings>) {
   }
   const { path: filePathParam, content } = validatedData
   const baseDir = getUploadDir(c)
-  const user = c.get("user") ?? { type: "anonymous" as const }
+  const user = getUser(c)
 
   if (isPathTraversal(filePathParam)) {
-    return errorResponse(c, "PathError", "Invalid path", 400)
+    return invalidPathResponse(c)
   }
 
   if (!requireWritePermission(user, filePathParam)) {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
 
   const targetPath = path.join(baseDir, filePathParam)
