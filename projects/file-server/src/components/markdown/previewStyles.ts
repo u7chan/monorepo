@@ -106,5 +106,4 @@ export const markdownPreviewStyles = `
     .markdown-body { padding: 2rem 1rem 3.5rem; }
     h1 { font-size: 1.5rem; }
   }
-
 `
