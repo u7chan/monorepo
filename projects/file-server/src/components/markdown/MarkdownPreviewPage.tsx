@@ -1,3 +1,4 @@
+import { raw } from "hono/html"
 import type { FC } from "hono/jsx"
 import { MARKDOWN_MAX_LENGTH, parseMarkdown } from "../../utils/markdown/parse"
 import { MarkdownView } from "./MarkdownView"
@@ -91,7 +92,7 @@ const previewStyles = `
     border: 1px solid #e2e8f0;
     text-align: left;
     vertical-align: top;
-    /* 表のセルは単語の途中で折らない (列幅は中身に合わせ、広い表は横スクロール) */
+    /* セル幅に収まらない長い語だけ折る */
     overflow-wrap: break-word;
   }
   thead th { background: #f8fafc; font-weight: 600; }
@@ -127,32 +128,39 @@ export const MarkdownPreviewPage: FC<MarkdownPreviewPageProps> = ({
   const isEmpty = content.trim() === ""
 
   return (
-    <html lang="ja">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>{fileName}</title>
-        {/* 固定の文字列だけを埋め込む。JSX のテキストとして渡すと `<` や `&` が
+    <>
+      {/* Why here: quirks mode を避けるため、文書は doctype から始める */}
+      {raw("<!doctype html>")}
+      <html lang="ja">
+        <head>
+          <meta charset="UTF-8" />
+          <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0"
+          />
+          <title>{fileName}</title>
+          {/* 固定の文字列だけを埋め込む。JSX のテキストとして渡すと `<` や `&` が
             エスケープされ、生テキスト要素の <style> では CSS が壊れる */}
-        <style dangerouslySetInnerHTML={{ __html: previewStyles }} />
-      </head>
-      <body>
-        <article className="markdown-body">
-          {isEmpty ? (
-            <p className="md-notice">This file is empty.</p>
-          ) : isTooLarge ? (
-            <>
-              <p className="md-notice">
-                This file is too large to render as Markdown. Showing the source
-                instead.
-              </p>
-              <pre className="md-plain">{content}</pre>
-            </>
-          ) : (
-            <MarkdownView blocks={parseMarkdown(content)} />
-          )}
-        </article>
-      </body>
-    </html>
+          <style dangerouslySetInnerHTML={{ __html: previewStyles }} />
+        </head>
+        <body>
+          <article className="markdown-body">
+            {isEmpty ? (
+              <p className="md-notice">This file is empty.</p>
+            ) : isTooLarge ? (
+              <>
+                <p className="md-notice">
+                  This file is too large to render as Markdown. Showing the
+                  source instead.
+                </p>
+                <pre className="md-plain">{content}</pre>
+              </>
+            ) : (
+              <MarkdownView blocks={parseMarkdown(content)} />
+            )}
+          </article>
+        </body>
+      </html>
+    </>
   )
 }

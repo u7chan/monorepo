@@ -132,6 +132,11 @@ describe("markdown renderer - inline", () => {
     expect(html).not.toContain("<img")
   })
 
+  it("keeps a backtick run longer than the span limit as text", () => {
+    const runs = "`".repeat(200)
+    expect(render(`a${runs}`)).toBe(`<p>a${runs}</p>`)
+  })
+
   it("escapes quotes in attribute values", () => {
     expect(render('[x](/a"b)')).toContain('href="/a&quot;b"')
   })
@@ -147,6 +152,11 @@ describe("markdown preview page", () => {
     // プレビューは HTMX / Tailwind CDN に依存しない
     expect(html).not.toContain("htmx")
     expect(html).not.toContain("cdn.jsdelivr.net")
+  })
+
+  it("starts with a doctype so the document renders in standards mode", () => {
+    const html = String(<MarkdownPreviewPage fileName="a.md" content="x" />)
+    expect(html.startsWith("<!doctype html>")).toBe(true)
   })
 
   it("escapes the file name in the title", () => {

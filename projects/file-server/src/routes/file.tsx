@@ -67,7 +67,11 @@ fileRoutes.get("/", async (c) => {
     return notAFileResponse(c)
   }
 
-  const isText = isTextMime(resolved.mimeType)
+  // Why check the extension too: `mime-types` returns application/octet-stream
+  // for `.mdown` / `.mkdn`, and those files must still open as text (source,
+  // edit, preview) because they are Markdown.
+  const isMarkdown = isMarkdownFile(resolved.resolvedPath, resolved.mimeType)
+  const isText = isTextMime(resolved.mimeType) || isMarkdown
   const forceTextView = c.req.query("view") === "text"
   const isHtmx = isHtmxRequest(c)
 
@@ -85,7 +89,6 @@ fileRoutes.get("/", async (c) => {
 
   const isInPublicScope = resolved.requestPath.startsWith("public/")
   const isHtmlOrSvg = isActiveContent(resolved.resolvedPath, resolved.mimeType)
-  const isMarkdown = isMarkdownFile(resolved.resolvedPath, resolved.mimeType)
   const encodedRequestPath = encodeVirtualPath(resolved.requestPath)
   const publicUrl =
     isInPublicScope && isHtmlOrSvg ? `/${encodedRequestPath}` : undefined

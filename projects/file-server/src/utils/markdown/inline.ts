@@ -19,6 +19,9 @@ const MAX_EMPHASIS_SPAN = 4096
 /** リンクのラベルと URL を探す範囲。閉じの無い `[` が多い本文で走査が伸びないための保険 */
 const MAX_LINK_SPAN = 2048
 
+/** コードスパンの区切りに使うバックティックの上限。これを超える run はコードにしない */
+const MAX_CODE_RUN = 64
+
 const LINK_SCHEMES = new Set(["http", "https", "mailto"])
 
 type ScanState = { attempts: number }
@@ -98,6 +101,13 @@ function scanInline(
           at = span.end
           continue
         }
+        // Why not advance by one: 閉じの無い長い run を 1 文字ずつ数え直すと
+        // 走査が二乗になる。run ごと本文へ戻す。
+        let run = 0
+        while (text[at + run] === "`") run += 1
+        buffer += text.slice(at, at + run)
+        at += run
+        continue
       }
       if (char === "!" && next === "[") {
         const image = readLink(text, at, true, state, depth)
@@ -149,7 +159,12 @@ function readCodeSpan(
   start: number,
 ): { text: string; end: number } | null {
   let size = 0
-  while (text[start + size] === "`") size += 1
+  // Why not always treat a run as an opener: 閉じを探すたびに run 全体を数えると
+  // 200 KiB の連続バックティックで二乗になる。長すぎる run はコードにしない。
+  while (text[start + size] === "`") {
+    size += 1
+    if (size >= MAX_CODE_RUN) return null
+  }
   const close = text.indexOf("`".repeat(size), start + size)
   if (close === -1) return null
   let content = text.slice(start + size, close).replace(/\n/g, " ")
@@ -276,8 +291,9 @@ function readEmphasis(
   depth: number,
 ): { node: MdInline; end: number } | null {
   const char = text[start]
+  const runLimit = Math.min(text.length, start + MAX_EMPHASIS_SPAN)
   let run = 0
-  while (text[start + run] === char) run += 1
+  while (start + run < runLimit && text[start + run] === char) run += 1
   if (char === "~" && run < 2) return null
   const del = char === "~"
   const strong = !del && run >= 2
@@ -323,7 +339,14 @@ function findClose(
     }
     if (current === "`") {
       const span = readCodeSpan(text, at)
-      at = span === null ? at + 1 : span.end
+      if (span !== null) {
+        at = span.end
+        continue
+      }
+      // 閉じの無い run は丸ごと飛ばす (1 文字ずつ数え直さない)
+      let run = 0
+      while (at + run < limit && text[at + run] === "`") run += 1
+      at += Math.max(run, 1)
       continue
     }
     if (current !== char) {
@@ -331,7 +354,7 @@ function findClose(
       continue
     }
     let run = 0
-    while (text[at + run] === char) run += 1
+    while (at + run < limit && text[at + run] === char) run += 1
     const before = text[at - 1]
     const after = text[at + run]
     const closable =

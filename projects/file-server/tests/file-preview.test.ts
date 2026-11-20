@@ -197,6 +197,24 @@ describe("GET /file - preview entry point", () => {
     expect(text).not.toContain('title="Preview"')
   })
 
+  it("opens .mdown and .mkdn as text with edit and preview", async () => {
+    for (const name of ["notes.mdown", "notes.mkdn"]) {
+      await Bun.write(path.join(UPLOAD_DIR, "private", name), "# note\n")
+      const res = await app.request(
+        new Request(
+          `http://localhost/file?path=${encodeURIComponent(`private/${name}`)}`,
+          { headers: { "HX-Request": "true" } },
+        ),
+      )
+      expect(res.status).toBe(200)
+      const text = await res.text()
+      expect(text).toContain(`href="/file/preview/private/${name}"`)
+      expect(text).toContain('title="Preview"')
+      expect(text).toContain('title="Edit"')
+      expect(text).not.toContain("cannot be displayed")
+    }
+  })
+
   it("links markdown to the rendered preview in both scopes", async () => {
     await mkdir(path.join(UPLOAD_DIR, "private", "docs"), { recursive: true })
     await Bun.write(
@@ -309,6 +327,18 @@ describe("GET /file/preview/* - markdown", () => {
     )
     expect(res.status).toBe(200)
     expect(await res.text()).toContain("<h2>見出し</h2>")
+  })
+
+  it("renders .mdown and .mkdn even though their MIME type is unknown", async () => {
+    for (const name of ["note.mdown", "note.mkdn"]) {
+      await Bun.write(path.join(UPLOAD_DIR, "private", name), "# mobile\n")
+      const res = await app.request(
+        new Request(`http://localhost/file/preview/private/${name}`),
+      )
+      expect(res.status).toBe(200)
+      expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8")
+      expect(await res.text()).toContain("<h1>mobile</h1>")
+    }
   })
 
   it("treats .mkd as markdown", async () => {
