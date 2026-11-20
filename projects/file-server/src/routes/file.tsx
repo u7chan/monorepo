@@ -27,7 +27,6 @@ import {
   getUser,
   invalidPathResponse,
   isHtmxRequest,
-  renderWithShell,
 } from "../utils/requestUtils"
 
 const fileRoutes = new Hono<AppBindings>()
@@ -75,9 +74,11 @@ fileRoutes.get("/", async (c) => {
   const isMarkdown = isMarkdownFile(resolved.resolvedPath, resolved.mimeType)
   const isText = isTextMime(resolved.mimeType) || isMarkdown
   const forceTextView = c.req.query("view") === "text"
-  const isHtmx = isHtmxRequest(c)
 
-  if (!isHtmx) {
+  // Why not stream the file for a non-HTMX request: /file is the viewer entry
+  // point, so a plain navigation belongs on the shell that opens the viewer.
+  // Raw bytes are served by /file/raw and /file/download.
+  if (!isHtmxRequest(c)) {
     const parentDir = toBrowseLocation(
       getUser(c),
       path.dirname(resolved.requestPath),
@@ -104,8 +105,7 @@ fileRoutes.get("/", async (c) => {
   if (isText || forceTextView) {
     const content = await readFile(resolved.resolvedPath, "utf-8")
     const isEditing = !forceTextView && c.req.query("edit") === "true"
-    return renderWithShell(
-      c,
+    return c.html(
       <FileViewer
         content={content}
         fileName={path.basename(resolved.resolvedPath)}
@@ -119,8 +119,7 @@ fileRoutes.get("/", async (c) => {
   }
 
   if (isPreviewableBinary(resolved.mimeType)) {
-    return renderWithShell(
-      c,
+    return c.html(
       <FileViewer
         mimeType={resolved.mimeType}
         fileName={path.basename(resolved.resolvedPath)}
@@ -129,21 +128,12 @@ fileRoutes.get("/", async (c) => {
     )
   }
 
-  if (isHtmx) {
-    return c.html(
-      <FileViewer
-        fileName={path.basename(resolved.resolvedPath)}
-        path={resolved.requestPath}
-      />,
-    )
-  }
-
-  const contentBuffer = await readFile(resolved.resolvedPath)
-  const headers: Record<string, string> = {
-    "Content-Type": resolved.responseMimeType,
-    "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(resolved.resolvedPath))}`,
-  }
-  return new Response(toArrayBuffer(contentBuffer), { headers })
+  return c.html(
+    <FileViewer
+      fileName={path.basename(resolved.resolvedPath)}
+      path={resolved.requestPath}
+    />,
+  )
 })
 
 fileRoutes.get("/preview/*", async (c) => {
