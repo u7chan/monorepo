@@ -11,7 +11,7 @@
 - Bun 1.4（runtime / package manager / bundler / test）
 - TypeScript（strict）+ Preact 11（client）
 - Hono（BFF）
-- 素の CSS（`--cm-` 接頭辞の CSS 変数）
+- 素の CSS（`--cm-` 接頭辞の CSS 変数。値と使い分けは [DESIGN.md](DESIGN.md)）
 - oxlint / oxfmt / tsc / bun:test
 
 ## 構成
@@ -29,7 +29,7 @@
 | ファイル | 由来 | 触り方 |
 | --- | --- | --- |
 | `src/server/data/prices.json` | endpoints API から機械生成 | 手で編集しない（`bun run generate`） |
-| `src/server/data/enabled.json` | 人の判断とメモ | 画面のチェックボックス（一括・復旧はダウンロードして編集） |
+| `src/server/data/enabled.json` | 人の判断とメモ | 画面のスイッチ（一括・復旧はダウンロードして編集） |
 
 由来を混ぜないのは、生成が人の判断を上書きしないようにするため。判断が無いモデルは `enabled: true`。
 
@@ -38,7 +38,7 @@
 `bun run check`（lint → fmt:check → typecheck → test → docs:check）を実行する。
 Docker は `docker build --target test -t cost-master-test ./projects/cost-master`、ライセンスはリポジトリ root から `./scripts/check-licenses --target projects/cost-master`。
 
-- `docs:check` は README / AGENTS.md / docs の相対リンクとリポジトリ内パスを実ファイルと突き合わせる。
+- `docs:check` は README / AGENTS.md / DESIGN.md / docs の相対リンクとリポジトリ内パスを実ファイルと突き合わせる。
 - 環境変数を足したら [.env.example](.env.example) と README の表を同じ PR で直す。コードが読まない変数を先に書かない。
 
 ## テスト方針
@@ -58,4 +58,5 @@ Docker は `docker build --target test -t cost-master-test ./projects/cost-maste
 ## docs
 
 - [README.md](README.md) — 起動方法、API、マスタのメンテ、Docker、セキュリティの前提
+- [DESIGN.md](DESIGN.md) — 画面の色・文字・部品・動きの正。`src/client/styles.css` を変えたら同じ PR で直す
 - [docs/adr/0000-read-only-master-service.md](docs/adr/0000-read-only-master-service.md) — 別サービスにする理由、マスタ 2 ファイル、最大単価、enabled の既定

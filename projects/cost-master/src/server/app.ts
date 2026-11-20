@@ -119,7 +119,7 @@ export function createApp(deps: AppDeps) {
     },
   );
 
-  // 画面のチェックボックスから 1 行だけ変える。全体を置き換えるアップロードとは別の経路
+  // 画面のスイッチから 1 行だけ変える。全体を置き換えるアップロードとは別の経路
   app.put(
     "/api/judgments",
     bodyLimit({

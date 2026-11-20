@@ -7,6 +7,7 @@ import {
   priceKey,
   sideOf,
   sortGroups,
+  splitModelId,
   summarize,
   withModelEnabled,
   type ModelGroup,
@@ -75,15 +76,27 @@ export function App() {
       <header class="head">
         <h1>Cost Master</h1>
         <p class="lead">
-          コンテンツ生成モデルの価格と「一覧に出す / 出さない」の判断。チェックボックスで切り替えると
-          再起動なしで反映される。u7agent の一覧は [カタログ更新] を押すまで変わらない。
+          コンテンツ生成モデルの価格と「一覧に出す / 出さない」の判断。スイッチで切り替えると再起動なしで反映される。
+          u7agent の一覧は [カタログ更新] を押すまで変わらない。
         </p>
         {state.status === "ok" ? <Summary payload={state.payload} /> : null}
       </header>
 
-      {state.status === "loading" ? <p class="note">読み込み中…</p> : null}
-      {state.status === "error" ? <p class="note error">{state.message}</p> : null}
-      {toggleError === null ? null : <p class="note error">{toggleError}</p>}
+      {state.status === "loading" ? (
+        <p class="notice" role="status">
+          読み込み中…
+        </p>
+      ) : null}
+      {state.status === "error" ? (
+        <p class="notice error" role="alert">
+          {state.message}
+        </p>
+      ) : null}
+      {toggleError === null ? null : (
+        <p class="notice error" role="alert">
+          {toggleError}
+        </p>
+      )}
       {state.status === "ok" ? <ModelList payload={state.payload} pending={pending} onToggle={toggle} /> : null}
 
       <MasterUpload onUploaded={reload} />
@@ -95,30 +108,73 @@ function Summary({ payload }: { payload: CostMasterPayload }) {
   const summary = summarize(payload.models);
 
   return (
-    <dl class="summary">
-      <div>
-        <dt>モデル</dt>
-        <dd>{summary.models}</dd>
-      </div>
-      <div>
-        <dt>価格行</dt>
-        <dd>{summary.rows}</dd>
-      </div>
-      <div>
-        <dt>一覧に出さない</dt>
-        <dd>{summary.hidden}</dd>
-      </div>
-      <div>
-        <dt>世代</dt>
-        <dd>v{payload.version}</dd>
-      </div>
-      <div>
-        <dt>価格の取得</dt>
-        <dd>{formatFetchedAt(payload.fetchedAt)}</dd>
-      </div>
+    <dl class="stats">
+      <Stat label="モデル" value={summary.models} />
+      <Stat label="価格行" value={summary.rows} />
+      <Stat label="一覧に出さない" value={summary.hidden} />
+      <Stat label="世代" value={`v${payload.version}`} />
+      <Stat label="価格の取得" value={formatFetchedAt(payload.fetchedAt)} small />
     </dl>
   );
 }
+
+function Stat({ label, value, small = false }: { label: string; value: string | number; small?: boolean }) {
+  return (
+    <div class="stat">
+      <dt>{label}</dt>
+      <dd class={small ? "stat-small" : undefined}>{value}</dd>
+    </div>
+  );
+}
+
+function Segmented<T extends string>({
+  name,
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  name: string;
+  label: string;
+  options: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  const index = Math.max(
+    0,
+    options.findIndex((option) => option.value === value),
+  );
+
+  return (
+    <div
+      class="segmented"
+      role="radiogroup"
+      aria-label={label}
+      style={{ "--cm-seg-count": options.length, "--cm-seg-index": index }}
+    >
+      <span class="segmented-thumb" aria-hidden="true" />
+      {options.map((option) => (
+        <label key={option.value}>
+          <input
+            type="radio"
+            name={name}
+            value={option.value}
+            checked={option.value === value}
+            onChange={() => onChange(option.value)}
+          />
+          {option.label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+const SORT_OPTIONS = [
+  { value: "name", label: "名前順" },
+  { value: "cost", label: "単価の安い順" },
+] as const satisfies readonly { value: ModelSort; label: string }[];
+
+const KIND_OPTIONS = MASTER_KINDS.map((kind) => ({ value: kind, label: `${kind}.json` }));
 
 function ModelList({
   payload,
@@ -133,35 +189,29 @@ function ModelList({
   const groups = sortGroups(groupByModel(payload.models), sort);
 
   if (groups.length === 0) {
-    return <p class="note">価格が宣言されているモデルがありません。prices.json をアップロードしてください。</p>;
+    return <p class="notice">価格が宣言されているモデルがありません。prices.json をアップロードしてください。</p>;
   }
 
   return (
-    <>
-      <div class="list-head">
-        <label class="field">
-          <span>並び順</span>
-          <select
-            value={sort}
-            onChange={(event) => setSort((event.currentTarget as HTMLSelectElement).value as ModelSort)}
-          >
-            <option value="name">名前順</option>
-            <option value="cost">単価の安い順</option>
-          </select>
-        </label>
+    <section aria-labelledby="models-title">
+      <div class="toolbar">
+        <h2 id="models-title" class="section-title">
+          モデル<span class="count">{groups.length}</span>
+        </h2>
+        <Segmented name="sort" label="並び順" options={SORT_OPTIONS} value={sort} onChange={setSort} />
       </div>
       {sort === "cost" ? (
-        <p class="note">
+        <p class="caption">
           単価の単位が違うモデルは比べられないため、image → megapixel → token → request
           の順にまとめ、その中で安い順に並べています。
         </p>
       ) : null}
-      <ul class="models">
+      <ul class="group">
         {groups.map((group) => (
           <ModelRow key={group.modelId} group={group} busy={pending === group.modelId} onToggle={onToggle} />
         ))}
       </ul>
-    </>
+    </section>
   );
 }
 
@@ -174,26 +224,33 @@ function ModelRow({
   busy: boolean;
   onToggle: (modelId: string, enabled: boolean) => void;
 }) {
+  const { provider, name } = splitModelId(group.modelId);
+
   return (
-    <li class="model">
-      <div class="model-head">
-        <span class="model-id">{group.modelId}</span>
-        <label class="toggle">
-          <input
-            type="checkbox"
-            checked={group.enabled}
-            disabled={busy}
-            aria-label={`${group.modelId} を一覧に出す`}
-            onChange={(event) => onToggle(group.modelId, (event.currentTarget as HTMLInputElement).checked)}
-          />
-          <span class={group.enabled ? "badge" : "badge off"}>{group.enabled ? "一覧に出す" : "一覧に出さない"}</span>
-        </label>
+    <li class={group.enabled ? "model" : "model is-off"}>
+      <div class="model-name">
+        {provider === "" ? null : <span class="model-provider">{provider}/</span>}
+        <span class="model-title">{name}</span>
+        {group.note === null ? null : <p class="model-note">{group.note}</p>}
       </div>
-      {group.note === null ? null : <p class="note">{group.note}</p>}
+      <label class="toggle">
+        <span class={group.enabled ? "toggle-state" : "toggle-state off"}>
+          {group.enabled ? "一覧に出す" : "一覧に出さない"}
+        </span>
+        <input
+          class="switch"
+          type="checkbox"
+          role="switch"
+          checked={group.enabled}
+          disabled={busy}
+          aria-label={`${group.modelId} を一覧に出す`}
+          onChange={(event) => onToggle(group.modelId, (event.currentTarget as HTMLInputElement).checked)}
+        />
+      </label>
       <ul class="prices">
         {group.prices.map((price) => (
-          <li key={priceKey(price)}>
-            {sideOf(price) === "input" ? <span class="badge">入力</span> : null}
+          <li key={priceKey(price)} class="price-tile">
+            {sideOf(price) === "input" ? <span class="tag">入力</span> : null}
             <span class="price">{formatCost(price.costUsd, price.unit)}</span>
             {price.variant === "" ? null : <span class="variant">{price.variant}</span>}
           </li>
@@ -242,38 +299,42 @@ function MasterUpload({ onUploaded }: { onUploaded: () => void }) {
   };
 
   return (
-    <section class="upload">
-      <h2>マスタの更新</h2>
-      <p class="note">
+    <section class="upload" aria-labelledby="upload-title">
+      <h2 id="upload-title" class="section-title">
+        マスタの更新
+      </h2>
+      <div class="group">
+        <div class="form-row">
+          <span class="form-label">種類</span>
+          <Segmented name="kind" label="種類" options={KIND_OPTIONS} value={kind} onChange={setKind} />
+          <a class="button secondary" href={masterDownloadUrl(kind)}>
+            現在の {kind}.json をダウンロード
+          </a>
+        </div>
+        <div class="form-row">
+          <input
+            ref={input}
+            class="file"
+            type="file"
+            accept="application/json,.json"
+            aria-label={`アップロードする ${kind}.json`}
+            disabled={busy}
+          />
+          <button class="button primary" type="button" onClick={() => void submit()} disabled={busy}>
+            {busy ? "反映中" : "アップロード"}
+          </button>
+        </div>
+      </div>
+      <p class="caption">
         一括で変えるときや、判断を戻すときに使います。アップロードすると再起動なしで反映され、直前のファイルは
-        <code>.bak</code> に 1 世代だけ残ります。チェックボックスの操作もこの <code>.bak</code> を上書きするため、
+        <code>.bak</code> に 1 世代だけ残ります。スイッチの操作もこの <code>.bak</code> を上書きするため、
         戻す用のファイルは先にダウンロードしておいてください。
       </p>
-      <div class="upload-row">
-        <label class="field">
-          <span>種類</span>
-          <select
-            value={kind}
-            onChange={(event) => setKind((event.currentTarget as HTMLSelectElement).value as MasterKind)}
-          >
-            {MASTER_KINDS.map((value) => (
-              <option key={value} value={value}>
-                {value}.json
-              </option>
-            ))}
-          </select>
-        </label>
-        <a class="link" href={masterDownloadUrl(kind)}>
-          現在の {kind}.json をダウンロード
-        </a>
-      </div>
-      <div class="upload-row">
-        <input ref={input} type="file" accept="application/json,.json" disabled={busy} />
-        <button type="button" onClick={() => void submit()} disabled={busy}>
-          {busy ? "反映中" : "アップロード"}
-        </button>
-      </div>
-      {note === null ? null : <p class={note.error ? "note error" : "note ok"}>{note.text}</p>}
+      {note === null ? null : (
+        <p class={note.error ? "notice error" : "notice ok"} role={note.error ? "alert" : "status"}>
+          {note.text}
+        </p>
+      )}
     </section>
   );
 }
