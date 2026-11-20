@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdir, rm } from "node:fs/promises"
 import * as path from "node:path"
+import { MARKDOWN_PREVIEW_CSP } from "../src/utils/fileRouteUtils"
 import { createTestSession } from "./helpers/auth"
 import { createTestApp } from "./helpers/createTestApp"
 
@@ -194,6 +195,141 @@ describe("GET /file - preview entry point", () => {
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).not.toContain('title="Preview"')
+  })
+
+  it("links markdown to the rendered preview in both scopes", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "private", "docs"), { recursive: true })
+    await Bun.write(
+      path.join(UPLOAD_DIR, "private", "docs", "README.md"),
+      "# Hi\n",
+    )
+    await Bun.write(path.join(UPLOAD_DIR, "public", "README.md"), "# Hi\n")
+
+    for (const requestPath of ["private/docs/README.md", "public/README.md"]) {
+      const res = await app.request(
+        new Request(
+          `http://localhost/file?path=${encodeURIComponent(requestPath)}`,
+          {
+            headers: { "HX-Request": "true" },
+          },
+        ),
+      )
+      expect(res.status).toBe(200)
+      const text = await res.text()
+      expect(text).toContain(`href="/file/preview/${requestPath}"`)
+      expect(text).toContain('title="Preview"')
+      // プレビューを足してもソース表示は残る
+      expect(text).toContain("# Hi")
+      expect(text).not.toContain('href="/public/README.md"')
+    }
+  })
+})
+
+describe("GET /file/preview/* - markdown", () => {
+  const UPLOAD_DIR = "./tmp-test-markdown-preview"
+  let app: Awaited<ReturnType<typeof createTestApp>>
+
+  beforeEach(async () => {
+    await rm(UPLOAD_DIR, { recursive: true, force: true })
+    app = await createTestApp({ uploadDir: UPLOAD_DIR })
+  })
+
+  afterEach(async () => {
+    await rm(UPLOAD_DIR, { recursive: true, force: true })
+  })
+
+  it("renders markdown as a standalone HTML document", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "private", "docs"), { recursive: true })
+    await Bun.write(
+      path.join(UPLOAD_DIR, "private", "docs", "README.md"),
+      "# Hello\n\n**world**\n",
+    )
+    const res = await app.request(
+      new Request("http://localhost/file/preview/private/docs/README.md"),
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8")
+    expect(res.headers.get("Content-Security-Policy")).toBe(
+      MARKDOWN_PREVIEW_CSP,
+    )
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff")
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
+    const text = await res.text()
+    expect(text).toContain("<title>README.md</title>")
+    expect(text).toContain("<h1>Hello</h1>")
+    expect(text).toContain("<strong>world</strong>")
+  })
+
+  it("escapes raw HTML in the markdown source", async () => {
+    await Bun.write(
+      path.join(UPLOAD_DIR, "private", "xss.md"),
+      "# t\n\n<script>alert(1)</script>\n\n[go](javascript:alert(1))\n",
+    )
+    const res = await app.request(
+      new Request("http://localhost/file/preview/private/xss.md"),
+    )
+    const text = await res.text()
+    expect(text).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
+    expect(text).not.toContain("<script>alert(1)</script>")
+    expect(text).not.toContain('href="javascript:')
+  })
+
+  it("serves relative images through the same route", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "private", "docs"), { recursive: true })
+    await Bun.write(
+      path.join(UPLOAD_DIR, "private", "docs", "README.md"),
+      "![chart](chart.png)\n",
+    )
+    await Bun.write(
+      path.join(UPLOAD_DIR, "private", "docs", "chart.png"),
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    )
+    const page = await app.request(
+      new Request("http://localhost/file/preview/private/docs/README.md"),
+    )
+    expect(await page.text()).toContain('<img src="chart.png" alt="chart"')
+
+    const image = await app.request(
+      new Request("http://localhost/file/preview/private/docs/chart.png"),
+    )
+    expect(image.status).toBe(200)
+    expect(image.headers.get("Content-Type")).toBe("image/png")
+  })
+
+  it("renders public markdown and percent-encoded file names", async () => {
+    await mkdir(path.join(UPLOAD_DIR, "public"), { recursive: true })
+    await Bun.write(
+      path.join(UPLOAD_DIR, "public", "日本語 メモ.md"),
+      "## 見出し\n",
+    )
+    const res = await app.request(
+      new Request(
+        `http://localhost/file/preview/public/${encodeURIComponent("日本語 メモ.md")}`,
+      ),
+    )
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain("<h2>見出し</h2>")
+  })
+
+  it("treats .mkd as markdown", async () => {
+    await Bun.write(path.join(UPLOAD_DIR, "private", "note.mkd"), "# note\n")
+    const res = await app.request(
+      new Request("http://localhost/file/preview/private/note.mkd"),
+    )
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain("<h1>note</h1>")
+  })
+
+  it("still serves non-markdown files raw", async () => {
+    await Bun.write(
+      path.join(UPLOAD_DIR, "private", "note.txt"),
+      "# not markdown\n",
+    )
+    const res = await app.request(
+      new Request("http://localhost/file/preview/private/note.txt"),
+    )
+    expect(res.headers.get("Content-Type")).toBe("text/plain; charset=utf-8")
+    expect(await res.text()).toBe("# not markdown\n")
   })
 })
 

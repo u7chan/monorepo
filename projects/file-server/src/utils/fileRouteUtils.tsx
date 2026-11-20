@@ -14,6 +14,16 @@ const ACTIVE_MIME_TYPES = new Set([
 
 const ACTIVE_EXTENSIONS = new Set([".html", ".htm", ".xhtml", ".svg"])
 
+const MARKDOWN_MIME_TYPES = new Set(["text/markdown", "text/x-markdown"])
+
+const MARKDOWN_EXTENSIONS = new Set([
+  ".md",
+  ".markdown",
+  ".mdown",
+  ".mkd",
+  ".mkdn",
+])
+
 /**
  * The preview route shares the app origin, so the rendered document has to run
  * in an opaque origin. `allow-same-origin` is deliberately omitted: with it the
@@ -29,6 +39,25 @@ export function isActiveContent(filePath: string, mimeType: string): boolean {
   const ext = path.extname(filePath).toLowerCase()
   return ACTIVE_EXTENSIONS.has(ext)
 }
+
+/**
+ * 拡張子も見るのは、`mime-types` が `.mdown` / `.mkdn` を知らないため
+ * (未知の拡張子は `application/octet-stream` になる)。
+ */
+export function isMarkdownFile(filePath: string, mimeType: string): boolean {
+  if (MARKDOWN_MIME_TYPES.has(mimeType)) {
+    return true
+  }
+  return MARKDOWN_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+}
+
+/**
+ * レンダラが自分で組んだ文書なので、HTML プレビューのような sandbox は要らない。
+ * ただし本文は外部由来なので、レンダラの取りこぼしに備えてスクリプトは禁止する。
+ * 相対画像は同じ `/file/preview/*` を通るため `img-src 'self'` で足りる。
+ */
+export const MARKDOWN_PREVIEW_CSP =
+  "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
 
 const EMPTY_ZIP_ARCHIVE = new Uint8Array([
   0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

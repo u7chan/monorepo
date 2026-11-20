@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import * as path from "node:path"
 import { Hono } from "hono"
 import { FileViewer } from "../components/file-viewer"
+import { MarkdownPreviewPage } from "../components/markdown/MarkdownPreviewPage"
 import type { AppBindings } from "../types"
 import { toBrowseLocation } from "../utils/auth"
 import {
@@ -10,8 +11,10 @@ import {
   createDirectoryArchive,
   encodeVirtualPath,
   isActiveContent,
+  isMarkdownFile,
   isPreviewableBinary,
   isTextMime,
+  MARKDOWN_PREVIEW_CSP,
   notADirectoryResponse,
   notAFileResponse,
   readBinaryFileResponse,
@@ -82,11 +85,14 @@ fileRoutes.get("/", async (c) => {
 
   const isInPublicScope = resolved.requestPath.startsWith("public/")
   const isHtmlOrSvg = isActiveContent(resolved.resolvedPath, resolved.mimeType)
+  const isMarkdown = isMarkdownFile(resolved.resolvedPath, resolved.mimeType)
   const encodedRequestPath = encodeVirtualPath(resolved.requestPath)
   const publicUrl =
     isInPublicScope && isHtmlOrSvg ? `/${encodedRequestPath}` : undefined
+  // Markdown は独自レンダラで描くので、public でもサンドボックス用の
+  // `/public/*` ではなくプレビュールートを開く。
   const previewUrl =
-    !isInPublicScope && isHtmlOrSvg
+    isMarkdown || (!isInPublicScope && isHtmlOrSvg)
       ? `/file/preview/${encodedRequestPath}`
       : undefined
 
@@ -153,6 +159,23 @@ fileRoutes.get("/preview/*", async (c) => {
 
   if (!resolved.stat.isFile()) {
     return notAFileResponse(c)
+  }
+
+  if (isMarkdownFile(resolved.resolvedPath, resolved.mimeType)) {
+    const content = await readFile(resolved.resolvedPath, "utf-8")
+    return c.html(
+      <MarkdownPreviewPage
+        fileName={path.basename(resolved.resolvedPath)}
+        content={content}
+      />,
+      200,
+      {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": MARKDOWN_PREVIEW_CSP,
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, no-store",
+      },
+    )
   }
 
   const contentBuffer = await readFile(resolved.resolvedPath)
