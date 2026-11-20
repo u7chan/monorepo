@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 describe("openDatabase", () => {
-  test("v2 のテーブルを作り、user_version を 2 にする", () => {
+  test("v3 のテーブルを作り、user_version を 3 にする", () => {
     const { db, path } = open();
 
     const tables = db
@@ -57,7 +57,14 @@ describe("openDatabase", () => {
       .all()
       .map((row) => (row as { name: string }).name);
 
-    expect(tables).toEqual(["fetch_interval", "provider_error", "provider_snapshot", "usage_sample"]);
+    expect(tables).toEqual([
+      "claude_start",
+      "claude_start_run",
+      "fetch_interval",
+      "provider_error",
+      "provider_snapshot",
+      "usage_sample",
+    ]);
     expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: SCHEMA_VERSION });
     expect(path.endsWith("usage.sqlite")).toBe(true);
   });
@@ -117,7 +124,7 @@ describe("openDatabase", () => {
 });
 
 describe("v1 からの migration", () => {
-  test("既存の行を残したまま v2 の fetch_interval を足す", () => {
+  test("既存の行を残したまま v2 の fetch_interval と v3 の開始予約を足す", () => {
     const dataDir = tempDir();
     const path = join(dataDir, "usage.sqlite");
     const legacy = new Database(path, { create: true });
@@ -162,8 +169,15 @@ describe("v1 からの migration", () => {
       .all()
       .map((row) => (row as { name: string }).name);
 
-    expect(tables).toEqual(["fetch_interval", "provider_error", "provider_snapshot", "usage_sample"]);
-    expect(handle.db.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+    expect(tables).toEqual([
+      "claude_start",
+      "claude_start_run",
+      "fetch_interval",
+      "provider_error",
+      "provider_snapshot",
+      "usage_sample",
+    ]);
+    expect(handle.db.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
     expect(handle.db.query("SELECT provider, code FROM provider_error").get()).toEqual({
       provider: "codex",
       code: "upstream",

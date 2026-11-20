@@ -1,8 +1,10 @@
 import index from "../index.html";
 import { createApp } from "./server/app";
 import { createAuthService } from "./server/auth";
-import { createClaudeCli } from "./server/claude/cli";
+import { createClaudeCli, createClaudePromptCli } from "./server/claude/cli";
 import { createClaudeUsageService } from "./server/claude/service";
+import { createClaudeStartService } from "./server/claude/start";
+import { sendClaudeStart } from "./server/claude/start-prompt";
 import { createCodexApi } from "./server/codex/api";
 import { createCodexAuth } from "./server/codex/auth";
 import { createCodexLoginService } from "./server/codex/login";
@@ -26,13 +28,13 @@ import { createProbeApi } from "./server/probe/api";
 import { createProbeRunner } from "./server/probe/service";
 import { createProbeSettings } from "./server/probe/settings";
 import { fetchIntervalMs } from "./shared/fetch-interval";
-import { CODEX_PROVIDER, OPENCODE_PROVIDER } from "./server/providers";
+import { CLAUDE_PROVIDER, CODEX_PROVIDER, OPENCODE_PROVIDER } from "./server/providers";
 import { CLAUDE_REFRESH_INTERVAL_MS } from "./server/providers/claude";
 import type { ProviderId } from "./server/providers/types";
 import { fetchCodexUsage } from "./server/providers/codex";
 import { fetchOpenCodeUsage } from "./server/providers/opencode-go";
 import { createSampler, PAUSED_RETRY_INTERVAL_MS, type UsageFetcher } from "./server/sampler";
-import { loadProviderErrors } from "./server/db";
+import { loadProviderErrors, loadProviderUsage } from "./server/db";
 import { staticRoutes } from "./server/static";
 import { createUsageReader } from "./server/usage";
 import { readPackageVersion, userAgentFor } from "./server/version";
@@ -146,6 +148,15 @@ const claude = createClaudeUsageService({
   now: Date.now,
   log,
 });
+const claudePromptCli = createClaudePromptCli({ credentialDir: config.credentialDir, env: process.env });
+const claudeStart = createClaudeStartService({
+  db: database,
+  now: Date.now,
+  refreshUsage: () => claude.refresh("schedule"),
+  readSnapshot: () => loadProviderUsage(database, [CLAUDE_PROVIDER.id]).get(CLAUDE_PROVIDER.id)?.snapshot ?? null,
+  send: (settings) => sendClaudeStart(claudePromptCli, settings.model, settings.effort),
+  log,
+});
 const codex = createCodexApi({ auth: codexAuth, login: codexLogin, db: database, sampler });
 const opencode = createOpenCodeApi({
   accounts: openCodeAccounts,
@@ -175,7 +186,19 @@ const app = createApp({
   cookieSecure: config.cookieSecure,
   codex,
   opencode,
-  claude,
+  claude: {
+    refresh: claude.refresh,
+    logout: async () => {
+      const ok = await claude.logout();
+
+      if (ok) {
+        claudeStart.disable();
+      }
+
+      return ok;
+    },
+  },
+  claudeStart,
   openCodeStatus: createOpenCodeStatusReader({ userAgent }),
   probe,
   fetchIntervals: {
@@ -212,6 +235,7 @@ const server = Bun.serve({
 });
 
 sampler.start();
+claudeStart.start();
 
 const authState = auth.status();
 const accountCount = openCodeAccounts.list().length;
@@ -225,11 +249,12 @@ console.log(
 );
 console.log(`Codex: ${codexAuth.signedIn() ? "サインイン済み" : "未接続"}`);
 console.log(`OpenCode Go: ${accountCount === 0 ? "アカウント未登録" : `アカウント ${accountCount} 件`}`);
-console.log("Claude: 画面を開いたときと手動更新で取得します");
+console.log("Claude: 画面を開いたときと手動更新で取得します（開始予約は設定したときだけ送信します）");
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     sampler.stop();
+    claudeStart.stop();
     server.stop();
     database.close();
     process.exit(0);

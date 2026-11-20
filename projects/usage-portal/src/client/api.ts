@@ -1,3 +1,4 @@
+import { readClaudeStartSettings, type ClaudeStartSettings } from "../shared/claude-start";
 import type { FetchIntervalProvider } from "../shared/fetch-interval";
 import { type OpenCodeStatusPayload, readServiceStatus, readStatusReason } from "../shared/opencode-status";
 
@@ -535,6 +536,140 @@ export function parseClaudeRefresh(body: unknown): ClaudeRefreshOutcome | null {
   }
 
   return null;
+}
+
+export type ClaudeStartRun = {
+  kind: "auto" | "manual";
+  slotAt: number | null;
+  ranAt: number;
+  outcome: "ok" | "skipped" | "failed";
+  code: string | null;
+  resetsAt: number | null;
+};
+
+export type ClaudeStartState = {
+  settings: ClaudeStartSettings | null;
+  enabled: boolean;
+  failures: number;
+  stoppedCode: string | null;
+  running: boolean;
+  nextStartAt: number | null;
+  runs: ClaudeStartRun[];
+};
+
+export type ClaudeStartUpdate = { ok: true; state: ClaudeStartState } | { ok: false; error: string };
+
+export type ClaudeStartRunOutcome =
+  | { outcome: "ok"; resetsAt: number | null }
+  | { outcome: "skipped"; code: string; resetsAt: number | null }
+  | { outcome: "failed"; code: string }
+  | { outcome: "error"; error: string };
+
+export async function fetchClaudeStart(): Promise<ClaudeStartState | Unauthorized | null> {
+  const response = await fetch("/api/claude/start", { headers: { accept: "application/json" } });
+
+  if (response.status === 401) {
+    return { unauthorized: true };
+  }
+
+  return response.ok ? parseClaudeStartState(await response.json().catch(() => null)) : null;
+}
+
+export async function saveClaudeStart(settings: ClaudeStartSettings): Promise<ClaudeStartUpdate> {
+  return requestClaudeStart("/api/claude/start", settings);
+}
+
+export async function setClaudeStartEnabled(enabled: boolean): Promise<ClaudeStartUpdate> {
+  return requestClaudeStart("/api/claude/start/enabled", { enabled });
+}
+
+async function requestClaudeStart(path: string, body: unknown): Promise<ClaudeStartUpdate> {
+  const response = await fetch(path, {
+    method: "PUT",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+  const parsed: unknown = await response.json().catch(() => null);
+
+  if (response.ok) {
+    const state = parseClaudeStartState(parsed);
+
+    return state === null ? { ok: false, error: "unavailable" } : { ok: true, state };
+  }
+
+  return {
+    ok: false,
+    error: response.status === 401 ? "unauthorized" : (readString(parsed, "error") ?? "unavailable"),
+  };
+}
+
+/** 送信を伴う。応答本文は受け取らず、結果の分類とリセット時刻だけを読む。 */
+export async function runClaudeStart(): Promise<ClaudeStartRunOutcome> {
+  const response = await fetch("/api/claude/start/run", { method: "POST", headers: { accept: "application/json" } });
+  const parsed: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    return {
+      outcome: "error",
+      error: response.status === 401 ? "unauthorized" : (readString(parsed, "error") ?? "unavailable"),
+    };
+  }
+
+  const outcome = readString(parsed, "outcome");
+  const code = readString(parsed, "code") ?? "unavailable";
+  const resetsAt = readNumber(parsed, "resetsAt");
+
+  switch (outcome) {
+    case "ok":
+      return { outcome, resetsAt };
+    case "skipped":
+      return { outcome, code, resetsAt };
+    case "failed":
+      return { outcome, code };
+    default:
+      return { outcome: "error", error: "unavailable" };
+  }
+}
+
+export function parseClaudeStartState(body: unknown): ClaudeStartState | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+
+  return {
+    settings: record.settings === null ? null : readClaudeStartSettings(record.settings),
+    enabled: record.enabled === true,
+    failures: readNumber(body, "failures") ?? 0,
+    stoppedCode: readString(body, "stoppedCode"),
+    running: record.running === true,
+    nextStartAt: readNumber(body, "nextStartAt"),
+    runs: readObjects(body, "runs").flatMap((run) => {
+      const kind = readString(run, "kind");
+      const outcome = readString(run, "outcome");
+      const ranAt = readNumber(run, "ranAt");
+
+      if ((kind !== "auto" && kind !== "manual") || ranAt === null) {
+        return [];
+      }
+
+      if (outcome !== "ok" && outcome !== "skipped" && outcome !== "failed") {
+        return [];
+      }
+
+      return [
+        {
+          kind,
+          slotAt: readNumber(run, "slotAt"),
+          ranAt,
+          outcome,
+          code: readString(run, "code"),
+          resetsAt: readNumber(run, "resetsAt"),
+        },
+      ];
+    }),
+  };
 }
 
 /** 公式 CLI のログアウトを BFF に頼む。成否だけを返し、応答本文は読まない。 */

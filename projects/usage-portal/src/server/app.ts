@@ -6,6 +6,7 @@ import { isFetchIntervalMinutes, isFetchIntervalProvider, type FetchIntervalProv
 import type { OpenCodeStatusPayload } from "../shared/opencode-status";
 import type { AuthService } from "./auth";
 import type { ClaudeRefreshMode, ClaudeRefreshResult } from "./claude/service";
+import type { ClaudeStartService } from "./claude/start";
 import type { CodexApi } from "./codex/api";
 import { CodexLoginError } from "./codex/login";
 import type { HealthReport } from "./health";
@@ -45,6 +46,8 @@ export type AppDeps = {
     refresh: (mode: ClaudeRefreshMode) => Promise<ClaudeRefreshResult>;
     logout: () => Promise<boolean>;
   };
+  /** Claude の 5 時間窓の開始予約（ADR 0028）。timer の起動と停止は server.ts が持つ。 */
+  claudeStart: Pick<ClaudeStartService, "state" | "saveSettings" | "setEnabled" | "runNow">;
   openCodeStatus: () => Promise<OpenCodeStatusPayload>;
   probe: ProbeApi;
   fetchIntervals: {
@@ -411,6 +414,45 @@ export function createApp(deps: AppDeps) {
       return c.json(await deps.claude.refresh(mode));
     },
   );
+
+  app.get("/api/claude/start", requireSession, (c) => c.json(deps.claudeStart.state()));
+
+  app.put("/api/claude/start", requireSession, bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }), async (c) => {
+    const state = deps.claudeStart.saveSettings(await readJsonObject(c));
+
+    return state === null ? c.json({ error: "invalid_request" as const }, 400) : c.json(state);
+  });
+
+  app.put(
+    "/api/claude/start/enabled",
+    requireSession,
+    bodyLimit({ maxSize: MAX_BODY_BYTES, onError: tooLarge }),
+    async (c) => {
+      const enabled = (await readJsonObject(c))?.enabled;
+
+      if (typeof enabled !== "boolean") {
+        return c.json({ error: "invalid_request" as const }, 400);
+      }
+
+      const state = deps.claudeStart.setEnabled(enabled);
+
+      return state === "not_configured" ? c.json({ error: "not_configured" as const }, 409) : c.json(state);
+    },
+  );
+
+  // 送信を伴うので、予約と同じく 1 件ずつ。実行中に押されたら待たせずに 409 を返す。
+  app.post("/api/claude/start/run", requireSession, async (c) => {
+    const result = await deps.claudeStart.runNow();
+
+    switch (result.outcome) {
+      case "busy":
+        return c.json({ error: "in_progress" as const }, 409);
+      case "aborted":
+        return c.json({ error: "unavailable" as const }, 503);
+      default:
+        return c.json(result);
+    }
+  });
 
   // CLI の資格情報は service が公式コマンドで破棄し、アプリは読まない。
   app.post("/api/claude/logout", requireSession, async (c) => {

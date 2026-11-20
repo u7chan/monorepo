@@ -10,6 +10,7 @@ import { SESSION_COOKIE_NAME } from "../src/server/session";
 import {
   EMPTY_USAGE,
   stubClaudeApi,
+  stubClaudeStart,
   stubCodexApi,
   stubOpenCodeApi,
   stubOpenCodeStatus,
@@ -38,6 +39,7 @@ function harness(options: { clientKey?: boolean; trustProxy?: boolean; cookieSec
     usage: () => EMPTY_USAGE,
     codex: stubCodexApi(),
     claude: stubClaudeApi(),
+    claudeStart: stubClaudeStart(),
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode: stubOpenCodeApi(),

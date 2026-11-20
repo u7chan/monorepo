@@ -9,6 +9,7 @@ import type { ClaudeRefreshMode, ClaudeRefreshResult } from "../src/server/claud
 import { buildHealthReport } from "../src/server/health";
 import {
   EMPTY_USAGE,
+  stubClaudeStart,
   stubCodexApi,
   stubFetchIntervals,
   stubOpenCodeApi,
@@ -47,6 +48,7 @@ function harness(options: { result?: ClaudeRefreshResult; logout?: () => Promise
         return options.logout ? await options.logout() : true;
       },
     },
+    claudeStart: stubClaudeStart(),
     opencode: stubOpenCodeApi(),
     openCodeStatus: stubOpenCodeStatus,
     probe: stubProbeApi(),

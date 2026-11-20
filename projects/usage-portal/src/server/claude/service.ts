@@ -16,7 +16,8 @@ export const CLAUDE_MANUAL_COOLDOWN_MS = 60 * 1000;
 /** 資格情報の破棄は公式 CLI に任せる。このアプリはトークンを読まない。 */
 export const CLAUDE_LOGOUT_ARGS: readonly string[] = ["auth", "logout"];
 
-export type ClaudeRefreshMode = "auto" | "manual";
+/** `schedule` は開始予約の前後の確認。画面の要求からは選べず、15 分と 60 秒の制限を受けない。 */
+export type ClaudeRefreshMode = "auto" | "manual" | "schedule";
 
 export type ClaudeRefreshResult =
   | { state: "refreshed" }
@@ -129,7 +130,7 @@ export function createClaudeUsageService(options: {
       }
     }
 
-    if (lastRunAt !== null && now - lastRunAt < cooldownMs) {
+    if (mode !== "schedule" && lastRunAt !== null && now - lastRunAt < cooldownMs) {
       return Promise.resolve({ state: "skipped", reason: "cooldown" });
     }
 

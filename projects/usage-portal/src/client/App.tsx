@@ -760,6 +760,8 @@ function Dashboard(props: {
                 compact={compact}
                 onRefresh={() => refreshClaude("manual")}
                 onLogout={signOutClaude}
+                onUsageChanged={loadUsage}
+                onUnauthorized={onUnauthorized}
               />
             );
           }

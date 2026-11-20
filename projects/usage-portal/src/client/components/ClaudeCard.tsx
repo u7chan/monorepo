@@ -1,8 +1,23 @@
-import { useState } from "preact/hooks";
-import type { ClaudeRefreshOutcome, UsageSource } from "../api";
+import { useCallback, useEffect, useState } from "preact/hooks";
+import {
+  fetchClaudeStart,
+  runClaudeStart,
+  saveClaudeStart,
+  setClaudeStartEnabled,
+  type ClaudeRefreshOutcome,
+  type ClaudeStartState,
+  type ClaudeStartUpdate,
+  type UsageSource,
+} from "../api";
 import { CLAUDE_API_KEY_HELPER_NOTE, CLAUDE_LOGIN_COMMAND, claudeRefreshMessage } from "../lib/claude";
+import { claudeStartFooter, claudeStartRunMessage } from "../lib/claude-start";
+import { ClaudeStartPanel, type ClaudeStartTab } from "./ClaudeStartPanel";
+import { Modal } from "./Modal";
 import { OverflowMenu, type MenuItem } from "./OverflowMenu";
 import { ProviderCard } from "./ProviderCard";
+
+/** 予約の時刻や結果はサーバーの timer で変わる。利用枠の取得と同じ 60 秒で読み直す。 */
+const START_POLL_MS = 60_000;
 
 const FALLBACK_ERROR = "通信に失敗しました。もう一度試してください。";
 
@@ -17,7 +32,79 @@ export function ClaudeCard(props: {
   compact?: boolean;
   onRefresh: () => Promise<ClaudeRefreshOutcome | null>;
   onLogout: () => Promise<boolean>;
+  /** 開始の送信で利用枠が変わったときに、カードの値を読み直す。 */
+  onUsageChanged: () => Promise<unknown>;
+  onUnauthorized: () => void;
 }) {
+  const { onUnauthorized } = props;
+  const [start, setStart] = useState<ClaudeStartState | null>(null);
+  const [startTab, setStartTab] = useState<ClaudeStartTab | null>(null);
+  const [starting, setStarting] = useState(false);
+
+  const loadStart = useCallback(async (): Promise<void> => {
+    try {
+      const result = await fetchClaudeStart();
+
+      if (result !== null && "unauthorized" in result) {
+        onUnauthorized();
+      } else if (result !== null) {
+        setStart(result);
+      }
+    } catch {
+      // 読めなかったときは前回の値を残す。フッターの 1 行が一時的に古いだけで、操作は止めない。
+    }
+  }, [onUnauthorized]);
+
+  useEffect(() => {
+    void loadStart();
+
+    const timer = setInterval(() => void loadStart(), START_POLL_MS);
+
+    return () => clearInterval(timer);
+  }, [loadStart]);
+
+  const applyStart = async (request: Promise<ClaudeStartUpdate>): Promise<string | null> => {
+    const result = await request;
+
+    if (!result.ok) {
+      if (result.error === "unauthorized") {
+        onUnauthorized();
+      }
+
+      return result.error;
+    }
+
+    setStart(result.state);
+
+    return null;
+  };
+
+  const startNow = async (): Promise<void> => {
+    setStarting(true);
+    setMessage(null);
+
+    try {
+      const result = await runClaudeStart();
+
+      if (result.outcome === "error" && result.error === "unauthorized") {
+        onUnauthorized();
+
+        return;
+      }
+
+      const described = claudeStartRunMessage(result);
+
+      setMessage(described.text);
+      setFailed(described.failed);
+      await Promise.all([loadStart(), props.onUsageChanged()]);
+    } catch {
+      setMessage(FALLBACK_ERROR);
+      setFailed(true);
+    } finally {
+      setStarting(false);
+    }
+  };
+
   const [refreshing, setRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -63,9 +150,16 @@ export function ClaudeCard(props: {
     }
   };
 
-  const busy = refreshing || loggingOut;
+  const busy = refreshing || loggingOut || starting;
+  const footer = claudeStartFooter(start);
   const items: MenuItem[] = [
     { label: "更新", onSelect: () => void refresh(), disabled: busy },
+    { label: "開始予約…", onSelect: () => setStartTab("plan"), disabled: start === null },
+    {
+      label: "今すぐ開始",
+      onSelect: () => void startNow(),
+      disabled: busy || start === null || start.settings === null || start.running,
+    },
     {
       label: "ログアウトして非表示",
       onSelect: () => {
@@ -85,7 +179,37 @@ export function ClaudeCard(props: {
       compact={props.compact}
       headerMenu={<OverflowMenu label="Claude の操作" items={items} />}
     >
-      {refreshing ? (
+      {footer === null ? null : footer.tone === "normal" ? (
+        <p class="up-caption up-start-footer">{footer.text}</p>
+      ) : (
+        <button
+          type="button"
+          class={`up-start-footer up-start-footer-${footer.tone}`}
+          onClick={() => setStartTab("log")}
+        >
+          ⚠ {footer.text}
+        </button>
+      )}
+
+      {startTab !== null && start !== null ? (
+        <Modal title="Claude の開始予約" onClose={() => setStartTab(null)}>
+          {(close) => (
+            <ClaudeStartPanel
+              state={start}
+              initialTab={startTab}
+              onSave={(settings) => applyStart(saveClaudeStart(settings))}
+              onToggle={(enabled) => applyStart(setClaudeStartEnabled(enabled))}
+              onClose={close}
+            />
+          )}
+        </Modal>
+      ) : null}
+
+      {starting ? (
+        <p class="up-caption" role="status">
+          5 時間の利用枠を開始しています…
+        </p>
+      ) : refreshing ? (
         <p class="up-caption" role="status">
           更新しています…
         </p>

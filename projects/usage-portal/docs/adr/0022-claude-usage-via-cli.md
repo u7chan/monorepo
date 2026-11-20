@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-11-18
 - 一部置き換え: [ADR 0026](0026-claude-card-visibility-and-logout.md)（取得の契機に全体メニューの「接続を確認」が加わり、未接続のカードは出さない）
+- 一部置き換え: [ADR 0028](0028-claude-session-start-schedule.md)（予約した時刻だけ、5 時間窓を開始する固定の 1 文を送る）
 
 実装は後続の PR で行う。この ADR だけでは画面に Claude は増えない。
 
