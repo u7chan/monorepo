@@ -3,7 +3,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ClaudeCliError, claudeConfigDir, createClaudeCli, type SpawnClaudeOptions } from "../src/server/claude/cli";
+import {
+  CLAUDE_PROMPT_TIMEOUT_MS,
+  ClaudeCliError,
+  claudeConfigDir,
+  createClaudeCli,
+  createClaudePromptCli,
+  type SpawnClaudeOptions,
+} from "../src/server/claude/cli";
 
 const dirs: string[] = [];
 
@@ -116,5 +123,33 @@ describe("createClaudeCli", () => {
 
     await expect(cli.run(["5"])).rejects.toMatchObject({ reason: "timeout" });
     expect(Date.now() - startedAt).toBeLessThan(3_000);
+  });
+});
+
+describe("createClaudePromptCli", () => {
+  test("終了コードが 0 以外でも stdout を返し、期限は送信用の 60 秒にする", async () => {
+    const seen: SpawnClaudeOptions[] = [];
+    const cli = createClaudePromptCli({
+      credentialDir: credentialDir(),
+      env: {},
+      spawn: async (_command, _args, options) => {
+        seen.push(options);
+
+        return { exitCode: 1, stdout: '{"is_error":true}', timedOut: false };
+      },
+    });
+
+    await expect(cli.run(["-p", "x"])).resolves.toEqual({ exitCode: 1, stdout: '{"is_error":true}' });
+    expect(seen[0]?.timeoutMs).toBe(CLAUDE_PROMPT_TIMEOUT_MS);
+    expect(Object.keys(seen[0]?.env ?? {}).sort()).toEqual(["CLAUDE_CONFIG_DIR", "TZ"]);
+  });
+
+  test("期限超過は timeout として投げる", async () => {
+    const cli = createClaudePromptCli({
+      credentialDir: credentialDir(),
+      spawn: async () => ({ exitCode: null, stdout: "", timedOut: true }),
+    });
+
+    await expect(cli.run([])).rejects.toMatchObject({ reason: "timeout" });
   });
 });

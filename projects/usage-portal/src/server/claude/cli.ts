@@ -7,10 +7,17 @@ export const CLAUDE_CONFIG_DIR_NAME = "claude";
 export const CLAUDE_BINARY = "claude";
 /** 上流の遅さで画面を待たせないための上限。超えた子は kill する。 */
 export const CLAUDE_CLI_TIMEOUT_MS = 15_000;
+/** 推論を伴う送信の上限。`/usage` の 15 秒では、混雑時の 1 文字の応答も待てないことがある。 */
+export const CLAUDE_PROMPT_TIMEOUT_MS = 60_000;
 
 export type ClaudeCli = {
   /** 引数を渡して標準出力を返す。終了コードが 0 以外・期限超過・起動失敗は `ClaudeCliError`。 */
   run: (args: readonly string[]) => Promise<string>;
+};
+
+/** 送信用。失敗時も JSON の `api_error_status` を読むため、終了コードが 0 以外でも stdout を返す。 */
+export type ClaudePromptCli = {
+  run: (args: readonly string[]) => Promise<{ exitCode: number | null; stdout: string }>;
 };
 
 export type ClaudeCliFailureReason = "spawn" | "timeout" | "exit";
@@ -49,47 +56,67 @@ export function claudeConfigDir(credentialDir: string): string {
  * 公式 CLI を子プロセスで動かす薄い境界。渡す環境変数は `PATH` / `HOME` / `CLAUDE_CONFIG_DIR` / `TZ` だけに絞り、
  * cwd は空の一時ディレクトリにする。cwd の `CLAUDE.md` や設定を CLI に読ませないため。
  */
-export function createClaudeCli(options: {
+export function createClaudeCli(options: ClaudeCliOptions): ClaudeCli {
+  const invoke = createInvoker(options, CLAUDE_CLI_TIMEOUT_MS);
+
+  return {
+    run: async (args) => {
+      const result = await invoke(args);
+
+      if (result.exitCode !== 0) {
+        throw new ClaudeCliError("exit", "Claude の CLI が失敗しました");
+      }
+
+      return result.stdout;
+    },
+  };
+}
+
+/** 送信用の CLI。環境変数と cwd の絞り方は `createClaudeCli` と同じで、期限だけが長い。 */
+export function createClaudePromptCli(options: ClaudeCliOptions): ClaudePromptCli {
+  return { run: createInvoker(options, CLAUDE_PROMPT_TIMEOUT_MS) };
+}
+
+type ClaudeCliOptions = {
   credentialDir: string;
   env?: Record<string, string | undefined>;
   timeoutMs?: number;
   binary?: string;
   spawn?: SpawnClaude;
   makeTempDir?: () => string;
-}): ClaudeCli {
+};
+
+function createInvoker(
+  options: ClaudeCliOptions,
+  defaultTimeoutMs: number,
+): (args: readonly string[]) => Promise<{ exitCode: number | null; stdout: string }> {
   const configDir = claudeConfigDir(options.credentialDir);
   const baseEnv = options.env ?? process.env;
-  const timeoutMs = options.timeoutMs ?? CLAUDE_CLI_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
   const binary = options.binary ?? CLAUDE_BINARY;
   const spawn = options.spawn ?? spawnClaude;
   const makeTempDir = options.makeTempDir ?? (() => mkdtempSync(join(tmpdir(), "usage-portal-claude-")));
 
-  return {
-    run: async (args) => {
-      const cwd = makeTempDir();
+  return async (args) => {
+    const cwd = makeTempDir();
 
-      try {
-        const result = await spawn(binary, args, { cwd, env: childEnv(baseEnv, configDir), timeoutMs });
+    try {
+      const result = await spawn(binary, args, { cwd, env: childEnv(baseEnv, configDir), timeoutMs });
 
-        if (result.timedOut) {
-          throw new ClaudeCliError("timeout", "Claude の CLI が時間内に終了しませんでした");
-        }
-
-        if (result.exitCode !== 0) {
-          throw new ClaudeCliError("exit", "Claude の CLI が失敗しました");
-        }
-
-        return result.stdout;
-      } catch (error) {
-        if (error instanceof ClaudeCliError) {
-          throw error;
-        }
-
-        throw new ClaudeCliError("spawn", "Claude の CLI を起動できませんでした");
-      } finally {
-        rmSync(cwd, { recursive: true, force: true });
+      if (result.timedOut) {
+        throw new ClaudeCliError("timeout", "Claude の CLI が時間内に終了しませんでした");
       }
-    },
+
+      return { exitCode: result.exitCode, stdout: result.stdout };
+    } catch (error) {
+      if (error instanceof ClaudeCliError) {
+        throw error;
+      }
+
+      throw new ClaudeCliError("spawn", "Claude の CLI を起動できませんでした");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   };
 }
 

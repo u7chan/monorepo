@@ -1065,3 +1065,539 @@ h2 {
 .up-dialog-body .up-button {
   margin-top: 0;
 }
+
+/* ---- Claude の開始予約（ADR 0028） ---- */
+
+.up-menu-list {
+  transform-origin: top right;
+  animation: up-pop-in 0.14s ease-out;
+}
+
+.up-dialog[open] {
+  animation: up-pop-in 0.18s ease-out;
+}
+
+@keyframes up-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+@keyframes up-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.up-start {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-4);
+}
+
+.up-start-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-4);
+  animation: up-fade-in 0.18s ease-out;
+}
+
+.up-start-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--up-space-3);
+}
+
+/* 選んだ項目の下を印が滑って移る。印の位置は要素の数と番号の CSS 変数から決める。 */
+.up-slider {
+  position: relative;
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  padding: 2px;
+  border-radius: var(--up-radius-label);
+  background: var(--up-raised);
+}
+
+.up-slider-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / var(--up-slider-count));
+  border-radius: 6px;
+  background: var(--up-accent);
+  transform: translateX(calc(100% * var(--up-slider-index)));
+  transition: transform 0.22s ease;
+}
+
+.up-slider-item {
+  position: relative;
+  min-height: 2.25rem;
+  padding: var(--up-space-1) var(--up-space-2);
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--up-muted);
+  font: inherit;
+  font-size: var(--up-font-caption);
+  cursor: pointer;
+  transition: color 0.22s ease;
+}
+
+.up-slider-item[aria-pressed="true"],
+.up-slider-item[aria-selected="true"] {
+  color: var(--up-on-accent);
+  font-weight: 600;
+}
+
+.up-slider-item:focus-visible {
+  outline: 2px solid var(--up-accent);
+  outline-offset: 2px;
+}
+
+.up-slider-mark {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--up-attention);
+  vertical-align: middle;
+}
+
+.up-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--up-space-3);
+  padding: var(--up-space-3) var(--up-space-4);
+  border-radius: var(--up-radius-label);
+  background: var(--up-raised);
+}
+
+.up-switch-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.up-switch-title {
+  font-weight: 600;
+}
+
+.up-switch {
+  position: relative;
+  flex: none;
+  width: 3rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--up-line);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.up-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: calc(1.75rem - 6px);
+  height: calc(1.75rem - 6px);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+  transition: transform 0.2s ease;
+}
+
+.up-switch[aria-checked="true"] {
+  background: var(--up-success);
+}
+
+.up-switch[aria-checked="true"]::after {
+  transform: translateX(1.25rem);
+}
+
+.up-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.up-switch:focus-visible {
+  outline: 2px solid var(--up-accent);
+  outline-offset: 2px;
+}
+
+.up-start-alert {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-1);
+  padding: var(--up-space-3) var(--up-space-4);
+  border: 1px solid currentColor;
+  border-radius: var(--up-radius-label);
+  font-size: var(--up-font-caption);
+  animation: up-fade-in 0.18s ease-out;
+}
+
+.up-start-alert-attention {
+  color: var(--up-attention);
+}
+
+.up-start-alert-danger {
+  color: var(--up-danger);
+}
+
+.up-link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* 開いた一覧はブラウザが描く。base-select に対応していれば、開くときに動かす。 */
+@supports (appearance: base-select) {
+  .up-select,
+  .up-select::picker(select) {
+    appearance: base-select;
+  }
+
+  .up-select::picker(select) {
+    margin-top: var(--up-space-1);
+    padding: var(--up-space-1);
+    border: 1px solid var(--up-line);
+    border-radius: var(--up-radius-label);
+    background: var(--up-surface);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+    opacity: 0;
+    transform: translateY(-4px);
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease,
+      display 0.15s allow-discrete,
+      overlay 0.15s allow-discrete;
+  }
+
+  .up-select:open::picker(select) {
+    opacity: 1;
+    transform: none;
+  }
+
+  @starting-style {
+    .up-select:open::picker(select) {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+
+  .up-select::picker-icon {
+    color: var(--up-muted);
+    transition: rotate 0.15s ease;
+  }
+
+  .up-select:open::picker-icon {
+    rotate: 180deg;
+  }
+
+  .up-select option {
+    padding: var(--up-space-2) var(--up-space-3);
+    border-radius: 6px;
+    font-size: 1rem;
+  }
+
+  .up-select option:hover,
+  .up-select option:focus-visible {
+    background: var(--up-raised);
+  }
+
+  .up-select option:checked {
+    color: var(--up-accent);
+    font-weight: 600;
+  }
+}
+
+.up-start-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-1);
+}
+
+.up-timeline {
+  position: relative;
+  height: 1.5rem;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--up-raised);
+}
+
+.up-timeline-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-right: 2px solid var(--up-surface);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    left 0.25s ease,
+    width 0.25s ease;
+}
+
+.up-timeline-window {
+  background: var(--up-accent);
+  color: var(--up-on-accent);
+}
+
+.up-timeline-window.up-timeline-alt {
+  opacity: 0.72;
+}
+
+.up-timeline-gap {
+  background: repeating-linear-gradient(135deg, var(--up-line) 0 4px, transparent 4px 8px);
+  color: var(--up-muted);
+}
+
+.up-timeline-anchor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--up-danger);
+  transition: left 0.25s ease;
+}
+
+.up-timeline-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--up-muted);
+  font-size: 0.6875rem;
+}
+
+.up-start-lines {
+  font-variant-numeric: tabular-nums;
+}
+
+.up-start-lines strong {
+  color: var(--up-text);
+}
+
+.up-start-lines:empty {
+  display: none;
+}
+
+.up-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--up-space-1);
+}
+
+.up-day {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1px solid var(--up-line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--up-muted);
+  font: inherit;
+  font-size: var(--up-font-caption);
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.up-day[aria-pressed="true"] {
+  border-color: var(--up-accent);
+  background: var(--up-accent);
+  color: var(--up-on-accent);
+  font-weight: 600;
+}
+
+.up-day:focus-visible {
+  outline: 2px solid var(--up-accent);
+  outline-offset: 2px;
+}
+
+.up-disclosure {
+  border: 1px solid var(--up-line);
+  border-radius: var(--up-radius-label);
+}
+
+.up-disclosure-head {
+  display: flex;
+  align-items: center;
+  gap: var(--up-space-2);
+  width: 100%;
+  min-height: 2.75rem;
+  padding: var(--up-space-2) var(--up-space-3);
+  border: 0;
+  background: none;
+  color: var(--up-text);
+  font: inherit;
+  font-size: var(--up-font-caption);
+  text-align: left;
+  cursor: pointer;
+}
+
+.up-disclosure-head > .up-caption {
+  margin-left: auto;
+}
+
+.up-disclosure-head:focus-visible {
+  outline: 2px solid var(--up-accent);
+  outline-offset: -2px;
+  border-radius: var(--up-radius-label);
+}
+
+.up-disclosure-chevron {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid var(--up-muted);
+  border-bottom: 2px solid var(--up-muted);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 0.2s ease;
+}
+
+.up-disclosure[data-open="true"] .up-disclosure-chevron {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.up-disclosure-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 0.22s ease,
+    opacity 0.22s ease;
+}
+
+.up-disclosure[data-open="true"] .up-disclosure-body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.up-disclosure-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--up-space-3);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.up-disclosure[data-open="true"] .up-disclosure-inner {
+  padding: 0 var(--up-space-3) var(--up-space-3);
+}
+
+.up-start-history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--up-font-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.up-start-history th {
+  padding: var(--up-space-1) 6px;
+  border-bottom: 1px solid var(--up-line);
+  color: var(--up-muted);
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.up-start-history td {
+  padding: 6px;
+  border-bottom: 1px solid var(--up-line);
+  vertical-align: top;
+}
+
+.up-start-history tr:last-child td {
+  border-bottom: 0;
+}
+
+.up-nowrap-cell {
+  white-space: nowrap;
+}
+
+.up-start-result {
+  display: block;
+  font-weight: 600;
+}
+
+.up-start-result-ok {
+  color: var(--up-success);
+}
+
+.up-start-result-skip {
+  color: var(--up-muted);
+}
+
+.up-start-result-fail {
+  color: var(--up-attention);
+}
+
+.up-start-detail {
+  display: block;
+  color: var(--up-muted);
+}
+
+.up-start-footer {
+  margin: var(--up-space-2) 0 0;
+}
+
+button.up-start-footer {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--up-font-caption);
+  text-align: left;
+  cursor: pointer;
+}
+
+.up-start-footer-attention {
+  color: var(--up-attention);
+}
+
+.up-start-footer-danger {
+  color: var(--up-danger);
+}
+
+@media (max-width: 420px) {
+  .up-start-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .up-menu-list,
+  .up-dialog[open],
+  .up-start-panel,
+  .up-start-alert {
+    animation: none;
+  }
+
+  .up-slider-thumb,
+  .up-slider-item,
+  .up-switch,
+  .up-switch::after,
+  .up-timeline-seg,
+  .up-timeline-anchor,
+  .up-day,
+  .up-disclosure-chevron,
+  .up-disclosure-body,
+  .up-select::picker(select),
+  .up-select::picker-icon {
+    transition: none;
+  }
+}

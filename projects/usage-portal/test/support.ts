@@ -1,3 +1,4 @@
+import type { AppDeps } from "../src/server/app";
 import type { ClaudeRefreshMode, ClaudeRefreshResult } from "../src/server/claude/service";
 import type { CodexApi } from "../src/server/codex/api";
 import type { OpenCodeAccount } from "../src/server/opencode/accounts";
@@ -114,5 +115,25 @@ export function usageSnapshot(overrides: Partial<ProviderSnapshot> = {}): Provid
     ],
     notes: [],
     ...overrides,
+  };
+}
+
+/** 開始予約に触れないテスト用。予約は未設定のまま返す。 */
+export function stubClaudeStart(): AppDeps["claudeStart"] {
+  const state = {
+    settings: null,
+    enabled: false,
+    failures: 0,
+    stoppedCode: null,
+    running: false,
+    nextStartAt: null,
+    runs: [],
+  };
+
+  return {
+    state: () => state,
+    saveSettings: () => null,
+    setEnabled: () => "not_configured",
+    runNow: async () => ({ outcome: "aborted" }),
   };
 }

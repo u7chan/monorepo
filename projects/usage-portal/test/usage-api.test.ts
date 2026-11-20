@@ -14,6 +14,7 @@ import { createUsageReader, type UsagePayload, type UsageSourceAccount } from ".
 import {
   BASE_TIME,
   stubClaudeApi,
+  stubClaudeStart,
   stubCodexApi,
   stubOpenCodeApi,
   usageSnapshot,
@@ -65,6 +66,7 @@ function harness(
     }),
     codex: stubCodexApi(),
     claude: stubClaudeApi(),
+    claudeStart: stubClaudeStart(),
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode: stubOpenCodeApi(),

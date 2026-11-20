@@ -5,6 +5,7 @@ import { buildHealthReport, type AuthStatus, type DatabaseStatus } from "../src/
 import {
   EMPTY_USAGE,
   stubClaudeApi,
+  stubClaudeStart,
   stubCodexApi,
   stubOpenCodeApi,
   stubOpenCodeStatus,
@@ -32,6 +33,7 @@ function appWith(db: DatabaseStatus, auth: AuthStatus) {
     usage: () => EMPTY_USAGE,
     codex: stubCodexApi(),
     claude: stubClaudeApi(),
+    claudeStart: stubClaudeStart(),
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode: stubOpenCodeApi(),

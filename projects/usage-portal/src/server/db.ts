@@ -5,7 +5,7 @@ import type { ProviderSnapshot } from "./providers/types";
 import type { SamplePoint } from "./trend";
 import type { UsageError } from "./state";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** 単一キー時代の OpenCode Go の source id。起動時の掃除でだけ使う。 */
 const LEGACY_OPENCODE_SOURCE_ID = "opencode-go";
@@ -46,6 +46,29 @@ const MIGRATIONS: readonly string[] = [
     provider TEXT PRIMARY KEY,
     interval_ms INTEGER NOT NULL
   );
+  `,
+  `
+  CREATE TABLE claude_start (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    settings_json TEXT NOT NULL,
+    enabled INTEGER NOT NULL,
+    failures INTEGER NOT NULL,
+    stopped_code TEXT,
+    last_sent_at INTEGER,
+    armed_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE claude_start_run (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL,
+    slot_at INTEGER,
+    ran_at INTEGER NOT NULL,
+    outcome TEXT NOT NULL,
+    code TEXT,
+    resets_at INTEGER
+  );
+
+  CREATE INDEX claude_start_run_slot ON claude_start_run (slot_at);
   `,
 ];
 
@@ -270,6 +293,108 @@ function deleteUsageRows(
   return handle.db.transaction(() =>
     statements.reduce((total, statement) => total + statement.run(...values).changes, 0),
   )();
+}
+
+/** 予約の設定と実行の状態。設定は検証前の JSON のまま返し、読み手が検証する。 */
+export type StoredClaudeStart = {
+  settingsJson: string;
+  enabled: boolean;
+  failures: number;
+  stoppedCode: string | null;
+  lastSentAt: number | null;
+  /** オンにした・設定を保存した時刻。これより前の枠は、再起動後も送らず見送りとしても残さない。 */
+  armedAt: number;
+};
+
+export type ClaudeStartRunRow = {
+  kind: "auto" | "manual";
+  slotAt: number | null;
+  ranAt: number;
+  outcome: "ok" | "skipped" | "failed";
+  code: string | null;
+  resetsAt: number | null;
+};
+
+export function loadClaudeStart(handle: DatabaseHandle): StoredClaudeStart | null {
+  const row = handle.db
+    .query(
+      "SELECT settings_json, enabled, failures, stopped_code, last_sent_at, armed_at FROM claude_start WHERE id = 1",
+    )
+    .get() as {
+    settings_json: string;
+    enabled: number;
+    failures: number;
+    stopped_code: string | null;
+    last_sent_at: number | null;
+    armed_at: number;
+  } | null;
+
+  if (row === null) {
+    return null;
+  }
+
+  return {
+    settingsJson: row.settings_json,
+    enabled: row.enabled === 1,
+    failures: row.failures,
+    stoppedCode: row.stopped_code,
+    lastSentAt: row.last_sent_at,
+    armedAt: row.armed_at,
+  };
+}
+
+export function saveClaudeStart(handle: DatabaseHandle, state: StoredClaudeStart): void {
+  handle.db
+    .query(`
+      INSERT INTO claude_start (id, settings_json, enabled, failures, stopped_code, last_sent_at, armed_at)
+      VALUES (1, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET settings_json = excluded.settings_json, enabled = excluded.enabled,
+        failures = excluded.failures, stopped_code = excluded.stopped_code, last_sent_at = excluded.last_sent_at,
+        armed_at = excluded.armed_at
+    `)
+    .run(state.settingsJson, state.enabled ? 1 : 0, state.failures, state.stoppedCode, state.lastSentAt, state.armedAt);
+}
+
+export function insertClaudeStartRun(handle: DatabaseHandle, run: ClaudeStartRunRow): void {
+  handle.db
+    .query("INSERT INTO claude_start_run (kind, slot_at, ran_at, outcome, code, resets_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(run.kind, run.slotAt, run.ranAt, run.outcome, run.code, run.resetsAt);
+}
+
+/** 新しい順。 */
+export function loadClaudeStartRuns(handle: DatabaseHandle, limit: number): ClaudeStartRunRow[] {
+  const rows = handle.db
+    .query(
+      "SELECT kind, slot_at, ran_at, outcome, code, resets_at FROM claude_start_run ORDER BY ran_at DESC, id DESC LIMIT ?",
+    )
+    .all(limit) as {
+    kind: ClaudeStartRunRow["kind"];
+    slot_at: number | null;
+    ran_at: number;
+    outcome: ClaudeStartRunRow["outcome"];
+    code: string | null;
+    resets_at: number | null;
+  }[];
+
+  return rows.map((row) => ({
+    kind: row.kind,
+    slotAt: row.slot_at,
+    ranAt: row.ran_at,
+    outcome: row.outcome,
+    code: row.code,
+    resetsAt: row.resets_at,
+  }));
+}
+
+/** 予約の枠を処理済みか。再起動や二重の timer で同じ枠を 2 回送らないために使う。 */
+export function hasClaudeStartRunForSlot(handle: DatabaseHandle, slotAt: number): boolean {
+  return (
+    handle.db.query("SELECT 1 FROM claude_start_run WHERE kind = 'auto' AND slot_at = ? LIMIT 1").get(slotAt) !== null
+  );
+}
+
+export function pruneClaudeStartRuns(handle: DatabaseHandle, olderThan: number): number {
+  return handle.db.query("DELETE FROM claude_start_run WHERE ran_at < ?").run(olderThan).changes;
 }
 
 function parseSnapshot(json: string): ProviderSnapshot | null {

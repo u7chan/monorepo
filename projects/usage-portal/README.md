@@ -22,6 +22,9 @@ OpenCode Go の接続確認）を持つ。
 - Claude のカードは認証済みのときだけ出し、未接続のあいだは全体メニューの「Claude」から手順と「接続を確認」を開く。
   カードの `⋮` の「ログアウトして非表示」は公式 CLI で資格情報を破棄してカードを消す（[ADR 0026](docs/adr/0026-claude-card-visibility-and-logout.md)）
 - Claude のサインインは Web UI で中継しない。初回は端末から `docker exec -it <コンテナ名> claude auth login` を実行する
+- Claude のカードの `⋮` の「開始予約…」で、5 時間窓を開始する時刻を予約できる。「必ずリセットさせる時刻」と 1 日の回数から、
+  5 時間おきの開始と、窓を始めない空き（既定は深夜）を決める。送る前に `/usage` で窓が動いていないことを確かめ、
+  3 回続けて失敗したら自動でオフにする。「今すぐ開始」で 1 回だけ送ることもできる（[ADR 0028](docs/adr/0028-claude-session-start-schedule.md)）
 - 送信の設定（モデルと思考レベル）を済ませると、Codex と OpenCode Go のカードの `⋮` に「接続確認」が出る。
   固定の最小プロンプトを 1 回だけ送り、応答本文は保存も表示もしない（[ADR 0017](docs/adr/0017-probe-prompts.md)）
 - OpenCode Go はアカウント（API キー）を最大 10 件登録でき、1 アカウント = 1 カードで並べる
@@ -147,6 +150,10 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `POST`   | `/api/opencode/accounts/:id/refresh` | 必要 | そのアカウントの利用枠だけを取り直す（200 `{ ok }`）。停止中でも再開できる。未知の id は 404                                                                                                                                                                  |
 | `POST`   | `/api/claude/refresh`              | 必要 | `{ "mode": "auto" \| "manual" }`（省略は `auto`）→ 200 `{ state: "refreshed" \| { state: "skipped", reason } \| { state: "failed", error } }`。自動は前回取得から 15 分以内なら CLI を起動せず、手動は前回の試行から 60 秒空ける。ログアウト中は `skipped: logout` |
 | `POST`   | `/api/claude/logout`               | 必要 | 公式 CLI でログアウトし、Claude の snapshot と error を消す（204）。推移の sample は残す。CLI / DB の失敗は 503 `logout_failed` |
+| `GET`    | `/api/claude/start`                | 必要 | 開始予約の設定・オン / オフ・連続失敗の数・停止の理由・次の開始・直近 20 件の履歴 |
+| `PUT`    | `/api/claude/start`                | 必要 | 予約の設定を保存（オン / オフは変えない）。不正な入力は 400 `invalid_request` |
+| `PUT`    | `/api/claude/start/enabled`        | 必要 | `{ "enabled": boolean }`。オンに戻すと連続失敗の数と停止の理由を消す。設定が無ければ 409 `not_configured` |
+| `POST`   | `/api/claude/start/run`            | 必要 | 今すぐ開始。200 `{ outcome: "ok" \| "skipped" \| "failed", code?, resetsAt? }`。実行中は 409 `in_progress` |
 | `DELETE` | `/api/opencode/accounts/:id`       | 必要 | アカウントと snapshot / error / sample を削除（204）。未知の id は 404                                                                                                                                                                                        |
 
 状態を変える要求（`POST` / `PUT` / `DELETE`）は `Origin` が要求 URL と完全一致するときだけ受け付ける（`Origin` の無い要求も 403）。
@@ -402,3 +409,4 @@ bun run check
 - [docs/adr/0025-paused-account-retry.md](docs/adr/0025-paused-account-retry.md) — 契約エラーのアカウントは自動更新を止め、明示的な再取得で再開する
 - [docs/adr/0026-claude-card-visibility-and-logout.md](docs/adr/0026-claude-card-visibility-and-logout.md) — Claude のカードは認証済みのときだけ出し、非表示はログアウトにする
 - [docs/adr/0027-provider-order-and-icons.md](docs/adr/0027-provider-order-and-icons.md) — カードは Codex → Claude → OpenCode Go の順に並べ、見出しに provider のロゴを置く
+- [docs/adr/0028-claude-session-start-schedule.md](docs/adr/0028-claude-session-start-schedule.md) — Claude の 5 時間窓を、予約した時刻から 5 時間おきに開始する
