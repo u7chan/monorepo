@@ -1,7 +1,9 @@
+import { readFile, stat } from "node:fs/promises"
 import * as path from "node:path"
 import { Hono } from "hono"
 import type { AppBindings } from "../types"
 import { resolveResponseMimeType } from "../utils/mimeType"
+import { isNodeErrorCode } from "../utils/nodeError"
 import { isPathTraversal } from "../utils/pathTraversal"
 import { errorResponse, getUploadDir } from "../utils/requestUtils"
 
@@ -24,7 +26,6 @@ publicRoutes.get("/*", async (c) => {
   const responseMimeType = resolveResponseMimeType(resolvedPath)
 
   try {
-    const { stat, readFile } = await import("node:fs/promises")
     const fileStat = await stat(resolvedPath)
     if (!fileStat.isFile()) {
       return errorResponse(c, "NotFound", "File not found", 404)
@@ -35,12 +36,7 @@ publicRoutes.get("/*", async (c) => {
       headers: { "Content-Type": responseMimeType },
     })
   } catch (err: unknown) {
-    const isEnoent =
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: string }).code === "ENOENT"
-    if (isEnoent) {
+    if (isNodeErrorCode(err, "ENOENT")) {
       return errorResponse(c, "NotFound", "File not found", 404)
     }
     throw err

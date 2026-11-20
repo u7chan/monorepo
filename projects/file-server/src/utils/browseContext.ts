@@ -9,7 +9,7 @@ import type {
 import type { UserState } from "../types"
 import { getUserHomeVirtualPath, isUserHomeVirtualPath } from "./auth"
 import { getFileList } from "./fileListing"
-import { isNodeErrorCode } from "./requestUtils"
+import { isNodeErrorCode } from "./nodeError"
 import { requireWritePermission, resolveVirtualPath } from "./virtualPath"
 
 type BrowseViewResult =

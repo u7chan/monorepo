@@ -1,4 +1,5 @@
 import { rename } from "node:fs/promises"
+import { isNodeErrorCode } from "./nodeError"
 
 export type MovePathFailure = {
   name: string
@@ -12,17 +13,9 @@ const CROSS_DEVICE_FAILURE: MovePathFailure = {
   status: 501,
 }
 
-function hasErrorCode(err: unknown, code: string): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { code?: string }).code === code
-  )
-}
-
 /** Maps fs.rename errors to an API error, or null when the error should bubble up. */
 export function mapMovePathError(err: unknown): MovePathFailure | null {
-  if (hasErrorCode(err, "EXDEV")) {
+  if (isNodeErrorCode(err, "EXDEV")) {
     return CROSS_DEVICE_FAILURE
   }
   return null
