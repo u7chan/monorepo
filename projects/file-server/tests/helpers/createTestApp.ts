@@ -5,21 +5,17 @@ import { createApp } from "../../src/app"
 import type { AppBindings } from "../../src/types"
 import {
   getSessionSecretFilePath,
-  getUsersFilePath,
   resetSessionSecretCacheForTests,
 } from "../../src/utils/auth"
 import { resetUsersCacheForTests } from "../../src/utils/userConfigCache"
+import { type PlainUser, writeUsersFile } from "./userStore"
 
 export interface TestAppOptions {
   uploadDir: string
   authDir?: string
   sessionSecret?: string
   initialAdminPassword?: string
-  seedUsers?: Array<{
-    username: string
-    password: string
-    role?: "admin" | "user"
-  }>
+  seedUsers?: PlainUser[]
 }
 
 export async function createTestApp(
@@ -58,20 +54,7 @@ export async function createTestApp(
   }
 
   if (authDir && options.seedUsers && options.seedUsers.length > 0) {
-    const usersFile = getUsersFilePath(authDir)
-    await mkdir(path.dirname(usersFile), { recursive: true })
-    const userConfigs = await Promise.all(
-      options.seedUsers.map(async (user) => ({
-        username: user.username,
-        passwordHash: await Bun.password.hash(user.password, {
-          algorithm: "bcrypt",
-          cost: 4,
-        }),
-        role: user.role ?? "user",
-        sessionVersion: 0,
-      })),
-    )
-    await writeFile(usersFile, JSON.stringify(userConfigs), "utf-8")
+    await writeUsersFile(authDir, options.seedUsers)
   }
 
   return createApp({
