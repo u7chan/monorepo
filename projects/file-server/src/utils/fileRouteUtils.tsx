@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs"
 import { stat as fsStat, readdir, readFile } from "node:fs/promises"
 import * as path from "node:path"
 import type { Context } from "hono"
@@ -153,18 +154,49 @@ export async function createDirectoryArchive(
   return { body, error: null }
 }
 
-export async function resolveRequestedFile(
-  c: Context<AppBindings>,
-  notFoundMessage: string,
-) {
-  return resolveRequestedFileAtPath(c, getRequestPath(c), notFoundMessage)
+export type ResolvedEntry = {
+  baseDir: string
+  requestPath: string
+  resolvedPath: string
+  responseMimeType: string
+  stat: Stats
+  mimeType: string
 }
 
-export async function resolveRequestedFileAtPath(
+export type ResolveEntryOptions = {
+  notFoundMessage: string
+  kind: "file" | "directory"
+  requestPath?: string
+}
+
+export async function resolveRequestedEntry(
+  c: Context<AppBindings>,
+  options: ResolveEntryOptions,
+): Promise<ResolvedEntry | { response: Response }> {
+  const entry = await resolveEntryAtPath(
+    c,
+    options.requestPath ?? getRequestPath(c),
+    options.notFoundMessage,
+  )
+  if ("response" in entry) {
+    return entry
+  }
+
+  if (options.kind === "file" && !entry.stat.isFile()) {
+    return { response: notAFileResponse(c) }
+  }
+  if (options.kind === "directory" && !entry.stat.isDirectory()) {
+    return { response: notADirectoryResponse(c) }
+  }
+
+  return entry
+}
+
+async function resolveEntryAtPath(
   c: Context<AppBindings>,
   requestPath: string,
   notFoundMessage: string,
-) {
+): Promise<ResolvedEntry | { response: Response }> {
   const baseDir = getUploadDir(c)
   const user = getUser(c)
 
@@ -198,20 +230,25 @@ export async function resolveRequestedFileAtPath(
   }
 }
 
+export async function readFileResponse(
+  resolvedPath: string,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const contentBuffer = await readFile(resolvedPath)
+  return new Response(toArrayBuffer(contentBuffer), { headers })
+}
+
 export async function readBinaryFileResponse(
   resolvedPath: string,
   responseMimeType: string,
 ) {
-  const contentBuffer = await readFile(resolvedPath)
-  return new Response(toArrayBuffer(contentBuffer), {
-    headers: { "Content-Type": responseMimeType },
-  })
+  return readFileResponse(resolvedPath, { "Content-Type": responseMimeType })
 }
 
-export function notAFileResponse(c: Context<AppBindings>) {
+function notAFileResponse(c: Context<AppBindings>) {
   return errorResponse(c, "NotAFile", "Not a file", 400)
 }
 
-export function notADirectoryResponse(c: Context<AppBindings>) {
+function notADirectoryResponse(c: Context<AppBindings>) {
   return errorResponse(c, "NotADirectory", "Not a directory", 400)
 }
