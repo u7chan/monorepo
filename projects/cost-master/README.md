@@ -69,7 +69,7 @@ bun run start # bun src/server.ts
 - `Origin` が別ホストの要求は 403。`Origin` の無い要求（curl など）は通す
 - 成功すると `{ applied: true, ok: true, service, masterFetchedAt, version }`
 
-`PUT /api/judgments` — 1 モデルの判断だけを変える（画面のチェックボックス）。`Content-Type: application/json`、16 KiB まで。
+`PUT /api/judgments` — 1 モデルの判断だけを変える（画面のスイッチ）。`Content-Type: application/json`、16 KiB まで。
 
 ```json
 { "modelId": "krea/krea-2-large", "enabled": false }
@@ -98,9 +98,9 @@ bun run start # bun src/server.ts
 | ファイル | 由来 | 触り方 |
 | --- | --- | --- |
 | `prices.json` | OpenRouter の endpoints API から機械生成 | `bun run generate` の出力をアップロード |
-| `enabled.json` | 人の判断とメモ | 画面のチェックボックス（一括はダウンロードして編集し、アップロード） |
+| `enabled.json` | 人の判断とメモ | 画面のスイッチ（一括はダウンロードして編集し、アップロード） |
 
-`enabled.json` に行が無いモデルは `enabled: true`（一覧に出す）として扱う。チェックボックスで `true` に
+`enabled.json` に行が無いモデルは `enabled: true`（一覧に出す）として扱う。スイッチで `true` に
 戻しても行は残るので、行が無いことと `enabled: true` はどちらも「一覧に出す」を意味する。`prices.json` に
 無い `modelId` の行は無視される（消さない。モデルが次の取り込みで戻ることがある）。
 
@@ -119,7 +119,7 @@ bun run start # bun src/server.ts
 
 判断（1 モデルずつ）:
 
-1. 画面（`/`）の一覧でチェックボックスを切り替える
+1. 画面（`/`）の一覧でスイッチを切り替える
 2. 反映は即時。u7agent の一覧は [カタログ更新] を押すまで変わらない
 
 一覧は名前順と単価の安い順を切り替えられる。単価の単位（`image` / `megapixel` / `token` / `request`）が違う
@@ -135,7 +135,7 @@ bun run start # bun src/server.ts
 
 失敗したときは反映されない（ファイルは変わらない）。理由は画面に固定文言で出る。
 
-チェックボックスの操作も `.bak` を更新する。1 世代しか残らないので、戻す用のファイルは先に
+スイッチの操作も `.bak` を更新する。1 世代しか残らないので、戻す用のファイルは先に
 ダウンロードしておく。
 
 ### 価格の取り込み

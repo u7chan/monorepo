@@ -66,7 +66,7 @@ export type CostMasterHealth = {
 
 export type CostMasterError = { error: "master_unavailable" };
 
-/** 画面のチェックボックスから 1 モデルの判断を変える要求 */
+/** 画面のスイッチから 1 モデルの判断を変える要求 */
 export type JudgmentUpdate = {
   modelId: string;
   enabled: boolean;

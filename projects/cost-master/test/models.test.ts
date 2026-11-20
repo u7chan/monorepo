@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { groupByModel, priceKey, sideOf, sortGroups, summarize, withModelEnabled } from "../src/client/models";
+import {
+  groupByModel,
+  priceKey,
+  sideOf,
+  sortGroups,
+  splitModelId,
+  summarize,
+  withModelEnabled,
+} from "../src/client/models";
 import type { CostModelPrice } from "../src/shared/contract";
 
 function price(overrides: Partial<CostModelPrice> = {}): CostModelPrice {
@@ -144,5 +152,24 @@ describe("withModelEnabled", () => {
     withModelEnabled(payload, "a", false);
 
     expect(payload.models.every((model) => model.enabled)).toBe(true);
+  });
+});
+
+describe("splitModelId", () => {
+  test("先頭の / で提供元と名前に分ける", () => {
+    expect(splitModelId("black-forest-labs/flux-3-image")).toEqual({
+      provider: "black-forest-labs",
+      name: "flux-3-image",
+    });
+  });
+
+  test("名前に / を含んでも 2 つ目以降は名前に残す", () => {
+    expect(splitModelId("vendor/family/model")).toEqual({ provider: "vendor", name: "family/model" });
+  });
+
+  test("/ が無い・端にある id は全体を名前にする", () => {
+    expect(splitModelId("standalone")).toEqual({ provider: "", name: "standalone" });
+    expect(splitModelId("/leading")).toEqual({ provider: "", name: "/leading" });
+    expect(splitModelId("trailing/")).toEqual({ provider: "", name: "trailing/" });
   });
 });

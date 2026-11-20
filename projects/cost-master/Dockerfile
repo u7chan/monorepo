@@ -38,7 +38,7 @@ COPY src ./src
 COPY test ./test
 COPY scripts ./scripts
 COPY docs ./docs
-COPY README.md AGENTS.md .env.example ./
+COPY README.md AGENTS.md DESIGN.md .env.example ./
 
 RUN bun run check
 

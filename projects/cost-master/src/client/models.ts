@@ -155,3 +155,14 @@ export function withModelEnabled(payload: CostMasterPayload, modelId: string, en
     models: payload.models.map((model) => (model.modelId === modelId ? { ...model, enabled } : model)),
   };
 }
+
+/** 一覧で名前を拾いやすくするため、`modelId` を提供元と名前に分ける。`/` が無い id は名前だけにする */
+export function splitModelId(modelId: string): { provider: string; name: string } {
+  const slash = modelId.indexOf("/");
+
+  if (slash <= 0 || slash === modelId.length - 1) {
+    return { provider: "", name: modelId };
+  }
+
+  return { provider: modelId.slice(0, slash), name: modelId.slice(slash + 1) };
+}

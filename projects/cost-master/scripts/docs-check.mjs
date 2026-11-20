@@ -1,5 +1,5 @@
 /**
- * README / AGENTS.md / docs の相対リンクと、本文中のリポジトリ内パスが実在することを検査する。
+ * README / AGENTS.md / DESIGN.md / docs の相対リンクと、本文中のリポジトリ内パスが実在することを検査する。
  *
  * project root の外を指すリンクも、monorepo の checkout では実在を確認する。Docker の test stage は
  * project root だけをビルドコンテキストに入れるため、monorepo が無いときだけ未検査として数える。
@@ -12,7 +12,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const monorepoRoot = resolve(root, "../..");
 const inMonorepo = existsSync(join(monorepoRoot, ".github")) && existsSync(join(monorepoRoot, "AGENTS.md"));
 
-const SCAN_TARGETS = ["README.md", "AGENTS.md", "docs"];
+const SCAN_TARGETS = ["README.md", "AGENTS.md", "DESIGN.md", "docs"];
 const EXCLUDED = new Set([]);
 const PATH_PREFIXES = ["src/", "test/", "scripts/", "docs/"];
 const FILE_PATTERN = /\.(?:tsx?|mjs|css|md|json|html|ya?ml)$/;
