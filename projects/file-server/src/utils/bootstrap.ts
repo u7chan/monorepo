@@ -1,5 +1,5 @@
 import { readFile, stat } from "node:fs/promises"
-import { getUsersFilePath, MASTER_ADMIN_USERNAME } from "./auth"
+import { getUsersFilePath, hashPassword, MASTER_ADMIN_USERNAME } from "./auth"
 import { loadUsersFromFileWithCache, saveUsersToFile } from "./userConfigCache"
 
 export async function bootstrapAdminUser(
@@ -48,10 +48,7 @@ export async function bootstrapAdminUser(
   }
 
   const password = initialAdminPassword ?? generateRandomPassword()
-  const passwordHash = await Bun.password.hash(password, {
-    algorithm: "bcrypt",
-    cost: 12,
-  })
+  const passwordHash = await hashPassword(password)
 
   await saveUsersToFile(usersFile, [
     {

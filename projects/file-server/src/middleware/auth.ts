@@ -8,13 +8,11 @@ import {
   DEFAULT_UPLOAD_DIR,
   loadSessionSecretWithCache,
   normalizeReturnTo,
-  type ResolvedAuthConfig,
   type RuntimeAuthEnv,
-  resolveAuthConfig,
   SESSION_COOKIE_NAME,
   verifySession,
 } from "../utils/auth"
-import { errorResponse } from "../utils/requestUtils"
+import { errorResponse, getAuthConfig } from "../utils/requestUtils"
 import { loadUsersFromFileWithCache } from "../utils/userConfigCache"
 
 function getRequestPathWithQuery(c: Context<AppBindings>): string {
@@ -38,7 +36,7 @@ export async function authMiddleware(c: Context<AppBindings>, next: Next) {
   const runtimeEnv = env(c) as RuntimeAuthEnv
   const { UPLOAD_DIR } = runtimeEnv
   const uploadBaseDir = UPLOAD_DIR || DEFAULT_UPLOAD_DIR
-  const authConfig: ResolvedAuthConfig = resolveAuthConfig(runtimeEnv)
+  const authConfig = getAuthConfig(c)
 
   if (!authConfig.enabled || !authConfig.usersFile || !authConfig.authDir) {
     return next()
@@ -108,8 +106,7 @@ export async function requireAuthMiddleware(
   c: Context<AppBindings>,
   next: Next,
 ) {
-  const runtimeEnv = env(c) as RuntimeAuthEnv
-  const authConfig: ResolvedAuthConfig = resolveAuthConfig(runtimeEnv)
+  const authConfig = getAuthConfig(c)
 
   if (!authConfig.enabled) {
     return next()

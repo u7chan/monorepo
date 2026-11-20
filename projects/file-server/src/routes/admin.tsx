@@ -1,5 +1,4 @@
 import { type Context, Hono } from "hono"
-import { env } from "hono/adapter"
 import { setCookie } from "hono/cookie"
 import {
   compactDangerButtonClassName,
@@ -19,16 +18,20 @@ import {
 } from "../components/uiStyles"
 import type { AppBindings, UserConfig } from "../types"
 import {
+  hashPassword,
   isValidUsername,
   loadSessionSecretWithCache,
   MASTER_ADMIN_USERNAME,
-  type RuntimeAuthEnv,
-  resolveAuthConfig,
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
   signSession,
   verifyPassword,
 } from "../utils/auth"
+import {
+  getAuthConfig,
+  getAuthenticatedUser,
+  getUser,
+} from "../utils/requestUtils"
 import {
   loadUsersFromFileWithCache,
   saveUsersToFile,
@@ -246,8 +249,26 @@ function AdminUsersPage({
   )
 }
 
-function getAuthConfig(c: Context<AppBindings>) {
-  return resolveAuthConfig(env(c) as RuntimeAuthEnv)
+function redirectToUsers(
+  c: Context<AppBindings>,
+  status: "error" | "success",
+  message: string,
+) {
+  return c.redirect(`/admin/users?${status}=${encodeURIComponent(message)}`)
+}
+
+type UsersLoadResult = { users: UserConfig[] } | { response: Response }
+
+async function loadUsersOrError(
+  c: Context<AppBindings>,
+  usersFile: string,
+): Promise<UsersLoadResult> {
+  try {
+    return { users: await loadUsersFromFileWithCache(usersFile) }
+  } catch (error) {
+    console.error(error)
+    return { response: redirectToUsers(c, "error", "Failed to load users.") }
+  }
 }
 
 function getUsersFile(c: Context<AppBindings>): string {
@@ -274,10 +295,7 @@ adminRoutes.use("*", async (c, next) => {
 
 adminRoutes.get("/users", async (c) => {
   const usersFile = getUsersFile(c)
-  const currentUser = c.get("user") as Extract<
-    typeof c.var.user,
-    { type: "authenticated" }
-  >
+  const currentUser = getAuthenticatedUser(c)
 
   let users: UserConfig[] = []
   try {
@@ -290,7 +308,7 @@ adminRoutes.get("/users", async (c) => {
   const success = c.req.query("success")
 
   return c.html(
-    <PageShell user={c.get("user")}>
+    <PageShell user={getUser(c)}>
       <AdminUsersPage
         users={users}
         currentUsername={currentUser.username}
@@ -310,41 +328,30 @@ adminRoutes.post("/users", async (c) => {
   const role = String(formData.get("role") || "user")
 
   if (!isValidUsername(username)) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Invalid username. Use only lowercase letters, numbers, hyphens, and underscores.")}`,
+    return redirectToUsers(
+      c,
+      "error",
+      "Invalid username. Use only lowercase letters, numbers, hyphens, and underscores.",
     )
   }
   if (!password) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Password is required.")}`,
-    )
+    return redirectToUsers(c, "error", "Password is required.")
   }
   if (role !== "admin" && role !== "user") {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Invalid role.")}`,
-    )
+    return redirectToUsers(c, "error", "Invalid role.")
   }
 
-  let users: UserConfig[] = []
-  try {
-    users = await loadUsersFromFileWithCache(usersFile)
-  } catch (error) {
-    console.error(error)
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Failed to load users.")}`,
-    )
+  const loaded = await loadUsersOrError(c, usersFile)
+  if ("response" in loaded) {
+    return loaded.response
   }
+  const users = loaded.users
 
   if (users.some((u) => u.username === username)) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent(`User '${username}' already exists.`)}`,
-    )
+    return redirectToUsers(c, "error", `User '${username}' already exists.`)
   }
 
-  const passwordHash = await Bun.password.hash(password, {
-    algorithm: "bcrypt",
-    cost: 12,
-  })
+  const passwordHash = await hashPassword(password)
 
   await saveUsersToFile(usersFile, [
     ...users,
@@ -356,9 +363,7 @@ adminRoutes.post("/users", async (c) => {
     },
   ])
 
-  return c.redirect(
-    `/admin/users?success=${encodeURIComponent(`User '${username}' created.`)}`,
-  )
+  return redirectToUsers(c, "success", `User '${username}' created.`)
 })
 
 adminRoutes.post("/users/:username/role", async (c) => {
@@ -366,34 +371,24 @@ adminRoutes.post("/users/:username/role", async (c) => {
   const targetUsername = c.req.param("username")
 
   if (targetUsername === MASTER_ADMIN_USERNAME) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Cannot change role of master admin.")}`,
-    )
+    return redirectToUsers(c, "error", "Cannot change role of master admin.")
   }
 
   const formData = await c.req.formData()
   const newRole = String(formData.get("role") || "")
   if (newRole !== "admin" && newRole !== "user") {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Invalid role.")}`,
-    )
+    return redirectToUsers(c, "error", "Invalid role.")
   }
 
-  let users: UserConfig[] = []
-  try {
-    users = await loadUsersFromFileWithCache(usersFile)
-  } catch (error) {
-    console.error(error)
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Failed to load users.")}`,
-    )
+  const loaded = await loadUsersOrError(c, usersFile)
+  if ("response" in loaded) {
+    return loaded.response
   }
+  const users = loaded.users
 
   const idx = users.findIndex((u) => u.username === targetUsername)
   if (idx === -1) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent(`User '${targetUsername}' not found.`)}`,
-    )
+    return redirectToUsers(c, "error", `User '${targetUsername}' not found.`)
   }
 
   const updated = users.map((u, i) =>
@@ -407,8 +402,10 @@ adminRoutes.post("/users/:username/role", async (c) => {
   )
   await saveUsersToFile(usersFile, updated)
 
-  return c.redirect(
-    `/admin/users?success=${encodeURIComponent(`Role of '${targetUsername}' changed to '${newRole}'.`)}`,
+  return redirectToUsers(
+    c,
+    "success",
+    `Role of '${targetUsername}' changed to '${newRole}'.`,
   )
 })
 
@@ -417,84 +414,64 @@ adminRoutes.post("/users/:username/delete", async (c) => {
   const targetUsername = c.req.param("username")
 
   if (targetUsername === MASTER_ADMIN_USERNAME) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Cannot delete master admin.")}`,
-    )
+    return redirectToUsers(c, "error", "Cannot delete master admin.")
   }
 
-  let users: UserConfig[] = []
-  try {
-    users = await loadUsersFromFileWithCache(usersFile)
-  } catch (error) {
-    console.error(error)
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Failed to load users.")}`,
-    )
+  const loaded = await loadUsersOrError(c, usersFile)
+  if ("response" in loaded) {
+    return loaded.response
   }
+  const users = loaded.users
 
   const filtered = users.filter((u) => u.username !== targetUsername)
   if (filtered.length === users.length) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent(`User '${targetUsername}' not found.`)}`,
-    )
+    return redirectToUsers(c, "error", `User '${targetUsername}' not found.`)
   }
 
   await saveUsersToFile(usersFile, filtered)
 
-  return c.redirect(
-    `/admin/users?success=${encodeURIComponent(`User '${targetUsername}' deleted.`)}`,
-  )
+  return redirectToUsers(c, "success", `User '${targetUsername}' deleted.`)
 })
 
 adminRoutes.post("/users/:username/password", async (c) => {
   const usersFile = getUsersFile(c)
   const targetUsername = c.req.param("username")
-  const currentUser = c.get("user") as Extract<
-    typeof c.var.user,
-    { type: "authenticated" }
-  >
+  const currentUser = getAuthenticatedUser(c)
 
   if (targetUsername === MASTER_ADMIN_USERNAME) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Cannot reset master admin password via this endpoint. Use 'Change My Password'.")}`,
+    return redirectToUsers(
+      c,
+      "error",
+      "Cannot reset master admin password via this endpoint. Use 'Change My Password'.",
     )
   }
 
   if (targetUsername === currentUser.username) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Use 'Change My Password' to change your own password.")}`,
+    return redirectToUsers(
+      c,
+      "error",
+      "Use 'Change My Password' to change your own password.",
     )
   }
 
   const formData = await c.req.formData()
   const newPassword = String(formData.get("newPassword") || "")
   if (!newPassword) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("New password is required.")}`,
-    )
+    return redirectToUsers(c, "error", "New password is required.")
   }
 
-  let users: UserConfig[] = []
-  try {
-    users = await loadUsersFromFileWithCache(usersFile)
-  } catch (error) {
-    console.error(error)
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Failed to load users.")}`,
-    )
+  const loaded = await loadUsersOrError(c, usersFile)
+  if ("response" in loaded) {
+    return loaded.response
   }
+  const users = loaded.users
 
   const idx = users.findIndex((u) => u.username === targetUsername)
   if (idx === -1) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent(`User '${targetUsername}' not found.`)}`,
-    )
+    return redirectToUsers(c, "error", `User '${targetUsername}' not found.`)
   }
 
-  const newHash = await Bun.password.hash(newPassword, {
-    algorithm: "bcrypt",
-    cost: 12,
-  })
+  const newHash = await hashPassword(newPassword)
   const updated = users.map((u, i) =>
     i === idx
       ? { ...u, passwordHash: newHash, sessionVersion: u.sessionVersion + 1 }
@@ -502,21 +479,20 @@ adminRoutes.post("/users/:username/password", async (c) => {
   )
   await saveUsersToFile(usersFile, updated)
 
-  return c.redirect(
-    `/admin/users?success=${encodeURIComponent(`Password of '${targetUsername}' has been reset.`)}`,
+  return redirectToUsers(
+    c,
+    "success",
+    `Password of '${targetUsername}' has been reset.`,
   )
 })
 
 adminRoutes.post("/change-password", async (c) => {
   const authConfig = getAuthConfig(c)
   const usersFile = getUsersFile(c)
-  const currentUser = c.get("user") as Extract<
-    typeof c.var.user,
-    { type: "authenticated" }
-  >
+  const currentUser = getAuthenticatedUser(c)
 
   if (!authConfig.authDir) {
-    return c.redirect("/admin/users?error=AuthConfigError")
+    return redirectToUsers(c, "error", "AuthConfigError")
   }
 
   const formData = await c.req.formData()
@@ -524,39 +500,30 @@ adminRoutes.post("/change-password", async (c) => {
   const newPassword = String(formData.get("newPassword") || "")
 
   if (!currentPassword || !newPassword) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Both current and new password are required.")}`,
+    return redirectToUsers(
+      c,
+      "error",
+      "Both current and new password are required.",
     )
   }
 
-  let users: UserConfig[] = []
-  try {
-    users = await loadUsersFromFileWithCache(usersFile)
-  } catch (error) {
-    console.error(error)
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Failed to load users.")}`,
-    )
+  const loaded = await loadUsersOrError(c, usersFile)
+  if ("response" in loaded) {
+    return loaded.response
   }
+  const users = loaded.users
 
   const self = users.find((u) => u.username === currentUser.username)
   if (!self) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Current user not found.")}`,
-    )
+    return redirectToUsers(c, "error", "Current user not found.")
   }
 
   const valid = await verifyPassword(currentPassword, self.passwordHash)
   if (!valid) {
-    return c.redirect(
-      `/admin/users?error=${encodeURIComponent("Current password is incorrect.")}`,
-    )
+    return redirectToUsers(c, "error", "Current password is incorrect.")
   }
 
-  const newHash = await Bun.password.hash(newPassword, {
-    algorithm: "bcrypt",
-    cost: 12,
-  })
+  const newHash = await hashPassword(newPassword)
   const newVersion = self.sessionVersion + 1
   const updated = users.map((u) =>
     u.username === currentUser.username
@@ -577,9 +544,7 @@ adminRoutes.post("/change-password", async (c) => {
     maxAge: SESSION_MAX_AGE_SECONDS,
   })
 
-  return c.redirect(
-    `/admin/users?success=${encodeURIComponent("Password changed successfully.")}`,
-  )
+  return redirectToUsers(c, "success", "Password changed successfully.")
 })
 
 export default adminRoutes

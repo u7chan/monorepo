@@ -1,5 +1,4 @@
-import { type Context, Hono } from "hono"
-import { env } from "hono/adapter"
+import { Hono } from "hono"
 import { deleteCookie, setCookie } from "hono/cookie"
 import { primaryButtonClassName } from "../components/buttonStyles"
 import { PageShell } from "../components/PageShell"
@@ -14,14 +13,12 @@ import {
   findUser,
   loadSessionSecretWithCache,
   normalizeReturnTo,
-  type RuntimeAuthEnv,
-  resolveAuthConfig,
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
   signSession,
   verifyPassword,
 } from "../utils/auth"
-import { errorResponse } from "../utils/requestUtils"
+import { errorResponse, getAuthConfig } from "../utils/requestUtils"
 import { loadUsersFromFileWithCache } from "../utils/userConfigCache"
 
 interface LoginPageProps {
@@ -141,10 +138,6 @@ function LoginPage({ returnTo, error, username }: LoginPageProps) {
       </div>
     </div>
   )
-}
-
-function getAuthConfig(c: Context<AppBindings>) {
-  return resolveAuthConfig(env(c) as RuntimeAuthEnv)
 }
 
 const authRoutes = new Hono<AppBindings>()
