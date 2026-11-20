@@ -224,6 +224,7 @@ function priceRowOf(raw: unknown, modelId: string): PriceRow | null {
 
   return {
     modelId,
+    kind: "image",
     billable,
     unit,
     variant: typeof variant === "string" ? variant : "",

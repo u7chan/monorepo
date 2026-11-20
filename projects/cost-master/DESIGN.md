@@ -14,6 +14,7 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 - 文字はシステムフォントだけを使い、大きさと太さで階層を作る（色で作らない）
 - 強調色は 1 色 1 役割: 青 = 操作できるもの、緑 = 一覧に出す、オレンジ = 一覧に出さない / 失敗
 - 状態は色だけで伝えない（スイッチの位置と「一覧に出す / 一覧に出さない」の文言を併記する）
+- 種類（画像 / 音声）は文字と線画アイコンで示す。カテゴリ分けに状態色（緑 / オレンジ）は使わない
 - 数値は `tabular-nums` で桁を揃える
 - すりガラス（blur）は固定表示のツールバーだけに使い、内容の面には使わない
 - 動きは 200ms 以下で、状態の変化を追えるところにだけ付ける。`prefers-reduced-motion` では止める
@@ -101,15 +102,21 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 - **Switch**（`input[type=checkbox][role=switch]`）: `44 × 26px`、つまみ `22px`。オンは Positive、オフは Switch off。
   左に状態の文言を置き、`label` 全体を押せるようにする。更新中は `opacity: 0.5` と `cursor: progress`。
 - **Segmented control**（`role=radiogroup` + ネイティブの radio）: 溝 Fill strong（角丸 `9px`、内側 `2px`）、
-  選択中は Thumb のつまみ（ライトは白、ダークは `#636366`。角丸 `7px`、Segment thumb の影）と太字。並び順と、更新するマスタの種類に使う。
+  選択中は Thumb のつまみ（ライトは白、ダークは `#636366`。角丸 `7px`、Segment thumb の影）と太字。
+  一覧の種類・並び順と、更新するマスタの種類に使う。
+- **種類のセグメント**: 各項目に 14px の線画アイコンと件数（Micro、`tabular-nums`）を置く。アイコンは Muted、
+  選択中は Ink。件数は行ではなくモデルの数。並び順のセグメントは文字だけにして、2 つを形で区別する。
 - **Form row**: `padding: 12px 16px`、行の間は 0.5px の区切り線。ラベルは Muted 13px。
 - **Notice**: 地 Surface、角丸 `8px`、`padding: 10px 14px`。文字は Muted / Positive / Warn、成功と失敗は左に文字色の 3px の帯（`inset 3px 0 0 currentColor`）。失敗は `role="alert"`、
   それ以外は `role="status"`。アラートダイアログは使わない。
 
 ### Navigation
 
-ページ遷移は無い。モデル一覧の見出しと並び順を Toolbar にまとめ、`position: sticky; top: 0` で固定する。
-地は Material、左右はページの余白まで広げる（`margin: 0 -20px; padding: 10px 20px`）。
+ページ遷移は無い。モデル一覧の見出し・種類のセグメント・並び順のセグメントを Toolbar にまとめ、
+`position: sticky; top: 0` で固定する。地は Material、左右はページの余白まで広げる（`margin: 0 -20px; padding: 10px 20px`）。
+
+種類は「すべて / 画像 / 音声」の 3 択。絞り込みは画面の状態だけで、URL には出さない。統計は表示中の範囲を数え、
+「すべて」以外のときは面の下に Caption でその旨を書く。並び順の単価順は 種類 → 単位 → 単価 の順に見る。
 
 ### Model row
 
@@ -117,12 +124,18 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 右上にスイッチ、下段に価格タイルを全幅で並べる。一覧に出さないモデルは単価の色を Muted に落とす
 （`opacity` は使わない。モデル名・状態の文言・variant・タグは変えない）。
 
+「すべて」を選んでいるときだけ、行の左に 16px の種類アイコン（画像 = 写真枠、音声 = 波形）を置く。
+列は `16px minmax(0, 1fr) auto` になり、価格タイルはモデル名の左端（2 列目）に揃える。絞り込み中は
+全行が同じ種類なので出さない。アイコンは `currentColor` の線画 1.5px・塗りなしで、色は常に Muted。
+意味はモデル名とセグメントが持つので `aria-hidden="true"` にする。
+
 ## 5. Layout Principles
 
 - 基本単位は 4px。使う値は `2 / 4 / 6 / 8 / 10 / 12 / 14 / 16 / 20 / 24 / 32 / 40 / 64`
 - 最大幅 `960px`、左右の余白 `20px`、上 `40px`、下 `64px`
 - セクションの間は `32–40px`、セクション見出しと面の間は `8px`、面の中の行は `14px 16px`
-- 統計は 1 行 5 列（`repeat(4, minmax(0, 1fr)) minmax(max-content, 1.3fr)`）。日時のタイルだけ幅を内容に合わせる
+- 統計は 1 行 5 列（`repeat(4, minmax(0, 1fr)) minmax(max-content, 1.3fr)`）。日時のタイルだけ幅を内容に合わせる。
+  絞り込み中の注記はタイルの下に Caption で置き、`.stats-wrap` の下余白（`32px`）に含める
 - 角丸: Group `12px` / セグメントの溝 `9px` / つまみ `7px` / タイル・通知 `8px` / タグ `4px` / ボタン `999px`
 - 余白で区切り、枠線は区切り線（0.5px）だけにする
 
@@ -157,6 +170,7 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 - 操作できる要素には `:focus-visible` のリングが出ることを確かめる
 - 動きを足したら `prefers-reduced-motion` の指定を同じ変更で足す
 - 選択肢が 2–3 個の切り替えはセグメントで出す（`select` にしない）
+- 種類は文字と線画アイコンで示す。アイコンの色は Ink / Muted だけにする
 - 失敗は画面の中の通知で伝え、何が起きてどうすればよいかを書く
 
 ### Don't
@@ -167,6 +181,7 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 - 1 日に何度も触る hover に動きを付けない。タッチ端末で hover を発火させない
 - 11px より小さい文字、Muted より薄い文字を使わない。文字を含む要素に `opacity` を掛けて弱めない（操作できない無効状態だけは例外）
 - モデルごとに別のカードへ分けない（1 枚の Group にまとめる）
+- 種類のアイコンに状態色（緑 / オレンジ）を付けない。一覧に出さない / 失敗の色と混ざる
 - `alert()` / `confirm()` で結果を伝えない
 
 ## 8. Responsive Behavior

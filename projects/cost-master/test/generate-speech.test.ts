@@ -65,7 +65,7 @@ describe("generateSpeechPrices", () => {
     });
 
     expect(result.ok && result.rows).toEqual([
-      { modelId: "tts/a", billable: "input_text", unit: "character", variant: "", costUsd: 0.00002 },
+      { modelId: "tts/a", kind: "speech", billable: "input_text", unit: "character", variant: "", costUsd: 0.00002 },
     ]);
     expect(result.ok && result.summary).toEqual({
       models: 1,
@@ -88,16 +88,23 @@ describe("generateSpeechPrices", () => {
     });
 
     expect(result.ok && result.rows).toEqual([
-      { modelId: "tts/bytes", billable: "input_text", unit: "byte", variant: "", costUsd: 0.00001 },
-      { modelId: "tts/tokens", billable: "input_text", unit: "token", variant: "", costUsd: 0.0000005 },
-      { modelId: "tts/tokens", billable: "output_audio", unit: "token", variant: "", costUsd: 0.000009 },
-      { modelId: "tts/minute", billable: "output_audio", unit: "minute", variant: "", costUsd: 0.15 },
+      { modelId: "tts/bytes", kind: "speech", billable: "input_text", unit: "byte", variant: "", costUsd: 0.00001 },
+      { modelId: "tts/tokens", kind: "speech", billable: "input_text", unit: "token", variant: "", costUsd: 0.0000005 },
+      {
+        modelId: "tts/tokens",
+        kind: "speech",
+        billable: "output_audio",
+        unit: "token",
+        variant: "",
+        costUsd: 0.000009,
+      },
+      { modelId: "tts/minute", kind: "speech", billable: "output_audio", unit: "minute", variant: "", costUsd: 0.15 },
     ]);
   });
 
   test("分建ての検算が合わなければ失敗し、前回の行を残す", async () => {
     const previous: PriceRow[] = [
-      { modelId: "tts/minute", billable: "output_audio", unit: "minute", variant: "", costUsd: 0.2 },
+      { modelId: "tts/minute", kind: "speech", billable: "output_audio", unit: "minute", variant: "", costUsd: 0.2 },
     ];
     const result = await run(
       {
@@ -114,7 +121,7 @@ describe("generateSpeechPrices", () => {
 
   test("公開 endpoint がないモデルは行を作らず、前回の行も落とす", async () => {
     const previous: PriceRow[] = [
-      { modelId: "tts/free", billable: "input_text", unit: "character", variant: "", costUsd: 0.00001 },
+      { modelId: "tts/free", kind: "speech", billable: "input_text", unit: "character", variant: "", costUsd: 0.00001 },
     ];
     const result = await run(
       {
@@ -143,13 +150,13 @@ describe("generateSpeechPrices", () => {
     });
 
     expect(result.ok && result.rows).toEqual([
-      { modelId: "tts/a", billable: "input_text", unit: "character", variant: "", costUsd: 0.000015 },
+      { modelId: "tts/a", kind: "speech", billable: "input_text", unit: "character", variant: "", costUsd: 0.000015 },
     ]);
   });
 
   test("公開 endpoint なしの宣言は endpoints の取得失敗より先に確定する", async () => {
     const previous: PriceRow[] = [
-      { modelId: "tts/free", billable: "input_text", unit: "character", variant: "", costUsd: 0.00001 },
+      { modelId: "tts/free", kind: "speech", billable: "input_text", unit: "character", variant: "", costUsd: 0.00001 },
     ];
     const result = await run(
       {
@@ -168,7 +175,7 @@ describe("generateSpeechPrices", () => {
 
   test("llms.txt が読めないモデルは失敗として前回の行を残す", async () => {
     const previous: PriceRow[] = [
-      { modelId: "tts/a", billable: "input_text", unit: "character", variant: "", costUsd: 0.00001 },
+      { modelId: "tts/a", kind: "speech", billable: "input_text", unit: "character", variant: "", costUsd: 0.00001 },
     ];
     const result = await run(
       {
@@ -205,7 +212,7 @@ describe("generateSpeechPrices", () => {
     });
 
     expect(result.ok && result.rows).toEqual([
-      { modelId: "tts/free", billable: "input_text", unit: "character", variant: "", costUsd: 0 },
+      { modelId: "tts/free", kind: "speech", billable: "input_text", unit: "character", variant: "", costUsd: 0 },
     ]);
   });
 

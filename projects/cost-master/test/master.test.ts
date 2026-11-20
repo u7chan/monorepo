@@ -3,6 +3,7 @@ import { buildPayload, parseJudgmentFile, parsePriceFile, planJudgment, type Pri
 
 const ROW: PriceRow = {
   modelId: "krea/krea-2-large",
+  kind: "image",
   billable: "output_image",
   unit: "image",
   variant: "",
@@ -64,15 +65,30 @@ describe("parsePriceFile", () => {
   test("音声の入力・出力の行を受け付ける", () => {
     const parsed = parsePriceFile(
       priceFile([
-        { modelId: "tts/a", billable: "input_text", unit: "character", variant: "", costUsd: 0.000015 },
-        { modelId: "tts/a", billable: "output_audio", unit: "minute", variant: "", costUsd: 0.15 },
+        { modelId: "tts/a", kind: "speech", billable: "input_text", unit: "character", variant: "", costUsd: 0.000015 },
+        { modelId: "tts/a", kind: "speech", billable: "output_audio", unit: "minute", variant: "", costUsd: 0.15 },
       ]),
     );
 
     expect(parsed.ok && parsed.rows).toEqual([
-      { modelId: "tts/a", billable: "input_text", unit: "character", variant: "", costUsd: 0.000015 },
-      { modelId: "tts/a", billable: "output_audio", unit: "minute", variant: "", costUsd: 0.15 },
+      { modelId: "tts/a", kind: "speech", billable: "input_text", unit: "character", variant: "", costUsd: 0.000015 },
+      { modelId: "tts/a", kind: "speech", billable: "output_audio", unit: "minute", variant: "", costUsd: 0.15 },
     ]);
+  });
+
+  test("kind が無い・未知の行と、同じモデルで kind が食い違う行を落とす", () => {
+    const { kind: _kind, ...withoutKind } = ROW;
+    const parsed = parsePriceFile(
+      priceFile([
+        ROW,
+        { ...ROW, kind: "speech", billable: "input_text", unit: "character", costUsd: 0.00001 },
+        withoutKind,
+        { ...ROW, kind: "video" },
+      ]),
+    );
+
+    expect(parsed.ok && parsed.rows).toEqual([ROW]);
+    expect(parsed.ok && parsed.dropped.map((entry) => entry.reason)).toEqual(["kind", "kind", "kind"]);
   });
 
   test("宣言された 0 は無料として残す（不明と区別する）", () => {
@@ -174,6 +190,7 @@ describe("buildPayload", () => {
       {
         provider: "openrouter",
         modelId: ROW.modelId,
+        kind: "image",
         billable: "output_image",
         unit: "image",
         variant: "",

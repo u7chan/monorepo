@@ -35,6 +35,7 @@ bun run start # bun src/server.ts
     {
       "provider": "openrouter",
       "modelId": "black-forest-labs/flux-3-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "768",
@@ -47,6 +48,7 @@ bun run start # bun src/server.ts
 }
 ```
 
+- `kind` は `image` / `speech`。取り込みの系統（画像 / 音声）で確定させ、行からは推定しない。`unit` の `token` は画像にも音声にもあり、音声 40 モデルのうち 34 は入力の行しか持たないため、行の形からは判別できない
 - `variant` は宣言が無ければ `""`。解像度ティアとは限らず、`style_references` のような加算オプションも入る
 - `billable` は `output_image`（画像）/ `input_text` / `output_audio`（音声）。画像は出力側だけを返し、音声は入力側（文字・バイト・トークン）の行も返す
 - `unit` は `image` / `megapixel` / `token` / `character` / `byte` / `minute` / `request`
@@ -87,6 +89,10 @@ bun run start # bun src/server.ts
 前回の値を持たせるため。`enabled.json` の失敗も 503 に倒すのは、判断が 1 件も適用されないまま
 「全部表示」を配信すると、隠したつもりのモデルが黙って戻るため（行単位の破損は既定へ倒す）。
 
+`prices.json` の行が 1 つも残らないとき（この版が知らない形の行だけだったとき）も 503 に倒す。更新で語彙が
+増えたときに、古いマスタを置き去りにしたまま空の一覧を配らないため。更新後は新しい `prices.json` を
+アップロードするまで 503 が続く（画面の「マスタの更新」は 503 でも操作できる）。
+
 ## マスタのメンテ
 
 マスタは `MASTER_DIR` に置く。コンテナでは volume を mount するので、**再デプロイせずに更新できる**。
@@ -122,9 +128,11 @@ bun run start # bun src/server.ts
 1. 画面（`/`）の一覧でスイッチを切り替える
 2. 反映は即時。u7agent の一覧は [カタログ更新] を押すまで変わらない
 
-一覧は名前順と単価の安い順を切り替えられる。単価の単位（`image` / `megapixel` / `token` / `request`）が違う
-モデルは数値で比べられないため、安い順は同じ単位の中で並べ、単位は `image` → `megapixel` → `token` → `request`
-の順にまとめる。
+一覧は「すべて / 画像 / 音声」で絞り、名前順と単価の安い順で並べ替えられる。件数と統計は絞り込んだ範囲を数える。
+
+単価の単位（`image` / `megapixel` / `token` / `character` / `byte` / `minute` / `request`）が違うモデルは
+数値で比べられないため、安い順は種類 → 単位 → 単価の順にまとめる。種類をまたいで混ぜないのは、
+音声と画像の `token` 単価が同じ土俵ではないため。
 
 判断（一括・復旧）と価格:
 

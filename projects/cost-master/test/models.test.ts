@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  countByKind,
+  filterByKind,
   groupByModel,
   priceKey,
   sideOf,
@@ -14,6 +16,7 @@ function price(overrides: Partial<CostModelPrice> = {}): CostModelPrice {
   return {
     provider: "openrouter",
     modelId: "vendor/a",
+    kind: "image",
     billable: "output_image",
     unit: "image",
     variant: "",
@@ -116,6 +119,39 @@ describe("sortGroups", () => {
   });
 });
 
+describe("filterByKind", () => {
+  test("モデルの種類で絞り、all は全部を返す", () => {
+    const rows = [
+      price({ modelId: "img/a" }),
+      price({ modelId: "tts/a", kind: "speech", billable: "input_text", unit: "character", costUsd: 0.000015 }),
+    ];
+
+    expect(filterByKind(rows, "image").map((row) => row.modelId)).toEqual(["img/a"]);
+    expect(filterByKind(rows, "speech").map((row) => row.modelId)).toEqual(["tts/a"]);
+    expect(filterByKind(rows, "all")).toHaveLength(2);
+  });
+
+  test("元の配列を書き換えない", () => {
+    const rows = [price({ modelId: "a" })];
+
+    filterByKind(rows, "all").pop();
+
+    expect(rows).toHaveLength(1);
+  });
+});
+
+describe("countByKind", () => {
+  test("行ではなくモデルを数える", () => {
+    const groups = groupByModel([
+      price({ modelId: "img/a" }),
+      price({ modelId: "tts/a", kind: "speech", billable: "input_text", unit: "token" }),
+      price({ modelId: "tts/a", kind: "speech", billable: "output_audio", unit: "token" }),
+    ]);
+
+    expect(countByKind(groups)).toEqual({ all: 2, image: 1, speech: 1 });
+  });
+});
+
 describe("summarize", () => {
   test("モデル数・行数・一覧に出さない件数を数える", () => {
     const summary = summarize([
@@ -152,6 +188,24 @@ describe("withModelEnabled", () => {
     withModelEnabled(payload, "a", false);
 
     expect(payload.models.every((model) => model.enabled)).toBe(true);
+  });
+});
+
+describe("sortGroups の単価順", () => {
+  test("種類 → 単位 → 単価の順。種類をまたいで混ぜない", () => {
+    const groups = groupByModel([
+      price({ modelId: "tts/cheap", kind: "speech", billable: "input_text", unit: "character", costUsd: 0.000001 }),
+      price({ modelId: "img/expensive", unit: "image", costUsd: 0.5 }),
+      price({ modelId: "img/cheap", unit: "image", costUsd: 0.01 }),
+      price({ modelId: "img/per-token", unit: "token", costUsd: 0.0000001 }),
+    ]);
+
+    expect(sortGroups(groups, "cost").map((group) => group.modelId)).toEqual([
+      "img/cheap",
+      "img/expensive",
+      "img/per-token",
+      "tts/cheap",
+    ]);
   });
 });
 

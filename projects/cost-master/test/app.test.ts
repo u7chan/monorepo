@@ -10,6 +10,7 @@ const PAYLOAD: CostMasterPayload = {
     {
       provider: "openrouter",
       modelId: "krea/krea-2-large",
+      kind: "image",
       billable: "output_image",
       unit: "image",
       variant: "",
