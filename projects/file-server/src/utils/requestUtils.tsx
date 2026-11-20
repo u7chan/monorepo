@@ -3,8 +3,13 @@ import { env } from "hono/adapter"
 import type { HtmlEscapedString } from "hono/utils/html"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { PageShell } from "../components/PageShell"
-import type { AppBindings, UserState } from "../types"
-import { DEFAULT_UPLOAD_DIR } from "./auth"
+import type { AppBindings, AuthenticatedUser, UserState } from "../types"
+import {
+  DEFAULT_UPLOAD_DIR,
+  type ResolvedAuthConfig,
+  type RuntimeAuthEnv,
+  resolveAuthConfig,
+} from "./auth"
 
 const ANONYMOUS_USER: UserState = { type: "anonymous" }
 
@@ -15,6 +20,23 @@ const ANONYMOUS_USER: UserState = { type: "anonymous" }
  */
 export function getUser(c: Context<AppBindings>): UserState {
   return c.get("user") ?? ANONYMOUS_USER
+}
+
+export function getAuthenticatedUser(
+  c: Context<AppBindings>,
+): AuthenticatedUser {
+  const user = getUser(c)
+  if (user.type !== "authenticated") {
+    // Why not return a 401 response: this accessor is only reachable behind
+    // requireAuthMiddleware, so reaching it anonymously means the route is
+    // wired wrong and should fail loudly instead of looking like a user error.
+    throw new Error("Authenticated user is required for this route.")
+  }
+  return user
+}
+
+export function getAuthConfig(c: Context<AppBindings>): ResolvedAuthConfig {
+  return resolveAuthConfig(env(c) as RuntimeAuthEnv)
 }
 
 export function getUploadDir(c: Context<AppBindings>): string {

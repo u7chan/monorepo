@@ -167,6 +167,10 @@ export function isValidUsername(username: string): boolean {
   return USERNAME_PATTERN.test(username) && !RESERVED_USERNAMES.has(username)
 }
 
+export async function hashPassword(password: string): Promise<string> {
+  return Bun.password.hash(password, { algorithm: "bcrypt", cost: 12 })
+}
+
 export async function verifyPassword(
   password: string,
   hash: string,
