@@ -6,12 +6,11 @@ import {
   deleteFileHandler,
   listFilesHandler,
   mkdirHandler,
-  moveHandler,
-  movePickerHandler,
   renameHandler,
   updateFileHandler,
   uploadFileHandler,
 } from "../api/handlers"
+import { moveHandler, movePickerHandler } from "../api/moveHandlers"
 import type { AppBindings } from "../types"
 
 const apiRoutes = new Hono<AppBindings>()
@@ -36,10 +35,7 @@ apiRoutes.post(
 apiRoutes.get("/*", listFilesHandler)
 
 // ファイルアップロード（複数ファイル対応、最大10件）
-apiRoutes.post(
-  "/upload",
-  uploadFileHandler,
-)
+apiRoutes.post("/upload", uploadFileHandler)
 
 // ファイル削除
 apiRoutes.post(
