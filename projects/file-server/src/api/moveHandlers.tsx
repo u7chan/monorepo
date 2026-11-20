@@ -46,12 +46,7 @@ export async function moveHandler(c: Context<AppBindings>) {
   const baseDir = getUploadDir(c)
   const user = getUser(c)
 
-  if (
-    isPathTraversal(sourcePathParam) ||
-    isPathTraversal(destinationParam) ||
-    containsParentSegment(sourcePathParam) ||
-    containsParentSegment(destinationParam)
-  ) {
+  if (isPathTraversal(sourcePathParam) || isPathTraversal(destinationParam)) {
     return invalidPathResponse(c)
   }
 
@@ -178,13 +173,13 @@ export async function movePickerHandler(c: Context<AppBindings>) {
   const baseDir = getUploadDir(c)
   const user = getUser(c)
 
-  if (
-    !sourceParam ||
-    isPathTraversal(sourceParam) ||
-    containsParentSegment(sourceParam)
-  ) {
+  if (!sourceParam || isPathTraversal(sourceParam)) {
     return errorResponse(c, "PathError", "Invalid source", 400)
   }
+  // Why not use isPathTraversal here: `..` is the only segment that escapes the
+  // picker root, and checking it before the source permission keeps a traversal
+  // destination reported as PathError instead of Forbidden. The full check runs
+  // on the normalized destination below.
   if (destParam !== undefined && containsParentSegment(destParam)) {
     return errorResponse(c, "PathError", "Invalid destination", 400)
   }
