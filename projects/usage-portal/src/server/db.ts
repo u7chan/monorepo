@@ -54,7 +54,8 @@ const MIGRATIONS: readonly string[] = [
     enabled INTEGER NOT NULL,
     failures INTEGER NOT NULL,
     stopped_code TEXT,
-    last_sent_at INTEGER
+    last_sent_at INTEGER,
+    armed_at INTEGER NOT NULL
   );
 
   CREATE TABLE claude_start_run (
@@ -301,6 +302,8 @@ export type StoredClaudeStart = {
   failures: number;
   stoppedCode: string | null;
   lastSentAt: number | null;
+  /** オンにした・設定を保存した時刻。これより前の枠は、再起動後も送らず見送りとしても残さない。 */
+  armedAt: number;
 };
 
 export type ClaudeStartRunRow = {
@@ -314,13 +317,16 @@ export type ClaudeStartRunRow = {
 
 export function loadClaudeStart(handle: DatabaseHandle): StoredClaudeStart | null {
   const row = handle.db
-    .query("SELECT settings_json, enabled, failures, stopped_code, last_sent_at FROM claude_start WHERE id = 1")
+    .query(
+      "SELECT settings_json, enabled, failures, stopped_code, last_sent_at, armed_at FROM claude_start WHERE id = 1",
+    )
     .get() as {
     settings_json: string;
     enabled: number;
     failures: number;
     stopped_code: string | null;
     last_sent_at: number | null;
+    armed_at: number;
   } | null;
 
   if (row === null) {
@@ -333,17 +339,20 @@ export function loadClaudeStart(handle: DatabaseHandle): StoredClaudeStart | nul
     failures: row.failures,
     stoppedCode: row.stopped_code,
     lastSentAt: row.last_sent_at,
+    armedAt: row.armed_at,
   };
 }
 
 export function saveClaudeStart(handle: DatabaseHandle, state: StoredClaudeStart): void {
   handle.db
     .query(`
-      INSERT INTO claude_start (id, settings_json, enabled, failures, stopped_code, last_sent_at) VALUES (1, ?, ?, ?, ?, ?)
+      INSERT INTO claude_start (id, settings_json, enabled, failures, stopped_code, last_sent_at, armed_at)
+      VALUES (1, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET settings_json = excluded.settings_json, enabled = excluded.enabled,
-        failures = excluded.failures, stopped_code = excluded.stopped_code, last_sent_at = excluded.last_sent_at
+        failures = excluded.failures, stopped_code = excluded.stopped_code, last_sent_at = excluded.last_sent_at,
+        armed_at = excluded.armed_at
     `)
-    .run(state.settingsJson, state.enabled ? 1 : 0, state.failures, state.stoppedCode, state.lastSentAt);
+    .run(state.settingsJson, state.enabled ? 1 : 0, state.failures, state.stoppedCode, state.lastSentAt, state.armedAt);
 }
 
 export function insertClaudeStartRun(handle: DatabaseHandle, run: ClaudeStartRunRow): void {

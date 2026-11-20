@@ -32,6 +32,11 @@ export const CLAUDE_START_FOREIGN_MARGIN_MS = 2 * MINUTE_MS;
 /** timer は最長でもこの間隔で起こし直す。時計の補正や長い sleep の取りこぼしを拾うため。 */
 const MAX_TIMER_MS = 60 * MINUTE_MS;
 const RUN_RETENTION_MS = 30 * 24 * 60 * MINUTE_MS;
+/**
+ * 期限の来た枠を探す範囲。曜日を 1 つだけ選ぶと枠の間隔は最大 7 日になるので、停止中に過ぎた枠を
+ * 見送りとして残せるよう、それより少し長くさかのぼる。
+ */
+const DUE_LOOKBACK_MS = 8 * 24 * 60 * MINUTE_MS;
 const HISTORY_LIMIT = 20;
 
 export type ClaudeStartRun = ClaudeStartRunRow;
@@ -92,8 +97,6 @@ export function createClaudeStartService(options: {
   let running = false;
   let cancelTimer: (() => void) | null = null;
   let started = false;
-  // 有効化・設定の保存より前の枠は、遅れて送ったり見送りとして記録したりしない。再起動直後は 0 で、停止中の取りこぼしを拾う。
-  let armedAt = 0;
 
   function load(): { stored: StoredClaudeStart | null; settings: ClaudeStartSettings | null } {
     let stored: StoredClaudeStart | null;
@@ -320,9 +323,10 @@ export function createClaudeStartService(options: {
     }
 
     const at = now();
-    const due = latestStartSlot(settings, at, WINDOW_MS);
+    const due = latestStartSlot(settings, at, DUE_LOOKBACK_MS);
 
-    if (due === null || due < armedAt) {
+    // 有効化・設定の保存より前の枠は、再起動をまたいでも遅れて送ったり見送りとして残したりしない。
+    if (due === null || due < stored.armedAt) {
       return;
     }
 
@@ -384,8 +388,8 @@ export function createClaudeStartService(options: {
         failures: stored?.failures ?? 0,
         stoppedCode: stored?.stoppedCode ?? null,
         lastSentAt: stored?.lastSentAt ?? null,
+        armedAt: now(),
       });
-      armedAt = now();
       schedule();
 
       return state();
@@ -398,8 +402,7 @@ export function createClaudeStartService(options: {
       }
 
       // オンに戻すのが停止からの再開になる。オフにしたときも停止の理由は消す（利用者が止めた状態になる）。
-      saveClaudeStart(db, { ...stored, enabled, failures: 0, stoppedCode: null });
-      armedAt = now();
+      saveClaudeStart(db, { ...stored, enabled, failures: 0, stoppedCode: null, armedAt: now() });
       schedule();
 
       return state();

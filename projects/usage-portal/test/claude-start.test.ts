@@ -126,6 +126,26 @@ function harness(options: {
   };
 }
 
+/** 同じ DB で service を作り直す。プロセスの再起動と同じく、メモリ上の状態は引き継がない。 */
+function restart(at: number) {
+  const sends: number[] = [];
+  const service = createClaudeStartService({
+    db: handles[0] as DatabaseHandle,
+    now: () => at,
+    refreshUsage: async () => ({ state: "refreshed" }),
+    readSnapshot: () => snapshot(null),
+    send: async () => {
+      sends.push(at);
+
+      return { ok: true };
+    },
+    setTimer: () => () => {},
+    log: () => {},
+  });
+
+  return { service, sends };
+}
+
 describe("予約の実行", () => {
   test("枠の時刻に窓が動いていなければ送り、送信後の確認で得たリセット時刻を残す", async () => {
     const h = harness({ start: tokyo("2026-11-20", "06:00") });
@@ -234,6 +254,46 @@ describe("予約の実行", () => {
 
     expect(runs).toHaveLength(1);
     expect(runs[0]).toMatchObject({ outcome: "skipped", code: "missed", slotAt: tokyo("2026-11-20", "07:00") });
+  });
+
+  test("有効にした時刻は再起動をまたいで残り、それより前の枠は 30 分以内でも送らない", async () => {
+    const h = harness({ start: tokyo("2026-11-20", "12:10") });
+
+    h.enable();
+
+    const restarted = restart(tokyo("2026-11-20", "12:20"));
+
+    await restarted.service.tick();
+
+    expect(restarted.sends).toEqual([]);
+    expect(restarted.service.state().runs).toEqual([]);
+  });
+
+  test("有効にする前に過ぎた枠は、再起動後も見送りとして残さない", async () => {
+    const h = harness({ start: tokyo("2026-11-20", "15:00") });
+
+    h.enable();
+
+    const restarted = restart(tokyo("2026-11-20", "16:00"));
+
+    await restarted.service.tick();
+
+    expect(restarted.service.state().runs).toEqual([]);
+  });
+
+  test("5 時間より長く止まっていても、最後に過ぎた枠を見送りとして 1 行残す", async () => {
+    const h = harness({ start: tokyo("2026-11-19", "06:00") });
+
+    h.enable();
+
+    const restarted = restart(tokyo("2026-11-21", "05:00"));
+
+    await restarted.service.tick();
+
+    expect(restarted.sends).toEqual([]);
+    expect(restarted.service.state().runs).toEqual([
+      expect.objectContaining({ outcome: "skipped", code: "missed", slotAt: tokyo("2026-11-20", "22:00") }),
+    ]);
   });
 
   test("有効にする前の枠は、30 分以内でも遅れて送らない", async () => {
