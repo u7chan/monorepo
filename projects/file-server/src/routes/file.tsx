@@ -4,7 +4,6 @@ import { Hono } from "hono"
 import { FileViewer } from "../components/file-viewer"
 import { MarkdownPreviewPage } from "../components/markdown/MarkdownPreviewPage"
 import type { AppBindings } from "../types"
-import { toBrowseLocation } from "../utils/auth"
 import {
   ACTIVE_CONTENT_PREVIEW_CSP,
   archiveFileName,
@@ -28,6 +27,7 @@ import {
   invalidPathResponse,
   isHtmxRequest,
 } from "../utils/requestUtils"
+import { toBrowseLocation } from "../utils/virtualPath"
 
 const fileRoutes = new Hono<AppBindings>()
 
