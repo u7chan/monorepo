@@ -27,7 +27,7 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 
 - **Background** (`#f2f2f7` / dark `#000000`, `--cm-bg`): ページの地。
 - **Surface** (`#ffffff` / dark `#1c1c1e`, `--cm-surface`): 統計タイル、モデル一覧、フォームの面。
-- **Fill** (`rgba(118,118,128,0.08)` / dark `0.18`, `--cm-fill`): 面の中の価格タイル、通知の地。
+- **Fill** (`rgba(118,118,128,0.08)` / dark `0.18`, `--cm-fill`): 面の中の価格タイル。
 - **Fill strong** (`rgba(118,118,128,0.12)` / dark `0.24`, `--cm-fill-strong`): セグメントの溝、ファイル選択ボタン。
 - **Separator** (`rgba(60,60,67,0.16)` / dark `rgba(84,84,88,0.65)`, `--cm-line`): 行の区切り線。
 - **Material** (`rgba(242,242,247,0.8)` / dark `rgba(0,0,0,0.72)`, `--cm-material`): 固定ツールバーの地。`saturate(180%) blur(20px)` と組み合わせる。
@@ -35,20 +35,23 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 ### Text hierarchy
 
 - **Ink** (`#1d1d1f` / dark `#f5f5f7`, `--cm-ink`): 本文、モデル名、単価。Surface に対して 16.8:1 / 15.6:1。
-- **Muted** (`#6e6e73` / dark `#98989d`, `--cm-muted`): 提供元、補足、ラベル。Surface に対して 5.1:1 / 5.9:1、Background に対して 4.5:1 / 7.3:1。
+- **Muted** (`#6e6e73` / dark `#98989d`, `--cm-muted`): 提供元、補足、ラベル、一覧に出さない行の単価。Surface に対して 5.1:1 / 5.9:1、Background に対して 4.5:1 / 7.3:1、価格タイルに対して 4.6:1 / 4.8:1。
+- 文字に `opacity` を掛けて薄くしない（上の値が保てなくなる。無効状態のボタンとスイッチだけは例外）。弱めるときは Ink → Muted に色を替える。
 
 ### Interactive
 
 - **Accent** (`#0066cc` / dark `#2997ff`, `--cm-accent`): リンク色の文字、フォーカスリング、「入力」タグ。Surface に対して 5.6:1 / 5.6:1。
 - **Accent fill** (`#0071e3`, `--cm-accent-fill`): 主ボタンの地。白文字で 4.7:1。ライト / ダーク共通。
-- **Accent tint** (`rgba(0,113,227,0.1)` / dark `rgba(41,151,255,0.16)`, `--cm-accent-tint`): 副ボタンと「入力」タグの地。
+- **Accent tint** (`rgba(0,113,227,0.1)` / dark `rgba(41,151,255,0.16)`, `--cm-accent-tint`): 副ボタンの地。
+- **Accent on tile**: 「入力」タグは地を付けず、Accent の文字と 1px の枠だけにする。価格タイル（Fill を Surface に重ねた色）に対して 5.1:1 / 4.6:1。
 
 ### Status
 
 - **Positive** (`#1e7e34` / dark `#30d158`, `--cm-positive`): 「一覧に出す」の文言、オンのスイッチ、成功の通知。Surface に対して 5.1:1 / 8.4:1。
 - **Warn** (`#c93400` / dark `#ff9f0a`, `--cm-warn`): 「一覧に出さない」の文言、失敗の通知。Surface に対して 5.3:1 / 8.3:1。
 - **Switch off** (`#8e8e93` / dark `#78787d`, `--cm-switch-off`): オフのスイッチの溝。Surface に対して 3.3:1 / 3.9:1（非テキストの 3:1 を満たす）。
-- **Positive tint / Warn tint** (`--cm-positive-tint` / `--cm-warn-tint`): 通知の地。文字色と同じ色相の 8%（dark 12%）。
+- **Thumb** (`#ffffff` / dark `#636366`, `--cm-thumb`): セグメントの選択中のつまみ。ライトは Surface と同じ白、ダークは溝より明るいグレーにして選択位置を見せる。上の Ink は 16.8:1 / 5.5:1。
+- 状態色の文字は Surface か Fill の上にだけ置く。色付きの地（tint）に重ねると 4.5:1 を割るため、通知は Surface の地に左 3px の帯で区別する。
 
 ### Shadows
 
@@ -98,9 +101,9 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 - **Switch**（`input[type=checkbox][role=switch]`）: `44 × 26px`、つまみ `22px`。オンは Positive、オフは Switch off。
   左に状態の文言を置き、`label` 全体を押せるようにする。更新中は `opacity: 0.5` と `cursor: progress`。
 - **Segmented control**（`role=radiogroup` + ネイティブの radio）: 溝 Fill strong（角丸 `9px`、内側 `2px`）、
-  選択中は Surface のつまみ（角丸 `7px`、Segment thumb の影）と太字。並び順と、更新するマスタの種類に使う。
+  選択中は Thumb のつまみ（ライトは白、ダークは `#636366`。角丸 `7px`、Segment thumb の影）と太字。並び順と、更新するマスタの種類に使う。
 - **Form row**: `padding: 12px 16px`、行の間は 0.5px の区切り線。ラベルは Muted 13px。
-- **Notice**: 地 Fill / Positive tint / Warn tint、角丸 `8px`、`padding: 10px 14px`。失敗は `role="alert"`、
+- **Notice**: 地 Surface、角丸 `8px`、`padding: 10px 14px`。文字は Muted / Positive / Warn、成功と失敗は左に文字色の 3px の帯（`inset 3px 0 0 currentColor`）。失敗は `role="alert"`、
   それ以外は `role="status"`。アラートダイアログは使わない。
 
 ### Navigation
@@ -111,8 +114,8 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 ### Model row
 
 `grid-template-columns: minmax(0, 1fr) auto`。左に提供元（Micro、末尾に `/`）とモデル名（Sub-heading）、
-右上にスイッチ、下段に価格タイルを全幅で並べる。一覧に出さないモデルは価格タイルを `opacity: 0.6` に落とす
-（モデル名と状態の文言は落とさない）。
+右上にスイッチ、下段に価格タイルを全幅で並べる。一覧に出さないモデルは単価の色を Muted に落とす
+（`opacity` は使わない。モデル名・状態の文言・variant・タグは変えない）。
 
 ## 5. Layout Principles
 
@@ -140,7 +143,7 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 | スイッチのつまみ / 溝の色 | 200ms | ease-in-out-cubic / `ease` | 同上 / 色の変化 |
 | 通知の出現 | 200ms | `cubic-bezier(0.215, 0.61, 0.355, 1)`（ease-out-cubic） | 入ってくる要素。`translateY(-4px)` と透明度から |
 | ボタンの押下 | 150ms | ease-out-cubic | 押したことの即時の手応え |
-| ボタンの hover / 価格タイルの減光 | 150 / 200ms | `ease` | 色と透明度の変化 |
+| ボタンの hover | 150ms | `ease` | 色の変化 |
 
 動かすのは `transform` と `opacity`（色は `background-color`）だけにする。
 
@@ -162,7 +165,7 @@ Apple の Human Interface Guidelines にある「グループ化したリスト�
 - 緑とオレンジを状態以外（装飾、見出し、カテゴリ分け）に使わない
 - `scale(0)` から出したり、300ms を超える動きを付けたりしない
 - 1 日に何度も触る hover に動きを付けない。タッチ端末で hover を発火させない
-- 11px より小さい文字、Muted より薄い文字を使わない
+- 11px より小さい文字、Muted より薄い文字を使わない。文字を含む要素に `opacity` を掛けて弱めない（操作できない無効状態だけは例外）
 - モデルごとに別のカードへ分けない（1 枚の Group にまとめる）
 - `alert()` / `confirm()` で結果を伝えない
 

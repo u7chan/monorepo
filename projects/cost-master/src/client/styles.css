@@ -12,8 +12,6 @@
   --cm-accent-tint: rgba(0, 113, 227, 0.1);
   --cm-positive: #1e7e34;
   --cm-warn: #c93400;
-  --cm-warn-tint: rgba(201, 52, 0, 0.08);
-  --cm-positive-tint: rgba(30, 126, 52, 0.08);
   --cm-switch-off: #8e8e93;
   --cm-thumb: #ffffff;
   --cm-material: rgba(242, 242, 247, 0.8);
@@ -40,8 +38,6 @@
     --cm-accent-tint: rgba(41, 151, 255, 0.16);
     --cm-positive: #30d158;
     --cm-warn: #ff9f0a;
-    --cm-warn-tint: rgba(255, 159, 10, 0.12);
-    --cm-positive-tint: rgba(48, 209, 88, 0.12);
     --cm-switch-off: #78787d;
     --cm-thumb: #636366;
     --cm-material: rgba(0, 0, 0, 0.72);
@@ -141,21 +137,22 @@ body {
 .notice {
   margin: 0 0 16px;
   padding: 10px 14px;
-  background: var(--cm-fill);
+  background: var(--cm-surface);
   color: var(--cm-muted);
   border-radius: var(--cm-radius-tile);
   font-size: 13px;
   animation: cm-enter 200ms var(--cm-ease-out);
 }
 
+/* 色付きの地に色付きの文字を載せると 4.5:1 を割るため、地は Surface のまま左の帯で区別する */
 .notice.error {
-  background: var(--cm-warn-tint);
   color: var(--cm-warn);
+  box-shadow: inset 3px 0 0 currentColor;
 }
 
 .notice.ok {
-  background: var(--cm-positive-tint);
   color: var(--cm-positive);
+  box-shadow: inset 3px 0 0 currentColor;
 }
 
 @keyframes cm-enter {
@@ -333,11 +330,11 @@ body {
   margin: 0;
   padding: 0;
   list-style: none;
-  transition: opacity 200ms ease;
 }
 
-.model.is-off .prices {
-  opacity: 0.6;
+/* opacity で薄くすると variant やタグの文字が 4.5:1 を割るため、単価の色だけを Muted に落とす */
+.model.is-off .price {
+  color: var(--cm-muted);
 }
 
 .price-tile {
@@ -364,9 +361,9 @@ body {
 
 .tag {
   padding: 0 6px;
-  background: var(--cm-accent-tint);
   color: var(--cm-accent);
   border-radius: 4px;
+  box-shadow: inset 0 0 0 1px currentColor;
   font-size: 11px;
   font-weight: 600;
 }
@@ -566,7 +563,6 @@ code {
   }
 
   .segmented-thumb,
-  .prices,
   .switch,
   .switch::before,
   .button {
