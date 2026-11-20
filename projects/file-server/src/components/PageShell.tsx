@@ -1,105 +1,14 @@
 import type { Child, FC } from "hono/jsx"
 import type { UserState } from "../types"
 import { compactSecondaryButtonClassName } from "./buttonStyles"
+import { inlineFormErrorScript } from "./pageShellScripts"
+import { pageShellStyles } from "./pageShellStyles"
 import { badgeClassName, verticalDividerClassName } from "./uiStyles"
 
 interface PageShellProps {
   children: Child
   user?: UserState
 }
-
-const inlineFormErrorScript = `
-  (() => {
-    const formEndpoints = new Set(["/api/file", "/api/mkdir", "/api/rename", "/api/move"]);
-
-    const getForm = (detail) => {
-      const source = detail?.elt instanceof Element ? detail.elt : null;
-      if (!source) {
-        return null;
-      }
-      return source.closest("form");
-    };
-
-    const getErrorNode = (form) => form?.querySelector("[data-form-error]") ?? null;
-
-    const clearFormError = (form) => {
-      const errorNode = getErrorNode(form);
-      if (!errorNode) {
-        return;
-      }
-      errorNode.textContent = "";
-      errorNode.classList.add("hidden");
-    };
-
-    const showFormError = (form, message) => {
-      const errorNode = getErrorNode(form);
-      if (!errorNode) {
-        return;
-      }
-      errorNode.textContent = message;
-      errorNode.classList.remove("hidden");
-    };
-
-    document.addEventListener("input", (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) {
-        return;
-      }
-      const form = target.closest("form[data-inline-error-form]");
-      if (form) {
-        clearFormError(form);
-      }
-    });
-
-    document.addEventListener("htmx:beforeRequest", (event) => {
-      const form = getForm(event.detail);
-      if (form?.matches("[data-inline-error-form]")) {
-        clearFormError(form);
-      }
-    });
-
-    document.addEventListener("htmx:afterRequest", (event) => {
-      const form = getForm(event.detail);
-      if (!form?.matches("[data-move-form]")) {
-        return;
-      }
-      if (!event.detail?.successful) {
-        return;
-      }
-      const picker = document.getElementById("move-picker-container");
-      if (picker) {
-        picker.innerHTML = "";
-      }
-    });
-
-    document.addEventListener("htmx:responseError", (event) => {
-      const form = getForm(event.detail);
-      if (!form?.matches("[data-inline-error-form]")) {
-        return;
-      }
-
-      const xhr = event.detail?.xhr;
-      if (!xhr || xhr.status !== 400) {
-        return;
-      }
-
-      const action =
-        form.getAttribute("hx-post") || form.getAttribute("action") || "";
-      if (!formEndpoints.has(action)) {
-        return;
-      }
-
-      try {
-        const payload = JSON.parse(xhr.responseText);
-        if (typeof payload?.error?.message !== "string") {
-          return;
-        }
-        showFormError(form, payload.error.message);
-      } catch {
-      }
-    });
-  })();
-`
 
 export const PageShell: FC<PageShellProps> = ({ children, user }) => {
   const isAuthenticated = user?.type === "authenticated"
@@ -113,88 +22,7 @@ export const PageShell: FC<PageShellProps> = ({ children, user }) => {
         <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
         <script dangerouslySetInnerHTML={{ __html: inlineFormErrorScript }} />
-        <style>{`
-          .image-viewer-img {
-            height: -webkit-fill-available;
-            height: -moz-available;
-            height: stretch;
-          }
-
-          .pdf-viewer-shell {
-            min-height: 0;
-          }
-
-          .pdf-viewer-frame {
-            display: block;
-            min-height: min(72vh, 56rem);
-          }
-
-          @keyframes modal-enter {
-            from {
-              opacity: 0;
-              transform: translateY(4px) scale(0.99);
-            }
-            to {
-              opacity: 1;
-              transform: none;
-            }
-          }
-
-          .modal-enter {
-            animation: modal-enter 0.15s ease-out;
-          }
-
-          @media (prefers-reduced-motion: reduce) {
-            .modal-enter {
-              animation: none;
-            }
-          }
-
-          /* The native Windows scrollbar draws stepper arrows on a square track
-             that runs into the rounded corners of the surface behind it. Paint a
-             thin, buttonless scrollbar instead: transparent track, rounded
-             slate-300 thumb, inset from the track ends so the thumb stays clear
-             of those corners. */
-          *::-webkit-scrollbar {
-            width: 10px;
-            height: 10px;
-          }
-
-          *::-webkit-scrollbar-track {
-            margin: 6px 0;
-            background: transparent;
-          }
-
-          *::-webkit-scrollbar-corner {
-            background: transparent;
-          }
-
-          *::-webkit-scrollbar-thumb {
-            border: 2px solid transparent;
-            border-radius: 9999px;
-            background-color: #cbd5e1; /* slate-300 */
-            background-clip: content-box;
-          }
-
-          *::-webkit-scrollbar-thumb:hover {
-            background-color: #94a3b8; /* slate-400 */
-          }
-
-          *::-webkit-scrollbar-button {
-            display: none;
-            width: 0;
-            height: 0;
-          }
-
-          /* Browsers without ::-webkit-scrollbar (Firefox) get the standard
-             properties instead. */
-          @supports not selector(::-webkit-scrollbar) {
-            * {
-              scrollbar-width: thin;
-              scrollbar-color: #cbd5e1 transparent;
-            }
-          }
-        `}</style>
+        <style>{pageShellStyles}</style>
       </head>
       <body className="box-border flex h-dvh flex-col overflow-hidden bg-slate-50 font-sans text-slate-900 antialiased">
         <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-5 py-4">
