@@ -7,10 +7,15 @@ import type {
   FileItem,
 } from "../components/file-list/types"
 import type { UserState } from "../types"
-import { getUserHomeVirtualPath, isUserHomeVirtualPath } from "./auth"
 import { getFileList } from "./fileListing"
 import { isNodeErrorCode } from "./nodeError"
-import { requireWritePermission, resolveVirtualPath } from "./virtualPath"
+import {
+  getUserHomeVirtualPath,
+  isUserHomeVirtualPath,
+  requireWritePermission,
+  resolveVirtualPath,
+  splitVirtualPath,
+} from "./virtualPath"
 
 type BrowseViewResult =
   | { kind: "forbidden" }
@@ -26,7 +31,7 @@ function buildStandardBreadcrumbs(
   rootLabel: string,
   requestPath: string,
 ): BrowseCrumb[] {
-  const parts = requestPath.split("/").filter(Boolean)
+  const parts = splitVirtualPath(requestPath)
   const crumbs: BrowseCrumb[] = [{ label: rootLabel, path: "" }]
   let acc = ""
 
@@ -56,10 +61,9 @@ function buildUserBreadcrumbs(
   }
 
   if (requestPath.startsWith(`${homePath}/`)) {
-    const relativeParts = requestPath
-      .slice(homePath.length + 1)
-      .split("/")
-      .filter(Boolean)
+    const relativeParts = splitVirtualPath(
+      requestPath.slice(homePath.length + 1),
+    )
     const crumbs: BrowseCrumb[] = [{ label: "home", path: "" }]
     let acc = homePath
 

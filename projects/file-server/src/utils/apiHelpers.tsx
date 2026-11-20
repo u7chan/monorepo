@@ -1,7 +1,6 @@
 import type { Context } from "hono"
 import { FileList } from "../components/FileList"
 import type { AppBindings } from "../types"
-import { toBrowseLocation } from "./auth"
 import { resolveBrowseView } from "./browseContext"
 import {
   errorResponse,
@@ -9,6 +8,7 @@ import {
   getUser,
   isHtmxRequest,
 } from "./requestUtils"
+import { toBrowseLocation } from "./virtualPath"
 
 export async function renderFileListResponse(
   c: Context<AppBindings>,

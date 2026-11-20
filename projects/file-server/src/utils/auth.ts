@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
-import type { AppBindings, UserConfig, UserState } from "../types"
+import type { AppBindings, UserConfig } from "../types"
 
 const USERNAME_PATTERN = /^[a-z0-9_-]+$/
 const RESERVED_USERNAMES = new Set(["public", "private"])
@@ -241,43 +241,6 @@ export async function verifySession(
   }
 
   return { username, sessionVersion }
-}
-
-export function getUserUploadDir(
-  baseDir: string,
-  userState: UserState,
-): string {
-  if (userState.type === "authenticated" && userState.role === "user") {
-    return path.join(baseDir, "private", userState.username)
-  }
-  return baseDir
-}
-
-export function getUserHomeVirtualPath(userState: UserState): string | null {
-  if (userState.type !== "authenticated" || userState.role !== "user") {
-    return null
-  }
-  return `private/${userState.username}`
-}
-
-export function isUserHomeVirtualPath(
-  userState: UserState,
-  virtualPath: string,
-): boolean {
-  const homePath = getUserHomeVirtualPath(userState)
-  if (!homePath) {
-    return false
-  }
-  return (
-    virtualPath === "" || virtualPath === "private" || virtualPath === homePath
-  )
-}
-
-export function toBrowseLocation(
-  userState: UserState,
-  virtualPath: string,
-): string {
-  return isUserHomeVirtualPath(userState, virtualPath) ? "" : virtualPath
 }
 
 export function normalizeReturnTo(value: string | null | undefined): string {

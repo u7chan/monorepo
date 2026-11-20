@@ -1,4 +1,5 @@
 import type { UserState } from "../types"
+import { splitVirtualPath } from "./virtualPath"
 
 export type MoveScope = "public" | "private"
 
@@ -8,12 +9,8 @@ export type CrossScopeMoveError = {
   status: 400 | 403
 }
 
-function toParts(virtualPath: string): string[] {
-  return virtualPath.split("/").filter(Boolean)
-}
-
 export function getMoveScope(virtualPath: string): MoveScope | null {
-  const [scope] = toParts(virtualPath)
+  const [scope] = splitVirtualPath(virtualPath)
   if (scope === "public" || scope === "private") {
     return scope
   }
@@ -21,12 +18,12 @@ export function getMoveScope(virtualPath: string): MoveScope | null {
 }
 
 export function isScopeRoot(virtualPath: string): boolean {
-  const parts = toParts(virtualPath)
+  const parts = splitVirtualPath(virtualPath)
   return parts.length === 1 && (parts[0] === "public" || parts[0] === "private")
 }
 
 export function isPrivateHomeRoot(virtualPath: string): boolean {
-  const parts = toParts(virtualPath)
+  const parts = splitVirtualPath(virtualPath)
   return parts[0] === "private" && parts.length === 2
 }
 

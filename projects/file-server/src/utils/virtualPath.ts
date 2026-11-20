@@ -26,6 +26,10 @@ export type VirtualPathResult =
   | ForbiddenResult
   | NotFoundResult
 
+export function splitVirtualPath(virtualPath: string): string[] {
+  return virtualPath.split("/").filter(Boolean)
+}
+
 const SCOPE_ROOTS: FileItem[] = [
   { name: "public", type: "dir" as const },
   { name: "private", type: "dir" as const },
@@ -40,7 +44,7 @@ export function resolveVirtualPath(
     return { kind: "forbidden" }
   }
 
-  const parts = virtualPath ? virtualPath.split("/").filter(Boolean) : []
+  const parts = splitVirtualPath(virtualPath)
 
   if (parts.length === 0) {
     return { kind: "synthetic", entries: SCOPE_ROOTS, scope: null }
@@ -113,7 +117,7 @@ export function requireWritePermission(
     return true
   }
 
-  const parts = virtualPath ? virtualPath.split("/").filter(Boolean) : []
+  const parts = splitVirtualPath(virtualPath)
 
   if (parts.length === 0) {
     return false
@@ -136,4 +140,28 @@ export function requireWritePermission(
   }
 
   return false
+}
+
+export function getUserHomeVirtualPath(user: UserState): string | null {
+  if (user.type !== "authenticated" || user.role !== "user") {
+    return null
+  }
+  return `private/${user.username}`
+}
+
+export function isUserHomeVirtualPath(
+  user: UserState,
+  virtualPath: string,
+): boolean {
+  const homePath = getUserHomeVirtualPath(user)
+  if (!homePath) {
+    return false
+  }
+  return (
+    virtualPath === "" || virtualPath === "private" || virtualPath === homePath
+  )
+}
+
+export function toBrowseLocation(user: UserState, virtualPath: string): string {
+  return isUserHomeVirtualPath(user, virtualPath) ? "" : virtualPath
 }
