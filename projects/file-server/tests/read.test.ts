@@ -262,6 +262,21 @@ describe("file endpoint /file", () => {
     expect(res.headers.get("Location")).toBe("/?path=public")
   })
 
+  it("should redirect a non-htmx binary request instead of streaming it", async () => {
+    await Bun.write(
+      path.join(UPLOAD_DIR, "public", "photo.png"),
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    )
+
+    const res = await app.request(
+      new Request("http://localhost/file?path=public%2Fphoto.png", {
+        redirect: "manual",
+      }),
+    )
+    expect(res.status).toBe(302)
+    expect(res.headers.get("Location")).toBe("/?path=public")
+  })
+
   it("should redirect to parent directory for nested file", async () => {
     await mkdir(path.join(UPLOAD_DIR, "public", "subdir"), { recursive: true })
     await Bun.write(
