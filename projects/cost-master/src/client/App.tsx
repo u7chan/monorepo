@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
-import { MASTER_KINDS, type CostMasterPayload, type MasterKind } from "../shared/contract";
+import { COST_UNITS, MASTER_KINDS, type CostMasterPayload, type MasterKind } from "../shared/contract";
 import { formatCost, formatFetchedAt } from "../shared/format";
 import { fetchModels, masterDownloadUrl, updateJudgment, uploadMaster } from "./api";
+import { KindIcon, type KindIconName } from "./icons";
 import {
+  countByKind,
+  filterByKind,
   groupByModel,
   priceKey,
   sideOf,
@@ -10,6 +13,7 @@ import {
   splitModelId,
   summarize,
   withModelEnabled,
+  type KindFilter,
   type ModelGroup,
   type ModelSort,
 } from "./models";
@@ -21,6 +25,7 @@ type LoadState =
 
 export function App() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [kind, setKind] = useState<KindFilter>("all");
   const [nonce, setNonce] = useState(0);
   const [pending, setPending] = useState<string | null>(null);
   const [toggleError, setToggleError] = useState<string | null>(null);
@@ -79,7 +84,7 @@ export function App() {
           コンテンツ生成モデルの価格と「一覧に出す / 出さない」の判断。スイッチで切り替えると再起動なしで反映される。
           u7agent の一覧は [カタログ更新] を押すまで変わらない。
         </p>
-        {state.status === "ok" ? <Summary payload={state.payload} /> : null}
+        {state.status === "ok" ? <Summary payload={state.payload} kind={kind} /> : null}
       </header>
 
       {state.status === "loading" ? (
@@ -97,24 +102,34 @@ export function App() {
           {toggleError}
         </p>
       )}
-      {state.status === "ok" ? <ModelList payload={state.payload} pending={pending} onToggle={toggle} /> : null}
+      {state.status === "ok" ? (
+        <ModelList payload={state.payload} kind={kind} onKindChange={setKind} pending={pending} onToggle={toggle} />
+      ) : null}
 
       <MasterUpload onUploaded={reload} />
     </main>
   );
 }
 
-function Summary({ payload }: { payload: CostMasterPayload }) {
-  const summary = summarize(payload.models);
+const KIND_LABEL: Record<KindFilter, string> = { all: "全体", image: "画像", speech: "音声" };
+
+function Summary({ payload, kind }: { payload: CostMasterPayload; kind: KindFilter }) {
+  // 一覧を絞ったら統計も同じ範囲を数える。全体と表示中の数が混ざると「一覧に出さない」の意味が読めない
+  const summary = summarize(filterByKind(payload.models, kind));
 
   return (
-    <dl class="stats">
-      <Stat label="モデル" value={summary.models} />
-      <Stat label="価格行" value={summary.rows} />
-      <Stat label="一覧に出さない" value={summary.hidden} />
-      <Stat label="世代" value={`v${payload.version}`} />
-      <Stat label="価格の取得" value={formatFetchedAt(payload.fetchedAt)} small />
-    </dl>
+    <div class="stats-wrap">
+      <dl class="stats">
+        <Stat label="モデル" value={summary.models} />
+        <Stat label="価格行" value={summary.rows} />
+        <Stat label="一覧に出さない" value={summary.hidden} />
+        <Stat label="世代" value={`v${payload.version}`} />
+        <Stat label="価格の取得" value={formatFetchedAt(payload.fetchedAt)} small />
+      </dl>
+      {kind === "all" ? null : (
+        <p class="caption">統計は{KIND_LABEL[kind]}だけを数えています（世代と取得日時は全体）。</p>
+      )}
+    </div>
   );
 }
 
@@ -127,6 +142,8 @@ function Stat({ label, value, small = false }: { label: string; value: string | 
   );
 }
 
+type SegmentOption<T extends string> = { value: T; label: string; icon?: KindIconName; count?: number };
+
 function Segmented<T extends string>({
   name,
   label,
@@ -136,7 +153,7 @@ function Segmented<T extends string>({
 }: {
   name: string;
   label: string;
-  options: readonly { value: T; label: string }[];
+  options: readonly SegmentOption<T>[];
   value: T;
   onChange: (value: T) => void;
 }) {
@@ -162,7 +179,13 @@ function Segmented<T extends string>({
             checked={option.value === value}
             onChange={() => onChange(option.value)}
           />
+          {option.icon === undefined ? null : (
+            <span class="seg-icon">
+              <KindIcon name={option.icon} />
+            </span>
+          )}
           {option.label}
+          {option.count === undefined ? null : <span class="seg-count">{option.count}</span>}
         </label>
       ))}
     </div>
@@ -176,58 +199,112 @@ const SORT_OPTIONS = [
 
 const KIND_OPTIONS = MASTER_KINDS.map((kind) => ({ value: kind, label: `${kind}.json` }));
 
+function categoryOptions(counts: Record<KindFilter, number>) {
+  return [
+    { value: "all", label: "すべて", icon: "all", count: counts.all },
+    { value: "image", label: "画像", icon: "image", count: counts.image },
+    { value: "speech", label: "音声", icon: "speech", count: counts.speech },
+  ] as const satisfies readonly SegmentOption<KindFilter>[];
+}
+
+function unitsOf(groups: readonly ModelGroup[]): readonly string[] {
+  const present = new Set(groups.flatMap((group) => group.prices.map((price) => price.unit)));
+
+  return COST_UNITS.filter((unit) => present.has(unit));
+}
+
+function costCaption(kind: KindFilter, units: readonly string[]): string {
+  if (kind === "all") {
+    return "カテゴリ（画像 → 音声）→ 単価の単位 → 単価の安い順に並べています。単位が違うモデルは数値で比べられません。";
+  }
+
+  return `単価の単位が違うモデルは比べられないため、${units.join(" → ")} の順にまとめ、その中で安い順に並べています。`;
+}
+
 function ModelList({
   payload,
+  kind,
+  onKindChange,
   pending,
   onToggle,
 }: {
   payload: CostMasterPayload;
+  kind: KindFilter;
+  onKindChange: (kind: KindFilter) => void;
   pending: string | null;
   onToggle: (modelId: string, enabled: boolean) => void;
 }) {
   const [sort, setSort] = useState<ModelSort>("name");
-  const groups = sortGroups(groupByModel(payload.models), sort);
+  const allGroups = groupByModel(payload.models);
+  const groups = sortGroups(filterByKind(allGroups, kind), sort);
+  const units = unitsOf(groups);
 
-  if (groups.length === 0) {
+  if (allGroups.length === 0) {
     return <p class="notice">価格が宣言されているモデルがありません。prices.json をアップロードしてください。</p>;
   }
 
   return (
     <section aria-labelledby="models-title">
       <div class="toolbar">
-        <h2 id="models-title" class="section-title">
-          モデル<span class="count">{groups.length}</span>
-        </h2>
+        <div class="toolbar-start">
+          <h2 id="models-title" class="section-title">
+            モデル
+          </h2>
+          <Segmented
+            name="category"
+            label="モデルの種類"
+            options={categoryOptions(countByKind(allGroups))}
+            value={kind}
+            onChange={onKindChange}
+          />
+        </div>
         <Segmented name="sort" label="並び順" options={SORT_OPTIONS} value={sort} onChange={setSort} />
       </div>
-      {sort === "cost" ? (
+      {kind === "speech" ? (
         <p class="caption">
-          単価の単位が違うモデルは比べられないため、image → megapixel → token → request
-          の順にまとめ、その中で安い順に並べています。
+          音声モデルの多くは入力（文字数・バイト・トークン）の単価だけを返します。入力側の行には「入力」タグが付きます。
         </p>
       ) : null}
-      <ul class="group">
-        {groups.map((group) => (
-          <ModelRow key={group.modelId} group={group} busy={pending === group.modelId} onToggle={onToggle} />
-        ))}
-      </ul>
+      {sort === "cost" && units.length > 0 ? <p class="caption">{costCaption(kind, units)}</p> : null}
+      {groups.length === 0 ? (
+        <p class="notice">{KIND_LABEL[kind]}のモデルがありません。</p>
+      ) : (
+        <ul class="group">
+          {groups.map((group) => (
+            <ModelRow
+              key={group.modelId}
+              group={group}
+              showIcon={kind === "all"}
+              busy={pending === group.modelId}
+              onToggle={onToggle}
+            />
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
 
 function ModelRow({
   group,
+  showIcon,
   busy,
   onToggle,
 }: {
   group: ModelGroup;
+  showIcon: boolean;
   busy: boolean;
   onToggle: (modelId: string, enabled: boolean) => void;
 }) {
   const { provider, name } = splitModelId(group.modelId);
 
   return (
-    <li class={group.enabled ? "model" : "model is-off"}>
+    <li class={`model${group.enabled ? "" : " is-off"}${showIcon ? " has-icon" : ""}`}>
+      {showIcon ? (
+        <span class="model-icon">
+          <KindIcon name={group.kind} />
+        </span>
+      ) : null}
       <div class="model-name">
         {provider === "" ? null : <span class="model-provider">{provider}/</span>}
         <span class="model-title">{name}</span>

@@ -64,7 +64,7 @@ describe("generatePrices", () => {
     );
 
     expect(result.file.models).toEqual([
-      { modelId: "vendor/a", billable: "output_image", unit: "image", variant: "", costUsd: 0.02 },
+      { modelId: "vendor/a", kind: "image", billable: "output_image", unit: "image", variant: "", costUsd: 0.02 },
     ]);
     expect(result.file.version).toBe(1);
     expect(result.file.fetchedAt).toBe(NOW);
@@ -113,7 +113,7 @@ describe("generatePrices", () => {
     );
 
     expect(result.file.models).toEqual([
-      { modelId: "a", billable: "output_image", unit: "image", variant: "", costUsd: 0 },
+      { modelId: "a", kind: "image", billable: "output_image", unit: "image", variant: "", costUsd: 0 },
     ]);
   });
 
@@ -121,7 +121,7 @@ describe("generatePrices", () => {
     const previous: PriceMasterFile = {
       version: 2,
       fetchedAt: 1,
-      models: [{ modelId: "a", billable: "output_image", unit: "image", variant: "", costUsd: 0.03 }],
+      models: [{ modelId: "a", kind: "image", billable: "output_image", unit: "image", variant: "", costUsd: 0.03 }],
     };
 
     for (const endpoints of [[{ prices: [] }], [{}], ["nope"]]) {
@@ -145,7 +145,7 @@ describe("generatePrices", () => {
     const previous: PriceMasterFile = {
       version: 2,
       fetchedAt: 1,
-      models: [{ modelId: "a", billable: "output_image", unit: "image", variant: "", costUsd: 0.03 }],
+      models: [{ modelId: "a", kind: "image", billable: "output_image", unit: "image", variant: "", costUsd: 0.03 }],
     };
     const result = ok(
       await run(
@@ -167,7 +167,7 @@ describe("generatePrices", () => {
     const previous: PriceMasterFile = {
       version: 2,
       fetchedAt: 1,
-      models: [{ modelId: "a", billable: "output_image", unit: "image", variant: "", costUsd: 0.03 }],
+      models: [{ modelId: "a", kind: "image", billable: "output_image", unit: "image", variant: "", costUsd: 0.03 }],
     };
     const result = ok(
       await run(
@@ -202,7 +202,7 @@ describe("generatePrices", () => {
     const previous: PriceMasterFile = {
       version: 7,
       fetchedAt: 1,
-      models: [{ modelId: "a", billable: "output_image", unit: "image", variant: "", costUsd: 0.02 }],
+      models: [{ modelId: "a", kind: "image", billable: "output_image", unit: "image", variant: "", costUsd: 0.02 }],
     };
     const result = ok(await run(routes, previous));
 
@@ -223,7 +223,14 @@ describe("generatePrices", () => {
   });
 
   test("単価が変わった行を差分として返す", async () => {
-    const previousRow: PriceRow = { modelId: "a", billable: "output_image", unit: "image", variant: "", costUsd: 0.02 };
+    const previousRow: PriceRow = {
+      modelId: "a",
+      kind: "image",
+      billable: "output_image",
+      unit: "image",
+      variant: "",
+      costUsd: 0.02,
+    };
     const previous: PriceMasterFile = { version: 4, fetchedAt: 1, models: [previousRow] };
     const result = ok(
       await run(

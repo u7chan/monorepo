@@ -4,6 +4,7 @@
   "models": [
     {
       "modelId": "assemblyai/assemblyai-tts-1",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -11,6 +12,7 @@
     },
     {
       "modelId": "black-forest-labs/flux-3-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "1.5k",
@@ -18,6 +20,7 @@
     },
     {
       "modelId": "black-forest-labs/flux-3-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "1k",
@@ -25,6 +28,7 @@
     },
     {
       "modelId": "black-forest-labs/flux-3-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -32,6 +36,7 @@
     },
     {
       "modelId": "black-forest-labs/flux-3-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "4k",
@@ -39,6 +44,7 @@
     },
     {
       "modelId": "black-forest-labs/flux-3-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "768",
@@ -46,6 +52,7 @@
     },
     {
       "modelId": "black-forest-labs/flux-3-image-klein",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "1.5k",
@@ -53,6 +60,7 @@
     },
     {
       "modelId": "black-forest-labs/flux-3-image-klein",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "1k",
@@ -60,6 +68,7 @@
     },
     {
       "modelId": "black-forest-labs/flux-3-image-klein",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -67,6 +76,7 @@
     },
     {
       "modelId": "black-forest-labs/flux-3-image-klein",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "4k",
@@ -74,6 +84,7 @@
     },
     {
       "modelId": "black-forest-labs/flux-3-image-klein",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "768",
@@ -81,6 +92,7 @@
     },
     {
       "modelId": "black-forest-labs/flux.2-flex",
+      "kind": "image",
       "billable": "output_image",
       "unit": "megapixel",
       "variant": "",
@@ -88,6 +100,7 @@
     },
     {
       "modelId": "black-forest-labs/flux.2-klein-4b",
+      "kind": "image",
       "billable": "output_image",
       "unit": "megapixel",
       "variant": "",
@@ -95,6 +108,7 @@
     },
     {
       "modelId": "black-forest-labs/flux.2-max",
+      "kind": "image",
       "billable": "output_image",
       "unit": "megapixel",
       "variant": "",
@@ -102,6 +116,7 @@
     },
     {
       "modelId": "black-forest-labs/flux.2-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "megapixel",
       "variant": "",
@@ -109,6 +124,7 @@
     },
     {
       "modelId": "bytedance-seed/seed-audio-1-0",
+      "kind": "speech",
       "billable": "output_audio",
       "unit": "minute",
       "variant": "",
@@ -116,6 +132,7 @@
     },
     {
       "modelId": "bytedance-seed/seedream-4.5",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -123,6 +140,7 @@
     },
     {
       "modelId": "bytedance-seed/seedream-5-0-flash",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -130,6 +148,7 @@
     },
     {
       "modelId": "bytedance-seed/seedream-5-0-lite",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -137,6 +156,7 @@
     },
     {
       "modelId": "bytedance-seed/seedream-5-0-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -144,6 +164,7 @@
     },
     {
       "modelId": "bytedance-seed/seedream-5-0-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "high_resolution",
@@ -151,6 +172,7 @@
     },
     {
       "modelId": "bytedance-seed/seedream-5-5",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -158,6 +180,7 @@
     },
     {
       "modelId": "bytedance-seed/seedream-5-5",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "high_resolution",
@@ -165,6 +188,7 @@
     },
     {
       "modelId": "canopylabs/orpheus-3b-0.1-ft",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -172,6 +196,7 @@
     },
     {
       "modelId": "deepgram/aura-2",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -179,6 +204,7 @@
     },
     {
       "modelId": "deepgram/flux-tts",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -186,6 +212,7 @@
     },
     {
       "modelId": "elevenlabs/eleven-flash-v2",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -193,6 +220,7 @@
     },
     {
       "modelId": "elevenlabs/eleven-flash-v2.5",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -200,6 +228,7 @@
     },
     {
       "modelId": "elevenlabs/eleven-multilingual-v2",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -207,6 +236,7 @@
     },
     {
       "modelId": "elevenlabs/eleven-turbo-v2",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -214,6 +244,7 @@
     },
     {
       "modelId": "elevenlabs/eleven-turbo-v2.5",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -221,6 +252,7 @@
     },
     {
       "modelId": "elevenlabs/eleven-v3",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -228,6 +260,7 @@
     },
     {
       "modelId": "elevenlabs/eleven-v3-conversational",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -235,6 +268,7 @@
     },
     {
       "modelId": "elevenlabs/eleven-v4",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -242,6 +276,7 @@
     },
     {
       "modelId": "elevenlabs/eleven-v4-turbo",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -249,6 +284,7 @@
     },
     {
       "modelId": "fish-audio/drama-3",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "byte",
       "variant": "",
@@ -256,6 +292,7 @@
     },
     {
       "modelId": "fish-audio/s1",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "byte",
       "variant": "",
@@ -263,6 +300,7 @@
     },
     {
       "modelId": "fish-audio/s2-pro",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "byte",
       "variant": "",
@@ -270,6 +308,7 @@
     },
     {
       "modelId": "fish-audio/s2.1-pro",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "byte",
       "variant": "",
@@ -277,6 +316,7 @@
     },
     {
       "modelId": "google/gemini-2.5-flash-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -284,6 +324,7 @@
     },
     {
       "modelId": "google/gemini-2.5-flash-tts",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "token",
       "variant": "",
@@ -291,6 +332,7 @@
     },
     {
       "modelId": "google/gemini-2.5-flash-tts",
+      "kind": "speech",
       "billable": "output_audio",
       "unit": "token",
       "variant": "",
@@ -298,6 +340,7 @@
     },
     {
       "modelId": "google/gemini-2.5-pro-tts",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "token",
       "variant": "",
@@ -305,6 +348,7 @@
     },
     {
       "modelId": "google/gemini-2.5-pro-tts",
+      "kind": "speech",
       "billable": "output_audio",
       "unit": "token",
       "variant": "",
@@ -312,6 +356,7 @@
     },
     {
       "modelId": "google/gemini-3-pro-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -319,6 +364,7 @@
     },
     {
       "modelId": "google/gemini-3-pro-image-preview",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -326,6 +372,7 @@
     },
     {
       "modelId": "google/gemini-3.1-flash-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -333,6 +380,7 @@
     },
     {
       "modelId": "google/gemini-3.1-flash-image-preview",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -340,6 +388,7 @@
     },
     {
       "modelId": "google/gemini-3.1-flash-lite-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -347,6 +396,7 @@
     },
     {
       "modelId": "google/gemini-3.1-flash-tts-preview",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "token",
       "variant": "",
@@ -354,6 +404,7 @@
     },
     {
       "modelId": "google/gemini-3.1-flash-tts-preview",
+      "kind": "speech",
       "billable": "output_audio",
       "unit": "token",
       "variant": "",
@@ -361,6 +412,7 @@
     },
     {
       "modelId": "google/gemini-3.8-flash-lite-tts",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "token",
       "variant": "",
@@ -368,6 +420,7 @@
     },
     {
       "modelId": "google/gemini-3.8-flash-lite-tts",
+      "kind": "speech",
       "billable": "output_audio",
       "unit": "token",
       "variant": "",
@@ -375,6 +428,7 @@
     },
     {
       "modelId": "google/gemini-3.8-flash-tts",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "token",
       "variant": "",
@@ -382,6 +436,7 @@
     },
     {
       "modelId": "google/gemini-3.8-flash-tts",
+      "kind": "speech",
       "billable": "output_audio",
       "unit": "token",
       "variant": "",
@@ -389,6 +444,7 @@
     },
     {
       "modelId": "google/gemini-nano-banana-2.1",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -396,6 +452,7 @@
     },
     {
       "modelId": "hexgrad/kokoro-82m",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -403,6 +460,7 @@
     },
     {
       "modelId": "heygen/heygen-voice-1",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -410,6 +468,7 @@
     },
     {
       "modelId": "heygen/heygen-voice-1-turbo",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -417,6 +476,7 @@
     },
     {
       "modelId": "heygen/heygen-voice-1-turbo:free",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -424,6 +484,7 @@
     },
     {
       "modelId": "krea/k3-edit",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -431,6 +492,7 @@
     },
     {
       "modelId": "krea/k3-edit",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -438,6 +500,7 @@
     },
     {
       "modelId": "krea/k3-edit",
+      "kind": "image",
       "billable": "output_image",
       "unit": "request",
       "variant": "high_thinking_surcharge",
@@ -445,6 +508,7 @@
     },
     {
       "modelId": "krea/krea-2-large",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -452,6 +516,7 @@
     },
     {
       "modelId": "krea/krea-2-large",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "moodboards",
@@ -459,6 +524,7 @@
     },
     {
       "modelId": "krea/krea-2-large",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "style_references",
@@ -466,6 +532,7 @@
     },
     {
       "modelId": "krea/krea-2-medium",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -473,6 +540,7 @@
     },
     {
       "modelId": "krea/krea-2-medium",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "moodboards",
@@ -480,6 +548,7 @@
     },
     {
       "modelId": "krea/krea-2-medium",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "style_references",
@@ -487,6 +556,7 @@
     },
     {
       "modelId": "krea/krea-2-medium-turbo",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -494,6 +564,7 @@
     },
     {
       "modelId": "krea/krea-2-medium-turbo",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "moodboards",
@@ -501,6 +572,7 @@
     },
     {
       "modelId": "krea/krea-2-medium-turbo",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "style_references",
@@ -508,6 +580,7 @@
     },
     {
       "modelId": "microsoft/mai-image-2.5",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -515,6 +588,7 @@
     },
     {
       "modelId": "microsoft/mai-image-2.5-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -522,6 +596,7 @@
     },
     {
       "modelId": "microsoft/mai-image-2.6",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -529,6 +604,7 @@
     },
     {
       "modelId": "microsoft/mai-image-2.6-flash",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -536,6 +612,7 @@
     },
     {
       "modelId": "microsoft/mai-image-2.7",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -543,6 +620,7 @@
     },
     {
       "modelId": "microsoft/mai-image-2.7-flash",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -550,6 +628,7 @@
     },
     {
       "modelId": "microsoft/mai-voice-2",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -557,6 +636,7 @@
     },
     {
       "modelId": "microsoft/mai-voice-2-flash",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -564,6 +644,7 @@
     },
     {
       "modelId": "microsoft/mai-voice-2.1",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -571,6 +652,7 @@
     },
     {
       "modelId": "microsoft/mai-voice-2.1-flash",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -578,6 +660,7 @@
     },
     {
       "modelId": "minimax/minimax-h3-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -585,6 +668,7 @@
     },
     {
       "modelId": "minimax/minimax-h3-image-highspeed",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -592,6 +676,7 @@
     },
     {
       "modelId": "minimax/speech-2.8-hd",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -599,6 +684,7 @@
     },
     {
       "modelId": "minimax/speech-2.8-turbo",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -606,6 +692,7 @@
     },
     {
       "modelId": "mistralai/voxtral-mini-tts-2603",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -613,6 +700,7 @@
     },
     {
       "modelId": "mistralai/voxtral-mini-tts-3-0",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -620,6 +708,7 @@
     },
     {
       "modelId": "openai/gpt-5-image",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -627,6 +716,7 @@
     },
     {
       "modelId": "openai/gpt-5-image-mini",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -634,6 +724,7 @@
     },
     {
       "modelId": "openai/gpt-5.4-image-2",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -641,6 +732,7 @@
     },
     {
       "modelId": "openai/gpt-image-1",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -648,6 +740,7 @@
     },
     {
       "modelId": "openai/gpt-image-1-mini",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -655,6 +748,7 @@
     },
     {
       "modelId": "openai/gpt-image-2",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -662,6 +756,7 @@
     },
     {
       "modelId": "openai/gpt-image-2.5-flare",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -669,6 +764,7 @@
     },
     {
       "modelId": "openai/gpt-image-2.5-sunburst",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -676,6 +772,7 @@
     },
     {
       "modelId": "openai/gpt-image-2.6-flare",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -683,6 +780,7 @@
     },
     {
       "modelId": "openai/gpt-image-2.6-sunburst",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -690,6 +788,7 @@
     },
     {
       "modelId": "qwen/qwen-audio-3.0-tts-flash",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -697,6 +796,7 @@
     },
     {
       "modelId": "qwen/qwen-audio-3.0-tts-plus",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -704,6 +804,7 @@
     },
     {
       "modelId": "qwen/qwen-image-2.1-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "1k",
@@ -711,6 +812,7 @@
     },
     {
       "modelId": "qwen/qwen-image-2.1-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -718,6 +820,7 @@
     },
     {
       "modelId": "qwen/qwen-image-2.1-turbo",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "1k",
@@ -725,6 +828,7 @@
     },
     {
       "modelId": "qwen/qwen-image-2.1-turbo",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -732,6 +836,7 @@
     },
     {
       "modelId": "qwen/qwen-image-3",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "1k",
@@ -739,6 +844,7 @@
     },
     {
       "modelId": "qwen/qwen-image-3",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -746,6 +852,7 @@
     },
     {
       "modelId": "qwen/qwen-image-3-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "1k",
@@ -753,6 +860,7 @@
     },
     {
       "modelId": "qwen/qwen-image-3-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -760,6 +868,7 @@
     },
     {
       "modelId": "recraft/recraft-v3",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -767,6 +876,7 @@
     },
     {
       "modelId": "recraft/recraft-v4",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -774,6 +884,7 @@
     },
     {
       "modelId": "recraft/recraft-v4-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -781,6 +892,7 @@
     },
     {
       "modelId": "recraft/recraft-v4-pro-vector",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -788,6 +900,7 @@
     },
     {
       "modelId": "recraft/recraft-v4-styles",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -795,6 +908,7 @@
     },
     {
       "modelId": "recraft/recraft-v4-styles-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -802,6 +916,7 @@
     },
     {
       "modelId": "recraft/recraft-v4-styles-pro-vector",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -809,6 +924,7 @@
     },
     {
       "modelId": "recraft/recraft-v4-styles-vector",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -816,6 +932,7 @@
     },
     {
       "modelId": "recraft/recraft-v4-vector",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -823,6 +940,7 @@
     },
     {
       "modelId": "recraft/recraft-v4.1",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -830,6 +948,7 @@
     },
     {
       "modelId": "recraft/recraft-v4.1-flash",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -837,6 +956,7 @@
     },
     {
       "modelId": "recraft/recraft-v4.1-flash-v2",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -844,6 +964,7 @@
     },
     {
       "modelId": "recraft/recraft-v4.1-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -851,6 +972,7 @@
     },
     {
       "modelId": "recraft/recraft-v4.1-pro-vector",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -858,6 +980,7 @@
     },
     {
       "modelId": "recraft/recraft-v4.1-utility",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -865,6 +988,7 @@
     },
     {
       "modelId": "recraft/recraft-v4.1-utility-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -872,6 +996,7 @@
     },
     {
       "modelId": "recraft/recraft-v4.1-vector",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -879,6 +1004,7 @@
     },
     {
       "modelId": "sesame/csm-1b",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -886,6 +1012,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2-fast",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -893,6 +1020,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2-fast",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -900,6 +1028,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -907,6 +1036,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -914,6 +1044,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "4k",
@@ -921,6 +1052,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2.5-fast",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -928,6 +1060,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2.5-fast",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -935,6 +1068,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2.5-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -942,6 +1076,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2.5-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -949,6 +1084,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2.5-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "4k",
@@ -956,6 +1092,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2.6-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "",
@@ -963,6 +1100,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2.6-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "2k",
@@ -970,6 +1108,7 @@
     },
     {
       "modelId": "sourceful/riverflow-v2.6-pro",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "4k",
@@ -977,6 +1116,7 @@
     },
     {
       "modelId": "speechify/simba-3.5",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",
@@ -984,6 +1124,7 @@
     },
     {
       "modelId": "tencent/hy-image-v3.5-preview",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -991,6 +1132,7 @@
     },
     {
       "modelId": "tencent/hy-world-2.1-panorama",
+      "kind": "image",
       "billable": "output_image",
       "unit": "token",
       "variant": "",
@@ -998,6 +1140,7 @@
     },
     {
       "modelId": "x-ai/grok-imagine-image-2.0",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "low_1k",
@@ -1005,6 +1148,7 @@
     },
     {
       "modelId": "x-ai/grok-imagine-image-2.0",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "low_2k",
@@ -1012,6 +1156,7 @@
     },
     {
       "modelId": "x-ai/grok-imagine-image-2.0",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "medium_1k",
@@ -1019,6 +1164,7 @@
     },
     {
       "modelId": "x-ai/grok-imagine-image-2.0",
+      "kind": "image",
       "billable": "output_image",
       "unit": "image",
       "variant": "medium_2k",
@@ -1026,6 +1172,7 @@
     },
     {
       "modelId": "x-ai/grok-voice-tts-1.0",
+      "kind": "speech",
       "billable": "input_text",
       "unit": "character",
       "variant": "",

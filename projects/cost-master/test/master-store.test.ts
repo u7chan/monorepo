@@ -119,6 +119,24 @@ describe("state", () => {
     expect(logs).toContain("マスタの行を落としました: a (enabled)");
   });
 
+  test("知らない形の行しか無い prices.json は読めないとして返す（空の一覧にしない）", () => {
+    const dir = newDir();
+    const file = JSON.parse(readFileSync(join(BUNDLED, "prices.json"), "utf8")) as {
+      models: { kind?: string }[];
+    };
+    writeFileSync(
+      join(dir, "prices.json"),
+      JSON.stringify({
+        version: 3,
+        fetchedAt: 1_794_600_000_000,
+        models: file.models.map(({ kind: _kind, ...row }) => row),
+      }),
+    );
+    writeFileSync(join(dir, "enabled.json"), JSON.stringify({ models: [] }));
+
+    expect(newStore(dir).state()).toEqual({ ok: false });
+  });
+
   test("壊れたファイルは読めないとして返す（空の一覧にしない）", () => {
     const dir = newDir();
     writeFileSync(join(dir, "prices.json"), "{ not json");
@@ -199,7 +217,7 @@ describe("replace", () => {
     const input = JSON.stringify({
       version: 1,
       fetchedAt: 1_794_600_000_000,
-      models: [{ modelId: "a", billable: "input_image", unit: "image", variant: "", costUsd: 1 }],
+      models: [{ modelId: "a", kind: "image", billable: "input_image", unit: "image", variant: "", costUsd: 1 }],
     });
 
     expect(store.replace("prices", input)).toEqual({ ok: false, reason: "rows" });
@@ -213,7 +231,7 @@ describe("replace", () => {
     const input = JSON.stringify({
       version: 7,
       fetchedAt: 1_794_600_000_000,
-      models: [{ modelId: "a", billable: "output_image", unit: "image", variant: "", costUsd: 0.5 }],
+      models: [{ modelId: "a", kind: "image", billable: "output_image", unit: "image", variant: "", costUsd: 0.5 }],
     });
     const result = store.replace("prices", input);
 

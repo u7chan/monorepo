@@ -3,6 +3,17 @@ export const COST_UNITS = ["image", "megapixel", "token", "character", "byte", "
 export type CostUnit = (typeof COST_UNITS)[number];
 
 /**
+ * モデルの種類。`unit` と `billable` では判別できない（`token` は画像にも音声にもあり、
+ * 音声の多くは入力の行しか持たない）ので、取り込みの系統で確定させて行に持たせる。
+ */
+export const COST_KINDS = ["image", "speech"] as const;
+export type CostKind = (typeof COST_KINDS)[number];
+
+export function isCostKind(value: unknown): value is CostKind {
+  return typeof value === "string" && (COST_KINDS as readonly string[]).includes(value);
+}
+
+/**
  * 価格行が「何を」請求するか。画像は出力だけ、TTS は入力（文字・バイト・トークン）と
  * 出力（音声トークン・分）の両方を返す。
  */
@@ -37,6 +48,7 @@ export function isMasterKind(value: string): value is MasterKind {
 export type CostModelPrice = {
   provider: string;
   modelId: string;
+  kind: CostKind;
   billable: string;
   unit: CostUnit;
   /** 解像度ティアとは限らない（`style_references` などの加算オプションを含む）。宣言が無ければ "" */

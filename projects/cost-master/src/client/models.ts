@@ -1,6 +1,8 @@
 import {
+  COST_KINDS,
   COST_UNITS,
   sideOfBillable,
+  type CostKind,
   type CostMasterPayload,
   type CostModelPrice,
   type CostSide,
@@ -8,6 +10,7 @@ import {
 
 export type ModelGroup = {
   modelId: string;
+  kind: CostKind;
   enabled: boolean;
   note: string | null;
   prices: CostModelPrice[];
@@ -27,6 +30,7 @@ export function groupByModel(models: readonly CostModelPrice[]): ModelGroup[] {
 
     groups.set(model.modelId, {
       modelId: model.modelId,
+      kind: model.kind,
       enabled: model.enabled,
       note: model.note,
       prices: [model],
@@ -38,6 +42,24 @@ export function groupByModel(models: readonly CostModelPrice[]): ModelGroup[] {
   }
 
   return [...groups.values()];
+}
+
+/** 一覧の絞り込み。`kind` はモデルの属性なので、行ではなくモデル（グループ）で分ける */
+export type KindFilter = "all" | CostKind;
+
+export function filterByKind<T extends { kind: CostKind }>(items: readonly T[], filter: KindFilter): T[] {
+  return filter === "all" ? [...items] : items.filter((item) => item.kind === filter);
+}
+
+/** セグメントの件数。行ではなくモデルの数を数える（音声の入力行と出力行を別々に数えない） */
+export function countByKind(groups: readonly ModelGroup[]): Record<KindFilter, number> {
+  const counts: Record<KindFilter, number> = { all: groups.length, image: 0, speech: 0 };
+
+  for (const group of groups) {
+    counts[group.kind] += 1;
+  }
+
+  return counts;
 }
 
 /** 表示用の行キー。同じ unit / variant でも入力と出力は別の行なので side を含める */
@@ -101,7 +123,7 @@ function variantOrder(variant: string): { numeric: boolean; value: number } {
 
 export type ModelSort = "name" | "cost";
 
-/** 一覧の並び順。名前順は応答の順（`modelId` 昇順）、単価順は同じ unit の中で先頭の価格行の安い順 */
+/** 一覧の並び順。名前順は応答の順（`modelId` 昇順）、単価順は種類 → 同じ unit の中で先頭の価格行の安い順 */
 export function sortGroups(groups: readonly ModelGroup[], sort: ModelSort): ModelGroup[] {
   const next = [...groups];
 
@@ -115,6 +137,13 @@ function compareByName(a: ModelGroup, b: ModelGroup): number {
 }
 
 function compareByCost(a: ModelGroup, b: ModelGroup): number {
+  // 種類をまたぐと単価の意味が変わる（音声の $/1M tok と画像の $/1M tok）ので、まず種類で分ける
+  const kind = COST_KINDS.indexOf(a.kind) - COST_KINDS.indexOf(b.kind);
+
+  if (kind !== 0) {
+    return kind;
+  }
+
   const left = a.prices[0];
   const right = b.prices[0];
 

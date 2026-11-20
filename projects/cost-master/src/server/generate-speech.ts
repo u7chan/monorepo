@@ -238,7 +238,7 @@ function rowsOfModel(
       }
     }
 
-    rows.push({ modelId, billable: spec.billable, unit: spec.unit, variant: "", costUsd });
+    rows.push({ modelId, kind: "speech", billable: spec.billable, unit: spec.unit, variant: "", costUsd });
   }
 
   return rows;

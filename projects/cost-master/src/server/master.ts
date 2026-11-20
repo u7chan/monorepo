@@ -2,6 +2,8 @@ import {
   COST_UNITS,
   PROVIDER,
   isCostBillable,
+  isCostKind,
+  type CostKind,
   type CostMasterPayload,
   type CostModelPrice,
   type CostUnit,
@@ -10,6 +12,7 @@ import {
 /** `src/server/data/prices.json` の 1 行。請求単位（billable）ごとに持つ */
 export type PriceRow = {
   modelId: string;
+  kind: CostKind;
   billable: string;
   unit: CostUnit;
   variant: string;
@@ -37,6 +40,7 @@ export type JudgmentFile = {
 export type DropReason =
   | "shape"
   | "model-id"
+  | "kind"
   | "billable"
   | "unit"
   | "variant"
@@ -92,12 +96,21 @@ export function parsePriceFile(value: unknown): PriceParseResult {
   const rows: PriceRow[] = [];
   const dropped: DroppedRow[] = [];
   const seen = new Set<string>();
+  const kindByModel = new Map<string, CostKind>();
 
   for (const item of file.models) {
     const parsed = parsePriceRow(item);
 
     if ("reason" in parsed) {
       dropped.push({ modelId: labelOf(item), reason: parsed.reason });
+      continue;
+    }
+
+    const known = kindByModel.get(parsed.modelId);
+
+    // 種類はモデルの属性。行ごとに違う値が来たら、グループ化で先勝ちにせず落とす
+    if (known !== undefined && known !== parsed.kind) {
+      dropped.push({ modelId: parsed.modelId, reason: "kind" });
       continue;
     }
 
@@ -108,6 +121,7 @@ export function parsePriceFile(value: unknown): PriceParseResult {
       continue;
     }
 
+    kindByModel.set(parsed.modelId, parsed.kind);
     seen.add(key);
     rows.push(parsed);
   }
@@ -120,10 +134,21 @@ function parsePriceRow(item: unknown): PriceRow | { reason: DropReason } {
     return { reason: "shape" };
   }
 
-  const row = item as { modelId?: unknown; billable?: unknown; unit?: unknown; variant?: unknown; costUsd?: unknown };
+  const row = item as {
+    modelId?: unknown;
+    kind?: unknown;
+    billable?: unknown;
+    unit?: unknown;
+    variant?: unknown;
+    costUsd?: unknown;
+  };
 
   if (typeof row.modelId !== "string" || row.modelId === "") {
     return { reason: "model-id" };
+  }
+
+  if (!isCostKind(row.kind)) {
+    return { reason: "kind" };
   }
 
   if (!isCostBillable(row.billable)) {
@@ -144,6 +169,7 @@ function parsePriceRow(item: unknown): PriceRow | { reason: DropReason } {
 
   return {
     modelId: row.modelId,
+    kind: row.kind,
     billable: row.billable,
     unit: row.unit,
     variant: row.variant ?? "",
@@ -279,6 +305,7 @@ export function buildPayload(input: {
       return {
         provider: PROVIDER,
         modelId: row.modelId,
+        kind: row.kind,
         billable: row.billable,
         unit: row.unit,
         variant: row.variant,

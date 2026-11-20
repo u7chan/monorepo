@@ -156,6 +156,12 @@ function parseMaster(pricesText: string | null, enabledText: string | null): Par
     return unavailable;
   }
 
+  // どの行もこの版の語彙で読めないファイルは、読めていないのと同じ。空の一覧を配ると
+  // u7agent が「価格が消えた」と解釈する（古い prices.json を volume に残したまま更新した場合など）
+  if (parsedPrices.rows.length === 0 && parsedPrices.dropped.length > 0) {
+    return unavailable;
+  }
+
   const enabled = enabledText === null ? undefined : tryParse(enabledText);
 
   if (enabled === undefined) {
