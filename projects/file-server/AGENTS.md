@@ -62,7 +62,10 @@ adding screens.
   tint has to differ from the page background (`bg-slate-50`), otherwise a
   hovered row reads as a hole in the surface instead of a highlighted row.
 - Icon-only controls use the `h-8 w-8` icon size in `buttonStyles.ts`, so they
-  match the compact text buttons beside them. Header toolbars put one
+  match the compact text buttons beside them. Header toolbars group their
+  ring-bordered icon buttons with `gap-2`: `gap-1` leaves less space between
+  the rings than the 8px inset around each 16px icon, so the group reads as one
+  cramped strip. Row action groups keep `gap-1`. Header toolbars also put one
   `verticalDividerClassName` hairline between the actions and the dismissal
   (close), so the two roles stay distinguishable without extra chrome.
 - `#main-content` is a scroll container, so anything that overflows its padding
