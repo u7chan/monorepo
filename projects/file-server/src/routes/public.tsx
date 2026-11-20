@@ -5,7 +5,11 @@ import type { AppBindings } from "../types"
 import { resolveResponseMimeType } from "../utils/mimeType"
 import { isNodeErrorCode } from "../utils/nodeError"
 import { isPathTraversal } from "../utils/pathTraversal"
-import { errorResponse, getUploadDir } from "../utils/requestUtils"
+import {
+  errorResponse,
+  forbiddenResponse,
+  getUploadDir,
+} from "../utils/requestUtils"
 
 const publicRoutes = new Hono<AppBindings>()
 
@@ -19,7 +23,7 @@ publicRoutes.get("/*", async (c) => {
   }
 
   if (isPathTraversal(rawPath)) {
-    return errorResponse(c, "Forbidden", "Access denied", 403)
+    return forbiddenResponse(c)
   }
 
   const resolvedPath = path.join(baseDir, "public", rawPath)
