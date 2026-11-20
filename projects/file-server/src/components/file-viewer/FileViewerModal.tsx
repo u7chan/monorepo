@@ -184,7 +184,10 @@ export const FileViewerModal: FC<FileViewerModalProps> = ({
             <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-slate-900">
               {fileName}
             </h2>
-            <div className="flex shrink-0 items-center gap-1">
+            {/* Why not `gap-1`: ring-bordered controls would sit 4px apart,
+                which is narrower than their 8px inner padding, so the group
+                reads as a single cramped strip. */}
+            <div className="flex shrink-0 items-center gap-2">
               {downloadButton}
               {previewButton}
               {publicUrlButton}
