@@ -8,7 +8,7 @@ Bun + Hono + HTMX で構築されたWebベースのファイルサーバー/マ�
 
 - ファイル/ディレクトリのブラウジング（パンくずナビゲーション付き）
 - ファイルアップロード（ドラッグ&ドロップ対応、最大10ファイルまで一括アップロード）
-- ファイルプレビュー・編集（テキスト、画像、動画、PDF ※テキストはブラウザ上で直接編集可能。HTML/XHTML/SVG はソース表示に加えて、新しいタブでサンドボックスプレビューを開ける）
+- ファイルプレビュー・編集（テキスト、画像、動画、PDF ※テキストはブラウザ上で直接編集可能。HTML/XHTML/SVG はソース表示に加えて、新しいタブでサンドボックスプレビューを開ける。Markdown は独自レンダラのプレビューを新しいタブで開ける）
 - 表示中ディレクトリ配下の Zip ダウンロード（親ディレクトリのラッパーなし）
 - 空ファイル作成
 - ファイル/ディレクトリの削除・リネーム・移動（`public/` ⇄ 自分の `private/<username>/` のクロススコープ移動を含む）
@@ -75,12 +75,14 @@ src/
 │   ├── PageShell.tsx      # HTMLシェルレイアウト
 │   ├── FileList.tsx       # ファイル一覧コンポーネント
 │   ├── file-viewer/       # ファイルタイプ別ビューアー
+│   ├── markdown/          # Markdown プレビューの描画とページ
 │   └── icons/             # SVGアイコンコンポーネント
 └── utils/
     ├── auth.ts            # セッション署名/検証、認証ユーティリティ
     ├── fileListing.ts     # ファイル一覧取得
     ├── fileUtils.ts       # パス検証、ソート
     ├── formatters.ts      # サイズ・日時フォーマット
+    ├── markdown/          # 依存なしの Markdown パーサ（blocks / inline）
     ├── pathTraversal.ts   # ディレクトリトラバーサル判定
     ├── requestUtils.tsx   # リクエストユーティリティ
     ├── userConfigCache.ts # ユーザー設定キャッシュ
@@ -99,7 +101,8 @@ tests/
 ├── mkdir.test.ts          # ディレクトリ作成テスト
 ├── rename.test.ts         # リネームテスト
 ├── update.test.ts         # ファイル更新テスト
-├── file-preview.test.ts   # HTML/XHTML/SVG のサンドボックスプレビューテスト
+├── file-preview.test.ts   # HTML/XHTML/SVG と Markdown のプレビューテスト
+├── markdown.test.tsx      # Markdown レンダラのテスト
 └── public-route.test.ts   # 外部公開ルートテスト
 ```
 
@@ -123,6 +126,22 @@ tests/
 - `/file/preview/...` は `Content-Security-Policy: sandbox allow-scripts`（`allow-same-origin` なし）を付与し、不透明オリジンで文書を実行する。これにより私的コンテンツがアプリのオリジン権限（セッション Cookie を使った API 呼び出しなど）を持てない。
 - プレビュー内のスクリプトは動作するが、CORS が必要な読み込み（fetch、ES モジュール、Web フォント）と Cookie/ストレージへのアクセスは遮断される。
 - パスは仮想パスをそのまま URL セグメントに使う（`/file/preview/private/<username>/page.html`）ため、相対 URL のアセットも同じルートで解決される。
+
+### ファイルビューアにおける Markdown の挙動
+
+| スコープ | ソース表示 / 編集 | プレビューボタン | ダウンロードボタン |
+|---------|------------------|------------------|------------------|
+| `public/` | ✓ | ✓ `/file/preview/...` を新しいタブで開く | ✓ |
+| `private/` | ✓ | ✓ `/file/preview/...` を新しいタブで開く | ✓ |
+
+- 対象は `text/markdown` / `text/x-markdown` と、拡張子 `.md` / `.markdown` / `.mdown` / `.mkd` / `.mkdn`。
+- ビューア内は従来どおりソース（テキスト）表示で、そのまま編集できる。プレビューは新しいタブで開く。
+- プレビューは依存ライブラリを使わない独自レンダラ（`src/utils/markdown/` + `src/components/markdown/`）が HTML を組み立てる。見出し・段落・強調・コード・リスト・引用・表・区切り線・リンク・画像に対応する。
+- 本文由来のテキストはすべてエスケープする。Markdown 中の生 HTML は実行も描画もせず、そのまま文字として表示する。
+- URL は相対パスと `http` / `https` / `mailto` のみ許可する。画像は同一オリジン（相対パス）のみで、外部画像や `javascript:` などは記法ごと原文表示に落とす。
+- 描画結果は `Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'` を付けて返す。独自生成の文書なので `sandbox` は付けない（付けると不透明オリジンになり、相対画像の取得に使うセッション Cookie も送れない）。
+- プレビュー内の相対リンクは `/file/preview/...` 配下で解決されるため、相対画像はそのまま表示でき、相対リンク先の Markdown も同じレンダラで開く。
+- `MARKDOWN_MAX_LENGTH`（200 KiB）を超えるファイルは解析せず、原文表示にフォールバックする。
 
 ### REST API（認証必須 ※auth有効時）
 
@@ -197,7 +216,7 @@ tests/
 | GET | `/browse` | ディレクトリ一覧（HTMX部分更新用） |
 | GET | `/file` | ファイルビューアー表示 |
 | GET | `/file/raw` | ファイルのプレビュー配信（HTML/XHTML/SVG は 403 ブロック） |
-| GET | `/file/preview/*` | HTML/XHTML/SVG のサンドボックスプレビュー（`private/` のレンダリング表示ボタン用） |
+| GET | `/file/preview/*` | HTML/XHTML/SVG のサンドボックスプレビューと Markdown のレンダリングプレビュー（新しいタブで開く） |
 | GET | `/file/download` | ファイルをダウンロード（`Content-Disposition: attachment`、全ファイル種別対応） |
 | GET | `/file/archive` | 表示中ディレクトリ配下を Zip でダウンロード |
 | GET | `/login` | ログイン画面 |
