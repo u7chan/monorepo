@@ -106,8 +106,8 @@ adding screens.
 - `src/components/buttonStyles.ts` - Shared button tones and sizes
 - `src/utils/` - Utilities (incl. `virtualPath.ts` for scope resolution)
 - `src/utils/markdown/` - Dependency-free Markdown block / inline parser
-- `tests/` - Tests (auth, read, upload, create-file, delete, mkdir, update, rename, move, public-route, file-preview, markdown)
-- `tests/helpers/` - `createTestApp.ts` and `auth.ts` helpers
+- `tests/` - Tests (auth, auth-config, read, upload, create-file, delete, mkdir, update, rename, move, move-picker, public-route, file-preview, markdown)
+- `tests/helpers/` - `createTestApp.ts`, `auth.ts` and `userStore.ts` helpers
 
 ### List Refresh (HTMX)
 
