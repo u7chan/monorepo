@@ -26,6 +26,7 @@ import {
   toImageGenerationChatError,
   validationError,
 } from '#/server/lib/chat-error'
+import { jsonBodyValidator } from '#/server/lib/json-body-validator'
 import { logger } from '#/server/lib/logger'
 import { UpstreamBaseUrlSchema } from '#/server/lib/upstream-base-url'
 import { requireAuth } from '#/server/middleware/auth'
@@ -95,46 +96,9 @@ const chatHeaderValidator = validator('header', (value, c) => {
   }
 })
 
-const formatValidationPath = (path: unknown): string => {
-  if (!Array.isArray(path) || path.length === 0) return 'request body'
-
-  const keys = path
-    .map((segment) => {
-      if (typeof segment === 'string' || typeof segment === 'number') return String(segment)
-      if (segment && typeof segment === 'object' && 'key' in segment) return String(segment.key)
-      return null
-    })
-    .filter((segment): segment is string => Boolean(segment))
-
-  return keys.join('.') || 'request body'
-}
-
-const chatBodyValidator = sValidator('json', ChatApiRequestSchema, (result, c) => {
-  if (result.success) return
-
-  const issue = result.error[0]
-  const fieldName = formatValidationPath(issue?.path)
-
-  return c.json(validationError(`Invalid request body '${fieldName}'`), 400)
-})
-
-const imageGenerationBodyValidator = sValidator('json', ImageGenerationRequestSchema, (result, c) => {
-  if (result.success) return
-
-  const issue = result.error[0]
-  const fieldName = formatValidationPath(issue?.path)
-
-  return c.json(validationError(`Invalid request body '${fieldName}'`), 400)
-})
-
-const chatSessionStartBodyValidator = sValidator('json', ChatSessionStartRequestSchema, (result, c) => {
-  if (result.success) return
-
-  const issue = result.error[0]
-  const fieldName = formatValidationPath(issue?.path)
-
-  return c.json(validationError(`Invalid request body '${fieldName}'`), 400)
-})
+const chatBodyValidator = jsonBodyValidator(ChatApiRequestSchema)
+const imageGenerationBodyValidator = jsonBodyValidator(ImageGenerationRequestSchema)
+const chatSessionStartBodyValidator = jsonBodyValidator(ChatSessionStartRequestSchema)
 
 function normalizeApiMode(apiMode: ApiMode | undefined): ApiMode {
   return apiMode ?? 'chat_completions'
