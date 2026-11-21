@@ -29,9 +29,7 @@ export const apiRoutes = {
     GET: getHello,
     PUT: putHello,
   },
-  "/api/hello/:name": {
-    GET: (req) => getHelloByName(req, req.params),
-  },
+  "/api/hello/:name": (req) => getHelloByName(req, req.params),
   "/api/config": {
     GET: getConfig,
   },

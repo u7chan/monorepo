@@ -1,8 +1,22 @@
-// デプロイ API の対象判定・リクエスト解釈のユニットテスト
+// デプロイ API の対象判定・リクエスト解釈・レスポンス契約のユニットテスト
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
+import { DEPLOY_WORKFLOW_URL } from "../services/github";
+import { mockImageTags } from "../services/mockData";
 import type { Container } from "../types/container";
-import { findDeployTarget, parseDeploymentRequest, postDeployment } from "./deployments";
+
+const containers: Container[] = [];
+
+mock.module("../services/docker", () => ({
+  fetchContainers: async () => containers,
+}));
+
+const { findDeployTarget, getDeployOptions, parseDeploymentRequest, postDeployment } =
+  await import("./deployments");
+
+afterAll(() => {
+  mock.restore();
+});
 
 function container(overrides: Partial<Container> = {}): Container {
   return {
@@ -14,6 +28,43 @@ function container(overrides: Partial<Container> = {}): Container {
     ports: [],
     ...overrides,
   };
+}
+
+function resetContainers(...items: Container[]): void {
+  containers.splice(0, containers.length, ...items);
+}
+
+async function withMockMode<T>(run: () => Promise<T>): Promise<T> {
+  const previous = process.env.USE_MOCK_DATA;
+  process.env.USE_MOCK_DATA = "true";
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.USE_MOCK_DATA;
+    } else {
+      process.env.USE_MOCK_DATA = previous;
+    }
+  }
+}
+
+function deployOptionsRequest(id: string): Promise<Response> {
+  return getDeployOptions(
+    new Request(`http://portal.example/api/containers/${id}/deploy-options`),
+    {
+      id,
+    },
+  );
+}
+
+function deploymentRequest(containerId: string, tag = "sha-7654321"): Promise<Response> {
+  return postDeployment(
+    new Request("http://portal.example/api/deployments", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ containerId, tag }),
+    }),
+  );
 }
 
 describe("findDeployTarget", () => {
@@ -60,6 +111,54 @@ describe("findDeployTarget", () => {
     expect(findDeployTarget([other, target], "abc123")).toMatchObject({
       kind: "ready",
       deployTarget: "app",
+    });
+  });
+});
+
+describe("getDeployOptions", () => {
+  test("未知のコンテナは 404 Container not found", async () => {
+    resetContainers(container());
+
+    const response = await deployOptionsRequest("missing");
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Container not found" });
+  });
+
+  test("デプロイ非対応のコンテナは 409 でコンテナ向けの文言を返す", async () => {
+    resetContainers(container({ canDeploy: false, deployTarget: "app" }));
+
+    const response = await deployOptionsRequest("abc123");
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Image switching is not available for this container",
+    });
+  });
+
+  test("monorepo 外のイメージは 409 でイメージ向けの文言を返す", async () => {
+    resetContainers(container({ canDeploy: true, deployTarget: "app", image: "nginx:alpine" }));
+
+    const response = await deployOptionsRequest("abc123");
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Image switching is not available for this image",
+    });
+  });
+
+  test("デプロイ可能なら 200 でタグ一覧を返す", async () => {
+    resetContainers(container({ canDeploy: true, deployTarget: "app" }));
+
+    await withMockMode(async () => {
+      const response = await deployOptionsRequest("abc123");
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        target: "app",
+        currentTag: "sha-1234567",
+        tags: mockImageTags,
+      });
     });
   });
 });
@@ -172,5 +271,51 @@ describe("postDeployment", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "Invalid image tag" });
+  });
+
+  test("未知のコンテナは 404 Container not found", async () => {
+    resetContainers(container());
+
+    const response = await deploymentRequest("missing");
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Container not found" });
+  });
+
+  test("デプロイ非対応のコンテナは 409 を返す", async () => {
+    resetContainers(container({ canDeploy: false, deployTarget: "app" }));
+
+    const response = await deploymentRequest("abc123");
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Image switching is not available for this container",
+    });
+  });
+
+  test("monorepo 外のイメージは 409 でコンテナ向けの文言を返す", async () => {
+    resetContainers(container({ canDeploy: true, deployTarget: "app", image: "nginx:alpine" }));
+
+    const response = await deploymentRequest("abc123");
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Image switching is not available for this container",
+    });
+  });
+
+  test("デプロイ可能なら 202 で workflow URL を返す", async () => {
+    resetContainers(container({ canDeploy: true, deployTarget: "app" }));
+
+    await withMockMode(async () => {
+      const response = await deploymentRequest("abc123");
+
+      expect(response.status).toBe(202);
+      expect(await response.json()).toEqual({
+        target: "app",
+        tag: "sha-7654321",
+        workflowUrl: DEPLOY_WORKFLOW_URL,
+      });
+    });
   });
 });

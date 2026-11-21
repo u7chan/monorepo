@@ -6,9 +6,9 @@ import {
   runContainerAction,
   type ContainerAction,
 } from "../services/docker";
+import { isMockMode } from "../services/mockData";
+import type { ContainerFilter } from "../types/container";
 import { crossOriginResponse } from "./responses";
-
-export type ContainerFilter = "all" | "running" | "stopped";
 
 export interface ContainerListQuery {
   filter: ContainerFilter;
@@ -83,7 +83,7 @@ export async function postContainerAction(
       success: true,
       action,
       containerId: params.id,
-      mock: process.env.USE_MOCK_DATA === "true",
+      mock: isMockMode(),
     });
   } catch (error) {
     console.error(`Error running container action ${action}:`, error);

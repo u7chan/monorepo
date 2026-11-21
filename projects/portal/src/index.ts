@@ -1,11 +1,11 @@
 import { serve } from "bun";
 import index from "./index.html";
-import { staticRoutes } from "./static";
 import { apiRoutes } from "./api/routes";
+import { isMockMode } from "./services/mockData";
+import { staticRoutes } from "./static";
 
 // モックモード表示
-const isMockMode = process.env.USE_MOCK_DATA === "true";
-if (isMockMode) {
+if (isMockMode()) {
   console.log("🎭 MOCK MODE ENABLED - Using mock container data");
 }
 

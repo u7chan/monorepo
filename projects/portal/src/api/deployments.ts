@@ -1,12 +1,10 @@
 import { isDeployableImageTag, monorepoProject, parseImageReference } from "../lib/image";
 import { isJsonRequest, isSameOriginRequest } from "../lib/request";
-import type { Container } from "../types/container";
 import { fetchContainers } from "../services/docker";
 import { DEPLOY_WORKFLOW_URL, dispatchDeploy, listImageTags } from "../services/github";
-import { mockImageTags } from "../services/mockData";
+import { isMockMode, mockImageTags } from "../services/mockData";
+import type { Container } from "../types/container";
 import { crossOriginResponse, deployErrorResponse } from "./responses";
-
-const isMockMode = process.env.USE_MOCK_DATA === "true";
 
 export type DeployTargetLookup =
   | { kind: "not-found" }
@@ -68,7 +66,7 @@ export async function getDeployOptions(
 
     const currentTag = parseImageReference(lookup.container.image).tag ?? null;
 
-    if (isMockMode) {
+    if (isMockMode()) {
       return Response.json({
         target: lookup.deployTarget,
         currentTag,
@@ -146,7 +144,7 @@ export async function postDeployment(req: Request): Promise<Response> {
       );
     }
 
-    if (isMockMode) {
+    if (isMockMode()) {
       return Response.json(
         {
           target: lookup.deployTarget,
