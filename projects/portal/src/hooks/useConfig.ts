@@ -26,7 +26,6 @@ export function useConfig(): ConfigState {
       try {
         const data = (await requestJson(
           "/api/config",
-          undefined,
           (status) => `HTTP error! status: ${status}`,
           { readError: readStatusError },
         )) as Partial<Config>;

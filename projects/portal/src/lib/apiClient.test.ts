@@ -89,7 +89,7 @@ describe("readJsonBody", () => {
 
 describe("requestJson", () => {
   test("成功時はボディを返す", async () => {
-    const body = await requestJson("/api/config", undefined, () => "fallback", {
+    const body = await requestJson("/api/config", () => "fallback", {
       fetchImpl: fetchStub(Response.json({ host: "portal.example" })),
     });
 
@@ -104,7 +104,10 @@ describe("requestJson", () => {
       return Response.json({});
     };
 
-    await requestJson("/api/deployments", { method: "POST" }, () => "fallback", { fetchImpl });
+    await requestJson("/api/deployments", () => "fallback", {
+      init: { method: "POST" },
+      fetchImpl,
+    });
 
     expect(calls.input).toBe("/api/deployments");
     expect(calls.init).toEqual({ method: "POST" });
@@ -112,7 +115,8 @@ describe("requestJson", () => {
 
   test("失敗時は message と status と body を持つ ApiError を投げる", async () => {
     const error = await captureError(
-      requestJson("/api/deployments", { method: "POST" }, () => "fallback", {
+      requestJson("/api/deployments", () => "fallback", {
+        init: { method: "POST" },
         fetchImpl: fetchStub(
           Response.json({ message: "Image switching is not available" }, { status: 409 }),
         ),
@@ -130,7 +134,7 @@ describe("requestJson", () => {
 
   test("message が無ければ error を使う", async () => {
     const error = await captureError(
-      requestJson("/api/deployments", undefined, () => "fallback", {
+      requestJson("/api/deployments", () => "fallback", {
         fetchImpl: fetchStub(Response.json({ error: "server error" }, { status: 503 })),
       }),
     );
@@ -140,7 +144,7 @@ describe("requestJson", () => {
 
   test("fallback は status を受け取る", async () => {
     const error = await captureError(
-      requestJson("/api/containers", undefined, (status) => `HTTP error! status: ${status}`, {
+      requestJson("/api/containers", (status) => `HTTP error! status: ${status}`, {
         fetchImpl: fetchStub(Response.json({}, { status: 503 })),
       }),
     );
@@ -150,7 +154,7 @@ describe("requestJson", () => {
 
   test("JSON でないエラーボディは fallback を使う", async () => {
     const error = await captureError(
-      requestJson("/api/containers", undefined, (status) => `HTTP error! status: ${status}`, {
+      requestJson("/api/containers", (status) => `HTTP error! status: ${status}`, {
         fetchImpl: fetchStub(new Response("<html>error</html>", { status: 500 })),
       }),
     );
@@ -160,7 +164,7 @@ describe("requestJson", () => {
 
   test("readError を差し替えると body を使わないメッセージにできる", async () => {
     const error = await captureError(
-      requestJson("/api/config", undefined, (status) => `HTTP error! status: ${status}`, {
+      requestJson("/api/config", (status) => `HTTP error! status: ${status}`, {
         readError: readStatusError,
         fetchImpl: fetchStub(Response.json({ message: "server message" }, { status: 500 })),
       }),
@@ -171,12 +175,53 @@ describe("requestJson", () => {
 
   test("readError を差し替えると message だけを見るメッセージにできる", async () => {
     const error = await captureError(
-      requestJson("/api/containers/abc/start", { method: "POST" }, (status) => `status ${status}`, {
+      requestJson("/api/containers/abc/start", (status) => `status ${status}`, {
+        init: { method: "POST" },
         readError: readApiMessage,
         fetchImpl: fetchStub(Response.json({ error: "server error" }, { status: 409 })),
       }),
     );
 
     expect(error).toMatchObject({ message: "status 409", status: 409 });
+  });
+
+  test("成功応答が JSON でなければ既定では throw する", async () => {
+    const error = await captureError(
+      requestJson("/api/containers", () => "fallback", {
+        fetchImpl: fetchStub(new Response("<html>error</html>")),
+      }),
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ApiError);
+  });
+
+  test("成功応答が空でも既定では throw する", async () => {
+    const error = await captureError(
+      requestJson("/api/containers", () => "fallback", {
+        fetchImpl: fetchStub(new Response("")),
+      }),
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ApiError);
+  });
+
+  test("parseOk を渡すと成功応答の解析失敗を null にして継続できる", async () => {
+    const body = await requestJson("/api/containers/abc/deploy-options", () => "fallback", {
+      parseOk: readJsonBody,
+      fetchImpl: fetchStub(new Response("")),
+    });
+
+    expect(body).toBeNull();
+  });
+
+  test("parseOk の戻り値をそのまま返す", async () => {
+    const body = await requestJson("/api/config", () => "fallback", {
+      parseOk: async () => ({ parsed: true }),
+      fetchImpl: fetchStub(Response.json({ ignored: true })),
+    });
+
+    expect(body).toEqual({ parsed: true });
   });
 });

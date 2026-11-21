@@ -2,7 +2,7 @@
 // タグ一覧は Deploy を開いたときだけ取り、30 秒の一覧更新では叩き直さない。
 
 import { useCallback, useState } from "react";
-import { requestJson } from "../lib/apiClient";
+import { readJsonBody, requestJson } from "../lib/apiClient";
 import type {
   Container,
   DeployOptionsResponse,
@@ -57,8 +57,8 @@ export function useDeploy(container: Container): DeployController {
     try {
       const body = await requestJson(
         `/api/containers/${encodeURIComponent(container.id)}/deploy-options`,
-        undefined,
         (status) => `Failed to load image tags (${status})`,
+        { parseOk: readJsonBody },
       );
 
       const data = body as Partial<DeployOptionsResponse> | null;
@@ -100,12 +100,15 @@ export function useDeploy(container: Container): DeployController {
     try {
       const body = await requestJson(
         "/api/deployments",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ containerId: container.id, tag: selectedTag }),
-        },
         (status) => `Deploy request failed (${status})`,
+        {
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ containerId: container.id, tag: selectedTag }),
+          },
+          parseOk: readJsonBody,
+        },
       );
 
       const data = body as Partial<DeployResponse> | null;

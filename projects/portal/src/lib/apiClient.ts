@@ -13,7 +13,9 @@ export type ErrorReader = (body: unknown, fallback: string) => string;
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export interface RequestJsonOptions {
+  init?: RequestInit;
   readError?: ErrorReader;
+  parseOk?: (response: Response) => Promise<unknown>;
   fetchImpl?: FetchLike;
 }
 
@@ -44,16 +46,20 @@ export async function readJsonBody(response: Response): Promise<unknown> {
 
 export async function requestJson(
   input: RequestInfo | URL,
-  init: RequestInit | undefined,
   fallback: (status: number) => string,
-  { readError = readApiError, fetchImpl = fetch }: RequestJsonOptions = {},
+  {
+    init,
+    readError = readApiError,
+    parseOk = (response) => response.json(),
+    fetchImpl = fetch,
+  }: RequestJsonOptions = {},
 ): Promise<unknown> {
   const response = await fetchImpl(input, init);
-  const body = await readJsonBody(response);
 
   if (!response.ok) {
+    const body = await readJsonBody(response);
     throw new ApiError(readError(body, fallback(response.status)), response.status, body);
   }
 
-  return body;
+  return parseOk(response);
 }

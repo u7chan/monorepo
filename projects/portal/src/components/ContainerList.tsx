@@ -165,7 +165,6 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
 
       const data = (await requestJson(
         "/api/containers",
-        undefined,
         (status) => `HTTP error! status: ${status}`,
         { readError: readStatusError },
       )) as { containers?: Container[] };
@@ -195,9 +194,8 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
 
         const data = (await requestJson(
           `/api/containers/${container.id}/${action}`,
-          { method: "POST" },
           (status) => `HTTP error! status: ${status}`,
-          { readError: readApiMessage },
+          { init: { method: "POST" }, readError: readApiMessage },
         )) as { mock?: boolean };
 
         if (data.mock) {
