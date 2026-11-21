@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   saveMirroredSetting,
   toggleBooleanSetting,
+  type SettingUpdater,
 } from '#/client/features/chat/components/chat-settings/hooks/settings-handler-factories'
 
-const createUpdateSetting = () => vi.fn(() => ({}))
+const createUpdateSetting = () => vi.fn<SettingUpdater>()
 
 describe('toggleBooleanSetting', () => {
   it('現在値を反転して、state と保存値の両方へ書く', () => {
