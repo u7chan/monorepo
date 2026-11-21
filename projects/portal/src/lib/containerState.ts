@@ -1,8 +1,27 @@
-import type { Container } from "../types/container";
+import type { Container, ContainerFilter } from "../types/container";
 
 export type ContainerAction = "start" | "stop";
 
 export type StatusTone = "live" | "warn" | "dead" | "info" | "idle";
+
+export function matchesContainerFilter(container: Container, filter: ContainerFilter): boolean {
+  switch (filter) {
+    case "running":
+      return container.state === "running";
+    case "stopped":
+      return container.state === "exited" || container.state === "dead";
+    case "all":
+    default:
+      return true;
+  }
+}
+
+/**
+ * コンテナをフィルタリング
+ */
+export function filterContainers(containers: Container[], filter: ContainerFilter): Container[] {
+  return containers.filter((container) => matchesContainerFilter(container, filter));
+}
 
 /**
  * ポートが今この瞬間に応答する見込みがあるか。

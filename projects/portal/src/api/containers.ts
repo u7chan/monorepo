@@ -1,8 +1,8 @@
 import { isSameOriginRequest } from "../lib/request";
+import { filterContainers } from "../lib/containerState";
 import {
   ContainerActionError,
   fetchContainers,
-  filterContainers,
   runContainerAction,
   type ContainerAction,
 } from "../services/docker";
