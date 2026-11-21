@@ -2,6 +2,7 @@
 // タグ一覧は Deploy を開いたときだけ取り、30 秒の一覧更新では叩き直さない。
 
 import { useCallback, useState } from "react";
+import { readJsonBody, requestJson } from "../lib/apiClient";
 import type {
   Container,
   DeployOptionsResponse,
@@ -32,19 +33,6 @@ function isTagOption(value: unknown): value is ImageTagOption {
   );
 }
 
-function readError(body: unknown, fallback: string): string {
-  if (typeof body === "object" && body !== null) {
-    const record = body as Record<string, unknown>;
-    if (typeof record.message === "string" && record.message.length > 0) {
-      return record.message;
-    }
-    if (typeof record.error === "string" && record.error.length > 0) {
-      return record.error;
-    }
-  }
-  return fallback;
-}
-
 export function useDeploy(container: Container): DeployController {
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -67,14 +55,11 @@ export function useDeploy(container: Container): DeployController {
     setWorkflowUrl(null);
 
     try {
-      const response = await fetch(
+      const body = await requestJson(
         `/api/containers/${encodeURIComponent(container.id)}/deploy-options`,
+        (status) => `Failed to load image tags (${status})`,
+        { parseOk: readJsonBody },
       );
-      const body = (await response.json().catch(() => null)) as unknown;
-
-      if (!response.ok) {
-        throw new Error(readError(body, `Failed to load image tags (${response.status})`));
-      }
 
       const data = body as Partial<DeployOptionsResponse> | null;
       const nextTags = Array.isArray(data?.tags) ? data.tags.filter(isTagOption) : [];
@@ -113,16 +98,18 @@ export function useDeploy(container: Container): DeployController {
     setError(null);
 
     try {
-      const response = await fetch("/api/deployments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ containerId: container.id, tag: selectedTag }),
-      });
-      const body = (await response.json().catch(() => null)) as unknown;
-
-      if (!response.ok) {
-        throw new Error(readError(body, `Deploy request failed (${response.status})`));
-      }
+      const body = await requestJson(
+        "/api/deployments",
+        (status) => `Deploy request failed (${status})`,
+        {
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ containerId: container.id, tag: selectedTag }),
+          },
+          parseOk: readJsonBody,
+        },
+      );
 
       const data = body as Partial<DeployResponse> | null;
       setWorkflowUrl(typeof data?.workflowUrl === "string" ? data.workflowUrl : null);

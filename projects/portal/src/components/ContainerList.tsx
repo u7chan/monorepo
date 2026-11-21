@@ -6,6 +6,7 @@ import { ContainerCard, ContainerListItem, type ContainerAction } from "./Contai
 import { GLASS } from "./glass";
 import { GridIcon, ListIcon, TrayIcon, WarningIcon } from "./icons";
 import { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
+import { readApiMessage, readStatusError, requestJson } from "../lib/apiClient";
 import { isPortReachable } from "../lib/containerState";
 
 interface ContainerListProps {
@@ -162,13 +163,11 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
     try {
       setState((prev) => ({ ...prev, loading: true, error: null }));
 
-      const response = await fetch("/api/containers");
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const data = (await requestJson(
+        "/api/containers",
+        (status) => `HTTP error! status: ${status}`,
+        { readError: readStatusError },
+      )) as { containers?: Container[] };
 
       setState({
         containers: data.containers || [],
@@ -193,14 +192,11 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
         setPendingAction({ containerId: container.id, action });
         setState((prev) => ({ ...prev, actionError: null }));
 
-        const response = await fetch(`/api/containers/${container.id}/${action}`, {
-          method: "POST",
-        });
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.message || `HTTP error! status: ${response.status}`);
-        }
+        const data = (await requestJson(
+          `/api/containers/${container.id}/${action}`,
+          (status) => `HTTP error! status: ${status}`,
+          { init: { method: "POST" }, readError: readApiMessage },
+        )) as { mock?: boolean };
 
         if (data.mock) {
           setState((prev) => ({

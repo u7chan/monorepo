@@ -1,6 +1,7 @@
 // Config Hook - アプリケーション設定を取得
 
 import { useState, useEffect } from "react";
+import { readStatusError, requestJson } from "../lib/apiClient";
 
 interface Config {
   host: string;
@@ -23,13 +24,11 @@ export function useConfig(): ConfigState {
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const response = await fetch("/api/config");
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
+        const data = (await requestJson(
+          "/api/config",
+          (status) => `HTTP error! status: ${status}`,
+          { readError: readStatusError },
+        )) as Partial<Config>;
 
         setState({
           config: {
