@@ -2,6 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  describeImage,
   isDeployableImageTag,
   isOlderImageTag,
   isValidDeployTarget,
@@ -39,6 +40,56 @@ describe("parseImageReference", () => {
 
   test("空文字は空のリポジトリとして扱う", () => {
     expect(parseImageReference("")).toEqual({ repository: "" });
+  });
+});
+
+describe("describeImage", () => {
+  test("タグ付きのイメージを、プレフィックス・名前・コロン付きのタグに分ける", () => {
+    expect(describeImage("ghcr.io/u7chan/monorepo/portal:sha-abc1234")).toEqual({
+      prefix: "ghcr.io/u7chan/monorepo/",
+      name: "portal",
+      version: ":sha-abc1234",
+    });
+  });
+
+  test("レジストリのポートはタグに含めない", () => {
+    expect(describeImage("registry.example:5000/team/app:v1")).toEqual({
+      prefix: "registry.example:5000/team/",
+      name: "app",
+      version: ":v1",
+    });
+  });
+
+  test("名前空間の無いイメージは、プレフィックスを空にする", () => {
+    expect(describeImage("nginx:alpine")).toEqual({
+      prefix: "",
+      name: "nginx",
+      version: ":alpine",
+    });
+  });
+
+  test("タグも digest も無いイメージは、識別子を空にする", () => {
+    expect(describeImage("redis")).toEqual({ prefix: "", name: "redis", version: "" });
+  });
+
+  test("digest は algorithm を残して先頭 12 桁に短縮する", () => {
+    expect(
+      describeImage(
+        "ghcr.io/u7chan/monorepo/file-server@sha256:0f4e2c9b1d7a3586c0be24f9a1d8e37750b6c4a2e91d3f8c7b5a6021de4f9a3c",
+      ),
+    ).toEqual({
+      prefix: "ghcr.io/u7chan/monorepo/",
+      name: "file-server",
+      version: "@sha256:0f4e2c9b1d7a",
+    });
+  });
+
+  test("タグと digest の両方があれば、両方を識別子に残す", () => {
+    expect(describeImage("app:v2@sha256:0f4e2c9b1d7a3586c0be")).toEqual({
+      prefix: "",
+      name: "app",
+      version: ":v2@sha256:0f4e2c9b1d7a",
+    });
   });
 });
 

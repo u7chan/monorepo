@@ -1,13 +1,16 @@
 // ContainerCard Component - 1 つのコンテナを「ポートの入口」として見せるカード / 行
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { Container, PortMapping } from "../types/container";
 import { useConfig } from "../hooks/useConfig";
 import { useCopy } from "../hooks/useCopy";
 import { useDeploy } from "../hooks/useDeploy";
+import { Collapsible } from "./Collapsible";
+import { ConfirmSheet } from "./ConfirmSheet";
 import { CopyButton, REVEAL_CARD } from "./CopyButton";
-import { ConfirmPopover } from "./ConfirmPopover";
 import { DeployButton, DeployPanel } from "./DeployControl";
+import { ArrowUpRightIcon, LockIcon, PlayIcon, StopIcon } from "./icons";
+import { describeImage } from "../lib/image";
 import { buildPortUrl, describePort, describeUrl, isHttpsUrl, orderLinks } from "../lib/ports";
 import {
   getContainerAction,
@@ -30,7 +33,7 @@ const TONE_DOT: Record<StatusTone, string> = {
   warn: "bg-warn",
   dead: "bg-dead",
   info: "bg-info",
-  idle: "bg-fg-3",
+  idle: "bg-label-3",
 };
 
 const TONE_TEXT: Record<StatusTone, string> = {
@@ -38,48 +41,19 @@ const TONE_TEXT: Record<StatusTone, string> = {
   warn: "text-warn",
   dead: "text-dead",
   info: "text-info",
-  idle: "text-fg-3",
+  idle: "text-label-2",
 };
 
-const TILE_BASE = "group/port flex rounded-lg border transition-colors duration-150";
-const TILE_LIVE = "border-live/50 bg-ink-850 text-live hover:border-live/70 hover:bg-live/[0.09]";
-const TILE_DORMANT = "border-line bg-ink-850 text-fg-3";
+// 行の高さ・行送りは文字に任せる。固定の高さ + leading-none + truncate の組み合わせは、
+// g や p の下端を切り落とす (以前の「見切れ」の原因) ため、タイルでは使わない。
+const TILE_BASE =
+  "group/port relative flex rounded-tile text-left transition-[background-color,scale] duration-150 ease-ios";
+const TILE_LIVE =
+  "bg-accent-wash text-accent active:scale-[0.98] can-hover:hover:bg-accent-wash-strong";
+const TILE_DORMANT = "bg-fill text-label-2";
 
-function LockIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-3 shrink-0"
-    >
-      <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
-    </svg>
-  );
-}
-
-function ArrowIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-3.5 shrink-0 transition-transform duration-150 group-hover/port:translate-x-0.5 group-hover/port:-translate-y-0.5"
-    >
-      <path d="M4.5 11.5 11.5 4.5" />
-      <path d="M6 4.5h5.5V10" />
-    </svg>
-  );
-}
+const TILE_ARROW =
+  "size-[18px] shrink-0 transition-transform duration-150 can-hover:group-hover/port:translate-x-0.5 can-hover:group-hover/port:-translate-y-0.5";
 
 /**
  * ステータス表示。色だけで意味を運ばないよう、必ず Docker の状態文言も添える。
@@ -90,16 +64,14 @@ function StatusLabel({ container }: { container: Container }) {
   const label = container.status || container.state;
 
   return (
-    <p className="flex shrink-0 items-center gap-1.5 text-[11.5px] whitespace-nowrap">
+    <p className="mt-0.5 flex items-start gap-1.5 text-subhead">
       <span
         aria-hidden="true"
-        className={[
-          "size-1.5 shrink-0 rounded-full",
-          TONE_DOT[tone],
-          isPortReachable(container.state) ? "motion-safe:animate-pulse" : "",
-        ].join(" ")}
+        className={["mt-[0.4375rem] size-2 shrink-0 rounded-full", TONE_DOT[tone]].join(" ")}
       />
-      <span className={TONE_TEXT[tone]}>{label}</span>
+      <span className={["min-w-0 [overflow-wrap:anywhere]", TONE_TEXT[tone]].join(" ")}>
+        {label}
+      </span>
     </p>
   );
 }
@@ -127,42 +99,24 @@ function PortLink({
     TILE_BASE,
     reachable ? TILE_LIVE : TILE_DORMANT,
     dense
-      ? "h-9 flex-none items-center gap-1.5 px-2.5"
-      : "flex-1 basis-[104px] flex-col justify-center px-3 py-2.5",
+      ? "min-h-10 items-center gap-2 rounded-full px-4 py-2"
+      : "min-h-[72px] flex-col justify-between gap-1 px-4 py-3",
   ].join(" ");
 
   const content = (withArrow: boolean) =>
     dense ? (
       <>
-        <span className="font-mono text-[15px] leading-none font-medium tabular-nums tracking-[-0.02em]">
-          {port.publicPort}
-        </span>
-        <span
-          className={[
-            "font-mono text-[11px] leading-none tracking-[0.03em]",
-            reachable ? "text-fg-2" : "text-fg-3",
-          ].join(" ")}
-        >
-          {detail}
-        </span>
-        {withArrow && <ArrowIcon />}
+        <span className="font-mono text-callout font-medium tabular-nums">{port.publicPort}</span>
+        <span className="font-mono text-caption text-label-2">{detail}</span>
+        {withArrow && <ArrowUpRightIcon className={TILE_ARROW} />}
       </>
     ) : (
       <>
-        <span className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[21px] leading-none font-medium tabular-nums tracking-[-0.02em]">
-            {port.publicPort}
-          </span>
-          {withArrow && <ArrowIcon />}
+        <span className="flex items-start justify-between gap-2">
+          <span className="font-mono text-title-2 font-medium tabular-nums">{port.publicPort}</span>
+          {withArrow && <ArrowUpRightIcon className={`mt-0.5 ${TILE_ARROW}`} />}
         </span>
-        <span
-          className={[
-            "mt-auto font-mono text-[11px] leading-none tracking-[0.03em]",
-            reachable ? "text-fg-2" : "text-fg-3",
-          ].join(" ")}
-        >
-          {detail}
-        </span>
+        <span className="font-mono text-caption text-label-2">{detail}</span>
       </>
     );
 
@@ -194,9 +148,33 @@ function PortLink({
 }
 
 /**
- * ラベルで指定された URL のチップ。
+ * ホスト名。ピリオドの直後で折り返せるようにして、狭いときも "preview.agent." / "home.arpa"
+ * のように意味の切れ目で改行する。単語の途中で切るのは、どこにも切れ目が無いときだけにする。
+ */
+function HostLabel({ label }: { label: string }) {
+  const parts = label.split(".");
+
+  return (
+    <>
+      {parts.map((part, index) => (
+        <Fragment key={index}>
+          {part}
+          {index < parts.length - 1 && (
+            <>
+              .<wbr />
+            </>
+          )}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+/**
+ * ラベルで指定された URL のタイル。
  * SSL 化済みのアプリはポート番号を出さず、行き先のホスト名と鍵アイコンで表す
  * (ポート番号は行き先を表さないし、TLS 終端の有無を推測させないため)。
+ * ホスト名は省略せず折り返す。サブドメインの違いが読めなくなるため。
  */
 function UrlLink({ url, reachable, dense }: { url: string; reachable: boolean; dense: boolean }) {
   const label = describeUrl(url);
@@ -207,36 +185,29 @@ function UrlLink({ url, reachable, dense }: { url: string; reachable: boolean; d
     TILE_BASE,
     reachable ? TILE_LIVE : TILE_DORMANT,
     dense
-      ? "h-9 max-w-[220px] flex-none items-center gap-1.5 px-2.5"
-      : "flex-1 basis-[104px] flex-col justify-center px-3 py-2.5",
+      ? "min-h-10 max-w-full items-center gap-2 rounded-full px-4 py-2"
+      : "col-span-full min-h-[72px] items-center gap-3 px-4 py-3",
   ].join(" ");
 
   const content = (withArrow: boolean) =>
     dense ? (
       <>
-        {secure && <LockIcon />}
-        <span className="truncate font-mono text-[13px] leading-none font-medium">{label}</span>
-        {withArrow && <ArrowIcon />}
+        {secure && <LockIcon className="size-[18px] shrink-0" />}
+        <span className="min-w-0 font-mono text-callout font-medium [overflow-wrap:anywhere]">
+          <HostLabel label={label} />
+        </span>
+        {withArrow && <ArrowUpRightIcon className={TILE_ARROW} />}
       </>
     ) : (
       <>
-        <span className="flex min-w-0 items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1.5">
-            {secure && <LockIcon />}
-            <span className="truncate font-mono text-[15px] leading-none font-medium tracking-[-0.01em]">
-              {label}
-            </span>
+        {secure && <LockIcon className="size-5 shrink-0" />}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="font-mono text-callout font-semibold [overflow-wrap:anywhere]">
+            <HostLabel label={label} />
           </span>
-          {withArrow && <ArrowIcon />}
+          <span className="font-mono text-caption text-label-2">{scheme}</span>
         </span>
-        <span
-          className={[
-            "mt-auto font-mono text-[11px] leading-none tracking-[0.03em]",
-            reachable ? "text-fg-2" : "text-fg-3",
-          ].join(" ")}
-        >
-          {scheme}
-        </span>
+        {withArrow && <ArrowUpRightIcon className={TILE_ARROW} />}
       </>
     );
 
@@ -263,11 +234,11 @@ function UrlLink({ url, reachable, dense }: { url: string; reachable: boolean; d
 }
 
 /**
- * カード中央のリンク群。公開の有無によらずポート番号の昇順に並べる。
+ * リンク群。公開の有無によらずポート番号の昇順に並べる。
  * - `portal.hidden` はリンクを出さない (Caddy などの入口そのもの)
  * - `portal.url` は 1 本だけ出す (公開ポートの数を見せない)
- * - `portal.url.<ポート>` は該当ポートのチップを URL に差し替える。publish をやめても
- *   キーは識別子として残るため、公開されていないポートの上書きもチップにする
+ * - `portal.url.<ポート>` は該当ポートのタイルを URL に差し替える。publish をやめても
+ *   キーは識別子として残るため、公開されていないポートの上書きもタイルにする
  */
 function ContainerLinks({
   container,
@@ -279,10 +250,12 @@ function ContainerLinks({
   dense?: boolean;
 }) {
   const reachable = isPortReachable(container.state);
-  const wrapper = dense ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2";
+  const wrapper = dense
+    ? "flex flex-wrap gap-2"
+    : "grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2";
 
   if (container.hidden) {
-    return <p className="text-[11.5px] text-fg-3">Links hidden</p>;
+    return <p className="text-subhead text-label-2">Links hidden</p>;
   }
 
   if (container.url) {
@@ -296,7 +269,7 @@ function ContainerLinks({
   const links = orderLinks(container.ports, container.urls);
 
   if (links.length === 0) {
-    return <p className="text-[11.5px] text-fg-3">No published ports</p>;
+    return <p className="text-subhead text-label-2">No published ports</p>;
   }
 
   return (
@@ -325,17 +298,21 @@ function ContainerLinks({
 
 /**
  * イメージ名とコピーボタン。
- * イメージ名は区切り文字のない長い文字列になり得るため、折り返さず省略する。
- * 折り返すとカードごとの高さが読めなくなり、ポートの位置が揃わなくなるため
- * (全文は title と、コピーボタンのクリップボードで拾える)。
+ * 長い名前は 1 行に収め、レジストリや名前空間から先に省略する。折り返すとカードごとの
+ * 高さが読めなくなり、末尾から切ると「どのタグか」が消える。全文は title とコピーで拾える。
  */
 function ImageField({ image }: { image: string }) {
   const { copied, copy } = useCopy();
+  const { prefix, name, version } = describeImage(image);
 
   return (
-    <div className="flex min-w-0 items-center gap-1">
-      <p className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-3" title={image}>
-        {image}
+    <div className="flex min-w-0 items-center gap-0.5">
+      <p className="flex min-w-0 font-mono text-footnote text-label-2" title={image}>
+        <span className="min-w-0 truncate">{prefix}</span>
+        <span className="max-w-full shrink-0 truncate">
+          {name}
+          {version}
+        </span>
       </p>
       <CopyButton
         copied={copied}
@@ -347,22 +324,10 @@ function ImageField({ image }: { image: string }) {
   );
 }
 
-function ActionButtonIcon({ action }: { action: ContainerAction }) {
-  return action === "start" ? (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-3">
-      <path d="M5 3.2v9.6L13 8z" />
-    </svg>
-  ) : (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-3">
-      <rect x="4" y="4" width="8" height="8" rx="1.2" />
-    </svg>
-  );
-}
-
 /**
- * 起動 / 停止ボタン。停止だけは不可逆なので、押した場で確認ポップオーバーを出す。
+ * 起動 / 停止ボタン。停止だけは不可逆なので、押したところで確認シートを出す。
  * window.confirm をやめた理由は、ダイアログが対象のコンテナから切り離されて
- * 「何を止めるのか」が読み返せないこと。
+ * 「何を止めるのか」が読み返せないこと。シートのタイトルに対象の名前を入れて示す。
  */
 function ContainerActionButton({
   action,
@@ -375,7 +340,6 @@ function ContainerActionButton({
   pending: boolean;
   onAction: (action: ContainerAction) => void;
 }) {
-  const anchorRef = useRef<HTMLButtonElement | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const isStart = action === "start";
 
@@ -393,42 +357,41 @@ function ContainerActionButton({
       onAction("start");
       return;
     }
-    setConfirmOpen((open) => !open);
+    setConfirmOpen(true);
   };
 
   return (
-    <div className="relative shrink-0">
+    <>
       <button
-        ref={anchorRef}
         type="button"
         disabled={pending}
         aria-haspopup={isStart ? undefined : "dialog"}
-        aria-expanded={isStart ? undefined : confirmOpen}
         onClick={handleClick}
         className={[
-          "inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-line px-2.5",
-          "text-[11.5px] font-medium transition-colors duration-150",
-          "hover:border-line-strong hover:bg-ink-800",
-          "disabled:cursor-not-allowed disabled:opacity-50",
-          pending ? "text-fg-3" : isStart ? "text-fg-2 hover:text-fg" : "text-fg-2 hover:text-dead",
+          "hit-area inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-fill px-4",
+          "text-subhead font-semibold transition-[background-color,scale] duration-150 ease-ios",
+          "can-hover:hover:bg-fill-strong active:scale-[0.97] active:bg-fill-strong",
+          "disabled:cursor-not-allowed disabled:opacity-60",
+          pending ? "text-label-2" : "text-label",
         ].join(" ")}
       >
         {pending ? (
           <span
             aria-hidden="true"
-            className="size-3 animate-spin rounded-full border border-current border-t-transparent"
+            className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
           />
+        ) : isStart ? (
+          <PlayIcon className="size-3.5" />
         ) : (
-          <ActionButtonIcon action={action} />
+          <StopIcon className="size-3.5" />
         )}
         <span>{pending ? pendingLabel : label}</span>
       </button>
 
       {/* 状態が変わって Start に切り替わったら、停止確認は残さない */}
       {!isStart && (
-        <ConfirmPopover
+        <ConfirmSheet
           open={confirmOpen}
-          anchorRef={anchorRef}
           title={`Stop ${container.name}?`}
           description="Its ports close immediately and open connections are dropped."
           confirmLabel="Stop"
@@ -440,7 +403,7 @@ function ContainerActionButton({
           onClose={() => setConfirmOpen(false)}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -462,7 +425,25 @@ function ContainerActionSlot({ container, pendingAction, onAction }: ContainerCa
 }
 
 /**
- * コンテナカード。上部が個体の識別、中央がポート (この画面の主役)、下部が補助情報。
+ * 名前と状態。名前は省略せず折り返す。長い名前を 1 行に押し込むと、末尾の違い
+ * (-production と -staging など) が読めなくなる。
+ */
+function ContainerHeading({ container }: { container: Container }) {
+  return (
+    <div className="min-w-0 flex-1 basis-[9rem]">
+      <h3
+        className="text-headline font-semibold [overflow-wrap:anywhere] text-label"
+        title={container.name}
+      >
+        {container.name}
+      </h3>
+      <StatusLabel container={container} />
+    </div>
+  );
+}
+
+/**
+ * コンテナカード。上部が個体の識別と起動 / 停止、中央がポート (この画面の主役)、下部が補助情報。
  */
 export function ContainerCard({ container, pendingAction, onAction }: ContainerCardProps) {
   const { config } = useConfig();
@@ -470,29 +451,9 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
   const deploy = useDeploy(container);
 
   return (
-    <article
-      className="group/card flex flex-col rounded-xl border border-line bg-ink-900
-                 transition-colors duration-150 hover:border-line-strong"
-    >
-      <div className="flex items-start justify-between gap-3 px-4 pt-4">
-        <h3
-          className="min-w-0 truncate text-[15px] leading-5 font-semibold tracking-[-0.01em] text-fg"
-          title={container.name}
-        >
-          {container.name}
-        </h3>
-        <StatusLabel container={container} />
-      </div>
-
-      <div className="flex-1 px-4 py-4">
-        <ContainerLinks container={container} host={host} />
-      </div>
-
-      <div className="flex items-center gap-2 border-t border-line px-4 py-2">
-        <div className="min-w-0 flex-1">
-          <ImageField image={container.image} />
-        </div>
-        {container.canDeploy && <DeployButton deploy={deploy} />}
+    <article className="group/card flex flex-col rounded-card bg-surface shadow-card">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-4 pt-4">
+        <ContainerHeading container={container} />
         <ContainerActionSlot
           container={container}
           pendingAction={pendingAction}
@@ -500,17 +461,31 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
         />
       </div>
 
-      {container.canDeploy && deploy.isOpen && (
-        <div className="border-t border-line px-4 py-3">
-          <DeployPanel deploy={deploy} />
+      <div className="px-4 pt-3 pb-4">
+        <ContainerLinks container={container} host={host} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-separator px-4 py-1.5">
+        <div className="min-w-0 flex-1 basis-[11rem]">
+          <ImageField image={container.image} />
         </div>
+        {container.canDeploy && <DeployButton deploy={deploy} />}
+      </div>
+
+      {container.canDeploy && (
+        <Collapsible open={deploy.isOpen}>
+          <div className="border-t border-separator px-4 py-3">
+            <DeployPanel deploy={deploy} />
+          </div>
+        </Collapsible>
       )}
     </article>
   );
 }
 
 /**
- * コンテナリスト行。列幅を固定して、縦に並んだときポートの数字が揃うようにする。
+ * コンテナリスト行。1 つの面にまとめた行で、広い画面ではポートの位置が縦に揃うよう列を固定する。
+ * 配置は index.css の .list-row が持つ (DOM の順序は、名前 → リンク → イメージ → 操作)。
  */
 export function ContainerListItem({ container, pendingAction, onAction }: ContainerCardProps) {
   const { config } = useConfig();
@@ -518,44 +493,37 @@ export function ContainerListItem({ container, pendingAction, onAction }: Contai
   const deploy = useDeploy(container);
 
   return (
-    <article
-      className="group/card rounded-xl border border-line bg-ink-900 p-4
-                 transition-colors duration-150 hover:border-line-strong"
-    >
-      <div className="md:flex md:items-center md:gap-6">
-        <div className="min-w-0 md:w-[27%] md:shrink-0">
-          <h3
-            className="truncate text-[14px] leading-5 font-semibold tracking-[-0.01em] text-fg"
-            title={container.name}
-          >
-            {container.name}
-          </h3>
-          <div className="mt-1">
-            <ImageField image={container.image} />
-          </div>
+    <article className="group/card px-4 py-3">
+      <div className="list-row" data-can-deploy={container.canDeploy || undefined}>
+        <div className="[grid-area:title]">
+          <ContainerHeading container={container} />
         </div>
-
-        <div className="mt-3 min-w-0 md:mt-0 md:flex-1">
+        <div className="min-w-0 [grid-area:links]">
           <ContainerLinks container={container} host={host} dense />
         </div>
-
-        <div className="mt-3 flex items-center justify-between gap-4 md:mt-0 md:shrink-0 md:justify-end">
-          <StatusLabel container={container} />
-          <div className="flex items-center gap-2">
-            {container.canDeploy && <DeployButton deploy={deploy} />}
-            <ContainerActionSlot
-              container={container}
-              pendingAction={pendingAction}
-              onAction={onAction}
-            />
+        <div className="min-w-0 [grid-area:image]">
+          <ImageField image={container.image} />
+        </div>
+        {container.canDeploy && (
+          <div className="[grid-area:deploy]">
+            <DeployButton deploy={deploy} />
           </div>
+        )}
+        <div className="justify-self-end [grid-area:stop]">
+          <ContainerActionSlot
+            container={container}
+            pendingAction={pendingAction}
+            onAction={onAction}
+          />
         </div>
       </div>
 
-      {container.canDeploy && deploy.isOpen && (
-        <div className="mt-3 border-t border-line pt-3">
-          <DeployPanel deploy={deploy} />
-        </div>
+      {container.canDeploy && (
+        <Collapsible open={deploy.isOpen}>
+          <div className="mt-3 border-t border-separator pt-3">
+            <DeployPanel deploy={deploy} />
+          </div>
+        </Collapsible>
       )}
     </article>
   );

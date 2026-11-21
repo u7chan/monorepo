@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Container, ContainerFilter } from "../types/container";
 import { ContainerCard, ContainerListItem, type ContainerAction } from "./ContainerCard";
+import { GLASS } from "./glass";
+import { GridIcon, ListIcon, TrayIcon, WarningIcon } from "./icons";
+import { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
 import { isPortReachable } from "../lib/containerState";
 
 interface ContainerListProps {
@@ -27,6 +30,11 @@ const FILTERS: { value: ContainerFilter; label: string }[] = [
   { value: "stopped", label: "Stopped" },
 ];
 
+const VIEW_MODE_OPTIONS: readonly SegmentedOption<ViewMode>[] = [
+  { value: "grid", label: <GridIcon className="size-[18px]" />, ariaLabel: "Card view" },
+  { value: "list", label: <ListIcon className="size-[18px]" />, ariaLabel: "List view" },
+];
+
 function matchesFilter(container: Container, filter: ContainerFilter): boolean {
   if (filter === "running") {
     return container.state === "running";
@@ -43,6 +51,10 @@ function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+/**
+ * 絞り込み。狭い画面では親指の届く下端に浮かべ (ガラスのカプセル)、広い画面では
+ * 上の行に通常のセグメントとして置く。DOM は 1 つで、見た目だけを切り替える。
+ */
 function FilterBar({
   filter,
   counts,
@@ -52,101 +64,32 @@ function FilterBar({
   counts: Record<ContainerFilter, number>;
   onChange: (filter: ContainerFilter) => void;
 }) {
+  const options = FILTERS.map(({ value, label }) => ({
+    value,
+    label: (
+      <span className="inline-flex flex-wrap items-baseline justify-center gap-x-1.5">
+        {label}
+        <span className="font-mono text-[0.875em] font-normal tabular-nums">{counts[value]}</span>
+      </span>
+    ),
+  }));
+
   return (
-    <div
-      role="group"
-      aria-label="Filter containers"
-      className="inline-flex items-center gap-0.5 rounded-lg border border-line bg-ink-900 p-0.5"
-    >
-      {FILTERS.map(({ value, label }) => {
-        const active = filter === value;
-        return (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onChange(value)}
-            className={[
-              "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium transition-colors duration-150",
-              active ? "bg-ink-700 text-fg" : "text-fg-3 hover:text-fg-2",
-            ].join(" ")}
-          >
-            {label}
-            <span
-              className={[
-                "font-mono text-[11px] tabular-nums",
-                active ? "text-fg-2" : "text-fg-3",
-              ].join(" ")}
-            >
-              {counts[value]}
-            </span>
-          </button>
-        );
-      })}
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] md:pointer-events-auto md:static md:z-auto md:w-80 md:p-0">
+      <div
+        className={`${GLASS} pointer-events-auto mx-auto max-w-md rounded-full p-1 shadow-float md:contents`}
+      >
+        <SegmentedControl
+          label="Filter containers"
+          options={options}
+          value={filter}
+          onChange={onChange}
+          trackClassName="rounded-full bg-transparent md:rounded-control md:bg-fill"
+          thumbClassName="rounded-full bg-fill-strong md:rounded-[0.625rem] md:bg-thumb md:shadow-thumb"
+          segmentClassName="min-h-10 px-2 md:min-h-8 md:px-3"
+        />
+      </div>
     </div>
-  );
-}
-
-function ViewModeButton({
-  active,
-  label,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={active}
-      title={label}
-      onClick={onClick}
-      className={[
-        "inline-flex size-7 items-center justify-center rounded-md transition-colors duration-150",
-        active ? "bg-ink-700 text-fg" : "text-fg-3 hover:text-fg-2",
-      ].join(" ")}
-    >
-      {children}
-    </button>
-  );
-}
-
-function GridIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      className="size-3.5"
-    >
-      <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" />
-      <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" />
-      <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" />
-      <rect x="9" y="9" width="4.5" height="4.5" rx="1" />
-    </svg>
-  );
-}
-
-function ListIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      className="size-3.5"
-    >
-      <path d="M6 4h7.5M6 8h7.5M6 12h7.5" />
-      <path d="M2.75 4h.01M2.75 8h.01M2.75 12h.01" strokeWidth="1.8" />
-    </svg>
   );
 }
 
@@ -156,31 +99,34 @@ function ListIcon() {
  */
 function CardSkeleton() {
   return (
-    <div className="rounded-xl border border-line bg-ink-900 p-4">
-      <div className="h-3 w-2/5 rounded-sm bg-ink-800" />
-      <div className="mt-4 flex gap-2">
-        <div className="h-[62px] flex-1 rounded-lg bg-ink-850" />
-        <div className="h-[62px] flex-1 rounded-lg bg-ink-850" />
-      </div>
-      <div className="mt-4 h-2.5 w-1/3 rounded-sm bg-ink-800" />
+    <div className="rounded-card bg-surface p-4 shadow-card">
+      <div className="h-4 w-2/5 rounded-md bg-fill" />
+      <div className="mt-2 h-3.5 w-1/3 rounded-md bg-fill" />
+      <div className="mt-4 h-14 rounded-tile bg-fill" />
+      <div className="mt-4 h-3.5 w-1/2 rounded-md bg-fill" />
     </div>
   );
 }
 
 function StatePanel({
+  icon,
   title,
   description,
   action,
 }: {
+  icon: React.ReactNode;
   title: string;
   description: string;
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center rounded-xl border border-dashed border-line py-16 text-center">
-      <p className="text-[14px] font-semibold text-fg">{title}</p>
-      <p className="mt-1.5 max-w-sm text-[12.5px] leading-relaxed text-fg-3">{description}</p>
-      {action && <div className="mt-4">{action}</div>}
+    <div className="flex flex-col items-center rounded-card bg-surface px-6 py-14 text-center shadow-card">
+      <div className="grid size-14 place-items-center rounded-full bg-fill text-label-2">
+        {icon}
+      </div>
+      <p className="mt-4 text-title-3 font-semibold text-label">{title}</p>
+      <p className="mt-1.5 max-w-sm text-subhead text-label-2">{description}</p>
+      {action && <div className="mt-5">{action}</div>}
     </div>
   );
 }
@@ -326,58 +272,62 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
 
   const isInitialLoading = state.loading && state.containers.length === 0;
 
+  const renderItem = (container: Container, Item: typeof ContainerCard) => (
+    <Item
+      key={container.id}
+      container={container}
+      pendingAction={pendingAction?.containerId === container.id ? pendingAction.action : null}
+      onAction={runContainerAction}
+    />
+  );
+
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <FilterBar filter={filter} counts={counts} onChange={setFilter} />
 
-        <div className="flex items-center gap-3">
-          <p className="flex items-center gap-1.5 text-[11.5px] text-fg-3">
-            <span
-              aria-hidden="true"
-              className={[
-                "size-1.5 rounded-full",
-                livePortCount > 0 ? "bg-live" : "bg-line-strong",
-              ].join(" ")}
-            />
-            <span className="text-fg-2 tabular-nums">{livePortCount}</span>
-            {livePortCount === 1 ? "live port" : "live ports"}
-          </p>
-
-          {state.lastUpdated && (
-            <p
-              className="hidden text-[11.5px] text-fg-3 tabular-nums sm:block"
-              title={`Refreshes every ${Math.round(refreshInterval / 1000)} seconds`}
-            >
-              Updated {formatTime(state.lastUpdated)}
+        <div className="flex min-w-0 flex-1 items-center justify-between gap-3 md:justify-end md:gap-4">
+          <div className="min-w-0 md:flex md:items-center md:gap-4">
+            <p className="flex items-center gap-1.5 text-subhead text-label-2">
+              <span
+                aria-hidden="true"
+                className={[
+                  "size-2 shrink-0 rounded-full",
+                  livePortCount > 0 ? "bg-live" : "bg-label-3",
+                ].join(" ")}
+              />
+              <span>
+                <span className="font-medium text-label tabular-nums">{livePortCount}</span>{" "}
+                {livePortCount === 1 ? "live port" : "live ports"}
+              </span>
             </p>
-          )}
-
-          <div className="flex items-center gap-0.5 rounded-lg border border-line bg-ink-900 p-0.5">
-            <ViewModeButton
-              active={viewMode === "grid"}
-              label="Grid view"
-              onClick={() => setViewMode("grid")}
-            >
-              <GridIcon />
-            </ViewModeButton>
-            <ViewModeButton
-              active={viewMode === "list"}
-              label="List view"
-              onClick={() => setViewMode("list")}
-            >
-              <ListIcon />
-            </ViewModeButton>
+            {state.lastUpdated && (
+              <p
+                className="text-footnote text-label-2 tabular-nums md:text-subhead"
+                title={`Refreshes every ${Math.round(refreshInterval / 1000)} seconds`}
+              >
+                Updated {formatTime(state.lastUpdated)}
+              </p>
+            )}
           </div>
+
+          <SegmentedControl
+            label="View"
+            options={VIEW_MODE_OPTIONS}
+            value={viewMode}
+            onChange={setViewMode}
+            segmentClassName="w-10"
+          />
         </div>
       </div>
 
       {state.actionError && (
         <div
           role="alert"
-          className="rounded-lg border border-dead/30 bg-dead/10 px-3 py-2 text-[12px] text-dead"
+          className="flex items-start gap-3 rounded-tile bg-surface px-4 py-3 text-subhead text-label shadow-card"
         >
-          {state.actionError}
+          <WarningIcon className="mt-px size-5 shrink-0 text-dead" />
+          <span className="min-w-0 [overflow-wrap:anywhere]">{state.actionError}</span>
         </div>
       )}
 
@@ -394,13 +344,14 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
 
       {!isInitialLoading && state.error && state.containers.length === 0 && (
         <StatePanel
+          icon={<WarningIcon className="size-7" />}
           title="Can't reach Docker"
           description={state.error}
           action={
             <button
               type="button"
               onClick={() => void load()}
-              className="inline-flex h-8 items-center rounded-md border border-line-strong px-3 text-[12px] font-medium text-fg transition-colors hover:bg-ink-800"
+              className="min-h-11 rounded-full bg-accent-fill px-6 text-callout font-semibold text-white transition-[filter,scale] duration-150 can-hover:hover:brightness-110 active:scale-[0.97] active:brightness-90"
             >
               Try again
             </button>
@@ -410,6 +361,7 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
 
       {!isInitialLoading && !state.error && visibleContainers.length === 0 && (
         <StatePanel
+          icon={<TrayIcon className="size-7" />}
           title={filter === "all" ? "No containers" : `No ${filter} containers`}
           description={
             filter === "all"
@@ -424,29 +376,11 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
       {visibleContainers.length > 0 &&
         (viewMode === "grid" ? (
           <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {visibleContainers.map((container) => (
-              <ContainerCard
-                key={container.id}
-                container={container}
-                pendingAction={
-                  pendingAction?.containerId === container.id ? pendingAction.action : null
-                }
-                onAction={runContainerAction}
-              />
-            ))}
+            {visibleContainers.map((container) => renderItem(container, ContainerCard))}
           </div>
         ) : (
-          <div className="space-y-2">
-            {visibleContainers.map((container) => (
-              <ContainerListItem
-                key={container.id}
-                container={container}
-                pendingAction={
-                  pendingAction?.containerId === container.id ? pendingAction.action : null
-                }
-                onAction={runContainerAction}
-              />
-            ))}
+          <div className="divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card">
+            {visibleContainers.map((container) => renderItem(container, ContainerListItem))}
           </div>
         ))}
     </section>

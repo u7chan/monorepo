@@ -1,69 +1,63 @@
 // Docker Container Portal - メインアプリケーション
 
 import "./index.css";
+import { useState } from "react";
+import { AppHeader } from "./components/AppHeader";
 import { ContainerList } from "./components/ContainerList";
+import { SettingsSheet } from "./components/SettingsSheet";
 import { useConfig } from "./hooks/useConfig";
-import portalLogo from "./logo.svg";
+import { useScrollPast } from "./hooks/useScrollPast";
+import { useTheme } from "./hooks/useTheme";
 
-// ヘッダーの HTTPS リンクはブラウザから見た portal の入口。リクエストの Host からは
+// 設定シートの HTTPS リンクはブラウザから見た portal の入口。リクエストの Host からは
 // TLS 終端の有無を判断できないため、deploy 側が公開している URL をここで持つ。
 const PORTAL_HTTPS_URL = "https://portal.home.arpa";
-const PORTAL_HTTPS_HOST = new URL(PORTAL_HTTPS_URL).hostname;
 
-/**
- * アプリロゴ。SVG 自体が背景を持つため、発光やブラーは足さない。
- */
-function PortalLogo() {
-  return <img src={portalLogo} alt="" className="size-7 shrink-0" />;
-}
+// 大きいタイトルの行が、固定のバー (高さ 44px) の下へ隠れ始めるスクロール量
+const TITLE_COLLAPSE_SCROLL = 36;
 
 /**
  * メインアプリケーションコンポーネント
  */
 export function App() {
   const { config } = useConfig();
-  const host = config?.host ?? "localhost";
+  const { preference, setPreference } = useTheme();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const titleCollapsed = useScrollPast(TITLE_COLLAPSE_SCROLL);
 
   return (
-    <div className="min-h-screen bg-ink-950">
-      <header className="sticky top-0 z-40 border-b border-line bg-ink-950/85 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <PortalLogo />
-            <h1 className="text-[15px] font-semibold tracking-[-0.01em] text-fg">Portal</h1>
-          </div>
+    <div className="min-h-dvh">
+      <AppHeader
+        compact={titleCollapsed}
+        settingsOpen={settingsOpen}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
 
-          <div className="flex items-center gap-2">
-            {config?.isMockMode && (
-              <span className="inline-flex h-7 items-center rounded-md border border-dashed border-line-strong px-2 text-[11px] font-medium text-fg-2">
-                Mock data
-              </span>
-            )}
-            <span className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-line px-2 text-[11.5px]">
-              <span className="hidden text-fg-3 sm:inline">host</span>
-              <span className="truncate font-mono text-fg-2">{host}</span>
+      {/* 下端はスマホで浮かぶツールバーの分まで空ける */}
+      <main className="page-gutter mx-auto max-w-6xl pb-[calc(104px+env(safe-area-inset-bottom))] md:pb-12">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2 pb-3">
+          <h1 className="text-large-title font-bold [overflow-wrap:anywhere] text-label">
+            Containers
+          </h1>
+          {config?.isMockMode && (
+            <span className="rounded-full border border-dashed border-label-3 px-2.5 py-0.5 text-caption font-medium text-label-2">
+              Mock data
             </span>
-            <a
-              href={PORTAL_HTTPS_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={PORTAL_HTTPS_URL}
-              aria-label={`Open ${PORTAL_HTTPS_URL}`}
-              className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-line px-2 text-[11.5px] text-fg-2 transition-colors duration-150 hover:border-line-strong hover:bg-ink-800 hover:text-fg"
-            >
-              <span className="hidden text-fg-3 sm:inline">https</span>
-              <span className="truncate font-mono">{PORTAL_HTTPS_HOST}</span>
-              <span aria-hidden="true" className="text-fg-3">
-                ↗
-              </span>
-            </a>
-          </div>
+          )}
         </div>
-      </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
         <ContainerList refreshInterval={30000} />
       </main>
+
+      <SettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        host={config?.host ?? "localhost"}
+        httpsUrl={PORTAL_HTTPS_URL}
+        isMockMode={config?.isMockMode ?? false}
+        preference={preference}
+        onPreferenceChange={setPreference}
+      />
     </div>
   );
 }

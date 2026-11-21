@@ -32,6 +32,43 @@ export function parseImageReference(image: string): ImageReference {
   return { repository: withoutDigest };
 }
 
+export interface ImageDisplay {
+  /** レジストリと名前空間。"ghcr.io/u7chan/monorepo/" のように末尾の "/" まで含む。無ければ空文字 */
+  prefix: string;
+  /** 最後のパス要素 (プロジェクト名) */
+  name: string;
+  /** ":latest" や "@sha256:0f4e2c9b1d7a" のように名前の後ろへ付く識別子。無ければ空文字 */
+  version: string;
+}
+
+const DIGEST_PREVIEW_LENGTH = 12;
+
+/**
+ * 表示用に、プレフィックス・名前・識別子 (タグ / 短縮ダイジェスト) へ分ける。
+ * 長いイメージ名を省略するとき、プレフィックスから先に省略して、名前と識別子を残すため。
+ * 末尾を単純に切ると、いちばん知りたい「どのタグか」から先に消える。
+ */
+export function describeImage(image: string): ImageDisplay {
+  const { repository, tag } = parseImageReference(image);
+  const digestStart = image.indexOf("@");
+  const digest = digestStart === -1 ? undefined : image.slice(digestStart + 1);
+  const nameStart = repository.lastIndexOf("/") + 1;
+
+  return {
+    prefix: repository.slice(0, nameStart),
+    name: repository.slice(nameStart),
+    version: `${tag ? `:${tag}` : ""}${digest ? `@${shortenDigest(digest)}` : ""}`,
+  };
+}
+
+function shortenDigest(digest: string): string {
+  const separator = digest.indexOf(":");
+  const algorithm = separator === -1 ? "" : digest.slice(0, separator + 1);
+  const hash = separator === -1 ? digest : digest.slice(separator + 1);
+
+  return `${algorithm}${hash.slice(0, DIGEST_PREVIEW_LENGTH)}`;
+}
+
 /**
  * monorepo の CD がビルドする GHCR イメージだけを対象にする。
  * Docker Hub や第三者の GHCR は、タグの意味と更新方針を portal が知らないため

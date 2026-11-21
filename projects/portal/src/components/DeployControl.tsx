@@ -5,25 +5,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { DeployController } from "../hooks/useDeploy";
 import { isOlderImageTag } from "../lib/image";
 import { formatTagDateTime } from "../lib/tagDateTime";
-import { ConfirmPopover } from "./ConfirmPopover";
-
-function DeployIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-3"
-    >
-      <path d="M8 12V4" />
-      <path d="m4.5 7.5 3.5-3.5 3.5 3.5" />
-    </svg>
-  );
-}
+import { ConfirmSheet } from "./ConfirmSheet";
+import { ChevronUpDownIcon, DeployIcon } from "./icons";
 
 export function DeployButton({ deploy }: { deploy: DeployController }) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -45,30 +28,33 @@ export function DeployButton({ deploy }: { deploy: DeployController }) {
       disabled={deploy.pending}
       aria-expanded={deploy.isOpen}
       className={[
-        "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-line px-2.5",
-        "text-[11.5px] font-medium transition-colors duration-150",
-        "hover:border-line-strong hover:bg-ink-800",
-        "disabled:cursor-not-allowed disabled:opacity-50 text-fg-2 hover:text-fg",
+        "hit-area inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-full px-4",
+        "text-subhead font-semibold text-label transition-[background-color,scale] duration-150 ease-ios",
+        "can-hover:hover:bg-fill-strong active:scale-[0.97] active:bg-fill-strong",
+        "disabled:cursor-not-allowed disabled:opacity-60",
+        deploy.isOpen ? "bg-fill-strong" : "bg-fill",
       ].join(" ")}
     >
       {deploy.pending ? (
         <span
           aria-hidden="true"
-          className="size-3 animate-spin rounded-full border border-current border-t-transparent"
+          className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
         />
       ) : (
-        <DeployIcon />
+        <DeployIcon className="size-4" />
       )}
       <span>{deploy.pending ? "Deploying" : "Deploy"}</span>
     </button>
   );
 }
 
+const PLAIN_BUTTON =
+  "min-h-10 rounded-full px-4 text-subhead font-medium text-accent transition-colors duration-150 can-hover:hover:bg-fill active:bg-fill disabled:cursor-not-allowed disabled:opacity-50";
+
 export function DeployPanel({ deploy }: { deploy: DeployController }) {
   const selectId = useId();
   const selectRef = useRef<HTMLSelectElement | null>(null);
   const successRef = useRef<HTMLAnchorElement | null>(null);
-  const deployButtonRef = useRef<HTMLButtonElement | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   // 読み込み中は select が disabled で focus できない。有効になった時点で移す。
@@ -94,24 +80,20 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
 
   if (deploy.workflowUrl) {
     return (
-      <div onKeyDown={handleKeyDown}>
-        <p className="text-[12px] text-info">
+      <div onKeyDown={handleKeyDown} className="flex items-center justify-between gap-3">
+        <p className="min-w-0 text-subhead text-info">
           Deploy started.{" "}
           <a
             ref={successRef}
             href={deploy.workflowUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="underline underline-offset-2 hover:text-fg"
+            className="font-medium underline underline-offset-2"
           >
             Open Actions
           </a>
         </p>
-        <button
-          type="button"
-          onClick={deploy.close}
-          className="mt-2 h-8 rounded-md px-2.5 text-[12px] font-medium text-fg-2 transition-colors hover:bg-ink-700 hover:text-fg"
-        >
+        <button type="button" onClick={deploy.close} className={`shrink-0 ${PLAIN_BUTTON}`}>
           Close
         </button>
       </div>
@@ -138,96 +120,101 @@ export function DeployPanel({ deploy }: { deploy: DeployController }) {
 
   const handleDeploy = () => {
     if (rollingBack) {
-      setConfirmOpen((open) => !open);
+      setConfirmOpen(true);
       return;
     }
     void deploy.submit();
   };
 
   return (
-    <div onKeyDown={handleKeyDown}>
-      <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor={selectId} className="text-[11.5px] text-fg-3">
+    <>
+      {/* 確認シートは onKeyDown の外に置く。中に置くと、シートで押した Esc が親へ伝わり、
+          シートと一緒にパネルまで閉じてしまう */}
+      <div onKeyDown={handleKeyDown}>
+        <label htmlFor={selectId} className="block text-footnote font-medium text-label-2">
           Image tag
         </label>
-        <select
-          ref={selectRef}
-          id={selectId}
-          value={deploy.selectedTag}
-          onChange={(event) => {
-            setConfirmOpen(false);
-            deploy.selectTag(event.target.value);
-          }}
-          disabled={deploy.loading || deploy.pending}
-          className="h-8 min-w-[14rem] flex-1 rounded-md border border-line bg-ink-900 px-2 font-mono text-[12px] text-fg disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {deploy.loading ? (
-            <option value="">Loading tags…</option>
-          ) : deploy.tags.length === 0 ? (
-            <option value="">No tags found</option>
-          ) : (
-            deploy.tags.map((option) => {
-              const createdAt = formatTagDateTime(option.createdAt);
-              const current = option.tag === deploy.currentTag ? " (current)" : "";
-              return (
-                <option key={option.tag} value={option.tag}>
-                  {`${option.tag}${createdAt ? ` · ${createdAt}` : ""}${current}`}
-                </option>
-              );
-            })
-          )}
-        </select>
-        <div className="relative shrink-0">
+        <div className="relative mt-1.5">
+          <select
+            ref={selectRef}
+            id={selectId}
+            value={deploy.selectedTag}
+            onChange={(event) => {
+              setConfirmOpen(false);
+              deploy.selectTag(event.target.value);
+            }}
+            disabled={deploy.loading || deploy.pending}
+            className="min-h-11 w-full appearance-none overflow-hidden rounded-control bg-fill py-2 pr-10 pl-3 font-mono text-subhead text-ellipsis whitespace-nowrap text-label disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {deploy.loading ? (
+              <option value="">Loading tags…</option>
+            ) : deploy.tags.length === 0 ? (
+              <option value="">No tags found</option>
+            ) : (
+              deploy.tags.map((option) => {
+                const createdAt = formatTagDateTime(option.createdAt);
+                // 欄の幅に収まらないときは後ろから省略される。現在かどうかを日時より前に置いて残す
+                const current = option.tag === deploy.currentTag ? " (current)" : "";
+                return (
+                  <option key={option.tag} value={option.tag}>
+                    {`${option.tag}${current}${createdAt ? ` · ${createdAt}` : ""}`}
+                  </option>
+                );
+              })
+            )}
+          </select>
+          <ChevronUpDownIcon className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-label-2" />
+        </div>
+
+        <p className="mt-2 text-footnote text-label-2">
+          {selectedCreatedAt ? (
+            <>
+              Created at <span className="font-mono">{selectedCreatedAt}</span> (JST).{" "}
+            </>
+          ) : null}
+          The container is recreated with the selected image.
+        </p>
+        {deploy.error && (
+          <p role="alert" className="mt-2 text-footnote [overflow-wrap:anywhere] text-dead">
+            {deploy.error}
+          </p>
+        )}
+
+        <div className="mt-3 flex items-center justify-end gap-2">
           <button
-            ref={deployButtonRef}
+            type="button"
+            onClick={deploy.close}
+            disabled={deploy.pending}
+            className={PLAIN_BUTTON}
+          >
+            Cancel
+          </button>
+          <button
             type="button"
             onClick={handleDeploy}
             disabled={disabled}
             aria-haspopup={rollingBack ? "dialog" : undefined}
-            aria-expanded={rollingBack ? confirmOpen : undefined}
-            className="h-8 rounded-md border border-line px-3 text-[12px] font-medium text-fg-2 transition-colors hover:border-line-strong hover:bg-ink-800 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-10 rounded-full bg-accent-fill px-5 text-subhead font-semibold text-white transition-[filter,scale] duration-150 ease-ios can-hover:hover:brightness-110 active:scale-[0.97] active:brightness-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {deploy.pending ? "Starting…" : "Deploy"}
           </button>
-
-          {rollingBack && (
-            <ConfirmPopover
-              open={confirmOpen}
-              anchorRef={deployButtonRef}
-              title={`Roll back to ${deploy.selectedTag}?`}
-              description={rollbackDescription}
-              confirmLabel="Roll back"
-              pending={deploy.pending}
-              onConfirm={() => {
-                setConfirmOpen(false);
-                void deploy.submit();
-              }}
-              onClose={() => setConfirmOpen(false)}
-            />
-          )}
         </div>
-        <button
-          type="button"
-          onClick={deploy.close}
-          disabled={deploy.pending}
-          className="h-8 rounded-md px-2.5 text-[12px] font-medium text-fg-2 transition-colors hover:bg-ink-700 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Cancel
-        </button>
       </div>
-      <p className="mt-1.5 text-[11px] text-fg-3">
-        {selectedCreatedAt ? (
-          <>
-            Created at <span className="font-mono">{selectedCreatedAt}</span> (JST).{" "}
-          </>
-        ) : null}
-        The container is recreated with the selected image.
-      </p>
-      {deploy.error && (
-        <p role="alert" className="mt-1.5 text-[11px] text-dead">
-          {deploy.error}
-        </p>
+
+      {rollingBack && (
+        <ConfirmSheet
+          open={confirmOpen}
+          title={`Roll back to ${deploy.selectedTag}?`}
+          description={rollbackDescription}
+          confirmLabel="Roll back"
+          pending={deploy.pending}
+          onConfirm={() => {
+            setConfirmOpen(false);
+            void deploy.submit();
+          }}
+          onClose={() => setConfirmOpen(false)}
+        />
       )}
-    </div>
+    </>
   );
 }
