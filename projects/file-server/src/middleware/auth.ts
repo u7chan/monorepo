@@ -6,13 +6,12 @@ import { getCookie } from "hono/cookie"
 import type { AppBindings } from "../types"
 import {
   DEFAULT_UPLOAD_DIR,
-  loadSessionSecretWithCache,
   normalizeReturnTo,
   type RuntimeAuthEnv,
-  SESSION_COOKIE_NAME,
-  verifySession,
 } from "../utils/auth"
 import { errorResponse, getAuthConfig } from "../utils/requestUtils"
+import { loadSessionSecretWithCache } from "../utils/sessionSecret"
+import { SESSION_COOKIE_NAME, verifySession } from "../utils/sessionToken"
 import { loadUsersFromFileWithCache } from "../utils/userConfigCache"
 
 function getRequestPathWithQuery(c: Context<AppBindings>): string {

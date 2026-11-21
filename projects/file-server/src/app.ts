@@ -12,11 +12,11 @@ import publicRoutes from "./routes/public"
 import type { AppBindings } from "./types"
 import {
   DEFAULT_UPLOAD_DIR,
-  ensureSessionSecret,
   resolveAuthConfig,
   validateLegacyAuthEnv,
 } from "./utils/auth"
 import { bootstrapAdminUser } from "./utils/bootstrap"
+import { ensureSessionSecret } from "./utils/sessionSecret"
 
 export interface CreateAppOptions {
   uploadDir?: string

@@ -110,6 +110,8 @@ adding screens.
 - `src/components/uiStyles.ts` - Shared surface, field and text class tokens
 - `src/components/buttonStyles.ts` - Shared button tones and sizes
 - `src/utils/` - Utilities (incl. `virtualPath.ts` for scope resolution)
+- `src/utils/sessionSecret.ts` - Session-secret creation and cache
+- `src/utils/sessionToken.ts` - Session cookie signing and verification
 - `src/utils/markdown/` - Dependency-free Markdown block / inline parser
 - `tests/` - Tests (auth, auth-config, read, upload, create-file, delete, mkdir, update, rename, move, move-picker, public-route, file-preview, markdown)
 - `tests/helpers/` - `createTestApp.ts`, `auth.ts` and `userStore.ts` helpers
