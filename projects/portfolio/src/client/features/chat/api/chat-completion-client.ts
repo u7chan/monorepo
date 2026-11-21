@@ -8,7 +8,7 @@ import {
 } from '#/client/features/chat/lib/receive-session-events'
 import { readChatError, unknownChatError } from '#/client/shared/lib/chat-error'
 import type { ChatStreamState } from '#/client/shared/lib/chat-stream'
-import { isChatStreamError, parseChatStreamPayload, updateChatStream } from '#/client/shared/lib/chat-stream'
+import { readChatStream } from '#/client/shared/lib/chat-stream-reader'
 import type { AppType } from '#/server/app.d'
 import type { ApiChatMessage, ApiMode, Conversation } from '#/types'
 import type { ChatError, ChatResponse, ChatUsage } from '#/types/chat-api'
@@ -155,7 +155,6 @@ const sendLegacyStreamCompletion = async (
   let finishReason = ''
   let receivedFinish = false
   let usage: ChatUsage | null = null
-  let generationError: ChatError | null = null
 
   const res = await client.api.chat.stream.$post(
     {
@@ -176,42 +175,10 @@ const sendLegacyStreamCompletion = async (
     return { result: null, error: await readChatError(res) }
   }
 
-  const reader = res.body?.getReader()
-  if (!reader) throw new Error('Failed to get reader from response body.')
+  if (!res.body) throw new Error('Failed to get reader from response body.')
 
-  const decoder = new TextDecoder('utf-8')
-  let buffer = ''
-  let running = true
-
-  while (running) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    while (running) {
-      const idx = buffer.indexOf('\n')
-      if (idx === -1) break
-
-      const line = buffer.slice(0, idx).trim()
-      buffer = buffer.slice(idx + 1)
-      if (!line.startsWith('data: ')) continue
-
-      const jsonStr = line.replace(/^data:\s*/, '')
-      if (jsonStr === '[DONE]') {
-        running = false
-        break
-      }
-
-      const payload = parseChatStreamPayload(jsonStr)
-      if (isChatStreamError(payload)) {
-        generationError = payload
-        running = false
-        break
-      }
-
-      const event = payload
-      accumulated = updateChatStream(accumulated, event)
-
+  const read = await readChatStream(res.body, {
+    onEvent: (event, stream) => {
       if (event.event === 'delta') {
         id = event.id
         created = event.created
@@ -225,11 +192,12 @@ const sendLegacyStreamCompletion = async (
         usage = event.usage
       }
 
-      req.onStream?.(accumulated)
-    }
-  }
+      req.onStream?.(stream)
+    },
+  })
+  accumulated = read.state
 
-  if (generationError) return { result: null, error: generationError }
+  if (read.error) return { result: null, error: read.error }
   if (!receivedFinish) return { result: null, error: null }
   if (!hasAssistantOutput(accumulated)) return { result: null, error: null }
 
