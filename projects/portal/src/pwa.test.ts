@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { THEME_COLORS } from "./lib/theme";
 import { staticRoutes } from "./static";
 
 const server = Bun.serve({
@@ -18,7 +19,7 @@ const server = Bun.serve({
 afterAll(() => server.stop(true));
 
 describe("PWA 用の静的アセット", () => {
-  test("manifest はルートから standalone で起動する設定を返す", async () => {
+  test("manifest はルートから standalone で起動し、起動時の色をダークの背景に揃える", async () => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await fetch(new URL("/manifest.webmanifest", server.url));
 
@@ -34,8 +35,8 @@ describe("PWA 用の静的アセット", () => {
         start_url: "/",
         scope: "/",
         display: "standalone",
-        theme_color: "#0a0a0b",
-        background_color: "#0a0a0b",
+        theme_color: THEME_COLORS.dark,
+        background_color: THEME_COLORS.dark,
         icons: [
           { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
           { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
