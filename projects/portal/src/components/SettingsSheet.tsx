@@ -5,6 +5,7 @@
 
 import { useId } from "react";
 import type { ThemePreference } from "../lib/theme";
+import { HostLabel } from "./ContainerCard";
 import { ArrowUpRightIcon, CloseIcon } from "./icons";
 import { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
 import { Sheet } from "./Sheet";
@@ -104,7 +105,9 @@ export function SettingsSheet({
                   aria-label={`Open ${httpsUrl}`}
                   className="inline-flex items-center gap-1 font-mono text-accent"
                 >
-                  {httpsHost}
+                  <span className="min-w-0">
+                    <HostLabel label={httpsHost} />
+                  </span>
                   <ArrowUpRightIcon className="size-4 shrink-0" />
                 </a>
               </InfoRow>

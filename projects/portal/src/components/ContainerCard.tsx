@@ -151,7 +151,7 @@ function PortLink({
  * ホスト名。ピリオドの直後で折り返せるようにして、狭いときも "preview.agent." / "home.arpa"
  * のように意味の切れ目で改行する。単語の途中で切るのは、どこにも切れ目が無いときだけにする。
  */
-function HostLabel({ label }: { label: string }) {
+export function HostLabel({ label }: { label: string }) {
   const parts = label.split(".");
 
   return (

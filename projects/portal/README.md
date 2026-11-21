@@ -173,7 +173,7 @@ docker build -t portal .
 - portal 自身は一覧から除外しているため、portal の更新は従来どおり Manual Deploy を使う
 - タグ一覧は GitHub Packages から取得し、デプロイは self-hosted-runner の `manual-deploy.yml` を `workflow_dispatch` で起動する
 - 各タグにはイメージの作成日時を `YYYY-MM-DD HH:mm:ss`（JST）で表示する。一覧は新しい順に並ぶ。選択中のタグの作成日時は選択欄の下にも出るため、欄が狭くても秒まで読める
-- 選択中のタグが現在のタグより古いビルドなら、`Deploy` の代わりに `Roll back` の確認ポップオーバーを出す。現在のタグが一覧に無い場合（保持世代を超えて消えた等）は比較できないため確認しない
+- 選択中のタグが現在のタグより古いビルドなら、`Deploy` の代わりに `Roll back` の確認シートを出す。現在のタグが一覧に無い場合（保持世代を超えて消えた等）は比較できないため確認しない
 - 成功すると Actions へのリンクを表示する。コンテナの再作成は Actions 側で行う
 
 ホスト側の `.env`（Manual Deploy が読む `ENV_FILE`）に 2 つの token を置く。
