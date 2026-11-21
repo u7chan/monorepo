@@ -7,7 +7,7 @@ import { GLASS } from "./glass";
 import { GridIcon, ListIcon, TrayIcon, WarningIcon } from "./icons";
 import { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
 import { readApiMessage, readStatusError, requestJson } from "../lib/apiClient";
-import { isPortReachable } from "../lib/containerState";
+import { isPortReachable, matchesContainerFilter } from "../lib/containerState";
 
 interface ContainerListProps {
   refreshInterval?: number;
@@ -35,18 +35,6 @@ const VIEW_MODE_OPTIONS: readonly SegmentedOption<ViewMode>[] = [
   { value: "grid", label: <GridIcon className="size-[18px]" />, ariaLabel: "Card view" },
   { value: "list", label: <ListIcon className="size-[18px]" />, ariaLabel: "List view" },
 ];
-
-function matchesFilter(container: Container, filter: ContainerFilter): boolean {
-  if (filter === "running") {
-    return container.state === "running";
-  }
-
-  if (filter === "stopped") {
-    return container.state === "exited" || container.state === "dead";
-  }
-
-  return true;
-}
 
 function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -246,14 +234,14 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
   const counts = useMemo<Record<ContainerFilter, number>>(
     () => ({
       all: state.containers.length,
-      running: state.containers.filter((item) => matchesFilter(item, "running")).length,
-      stopped: state.containers.filter((item) => matchesFilter(item, "stopped")).length,
+      running: state.containers.filter((item) => matchesContainerFilter(item, "running")).length,
+      stopped: state.containers.filter((item) => matchesContainerFilter(item, "stopped")).length,
     }),
     [state.containers],
   );
 
   const visibleContainers = useMemo(
-    () => state.containers.filter((item) => matchesFilter(item, filter)),
+    () => state.containers.filter((item) => matchesContainerFilter(item, filter)),
     [state.containers, filter],
   );
 
