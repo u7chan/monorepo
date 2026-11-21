@@ -100,6 +100,7 @@ adding screens.
 - `src/api/handlers.tsx` - File CRUD API handlers
 - `src/api/moveHandlers.tsx` - Move and move-picker API handlers
 - `src/components/` - JSX components
+- `src/components/admin/` - User management page
 - `src/components/auth/` - Login page and its password toggle
 - `src/components/file-viewer/` - Viewer modal and per-type viewers
 - `src/components/markdown/` - Markdown rendering and the standalone preview page
