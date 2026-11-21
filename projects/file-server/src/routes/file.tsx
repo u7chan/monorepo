@@ -8,6 +8,7 @@ import {
   ACTIVE_CONTENT_PREVIEW_CSP,
   archiveFileName,
   createDirectoryArchive,
+  decodePreviewPath,
   encodeVirtualPath,
   isActiveContent,
   isMarkdownFile,
@@ -27,33 +28,6 @@ import {
 import { toBrowseLocation } from "../utils/virtualPath"
 
 const fileRoutes = new Hono<AppBindings>()
-
-function decodePreviewPath(encodedPath: string): string | null {
-  try {
-    const segments = encodedPath
-      .split("/")
-      .filter(Boolean)
-      .map(decodeURIComponent)
-
-    // Why not keep encoded separators: the segment split happens before
-    // decoding, so `%2f` would turn into a path separator after authorization
-    // looks at the user segment. A filename cannot contain "/" anyway.
-    if (
-      segments.some(
-        (segment) =>
-          segment.includes("/") ||
-          segment.includes("\\") ||
-          segment.includes("\0"),
-      )
-    ) {
-      return null
-    }
-
-    return segments.join("/")
-  } catch {
-    return null
-  }
-}
 
 fileRoutes.get("/", async (c) => {
   const resolved = await resolveRequestedEntry(c, {
