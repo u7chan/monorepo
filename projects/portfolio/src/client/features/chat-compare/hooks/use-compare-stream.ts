@@ -1,7 +1,7 @@
 import { hc } from 'hono/client'
 import { useCallback, useRef } from 'react'
 import { readChatError, unavailableChatError } from '#/client/shared/lib/chat-error'
-import { isChatStreamError, parseChatStreamPayload, updateChatStream } from '#/client/shared/lib/chat-stream'
+import { readChatStream } from '#/client/shared/lib/chat-stream-reader'
 import type { AppType } from '#/server/app.d'
 import type { ApiChatMessage, ChatUsage } from '#/types'
 import type { CompareSettings } from './use-compare-settings'
@@ -143,15 +143,6 @@ async function runModelStream(
   onError: (error: string) => void
 ): Promise<void> {
   const startTime = Date.now()
-  let timedOut = false
-  let idleTimer: ReturnType<typeof setTimeout> | undefined
-
-  const clearIdleTimer = () => {
-    if (idleTimer) {
-      clearTimeout(idleTimer)
-      idleTimer = undefined
-    }
-  }
 
   try {
     const res = await client.api.chat.stream.$post(
@@ -168,101 +159,46 @@ async function runModelStream(
       return
     }
 
-    const reader = res.body?.getReader()
-    if (!reader) {
+    if (!res.body) {
       onError('Failed to get response reader')
       return
     }
 
-    const decoder = new TextDecoder('utf-8')
-    let buffer = ''
-    let accumulated = { content: '', reasoningContent: '' }
     let finishReason = ''
     let usage: ChatUsage | null = null
-    let receivedFinish = false
-    let running = true
 
-    const startIdleTimer = () => {
-      clearIdleTimer()
-      idleTimer = setTimeout(() => {
-        timedOut = true
-        running = false
-        reader.cancel().catch(() => {})
-      }, IDLE_TIMEOUT_MS)
-    }
-
-    startIdleTimer()
-
-    while (running) {
-      const { done, value } = await reader.read()
-
-      clearIdleTimer()
-
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      while (true) {
-        const idx = buffer.indexOf('\n')
-        if (idx === -1) break
-
-        const line = buffer.slice(0, idx).trim()
-        buffer = buffer.slice(idx + 1)
-        if (!line.startsWith('data: ')) continue
-
-        const jsonStr = line.replace(/^data:\s*/, '')
-        if (jsonStr === '[DONE]') {
-          running = false
-          break
+    const read = await readChatStream(res.body, {
+      idleTimeoutMs: IDLE_TIMEOUT_MS,
+      // 比較ストリームは従来、壊れた行を無視して残りのイベントを継続していた。
+      ignoreParseErrors: true,
+      onEvent: (event, stream) => {
+        if (event.event === 'delta') {
+          onContent(stream.content, stream.reasoningContent)
         }
-
-        try {
-          const payload = parseChatStreamPayload(jsonStr)
-          if (isChatStreamError(payload)) {
-            clearIdleTimer()
-            onError(payload.message)
-            return
-          }
-
-          const event = payload
-          accumulated = updateChatStream(accumulated, event)
-
-          if (event.event === 'delta') {
-            onContent(accumulated.content, accumulated.reasoningContent)
-          }
-          if (event.event === 'finish') {
-            finishReason = event.finishReason
-            receivedFinish = true
-          }
-          if (event.event === 'usage') {
-            usage = event.usage
-          }
-        } catch {
-          // パース失敗は無視
+        if (event.event === 'finish') {
+          finishReason = event.finishReason
         }
-      }
+        if (event.event === 'usage') {
+          usage = event.usage
+        }
+      },
+    })
 
-      if (running) {
-        startIdleTimer()
-      }
-    }
-
-    clearIdleTimer()
-
-    if (timedOut) {
+    if (read.idleTimedOut) {
       onError(unavailableChatError().message)
-    } else if (receivedFinish) {
-      const responseTimeMs = Date.now() - startTime
+    } else if (read.error) {
+      onError(read.error.message)
+    } else if (read.receivedFinish) {
       onDone({
         finishReason,
         usage,
-        responseTimeMs,
-        content: accumulated.content,
+        responseTimeMs: Date.now() - startTime,
+        content: read.state.content,
       })
-    } else if (running) {
+    } else if (!read.receivedDone) {
       onError('Stream ended without finish reason')
     }
   } catch (error) {
-    clearIdleTimer()
     if (error instanceof Error && error.name === 'AbortError') return
     onError(unavailableChatError().message)
   }
