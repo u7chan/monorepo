@@ -236,15 +236,17 @@ Service Worker やオフライン対応は追加していないため、起動�
 │   ├── types/
 │   │   └── container.ts      # 型定義
 │   ├── services/
-│   │   ├── docker.ts         # Docker CLIサービス
-│   │   ├── mockData.ts       # モックデータ（Docker不要モード用）
-│   │   └── docker.test.ts    # ユニットテスト
+│   │   ├── docker.ts         # Docker CLI 実行と start / stop の検証
+│   │   ├── dockerParser.ts   # 生 JSON / ポート / portal 自身の判定
+│   │   ├── dockerLabels.ts   # portal.url / portal.hidden / compose project ラベル
+│   │   └── mockData.ts       # モックデータ（Docker不要モード用）
 │   ├── hooks/
 │   │   ├── useConfig.ts      # ホスト名・モックモードの取得
 │   │   ├── useCopy.ts        # コピー完了表示
 │   │   ├── useScrollPast.ts  # 大きいタイトルがバーの下へ隠れたか
 │   │   └── useTheme.ts       # 外観の設定 (<html data-theme> と theme-color)
 │   ├── lib/
+│   │   ├── apiClient.ts      # JSON 応答の解析と API エラーの抽出
 │   │   ├── containerState.ts # 状態→色/操作の判定
 │   │   ├── image.ts          # イメージ参照の解析・表示用の分割
 │   │   ├── ports.ts          # ポートリンクの URL と表示ラベル
