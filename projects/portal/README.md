@@ -216,7 +216,14 @@ Service Worker やオフライン対応は追加していないため、起動�
 ```
 .
 ├── src/
-│   ├── index.ts              # Bun.serve() エントリポイント
+│   ├── index.ts              # Bun.serve() エントリポイント（ルート表と起動）
+│   ├── api/
+│   │   ├── routes.ts         # /api 以下のルート表
+│   │   ├── containers.ts     # コンテナ一覧と start / stop
+│   │   ├── deployments.ts    # タグ一覧とデプロイ起動
+│   │   ├── config.ts         # 接続先とモックモード
+│   │   ├── health.ts         # ヘルスチェック
+│   │   └── responses.ts      # API 共通のエラーレスポンス
 │   ├── index.html            # HTMLテンプレート
 │   ├── frontend.tsx          # Reactエントリ
 │   ├── App.tsx               # ヘッダーとページ骨格
