@@ -2,6 +2,7 @@ import type { ChangeEvent, Dispatch, SetStateAction } from 'react'
 import { useCallback } from 'react'
 import type { Settings } from '#/client/shared/storage/remote-storage-settings'
 import type { ApiMode } from '#/types'
+import { saveMirroredSetting, toggleBooleanSetting } from './settings-handler-factories'
 
 type ReasoningEffortLevel = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 
@@ -103,14 +104,14 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
 
   const handleChangeBaseURL = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      updateSetting('baseURL', event.target.value)
+      saveMirroredSetting(updateSetting, 'baseURL', event.target.value)
     },
     [updateSetting]
   )
 
   const handleChangeApiKey = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      updateSetting('apiKey', event.target.value)
+      saveMirroredSetting(updateSetting, 'apiKey', event.target.value)
     },
     [updateSetting]
   )
@@ -137,21 +138,17 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
   const handleChangeMaxTokens = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const value = event.target.value ? Number.parseFloat(event.target.value) : undefined
-      updateSetting('maxTokens', value)
+      saveMirroredSetting(updateSetting, 'maxTokens', value)
     },
     [updateSetting]
   )
 
   const handleToggleTemperature = useCallback(() => {
-    const newValue = !temperatureEnabled
-    setTemperatureEnabled(newValue)
-    updateSetting('temperatureEnabled', newValue)
+    toggleBooleanSetting(updateSetting, 'temperatureEnabled', temperatureEnabled, setTemperatureEnabled)
   }, [temperatureEnabled, setTemperatureEnabled, updateSetting])
 
   const handleToggleAutoModel = useCallback(() => {
-    const newValue = !autoModel
-    setAutoModel(newValue)
-    updateSetting('autoModel', newValue)
+    toggleBooleanSetting(updateSetting, 'autoModel', autoModel, setAutoModel)
   }, [autoModel, setAutoModel, updateSetting])
 
   const handleToggleFakeMode = useCallback(() => {
@@ -166,33 +163,23 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
   }, [apiMode, fakeMode, setFakeMode, updateSetting])
 
   const handleToggleMarkdownPreview = useCallback(() => {
-    const newValue = !markdownPreview
-    setMarkdownPreview(newValue)
-    updateSetting('markdownPreview', newValue)
+    toggleBooleanSetting(updateSetting, 'markdownPreview', markdownPreview, setMarkdownPreview)
   }, [markdownPreview, setMarkdownPreview, updateSetting])
 
   const handleToggleStreamMode = useCallback(() => {
-    const newValue = !streamMode
-    setStreamMode(newValue)
-    updateSetting('streamMode', newValue)
+    toggleBooleanSetting(updateSetting, 'streamMode', streamMode, setStreamMode)
   }, [streamMode, setStreamMode, updateSetting])
 
   const handleToggleIncludeChatHistory = useCallback(() => {
-    const newValue = !includeChatHistory
-    setIncludeChatHistory(newValue)
-    updateSetting('includeChatHistory', newValue)
+    toggleBooleanSetting(updateSetting, 'includeChatHistory', includeChatHistory, setIncludeChatHistory)
   }, [includeChatHistory, setIncludeChatHistory, updateSetting])
 
   const handleToggleSendImagesOnlyOnce = useCallback(() => {
-    const newValue = !sendImagesOnlyOnce
-    setSendImagesOnlyOnce(newValue)
-    updateSetting('sendImagesOnlyOnce', newValue)
+    toggleBooleanSetting(updateSetting, 'sendImagesOnlyOnce', sendImagesOnlyOnce, setSendImagesOnlyOnce)
   }, [sendImagesOnlyOnce, setSendImagesOnlyOnce, updateSetting])
 
   const handleToggleReasoningEffort = useCallback(() => {
-    const newValue = !reasoningEffortEnabled
-    setReasoningEffortEnabled(newValue)
-    updateSetting('reasoningEffortEnabled', newValue)
+    toggleBooleanSetting(updateSetting, 'reasoningEffortEnabled', reasoningEffortEnabled, setReasoningEffortEnabled)
   }, [reasoningEffortEnabled, setReasoningEffortEnabled, updateSetting])
 
   const handleChangeReasoningEffort = useCallback(
@@ -206,21 +193,21 @@ export function useSettingsHandlers(deps: UseSettingsHandlersDeps): UseSettingsH
 
   const handleChangeImageGenerationModel = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
-      updateSetting('imageGenerationModel', event.target.value)
+      saveMirroredSetting(updateSetting, 'imageGenerationModel', event.target.value)
     },
     [updateSetting]
   )
 
   const handleChangeImageGenerationBaseURL = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      updateSetting('imageGenerationBaseURL', event.target.value)
+      saveMirroredSetting(updateSetting, 'imageGenerationBaseURL', event.target.value)
     },
     [updateSetting]
   )
 
   const handleChangeImageGenerationApiKey = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      updateSetting('imageGenerationApiKey', event.target.value)
+      saveMirroredSetting(updateSetting, 'imageGenerationApiKey', event.target.value)
     },
     [updateSetting]
   )
