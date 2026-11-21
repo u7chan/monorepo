@@ -2,11 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <!-- 描画前に外観を決める。React の起動後に付けると、保存済みの外観と違う色が一瞬映る -->
+    <script>
+      try {
+        var appearance = localStorage.getItem("portal.appearance");
+        if (appearance === "light" || appearance === "dark") {
+          document.documentElement.dataset.theme = appearance;
+        }
+      } catch (error) {}
+    </script>
     <link rel="icon" type="image/svg+xml" href="./logo.svg" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png" />
-    <meta name="theme-color" content="#0a0a0b" />
     <title>Portal</title>
   </head>
   <body>

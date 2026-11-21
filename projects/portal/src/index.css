@@ -5,79 +5,343 @@
  * 「ホバーで出るボタン」が永久に見えなくなる。非表示はホバー端末だけに限定する。 */
 @custom-variant can-hover (@media (hover: hover));
 
-/* 計測器パネルとしてのトーン。色は 1 つ 1 つに役割を持たせる:
- * ink-* は面、line は境界、fg-* は文字、live は「今つながる」以外に使わない。 */
+/* 「透明度を下げる」設定では、ガラス面を不透明に戻す (blur は文字の可読性を下げるため)。 */
+@custom-variant reduced-transparency (@media (prefers-reduced-transparency: reduce));
+
+/* 色は役割で呼ぶ。面は canvas → surface → surface-2 の 3 段、文字は label の 3 段。
+ * accent は「押せる」だけに使い、状態 (live / warn / dead / info) と同じ色を共用しない。
+ * 各トークンは light-dark(ライト, ダーク) の 1 行にまとめ、:root の color-scheme で切り替わる。 */
 @theme {
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
-    "Hiragino Sans", "Noto Sans JP", sans-serif;
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Hiragino Sans", "Noto Sans JP", sans-serif;
   --font-mono:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
-  --color-ink-950: #0a0a0b;
-  --color-ink-900: #101012;
-  --color-ink-850: #161619;
-  --color-ink-800: #1d1d21;
-  --color-ink-700: #26262b;
-  --color-line: #2a2a30;
-  --color-line-strong: #3b3b43;
+  /* iOS の Dynamic Type「Large」の文字スタイル (サイズ / 行送り)。行送りは 1.18 以上を保ち、
+   * overflow: hidden の中でも g や p の下端が切れないようにする。rem なので文字サイズ設定に追従する。 */
+  --text-large-title: min(2.125rem, 44px);
+  --text-large-title--line-height: 1.2;
+  --text-title-2: 1.375rem;
+  --text-title-2--line-height: 1.75rem;
+  --text-title-3: 1.25rem;
+  --text-title-3--line-height: 1.5625rem;
+  --text-headline: 1.0625rem;
+  --text-headline--line-height: 1.375rem;
+  --text-body: 1.0625rem;
+  --text-body--line-height: 1.375rem;
+  --text-callout: 1rem;
+  --text-callout--line-height: 1.3125rem;
+  --text-subhead: 0.9375rem;
+  --text-subhead--line-height: 1.25rem;
+  --text-footnote: 0.8125rem;
+  --text-footnote--line-height: 1.125rem;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  /* セグメントなど、幅が決まったコントロールの文字。文字サイズを大きくしても 17px で止め、
+   * 隣の選択肢と重ならないようにする (タブの文字が際限なく大きくならないのと同じ考え方) */
+  --text-control: min(0.9375rem, 17px);
+  --text-control--line-height: 1.25;
 
-  --color-fg: #f2f2f3;
-  --color-fg-2: #a6a6ae;
-  --color-fg-3: #85858e;
+  --color-canvas: light-dark(#f2f2f7, #000000);
+  --color-surface: light-dark(#ffffff, #1c1c1e);
+  --color-surface-2: light-dark(#f2f2f7, #2c2c2e);
+  --color-sheet: light-dark(#ffffff, #1c1c1e);
+  --color-thumb: light-dark(#ffffff, #636366);
+  --color-fill: light-dark(rgb(120 120 128 / 0.12), rgb(120 120 128 / 0.24));
+  --color-fill-strong: light-dark(rgb(120 120 128 / 0.2), rgb(120 120 128 / 0.36));
+  --color-separator: light-dark(rgb(60 60 67 / 0.29), rgb(84 84 88 / 0.65));
+  --color-glass: light-dark(rgb(249 249 249 / 0.78), rgb(28 28 30 / 0.72));
 
-  --color-live: #5ce49b;
-  --color-warn: #e8b64c;
-  --color-dead: #ef7a72;
-  --color-info: #8cb0f2;
+  --color-label: light-dark(#000000, #ffffff);
+  --color-label-2: light-dark(#5f5f68, #a9a9b0);
+  /* label-3 は 3:1 前後。シェブロンなど、読めなくても意味が失われない装飾にだけ使う */
+  --color-label-3: light-dark(#8a8a90, #6c6c72);
+
+  --color-accent: light-dark(#4a48c9, #a3a1ff);
+  --color-accent-fill: light-dark(#5856d6, #5e5ce6);
+  --color-accent-wash: light-dark(rgb(88 86 214 / 0.1), rgb(125 122 255 / 0.18));
+  --color-accent-wash-strong: light-dark(rgb(88 86 214 / 0.17), rgb(125 122 255 / 0.28));
+
+  /* 状態色。ライトは白地で 4.5:1 以上になる濃い側を、文字とドットで共用する */
+  --color-live: light-dark(#1c7a34, #30d158);
+  --color-warn: light-dark(#a85600, #ff9f0a);
+  --color-dead: light-dark(#d70015, #ff6b60);
+  --color-info: light-dark(#0a6fa0, #64d2ff);
+
+  /* 余白と角丸は文字サイズに連れて大きくしない。大きくすると、拡大した文字の分の幅まで
+   * 余白に食われて、名前や URL が 1 文字ずつ折り返される。文字と、文字を収める高さだけが伸びる */
+  --spacing: 4px;
+  --radius-card: 22px;
+  --radius-tile: 16px;
+  --radius-control: 12px;
+
+  --shadow-card:
+    0 1px 2px light-dark(rgb(0 0 0 / 0.05), rgb(0 0 0 / 0)),
+    0 0 0 0.5px light-dark(rgb(0 0 0 / 0.04), rgb(255 255 255 / 0.05));
+  --shadow-thumb:
+    0 1px 3px light-dark(rgb(0 0 0 / 0.14), rgb(0 0 0 / 0.4)),
+    0 0 0 0.5px light-dark(rgb(0 0 0 / 0.04), rgb(255 255 255 / 0.08));
+  --shadow-float:
+    0 10px 30px light-dark(rgb(0 0 0 / 0.14), rgb(0 0 0 / 0.55)),
+    0 0 0 0.5px light-dark(rgb(0 0 0 / 0.06), rgb(255 255 255 / 0.1));
+  --shadow-sheet:
+    0 24px 64px light-dark(rgb(0 0 0 / 0.24), rgb(0 0 0 / 0.7)),
+    0 0 0 0.5px light-dark(rgb(0 0 0 / 0.06), rgb(255 255 255 / 0.1));
+
+  /* iOS のシートや遷移に近い、終盤をゆっくり止める減速カーブ */
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* 色の切り替え。属性が無いときは端末の設定に従い、<html data-theme> があればそれを優先する。
+ * アプリ内の切り替えを持つのは、端末の設定と別に選びたい人のため。既定は端末に従う。 */
+:root {
+  color-scheme: light dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* 「コントラストを上げる」設定では、弱い文字色と境界線を強める */
+@media (prefers-contrast: more) {
+  :root {
+    --color-label-2: light-dark(#3c3c43, #d1d1d6);
+    --color-separator: light-dark(#3c3c43, #8e8e93);
+    --color-accent: light-dark(#3634a3, #c4c2ff);
+  }
 }
 
 @layer base {
   html {
-    @apply scroll-smooth;
-    color-scheme: dark;
+    background-color: var(--color-canvas);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    scroll-behavior: smooth;
+    /* 固定のバーの下にアンカーやフォーカスが潜り込まないようにする。下は、狭い画面で浮かぶツールバーの分 */
+    scroll-padding-top: 72px;
+    scroll-padding-bottom: calc(96px + env(safe-area-inset-bottom));
+    /* シートを開いて html の overflow を止めても、スクロールバー分の幅が跳ねない */
+    scrollbar-gutter: stable;
+    scrollbar-color: color-mix(in oklab, var(--color-label) 30%, transparent) transparent;
+    scrollbar-width: thin;
   }
 
-  *,
-  ::before,
-  ::after {
-    border-color: var(--color-line);
+  /* ツールバーが画面の流れの中に戻る広い画面では、下の余白は要らない */
+  @media (min-width: 48rem) {
+    html {
+      scroll-padding-bottom: 0;
+    }
+  }
+
+  /* シートが開いている間は背面をスクロールさせない */
+  html:has(dialog[open]) {
+    overflow: hidden;
   }
 
   body {
-    @apply bg-ink-950 font-sans text-fg antialiased;
-    /* 端末の文字サイズ設定を打ち消さない (px 固定のスケールに閉じ込めない) */
+    @apply bg-canvas font-sans text-body text-label antialiased;
+    min-height: 100dvh;
     text-rendering: optimizeLegibility;
   }
 
+  a,
+  button,
+  label,
+  select,
+  summary {
+    /* ダブルタップ拡大の待ち時間を無くす。押下の見た目は各部品の active: で出す */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   :focus-visible {
-    /* 緑は「いま接続できる」専用なので、フォーカスリングは無彩色で出す */
-    outline: 2px solid var(--color-fg);
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
 
   ::selection {
-    background: color-mix(in oklab, var(--color-fg) 22%, transparent);
-    color: var(--color-fg);
+    background: color-mix(in oklab, var(--color-accent-fill) 32%, transparent);
+  }
+}
+
+/* 左右の余白。ノッチのある端末を横向きにしたとき、内容が欠けた角の下へ入らないようにする */
+@utility page-gutter {
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+
+  @media (min-width: 48rem) {
+    padding-left: max(24px, env(safe-area-inset-left));
+    padding-right: max(24px, env(safe-area-inset-right));
+  }
+}
+
+/* 押せる範囲だけを 44pt に広げる。見た目の大きさは変えず、隣の部品の押下を奪わない程度に留める */
+@utility hit-area {
+  position: relative;
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: -6px -3px;
+  }
+}
+
+/* リスト表示の 1 行。狭い画面では「名前 | 停止 / リンク / イメージ | デプロイ」の 3 段、
+ * 広い画面では「名前 + イメージ | リンク | 操作」の 1 行にする。
+ * 要素を 2 回描いて出し分けると、確認シートなどの状態が二重になるため、配置だけを入れ替える。 */
+.list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title stop"
+    "links links"
+    "image image";
+  align-items: center;
+  gap: 10px 8px;
+}
+
+/* デプロイできる行だけ、イメージの右にデプロイを置く。常に置くと、空の列の分だけイメージが狭くなる */
+.list-row[data-can-deploy] {
+  grid-template-areas:
+    "title stop"
+    "links links"
+    "image deploy";
+}
+
+/* 属性付きの上の規則と詳細度を揃えるため、広い画面側にも同じセレクタを並べる */
+@media (min-width: 48rem) {
+  .list-row,
+  .list-row[data-can-deploy] {
+    grid-template-columns: minmax(0, 30%) minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "title links deploy stop"
+      "image links deploy stop";
+    gap: 4px 8px;
+  }
+}
+
+/* シート (dialog)。dialog 自体は画面全体を覆う透明な箱にして、中のパネルだけを描く。
+ * 箱の外 (= 背景) を押したときに event.target が dialog になるため、閉じる判定が単純になる。
+ * 小さい画面は下から、広い画面は中央に出す。 */
+dialog.sheet {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  overflow: visible;
+}
+
+dialog.sheet[open] {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 8px 8px max(8px, env(safe-area-inset-bottom));
+}
+
+@media (min-width: 48rem) {
+  dialog.sheet[open] {
+    align-items: center;
+    padding: 24px;
+  }
+}
+
+dialog.sheet::backdrop {
+  background: rgb(0 0 0 / 0.38);
+}
+
+dialog.sheet[open]::backdrop {
+  animation: sheet-fade-in 300ms var(--ease-ios) both;
+}
+
+dialog.sheet[data-phase="closing"]::backdrop {
+  animation: sheet-fade-out 220ms ease-in both;
+}
+
+.sheet-panel {
+  --sheet-offset: translateY(calc(100% + 16px));
+  width: 100%;
+  max-width: 26rem;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: sheet-in 420ms var(--ease-ios) both;
+}
+
+dialog.sheet[data-phase="closing"] .sheet-panel {
+  animation: sheet-out 220ms ease-in both;
+}
+
+@media (min-width: 48rem) {
+  .sheet-panel {
+    --sheet-offset: scale(0.96);
+  }
+}
+
+/* 動きを減らす設定では、上下の移動を止めてフェードだけにする。
+ * 下の全体ルールは継続時間を 0 に近づけて閉じ処理が即時に走るため、シートだけ短いフェードを残す */
+@media (prefers-reduced-motion: reduce) {
+  .sheet-panel {
+    --sheet-offset: none;
+    animation-duration: 160ms !important;
   }
 
-  ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+  dialog.sheet::backdrop {
+    animation-duration: 160ms !important;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: var(--sheet-offset);
   }
 
-  ::-webkit-scrollbar-track {
-    background: transparent;
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sheet-out {
+  from {
+    opacity: 1;
+    transform: none;
   }
 
-  ::-webkit-scrollbar-thumb {
-    background: var(--color-ink-700);
-    border: 2px solid var(--color-ink-950);
-    border-radius: 999px;
+  to {
+    opacity: 0;
+    transform: var(--sheet-offset);
+  }
+}
+
+@keyframes sheet-fade-in {
+  from {
+    opacity: 0;
   }
 
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--color-line-strong);
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
   }
 }
 

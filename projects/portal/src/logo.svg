@@ -1,48 +1,41 @@
-<!-- Portal logo: a mascot sitting on a stack of shipping containers (original artwork). -->
+<!-- Portal logo: an arched doorway with light spilling through it (original artwork). -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Portal">
   <defs>
     <linearGradient id="pl-tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1d1d21" />
-      <stop offset="1" stop-color="#0d0d0f" />
+      <stop offset="0" stop-color="#8280ff" />
+      <stop offset="1" stop-color="#4340cf" />
     </linearGradient>
-    <radialGradient id="pl-halo" cx="32" cy="32" r="30" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#5ce49b" stop-opacity="0.22" />
-      <stop offset="1" stop-color="#5ce49b" stop-opacity="0" />
+    <radialGradient id="pl-sheen" cx="18" cy="8" r="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
     </radialGradient>
-    <linearGradient id="pl-mascot" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="pl-frame" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff" />
-      <stop offset="1" stop-color="#d7f7e6" />
+      <stop offset="1" stop-color="#dcdbff" />
     </linearGradient>
-    <linearGradient id="pl-container" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#7bf0b3" />
-      <stop offset="1" stop-color="#2f9e68" />
+    <linearGradient id="pl-door" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#27248f" />
+      <stop offset="1" stop-color="#5855e6" />
     </linearGradient>
-    <clipPath id="pl-clip">
-      <rect width="64" height="64" rx="14" />
+    <radialGradient id="pl-glow" cx="32" cy="52" r="13" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95" />
+      <stop offset="0.55" stop-color="#c9c8ff" stop-opacity="0.45" />
+      <stop offset="1" stop-color="#c9c8ff" stop-opacity="0" />
+    </radialGradient>
+    <clipPath id="pl-tile-clip">
+      <rect width="64" height="64" rx="14.4" />
+    </clipPath>
+    <clipPath id="pl-door-clip">
+      <path d="M24.5 52V27.5a7.5 7.5 0 0 1 15 0V52Z" />
     </clipPath>
   </defs>
-  <g clip-path="url(#pl-clip)">
-    <rect width="64" height="64" rx="14" fill="url(#pl-tile)" />
-    <circle cx="32" cy="32" r="30" fill="url(#pl-halo)" />
+  <g clip-path="url(#pl-tile-clip)">
+    <rect width="64" height="64" fill="url(#pl-tile)" />
+    <rect width="64" height="64" fill="url(#pl-sheen)" />
   </g>
-  <rect x="14" y="49" width="36" height="10" rx="2" fill="url(#pl-container)" />
-  <path d="M23 50.5V57.5" stroke="#06301f" stroke-opacity="0.35" stroke-width="1.2" stroke-linecap="round" />
-  <path d="M32 50.5V57.5" stroke="#06301f" stroke-opacity="0.35" stroke-width="1.2" stroke-linecap="round" />
-  <path d="M41 50.5V57.5" stroke="#06301f" stroke-opacity="0.35" stroke-width="1.2" stroke-linecap="round" />
-  <path d="M15.3 50.3H48.7" stroke="#ffffff" stroke-opacity="0.45" stroke-width="1" stroke-linecap="round" />
-  <rect x="14" y="37.5" width="36" height="10" rx="2" fill="url(#pl-container)" />
-  <path d="M23 39V46" stroke="#06301f" stroke-opacity="0.35" stroke-width="1.2" stroke-linecap="round" />
-  <path d="M32 39V46" stroke="#06301f" stroke-opacity="0.35" stroke-width="1.2" stroke-linecap="round" />
-  <path d="M41 39V46" stroke="#06301f" stroke-opacity="0.35" stroke-width="1.2" stroke-linecap="round" />
-  <path d="M15.3 38.8H48.7" stroke="#ffffff" stroke-opacity="0.45" stroke-width="1" stroke-linecap="round" />
-  <path d="M32 16.5V9.9" stroke="#ffffff" stroke-opacity="0.75" stroke-width="1.8" stroke-linecap="round" />
-  <circle cx="32" cy="7.3" r="3" fill="#ffffff" />
-  <rect x="19.5" y="16.5" width="25" height="21" rx="7.5" fill="url(#pl-mascot)" />
-  <rect x="23.1" y="35.9" width="7.2" height="4.6" rx="2.2" fill="url(#pl-mascot)" />
-  <rect x="33.7" y="35.9" width="7.2" height="4.6" rx="2.2" fill="url(#pl-mascot)" />
-  <circle cx="25.4" cy="25.95" r="2.9" fill="#08301f" />
-  <circle cx="24.4" cy="24.85" r="0.95" fill="#ffffff" fill-opacity="0.95" />
-  <circle cx="38.6" cy="25.95" r="2.9" fill="#08301f" />
-  <circle cx="37.6" cy="24.85" r="0.95" fill="#ffffff" fill-opacity="0.95" />
-  <path d="M28.5 32.15a3.8 3.8 0 0 0 7 0" fill="none" stroke="#08301f" stroke-opacity="0.85" stroke-width="1.9" stroke-linecap="round" />
+  <path d="M17 52V27a15 15 0 0 1 30 0v25Z" fill="url(#pl-frame)" />
+  <path d="M24.5 52V27.5a7.5 7.5 0 0 1 15 0V52Z" fill="url(#pl-door)" />
+  <g clip-path="url(#pl-door-clip)">
+    <ellipse cx="32" cy="52" rx="13" ry="14" fill="url(#pl-glow)" />
+  </g>
 </svg>
