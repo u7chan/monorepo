@@ -253,6 +253,11 @@ Service Worker やオフライン対応は追加していないため、起動�
 │   └── components/
 │       ├── AppHeader.tsx     # ナビバー (ガラス) とコンパクトタイトル
 │       ├── ContainerCard.tsx # コンテナカード / リスト行
+│       ├── container/
+│       │   ├── ContainerLinks.tsx        # ポート / URL のタイル
+│       │   ├── ContainerHeading.tsx      # 名前と状態
+│       │   ├── ImageField.tsx            # イメージ名とコピー
+│       │   └── ContainerActionButton.tsx # 起動 / 停止ボタン
 │       ├── ContainerList.tsx # 一覧・絞り込み・表示切替
 │       ├── DeployControl.tsx # イメージタグの選択とデプロイ
 │       ├── Sheet.tsx         # <dialog> によるシート (下から / 中央)

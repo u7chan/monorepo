@@ -5,7 +5,7 @@
 
 import { useId } from "react";
 import type { ThemePreference } from "../lib/theme";
-import { HostLabel } from "./ContainerCard";
+import { HostLabel } from "./container/ContainerLinks";
 import { ArrowUpRightIcon, CloseIcon } from "./icons";
 import { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
 import { Sheet } from "./Sheet";
