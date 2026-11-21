@@ -246,7 +246,7 @@ Service Worker やオフライン対応は追加していないため、起動�
 │   │   ├── useScrollPast.ts  # 大きいタイトルがバーの下へ隠れたか
 │   │   └── useTheme.ts       # 外観の設定 (<html data-theme> と theme-color)
 │   ├── lib/
-│   │   ├── apiClient.ts      # JSON 応答の解析と API エラーの抽出
+│   │   ├── apiClient.ts      # API 呼び出しと JSON 応答 / エラーの共通処理
 │   │   ├── containerState.ts # 状態→色/操作の判定
 │   │   ├── image.ts          # イメージ参照の解析・表示用の分割
 │   │   ├── ports.ts          # ポートリンクの URL と表示ラベル
