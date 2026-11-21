@@ -6,7 +6,7 @@ import { chatSessionManager, isTerminalSessionEvent } from './session-manager'
 
 type SseStream = Parameters<Parameters<typeof streamSSE>[1]>[0]
 
-export interface StreamSessionEventsOptions {
+interface StreamSessionEventsOptions {
   afterEventId?: string
   disconnectGraceMs: number
 }
