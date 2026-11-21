@@ -6,10 +6,10 @@ import type { SaveGeneratedFileRequest } from '#/client/features/chat/components
 import {
   CodeBlockOpenStateContext,
   CodeBlockRenderer,
-  MarkdownLink,
   StreamingCodeBlockContext,
   type CodeBlockOpenChangeHandler,
 } from '#/client/features/chat/components/code-block-renderer'
+import { MarkdownLink } from '#/client/features/chat/components/markdown-link'
 import { MessageRenderer } from '#/client/features/chat/components/message-renderer'
 import { ReasoningSection } from '#/client/features/chat/components/reasoning-section'
 import { ChatbotIcon } from '#/client/shared/icons/chatbot-icon'

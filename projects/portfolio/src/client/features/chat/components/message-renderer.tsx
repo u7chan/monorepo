@@ -12,11 +12,11 @@ import {
 import { ChatResults } from '#/client/features/chat/components/chat-results'
 import {
   CodeBlockOpenStateContext,
-  MarkdownLink,
   type CodeBlockOpenBlocks,
   type CodeBlockOpenChangeHandler,
 } from '#/client/features/chat/components/code-block-renderer'
 import { ImageAssetPreview } from '#/client/features/chat/components/image-asset-preview'
+import { MarkdownLink } from '#/client/features/chat/components/markdown-link'
 import { ReasoningSection } from '#/client/features/chat/components/reasoning-section'
 import { getUserMessageText } from '#/client/features/chat/lib/edit-message'
 import { IconButton } from '#/client/shared/components/icon-button/icon-button'
