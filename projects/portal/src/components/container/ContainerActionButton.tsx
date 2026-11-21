@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { getContainerAction, type ContainerAction } from "../../lib/containerState";
 import type { Container } from "../../types/container";
-import type { ContainerCardProps } from "../ContainerCard";
 import { ConfirmSheet } from "../ConfirmSheet";
 import { PlayIcon, StopIcon } from "../icons";
 
@@ -88,7 +87,17 @@ function ContainerActionButton({
   );
 }
 
-export function ContainerActionSlot({ container, pendingAction, onAction }: ContainerCardProps) {
+interface ContainerActionSlotProps {
+  container: Container;
+  pendingAction?: ContainerAction | null;
+  onAction?: (container: Container, action: ContainerAction) => void;
+}
+
+export function ContainerActionSlot({
+  container,
+  pendingAction,
+  onAction,
+}: ContainerActionSlotProps) {
   const action = getContainerAction(container.state);
 
   if (!action || !onAction) {

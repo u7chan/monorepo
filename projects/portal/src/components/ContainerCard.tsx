@@ -12,6 +12,7 @@ import { ImageField } from "./container/ImageField";
 import { DeployButton, DeployPanel } from "./DeployControl";
 
 export type { ContainerAction };
+export { HostLabel } from "./container/ContainerLinks";
 
 export interface ContainerCardProps {
   container: Container;
