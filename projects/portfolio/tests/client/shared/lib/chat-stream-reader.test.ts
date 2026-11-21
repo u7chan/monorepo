@@ -3,7 +3,10 @@ import { readChatStream } from '#/client/shared/lib/chat-stream-reader'
 
 const encoder = new TextEncoder()
 
-const createStream = (chunks: string[], { stallAfter }: { stallAfter?: number } = {}) =>
+const createStream = (
+  chunks: string[],
+  { stallAfter, cancel = async () => {} }: { stallAfter?: number; cancel?: () => Promise<void> } = {}
+) =>
   ({
     getReader: () => {
       let index = 0
@@ -20,7 +23,7 @@ const createStream = (chunks: string[], { stallAfter }: { stallAfter?: number } 
 
           return { done: false, value: encoder.encode(chunks[index++]) }
         },
-        cancel: async () => {},
+        cancel,
       }
     },
   }) as unknown as ReadableStream<Uint8Array>
@@ -30,6 +33,8 @@ const deltaEvent = (content: string) =>
 
 const finishEvent = () =>
   `data: ${JSON.stringify({ id: 'evt-2', created: 1, model: 'model-a', event: 'finish', finishReason: 'stop' })}\n`
+
+const brokenEvent = () => 'data: {"id":"evt-1","event":"delta","content":\n'
 
 describe('readChatStream', () => {
   afterEach(() => {
@@ -70,9 +75,26 @@ describe('readChatStream', () => {
     expect(onEvent).toHaveBeenCalledTimes(1)
   })
 
-  it('idleTimeoutMs を過ぎて応答が止まると idleTimedOut を返す', async () => {
+  it('壊れた data 行は既定で例外として呼び出し側へ伝える', async () => {
+    const stream = createStream([brokenEvent(), finishEvent(), 'data: [DONE]\n'])
+
+    await expect(readChatStream(stream)).rejects.toThrow()
+  })
+
+  it('ignoreParseErrors が真なら壊れた行を飛ばして後続を読む', async () => {
+    const stream = createStream([brokenEvent(), deltaEvent('ok'), finishEvent(), 'data: [DONE]\n'])
+
+    const result = await readChatStream(stream, { ignoreParseErrors: true })
+
+    expect(result.state.content).toBe('ok')
+    expect(result.receivedFinish).toBe(true)
+    expect(result.error).toBeNull()
+  })
+
+  it('idleTimeoutMs を過ぎて応答が止まると cancel の完了を待たずに idleTimedOut を返す', async () => {
     vi.useFakeTimers()
-    const stream = createStream([deltaEvent('tick')], { stallAfter: 1 })
+    const pendingCancel = vi.fn(() => new Promise<void>(() => {}))
+    const stream = createStream([deltaEvent('tick')], { stallAfter: 1, cancel: pendingCancel })
 
     const promise = readChatStream(stream, { idleTimeoutMs: 30_000 })
     await vi.advanceTimersByTimeAsync(30_000)
@@ -80,5 +102,6 @@ describe('readChatStream', () => {
 
     expect(result.idleTimedOut).toBe(true)
     expect(result.state.content).toBe('tick')
+    expect(pendingCancel).toHaveBeenCalledTimes(1)
   })
 })

@@ -13,6 +13,8 @@ export interface ChatStreamReadResult {
 
 export interface ReadChatStreamOptions {
   idleTimeoutMs?: number
+  /** 壊れた `data:` 行を無視する。従来ストリームは例外として呼び出し側へ渡していたため既定は false。 */
+  ignoreParseErrors?: boolean
   onEvent?: (event: ChatStreamEvent, state: ChatStreamState) => void
 }
 
@@ -22,7 +24,7 @@ export interface ReadChatStreamOptions {
  */
 export async function readChatStream(
   body: ReadableStream<Uint8Array>,
-  { idleTimeoutMs = 0, onEvent }: ReadChatStreamOptions = {}
+  { idleTimeoutMs = 0, ignoreParseErrors = false, onEvent }: ReadChatStreamOptions = {}
 ): Promise<ChatStreamReadResult> {
   const reader = body.getReader()
   const decoder = new TextDecoder('utf-8')
@@ -66,7 +68,9 @@ export async function readChatStream(
 
       if (read === IDLE_TIMEOUT) {
         result.idleTimedOut = true
-        await reader.cancel().catch(() => undefined)
+        // cancel の完了を待つと、underlying source の cancel が pending のままのストリームでここが固まる。
+        // タイムアウトは呼び出し側へ返すべき結果なので、片付けは投げっ放しにする。
+        void reader.cancel().catch(() => undefined)
         break
       }
 
@@ -81,7 +85,7 @@ export async function readChatStream(
 
         const line = buffer.slice(0, index).trim()
         buffer = buffer.slice(index + 1)
-        finished = consumeDataLine(line, result, onEvent)
+        finished = consumeDataLine(line, result, ignoreParseErrors, onEvent)
       }
 
       if (finished) break
@@ -96,6 +100,7 @@ export async function readChatStream(
 function consumeDataLine(
   line: string,
   result: ChatStreamReadResult,
+  ignoreParseErrors: boolean,
   onEvent: ReadChatStreamOptions['onEvent']
 ): boolean {
   if (!line.startsWith('data: ')) return false
@@ -109,8 +114,9 @@ function consumeDataLine(
   let event: ChatStreamEvent | ChatError
   try {
     event = parseChatStreamPayload(payload)
-  } catch {
-    return false
+  } catch (error) {
+    if (ignoreParseErrors) return false
+    throw error
   }
 
   if (isChatStreamError(event)) {

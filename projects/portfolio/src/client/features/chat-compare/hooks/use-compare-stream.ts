@@ -169,6 +169,8 @@ async function runModelStream(
 
     const read = await readChatStream(res.body, {
       idleTimeoutMs: IDLE_TIMEOUT_MS,
+      // 比較ストリームは従来、壊れた行を無視して残りのイベントを継続していた。
+      ignoreParseErrors: true,
       onEvent: (event, stream) => {
         if (event.event === 'delta') {
           onContent(stream.content, stream.reasoningContent)
