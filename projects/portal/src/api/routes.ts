@@ -23,7 +23,7 @@ export const apiRoutes = {
     GET: (req) => getDeployOptions(req, req.params),
   },
   "/api/deployments": {
-    POST: postDeployment,
+    POST: (req) => postDeployment(req),
   },
   "/api/hello": {
     GET: getHello,

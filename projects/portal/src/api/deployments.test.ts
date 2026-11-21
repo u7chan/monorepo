@@ -1,22 +1,16 @@
 // デプロイ API の対象判定・リクエスト解釈・レスポンス契約のユニットテスト
 
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { DEPLOY_WORKFLOW_URL } from "../services/github";
 import { mockImageTags } from "../services/mockData";
 import type { Container } from "../types/container";
-
-const containers: Container[] = [];
-
-mock.module("../services/docker", () => ({
-  fetchContainers: async () => containers,
-}));
-
-const { findDeployTarget, getDeployOptions, parseDeploymentRequest, postDeployment } =
-  await import("./deployments");
-
-afterAll(() => {
-  mock.restore();
-});
+import {
+  findDeployTarget,
+  getDeployOptions,
+  parseDeploymentRequest,
+  postDeployment,
+  type ContainerLoader,
+} from "./deployments";
 
 function container(overrides: Partial<Container> = {}): Container {
   return {
@@ -30,8 +24,8 @@ function container(overrides: Partial<Container> = {}): Container {
   };
 }
 
-function resetContainers(...items: Container[]): void {
-  containers.splice(0, containers.length, ...items);
+function loaderFor(...items: Container[]): ContainerLoader {
+  return async () => items;
 }
 
 async function withMockMode<T>(run: () => Promise<T>): Promise<T> {
@@ -48,22 +42,26 @@ async function withMockMode<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-function deployOptionsRequest(id: string): Promise<Response> {
+function deployOptionsRequest(id: string, loadContainers: ContainerLoader): Promise<Response> {
   return getDeployOptions(
     new Request(`http://portal.example/api/containers/${id}/deploy-options`),
-    {
-      id,
-    },
+    { id },
+    loadContainers,
   );
 }
 
-function deploymentRequest(containerId: string, tag = "sha-7654321"): Promise<Response> {
+function deploymentRequest(
+  containerId: string,
+  loadContainers: ContainerLoader,
+  tag = "sha-7654321",
+): Promise<Response> {
   return postDeployment(
     new Request("http://portal.example/api/deployments", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ containerId, tag }),
     }),
+    loadContainers,
   );
 }
 
@@ -117,18 +115,17 @@ describe("findDeployTarget", () => {
 
 describe("getDeployOptions", () => {
   test("未知のコンテナは 404 Container not found", async () => {
-    resetContainers(container());
-
-    const response = await deployOptionsRequest("missing");
+    const response = await deployOptionsRequest("missing", loaderFor(container()));
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "Container not found" });
   });
 
   test("デプロイ非対応のコンテナは 409 でコンテナ向けの文言を返す", async () => {
-    resetContainers(container({ canDeploy: false, deployTarget: "app" }));
-
-    const response = await deployOptionsRequest("abc123");
+    const response = await deployOptionsRequest(
+      "abc123",
+      loaderFor(container({ canDeploy: false, deployTarget: "app" })),
+    );
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
@@ -137,9 +134,10 @@ describe("getDeployOptions", () => {
   });
 
   test("monorepo 外のイメージは 409 でイメージ向けの文言を返す", async () => {
-    resetContainers(container({ canDeploy: true, deployTarget: "app", image: "nginx:alpine" }));
-
-    const response = await deployOptionsRequest("abc123");
+    const response = await deployOptionsRequest(
+      "abc123",
+      loaderFor(container({ canDeploy: true, deployTarget: "app", image: "nginx:alpine" })),
+    );
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
@@ -148,10 +146,10 @@ describe("getDeployOptions", () => {
   });
 
   test("デプロイ可能なら 200 でタグ一覧を返す", async () => {
-    resetContainers(container({ canDeploy: true, deployTarget: "app" }));
+    const loadContainers = loaderFor(container({ canDeploy: true, deployTarget: "app" }));
 
     await withMockMode(async () => {
-      const response = await deployOptionsRequest("abc123");
+      const response = await deployOptionsRequest("abc123", loadContainers);
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({
@@ -274,18 +272,17 @@ describe("postDeployment", () => {
   });
 
   test("未知のコンテナは 404 Container not found", async () => {
-    resetContainers(container());
-
-    const response = await deploymentRequest("missing");
+    const response = await deploymentRequest("missing", loaderFor(container()));
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "Container not found" });
   });
 
   test("デプロイ非対応のコンテナは 409 を返す", async () => {
-    resetContainers(container({ canDeploy: false, deployTarget: "app" }));
-
-    const response = await deploymentRequest("abc123");
+    const response = await deploymentRequest(
+      "abc123",
+      loaderFor(container({ canDeploy: false, deployTarget: "app" })),
+    );
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
@@ -294,9 +291,10 @@ describe("postDeployment", () => {
   });
 
   test("monorepo 外のイメージは 409 でコンテナ向けの文言を返す", async () => {
-    resetContainers(container({ canDeploy: true, deployTarget: "app", image: "nginx:alpine" }));
-
-    const response = await deploymentRequest("abc123");
+    const response = await deploymentRequest(
+      "abc123",
+      loaderFor(container({ canDeploy: true, deployTarget: "app", image: "nginx:alpine" })),
+    );
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
@@ -305,10 +303,10 @@ describe("postDeployment", () => {
   });
 
   test("デプロイ可能なら 202 で workflow URL を返す", async () => {
-    resetContainers(container({ canDeploy: true, deployTarget: "app" }));
+    const loadContainers = loaderFor(container({ canDeploy: true, deployTarget: "app" }));
 
     await withMockMode(async () => {
-      const response = await deploymentRequest("abc123");
+      const response = await deploymentRequest("abc123", loadContainers);
 
       expect(response.status).toBe(202);
       expect(await response.json()).toEqual({

@@ -6,6 +6,8 @@ import { isMockMode, mockImageTags } from "../services/mockData";
 import type { Container } from "../types/container";
 import { crossOriginResponse, deployErrorResponse } from "./responses";
 
+export type ContainerLoader = () => Promise<Container[]>;
+
 export type DeployTargetLookup =
   | { kind: "not-found" }
   | { kind: "container-not-deployable" }
@@ -33,9 +35,14 @@ export function findDeployTarget(
   return { kind: "ready", container, deployTarget: container.deployTarget, project };
 }
 
-async function lookupDeployTarget(containerId: string): Promise<DeployTargetLookup> {
-  return findDeployTarget(await fetchContainers(true), containerId);
+async function lookupDeployTarget(
+  containerId: string,
+  loadContainers: ContainerLoader,
+): Promise<DeployTargetLookup> {
+  return findDeployTarget(await loadContainers(), containerId);
 }
+
+const loadAllContainers: ContainerLoader = () => fetchContainers(true);
 
 export interface DeployOptionsParams {
   id: string;
@@ -44,9 +51,10 @@ export interface DeployOptionsParams {
 export async function getDeployOptions(
   _req: Request,
   params: DeployOptionsParams,
+  loadContainers: ContainerLoader = loadAllContainers,
 ): Promise<Response> {
   try {
-    const lookup = await lookupDeployTarget(params.id);
+    const lookup = await lookupDeployTarget(params.id, loadContainers);
 
     if (lookup.kind === "not-found") {
       return Response.json({ error: "Container not found" }, { status: 404 });
@@ -109,7 +117,10 @@ export function parseDeploymentRequest(body: unknown): DeploymentRequestParseRes
   return { ok: true, request: { containerId, tag } };
 }
 
-export async function postDeployment(req: Request): Promise<Response> {
+export async function postDeployment(
+  req: Request,
+  loadContainers: ContainerLoader = loadAllContainers,
+): Promise<Response> {
   if (!isSameOriginRequest(req)) {
     return crossOriginResponse();
   }
@@ -132,7 +143,7 @@ export async function postDeployment(req: Request): Promise<Response> {
   const { containerId, tag } = parsed.request;
 
   try {
-    const lookup = await lookupDeployTarget(containerId);
+    const lookup = await lookupDeployTarget(containerId, loadContainers);
 
     if (lookup.kind === "not-found") {
       return Response.json({ error: "Container not found" }, { status: 404 });
