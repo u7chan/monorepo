@@ -7,7 +7,8 @@ import { validator } from 'hono/validator'
 import { z } from 'zod'
 import { resolveFileServerConfig } from '#/server/features/chat-conversations/file-server-client'
 import { saveGeneratedImage } from '#/server/features/chat-conversations/save-generated-image'
-import { chatSessionManager, isTerminalSessionEvent } from '#/server/features/chat-sessions/session-manager'
+import { chatSessionManager } from '#/server/features/chat-sessions/session-manager'
+import { streamSessionEvents } from '#/server/features/chat-sessions/stream-events'
 import { chatStub } from '#/server/features/chat-stub/chat-stub'
 import { chat } from '#/server/features/chat/chat'
 import { convertCompletion, convertStreamChunks } from '#/server/features/chat/converter'
@@ -31,12 +32,7 @@ import { logger } from '#/server/lib/logger'
 import { UpstreamBaseUrlSchema } from '#/server/lib/upstream-base-url'
 import { requireAuth } from '#/server/middleware/auth'
 import { ApiChatMessageSchema, type ApiMode } from '#/types'
-import {
-  ChatApiRequestSchema,
-  ChatSessionStartRequestSchema,
-  type ChatApiRequest,
-  type ChatSessionEvent,
-} from '#/types/chat-api'
+import { ChatApiRequestSchema, ChatSessionStartRequestSchema, type ChatApiRequest } from '#/types/chat-api'
 import { ImageGenerationRequestSchema } from '#/types/image-generation-api'
 import type { HonoEnv } from './shared'
 import { getServerEnv } from './shared'
@@ -157,17 +153,6 @@ function getChatSessionTtlSeconds(c: Parameters<typeof getServerEnv>[0]): number
 function getChatDisconnectGraceMs(c: Parameters<typeof getServerEnv>[0]): number {
   const value = Number(getServerEnv(c).CHAT_DISCONNECT_GRACE_MS)
   return Number.isFinite(value) && value >= 0 ? value : 30_000
-}
-
-async function writeSessionEvent(
-  stream: Parameters<Parameters<typeof streamSSE>[1]>[0],
-  event: ChatSessionEvent
-): Promise<void> {
-  await stream.writeSSE({
-    id: event.id,
-    event: event.type,
-    data: JSON.stringify(event),
-  })
 }
 
 const streamStubCompletion = (
@@ -439,66 +424,9 @@ const chatRoutes = new Hono<HonoEnv>()
       return c.json(validationError('Session not found'), 404)
     }
 
-    const afterEventId = c.req.header('Last-Event-ID') || c.req.query('afterEventId') || undefined
-    const disconnectGraceMs = getChatDisconnectGraceMs(c)
-
-    return streamSSE(c, async (stream) => {
-      let closed = false
-      let unsubscribe: (() => void) | null = null
-
-      const close = () => {
-        if (closed) return
-        closed = true
-        unsubscribe?.()
-        chatSessionManager.scheduleDisconnectGrace(sessionId, disconnectGraceMs)
-      }
-
-      stream.onAbort(close)
-
-      let lastEventId = afterEventId
-      const replayEvents = async () => {
-        for (const event of await chatSessionManager.readEvents(sessionId, lastEventId)) {
-          await writeSessionEvent(stream, event)
-          lastEventId = event.id
-          if (isTerminalSessionEvent(event)) {
-            close()
-            return true
-          }
-        }
-        return false
-      }
-
-      if (await replayEvents()) return
-
-      if ((await chatSessionManager.getSession(sessionId))?.status !== 'running') {
-        if (await replayEvents()) return
-        close()
-        return
-      }
-
-      await new Promise<void>((resolve, reject) => {
-        void chatSessionManager
-          .subscribe(sessionId, (event) => {
-            void writeSessionEvent(stream, event).then(() => {
-              lastEventId = event.id
-              if (isTerminalSessionEvent(event)) {
-                close()
-                resolve()
-              }
-            })
-          })
-          .then((nextUnsubscribe) => {
-            unsubscribe = nextUnsubscribe
-            void replayEvents().then((isTerminal) => {
-              if (isTerminal) {
-                resolve()
-              }
-            }, reject)
-          })
-          .catch(reject)
-      })
-
-      close()
+    return streamSessionEvents(c, sessionId, {
+      afterEventId: c.req.header('Last-Event-ID') || c.req.query('afterEventId') || undefined,
+      disconnectGraceMs: getChatDisconnectGraceMs(c),
     })
   })
   .post('/api/chat/sessions/:sessionId/cancel', requireAuth, async (c) => {
