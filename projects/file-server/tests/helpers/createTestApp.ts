@@ -6,7 +6,7 @@ import type { AppBindings } from "../../src/types"
 import {
   getSessionSecretFilePath,
   resetSessionSecretCacheForTests,
-} from "../../src/utils/auth"
+} from "../../src/utils/sessionSecret"
 import { resetUsersCacheForTests } from "../../src/utils/userConfigCache"
 import { type PlainUser, writeUsersFile } from "./userStore"
 

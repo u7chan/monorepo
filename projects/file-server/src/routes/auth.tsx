@@ -3,16 +3,14 @@ import { deleteCookie, setCookie } from "hono/cookie"
 import { LoginPage } from "../components/auth/LoginPage"
 import { PageShell } from "../components/PageShell"
 import type { AppBindings } from "../types"
+import { findUser, normalizeReturnTo, verifyPassword } from "../utils/auth"
+import { errorResponse, getAuthConfig } from "../utils/requestUtils"
+import { loadSessionSecretWithCache } from "../utils/sessionSecret"
 import {
-  findUser,
-  loadSessionSecretWithCache,
-  normalizeReturnTo,
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
   signSession,
-  verifyPassword,
-} from "../utils/auth"
-import { errorResponse, getAuthConfig } from "../utils/requestUtils"
+} from "../utils/sessionToken"
 import { loadUsersFromFileWithCache } from "../utils/userConfigCache"
 
 const authRoutes = new Hono<AppBindings>()

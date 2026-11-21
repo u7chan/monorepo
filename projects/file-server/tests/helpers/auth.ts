@@ -1,4 +1,4 @@
-import { SESSION_COOKIE_NAME, signSession } from "../../src/utils/auth"
+import { SESSION_COOKIE_NAME, signSession } from "../../src/utils/sessionToken"
 
 export interface TestSession {
   cookie: string

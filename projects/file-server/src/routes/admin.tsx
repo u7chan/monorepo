@@ -6,11 +6,7 @@ import type { AppBindings, UserConfig } from "../types"
 import {
   hashPassword,
   isValidUsername,
-  loadSessionSecretWithCache,
   MASTER_ADMIN_USERNAME,
-  SESSION_COOKIE_NAME,
-  SESSION_MAX_AGE_SECONDS,
-  signSession,
   verifyPassword,
 } from "../utils/auth"
 import {
@@ -18,6 +14,12 @@ import {
   getAuthenticatedUser,
   getUser,
 } from "../utils/requestUtils"
+import { loadSessionSecretWithCache } from "../utils/sessionSecret"
+import {
+  SESSION_COOKIE_NAME,
+  SESSION_MAX_AGE_SECONDS,
+  signSession,
+} from "../utils/sessionToken"
 import {
   loadUsersFromFileWithCache,
   saveUsersToFile,
