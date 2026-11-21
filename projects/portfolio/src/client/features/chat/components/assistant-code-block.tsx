@@ -3,8 +3,8 @@ import {
   CodeBlockGenerateButton,
   CodeBlockPreviewButton,
   CodeBlockPreviewLink,
-  CodeBlockRenderer,
-} from '#/client/features/chat/components/code-block-renderer'
+} from '#/client/features/chat/components/code-block-buttons'
+import { CodeBlockRenderer } from '#/client/features/chat/components/code-block-renderer'
 import type { GeneratedCodeFile } from '#/types'
 
 export type SaveGeneratedFileRequest = {
