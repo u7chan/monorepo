@@ -44,10 +44,12 @@ export async function createTestApp(
 
   applyEnv({
     UPLOAD_DIR: options.uploadDir,
-    AUTH_DIR: authDir,
+    // Why not pass these two through: the old code treated "" as absent, and a
+    // leftover empty INITIAL_ADMIN_PASSWORD would bootstrap a blank password.
+    AUTH_DIR: authDir || undefined,
     USERS_FILE: undefined,
     SESSION_SECRET: undefined,
-    INITIAL_ADMIN_PASSWORD: options.initialAdminPassword,
+    INITIAL_ADMIN_PASSWORD: options.initialAdminPassword || undefined,
   })
 
   resetUsersCacheForTests()
