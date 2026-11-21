@@ -18,6 +18,21 @@ export interface TestAppOptions {
   seedUsers?: PlainUser[]
 }
 
+/**
+ * Why not delete only the variables this call sets: a previous test file may
+ * have left AUTH_DIR or INITIAL_ADMIN_PASSWORD behind, so each call writes
+ * every variable the app reads, using undefined to delete it.
+ */
+function applyEnv(values: Record<string, string | undefined>): void {
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
+}
+
 export async function createTestApp(
   options: TestAppOptions,
 ): Promise<Hono<AppBindings>> {
@@ -27,19 +42,15 @@ export async function createTestApp(
       ? path.join(options.uploadDir, ".auth")
       : undefined)
 
-  process.env.UPLOAD_DIR = options.uploadDir
-  if (authDir) {
-    process.env.AUTH_DIR = authDir
-  } else {
-    delete process.env.AUTH_DIR
-  }
-  delete process.env.USERS_FILE
-  delete process.env.SESSION_SECRET
-  if (options.initialAdminPassword) {
-    process.env.INITIAL_ADMIN_PASSWORD = options.initialAdminPassword
-  } else {
-    delete process.env.INITIAL_ADMIN_PASSWORD
-  }
+  applyEnv({
+    UPLOAD_DIR: options.uploadDir,
+    // Why not pass these two through: the old code treated "" as absent, and a
+    // leftover empty INITIAL_ADMIN_PASSWORD would bootstrap a blank password.
+    AUTH_DIR: authDir || undefined,
+    USERS_FILE: undefined,
+    SESSION_SECRET: undefined,
+    INITIAL_ADMIN_PASSWORD: options.initialAdminPassword || undefined,
+  })
 
   resetUsersCacheForTests()
   resetSessionSecretCacheForTests()
