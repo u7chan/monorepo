@@ -10,6 +10,7 @@ import {
   resolveChatRequestSettings,
 } from '#/client/features/chat/lib/chat-message-factory'
 import { validateChatSettings } from '#/client/features/chat/lib/chat-settings-validation'
+import { beginChatTurn, completeChatTurn } from '#/client/features/chat/lib/chat-turn'
 import {
   buildEditedHistory,
   buildEditedSendMessages,
@@ -109,17 +110,15 @@ export function useChatActions({
         messages.length === 0
           ? [...(params.systemMessage ? [params.systemMessage] : []), params.draftUserMessage]
           : [...messages, params.draftUserMessage]
-      const assistantMessageId = uuidv7()
-      const currentConversationId = conversationId || uuidv7()
-      const draftConversation = {
-        id: currentConversationId,
+      const { assistantMessageId, draftConversation } = beginChatTurn({
+        conversationId,
         title: createConversationTitle(params.draftUserMessage.content),
         messages: nextMessages,
-      }
-      markSessionOwnedSnapshot(draftConversation)
-      setConversationId(currentConversationId)
-      setMessages(nextMessages)
-      setStreamMessageId(assistantMessageId)
+        markSessionOwnedSnapshot,
+        setConversationId,
+        setMessages,
+        setStreamMessageId,
+      })
       resetAfterSubmit()
 
       submitChatCompletion({
@@ -155,27 +154,17 @@ export function useChatActions({
             : null
 
           const finalMessages: Message[] = assistantMessage ? [...nextMessages, assistantMessage] : nextMessages
-          markSessionOwnedSnapshot({
-            id: currentConversationId,
-            messages: finalMessages,
-          })
-          setMessages(finalMessages)
 
-          setIsSavingConversation(true)
-          try {
-            const completedConversation = {
-              id: currentConversationId,
-              title: createConversationTitle(params.draftUserMessage.content),
-              messages: finalMessages,
-            }
-            if (settings.streamMode) {
-              await onSessionCompleted?.(completedConversation)
-            } else {
-              await onConversationChange?.(completedConversation)
-            }
-          } finally {
-            setIsSavingConversation(false)
-          }
+          await completeChatTurn({
+            conversation: draftConversation,
+            messages: finalMessages,
+            useSessionCompletion: settings.streamMode,
+            markSessionOwnedSnapshot,
+            setMessages,
+            setIsSavingConversation,
+            onConversationChange,
+            onSessionCompleted,
+          })
         })
         .catch(() => {
           setGenerationError(unknownChatError())
@@ -229,8 +218,6 @@ export function useChatActions({
       return
     }
 
-    const assistantMessageId = uuidv7()
-    const currentConversationId = conversationId || uuidv7()
     const draftUserMessage: Message = {
       id: uuidv7(),
       role: 'user',
@@ -241,17 +228,17 @@ export function useChatActions({
       },
     }
     const nextMessages = [...messages, draftUserMessage]
-    const draftConversation = {
-      id: currentConversationId,
-      title: createConversationTitle(draftUserMessage.content),
-      messages: nextMessages,
-    }
 
     setGenerationError(null)
-    markSessionOwnedSnapshot(draftConversation)
-    setConversationId(currentConversationId)
-    setMessages(nextMessages)
-    setStreamMessageId(assistantMessageId)
+    const { assistantMessageId, draftConversation } = beginChatTurn({
+      conversationId,
+      title: createConversationTitle(draftUserMessage.content),
+      messages: nextMessages,
+      markSessionOwnedSnapshot,
+      setConversationId,
+      setMessages,
+      setStreamMessageId,
+    })
     resetAfterSubmit()
 
     try {
@@ -262,7 +249,7 @@ export function useChatActions({
         },
         model: imageGenerationModel,
         prompt: prompt.prompt,
-        conversationId: currentConversationId,
+        conversationId: draftConversation.id,
         assistantMessageId,
       })
 
@@ -277,20 +264,16 @@ export function useChatActions({
         responseTimeMs,
       })
       const finalMessages = [...nextMessages, assistantMessage]
-      const completedConversation = {
-        id: currentConversationId,
-        title: createConversationTitle(draftUserMessage.content),
-        messages: finalMessages,
-      }
-      markSessionOwnedSnapshot(completedConversation)
-      setMessages(finalMessages)
 
-      setIsSavingConversation(true)
-      try {
-        await onConversationChange?.(completedConversation)
-      } finally {
-        setIsSavingConversation(false)
-      }
+      await completeChatTurn({
+        conversation: draftConversation,
+        messages: finalMessages,
+        useSessionCompletion: false,
+        markSessionOwnedSnapshot,
+        setMessages,
+        setIsSavingConversation,
+        onConversationChange,
+      })
     } catch {
       setGenerationError(unknownChatError())
     } finally {
@@ -370,23 +353,20 @@ export function useChatActions({
         return
       }
 
-      const assistantMessageId = uuidv7()
       setGenerationError(null)
       const sendMessages = buildEditedSendMessages(editedMessages, editedUserMessage.id, settings.includeChatHistory)
       const apiMessages = prepareApiMessages(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
       const imageContext = summarizeImageContext(sendMessages, editedUserMessage.id, settings.sendImagesOnlyOnce)
       const requestSettings = resolveChatRequestSettings(settings)
-      const draftConversationId = conversationId || uuidv7()
-      const title = currentConversation?.title ?? createConversationTitle(nextText.trim())
-      const draftConversation = {
-        id: draftConversationId,
-        title,
+      const { assistantMessageId, draftConversation } = beginChatTurn({
+        conversationId,
+        title: currentConversation?.title ?? createConversationTitle(nextText.trim()),
         messages: editedMessages,
-      }
-      markSessionOwnedSnapshot(draftConversation)
-      setConversationId(draftConversationId)
-      setMessages(editedMessages)
-      setStreamMessageId(assistantMessageId)
+        markSessionOwnedSnapshot,
+        setConversationId,
+        setMessages,
+        setStreamMessageId,
+      })
 
       try {
         const { result, error, responseTimeMs } = await submitChatCompletion({
@@ -422,27 +402,17 @@ export function useChatActions({
           : null
 
         const finalMessages = assistantMessage ? [...editedMessages, assistantMessage] : editedMessages
-        markSessionOwnedSnapshot({
-          id: draftConversationId,
-          messages: finalMessages,
-        })
-        setMessages(finalMessages)
 
-        setIsSavingConversation(true)
-        try {
-          const completedConversation = {
-            id: draftConversationId,
-            title,
-            messages: finalMessages,
-          }
-          if (settings.streamMode) {
-            await onSessionCompleted?.(completedConversation)
-          } else {
-            await onConversationChange?.(completedConversation)
-          }
-        } finally {
-          setIsSavingConversation(false)
-        }
+        await completeChatTurn({
+          conversation: draftConversation,
+          messages: finalMessages,
+          useSessionCompletion: settings.streamMode,
+          markSessionOwnedSnapshot,
+          setMessages,
+          setIsSavingConversation,
+          onConversationChange,
+          onSessionCompleted,
+        })
       } catch {
         setGenerationError(unknownChatError())
       } finally {
