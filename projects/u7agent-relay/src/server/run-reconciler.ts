@@ -72,7 +72,7 @@ export function createRunReconciler(options: {
         if (session.run?.id !== run.runId) {
           // 上流は直近の実行だけを返す。猶予を過ぎても見つからない実行は、もう結果を取得できない。
           if (now() - run.createdAt > staleGraceMs) {
-            store.updateRun(run.runId, "error", null, "run_missing", now());
+            store.updatePendingRun(run.runId, "error", null, "run_missing", now());
           }
 
           continue;
@@ -85,7 +85,7 @@ export function createRunReconciler(options: {
             continue;
           }
 
-          store.updateRun(
+          store.updatePendingRun(
             run.runId,
             payload.status,
             payload.status === "completed" ? payload.text : null,

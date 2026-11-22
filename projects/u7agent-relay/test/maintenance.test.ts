@@ -97,6 +97,60 @@ describe("実行履歴の維持", () => {
     }
   });
 
+  test("照会中に返信 API が保存した完了結果を上書きしない", async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const startedPromise = new Promise<void>((resolve) => (started = resolve));
+    const harness = createHarness({
+      fetchImpl: async () => {
+        started();
+        await gate;
+
+        return jsonResponse({
+          sessionId: SESSION_ID,
+          spaceId: SPACE_ID,
+          status: "running",
+          queueDepth: 0,
+          run: { id: RUN_ID, status: "running", toolCalls: [{ done: false, questions: ["?"] }] },
+        });
+      },
+    });
+
+    try {
+      const { connectionId, keyId } = seedConnection(harness);
+
+      harness.store.insertRun({
+        runId: RUN_ID,
+        connectionId,
+        keyId,
+        status: "running",
+        sessionUrl: "https://agent.example.com/s/0123456789?space=default",
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+
+      const reconciler = createRunReconciler({
+        store: harness.store,
+        upstream: harness.upstream,
+        now: () => NOW,
+        retentionMs: 90 * DAY,
+      });
+
+      const pending = reconciler.reconcile();
+
+      await startedPromise;
+      // 照会の応答を待つ間に、Bearer クライアントの返信取得が完了を保存する。
+      harness.store.updateRun(RUN_ID, "completed", "保存済みの本文", null, NOW);
+      release();
+      await pending;
+
+      expect(harness.store.getRun(RUN_ID)).toMatchObject({ status: "completed", text: "保存済みの本文" });
+    } finally {
+      harness.cleanup();
+    }
+  });
+
   test("上流で見つからない古い実行は error に確定する", async () => {
     const harness = createHarness({
       fetchImpl: async () =>

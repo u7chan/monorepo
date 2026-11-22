@@ -56,6 +56,10 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
       try {
         const session = await upstream.readSession(connection);
 
+        // この GET で前回の完了結果を取得しているなら、次の投稿で上流の最新実行が
+        // 置き換わる前に保存する。取りこぼすと返信 API から二度と読めなくなる。
+        persistCompletedRuns(store, connection, session, now());
+
         if (!IDLE_STATUSES.has(session.status) || (session.queueDepth ?? 0) !== 0) {
           throw new AdminError(409, "session_busy");
         }
@@ -167,4 +171,31 @@ export function sessionRunPayload(session: UpstreamSession, runId: string, conne
 
 function terminalPayload(status: "completed" | "stopped" | "error", text: string | null): ReplyPayload {
   return status === "completed" ? { status, text: text ?? "" } : { status };
+}
+
+/** 上流の最新実行と一致する未終端の履歴を、取得済みのセッションから確定させる。 */
+function persistCompletedRuns(store: Store, connection: ConnectionRecord, session: UpstreamSession, now: number): void {
+  for (const run of store.listPendingRunsForConnection(connection.id)) {
+    if (session.run?.id !== run.runId) {
+      continue;
+    }
+
+    try {
+      const payload = sessionRunPayload(session, run.runId, connection);
+
+      if (payload.status === "running") {
+        continue;
+      }
+
+      store.updateRun(
+        run.runId,
+        payload.status,
+        payload.status === "completed" ? payload.text : null,
+        payload.status === "error" ? "upstream_error" : null,
+        now,
+      );
+    } catch {
+      // 解釈できない応答は次の周期に回す。
+    }
+  }
 }

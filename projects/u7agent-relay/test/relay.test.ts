@@ -5,6 +5,7 @@ import {
   bearer,
   createHarness,
   jsonResponse,
+  NOW,
   RUN_ID,
   SESSION_ID,
   SPACE_ID,
@@ -453,6 +454,51 @@ describe("中継の競合と上流応答の検証", () => {
 
       expect(response.status).toBe(401);
       expect(harness.store.listRuns(10)).toHaveLength(0);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  test("投稿の前に、先行 GET で取得した前回の完了結果を保存する", async () => {
+    const oldRunId = "aaaaaaaaaaaaaaaa";
+    const newRunId = "bbbbbbbbbbbbbbbb";
+    const session = {
+      sessionId: SESSION_ID,
+      spaceId: SPACE_ID,
+      status: "completed",
+      queueDepth: 0,
+      run: { id: oldRunId, status: "completed" },
+      messages: [{ role: "assistant", assistantId: `${oldRunId}:0`, text: "前回の結果" }],
+    };
+    const harness = createHarness({
+      fetchImpl: async (_input, init) =>
+        (init?.method ?? "GET") === "POST"
+          ? jsonResponse({ sessionId: SESSION_ID, queued: false, runId: newRunId }, 202)
+          : jsonResponse(session),
+    });
+
+    try {
+      const { connectionId, keyId, token } = seedConnection(harness);
+
+      harness.store.insertRun({
+        runId: oldRunId,
+        connectionId,
+        keyId,
+        status: "running",
+        sessionUrl: `https://agent.example.com/s/${SESSION_ID}?space=${SPACE_ID}`,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+
+      const posted = await harness.app.request("/v1/messages", {
+        method: "POST",
+        headers: bearer(token),
+        body: JSON.stringify({ text: "次の依頼" }),
+      });
+
+      expect(posted.status).toBe(202);
+      expect(harness.store.getRun(oldRunId)).toMatchObject({ status: "completed", text: "前回の結果" });
+      expect(harness.store.getRun(newRunId)?.status).toBe("running");
     } finally {
       harness.cleanup();
     }

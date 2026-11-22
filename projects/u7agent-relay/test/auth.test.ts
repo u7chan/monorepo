@@ -73,6 +73,26 @@ describe("PIN 認証", () => {
     expect(auth.status()).toBe("misconfigured");
   });
 
+  test("PIN ハッシュとセッション鍵の両方が無ければ setup_required に戻る", async () => {
+    const { auth, dataDir } = service();
+
+    await auth.setup(PIN);
+    rmSync(join(dataDir, "pin-hash"));
+    rmSync(join(dataDir, "session-key"));
+
+    expect(auth.status()).toBe("setup_required");
+    expect((await auth.setup("246810")).ok).toBe(true);
+  });
+
+  test("PIN ハッシュがあってセッション鍵が無ければ misconfigured", async () => {
+    const { auth, dataDir } = service();
+
+    await auth.setup(PIN);
+    rmSync(join(dataDir, "session-key"));
+
+    expect(auth.status()).toBe("misconfigured");
+  });
+
   test("PIN を変えると既存 cookie は無効になる", async () => {
     const { auth, dataDir } = service();
     const result = await auth.setup(PIN);

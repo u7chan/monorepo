@@ -224,6 +224,11 @@ export function createStore(database: Database) {
   const updateRunQuery = database.query(
     "UPDATE runs SET status = ?, text = ?, error = ?, updated_at = ? WHERE run_id = ?",
   );
+  // 非同期の照会結果を書き戻すとき、その間に返信 API が終端状態を保存していたら上書きしない。
+  const updatePendingRunQuery = database.query(
+    `UPDATE runs SET status = ?, text = ?, error = ?, updated_at = ?
+     WHERE run_id = ? AND status IN ('running', 'awaiting_answer')`,
+  );
   // 一覧に本文を全部載せない。GUI のプレビューに必要な先頭だけを返し、応答サイズを抑える。
   const listRunsQuery = database.query<Omit<RunRow, "session_url"> & { key_name: string | null }, [number]>(
     `SELECT runs.run_id, runs.connection_id, runs.key_id, runs.status,
@@ -237,6 +242,11 @@ export function createStore(database: Database) {
   const listPendingRunsQuery = database.query<RunRow, []>(
     `SELECT * FROM runs
      WHERE status IN ('running', 'awaiting_answer')
+     ORDER BY created_at ASC`,
+  );
+  const listPendingRunsForConnectionQuery = database.query<RunRow, [string]>(
+    `SELECT * FROM runs
+     WHERE connection_id = ? AND status IN ('running', 'awaiting_answer')
      ORDER BY created_at ASC`,
   );
   const connectionExistsQuery = database.query<{ ok: number }, [string]>(
@@ -368,6 +378,17 @@ export function createStore(database: Database) {
       updateRunQuery.run(status, text, error, now, runId);
     },
 
+    /** 非終端の行だけを更新する。照会中に返信 API が保存した結果を壊さないため。 */
+    updatePendingRun(
+      runId: string,
+      status: RunStatus,
+      text: string | null,
+      error: string | null,
+      now: number,
+    ): boolean {
+      return updatePendingRunQuery.run(status, text, error, now, runId).changes > 0;
+    },
+
     listRuns(limit: number): RunView[] {
       return listRunsQuery.all(limit).map((row) => ({
         runId: row.run_id,
@@ -384,6 +405,10 @@ export function createStore(database: Database) {
 
     listPendingRuns(): RunRecord[] {
       return listPendingRunsQuery.all().map(toRun);
+    },
+
+    listPendingRunsForConnection(connectionId: string): RunRecord[] {
+      return listPendingRunsForConnectionQuery.all(connectionId).map(toRun);
     },
 
     isKeyActiveForConnection(keyId: string, connectionId: string): boolean {

@@ -31,7 +31,13 @@ export function createAuthService(options: { dataDir: string; now?: () => number
     status() {
       const stored = readStoredPinHash(dataDir);
 
-      if (stored.status === "invalid" || !readSessionKey(dataDir)) {
+      if (stored.status === "invalid") {
+        return "misconfigured";
+      }
+
+      // PIN ハッシュが無ければ setup がセッション鍵も作り直せる。両方消した状態を
+      // misconfigured に固定すると、再起動しない限り GUI から復旧できなくなる。
+      if (stored.status === "ok" && !readSessionKey(dataDir)) {
         return "misconfigured";
       }
 
