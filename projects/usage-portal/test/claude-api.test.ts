@@ -13,7 +13,6 @@ import {
   stubCodexApi,
   stubFetchIntervals,
   stubOpenCodeApi,
-  stubOpenCodeStatus,
   stubProbeApi,
 } from "./support";
 
@@ -50,7 +49,6 @@ function harness(options: { result?: ClaudeRefreshResult; logout?: () => Promise
     },
     claudeStart: stubClaudeStart(),
     opencode: stubOpenCodeApi(),
-    openCodeStatus: stubOpenCodeStatus,
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     health: () => buildHealthReport("ok", auth.status()),

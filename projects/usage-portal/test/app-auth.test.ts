@@ -13,7 +13,6 @@ import {
   stubClaudeStart,
   stubCodexApi,
   stubOpenCodeApi,
-  stubOpenCodeStatus,
   stubProbeApi,
   stubFetchIntervals,
 } from "./support";
@@ -43,7 +42,6 @@ function harness(options: { clientKey?: boolean; trustProxy?: boolean; cookieSec
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode: stubOpenCodeApi(),
-    openCodeStatus: stubOpenCodeStatus,
     now: () => clock,
     ...(options.clientKey === false ? {} : { clientKey: () => "test-client" }),
     trustProxy: options.trustProxy ?? false,

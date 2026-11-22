@@ -3,7 +3,6 @@ import { getConnInfo } from "hono/bun";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { isFetchIntervalMinutes, isFetchIntervalProvider, type FetchIntervalProvider } from "../shared/fetch-interval";
-import type { OpenCodeStatusPayload } from "../shared/opencode-status";
 import type { AuthService } from "./auth";
 import type { ClaudeRefreshMode, ClaudeRefreshResult } from "./claude/service";
 import type { ClaudeStartService } from "./claude/start";
@@ -48,7 +47,6 @@ export type AppDeps = {
   };
   /** Claude の 5 時間窓の開始予約（ADR 0028）。timer の起動と停止は server.ts が持つ。 */
   claudeStart: Pick<ClaudeStartService, "state" | "saveSettings" | "setEnabled" | "runNow">;
-  openCodeStatus: () => Promise<OpenCodeStatusPayload>;
   probe: ProbeApi;
   fetchIntervals: {
     read: () => Record<FetchIntervalProvider, number>;
@@ -255,8 +253,6 @@ export function createApp(deps: AppDeps) {
   });
 
   app.get("/api/opencode/accounts", requireSession, (c) => c.json({ accounts: deps.opencode.list() }));
-
-  app.get("/api/opencode/status", requireSession, async (c) => c.json(await deps.openCodeStatus()));
 
   app.get("/api/settings/fetch-intervals", requireSession, (c) => c.json({ intervals: deps.fetchIntervals.read() }));
 

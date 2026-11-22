@@ -48,14 +48,12 @@ import { LoginScreen } from "./components/LoginScreen";
 import { Modal } from "./components/Modal";
 import { OpenCodeAccountCard } from "./components/OpenCodeAccountCard";
 import { OpenCodeAccountForm, type OpenCodeAccountActions } from "./components/OpenCodeAccountForm";
-import { OpenCodeStatusPanel } from "./components/OpenCodeStatusPanel";
 import { OverflowMenu, type MenuItem } from "./components/OverflowMenu";
 import { ProbeSettingsForm } from "./components/ProbeSettingsForm";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { showsClaudeCard } from "./lib/claude";
 import { orderSources } from "./lib/order";
-import { hasActiveOpenCodeSource } from "./lib/opencode-status";
 import { readProbeLoad } from "./lib/probe";
 import { type ViewMode, browserStorage, readViewMode, writeViewMode } from "./lib/view-mode";
 import { CLOCK_TICK_MS, expiryNotice } from "./time";
@@ -706,6 +704,14 @@ function Dashboard(props: {
           },
         ]
       : []),
+    {
+      label: "ステータス",
+      items: [
+        { label: "Codex", href: "https://status.openai.com/" },
+        { label: "Claude", href: "https://status.claude.com/" },
+        { label: "OpenCode", href: "https://opencode.ai/status/" },
+      ],
+    },
     { label: "ログアウト", onSelect: () => void signOut(), danger: true },
   ];
 
@@ -729,7 +735,6 @@ function Dashboard(props: {
           {pageNotice}
         </p>
       ) : null}
-      {hasActiveOpenCodeSource(sources) ? <OpenCodeStatusPanel now={clock} onUnauthorized={onUnauthorized} /> : null}
       <div class="up-providers" data-density={viewMode}>
         {sources.map((source) => {
           if (source.provider === "codex") {

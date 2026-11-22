@@ -19,7 +19,6 @@ import {
   stubClaudeStart,
   stubCodexApi,
   stubOpenCodeApi,
-  stubOpenCodeStatus,
   stubFetchIntervals,
 } from "./support";
 
@@ -101,7 +100,6 @@ function harness(
     claude: stubClaudeApi(),
     claudeStart: stubClaudeStart(),
     opencode: stubOpenCodeApi({ list: () => ids.map((id) => stubAccount({ id })) }),
-    openCodeStatus: stubOpenCodeStatus,
     probe,
     fetchIntervals: stubFetchIntervals(),
     health: () => buildHealthReport("ok", auth.status()),

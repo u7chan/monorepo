@@ -1,9 +1,5 @@
 import { readClaudeStartSettings, type ClaudeStartSettings } from "../shared/claude-start";
 import type { FetchIntervalProvider } from "../shared/fetch-interval";
-import { type OpenCodeStatusPayload, readServiceStatus, readStatusReason } from "../shared/opencode-status";
-
-export type { OpenCodeStatusPayload } from "../shared/opencode-status";
-
 export type SessionState =
   | { state: "setup_required" }
   | { state: "unauthenticated" }
@@ -319,72 +315,6 @@ export async function fetchOpenCodeAccounts(): Promise<OpenCodeAccount[] | Unaut
   return readObjects(body, "accounts")
     .map(parseOpenCodeAccount)
     .filter((account) => account !== null);
-}
-
-export async function fetchOpenCodeStatus(): Promise<OpenCodeStatusPayload | Unauthorized | null> {
-  const response = await fetch("/api/opencode/status", {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(12_000),
-  });
-
-  if (response.status === 401) {
-    return { unauthorized: true };
-  }
-
-  return response.ok ? parseOpenCodeStatusPayload(await response.json().catch(() => null)) : null;
-}
-
-export function parseOpenCodeStatusPayload(body: unknown): OpenCodeStatusPayload | null {
-  const state = readString(body, "state");
-
-  if (state !== "ok" && state !== "stale" && state !== "error") {
-    return null;
-  }
-
-  const snapshot = readObject(body, "snapshot");
-  const updatedAt = readNumber(snapshot, "updatedAt");
-
-  if (!snapshot || updatedAt === null) {
-    return state === "error" ? { state, snapshot: null } : null;
-  }
-
-  return {
-    state,
-    snapshot: {
-      updatedAt,
-      stale: snapshot.stale === true,
-      status: readServiceStatus(snapshot.status),
-      reason: readStatusReason(snapshot.reason),
-      since: readNumber(snapshot, "since"),
-      models: readObjects(snapshot, "models").flatMap((model) => {
-        const id = readString(model, "id");
-
-        return id
-          ? [
-              {
-                id,
-                status: readServiceStatus(readString(model, "status")),
-                reason: readStatusReason(readString(model, "reason")),
-              },
-            ]
-          : [];
-      }),
-      incidents: readObjects(snapshot, "incidents").flatMap((incident) => {
-        const startedAt = readNumber(incident, "startedAt");
-
-        return startedAt === null
-          ? []
-          : [
-              {
-                startedAt,
-                status: readServiceStatus(readString(incident, "status")),
-                reason: readStatusReason(readString(incident, "reason")),
-                models: readStrings(incident, "models"),
-              },
-            ];
-      }),
-    },
-  };
 }
 
 export async function createOpenCodeAccount(

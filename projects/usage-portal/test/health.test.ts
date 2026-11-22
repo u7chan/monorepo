@@ -8,7 +8,6 @@ import {
   stubClaudeStart,
   stubCodexApi,
   stubOpenCodeApi,
-  stubOpenCodeStatus,
   stubProbeApi,
   stubFetchIntervals,
 } from "./support";
@@ -37,7 +36,6 @@ function appWith(db: DatabaseStatus, auth: AuthStatus) {
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode: stubOpenCodeApi(),
-    openCodeStatus: stubOpenCodeStatus,
   });
 }
 
