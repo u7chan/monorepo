@@ -1,3 +1,4 @@
+import type { ComponentChild } from "preact";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 
 export type MenuAction = {
@@ -9,7 +10,12 @@ export type MenuAction = {
 };
 
 /** 公式ページなど、アプリの外を開く項目。 */
-export type MenuLink = { label: string; href: string };
+export type MenuLink = {
+  label: string;
+  href: string;
+  /** 項目名の前に置く装飾。名前が同じ項目に出るので、読み上げには含めない。 */
+  icon?: ComponentChild;
+};
 
 export type MenuSubmenu = { label: string; items: readonly (MenuAction | MenuLink)[] };
 
@@ -172,6 +178,7 @@ export function OverflowMenu(props: { label: string; items: readonly MenuItem[] 
         role="menuitem"
         onClick={() => close(true)}
       >
+        {item.icon}
         {item.label}
       </a>
     ) : (
