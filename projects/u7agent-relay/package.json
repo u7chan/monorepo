@@ -1,0 +1,26 @@
+{
+  "name": "u7agent-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/server.ts",
+    "start": "bun src/server.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src test",
+    "fmt": "oxfmt src test",
+    "fmt:check": "oxfmt --check src test",
+    "check": "bun run lint && bun run fmt:check && bun run typecheck && bun run test"
+  },
+  "dependencies": {
+    "hono": "^4.13.19",
+    "preact": "^11.2.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "oxfmt": "0.79.0",
+    "oxlint": "^1.94.0",
+    "typescript": "^7.0.2"
+  }
+}

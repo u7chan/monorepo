@@ -1,0 +1,143 @@
+# u7agent Relay
+
+外部クライアント（Muse など）から、u7agent の固定した会話へ依頼を投稿し、最終応答を受け取るための中継です。接続先と API キーは付属の管理 GUI で作ります。
+
+u7agent の BFF にはログイン認証がありません。中継は外部へ公開する入口を Bearer キーに限定し、キーごとに 1 つの会話へ固定します。会話を増やすときは、GUI で接続先を足してキーを発行します。
+
+```text
+外部クライアント ── Bearer キー ──▶ u7agent-relay ── HTTPS ──▶ u7agent BFF
+                                      │
+                                      └─ PIN で守られた管理 GUI（接続先 / キー / 実行履歴）
+```
+
+## Docker で起動する
+
+```sh
+cd projects/u7agent-relay
+docker compose up -d --build
+```
+
+`http://localhost:8787` を開き、最初に 6 桁の PIN を登録します。PIN・セッション鍵・SQLite は `u7agent_relay_data` volume に残ります。
+
+待受はホストの loopback だけに公開しています（`compose.yaml` の `127.0.0.1:8787:8787`）。別端末から使うときは、Tailscale などで到達範囲を絞ってから `ports` を変えてください。u7agent の BFF が無認証のため、中継をインターネットへ直接公開しないでください。
+
+## ローカルで起動する
+
+Bun 1.4 を使います。
+
+```sh
+cd projects/u7agent-relay
+bun install
+DATA_DIR=./data bun run dev   # http://localhost:8787
+```
+
+`NODE_ENV` が `production` でなければ Bun の HMR が有効になります。データは `./data` に作られます。
+
+## 接続先を登録する
+
+「接続先」タブから、次のどちらかで登録します。
+
+| 方法 | 入力 | 用途 |
+| --- | --- | --- |
+| 会話 URL を貼る | `https://…/s/<10 hex>?space=<space>` | すでにある会話へ中継する |
+| 新しい会話を作る | u7agent の origin とスペース ID | u7agent に会話を作らせて、そのまま登録する |
+
+- 会話 URL は `https` だけを受け付けます。平文だと、中継の外で会話が読めてしまうためです。
+- `space` を省略した URL は `default` として扱います。
+- 同じ会話（origin + 会話 ID + スペース）の重複登録は 409 で拒否します。
+- 「疎通確認」は u7agent の `GET /api/sessions/:id` を呼び、状態・タイトル・待ち件数を表示します。
+- 接続先を削除すると、紐づく API キーと実行履歴も削除されます。
+
+## API キーを発行する
+
+「API キー」タブで名前と接続先を選ぶと、`ur_` で始まるキーを一度だけ表示します。保存されるのは SHA-256 ハッシュだけなので、再表示はできません。
+
+- キーは 1 つの接続先に固定されます。別の会話へ投稿するには、その会話の接続先とキーを作ります。
+- 失効は即時です。失効したキーは 401 になり、監査用に一覧へ残ります。
+- 削除すると一覧から消えます。実行履歴のキー名は「削除済み」になります。
+
+## 外部クライアントから使う
+
+投稿は `202` で `runId` を返し、実行はバックグラウンドで進みます。`GET /v1/replies/:runId` を繰り返し呼んで結果を受け取ります。旧パス `/messages` と `/replies/:runId` も同じ動作です。
+
+```sh
+curl -fsS -X POST http://localhost:8787/v1/messages \
+  -H "Authorization: Bearer ur_…" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"このリポジトリの構成を調べて"}'
+# => 202 {"runId":"0123456789abcdef"}
+
+curl -fsS http://localhost:8787/v1/replies/0123456789abcdef \
+  -H "Authorization: Bearer ur_…"
+```
+
+| 応答 | 意味 |
+| --- | --- |
+| `{"runId":"…"}` | 受理した。`runId` で結果を追跡する。 |
+| `{"status":"queued","sessionUrl":"…"}` | u7agent のキューに積まれた。実行 ID が無いので追跡できない。会話を開いて確認する。 |
+| `{"status":"running"}` | 実行中。 |
+| `{"status":"awaiting_answer","sessionUrl":"…"}` | u7agent が質問して回答待ち。会話を開いて答える。 |
+| `{"status":"completed","text":"…"}` | 完了。その実行の最後の assistant 本文だけを返す。 |
+| `{"status":"stopped"}` / `{"status":"error"}` | 停止または失敗。 |
+
+- 実行中の会話、または送信待ちがある会話への投稿は `409 session_busy` です。再送しないでください。
+- 返信は、その `runId` を発行したキーだけが読めます。他のキーからは `404 run_not_found` です。
+- 会話履歴全体・ツール出力・添付は返しません。
+- 終了済みの実行は SQLite に保存した結果で答えます。上流の u7agent は直近の実行しか返さないため、後から追い越された実行の途中経過は取得できません。
+
+`GET /healthz` は認証なしで `200 OK` と `u7agent-relay-ok` を返します。
+
+## セキュリティ
+
+| 対象 | 方式 |
+| --- | --- |
+| 管理 GUI | 6 桁 PIN（Argon2id）。5 回失敗で 15 分ロック。cookie は HttpOnly / SameSite=Lax / 30 日。 |
+| 管理 API の変更 | 同一 origin の要求だけ許可（Origin が無い curl は拒否）。 |
+| 中継 API | `Authorization: Bearer ur_…`。保存は SHA-256 で、失効は即時。 |
+| 待受 | コンテナ内は `0.0.0.0`、compose は loopback のみ。 |
+
+- PIN は初回アクセスで登録し、`DATA_DIR` の `pin-hash` に保存します。忘れた場合は `pin-hash` と `session-key` を消すと再設定できます（キーと接続先は残ります）。
+- 初回の PIN 登録より先に中継を外部へ公開しないでください。最初にアクセスした人が PIN を決められます。
+- 中継は接続先として登録した会話へ到達できます。接続先の origin は信頼できる u7agent だけにしてください。
+- 実行中の直列化はプロセス内で行います。中継は 1 インスタンスで動かしてください。
+- 上流の u7agent は中継からの要求に認証を要求しません。中継と u7agent の間を信頼できるネットワークに置いてください。内部 CA を使う場合は、イメージの信頼ストアへ CA を入れてください。
+
+## 環境変数
+
+| 変数 | 既定 | 内容 |
+| --- | --- | --- |
+| `HOST` | `0.0.0.0` | 待受アドレス。 |
+| `PORT` | `8787` | 待受ポート。 |
+| `DATA_DIR` | `/app/data` | SQLite・PIN ハッシュ・セッション鍵の置き場。 |
+| `COOKIE_SECURE` | 未設定 | `1` で cookie に常に `Secure` を付ける。 |
+| `TRUST_PROXY` | 未設定 | `1` で `X-Forwarded-*` を信頼する。TLS 終端が前段にあるときだけ。 |
+| `APP_ORIGIN` | 未設定 | TLS 終端の後ろでブラウザから見たオリジン。Origin 検査に使う。 |
+| `COMMIT_HASH` | — | ビルド時に埋め込むバージョン表示。 |
+
+## データ
+
+`DATA_DIR` には次のファイルができます。バックアップするならこのディレクトリごと取得してください。
+
+| ファイル | 内容 |
+| --- | --- |
+| `relay.sqlite` | 接続先・API キー（ハッシュ）・実行履歴。 |
+| `pin-hash` | PIN の Argon2id ハッシュ。 |
+| `session-key` | セッション cookie の署名鍵。 |
+
+## 開発
+
+```sh
+cd projects/u7agent-relay
+bun run check   # oxlint / oxfmt / tsc / bun:test
+```
+
+Docker の test / final ステージは次のように確認できます。
+
+```sh
+docker build --target test ./projects/u7agent-relay
+docker build --target final -t u7agent-relay ./projects/u7agent-relay
+```
+
+## 旧 LAB からの移行
+
+`projects/_labs/u7agent-relay` の試作はこのプロジェクトへ統合しました。`.env` の `U7AGENT_SESSION_URL` と `U7AGENT_RELAY_TOKEN` は使わないため、起動後に GUI で接続先を登録し、キーを発行し直してください。旧トークンは 46 文字の `ur_` 形式ではないので、そのままでは通りません。

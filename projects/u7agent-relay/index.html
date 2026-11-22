@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#14161a" media="(prefers-color-scheme: dark)" />
+    <!--
+      文書のヘッダーは Bun の HTML ルートでは付けられないため、CSP は meta で指定する（frame-ancestors は meta では効かない）。
+      blob: は Bun の HMR が更新スクリプトを blob URL で読み込むために要る。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'"
+    />
+    <link rel="icon" type="image/svg+xml" href="./src/client/assets/favicon.svg" />
+    <title>u7agent Relay</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/client/main.tsx"></script>
+  </body>
+</html>
