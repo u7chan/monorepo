@@ -50,6 +50,7 @@ import { OpenCodeAccountCard } from "./components/OpenCodeAccountCard";
 import { OpenCodeAccountForm, type OpenCodeAccountActions } from "./components/OpenCodeAccountForm";
 import { OverflowMenu, type MenuItem } from "./components/OverflowMenu";
 import { ProbeSettingsForm } from "./components/ProbeSettingsForm";
+import { ProviderGlyph } from "./components/ProviderIcon";
 import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { showsClaudeCard } from "./lib/claude";
@@ -707,9 +708,21 @@ function Dashboard(props: {
     {
       label: "ステータス",
       items: [
-        { label: "Codex", href: "https://status.openai.com/" },
-        { label: "Claude", href: "https://status.claude.com/" },
-        { label: "OpenCode", href: "https://opencode.ai/status/" },
+        {
+          label: "Codex",
+          href: "https://status.openai.com/",
+          icon: <ProviderGlyph class="up-menu-item-icon" provider="codex" />,
+        },
+        {
+          label: "Claude",
+          href: "https://status.claude.com/",
+          icon: <ProviderGlyph class="up-menu-item-icon" provider="claude" />,
+        },
+        {
+          label: "OpenCode",
+          href: "https://opencode.ai/status/",
+          icon: <ProviderGlyph class="up-menu-item-icon" provider="opencode-go" />,
+        },
       ],
     },
     { label: "ログアウト", onSelect: () => void signOut(), danger: true },

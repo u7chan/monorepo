@@ -938,6 +938,13 @@ h2 {
   cursor: pointer;
 }
 
+.up-menu-item-icon {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  color: var(--up-muted);
+}
+
 .up-menu-submenu-icon {
   flex: none;
   width: 12px;

@@ -1,6 +1,6 @@
 # ADR 0027: カードは Codex → Claude → OpenCode Go の順に並べ、見出しに provider のロゴを置く
 
-- Status: accepted
+- Status: accepted（ロゴの取り込み元は [0030](0030-provider-marks-from-hwc.md) で一部置き換え）
 - Date: 2026-11-19
 - 関連: [ADR 0016](0016-exhausted-cards-last.md) の使い切ったカードの移動、[ADR 0021](0021-opencode-monthly-order.md) の OpenCode Go の月次順
 

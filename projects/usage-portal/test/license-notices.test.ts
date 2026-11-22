@@ -15,12 +15,10 @@ describe("THIRD_PARTY_NOTICES.txt", () => {
     expect(final).toMatch(/^COPY\b[^\n]*\bTHIRD_PARTY_NOTICES\.txt\b/m);
   });
 
-  test("通知はロゴの取り込み元と MIT の条件を含み、参照するファイルが実在する", () => {
-    const source = /(src\/[\w/.-]+)/.exec(notice)?.[1] ?? null;
+  test("通知はロゴが商標であることと取り込み先を示し、参照するファイルが実在する", () => {
+    const source = /(src\/client\/lib\/[\w/.-]+)/.exec(notice)?.[1] ?? null;
 
-    expect(notice).toContain("@lobehub/icons-static-svg");
-    expect(notice).toContain("Copyright (c) 2023 LobeHub");
-    expect(notice).toContain("Permission is hereby granted, free of charge");
+    expect(notice).toContain("trademarks of their respective owners");
     expect(source).not.toBeNull();
     expect(existsSync(resolve(root, source ?? ""))).toBe(true);
   });
