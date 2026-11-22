@@ -23,7 +23,7 @@ function createUpstream() {
     queueDepth: 0,
     messages: [],
   };
-  let accepted: unknown = { queued: false, runId: RUN_ID };
+  let accepted: unknown = { sessionId: SESSION_ID, queued: false, runId: RUN_ID };
   let failing = false;
 
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -181,7 +181,7 @@ describe("中継 API", () => {
     try {
       const { token } = seedConnection(harness);
 
-      upstream.setAccepted({ queued: true });
+      upstream.setAccepted({ sessionId: SESSION_ID, queued: true });
 
       const posted = await harness.app.request("/v1/messages", {
         method: "POST",
@@ -376,6 +376,107 @@ describe("中継 API", () => {
       const reply = await harness.app.request(`/replies/${RUN_ID}`, { headers: bearer(token) });
 
       expect(await reply.json()).toEqual({ status: "completed", text: "OK" });
+    } finally {
+      harness.cleanup();
+    }
+  });
+});
+
+describe("中継の競合と上流応答の検証", () => {
+  test("上流の確認中に失効したキーでは送信しない", async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const startedPromise = new Promise<void>((resolve) => (started = resolve));
+    let posts = 0;
+    const harness = createHarness({
+      fetchImpl: async (_input, init) => {
+        if ((init?.method ?? "GET") === "POST") {
+          posts += 1;
+
+          return jsonResponse({ sessionId: SESSION_ID, queued: false, runId: RUN_ID }, 202);
+        }
+
+        started();
+        await gate;
+
+        return jsonResponse({ sessionId: SESSION_ID, spaceId: SPACE_ID, status: "idle", queueDepth: 0 });
+      },
+    });
+
+    try {
+      const { keyId, token } = seedConnection(harness);
+      const pending = harness.app.request("/v1/messages", {
+        method: "POST",
+        headers: bearer(token),
+        body: JSON.stringify({ text: "失効中" }),
+      });
+
+      await startedPromise;
+      harness.keys.revoke(keyId);
+      release();
+
+      const response = await pending;
+
+      expect(response.status).toBe(401);
+      expect(posts).toBe(0);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  test("投稿の応答を待つ間に接続先が消えたら履歴を残さない", async () => {
+    let harness!: Harness;
+    let connectionId = "";
+
+    harness = createHarness({
+      fetchImpl: async (_input, init) => {
+        if ((init?.method ?? "GET") === "POST") {
+          harness.store.deleteConnection(connectionId);
+
+          return jsonResponse({ sessionId: SESSION_ID, queued: false, runId: RUN_ID }, 202);
+        }
+
+        return jsonResponse({ sessionId: SESSION_ID, spaceId: SPACE_ID, status: "idle", queueDepth: 0 });
+      },
+    });
+
+    try {
+      const seeded = seedConnection(harness);
+      connectionId = seeded.connectionId;
+
+      const response = await harness.app.request("/v1/messages", {
+        method: "POST",
+        headers: bearer(seeded.token),
+        body: JSON.stringify({ text: "削除中" }),
+      });
+
+      expect(response.status).toBe(401);
+      expect(harness.store.listRuns(10)).toHaveLength(0);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  test("投稿の 202 応答が別の会話を指したら 502", async () => {
+    const harness = createHarness({
+      fetchImpl: async (_input, init) =>
+        (init?.method ?? "GET") === "POST"
+          ? jsonResponse({ sessionId: "aaaaaaaaaa", queued: false, runId: RUN_ID }, 202)
+          : jsonResponse({ sessionId: SESSION_ID, spaceId: SPACE_ID, status: "idle", queueDepth: 0 }),
+    });
+
+    try {
+      const { token } = seedConnection(harness);
+      const response = await harness.app.request("/v1/messages", {
+        method: "POST",
+        headers: bearer(token),
+        body: JSON.stringify({ text: "別会話" }),
+      });
+
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({ error: "upstream_mismatch" });
+      expect(harness.store.listRuns(10)).toHaveLength(0);
     } finally {
       harness.cleanup();
     }

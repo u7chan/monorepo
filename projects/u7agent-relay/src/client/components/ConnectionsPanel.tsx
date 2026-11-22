@@ -25,7 +25,7 @@ export function ConnectionsPanel(props: {
   const [spaceId, setSpaceId] = useState("default");
   const [busy, setBusy] = useState(false);
   const [checks, setChecks] = useState<Record<string, CheckState>>({});
-  const [editing, setEditing] = useState<{ id: string; name: string; sessionUrl: string } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
 
   const submit = async (event: Event) => {
     event.preventDefault();
@@ -84,7 +84,7 @@ export function ConnectionsPanel(props: {
     setBusy(true);
 
     try {
-      await updateConnection(editing.id, editing.name, editing.sessionUrl);
+      await updateConnection(editing.id, editing.name);
       setEditing(null);
       await props.reload();
     } catch (error) {
@@ -172,16 +172,7 @@ export function ConnectionsPanel(props: {
                 onInput={(event) => setEditing({ ...editing, name: (event.currentTarget as HTMLInputElement).value })}
               />
             </label>
-            <label class="field wide">
-              <span>会話 URL（変更する場合）</span>
-              <input
-                value={editing.sessionUrl}
-                required
-                onInput={(event) =>
-                  setEditing({ ...editing, sessionUrl: (event.currentTarget as HTMLInputElement).value })
-                }
-              />
-            </label>
+            <p class="muted wide">会話を変えるときは、新しい接続先を登録してキーを発行し直してください。</p>
             <div class="actions">
               <button class="button primary" type="submit" disabled={busy}>
                 保存
@@ -219,13 +210,7 @@ export function ConnectionsPanel(props: {
                       <div class="sub">{formatDateTime(connection.createdAt)} に登録</div>
                     </td>
                     <td>
-                      {connection.sessionUrl ? (
-                        <a href={connection.sessionUrl} target="_blank" rel="noreferrer" class="mono">
-                          {connection.sessionId}
-                        </a>
-                      ) : (
-                        <span class="mono">{connection.sessionId}</span>
-                      )}
+                      <span class="mono">{connection.sessionId}</span>
                       <div class="sub">space: {connection.spaceId}</div>
                     </td>
                     <td>{connection.keyCount}</td>
@@ -252,13 +237,7 @@ export function ConnectionsPanel(props: {
                       <button
                         class="button small"
                         type="button"
-                        onClick={() =>
-                          setEditing({
-                            id: connection.id,
-                            name: connection.name,
-                            sessionUrl: connection.sessionUrl ?? "",
-                          })
-                        }
+                        onClick={() => setEditing({ id: connection.id, name: connection.name })}
                       >
                         編集
                       </button>

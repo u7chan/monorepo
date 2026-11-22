@@ -124,6 +124,13 @@ export function createApp(deps: AppDeps) {
   });
 
   app.get("/api/auth/session", (c) => {
+    const status = deps.auth.status();
+
+    // 鍵や PIN ハッシュが壊れているときは、ログイン画面ではなく復旧手順を出せる状態を返す。
+    if (status === "misconfigured") {
+      return c.json({ state: "misconfigured" as const, version: deps.version });
+    }
+
     const session = deps.auth.readSession(c.req.header("cookie") ?? null);
 
     if (session) {
@@ -131,7 +138,7 @@ export function createApp(deps: AppDeps) {
     }
 
     return c.json({
-      state: deps.auth.status() === "setup_required" ? ("setup_required" as const) : ("unauthenticated" as const),
+      state: status === "setup_required" ? ("setup_required" as const) : ("unauthenticated" as const),
       version: deps.version,
     });
   });
@@ -414,6 +421,20 @@ function firstForwarded(c: Context, name: string): string | null {
 }
 
 /**
+ * 前段が受信値へ接続元を追記する構成（nginx の $proxy_add_x_forwarded_for など）では、
+ * 末尾が信頼できる前段が見た接続元になる。先頭はクライアントが偽装できるため使わない。
+ */
+function lastForwarded(c: Context, name: string): string | null {
+  const values = c.req
+    .header(name)
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return values?.at(-1) ?? null;
+}
+
+/**
  * 直接公開している間はクライアントが X-Forwarded-* を偽装できる。TLS 終端を
  * 前段に置いた構成だけで読むよう、TRUST_PROXY=1 のときだけ参照する。
  */
@@ -457,7 +478,7 @@ function requestIsSecure(c: Context, trustProxy: boolean): boolean {
 
 function defaultClientKey(c: Context, trustProxy: boolean): string {
   if (trustProxy) {
-    const forwarded = firstForwarded(c, "x-forwarded-for");
+    const forwarded = lastForwarded(c, "x-forwarded-for");
 
     if (forwarded) {
       return forwarded;

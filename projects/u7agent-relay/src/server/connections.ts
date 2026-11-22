@@ -1,14 +1,7 @@
 import type { ApiKeyRecord, ConnectionRecord, Store } from "./db";
 import { AdminError } from "./errors";
 import { createToken, hashToken, tokenPrefix } from "./keys";
-import {
-  parseOrigin,
-  parseSessionUrl,
-  parseSpaceId,
-  safeSessionUrl,
-  sessionUrls,
-  type ConnectionTarget,
-} from "./targets";
+import { parseOrigin, parseSessionUrl, parseSpaceId, type ConnectionTarget } from "./targets";
 import type { UpstreamClient } from "./upstream";
 
 const MAX_NAME_LENGTH = 64;
@@ -27,9 +20,15 @@ export function parseName(value: unknown): string {
   return name;
 }
 
-export type ConnectionView = ConnectionRecord & {
-  sessionUrl: string | null;
+/** 管理 API の表示用。接続先 URL / origin は返さない（画面は会話 ID とスペースだけを使う）。 */
+export type ConnectionView = {
+  id: string;
+  name: string;
+  sessionId: string;
+  spaceId: string;
   keyCount: number;
+  createdAt: number;
+  updatedAt: number;
 };
 
 export type ConnectionService = ReturnType<typeof createConnectionService>;
@@ -39,9 +38,13 @@ export function createConnectionService(options: { store: Store; upstream: Upstr
 
   function view(connection: ConnectionRecord): ConnectionView {
     return {
-      ...connection,
-      sessionUrl: safeSessionUrl(connection.origin, connection.sessionId, connection.spaceId),
+      id: connection.id,
+      name: connection.name,
+      sessionId: connection.sessionId,
+      spaceId: connection.spaceId,
       keyCount: store.countKeys(connection.id),
+      createdAt: connection.createdAt,
+      updatedAt: connection.updatedAt,
     };
   }
 
@@ -88,6 +91,7 @@ export function createConnectionService(options: { store: Store; upstream: Upstr
       return insert(name, target);
     },
 
+    /** 名前だけを変える。会話を変えると発行済みキーの送信先が変わるため、URL の差し替えは受け付けない。 */
     update(id: string, input: { name?: unknown; sessionUrl?: unknown }): ConnectionRecord {
       const current = store.getConnection(id);
 
@@ -95,17 +99,12 @@ export function createConnectionService(options: { store: Store; upstream: Upstr
         throw new AdminError(404, "connection_not_found");
       }
 
-      const name = input.name === undefined ? current.name : parseName(input.name);
-      const target =
-        input.sessionUrl === undefined
-          ? { origin: current.origin, sessionId: current.sessionId, spaceId: current.spaceId }
-          : parseSessionUrl(String(input.sessionUrl));
-
-      const existing = store.findConnection(target);
-
-      if (existing && existing.id !== id) {
-        throw new AdminError(409, "duplicate_connection");
+      if (input.sessionUrl !== undefined) {
+        throw new AdminError(400, "session_url_immutable");
       }
+
+      const name = input.name === undefined ? current.name : parseName(input.name);
+      const target = { origin: current.origin, sessionId: current.sessionId, spaceId: current.spaceId };
 
       store.updateConnection(id, name, target, now());
 
@@ -135,7 +134,6 @@ export function createConnectionService(options: { store: Store; upstream: Upstr
       title: string | null;
       queueDepth: number;
       awaitingAnswer: boolean;
-      sessionUrl: string;
       checkedAt: number;
     }> {
       const connection = store.getConnection(id);
@@ -145,14 +143,12 @@ export function createConnectionService(options: { store: Store; upstream: Upstr
       }
 
       const session = await upstream.readSession(connection);
-      const urls = sessionUrls(connection);
 
       return {
         status: session.status,
         title: session.title ?? null,
         queueDepth: session.queueDepth ?? 0,
         awaitingAnswer: session.awaitingAnswer === true,
-        sessionUrl: urls.sessionUrl,
         checkedAt: now(),
       };
     },

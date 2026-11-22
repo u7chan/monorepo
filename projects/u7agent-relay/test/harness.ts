@@ -24,7 +24,7 @@ export function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-export function createHarness(options: { fetchImpl?: FetchLike } = {}) {
+export function createHarness(options: { fetchImpl?: FetchLike; trustProxy?: boolean } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "u7agent-relay-test-"));
   const database = openDatabase(dataDir);
   const store = createStore(database);
@@ -47,7 +47,7 @@ export function createHarness(options: { fetchImpl?: FetchLike } = {}) {
     keys,
     version: "test",
     now: () => NOW,
-    clientKey: () => "test-client",
+    ...(options.trustProxy ? { trustProxy: true } : { clientKey: () => "test-client" }),
   });
 
   return {
@@ -55,6 +55,7 @@ export function createHarness(options: { fetchImpl?: FetchLike } = {}) {
     store,
     auth,
     relay,
+    upstream,
     connections,
     keys,
     dataDir,

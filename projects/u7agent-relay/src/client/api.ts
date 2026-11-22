@@ -1,15 +1,14 @@
 export type SessionState =
   | { state: "setup_required"; version: string }
   | { state: "unauthenticated"; version: string }
+  | { state: "misconfigured"; version: string }
   | { state: "authenticated"; expiresAt: number; version: string };
 
 export type ConnectionView = {
   id: string;
   name: string;
-  origin: string;
   sessionId: string;
   spaceId: string;
-  sessionUrl: string | null;
   keyCount: number;
   createdAt: number;
   updatedAt: number;
@@ -35,7 +34,6 @@ export type RunView = {
   status: RunStatus;
   text: string | null;
   error: string | null;
-  sessionUrl: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -52,7 +50,6 @@ export type CheckResult = {
   title: string | null;
   queueDepth: number;
   awaitingAnswer: boolean;
-  sessionUrl: string;
   checkedAt: number;
 };
 
@@ -123,8 +120,8 @@ export function createConnection(name: string, origin: string, spaceId: string):
   return request("/api/connections/create", { method: "POST", body: JSON.stringify({ name, origin, spaceId }) });
 }
 
-export function updateConnection(id: string, name: string, sessionUrl: string): Promise<unknown> {
-  return request(`/api/connections/${id}`, { method: "PATCH", body: JSON.stringify({ name, sessionUrl }) });
+export function updateConnection(id: string, name: string): Promise<unknown> {
+  return request(`/api/connections/${id}`, { method: "PATCH", body: JSON.stringify({ name }) });
 }
 
 export function deleteConnection(id: string): Promise<{ deletedKeys: number }> {
@@ -163,6 +160,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_origin: "接続先の origin が正しくありません。https://host の形式で入力してください。",
   invalid_space_id: "スペース ID が正しくありません。",
   duplicate_connection: "同じ会話がすでに登録されています。",
+  session_url_immutable: "会話を変えるには、新しい接続先を登録してキーを発行し直してください。",
   connection_not_found: "接続先が見つかりません。",
   key_not_found: "API キーが見つかりません。",
   run_not_found: "実行が見つかりません。",

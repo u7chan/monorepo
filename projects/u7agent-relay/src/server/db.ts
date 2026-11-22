@@ -39,7 +39,18 @@ export type RunRecord = {
   updatedAt: number;
 };
 
-export type RunView = RunRecord & { keyName: string | null };
+/** 管理 API の表示用。接続先 URL は返さない。 */
+export type RunView = {
+  runId: string;
+  connectionId: string;
+  keyId: string;
+  status: RunStatus;
+  text: string | null;
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
+  keyName: string | null;
+};
 
 /** 最後に使った時刻の書き込みは、この間隔より細かくしない。読み取りのたびに書くと WAL が太る。 */
 const TOUCH_INTERVAL_MS = 60_000;
@@ -71,7 +82,7 @@ const SCHEMA = `
 
   CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
-    connection_id TEXT NOT NULL,
+    connection_id TEXT NOT NULL REFERENCES connections (id) ON DELETE CASCADE,
     key_id TEXT NOT NULL,
     status TEXT NOT NULL,
     text TEXT,
@@ -188,6 +199,9 @@ export function createStore(database: Database) {
   const listKeysQuery = database.query<KeyRow, []>("SELECT * FROM api_keys ORDER BY created_at DESC");
   const getKeyQuery = database.query<KeyRow, [string]>("SELECT * FROM api_keys WHERE id = ?");
   const findKeyQuery = database.query<KeyRow, [string]>("SELECT * FROM api_keys WHERE hash = ?");
+  const isActiveKeyQuery = database.query<{ ok: number }, [string, string]>(
+    "SELECT 1 AS ok FROM api_keys WHERE id = ? AND connection_id = ? AND revoked_at IS NULL",
+  );
   const findActiveKeyQuery = database.query<KeyRow, [string]>(
     "SELECT * FROM api_keys WHERE hash = ? AND revoked_at IS NULL",
   );
@@ -211,15 +225,23 @@ export function createStore(database: Database) {
     "UPDATE runs SET status = ?, text = ?, error = ?, updated_at = ? WHERE run_id = ?",
   );
   // 一覧に本文を全部載せない。GUI のプレビューに必要な先頭だけを返し、応答サイズを抑える。
-  const listRunsQuery = database.query<RunRow & { key_name: string | null }, [number]>(
+  const listRunsQuery = database.query<Omit<RunRow, "session_url"> & { key_name: string | null }, [number]>(
     `SELECT runs.run_id, runs.connection_id, runs.key_id, runs.status,
-            substr(runs.text, 1, 200) AS text, runs.error, runs.session_url,
+            substr(runs.text, 1, 200) AS text, runs.error,
             runs.created_at, runs.updated_at, api_keys.name AS key_name
      FROM runs LEFT JOIN api_keys ON api_keys.id = runs.key_id
      ORDER BY runs.created_at DESC LIMIT ?`,
   );
   const deleteRunsByConnectionQuery = database.query("DELETE FROM runs WHERE connection_id = ?");
   const pruneRunsQuery = database.query("DELETE FROM runs WHERE created_at < ?");
+  const listPendingRunsQuery = database.query<RunRow, []>(
+    `SELECT * FROM runs
+     WHERE status IN ('running', 'awaiting_answer')
+     ORDER BY created_at ASC`,
+  );
+  const connectionExistsQuery = database.query<{ ok: number }, [string]>(
+    "SELECT 1 AS ok FROM connections WHERE id = ?",
+  );
 
   const deleteConnectionTx = database.transaction((id: string) => {
     deleteRunsByConnectionQuery.run(id);
@@ -315,7 +337,12 @@ export function createStore(database: Database) {
       return countKeysQuery.get(connectionId)?.count ?? 0;
     },
 
-    insertRun(record: Omit<RunRecord, "text" | "error">): void {
+    /** 接続先がすでに消えていれば挿入しない。上流の応答待ちの間に削除された場合の取りこぼしを防ぐ。 */
+    insertRun(record: Omit<RunRecord, "text" | "error">): boolean {
+      if (!connectionExistsQuery.get(record.connectionId)) {
+        return false;
+      }
+
       insertRunQuery.run(
         record.runId,
         record.connectionId,
@@ -327,6 +354,8 @@ export function createStore(database: Database) {
         record.createdAt,
         record.updatedAt,
       );
+
+      return true;
     },
 
     getRun(runId: string): RunRecord | null {
@@ -340,7 +369,25 @@ export function createStore(database: Database) {
     },
 
     listRuns(limit: number): RunView[] {
-      return listRunsQuery.all(limit).map((row) => ({ ...toRun(row), keyName: row.key_name }));
+      return listRunsQuery.all(limit).map((row) => ({
+        runId: row.run_id,
+        connectionId: row.connection_id,
+        keyId: row.key_id,
+        status: RUN_STATUSES.has(row.status as RunStatus) ? (row.status as RunStatus) : "error",
+        text: row.text,
+        error: row.error,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        keyName: row.key_name,
+      }));
+    },
+
+    listPendingRuns(): RunRecord[] {
+      return listPendingRunsQuery.all().map(toRun);
+    },
+
+    isKeyActiveForConnection(keyId: string, connectionId: string): boolean {
+      return isActiveKeyQuery.get(keyId, connectionId) !== null;
     },
 
     /** 実行履歴は監査用に残すが、無期限には増やさない。起動時に古い行だけ消す。 */

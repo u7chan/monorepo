@@ -5,6 +5,7 @@ import { createConnectionService, createKeyService } from "./server/connections"
 import { loadConfig } from "./server/config";
 import { createStore, openDatabase } from "./server/db";
 import { createRelay } from "./server/relay";
+import { createRunReconciler } from "./server/run-reconciler";
 import { createUpstreamClient } from "./server/upstream";
 import { readPackageVersion } from "./server/version";
 
@@ -28,6 +29,12 @@ const upstream = createUpstreamClient();
 const relay = createRelay({ store, upstream, now: Date.now });
 const connections = createConnectionService({ store, upstream, now: Date.now });
 const keys = createKeyService({ store, now: Date.now });
+const reconciler = createRunReconciler({
+  store,
+  upstream,
+  now: Date.now,
+  retentionMs: 90 * 24 * 60 * 60 * 1000,
+});
 
 const app = createApp({
   auth,
@@ -40,6 +47,14 @@ const app = createApp({
   cookieSecure: config.cookieSecure,
   appOrigin: config.appOrigin,
 });
+
+// 実行状態はクライアントの返信取得に依存させない。30 秒ごとに上流の状態を取り込み、
+// 90 日を過ぎた履歴を削除する。コンテナを再起動しなくても保持期限が効く。
+const maintenance = setInterval(() => {
+  void reconciler.reconcile().catch(() => {
+    console.error("実行履歴を更新できませんでした");
+  });
+}, 30_000);
 
 const server = Bun.serve({
   hostname: config.host,
@@ -66,6 +81,7 @@ if (prunedRuns > 0) {
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
+    clearInterval(maintenance);
     server.stop();
     database.close();
     process.exit(0);

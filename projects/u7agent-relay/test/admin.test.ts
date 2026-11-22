@@ -1,5 +1,7 @@
 // 管理 API の認証・接続先とキーの CRUD・中継との連動を固定する。
 import { describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   adminRequest,
   bearer,
@@ -92,10 +94,14 @@ describe("管理 API", () => {
 
       expect(added.status).toBe(201);
 
-      const created = (await added.json()) as { connection: { id: string; sessionUrl: string; keyCount: number } };
+      const created = (await added.json()) as {
+        connection: { id: string; sessionId: string; spaceId: string; keyCount: number };
+      };
 
-      expect(created.connection.sessionUrl).toBe(SESSION_URL);
+      expect(created.connection.sessionId).toBe(SESSION_ID);
+      expect(created.connection.spaceId).toBe("default");
       expect(created.connection.keyCount).toBe(0);
+      expect(JSON.stringify(created)).not.toContain("agent.example.com");
 
       const issued = await adminRequest(harness, "/api/keys", {
         ...jsonBody({ name: "Muse", connectionId: created.connection.id }),
@@ -118,8 +124,87 @@ describe("管理 API", () => {
 
       expect(status).toBe(200);
       expect(JSON.stringify(body)).not.toContain(token);
+      expect(JSON.stringify(body)).not.toContain("agent.example.com");
+      expect(JSON.stringify(body)).not.toContain("sessionUrl");
       expect((body.keys as { prefix: string }[])[0]?.prefix).toBe(key.prefix);
       expect((body.connections as { keyCount: number }[])[0]?.keyCount).toBe(1);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  test("接続先は名前だけ変更でき、会話 URL の差し替えは拒否する", async () => {
+    const harness = createHarness();
+
+    try {
+      const cookie = await setupAdmin(harness);
+      const added = await adminRequest(harness, "/api/connections", {
+        ...jsonBody({ name: "旧名", sessionUrl: SESSION_URL }),
+        headers: { Cookie: cookie },
+      });
+      const { connection } = (await added.json()) as { connection: { id: string } };
+
+      const renamed = await adminRequest(harness, `/api/connections/${connection.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: "新名" }),
+        headers: { Cookie: cookie },
+      });
+
+      expect(renamed.status).toBe(200);
+      expect(((await renamed.json()) as { connection: { name: string } }).connection.name).toBe("新名");
+
+      const repointed = await adminRequest(harness, `/api/connections/${connection.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ sessionUrl: "https://agent.example.com/s/abcdef0123?space=default" }),
+        headers: { Cookie: cookie },
+      });
+
+      expect(repointed.status).toBe(400);
+      expect(await repointed.json()).toEqual({ error: "session_url_immutable" });
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  test("PIN ハッシュが壊れていれば session は misconfigured", async () => {
+    const harness = createHarness();
+
+    try {
+      await setupAdmin(harness);
+      writeFileSync(join(harness.dataDir, "pin-hash"), "$argon2id$broken\n");
+
+      const response = await adminRequest(harness, "/api/auth/session");
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ state: "misconfigured", version: "test" });
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  test("TRUST_PROXY では X-Forwarded-For の末尾でログイン試行を数える", async () => {
+    const harness = createHarness({ trustProxy: true });
+
+    try {
+      await setupAdmin(harness);
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const response = await adminRequest(harness, "/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ pin: "000000" }),
+          headers: { "X-Forwarded-For": `198.51.100.${attempt}, 203.0.113.7` },
+        });
+
+        expect(response.status).toBe(401);
+      }
+
+      const limited = await adminRequest(harness, "/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ pin: "000000" }),
+        headers: { "X-Forwarded-For": "198.51.100.99, 203.0.113.7" },
+      });
+
+      expect(limited.status).toBe(429);
     } finally {
       harness.cleanup();
     }
@@ -188,7 +273,6 @@ describe("管理 API", () => {
         title: "調査用の会話",
         queueDepth: 0,
         awaitingAnswer: false,
-        sessionUrl: SESSION_URL,
         checkedAt: 1_800_000_000_000,
       });
     } finally {
@@ -214,12 +298,9 @@ describe("管理 API", () => {
 
       expect(response.status).toBe(201);
 
-      const { connection } = (await response.json()) as {
-        connection: { sessionId: string; sessionUrl: string };
-      };
+      const { connection } = (await response.json()) as { connection: { sessionId: string } };
 
       expect(connection.sessionId).toBe("abcdef0123");
-      expect(connection.sessionUrl).toBe("https://agent.example.com/s/abcdef0123?space=default");
       expect(calls[0]?.url).toBe("https://agent.example.com/api/sessions");
       expect(calls[0]?.body).toBe("{}");
     } finally {
@@ -230,7 +311,7 @@ describe("管理 API", () => {
   test("キーを失効すると中継は 401、接続先を削除するとキーも消える", async () => {
     const upstreamFetch = async (_input: RequestInfo | URL, init?: RequestInit) =>
       init?.method === "POST"
-        ? jsonResponse({ queued: false, runId: RUN_ID }, 202)
+        ? jsonResponse({ sessionId: SESSION_ID, queued: false, runId: RUN_ID }, 202)
         : jsonResponse({ sessionId: SESSION_ID, spaceId: SPACE_ID, status: "idle", queueDepth: 0 });
     const harness = createHarness({ fetchImpl: upstreamFetch });
 

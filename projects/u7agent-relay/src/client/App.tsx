@@ -90,6 +90,24 @@ export function App() {
     );
   }
 
+  if (session.state === "misconfigured") {
+    return (
+      <main class="login">
+        <section class="card login-card">
+          <h1 class="login-title">設定を確認してください</h1>
+          <p class="muted">
+            PIN ハッシュ（<span class="mono">pin-hash</span>）またはセッション鍵（
+            <span class="mono">session-key</span>）を読めません。データディレクトリを確認してください。
+          </p>
+          <p class="muted">
+            PIN を再設定する場合は、この 2 ファイルを退避してから再読み込みしてください。接続先と API キーは
+            <span class="mono">relay.sqlite</span> に残ります。
+          </p>
+        </section>
+      </main>
+    );
+  }
+
   if (session.state !== "authenticated") {
     return (
       <LoginScreen

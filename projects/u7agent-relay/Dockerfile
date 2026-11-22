@@ -80,7 +80,8 @@ USER bun
 
 EXPOSE 8787
 
+# PORT / HOST を変えてもヘルスチェックが追随するように、既定値へ固定しない。
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD bun -e "fetch('http://127.0.0.1:8787/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+    CMD bun -e "const host = !process.env.HOST || process.env.HOST === '0.0.0.0' || process.env.HOST === '::' ? '127.0.0.1' : process.env.HOST; const port = process.env.PORT || '8787'; fetch('http://' + host + ':' + port + '/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["bun", "src/server.ts"]

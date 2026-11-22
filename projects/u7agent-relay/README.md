@@ -17,7 +17,7 @@ cd projects/u7agent-relay
 docker compose up -d --build
 ```
 
-`http://localhost:8787` を開き、最初に 6 桁の PIN を登録します。PIN・セッション鍵・SQLite は `u7agent_relay_data` volume に残ります。
+`http://localhost:8787` を開き、最初に 6 桁の PIN を登録します。PIN・セッション鍵・SQLite は `u7agent_relay_data` volume に残ります。TLS 終端を前段に置く場合は、`.env` に `COOKIE_SECURE` / `TRUST_PROXY` / `APP_ORIGIN` を設定すると Compose から渡されます。
 
 待受はホストの loopback だけに公開しています（`compose.yaml` の `127.0.0.1:8787:8787`）。別端末から使うときは、Tailscale などで到達範囲を絞ってから `ports` を変えてください。u7agent の BFF が無認証のため、中継をインターネットへ直接公開しないでください。
 
@@ -45,8 +45,10 @@ DATA_DIR=./data bun run dev   # http://localhost:8787
 - 会話 URL は `https` だけを受け付けます。平文だと、中継の外で会話が読めてしまうためです。
 - `space` を省略した URL は `default` として扱います。
 - 同じ会話（origin + 会話 ID + スペース）の重複登録は 409 で拒否します。
+- 登録後に変更できるのは名前だけです。会話を変えると発行済みキーの送信先が変わってしまうため、別の会話へ移るときは新しい接続先を登録し、キーを発行し直してください。
 - 「疎通確認」は u7agent の `GET /api/sessions/:id` を呼び、状態・タイトル・待ち件数を表示します。
 - 接続先を削除すると、紐づく API キーと実行履歴も削除されます。
+- 管理 API は接続先の origin / URL を返しません。画面には会話 ID とスペースだけを表示します。
 
 ## API キーを発行する
 
@@ -100,6 +102,7 @@ curl -fsS http://localhost:8787/v1/replies/0123456789abcdef \
 - 初回の PIN 登録より先に中継を外部へ公開しないでください。最初にアクセスした人が PIN を決められます。
 - 中継は接続先として登録した会話へ到達できます。接続先の origin は信頼できる u7agent だけにしてください。
 - 実行中の直列化はプロセス内で行います。中継は 1 インスタンスで動かしてください。
+- 実行中 / 回答待ちの履歴は 30 秒ごとに上流へ問い合わせて更新します。クライアントが返信取得をやめても、完了した応答は管理画面から読めます。
 - 上流の u7agent は中継からの要求に認証を要求しません。中継と u7agent の間を信頼できるネットワークに置いてください。内部 CA を使う場合は、イメージの信頼ストアへ CA を入れてください。
 
 ## 環境変数
@@ -110,7 +113,7 @@ curl -fsS http://localhost:8787/v1/replies/0123456789abcdef \
 | `PORT` | `8787` | 待受ポート。 |
 | `DATA_DIR` | `/app/data` | SQLite・PIN ハッシュ・セッション鍵の置き場。 |
 | `COOKIE_SECURE` | 未設定 | `1` で cookie に常に `Secure` を付ける。 |
-| `TRUST_PROXY` | 未設定 | `1` で `X-Forwarded-*` を信頼する。TLS 終端が前段にあるときだけ。 |
+| `TRUST_PROXY` | 未設定 | `1` で `X-Forwarded-*` を信頼する。TLS 終端が前段にあるときだけ。接続元は `X-Forwarded-For` の末尾（前段が追記した値）を使う。 |
 | `APP_ORIGIN` | 未設定 | TLS 終端の後ろでブラウザから見たオリジン。Origin 検査に使う。 |
 | `COMMIT_HASH` | — | ビルド時に埋め込むバージョン表示。 |
 
@@ -120,9 +123,11 @@ curl -fsS http://localhost:8787/v1/replies/0123456789abcdef \
 
 | ファイル | 内容 |
 | --- | --- |
-| `relay.sqlite` | 接続先・API キー（ハッシュ）・実行履歴。 |
+| `relay.sqlite` | 接続先・API キー（ハッシュ）・実行履歴。実行履歴は 90 日で削除。 |
 | `pin-hash` | PIN の Argon2id ハッシュ。 |
 | `session-key` | セッション cookie の署名鍵。 |
+
+`pin-hash` / `session-key` が壊れていると、GUI はログイン画面ではなく復旧手順を表示します。
 
 ## 開発
 

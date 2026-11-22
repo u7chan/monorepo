@@ -60,6 +60,11 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
           throw new AdminError(409, "session_busy");
         }
 
+        // 上流の GET を待つ間にキーが失効・削除されることがある。POST の直前に有効性を確かめる。
+        if (!store.isKeyActiveForConnection(keyId, connection.id)) {
+          throw new AdminError(401, "unauthorized");
+        }
+
         const accepted = await upstream.postMessage(connection, text);
         const urls = sessionUrls(connection);
 
@@ -70,7 +75,7 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
 
         const at = now();
 
-        store.insertRun({
+        const inserted = store.insertRun({
           runId: accepted.runId,
           connectionId: connection.id,
           keyId,
@@ -79,6 +84,11 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
           createdAt: at,
           updatedAt: at,
         });
+
+        if (!inserted) {
+          // 応答を待つ間に接続先が削除された。履歴を残さず、キーも無効として扱う。
+          throw new AdminError(401, "unauthorized");
+        }
 
         return { runId: accepted.runId };
       } finally {
@@ -105,7 +115,7 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
         throw new AdminError(404, "run_not_found");
       }
 
-      const payload = payloadOf(session, runId, connection);
+      const payload = sessionRunPayload(session, runId, connection);
 
       if (payload.status !== "running") {
         store.updateRun(
@@ -122,7 +132,7 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
   };
 }
 
-function payloadOf(session: UpstreamSession, runId: string, connection: ConnectionRecord): ReplyPayload {
+export function sessionRunPayload(session: UpstreamSession, runId: string, connection: ConnectionRecord): ReplyPayload {
   const run = session.run;
 
   if (!run || run.id !== runId) {

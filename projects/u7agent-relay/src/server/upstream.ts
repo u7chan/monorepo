@@ -48,7 +48,7 @@ export function createUpstreamClient(options: { fetchImpl?: FetchLike; timeoutMs
     try {
       response = await fetchImpl(url, { redirect: "error", signal, ...init });
     } catch {
-      throw new UpstreamError(502, signal.aborted ? "upstream_timeout" : "upstream_unavailable");
+      throw timeoutOr(signal, "upstream_unavailable");
     }
 
     if (!response.ok) {
@@ -60,7 +60,8 @@ export function createUpstreamClient(options: { fetchImpl?: FetchLike; timeoutMs
     try {
       return await response.json();
     } catch {
-      throw new UpstreamError(502, "upstream_invalid");
+      // ヘッダー後の本文読み取りでも期限は続く。旧中継と同じく期限切れは 504 にそろえる。
+      throw timeoutOr(signal, "upstream_invalid");
     }
   }
 
@@ -85,7 +86,12 @@ export function createUpstreamClient(options: { fetchImpl?: FetchLike; timeoutMs
         throw new UpstreamError(502, "upstream_invalid");
       }
 
-      const accepted = payload as { queued?: unknown; runId?: unknown };
+      const accepted = payload as { sessionId?: unknown; queued?: unknown; runId?: unknown };
+
+      // 202 の応答が別会話を指していれば、この runId を接続先へ紐づけない。
+      if (accepted.sessionId !== target.sessionId) {
+        throw new UpstreamError(502, "upstream_mismatch");
+      }
 
       // キューに積まれた投稿は実行 ID を持たない。再送すると二重投稿になるので、呼び出し側は追跡しない。
       if (accepted.queued === true) {
@@ -125,6 +131,10 @@ export function createUpstreamClient(options: { fetchImpl?: FetchLike; timeoutMs
       return { origin, sessionId: created.sessionId, spaceId: createdSpace };
     },
   };
+}
+
+function timeoutOr(signal: AbortSignal, code: string): UpstreamError {
+  return signal.aborted ? new UpstreamError(504, "upstream_timeout") : new UpstreamError(502, code);
 }
 
 function assertSession(payload: unknown, target: ConnectionTarget): UpstreamSession {
