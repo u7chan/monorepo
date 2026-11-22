@@ -1,5 +1,5 @@
 import type { Stats } from "node:fs"
-import { stat as fsStat, readdir, readFile } from "node:fs/promises"
+import { stat as fsStat, readdir } from "node:fs/promises"
 import * as path from "node:path"
 import type { Context } from "hono"
 import type { AppBindings } from "../types"
@@ -82,12 +82,6 @@ export const isPreviewableBinary = (mimeType: string) =>
 
 export const encodeVirtualPath = (requestPath: string) =>
   requestPath.split("/").map(encodeURIComponent).join("/")
-
-export const toArrayBuffer = (contentBuffer: Buffer): ArrayBuffer =>
-  contentBuffer.buffer.slice(
-    contentBuffer.byteOffset,
-    contentBuffer.byteOffset + contentBuffer.byteLength,
-  ) as ArrayBuffer
 
 export const archiveFileName = (requestPath: string) =>
   requestPath ? `${path.basename(requestPath)}.zip` : "root.zip"
@@ -261,8 +255,13 @@ export async function readFileResponse(
   resolvedPath: string,
   headers: Record<string, string>,
 ): Promise<Response> {
-  const contentBuffer = await readFile(resolvedPath)
-  return new Response(toArrayBuffer(contentBuffer), { headers })
+  // Why not `readFile`: preview/download targets can be arbitrarily large
+  // (videos, PDFs, exported HTML), and buffering one costs its full size in
+  // server memory per concurrent request.
+  const file = Bun.file(resolvedPath)
+  return new Response(file, {
+    headers: { ...headers, "Content-Length": String(file.size) },
+  })
 }
 
 export async function readBinaryFileResponse(

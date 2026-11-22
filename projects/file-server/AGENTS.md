@@ -110,10 +110,11 @@ adding screens.
 - `src/components/uiStyles.ts` - Shared surface, field and text class tokens
 - `src/components/buttonStyles.ts` - Shared button tones and sizes
 - `src/utils/` - Utilities (incl. `virtualPath.ts` for scope resolution)
+- `src/utils/filePreviewLimits.ts` - Inline preview byte limits and head-only reads for oversized files
 - `src/utils/sessionSecret.ts` - Session-secret creation and cache
 - `src/utils/sessionToken.ts` - Session cookie signing and verification
 - `src/utils/markdown/` - Dependency-free Markdown block / inline parser
-- `tests/` - Tests (auth, auth-config, read, upload, create-file, delete, mkdir, update, rename, move, move-picker, public-route, file-preview, markdown)
+- `tests/` - Tests (auth, auth-config, read, upload, create-file, delete, mkdir, update, rename, move, move-picker, public-route, file-preview, large-file-preview, markdown)
 - `tests/helpers/` - `createTestApp.ts`, `auth.ts` and `userStore.ts` helpers
 
 ### List Refresh (HTMX)
@@ -200,6 +201,35 @@ All browse/API requests use a virtual path that maps to one of two scopes:
   `src/components/markdown/previewStyles.ts` when adding markup.
 - Relative links and images resolve under `/file/preview/...`; relative Markdown links open through the same renderer.
 - Files above `MARKDOWN_MAX_LENGTH` (200 KiB) are not parsed; the page falls back to the plain source.
+- Files above `MAX_INLINE_TEXT_BYTES` are treated as oversized (see "Large File Preview"); only the head is served so the browser never receives a multi-megabyte document body.
+
+## Large File Preview
+
+The viewer body is delivered inside the HTMX response. Inlining a multi-megabyte
+source makes the client parse and lay out one huge text node, which freezes weak
+clients before the modal paints. The limits live in
+`src/utils/filePreviewLimits.ts`:
+
+- `MAX_INLINE_TEXT_BYTES` (256 KiB) — the largest file the viewer inlines.
+- `TEXT_EXCERPT_BYTES` (64 KiB) — the head shown for anything larger.
+
+Behavior above the limit:
+
+- `GET /file` reads only the head with `readFileHead()` and renders a notice with
+the total size. Edit and Copy are hidden, and `?edit=true` falls back to the
+read-only view, because saving would write the excerpt back over the file.
+- Non-active text and Markdown additionally get an "Open full text" link to
+`/file/raw`. Active content (HTML/XHTML/SVG) does not, because `/file/raw`
+refuses it; its whole-file view is the existing Preview/public URL button.
+- `GET /file/preview/*` applies the same limit to Markdown. An oversized file is
+not parsed and its head is shown as plain source with a download link, since a
+truncated excerpt can end in the middle of a construct.
+- `GET /file/raw`, `/file/preview/*` and `/file/download` stream from disk with
+`Bun.file()` plus `Content-Length` instead of buffering the whole file per
+request.
+
+Image/video/PDF previews already delegate rendering to the browser and are not
+truncated; streaming is what keeps them bounded on the server.
 
 ## Authentication
 

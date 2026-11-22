@@ -5,6 +5,11 @@ import { FileViewer } from "../components/file-viewer"
 import { MarkdownPreviewPage } from "../components/markdown/MarkdownPreviewPage"
 import type { AppBindings } from "../types"
 import {
+  MAX_INLINE_TEXT_BYTES,
+  readFileHead,
+  TEXT_EXCERPT_BYTES,
+} from "../utils/filePreviewLimits"
+import {
   ACTIVE_CONTENT_PREVIEW_CSP,
   archiveFileName,
   createDirectoryArchive,
@@ -73,11 +78,31 @@ fileRoutes.get("/", async (c) => {
       : undefined
 
   if (isText || forceTextView) {
-    const content = await readFile(resolved.resolvedPath, "utf-8")
-    const isEditing = !forceTextView && c.req.query("edit") === "true"
+    // Why not inline every text file: the viewer body travels inside the HTMX
+    // response, and a multi-megabyte source turns into a huge DOM text node
+    // that small clients cannot lay out. Large files get a bounded head plus
+    // links to the full text/download instead.
+    const isTooLargeForInlineView = resolved.stat.size > MAX_INLINE_TEXT_BYTES
+    const content = isTooLargeForInlineView
+      ? await readFileHead(resolved.resolvedPath, TEXT_EXCERPT_BYTES)
+      : await readFile(resolved.resolvedPath, "utf-8")
+    const isEditing =
+      !forceTextView &&
+      !isTooLargeForInlineView &&
+      c.req.query("edit") === "true"
+    // Why not for active content: `/file/raw` refuses HTML/SVG, and their
+    // whole-file view is the existing Preview button.
+    const fullTextUrl =
+      isTooLargeForInlineView && isText && !isHtmlOrSvg
+        ? `/file/raw?path=${encodeURIComponent(resolved.requestPath)}`
+        : undefined
     return c.html(
       <FileViewer
         content={content}
+        truncatedFileSize={
+          isTooLargeForInlineView ? resolved.stat.size : undefined
+        }
+        fullTextUrl={fullTextUrl}
         fileName={path.basename(resolved.resolvedPath)}
         path={resolved.requestPath}
         isEditing={isEditing}
@@ -123,11 +148,18 @@ fileRoutes.get("/preview/*", async (c) => {
   }
 
   if (isMarkdownFile(resolved.resolvedPath, resolved.mimeType)) {
-    const content = await readFile(resolved.resolvedPath, "utf-8")
+    const isTooLargeForInlineView = resolved.stat.size > MAX_INLINE_TEXT_BYTES
+    const content = isTooLargeForInlineView
+      ? await readFileHead(resolved.resolvedPath, TEXT_EXCERPT_BYTES)
+      : await readFile(resolved.resolvedPath, "utf-8")
     return c.html(
       <MarkdownPreviewPage
         fileName={path.basename(resolved.resolvedPath)}
         content={content}
+        truncatedFileSize={
+          isTooLargeForInlineView ? resolved.stat.size : undefined
+        }
+        downloadUrl={`/file/download?path=${encodeURIComponent(requestPath)}`}
       />,
       200,
       {

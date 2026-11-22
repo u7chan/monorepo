@@ -16,6 +16,10 @@ interface FileViewerProps {
   allowEdit?: boolean
   publicUrl?: string
   previewUrl?: string
+  /** Total file size when `content` is only the head of a larger file. */
+  truncatedFileSize?: number
+  /** Whole file rendered in a new tab. Omitted for active content. */
+  fullTextUrl?: string
 }
 
 export const FileViewer: FC<FileViewerProps> = ({
@@ -27,13 +31,18 @@ export const FileViewer: FC<FileViewerProps> = ({
   allowEdit = true,
   publicUrl,
   previewUrl,
+  truncatedFileSize,
+  fullTextUrl,
 }) => {
   const encodedPath = path ? encodeURIComponent(path) : ""
   const fileUrl = `/file/raw?path=${encodedPath}`
+  const isTruncated = truncatedFileSize !== undefined
 
   // テキストファイルの場合
   if (content !== undefined) {
-    if (isEditing && path) {
+    // Why not allow editing a head-only view: saving would write the excerpt
+    // back over the original file.
+    if (isEditing && path && !isTruncated) {
       return (
         <FileViewerModal
           fileName={fileName}
@@ -54,10 +63,14 @@ export const FileViewer: FC<FileViewerProps> = ({
         path={path}
         publicUrl={publicUrl}
         previewUrl={previewUrl}
-        showEdit={allowEdit}
-        showCopy={true}
+        showEdit={allowEdit && !isTruncated}
+        showCopy={!isTruncated}
       >
-        <TextViewer content={content} />
+        <TextViewer
+          content={content}
+          truncatedFileSize={truncatedFileSize}
+          fullTextUrl={fullTextUrl}
+        />
       </FileViewerModal>
     )
   }
