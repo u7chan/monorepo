@@ -172,7 +172,7 @@ export function ConnectionsPanel(props: {
                 onInput={(event) => setEditing({ ...editing, name: (event.currentTarget as HTMLInputElement).value })}
               />
             </label>
-            <p class="muted wide">会話を変えるときは、新しい接続先を登録してキーを発行し直してください。</p>
+            <p class="muted edit-hint">会話を変えるときは、新しい接続先を登録してキーを発行し直してください。</p>
             <div class="actions">
               <button class="button primary" type="submit" disabled={busy}>
                 保存

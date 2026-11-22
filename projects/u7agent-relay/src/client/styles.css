@@ -384,6 +384,10 @@ th {
   border-color: var(--accent);
 }
 
+.edit-hint {
+  grid-column: 1 / -1;
+}
+
 .preview {
   max-width: 320px;
   color: var(--muted);
