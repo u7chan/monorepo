@@ -42,7 +42,6 @@ export function Page() {
             <div class="controls">
               <button id="start" type="button" disabled>録音開始</button>
               <button id="stop" type="button" disabled>停止・確定</button>
-              <button id="cancel" type="button" disabled>中止</button>
             </div>
             <p id="run-status" role="status">待機中</p>
             <h3>途中テキスト</h3>

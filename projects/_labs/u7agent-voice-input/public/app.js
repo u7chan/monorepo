@@ -9,7 +9,6 @@ const registerKey = byId("register-key");
 const clearKey = byId("clear-key");
 const keyStatus = byId("key-status");
 const voiceButton = byId("start");
-const cancel = byId("cancel");
 const runStatus = byId("run-status");
 const transcript = byId("transcript");
 const firstDelta = byId("first-delta");
@@ -20,17 +19,8 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const composer = document.createElement("div");
 composer.className = "voice-composer";
 const actions = voiceButton.parentElement;
-actions.className = "voice-actions";
 voiceButton.className = "voice-primary";
-cancel.className = "voice-cancel";
-cancel.title = "中止";
-cancel.setAttribute("aria-label", "中止");
-cancel.textContent = "×";
 
-const sparkles = document.createElement("span");
-sparkles.className = "voice-sparkles";
-sparkles.setAttribute("aria-hidden", "true");
-sparkles.textContent = "✦";
 voiceButton.innerHTML = `
   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
     <rect x="9" y="2" width="6" height="13" rx="3" />
@@ -40,7 +30,6 @@ voiceButton.innerHTML = `
     <rect x="5" y="5" width="14" height="14" rx="2" />
   </svg>`;
 const [micIcon, stopIcon] = voiceButton.children;
-actions.replaceChildren(sparkles, cancel, voiceButton);
 const preview = byId("partial");
 preview.previousElementSibling.remove();
 preview.remove();
@@ -50,7 +39,8 @@ label.textContent = "メッセージ入力";
 transcript.rows = 1;
 transcript.placeholder = "メッセージを入力…";
 transcript.before(composer);
-composer.append(transcript, actions);
+composer.append(transcript, voiceButton);
+actions.remove();
 
 function addMetric(label) {
   const row = document.createElement("div");
@@ -93,8 +83,6 @@ function renderControls() {
   voiceButton.title = action;
   micIcon.toggleAttribute("hidden", busy);
   stopIcon.toggleAttribute("hidden", !busy);
-  cancel.hidden = !busy;
-  cancel.disabled = !busy;
   transcript.readOnly = busy;
   composer.classList.toggle("is-recording", recording);
   if (!recording) textGlow?.cancel();
@@ -129,12 +117,10 @@ clearKey.addEventListener("click", () => {
 });
 
 function idle(message) {
-  const cancelFocused = document.activeElement === cancel;
   active = undefined;
   recording = false;
   runStatus.textContent = message;
   renderControls();
-  if (cancelFocused) voiceButton.focus();
 }
 
 voiceButton.addEventListener("click", () => {
@@ -226,11 +212,9 @@ voiceButton.addEventListener("click", () => {
   renderControls();
 });
 
-function cancelRun() {
+window.addEventListener("pagehide", () => {
   if (!active) return;
   active.cancel();
-  idle("中止しました。");
-}
-cancel.addEventListener("click", cancelRun);
-window.addEventListener("pagehide", cancelRun);
+  idle("ページを離れたため録音を終了しました。");
+});
 void updateKey();

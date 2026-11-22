@@ -106,59 +106,32 @@ input {
   opacity: 1;
 }
 
-.voice-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.voice-actions button {
+.voice-primary {
   display: grid;
+  flex: none;
   width: 2.25rem;
   height: 2.25rem;
   padding: 0;
   place-items: center;
   border: 1px solid transparent;
   border-radius: 50%;
+  background: var(--voice-accent);
+  color: var(--voice-on-accent);
   cursor: pointer;
 }
 
-.voice-actions button:is(:disabled, [aria-disabled="true"]) {
+.voice-primary:is(:disabled, [aria-disabled="true"]) {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.voice-actions [hidden] {
+.voice-primary [hidden] {
   display: none;
 }
 
-.voice-actions svg {
+.voice-primary svg {
   width: 1.125rem;
   height: 1.125rem;
-}
-
-.voice-primary {
-  background: var(--voice-accent);
-  color: var(--voice-on-accent);
-}
-
-.voice-actions .voice-cancel {
-  border-color: var(--voice-line);
-  background: transparent;
-  color: var(--voice-ink);
-  font-size: 1.35rem;
-}
-
-.voice-sparkles {
-  display: none;
-  color: var(--voice-accent);
-  line-height: 1;
-}
-
-.is-recording .voice-sparkles {
-  display: block;
-  animation: voice-glint 2.2s ease-in-out infinite alternate;
 }
 
 @keyframes voice-sweep {
@@ -166,14 +139,8 @@ input {
   to { background-position: 0 0, 100% 0; }
 }
 
-@keyframes voice-glint {
-  from { opacity: 0.5; transform: scale(0.88); }
-  to { opacity: 1; transform: scale(1.15); }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .voice-composer.is-recording,
-  .is-recording .voice-sparkles {
+  .voice-composer.is-recording {
     animation: none;
   }
 }
