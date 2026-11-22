@@ -114,6 +114,14 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
 
       const session = await upstream.readSession(connection);
 
+      // 上流を待つ間に、投稿前処理や定期照会がこの実行の終端結果を保存していることがある。
+      // 上流が次の実行へ進んでいても、保存済みの結果があれば 404 にしない。
+      const saved = store.getRun(runId);
+
+      if (saved && isTerminal(saved.status)) {
+        return terminalPayload(saved.status, saved.text);
+      }
+
       if (session.run?.id !== runId) {
         // 上流は直近の実行だけを返す。追い越された実行は、終了済みとして保存した分しか答えられない。
         throw new AdminError(404, "run_not_found");

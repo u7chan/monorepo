@@ -459,6 +459,56 @@ describe("中継の競合と上流応答の検証", () => {
     }
   });
 
+  test("照会中に次の実行へ進んでも、保存済みの完了結果を返す", async () => {
+    const nextRunId = "cccccccccccccccc";
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const startedPromise = new Promise<void>((resolve) => (started = resolve));
+    const harness = createHarness({
+      fetchImpl: async () => {
+        started();
+        await gate;
+
+        return jsonResponse({
+          sessionId: SESSION_ID,
+          spaceId: SPACE_ID,
+          status: "running",
+          queueDepth: 0,
+          run: { id: nextRunId, status: "running" },
+        });
+      },
+    });
+
+    try {
+      const { connectionId, keyId, token } = seedConnection(harness);
+
+      harness.store.insertRun({
+        runId: RUN_ID,
+        connectionId,
+        keyId,
+        status: "running",
+        sessionUrl: `https://agent.example.com/s/${SESSION_ID}?space=${SPACE_ID}`,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+
+      const pending = harness.app.request(`/v1/replies/${RUN_ID}`, { headers: bearer(token) });
+
+      await startedPromise;
+      // 投稿前処理が完了を保存した後、上流は次の実行へ進んでいる。
+      harness.store.updateRun(RUN_ID, "completed", "保存済みの完了", null, NOW);
+      release();
+
+      const response = await pending;
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ status: "completed", text: "保存済みの完了" });
+    } finally {
+      harness.cleanup();
+    }
+  });
+
   test("返信 API の遅れた応答が保存済みの完了を上書きしない", async () => {
     let release!: () => void;
     let started!: () => void;
