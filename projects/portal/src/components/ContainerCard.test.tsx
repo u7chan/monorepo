@@ -18,6 +18,11 @@ function container(overrides: Partial<Container> = {}): Container {
 }
 
 const PORT = { host: "0.0.0.0", publicPort: 3000, privatePort: 80, protocol: "tcp" };
+const UPDATE = {
+  containerId: "abc123",
+  latestTag: "sha-7654321",
+  createdAt: "2026-11-13T13:06:22Z",
+};
 
 function renderCard(overrides: Partial<Container> = {}): string {
   return renderToStaticMarkup(<ContainerCard container={container(overrides)} />);
@@ -82,6 +87,32 @@ describe("ContainerCard", () => {
 
     expect(markup).toContain("<span>Deploy</span>");
   });
+
+  test("canDeploy のコンテナで新着があれば New を出す", () => {
+    const markup = renderToStaticMarkup(
+      <ContainerCard
+        container={container({ canDeploy: true, deployTarget: "app" })}
+        update={UPDATE}
+      />,
+    );
+
+    expect(markup).toContain("New");
+    expect(markup).toContain(
+      'title="A newer image (sha-7654321) was built at 2026-11-13 22:06:22 (JST)."',
+    );
+  });
+
+  test("新着があっても canDeploy でなければ New を出さない", () => {
+    const markup = renderToStaticMarkup(<ContainerCard container={container()} update={UPDATE} />);
+
+    expect(markup).not.toContain("image available");
+  });
+
+  test("新着が無ければ New を出さない", () => {
+    const markup = renderCard({ canDeploy: true, deployTarget: "app" });
+
+    expect(markup).not.toContain("image available");
+  });
 });
 
 describe("ContainerListItem", () => {
@@ -103,5 +134,17 @@ describe("ContainerListItem", () => {
     expect(renderListItem({ canDeploy: true, deployTarget: "app" })).toContain(
       'data-can-deploy="true"',
     );
+  });
+
+  test("新着があれば Deploy の隣に New を出す", () => {
+    const markup = renderToStaticMarkup(
+      <ContainerListItem
+        container={container({ canDeploy: true, deployTarget: "app" })}
+        update={UPDATE}
+      />,
+    );
+
+    expect(markup).toContain("New");
+    expect(markup).toContain("image available");
   });
 });

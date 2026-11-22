@@ -100,14 +100,47 @@ export function isDeployableImageTag(tag: string): boolean {
   return isValidImageTag(tag) && tag !== "latest";
 }
 
-function tagBuiltAt(tags: readonly ImageTagOption[], tag: string): number | undefined {
-  const createdAt = tags.find((option) => option.tag === tag)?.createdAt;
+function builtAt(createdAt: string | undefined): number | undefined {
   if (!createdAt) {
     return undefined;
   }
 
   const time = Date.parse(createdAt);
   return Number.isNaN(time) ? undefined : time;
+}
+
+function tagBuiltAt(tags: readonly ImageTagOption[], tag: string): number | undefined {
+  return builtAt(tags.find((option) => option.tag === tag)?.createdAt);
+}
+
+/**
+ * 稼働中のタグより後にビルドされたタグのうち、最新のものを返す。
+ *
+ * Why not: 現在のタグが一覧に無いときは比較しない。latest やダイジェスト参照は
+ * どのビルドが動いているかを portal が知らないため、「新着」と断定できない。
+ * 同じビルドの sha-* と manual-* は createdAt が同じなので、新着にはしない。
+ */
+export function findNewerImageTag(
+  tags: readonly ImageTagOption[],
+  currentTag: string,
+): ImageTagOption | undefined {
+  const current = tagBuiltAt(tags, currentTag);
+  if (current === undefined) {
+    return undefined;
+  }
+
+  let newest: ImageTagOption | undefined;
+  let newestTime = current;
+
+  for (const option of tags) {
+    const time = builtAt(option.createdAt);
+    if (time !== undefined && time > newestTime) {
+      newest = option;
+      newestTime = time;
+    }
+  }
+
+  return newest;
 }
 
 /**

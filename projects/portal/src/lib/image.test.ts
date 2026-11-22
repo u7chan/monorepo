@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   describeImage,
+  findNewerImageTag,
   isDeployableImageTag,
   isOlderImageTag,
   isValidDeployTarget,
@@ -195,6 +196,43 @@ describe("isOlderImageTag", () => {
         "sha-old",
       ),
     ).toBe(false);
+  });
+});
+
+describe("findNewerImageTag", () => {
+  const tags = [
+    { tag: "sha-new", createdAt: "2026-11-13T13:06:22Z" },
+    { tag: "manual-new", createdAt: "2026-11-13T13:06:22Z" },
+    { tag: "sha-old", createdAt: "2026-11-12T09:00:00Z" },
+  ];
+
+  test("現在より後にビルドされたタグがあれば、その最新を返す", () => {
+    expect(findNewerImageTag(tags, "sha-old")?.tag).toBe("sha-new");
+  });
+
+  test("最新のビルドが動いていれば undefined", () => {
+    expect(findNewerImageTag(tags, "sha-new")).toBeUndefined();
+    expect(findNewerImageTag(tags, "manual-new")).toBeUndefined();
+  });
+
+  test("現在のタグが一覧に無い、latest、空なら比較しない", () => {
+    expect(findNewerImageTag(tags, "sha-gone")).toBeUndefined();
+    expect(findNewerImageTag(tags, "latest")).toBeUndefined();
+    expect(findNewerImageTag(tags, "")).toBeUndefined();
+  });
+
+  test("日時が無い、または解析できないタグは新着として扱わない", () => {
+    const partial = [
+      { tag: "sha-current", createdAt: "2026-11-12T09:00:00Z" },
+      { tag: "sha-unknown" },
+      { tag: "sha-broken", createdAt: "not-a-date" },
+    ];
+
+    expect(findNewerImageTag(partial, "sha-current")).toBeUndefined();
+  });
+
+  test("一覧が空なら undefined", () => {
+    expect(findNewerImageTag([], "sha-old")).toBeUndefined();
   });
 });
 

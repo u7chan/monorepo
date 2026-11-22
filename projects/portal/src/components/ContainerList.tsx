@@ -8,6 +8,7 @@ import { GridIcon, ListIcon, TrayIcon, WarningIcon } from "./icons";
 import { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
 import { readApiMessage, readStatusError, requestJson } from "../lib/apiClient";
 import { isPortReachable, matchesContainerFilter } from "../lib/containerState";
+import { useImageUpdates } from "../hooks/useImageUpdates";
 
 interface ContainerListProps {
   refreshInterval?: number;
@@ -144,6 +145,7 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
     containerId: string;
     action: ContainerAction;
   } | null>(null);
+  const imageUpdates = useImageUpdates(refreshInterval);
 
   // 絞り込みはクライアント側で行う。フィルタごとの件数を出すには全件が要るのと、
   // 切り替えのたびに docker ps を叩き直さずに済むため。
@@ -260,6 +262,7 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
     <Item
       key={container.id}
       container={container}
+      update={imageUpdates.get(container.id)}
       pendingAction={pendingAction?.containerId === container.id ? pendingAction.action : null}
       onAction={runContainerAction}
     />

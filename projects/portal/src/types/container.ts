@@ -44,6 +44,17 @@ export interface ImageTagOption {
 }
 
 /**
+ * 稼働中のイメージより新しいビルドがあるコンテナ
+ */
+export interface ImageUpdate {
+  containerId: string;
+  /** 最新ビルドの代表タグ (同じビルドの sha-* / manual-* のうち 1 つ) */
+  latestTag: string;
+  /** 最新ビルドの作成日時 (GHCR の created_at) */
+  createdAt?: string;
+}
+
+/**
  * デプロイ可能なタグ一覧のレスポンス
  */
 export interface DeployOptionsResponse {

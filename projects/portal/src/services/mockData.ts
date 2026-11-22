@@ -44,7 +44,7 @@ export const mockContainers: Container[] = [
   {
     id: "def456ghi789012",
     name: "agent",
-    image: "ghcr.io/u7chan/monorepo/u7agent:latest",
+    image: "ghcr.io/u7chan/monorepo/u7agent:sha-0ff5c111",
     state: "running",
     status: "Up 5 hours",
     ports: [
@@ -154,9 +154,11 @@ export const mockContainers: Container[] = [
 ];
 
 // デプロイ UI のモック用タグ。実環境では GitHub Packages から取得する。
+// 先頭が最新的で、u7agent は 1 つ前のビルドを稼働中にして New の表示を確認できるようにする。
 export const mockImageTags: ImageTagOption[] = [
   { tag: "sha-0ff5c144", createdAt: "2026-11-13T13:06:22Z" },
   { tag: "manual-test-abc1234", createdAt: "2026-11-12T09:00:00Z" },
+  { tag: "sha-0ff5c111", createdAt: "2026-11-10T09:00:00Z" },
 ];
 
 // 大量データ生成（レイアウトテスト用）
