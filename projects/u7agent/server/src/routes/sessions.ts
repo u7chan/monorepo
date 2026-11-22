@@ -211,8 +211,11 @@ export function createSessionRoutes({
      * 生ログだけを消す。確認時点の履歴世代 (`historyGeneration`) が古い / busy / 片付け中は 409。
      */
     clearHistory: async (c: Context, body: ClearSessionHistoryBody) => {
+      // 待機 (先行の load / 引っ越し / メタ更新) の後に所属が変わり得るため、要求元を渡して
+      // 確定前にもう一度照合する (fork と同じ)。入口の sessionSpaceGuard だけでは足りない
       const result = await store.clearHistory(c.req.param("id") ?? "", {
         expectHistoryGeneration: body.historyGeneration,
+        expectSpaceId: spaces.require(c.req.query("spaceId")),
       });
       if (!result) return c.json({ error: "Session not found" }, 404);
       return c.json(result);

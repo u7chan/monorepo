@@ -2931,14 +2931,14 @@ export class SessionStore {
    */
   async clearHistory(
     id: string,
-    { expectHistoryGeneration }: { expectHistoryGeneration: string },
+    { expectHistoryGeneration, expectSpaceId }: { expectHistoryGeneration: string; expectSpaceId: string },
   ): Promise<SessionHistoryClearResponse | undefined> {
     // 先行の load / meta 更新 / ピン更新を待ち、対象 ID 単位でクリアを予約する (move と同じ lifecycle)
     const operation = (async () => {
       for (const pending of [this.lifecycle.get(id), this.metaUpdates.get(id), this.pinUpdates.get(id)]) {
         if (pending) await pending.catch(() => {});
       }
-      return this.clearSessionHistory(id, expectHistoryGeneration);
+      return this.clearSessionHistory(id, expectHistoryGeneration, expectSpaceId);
     })();
     const settled = operation.then(
       () => {},
@@ -2955,6 +2955,7 @@ export class SessionStore {
   private async clearSessionHistory(
     id: string,
     expectHistoryGeneration: string,
+    expectSpaceId: string,
   ): Promise<SessionHistoryClearResponse | undefined> {
     if (this.storeError) throw httpError(503, `会話ストアを利用できません: ${this.storeError}`);
     const storeDir = this.storeDir;
@@ -2963,7 +2964,7 @@ export class SessionStore {
     const live = this.records.get(id);
     let current = live?.meta ?? this.descriptors.get(id);
     if (!current) return undefined;
-    this.assertHistoryClearable(current, live, expectHistoryGeneration);
+    this.assertHistoryClearable(current, live, expectHistoryGeneration, expectSpaceId);
     // 未ロードでも SDK セッションや作業フォルダは作らず、JSONL の設定記録と meta だけを照合する
     const restored = live ? this.effectiveInputsOf(live) : await this.clearedInputsOf(current);
     // 確定前に届いた古い保存 (タイトル要約を含む) を待ち、ここから先はもう書かない
@@ -2974,7 +2975,7 @@ export class SessionStore {
       // drain 中の setTitle / setNotify を落とさないよう、最新の meta から組み立て直す
       current = live?.meta ?? this.descriptors.get(id);
       if (!current) return undefined;
-      this.assertHistoryClearable(current, live, expectHistoryGeneration);
+      this.assertHistoryClearable(current, live, expectHistoryGeneration, expectSpaceId);
       const inputs = live ? this.effectiveInputsOf(live) : restored;
       if (!this.hasHistoryToClear(current, live)) {
         // 現世代で消すものが無い。新しい世代も作らず、クライアントに自動再試行をさせない
@@ -3066,7 +3067,10 @@ export class SessionStore {
     meta: SessionMeta,
     live: SessionRecord | undefined,
     expectHistoryGeneration: string,
+    expectSpaceId: string,
   ): void {
+    // 待機の後に引っ越しが確定していたら、移動先の会話へクリアを効かせない (fork と同じ 404)
+    if ((meta.spaceId ?? "default") !== expectSpaceId) throw httpError(404, "Session not found");
     if (this.closing) throw httpError(503, "サーバーを終了しています");
     if (this.deleting.has(meta.id)) throw httpError(409, "会話が削除されているため履歴を消せません");
     if (meta.handoffCleanup) throw httpError(409, HANDOFF_CLEANUP_PENDING_MESSAGE);

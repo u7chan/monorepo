@@ -401,6 +401,68 @@ test("実行中・キュー待ち・片付け中・別スペース・二重要�
   });
 });
 
+test("待機中に引っ越しが確定したら、移動先の会話へクリアを効かせない", async () => {
+  await withPaths(async (paths) => {
+    const bff = await openBff(paths);
+    try {
+      const space = (await jsonBody(bff.app.request("/api/spaces", jsonPost({ name: "移動先" })))).space.id as string;
+      const id = await createSession(bff);
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "引っ越す前の会話" }));
+      await waitCompleted(bff, id);
+      const generation = await generationOf(bff, id);
+      // 保存待ちの最終 meta ではなく、live の現在値 (クリアが読む値) を基準にする
+      const liveBefore = bff.store.get(id);
+      assert.ok(liveBefore);
+      const before = {
+        title: liveBefore.title,
+        messageCount: liveBefore.meta.messageCount,
+        historyGeneration: liveBefore.meta.historyGeneration,
+        handoff: liveBefore.meta.handoff,
+      };
+
+      // 先行する引っ越しが lifecycle を握っている状態を作り、クリアを待たせる
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      bff.store.lifecycle.set(id, held);
+      const pending = clearHistory(bff, id, { expect: generation });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // 待機中に引っ越しが確定した状態 (所属だけ移動先へ変わる) を再現する
+      const live = bff.store.get(id);
+      assert.ok(live);
+      const movedMeta = { ...live.meta, spaceId: space };
+      live.meta = movedMeta;
+      bff.store.descriptors.set(id, movedMeta);
+      await writeSessionMeta(paths.store, movedMeta);
+      release();
+
+      // 要求元 (default) のクリアは 404 になり、移動先の会話は何も変わらない
+      const response = await pending;
+      assert.equal(response.status, 404);
+      const after = await readMeta(id, paths.store);
+      assert.equal(after.spaceId, space);
+      assert.equal(after.title, before.title);
+      assert.equal(after.messageCount, before.messageCount);
+      assert.equal(after.historyGeneration, before.historyGeneration);
+      assert.equal(after.handoff, before.handoff);
+      assert.equal(existsSync(sessionJsonlPath(id, paths.store)), true);
+      assert.deepEqual((await bff.store.payload(live)).messages.length, 2);
+
+      // 移動先のスペースからは通常どおりクリアできる
+      const retry = await bff.app.request(
+        `/api/sessions/${id}/history/clear?spaceId=${space}`,
+        jsonPost({ historyGeneration: generation }),
+      );
+      assert.equal(retry.status, 200);
+      assert.equal(((await retry.json()) as { changed: boolean }).changed, true);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
 test("クリアの後に古い record を掴んだ送信・設定変更は始まらない", async () => {
   await withPaths(async (paths) => {
     const bff = await openBff(paths);
