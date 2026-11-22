@@ -60,7 +60,7 @@ describe("GET /file - oversized text files", () => {
     expect(text.length).toBeLessThan(MAX_INLINE_TEXT_BYTES)
   })
 
-  it("links to the streamed full text and disables copy and edit", async () => {
+  it("links to the full text and disables copy and edit", async () => {
     await Bun.write(
       path.join(UPLOAD_DIR, "private", "big.log"),
       oversizedBody("A"),
@@ -312,9 +312,6 @@ describe("GET /file/raw - as=text", () => {
     )
 
     expect(res.headers.get("Content-Type")).toBe("application/octet-stream")
-    // Why consume: the body streams from an open handle, which closes when the
-    // stream ends.
-    await res.arrayBuffer()
   })
 
   it("still refuses active content with as=text", async () => {

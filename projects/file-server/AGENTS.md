@@ -241,7 +241,7 @@ content back on save, so a stripped leading U+FEFF would remove the file's
 UTF-8 BOM.
 
 Image/video/PDF previews already delegate rendering to the browser and are not
-truncated; streaming is what keeps them bounded on the server.
+truncated.
 
 ## Authentication
 
