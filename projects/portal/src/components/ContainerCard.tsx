@@ -3,12 +3,13 @@
 import { useConfig } from "../hooks/useConfig";
 import { useDeploy } from "../hooks/useDeploy";
 import type { ContainerAction } from "../lib/containerState";
-import type { Container } from "../types/container";
+import type { Container, ImageUpdate } from "../types/container";
 import { Collapsible } from "./Collapsible";
 import { ContainerActionSlot } from "./container/ContainerActionButton";
 import { ContainerHeading } from "./container/ContainerHeading";
 import { ContainerLinks } from "./container/ContainerLinks";
 import { ImageField } from "./container/ImageField";
+import { ImageUpdateBadge } from "./container/ImageUpdateBadge";
 import { DeployButton, DeployPanel } from "./DeployControl";
 
 export type { ContainerAction };
@@ -16,6 +17,7 @@ export { HostLabel } from "./container/ContainerLinks";
 
 export interface ContainerCardProps {
   container: Container;
+  update?: ImageUpdate;
   pendingAction?: ContainerAction | null;
   onAction?: (container: Container, action: ContainerAction) => void;
 }
@@ -23,10 +25,13 @@ export interface ContainerCardProps {
 /**
  * コンテナカード。上部が個体の識別と起動 / 停止、中央がポート (この画面の主役)、下部が補助情報。
  */
-export function ContainerCard({ container, pendingAction, onAction }: ContainerCardProps) {
+export function ContainerCard({ container, update, pendingAction, onAction }: ContainerCardProps) {
   const { config } = useConfig();
   const host = config?.host || "localhost";
   const deploy = useDeploy(container);
+  const canDeploy = container.canDeploy === true;
+  // パネルを開いている間は、選べるタグ一覧の方が新しい。印だけが残ると二重に見える。
+  const showUpdate = canDeploy && update !== undefined && !deploy.isOpen;
 
   return (
     <article className="group/card flex flex-col rounded-card bg-surface shadow-card">
@@ -47,10 +52,15 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
         <div className="min-w-0 flex-1 basis-[11rem]">
           <ImageField image={container.image} />
         </div>
-        {container.canDeploy && <DeployButton deploy={deploy} />}
+        {canDeploy && (
+          <div className="ml-auto flex items-center gap-1.5">
+            {showUpdate && <ImageUpdateBadge update={update} />}
+            <DeployButton deploy={deploy} />
+          </div>
+        )}
       </div>
 
-      {container.canDeploy && (
+      {canDeploy && (
         <Collapsible open={deploy.isOpen}>
           <div className="border-t border-separator px-4 py-3">
             <DeployPanel deploy={deploy} />
@@ -65,10 +75,17 @@ export function ContainerCard({ container, pendingAction, onAction }: ContainerC
  * コンテナリスト行。1 つの面にまとめた行で、広い画面ではポートの位置が縦に揃うよう列を固定する。
  * 配置は index.css の .list-row が持つ (DOM の順序は、名前 → リンク → イメージ → 操作)。
  */
-export function ContainerListItem({ container, pendingAction, onAction }: ContainerCardProps) {
+export function ContainerListItem({
+  container,
+  update,
+  pendingAction,
+  onAction,
+}: ContainerCardProps) {
   const { config } = useConfig();
   const host = config?.host || "localhost";
   const deploy = useDeploy(container);
+  const canDeploy = container.canDeploy === true;
+  const showUpdate = canDeploy && update !== undefined && !deploy.isOpen;
 
   return (
     <article className="group/card px-4 py-3">
@@ -82,8 +99,9 @@ export function ContainerListItem({ container, pendingAction, onAction }: Contai
         <div className="min-w-0 [grid-area:image]">
           <ImageField image={container.image} />
         </div>
-        {container.canDeploy && (
-          <div className="[grid-area:deploy]">
+        {canDeploy && (
+          <div className="flex items-center justify-end gap-1.5 [grid-area:deploy]">
+            {showUpdate && <ImageUpdateBadge update={update} />}
             <DeployButton deploy={deploy} />
           </div>
         )}
@@ -96,7 +114,7 @@ export function ContainerListItem({ container, pendingAction, onAction }: Contai
         </div>
       </div>
 
-      {container.canDeploy && (
+      {canDeploy && (
         <Collapsible open={deploy.isOpen}>
           <div className="mt-3 border-t border-separator pt-3">
             <DeployPanel deploy={deploy} />

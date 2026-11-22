@@ -32,6 +32,14 @@ export function parseImageReference(image: string): ImageReference {
   return { repository: withoutDigest };
 }
 
+/**
+ * digest を固定しているか。タグを併記していても (repo:tag@sha256:...)、
+ * 動いているのは digest が指すビルドで、タグのビルドとは限らない。
+ */
+export function hasImageDigest(image: string): boolean {
+  return image.includes("@");
+}
+
 export interface ImageDisplay {
   /** レジストリと名前空間。"ghcr.io/u7chan/monorepo/" のように末尾の "/" まで含む。無ければ空文字 */
   prefix: string;
@@ -100,14 +108,74 @@ export function isDeployableImageTag(tag: string): boolean {
   return isValidImageTag(tag) && tag !== "latest";
 }
 
-function tagBuiltAt(tags: readonly ImageTagOption[], tag: string): number | undefined {
-  const createdAt = tags.find((option) => option.tag === tag)?.createdAt;
-  if (!createdAt) {
+function builtAt(createdAt: string | undefined): number | undefined {
+  return createdAt ? parseTimestamp(createdAt) : undefined;
+}
+
+// GitHub Packages の created_at は UTC の ISO 8601。Date.parse だけでは
+// 2 月 30 日のような存在しない暦日を補正してしまうため、書かれた構成要素と
+// UTC へ戻した値が一致するときだけ受け付ける。
+const TIMESTAMP_PATTERN =
+  /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})T(?<hour>\d{2}):(?<minute>\d{2}):(?<second>\d{2})(?:\.\d+)?Z$/;
+
+function parseTimestamp(createdAt: string): number | undefined {
+  const groups = TIMESTAMP_PATTERN.exec(createdAt)?.groups;
+  if (!groups) {
     return undefined;
   }
 
   const time = Date.parse(createdAt);
-  return Number.isNaN(time) ? undefined : time;
+  if (Number.isNaN(time)) {
+    return undefined;
+  }
+
+  const date = new Date(time);
+  if (
+    date.getUTCFullYear() !== Number(groups.year) ||
+    date.getUTCMonth() !== Number(groups.month) - 1 ||
+    date.getUTCDate() !== Number(groups.day) ||
+    date.getUTCHours() !== Number(groups.hour) ||
+    date.getUTCMinutes() !== Number(groups.minute) ||
+    date.getUTCSeconds() !== Number(groups.second)
+  ) {
+    return undefined;
+  }
+
+  return time;
+}
+
+function tagBuiltAt(tags: readonly ImageTagOption[], tag: string): number | undefined {
+  return builtAt(tags.find((option) => option.tag === tag)?.createdAt);
+}
+
+/**
+ * 稼働中のタグより後にビルドされたタグのうち、最新のものを返す。
+ *
+ * Why not: 現在のタグが一覧に無いときは比較しない。latest やダイジェスト参照は
+ * どのビルドが動いているかを portal が知らないため、「新着」と断定できない。
+ * 同じビルドの sha-* と manual-* は createdAt が同じなので、新着にはしない。
+ */
+export function findNewerImageTag(
+  tags: readonly ImageTagOption[],
+  currentTag: string,
+): ImageTagOption | undefined {
+  const current = tagBuiltAt(tags, currentTag);
+  if (current === undefined) {
+    return undefined;
+  }
+
+  let newest: ImageTagOption | undefined;
+  let newestTime = current;
+
+  for (const option of tags) {
+    const time = builtAt(option.createdAt);
+    if (time !== undefined && time > newestTime) {
+      newest = option;
+      newestTime = time;
+    }
+  }
+
+  return newest;
 }
 
 /**

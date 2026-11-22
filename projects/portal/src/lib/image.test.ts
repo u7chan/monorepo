@@ -3,6 +3,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   describeImage,
+  findNewerImageTag,
+  hasImageDigest,
   isDeployableImageTag,
   isOlderImageTag,
   isValidDeployTarget,
@@ -40,6 +42,18 @@ describe("parseImageReference", () => {
 
   test("空文字は空のリポジトリとして扱う", () => {
     expect(parseImageReference("")).toEqual({ repository: "" });
+  });
+});
+
+describe("hasImageDigest", () => {
+  test("digest を固定した参照を判定する", () => {
+    expect(hasImageDigest("ghcr.io/u7chan/monorepo/app@sha256:abc123")).toBe(true);
+    expect(hasImageDigest("ghcr.io/u7chan/monorepo/app:sha-old@sha256:abc123")).toBe(true);
+  });
+
+  test("タグだけの参照は digest ではない", () => {
+    expect(hasImageDigest("ghcr.io/u7chan/monorepo/app:sha-old")).toBe(false);
+    expect(hasImageDigest("nginx:alpine")).toBe(false);
   });
 });
 
@@ -195,6 +209,61 @@ describe("isOlderImageTag", () => {
         "sha-old",
       ),
     ).toBe(false);
+  });
+});
+
+describe("findNewerImageTag", () => {
+  const tags = [
+    { tag: "sha-new", createdAt: "2026-11-13T13:06:22Z" },
+    { tag: "manual-new", createdAt: "2026-11-13T13:06:22Z" },
+    { tag: "sha-old", createdAt: "2026-11-12T09:00:00Z" },
+  ];
+
+  test("現在より後にビルドされたタグがあれば、その最新を返す", () => {
+    expect(findNewerImageTag(tags, "sha-old")?.tag).toBe("sha-new");
+  });
+
+  test("最新のビルドが動いていれば undefined", () => {
+    expect(findNewerImageTag(tags, "sha-new")).toBeUndefined();
+    expect(findNewerImageTag(tags, "manual-new")).toBeUndefined();
+  });
+
+  test("現在のタグが一覧に無い、latest、空なら比較しない", () => {
+    expect(findNewerImageTag(tags, "sha-gone")).toBeUndefined();
+    expect(findNewerImageTag(tags, "latest")).toBeUndefined();
+    expect(findNewerImageTag(tags, "")).toBeUndefined();
+  });
+
+  test("日時が無い、または解析できないタグは新着として扱わない", () => {
+    const partial = [
+      { tag: "sha-current", createdAt: "2026-11-12T09:00:00Z" },
+      { tag: "sha-unknown" },
+      { tag: "sha-broken", createdAt: "not-a-date" },
+    ];
+
+    expect(findNewerImageTag(partial, "sha-current")).toBeUndefined();
+  });
+
+  test("存在しない暦日の日時は新着として扱わない", () => {
+    const invalid = [
+      { tag: "sha-current", createdAt: "2027-02-28T12:00:00Z" },
+      { tag: "sha-candidate", createdAt: "2027-02-30T01:00:00Z" },
+    ];
+
+    expect(findNewerImageTag(invalid, "sha-current")).toBeUndefined();
+  });
+
+  test("小数秒付きの ISO 8601 は受け付ける", () => {
+    const tags = [
+      { tag: "sha-new", createdAt: "2026-11-13T13:06:22.123Z" },
+      { tag: "sha-old", createdAt: "2026-11-12T09:00:00Z" },
+    ];
+
+    expect(findNewerImageTag(tags, "sha-old")?.tag).toBe("sha-new");
+  });
+
+  test("一覧が空なら undefined", () => {
+    expect(findNewerImageTag([], "sha-old")).toBeUndefined();
   });
 });
 

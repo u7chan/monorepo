@@ -14,6 +14,7 @@ Bun + React + TypeScriptで構築された、Dockerコンテナを可視化・�
 - **自動更新**: 30秒ごとに自動リフレッシュ
 - **PWA**: manifest と 192 / 512px のアイコン、iOS ホーム画面用の 180px アイコンを配信
 - **イメージタグの切り替え**: monorepo の CD が GHCR に push したイメージだけ、タグを選んで再デプロイできる。デプロイは self-hosted-runner の `manual-deploy.yml` を起動する
+- **新着イメージ**: 稼働中のイメージより新しいビルドが GHCR に届いているデプロイ対象のコンテナには、Deploy の隣に `New` を出す。比較できないとき（`latest` / digest 参照 / タグ一覧に無い / 対象外のイメージ）は何も出さない
 - **モックデータモード**: Docker不要でUI開発・レイアウト確認が可能
 
 ## デザイン方針
@@ -30,17 +31,18 @@ Apple の Human Interface Guidelines を土台に、モバイルファースト�
 - **破壊的操作は確認シート**: 停止とロールバックは、`window.confirm` ではなく、取り消しを独立したボタンにしたシートで確認する。タイトルに対象の名前を入れて、何を止めるのかを読み返せるようにする
 - **外観は端末に従う**: 既定は Auto。HIG はアプリ独自の外観設定を勧めていないが、端末と別に選びたい場合のために設定シートから Light / Dark で上書きできる。上書きした人の分だけ保存する
 - **補助情報は静かに**: イメージ名とコピーはカード下部に置き、ホバーできる端末ではホバー時のみコピーボタンを出す
+- **新着は操作の隣に**: 新しいビルドがあることは Deploy の隣の小さな `New` で示す。情報の色 (`info`) を使い、押せるもの (`accent`) とは分ける
 - **動きは目的のある所だけ**: セグメントのつまみ・シート・デプロイ欄の開閉・外観の切り替えに動きを付ける。「視差効果を減らす」設定では移動をやめてフェードだけにし、「透明度を下げる」設定ではガラスを不透明にする
 
 配色・書体・余白は `src/index.css` の `@theme` にトークンとして定義している。色は `light-dark(ライト, ダーク)` の 1 行にまとめ、`<html data-theme>` で上書きする。
 
-| トークン                                       | 役割                                                         |
-| ---------------------------------------------- | ------------------------------------------------------------ |
-| `canvas` / `surface` / `surface-2` / `sheet`   | 面（ページ背景 → カード → カード内の入れ子 / シート）        |
-| `label` / `label-2` / `label-3`                | 文字（`label-3` は装飾専用で、読ませる文字には使わない）     |
-| `accent` / `accent-fill` / `accent-wash`       | 押せるもの（文字 / 塗りボタン / タイルの背景）               |
-| `live` / `warn` / `dead` / `info`              | コンテナの状態（ライトは白地で 4.5:1 以上になる濃い側）      |
-| `fill` / `fill-strong` / `separator` / `glass` | コントロールの面・押下・境界線・ナビバーとツールバーのガラス |
+| トークン                                       | 役割                                                              |
+| ---------------------------------------------- | ----------------------------------------------------------------- |
+| `canvas` / `surface` / `surface-2` / `sheet`   | 面（ページ背景 → カード → カード内の入れ子 / シート）             |
+| `label` / `label-2` / `label-3`                | 文字（`label-3` は装飾専用で、読ませる文字には使わない）          |
+| `accent` / `accent-fill` / `accent-wash`       | 押せるもの（文字 / 塗りボタン / タイルの背景）                    |
+| `live` / `warn` / `dead` / `info`              | コンテナの状態と新着の印（ライトは白地で 4.5:1 以上になる濃い側） |
+| `fill` / `fill-strong` / `separator` / `glass` | コントロールの面・押下・境界線・ナビバーとツールバーのガラス      |
 
 文字色はライト / ダークとも、置かれる面に対して 4.5:1 以上になるよう計算で確認している。
 
@@ -145,6 +147,7 @@ bun run start:mock
 - 長い名前のコンテナ
 - 複数ポートを持つコンテナ
 - `portal.url.<ポート>` ラベル相当の URL 上書きを持つコンテナ
+- 1 つ前のビルドが稼働中で、Deploy の隣に `New` が出るコンテナ
 - ポートなしのコンテナ
 
 ### 本番実行
@@ -173,6 +176,9 @@ docker build -t portal .
 - portal 自身は一覧から除外しているため、portal の更新は従来どおり Manual Deploy を使う
 - タグ一覧は GitHub Packages から取得し、デプロイは self-hosted-runner の `manual-deploy.yml` を `workflow_dispatch` で起動する
 - 各タグにはイメージの作成日時を `YYYY-MM-DD HH:mm:ss`（JST）で表示する。一覧は新しい順に並ぶ。選択中のタグの作成日時は選択欄の下にも出るため、欄が狭くても秒まで読める
+- 稼働中のタグより後にビルドされたタグがあれば、Deploy の隣に `New` を出す。タグ一覧は 5 分キャッシュし、一覧の更新に合わせて取り直す（`/api/image-updates`）
+- `New` は現在のタグがタグ一覧にある場合だけ出す。`latest`、digest 参照、保持世代を超えて一覧から消えたタグは、どのビルドが動いているかを portal が知らないため比較しない
+- タグ一覧を取得できない場合も `New` を出さない。カードの一覧表示と start / stop はそのまま動き続ける
 - 選択中のタグが現在のタグより古いビルドなら、`Deploy` の代わりに `Roll back` の確認シートを出す。現在のタグが一覧に無い場合（保持世代を超えて消えた等）は比較できないため確認しない
 - 成功すると Actions へのリンクを表示する。コンテナの再作成は Actions 側で行う
 
@@ -190,7 +196,8 @@ PORTAL_GITHUB_TOKEN=github_pat_xxx
 - `PORTAL_GITHUB_TOKEN`: `u7chan/self-hosted-runner` の Actions = Read and write
 - `.env` は 600 にし、リポジトリへ commit しない。どちらも有効期限を設定する
 - token の変更は portal の再作成で反映する
-- どちらかが無い・失効している場合、タグ一覧または `Deploy` が 503 を返す。一覧表示と start/stop は動き続ける
+- `PORTAL_GHCR_TOKEN` が無い・失効している場合、タグ一覧が 503 を返し、新着の印は出ない。一覧表示と start/stop は動き続ける
+- `PORTAL_GITHUB_TOKEN` が無い・失効している場合、`Deploy` が 503 を返す。タグ一覧と新着の印は `PORTAL_GHCR_TOKEN` だけで動く
 
 ## ホーム画面への追加
 
@@ -210,6 +217,7 @@ Service Worker やオフライン対応は追加していないため、起動�
 | `/api/hello/:name`                   | GET      | パスパラメータ例                                    |
 | `/api/containers/:id/deploy-options` | GET      | デプロイ可能なイメージタグ一覧を返す                |
 | `/api/deployments`                   | POST     | 選択したタグで `manual-deploy.yml` を起動する       |
+| `/api/image-updates`                 | GET      | 稼働中より新しいビルドがあるコンテナを返す          |
 
 ## プロジェクト構造
 
@@ -221,6 +229,7 @@ Service Worker やオフライン対応は追加していないため、起動�
 │   │   ├── routes.ts         # /api 以下のルート表
 │   │   ├── containers.ts     # コンテナ一覧と start / stop
 │   │   ├── deployments.ts    # タグ一覧とデプロイ起動
+│   │   ├── imageUpdates.ts   # 新着判定とタグのキャッシュ
 │   │   ├── config.ts         # 接続先とモックモード
 │   │   ├── health.ts         # ヘルスチェック
 │   │   └── responses.ts      # API 共通のエラーレスポンス
@@ -243,6 +252,7 @@ Service Worker やオフライン対応は追加していないため、起動�
 │   ├── hooks/
 │   │   ├── useConfig.ts      # ホスト名・モックモードの取得
 │   │   ├── useCopy.ts        # コピー完了表示
+│   │   ├── useImageUpdates.ts # 新着イメージの取得
 │   │   ├── useScrollPast.ts  # 大きいタイトルがバーの下へ隠れたか
 │   │   └── useTheme.ts       # 外観の設定 (<html data-theme> と theme-color)
 │   ├── lib/
@@ -259,6 +269,7 @@ Service Worker やオフライン対応は追加していないため、起動�
 │       │   ├── ContainerLinks.tsx        # ポート / URL のタイル
 │       │   ├── ContainerHeading.tsx      # 名前と状態
 │       │   ├── ImageField.tsx            # イメージ名とコピー
+│       │   ├── ImageUpdateBadge.tsx      # 新しいビルドがあることを示す New
 │       │   └── ContainerActionButton.tsx # 起動 / 停止ボタン
 │       ├── ContainerList.tsx # 一覧・絞り込み・表示切替
 │       ├── DeployControl.tsx # イメージタグの選択とデプロイ
