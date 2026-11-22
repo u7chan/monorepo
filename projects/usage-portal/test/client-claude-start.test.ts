@@ -19,6 +19,12 @@ const SETTINGS = {
   effort: "low" as const,
 };
 
+/**
+ * 表示はブラウザのローカル時刻なので、設定のタイムゾーンを実行環境に合わせる。
+ * 合わせないと、枠の計算が JST のまま期待値だけが UTC の環境で変わる。
+ */
+const LOCAL_SETTINGS = { ...SETTINGS, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+
 function state(overrides: Partial<ClaudeStartState> = {}): ClaudeStartState {
   return {
     settings: SETTINGS,
@@ -33,14 +39,19 @@ function state(overrides: Partial<ClaudeStartState> = {}): ClaudeStartState {
 }
 
 describe("claudeStartFooter", () => {
+  const NOW = Date.parse("2026-11-23T06:00:00");
+
   test("未設定・オフ（利用者が止めた）なら出さない", () => {
-    expect(claudeStartFooter(null)).toBeNull();
-    expect(claudeStartFooter(state({ settings: null }))).toBeNull();
-    expect(claudeStartFooter(state({ enabled: false }))).toBeNull();
+    expect(claudeStartFooter(null, null, NOW)).toBeNull();
+    expect(claudeStartFooter(state({ settings: null }), null, NOW)).toBeNull();
+    expect(claudeStartFooter(state({ enabled: false }), null, NOW)).toBeNull();
   });
 
   test("有効なら次の開始と、その 5 時間後のリセットを出す", () => {
-    expect(claudeStartFooter(state())).toEqual({ tone: "normal", text: "次の開始 11/23 07:00 → 12:00 リセット" });
+    expect(claudeStartFooter(state(), null, NOW)).toEqual({
+      tone: "normal",
+      text: "次の開始 11/23 07:00 → 12:00 リセット",
+    });
   });
 
   test("直前が失敗なら理由と回数を出す", () => {
@@ -49,15 +60,97 @@ describe("claudeStartFooter", () => {
         failures: 1,
         runs: [{ kind: "auto", slotAt: 1, ranAt: 1, outcome: "failed", code: "reauth_required", resetsAt: null }],
       }),
+      null,
+      NOW,
     );
 
     expect(footer).toEqual({ tone: "attention", text: "開始に失敗（再ログインが必要）1/3" });
   });
 
   test("失敗で止まったら停止中と出す", () => {
-    expect(claudeStartFooter(state({ enabled: false, stoppedCode: "reauth_required", failures: 3 }))?.tone).toBe(
-      "danger",
+    expect(
+      claudeStartFooter(state({ enabled: false, stoppedCode: "reauth_required", failures: 3 }), null, NOW)?.tone,
+    ).toBe("danger");
+  });
+
+  test("動いている窓が次の枠を潰すなら、開始できる枠と空けておく帯を出す", () => {
+    const footer = claudeStartFooter(
+      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-23T17:00:00") }),
+      { resetsAt: Date.parse("2026-11-23T20:50:00") },
+      Date.parse("2026-11-23T16:02:00"),
     );
+
+    expect(footer).toEqual({
+      tone: "hold",
+      before: "次の開始 11/23 22:00（",
+      band: "20:50〜22:00",
+      after: " は使わない場合）→ 翌 03:00 リセット",
+    });
+  });
+
+  test("窓が枠の前に終わっても、空ける時間が長ければ帯を出す", () => {
+    const footer = claudeStartFooter(
+      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-23T17:00:00") }),
+      { resetsAt: Date.parse("2026-11-23T15:50:00") },
+      Date.parse("2026-11-23T15:00:00"),
+    );
+
+    expect(footer).toEqual({
+      tone: "hold",
+      before: "次の開始 11/23 17:00（",
+      band: "15:50〜17:00",
+      after: " は使わない場合）→ 22:00 リセット",
+    });
+  });
+
+  test("窓の終わりが枠とほぼ同じなら通常表示にする", () => {
+    const footer = claudeStartFooter(
+      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-23T17:00:00") }),
+      { resetsAt: Date.parse("2026-11-23T16:58:00") },
+      Date.parse("2026-11-23T16:30:00"),
+    );
+
+    expect(footer).toEqual({ tone: "normal", text: "次の開始 11/23 17:00 → 22:00 リセット" });
+  });
+
+  test("窓が終わっていれば、その時刻を過ぎた時点で通常表示に戻す", () => {
+    const footer = claudeStartFooter(
+      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-23T22:00:00") }),
+      { resetsAt: Date.parse("2026-11-23T20:50:00") },
+      Date.parse("2026-11-23T21:10:00"),
+    );
+
+    expect(footer).toEqual({ tone: "normal", text: "次の開始 11/23 22:00 → 翌 03:00 リセット" });
+  });
+
+  test("帯が日をまたぐときは「翌」を付ける", () => {
+    const footer = claudeStartFooter(
+      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-24T07:00:00") }),
+      { resetsAt: Date.parse("2026-11-23T23:00:00") },
+      Date.parse("2026-11-23T22:30:00"),
+    );
+
+    expect(footer).toEqual({
+      tone: "hold",
+      before: "次の開始 11/24 07:00（",
+      band: "23:00〜翌 07:00",
+      after: " は使わない場合）→ 12:00 リセット",
+    });
+  });
+
+  test("帯が 2 日以上先まで続くなら日付ごと出す", () => {
+    const footer = claudeStartFooter(
+      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-30T07:00:00") }),
+      { resetsAt: Date.parse("2026-11-27T23:00:00") },
+      Date.parse("2026-11-27T22:30:00"),
+    );
+
+    expect(footer).toEqual({
+      tone: "hold",
+      before: "次の開始 11/30 07:00（",
+      band: "11/27 23:00〜11/30 07:00",
+      after: " は使わない場合）→ 12:00 リセット",
+    });
   });
 });
 

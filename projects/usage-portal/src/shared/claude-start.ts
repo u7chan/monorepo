@@ -15,6 +15,10 @@ const DAY_MINUTES = 24 * 60;
 const MINUTE_MS = 60_000;
 /** 空きを寄せる深夜の範囲（0:00〜7:00）。 */
 const NIGHT_END_MINUTE = 7 * 60;
+/** 枠の時刻からこれ以上遅れたら送らない（サーバー停止など）。窓の終わりを待つのもこの範囲まで。 */
+export const CLAUDE_START_GRACE_MS = 30 * MINUTE_MS;
+/** 自分で開始していない窓は `/usage` の分単位の切り捨てしか分からないので、送信までにこれだけ空ける。 */
+export const CLAUDE_START_FOREIGN_MARGIN_MS = 2 * MINUTE_MS;
 
 export type ClaudeStartModel = (typeof CLAUDE_START_MODELS)[number];
 export type ClaudeStartEffort = (typeof CLAUDE_START_EFFORTS)[number];

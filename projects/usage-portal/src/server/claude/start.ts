@@ -1,4 +1,6 @@
 import {
+  CLAUDE_START_FOREIGN_MARGIN_MS,
+  CLAUDE_START_GRACE_MS,
   CLAUDE_START_MAX_FAILURES,
   CLAUDE_START_WINDOW_MINUTES,
   latestStartSlot,
@@ -23,12 +25,8 @@ import type { ClaudeStartSendResult } from "./start-prompt";
 
 const MINUTE_MS = 60_000;
 const WINDOW_MS = CLAUDE_START_WINDOW_MINUTES * MINUTE_MS;
-/** 枠の時刻からこれ以上遅れたら送らない（サーバー停止など）。窓の終わりを待つのもこの範囲まで。 */
-export const CLAUDE_START_GRACE_MS = 30 * MINUTE_MS;
 /** 自分で開始した窓は、送信時刻の 5 時間後のこれだけあとに次を送る。 */
 export const CLAUDE_START_OWN_MARGIN_MS = 15_000;
-/** 自分で開始していない窓は `/usage` の分単位の時刻しか分からないので、余裕を大きく取る。 */
-export const CLAUDE_START_FOREIGN_MARGIN_MS = 2 * MINUTE_MS;
 /** timer は最長でもこの間隔で起こし直す。時計の補正や長い sleep の取りこぼしを拾うため。 */
 const MAX_TIMER_MS = 60 * MINUTE_MS;
 const RUN_RETENTION_MS = 30 * 24 * 60 * MINUTE_MS;

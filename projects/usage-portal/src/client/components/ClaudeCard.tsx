@@ -151,7 +151,8 @@ export function ClaudeCard(props: {
   };
 
   const busy = refreshing || loggingOut || starting;
-  const footer = claudeStartFooter(start);
+  const rolling = props.source.windows.find((window) => window.id === "rolling") ?? null;
+  const footer = claudeStartFooter(start, rolling, props.now);
   const items: MenuItem[] = [
     { label: "更新", onSelect: () => void refresh(), disabled: busy },
     { label: "開始予約…", onSelect: () => setStartTab("plan"), disabled: start === null },
@@ -187,7 +188,16 @@ export function ClaudeCard(props: {
           class={`up-start-footer up-start-footer-${footer.tone}`}
           onClick={() => setStartTab("log")}
         >
-          ⚠ {footer.text}
+          <span class="up-start-warn">⚠</span>{" "}
+          {footer.tone === "hold" ? (
+            <>
+              {footer.before}
+              <span class="up-start-band">{footer.band}</span>
+              {footer.after}
+            </>
+          ) : (
+            footer.text
+          )}
         </button>
       )}
 
