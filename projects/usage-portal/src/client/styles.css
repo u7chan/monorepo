@@ -1573,6 +1573,21 @@ button.up-start-footer {
   color: var(--up-danger);
 }
 
+/* 空けておく帯。行は通常色のままにして、触ってはいけない時刻だけを目立たせる。 */
+.up-start-footer-hold {
+  color: var(--up-text);
+}
+
+.up-start-footer-hold .up-start-warn {
+  color: var(--up-attention);
+}
+
+.up-start-band {
+  color: var(--up-attention);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 420px) {
   .up-start-row {
     grid-template-columns: minmax(0, 1fr);

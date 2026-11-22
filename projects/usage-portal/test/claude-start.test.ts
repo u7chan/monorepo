@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { ClaudeRefreshResult } from "../src/server/claude/service";
 import { createClaudeStartService, type ClaudeStartService } from "../src/server/claude/start";
 import type { ClaudeStartSendResult } from "../src/server/claude/start-prompt";
-import { openDatabase, type DatabaseHandle } from "../src/server/db";
+import { loadClaudeStart, openDatabase, saveClaudeStart, type DatabaseHandle } from "../src/server/db";
 import type { ProviderSnapshot } from "../src/server/providers/types";
 import type { ClaudeStartSettings } from "../src/shared/claude-start";
 
@@ -122,6 +122,13 @@ function harness(options: {
     enable: () => {
       service.saveSettings(SETTINGS);
       service.setEnabled(true);
+    },
+    setLastSentAt: (at: number | null) => {
+      const stored = loadClaudeStart(db);
+
+      if (stored !== null) {
+        saveClaudeStart(db, { ...stored, lastSentAt: at });
+      }
     },
   };
 }
@@ -458,5 +465,141 @@ describe("設定", () => {
     h.service.setEnabled(true);
 
     expect(h.service.state().nextStartAt).toBe(tokyo("2026-11-20", "12:00"));
+  });
+});
+
+describe("次の開始の見積り", () => {
+  test("動いている窓が枠を潰すなら、送れる枠まで飛ばす", () => {
+    const h = harness({
+      start: tokyo("2026-11-20", "11:00"),
+      session: { usedPercent: 10, resetsAt: tokyo("2026-11-20", "12:50") },
+    });
+
+    h.enable();
+
+    expect(h.service.state().nextStartAt).toBe(tokyo("2026-11-20", "17:00"));
+  });
+
+  test("窓が枠の時刻までに終わるなら、余白を足さず枠の時刻を返す", async () => {
+    const h = harness({ start: tokyo("2026-11-20", "06:00") });
+
+    h.enable();
+    h.setClock(tokyo("2026-11-20", "07:00"));
+    await h.service.tick();
+    h.setClock(tokyo("2026-11-20", "11:59"));
+
+    expect(h.service.state().nextStartAt).toBe(tokyo("2026-11-20", "12:00"));
+  });
+
+  test("自分で開始した窓が枠をまたぐなら、送信時刻から決めた待ちの時刻を返す", () => {
+    const h = harness({ start: tokyo("2026-11-20", "16:00") });
+
+    h.enable();
+    h.setLastSentAt(tokyo("2026-11-20", "12:29"));
+    h.setSession({ usedPercent: 10, resetsAt: tokyo("2026-11-20", "17:29") });
+
+    expect(h.service.state().nextStartAt).toBe(tokyo("2026-11-20", "17:29") + 15_000);
+  });
+
+  test("ほかの窓が枠の時刻までに終わるなら、余白を足さず枠の時刻を返す", () => {
+    const h = harness({
+      start: tokyo("2026-11-20", "16:00"),
+      session: { usedPercent: 10, resetsAt: tokyo("2026-11-20", "16:59") },
+    });
+
+    h.enable();
+
+    expect(h.service.state().nextStartAt).toBe(tokyo("2026-11-20", "17:00"));
+  });
+
+  test("ほかの利用で始まった窓は、表示のリセット時刻に 2 分を足して猶予と比べる", () => {
+    const nextStartAt = (resets: string): number | null => {
+      const h = harness({
+        start: tokyo("2026-11-20", "11:00"),
+        session: { usedPercent: 10, resetsAt: tokyo("2026-11-20", resets) },
+      });
+
+      h.enable();
+
+      return h.service.state().nextStartAt;
+    };
+
+    expect(nextStartAt("12:28")).toBe(tokyo("2026-11-20", "12:30"));
+    expect(nextStartAt("12:29")).toBe(tokyo("2026-11-20", "17:00"));
+  });
+
+  test("窓の終わりを待っているあいだは、その送信時刻を次の開始にする", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-portal-claude-start-"));
+    const db = openDatabase(dir);
+
+    dirs.push(dir);
+    handles.push(db);
+
+    let clock = tokyo("2026-11-20", "06:00");
+    const gate: { release: (() => void) | null } = { release: null };
+    const service = createClaudeStartService({
+      db,
+      now: () => clock,
+      refreshUsage: async () => ({ state: "refreshed" }),
+      readSnapshot: () => snapshot({ usedPercent: 10, resetsAt: tokyo("2026-11-20", "07:10") }),
+      send: async () => ({ ok: true }),
+      sleep: () =>
+        new Promise<void>((resolve) => {
+          gate.release = resolve;
+        }),
+      setTimer: () => () => {},
+      log: () => {},
+    });
+
+    service.saveSettings(SETTINGS);
+    service.setEnabled(true);
+    clock = tokyo("2026-11-20", "07:00");
+
+    const tick = service.tick();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.state()).toMatchObject({ running: true, nextStartAt: tokyo("2026-11-20", "07:12") });
+
+    gate.release?.();
+    await tick;
+  });
+});
+
+describe("送信前の確認中の見積り", () => {
+  test("実行中の枠が猶予の外で見送られるなら、次の枠を返す", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-portal-claude-start-"));
+    const db = openDatabase(dir);
+
+    dirs.push(dir);
+    handles.push(db);
+
+    let clock = tokyo("2026-11-20", "16:59");
+    const gate: { resolve: ((value: ClaudeRefreshResult) => void) | null } = { resolve: null };
+    const service = createClaudeStartService({
+      db,
+      now: () => clock,
+      refreshUsage: () =>
+        new Promise<ClaudeRefreshResult>((resolve) => {
+          gate.resolve = resolve;
+        }),
+      readSnapshot: () => snapshot({ usedPercent: 10, resetsAt: tokyo("2026-11-20", "20:40") }),
+      send: async () => ({ ok: true }),
+      setTimer: () => () => {},
+      log: () => {},
+    });
+
+    service.saveSettings(SETTINGS);
+    service.setEnabled(true);
+    clock = tokyo("2026-11-20", "17:00");
+
+    const tick = service.tick();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.state()).toMatchObject({ running: true, nextStartAt: tokyo("2026-11-20", "22:00") });
+
+    gate.resolve?.({ state: "refreshed" });
+    await tick;
   });
 });
