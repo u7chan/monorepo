@@ -103,6 +103,10 @@ describe("collectImageUpdates", () => {
     const containers = [
       container({ id: "latest", image: "ghcr.io/u7chan/monorepo/app:latest" }),
       container({ id: "digest", image: "ghcr.io/u7chan/monorepo/app@sha256:abc123" }),
+      container({
+        id: "tagged-digest",
+        image: "ghcr.io/u7chan/monorepo/app:sha-old@sha256:abc123",
+      }),
       container({ id: "gone", image: "ghcr.io/u7chan/monorepo/app:sha-gone" }),
     ];
 
@@ -161,6 +165,61 @@ describe("createTagCache", () => {
     await loadTags("app");
 
     expect(calls).toBe(2);
+  });
+
+  test("同じ project の取得中は同じリクエストを共有する", async () => {
+    let calls = 0;
+    let resolveTags!: (tags: readonly ImageTagOption[]) => void;
+    const loadTags = createTagCache(
+      () => {
+        calls += 1;
+        return new Promise((resolve) => {
+          resolveTags = resolve;
+        });
+      },
+      () => 0,
+    );
+
+    const first = loadTags("app");
+    const second = loadTags("app");
+    await Promise.resolve();
+    expect(calls).toBe(1);
+
+    resolveTags(TAGS);
+    expect(await first).toBe(TAGS);
+    expect(await second).toBe(TAGS);
+
+    // 取得完了後の呼び出しは、共有した結果の TTL キャッシュを使う。
+    expect(await loadTags("app")).toBe(TAGS);
+    expect(calls).toBe(1);
+  });
+
+  test("共有した取得が失敗したら、どちらも空になりログは 1 回だけになる", async () => {
+    let calls = 0;
+    let logged = 0;
+    let rejectTags!: (error: Error) => void;
+    const loadTags = createTagCache(
+      () => {
+        calls += 1;
+        return new Promise((_resolve, reject) => {
+          rejectTags = reject;
+        });
+      },
+      () => 0,
+      () => {
+        logged += 1;
+      },
+    );
+
+    const first = loadTags("app");
+    const second = loadTags("app");
+    await Promise.resolve();
+    expect(calls).toBe(1);
+
+    rejectTags(new Error("GitHub is down"));
+    expect(await first).toEqual([]);
+    expect(await second).toEqual([]);
+    expect(logged).toBe(1);
   });
 
   test("失敗は空の一覧として短くキャッシュし、その間は取り直さない", async () => {

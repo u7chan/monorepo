@@ -2,7 +2,7 @@
 // 一覧の更新に合わせて取り直すが、タグはサーバー側でキャッシュされるため
 // GHCR を毎回叩くことはない。
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { readJsonBody, readStatusError, requestJson } from "../lib/apiClient";
 import type { ImageUpdate } from "../types/container";
 
@@ -41,8 +41,12 @@ export function parseImageUpdates(body: unknown): ImageUpdateMap {
 
 export function useImageUpdates(refreshInterval = 30000): ImageUpdateMap {
   const [updates, setUpdates] = useState<ImageUpdateMap>(() => new Map());
+  const requestId = useRef(0);
 
   const refresh = useCallback(async () => {
+    const id = requestId.current + 1;
+    requestId.current = id;
+
     try {
       const body = await requestJson(
         "/api/image-updates",
@@ -50,10 +54,16 @@ export function useImageUpdates(refreshInterval = 30000): ImageUpdateMap {
         { readError: readStatusError, parseOk: readJsonBody },
       );
 
-      setUpdates(parseImageUpdates(body));
+      // ポーリングが重なると応答の順序が入れ替わる。最後に始めたリクエストの
+      // 結果だけを採用し、古い応答で先に消えた New を復活させない。
+      if (id === requestId.current) {
+        setUpdates(parseImageUpdates(body));
+      }
     } catch (error) {
       // 新着の印は補助情報。取れないときは前回の表示を保ち、カードの表示は止めない。
-      console.warn("Failed to fetch image updates:", error);
+      if (id === requestId.current) {
+        console.warn("Failed to fetch image updates:", error);
+      }
     }
   }, []);
 

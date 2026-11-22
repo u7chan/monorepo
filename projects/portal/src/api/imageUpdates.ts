@@ -2,7 +2,12 @@
 // 一覧は 30 秒ごとに更新されるため、タグ取得は project ごとにキャッシュして
 // GitHub API のレート制限に当たらないようにする。
 
-import { findNewerImageTag, monorepoProject, parseImageReference } from "../lib/image";
+import {
+  findNewerImageTag,
+  hasImageDigest,
+  monorepoProject,
+  parseImageReference,
+} from "../lib/image";
 import { fetchContainers } from "../services/docker";
 import { listImageTags } from "../services/github";
 import { isMockMode, mockImageTags } from "../services/mockData";
@@ -26,22 +31,39 @@ export function createTagCache(
   logError: (message: string, error: unknown) => void = console.warn,
 ): TagLoader {
   const cache = new Map<string, { tags: readonly ImageTagOption[]; expiresAt: number }>();
+  const inFlight = new Map<string, Promise<readonly ImageTagOption[]>>();
 
-  return async (project) => {
+  return (project) => {
     const cached = cache.get(project);
     if (cached && cached.expiresAt > now()) {
-      return cached.tags;
+      return Promise.resolve(cached.tags);
     }
 
-    try {
-      const tags = await loadTags(project);
-      cache.set(project, { tags, expiresAt: now() + TAG_CACHE_TTL_MS });
-      return tags;
-    } catch (error) {
-      logError(`Failed to load image tags for ${project}:`, error);
-      cache.set(project, { tags: [], expiresAt: now() + TAG_FAILURE_TTL_MS });
-      return [];
+    // 同じ project の取得中に別のリクエストが来たら、同じ Promise を返す。
+    // 個別に取得すると、後から終わった失敗が成功したキャッシュを上書きする。
+    const pending = inFlight.get(project);
+    if (pending) {
+      return pending;
     }
+
+    // loadTags が同期的に throw しても inFlight へ登録してから実行する。
+    const request = Promise.resolve()
+      .then(() => loadTags(project))
+      .then((tags) => {
+        cache.set(project, { tags, expiresAt: now() + TAG_CACHE_TTL_MS });
+        return tags;
+      })
+      .catch((error) => {
+        logError(`Failed to load image tags for ${project}:`, error);
+        cache.set(project, { tags: [], expiresAt: now() + TAG_FAILURE_TTL_MS });
+        return [];
+      })
+      .finally(() => {
+        inFlight.delete(project);
+      });
+
+    inFlight.set(project, request);
+    return request;
   };
 }
 
@@ -82,6 +104,11 @@ export function collectImageUpdates(
 
     const project = monorepoProject(container.image);
     if (!project) {
+      continue;
+    }
+
+    // digest を固定した参照は、タグを併記していても動いているビルドをタグで表さない。
+    if (hasImageDigest(container.image)) {
       continue;
     }
 

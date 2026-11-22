@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import {
   describeImage,
   findNewerImageTag,
+  hasImageDigest,
   isDeployableImageTag,
   isOlderImageTag,
   isValidDeployTarget,
@@ -41,6 +42,18 @@ describe("parseImageReference", () => {
 
   test("空文字は空のリポジトリとして扱う", () => {
     expect(parseImageReference("")).toEqual({ repository: "" });
+  });
+});
+
+describe("hasImageDigest", () => {
+  test("digest を固定した参照を判定する", () => {
+    expect(hasImageDigest("ghcr.io/u7chan/monorepo/app@sha256:abc123")).toBe(true);
+    expect(hasImageDigest("ghcr.io/u7chan/monorepo/app:sha-old@sha256:abc123")).toBe(true);
+  });
+
+  test("タグだけの参照は digest ではない", () => {
+    expect(hasImageDigest("ghcr.io/u7chan/monorepo/app:sha-old")).toBe(false);
+    expect(hasImageDigest("nginx:alpine")).toBe(false);
   });
 });
 
@@ -229,6 +242,24 @@ describe("findNewerImageTag", () => {
     ];
 
     expect(findNewerImageTag(partial, "sha-current")).toBeUndefined();
+  });
+
+  test("存在しない暦日の日時は新着として扱わない", () => {
+    const invalid = [
+      { tag: "sha-current", createdAt: "2027-02-28T12:00:00Z" },
+      { tag: "sha-candidate", createdAt: "2027-02-30T01:00:00Z" },
+    ];
+
+    expect(findNewerImageTag(invalid, "sha-current")).toBeUndefined();
+  });
+
+  test("小数秒付きの ISO 8601 は受け付ける", () => {
+    const tags = [
+      { tag: "sha-new", createdAt: "2026-11-13T13:06:22.123Z" },
+      { tag: "sha-old", createdAt: "2026-11-12T09:00:00Z" },
+    ];
+
+    expect(findNewerImageTag(tags, "sha-old")?.tag).toBe("sha-new");
   });
 
   test("一覧が空なら undefined", () => {

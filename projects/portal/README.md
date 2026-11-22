@@ -196,7 +196,8 @@ PORTAL_GITHUB_TOKEN=github_pat_xxx
 - `PORTAL_GITHUB_TOKEN`: `u7chan/self-hosted-runner` の Actions = Read and write
 - `.env` は 600 にし、リポジトリへ commit しない。どちらも有効期限を設定する
 - token の変更は portal の再作成で反映する
-- どちらかが無い・失効している場合、タグ一覧または `Deploy` が 503 を返す。一覧表示と start/stop は動き続ける。新着はタグを取得できないため出さない
+- `PORTAL_GHCR_TOKEN` が無い・失効している場合、タグ一覧が 503 を返し、新着の印は出ない。一覧表示と start/stop は動き続ける
+- `PORTAL_GITHUB_TOKEN` が無い・失効している場合、`Deploy` が 503 を返す。タグ一覧と新着の印は `PORTAL_GHCR_TOKEN` だけで動く
 
 ## ホーム画面への追加
 
