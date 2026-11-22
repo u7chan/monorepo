@@ -1,0 +1,12 @@
+{
+  "name": "u7agent-voice-input",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun --no-env-file src/server.ts",
+    "test": "bun test --no-env-file"
+  },
+  "dependencies": {
+    "hono": "4.13.19"
+  }
+}
