@@ -137,29 +137,46 @@ export function createClaudeStartService(options: {
   }
 
   /**
+   * 枠の時刻に実際に送る時刻。窓がその時刻まで動いているときだけ待ち、猶予の外なら送らない。
+   * `null` はその枠を見送ることを表す。
+   */
+  function startAfter(slot: number, end: { end: number; sendAt: number } | null): number | null {
+    if (end === null || end.end <= slot) {
+      return slot;
+    }
+
+    return end.sendAt <= slot + GRACE_MS ? end.sendAt : null;
+  }
+
+  /**
    * 次に 5 時間窓が始まる時刻。動いている窓を待つなら、送信してよい時刻になる。
    * 画面はこの 1 値と窓のリセット時刻だけでフッターを組み立てる（判定を写し間違えないため）。
    */
   function nextStartTime(settings: ClaudeStartSettings, stored: StoredClaudeStart | null, at: number): number | null {
     const resetsAt = options.readSnapshot()?.windows.find((window) => window.id === "rolling")?.resetsAt ?? null;
     const end = resetsAt === null ? null : windowEnd(resetsAt, stored?.lastSentAt ?? null);
+    const slots: number[] = [];
 
+    // 実行中の枠は、結果が確定するまで先の枠を出さない。見送りなら次の枠へ進む。
     if (pendingSlotAt !== null) {
-      return end !== null && end.sendAt > pendingSlotAt ? end.sendAt : pendingSlotAt;
+      slots.push(pendingSlotAt);
     }
 
     const next = nextStartSlot(settings, at);
 
-    if (next === null) {
-      return null;
+    if (next !== null) {
+      slots.push(...startSlots(settings, next, next + DUE_LOOKBACK_MS));
     }
 
-    const slot =
-      startSlots(settings, next, next + DUE_LOOKBACK_MS).find(
-        (candidate) => end === null || end.sendAt <= candidate + GRACE_MS,
-      ) ?? next;
+    for (const slot of slots) {
+      const start = startAfter(slot, end);
 
-    return end !== null && end.sendAt > slot ? end.sendAt : slot;
+      if (start !== null) {
+        return start;
+      }
+    }
+
+    return null;
   }
 
   function state(): ClaudeStartState {
