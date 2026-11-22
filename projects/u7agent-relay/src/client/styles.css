@@ -1,0 +1,395 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --border: #d9dde3;
+  --text: #1b1f24;
+  --muted: #626b76;
+  --accent: #2f6fed;
+  --accent-text: #ffffff;
+  --ok: #1f7a4d;
+  --warn: #8a5b00;
+  --error: #b3261e;
+  --code-bg: #eef1f5;
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-size: 15px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --surface: #1c1f25;
+    --border: #30353d;
+    --text: #e8eaed;
+    --muted: #9aa4b1;
+    --accent: #7aa2ff;
+    --accent-text: #10131a;
+    --ok: #6bd39a;
+    --warn: #f0c36a;
+    --error: #ff8a80;
+    --code-bg: #23272e;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+h1,
+h2 {
+  margin: 0;
+  line-height: 1.25;
+}
+
+h1 {
+  font-size: 1.35rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+}
+
+a {
+  color: var(--accent);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86em;
+}
+
+.muted {
+  margin: 0;
+  color: var(--muted);
+}
+
+.sub {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: min(380px, 100%);
+  padding: 28px;
+}
+
+.login-title {
+  margin-bottom: 8px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.stack {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+input,
+select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.pin-input {
+  letter-spacing: 0.4em;
+  font-family: ui-monospace, monospace;
+}
+
+.button {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.button.danger {
+  color: var(--error);
+}
+
+.button.small {
+  padding: 5px 10px;
+  font-size: 0.82rem;
+}
+
+.error {
+  margin: 0;
+  color: var(--error);
+  font-size: 0.85rem;
+}
+
+.notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--code-bg);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.app {
+  width: min(1080px, 100%);
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 18px;
+}
+
+.tabs.small {
+  border-bottom: none;
+  margin-bottom: 14px;
+}
+
+.tab {
+  padding: 9px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tabs.small .tab {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+}
+
+.tab.active {
+  color: var(--text);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.panel {
+  display: grid;
+  gap: 16px;
+}
+
+.panel-head {
+  display: grid;
+  gap: 6px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.form-grid .wide {
+  grid-column: span 2;
+}
+
+@media (max-width: 640px) {
+  .form-grid .wide {
+    grid-column: auto;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--error);
+  border-radius: 8px;
+  color: var(--error);
+  font-size: 0.88rem;
+}
+
+.empty {
+  margin: 0;
+  padding: 28px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--code-bg);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge.ok {
+  color: var(--ok);
+}
+
+.badge.warn {
+  color: var(--warn);
+}
+
+.badge.error {
+  color: var(--error);
+}
+
+.token-card {
+  border-color: var(--accent);
+}
+
+.token-card p {
+  margin: 0 0 12px;
+}
+
+.token-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.token {
+  flex: 1 1 320px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--code-bg);
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.edit-card {
+  border-color: var(--accent);
+}
+
+.edit-hint {
+  grid-column: 1 / -1;
+}
+
+.preview {
+  max-width: 320px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}

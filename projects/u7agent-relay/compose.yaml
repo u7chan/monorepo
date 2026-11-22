@@ -1,0 +1,19 @@
+services:
+  u7agent-relay:
+    build: .
+    # u7agent の BFF は認証を持たないため、中継を LAN 全体へ晒さない。ホストの loopback だけに公開し、
+    # 別端末から使うときは Tailscale などで到達範囲を絞る。
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      DATA_DIR: /app/data
+      # TLS 終端を前段に置くときは .env から渡す。空文字は未設定として扱われる。
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      APP_ORIGIN: ${APP_ORIGIN:-}
+    volumes:
+      - u7agent_relay_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  u7agent_relay_data:
