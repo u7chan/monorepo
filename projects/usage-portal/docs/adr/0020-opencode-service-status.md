@@ -1,6 +1,6 @@
 # ADR 0020: 有効な Go カードがあるときだけ公式の稼働状況を表示する
 
-- Status: accepted
+- Status: superseded by [0029](0029-status-page-links.md)
 - Date: 2026-11-15
 
 ## 背景

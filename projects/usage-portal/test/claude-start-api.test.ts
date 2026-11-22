@@ -14,7 +14,6 @@ import {
   stubCodexApi,
   stubFetchIntervals,
   stubOpenCodeApi,
-  stubOpenCodeStatus,
   stubProbeApi,
 } from "./support";
 
@@ -47,7 +46,6 @@ function harness(overrides: Partial<AppDeps["claudeStart"]> = {}) {
       ...overrides,
     },
     opencode: stubOpenCodeApi(),
-    openCodeStatus: stubOpenCodeStatus,
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     health: () => buildHealthReport("ok", auth.status()),

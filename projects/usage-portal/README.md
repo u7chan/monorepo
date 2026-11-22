@@ -29,7 +29,7 @@ OpenCode Go の接続確認）を持つ。
   固定の最小プロンプトを 1 回だけ送り、応答本文は保存も表示もしない（[ADR 0017](docs/adr/0017-probe-prompts.md)）
 - OpenCode Go はアカウント（API キー）を最大 10 件登録でき、1 アカウント = 1 カードで並べる
 - 契約エラー（`subscription_required`）のアカウントは自動更新を 6 時間ごとの再確認に落とし、`⋮` の「利用枠を取得し直す」で即時に再開できる（[ADR 0025](docs/adr/0025-paused-account-retry.md)）
-- 有効な OpenCode Go カードが 1 件以上あれば、公式の稼働状況（正常・性能低下・障害）を共通の欄に表示する
+- 右上の `⋮` メニューの「ステータス」から、Codex・Claude・OpenCode の公式ステータスページを開ける
 - PWA 用の manifest と 192 / 512px のアイコン、iOS ホーム画面用の 180px アイコンを配信する
 - `GET /api/health` は DB と認証状態だけを返し、利用枠や利用者情報を含まない
 
@@ -84,22 +84,11 @@ Claude のカードは周期取得を持たないため、取得の進み具合�
 月次の残りが多い順に並ぶ。Codex・Claude と、月次を読めないカードは元の位置に残る。
 表示の判断は [ADR 0008](docs/adr/0008-remaining-gauge-and-window-trend.md)、[ADR 0015](docs/adr/0015-reset-line-badge.md)、[ADR 0016](docs/adr/0016-exhausted-cards-last.md)、[ADR 0021](docs/adr/0021-opencode-monthly-order.md) を参照する。
 
-### OpenCode Go の稼働状況
+### 公式ステータス
 
-利用枠の取得に成功した OpenCode Go カードが 1 件以上あり、契約・API キーのエラーが無ければ、一覧の上に
-共通の稼働状況を表示する。未登録・取得前・全件が契約／キーエラーの場合は表示せず、ステータス API も取得しない。
-利用枠の上限到達は契約無効ではないので表示を続ける。一時的な利用枠の取得失敗でも、前回値があれば欄を残す。
-
-[公式ページ](https://opencode.ai/status/) の公開 API から **Go 単体**の正常・性能低下・障害を取得し、
-初期状態では見出しと状態ラベルだけを表示する。見出しを押すとアニメーション付きで開閉し、遅延などの理由、
-影響するモデル、公式の更新日時、モデル別の状態と未解決のインシデントを読める。動きを減らす設定では即時に開閉する。
-Free や従量課金プランだけの障害を Go の障害としては表示しない。公式が監視する主要モデルの状態であり、
-全モデル・個別アカウントの利用可否を保証する情報ではない。
-
-画面は 60 秒ごとに取得し、BFF は全端末・アカウントで 60 秒のメモリキャッシュを共有する。認証情報の送信、
-推論リクエスト、DB への保存は行わない。通信失敗や公式情報の古さを Go の障害とは判定せず、前回値を
-「更新停止」として残す。初回から取得できない場合は「取得不可」、未知の状態は「状態不明」とする。
-判断は [ADR 0020](docs/adr/0020-opencode-service-status.md) を参照する。
+右上の `⋮` メニューの「ステータス」から、Codex・Claude・OpenCode の公式ステータスページを新しいタブで開ける。
+各社の状態やモデル別の内訳はアプリに取り込まず、公式ページに任せる
+（[ADR 0029](docs/adr/0029-status-page-links.md)）。
 
 ## 初回セットアップ
 
@@ -143,7 +132,6 @@ PIN の変更は「消して登録し直す」で行う。変更すると署名�
 | `DELETE` | `/api/codex/probe`                 | 必要 | 設定を解除（200 `{ codex: null }`）                                                                                                                                                                                                                           |
 | `POST`   | `/api/codex/check`                 | 必要 | 最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未設定は 409 `not_configured`、同時実行は 409 `in_progress`                                                                                                                                                  |
 | `GET`    | `/api/opencode/accounts`           | 必要 | `{ accounts: [{ id, name, icon, savedAt, probeModel, probeThinking }] }`。キーは返さない                                                                                                                                                                      |
-| `GET`    | `/api/opencode/status`             | 必要 | `{ state: "ok" \| "stale" \| "error", snapshot }`。Go の公式稼働状況。取得失敗も 200 とし、前回値が無ければ `snapshot: null` |
 | `POST`   | `/api/opencode/accounts`           | 必要 | `{ name, icon, apiKey, probeModel?, probeThinking? }` → 201 `{ account }`。検証して保存。失敗は `invalid_name` / `invalid_icon` / `invalid_key` / `subscription_required` / `invalid_probe` / `invalid_model` / `invalid_thinking`（400）、`limit_reached`（409）、`unavailable`（503） |
 | `PUT`    | `/api/opencode/accounts/:id`       | 必要 | `{ name?, icon?, apiKey?, probeModel?, probeThinking? }` → 200 `{ account }`。未知の id は 404                                                                                                                                                                |
 | `POST`   | `/api/opencode/accounts/:id/check` | 必要 | そのキーで最小プロンプトを 1 回送る → 200 `{ latencyMs }`。未知の id は 404、未設定は 409 `not_configured`                                                                                                                                                    |
@@ -326,7 +314,6 @@ src/server/providers/         Codex / OpenCode Go / Claude の adapter と正規
 src/server/claude/            Claude CLI の子プロセス起動と、取得の契機（single-flight、15 分 / 60 秒）
 src/server/codex/             Pi SDK の資格情報、SiWC の状態機械、/api/codex/*
 src/server/opencode/          OpenCode Go のアカウントの保存と /api/opencode/*
-src/server/opencode/status.ts  Go の公式稼働状況の正規化と、要求時の共有キャッシュ
 src/server/probe/             送信の設定（settings.json）、モデル catalog、最小プロンプトの送信
 src/shared/                    server と client で共有する入力規則（アカウント名・アイコン・キー）
 src/client/main.tsx           Preact の描画入口
@@ -410,3 +397,4 @@ bun run check
 - [docs/adr/0026-claude-card-visibility-and-logout.md](docs/adr/0026-claude-card-visibility-and-logout.md) — Claude のカードは認証済みのときだけ出し、非表示はログアウトにする
 - [docs/adr/0027-provider-order-and-icons.md](docs/adr/0027-provider-order-and-icons.md) — カードは Codex → Claude → OpenCode Go の順に並べ、見出しに provider のロゴを置く
 - [docs/adr/0028-claude-session-start-schedule.md](docs/adr/0028-claude-session-start-schedule.md) — Claude の 5 時間窓を、予約した時刻から 5 時間おきに開始する
+- [docs/adr/0029-status-page-links.md](docs/adr/0029-status-page-links.md) — 稼働状況はアプリに取り込まず、メニューから公式ステータスを開く

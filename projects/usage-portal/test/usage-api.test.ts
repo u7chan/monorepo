@@ -19,7 +19,6 @@ import {
   stubOpenCodeApi,
   usageSnapshot,
   stubProbeApi,
-  stubOpenCodeStatus,
   stubFetchIntervals,
 } from "./support";
 
@@ -70,7 +69,6 @@ function harness(
     probe: stubProbeApi(),
     fetchIntervals: stubFetchIntervals(),
     opencode: stubOpenCodeApi(),
-    openCodeStatus: stubOpenCodeStatus,
     health: () => buildHealthReport("ok", auth.status()),
     now: () => clock,
     clientKey: () => "test-client",

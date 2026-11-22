@@ -389,103 +389,6 @@ h2 {
   color: var(--up-danger);
 }
 
-.up-service-status {
-  margin-bottom: var(--up-space-4);
-  border: 1px solid var(--up-line);
-  border-radius: var(--up-radius-card);
-  background: var(--up-surface);
-  overflow-wrap: anywhere;
-}
-
-.up-service-status-toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--up-space-2);
-  width: 100%;
-  min-height: 48px;
-  padding: var(--up-space-3) var(--up-space-4);
-  border: 0;
-  border-radius: var(--up-radius-card);
-  background: none;
-  color: var(--up-text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.up-service-status-toggle:focus-visible {
-  outline: 2px solid var(--up-accent);
-  outline-offset: -3px;
-}
-
-.up-service-status-toggle [role="status"] {
-  margin-left: auto;
-}
-
-.up-service-status-chevron {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  color: var(--up-muted);
-  transition: transform 0.2s ease;
-}
-
-.up-service-status[data-expanded="true"] .up-service-status-chevron {
-  transform: rotate(180deg);
-}
-
-.up-service-status-content {
-  display: grid;
-  grid-template-rows: 0fr;
-  opacity: 0;
-  transition:
-    grid-template-rows 0.2s ease,
-    opacity 0.2s ease;
-}
-
-.up-service-status[data-expanded="true"] .up-service-status-content {
-  grid-template-rows: 1fr;
-  opacity: 1;
-}
-
-.up-service-status-clip {
-  min-height: 0;
-  overflow: hidden;
-}
-
-.up-service-status-body,
-.up-service-status-details {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--up-space-2);
-}
-
-.up-service-status-body {
-  padding: 0 var(--up-space-4) var(--up-space-3);
-}
-
-.up-service-status[data-stale="true"] .up-status-success {
-  border-color: var(--up-muted);
-  color: var(--up-muted);
-}
-
-.up-service-status-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--up-space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.up-service-status-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--up-space-1) var(--up-space-2);
-}
-
 .up-status-symbol {
   font-size: 0.75em;
 }
@@ -569,9 +472,7 @@ h2 {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .up-meter-fill,
-  .up-service-status-content,
-  .up-service-status-chevron {
+  .up-meter-fill {
     transition: none;
   }
 
@@ -1009,7 +910,21 @@ h2 {
   box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
 }
 
+.up-menu-entry {
+  position: relative;
+}
+
+/* 画面の右端に開くので、子メニューは左へ伸ばす。 */
+.up-menu-submenu {
+  top: calc(-1 * var(--up-space-1));
+  right: calc(100% + var(--up-space-1));
+  min-width: 12rem;
+}
+
 .up-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--up-space-2);
   padding: var(--up-space-2) var(--up-space-3);
   border: 0;
   border-radius: 6px;
@@ -1018,8 +933,31 @@ h2 {
   font: inherit;
   font-size: var(--up-font-caption);
   text-align: left;
+  text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.up-menu-submenu-icon {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+  color: var(--up-muted);
+}
+
+/* 幅が狭いと左へ伸ばした子メニューが画面外へ出る。メニューの中で下に開く。 */
+@media (max-width: 480px) {
+  .up-menu-submenu {
+    position: static;
+    min-width: 0;
+    margin: var(--up-space-1) 0 0 var(--up-space-3);
+  }
+
+  /* 下に開くので、右向きの矢印をそのままにしない。 */
+  .up-menu-submenu-icon {
+    transform: rotate(90deg);
+  }
 }
 
 .up-menu-item:hover {
