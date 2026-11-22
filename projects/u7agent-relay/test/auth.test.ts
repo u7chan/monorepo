@@ -84,6 +84,14 @@ describe("PIN 認証", () => {
     expect((await auth.setup("246810")).ok).toBe(true);
   });
 
+  test("PIN 未登録でセッション鍵だけ壊れていれば misconfigured", () => {
+    const { auth, dataDir } = service();
+
+    writeFileSync(join(dataDir, "session-key"), Buffer.alloc(10));
+
+    expect(auth.status()).toBe("misconfigured");
+  });
+
   test("PIN ハッシュがあってセッション鍵が無ければ misconfigured", async () => {
     const { auth, dataDir } = service();
 

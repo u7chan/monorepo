@@ -2,6 +2,7 @@ import {
   ensureSessionKey,
   isPinHashExistsError,
   readSessionKey,
+  readSessionKeyState,
   readStoredPinHash,
   writeStoredPinHash,
 } from "./auth-store";
@@ -35,13 +36,15 @@ export function createAuthService(options: { dataDir: string; now?: () => number
         return "misconfigured";
       }
 
-      // PIN ハッシュが無ければ setup がセッション鍵も作り直せる。両方消した状態を
-      // misconfigured に固定すると、再起動しない限り GUI から復旧できなくなる。
-      if (stored.status === "ok" && !readSessionKey(dataDir)) {
-        return "misconfigured";
+      const sessionKey = readSessionKeyState(dataDir);
+
+      // PIN ハッシュが無く、鍵ファイルも無ければ setup が両方を作れる。
+      // 鍵ファイルが存在するのに読めない場合は、人が退避するまで setup へ進めない。
+      if (stored.status === "absent") {
+        return sessionKey.status === "invalid" ? "misconfigured" : "setup_required";
       }
 
-      return stored.status === "absent" ? "setup_required" : "ok";
+      return sessionKey.status === "ok" ? "ok" : "misconfigured";
     },
     ensureSessionKey() {
       ensureSessionKey(dataDir);

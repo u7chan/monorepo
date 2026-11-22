@@ -121,17 +121,23 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
 
       const payload = sessionRunPayload(session, runId, connection);
 
-      if (payload.status !== "running") {
-        store.updateRun(
-          runId,
-          payload.status,
-          payload.status === "completed" ? payload.text : null,
-          payload.status === "error" ? "upstream_error" : null,
-          now(),
-        );
+      if (payload.status === "running") {
+        return payload;
       }
 
-      return payload;
+      store.updatePendingRun(
+        runId,
+        payload.status,
+        payload.status === "completed" ? payload.text : null,
+        payload.status === "error" ? "upstream_error" : null,
+        now(),
+      );
+
+      // 上流を待つ間に、定期照会や投稿前処理が終端状態を保存していることがある。
+      // その場合は、遅れて届いた未終端の応答で上書きせず、保存済みの結果を返す。
+      const latest = store.getRun(runId);
+
+      return latest && isTerminal(latest.status) ? terminalPayload(latest.status, latest.text) : payload;
     },
   };
 }
@@ -167,6 +173,10 @@ export function sessionRunPayload(session: UpstreamSession, runId: string, conne
     default:
       throw new UpstreamError(502, "upstream_invalid");
   }
+}
+
+function isTerminal(status: string): status is "completed" | "stopped" | "error" {
+  return status === "completed" || status === "stopped" || status === "error";
 }
 
 function terminalPayload(status: "completed" | "stopped" | "error", text: string | null): ReplyPayload {

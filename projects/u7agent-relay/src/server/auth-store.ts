@@ -33,16 +33,29 @@ export function isPinHashExistsError(error: unknown): boolean {
   return isErrno(error, "EEXIST");
 }
 
-export function readSessionKey(dataDir: string): Uint8Array | null {
+export type SessionKeyState =
+  | { status: "ok"; key: Uint8Array }
+  /** ファイルが無い。setup が作れる。 */
+  | { status: "missing" }
+  /** ファイルはあるが読めない / 長さが違う。人が退避するまで復旧できない。 */
+  | { status: "invalid" };
+
+export function readSessionKeyState(dataDir: string): SessionKeyState {
   let raw: Buffer;
 
   try {
     raw = readFileSync(join(dataDir, SESSION_KEY_FILE));
-  } catch {
-    return null;
+  } catch (error) {
+    return isErrno(error, "ENOENT") ? { status: "missing" } : { status: "invalid" };
   }
 
-  return raw.length === SESSION_KEY_BYTES ? new Uint8Array(raw) : null;
+  return raw.length === SESSION_KEY_BYTES ? { status: "ok", key: new Uint8Array(raw) } : { status: "invalid" };
+}
+
+export function readSessionKey(dataDir: string): Uint8Array | null {
+  const state = readSessionKeyState(dataDir);
+
+  return state.status === "ok" ? state.key : null;
 }
 
 export function ensureSessionKey(dataDir: string): Uint8Array {
