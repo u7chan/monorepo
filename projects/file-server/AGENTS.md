@@ -111,7 +111,6 @@ adding screens.
 - `src/components/buttonStyles.ts` - Shared button tones and sizes
 - `src/utils/` - Utilities (incl. `virtualPath.ts` for scope resolution)
 - `src/utils/filePreviewLimits.ts` - Inline preview byte limits and bounded text reads
-- `src/utils/atomicWrite.ts` - Temp-file + rename publish so in-flight readers keep their inode
 - `src/utils/sessionSecret.ts` - Session-secret creation and cache
 - `src/utils/sessionToken.ts` - Session cookie signing and verification
 - `src/utils/markdown/` - Dependency-free Markdown block / inline parser
@@ -232,12 +231,14 @@ the existing Preview/public URL button.
 - `GET /file/preview/*` applies the same limit to Markdown. An oversized file is
 not parsed and its head is shown as plain source with a download link, since a
 truncated excerpt can end in the middle of a construct.
-- `GET /file/raw`, `/file/preview/*` and `/file/download` stream from a file
-handle opened before the size is taken, plus `Content-Length`. Keeping the
-handle means an atomic replacement (`writeFileAtomic()`) cannot cut an in-flight
-response short. Uploads and updates must publish through `writeFileAtomic()`:
-`writeFile()` truncates the inode a reader may already have opened, so the body
-stops before the declared length.
+- `GET /file/raw`, `/file/preview/*` and `/file/download` stay buffered. Do not
+switch them to a web stream: Bun sends that as chunked and drops the explicit
+`Content-Length`, and a file-descriptor stream stays open when Hono discards the
+body of a HEAD response. Buffering also gives each response a consistent
+snapshot when the file is overwritten while it is being served.
+- `readTextPreview()` decodes with `ignoreBOM: true`. The editor posts its
+content back on save, so a stripped leading U+FEFF would remove the file's
+UTF-8 BOM.
 
 Image/video/PDF previews already delegate rendering to the browser and are not
 truncated; streaming is what keeps them bounded on the server.

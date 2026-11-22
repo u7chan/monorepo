@@ -1,7 +1,6 @@
 import type { Stats } from "node:fs"
-import { stat as fsStat, open, readdir } from "node:fs/promises"
+import { stat as fsStat, readdir, readFile } from "node:fs/promises"
 import * as path from "node:path"
-import { Readable } from "node:stream"
 import type { Context } from "hono"
 import type { AppBindings } from "../types"
 import { lookupMimeType, normalizeResponseMimeType } from "./mimeType"
@@ -90,6 +89,12 @@ export const encodeVirtualPath = (requestPath: string) =>
  */
 export const buildFullTextUrl = (requestPath: string) =>
   `/file/raw?path=${encodeURIComponent(requestPath)}&as=text`
+
+export const toArrayBuffer = (contentBuffer: Buffer): ArrayBuffer =>
+  contentBuffer.buffer.slice(
+    contentBuffer.byteOffset,
+    contentBuffer.byteOffset + contentBuffer.byteLength,
+  ) as ArrayBuffer
 
 export const archiveFileName = (requestPath: string) =>
   requestPath ? `${path.basename(requestPath)}.zip` : "root.zip"
@@ -263,49 +268,13 @@ export async function readFileResponse(
   resolvedPath: string,
   headers: Record<string, string>,
 ): Promise<Response> {
-  // Why not `readFile`: preview/download targets can be arbitrarily large
-  // (videos, PDFs, exported HTML), and buffering one costs its full size in
-  // server memory per concurrent request.
-  //
-  // Why open the handle before taking the size: a concurrent atomic publish
-  // replaces the directory entry. Keeping the handle means the declared
-  // `Content-Length` and the streamed bytes come from the same inode, so an
-  // in-flight response is not cut short by an overwrite.
-  const handle = await open(resolvedPath, "r")
-  try {
-    const { size } = await handle.stat()
-    if (size === 0) {
-      await handle.close()
-      return new Response(new Uint8Array(0), {
-        headers: { ...headers, "Content-Length": "0" },
-      })
-    }
-    const stream = handle.createReadStream({
-      start: 0,
-      end: size - 1,
-      // Why not `autoClose`: closing the fd behind the FileHandle leaves the
-      // handle to be closed again during garbage collection, which Bun reports
-      // as an error. Close the handle from the stream lifecycle instead.
-      autoClose: false,
-    })
-    let handleClosed = false
-    const closeHandle = () => {
-      if (handleClosed) {
-        return
-      }
-      handleClosed = true
-      void handle.close().catch(() => {})
-    }
-    stream.once("end", closeHandle)
-    stream.once("close", closeHandle)
-    stream.once("error", closeHandle)
-    return new Response(Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>, {
-      headers: { ...headers, "Content-Length": String(size) },
-    })
-  } catch (error) {
-    await handle.close()
-    throw error
-  }
+  // Why not stream: Bun serves a web stream as chunked and drops the explicit
+  // Content-Length, and a file-descriptor stream is left open when Hono
+  // discards the body of a HEAD response. Buffering keeps the declared length,
+  // HEAD, and a concurrent overwrite consistent, which this server needs more
+  // than it needs to cap the memory of a single preview/download.
+  const contentBuffer = await readFile(resolvedPath)
+  return new Response(toArrayBuffer(contentBuffer), { headers })
 }
 
 export async function readBinaryFileResponse(

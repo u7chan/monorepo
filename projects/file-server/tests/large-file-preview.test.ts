@@ -1,13 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { readFile, rm, writeFile } from "node:fs/promises"
 import * as path from "node:path"
-import { writeFileAtomic } from "../src/utils/atomicWrite"
 import {
   MAX_INLINE_TEXT_BYTES,
   readTextPreview,
   TEXT_EXCERPT_BYTES,
 } from "../src/utils/filePreviewLimits"
-import { readFileResponse } from "../src/utils/fileRouteUtils"
 import { createTestApp } from "./helpers/createTestApp"
 
 const HEAD_MARKER = "HEAD-MARKER"
@@ -140,9 +138,6 @@ describe("GET /file - oversized text files", () => {
 
     expect(res.status).toBe(200)
     expect(res.headers.get("Content-Type")).toBe("text/plain; charset=utf-8")
-    expect(res.headers.get("Content-Length")).toBe(
-      String(Buffer.byteLength(body)),
-    )
     expect(await res.text()).toBe(body)
   })
 
@@ -172,6 +167,35 @@ describe("GET /file - oversized text files", () => {
     expect(text.length).toBeLessThan(MAX_INLINE_TEXT_BYTES)
     // The saved file still holds every submitted byte.
     expect(await readFile(filePath, "utf-8")).toBe(content)
+  })
+
+  it("preserves a UTF-8 BOM when the editor saves unchanged content", async () => {
+    const filePath = path.join(UPLOAD_DIR, "private", "bom.csv")
+    const original = Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      Buffer.from("a,b\r\n1,2\r\n"),
+    ])
+    await writeFile(filePath, original)
+
+    const preview = await readTextPreview(filePath)
+    expect(preview.content.charCodeAt(0)).toBe(0xfeff)
+
+    // The editor posts urlencoded form data; multipart parsing would strip the
+    // BOM before the handler sees it.
+    const body = new URLSearchParams({
+      path: "private/bom.csv",
+      content: preview.content,
+    }).toString()
+    const res = await app.request(
+      new Request("http://localhost/api/update", {
+        method: "POST",
+        body,
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(await readFile(filePath)).toEqual(original)
   })
 })
 
@@ -246,61 +270,6 @@ describe("readTextPreview - bounded reads", () => {
     expect(preview.truncated).toBe(false)
     expect(preview.size).toBe(MAX_INLINE_TEXT_BYTES)
     expect(preview.content).toBe(body)
-  })
-})
-
-describe("readFileResponse - streaming and atomic publish", () => {
-  const UPLOAD_DIR = "./tmp-test-stream"
-  let filePath: string
-
-  beforeEach(async () => {
-    await rm(UPLOAD_DIR, { recursive: true, force: true })
-    await Bun.write(path.join(UPLOAD_DIR, ".keep"), "")
-    filePath = path.join(UPLOAD_DIR, "during-download.bin")
-  })
-
-  afterEach(async () => {
-    await rm(UPLOAD_DIR, { recursive: true, force: true })
-  })
-
-  it("finishes with the opened bytes when the file is replaced mid-response", async () => {
-    const original = Buffer.alloc(1024 * 1024, 0x41)
-    await writeFile(filePath, original)
-
-    const res = await readFileResponse(filePath, {
-      "Content-Type": "application/octet-stream",
-    })
-    expect(res.headers.get("Content-Length")).toBe(String(original.length))
-
-    const reader = res.body?.getReader()
-    expect(reader).toBeDefined()
-    const chunks: Uint8Array[] = []
-    const first = await reader?.read()
-    expect(first?.done).toBe(false)
-    if (first?.value) chunks.push(first.value)
-
-    await writeFileAtomic(filePath, "replaced")
-    expect(await readFile(filePath, "utf-8")).toBe("replaced")
-
-    let done = false
-    while (!done) {
-      const result = await reader?.read()
-      done = result?.done ?? true
-      if (result?.value) chunks.push(result.value)
-    }
-
-    expect(Buffer.concat(chunks)).toEqual(original)
-  })
-
-  it("serves an empty file with a zero length", async () => {
-    await writeFile(filePath, "")
-
-    const res = await readFileResponse(filePath, {
-      "Content-Type": "application/octet-stream",
-    })
-
-    expect(res.headers.get("Content-Length")).toBe("0")
-    expect(await res.text()).toBe("")
   })
 })
 

@@ -54,7 +54,11 @@ export async function readTextPreview(
     // Why `stream: true`: a cut in the middle of a multi-byte character must be
     // dropped instead of decoded as U+FFFD. Without the final flush the
     // incomplete trailing sequence stays buffered and never reaches the text.
-    const content = new TextDecoder("utf-8").decode(
+    //
+    // Why `ignoreBOM`: the default strips a leading U+FEFF, but the editor
+    // writes this content back on save, so stripping it would remove the
+    // file's UTF-8 BOM.
+    const content = new TextDecoder("utf-8", { ignoreBOM: true }).decode(
       buffer.subarray(0, shownBytes),
       { stream: true },
     )
