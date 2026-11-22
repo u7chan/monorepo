@@ -1,9 +1,9 @@
-import { expect, mock, test } from "bun:test";
+import { expect, jest, mock, test } from "bun:test";
 import { startTranscription } from "../public/transcription.js";
 
 const eventPrefix = "conversation.item.input_audio_transcription.";
 
-function fixture({ delayedMicrophone = false } = {}) {
+function fixture({ delayedMicrophone = false, limitSeconds } = {}) {
   const recording = Promise.withResolvers();
   const commit = Promise.withResolvers();
   const result = Promise.withResolvers();
@@ -37,7 +37,7 @@ function fixture({ delayedMicrophone = false } = {}) {
       ? Response.json({ value: "ek_fixture" })
       : new Response("fixture answer"))),
   };
-  const capture = startTranscription(callbacks, platform);
+  const capture = startTranscription(callbacks, { limitSeconds, platform });
   const receive = (event) => channel.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(event) }));
   return {
     recording: recording.promise,
@@ -69,6 +69,7 @@ test("停止前に差分を表示し、停止後は commit した発話の確定
     expect(f.callbacks.onPartial.mock.calls).toEqual([["青い"], ["青い傘"]]);
 
     f.capture.stop();
+    expect(f.callbacks.onFinalizing).toHaveBeenCalledWith("manual");
     expect(f.track.stop).toHaveBeenCalledTimes(1);
     expect(f.peer.close).not.toHaveBeenCalled();
     f.receive({ type: `${eventPrefix}delta`, item_id: "turn", delta: "を持って" });
@@ -88,6 +89,34 @@ test("停止前に差分を表示し、停止後は commit した発話の確定
     expect(f.peer.close).toHaveBeenCalledTimes(1);
   } finally {
     f.capture.cancel();
+  }
+});
+
+test.each([10, 30, 60, 120])("選んだ %i 秒を録音してから自動停止し、通常どおり確定する", async (limitSeconds) => {
+  jest.useFakeTimers();
+  const f = fixture({ delayedMicrophone: true, limitSeconds });
+  try {
+    jest.advanceTimersByTime(5_000);
+    f.releasePermission();
+    const { startedAt, deadline } = await f.recording;
+    expect(deadline - startedAt).toBe(limitSeconds * 1000);
+
+    jest.advanceTimersByTime(limitSeconds * 1000 - 1);
+    expect(f.track.stop).not.toHaveBeenCalled();
+    expect(f.callbacks.onFinalizing).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(f.track.stop).toHaveBeenCalledTimes(1);
+    expect(f.callbacks.onFinalizing.mock.calls).toEqual([["limit"]]);
+
+    jest.advanceTimersByTime(250);
+    expect(await f.commit).toEqual({ type: "input_audio_buffer.commit" });
+    f.receive({ type: "input_audio_buffer.committed", item_id: "turn" });
+    f.receive({ type: `${eventPrefix}completed`, item_id: "turn", transcript: "青い傘。" });
+    expect(await f.result).toEqual({ text: "青い傘。", audioSeconds: null });
+    expect(f.peer.close).toHaveBeenCalledTimes(1);
+  } finally {
+    f.capture.cancel();
+    jest.useRealTimers();
   }
 });
 

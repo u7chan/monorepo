@@ -1,6 +1,8 @@
+export const RECORDING_LIMITS_SECONDS = [10, 30, 60, 120];
+export const DEFAULT_RECORDING_LIMIT_SECONDS = RECORDING_LIMITS_SECONDS.at(-1);
+
 const CALL_URL = "https://api.openai.com/v1/realtime/calls";
 const CONNECT_TIMEOUT_MS = 30_000;
-const MAX_RECORDING_MS = 120_000;
 const AUDIO_DRAIN_MS = 250;
 const FINAL_TIMEOUT_MS = 15_000;
 
@@ -15,7 +17,9 @@ function audioDurationSeconds(usage) {
   return usage?.type === "duration" && Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
 }
 
-export function startTranscription(callbacks, platform = browser) {
+export function startTranscription(callbacks, { limitSeconds, platform = browser } = {}) {
+  const seconds = RECORDING_LIMITS_SECONDS.includes(limitSeconds) ? limitSeconds : DEFAULT_RECORDING_LIMIT_SECONDS;
+  const limitMs = seconds * 1000;
   const abort = new AbortController();
   let phase = "connecting";
   let stream;
@@ -54,11 +58,11 @@ export function startTranscription(callbacks, platform = browser) {
     callbacks.onError(message);
   }
 
-  function stop() {
+  function stop(reason = "manual") {
     if (phase !== "recording") return;
     phase = "finalizing";
     stopMicrophone();
-    callbacks.onFinalizing();
+    callbacks.onFinalizing(reason);
     // 音声と制御は別経路なので、停止と同時に commit すると末尾の音声を追い越しうる。
     schedule(AUDIO_DRAIN_MS, () => {
       if (phase !== "finalizing") return;
@@ -146,8 +150,9 @@ export function startTranscription(callbacks, platform = browser) {
       if (phase !== "connecting") return;
       phase = "recording";
       for (const track of tracks) track.enabled = true;
-      schedule(MAX_RECORDING_MS, stop);
-      callbacks.onRecording();
+      const startedAt = performance.now();
+      schedule(limitMs, () => stop("limit"));
+      callbacks.onRecording({ startedAt, deadline: startedAt + limitMs });
     });
     channel.addEventListener("message", ({ data }) => receive(data));
     channel.addEventListener("close", () => fail("確定前に OpenAI との接続が閉じました。"));

@@ -8,6 +8,7 @@
   --voice-accent: #7046c9;
   --voice-on-accent: #fff;
   --voice-shine: #1485a6;
+  --voice-warning: #b45208;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,6 +20,7 @@
     --voice-accent: #a78bfa;
     --voice-on-accent: #201631;
     --voice-shine: #77d9ee;
+    --voice-warning: #ffc978;
   }
 }
 
@@ -48,6 +50,23 @@ input, button, textarea {
 input {
   flex: 1 1 14rem;
   min-width: 0;
+}
+
+.recording-limit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--voice-muted);
+  font-size: 0.875rem;
+}
+
+.recording-limit select {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--voice-line);
+  border-radius: 0.375rem;
+  background: var(--voice-panel);
+  color: var(--voice-ink);
+  font: inherit;
 }
 
 .sr-only {
@@ -107,6 +126,7 @@ input {
 }
 
 .voice-primary {
+  position: relative;
   display: grid;
   flex: none;
   width: 2.25rem;
@@ -134,13 +154,47 @@ input {
   height: 1.125rem;
 }
 
+.voice-primary .voice-countdown {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.75rem;
+  height: 2.75rem;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  pointer-events: none;
+  stroke-width: 2;
+}
+
+.voice-countdown-track {
+  stroke: var(--voice-line);
+}
+
+.voice-countdown-progress {
+  stroke: var(--voice-shine);
+  stroke-linecap: round;
+}
+
+.voice-countdown.is-ending circle {
+  stroke: var(--voice-warning);
+}
+
+.voice-countdown.is-ending .voice-countdown-track {
+  animation: voice-countdown-blink 650ms ease-in-out infinite alternate;
+}
+
+@keyframes voice-countdown-blink {
+  from { opacity: 1; }
+  to { opacity: 0.2; }
+}
+
 @keyframes voice-sweep {
   from { background-position: 0 0, 0% 0; }
   to { background-position: 0 0, 100% 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .voice-composer.is-recording {
+  .voice-composer.is-recording,
+  .voice-countdown.is-ending .voice-countdown-track {
     animation: none;
   }
 }
@@ -148,6 +202,19 @@ input {
 @media (forced-colors: active) {
   .voice-composer.is-recording {
     border-color: Highlight;
+  }
+
+  .voice-countdown circle {
+    forced-color-adjust: none;
+  }
+
+  .voice-countdown-track {
+    stroke: GrayText;
+  }
+
+  .voice-countdown-progress,
+  .voice-countdown.is-ending circle {
+    stroke: Highlight;
   }
 }
 

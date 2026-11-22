@@ -1,6 +1,7 @@
-import { startTranscription } from "./transcription.js";
+import { DEFAULT_RECORDING_LIMIT_SECONDS, RECORDING_LIMITS_SECONDS, startTranscription } from "./transcription.js";
 
 const USD_PER_AUDIO_MINUTE = 0.017;
+const COUNTDOWN_WARNING_MS = 3_000;
 
 const byId = (id) => document.getElementById(id);
 const keyForm = byId("key-form");
@@ -16,6 +17,17 @@ const stopToFinal = byId("stop-to-final");
 const metrics = stopToFinal.closest("dl");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
+const limitSelect = document.createElement("select");
+for (const seconds of RECORDING_LIMITS_SECONDS) {
+  const label = seconds < 60 ? `${seconds} 秒` : `${seconds / 60} 分`;
+  limitSelect.add(new Option(label, String(seconds)));
+}
+limitSelect.value = String(DEFAULT_RECORDING_LIMIT_SECONDS);
+const limitLabel = document.createElement("label");
+limitLabel.className = "recording-limit";
+limitLabel.append("自動停止時間", limitSelect);
+runStatus.before(limitLabel);
+
 const composer = document.createElement("div");
 composer.className = "voice-composer";
 const actions = voiceButton.parentElement;
@@ -28,8 +40,13 @@ voiceButton.innerHTML = `
   </svg>
   <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" hidden>
     <rect x="5" y="5" width="14" height="14" rx="2" />
+  </svg>
+  <svg class="voice-countdown" aria-hidden="true" viewBox="0 0 48 48" fill="none" hidden>
+    <circle class="voice-countdown-track" cx="24" cy="24" r="22" />
+    <circle class="voice-countdown-progress" cx="24" cy="24" r="22" pathLength="1" stroke-dasharray="1 1" />
   </svg>`;
-const [micIcon, stopIcon] = voiceButton.children;
+const [micIcon, stopIcon, countdown] = voiceButton.children;
+const countdownProgress = countdown.lastElementChild;
 const preview = byId("partial");
 preview.previousElementSibling.remove();
 preview.remove();
@@ -69,6 +86,21 @@ let keyBusy = false;
 let active;
 let recording = false;
 let textGlow;
+let countdownFrame;
+
+function showCountdown(startedAt, deadline) {
+  function tick() {
+    const remainingMs = Math.max(0, deadline - performance.now());
+    const fraction = Math.min(1, remainingMs / (deadline - startedAt));
+    countdownProgress.setAttribute("stroke-dashoffset", String(1 - fraction));
+    if (remainingMs <= COUNTDOWN_WARNING_MS && !countdown.classList.contains("is-ending")) {
+      countdown.classList.add("is-ending");
+      runStatus.textContent = "録音中。まもなく自動停止します。";
+    }
+    if (remainingMs > 0) countdownFrame = requestAnimationFrame(tick);
+  }
+  tick();
+}
 
 function renderControls() {
   const busy = Boolean(active);
@@ -76,6 +108,7 @@ function renderControls() {
   keyInput.disabled = locked;
   registerKey.disabled = locked;
   clearKey.disabled = locked || !registered;
+  limitSelect.disabled = busy;
   voiceButton.disabled = !busy && (keyBusy || !registered);
   voiceButton.setAttribute("aria-disabled", String(busy && !recording));
   const action = busy ? "停止・確定" : "録音開始";
@@ -83,9 +116,15 @@ function renderControls() {
   voiceButton.title = action;
   micIcon.toggleAttribute("hidden", busy);
   stopIcon.toggleAttribute("hidden", !busy);
+  countdown.toggleAttribute("hidden", !recording);
   transcript.readOnly = busy;
   composer.classList.toggle("is-recording", recording);
-  if (!recording) textGlow?.cancel();
+  if (!recording) {
+    if (countdownFrame !== undefined) cancelAnimationFrame(countdownFrame);
+    countdownFrame = undefined;
+    countdown.classList.remove("is-ending");
+    textGlow?.cancel();
+  }
 }
 
 async function updateKey(options) {
@@ -139,6 +178,7 @@ voiceButton.addEventListener("click", () => {
   estimatedCost.textContent = "—";
   runStatus.textContent = "マイクを確認中…";
   let gotPartial = false;
+  let stoppedAtLimit = false;
   let startedAt;
   let stoppedAt;
   const draft = transcript.value;
@@ -160,11 +200,12 @@ voiceButton.addEventListener("click", () => {
     onConnecting() {
       runStatus.textContent = "OpenAI に接続中…";
     },
-    onRecording() {
-      startedAt = performance.now();
+    onRecording({ startedAt: recordingStartedAt, deadline }) {
+      startedAt = recordingStartedAt;
       recording = true;
       runStatus.textContent = "録音中。話してください。";
       renderControls();
+      showCountdown(startedAt, deadline);
     },
     onPartial(text) {
       if (!gotPartial) firstDelta.textContent = ms(startedAt);
@@ -178,30 +219,34 @@ voiceButton.addEventListener("click", () => {
         );
       }
     },
-    onFinalizing() {
+    onFinalizing(reason) {
       stoppedAt = performance.now();
+      stoppedAtLimit = reason === "limit";
       recording = false;
       const recordingSeconds = (stoppedAt - startedAt) / 1000;
       recordingTime.textContent = secondsLabel(recordingSeconds);
       showCost(recordingSeconds, "録音時間ベース");
-      runStatus.textContent = "停止しました。確定テキストを待機中…";
+      runStatus.textContent = stoppedAtLimit
+        ? "上限で自動停止しました。確定テキストを待機中…"
+        : "停止しました。確定テキストを待機中…";
       renderControls();
     },
     onFinal({ text, audioSeconds }) {
       stopToFinal.textContent = ms(stoppedAt);
       insertText(text);
       if (audioSeconds !== null) showCost(audioSeconds, `API 計測 ${secondsLabel(audioSeconds)}`);
+      const finished = stoppedAtLimit ? "上限で自動停止し、確定しました" : "確定しました";
       idle(
         gotPartial
-          ? "確定しました。停止前の途中表示あり。"
-          : "確定しましたが、停止前の途中表示はありませんでした。",
+          ? `${finished}。停止前の途中表示あり。`
+          : `${finished}が、停止前の途中表示はありませんでした。`,
       );
     },
     onError(message) {
       restoreDraft();
       idle(message);
     },
-  });
+  }, { limitSeconds: Number(limitSelect.value) });
   active = {
     stop: capture.stop,
     cancel() {
