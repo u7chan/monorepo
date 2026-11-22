@@ -10,11 +10,18 @@ import { createFileRefRequests } from "../lib/fileRefRequest";
 import type { FileRefTarget } from "../lib/fileRef";
 import { missingLinkNote, type SessionOpenResult } from "../lib/notifications";
 import { sessionDeleteConfirmRequest, sessionRenameRequest } from "../lib/sidebarRowMenu";
+import {
+  HISTORY_CLEAR_CLEANUP_NOTE,
+  historyClearedBetween,
+  sessionHistoryClearConfirmRequest,
+  withoutOldHistory,
+} from "../lib/sessionHistoryClear";
 import type {
   AgentDef,
   EventEntry,
   Health,
   ModelRef,
+  SessionHistoryClearResponse,
   SessionMoveResponse,
   SessionPayload,
   SessionSummary,
@@ -88,6 +95,7 @@ export function useSessions({
     listSessions,
     handoffSession: apiHandoffSession,
     forkSession: apiForkSession,
+    clearSessionHistory: apiClearSessionHistory,
     updateSessionNotify,
     updateSessionPinned,
     updateSessionSettings,
@@ -163,6 +171,12 @@ export function useSessions({
    * 新規チャット / 引き継ぎ後の開き直しでも失効させる (取得中の旧ページを適用しない)。
    */
   const historyGenerationRef = useRef(createGenerationTracker());
+  /**
+   * 同じ会話で最後に適用した履歴世代 (payload の historyGeneration)。値が変わったら履歴が
+   * クリアされたとみなし、旧カーソル・旧バブル・取得中の旧ページを捨てて取り直す。会話の切替では
+   * 比較しない (sessionId も一緒に持つ)。
+   */
+  const historyScopeRef = useRef<{ sessionId: string; generation: string }>({ sessionId: "", generation: "" });
   const historyLoadingRef = useRef(false);
   /** 履歴 API が無いときの組み直しに使う直近 payload。セッションを離れるたびに捨てる */
   const latestPayloadRef = useRef<SessionPayload | undefined>(undefined);
@@ -231,7 +245,20 @@ export function useSessions({
     [refreshSessions],
   );
   const applySnapshot = useCallback(
-    (payload: SessionPayload) => {
+    (incoming: SessionPayload) => {
+      // 同じ会話で履歴世代が変わった = 履歴のクリア。旧カーソル・進行中の旧要求を失効させ、
+      // payload に残る旧メッセージは適用しない (表示はクリア後の履歴を取り直して正とする)
+      const nextHistoryGeneration = incoming.historyGeneration ?? "";
+      const historyCleared =
+        sessionIdRef.current === incoming.sessionId && historyClearedBetween(historyScopeRef.current, incoming);
+      historyScopeRef.current = { sessionId: incoming.sessionId, generation: nextHistoryGeneration };
+      if (historyCleared) {
+        historyGenerationRef.current.invalidate();
+        historyLoadingRef.current = false;
+        latestPayloadRef.current = undefined;
+        dispatch({ type: "resetHistory" });
+      }
+      const payload = historyCleared ? withoutOldHistory(incoming) : incoming;
       lastSeqRef.current = payload.lastSeq || 0;
       generationRef.current = payload.eventGeneration || "";
       // payload の適用はセッションを開いた合図でもある。対象を合わせてカーソルを seed し、
@@ -454,6 +481,7 @@ export function useSessions({
       preselectionCarry.reset();
       sessionIdRef.current = "";
       lastSeqRef.current = 0;
+      historyScopeRef.current = { sessionId: "", generation: "" };
       setSessionId("");
       // 未作成チャットの作業場所は選択中プロジェクト。前のセッションの cwd を持ち越さない
       setCwd("");
@@ -758,6 +786,55 @@ export function useSessions({
   );
 
   /**
+   * 会話履歴のクリア。確認時点の履歴世代を控えてから確認し、成功したら一覧を取り直す。
+   * 開いている会話は同じ id / URL のまま開き直し、旧バブルと取得中の旧ページを捨てる
+   * (クリア後の再読み込みは `applySnapshot` の履歴世代の判定でも行う)。
+   */
+  const clearHistory = useCallback(
+    async (id: string): Promise<void> => {
+      const title = sessionsRef.current.find((item) => item.sessionId === id)?.title ?? "";
+      // 確認の対象となる履歴世代を先に控える。別タブが先にクリアしていればサーバーが 409 にする
+      let generation: string;
+      try {
+        generation = (await getSession(id)).historyGeneration ?? "";
+      } catch (error) {
+        dispatch({ type: "setActivity", text: `会話履歴をクリアできませんでした。${messageFor(error)}` });
+        return;
+      }
+      if (!(await confirm(sessionHistoryClearConfirmRequest(title)))) return;
+      let result: SessionHistoryClearResponse;
+      try {
+        result = await apiClearSessionHistory(id, { historyGeneration: generation });
+      } catch (error) {
+        dispatch({ type: "setActivity", text: `会話履歴をクリアできませんでした。${messageFor(error)}` });
+        return;
+      }
+      await refreshSessionsNow();
+      // 開いていない会話はここまで (開いている会話の状態行を別の会話の結果で乱さない)
+      if (sessionIdRef.current !== id) return;
+      if (!result.changed) {
+        dispatch({ type: "setActivity", text: "消す会話履歴はありませんでした" });
+        return;
+      }
+      if (result.cleanupPending) {
+        // 片付け待ちは開き直すと 409 になる。URL を変えずに手元の履歴だけを捨て、警告を状態行へ出す
+        historyGenerationRef.current.invalidate();
+        historyLoadingRef.current = false;
+        latestPayloadRef.current = undefined;
+        historyScopeRef.current = { sessionId: id, generation: result.historyGeneration };
+        dispatch({ type: "resetHistory" });
+        dispatch({ type: "setActivity", text: HISTORY_CLEAR_CLEANUP_NOTE });
+        return;
+      }
+      const opened = await selectSession(id, undefined, { fallbackOnFailure: false, discardHistory: true });
+      // 開けなかった理由は開き直しの後に出す (resync が活動表示を消すため)
+      const text = opened === "opened" ? "会話履歴をクリアしました" : missingLinkNote(true, opened);
+      if (text) dispatch({ type: "setActivity", text });
+    },
+    [apiClearSessionHistory, confirm, dispatch, getSession, refreshSessionsNow, selectSession],
+  );
+
+  /**
    * 会話タイトルの変更。初期値は現在のタイトルで、取り消し・空・未変更はサーバーへ送らない。
    * 応答のタイトルを一覧へ反映する (ヘッダの表示も一覧から引くため、これだけで画面が追従する)。
    * 失敗は楽観反映をしないので、理由だけを状態行へ出す。
@@ -844,6 +921,7 @@ export function useSessions({
     deleteSession,
     handoffSession,
     forkSession,
+    clearHistory,
     renameSession,
     reselectIfMissing,
     restoreSession,

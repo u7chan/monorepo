@@ -55,6 +55,30 @@ GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui
 - [ ] 作業環境の環境変数タブ / スキル面ではドロップゾーンが出ない（設定 → ファイル の「ダウンロードの除外」タブも同じ）
 - [ ] モバイル幅 / タッチ操作には新しい入口が無い（タッチでは drag が起きない。設定 → ファイル の既存の閲覧・削除・リネームは従来どおり）
 
+## 会話履歴のクリア受入
+
+自動検証は `server/test/sessions-clear-history.test.ts`（同じ ID / URL のままメッセージ・圧縮要約・未送信・生ログ・
+応答の実測だけを消し、会話の行・設定・時刻・作業フォルダ / `HANDOFF.md` を残すこと、手動タイトルと
+`changed: false`、未使用チップの解除、busy / 片付け中 / 別スペース / 履歴世代の不一致 / 二重要求の 409・404、
+古い record からの送信を始めないこと、未ロードの JSONL からのモデル / Effort 復元と SDK / 作業フォルダを
+作らないこと、破損 JSONL は 409 で変更しないこと、確定後の片付け失敗と次に開いたときの再試行、確定中に
+返った AI 要約の結果・使用量を適用しないこと）で行う。client 側は `client/test/sessionHistoryClear.test.ts`
+（無効理由・確認文言・履歴世代の判定・旧履歴を落とした payload）と `client/test/sidebarRowMenu.test.ts`
+（行メニューの出し分けと並び）で固定する。
+
+GUI は一時ストア / stub pi で、desktop と singleColumn の両方を確認する。
+
+- [ ] 会話行の ⋯ に「会話履歴をクリア」が削除の手前に出る。実行中・回答待ち・キュー待ち・圧縮中・片付け中は
+  無効になり、押せない理由が説明行に出る（項目ごと隠れない）
+- [ ] 確認では対象の会話・消えるもの（未送信と自動タイトルを含む）・URL とファイルが変わらないこと・
+  元に戻せないことが出る。キャンセルでは何も変わらない
+- [ ] 実行すると同じ URL のまま履歴が空になり、ヘッダと一覧のタイトルが「無題のセッション」になる
+  （手動の名前は残る）。設定・ピン・通知・作業フォルダのファイル・添付・`HANDOFF.md` は変わらない
+- [ ] 別タブで開いたままクリアすると、そのタブも空の履歴へ切り替わり、旧バブル・旧未送信が戻らない。
+  再接続・F5・BFF 再起動の後も戻らない
+- [ ] 片付けが残った応答では、URL を変えずに旧履歴だけが消え、状態行に警告が出る。`HANDOFF.mdを参照`
+  のチップは消え、次の送信にも参照指示が入らない
+
 ## スペースの受入
 
 自動検証は `server/test/spaces-api.test.ts`（加算移行・複数所属・live / 未ロード / sweep / 再起動・添付 / cwd・復元前の所属拒否・プロジェクト利用拒否・並べ替えの正規化と永続・既定スペースの先頭固定・入力不正の 400・更新失敗時の rollback・DB 障害時の既定スペースの停止 / 削除）、`client/test/spaces.test.ts`（既定の保存先の解決・選択の fail-closed・初期選択の優先順位・各 API の文脈・作成待ちの要求元固定・遅い一覧応答・並べ替えの保存の分類と一覧へのマージ・保存待ちの作成 / 削除との競合・削除後の選択・削除の成功後処理（成功時点の選択 / URL → 保存値 → 選択の順）・行の ⋯ の出し分け（既定スペースは空）・削除の確認文言）、`client/test/agentReorder.test.ts`（一覧の並べ替えの計算と、スペース一覧でも既定の先頭と渡さなかった行の位置を保つこと）、`client/test/ownerLink.test.ts`（起動元リンクの切替先と順序）と既存の session / API / fallback / 通知リンクテストで行う。引き継ぎは server 側の `server/test/sessions-move.test.ts`（同スペース / 別スペース / プロジェクト所属、エージェント差し替えと復元後の実行、入口条件（未知の `agentId`・メモ × 0 件 / 壊れた JSONL・読めない既存メモ・busy）、メモの内容 / 先頭追記 / 既存の保持 / mask、書込み / meta の失敗時の rollback、消費済み印の保存（後続の送信も待つ・失敗は 500）、確定後の片付けと再起動をまたぐ復旧）と `server/test/handoff-memo.test.ts` / `server/test/sandbox-handoff.test.ts`（節の組み立てと上限 / mask / ハッシュ、読み書き API の上限 / UTF-8 / symlink / 冪等化 / 同時追記 / 条件付き削除と排他内の再判定 / `ENOENT` 以外の lstat 失敗は 404 にしない）で固定する。client 側は `client/test/sessionHandoff.test.ts`（ダイアログの文言・無効理由・チップの導出・移動先へ渡す警告）、`client/test/sessionHandoffDialog.test.ts`（描画と既定 / 無効 / プロジェクトのメモ説明）、`client/test/historyResync.test.ts` / `client/test/requestGate.test.ts`（同じ会話 id のまま履歴が入れ替わる引き継ぎで旧バブルを捨て、保留していた旧ページを適用しないこと）、`client/test/sidebarRowMenu.test.ts`（項目の出し分け・無効理由・並び）、`client/test/apiContracts.test.ts`（要求元が query で `spaceId` / `agentId` / `memo` が body）でも固定する。スペースの削除は `client/test/apiContracts.test.ts`（`DELETE /api/spaces/:id` が文脈の `spaceId` を付けないことと、409 の文言 / status を保つこと）でも固定する。GUI は専用の一時ストア / workspace / ポートと stub pi を使い、実データや有料 API に触れない。

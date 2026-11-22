@@ -16,6 +16,7 @@ export function SessionList({
   onTogglePin,
   onHandoff,
   onFork,
+  onClearHistory,
   onOpenTitleSummary,
 }: {
   sessions: SessionSummary[];
@@ -29,6 +30,8 @@ export function SessionList({
   onHandoff?: (sessionId: string) => void;
   /** 会話の分岐。未指定の一覧は項目を出さない */
   onFork?: (sessionId: string) => void;
+  /** 会話履歴のクリア。未指定の一覧は項目を出さない */
+  onClearHistory?: (sessionId: string) => void;
   /** AI要約のダイアログ。未指定の呼び出し側は行メニューに項目を出さない */
   onOpenTitleSummary?: (sessionId: string) => void;
 }) {
@@ -46,6 +49,7 @@ export function SessionList({
       onTogglePin={() => onTogglePin(item.sessionId)}
       {...(onHandoff ? { onHandoff: () => onHandoff(item.sessionId) } : {})}
       {...(onFork ? { onFork: () => onFork(item.sessionId) } : {})}
+      {...(onClearHistory ? { onClearHistory: () => onClearHistory(item.sessionId) } : {})}
       {...(onOpenTitleSummary ? { onOpenTitleSummary: () => onOpenTitleSummary(item.sessionId) } : {})}
     />
   );

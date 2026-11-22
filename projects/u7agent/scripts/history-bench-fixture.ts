@@ -141,6 +141,7 @@ function recordOf(sessionManager: NonNullable<PiSessionLike["sessionManager"]>):
     compactionMeta: new Map(),
     runOutcomes: new Map(),
     changingSettings: false,
+    clearingHistory: false,
     compacting: false,
     notify: false,
     pinned: false,

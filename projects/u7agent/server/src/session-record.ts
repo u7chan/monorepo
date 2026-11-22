@@ -227,6 +227,11 @@ export interface SessionRecord {
   /** 設定変更中フラグ。非同期 setModel の間、送信と二重変更を 409 で拒否する */
   changingSettings: boolean;
   /**
+   * 履歴クリアの確定待ち。true の間は旧世代のタイトル要約を適用・保存せず、persist も行わない
+   * (確定前の失敗では戻す)。
+   */
+  clearingHistory: boolean;
+  /**
    * 手動 compaction の実行中フラグ。SDK の isCompacting と違い、SDK 実行中と保存待ちの
    * 両方で true (排他の正はここで、busy 判定もこの値で行う)
    */

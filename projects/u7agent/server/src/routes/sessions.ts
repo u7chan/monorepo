@@ -18,6 +18,7 @@ import {
   FileUploadSchema,
   type AnswerQuestionBody,
   type ApproveNetworkAccessBody,
+  type ClearSessionHistoryBody,
   type CreateSessionBody,
   type ForkSessionBody,
   type MoveSessionBody,
@@ -200,6 +201,18 @@ export function createSessionRoutes({
       const result = await store.move(c.req.param("id") ?? "", spaces.require(body.spaceId), {
         ...(body.agentId === undefined ? {} : { agentId: body.agentId }),
         memo: body.memo === true,
+      });
+      if (!result) return c.json({ error: "Session not found" }, 404);
+      return c.json(result);
+    },
+
+    /**
+     * 会話履歴のクリア。会話の行・URL・作業フォルダ・添付は変えず、メッセージ・圧縮要約・未送信・
+     * 生ログだけを消す。確認時点の履歴世代 (`historyGeneration`) が古い / busy / 片付け中は 409。
+     */
+    clearHistory: async (c: Context, body: ClearSessionHistoryBody) => {
+      const result = await store.clearHistory(c.req.param("id") ?? "", {
+        expectHistoryGeneration: body.historyGeneration,
       });
       if (!result) return c.json({ error: "Session not found" }, 404);
       return c.json(result);

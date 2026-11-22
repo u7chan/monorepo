@@ -78,6 +78,7 @@ import type {
   ServeStatus,
   SessionCompactionResult,
   SessionDiagnostics,
+  SessionHistoryClearResponse,
   SessionMoveResponse,
   SessionNotifyResponse,
   SessionPinnedResponse,
@@ -188,6 +189,9 @@ export function createSpaceApi(spaceId: string) {
     // query が移動先になり、sessionSpaceGuard が 404 にする (client/src/api.ts の scope が query を書く)
     handoffSession: (id: string, json: { spaceId: string; agentId?: string; memo: boolean }) =>
       read<SessionMoveResponse>(session.move.$post({ param: { id }, json })),
+    // 履歴のクリアは同じ URL のまま。確認時点の履歴世代を送り、変わっていれば 409 になる
+    clearSessionHistory: (id: string, json: { historyGeneration: string }) =>
+      read<SessionHistoryClearResponse>(session.history.clear.$post({ param: { id }, json })),
     // 分岐は要求元スペース (この API の spaceId) の会話にだけ行える。子は同じスペースにできる
     forkSession: (id: string, json: { agentId?: string }) =>
       read<SessionPayload>(session.fork.$post({ param: { id }, json })),

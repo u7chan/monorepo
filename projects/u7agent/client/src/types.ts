@@ -156,6 +156,7 @@ export type {
   SessionCompactionResult,
   SessionDiagnostics,
   SessionHandoffState,
+  SessionHistoryClearResponse,
   SessionMoveResponse,
   SessionNetworkAccess,
   SessionNotifyResponse,

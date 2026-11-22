@@ -19,6 +19,7 @@ export function ProjectRow({
   onTogglePinnedSession,
   onHandoffSession,
   onForkSession,
+  onClearHistorySession,
   onOpenTitleSummary,
 }: {
   project: Project;
@@ -37,6 +38,8 @@ export function ProjectRow({
   onHandoffSession: (sessionId: string) => void;
   /** 会話の分岐。未指定の呼び出し側は行メニューに項目を出さない */
   onForkSession?: (sessionId: string) => void;
+  /** 会話履歴のクリア。未指定の呼び出し側は行メニューに項目を出さない */
+  onClearHistorySession?: (sessionId: string) => void;
   onOpenTitleSummary?: (sessionId: string) => void;
 }) {
   // kind から行の props を引く表。actions と同じ種別に狭め、表の無い kind を型で検出する
@@ -83,6 +86,7 @@ export function ProjectRow({
                 onTogglePin={onTogglePinnedSession}
                 onHandoff={onHandoffSession}
                 {...(onForkSession ? { onFork: onForkSession } : {})}
+                {...(onClearHistorySession ? { onClearHistory: onClearHistorySession } : {})}
                 {...(onOpenTitleSummary ? { onOpenTitleSummary } : {})}
               />
             )}

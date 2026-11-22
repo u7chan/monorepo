@@ -24,7 +24,7 @@ export function projectRowActions(): RowMenuAction<ProjectRowKind>[] {
 }
 
 /** セッション行の ⋯ の種別 (通知のベルとピンは状態の印として行にも残す) */
-export type SessionRowKind = "pin" | "rename" | "title-summary" | "handoff" | "fork" | "delete";
+export type SessionRowKind = "pin" | "rename" | "title-summary" | "handoff" | "fork" | "clear-history" | "delete";
 
 /** セッション行の ⋯ の出し分けに使う状態。省略は「ピン無し / 引き継ぎ不可」 */
 export type SessionRowMenuOptions = {
@@ -37,6 +37,10 @@ export type SessionRowMenuOptions = {
   canFork?: boolean;
   /** 分岐を止める理由。空なら実行できる (引き継ぎと同じ条件) */
   forkBlockedReason?: string;
+  /** 履歴のクリアの受け取りがあるか (未指定 = 項目を出さない) */
+  canClearHistory?: boolean;
+  /** 履歴のクリアを止める理由。空なら実行できる (引き継ぎと同じ扱い) */
+  clearHistoryBlockedReason?: string;
   /** AI要約の状態。状態を出せる呼び出し側だけ項目を出す (旧呼び出しは出さない) */
   titleSummary?: SessionTitleSummary;
   /** AI要約のダイアログを開けるか。false の呼び出し側は項目を出さない */
@@ -54,6 +58,8 @@ export function sessionRowActions(options: SessionRowMenuOptions = {}): RowMenuA
     handoffBlockedReason = "",
     canFork = false,
     forkBlockedReason = "",
+    canClearHistory = false,
+    clearHistoryBlockedReason = "",
     titleSummary,
     canTitleSummary = false,
   } = options;
@@ -90,12 +96,26 @@ export function sessionRowActions(options: SessionRowMenuOptions = {}): RowMenuA
         },
       ]
     : [];
+  const clearHistory: RowMenuAction<SessionRowKind>[] = canClearHistory
+    ? [
+        {
+          kind: "clear-history",
+          label: "会話履歴をクリア",
+          description:
+            clearHistoryBlockedReason ||
+            "同じ URL のまま、メッセージと未送信を消して空の履歴から再開します。元に戻せません",
+          descriptionKind: "disclosure",
+          disabled: clearHistoryBlockedReason !== "",
+        },
+      ]
+    : [];
   return [
     { kind: "pin", label: pinned ? "ピン留めを解除" : "ピン留め" },
     { kind: "rename", label: "名前を変更" },
     ...titleSummaryAction,
     ...handoff,
     ...fork,
+    ...clearHistory,
     { kind: "delete", label: "セッションを削除", danger: true },
   ];
 }

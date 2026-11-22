@@ -58,7 +58,7 @@
 
 `runStartedAt` / `finishedAt` は live な実行の開始・終了、`compactionStartedAt` は圧縮の開始、`awaitingSince` は未 settle の質問のうち最も古い開始時刻、`lastRunDurationMs` は直近のランの所要時間（`runOutcomes` にあるときだけ）で、どれも該当が無ければキーを省略する。未ロードの会話は `idle` でこれらの時刻を載せない（`lastUsedAt` を開始時刻の代用にしない）。終了済みの live レコードは終了から 120 分の間だけ sweep の対象外になる。
 
-`pinned` はサイドバーで固定するかを示す（常に boolean）。`awaitingAnswer` は `ask_user` の未 settle の回答待ちがあるか（省略 = false）。この間もランは `running` のままで、左バーの行が「回答待ち」になる（[ask-user.md](ask-user.md#ui)）。待機を持たない未ロードの会話は省略し、ロード済みの会話は待機が無くても `false` を返す。`canHandoff` は同じ会話のままエージェント / スペースを引き継げるか（常に true。旧サーバーは省略 = false）。`parentSessionId` は分岐元の会話 id（分岐していない会話と旧サーバーはキーを省略する。分岐先はこの値から引く）。`projectSession` はプロジェクト所属か（真では引き継ぎ先のスペースを選ばない）。`handoffCleanup` は確定後の履歴削除（片付け）が残っているか（省略 = false。真の間は開く要求が 409 になり、新しい引き継ぎも受け付けない）。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（省略 = false）。設定 → ランタイム の診断タブは、まだ診断応答を取れていないときの出し分けにこの値を使い、応答が取れていれば `raw.available` を正とする。false のときだけダウンロードを押せなくし、理由を 1 行で出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
+`pinned` はサイドバーで固定するかを示す（常に boolean）。`awaitingAnswer` は `ask_user` の未 settle の回答待ちがあるか（省略 = false）。この間もランは `running` のままで、左バーの行が「回答待ち」になる（[ask-user.md](ask-user.md#ui)）。待機を持たない未ロードの会話は省略し、ロード済みの会話は待機が無くても `false` を返す。`canHandoff` は同じ会話のままエージェント / スペースを引き継げるか（常に true。旧サーバーは省略 = false）。`parentSessionId` は分岐元の会話 id（分岐していない会話と旧サーバーはキーを省略する。分岐先はこの値から引く）。`projectSession` はプロジェクト所属か（真では引き継ぎ先のスペースを選ばない）。`handoffCleanup` は引き継ぎの確定後に残った履歴削除（片付け）が残っているか（省略 = false。真の間は開く要求が 409 になり、新しい引き継ぎも受け付けない）。`historyCleanup` は会話履歴のクリアの確定後に残った旧履歴の削除が未完了か（省略 = false。真の間は開く要求が 409 になり、クリアも 409。次に開いたときに削除から再試行する）。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（省略 = false）。設定 → ランタイム の診断タブは、まだ診断応答を取れていないときの出し分けにこの値を使い、応答が取れていれば `raw.available` を正とする。false のときだけダウンロードを押せなくし、理由を 1 行で出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
 
 `serveCommand` はその会話の作業ディレクトリ（workdir）の serve 成功実績で、`{ cwd, command }` か **無ければ `null`**（キーは常に載る）。cwd を共有するプロジェクト会話は同じ値を返し、別ディレクトリの実績は返さない。実行状況（`/activity`）はこれを終了行に起動の操作を出す条件と、起動の確認に出す作業ディレクトリ・コマンドに使う（[frontend.md](frontend.md#全スペースの一覧)）。
 
@@ -92,6 +92,7 @@
   "networkAccess": { "mode": "ask", "approved": false },
   "lastSeq": 42,
   "eventGeneration": "a1b2c3d4",
+  "historyGeneration": "9f8e7d6c",
   "title": "…",
   "titleSummary": {
     "origin": "ai",
@@ -188,6 +189,8 @@
 `cwd` はワークスペース root 相対の作業ディレクトリ（プロジェクト所属は `projectCwd`、未所属は所属スペースのスクラッチ。置き場は [session-files.md](session-files.md#スペースごとの配置)）。ツール実行と `GET /api/files` の結果はこのディレクトリを起点に組み立てる。`write` / `edit` はこのディレクトリと `<root>/.agents/skills` の内側にだけ書ける（[projects.md](projects.md#write--edit-の書き込み範囲)）。`health.cwd` は root の絶対パス（表示用）で意味が違う。`projectId` は所属プロジェクト（未所属はキーを省略）。復元時は `meta.projectCwd` から `cwd` を解決し、登録が解除・消失していてもそのディレクトリを使う。
 
 `eventGeneration` は SSE の世代（[イベント購読](api-session-runtime.md#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
+
+`historyGeneration` は**会話履歴の世代**で、履歴のクリアでだけ変わり、SSE の世代とは独立に再起動後も残る（旧データと旧サーバーは省略 = 空文字）。クリアでは同じ会話 ID のまま履歴が入れ替わるため、クライアントはこの値が変わったときに旧カーソル・旧バブル・取得中の旧ページ・進行中の旧要求を失効させて履歴を取り直す（[frontend.md](frontend.md#チャット状態とレンダリング)）。`eventGeneration` で代用しないのは、BFF の再起動や sweep でも変わるため。
 
 `pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ sendId, runId?, text, at, state, position? }` で、`text` は表示用にマスク済み、`runId` は実行へ割り当て済みのときだけ載る（手動圧縮待ちなど未割当の送信では省略する）。`state` は `unsent`（未送信）/ `queued`（配送待ち。取消できる）/ `steering`（SDK が取り出して反映中。取消・再送・破棄は不可）/ `running`（実行中）で、`queued` と `steering` の境目は SDK の実キューから取り出されたかどうか。判定は `server/src/schema.ts` の `PendingSendSchema` と `server/src/session-steering.ts` / `server/src/session-payload.ts` を正とする。`position` は **BFF の配送キューの並び**（SDK へ渡した分も含む）の index + 1 で、`queueDepth` も同じ集合を数える（上限も同じ件数で判定する）。送信の照合・取消・再送・破棄はすべて `sendId` で行い、`runId` は実行への所属だけを表す。
 
