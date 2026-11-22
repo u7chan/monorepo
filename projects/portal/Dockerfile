@@ -12,7 +12,7 @@ ARG COMMIT_HASH=""
 # manifest なので final 側で個別に固定する。更新は Dependabot の docker エントリで受ける。
 # package.json の devDependency `bun` も同じ版で固定している。`bun run` は node_modules/.bin を PATH の
 # 先頭に足すため、ここだけ上げると scripts 内の `bun`（start / test）が古いまま動く。更新時は両方揃える。
-FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS base
+FROM oven/bun:1.4.5@sha256:3aa040e5445efa09d75bb428a64ba50db13e2b3ac9b6b0c7f145615f62b2ee18 AS base
 
 WORKDIR /app
 
@@ -40,7 +40,7 @@ RUN bun install --frozen-lockfile
 # -----------------------------------------------
 # final stage
 # -----------------------------------------------
-FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS final
+FROM oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643 AS final
 
 WORKDIR /app
 
