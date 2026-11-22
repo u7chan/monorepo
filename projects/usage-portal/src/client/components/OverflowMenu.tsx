@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 
 export type MenuAction = {
   label: string;
@@ -50,12 +50,14 @@ export function OverflowMenu(props: { label: string; items: readonly MenuItem[] 
     }
   }, [open]);
 
-  // 子メニューも同じく先頭へ移す。開いた項目の続きから矢印で選べる。
-  useEffect(() => {
-    if (open && submenu) {
-      enabledItems(submenuList.current)[0]?.focus();
+  // 子メニューの描画と同時に先頭へ移す。次のキー入力を子の段で扱うため、effect の後まで待たない。
+  const focusSubmenu = useCallback((node: HTMLDivElement | null): void => {
+    submenuList.current = node;
+
+    if (node) {
+      enabledItems(node)[0]?.focus();
     }
-  }, [open, submenu]);
+  }, []);
 
   // 外側を押したら閉じる。項目の click より先に閉じると選べなくなるので、pointerdown では判定だけする。
   useEffect(() => {
@@ -84,7 +86,8 @@ export function OverflowMenu(props: { label: string; items: readonly MenuItem[] 
       event.preventDefault();
 
       // 子メニューでは 1 段だけ戻す。全体を閉じると、選び直すのに開き直しが要る。
-      if (parent) {
+      // フォーカスが子へ移る前のキー入力でも、開いている子メニューを同じ段として扱う。
+      if (parent || submenu !== null) {
         closeSubmenu(true);
       } else {
         close(true);
@@ -100,7 +103,7 @@ export function OverflowMenu(props: { label: string; items: readonly MenuItem[] 
       return;
     }
 
-    if (event.key === "ArrowLeft" && parent) {
+    if (event.key === "ArrowLeft" && (parent || submenu !== null)) {
       event.preventDefault();
       closeSubmenu(true);
 
@@ -116,10 +119,20 @@ export function OverflowMenu(props: { label: string; items: readonly MenuItem[] 
     const index = items.indexOf(document.activeElement as HTMLElement);
 
     switch (event.key) {
-      case "ArrowDown":
+      case "ArrowDown": {
         event.preventDefault();
+
+        // 子メニューを持つ項目では、→ と同じく ↓ でも開く。
+        const focused = items[index];
+
+        if (focused instanceof HTMLButtonElement && focused.dataset.submenu === "true") {
+          focused.click();
+          break;
+        }
+
         items[(index + 1) % items.length]?.focus();
         break;
+      }
       case "ArrowUp":
         event.preventDefault();
         items[(index - 1 + items.length) % items.length]?.focus();
@@ -194,8 +207,24 @@ export function OverflowMenu(props: { label: string; items: readonly MenuItem[] 
           }
         }}
         onKeyDown={(event) => {
+          if (open) {
+            // 項目がすべて無効だとフォーカスが起点に残る。ここでも閉じられるようにする。
+            if (event.key === "Escape") {
+              event.preventDefault();
+              close(true);
+
+              return;
+            }
+
+            if (event.key === "Tab") {
+              close(false);
+            }
+
+            return;
+          }
+
           // 開いていないときの ↓ / ↑ は、メニューボタンの慣習どおり開く操作として扱う。
-          if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
             setOpen(true);
           }
@@ -249,7 +278,7 @@ export function OverflowMenu(props: { label: string; items: readonly MenuItem[] 
                     class="up-menu-list up-menu-submenu"
                     role="menu"
                     aria-label={item.label}
-                    ref={submenuList}
+                    ref={focusSubmenu}
                     data-menu="true"
                     onKeyDown={(event) => {
                       // 矢印と Escape はこの段だけで扱う。親の段の移動と混ざらないようにする。
