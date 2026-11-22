@@ -1,5 +1,7 @@
 import { raw } from "hono/html"
 import type { FC } from "hono/jsx"
+import { TEXT_EXCERPT_BYTES } from "../../utils/filePreviewLimits"
+import { formatFileSize } from "../../utils/formatters"
 import { MARKDOWN_MAX_LENGTH, parseMarkdown } from "../../utils/markdown/parse"
 import { MarkdownView } from "./MarkdownView"
 import { markdownPreviewStyles } from "./previewStyles"
@@ -7,6 +9,9 @@ import { markdownPreviewStyles } from "./previewStyles"
 export interface MarkdownPreviewPageProps {
   fileName: string
   content: string
+  /** Total file size when `content` is only the head of a larger file. */
+  truncatedFileSize?: number
+  downloadUrl?: string
 }
 
 /**
@@ -19,9 +24,30 @@ export interface MarkdownPreviewPageProps {
 export const MarkdownPreviewPage: FC<MarkdownPreviewPageProps> = ({
   fileName,
   content,
+  truncatedFileSize,
+  downloadUrl,
 }) => {
   const isTooLarge = content.length > MARKDOWN_MAX_LENGTH
   const isEmpty = content.trim() === ""
+
+  // Why not treat a truncated head as Markdown source: the excerpt can end in
+  // the middle of a construct, and the full file is not available here anyway,
+  // so present it plainly and point at the download.
+  const truncation =
+    truncatedFileSize === undefined ? null : (
+      <>
+        <p className="md-notice">
+          This file is {formatFileSize(truncatedFileSize)}, so only the first{" "}
+          {formatFileSize(TEXT_EXCERPT_BYTES)} is shown.{" "}
+          {downloadUrl ? (
+            <>
+              <a href={downloadUrl}>Download the file</a> to read the rest.
+            </>
+          ) : null}
+        </p>
+        <pre className="md-plain">{content}</pre>
+      </>
+    )
 
   return (
     <>
@@ -41,7 +67,9 @@ export const MarkdownPreviewPage: FC<MarkdownPreviewPageProps> = ({
         </head>
         <body>
           <article className="markdown-body">
-            {isEmpty ? (
+            {truncation ? (
+              truncation
+            ) : isEmpty ? (
               <p className="md-notice">This file is empty.</p>
             ) : isTooLarge ? (
               <>

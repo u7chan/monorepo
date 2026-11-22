@@ -1,7 +1,6 @@
 import {
   stat as fsStat,
   mkdir,
-  readFile,
   writeFile,
 } from "node:fs/promises"
 import * as path from "node:path"
@@ -10,7 +9,10 @@ import z from "zod"
 import type { AppBindings } from "../types"
 import { renderFileListResponse } from "../utils/apiHelpers"
 import { getFileList } from "../utils/fileListing"
+import { readTextPreview } from "../utils/filePreviewLimits"
+import { buildFullTextUrl, isActiveContent } from "../utils/fileRouteUtils"
 import { resolveUploadPath } from "../utils/fileUtils"
+import { lookupMimeType } from "../utils/mimeType"
 import { isNodeErrorCode } from "../utils/nodeError"
 import { isPathTraversal } from "../utils/pathTraversal"
 import {
@@ -175,10 +177,17 @@ export async function updateFileHandler(c: Context<AppBindings>) {
 
   if (isHtmxRequest(c)) {
     const { FileViewer } = await import("../components/file-viewer")
-    const updatedContent = await readFile(targetPath, "utf-8")
+    const preview = await readTextPreview(targetPath)
+    const mimeType = lookupMimeType(targetPath)
     return c.html(
       <FileViewer
-        content={updatedContent}
+        content={preview.content}
+        truncatedFileSize={preview.truncated ? preview.size : undefined}
+        fullTextUrl={
+          preview.truncated && !isActiveContent(targetPath, mimeType)
+            ? buildFullTextUrl(filePathParam)
+            : undefined
+        }
         fileName={path.basename(targetPath)}
         path={filePathParam}
         isEditing={false}

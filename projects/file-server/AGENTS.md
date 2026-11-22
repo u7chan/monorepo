@@ -110,10 +110,11 @@ adding screens.
 - `src/components/uiStyles.ts` - Shared surface, field and text class tokens
 - `src/components/buttonStyles.ts` - Shared button tones and sizes
 - `src/utils/` - Utilities (incl. `virtualPath.ts` for scope resolution)
+- `src/utils/filePreviewLimits.ts` - Inline preview byte limits and bounded text reads
 - `src/utils/sessionSecret.ts` - Session-secret creation and cache
 - `src/utils/sessionToken.ts` - Session cookie signing and verification
 - `src/utils/markdown/` - Dependency-free Markdown block / inline parser
-- `tests/` - Tests (auth, auth-config, read, upload, create-file, delete, mkdir, update, rename, move, move-picker, public-route, file-preview, markdown)
+- `tests/` - Tests (auth, auth-config, read, upload, create-file, delete, mkdir, update, rename, move, move-picker, public-route, file-preview, large-file-preview, markdown)
 - `tests/helpers/` - `createTestApp.ts`, `auth.ts` and `userStore.ts` helpers
 
 ### List Refresh (HTMX)
@@ -200,6 +201,47 @@ All browse/API requests use a virtual path that maps to one of two scopes:
   `src/components/markdown/previewStyles.ts` when adding markup.
 - Relative links and images resolve under `/file/preview/...`; relative Markdown links open through the same renderer.
 - Files above `MARKDOWN_MAX_LENGTH` (200 KiB) are not parsed; the page falls back to the plain source.
+- Files above `MAX_INLINE_TEXT_BYTES` are treated as oversized (see "Large File Preview"); only the head is served so the browser never receives a multi-megabyte document body.
+
+## Large File Preview
+
+The viewer body is delivered inside the HTMX response. Inlining a multi-megabyte
+source makes the client parse and lay out one huge text node, which freezes weak
+clients before the modal paints. The limits live in
+`src/utils/filePreviewLimits.ts`:
+
+- `MAX_INLINE_TEXT_BYTES` (256 KiB) — the largest file the viewer inlines.
+- `TEXT_EXCERPT_BYTES` (64 KiB) — the head shown for anything larger.
+
+Behavior above the limit:
+
+- `GET /file` reads through `readTextPreview()` and renders a notice with the
+total size. Edit and Copy are hidden, and `?edit=true` falls back to the
+read-only view, because saving would write the excerpt back over the file.
+- `readTextPreview()` reads at most `MAX_INLINE_TEXT_BYTES + 1` bytes and decides
+from that read, not from an earlier `stat()`. Do not reintroduce a size check
+followed by an unbounded `readFile()`: the file can be replaced in between.
+`POST /api/update` renders its htmx response through the same helper.
+- Non-active text and Markdown additionally get an "Open full text" link to
+`/file/raw?as=text`. `as=text` forces `text/plain; charset=utf-8`, because
+`.mdown` / `.mkdn` otherwise resolve to `application/octet-stream`, which
+Chromium downloads instead of displaying. Active content (HTML/XHTML/SVG) has no
+such link; `/file/raw` refuses it even with `as=text`, and its whole-file view is
+the existing Preview/public URL button.
+- `GET /file/preview/*` applies the same limit to Markdown. An oversized file is
+not parsed and its head is shown as plain source with a download link, since a
+truncated excerpt can end in the middle of a construct.
+- `GET /file/raw`, `/file/preview/*` and `/file/download` stay buffered. Do not
+switch them to a web stream: Bun sends that as chunked and drops the explicit
+`Content-Length`, and a file-descriptor stream stays open when Hono discards the
+body of a HEAD response. Buffering also gives each response a consistent
+snapshot when the file is overwritten while it is being served.
+- `readTextPreview()` decodes with `ignoreBOM: true`. The editor posts its
+content back on save, so a stripped leading U+FEFF would remove the file's
+UTF-8 BOM.
+
+Image/video/PDF previews already delegate rendering to the browser and are not
+truncated.
 
 ## Authentication
 

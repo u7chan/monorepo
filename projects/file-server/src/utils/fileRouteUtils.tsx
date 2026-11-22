@@ -83,6 +83,13 @@ export const isPreviewableBinary = (mimeType: string) =>
 export const encodeVirtualPath = (requestPath: string) =>
   requestPath.split("/").map(encodeURIComponent).join("/")
 
+/**
+ * Why `as=text`: `.mdown` / `.mkdn` resolve to `application/octet-stream`, and
+ * Chromium downloads that instead of displaying it in a new tab.
+ */
+export const buildFullTextUrl = (requestPath: string) =>
+  `/file/raw?path=${encodeURIComponent(requestPath)}&as=text`
+
 export const toArrayBuffer = (contentBuffer: Buffer): ArrayBuffer =>
   contentBuffer.buffer.slice(
     contentBuffer.byteOffset,
@@ -261,6 +268,11 @@ export async function readFileResponse(
   resolvedPath: string,
   headers: Record<string, string>,
 ): Promise<Response> {
+  // Why not stream: Bun serves a web stream as chunked and drops the explicit
+  // Content-Length, and a file-descriptor stream is left open when Hono
+  // discards the body of a HEAD response. Buffering keeps the declared length,
+  // HEAD, and a concurrent overwrite consistent, which this server needs more
+  // than it needs to cap the memory of a single preview/download.
   const contentBuffer = await readFile(resolvedPath)
   return new Response(toArrayBuffer(contentBuffer), { headers })
 }
