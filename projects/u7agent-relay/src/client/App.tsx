@@ -100,8 +100,11 @@ export function App() {
             <span class="mono">session-key</span>）を読めません。データディレクトリを確認してください。
           </p>
           <p class="muted">
-            PIN を再設定する場合は、この 2 ファイルを退避してから再読み込みしてください。状態が変わらない場合は
-            中継サーバーを再起動してください。接続先と API キーは <span class="mono">relay.sqlite</span> に残ります。
+            {
+              "PIN を再設定する場合は、この 2 ファイルを退避してから再読み込みしてください。状態が変わらない場合は中継サーバーを再起動してください。接続先と API キーは "
+            }
+            <span class="mono">relay.sqlite</span>
+            {" に残ります。"}
           </p>
         </section>
       </main>
