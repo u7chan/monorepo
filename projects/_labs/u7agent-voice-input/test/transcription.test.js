@@ -27,7 +27,7 @@ function fixture({ delayedMicrophone = false } = {}) {
     onRecording: recording.resolve,
     onFinalizing: mock(() => {}),
     onPartial: mock(() => {}),
-    onFinal: (text) => result.resolve({ text }),
+    onFinal: result.resolve,
     onError: (error) => result.resolve({ error }),
   };
   const platform = {
@@ -54,7 +54,7 @@ function fixture({ delayedMicrophone = false } = {}) {
   };
 }
 
-test("停止前に差分を表示し、停止後は commit した発話の確定テキストだけを採用する", async () => {
+test("停止前に差分を表示し、停止後は commit した発話の確定テキストと音声秒数だけを採用する", async () => {
   const f = fixture();
   try {
     await f.recording;
@@ -74,11 +74,17 @@ test("停止前に差分を表示し、停止後は commit した発話の確定
     f.receive({ type: `${eventPrefix}delta`, item_id: "turn", delta: "を持って" });
     expect(f.callbacks.onPartial).toHaveBeenCalledTimes(2);
     expect(await f.commit).toEqual({ type: "input_audio_buffer.commit" });
-    f.receive({ type: `${eventPrefix}completed`, item_id: "other", transcript: "別の発話" });
-    f.receive({ type: `${eventPrefix}completed`, item_id: "turn", transcript: "青い傘を持って。" });
+    f.receive({
+      type: `${eventPrefix}completed`, item_id: "other", transcript: "別の発話",
+      usage: { type: "duration", seconds: 43 },
+    });
+    f.receive({
+      type: `${eventPrefix}completed`, item_id: "turn", transcript: "青い傘を持って。",
+      usage: { type: "duration", seconds: 12.25 },
+    });
     expect(f.peer.close).not.toHaveBeenCalled();
     f.receive({ type: "input_audio_buffer.committed", item_id: "turn" });
-    expect(await f.result).toEqual({ text: "青い傘を持って。" });
+    expect(await f.result).toEqual({ text: "青い傘を持って。", audioSeconds: 12.25 });
     expect(f.peer.close).toHaveBeenCalledTimes(1);
   } finally {
     f.capture.cancel();
@@ -94,8 +100,27 @@ test("確定までに発話中の差分がなくても、停止後の delta を�
     f.receive({ type: "input_audio_buffer.committed", item_id: "turn" });
     f.receive({ type: `${eventPrefix}delta`, item_id: "turn", delta: "青い" });
     f.receive({ type: `${eventPrefix}completed`, item_id: "turn", transcript: "青い傘。" });
-    expect(await f.result).toEqual({ text: "青い傘。" });
+    expect(await f.result).toEqual({ text: "青い傘。", audioSeconds: null });
     expect(f.callbacks.onPartial).not.toHaveBeenCalled();
+  } finally {
+    f.capture.cancel();
+  }
+});
+
+test.each([
+  [{ type: "tokens", seconds: 12 }, null],
+  [{ type: "duration", seconds: "12" }, null],
+  [{ type: "duration", seconds: -1 }, null],
+  [{ type: "duration", seconds: 0 }, 0],
+])("音声秒数の形式を判定する: %j", async (usage, audioSeconds) => {
+  const f = fixture();
+  try {
+    await f.recording;
+    f.capture.stop();
+    await f.commit;
+    f.receive({ type: "input_audio_buffer.committed", item_id: "turn" });
+    f.receive({ type: `${eventPrefix}completed`, item_id: "turn", transcript: "青い傘。", usage });
+    expect(await f.result).toEqual({ text: "青い傘。", audioSeconds });
   } finally {
     f.capture.cancel();
   }

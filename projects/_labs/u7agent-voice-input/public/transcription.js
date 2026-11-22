@@ -10,6 +10,11 @@ const browser = {
   request: (...args) => fetch(...args),
 };
 
+function audioDurationSeconds(usage) {
+  const seconds = usage?.seconds;
+  return usage?.type === "duration" && Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+}
+
 export function startTranscription(callbacks, platform = browser) {
   const abort = new AbortController();
   let phase = "connecting";
@@ -98,19 +103,20 @@ export function startTranscription(callbacks, platform = browser) {
     if (event.type === "input_audio_buffer.committed") {
       committedId ??= itemId;
     } else if (event.type === "conversation.item.input_audio_transcription.completed") {
-      outcomes.set(itemId, typeof event.transcript === "string" ? event.transcript : null);
+      const text = typeof event.transcript === "string" ? event.transcript : "";
+      outcomes.set(itemId, { text, audioSeconds: audioDurationSeconds(event.usage) });
     } else if (event.type === "conversation.item.input_audio_transcription.failed") {
       outcomes.set(itemId, null);
     }
     // 確定イベントが commit の確認より先に届いても落とさない。
     if (!outcomes.has(committedId)) return;
-    const text = outcomes.get(committedId);
-    if (!text?.trim()) {
+    const outcome = outcomes.get(committedId);
+    if (!outcome?.text.trim()) {
       fail("有効な確定テキストを受け取れませんでした。");
       return;
     }
     close();
-    callbacks.onFinal(text);
+    callbacks.onFinal(outcome);
   }
 
   async function connect() {

@@ -1,6 +1,25 @@
 :root {
   color-scheme: light dark;
   font: 1rem/1.55 system-ui, sans-serif;
+  --voice-panel: #f9f8fc;
+  --voice-line: #c9c3d4;
+  --voice-ink: #211c2b;
+  --voice-muted: #6b6278;
+  --voice-accent: #7046c9;
+  --voice-on-accent: #fff;
+  --voice-shine: #1485a6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --voice-panel: #11151d;
+    --voice-line: #343c4c;
+    --voice-ink: #e9edf5;
+    --voice-muted: #919bad;
+    --voice-accent: #a78bfa;
+    --voice-on-accent: #201631;
+    --voice-shine: #77d9ee;
+  }
 }
 
 main {
@@ -31,28 +50,144 @@ input {
   min-width: 0;
 }
 
-.partial, textarea {
-  border: 1px solid GrayText;
-  border-radius: 0.25rem;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.partial {
-  min-height: 2.5em;
-  padding: 0.4rem 0.65rem;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.voice-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--voice-line);
+  border-radius: 0.75rem;
+  background: var(--voice-panel);
+  color: var(--voice-ink);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 10%);
 }
 
-textarea {
-  display: block;
+.voice-composer:focus-within {
+  border-color: var(--voice-accent);
+}
+
+.voice-composer.is-recording {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--voice-panel), var(--voice-panel)) padding-box,
+    linear-gradient(105deg, var(--voice-accent) 20%, var(--voice-shine) 48%, var(--voice-accent) 66%) border-box;
+  background-size: 100% 100%, 220% 100%;
+  box-shadow: 0 0 24px color-mix(in srgb, var(--voice-accent) 28%, transparent);
+  animation: voice-sweep 3s ease-in-out infinite alternate;
+}
+
+.voice-composer textarea {
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 2.25rem;
+  max-height: 11.25rem;
+  field-sizing: content;
+  resize: none;
   box-sizing: border-box;
-  width: 100%;
-  resize: vertical;
+  padding: 0.35rem 0.25rem;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+}
+
+.voice-composer textarea::placeholder {
+  color: var(--voice-muted);
+  opacity: 1;
+}
+
+.voice-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.voice-actions button {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.voice-actions button:is(:disabled, [aria-disabled="true"]) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.voice-actions [hidden] {
+  display: none;
+}
+
+.voice-actions svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.voice-primary {
+  background: var(--voice-accent);
+  color: var(--voice-on-accent);
+}
+
+.voice-actions .voice-cancel {
+  border-color: var(--voice-line);
+  background: transparent;
+  color: var(--voice-ink);
+  font-size: 1.35rem;
+}
+
+.voice-sparkles {
+  display: none;
+  color: var(--voice-accent);
+  line-height: 1;
+}
+
+.is-recording .voice-sparkles {
+  display: block;
+  animation: voice-glint 2.2s ease-in-out infinite alternate;
+}
+
+@keyframes voice-sweep {
+  from { background-position: 0 0, 0% 0; }
+  to { background-position: 0 0, 100% 0; }
+}
+
+@keyframes voice-glint {
+  from { opacity: 0.5; transform: scale(0.88); }
+  to { opacity: 1; transform: scale(1.15); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-composer.is-recording,
+  .is-recording .voice-sparkles {
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .voice-composer.is-recording {
+    border-color: Highlight;
+  }
 }
 
 dl > div {
   display: flex;
-  gap: 1rem;
+  flex-wrap: wrap;
+  column-gap: 1rem;
   align-items: baseline;
 }
 
