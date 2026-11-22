@@ -31,11 +31,10 @@ Tailscale のアクセスルールで接続元を絞ったうえで、次を実�
 
 ## 固定の会話へ中継する
 
-検証専用の会話を作り、次の形式で `.env` を用意します。URL は既存の会話を開いたときの HTTPS URL、トークンは `openssl rand -hex 32` などで生成した専用の値を使います。実値はコミットやスキルの本文に含めません。
+検証専用の会話を作り、`.env.example` を `.env` にコピーして実値を入れます。URL は既存の会話を開いたときの HTTPS URL、トークンは `openssl rand -hex 32` などで生成した専用の値を使います。実値はコミットやスキルの本文に含めません。
 
-```dotenv
-U7AGENT_SESSION_URL=https://agent.example.com/s/0123456789?space=space-0123456789abcdef
-U7AGENT_RELAY_TOKEN=<生成したトークン>
+```sh
+cp .env.example .env
 ```
 
 ヘルスチェック専用プロセスを停止してから、以下を実行します。内部 CA を使う場合は開発機の信頼ストアへ CA を入れ、TLS の検証は無効にしません。
