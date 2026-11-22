@@ -553,6 +553,7 @@ export type ClaudeStartState = {
   failures: number;
   stoppedCode: string | null;
   running: boolean;
+  /** 次に 5 時間窓が始まる時刻。動いている窓を待つ場合は、送信してよい時刻。 */
   nextStartAt: number | null;
   runs: ClaudeStartRun[];
 };

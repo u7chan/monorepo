@@ -1,18 +1,10 @@
 import type { ClaudeStartRun, ClaudeStartRunOutcome, ClaudeStartState } from "../api";
-import {
-  CLAUDE_START_FOREIGN_MARGIN_MS,
-  CLAUDE_START_GRACE_MS,
-  CLAUDE_START_MAX_FAILURES,
-  CLAUDE_START_WINDOW_MINUTES,
-  startSlots,
-} from "../../shared/claude-start";
+import { CLAUDE_START_MAX_FAILURES, CLAUDE_START_WINDOW_MINUTES } from "../../shared/claude-start";
 import { formatClock, formatDateTime } from "./format";
 
 const WINDOW_MS = CLAUDE_START_WINDOW_MINUTES * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
-/** 次に開始できる枠を探す範囲。`nextStartSlot` と同じ 8 日ぶん。 */
-const SLOT_SEARCH_MS = 8 * DAY_MS;
-/** これより短い帯は出さない。窓の終わりと枠がほぼ同じで、空けても意味がないため。 */
+/** これより短い帯は出さない。窓の終わりと開始がほぼ同じで、空けても意味がないため。 */
 const MIN_HOLD_MS = 5 * 60_000;
 
 /** 見送り・失敗の理由。サーバーの固定コードだけを訳し、知らないコードは一般的な文言に寄せる。 */
@@ -69,7 +61,7 @@ export type ClaudeStartFooter =
   | { tone: "normal" | "attention" | "danger"; text: string }
   | { tone: "hold"; before: string; band: string; after: string };
 
-/** 予約が有効か、失敗で止まったときだけ出す。動いている窓が次の枠を潰すときは、空けておく帯も返す。 */
+/** 予約が有効か、失敗で止まったときだけ出す。窓が次の開始より後まで続くときは、空けておく帯も返す。 */
 export function claudeStartFooter(
   state: ClaudeStartState | null,
   window: { resetsAt: number | null } | null,
@@ -103,24 +95,15 @@ export function claudeStartFooter(
   const resetsAt = window?.resetsAt ?? null;
 
   // 終わった窓は戻らないので、`/usage` の値が古くても時計で判断してよい。
-  if (resetsAt === null || resetsAt <= now) {
-    return { tone: "normal", text: normalText(next) };
-  }
-
-  const readyAt = resetsAt + CLAUDE_START_FOREIGN_MARGIN_MS;
-  const slot = startSlots(state.settings, next, next + SLOT_SEARCH_MS).find(
-    (at) => readyAt <= at + CLAUDE_START_GRACE_MS,
-  );
-
-  if (slot === undefined || slot - resetsAt < MIN_HOLD_MS) {
+  if (resetsAt === null || resetsAt <= now || next - resetsAt < MIN_HOLD_MS) {
     return { tone: "normal", text: normalText(next) };
   }
 
   return {
     tone: "hold",
-    before: `次の開始 ${formatDateTime(slot)}（`,
-    band: bandText(resetsAt, slot),
-    after: ` は使わない場合）→ ${resetText(slot)}`,
+    before: `次の開始 ${formatDateTime(next)}（`,
+    band: bandText(resetsAt, next),
+    after: ` は使わない場合）→ ${resetText(next)}`,
   };
 }
 

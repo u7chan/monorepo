@@ -460,3 +460,80 @@ describe("設定", () => {
     expect(h.service.state().nextStartAt).toBe(tokyo("2026-11-20", "12:00"));
   });
 });
+
+describe("次の開始の見積り", () => {
+  test("動いている窓が枠を潰すなら、送れる枠まで飛ばす", () => {
+    const h = harness({
+      start: tokyo("2026-11-20", "11:00"),
+      session: { usedPercent: 10, resetsAt: tokyo("2026-11-20", "12:50") },
+    });
+
+    h.enable();
+
+    expect(h.service.state().nextStartAt).toBe(tokyo("2026-11-20", "17:00"));
+  });
+
+  test("自分で開始した窓は、送信時刻から決めた待ちの時刻を返す", async () => {
+    const h = harness({ start: tokyo("2026-11-20", "06:00") });
+
+    h.enable();
+    h.setClock(tokyo("2026-11-20", "07:00"));
+    await h.service.tick();
+    h.setClock(tokyo("2026-11-20", "11:59"));
+
+    expect(h.service.state().nextStartAt).toBe(tokyo("2026-11-20", "12:00") + 15_000);
+  });
+
+  test("ほかの利用で始まった窓は、表示のリセット時刻に 2 分を足して猶予と比べる", () => {
+    const nextStartAt = (resets: string): number | null => {
+      const h = harness({
+        start: tokyo("2026-11-20", "11:00"),
+        session: { usedPercent: 10, resetsAt: tokyo("2026-11-20", resets) },
+      });
+
+      h.enable();
+
+      return h.service.state().nextStartAt;
+    };
+
+    expect(nextStartAt("12:28")).toBe(tokyo("2026-11-20", "12:30"));
+    expect(nextStartAt("12:29")).toBe(tokyo("2026-11-20", "17:00"));
+  });
+
+  test("窓の終わりを待っているあいだは、その送信時刻を次の開始にする", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-portal-claude-start-"));
+    const db = openDatabase(dir);
+
+    dirs.push(dir);
+    handles.push(db);
+
+    let clock = tokyo("2026-11-20", "06:00");
+    const gate: { release: (() => void) | null } = { release: null };
+    const service = createClaudeStartService({
+      db,
+      now: () => clock,
+      refreshUsage: async () => ({ state: "refreshed" }),
+      readSnapshot: () => snapshot({ usedPercent: 10, resetsAt: tokyo("2026-11-20", "07:10") }),
+      send: async () => ({ ok: true }),
+      sleep: () =>
+        new Promise<void>((resolve) => {
+          gate.release = resolve;
+        }),
+      setTimer: () => () => {},
+      log: () => {},
+    });
+
+    service.saveSettings(SETTINGS);
+    service.setEnabled(true);
+    clock = tokyo("2026-11-20", "07:00");
+
+    const tick = service.tick();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(service.state()).toMatchObject({ running: true, nextStartAt: tokyo("2026-11-20", "07:12") });
+
+    gate.release?.();
+    await tick;
+  });
+});

@@ -1,11 +1,10 @@
 import {
-  CLAUDE_START_FOREIGN_MARGIN_MS,
-  CLAUDE_START_GRACE_MS,
   CLAUDE_START_MAX_FAILURES,
   CLAUDE_START_WINDOW_MINUTES,
   latestStartSlot,
   nextStartSlot,
   readClaudeStartSettings,
+  startSlots,
   type ClaudeStartSettings,
 } from "../../shared/claude-start";
 import {
@@ -25,8 +24,12 @@ import type { ClaudeStartSendResult } from "./start-prompt";
 
 const MINUTE_MS = 60_000;
 const WINDOW_MS = CLAUDE_START_WINDOW_MINUTES * MINUTE_MS;
+/** 枠の時刻からこれ以上遅れたら送らない（サーバー停止など）。窓の終わりを待つのもこの範囲まで。 */
+const GRACE_MS = 30 * MINUTE_MS;
 /** 自分で開始した窓は、送信時刻の 5 時間後のこれだけあとに次を送る。 */
-export const CLAUDE_START_OWN_MARGIN_MS = 15_000;
+const OWN_MARGIN_MS = 15_000;
+/** 自分で開始していない窓は `/usage` の分単位の時刻しか分からないので、余裕を大きく取る。 */
+const FOREIGN_MARGIN_MS = 2 * MINUTE_MS;
 /** timer は最長でもこの間隔で起こし直す。時計の補正や長い sleep の取りこぼしを拾うため。 */
 const MAX_TIMER_MS = 60 * MINUTE_MS;
 const RUN_RETENTION_MS = 30 * 24 * 60 * MINUTE_MS;
@@ -45,6 +48,7 @@ export type ClaudeStartState = {
   failures: number;
   stoppedCode: string | null;
   running: boolean;
+  /** 次に窓が始まる時刻。窓を待つなら、送信してよい時刻。 */
   nextStartAt: number | null;
   runs: ClaudeStartRun[];
 };
@@ -93,6 +97,8 @@ export function createClaudeStartService(options: {
     });
   const log = options.log ?? ((message: string) => console.warn(`[usage-portal] ${message}`));
   let running = false;
+  /** 実行中の枠。窓の終わりを待っているあいだも入る。 */
+  let pendingSlotAt: number | null = null;
   let cancelTimer: (() => void) | null = null;
   let started = false;
 
@@ -130,6 +136,32 @@ export function createClaudeStartService(options: {
     }
   }
 
+  /**
+   * 次に 5 時間窓が始まる時刻。動いている窓を待つなら、送信してよい時刻になる。
+   * 画面はこの 1 値と窓のリセット時刻だけでフッターを組み立てる（判定を写し間違えないため）。
+   */
+  function nextStartTime(settings: ClaudeStartSettings, stored: StoredClaudeStart | null, at: number): number | null {
+    const resetsAt = options.readSnapshot()?.windows.find((window) => window.id === "rolling")?.resetsAt ?? null;
+    const end = resetsAt === null ? null : windowEnd(resetsAt, stored?.lastSentAt ?? null);
+
+    if (pendingSlotAt !== null) {
+      return end !== null && end.sendAt > pendingSlotAt ? end.sendAt : pendingSlotAt;
+    }
+
+    const next = nextStartSlot(settings, at);
+
+    if (next === null) {
+      return null;
+    }
+
+    const slot =
+      startSlots(settings, next, next + DUE_LOOKBACK_MS).find(
+        (candidate) => end === null || end.sendAt <= candidate + GRACE_MS,
+      ) ?? next;
+
+    return end !== null && end.sendAt > slot ? end.sendAt : slot;
+  }
+
   function state(): ClaudeStartState {
     const { stored, settings } = load();
     const enabled = stored?.enabled === true && settings !== null;
@@ -147,7 +179,7 @@ export function createClaudeStartService(options: {
       failures: stored?.failures ?? 0,
       stoppedCode: stored?.stoppedCode ?? null,
       running,
-      nextStartAt: enabled && settings !== null ? nextStartSlot(settings, now()) : null,
+      nextStartAt: enabled && settings !== null ? nextStartTime(settings, stored, now()) : null,
       runs,
     };
   }
@@ -176,11 +208,11 @@ export function createClaudeStartService(options: {
       const ownEnd = lastSentAt + WINDOW_MS;
 
       if (ownEnd >= resetsAt && ownEnd - resetsAt < MINUTE_MS) {
-        return { end: ownEnd, sendAt: ownEnd + CLAUDE_START_OWN_MARGIN_MS };
+        return { end: ownEnd, sendAt: ownEnd + OWN_MARGIN_MS };
       }
     }
 
-    return { end: resetsAt + MINUTE_MS, sendAt: resetsAt + CLAUDE_START_FOREIGN_MARGIN_MS };
+    return { end: resetsAt + MINUTE_MS, sendAt: resetsAt + FOREIGN_MARGIN_MS };
   }
 
   async function execute(kind: RunKind, slotAt: number | null): Promise<ClaudeStartRunResult> {
@@ -235,7 +267,7 @@ export function createClaudeStartService(options: {
       const end = session?.resetsAt == null ? null : windowEnd(session.resetsAt, current.stored?.lastSentAt ?? null);
 
       if (session !== null && session.resetsAt !== null && end !== null && end.end > at) {
-        if (kind === "auto" && slotAt !== null && attempt === 0 && end.sendAt <= slotAt + CLAUDE_START_GRACE_MS) {
+        if (kind === "auto" && slotAt !== null && attempt === 0 && end.sendAt <= slotAt + GRACE_MS) {
           await sleep(Math.max(0, end.sendAt - at));
           continue;
         }
@@ -301,6 +333,7 @@ export function createClaudeStartService(options: {
     }
 
     running = true;
+    pendingSlotAt = slotAt;
 
     try {
       return await execute(kind, slotAt);
@@ -310,6 +343,7 @@ export function createClaudeStartService(options: {
       return { outcome: "aborted" };
     } finally {
       running = false;
+      pendingSlotAt = null;
     }
   }
 
@@ -342,7 +376,7 @@ export function createClaudeStartService(options: {
       return;
     }
 
-    if (at - due > CLAUDE_START_GRACE_MS) {
+    if (at - due > GRACE_MS) {
       record({ kind: "auto", slotAt: due, outcome: "skipped", code: "missed", resetsAt: null });
 
       return;

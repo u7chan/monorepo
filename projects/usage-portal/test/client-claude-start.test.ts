@@ -19,12 +19,6 @@ const SETTINGS = {
   effort: "low" as const,
 };
 
-/**
- * 表示はブラウザのローカル時刻なので、設定のタイムゾーンを実行環境に合わせる。
- * 合わせないと、枠の計算が JST のまま期待値だけが UTC の環境で変わる。
- */
-const LOCAL_SETTINGS = { ...SETTINGS, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
-
 function state(overrides: Partial<ClaudeStartState> = {}): ClaudeStartState {
   return {
     settings: SETTINGS,
@@ -73,9 +67,9 @@ describe("claudeStartFooter", () => {
     ).toBe("danger");
   });
 
-  test("動いている窓が次の枠を潰すなら、開始できる枠と空けておく帯を出す", () => {
+  test("動いている窓が開始を潰すなら、空けておく帯を出す", () => {
     const footer = claudeStartFooter(
-      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-23T17:00:00") }),
+      state({ nextStartAt: Date.parse("2026-11-23T22:00:00") }),
       { resetsAt: Date.parse("2026-11-23T20:50:00") },
       Date.parse("2026-11-23T16:02:00"),
     );
@@ -88,24 +82,9 @@ describe("claudeStartFooter", () => {
     });
   });
 
-  test("窓が枠の前に終わっても、空ける時間が長ければ帯を出す", () => {
+  test("帯が短いときは通常表示にする", () => {
     const footer = claudeStartFooter(
-      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-23T17:00:00") }),
-      { resetsAt: Date.parse("2026-11-23T15:50:00") },
-      Date.parse("2026-11-23T15:00:00"),
-    );
-
-    expect(footer).toEqual({
-      tone: "hold",
-      before: "次の開始 11/23 17:00（",
-      band: "15:50〜17:00",
-      after: " は使わない場合）→ 22:00 リセット",
-    });
-  });
-
-  test("窓の終わりが枠とほぼ同じなら通常表示にする", () => {
-    const footer = claudeStartFooter(
-      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-23T17:00:00") }),
+      state({ nextStartAt: Date.parse("2026-11-23T17:00:00") }),
       { resetsAt: Date.parse("2026-11-23T16:58:00") },
       Date.parse("2026-11-23T16:30:00"),
     );
@@ -115,7 +94,7 @@ describe("claudeStartFooter", () => {
 
   test("窓が終わっていれば、その時刻を過ぎた時点で通常表示に戻す", () => {
     const footer = claudeStartFooter(
-      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-23T22:00:00") }),
+      state({ nextStartAt: Date.parse("2026-11-23T22:00:00") }),
       { resetsAt: Date.parse("2026-11-23T20:50:00") },
       Date.parse("2026-11-23T21:10:00"),
     );
@@ -125,7 +104,7 @@ describe("claudeStartFooter", () => {
 
   test("帯が日をまたぐときは「翌」を付ける", () => {
     const footer = claudeStartFooter(
-      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-24T07:00:00") }),
+      state({ nextStartAt: Date.parse("2026-11-24T07:00:00") }),
       { resetsAt: Date.parse("2026-11-23T23:00:00") },
       Date.parse("2026-11-23T22:30:00"),
     );
@@ -140,7 +119,7 @@ describe("claudeStartFooter", () => {
 
   test("帯が 2 日以上先まで続くなら日付ごと出す", () => {
     const footer = claudeStartFooter(
-      state({ settings: LOCAL_SETTINGS, nextStartAt: Date.parse("2026-11-30T07:00:00") }),
+      state({ nextStartAt: Date.parse("2026-11-30T07:00:00") }),
       { resetsAt: Date.parse("2026-11-27T23:00:00") },
       Date.parse("2026-11-27T22:30:00"),
     );
