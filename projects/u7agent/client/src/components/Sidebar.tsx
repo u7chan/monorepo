@@ -27,6 +27,7 @@ export type SidebarProps = Omit<
     | "renameSession"
     | "handoffSession"
     | "forkSession"
+    | "clearHistory"
     | "deleteSession"
     | "deleteProject"
     | "togglePinned"
@@ -36,6 +37,7 @@ export type SidebarProps = Omit<
   | "renameSession"
   | "handoffSession"
   | "forkSession"
+  | "clearHistory"
   | "deleteSession"
   | "deleteProject"
   | "togglePinned"
@@ -57,6 +59,8 @@ export type SidebarProps = Omit<
   renameSession: (sessionId: string) => void;
   handoffSession: (sessionId: string) => void;
   forkSession: (sessionId: string) => void;
+  /** 会話履歴のクリア。未指定の呼び出し側は行メニューに項目を出さない */
+  clearHistory?: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
   deleteProject: (projectId: string) => void;
   togglePinned: (sessionId: string) => void;
@@ -102,6 +106,7 @@ export function Sidebar({
     renameSession,
     handoffSession,
     forkSession,
+    clearHistory,
     deleteSession,
     deleteProject,
     togglePinned,
@@ -246,6 +251,7 @@ export function Sidebar({
                               onTogglePinnedSession={togglePinned}
                               onHandoffSession={handoffSession}
                               onForkSession={forkSession}
+                              {...(clearHistory ? { onClearHistorySession: clearHistory } : {})}
                               {...(onOpenTitleSummary ? { onOpenTitleSummary } : {})}
                             />
                           ))}
@@ -295,6 +301,7 @@ export function Sidebar({
                         onTogglePin={togglePinned}
                         onHandoff={handoffSession}
                         onFork={forkSession}
+                        {...(clearHistory ? { onClearHistory: clearHistory } : {})}
                         {...(onOpenTitleSummary ? { onOpenTitleSummary } : {})}
                       />
                     )}

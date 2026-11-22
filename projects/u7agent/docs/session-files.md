@@ -99,7 +99,8 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
   "projectName": "u7agent",
   "pinned": true,
   "model": "openai-codex/gpt-6-astra",
-  "thinkingLevel": "medium"
+  "thinkingLevel": "medium",
+  "historyGeneration": "9f8e7d6c"
 }
 ```
 
@@ -109,6 +110,7 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 - `title` は最初のメッセージで作り、GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で上書きできる（正規化は自動タイトルと同じで、空・空白だけは 400。改名後は以降のメッセージで作り直さない。[api-session-state.md](api-session-state.md#patch-apisessionsidtitle)）。由来（`titleOrigin`）と AI 要約の試行（`titleAttempt`）は任意フィールドで、欠落は「既存タイトル = 手動 / 未判定」として読む（[session-title.md](session-title.md)）。`titleRequest` は初回送信時に保存するマスク済みの依頼本文の先頭（600 文字上限）で、会話メニューからの再要約に使う。古い meta に無ければ最初の user メッセージから作る。`pinned` はサイドバーの固定状態で、古い meta に無い場合は false とする。GUI の ⋯ から SDK を開かず切り替え、タイトル・履歴・`lastUsedAt` は変えない。`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
 - `parentSessionId` / `forkedAt` は分岐の由来（表示用）。`parentSessionId` は 10 hex と数値だけを受け、不正値は落とす（欠落と同じ扱い）。分岐関係の正は meta で、JSONL の header には書かない。
 - `workdirOwner` / `uploadsOwner` は共有するフォルダの持ち主（[共有する作業フォルダと添付](#共有する作業フォルダと添付)）。
+- `historyGeneration` / `historyCleanup` は会話履歴のクリアの任意フィールド。`historyGeneration` はクリアでだけ変わる履歴の世代で、欠落 = 一度もクリアしていない（空文字として読む）。`historyCleanup` は確定後の旧履歴の削除が未完了かを表し、真の間は開く要求を 409 にして、開くときに削除から再試行する（[api-session-state.md](api-session-state.md#post-apisessionsidhistoryclear)、[persistence.md](persistence.md#会話履歴の扱い)）。
 - 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。分岐の子は **temp ディレクトリへ書いて rename で確定**する（10 hex 以外の名前は一覧の走査に拾われないため、途中で落ちても半端な会話が出ない）。
 
 ## sends.json と送信ID / 実行ID の注記
@@ -238,6 +240,7 @@ assistant 本文のインラインコードと Markdown リンクが指すファ
 | アイドル 1 時間の sweep | dispose して破棄 | 残す | 残す |
 | `DELETE /api/sessions/:id` | 停止 + dispose | 削除 | 残す |
 | 引き継ぎ（`POST /api/sessions/:id/move`） | dispose して破棄（未ロードは descriptor だけ） | `meta.json` の `spaceId`・エージェントのスナップショット・引き継ぎの記録を書換え、履歴は削除 | 別スペースなら移動先のパスへ移動（添付も。同一スペースはそのまま） |
+| 履歴のクリア（`POST /api/sessions/:id/history/clear`） | dispose して破棄（未ロードは descriptor だけ） | `meta.json` の `historyGeneration`・`historyCleanup`・タイトル / 試行・設定を書換え、履歴は削除 | 触らない |
 | BFF 再起動 | 消える | 残る → 起動時に一覧へ復元 | 残る |
 
 - id ごとに `idle`（未ロード）/ `loading` / `live` / `evicting` / `deleting` の状態と、ライフサイクル操作（load / evict / delete）を直列化する Promise チェーンを持つ。状態の予約は最初の await より前に同期的に行う。
@@ -248,6 +251,7 @@ assistant 本文のインラインコードと Markdown リンクが指すファ
 - `close()` は最初に全体の受付を閉じ（新規リクエストは 503）、進行中のロードと書込みキューを回収してから全 record を dispose する。最終 flush の失敗はログに残して終了する。
 - `DELETE` は履歴だけ消し、作業ディレクトリと添付は残す（誤アップロードのファイル / ディレクトリ単位の削除は 設定 → ファイル からできるが、セッション単位ではフォルダを消さない）。confirm は「このセッションの履歴を削除しますか？（作業フォルダのファイルは残ります）実行中の処理は停止されます。」と表示する。
 - 引き継ぎの手順: 検証（スクラッチ・busy でない・片付けが無い）→ メモの材料と既存の `HANDOFF.md` を読んで上限 / UTF-8 / バイナリを判定（副作用なし）→ 別スペースなら移動先の親を作る → workdir move → uploads move → `secrets` / `serve_commands` の cwd 付け替え → `HANDOFF.md` の先頭追記（[sandbox-api-files.md](sandbox-api-files.md#get-v1fileshandoff)。読む→先頭に付ける→temp + rename を実パス単位の排他の中で行う）→ `meta.json` の書換え（確定点）→ dispose → `records` から外す → 履歴の削除 → 購読者を close。**meta の書換え前の失敗は移したものを逆順で戻し**（新規作成したメモは自分が書いた内容と一致するときだけ削除し、既存への追記は戻さない）、確定後の失敗は戻さずに `cleanupPending` を返して次に開くときに削除を再試行する（[run-lifecycle.md](run-lifecycle.md#引き継ぎと復旧)）。引き継ぎは id の lifecycle に乗せ、送信 / 添付 / 設定 / 削除を待たせる。読み取り専用の `workdirOfId`（serve の status / start、環境変数の cwd 解決）は待たないため、移動の途中で旧 cwd を一瞬見る窓が残る（単一ユーザー前提で許容）。
+- 履歴クリアの手順: 検証（片付けが無い・busy でない・履歴世代が一致）→ モデル / Effort の確定（未ロードは JSONL の変更記録だけを読む）→ 確定前からタイトル要約の適用 / 保存を保留 → `meta.json` の書換え（確定点。新しい世代・`historyCleanup`・チップの解除・タイトル / 試行・設定）→ 確定後のタイトル要約の取り消し → `resync` → dispose → `records` から外す → 書込み drain → 履歴の削除（一時ファイル・`assistant_metrics` を含む）→ 片付けの印を落として再保存 → 購読者を close。確定前の失敗は旧履歴を残して保留を解き、確定後の削除に失敗したときは `cleanupPending` を返して次に開くときに再試行する（[api-session-state.md](api-session-state.md#post-apisessionsidhistoryclear)）。クリアも id の lifecycle に乗せ、送信 / 設定 / 分岐 / 移動 / 削除を待たせる。
 - プロジェクト解除（`DELETE /api/projects/:id`）: 先に解除対象の `projectCwd` を捕捉 → 登録解除 → 配下 live のランを abort して停止（削除はしない）→ 購読中のタブへ `resync` を送る（所属が外れた payload になり、`session_deleted` は送らない）→ store / 作業フォルダ / meta の `projectCwd` と `pinned` は触らない。`projectId` は保存せず読み取り時に `projectCwd` → `ProjectStore.findByCwd` で解決するため、解除後は未所属として一覧に出て、同じ cwd を再登録すれば所属が戻る（ロード中に完了したセッションも同じ規則で解決される）。プロジェクトの自動再登録はしない。
 - プロジェクト解除の confirm は `「<プロジェクト名>」の登録を解除します。配下の <件数> 件のセッションを停止します（履歴とファイルは残ります）。` のように、対象のプロジェクト名と配下のセッション数を示す。
 

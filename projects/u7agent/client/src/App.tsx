@@ -860,6 +860,9 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
         blockedNote: item ? forkBlockedReason(item) : "会話が見つかりません",
       });
     },
+    clearHistory: (sessionId: string) => {
+      void app.clearHistory(sessionId);
+    },
     handoffSession: (sessionId: string) => {
       const item = spaceSessions.find((entry) => entry.sessionId === sessionId);
       setHandoffTarget({

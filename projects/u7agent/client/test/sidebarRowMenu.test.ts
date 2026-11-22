@@ -102,6 +102,32 @@ test("出し分け: プロジェクト行とセッション行で必要な操作
     },
     { kind: "delete", label: "セッションを削除", danger: true },
   ]);
+  // 履歴のクリアは削除の手前に出し、止める理由を説明行へ出す (項目ごと隠さない)
+  assert.deepEqual(sessionRowActions({ canClearHistory: true }), [
+    { kind: "pin", label: "ピン留め" },
+    { kind: "rename", label: "名前を変更" },
+    {
+      kind: "clear-history",
+      label: "会話履歴をクリア",
+      description: "同じ URL のまま、メッセージと未送信を消して空の履歴から再開します。元に戻せません",
+      descriptionKind: "disclosure",
+      disabled: false,
+    },
+    { kind: "delete", label: "セッションを削除", danger: true },
+  ]);
+  const blocked = sessionRowActions({ canClearHistory: true, clearHistoryBlockedReason: "実行中です" });
+  assert.deepEqual(
+    blocked.filter((action) => action.kind === "clear-history"),
+    [
+      {
+        kind: "clear-history",
+        label: "会話履歴をクリア",
+        description: "実行中です",
+        descriptionKind: "disclosure",
+        disabled: true,
+      },
+    ],
+  );
 });
 
 test("説明の区分: 分類の無い説明は開示として扱う", () => {

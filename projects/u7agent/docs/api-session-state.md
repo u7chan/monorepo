@@ -45,6 +45,25 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - 本文 / 要約 / ツール出力は他の経路と同じマスカーを通す（[secrets.md](secrets.md)）。JSONL の保存形式は変えない
 - 投影はページ範囲を選んでからその範囲にだけ掛ける（全エントリーを DTO 化してから切らない）。表示可否（本文の有無）の判定も全文のマスクを通さず、text part の有無だけで行う
 
+## `POST /api/sessions/:id/history/clear`
+
+会話履歴だけをクリアし、**同じ会話 ID / URL のまま**空の履歴から再開できるようにする。スペース移動やエージェント交代を伴う引き継ぎ（[`POST /api/sessions/:id/move`](#post-apisessionsidmove)）とは別の操作で、会話の行・所属・作業フォルダ・添付・`HANDOFF.md` は変えない。要求元のスペースは query で照合する。
+
+```json
+// request (?spaceId=<要求元>): historyGeneration は確認時点の payload の値 (旧データは "")
+{ "historyGeneration": "a1b2c3d4" }
+// response (200): title は一覧と同じ正規化後 (自動 / AI タイトルは空に戻るため「無題のセッション」)
+{ "sessionId": "…", "title": "無題のセッション", "historyGeneration": "9f8e7d6c", "changed": true, "cleanupPending": false }
+```
+
+- 消えるもの: メッセージ、ツールと質問 / 回答、圧縮要約、生ログ（`session.jsonl`）、配送対象から外れた未送信（`sends.json`）、応答の実測（`assistant_metrics`）、BFF が残した旧履歴の一時ファイル。`messageCount` は 0、`titleRequest` / `titleAttempt` は消える。自動・AI タイトルは空へ戻り、手動タイトル（由来が無い旧タイトルを含む）は残る。
+- 残るもの: セッション ID・スペース・プロジェクト所属・分岐関係・作業フォルダ / 添付の参照先・作成 / 最終利用時刻・エージェントのスナップショット・モデルと Effort・ピン留め・通知。既存の `HANDOFF.md` と引き継ぎの記録も残すが、未使用の参照チップは `handoff.consumed` を立てて解除する（次の送信に参照指示を自動で付けない）。新しいメモは作らない。
+- モデル / Effort は、live なら実効値、未ロードなら JSONL の変更記録と meta を現行の復元規則（[モデル / Effort の復元](session-files.md#モデル--effort-の復元)）で照合した値を**破棄前に meta へ保存する**。未ロードの会話でも SDK セッションや作業フォルダは作らない。JSONL が破損している未ロードの会話は、meta だけでは後からの設定変更を確かめられないため 409 で変更しない。
+- 実行中（回答待ちを含む）・キュー待ち・圧縮中・設定変更中・停止処理中・引き継ぎ / クリアの片付け中は 409。**配送キューに残っている送信は 409 にして消さず、配送対象から外れて未送信になった記録は消す**（受け付けた送信を黙って捨てない）。確認時点の `historyGeneration` が現在と違う（別タブが先にクリアした等）も 409。同じ ID のクリアはライフサイクルで直列化し、確定前の所属と実行状態は待機の後でもう一度確かめる。
+- 確定点は、新しい `historyGeneration`・`historyCleanup`（片付け待ち）・チップの解除を `meta.json` に同時に保存した時点（[persistence.md](persistence.md#会話履歴の扱い)）。書換え前に失敗したら旧履歴を残し、保留していた旧世代のタイトル要約の保存を解く。確定後は旧 SDK と購読を閉じ、書込みが止まってから履歴を削除する。確定前から同じ排他の中で旧世代のタイトル要約の結果と使用量の適用・保存を止め、確定後は取り消して以降も適用しない。
+- 確定後の削除に失敗したときは 200 のまま `cleanupPending: true` を返し、meta に `historyCleanup` を残す。その間の取得は 409（古い履歴を返さない）で、次に開くときに削除から再試行する。一覧は残り、再起動後も同じ。
+- 現世代で消すものが残っていない場合（空の会話など）は `changed: false` を返し、履歴世代も meta も変えない。クライアントは自動再試行しない。未知の ID / 所属の不一致は 404、本文の欠落は 400。
+
 ## `PATCH /api/sessions/:id/settings`
 
 チャット単位の Model / Effort 変更。同じ SDK セッション・会話履歴・タイトルを保つ。

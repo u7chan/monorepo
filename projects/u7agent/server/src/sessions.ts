@@ -138,6 +138,7 @@ import type {
   RunStatus,
   SessionCompactionResult,
   SessionDiagnostics,
+  SessionHistoryClearResponse,
   SessionMoveResponse,
   SessionNotifyResponse,
   SessionPinnedResponse,
@@ -163,6 +164,12 @@ const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 /** 引き継ぎの片付け (確定後に残った履歴の削除) が済んでいない会話の共通文言 */
 const HANDOFF_CLEANUP_PENDING_MESSAGE =
   "前回の引き継ぎの片付けが残っています。会話を開いてから、もう一度お試しください";
+/** 会話履歴のクリアで確定した削除 (片付け) が済んでいない会話の共通文言 */
+const HISTORY_CLEANUP_PENDING_MESSAGE =
+  "前回の会話履歴の片付けが残っています。会話を開いてから、もう一度お試しください";
+/** クリアの確認より前に会話の状態が変わったときの共通文言 (クライアントは自動再試行しない) */
+const HISTORY_CHANGED_MESSAGE = "会話履歴が別の操作で変わりました。開き直してから、もう一度お試しください";
+const NO_UNTITLED_TITLE = "無題のセッション";
 /** 分岐した子と作業フォルダ / 添付を共有している会話を、別のスペースへ運べない理由 */
 const SHARED_PLACEMENT_MESSAGE =
   "同じ作業フォルダまたは添付を共有している会話があるため、別のスペースへは引き継げません。" +
@@ -522,7 +529,9 @@ export class SessionStore {
     this.recordWrites = new SessionRecordWrites({
       storeDir: () => this.storeDir,
       rootCwd: this.rootCwd,
-      isLive: (record) => !this.deleting.has(record.id) && this.records.get(record.id) === record,
+      // クリアの確定待ちの record は旧履歴を書き戻さない (確定前にだけ戻す)
+      isLive: (record) =>
+        !record.clearingHistory && !this.deleting.has(record.id) && this.records.get(record.id) === record,
       rememberMeta: (meta) => {
         this.descriptors.set(meta.id, meta);
       },
@@ -744,6 +753,7 @@ export class SessionStore {
       compactionMeta: new Map(),
       runOutcomes: new Map(),
       changingSettings: false,
+      clearingHistory: false,
       compacting: false,
       notify,
       pinned,
@@ -896,18 +906,24 @@ export class SessionStore {
   private async load(meta: SessionMeta): Promise<SessionRecord> {
     const id = meta.id;
     if (this.deleting.has(id)) throw httpError(404, "Session not found");
-    // 引き継ぎの確定後に残った履歴は、SDK セッションを作る前に片付ける。削除に失敗し続ける間は
-    // 開く要求を 409 で拒否し、一覧には残す (DELETE は可能)。
+    // 引き継ぎ / 履歴クリアの確定後に残った履歴は、SDK セッションを作る前に片付ける。削除に失敗し続ける間は
+    // 開く要求を 409 で拒否し、一覧には残す (DELETE は可能)。旧データを一瞬でも履歴へ戻さない。
     let current = meta;
-    if (meta.handoffCleanup) {
+    if (meta.handoffCleanup || meta.historyCleanup) {
       try {
         await removeSessionHistory(this.storeDir as string, id);
       } catch (error) {
-        throw httpError(409, `引き継ぎの片付けが残っています。会話履歴を削除できませんでした: ${messageFor(error)}`);
+        throw httpError(
+          409,
+          meta.handoffCleanup
+            ? `引き継ぎの片付けが残っています。会話履歴を削除できませんでした: ${messageFor(error)}`
+            : `会話履歴の片付けが残っています。旧履歴を削除できませんでした: ${messageFor(error)}`,
+        );
       }
       this.deleteAssistantMetrics(id);
       current = { ...meta };
       delete current.handoffCleanup;
+      delete current.historyCleanup;
       this.descriptors.set(id, current);
     }
     const { parsed } = await readSessionFile(this.storeDir as string, id);
@@ -1020,7 +1036,7 @@ export class SessionStore {
     const backfillCount =
       current.messageCount !== displayableMessages(session, workspaceAbs(this.rootCwd, record.workdir)).length;
     if (modelRecorded) await this.persist(record);
-    else if (backfillCount || meta.handoffCleanup) await this.persist(record, { jsonl: false });
+    else if (backfillCount || meta.handoffCleanup || meta.historyCleanup) await this.persist(record, { jsonl: false });
     return record;
   }
 
@@ -1293,6 +1309,7 @@ export class SessionStore {
   }
 
   async updateSettings(record: SessionRecord, input: UpdateSessionSettingsInput): Promise<SessionPayload> {
+    this.assertRecordLive(record);
     if (
       this.isBusy(record) ||
       record.session.isStreaming ||
@@ -1368,6 +1385,17 @@ export class SessionStore {
   }
 
   /**
+   * クリア / 移動 / 削除の後に残った record へ書き込まない。await を挟む route が古い参照を持っていると、
+   * 消した履歴へ実行や保存を始めてしまうため、副作用の直前にもう一度確かめる。
+   */
+  private assertRecordLive(record: SessionRecord): void {
+    if (this.closing) throw httpError(503, "サーバーを終了しています");
+    if (this.records.get(record.id) !== record || record.clearingHistory || this.deleting.has(record.id)) {
+      throw httpError(409, "会話の状態が変わったため操作できません。開き直してから、もう一度お試しください");
+    }
+  }
+
+  /**
    * 実行中なら追加入力としてBFFの配送キューへ積み、それ以外は即座にランを始める。`titleSource` は
    * 一覧のタイトルの元本文で、省略時は text。定型プロンプトの結合前の本文が渡され、`/skill:` の
    * 展開結果は長いため、展開前のユーザー入力からタイトルを作るために使う。`sendId` は未送信メッセージの
@@ -1378,6 +1406,7 @@ export class SessionStore {
     text: string,
     options: { titleSource?: string; sendId?: string; skillCommandRecognized?: boolean } = {},
   ): PostMessageResultInternal {
+    this.assertRecordLive(record);
     // 設定変更・停止処理中の送信は 409 (BFF のルートでも同じ扱い)
     if (record.changingSettings) {
       throw httpError(409, "Session settings are being changed");
@@ -1476,6 +1505,7 @@ export class SessionStore {
    * 未送信バブルを消すため)。
    */
   discardUnsent(record: SessionRecord, sendId: string): "ok" | "missing" | "running" {
+    this.assertRecordLive(record);
     const index = record.unsentSends.findIndex((item) => item.sendId === sendId);
     if (index === -1) return "missing";
     if (this.isSendActive(record, sendId)) return "running";
@@ -1493,6 +1523,7 @@ export class SessionStore {
    * 記録を残せない構成では取消の事後条件 (未送信として見える) を満たせないため、配送を触らない。
    */
   async cancelQueued(record: SessionRecord, sendId: string): Promise<"ok" | "running" | "unstorable" | "missing"> {
+    this.assertRecordLive(record);
     const index = record.queue.findIndex((item) => item.sendId === sendId);
     if (index === -1) return this.isSendActive(record, sendId) ? "running" : "missing";
     if (!record.writer || !this.storeDir) return "unstorable";
@@ -1863,6 +1894,7 @@ export class SessionStore {
    * 自動配送しない (回収した入力は手動の再送 / 破棄に任せる)。
    */
   async stop(record: SessionRecord): Promise<{ ok: true; status: RunStatus }> {
+    this.assertRecordLive(record);
     record.lastUsedAt = Date.now();
     record.stopping = true;
     try {
@@ -2058,6 +2090,7 @@ export class SessionStore {
     toolCallId: string,
     answers: AskUserAnswer[],
   ): { status: "ok" } | { status: "missing" } | { status: "answered" } | { status: "invalid"; error: string } {
+    this.assertRecordLive(record);
     record.lastUsedAt = Date.now();
     const pending = record.questions.get(toolCallId);
     if (!pending) return { status: "missing" };
@@ -2106,6 +2139,7 @@ export class SessionStore {
    * 開始 / 終端の配信順序と失敗の分類は docs/compaction.md / docs/api-session-runtime.md を正とする。
    */
   async compact(record: SessionRecord): Promise<SessionCompactionResult> {
+    this.assertRecordLive(record);
     if (this.closing) throw httpError(503, "サーバーを終了しています");
     const { session } = record;
     const runCompact = session.compact?.bind(session);
@@ -2292,7 +2326,7 @@ export class SessionStore {
       projectId: this.projectIdOf(record),
       masker: this.masker,
       cwd: workspaceAbs(this.rootCwd, record.workdir),
-      hasRawLog: this.hasRawLogOf(record.id, record.storeDir),
+      hasRawLog: this.hasRawLogOf(record.id, record.storeDir, record.meta),
       serveCommand: this.serveCommandOf(record.workdir),
     });
   }
@@ -2306,8 +2340,12 @@ export class SessionStore {
     return stored ? { cwd: stored.cwd, command: stored.command } : null;
   }
 
-  /** 生ログ (session.jsonl) がディスクにあるか。一覧の「生ログをダウンロード」の出し分けに使う */
-  private hasRawLogOf(id: string, storeDir: string): boolean {
+  /**
+   * 生ログ (session.jsonl) がディスクにあるか。一覧の「生ログをダウンロード」の出し分けに使う。
+   * 片付け待ちの会話は、ファイルが残っていても古い履歴を配らないため無いものとして扱う。
+   */
+  private hasRawLogOf(id: string, storeDir: string, meta?: SessionMeta): boolean {
+    if (meta?.handoffCleanup || meta?.historyCleanup) return false;
     return storeDir !== "" && existsSync(sessionJsonlPath(id, storeDir));
   }
 
@@ -2319,7 +2357,10 @@ export class SessionStore {
   async rawLogOfId(
     id: string,
   ): Promise<{ state: "unknown" } | { state: "missing" } | { state: "ok"; path: string; bytes: number }> {
-    if (!this.records.has(id) && !this.descriptors.has(id)) return { state: "unknown" };
+    const meta = this.records.get(id)?.meta ?? this.descriptors.get(id);
+    if (!meta) return { state: "unknown" };
+    // 片付け待ちは、ファイルが残っていても旧データを返さない (開く要求と同じ扱い)
+    if (meta.handoffCleanup || meta.historyCleanup) return { state: "missing" };
     if (!this.storeDir) return { state: "missing" };
     const path = sessionJsonlPath(id, this.storeDir);
     const info = await stat(path).catch(() => null);
@@ -2439,7 +2480,8 @@ export class SessionStore {
       canHandoff: true,
       projectSession: meta.projectCwd !== undefined,
       ...(meta.handoffCleanup ? { handoffCleanup: true } : {}),
-      hasRawLog: this.hasRawLogOf(meta.id, this.storeDir ?? ""),
+      ...(meta.historyCleanup ? { historyCleanup: true } : {}),
+      hasRawLog: this.hasRawLogOf(meta.id, this.storeDir ?? "", meta),
       serveCommand: this.serveCommandOf(this.placementOf(meta).workdir),
       messageCount: meta.messageCount,
       createdAt: meta.createdAt,
@@ -2649,6 +2691,7 @@ export class SessionStore {
     const fromSpace = meta.spaceId ?? "default";
     const moving = fromSpace !== target;
     if (meta.handoffCleanup) throw httpError(409, HANDOFF_CLEANUP_PENDING_MESSAGE);
+    if (meta.historyCleanup) throw httpError(409, HISTORY_CLEANUP_PENDING_MESSAGE);
     // プロジェクト所属は作業ディレクトリが同じで移す先がないため、同じスペースへの引き継ぎだけを許す
     if (meta.projectCwd && moving) {
       throw httpError(400, "プロジェクト所属のセッションは同じ会話スペースへだけ引き継げます");
@@ -2683,6 +2726,7 @@ export class SessionStore {
     // drain 中の setNotify / setTitle / setPinned を落とさないよう、最新の meta から組み立てる
     const current = live?.meta ?? this.descriptors.get(id) ?? meta;
     if (current.handoffCleanup) throw httpError(409, HANDOFF_CLEANUP_PENDING_MESSAGE);
+    if (current.historyCleanup) throw httpError(409, HISTORY_CLEANUP_PENDING_MESSAGE);
 
     // 引き継ぎ先のエージェント。「指定なし」は保存済みのスナップショットを維持する (現在のエージェントが
     // カタログから消えていても引き継げる)。「指定あり」は現在と同じ id でも新規作成と同じ経路で解決し直し、
@@ -2880,6 +2924,242 @@ export class SessionStore {
   }
 
   /**
+   * 会話履歴だけを破棄し、同じ ID / URL のまま空の履歴から再開できるようにする (スペース移動の
+   * 引き継ぎとは別)。会話の行・所属・作業フォルダ / 添付・HANDOFF.md は残し、メッセージ・圧縮要約・
+   * 未送信・生ログ・応答の実測だけを消す。SDK を開くのは live な会話だけで、未ロードは JSONL の
+   * 設定記録だけを読む。`expectHistoryGeneration` は確認時点の履歴世代で、変わっていれば 409。
+   */
+  async clearHistory(
+    id: string,
+    { expectHistoryGeneration, expectSpaceId }: { expectHistoryGeneration: string; expectSpaceId: string },
+  ): Promise<SessionHistoryClearResponse | undefined> {
+    // 先行の load / meta 更新 / ピン更新を待ち、対象 ID 単位でクリアを予約する (move と同じ lifecycle)
+    const operation = (async () => {
+      for (const pending of [this.lifecycle.get(id), this.metaUpdates.get(id), this.pinUpdates.get(id)]) {
+        if (pending) await pending.catch(() => {});
+      }
+      return this.clearSessionHistory(id, expectHistoryGeneration, expectSpaceId);
+    })();
+    const settled = operation.then(
+      () => {},
+      () => {},
+    );
+    this.lifecycle.set(id, settled);
+    try {
+      return await operation;
+    } finally {
+      if (this.lifecycle.get(id) === settled) this.lifecycle.delete(id);
+    }
+  }
+
+  private async clearSessionHistory(
+    id: string,
+    expectHistoryGeneration: string,
+    expectSpaceId: string,
+  ): Promise<SessionHistoryClearResponse | undefined> {
+    if (this.storeError) throw httpError(503, `会話ストアを利用できません: ${this.storeError}`);
+    const storeDir = this.storeDir;
+    if (!storeDir) throw httpError(503, "会話履歴のクリアには会話ストアが必要です");
+    if (this.closing) throw httpError(503, "サーバーを終了しています");
+    const live = this.records.get(id);
+    let current = live?.meta ?? this.descriptors.get(id);
+    if (!current) return undefined;
+    this.assertHistoryClearable(current, live, expectHistoryGeneration, expectSpaceId);
+    // 未ロードでも SDK セッションや作業フォルダは作らず、JSONL の設定記録と meta だけを照合する
+    const restored = live ? this.effectiveInputsOf(live) : await this.clearedInputsOf(current);
+    // 確定前に届いた古い保存 (タイトル要約を含む) を待ち、ここから先はもう書かない
+    if (live) live.clearingHistory = true;
+    let confirmed = false;
+    try {
+      if (live) await this.recordWrites.drain(live);
+      // drain 中の setTitle / setNotify を落とさないよう、最新の meta から組み立て直す
+      current = live?.meta ?? this.descriptors.get(id);
+      if (!current) return undefined;
+      this.assertHistoryClearable(current, live, expectHistoryGeneration, expectSpaceId);
+      const inputs = live ? this.effectiveInputsOf(live) : restored;
+      if (!this.hasHistoryToClear(current, live)) {
+        // 現世代で消すものが無い。新しい世代も作らず、クライアントに自動再試行をさせない
+        if (live) live.clearingHistory = false;
+        return {
+          sessionId: id,
+          title: current.title || NO_UNTITLED_TITLE,
+          historyGeneration: current.historyGeneration ?? "",
+          changed: false,
+        };
+      }
+      const historyGeneration = randomBytes(4).toString("hex");
+      const keepTitle = titleOriginOf(current) === "manual";
+      const updated: SessionMeta = {
+        ...current,
+        messageCount: 0,
+        historyGeneration,
+        historyCleanup: true,
+        ...(inputs.model ? { model: inputs.model } : {}),
+        ...(inputs.thinkingLevel ? { thinkingLevel: inputs.thinkingLevel } : {}),
+        title: keepTitle ? current.title : "",
+        titleOrigin: keepTitle ? "manual" : "auto",
+        // 既存の引き継ぎメモは残し、未使用の参照チップだけを解除する (送信の受理と同じ印)
+        ...(current.handoff ? { handoff: { ...current.handoff, consumed: true } } : {}),
+      };
+      delete updated.titleRequest;
+      delete updated.titleAttempt;
+      // ここが確定点。新しい履歴世代・片付け待ち・チップの解除を meta に同時に保存する
+      await writeSessionMeta(storeDir, updated);
+      confirmed = true;
+      this.descriptors.set(id, updated);
+      if (live) {
+        live.meta = updated;
+        live.title = updated.title;
+        live.titleOrigin = keepTitle ? "manual" : "auto";
+        delete live.titleAttempt;
+        delete live.titleRequest;
+        // 旧世代の AI 要約は取り消す (以後の結果・使用量は適用しない)
+        this.cancelTitleSummary(live);
+        this.emitHistoryCleared(live, updated);
+      }
+      // 確定後は旧 SDK と購読を閉じ、書込みが止まってから旧履歴を片付ける
+      if (live) {
+        // dispose の失敗で record を残すと、確定済みのまま操作できない状態になるため先に外す
+        try {
+          live.session.dispose?.();
+        } catch {
+          // 購読と書込みは下の drain と close で閉じる
+        }
+        this.records.delete(id);
+        await this.recordWrites.drain(live);
+      }
+      let cleanupPending = false;
+      try {
+        await removeSessionHistory(storeDir, id);
+      } catch {
+        cleanupPending = true;
+      }
+      if (!cleanupPending) {
+        this.deleteAssistantMetrics(id);
+        const cleared: SessionMeta = { ...updated };
+        delete cleared.historyCleanup;
+        try {
+          await writeSessionMeta(storeDir, cleared);
+          this.descriptors.set(id, cleared);
+          if (live) live.meta = cleared;
+        } catch {
+          // 確定は済んでいる。印が残るだけなので次の読み込み / 保存で再試行する
+          cleanupPending = true;
+        }
+      }
+      if (live) this.closeSubscribers(live);
+      return {
+        sessionId: id,
+        title: updated.title || NO_UNTITLED_TITLE,
+        historyGeneration,
+        changed: true,
+        cleanupPending,
+      };
+    } catch (error) {
+      // 確定前の失敗は旧履歴を残し、保留した保存を解く (確定後は旧世代の結果を適用しない)
+      if (!confirmed && live) live.clearingHistory = false;
+      throw error;
+    }
+  }
+
+  /** クリアを受け付けてよいか。busy / 片付け中 / 履歴世代の不一致は副作用の前に 409 にする */
+  private assertHistoryClearable(
+    meta: SessionMeta,
+    live: SessionRecord | undefined,
+    expectHistoryGeneration: string,
+    expectSpaceId: string,
+  ): void {
+    // 待機の後に引っ越しが確定していたら、移動先の会話へクリアを効かせない (fork と同じ 404)
+    if ((meta.spaceId ?? "default") !== expectSpaceId) throw httpError(404, "Session not found");
+    if (this.closing) throw httpError(503, "サーバーを終了しています");
+    if (this.deleting.has(meta.id)) throw httpError(409, "会話が削除されているため履歴を消せません");
+    if (meta.handoffCleanup) throw httpError(409, HANDOFF_CLEANUP_PENDING_MESSAGE);
+    if (meta.historyCleanup) throw httpError(409, HISTORY_CLEANUP_PENDING_MESSAGE);
+    if (live) {
+      const awaiting = [...live.questions.values()].some((pending) => !pending.settled);
+      if (this.isBusy(live) || live.session.isStreaming || live.changingSettings || live.stopping || awaiting) {
+        throw httpError(
+          409,
+          "実行中・回答待ち・キュー待ち・圧縮中・設定変更中・停止処理中のセッションは履歴を消せません",
+        );
+      }
+    }
+    if ((meta.historyGeneration ?? "") !== expectHistoryGeneration) throw httpError(409, HISTORY_CHANGED_MESSAGE);
+  }
+
+  /** live な会話の実効モデル / Effort。履歴を消す前に meta へ保存する */
+  private effectiveInputsOf(record: SessionRecord): { model?: string; thinkingLevel?: string } {
+    const model = modelLabel(record.session.model);
+    return {
+      ...(model ? { model } : {}),
+      ...(record.session.thinkingLevel ? { thinkingLevel: record.session.thinkingLevel } : {}),
+    };
+  }
+
+  /**
+   * 未ロードの会話で、履歴の変更記録と meta を現行の復元規則で照合した設定。SDK セッションと作業フォルダは
+   * 作らない。JSONL が破損していれば、meta だけでは後から行われた変更を確かめられないため 409 にする。
+   */
+  private async clearedInputsOf(meta: SessionMeta): Promise<{ model?: string; thinkingLevel?: string }> {
+    const { parsed } = await readSessionFile(this.storeDir as string, meta.id);
+    if (parsed.kind === "damaged") {
+      throw httpError(
+        409,
+        `保存された会話を読めないため履歴を消せません (${parsed.reason})。復旧してから、もう一度お試しください`,
+      );
+    }
+    const restored = this.restoreInputs(meta, parsed.kind === "ok" ? parsed.entries : []);
+    const model = modelLabel(restored.model);
+    return {
+      ...(model ? { model } : {}),
+      ...(restored.thinkingLevel ? { thinkingLevel: restored.thinkingLevel } : {}),
+    };
+  }
+
+  /** 現世代で消すものが残っているか。空の会話と、手動タイトルだけの会話は変更なしとして扱う */
+  private hasHistoryToClear(meta: SessionMeta, live: SessionRecord | undefined): boolean {
+    // 未使用の参照チップもクリアで解除する対象 (履歴が無くてもチップは消す)
+    if (meta.handoff && !meta.handoff.consumed) return true;
+    if (live) {
+      return (
+        live.session.messages.length > 0 ||
+        live.unsentSends.length > 0 ||
+        live.titleRequest !== undefined ||
+        live.titleAttempt !== undefined ||
+        (live.titleOrigin !== "manual" && live.title !== "")
+      );
+    }
+    if (this.storeDir && readSessionSends(this.storeDir, meta.id).unsent.length > 0) return true;
+    return (
+      meta.messageCount > 0 ||
+      meta.titleRequest !== undefined ||
+      meta.titleAttempt !== undefined ||
+      (titleOriginOf(meta) !== "manual" && meta.title !== "")
+    );
+  }
+
+  /** クリアを購読中のタブへ配る。旧メッセージを載せず、新しい履歴世代と空の履歴だけを伝える */
+  private emitHistoryCleared(record: SessionRecord, meta: SessionMeta): void {
+    const payload = this.payload(record);
+    const cleared: SessionPayload = {
+      ...payload,
+      title: meta.title,
+      historyGeneration: meta.historyGeneration ?? "",
+      status: "idle",
+      lastSeq: record.seq + 1,
+      queueDepth: 0,
+      pendingSends: [],
+      run: null,
+      messages: [],
+      compactions: [],
+    };
+    // 旧履歴から作った値は載せない (履歴はクリア後に取り直す)
+    delete cleared.assistantMeta;
+    delete cleared.context;
+    this.emit(record, "resync", cleared);
+  }
+
+  /**
    * 会話を分岐する。親の解決済み record を受け取り、この関数の先頭 (最初の await より前) で末尾 entry を
    * 境界として固定する。子は境界までの entry を複製した独立した会話で、以後の追記・要約・マージはしない。
    * 親の meta / 履歴 / 未送信 / タイトル / ピン / 通知は変えない。
@@ -2892,6 +3172,7 @@ export class SessionStore {
     if (!pi) throw httpError(503, "ランタイムを利用できません");
     if (this.closing) throw httpError(503, "サーバーを終了しています");
     const meta = parent.meta;
+    this.assertRecordLive(parent);
     if (meta.handoffCleanup) throw httpError(409, HANDOFF_CLEANUP_PENDING_MESSAGE);
     // busy は引き継ぎと同じ条件。境界より後に受付された送信を子へ含めないため、ここで断る
     if (this.isBusy(parent) || parent.session.isStreaming || parent.changingSettings || parent.stopping) {
@@ -3438,6 +3719,7 @@ export class SessionStore {
       generation: settings.generation,
       shouldStart: (task) =>
         this.records.get(record.id) === record &&
+        !record.clearingHistory &&
         record.titleTask === task &&
         record.run?.id === run.id &&
         record.run?.status === "completed" &&
@@ -3464,6 +3746,7 @@ export class SessionStore {
    * 実行中・圧縮中・別の要約の実行中は受け付けない。
    */
   async manualSummarizeTitle(record: SessionRecord): Promise<{ title: string; titleSummary: SessionTitleSummary }> {
+    this.assertRecordLive(record);
     const host = this.titleSummary;
     if (!host) throw httpError(503, "AI要約を利用できません");
     if (this.isBusy(record)) throw httpError(409, "会話の実行中は再要約できません");
@@ -3496,6 +3779,7 @@ export class SessionStore {
       generation: settings.generation,
       shouldStart: (task) =>
         this.records.get(record.id) === record &&
+        !record.clearingHistory &&
         record.titleTask === task &&
         !this.runInProgress(record) &&
         record.queue.length === 0 &&
@@ -3556,7 +3840,7 @@ export class SessionStore {
     },
   ): Promise<void> {
     const host = this.titleSummary;
-    if (!host) return;
+    if (!host || record.clearingHistory) return;
     const model = modelLabel(input.model);
     const abort = new AbortController();
     const task = { runId: input.attempt.runId, generation: input.generation, model, abort };
@@ -3639,6 +3923,7 @@ export class SessionStore {
     result: TitleSummaryResult,
     durationMs: number,
   ): void {
+    if (record.clearingHistory) return;
     const running = record.titleTask;
     if (running === undefined) {
       // 取消後に届いた結果はタイトルへ適用しないが、送信済みの要求の usage は試行へ残す
@@ -3683,6 +3968,7 @@ export class SessionStore {
     task: { runId: string },
     usage: TitleSummaryUsage | undefined,
   ): void {
+    if (record.clearingHistory) return;
     const attempt = record.titleAttempt;
     if (!attempt || attempt.runId !== task.runId || !usage) return;
     record.titleAttempt = { ...attempt, ...usageFields(usage) };
@@ -3706,6 +3992,7 @@ export class SessionStore {
     patch: Pick<TitleAttempt, "state"> &
       Partial<Pick<TitleAttempt, "inputTokens" | "outputTokens" | "costTotal" | "durationMs" | "error" | "skipReason">>,
   ): void {
+    if (record.clearingHistory) return;
     const attempt = record.titleAttempt;
     if (!attempt || attempt.state !== "pending" || attempt.runId !== task.runId) return;
     record.titleAttempt = { ...attempt, ...patch };

@@ -83,6 +83,16 @@ export interface SessionMeta {
    */
   handoffCleanup?: boolean;
   /**
+   * 会話履歴の世代。履歴クリアでだけ新しい値になり、再起動後も残る (SSE の世代とは別)。
+   * 欠落 = 一度もクリアしていない旧データ (空文字として読む)。
+   */
+  historyGeneration?: string;
+  /**
+   * 履歴クリアの確定後に残った旧履歴の削除 (片付け) が未完了か。true の間は会話を開けず、次の保存 /
+   * 読み込みで削除から再試行する。旧 meta は欠落 = 片付け不要。
+   */
+  historyCleanup?: boolean;
+  /**
    * タイトルの由来 (自動 / AI / 手動)。旧 meta は欠落しており、既存タイトルは手動として保護する
    * (session-title.ts の titleOriginOf)。
    */
@@ -275,6 +285,11 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
     // 不正な記録は落とし、読み込みそのものは妨げない
     ...(handoff ? { handoff } : {}),
     ...(meta.handoffCleanup === true ? { handoffCleanup: true } : {}),
+    // 履歴の世代と片付けの印。欠落 = 未クリア / 片付け不要で、既存データの読み込みは妨げない
+    ...(typeof meta.historyGeneration === "string" && meta.historyGeneration !== ""
+      ? { historyGeneration: meta.historyGeneration }
+      : {}),
+    ...(meta.historyCleanup === true ? { historyCleanup: true } : {}),
     // タイトルの由来と AI 要約の試行。欠落・不正値は未保存として落とし、読み込みは妨げない。
     // ここで落とすと再起動後に「判定済み」が消え、1 会話 1 試行を守れない
     ...(meta.titleOrigin === "auto" || meta.titleOrigin === "ai" || meta.titleOrigin === "manual"
@@ -708,12 +723,20 @@ export async function removeSessionDir(storeDir: string, id: string): Promise<vo
 /**
  * 会話履歴 (session.jsonl / sends.json) だけを消し、meta.json は残す。スペースの引っ越しは
  * 履歴を破棄するが会話そのものは残すため、フォルダごと消す removeSessionDir は使わない。
- * 無いファイルは成功として扱う (削除の再実行を冪等にする)。
+ * 無いファイルは成功として扱う (削除の再実行を冪等にする)。確定前の書換えが残した一時ファイルも
+ * 旧データを含むため、履歴と同じく一緒に消す。
  */
 export async function removeSessionHistory(storeDir: string, id: string): Promise<void> {
   const dir = sessionDirPath(storeDir, id);
   await rm(join(dir, "session.jsonl"), { force: true });
   await rm(join(dir, "sends.json"), { force: true });
+  // 一時ファイルは名前でしか判別できない (meta 書換え前の失敗は履歴を残すため、ここまで来たら捨てる)
+  const entries = await readdir(dir).catch(() => [] as string[]);
+  await Promise.all(
+    entries
+      .filter((name) => /^\.(?:meta|sends|session)-[0-9a-f]+\.(?:json|jsonl)$/.test(name))
+      .map((name) => rm(join(dir, name), { force: true }).catch(() => {})),
+  );
 }
 
 /** 追記の低レベル書込み。テストから部分書込み (ENOSPC) を再現できるように差し替え可能にする */

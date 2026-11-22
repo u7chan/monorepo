@@ -360,6 +360,41 @@ test("引き継ぎ API は要求元のスペースを query に、移動先と�
   );
 });
 
+test("履歴のクリアは要求元のスペースを query に、確認時点の履歴世代を body に送る", async (t) => {
+  const api = createSpaceApi("space-a");
+  const result = {
+    sessionId: "session-a",
+    title: "無題のセッション",
+    historyGeneration: "9f8e7d6c",
+    changed: true,
+    cleanupPending: false,
+  };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    assert.equal(request.method, "POST");
+    assert.equal(url.pathname, "/api/sessions/session-a/history/clear");
+    assert.equal(url.searchParams.get("spaceId"), "space-a");
+    assert.deepEqual(await request.json(), { historyGeneration: "a1b2c3d4" });
+    return Response.json(result);
+  });
+  assert.deepEqual(await api.clearSessionHistory("session-a", { historyGeneration: "a1b2c3d4" }), result);
+});
+
+test("履歴のクリアの失敗 (古い履歴世代) はサーバーの理由と HTTP status を保つ", async (t) => {
+  const api = createSpaceApi("space-a");
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json(
+      { error: "会話履歴が別の操作で変わりました。開き直してから、もう一度お試しください" },
+      { status: 409 },
+    ),
+  );
+  await assert.rejects(api.clearSessionHistory("session-a", { historyGeneration: "a1b2c3d4" }), {
+    message: "会話履歴が別の操作で変わりました。開き直してから、もう一度お試しください",
+    status: 409,
+  });
+});
+
 test("引き継ぎ API の失敗はサーバーの理由と HTTP status を保つ", async (t) => {
   const api = createSpaceApi("space-a");
   t.mock.method(globalThis, "fetch", async () =>

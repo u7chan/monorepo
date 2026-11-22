@@ -260,6 +260,26 @@ export function TrashIcon() {
   );
 }
 
+/** 履歴のクリア (消すが会話は残す)。削除のゴミ箱と読み分けられるよう、消しゴムの形にする */
+export function EraserIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <path d="M6.25 13.25h6.5" />
+      <path d="M3.4 9.1l5.7-5.7a1 1 0 0 1 1.4 0l1.8 1.8a1 1 0 0 1 0 1.4l-4.6 4.6H4.2z" />
+      <path d="M6.75 5.75l3.5 3.5" />
+    </svg>
+  );
+}
+
 /** 行のリネームボタンの鉛筆 (削除のゴミ箱と同じ寸法にそろえる) */
 export function PencilIcon() {
   return (

@@ -51,6 +51,7 @@ import {
   CreateSecretBodySchema,
   CreateSessionBodySchema,
   CreateFileSkillBodySchema,
+  ClearSessionHistoryBodySchema,
   ForkSessionBodySchema,
   MoveSessionBodySchema,
   PostMessageBodySchema,
@@ -490,6 +491,15 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     )
     // 会話メニューからの再要約。設定の保存済みモデル / Effort で 1 回生成し、現在のタイトルと試行を返す
     .post("/api/sessions/:id/title/summarize", appDataMutation, (c) => sessionRoutes.summarizeTitle(c))
+    // 会話履歴のクリア。同じ URL のまま履歴だけを破棄し、作業フォルダ / 添付 / HANDOFF.md は残す
+    .post(
+      "/api/sessions/:id/history/clear",
+      appDataMutation,
+      zValidator("json", ClearSessionHistoryBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "historyGeneration is required" }, 400),
+      ),
+      (c) => sessionRoutes.clearHistory(c, c.req.valid("json")),
+    )
     // セッションの引っ越し。履歴は破棄され、作業フォルダ / 添付 / cwd キーの行が移動先へ移る
     .post(
       "/api/sessions/:id/move",

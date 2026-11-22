@@ -133,6 +133,8 @@ export function projectSessionPayload({
     piSessionId: session.sessionId,
     cwd,
     eventGeneration: record.generation,
+    // 履歴クリアでだけ変わる世代。旧 data は空文字で、クライアントは省略を空文字として読む
+    historyGeneration: record.meta.historyGeneration ?? "",
     ...(projectId ? { projectId } : {}),
     model: modelLabel(session.model),
     thinkingLevel: session.thinkingLevel,
@@ -191,7 +193,6 @@ export function projectSessionPayload({
     networkAccess,
   };
 }
-
 export function projectSessionSummary({
   record,
   status,
@@ -236,6 +237,7 @@ export function projectSessionSummary({
     canHandoff: true,
     projectSession: record.projectCwd !== undefined,
     ...(record.meta.handoffCleanup ? { handoffCleanup: true } : {}),
+    ...(record.meta.historyCleanup ? { historyCleanup: true } : {}),
     hasRawLog,
     messageCount: displayableMessages(record.session, cwd).length,
     createdAt: record.createdAt,

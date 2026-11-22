@@ -30,6 +30,8 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる。移動は送らずに close する） |
 | `ping` | `{}`（接続直後と 15 秒ごとの生存確認。`id` 無し = カーソルを動かさない） |
 
+**会話履歴のクリア**は、確定後の `resync` 1 件で知らせる。この `resync` は新しい `historyGeneration` と空の `messages` / `compactions` / `pendingSends`（`run: null`、`status: "idle"`）だけを載せ、旧メッセージ・旧要約・旧世代の `assistantMeta` / `context` は載せない。送出後に旧 SDK の購読を閉じるため、購読側は再接続した `resync`（新しい SDK セッションの payload）で同じ会話を開き直す。`historyGeneration` が変わったら、旧カーソルと旧バブル・取得中の旧履歴ページ・進行中の旧要求を失効させて履歴を取り直す（[api-sessions.md](api-sessions.md#get-apisessionsid)、[frontend.md](frontend.md#チャット状態とレンダリング)）。生ログ（`/raw`）と履歴（`/history`）もクリア後は旧データを返さない。
+
 `status.thinking` は live 専用で、ペイロード / JSONL / DB には保存しない（復元した会話・`/activity` には出ない）。バッファからのリプレイでは `thinking` を落として phase の status だけを復元し、resync / 新しい購読では保留中の配信を取り消す。クライアントは再接続を検知した時点で末尾を消し、次の live の delta だけで戻す。
 
 テキスト系イベント（`text` / `status` の `thinking` / `tool_start` / `tool_end` / `tool_progress` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages`・`compactions[].summary`、`compaction` の `compaction.summary` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は [secrets.md](secrets.md) を参照。

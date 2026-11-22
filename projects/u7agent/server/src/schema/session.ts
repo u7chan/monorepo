@@ -50,6 +50,11 @@ export const SessionPayloadSchema = z.object({
   cwd: z.string(),
   /** SSE の世代。seq は再起動で 0 に戻るため、カーソルの整合判定に使う */
   eventGeneration: z.string(),
+  /**
+   * 会話履歴の世代。履歴クリアでだけ変わり、SSE の世代 (eventGeneration) とは独立に再起動後も残る。
+   * 変わったら同じ会話のまま旧カーソル・旧バブルを捨てて履歴を取り直す。旧サーバーは省略する
+   */
+  historyGeneration: z.string().optional(),
   projectId: z.string().optional(),
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
@@ -121,6 +126,8 @@ export const SessionSummarySchema = z.object({
   projectSession: z.boolean().optional(),
   /** 確定後の履歴削除 (片付け) が残っているか。残っている間は開けない / 新しい引き継ぎを受けない */
   handoffCleanup: z.boolean().optional(),
+  /** 履歴クリアの確定後に残った削除 (片付け) が未完了か。残っている間は開けず、履歴クリアも 409 */
+  historyCleanup: z.boolean().optional(),
   /** 生ログ (`session.jsonl`) をダウンロードできるか。旧サーバーは載せないため省略可 (省略 = false) */
   hasRawLog: z.boolean().optional(),
   messageCount: z.number(),
@@ -212,6 +219,20 @@ export const SessionMoveResponseSchema = z.object({
   cleanupPending: z.boolean().optional(),
 });
 export type SessionMoveResponse = z.infer<typeof SessionMoveResponseSchema>;
+/**
+ * `POST /api/sessions/:id/history/clear` の応答。会話の行・URL・作業フォルダ・添付は変えず、履歴だけを
+ * 空にする。`title` は一覧と同じ正規化 (自動 / AI タイトルは空へ戻るため「無題のセッション」) 後の値。
+ * `changed: false` は現世代で消すものが無かった場合で、クライアントは自動再試行しない。
+ * `cleanupPending` は確定後の削除が残っているか (残っている間は開けない)。
+ */
+export const SessionHistoryClearResponseSchema = z.object({
+  sessionId: z.string(),
+  title: z.string(),
+  historyGeneration: z.string(),
+  changed: z.boolean(),
+  cleanupPending: z.boolean().optional(),
+});
+export type SessionHistoryClearResponse = z.infer<typeof SessionHistoryClearResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // リクエスト body スキーマ
@@ -293,6 +314,12 @@ export const MoveSessionBodySchema = z.object({
   memo: z.boolean().optional(),
 });
 export type MoveSessionBody = z.infer<typeof MoveSessionBodySchema>;
+/**
+ * 会話履歴のクリア。`historyGeneration` は確認時点の履歴世代 (payload の値、旧データは空文字) で、
+ * 変わっていれば別タブのクリアなどで履歴が入れ替わっているため 409 にする。
+ */
+export const ClearSessionHistoryBodySchema = z.object({ historyGeneration: z.string() });
+export type ClearSessionHistoryBody = z.infer<typeof ClearSessionHistoryBodySchema>;
 /**
  * 会話の分岐。`agentId` の省略は親のスナップショット (エージェント・スキル・ツールの許可) を維持し、
  * 指定時は引き継ぎと同じく現在の定義から作り直す。対象の会話とスペースは path / query で決まる。
