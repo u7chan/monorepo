@@ -1,16 +1,15 @@
-import {
-  stat as fsStat,
-  mkdir,
-  readFile,
-  writeFile,
-} from "node:fs/promises"
+import { stat as fsStat, mkdir } from "node:fs/promises"
 import * as path from "node:path"
 import type { Context } from "hono"
 import z from "zod"
 import type { AppBindings } from "../types"
 import { renderFileListResponse } from "../utils/apiHelpers"
+import { writeFileAtomic } from "../utils/atomicWrite"
 import { getFileList } from "../utils/fileListing"
+import { readTextPreview } from "../utils/filePreviewLimits"
+import { buildFullTextUrl, isActiveContent } from "../utils/fileRouteUtils"
 import { resolveUploadPath } from "../utils/fileUtils"
+import { lookupMimeType } from "../utils/mimeType"
 import { isNodeErrorCode } from "../utils/nodeError"
 import { isPathTraversal } from "../utils/pathTraversal"
 import {
@@ -120,7 +119,9 @@ export async function uploadFileHandler(c: Context<AppBindings>) {
       await mkdir(path.dirname(savePath), { recursive: true })
       const buffer = await file.arrayBuffer()
 
-      await writeFile(savePath, Buffer.from(buffer))
+      // Why atomic: a preview/download that already opened the previous inode
+      // must not observe a truncated body mid-response.
+      await writeFileAtomic(savePath, Buffer.from(buffer))
       results.success.push(file.name)
     } catch (err) {
       results.failed.push({
@@ -171,14 +172,21 @@ export async function updateFileHandler(c: Context<AppBindings>) {
     throw err
   }
 
-  await writeFile(targetPath, content, "utf-8")
+  await writeFileAtomic(targetPath, content)
 
   if (isHtmxRequest(c)) {
     const { FileViewer } = await import("../components/file-viewer")
-    const updatedContent = await readFile(targetPath, "utf-8")
+    const preview = await readTextPreview(targetPath)
+    const mimeType = lookupMimeType(targetPath)
     return c.html(
       <FileViewer
-        content={updatedContent}
+        content={preview.content}
+        truncatedFileSize={preview.truncated ? preview.size : undefined}
+        fullTextUrl={
+          preview.truncated && !isActiveContent(targetPath, mimeType)
+            ? buildFullTextUrl(filePathParam)
+            : undefined
+        }
         fileName={path.basename(targetPath)}
         path={filePathParam}
         isEditing={false}

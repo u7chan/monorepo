@@ -1,17 +1,13 @@
-import { readFile } from "node:fs/promises"
 import * as path from "node:path"
 import { Hono } from "hono"
 import { FileViewer } from "../components/file-viewer"
 import { MarkdownPreviewPage } from "../components/markdown/MarkdownPreviewPage"
 import type { AppBindings } from "../types"
-import {
-  MAX_INLINE_TEXT_BYTES,
-  readFileHead,
-  TEXT_EXCERPT_BYTES,
-} from "../utils/filePreviewLimits"
+import { readTextPreview } from "../utils/filePreviewLimits"
 import {
   ACTIVE_CONTENT_PREVIEW_CSP,
   archiveFileName,
+  buildFullTextUrl,
   createDirectoryArchive,
   decodePreviewPath,
   encodeVirtualPath,
@@ -82,26 +78,21 @@ fileRoutes.get("/", async (c) => {
     // response, and a multi-megabyte source turns into a huge DOM text node
     // that small clients cannot lay out. Large files get a bounded head plus
     // links to the full text/download instead.
-    const isTooLargeForInlineView = resolved.stat.size > MAX_INLINE_TEXT_BYTES
-    const content = isTooLargeForInlineView
-      ? await readFileHead(resolved.resolvedPath, TEXT_EXCERPT_BYTES)
-      : await readFile(resolved.resolvedPath, "utf-8")
+    const preview = await readTextPreview(resolved.resolvedPath)
     const isEditing =
       !forceTextView &&
-      !isTooLargeForInlineView &&
+      !preview.truncated &&
       c.req.query("edit") === "true"
     // Why not for active content: `/file/raw` refuses HTML/SVG, and their
     // whole-file view is the existing Preview button.
     const fullTextUrl =
-      isTooLargeForInlineView && isText && !isHtmlOrSvg
-        ? `/file/raw?path=${encodeURIComponent(resolved.requestPath)}`
+      preview.truncated && isText && !isHtmlOrSvg
+        ? buildFullTextUrl(resolved.requestPath)
         : undefined
     return c.html(
       <FileViewer
-        content={content}
-        truncatedFileSize={
-          isTooLargeForInlineView ? resolved.stat.size : undefined
-        }
+        content={preview.content}
+        truncatedFileSize={preview.truncated ? preview.size : undefined}
         fullTextUrl={fullTextUrl}
         fileName={path.basename(resolved.resolvedPath)}
         path={resolved.requestPath}
@@ -148,17 +139,12 @@ fileRoutes.get("/preview/*", async (c) => {
   }
 
   if (isMarkdownFile(resolved.resolvedPath, resolved.mimeType)) {
-    const isTooLargeForInlineView = resolved.stat.size > MAX_INLINE_TEXT_BYTES
-    const content = isTooLargeForInlineView
-      ? await readFileHead(resolved.resolvedPath, TEXT_EXCERPT_BYTES)
-      : await readFile(resolved.resolvedPath, "utf-8")
+    const preview = await readTextPreview(resolved.resolvedPath)
     return c.html(
       <MarkdownPreviewPage
         fileName={path.basename(resolved.resolvedPath)}
-        content={content}
-        truncatedFileSize={
-          isTooLargeForInlineView ? resolved.stat.size : undefined
-        }
+        content={preview.content}
+        truncatedFileSize={preview.truncated ? preview.size : undefined}
         downloadUrl={`/file/download?path=${encodeURIComponent(requestPath)}`}
       />,
       200,
@@ -205,7 +191,12 @@ fileRoutes.get("/raw", async (c) => {
 
   return readBinaryFileResponse(
     resolved.resolvedPath,
-    resolved.responseMimeType,
+    // Why `as=text`: a text file whose MIME type is not displayable (e.g.
+    // `.mdown` -> application/octet-stream) would download instead of opening
+    // in the new tab that the viewer links to.
+    c.req.query("as") === "text"
+      ? "text/plain; charset=utf-8"
+      : resolved.responseMimeType,
   )
 })
 

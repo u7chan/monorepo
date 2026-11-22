@@ -110,7 +110,8 @@ adding screens.
 - `src/components/uiStyles.ts` - Shared surface, field and text class tokens
 - `src/components/buttonStyles.ts` - Shared button tones and sizes
 - `src/utils/` - Utilities (incl. `virtualPath.ts` for scope resolution)
-- `src/utils/filePreviewLimits.ts` - Inline preview byte limits and head-only reads for oversized files
+- `src/utils/filePreviewLimits.ts` - Inline preview byte limits and bounded text reads
+- `src/utils/atomicWrite.ts` - Temp-file + rename publish so in-flight readers keep their inode
 - `src/utils/sessionSecret.ts` - Session-secret creation and cache
 - `src/utils/sessionToken.ts` - Session cookie signing and verification
 - `src/utils/markdown/` - Dependency-free Markdown block / inline parser
@@ -215,18 +216,28 @@ clients before the modal paints. The limits live in
 
 Behavior above the limit:
 
-- `GET /file` reads only the head with `readFileHead()` and renders a notice with
-the total size. Edit and Copy are hidden, and `?edit=true` falls back to the
+- `GET /file` reads through `readTextPreview()` and renders a notice with the
+total size. Edit and Copy are hidden, and `?edit=true` falls back to the
 read-only view, because saving would write the excerpt back over the file.
+- `readTextPreview()` reads at most `MAX_INLINE_TEXT_BYTES + 1` bytes and decides
+from that read, not from an earlier `stat()`. Do not reintroduce a size check
+followed by an unbounded `readFile()`: the file can be replaced in between.
+`POST /api/update` renders its htmx response through the same helper.
 - Non-active text and Markdown additionally get an "Open full text" link to
-`/file/raw`. Active content (HTML/XHTML/SVG) does not, because `/file/raw`
-refuses it; its whole-file view is the existing Preview/public URL button.
+`/file/raw?as=text`. `as=text` forces `text/plain; charset=utf-8`, because
+`.mdown` / `.mkdn` otherwise resolve to `application/octet-stream`, which
+Chromium downloads instead of displaying. Active content (HTML/XHTML/SVG) has no
+such link; `/file/raw` refuses it even with `as=text`, and its whole-file view is
+the existing Preview/public URL button.
 - `GET /file/preview/*` applies the same limit to Markdown. An oversized file is
 not parsed and its head is shown as plain source with a download link, since a
 truncated excerpt can end in the middle of a construct.
-- `GET /file/raw`, `/file/preview/*` and `/file/download` stream from disk with
-`Bun.file()` plus `Content-Length` instead of buffering the whole file per
-request.
+- `GET /file/raw`, `/file/preview/*` and `/file/download` stream from a file
+handle opened before the size is taken, plus `Content-Length`. Keeping the
+handle means an atomic replacement (`writeFileAtomic()`) cannot cut an in-flight
+response short. Uploads and updates must publish through `writeFileAtomic()`:
+`writeFile()` truncates the inode a reader may already have opened, so the body
+stops before the declared length.
 
 Image/video/PDF previews already delegate rendering to the browser and are not
 truncated; streaming is what keeps them bounded on the server.
