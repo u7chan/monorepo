@@ -6,9 +6,51 @@ const CONNECT_TIMEOUT_MS = 30_000;
 const AUDIO_DRAIN_MS = 250;
 const FINAL_TIMEOUT_MS = 15_000;
 
+const audioClock = () => performance.timeOrigin + performance.now();
+
+export function audioBeforeDeadline(deadline, now = audioClock) {
+  return new TransformStream({
+    transform(frame, output) {
+      if (now() < deadline()) output.enqueue(frame);
+    },
+  });
+}
+
+if (typeof DedicatedWorkerGlobalScope !== "undefined" && globalThis instanceof DedicatedWorkerGlobalScope) {
+  let deadline = -Infinity;
+  globalThis.addEventListener("message", ({ data }) => {
+    if (deadline === -Infinity && Number.isFinite(data)) deadline = data;
+  });
+  globalThis.addEventListener("rtctransform", ({ transformer }) => {
+    void transformer.readable
+      .pipeThrough(audioBeforeDeadline(() => deadline))
+      .pipeTo(transformer.writable)
+      .catch(() => globalThis.postMessage("audio-filter-error"));
+  });
+}
+
+function makeAudioDeadline(onError) {
+  // 画面側のタイマーだけでは、メインスレッドの停止中も音声が送られ続ける。
+  const worker = new Worker(import.meta.url, { type: "module" });
+  worker.addEventListener("error", onError);
+  worker.addEventListener("message", onError);
+  return {
+    attach(sender) {
+      sender.transform = new RTCRtpScriptTransform(worker);
+    },
+    arm(deadline) {
+      worker.postMessage(performance.timeOrigin + deadline);
+    },
+    close() {
+      worker.terminate();
+    },
+  };
+}
+
 const browser = {
   getMicrophone: () => navigator.mediaDevices.getUserMedia({ audio: true }),
   makePeer: () => new RTCPeerConnection(),
+  makeAudioDeadline,
   request: (...args) => fetch(...args),
 };
 
@@ -25,6 +67,8 @@ export function startTranscription(callbacks, { limitSeconds, platform = browser
   let stream;
   let peer;
   let channel;
+  let audioDeadline;
+  let deadline;
   let timer;
   let previewItemId;
   let preview = "";
@@ -50,6 +94,7 @@ export function startTranscription(callbacks, { limitSeconds, platform = browser
     stopMicrophone();
     channel?.close();
     peer?.close();
+    audioDeadline?.close();
   }
 
   function fail(message) {
@@ -61,8 +106,9 @@ export function startTranscription(callbacks, { limitSeconds, platform = browser
   function stop(reason = "manual") {
     if (phase !== "recording") return;
     phase = "finalizing";
+    const stoppedAt = Math.min(performance.now(), deadline);
     stopMicrophone();
-    callbacks.onFinalizing(reason);
+    callbacks.onFinalizing(reason, stoppedAt);
     // 音声と制御は別経路なので、停止と同時に commit すると末尾の音声を追い越しうる。
     schedule(AUDIO_DRAIN_MS, () => {
       if (phase !== "finalizing") return;
@@ -132,13 +178,16 @@ export function startTranscription(callbacks, { limitSeconds, platform = browser
     stream = microphone;
     callbacks.onConnecting();
     peer = platform.makePeer();
+    audioDeadline = platform.makeAudioDeadline(() => {
+      if (phase === "connecting" || phase === "recording") fail("音声の送信を制御できませんでした。");
+    });
     const tracks = stream.getAudioTracks();
     for (const track of tracks) {
       track.enabled = false;
       track.addEventListener("ended", () => {
         if (phase === "connecting" || phase === "recording") fail("マイクの接続が切れました。");
       });
-      peer.addTrack(track, stream);
+      audioDeadline.attach(peer.addTrack(track, stream));
     }
     peer.addEventListener("connectionstatechange", () => {
       if (peer.connectionState === "failed" || peer.connectionState === "closed") {
@@ -148,11 +197,13 @@ export function startTranscription(callbacks, { limitSeconds, platform = browser
     channel = peer.createDataChannel("oai-events");
     channel.addEventListener("open", () => {
       if (phase !== "connecting") return;
-      phase = "recording";
-      for (const track of tracks) track.enabled = true;
       const startedAt = performance.now();
+      deadline = startedAt + limitMs;
+      audioDeadline.arm(deadline);
+      for (const track of tracks) track.enabled = true;
+      phase = "recording";
       schedule(limitMs, () => stop("limit"));
-      callbacks.onRecording({ startedAt, deadline: startedAt + limitMs });
+      callbacks.onRecording({ startedAt, deadline });
     });
     channel.addEventListener("message", ({ data }) => receive(data));
     channel.addEventListener("close", () => fail("確定前に OpenAI との接続が閉じました。"));

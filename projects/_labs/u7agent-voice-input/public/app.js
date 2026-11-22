@@ -172,6 +172,10 @@ voiceButton.addEventListener("click", () => {
     idle("マイクと WebRTC を利用できるブラウザで、起動時に表示された URL を開いてください。");
     return;
   }
+  if (typeof RTCRtpScriptTransform !== "function") {
+    idle("録音時間の上限を適用できません。最新版の Chromium 系ブラウザで開いてください。");
+    return;
+  }
   firstDelta.textContent = "—";
   stopToFinal.textContent = "—";
   recordingTime.textContent = "—";
@@ -219,8 +223,8 @@ voiceButton.addEventListener("click", () => {
         );
       }
     },
-    onFinalizing(reason) {
-      stoppedAt = performance.now();
+    onFinalizing(reason, audioStoppedAt) {
+      stoppedAt = audioStoppedAt;
       stoppedAtLimit = reason === "limit";
       recording = false;
       const recordingSeconds = (stoppedAt - startedAt) / 1000;

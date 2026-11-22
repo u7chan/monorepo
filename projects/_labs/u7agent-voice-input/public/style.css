@@ -174,11 +174,12 @@ input {
   stroke-linecap: round;
 }
 
-.voice-countdown.is-ending circle {
+.voice-countdown.is-ending .voice-countdown-progress {
   stroke: var(--voice-warning);
 }
 
 .voice-countdown.is-ending .voice-countdown-track {
+  stroke: color-mix(in srgb, var(--voice-warning) 40%, var(--voice-line));
   animation: voice-countdown-blink 650ms ease-in-out infinite alternate;
 }
 
@@ -208,12 +209,13 @@ input {
     forced-color-adjust: none;
   }
 
-  .voice-countdown-track {
+  .voice-countdown-track,
+  .voice-countdown.is-ending .voice-countdown-track {
     stroke: GrayText;
   }
 
   .voice-countdown-progress,
-  .voice-countdown.is-ending circle {
+  .voice-countdown.is-ending .voice-countdown-progress {
     stroke: Highlight;
   }
 }

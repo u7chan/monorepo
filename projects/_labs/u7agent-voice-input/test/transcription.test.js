@@ -1,5 +1,5 @@
 import { expect, jest, mock, test } from "bun:test";
-import { startTranscription } from "../public/transcription.js";
+import { audioBeforeDeadline, startTranscription } from "../public/transcription.js";
 
 const eventPrefix = "conversation.item.input_audio_transcription.";
 
@@ -30,9 +30,11 @@ function fixture({ delayedMicrophone = false, limitSeconds } = {}) {
     onFinal: result.resolve,
     onError: (error) => result.resolve({ error }),
   };
+  const audioDeadline = { attach: mock(() => {}), arm: mock(() => {}), close: mock(() => {}) };
   const platform = {
     getMicrophone: () => (delayedMicrophone ? permission.promise : Promise.resolve(stream)),
     makePeer: mock(() => peer),
+    makeAudioDeadline: mock(() => audioDeadline),
     request: mock(async (path, _init) => (path === "/api/session"
       ? Response.json({ value: "ek_fixture" })
       : new Response("fixture answer"))),
@@ -49,16 +51,37 @@ function fixture({ delayedMicrophone = false, limitSeconds } = {}) {
     channel,
     peer,
     track,
+    audioDeadline,
     callbacks,
     platform,
   };
 }
+
+test("音声の送信は開始前と期限以降のフレームを通さない", async () => {
+  let now = 100;
+  let deadline = -Infinity;
+  const filter = audioBeforeDeadline(() => deadline, () => now);
+  const writer = filter.writable.getWriter();
+  const sent = [];
+  const done = filter.readable.pipeTo(new WritableStream({ write(frame) { sent.push(frame); } }));
+  await writer.write("接続中");
+  deadline = 200;
+  await writer.write("期限前");
+  now = 200;
+  await writer.write("期限時点");
+  now = 850;
+  await writer.write("画面が固まっている間の期限後");
+  await writer.close();
+  await done;
+  expect(sent).toEqual(["期限前"]);
+});
 
 test("停止前に差分を表示し、停止後は commit した発話の確定テキストと音声秒数だけを採用する", async () => {
   const f = fixture();
   try {
     await f.recording;
     expect(f.track.enabled).toBe(true);
+    expect(f.audioDeadline.attach).toHaveBeenCalledTimes(1);
     expect(f.peer.createDataChannel).toHaveBeenCalledWith("oai-events");
     const [url, options] = f.platform.request.mock.calls[1];
     expect(url).toBe("https://api.openai.com/v1/realtime/calls");
@@ -69,7 +92,7 @@ test("停止前に差分を表示し、停止後は commit した発話の確定
     expect(f.callbacks.onPartial.mock.calls).toEqual([["青い"], ["青い傘"]]);
 
     f.capture.stop();
-    expect(f.callbacks.onFinalizing).toHaveBeenCalledWith("manual");
+    expect(f.callbacks.onFinalizing).toHaveBeenCalledWith("manual", expect.any(Number));
     expect(f.track.stop).toHaveBeenCalledTimes(1);
     expect(f.peer.close).not.toHaveBeenCalled();
     f.receive({ type: `${eventPrefix}delta`, item_id: "turn", delta: "を持って" });
@@ -87,6 +110,7 @@ test("停止前に差分を表示し、停止後は commit した発話の確定
     f.receive({ type: "input_audio_buffer.committed", item_id: "turn" });
     expect(await f.result).toEqual({ text: "青い傘を持って。", audioSeconds: 12.25 });
     expect(f.peer.close).toHaveBeenCalledTimes(1);
+    expect(f.audioDeadline.close).toHaveBeenCalledTimes(1);
   } finally {
     f.capture.cancel();
   }
@@ -100,13 +124,14 @@ test.each([10, 30, 60, 120])("選んだ %i 秒を録音してから自動停止�
     f.releasePermission();
     const { startedAt, deadline } = await f.recording;
     expect(deadline - startedAt).toBe(limitSeconds * 1000);
+    expect(f.audioDeadline.arm).toHaveBeenCalledWith(deadline);
 
     jest.advanceTimersByTime(limitSeconds * 1000 - 1);
     expect(f.track.stop).not.toHaveBeenCalled();
     expect(f.callbacks.onFinalizing).not.toHaveBeenCalled();
     jest.advanceTimersByTime(1);
     expect(f.track.stop).toHaveBeenCalledTimes(1);
-    expect(f.callbacks.onFinalizing.mock.calls).toEqual([["limit"]]);
+    expect(f.callbacks.onFinalizing.mock.calls).toEqual([["limit", expect.any(Number)]]);
 
     jest.advanceTimersByTime(250);
     expect(await f.commit).toEqual({ type: "input_audio_buffer.commit" });
