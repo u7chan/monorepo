@@ -36,7 +36,9 @@ ADR 0027 でカードの見出しに provider のロゴを置いたが、マー�
 ## 影響
 
 - カードのロゴの見た目（特に Claude の形）と、ステータスの子メニューの見た目が変わる。
-- 取り込み元の HWC 側にはマークの出典が記録されていない。このプロジェクトでは出典の確認はできず、
-  商標として扱う旨だけを通知に残す。
+- 取り込み元の HWC が出典を記録しているのは OpenCode だけで、公式のブランドページ
+  （https://opencode.ai/brand）を参照している。更新や利用条件の確認はそこからたどる。Codex と Claude の
+  マークは HWC 側に出典の記録がなく、このプロジェクトでも出典を確認できない。
+- 通知には、出典を確認できたかどうかによらず、商標として扱う旨だけを残す。
 - `src/client/lib/provider-icon.ts`、`src/client/components/ProviderIcon.tsx`、`OverflowMenu.tsx`、
-  `App.tsx`、`styles.css`、`THIRD_PARTY_NOTICES.txt`、`test/license-notices.test.ts`。
+  `App.tsx`、`styles.css`、`THIRD_PARTY_NOTICES.txt`、`test/license-notices.test.ts`、`Dockerfile` のコメント。
