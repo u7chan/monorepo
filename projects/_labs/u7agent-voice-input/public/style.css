@@ -214,9 +214,14 @@ input {
     stroke: GrayText;
   }
 
-  .voice-countdown-progress,
-  .voice-countdown.is-ending .voice-countdown-progress {
+  .voice-countdown-progress {
     stroke: Highlight;
+  }
+
+  .voice-countdown.is-ending .voice-countdown-progress {
+    stroke: CanvasText;
+    /* 利用者の配色でシステム色が近い場合も、色の違いだけに頼らない。 */
+    stroke-width: 3;
   }
 }
 
