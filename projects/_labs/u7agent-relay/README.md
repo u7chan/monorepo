@@ -55,4 +55,10 @@ node --use-system-ca --env-file=.env server.mjs
 
 ## テスト
 
-`node --test` で、実際の u7agent にアクセスせずに検証できます。Dockerfile は CI のテスト専用で、配布用のイメージは作りません。
+次のコマンドで、実際の u7agent にアクセスせずに検証できます。
+
+```sh
+node --test
+```
+
+この試作はデプロイしないため、Dockerfile は用意していません。CI も Docker イメージをビルドしません。
