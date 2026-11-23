@@ -5,7 +5,7 @@ CI/CDメンテナンス用のCIサンプルプロジェクトです。
 ## 概要
 
 PR時にCIワークフローが発火してビルド検証を行うためのサンプルです。
-`test`ステージを持つDockerfileで、CI時に `--target=test` を指定してビルドします。
+`test`ステージを持つDockerfileで、CI時に `--target=test` と `--target=final` の2回ビルドします。このプロジェクトは `final` ステージを持たないため、2回目はステージ指定なしで既定ステージ（`test`）をビルドします。
 
 ## testステージが重要な理由
 
@@ -13,20 +13,26 @@ PR時にCIワークフローが発火してビルド検証を行うためのサ�
 
 | ビルドタイプ | 対象ステージ | 用途 |
 |-----------|------------|------|
-| **CI (Pull Request時)** | `test` | 軽量な検証（テスト実行、lint、型チェックなど） |
+| **CI (Pull Request時)** | `test` と `final`（`final` がなければ既定ステージ） | `test` は軽量な検証（テスト実行、lint、型チェックなど）、`final` は配布イメージの組み立て確認 |
 | **CD (main push時)** | スキップ | CI専用プロジェクトのため、CDではイメージビルド・プッシュを行わない |
 
 ### CIでtestステージが選ばれる仕組み
 
-`.github/workflows/pullrequest-check.yml` で `--target=test` が指定されています：
+`.github/workflows/pullrequest-check.yml` で `--target=test` と `--target=final` が指定されています：
 
 ```yaml
 - uses: ./.github/actions/build-docker-images
   with:
     stage: test  # testステージを明示的に指定
+    image_tags: ci-test
+
+- uses: ./.github/actions/build-docker-images
+  with:
+    stage: final  # 配布するイメージの組み立てを確認する
+    image_tags: ci-final
 ```
 
-testステージが存在しないDockerfileは、PR時のCIビルドでスキップされてしまいます。
+指定したステージが Dockerfile に存在しない場合は、ターゲット指定を外して既定ステージをビルドします。ステージが無いことを理由に CI ビルドがスキップされることはありません。
 
 ## Dockerfile構成
 
@@ -109,8 +115,9 @@ docker build -t cicd-ci-sample:test --target=test --progress plain .
 1. PRを作成すると、`pullrequest-check.yml` が発火
 2. `get-changed-directories` で変更ディレクトリを検出
 3. `get-changed-projects` でDockerfileがあるプロジェクトを絞り込み
-4. `build-docker-images`（stage=test）でビルド検証
-5. ビルド成功でPRチェックがパス
+4. `build-docker-images`（stage=test）でテストと lint を検証
+5. `build-docker-images`（stage=final）で配布イメージの組み立てを検証
+6. ビルド成功でPRチェックがパス
 
 ### mainブランチへのマージ時（CD）
 
