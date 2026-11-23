@@ -1,9 +1,8 @@
 import type { ClaudeStartRun, ClaudeStartRunOutcome, ClaudeStartState } from "../api";
 import { CLAUDE_START_MAX_FAILURES, CLAUDE_START_WINDOW_MINUTES } from "../../shared/claude-start";
-import { formatClock, formatDateTime } from "./format";
+import { dayIndex, formatClock, formatDateTime } from "./format";
 
 const WINDOW_MS = CLAUDE_START_WINDOW_MINUTES * 60_000;
-const DAY_MS = 24 * 60 * 60_000;
 /** これより短い帯は出さない。窓の終わりと開始がほぼ同じで、空けても意味がないため。 */
 const MIN_HOLD_MS = 5 * 60_000;
 
@@ -127,13 +126,6 @@ function bandText(from: number, to: number): string {
   }
 
   return days === 1 ? `${formatClock(from)}〜翌 ${formatClock(to)}` : `${formatDateTime(from)}〜${formatDateTime(to)}`;
-}
-
-/** ローカル時刻の暦日。夏時間で 24 時間にならない日があっても日付だけで数える。 */
-function dayIndex(at: number): number {
-  const date = new Date(at);
-
-  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS;
 }
 
 /** 「今すぐ開始」の結果の文言。 */

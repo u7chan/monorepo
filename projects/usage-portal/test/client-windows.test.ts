@@ -1,7 +1,7 @@
 // 推移の初期表示は週次。窓は短い方が長い方に含まれ、外側が尽きたら内側は使えない。
 import { describe, expect, test } from "bun:test";
 import type { UsageWindow } from "../src/client/api";
-import { findBlockedWindows, pickTrendWindow } from "../src/client/lib/windows";
+import { findBlockedWindows, isRolling, pickTrendWindow } from "../src/client/lib/windows";
 
 function window(id: string, label: string, usedPercent = 10): UsageWindow {
   return { id, label, durationSeconds: null, usedPercent, resetsAt: null };
@@ -36,6 +36,14 @@ describe("pickTrendWindow", () => {
   test("週次が無ければ先頭、窓が無ければ null", () => {
     expect(pickTrendWindow([window("primary", "ローリング")])?.id).toBe("primary");
     expect(pickTrendWindow([])).toBeNull();
+  });
+});
+
+describe("isRolling", () => {
+  test("重複ラベルで第 N 枠が付いてもローリングと分かる", () => {
+    expect(isRolling(window("rolling", "ローリング"))).toBe(true);
+    expect(isRolling(window("rolling", "ローリング（第2枠）"))).toBe(true);
+    expect(isRolling(window("weekly", "週次"))).toBe(false);
   });
 });
 

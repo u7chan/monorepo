@@ -104,6 +104,25 @@ describe("describeReset", () => {
     expect(describeReset(resetsAt, now)).toEqual({ at: "リセット 10/31 09:00", remaining: "あと 3 日" });
   });
 
+  test("ローリングは日付を省き、日をまたぐときだけ翌を付ける", () => {
+    const now = new Date(2026, 9, 28, 9, 0).getTime();
+
+    expect(describeReset(new Date(2026, 9, 28, 12, 0).getTime(), now, { rolling: true })).toEqual({
+      at: "リセット 12:00",
+      remaining: "あと 3 時間",
+    });
+    expect(describeReset(new Date(2026, 9, 28, 0, 5).getTime(), now, { rolling: true })?.at).toBe("リセット 00:05");
+    expect(describeReset(new Date(2026, 9, 29, 2, 0).getTime(), now, { rolling: true })?.at).toBe("リセット 翌 02:00");
+  });
+
+  test("ローリングでも 2 日以上先なら日付ごと出す", () => {
+    const now = new Date(2026, 9, 28, 9, 0).getTime();
+
+    expect(describeReset(new Date(2026, 9, 31, 2, 0).getTime(), now, { rolling: true })?.at).toBe(
+      "リセット 10/31 02:00",
+    );
+  });
+
   test("時刻が無ければ null", () => {
     expect(describeReset(null, 0)).toBeNull();
     expect(describeReset(Number.NaN, 0)).toBeNull();

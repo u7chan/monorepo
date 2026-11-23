@@ -8,6 +8,11 @@ export function pickTrendWindow(windows: readonly UsageWindow[]): UsageWindow | 
   return windows.find((window) => window.label.startsWith("週次")) ?? windows[0] ?? null;
 }
 
+/** ローリングは 5 時間以内に終わり、リセットの日付は残り時間から分かる。meter は日付を省く。 */
+export function isRolling(window: UsageWindow): boolean {
+  return window.label.startsWith("ローリング");
+}
+
 /**
  * 窓は短い方が長い方に含まれる（月次 ⊃ 週次 ⊃ ローリング）。外側が尽きたら内側は残っていても使えない。
  * 種類はラベルが持っているため、窓の並び順ではなくラベルから外側を決める。
