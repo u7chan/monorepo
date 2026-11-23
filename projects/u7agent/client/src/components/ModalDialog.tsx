@@ -13,6 +13,8 @@ const FRAME_CLASS: Record<ModalDialogFrame, string> = {
   narrow:
     "m-auto max-h-[min(88dvh,760px)] w-[min(420px,92vw)] overflow-hidden rounded-xl border border-line bg-panel p-0 text-ink shadow-panel",
   wide: "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] overflow-hidden rounded-xl border border-line bg-panel p-0 text-ink shadow-panel",
+  // sheet は高さが中身で決まる (singleColumn の下からのシート)。本文を flex-1 で伸ばすと、
+  // flex-basis: 0% を 0 と解釈するブラウザー (モバイル) で本文が padding だけに潰れて中身が切れる
   sheet:
     "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] overflow-hidden rounded-xl border border-line bg-panel p-0 text-ink shadow-panel singleColumn:m-0 singleColumn:mt-auto singleColumn:w-screen singleColumn:max-w-none singleColumn:rounded-b-none",
   fullscreen: "m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-panel p-0 text-ink",
