@@ -1,14 +1,30 @@
-// containerState.ts の仕様: どの状態で何が押せて、どの色で示すか
+// containerState.ts の仕様: どの状態で何が押せて、どの色で示すか、どれを先に並べるか
 
 import { describe, expect, test } from "bun:test";
 import {
   filterContainers,
   getContainerAction,
   getStatusTone,
+  groupContainersByLinks,
+  hasContainerLinks,
   isPortReachable,
   matchesContainerFilter,
 } from "./containerState";
 import type { Container, ContainerFilter } from "../types/container";
+
+function container(overrides: Partial<Container> = {}): Container {
+  return {
+    id: "1",
+    name: "app",
+    image: "nginx",
+    state: "running",
+    status: "Up",
+    ports: [],
+    ...overrides,
+  };
+}
+
+const PORT = { host: "0.0.0.0", publicPort: 3000, privatePort: 80, protocol: "tcp" };
 
 const states: Container["state"][] = [
   "running",
@@ -151,5 +167,59 @@ describe("filterContainers", () => {
   test("空の配列に対しても動作する", () => {
     const result = filterContainers([], "all");
     expect(result).toEqual([]);
+  });
+});
+
+describe("hasContainerLinks", () => {
+  test("公開ポートがあればリンクを出す", () => {
+    expect(hasContainerLinks(container({ ports: [PORT] }))).toBe(true);
+  });
+
+  test("portal.url は公開ポートが無くてもリンクを出す", () => {
+    expect(hasContainerLinks(container({ url: "https://app.example" }))).toBe(true);
+  });
+
+  test("portal.url.<ポート> は publish をやめてもリンクを出す", () => {
+    expect(hasContainerLinks(container({ urls: { 3000: "https://app.example" } }))).toBe(true);
+  });
+
+  test("portal.hidden は公開ポートがあってもリンクを出さない", () => {
+    expect(hasContainerLinks(container({ hidden: true, ports: [PORT] }))).toBe(false);
+  });
+
+  test("ポートも上書きも無ければリンクを出さない", () => {
+    expect(hasContainerLinks(container())).toBe(false);
+  });
+});
+
+describe("groupContainersByLinks", () => {
+  test("リンクの有無で分け、グループ内は元の順を保つ", () => {
+    const containers = [
+      container({ id: "1", name: "worker" }),
+      container({ id: "2", name: "db", ports: [PORT] }),
+      container({ id: "3", name: "caddy", hidden: true, ports: [PORT] }),
+      container({ id: "4", name: "app", url: "https://app.example" }),
+      container({ id: "5", name: "exited", state: "exited" }),
+    ];
+
+    const groups = groupContainersByLinks(containers);
+
+    expect(groups.linked.map((item) => item.name)).toEqual(["db", "app"]);
+    expect(groups.linkless.map((item) => item.name)).toEqual(["worker", "caddy", "exited"]);
+  });
+
+  test("元の配列は書き換えない", () => {
+    const containers = [
+      container({ id: "1", name: "worker" }),
+      container({ id: "2", name: "db", ports: [PORT] }),
+    ];
+
+    groupContainersByLinks(containers);
+
+    expect(containers.map((item) => item.name)).toEqual(["worker", "db"]);
+  });
+
+  test("空の配列は両方のグループを空で返す", () => {
+    expect(groupContainersByLinks([])).toEqual({ linked: [], linkless: [] });
   });
 });
