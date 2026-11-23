@@ -336,7 +336,7 @@ h2 {
   opacity: 0.6;
 }
 
-/* 止めた窓・残りわずかの窓の色は状態そのものなので残す（ADR 0009）。 */
+/* 止めた窓・残りわずかの窓の色は状態そのものなので残す（docs/adr/usage-sampling-and-storage.md）。 */
 .up-provider[data-mark="muted"] .up-meter-fill:not(.up-meter-fill-attention):not(.up-meter-fill-blocked) {
   background: var(--up-muted);
 }
@@ -401,7 +401,7 @@ h2 {
 }
 
 /* 契約が有効な provider だけブランド色にする。枠と地は共通のまま、形と色の 2 つで provider を示す。
-   メニューの項目は契約の状態を持たないので常に色付き（ADR 0031）。 */
+   メニューの項目は契約の状態を持たないので常に色付き。 */
 .up-provider-icon[data-provider="codex"][data-mark="brand"],
 .up-menu-item-icon[data-provider="codex"] {
   color: var(--up-mark-codex);
@@ -1074,7 +1074,7 @@ h2 {
   margin-top: 0;
 }
 
-/* ---- Claude の開始予約（ADR 0028） ---- */
+/* ---- Claude の開始予約（docs/adr/claude-integration.md） ---- */
 
 .up-menu-list {
   transform-origin: top right;

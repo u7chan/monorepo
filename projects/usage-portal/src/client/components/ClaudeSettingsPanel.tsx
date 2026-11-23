@@ -9,7 +9,7 @@ import {
 
 /**
  * カードが無いときの Claude の入口。状態とサインインの手順を出し、確認だけをここから起こす。
- * ログインは中継しない（ADR 0022）。
+ * ログインは中継しない（docs/adr/claude-integration.md）。
  */
 export function ClaudeSettingsPanel(props: {
   source: UsageSource;

@@ -36,7 +36,7 @@ type Form = {
   effort: ClaudeStartEffort | "";
 };
 
-/** モデルと思考レベルは既定値を置かない（ADR 0017 と同じ）。時刻・回数・曜日は入力の出発点として埋める。 */
+/** モデルと思考レベルは既定値を置かない（docs/adr/claude-integration.md と同じ）。時刻・回数・曜日は入力の出発点として埋める。 */
 function initialForm(settings: ClaudeStartSettings | null): Form {
   if (settings === null) {
     return {

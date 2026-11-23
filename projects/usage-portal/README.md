@@ -14,21 +14,21 @@ OpenCode Go の接続確認）を持つ。
 - BFF が provider ごとの間隔（既定 10 分、5 / 10 / 30 / 60 / 120 分から選ぶ）で Codex と OpenCode Go の利用枠を取り、SQLite に snapshot と sample を保存する
 - 画面は 60 秒ごとに `/api/usage` を取得する。推移は窓ごとに描き、ローリング・週次・月次をタブで切り替える
 - 取得間隔は provider ごとに 5 / 10 / 30 / 60 / 120 分から選べる（既定 10 分、`⋮` の「取得間隔」）
-- 表示は「簡易」と「標準」を切り替えられる。簡易は推移と補足を省いて 3 件程度を 1 画面に収め、選択は localStorage に残す（[ADR 0011](docs/adr/0011-view-mode-toggle.md)）
-- 窓は月次 ⊃ 週次 ⊃ ローリングの入れ子で、外側が上限なら内側は「使用不可」と赤で出す（[ADR 0009](docs/adr/0009-window-blocking-and-five-hour-rolling.md)）
+- 表示は「簡易」と「標準」を切り替えられる。簡易は推移と補足を省いて 3 件程度を 1 画面に収め、選択は localStorage に残す
+- 窓は月次 ⊃ 週次 ⊃ ローリングの入れ子で、外側が上限なら内側は「使用不可」と赤で出す（[docs/adr/usage-sampling-and-storage.md](docs/adr/usage-sampling-and-storage.md)）
 - Codex は Web UI から Sign in with ChatGPT（デバイスコード / ブラウザ + 貼り付け）でサインインする
 - Claude は公式 `claude` CLI の `/usage` を子プロセスで実行し、画面を開いたときと `⋮` の「更新」だけ取得する。
-  開きっぱなしでも周期取得せず、取得から 15 分を過ぎたら「更新停止」と出す（[ADR 0022](docs/adr/0022-claude-usage-via-cli.md)）
+  開きっぱなしでも周期取得せず、取得から 15 分を過ぎたら「更新停止」と出す（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）
 - Claude のカードは認証済みのときだけ出し、未接続のあいだは全体メニューの「Claude」から手順と「接続を確認」を開く。
-  カードの `⋮` の「ログアウトして非表示」は公式 CLI で資格情報を破棄してカードを消す（[ADR 0026](docs/adr/0026-claude-card-visibility-and-logout.md)）
+  カードの `⋮` の「ログアウトして非表示」は公式 CLI で資格情報を破棄してカードを消す（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）
 - Claude のサインインは Web UI で中継しない。初回は端末から `docker exec -it <コンテナ名> claude auth login` を実行する
 - Claude のカードの `⋮` の「開始予約…」で、5 時間窓を開始する時刻を予約できる。「必ずリセットさせる時刻」と 1 日の回数から、
   5 時間おきの開始と、窓を始めない空き（既定は深夜）を決める。送る前に `/usage` で窓が動いていないことを確かめ、
-  3 回続けて失敗したら自動でオフにする。「今すぐ開始」で 1 回だけ送ることもできる（[ADR 0028](docs/adr/0028-claude-session-start-schedule.md)）
+  3 回続けて失敗したら自動でオフにする。「今すぐ開始」で 1 回だけ送ることもできる（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）
 - 送信の設定（モデルと思考レベル）を済ませると、Codex と OpenCode Go のカードの `⋮` に「接続確認」が出る。
-  固定の最小プロンプトを 1 回だけ送り、応答本文は保存も表示もしない（[ADR 0017](docs/adr/0017-probe-prompts.md)）
+  固定の最小プロンプトを 1 回だけ送り、応答本文は保存も表示もしない（[docs/adr/codex-integration.md](docs/adr/codex-integration.md)）
 - OpenCode Go はアカウント（API キー）を最大 10 件登録でき、1 アカウント = 1 カードで並べる
-- 契約エラー（`subscription_required`）のアカウントは自動更新を 6 時間ごとの再確認に落とし、`⋮` の「利用枠を取得し直す」で即時に再開できる（[ADR 0025](docs/adr/0025-paused-account-retry.md)）
+- 契約エラー（`subscription_required`）のアカウントは自動更新を 6 時間ごとの再確認に落とし、`⋮` の「利用枠を取得し直す」で即時に再開できる（[docs/adr/opencode-integration.md](docs/adr/opencode-integration.md)）
 - 右上の `⋮` メニューの「ステータス」から、Codex・Claude・OpenCode の公式ステータスページを開ける
 - PWA 用の manifest と 192 / 512px のアイコン、iOS ホーム画面用の 180px アイコンを配信する
 - `GET /api/health` は DB と認証状態だけを返し、利用枠や利用者情報を含まない
@@ -65,31 +65,31 @@ iOS の Safari では共有メニューの「ホーム画面に追加」、Andro
 
 Chromium の PWA インストールには HTTPS（開発時は localhost）が必要。LAN 内の HTTP ではインストール候補に出ない場合がある。
 HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更では TLS 終端や Service Worker は追加せず、オフライン利用や API のキャッシュも行わない。
-設定の判断は [ADR 0014](docs/adr/0014-pwa-icons.md) を参照する。
+設定の判断は [docs/adr/stack-and-client.md](docs/adr/stack-and-client.md) を参照する。
 
 ## 画面の読み方
 
 カード下端の細いバーは、次の取得までの進み具合を表す。満タンで止まったまま値が変わらなければ、
 予定を過ぎても取得が来ていない。バーの上の文字は取得間隔と、最後に取得してからの経過時間で、
 正確な時刻はカーソルを合わせると出る。取得に失敗しているあいだはバーを出さず、前回値と状態ラベルで示す。
-バーは装飾で、判断は状態ラベルと文字で行う（[ADR 0023](docs/adr/0023-fetch-status-display.md)）。
-動きを減らす設定ではバーを出さず、文字だけで示す。間隔は provider ごとの設定（[ADR 0024](docs/adr/0024-provider-fetch-intervals.md)）で、
+バーは装飾で、判断は状態ラベルと文字で行う。
+動きを減らす設定ではバーを出さず、文字だけで示す。間隔は provider ごとの設定（[docs/adr/usage-sampling-and-storage.md](docs/adr/usage-sampling-and-storage.md)）で、
 `⋮` の「取得間隔」から変えられる。設定はサーバー全体に効く。
 
 ゲージの下の行は、先頭のバッジがリセットまでの残り時間（「あと 12 日」）、続く淡色の文字がリセット日時を表す。
 ローリングは 5 時間以内に終わって日付が残り時間から分かるため日付を省き、日をまたぐときだけ「リセット 翌 02:00」と出す。
 Claude のカードは周期取得を持たないため、取得の進み具合のバーを出さず、画面を開いたときと `⋮` の「更新」でだけ取り直す。
-未接続のあいだはカードを出さず、全体メニューの「Claude」に同じ手順と「接続を確認」を置く（[ADR 0026](docs/adr/0026-claude-card-visibility-and-logout.md)）。
-カードは Codex → Claude → 登録順のアカウントで並び、見出しの左に provider のロゴを置く（[ADR 0027](docs/adr/0027-provider-order-and-icons.md)、ロゴの形は [ADR 0030](docs/adr/0030-provider-marks-from-hwc.md)、色は契約が有効なときだけ [ADR 0031](docs/adr/0031-provider-mark-colors.md)）。
+未接続のあいだはカードを出さず、全体メニューの「Claude」に同じ手順と「接続を確認」を置く（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。
+カードは Codex → Claude → 登録順のアカウントで並び、見出しの左に provider のマークを置く（[docs/adr/provider-marks.md](docs/adr/provider-marks.md)）。
 すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。使い切っていない OpenCode Go のカードは、
 月次の残りが多い順に並ぶ。Codex・Claude と、月次を読めないカードは元の位置に残る。
-表示の判断は [ADR 0008](docs/adr/0008-remaining-gauge-and-window-trend.md)、[ADR 0015](docs/adr/0015-reset-line-badge.md)、[ADR 0016](docs/adr/0016-exhausted-cards-last.md)、[ADR 0021](docs/adr/0021-opencode-monthly-order.md) を参照する。
+ゲージと並び順の細部は、コードとテストを正とする。
 
 ### 公式ステータス
 
 右上の `⋮` メニューの「ステータス」から、Codex・Claude・OpenCode の公式ステータスページを、provider のロゴ付きの項目から新しいタブで開ける。
 各社の状態やモデル別の内訳はアプリに取り込まず、公式ページに任せる
-（[ADR 0029](docs/adr/0029-status-page-links.md)）。
+（[docs/adr/service-status-links.md](docs/adr/service-status-links.md)）。
 
 ## 初回セットアップ
 
@@ -156,7 +156,7 @@ Codex の 5 時間窓が API に返らないアカウントがあるため、「
 `sources[]` は source ごとに独立して失敗する。`id` は `codex`・`claude`・アカウントの uuid、`provider` は `codex` /
 `opencode-go` / `claude`、`account` は OpenCode Go の `{ id, name, icon }`（Codex と Claude は `null`）で、応答の並びは
 Codex → Claude → 登録順。
-画面はこの並びを使い切ったカードの移動（ADR 0016）と月次の残り順（ADR 0021）で並べ替える。
+画面はこの並びを使い切ったカードの移動と月次の残り順で並べ替える。
 `state` は `loading` / `ok` / `stale` / `error`、`error.code` は `not_connected` / `reauth_required` / `subscription_required` / `upstream` / `schema` /
 `config` の固定値で、上流の本文は含まない。未サインインの Codex と Claude は `not_connected` になり、Codex は画面では「未接続」と出す。
 Claude は `not_connected` のあいだカードを出さず、全体メニューの「Claude」から手順を開く。Claude の `nextFetchAt` は常に `null`（周期取得が無い）。
@@ -173,7 +173,7 @@ Codex の OAuth は自前実装せず、Pi SDK（`@earendil-works/pi-coding-agen
 4. 成功すると `auth.json` に保存され、sampler が 1 回走って Codex カードが更新される
 
 サインアウトはカード右上の `⋮` から行う（サインイン済みのときだけ出る）。サインアウト中は推移も出さないが、
-同じ ChatGPT アカウントで戻ると、残しておいた sample から推移を引き継ぐ（[ADR 0018](docs/adr/0018-codex-trend-across-signout.md)）。
+同じ ChatGPT アカウントで戻ると、残しておいた sample から推移を引き継ぐ（[docs/adr/usage-sampling-and-storage.md](docs/adr/usage-sampling-and-storage.md)）。
 未接続・再サインインのときの「Sign in with ChatGPT」は、カードの中に残る。
 
 コールバックポート（1455）は publish しない。コンテナ内の `127.0.0.1` に閉じるため、どのブラウザからでも
@@ -182,7 +182,7 @@ Codex の OAuth は自前実装せず、Pi SDK（`@earendil-works/pi-coding-agen
 ## Claude のサインイン
 
 Claude は Web UI でサインインを中継しない。公式 `claude` CLI を image に版固定で入れ、その CLI 自身に
-サインインさせる。このアプリはトークンも `.credentials.json` も直接読まない（[ADR 0022](docs/adr/0022-claude-usage-via-cli.md)）。
+サインインさせる。このアプリはトークンも `.credentials.json` も直接読まない（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。
 
 1. 稼働中のコンテナへ入って、サブスクリプションのアカウントでサインインする
 
@@ -197,7 +197,7 @@ Claude は Web UI でサインインを中継しない。公式 `claude` CLI を
 ログアウトで資格情報は CLI が削除する。利用枠の履歴（sample）は残り、再ログイン後の推移に引き継がれる。
 `api_key_helper` など設定ファイル由来の API キーが残っている場合は、ログアウトしてもカードが戻ることがある。
 そのときは `subscription_required` のカードと Claude のモーダルに出る手順に従い、`CLAUDE_CONFIG_DIR` の設定から
-API キーの指定を外す（[ADR 0026](docs/adr/0026-claude-card-visibility-and-logout.md)）。
+API キーの指定を外す（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。
 
 資格情報は `CREDENTIAL_DIR`（既定 `/app/credentials`）の `claude/` に置き、ホストの `~/.claude` とは共有しない。
 image の `CLAUDE_CONFIG_DIR` は `CREDENTIAL_DIR/claude` にしてあるので、`docker exec` で実行する CLI も同じ場所を読む。
@@ -211,7 +211,7 @@ CLI の出力本文は DB・ログ・応答に残さず、正規化した利用�
 ## 最小プロンプトの送信
 
 Codex の「接続確認」と OpenCode Go の「接続確認」は、どちらも固定の 1 文（`Reply with the single word OK.`）を
-1 回だけ送る。応答本文は使わず、成功・失敗・latency・固定のエラーコードだけを扱う（[ADR 0017](docs/adr/0017-probe-prompts.md)）。
+1 回だけ送る。応答本文は使わず、成功・失敗・latency・固定のエラーコードだけを扱う（[docs/adr/codex-integration.md](docs/adr/codex-integration.md)）。
 
 1. Codex カードの `⋮` →「Codex の開始設定」でモデルと思考レベルを選ぶ（どちらも選ぶまで保存できない）
 2. `⋮` に「接続確認」が出る。押すと送信し、そのあと利用枠を取り直す
@@ -369,35 +369,11 @@ bun run check
 
 - [AGENTS.md](AGENTS.md) — このプロジェクトで作業するエージェント向けの規約
 - [docs/design.md](docs/design.md) — 全体設計
-- [docs/adr/0000-stack-and-style.md](docs/adr/0000-stack-and-style.md) — スタックとスタイル
-- [docs/adr/0001-state-fetching.md](docs/adr/0001-state-fetching.md) — 状態の取得
-- [docs/adr/0002-authentication-and-exposure.md](docs/adr/0002-authentication-and-exposure.md) — 入口の認証と公開範囲
-- [docs/adr/0003-pin-storage-and-session-key.md](docs/adr/0003-pin-storage-and-session-key.md) — PIN とセッション鍵の保存
-- [docs/adr/0004-usage-sampling-and-storage.md](docs/adr/0004-usage-sampling-and-storage.md) — 利用枠の取得と保存
-- [docs/adr/0005-codex-credentials-and-sign-in.md](docs/adr/0005-codex-credentials-and-sign-in.md) — Codex の資格情報とサインイン
-- [docs/adr/0006-opencode-api-key-registration.md](docs/adr/0006-opencode-api-key-registration.md) — OpenCode Go の API キーの画面登録
-- [docs/adr/0007-opencode-multiple-accounts.md](docs/adr/0007-opencode-multiple-accounts.md) — OpenCode Go の複数アカウント
-- [docs/adr/0008-remaining-gauge-and-window-trend.md](docs/adr/0008-remaining-gauge-and-window-trend.md) — 残量ゲージと窓の期間に合わせた推移
-- [docs/adr/0009-window-blocking-and-five-hour-rolling.md](docs/adr/0009-window-blocking-and-five-hour-rolling.md) — 窓の停止表示とローリングの 5 時間
-- [docs/adr/0010-menu-and-modal-layout.md](docs/adr/0010-menu-and-modal-layout.md) — 常設ボタンのメニュー移動と追加のモーダル
-- [docs/adr/0011-view-mode-toggle.md](docs/adr/0011-view-mode-toggle.md) — 簡易 / 標準の表示切り替え
-- [docs/adr/0012-codex-signout-in-card-menu.md](docs/adr/0012-codex-signout-in-card-menu.md) — Codex のサインアウトをカードのメニューへ
-- [docs/adr/0013-meter-status-icons.md](docs/adr/0013-meter-status-icons.md) — 使用不可と残りわずかの印を SVG にする
-- [docs/adr/0014-pwa-icons.md](docs/adr/0014-pwa-icons.md) — PWA と iOS ホーム画面用のアイコン
-- [docs/adr/0015-reset-line-badge.md](docs/adr/0015-reset-line-badge.md) — リセット行の残り時間をバッジにする
-- [docs/adr/0016-exhausted-cards-last.md](docs/adr/0016-exhausted-cards-last.md) — 使い切ったカードを末尾に回す
-- [docs/adr/0017-probe-prompts.md](docs/adr/0017-probe-prompts.md) — 最小プロンプトの送信（5 時間窓の開始と接続確認）
-- [docs/adr/0018-codex-trend-across-signout.md](docs/adr/0018-codex-trend-across-signout.md) — Codex の推移をサインアウト後も同じアカウントで引き継ぐ
-- [docs/adr/0019-opencode-subscription-errors.md](docs/adr/0019-opencode-subscription-errors.md) — OpenCode Go の契約エラーをキー無効と分ける
-- [docs/adr/0020-opencode-service-status.md](docs/adr/0020-opencode-service-status.md) — 有効な Go カードがあるときだけ公式の稼働状況を表示する
-- [docs/adr/0021-opencode-monthly-order.md](docs/adr/0021-opencode-monthly-order.md) — OpenCode Go のカードを月次の残り順に並べる
-- [docs/adr/0022-claude-usage-via-cli.md](docs/adr/0022-claude-usage-via-cli.md) — Claude の利用枠を公式 CLI の `/usage` で、画面を開いたときと手動更新だけ取る
-- [docs/adr/0023-fetch-status-display.md](docs/adr/0023-fetch-status-display.md) — 取得状況はカード内の間隔・経過・進捗バーで示す
-- [docs/adr/0024-provider-fetch-intervals.md](docs/adr/0024-provider-fetch-intervals.md) — 取得間隔は provider ごとに設定し、SQLite に保存する
-- [docs/adr/0025-paused-account-retry.md](docs/adr/0025-paused-account-retry.md) — 契約エラーのアカウントは自動更新を止め、明示的な再取得で再開する
-- [docs/adr/0026-claude-card-visibility-and-logout.md](docs/adr/0026-claude-card-visibility-and-logout.md) — Claude のカードは認証済みのときだけ出し、非表示はログアウトにする
-- [docs/adr/0027-provider-order-and-icons.md](docs/adr/0027-provider-order-and-icons.md) — カードは Codex → Claude → OpenCode Go の順に並べ、見出しに provider のロゴを置く
-- [docs/adr/0028-claude-session-start-schedule.md](docs/adr/0028-claude-session-start-schedule.md) — Claude の 5 時間窓を、予約した時刻から 5 時間おきに開始する
-- [docs/adr/0029-status-page-links.md](docs/adr/0029-status-page-links.md) — 稼働状況はアプリに取り込まず、メニューから公式ステータスを開く
-- [docs/adr/0030-provider-marks-from-hwc.md](docs/adr/0030-provider-marks-from-hwc.md) — provider のロゴを HWC のマークに揃え、ステータスのメニューにも置く
-- [docs/adr/0031-provider-mark-colors.md](docs/adr/0031-provider-mark-colors.md) — provider のマークにブランド色を付け、使えないときだけ灰色にする
+- [docs/adr/stack-and-client.md](docs/adr/stack-and-client.md) — スタックと client の取得方式（ポーリング、PWA）
+- [docs/adr/auth-and-exposure.md](docs/adr/auth-and-exposure.md) — 入口の認証と公開範囲（6 桁 PIN、自宅 LAN / VPN 前提）
+- [docs/adr/usage-sampling-and-storage.md](docs/adr/usage-sampling-and-storage.md) — 利用枠の取得・保存と窓の扱い
+- [docs/adr/provider-marks.md](docs/adr/provider-marks.md) — provider のマークと同梱アセット
+- [docs/adr/opencode-integration.md](docs/adr/opencode-integration.md) — OpenCode Go との連携（アカウント・契約エラー・再取得）
+- [docs/adr/codex-integration.md](docs/adr/codex-integration.md) — Codex との連携（資格情報・サインイン・送信）
+- [docs/adr/claude-integration.md](docs/adr/claude-integration.md) — Claude との連携（公式 CLI・取得の契機・開始予約）
+- [docs/adr/service-status-links.md](docs/adr/service-status-links.md) — 稼働状況は取り込まず公式ページへリンクする
