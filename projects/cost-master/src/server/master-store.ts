@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { MASTER_KINDS, type MasterKind } from "../shared/contract";
+import { MASTER_KINDS, type MasterFailure, type MasterKind } from "../shared/contract";
 import type { MasterState } from "./app";
 import { buildPayload, parseJudgmentFile, parsePriceFile, type DroppedRow } from "./master";
 
@@ -141,37 +141,48 @@ export function createMasterStore(input: {
 
 type ParsedMaster = { state: MasterState; dropped: DroppedRow[] };
 
-/** アップロードは人の明示操作なので、起動時の読み込みと違って 1 行でも不正なら全体を拒否する */
+/** 読めない理由は `/api/health` で返すので、ここでは捨てずに state へ載せる */
+function unavailable(failure: MasterFailure, rowsDropped = 0): ParsedMaster {
+  return { state: { ok: false, failure, rowsDropped }, dropped: [] };
+}
+
 function parseMaster(pricesText: string | null, enabledText: string | null): ParsedMaster {
-  const unavailable: ParsedMaster = { state: { ok: false }, dropped: [] };
-  const prices = pricesText === null ? undefined : tryParse(pricesText);
+  if (pricesText === null) {
+    return unavailable("prices-missing");
+  }
+
+  const prices = tryParse(pricesText);
 
   if (prices === undefined) {
-    return unavailable;
+    return unavailable("prices-unreadable");
   }
 
   const parsedPrices = parsePriceFile(prices);
 
   if (!parsedPrices.ok) {
-    return unavailable;
+    return unavailable("prices-unreadable");
   }
 
   // どの行もこの版の語彙で読めないファイルは、読めていないのと同じ。空の一覧を配ると
   // u7agent が「価格が消えた」と解釈する（古い prices.json を volume に残したまま更新した場合など）
   if (parsedPrices.rows.length === 0 && parsedPrices.dropped.length > 0) {
-    return unavailable;
+    return unavailable("prices-no-usable-rows", parsedPrices.dropped.length);
   }
 
-  const enabled = enabledText === null ? undefined : tryParse(enabledText);
+  if (enabledText === null) {
+    return unavailable("enabled-missing");
+  }
+
+  const enabled = tryParse(enabledText);
 
   if (enabled === undefined) {
-    return unavailable;
+    return unavailable("enabled-unreadable");
   }
 
   const parsedJudgments = parseJudgmentFile(enabled);
 
   if (!parsedJudgments.ok) {
-    return unavailable;
+    return unavailable("enabled-unreadable");
   }
 
   return {
@@ -188,6 +199,7 @@ function parseMaster(pricesText: string | null, enabledText: string | null): Par
   };
 }
 
+/** アップロードは人の明示操作なので、起動時の読み込みと違って 1 行でも不正なら全体を拒否する */
 function validate(kind: MasterKind, value: unknown): string | null {
   if (kind === "prices") {
     const parsed = parsePriceFile(value);

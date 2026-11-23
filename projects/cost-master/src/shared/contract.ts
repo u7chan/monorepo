@@ -44,6 +44,23 @@ export function isMasterKind(value: string): value is MasterKind {
   return (MASTER_KINDS as readonly string[]).includes(value);
 }
 
+/**
+ * マスタを読めない理由。`/api/health` にだけ出し、切り分けに使う。ファイルの中身は含めない
+ * （画面が空になったときに、ログを見なくても原因へ辿り着けるようにする）。
+ */
+export const MASTER_FAILURES = [
+  "prices-missing",
+  "enabled-missing",
+  "prices-unreadable",
+  "prices-no-usable-rows",
+  "enabled-unreadable",
+] as const;
+export type MasterFailure = (typeof MASTER_FAILURES)[number];
+
+export function isMasterFailure(value: unknown): value is MasterFailure {
+  return typeof value === "string" && (MASTER_FAILURES as readonly string[]).includes(value);
+}
+
 /** `fetchedAt` は epoch ms。u7agent の `catalogSource` / `fetchedAt` と同じ単位に揃える */
 export type CostModelPrice = {
   provider: string;
@@ -74,6 +91,10 @@ export type CostMasterHealth = {
   /** マスタを読めていないときは null */
   masterFetchedAt: number | null;
   version: number | null;
+  /** 読めていないときだけ入る。正常時は付けない（u7agent が読む項目を増やさない） */
+  failure?: MasterFailure;
+  /** `prices-no-usable-rows` のときの、落とした行数 */
+  rowsDropped?: number;
 };
 
 export type CostMasterError = { error: "master_unavailable" };

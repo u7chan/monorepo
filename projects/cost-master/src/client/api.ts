@@ -1,13 +1,52 @@
-import type { CostMasterPayload, MasterKind } from "../shared/contract";
+import { isMasterFailure, type CostMasterPayload, type MasterFailure, type MasterKind } from "../shared/contract";
 
 export async function fetchModels(signal: AbortSignal): Promise<CostMasterPayload> {
   const response = await fetch("/api/models", { signal, headers: { Accept: "application/json" } });
 
   if (!response.ok) {
+    // 503 の本文は `master_unavailable` だけなので、理由は health から取って画面に出す
+    if (response.status === 503) {
+      throw new Error(await unavailableMessage(signal));
+    }
+
     throw new Error(`マスタを取得できませんでした (HTTP ${response.status})`);
   }
 
   return (await response.json()) as CostMasterPayload;
+}
+
+async function unavailableMessage(signal: AbortSignal): Promise<string> {
+  try {
+    const response = await fetch("/api/health", { signal, headers: { Accept: "application/json" } });
+    const body = (await response.json()) as { failure?: unknown; rowsDropped?: unknown };
+
+    return masterUnavailableMessage(
+      isMasterFailure(body.failure) ? body.failure : undefined,
+      typeof body.rowsDropped === "number" ? body.rowsDropped : undefined,
+    );
+  } catch {
+    return masterUnavailableMessage(undefined, undefined);
+  }
+}
+
+/** 失敗の理由は固定文言に寄せる。ログを見なくても、次に何をすればよいかが分かるようにする */
+export function masterUnavailableMessage(failure: MasterFailure | undefined, rowsDropped: number | undefined): string {
+  switch (failure) {
+    case "prices-missing":
+      return "マスタの置き場に prices.json がありません。サーバーの MASTER_DIR を確認してください";
+    case "enabled-missing":
+      return "マスタの置き場に enabled.json がありません。サーバーの MASTER_DIR を確認してください";
+    case "prices-unreadable":
+      return "prices.json を読めません。JSON として不正か、この版が知らない形です";
+    case "enabled-unreadable":
+      return "enabled.json を読めません。JSON として不正か、この版が知らない形です";
+    case "prices-no-usable-rows":
+      return rowsDropped === undefined
+        ? "prices.json の行を 1 つも読めません。新しい prices.json をアップロードしてください"
+        : `prices.json の ${rowsDropped} 行すべてをこの版では読めません。古い prices.json が残っていませんか。新しい prices.json をアップロードしてください`;
+    default:
+      return "マスタを読めません。サーバーのログを確認してください";
+  }
 }
 
 export type UploadResult = { ok: true; version: number | null } | { ok: false; message: string };

@@ -62,6 +62,30 @@ bun run start # bun src/server.ts
 { "ok": true, "service": "cost-master", "masterFetchedAt": 1794600000000, "version": 3 }
 ```
 
+読めないときは `ok: false` に加えて、**どのファイルがどう読めないのか**を `failure` で返す（中身は含めない）。
+`rowsDropped` は `prices-no-usable-rows` のときの行数。
+
+```json
+{
+  "ok": false,
+  "service": "cost-master",
+  "masterFetchedAt": null,
+  "version": null,
+  "failure": "prices-no-usable-rows",
+  "rowsDropped": 147
+}
+```
+
+| `failure` | 意味 | 直し方 |
+| --- | --- | --- |
+| `prices-missing` | `MASTER_DIR` に `prices.json` が無い | 置き場を確かめ、ファイルを置く |
+| `enabled-missing` | `MASTER_DIR` に `enabled.json` が無い | 同上 |
+| `prices-unreadable` | `prices.json` が JSON として壊れている / トップレベルがこの版の形と違う | ダウンロードして直すか、生成し直してアップロードする |
+| `prices-no-usable-rows` | `prices.json` の行が 1 つも読めない（旧語彙のままなど） | 新しい `prices.json` をアップロードする |
+| `enabled-unreadable` | `enabled.json` が壊れている / 形が違う | 同上 |
+
+`/api/models` の 503 本文は `{"error":"master_unavailable"}` のまま（u7agent の扱いを変えない）。
+
 `GET /api/master/{prices,enabled}` — 現在のファイルをそのままダウンロード（編集の起点）。
 
 `PUT /api/master/{prices,enabled}` — raw JSON をそのまま置き換える。`Content-Type: application/json`、1 MiB まで。
@@ -163,6 +187,19 @@ bun run generate                # src/server/data/prices.json を書き換える
 
 **サーバーは上流へ出ない。** 取り込みは手元（または任意の作業環境）で実行し、できた `prices.json` を画面から
 アップロードする。
+
+### 語彙（スキーマ）が変わるリリース
+
+マスタの形を変える版（行に `kind` を足したときなど）をデプロイすると、volume に残っている旧形式の
+`prices.json` は 1 行も読めず、`failure: prices-no-usable-rows` の 503 が続く。**アップロードを先、
+デプロイを後**にする。
+
+1. 新しい版で `prices.json` を生成する
+2. **先に**画面からアップロードする（旧版は知らないキーを無視するので、この時点でも読める）
+3. `/api/health` が `ok: true` で、行数と `kind` の内訳が想定どおりなのを確かめる
+4. そのあとで新しい image をデプロイする
+
+逆順にすると、デプロイからアップロードまでの間だけ画面と u7agent のカタログが 503 になる（データは消えない）。
 
 ### 更新の目安
 

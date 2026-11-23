@@ -19,7 +19,7 @@
 - `src/server.ts` が `Bun.serve` の入口。`index.html` の HTML import を `/` に、それ以外を Hono に渡す。マスタの置き場（`MASTER_DIR`）を用意して `master-store` を組み立てる。
 - `src/server/app.ts` が API の Hono app。`/api/models` / `/api/health`（読み取り）、`/api/master/:kind`（ダウンロード / アップロード）、`/api/judgments`（1 行だけの更新）を持つ。状態は依存として注入し、テストは `app.request()` で叩く。書き込みは same-origin だけ通し、認証は持たない（LAN / VPN の内側という前提を変えない）。
 - `src/server/master.ts` がマスタの検証・正規化・応答の組み立て。純関数だけを置く。壊れた行は落とし、どちらかのファイルが読めないときは 503 に倒す（空の一覧を返して価格と判断を消さない）。1 行の更新計画（`planJudgment`）もここに置く。
-- `src/server/master-store.ts` が `MASTER_DIR` の読み書き。起動時に volume にマスタが 1 つも無ければ image 同梱の初期値をコピーし（片方だけあるときはコピーしない）、リクエストごとに mtime を見て読み直す（再起動なしで反映）。置き換えは 1 行でも不正なら全体を拒否し、tmp + rename で置き換えて直前の内容を `.bak` に残す。
+- `src/server/master-store.ts` が `MASTER_DIR` の読み書き。起動時に volume にマスタが 1 つも無ければ image 同梱の初期値をコピーし（片方だけあるときはコピーしない）、リクエストごとに mtime を見て読み直す（再起動なしで反映）。読めないときは理由（`failure`）と落とした行数を持たせ、`/api/health` に出す（ログを見なくても原因に辿り着けるようにする）。置き換えは 1 行でも不正なら全体を拒否し、tmp + rename で置き換えて直前の内容を `.bak` に残す。
 - `src/server/generate.ts` が価格の取り込み。上流の取得も同じ関数に閉じ、`fetch` を注入できる。失敗したモデルは前回の行を残し、`endpoints: []` は価格なしを確定する。上流の応答本文はログにもファイルにも出さない。**サーバーは上流へ出ない**（取り込みは手元で実行し、結果をアップロードする）。
 - `src/shared/contract.ts` が応答の型の正。u7agent 側の DTO とは別で、`billable` はここまで。
 - `src/shared/format.ts` が単価と鮮度の整形。client とスクリプトの出力で共有する。
@@ -32,6 +32,24 @@
 | `src/server/data/enabled.json` | 人の判断とメモ | 画面のスイッチ（一括・復旧はダウンロードして編集） |
 
 由来を混ぜないのは、生成が人の判断を上書きしないようにするため。判断が無いモデルは `enabled: true`。
+
+## マスタを読めないとき
+
+読めないときは `/api/models` が 503 に倒れ、`/api/health` が理由を `failure` で返す（中身は含めない）。
+画面も同じ理由を固定文言で出す。ログを見なくても次に何を直すかが分かるようにしてある。
+
+| `failure` | 意味 | 直し方 |
+| --- | --- | --- |
+| `prices-missing` / `enabled-missing` | 置き場（`MASTER_DIR`）にファイルが無い | 置き場を確かめ、ファイルを置く |
+| `prices-unreadable` / `enabled-unreadable` | JSON が壊れている / トップレベルがこの版の形と違う | ダウンロードして直すか、生成し直してアップロードする |
+| `prices-no-usable-rows` | `prices.json` の行が 1 つも読めない（旧語彙のままなど） | 新しい `prices.json` をアップロードする |
+
+### 語彙（スキーマ）が変わるリリース
+
+マスタの形を変える版（行に `kind` を足したときなど）は、**アップロードを先、デプロイを後**にする。
+旧版は知らないキーを無視するので、先にアップロードしても読める。逆順にすると、旧形式のファイルは
+全行が落ちて `prices-no-usable-rows` の 503 が続く（データは消えない）。手順の詳細は
+[README.md](README.md#語彙スキーマが変わるリリース) にある。
 
 ## 検証
 
