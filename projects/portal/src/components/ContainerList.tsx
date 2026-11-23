@@ -7,7 +7,11 @@ import { GLASS } from "./glass";
 import { GridIcon, ListIcon, TrayIcon, WarningIcon } from "./icons";
 import { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
 import { readApiMessage, readStatusError, requestJson } from "../lib/apiClient";
-import { isPortReachable, matchesContainerFilter } from "../lib/containerState";
+import {
+  isPortReachable,
+  matchesContainerFilter,
+  sortContainersByLinks,
+} from "../lib/containerState";
 import { useImageUpdates } from "../hooks/useImageUpdates";
 
 interface ContainerListProps {
@@ -243,7 +247,10 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
   );
 
   const visibleContainers = useMemo(
-    () => state.containers.filter((item) => matchesContainerFilter(item, filter)),
+    () =>
+      sortContainersByLinks(
+        state.containers.filter((item) => matchesContainerFilter(item, filter)),
+      ),
     [state.containers, filter],
   );
 

@@ -1,3 +1,4 @@
+import { orderLinks } from "./ports";
 import type { Container, ContainerFilter } from "../types/container";
 
 export type ContainerAction = "start" | "stop";
@@ -21,6 +22,34 @@ export function matchesContainerFilter(container: Container, filter: ContainerFi
  */
 export function filterContainers(containers: Container[], filter: ContainerFilter): Container[] {
   return containers.filter((container) => matchesContainerFilter(container, filter));
+}
+
+/**
+ * リンクのタイルを 1 つでも出すコンテナか。判定条件は ContainerLinks の表示分岐と揃える
+ * (ずれると「リンクが無いのに上に残る」カードが出る)。
+ */
+export function hasContainerLinks(container: Container): boolean {
+  if (container.hidden) {
+    return false;
+  }
+
+  if (container.url) {
+    return true;
+  }
+
+  return orderLinks(container.ports, container.urls).length > 0;
+}
+
+/**
+ * リンクを出すコンテナを先に並べる。開く先の無いカードは一覧の目的 (ポートを開く) に対して
+ * ノイズになるため末尾へまとめる。並び替えのキーを状態にしないのは、30 秒ごとの更新で
+ * 状態が変わるたびにカードの位置が動くと、押そうとしたカードを見失うため。
+ * 同じ順位どうしは元の順 (docker ps の順) を保つ。
+ */
+export function sortContainersByLinks(containers: Container[]): Container[] {
+  return [...containers].sort(
+    (a, b) => Number(hasContainerLinks(b)) - Number(hasContainerLinks(a)),
+  );
 }
 
 /**
