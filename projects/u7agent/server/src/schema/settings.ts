@@ -592,6 +592,15 @@ export const VoiceInputTestResponseSchema = z.union([
 ]);
 export type VoiceInputTestResponse = z.infer<typeof VoiceInputTestResponseSchema>;
 /**
+ * POST `/api/voice-input/session` の失敗応答。成功は SDP そのもの（200 `application/sdp` +
+ * `Cache-Control: no-store`）で、失敗だけ JSON になる。上流失敗（502）だけ `code` を持つ。
+ */
+export const VoiceInputSessionFailureSchema = z.object({
+  error: z.string(),
+  code: z.enum(PROVIDER_FAILURE_CODES).optional(),
+});
+export type VoiceInputSessionFailure = z.infer<typeof VoiceInputSessionFailureSchema>;
+/**
  * GET / PUT `/api/settings/session-title`。会話タイトルの AI 要約 (On/Off・要約モデル・Effort・定義) を持つ。
  * 行が無い = 既定 (Off・モデル未選択・Effort 未指定・既定の定義)。モデルは本会話のモデルと独立で、
  * `provider/id` で表す。Effort はモデルが対応する段階だけを保存できる。

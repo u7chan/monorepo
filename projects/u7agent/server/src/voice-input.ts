@@ -31,11 +31,25 @@ const VOICE_INPUT_SECRET_SCOPE = "voice_input_settings" as const;
 const VOICE_INPUT_SECRET_OWNER = "apiKey";
 
 /** 短命キーの発行。音声は送らないため課金されない（docs/api-settings.md） */
-const VOICE_INPUT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
+export const VOICE_INPUT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
 /** 疎通確認の期限。発行は 1 往復なので短く切る */
 export const VOICE_INPUT_TEST_TIMEOUT_MS = 10_000;
 /** 発行する短命キーの期限。ブラウザは SDP の交換だけに使い、録音の長さとは独立 */
 const VOICE_INPUT_CLIENT_SECRET_SECONDS = 60;
+
+/**
+ * 短命キーの発行本文。セッション種別とモデルを固定し、client から受け取った値を混ぜない
+ * （疎通確認と Realtime 中継で同じ本文を送る）。
+ */
+export function clientSecretRequestBody(): string {
+  return JSON.stringify({
+    expires_after: { anchor: "created_at", seconds: VOICE_INPUT_CLIENT_SECRET_SECONDS },
+    session: {
+      type: "transcription",
+      audio: { input: { transcription: { model: VOICE_INPUT_MODEL }, turn_detection: null } },
+    },
+  });
+}
 
 export const VOICE_INPUT_KEY_NOT_STORED_MESSAGE = "音声入力のAPIキーをアプリデータ（SQLite）へ保存できませんでした";
 export const VOICE_INPUT_SETTINGS_NOT_STORED_MESSAGE = "音声入力の設定をアプリデータ（SQLite）から読み取れませんでした";
@@ -232,17 +246,11 @@ export class VoiceInputSettingsService {
       const response = await (this.#fetchImpl ?? fetch)(VOICE_INPUT_SECRETS_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${use.apiKey}` },
-        body: JSON.stringify({
-          expires_after: { anchor: "created_at", seconds: VOICE_INPUT_CLIENT_SECRET_SECONDS },
-          session: {
-            type: "transcription",
-            audio: { input: { transcription: { model: VOICE_INPUT_MODEL }, turn_detection: null } },
-          },
-        }),
+        body: clientSecretRequestBody(),
         signal: controller.signal,
       });
       const body = parseJsonBody(await response.text());
-      if (response.ok && validClientSecretResponse(body, use.apiKey)) {
+      if (response.ok && clientSecretValueOf(body, use.apiKey) !== null) {
         return { status: 200, response: { ok: true, model: VOICE_INPUT_MODEL } };
       }
       failure = response.ok
@@ -335,14 +343,15 @@ export class VoiceInputSettingsService {
 }
 
 /**
- * 発行された短命キーの形だけを見る。`session.type` が文字起こしで、`value` が `ek_` で始まり、
- * 入力の APIキーがそのまま返っていないことを確かめる（キーの再露出を成功と扱わない）。
+ * 発行された短命キーの形だけを見る。`session.type` が文字起こしで、`value` が `ek_` に
+ * base64url の文字だけを続けた形で、入力の APIキーがそのまま返っていないことを確かめる
+ * （キーの再露出を成功と扱わない）。疎通確認と Realtime 中継で同じ検査を使い、片方だけ緩めない。
  */
-function validClientSecretResponse(body: unknown, apiKey: string): boolean {
-  if (typeof body !== "object" || body === null) return false;
+export function clientSecretValueOf(body: unknown, apiKey: string): string | null {
+  if (typeof body !== "object" || body === null) return null;
   const value = (body as { value?: unknown }).value;
   const session = (body as { session?: unknown }).session;
-  if (typeof value !== "string" || !value.startsWith("ek_") || value === apiKey) return false;
-  if (typeof session !== "object" || session === null) return false;
-  return (session as { type?: unknown }).type === "transcription";
+  if (typeof value !== "string" || !/^ek_[A-Za-z0-9_-]+$/.test(value) || value === apiKey) return null;
+  if (typeof session !== "object" || session === null) return null;
+  return (session as { type?: unknown }).type === "transcription" ? value : null;
 }

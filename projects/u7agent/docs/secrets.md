@@ -142,6 +142,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - AAD は `u7agent-app-secret:<scope>:<owner>` で、環境変数シークレットの `u7agent-secret:<kind>:<name>` とはラベルを分ける。用途（テーブル）と所有者を AAD に含めるため、別の用途・別の行へ差し替えた暗号文は復号できない
 - nonce は保存のたびに作り直し、認証タグは暗号文の末尾に付ける。保存形式は `secrets` / `cloudflare_settings` と同じ
 - 復号した値は、SDK / DB / ログへ渡す前に `retainSecret()` でマスカーへ登録する。GET は暗号文を復号しない（起動時と保存 / 置換 / 再同期のときだけ評価する）。音声入力のキーも `PUT /api/settings/voice-input/key` が DB へ書く前に登録し、起動時の `VoiceInputSettingsService.applyStored()` も保存行を登録する（`content_settings` と同じ順序）
+- Realtime 中継が発行する短命キー（`ek_`）はマスカーへ登録しない。要求をまたいで保持せず、その要求のメモリだけで上流の `Authorization` に使う（恒久マスカーを短命の値で埋めない）
 - 復号の成否はプロセスのメモリだけに持ち、応答は `keyStored`（暗号文がある）/ `keyAvailable`（復号できて使える）/ `keyEvaluated`（復号を試したか）/ `keyErrorMessage`（サーバーの固定文言）で表す。`configured`（行の有無）だけで「キー登録済み」と読ませない
 - master key 未設定 / 宣言が壊れているときは、アプリは起動し、DB 保存キーを使う機能だけを 503 / 未設定表示にする。`env` / `auth.json` のプロバイダー認証は影響を受けない。復号を試せない既知の失敗として `keyEvaluated: true` / `keyAvailable: false` / 「master key が未設定」固定文言を返す
 - runtime（`pi`）が無い起動では復号しない。暗号文があっても `keyEvaluated: false` の未評価として返し、誤鍵・破損と断定しない。変更系は 503 にし、復号した値をメモリへ残さない
