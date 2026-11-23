@@ -20,7 +20,7 @@ import {
   SETTINGS_SECTION_KEY,
 } from "../src/lib/settingsNav";
 
-test("設定ナビは 15 項目をこの順で持つ", () => {
+test("設定ナビは 16 項目をこの順で持つ", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => [item.section, item.label]),
     [
@@ -33,6 +33,8 @@ test("設定ナビは 15 項目をこの順で持つ", () => {
       // モデルとは対象そのものが別で、モデルのタブではなくルートのセクションに置く
       ["content", "コンテンツ生成"],
       ["web-search", "Web 検索"],
+      // 音声入力は OpenAI Platform のキーを使う別の外部サービス面で、コンテンツ生成のタブにはしない
+      ["voice-input", "音声入力"],
       // 会話タイトルの AI 要約は本会話のモデルとは独立の設定なので、モデルのタブにせずルートへ置く
       ["session-title", "会話タイトル"],
       ["sharing", "共有"],

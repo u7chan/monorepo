@@ -674,6 +674,26 @@ export function SearchIcon() {
   );
 }
 
+/** 音声入力 (設定ナビ)。マイクのカプセルと受け皿 */
+export function MicrophoneIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <rect x="6.25" y="2.5" width="3.5" height="6.5" rx="1.75" />
+      <path d="M4.25 7.75a3.75 3.75 0 0 0 7.5 0" />
+      <path d="M8 11.5v2" />
+    </svg>
+  );
+}
+
 /** 外観 (設定ナビ)。明暗の半円でテーマ切替を表す (この画面の内容はテーマの選択だけ) */
 export function ThemeIcon() {
   return (

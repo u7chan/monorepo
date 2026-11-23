@@ -18,10 +18,23 @@ import {
 } from "../src/app-db";
 import type { ImageParameterDeclarations } from "../src/images";
 import type { AgentDef, Project } from "../src/schema";
-import { storedSecret } from "./app-secret-fixture";
+import { storedSecret, encryptedSecret, testAppCipher } from "./app-secret-fixture";
+import { VoiceInputSettingsService } from "../src/voice-input";
+import { APP_SECRET_DECRYPT_FAILED_MESSAGE } from "../src/app-secrets";
 
 function tempStoreDir(): string {
   return mkdtempSync(join(tmpdir(), "u7agent-app-db-"));
+}
+
+/** 保存形は Buffer と Uint8Array が混ざるため、バイト列で比べる */
+function assertSameSecret(
+  actual: { ciphertext: Uint8Array; nonce: Uint8Array; keyVersion: number } | undefined,
+  expected: { ciphertext: Uint8Array; nonce: Uint8Array; keyVersion: number },
+): void {
+  assert.ok(actual);
+  assert.equal(Buffer.from(actual.ciphertext).equals(Buffer.from(expected.ciphertext)), true);
+  assert.equal(Buffer.from(actual.nonce).equals(Buffer.from(expected.nonce)), true);
+  assert.equal(actual.keyVersion, expected.keyVersion);
 }
 
 function isServiceUnavailable(error: unknown): boolean {
@@ -4391,6 +4404,148 @@ test("壊れた content_settings.imageParams は既定なしへ落とさず、�
       );
       reopened.close();
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a new db has the voice input settings table and keeps the key across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    const saved = encryptedSecret("voice_input_settings", "apiKey", "sk-voice-dummy-key-0123456789");
+    first.saveVoiceInputSettings(saved);
+    assertSameSecret(first.readVoiceInputSettings(), saved);
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    const stored = second.readVoiceInputSettings();
+    assert.ok(stored);
+    assert.equal(testAppCipher().decrypt("voice_input_settings", "apiKey", stored), "sk-voice-dummy-key-0123456789");
+    // 削除は冪等（未設定でも false を返すだけで失敗しない）
+    assert.equal(second.deleteVoiceInputSettings(), true);
+    assert.equal(second.readVoiceInputSettings(), undefined);
+    assert.equal(second.deleteVoiceInputSettings(), false);
+    second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the v48 -> v49 migration creates only the voice input settings table", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.insertProject(project("p1", "proj-a"));
+    first.close();
+
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE voice_input_settings");
+    raw.exec("PRAGMA user_version = 48");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    const saved = encryptedSecret("voice_input_settings", "apiKey", "sk-voice-dummy-key-0123456789");
+    migrated.saveVoiceInputSettings(saved);
+    assertSameSecret(migrated.readVoiceInputSettings(), saved);
+    assert.deepEqual(migrated.listProjects(), [project("p1", "proj-a")], "既存の行を増減させない");
+    assert.deepEqual(migrated.readGitSettings(), { userName: "u7agent", userEmail: "u7agent@example.com" });
+    migrated.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    assert.ok(tableNames(check).includes("voice_input_settings"));
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the v48 -> v49 migration does not revive a git identity deleted at v48", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    // 設定 → Git の DELETE で行を消した v48 の DB を再現する
+    first.clearGitSettings();
+    first.close();
+
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE voice_input_settings");
+    raw.exec("PRAGMA user_version = 48");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.equal(migrated.readGitSettings(), undefined, "v48 で削除した行を移行で復活させない");
+    migrated.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("migrating a pre-v46 db still seeds the default git identity", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.clearGitSettings();
+    first.close();
+
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE voice_input_settings");
+    raw.exec("PRAGMA user_version = 45");
+    raw.close();
+
+    const migrated = AppDb.open({ storeDir: dir });
+    assert.deepEqual(migrated.readGitSettings(), { userName: "u7agent", userEmail: "u7agent@example.com" });
+    migrated.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("opening a newer schema recreates the app tables without dropping the voice input key", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    const saved = encryptedSecret("voice_input_settings", "apiKey", "sk-voice-dummy-key-0123456789");
+    first.saveVoiceInputSettings(saved);
+    first.close();
+
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION + 1}`);
+    raw.close();
+
+    const recreated = AppDb.open({ storeDir: dir });
+    // 新しい版を開いた #recreate(false) でも、DROP_TABLES に入れていないテーブルは残る
+    assertSameSecret(recreated.readVoiceInputSettings(), saved);
+    recreated.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an undecryptable voice input row reads as stored but unusable and keeps health ok", async () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    db.saveVoiceInputSettings(storedSecret(99));
+    const retained: string[] = [];
+    const service = new VoiceInputSettingsService({
+      db,
+      runtimeAvailable: true,
+      retainSecret: (value) => retained.push(value),
+      maskError: (text) => text,
+      appCipher: testAppCipher(),
+    });
+    await service.applyStored();
+    const settings = service.settings();
+    assert.equal(settings.keyStored, true);
+    assert.equal(settings.keyAvailable, false);
+    assert.equal(settings.keyEvaluated, true);
+    assert.equal(settings.keyErrorMessage, APP_SECRET_DECRYPT_FAILED_MESSAGE);
+    assert.deepEqual(retained, [], "復号できなかった値をマスカーへ足さない");
+    // 行の破損は health を落とさない（再登録の案内で回復できる）
+    assert.deepEqual(db.status(), { path: join(dir, APP_DB_FILENAME), ok: true });
+    db.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

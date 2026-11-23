@@ -5,6 +5,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ComposerProps } from "../src/components/Composer";
+import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import type { Attachment } from "../src/lib/attachments";
 import type { AgentDef, AgentSuggestion } from "../src/types";
 
@@ -56,7 +57,7 @@ const props: ComposerProps = {
 };
 
 const render = (overrides: Partial<ComposerProps> = {}): string =>
-  renderToStaticMarkup(createElement(Composer, { ...props, ...overrides }));
+  renderToStaticMarkup(createElement(ConfirmProvider, null, createElement(Composer, { ...props, ...overrides })));
 
 /** 本文 (textarea) を包む入力行の開始位置。「チップが入力行の中か」の境目に使う */
 const inputRowStart = (html: string): number => html.lastIndexOf("<div", html.indexOf("<textarea"));

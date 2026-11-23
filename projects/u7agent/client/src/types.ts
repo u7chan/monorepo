@@ -208,6 +208,7 @@ export type {
   UpdatePromptBody,
   UpdateProviderKeyBody,
   UpdateSecretBody,
+  UpdateVoiceInputKeyBody,
   UpdateWebSearchBody,
   UpdateWebSearchKeyBody,
   UpdateWebSearchProviderBody,
@@ -219,6 +220,10 @@ export type {
   WebSearchSettingsResponse,
   WebSearchTestProvider,
   WebSearchTestResponse,
+  VoiceInputMutationResponse,
+  VoiceInputSettingsResponse,
+  VoiceInputTestFailure,
+  VoiceInputTestResponse,
 } from "server";
 
 /** 環境変数の種別。正は server の DTO (SecretItem["kind"]) で、client は値を作らない */

@@ -13,10 +13,15 @@ const {
   resetDefinitions,
   checkCloudflareConnection,
   contentTrialStartFailure,
+  deleteVoiceInputKey,
   deleteWebSearchApiKey,
   getTitleSummarySettings,
+  getVoiceInputSettings,
   getWebSearchSettings,
   isNotStoredError,
+  postVoiceInputSession,
+  postVoiceInputTest,
+  putVoiceInputKey,
   probeCustomProvider,
   putWebSearchApiKey,
   putWebSearchProvider,
@@ -48,6 +53,7 @@ const {
   stopRuntimeServe,
   submitOAuthLoginCode,
 } = await import("../src/api");
+const { browserVoiceInputPlatform } = await import("../src/lib/voiceInput/browser");
 const { getSessionHistory, updateSessionTitle, postMessage, summarizeSessionTitle } = createSpaceApi("default");
 
 const page: HistoryPage = {
@@ -567,6 +573,85 @@ test("Web 検索の設定は GET / PUT / DELETE の往復で、キーは provide
   assert.deepEqual(await requests[1].json(), { enabled: false });
   assert.deepEqual(await requests[2].json(), { provider: "tavily" });
   assert.deepEqual(await requests[3].json(), { apiKey: "tvly-secret" });
+});
+
+test("音声入力の設定は GET / PUT / DELETE と疎通確認を同じ画面のパスへ送る", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    if (new URL(request.url).pathname.endsWith("/test")) {
+      return Response.json({ ok: false, code: "insufficient_credit", message: "残高が不足しています" });
+    }
+    return Response.json({
+      configured: true,
+      keyStored: true,
+      keyAvailable: true,
+      keyEvaluated: true,
+      keyErrorMessage: null,
+      model: "gpt-live-transcribe",
+      runtimeAvailable: true,
+      state: "applied",
+    });
+  });
+  assert.equal((await getVoiceInputSettings()).model, "gpt-live-transcribe");
+  assert.equal((await putVoiceInputKey("sk-voice-dummy-key")).state, "applied");
+  assert.equal((await deleteVoiceInputKey()).state, "applied");
+  const tested = await postVoiceInputTest();
+  assert.equal(tested.ok, false);
+  if (!tested.ok) assert.equal(tested.code, "insufficient_credit");
+  assert.deepEqual(
+    requests.map((request) => [request.method, new URL(request.url).pathname]),
+    [
+      ["GET", "/api/settings/voice-input"],
+      ["PUT", "/api/settings/voice-input/key"],
+      ["DELETE", "/api/settings/voice-input/key"],
+      ["POST", "/api/settings/voice-input/test"],
+    ],
+  );
+  assert.deepEqual(await requests[1].json(), { apiKey: "sk-voice-dummy-key" });
+});
+
+test("音声入力のセッションは SDP を raw で送り、失敗の code を残高不足の分類まで通す", async (t) => {
+  const requests: Request[] = [];
+  const offer = "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n";
+  const answerSdp = "v=0\r\no=- 3 4 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\n";
+  let reply: () => Response = () => new Response(answerSdp, { headers: { "Content-Type": "application/sdp" } });
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return reply();
+  });
+
+  assert.deepEqual(await browserVoiceInputPlatform.request(offer, new AbortController().signal), {
+    ok: true,
+    sdp: answerSdp,
+  });
+  const request = requests[0];
+  assert.ok(request);
+  assert.equal(request.method, "POST");
+  assert.equal(new URL(request.url).pathname, "/api/voice-input/session");
+  // hc は JSON 本文を前提にするので、raw の SDP と Content-Type を落とさないことを固定する (BFF は 415 で拒否する)
+  assert.equal(request.headers.get("content-type"), "application/sdp");
+  assert.equal(await request.text(), offer);
+
+  reply = () =>
+    Response.json(
+      { error: "OpenAI の残高が不足しています。Platform の利用状況を確認してください", code: "insufficient_credit" },
+      { status: 502 },
+    );
+  await assert.rejects(postVoiceInputSession(offer, new AbortController().signal), {
+    name: "ApiError",
+    message: "OpenAI の残高が不足しています。Platform の利用状況を確認してください",
+    status: 502,
+    code: "insufficient_credit",
+  });
+  // 応答の code は browser の request を素通りし、session.ts が insufficient-credit へ分類する
+  // (その分岐は client/test/voiceInputSession.test.ts が見る)
+  assert.deepEqual(await browserVoiceInputPlatform.request(offer, new AbortController().signal), {
+    ok: false,
+    code: "insufficient_credit",
+    message: "OpenAI の残高が不足しています。Platform の利用状況を確認してください",
+  });
 });
 
 test("会話タイトルの設定は GET / PUT の往復で、Effort を含めてまとめて送る", async (t) => {

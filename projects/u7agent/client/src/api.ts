@@ -111,6 +111,9 @@ import type {
   UpdateModelAvailabilityBody,
   UpdateNotificationsBody,
   UpdateTitleSummaryBody,
+  VoiceInputMutationResponse,
+  VoiceInputSettingsResponse,
+  VoiceInputTestResponse,
   WebSearchMutationResponse,
   WebSearchProviderId,
   WebSearchSettingsResponse,
@@ -1302,6 +1305,56 @@ export const deleteWebSearchApiKey = async (provider: WebSearchProviderId): Prom
   });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as WebSearchMutationResponse;
+};
+
+/**
+ * 設定 → 音声入力。保存済みのキーの状態（有無 / 復号できたか）と固定モデルを読む。
+ * キーの値は返らず、GET は復号もしない。
+ */
+export const getVoiceInputSettings = async (): Promise<VoiceInputSettingsResponse> => {
+  const res = await client.api.settings["voice-input"].$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 音声入力のAPIキーの登録・上書き。応答にキーは返らない */
+export const putVoiceInputKey = async (apiKey: string): Promise<VoiceInputMutationResponse> => {
+  const res = await client.api.settings["voice-input"].key.$put({ json: { apiKey } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as VoiceInputMutationResponse;
+};
+
+/** 音声入力のAPIキーの削除（行ごと消して未設定へ戻す）。未設定でも 200 の冪等 */
+export const deleteVoiceInputKey = async (): Promise<VoiceInputMutationResponse> => {
+  const res = await client.api.settings["voice-input"].key.$delete();
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as VoiceInputMutationResponse;
+};
+
+/**
+ * 音声入力の疎通確認。短命キーの発行だけを呼び、音声は送らない（課金なし）。
+ * 上流の確認失敗は 200 の `ok: false` で返り、未登録 / 利用不可は HTTP エラーになる。
+ */
+export const postVoiceInputTest = async (): Promise<VoiceInputTestResponse> => {
+  const res = await client.api.settings["voice-input"].test.$post();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 音声入力の Realtime セッション開始。offer SDP を BFF へ中継し、answer SDP を受け取る。
+ * 本文は SDP を raw で送るため `hc` を使わず fetch を使う（BFF は `application/sdp` だけを受ける）。
+ * 失敗は JSON の `error` / `code`（402 の残高不足など）を持つ ApiError になる。
+ */
+export const postVoiceInputSession = async (offerSdp: string, signal: AbortSignal): Promise<string> => {
+  const res = await fetch(client.api["voice-input"].session.$url(), {
+    method: "POST",
+    headers: { "Content-Type": "application/sdp" },
+    body: offerSdp,
+    signal,
+  });
+  if (!res.ok) throw await apiError(res);
+  return res.text();
 };
 
 /** 設定 → Git。グローバルな identity（user.name / user.email）を読む。未設定は両方 null */

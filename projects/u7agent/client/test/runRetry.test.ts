@@ -71,6 +71,13 @@ test("再実行のガードは送信経路と同じ順で、実際に遮って�
   assert.equal(runRetryBlockedReason({ ...open, runtimeReady: false }), "ランタイム未接続");
 });
 
+test("音声の操作中は再実行を遮り、理由に音声を出す", () => {
+  // What: 録音の決定待ちに再実行を挟むと、確定テキストの入る先の会話が変わる
+  const open = { sending: false, settingsChanging: false, attachmentsBusy: false, runtimeReady: true };
+  assert.equal(runRetryBlockedReason({ ...open, voiceInput: "録音中" }), "録音中");
+  assert.equal(runRetryBlockedReason({ ...open, sending: true, voiceInput: "録音中" }), "送信中", "送信は先に見る");
+});
+
 test("押せない理由の行は無効な操作の名前を実際のものに揃える", () => {
   assert.equal(blockedButtonsNotice({}), undefined);
   assert.equal(blockedButtonsNotice({ compact: "実行中" }), "今は圧縮できません（実行中）");

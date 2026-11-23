@@ -29,6 +29,7 @@ import { createServeRoutes } from "./routes/serve";
 import { createSkillFileRoutes } from "./routes/skill-files";
 import { createSessionRoutes } from "./routes/sessions";
 import { createWebSearchSettingsRoutes } from "./routes/web-search";
+import { createVoiceInputRoutes } from "./routes/voice-input";
 import { createTitleSummaryRoutes } from "./routes/title-summary";
 import { createGitSettingsRoutes } from "./routes/git-settings";
 import { createSecretScope } from "./secrets";
@@ -79,6 +80,7 @@ import {
   UpdateWebSearchBodySchema,
   UpdateWebSearchKeyBodySchema,
   UpdateWebSearchProviderBodySchema,
+  UpdateVoiceInputKeyBodySchema,
   WebSearchTestBodySchema,
   UpdateProviderMemoBodySchema,
   UpdatePromptBodySchema,
@@ -162,6 +164,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     contentTrials,
     webSearchSettings,
     webSearchTest,
+    voiceInputSettings,
+    voiceInputSession,
     titleSummarySettings,
     gitSettings,
     serve,
@@ -192,6 +196,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     contentTrials,
     webSearchSettings,
     webSearchTest,
+    voiceInputSettings,
+    voiceInputSession,
     titleSummarySettings,
     gitSettings,
     serve,
@@ -224,7 +230,16 @@ function useEntryGuards<E extends Env, S extends Schema>(app: Hono<E, S>, routes
 
 /** 1. raw 本文を受けるルート。`bodyGuard` が本文を読み切る前に登録する */
 function registerRawBodyRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, routes: BffRoutes) {
-  const { appDataMutation, fileRoutes, skillFileRoutes, backupRoutes, sessionRoutes, sharedContentRoutes } = routes;
+  const {
+    appDataMutation,
+    sameOriginOnly,
+    fileRoutes,
+    skillFileRoutes,
+    backupRoutes,
+    sessionRoutes,
+    sharedContentRoutes,
+    voiceInputRoutes,
+  } = routes;
   const withRawBody = app
     // 設定 → ファイル のドラッグ＆ドロップは本文を raw で流すため、bodyGuard より先に登録する
     .post("/api/files/upload", (c) => fileRoutes.upload(c))
@@ -235,7 +250,9 @@ function registerRawBodyRoutes<E extends Env, S extends Schema>(app: Hono<E, S>,
     // バックアップの復元も raw の ZIP を受ける。plan (dryRun) と apply が同じ本文を通る
     .post("/api/backup/restore", (c) => backupRoutes.restore(c))
     // サムネイルは raw の PNG (最大 2 MiB) を受けるので、64 KiB で読み切る bodyGuard より前に登録する
-    .put("/api/shared-contents/:id/thumbnail", appDataMutation, (c) => sharedContentRoutes.putThumbnail(c));
+    .put("/api/shared-contents/:id/thumbnail", appDataMutation, (c) => sharedContentRoutes.putThumbnail(c))
+    // Realtime の offer SDP も上流へそのまま渡すため、text 化する bodyGuard より前に登録する
+    .post("/api/voice-input/session", sameOriginOnly, (c) => voiceInputRoutes.session(c));
   return withRawBody;
 }
 
@@ -270,6 +287,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     sharedContentRoutes,
     sharedContentExclusionsRoutes,
     webSearchSettingsRoutes,
+    voiceInputRoutes,
     titleSummaryRoutes,
     gitSettingsRoutes,
     secretRoutes,
@@ -896,6 +914,19 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
       // クエリは自由文なので、ログや履歴に残る URL ではなく本文で受け取る
       (c) => webSearchSettingsRoutes.test(c, c.req.valid("json")),
     )
+    .get("/api/settings/voice-input", appData, voiceInputRoutes.list)
+    .put(
+      "/api/settings/voice-input/key",
+      sameOriginOnly,
+      appDataMutation,
+      jsonBodyValidator(UpdateVoiceInputKeyBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      // キー値はマスカー登録のあるサービス側でだけ扱い、パス / クエリへは出さない
+      (c) => voiceInputRoutes.putKey(c, c.req.valid("json").apiKey),
+    )
+    .delete("/api/settings/voice-input/key", sameOriginOnly, appDataMutation, voiceInputRoutes.deleteKey)
+    .post("/api/settings/voice-input/test", sameOriginOnly, appData, voiceInputRoutes.test)
     .get("/api/settings/git", appData, gitSettingsRoutes.list)
     .put(
       "/api/settings/git",
@@ -980,6 +1011,8 @@ function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, 
     contentTrials,
     webSearchSettings,
     webSearchTest,
+    voiceInputSettings,
+    voiceInputSession,
     titleSummarySettings,
     titleSummaryTest,
     gitSettings,
@@ -1038,6 +1071,8 @@ function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, 
   const sharedContentRoutes = createSharedContentRoutes({ sharedContents });
   const sharedContentExclusionsRoutes = createSharedContentExclusionsRoutes({ sharedContentExclusions });
   const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings, test: webSearchTest });
+  // 音声入力はキーが write-only。中継は raw の SDP を受けるため raw 本文の段で登録する
+  const voiceInputRoutes = createVoiceInputRoutes({ voiceInputSettings, voiceInputSession });
   const titleSummaryRoutes = createTitleSummaryRoutes({ titleSummarySettings, test: titleSummaryTest });
   // Git の設定は全会話の commit identity を変えられるため、PUT / DELETE だけ same-origin 要求に絞る
   const gitSettingsRoutes = createGitSettingsRoutes({ gitSettings });
@@ -1080,6 +1115,7 @@ function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, 
     sharedContentRoutes,
     sharedContentExclusionsRoutes,
     webSearchSettingsRoutes,
+    voiceInputRoutes,
     titleSummaryRoutes,
     gitSettingsRoutes,
     secretRoutes,

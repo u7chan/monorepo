@@ -31,7 +31,7 @@ export type { SharedContentRow, SharedContentSourceKind, SharedContentStatus, Sh
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 48;
+export const APP_DB_SCHEMA_VERSION = 49;
 
 /**
  * AEAD で保存する値の保存形。GCM の認証タグは ciphertext の末尾に含む。
@@ -209,6 +209,13 @@ export interface WebSearchSettingsRow {
   enabled: boolean;
   provider: string;
 }
+
+/**
+ * 音声入力のキーの保存行（id = 1）。**行が無い = キー未設定**で、列は AEAD の暗号文だけを持つ。
+ * v1 はキーだけなので行の型を別にせず保存形をそのまま使う（列を足すときに行の型を作る）。
+ * キーは OpenAI Platform のもので、コンテンツ生成（OpenRouter）とは共有しない。
+ */
+export type VoiceInputSettingsRow = StoredAppSecret;
 
 /**
  * 会話タイトルの AI 要約の保存行。**行が無い = 既定 (Off・モデル未選択・定義は既定文)**。
@@ -725,6 +732,22 @@ CREATE TABLE IF NOT EXISTS web_search_provider_keys (
 );
 `;
 
+/**
+ * v48 -> v49 で足したテーブル。設定 → 音声入力の OpenAI Platform のキーを 1 行だけ持ち、
+ * **行が無い = キー未設定**（削除は行ごと消す）。コンテンツ生成の `content_settings` と同居させないのは、
+ * キー削除や照合の規則（音声の値にキーを混ぜない等）へ無関係な制約を持ち込まないため。
+ * **`DROP_TABLES` に入れない**: キーを失う経路を増やさない (`secrets` と同じ扱い)。古いビルドへ戻したときの
+ * #recreate はこのテーブルを知らないので放置され、新ビルドの #migrate() が合流させる。
+ */
+const VOICE_INPUT_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS voice_input_settings (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  ciphertext BLOB NOT NULL,
+  nonce      BLOB NOT NULL,
+  keyVersion INTEGER NOT NULL
+);
+`;
+
 /** v32 -> v33 で足したテーブル。応答 1 件分の実測を派生データとして持つ (docs/persistence.md) */
 const ASSISTANT_METRICS_TABLE = `
 CREATE TABLE IF NOT EXISTS assistant_metrics (
@@ -937,6 +960,7 @@ ${SPEECH_FORMATS_TABLE}
 ${SERVE_COMMANDS_TABLE}
 ${WEB_SEARCH_SETTINGS_TABLE}
 ${WEB_SEARCH_PROVIDER_KEYS_TABLE}
+${VOICE_INPUT_SETTINGS_TABLE}
 ${TITLE_SUMMARY_SETTINGS_TABLE}
 ${GIT_SETTINGS_TABLE}
 ${SECRETS_TABLE}
@@ -973,7 +997,7 @@ DROP TABLE IF EXISTS title_summary_settings;
 DROP TABLE IF EXISTS git_settings;
 DROP TABLE IF EXISTS assistant_metrics;
 `;
-// secrets / shared_contents / cloudflare_settings / shared_content_settings は意図的に含めない
+// secrets / shared_contents / cloudflare_settings / shared_content_settings / voice_input_settings は意図的に含めない
 // (docs/secrets.md / docs/static-sharing-design.md)。assistant_metrics は JSONL から引き直せる派生データなので
 // 含める (行が消えても、再起動後の表示が SDK 記録値の概算へ戻るだけ)。speech_formats も同じ派生データで、
 // 消えても形式違いの 400 が 1 往復増えるだけ。
@@ -1470,7 +1494,7 @@ export class AppDb {
       // user_version が 0 = 未初期化 (新規ファイル・0 バイトの残骸・メモリ DB)。このときだけ初期値を入れる
       if (version === 0) instance.#recreate(true);
       // 古い版は加算的に移行する (定義を消さない)。未知の新しい版だけ従来どおり作り直す
-      else if (version < APP_DB_SCHEMA_VERSION) instance.#migrate();
+      else if (version < APP_DB_SCHEMA_VERSION) instance.#migrate(version);
       else if (version > APP_DB_SCHEMA_VERSION) instance.#recreate(false);
       // 廃止した組み込みプロンプトの行を、新規作成・移行・再起動のすべての経路で消す
       instance.#removeBuiltinPrompts();
@@ -1859,8 +1883,9 @@ export class AppDb {
    * 削除 (v22 -> v23 の `skills` / `agents.skillIds`) は**既存の加算更新を通した後**に行い、
    * user_version の更新まで同じトランザクションに入れる (途中で失敗したら 1 つも残さない)。
    * スキル定義はファイルへ移行せず、退避・専用バックアップテーブルも作らない (docs/persistence.md)。
+   * `fromVersion` は「v46 未満からの移行か」の判定にだけ使い、他の加算はすべての古い版に同じく当てる。
    */
-  #migrate(): void {
+  #migrate(fromVersion: number): void {
     this.#query((db) => db.exec("BEGIN"));
     try {
       this.#query((db) => db.exec(NOTIFICATION_SETTINGS_TABLE));
@@ -1903,10 +1928,14 @@ export class AppDb {
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_SETTINGS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_PROVIDER_KEYS_TABLE));
+      // v48 -> v49: 音声入力のキー。行が無い = 未設定で、既存行は書き換えない
+      this.#query((db) => db.exec(VOICE_INPUT_SETTINGS_TABLE));
       this.#query((db) => db.exec(TITLE_SUMMARY_SETTINGS_TABLE));
       // v44 -> v45: Git のグローバル identity。v45 -> v46 で初期 identity を入れる
       this.#query((db) => db.exec(GIT_SETTINGS_TABLE));
-      this.#insertDefaultGitIdentity();
+      // 初期値は「行が無い」を未設定として読む v46 以降の意味を壊さないよう、新規 DB と v46 未満からの
+      // 移行だけで入れる (v46 以降に DELETE した行を、後の版の移行で復活させない)
+      if (fromVersion < 46) this.#insertDefaultGitIdentity();
       this.#query((db) => db.exec(SECRETS_TABLE));
       this.#query((db) => db.exec(SHARED_CONTENTS_TABLE));
       this.#query((db) => db.exec(CLOUDFLARE_SETTINGS_TABLE));
@@ -2757,6 +2786,37 @@ export class AppDb {
     return this.#secretQuery(
       (db) => db.prepare("DELETE FROM web_search_provider_keys WHERE provider = ?").run(provider).changes > 0,
     );
+  }
+
+  // --- voice input settings (1 行だけ。行が無い = キー未設定) ---
+
+  /** 行が無ければ undefined。値は暗号文だけで、復号はサービス側が行う */
+  readVoiceInputSettings(): VoiceInputSettingsRow | undefined {
+    const row = this.#secretQuery(
+      (db) => db.prepare("SELECT * FROM voice_input_settings WHERE id = 1").get() as Row | undefined,
+    );
+    if (!row) return undefined;
+    const secret = storedAppSecretOf(row, "voice_input_settings");
+    if (!secret) throw new Error("voice_input_settings row is incomplete");
+    return secret;
+  }
+
+  /** 登録と上書きで同じ (id = 1 の upsert)。値は暗号化済みの保存形だけを受け取る */
+  saveVoiceInputSettings(secret: VoiceInputSettingsRow): void {
+    this.#secretQuery((db) =>
+      db
+        .prepare(
+          `INSERT INTO voice_input_settings (id, ciphertext, nonce, keyVersion) VALUES (1, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce,
+             keyVersion = excluded.keyVersion`,
+        )
+        .run(secret.ciphertext, secret.nonce, secret.keyVersion),
+    );
+  }
+
+  /** 行を消して未設定へ戻す。未設定でも false を返すだけで失敗にはしない (復号不要) */
+  deleteVoiceInputSettings(): boolean {
+    return this.#secretQuery((db) => db.prepare("DELETE FROM voice_input_settings WHERE id = 1").run().changes > 0);
   }
 
   // --- image catalog (live カタログのキャッシュ 1 行) ---

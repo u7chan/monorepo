@@ -1,5 +1,6 @@
 /** 設定 (通知 / アーカイブ / モデル / OAuth / Cloudflare / Web 検索 / タイトル要約 / Git) の DTO。DTO のフィールド名と optional の扱いは client と揃える。 */
 import { WEB_SEARCH_PROVIDER_IDS } from "../web-search-providers";
+import { PROVIDER_FAILURE_CODES } from "../provider-failure";
 import { z } from "zod";
 import { PROVIDER_API_KEY_MAX_LENGTH, PROVIDER_API_KEY_MIN_LENGTH, ThinkingLevelSchema } from "./common";
 
@@ -534,6 +535,71 @@ export const WebSearchMutationErrorSchema = z.object({
   state: z.literal("not_stored"),
 });
 export type WebSearchMutationError = z.infer<typeof WebSearchMutationErrorSchema>;
+/**
+ * GET / PUT / DELETE `/api/settings/voice-input`。設定 → 音声入力の OpenAI Platform のキーを持つ。
+ * 行が無い = キー未設定で、有効 / 無効のトグルは持たない（キーが使えるときだけマイクを出す）。
+ * v1 は行がキーだけなので `configured`（行の有無）と `keyStored`（暗号文の有無）は同じ値になる。
+ * 両者を分けて返すのは、保存はあるが復号できない状態を「未設定」と同じ見た目にしないため。
+ */
+export const VoiceInputSettingsResponseSchema = z.object({
+  configured: z.boolean(),
+  keyStored: z.boolean(),
+  /** 復号でき、録音の開始に使える */
+  keyAvailable: z.boolean(),
+  /** 復号を評価済みか。false は「まだ確認できていない」で、失敗とは区別する */
+  keyEvaluated: z.boolean(),
+  /** 未評価 / 復号失敗の固定文言。使えるときと未保存のときは null */
+  keyErrorMessage: z.string().nullable(),
+  /** 固定モデル。画面は読取専用で出し、client からは送らない */
+  model: z.string(),
+  /** マスカーを持てる起動（pi あり）か。false はキーの登録・置換・疎通確認が 503 */
+  runtimeAvailable: z.boolean(),
+});
+export type VoiceInputSettingsResponse = z.infer<typeof VoiceInputSettingsResponseSchema>;
+/** 変更系（PUT / DELETE）の応答。即時反映なので `applied` だけを返す */
+export const VoiceInputMutationResponseSchema = VoiceInputSettingsResponseSchema.extend({
+  state: z.literal("applied"),
+});
+export type VoiceInputMutationResponse = z.infer<typeof VoiceInputMutationResponseSchema>;
+/**
+ * キーの登録・上書き。長さは provider_credentials / 画像と同じで、印字可能 ASCII に限る。
+ * 改行や制御文字を Authorization ヘッダーへ渡さないための境界で、形式の変更で保存できなくしない。
+ */
+export const VOICE_INPUT_API_KEY_MIN_LENGTH = 8;
+export const VOICE_INPUT_API_KEY_MAX_LENGTH = 2048;
+export const UpdateVoiceInputKeyBodySchema = z.object({
+  apiKey: z
+    .string()
+    .min(VOICE_INPUT_API_KEY_MIN_LENGTH)
+    .max(VOICE_INPUT_API_KEY_MAX_LENGTH)
+    .regex(/^[\x20-\x7e]+$/),
+});
+export type UpdateVoiceInputKeyBody = z.infer<typeof UpdateVoiceInputKeyBodySchema>;
+/**
+ * POST `/api/settings/voice-input/test`。短命キーの発行だけを確かめ、**上流の確認失敗だけ**を
+ * 200 の `ok: false` で返す（未登録 / キー利用不可 / DB 障害は HTTP エラー）。
+ * `code` は provider 呼び出しの共通分類で、`message` は音声入力向けの固定文言。
+ */
+export const VoiceInputTestFailureSchema = z.object({
+  ok: z.literal(false),
+  code: z.enum(PROVIDER_FAILURE_CODES),
+  message: z.string(),
+});
+export type VoiceInputTestFailure = z.infer<typeof VoiceInputTestFailureSchema>;
+export const VoiceInputTestResponseSchema = z.union([
+  z.object({ ok: z.literal(true), model: z.string() }),
+  VoiceInputTestFailureSchema,
+]);
+export type VoiceInputTestResponse = z.infer<typeof VoiceInputTestResponseSchema>;
+/**
+ * POST `/api/voice-input/session` の失敗応答。成功は SDP そのもの（200 `application/sdp` +
+ * `Cache-Control: no-store`）で、失敗だけ JSON になる。上流失敗（502）だけ `code` を持つ。
+ */
+export const VoiceInputSessionFailureSchema = z.object({
+  error: z.string(),
+  code: z.enum(PROVIDER_FAILURE_CODES).optional(),
+});
+export type VoiceInputSessionFailure = z.infer<typeof VoiceInputSessionFailureSchema>;
 /**
  * GET / PUT `/api/settings/session-title`。会話タイトルの AI 要約 (On/Off・要約モデル・Effort・定義) を持つ。
  * 行が無い = 既定 (Off・モデル未選択・Effort 未指定・既定の定義)。モデルは本会話のモデルと独立で、

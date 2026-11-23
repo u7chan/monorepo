@@ -147,6 +147,10 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings/web-search", settings("web-search")],
     ["/Settings/WEB-SEARCH/", settings("web-search")],
     ["//settings//web-search//", settings("web-search")],
+    // 音声入力はタブを持たないので /settings/voice-input だけを入口にする
+    ["/settings/voice-input", settings("voice-input")],
+    ["/Settings/VOICE-INPUT/", settings("voice-input")],
+    ["/settings/voice-input/extra", CHAT_ROUTE],
     // 共有は既定タブ (共有コンテンツ) をパスへ出さない。既定タブの明示と未知のサブセクションは既定へ畳む
     ["/settings/sharing", settings("sharing")],
     ["/Settings/SHARING/", settings("sharing")],
@@ -224,6 +228,7 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
       "/settings/models",
       "/settings/content",
       "/settings/web-search",
+      "/settings/voice-input",
       "/settings/session-title",
       "/settings/sharing",
       "/settings/notifications",
