@@ -1,7 +1,7 @@
 /**
  * 音声（TTS）モデルの価格取り込み。金額は `/endpoints` の数値、単位は
  * モデルページの `llms.txt`（`## Pricing`）から読む。公開 API は単位を返さないため、
- * 単位語をフィールドへ写して組み立てる（正は docs/adr/0000-read-only-master-service.md）。
+ * 単位語をフィールドへ写して組み立てる（正は docs/adr/pricing-sources.md）。
  */
 import type { CostSide, CostUnit } from "../shared/contract";
 import { readJson, readText } from "./fetch-json";
