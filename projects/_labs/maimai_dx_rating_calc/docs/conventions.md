@@ -41,9 +41,8 @@
 
 ## 技術決定の記録（ADR）
 
-- 技術スタック・アーキテクチャに関する決定は、[docs/adr/](adr/README.md) に ADR（Architecture Decision Record）として記録する
-- 採番は連番（0001〜）、テンプレートは [docs/adr/template.md](adr/template.md) に従う
-- ステータス: Proposed → Accepted → Superseded。決定が覆ったら元の ADR を Superseded にし、新しい ADR を立てる（元の ADR は書き換えない）
+技術スタック・データの持ち方などの決定は [docs/adr/](adr/) に記録する。書く基準・ファイル名・更新方針は
+[AGENTS.md](../AGENTS.md) の「アーキテクチャの決定」を正とし、ここでは重複させない。
 
 ## 作業フロー
 
