@@ -123,7 +123,7 @@ export function SessionTitleDialog({
         onOpenSettings();
       }}
     >
-      <header className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
+      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3">
         <div className="flex min-w-0 items-start gap-2">
           <span className="mt-0.5 text-accent-text">
             <SparkleIcon />
@@ -145,7 +145,7 @@ export function SessionTitleDialog({
         </button>
       </header>
 
-      <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-4 py-3.5 text-xs">
+      <div className="grid min-h-0 scrollbar-thin content-start gap-3 overflow-y-auto px-4 py-3.5 text-xs">
         <div className="grid gap-1">
           <span className="text-2xs font-semibold tracking-label text-ink-faint uppercase">現在のタイトル</span>
           <div className="rounded-lg border border-line bg-raised px-3 py-2 text-sm break-words text-ink-strong">
@@ -217,7 +217,7 @@ export function SessionTitleDialog({
         ) : null}
       </div>
 
-      <footer className="grid gap-2 border-t border-line px-4 py-3">
+      <footer className="grid shrink-0 gap-2 border-t border-line px-4 py-3">
         {blockedReason ? <p className="text-2xs leading-relaxed text-ink-muted">{blockedReason}</p> : null}
         <div className="flex items-center justify-between gap-2">
           <button
