@@ -24,6 +24,7 @@ import type { SharedContentResponse } from "../types";
 import { CloseIcon, ExternalLinkIcon, GearIcon, QrCodeIcon, RunSpinnerIcon, ShareIcon, WarningIcon } from "./icons";
 import { CollapsibleNotice } from "./CollapsibleNotice";
 import { LoadingMark } from "./LoadingMark";
+import { ModalDialog, type ModalDialogHandle } from "./ModalDialog";
 import { QrCodeDialog } from "./QrCodeDialog";
 
 /** 行の ⋯ から渡す公開対象 */
@@ -84,9 +85,10 @@ export function ShareContentDialogView({
   onClose,
   onOpenSharingSettings,
 }: ShareContentDialogViewProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const shellRef = useRef<ModalDialogHandle | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  /** 閉じた後に設定面へ移る。移る操作が先に走ると退場が見えないので、閉じ切ってから実行する */
+  const openSettingsRef = useRef(false);
   // 表示名は作成時にだけ決める (既存の共有物の名前は 設定 → 共有 でも変えない)
   const [name, setName] = useState(target.defaultName);
   const [tab, setTab] = useState<ShareTab>("publish");
@@ -102,18 +104,6 @@ export function ShareContentDialogView({
     share.submitting || (share.activeId !== null && (active === undefined || active.status === "publishing"));
   // 受付後はタブ行を隠すため、本文は「公開」側に固定する (一覧は 設定 → 共有 で管理する)
   const activeTab: ShareTab = started ? "publish" : tab;
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!dialog.open) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      dialog.showModal();
-    } else if (!dialog.contains(document.activeElement)) {
-      dialog.focus();
-    }
-    return () => previousFocusRef.current?.focus();
-  }, []);
 
   // 初期焦点は取り消し側に置く (公開は取り消しにくいので、Enter で確定させない)
   useEffect(() => {
@@ -143,35 +133,22 @@ export function ShareContentDialogView({
 
   // 設定面へ移る前にモーダルを閉じる (設定面の上にダイアログを残さない)
   const openSharingSettings = () => {
-    onClose();
-    onOpenSharingSettings();
+    openSettingsRef.current = true;
+    shellRef.current?.requestClose();
   };
 
   return (
-    <dialog
-      ref={dialogRef}
-      // `cancel` / `close` は React の祖先 (作業環境のシート) の handler まで届く。止めないと Escape 1 回で背面まで閉じる
-      // (既定動作の「このダイアログを閉じる」は止めない)
-      onCancel={(event) => {
-        event.stopPropagation();
-      }}
-      onClose={(event) => {
-        event.stopPropagation();
+    <ModalDialog
+      label="共有"
+      frame={singleColumn ? "fullscreen" : "wide"}
+      className="flex flex-col"
+      handleRef={shellRef}
+      onClosed={() => {
+        const openSettings = openSettingsRef.current;
+        openSettingsRef.current = false;
         onClose();
+        if (openSettings) onOpenSharingSettings();
       }}
-      aria-modal="true"
-      aria-label="共有"
-      tabIndex={-1}
-      // Escape はダイアログだけを閉じる (作業環境の面やチャットへ戻る操作へ届かせない)
-      onKeyDown={(event) => {
-        if (event.key === "Escape") event.stopPropagation();
-      }}
-      className={cn(
-        "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
-        singleColumn
-          ? "m-0 h-dvh max-h-none w-screen max-w-none rounded-none border-0"
-          : "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] rounded-xl border shadow-panel",
-      )}
     >
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
         <div className="min-w-0">
@@ -180,7 +157,7 @@ export function ShareContentDialogView({
         </div>
         <button
           type="button"
-          onClick={onClose}
+          onClick={() => shellRef.current?.requestClose()}
           aria-label="閉じる"
           title="閉じる"
           className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
@@ -324,7 +301,12 @@ export function ShareContentDialogView({
               <p className="text-right text-1xs break-words text-warn">{runBlockedReason}</p>
             )}
             <div className="flex items-center justify-end gap-2">
-              <button ref={cancelRef} type="button" className="btn-quiet singleColumn:min-h-11" onClick={onClose}>
+              <button
+                ref={cancelRef}
+                type="button"
+                className="btn-quiet singleColumn:min-h-11"
+                onClick={() => shellRef.current?.requestClose()}
+              >
                 キャンセル
               </button>
               {primary.kind === "update" ? (
@@ -355,7 +337,7 @@ export function ShareContentDialogView({
       {qrId === null ? null : (
         <QrCodeDialog item={sharedContentQrTarget(share.items, qrId)} onClose={() => setQrId(null)} />
       )}
-    </dialog>
+    </ModalDialog>
   );
 }
 

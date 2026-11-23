@@ -1,4 +1,4 @@
-import { useRef, type FormEvent } from "react";
+import { useRef, type FormEvent, type RefObject } from "react";
 import { cn } from "../../lib/cn";
 import {
   BACKUP_KEPT_NOTE,
@@ -22,6 +22,7 @@ import {
 import type { BackupRestoreFlow } from "../../lib/backupFlow";
 import type { BackupTarget, BackupTargetPlan } from "../../types";
 import { WorkDialog } from "../WorkDialog";
+import type { ModalDialogHandle } from "../ModalDialog";
 
 export type BackupRestoreDialogProps = {
   flow: Exclude<BackupRestoreFlow, { status: "idle" } | { status: "done" }>;
@@ -30,6 +31,8 @@ export type BackupRestoreDialogProps = {
   onConfirmed: (value: boolean) => void;
   onApply: () => void;
   onClose: () => void;
+  /** 親 (復元の成功で done になったとき) から閉じる要求を出すための handle */
+  handleRef?: RefObject<ModalDialogHandle | null>;
 };
 
 /**
@@ -44,6 +47,7 @@ export function BackupRestoreDialog({
   onConfirmed,
   onApply,
   onClose,
+  handleRef,
 }: BackupRestoreDialogProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const busy = flow.status === "applying";
@@ -63,6 +67,7 @@ export function BackupRestoreDialog({
       eyebrow="BACKUP"
       title={BACKUP_RESTORE_DIALOG_TITLE}
       busy={busy}
+      handleRef={handleRef}
       onClose={onClose}
       onSubmit={submit}
       initialFocusRef={closeRef}

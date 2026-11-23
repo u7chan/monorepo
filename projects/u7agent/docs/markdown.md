@@ -106,7 +106,7 @@ MessageView (assistant の本文) / FilePreview (ファイルの Markdown プレ
 - サムネイルの高さは `max-height: min(50dvh, 360px)` で抑える（`client/src/styles/index.css` の `.md img, .md-img`）。`generate_image` の出力（1024x1024 前後、縦長もある）を本文列の幅（最大 760px）いっぱいで描くと画像 1 枚で会話が埋まるため。幅は `max-width: 100%` と `height: auto` のままで比率を保って縮む。リンクの中の素の `img` にも同じ上限がかかる
 - サムネイルは `type="button"` の `button` で、読み上げ名は `<alt> を拡大表示`。開いた `dialog` は `createPortal` で `document.body` へ出す。段落（`<p>`）の中に `<dialog>` を置くと DOM が不正になるうえ、`.md img` の枠・角丸が拡大画像にも当たる
 - 読み込みに失敗した画像（intrinsic 幅を持たない）は `button` で包まず、その場（段落 / `<li>`）へ直接置く。`button` は fit-content の包含ブロックなので、包むとサムネイルが alt テキスト幅まで縮み、失敗時の見え方（段落幅）が変わるため
-- 開くのは `showModal()`（終了とフォーカス拘束は標準挙動）。閉じるのは Escape / 背景クリック（`event.target` が dialog 自身のときだけ）/ 閉じるボタンで、`onClose` で state を落とし、サムネイルへ focus を戻す。Escape の keydown は `stopPropagation` だけして `preventDefault` しない（閉じるのを標準挙動に任せ、App の Escape（設定ページからチャットへ戻る）へ渡さない）
+- 開くのは `showModal()`（終了とフォーカス拘束は標準挙動）。閉じるのは Escape / 背景クリック（`event.target` が dialog 自身のときだけ）/ 閉じるボタンで、`onClose` で state を落とし、サムネイルへ focus を戻す。Escape は中央モーダルと同じ殻（`ModalDialog`）を通し、`stopPropagation` で App の Escape（設定ページからチャットへ戻る）へ渡さない。閉じるのは退場アニメの終了と同じ描画（[ui-layout.md](ui-layout.md#確認と入力のダイアログ)）
 - 拡大画像は viewport に収まる範囲で最大にし、intrinsic size は超えて引き伸ばさない。dialog 自身は背景透明の全画面で、減光とぼかしは既存の `dialog::backdrop` に任せる
 - 見た目は `variant` で切り替える（`markdown` は `md-img`、`attachment` は枠・角丸を自分で当てる、`chip` は入力欄のチップの 28px（`size-7`）と角丸）。例外は透過の下地で、コンテンツ生成の試行だけが `checker` を渡す（`image-canvas-bright`）。呼び出し側は `src` / `alt` / `title` / `variant` / `singleColumn`（添付のサムネイルだけが渡す）/ `checker` だけを渡し、className は渡さない（`shadcn/no-restyle`）
 - ストリーミング中は、同じブロックの再描画で画像が同じ位置にあれば開いたまま（state は部品が持つ）。位置が変わって unmount された場合は閉じる（開いたままを保証しない）

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
+import { ModalDialog, type ModalDialogHandle } from "./ModalDialog";
 import { CloseIcon } from "./icons";
 
 /** 画像の出どころ。サムネイルの枠・角丸・高さは部品が持ち、呼び出し側からは渡さない */
@@ -23,15 +24,9 @@ export function ZoomableImage({ src, alt, title, variant, singleColumn = false, 
   // 失敗画像を button で包まない理由は docs/markdown.md の「画像の拡大表示」を参照。
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const failed = failedSrc === src;
-  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const shellRef = useRef<ModalDialogHandle | null>(null);
   const thumbRef = useRef<HTMLButtonElement | null>(null);
   const label = alt === "" ? "画像を拡大表示" : `${alt} を拡大表示`;
-
-  // 閉じる操作は showModal() の標準挙動 (Escape / 背景 / 閉じるボタン) に任せ、印は close イベントで落とす
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (open && dialog !== null && !dialog.open) dialog.showModal();
-  }, [open]);
 
   const thumbnail = (
     <img
@@ -71,22 +66,17 @@ export function ZoomableImage({ src, alt, title, variant, singleColumn = false, 
       )}
       {open
         ? createPortal(
-            <dialog
-              ref={dialogRef}
-              aria-label={label}
-              onClose={() => {
+            <ModalDialog
+              label={label}
+              frame="image"
+              handleRef={shellRef}
+              onClosed={() => {
                 setOpen(false);
                 // 閉じたら開いた場所へ focus を戻す (dialog は unmount するので行き場を失わせない)
                 thumbRef.current?.focus();
               }}
-              onClick={(event) => {
-                if (event.target === dialogRef.current) dialogRef.current?.close();
-              }}
-              onKeyDown={(event) => {
-                // 止めないと App の Escape (設定ページからチャットへ戻る) まで届く。閉じるのは標準挙動に任せる
-                if (event.key === "Escape") event.stopPropagation();
-              }}
-              className="m-0 flex h-dvh max-h-none w-screen max-w-none items-center justify-center border-0 bg-transparent p-0"
+              // 背景 (dialog 自身) のクリックだけを閉じる要求にする。画像の上のクリックは含めない
+              onBackgroundClick={() => shellRef.current?.requestClose()}
             >
               <img
                 src={src}
@@ -97,12 +87,12 @@ export function ZoomableImage({ src, alt, title, variant, singleColumn = false, 
               <button
                 type="button"
                 aria-label="閉じる"
-                onClick={() => dialogRef.current?.close()}
+                onClick={() => shellRef.current?.requestClose()}
                 className="icon-button absolute top-3 right-3"
               >
                 <CloseIcon />
               </button>
-            </dialog>,
+            </ModalDialog>,
             document.body,
           )
         : null}

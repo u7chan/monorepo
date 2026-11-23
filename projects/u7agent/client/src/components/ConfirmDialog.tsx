@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { cn } from "../lib/cn";
 import type { DialogRequest } from "../lib/confirmDialog";
+import { ModalDialog, type ModalDialogHandle } from "./ModalDialog";
 import { ExternalLinkIcon } from "./icons";
 
 export type ConfirmDialogProps = {
@@ -16,25 +17,18 @@ export type ConfirmDialogProps = {
  * 対象名は clamp した独立した行に出し、全文は `title` 属性で読めるようにする。
  */
 export function ConfirmDialog({ request, onConfirm, onCancel }: ConfirmDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const shellRef = useRef<ModalDialogHandle | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const inputId = useId();
   const [value, setValue] = useState(request.kind === "prompt" ? request.defaultValue : "");
+  /** 退場を挟んで確定 / 取消を伝える。殻の close は 1 経路なので、どちらを押したかをここで持つ */
+  const outcomeRef = useRef<"cancel" | "confirm" | null>(null);
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!dialog.open) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      dialog.showModal();
-    } else if (!dialog.contains(document.activeElement)) {
-      // 直前の cleanup でフォーカスが背面へ戻されている (StrictMode)
-      dialog.focus();
-    }
-    return () => previousFocusRef.current?.focus();
-  }, []);
+  const finish = (outcome: "cancel" | "confirm") => {
+    outcomeRef.current = outcome;
+    shellRef.current?.requestClose();
+  };
 
   // 初期焦点は取り消し側に置く (破壊的な操作を Enter で確定させない)。prompt は入力欄に置き、現在値を選ぶ
   useEffect(() => {
@@ -48,22 +42,20 @@ export function ConfirmDialog({ request, onConfirm, onCancel }: ConfirmDialogPro
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onConfirm(request.kind === "prompt" ? value : "");
+    finish("confirm");
   };
 
   return (
-    <dialog
-      ref={dialogRef}
-      onClose={onCancel}
-      aria-modal="true"
-      aria-label={request.title}
-      tabIndex={-1}
-      // Escape はダイアログだけを閉じる。設定ページの「戻る」など背面の keydown へ届かせない
-      // (native dialog の Escape は伝播するため、背面の面へは渡さない)
-      onKeyDown={(event) => {
-        if (event.key === "Escape") event.stopPropagation();
+    <ModalDialog
+      label={request.title}
+      frame="narrow"
+      handleRef={shellRef}
+      onClosed={() => {
+        const outcome = outcomeRef.current;
+        outcomeRef.current = null;
+        if (outcome === "confirm") onConfirm(request.kind === "prompt" ? value : "");
+        else onCancel();
       }}
-      className="m-auto max-h-[min(88dvh,760px)] w-[min(420px,92vw)] overflow-hidden rounded-xl border border-line bg-panel p-0 text-ink shadow-panel"
     >
       <form onSubmit={submit} className="flex flex-col">
         <header className="shrink-0 border-b border-line px-4 py-3">
@@ -156,7 +148,12 @@ export function ConfirmDialog({ request, onConfirm, onCancel }: ConfirmDialogPro
         </div>
 
         <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-3">
-          <button ref={cancelRef} type="button" className="btn-quiet singleColumn:min-h-11" onClick={onCancel}>
+          <button
+            ref={cancelRef}
+            type="button"
+            className="btn-quiet singleColumn:min-h-11"
+            onClick={() => finish("cancel")}
+          >
             {request.cancelLabel ?? "キャンセル"}
           </button>
           <button
@@ -170,6 +167,6 @@ export function ConfirmDialog({ request, onConfirm, onCancel }: ConfirmDialogPro
           </button>
         </footer>
       </form>
-    </dialog>
+    </ModalDialog>
   );
 }
