@@ -51,6 +51,20 @@
 全行が落ちて `prices-no-usable-rows` の 503 が続く（データは消えない）。手順の詳細は
 [README.md](README.md#語彙スキーマが変わるリリース) にある。
 
+## アーキテクチャの決定
+
+設計判断は `docs/adr/` に従う。ADR に書くのは、コードから読み取れず、崩すと影響が広い判断だけにする。
+
+- 書く: 技術スタックと開発ツール、u7agent と OpenRouter との境界と通信、外部仕様の前提、公開範囲とセキュリティ、依存と永続化の方針
+- 書かない: API の形、UI の見た目と挙動、機能ごとの仕様。API と画面の正は README / AGENTS とし、ADR には判断と前提だけを書く（同じ規則を写さない）。コミット・テスト・コードコメントにも書く
+
+ファイルは `docs/adr/` 配下の `<topic>.md`（小文字 kebab-case）で、番号を振らない。同じ論点は同じファイルにまとめる。判断が変わったら、そのファイルを現在の判断に書き換える。やめた判断はファイルごと消す（経緯は git に残る）。コードやドキュメントからは docs/adr/ 配下のトピック名のパスで参照し、番号で参照しない。
+
+- `accepted`: 現在有効。実装はこれに従う
+- `proposed`: 検討中。前提にしない
+
+Accepted ADR とタスクが衝突する場合は、迂回実装で無理に両立させない。作業を止めて衝突を報告し、タスクと ADR のどちらを見直すか判断を仰ぐ。
+
 ## 検証
 
 `bun run check`（lint → fmt:check → typecheck → test → docs:check）を実行する。
@@ -77,4 +91,7 @@ Docker は `docker build --target test -t cost-master-test ./projects/cost-maste
 
 - [README.md](README.md) — 起動方法、API、マスタのメンテ、Docker、セキュリティの前提
 - [DESIGN.md](DESIGN.md) — 画面の色・文字・部品・動きの正。`src/client/styles.css` を変えたら同じ PR で直す
-- [docs/adr/0000-read-only-master-service.md](docs/adr/0000-read-only-master-service.md) — 別サービスにする理由、マスタ 2 ファイル、最大単価、enabled の既定
+- [docs/adr/service-boundary.md](docs/adr/service-boundary.md) — u7agent から独立させ、更新を 2 経路に絞って公開する理由
+- [docs/adr/master-files.md](docs/adr/master-files.md) — マスタ 2 ファイル、volume と seed、置き換えの契約、503 と行単位の倒し方
+- [docs/adr/judgments.md](docs/adr/judgments.md) — `enabled` の既定と、1 行だけ変える更新
+- [docs/adr/pricing-sources.md](docs/adr/pricing-sources.md) — 最大単価、通貨、画像と音声の請求単位の読み方

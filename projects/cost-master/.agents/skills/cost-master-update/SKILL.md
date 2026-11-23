@@ -6,7 +6,7 @@ description: コンテンツ生成モデルの価格・表示可否（コスト�
 # コストマスタの更新
 
 `projects/cost-master` のマスタ（`prices.json` / `enabled.json`）を更新する。正本は
-[README.md](../../../README.md)（取り込み・マスタのメンテ）と [docs/adr/0000-read-only-master-service.md](../../../docs/adr/0000-read-only-master-service.md)（判断の理由）。
+[README.md](../../../README.md)（取り込み・マスタのメンテ）と [docs/adr/master-files.md](../../../docs/adr/master-files.md)（判断の理由）。
 
 ## 前提
 
