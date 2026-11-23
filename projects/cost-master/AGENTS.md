@@ -33,6 +33,24 @@
 
 由来を混ぜないのは、生成が人の判断を上書きしないようにするため。判断が無いモデルは `enabled: true`。
 
+## マスタを読めないとき
+
+読めないときは `/api/models` が 503 に倒れ、`/api/health` が理由を `failure` で返す（中身は含めない）。
+画面も同じ理由を固定文言で出す。ログを見なくても次に何を直すかが分かるようにしてある。
+
+| `failure` | 意味 | 直し方 |
+| --- | --- | --- |
+| `prices-missing` / `enabled-missing` | 置き場（`MASTER_DIR`）にファイルが無い | 置き場を確かめ、ファイルを置く |
+| `prices-unreadable` / `enabled-unreadable` | JSON が壊れている / トップレベルがこの版の形と違う | ダウンロードして直すか、生成し直してアップロードする |
+| `prices-no-usable-rows` | `prices.json` の行が 1 つも読めない（旧語彙のままなど） | 新しい `prices.json` をアップロードする |
+
+### 語彙（スキーマ）が変わるリリース
+
+マスタの形を変える版（行に `kind` を足したときなど）は、**アップロードを先、デプロイを後**にする。
+旧版は知らないキーを無視するので、先にアップロードしても読める。逆順にすると、旧形式のファイルは
+全行が落ちて `prices-no-usable-rows` の 503 が続く（データは消えない）。手順の詳細は
+[README.md](README.md#語彙スキーマが変わるリリース) にある。
+
 ## 検証
 
 `bun run check`（lint → fmt:check → typecheck → test → docs:check）を実行する。
