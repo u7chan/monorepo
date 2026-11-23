@@ -17,6 +17,7 @@ export type SettingsSection =
   | "models"
   | "content"
   | "web-search"
+  | "voice-input"
   | "session-title"
   | "sharing"
   | "runtime"
@@ -36,6 +37,9 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
   // モデルのタブにはせず、ルートのセクションに置く（コンテンツ生成の中は画像 / 音声のタブへ分ける）
   { section: "content", label: "コンテンツ生成" },
   { section: "web-search", label: "Web 検索" },
+  // 音声入力は OpenAI Platform のキーを使う別の外部サービス面。コンテンツ生成（OpenRouter）とは
+  // キーも用途も別なので、そのタブにはせず、並びも外部サービス面の末尾に置く
+  { section: "voice-input", label: "音声入力" },
   // 会話タイトルの AI 要約は、本会話のモデル (設定 → モデル) とは独立したモデルを選ぶ別の設定。
   // 対象は「会話の見出し」なので、モデルやコンテンツ生成のタブにはせずルートのセクションに置く
   { section: "session-title", label: "会話タイトル" },

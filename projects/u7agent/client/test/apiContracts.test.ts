@@ -13,10 +13,14 @@ const {
   resetDefinitions,
   checkCloudflareConnection,
   contentTrialStartFailure,
+  deleteVoiceInputKey,
   deleteWebSearchApiKey,
   getTitleSummarySettings,
+  getVoiceInputSettings,
   getWebSearchSettings,
   isNotStoredError,
+  postVoiceInputTest,
+  putVoiceInputKey,
   probeCustomProvider,
   putWebSearchApiKey,
   putWebSearchProvider,
@@ -567,6 +571,43 @@ test("Web 検索の設定は GET / PUT / DELETE の往復で、キーは provide
   assert.deepEqual(await requests[1].json(), { enabled: false });
   assert.deepEqual(await requests[2].json(), { provider: "tavily" });
   assert.deepEqual(await requests[3].json(), { apiKey: "tvly-secret" });
+});
+
+test("音声入力の設定は GET / PUT / DELETE と疎通確認を同じ画面のパスへ送る", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    if (new URL(request.url).pathname.endsWith("/test")) {
+      return Response.json({ ok: false, code: "insufficient_credit", message: "残高が不足しています" });
+    }
+    return Response.json({
+      configured: true,
+      keyStored: true,
+      keyAvailable: true,
+      keyEvaluated: true,
+      keyErrorMessage: null,
+      model: "gpt-live-transcribe",
+      runtimeAvailable: true,
+      state: "applied",
+    });
+  });
+  assert.equal((await getVoiceInputSettings()).model, "gpt-live-transcribe");
+  assert.equal((await putVoiceInputKey("sk-voice-dummy-key")).state, "applied");
+  assert.equal((await deleteVoiceInputKey()).state, "applied");
+  const tested = await postVoiceInputTest();
+  assert.equal(tested.ok, false);
+  if (!tested.ok) assert.equal(tested.code, "insufficient_credit");
+  assert.deepEqual(
+    requests.map((request) => [request.method, new URL(request.url).pathname]),
+    [
+      ["GET", "/api/settings/voice-input"],
+      ["PUT", "/api/settings/voice-input/key"],
+      ["DELETE", "/api/settings/voice-input/key"],
+      ["POST", "/api/settings/voice-input/test"],
+    ],
+  );
+  assert.deepEqual(await requests[1].json(), { apiKey: "sk-voice-dummy-key" });
 });
 
 test("会話タイトルの設定は GET / PUT の往復で、Effort を含めてまとめて送る", async (t) => {

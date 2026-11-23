@@ -131,12 +131,14 @@ function additionalData(kind: SecretKind, name: string): Buffer {
 /**
  * アプリ DB のキー / Webhook の用途。値はテーブル (内容が同じでも用途の違う `content_settings` など) を
  * 表し、AAD の 2 要素目になる。保存済みの値を復号できなくなるため変更できない。
+ * `voice_input_settings` は OpenAI Platform のキーで、生成用の `content_settings` と取り違えないよう別にする。
  */
 export type AppSecretScope =
   | "provider_credentials"
   | "custom_providers"
   | "content_settings"
   | "web_search_provider_keys"
+  | "voice_input_settings"
   | "notification_settings";
 
 /** AAD はラベル + 用途 + 所有者。所有者は provider id や固定の列名で、行を別の用途へ差し替えると復号できない */
