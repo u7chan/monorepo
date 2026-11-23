@@ -98,13 +98,40 @@ export function formatClock(at: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+/** ローカル時刻の暦日。夏時間で 24 時間にならない日があっても日付だけで数える。 */
+export function dayIndex(at: number): number {
+  const date = new Date(at);
+
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS;
+}
+
 /** meter の 1 行に出すリセット情報。折り返しで「あと 2 時 / 間」と割れないよう 2 つに分けて返す。 */
-export function describeReset(resetsAt: number | null, now: number): { at: string; remaining: string } | null {
+export function describeReset(
+  resetsAt: number | null,
+  now: number,
+  options: { rolling?: boolean } = {},
+): { at: string; remaining: string } | null {
   if (resetsAt === null || !Number.isFinite(resetsAt)) {
     return null;
   }
 
-  return { at: `リセット ${formatDateTime(resetsAt)}`, remaining: `あと ${describeRemaining(resetsAt - now)}` };
+  const at = options.rolling ? rollingResetAt(resetsAt, now) : formatDateTime(resetsAt);
+
+  return { at: `リセット ${at}`, remaining: `あと ${describeRemaining(resetsAt - now)}` };
+}
+
+/**
+ * ローリングは 5 時間以内に終わる。日付は「あと N 時間」から分かるので時計だけを出し、日をまたぐときだけ「翌」を付ける。
+ * 期間が読めず 2 日以上先になったときは、いつ戻るかを読み違えないよう日付ごと出す。
+ */
+function rollingResetAt(at: number, now: number): string {
+  const days = dayIndex(at) - dayIndex(now);
+
+  if (days <= 0) {
+    return formatClock(at);
+  }
+
+  return days === 1 ? `翌 ${formatClock(at)}` : formatDateTime(at);
 }
 
 function pad(value: number): string {

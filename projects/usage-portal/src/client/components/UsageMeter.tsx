@@ -1,6 +1,7 @@
 import type { UsageWindow } from "../api";
 import { describeReset, formatPercent, remainingPercent } from "../lib/format";
 import { ATTENTION_THRESHOLD } from "../lib/status";
+import { isRolling } from "../lib/windows";
 import { ProhibitedIcon, WarningIcon } from "./Icons";
 
 export function UsageMeter(props: { window: UsageWindow; now: number; blockedBy: string | null }) {
@@ -10,7 +11,7 @@ export function UsageMeter(props: { window: UsageWindow; now: number; blockedBy:
   const attention = !stopped && props.window.usedPercent >= ATTENTION_THRESHOLD;
   // 停止と注意は色だけが違うため、修飾子を 1 つに畳んで 3 箇所で使い回す。
   const tone = stopped ? "blocked" : attention ? "attention" : null;
-  const reset = describeReset(props.window.resetsAt, props.now);
+  const reset = describeReset(props.window.resetsAt, props.now, { rolling: isRolling(props.window) });
   const value = (
     <>
       {stopped ? <ProhibitedIcon /> : attention ? <WarningIcon /> : null}
