@@ -27,6 +27,7 @@ import { allowPrivateCostHost, createContentCostCatalog, type ContentCostOptions
 import { WebSearchSettingsService } from "./web-search-settings";
 import { createWebSearchTest, type WebSearchTest } from "./web-search-test";
 import { VoiceInputSettingsService } from "./voice-input";
+import { VoiceInputSessionService, type VoiceInputSessionTiming } from "./voice-input-session";
 import { TitleSummarySettingsService } from "./title-summary-settings";
 import { GitSettingsService } from "./git-settings";
 import {
@@ -107,8 +108,10 @@ export type CreateBffAppOptions = {
   notificationFetch?: typeof fetch;
   /** 設定画面のテスト検索用。省略時は globalThis.fetch */
   webSearchTestFetch?: typeof fetch;
-  /** 音声入力の疎通確認用。省略時は globalThis.fetch */
+  /** 音声入力の疎通確認と Realtime 中継用。省略時は globalThis.fetch */
   voiceInputFetch?: typeof fetch;
+  /** Realtime 中継の段の期限（テストで縮める）。省略時は既定 */
+  voiceInputSessionTiming?: VoiceInputSessionTiming;
   /** Cloudflare API のテスト用。省略時は globalThis.fetch */
   cloudflareFetch?: typeof fetch;
   /** 画像モデル一覧取得のテスト用。省略時は globalThis.fetch */
@@ -218,6 +221,8 @@ export type BffContext = {
   webSearchSettings: WebSearchSettingsService;
   /** 音声入力の OpenAI Platform のキー (設定 → 音声入力)。行が無い = キー未設定で、トグルは持たない */
   voiceInputSettings: VoiceInputSettingsService;
+  /** Realtime セッションの中継。キーの利用判定は voiceInputSettings と共有する */
+  voiceInputSession: VoiceInputSessionService;
   /** 設定画面のテスト検索。実行環境を作れない起動 (pi なし) は null */
   webSearchTest: WebSearchTest | null;
   /** 会話タイトルの AI 要約の設定 (On/Off・要約モデル・定義)。保存はサーバー側だけで行う */
@@ -419,7 +424,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   });
   await webSearchSettings.applyStored();
   // 音声入力のキーはコンテンツ生成 (OpenRouter) とは別の行で、OpenAI Platform のキーを AEAD で保存する。
-  // 起動時に復号できたキーだけをマスカーへ入れ、疎通確認と中継 (#2634) は同じ利用判定を通す
+  // 起動時に復号できたキーだけをマスカーへ入れ、疎通確認と中継は同じ利用判定を通す
   const voiceInputSettings = new VoiceInputSettingsService({
     db: appDb,
     runtimeAvailable: pi !== null,
@@ -429,6 +434,12 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     ...(opts.voiceInputFetch === undefined ? {} : { fetchImpl: opts.voiceInputFetch }),
   });
   await voiceInputSettings.applyStored();
+  // 未登録と利用不可の案内を中継側でも揃えるため、キーの利用判定はここへ複製しない
+  const voiceInputSession = new VoiceInputSessionService({
+    settings: voiceInputSettings,
+    ...(opts.voiceInputFetch === undefined ? {} : { fetchImpl: opts.voiceInputFetch }),
+    ...(opts.voiceInputSessionTiming === undefined ? {} : { timing: opts.voiceInputSessionTiming }),
+  });
   // テスト検索はツールと同じ runner と同じ設定の写しを使う (画面とチャットで結果が食い違わない)
   const webSearchTest: WebSearchTest | null = pi
     ? createWebSearchTest({
@@ -674,6 +685,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     webSearchSettings,
     webSearchTest,
     voiceInputSettings,
+    voiceInputSession,
     titleSummarySettings,
     titleSummaryTest,
     gitSettings,
