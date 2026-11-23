@@ -65,7 +65,7 @@ export function ProviderCard(props: {
   }, [source.state, source.capturedAt, source.nextFetchAt]);
 
   return (
-    <article class="up-card up-provider">
+    <article class="up-card up-provider" data-mark={status.mark}>
       <header class="up-provider-head">
         <div class="up-provider-title">
           <ProviderIcon provider={source.provider} mark={status.mark} />

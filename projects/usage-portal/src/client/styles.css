@@ -324,6 +324,36 @@ h2 {
   gap: var(--up-space-4);
 }
 
+/* 使えないカード（未接続・契約エラー・上限到達）は、provider マークと同じく色を落として控えめにする。
+   不透明度でカード全体を薄くすると、⋮ の操作・リセット行・フォーカス枠のコントラストまで下がる。 */
+.up-provider[data-mark="muted"] {
+  background: var(--up-bg);
+}
+
+/* 面とグラフの色だけを落とす。文字と操作はそのまま読める濃さに残す。 */
+.up-provider[data-mark="muted"] .up-account-icon {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+/* 止めた窓・残りわずかの窓の色は状態そのものなので残す（ADR 0009）。 */
+.up-provider[data-mark="muted"] .up-meter-fill:not(.up-meter-fill-attention):not(.up-meter-fill-blocked) {
+  background: var(--up-muted);
+}
+
+.up-provider[data-mark="muted"] .up-trend-line {
+  stroke: var(--up-muted);
+}
+
+.up-provider[data-mark="muted"] .up-trend-area {
+  fill: var(--up-muted);
+}
+
+.up-provider[data-mark="muted"] .up-trend-dot {
+  background: var(--up-muted);
+  box-shadow: 0 0 0 2px var(--up-bg);
+}
+
 .up-provider-head {
   display: flex;
   flex-wrap: wrap;
@@ -840,17 +870,18 @@ h2 {
   gap: var(--up-space-1);
 }
 
+/* provider のマークと同じ大きさに揃え、絵文字だけが大きく見えないようにする。 */
 .up-account-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 2rem;
-  height: 2rem;
+  width: 1.75rem;
+  height: 1.75rem;
   border-radius: 999px;
   background: var(--up-muted);
   color: #ffffff;
-  font-size: 1rem;
+  font-size: 0.9rem;
   line-height: 1;
 }
 
