@@ -187,7 +187,7 @@ export function VoiceInputSettingsTab({
         />
 
         {/* 送信先のデータの扱いとログインの注意は、既定で畳んで出す（Web 検索と同じ作法）。
-            課金と保存しない範囲はプレイグラウンドの面の上に出しているので、ここでは繰り返さない */}
+            課金と保存しない範囲はプレイグラウンドの面の上でも伝え、ここでは要点を summary に、全文を本文に置く */}
         <CollapsibleNotice summary="音声の扱い（OpenAI のデータポリシー）と、この GUI にログインが無いことを確認する。">
           <p>{voiceInputBillingNotice(settings.model)}</p>
           <p>{VOICE_INPUT_RETENTION_NOTICE}</p>

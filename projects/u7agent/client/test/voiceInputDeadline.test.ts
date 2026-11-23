@@ -36,10 +36,9 @@ test("期限前のフレームだけを通し、期限の時点と以後は落�
   assert.deepEqual(sent, ["期限の前", "期限の 1ms 前"]);
 });
 
-test("worker の時計は main thread と同じ time origin を使う", () => {
-  const clock = audioDeadlineClock();
-  assert.ok(clock() >= performance.timeOrigin);
-  assert.ok(clock() - performance.timeOrigin < 60_000);
+test("worker の時計は main thread と同じ epoch（Date.now）基準で動く", () => {
+  // 期限は main thread の絶対時刻で渡すため、worker 側の時計が epoch 基準であることを固定する
+  assert.ok(Math.abs(audioDeadlineClock()() - Date.now()) < 500);
 });
 
 const transformKey = "RTCRtpScriptTransform";
