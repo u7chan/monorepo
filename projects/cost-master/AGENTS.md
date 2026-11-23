@@ -91,7 +91,7 @@ Docker は `docker build --target test -t cost-master-test ./projects/cost-maste
 
 - [README.md](README.md) — 起動方法、API、マスタのメンテ、Docker、セキュリティの前提
 - [DESIGN.md](DESIGN.md) — 画面の色・文字・部品・動きの正。`src/client/styles.css` を変えたら同じ PR で直す
-- [docs/adr/service-boundary.md](docs/adr/service-boundary.md) — u7agent から独立させ、read-only・認証なしで公開する理由
+- [docs/adr/service-boundary.md](docs/adr/service-boundary.md) — u7agent から独立させ、更新を 2 経路に絞って公開する理由
 - [docs/adr/master-files.md](docs/adr/master-files.md) — マスタ 2 ファイル、volume と seed、置き換えの契約、503 と行単位の倒し方
 - [docs/adr/judgments.md](docs/adr/judgments.md) — `enabled` の既定と、1 行だけ変える更新
 - [docs/adr/pricing-sources.md](docs/adr/pricing-sources.md) — 最大単価、通貨、画像と音声の請求単位の読み方
