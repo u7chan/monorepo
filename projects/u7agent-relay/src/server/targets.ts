@@ -16,6 +16,12 @@ export type SessionUrls = {
   messagesApi: string;
 };
 
+export type FileUrls = {
+  statApi: string;
+  rawApi: string;
+  downloadApi: string;
+};
+
 /**
  * 会話 URL を貼り付ける入口。クエリの `space` を所属として読み、origin はパスを持たない形へ正規化する。
  * http を受け入れないのは、上流の BFF が無認証で、平文だと中継の外で会話が読めるため。
@@ -95,4 +101,15 @@ export function safeSessionUrl(origin: string, sessionId: string, spaceId: strin
   } catch {
     return null;
   }
+}
+
+/** u7agent のファイル API は root 相対の `path` だけを受け取る。spaceId は使わない。 */
+export function fileUrls(target: ConnectionTarget, rootRelativePath: string): FileUrls {
+  const query = `path=${encodeURIComponent(rootRelativePath)}`;
+
+  return {
+    statApi: new URL(`/api/files/stat?${query}`, target.origin).href,
+    rawApi: new URL(`/api/files/raw?${query}`, target.origin).href,
+    downloadApi: new URL(`/api/files/download?${query}`, target.origin).href,
+  };
 }

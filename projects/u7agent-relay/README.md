@@ -83,13 +83,43 @@ curl -fsS http://localhost:8787/v1/replies/0123456789abcdef \
 | `{"status":"queued","sessionUrl":"…"}` | u7agent のキューに積まれた。実行 ID が無いので追跡できない。会話を開いて確認する。 |
 | `{"status":"running"}` | 実行中。 |
 | `{"status":"awaiting_answer","sessionUrl":"…"}` | u7agent が質問して回答待ち。会話を開いて答える。 |
-| `{"status":"completed","text":"…"}` | 完了。その実行の最後の assistant 本文だけを返す。 |
+| `{"status":"completed","text":"…","files":[…]}` | 完了。その実行の最後の assistant 本文と、生成物の一覧を返す。 |
 | `{"status":"stopped"}` / `{"status":"error"}` | 停止または失敗。 |
 
 - 実行中の会話、または送信待ちがある会話への投稿は `409 session_busy` です。再送しないでください。
 - 返信は、その `runId` を発行したキーだけが読めます。他のキーからは `404 run_not_found` です。
-- 会話履歴全体・ツール出力・添付は返しません。
+- 会話履歴全体とツール出力は返しません。生成物は `/v1/runs/:runId/files` で取得できます（cwd 配下、allowlist）。
 - 終了済みの実行は SQLite に保存した結果で答えます。上流の u7agent は直近の実行しか返さないため、後から追い越された実行の途中経過は取得できません。
+
+### 実行の生成物を取得する
+
+`completed` の `files` は、その実行の assistant 本文に現れた画像・音声・HTML・テキストの一覧です。それぞれ `path`（cwd 相対）と `kind` を持ちます。実体は同じ `runId` の API から取得します。
+
+```sh
+curl -fsS http://localhost:8787/v1/runs/0123456789abcdef/files \
+  -H "Authorization: Bearer ur_…"
+
+curl -fsS "http://localhost:8787/v1/runs/0123456789abcdef/files?path=generated%2Fcafe.png" \
+  -H "Authorization: Bearer ur_…" \
+  -o cafe.png
+```
+
+| 応答 | 意味 |
+| --- | --- |
+| `{"files":[{"path":"…","kind":"image"}]}` | 完了した実行の生成物一覧。実行中・停止・エラーは `409 run_not_completed`。 |
+| バイナリ | `Content-Type: application/octet-stream` と `Content-Disposition: attachment`。画像・音声は `Range` / `206` / `416` に対応。 |
+
+- 取得できるのは接続先セッションの cwd 配下だけです。`..` / 絶対パス / ディレクトリ / 空 / バックスラッシュ / 空白 / NUL は 400 `invalid_path`。
+- 受け付けたパスは upstream `GET /api/files/stat` で realpath を確認し、cwd の外を指す symlink は 400 にします。cwd がワークスペース root の接続先は 403 `file_scope_unavailable` です。
+- 画像・音声は upstream `GET /api/files/raw`、HTML・テキストは `GET /api/files/download` を使います。対象外の拡張子と SVG は 415 `not_downloadable`。
+- 上限は 1 ファイル 100 MiB、同時ダウンロードは接続先ごとに 2 本です。超過は `413 file_too_large` / `429 too_many_downloads`。
+- 上流の 400 / 404 / 413 / 502 / 503 / 504 は `invalid_path` / `file_not_found` / `file_too_large` / `upstream_unavailable` / `upstream_timeout` などに写像します。上流の本文は返しません。
+- 画像と音声以外に `Range` を付けても無視し、200 で全体を返します。
+- ファイルは `attachment` として返すため、relay のオリジンで HTML は実行されません。
+- 一覧の `kind` は本文のパスから決めるヒントです。実際に配信できるかは `stat` が返す realpath の拡張子で決まります。
+- `cwd` は接続先ごとに 60 秒キャッシュします。セッション移動の直後は最大 60 秒古い cwd を使うことがあり、その場合は `stat` の確認で fail closed になります。
+- `stat` と取得の間に symlink を差し替えられる競合は塞げません。静的な symlink は realpath の確認で拒否します。
+- プロジェクト会話の `cwd` はプロジェクトのルートです。その配下のファイルをキーで読める範囲になるため、接続先の会話とキーの配布先を信頼できる範囲に限ってください。
 
 `GET /healthz` は認証なしで `200 OK` と `u7agent-relay-ok` を返します。
 
@@ -100,13 +130,15 @@ curl -fsS http://localhost:8787/v1/replies/0123456789abcdef \
 | 管理 GUI | 6 桁 PIN（Argon2id）。5 回失敗で 15 分ロック。cookie は HttpOnly / SameSite=Lax / 30 日。 |
 | 管理 API の変更 | 同一 origin の要求だけ許可（Origin が無い curl は拒否）。 |
 | 中継 API | `Authorization: Bearer ur_…`。保存は SHA-256 で、失効は即時。 |
+| 中継 API のファイル取得 | 接続先セッションの cwd 配下だけ。上流 `stat` の realpath で境界を確認し、`attachment` / `octet-stream` で返す。 |
 | 待受 | コンテナ内は `0.0.0.0`、compose は loopback のみ。 |
 
 - PIN は初回アクセスで登録し、`DATA_DIR` の `pin-hash` に保存します。忘れた場合は `pin-hash` と `session-key` を消すと再設定できます（キーと接続先は残ります）。
 - 初回の PIN 登録より先に中継を外部へ公開しないでください。最初にアクセスした人が PIN を決められます。
 - `TRUST_PROXY=1` を使うときは、前段が接続元を `X-Forwarded-For` へ上書きまたは追記し、中継へ直接到達できないことを配備条件にしてください。直接到達できると、転送ヘッダーを偽装して PIN の試行制限を回避できます。
 - 中継は接続先として登録した会話へ到達できます。接続先の origin は信頼できる u7agent だけにしてください。
-- 実行中の直列化はプロセス内で行います。中継は 1 インスタンスで動かしてください。
+- 実行中の直列化はプロセス内で行います。中継は 1 インスタンスで動かしてください。ファイル取得の同時実行制限と cwd の 60 秒キャッシュも、この前提に依存します。
+- ファイル取得は 1 ファイル 100 MiB までで、接続先ごとに同時 2 本に制限します。帯域を守る仕組みは別途必要です。
 - 実行中 / 回答待ちの履歴は 30 秒ごとに上流へ問い合わせて更新します。クライアントが返信取得をやめても、完了した応答は管理画面から読めます。
 - 上流の u7agent は中継からの要求に認証を要求しません。中継と u7agent の間を信頼できるネットワークに置いてください。内部 CA を使う場合は、イメージの信頼ストアへ CA を入れてください。
 
@@ -128,7 +160,7 @@ curl -fsS http://localhost:8787/v1/replies/0123456789abcdef \
 
 | ファイル | 内容 |
 | --- | --- |
-| `relay.sqlite` | 接続先・API キー（ハッシュ）・実行履歴。実行履歴は 90 日で削除。 |
+| `relay.sqlite` | 接続先・API キー（ハッシュ）・実行履歴・生成物の一覧（`run_assets`）。実行履歴は 90 日で削除。 |
 | `pin-hash` | PIN の Argon2id ハッシュ。 |
 | `session-key` | セッション cookie の署名鍵。 |
 

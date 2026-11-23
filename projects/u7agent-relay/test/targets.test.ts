@@ -1,7 +1,14 @@
 // 会話 URL の解釈と、上流 API の URL 組み立てを固定する。
 import { describe, expect, test } from "bun:test";
 import { AdminError } from "../src/server/errors";
-import { parseOrigin, parseSessionUrl, parseSpaceId, safeSessionUrl, sessionUrls } from "../src/server/targets";
+import {
+  parseOrigin,
+  parseSessionUrl,
+  parseSpaceId,
+  fileUrls,
+  safeSessionUrl,
+  sessionUrls,
+} from "../src/server/targets";
 
 describe("parseSessionUrl", () => {
   test("会話 URL から origin / sessionId / spaceId を取り出す", () => {
@@ -73,5 +80,24 @@ describe("sessionUrls", () => {
 
   test("保存値が壊れていればリンクを作らない", () => {
     expect(safeSessionUrl("not a url", "0123456789", "default")).toBeNull();
+  });
+});
+
+describe("fileUrls", () => {
+  test("root 相対の path をファイル API の URL へ組み立てる", () => {
+    const urls = fileUrls(
+      { origin: "https://agent.example.com", sessionId: "0123456789", spaceId: "default" },
+      "projects/app/generated/cafe image.png",
+    );
+
+    expect(urls.statApi).toBe(
+      "https://agent.example.com/api/files/stat?path=projects%2Fapp%2Fgenerated%2Fcafe%20image.png",
+    );
+    expect(urls.rawApi).toBe(
+      "https://agent.example.com/api/files/raw?path=projects%2Fapp%2Fgenerated%2Fcafe%20image.png",
+    );
+    expect(urls.downloadApi).toBe(
+      "https://agent.example.com/api/files/download?path=projects%2Fapp%2Fgenerated%2Fcafe%20image.png",
+    );
   });
 });

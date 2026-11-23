@@ -133,7 +133,46 @@ describe("中継 API", () => {
       const reply = await harness.app.request(`/v1/replies/${RUN_ID}`, { headers: bearer(token) });
 
       expect(reply.status).toBe(200);
-      expect(await reply.json()).toEqual({ status: "completed", text: "最終応答" });
+      expect(await reply.json()).toEqual({ status: "completed", text: "最終応答", files: [] });
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  test("完了した実行の本文から生成物を拾い、files として返す", async () => {
+    const upstream = createUpstream();
+    const harness = await setup(upstream.fetchImpl);
+
+    try {
+      const { token } = seedConnection(harness);
+
+      await harness.app.request("/v1/messages", {
+        method: "POST",
+        headers: bearer(token),
+        body: JSON.stringify({ text: "画像を作って" }),
+      });
+
+      upstream.setSession({
+        sessionId: SESSION_ID,
+        spaceId: SPACE_ID,
+        status: "completed",
+        queueDepth: 0,
+        cwd: "projects/app",
+        run: { id: RUN_ID, status: "completed" },
+        messages: [
+          { role: "assistant", text: "![cafe](generated/cafe.png)", assistantId: `${RUN_ID}:0` },
+          { role: "assistant", text: "完了しました", assistantId: `${RUN_ID}:1` },
+        ],
+      });
+
+      const reply = await harness.app.request(`/v1/replies/${RUN_ID}`, { headers: bearer(token) });
+
+      expect(await reply.json()).toEqual({
+        status: "completed",
+        text: "完了しました",
+        files: [{ path: "generated/cafe.png", kind: "image" }],
+      });
+      expect(harness.store.getRunAssets(RUN_ID)).toEqual([{ path: "generated/cafe.png", kind: "image" }]);
     } finally {
       harness.cleanup();
     }
@@ -376,7 +415,7 @@ describe("中継 API", () => {
 
       const reply = await harness.app.request(`/replies/${RUN_ID}`, { headers: bearer(token) });
 
-      expect(await reply.json()).toEqual({ status: "completed", text: "OK" });
+      expect(await reply.json()).toEqual({ status: "completed", text: "OK", files: [] });
     } finally {
       harness.cleanup();
     }
@@ -503,7 +542,7 @@ describe("中継の競合と上流応答の検証", () => {
       const response = await pending;
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ status: "completed", text: "保存済みの完了" });
+      expect(await response.json()).toEqual({ status: "completed", text: "保存済みの完了", files: [] });
     } finally {
       harness.cleanup();
     }
@@ -551,7 +590,7 @@ describe("中継の競合と上流応答の検証", () => {
 
       const response = await pending;
 
-      expect(await response.json()).toEqual({ status: "completed", text: "定期処理の本文" });
+      expect(await response.json()).toEqual({ status: "completed", text: "定期処理の本文", files: [] });
       expect(harness.store.getRun(RUN_ID)).toMatchObject({ status: "completed", text: "定期処理の本文" });
     } finally {
       harness.cleanup();

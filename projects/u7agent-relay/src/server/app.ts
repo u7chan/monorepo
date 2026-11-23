@@ -9,6 +9,7 @@ import type { ConnectionService, KeyService } from "./connections";
 import { parseName } from "./connections";
 import type { Store } from "./db";
 import { AdminError, UpstreamError } from "./errors";
+import type { FilesService } from "./files";
 import { readBearer } from "./keys";
 import { createRateLimiter, type RateLimiter } from "./rate-limit";
 import type { Relay } from "./relay";
@@ -23,8 +24,9 @@ const MAX_ADMIN_BODY_BYTES = 16 * 1024;
 const MAX_AUTH_BODY_BYTES = 1024;
 
 /**
- * API は JSON しか返さないので、読み込みも実行もさせない。文書の CSP は index.html の meta で指定する
- * （Bun の HTML ルートはハンドラを通らず、応答ヘッダーを足せないため）。
+ * API は JSON を基本にし、生成物のダウンロードだけをバイナリで返す。どちらもブラウザに読み込みや実行を
+ * させない。文書の CSP は index.html の meta で指定する（Bun の HTML ルートはハンドラを通らず、
+ * 応答ヘッダーを足せないため）。
  */
 const SECURITY_HEADERS = {
   "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
@@ -37,6 +39,7 @@ export type AppDeps = {
   auth: AuthService;
   store: Store;
   relay: Relay;
+  files: FilesService;
   connections: ConnectionService;
   keys: KeyService;
   version: string;
@@ -334,6 +337,18 @@ export function createApp(deps: AppDeps) {
 
   app.get("/v1/replies/:runId", readReply);
   app.get("/replies/:runId", readReply);
+
+  const readRunFiles = async (c: Context) => {
+    const authenticated = authenticate(c);
+
+    if (!authenticated) {
+      return unauthorized(c);
+    }
+
+    return deps.files.handle(c, authenticated.connection, authenticated.keyId, c.req.param("runId") ?? "");
+  };
+
+  app.get("/v1/runs/:runId/files", readRunFiles);
 
   app.notFound((c) => c.json({ error: "not_found" as const }, 404));
 

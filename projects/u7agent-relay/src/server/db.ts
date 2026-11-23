@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import type { AssetKind, RunAsset } from "./assets";
 import type { ConnectionTarget } from "./targets";
 
 export type ConnectionRecord = {
@@ -93,6 +94,16 @@ const SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS runs_connection ON runs (connection_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS run_assets (
+    run_id TEXT NOT NULL REFERENCES runs (run_id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    PRIMARY KEY (run_id, path)
+  );
+
+  CREATE INDEX IF NOT EXISTS run_assets_run ON run_assets (run_id, ordinal);
 `;
 
 type ConnectionRow = {
@@ -128,7 +139,13 @@ type RunRow = {
   updated_at: number;
 };
 
+type RunAssetRow = {
+  path: string;
+  kind: string;
+};
+
 const RUN_STATUSES = new Set<RunStatus>(["running", "awaiting_answer", "completed", "stopped", "error"]);
+const ASSET_KINDS = new Set<AssetKind>(["image", "audio", "html", "text"]);
 
 function toConnection(row: ConnectionRow): ConnectionRecord {
   return {
@@ -228,6 +245,38 @@ export function createStore(database: Database) {
   const updatePendingRunQuery = database.query(
     `UPDATE runs SET status = ?, text = ?, error = ?, updated_at = ?
      WHERE run_id = ? AND status IN ('running', 'awaiting_answer')`,
+  );
+  const getRunAssetsQuery = database.query<RunAssetRow, [string]>(
+    "SELECT path, kind FROM run_assets WHERE run_id = ? ORDER BY ordinal ASC",
+  );
+  const deleteRunAssetsQuery = database.query("DELETE FROM run_assets WHERE run_id = ?");
+  const insertRunAssetQuery = database.query(
+    "INSERT OR IGNORE INTO run_assets (run_id, path, kind, ordinal) VALUES (?, ?, ?, ?)",
+  );
+  // 状態更新と assets の置き換えを 1 トランザクションに閉じる。更新が 0 行なら assets も書かない。
+  const completeRunTx = database.transaction(
+    (
+      runId: string,
+      status: RunStatus,
+      text: string | null,
+      error: string | null,
+      assets: RunAsset[],
+      at: number,
+    ): boolean => {
+      const changes = updatePendingRunQuery.run(status, text, error, at, runId).changes;
+
+      if (changes === 0) {
+        return false;
+      }
+
+      deleteRunAssetsQuery.run(runId);
+
+      for (const [ordinal, asset] of assets.entries()) {
+        insertRunAssetQuery.run(runId, asset.path, asset.kind, ordinal);
+      }
+
+      return true;
+    },
   );
   // 一覧に本文を全部載せない。GUI のプレビューに必要な先頭だけを返し、応答サイズを抑える。
   const listRunsQuery = database.query<Omit<RunRow, "session_url"> & { key_name: string | null }, [number]>(
@@ -387,6 +436,26 @@ export function createStore(database: Database) {
       now: number,
     ): boolean {
       return updatePendingRunQuery.run(status, text, error, now, runId).changes > 0;
+    },
+
+    /** 状態更新と assets の置き換えを 1 トランザクションで行う。既に終端なら false。 */
+    completeRun(
+      runId: string,
+      status: RunStatus,
+      text: string | null,
+      error: string | null,
+      assets: RunAsset[],
+      now: number,
+    ): boolean {
+      return completeRunTx(runId, status, text, error, assets, now);
+    },
+
+    getRunAssets(runId: string): RunAsset[] {
+      return getRunAssetsQuery.all(runId).flatMap((row) => {
+        const kind = row.kind as AssetKind;
+
+        return ASSET_KINDS.has(kind) ? [{ path: row.path, kind }] : [];
+      });
     },
 
     listRuns(limit: number): RunView[] {
