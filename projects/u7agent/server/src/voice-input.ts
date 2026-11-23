@@ -343,9 +343,9 @@ export class VoiceInputSettingsService {
 }
 
 /**
- * 発行された短命キーの形だけを見る。`session.type` が文字起こしで、`value` が `ek_` で始まり、
- * 入力の APIキーがそのまま返っていないことを確かめる（キーの再露出を成功と扱わない）。
- * 疎通確認と Realtime 中継で同じ検査を使い、片方だけ緩めない。
+ * 発行された短命キーの形だけを見る。`session.type` が文字起こしで、`value` が `ek_` に
+ * base64url の文字だけを続けた形で、入力の APIキーがそのまま返っていないことを確かめる
+ * （キーの再露出を成功と扱わない）。疎通確認と Realtime 中継で同じ検査を使い、片方だけ緩めない。
  */
 export function clientSecretValueOf(body: unknown, apiKey: string): string | null {
   if (typeof body !== "object" || body === null) return null;
