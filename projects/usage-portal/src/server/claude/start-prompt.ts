@@ -1,7 +1,7 @@
 import type { ClaudeStartEffort, ClaudeStartModel } from "../../shared/claude-start";
 import { ClaudeCliError, type ClaudePromptCli } from "./cli";
 
-/** 送る文は固定。時刻などの可変値は足さない（理由は ADR 0028）。 */
+/** 送る文は固定。時刻などの可変値は足さない（理由は docs/adr/claude-integration.md）。 */
 export const CLAUDE_START_PROMPT = "Reply with a single period.";
 export const CLAUDE_START_SYSTEM_PROMPT = "Reply with exactly one character.";
 

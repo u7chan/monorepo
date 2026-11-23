@@ -19,21 +19,35 @@ OpenCode Go の接続確認）を持つ。
 
 - `src/server.ts` が `Bun.serve` の入口。`index.html` の HTML import を `/` に、それ以外を Hono に渡す。SQLite・sampler・Codex の資格情報はここで組み立てる。
 - `src/server/app.ts` が API の Hono app。認証・利用枠・Codex のサービスは依存として注入し、テストは `app.request()` で叩く。
-- 認証状態は環境変数ではなく `DATA_DIR` 配下のファイル（`pin-hash` / `session-key`）に持つ。理由は [docs/adr/0003-pin-storage-and-session-key.md](docs/adr/0003-pin-storage-and-session-key.md)。
-- 利用枠は `src/server/providers/` の adapter で `ProviderSnapshot` に正規化し、`src/server/sampler.ts` が provider ごとの間隔（既定 10 分）で取得して `src/server/db.ts` へ書く。契約エラーで止めたアカウントは 6 時間ごとの再確認に落とし、`POST /api/opencode/accounts/:id/refresh` で即時に再開する。応答は `src/server/usage.ts` が組み立てる（[docs/adr/0004-usage-sampling-and-storage.md](docs/adr/0004-usage-sampling-and-storage.md)）。
-- Codex の資格情報とサインインは `src/server/codex/`。OAuth は実装せず、Pi SDK の `ModelRuntime` を認証の境界としてだけ使う（[docs/adr/0005-codex-credentials-and-sign-in.md](docs/adr/0005-codex-credentials-and-sign-in.md)）。
-- OpenCode Go のアカウント（名前 / アイコン / API キー）は `src/server/opencode/accounts.ts` が `CREDENTIAL_DIR` の `opencode-accounts.json` に保存し、`/api/opencode/accounts` から登録・変更・削除する。入力規則は `src/shared/opencode-account.ts` を server と client で共有する。`.env` は使わない（[docs/adr/0006-opencode-api-key-registration.md](docs/adr/0006-opencode-api-key-registration.md), [docs/adr/0007-opencode-multiple-accounts.md](docs/adr/0007-opencode-multiple-accounts.md)）。
-- Claude の利用枠は `src/server/claude/` と `src/server/providers/claude.ts`。公式 CLI を子プロセスで起動し、`claude auth status` で接続を判定してから `/usage` を読む。sampler には乗せず、`POST /api/claude/refresh` の auto（前回取得から 15 分）と manual（前回の試行から 60 秒）だけで取得する（[docs/adr/0022-claude-usage-via-cli.md](docs/adr/0022-claude-usage-via-cli.md)）。子プロセスへ渡す環境変数は `PATH` / `HOME` / `CLAUDE_CONFIG_DIR` / `TZ` だけ、cwd は空の一時ディレクトリ、期限は 15 秒。CLI の出力本文・メール・組織情報は保存もログもせず、正規化した snapshot と sample だけを残す。トークンと `.credentials.json` は直接読まない。5 時間窓の開始予約は `src/server/claude/start.ts`（timer・送信前後の確認・失敗の数え方）と `start-prompt.ts`（固定の 1 文の送信と `api_error_status` の分類）で、時刻の計算は `src/shared/claude-start.ts` を画面と共有する。設定と履歴は SQLite の `claude_start` / `claude_start_run`（[docs/adr/0028-claude-session-start-schedule.md](docs/adr/0028-claude-session-start-schedule.md)）。カードは認証済みのときだけ出し、未接続のあいだは全体メニューの「Claude」に手順と「接続を確認」（manual と同じ）を置く。`POST /api/claude/logout` は `claude auth logout` を CLI で実行し、世代番号で進行中の取得の書き戻しを止めてから snapshot と error を消す（[docs/adr/0026-claude-card-visibility-and-logout.md](docs/adr/0026-claude-card-visibility-and-logout.md)）。
-- DB の `provider` 列は provider id ではなく source id（`codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>` / `claude`）を持つ。テーブル定義は v1 のまま（ADR 0007, 0018）。`user_version` は取得間隔（v2）と Claude の開始予約（v3）のテーブルを足して 3。Claude の利用枠も既存のテーブルへ追記する。Codex のサインアウトと Claude のログアウトは snapshot と error だけを消し、sample は再サインイン用に残す。
+- 認証状態は環境変数ではなく `DATA_DIR` 配下のファイル（`pin-hash` / `session-key`）に持つ。理由は [docs/adr/auth-and-exposure.md](docs/adr/auth-and-exposure.md)。
+- 利用枠は `src/server/providers/` の adapter で `ProviderSnapshot` に正規化し、`src/server/sampler.ts` が provider ごとの間隔（既定 10 分）で取得して `src/server/db.ts` へ書く。契約エラーで止めたアカウントは 6 時間ごとの再確認に落とし、`POST /api/opencode/accounts/:id/refresh` で即時に再開する。応答は `src/server/usage.ts` が組み立てる（[docs/adr/usage-sampling-and-storage.md](docs/adr/usage-sampling-and-storage.md)）。
+- Codex の資格情報とサインインは `src/server/codex/`。OAuth は実装せず、Pi SDK の `ModelRuntime` を認証の境界としてだけ使う（[docs/adr/codex-integration.md](docs/adr/codex-integration.md)）。
+- OpenCode Go のアカウント（名前 / アイコン / API キー）は `src/server/opencode/accounts.ts` が `CREDENTIAL_DIR` の `opencode-accounts.json` に保存し、`/api/opencode/accounts` から登録・変更・削除する。入力規則は `src/shared/opencode-account.ts` を server と client で共有する。`.env` は使わない（[docs/adr/opencode-integration.md](docs/adr/opencode-integration.md)）。
+- Claude の利用枠は `src/server/claude/` と `src/server/providers/claude.ts`。公式 CLI を子プロセスで起動し、`claude auth status` で接続を判定してから `/usage` を読む。sampler には乗せず、`POST /api/claude/refresh` の auto（前回取得から 15 分）と manual（前回の試行から 60 秒）だけで取得する（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。子プロセスへ渡す環境変数は `PATH` / `HOME` / `CLAUDE_CONFIG_DIR` / `TZ` だけ、cwd は空の一時ディレクトリ、期限は 15 秒。CLI の出力本文・メール・組織情報は保存もログもせず、正規化した snapshot と sample だけを残す。トークンと `.credentials.json` は直接読まない。5 時間窓の開始予約は `src/server/claude/start.ts`（timer・送信前後の確認・失敗の数え方）と `start-prompt.ts`（固定の 1 文の送信と `api_error_status` の分類）で、時刻の計算は `src/shared/claude-start.ts` を画面と共有する。設定と履歴は SQLite の `claude_start` / `claude_start_run`（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。カードは認証済みのときだけ出し、未接続のあいだは全体メニューの「Claude」に手順と「接続を確認」（manual と同じ）を置く。`POST /api/claude/logout` は `claude auth logout` を CLI で実行し、世代番号で進行中の取得の書き戻しを止めてから snapshot と error を消す（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。
+- DB の `provider` 列は provider id ではなく source id（`codex`（未接続時）/ `codex:<chatgpt account id>` / `opencode-go:<account uuid>` / `claude`）を持つ。テーブル定義は v1 のまま（[docs/adr/usage-sampling-and-storage.md](docs/adr/usage-sampling-and-storage.md)）。`user_version` は取得間隔（v2）と Claude の開始予約（v3）のテーブルを足して 3。Claude の利用枠も既存のテーブルへ追記する。Codex のサインアウトと Claude のログアウトは snapshot と error だけを消し、sample は再サインイン用に残す。
 - 送信（5 時間窓の開始・接続確認）は `src/server/probe/`。エージェントは使わず、`@earendil-works/pi-ai` の
   `openaiCodexProvider()` / `opencodeGoProvider()` を直接呼ぶ。Codex の access token は `CodexAuth.credential()`
-  から取り、`auth.json` は解析しない（[docs/adr/0017-probe-prompts.md](docs/adr/0017-probe-prompts.md)）。
-  認証の境界は ADR 0005 のままなので、`ModelRuntime` は資格情報とサインインにだけ使う。
+  から取り、`auth.json` は解析しない（[docs/adr/codex-integration.md](docs/adr/codex-integration.md)）。
+  認証の境界は codex-integration.md のままなので、`ModelRuntime` は資格情報とサインインにだけ使う。
 - 送信で扱うのは status・`stopReason`・latency・固定のエラーコードだけ。プロンプトはサーバ側の固定 1 文で、
   応答本文・上流のエラー文は保存もログもせず、クライアントにも返さない。
 - `@earendil-works/pi-*` は u7agent と同じバージョンに固定する。マイナーでも破壊変更が入るため、Dependabot の自動更新には乗せず、migration とセットで手動更新する。
-- client は `src/client/api.ts` で API を呼ぶ。`hc` は validator を入れるまで request body の型を共有できないため使わない（ADR 0003）。状態管理・UI コンポーネント・日付整形のライブラリは足さない（[docs/adr/0000-stack-and-style.md](docs/adr/0000-stack-and-style.md)）。Claude のカードを出すかの判定と、カード・全体メニューで共通の文言は `src/client/lib/claude.ts` に置く（[docs/adr/0026-claude-card-visibility-and-logout.md](docs/adr/0026-claude-card-visibility-and-logout.md)）。provider のロゴは HWC と同じ形で `src/client/lib/provider-icon.ts` に持ち、商標の表示を `THIRD_PARTY_NOTICES.txt` に置く（[docs/adr/0027-provider-order-and-icons.md](docs/adr/0027-provider-order-and-icons.md)、[docs/adr/0030-provider-marks-from-hwc.md](docs/adr/0030-provider-marks-from-hwc.md)）。色は HWC のブランド色を当て、契約が無い・切れた・枠を使い切ったカードだけ灰色にする（[docs/adr/0031-provider-mark-colors.md](docs/adr/0031-provider-mark-colors.md)）。
-- `docs/design.md` は親 checkout の写し。このプロジェクトでは書き換えない。決定と背景は `docs/adr/` に足す。
+- client は `src/client/api.ts` で API を呼ぶ。`hc` は validator を入れるまで request body の型を共有できないため使わない（[docs/adr/stack-and-client.md](docs/adr/stack-and-client.md)）。状態管理・UI コンポーネント・日付整形のライブラリは足さない（[docs/adr/stack-and-client.md](docs/adr/stack-and-client.md)）。Claude のカードを出すかの判定と、カード・全体メニューで共通の文言は `src/client/lib/claude.ts` に置く（[docs/adr/claude-integration.md](docs/adr/claude-integration.md)）。provider のロゴは HWC と同じ形で `src/client/lib/provider-icon.ts` に持ち、商標の表示を `THIRD_PARTY_NOTICES.txt` に置く（[docs/adr/provider-marks.md](docs/adr/provider-marks.md)）。色は HWC のブランド色を当て、契約が無い・切れた・枠を使い切ったカードだけ灰色にする。
+- `docs/design.md` は親 checkout の写し。このプロジェクトでは書き換えない。決定と背景は docs/adr/ にまとめる。
+
+## アーキテクチャの決定
+
+設計判断は `docs/adr/` に従う。ADR に書くのは、コードから読み取れず、崩すと影響が広い判断だけにする。
+
+- 書く: 技術スタックと開発ツール、BFF と client の境界と通信、外部（各 provider の CLI / API / SDK）との連携方式とその前提になる外部仕様、公開範囲とセキュリティ、依存と永続化の方針
+- 書かない: UI の見た目と挙動、機能ごとの仕様。コミット・テスト・コードコメントに書く
+
+ファイルは `docs/adr/` 配下の `<topic>.md`（小文字 kebab-case）で、番号を振らない。同じ論点は同じファイルにまとめる。判断が変わったら、そのファイルを現在の判断に書き換える。やめた判断はファイルごと消す（経緯は git に残る）。コードやドキュメントからは docs/adr/ 配下のトピック名のパスで参照し、番号で参照しない。
+
+- `accepted`: 現在有効。実装はこれに従う
+- `proposed`: 検討中。前提にしない
+
+Accepted ADR とタスクが衝突する場合は、迂回実装で無理に両立させない。作業を止めて衝突を報告し、タスクと ADR のどちらを見直すか判断を仰ぐ。
 
 ## 検証
 
@@ -68,5 +82,5 @@ Docker は `docker build --target test -t usage-portal-test ./projects/usage-por
 
 - [README.md](README.md) — 起動方法、環境変数、Docker、セキュリティの前提
 - [docs/design.md](docs/design.md) — 設計（親 checkout からの写し）
-- [docs/adr/](docs/adr) — スタック、状態取得、認証と公開範囲、利用枠の保存、Codex のサインイン、OpenCode Go のアカウント、残量表示と推移の期間、窓の停止表示とメニュー、表示の密度、Codex のサインアウト、ゲージの印、リセット行のバッジ、使い切ったカードの並び、最小プロンプトの送信、Codex の推移の引き継ぎ、OpenCode Go の契約エラーの決定、OpenCode Go の月次順の並び、Claude の利用枠の取得（公式 CLI・画面を開いたときと手動更新のみ）、取得状況の表示（間隔・経過・進捗バー）、provider ごとの取得間隔、契約エラーのアカウントの停止と再開、Claude のカードの可視性とログアウト、カードの並びと provider のロゴ、Claude の 5 時間窓の開始予約、公式ステータスへのリンク、ロゴを HWC のマークに揃える決定、マークのブランド色と使えないときの灰色の決定
-- ADR を足すときは、起票時と PR 作成時に `origin/main` の docs/adr/ で最新番号を確認する。番号を決めた後に main が進むことがあるため、`origin/main` を取り込むときとレビューでも重複していないか確かめる。
+- [docs/adr/](docs/adr) — スタックと取得方式、認証と公開範囲、利用枠の保存と窓の扱い、provider のマーク、OpenCode Go・Codex・Claude との連携、稼働状況の参照先
+- ADR はトピックごとの 1 ファイルにまとめる。新しい論点は既存ファイルに追記できないか先に検討し、ファイルを足すときも番号は振らない。

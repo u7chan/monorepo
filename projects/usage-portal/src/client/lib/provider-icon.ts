@@ -11,7 +11,7 @@ export type ProviderMark = {
 };
 
 // 色は CSS が当てる。ブランド色は HWC に合わせ、契約が無い・切れた・枠を使い切ったときだけ
-// 灰色にする（ADR 0031）。OpenCode の内側のシェードは不透明な色ではなく透過で描き、
+// 灰色にする。OpenCode の内側のシェードは不透明な色ではなく透過で描き、
 // 地が変わっても同じ見え方にする。
 const PROVIDER_MARKS: Record<ProviderId, ProviderMark> = {
   codex: {

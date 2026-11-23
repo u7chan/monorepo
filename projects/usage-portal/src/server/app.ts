@@ -45,7 +45,7 @@ export type AppDeps = {
     refresh: (mode: ClaudeRefreshMode) => Promise<ClaudeRefreshResult>;
     logout: () => Promise<boolean>;
   };
-  /** Claude の 5 時間窓の開始予約（ADR 0028）。timer の起動と停止は server.ts が持つ。 */
+  /** Claude の 5 時間窓の開始予約（docs/adr/claude-integration.md）。timer の起動と停止は server.ts が持つ。 */
   claudeStart: Pick<ClaudeStartService, "state" | "saveSettings" | "setEnabled" | "runNow">;
   probe: ProbeApi;
   fetchIntervals: {

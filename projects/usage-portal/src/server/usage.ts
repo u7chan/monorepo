@@ -117,7 +117,7 @@ const PROVIDER_NAMES: Record<ProviderId, string> = {
 
 /**
  * 周期取得の provider は「2 間隔」を stale の閾値にする。画面を開いたときだけ取る Claude は、
- * 取得間隔そのものを閾値にする（ADR 0022）。
+ * 取得間隔そのものを閾値にする（docs/adr/claude-integration.md）。
  */
 function scheduleFor(
   provider: ProviderId,
