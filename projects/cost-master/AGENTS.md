@@ -19,7 +19,7 @@
 - `src/server.ts` が `Bun.serve` の入口。`index.html` の HTML import を `/` に、それ以外を Hono に渡す。マスタの置き場（`MASTER_DIR`）を用意して `master-store` を組み立てる。
 - `src/server/app.ts` が API の Hono app。`/api/models` / `/api/health`（読み取り）、`/api/master/:kind`（ダウンロード / アップロード）、`/api/judgments`（1 行だけの更新）を持つ。状態は依存として注入し、テストは `app.request()` で叩く。書き込みは same-origin だけ通し、認証は持たない（LAN / VPN の内側という前提を変えない）。
 - `src/server/master.ts` がマスタの検証・正規化・応答の組み立て。純関数だけを置く。壊れた行は落とし、どちらかのファイルが読めないときは 503 に倒す（空の一覧を返して価格と判断を消さない）。1 行の更新計画（`planJudgment`）もここに置く。
-- `src/server/master-store.ts` が `MASTER_DIR` の読み書き。起動時に volume にマスタが 1 つも無ければ image 同梱の初期値をコピーし（片方だけあるときはコピーしない）、リクエストごとに mtime を見て読み直す（再起動なしで反映）。置き換えは 1 行でも不正なら全体を拒否し、tmp + rename で置き換えて直前の内容を `.bak` に残す。
+- `src/server/master-store.ts` が `MASTER_DIR` の読み書き。起動時に volume にマスタが 1 つも無ければ image 同梱の初期値をコピーし（片方だけあるときはコピーしない）、リクエストごとに mtime を見て読み直す（再起動なしで反映）。読めないときは理由（`failure`）と落とした行数を持たせ、`/api/health` に出す（ログを見なくても原因に辿り着けるようにする）。置き換えは 1 行でも不正なら全体を拒否し、tmp + rename で置き換えて直前の内容を `.bak` に残す。
 - `src/server/generate.ts` が価格の取り込み。上流の取得も同じ関数に閉じ、`fetch` を注入できる。失敗したモデルは前回の行を残し、`endpoints: []` は価格なしを確定する。上流の応答本文はログにもファイルにも出さない。**サーバーは上流へ出ない**（取り込みは手元で実行し、結果をアップロードする）。
 - `src/shared/contract.ts` が応答の型の正。u7agent 側の DTO とは別で、`billable` はここまで。
 - `src/shared/format.ts` が単価と鮮度の整形。client とスクリプトの出力で共有する。

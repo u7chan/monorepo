@@ -71,8 +71,9 @@ describe("ensureSeed", () => {
 
     expect(() => readFileSync(join(dir, "prices.json"), "utf8")).toThrow();
     expect(logs).toContain("マスタが一部だけあります（enabled）。image からのコピーはしません");
-    // コピーしないので、マスタは読めない（空の一覧を返さない）
-    expect(store.state()).toEqual({ ok: false });
+    // コピーしないので、マスタは読めない（空の一覧を返さない）。
+    // どちらのファイルが無いのかは health で分かるようにする
+    expect(store.state()).toEqual({ ok: false, failure: "prices-missing", rowsDropped: 0 });
   });
 });
 
@@ -134,7 +135,12 @@ describe("state", () => {
     );
     writeFileSync(join(dir, "enabled.json"), JSON.stringify({ models: [] }));
 
-    expect(newStore(dir).state()).toEqual({ ok: false });
+    // 全部落ちたことと、落とした行数（＝古い語彙の行数）まで返す
+    expect(newStore(dir).state()).toEqual({
+      ok: false,
+      failure: "prices-no-usable-rows",
+      rowsDropped: file.models.length,
+    });
   });
 
   test("壊れたファイルは読めないとして返す（空の一覧にしない）", () => {
@@ -142,7 +148,25 @@ describe("state", () => {
     writeFileSync(join(dir, "prices.json"), "{ not json");
     writeFileSync(join(dir, "enabled.json"), "{}");
 
-    expect(newStore(dir).state()).toEqual({ ok: false });
+    expect(newStore(dir).state()).toEqual({ ok: false, failure: "prices-unreadable", rowsDropped: 0 });
+  });
+
+  test("読めない理由をファイルごとに区別する（次に何を直すか決められる）", () => {
+    const prices = readFileSync(join(BUNDLED, "prices.json"), "utf8");
+
+    const missing = newDir();
+    writeFileSync(join(missing, "prices.json"), prices);
+    expect(newStore(missing).state()).toEqual({ ok: false, failure: "enabled-missing", rowsDropped: 0 });
+
+    const broken = newDir();
+    writeFileSync(join(broken, "prices.json"), prices);
+    writeFileSync(join(broken, "enabled.json"), JSON.stringify({ models: {} }));
+    expect(newStore(broken).state()).toEqual({ ok: false, failure: "enabled-unreadable", rowsDropped: 0 });
+
+    const shape = newDir();
+    writeFileSync(join(shape, "prices.json"), JSON.stringify({ version: 3, fetchedAt: 1, models: {} }));
+    writeFileSync(join(shape, "enabled.json"), JSON.stringify({ models: [] }));
+    expect(newStore(shape).state()).toEqual({ ok: false, failure: "prices-unreadable", rowsDropped: 0 });
   });
 });
 

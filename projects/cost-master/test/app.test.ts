@@ -24,6 +24,9 @@ const PAYLOAD: CostMasterPayload = {
 
 const ENABLED_TEXT = '{ "models": [] }\n';
 
+/** 旧語彙の prices.json を volume に残したまま再デプロイしたときの形 */
+const UNAVAILABLE: MasterState = { ok: false, failure: "prices-no-usable-rows", rowsDropped: 147 };
+
 function fakeStore(overrides: Partial<MasterStore> = {}): MasterStore {
   return {
     ensureSeed: () => {},
@@ -65,7 +68,7 @@ describe("GET /api/models", () => {
   });
 
   test("マスタを読めていないときは空の一覧ではなく 503 にする", async () => {
-    const response = await appOf({ ok: false }).request("/api/models");
+    const response = await appOf(UNAVAILABLE).request("/api/models");
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "master_unavailable" });
@@ -82,12 +85,21 @@ describe("GET /api/health", () => {
   });
 
   test("マスタを読めていないときは ok: false と null を返す", async () => {
-    expect(healthOf({ ok: false })).toEqual({
+    expect(healthOf(UNAVAILABLE)).toEqual({
       ok: false,
       service: "cost-master",
       masterFetchedAt: null,
       version: null,
+      failure: "prices-no-usable-rows",
+      rowsDropped: 147,
     });
+  });
+
+  test("読めない理由を返す（ログを見なくても切り分けられる）", async () => {
+    const body = await (await appOf(UNAVAILABLE).request("/api/health")).json();
+
+    expect(body.failure).toBe("prices-no-usable-rows");
+    expect(body.rowsDropped).toBe(147);
   });
 });
 
@@ -299,10 +311,10 @@ describe("PUT /api/judgments", () => {
   test("マスタが読めないときは、要求値によらず 503（no-op でも 200 にしない）", async () => {
     const { store } = recordingStore(() => JSON.stringify({ models: [{ modelId: "a", enabled: false }] }));
 
-    expect((await appOf({ ok: false }, store).request(ENDPOINT, bodyOf({ modelId: "a", enabled: false }))).status).toBe(
+    expect((await appOf(UNAVAILABLE, store).request(ENDPOINT, bodyOf({ modelId: "a", enabled: false }))).status).toBe(
       503,
     );
-    expect((await appOf({ ok: false }, store).request(ENDPOINT, bodyOf({ modelId: "a", enabled: true }))).status).toBe(
+    expect((await appOf(UNAVAILABLE, store).request(ENDPOINT, bodyOf({ modelId: "a", enabled: true }))).status).toBe(
       503,
     );
   });

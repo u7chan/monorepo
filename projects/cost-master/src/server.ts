@@ -38,7 +38,9 @@ if (state.ok) {
     `version ${state.payload.version} / ${state.payload.models.length} 行 / fetchedAt ${new Date(state.payload.fetchedAt).toISOString()}`,
   );
 } else {
-  console.error("マスタを読めませんでした（/api/models は 503 を返します）");
+  // 画面と `/api/health` だけを見る人にも分かるように、理由をコードで出す
+  console.error(`マスタを読めませんでした: ${state.failure}（落とした行 ${state.rowsDropped}）`);
+  console.error("/api/models は 503 を返します");
 }
 
 for (const kind of MASTER_KINDS) {

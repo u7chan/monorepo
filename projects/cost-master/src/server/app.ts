@@ -9,11 +9,15 @@ import {
   type CostMasterPayload,
   type JudgmentApplied,
   type JudgmentUpdate,
+  type MasterFailure,
 } from "../shared/contract";
 import { parseJudgmentFile, planJudgment } from "./master";
 import type { MasterStore } from "./master-store";
 
-export type MasterState = { ok: true; payload: CostMasterPayload } | { ok: false };
+/** 読めないときは 503 に倒す。理由は `/api/health` で返し、ファイルの中身は載せない */
+export type MasterState =
+  | { ok: true; payload: CostMasterPayload }
+  | { ok: false; failure: MasterFailure; rowsDropped: number };
 
 export type AppDeps = {
   master: () => MasterState;
@@ -201,7 +205,14 @@ export function createApp(deps: AppDeps) {
 
 export function healthOf(state: MasterState): CostMasterHealth {
   if (!state.ok) {
-    return { ok: false, service: SERVICE_NAME, masterFetchedAt: null, version: null };
+    return {
+      ok: false,
+      service: SERVICE_NAME,
+      masterFetchedAt: null,
+      version: null,
+      failure: state.failure,
+      rowsDropped: state.rowsDropped,
+    };
   }
 
   return {
