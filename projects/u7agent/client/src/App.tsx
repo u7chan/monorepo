@@ -1048,7 +1048,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       case "web-search":
         return <WebSearchSettingsPage {...pageProps} refreshCatalog={refreshCatalog} />;
       case "voice-input":
-        // 録音・文字起こしの UI は別の Issue。ここはキーの登録と疎通確認だけを持つ
+        // 入力欄への挿入は別の Issue。ここはキーの登録・疎通確認と、録音 1 回分のプレイグラウンドを持つ
         return <VoiceInputSettingsPage {...pageProps} />;
       case "session-title":
         // 本会話のモデルとは独立した設定なので、モデル画面の共有 state は渡さない (開いたときだけ取得する)

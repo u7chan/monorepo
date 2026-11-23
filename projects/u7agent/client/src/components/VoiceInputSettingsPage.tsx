@@ -34,7 +34,7 @@ export function VoiceInputSettingsView({
     <SettingsPageLayout
       eyebrow="VOICE INPUT"
       title="音声入力"
-      caption="録音の文字起こしに使う OpenAI のAPIキーを設定します。"
+      caption="録音の文字起こしに使う OpenAI のAPIキーを設定し、その場で録音を 1 回試せます。"
       toolbar={
         <TabToolbar
           actions={

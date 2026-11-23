@@ -1341,6 +1341,22 @@ export const postVoiceInputTest = async (): Promise<VoiceInputTestResponse> => {
   return res.json();
 };
 
+/**
+ * 音声入力の Realtime セッション開始。offer SDP を BFF へ中継し、answer SDP を受け取る。
+ * 本文は SDP を raw で送るため `hc` を使わず fetch を使う（BFF は `application/sdp` だけを受ける）。
+ * 失敗は JSON の `error` / `code`（402 の残高不足など）を持つ ApiError になる。
+ */
+export const postVoiceInputSession = async (offerSdp: string, signal: AbortSignal): Promise<string> => {
+  const res = await fetch(client.api["voice-input"].session.$url(), {
+    method: "POST",
+    headers: { "Content-Type": "application/sdp" },
+    body: offerSdp,
+    signal,
+  });
+  if (!res.ok) throw await apiError(res);
+  return res.text();
+};
+
 /** 設定 → Git。グローバルな identity（user.name / user.email）を読む。未設定は両方 null */
 export const getGitSettings = async (): Promise<GitSettingsResponse> => {
   const res = await client.api.settings.git.$get();
