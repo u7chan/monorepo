@@ -3,7 +3,7 @@
 ## 実行
 
 - `bun test` で全テストを実行する
-- CI(Pull Request Check)は Docker の `test` ステージをビルドし、その中で `bun run lint` + `bun test` が通ることを検証する
+- CI(Pull Request Check)は Docker の `test` ステージをビルドし、その中で `bun run lint` + `bun test` が通ることを検証する。あわせて配布する `final` ステージもビルドし、イメージの組み立てが壊れていないことを確認する
 
 ## テストは生きるドキュメント
 

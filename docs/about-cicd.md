@@ -13,16 +13,16 @@
 | ワークフロー | `.github/workflows/pullrequest-check.yml` | `.github/workflows/docker-build.yml` |
 | 起動条件 | `main` 向け PR、または `epic/*` を base にする子 PR の作成・更新 | `main` への push（`projects` 配下の `docs` のみを除く）、または手動実行 |
 | 主な目的 | 変更内容の検証 | 配布用イメージの作成と送信 |
-| Docker の対象 | `test` ステージ。存在しない場合は既定ステージ | `final` ステージがあるプロジェクトのみ |
+| Docker の対象 | `test` と `final` ステージ。存在しない場合は既定ステージ | `final` ステージがあるプロジェクトのみ |
 | レジストリへの送信 | しない | GHCR へ送信する |
-| イメージタグ | `latest`（ローカルのビルド結果のみ） | 自動実行は `latest` と `sha-<short sha>`、手動実行は生成タグ。`docs` のみの push では作られない |
+| イメージタグ | `ci-test` と `ci-final`（ローカルのビルド結果のみ） | 自動実行は `latest` と `sha-<short sha>`、手動実行は生成タグ。`docs` のみの push では作られない |
 
 ```mermaid
 flowchart TB
   PR["main 向け PR<br/>epic 子 PR"] --> CI["CI"]
   CI --> LICENSE["依存定義の変更を検出<br/>OSS ライセンスを確認"]
   CI --> CI_PROJECTS["変更プロジェクトを検出<br/>Dockerfile の有無を確認"]
-  CI_PROJECTS --> CI_BUILD["test ステージをビルド<br/>なければ既定ステージをビルド"]
+  CI_PROJECTS --> CI_BUILD["test と final ステージをビルド<br/>なければ既定ステージをビルド"]
 
   PUSH["main への push"] --> AUTO["CD：自動実行<br/>docs のみは起動しない"]
   MANUAL["Run workflow"] --> MANUAL_CD["CD：手動実行"]
@@ -65,7 +65,7 @@ COPY . .
 CMD ["./start.sh"]
 ```
 
-CI は `test` ステージを指定してビルドします。ただし、現在のビルドスクリプトは `test` ステージがない場合にターゲット指定を外し、Dockerfile の既定ステージをビルドします。
+CI は `test` と `final` の両ステージを指定してビルドします。`final` は配布するイメージそのもので、`final` からしか参照しないステージ（`usage-portal` の `claude-cli` など）の検証も兼ねます。ただし、現在のビルドスクリプトは指定したステージがない場合にターゲット指定を外し、Dockerfile の既定ステージをビルドします。
 一方、CD は対象検出の時点で `final` ステージの有無を確認するため、`final` ステージがないプロジェクトを送信しません。
 
 自動実行の CD は変更の検出に push の差分を使いますが、ビルドするソースはジョブ開始時点の最新 `main` です。`Dockerfile` の有無と `final` ステージの判定も、checkout した最新 `main` の内容で行います。`projects` 配下の `docs` だけを変更した push では、ワークフロー自体が起動しません。
@@ -96,7 +96,8 @@ gh api repos/<owner>/<repository>/actions/permissions/fork-pr-contributor-approv
 5. 対象があれば OSS ライセンスを確認する
 6. `Dockerfile` がある変更プロジェクトを `build_projects.txt` に保存する
 7. 各プロジェクトを `stage=test` でビルドする
-8. ビルド済み Docker イメージをログに表示する
+8. 各プロジェクトを `stage=final` でビルドする
+9. ビルド済み Docker イメージをログに表示する
 
 ライセンスチェックの実行前に、必要なランタイムを対象に応じてセットアップします。Bun と uv はライセンスチェック対象があればセットアップし、pnpm は対象に `pnpm-lock.yaml` があるプロジェクトが含まれる場合だけ `pnpm/action-setup@v6` でセットアップします。
 
@@ -107,6 +108,7 @@ gh api repos/<owner>/<repository>/actions/permissions/fork-pr-contributor-approv
 - ライセンスチェックで失敗した場合は、ログの `reason_code` と対象パッケージを確認する
 - Docker ビルドで失敗した場合は、検出されたプロジェクトと `Dockerfile` のステージ名を確認する
 - テストが実行されていない場合は、`Dockerfile` に `AS test` があるか確認する
+- `final` ステージのビルドだけが失敗した場合は、`final` の `COPY --from=` が参照するステージ名と、そこで取得する外部ファイルを確認する
 
 ## CD：イメージを GHCR へ送信する
 

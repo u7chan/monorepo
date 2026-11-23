@@ -80,11 +80,23 @@ jobs:
       - name: Get Changed Projects
         uses: ./.github/actions/get-changed-projects
 
-      - name: Build Docker Images
+      - name: Build Docker Images (test stage)
         if: env.BUILD_PROJECT != ''
         uses: ./.github/actions/build-docker-images
         with:
           stage: test
+          image_tags: ci-test
+
+      # final は配布するイメージなので、マージ後の CD まで壊れていることに気づけないと直す PR が
+      # 別途必要になる。final からしか参照しないステージ（usage-portal の claude-cli など）もあるため、
+      # test に加えて final もビルドして PR の時点で検証する。タグを分けて、docker images の
+      # ログでどちらのビルド結果かを見分けられるようにする。
+      - name: Build Docker Images (final stage)
+        if: env.BUILD_PROJECT != ''
+        uses: ./.github/actions/build-docker-images
+        with:
+          stage: final
+          image_tags: ci-final
 
       - name: Show Docker Images
         if: env.BUILD_PROJECT != ''
