@@ -51,6 +51,7 @@ import { activityProgressCount } from "./lib/activity";
 import { chatScope } from "./lib/chatScope";
 import { nextSheetView, type SheetView } from "./lib/sheetView";
 import { cn } from "./lib/cn";
+import { chatActionUnlessVoiceInput, type VoiceInputComposerPhase } from "./lib/voiceInput/composer";
 import { compactConfirmRequest } from "./lib/compaction";
 import { confirmTargetUnchanged } from "./lib/confirmDialog";
 import {
@@ -148,8 +149,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   const markdownImageRawUrl = useMarkdownImageRawUrl(app.chat.runEndSeq);
   // 入力欄のマイクの可用性。起動時に 1 回取得し、キーの保存 / 削除で取り直す
   const voiceInputAvailability = useVoiceInputAvailability();
-  // 音声の操作中か。入力欄の送信は Composer が自分で止め、未送信の再送だけをここで止める
-  const [voiceInputBusy, setVoiceInputBusy] = useState(false);
+  // 音声の操作中の phase。入力欄の送信は Composer が自分で止め、再実行 / 未送信の再送をここで止める
+  const [voiceInputPhase, setVoiceInputPhase] = useState<VoiceInputComposerPhase>("idle");
   // desktop shell は幅と高さの両方が要る (lib/layout.ts)。足りない側で portrait / landscape を選ぶ
   const layout = useLayoutMode();
   const singleColumnMode = layout === "desktop" ? null : layout;
@@ -452,19 +453,19 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
 
   const handleRetry = useCallback(() => {
     // 録音の確定待ちに再実行を挟むと、確定テキストの入る先の会話が変わる
-    if (voiceInputBusy) return;
-    // 失敗の復旧も通常の送信経路に載せる (BFF から prompt() を再発行しない)。固定文言だけを送り、
-    // 編集中の添付は送らず消費もしない
-    handleSend(RUN_RETRY_PROMPT, { includeAttachments: false });
-  }, [handleSend, voiceInputBusy]);
+    chatActionUnlessVoiceInput(voiceInputPhase, () => {
+      // 失敗の復旧も通常の送信経路に載せる (BFF から prompt() を再発行しない)。固定文言だけを送り、
+      // 編集中の添付は送らず消費もしない
+      handleSend(RUN_RETRY_PROMPT, { includeAttachments: false });
+    });
+  }, [handleSend, voiceInputPhase]);
 
   const handleResendUnsent = useCallback(
     (sendId: string) => {
       // 音声の操作中は会話を進めない（確定待ちのあとに別のターンが走らないようにする）
-      if (voiceInputBusy) return;
-      void app.resendUnsent(sendId);
+      chatActionUnlessVoiceInput(voiceInputPhase, () => void app.resendUnsent(sendId));
     },
-    [app, voiceInputBusy],
+    [app, voiceInputPhase],
   );
 
   const handleDiscardUnsent = useCallback(
@@ -1231,7 +1232,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
               voiceInputAvailable={voiceInputAvailability.shown}
               voiceInputModel={voiceInputAvailability.model}
               voiceInputScope={app.sessionId}
-              onVoiceInputBusyChange={setVoiceInputBusy}
+              onVoiceInputPhaseChange={setVoiceInputPhase}
               activity={activity.text}
               activityState={activity.state}
               thinkingText={app.chat.thinkingText}

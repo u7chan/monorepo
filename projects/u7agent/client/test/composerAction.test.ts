@@ -41,6 +41,13 @@ test("送信直後の保留中は停止を主スロットへ上げない", () =>
   assert.equal(composerAction({ ...base, stopVisible: false, stopPrimaryHeld: true }), "send");
 });
 
+test("録音の終了直後の保留中も停止を主スロットへ上げない", () => {
+  // What: `stopPrimaryHeld` は送信直後 (sendHold) と録音の終了直後 (voiceHold) の両方で立つ。
+  // 実行中で送るものが無くても主スロットを押せる ■ にしない（取消 / 確定の二度押しが run を落とす）
+  assert.equal(composerAction({ ...base, stopVisible: true, sendable: false, stopPrimaryHeld: true }), "sendAndStop");
+  assert.equal(composerAction({ ...base, stopVisible: true, sendable: false, stopPrimaryHeld: false }), "stop");
+});
+
 test("音声が待機の間は従来の 3 値から何も変えない", () => {
   // What: 録音のために run / 圧縮 / 待機キューの停止導線を落とさない
   assert.equal(composerAction({ ...base, voicePhase: "idle" }), "stop");

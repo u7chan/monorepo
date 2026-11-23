@@ -57,8 +57,3 @@ export function composerSecondaryStop(action: ComposerAction): boolean {
 export function composerPrimaryStop(action: ComposerAction): boolean {
   return action === "stop";
 }
-
-/** 音声の操作が主スロットを占有しているか (送信経路もこの間は閉じる) */
-export function composerVoiceActive(action: ComposerAction): boolean {
-  return action === "voiceCancel" || action === "voiceStop" || action === "voiceFinalizing";
-}

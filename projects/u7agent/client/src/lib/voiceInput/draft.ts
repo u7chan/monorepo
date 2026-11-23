@@ -57,20 +57,38 @@ function bodyEdit(body: string, value: string): BodyEdit | null {
 }
 
 /**
- * 手入力が所有領域へ触れたか。触れたら領域の位置を信用できないので所有を切る
- * （差分の位置で判定するのは、領域の開始・終了ちょうどへの挿入も「境界を含む編集」として拾うため）。
+ * 手入力が所有領域のどこに入ったか。`before` は領域が右へずれる、`after` は領域が動かない、
+ * `overlap` は所有を失う（位置を信用できない）。
  */
-function ownsRegion(draft: VoiceInputDraft, edit: BodyEdit | null): boolean {
-  if (edit === null) return true;
+type EditPlacement = "none" | "before" | "after" | "overlap";
+
+/**
+ * 手入力の位置を 1 回だけ決める。領域の開始・終了ちょうどへの挿入も「境界を含む編集」として拾うため、
+ * 幅 0 の差分（挿入）だけは向きの判定を 1 文字分きつくする。
+ */
+function editPlacement(draft: VoiceInputDraft, edit: BodyEdit | null): EditPlacement {
+  if (edit === null) return "none";
   const insertion = edit.end === edit.start;
-  const before = insertion ? edit.end < draft.start : edit.end <= draft.start;
-  const after = insertion ? edit.start > draft.end : edit.start >= draft.end;
-  return before || after;
+  if (insertion ? edit.end < draft.start : edit.end <= draft.start) return "before";
+  if (insertion ? edit.start > draft.end : edit.start >= draft.end) return "after";
+  return "overlap";
 }
 
-function shifted(draft: VoiceInputDraft, edit: BodyEdit | null): VoiceInputDraft {
-  if (edit === null || edit.delta === 0) return draft;
+/**
+ * 領域の位置。ずらすのは手入力が領域より前にあるときだけ。後ろの編集でもずらすと、次の部分テキストが
+ * 利用者の文字の上を置き換え、取消ではその文字ごと消える（領域の中身と位置がずれる）。
+ */
+function shifted(draft: VoiceInputDraft, edit: BodyEdit | null, placement: EditPlacement): VoiceInputDraft {
+  if (edit === null || placement !== "before" || edit.delta === 0) return draft;
   return { ...draft, start: draft.start + edit.delta, end: draft.end + edit.delta };
+}
+
+/** 手入力の位置を 1 回だけ決め、領域の位置を返す。所有を失っていれば `detached` */
+function settleRegion(draft: VoiceInputDraft, value: string): { region: VoiceInputDraft; detached: boolean } {
+  const edit = bodyEdit(draft.body, value);
+  const placement = editPlacement(draft, edit);
+  if (placement === "overlap") return { region: draft, detached: true };
+  return { region: shifted(draft, edit, placement), detached: false };
 }
 
 function detach(draft: VoiceInputDraft, value: string): VoiceInputDraftUpdate {
@@ -98,9 +116,9 @@ export function applyVoiceInputPartial(
   caret: number = value.length,
 ): VoiceInputDraftUpdate {
   if (draft.status !== "open") return { draft, value, caret: null, applied: false };
-  const edit = bodyEdit(draft.body, value);
-  if (!ownsRegion(draft, edit)) return detach(draft, value);
-  const region = shifted(draft, edit);
+  const settled = settleRegion(draft, value);
+  if (settled.detached) return detach(draft, value);
+  const region = settled.region;
   const next = `${value.slice(0, region.start)}${partial}${value.slice(region.end)}`;
   return {
     draft: { ...region, end: region.start + partial.length, text: partial, body: next },
@@ -121,9 +139,9 @@ export function finishVoiceInputDraft(
   caret: number = value.length,
 ): VoiceInputDraftUpdate {
   if (draft.status !== "open") return { draft, value, caret: null, applied: false };
-  const edit = bodyEdit(draft.body, value);
-  if (!ownsRegion(draft, edit)) return detach(draft, value);
-  const region = shifted(draft, edit);
+  const settled = settleRegion(draft, value);
+  if (settled.detached) return detach(draft, value);
+  const region = settled.region;
   const next = `${value.slice(0, region.start)}${text}${value.slice(region.end)}`;
   return {
     draft: { ...region, status: "settled", end: region.start + text.length, text, body: next },
@@ -139,9 +157,9 @@ export function finishVoiceInputDraft(
  */
 export function revertVoiceInputDraft(draft: VoiceInputDraft, value: string): VoiceInputDraftUpdate {
   if (draft.status !== "open") return { draft, value, caret: null, applied: false };
-  const edit = bodyEdit(draft.body, value);
-  if (!ownsRegion(draft, edit)) return detach(draft, value);
-  const region = shifted(draft, edit);
+  const settled = settleRegion(draft, value);
+  if (settled.detached) return detach(draft, value);
+  const region = settled.region;
   const next = `${value.slice(0, region.start)}${region.selected}${value.slice(region.end)}`;
   return {
     draft: {

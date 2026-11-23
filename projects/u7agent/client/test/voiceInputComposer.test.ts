@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  chatActionUnlessVoiceInput,
   createVoiceInputComposer,
   INITIAL_VOICE_INPUT_COMPOSER_STATE,
   voiceInputComposerBlockedReason,
@@ -153,14 +154,24 @@ test("アンマウントでは capture を閉じるが、所有領域を戻す�
 
 test("音声の操作中は送信経路を閉じる理由を返す", () => {
   // What: Enter / submit / 再実行 / 未送信の再送は、この理由が返る間は通さない
-  const phaseBlocked = (phase: VoiceInputComposerState["phase"]): string | undefined =>
-    voiceInputComposerBlockedReason({ phase, startedAt: null, deadline: null });
-  assert.equal(phaseBlocked("idle"), undefined);
-  assert.equal(phaseBlocked("connecting"), "音声の接続中");
-  assert.equal(phaseBlocked("recording"), "録音中");
-  assert.equal(phaseBlocked("finalizing"), "音声の確定待ち");
-  assert.equal(voiceInputComposerBusy({ phase: "idle", startedAt: null, deadline: null }), false);
-  assert.equal(voiceInputComposerBusy({ phase: "recording", startedAt: 0, deadline: 1 }), true);
+  assert.equal(voiceInputComposerBlockedReason("idle"), undefined);
+  assert.equal(voiceInputComposerBlockedReason("connecting"), "音声の接続中");
+  assert.equal(voiceInputComposerBlockedReason("recording"), "録音中");
+  assert.equal(voiceInputComposerBlockedReason("finalizing"), "音声の確定待ち");
+  assert.equal(voiceInputComposerBusy("idle"), false);
+  assert.equal(voiceInputComposerBusy("recording"), true);
+});
+
+test("入力欄の外の送信（再実行 / 未送信の再送）は音声の操作中に走らせない", () => {
+  // What: App の handleRetry / handleResendUnsent が同じ判定を通る。ガードを外すと action が走って落ちる
+  const ran: string[] = [];
+  const run = (phase: VoiceInputComposerState["phase"]): boolean =>
+    chatActionUnlessVoiceInput(phase, () => ran.push(phase));
+  assert.equal(run("idle"), true);
+  assert.equal(run("connecting"), false);
+  assert.equal(run("recording"), false);
+  assert.equal(run("finalizing"), false);
+  assert.deepEqual(ran, ["idle"]);
 });
 
 test("残り時間の割合は録音の経過だけで減り、期限を過ぎたら 0 になる", () => {

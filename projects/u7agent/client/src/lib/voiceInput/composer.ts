@@ -128,13 +128,24 @@ export function createVoiceInputComposer({
 }
 
 /** 音声の操作が入力欄の主スロットと送信経路を占有している間か */
-export function voiceInputComposerBusy(state: VoiceInputComposerState): boolean {
-  return state.phase !== "idle";
+export function voiceInputComposerBusy(phase: VoiceInputComposerPhase): boolean {
+  return phase !== "idle";
 }
 
 /** 録音を止められる間か（接続中は確定へ進めない。取消だけを受け付ける） */
 export function voiceInputComposerCanStop(state: VoiceInputComposerState): boolean {
   return state.phase === "recording";
+}
+
+/**
+ * 入力欄の外にある送信の入口（再実行 / 未送信の再送）。音声の操作中は走らせない。
+ * 入力欄の送信は `client/src/lib/composerSubmit.ts` が同じ phase を見て止める。
+ * 走らせたかを返すのは、呼び出し側が後続（フォーカスなど）を続けるかの判断に使うため。
+ */
+export function chatActionUnlessVoiceInput(phase: VoiceInputComposerPhase, action: () => void): boolean {
+  if (voiceInputComposerBusy(phase)) return false;
+  action();
+  return true;
 }
 
 /**
@@ -151,8 +162,8 @@ export function voiceInputRemainingRatio(deadline: number | null, startedAt: num
  * 送信できない理由。録音の途中で本文を送ると、確定テキストの入る先の会話が変わる。
  * 文言は再実行の押せない理由（`client/src/lib/runRetry.ts`）と並べても読める長さにする。
  */
-export function voiceInputComposerBlockedReason(state: VoiceInputComposerState): string | undefined {
-  switch (state.phase) {
+export function voiceInputComposerBlockedReason(phase: VoiceInputComposerPhase): string | undefined {
+  switch (phase) {
     case "idle":
       return undefined;
     case "connecting":

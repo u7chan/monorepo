@@ -22,14 +22,19 @@ import { cn } from "../lib/cn";
 import { composerAction, composerPrimaryStop, composerSecondaryStop } from "../lib/composerAction";
 import { composerFocusAfterSend, hasCoarsePointer } from "../lib/composerFocus";
 import { shouldSubmitOnEnter } from "../lib/composerKeys";
+import { submitComposer } from "../lib/composerSubmit";
 import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDropKind } from "../lib/fileMention";
 import type { LayoutMode } from "../lib/layout";
 import type { QueuedSend } from "../lib/queueWait";
 import { runRetryBlockedReason, type RunErrorInfo } from "../lib/runRetry";
 import { skillCommandText } from "../lib/sessionSkills";
-import { shouldClearSuggestionOnBackspace, suggestionSendText, suggestionTitleSource } from "../lib/suggestion";
+import { shouldClearSuggestionOnBackspace } from "../lib/suggestion";
 import type { AgentDef, AgentSuggestion, ContextUsage, ModelRef, RunStatus, ThinkingLevel, ToolCall } from "../types";
-import { voiceInputComposerBlockedReason } from "../lib/voiceInput/composer";
+import {
+  voiceInputComposerBlockedReason,
+  voiceInputComposerBusy,
+  type VoiceInputComposerPhase,
+} from "../lib/voiceInput/composer";
 import { requestVoiceInputConsent, voiceInputConsentStorage } from "../lib/voiceInput/consent";
 import {
   applyVoiceInputPartial,
@@ -109,8 +114,8 @@ export type ComposerProps = {
   voiceInputModel?: string;
   /** 会話の切替キー。変わったら録音を中断し、確定待ちの本文を次の会話へ持ち越さない */
   voiceInputScope?: string;
-  /** 音声の操作中か。再実行 / 未送信の再送を App が止める根拠 */
-  onVoiceInputBusyChange?: (busy: boolean) => void;
+  /** 音声の操作中の phase。再実行 / 未送信の再送を App が止める根拠 */
+  onVoiceInputPhaseChange?: (phase: VoiceInputComposerPhase) => void;
   /** `titleSource` は定型プロンプトを結合する前の本文 (一覧タイトルの元) */
   onSend: (text: string, titleSource?: string) => void;
   onStop: () => void;
@@ -186,7 +191,7 @@ export function Composer({
   voiceInputAvailable = false,
   voiceInputModel = "",
   voiceInputScope,
-  onVoiceInputBusyChange,
+  onVoiceInputPhaseChange,
   onSend,
   onStop,
   onAttachFiles,
@@ -243,8 +248,8 @@ export function Composer({
     setValue(next);
   }, []);
   const { state: voiceState, start: startVoice, stop: stopVoice, cancel: cancelVoice } = voice;
-  const voiceBlockedReason = voiceInputComposerBlockedReason(voiceState);
-  const voiceBusy = voiceBlockedReason !== undefined;
+  const voiceBlockedReason = voiceInputComposerBlockedReason(voiceState.phase);
+  const voiceBusy = voiceInputComposerBusy(voiceState.phase);
   // 音声の操作が終わった直後の保留 (送信直後の停止の保留と同じ理由)。取消 / 確定で主スロットが
   // 入れ替わった位置を続けて押すと、そのまま送信へ届いてしまう
   const [voiceHold, setVoiceHold] = useState(false);
@@ -475,29 +480,40 @@ export function Composer({
     setVoiceNotice(null);
   }, [voiceInputScope, cancelVoice]);
 
-  // 再実行 / 未送信の再送を App が止められるよう、音声の操作中かを知らせる
-  const notifyVoiceBusy = useRef(onVoiceInputBusyChange);
-  notifyVoiceBusy.current = onVoiceInputBusyChange;
+  // 再実行 / 未送信の再送を App が止められるよう、音声の操作中の phase を知らせる
+  const notifyVoicePhase = useRef(onVoiceInputPhaseChange);
+  notifyVoicePhase.current = onVoiceInputPhaseChange;
   useEffect(() => {
-    notifyVoiceBusy.current?.(voiceBusy);
-  }, [voiceBusy]);
-  useEffect(() => () => notifyVoiceBusy.current?.(false), []);
+    notifyVoicePhase.current?.(voiceState.phase);
+  }, [voiceState.phase]);
+  useEffect(() => () => notifyVoicePhase.current?.("idle"), []);
 
   const submit = () => {
-    const text = suggestionSendText(suggestion?.prompt ?? "", value);
-    // 録音中・接続中・確定待ちは送らない。ボタンの disabled だけでなく入口で止めるのは、
-    // Enter / submit / 再実行が同じ送信経路へ合流するため（下書きを消してから捨てない）
-    if (voiceBusy || voiceHold) return;
-    // 設定変更中は送信を待たせる (サーバー側でも 409)。チップ / 添付だけの送信は許可する
-    if (attachmentsBusy) return;
-    if ((!text && !hasAttachment) || !runtimeReady || sending || settings.changing || settings.sendBlockedReason)
-      return;
-    applyValue("");
-    setVoiceNotice(null);
-    setSendHold((count) => count + 1);
-    onClearSuggestion();
-    // 結合後の本文だけを渡すとタイトルが定型プロンプトの先頭で埋まるため、個別の依頼を別に渡す
-    onSend(text, suggestionTitleSource(value));
+    // 音声の操作中・終了直後の保留中は入口で止める（Enter / submit / 送信ボタンが同じ経路へ合流する）
+    const sent = submitComposer(
+      {
+        value,
+        suggestionPrompt: suggestion?.prompt ?? "",
+        hasAttachment,
+        runtimeReady,
+        sending,
+        settingsChanging: settings.changing,
+        ...(settings.sendBlockedReason === undefined ? {} : { sendBlockedReason: settings.sendBlockedReason }),
+        attachmentsBusy,
+        voicePhase: voiceState.phase,
+        voiceHold,
+      },
+      {
+        clearDraft: () => {
+          applyValue("");
+          setVoiceNotice(null);
+        },
+        holdStopPromotion: () => setSendHold((count) => count + 1),
+        clearSuggestion: onClearSuggestion,
+        send: onSend,
+      },
+    );
+    if (!sent) return;
     // 送信後のフォーカスはポインタで決める (docs/ui-layout.md)
     if (composerFocusAfterSend(hasCoarsePointer()) === "focus") inputRef.current?.focus();
     else inputRef.current?.blur();
@@ -639,7 +655,7 @@ export function Composer({
     sendable,
     // アップロード中は「送るものがあるのに送れない」状態なので、停止を主スロットへ上げない
     sendBlocked: Boolean(settings.sendBlockedReason) || attachmentsBusy,
-    stopPrimaryHeld: sendHold > 0,
+    stopPrimaryHeld: sendHold > 0 || voiceHold,
     voicePhase: voiceState.phase,
   });
   const stopPrimary = composerPrimaryStop(action);

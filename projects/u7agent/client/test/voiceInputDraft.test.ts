@@ -36,6 +36,52 @@ test("領域の外の手入力は消さず、部分テキストの位置だけ�
   assert.equal(next.applied, true);
 });
 
+test("領域より前の挿入では領域が右へずれ、中身は変わらない", () => {
+  // What: 領域の前へ書いた分だけ位置をずらす（ずらさないと部分テキストが手入力の上を置き換える）
+  const first = withPartial("abcdef", 2, "hello");
+  assert.equal(first.value, "abhellocdef");
+  const typed = `XY${first.value}`;
+  const next = applyVoiceInputPartial(first.draft, typed, "hello world", 9);
+  assert.equal(next.value, "XYabhello worldcdef");
+});
+
+test("領域より後ろの挿入では領域が動かず、部分テキストが利用者の文字を消さない", () => {
+  // What: 末尾へ書いた 1 文字を次の部分テキストが置き換えない（領域の後ろの編集で位置をずらさない）
+  const first = withPartial("abcdef", 2, "hello");
+  const typed = `${first.value}X`;
+  const next = applyVoiceInputPartial(first.draft, typed, "hello world", 7);
+  assert.equal(next.value, "abhello worldcdefX");
+  assert.equal(next.applied, true);
+});
+
+test("領域より後ろの挿入では、確定も利用者の文字を消さない", () => {
+  const first = withPartial("abcdef", 2, "hello");
+  const finished = finishVoiceInputDraft(first.draft, `${first.value}X`, "hello world", 7);
+  assert.equal(finished.value, "abhello worldcdefX");
+});
+
+test("領域より後ろの挿入では、取消で開始時の本文へ戻り手入力が残る", () => {
+  const first = withPartial("abcdef", 2, "hello");
+  const reverted = revertVoiceInputDraft(first.draft, `${first.value}X`);
+  assert.equal(reverted.value, "abcdefX");
+});
+
+test("領域より後ろの削除でも領域がずれない", () => {
+  // What: 末尾の 1 文字を消しても、次の部分テキストは領域だけを置き換える
+  const first = withPartial("abcdef", 2, "hello");
+  const deleted = first.value.slice(0, -1);
+  const next = applyVoiceInputPartial(first.draft, deleted, "hello world", 7);
+  assert.equal(next.value, "abhello worldcde");
+});
+
+test("取消で開始時の選択文字が戻り、後ろの手入力が残る", () => {
+  const started = beginVoiceInputDraft("abcdef", 2, 4);
+  const partial = applyVoiceInputPartial(started, "abcdef", "hello", 4);
+  assert.equal(partial.value, "abhelloef");
+  const reverted = revertVoiceInputDraft(partial.draft, `${partial.value}X`);
+  assert.equal(reverted.value, "abcdefX");
+});
+
 test("領域の中を編集したら自動の差し替えを止め、確定でも本文を変えない", () => {
   // What: 残った途中文と確定テキストを並べない（同じ発話が二重に入るより、確定文を捨てて注記する）
   const first = withPartial("abc", 3, "hello");
