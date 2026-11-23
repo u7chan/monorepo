@@ -44,6 +44,7 @@ import {
   type VoiceInputDraft,
   type VoiceInputDraftUpdate,
 } from "../lib/voiceInput/draft";
+import { glowVoiceInputText } from "../lib/voiceInput/glow";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
@@ -239,6 +240,8 @@ export function Composer({
   const voiceDraftRef = useRef<VoiceInputDraft | null>(null);
   // 録音を始めたときの焦点。確定後に焦点を戻すかの判定に使う (利用者が別の場所へ移っていたら奪わない)
   const voiceFocusRef = useRef<Element | null>(null);
+  // 途中の文字を光らせている最中の演出。次の途中文と取消で切る
+  const voiceGlowRef = useRef<Animation | null>(null);
   // 確認を開いている間に会話が変わったかを見る基準（戻ってきたら、別の会話の下書きへ録音を始めない）
   const voiceScopeRef = useRef(voiceInputScope);
   voiceScopeRef.current = voiceInputScope;
@@ -400,6 +403,8 @@ export function Composer({
     const draft = voiceDraftRef.current;
     voiceDraftRef.current = null;
     voiceFocusRef.current = null;
+    voiceGlowRef.current?.cancel();
+    voiceGlowRef.current = null;
     if (draft === null) return;
     applyVoiceDraft(revertVoiceInputDraft(draft, valueRef.current));
   }, [applyVoiceDraft]);
@@ -456,8 +461,14 @@ export function Composer({
         onPartial: (text) => {
           const draft = voiceDraftRef.current;
           if (draft === null) return;
-          const at = inputRef.current?.selectionStart ?? valueRef.current.length;
-          applyVoiceDraft(applyVoiceInputPartial(draft, valueRef.current, text, at));
+          const el = inputRef.current;
+          const previous = valueRef.current;
+          const update = applyVoiceInputPartial(draft, previous, text, el?.selectionStart ?? previous.length);
+          applyVoiceDraft(update);
+          // 文字が変わらなかった途中文では光らせない（同じ文が続くと、光りっぱなしに見える）
+          if (el !== null && update.applied && update.value !== previous) {
+            voiceGlowRef.current = glowVoiceInputText(el, voiceGlowRef.current);
+          }
         },
         onFinal: handleVoiceFinal,
         onCancel: handleVoiceCancel,
