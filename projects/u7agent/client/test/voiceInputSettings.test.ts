@@ -14,6 +14,9 @@ import {
   voiceInputKeyError,
   voiceInputKeyErrorNotice,
   voiceInputModelNote,
+  voiceInputPlaygroundDisabledReason,
+  voiceInputPlaygroundNotice,
+  VOICE_INPUT_DEADLINE_LIMITATION,
   voiceInputRuntimeNotice,
   voiceInputSavedNote,
   voiceInputSecureContextNotice,
@@ -153,6 +156,32 @@ test("課金・保存しない範囲・モデルの文言は対象を隠さな�
   assert.ok(VOICE_INPUT_RETENTION_NOTICE.includes("永続化しません"));
   assert.ok(VOICE_INPUT_RETENTION_NOTICE.includes("自動送信はしません"));
   assert.ok(voiceInputModelNote("gpt-live-transcribe").includes("固定"));
+});
+
+test("プレイグラウンドは外へ出る・課金されうる・保存しないを話す前に伝える", () => {
+  const notice = voiceInputPlaygroundNotice("gpt-live-transcribe");
+  assert.ok(notice.includes("OpenAI（gpt-live-transcribe）へ送られ"));
+  assert.ok(notice.includes("1 回の録音ごとに利用料"));
+  assert.ok(notice.includes("音声も文字起こしも保存せず"));
+  assert.ok(notice.includes("履歴にも残しません"));
+  assert.ok(VOICE_INPUT_DEADLINE_LIMITATION.includes("上限を過ぎた音声の送信を止められません"));
+});
+
+test("プレイグラウンドを始められない理由は、キー・ランタイムの順に見て 1 つ返す", () => {
+  assert.equal(voiceInputPlaygroundDisabledReason(base), "APIキーを登録すると録音を試せます。");
+  assert.equal(
+    voiceInputPlaygroundDisabledReason(stored({ keyAvailable: false, keyErrorMessage: "再入力してください" })),
+    "再入力してください",
+  );
+  assert.equal(
+    voiceInputPlaygroundDisabledReason(stored({ keyAvailable: false, keyErrorMessage: null })),
+    "保存済みのAPIキーを使える状態ではありません。",
+  );
+  assert.equal(
+    voiceInputPlaygroundDisabledReason({ ...stored({ keyAvailable: true }), runtimeAvailable: false }),
+    "ランタイムが利用できないため、録音を試せません。",
+  );
+  assert.equal(voiceInputPlaygroundDisabledReason(stored({ keyAvailable: true })), undefined);
 });
 
 test("保存・削除の注記と削除の確認は再登録できることを伝える", () => {

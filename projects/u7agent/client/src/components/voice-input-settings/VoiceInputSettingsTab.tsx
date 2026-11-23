@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useVoiceInputPlayground } from "../../hooks/useVoiceInputPlayground";
 import { cn } from "../../lib/cn";
+import { voiceInputFrameDeadlineSupported } from "../../lib/voiceInput/deadline";
 import {
   deleteVoiceInputKeyConfirmRequest,
   VOICE_INPUT_DATA_POLICY_URL,
@@ -14,6 +16,7 @@ import {
   voiceInputKeyCanSave,
   voiceInputKeyErrorNotice,
   voiceInputModelNote,
+  voiceInputPlaygroundDisabledReason,
   voiceInputRuntimeNotice,
   voiceInputSecureContextNotice,
   voiceInputTestDisabledReason,
@@ -26,6 +29,7 @@ import { useConfirm } from "../ConfirmProvider";
 import { ExternalLinkIcon } from "../icons";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
 import { VoiceInputKeySection } from "./VoiceInputKeySection";
+import { VoiceInputPlayground } from "./VoiceInputPlayground";
 
 export type VoiceInputSettingsTabProps = {
   settings: VoiceInputSettingsResponse;
@@ -41,8 +45,8 @@ export type VoiceInputSettingsTabProps = {
 };
 
 /**
- * 設定 → 音声入力の本文。キーの状態と登録・変更・削除、固定モデル、課金なしの疎通確認を 1 面にまとめる。
- * 録音と文字起こしの UI は別の面（次の Issue）で、ここには置かない。
+ * 設定 → 音声入力の本文。キーの状態と登録・変更・削除、固定モデル、課金なしの疎通確認、
+ * 録音を 1 回試すプレイグラウンドを 1 面にまとめる。入力欄への挿入は別の Issue で、ここには置かない。
  */
 export function VoiceInputSettingsTab({
   settings,
@@ -54,6 +58,7 @@ export function VoiceInputSettingsTab({
   onTest,
 }: VoiceInputSettingsTabProps) {
   const confirm = useConfirm();
+  const playground = useVoiceInputPlayground();
   const [apiKey, setApiKey] = useState("");
   const busy = saving !== null;
   const keyBadge = voiceInputKeyBadge(settings);
@@ -63,6 +68,7 @@ export function VoiceInputSettingsTab({
   const secureContextNotice = voiceInputSecureContextNotice(globalThis.isSecureContext !== false);
   const testDisabledReason = voiceInputTestDisabledReason(settings);
   const canTest = testDisabledReason === undefined && !testing && !busy;
+  const playgroundDisabledReason = voiceInputPlaygroundDisabledReason(settings);
 
   const submitKey = async () => {
     // 保存できたときだけ入力を捨てる (失敗時に打ちかけの値を消さない)
@@ -169,10 +175,20 @@ export function VoiceInputSettingsTab({
           )}
         </section>
 
-        {/* 外部送信と保存しない範囲は、使う前に読める位置へ既定で畳んで出す（Web 検索と同じ作法） */}
-        <CollapsibleNotice
-          summary={`録音した音声は OpenAI へ送られ、利用料がかかります。${VOICE_INPUT_RETENTION_NOTICE}`}
-        >
+        {/* 録音を 1 回試す面。保存も履歴も持たず、入力欄へは入れない */}
+        <VoiceInputPlayground
+          model={settings.model}
+          disabledReason={playgroundDisabledReason}
+          frameDeadlineSupported={voiceInputFrameDeadlineSupported()}
+          state={playground.state}
+          onStart={playground.start}
+          onStop={playground.stop}
+          onCancel={playground.cancel}
+        />
+
+        {/* 送信先のデータの扱いとログインの注意は、既定で畳んで出す（Web 検索と同じ作法）。
+            課金と保存しない範囲はプレイグラウンドの面の上でも伝え、ここでは要点を summary に、全文を本文に置く */}
+        <CollapsibleNotice summary="音声の扱い（OpenAI のデータポリシー）と、この GUI にログインが無いことを確認する。">
           <p>{voiceInputBillingNotice(settings.model)}</p>
           <p>{VOICE_INPUT_RETENTION_NOTICE}</p>
           <p>

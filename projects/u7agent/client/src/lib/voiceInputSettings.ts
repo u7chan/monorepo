@@ -103,6 +103,33 @@ export function voiceInputTestDisabledReason(
 export const VOICE_INPUT_TEST_NOTICE =
   "疎通確認は短命キーの発行だけを行い、音声は送らないため課金されません。結果は保存せず、録音の可否にも使いません。";
 
+/**
+ * 設定 → 音声入力の再生環境（プレイグラウンド）。話す前に、外へ出る・課金されうる・保存しないを 1 か所で伝える。
+ * 残高不足の分類は `client/src/lib/voiceInput/playground.ts` の失敗ラベルが持つ。
+ */
+export function voiceInputPlaygroundNotice(model: string): string {
+  return `話した音声は OpenAI（${model}）へ送られ、1 回の録音ごとに利用料がかかります。u7agent は音声も文字起こしも保存せず、履歴にも残しません。`;
+}
+
+/**
+ * 期限後にフレームを落とせないブラウザの既知の制限。録音自体は成立するので中止せず、上限を守れない範囲を伝える
+ * （期限の強制は `client/src/lib/voiceInput/deadline.ts`）。
+ */
+export const VOICE_INPUT_DEADLINE_LIMITATION =
+  "このブラウザは上限を過ぎた音声の送信を止められません。画面が固まっている間に話した音声は、上限を超えて送られることがあります。";
+
+/** プレイグラウンドの開始を押せない理由。押す前に「何が足りないか」を読めるようにする */
+export function voiceInputPlaygroundDisabledReason(
+  settings: Pick<VoiceInputSettingsResponse, "runtimeAvailable" | "keyStored" | "keyAvailable" | "keyErrorMessage">,
+): string | undefined {
+  if (!settings.keyStored) return "APIキーを登録すると録音を試せます。";
+  if (!settings.keyAvailable) {
+    return settings.keyErrorMessage ?? "保存済みのAPIキーを使える状態ではありません。";
+  }
+  if (!settings.runtimeAvailable) return "ランタイムが利用できないため、録音を試せません。";
+  return undefined;
+}
+
 /** 音声の送信先と料金。録音を始める前に、外へ出ることを隠さない */
 export function voiceInputBillingNotice(model: string): string {
   return `録音した音声は OpenAI（${model}）へ送られ、利用料がかかります。`;
