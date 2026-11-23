@@ -324,6 +324,12 @@ h2 {
   gap: var(--up-space-4);
 }
 
+/* 使えないカード（未接続・契約エラー・上限到達）は、見出しのマークと同じく控えめにする。
+   カード内の操作は止めないので、入力やボタンの無効化ではなく不透明度だけを下げる。 */
+.up-provider[data-mark="muted"] {
+  opacity: 0.6;
+}
+
 .up-provider-head {
   display: flex;
   flex-wrap: wrap;
@@ -840,17 +846,18 @@ h2 {
   gap: var(--up-space-1);
 }
 
+/* provider のマークと同じ大きさに揃え、絵文字だけが大きく見えないようにする。 */
 .up-account-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 2rem;
-  height: 2rem;
+  width: 1.75rem;
+  height: 1.75rem;
   border-radius: 999px;
   background: var(--up-muted);
   color: #ffffff;
-  font-size: 1rem;
+  font-size: 0.9rem;
   line-height: 1;
 }
 
