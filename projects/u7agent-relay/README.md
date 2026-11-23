@@ -21,6 +21,8 @@ docker compose up -d --build
 
 待受はホストの loopback だけに公開しています（`compose.yaml` の `127.0.0.1:8787:8787`）。別端末から使うときは、Tailscale などで到達範囲を絞ってから `ports` を変えてください。u7agent の BFF が無認証のため、中継をインターネットへ直接公開しないでください。
 
+自宅サーバーでは self-hosted-runner の `u7agent-relay` target が動かします。`ports` は loopback のままで、ホストの `tailscale serve` が tailnet 内だけに公開します（Caddy に site は持ちません）。上流の u7agent へは Caddy 経由の `https://agent.home.arpa` で接続し、証明書は Caddy の内部 CA を信頼します。
+
 ## ローカルで起動する
 
 Bun 1.4 を使います。
