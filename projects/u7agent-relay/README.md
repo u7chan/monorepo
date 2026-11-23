@@ -19,9 +19,11 @@ docker compose up -d --build
 
 `http://localhost:8787` を開き、最初に 6 桁の PIN を登録します。PIN・セッション鍵・SQLite は `u7agent_relay_data` volume に残ります。TLS 終端を前段に置く場合は、`.env` に `COOKIE_SECURE` / `TRUST_PROXY` / `APP_ORIGIN` を設定すると Compose から渡されます。
 
-待受はホストの loopback だけに公開しています（`compose.yaml` の `127.0.0.1:8787:8787`）。別端末から使うときは、Tailscale などで到達範囲を絞ってから `ports` を変えてください。u7agent の BFF が無認証のため、中継をインターネットへ直接公開しないでください。
+待受はホストの loopback だけに公開しています（`compose.yaml` の `127.0.0.1:8787:8787`）。u7agent の BFF が無認証のため、中継をインターネットへ直接公開しないでください。
 
-自宅サーバーでは self-hosted-runner の `u7agent-relay` target が動かします。`ports` は loopback のままで、ホストの `tailscale serve` が tailnet 内だけに公開します（Caddy に site は持ちません）。上流の u7agent へは Caddy 経由の `https://agent.home.arpa` で接続し、証明書は Caddy の内部 CA を信頼します。
+自宅サーバーでは self-hosted-runner の `u7agent-relay` target が動かします。`ports` は loopback のままで、ホストの `tailscale serve` が tailnet 内だけに公開します（Caddy に site は持ちません）。上流の u7agent へは Caddy 経由の `https://agent.home.arpa` で接続し、証明書は Caddy の内部 CA を信頼します。手順は self-hosted-runner の `docs/u7agent-relay.md` を参照してください。
+
+それ以外の環境で別端末から使うときは、Tailscale などで到達範囲を絞ってから `ports` を変えてください。
 
 ## ローカルで起動する
 
