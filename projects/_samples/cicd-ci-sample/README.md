@@ -9,7 +9,7 @@ PR時にCIワークフローが発火してビルド検証を行うためのサ�
 
 ## testステージが重要な理由
 
-このリポジトリのCI/CDパイプラインでは、`test`ステージを持つプロジェクトのみがCI検証対象となります。
+このリポジトリのCI/CDパイプラインでは、変更されたプロジェクトのうち `Dockerfile` を持つものがCI検証の対象となります。ステージの有無では絞り込まないため、`test` ステージを持たないプロジェクトも既定ステージでビルドされます。
 
 | ビルドタイプ | 対象ステージ | 用途 |
 |-----------|------------|------|
@@ -115,8 +115,8 @@ docker build -t cicd-ci-sample:test --target=test --progress plain .
 1. PRを作成すると、`pullrequest-check.yml` が発火
 2. `get-changed-directories` で変更ディレクトリを検出
 3. `get-changed-projects` でDockerfileがあるプロジェクトを絞り込み
-4. `build-docker-images`（stage=test）でテストと lint を検証
-5. `build-docker-images`（stage=final）で配布イメージの組み立てを検証
+4. `build-docker-images`（stage=test）でテストを検証
+5. `build-docker-images`（stage=final）でビルドする。このプロジェクトは `final` ステージを持たないため、既定ステージ（`test`）の再ビルドになる
 6. ビルド成功でPRチェックがパス
 
 ### mainブランチへのマージ時（CD）
