@@ -80,7 +80,7 @@ HTTPS を使う場合も公開範囲は LAN / VPN 内に留める。この変更
 ローリングは 5 時間以内に終わって日付が残り時間から分かるため日付を省き、日をまたぐときだけ「リセット 翌 02:00」と出す。
 Claude のカードは周期取得を持たないため、取得の進み具合のバーを出さず、画面を開いたときと `⋮` の「更新」でだけ取り直す。
 未接続のあいだはカードを出さず、全体メニューの「Claude」に同じ手順と「接続を確認」を置く（[ADR 0026](docs/adr/0026-claude-card-visibility-and-logout.md)）。
-カードは Codex → Claude → 登録順のアカウントで並び、見出しの左に provider のロゴを置く（[ADR 0027](docs/adr/0027-provider-order-and-icons.md)、ロゴの形は [ADR 0030](docs/adr/0030-provider-marks-from-hwc.md)）。
+カードは Codex → Claude → 登録順のアカウントで並び、見出しの左に provider のロゴを置く（[ADR 0027](docs/adr/0027-provider-order-and-icons.md)、ロゴの形は [ADR 0030](docs/adr/0030-provider-marks-from-hwc.md)、色は契約が有効なときだけ [ADR 0031](docs/adr/0031-provider-mark-colors.md)）。
 すべての窓を使い切ったアカウントのカードは、一覧の末尾に回る。使い切っていない OpenCode Go のカードは、
 月次の残りが多い順に並ぶ。Codex・Claude と、月次を読めないカードは元の位置に残る。
 表示の判断は [ADR 0008](docs/adr/0008-remaining-gauge-and-window-trend.md)、[ADR 0015](docs/adr/0015-reset-line-badge.md)、[ADR 0016](docs/adr/0016-exhausted-cards-last.md)、[ADR 0021](docs/adr/0021-opencode-monthly-order.md) を参照する。
@@ -400,3 +400,4 @@ bun run check
 - [docs/adr/0028-claude-session-start-schedule.md](docs/adr/0028-claude-session-start-schedule.md) — Claude の 5 時間窓を、予約した時刻から 5 時間おきに開始する
 - [docs/adr/0029-status-page-links.md](docs/adr/0029-status-page-links.md) — 稼働状況はアプリに取り込まず、メニューから公式ステータスを開く
 - [docs/adr/0030-provider-marks-from-hwc.md](docs/adr/0030-provider-marks-from-hwc.md) — provider のロゴを HWC のマークに揃え、ステータスのメニューにも置く
+- [docs/adr/0031-provider-mark-colors.md](docs/adr/0031-provider-mark-colors.md) — provider のマークにブランド色を付け、使えないときだけ灰色にする

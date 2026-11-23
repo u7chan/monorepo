@@ -68,7 +68,7 @@ export function ProviderCard(props: {
     <article class="up-card up-provider">
       <header class="up-provider-head">
         <div class="up-provider-title">
-          <ProviderIcon provider={source.provider} />
+          <ProviderIcon provider={source.provider} mark={status.mark} />
           {source.account ? <AccountIcon id={source.account.id} icon={source.account.icon} /> : null}
           <h2 class="up-provider-name">{source.name}</h2>
           {source.account ? (

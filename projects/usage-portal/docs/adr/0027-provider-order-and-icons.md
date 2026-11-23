@@ -1,6 +1,7 @@
 # ADR 0027: カードは Codex → Claude → OpenCode Go の順に並べ、見出しに provider のロゴを置く
 
-- Status: accepted（ロゴの取り込み元は [0030](0030-provider-marks-from-hwc.md) で一部置き換え）
+- Status: accepted（ロゴの取り込み元は [0030](0030-provider-marks-from-hwc.md)、色の扱いは
+  [0031](0031-provider-mark-colors.md) で一部置き換え）
 - Date: 2026-11-19
 - 関連: [ADR 0016](0016-exhausted-cards-last.md) の使い切ったカードの移動、[ADR 0021](0021-opencode-monthly-order.md) の OpenCode Go の月次順
 
@@ -20,7 +21,7 @@ Claude のカードが加わり、応答の並びは Codex → OpenCode Go ア�
   ヘッダーの provider 一覧も同じ順にする。
 - 見出しの左に provider のロゴを置く。Codex は OpenAI、Claude は Anthropic、OpenCode Go は opencode のマーク。
   名前が同じ行に出るので装飾（`aria-hidden`）とし、読み上げには足さない。
-- ロゴは 1 色（`currentColor`）で、明暗テーマとも同じ形を使う。
+- ロゴは 1 色（`currentColor`）で、明暗テーマとも同じ形を使う。→ 色は [ADR 0031](0031-provider-mark-colors.md) が上書きする。
 - アイコンのパスは `@lobehub/icons-static-svg`（MIT）から取り込み、帰属表示を `THIRD_PARTY_NOTICES.txt` に置いて
   Docker image にも含める。
 - 使い切ったカードを末尾へ回す規則（ADR 0016）と、OpenCode Go を月次の残り順に並べる規則（ADR 0021）は変えない。
@@ -31,7 +32,7 @@ Claude のカードが加わり、応答の並びは Codex → OpenCode Go ア�
 - クライアントだけで並べ替える: 応答前の骨格と応答後で順が変わり、カードが入れ替わる。
 - OpenCode Go にだけアイコンを付ける: アカウントの絵文字アイコンと provider の識別が混ざり、provider ごとの見た目が揃わない。
 - 補足の文字だけで provider を示す: 簡易表示では補足を隠すため、名前だけのカードが残る。
-- ロゴをブランド色にする: ダークモードでコントラストが落ちる色があり、状態ラベルの色と競合する。
+- ロゴをブランド色にする: ダークモードでコントラストが落ちる色があり、状態ラベルの色と競合する。→ ブランド色の採用は [ADR 0031](0031-provider-mark-colors.md) で改めた。
 
 ## 理由
 

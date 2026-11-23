@@ -13,6 +13,13 @@
   --up-danger: #b91c1c;
   --up-success: #15803d;
 
+  /* provider のマークだけに使うブランド色。地の色や文字色には使わない。
+     Claude は HWC の既定テーマの値。Codex と OpenCode は本家がモノクロなので、暗い地で濃さを反転する。 */
+  --up-mark-claude: #c15f3c;
+  --up-mark-codex: #000000;
+  --up-mark-opencode: #1f1f1f;
+  --up-mark-opencode-shade: 0.2;
+
   --up-space-1: 4px;
   --up-space-2: 8px;
   --up-space-3: 12px;
@@ -47,6 +54,10 @@
     --up-attention: #f0b45a;
     --up-danger: #f87171;
     --up-success: #6fd08c;
+    --up-mark-claude: #e08a68;
+    --up-mark-codex: #ffffff;
+    --up-mark-opencode: #eeeeee;
+    --up-mark-opencode-shade: 0.28;
   }
 }
 
@@ -357,6 +368,27 @@ h2 {
 .up-provider-icon svg {
   width: 1.05rem;
   height: 1.05rem;
+}
+
+/* 契約が有効な provider だけブランド色にする。枠と地は共通のまま、形と色の 2 つで provider を示す。
+   メニューの項目は契約の状態を持たないので常に色付き（ADR 0031）。 */
+.up-provider-icon[data-provider="codex"][data-mark="brand"],
+.up-menu-item-icon[data-provider="codex"] {
+  color: var(--up-mark-codex);
+}
+
+.up-provider-icon[data-provider="claude"][data-mark="brand"],
+.up-menu-item-icon[data-provider="claude"] {
+  color: var(--up-mark-claude);
+}
+
+.up-provider-icon[data-provider="opencode-go"][data-mark="brand"],
+.up-menu-item-icon[data-provider="opencode-go"] {
+  color: var(--up-mark-opencode);
+}
+
+.up-provider-mark-shade {
+  fill-opacity: var(--up-mark-opencode-shade);
 }
 
 .up-status {

@@ -1,4 +1,4 @@
-// 状態ラベルの優先順位と、色に頼らない記号を固定する。
+// 状態ラベルの優先順位と、色に頼らない記号、マークの色を固定する。
 import { describe, expect, test } from "bun:test";
 import { deriveProviderStatus, type StatusInput } from "../src/client/lib/status";
 
@@ -15,11 +15,21 @@ function status(overrides: Partial<StatusInput> = {}) {
 
 describe("deriveProviderStatus", () => {
   test("80% 未満は利用可能", () => {
-    expect(status({ usedPercents: [0, 79] })).toEqual({ label: "利用可能", tone: "success", symbol: "●" });
+    expect(status({ usedPercents: [0, 79] })).toEqual({
+      label: "利用可能",
+      tone: "success",
+      symbol: "●",
+      mark: "brand",
+    });
   });
 
   test("80% 以上は残りわずか（注意の記号付き）", () => {
-    expect(status({ usedPercents: [10, 80] })).toEqual({ label: "残りわずか", tone: "attention", symbol: "▲" });
+    expect(status({ usedPercents: [10, 80] })).toEqual({
+      label: "残りわずか",
+      tone: "attention",
+      symbol: "▲",
+      mark: "brand",
+    });
   });
 
   test("上限到達は 100% でも limitReached でも同じラベル", () => {
@@ -41,16 +51,19 @@ describe("deriveProviderStatus", () => {
       label: "未接続",
       tone: "neutral",
       symbol: "○",
+      mark: "muted",
     });
     expect(status({ provider: "opencode-go", state: "error", errorCode: "not_connected", usedPercents: [] })).toEqual({
       label: "未接続",
       tone: "neutral",
       symbol: "○",
+      mark: "muted",
     });
     expect(status({ state: "error", errorCode: "reauth_required", usedPercents: [] })).toEqual({
       label: "再サインイン",
       tone: "attention",
       symbol: "▲",
+      mark: "brand",
     });
   });
 
@@ -63,20 +76,31 @@ describe("deriveProviderStatus", () => {
   test("OpenCode Go の契約なしは更新停止ではなく契約エラーにする", () => {
     expect(
       status({ provider: "opencode-go", state: "stale", errorCode: "subscription_required", usedPercents: [12] }),
-    ).toEqual({ label: "契約エラー", tone: "attention", symbol: "■" });
+    ).toEqual({ label: "契約エラー", tone: "attention", symbol: "■", mark: "muted" });
   });
 
   test("Claude の契約なし・再サインインも provider ごとのラベルにする", () => {
     expect(
       status({ provider: "claude", state: "error", errorCode: "subscription_required", usedPercents: [] }),
-    ).toEqual({ label: "契約エラー", tone: "attention", symbol: "■" });
+    ).toEqual({ label: "契約エラー", tone: "attention", symbol: "■", mark: "muted" });
     expect(status({ provider: "claude", state: "error", errorCode: "reauth_required", usedPercents: [] })).toEqual({
       label: "再サインイン",
       tone: "attention",
       symbol: "▲",
+      mark: "brand",
     });
     expect(status({ provider: "claude", state: "error", errorCode: "not_connected", usedPercents: [] }).label).toBe(
       "未接続",
     );
+  });
+
+  test("マークの色は契約が無い・切れた・枠を使い切ったときだけ落とす", () => {
+    expect(status({ usedPercents: [100] }).mark).toBe("muted");
+    expect(status({ usedPercents: [10], limitReached: true }).mark).toBe("muted");
+    expect(status({ state: "stale", errorCode: "subscription_required", provider: "claude" }).mark).toBe("muted");
+    expect(status({ state: "loading", usedPercents: [] }).mark).toBe("brand");
+    expect(status({ state: "error", usedPercents: [] }).mark).toBe("brand");
+    expect(status({ state: "stale" }).mark).toBe("brand");
+    expect(status({ usedPercents: [90] }).mark).toBe("brand");
   });
 });
