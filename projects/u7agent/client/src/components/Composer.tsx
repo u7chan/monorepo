@@ -44,6 +44,7 @@ import {
   type VoiceInputDraft,
   type VoiceInputDraftUpdate,
 } from "../lib/voiceInput/draft";
+import { glowVoiceInputText } from "../lib/voiceInput/glow";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
@@ -239,6 +240,10 @@ export function Composer({
   const voiceDraftRef = useRef<VoiceInputDraft | null>(null);
   // 録音を始めたときの焦点。確定後に焦点を戻すかの判定に使う (利用者が別の場所へ移っていたら奪わない)
   const voiceFocusRef = useRef<Element | null>(null);
+  // 途中の文字を光らせている最中の演出。次の途中文と取消で切る
+  const voiceGlowRef = useRef<Animation | null>(null);
+  // 途中文で本文が変わった回数。描画の後に光らせる合図で、0 は未開始
+  const [voiceGlowCount, setVoiceGlowCount] = useState(0);
   // 確認を開いている間に会話が変わったかを見る基準（戻ってきたら、別の会話の下書きへ録音を始めない）
   const voiceScopeRef = useRef(voiceInputScope);
   voiceScopeRef.current = voiceInputScope;
@@ -395,11 +400,21 @@ export function Composer({
     [applyValue],
   );
 
+  // 光らせるのは新しい文字が DOM に入った後にする。同じ呼び出しで始めると描画の前に演出が走り、
+  // 最初の途中文ではプレースホルダが光る
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (voiceGlowCount === 0 || el === null) return;
+    voiceGlowRef.current = glowVoiceInputText(el, voiceGlowRef.current);
+  }, [voiceGlowCount]);
+
   /** 取消・失敗。所有領域だけを開始前へ戻す（開始後の手入力は巻き戻さない） */
   const handleVoiceCancel = useCallback(() => {
     const draft = voiceDraftRef.current;
     voiceDraftRef.current = null;
     voiceFocusRef.current = null;
+    voiceGlowRef.current?.cancel();
+    voiceGlowRef.current = null;
     if (draft === null) return;
     applyVoiceDraft(revertVoiceInputDraft(draft, valueRef.current));
   }, [applyVoiceDraft]);
@@ -456,8 +471,12 @@ export function Composer({
         onPartial: (text) => {
           const draft = voiceDraftRef.current;
           if (draft === null) return;
-          const at = inputRef.current?.selectionStart ?? valueRef.current.length;
-          applyVoiceDraft(applyVoiceInputPartial(draft, valueRef.current, text, at));
+          const previous = valueRef.current;
+          const at = inputRef.current?.selectionStart ?? previous.length;
+          const update = applyVoiceInputPartial(draft, previous, text, at);
+          applyVoiceDraft(update);
+          // 文字が変わらなかった途中文では光らせない（同じ文が続くと、光りっぱなしに見える）
+          if (update.applied && update.value !== previous) setVoiceGlowCount((count) => count + 1);
         },
         onFinal: handleVoiceFinal,
         onCancel: handleVoiceCancel,
