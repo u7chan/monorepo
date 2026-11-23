@@ -253,6 +253,20 @@ GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui
 - 引数 `trigger` を持つ fixture の investigate 進行は、その依頼文のときだけ流れる（他のシナリオの先頭で phase が tool にならない）。
 - `/activity` の行には thinking を出さない（今回の変更で `/activity` が変わっていないこと）。
 
+## 音声入力の受入
+
+自動検証は `client/test/voiceInputSession.test.ts`（接続 → 録音 → commit → 確定の状態機械・期限・失敗分類）、`client/test/voiceInputPlayground.test.ts`（設定画面の表示の出し分け・終了の導線・保存しないこと）、`client/test/voiceInputDraft.test.ts`（挿入位置・部分の差し替え・領域外の編集・境界編集で確定が本文を変えないこと・確定の二重挿入が無いこと・取消で手入力を消さないこと・選択範囲の取消で元の文字が戻ること・カーソルの復元）、`client/test/voiceInputComposer.test.ts`（接続中 / 録音中 / 確定待ちの phase・停止と取消・世代で遅延コールバックを捨てること・`pagehide`・アンマウント・送信経路を閉じる理由）、`client/test/composerAction.test.ts`（音声が待機では従来の 3 値が変わらないこと・操作中は主が置き換わり副に既存の停止が残ること）、`client/test/runRetry.test.ts`（音声の操作中は再実行を遮ること）、`client/test/voiceInputAvailability.test.ts`（未設定 / 復号不能 / マスカー無し / 非 secure context / 取得失敗でマイクを出さないこと）、`client/test/voiceInputConsent.test.ts`（初回だけ確認すること・取消で録音を始めないこと）、`client/test/composerVoice.test.ts`（マイクを出す条件・行の中の並び・添付の移動）で行う。
+
+GUI の受入は実マイクと実 API が要るため人間が HTTPS か localhost で行う。開始前の確認と画面だけの確認は、ダミーのキーと stub のセッションでもよい。
+
+- desktop と singleColumn で、入力欄の行が `[textarea] [マイク] [主ボタン]` になり、添付が 1 行目のスキルの右へ移る。折り返し・拡大中・狭い幅でも拡大ボタンと重ならない
+- 録音中は主スロットが ● に変わり、残り時間の弧が減る。run 中は ■ が副スロットに残り、run を止めても録音は続く。録音を止めても run と待機キューは変わらない
+- 録音の停止や接続の取消を二度押ししても、送信も run の停止（■）も起きない（主スロットが入れ替わった直後の位置を含む）。確定待ちの間は送信も取消もできない
+- 上限での自動停止、失敗（残高不足・マイク拒否）、設定 / 実行状況へ移る、会話の切替、F5 のどれでも録音が止まり、マイクが解放される
+- 確定テキストが入力欄へ入り、カーソルがその直後へ戻る。録音中に下書きを編集すると確定文は入らず注記が出る。取消で開始前へ戻り、選択していた文字も戻る
+- 初回の開始時だけ確認ダイアログが出て、キャンセルでは録音も送信も始まらない。2 回目以降は出ない
+- キー未設定・復号不能・非 secure context ではマイクが出ない
+
 ## client の棚卸し
 
 整理前のローカル checkout は `client/test/*.test.ts` が 119 ファイル、うち `readFileSync` を使うものが 61 ファイルだった。ファイル数ではなくテストケース単位で分類し、混在する純関数・SSR の検査は残した。以下のファイル名は `client/test/` 相対。

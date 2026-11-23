@@ -48,6 +48,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 - **カスタムプロバイダー**: 設定 → モデル（`/settings/models/providers`）から OpenAI 互換の endpoint を登録できます（Ollama / LM Studio / vLLM / llama.cpp など）。1 provider = 1 model で、モデル ID は endpoint の `/models` から選ぶこともできます。定義はアプリ DB に保存され、APIキーは暗号化して保存されます。再起動後も残ります（[docs/model-settings.md](docs/model-settings.md#カスタムプロバイダー)）
 - **組み込みツール（Web 検索 / 画像生成 / 音声生成）**: 設定 → Web 検索（`/settings/web-search`）と設定 → コンテンツ生成（`/settings/content`）で有効にすると、モデルから `web_search` / `generate_image` / `generate_speech` を呼べます。生成した画像と音声は作業フォルダへ保存し、チャットでプレビュー・再生できます（[docs/web-search.md](docs/web-search.md) / [docs/image-generation.md](docs/image-generation.md) / [docs/speech-generation.md](docs/speech-generation.md)）
 - **ヘッドレスブラウザ**: 固定版の Chromium をサンドボックスへ同梱しています。エージェントは `bash` から `u7agent-browser` で起動中のアプリを開いて、確認・撮影・失敗の収集ができます（[docs/browser.md](docs/browser.md) / 使い方は組み込みスキル `browser`）
+- **音声入力**: 入力欄のマイクから話した内容を OpenAI の Realtime で文字起こしし、入力欄へ入れます。設定 → 音声入力（`/settings/voice-input`）でAPIキーを登録するとマイクが出ます。マイク（`getUserMedia`）は **HTTPS か localhost でしか使えない**ため、LAN の別端末からは HTTPS で開いてください（[docs/voice-input.md](docs/voice-input.md)）
 
 ## 環境変数
 

@@ -5,6 +5,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ComposerProps } from "../src/components/Composer";
+import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import type { AgentDef } from "../src/types";
 
 // Composer は api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
@@ -46,7 +47,7 @@ const props: ComposerProps = {
 };
 
 const render = (overrides: Partial<ComposerProps> = {}): string =>
-  renderToStaticMarkup(createElement(Composer, { ...props, ...overrides }));
+  renderToStaticMarkup(createElement(ConfirmProvider, null, createElement(Composer, { ...props, ...overrides })));
 
 /** 開始タグ (`<dialog …>` / `<button …>`) を行頭の位置から `>` まで切り出す */
 const startTag = (html: string, index: number): string =>

@@ -4,6 +4,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ComposerProps } from "../src/components/Composer";
+import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import { isImeComposing, isImeComposingEnter, shouldSubmitOnEnter, type EnterKeyState } from "../src/lib/composerKeys";
 import type { AgentDef } from "../src/types";
 
@@ -102,7 +103,7 @@ const props: ComposerProps = {
 };
 
 const render = (overrides: Partial<ComposerProps> = {}): string =>
-  renderToStaticMarkup(createElement(Composer, { ...props, ...overrides }));
+  renderToStaticMarkup(createElement(ConfirmProvider, null, createElement(Composer, { ...props, ...overrides })));
 
 test("描画: ソフトキーボードの Enter ラベルをモードの動作に合わせる", () => {
   // 属性名は HTML では大文字小文字を区別しない (SSR の文字列は prop 名のまま出る)

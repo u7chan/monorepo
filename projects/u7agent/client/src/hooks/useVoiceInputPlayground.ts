@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { browserVoiceInputPlatform } from "../lib/voiceInput/browser";
+import { browserVoiceInputPlatform, subscribeVoiceInputUnload } from "../lib/voiceInput/browser";
 import {
   createVoiceInputPlayground,
   INITIAL_VOICE_INPUT_PLAYGROUND_STATE,
@@ -7,12 +7,6 @@ import {
   type VoiceInputPlaygroundState,
 } from "../lib/voiceInput/playground";
 import { startTranscription, type VoiceInputCapture } from "../lib/voiceInput/session";
-
-/** タブを閉じる / 戻るで録音を残さない。`pagehide` は bfcache へ入る場合にも届く */
-function subscribeUnload(listener: () => void): () => void {
-  window.addEventListener("pagehide", listener);
-  return () => window.removeEventListener("pagehide", listener);
-}
 
 /**
  * 設定 → 音声入力のプレイグラウンド。録音はこの画面を開いている間だけ動かし、離れる（アンマウント）と
@@ -31,7 +25,7 @@ export function useVoiceInputPlayground(): {
     const current = createVoiceInputPlayground({
       start: (callbacks): VoiceInputCapture => startTranscription(callbacks, { platform: browserVoiceInputPlatform }),
       now: () => performance.now(),
-      subscribeUnload,
+      subscribeUnload: subscribeVoiceInputUnload,
       onChange: setState,
     });
     controller.current = current;

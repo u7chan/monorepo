@@ -10,6 +10,11 @@ type DialogBase = {
   title: string;
   /** 本文の段落 */
   body?: readonly string[];
+  /**
+   * 本文の後ろに出す外部リンク。ダイアログの本文は段落だけで、判断に要る資料へ本文から辿れるようにする
+   * （URL を素の文字列で置くと押せず、リンクの見た目も画面ごとに揃わない）。
+   */
+  links?: readonly { label: string; href: string }[];
   /** 操作の対象（会話タイトル・ファイルパス・名前など）。全文は `title` 属性で読める */
   subject?: { label: string; value: string };
   /** 取り消す側のボタン。既定は「キャンセル」 */
