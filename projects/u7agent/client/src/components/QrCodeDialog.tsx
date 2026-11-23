@@ -25,7 +25,6 @@ export function QrCodeDialog({ item, onClose }: QrCodeDialogProps) {
   if (item !== null) lastItemRef.current = item;
   const shown = item ?? lastItemRef.current;
 
-  // 対象が失効したら閉じる (古い QR を開いたまま残さない)
   useEffect(() => {
     if (item === null) shellRef.current?.requestClose();
   }, [item]);

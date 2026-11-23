@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject, type SyntheticEvent } from "react";
 import { useExitPhase } from "../hooks/useExitPhase";
 import { cn } from "../lib/cn";
 
@@ -104,8 +104,20 @@ export function ModalDialog({
   const startClosing = useCallback(() => {
     if (closedRef.current || closingRef.current) return;
     closingRef.current = true;
+    // 退場中に Enter で確定させない。`inert` は次の描画から効くので、その前に焦点を外しておく
+    const dialog = dialogRef.current;
+    const active = document.activeElement;
+    if (dialog !== null && active instanceof HTMLElement && dialog.contains(active)) active.blur();
+    dialog?.setAttribute("inert", "");
     setClosing(true);
   }, []);
+
+  /** 退場中の操作を握りつぶす。capture で受けるので、子の onClick / onSubmit まで届かせない */
+  const stopWhileClosing = (event: SyntheticEvent) => {
+    if (!closingRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
 
   // handle は呼び出し側が意図して閉じる経路 (実行成功など) なので busy でも通す。
   // 実行中に閉じさせないのは操作 (Escape / X / キャンセル) の側で判定する
@@ -149,6 +161,12 @@ export function ModalDialog({
         if (event.target !== event.currentTarget) return;
         event.stopPropagation();
         if (closedRef.current) return;
+        if (busyRef.current) {
+          // 実行中は閉じさせない (作った / 移した結果を取りこぼさない)。2 回目の Escape は
+          // 止められずに close が来るため、開き直して面を保つ
+          event.currentTarget.showModal();
+          return;
+        }
         // 止められなかった native の close。待ち直さず完了へ合流させる
         closedRef.current = true;
         onClosedRef.current();
@@ -156,6 +174,9 @@ export function ModalDialog({
       onKeyDown={(event) => {
         if (event.key === "Escape") event.stopPropagation();
       }}
+      // 退場中は確定・実行を受けない (inert が効くまでの同じ tick に Enter が届く)
+      onClickCapture={stopWhileClosing}
+      onSubmitCapture={stopWhileClosing}
       onClick={(event) => {
         if (event.target === event.currentTarget) onBackgroundClick?.();
       }}

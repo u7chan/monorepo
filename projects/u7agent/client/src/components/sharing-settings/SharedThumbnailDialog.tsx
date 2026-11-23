@@ -60,7 +60,6 @@ export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear 
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const dragRef = useRef<{ x: number; y: number; crop: ThumbnailCrop } | null>(null);
 
-  // 主操作は閉じるだけなので、開いたら「閉じる」に置く (QR と同じ作法)
   useEffect(() => {
     closeRef.current?.focus();
   }, []);
@@ -109,7 +108,7 @@ export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear 
     try {
       const bytes = await renderThumbnailPng(source, crop);
       const result = await onSave(bytes);
-      if (result.ok) onClose();
+      if (result.ok) shellRef.current?.requestClose();
       else setError(result.message ?? "サムネイルを保存できませんでした");
     } catch (saveError) {
       setError(messageFor(saveError));
@@ -125,7 +124,7 @@ export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear 
     setBusy("clearing");
     try {
       const result = await onClear();
-      if (result.ok) onClose();
+      if (result.ok) shellRef.current?.requestClose();
       else setError(result.message ?? "サムネイルを外せませんでした");
     } finally {
       setBusy(null);
