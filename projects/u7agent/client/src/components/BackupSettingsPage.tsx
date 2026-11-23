@@ -17,13 +17,23 @@ import {
   BACKUP_KEPT_NOTE,
   BACKUP_SKILL_LIMITS_NOTE,
 } from "../lib/backup";
-import { ALL_BACKUP_TARGETS, createBackup, createBackupStore, type BackupState } from "../lib/backupFlow";
+import {
+  ALL_BACKUP_TARGETS,
+  createBackup,
+  createBackupStore,
+  type BackupRestoreFlow,
+  type BackupState,
+} from "../lib/backupFlow";
 import { messageFor } from "../lib/errors";
 import type { BackupExportCheck, BackupRestorePlan, BackupTarget } from "../types";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { BackupExportTargets } from "./backup/BackupExportTargets";
 import { BackupResetDialog } from "./backup/BackupResetDialog";
 import { BackupRestoreDialog } from "./backup/BackupRestoreDialog";
+import type { ModalDialogHandle } from "./ModalDialog";
+
+/** 復元ダイアログが描く段階 (done は確認内容を持たないため、退場の間は前の段階を渡す) */
+type RestorableFlow = Exclude<BackupRestoreFlow, { status: "idle" } | { status: "done" }>;
 
 export type BackupSettingsPageProps = SettingsPageProps & {
   /** 復元 / 全削除の後のカタログ取り直し */
@@ -76,6 +86,24 @@ export function BackupSettingsPage({
   store.update({ reload: () => void refreshRef.current() });
   const backup = store.backup;
   const state = useSyncExternalStore(backup.subscribe, backup.state) as BackupState;
+  const restoreHandleRef = useRef<ModalDialogHandle | null>(null);
+  // 復元の成功 (done) は確認内容を持たない。退場の間は最後の review / applying を描き、
+  // 閉じ切ってから closeRestore で idle へ戻す
+  const restoreShownRef = useRef<RestorableFlow | null>(null);
+  if (state.restore.status !== "idle" && state.restore.status !== "done") {
+    restoreShownRef.current = state.restore;
+  }
+  const restoreDialogFlow =
+    state.restore.status === "done" ? restoreShownRef.current : state.restore.status === "idle" ? null : state.restore;
+  const restoreStatus = state.restore.status;
+
+  useEffect(() => {
+    if (restoreStatus !== "done") return;
+    const handle = restoreHandleRef.current;
+    // 殻がまだ居ない (初回の done) ときはアニメを諦めて即座に閉じる
+    if (handle === null) backup.closeRestore();
+    else handle.requestClose();
+  }, [restoreStatus, backup]);
 
   // 選んだ対象の件数と書き出し可否を押す前に出す (取得できなくても操作は止めない)
   useEffect(() => {
@@ -182,14 +210,15 @@ export function BackupSettingsPage({
         </div>
       </SettingsPageLayout>
 
-      {state.restore.status === "idle" || state.restore.status === "done" ? null : (
+      {restoreDialogFlow === null ? null : (
         <BackupRestoreDialog
-          flow={state.restore}
+          flow={restoreDialogFlow}
           singleColumn={singleColumn}
           onToggleTarget={(target) => void backup.toggleTarget(target)}
           onConfirmed={backup.setConfirmed}
           onApply={() => void backup.apply()}
           onClose={backup.closeRestore}
+          handleRef={restoreHandleRef}
         />
       )}
       {state.reset.status === "idle" ? null : (

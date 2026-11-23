@@ -1,5 +1,6 @@
 import { useEffect, useRef, type FormEvent, type ReactNode, type RefObject } from "react";
 import { cn } from "../lib/cn";
+import { ModalDialog, type ModalDialogHandle } from "./ModalDialog";
 import { CloseIcon } from "./icons";
 
 export type WorkDialogNote = {
@@ -28,6 +29,11 @@ export type WorkDialogProps = {
    * ヘッダーの X の ref。完了でフッター (キャンセル) が消える面は、焦点を残る閉じる導線である X へ移す
    */
   closeButtonRef?: RefObject<HTMLButtonElement | null>;
+  /**
+   * 実行成功など、X / キャンセル以外の経路で閉じるための handle。退場アニメを挟むため、
+   * 呼び出し側は `onClose` ではなくこれを呼ぶ (省略すると殻が内部で持つ)
+   */
+  handleRef?: RefObject<ModalDialogHandle | null>;
   /**
    * 主ボタン。**省略するとフッターを描かない**: 結果を残す面は、完了後に X だけを閉じる導線として残す
    * (docs/ui-layout.md の「段階で出口を変える」)
@@ -71,6 +77,7 @@ export function WorkDialog({
   onSubmit,
   initialFocusRef,
   closeButtonRef,
+  handleRef,
   submit,
   note,
   toolbar,
@@ -79,21 +86,9 @@ export function WorkDialog({
   singleColumn = false,
   children,
 }: WorkDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!dialog.open) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      dialog.showModal();
-    } else if (!dialog.contains(document.activeElement)) {
-      // 直前の cleanup でフォーカスが背面へ戻されている (StrictMode)
-      dialog.focus();
-    }
-    return () => previousFocusRef.current?.focus();
-  }, []);
+  const internalHandleRef = useRef<ModalDialogHandle | null>(null);
+  const shellRef = handleRef ?? internalHandleRef;
+  const requestClose = () => shellRef.current?.requestClose();
 
   // 初期焦点は取り消し側に置く (元に戻せない操作を Enter で確定させない)
   useEffect(() => {
@@ -105,7 +100,7 @@ export function WorkDialog({
       <button
         ref={initialFocusRef}
         type="button"
-        onClick={onClose}
+        onClick={requestClose}
         className="btn-quiet singleColumn:min-h-11"
         disabled={busy}
       >
@@ -122,28 +117,13 @@ export function WorkDialog({
   );
 
   return (
-    <dialog
-      ref={dialogRef}
-      onClose={onClose}
-      aria-modal="true"
-      aria-label={title}
-      tabIndex={-1}
-      // Escape はダイアログだけを閉じる (背面の「設定ページから戻る」などへ届かせない)
-      onKeyDown={(event) => {
-        if (event.key === "Escape") event.stopPropagation();
-      }}
-      // 実行中は閉じさせない (作った / 移した結果を取りこぼさない)
-      onCancel={(event) => {
-        if (busy) event.preventDefault();
-      }}
-      className={cn(
-        "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
-        singleColumn
-          ? "m-0 h-dvh max-h-none w-screen max-w-none rounded-none border-0"
-          : width === "wide"
-            ? "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] rounded-xl border shadow-panel"
-            : "m-auto max-h-[min(88dvh,760px)] w-[min(420px,92vw)] rounded-xl border shadow-panel",
-      )}
+    <ModalDialog
+      label={title}
+      frame={singleColumn ? "fullscreen" : width === "wide" ? "wide" : "narrow"}
+      className="flex flex-col"
+      busy={busy}
+      handleRef={shellRef}
+      onClosed={onClose}
     >
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
         <div className="min-w-0">
@@ -153,7 +133,7 @@ export function WorkDialog({
         <button
           ref={closeButtonRef}
           type="button"
-          onClick={onClose}
+          onClick={requestClose}
           aria-label="閉じる"
           title="閉じる"
           className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
@@ -187,6 +167,6 @@ export function WorkDialog({
           </footer>
         )}
       </form>
-    </dialog>
+    </ModalDialog>
   );
 }

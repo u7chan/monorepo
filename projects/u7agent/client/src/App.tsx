@@ -318,6 +318,17 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   // URL にセクションが無いときだけ「最後に開いていたセクション」を見せる (URL の指定を上書きしない)
   const settingsSection: SettingsSection = route.view === "settings" ? route.section : lastSettingsSection;
   const closeProjectDialog = useCallback(() => setProjectDialogOpen(false), []);
+  // 操作に成功した後の画面移動。ダイアログの退場が終わってから実行する (退場中に切り替えると面ごと消える)
+  const afterDialogCloseRef = useRef<(() => void) | null>(null);
+  const closeDialogThen = useCallback(
+    (close: () => void) => () => {
+      const after = afterDialogCloseRef.current;
+      afterDialogCloseRef.current = null;
+      close();
+      after?.();
+    },
+    [],
+  );
   const openNav = useCallback(() => setNavOpen(true), []);
   // 実際に閉じる (ドロワーを unmount する)。退場アニメは NavSheet が持ち、その完了 (dialog の close) から届く
   const closeNav = useCallback(() => setNavOpen(false), []);
@@ -618,7 +629,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   const handleCreateProject = useCallback(
     async (input: CreateProjectInput) => {
       const project = await app.createProject(input);
-      handleNewChat(undefined, project.id);
+      // 新しい会話へ入るのは、追加のダイアログが閉じ切ってから (退場の後ろへ回す)
+      afterDialogCloseRef.current = () => handleNewChat(undefined, project.id);
       return project;
     },
     [app, handleNewChat],
@@ -782,21 +794,25 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       // 別スペースへ切り替えると配下の App は作り直される。この App の状態行へ出しても消えるため、
       // 結果を親 (SpacesApp) へ渡し、移動先の App が入口の解決の後に出す
       const switching = ownerLinkSpace(result.spaceId, space.selected.id, space.spaces) !== undefined;
-      if (note && switching) onHandoffNote?.(note);
-      openOwnerSession(sessionId, result.spaceId, {
-        spaces: space.spaces,
-        currentSpaceId: space.selected.id,
-        navigate,
-        selectSpace: space.select,
-        openInPlace: (id) => {
-          // 開き直しで履歴を読み直す。片付けが残った応答では、開けなかったときもその警告を優先して出す
-          void app.selectSession(id, undefined, { fallbackOnFailure: false, discardHistory: true }).then((opened) => {
-            const text = note?.text ?? missingLinkNote(true, opened);
-            if (text) app.dispatch({ type: "setActivity", text });
-          });
-          backToChat();
-        },
-      });
+      // 別スペースへの切替は SpacesApp の配下を作り直すため、退場の後ろへ回す (先に切り替えると面が消える)。
+      // 警告は切替と同じ描画で渡す (先に渡すと移動元の App が消費し、移動先に出ない)
+      afterDialogCloseRef.current = () => {
+        if (note && switching) onHandoffNote?.(note);
+        openOwnerSession(sessionId, result.spaceId, {
+          spaces: space.spaces,
+          currentSpaceId: space.selected.id,
+          navigate,
+          selectSpace: space.select,
+          openInPlace: (id) => {
+            // 開き直しで履歴を読み直す。片付けが残った応答では、開けなかったときもその警告を優先して出す
+            void app.selectSession(id, undefined, { fallbackOnFailure: false, discardHistory: true }).then((opened) => {
+              const text = note?.text ?? missingLinkNote(true, opened);
+              if (text) app.dispatch({ type: "setActivity", text });
+            });
+            backToChat();
+          },
+        });
+      };
     },
     [app, backToChat, handoffTarget, navigate, onHandoffNote, space],
   );
@@ -812,8 +828,11 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       const selection = app.selectionSeqRef.current;
       const child = await app.forkSession(sessionId, request);
       if (forkOpenDecision(selection, app.selectionSeqRef.current) === "keep") return;
-      await app.selectSession(child.sessionId);
-      if (route.view !== "chat") navigate({ view: "chat", sessionId: child.sessionId });
+      // 子を開くのは分岐のダイアログが閉じ切ってから (退場の後ろへ回す)
+      afterDialogCloseRef.current = () => {
+        void app.selectSession(child.sessionId);
+        if (route.view !== "chat") navigate({ view: "chat", sessionId: child.sessionId });
+      };
     },
     [app, forkTarget, navigate, route.view],
   );
@@ -1366,7 +1385,11 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           閉じるのも NavSheet 側 (退場アニメの完了 → dialog の close) なので、App は閉じる要求を持たない */}
       {navOpen && !sidebarDocked ? <NavSheet {...navProps} onClose={closeNav} /> : null}
       {projectDialogOpen ? (
-        <ProjectDialog singleColumn={singleColumn} onClose={closeProjectDialog} onCreate={handleCreateProject} />
+        <ProjectDialog
+          singleColumn={singleColumn}
+          onClose={closeDialogThen(closeProjectDialog)}
+          onCreate={handleCreateProject}
+        />
       ) : null}
       {titleSummaryTarget ? (
         <SessionTitleDialog
@@ -1395,7 +1418,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           text={sessionForkDialogText(forkTarget.title)}
           agents={forkAgentChoices(app.agents, forkTarget.agentId, forkTarget.agentName)}
           blockedNote={forkTarget.blockedNote}
-          onClose={() => setForkTarget(null)}
+          onClose={closeDialogThen(() => setForkTarget(null))}
           onFork={handleFork}
         />
       ) : null}
@@ -1409,7 +1432,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           projectSession={handoffTarget.projectSession}
           memoDisabledReason={handoffTarget.memoDisabledReason}
           blockedNote={handoffTarget.blockedNote}
-          onClose={() => setHandoffTarget(null)}
+          onClose={closeDialogThen(() => setHandoffTarget(null))}
           onHandoff={handleHandoff}
         />
       ) : null}

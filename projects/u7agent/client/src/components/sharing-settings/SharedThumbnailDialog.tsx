@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../ConfirmProvider";
+import { ModalDialog, type ModalDialogHandle } from "../ModalDialog";
 import { messageFor } from "../../lib/errors";
 import { sharedContentThumbnailClearConfirm } from "../../lib/sharedContents";
 import {
@@ -47,10 +48,9 @@ export type SharedThumbnailDialogProps = {
  */
 export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear }: SharedThumbnailDialogProps) {
   const confirm = useConfirm();
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const shellRef = useRef<ModalDialogHandle | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [source, setSource] = useState<ThumbnailSource | null>(null);
   const [crop, setCrop] = useState<ThumbnailCrop>(INITIAL_THUMBNAIL_CROP);
@@ -60,17 +60,8 @@ export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear 
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const dragRef = useRef<{ x: number; y: number; crop: ThumbnailCrop } | null>(null);
 
-  // 開いたらモーダルにし、閉じたら焦点を元の行へ戻す（QR と同じ作法）
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    previousFocusRef.current = document.activeElement as HTMLElement | null;
-    dialog.showModal();
     closeRef.current?.focus();
-    return () => {
-      const previous = previousFocusRef.current;
-      if (previous?.isConnected) previous.focus();
-    };
   }, []);
 
   // デコードしたビットマップは明示的に解放する（2 MiB 上限でも元画像は大きいことがある）
@@ -117,7 +108,7 @@ export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear 
     try {
       const bytes = await renderThumbnailPng(source, crop);
       const result = await onSave(bytes);
-      if (result.ok) onClose();
+      if (result.ok) shellRef.current?.requestClose();
       else setError(result.message ?? "サムネイルを保存できませんでした");
     } catch (saveError) {
       setError(messageFor(saveError));
@@ -133,7 +124,7 @@ export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear 
     setBusy("clearing");
     try {
       const result = await onClear();
-      if (result.ok) onClose();
+      if (result.ok) shellRef.current?.requestClose();
       else setError(result.message ?? "サムネイルを外せませんでした");
     } finally {
       setBusy(null);
@@ -144,24 +135,7 @@ export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear 
   const current = item.thumbnail;
 
   return (
-    <dialog
-      ref={dialogRef}
-      aria-modal="true"
-      aria-label={`${item.name} のサムネイル`}
-      tabIndex={-1}
-      // Escape と close を背面の設定画面へ伝播させない（1 回でこのダイアログだけを閉じる）
-      onCancel={(event) => {
-        event.stopPropagation();
-      }}
-      onClose={(event) => {
-        event.stopPropagation();
-        onClose();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") event.stopPropagation();
-      }}
-      className="m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] overflow-hidden rounded-xl border border-line bg-panel p-0 text-ink shadow-panel"
-    >
+    <ModalDialog label={`${item.name} のサムネイル`} frame="wide" handleRef={shellRef} onClosed={onClose}>
       <div className="flex max-h-[min(88dvh,760px)] flex-col">
         <header className="shrink-0 border-b border-line px-4 py-3">
           <h2 className="text-sm font-semibold text-ink-strong">サムネイル</h2>
@@ -320,7 +294,7 @@ export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear 
             <button
               ref={closeRef}
               type="button"
-              onClick={() => dialogRef.current?.close()}
+              onClick={() => shellRef.current?.requestClose()}
               disabled={busy === "saving" || busy === "clearing"}
               className="btn-quiet singleColumn:min-h-11"
             >
@@ -339,6 +313,6 @@ export function SharedThumbnailDialog({ item, dropped, onClose, onSave, onClear 
           </div>
         </footer>
       </div>
-    </dialog>
+    </ModalDialog>
   );
 }

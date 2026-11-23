@@ -5,6 +5,7 @@ import { handoffAgentId, type HandoffAgentChoice, type SessionHandoffDialogText 
 import { MenuItem } from "./MenuItem";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { WorkDialog } from "./WorkDialog";
+import type { ModalDialogHandle } from "./ModalDialog";
 
 export type SessionHandoffRequest = {
   spaceId: string;
@@ -51,6 +52,7 @@ export function SessionHandoffDialog({
   onHandoff,
 }: SessionHandoffDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const shellRef = useRef<ModalDialogHandle | null>(null);
   const currentAgent = agents.find((agent) => agent.current) ?? agents[0];
   const [agentId, setAgentId] = useState(() => currentAgent?.id ?? "");
   const [target, setTarget] = useState(currentSpaceId);
@@ -74,7 +76,7 @@ export function SessionHandoffDialog({
           memo: memoDisabledReason === "" && memo,
         });
         // 閉じるまで busy を戻さない (成功後に二重送信できないように)
-        onClose();
+        shellRef.current?.requestClose();
       } catch (err) {
         // 一覧の状態は巻き戻さず、理由だけをこの画面へ出す
         setError(messageFor(err));
@@ -88,6 +90,7 @@ export function SessionHandoffDialog({
       eyebrow="HANDOFF"
       title={text.title}
       busy={busy}
+      handleRef={shellRef}
       onClose={onClose}
       onSubmit={submit}
       initialFocusRef={cancelRef}

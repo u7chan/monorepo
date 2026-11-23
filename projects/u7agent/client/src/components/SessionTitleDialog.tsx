@@ -13,6 +13,7 @@ import {
 } from "../lib/sessionTitleStatus";
 import type { SessionTitleSummary, TitleSummarySettingsResponse } from "../types";
 import { useConfirm } from "./ConfirmProvider";
+import { ModalDialog, type ModalDialogHandle } from "./ModalDialog";
 import { CloseIcon, RunSpinnerIcon, SparkleIcon, WarningIcon } from "./icons";
 
 const DOT_TONE: Record<SessionTitleTone, string> = {
@@ -49,9 +50,10 @@ export function SessionTitleDialog({
   /** 再要約の結果を一覧へ取り直させる (生成の失敗でも試行が変わるため呼ぶ) */
   onUpdated: () => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const shellRef = useRef<ModalDialogHandle | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  /** 閉じた後に設定面へ移る。移る操作が先に走ると退場が見えないので、閉じ切ってから実行する */
+  const openSettingsRef = useRef(false);
   const api = useSpaceApi();
   const confirm = useConfirm();
   const [currentTitle, setCurrentTitle] = useState(title);
@@ -59,18 +61,6 @@ export function SessionTitleDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [titleSettings, setTitleSettings] = useState<TitleSummarySettingsResponse | null>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!dialog.open) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      dialog.showModal();
-    } else if (!dialog.contains(document.activeElement)) {
-      dialog.focus();
-    }
-    return () => previousFocusRef.current?.focus();
-  }, []);
 
   // 初期焦点は閉じる導線に置く (読むだけの面で、Enter に意味を持たせない)
   useEffect(() => {
@@ -118,17 +108,20 @@ export function SessionTitleDialog({
   };
 
   return (
-    <dialog
-      ref={dialogRef}
-      onClose={onClose}
-      aria-modal="true"
-      aria-label="AI要約"
-      aria-busy={pending}
-      tabIndex={-1}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") event.stopPropagation();
+    <ModalDialog
+      label="AI要約"
+      frame="sheet"
+      className="flex flex-col"
+      ariaBusy={pending}
+      handleRef={shellRef}
+      onClosed={() => {
+        if (!openSettingsRef.current) {
+          onClose();
+          return;
+        }
+        openSettingsRef.current = false;
+        onOpenSettings();
       }}
-      className="m-auto flex max-h-[min(88dvh,760px)] w-[min(560px,92vw)] flex-col overflow-hidden rounded-xl border border-line bg-panel p-0 text-ink shadow-panel singleColumn:m-0 singleColumn:mt-auto singleColumn:w-screen singleColumn:max-w-none singleColumn:rounded-b-none"
     >
       <header className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
         <div className="flex min-w-0 items-start gap-2">
@@ -143,7 +136,7 @@ export function SessionTitleDialog({
         <button
           ref={closeRef}
           type="button"
-          onClick={onClose}
+          onClick={() => shellRef.current?.requestClose()}
           aria-label="閉じる"
           title="閉じる"
           className="btn-quiet size-9 shrink-0 p-0 singleColumn:size-11"
@@ -229,7 +222,10 @@ export function SessionTitleDialog({
         <div className="flex items-center justify-between gap-2">
           <button
             type="button"
-            onClick={onOpenSettings}
+            onClick={() => {
+              openSettingsRef.current = true;
+              shellRef.current?.requestClose();
+            }}
             className="inline-flex items-center text-xs text-accent-text underline underline-offset-2 hover:text-accent singleColumn:min-h-11"
           >
             設定を開く
@@ -245,6 +241,6 @@ export function SessionTitleDialog({
           </button>
         </div>
       </footer>
-    </dialog>
+    </ModalDialog>
   );
 }

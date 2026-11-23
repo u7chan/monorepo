@@ -6,6 +6,7 @@ import { forkRequest } from "../lib/sessionFork";
 import type { HandoffAgentChoice } from "../lib/sessionHandoff";
 import { MenuItem } from "./MenuItem";
 import { WorkDialog } from "./WorkDialog";
+import type { ModalDialogHandle } from "./ModalDialog";
 
 export type SessionForkDialogProps = {
   /** 対象と確認文言。文言は lib の純関数が組み立てる (共有の確認ダイアログに select を足さない) */
@@ -34,6 +35,7 @@ export function SessionForkDialog({
   onFork,
 }: SessionForkDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const shellRef = useRef<ModalDialogHandle | null>(null);
   const currentAgent = agents.find((agent) => agent.current) ?? agents[0];
   const [agentId, setAgentId] = useState(() => currentAgent?.id ?? "");
   const [error, setError] = useState("");
@@ -51,7 +53,7 @@ export function SessionForkDialog({
       try {
         await onFork(forkRequest(choice));
         // 閉じるまで busy を戻さない (成功後に二重送信できないように)
-        onClose();
+        shellRef.current?.requestClose();
       } catch (err) {
         // 一覧の状態は巻き戻さず、理由だけをこの画面へ出す
         setError(messageFor(err));
@@ -65,6 +67,7 @@ export function SessionForkDialog({
       eyebrow="FORK"
       title={text.title}
       busy={busy}
+      handleRef={shellRef}
       onClose={onClose}
       onSubmit={submit}
       initialFocusRef={cancelRef}

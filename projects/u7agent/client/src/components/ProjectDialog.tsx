@@ -6,6 +6,7 @@ import { parentWorkspacePath, projectChildPath, WORKSPACE_ROOT, workspaceBaseNam
 import type { FileEntry } from "../types";
 import { FolderIcon } from "./icons";
 import { WorkDialog } from "./WorkDialog";
+import type { ModalDialogHandle } from "./ModalDialog";
 
 export type ProjectDialogProps = {
   onClose: () => void;
@@ -24,6 +25,7 @@ const MODES: { value: ProjectMode; label: string }[] = [
 /** root から GET /api/files を辿って親 (新規) / 対象 (登録) ディレクトリを選ぶ。一覧は移動のたびに取り直す */
 export function ProjectDialog({ onClose, onCreate, singleColumn = false }: ProjectDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const shellRef = useRef<ModalDialogHandle | null>(null);
   const [mode, setMode] = useState<ProjectMode>("create");
   const [path, setPath] = useState(WORKSPACE_ROOT);
   const [directories, setDirectories] = useState<FileEntry[] | null>(null);
@@ -87,7 +89,7 @@ export function ProjectDialog({ onClose, onCreate, singleColumn = false }: Proje
             : { cwd: path, name: trimmed },
         );
         // 閉じるまで busy を戻さない (成功後に二重送信できないように)
-        onClose();
+        shellRef.current?.requestClose();
       } catch (err) {
         setError(messageFor(err));
         setBusy(false);
@@ -106,6 +108,7 @@ export function ProjectDialog({ onClose, onCreate, singleColumn = false }: Proje
       eyebrow="PROJECT"
       title="プロジェクトを追加"
       busy={busy}
+      handleRef={shellRef}
       onClose={onClose}
       onSubmit={submit}
       initialFocusRef={cancelRef}

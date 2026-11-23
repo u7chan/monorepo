@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { qrCodeModules, qrCodePath, qrCodeViewSize } from "../lib/qrCode";
 import type { SharedContentResponse } from "../types";
+import { ModalDialog, type ModalDialogHandle } from "./ModalDialog";
 import { CheckIcon, CopyIcon, ExternalLinkIcon } from "./icons";
 
 export type QrCodeDialogProps = {
@@ -15,80 +16,44 @@ export type QrCodeDialogProps = {
  * 開く / コピーを併置する（読み取れない端末・スクリーンリーダーでも渡せるように）。
  */
 export function QrCodeDialog({ item, onClose }: QrCodeDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  /** 起点が対象の失効で消えたときの戻り先。共有ダイアログの上に重ねて開く用途で使う */
-  const fallbackFocusRef = useRef<HTMLElement | null>(null);
+  const shellRef = useRef<ModalDialogHandle | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
-  const open = item !== null;
+  // 一覧の更新で対象が消えたとき、退場の間は最後の対象を描く。null を描くと
+  // 「QR コードを作れませんでした」に変わり、閉じる直前に別の面が見える
+  const lastItemRef = useRef<SharedContentResponse | null>(item);
+  if (item !== null) lastItemRef.current = item;
+  const shown = item ?? lastItemRef.current;
 
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!open) {
-      // 対象が消えた / 状態が変わった。close() の復帰先が消えていれば親のモーダルへ戻す
-      if (dialog.open) {
-        dialog.close();
-        const previous = previousFocusRef.current;
-        if (previous?.isConnected) previous.focus();
-        else if (fallbackFocusRef.current?.isConnected) fallbackFocusRef.current.focus();
-      }
-      return;
-    }
-    if (!dialog.open) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      fallbackFocusRef.current = dialog.parentElement?.closest<HTMLElement>("dialog") ?? null;
-      dialog.showModal();
-    } else if (!dialog.contains(document.activeElement)) {
-      dialog.focus();
-    }
-    return () => {
-      const previous = previousFocusRef.current;
-      // 起点が消えたときは親のモーダルへ戻す
-      if (previous?.isConnected) previous.focus();
-      else if (fallbackFocusRef.current?.isConnected) fallbackFocusRef.current.focus();
-    };
-  }, [open]);
+    if (item === null) shellRef.current?.requestClose();
+  }, [item]);
 
   // 主操作は閉じるだけなので、開いたら「閉じる」に置く（破壊的な操作を Enter で確定させない）
   useEffect(() => {
-    if (open) closeRef.current?.focus();
-  }, [open]);
+    closeRef.current?.focus();
+  }, []);
 
-  const url = item?.publicUrl ?? null;
-  const itemId = item?.id ?? "";
+  const url = shown?.publicUrl ?? null;
+  const itemId = shown?.id ?? "";
   const qr = url === null ? null : qrCodeModules(url);
   const viewSize = qr === null ? 0 : qrCodeViewSize(qr.size);
-  const copied = item !== null && copiedId === item.id;
-  const failure = item === null ? undefined : copyFailure(item.id);
+  const copied = shown !== null && copiedId === shown.id;
+  const failure = shown === null ? undefined : copyFailure(shown.id);
 
   return (
-    <dialog
-      ref={dialogRef}
-      // 共有ダイアログの上に重ねて開くため、close / cancel を祖先の dialog へ伝播させない
-      onCancel={(event) => {
-        event.stopPropagation();
-      }}
-      onClose={(event) => {
-        event.stopPropagation();
-        onClose();
-      }}
-      aria-modal="true"
-      aria-label={item === null ? "QR コード" : `${item.name} の QR コード`}
-      tabIndex={-1}
-      // Escape はダイアログだけを閉じる。設定ページの「戻る」など背面の keydown へ届かせない
-      onKeyDown={(event) => {
-        if (event.key === "Escape") event.stopPropagation();
-      }}
-      className="m-auto max-h-[min(88dvh,760px)] w-[min(420px,92vw)] overflow-hidden rounded-xl border border-line bg-panel p-0 text-ink shadow-panel"
+    <ModalDialog
+      frame="narrow"
+      handleRef={shellRef}
+      onClosed={onClose}
+      label={shown === null ? "QR コード" : `${shown.name} の QR コード`}
     >
       <div className="flex max-h-[min(88dvh,760px)] flex-col">
         <header className="shrink-0 border-b border-line px-4 py-3">
           <h2 className="text-sm font-semibold text-ink-strong">QR コード</h2>
-          {item === null ? null : (
-            <p className="line-clamp-2 min-w-0 text-2xs break-words text-ink-muted" title={item.name}>
-              {item.name}
+          {shown === null ? null : (
+            <p className="line-clamp-2 min-w-0 text-2xs break-words text-ink-muted" title={shown.name}>
+              {shown.name}
             </p>
           )}
         </header>
@@ -149,13 +114,13 @@ export function QrCodeDialog({ item, onClose }: QrCodeDialogProps) {
           <button
             ref={closeRef}
             type="button"
-            onClick={() => dialogRef.current?.close()}
+            onClick={() => shellRef.current?.requestClose()}
             className="btn-quiet singleColumn:min-h-11"
           >
             閉じる
           </button>
         </footer>
       </div>
-    </dialog>
+    </ModalDialog>
   );
 }
