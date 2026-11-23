@@ -166,6 +166,47 @@
 }
 ```
 
+## 音声入力の設定
+
+設定 → 音声入力（`/settings/voice-input`）の OpenAI Platform のキーを持つ。**行が無い = キー未設定**で、有効 / 無効のトグルは持たない（キーが保存され、復号できるときだけ録音の入口を出す）。サービスは `server/src/voice-input.ts`、保存形式と AAD は [secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url) を正とする。
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/settings/voice-input` | `configured`（行の有無）/ `keyStored` / `keyAvailable` / `keyEvaluated` / `keyErrorMessage` / `model`（固定）/ `runtimeAvailable`。純粋読取で、復号も外部通信もしない（状態は起動時に評価した値）。DB 障害は 503 |
+| PUT | `/api/settings/voice-input/key` | `{ apiKey }`（8..2048 の印字可能 ASCII）。登録・上書きし、200 で GET と同じ形 + `state: "applied"`。入力不正は 400、DB / 暗号化 / `pi === null` は 503 `state: "not_stored"` |
+| DELETE | `/api/settings/voice-input/key` | 行ごと削除して未設定へ戻す（冪等）。復号もマスカーも要らないため `pi === null` でも 200。DB 障害は 503 `state: "not_stored"` |
+| POST | `/api/settings/voice-input/test` | 短命キーの発行だけで疎通確認する（音声は送らない・課金なし・結果は保存しない）。成功は `{ ok: true, model }`、**上流の確認失敗だけ** 200 の `{ ok: false, code, message }`。未登録 409、DB / `pi === null` / 復号不能は 503 |
+
+- キーの登録・削除・疎通確認は `sameOriginOnlyGuard` を通す（ブラウザの同一オリジン要求だけ。認証の代わりではない）。共通ガードの拒否は既存形の `{ error }`（403）で、上流失敗だけ `code` を足す
+- キーを使えるかの判定（未登録 409 / DB・ランタイム・復号の利用不可 503）は疎通確認と Realtime 中継で共有し、上流を呼ぶ前に必ず通す
+- 疎通確認は `POST https://api.openai.com/v1/realtime/client_secrets` に `expires_after` と文字起こし用の `session` を送り、`session.type === "transcription"` と `ek_` で始まる `value`（入力のキーと一致しないこと）だけを確かめる。期限は 10 秒で、上流の本文は応答・ログへ出さない
+- 失敗の分類は `server/src/provider-failure.ts` を共有し、文言だけを差し替える。**402 だけを残高不足、429 は混雑**として扱う（429 で `credit_balance_exhausted` が来ても「混雑」と表示される）
+
+```json
+// GET /api/settings/voice-input (200。行が無い = キー未設定)
+{
+  "configured": false,
+  "keyStored": false,
+  "keyAvailable": false,
+  "keyEvaluated": true,
+  "keyErrorMessage": null,
+  "model": "gpt-live-transcribe",
+  "runtimeAvailable": true
+}
+
+// PUT /api/settings/voice-input/key (200。変更系は GET と同じ形 + state)
+{ "configured": true, "keyStored": true, "keyAvailable": true, "keyEvaluated": true, "keyErrorMessage": null, "model": "gpt-live-transcribe", "runtimeAvailable": true, "state": "applied" }
+
+// POST /api/settings/voice-input/test (200。上流の確認失敗も 200)
+{ "ok": true, "model": "gpt-live-transcribe" }
+{ "ok": false, "code": "insufficient_credit", "message": "OpenAI の残高が不足しています。Platform の利用状況を確認してください" }
+
+// PUT /api/settings/voice-input/key (503。何も保存していない)
+{ "error": "master key が未設定または不正なため、APIキーを暗号化して保存できません", "state": "not_stored" }
+```
+
+**キーは write-only** で、応答・health・ログのどの経路にも値と暗号文を載せない。復号できない行は削除せず「保存あり・利用不可」（`keyStored: true` / `keyAvailable: false`）として返し、画面に再登録の案内を出す。
+
 ## 会話タイトルの設定
 
 | メソッド | パス | 説明 |

@@ -29,6 +29,7 @@ import { createServeRoutes } from "./routes/serve";
 import { createSkillFileRoutes } from "./routes/skill-files";
 import { createSessionRoutes } from "./routes/sessions";
 import { createWebSearchSettingsRoutes } from "./routes/web-search";
+import { createVoiceInputSettingsRoutes } from "./routes/voice-input";
 import { createTitleSummaryRoutes } from "./routes/title-summary";
 import { createGitSettingsRoutes } from "./routes/git-settings";
 import { createSecretScope } from "./secrets";
@@ -79,6 +80,7 @@ import {
   UpdateWebSearchBodySchema,
   UpdateWebSearchKeyBodySchema,
   UpdateWebSearchProviderBodySchema,
+  UpdateVoiceInputKeyBodySchema,
   WebSearchTestBodySchema,
   UpdateProviderMemoBodySchema,
   UpdatePromptBodySchema,
@@ -162,6 +164,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     contentTrials,
     webSearchSettings,
     webSearchTest,
+    voiceInputSettings,
     titleSummarySettings,
     gitSettings,
     serve,
@@ -192,6 +195,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     contentTrials,
     webSearchSettings,
     webSearchTest,
+    voiceInputSettings,
     titleSummarySettings,
     gitSettings,
     serve,
@@ -270,6 +274,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     sharedContentRoutes,
     sharedContentExclusionsRoutes,
     webSearchSettingsRoutes,
+    voiceInputSettingsRoutes,
     titleSummaryRoutes,
     gitSettingsRoutes,
     secretRoutes,
@@ -896,6 +901,19 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
       // クエリは自由文なので、ログや履歴に残る URL ではなく本文で受け取る
       (c) => webSearchSettingsRoutes.test(c, c.req.valid("json")),
     )
+    .get("/api/settings/voice-input", appData, voiceInputSettingsRoutes.list)
+    .put(
+      "/api/settings/voice-input/key",
+      sameOriginOnly,
+      appDataMutation,
+      jsonBodyValidator(UpdateVoiceInputKeyBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      // キー値はマスカー登録のあるサービス側でだけ扱い、パス / クエリへは出さない
+      (c) => voiceInputSettingsRoutes.putKey(c, c.req.valid("json").apiKey),
+    )
+    .delete("/api/settings/voice-input/key", sameOriginOnly, appDataMutation, voiceInputSettingsRoutes.deleteKey)
+    .post("/api/settings/voice-input/test", sameOriginOnly, appData, voiceInputSettingsRoutes.test)
     .get("/api/settings/git", appData, gitSettingsRoutes.list)
     .put(
       "/api/settings/git",
@@ -980,6 +998,7 @@ function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, 
     contentTrials,
     webSearchSettings,
     webSearchTest,
+    voiceInputSettings,
     titleSummarySettings,
     titleSummaryTest,
     gitSettings,
@@ -1038,6 +1057,8 @@ function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, 
   const sharedContentRoutes = createSharedContentRoutes({ sharedContents });
   const sharedContentExclusionsRoutes = createSharedContentExclusionsRoutes({ sharedContentExclusions });
   const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings, test: webSearchTest });
+  // 音声入力はキーが write-only で、キーの登録・削除・疎通確認だけをブラウザの同一オリジン要求に絞る
+  const voiceInputSettingsRoutes = createVoiceInputSettingsRoutes({ voiceInputSettings });
   const titleSummaryRoutes = createTitleSummaryRoutes({ titleSummarySettings, test: titleSummaryTest });
   // Git の設定は全会話の commit identity を変えられるため、PUT / DELETE だけ same-origin 要求に絞る
   const gitSettingsRoutes = createGitSettingsRoutes({ gitSettings });
@@ -1080,6 +1101,7 @@ function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, 
     sharedContentRoutes,
     sharedContentExclusionsRoutes,
     webSearchSettingsRoutes,
+    voiceInputSettingsRoutes,
     titleSummaryRoutes,
     gitSettingsRoutes,
     secretRoutes,

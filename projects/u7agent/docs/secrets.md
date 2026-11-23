@@ -74,7 +74,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - サンドボックス・作業領域側のリスクは [sandbox.md](sandbox.md) を参照する
 - アプリ DB に保存した APIキー / Webhook URL は暗号文（AEAD）で残り、master key は DB に無い。ただし master key を持つ者・稼働中の BFF は復号できる。保存時暗号化は DB・WAL・バックアップの読み取りに対する防御で、実行環境の保護ではない。ログイン認証がないため BFF を LAN / インターネットへ公開しない（詳細は [model-settings.md](model-settings.md#残存リスク)）
 - 削除・上書きした旧キーの保護は**プロセス生存中だけ**。再起動後はチャットへ貼り付けた生の入力が再投影で見えうる（tombstone は将来課題）
-- ランタイム初期化に失敗したとき（`pi` が null）は可変マスカー自体が作られないため、この状態で起動したプロセスでは DB のキーを新たにマスク対象へ足せない。この場合も認証変更 API と画像キー登録 API は 503 で、キーは新規登録されない
+- ランタイム初期化に失敗したとき（`pi` が null）は可変マスカー自体が作られないため、この状態で起動したプロセスでは DB のキーを新たにマスク対象へ足せない。この場合も認証変更 API と画像キー登録 API、音声入力のキー登録・疎通確認は 503 で、キーは新規登録されない（音声入力のキー削除は復号もマスカーも要らないため通る）
 
 ## 作業フォルダの環境変数
 
@@ -136,11 +136,12 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 | `custom_providers`（設定 → モデルのカスタムプロバイダー。定義と同じ行） | 同上 | provider id |
 | `content_settings`（設定 → コンテンツ生成。画像 / 音声 / BGM で共有） | 同上（3 列 NULL = キー未設定） | `apiKey` |
 | `web_search_provider_keys`（設定 → Web 検索） | 同上 | provider id |
+| `voice_input_settings`（設定 → 音声入力。OpenAI Platform のキー） | 同上（1 行） | `apiKey` |
 | `notification_settings`（Discord Webhook URL） | `webhookCiphertext` / `webhookNonce` / `webhookKeyVersion` | `webhookUrl` |
 
 - AAD は `u7agent-app-secret:<scope>:<owner>` で、環境変数シークレットの `u7agent-secret:<kind>:<name>` とはラベルを分ける。用途（テーブル）と所有者を AAD に含めるため、別の用途・別の行へ差し替えた暗号文は復号できない
 - nonce は保存のたびに作り直し、認証タグは暗号文の末尾に付ける。保存形式は `secrets` / `cloudflare_settings` と同じ
-- 復号した値は、SDK / DB / ログへ渡す前に `retainSecret()` でマスカーへ登録する。GET は暗号文を復号しない（起動時と保存 / 置換 / 再同期のときだけ評価する）
+- 復号した値は、SDK / DB / ログへ渡す前に `retainSecret()` でマスカーへ登録する。GET は暗号文を復号しない（起動時と保存 / 置換 / 再同期のときだけ評価する）。音声入力のキーも `PUT /api/settings/voice-input/key` が DB へ書く前に登録し、起動時の `VoiceInputSettingsService.applyStored()` も保存行を登録する（`content_settings` と同じ順序）
 - 復号の成否はプロセスのメモリだけに持ち、応答は `keyStored`（暗号文がある）/ `keyAvailable`（復号できて使える）/ `keyEvaluated`（復号を試したか）/ `keyErrorMessage`（サーバーの固定文言）で表す。`configured`（行の有無）だけで「キー登録済み」と読ませない
 - master key 未設定 / 宣言が壊れているときは、アプリは起動し、DB 保存キーを使う機能だけを 503 / 未設定表示にする。`env` / `auth.json` のプロバイダー認証は影響を受けない。復号を試せない既知の失敗として `keyEvaluated: true` / `keyAvailable: false` / 「master key が未設定」固定文言を返す
 - runtime（`pi`）が無い起動では復号しない。暗号文があっても `keyEvaluated: false` の未評価として返し、誤鍵・破損と断定しない。変更系は 503 にし、復号した値をメモリへ残さない

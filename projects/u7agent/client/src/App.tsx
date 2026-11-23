@@ -31,6 +31,7 @@ import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { BackupSettingsPage } from "./components/BackupSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { WebSearchSettingsPage } from "./components/WebSearchSettingsPage";
+import { VoiceInputSettingsPage } from "./components/VoiceInputSettingsPage";
 import { SessionTitleSettingsPage } from "./components/SessionTitleSettingsPage";
 import { FileRefProvider } from "./components/markdown/FileRefLink";
 import { MarkdownImageProvider } from "./components/markdown/MarkdownImageRefs";
@@ -1046,6 +1047,9 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
         );
       case "web-search":
         return <WebSearchSettingsPage {...pageProps} refreshCatalog={refreshCatalog} />;
+      case "voice-input":
+        // 録音・文字起こしの UI は別の Issue。ここはキーの登録と疎通確認だけを持つ
+        return <VoiceInputSettingsPage {...pageProps} />;
       case "session-title":
         // 本会話のモデルとは独立した設定なので、モデル画面の共有 state は渡さない (開いたときだけ取得する)
         return <SessionTitleSettingsPage {...pageProps} />;
