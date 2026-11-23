@@ -39,9 +39,9 @@ const scannedFiles = [
   .filter((file) => SCAN_EXTENSIONS.some((extension) => file.endsWith(extension)))
   .filter((file) => !EXCLUDED.has(file.slice(root.length + 1)));
 
-/** フェンス付きコードブロックの中は、例示として番号を書いてよい。 */
+/** フェンス付きコードブロックの中は、例示として番号を書いてよい。リスト内のインデントも受ける。 */
 function withoutFencedCode(text: string): string {
-  return text.replace(/^```[\s\S]*?^```/gm, "");
+  return text.replace(/^([ \t]*)```[^\n]*\n[\s\S]*?^\1```[^\n]*$/gm, "");
 }
 
 describe("ADR", () => {

@@ -37,9 +37,9 @@ OpenCode Go だけ `.env` に残すと、秘密の出所が 2 つになる。
 - DB の `provider` 列には `opencode-go:<account uuid>` を入れる。テーブル定義と `user_version` は変えない。
 - sampler の fetchers は「毎回評価する関数」にする。`UsageFetcher = { sourceId, provider, fetch }` とし、
   1 回の取得で 1 回だけ評価する。アカウントの追加・削除は再起動なしで次の取得から反映する。
-- `/api/usage` の `sources[]` は `id`（`codex` または uuid）/ `provider` / `name` / `plan` / `account`
-  （`{ id, name, icon }`、Codex は null）を持ち、並びは Codex → `accounts` の配列順。アカウントが 0 件でも
-  Codex の行は返す。`plan` はアカウントで常に null。
+- `/api/usage` の `sources[]` は `id`（`codex` / `claude` / uuid）/ `provider` / `name` / `plan` / `account`
+  （`{ id, name, icon }`、Codex と Claude は null）を持ち、並びは Codex → Claude → `accounts` の配列順。
+  アカウントが 0 件でも Codex と Claude の行は返す。`plan` はアカウントで常に null。
 
 | Method | Path                         | 内容                                            |
 | ------ | ---------------------------- | ----------------------------------------------- |

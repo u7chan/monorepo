@@ -90,4 +90,4 @@ Codex の利用枠を読むには ChatGPT の OAuth access token と `chatgpt-ac
 - `DATA_DIR/settings.json` は秘密ではないが、他と同じ 0600・atomic write にする。壊れたファイルは「未設定」として扱い、
   警告を 1 回だけ出して fallback しない。
 - Codex adapter は `maxTokens` を body に載せない。出力は `textVerbosity` の既定 low と短いプロンプトで抑える。
-- `auth status` や `wham/usage` の形は予告なく変わり得る。fixture を固定し、SDK と CLI の版を上げるときに差分を見る。
+- `wham/usage` と Sign in with ChatGPT の応答形式は予告なく変わり得る。fixture を固定し、SDK の版を上げるときに差分を見る。
