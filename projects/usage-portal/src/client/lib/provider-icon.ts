@@ -7,11 +7,11 @@ import type { ProviderId } from "../api";
 export type ProviderMark = {
   viewBox: string;
   evenodd?: boolean;
-  parts: readonly { d: string; opacity?: number }[];
+  parts: readonly { d: string; shade?: boolean }[];
 };
 
-// 色は付けない。HWC のようにブランド色で塗ると、ダークモードでコントラストが落ちる色があり、
-// 状態ラベルの色と競合する（ADR 0027）。OpenCode の内側のシェードは不透明な色ではなく透過で描き、
+// 色は CSS が当てる。ブランド色は HWC に合わせ、契約が無い・切れた・枠を使い切ったときだけ
+// 灰色にする（ADR 0031）。OpenCode の内側のシェードは不透明な色ではなく透過で描き、
 // 地が変わっても同じ見え方にする。
 const PROVIDER_MARKS: Record<ProviderId, ProviderMark> = {
   codex: {
@@ -34,7 +34,7 @@ const PROVIDER_MARKS: Record<ProviderId, ProviderMark> = {
     // 本家は 4:5。正方形の枠の中で高さに合わせ、横は中央に置く。
     viewBox: "0 0 240 300",
     evenodd: true,
-    parts: [{ d: "M180 240H60V120H180V240Z", opacity: 0.28 }, { d: "M180 60H60V240H180V60ZM240 300H0V0H240V300Z" }],
+    parts: [{ d: "M180 240H60V120H180V240Z", shade: true }, { d: "M180 60H60V240H180V60ZM240 300H0V0H240V300Z" }],
   },
 };
 

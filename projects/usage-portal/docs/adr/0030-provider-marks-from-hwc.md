@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-11-22
 - 一部置き換え: [ADR 0027](0027-provider-order-and-icons.md) の、ロゴのパスを `@lobehub/icons-static-svg` から取り込む決定
+- 一部置き換え: マークを `currentColor` のままにする決定は [ADR 0031](0031-provider-mark-colors.md) が上書きする
 
 ## 背景
 
@@ -20,7 +21,7 @@ ADR 0027 でカードの見出しに provider のロゴを置いたが、マー�
   `src/client/lib/provider-icon.ts` のパスと viewBox を置き換える。
 - OpenCode は HWC と同じく、内側の四角を透過（`fill-opacity`）で薄く描く。形の一部なので省かない。
 - 色は ADR 0027 のとおり `currentColor` のままにする。HWC は Claude に橙などのブランド色を当てているが、
-  ダークモードのコントラストと状態ラベルの色との競合を避ける決定は変えない。
+  ダークモードのコントラストと状態ラベルの色との競合を避ける決定は変えない。→ [ADR 0031](0031-provider-mark-colors.md) で改めた。
 - 「ステータス」の子メニューの各項目に、カードと同じ provider のマークを項目名の前に置く。
   `MenuLink` に任意の `icon` を足して描画し、メニューは provider を知らないままにする。
   名前が同じ項目に出るので、マークは装飾（`aria-hidden`）にする。
@@ -30,6 +31,7 @@ ADR 0027 でカードの見出しに provider のロゴを置いたが、マー�
 ## 採用しない案
 
 - HWC のブランド色まで揃える: 明暗でコントラストが変わり、状態ラベルと競合する。ADR 0027 の理由が残る。
+  → [ADR 0031](0031-provider-mark-colors.md) で採用した。
 - マークを HWC から共有パッケージとして取り込む: 3 つの SVG のために別プロジェクトへ依存すると、
   更新と配布の手間が見合わない。形が変わったときは手で合わせる。
 
