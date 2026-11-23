@@ -9,7 +9,7 @@ const adrDir = join(root, "docs/adr");
 const adrNames = readdirSync(adrDir).filter((name) => name.endsWith(".md"));
 
 const ROOT_FILES = ["AGENTS.md", "README.md", "DESIGN.md"];
-const SCAN_DIRS = ["src", "test", "scripts", "docs"];
+const SCAN_DIRS = ["src", "test", "scripts", "docs", ".agents"];
 const SCAN_EXTENSIONS = [".ts", ".tsx", ".mjs", ".css", ".md"];
 
 function walk(dir: string): string[] {
