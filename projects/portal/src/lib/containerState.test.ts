@@ -5,10 +5,10 @@ import {
   filterContainers,
   getContainerAction,
   getStatusTone,
+  groupContainersByLinks,
   hasContainerLinks,
   isPortReachable,
   matchesContainerFilter,
-  sortContainersByLinks,
 } from "./containerState";
 import type { Container, ContainerFilter } from "../types/container";
 
@@ -192,8 +192,8 @@ describe("hasContainerLinks", () => {
   });
 });
 
-describe("sortContainersByLinks", () => {
-  test("リンクの無いコンテナを末尾へ送り、同順位は元の順を保つ", () => {
+describe("groupContainersByLinks", () => {
+  test("リンクの有無で分け、グループ内は元の順を保つ", () => {
     const containers = [
       container({ id: "1", name: "worker" }),
       container({ id: "2", name: "db", ports: [PORT] }),
@@ -202,13 +202,10 @@ describe("sortContainersByLinks", () => {
       container({ id: "5", name: "exited", state: "exited" }),
     ];
 
-    expect(sortContainersByLinks(containers).map((item) => item.name)).toEqual([
-      "db",
-      "app",
-      "worker",
-      "caddy",
-      "exited",
-    ]);
+    const groups = groupContainersByLinks(containers);
+
+    expect(groups.linked.map((item) => item.name)).toEqual(["db", "app"]);
+    expect(groups.linkless.map((item) => item.name)).toEqual(["worker", "caddy", "exited"]);
   });
 
   test("元の配列は書き換えない", () => {
@@ -217,12 +214,12 @@ describe("sortContainersByLinks", () => {
       container({ id: "2", name: "db", ports: [PORT] }),
     ];
 
-    sortContainersByLinks(containers);
+    groupContainersByLinks(containers);
 
     expect(containers.map((item) => item.name)).toEqual(["worker", "db"]);
   });
 
-  test("空の配列に対しても動作する", () => {
-    expect(sortContainersByLinks([])).toEqual([]);
+  test("空の配列は両方のグループを空で返す", () => {
+    expect(groupContainersByLinks([])).toEqual({ linked: [], linkless: [] });
   });
 });

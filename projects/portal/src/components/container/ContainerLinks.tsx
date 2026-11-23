@@ -174,7 +174,7 @@ function UrlLink({ url, reachable, dense }: { url: string; reachable: boolean; d
 
 /**
  * リンク群。公開の有無によらずポート番号の昇順に並べる。
- * タイルを 1 つも出さないコンテナは一覧の末尾に送られる (lib/containerState.ts の
+ * タイルを 1 つも出さないコンテナは一覧の末尾にまとめられる (lib/containerState.ts の
  * hasContainerLinks)。分岐を変えるときは両方を揃える。
  * - `portal.hidden` はリンクを出さない (Caddy などの入口そのもの)
  * - `portal.url` は 1 本だけ出す (公開ポートの数を見せない)

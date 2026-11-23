@@ -40,16 +40,25 @@ export function hasContainerLinks(container: Container): boolean {
   return orderLinks(container.ports, container.urls).length > 0;
 }
 
+export interface ContainerGroups {
+  linked: Container[];
+  linkless: Container[];
+}
+
 /**
- * リンクを出すコンテナを先に並べる。開く先の無いカードは一覧の目的 (ポートを開く) に対して
- * ノイズになるため末尾へまとめる。並び替えのキーを状態にしないのは、30 秒ごとの更新で
- * 状態が変わるたびにカードの位置が動くと、押そうとしたカードを見失うため。
- * 同じ順位どうしは元の順 (docker ps の順) を保つ。
+ * リンクを出すコンテナと出さないコンテナに分ける。開く先の無いカードは一覧の目的
+ * (ポートを開く) に対してノイズになるため、リンクのあるグループの後ろへまとめる。
+ * 分けるキーを状態にしないのは、30 秒ごとの更新で状態が変わるたびにカードの位置が
+ * 動くと、押そうとしたカードを見失うため。グループ内の順は元の順 (docker ps の順) のまま。
  */
-export function sortContainersByLinks(containers: Container[]): Container[] {
-  return [...containers].sort(
-    (a, b) => Number(hasContainerLinks(b)) - Number(hasContainerLinks(a)),
-  );
+export function groupContainersByLinks(containers: Container[]): ContainerGroups {
+  const groups: ContainerGroups = { linked: [], linkless: [] };
+
+  for (const container of containers) {
+    (hasContainerLinks(container) ? groups.linked : groups.linkless).push(container);
+  }
+
+  return groups;
 }
 
 /**

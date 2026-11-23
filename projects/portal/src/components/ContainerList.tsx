@@ -8,9 +8,9 @@ import { GridIcon, ListIcon, TrayIcon, WarningIcon } from "./icons";
 import { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
 import { readApiMessage, readStatusError, requestJson } from "../lib/apiClient";
 import {
+  groupContainersByLinks,
   isPortReachable,
   matchesContainerFilter,
-  sortContainersByLinks,
 } from "../lib/containerState";
 import { useImageUpdates } from "../hooks/useImageUpdates";
 
@@ -123,6 +123,14 @@ function StatePanel({
       {action && <div className="mt-5">{action}</div>}
     </div>
   );
+}
+
+/**
+ * リンク無しグループの見出し。カードごとの "Links hidden" / "No published ports" は
+ * 個体の説明で、一覧の区切りにはならない。ここから下に開く先が無いことを伝える。
+ */
+function NoLinksHeading({ className }: { className: string }) {
+  return <p className={`text-footnote text-label-2 ${className}`}>No links</p>;
 }
 
 /**
@@ -246,13 +254,16 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
     [state.containers],
   );
 
-  const visibleContainers = useMemo(
+  const groups = useMemo(
     () =>
-      sortContainersByLinks(
+      groupContainersByLinks(
         state.containers.filter((item) => matchesContainerFilter(item, filter)),
       ),
     [state.containers, filter],
   );
+  const visibleCount = groups.linked.length + groups.linkless.length;
+  // 全件がリンク無しなら区切る相手がいないので、見出しは出さない。
+  const showNoLinksHeading = groups.linked.length > 0 && groups.linkless.length > 0;
 
   const livePortCount = useMemo(
     () =>
@@ -353,7 +364,7 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
         />
       )}
 
-      {!isInitialLoading && !state.error && visibleContainers.length === 0 && (
+      {!isInitialLoading && !state.error && visibleCount === 0 && (
         <StatePanel
           icon={<TrayIcon className="size-7" />}
           title={filter === "all" ? "No containers" : `No ${filter} containers`}
@@ -367,14 +378,20 @@ export function ContainerList({ refreshInterval = 30000 }: ContainerListProps) {
         />
       )}
 
-      {visibleContainers.length > 0 &&
+      {visibleCount > 0 &&
         (viewMode === "grid" ? (
           <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {visibleContainers.map((container) => renderItem(container, ContainerCard))}
+            {groups.linked.map((container) => renderItem(container, ContainerCard))}
+            {showNoLinksHeading && (
+              <NoLinksHeading className="col-span-full border-t border-separator pt-2" />
+            )}
+            {groups.linkless.map((container) => renderItem(container, ContainerCard))}
           </div>
         ) : (
           <div className="divide-y divide-separator overflow-hidden rounded-card bg-surface shadow-card">
-            {visibleContainers.map((container) => renderItem(container, ContainerListItem))}
+            {groups.linked.map((container) => renderItem(container, ContainerListItem))}
+            {showNoLinksHeading && <NoLinksHeading className="px-4 py-2" />}
+            {groups.linkless.map((container) => renderItem(container, ContainerListItem))}
           </div>
         ))}
     </section>
