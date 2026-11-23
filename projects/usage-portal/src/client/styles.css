@@ -336,7 +336,8 @@ h2 {
   opacity: 0.6;
 }
 
-.up-provider[data-mark="muted"] .up-meter-fill {
+/* 止めた窓・残りわずかの窓の色は状態そのものなので残す（ADR 0009）。 */
+.up-provider[data-mark="muted"] .up-meter-fill:not(.up-meter-fill-attention):not(.up-meter-fill-blocked) {
   background: var(--up-muted);
 }
 
