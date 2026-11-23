@@ -101,6 +101,18 @@ export function ModalDialog({
     };
   }, []);
 
+  // 実行中は native の close と開き直しの間だけ面が閉じる。その 1 拍で焦点が body へ落ち、
+  // Escape が設定ページの戻る (window の keydown) へ届いて画面が切り替わるため、document で先に止める
+  useEffect(() => {
+    if (!busy) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [busy]);
+
   const startClosing = useCallback(() => {
     if (closedRef.current || closingRef.current) return;
     closingRef.current = true;

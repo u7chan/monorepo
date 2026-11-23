@@ -794,9 +794,10 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       // 別スペースへ切り替えると配下の App は作り直される。この App の状態行へ出しても消えるため、
       // 結果を親 (SpacesApp) へ渡し、移動先の App が入口の解決の後に出す
       const switching = ownerLinkSpace(result.spaceId, space.selected.id, space.spaces) !== undefined;
-      if (note && switching) onHandoffNote?.(note);
-      // 別スペースへの切替は SpacesApp の配下を作り直すため、退場の後ろへ回す (先に切り替えると面が消える)
-      afterDialogCloseRef.current = () =>
+      // 別スペースへの切替は SpacesApp の配下を作り直すため、退場の後ろへ回す (先に切り替えると面が消える)。
+      // 警告は切替と同じ描画で渡す (先に渡すと移動元の App が消費し、移動先に出ない)
+      afterDialogCloseRef.current = () => {
+        if (note && switching) onHandoffNote?.(note);
         openOwnerSession(sessionId, result.spaceId, {
           spaces: space.spaces,
           currentSpaceId: space.selected.id,
@@ -811,6 +812,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             backToChat();
           },
         });
+      };
     },
     [app, backToChat, handoffTarget, navigate, onHandoffNote, space],
   );
