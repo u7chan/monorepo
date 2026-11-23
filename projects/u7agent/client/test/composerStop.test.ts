@@ -5,6 +5,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ComposerProps } from "../src/components/Composer";
+import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import type { Attachment } from "../src/lib/attachments";
 import type { AgentDef, AgentSuggestion } from "../src/types";
 
@@ -50,7 +51,7 @@ const props: ComposerProps = {
 };
 
 const render = (overrides: Partial<ComposerProps> = {}): string =>
-  renderToStaticMarkup(createElement(Composer, { ...props, ...overrides }));
+  renderToStaticMarkup(createElement(ConfirmProvider, null, createElement(Composer, { ...props, ...overrides })));
 
 /** 開始タグ (`<button …>`) を、その位置より前の `<` から `>` まで切り出す */
 const startTag = (html: string, index: number): string =>

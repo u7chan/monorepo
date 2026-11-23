@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { cn } from "../lib/cn";
 import type { DialogRequest } from "../lib/confirmDialog";
+import { ExternalLinkIcon } from "./icons";
 
 export type ConfirmDialogProps = {
   request: DialogRequest;
@@ -85,6 +86,19 @@ export function ConfirmDialog({ request, onConfirm, onCancel }: ConfirmDialogPro
             <p key={paragraph} className="break-words text-ink-soft">
               {paragraph}
             </p>
+          ))}
+
+          {request.links?.map((link) => (
+            <a
+              key={link.href}
+              href={link.href}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="link-quiet inline-flex items-center gap-1 text-2xs"
+            >
+              {link.label}
+              <ExternalLinkIcon />
+            </a>
           ))}
 
           {request.kind === "confirm" && request.code ? (

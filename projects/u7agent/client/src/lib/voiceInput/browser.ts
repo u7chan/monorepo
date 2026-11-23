@@ -14,6 +14,15 @@ export const browserVoiceInputPlatform: VoiceInputPlatform = {
   now: () => performance.now(),
 };
 
+/**
+ * タブを閉じる / 戻るで録音を残さない。`pagehide` は bfcache へ入る場合にも届く
+ * （`beforeunload` はモバイルで発火しないことがある）。
+ */
+export function subscribeVoiceInputUnload(listener: () => void): () => void {
+  window.addEventListener("pagehide", listener);
+  return () => window.removeEventListener("pagehide", listener);
+}
+
 /** BFF の失敗は HTTP の分類つきで返る。切断（abort）は呼び出し側が世代で捨てる */
 async function requestAnswer(offer: string, signal: AbortSignal): Promise<VoiceInputSessionAnswer> {
   try {

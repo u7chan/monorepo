@@ -49,15 +49,18 @@ export function runErrorFrom(
 
 /**
  * 再実行ボタンを押せない理由。送信経路 (`Composer` の submit と `sendChatMessage` の busy) が
- * 実際に遮っているものだけを返し、順序も同じにする。
+ * 実際に遮っているものだけを返し、順序も同じにする。音声の操作中は本文を送れないので、理由にそれを出す。
  */
 export function runRetryBlockedReason(input: {
   sending: boolean;
   settingsChanging: boolean;
   attachmentsBusy: boolean;
   runtimeReady: boolean;
+  /** 音声の操作中 (接続中 / 録音中 / 確定待ち) の理由。押せない間だけ渡す */
+  voiceInput?: string;
 }): string | undefined {
   if (input.sending) return "送信中";
+  if (input.voiceInput !== undefined) return input.voiceInput;
   if (input.settingsChanging) return "設定の変更中";
   if (input.attachmentsBusy) return "添付のアップロード中";
   if (!input.runtimeReady) return "ランタイム未接続";

@@ -12,12 +12,14 @@ import {
   type PointerEvent,
   type SyntheticEvent,
 } from "react";
+import { useComposerVoiceInput } from "../hooks/useComposerVoiceInput";
 import { useExitPhase } from "../hooks/useExitPhase";
+import { useVoiceInputRemaining } from "../hooks/useVoiceInputRemaining";
 import type { Attachment, ComposerSettings } from "../hooks/useU7Agent";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
 import { pastedImageFiles } from "../lib/clipboardImages";
 import { cn } from "../lib/cn";
-import { composerAction } from "../lib/composerAction";
+import { composerAction, composerPrimaryStop, composerSecondaryStop } from "../lib/composerAction";
 import { composerFocusAfterSend, hasCoarsePointer } from "../lib/composerFocus";
 import { shouldSubmitOnEnter } from "../lib/composerKeys";
 import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDropKind } from "../lib/fileMention";
@@ -27,6 +29,16 @@ import { runRetryBlockedReason, type RunErrorInfo } from "../lib/runRetry";
 import { skillCommandText } from "../lib/sessionSkills";
 import { shouldClearSuggestionOnBackspace, suggestionSendText, suggestionTitleSource } from "../lib/suggestion";
 import type { AgentDef, AgentSuggestion, ContextUsage, ModelRef, RunStatus, ThinkingLevel, ToolCall } from "../types";
+import { voiceInputComposerBlockedReason } from "../lib/voiceInput/composer";
+import { requestVoiceInputConsent, voiceInputConsentStorage } from "../lib/voiceInput/consent";
+import {
+  applyVoiceInputPartial,
+  beginVoiceInputDraft,
+  finishVoiceInputDraft,
+  revertVoiceInputDraft,
+  type VoiceInputDraft,
+  type VoiceInputDraftUpdate,
+} from "../lib/voiceInput/draft";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
@@ -34,6 +46,13 @@ import { ModelEffortPicker } from "./composer/ModelEffortControls";
 import { QueuedSends } from "./composer/QueuedSends";
 import { SkillPicker } from "./composer/SkillPicker";
 import { SuggestionChip } from "./composer/SuggestionChip";
+import {
+  VoiceInputCancelButton,
+  VoiceInputFinalizingButton,
+  VoiceInputStartButton,
+  VoiceInputStopButton,
+} from "./composer/VoiceInputControls";
+import { useConfirm } from "./ConfirmProvider";
 import { ArrowUpIcon, CollapseIcon, ExpandIcon, StopIcon } from "./icons";
 
 export type ComposerProps = {
@@ -84,6 +103,14 @@ export type ComposerProps = {
   onReloadSkills: () => void;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */
   visible?: boolean;
+  /** 入力欄のマイクを出すか。判定 (キー / secure context) は App が起動時に取る */
+  voiceInputAvailable?: boolean;
+  /** 確認ダイアログに出す固定モデル名。マイクを出すときだけ使う */
+  voiceInputModel?: string;
+  /** 会話の切替キー。変わったら録音を中断し、確定待ちの本文を次の会話へ持ち越さない */
+  voiceInputScope?: string;
+  /** 音声の操作中か。再実行 / 未送信の再送を App が止める根拠 */
+  onVoiceInputBusyChange?: (busy: boolean) => void;
   /** `titleSource` は定型プロンプトを結合する前の本文 (一覧タイトルの元) */
   onSend: (text: string, titleSource?: string) => void;
   onStop: () => void;
@@ -103,6 +130,9 @@ const SINGLE_COLUMN_TEXTAREA_HEIGHT = 120;
  * クリックの続き (二度押し / ダブルタップ) がそのまま停止に届き、走っている実行と待機キューが落ちる
  */
 const STOP_PROMOTION_HOLD_MS = 500;
+
+/** 所有領域を手入力で失くしたときの注記。確定テキストを入れない理由を 1 行で伝える */
+const VOICE_INPUT_DRAFT_EDITED_NOTICE = "下書きを編集したため、確定したテキストは反映していません。";
 
 /**
  * ドロップ座標に対応する入力欄の文字位置。`caretRangeFromPoint` は textarea で正しい位置を返さない
@@ -153,6 +183,10 @@ export function Composer({
   rootCwd,
   skills,
   visible = true,
+  voiceInputAvailable = false,
+  voiceInputModel = "",
+  voiceInputScope,
+  onVoiceInputBusyChange,
   onSend,
   onStop,
   onAttachFiles,
@@ -189,6 +223,40 @@ export function Composer({
   const expandedUi = expanded || expandPhase === "closing";
   // 直前の dragover の座標。drop で参照の挿入位置を決める (drop の座標は実装によっては 0 になる)
   const dropPointRef = useRef<{ x: number; y: number } | null>(null);
+  // 確認ダイアログ (初回の録音で 1 度だけ出す)
+  const confirm = useConfirm();
+  const voice = useComposerVoiceInput();
+  // 音声由来の注記 (確定文を入れられなかった理由など)。会話の notice と並べて同じ行に出す
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  // 本文の写し。音声のコールバックは再描画をまたいで届くので、state の遅れを挟まずに前の本文と比べる
+  const valueRef = useRef(value);
+  // 所有領域 (開始時のカーソル / 選択を基準に、システムが差し替えてよい範囲)
+  const voiceDraftRef = useRef<VoiceInputDraft | null>(null);
+  // 録音を始めたときの焦点。確定後に焦点を戻すかの判定に使う (利用者が別の場所へ移っていたら奪わない)
+  const voiceFocusRef = useRef<Element | null>(null);
+  // 確認を開いている間に会話が変わったかを見る基準（戻ってきたら、別の会話の下書きへ録音を始めない）
+  const voiceScopeRef = useRef(voiceInputScope);
+  voiceScopeRef.current = voiceInputScope;
+  /** 本文の書き換えは必ずここを通す (valueRef を同じ描画で最新にする) */
+  const applyValue = useCallback((next: string) => {
+    valueRef.current = next;
+    setValue(next);
+  }, []);
+  const { state: voiceState, start: startVoice, stop: stopVoice, cancel: cancelVoice } = voice;
+  const voiceBlockedReason = voiceInputComposerBlockedReason(voiceState);
+  const voiceBusy = voiceBlockedReason !== undefined;
+  // 音声の操作が終わった直後の保留 (送信直後の停止の保留と同じ理由)。取消 / 確定で主スロットが
+  // 入れ替わった位置を続けて押すと、そのまま送信へ届いてしまう
+  const [voiceHold, setVoiceHold] = useState(false);
+  const voicePhaseRef = useRef(voiceState.phase);
+  useEffect(() => {
+    const previous = voicePhaseRef.current;
+    voicePhaseRef.current = voiceState.phase;
+    if (previous === "idle" || voiceState.phase !== "idle") return;
+    setVoiceHold(true);
+    const timer = window.setTimeout(() => setVoiceHold(false), STOP_PROMOTION_HOLD_MS);
+    return () => window.clearTimeout(timer);
+  }, [voiceState.phase]);
 
   const attachmentsBusy = attachments.some((item) => item.status !== "done");
   const hasAttachment = attachments.some((item) => item.status === "done");
@@ -305,13 +373,127 @@ export function Composer({
     [onReloadSkills],
   );
 
+  /** 所有領域の更新を本文へ反映する。カーソルは入力欄が焦点を持っているときだけ戻す */
+  const applyVoiceDraft = useCallback(
+    (update: VoiceInputDraftUpdate) => {
+      voiceDraftRef.current = update.draft;
+      if (update.value !== valueRef.current) applyValue(update.value);
+      if (update.caret === null) return;
+      const caret = update.caret;
+      // コールバックは再描画をまたいで届くので、value を書き換えた後の選択を描画後に戻す
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (!el || el.ownerDocument.activeElement !== el) return;
+        el.setSelectionRange(caret, caret);
+      });
+    },
+    [applyValue],
+  );
+
+  /** 取消・失敗。所有領域だけを開始前へ戻す（開始後の手入力は巻き戻さない） */
+  const handleVoiceCancel = useCallback(() => {
+    const draft = voiceDraftRef.current;
+    voiceDraftRef.current = null;
+    voiceFocusRef.current = null;
+    if (draft === null) return;
+    applyVoiceDraft(revertVoiceInputDraft(draft, valueRef.current));
+  }, [applyVoiceDraft]);
+
+  /**
+   * 確定。所有を失っていれば本文を変えず、残った途中文と確定テキストの重複を作らない。
+   * 入れたときはカーソルを確定テキストの直後へ戻し、焦点を入力欄へ返す。
+   */
+  const handleVoiceFinal = useCallback(
+    (text: string) => {
+      const draft = voiceDraftRef.current;
+      voiceDraftRef.current = null;
+      const focused = voiceFocusRef.current;
+      voiceFocusRef.current = null;
+      if (draft === null) return;
+      const update = finishVoiceInputDraft(draft, valueRef.current, text);
+      if (!update.applied) {
+        if (update.draft.status === "detached") setVoiceNotice(VOICE_INPUT_DRAFT_EDITED_NOTICE);
+        return;
+      }
+      applyValue(update.value);
+      const caret = update.caret;
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (!el || caret === null) return;
+        const active = el.ownerDocument.activeElement;
+        // 利用者が別の場所を操作していたら焦点を奪わない（録音中に別の面へ移った場合だけ戻さない）
+        if (active === el || active === el.ownerDocument.body || active === focused) el.focus();
+        el.setSelectionRange(caret, caret);
+      });
+    },
+    [applyValue],
+  );
+
+  /** マイク。初回だけ確認を出し、承諾したら開始時のカーソル / 選択を控えて録音を始める */
+  const startVoiceInput = useCallback(() => {
+    void (async () => {
+      const scope = voiceScopeRef.current;
+      const allowed = await requestVoiceInputConsent({
+        storage: voiceInputConsentStorage(),
+        confirm,
+        model: voiceInputModel,
+      });
+      if (!allowed) return;
+      // 確認を開いている間に会話が変わっていたら、その会話の下書きへは始めない
+      if (voiceScopeRef.current !== scope) return;
+      const el = inputRef.current;
+      const current = valueRef.current;
+      const caret = el?.selectionStart ?? current.length;
+      voiceDraftRef.current = beginVoiceInputDraft(current, caret, el?.selectionEnd ?? current.length);
+      voiceFocusRef.current = document.activeElement;
+      setVoiceNotice(null);
+      startVoice({
+        onPartial: (text) => {
+          const draft = voiceDraftRef.current;
+          if (draft === null) return;
+          const at = inputRef.current?.selectionStart ?? valueRef.current.length;
+          applyVoiceDraft(applyVoiceInputPartial(draft, valueRef.current, text, at));
+        },
+        onFinal: handleVoiceFinal,
+        onCancel: handleVoiceCancel,
+        onError: (failure) => {
+          handleVoiceCancel();
+          setVoiceNotice(`音声入力を続けられませんでした（${failure.message}）`);
+        },
+      });
+    })();
+  }, [applyVoiceDraft, confirm, handleVoiceCancel, handleVoiceFinal, startVoice, voiceInputModel]);
+
+  // 設定・実行状況へ移るときは録音を続けない（非表示の面でマイクを握ったままにしない）
+  useEffect(() => {
+    if (!visible) cancelVoice();
+  }, [visible, cancelVoice]);
+
+  // 会話の切替（添付が暗黙に作った会話への移動を含む）でも中断する。確定テキストが次の会話の下書きへ混ざらない
+  useEffect(() => {
+    cancelVoice();
+    setVoiceNotice(null);
+  }, [voiceInputScope, cancelVoice]);
+
+  // 再実行 / 未送信の再送を App が止められるよう、音声の操作中かを知らせる
+  const notifyVoiceBusy = useRef(onVoiceInputBusyChange);
+  notifyVoiceBusy.current = onVoiceInputBusyChange;
+  useEffect(() => {
+    notifyVoiceBusy.current?.(voiceBusy);
+  }, [voiceBusy]);
+  useEffect(() => () => notifyVoiceBusy.current?.(false), []);
+
   const submit = () => {
     const text = suggestionSendText(suggestion?.prompt ?? "", value);
+    // 録音中・接続中・確定待ちは送らない。ボタンの disabled だけでなく入口で止めるのは、
+    // Enter / submit / 再実行が同じ送信経路へ合流するため（下書きを消してから捨てない）
+    if (voiceBusy || voiceHold) return;
     // 設定変更中は送信を待たせる (サーバー側でも 409)。チップ / 添付だけの送信は許可する
     if (attachmentsBusy) return;
     if ((!text && !hasAttachment) || !runtimeReady || sending || settings.changing || settings.sendBlockedReason)
       return;
-    setValue("");
+    applyValue("");
+    setVoiceNotice(null);
     setSendHold((count) => count + 1);
     onClearSuggestion();
     // 結合後の本文だけを渡すとタイトルが定型プロンプトの先頭で埋まるため、個別の依頼を別に渡す
@@ -342,7 +524,7 @@ export function Composer({
     const text = skillCommandText(name);
     const start = el?.selectionStart ?? value.length;
     const end = el?.selectionEnd ?? value.length;
-    setValue(`${value.slice(0, start)}${text}${value.slice(end)}`);
+    applyValue(`${value.slice(0, start)}${text}${value.slice(end)}`);
     setSkillsOpen(false);
     // 挿入した後ろへカーソルを戻す (引数を続けて書けるようにする)
     requestAnimationFrame(() => {
@@ -372,7 +554,7 @@ export function Composer({
     const start = offset ?? el?.selectionStart ?? value.length;
     const end = offset ?? el?.selectionEnd ?? value.length;
     const insertion = insertFileMention(value, path, start, end);
-    setValue(insertion.value);
+    applyValue(insertion.value);
     // 挿入した後ろへカーソルを戻す (続けて本文を書けるようにする)
     requestAnimationFrame(() => {
       const target = inputRef.current;
@@ -448,6 +630,7 @@ export function Composer({
     settingsChanging: settings.changing,
     attachmentsBusy,
     runtimeReady,
+    ...(voiceBlockedReason === undefined ? {} : { voiceInput: voiceBlockedReason }),
   });
   // 主スロットを送信と停止のどちらにするか (docs/ui-layout.md#入力欄の主ボタン送信と停止)
   const sendable = value.trim().length > 0 || hasAttachment || suggestion !== null;
@@ -457,7 +640,12 @@ export function Composer({
     // アップロード中は「送るものがあるのに送れない」状態なので、停止を主スロットへ上げない
     sendBlocked: Boolean(settings.sendBlockedReason) || attachmentsBusy,
     stopPrimaryHeld: sendHold > 0,
+    voicePhase: voiceState.phase,
   });
+  const stopPrimary = composerPrimaryStop(action);
+  // 残り時間の弧。期限まで 1 秒刻みで描き直す (録音中だけ時計を進める)
+  const voiceRemaining = useVoiceInputRemaining(voiceState.deadline, voiceState.startedAt);
+  const showMicrophone = voiceInputAvailable && !voiceBusy;
   // 待機件数の正は直上ブロック。ボタンは破棄する範囲だけを示し、数を二重に出さない
   const stopButton = (
     <button
@@ -465,13 +653,13 @@ export function Composer({
       aria-label={queueDepth > 0 ? "停止（待機中の送信も破棄）" : "停止"}
       title={queueDepth > 0 ? "実行を中断し、待機中の送信も破棄します" : "実行を中断します"}
       // 主 / 控えの別を印で出す (描画のテストを色の class に依存させないため)
-      data-stop-slot={action === "stop" ? "primary" : "secondary"}
+      data-stop-slot={stopPrimary ? "primary" : "secondary"}
       onClick={onStop}
       className={cn(
         "grid shrink-0 cursor-pointer place-items-center rounded-full transition-colors",
         // 円の大きさは送信と同じにする (入替えで位置と寸法が動くと、指が別の操作を拾う)。
         // 主 / 控えの差は塗りと枠だけにする
-        action === "stop"
+        stopPrimary
           ? "bg-accent text-on-accent hover:brightness-110"
           : "border border-line text-ink-soft hover:border-warn/50 hover:text-warn",
         singleColumn ? "size-9" : "size-8",
@@ -491,6 +679,7 @@ export function Composer({
         sending ||
         attachmentsBusy ||
         settings.changing ||
+        voiceHold ||
         Boolean(settings.sendBlockedReason) ||
         !sendable
       }
@@ -507,6 +696,8 @@ export function Composer({
   const footnoteWarnings = [settings.modelWarning, settings.sendBlockedReason].filter((text): text is string =>
     Boolean(text),
   );
+  // 音声の注記と会話の notice は同じ 1 行に並べる（状態行の下の行を増やすと composer の高さが動く）
+  const shownNotice = [notice, voiceNotice].filter((text): text is string => Boolean(text)).join(" / ") || undefined;
   const suggestionChip = suggestion ? (
     <SuggestionChip suggestion={suggestion} singleColumn={singleColumn} onClear={clearSuggestion} />
   ) : null;
@@ -579,7 +770,7 @@ export function Composer({
             singleColumn={singleColumn}
             runStatus={runStatus}
             runError={runError}
-            notice={notice}
+            notice={shownNotice}
             onRetry={onRetry}
             retryDisabled={retryBlockedReason !== undefined}
             retryDisabledReason={retryBlockedReason}
@@ -620,6 +811,33 @@ export function Composer({
                 onSelect={insertSkillCommand}
                 onReload={onReloadSkills}
               />
+              {/* 添付はスキルと同じ大きさで並べ、右上の拡大ボタンと重ねない（1 行目の右端は pr-9 で空ける） */}
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                tabIndex={-1}
+                aria-hidden="true"
+                className="hidden"
+                onChange={(event) => {
+                  const files = [...(event.currentTarget.files ?? [])];
+                  // 同じファイルを選び直せるよう、選択を毎回リセットする
+                  event.currentTarget.value = "";
+                  pickFiles(files);
+                }}
+              />
+              <button
+                type="button"
+                aria-label="ファイルを添付"
+                title="ファイルを添付（最大10件・100 MiBまで）"
+                onClick={() => fileRef.current?.click()}
+                className={cn(
+                  "grid shrink-0 cursor-pointer place-items-center rounded-full border border-line bg-raised text-ink-faint transition-colors hover:text-ink-soft",
+                  singleColumn ? "size-9" : "size-7",
+                )}
+              >
+                <ClipIcon />
+              </button>
             </div>
             <AttachmentChips
               attachments={attachments}
@@ -656,7 +874,7 @@ export function Composer({
                       : "max-h-45 min-h-6 py-1",
                 )}
                 enterKeyHint={singleColumn ? "enter" : "send"}
-                onChange={(event) => setValue(event.currentTarget.value)}
+                onChange={(event) => applyValue(event.currentTarget.value)}
                 onKeyDown={handleKeyDown}
               />
               <button
@@ -672,34 +890,21 @@ export function Composer({
               >
                 {expanded ? <CollapseIcon /> : <ExpandIcon />}
               </button>
-              <input
-                ref={fileRef}
-                type="file"
-                multiple
-                tabIndex={-1}
-                aria-hidden="true"
-                className="hidden"
-                onChange={(event) => {
-                  const files = [...(event.currentTarget.files ?? [])];
-                  // 同じファイルを選び直せるよう、選択を毎回リセットする
-                  event.currentTarget.value = "";
-                  pickFiles(files);
-                }}
-              />
-              <button
-                type="button"
-                aria-label="ファイルを添付"
-                title="ファイルを添付（最大10件・100 MiBまで）"
-                onClick={() => fileRef.current?.click()}
-                className={cn(
-                  "grid shrink-0 cursor-pointer place-items-center rounded-full border border-line text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text",
-                  singleColumn ? "size-9" : "size-8",
-                )}
-              >
-                <ClipIcon />
-              </button>
-              {action === "sendAndStop" ? stopButton : null}
-              {action === "stop" ? stopButton : sendButton}
+              {/* 入力欄の行は [textarea] [マイク] [主ボタン]。マイクは録音・接続・確定待ちの間は隠し、
+                  その間の主スロットを音声の操作が占有する (docs/ui-layout.md) */}
+              {showMicrophone ? <VoiceInputStartButton singleColumn={singleColumn} onClick={startVoiceInput} /> : null}
+              {composerSecondaryStop(action) && stopVisible ? stopButton : null}
+              {stopPrimary ? (
+                stopButton
+              ) : action === "voiceCancel" ? (
+                <VoiceInputCancelButton singleColumn={singleColumn} onClick={cancelVoice} />
+              ) : action === "voiceStop" ? (
+                <VoiceInputStopButton singleColumn={singleColumn} remaining={voiceRemaining} onClick={stopVoice} />
+              ) : action === "voiceFinalizing" ? (
+                <VoiceInputFinalizingButton singleColumn={singleColumn} />
+              ) : (
+                sendButton
+              )}
             </div>
           </form>
           {/* 停止は入力欄の行 (主ボタン / 控え) へ移した。footnote は理由だけを持つ */}

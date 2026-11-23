@@ -9,11 +9,17 @@ import { VoiceInputSettingsTab } from "./voice-input-settings/VoiceInputSettings
  * 設定 → 音声入力。hook はこの画面が持ち (開いたときだけ取得する)、
  * 再読み込みもこの画面の設定だけを取り直す。
  */
-export function VoiceInputSettingsPage({ singleColumn, onBack, onOpenNav }: SettingsPageProps) {
+export function VoiceInputSettingsPage({
+  singleColumn,
+  onBack,
+  onOpenNav,
+  onVoiceInputKeyChanged,
+}: SettingsPageProps & { onVoiceInputKeyChanged?: () => void }) {
   const voiceInputSettings = useVoiceInputSettings();
   return (
     <VoiceInputSettingsView
       voiceInputSettings={voiceInputSettings}
+      onVoiceInputKeyChanged={onVoiceInputKeyChanged}
       singleColumn={singleColumn}
       onBack={onBack}
       onOpenNav={onOpenNav}
@@ -24,12 +30,24 @@ export function VoiceInputSettingsPage({ singleColumn, onBack, onOpenNav }: Sett
 /** 表示だけを持つ部分。取得の成否は voiceInputSettings が持ち、ここは描画に徹する */
 export function VoiceInputSettingsView({
   voiceInputSettings,
+  onVoiceInputKeyChanged,
   singleColumn = false,
   onBack,
   onOpenNav,
-}: SettingsPageProps & { voiceInputSettings: VoiceInputSettings }) {
+}: SettingsPageProps & { voiceInputSettings: VoiceInputSettings; onVoiceInputKeyChanged?: () => void }) {
   const { settings, note, saving, reloading, reload, saveKey, removeKey, testing, testOutcome, test } =
     voiceInputSettings;
+  // キーの保存 / 削除が通ったら、入力欄のマイクの可用性を App に取り直させる (キーの正はサーバー)
+  const handleSaveKey = async (apiKey: string): Promise<boolean> => {
+    const saved = await saveKey(apiKey);
+    if (saved) onVoiceInputKeyChanged?.();
+    return saved;
+  };
+  const handleDeleteKey = async (): Promise<boolean> => {
+    const removed = await removeKey();
+    if (removed) onVoiceInputKeyChanged?.();
+    return removed;
+  };
   return (
     <SettingsPageLayout
       eyebrow="VOICE INPUT"
@@ -53,8 +71,8 @@ export function VoiceInputSettingsView({
         <VoiceInputSettingsTab
           settings={settings}
           saving={saving}
-          onSaveKey={saveKey}
-          onDeleteKey={removeKey}
+          onSaveKey={handleSaveKey}
+          onDeleteKey={handleDeleteKey}
           testing={testing}
           testOutcome={testOutcome}
           onTest={() => void test()}

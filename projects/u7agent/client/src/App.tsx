@@ -44,6 +44,7 @@ import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
 import { useSessionTitleNotice } from "./hooks/useSessionTitleNotice";
 import { useSidebarWidth } from "./hooks/useSidebarWidth";
+import { useVoiceInputAvailability } from "./hooks/useVoiceInputAvailability";
 import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
 import { activityProgressCount } from "./lib/activity";
@@ -145,6 +146,10 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     syncSessionPath(sessionPath(route.view, app.sessionId, app.entryResolved));
   }, [route.view, urlSessionId, app.sessionId, app.entryResolved, syncSessionPath]);
   const markdownImageRawUrl = useMarkdownImageRawUrl(app.chat.runEndSeq);
+  // 入力欄のマイクの可用性。起動時に 1 回取得し、キーの保存 / 削除で取り直す
+  const voiceInputAvailability = useVoiceInputAvailability();
+  // 音声の操作中か。入力欄の送信は Composer が自分で止め、未送信の再送だけをここで止める
+  const [voiceInputBusy, setVoiceInputBusy] = useState(false);
   // desktop shell は幅と高さの両方が要る (lib/layout.ts)。足りない側で portrait / landscape を選ぶ
   const layout = useLayoutMode();
   const singleColumnMode = layout === "desktop" ? null : layout;
@@ -446,16 +451,20 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   }, [app]);
 
   const handleRetry = useCallback(() => {
+    // 録音の確定待ちに再実行を挟むと、確定テキストの入る先の会話が変わる
+    if (voiceInputBusy) return;
     // 失敗の復旧も通常の送信経路に載せる (BFF から prompt() を再発行しない)。固定文言だけを送り、
     // 編集中の添付は送らず消費もしない
     handleSend(RUN_RETRY_PROMPT, { includeAttachments: false });
-  }, [handleSend]);
+  }, [handleSend, voiceInputBusy]);
 
   const handleResendUnsent = useCallback(
     (sendId: string) => {
+      // 音声の操作中は会話を進めない（確定待ちのあとに別のターンが走らないようにする）
+      if (voiceInputBusy) return;
       void app.resendUnsent(sendId);
     },
-    [app],
+    [app, voiceInputBusy],
   );
 
   const handleDiscardUnsent = useCallback(
@@ -1048,8 +1057,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       case "web-search":
         return <WebSearchSettingsPage {...pageProps} refreshCatalog={refreshCatalog} />;
       case "voice-input":
-        // 入力欄への挿入は別の Issue。ここはキーの登録・疎通確認と、録音 1 回分のプレイグラウンドを持つ
-        return <VoiceInputSettingsPage {...pageProps} />;
+        // 録音の入口は入力欄のマイク。キーの保存 / 削除で入力欄の可用性を取り直す
+        return <VoiceInputSettingsPage {...pageProps} onVoiceInputKeyChanged={voiceInputAvailability.reload} />;
       case "session-title":
         // 本会話のモデルとは独立した設定なので、モデル画面の共有 state は渡さない (開いたときだけ取得する)
         return <SessionTitleSettingsPage {...pageProps} />;
@@ -1219,6 +1228,10 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             </FileRefProvider>
             <Composer
               visible={mainView === "chat"}
+              voiceInputAvailable={voiceInputAvailability.shown}
+              voiceInputModel={voiceInputAvailability.model}
+              voiceInputScope={app.sessionId}
+              onVoiceInputBusyChange={setVoiceInputBusy}
               activity={activity.text}
               activityState={activity.state}
               thinkingText={app.chat.thinkingText}
