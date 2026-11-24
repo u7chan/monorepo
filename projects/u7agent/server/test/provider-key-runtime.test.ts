@@ -1,4 +1,4 @@
-// SDK の操作結果を CredentialCommit へ写す境界 (server/src/bootstrap.ts) の検証。
+// SDK の操作結果を CredentialCommit へ写す境界 (server/src/bff-runtime.ts) の検証。
 // CSE は「Map への commit 後に同期が失敗」の印なので、provider / operation を照合して未適用と断定しない。
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent";
 import test from "node:test";
 import type { PiBff } from "../src/agent";
-import { createProviderKeyRuntime } from "../src/bootstrap";
+import { createProviderKeyRuntime } from "../src/bff-runtime";
 import type { CredentialCommit } from "../src/model-settings";
 
 const KEY = "sk-ant-dummy-key-0123456789abcdef";
