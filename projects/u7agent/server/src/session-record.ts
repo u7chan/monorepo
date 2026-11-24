@@ -228,7 +228,7 @@ export interface SessionRecord {
   changingSettings: boolean;
   /**
    * 履歴クリアの確定待ち。true の間は旧世代のタイトル要約を適用・保存せず、persist も行わない
-   * (確定前の失敗では戻す)。
+   * (確定前の失敗では戻す。立てる / 戻すのは `history-clear` の手順)。
    */
   clearingHistory: boolean;
   /**

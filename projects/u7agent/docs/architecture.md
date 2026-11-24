@@ -16,6 +16,7 @@
 | 調査の子セッション（investigate） | `server/src/investigate-tool.ts`、`server/src/investigate-runner.ts` | [subagent.md](subagent.md) |
 | 会話ストア（永続化 / 復元） | `server/src/session-store.ts` | [session-files.md](session-files.md)、[persistence.md](persistence.md) |
 | 会話の引き継ぎ（ファイルの移動 / メモの書込み / 確定と巻き戻し） | `server/src/handoff-move.ts` | [run-lifecycle.md](run-lifecycle.md#引き継ぎと復旧) |
+| 会話履歴のクリア（meta の書換え / 履歴と実測の削除 / 確定と片付け） | `server/src/history-clear.ts` | [session-files.md](session-files.md#ライフサイクルと排他)、[api-session-state.md](api-session-state.md#post-apisessionsidhistoryclear) |
 | 会話タイトルの AI 要約の進行（1 会話 1 試行 / 順番待ち / 適用 / 取消） | `server/src/title-summary-progress.ts` | [session-title.md](session-title.md) |
 | pi イベント → SSE イベント変換 | `server/src/run-events.ts` | [run-lifecycle.md](run-lifecycle.md) |
 | 履歴 / payload / compaction の DTO 組み立て | `server/src/session-projection.ts`、`session-payload.ts`、`compaction-view.ts` | [run-lifecycle.md](run-lifecycle.md)、[compaction.md](compaction.md) |
@@ -32,7 +33,7 @@
 | 秘密値のマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
 | クライアント（状態 / テーマ / レイアウト） | `client/src/` | [frontend.md](frontend.md)、[ui-layout.md](ui-layout.md) |
 
-セッション状態の所有者は `SessionStore` 1 つに保つ（create と project 削除・settings 変更中の送信抑止・未配信入力 / run / subscriber は複数箇所へ分けると競合を追えなくなる）。pi イベント変換と DTO 組み立ては純関数・アダプタとして外へ出し、ストア本体はライフサイクルだけを持つ。引き継ぎのファイルと保存の手順も `handoff-move` へ出し、`SessionStore` は予約・確定・配信の順序だけを呼ぶ。会話の読み書きは `session-store` へ出し、SDK セッションは `SessionManager.inMemory` + entries として扱う（ファイルは SDK に持たせない）。
+セッション状態の所有者は `SessionStore` 1 つに保つ（create と project 削除・settings 変更中の送信抑止・未配信入力 / run / subscriber は複数箇所へ分けると競合を追えなくなる）。pi イベント変換と DTO 組み立ては純関数・アダプタとして外へ出し、ストア本体はライフサイクルだけを持つ。引き継ぎのファイルと保存の手順も `handoff-move` へ出し、`SessionStore` は予約・確定・配信の順序だけを呼ぶ。履歴クリアの保存と削除の手順は `history-clear` へ出し、同じく `SessionStore` は検証と予約・確定・配信の順序を持つ。会話の読み書きは `session-store` へ出し、SDK セッションは `SessionManager.inMemory` + entries として扱う（ファイルは SDK に持たせない）。
 
 ## ドキュメントの読み方
 
