@@ -9,6 +9,8 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { readStoredCredential } from "@earendil-works/pi-coding-agent";
+import { readCappedBody } from "./bounded-body";
+import { startRequestDeadline } from "./request-deadline";
 import {
   classifyProviderFailure,
   parseJsonBody,
@@ -155,33 +157,6 @@ function decodedBytes(base64: string): number {
   return Math.floor((base64.length * 3) / 4) - padding;
 }
 
-/**
- * 本文を上限まで読む。超えたら本文を捨てる（大きな応答をメモリへ載せない）。
- * content-length を宣言しない応答があるため、実バイトで数える。
- */
-async function readCappedBody(response: Response, maxBytes: number): Promise<string | undefined> {
-  const declared = Number(response.headers.get("content-length") ?? "");
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    await response.body?.cancel().catch(() => {});
-    return undefined;
-  }
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => {});
-      return undefined;
-    }
-    chunks.push(value);
-  }
-  return new TextDecoder().decode(Buffer.concat(chunks));
-}
-
 /** ルーティングに使う chat モデル。画像モデルではないため、表示にも保存にも使わない */
 function builtinCodexModels(): readonly Model<Api>[] {
   return builtinModels()
@@ -228,16 +203,7 @@ export function createCodexImagesGenerator(options: CodexImagesGeneratorOptions 
       const model = modelsOf()[0];
       if (!model) return { ok: false, code: "unknown", message: CODEX_ROUTING_MODEL_MISSING_MESSAGE };
 
-      const controller = new AbortController();
-      let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs);
-      const onUserAbort = (): void => controller.abort();
-      input.signal?.addEventListener("abort", onUserAbort, { once: true });
-      if (input.signal?.aborted) onUserAbort();
-      const aborted = (): boolean => input.signal?.aborted === true;
+      const deadline = startRequestDeadline(timeoutMs, input.signal);
 
       let status: number | undefined;
       try {
@@ -263,7 +229,7 @@ export function createCodexImagesGenerator(options: CodexImagesGeneratorOptions 
             tool_choice: "auto",
             parallel_tool_calls: false,
           }),
-          signal: controller.signal,
+          signal: deadline.signal,
         });
         if (!response.ok) status = response.status;
         const text = await readCappedBody(response, CODEX_RESPONSE_MAX_BYTES);
@@ -277,7 +243,7 @@ export function createCodexImagesGenerator(options: CodexImagesGeneratorOptions 
         }
         // Codex の本文は要求や指示を反射し得るため、分類と固定文言だけを返す
         const classified = classifyProviderFailure(
-          { status, timedOut, aborted: aborted(), providerMessage: undefined, maskText },
+          { status, timedOut: deadline.timedOut, aborted: deadline.aborted, providerMessage: undefined, maskText },
           CODEX_FAILURE_MESSAGES,
         );
         return status === undefined || status < 300
@@ -285,12 +251,11 @@ export function createCodexImagesGenerator(options: CodexImagesGeneratorOptions 
           : classified;
       } catch {
         return classifyProviderFailure(
-          { status, timedOut, aborted: aborted(), providerMessage: undefined, maskText },
+          { status, timedOut: deadline.timedOut, aborted: deadline.aborted, providerMessage: undefined, maskText },
           CODEX_FAILURE_MESSAGES,
         );
       } finally {
-        clearTimeout(timer);
-        input.signal?.removeEventListener("abort", onUserAbort);
+        deadline.clear();
       }
     },
   };

@@ -5,6 +5,7 @@
  */
 import type { SpeechCatalogModelRow, SpeechCatalogRow } from "./app-db";
 import { messageFor } from "./errors";
+import { startRequestDeadline } from "./request-deadline";
 import { SPEECH_PROVIDER_ID } from "./speech";
 
 /** いま表示している一覧の出どころ。live 以外は取得に失敗した状態を表す */
@@ -192,15 +193,9 @@ export function createSpeechCatalog(options: SpeechCatalogOptions): SpeechCatalo
   };
 
   const fetchLive = async (): Promise<FetchOutcome> => {
-    // 期限はこのタイマーだけに掛ける
-    const controller = new AbortController();
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeoutMs);
+    const deadline = startRequestDeadline(timeoutMs);
     try {
-      const response = await baseFetch(SPEECH_CATALOG_URL, { signal: controller.signal });
+      const response = await baseFetch(SPEECH_CATALOG_URL, { signal: deadline.signal });
       const text = await response.text();
       let body: unknown;
       try {
@@ -210,13 +205,13 @@ export function createSpeechCatalog(options: SpeechCatalogOptions): SpeechCatalo
       }
       const entries = response.ok ? entriesOf(body) : undefined;
       if (entries) return { entries, fetchedAt: now() };
-      if (timedOut) return { error: SPEECH_CATALOG_ERROR_TIMEOUT };
+      if (deadline.timedOut) return { error: SPEECH_CATALOG_ERROR_TIMEOUT };
       if (response.status === 429 || response.status >= 500) return { error: SPEECH_CATALOG_ERROR_RATE_LIMITED };
       return { error: SPEECH_CATALOG_ERROR_UNKNOWN };
     } catch {
-      return timedOut ? { error: SPEECH_CATALOG_ERROR_TIMEOUT } : { error: SPEECH_CATALOG_ERROR_UNKNOWN };
+      return deadline.timedOut ? { error: SPEECH_CATALOG_ERROR_TIMEOUT } : { error: SPEECH_CATALOG_ERROR_UNKNOWN };
     } finally {
-      clearTimeout(timer);
+      deadline.clear();
     }
   };
 

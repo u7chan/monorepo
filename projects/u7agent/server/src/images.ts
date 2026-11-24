@@ -18,6 +18,7 @@ import {
   type ProviderFailureContext,
   type ProviderFailureMessages,
 } from "./provider-failure";
+import { startRequestDeadline } from "./request-deadline";
 import type { SpeechGenerationSettings } from "./speech";
 import type { BgmGenerationSettings } from "./bgm";
 import type { ImageParameterValues } from "./schema";
@@ -547,17 +548,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
       }
       const model: ImageModel<ImageApi> = { ...template, id: input.model };
 
-      // 期限はここでのみ掛ける。SDK と違い応答と status を自分で読むため、abort の理由は timedOut で判別する
-      const controller = new AbortController();
-      let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs);
-      const onUserAbort = (): void => controller.abort();
-      input.signal?.addEventListener("abort", onUserAbort, { once: true });
-      if (input.signal?.aborted) onUserAbort();
-      const aborted = (): boolean => input.signal?.aborted === true;
+      const deadline = startRequestDeadline(timeoutMs, input.signal);
 
       let status: number | undefined;
       const inputReferences = input.inputReferences ?? [];
@@ -583,7 +574,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
             ...model.headers,
           },
           body: JSON.stringify(requestBody),
-          signal: controller.signal,
+          signal: deadline.signal,
         });
         if (!response.ok) status = response.status;
         const text = await readCappedBody(response, IMAGE_RESPONSE_MAX_BYTES);
@@ -594,8 +585,8 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
         if (image) return { ok: true, image };
         return classifyImageFailure({
           status,
-          timedOut,
-          aborted: aborted(),
+          timedOut: deadline.timedOut,
+          aborted: deadline.aborted,
           providerMessage: withholdProviderText ? undefined : providerMessageOf(body, text, !response.ok),
           maskText,
         });
@@ -603,14 +594,13 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
         const message = messageFor(error);
         return classifyImageFailure({
           status,
-          timedOut,
-          aborted: aborted(),
+          timedOut: deadline.timedOut,
+          aborted: deadline.aborted,
           providerMessage: withholdProviderText ? undefined : message,
           maskText,
         });
       } finally {
-        clearTimeout(timer);
-        input.signal?.removeEventListener("abort", onUserAbort);
+        deadline.clear();
       }
     },
   };

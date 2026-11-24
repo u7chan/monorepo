@@ -45,6 +45,7 @@ import { Hono, type Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { COMMON_SKILLS_DIR, COMMON_SKILLS_SEGMENTS } from "../app-paths";
 import { DEFAULT_ARCHIVE_EXCLUDE_NAMES } from "../archive-rules";
+import { readBodyText } from "../bounded-body";
 import { parseByteRange } from "../byte-range";
 import { httpError, messageFor, pathError } from "../errors";
 import { isGitIdentityEnvName, isInjectableEnvName } from "../env-names";
@@ -225,23 +226,8 @@ function routeError(c: Context, error: unknown, fallbackStatus: 400 | 500) {
 
 async function readRouteJson(c: Context): Promise<{ ok: true; body: unknown } | { ok: false; response: Response }> {
   try {
-    const body = c.req.raw.body;
-    if (!body) return { ok: true, body: {} };
-    const reader = body.getReader();
-    const decoder = new TextDecoder();
-    let text = "";
-    let size = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > SANDBOX_MAX_BODY_BYTES) {
-        await reader.cancel().catch(() => {});
-        throw httpError(413, "Request body is too large");
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-    text += decoder.decode();
+    const text = await readBodyText(c.req.raw.body?.getReader(), SANDBOX_MAX_BODY_BYTES);
+    if (text === undefined) throw httpError(413, "Request body is too large");
     const trimmed = text.trim();
     const parsed = trimmed ? (JSON.parse(trimmed) as unknown) : {};
     return { ok: true, body: parsed };

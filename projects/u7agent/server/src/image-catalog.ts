@@ -5,6 +5,7 @@
  */
 import type { ImageCatalogModelRow, ImageCatalogRow } from "./app-db";
 import { messageFor } from "./errors";
+import { startRequestDeadline } from "./request-deadline";
 import {
   IMAGE_ABORTED_MESSAGE,
   IMAGE_PROVIDER_ID,
@@ -266,14 +267,10 @@ async function fetchImageInputSupport(
   timeoutMs: number,
   signal: AbortSignal | undefined,
 ): Promise<"supported" | "unsupported" | "unknown"> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const onUserAbort = (): void => controller.abort();
-  signal?.addEventListener("abort", onUserAbort, { once: true });
-  if (signal?.aborted) onUserAbort();
+  const deadline = startRequestDeadline(timeoutMs, signal);
   try {
     for (const url of urls) {
-      const response = await baseFetch(url, { signal: controller.signal });
+      const response = await baseFetch(url, { signal: deadline.signal });
       if (!response.ok) return "unknown";
       const text = await response.text();
       let body: unknown;
@@ -289,8 +286,7 @@ async function fetchImageInputSupport(
   } catch {
     return "unknown";
   } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", onUserAbort);
+    deadline.clear();
   }
 }
 
@@ -323,15 +319,9 @@ export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
   };
 
   const fetchLive = async (): Promise<FetchOutcome> => {
-    // 期限はこのタイマーだけに掛ける（SDK は通さない）
-    const controller = new AbortController();
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeoutMs);
+    const deadline = startRequestDeadline(timeoutMs);
     try {
-      const response = await baseFetch(IMAGE_CATALOG_URL, { signal: controller.signal });
+      const response = await baseFetch(IMAGE_CATALOG_URL, { signal: deadline.signal });
       const text = await response.text();
       let body: unknown;
       try {
@@ -341,13 +331,13 @@ export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
       }
       const entries = response.ok ? entriesOf(body) : undefined;
       if (entries) return { entries, fetchedAt: now() };
-      if (timedOut) return { error: IMAGE_CATALOG_ERROR_TIMEOUT };
+      if (deadline.timedOut) return { error: IMAGE_CATALOG_ERROR_TIMEOUT };
       if (response.status === 429 || response.status >= 500) return { error: IMAGE_CATALOG_ERROR_RATE_LIMITED };
       return { error: IMAGE_CATALOG_ERROR_UNKNOWN };
     } catch {
-      return timedOut ? { error: IMAGE_CATALOG_ERROR_TIMEOUT } : { error: IMAGE_CATALOG_ERROR_UNKNOWN };
+      return deadline.timedOut ? { error: IMAGE_CATALOG_ERROR_TIMEOUT } : { error: IMAGE_CATALOG_ERROR_UNKNOWN };
     } finally {
-      clearTimeout(timer);
+      deadline.clear();
     }
   };
 
