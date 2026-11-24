@@ -3,7 +3,7 @@ import type { ConfirmRequest, DialogRequest, PromptRequest } from "../lib/confir
 import { createDialogQueue } from "../lib/dialogQueue";
 import { ConfirmDialog } from "./ConfirmDialog";
 
-type ConfirmFn = (request: ConfirmRequest) => Promise<boolean>;
+export type ConfirmFn = (request: ConfirmRequest) => Promise<boolean>;
 type PromptFn = (request: PromptRequest) => Promise<string | null>;
 
 type DialogApi = { confirm: ConfirmFn; prompt: PromptFn };
