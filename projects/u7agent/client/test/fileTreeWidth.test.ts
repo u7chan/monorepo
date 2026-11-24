@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { FileTreeWidthResizeHandle } from "../src/components/file-tree/FileTreeWidthResizeHandle";
+import type { DeviceSettingsStorage } from "../src/lib/deviceSettingsStore";
 import {
   canResizeFileTree,
   clampFileTreeWidth,
@@ -22,7 +23,6 @@ import {
   FILE_TREE_WIDTH_STEP,
   FILE_TREE_WIDTH_STORE_LIMIT,
   type FileTreeWidthBounds,
-  type FileTreeWidthStorage,
 } from "../src/lib/fileTreeWidth";
 
 /** 左右 2 段と上下 2 段を分けるコンテナ幅 (Tailwind の `@2xl` = 42rem) */
@@ -126,7 +126,7 @@ test("保存値は整数だけを採り、壊れていれば未設定として�
   assert.equal(parseFileTreeWidth(null), null);
 });
 
-class MemoryStorage implements FileTreeWidthStorage {
+class MemoryStorage implements DeviceSettingsStorage {
   value: string | null = null;
   getItem(): string | null {
     return this.value;
@@ -155,7 +155,7 @@ test("store は 1 キーを読み書きし、未指定へ戻すとキーを消�
 });
 
 test("保存領域が使えない環境でも操作を止めない (session 内のメモリで保つ)", () => {
-  const throwing: FileTreeWidthStorage = {
+  const throwing: DeviceSettingsStorage = {
     getItem: () => {
       throw new Error("SecurityError");
     },

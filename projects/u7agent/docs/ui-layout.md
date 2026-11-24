@@ -247,7 +247,8 @@ nav / settings の 2 モードを持ち、モードは URL から導出する（
 
 ### 幅
 
-docked の左バーの幅は右端のハンドルで選べる。幅の正は `client/src/lib/sidebarWidth.ts`（bounds / clamp / step / parse / store）。
+docked の左バーの幅は右端のハンドルで選べる。幅の正は `client/src/lib/sidebarWidth.ts`（bounds / clamp / step / parse）。
+保存は端末ごとの 1 キーで、読み書きの境界は `client/src/lib/deviceSettingsStore.ts`。
 
 - **上限を viewport に依存させない。** docked になる帯でも main が十分残り、右パネルとチャットの下限の和を上回るため
 - ドラッグ中は React を再描画せずシェルの CSS 変数だけを書き換え、確定は pointerup / pointercancel / lostpointercapture / アンマウントのどの経路でも同じ処理を通す

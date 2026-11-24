@@ -1,9 +1,11 @@
 /**
  * ファイルツリー (FileBrowser) の幅の規則。幅は「その端末のその窓」に依存する表示設定なので、
  * どこで境界を引くかはこの純関数だけが決め、保存は localStorage の 1 キーに閉じる。
- * DOM に触れるのは保存先の解決だけ (docs/ui-layout.md)。
+ * 保存先の解決と状態の控えは deviceSettingsStore.ts (docs/ui-layout.md)。
  * 左バー / 右パネルと違い、bounds は本文のコンテナ幅 (= プレビューに残す幅) に依存する。
  */
+
+import { createDeviceSettingsStore, type DeviceSettingsStorage, type DeviceSettingsStore } from "./deviceSettingsStore";
 
 /** 選べる下限 = 従来の @2xl:w-72 (288px)。狭い窓では既定幅もここで止まる */
 export const FILE_TREE_WIDTH_MIN = 288;
@@ -83,60 +85,15 @@ export function parseFileTreeWidth(raw: string | null): number | null {
   return width;
 }
 
-export type FileTreeWidthStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
-
-export type FileTreeWidthStore = {
-  /** 保存値。無ければ null (未設定) */
-  read(): number | null;
-  /** null は保存を消す (ダブルクリックの「未指定へ戻す」) */
-  write(width: number | null): void;
-};
-
-/**
- * 選んだ幅を localStorage の 1 キーで読み書きする。保存領域が使えない環境 (private browsing 等)
- * でも操作を止めず、代わりに同じセッション内のメモリを使う。write が失敗した後でも、
- * 再読み込みするまでは選び直した幅を保つ (sidebarWidth.ts と同じ扱い)。
- */
-export function createFileTreeWidthStore(storage?: FileTreeWidthStorage | null): FileTreeWidthStore {
-  // 一度でも読み書きしたら、以降はここが正 (書けなくても session 内は保つ)
-  let memory: number | null | undefined;
-  // 引数を省いたときは毎回引き直す (例外を投げる環境と、window が無いテストの両方に対応する)
-  const resolve = (): FileTreeWidthStorage | null => (storage === undefined ? defaultWidthStorage() : storage);
-
-  return {
-    read() {
-      if (memory !== undefined) return memory;
-      const target = resolve();
-      if (!target) return null;
-      try {
-        memory = parseFileTreeWidth(target.getItem(FILE_TREE_WIDTH_KEY));
-        return memory;
-      } catch {
-        return null;
-      }
-    },
-    write(width) {
-      memory = width;
-      const target = resolve();
-      if (!target) return;
-      try {
-        if (width === null) target.removeItem(FILE_TREE_WIDTH_KEY);
-        else target.setItem(FILE_TREE_WIDTH_KEY, String(width));
-      } catch {
-        // 保存できない。次に選び直したときにまた試す
-      }
-    },
-  };
+export function createFileTreeWidthStore(storage?: DeviceSettingsStorage | null): DeviceSettingsStore<number | null> {
+  return createDeviceSettingsStore<number | null>(storage, {
+    key: FILE_TREE_WIDTH_KEY,
+    parse: parseFileTreeWidth,
+    // null は保存を消す (ダブルクリックの「未指定へ戻す」)
+    serialize: (width) => (width === null ? null : String(width)),
+    fallback: () => null,
+  });
 }
 
 /** アプリが使う既定の store */
 export const fileTreeWidthStore = createFileTreeWidthStore();
-
-/** localStorage の accessor 自体が例外になる環境 (private browsing 等) がある */
-function defaultWidthStorage(): FileTreeWidthStorage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}

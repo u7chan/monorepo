@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Space } from "server";
+import type { DeviceSettingsStorage } from "../src/lib/deviceSettingsStore";
 import {
   createSpaceSelectionStore,
   initialSpaceSelection,
@@ -10,7 +11,6 @@ import {
   spaceSelectionStore,
   DEFAULT_SPACE_ID,
   SPACE_SELECTION_KEY,
-  type SpaceSelectionStorage,
 } from "../src/lib/spaceSelection";
 import {
   spaceDeleteConfirmRequest,
@@ -188,7 +188,7 @@ test("削除の確認はスペース名と消える対象、実行中の停止�
 });
 
 /** 保存領域 1 つ分。window が無い Node でも store を検査できるよう注入する */
-function fakeStorage(): SpaceSelectionStorage & { data: Map<string, string> } {
+function fakeStorage(): DeviceSettingsStorage & { data: Map<string, string> } {
   const data = new Map<string, string>();
   return {
     data,
