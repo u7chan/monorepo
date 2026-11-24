@@ -57,7 +57,7 @@
 | 検証（lint / format の設定と落とし穴） | `.oxlintrc.json`、`.oxfmtrc.json`、`client/src/lib/cn.ts`、`client/src/styles/index.css` | [verification.md](verification.md) |
 | テスト方針 / client の検査の分類 / GUI 受入 | `client/test/`、`server/test/`、`AGENTS.md` | [testing.md](testing.md) |
 | チャット本文の Markdown 描画 | `client/src/lib/markdown/`、`client/src/lib/codeLines.ts`、`client/src/components/markdown/` | [markdown.md](markdown.md)、[file-preview.md](file-preview.md#markdown-プレビュー) |
-| 永続化 / 再デプロイ時の挙動 | - | [persistence.md](persistence.md) |
+| 永続化 / 再デプロイ時の挙動 | `server/src/app-db-schema.ts`、`server/src/app-db.ts` | [persistence.md](persistence.md) |
 | 移植の経緯 | - | [migration.md](migration.md) |
 
 ## 調査メモ

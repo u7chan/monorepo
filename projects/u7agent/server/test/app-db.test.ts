@@ -9,13 +9,13 @@ import test from "node:test";
 import {
   AppDb,
   APP_DB_FILENAME,
-  APP_DB_SCHEMA_VERSION,
   type AssistantMetricsRow,
   type ContentSettingsRow,
   type ContentTrialRow,
   type CustomProviderRow,
   type SecretRow,
 } from "../src/app-db";
+import { APP_DB_SCHEMA_VERSION } from "../src/app-db-schema";
 import type { ImageParameterDeclarations } from "../src/images";
 import type { AgentDef, Project } from "../src/schema";
 import { storedSecret, encryptedSecret, testAppCipher } from "./app-secret-fixture";
