@@ -9,6 +9,7 @@ import {
   SKILL_IMPORT_NOT_ZIP_NOTE,
   skillImportDoneNote,
 } from "./fileSkills";
+import { messageFor } from "./errors";
 import type { FileDownloadCheck, SandboxSkillsImportApply, SandboxSkillsImportPlan } from "../types";
 
 /** インポートの段階。plan は何も変更せず、適用するのは review で選んだ分だけ */
@@ -55,10 +56,6 @@ export type SkillArchive = {
   /** 適用中は閉じない (結果と一覧の取り直しを取りこぼさない) */
   closeImport: () => void;
 };
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** 選択できるのは conflict の行だけ。名前は plan の順を保つ (全選択の並びを応答から決める) */
 export function replaceableSkillNames(plan: SandboxSkillsImportPlan): string[] {
@@ -109,7 +106,7 @@ export function createSkillArchive(deps: SkillArchiveDeps): SkillArchive {
       deps.startDownload(deps.exportUrl, check.name);
       deps.note(SKILL_EXPORT_STARTED_NOTE, false);
     } catch (error) {
-      deps.note(errorText(error), true);
+      deps.note(messageFor(error), true);
     } finally {
       publish({ ...current, exporting: false });
     }
@@ -133,7 +130,7 @@ export function createSkillArchive(deps: SkillArchiveDeps): SkillArchive {
       if (request !== generation) return;
       file = null;
       setImport({ status: "idle" });
-      deps.note(errorText(error), true);
+      deps.note(messageFor(error), true);
     }
   };
 
@@ -172,7 +169,7 @@ export function createSkillArchive(deps: SkillArchiveDeps): SkillArchive {
       if (request !== generation) return;
       file = null;
       setImport({ status: "idle" });
-      deps.note(errorText(error), true);
+      deps.note(messageFor(error), true);
       // 部分適用の結果は出さない。サーバーが巻き戻す前提で、一覧だけ取り直す
       deps.reloadSkills();
     }

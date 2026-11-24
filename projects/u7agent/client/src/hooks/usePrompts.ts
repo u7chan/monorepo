@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPrompt, deletePrompt, getPrompts, updatePrompt } from "../api";
 import { reorderRows } from "../lib/agentReorder";
+import { messageFor } from "../lib/errors";
 import { promptRefreshFailure } from "../lib/promptSettings";
 import type { PromptDef } from "../types";
 import { createLoadingTracker, createRequestGate } from "./requestGate";
@@ -19,10 +20,6 @@ export type PromptsState =
  * 再取得の失敗を分ける (保存できたのに未保存と誤認させない。例外は投げない)。
  */
 export type PromptActionResult = { ok: true; id: string; refreshError?: string } | { ok: false; message: string };
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * 定型プロンプトのマスタ一覧の取得と変更。変更の後は一覧を取り直し、`onChanged` で
@@ -56,7 +53,7 @@ export function usePrompts({ onChanged }: { onChanged?: () => Promise<unknown> }
       })
       .catch((error: unknown) => {
         if (canApply()) {
-          setState((prev) => ({ status: "error", prompts: prev.prompts, message: errorText(error) }));
+          setState((prev) => ({ status: "error", prompts: prev.prompts, message: messageFor(error) }));
         }
       })
       .finally(finish);
@@ -74,7 +71,7 @@ export function usePrompts({ onChanged }: { onChanged?: () => Promise<unknown> }
       const { prompts } = await getPrompts();
       if (canApply()) setState({ status: "ready", prompts });
     } catch (error) {
-      const reason = errorText(error);
+      const reason = messageFor(error);
       listReason = reason;
       if (canApply()) setState((prev) => ({ status: "error", prompts: prev.prompts, message: reason }));
     }
@@ -82,7 +79,7 @@ export function usePrompts({ onChanged }: { onChanged?: () => Promise<unknown> }
       try {
         await onChanged();
       } catch (error) {
-        catalogReason = errorText(error);
+        catalogReason = messageFor(error);
       }
     }
     return promptRefreshFailure(listReason, catalogReason);
@@ -124,7 +121,7 @@ export function usePrompts({ onChanged }: { onChanged?: () => Promise<unknown> }
       try {
         savedId = id ? (await updatePrompt(id, draft)).prompt.id : (await createPrompt(draft)).prompt.id;
       } catch (error) {
-        return { ok: false, message: errorText(error) };
+        return { ok: false, message: messageFor(error) };
       }
       const refreshError = await runRefresh();
       return refreshError === undefined ? { ok: true, id: savedId } : { ok: true, id: savedId, refreshError };
@@ -133,7 +130,7 @@ export function usePrompts({ onChanged }: { onChanged?: () => Promise<unknown> }
       try {
         await deletePrompt(id);
       } catch (error) {
-        return { ok: false, message: errorText(error) };
+        return { ok: false, message: messageFor(error) };
       }
       const refreshError = await runRefresh();
       return refreshError === undefined ? { ok: true, id } : { ok: true, id, refreshError };

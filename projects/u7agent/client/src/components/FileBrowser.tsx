@@ -13,6 +13,7 @@ import { cn } from "../lib/cn";
 import { renameInputValue } from "../lib/confirmDialog";
 import { archiveConfirmRequest, startArchiveDownload } from "../lib/archive";
 import { formatBytes } from "../lib/attachments";
+import { messageFor } from "../lib/errors";
 import {
   applyFileTreeError,
   applyFileTreeListing,
@@ -80,10 +81,6 @@ const FILE_INDENT = 32;
 const NO_HIDDEN_NAMES: readonly string[] = [];
 /** reveal の一時ハイライトを残す時間。行が見つかってスクロールしてから数える */
 const REVEAL_HIGHLIGHT_MS = 1600;
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export type FileBrowserProps = {
   /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
@@ -304,7 +301,7 @@ export function FileBrowser({
             }),
           );
         } catch (error) {
-          setTree((prev) => applyFileTreeError(prev, path, errorText(error)));
+          setTree((prev) => applyFileTreeError(prev, path, messageFor(error)));
         } finally {
           inFlightRef.current.delete(path);
           const reload = settleFileTreeRequest(reloadGateRef.current, inFlightRef.current.size);
@@ -358,7 +355,7 @@ export function FileBrowser({
           setTree((prev) => removeFileTreeEntry(prev, path));
         }
       } catch (error) {
-        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));
+        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), messageFor(error)));
       } finally {
         deletingRef.current.delete(path);
       }
@@ -387,7 +384,7 @@ export function FileBrowser({
         setPreviewModes((prev) => renamePreviewModes(prev, path, nextPath));
         setPreviewOrigins((prev) => renamePreviewOrigins(prev, path, nextPath));
       } catch (error) {
-        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));
+        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), messageFor(error)));
       } finally {
         renamingRef.current.delete(path);
       }
@@ -410,7 +407,7 @@ export function FileBrowser({
         if (type === "dir" && check.skipped.length > 0 && !(await confirm(archiveConfirmRequest(name, check)))) return;
         startArchiveDownload(fileDownloadUrl(fetchPath), check.name);
       } catch (error) {
-        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));
+        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), messageFor(error)));
       } finally {
         downloadingRef.current.delete(path);
       }
