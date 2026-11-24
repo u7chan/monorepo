@@ -1,6 +1,6 @@
 # 利用可能なモデルとプロバイダーAPIキーの設定
 
-設定 → モデル（`/settings/models`）から、**モデル候補（選択リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキーとメモ**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。保存と反映の実装は `server/src/model-settings.ts`、HTTP 契約は [api-settings.md](api-settings.md#利用可能なモデルとプロバイダーapiキー) を正とする。
+設定 → モデル（`/settings/models`）から、**モデル候補（選択リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキーとメモ**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。保存と反映の実装は `server/src/model-settings.ts`（キー・メモ・利用可能なモデル・カタログ）と `server/src/custom-provider-settings.ts`（カスタムプロバイダー）、応答 DTO の組み立ては `server/src/model-settings-response.ts`、HTTP 契約は [api-settings.md](api-settings.md#利用可能なモデルとプロバイダーapiキー) を正とする。
 
 - 保存の正は **アプリ DB**（`provider_credentials` / `model_settings` / `provider_memos`）。SDK の runtime overlay は実効状態で、再起動で消える
 - APIキーの変更系は「DB を希望状態として先に確定」し、SDK への反映に失敗しても DB を戻さない（補償ロールバックを持たない）。反映できなかった変更は **degraded（保存済み・未反映）** として画面に出し、`resync` / 次回の変更 / 再起動で収束させる
@@ -262,7 +262,7 @@ Ollama / LM Studio / vLLM / llama.cpp などの OpenAI 互換エンドポイン�
    - カタログに無い provider（orphan）と 8 文字未満の行は SDK へ渡さず、`degraded: "apply"` だけ記録する（GET の削除導線）
 5. 最後に `refreshModelState()` を 1 回
 
-`degraded` はこのプロセスのメモリだけが持つ（再起動で消える）。GET はカタログの provider、`provider_credentials` 行、`provider_memos` 行、degraded の和集合を返し、DB 行にしか無い provider は `orphan: true` / `canSetApiKey: false` / `managed: true` として削除導線を出し、メモ行にしか無い provider は `managed: false` / `orphan: true` として出す。`#settingOf` の degraded 自動付与（orphan → `apply`）は credential 行がある（`appliable`）provider だけに限り、メモだけの orphan に「保存済み（未反映）」と [再同期] を出さない。
+`degraded` はこのプロセスのメモリだけが持つ（再起動で消える）。GET はカタログの provider、`provider_credentials` 行、`provider_memos` 行、degraded の和集合を返し、DB 行にしか無い provider は `orphan: true` / `canSetApiKey: false` / `managed: true` として削除導線を出し、メモ行にしか無い provider は `managed: false` / `orphan: true` として出す。`composeModelSettingsResponse()`（`server/src/model-settings-response.ts`）の degraded 自動付与（orphan → `apply`）は credential 行がある（`appliable`）provider だけに限り、メモだけの orphan に「保存済み（未反映）」と [再同期] を出さない。
 
 ## 秘密マスク
 
