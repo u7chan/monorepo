@@ -11,6 +11,7 @@ import type { Store } from "./db";
 import { AdminError, UpstreamError } from "./errors";
 import type { FilesService } from "./files";
 import { readBearer } from "./keys";
+import { createMcpHandler } from "./mcp";
 import { createRateLimiter, type RateLimiter } from "./rate-limit";
 import type { Relay } from "./relay";
 import { clearSessionCookie, sessionCookie } from "./session";
@@ -349,6 +350,13 @@ export function createApp(deps: AppDeps) {
   };
 
   app.get("/v1/runs/:runId/files", readRunFiles);
+
+  const mcp = createMcpHandler({ relay: deps.relay, version: deps.version, appOrigin: deps.appOrigin ?? null });
+  app.all("/mcp", async (c) => {
+    c.header("Cache-Control", "no-store");
+
+    return mcp(c);
+  });
 
   app.notFound((c) => c.json({ error: "not_found" as const }, 404));
 

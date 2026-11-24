@@ -48,6 +48,13 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
     },
 
     async post(connection: ConnectionRecord, keyId: string, text: string): Promise<PostPayload> {
+      // HTTP と MCP の両方の入口が同じ正規化を通るようにする。空本文は上流へ行かせない。
+      const body = text.trim();
+
+      if (body.length === 0) {
+        throw new AdminError(400, "text_required");
+      }
+
       if (inFlight.has(connection.id)) {
         throw new AdminError(409, "session_busy");
       }
@@ -70,7 +77,7 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
           throw new AdminError(401, "unauthorized");
         }
 
-        const accepted = await upstream.postMessage(connection, text);
+        const accepted = await upstream.postMessage(connection, body);
         const urls = sessionUrls(connection);
 
         // 上流のキューに積まれた投稿は実行 ID を持たない。呼び出し側は会話を開いて確認する。
