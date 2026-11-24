@@ -19,7 +19,7 @@ import {
   SPACE_NAME_MAX_LENGTH,
 } from "../src/lib/spaceSettings";
 import { removeSpaceAndApply } from "../src/lib/spaceDelete";
-import { reorderRows } from "../src/lib/agentReorder";
+import { reorderRows } from "../src/lib/listReorder";
 import { createSessionCreation } from "../src/hooks/sessionCreation";
 import { sendChatMessage, type SendChatMessageDeps } from "../src/hooks/sessionActions";
 import { createRequestGate, createMountScope } from "../src/hooks/requestGate";

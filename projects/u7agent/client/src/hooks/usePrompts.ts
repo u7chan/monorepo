@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPrompt, deletePrompt, getPrompts, updatePrompt } from "../api";
-import { reorderRows } from "../lib/agentReorder";
+import { reorderRows } from "../lib/listReorder";
 import { messageFor } from "../lib/errors";
 import { promptRefreshFailure } from "../lib/promptSettings";
 import type { PromptDef } from "../types";

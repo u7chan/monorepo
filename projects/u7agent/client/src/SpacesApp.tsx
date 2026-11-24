@@ -4,7 +4,7 @@ import App from "./App";
 import { createSpace, createSpaceApi, deleteSpace, listSpaces, renameSpace, reorderSpaces } from "./api";
 import { SpaceContext } from "./SpaceContext";
 import { ConfirmProvider } from "./components/ConfirmProvider";
-import { reorderRows } from "./lib/agentReorder";
+import { reorderRows } from "./lib/listReorder";
 import { entrySpaceOf, parseRoute } from "./lib/route";
 import type { HandoffNote } from "./lib/sessionHandoff";
 import { removeSpaceAndApply } from "./lib/spaceDelete";

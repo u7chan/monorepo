@@ -4,7 +4,7 @@ import { useFileSkills } from "../hooks/useFileSkills";
 import { useWideLayout } from "../hooks/useLayoutMode";
 import { selectableAgents } from "../lib/agentSelection";
 import { createReorderFlow, type ReorderNoteKind, type ReorderState } from "../lib/reorderFlow";
-import { reorderRows } from "../lib/agentReorder";
+import { reorderRows } from "../lib/listReorder";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import {
@@ -73,7 +73,7 @@ export function AgentSettingsPage({
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
-  // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/reorderFlow が持ち、
+  // 並べ替えの下書きと保存。ドラッグの計算は lib/listReorder、保存の手順は lib/reorderFlow が持ち、
   // ここは state への反映と文言だけを持つ（編集フォームの下書きをページが持つのと同じ理由）
   const [order, setOrder] = useState<ReorderState>({ draft: null, saving: false });
   const orderDeps = useRef({ catalogAgents: catalog.agents, applyAgentOrder, refreshCatalog, setNoteText });

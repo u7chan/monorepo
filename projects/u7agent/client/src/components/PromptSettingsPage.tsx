@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { reorderPrompts } from "../api";
 import { usePrompts } from "../hooks/usePrompts";
 import { useWideLayout } from "../hooks/useLayoutMode";
-import { reorderRows } from "../lib/agentReorder";
+import { reorderRows } from "../lib/listReorder";
 import { cn } from "../lib/cn";
 import { MEMORY_NOTE, RELOAD_ABOVE_NOTE } from "../lib/settingsNotes";
 import {
@@ -82,7 +82,7 @@ export function PromptSettingsPage({
   const list = prompts.state.prompts;
   const loadError = prompts.state.status === "error" ? prompts.state.message : undefined;
 
-  // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/reorderFlow が持ち、
+  // 並べ替えの下書きと保存。ドラッグの計算は lib/listReorder、保存の手順は lib/reorderFlow が持ち、
   // ここは state への反映と文言だけを持つ（エージェントの一覧と同じ組み方）
   const [order, setOrder] = useState<ReorderState>({ draft: null, saving: false });
   const orderDeps = useRef({

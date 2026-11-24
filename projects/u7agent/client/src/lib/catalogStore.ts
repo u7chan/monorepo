@@ -5,7 +5,7 @@
  */
 import { createRequestGate } from "../hooks/requestGate";
 import type { CatalogResponse } from "../types";
-import { applyAgentOrder, reorderRows } from "./agentReorder";
+import { applyRowOrder, reorderRows } from "./listReorder";
 
 export type CatalogStore = {
   get(): CatalogResponse;
@@ -50,7 +50,7 @@ export function createCatalogStore(initial: CatalogResponse): CatalogStore {
       // 確定は「それまでに開始した取得より新しい」ものとして扱う (編集の保存が起こす取り直しと重なっても、
       // 確定順が古い並びで置き換わらない)
       gate();
-      publish({ ...snapshot, agents: applyAgentOrder(snapshot.agents, ids) });
+      publish({ ...snapshot, agents: applyRowOrder(snapshot.agents, ids) });
     },
 
     adoptPromptOrder(ids) {

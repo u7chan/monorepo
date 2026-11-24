@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Space } from "server";
 import { useSpace } from "../SpaceContext";
-import { useAgentDrag, type AgentDragNaming } from "../hooks/useAgentDrag";
+import { useReorderDrag, type ReorderDragNaming } from "../hooks/useReorderDrag";
 import { createMountScope } from "../hooks/requestGate";
-import { reorderRows } from "../lib/agentReorder";
+import { reorderRows } from "../lib/listReorder";
 import { cn } from "../lib/cn";
 import { renameInputValue } from "../lib/confirmDialog";
 import { createSpaceOrderFlow, type SpaceOrderNoteKind, type SpaceOrderState } from "../lib/spaceOrder";
@@ -22,7 +22,7 @@ import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout
 import { GripIcon, PlusIcon } from "./icons";
 
 /** 一覧ごとに変える名前。styles/index.css の `.space-drag-row` / `body.is-dragging-space` と揃える */
-const SPACE_DRAG_NAMING: AgentDragNaming = {
+const SPACE_DRAG_NAMING: ReorderDragNaming = {
   rowAttribute: "data-space-row",
   yVariable: "--space-drag-y",
   bodyClass: "is-dragging-space",
@@ -64,7 +64,7 @@ export function SpaceSettingsPage({
   useEffect(() => {
     clearRenameNote();
   }, [clearRenameNote]);
-  // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/spaceOrder が持ち、
+  // 並べ替えの下書きと保存。ドラッグの計算は lib/listReorder、保存の手順は lib/spaceOrder が持ち、
   // ここは state への反映と文言だけを持つ。確定順の一覧は SpacesApp が持つ (同じ一覧を作成・削除が差分更新する)
   const orderDeps = useRef({ spaces: space.spaces, reorder: space.reorder, applyOrder: space.applyOrder });
   orderDeps.current = { spaces: space.spaces, reorder: space.reorder, applyOrder: space.applyOrder };
@@ -84,7 +84,7 @@ export function SpaceSettingsPage({
   const visibleSpaces = order.draft ? reorderRows(space.spaces, order.draft) : space.spaces;
   const reorderIds = visibleSpaces.filter((item) => item.id !== DEFAULT_SPACE_ID).map((item) => item.id);
   const containerRef = useRef<HTMLDivElement>(null);
-  const drag = useAgentDrag({
+  const drag = useReorderDrag({
     containerRef,
     naming: SPACE_DRAG_NAMING,
     ids: reorderIds,

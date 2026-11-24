@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useAgentDrag } from "../../hooks/useAgentDrag";
+import { useReorderDrag, type ReorderDragNaming } from "../../hooks/useReorderDrag";
 import { AGENT_LIST_SEARCH_ARIA_LABEL, AGENT_LIST_SEARCH_PLACEHOLDER } from "../../lib/allowlistText";
 import { cn } from "../../lib/cn";
 import { filterBySearch } from "../../lib/settingsSearch";
@@ -9,6 +9,13 @@ import { DefinitionList } from "../DefinitionList";
 import { MenuItem } from "../MenuItem";
 import { SettingsSearchField } from "../SettingsSearchField";
 import { GripIcon, PlusIcon } from "../icons";
+
+/** 一覧ごとに変える名前。styles/index.css の `.agent-drag-row` / `body.is-dragging-agent` と揃える */
+const AGENT_DRAG_NAMING: ReorderDragNaming = {
+  rowAttribute: "data-agent-row",
+  yVariable: "--agent-drag-y",
+  bodyClass: "is-dragging-agent",
+};
 
 export function AgentList({
   agents,
@@ -44,8 +51,9 @@ export function AgentList({
   const searching = query.trim() !== "";
   // 検索中は並べ替えを開かない: 非表示の行との順序を決められず、確定すると見えていない行まで動く
   const dragDisabled = reorderDisabled || searching;
-  const drag = useAgentDrag({
+  const drag = useReorderDrag({
     containerRef,
+    naming: AGENT_DRAG_NAMING,
     ids: reorderIds,
     onMove: onReorder,
     onCommit: onCommitOrder,
