@@ -11,7 +11,7 @@
 - 設定 → モデルで登録したキーは `createMutableSecretMasker` の `setSecrets` で保護対象へ足す。登録は **SDK / DB へ渡す前**に行い、起動時は DB から読めた全行（orphan・不正値・適用失敗を含む）を適用前に登録する。削除・上書き後も**プロセス生存中は保護対象から外さない**（`session.jsonl` の raw 入力を再投影しても旧キーを出さないため。入力は 8..2048 文字で、これより短いキーは GUI の対象外）
 - 設定 → モデルのカスタムプロバイダーのAPIキーも、SDK / ログへ渡す前に `retainSecret()` で保護対象へ足す。保存先はアプリ DB の `custom_providers` で、同じ master key で暗号化する（復号は起動時・保存 / 更新 / 再同期 / probe のときだけで、GET は復号しない）。8 文字以上を必須にし、認証のないローカルサーバーにはダミーを使う（`Authorization: Bearer <キー>` として送られる。[model-settings.md](model-settings.md#カスタムプロバイダー)）
 - コンテンツ生成のAPIキー（`content_settings`。画像・TTS・[BGM](bgm-generation.md) で共有）も同じ扱いで、`PUT /api/settings/content/key` がDBへ書く前に `retainSecret()` で登録する。provider呼出しはBFF内で完結し、キーはサンドボックスへ渡らない。BGMのproviderエラーもマスク後に長さを制限し、ツール定義は `wrapToolDefinitionWithSecretMasker()` を通す。
-- SQLite の失敗文言にキーが載る経路（`AppDb.#query` と `open()`）は `AppDb.open({ sanitizeError })` でマスカーを通してからログ・`#error`（health / 503）へ渡す。`model-settings.ts` は固定文言だけを応答へ返し、ログには provider id と分類だけを残す
+- SQLite の失敗文言にキーが載る経路（`AppDb.#query` と `open()`）は `AppDb.open({ sanitizeError })` でマスカーを通してからログ・`#error`（health / 503）へ渡す。`model-settings.ts` と `custom-provider-settings.ts` は固定文言だけを応答へ返し、ログには provider id と分類だけを残す
 - 設定 → モデルの provider メモは秘密情報ではないため保護対象へ足さない（`retainSecret` に渡さない）。任意の自由文を登録すると、短いメモでも `createMutableSecretMasker` が値をマスクし、よくある単語が会話表示で赤塗りされる誤爆の方が実害より大きい。代わりに `model-settings.ts` はログ・health・エラー文言のどの経路にもメモ値を載せない（値は API 応答と画面にだけ出す）
 - ユーザーがチャットへ直接入力したキーはモデルへはそのまま渡る（対象はツール出力由来の値）。ただしエコー（タイトル・プロンプト表示・メッセージ履歴・text delta・未送信メッセージの表示本文 `pendingSends[].text`）はマスクする
 - 会話は BFF 専用ストアの `session.jsonl` / `meta.json` に保存される。生のユーザー入力・モデル出力を含むが、ツール出力は LLM・履歴へ渡す前にマスクされるため保存後も `[REDACTED]` のままになる。ストアはサンドボックスへマウントしない（[persistence.md](persistence.md)）
