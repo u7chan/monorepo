@@ -51,6 +51,7 @@ import {
   type CustomProviderUpdateInput,
 } from "./custom-providers";
 import { httpError, messageFor } from "./http";
+import { formatModelRef, modelKey, parseModelRef } from "./model-ref";
 import type { AppSecretCipher } from "./secret-crypto";
 import { SerialLock } from "./serial-lock";
 import {
@@ -241,18 +242,11 @@ function commitSucceeded(commit: CredentialCommit): boolean {
   return commit.outcome === "applied" && commit.synced;
 }
 
-const modelKey = ({ provider, id }: ModelRef): string => JSON.stringify([provider, id]);
-
-const labelOf = ({ provider, id }: ModelRef): string => `${provider}/${id}`;
-
-/** "provider/model" を ModelRef へ。id の slash は先頭の 1 つだけで分ける (openrouter/anthropic/...) */
-function parseModelRef(value: string): ModelRef {
-  const text = value.trim();
-  const slash = text.indexOf("/");
-  const provider = slash === -1 ? "" : text.slice(0, slash).trim();
-  const id = slash === -1 ? "" : text.slice(slash + 1).trim();
-  // provider に slash は入らない。model id には入り得るので許可する
-  if (!provider || !id || provider.includes("/")) throw httpError(400, MODEL_SELECTION_FORMAT_MESSAGE);
+function parseModelSelectionRef(value: string): ModelRef {
+  const ref = parseModelRef(value.trim());
+  const provider = ref?.provider.trim();
+  const id = ref?.id.trim();
+  if (!provider || !id) throw httpError(400, MODEL_SELECTION_FORMAT_MESSAGE);
   return { provider, id };
 }
 
@@ -262,7 +256,7 @@ function normalizeAllowedModels(input: string[] | null): ModelRef[] | null {
   const seen = new Set<string>();
   const normalized: ModelRef[] = [];
   for (const entry of input) {
-    const ref = parseModelRef(entry);
+    const ref = parseModelSelectionRef(entry);
     const key = modelKey(ref);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -275,7 +269,7 @@ function normalizeAllowedModels(input: string[] | null): ModelRef[] | null {
 function parseStoredDefaultModel(value: string | null): ModelRef | undefined {
   if (!value) return undefined;
   try {
-    return parseModelRef(value);
+    return parseModelSelectionRef(value);
   } catch {
     return undefined;
   }
@@ -489,25 +483,25 @@ export class ModelSettingsService {
     return this.#lock.run(async () => {
       if (!this.#runtime) return this.#runtimeUnavailable(MODEL_SELECTION_RUNTIME_UNAVAILABLE_MESSAGE);
       const allowedModels = normalizeAllowedModels(input.allowedModels);
-      const defaultModel = input.defaultModel === null ? null : parseModelRef(input.defaultModel);
+      const defaultModel = input.defaultModel === null ? null : parseModelSelectionRef(input.defaultModel);
       const catalog = new Map(this.#runtime.catalog().map((model) => [modelKey(model), model]));
       for (const model of allowedModels ?? []) {
         if (!catalog.has(modelKey(model))) {
-          throw httpError(400, `${MODEL_SELECTION_NOT_IN_CATALOG_MESSAGE}: ${labelOf(model)}`);
+          throw httpError(400, `${MODEL_SELECTION_NOT_IN_CATALOG_MESSAGE}: ${formatModelRef(model)}`);
         }
       }
       // 選択可能なモデルは保存値で決まり、制限なしのときはカタログ全体から選べる
       const selectable = allowedModels ?? [...catalog.values()];
       if (defaultModel && !catalog.has(modelKey(defaultModel))) {
         // カタログ外は「既定が許可外」より先に、保存できない理由を具体的に返す
-        throw httpError(400, `${MODEL_SELECTION_NOT_IN_CATALOG_MESSAGE}: ${labelOf(defaultModel)}`);
+        throw httpError(400, `${MODEL_SELECTION_NOT_IN_CATALOG_MESSAGE}: ${formatModelRef(defaultModel)}`);
       }
       if (defaultModel && !selectable.some((model) => modelKey(model) === modelKey(defaultModel))) {
-        throw httpError(400, `${MODEL_SELECTION_DEFAULT_NOT_ALLOWED_MESSAGE}: ${labelOf(defaultModel)}`);
+        throw httpError(400, `${MODEL_SELECTION_DEFAULT_NOT_ALLOWED_MESSAGE}: ${formatModelRef(defaultModel)}`);
       }
       const stored: StoredModelSelection = {
         allowedModels,
-        defaultModel: defaultModel ? labelOf(defaultModel) : null,
+        defaultModel: defaultModel ? formatModelRef(defaultModel) : null,
       };
       try {
         this.#db.saveModelSettings(stored);
@@ -1419,7 +1413,7 @@ export class ModelSettingsService {
     return {
       runtimeAvailable: this.#runtime !== null,
       // 応答は "provider/model" の一覧にする (DB 行は ModelRef の JSON 配列)
-      allowedModels: selection.allowedModels?.map(labelOf) ?? null,
+      allowedModels: selection.allowedModels?.map(formatModelRef) ?? null,
       defaultModel: selection.defaultModel,
       ignoredEnvironmentVariables: this.#ignoredEnvironmentVariables,
       providers: [...providers.values()],

@@ -27,6 +27,7 @@ import { builtinSkillEnabled } from "./builtin-skills";
 import { createBgmGenerator, type BgmGenerationInput } from "./bgm";
 import { contentGenerationDisabled } from "./content-disabled";
 import { createBgmToolDefinitions, BGM_GENERATION_PROMPT_LINES, BGM_TOOL_NAME } from "./bgm-tools";
+import { messageFor } from "./errors";
 import { discoverSessionFileSkills } from "./file-skills";
 import {
   createImageToolDefinitions,
@@ -55,6 +56,7 @@ import {
   withInvestigateTool,
   type InvestigateHost,
 } from "./investigate-tool";
+import { formatModelRef, modelKey, modelLabel } from "./model-ref";
 import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
 import { createServeToolDefinitions, SERVE_TOOL_NAME, withServeTool, type ServeToolHost } from "./serve-tool";
@@ -90,7 +92,7 @@ export interface PiModelRef {
 export const AUTH_REQUIRED_MESSAGE =
   "APIキーが未設定です。設定 → モデル でプロバイダーのAPIキーを登録するか、ANTHROPIC_API_KEY などのプロバイダー用キーを設定してからサーバーを再起動してください。";
 
-export const SANDBOX_NOT_CONFIGURED_MESSAGE =
+export const SANDBOX_SETUP_REQUIRED_MESSAGE =
   "サンドボックスが設定されていません。PI_SANDBOX_URL と PI_SANDBOX_TOKEN を設定してサーバーを再起動してください (ローカルでのツール実行にはフォールバックしません)。";
 
 const MODEL_UNAVAILABLE_MESSAGE =
@@ -413,10 +415,6 @@ export interface PiBff {
   setGitIdentity(source: GitIdentitySource): void;
 }
 
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** 未知の段階は設定ミスとして例外にする。 */
 function parseThinkingLevel(value: string): ThinkingLevel {
   const parsed = ThinkingLevelSchema.safeParse(value);
@@ -508,8 +506,6 @@ export interface RuntimeCatalogInput {
   versions: RuntimeVersions;
 }
 
-const modelKey = ({ provider, id }: ModelRef): string => JSON.stringify([provider, id]);
-
 /**
  * カタログと available の対応を公開する。許可リストは設定 API (`allowedModels`) だけが持ち、
  * ここに同じ情報を残さない (画面と応答で「許可されているか」の正を 1 つにする)。
@@ -528,7 +524,7 @@ export function deriveRuntimeCatalog(input: RuntimeCatalogInput): RuntimeModelsR
         .filter((model) => model.provider === provider)
         .map((model) => ({
           id: model.id,
-          name: model.name || `${model.provider}/${model.id}`,
+          name: model.name || formatModelRef(model),
           available: availableKeys.has(modelKey(model)),
         })),
     })),
@@ -664,7 +660,7 @@ export function deriveModelState({ snapshot, requested, whitelist, versions }: M
   let defaultModelError: string | undefined;
   if (requested && !selectedModel) {
     // 利用不能でも他候補へ黙ってフォールバックせず、ready のままエラーとして伝える。
-    defaultModelError = `保存された既定モデルは利用できません: ${requested.provider}/${requested.id}`;
+    defaultModelError = `保存された既定モデルは利用できません: ${formatModelRef(requested)}`;
   }
   // 保存された既定が無い状態は「未設定」として公開する。候補の先頭を勝手に既定にすると、
   // 契約で使えないモデルを選んでしまい、原因の分からない初回失敗になる。
@@ -711,7 +707,7 @@ function modelOptionOf(model: PiAiModel<Api>): ModelOption {
   return {
     provider: model.provider,
     id: model.id,
-    name: model.name || `${model.provider}/${model.id}`,
+    name: model.name || formatModelRef(model),
     supportsThinking: levels.some((level) => level !== "off"),
     thinkingLevels: levels,
   };
@@ -863,10 +859,6 @@ export function createSessionSettings(
   };
 }
 
-function modelLabel(model?: PiModelRef | null): string | undefined {
-  return model ? `${model.provider}/${model.id}` : undefined;
-}
-
 export interface SessionResourceLoaderInput {
   cwd: string;
   agentDir: string;
@@ -938,7 +930,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   // 既定は未設定」で初回 state を立て、DB を開いた後の applyStored() が保存値へ確定させる。
   const selection: ModelSelection = { allowedModels: undefined, defaultModel: undefined };
   const versions = runtimeVersionInfo();
-  const maskError = (error: unknown): string => secretMasker.mask(errorMessage(error));
+  const maskError = (error: unknown): string => secretMasker.mask(messageFor(error));
   // コンテンツ生成の設定は DB を正とする ContentSettingsService が setContentGeneration() で写す。初期値は無効で、
   // ツール定義はセッション作成時にこの値を見る（既存会話へ遡及しない）
   const contentGeneration: { config: ContentGenerationConfig | undefined } = { config: undefined };
@@ -1064,7 +1056,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     // 明示されたモデルは利用可能一覧と厳密照合する
     const modelObject = model ? resolveModel(model) : current.value.selectedModel;
     if (model && !modelObject) {
-      const error = new Error(`Model is not available: ${model.provider}/${model.id}`) as Error & {
+      const error = new Error(`Model is not available: ${formatModelRef(model)}`) as Error & {
         statusCode?: number;
       };
       error.statusCode = 400;
@@ -1082,7 +1074,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       throw error;
     }
     if (!sandboxClient) {
-      const error = new Error(SANDBOX_NOT_CONFIGURED_MESSAGE) as Error & { statusCode?: number };
+      const error = new Error(SANDBOX_SETUP_REQUIRED_MESSAGE) as Error & { statusCode?: number };
       error.statusCode = 503;
       throw error;
     }

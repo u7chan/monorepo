@@ -59,7 +59,7 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 ## パスと並行実行
 
 - BFF のワークスペース root（`PI_APP_CWD=/workspace`）とサンドボックスの作業領域 root（`PI_SANDBOX_CWD=/workspace`）を同じコンテナ内パスに揃え、パス変換なしでサンドボックス側へ解決させる。セッションごとの作業ディレクトリは root 相対で渡し、サンドボックスが root と結合して実パスにする（[projects.md](projects.md)）。作業領域の永続マウントはサンドボックスだけへ付け、BFF には付けない
-- `..` の適用順はカーネル（symlink を辿ってから `..`）に合わせ、lexical な畳み込みはしない。root 内外の判定は realpath で解決した実パスで行う（規則は `server/src/sandbox/fs-path.ts` に集約し、BFF 側の `service.ts` はそれを呼ぶ）
+- `..` の適用順はカーネル（symlink を辿ってから `..`）に合わせ、lexical な畳み込みはしない。サンドボックスのパス検証（`server/src/sandbox/fs-path.ts`）は realpath で解決した実パスを、`server/src/path-strings.ts` のパス内包判定へ渡す
 - **bash とその子プロセスは Landlock でファイルの作成・書き込み・削除・rename・truncate を制限する**。許可 root は実行ごとにサンドボックスが組み立て、pi SDK の `BashToolOptions.shellPath` に渡したラッパー（`u7agent-landlock`）が `PR_SET_NO_NEW_PRIVS` → `landlock_restrict_self` → `exec` する。結果は許可 root の外側で `EACCES`（HTTP 400 ではない）になり、リダイレクト・`cp`・`mv` も同じ。子プロセスへ継承されるため、bash から起動したサーバーやビルドも同じ制限の下で動く
   - エージェントの bash の許可 root（基準集合）は実行 cwd（realpath）・`<root>/.agents/skills`・`/tmp`・ホーム配下のキャッシュ（`~/.cache` / `~/.npm` / `~/.local/share/pnpm`）・`/dev/null` と `/dev/shm`。読み取りは制限しない（Landlock の read 権利は扱わない）
   - BFF 内部で走らせる bash（serve の観測・記録・起動・停止）は要求 cwd から基準集合を導出せず、呼び出し側が渡した `writeScope`（root 相対）だけを要求由来の root にする。固定の `/tmp` とキャッシュ、デバイスファイルは全実行で共通

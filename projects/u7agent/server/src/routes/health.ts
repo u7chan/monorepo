@@ -4,11 +4,12 @@ import { AUTH_REQUIRED_MESSAGE, runtimeVersionInfo } from "../agent";
 import type { PiBff } from "../agent";
 import { resolveArchiveExcludeNames } from "../archive-rules";
 import type { AppDbStatus } from "../app-db";
+import { formatModelRef } from "../model-ref";
 
 function modelLabel(model: unknown): string | undefined {
   if (!model || typeof model !== "object") return undefined;
   const { provider, id } = model as { provider?: unknown; id?: unknown };
-  return typeof provider === "string" && typeof id === "string" ? `${provider}/${id}` : undefined;
+  return typeof provider === "string" && typeof id === "string" ? formatModelRef({ provider, id }) : undefined;
 }
 
 export interface SessionStoreHealth {

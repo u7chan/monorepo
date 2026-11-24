@@ -16,7 +16,7 @@ import {
 import { MODEL_UNSET_GUIDE } from "../src/lib/modelSettings";
 import type { Health } from "../src/types";
 
-// server/src/agent.ts の AUTH_REQUIRED_MESSAGE / SANDBOX_NOT_CONFIGURED_MESSAGE と同じ形の本文
+// server/src/agent.ts の AUTH_REQUIRED_MESSAGE / SANDBOX_SETUP_REQUIRED_MESSAGE と同じ形の本文
 const AUTH_ERROR =
   "APIキーが未設定です。ANTHROPIC_API_KEY などのプロバイダー用キーを設定するか、保存済みの認証情報を確認してからサーバーを再起動してください。";
 const SANDBOX_ERROR =

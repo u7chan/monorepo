@@ -17,7 +17,7 @@ import {
   type SpeechGenerationResult,
   type SpeechGenerationSettings,
 } from "./speech";
-import { cwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
+import { joinCwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
 
 export const SPEECH_TOOL_NAME = "generate_speech";
 
@@ -197,7 +197,7 @@ export function createSpeechToolDefinitions(options: SpeechToolDefinitionOptions
         signal,
       });
       // 同名はサンドボックスが `-1` を付けて退避するため、実際に保存された名前を返す
-      const path = cwdRelativePath(dir, uploaded.name);
+      const path = joinCwdRelativePath(dir, uploaded.name);
       // 使用モデルとボイスを結果本文へ残す。投影 (toolResultSummary) は先頭 900 文字で切るため、
       // 長い path でも欠けないよう先頭の行に置く（会話履歴は session.jsonl の toolResult を正とする）
       return {

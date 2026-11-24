@@ -15,7 +15,7 @@ import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
 import type { SecretMasker } from "./redact";
-import { cwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
+import { joinCwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
 
 export const BGM_TOOL_NAME = "generate_bgm";
 export const BGM_GENERATION_PROMPT_LINES = [
@@ -147,7 +147,7 @@ export function createBgmToolDefinitions(options: BgmToolDefinitionOptions): Too
           controller.signal,
         );
         checkDeadline();
-        const path = cwdRelativePath(target.dir, uploaded.name);
+        const path = joinCwdRelativePath(target.dir, uploaded.name);
         return {
           content: [
             {

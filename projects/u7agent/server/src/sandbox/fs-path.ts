@@ -1,13 +1,14 @@
 /**
  * サンドボックスのパス検証と、作業ディレクトリの前提。ルート境界の規則 (symlink を辿った実パスで判定する、
  * 要求パスの `..` を字句的に畳まない、書き込み許可 root を毎回引き直す) をここ 1 箇所に集める。
- * 依存は node 標準と `../errors` / `../app-paths` だけに留める (service.ts と SDK を import しない)。
+ * service.ts と SDK に依存しない。
  */
 import { realpath as realpathCallback } from "node:fs";
 import { lstat, mkdir, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { COMMON_SKILLS_DIR, COMMON_SKILLS_SEGMENTS } from "../app-paths";
 import { messageFor, pathError } from "../errors";
+import { isInsideRoot } from "../path-strings";
 
 /**
  * カーネルと同じ解決順 (symlink を辿ってから `..` を適用する) で実パスを返す。
@@ -27,10 +28,6 @@ export function realpathNative(target: string): Promise<string> {
 export function joinRequestPath(root: string, requested: string): string {
   if (!requested) return root;
   return isAbsolute(requested) ? requested : `${root}${sep}${requested}`;
-}
-
-export function isInsideRoot(root: string, target: string): boolean {
-  return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
 
 /** root 相対の正規化パス。区切りは常に "/" (root は ".")。 */
@@ -85,13 +82,13 @@ export async function createWorkspaceDirectory(rootCwd: string, requested: strin
   } catch {
     throw pathError(400, `Invalid path: ${requested}`);
   }
-  if (!isInsideRoot(root, candidate)) throw pathError(400, `Path outside the workspace: ${candidate}`);
+  if (!isInsideRoot(root, candidate, sep)) throw pathError(400, `Path outside the workspace: ${candidate}`);
 
   const ancestor = await deepestExistingPath(candidate);
   const realAncestor = await realpathNative(ancestor).catch((error: unknown) => {
     throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
   });
-  if (!isInsideRoot(root, realAncestor)) throw pathError(400, `Path outside the workspace: ${realAncestor}`);
+  if (!isInsideRoot(root, realAncestor, sep)) throw pathError(400, `Path outside the workspace: ${realAncestor}`);
 
   await mkdir(candidate, { recursive: true }).catch((error: unknown) => {
     throw pathError(400, `Cannot create directory: ${messageFor(error)}`);
@@ -101,7 +98,7 @@ export async function createWorkspaceDirectory(rootCwd: string, requested: strin
   const target = await realpathNative(candidate).catch((error: unknown) => {
     throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
   });
-  if (!isInsideRoot(root, target)) throw pathError(400, `Path outside the workspace: ${target}`);
+  if (!isInsideRoot(root, target, sep)) throw pathError(400, `Path outside the workspace: ${target}`);
   const targetStat = await stat(target).catch(() => undefined);
   if (!targetStat?.isDirectory()) throw pathError(400, `Not a directory: ${candidate}`);
   return relativeToRoot(root, target);
@@ -153,7 +150,7 @@ export async function resolveCommonSkillTarget(input: {
   }
   const lexicalRoot = resolve(input.rootCwd);
   const lexical = join(lexicalRoot, ...segments);
-  if (!isInsideRoot(lexicalRoot, lexical)) throw pathError(400, `Path outside the workspace: ${lexical}`);
+  if (!isInsideRoot(lexicalRoot, lexical, sep)) throw pathError(400, `Path outside the workspace: ${lexical}`);
   const realRoot = await realpathNative(lexicalRoot).catch((error: unknown) => {
     throw pathError(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`);
   });
@@ -163,20 +160,20 @@ export async function resolveCommonSkillTarget(input: {
     if (input.mustExist) throw pathError(404, `Path not found: ${lexical}`);
     // 置き場がこれから作られるときは、最寄りの実在祖先が root 内であることだけを要求する
     const anchor = await deepestExistingReal(lexical);
-    if (!anchor || !isInsideRoot(realRoot, anchor.real)) {
+    if (!anchor || !isInsideRoot(realRoot, anchor.real, sep)) {
       throw pathError(400, `Path outside the workspace: ${lexical}`);
     }
     return { relativePath: requested, lexical, real, realRoot, realSkillsDir };
   }
-  if (!isInsideRoot(realRoot, realSkillsDir)) {
+  if (!isInsideRoot(realRoot, realSkillsDir, sep)) {
     throw pathError(400, `Common skills directory resolves outside the workspace: ${COMMON_SKILLS_DIR}`);
   }
   if (real !== undefined) {
-    if (!isInsideRoot(realSkillsDir, real)) throw pathError(400, `Not a common skill path: ${requested}`);
+    if (!isInsideRoot(realSkillsDir, real, sep)) throw pathError(400, `Not a common skill path: ${requested}`);
   } else {
     if (input.mustExist) throw pathError(404, `Path not found: ${lexical}`);
     const anchor = await deepestExistingReal(lexical);
-    if (!anchor || !isInsideRoot(realSkillsDir, anchor.real)) {
+    if (!anchor || !isInsideRoot(realSkillsDir, anchor.real, sep)) {
       throw pathError(400, `Not a common skill path: ${requested}`);
     }
   }

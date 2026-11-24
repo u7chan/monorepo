@@ -24,7 +24,7 @@ import { stat } from "node:fs/promises";
 import { dirname, posix } from "node:path";
 import { spaceIdOf } from "./spaces";
 import { sessionUploadsRel, workspaceAbs } from "./app-paths";
-import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
+import { SANDBOX_SETUP_REQUIRED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
 import { buildHandoffSection, HANDOFF_FILE_NAME, type HandoffMemoSection } from "./handoff-memo";
 import type { AssistantMetricsRow, AssistantMetricsStore, CwdKeyStore } from "./app-db";
@@ -95,7 +95,8 @@ import type { TitleSummaryHost, TitleSummaryResult, TitleSummaryUsage } from "./
 import type { TitleSummaryRuntimeSettings } from "./title-summary-settings";
 import { TitleSummaryQueue, type TitleSummaryQueueResult } from "./title-summary-queue";
 import { contentText, displayableMessages, truncate } from "./session-projection";
-import { SessionRecordWrites, entriesOf, modelLabel } from "./session-record-writes";
+import { formatModelRef, modelLabel, parseModelRef } from "./model-ref";
+import { SessionRecordWrites, entriesOf } from "./session-record-writes";
 import type { SandboxHandoffClient, SandboxMoveClient, SandboxWorkspaceClient } from "./sandbox/client";
 import { SandboxRequestError } from "./sandbox/client";
 import {
@@ -308,13 +309,6 @@ function usageFields(usage: TitleSummaryUsage | undefined): Partial<TitleAttempt
     outputTokens: usage.outputTokens,
     costTotal: usage.costTotal,
   };
-}
-
-function parseModelLabel(value: string | undefined): ModelRef | undefined {
-  if (!value) return undefined;
-  const slash = value.indexOf("/");
-  if (slash <= 0 || slash === value.length - 1) return undefined;
-  return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
 }
 
 /** SSE のカーソル。`<generation>:<seq>` を基本とし、旧クライアントの数値のみも受ける */
@@ -763,7 +757,7 @@ export class SessionStore {
 
   private async ensureWorkdir(workdirRel: string): Promise<void> {
     if (!workdirRel) return;
-    if (!this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    if (!this.workspace) throw httpError(503, SANDBOX_SETUP_REQUIRED_MESSAGE);
     await this.workspace.createDir(workdirRel);
   }
 
@@ -851,7 +845,7 @@ export class SessionStore {
    * (作ると「ファイルが消えた」ように見える)。
    */
   private async requireSharedWorkdir(workdir: string): Promise<void> {
-    if (!this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    if (!this.workspace) throw httpError(503, SANDBOX_SETUP_REQUIRED_MESSAGE);
     try {
       await this.workspace.listFiles(workdir);
     } catch (error) {
@@ -869,7 +863,7 @@ export class SessionStore {
    */
   async requireProjectDir(cwd: string): Promise<void> {
     if (!this.storeDir) return;
-    if (!this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    if (!this.workspace) throw httpError(503, SANDBOX_SETUP_REQUIRED_MESSAGE);
     try {
       await this.workspace.listFiles(cwd);
     } catch (error) {
@@ -1051,7 +1045,7 @@ export class SessionStore {
       lastModel && typeof lastModel.provider === "string" && typeof lastModel.modelId === "string"
         ? { provider: lastModel.provider, id: lastModel.modelId }
         : undefined;
-    const candidate = [recordedModel, parseModelLabel(meta.model)].find(
+    const candidate = [recordedModel, parseModelRef(meta.model)].find(
       (reference) => reference && this.pi?.resolveModel?.(reference),
     );
     const lastThinking = [...entries].reverse().find((entry) => entry.type === "thinking_level_change");
@@ -1271,7 +1265,7 @@ export class SessionStore {
     // available へ厳密照合し、暗黙のフォールバックはしない
     const modelObject = input.model ? this.pi.resolveModel?.(input.model) : undefined;
     if (input.model && !modelObject) {
-      throw httpError(400, `Model is not available: ${input.model.provider}/${input.model.id}`);
+      throw httpError(400, `Model is not available: ${formatModelRef(input.model)}`);
     }
     const { session } = record;
     // フラグは変更開始前に同期的に予約する (await 後だと送信が割り込む)。
@@ -2629,7 +2623,7 @@ export class SessionStore {
     if (this.storeError) throw httpError(503, `会話ストアを利用できません: ${this.storeError}`);
     if (!this.storeDir) throw httpError(503, "セッションの移動には会話ストアが必要です");
     if (!this.moveSandbox || !this.workspace || !this.handoffSandbox) {
-      throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+      throw httpError(503, SANDBOX_SETUP_REQUIRED_MESSAGE);
     }
     const live = this.records.get(id);
     const meta = live?.meta ?? this.descriptors.get(id);
