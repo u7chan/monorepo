@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useFileSkills, type FileSkillsState } from "../hooks/useFileSkills";
 import { useFileSkillArchive } from "../hooks/useFileSkillArchive";
 import { useWideLayout } from "../hooks/useLayoutMode";
+import { useListDetailPane } from "../hooks/useListDetailPane";
 import {
   FILE_SKILL_ADD_LABEL,
   FILE_SKILL_CREATE_HEADING,
@@ -84,9 +85,6 @@ export function fileSkillPaneNoteLines(state: FileSkillsState): string[] {
     .filter((line) => line !== "");
 }
 
-/** 一覧と詳細のどちらを見せるか。並列表示では使わない */
-type SkillView = "list" | "detail";
-
 /**
  * スキルの管理ページ。900px 以上の desktop では一覧と詳細を並べ、それ以外では同じページの中で
  * 一覧 ⇄ 詳細を切り替える (docs/ui-layout.md の「設定の一覧と編集の境界」)。
@@ -103,7 +101,6 @@ export function SkillSettingsPage({
   const wide = useWideLayout();
   const split = !singleColumn && wide;
   const confirm = useConfirm();
-  const [view, setView] = useState<SkillView>("list");
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   // スコープタブと検索は表示だけを絞る (個別の選択と詳細の対象は変えない)
   const [scope, setScope] = useState<FileSkillScopeTab>("all");
@@ -113,6 +110,11 @@ export function SkillSettingsPage({
   const [selectedFileSkillRel, setSelectedFileSkillRel] = useState<string | null>(null);
   // 同じ行を押し直したときも本文を取り直すための世代 (パネルの key に混ぜる)
   const [selectedFileSkillSeq, setSelectedFileSkillSeq] = useState(0);
+  const pane = useListDetailPane({
+    split,
+    selectedId: selectedFileSkillRel,
+    rowAttribute: "data-skill-row",
+  });
   const fileSkills = useFileSkills();
   const selectedFileSkill =
     selectedFileSkillRel && fileSkills.state.status === "ready"
@@ -147,16 +149,12 @@ export function SkillSettingsPage({
         })
       : undefined;
 
-  const focusDetail = () => {
-    if (!split) setView("detail");
-  };
-
   /** インポートした共通スキルを選択して開く。一覧は適用後に取り直しているので、応答が届けば選択は戻る */
   const selectImportedFileSkill = (relativePath: string) => {
     setSelectedFileSkillRel(relativePath);
     setSelectedFileSkillSeq((seq) => seq + 1);
     fileSkills.openDetail(relativePath);
-    focusDetail();
+    pane.openDetail();
   };
 
   const selectFileSkill = (skill: FileSkillInfo) => {
@@ -164,14 +162,14 @@ export function SkillSettingsPage({
     // 同じ行の押し直しでも本文を取り直す (ファイルは選択の外で書き換わる)
     setSelectedFileSkillSeq((seq) => seq + 1);
     if (skill.scope === "user") fileSkills.openDetail(skill.relativePath);
-    focusDetail();
+    pane.openDetail();
   };
 
   /** 共通スキルの新規作成。名前と説明はサーバー側でも検証され、同名は 409 で止まる */
   const startNewFileSkill = () => {
     setSelectedFileSkillRel(null);
     fileSkills.startCreate();
-    focusDetail();
+    pane.openDetail();
   };
 
   const saveFileSkill = (event: FormEvent<HTMLFormElement>) => {
@@ -186,7 +184,7 @@ export function SkillSettingsPage({
       setSelectedFileSkillRel(result.relativePath);
       setNoteText(created ? "共通スキルを作成しました。" : "共通スキルを保存しました。");
       // 新規は保存後に一覧へ戻る (作成した行が選択された状態で見える)
-      if (created && !split) setView("list");
+      if (created) pane.backToList();
     })();
   };
 
@@ -201,7 +199,7 @@ export function SkillSettingsPage({
       if (dirty && !(await confirm(skillDiscardConfirmRequest()))) return;
       if (creatingFileSkill) {
         setSelectedFileSkillRel(null);
-        if (!split) setView("list");
+        pane.backToList();
       }
       fileSkills.cancelEdit();
     })();
@@ -221,51 +219,13 @@ export function SkillSettingsPage({
           return;
         }
         setSelectedFileSkillRel(null);
-        if (!split) setView("list");
+        pane.backToList();
         setNoteText("共通スキルを削除しました。");
       } catch (error) {
         setNoteText(messageFor(error), true);
       }
     })();
   };
-
-  /*
-   * 一覧 ⇄ 詳細の焦点。詳細では見出し (ヘッダ) へ、戻ったときは選択中の行へ移す (docs/ui-layout.md)
-   */
-  const listRef = useRef<HTMLDivElement>(null);
-  const detailRef = useRef<HTMLDivElement>(null);
-  const previousView = useRef<SkillView>(view);
-  useEffect(() => {
-    const previous = previousView.current;
-    previousView.current = view;
-    if (split || previous === view) return;
-    if (view === "detail") {
-      detailRef.current?.focus();
-      return;
-    }
-    const row = selectedFileSkillRel
-      ? listRef.current?.querySelector<HTMLButtonElement>(
-          `[data-skill-row="${CSS.escape(selectedFileSkillRel)}"] button`,
-        )
-      : undefined;
-    (row ?? listRef.current?.querySelector<HTMLButtonElement>("button"))?.focus();
-  }, [view, split, selectedFileSkillRel]);
-
-  // 詳細の Escape は一覧へ戻す。capture で受けるのは、焦点が詳細の外へ落ちていても
-  // App の「設定 → チャット」の Escape (window の bubble) より先に消費するため
-  useEffect(() => {
-    if (split || view !== "detail") return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      // モーダル / popover が開いている間は、そちらの標準の閉じ方に任せる
-      if (document.querySelector("dialog[open], :popover-open")) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setView("list");
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [split, view]);
 
   const archive = useFileSkillArchive({
     reloadSkills: fileSkills.reload,
@@ -281,7 +241,7 @@ export function SkillSettingsPage({
   // 一覧に属するファイル操作は、一覧を見ている間だけヘッダ直下の帯の右端に出す (設定 → モデルと同じ形)。
   // 詳細を開いている間と、隠れた一覧の上には出さない
   const fileOps =
-    split || view === "list" ? (
+    split || pane.view === "list" ? (
       <>
         <button
           type="button"
@@ -498,8 +458,8 @@ export function SkillSettingsPage({
     >
       {showDetailHeader ? (
         <SettingsDetailHeader
-          ref={detailRef}
-          back={split ? undefined : { label: "スキル一覧へ", onClick: () => setView("list") }}
+          ref={pane.detailRef}
+          back={split ? undefined : { label: "スキル一覧へ", onClick: pane.backToList }}
           // ピッカーは選択肢と同じ印をトリガーにも出すので、その左に重ねない (狭い幅で名前の幅を削る)
           leading={
             heading && selectedFileSkill ? (
@@ -555,9 +515,9 @@ export function SkillSettingsPage({
         onOpenNav={onOpenNav}
         onBack={onBack}
         // 詳細を開いている間はページの説明を落とし、戻る / ☰ の操作行だけにする
-        collapseHeader={singleColumn && view === "detail"}
+        collapseHeader={singleColumn && pane.view === "detail"}
         toolbar={fileOps ? <TabToolbar actions={fileOps} /> : undefined}
-        note={split || view === "list" ? note : undefined}
+        note={split || pane.view === "list" ? note : undefined}
       >
         {split ? (
           <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">
@@ -568,14 +528,14 @@ export function SkillSettingsPage({
           <div className="grid min-h-0 min-w-0 grid-rows-1">
             {/* 一覧は隠れている間も mount したままにする (検索語とスクロールを詳細との往復で失わない) */}
             <div
-              ref={listRef}
-              hidden={view === "detail"}
-              inert={view === "detail"}
+              ref={pane.listRef}
+              hidden={pane.view === "detail"}
+              inert={pane.view === "detail"}
               className="grid min-h-0 grid-rows-1"
             >
               {list}
             </div>
-            {view === "detail" ? detail : null}
+            {pane.view === "detail" ? detail : null}
           </div>
         )}
       </SettingsPageLayout>
