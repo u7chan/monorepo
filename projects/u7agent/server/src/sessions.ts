@@ -2736,7 +2736,7 @@ export class SessionStore {
     };
   }
 
-  /** 削除予約 / close を検出する。move は各 await の後でこれを見てロールバックする */
+  /** 削除予約 / close を検出する。引き継ぎの手順 (handoff-move) は各 await の後でこれを見てロールバックする */
   private moveAborted(id: string): boolean {
     return this.deleting.has(id) || this.closing;
   }
