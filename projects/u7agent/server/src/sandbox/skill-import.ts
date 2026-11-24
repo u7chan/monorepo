@@ -34,7 +34,6 @@ interface StagedSkill {
   skillFileVersion: string;
 }
 
-/** ZIP の直下フォルダ 1 つ分 (スキル 1 件) */
 interface SkillImportGroup {
   name: string;
   entries: ZipReadEntry[];
@@ -146,7 +145,7 @@ function importEntrySegments(entry: ZipReadEntry): string[] {
   }
   for (const segment of segments) {
     if (!isValidEntryName(segment)) throw pathError(400, `Invalid ZIP entry name: ${entry.name}`);
-    // export の固定除外と对称 (全階層・ベース名の完全一致)
+    // export の固定除外と対称 (全階層・ベース名の完全一致)
     if (segment === ".git") throw pathError(400, `Excluded from skill archives: ${entry.name}`);
   }
   if (segments[0]!.startsWith(".")) {
@@ -254,7 +253,6 @@ async function folderFileDigests(folder: string, limits: ArchiveLimits): Promise
   return (await walk(folder, "")) ? digests : undefined;
 }
 
-/** 2 つのファイル集合 (相対パス → SHA-256) が完全に一致するか */
 function sameFileDigests(a: Map<string, string>, b: Map<string, string>): boolean {
   if (a.size !== b.size) return false;
   for (const [name, digest] of a) if (b.get(name) !== digest) return false;
@@ -323,7 +321,6 @@ async function resolveImportTarget(input: {
   return { state: "existing", folder: real };
 }
 
-/** 展開済みの bundle を SDK で検証し、既存と突き合わせて new / identical / conflict / invalid に分ける */
 async function planSkillsImport(input: {
   rootCwd: string;
   staged: readonly StagedSkill[];

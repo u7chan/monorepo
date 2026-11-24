@@ -7,7 +7,7 @@ import { COMMON_SKILLS_DIR, COMMON_SKILLS_SEGMENTS } from "../app-paths";
 import { messageFor, pathError } from "../errors";
 import { isInsideRoot } from "../path-strings";
 import type { SerialLock } from "../serial-lock";
-import type { ArchiveLimits } from "./archive";
+import { SKILLS_ARCHIVE_EXCLUDE_NAMES, walkArchive, type ArchiveLimits, type ArchivePlan } from "./archive";
 import {
   deepestExistingReal,
   realpathNative,
@@ -38,6 +38,17 @@ import {
   SKILL_DESCRIPTION_MAX_LENGTH,
 } from "./skill-edit";
 import { scanSkillsWithDeadline } from "./skills-scan";
+
+// 利用者の除外設定は使わない。持ち出せるのは共通の置き場にある SKILL.md 付きのフォルダだけ。
+export async function planSkillsExport(rootCwd: string, archiveLimits: ArchiveLimits): Promise<ArchivePlan> {
+  const { target } = await resolveWorkspaceDirectory(rootCwd, COMMON_SKILLS_DIR, true);
+  return walkArchive({
+    dir: target,
+    excludeNames: SKILLS_ARCHIVE_EXCLUDE_NAMES,
+    limits: archiveLimits,
+    skillsOnly: true,
+  });
+}
 
 /**
  * root 相対のディレクトリ配下のスキルを発見する。走査規則 (hidden・node_modules のスキップ、ignore ファイル、
@@ -72,8 +83,7 @@ export async function listWorkspaceSkills(
 }
 
 /**
- * 共通スキル (`.agents/skills`) の GUI CRUD の面倒な依存。service のオプションから組み立てる。
- * 走査の期限と削除の走査上限は既存の値をそのまま使う (GUI 用の別上限を作らない)。
+ * 走査の期限と削除の走査上限に GUI 用の別上限を設けない。
  */
 export interface SkillCrudContext {
   rootCwd: string;
@@ -81,7 +91,7 @@ export interface SkillCrudContext {
   archiveLimits: ArchiveLimits;
   /** 取り込みの受信 ZIP の上限 (アップロードと同じ値) */
   maxUploadBytes: number;
-  /** 共通スキル置き場の外側 gate。SDK のファイル隊列より先に取る (順序を固定する) */
+  /** 共通スキル置き場の変更は経路にかかわらず同じ gate を使い、SDK のファイル隊列より先に取る。 */
   gate: SerialLock;
 }
 
@@ -126,6 +136,17 @@ export async function touchesCommonSkills(input: {
   return input.mode === "any" && isInsideRoot(target, realSkills, sep);
 }
 
+export async function withCommonGate<T>(
+  context: SkillCrudContext,
+  paths: readonly { path: string; mode: "inside" | "any" }[],
+  run: () => Promise<T>,
+): Promise<T> {
+  const touched = await Promise.all(
+    paths.map((entry) => touchesCommonSkills({ rootCwd: context.rootCwd, requested: entry.path, mode: entry.mode })),
+  );
+  return touched.some(Boolean) ? context.gate.run(run) : run();
+}
+
 /** 共通スキルの SKILL.md の内容と版。読みと検証は常にこの組で扱う */
 interface CommonSkillFileContent {
   text: string;
@@ -152,7 +173,6 @@ async function readCommonSkillContent(
   return { text: decodeUtf8(bytes), version: skillFileVersion(bytes), mtime: Math.round(stats.mtimeMs) };
 }
 
-/** UTF-8 のテキストだけを受け付ける (GUI はテキストを編集する) */
 function decodeUtf8(bytes: Buffer): string {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -396,7 +416,6 @@ export async function previewCommonSkillDelete(
   };
 }
 
-/** 公開後の実際の発見一覧で、対象パスと内容が読めることを確認する */
 async function verifyPublishedSkill(
   context: SkillCrudContext,
   realFile: string,

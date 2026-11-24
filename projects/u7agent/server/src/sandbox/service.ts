@@ -1,45 +1,44 @@
 /**
  * サンドボックス ツール実行サービス (HTTP)。SDK の作業用ツールをこのプロセスのローカル実装で実行し、結果を NDJSON で返す。
- * LLM 認証情報をこのプロセスの環境へ入れないことはデプロイ側の前提 (サービス自身が剥がすのは共有トークンだけ)。
+ * LLM 認証情報をこのプロセスの環境へ入れないことはデプロイ側の前提。
  * /v1/* は未認証を 401 で拒否し、/healthz だけは Compose healthcheck 用に無認証で開ける。
  */
 import { createHash, timingSafeEqual } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
-import { Readable } from "node:stream";
 import { Hono } from "hono";
-import { COMMON_SKILLS_DIR } from "../app-paths";
 import { DEFAULT_ARCHIVE_EXCLUDE_NAMES } from "../archive-rules";
-import { parseByteRange } from "../byte-range";
-import { messageFor, pathError } from "../errors";
+import { messageFor } from "../errors";
 import { KeyedSerialLock, SerialLock } from "../serial-lock";
 import {
   archiveContentDisposition,
-  archiveDownloadName,
   DEFAULT_ARCHIVE_LIMITS,
   DEFAULT_ARCHIVE_PLAN_LIMITS,
-  SKILLS_ARCHIVE_EXCLUDE_NAMES,
   SKILLS_EXPORT_NAME,
-  walkArchive,
   type ArchiveLimits,
-  type ArchivePlan,
   type ArchivePlanLimits,
 } from "./archive";
 import {
   createCommonSkill,
   deleteCommonSkill,
   listWorkspaceSkills,
+  planSkillsExport,
   previewCommonSkillDelete,
   readCommonSkillDetail,
   saveCommonSkill,
   skillTextFieldsOf,
-  touchesCommonSkills,
+  withCommonGate,
   type SkillCrudContext,
 } from "./common-skills";
-import { downloadCheckFor, downloadPlanFor, planDownload, saveUploadedFile } from "./file-transfer";
+import {
+  downloadCheckFor,
+  downloadPlanFor,
+  downloadResponseFor,
+  planDownload,
+  saveUploadedFile,
+  serveRawFile,
+} from "./file-transfer";
 import { createWorkspaceDirectory, relativeToRoot, resolveWorkspaceDirectory } from "./fs-path";
 import { GIT_INFO_TIMEOUT_MS, readWorkspaceGitInfo } from "./git-info";
-import { readHandoffText, resolveHandoffPath, rollbackHandoffText, writeHandoffText } from "./handoff-file";
+import { readHandoffFile, rollbackHandoffText, writeHandoffText } from "./handoff-file";
 import { openedFilePath, readScopedImageInput } from "./image-input";
 import { scanListenerRange, scanListeners } from "./process-scan";
 import {
@@ -49,13 +48,11 @@ import {
   parseMaxFileBytesQuery,
   parseRecursiveQuery,
   parseTrueOnlyQuery,
-  rawContentType,
   RECURSIVE_QUERY_ERROR,
   SANDBOX_EGRESS_POLICY_CAPABILITY,
   SANDBOX_GIT_CONFIG_CAPABILITY,
   SANDBOX_MAX_HANDOFF_BYTES,
   SANDBOX_MAX_LISTENER_RANGE_PORTS,
-  SANDBOX_MAX_PREVIEW_BYTES,
   SANDBOX_MAX_UPLOAD_BYTES,
   type SandboxCreateDirRequestBody,
   type SandboxDownloadCheck,
@@ -73,7 +70,7 @@ import { createToolExecution } from "./tool-execution";
 import {
   listWorkspaceDirectory,
   moveWorkspaceEntry,
-  readBoundedText,
+  readWorkspacePreview,
   removeWorkspaceDirectory,
   removeWorkspaceFile,
   renameWorkspaceEntry,
@@ -161,39 +158,23 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   const resolveOpenedImageInputPath = options.resolveOpenedImageInputPath ?? openedFilePath;
   // 作業フォルダを共有する会話の同時追記を失わないよう、会話 ID ではなく実パスで揃える。
   const handoffWrites = new KeyedSerialLock<string>();
-  // 共通スキル置き場の外側 gate。GUI CRUD と、共通内を変更し得る既存の変更 API が参加する
-  // (SDK のファイル隊列はこの gate の内側で取得する)。共通外の編集は直列化しない
-  const commonSkillGate = new SerialLock();
   const skillCrud: SkillCrudContext = {
     rootCwd,
     scanTimeoutMs: skillsScanTimeoutMs,
     archiveLimits,
     maxUploadBytes,
-    gate: commonSkillGate,
+    gate: new SerialLock(),
   };
-
-  /** 対象が共通スキル置き場へ影響し得るときだけ、変更の全体を共通 gate の中で実行する */
-  const withCommonGate = async <T>(
-    paths: readonly { path: string; mode: "inside" | "any" }[],
-    run: () => Promise<T>,
-  ): Promise<T> => {
-    const touched = await Promise.all(
-      paths.map((entry) => touchesCommonSkills({ rootCwd, requested: entry.path, mode: entry.mode })),
-    );
-    return touched.some(Boolean) ? commonSkillGate.run(run) : run();
-  };
-
-  const { execute, executions, registryFor, writeScopeFor, landlockStatus, startupGitPrepare, gitConfigStatus } =
-    createToolExecution(rootCwd, gitPath, options, commonSkillGate);
+  const tools = createToolExecution(rootCwd, gitPath, options, skillCrud.gate);
 
   const app = new Hono();
 
   app.get("/healthz", (c) => {
     return c.json({
       ok: true,
-      tools: [...registryFor(rootCwd, writeScopeFor("", rootCwd)).keys()],
+      tools: tools.listToolNames(),
       cwd: rootCwd,
-      runningExecutions: executions.size,
+      runningExecutions: tools.executions.size,
     });
   });
 
@@ -208,16 +189,15 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   });
 
   // 実行環境の診断。応答は分類だけを返し、内部エラーの詳細はプロセスのログに限る。
-  // Landlock の状態はラッパーの解決を持つこの service が足す (probeSandboxRuntime はコマンド検出だけ)。
   app.get("/v1/runtime/info", async (c) => {
     try {
-      const [info, landlock] = await Promise.all([probeRuntimeInfo(rootCwd), landlockStatus()]);
-      await startupGitPrepare;
+      const [info, landlock] = await Promise.all([probeRuntimeInfo(rootCwd), tools.landlockStatus()]);
+      await tools.startupGitPrepare;
       return c.json({
         ...info,
         landlock,
         capabilities: [SANDBOX_GIT_CONFIG_CAPABILITY, SANDBOX_EGRESS_POLICY_CAPABILITY],
-        gitConfig: gitConfigStatus(),
+        gitConfig: tools.gitConfigStatus(),
       });
     } catch (error) {
       console.warn(`[u7agent-sandbox] runtime info failed: ${messageFor(error)}`);
@@ -271,17 +251,11 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  app.post("/v1/tools/:tool/execute", execute);
+  app.post("/v1/tools/:tool/execute", tools.execute);
 
   app.get("/v1/files/preview", async (c) => {
     try {
-      const { target } = await resolveWorkspaceDirectory(rootCwd, c.req.query("path") ?? "", false);
-      const text = await readBoundedText(target, SANDBOX_MAX_PREVIEW_BYTES, {
-        tooLarge: "プレビューは2 MiB以下のファイルに対応しています",
-        invalidUtf8: "UTF-8のテキストファイルのみプレビューできます",
-        binary: "バイナリファイルはプレビューできません",
-      });
-      return c.json({ text });
+      return c.json({ text: await readWorkspacePreview(rootCwd, c.req.query("path") ?? "") });
     } catch (error) {
       return routeError(c, error, 400);
     }
@@ -317,7 +291,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // ファイルスキル (`.agents/skills`) の発見。dir の検証は GET /v1/files と同じ経路を通す
   app.get("/v1/skills", async (c) => {
     try {
       return c.json(await listWorkspaceSkills(rootCwd, c.req.query("dir") ?? "", skillsScanTimeoutMs));
@@ -326,24 +299,10 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  /**
-   * スキル持ち出しの計画。対象は `.agents/skills` 固定で、除外は `.git` 固定 + symlink 除外。
-   * 利用者の除外設定 (archive-rules) は使わず、直下は SKILL.md を持つフォルダだけに絞る。
-   */
-  const planSkillsExport = async (): Promise<ArchivePlan> => {
-    const { target } = await resolveWorkspaceDirectory(rootCwd, COMMON_SKILLS_DIR, true);
-    return walkArchive({
-      dir: target,
-      excludeNames: SKILLS_ARCHIVE_EXCLUDE_NAMES,
-      limits: archiveLimits,
-      skillsOnly: true,
-    });
-  };
-
   // スキル持ち出しの事前チェック。download の check と同じ形を返し、UI は 413 の理由を先に出せる
   app.get("/v1/skills/export/check", async (c) => {
     try {
-      const plan = await planSkillsExport();
+      const plan = await planSkillsExport(rootCwd, archiveLimits);
       const check: SandboxDownloadCheck = {
         kind: "archive",
         name: SKILLS_EXPORT_NAME,
@@ -357,10 +316,10 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // スキル持ち出しの本体。ZIP はストリームなので長さを確定できない (Content-Length を付けない)
+  // ZIP はストリームなので長さを確定できない (Content-Length を付けない)
   app.get("/v1/skills/export", async (c) => {
     try {
-      const plan = await planSkillsExport();
+      const plan = await planSkillsExport(rootCwd, archiveLimits);
       return new Response(createZipStream(plan.entries), {
         status: 200,
         headers: {
@@ -375,7 +334,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // スキル取り込み。BFF は bodyGuard を通さず raw の ZIP をそのまま流す (dryRun / replace は query)
+  // BFF は bodyGuard を通さず raw の ZIP をそのまま流す (dryRun / replace は query)
   app.post("/v1/skills/import", async (c) => {
     const dryRun = parseTrueOnlyQuery(c.req.queries("dryRun"));
     if (!dryRun.ok) return c.json({ error: DRY_RUN_QUERY_ERROR }, 400);
@@ -404,7 +363,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 共通スキルの新規作成。既存のディレクトリ / 同名の共通スキルは 409 (上書きも連番化もしない)
   app.post("/v1/skills/file", async (c) => {
     const parsed = await readRouteJson(c);
     if (!parsed.ok) return parsed.response;
@@ -418,7 +376,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 共通スキルの保存。name は受け付けず、fileVersion の一致と SDK 検証を要求する
   app.patch("/v1/skills/file", async (c) => {
     const parsed = await readRouteJson(c);
     if (!parsed.ok) return parsed.response;
@@ -432,7 +389,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 削除確認。対象フォルダと付随ファイル・treeVersion を返すだけで、何も変更しない
   app.get("/v1/skills/file/delete-preview", async (c) => {
     try {
       return c.json(await previewCommonSkillDelete(skillCrud, c.req.query("relativePath") ?? "", c.req.raw.signal));
@@ -441,7 +397,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 専用フォルダの削除。treeVersion の一致を要求し、成功時だけ配下ごと消す (body は読まない)
   app.delete("/v1/skills/file", async (c) => {
     try {
       await deleteCommonSkill(
@@ -456,10 +411,9 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 削除できるのは通常ファイルだけ (ディレクトリと symlink は 400)。成功は本文なしの 204
   app.delete("/v1/files", async (c) => {
     try {
-      await withCommonGate([{ path: c.req.query("path") ?? "", mode: "any" }], () =>
+      await withCommonGate(skillCrud, [{ path: c.req.query("path") ?? "", mode: "any" }], () =>
         removeWorkspaceFile(rootCwd, c.req.query("path") ?? ""),
       );
       return c.body(null, 204);
@@ -468,60 +422,8 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 画像と音声をストリームで返す。BFF は status / Content-Type / 長さ / Range 系ヘッダ / no-store / nosniff を付け直して配る
-  app.get("/v1/files/raw", async (c) => {
-    const requested = c.req.query("path") ?? "";
-    const contentType = rawContentType(requested);
-    if (!contentType) return c.json({ error: `Not a servable file: ${requested}` }, 400);
-    try {
-      const { target } = await resolveWorkspaceDirectory(rootCwd, requested, false);
-      const stats = await stat(target);
-      if (stats.size > maxUploadBytes) {
-        return c.json({ error: `File is too large (max ${maxUploadBytes} bytes)` }, 413);
-      }
-      const range = parseByteRange(c.req.header("range"), stats.size);
-      if (range.kind === "unsatisfiable") {
-        // 416 の Content-Range は「全体の長さ」を表す (bytes */<size>)
-        return c.json({ error: "Range is not satisfiable" }, 416, {
-          "Content-Range": `bytes */${stats.size}`,
-          "Accept-Ranges": "bytes",
-        });
-      }
-      if (range.kind === "satisfiable") {
-        return new Response(
-          Readable.toWeb(
-            createReadStream(target, { start: range.start, end: range.end }),
-          ) as ReadableStream<Uint8Array>,
-          {
-            status: 206,
-            headers: {
-              "Content-Type": contentType,
-              "Content-Length": String(range.end - range.start + 1),
-              "Content-Range": `bytes ${range.start}-${range.end}/${stats.size}`,
-              "Accept-Ranges": "bytes",
-              "Cache-Control": "no-store",
-              "X-Content-Type-Options": "nosniff",
-            },
-          },
-        );
-      }
-      return new Response(Readable.toWeb(createReadStream(target)) as ReadableStream<Uint8Array>, {
-        status: 200,
-        headers: {
-          "Content-Type": contentType,
-          "Content-Length": String(stats.size),
-          "Accept-Ranges": "bytes",
-          "Cache-Control": "no-store",
-          "X-Content-Type-Options": "nosniff",
-        },
-      });
-    } catch (error) {
-      return routeError(c, error, 500);
-    }
-  });
+  app.get("/v1/files/raw", (c) => serveRawFile(c, rootCwd, maxUploadBytes));
 
-  // 画像生成の参照画像を読む。公開 raw と違って拡張子 allowlist は通さず実バイトで判定し、
-  // BFF が指定した許可範囲 (scope) の実パスだけを返す。ブラウザ向け raw の契約は変えない
   app.get("/v1/files/image-input", async (c) => {
     const requested = c.req.query("path") ?? "";
     if (requested === "") return c.json({ error: "path is required" }, 400);
@@ -548,8 +450,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 実効の除外名を保つ計画。public 前のプレビューが「何が上がるか」を確かめるための一覧付きの応答で、
-  // 走査は check / download と同じ planDownload を使う（別実装で見え方と結果をずらさない）
   app.get("/v1/files/download/plan", async (c) => {
     const exclude = parseArchiveExcludeQuery(c.req.queries("exclude"));
     if (!exclude.ok) return c.json({ error: exclude.message }, 400);
@@ -571,7 +471,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // ダウンロードの事前チェック。walk は download と同じ計画を使い、ブラウザに生 JSON を見せずに理由を出す
   app.get("/v1/files/download/check", async (c) => {
     const exclude = parseArchiveExcludeQuery(c.req.queries("exclude"));
     if (!exclude.ok) return c.json({ error: exclude.message }, 400);
@@ -589,8 +488,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 通常ファイルは生配信、ディレクトリはストリーミング ZIP。どちらも添付として配るため画像 allowlist は通さない
-  // (HTML / SVG もここでは配る。レンダリングさせないよう attachment と nosniff を付ける)
   app.get("/v1/files/download", async (c) => {
     const exclude = parseArchiveExcludeQuery(c.req.queries("exclude"));
     if (!exclude.ok) return c.json({ error: exclude.message }, 400);
@@ -601,27 +498,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         excludeNames: exclude.names ?? DEFAULT_ARCHIVE_EXCLUDE_NAMES,
         limits: archiveLimits,
       });
-      const common = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
-      if (plan.kind === "file") {
-        return new Response(Readable.toWeb(createReadStream(plan.target)) as ReadableStream<Uint8Array>, {
-          status: 200,
-          headers: {
-            "Content-Type": "application/octet-stream",
-            "Content-Length": String(plan.size),
-            "Content-Disposition": archiveContentDisposition(plan.name),
-            ...common,
-          },
-        });
-      }
-      return new Response(createZipStream(plan.walk.entries), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/zip",
-          // ZIP はストリームなので長さを確定できない (Content-Length を付けない)
-          "Content-Disposition": archiveContentDisposition(archiveDownloadName(plan.name)),
-          ...common,
-        },
-      });
+      return downloadResponseFor(plan);
     } catch (error) {
       return routeError(c, error, 500);
     }
@@ -629,16 +506,12 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
 
   app.get("/v1/files/handoff", async (c) => {
     try {
-      const requested = c.req.query("path") ?? "";
-      const { target, existing } = await resolveHandoffPath(rootCwd, requested);
-      if (!existing) throw pathError(404, `Path not found: ${requested}`);
-      return c.json({ text: await readHandoffText(target) });
+      return c.json({ text: await readHandoffFile(rootCwd, c.req.query("path") ?? "") });
     } catch (error) {
       return routeError(c, error, 400);
     }
   });
 
-  // 引き継ぎメモの先頭追記。読んでから書くまでを実パス単位の排他の中で行い、既存の中身は解釈せずそのまま残す。
   app.post("/v1/files/handoff", async (c) => {
     const parsed = await readRouteJson(c);
     if (!parsed.ok) return parsed.response;
@@ -655,7 +528,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
     try {
       return c.json(
-        await withCommonGate([{ path, mode: "inside" }], () =>
+        await withCommonGate(skillCrud, [{ path, mode: "inside" }], () =>
           writeHandoffText(rootCwd, path, section, dedupeKey, handoffWrites),
         ),
       );
@@ -664,8 +537,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 新規作成した引き継ぎメモの取り消し。内容が expected と一致するときだけ、追記と同じ実パス排他の
-  // 中で削除する (背後で進んだ他の追記を巻き戻さない)
   app.post("/v1/files/handoff/rollback", async (c) => {
     const parsed = await readRouteJson(c);
     if (!parsed.ok) return parsed.response;
@@ -675,7 +546,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
     try {
       return c.json(
-        await withCommonGate([{ path, mode: "inside" }], () =>
+        await withCommonGate(skillCrud, [{ path, mode: "inside" }], () =>
           rollbackHandoffText(rootCwd, path, expected, handoffWrites),
         ),
       );
@@ -684,12 +555,12 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 選択時の即時アップロード。BFF は bodyGuard (既定 64 KiB / text 化) を通さず、ここへ raw で流す
+  // BFF は bodyGuard (上限付きのテキスト読取) を通さず、ここへ raw で流す。
   app.post("/v1/files/upload", async (c) => {
     const name = c.req.query("name") ?? "";
     if (!isValidEntryName(name)) return c.json({ error: `Invalid file name: ${name}` }, 400);
     try {
-      const uploaded = await withCommonGate([{ path: c.req.query("dir") ?? "", mode: "inside" }], () =>
+      const uploaded = await withCommonGate(skillCrud, [{ path: c.req.query("dir") ?? "", mode: "inside" }], () =>
         saveUploadedFile({
           rootCwd,
           dir: c.req.query("dir") ?? "",
@@ -704,7 +575,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 親をまたいで動かせるのは通常ファイルとディレクトリだけ (symlink は 400)。応答は移動後の root 相対パス
   app.post("/v1/files/move", async (c) => {
     const parsed = await readRouteJson(c);
     if (!parsed.ok) return parsed.response;
@@ -714,6 +584,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     try {
       return c.json(
         await withCommonGate(
+          skillCrud,
           [
             { path: from, mode: "any" },
             { path: to, mode: "any" },
@@ -726,7 +597,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 名前を変えられるのは通常ファイルとディレクトリだけ (symlink は 400)。応答は改名後の root 相対パス
   app.post("/v1/files/rename", async (c) => {
     const parsed = await readRouteJson(c);
     if (!parsed.ok) return parsed.response;
@@ -736,7 +606,9 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     // 名前の検証は保存名と同じ規則。同名の扱い (409) はパスの解決後に行う
     if (!isValidEntryName(name)) return c.json({ error: `Invalid name: ${name}` }, 400);
     try {
-      return c.json(await withCommonGate([{ path, mode: "any" }], () => renameWorkspaceEntry(rootCwd, path, name)));
+      return c.json(
+        await withCommonGate(skillCrud, [{ path, mode: "any" }], () => renameWorkspaceEntry(rootCwd, path, name)),
+      );
     } catch (error) {
       return routeError(c, error, 500);
     }
@@ -751,20 +623,20 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
     try {
       return c.json({
-        path: await withCommonGate([{ path, mode: "inside" }], () => createWorkspaceDirectory(rootCwd, path)),
+        path: await withCommonGate(skillCrud, [{ path, mode: "inside" }], () =>
+          createWorkspaceDirectory(rootCwd, path),
+        ),
       });
     } catch (error) {
       return routeError(c, error, 500);
     }
   });
 
-  // 削除できるのはディレクトリだけ (通常ファイルと symlink は 400)。recursive=true のときだけ配下ごと消す。
-  // 成功は本文なしの 204
   app.delete("/v1/dirs", async (c) => {
     const recursive = parseRecursiveQuery(c.req.queries("recursive"));
     if (!recursive.ok) return c.json({ error: RECURSIVE_QUERY_ERROR }, 400);
     try {
-      await withCommonGate([{ path: c.req.query("path") ?? "", mode: "any" }], () =>
+      await withCommonGate(skillCrud, [{ path: c.req.query("path") ?? "", mode: "any" }], () =>
         removeWorkspaceDirectory(rootCwd, c.req.query("path") ?? "", recursive.recursive),
       );
       return c.body(null, 204);
@@ -775,7 +647,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
 
   app.post("/v1/executions/:id/cancel", (c) => {
     const id = c.req.param("id") ?? "";
-    const abort = executions.get(id);
+    const abort = tools.executions.get(id);
     if (!abort) {
       return c.json({ error: "Execution not found" }, 404);
     }
@@ -785,12 +657,5 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
 
   app.notFound((c) => c.json({ error: "Not found" }, 404));
 
-  return {
-    app,
-    executions,
-    close: () => {
-      for (const abort of executions.values()) abort.abort();
-      executions.clear();
-    },
-  };
+  return { app, executions: tools.executions, close: tools.close };
 }

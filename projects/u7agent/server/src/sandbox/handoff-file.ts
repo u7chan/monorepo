@@ -14,10 +14,7 @@ import { readBoundedText } from "./workspace-files";
  * 不存在として扱うのは ENOENT だけで、権限エラーなどの lstat 失敗は呼び出し側へ伝播させ、
  * 下準備で「読み取れない」として拒否させる (読み取り不能を空の本文や新規作成として扱わない)。
  */
-export async function resolveHandoffPath(
-  rootCwd: string,
-  requested: string,
-): Promise<{ target: string; existing: boolean }> {
+async function resolveHandoffPath(rootCwd: string, requested: string): Promise<{ target: string; existing: boolean }> {
   const name = workspaceEntryName(requested);
   if (name === undefined) throw pathError(400, `Not a regular file: ${requested}`);
   const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
@@ -32,12 +29,18 @@ export async function resolveHandoffPath(
 }
 
 // HANDOFF.md の上限と文言はプレビューの変更に追随させない。
-export function readHandoffText(target: string): Promise<string> {
+function readHandoffText(target: string): Promise<string> {
   return readBoundedText(target, SANDBOX_MAX_HANDOFF_BYTES, {
     tooLarge: "HANDOFF.md は 2 MiB 以下にしてください",
     invalidUtf8: "HANDOFF.md は UTF-8 のテキストファイルにしてください",
     binary: "バイナリの HANDOFF.md は扱えません",
   });
+}
+
+export async function readHandoffFile(rootCwd: string, requested: string): Promise<string> {
+  const { target, existing } = await resolveHandoffPath(rootCwd, requested);
+  if (!existing) throw pathError(404, `Path not found: ${requested}`);
+  return readHandoffText(target);
 }
 
 /**

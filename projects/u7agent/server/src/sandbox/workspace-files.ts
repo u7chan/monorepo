@@ -12,11 +12,21 @@ import {
 import {
   isValidEntryName,
   SANDBOX_MAX_FILE_ENTRIES,
+  SANDBOX_MAX_PREVIEW_BYTES,
   type SandboxFileEntry,
   type SandboxFileListing,
   type SandboxMoveResult,
   type SandboxRenameResult,
 } from "./protocol";
+
+export async function readWorkspacePreview(rootCwd: string, requested: string): Promise<string> {
+  const { target } = await resolveWorkspaceDirectory(rootCwd, requested, false);
+  return readBoundedText(target, SANDBOX_MAX_PREVIEW_BYTES, {
+    tooLarge: "プレビューは2 MiB以下のファイルに対応しています",
+    invalidUtf8: "UTF-8のテキストファイルのみプレビューできます",
+    binary: "バイナリファイルはプレビューできません",
+  });
+}
 
 export async function readBoundedText(
   target: string,

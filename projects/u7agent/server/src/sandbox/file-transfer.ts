@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { link, open, unlink } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { link, open, stat, unlink } from "node:fs/promises";
 import { basename, join, parse } from "node:path";
+import { Readable } from "node:stream";
+import type { Context } from "hono";
+import { parseByteRange } from "../byte-range";
 import { messageFor, pathError } from "../errors";
 import {
+  archiveContentDisposition,
   archiveDownloadName,
   archiveExcludedDirectoryError,
   archiveTooLargeError,
@@ -19,20 +24,25 @@ import {
   resolveWorkspaceEntry,
   workspaceEntryName,
 } from "./fs-path";
-import type { SandboxDownloadCheck, SandboxDownloadPlan, SandboxFileUpload } from "./protocol";
+import {
+  rawContentType,
+  type SandboxDownloadCheck,
+  type SandboxDownloadPlan,
+  type SandboxFileUpload,
+} from "./protocol";
+import { routeError } from "./route-http";
+import { createZipStream } from "./zip";
 
 /** 解決だけをしたダウンロード対象。archive の `size` は使わない（`planDownload` が `walk` を付ける） */
 interface DownloadTarget {
   kind: "file" | "archive";
   /** 保存名の元。ファイルはその名前、ZIP はフォルダ名（`.zip` は応答で付ける） */
   name: string;
-  /** 実パス */
   target: string;
   /** file のサイズ */
   size: number;
 }
 
-/** ダウンロードの計画。file は生配信、archive は走査済みの ZIP。 */
 type DownloadPlan = ({ kind: "file" } & DownloadTarget) | ({ kind: "archive"; walk: ArchivePlan } & DownloadTarget);
 
 async function resolveDownloadTarget(rootCwd: string, requestedRaw: string): Promise<DownloadTarget> {
@@ -133,6 +143,81 @@ export function downloadCheckFor(plan: DownloadPlan): SandboxDownloadCheck {
     entries: plan.walk.entryCount,
     skipped: plan.walk.skipped,
   };
+}
+
+// HTML / SVG も添付できる。ブラウザでレンダリングさせないよう attachment と nosniff を付ける。
+export function downloadResponseFor(plan: DownloadPlan): Response {
+  const common = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+  if (plan.kind === "file") {
+    return new Response(Readable.toWeb(createReadStream(plan.target)) as ReadableStream<Uint8Array>, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": String(plan.size),
+        "Content-Disposition": archiveContentDisposition(plan.name),
+        ...common,
+      },
+    });
+  }
+  return new Response(createZipStream(plan.walk.entries), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/zip",
+      // ZIP はストリームなので長さを確定できない (Content-Length を付けない)
+      "Content-Disposition": archiveContentDisposition(archiveDownloadName(plan.name)),
+      ...common,
+    },
+  });
+}
+
+// BFF の中継も status、Content-Type、長さ、Range 系ヘッダ、no-store、nosniff を保つ。
+export async function serveRawFile(c: Context, rootCwd: string, maxUploadBytes: number): Promise<Response> {
+  const requested = c.req.query("path") ?? "";
+  const contentType = rawContentType(requested);
+  if (!contentType) return c.json({ error: `Not a servable file: ${requested}` }, 400);
+  try {
+    const { target } = await resolveWorkspaceDirectory(rootCwd, requested, false);
+    const stats = await stat(target);
+    if (stats.size > maxUploadBytes) {
+      return c.json({ error: `File is too large (max ${maxUploadBytes} bytes)` }, 413);
+    }
+    const range = parseByteRange(c.req.header("range"), stats.size);
+    if (range.kind === "unsatisfiable") {
+      // 416 の Content-Range は「全体の長さ」を表す (bytes */<size>)
+      return c.json({ error: "Range is not satisfiable" }, 416, {
+        "Content-Range": `bytes */${stats.size}`,
+        "Accept-Ranges": "bytes",
+      });
+    }
+    if (range.kind === "satisfiable") {
+      return new Response(
+        Readable.toWeb(createReadStream(target, { start: range.start, end: range.end })) as ReadableStream<Uint8Array>,
+        {
+          status: 206,
+          headers: {
+            "Content-Type": contentType,
+            "Content-Length": String(range.end - range.start + 1),
+            "Content-Range": `bytes ${range.start}-${range.end}/${stats.size}`,
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+          },
+        },
+      );
+    }
+    return new Response(Readable.toWeb(createReadStream(target)) as ReadableStream<Uint8Array>, {
+      status: 200,
+      headers: {
+        "Content-Type": contentType,
+        "Content-Length": String(stats.size),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  } catch (error) {
+    return routeError(c, error, 500);
+  }
 }
 
 /** 同名を上書きしない保存名の候補。`name-1.ext` と連番で進め、上限に達したらランダム suffix にする。 */

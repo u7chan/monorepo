@@ -24,7 +24,7 @@ import { isInsideRoot } from "../path-strings";
 import { SECRET_MASTER_KEY_ENV, SECRET_MASTER_KEY_FILE_ENV } from "../secret-crypto";
 import { SerialLock } from "../serial-lock";
 import { touchesCommonSkills } from "./common-skills";
-import { parseGitConfig, parseInjectedEnv, parseWriteScope, SANDBOX_TOOL_NAMES } from "./execute-request";
+import { parseExecuteRequest, SANDBOX_TOOL_NAMES, type ValidatedExecuteRequest } from "./execute-request";
 import { resolveWorkspaceDirectory, throwIfAborted } from "./fs-path";
 import { detectDubiousOwnership, gitConfigTarget, prepareGitConfig, type GitConfigFailureReason } from "./git-config";
 import {
@@ -40,8 +40,6 @@ import {
 import {
   encodeSandboxEvent,
   type SandboxEvent,
-  type SandboxExecuteRequestBody,
-  type SandboxGitConfig,
   type SandboxGitConfigStatus,
   type SandboxLandlockStatus,
   type SandboxWriteScopeEntry,
@@ -50,7 +48,7 @@ import { readRouteJson, routeError } from "./route-http";
 import { isWritablePath, writeScopeError, type WriteScope } from "./write-scope";
 
 /** `gitConfig.ownershipWarnings` に残す cwd の上限。診断の応答を cwd の数だけ大きくしない */
-export const GIT_OWNERSHIP_WARNING_LIMIT = 20;
+const GIT_OWNERSHIP_WARNING_LIMIT = 20;
 
 type AnyToolDefinition = ToolDefinition<any, any, any>;
 type ExecuteUpdateCallback = NonNullable<Parameters<AnyToolDefinition["execute"]>[3]>;
@@ -63,7 +61,7 @@ function normalizeToolCallId(value: unknown): string {
  * gitConfig 付きの実行から、Git の identity / config を差し替える名前を落とす。
  * 既存行を 400 にすると、旧 BFF が送っている間そのフォルダの bash が全滅するため黙って落とす。
  */
-export function withoutGitIdentityEnv(env: Record<string, string> | undefined): Record<string, string> | undefined {
+function withoutGitIdentityEnv(env: Record<string, string> | undefined): Record<string, string> | undefined {
   if (!env) return undefined;
   const kept: Record<string, string> = {};
   for (const [name, value] of Object.entries(env)) {
@@ -112,7 +110,6 @@ export function createToolExecution(
   /** 診断と bash の入口が同じ結果を使う (ラッパーが使えない環境ではコマンドを実行しない) */
   const landlockStatus = (): Promise<SandboxLandlockStatus> => (landlockProbe ??= probeLandlock());
 
-  /** bash を実行できない理由。実行できるときだけ undefined を返す (fail-closed の入口) */
   const bashUnavailableReason = async (): Promise<string | undefined> => {
     if (!landlockExec) {
       return landlockUnavailableMessage({
@@ -127,9 +124,7 @@ export function createToolExecution(
     return status.state === "enabled" ? undefined : landlockUnavailableMessage(status);
   };
 
-  // bash にはセッションメタ変数 (PI_SESSION_ID 等) を注入せず (サンドボックスにセッションは無い)、
-  // SDK の bash が process.env を継承しても、このプロセスの秘密値 (共有トークン / master key) だけは剥がす。
-  // 作業フォルダの変数は spawnHook の後段で足す (名前の検証は上の parseInjectedEnv で済んでいる)。
+  // SDK の bash は process.env を継承するため、このプロセスの秘密値 (共有トークン / master key) は剥がす。
   const spawnHookWithEnv =
     (injected: Record<string, string> | undefined, landlock: Record<string, string>) =>
     (context: BashSpawnContext): BashSpawnContext => {
@@ -141,7 +136,6 @@ export function createToolExecution(
       return { ...context, env };
     };
 
-  /** bash の定義。注入する env と許可 root・許可ポートはリクエストごとに違うため、差があるときはキャッシュしない */
   const bashFor = (
     cwd: string,
     roots: readonly LandlockWriteRoot[],
@@ -167,7 +161,6 @@ export function createToolExecution(
     skillsDir: join(lexicalRoot, COMMON_SKILLS_DIR),
   });
 
-  /** エージェントの bash の許可 root。要求 cwd から導出する (BFF 内部実行は要求 scope だけを使う) */
   const agentBashRoots = (executionCwd: string, scope: WriteScope): LandlockWriteRoot[] => [
     { path: executionCwd },
     { path: scope.skillsDir, create: true },
@@ -314,11 +307,11 @@ export function createToolExecution(
   const runToolWithGate = async <T>(
     run: () => Promise<T>,
     toolName: string,
-    params: unknown,
+    params: ValidatedExecuteRequest["params"],
     cwd: string,
   ): Promise<T> => {
     if (toolName !== "edit" && toolName !== "write") return run();
-    const requested = (params as { path?: unknown } | null | undefined)?.path;
+    const requested = params?.path;
     if (typeof requested !== "string") return run();
     const touched = await touchesCommonSkills({ rootCwd, requested: resolve(cwd, requested), mode: "inside" });
     return touched ? commonSkillGate.run(run) : run();
@@ -332,41 +325,16 @@ export function createToolExecution(
     }
     const parsed = await readRouteJson(c);
     if (!parsed.ok) return parsed.response;
-    const { toolCallId, params, cwd, env, writeScope, gitConfig, networkAccess } = (parsed.body ??
-      {}) as SandboxExecuteRequestBody;
-    if (params !== undefined && (typeof params !== "object" || params === null || Array.isArray(params))) {
-      return c.json({ error: "params must be an object" }, 400);
-    }
-    if (cwd !== undefined && typeof cwd !== "string") {
-      return c.json({ error: "cwd must be a string" }, 400);
-    }
-    // 型を足すだけでは runtime 検証にならない (受信側は body を assertion して個別に parse する)。
-    // null / 文字列 / 数値はここで 400 にし、undefined / true / false だけを通す
-    if (networkAccess !== undefined && typeof networkAccess !== "boolean") {
-      return c.json({ error: "networkAccess must be a boolean" }, 400);
-    }
-    let injected: Record<string, string> | undefined;
+    let request: ValidatedExecuteRequest;
     try {
-      injected = parseInjectedEnv(env);
+      request = parseExecuteRequest(parsed.body);
     } catch (error) {
       return c.json({ error: messageFor(error) }, 400);
     }
-    let requestedGitConfig: SandboxGitConfig | null | undefined;
-    try {
-      requestedGitConfig = parseGitConfig(gitConfig);
-    } catch (error) {
-      return c.json({ error: messageFor(error) }, 400);
-    }
-    let requestedScope: SandboxWriteScopeEntry[] | undefined;
-    try {
-      requestedScope = parseWriteScope(writeScope);
-    } catch (error) {
-      return c.json({ error: messageFor(error) }, 400);
-    }
-    // 実行 cwd はリクエストごとに root 配下の実在ディレクトリへ解決する (実行時隔離ではなくパス解決の起点)
+    const { requestedCwd, requestedScope } = request;
     let executionCwd: string;
     try {
-      executionCwd = (await resolveWorkspaceDirectory(rootCwd, cwd ?? "")).target;
+      executionCwd = (await resolveWorkspaceDirectory(rootCwd, requestedCwd)).target;
     } catch (error) {
       return routeError(c, error, 500);
     }
@@ -377,14 +345,25 @@ export function createToolExecution(
       try {
         bashRoots =
           requestedScope === undefined
-            ? agentBashRoots(executionCwd, writeScopeFor(cwd ?? "", executionCwd))
+            ? agentBashRoots(executionCwd, writeScopeFor(requestedCwd, executionCwd))
             : [...requestBashRoots(requestedScope), ...fixedLandlockRoots];
       } catch (error) {
         return routeError(c, error, 400);
       }
     }
-    // gitConfig 付きの実行だけ、予約名を落として GIT_CONFIG_GLOBAL / GIT_CONFIG_NOSYSTEM を足す。
-    // 旧 BFF からの実行 (gitConfig 省略) では従来どおり何も剥がさない。
+    return runExecution(c, toolName, request, executionCwd, bashRoots);
+  };
+
+  const runExecution = async (
+    c: Context,
+    toolName: string,
+    request: ValidatedExecuteRequest,
+    executionCwd: string,
+    bashRoots: LandlockWriteRoot[] | undefined,
+  ): Promise<Response> => {
+    const { toolCallId, params, requestedCwd, requestedGitConfig, requestedScope, networkAccess } = request;
+    let { injected } = request;
+    // gitConfig を省略する実行 (serve や旧 BFF など) からは従来どおり予約名を剥がさない。
     let gitConfigFailure: string | undefined;
     if (toolName === "bash" && requestedGitConfig !== undefined) {
       injected = withoutGitIdentityEnv(injected);
@@ -393,13 +372,12 @@ export function createToolExecution(
         injected = { ...injected, GIT_CONFIG_GLOBAL: gitTarget.path, GIT_CONFIG_NOSYSTEM: "1" };
       }
     }
-    // bash だけが子プロセスを持つため、env は bash にだけ渡す (他のツールは値を使わないし、
-    // 渡しても値が経路に増えるだけ)。scope と networkAccess も定義に焼き込む必要があるため、
-    // 指定があるときはキャッシュしない (false -> true の変更が次の exec に反映されなくなる)。
+    // env 展開は bash 専用。他のツールに秘密値の経路を増やさない。
+    // リクエストごとの env・scope・networkAccess を固定してしまわないよう、指定があるときは定義を共有しない。
     const definition =
       toolName === "bash" && (injected !== undefined || requestedScope !== undefined || networkAccess !== undefined)
         ? bashFor(executionCwd, bashRoots ?? [], injected, networkAccess !== false)
-        : registryFor(executionCwd, writeScopeFor(cwd ?? "", executionCwd)).get(toolName);
+        : registryFor(executionCwd, writeScopeFor(requestedCwd, executionCwd)).get(toolName);
     if (!definition) {
       return c.json({ error: `Unknown tool: ${toolName}` }, 404);
     }
@@ -443,7 +421,7 @@ export function createToolExecution(
             // (read / write / serve と gitConfig の無い旧 BFF の実行は続ける)。
             if (gitConfigFailure) throw new Error(`bash を実行できません: ${gitConfigFailure}`);
             if (toolName === "bash" && requestedGitConfig !== undefined) {
-              await checkGitOwnership(executionCwd, cwd ?? "");
+              await checkGitOwnership(executionCwd, requestedCwd);
             }
             const runTool = async () => {
               throwIfAborted(abort.signal);
@@ -496,5 +474,16 @@ export function createToolExecution(
     });
   };
 
-  return { execute, executions, registryFor, writeScopeFor, landlockStatus, startupGitPrepare, gitConfigStatus };
+  return {
+    execute,
+    executions,
+    listToolNames: () => [...registryFor(rootCwd, writeScopeFor("", rootCwd)).keys()],
+    landlockStatus,
+    startupGitPrepare,
+    gitConfigStatus,
+    close: () => {
+      for (const abort of executions.values()) abort.abort();
+      executions.clear();
+    },
+  };
 }

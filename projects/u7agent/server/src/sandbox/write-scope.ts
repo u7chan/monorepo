@@ -5,7 +5,7 @@ import { deepestExistingReal, realpathNative } from "./fs-path";
 /**
  * write / edit が書ける範囲 (ファイルツールのポリシー)。許可 root は実行 cwd (realpath)・要求 cwd の
  * lexical 形 (root / 登録ディレクトリが symlink でも system prompt に出た絶対パスを通す)・共通スキル置き場の 3 つ。
- * bash 側の強制は Landlock (このファイルの writeScope 導出) が担い、ここはモデルの取り違えを防ぐ。
+ * bash 側の強制は Landlock が担い、ここはモデルの取り違えを防ぐ。
  */
 export interface WriteScope {
   cwd: string;
