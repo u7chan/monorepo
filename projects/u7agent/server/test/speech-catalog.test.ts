@@ -2,14 +2,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SpeechCatalogRow } from "../src/app-db";
+import {
+  CATALOG_ERROR_RATE_LIMITED,
+  CATALOG_ERROR_TIMEOUT,
+  CATALOG_ERROR_UNKNOWN,
+  CATALOG_TIMEOUT_MS,
+} from "../src/content-model-catalog";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
 import {
   createSpeechCatalog,
   DEFAULT_SPEECH_MODEL,
-  SPEECH_CATALOG_ERROR_RATE_LIMITED,
-  SPEECH_CATALOG_ERROR_TIMEOUT,
-  SPEECH_CATALOG_ERROR_UNKNOWN,
-  SPEECH_CATALOG_TIMEOUT_MS,
   SPEECH_CATALOG_URL,
   type SpeechCatalogEntry,
   type SpeechCatalogStore,
@@ -72,7 +74,7 @@ function create(
     store,
     fetchImpl: baseFetch,
     now: options.now ?? (() => 1000),
-    timeoutMs: options.timeoutMs ?? SPEECH_CATALOG_TIMEOUT_MS,
+    timeoutMs: options.timeoutMs ?? CATALOG_TIMEOUT_MS,
     defaultCatalog: options.defaultCatalog ?? (() => BUNDLED),
   });
   return { catalog, store, calls };
@@ -172,19 +174,19 @@ test("キャッシュの読み書きはテーブルが image_catalog と同型�
     source: "stored",
     fetchedAt: 500,
   });
-  assert.equal(await catalog.refresh(), SPEECH_CATALOG_ERROR_RATE_LIMITED);
+  assert.equal(await catalog.refresh(), CATALOG_ERROR_RATE_LIMITED);
   assert.deepEqual(catalog.snapshot().source, "stored", "取得できなければ前回の一覧のままにする");
   assert.equal(catalog.snapshot().fetchedAt, 500);
 });
 
 test("失敗は固定文言へ分類し、一覧は前のまま保つ", async () => {
   const cases: { response: Response; error: string }[] = [
-    { response: jsonResponse({ error: "boom" }, 429), error: SPEECH_CATALOG_ERROR_RATE_LIMITED },
-    { response: jsonResponse({ error: "boom" }, 503), error: SPEECH_CATALOG_ERROR_RATE_LIMITED },
-    { response: jsonResponse({ error: "not found" }, 404), error: SPEECH_CATALOG_ERROR_UNKNOWN },
-    { response: new Response("<html>proxy</html>", { status: 200 }), error: SPEECH_CATALOG_ERROR_UNKNOWN },
-    { response: jsonResponse({ data: [] }), error: SPEECH_CATALOG_ERROR_UNKNOWN },
-    { response: jsonResponse({ nope: true }), error: SPEECH_CATALOG_ERROR_UNKNOWN },
+    { response: jsonResponse({ error: "boom" }, 429), error: CATALOG_ERROR_RATE_LIMITED },
+    { response: jsonResponse({ error: "boom" }, 503), error: CATALOG_ERROR_RATE_LIMITED },
+    { response: jsonResponse({ error: "not found" }, 404), error: CATALOG_ERROR_UNKNOWN },
+    { response: new Response("<html>proxy</html>", { status: 200 }), error: CATALOG_ERROR_UNKNOWN },
+    { response: jsonResponse({ data: [] }), error: CATALOG_ERROR_UNKNOWN },
+    { response: jsonResponse({ nope: true }), error: CATALOG_ERROR_UNKNOWN },
   ];
   for (const { response, error } of cases) {
     const { catalog } = create({ fetch: async () => response });
@@ -200,7 +202,7 @@ test("期限切れはタイムアウトとして分類する", async () => {
       init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
     });
   const { catalog } = create({ fetch: hanging, timeoutMs: 5 });
-  assert.equal(await catalog.refresh(), SPEECH_CATALOG_ERROR_TIMEOUT);
+  assert.equal(await catalog.refresh(), CATALOG_ERROR_TIMEOUT);
 });
 
 test("キャッシュが読めない / 保存できないときも、いま返している一覧を壊さない", async () => {

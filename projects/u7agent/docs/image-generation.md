@@ -10,7 +10,7 @@
 
 ## モデルカタログ
 
-選択肢の正は OpenRouter の live 一覧（`GET https://openrouter.ai/api/v1/images/models`）。pi-ai 同梱のカタログは SDK のリリース時点のスナップショットで、live とずれる（追加されたモデルが出ない / `/images` に無い `openrouter/auto*` が混ざる）。実装は `server/src/image-catalog.ts`。
+選択肢の正は OpenRouter の live 一覧（`GET https://openrouter.ai/api/v1/images/models`）。pi-ai 同梱のカタログは SDK のリリース時点のスナップショットで、live とずれる（追加されたモデルが出ない / `/images` に無い `openrouter/auto*` が混ざる）。一覧の取得・キャッシュは `server/src/content-model-catalog.ts`、画像モデルの宣言の解釈と絞り込みは `server/src/image-catalog.ts`。
 
 | 出どころ (`catalogSource`) | いつ | `fetchedAt` |
 | --- | --- | --- |
@@ -21,7 +21,7 @@
 - 取得は **API キーを使わない**（一覧 API は認証を見ないので、認証ヘッダも付けない）。キーの有無・有効性とは独立で、**キーの死活チェックには使えない**（無効なキーでも 200 が返る）
 - 取得契機は 起動時（`content_settings` に行があるとき）/ 手動の [カタログ更新]。`GET /api/settings/content` はネットワークに触らず、メモリ上の現在値を返すだけ。キー保存にも紐づけない（設定の変更を外部 API の待ち時間へ巻き込まない）
 - 手動の [カタログ更新] は、一覧と同時にコストマスタ（任意設定）から価格と `visible` も取る。未設定・OFF・取得失敗でも一覧の取得は従来どおりで、価格は `--` / 全件表示に倒れる（[content-cost.md](content-cost.md)）
-- 期限は 10 秒（`IMAGE_CATALOG_TIMEOUT_MS`）+ リトライなし。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
+- 期限（`server/src/content-model-catalog.ts`）を設け、リトライはしない。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
 - 取得成功時だけ DB（`image_catalog`）へ `id` と表示名、あれば出力形式の宣言（`outputFormats`）と画像入力の宣言（`input`）、生成パラメータの宣言（`parameters`）を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
 - 生成パラメータの宣言は `supported_parameters` から読み、名前を `aspect_ratio` / `resolution` / `quality` / `output_format` / `background` / `seed` に限る。descriptor は `enum`（`values`）/ `range`（`min` / `max`）/ `boolean` の 3 種類だけで、`boolean` は「そのパラメータを受け付ける」の意味（値そのものは送らない）。`seed` の値は 0 以上 2^31-1 以下の整数で、宣言がそれを超えていてもこの範囲に切る
 - 宣言の読み取りは `server/src/images.ts` の `imageParameterDeclarationsOf()` 1 つを live とキャッシュの両方に使い、未知のキー・形違い・空の `values` は落とす（1 つも読めなければ「不明」）。`output_format` の値は保存できる形式（png / jpeg / webp）との積にし、積が空なら宣言なしに倒す（[保存できない形式のモデル](#保存できない形式のモデル)の判定と食い違わせない）
@@ -94,7 +94,7 @@ SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品�
 3. `endpoints` が指す URL（無ければ `GET /api/v1/images/models/<id>/endpoints`）を編集実行時に取得し、**すべての** endpoint が `supported_parameters.input_references` で 1 枚を許容する
 
 - 状態は「対応 / 非対応 / 不明」を区別する。宣言の不在・形違い・旧キャッシュは「不明」で、編集だけを止め、新規生成は止めない
-- endpoint の取得は編集実行時だけ（起動時や `GET /api/settings/content` では通信しない）。認証ヘッダを付けず、期限は `IMAGE_CATALOG_TIMEOUT_MS` と同じ。成功だけをプロセス内メモリに残し、失敗はキャッシュせず次の実行で引き直す
+- endpoint の取得は編集実行時だけ（起動時や `GET /api/settings/content` では通信しない）。認証ヘッダを付けず、期限はモデル一覧の取得と同じ。成功だけをプロセス内メモリに残し、失敗はキャッシュせず次の実行で引き直す
 - endpoint 応答の形は、live で観測したとおり `{ id, endpoints: [...] }` を読む（各要素の `supported_parameters.input_references` が参照枚数の宣言）。トップレベルの `data[]` は live の応答には無いため依存しない。`data[]` だけを返す旧い形は後方互換として読み、`endpoints` が配列でなく `data` も無い（または空の）応答は契約外として「不明」に落とす
 - endpoint 応答が `architecture` を持たないことは契約外にしない（モデル一覧側で確認する）。`input_references` の宣言が無い / 形が違う endpoint は「不明」として止める
 - モデル名の固定対応表は持たない。`provider.only` によるルートの pin も行わない（対応 / 非対応が混在するモデルは編集対象外として案内する）
