@@ -28,7 +28,7 @@ import type {
   ThinkingLevel,
 } from "../types";
 import type { ChatAction } from "./chatReducer";
-import { createGenerationTracker } from "./requestGate";
+import { alwaysCurrent, createGenerationTracker } from "./requestGate";
 import { createSessionsFetch } from "../lib/sessionsFetch";
 import { sessionsInSpace } from "../lib/spaceSessions";
 import { createNotifyCarry, createNotifyToggleRunner } from "./notifyToggle";
@@ -43,8 +43,6 @@ import { nextAfterFailure, nextAfterRemoval } from "./sessionFallback";
 import { useSessionEvents } from "./useSessionEvents";
 import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
-
-const alwaysCurrent = () => true;
 
 /** 開けなかった理由。サーバーの 409 は「どのファイルが壊れているか」を含む */
 function sessionOpenFailureText(error: unknown): string {

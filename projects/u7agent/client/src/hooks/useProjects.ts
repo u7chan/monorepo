@@ -2,9 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import type { CreateProjectInput } from "../api";
 import { useSpaceApi } from "../SpaceContext";
 import type { Project } from "../types";
-import { createRequestGate } from "./requestGate";
-
-const alwaysCurrent = () => true;
+import { alwaysCurrent, createRequestGate } from "./requestGate";
 
 export function useProjects() {
   const { createProject: apiCreateProject, deleteProject: apiDeleteProject, listProjects } = useSpaceApi();
