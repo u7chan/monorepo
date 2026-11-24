@@ -21,12 +21,11 @@ function settleQuestion(pending: PendingQuestion, finish: () => void): void {
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { dirname, posix } from "node:path";
 import { spaceIdOf } from "./spaces";
 import { sessionUploadsRel, workspaceAbs } from "./app-paths";
 import { SANDBOX_SETUP_REQUIRED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./session-prompt";
-import { buildHandoffSection, HANDOFF_FILE_NAME, type HandoffMemoSection } from "./handoff-memo";
+import { applyHandoffMove, prepareHandoffMemo, type HandoffMoveFiles, type HandoffMovePort } from "./handoff-move";
 import type { AssistantMetricsRow, AssistantMetricsStore, CwdKeyStore } from "./app-db";
 import { httpError, messageFor, type HttpError } from "./errors";
 import { sandboxFailureStatus } from "./http";
@@ -75,7 +74,6 @@ import type {
 } from "./session-record";
 import { projectSessionPayload, projectSessionSummary } from "./session-payload";
 import { batchesSteering, sdkQueueLength, takenSendIdsOf } from "./session-steering";
-import { SANDBOX_MAX_HANDOFF_BYTES } from "./sandbox/protocol";
 import { RunOutcomeSchema } from "./schema";
 import {
   normalizeTitleText,
@@ -2637,9 +2635,13 @@ export class SessionStore {
     }
 
     const storeDir = this.storeDir;
-    const moveSandbox = this.moveSandbox;
-    const workspace = this.workspace;
-    const handoffSandbox = this.handoffSandbox;
+    const files: HandoffMoveFiles = {
+      storeDir,
+      moveSandbox: this.moveSandbox,
+      workspace: this.workspace,
+      handoffSandbox: this.handoffSandbox,
+      cwdKeys: this.cwdKeys,
+    };
     // 移動先も owner 経由で解く (同じスペースの引き継ぎでは共有フォルダのまま、メモはそこへ書く)
     const toWorkdir = meta.projectCwd ?? this.scratchOf(this.workdirOwnerOf(meta), target);
     const toUploads = sessionUploadsRel(this.uploadsOwnerOf(meta), target);
@@ -2660,80 +2662,20 @@ export class SessionStore {
 
     const operationId = generateHandoffOperationId();
     const at = Date.now();
-
-    // メモの下準備 (副作用なし)。材料と既存の HANDOFF.md をここで読み、会話の状態を変える前に拒否する。
-    // 追記後の全文を組み立てるのはここでの上限判定のためで、書込みは排他の中で再読取りして再適用する
-    let memoSection: HandoffMemoSection | undefined;
-    let memoExisting = "";
-    const memoPath = posix.join(toWorkdir, HANDOFF_FILE_NAME);
-    if (memo) {
-      const { parsed } = await readSessionFile(storeDir, id);
-      if (parsed.kind === "damaged") {
-        throw httpError(
-          400,
-          `保存された会話を読めないためメモを作れません (${parsed.reason})。「メモを作る」を外すと引き継げます`,
-        );
-      }
-      const section = buildHandoffSection({
-        entries: parsed.kind === "ok" ? parsed.entries : [],
-        title: current.title,
-        fromAgent: current.agent.name,
-        toAgent: agentInfo.name,
-        operationId,
-        at,
-        masker: this.masker,
-      });
-      if (!section) throw httpError(400, "メモにできる会話がまだありません。「メモを作る」を外すと引き継げます");
-      const readPath = moving ? posix.join(fromWorkdir, HANDOFF_FILE_NAME) : memoPath;
-      try {
-        memoExisting = (await handoffSandbox.readHandoff(readPath)).text;
-      } catch (error) {
-        if (error instanceof SandboxRequestError && error.status === 404) {
-          memoExisting = "";
-        } else {
-          throw httpError(
-            400,
-            `作業フォルダの HANDOFF.md を読めないためメモを作れません (${messageFor(error)})。「メモを作る」を外すと引き継げます`,
-          );
-        }
-      }
-      const total =
-        Buffer.byteLength(memoExisting, "utf8") +
-        // 先頭見出しのハッシュが既にあるときは追記されないので、追記分を足さずに評価する
-        // (確定前の失敗からの再試行で、全文がちょうど上限でも通す)
-        (memoExisting.split("\n", 1)[0]?.includes(section.hash) ? 0 : Buffer.byteLength(section.text, "utf8"));
-      if (total > SANDBOX_MAX_HANDOFF_BYTES) {
-        throw httpError(
-          400,
-          "HANDOFF.md が上限 (2 MiB) を超えるためメモを作れません。「メモを作る」を外すと引き継げます",
-        );
-      }
-      memoSection = section;
-    }
-
-    // meta 書換えより前の失敗だけを戻す。移動先に残った空ディレクトリは無害なので消さない
-    const undo: Array<() => Promise<void> | void> = [];
-    const rollback = async (): Promise<string | undefined> => {
-      let failure: string | undefined;
-      for (const step of [...undo].reverse()) {
-        try {
-          await step();
-        } catch (error) {
-          failure = failure ?? messageFor(error);
-        }
-      }
-      return failure;
-    };
-    const abortMove = async (): Promise<undefined> => {
-      const failure = await rollback();
-      if (failure) throw httpError(500, `移動を中止し、元の場所へ戻せませんでした: ${failure}`);
-      return undefined;
-    };
-    const failMove = async (error: unknown): Promise<never> => {
-      const failure = await rollback();
-      if (failure) throw httpError(500, `移動に失敗し、元の場所へ戻せませんでした: ${failure}`);
-      throw error instanceof SandboxRequestError ? httpError(sandboxFailureStatus(error), error.message) : error;
-    };
+    const prepared = memo
+      ? await prepareHandoffMemo(files, {
+          id,
+          title: current.title,
+          fromAgent: current.agent.name,
+          toAgent: agentInfo.name,
+          operationId,
+          at,
+          masker: this.masker,
+          moving,
+          fromWorkdir,
+          toWorkdir,
+        })
+      : undefined;
 
     const updated: SessionMeta = {
       ...current,
@@ -2743,104 +2685,58 @@ export class SessionStore {
       agentId,
       agent: agentInfo,
       promptSnapshot,
-      handoff: { operationId, at, memo: memoSection !== undefined, consumed: false } satisfies SessionHandoffRecord,
+      handoff: { operationId, at, memo: prepared !== undefined, consumed: false } satisfies SessionHandoffRecord,
       handoffCleanup: true,
     };
-    try {
-      if (moving) {
-        // 移動先の親は move が要求する (既存ディレクトリは成功扱いなので再実行でも冪等)
-        await workspace.createDir(dirname(toWorkdir));
-        await workspace.createDir(dirname(toUploads));
-        if (this.moveAborted(id)) return abortMove();
-
-        if (await this.moveSandboxEntry(moveSandbox, fromWorkdir, toWorkdir)) {
-          undo.push(async () => {
-            await moveSandbox.moveEntry(toWorkdir, fromWorkdir);
-          });
-        }
-        if (this.moveAborted(id)) return abortMove();
-
-        if (await this.moveSandboxEntry(moveSandbox, fromUploads, toUploads)) {
-          undo.push(async () => {
-            await moveSandbox.moveEntry(toUploads, fromUploads);
-          });
-        }
-        if (this.moveAborted(id)) return abortMove();
-
-        // cwd をキーにする行は移動先へ付け替える (値の AAD は cwd を含まないので再暗号化は不要)
-        try {
-          this.cwdKeys?.moveCwd(fromWorkdir, toWorkdir);
-        } catch (error) {
-          throw httpError(500, `環境変数とサービス実績の付け替えに失敗しました: ${messageFor(error)}`);
-        }
-        undo.push(() => this.cwdKeys?.moveCwd(toWorkdir, fromWorkdir));
-      }
-
-      // メモは確定より前に書く (確定した時点でメモの状態が最終になる)。失敗したらここまでの移動を戻す
-      if (memoSection) {
-        const written = await handoffSandbox.writeHandoff({
-          path: memoPath,
-          section: memoSection.text,
-          dedupeKey: memoSection.hash,
-        });
-        if (written.created) {
-          // 新規作成の rollback は、自分が書いた内容と一致するときだけ消す。既存への追記は戻さない
-          const expected = `${memoSection.text}${memoExisting}`;
-          undo.push(async () => {
-            await handoffSandbox.rollbackHandoff({ path: memoPath, expected });
-          });
-        }
-      }
-      if (this.moveAborted(id)) return abortMove();
-
-      await writeSessionMeta(storeDir, updated);
-      this.descriptors.set(id, updated);
-      if (live) live.meta = updated;
-    } catch (error) {
-      return failMove(error);
-    }
-
-    // ここから先は meta が確定済み。失敗しても戻さず、片付けの印を残して次回の保存 / 開くときに再試行する
-    let cleanupPending = false;
-    if (live) {
-      live.session.dispose?.();
-      this.records.delete(id);
-      // dispose 後の書込みを drain してから消す (削除後に書き戻されて未送信が復活しないように)
-      await this.recordWrites.drain(live);
-    }
-    try {
-      await removeSessionHistory(storeDir, id);
-    } catch {
-      cleanupPending = true;
-    }
-    if (!cleanupPending) {
-      this.deleteAssistantMetrics(id);
-      const cleared: SessionMeta = { ...updated };
-      delete cleared.handoffCleanup;
-      try {
-        await writeSessionMeta(storeDir, cleared);
-        this.descriptors.set(id, cleared);
-        if (live) live.meta = cleared;
-      } catch {
-        // 確定は済んでいる。印が残るだけなので次の保存で再試行する
-        cleanupPending = true;
-      }
-    }
+    const result = await applyHandoffMove(files, this.handoffMovePort(id, live, storeDir), {
+      id,
+      moving,
+      fromWorkdir,
+      fromUploads,
+      toWorkdir,
+      toUploads,
+      updated,
+      memo: prepared,
+      live,
+    });
+    if (result.kind === "aborted") return undefined;
     if (live) {
       // 確定後の失敗は、応答だけでなく購読中のタブへ resync でも伝える (開けない理由を先に出す)
-      if (cleanupPending) this.emitResync(live);
+      if (result.cleanupPending) this.emitResync(live);
       this.closeSubscribers(live);
     }
     return {
       sessionId: id,
       title: updated.title || "無題のセッション",
       spaceId: target,
-      memo: memoSection !== undefined,
-      cleanupPending,
+      memo: prepared !== undefined,
+      cleanupPending: result.cleanupPending,
     };
   }
 
-  /** 削除予約 / close を検出する。move は各 await の後でこれを見てロールバックする */
+  /**
+   * 引き継ぎの手順 (`handoff-move`) へ渡す口。private を公開せずに切り出すため、この場の closure にする。
+   * `live` は手順の開始時の record で、確定後の片付けで open から外れるまで同じものを指す。
+   */
+  private handoffMovePort(id: string, live: SessionRecord | undefined, storeDir: string): HandoffMovePort {
+    return {
+      isAborted: () => this.moveAborted(id),
+      saveMeta: async (meta) => {
+        await writeSessionMeta(storeDir, meta);
+        this.descriptors.set(id, meta);
+        if (live) live.meta = meta;
+      },
+      releaseRecord: async (record) => {
+        record.session.dispose?.();
+        this.records.delete(id);
+        // dispose 後の書込みを drain してから消す (削除後に書き戻されて未送信が復活しないように)
+        await this.recordWrites.drain(record);
+      },
+      deleteAssistantMetrics: (sessionId) => this.deleteAssistantMetrics(sessionId),
+    };
+  }
+
+  /** 削除予約 / close を検出する。引き継ぎの手順 (handoff-move) は各 await の後でこれを見てロールバックする */
   private moveAborted(id: string): boolean {
     return this.deleting.has(id) || this.closing;
   }
@@ -3251,26 +3147,6 @@ export class SessionStore {
       }
     } catch (error) {
       console.warn(`[u7agent] assistant metrics copy failed: ${this.masker.mask(messageFor(error))}`);
-    }
-  }
-  /**
-   * 作業フォルダ / 添付を 1 つ移す。元が無い (404) は「運ぶものが無い」として false を返し、
-   * 移動先が既にある (409) はマージできないため、手動での退避先の削除を案内する。
-   */
-  private async moveSandboxEntry(client: SandboxMoveClient, from: string, to: string): Promise<boolean> {
-    try {
-      await client.moveEntry(from, to);
-      return true;
-    } catch (error) {
-      if (!(error instanceof SandboxRequestError)) throw error;
-      if (error.status === 404) return false;
-      if (error.status === 409) {
-        throw httpError(
-          409,
-          `移動先に既存のエントリがあります。退避先を削除してから再実行してください: ${error.message}`,
-        );
-      }
-      throw error;
     }
   }
 
