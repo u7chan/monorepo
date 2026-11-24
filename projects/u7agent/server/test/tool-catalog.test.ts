@@ -1,9 +1,10 @@
-// ツールのレジストリ (tool-catalog.ts) と、セッションへ公開する集合 (tool-plan.ts の sessionToolPlan) の検証。
+// ツールのレジストリ (tool-catalog.ts) と、セッションへ公開する集合 / 定義 (tool-plan.ts の sessionToolPlan と
+// hostToolDefinitions) の検証。
 // 実サンドボックス・実 SDK は使わない。
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { investigationTools, sessionToolPlan, type SessionToolPlan } from "../src/tool-plan";
+import { hostToolDefinitions, investigationTools, sessionToolPlan, type SessionToolPlan } from "../src/tool-plan";
 import { ASK_USER_TOOL_NAME } from "../src/ask-user-tool";
 import { IMAGE_TOOL_NAME } from "../src/image-tools";
 import { INVESTIGATE_TOOL_NAME } from "../src/investigate-tool";
@@ -219,6 +220,28 @@ test("sessionToolPlan は許可リストの積を取り、tools と enabled が�
     investigation: false,
   });
   assert.equal(platform.sandbox.includes("powershell"), true);
+});
+
+/** 実体の無いツールは、公開の判定 (sessionToolPlan) と食い違わないよう定義も組まない */
+test("hostToolDefinitions は実体が未設定のツールの定義を組まない", () => {
+  let built = 0;
+  const build = () => {
+    built += 1;
+    return [];
+  };
+
+  assert.deepEqual(hostToolDefinitions(null, build), []);
+  assert.equal(built, 0);
+
+  assert.deepEqual(
+    hostToolDefinitions({ name: SERVE_TOOL_NAME }, (host) => {
+      built += 1;
+      assert.equal(host.name, SERVE_TOOL_NAME);
+      return [];
+    }),
+    [],
+  );
+  assert.equal(built, 1);
 });
 
 test("子セッションは作業ツールだけを引き継ぎ、親の許可リストとの積で減る", () => {

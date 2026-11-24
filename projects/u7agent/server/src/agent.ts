@@ -54,7 +54,7 @@ import { compactionSettingsFromEnv, createSessionResourceLoader, createSessionSe
 import { createServeToolDefinitions, SERVE_TOOL_NAME, type ServeToolHost } from "./serve-tool";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import { createRemoteToolDefinitions } from "./sandbox/remote-tools";
-import { configuredTools, investigationTools, sessionToolPlan } from "./tool-plan";
+import { configuredTools, hostToolDefinitions, investigationTools, sessionToolPlan } from "./tool-plan";
 import { toolCatalog, type ToolAvailability } from "./tool-catalog";
 import { createMutableSecretMasker, type SecretMasker } from "./redact";
 import { DEFAULT_WEB_SEARCH_PROVIDER } from "./web-search-providers";
@@ -249,6 +249,31 @@ export interface PiBff {
   setGitIdentity(source: GitIdentitySource): void;
 }
 
+/**
+ * bootstrap が起動後に差し込むホストと設定。BFF はこれらが揃う前に起動するため、未設定のときの扱いを
+ * ここで決める: ホストが未設定なら対応するツールを公開せず、設定が未設定なら既定で動く。
+ */
+interface PiBffHosts {
+  /** アプリデータとサンドボックスを持つ bootstrap が注入する。未注入なら serve を公開しない */
+  serve: ServeToolHost | null;
+  /** 待機の所有者は SessionStore。未注入なら ask_user を公開しない */
+  askUser: AskUserHost | null;
+  /** 子の生成と並列の所有者は SessionStore 側の runner。未注入なら investigate を公開しない */
+  investigate: InvestigateHost | null;
+  /** egress ポリシー。未注入なら承認ツールを公開しない */
+  networkAccess: NetworkAccessHost | null;
+  /** 作業環境の変数の解決源。未注入なら env 無しで実行する */
+  sessionEnv: SessionEnvSource | null;
+  /** Git identity。未注入なら gitConfig を送らない */
+  gitIdentity: GitIdentitySource | null;
+  /** 音声の形式の学習結果。DB を持たないため、未注入ならプロセス内のメモだけで動く */
+  speechFormatStore: SpeechFormatStore | null;
+  /** コンテンツ生成の設定。未設定は無効で、ツール定義はセッション作成時にこの値を見る (既存会話へ遡及しない) */
+  contentGeneration: ContentGenerationConfig | undefined;
+  /** Web 検索の設定。未設定は無効 / Exa で、ツールは execute のたびにここを読む (セッション作成時に凍結しない) */
+  webSearch: WebSearchRuntimeConfig;
+}
+
 export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}): Promise<PiBff> {
   // rootCwd は「ワークスペース root」で、セッションごとの cwd はここからの相対パスで解決する。
   const rootCwd = resolve(cwd);
@@ -280,9 +305,21 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const selection: ModelSelection = { allowedModels: undefined, defaultModel: undefined };
   const versions = runtimeVersionInfo();
   const maskError = (error: unknown): string => secretMasker.mask(messageFor(error));
-  // コンテンツ生成の設定は DB を正とする ContentSettingsService が setContentGeneration() で写す。初期値は無効で、
-  // ツール定義はセッション作成時にこの値を見る（既存会話へ遡及しない）
-  const contentGeneration: { config: ContentGenerationConfig | undefined } = { config: undefined };
+  const hosts: PiBffHosts = {
+    serve: null,
+    askUser: null,
+    investigate: null,
+    networkAccess: null,
+    sessionEnv: null,
+    gitIdentity: null,
+    speechFormatStore: null,
+    contentGeneration: undefined,
+    webSearch: {
+      readEnabled: () => false,
+      readProvider: () => DEFAULT_WEB_SEARCH_PROVIDER,
+      readApiKey: () => undefined,
+    },
+  };
   const imagesGenerator = createImagesGenerator({ maskText: maskError });
   // Codex は応答の形も期限も違うため別のアダプタにする。呼び出し側は provider を渡すだけでよい
   const codexImagesGenerator = createCodexImagesGenerator({ maskText: maskError });
@@ -290,37 +327,14 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     input.provider === "codex"
       ? codexImagesGenerator.generate({ prompt: input.prompt, auth: input.auth, signal: input.signal })
       : imagesGenerator.generate(input);
-  // 形式の学習結果の保存先は bootstrap が注入する（DB を持たないため、ここで束縛だけを遅らせる）
-  const speechFormatStore: { value: SpeechFormatStore | null } = { value: null };
   const speechGenerator = createSpeechGenerator({
     maskText: maskError,
     store: {
-      read: (model) => speechFormatStore.value?.read(model),
-      save: (model, format) => speechFormatStore.value?.save(model, format),
+      read: (model) => hosts.speechFormatStore?.read(model),
+      save: (model, format) => hosts.speechFormatStore?.save(model, format),
     },
   });
   const bgmGenerator = createBgmGenerator({ maskText: maskError });
-  // Web 検索の設定も DB を正とする WebSearchSettingsService が写す。既定は無効 / Exa で、
-  // ツールは execute のたびにここを読む（セッション作成時に凍結しない）
-  const webSearch: { config: WebSearchRuntimeConfig } = {
-    config: {
-      readEnabled: () => false,
-      readProvider: () => DEFAULT_WEB_SEARCH_PROVIDER,
-      readApiKey: () => undefined,
-    },
-  };
-  // serve ツールの実体は bootstrap (アプリデータとサンドボックスを持つ層) が注入する。未注入なら公開しない
-  const serveHost: { value: ServeToolHost | null } = { value: null };
-  // ask_user の実体も bootstrap が注入する。待機の所有者は SessionStore (run 状態と同じ場所に置く)
-  const askUserHost: { value: AskUserHost | null } = { value: null };
-  // investigate の実体も bootstrap が注入する。子の生成と並列の所有者は SessionStore 側の runner
-  const investigateHost: { value: InvestigateHost | null } = { value: null };
-  // egress ポリシーの実体も bootstrap が注入する。未注入なら承認ツールを公開しない
-  const networkAccessHost: { value: NetworkAccessHost | null } = { value: null };
-  // 変数 (作業環境 → 環境変数) の解決源も同じく bootstrap が注入する。未注入なら env 無しで実行する
-  const sessionEnv: { value: SessionEnvSource | null } = { value: null };
-  // Git の identity も同じく bootstrap が注入する。未注入なら gitConfig を送らない (従来挙動)
-  const gitIdentity: { value: GitIdentitySource | null } = { value: null };
 
   const current = { value: unavailableModelState() };
   /**
@@ -363,14 +377,14 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   function toolAvailability(): ToolAvailability {
     return {
       sandboxTools: configuredTools(),
-      imageGeneration: contentGeneration.config?.imageAvailability() ?? { enabled: false, reason: "no_key" },
-      contentGeneration: contentGeneration.config?.enabled === true,
-      contentGenerationConfigured: contentGeneration.config?.configured === true,
-      webSearch: webSearch.config.readEnabled(),
-      serve: serveHost.value?.configured === true,
-      askUser: askUserHost.value !== null,
-      requestNetworkAccess: networkAccessHost.value !== null,
-      investigate: investigateHost.value !== null,
+      imageGeneration: hosts.contentGeneration?.imageAvailability() ?? { enabled: false, reason: "no_key" },
+      contentGeneration: hosts.contentGeneration?.enabled === true,
+      contentGenerationConfigured: hosts.contentGeneration?.configured === true,
+      webSearch: hosts.webSearch.readEnabled(),
+      serve: hosts.serve?.configured === true,
+      askUser: hosts.askUser !== null,
+      requestNetworkAccess: hosts.networkAccess !== null,
+      investigate: hosts.investigate !== null,
     };
   }
 
@@ -509,15 +523,15 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           tools: sessionTools.sandbox,
           ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
           // 解決は exec のたびに行う (設定の変更は次の bash から効く)
-          envForCwd: () => sessionEnv.value?.variablesFor(relativeCwd) ?? {},
-          ...(gitIdentity.value ? { gitConfigForExec: () => gitIdentity.value?.identityForExec() ?? null } : {}),
+          envForCwd: () => hosts.sessionEnv?.variablesFor(relativeCwd) ?? {},
+          ...(hosts.gitIdentity ? { gitConfigForExec: () => hosts.gitIdentity?.identityForExec() ?? null } : {}),
           // 承認は exec のたびに解決する (同じ会話の途中で変わる)。key は SDK の sessionId なので、
           // investigate の子は親の承認を継承しない。id を解決できないときは開かない (fail-closed)
-          ...(networkAccessHost.value
+          ...(hosts.networkAccess
             ? {
                 networkAccessForExec: () => {
                   const id = sdkSessionId.value;
-                  return id !== undefined && networkAccessHost.value?.allows(id) === true;
+                  return id !== undefined && hosts.networkAccess?.allows(id) === true;
                 },
               }
             : {}),
@@ -529,9 +543,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
               ...(appTool(WEB_SEARCH_TOOL_NAME)
                 ? createWebSearchToolDefinitions({
                     masker: secretMasker,
-                    readEnabled: () => webSearch.config.readEnabled(),
-                    readProvider: () => webSearch.config.readProvider(),
-                    readApiKey: (provider) => webSearch.config.readApiKey(provider),
+                    readEnabled: () => hosts.webSearch.readEnabled(),
+                    readProvider: () => hosts.webSearch.readProvider(),
+                    readApiKey: (provider) => hosts.webSearch.readApiKey(provider),
                   })
                 : []),
               ...createImageToolDefinitions({
@@ -543,13 +557,13 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 masker: secretMasker,
                 // 公開はセッション作成時に凍結するが、OFF はこの 1 行で既存の会話にも次の呼び出しから効く。
                 // キー未設定を OFF と混同しないよう、公開の `enabled` ではなくトグルの `disabled` を見る
-                readEnabled: () => !contentGenerationDisabled(contentGeneration.config),
-                readSettings: () => contentGeneration.config?.read(),
-                readOutputFormats: (model) => contentGeneration.config?.readOutputFormats(model),
-                readParameters: (model) => contentGeneration.config?.readParameters(model),
+                readEnabled: () => !contentGenerationDisabled(hosts.contentGeneration),
+                readSettings: () => hosts.contentGeneration?.read(),
+                readOutputFormats: (model) => hosts.contentGeneration?.readOutputFormats(model),
+                readParameters: (model) => hosts.contentGeneration?.readParameters(model),
                 checkImageInput: async (model, signal) =>
-                  contentGeneration.config
-                    ? contentGeneration.config.checkImageInput(model, signal)
+                  hosts.contentGeneration
+                    ? hosts.contentGeneration.checkImageInput(model, signal)
                     : IMAGE_INPUT_UNKNOWN_MESSAGE,
                 readImageInput: (path, scope, signal) => sandboxClient.readImageInput(path, scope, signal),
                 generate: generateImage,
@@ -559,9 +573,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 sessionCwd: relativeCwd,
                 workspace: sandboxClient,
                 masker: secretMasker,
-                readEnabled: () => !contentGenerationDisabled(contentGeneration.config),
-                readSettings: () => contentGeneration.config?.readSpeech(),
-                readVoices: (model) => contentGeneration.config?.readVoices(model),
+                readEnabled: () => !contentGenerationDisabled(hosts.contentGeneration),
+                readSettings: () => hosts.contentGeneration?.readSpeech(),
+                readVoices: (model) => hosts.contentGeneration?.readVoices(model),
                 generate: speechGenerator.generate,
               }),
               ...createBgmToolDefinitions({
@@ -569,36 +583,44 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 sessionCwd: relativeCwd,
                 workspace: sandboxClient,
                 masker: secretMasker,
-                readEnabled: () => !contentGenerationDisabled(contentGeneration.config),
-                readSettings: () => contentGeneration.config?.readBgm(),
+                readEnabled: () => !contentGenerationDisabled(hosts.contentGeneration),
+                readSettings: () => hosts.contentGeneration?.readBgm(),
                 generate: bgmGenerator.generate,
               }),
-              ...createServeToolDefinitions({
-                enabled: appTool(SERVE_TOOL_NAME),
-                sessionId: ownerSessionId ?? sessionId,
-                host: serveHost.value as ServeToolHost,
-                // 外した / 自然文では発火しない skill を説明が指したままだと、モデルが読めない skill を探す
-                ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
-                allowNaturalInvocationBuiltin: naturalInvocationBuiltin,
-              }),
-              ...createAskUserToolDefinitions({
-                enabled: appTool(ASK_USER_TOOL_NAME),
-                sessionId: ownerSessionId ?? sessionId,
-                host: askUserHost.value as AskUserHost,
-              }),
-              ...createRequestNetworkAccessToolDefinitions({
-                enabled: appTool(REQUEST_NETWORK_ACCESS_TOOL_NAME),
-                // 承認の key は exec 側と同じ SDK の sessionId にする (owner の id で記録すると exec が読めない)。
-                // 定義の生成時点では id が決まらないため、実行時に解決する
-                sessionId: () => sdkSessionId.value,
-                host: networkAccessHost.value as NetworkAccessHost,
-              }),
-              ...createInvestigateToolDefinitions({
-                enabled: appTool(INVESTIGATE_TOOL_NAME),
-                sessionId: ownerSessionId ?? sessionId,
-                host: investigateHost.value as InvestigateHost,
-                masker: secretMasker,
-              }),
+              ...hostToolDefinitions(hosts.serve, (host) =>
+                createServeToolDefinitions({
+                  enabled: appTool(SERVE_TOOL_NAME),
+                  sessionId: ownerSessionId ?? sessionId,
+                  host,
+                  // 外した / 自然文では発火しない skill を説明が指したままだと、モデルが読めない skill を探す
+                  ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
+                  allowNaturalInvocationBuiltin: naturalInvocationBuiltin,
+                }),
+              ),
+              ...hostToolDefinitions(hosts.askUser, (host) =>
+                createAskUserToolDefinitions({
+                  enabled: appTool(ASK_USER_TOOL_NAME),
+                  sessionId: ownerSessionId ?? sessionId,
+                  host,
+                }),
+              ),
+              ...hostToolDefinitions(hosts.networkAccess, (host) =>
+                createRequestNetworkAccessToolDefinitions({
+                  enabled: appTool(REQUEST_NETWORK_ACCESS_TOOL_NAME),
+                  // 承認の key は exec 側と同じ SDK の sessionId にする (owner の id で記録すると exec が読めない)。
+                  // 定義の生成時点では id が決まらないため、実行時に解決する
+                  sessionId: () => sdkSessionId.value,
+                  host,
+                }),
+              ),
+              ...hostToolDefinitions(hosts.investigate, (host) =>
+                createInvestigateToolDefinitions({
+                  enabled: appTool(INVESTIGATE_TOOL_NAME),
+                  sessionId: ownerSessionId ?? sessionId,
+                  host,
+                  masker: secretMasker,
+                }),
+              ),
             ]),
       ],
     };
@@ -651,37 +673,37 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       selection.defaultModel = next.defaultModel;
     },
     get contentGenerationEnabled() {
-      return contentGeneration.config?.enabled === true;
+      return hosts.contentGeneration?.enabled === true;
     },
     setContentGeneration(config) {
-      contentGeneration.config = config;
+      hosts.contentGeneration = config;
     },
     setSpeechFormatStore(store) {
-      speechFormatStore.value = store;
+      hosts.speechFormatStore = store;
     },
     generateSpeech: (input) => speechGenerator.generate(input),
     generateImage,
     generateBgm: (input) => bgmGenerator.generate(input),
     setWebSearch(config) {
-      webSearch.config = config;
+      hosts.webSearch = config;
     },
     setServe(host) {
-      serveHost.value = host;
+      hosts.serve = host;
     },
     setAskUser(host) {
-      askUserHost.value = host;
+      hosts.askUser = host;
     },
     setNetworkAccess(host) {
-      networkAccessHost.value = host;
+      hosts.networkAccess = host;
     },
     setInvestigate(host) {
-      investigateHost.value = host;
+      hosts.investigate = host;
     },
     setSessionEnv(source) {
-      sessionEnv.value = source;
+      hosts.sessionEnv = source;
     },
     setGitIdentity(source) {
-      gitIdentity.value = source;
+      hosts.gitIdentity = source;
     },
     refreshModelState,
     refreshModelCatalog,

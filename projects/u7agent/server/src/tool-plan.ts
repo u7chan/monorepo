@@ -2,6 +2,7 @@
  * セッションへ公開するツール名の計画。エージェント定義の許可リストとアプリ側の実効の積をここ 1 箇所で取り、
  * `tools` の登録名と customTools の有効判定へ同じ結果を渡す。
  */
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { ASK_USER_TOOL_NAME, withAskUserTool } from "./ask-user-tool";
 import { BGM_TOOL_NAME } from "./bgm-tools";
 import { IMAGE_TOOL_NAME, sessionToolNames } from "./image-tools";
@@ -103,4 +104,12 @@ export function sessionToolPlan(input: {
       enabled.has(INVESTIGATE_TOOL_NAME),
     ),
   };
+}
+
+/**
+ * 実体を後から差し込むツールの定義。実体が未設定なら組まない (公開の判定 `sessionToolPlan` が同じ束を
+ * 読むため、公開だけされて実体の無いツールは作れない)。
+ */
+export function hostToolDefinitions<T>(host: T | null, build: (host: T) => ToolDefinition[]): ToolDefinition[] {
+  return host === null ? [] : build(host);
 }
