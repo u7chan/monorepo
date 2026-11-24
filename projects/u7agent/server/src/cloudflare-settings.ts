@@ -4,7 +4,7 @@
  */
 import type { CloudflareSettingsRow } from "./app-db";
 import { httpError } from "./http";
-import { MutationLock } from "./serial-lock";
+import { SerialLock } from "./serial-lock";
 import { SecretKeyError, type SecretCipher } from "./secret-crypto";
 import { retainIfLongEnough } from "./secrets";
 import type { CloudflareMutationResponse, CloudflareSettingsResponse, UpdateCloudflareSettingsBody } from "./schema";
@@ -67,7 +67,7 @@ export class CloudflareSettingsService {
   #cipher: SecretCipher | null;
   #retainSecret: (value: string) => void;
   #now: () => number;
-  #lock = new MutationLock();
+  #lock = new SerialLock();
 
   constructor({ db, cipher, retainSecret, now }: CloudflareSettingsOptions) {
     this.#db = db;

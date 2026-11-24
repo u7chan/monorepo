@@ -52,7 +52,7 @@ import {
 } from "./custom-providers";
 import { httpError, messageFor } from "./http";
 import type { AppSecretCipher } from "./secret-crypto";
-import { MutationLock } from "./serial-lock";
+import { SerialLock } from "./serial-lock";
 import {
   PROVIDER_API_KEY_MIN_LENGTH,
   RUNTIME_MODELS_UNAVAILABLE_MESSAGE,
@@ -295,7 +295,7 @@ export class ModelSettingsService {
   #catalogTimeoutMs: number;
   #oauthLogin: { stateOf(provider: string): OAuthLoginState | null } | null;
   #appCipher: AppSecretCipher | null;
-  #lock = new MutationLock();
+  #lock = new SerialLock();
   /** このプロセスのメモリだけが持つ未反映の印。再起動で消える */
   #degraded = new Map<string, "apply" | "remove">();
   /**

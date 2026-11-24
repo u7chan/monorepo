@@ -1,7 +1,7 @@
 // カタログ更新の期限が状態再計算 (実 SDK の認証ストア読み) まで伝わることの回帰テスト。
 //
 // 実 SDK + 隔離した agent dir を使い、他プロセスが auth.json.lock を保持した状態を作る。期限が伝わらないと
-// refreshModelState() → getAvailable() がロック待ちを続け、総時間キャップを超えて共有 MutationLock を塞ぐ。
+// refreshModelState() → getAvailable() がロック待ちを続け、総時間キャップを超えて共有 SerialLock を塞ぐ。
 // キー・ネットワーク・実カタログには依存せず、期限で閉じることだけを固定する。
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";

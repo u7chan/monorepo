@@ -61,6 +61,7 @@ import { classifyRunError, composeRunError, retryWaitingText } from "./error-cla
 import { computeMessageMetrics, createRunEventBridge, type RunSettlement } from "./run-events";
 import { runDurationMs } from "./run-metrics";
 import { withoutThinking } from "./live-thinking";
+import { KeyedSerialLock } from "./serial-lock";
 import type {
   CreateSessionOptions,
   PendingQuestion,
@@ -426,9 +427,9 @@ export class SessionStore {
   /** id ごとのライフサイクル (load / evict)。完了まで同じ id の再ロードを待たせる */
   lifecycle: Map<string, Promise<unknown>>;
   /** 未ロード会話の meta-only 更新。タイトル・通知・ピン間で保存コピーを直列化する */
-  metaUpdates: Map<string, Promise<void>>;
+  metaUpdates: KeyedSerialLock<string>;
   /** 同一会話のピン更新。save / restore / delete と競合しないよう直列化する */
-  pinUpdates: Map<string, Promise<void>>;
+  pinUpdates: KeyedSerialLock<string>;
   /** 削除予約中の id */
   deleting: Set<string>;
   /**
@@ -519,8 +520,8 @@ export class SessionStore {
     this.records = new Map();
     this.descriptors = new Map();
     this.lifecycle = new Map();
-    this.metaUpdates = new Map();
-    this.pinUpdates = new Map();
+    this.metaUpdates = new KeyedSerialLock();
+    this.pinUpdates = new KeyedSerialLock();
     this.deleting = new Set();
     this.handoffSaves = new WeakMap();
     this.pendingMoves = new Set();
@@ -1139,21 +1140,6 @@ export class SessionStore {
     }
   }
 
-  private async queueMetaUpdate<T>(id: string, update: () => Promise<T>): Promise<T> {
-    const previous = this.metaUpdates.get(id) ?? Promise.resolve();
-    const operation = previous.then(update);
-    const settled = operation.then(
-      () => {},
-      () => {},
-    );
-    this.metaUpdates.set(id, settled);
-    try {
-      return await operation;
-    } finally {
-      if (this.metaUpdates.get(id) === settled) this.metaUpdates.delete(id);
-    }
-  }
-
   /** 実行中でも切り替えられ、通知するかどうかは finish 時点の値で決まる。 */
   async setNotify(id: string, notify: boolean): Promise<SessionNotifyResponse | undefined> {
     // 復元中の id は完了を待つ (descriptor を先に書き換えると load の meta で上書きされる)
@@ -1179,7 +1165,7 @@ export class SessionStore {
 
   /** ランタイムが使えない間も更新できるよう、SDK セッションは開かない。 */
   private updateUnloadedMeta<T>(id: string, update: (meta: SessionMeta) => void, response: T): Promise<T | undefined> {
-    return this.queueMetaUpdate(id, async () => {
+    return this.metaUpdates.run(id, async () => {
       if (this.deleting.has(id) || this.closing) return undefined;
       // 待機前に読んだ descriptor を使うと、先行した更新を上書きしてしまう。
       const meta = this.descriptors.get(id);
@@ -1204,22 +1190,8 @@ export class SessionStore {
   }
 
   /** ピン留めは SDK の設定・履歴・最終使用時刻に触れず、live / 未ロードとも meta だけを更新する。 */
-  async setPinned(id: string, pinned: boolean): Promise<SessionPinnedResponse | undefined> {
-    const previous = this.pinUpdates.get(id) ?? Promise.resolve();
-    const update = previous.then(
-      () => this.setPinnedState(id, pinned),
-      () => this.setPinnedState(id, pinned),
-    );
-    const settled = update.then(
-      () => {},
-      () => {},
-    );
-    this.pinUpdates.set(id, settled);
-    try {
-      return await update;
-    } finally {
-      if (this.pinUpdates.get(id) === settled) this.pinUpdates.delete(id);
-    }
+  setPinned(id: string, pinned: boolean): Promise<SessionPinnedResponse | undefined> {
+    return this.pinUpdates.run(id, () => this.setPinnedState(id, pinned));
   }
 
   private async setPinnedState(id: string, pinned: boolean): Promise<SessionPinnedResponse | undefined> {

@@ -16,7 +16,7 @@ import {
 import { httpError, messageFor, type HttpError } from "./http";
 import { bgmSettings, BGM_MODEL } from "./bgm";
 import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
-import { MutationLock } from "./serial-lock";
+import { SerialLock } from "./serial-lock";
 import type { ContentTrialSource } from "./content-trials";
 import { REDACTED } from "./redact";
 import type { ContentSettingsRow, ImageParameterDefaults, ImageSettingsRow } from "./app-db";
@@ -136,7 +136,7 @@ export class ContentSettingsService {
   #codexParams: string | null = null;
   /** content_settings の現在値。ツール公開の判定を DB の読取失敗に巻き込まないための写し */
   #row: ContentSettingsRow | undefined;
-  #lock = new MutationLock();
+  #lock = new SerialLock();
   /**
    * 復号済みの APIキー。画像 / 音声 / BGM / 試行へ渡すためにメモリだけに持ち、
    * GET では復号しない。null は「復号できていない」で、保存値の有無とは別。

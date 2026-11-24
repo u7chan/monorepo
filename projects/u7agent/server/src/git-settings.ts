@@ -6,7 +6,7 @@
 import type { GitSettingsRow } from "./app-db";
 import { httpError } from "./http";
 import { gitIdentityProblem, type GitIdentity } from "./git-identity";
-import { MutationLock } from "./serial-lock";
+import { SerialLock } from "./serial-lock";
 import type { GitSettingsMutationResponse, GitSettingsResponse, UpdateGitSettingsBody } from "./schema";
 
 export const GIT_SETTINGS_NOT_STORED_MESSAGE = "Git の設定をアプリデータ（SQLite）へ保存できませんでした";
@@ -31,7 +31,7 @@ function responseOf(row: GitSettingsRow | undefined): GitSettingsResponse {
 
 export class GitSettingsService {
   #db: GitSettingsDb;
-  #lock = new MutationLock();
+  #lock = new SerialLock();
 
   constructor(options: { db: GitSettingsDb }) {
     this.#db = options.db;

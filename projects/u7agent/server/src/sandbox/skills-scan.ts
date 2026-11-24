@@ -9,6 +9,7 @@
  */
 import type { LoadSkillsResult } from "@earendil-works/pi-coding-agent";
 import { Worker } from "node:worker_threads";
+import { SerialLock } from "../serial-lock";
 
 /** 1 ディレクトリの走査期限。正常な `.agents/skills` の走査は数十 ms で終わる */
 export const SKILLS_SCAN_TIMEOUT_MS = 2000;
@@ -52,8 +53,8 @@ import(workerData.moduleUrl)
 const SDK_MODULE_URL = import.meta.resolve("@earendil-works/pi-coding-agent");
 
 let active: ActiveWorker | undefined;
-/** 走査を直列化する (worker は 1 つで、同時要求は順番に処理する) */
-let queue: Promise<void> = Promise.resolve();
+// worker はリクエスト ID を返さないため、複数の走査を同時に送らない。
+const scanLock = new SerialLock();
 
 /** 期限切れは 504 として route から返す (BFF は発見失敗として扱う) */
 export function skillsScanTimeoutError(dir: string, timeoutMs: number): Error & { statusCode: number } {
@@ -64,13 +65,7 @@ export function skillsScanTimeoutError(dir: string, timeoutMs: number): Error & 
 }
 
 export function scanSkillsWithDeadline(dir: string, timeoutMs = SKILLS_SCAN_TIMEOUT_MS): Promise<LoadSkillsResult> {
-  const run = queue.then(() => scanOnce(dir, timeoutMs));
-  // 失敗しても次の要求を止めない (queue は成功・失敗どちらでも進める)
-  queue = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
+  return scanLock.run(() => scanOnce(dir, timeoutMs));
 }
 
 /** 起動時に worker を作っておく。初回のスキル一覧 / セッション作成で SDK の import 待ちを出さない。 */

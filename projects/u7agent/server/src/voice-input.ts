@@ -12,7 +12,7 @@ import {
   requireAppSecretCipher,
   type AppSecretState,
 } from "./app-secrets";
-import { MutationLock } from "./serial-lock";
+import { SerialLock } from "./serial-lock";
 import {
   classifyProviderFailure,
   parseJsonBody,
@@ -128,7 +128,7 @@ export class VoiceInputSettingsService {
   #appCipher: AppSecretCipher | null;
   #fetchImpl: typeof fetch | undefined;
   #timeoutMs: number;
-  #lock = new MutationLock();
+  #lock = new SerialLock();
   /** 復号済みのキー。外部通信の前に使うためだけにメモリへ持ち、GET では復号しない */
   #apiKey: string | null = null;
   /** 保存済みキーの復号結果。起動時と保存 / 置換のときだけ更新する */
