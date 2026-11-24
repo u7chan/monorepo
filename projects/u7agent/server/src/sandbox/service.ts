@@ -52,6 +52,7 @@ import { isGitIdentityEnvName, isInjectableEnvName } from "../env-names";
 import { gitIdentityProblem, type GitIdentity } from "../git-identity";
 import { fitsImageInputPixels, IMAGE_INPUT_MAX_BYTES, inspectImageInput } from "../image-format";
 import { SECRET_MASTER_KEY_ENV, SECRET_MASTER_KEY_FILE_ENV } from "../secret-crypto";
+import { KeyedSerialLock, SerialLock } from "../serial-lock";
 import {
   archiveContentDisposition,
   archiveDownloadName,
@@ -345,24 +346,6 @@ function readHandoffText(target: string): Promise<string> {
 }
 
 /**
- * 同一の実パスへの書き込みを直列化する。読んでから書くまでの間に他の追記が入っても、
- * その上へ重ねられる (作業フォルダを共有する別の会話の引き継ぎも残す)。
- */
-function withPathLock<T>(locks: Map<string, Promise<unknown>>, key: string, run: () => Promise<T>): Promise<T> {
-  const previous = locks.get(key) ?? Promise.resolve();
-  const operation = previous.then(run, run);
-  const settled = operation.then(
-    () => {},
-    () => {},
-  );
-  locks.set(key, settled);
-  void settled.then(() => {
-    if (locks.get(key) === settled) locks.delete(key);
-  });
-  return operation;
-}
-
-/**
  * 引き継ぎメモを先頭へ追記する。既存の本文は解釈せず、先頭行に dedupeKey があるときだけ追記を省く
  * (同じ材料からの再試行で二重にしない)。書込みは一時ファイル + rename で原子的にする。
  */
@@ -371,10 +354,10 @@ async function writeHandoffText(
   requested: string,
   section: string,
   dedupeKey: string,
-  locks: Map<string, Promise<unknown>>,
+  locks: KeyedSerialLock<string>,
 ): Promise<SandboxHandoffWrite> {
   const { target } = await resolveHandoffPath(rootCwd, requested);
-  return withPathLock(locks, target, async () => {
+  return locks.run(target, async () => {
     // 排他の先頭で読み直す (背後で進んだ他の追記の上へ重ね、上限も全文で判定する)
     const { existing } = await resolveHandoffPath(rootCwd, requested);
     const current = existing ? await readHandoffText(target) : undefined;
@@ -407,10 +390,10 @@ async function rollbackHandoffText(
   rootCwd: string,
   requested: string,
   expected: string,
-  locks: Map<string, Promise<unknown>>,
+  locks: KeyedSerialLock<string>,
 ): Promise<SandboxHandoffRollback> {
   const { target } = await resolveHandoffPath(rootCwd, requested);
-  return withPathLock(locks, target, async () => {
+  return locks.run(target, async () => {
     const { existing } = await resolveHandoffPath(rootCwd, requested);
     if (!existing) return { deleted: false };
     // 照合できない (上限・形式・読取り失敗) ときは消さない。他の追記を巻き戻す側に倒さない
@@ -1020,23 +1003,7 @@ interface SkillCrudContext {
   /** 取り込みの受信 ZIP の上限 (アップロードと同じ値) */
   maxUploadBytes: number;
   /** 共通スキル置き場の外側 gate。SDK のファイル隊列より先に取る (順序を固定する) */
-  gate: <T>(run: () => Promise<T>) => Promise<T>;
-}
-
-/**
- * 順番待ちの非同期 gate。専用の待機 timeout を持たず (SDK のファイル隊列と同じ)、開始済みの IO が
- * 終わる前に解放しない。共通スキル置き場の中だけを直列化するために使う。
- */
-function createAsyncGate(): <T>(run: () => Promise<T>) => Promise<T> {
-  let tail: Promise<unknown> = Promise.resolve();
-  return <T>(run: () => Promise<T>): Promise<T> => {
-    const next = tail.then(run, run);
-    tail = next.then(
-      () => undefined,
-      () => undefined,
-    );
-    return next;
-  };
+  gate: SerialLock;
 }
 
 /** JSON body から必要な文字列フィールドだけを読む。型違いと欠落は 400 にする (余分なキーは無視する) */
@@ -1380,7 +1347,7 @@ async function createCommonSkill(
     throw pathError(400, `説明は ${SKILL_DESCRIPTION_MAX_LENGTH} 文字以内にしてください`);
   }
   const text = createSkillText({ name: body.name, description: body.description, body: body.body });
-  return context.gate(async () => {
+  return context.gate.run(async () => {
     throwIfAborted(signal);
     const relativePath = [...COMMON_SKILLS_SEGMENTS, body.name, "SKILL.md"].join("/");
     const target = await resolveCommonSkillTarget({
@@ -1435,7 +1402,7 @@ async function saveCommonSkill(
   body: SandboxSkillSaveBody,
   signal?: AbortSignal,
 ): Promise<SandboxSkillSaveResult> {
-  return context.gate(async () => {
+  return context.gate.run(async () => {
     throwIfAborted(signal);
     const target = await resolveCommonSkillTarget({
       rootCwd: context.rootCwd,
@@ -1500,7 +1467,7 @@ async function deleteCommonSkill(
   treeVersion: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  return context.gate(async () => {
+  return context.gate.run(async () => {
     throwIfAborted(signal);
     const { folder } = await resolveCommonSkillFolder(context, requested, signal);
     const scan = await scanSkillFolder(folder.folder, context.archiveLimits);
@@ -1999,7 +1966,7 @@ async function importSkills(
       throw importFailure(error);
     });
     const staged = await extractImportGroups({ archivePath, archive, groups, staging });
-    return await context.gate(async () => {
+    return await context.gate.run(async () => {
       throwIfAborted(input.signal);
       const plans = await planSkillsImport({ rootCwd: context.rootCwd, staged, limits: context.archiveLimits });
       if (input.dryRun) {
@@ -2276,19 +2243,13 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     if (ownershipWarnings.length > GIT_OWNERSHIP_WARNING_LIMIT) ownershipWarnings.shift();
   };
 
-  // 書込を直列化する。起動時の useConfigOnly が後から届いて、最初の exec の identity を
-  // 上書きする競合を作らない (内容が同じなら prepareGitForBash 側が書かない)
-  let gitPrepareTail: Promise<unknown> = Promise.resolve();
+  // 起動時の useConfigOnly が後から届いて、最初の exec の identity を上書きしないようにする。
+  const gitPrepareLock = new SerialLock();
   const queueGitPrepare = (
     identity: GitIdentity | null,
     roots: readonly LandlockWriteRoot[],
   ): Promise<string | undefined> => {
-    const run = gitPrepareTail.then(
-      () => prepareGitForBash(identity, roots),
-      () => prepareGitForBash(identity, roots),
-    );
-    gitPrepareTail = run.catch(() => undefined);
-    return run;
+    return gitPrepareLock.run(() => prepareGitForBash(identity, roots));
   };
 
   // 起動時に useConfigOnly だけの config を用意する。失敗しても read / write / serve は動かす
@@ -2352,11 +2313,11 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   };
 
   const executions = new Map<string, AbortController>();
-  // 引き継ぎメモの書込みを実パス単位で直列化する (作業フォルダを共有する別の会話の同時追記を重ねる)
-  const handoffWrites = new Map<string, Promise<unknown>>();
+  // 作業フォルダを共有する会話の同時追記を失わないよう、会話 ID ではなく実パスで揃える。
+  const handoffWrites = new KeyedSerialLock<string>();
   // 共通スキル置き場の外側 gate。GUI CRUD と、共通内を変更し得る既存の変更 API が参加する
   // (SDK のファイル隊列はこの gate の内側で取得する)。共通外の編集は直列化しない
-  const commonSkillGate = createAsyncGate();
+  const commonSkillGate = new SerialLock();
   const skillCrud: SkillCrudContext = {
     rootCwd,
     scanTimeoutMs: skillsScanTimeoutMs,
@@ -2373,7 +2334,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     const touched = await Promise.all(
       paths.map((entry) => touchesCommonSkills({ rootCwd, requested: entry.path, mode: entry.mode })),
     );
-    return touched.some(Boolean) ? commonSkillGate(run) : run();
+    return touched.some(Boolean) ? commonSkillGate.run(run) : run();
   };
 
   /**
@@ -2390,7 +2351,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     const requested = (params as { path?: unknown } | null | undefined)?.path;
     if (typeof requested !== "string") return run();
     const touched = await touchesCommonSkills({ rootCwd, requested: resolve(cwd, requested), mode: "inside" });
-    return touched ? commonSkillGate(run) : run();
+    return touched ? commonSkillGate.run(run) : run();
   };
 
   const app = new Hono();

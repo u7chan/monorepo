@@ -5,7 +5,7 @@
  */
 import type { TitleSummarySettingsRow } from "./app-db";
 import { httpError, messageFor } from "./http";
-import { MutationLock } from "./model-settings";
+import { SerialLock } from "./serial-lock";
 import { ThinkingLevelSchema, type ModelOption, type ThinkingLevel } from "./schema";
 import { TITLE_DEFINITION_DEFAULT, TITLE_DEFINITION_MAX, type TitleSummaryModelChoice } from "./session-title";
 import type { UpdateTitleSummaryBody, TitleSummarySettingsResponse } from "./schema";
@@ -58,7 +58,7 @@ interface StoredState {
 export class TitleSummarySettingsService {
   #db: TitleSummarySettingsDb;
   #models: () => readonly ModelOption[];
-  #lock = new MutationLock();
+  #lock = new SerialLock();
   #state: StoredState = {
     enabled: false,
     model: null,

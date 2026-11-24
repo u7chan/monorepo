@@ -12,7 +12,7 @@ import {
   type AppSecretState,
 } from "./app-secrets";
 import { httpError, messageFor, type HttpError } from "./http";
-import { MutationLock } from "./model-settings";
+import { SerialLock } from "./serial-lock";
 import {
   DEFAULT_WEB_SEARCH_PROVIDER,
   WEB_SEARCH_PROVIDER_IDS,
@@ -76,7 +76,7 @@ export class WebSearchSettingsService {
   #setWebSearch: (config: WebSearchRuntimeConfig) => void;
   #retainSecret: (value: string) => void;
   #maskError: (text: string) => string;
-  #lock = new MutationLock();
+  #lock = new SerialLock();
   #state: WebSearchState = { enabled: false, provider: DEFAULT_WEB_SEARCH_PROVIDER, keys: new Map() };
   #runtime: WebSearchRuntimeConfig = {
     readEnabled: () => false,
