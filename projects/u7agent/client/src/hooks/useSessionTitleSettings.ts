@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, getTitleSummarySettings, postTitleSummaryTest, putTitleSummarySettings } from "../api";
+import { getTitleSummarySettings, postTitleSummaryTest, putTitleSummarySettings } from "../api";
+import { messageFor } from "../lib/errors";
 import {
   SESSION_TITLE_DEFINITION_RESET_NOTE,
   SESSION_TITLE_DEFINITION_SAVED_NOTE,
@@ -51,7 +52,7 @@ export function useSessionTitleSettings() {
       if (settingsKeyRef.current === startedKey) {
         setTestResult({
           ok: false,
-          error: error instanceof ApiError ? error.message : error instanceof Error ? error.message : String(error),
+          error: messageFor(error),
           durationMs: 0,
         });
       }
