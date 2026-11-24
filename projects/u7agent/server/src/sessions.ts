@@ -27,6 +27,14 @@ import { SANDBOX_SETUP_REQUIRED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./session-prompt";
 import { applyHandoffMove, prepareHandoffMemo, type HandoffMoveFiles, type HandoffMovePort } from "./handoff-move";
 import { cleanupHistoryClear, clearedSessionMeta, confirmHistoryClear, type HistoryClearPort } from "./history-clear";
+import {
+  copyForkEntries,
+  discardForkedSession,
+  forkedSessionMeta,
+  writeForkedSession,
+  type ForkSessionFiles,
+  type ForkSessionPort,
+} from "./fork-session";
 import type { AssistantMetricsRow, AssistantMetricsStore, CwdKeyStore } from "./app-db";
 import { httpError, messageFor, type HttpError } from "./errors";
 import { sandboxFailureStatus } from "./http";
@@ -110,11 +118,9 @@ import {
   readSessionSends,
   removeSessionDir,
   removeSessionHistory,
-  sessionHeaderOf,
   sessionJsonlPath,
   sessionWorkdirRel,
   writeSessionMeta,
-  writeSessionDir,
   ASSISTANT_ID_FIELD,
   writeSessionSends,
   type PromptSnapshot,
@@ -313,16 +319,6 @@ export function parseEventCursor(raw: string | undefined): { generation?: string
 function lastEntryId(entries: SessionEntryLike[]): string | undefined {
   const last = entries[entries.length - 1];
   return typeof last?.id === "string" ? last.id : undefined;
-}
-
-/**
- * 境界 entry までの複製。境界が未指定 (境界の時点で entry 0 件) は空、指定された境界が
- * 読み直した記録に無ければ undefined (中途半端な履歴を子へ書かない)。
- */
-function copiedEntries(entries: SessionEntryLike[], boundaryId: string | undefined): SessionEntryLike[] | undefined {
-  if (boundaryId === undefined) return [];
-  const index = entries.findIndex((entry) => entry.id === boundaryId);
-  return index === -1 ? undefined : entries.slice(0, index + 1);
 }
 
 /**
@@ -3013,32 +3009,10 @@ export class SessionStore {
     // 「指定あり」は引き継ぎと同じく現在の定義から作り直す
     const resolved = agentId === undefined ? undefined : resolveAgentSkills(this.catalog, agentId);
     const placement = this.placementOf(meta);
-    // 共有する作業フォルダが無ければ、空フォルダを作らずに 409 で断る
-    await this.requireSharedWorkdir(placement.workdir);
-    if (this.forkAborted(parent.id)) throw httpError(404, "Session not found");
-    // 破損した原本は writer の全体書直しで上書きされ得るため、必ず persist より前に検証する
-    const before = await readSessionFile(storeDir, parent.id);
-    if (before.parsed.kind === "damaged") {
-      throw httpError(
-        409,
-        `${new SessionDamagedError(before.parsed.reason).message} (${sessionJsonlPath(parent.id, storeDir)})`,
-      );
-    }
-    // live な親の未保存 entry を確定させる (検証の後。境界まではこの保存で読み直せる)
-    const failure = await this.persist(parent);
-    await this.flush(parent);
-    const saveError = failure ?? parent.persistError ?? parent.writer?.error;
-    if (saveError) throw httpError(500, `セッションの保存に失敗しました: ${saveError}`);
-    if (this.forkAborted(parent.id)) throw httpError(404, "Session not found");
-    const after = await readSessionFile(storeDir, parent.id);
-    if (after.parsed.kind === "damaged") {
-      throw httpError(500, "セッションの保存に失敗しました: 会話の記録を読み直せません");
-    }
-    const entries = after.parsed.kind === "ok" ? after.parsed.entries : [];
-    const copied = copiedEntries(entries, boundaryId);
-    if (!copied) {
-      throw httpError(500, "セッションの保存に失敗しました: 分岐の境界が記録に見つかりません");
-    }
+    const files: ForkSessionFiles = { storeDir, rootCwd: this.rootCwd };
+    const port = this.forkSessionPort(parent.id);
+    // 確定前: 共有フォルダの確認・破損の検証・親の保存・境界までの切り出し
+    const entries = await copyForkEntries(files, port, { parent, workdir: placement.workdir, boundaryId });
 
     const childId = generateSessionId(storeDir);
     const now = Date.now();
@@ -3046,51 +3020,33 @@ export class SessionStore {
     // 別オブジェクトへ差し替え、AI 要約の予約は record.titleAttempt を先に更新するため、先頭で
     // 捕まえた meta から複製すると親が pending でも子が未試行になる (子で二重に要約し直す)
     const current = parent.meta;
-    const model = modelLabel(parent.session.model) ?? current.model;
-    const thinkingLevel = parent.session.thinkingLevel ?? current.thinkingLevel;
-    const attempt = settledTitleAttemptOf(parent.titleAttempt ?? current.titleAttempt);
-    const childMeta: SessionMeta = {
-      spaceId,
-      version: 1,
+    const childMeta = forkedSessionMeta(current, {
       id: childId,
-      title: parent.title || current.title,
-      createdAt: now,
-      lastUsedAt: now,
-      // 表示件数は子を開いたときに実履歴から補正する (分岐の成否には影響しない)
-      messageCount: current.messageCount,
-      agentId: resolved?.agentInfo.id ?? current.agentId,
-      agent: resolved?.agentInfo ?? current.agent,
-      promptSnapshot: resolved?.promptSnapshot ?? current.promptSnapshot,
-      ...(current.projectCwd ? { projectCwd: current.projectCwd } : {}),
-      ...(current.projectName ? { projectName: current.projectName } : {}),
-      ...(model ? { model } : {}),
-      ...(thinkingLevel ? { thinkingLevel } : {}),
-      titleOrigin: parent.titleOrigin ?? titleOriginOf(current),
-      // 親に試行が無ければ子も未試行 (一度も正常完了していないなら子の最初の完了で 1 回だけ要約され得る)。
-      // pending は子だけ interrupted に終端化し、親の meta / titleTask は変えない
-      ...(attempt ? { titleAttempt: attempt } : {}),
-      ...((parent.titleRequest ?? current.titleRequest)
-        ? { titleRequest: (parent.titleRequest ?? current.titleRequest) as string }
-        : {}),
-      parentSessionId: parent.id,
-      forkedAt: now,
+      at: now,
+      spaceId,
+      parent: {
+        id: parent.id,
+        title: parent.title,
+        titleOrigin: parent.titleOrigin,
+        titleAttempt: parent.titleAttempt,
+        titleRequest: parent.titleRequest,
+      },
+      model: modelLabel(parent.session.model),
+      thinkingLevel: parent.session.thinkingLevel,
+      agent: resolved ? { agentInfo: resolved.agentInfo, promptSnapshot: resolved.promptSnapshot } : undefined,
       workdirOwner: this.workdirOwnerOf(meta),
       uploadsOwner: this.uploadsOwnerOf(meta),
-    };
-    // 表示用の実測は派生データ。複製できなくても分岐は成功させる (SDK の記録値へ落ちる)
-    this.copyAssistantMetrics(parent.id, childId);
+    });
+    // 確定: 子の store を書き、一覧へ入れる
+    await writeForkedSession(files, port, {
+      id: childId,
+      parentId: parent.id,
+      meta: childMeta,
+      entries,
+      workdir: placement.workdir,
+    });
     try {
-      await writeSessionDir(storeDir, childId, {
-        meta: childMeta,
-        header: sessionHeaderOf(childMeta, workspaceAbs(this.rootCwd, placement.workdir)),
-        entries: copied,
-      });
-    } catch (error) {
-      this.deleteAssistantMetrics(childId);
-      throw httpError(500, `セッションの保存に失敗しました: ${messageFor(error)}`);
-    }
-    this.descriptors.set(childId, childMeta);
-    try {
+      // 配信: 子を open して返す
       const child = await this.resolve(childId);
       if (!child) {
         throw this.closing
@@ -3100,25 +3056,34 @@ export class SessionStore {
       return child;
     } catch (error) {
       // 子の load が失敗した / load 中に DELETE された場合も、store だけの半端な子を残さない
-      await this.discardFork(childId);
+      await discardForkedSession(files, port, childId);
       throw error;
     }
   }
 
-  /** 分岐の途中で親が消えたか (DELETE / close) */
-  private forkAborted(parentId: string): boolean {
-    return this.moveAborted(parentId);
-  }
-
-  /** 分岐の失敗を回収する。SDK セッション・record / descriptor・子ディレクトリ・複製した実測を残さない */
-  private async discardFork(id: string): Promise<void> {
-    const record = this.records.get(id);
-    this.records.delete(id);
-    this.descriptors.delete(id);
-    record?.session.dispose?.();
-    if (record) this.closeSubscribers(record);
-    this.deleteAssistantMetrics(id);
-    if (this.storeDir) await removeSessionDir(this.storeDir, id).catch(() => {});
+  /**
+   * 分岐の手順 (`fork-session`) へ渡す口。private を公開せずに切り出すため、この場の closure にする。
+   * 確定より前の各段の後で親の削除予約 / close を見るため、親の id を受け取る。
+   */
+  private forkSessionPort(parentId: string): ForkSessionPort {
+    return {
+      isAborted: () => this.moveAborted(parentId),
+      requireSharedWorkdir: (workdir) => this.requireSharedWorkdir(workdir),
+      saveParent: (record) => this.persist(record),
+      flushParent: (record) => this.flush(record),
+      copyAssistantMetrics: (fromId, toId) => this.copyAssistantMetrics(fromId, toId),
+      deleteAssistantMetrics: (sessionId) => this.deleteAssistantMetrics(sessionId),
+      registerChild: (id, next) => {
+        this.descriptors.set(id, next);
+      },
+      releaseChild: (id) => {
+        const record = this.records.get(id);
+        this.records.delete(id);
+        this.descriptors.delete(id);
+        record?.session.dispose?.();
+        if (record) this.closeSubscribers(record);
+      },
+    };
   }
 
   /** 応答の実測を子の session_id へ写す。派生データなので失敗しても分岐を止めない */
