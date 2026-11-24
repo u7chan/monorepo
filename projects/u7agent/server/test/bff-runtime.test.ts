@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createBffRuntime } from "../src/bff-runtime";
-import type { RuntimeModelsResponse } from "../src/schema";
+import { AUTH_REQUIRED_MESSAGE } from "../src/model-state";
+import type { ModelRef, RuntimeModelsResponse } from "../src/schema";
 import { STUB_MODEL, asPiBff, createStubPi, type StubPiOptions } from "./stub-pi";
 
 const KEY = "sk-ant-dummy-key-0123456789abcdef";
@@ -131,4 +132,21 @@ test("復元するモデルの可否は、カタログ → 許可リスト → �
     "available",
   );
   assert.equal(resolveWith({ modelCatalog: CATALOG, availableModels: [] })(model), "unknown");
+});
+
+// 起動後にキーを消す / 認証が失効すると availabilityError が立つ。生成時に 1 回だけ読むと、
+// そのあとの復元で判断できないモデルを落とす (backup/plan.ts の「判断できないものを落とさない」)。
+test("復元するモデルの可否は生成後も判定のたびに読み、判断できない間は保持する", () => {
+  const model = { provider: "stub", id: "stub-model" };
+  let allowed: readonly ModelRef[] | null = null;
+  const stub = createStubPi({ modelCatalog: CATALOG });
+  const backupModels = createBffRuntime(asPiBff(stub)).backupModels(() => allowed);
+  assert.equal(backupModels(model), "available");
+
+  // 実行時エラーが立ったあとは、カタログに載っているモデルも許可リストの外のモデルも判断しない
+  stub.availabilityError = AUTH_REQUIRED_MESSAGE;
+  assert.equal(backupModels(model), "unknown");
+  assert.equal(backupModels({ provider: "stub", id: "stub-gone" }), "unknown");
+  allowed = [{ provider: "stub", id: "stub-plain" }];
+  assert.equal(backupModels(model), "unknown");
 });

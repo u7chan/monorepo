@@ -110,28 +110,28 @@ export function createBffRuntime(pi: PiBff | null): BffRuntime {
             pi.secretMasker,
           )
         : null,
-    backupModels: (readAllowedModels) => {
-      if (!pi || pi.availabilityError) return () => "unknown";
-      return (model) => {
-        const runtimeCatalog = pi.modelCatalog;
-        if (!runtimeCatalog || runtimeCatalog.catalogCount === 0) return "unknown";
-        const inCatalog = runtimeCatalog.providers.some(
-          (provider) => provider.provider === model.provider && provider.models.some((entry) => entry.id === model.id),
-        );
-        if (!inCatalog) return "not_in_catalog";
-        let allowed: readonly ModelRef[] | null = null;
-        try {
-          allowed = readAllowedModels();
-        } catch {
-          // 許可リストを読めないときは「明示的な除外」を判断しない (モデルを落とさない)
-          allowed = null;
-        }
-        if (allowed && !allowed.some((ref) => ref.provider === model.provider && ref.id === model.id)) {
-          return "not_allowed";
-        }
-        if (pi.modelOptions.length === 0) return "unknown";
-        return pi.resolveModel(model) ? "available" : "unknown";
-      };
+    backupModels: (readAllowedModels) => (model) => {
+      // ここで 1 回だけ読むと、起動後にキーを消した / 認証が失効した状態で判断できてしまい、
+      // 復元できるはずのモデルを not_in_catalog / not_allowed として落とす (docs/backup.md)
+      if (!pi || pi.availabilityError) return "unknown";
+      const runtimeCatalog = pi.modelCatalog;
+      if (!runtimeCatalog || runtimeCatalog.catalogCount === 0) return "unknown";
+      const inCatalog = runtimeCatalog.providers.some(
+        (provider) => provider.provider === model.provider && provider.models.some((entry) => entry.id === model.id),
+      );
+      if (!inCatalog) return "not_in_catalog";
+      let allowed: readonly ModelRef[] | null = null;
+      try {
+        allowed = readAllowedModels();
+      } catch {
+        // 許可リストを読めないときは「明示的な除外」を判断しない (モデルを落とさない)
+        allowed = null;
+      }
+      if (allowed && !allowed.some((ref) => ref.provider === model.provider && ref.id === model.id)) {
+        return "not_allowed";
+      }
+      if (pi.modelOptions.length === 0) return "unknown";
+      return pi.resolveModel(model) ? "available" : "unknown";
     },
     oauthLogin: () => (pi ? createOAuthLoginRuntime(pi) : null),
     providerKeys: () => (pi ? createProviderKeyRuntime(pi) : null),
