@@ -18,7 +18,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { sendCorrection, type DeliveryMode } from "../../scripts/steering-send";
 import { createAgentCatalog } from "../src/agents";
-import { createSessionSettings, SESSION_STEERING_MODE } from "../src/agent";
+import { createSessionSettings, SESSION_STEERING_MODE } from "../src/session-settings";
 import type { PiRuntimeLike } from "../src/pi-runtime";
 import { createSecretMasker, REDACTED, type SecretMasker } from "../src/redact";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";

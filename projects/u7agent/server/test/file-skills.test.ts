@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { formatSkillsForPrompt, SettingsManager } from "@earendil-works/pi-coding-agent";
-import { createSessionResourceLoader } from "../src/agent";
+import { createSessionResourceLoader } from "../src/session-settings";
 import { COMMON_SKILLS_DIR } from "../src/app-paths";
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS, builtinSkillByName, builtinSkillEntries, builtinSkillPath } from "../src/builtin-skills";

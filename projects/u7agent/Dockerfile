@@ -182,7 +182,7 @@ FROM browser-libs AS final
 COPY --from=ghcr.io/astral-sh/uv:0.12.18 /uv /uvx /usr/local/bin/
 # curl / jq / file / unzip / xz / zip はサンドボックス内のエージェントが HTTP 取得とアセット検証に使う。
 # HTTP の正規手段を curl にして `node -e` のワンライナー fetch へ迂回させないのが目的で、同じ一覧を
-# server/src/agent.ts の appendSystemPrompt が名指しする。apt 行から落ちたら command -v 検査でビルドを失敗させる。
+# server/src/session-prompt.ts の appendSystemPrompt が名指しする。apt 行から落ちたら command -v 検査でビルドを失敗させる。
 # python3 は apt の 3.13 系 (trixie) をプロンプトが名指しする。python3-venv は ensurepip 経路用で、
 # pip 自体は入れない (`uv pip install` を正とする)。
 RUN apt-get update && apt-get install -y --no-install-recommends bash git ripgrep ca-certificates \
@@ -213,7 +213,7 @@ COPY --from=production-dependencies /app/ ./
 COPY --from=builder /app/server/src/ ./server/src/
 COPY --from=builder /app/client/dist/ ./client/dist/
 # u7agent-browser の入口。tsx と CLI ソースを絶対パスで呼び、呼び出し元の cwd を保つ。
-# ブラウザ本体は browser ステージの /ms-playwright から来る。エージェントへ配る一覧 (server/src/agent.ts の
+# ブラウザ本体は browser ステージの /ms-playwright から来る。エージェントへ配る一覧 (server/src/session-prompt.ts の
 # appendSystemPrompt) が chromium とこの入口を名指しするので、落ちたら command -v 検査でビルドを失敗させる。
 COPY scripts/install-browser-cli.mjs /tmp/install-browser-cli.mjs
 COPY scripts/shell-quote.mjs /tmp/shell-quote.mjs

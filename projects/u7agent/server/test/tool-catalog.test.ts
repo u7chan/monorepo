@@ -1,9 +1,9 @@
-// ツールのレジストリ (tool-catalog.ts) と、セッションへ公開する集合 (agent.ts の sessionToolPlan) の検証。
+// ツールのレジストリ (tool-catalog.ts) と、セッションへ公開する集合 (tool-plan.ts の sessionToolPlan) の検証。
 // 実サンドボックス・実 SDK は使わない。
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { investigationTools, sessionToolPlan, type SessionToolPlan } from "../src/agent";
+import { investigationTools, sessionToolPlan, type SessionToolPlan } from "../src/tool-plan";
 import { ASK_USER_TOOL_NAME } from "../src/ask-user-tool";
 import { IMAGE_TOOL_NAME } from "../src/image-tools";
 import { INVESTIGATE_TOOL_NAME } from "../src/investigate-tool";
@@ -41,7 +41,7 @@ const APP_TOOL_NAMES = [
   INVESTIGATE_TOOL_NAME,
 ];
 
-/** `tools` の名前へ app ツールが追加される順 (agent.ts の with* チェーン) */
+/** `tools` の名前へ app ツールが追加される順 (tool-plan.ts の with* チェーン) */
 const REGISTERED_APP_NAMES = [
   IMAGE_TOOL_NAME,
   SPEECH_TOOL_NAME,

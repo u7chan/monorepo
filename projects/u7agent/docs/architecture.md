@@ -19,7 +19,7 @@
 | 履歴 / payload / compaction の DTO 組み立て | `server/src/session-projection.ts`、`session-payload.ts`、`compaction-view.ts` | [run-lifecycle.md](run-lifecycle.md)、[compaction.md](compaction.md) |
 | HTTP 契約（DTO の正） | `server/src/schema.ts` | [api.md](api.md) |
 | ルート登録のフェーズと `AppType` | `server/src/app.ts`、`server/src/routes/` | [api.md](api.md) |
-| pi ランタイム / モデル解決 | `server/src/agent.ts` | [model-effort.md](model-effort.md) |
+| pi ランタイム / モデル解決 | `server/src/agent.ts`、`server/src/model-state.ts` | [model-effort.md](model-effort.md) |
 | 組み込みツール（Web 検索 / 画像生成 / 音声生成） | `server/src/web-search-tool.ts`、`server/src/image-tools.ts`、`server/src/speech-tools.ts` | [web-search.md](web-search.md)、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
 | プロジェクトと cwd | `server/src/projects.ts` | [projects.md](projects.md) |
 | ツール実行のサンドボックス | `server/src/sandbox/` | [sandbox.md](sandbox.md) |

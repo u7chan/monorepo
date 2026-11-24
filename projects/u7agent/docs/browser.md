@@ -8,7 +8,7 @@
 
 - 版の正本は `playwright-core` の `browsers.json` で、独立した版定数を持たない（ドライバとブラウザの対応を公式のセットへ固定する）。取得は `scripts/install-browser.mjs` が `playwright-core` の CLI へ委ね、既にある版は取り直さない（コンテナ再作成でイメージの同梱物を取り直さない）。配布先はイメージが `/ms-playwright`、dev が `PLAYWRIGHT_BROWSERS_PATH`（未設定はホームのキャッシュ）で、`test` / `final` / dev が同じ版を使う。配布物が持つ著作権表示のファイルは消さずに残す
 - 入口は `u7agent-browser`（イメージは `/usr/local/bin`、dev は `pnpm dev` が `$HOME/.local/libexec/u7agent` へ置き、サンドボックスへ `PATH` と `PLAYWRIGHT_BROWSERS_PATH` を渡す）。**呼び出し元の cwd を変えない**（成果物の保存先の基準にする）ため、`--import tsx` の解決が cwd に依存する分を入口が絶対パスで埋める
-- `server/src/agent.ts` の `appendSystemPrompt` は、コンテナにあるものとして `chromium (headless, u7agent-browser)` を名指しする。`final` ステージの `command -v u7agent-browser` 検査とセットで、入口を落としたイメージはビルドで落ちる
+- `server/src/session-prompt.ts` の `appendSystemPrompt` は、コンテナにあるものとして `chromium (headless, u7agent-browser)` を名指しする。`final` ステージの `command -v u7agent-browser` 検査とセットで、入口を落としたイメージはビルドで落ちる
 
 ## 保存と出力の契約
 

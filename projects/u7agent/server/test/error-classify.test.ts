@@ -4,7 +4,7 @@
 // 公開文言に上流の原文 (組織IDなど) が混ざらないことを固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AUTH_REQUIRED_MESSAGE } from "../src/agent";
+import { AUTH_REQUIRED_MESSAGE } from "../src/model-state";
 import { classifyRunError, composeRunError, retryWaitingText, runErrorAction } from "../src/error-classify";
 
 const TPM_429 =

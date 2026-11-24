@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { compactionSettingsFromEnv, parseCompactionTokenKnob } from "../src/agent";
+import { compactionSettingsFromEnv, parseCompactionTokenKnob } from "../src/session-settings";
 import { createAgentCatalog } from "../src/agents";
 import { ProjectStore } from "../src/projects";
 import { createSecretMasker, REDACTED } from "../src/redact";
