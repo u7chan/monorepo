@@ -13,14 +13,6 @@ export type NotificationDraft = {
   baseUrl: string;
 };
 
-/** 設定の読み込み前と下書きの破棄で使う初期値 */
-export const EMPTY_NOTIFICATION_DRAFT: NotificationDraft = {
-  enabled: false,
-  askUser: true,
-  webhookUrl: null,
-  baseUrl: "",
-};
-
 /** 保存済みの設定から下書きを作る。URL は write-only なので常に空 (変更時にだけ入れ直す) */
 export function draftFromSettings(settings: NotificationsResponse | null): NotificationDraft {
   return {

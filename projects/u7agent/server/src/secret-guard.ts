@@ -5,7 +5,7 @@
 import { type InlineExtension, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { findEnvKeys } from "@earendil-works/pi-ai/compat";
 import { messageFor } from "./errors";
-import { createSecretMasker, MIN_SECRET_LENGTH, maskTextContentParts, type SecretMasker } from "./redact";
+import { MIN_SECRET_LENGTH, maskTextContentParts, type SecretMasker } from "./redact";
 
 type AnyToolDefinition = ToolDefinition<any, any, any>;
 type ShellExecute = AnyToolDefinition["execute"];
@@ -115,9 +115,4 @@ export function createSecretRedactionExtension(masker: SecretMasker): InlineExte
       content: maskTextContentParts(event.content, masker, { mode: "final" }),
     }));
   };
-}
-
-/** BFF 全体で使うマスカー。モデルランタイムが知るプロバイダーを解決源にする。 */
-export function createRuntimeSecretMasker(providers: readonly { id: string }[], env: NodeJS.ProcessEnv): SecretMasker {
-  return createSecretMasker(collectSecretValues(providers, env, extraSecretVarNames(env)));
 }

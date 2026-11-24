@@ -418,9 +418,6 @@ export interface SandboxSkillDeletePreview {
   files: string[];
 }
 
-/** スキルの説明の上限 (SDK の validateDescription と同じ値) */
-export const SANDBOX_SKILL_DESCRIPTION_MAX_LENGTH = 1024;
-
 /** スキル取り込みの plan が返す 1 件の分類。`invalid` のときだけ理由が入る */
 export type SandboxSkillImportStatus = "new" | "identical" | "conflict" | "invalid";
 
@@ -554,15 +551,6 @@ export interface SandboxHandoffWrite {
   path: string;
   written: boolean;
   created: boolean;
-}
-
-/**
- * POST /v1/files/handoff/rollback の要求。`expected` は新規作成の rollback で自分が書いた全文
- * (先頭に置いた節 + 作成前からあった本文)。
- */
-export interface SandboxHandoffRollbackInput {
-  path: string;
-  expected: string;
 }
 
 /**

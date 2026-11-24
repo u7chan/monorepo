@@ -2,7 +2,8 @@
 // ここが崩れると、何も保存されていない失敗を保存済みと読ませる / 応答から作る成功注記を空にする。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { messageFor, mutationErrorNote, successNoteText } from "../src/lib/settingsResource";
+import { messageFor } from "../src/lib/errors";
+import { mutationErrorNote, successNoteText } from "../src/lib/settingsResource";
 
 test("messageFor は Error の message を返し、Error 以外も文字列化する", () => {
   assert.equal(messageFor(new Error("変更に失敗しました")), "変更に失敗しました");

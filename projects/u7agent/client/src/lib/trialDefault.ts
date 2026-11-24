@@ -119,5 +119,3 @@ export function createTrialDefaultAction(deps: { onChange: (state: TrialDefaultS
     },
   };
 }
-
-export type TrialDefaultAction = ReturnType<typeof createTrialDefaultAction>;

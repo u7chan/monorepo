@@ -30,8 +30,6 @@ export const BACKUP_RESTORE_PLANNING_NOTE = "バックアップを検証して�
 export const BACKUP_RESTORE_NOT_ZIP_NOTE = ".zip のバックアップファイルを選んでください。";
 export const BACKUP_RESTORE_APPLYING_LABEL = "復元しています…";
 export const BACKUP_RESTORE_APPLY_LABEL = "復元する";
-/** 実行前の取り消し。画面を閉じる X はヘッダーが持つので、フッターは実行しない側の名前だけにする */
-export const BACKUP_RESTORE_CANCEL_LABEL = "キャンセル";
 export const BACKUP_RESTORE_DELETE_CHECK_LABEL = "既存の定義が削除されることを理解しました";
 export const BACKUP_RESET_DIALOG_TITLE = "定義をすべて削除";
 export const BACKUP_RESET_CHECK_LABEL = "書き出し済み、または失ってもよい";
@@ -41,7 +39,6 @@ export const BACKUP_KEPT_NOTE =
   "組み込みのエージェント / スキル、会話、プロジェクト、ワークスペースのファイル、設定、API キー、共有コンテンツ、プロジェクト側スキルは残ります。";
 export const BACKUP_SKILL_LIMITS_NOTE =
   "スキルの symlink / 特殊ファイル / 実行権限は復元されません。SKILL.md を持たない直下の項目は対象外として残ります。";
-export const BACKUP_NO_CHANGES_NOTE = "選択した対象に変更はありません。";
 export const BACKUP_TARGET_LABELS: Record<BackupTarget, string> = {
   prompts: "定型プロンプト",
   agents: "エージェント",
@@ -119,18 +116,6 @@ export function backupRemovedNames(plan: BackupRestorePlan, limit = 5): string[]
   const shown = names.slice(0, limit);
   if (total <= shown.length) return shown;
   return [...shown, `ほか ${total - shown.length} 件`];
-}
-
-export function backupWarningsOf(plan: BackupRestorePlan): string[] {
-  const texts: string[] = [];
-  for (const item of plan.plans) {
-    for (const warning of item.warnings) {
-      const base = WARNING_TEXT[warning.code] ?? warning.code;
-      const text = warning.name ? `${base}: ${warning.name}` : base;
-      if (!texts.includes(text)) texts.push(text);
-    }
-  }
-  return texts;
 }
 
 export function backupBlockerText(blocker: BackupBlocker): string {

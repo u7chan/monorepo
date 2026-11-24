@@ -23,7 +23,7 @@ import {
   type ContentSavingAction,
 } from "../lib/contentSettings";
 import { validateApiKey } from "../lib/modelSettings";
-import { messageFor } from "../lib/settingsResource";
+import { messageFor } from "../lib/errors";
 import type {
   ContentSettingsResponse,
   ImageGenerationProvider,

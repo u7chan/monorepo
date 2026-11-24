@@ -7,7 +7,8 @@ import { AppDb } from "../src/app-db";
 import { NotificationService } from "../src/notifications";
 import { testAppCipher } from "./app-secret-fixture";
 import { createSecretMasker } from "../src/redact";
-import { askUserWaitTotalMs, runDurationMs } from "../src/run-metrics";
+import { runDurationMs } from "../src/run-metrics";
+import { askUserWaitTotalMs } from "../src/wait-total";
 import type { PiSessionEntryLike } from "../src/pi-runtime";
 import type { AskUserAnswer, AskUserQuestion, EventEntry, HistoryItem } from "../src/schema";
 import {

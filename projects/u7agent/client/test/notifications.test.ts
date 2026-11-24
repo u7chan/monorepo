@@ -5,7 +5,6 @@ import {
   draftBody,
   draftFromSettings,
   draftIsDirty,
-  EMPTY_NOTIFICATION_DRAFT,
   httpStatusLabel,
   MISSING_LINK_NOTE,
   missingLinkNote,
@@ -45,7 +44,12 @@ test("draftFromSettings は保存済みの値から下書きを作り、URL は�
     webhookUrl: null,
     baseUrl: "http://127.0.0.1:5173",
   });
-  assert.deepEqual(draftFromSettings(null), EMPTY_NOTIFICATION_DRAFT);
+  assert.deepEqual(draftFromSettings(null), {
+    enabled: false,
+    askUser: true,
+    webhookUrl: null,
+    baseUrl: "",
+  });
   // 設定をまだ読めていなくても質問通知の既定 (ON) を出す
   assert.equal(draftFromSettings(null).askUser, true);
 });
@@ -108,7 +112,10 @@ test("syncDraft は未編集のフィールドだけ新しい保存値へ追従�
   // 前後の空白だけの差は未編集として扱う
   assert.equal(syncDraft({ ...base, baseUrl: "  http://127.0.0.1:5173  " }, SETTINGS, next).baseUrl, next.baseUrl);
   // 初回 (直前の保存値が無い) は保存値から作る
-  assert.deepEqual(syncDraft(EMPTY_NOTIFICATION_DRAFT, null, next), draftFromSettings(next));
+  assert.deepEqual(
+    syncDraft({ enabled: false, askUser: true, webhookUrl: null, baseUrl: "" }, null, next),
+    draftFromSettings(next),
+  );
 });
 
 test("syncDraft は「変更」で入力中の Webhook URL を残す", () => {

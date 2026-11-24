@@ -6,12 +6,12 @@
 import type { AppDb } from "./app-db";
 import {
   ARCHIVE_EXCLUDE_MAX_NAME_LENGTH,
-  ARCHIVE_EXCLUDE_MAX_NAMES,
   DEFAULT_ARCHIVE_EXCLUDE_NAMES,
   normalizeArchiveExcludeNames,
   resolveArchiveExcludeNames,
   validateArchiveExcludeNames,
 } from "./archive-rules";
+import { ARCHIVE_EXCLUDE_MAX_NAMES } from "./sandbox/protocol";
 import { httpError, messageFor } from "./http";
 import type { ArchiveSettingsResponse } from "./schema";
 

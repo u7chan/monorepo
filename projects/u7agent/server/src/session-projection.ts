@@ -4,7 +4,8 @@
  */
 import { basename, dirname, resolve } from "node:path";
 import { APP_DIR_REL } from "./app-paths";
-import { ASK_USER_TOOL_NAME, deriveAskUserQuestions, parseAskUserAnswers } from "./ask-user-tool";
+import { deriveAskUserQuestions, parseAskUserAnswers } from "./ask-user-tool";
+import { ASK_USER_TOOL_NAME } from "./wait-total";
 import {
   REQUEST_NETWORK_ACCESS_TOOL_NAME,
   deriveNetworkAccessQuestions,

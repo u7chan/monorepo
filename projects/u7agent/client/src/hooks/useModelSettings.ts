@@ -43,7 +43,8 @@ import {
   validateMemo,
   type MutationAction,
 } from "../lib/modelSettings";
-import { messageFor, mutationErrorNote } from "../lib/settingsResource";
+import { messageFor } from "../lib/errors";
+import { mutationErrorNote } from "../lib/settingsResource";
 import type {
   CreateCustomProviderBody,
   CustomProviderProbeBody,

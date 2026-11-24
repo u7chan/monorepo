@@ -1,8 +1,6 @@
 import { askUserWaitTotalMs } from "server/wait-total";
 import type { ToolCall } from "../types";
 
-export { askUserWaitTotalMs };
-
 type ToolInterval = Pick<ToolCall, "name" | "startedAt" | "endedAt">;
 
 /** 負にしないのは、時計のずれで控除が実時間を超えても表示を壊さないため */

@@ -19,7 +19,6 @@ import {
   sendChatMessage,
   stopRun,
 } from "./sessionActions";
-import type { SettingsSelection } from "./settingsChange";
 import { useArchiveSettings } from "./useArchiveSettings";
 import { useSharedContentExclusions } from "./useSharedContentExclusions";
 import { useNotifications } from "./useNotifications";
@@ -29,11 +28,6 @@ import { useServeStatus } from "./useServeStatus";
 import { useSessionSkills } from "./useSessionSkills";
 import { useSessionDiagnostics } from "./useSessionDiagnostics";
 import { useSessions, type PendingEntry } from "./useSessions";
-
-/** 実装は ../lib/composerSettings。既存の import 先を保つ互換 export */
-export { ALL_THINKING_LEVELS, effortLabel, type ComposerSettings } from "../lib/composerSettings";
-export type { Attachment } from "../lib/attachments";
-export type { SettingsSelection };
 
 /**
  * 画面 (App) から見た facade。実装は責務ごとに分ける: health / catalog は useRuntimeCatalog、

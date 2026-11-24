@@ -15,7 +15,8 @@ import {
 import { useComposerVoiceInput } from "../hooks/useComposerVoiceInput";
 import { useExitPhase } from "../hooks/useExitPhase";
 import { useVoiceInputRemaining } from "../hooks/useVoiceInputRemaining";
-import type { Attachment, ComposerSettings } from "../hooks/useU7Agent";
+import type { Attachment } from "../lib/attachments";
+import type { ComposerSettings } from "../lib/composerSettings";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
 import { pastedImageFiles } from "../lib/clipboardImages";
 import { cn } from "../lib/cn";

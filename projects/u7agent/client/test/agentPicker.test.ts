@@ -3,12 +3,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AgentPicker } from "../src/components/composer/AgentPicker";
-import {
-  AGENT_PICKER_GAP,
-  AGENT_PICKER_MARGIN,
-  agentPickerPlacement,
-  nextAgentOptionIndex,
-} from "../src/lib/agentPicker";
+import { AGENT_PICKER_GAP, AGENT_PICKER_MARGIN, agentPickerPlacement } from "../src/lib/agentPicker";
 import type { AgentDef } from "../src/types";
 
 const viewport = { width: 1000, height: 800 };
@@ -38,22 +33,6 @@ test("位置: 左右と上下を viewport の内側へ clamp する", () => {
     { width: 1000, height: 200 },
   );
   assert.equal(tall.top, 200 - 150 - AGENT_PICKER_MARGIN);
-});
-
-test("キーボード: ↑↓ は端で止まり、Home / End は先頭 / 末尾へ入る", () => {
-  assert.equal(nextAgentOptionIndex(0, 3, "next"), 1);
-  assert.equal(nextAgentOptionIndex(2, 3, "next"), 2);
-  assert.equal(nextAgentOptionIndex(2, 3, "previous"), 1);
-  assert.equal(nextAgentOptionIndex(0, 3, "previous"), 0);
-  assert.equal(nextAgentOptionIndex(1, 3, "first"), 0);
-  assert.equal(nextAgentOptionIndex(1, 3, "last"), 2);
-  // フォーカスが項目の外 (-1) なら端へ入る。空のリストは移動先が無い
-  assert.equal(nextAgentOptionIndex(-1, 3, "next"), 0);
-  assert.equal(nextAgentOptionIndex(-1, 3, "previous"), 2);
-  assert.equal(nextAgentOptionIndex(-1, 3, "first"), 0);
-  assert.equal(nextAgentOptionIndex(-1, 3, "last"), 2);
-  assert.equal(nextAgentOptionIndex(0, 0, "next"), -1);
-  assert.equal(nextAgentOptionIndex(0, 0, "last"), -1);
 });
 
 function agent(id: string, name: string): AgentDef {

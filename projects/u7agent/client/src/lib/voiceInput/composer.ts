@@ -132,11 +132,6 @@ export function voiceInputComposerBusy(phase: VoiceInputComposerPhase): boolean 
   return phase !== "idle";
 }
 
-/** 録音を止められる間か（接続中は確定へ進めない。取消だけを受け付ける） */
-export function voiceInputComposerCanStop(state: VoiceInputComposerState): boolean {
-  return state.phase === "recording";
-}
-
 /**
  * 入力欄の外にある送信の入口（再実行 / 未送信の再送）。音声の操作中は走らせない。
  * 入力欄の送信は `client/src/lib/composerSubmit.ts` が同じ phase を見て止める。

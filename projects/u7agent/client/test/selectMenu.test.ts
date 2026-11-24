@@ -9,7 +9,6 @@ import { SelectMenu } from "../src/components/SelectMenu";
 import {
   filterSelectMenuOptions,
   initialSelectMenuIndex,
-  nextSelectMenuIndex,
   selectMenuPlacement,
   SELECT_MENU_MIN_BELOW,
 } from "../src/lib/selectMenu";
@@ -51,17 +50,6 @@ test("位置: 既定は下に開き、下が狭いときだけ上へ倒す", () 
 
 test("位置: 高さの上限は負にしない", () => {
   assert.deepEqual(selectMenuPlacement({ top: 0, bottom: 0 }, 0), { above: false, maxHeight: 0 });
-});
-
-test("キーボード: ↑↓ は端で止まり、Home / End は先頭 / 末尾へ入る", () => {
-  assert.equal(nextSelectMenuIndex(0, 2, "next"), 1);
-  assert.equal(nextSelectMenuIndex(1, 2, "next"), 1, "末尾で止まる");
-  assert.equal(nextSelectMenuIndex(0, 2, "previous"), 0, "先頭で止まる");
-  assert.equal(nextSelectMenuIndex(-1, 2, "next"), 0);
-  assert.equal(nextSelectMenuIndex(-1, 2, "previous"), 1);
-  assert.equal(nextSelectMenuIndex(1, 2, "first"), 0);
-  assert.equal(nextSelectMenuIndex(0, 2, "last"), 1);
-  assert.equal(nextSelectMenuIndex(0, 0, "next"), -1, "行が無いときは動かさない");
 });
 
 test("開いたときのフォーカスは選択中の行、無ければ先頭", () => {

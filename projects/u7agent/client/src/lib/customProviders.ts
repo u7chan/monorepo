@@ -99,7 +99,6 @@ export const CUSTOM_PROVIDER_PROBE_PENDING_NOTE = "モデル一覧を取得し�
 export const CUSTOM_PROVIDER_PROBE_EMPTY_MESSAGE =
   "接続できましたが、モデル一覧は空でした。モデル ID を直接入力してください。";
 export const CUSTOM_PROVIDER_PROBE_MISSING_NOTE = "このモデル ID は取得した一覧にありません。";
-export const CUSTOM_PROVIDER_PROBE_EMPTY_LIST = "該当するモデルがありません。";
 
 /** フォームの下書き。数値は入力欄の文字列のまま持ち、保存前に検証する */
 export interface CustomProviderFormDraft {

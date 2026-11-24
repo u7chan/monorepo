@@ -11,10 +11,10 @@ import { createBffApp } from "../src/app";
 import { AppDb } from "../src/app-db";
 import {
   ARCHIVE_EXCLUDE_COUNT_ERROR,
-  ARCHIVE_EXCLUDE_MAX_NAMES,
   ARCHIVE_EXCLUDE_NAME_ERROR,
   DEFAULT_ARCHIVE_EXCLUDE_NAMES,
 } from "../src/archive-rules";
+import { ARCHIVE_EXCLUDE_MAX_NAMES } from "../src/sandbox/protocol";
 import { createArchiveSettings } from "../src/archive-settings";
 import type { ArchiveSettingsResponse } from "../src/schema";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";

@@ -3,7 +3,8 @@
  * `tools` の登録名と customTools の有効判定へ同じ結果を渡す。
  */
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { ASK_USER_TOOL_NAME, withAskUserTool } from "./ask-user-tool";
+import { withAskUserTool } from "./ask-user-tool";
+import { ASK_USER_TOOL_NAME } from "./wait-total";
 import { BGM_TOOL_NAME } from "./bgm-tools";
 import { IMAGE_TOOL_NAME, sessionToolNames } from "./image-tools";
 import { INVESTIGATE_TOOL_NAME, withInvestigateTool } from "./investigate-tool";

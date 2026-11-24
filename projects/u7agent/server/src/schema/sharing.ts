@@ -9,7 +9,6 @@ export type SharedContentStatusValue = z.infer<typeof SharedContentStatusSchema>
  * `directory` はその配下のディレクトリ。値の正は `server/src/app-db.ts` の `SharedContentSourceKind`
  */
 export const SharedContentSourceKindSchema = z.enum(["directory", "session-root"]);
-export type SharedContentSourceKindValue = z.infer<typeof SharedContentSourceKindSchema>;
 /** GET /api/shared-contents と GET /api/shared-contents/:id。provider 固有の ID とアカウントは返さない */
 /**
  * 共有物のサムネイルのメタデータ。実体 (PNG) は `GET /api/shared-contents/:id/thumbnail` で別に取る。

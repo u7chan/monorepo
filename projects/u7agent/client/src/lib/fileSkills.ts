@@ -8,8 +8,6 @@ import { matchFileRef } from "./fileRef";
 import { filterBySearch } from "./settingsSearch";
 import type { FileSkillInfo, SandboxSkillImportPlanEntry } from "../types";
 
-/** ファイルスキル (共通 + 組み込み) のブロック見出し。共通は編集でき、組み込みは読み取り専用 */
-export const FILE_SKILL_SECTION_LABEL = "ファイルスキル";
 export const FILE_SKILL_GROUP_LABEL = "共通スキル";
 /** スキル詳細 / スキル一覧の見出しで使う短い語。組み込みを先頭に固定するので、こちらは後に置く */
 export const COMMON_SKILL_SECTION_LABEL = "共通";
@@ -50,12 +48,6 @@ export const FILE_SKILL_NAME_LABEL = "名前";
 export const FILE_SKILL_NAME_READONLY_NOTE = "名前は変更できません。";
 export const FILE_SKILL_DESCRIPTION_LABEL = "説明";
 export const FILE_SKILL_BODY_LABEL = "本文";
-/** 本文ビューの見出し。一覧のグループ名 (共通 / プロジェクト / 組み込み) と同じ語を使う */
-export const FILE_SKILL_PANEL_HEADING: Record<FileSkillInfo["scope"], string> = {
-  user: "共通スキル",
-  project: "プロジェクトスキル",
-  builtin: "組み込みスキル",
-};
 /** 詳細のタブ。ファイルは root を導けるスキルだけ、使用中は読み取り専用の一覧 */
 export const SKILL_TAB_BODY_LABEL = "本文";
 export const SKILL_TAB_FILES_LABEL = "ファイル";
@@ -161,8 +153,6 @@ export const SKILL_IMPORT_FILE_LABEL = "インポートする ZIP";
 export const SKILL_IMPORT_PLANNING_NOTE = "ZIP の内容を確認しています…";
 export const SKILL_IMPORT_APPLY_LABEL = "インポート";
 export const SKILL_IMPORT_APPLYING_LABEL = "インポートしています…";
-/** 実行前の取り消し。画面を閉じる X はヘッダーが持つので、フッターは実行しない側の名前だけにする */
-export const SKILL_IMPORT_CANCEL_LABEL = "キャンセル";
 export const SKILL_IMPORT_NOTHING_NOTE = "インポートするスキルがありません。";
 export const SKILL_IMPORT_PLAN_HEADING = "インポートする内容";
 export const SKILL_IMPORT_SELECT_ALL_LABEL = "同名をすべて選ぶ";
