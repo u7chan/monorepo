@@ -4,9 +4,8 @@
  */
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, AuthInteraction, LoginOptions, Model as PiAiModel } from "@earendil-works/pi-ai";
-import type { ModelCatalogRefreshAttempt, PiBff } from "../src/agent";
-import type { ModelSelection } from "../src/agent";
-import { MODEL_UNSET_MESSAGE } from "../src/agent";
+import type { PiBff } from "../src/agent";
+import { MODEL_UNSET_MESSAGE, type ModelCatalogRefreshAttempt, type ModelSelection } from "../src/model-state";
 import type { AskUserHost } from "../src/ask-user-tool";
 import type { NetworkAccessHost } from "../src/request-network-access-tool";
 import type { CustomProviderRuntimeConfig } from "../src/custom-providers";

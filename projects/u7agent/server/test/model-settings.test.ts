@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSecretMasker } from "../src/redact";
-import type { ModelCatalogRefreshAttempt } from "../src/agent";
+import type { ModelCatalogRefreshAttempt } from "../src/model-state";
 import {
   MODEL_CATALOG_ERROR_OFFLINE,
   MODEL_CATALOG_ERROR_PARTIAL,

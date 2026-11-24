@@ -1,4 +1,4 @@
-// モデル state の導出 (server/src/agent.ts) のオフライン検証。実 API も実 SDK ランタイムも使わない。
+// モデル state の導出 (server/src/model-state.ts) のオフライン検証。実 API も実 SDK ランタイムも使わない。
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -10,7 +10,7 @@ import {
   readModelState,
   unavailableModelState,
   type ModelSnapshot,
-} from "../src/agent";
+} from "../src/model-state";
 import { createSecretMasker, REDACTED } from "../src/redact";
 import { STUB_MODEL, STUB_PLAIN_MODEL } from "./stub-pi";
 

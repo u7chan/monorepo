@@ -4,7 +4,8 @@ import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { appendSystemPrompt, investigationSystemPrompt, sessionToolPlan } from "../src/agent";
+import { appendSystemPrompt, investigationSystemPrompt } from "../src/session-prompt";
+import { sessionToolPlan } from "../src/tool-plan";
 import {
   BGM_MODEL,
   BGM_TIMEOUT_MS,

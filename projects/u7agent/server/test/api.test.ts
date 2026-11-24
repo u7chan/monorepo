@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Hono } from "hono";
 import { VERSION } from "@earendil-works/pi-coding-agent";
-import { AUTH_REQUIRED_MESSAGE, MODEL_UNSET_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
+import { AUTH_REQUIRED_MESSAGE, MODEL_UNSET_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/model-state";
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { AGENT_ORDER_IDS_MAX, PROMPT_ORDER_IDS_MAX } from "../src/schema";

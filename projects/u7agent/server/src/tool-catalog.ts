@@ -12,7 +12,7 @@ import type { ToolCatalogEntry, ToolGroup } from "./schema";
 
 /** アプリ側の実効。エージェントの許可リストとの積を取る前に、アプリ自身がツールを公開しているか */
 export interface ToolAvailability {
-  /** `PI_AGENT_TOOLS` の実効 (agent.ts の `configuredTools()`)。デプロイ側の上限 */
+  /** `PI_AGENT_TOOLS` の実効 (tool-plan.ts の `configuredTools()`)。デプロイ側の上限 */
   sandboxTools: readonly string[];
   /** 画像の実効（選択 provider の認証と設定 ON の積）。理由は provider で分く */
   imageGeneration: ImageToolAvailability;

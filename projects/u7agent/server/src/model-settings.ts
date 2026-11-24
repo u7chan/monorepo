@@ -21,7 +21,7 @@ import {
   requireAppSecretCipher,
   type AppSecretState,
 } from "./app-secrets";
-import { sanitizeRuntimeAuth, type ModelCatalogRefreshAttempt, type RuntimeAuthStatusLike } from "./agent";
+import { sanitizeRuntimeAuth, type ModelCatalogRefreshAttempt, type RuntimeAuthStatusLike } from "./model-state";
 import { CUSTOM_PROVIDER_PROBE_TIMEOUT_MS, probeCustomProviderModels } from "./custom-provider-probe";
 import {
   CUSTOM_PROVIDER_API_KEY_MESSAGE,

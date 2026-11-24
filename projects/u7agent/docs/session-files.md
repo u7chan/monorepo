@@ -104,7 +104,7 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 }
 ```
 
-- `promptSnapshot` は作成時のエージェントプロファイル（`agent` だけ）。定義を編集・削除しても復元後の実行内容を変えない（現行の「定義変更を遡及させない」と同じ）。`agent` は system prompt へ入れる。形式の正は `server/src/agent.ts` の `composePromptSnapshot` で、スキル本文はここへ固定せず、ファイル側の現行定義を `read` / `/skill:` が読む（[persistence.md](persistence.md#スキルの扱い)）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
+- `promptSnapshot` は作成時のエージェントプロファイル（`agent` だけ）。定義を編集・削除しても復元後の実行内容を変えない（現行の「定義変更を遡及させない」と同じ）。`agent` は system prompt へ入れる。形式の正は `server/src/session-prompt.ts` の `composePromptSnapshot` で、スキル本文はここへ固定せず、ファイル側の現行定義を `read` / `/skill:` が読む（[persistence.md](persistence.md#スキルの扱い)）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
 - カタログ撤去前の meta が持つ `agent.skillIds` / `agent.skills` / `promptSnapshot.skills` は読取境界で落とし、古いオブジェクトをそのまま persist しない。欠落した `promptSnapshot.skills` は新しい正常形として受け入れ、新しく保存する meta にカタログ専用キーを出さない（開き直して再保存しても復活しない）。過去に展開済みの本文や toolResult は履歴としてそのまま残る。
 - ファイルスキル（`.agents/skills`）は `promptSnapshot` に含めない。SDK の `skillsOverride` でセッション作成・復元のたびに注入し、セッションが持つのは発見一覧・説明・優先順位だけ。本文は `read` 時点のファイル内容になる（[persistence.md](persistence.md#スキルの扱い)）。
 - `title` は最初のメッセージで作り、GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で上書きできる（正規化は自動タイトルと同じで、空・空白だけは 400。改名後は以降のメッセージで作り直さない。[api-session-state.md](api-session-state.md#patch-apisessionsidtitle)）。由来（`titleOrigin`）と AI 要約の試行（`titleAttempt`）は任意フィールドで、欠落は「既存タイトル = 手動 / 未判定」として読む（[session-title.md](session-title.md)）。`titleRequest` は初回送信時に保存するマスク済みの依頼本文の先頭（600 文字上限）で、会話メニューからの再要約に使う。古い meta に無ければ最初の user メッセージから作る。`pinned` はサイドバーの固定状態で、古い meta に無い場合は false とする。GUI の ⋯ から SDK を開かず切り替え、タイトル・履歴・`lastUsedAt` は変えない。`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
@@ -293,7 +293,8 @@ assistant 本文のインラインコードと Markdown リンクが指すファ
 
 - `server/src/session-store.ts`（新規）: store root の準備・走査、id 生成、meta / JSONL の読み書き（検証・migration・原子的書込み・書込みキュー）。
 - `server/src/sessions.ts`: live な `SessionRecord` の管理（現状どおり）、descriptor のマージ、id ごとの状態（loading / deleting）、遅延復元、sweep、世代。
-- `server/src/agent.ts`: `SessionManager.inMemory` + `promptSnapshot` の組み立て、モデル解決とフォールバック記録、保存点のフック。
+- `server/src/agent.ts`: `SessionManager.inMemory`、モデル解決とフォールバック記録、保存点のフック。
+- `server/src/session-prompt.ts`: system prompt と `promptSnapshot` の組み立て。
 - `server/src/projects.ts`: `projectId` の読み取り時解決（保存しない）。
 
 ## 検討した代替案

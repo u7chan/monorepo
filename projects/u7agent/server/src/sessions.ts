@@ -25,7 +25,7 @@ import { dirname, posix } from "node:path";
 import { spaceIdOf } from "./spaces";
 import { sessionUploadsRel, workspaceAbs } from "./app-paths";
 import { SANDBOX_SETUP_REQUIRED_MESSAGE, type PiBff } from "./agent";
-import { composePromptSnapshot } from "./agent";
+import { composePromptSnapshot } from "./session-prompt";
 import { buildHandoffSection, HANDOFF_FILE_NAME, type HandoffMemoSection } from "./handoff-memo";
 import type { AssistantMetricsRow, AssistantMetricsStore, CwdKeyStore } from "./app-db";
 import { httpError, messageFor, type HttpError } from "./errors";

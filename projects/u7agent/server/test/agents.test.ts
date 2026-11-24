@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendSystemPrompt, composePromptSnapshot, investigationSystemPrompt, investigationTools } from "../src/agent";
+import { appendSystemPrompt, composePromptSnapshot, investigationSystemPrompt } from "../src/session-prompt";
+import { investigationTools } from "../src/tool-plan";
 import { allowsNaturalInvocation, createAgentCatalog } from "../src/agents";
 import { AppDb } from "../src/app-db";
 import { createPromptCatalog } from "../src/prompts";
