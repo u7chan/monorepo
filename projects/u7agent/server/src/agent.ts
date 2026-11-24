@@ -28,6 +28,7 @@ import { createBgmGenerator, type BgmGenerationInput } from "./bgm";
 import { contentGenerationDisabled } from "./content-disabled";
 import { createBgmToolDefinitions, BGM_GENERATION_PROMPT_LINES, BGM_TOOL_NAME } from "./bgm-tools";
 import { discoverSessionFileSkills } from "./file-skills";
+import { modelKey } from "./model-ref";
 import {
   createImageToolDefinitions,
   IMAGE_GENERATION_PROMPT_LINES,
@@ -507,8 +508,6 @@ export interface RuntimeCatalogInput {
   authStatuses: ReadonlyMap<string, RuntimeAuthStatusLike>;
   versions: RuntimeVersions;
 }
-
-const modelKey = ({ provider, id }: ModelRef): string => JSON.stringify([provider, id]);
 
 /**
  * カタログと available の対応を公開する。許可リストは設定 API (`allowedModels`) だけが持ち、

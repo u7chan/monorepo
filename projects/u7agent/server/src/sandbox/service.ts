@@ -24,7 +24,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join, parse, resolve } from "node:path";
+import { basename, dirname, join, parse, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
@@ -51,6 +51,7 @@ import { httpError, messageFor, pathError } from "../errors";
 import { isGitIdentityEnvName, isInjectableEnvName } from "../env-names";
 import { gitIdentityProblem, type GitIdentity } from "../git-identity";
 import { fitsImageInputPixels, IMAGE_INPUT_MAX_BYTES, inspectImageInput } from "../image-format";
+import { isInsideRoot } from "../path-strings";
 import { SECRET_MASTER_KEY_ENV, SECRET_MASTER_KEY_FILE_ENV } from "../secret-crypto";
 import { KeyedSerialLock, SerialLock } from "../serial-lock";
 import {
@@ -70,7 +71,6 @@ import {
 import {
   createWorkspaceDirectory,
   deepestExistingReal,
-  isInsideRoot,
   joinRequestPath,
   realpathNative,
   relativeToRoot,
@@ -264,12 +264,12 @@ async function resolveWorkspaceDirectory(
   const target = await realpathNative(joinRequestPath(root, requested)).catch((error: unknown) => {
     // 解決できない = 実在しない (か解決不能) なので、lexical な位置で判定する。
     // root 外の未作成パスを 404 にすると「root 外は 400」の入力検証が抜ける。
-    if (!isInsideRoot(root, candidate)) throw pathError(400, `Path outside the workspace: ${candidate}`);
+    if (!isInsideRoot(root, candidate, sep)) throw pathError(400, `Path outside the workspace: ${candidate}`);
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${candidate}`);
     throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
   });
-  if (!isInsideRoot(root, target)) throw pathError(400, `Path outside the workspace: ${target}`);
+  if (!isInsideRoot(root, target, sep)) throw pathError(400, `Path outside the workspace: ${target}`);
 
   const targetStat = await stat(target).catch(() => undefined);
   if (!targetStat) throw pathError(404, `Path not found: ${candidate}`);
@@ -791,7 +791,7 @@ async function listWorkspaceSkills(
   for (const skill of (await scanSkillsWithDeadline(target, scanTimeoutMs)).skills) {
     if (basename(skill.filePath) !== "SKILL.md") continue;
     const real = await realpathNative(skill.filePath).catch(() => undefined);
-    if (!real || !isInsideRoot(root, real) || seen.has(real)) continue;
+    if (!real || !isInsideRoot(root, real, sep) || seen.has(real)) continue;
     seen.add(real);
     skills.push({
       name: skill.name,
@@ -841,19 +841,19 @@ async function readScopedImageInput(
       throw pathError(400, `Cannot resolve the image input scope: ${messageFor(error)}`);
     });
     if (!resolved) continue;
-    if (!isInsideRoot(root, resolved)) throw pathError(400, `Scope outside the workspace: ${resolved}`);
+    if (!isInsideRoot(root, resolved, sep)) throw pathError(400, `Scope outside the workspace: ${resolved}`);
     scopeRoots.push(resolved);
   }
   if (scopeRoots.length === 0) throw pathError(400, "The image input scope does not exist");
 
   const candidate = resolve(root, requested || ".");
   const target = await realpathNative(joinRequestPath(root, requested)).catch((error: NodeJS.ErrnoException) => {
-    if (!isInsideRoot(root, candidate)) throw pathError(400, `Path outside the workspace: ${candidate}`);
+    if (!isInsideRoot(root, candidate, sep)) throw pathError(400, `Path outside the workspace: ${candidate}`);
     if (error.code === "ENOENT" || error.code === "ENOTDIR") throw pathError(404, `Path not found: ${candidate}`);
     throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
   });
-  if (!isInsideRoot(root, target)) throw pathError(400, `Path outside the workspace: ${target}`);
-  if (!scopeRoots.some((scopeRoot) => isInsideRoot(scopeRoot, target))) {
+  if (!isInsideRoot(root, target, sep)) throw pathError(400, `Path outside the workspace: ${target}`);
+  if (!scopeRoots.some((scopeRoot) => isInsideRoot(scopeRoot, target, sep))) {
     throw pathError(400, `Path outside the image input scope: ${target}`);
   }
 
@@ -874,8 +874,8 @@ async function readScopedImageInput(
     // 実体の実パスを引き直せない = 差し替え・削除の競合下なので、範囲を確かめられないまま読まない
     const actual = await resolveOpenedPath(handle.fd);
     if (actual === undefined) throw pathError(400, "Cannot verify the opened image input");
-    if (!isInsideRoot(root, actual)) throw pathError(400, "The opened file left the workspace");
-    if (!scopeRoots.some((scopeRoot) => isInsideRoot(scopeRoot, actual))) {
+    if (!isInsideRoot(root, actual, sep)) throw pathError(400, "The opened file left the workspace");
+    if (!scopeRoots.some((scopeRoot) => isInsideRoot(scopeRoot, actual, sep))) {
       throw pathError(400, "The opened file left the image input scope");
     }
     if (stats.size > IMAGE_INPUT_MAX_BYTES) {
@@ -946,7 +946,8 @@ async function isWritablePath(candidate: string, scope: WriteScope): Promise<boo
   // 未作成 root の `real` は最寄りの実在祖先なので、lexical の収まりも一緒に見る
   const inside = (real: string): boolean =>
     roots.some(
-      (root) => isInsideRoot(root.real, real) && (root.lexical === undefined || isInsideRoot(root.lexical, target)),
+      (root) =>
+        isInsideRoot(root.real, real, sep) && (root.lexical === undefined || isInsideRoot(root.lexical, target, sep)),
     );
   const real = await realpathNative(target).catch(() => undefined);
   if (real !== undefined) return inside(real);
@@ -1034,17 +1035,17 @@ async function touchesCommonSkills(input: {
 }): Promise<boolean> {
   const lexicalRoot = resolve(input.rootCwd);
   const lexical = resolve(lexicalRoot, input.requested || ".");
-  if (!isInsideRoot(lexicalRoot, lexical)) return true;
+  if (!isInsideRoot(lexicalRoot, lexical, sep)) return true;
   const skillsLexical = join(lexicalRoot, COMMON_SKILLS_DIR);
   const realSkills = await realpathNative(skillsLexical).catch(() => undefined);
   if (realSkills === undefined) {
-    if (isInsideRoot(skillsLexical, lexical)) return true;
-    return input.mode === "any" && isInsideRoot(lexical, skillsLexical);
+    if (isInsideRoot(skillsLexical, lexical, sep)) return true;
+    return input.mode === "any" && isInsideRoot(lexical, skillsLexical, sep);
   }
   const anchor = await deepestExistingReal(lexical);
   const target = anchor?.real ?? lexical;
-  if (isInsideRoot(realSkills, target)) return true;
-  return input.mode === "any" && isInsideRoot(target, realSkills);
+  if (isInsideRoot(realSkills, target, sep)) return true;
+  return input.mode === "any" && isInsideRoot(target, realSkills, sep);
 }
 
 /** 共通スキルの SKILL.md の内容と版。読みと検証は常にこの組で扱う */
@@ -1376,7 +1377,7 @@ async function createCommonSkill(
       throw pathError(400, `新しいスキルを作成できません: ${messageFor(error)}`);
     }
     const realFile = await realpathNative(target.lexical).catch(() => undefined);
-    if (realFile === undefined || !isInsideRoot(target.realRoot, realFile)) {
+    if (realFile === undefined || !isInsideRoot(target.realRoot, realFile, sep)) {
       throw pathError(400, "新しいスキルの実体を確認できません");
     }
     const nextVersion = skillFileVersion(Buffer.from(text, "utf8"));
@@ -1735,7 +1736,7 @@ async function resolvesInsideSkills(input: { rootCwd: string; target: string }):
   const realSkillsDir = await realpathNative(join(realRoot, COMMON_SKILLS_DIR)).catch(() => undefined);
   const real = await realpathNative(input.target).catch(() => undefined);
   if (!realSkillsDir || !real) return false;
-  return isInsideRoot(realSkillsDir, real);
+  return isInsideRoot(realSkillsDir, real, sep);
 }
 
 /**
@@ -1775,7 +1776,7 @@ async function resolveImportTarget(input: {
   if (skillsDir === undefined) return { state: "missing" };
   if (target.real !== undefined) {
     const folder = dirname(target.real);
-    if (!isInsideRoot(skillsDir, folder)) {
+    if (!isInsideRoot(skillsDir, folder, sep)) {
       return { state: "protected", reason: "スキルフォルダが置き場の外へ解決するため置換できません" };
     }
     return { state: "existing", folder };
@@ -1784,7 +1785,7 @@ async function resolveImportTarget(input: {
   if (folderStats === undefined) return { state: "missing" };
   // SKILL.md は無いがフォルダはある (非スキル項目)。中身を同一と判定できないため置換対象にする
   const real = await realpathNative(folder).catch(() => undefined);
-  if (!real || !isInsideRoot(skillsDir, real)) {
+  if (!real || !isInsideRoot(skillsDir, real, sep)) {
     return { state: "protected", reason: "スキルフォルダが置き場の外へ解決するため置換できません" };
   }
   return { state: "existing", folder: real };
@@ -2188,7 +2189,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   const requestBashRoots = (entries: readonly SandboxWriteScopeEntry[]): LandlockWriteRoot[] =>
     entries.map((entry) => {
       const target = resolve(lexicalRoot, entry.path || ".");
-      if (!isInsideRoot(lexicalRoot, target)) {
+      if (!isInsideRoot(lexicalRoot, target, sep)) {
         throw pathError(400, `writeScope is outside the workspace: ${entry.path}`);
       }
       return { path: target, create: entry.create === true };

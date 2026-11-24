@@ -2,6 +2,7 @@
  * BFF ⇄ サンドボックスのツール実行 API のワイヤ形式。BFF 側 client とサンドボックス側 service の両方が import するため、
  * pi SDK の型には依存せず payload を unknown で受ける。
  */
+import { fileExtension } from "../path-strings";
 
 /** 実行開始。executionId はサンドボックスが払い出し、cancel で使う。 */
 export interface SandboxStartEvent {
@@ -653,13 +654,6 @@ export const RAW_MEDIA_CONTENT_TYPES: Record<string, string> = {
   wav: "audio/wav",
   flac: "audio/flac",
 };
-
-/** パスの拡張子を小文字で取る。拡張子なしと dotfile は undefined。 */
-function fileExtension(path: string): string | undefined {
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  const dot = name.lastIndexOf(".");
-  return dot <= 0 ? undefined : name.slice(dot + 1).toLowerCase();
-}
 
 function contentTypeFor(allowlist: Record<string, string>, path: string): string | undefined {
   const extension = fileExtension(path);

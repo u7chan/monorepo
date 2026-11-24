@@ -95,7 +95,8 @@ import type { TitleSummaryHost, TitleSummaryResult, TitleSummaryUsage } from "./
 import type { TitleSummaryRuntimeSettings } from "./title-summary-settings";
 import { TitleSummaryQueue, type TitleSummaryQueueResult } from "./title-summary-queue";
 import { contentText, displayableMessages, truncate } from "./session-projection";
-import { SessionRecordWrites, entriesOf, modelLabel } from "./session-record-writes";
+import { modelLabel } from "./model-ref";
+import { SessionRecordWrites, entriesOf } from "./session-record-writes";
 import type { SandboxHandoffClient, SandboxMoveClient, SandboxWorkspaceClient } from "./sandbox/client";
 import { SandboxRequestError } from "./sandbox/client";
 import {
