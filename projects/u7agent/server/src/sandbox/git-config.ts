@@ -10,6 +10,7 @@ import { lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { gitConfigText, type GitIdentity } from "../git-identity";
+import { isInsideRoot } from "../path-strings";
 import type { SandboxGitConfigStatus } from "./protocol";
 import { killProcessTree, resolveTrustedExecutable, RUNTIME_PROBE_PATH_DIRS, runtimeProbeEnv } from "./runtime-info";
 
@@ -36,10 +37,6 @@ export function gitConfigTarget(home: string = homedir()): GitConfigTarget {
   return { home: base, dir, path: join(dir, GIT_CONFIG_FILENAME) };
 }
 
-function isInside(root: string, target: string): boolean {
-  return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
-}
-
 export type GitConfigFailureReason = NonNullable<SandboxGitConfigStatus["reason"]>;
 
 export type PrepareGitConfigResult = { ok: true } | { ok: false; reason: GitConfigFailureReason };
@@ -58,7 +55,7 @@ export interface PrepareGitConfigInput {
 function forbiddenReason(path: string, forbiddenRoots: readonly string[]): GitConfigFailureReason | undefined {
   if (!isAbsolute(path)) return "home_unavailable";
   for (const root of forbiddenRoots) {
-    if (isInside(resolve(root), path)) return "inside_workspace";
+    if (isInsideRoot(resolve(root), path, sep)) return "inside_workspace";
   }
   return undefined;
 }

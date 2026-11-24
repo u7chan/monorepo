@@ -32,7 +32,7 @@
 
 引数は `prompt` と任意のcwd相対 `path` だけ。BPM・voice・duration・seedや生のproviderオプションは受け付けない。promptの空白のみ・長さ、パスの拡張子・字句境界・空白と制御文字・隠しbasename・長さは送信前に検証する。数値と拒否ケースの正は `server/src/bgm.ts` / `server/src/bgm-tools.ts` と `server/test/bgm-tools.test.ts`。試行サーバーも BGM は 1,000 字で止める（一般の 4,000 字より厳しく、チャットのツールと同じ）。
 
-既定先は `generated/`、拡張子省略はMP3を補う。`parseToolPath()` / `rootRelativeDir()` / `cwdRelativePath()` と既存uploadの親作成・一時ファイル・非上書きを使い、同名はsuffix付きの新規ファイルにする。root外symlinkは拒否し、root内symlinkのcwdは既存どおり字句的に扱う（cwd専用の新しい隔離は追加しない）。保存結果の実パスとモデルを結果本文の先頭の改行終端した行へ置き、履歴の投影後も同じパスを参照する。
+既定先は `generated/`、拡張子省略はMP3を補う。保存先のパスには `server/src/workspace-path.ts`、保存には既存uploadの親作成・一時ファイル・非上書きを使い、同名はsuffix付きの新規ファイルにする。root外symlinkは拒否し、root内symlinkのcwdは既存どおり字句的に扱う（cwd専用の新しい隔離は追加しない）。保存結果の実パスとモデルを結果本文の先頭の改行終端した行へ置き、履歴の投影後も同じパスを参照する。
 
 成功カードは既存の音声プレイヤー・URL解決・版・MP3配信・Rangeを使う。BGMラベル、モデル、実保存パス、captionを出し、TTSのvoiceは出さない。複数BGM / TTS混在、ライブ / 履歴を同じ結果本文で扱う。自動再生しない。再生・停止・シーク・復元では生成要求を送らず、失敗カードにプレイヤーを出さない。[既存プレイヤーの制限](speech-generation.md#既知の制限) は引き継ぐ。
 

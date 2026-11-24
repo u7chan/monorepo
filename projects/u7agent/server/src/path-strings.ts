@@ -1,8 +1,9 @@
+/** 字句比較だけを行う。正規化や symlink の解決を代用しない。 */
 export function isInsideRoot(root: string, target: string, sep: string): boolean {
   return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
 
-/** パスの拡張子を小文字で取る。拡張子なしと dotfile は undefined。 */
+/** サンドボックスのワイヤ形式では OS によらず区切りが `/`。 */
 export function fileExtension(path: string): string | undefined {
   const name = path.slice(path.lastIndexOf("/") + 1);
   const dot = name.lastIndexOf(".");

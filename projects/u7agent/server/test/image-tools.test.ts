@@ -25,7 +25,7 @@ import { createMutableSecretMasker } from "../src/redact";
 import { createSandboxToolClient } from "../src/sandbox/client";
 import { toolResultSummary } from "../src/session-projection";
 import type { SandboxUploadInput, SandboxWorkspaceClient } from "../src/sandbox/client";
-import { cwdRelativePath, parseToolPath, rootRelativeDir } from "../src/workspace-path";
+import { joinCwdRelativePath, parseToolPath, rootRelativeDir } from "../src/workspace-path";
 
 type AnyTool = ToolDefinition<any, any, any>;
 
@@ -166,8 +166,8 @@ test("root 相対への前置きと cwd 相対の結果パス", () => {
   assert.equal(rootRelativeDir("", "generated"), "generated");
   assert.equal(rootRelativeDir("projects/u7agent", ""), "projects/u7agent");
   assert.equal(rootRelativeDir("projects/u7agent", "generated"), "projects/u7agent/generated");
-  assert.equal(cwdRelativePath("", "cafe.png"), "cafe.png");
-  assert.equal(cwdRelativePath("generated", "cafe-1.png"), "generated/cafe-1.png");
+  assert.equal(joinCwdRelativePath("", "cafe.png"), "cafe.png");
+  assert.equal(joinCwdRelativePath("generated", "cafe-1.png"), "generated/cafe-1.png");
 });
 
 test("ツール一覧は有効なときだけ generate_image を足す", () => {

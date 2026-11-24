@@ -4,6 +4,7 @@
  */
 import { workspaceAbs } from "./app-paths";
 import { compactionsOf } from "./compaction-view";
+import { formatModelRef } from "./model-ref";
 import { contextUsageOf } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
 import type { SessionRecord } from "./session-record";
@@ -20,7 +21,7 @@ import type {
   ThinkingLevel,
 } from "./schema";
 
-const PROMPT_TEXT_MAX = 300;
+const RUN_PROMPT_PREVIEW_MAX = 300;
 
 /**
  * payload の `run.toolCalls` が指す応答のうち、表示 item を持たないもの (クライアントが合成しうる応答)。
@@ -75,7 +76,7 @@ export function pendingSendsOf(record: SessionRecord, masker: SecretMasker): Pen
 
 function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
   if (!model || (model.provider === "unknown" && model.id === "unknown")) return undefined;
-  return `${model.provider}/${model.id}`;
+  return formatModelRef(model);
 }
 
 export function projectSessionPayload({
@@ -167,7 +168,7 @@ export function projectSessionPayload({
           error: record.run.error,
           // 復元 (リロード / SSE 再接続) でも再実行カードを出せるように、run_end だけに依存せず載せる
           ...(record.run.errorCode ? { errorCode: record.run.errorCode } : {}),
-          prompt: truncate(record.run.prompt, PROMPT_TEXT_MAX),
+          prompt: truncate(record.run.prompt, RUN_PROMPT_PREVIEW_MAX),
           toolCalls: [...record.tools.values()],
           ...(record.run.retry ? { retry: { ...record.run.retry } } : {}),
           totalRetryCount: record.run.totalRetryCount,

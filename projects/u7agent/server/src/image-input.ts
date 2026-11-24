@@ -11,7 +11,8 @@ import {
   imageDataUrl,
   inspectImageInput,
 } from "./image-format";
-import { cwdRelativePath, rootRelativeDir } from "./workspace-path";
+import { isInsideRoot } from "./path-strings";
+import { joinCwdRelativePath, rootRelativeDir } from "./workspace-path";
 
 export interface ImageInputContext {
   /** セッション cwd（root 相対。"" は root） */
@@ -33,10 +34,6 @@ export interface ImageInputTarget {
 function echoOf(rawPath: string): string {
   const oneLine = rawPath.replace(/\s+/g, " ").trim();
   return oneLine.length > 80 ? `${oneLine.slice(0, 80)}…` : oneLine;
-}
-
-function isInside(base: string, target: string): boolean {
-  return target === base || target.startsWith(base.endsWith(sep) ? base : `${base}${sep}`);
 }
 
 function rootRelativeOf(root: string, absolute: string): string {
@@ -66,13 +63,16 @@ export function resolveImageInputPath(rawPath: string, context: ImageInputContex
   const rootAbsolute = resolve(context.rootCwd);
   if (requested.startsWith("/")) {
     const absolute = resolve(requested);
-    if (!isInside(rootAbsolute, absolute)) {
+    if (!isInsideRoot(rootAbsolute, absolute, sep)) {
       throw new Error(`input_images は作業フォルダの外を参照できません: ${echoOf(requested)}`);
     }
     const cwdAbsolute = resolve(rootAbsolute, context.sessionCwd);
     const uploadsAbsolute =
       context.uploadsDirRel === undefined ? undefined : resolve(rootAbsolute, context.uploadsDirRel);
-    if (!isInside(cwdAbsolute, absolute) && !(uploadsAbsolute !== undefined && isInside(uploadsAbsolute, absolute))) {
+    if (
+      !isInsideRoot(cwdAbsolute, absolute, sep) &&
+      !(uploadsAbsolute !== undefined && isInsideRoot(uploadsAbsolute, absolute, sep))
+    ) {
       throw new Error(`input_images は現在の作業フォルダかこの会話の添付だけを参照できます: ${echoOf(requested)}`);
     }
     if (segments.length === 0) throw new Error("input_images のパスが空です");
@@ -85,15 +85,15 @@ export function resolveImageInputPath(rawPath: string, context: ImageInputContex
   const name = segments.at(-1) ?? "";
   if (name === "") throw new Error("input_images のパスが空です");
   return {
-    rootRelative: rootRelativeDir(context.sessionCwd, cwdRelativePath(dir, name)),
-    display: cwdRelativePath(dir, name),
+    rootRelative: rootRelativeDir(context.sessionCwd, joinCwdRelativePath(dir, name)),
+    display: joinCwdRelativePath(dir, name),
   };
 }
 
 /** 絶対パスを cwd 相対（添付は root 相対のまま）へ寄せ、結果本文に載せる形にする */
 function displayPathOf(rootAbsolute: string, absolute: string, context: ImageInputContext): string {
   const cwdAbsolute = resolve(rootAbsolute, context.sessionCwd);
-  if (isInside(cwdAbsolute, absolute)) return rootRelativeOf(cwdAbsolute, absolute);
+  if (isInsideRoot(cwdAbsolute, absolute, sep)) return rootRelativeOf(cwdAbsolute, absolute);
   return rootRelativeOf(rootAbsolute, absolute);
 }
 

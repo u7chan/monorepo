@@ -43,7 +43,7 @@ export function rootRelativeDir(cwd: string, dir: string): string {
 }
 
 /** cwd 相対の保存先。ツール結果と read / Markdown の起点を揃えるため root 相対は返さない */
-export function cwdRelativePath(dir: string, name: string): string {
+export function joinCwdRelativePath(dir: string, name: string): string {
   const child = segmentsOf(dir).join("/");
   return child === "" ? name : `${child}/${name}`;
 }

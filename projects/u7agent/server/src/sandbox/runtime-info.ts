@@ -9,6 +9,7 @@ import { accessSync, constants, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { arch as hostArch, userInfo } from "node:os";
 import { join, sep } from "node:path";
+import { isInsideRoot } from "../path-strings";
 import type { SandboxRuntimeCommand, SandboxRuntimeEnvironment, SandboxRuntimeInfo } from "./protocol";
 
 /** 子プロセスへ渡す PATH の構成元。ワークスペースとユーザーが書き込めるディレクトリは入れない */
@@ -91,10 +92,6 @@ function isValidCommandName(name: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(name);
 }
 
-function isInside(root: string, target: string): boolean {
-  return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
-}
-
 /**
  * 信頼ディレクトリから実行ファイルを解決する。symlink は実体まで解決し、実体が信頼ディレクトリの外なら
  * 使わない (ワークスペースや書き込み可能な場所へ置かれた実行ファイルへのすり替えを防ぐ)。
@@ -128,7 +125,7 @@ export function resolveTrustedExecutable(name: string, pathDirs: readonly string
     } catch {
       continue;
     }
-    if (!trustedRoots.some((root) => isInside(root, real))) continue;
+    if (!trustedRoots.some((root) => isInsideRoot(root, real, sep))) continue;
     return real;
   }
   return undefined;

@@ -812,6 +812,26 @@ test("session creation resolves request → definition → app default per field
   }
 });
 
+test("health では unknown/unknown をそのまま返し、会話の表示からは省く", async () => {
+  const model = { ...STUB_MODEL, provider: "unknown", id: "unknown" };
+  const pi = createStubPi({ availableModels: [model], selectedModel: model });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
+  try {
+    const health = await jsonBody(bff.app.request("/api/health"));
+    assert.equal(health.model, "unknown/unknown");
+    assert.deepEqual(health.availableModels, ["unknown/unknown"]);
+
+    const { sessionId } = await createSession(bff.app);
+    assert.equal((await jsonBody(bff.app.request(`/api/sessions/${sessionId}`))).model, undefined);
+    const listed = await jsonBody(bff.app.request("/api/sessions"));
+    const summary = listed.sessions.find((session: { sessionId: string }) => session.sessionId === sessionId);
+    assert.ok(summary);
+    assert.equal(summary.model, undefined);
+  } finally {
+    await bff.close();
+  }
+});
+
 test("a session runs on its own model when it differs from the app default", async () => {
   // アプリ既定 (health.model) と会話の実効モデルが違うとき、送信に使うモデルが
   // 会話の選択値から動かないことを検証する。

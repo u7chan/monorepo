@@ -9,6 +9,7 @@ import type { SecretRow } from "./app-db";
 import { envNameProblem, isGitIdentityEnvName, isPublicEnvName, normalizeEnvName } from "./env-names";
 import { httpError } from "./http";
 import { MIN_SECRET_LENGTH } from "./redact";
+import { normalizeReorderIds } from "./reorder-ids";
 import { SecretKeyError, type SecretCipher, type SecretKind } from "./secret-crypto";
 
 /** 変数の値の上限 (文字数)。小さな設定値向けで、長い本文はファイルへ置かせる */
@@ -235,24 +236,9 @@ export class SecretService {
     return { items: rows.map(itemOf), generation: secretGeneration(rows), projectScoped: scope.projectScoped };
   }
 
-  /**
-   * 表示順の更新。応答と以後の一覧は、正規化したあとの順で返る。未知の id・他会話 (別 cwd) の id・
-   * 重複は捨て、渡されなかった行は元の相対順で末尾に回す (並べ替えで行を消さない)。
-   */
   reorder(scope: SecretScope, ids: readonly string[]): SecretsList {
-    const current = this.#rows(scope.cwd);
-    const known = new Set(current.map((row) => row.secretId));
-    const seen = new Set<string>();
-    const order: string[] = [];
-    for (const id of ids) {
-      if (typeof id !== "string" || !known.has(id) || seen.has(id)) continue;
-      seen.add(id);
-      order.push(id);
-    }
-    for (const row of current) {
-      if (!seen.has(row.secretId)) order.push(row.secretId);
-    }
-    this.#store.reorderSecrets(scope.cwd, order);
+    const currentIds = this.#rows(scope.cwd).map((row) => row.secretId);
+    this.#store.reorderSecrets(scope.cwd, normalizeReorderIds(currentIds, ids));
     return this.list(scope);
   }
 

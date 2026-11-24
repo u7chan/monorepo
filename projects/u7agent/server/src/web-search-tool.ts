@@ -6,6 +6,7 @@
  */
 import { Type, type Static } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { messageFor } from "./errors";
 import { formatJstDate, JST_TIME_ZONE } from "./jst";
 import type { SecretMasker } from "./redact";
 import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
@@ -84,10 +85,6 @@ type WebSearchParams = Static<typeof webSearchSchema>;
 type WebSearchOutcome =
   | { ok: true; items: WebSearchResultItem[]; provider: WebSearchProviderRef }
   | { ok: false; message: string; provider?: WebSearchProviderRef };
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** 結果と失敗文言の先頭に置く現在日時行。日付だけで「今年」の判断には足り、表示と cache が安定する */
 function currentDateLine(now: Date): string {
@@ -212,7 +209,7 @@ export function createWebSearchRunner(options: WebSearchToolOptions): WebSearchR
       const provider = webSearchProvider(readProvider());
       return { provider, apiKey: provider.keyless ? undefined : readApiKey(provider.id) };
     } catch (error) {
-      const detail = options.masker.mask(errorMessage(error));
+      const detail = options.masker.mask(messageFor(error));
       console.warn(`[u7agent] web search settings unavailable: ${detail.slice(0, WEB_SEARCH_DETAIL_MAX_LENGTH)}`);
       return undefined;
     }
@@ -252,7 +249,7 @@ export function createWebSearchRunner(options: WebSearchToolOptions): WebSearchR
     } catch (error) {
       if (timedOut) return { ok: false, message: WEB_SEARCH_TIMEOUT_MESSAGE, provider: ref };
       if (aborted()) return { ok: false, message: WEB_SEARCH_ABORTED_MESSAGE, provider: ref };
-      const detail = options.masker.mask(errorMessage(error)).slice(0, WEB_SEARCH_DETAIL_MAX_LENGTH);
+      const detail = options.masker.mask(messageFor(error)).slice(0, WEB_SEARCH_DETAIL_MAX_LENGTH);
       return {
         ok: false,
         message: detail === "" ? WEB_SEARCH_NETWORK_ERROR_MESSAGE : `${WEB_SEARCH_NETWORK_ERROR_MESSAGE}: ${detail}`,

@@ -9,6 +9,7 @@ import {
   sandboxNotConfigured,
   SANDBOX_NOT_CONFIGURED_MESSAGE,
 } from "../http";
+import { fileExtension } from "../path-strings";
 import {
   FileDownloadCheckSchema,
   FileListingSchema,
@@ -85,13 +86,6 @@ function escapeHtml(text: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
-}
-
-/** 拡張子を小文字で取る。拡張子なしと dotfile は undefined で、画像 allowlist と同じ規則。 */
-function fileExtension(path: string): string | undefined {
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  const dot = name.lastIndexOf(".");
-  return dot <= 0 ? undefined : name.slice(dot + 1).toLowerCase();
 }
 
 function isHtmlDocumentPath(path: string): boolean {

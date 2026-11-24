@@ -7,6 +7,7 @@ import { AppDb, type StoredAgent } from "./app-db";
 import { BUILTIN_AGENT_DESCRIPTION, BUILTIN_AGENT_ID, BUILTIN_AGENT_NAME } from "./builtin-catalog";
 import { httpError, type HttpError } from "./http";
 import { createPromptCatalog, type PromptCatalog } from "./prompts";
+import { normalizeReorderIds } from "./reorder-ids";
 import { SKILL_NAME_MAX, SKILL_NAMES_MAX, TOOL_NAME_MAX, TOOL_NAMES_MAX, ThinkingLevelSchema } from "./schema";
 import type {
   AgentDef,
@@ -362,21 +363,9 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
     getAgent,
     snapshot,
     reorderAgents(ids) {
-      // 存在しない id を捨てる方針は normalize と同じ (ビルトインはユーザー定義の集合に無い)
-      const current = db.listAgents();
-      const known = new Set(current.map((agent) => agent.id));
-      const seen = new Set<string>();
-      const order: string[] = [];
-      for (const id of ids) {
-        if (typeof id !== "string" || !known.has(id) || seen.has(id)) continue;
-        seen.add(id);
-        order.push(id);
-      }
-      // 渡されなかった行は末尾へ、元の相対順のまま (1 度も触られていない行を並べ替えない)
-      for (const agent of current) {
-        if (!seen.has(agent.id)) order.push(agent.id);
-      }
-      db.reorderAgents(order);
+      // ビルトインはユーザー定義の集合に含めない。
+      const currentIds = db.listAgents().map((agent) => agent.id);
+      db.reorderAgents(normalizeReorderIds(currentIds, ids));
       return listAgents();
     },
     createAgent(input) {
