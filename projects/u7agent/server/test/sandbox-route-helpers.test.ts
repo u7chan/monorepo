@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { SANDBOX_MAX_BODY_BYTES, SANDBOX_MAX_HANDOFF_BYTES, SANDBOX_MAX_PREVIEW_BYTES } from "../src/sandbox/protocol";
-import { createSandboxService, workspaceEntryName } from "../src/sandbox/service";
+import { workspaceEntryName } from "../src/sandbox/fs-path";
+import { createSandboxService } from "../src/sandbox/service";
 
 async function sandbox(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), "sandbox-route-helpers-"));
