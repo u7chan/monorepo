@@ -9,7 +9,7 @@ import { JST_TIME_ZONE } from "../src/jst";
 import { createMutableSecretMasker, type SecretMasker } from "../src/redact";
 import { UnknownRemoteToolError, createRemoteToolDefinitions } from "../src/sandbox/remote-tools";
 import { toolResultSummary } from "../src/session-projection";
-import { SANDBOX_TOOL_NAMES } from "../src/sandbox/service";
+import { SANDBOX_TOOL_NAMES } from "../src/sandbox/execute-request";
 import { EXA_ENDPOINT, TAVILY_ENDPOINT, type WebSearchProviderId } from "../src/web-search-providers";
 import { createWebSearchTest } from "../src/web-search-test";
 import {

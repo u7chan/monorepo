@@ -112,7 +112,7 @@
 
 ファイル行の右端に、更新時刻の左へサイズ（`FileEntry.size`、バイト）を出す。描画は `client/src/components/FileBrowser.tsx` の `EntrySize` が行い、`size` の無い行では何も出さない。
 
-- 値はサンドボックスの一覧が返す `size` をそのまま使う（`server/src/sandbox/service.ts` の `listWorkspaceDirectory`）。付くのは**通常ファイルとファイルへの symlink**（リンク先の実体サイズ）だけで、**ディレクトリには付かず、壊れた symlink も `undefined` になる**（ディレクトリの `size` はファイルの内容量を表さない。`type` が実体の種別になる既存契約と同じで、symlink の行にはリンク先のサイズが出る）
+- 値はサンドボックスの一覧が返す `size` をそのまま使う（`server/src/sandbox/workspace-files.ts`）。付くのは**通常ファイルとファイルへの symlink**（リンク先の実体サイズ）だけで、**ディレクトリには付かず、壊れた symlink も `undefined` になる**（ディレクトリの `size` はファイルの内容量を表さない。`type` が実体の種別になる既存契約と同じで、symlink の行にはリンク先のサイズが出る）
 - 表記は `client/src/lib/attachments.ts` の `formatBytes`（添付チップ・アーカイブの確認・画像プレビューのメタと共通。`0 B` / `1023 B` / `1.0 KB` / `99.9 MB`）。`title` には `toLocaleString` した正確なバイト数（例: `1.0 KB` → `1,024 バイト`）を出し、時刻が `title` で完全表記を出すのと同じ形にする。数字の幅で行ごとにガタつかないよう `tabular-nums` を付ける。`formatBytes` が不正な値で返す空文字は行ごと出さない（`0 B` は表記する）
 - **置き場所は時刻の左**（`名前 … サイズ 時刻 ⋯`）。時刻は従来どおり ⋯ の隣に残るため、時刻の右端のそろい方は変わらない。サイズと時刻は同じ `RowTail` に載せ、折り返しと間隔（下の [時刻](#時刻)）は共通で掛かる
 - 一覧は追加の更新を持たないため、**サイズも時刻と同じく「再読み込み」と run 終了でしか更新されない**（画像プレビューのメタがツリーの行から引く `size` と同じ値。[画像プレビュー](file-preview.md#画像プレビュー)）

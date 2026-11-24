@@ -113,7 +113,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 本文の取得上限はテキストプレビュー追加（#1386）のときに 256 KiB で置いた控えめな既定で、実測から決めた値ではない。単体 HTML の成果物（Three.js を埋め込んだゲームなど、およそ 680 KiB）が 256 KiB を超えてプレビューできなくなったため 2 MiB へ引き上げた。ハイライトの上限（`FILE_PREVIEW_MAX_LENGTH`）は据え置きで、上限内の本文は最後まで表示され、ハイライトだけが落ちる。
 
-同じ値はテキストプレビュー以外に、HTML プレビューの iframe 文書と相対アセット（`.js` / `.css` / `.json` / `.txt`）、`/skill:` 展開でプロンプトへ入れる SKILL.md 本文にも掛かる（プロンプト長の上限ではない）。本文の取得上限を変えるときは、`SANDBOX_MAX_PREVIEW_BYTES`・`server/src/sandbox/service.ts` のエラー文言・`FilePreviewSchema` の `max`（UTF-16 単位。UTF-8 ではバイト数 ≥ 単位数なので同じ値でよい）・テストとドキュメントの表記を揃える。
+同じ値はテキストプレビュー以外に、HTML プレビューの iframe 文書と相対アセット（`.js` / `.css` / `.json` / `.txt`）、`/skill:` 展開でプロンプトへ入れる SKILL.md 本文にも掛かる（プロンプト長の上限ではない）。本文の取得上限を変えるときは、`SANDBOX_MAX_PREVIEW_BYTES`・`server/src/sandbox/workspace-files.ts` のエラー文言・`FilePreviewSchema` の `max`（UTF-16 単位。UTF-8 ではバイト数 ≥ 単位数なので同じ値でよい）・テストとドキュメントの表記を揃える。
 
 ## HTML プレビュー
 
