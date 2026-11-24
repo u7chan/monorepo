@@ -73,8 +73,8 @@ function createMcpServer(version: string, relay: Relay, authenticated: Authentic
         "固定した会話へ依頼を投稿する。実行は非同期なので、返った runId を get_task で照会する。" +
         "409 session_busy は会話が実行中か回答待ちで、投稿は受理されていない。再送せず get_task で待つ。",
       inputSchema: {
-        // 長さの判定は relay.post に任せる。ここで上限を掛けると、trim の有無で /v1 と結果がずれる。
-        text: z.string().min(1).describe("会話へ送る本文。前後の空白は取り除いて送る。"),
+        // 値の判定は relay に任せる。ここで min / max を掛けると、同じ入力でもエラーコードが /v1 とずれる。
+        text: z.string().describe("会話へ送る本文。前後の空白は取り除いて送る。"),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -90,7 +90,7 @@ function createMcpServer(version: string, relay: Relay, authenticated: Authentic
         "awaiting_answer は人間が会話を開いて答える必要があり、待ち続けても進まない。" +
         "completed の files は path と kind の一覧で、実体は relay の HTTP API から取得する。",
       inputSchema: {
-        runId: z.string().min(1).max(64).describe("submit_task が返した runId。"),
+        runId: z.string().describe("submit_task が返した runId。"),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },

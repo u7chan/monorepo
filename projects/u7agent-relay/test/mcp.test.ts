@@ -203,6 +203,33 @@ describe("MCP 入口", () => {
       expect(blank.isError).toBe(true);
       expect(payload(blank)).toEqual({ error: "text_required" });
 
+      // 空文字もスキーマではなく relay の判定を通す。
+      const empty = await client.callTool({ name: "submit_task", arguments: { text: "" } });
+
+      expect(empty.isError).toBe(true);
+      expect(payload(empty)).toEqual({ error: "text_required" });
+
+      await client.close();
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  test("存在しない runId はスキーマではなく実行の不在として返す", async () => {
+    const upstream = createUpstream();
+    const harness = await setup(upstream.fetchImpl);
+
+    try {
+      const { token } = seedConnection(harness);
+      const client = await connect(harness, token);
+
+      for (const runId of ["", "0".repeat(100)]) {
+        const result = await client.callTool({ name: "get_task", arguments: { runId } });
+
+        expect(result.isError).toBe(true);
+        expect(payload(result)).toEqual({ error: "run_not_found" });
+      }
+
       await client.close();
     } finally {
       harness.cleanup();
