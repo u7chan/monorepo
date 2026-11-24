@@ -1,5 +1,6 @@
 import type { Context } from "hono";
-import type { TitleSummaryMutationOutcome, TitleSummarySettingsService } from "../title-summary-settings";
+import { respondSettingsMutation } from "../http";
+import type { TitleSummarySettingsService } from "../title-summary-settings";
 import type { TitleSummaryTest } from "../title-summary";
 import type { UpdateTitleSummaryBody } from "../schema";
 
@@ -17,7 +18,8 @@ export function createTitleSummaryRoutes({
   return {
     list: (c: Context) => c.json(titleSummarySettings.settings()),
 
-    put: async (c: Context, body: UpdateTitleSummaryBody) => respond(c, await titleSummarySettings.put(body)),
+    put: async (c: Context, body: UpdateTitleSummaryBody) =>
+      respondSettingsMutation(c, await titleSummarySettings.put(body)),
 
     /**
      * 保存済みの設定で 1 回だけ生成する。生成の失敗も 200 の `ok: false` で返し、
@@ -28,10 +30,4 @@ export function createTitleSummaryRoutes({
       return c.json(await test());
     },
   };
-}
-
-function respond(c: Context, outcome: TitleSummaryMutationOutcome) {
-  if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
-  if (outcome.status === 400) return c.json({ error: outcome.error }, 400);
-  return c.json(outcome.response, 200);
 }

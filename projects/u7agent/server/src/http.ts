@@ -1,5 +1,6 @@
 import type { Context, Env, Input, MiddlewareHandler, TypedResponse } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { JSONParsed } from "hono/utils/types";
 import type { z } from "zod";
 import { declaredBodyTooLarge, readBodyBytes, readBodyText } from "./bounded-body";
 import { httpError, messageFor, type HttpError } from "./errors";
@@ -25,6 +26,17 @@ type JsonBodyParseResult<S extends z.ZodType> = z.ZodSafeParseResult<z.output<S>
 
 /** addValidatedData が object しか受け取らないため、body schema の出力は object に限定する */
 type JsonBodySchema = z.ZodType<object>;
+
+function invalidRequestBody(c: Context) {
+  return c.json({ error: "Invalid request body" }, 400);
+}
+
+export function requestBodyValidationHook<E extends Env, P extends string>(
+  result: { success: boolean },
+  c: Context<E, P>,
+) {
+  if (!result.success) return invalidRequestBody(c);
+}
 
 /**
  * Content-Type を見ずに JSON body を読む zValidator("json") の代替。
@@ -52,7 +64,7 @@ export function jsonBodyValidator<
     const result = schema.safeParse(parsed);
     if (!result.success) {
       // hook が応答を返さない場合も、未検証の body のまま handler を動かさない
-      return hook(result, c) ?? c.json({ error: "Invalid request body" }, 400);
+      return hook(result, c) ?? invalidRequestBody(c);
     }
     c.req.addValidatedData("json", result.data);
     await next();
@@ -97,6 +109,31 @@ export function sandboxFailureStatus(error: unknown): number {
 /** サンドボックスの 4xx はそのまま、接続失敗は 502 にして応答する。 */
 export function sandboxFailure(c: Context, error: unknown) {
   return c.json({ error: messageFor(error) }, sandboxFailureStatus(error) as ContentfulStatusCode);
+}
+
+type SettingsMutationOutcome<T> = { status: 200; response: T } | { status: 503; error: string };
+type InvalidSettingsMutation = { status: 400; error: string };
+
+type SettingsMutationResponse<T> =
+  | (Response & TypedResponse<JSONParsed<T>, 200, "json">)
+  | (Response & TypedResponse<{ error: string; state: "not_stored" }, 503, "json">);
+
+// 400 を返せない更新処理もあるため、全ルートの AppType に 400 を載せない。
+export function respondSettingsMutation<T extends object>(
+  c: Context,
+  outcome: SettingsMutationOutcome<T>,
+): SettingsMutationResponse<T>;
+export function respondSettingsMutation<T extends object>(
+  c: Context,
+  outcome: SettingsMutationOutcome<T> | InvalidSettingsMutation,
+): SettingsMutationResponse<T> | (Response & TypedResponse<{ error: string }, 400, "json">);
+export function respondSettingsMutation<T extends object>(
+  c: Context,
+  outcome: SettingsMutationOutcome<T> | InvalidSettingsMutation,
+) {
+  if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
+  if (outcome.status === 400) return c.json({ error: outcome.error }, 400);
+  return c.json(outcome.response, 200);
 }
 
 /** 本文は JSON に載せず、サンドボックスが決めた保存名と長さを改変しない。 */

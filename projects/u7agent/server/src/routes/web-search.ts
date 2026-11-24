@@ -1,7 +1,8 @@
 import type { Context } from "hono";
+import { respondSettingsMutation } from "../http";
 import type { UpdateWebSearchBody, UpdateWebSearchProviderBody, WebSearchTestBody } from "../schema";
 import { WEB_SEARCH_TEST_UNAVAILABLE_MESSAGE, type WebSearchTest } from "../web-search-test";
-import type { WebSearchMutationOutcome, WebSearchSettingsService } from "../web-search-settings";
+import type { WebSearchSettingsService } from "../web-search-settings";
 
 /**
  * 設定 → Web 検索の設定 API。画面が「保存されていない」を区別できるよう、
@@ -19,15 +20,16 @@ export function createWebSearchSettingsRoutes({
     list: (c: Context) => c.json(webSearchSettings.settings()),
 
     putEnabled: async (c: Context, body: UpdateWebSearchBody) =>
-      respond(c, await webSearchSettings.putEnabled(body.enabled)),
+      respondSettingsMutation(c, await webSearchSettings.putEnabled(body.enabled)),
 
     putProvider: async (c: Context, body: UpdateWebSearchProviderBody) =>
-      respond(c, await webSearchSettings.putProvider(body.provider)),
+      respondSettingsMutation(c, await webSearchSettings.putProvider(body.provider)),
 
     putKey: async (c: Context, provider: string, apiKey: string) =>
-      respond(c, await webSearchSettings.putKey(provider, apiKey)),
+      respondSettingsMutation(c, await webSearchSettings.putKey(provider, apiKey)),
 
-    deleteKey: async (c: Context, provider: string) => respond(c, await webSearchSettings.deleteKey(provider)),
+    deleteKey: async (c: Context, provider: string) =>
+      respondSettingsMutation(c, await webSearchSettings.deleteKey(provider)),
 
     /**
      * 保存済みの設定で 1 回だけ検索する。検索の失敗も 200 の `ok: false` で返し、
@@ -38,9 +40,4 @@ export function createWebSearchSettingsRoutes({
       return c.json(await test(body.query));
     },
   };
-}
-
-function respond(c: Context, outcome: WebSearchMutationOutcome) {
-  if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
-  return c.json(outcome.response, 200);
 }

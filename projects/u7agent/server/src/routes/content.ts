@@ -1,7 +1,8 @@
 import type { Context } from "hono";
 import { parseByteRange } from "../byte-range";
-import type { ContentSettingsService, ContentMutationOutcome } from "../content-settings";
+import type { ContentSettingsService } from "../content-settings";
 import type { ContentTrialsService } from "../content-trials";
+import { respondSettingsMutation } from "../http";
 import type {
   CreateContentTrialBody,
   UpdateContentCostBody,
@@ -29,23 +30,24 @@ export function createContentSettingsRoutes({
 
     // トグルは画像・音声・BGM で共通（行の enabled 1 列）。サブリソースは provider / model / キーだけにする
     putEnabled: async (c: Context, body: UpdateContentEnabledBody) =>
-      respond(c, await contentSettings.putEnabled(body.enabled)),
+      respondSettingsMutation(c, await contentSettings.putEnabled(body.enabled)),
 
     putSelection: async (c: Context, body: UpdateContentImageBody) =>
-      respond(c, await contentSettings.putSelection(body)),
+      respondSettingsMutation(c, await contentSettings.putSelection(body)),
 
     // 画像の生成元（openrouter / codex）の切り替え。キーもモデルも伴わないため、未設定の行でも受け付ける
     putImageProvider: async (c: Context, body: UpdateContentImageProviderBody) =>
-      respond(c, await contentSettings.putImageProvider(body.provider)),
+      respondSettingsMutation(c, await contentSettings.putImageProvider(body.provider)),
 
     putSpeechSelection: async (c: Context, body: UpdateContentSpeechBody) =>
-      respond(c, await contentSettings.putSpeechSelection(body)),
+      respondSettingsMutation(c, await contentSettings.putSpeechSelection(body)),
 
-    putKey: async (c: Context, apiKey: string) => respond(c, await contentSettings.putKey(apiKey)),
+    putKey: async (c: Context, apiKey: string) => respondSettingsMutation(c, await contentSettings.putKey(apiKey)),
 
-    putCost: async (c: Context, body: UpdateContentCostBody) => respond(c, await contentSettings.putCost(body)),
+    putCost: async (c: Context, body: UpdateContentCostBody) =>
+      respondSettingsMutation(c, await contentSettings.putCost(body)),
 
-    deleteKey: async (c: Context) => respond(c, await contentSettings.deleteKey()),
+    deleteKey: async (c: Context) => respondSettingsMutation(c, await contentSettings.deleteKey()),
 
     // 取得できなくても 200。一覧と価格を失わせず、失敗は errors だけに系統別で載せる（DB のガードも通さない）
     refreshCatalog: async (c: Context) => c.json(await contentSettings.refreshCatalog()),
@@ -156,10 +158,4 @@ export function createContentSettingsRoutes({
       return c.json({ removed: outcome.removed });
     },
   };
-}
-
-function respond(c: Context, outcome: ContentMutationOutcome) {
-  if (outcome.status === 400) return c.json({ error: outcome.error }, 400);
-  if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
-  return c.json(outcome.response, 200);
 }

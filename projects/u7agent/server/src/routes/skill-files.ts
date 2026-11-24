@@ -5,7 +5,7 @@
  * BFF は応答の形を検証してそのまま返す。
  */
 import type { Context } from "hono";
-import { sandboxFailure, sandboxNotConfigured } from "../http";
+import { relaySandboxDownload, sandboxFailure, sandboxNotConfigured } from "../http";
 import {
   FileDownloadCheckSchema,
   SandboxSkillCreateResultSchema,
@@ -94,19 +94,11 @@ export function createSkillFileRoutes({
       }
     },
 
-    /** `.agents/skills` の ZIP エクスポート。保存名とヘッダはサンドボックスが決め、本文をストリーム中継する */
     export: async (c: Context) => {
       if (!archive) return sandboxNotConfigured(c);
       try {
         const file = await archive.exportSkills();
-        if (!file.body) return c.json({ error: "サンドボックスが本文を返しませんでした" }, 502);
-        return c.body(file.body, 200, {
-          "Content-Type": file.contentType,
-          "Content-Disposition": file.contentDisposition,
-          ...(file.contentLength === undefined ? {} : { "Content-Length": String(file.contentLength) }),
-          "Cache-Control": "no-store",
-          "X-Content-Type-Options": "nosniff",
-        });
+        return relaySandboxDownload(c, file);
       } catch (error) {
         return sandboxFailure(c, error);
       }
