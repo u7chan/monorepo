@@ -10,7 +10,7 @@
 - 自動解決された値は 8 文字未満を通常出力の過剰改変防止のため対象外にする。`PI_SECRET_ENV_VARS` で明示指定された変数は運用者の意図なので長さに関係なく保護する。重複・包含する値は長い順に置換する
 - 設定 → モデルで登録したキーは `createMutableSecretMasker` の `setSecrets` で保護対象へ足す。登録は **SDK / DB へ渡す前**に行い、起動時は DB から読めた全行（orphan・不正値・適用失敗を含む）を適用前に登録する。削除・上書き後も**プロセス生存中は保護対象から外さない**（`session.jsonl` の raw 入力を再投影しても旧キーを出さないため。入力は 8..2048 文字で、これより短いキーは GUI の対象外）
 - 設定 → モデルのカスタムプロバイダーのAPIキーも、SDK / ログへ渡す前に `retainSecret()` で保護対象へ足す。保存先はアプリ DB の `custom_providers` で、同じ master key で暗号化する（復号は起動時・保存 / 更新 / 再同期 / probe のときだけで、GET は復号しない）。8 文字以上を必須にし、認証のないローカルサーバーにはダミーを使う（`Authorization: Bearer <キー>` として送られる。[model-settings.md](model-settings.md#カスタムプロバイダー)）
-- コンテンツ生成のAPIキー（`content_settings`。画像・TTS・[BGM](bgm-generation.md) で共有）も同じ扱いで、`PUT /api/settings/content/key` がDBへ書く前に `retainSecret()` で登録し、起動時の `ContentSettingsService.applyStored()` も保存行のキーを登録する。provider呼出しはBFF内で完結し、キーはサンドボックスへ渡らない。BGMのproviderエラーもマスク後に長さを制限し、ツール定義は `wrapToolDefinitionWithSecretMasker()` を通す。
+- コンテンツ生成のAPIキー（`content_settings`。画像・TTS・[BGM](bgm-generation.md) で共有）も同じ扱いで、`PUT /api/settings/content/key` がDBへ書く前に `retainSecret()` で登録する。provider呼出しはBFF内で完結し、キーはサンドボックスへ渡らない。BGMのproviderエラーもマスク後に長さを制限し、ツール定義は `wrapToolDefinitionWithSecretMasker()` を通す。
 - SQLite の失敗文言にキーが載る経路（`AppDb.#query` と `open()`）は `AppDb.open({ sanitizeError })` でマスカーを通してからログ・`#error`（health / 503）へ渡す。`model-settings.ts` は固定文言だけを応答へ返し、ログには provider id と分類だけを残す
 - 設定 → モデルの provider メモは秘密情報ではないため保護対象へ足さない（`retainSecret` に渡さない）。任意の自由文を登録すると、短いメモでも `createMutableSecretMasker` が値をマスクし、よくある単語が会話表示で赤塗りされる誤爆の方が実害より大きい。代わりに `model-settings.ts` はログ・health・エラー文言のどの経路にもメモ値を載せない（値は API 応答と画面にだけ出す）
 - ユーザーがチャットへ直接入力したキーはモデルへはそのまま渡る（対象はツール出力由来の値）。ただしエコー（タイトル・プロンプト表示・メッセージ履歴・text delta・未送信メッセージの表示本文 `pendingSends[].text`）はマスクする
@@ -141,7 +141,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 
 - AAD は `u7agent-app-secret:<scope>:<owner>` で、環境変数シークレットの `u7agent-secret:<kind>:<name>` とはラベルを分ける。用途（テーブル）と所有者を AAD に含めるため、別の用途・別の行へ差し替えた暗号文は復号できない
 - nonce は保存のたびに作り直し、認証タグは暗号文の末尾に付ける。保存形式は `secrets` / `cloudflare_settings` と同じ
-- 復号した値は、SDK / DB / ログへ渡す前に `retainSecret()` でマスカーへ登録する。GET は暗号文を復号しない（起動時と保存 / 置換 / 再同期のときだけ評価する）。音声入力のキーも `PUT /api/settings/voice-input/key` が DB へ書く前に登録し、起動時の `VoiceInputSettingsService.applyStored()` も保存行を登録する（`content_settings` と同じ順序）
+- 復号した値は、SDK / DB / ログへ渡す前に `retainSecret()` でマスカーへ登録する（コンテンツ生成の復号評価は `server/src/app-secrets.ts`）。GET は暗号文を復号しない（起動時と保存 / 置換 / 再同期のときだけ評価する）。音声入力のキーも `PUT /api/settings/voice-input/key` が DB へ書く前に登録し、起動時の `VoiceInputSettingsService.applyStored()` も保存行を登録する（`content_settings` と同じ順序）
 - Realtime 中継が発行する短命キー（`ek_`）はマスカーへ登録しない。要求をまたいで保持せず、その要求のメモリだけで上流の `Authorization` に使う（恒久マスカーを短命の値で埋めない）
 - 復号の成否はプロセスのメモリだけに持ち、応答は `keyStored`（暗号文がある）/ `keyAvailable`（復号できて使える）/ `keyEvaluated`（復号を試したか）/ `keyErrorMessage`（サーバーの固定文言）で表す。`configured`（行の有無）だけで「キー登録済み」と読ませない
 - master key 未設定 / 宣言が壊れているときは、アプリは起動し、DB 保存キーを使う機能だけを 503 / 未設定表示にする。`env` / `auth.json` のプロバイダー認証は影響を受けない。復号を試せない既知の失敗として `keyEvaluated: true` / `keyAvailable: false` / 「master key が未設定」固定文言を返す

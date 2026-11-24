@@ -7,10 +7,10 @@
 import {
   APP_SECRET_NOT_STORED_MESSAGE,
   appSecretAvailable,
-  appSecretFailed,
-  appSecretMasterKeyMissing,
   appSecretNotStored,
   appSecretUnevaluated,
+  evaluateAppSecret,
+  requireAppSecretCipher,
   type AppSecretState,
 } from "./app-secrets";
 import { httpError, messageFor, type HttpError } from "./http";
@@ -208,40 +208,21 @@ export class ContentSettingsService {
     return row !== undefined && row.ciphertext !== null && row.nonce !== null && row.keyVersion !== null;
   }
 
-  /**
-   * 保存行の暗号文から APIキーを復号し、結果をメモリへ残す。runtime が無いときは復号しない
-   * (復号した値を使う経路が無い)。平文へは落とさない。
-   */
   #evaluateKey(row: ContentSettingsRow | undefined): void {
     const secret =
       row && row.ciphertext !== null && row.nonce !== null && row.keyVersion !== null
         ? { ciphertext: row.ciphertext, nonce: row.nonce, keyVersion: row.keyVersion }
         : null;
-    if (!secret) {
-      this.#apiKey = null;
-      this.#keyState = appSecretNotStored();
-      return;
-    }
-    if (!this.#runtimeAvailable) {
-      this.#apiKey = null;
-      this.#keyState = appSecretUnevaluated();
-      return;
-    }
-    if (!this.#appCipher) {
-      this.#apiKey = null;
-      this.#keyState = appSecretMasterKeyMissing();
-      return;
-    }
-    try {
-      const apiKey = this.#appCipher.decrypt("content_settings", CONTENT_SECRET_OWNER, secret);
-      // ツール・応答・ログへ渡す前に保護対象へ入れる
-      this.#retainSecret(apiKey);
-      this.#apiKey = apiKey;
-      this.#keyState = appSecretAvailable();
-    } catch {
-      this.#apiKey = null;
-      this.#keyState = appSecretFailed();
-    }
+    const { value, state } = evaluateAppSecret({
+      cipher: this.#appCipher,
+      runtimeAvailable: this.#runtimeAvailable,
+      scope: "content_settings",
+      owner: CONTENT_SECRET_OWNER,
+      secret,
+      retain: (value) => this.#retainSecret(value),
+    });
+    this.#apiKey = value;
+    this.#keyState = state;
   }
 
   /** 音声ツールの語彙（`model` / `voice`）へ写す。応答と同じ解決を使い、表示と実行時を食い違わせない */
@@ -459,7 +440,7 @@ export class ContentSettingsService {
       this.#retainSecret(apiKey);
       let encrypted: { ciphertext: Uint8Array; nonce: Uint8Array; keyVersion: number };
       try {
-        encrypted = this.#requireCipher().encrypt("content_settings", CONTENT_SECRET_OWNER, apiKey);
+        encrypted = requireAppSecretCipher(this.#appCipher).encrypt("content_settings", CONTENT_SECRET_OWNER, apiKey);
       } catch {
         // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
         console.warn("[u7agent] content key encryption failed");
@@ -692,7 +673,6 @@ export class ContentSettingsService {
         this.#apiKey = null;
         this.#keyState = appSecretUnevaluated();
       } else {
-        // 起動時に 1 回だけ復号し、SDK / ツールへ渡す前に保護対象へ入れる
         this.#evaluateKey(row);
       }
       // キーの有無で一覧の表示は変わらないが、未設定では一覧を出す画面が無いので取得しない
@@ -785,11 +765,6 @@ export class ContentSettingsService {
       },
       readVoices: (model) => this.#speechCatalog.voicesOf(model),
     });
-  }
-
-  #requireCipher(): AppSecretCipher {
-    if (!this.#appCipher) throw new Error(APP_SECRET_NOT_STORED_MESSAGE);
-    return this.#appCipher;
   }
 
   /**
