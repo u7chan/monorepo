@@ -3,7 +3,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 import { declaredBodyTooLarge, readBodyBytes, readBodyText } from "./bounded-body";
 import { httpError, messageFor, type HttpError } from "./errors";
-import { SandboxRequestError } from "./sandbox/client";
+import { SandboxRequestError, type SandboxDownloadFile } from "./sandbox/client";
 
 /** bodyGuard が読み切って text 化する JSON body の上限 */
 const MAX_BODY_BYTES = 64 * 1024;
@@ -97,6 +97,18 @@ export function sandboxFailureStatus(error: unknown): number {
 /** サンドボックスの 4xx はそのまま、接続失敗は 502 にして応答する。 */
 export function sandboxFailure(c: Context, error: unknown) {
   return c.json({ error: messageFor(error) }, sandboxFailureStatus(error) as ContentfulStatusCode);
+}
+
+/** 本文は JSON に載せず、サンドボックスが決めた保存名と長さを改変しない。 */
+export function relaySandboxDownload(c: Context, file: SandboxDownloadFile) {
+  if (!file.body) return c.json({ error: "サンドボックスが本文を返しませんでした" }, 502);
+  return c.body(file.body, 200, {
+    "Content-Type": file.contentType,
+    "Content-Disposition": file.contentDisposition,
+    ...(file.contentLength === undefined ? {} : { "Content-Length": String(file.contentLength) }),
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
 }
 
 /** 未設定時の案内。JSON と HTML の両方の応答で同じ文言を使う。 */
