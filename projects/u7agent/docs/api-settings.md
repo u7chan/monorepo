@@ -215,7 +215,7 @@
 | --- | --- | --- |
 | POST | `/api/voice-input/session` | `Content-Type: application/sdp` の offer を受け、短命キーを発行して Calls へ渡し、answer SDP を `200 application/sdp` + `Cache-Control: no-store` で返す。失敗は JSON |
 
-- このルートは raw body ルートとして `bodyGuard` より前に登録し、`readRawBody` で実受信バイトを見る。`bodyGuard` は本文を text としてキャッシュするため、SDP を先に消費・テキスト化させない
+- `bodyGuard` は本文を text としてキャッシュするため、このルートはその手前で SDP を受け取る。本文は `server/src/bounded-body.ts` のバイト読み取りで上限を検査し、超過は HTTP 413 にする
 - 入口の拒否は 415（`Content-Type: application/sdp` 以外）/ 413（実受信バイトが上限超過）/ 400（空・`v=` で始まらない）/ 408（本文の読取が全体予算超過）で、ここまでで上流を呼ばない
 - 処理は、キー利用判定（未登録 409 / DB・`pi === null`・復号不能 503）→ 同時発行枠（上限超過は上流を呼ばず 429）→ 短命キーの発行（`POST https://api.openai.com/v1/realtime/client_secrets`、`expires_after` 60 秒、`session.type = "transcription"`、モデルは `gpt-live-transcribe` 固定）→ キーの読み直し → `POST https://api.openai.com/v1/realtime/calls`（`Authorization: Bearer <ek>`）→ キーの読み直し、の順
 - 発行の応答は `session.type` と `ek_` 形式と「入力のキーと一致しないこと」を検査し、違えば 502 で Calls を呼ばない。Calls が 2xx でも answer が空・SDP でない・上限超過なら 502

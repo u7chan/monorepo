@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { IMAGE_INPUT_MAX_BYTES } from "../src/image-format";
-import { createSandboxToolClient, SandboxRequestError } from "../src/sandbox/client";
+import { createSandboxToolClient, SANDBOX_IMAGE_INPUT_TIMEOUT_MS, SandboxRequestError } from "../src/sandbox/client";
 
 const TOKEN = "client-test-token-0123456789";
 
@@ -600,6 +600,34 @@ test("readImageInput relays 4xx messages and rejects a truncated or oversized bo
     fetchImpl: stubFetch(() => new Response(null, { status: 200 })).impl,
   });
   await assert.rejects(empty.readImageInput("x.png", [""]));
+});
+
+test("readImageInput keeps 413 for a declared overflow but returns 504 if a streamed overflow's cancellation times out", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const declared of [true, false]) {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (!declared) controller.enqueue(new Uint8Array(IMAGE_INPUT_MAX_BYTES + 1));
+      },
+      cancel() {
+        t.mock.timers.tick(SANDBOX_IMAGE_INPUT_TIMEOUT_MS);
+      },
+    });
+    const response = new Response(body, {
+      headers: declared ? { "Content-Length": String(IMAGE_INPUT_MAX_BYTES + 1) } : undefined,
+    });
+    const client = createSandboxToolClient({
+      baseUrl: "http://sandbox.test",
+      token: TOKEN,
+      fetchImpl: stubFetch(() => response).impl,
+    });
+    await assert.rejects(client.readImageInput("x.png", [""]), (error: unknown) => {
+      assert.ok(error instanceof SandboxRequestError);
+      assert.equal(error.status, declared ? 413 : 504);
+      return true;
+    });
+    assert.equal(body.locked, false);
+  }
 });
 
 // ---------------------------------------------------------------------------

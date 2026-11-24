@@ -2,8 +2,10 @@
  * BFF からサンドボックス ツール実行 API を呼ぶクライアント。NDJSON を execute() の契約
  * (onUpdate / result / abort) に写し替え、abort は cancel エンドポイントと接続切断の両方で伝播させる。
  */
+import { declaredBodyTooLarge, readBodyBytes } from "../bounded-body";
 import { messageFor } from "../errors";
 import { IMAGE_INPUT_MAX_BYTES } from "../image-format";
+import { startRequestDeadline } from "../request-deadline";
 import {
   decodeSandboxEvent,
   type SandboxCreateDirResult,
@@ -940,9 +942,6 @@ async function rawFile(
   };
 }
 
-/**
- * 参照画像の取得。Content-Length と実受信バイト数の両方で上限を見て、途中で切れた応答を完成画像として返さない。
- */
 async function readImageInput(
   path: string,
   scope: readonly string[],
@@ -951,24 +950,22 @@ async function readImageInput(
   token: string,
   fetchImpl: typeof fetch,
 ): Promise<Uint8Array> {
-  const controller = new AbortController();
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, SANDBOX_IMAGE_INPUT_TIMEOUT_MS);
-  const onUserAbort = (): void => controller.abort();
-  signal?.addEventListener("abort", onUserAbort, { once: true });
-  if (signal?.aborted) onUserAbort();
+  const deadline = startRequestDeadline(SANDBOX_IMAGE_INPUT_TIMEOUT_MS, signal);
   try {
-    return await readImageInputWithSignal(path, scope, controller.signal, baseUrl, token, fetchImpl, () => timedOut);
+    return await readImageInputWithSignal(
+      path,
+      scope,
+      deadline.signal,
+      baseUrl,
+      token,
+      fetchImpl,
+      () => deadline.timedOut,
+    );
   } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", onUserAbort);
+    deadline.clear();
   }
 }
 
-/** 期限と中断を 1 つの signal に畳んだ後の本体。途中で切れた応答は完成画像として返さない */
 async function readImageInputWithSignal(
   path: string,
   scope: readonly string[],
@@ -1003,36 +1000,29 @@ async function readImageInputWithSignal(
   const tooLarge = (): SandboxRequestError =>
     new SandboxRequestError(`参照画像が大きすぎます（上限 ${IMAGE_INPUT_MAX_BYTES} バイト）`, 413);
   const contentLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
-  if (Number.isFinite(contentLength) && contentLength > IMAGE_INPUT_MAX_BYTES) {
+  if (declaredBodyTooLarge(contentLength, IMAGE_INPUT_MAX_BYTES)) {
     await response.body?.cancel().catch(() => {});
     throw tooLarge();
   }
   const reader = response.body?.getReader();
   if (!reader) throw new SandboxRequestError("参照画像の応答に本文がありません", 502);
-  const chunks: Uint8Array[] = [];
-  let size = 0;
+  let bytes: Uint8Array;
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > IMAGE_INPUT_MAX_BYTES) {
-        await reader.cancel().catch(() => {});
-        throw tooLarge();
-      }
-      chunks.push(value);
-    }
+    const result = await readBodyBytes(reader, IMAGE_INPUT_MAX_BYTES);
+    if (result === undefined) throw tooLarge();
+    bytes = result;
   } catch (error) {
     if (timedOut()) throw new SandboxRequestError("参照画像の読み取りがタイムアウトしました", 504);
     throw error;
   } finally {
     reader.releaseLock();
   }
-  if (Number.isFinite(contentLength) && size !== contentLength) {
+  // Content-Length と異なる本文は完成画像として扱わない。
+  if (Number.isFinite(contentLength) && bytes.byteLength !== contentLength) {
     throw new SandboxRequestError("参照画像の受信が途中で終わりました", 502);
   }
-  if (size === 0) throw new SandboxRequestError("参照画像が空です", 400);
-  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+  if (bytes.byteLength === 0) throw new SandboxRequestError("参照画像が空です", 400);
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
 /**

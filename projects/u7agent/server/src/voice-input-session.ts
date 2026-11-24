@@ -3,6 +3,7 @@
  * OpenAI の Calls へ SDP を渡して answer をそのまま返す。`ek_`・SDP・キーは応答 / ログ / 診断に出さない。
  * 契約は docs/api-settings.md を正とする。
  */
+import { readBodyText } from "./bounded-body";
 import {
   classifyProviderFailure,
   parseJsonBody,
@@ -104,9 +105,6 @@ interface Stage {
 /** 上流 1 段分の失敗。`ProviderFailure` と同じ形で、呼び出し側が 502 へ写す */
 type StageFailure = ProviderFailure;
 
-/** 上流の応答本文が上限を超えたこと。本文は保持せず、分類だけに使う */
-class UpstreamBodyTooLargeError extends Error {}
-
 export class VoiceInputSessionService {
   #settings: VoiceInputKeySource;
   #fetchImpl: typeof fetch | undefined;
@@ -195,15 +193,13 @@ export class VoiceInputSessionService {
         void response.body?.cancel().catch(() => {});
         return this.#statusFailure(response.status);
       }
-      let text: string;
+      let text: string | undefined;
       try {
-        text = await readBoundedText(response, CLIENT_SECRET_MAX_BYTES);
-      } catch (error) {
-        return error instanceof UpstreamBodyTooLargeError
-          ? { ok: false, code: "unknown", message: VOICE_INPUT_SESSION_INVALID_SECRET_MESSAGE }
-          : this.#stageFailure(stage);
+        text = await readBodyText(response.body?.getReader(), CLIENT_SECRET_MAX_BYTES, { cancelOnLimit: "background" });
+      } catch {
+        return this.#stageFailure(stage);
       }
-      const value = clientSecretValueOf(parseJsonBody(text), apiKey);
+      const value = text === undefined ? null : clientSecretValueOf(parseJsonBody(text), apiKey);
       if (value === null) return { ok: false, code: "unknown", message: VOICE_INPUT_SESSION_INVALID_SECRET_MESSAGE };
       return { ok: true, value };
     } finally {
@@ -232,15 +228,17 @@ export class VoiceInputSessionService {
         void response.body?.cancel().catch(() => {});
         return this.#statusFailure(response.status);
       }
-      let text: string;
+      let text: string | undefined;
       try {
-        text = await readBoundedText(response, VOICE_INPUT_SDP_MAX_BYTES);
-      } catch (error) {
-        return error instanceof UpstreamBodyTooLargeError
-          ? { ok: false, code: "unknown", message: VOICE_INPUT_SESSION_INVALID_ANSWER_MESSAGE }
-          : this.#stageFailure(stage);
+        text = await readBodyText(response.body?.getReader(), VOICE_INPUT_SDP_MAX_BYTES, {
+          cancelOnLimit: "background",
+        });
+      } catch {
+        return this.#stageFailure(stage);
       }
-      if (!isSdp(text)) return { ok: false, code: "unknown", message: VOICE_INPUT_SESSION_INVALID_ANSWER_MESSAGE };
+      if (text === undefined || !isSdp(text)) {
+        return { ok: false, code: "unknown", message: VOICE_INPUT_SESSION_INVALID_ANSWER_MESSAGE };
+      }
       return { ok: true, sdp: text };
     } finally {
       stage.clear();
@@ -350,28 +348,4 @@ function upstreamFailure(failure: StageFailure): VoiceInputSessionOutcome {
 
 function timeoutFailure(): StageFailure {
   return { ok: false, code: "timeout", message: VOICE_INPUT_SESSION_FAILURE_MESSAGES.timeout };
-}
-
-/**
- * 応答本文を実受信バイトの上限付きで読む。上限を超えたら読むのを止めて例外にし、
- * 上流の本文をエラーへ載せない。
- */
-async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
-  const body = response.body;
-  if (!body) return "";
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return text + decoder.decode();
-    size += value.byteLength;
-    if (size > maxBytes) {
-      // 上限を超えたら応答を急ぐ。cancel を待つと、tee された本文で返せなくなる
-      void reader.cancel().catch(() => {});
-      throw new UpstreamBodyTooLargeError();
-    }
-    text += decoder.decode(value, { stream: true });
-  }
 }
