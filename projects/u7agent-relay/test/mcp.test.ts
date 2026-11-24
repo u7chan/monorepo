@@ -98,6 +98,15 @@ describe("MCP 入口", () => {
       });
 
       expect(browser.status).toBe(403);
+
+      // 中継自身のオリジンでも同じ。MCP はブラウザから叩ける入口にしない。
+      const sameOrigin = await harness.app.request("/mcp", {
+        method: "POST",
+        headers: { ...bearer(token), Origin: "http://localhost" },
+        body,
+      });
+
+      expect(sameOrigin.status).toBe(403);
       expect(upstream.calls).toHaveLength(0);
     } finally {
       harness.cleanup();
@@ -161,6 +170,38 @@ describe("MCP 入口", () => {
       const replied = await client.callTool({ name: "get_task", arguments: { runId: RUN_ID } });
 
       expect(payload(replied)).toEqual({ status: "completed", text: "最終応答", files: [] });
+
+      await client.close();
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  test("本文の長さと空文字は /v1 と同じ判定になる", async () => {
+    const upstream = createUpstream();
+    const harness = await setup(upstream.fetchImpl);
+
+    try {
+      const { token } = seedConnection(harness);
+      const client = await connect(harness, token);
+
+      // trim 後の長さで判定する。ちょうど上限 + 改行は /v1 と同じく受理する。
+      const accepted = await client.callTool({
+        name: "submit_task",
+        arguments: { text: `${"a".repeat(20_000)}\n` },
+      });
+
+      expect(payload(accepted)).toEqual({ runId: RUN_ID });
+
+      const tooLarge = await client.callTool({ name: "submit_task", arguments: { text: "a".repeat(20_001) } });
+
+      expect(tooLarge.isError).toBe(true);
+      expect(payload(tooLarge)).toEqual({ error: "message_too_large" });
+
+      const blank = await client.callTool({ name: "submit_task", arguments: { text: "   " } });
+
+      expect(blank.isError).toBe(true);
+      expect(payload(blank)).toEqual({ error: "text_required" });
 
       await client.close();
     } finally {

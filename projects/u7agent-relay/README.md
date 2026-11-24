@@ -150,9 +150,9 @@ Muse など MCP クライアントからも同じ中継を使えます。`/v1` �
 
 - エラーは `isError: true` の本文に `{"error":"session_busy"}` のように入ります。コードは `/v1` と共通です。
 - 生成物の実体は MCP では返しません。`get_task` の `files` を見て、`/v1/runs/:runId/files` から取得してください。
-- ブラウザからの要求は受け付けません。`Origin` ヘッダーのある要求は 403、無い要求だけ通します。`GET /mcp` は 405 です。
+- ブラウザからの要求は受け付けません。`Origin` ヘッダーのある要求は、中継自身のオリジンでも 403 にします。`GET /mcp` は 405 です。
+- 本文の上限は `/v1` と同じです（trim 後 20,000 文字、JSON 全体で 64 KiB）。超過は `message_too_large`、空白だけの本文は `text_required` を返します。
 - 投稿の冪等化（`clientRequestId`）と long-poll（`wait`）は未実装です。`session_busy` は再送せず `get_task` で待ってください。
-- ブラウザから叩ける入口ではないため、`/mcp` は管理 API の同一 origin 検査ではなく「`Origin` 付きを拒否」で守ります。
 
 ## セキュリティ
 

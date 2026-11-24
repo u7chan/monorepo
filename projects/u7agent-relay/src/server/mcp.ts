@@ -7,14 +7,9 @@ import { AdminError, UpstreamError } from "./errors";
 import { readBearer } from "./keys";
 import type { AuthenticatedKey, Relay } from "./relay";
 
-/** 上流の本文上限に合わせる。`/v1/messages` と同じ値で、MCP からだけ緩めない。 */
-const MAX_TEXT_LENGTH = 20_000;
-
 export type McpDeps = {
   relay: Relay;
   version: string;
-  /** ブラウザからの要求を許すオリジン。未設定なら Origin 付きの要求はすべて拒否する。 */
-  appOrigin?: string | null;
 };
 
 /**
@@ -23,8 +18,8 @@ export type McpDeps = {
  */
 export function createMcpHandler(deps: McpDeps) {
   return async (c: Context): Promise<Response> => {
-    // ブラウザからは叩かせない。Origin を持たない CLI / ボットだけを通し、DNS rebinding を塞ぐ。
-    if (!isAllowedOrigin(c.req.header("origin") ?? null, deps.appOrigin ?? null)) {
+    // ブラウザからは叩かせない。Origin ヘッダーはブラウザだけが付けるので、あれば一律に拒否する。
+    if (c.req.header("origin") !== undefined) {
       return c.json({ error: "origin_mismatch" as const }, 403);
     }
 
@@ -78,7 +73,8 @@ function createMcpServer(version: string, relay: Relay, authenticated: Authentic
         "固定した会話へ依頼を投稿する。実行は非同期なので、返った runId を get_task で照会する。" +
         "409 session_busy は会話が実行中か回答待ちで、投稿は受理されていない。再送せず get_task で待つ。",
       inputSchema: {
-        text: z.string().min(1).max(MAX_TEXT_LENGTH).describe("会話へ送る本文。"),
+        // 長さの判定は relay.post に任せる。ここで上限を掛けると、trim の有無で /v1 と結果がずれる。
+        text: z.string().min(1).describe("会話へ送る本文。前後の空白は取り除いて送る。"),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -116,9 +112,4 @@ async function call(fn: () => Promise<unknown>) {
 
     throw error;
   }
-}
-
-/** Origin を持たない要求（CLI / ボット）だけを通す。設定したオリジンだけは同一 origin として許可する。 */
-function isAllowedOrigin(origin: string | null, appOrigin: string | null): boolean {
-  return origin === null || (appOrigin !== null && origin === appOrigin);
 }

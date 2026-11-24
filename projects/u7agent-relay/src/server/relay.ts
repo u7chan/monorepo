@@ -7,6 +7,9 @@ import type { UpstreamClient, UpstreamSession } from "./upstream";
 
 const IDLE_STATUSES = new Set(["idle", "completed", "stopped", "error"]);
 
+/** 上流へ送る本文の上限。trim 後の値で判定し、HTTP / MCP の両方の入口で同じ結果にする。 */
+export const MAX_TEXT_LENGTH = 20_000;
+
 export type ReplyPayload =
   | { status: "running" }
   | { status: "awaiting_answer"; sessionUrl: string }
@@ -53,6 +56,10 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
 
       if (body.length === 0) {
         throw new AdminError(400, "text_required");
+      }
+
+      if (body.length > MAX_TEXT_LENGTH) {
+        throw new AdminError(413, "message_too_large");
       }
 
       if (inFlight.has(connection.id)) {

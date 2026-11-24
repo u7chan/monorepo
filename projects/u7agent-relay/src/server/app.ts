@@ -14,11 +14,11 @@ import { readBearer } from "./keys";
 import { createMcpHandler } from "./mcp";
 import { createRateLimiter, type RateLimiter } from "./rate-limit";
 import type { Relay } from "./relay";
+import { MAX_TEXT_LENGTH } from "./relay";
 import { clearSessionCookie, sessionCookie } from "./session";
 
 /** 中継する本文の上限。上流の 20,000 文字に余白を足した JSON が収まる大きさ。 */
 const MAX_MESSAGE_BYTES = 64 * 1024;
-const MAX_TEXT_LENGTH = 20_000;
 /** 管理画面の入力は名前と URL だけ。 */
 const MAX_ADMIN_BODY_BYTES = 16 * 1024;
 /** 6 桁 PIN の JSON には十分で、これ以上は壊れた入力として扱う。 */
@@ -351,8 +351,8 @@ export function createApp(deps: AppDeps) {
 
   app.get("/v1/runs/:runId/files", readRunFiles);
 
-  const mcp = createMcpHandler({ relay: deps.relay, version: deps.version, appOrigin: deps.appOrigin ?? null });
-  app.all("/mcp", async (c) => {
+  const mcp = createMcpHandler({ relay: deps.relay, version: deps.version });
+  app.all("/mcp", bodyLimit({ maxSize: MAX_MESSAGE_BYTES, onError: tooLarge }), async (c) => {
     c.header("Cache-Control", "no-store");
 
     return mcp(c);
