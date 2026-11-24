@@ -1,6 +1,7 @@
 import type { RuntimeServeStatus } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
 import { messageFor } from "./errors";
+import { createRuntimePoller } from "./runtimePoller";
 
 export interface RuntimeServeState {
   status: RuntimeServeStatus | null;
@@ -52,78 +53,66 @@ export function createRuntimeServeController(deps: {
   confirm: (request: ConfirmRequest) => Promise<boolean>;
   onChange: (state: RuntimeServeState) => void;
 }) {
-  let state = INITIAL_RUNTIME_SERVE_STATE;
-  let active = true;
-  let inFlight = false;
-  let revision = 0;
-  const update = (patch: Partial<RuntimeServeState>) => {
-    if (!active) return;
-    state = { ...state, ...patch };
-    deps.onChange(state);
-  };
-  const refresh = async () => {
-    if (!active || inFlight || state.stopping || state.starting !== null) return;
-    inFlight = true;
-    const issued = revision;
-    try {
-      const status = await deps.getStatus();
-      if (issued !== revision) return;
-      update({ status, loading: false, failed: false });
-    } catch {
-      if (issued !== revision) return;
-      update({ status: null, loading: false, failed: true });
-    } finally {
-      inFlight = false;
-    }
-  };
+  const poller = createRuntimePoller<RuntimeServeStatus, RuntimeServeState>({
+    initial: INITIAL_RUNTIME_SERVE_STATE,
+    isBusy: (state) => state.stopping || state.starting !== null,
+    fetchStatus: deps.getStatus,
+    onChange: deps.onChange,
+  });
+
   return {
-    refresh,
+    refresh: poller.refresh,
     /**
      * 起動。確認を取ってから、表示中の状態の世代を付けて送る。成功で状態を適用し、失敗 (409 を含む) は
      * 理由を残して状態を取り直すだけで、確認済みの世代での自動再試行はしない。
      */
     start: async (input: { sessionId: string; confirm: ConfirmRequest }): Promise<RuntimeServeStartResult> => {
-      if (!active || state.stopping || state.starting !== null) return { kind: "cancelled" };
-      const generation = state.status?.generation ?? null;
-      revision += 1;
-      update({ starting: input.sessionId, error: undefined });
+      const current = poller.state();
+      if (!poller.isActive() || current.stopping || current.starting !== null) return { kind: "cancelled" };
+      const generation = current.status?.generation ?? null;
+      poller.begin({ starting: input.sessionId, error: undefined });
       // 成功した応答は起動の結果そのものなので、直後の取得で上書きしない (サーバー側のキャッシュが古い値を返し得る)
       let refetch = true;
       try {
-        if (!(await deps.confirm(input.confirm)) || !active) return { kind: "cancelled" };
+        if (!(await deps.confirm(input.confirm)) || !poller.isActive()) return { kind: "cancelled" };
         const next = await deps.start({ sessionId: input.sessionId, generation });
-        update({ status: next, failed: false, loading: false });
+        poller.update({ status: next, failed: false, loading: false });
         refetch = false;
         return { kind: "started" };
       } catch (error) {
         return { kind: "failed", error: messageFor(error) };
       } finally {
-        update({ starting: null });
+        poller.update({ starting: null });
         // 取り消し・409 の後も、確認済みの世代で自動再試行はせず状態だけ取り直す
-        if (refetch) void refresh();
+        if (refetch) void poller.refresh();
       }
     },
     stop: async () => {
-      const status = state.status;
-      if (!active || state.stopping || state.starting !== null || !status?.reachable || !status.generation) return;
+      const current = poller.state();
+      const status = current.status;
+      if (
+        !poller.isActive() ||
+        current.stopping ||
+        current.starting !== null ||
+        !status?.reachable ||
+        !status.generation
+      ) {
+        return;
+      }
       const generation = status.generation;
-      revision += 1;
-      update({ stopping: true, error: undefined });
+      poller.begin({ stopping: true, error: undefined });
       try {
-        if (!(await deps.confirm(runtimeServeStopConfirm(status))) || !active) return;
+        if (!(await deps.confirm(runtimeServeStopConfirm(status))) || !poller.isActive()) return;
         const next = await deps.stop({ generation });
-        update({ status: next, failed: false, loading: false });
+        poller.update({ status: next, failed: false, loading: false });
       } catch (error) {
-        update({ status: null, error: messageFor(error) });
+        poller.update({ status: null, error: messageFor(error) });
       } finally {
-        update({ stopping: false });
+        poller.update({ stopping: false });
         // 取消や 409 の後も、確認済みの世代で自動再試行はせず状態だけ取り直す。
-        void refresh();
+        void poller.refresh();
       }
     },
-    dispose: () => {
-      active = false;
-      revision += 1;
-    },
+    dispose: poller.dispose,
   };
 }
