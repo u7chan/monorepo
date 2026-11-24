@@ -300,6 +300,36 @@ test("pin storage failures return 500 for live and unloaded sessions", async () 
   });
 });
 
+test("failed unloaded meta writes leave the previous list values visible", async () => {
+  await withStoreDir(async (dir) => {
+    const first = await openBff(dir);
+    const { sessionId } = await jsonBody(first.app.request("/api/sessions", jsonPost({})));
+    await first.close();
+
+    const offline = await openBff(dir, { pi: null });
+    try {
+      const previous = offline.store.list();
+      assert.equal(previous.length, 1);
+      const path = sessionMetaPath(sessionId, dir);
+      await rm(path);
+      await mkdir(path);
+
+      for (const [endpoint, body] of [
+        ["notify", { notify: true }],
+        ["pin", { pinned: true }],
+        ["title", { title: "renamed" }],
+      ] as const) {
+        const response = await offline.app.request(`/api/sessions/${sessionId}/${endpoint}`, jsonPatch(body));
+        assert.equal(response.status, 500, endpoint);
+        assert.match((await jsonBody(response)).error, /^セッションの保存に失敗しました: /);
+        assert.deepEqual(offline.store.list(), previous, endpoint);
+      }
+    } finally {
+      await offline.close();
+    }
+  });
+});
+
 test("pin request validates its body and rejects unknown sessions", async () => {
   await withStoreDir(async (dir) => {
     const bff = await openBff(dir);
