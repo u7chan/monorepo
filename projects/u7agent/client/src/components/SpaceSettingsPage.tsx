@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import type { Space } from "server";
 import { useSpace } from "../SpaceContext";
 import { useReorderDrag, type ReorderDragNaming } from "../hooks/useReorderDrag";
+import { useLatestRef } from "../hooks/useLatestRef";
 import { createMountScope } from "../hooks/requestGate";
 import { reorderRows } from "../lib/listReorder";
 import { cn } from "../lib/cn";
 import { renameInputValue } from "../lib/confirmDialog";
-import { createSpaceOrderFlow, type SpaceOrderNoteKind, type SpaceOrderState } from "../lib/spaceOrder";
+import { orderFailureNoteText } from "../lib/orderNote";
+import { createSpaceOrderFlow, type SpaceOrderState } from "../lib/spaceOrder";
 import {
   spaceDeleteConfirmRequest,
   spaceRenameRequest,
@@ -27,12 +29,6 @@ const SPACE_DRAG_NAMING: ReorderDragNaming = {
   yVariable: "--space-drag-y",
   bodyClass: "is-dragging-space",
 };
-
-/** 並べ替えの失敗の文言。保存されたかどうかで伝えることを分ける（client/src/lib/spaceOrder.ts） */
-function orderNoteText(kind: SpaceOrderNoteKind, message: string): string {
-  if (kind === "rejected") return `並び順を保存できませんでした。${message}`;
-  return `並び順を保存できたか確認できません。再読み込みするとサーバーの並びに合わせます。（${message}）`;
-}
 
 /** 設定 → 会話スペース。作成フォームは一覧の上に置く (エージェント / スキルの追加行と同じ順で、一覧が伸びても作成操作が残る) */
 export function SpaceSettingsPage({
@@ -66,15 +62,14 @@ export function SpaceSettingsPage({
   }, [clearRenameNote]);
   // 並べ替えの下書きと保存。ドラッグの計算は lib/listReorder、保存の手順は lib/spaceOrder が持ち、
   // ここは state への反映と文言だけを持つ。確定順の一覧は SpacesApp が持つ (同じ一覧を作成・削除が差分更新する)
-  const orderDeps = useRef({ spaces: space.spaces, reorder: space.reorder, applyOrder: space.applyOrder });
-  orderDeps.current = { spaces: space.spaces, reorder: space.reorder, applyOrder: space.applyOrder };
+  const orderDeps = useLatestRef({ spaces: space.spaces, reorder: space.reorder, applyOrder: space.applyOrder });
   const [orderFlow] = useState(() =>
     createSpaceOrderFlow({
       ids: () => orderDeps.current.spaces.filter((item) => item.id !== DEFAULT_SPACE_ID).map((item) => item.id),
       save: (ids) => orderDeps.current.reorder(ids),
       apply: (ids) => orderDeps.current.applyOrder(ids),
       capture: mountScope.capture,
-      note: (kind, message) => setOrderNote(orderNoteText(kind, message)),
+      note: (kind, message) => setOrderNote(orderFailureNoteText(kind, message)),
       onChange: setOrder,
     }),
   );

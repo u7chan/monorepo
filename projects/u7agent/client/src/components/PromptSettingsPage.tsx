@@ -2,8 +2,10 @@ import { useRef, useState } from "react";
 import { reorderPrompts } from "../api";
 import { usePrompts } from "../hooks/usePrompts";
 import { useWideLayout } from "../hooks/useLayoutMode";
+import { useLatestRef } from "../hooks/useLatestRef";
 import { useListDetailPane } from "../hooks/useListDetailPane";
 import { reorderRows } from "../lib/listReorder";
+import { orderFailureNoteText } from "../lib/orderNote";
 import { cn } from "../lib/cn";
 import { MEMORY_NOTE, RELOAD_ABOVE_NOTE } from "../lib/settingsNotes";
 import {
@@ -39,13 +41,10 @@ function PromptLoadError({ message }: { message: string }) {
   );
 }
 
-/** 並べ替えの失敗の文言。保存されたかどうかで伝えることを分ける（client/src/lib/reorderFlow.ts） */
+/** 並べ替えの失敗の文言。保存できなかった場合の共通の文に、取り直しだけの文を足す（client/src/lib/orderNote.ts） */
 function orderNoteText(kind: ReorderNoteKind, message: string): string {
-  if (kind === "rejected") return `並び順を保存できませんでした。${message}`;
-  if (kind === "unknown") {
-    return `並び順を保存できたか確認できません。再読み込みするとサーバーの並びに合わせます。（${message}）`;
-  }
-  return `並び順は保存しましたが、${message}`;
+  if (kind === "refresh") return `並び順は保存しましたが、${message}`;
+  return orderFailureNoteText(kind, message);
 }
 
 /**
@@ -83,20 +82,13 @@ export function PromptSettingsPage({
   // 並べ替えの下書きと保存。ドラッグの計算は lib/listReorder、保存の手順は lib/reorderFlow が持ち、
   // ここは state への反映と文言だけを持つ（エージェントの一覧と同じ組み方）
   const [order, setOrder] = useState<ReorderState>({ draft: null, saving: false });
-  const orderDeps = useRef({
+  const orderDeps = useLatestRef({
     list,
     applyOrder: prompts.applyOrder,
     applyPromptOrder,
     refresh: prompts.refresh,
     setNoteText,
   });
-  orderDeps.current = {
-    list,
-    applyOrder: prompts.applyOrder,
-    applyPromptOrder,
-    refresh: prompts.refresh,
-    setNoteText,
-  };
   const [orderFlow] = useState(() =>
     createReorderFlow({
       ids: () => orderDeps.current.list.filter((prompt) => prompt.kind === "custom").map((prompt) => prompt.id),
