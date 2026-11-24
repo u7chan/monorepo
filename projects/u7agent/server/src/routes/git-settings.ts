@@ -1,5 +1,6 @@
 import type { Context } from "hono";
-import type { GitSettingsMutationOutcome, GitSettingsService } from "../git-settings";
+import type { GitSettingsService } from "../git-settings";
+import { respondSettingsMutation } from "../http";
 import type { UpdateGitSettingsBody } from "../schema";
 
 /**
@@ -9,13 +10,7 @@ import type { UpdateGitSettingsBody } from "../schema";
 export function createGitSettingsRoutes({ gitSettings }: { gitSettings: GitSettingsService }) {
   return {
     list: (c: Context) => c.json(gitSettings.settings()),
-    put: async (c: Context, body: UpdateGitSettingsBody) => respond(c, await gitSettings.put(body)),
-    clear: async (c: Context) => respond(c, await gitSettings.clear()),
+    put: async (c: Context, body: UpdateGitSettingsBody) => respondSettingsMutation(c, await gitSettings.put(body)),
+    clear: async (c: Context) => respondSettingsMutation(c, await gitSettings.clear()),
   };
-}
-
-function respond(c: Context, outcome: GitSettingsMutationOutcome) {
-  if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
-  if (outcome.status === 400) return c.json({ error: outcome.error }, 400);
-  return c.json(outcome.response, 200);
 }
