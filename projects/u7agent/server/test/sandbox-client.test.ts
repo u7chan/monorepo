@@ -3,7 +3,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { IMAGE_INPUT_MAX_BYTES } from "../src/image-format";
-import { createSandboxToolClient, SANDBOX_IMAGE_INPUT_TIMEOUT_MS, SandboxRequestError } from "../src/sandbox/client";
+import {
+  createSandboxToolClient,
+  SANDBOX_IMAGE_INPUT_TIMEOUT_MS,
+  SandboxRequestError,
+  SandboxRuntimeError,
+} from "../src/sandbox/client";
 
 const TOKEN = "client-test-token-0123456789";
 
@@ -1032,4 +1037,130 @@ test("待受観測は本文が止まっても期限で打ち切り、abort を�
       return true;
     },
   );
+});
+
+test("JSON の送信、本文なしの削除、raw アップロードで URL とリクエスト形式を保つ", async () => {
+  const uploaded = { path: "a b/x&y", name: "x&y", renamed: false, size: 3 };
+  const { calls, impl } = stubFetch(({ url, init }) => {
+    if (init?.method === "DELETE") return new Response(null, { status: 204 });
+    return Response.json(url.includes("/upload?") ? uploaded : { path: "a b" });
+  });
+  const client = createSandboxToolClient({
+    baseUrl: " https://sandbox.test/prefix/// ",
+    token: ` ${TOKEN}\n`,
+    fetchImpl: impl,
+  });
+  const body = new ReadableStream<Uint8Array>();
+  const { signal } = new AbortController();
+  const headers = { Authorization: `Bearer ${TOKEN}`, Accept: "application/json" };
+
+  assert.deepEqual(await client.createDir("a b"), { path: "a b" });
+  assert.equal(await client.deleteFile("a b"), undefined);
+  assert.deepEqual(await client.uploadFile({ dir: "a b", name: "x&y", body, signal }), uploaded);
+
+  assert.deepEqual(calls, [
+    {
+      url: "https://sandbox.test/prefix/v1/dirs",
+      init: { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: '{"path":"a b"}' },
+    },
+    {
+      url: "https://sandbox.test/prefix/v1/files?path=a%20b",
+      init: { method: "DELETE", headers },
+    },
+    {
+      url: "https://sandbox.test/prefix/v1/files/upload?dir=a%20b&name=x%26y",
+      init: {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/octet-stream" },
+        body,
+        signal,
+        duplex: "half",
+      },
+    },
+  ]);
+});
+
+test("NDJSON 実行と cancel はそれぞれ異なる Accept ヘッダを持つ", async () => {
+  const { calls, impl } = stubFetch(({ url }) =>
+    url.endsWith("/cancel")
+      ? new Response(null, { status: 204 })
+      : ndjsonResponse(['{"type":"start","executionId":"one"}\n', '{"type":"update","payload":{"content":[]}}\n']),
+  );
+  const client = createSandboxToolClient({ baseUrl: "https://sandbox.test/", token: TOKEN, fetchImpl: impl });
+  const controller = new AbortController();
+
+  await assert.rejects(
+    client.execute("read", { params: {}, signal: controller.signal, onUpdate: () => controller.abort() }),
+    { message: "Operation aborted" },
+  );
+  assert.deepEqual(
+    calls.map(({ url, init }) => ({ url, method: init?.method, headers: init?.headers })),
+    [
+      {
+        url: "https://sandbox.test/v1/tools/read/execute",
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
+        },
+      },
+      {
+        url: "https://sandbox.test/v1/executions/one/cancel",
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      },
+    ],
+  );
+});
+
+test("接続失敗は正規化した URL を示し、通常 API・診断・実行で元のエラー型を保つ", async () => {
+  const fetchImpl: typeof fetch = () => {
+    throw new Error("offline");
+  };
+  const client = createSandboxToolClient({ baseUrl: " https://sandbox.test/// ", token: TOKEN, fetchImpl });
+  const message = "サンドボックス (https://sandbox.test) に接続できません: offline";
+  await assert.rejects(client.listFiles("."), { name: SandboxRequestError.name, status: 502, message });
+  await assert.rejects(client.getRuntimeInfo(), { name: SandboxRuntimeError.name, failure: "unreachable", message });
+  await assert.rejects(client.execute("read", { params: {} }), { name: "Error", message });
+});
+
+for (const [status, jsonStatus, rawStatus] of [
+  [409, 409, 502],
+  [413, 502, 413],
+]) {
+  test(`JSON で返る HTTP ${status} でも通常 API と転送の事前チェックで写像が異なる`, async () => {
+    const { impl } = stubFetch(() => Response.json({ error: "sandbox detail" }, { status }));
+    const client = createSandboxToolClient({ baseUrl: "https://sandbox.test", token: TOKEN, fetchImpl: impl });
+    await assert.rejects(client.listFiles("."), {
+      name: SandboxRequestError.name,
+      status: jsonStatus,
+      message:
+        status === 409
+          ? "sandbox detail"
+          : "サンドボックスのファイル一覧を取得できませんでした (HTTP 413): sandbox detail",
+    });
+    await assert.rejects(client.checkSkillsExport(), {
+      name: SandboxRequestError.name,
+      status: rawStatus,
+      message:
+        status === 413
+          ? "sandbox detail"
+          : "サンドボックスのエクスポートの確認ができませんでした (HTTP 409): sandbox detail",
+    });
+  });
+}
+
+test("スキル一覧以外の通常 JSON 往復は 200 の JSON 解釈失敗を SyntaxError のまま返す", async () => {
+  const { impl } = stubFetch(() => new Response("not JSON"));
+  const client = createSandboxToolClient({ baseUrl: "https://sandbox.test", token: TOKEN, fetchImpl: impl });
+  await assert.rejects(client.listFiles("."), SyntaxError);
+  await assert.rejects(client.checkSkillsExport(), SyntaxError);
+});
+
+test("パスの符号化に失敗しても同期例外ではなく Promise の拒否になる", async () => {
+  const { calls, impl } = stubFetch(() => Response.json({}));
+  const client = createSandboxToolClient({ baseUrl: "https://sandbox.test", token: TOKEN, fetchImpl: impl });
+  await assert.rejects(client.listFiles("\ud800"), URIError);
+  assert.equal(calls.length, 0);
 });
