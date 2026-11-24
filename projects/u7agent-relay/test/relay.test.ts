@@ -96,6 +96,35 @@ describe("中継 API", () => {
     }
   });
 
+  test("本文の上限は trim 後の長さで判定する", async () => {
+    const upstream = createUpstream();
+    const harness = await setup(upstream.fetchImpl);
+
+    try {
+      const { token } = seedConnection(harness);
+
+      const tooLarge = await harness.app.request("/v1/messages", {
+        method: "POST",
+        headers: bearer(token),
+        body: JSON.stringify({ text: "a".repeat(20_001) }),
+      });
+
+      expect(tooLarge.status).toBe(413);
+      expect(await tooLarge.json()).toEqual({ error: "message_too_large" });
+
+      // 前後の空白は送らないので、上限 + 改行はちょうど上限として受理する。
+      const accepted = await harness.app.request("/v1/messages", {
+        method: "POST",
+        headers: bearer(token),
+        body: JSON.stringify({ text: `${"a".repeat(20_000)}\n` }),
+      });
+
+      expect(accepted.status).toBe(202);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
   test("投稿は接続先の会話へだけ送り、返信はその実行の最後の本文を返す", async () => {
     const upstream = createUpstream();
     const harness = await setup(upstream.fetchImpl);
