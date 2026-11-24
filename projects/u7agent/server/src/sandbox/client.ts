@@ -167,61 +167,6 @@ export interface SandboxSkillsImportInput {
   signal?: AbortSignal | undefined;
 }
 
-export function createSandboxToolClient(options: SandboxToolClientOptions): SandboxToolClient {
-  const baseUrl = options.baseUrl.trim().replace(/\/+$/, "");
-  const token = options.token.trim();
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const runtimeInfoTimeoutMs = options.runtimeInfoTimeoutMs ?? SANDBOX_RUNTIME_INFO_TIMEOUT_MS;
-  const listenerScanTimeoutMs = options.listenerScanTimeoutMs ?? SANDBOX_LISTENER_SCAN_TIMEOUT_MS;
-  if (!baseUrl || !token) {
-    throw new Error("Sandbox tool client requires baseUrl and token");
-  }
-  return {
-    execute: (toolName, input) => execute(toolName, input, baseUrl, token, fetchImpl),
-    getRuntimeInfo: () => getRuntimeInfo(baseUrl, token, fetchImpl, runtimeInfoTimeoutMs),
-    listFiles: (path) => listFiles(path, baseUrl, token, fetchImpl),
-    statFile: (path) => statFile(path, baseUrl, token, fetchImpl),
-    getGitInfo: (path) => getGitInfo(path, baseUrl, token, fetchImpl),
-    listSkills: (dir) => listSkills(dir, baseUrl, token, fetchImpl),
-    getSkillFile: (relativePath) => getSkillFile(relativePath, baseUrl, token, fetchImpl),
-    createSkillFile: (input) => createSkillFile(input, baseUrl, token, fetchImpl),
-    saveSkillFile: (input) => saveSkillFile(input, baseUrl, token, fetchImpl),
-    previewSkillDelete: (relativePath) => previewSkillDelete(relativePath, baseUrl, token, fetchImpl),
-    deleteSkillFolder: (relativePath, treeVersion) =>
-      deleteSkillFolder(relativePath, treeVersion, baseUrl, token, fetchImpl),
-    previewFile: async (path) => {
-      const response = await fetchJson(
-        fetchImpl,
-        `${baseUrl}/v1/files/preview?path=${encodeURIComponent(path)}`,
-        { headers: jsonHeaders(token) },
-        baseUrl,
-      );
-      if (!response.ok) throw await jsonError(response, "プレビューを取得できませんでした");
-      return (await response.json()) as SandboxFilePreview;
-    },
-    createDir: (path) => createDir(path, baseUrl, token, fetchImpl),
-    readHandoff: (path) => readHandoff(path, baseUrl, token, fetchImpl),
-    writeHandoff: (input) => writeHandoff(input, baseUrl, token, fetchImpl),
-    rollbackHandoff: (input) => rollbackHandoff(input, baseUrl, token, fetchImpl),
-    renameEntry: (path, name) => renameEntry(path, name, baseUrl, token, fetchImpl),
-    moveEntry: (from, to) => moveEntry(from, to, baseUrl, token, fetchImpl),
-    deleteFile: (path) => deleteFile(path, baseUrl, token, fetchImpl),
-    deleteDirectory: (path) => deleteDirectory(path, baseUrl, token, fetchImpl),
-    uploadFile: (input) => uploadFile(input, baseUrl, token, fetchImpl),
-    exportSkills: () => exportSkills(baseUrl, token, fetchImpl),
-    checkSkillsExport: () => checkSkillsExport(baseUrl, token, fetchImpl),
-    importSkills: (input) => importSkills(input, baseUrl, token, fetchImpl),
-    rawFile: (path, options) => rawFile(path, options, baseUrl, token, fetchImpl),
-    readImageInput: (path, scope, signal) => readImageInput(path, scope, signal, baseUrl, token, fetchImpl),
-    downloadEntry: (path, excludeNames) => downloadEntry(path, excludeNames, baseUrl, token, fetchImpl),
-    checkDownload: (path, excludeNames) => checkDownload(path, excludeNames, baseUrl, token, fetchImpl),
-    planDownload: (path, excludeNames, maxFileBytes) =>
-      planDownload(path, excludeNames, maxFileBytes, baseUrl, token, fetchImpl),
-    scanListeners: (port, options) => scanListeners(port, options, baseUrl, token, fetchImpl, listenerScanTimeoutMs),
-    scanListenerRange: (from, to) => scanListenerRange(from, to, baseUrl, token, fetchImpl, listenerScanTimeoutMs),
-  };
-}
-
 /** 未設定時は undefined を返し、起動はできるがセッション作成は 503 になる。 */
 export function createSandboxToolClientFromEnv(
   env: NodeJS.ProcessEnv,
@@ -392,6 +337,61 @@ export class SandboxRequestError extends Error {
     super(message);
     this.name = "SandboxRequestError";
   }
+}
+
+export function createSandboxToolClient(options: SandboxToolClientOptions): SandboxToolClient {
+  const baseUrl = options.baseUrl.trim().replace(/\/+$/, "");
+  const token = options.token.trim();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const runtimeInfoTimeoutMs = options.runtimeInfoTimeoutMs ?? SANDBOX_RUNTIME_INFO_TIMEOUT_MS;
+  const listenerScanTimeoutMs = options.listenerScanTimeoutMs ?? SANDBOX_LISTENER_SCAN_TIMEOUT_MS;
+  if (!baseUrl || !token) {
+    throw new Error("Sandbox tool client requires baseUrl and token");
+  }
+  return {
+    execute: (toolName, input) => execute(toolName, input, baseUrl, token, fetchImpl),
+    getRuntimeInfo: () => getRuntimeInfo(baseUrl, token, fetchImpl, runtimeInfoTimeoutMs),
+    listFiles: (path) => listFiles(path, baseUrl, token, fetchImpl),
+    statFile: (path) => statFile(path, baseUrl, token, fetchImpl),
+    getGitInfo: (path) => getGitInfo(path, baseUrl, token, fetchImpl),
+    listSkills: (dir) => listSkills(dir, baseUrl, token, fetchImpl),
+    getSkillFile: (relativePath) => getSkillFile(relativePath, baseUrl, token, fetchImpl),
+    createSkillFile: (input) => createSkillFile(input, baseUrl, token, fetchImpl),
+    saveSkillFile: (input) => saveSkillFile(input, baseUrl, token, fetchImpl),
+    previewSkillDelete: (relativePath) => previewSkillDelete(relativePath, baseUrl, token, fetchImpl),
+    deleteSkillFolder: (relativePath, treeVersion) =>
+      deleteSkillFolder(relativePath, treeVersion, baseUrl, token, fetchImpl),
+    previewFile: async (path) => {
+      const response = await fetchJson(
+        fetchImpl,
+        `${baseUrl}/v1/files/preview?path=${encodeURIComponent(path)}`,
+        { headers: jsonHeaders(token) },
+        baseUrl,
+      );
+      if (!response.ok) throw await jsonError(response, "プレビューを取得できませんでした");
+      return (await response.json()) as SandboxFilePreview;
+    },
+    createDir: (path) => createDir(path, baseUrl, token, fetchImpl),
+    readHandoff: (path) => readHandoff(path, baseUrl, token, fetchImpl),
+    writeHandoff: (input) => writeHandoff(input, baseUrl, token, fetchImpl),
+    rollbackHandoff: (input) => rollbackHandoff(input, baseUrl, token, fetchImpl),
+    renameEntry: (path, name) => renameEntry(path, name, baseUrl, token, fetchImpl),
+    moveEntry: (from, to) => moveEntry(from, to, baseUrl, token, fetchImpl),
+    deleteFile: (path) => deleteFile(path, baseUrl, token, fetchImpl),
+    deleteDirectory: (path) => deleteDirectory(path, baseUrl, token, fetchImpl),
+    uploadFile: (input) => uploadFile(input, baseUrl, token, fetchImpl),
+    exportSkills: () => exportSkills(baseUrl, token, fetchImpl),
+    checkSkillsExport: () => checkSkillsExport(baseUrl, token, fetchImpl),
+    importSkills: (input) => importSkills(input, baseUrl, token, fetchImpl),
+    rawFile: (path, options) => rawFile(path, options, baseUrl, token, fetchImpl),
+    readImageInput: (path, scope, signal) => readImageInput(path, scope, signal, baseUrl, token, fetchImpl),
+    downloadEntry: (path, excludeNames) => downloadEntry(path, excludeNames, baseUrl, token, fetchImpl),
+    checkDownload: (path, excludeNames) => checkDownload(path, excludeNames, baseUrl, token, fetchImpl),
+    planDownload: (path, excludeNames, maxFileBytes) =>
+      planDownload(path, excludeNames, maxFileBytes, baseUrl, token, fetchImpl),
+    scanListeners: (port, options) => scanListeners(port, options, baseUrl, token, fetchImpl, listenerScanTimeoutMs),
+    scanListenerRange: (from, to) => scanListenerRange(from, to, baseUrl, token, fetchImpl, listenerScanTimeoutMs),
+  };
 }
 
 /** NDJSON の execute とは別経路 (JSON 応答)。接続できない場合はサンドボックスの到達性の問題として 502 にする。 */
