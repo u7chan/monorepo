@@ -4,6 +4,12 @@
  * 取得はキーの有無・有効性と独立に扱う（正は docs/image-generation.md）。
  */
 import type { ImageCatalogModelRow, ImageCatalogRow } from "./app-db";
+import {
+  CATALOG_ERROR_RATE_LIMITED,
+  CATALOG_ERROR_TIMEOUT,
+  CATALOG_ERROR_UNKNOWN,
+  CATALOG_TIMEOUT_MS,
+} from "./content-model-catalog";
 import { messageFor } from "./errors";
 import { startRequestDeadline } from "./request-deadline";
 import {
@@ -70,12 +76,6 @@ export interface ImageCatalog {
 
 /** live 一覧の URL。SDK カタログの baseUrl から組み立てず、取得先をこの 1 箇所に固定する */
 export const IMAGE_CATALOG_URL = "https://openrouter.ai/api/v1/images/models";
-
-export const IMAGE_CATALOG_TIMEOUT_MS = 10_000;
-
-export const IMAGE_CATALOG_ERROR_TIMEOUT = "モデル一覧の取得がタイムアウトしました";
-export const IMAGE_CATALOG_ERROR_RATE_LIMITED = "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）";
-export const IMAGE_CATALOG_ERROR_UNKNOWN = "モデル一覧を取得できませんでした";
 
 /** 参照画像の編集を課金前に止める文言。すべて「課金は起きていない」ことを明示する */
 export const IMAGE_INPUT_UNSUPPORTED_MESSAGE =
@@ -295,7 +295,7 @@ export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
   const sdkCatalog = options.sdkCatalog ?? (() => imageModelCatalog());
   const baseFetch = options.fetchImpl ?? fetch;
   const now = options.now ?? (() => Date.now());
-  const timeoutMs = options.timeoutMs ?? IMAGE_CATALOG_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? CATALOG_TIMEOUT_MS;
 
   let entries: ImageCatalogEntry[] = [...sdkCatalog()];
   let source: ImageCatalogSource = "sdk";
@@ -331,11 +331,11 @@ export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
       }
       const entries = response.ok ? entriesOf(body) : undefined;
       if (entries) return { entries, fetchedAt: now() };
-      if (deadline.timedOut) return { error: IMAGE_CATALOG_ERROR_TIMEOUT };
-      if (response.status === 429 || response.status >= 500) return { error: IMAGE_CATALOG_ERROR_RATE_LIMITED };
-      return { error: IMAGE_CATALOG_ERROR_UNKNOWN };
+      if (deadline.timedOut) return { error: CATALOG_ERROR_TIMEOUT };
+      if (response.status === 429 || response.status >= 500) return { error: CATALOG_ERROR_RATE_LIMITED };
+      return { error: CATALOG_ERROR_UNKNOWN };
     } catch {
-      return deadline.timedOut ? { error: IMAGE_CATALOG_ERROR_TIMEOUT } : { error: IMAGE_CATALOG_ERROR_UNKNOWN };
+      return deadline.timedOut ? { error: CATALOG_ERROR_TIMEOUT } : { error: CATALOG_ERROR_UNKNOWN };
     } finally {
       deadline.clear();
     }

@@ -21,7 +21,7 @@
 - 取得は **API キーを使わない**（一覧 API は認証を見ないので、認証ヘッダも付けない）。キーの有無・有効性とは独立で、**キーの死活チェックには使えない**（無効なキーでも 200 が返る）
 - 取得契機は 起動時（`content_settings` に行があるとき）/ 手動の [カタログ更新]。`GET /api/settings/content` はネットワークに触らず、メモリ上の現在値を返すだけ。キー保存にも紐づけない（設定の変更を外部 API の待ち時間へ巻き込まない）
 - 手動の [カタログ更新] は、一覧と同時にコストマスタ（任意設定）から価格と `visible` も取る。未設定・OFF・取得失敗でも一覧の取得は従来どおりで、価格は `--` / 全件表示に倒れる（[content-cost.md](content-cost.md)）
-- 期限は 10 秒（`IMAGE_CATALOG_TIMEOUT_MS`）+ リトライなし。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
+- 期限（`server/src/content-model-catalog.ts`）を設け、リトライはしない。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
 - 取得成功時だけ DB（`image_catalog`）へ `id` と表示名、あれば出力形式の宣言（`outputFormats`）と画像入力の宣言（`input`）、生成パラメータの宣言（`parameters`）を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
 - 生成パラメータの宣言は `supported_parameters` から読み、名前を `aspect_ratio` / `resolution` / `quality` / `output_format` / `background` / `seed` に限る。descriptor は `enum`（`values`）/ `range`（`min` / `max`）/ `boolean` の 3 種類だけで、`boolean` は「そのパラメータを受け付ける」の意味（値そのものは送らない）。`seed` の値は 0 以上 2^31-1 以下の整数で、宣言がそれを超えていてもこの範囲に切る
 - 宣言の読み取りは `server/src/images.ts` の `imageParameterDeclarationsOf()` 1 つを live とキャッシュの両方に使い、未知のキー・形違い・空の `values` は落とす（1 つも読めなければ「不明」）。`output_format` の値は保存できる形式（png / jpeg / webp）との積にし、積が空なら宣言なしに倒す（[保存できない形式のモデル](#保存できない形式のモデル)の判定と食い違わせない）
