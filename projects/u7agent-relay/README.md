@@ -125,6 +125,35 @@ curl -fsS "http://localhost:8787/v1/runs/0123456789abcdef/files?path=generated%2
 
 `GET /healthz` は認証なしで `200 OK` と `u7agent-relay-ok` を返します。
 
+## MCP から使う（PoC）
+
+Muse など MCP クライアントからも同じ中継を使えます。`/v1` は残るので、既存のクライアントはそのまま動きます。入口が 2 つあるだけで、認証・接続先の固定・実行の直列化は `/v1` と同じです。
+
+`POST /mcp`（Streamable HTTP、stateless）に Bearer キーを付けます。セッションを持たないため、毎リクエストに `Authorization` が必要です。
+
+```json
+{
+  "mcpServers": {
+    "u7agent-relay": {
+      "type": "http",
+      "url": "http://localhost:8787/mcp",
+      "headers": { "Authorization": "Bearer ur_…" }
+    }
+  }
+}
+```
+
+| ツール | 引数 | 返す内容 |
+| --- | --- | --- |
+| `submit_task` | `text` | `POST /v1/messages` と同じ `{"runId":"…"}` または `{"status":"queued","sessionUrl":"…"}` |
+| `get_task` | `runId` | `GET /v1/replies/:runId` と同じ状態・本文・`files` |
+
+- エラーは `isError: true` の本文に `{"error":"session_busy"}` のように入ります。コードは `/v1` と共通です。
+- 生成物の実体は MCP では返しません。`get_task` の `files` を見て、`/v1/runs/:runId/files` から取得してください。
+- ブラウザからの要求は受け付けません。`Origin` ヘッダーのある要求は、中継自身のオリジンでも 403 にします。`GET /mcp` は 405 です。
+- 本文の上限は `/v1` と同じです（trim 後 20,000 文字、JSON 全体で 64 KiB）。超過は `message_too_large`、空白だけの本文は `text_required` を返します。
+- 投稿の冪等化（`clientRequestId`）と long-poll（`wait`）は未実装です。`session_busy` は再送せず `get_task` で待ってください。
+
 ## セキュリティ
 
 | 対象 | 方式 |
@@ -132,6 +161,7 @@ curl -fsS "http://localhost:8787/v1/runs/0123456789abcdef/files?path=generated%2
 | 管理 GUI | 6 桁 PIN（Argon2id）。5 回失敗で 15 分ロック。cookie は HttpOnly / SameSite=Lax / 30 日。 |
 | 管理 API の変更 | 同一 origin の要求だけ許可（Origin が無い curl は拒否）。 |
 | 中継 API | `Authorization: Bearer ur_…`。保存は SHA-256 で、失効は即時。 |
+| 中継 API（MCP） | `/mcp` も同じ Bearer。`Origin` 付きの要求は 403、`GET` は 405。セッションを持たない（stateless）。 |
 | 中継 API のファイル取得 | 接続先セッションの cwd 配下だけ。上流 `stat` の realpath で境界を確認し、`attachment` / `octet-stream` で返す。 |
 | 待受 | コンテナ内は `0.0.0.0`、compose は loopback のみ。 |
 

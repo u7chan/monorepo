@@ -14,8 +14,11 @@
     "check": "bun run lint && bun run fmt:check && bun run typecheck && bun run test"
   },
   "dependencies": {
+    "@hono/mcp": "^0.3.5",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "hono": "^4.13.19",
-    "preact": "^11.2.0"
+    "preact": "^11.2.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
