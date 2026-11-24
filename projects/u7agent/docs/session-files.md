@@ -226,7 +226,7 @@ assistant 本文のインラインコードと Markdown リンクが指すファ
 
 - id ごとの状態は、record の有無（未ロードは descriptor だけ）、`lifecycle`（同じ id の load / meta 更新 / ピン更新 / sweep / 引き継ぎ / 履歴クリア / 分岐を直列化する Promise チェーン）、削除予約中の集合 `deleting` で持つ。予約は最初の await より前に同期的に行う。
 - 同じ id の先行操作があると、ロード・送信・購読はその完了を待ってから状態を取り直して続行する（送信も拒否せず、待ち時間は短い）。`deleting` の id はロード・送信・購読・設定変更を受けない（未ロードの復元は見つからない扱い、ロード済みでも 404）。
-- `DELETE` の手順: `deleting` に予約 → 同じ id の `lifecycle` / meta 更新 / ピン更新を待つ → 承認の取消 → 進行中ランを abort して回答待ちも取り消す → 最終 flush → SDK を dispose → record を外して購読者へ通知 → store のフォルダを削除 → `assistant_metrics` と descriptor を削除 → 予約を解く。SDK のロードは不要（モデル未認証・JSONL 破損でも消せる）。live でなければ abort と dispose を飛ばす。
+- `DELETE` の手順: `deleting` に予約 → 同じ id の `lifecycle` / meta 更新 / ピン更新を待つ → 承認の取消（`revoke` / `clearDenials`）→ live なら送信待ちのキュー（`queue`）を空にして回答待ちを取り消す（`cancelQuestions`。abort の signal に依存しない）→ 進行中ランを abort し、compaction の settle を待つ → 最終 flush → SDK を dispose → record を外して購読者へ通知 → store のフォルダを削除 → `assistant_metrics` と descriptor を削除 → 予約を解く。SDK のロードは不要（モデル未認証・JSONL 破損でも消せる）。live でなければ abort と dispose を飛ばす。
 - ロードは完了時に `deleting` を再確認し、削除予約中なら作った SDK を dispose して公開しない。
 - sweep は「購読者（SSE 接続）がいない・実行中 / タイトル要約中 / 設定変更中でない・同じ id の予約が無い・`lastUsedAt` が TTL より古い（終了直後の保持期間を過ぎた）」ときだけ、最終保存 → flush の成功を確かめてからメモリから外す。失敗したら破棄を見送って記録を残す（次の sweep で再試行）。sweep も `lifecycle` に乗せるので、後続のロードはその完了を待ってから状態を取り直す。開いているタブが握っているセッションを復元先へ付け替える競合は作らない。
 - `close()` は最初に全体の受付を閉じ（新規リクエストは 503）、進行中のロードと書込みキューを回収してから全 record を dispose する。最終 flush の失敗はログに残して終了する。
