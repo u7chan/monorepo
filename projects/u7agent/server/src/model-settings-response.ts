@@ -50,18 +50,13 @@ export interface ModelSettingsRuntimeView {
   storedCredentialKind(provider: string): CredentialKind | undefined;
 }
 
-/** 保存値としての利用可能なモデル / アプリ既定モデル。allowedModels の null は制限なし、defaultModel の null は既定なし */
-export interface ModelSettingsSelection {
-  allowedModels: ModelRef[] | null;
-  defaultModel: string | null;
-}
-
 export interface ModelSettingsResponseInput {
   runtime: ModelSettingsRuntimeView | null;
   /** `provider_credentials` の生きた行。`managed` はこの行の有無だけで決める */
   credentialRows: ProviderCredentialRow[];
   memos: ProviderMemoRow[];
-  selection: ModelSettingsSelection;
+  /** 保存値の選択。allowedModels の null は制限なし、defaultModel の null は既定なし */
+  selection: { allowedModels: ModelRef[] | null; defaultModel: string | null };
   /** `custom_providers` の生きた行。一覧 (`customProviders[]`) の正はこちらだけにする */
   customRows: CustomProviderRow[];
   /**

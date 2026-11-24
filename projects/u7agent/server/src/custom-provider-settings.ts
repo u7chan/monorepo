@@ -26,6 +26,7 @@ import {
   assertCustomProviderIdAvailable,
   customProviderRowOf,
   customProviderRuntimeConfig,
+  customProviderSummarySourceOfRow,
   parseCustomProviderApiKey,
   parseCustomProviderInput,
   parseCustomProviderUpdate,
@@ -220,13 +221,9 @@ export class CustomProviderSettings {
    */
   async update(provider: string, input: CustomProviderUpdateInput): Promise<CustomProviderOutcome> {
     if (!this.port.runtime) return notStored(CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE);
-    let row: CustomProviderRow | undefined;
-    try {
-      row = this.port.db.getCustomProvider(provider);
-    } catch {
-      console.warn(`[u7agent] custom provider read failed: ${provider}`);
-      return notStored(CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
-    }
+    const read = this.#storedRow(provider);
+    if ("error" in read) return notStored(read.error);
+    const row = read.row;
     if (!row) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
     const typedKey =
       input.apiKey === undefined || input.apiKey === "" ? undefined : parseCustomProviderApiKey(input.apiKey);
@@ -279,20 +276,11 @@ export class CustomProviderSettings {
    */
   async delete(provider: string): Promise<CustomProviderOutcome> {
     if (!this.port.runtime) return notStored(CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE);
-    let row: CustomProviderRow | undefined;
-    try {
-      row = this.port.db.getCustomProvider(provider);
-    } catch {
-      console.warn(`[u7agent] custom provider read failed: ${provider}`);
-      return notStored(CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
-    }
+    const read = this.#storedRow(provider);
+    if ("error" in read) return notStored(read.error);
+    const row = read.row;
     if (!row) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
-    const tombstone: CustomProviderSummarySource = {
-      id: row.provider,
-      name: row.name,
-      baseUrl: row.baseUrl,
-      model: { id: row.modelId, contextWindow: row.contextWindow, maxTokens: row.maxTokens },
-    };
+    const tombstone = customProviderSummarySourceOfRow(row);
     try {
       this.port.db.deleteCustomProvider(provider);
     } catch {
@@ -321,13 +309,9 @@ export class CustomProviderSettings {
       input.apiKey === undefined || input.apiKey === "" ? undefined : parseCustomProviderApiKey(input.apiKey);
     let storedKey: string | undefined;
     if (input.provider !== undefined) {
-      let row: CustomProviderRow | undefined;
-      try {
-        row = this.port.db.getCustomProvider(input.provider);
-      } catch {
-        console.warn(`[u7agent] custom provider read failed: ${input.provider}`);
-        throw httpError(503, CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
-      }
+      const read = this.#storedRow(input.provider);
+      if ("error" in read) throw httpError(503, read.error);
+      const row = read.row;
       if (!row) throw httpError(400, CUSTOM_PROVIDER_NOT_FOUND_MESSAGE);
       if (typed === undefined) {
         const stored = this.#decryptCustomKey(row);
@@ -356,13 +340,9 @@ export class CustomProviderSettings {
    */
   async resync(provider: string): Promise<CustomProviderOutcome | undefined> {
     if (!this.port.runtime) return notStored(CUSTOM_PROVIDER_RUNTIME_UNAVAILABLE_MESSAGE);
-    let row: CustomProviderRow | undefined;
-    try {
-      row = this.port.db.getCustomProvider(provider);
-    } catch {
-      console.warn(`[u7agent] custom provider read failed: ${provider}`);
-      return notStored(CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
-    }
+    const read = this.#storedRow(provider);
+    if ("error" in read) return notStored(read.error);
+    const row = read.row;
     if (row) {
       const synced = await this.#resyncCustomRow(row);
       await this.port.refresh();
@@ -415,27 +395,43 @@ export class CustomProviderSettings {
   }
 
   /**
+   * 保存済みの行。読取に失敗したら 503 の固定文言を返し、呼び出し側が応答 (変更系) か例外 (probe) へ写す。
+   * どちらも同じ 503 だが、変更系は `{ error }` を返し、probe は投げる。
+   */
+  #storedRow(provider: string): { row: CustomProviderRow | undefined } | { error: string } {
+    try {
+      return { row: this.port.db.getCustomProvider(provider) };
+    } catch {
+      console.warn(`[u7agent] custom provider read failed: ${provider}`);
+      return { error: CUSTOM_PROVIDER_NOT_STORED_MESSAGE };
+    }
+  }
+
+  /**
    * カスタムプロバイダーの変更応答。一覧を組めないときも変更は確定しているため、
    * `applied` / `applied_unsynced` を保って GET と同じ形で返し、次の GET に追随させる。
    * `known` はこの操作で確定した行で、一覧を読めないときも応答から落とさない
    * (空配列を返すとクライアントが一覧を置き換え、編集・削除・再同期の導線が消える)。
    */
   #customOutcome(synced: boolean, known?: CustomProviderRow): CustomProviderOutcome {
-    const state = synced ? "applied" : "applied_unsynced";
-    try {
-      return { status: 200, response: { ...this.port.settings(), state } };
-    } catch {
-      return { status: 200, response: { ...this.port.fallbackSettings(known), state } };
-    }
+    return this.#settledResponse(synced ? "applied" : "applied_unsynced", known);
   }
 
   /** カスタムの再同期の応答。一覧を組めないときも `state` を保ち、対象の行を落とさない */
   #customSettled(provider: string, synced: boolean, known?: CustomProviderRow): CustomProviderOutcome {
     if (!synced) return this.port.unsynced(provider, this.port.degraded.get(provider) ?? "apply", known);
+    return this.#settledResponse("applied", known);
+  }
+
+  /** 一覧を組めないときは `known` の行だけで組み、変更が確定した `state` を保つ */
+  #settledResponse(
+    state: "applied" | "applied_unsynced",
+    known?: CustomProviderRow,
+  ): { status: 200; response: ModelMutationResponse } {
     try {
-      return { status: 200, response: { ...this.port.settings(), state: "applied" } };
+      return { status: 200, response: { ...this.port.settings(), state } };
     } catch {
-      return { status: 200, response: { ...this.port.fallbackSettings(known), state: "applied" } };
+      return { status: 200, response: { ...this.port.fallbackSettings(known), state } };
     }
   }
 
