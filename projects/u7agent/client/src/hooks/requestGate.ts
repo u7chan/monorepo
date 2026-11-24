@@ -1,7 +1,10 @@
+/** 呼び出し元の lifecycle を見ない要求の既定。利用者の操作で始め、世代の競合だけを見ればよい取得に渡す */
+export const alwaysCurrent = (): boolean => true;
+
 /** 後から開始した要求と、呼び出し元の lifecycle を優先する応答適用ガード。 */
 export function createRequestGate() {
   let latest = 0;
-  return (isActive: () => boolean = () => true) => {
+  return (isActive: () => boolean = alwaysCurrent) => {
     const request = ++latest;
     return () => isActive() && request === latest;
   };

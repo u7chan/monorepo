@@ -4,12 +4,10 @@ import { messageFor } from "../lib/errors";
 import { draftBody, draftFromSettings, draftIsDirty, syncDraft, type NotificationDraft } from "../lib/notifications";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import type { NotificationResult, NotificationsResponse } from "../types";
-import { createLoadingTracker, createRequestGate } from "./requestGate";
+import { alwaysCurrent, createLoadingTracker, createRequestGate } from "./requestGate";
 
 /** 一覧 (4 秒) と同じ間隔。バックグラウンドのラン完了で直近結果が変わっても、⚠ をリロードなしで反映する */
 const NOTIFICATIONS_POLL_MS = 4_000;
-
-const alwaysCurrent = () => true;
 
 /**
  * 通知設定の state と操作。設定ページを開いていなくてもナビの ⚠ が要るため、facade (useU7Agent) が

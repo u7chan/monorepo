@@ -3,6 +3,7 @@ import { ApiError, type SecretsScope } from "../api";
 import { useSpaceApi } from "../SpaceContext";
 import { copyToClipboard } from "../lib/copyToClipboard";
 import { cn } from "../lib/cn";
+import { messageFor } from "../lib/errors";
 import { useAgentDrag } from "../hooks/useAgentDrag";
 import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
 import {
@@ -54,10 +55,6 @@ const ENV_DRAG_NAMING = {
 
 /** 開いているフォーム。値は入力欄の中だけで持ち、どこにも永続化しない */
 type FormState = { mode: "closed" } | { mode: "create" } | { mode: "edit"; item: SecretItem };
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** 値と失敗の記録から 1 件落とす (行が消えたときと、値を取り直せたとき) */
 function withoutKey(record: Record<string, string>, secretId: string): Record<string, string> {
@@ -135,7 +132,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
               reload();
               return;
             }
-            setValueErrors((current) => ({ ...current, [item.secretId]: errorText(error) }));
+            setValueErrors((current) => ({ ...current, [item.secretId]: messageFor(error) }));
           });
       }
     },
@@ -165,7 +162,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        setListError(errorText(error));
+        setListError(messageFor(error));
         applyOrder(null);
         // 古い一覧と古い値の組み合わせを残さない
         setValues({});
@@ -214,7 +211,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
       const detail = await getSecretDetail(scope, item.secretId);
       setValue(initialDraftValue(item, { [item.secretId]: detail.value ?? "" }));
     } catch (error) {
-      setFeedback({ kind: "error", text: errorText(error) });
+      setFeedback({ kind: "error", text: messageFor(error) });
     } finally {
       setBusy(false);
     }
@@ -237,7 +234,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
       setValue("");
       reload();
     } catch (error) {
-      setFeedback({ kind: "error", text: errorText(error) });
+      setFeedback({ kind: "error", text: messageFor(error) });
     } finally {
       setBusy(false);
     }
@@ -252,7 +249,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
       if (form.mode === "edit" && form.item.secretId === item.secretId) closeForm();
       reload();
     } catch (error) {
-      setFeedback({ kind: "error", text: errorText(error) });
+      setFeedback({ kind: "error", text: messageFor(error) });
     } finally {
       setBusy(false);
     }
@@ -312,7 +309,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
       loadValues(sessionEnvScopeFromKey(scopeKey), next.items);
     } catch (error) {
       if (error instanceof ApiError) applyOrder(null);
-      setFeedback({ kind: "error", text: errorText(error) });
+      setFeedback({ kind: "error", text: messageFor(error) });
     } finally {
       setSavingOrder(false);
     }

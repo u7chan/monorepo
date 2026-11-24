@@ -13,6 +13,7 @@ import {
   SKILL_USAGE_TAB_NOTE,
   fileSkillDir,
 } from "../../lib/fileSkills";
+import { messageFor } from "../../lib/errors";
 import { fileTimeLabel, messageFullTimeLabel } from "../../lib/messageTime";
 import { SKILL_USAGE_NOTE, SKILL_USAGE_UNAVAILABLE_NOTE, skillUsageCount, type SkillUsage } from "../../lib/skillUsage";
 import type { AgentDef, FileSkillInfo, SandboxSkillFileDetail } from "../../types";
@@ -20,10 +21,6 @@ import { AgentIcon } from "../AgentIcon";
 import { FileBrowser } from "../FileBrowser";
 import { SettingsTabs } from "../SettingsTabs";
 import { SkillDetailPanel, type SkillBodyState, type SkillDetailTab } from "./SkillDetailPanel";
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * スキル詳細。本文 / ファイル / 使用中 の 3 タブで、説明は本文タブの先頭に全文を出す。
@@ -82,7 +79,7 @@ export function FileSkillPanel({
         if (!controller.signal.aborted) setBody({ status: "ready", text: preview.text });
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) setBody({ status: "error", message: errorText(error) });
+        if (!controller.signal.aborted) setBody({ status: "error", message: messageFor(error) });
       },
     );
     return () => controller.abort();

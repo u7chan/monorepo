@@ -1,3 +1,4 @@
+import { messageFor } from "../lib/errors";
 import { MODEL_UNSET_GUIDE } from "../lib/modelSettings";
 import type { Health } from "../types";
 
@@ -27,16 +28,12 @@ const SANDBOX_REQUIRED_REASON = "BFF にサンドボックスの接続情報が�
 export const SANDBOX_REQUIRED_GUIDE =
   "ローカルでは `pnpm dev` でサンドボックスごと起動し直してください（共有トークンと作業領域は dev スクリプトが渡します）。個別に起動している場合は、サンドボックスへ `SANDBOX_HOST=127.0.0.1` / `PI_SANDBOX_TOKEN`（16文字以上）/ `PI_SANDBOX_CWD` を CLI で渡し、BFF へ `PI_SANDBOX_URL` と同名のトークンを設定してください。";
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 // 認証もサンドボックス未設定も 503 になり HTTP ステータスでは区別できないため、本文で判定する。
 const AUTH_ERROR_PATTERN = /APIキー|No API key found|Provider is not configured|No model selected/i;
 const SANDBOX_ERROR_PATTERN = /サンドボックス|sandbox/i;
 
 export function runtimeStatusForError(error: unknown): RuntimeStatus {
-  const detail = errorText(error);
+  const detail = messageFor(error);
   if (SANDBOX_ERROR_PATTERN.test(detail)) {
     return { text: SANDBOX_REQUIRED_TEXT, error: true, detail, sandboxRequired: true };
   }

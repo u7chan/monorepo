@@ -13,6 +13,7 @@ import {
   backupResetDoneNote,
   backupRestoreDoneNote,
 } from "./backup";
+import { messageFor } from "./errors";
 import type {
   BackupExportCheck,
   BackupResetResult,
@@ -115,10 +116,6 @@ export function createBackupStore(create: (reload: () => void) => Backup): {
   };
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** `.zip` の拡張子だけで見る。中身の判定は plan の 400 が正で、二重に判定しない */
 export function isBackupFileName(name: string): boolean {
   return /\.zip$/i.test(name);
@@ -159,7 +156,7 @@ export function createBackup(deps: BackupDeps): Backup {
       deps.startDownload(deps.exportUrl(targets), check.fileName);
       deps.note(BACKUP_EXPORT_STARTED_NOTE, false);
     } catch (error) {
-      deps.note(errorText(error), true);
+      deps.note(messageFor(error), true);
     } finally {
       publish({ ...current, exporting: false });
     }
@@ -182,7 +179,7 @@ export function createBackup(deps: BackupDeps): Backup {
       }
       file = null;
       setRestore({ status: "idle" });
-      deps.note(errorText(error), true);
+      deps.note(messageFor(error), true);
       return null;
     }
   };
@@ -251,12 +248,12 @@ export function createBackup(deps: BackupDeps): Backup {
           plan: blocked,
           confirmed: false,
         });
-        deps.note(errorText(error), true);
+        deps.note(messageFor(error), true);
         return;
       }
       // 409 (busy) などは何も変わっていないので、確認をやり直せる review へ戻す
       setRestore({ ...flow, confirmed: false });
-      deps.note(errorText(error), true);
+      deps.note(messageFor(error), true);
       deps.reload();
     }
   };
@@ -279,7 +276,7 @@ export function createBackup(deps: BackupDeps): Backup {
       deps.reload();
     } catch (error) {
       setReset({ status: "confirm" });
-      deps.note(errorText(error), true);
+      deps.note(messageFor(error), true);
     }
   };
 

@@ -18,6 +18,7 @@ import {
   type FileSkillScopeTab,
   fileSkillScopeCounts,
 } from "../lib/fileSkills";
+import { messageFor } from "../lib/errors";
 import { MEMORY_NOTE, RELOAD_ABOVE_NOTE } from "../lib/settingsNotes";
 import { fileSkillDeleteConfirmRequest, skillDiscardConfirmRequest } from "../lib/settingsConfirm";
 import { skillUsageByPath, type SkillUsage } from "../lib/skillUsage";
@@ -52,10 +53,6 @@ export type SkillSettingsPageProps = SettingsPageProps & {
   /** ワークスペース root の絶対パス (health.cwd)。ファイルタブの行の絶対パスをコピーする導線に使う */
   rootCwd?: string;
 };
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * 一覧の先頭に置く「新しいスキル」の追加行。取得できていない間は保存先も一覧も無く、入力のあとに
@@ -227,7 +224,7 @@ export function SkillSettingsPage({
         if (!split) setView("list");
         setNoteText("共通スキルを削除しました。");
       } catch (error) {
-        setNoteText(errorText(error), true);
+        setNoteText(messageFor(error), true);
       }
     })();
   };
