@@ -26,6 +26,7 @@ import { sessionUploadsRel, workspaceAbs } from "./app-paths";
 import { SANDBOX_SETUP_REQUIRED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./session-prompt";
 import { applyHandoffMove, prepareHandoffMemo, type HandoffMoveFiles, type HandoffMovePort } from "./handoff-move";
+import { cleanupHistoryClear, clearedSessionMeta, confirmHistoryClear, type HistoryClearPort } from "./history-clear";
 import type { AssistantMetricsRow, AssistantMetricsStore, CwdKeyStore } from "./app-db";
 import { httpError, messageFor, type HttpError } from "./errors";
 import { sandboxFailureStatus } from "./http";
@@ -2780,104 +2781,87 @@ export class SessionStore {
     if (!storeDir) throw httpError(503, "会話履歴のクリアには会話ストアが必要です");
     if (this.closing) throw httpError(503, "サーバーを終了しています");
     const live = this.records.get(id);
-    let current = live?.meta ?? this.descriptors.get(id);
-    if (!current) return undefined;
-    this.assertHistoryClearable(current, live, expectHistoryGeneration, expectSpaceId);
+    const meta = live?.meta ?? this.descriptors.get(id);
+    if (!meta) return undefined;
+    this.assertHistoryClearable(meta, live, expectHistoryGeneration, expectSpaceId);
     // 未ロードでも SDK セッションや作業フォルダは作らず、JSONL の設定記録と meta だけを照合する
-    const restored = live ? this.effectiveInputsOf(live) : await this.clearedInputsOf(current);
-    // 確定前に届いた古い保存 (タイトル要約を含む) を待ち、ここから先はもう書かない
-    if (live) live.clearingHistory = true;
-    let confirmed = false;
-    try {
-      if (live) await this.recordWrites.drain(live);
-      // drain 中の setTitle / setNotify を落とさないよう、最新の meta から組み立て直す
-      current = live?.meta ?? this.descriptors.get(id);
-      if (!current) return undefined;
-      this.assertHistoryClearable(current, live, expectHistoryGeneration, expectSpaceId);
-      const inputs = live ? this.effectiveInputsOf(live) : restored;
-      if (!this.hasHistoryToClear(current, live)) {
-        // 現世代で消すものが無い。新しい世代も作らず、クライアントに自動再試行をさせない
-        if (live) live.clearingHistory = false;
-        return {
-          sessionId: id,
-          title: current.title || NO_UNTITLED_TITLE,
-          historyGeneration: current.historyGeneration ?? "",
-          changed: false,
-        };
-      }
-      const historyGeneration = randomBytes(4).toString("hex");
-      const keepTitle = titleOriginOf(current) === "manual";
-      const updated: SessionMeta = {
-        ...current,
-        messageCount: 0,
-        historyGeneration,
-        historyCleanup: true,
-        ...(inputs.model ? { model: inputs.model } : {}),
-        ...(inputs.thinkingLevel ? { thinkingLevel: inputs.thinkingLevel } : {}),
-        title: keepTitle ? current.title : "",
-        titleOrigin: keepTitle ? "manual" : "auto",
-        // 既存の引き継ぎメモは残し、未使用の参照チップだけを解除する (送信の受理と同じ印)
-        ...(current.handoff ? { handoff: { ...current.handoff, consumed: true } } : {}),
+    const restored = live ? this.effectiveInputsOf(live) : await this.clearedInputsOf(meta);
+    const port = this.historyClearPort(id, live, storeDir);
+    // 確定: 書込みを止めて drain し、最新の meta で組み直してから書く
+    const confirmed = await confirmHistoryClear(port, {
+      live,
+      buildMeta: (current) => {
+        this.assertHistoryClearable(current, live, expectHistoryGeneration, expectSpaceId);
+        const inputs = live ? this.effectiveInputsOf(live) : restored;
+        if (!this.hasHistoryToClear(current, live)) return undefined;
+        return clearedSessionMeta(current, inputs, randomBytes(4).toString("hex"));
+      },
+    });
+    if (confirmed.kind === "missing") return undefined;
+    if (confirmed.kind === "unchanged") {
+      // 現世代で消すものが無い。新しい世代も作らず、クライアントに自動再試行をさせない
+      return {
+        sessionId: id,
+        title: confirmed.meta.title || NO_UNTITLED_TITLE,
+        historyGeneration: confirmed.meta.historyGeneration ?? "",
+        changed: false,
       };
-      delete updated.titleRequest;
-      delete updated.titleAttempt;
-      // ここが確定点。新しい履歴世代・片付け待ち・チップの解除を meta に同時に保存する
-      await writeSessionMeta(storeDir, updated);
-      confirmed = true;
-      this.descriptors.set(id, updated);
-      if (live) {
-        live.meta = updated;
-        live.title = updated.title;
-        live.titleOrigin = keepTitle ? "manual" : "auto";
-        delete live.titleAttempt;
-        delete live.titleRequest;
-        // 旧世代の AI 要約は取り消す (以後の結果・使用量は適用しない)
-        this.titleProgress.cancel(live);
-        this.emitHistoryCleared(live, updated);
-      }
-      // 確定後は旧 SDK と購読を閉じ、書込みが止まってから旧履歴を片付ける
-      if (live) {
+    }
+    // 配信: 確定値を live な record へ反映し、旧世代の要約を取り消してから resync する
+    if (live) {
+      live.title = confirmed.meta.title;
+      live.titleOrigin = confirmed.meta.titleOrigin ?? "auto";
+      delete live.titleAttempt;
+      delete live.titleRequest;
+      // 旧世代の AI 要約は取り消す (以後の結果・使用量は適用しない)
+      this.titleProgress.cancel(live);
+      this.emitHistoryCleared(live, confirmed.meta);
+    }
+    // 片付け: dispose して書込みを止め、旧履歴と実測を消して片付けの印を落とす
+    const cleanupPending = await cleanupHistoryClear({ storeDir }, port, { id, live, meta: confirmed.meta });
+    if (live) this.closeSubscribers(live);
+    return {
+      sessionId: id,
+      title: confirmed.meta.title || NO_UNTITLED_TITLE,
+      historyGeneration: confirmed.meta.historyGeneration ?? "",
+      changed: true,
+      cleanupPending,
+    };
+  }
+
+  /**
+   * 履歴クリアの手順 (`history-clear`) へ渡す口。private を公開せずに切り出すため、この場の closure にする。
+   * `live` は手順の開始時の record で、確定後の片付けで open から外れるまで同じものを指す。
+   */
+  private historyClearPort(id: string, live: SessionRecord | undefined, storeDir: string): HistoryClearPort {
+    return {
+      holdWrites: (record) => {
+        record.clearingHistory = true;
+      },
+      releaseWrites: (record) => {
+        record.clearingHistory = false;
+      },
+      drainWrites: async (record) => {
+        await this.recordWrites.drain(record);
+      },
+      currentMeta: () => live?.meta ?? this.descriptors.get(id),
+      saveMeta: async (next) => {
+        await writeSessionMeta(storeDir, next);
+        this.descriptors.set(id, next);
+        if (live) live.meta = next;
+      },
+      releaseRecord: async (record) => {
         // dispose の失敗で record を残すと、確定済みのまま操作できない状態になるため先に外す
         try {
-          live.session.dispose?.();
+          record.session.dispose?.();
         } catch {
           // 購読と書込みは下の drain と close で閉じる
         }
         this.records.delete(id);
-        await this.recordWrites.drain(live);
-      }
-      let cleanupPending = false;
-      try {
-        await removeSessionHistory(storeDir, id);
-      } catch {
-        cleanupPending = true;
-      }
-      if (!cleanupPending) {
-        this.deleteAssistantMetrics(id);
-        const cleared: SessionMeta = { ...updated };
-        delete cleared.historyCleanup;
-        try {
-          await writeSessionMeta(storeDir, cleared);
-          this.descriptors.set(id, cleared);
-          if (live) live.meta = cleared;
-        } catch {
-          // 確定は済んでいる。印が残るだけなので次の読み込み / 保存で再試行する
-          cleanupPending = true;
-        }
-      }
-      if (live) this.closeSubscribers(live);
-      return {
-        sessionId: id,
-        title: updated.title || NO_UNTITLED_TITLE,
-        historyGeneration,
-        changed: true,
-        cleanupPending,
-      };
-    } catch (error) {
-      // 確定前の失敗は旧履歴を残し、保留した保存を解く (確定後は旧世代の結果を適用しない)
-      if (!confirmed && live) live.clearingHistory = false;
-      throw error;
-    }
+        await this.recordWrites.drain(record);
+      },
+      deleteAssistantMetrics: (sessionId) => this.deleteAssistantMetrics(sessionId),
+    };
   }
 
   /** クリアを受け付けてよいか。busy / 片付け中 / 履歴世代の不一致は副作用の前に 409 にする */
