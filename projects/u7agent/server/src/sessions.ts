@@ -1174,6 +1174,10 @@ export class SessionStore {
       if (live.persistError) throw httpError(500, `セッションの保存に失敗しました: ${live.persistError}`);
       return { sessionId: live.id, notify: live.notify };
     }
+    return this.setUnloadedNotify(id, notify);
+  }
+
+  private setUnloadedNotify(id: string, notify: boolean): Promise<SessionNotifyResponse | undefined> {
     return this.queueMetaUpdate(id, async () => {
       if (this.deleting.has(id) || this.closing) return undefined;
       const meta = this.descriptors.get(id);
