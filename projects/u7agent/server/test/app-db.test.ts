@@ -510,15 +510,15 @@ test("shared content settings keep an explicit empty list and reject a broken JS
   const dir = tempStoreDir();
   try {
     const db = AppDb.open({ storeDir: dir });
-    assert.equal(db.readSharedContentExcludeNames(), undefined);
-    db.saveSharedContentExcludeNames(["AGENTS.md", ".env"]);
-    assert.deepEqual(db.readSharedContentExcludeNames(), ["AGENTS.md", ".env"]);
+    assert.equal(db.sharedContents.readSharedContentExcludeNames(), undefined);
+    db.sharedContents.saveSharedContentExcludeNames(["AGENTS.md", ".env"]);
+    assert.deepEqual(db.sharedContents.readSharedContentExcludeNames(), ["AGENTS.md", ".env"]);
     // 明示空 ([]) は未設定 (undefined) と別の状態として残る
-    db.saveSharedContentExcludeNames([]);
-    assert.deepEqual(db.readSharedContentExcludeNames(), []);
-    assert.equal(db.resetSharedContentExcludeNames(), true);
-    assert.equal(db.readSharedContentExcludeNames(), undefined);
-    assert.equal(db.resetSharedContentExcludeNames(), false);
+    db.sharedContents.saveSharedContentExcludeNames([]);
+    assert.deepEqual(db.sharedContents.readSharedContentExcludeNames(), []);
+    assert.equal(db.sharedContents.resetSharedContentExcludeNames(), true);
+    assert.equal(db.sharedContents.readSharedContentExcludeNames(), undefined);
+    assert.equal(db.sharedContents.resetSharedContentExcludeNames(), false);
     db.close();
 
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
@@ -538,12 +538,12 @@ test("a broken shared content settings row is a 503 and survives a reopen", () =
     raw.prepare("INSERT INTO shared_content_settings (id, excludeNames) VALUES (1, ?)").run("not json");
     raw.close();
     const broken = AppDb.open({ storeDir: dir });
-    assert.throws(() => broken.readSharedContentExcludeNames(), isServiceUnavailable);
+    assert.throws(() => broken.sharedContents.readSharedContentExcludeNames(), isServiceUnavailable);
     broken.probe();
     const rawAgain = new DatabaseSync(join(dir, APP_DB_FILENAME));
     rawAgain.prepare("UPDATE shared_content_settings SET excludeNames = ?").run('{"a":1}');
     rawAgain.close();
-    assert.throws(() => broken.readSharedContentExcludeNames(), isServiceUnavailable);
+    assert.throws(() => broken.sharedContents.readSharedContentExcludeNames(), isServiceUnavailable);
     broken.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -554,7 +554,7 @@ test("recreating the schema keeps the shared content settings table (not in DROP
   const dir = tempStoreDir();
   try {
     const first = AppDb.open({ storeDir: dir });
-    first.saveSharedContentExcludeNames(["AGENTS.md"]);
+    first.sharedContents.saveSharedContentExcludeNames(["AGENTS.md"]);
     first.close();
 
     // 古いビルド (このテーブルを知らない) が開いて作り直す経路を再現する
@@ -563,7 +563,7 @@ test("recreating the schema keeps the shared content settings table (not in DROP
     raw.close();
 
     const reopened = AppDb.open({ storeDir: dir });
-    assert.deepEqual(reopened.readSharedContentExcludeNames(), ["AGENTS.md"]);
+    assert.deepEqual(reopened.sharedContents.readSharedContentExcludeNames(), ["AGENTS.md"]);
     reopened.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -2710,7 +2710,7 @@ test("renaming a shared content keeps its state and timestamps", () => {
   const dir = tempStoreDir();
   try {
     const db = AppDb.open({ storeDir: dir });
-    db.insertSharedContent({
+    db.sharedContents.insertSharedContent({
       id: "sc1",
       sessionId: "s1",
       name: "最初の名前",
@@ -2727,8 +2727,8 @@ test("renaming a shared content keeps its state and timestamps", () => {
       stoppedAt: null,
       lastError: null,
     });
-    db.updateSharedContentName("sc1", "あとから変えた名前");
-    const row = db.getSharedContent("sc1");
+    db.sharedContents.updateSharedContentName("sc1", "あとから変えた名前");
+    const row = db.sharedContents.getSharedContent("sc1");
     assert.equal(row?.name, "あとから変えた名前");
     // 名前はラベルなので、公開ライフサイクルの時刻と状態は動かさない
     assert.equal(row?.updatedAt, 2);
@@ -2738,7 +2738,7 @@ test("renaming a shared content keeps its state and timestamps", () => {
 
     // 再オープンしても残る
     const reopened = AppDb.open({ storeDir: dir });
-    assert.equal(reopened.getSharedContent("sc1")?.name, "あとから変えた名前");
+    assert.equal(reopened.sharedContents.getSharedContent("sc1")?.name, "あとから変えた名前");
     reopened.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -2900,8 +2900,8 @@ test("migrates a v27 db additively and round-trips shared_contents.sourceKind", 
     raw.close();
 
     const db = AppDb.open({ storeDir: dir });
-    assert.equal(db.getSharedContent("old")?.sourceKind, "directory", "移行前からある行は directory");
-    db.insertSharedContent({
+    assert.equal(db.sharedContents.getSharedContent("old")?.sourceKind, "directory", "移行前からある行は directory");
+    db.sharedContents.insertSharedContent({
       id: "root",
       sessionId: "0123456789",
       name: "root",
@@ -2919,7 +2919,7 @@ test("migrates a v27 db additively and round-trips shared_contents.sourceKind", 
       lastError: null,
     });
     // 省略時は列の既定 (directory) で入る
-    db.insertSharedContent({
+    db.sharedContents.insertSharedContent({
       id: "default",
       sessionId: "0123456789",
       name: "default",
@@ -2938,7 +2938,7 @@ test("migrates a v27 db additively and round-trips shared_contents.sourceKind", 
     db.close();
 
     const reopened = AppDb.open({ storeDir: dir });
-    const byId = new Map(reopened.listSharedContents().map((row) => [row.id, row.sourceKind]));
+    const byId = new Map(reopened.sharedContents.listSharedContents().map((row) => [row.id, row.sourceKind]));
     assert.deepEqual(
       [...byId].sort(([a], [b]) => a.localeCompare(b)),
       [
@@ -3180,7 +3180,7 @@ test("cloudflare_settings の読み書き・削除と、別アカウントの共
     };
     db.saveCloudflareSettings(row);
     assert.deepEqual(db.readCloudflareSettings(), row);
-    assert.equal(db.hasSharedContentsForOtherAccount("acc-a"), false);
+    assert.equal(db.sharedContents.hasSharedContentsForOtherAccount("acc-a"), false);
 
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
     raw
@@ -3200,8 +3200,8 @@ test("cloudflare_settings の読み書き・削除と、別アカウントの共
     raw.close();
 
     // 同じアカウントと未受付 (NULL) は切替を止めない。別アカウントが混ざったときだけ拒否する
-    assert.equal(db.hasSharedContentsForOtherAccount("acc-a"), false);
-    assert.equal(db.hasSharedContentsForOtherAccount("acc-b"), true);
+    assert.equal(db.sharedContents.hasSharedContentsForOtherAccount("acc-a"), false);
+    assert.equal(db.sharedContents.hasSharedContentsForOtherAccount("acc-b"), true);
 
     // 壊れた行は未登録と読み違えない
     const corrupt = new DatabaseSync(join(dir, APP_DB_FILENAME));

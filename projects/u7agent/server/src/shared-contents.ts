@@ -21,12 +21,12 @@ import {
   type CloudflareAsset,
   type CloudflareAssetsApi,
 } from "./cloudflare-api";
-import type { SharedContentRow, SharedContentSourceKind, SharedContentStatus } from "./app-db";
 import { httpError, messageFor, statusCodeOf } from "./http";
 import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "./sandbox/client";
 import type { SandboxDownloadPlan } from "./sandbox/protocol";
 import { extractZipEntry, readZipArchive, type ZipReadEntry } from "./sandbox/zip-read";
 import type { SharedContentExclusions } from "./shared-content-exclusions";
+import type { SharedContentRow, SharedContentSourceKind, SharedContentStatus } from "./shared-content-repository";
 import {
   SHARED_THUMBNAIL_MAX_BYTES,
   inspectSharedThumbnailPng,

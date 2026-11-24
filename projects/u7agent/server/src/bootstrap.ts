@@ -481,6 +481,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // 公開バックエンドと接続確認が credential() で読むまで BFF のメモリ外へ出さない。
   const cloudflareSettings = new CloudflareSettingsService({
     db: appDb,
+    sharedContents: appDb.sharedContents,
     cipher: secretCrypto.cipher,
     retainSecret: pi ? pi.retainSecret : () => {},
   });
@@ -596,7 +597,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       ...(opts.cloudflareFetch ? { fetchImpl: opts.cloudflareFetch } : {}),
     });
   const sharedContents = new SharedContentsService({
-    store: appDb,
+    store: appDb.sharedContents,
     sessions: store,
     workspace,
     planSandbox: previewSandbox,

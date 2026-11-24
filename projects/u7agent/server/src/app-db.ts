@@ -19,14 +19,7 @@ import type { SecretKind } from "./secret-crypto";
 import { ImageParameterValuesSchema } from "./schema";
 import type { AgentDef, ImageParameterValues, ModelRef, NotificationResult, Project, PromptRef, Space } from "./schema";
 import type { SpeechAudioFormat } from "./speech";
-import {
-  SharedContentRepository,
-  type SharedContentRow,
-  type SharedContentSourceKind,
-  type SharedContentStatus,
-  type SharedContentThumbnailRow,
-} from "./shared-content-repository";
-export type { SharedContentRow, SharedContentSourceKind, SharedContentStatus, SharedContentThumbnailRow };
+import { SharedContentRepository } from "./shared-content-repository";
 
 export const APP_DB_FILENAME = "u7agent.db";
 
@@ -1148,22 +1141,6 @@ export class AppDb {
     return this.#query((db) => db.prepare("DELETE FROM archive_settings WHERE id = 1").run().changes > 0);
   }
 
-  // --- shared content settings (共有の除外名。1 行だけ。行が無い = 未設定) ---
-  // 実体は `sharedContents`。store の port (`SharedContentStore` など) とテストが `db.<method>` を
-  // 直接使うため、公開面だけここに残す
-
-  readSharedContentExcludeNames(): string[] | undefined {
-    return this.sharedContents.readSharedContentExcludeNames();
-  }
-
-  saveSharedContentExcludeNames(names: readonly string[]): void {
-    this.sharedContents.saveSharedContentExcludeNames(names);
-  }
-
-  resetSharedContentExcludeNames(): boolean {
-    return this.sharedContents.resetSharedContentExcludeNames();
-  }
-
   // --- provider credentials (GUI から登録したプロバイダー API キー) ---
 
   listProviderCredentials(): ProviderCredentialRow[] {
@@ -1689,57 +1666,6 @@ export class AppDb {
   /** 行を消して未登録へ戻す。資格情報を消しても shared_contents の providerAccount は変えない */
   deleteCloudflareSettings(): boolean {
     return this.#query((db) => db.prepare("DELETE FROM cloudflare_settings WHERE id = 1").run().changes > 0);
-  }
-
-  // --- shared contents (1 行 1 共有物。実体は `sharedContents`) ---
-
-  insertSharedContent(row: SharedContentRow): void {
-    this.sharedContents.insertSharedContent(row);
-  }
-
-  updateSharedContentState(
-    id: string,
-    patch: {
-      status: SharedContentStatus;
-      updatedAt: number;
-      publishedAt: number | null;
-      stoppedAt: number | null;
-      lastError: string | null;
-    },
-  ): void {
-    this.sharedContents.updateSharedContentState(id, patch);
-  }
-
-  updateSharedContentName(id: string, name: string): void {
-    this.sharedContents.updateSharedContentName(id, name);
-  }
-
-  updateSharedContentThumbnail(id: string, thumbnail: SharedContentThumbnailRow | null): boolean {
-    return this.sharedContents.updateSharedContentThumbnail(id, thumbnail);
-  }
-
-  clearSharedContentThumbnail(id: string, expectedUpdatedAt: number): boolean {
-    return this.sharedContents.clearSharedContentThumbnail(id, expectedUpdatedAt);
-  }
-
-  getSharedContent(id: string): SharedContentRow | undefined {
-    return this.sharedContents.getSharedContent(id);
-  }
-
-  listSharedContents(sessionId?: string): SharedContentRow[] {
-    return this.sharedContents.listSharedContents(sessionId);
-  }
-
-  listPublishingSharedContents(): SharedContentRow[] {
-    return this.sharedContents.listPublishingSharedContents();
-  }
-
-  deleteSharedContent(id: string): void {
-    this.sharedContents.deleteSharedContent(id);
-  }
-
-  hasSharedContentsForOtherAccount(accountId: string): boolean {
-    return this.sharedContents.hasSharedContentsForOtherAccount(accountId);
   }
 
   // --- web search settings (1 行だけ。行が無い = 既定（無効 / exa）) ---

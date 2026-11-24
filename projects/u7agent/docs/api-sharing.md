@@ -123,7 +123,7 @@
 // 公開実績の無い行は status が "failed" になり、lastError に固定文言が入る
 ```
 
-一覧・詳細は `{ id, sessionId, name, sourcePath, sourceKind, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError, thumbnail }`。`sourceKind` は公開元の種類で、`session-root` はセッションの作業フォルダ自身、`directory` はその配下のディレクトリ。`thumbnail` は `{ updatedAt, width, height, bytes }` か `null` で、実体は含まない（配信は専用の GET）。`remoteId` / `providerAccount` は返さない。`status` の値は `SharedContentStatus`（`server/src/app-db.ts`）と schema を正とし、`lastError` は分類済みの固定文言だけを入れる。
+一覧・詳細は `{ id, sessionId, name, sourcePath, sourceKind, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError, thumbnail }`。`sourceKind` は公開元の種類で、`session-root` はセッションの作業フォルダ自身、`directory` はその配下のディレクトリ。`thumbnail` は `{ updatedAt, width, height, bytes }` か `null` で、実体は含まない（配信は専用の GET）。`remoteId` / `providerAccount` は返さない。`status` の値は `SharedContentStatus`（`server/src/shared-content-repository.ts`）と schema を正とし、`lastError` は分類済みの固定文言だけを入れる。
 
 サムネイルは公開状態と独立していて、`publishing` の行にも保存・差し替え・解除を送れる（公開処理のロックとは別の、サムネイル専用のロックで 409 になる）。保存の失敗は 413（2 MiB 超）/ 415（`image/png` 以外）/ 422（PNG の構造検証に失敗）/ 404（id 不明）/ 503（ストアが使えない）。理由は BFF の固定文言だけを返す。詳細は [static-sharing-api.md](static-sharing-api.md#api-契約) を正とする。
 
