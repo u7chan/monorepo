@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
-import type { SharedContentRow } from "../src/app-db";
 import { SESSION_DIR_REL } from "../src/app-paths";
 import { SECRET_KEY_BYTES, SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "../src/sandbox/client";
@@ -14,6 +13,7 @@ import { SandboxRequestError } from "../src/sandbox/client";
 import type { SandboxDownloadPlan } from "../src/sandbox/protocol";
 import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
 import { DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES } from "../src/shared-content-rules";
+import type { SharedContentRow } from "../src/shared-content-repository";
 import { SHARED_CONTENT_PROJECT_SESSION_ROOT, SHARED_CONTENT_RECONCILE_FAILED } from "../src/shared-contents";
 import { asPiBff, createStubPi } from "./stub-pi";
 
@@ -235,7 +235,7 @@ function seedRow(
   id: string,
   overrides: Partial<SharedContentRow> = {},
 ): void {
-  bff.appDb.insertSharedContent({
+  bff.appDb.sharedContents.insertSharedContent({
     id,
     sessionId,
     name: id,
@@ -577,7 +577,7 @@ test("何も保存しない失敗は state: not_stored のまま行を変えな�
     await waitForSettled(unsaved.bff, created.id);
     const before = await jsonBody(await unsaved.bff.app.request(`/api/shared-contents/${created.id}`));
     // provider の無効化は通るが、行の更新だけが失敗する状況を作る
-    unsaved.bff.appDb.updateSharedContentState = () => {
+    unsaved.bff.appDb.sharedContents.updateSharedContentState = () => {
       throw new Error("write failed");
     };
     const response = await unsaved.bff.app.request(`/api/shared-contents/${created.id}/stop`, { method: "POST" });

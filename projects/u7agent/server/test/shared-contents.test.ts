@@ -7,7 +7,6 @@ import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import type { SharedContentRow, SharedContentStatus } from "../src/app-db";
 import {
   CloudflareApiClient,
   CloudflareApiError,
@@ -32,6 +31,7 @@ import {
   validateSharedAssetEntries,
   type SharedContentStore,
 } from "../src/shared-contents";
+import type { SharedContentRow, SharedContentStatus } from "../src/shared-content-repository";
 import { createSharedThumbnailStore, type SharedThumbnailStore } from "../src/shared-thumbnails";
 import { png } from "./shared-thumbnail-fixtures";
 
