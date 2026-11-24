@@ -1748,7 +1748,7 @@ export function createStubPi(options: StubPiOptions = {}) {
       }),
     sessions,
     createInputs,
-    // 設定 → モデル (bootstrap の createProviderKeyRuntime) が触る SDK 面の模倣
+    // 設定 → モデル (bff-runtime の createProviderKeyRuntime) が触る SDK 面の模倣
     modelRuntime: createStubModelRuntime(options, modelRuntimeCalls, oauthCalls),
     modelRuntimeCalls,
     oauthCalls,
@@ -1837,7 +1837,7 @@ export function createStubPi(options: StubPiOptions = {}) {
       modelStateRefreshSignals.push(refreshOptions.signal);
     },
     modelStateRefreshSignals,
-    // カタログ更新 (bootstrap の createProviderKeyRuntime) が触る SDK 面の模倣。
+    // カタログ更新 (bff-runtime の createProviderKeyRuntime) が触る SDK 面の模倣。
     // 実 SDK の refresh と同じく、呼び出し時の signal が既に abort 済みなら即座に aborted で返す。
     refreshModelCatalog: async (refreshOptions: { allowNetwork: boolean; force: boolean; signal: AbortSignal }) => {
       catalogRefreshCalls.push({
