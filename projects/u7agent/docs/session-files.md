@@ -1,30 +1,11 @@
-# セッション別ファイル管理と会話の永続化（設計）
+# セッション別ファイル管理と会話の永続化
 
-セッションごとの作業ディレクトリと会話履歴の置き場をどう決めたかの設計。保存の実装は `server/src/session-store.ts`、適用後の挙動は [persistence.md](persistence.md)、cwd の決め方は [projects.md](projects.md) を正とする。以下の「現状」は設計時点の状態を指す。
-
-## 目的
-
-- セッション（会話）ごとの作業ディレクトリをワークスペース root 配下に置く。未所属はセッション専用のスクラッチ、プロジェクト所属は登録ディレクトリそのものを共有する（[projects.md](projects.md#セッション-cwd)）。
-- 会話履歴をファイル（JSONL）に保存し、BFF を再起動してもセッション一覧・履歴・続きの送信を復元できるようにする。
-- 現状は履歴がメモリのみで、作業ファイルは残っても会話が戻らない。会話とファイルを同じ id で対応させ、この不一致を解消する。
-
-## 現状（設計時点の事実）
-
-この節は本設計を適用する前の状態を指す。適用後の挙動は [persistence.md](persistence.md) を正とする。
-
-- セッションの cwd は所属プロジェクトのディレクトリ、未所属ならワークスペース root。ファイル画面はその cwd のツリーを表示する（`client/src/App.tsx` の `filesCwd`）。
-- セッション / プロジェクト / 会話履歴は BFF のメモリのみ。1 時間未使用の sweep と再起動で消える。作業ファイルだけが `/workspace` の永続マウントに残る。
-- BFF はワークスペースに触らず、ファイル操作・シェル実行はサンドボックス API 経由（[sandbox.md](sandbox.md)）。BFF のファイルアクセスはこの原則の例外を作らない。
-- pi SDK の `SessionManager` は会話を JSONL（1 行目 header、以降 message / compaction / model_change / thinking_level_change など）で扱う。現在は `SessionManager.inMemory` を使っている（`server/src/agent.ts`）。
-- SDK のファイル永続化は assistant メッセージが現れるまで書かない（`_persist` が `hasAssistant` まで保留する）。そのまま使うと初回応答の完了前に再起動したとき最初の送信が消える。
-- SDK は `model` を明示しないと、保存済みモデルを利用可能なモデル（設定 → モデル の許可リスト）で絞った候補ではなくランタイム全体から復元する（[model-effort.md](model-effort.md) の絞り込みを迂回する）。
-- SDK の `message_end` は **listener 通知が先で、entry の append は後**（`dist/core/agent-session.js` の `_handleAgentEvent`）。listener の中で `getEntries()` を読むと当該メッセージはまだ入っていない。
-- ツール出力の秘密値は LLM・SSE へ渡す前に `redact` でマスクされる（[secrets.md](secrets.md)）。生のユーザー入力・モデル出力はマスク対象外。
+セッションごとの作業ディレクトリと会話履歴の置き場の契約。保存の実装は `server/src/session-store.ts` と `server/src/sessions.ts`、再起動・再デプロイ後の挙動は [persistence.md](persistence.md)、cwd の決め方は [projects.md](projects.md#セッション-cwd) を正とする。ここには、いまも成り立つ契約と採らなかった案だけを置く。
 
 ## 設計の要点
 
 1. **会話ログの置き場は BFF 専用の store**。ワークスペースには置かない。ワークスペースはサンドボックスの bash / write から変更できるため、ログを置くと symlink 差し替えで BFF コンテナのファイルを破壊・読み出しできてしまう（コンテナ境界を越える）。
-2. **JSONL の読み書きは BFF が行う**（SDK は `SessionManager.inMemory` + entries で使う）。SDK の永続化の保留挙動を避け、保存点と書込みフラグを制御する。ファイル形式は SDK と同じ。
+2. **JSONL の読み書きは BFF が行う**（SDK は `SessionManager.inMemory` + entries で使う）。SDK のファイル永続化は最初の assistant メッセージまで書かない（`_persist` が `hasAssistant` まで保留する）ため、初回応答の完了前に再起動すると最初の送信が消える。そこで保存点と書込みフラグを BFF が持ち、ファイル形式は SDK と同じにする。
 3. **セッション id が会話（store）とファイル（ワークスペース）を結ぶ**。再起動後は同じ id で両方を復元する。
 4. **復元は世代（generation）付きで扱う**。seq は再起動で 0 に戻るため、数値カーソルだけでは再接続を判定できない。
 
@@ -104,7 +85,7 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 }
 ```
 
-- `promptSnapshot` は作成時のエージェントプロファイル（`agent` だけ）。定義を編集・削除しても復元後の実行内容を変えない（現行の「定義変更を遡及させない」と同じ）。`agent` は system prompt へ入れる。形式の正は `server/src/session-prompt.ts` の `composePromptSnapshot` で、スキル本文はここへ固定せず、ファイル側の現行定義を `read` / `/skill:` が読む（[persistence.md](persistence.md#スキルの扱い)）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
+- `promptSnapshot` は作成時のエージェントプロファイル（`agent` だけ）。定義を編集・削除しても復元後の実行内容を変えない（定義の変更を遡及させない）。`agent` は system prompt へ入れる。形式の正は `server/src/session-prompt.ts` の `composePromptSnapshot` で、スキル本文はここへ固定せず、ファイル側の現行定義を `read` / `/skill:` が読む（[persistence.md](persistence.md#スキルの扱い)）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
 - カタログ撤去前の meta が持つ `agent.skillIds` / `agent.skills` / `promptSnapshot.skills` は読取境界で落とし、古いオブジェクトをそのまま persist しない。欠落した `promptSnapshot.skills` は新しい正常形として受け入れ、新しく保存する meta にカタログ専用キーを出さない（開き直して再保存しても復活しない）。過去に展開済みの本文や toolResult は履歴としてそのまま残る。
 - ファイルスキル（`.agents/skills`）は `promptSnapshot` に含めない。SDK の `skillsOverride` でセッション作成・復元のたびに注入し、セッションが持つのは発見一覧・説明・優先順位だけ。本文は `read` 時点のファイル内容になる（[persistence.md](persistence.md#スキルの扱い)）。
 - `title` は最初のメッセージで作り、GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で上書きできる（正規化は自動タイトルと同じで、空・空白だけは 400。改名後は以降のメッセージで作り直さない。[api-session-state.md](api-session-state.md#patch-apisessionsidtitle)）。由来（`titleOrigin`）と AI 要約の試行（`titleAttempt`）は任意フィールドで、欠落は「既存タイトル = 手動 / 未判定」として読む（[session-title.md](session-title.md)）。`titleRequest` は初回送信時に保存するマスク済みの依頼本文の先頭（600 文字上限）で、会話メニューからの再要約に使う。古い meta に無ければ最初の user メッセージから作る。`pinned` はサイドバーの固定状態で、古い meta に無い場合は false とする。GUI の ⋯ から SDK を開かず切り替え、タイトル・履歴・`lastUsedAt` は変えない。`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
@@ -160,7 +141,7 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 - 保存は `getHeader()` / `getEntries()` を SDK 形式（1 行 1 entry の JSON）で直列化する。header の `id` はアプリのセッション id にし、`piSessionId` も同じ値になる（DTO は互換のため両方返す）。
 - **保存点**:
   - 作成時: header + meta
-  - `message_end`: SDK は listener 通知の後に append するため、listener では `queueMicrotask` で 1 拍置いてから `getEntries()` を読む（実 SDK で順序を検証するテストを置く）
+  - `message_end`: SDK は listener 通知の後に append するため、listener では `queueMicrotask` で 1 拍置いてから `getEntries()` を読む
   - `compaction_end`、設定変更（`setModel` / `setThinkingLevel` の後）
   - ラン終了時に最終 flush（最後の assistant entry を取りこぼさない）
   - `sweep` / `close` は dispose の前に flush を待つ
@@ -169,7 +150,7 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
   - 追記の前に `ftruncate(確定位置)` で途絶した末尾（前回の部分書込みを含む）を落としてから書く。部分書込み（ENOSPC など）の後は同じ書込みキューの中で復旧して再試行し、再試行回数を区切って失敗を記録したら次の保存に委ねる。復旧（ftruncate）にも失敗したらその id の追記を停止してエラーを出す（原本は壊さない）。
   - entry は常に `<json>\n` で書く。末尾が parse 可能だが改行が無い場合は、確定位置をその行の終わり（改行を除く）として保持し、次の書込みの先頭で改行を補ってから追記する。
   - 追記で表現できないとき（初回作成、entries が保存済み分の単純な延長でないとき）だけ temp + rename で全体を書き直す。rename は同期で完了を待ってから確定位置を更新し、宛先が symlink なら書かない。temp 名は毎回ランダムにする。追記と全体書直しの判定は 1 つの関数に閉じる。
-- **直列化と失敗時**: id ごとの非同期書込みキューで meta / JSONL の書込みを直列化する。書込みは開始時に id の状態を確認し、`deleting` 以降は no-op。書込み失敗では確定位置を進めず再試行し、エラーはログと health に出して API の成功応答を保存成功とみなさない（in-memory のチャットは継続する）。
+- **直列化と失敗時**: id ごとの非同期書込みキューで meta / JSONL の書込みを直列化する。書込みは開始時に record がまだ live で `deleting` でないことを確かめ、削除予約中・履歴クリアの確定待ち・別世代への差し替え後は書かない（store を復活させない）。書込み失敗では確定位置を進めず再試行し、エラーはログと health に出して API の成功応答を保存成功とみなさない（in-memory のチャットは継続する）。
 - **読み込み時の検証（非破壊）**:
   - 1 行目が header でただ 1 つ、`type: "session"`、`id` がフォルダ名と一致、`version` が現行（`CURRENT_SESSION_VERSION`）と一致することを検証する。
   - entry の `id` が一意で、`parentId` が `null` か「自分より前の entry」を指すこと（自己参照・循環・重複・前方参照をここで排除する）。SDK の親探索は循環を検出しないため、ロード前に必ず弾く。
@@ -227,7 +208,7 @@ assistant 本文のインラインコードと Markdown リンクが指すファ
 
 ## モデル / Effort の復元
 
-- 候補の決め方は「JSONL の最後の `model_change` → meta の `model` → アプリ既定」の順。`availableModels`（設定 → モデル の「利用可能なモデル」で絞った候補）と厳密照合し、候補があればそれを、無ければアプリ既定を使って復元する（アプリ既定が未設定なら復元は 503 になる）。**許可リスト外のモデルで再開する経路は作らない。**
+- 候補の決め方は「JSONL の最後の `model_change` → meta の `model` → アプリ既定」の順。`availableModels`（設定 → モデル の「利用可能なモデル」で絞った候補）と厳密照合し、候補があればそれを、無ければアプリ既定を使って復元する（アプリ既定が未設定なら復元は 503 になる）。**許可リスト外のモデルで再開する経路は作らない。** SDK は `model` を明示しないと、この候補ではなくランタイム全体から復元するため、候補は BFF が決めて渡す。
 - フォールバックしたときは `session.setModel(実効モデル)` で `model_change` entry を追記して保存する（元モデルが後で候補に戻っても、続きを別モデルで進めたセッションが元へ戻らないようにする）。meta の `model` も更新する。
 - 利用可能なモデルが 1 つも無い場合、セッションを開く要求は 503（既存の `AUTH_REQUIRED_MESSAGE` / `MODEL_UNAVAILABLE_MESSAGE` 相当）で拒否する。履歴の閲覧だけをモデル無しで許すことはしない（現行どおりランタイム必須）。
 - `thinkingLevel` は JSONL の最後の `thinking_level_change` を使い、現在のモデル能力で clamp した値を実行に使う（clamp はロードのたびに再現されるため、補正後の値を entry へ必ず追記する必要はない）。payload には SDK が持つ実効値を返し、モデル能力が変わった場合の挙動をテストする。
@@ -243,11 +224,11 @@ assistant 本文のインラインコードと Markdown リンクが指すファ
 | 履歴のクリア（`POST /api/sessions/:id/history/clear`） | dispose して破棄（未ロードは descriptor だけ） | `meta.json` の `historyGeneration`・`historyCleanup`・タイトル / 試行・設定を書換え、履歴は削除 | 触らない |
 | BFF 再起動 | 消える | 残る → 起動時に一覧へ復元 | 残る |
 
-- id ごとに `idle`（未ロード）/ `loading` / `live` / `evicting` / `deleting` の状態と、ライフサイクル操作（load / evict / delete）を直列化する Promise チェーンを持つ。状態の予約は最初の await より前に同期的に行う。
-- `deleting` は以後のロード・送信・購読・設定変更を拒否する。`evicting`（sweep）中のロード・送信・購読は eviction の完了を待ってから新しい record をロードして続行する（待ち時間は短く、送信も拒否しない）。
-- `DELETE` の手順: 状態を `deleting` に予約 → 進行中ランを abort → 書込みキューを drain → SDK を dispose → store のフォルダを削除 → descriptor / record を外す。SDK のロードは不要（モデル未認証・JSONL 破損でも消せる）。live のときだけ停止する。
-- `loading` は完了時に状態を再確認し、`deleting` なら作った SDK を dispose して公開しない。
-- sweep は「購読者（SSE 接続）がいない・実行中でない・書込みが残っていない」ときだけ `evicting` を予約してメモリから外す。flush に失敗したときは破棄を見送って記録を残す（次の sweep で再試行）。開いているタブが握っているセッションを復元先へ付け替える競合は作らない。
+- id ごとの状態は、record の有無（未ロードは descriptor だけ）、`lifecycle`（同じ id の load / meta 更新 / ピン更新 / sweep / 引き継ぎ / 履歴クリア / 分岐を直列化する Promise チェーン）、削除予約中の集合 `deleting` で持つ。予約は最初の await より前に同期的に行う。
+- 同じ id の先行操作があると、ロード・送信・購読はその完了を待ってから状態を取り直して続行する（送信も拒否せず、待ち時間は短い）。`deleting` の id はロード・送信・購読・設定変更を受けない（未ロードの復元は見つからない扱い、ロード済みでも 404）。
+- `DELETE` の手順: `deleting` に予約 → 同じ id の `lifecycle` / meta 更新 / ピン更新を待つ → 承認の取消（`revoke` / `clearDenials`）→ live なら送信待ちのキュー（`queue`）を空にして回答待ちを取り消す（`cancelQuestions`。abort の signal に依存しない）→ 進行中ランを abort し、compaction の settle を待つ → 最終 flush → SDK を dispose → record を外して購読者へ通知 → store のフォルダを削除 → `assistant_metrics` と descriptor を削除 → 予約を解く。SDK のロードは不要（モデル未認証・JSONL 破損でも消せる）。live でなければ abort と dispose を飛ばす。
+- ロードは完了時に `deleting` を再確認し、削除予約中なら作った SDK を dispose して公開しない。
+- sweep は「購読者（SSE 接続）がいない・実行中 / タイトル要約中 / 設定変更中でない・同じ id の予約が無い・`lastUsedAt` が TTL より古い（終了直後の保持期間を過ぎた）」ときだけ、最終保存 → flush の成功を確かめてからメモリから外す。失敗したら破棄を見送って記録を残す（次の sweep で再試行）。sweep も `lifecycle` に乗せるので、後続のロードはその完了を待ってから状態を取り直す。開いているタブが握っているセッションを復元先へ付け替える競合は作らない。
 - `close()` は最初に全体の受付を閉じ（新規リクエストは 503）、進行中のロードと書込みキューを回収してから全 record を dispose する。最終 flush の失敗はログに残して終了する。
 - `DELETE` は履歴だけ消し、作業ディレクトリと添付は残す（誤アップロードのファイル / ディレクトリ単位の削除は 設定 → ファイル からできるが、セッション単位ではフォルダを消さない）。confirm は「このセッションの履歴を削除しますか？（作業フォルダのファイルは残ります）実行中の処理は停止されます。」と表示する。
 - 引き継ぎの手順: 検証（スクラッチ・busy でない・片付けが無い）→ メモの材料と既存の `HANDOFF.md` を読んで上限 / UTF-8 / バイナリを判定（副作用なし）→ 別スペースなら移動先の親を作る → workdir move → uploads move → `secrets` / `serve_commands` の cwd 付け替え → `HANDOFF.md` の先頭追記（[sandbox-api-files.md](sandbox-api-files.md#get-v1fileshandoff)。読む→先頭に付ける→temp + rename を実パス単位の排他の中で行う）→ `meta.json` の書換え（確定点）→ dispose → `records` から外す → 履歴の削除 → 購読者を close。**meta の書換え前の失敗は移したものを逆順で戻し**（新規作成したメモは自分が書いた内容と一致するときだけ削除し、既存への追記は戻さない）、確定後の失敗は戻さずに `cleanupPending` を返して次に開くときに削除を再試行する（[run-lifecycle.md](run-lifecycle.md#引き継ぎと復旧)）。引き継ぎは id の lifecycle に乗せ、送信 / 添付 / 設定 / 削除を待たせる。読み取り専用の `workdirOfId`（serve の status / start、環境変数の cwd 解決）は待たないため、移動の途中で旧 cwd を一瞬見る窓が残る（単一ユーザー前提で許容）。
@@ -260,87 +241,37 @@ assistant 本文のインラインコードと Markdown リンクが指すファ
 - SSE の `id` は `<generation>:<seq>` にする。`generation` は record のロードごとに発行するランダムな 8 hex（再起動・sweep 復元で変わる）。
 - カーソルの優先順位は「`Last-Event-ID` ヘッダ（`<generation>:<seq>`）が有効ならそれ → query の `?generation=&after=`（両方あるとき）→ どちらも無ければ `resync`」。差分リプレイは「generation が現在と一致し、seq がバッファ範囲内」のときだけ行い、generation が無い / 一致しない / 古い形式は `resync` を 1 件送る。
 - これで「seq が再起動前より進んだ状態で旧タブが再接続する」「cursor と新 seq が同値」「cursor が新 seq より大きい」のいずれも全文再同期になる。
-- クライアントは payload の `eventGeneration` と `lastSeq` を保持し、接続 URL に `?generation=<g>&after=<seq>` を載せる（新規ページ読込では差分だけ再送）。通常の自動再接続はブラウザが送る `Last-Event-ID` を使う。`client/src/hooks/useSessionEvents.ts` の接続 URL と、snapshot 適用時の generation / seq の同時更新を変更対象に含める。
+- クライアントは payload の `eventGeneration` と `lastSeq` を保持し、接続 URL に `?generation=<g>&after=<seq>` を載せる（新規ページ読込では差分だけ再送）。通常の自動再接続はブラウザが送る `Last-Event-ID` を使う。接続 URL の組み立てと、snapshot 適用時の generation / seq の同時更新は `client/src/hooks/useSessionEvents.ts` が持つ。
 - 生存確認は可視イベントの `ping`（接続直後と 15 秒ごと、`id` 無し = カーソルを動かさない）で行う。dev の Vite プロキシは upstream が落ちても接続を閉じないため、クライアントは heartbeat が 2 回分届かない無音を切断とみなし、`source.close()` → 既存の復帰経路（health / 一覧の再取得 → `epoch` 更新 → 再接続）へ載せる。失敗が続くほど間隔を伸ばす（1 秒 → … → 最大 30 秒）。判定は `client/src/hooks/sessionStream.ts` の純関数、配線は `useSessionEvents.ts` が持つ。
 - テストは「cursor < / = / > seq」「generation 不一致」「ヘッダあり・query のみ・どちらも無し」「世代変更後の再接続」を網羅する。
 
 ## API / UI
 
-- `SessionPayload.cwd` は root 相対の作業ディレクトリ（プロジェクト所属は `projectCwd`、未所属は所属スペースのスクラッチ）。復元後も同じ値を返す。ファイル画面は既に `payload.cwd` を root にしているため、クライアントの変更なしでセッションの作業ディレクトリ表示になる。
+- `SessionPayload.cwd` は root 相対の作業ディレクトリ（プロジェクト所属は `projectCwd`、未所属は所属スペースのスクラッチ）。復元後も同じ値を返す。ファイル画面は `payload.cwd` を root にするので、セッションごとの作業ディレクトリがそのまま表示になる。
 - チャット右パネル / singleColumn シート（上位名は**作業環境**）はタブを 2 つ持つ。**作業フォルダ**タブは選択中セッションの `payload.cwd` を root にする。**セッション未作成では作成先プロジェクトの `cwd`** を使う（プロジェクト配下は登録ディレクトリを共有するため、送信前から同じツリーを出せる）。作成先がプロジェクトになるのは、プロジェクトを指定する入口（プロジェクト行の ⋯「このプロジェクトに新しい会話」/ プロジェクトの追加）から始めた新規会話だけ（「新しい会話」と会話を指定しない `/` の起動は未所属。[ui-layout.md](ui-layout.md#作成先)）。未所属の新規会話は `sessionId` の採番が送信時なので root が決まらず、導線を出さない。作業先（チップ / 空状態の見出し）の解決と既定オープンの契機は [ui-layout.md](ui-layout.md#作業先と作業フォルダの導線)、タブの可用性と中身は [ui-layout.md](ui-layout.md#作業環境パネル) を正とする
 - 作業フォルダ面は PC のドラッグ＆ドロップで root 直下へファイルを保存できる（保存先・上限・進行と結果は [file-upload.md](file-upload.md)）
 - **環境変数**タブは同じ root（cwd）に紐づく値を登録する。所有者は会話ではなく cwd なので、プロジェクト起点の新規会話（`sessionId === ""`）でも `projectId` を要求元にして保存でき、保存後は同じ作業フォルダの全会話で共有される。API・暗号化・注入経路は [secrets.md](secrets.md#作業フォルダの環境変数) を正とする
-- `SessionPayload` に `eventGeneration` を足す。`SessionSummary` の形は変えない（復元したセッションは `status: "idle"`、`messageCount` は meta の値、`projectId` は `projectCwd` から解決した値）。
-- `GET /api/sessions/:id` など、これまで同期だった `store.get()` は「未ロードなら読み込む」非同期処理になる（ルートハンドラを async にする）。
-- `/api/health` に store の準備状態（パス / 可否 / 保存に失敗している live セッション数 `dirty`）を足す。store を準備できず起動時に拒否した場合も、セッション作成を 503（理由つき）で拒否する。
-- 削除系の confirm 文言（セッション / プロジェクト）を変更する。
+- `SessionPayload` は `eventGeneration` を持ち、`SessionSummary` の形は変えない（復元したセッションは `status: "idle"`、`messageCount` は meta の値、`projectId` は `projectCwd` から解決した値）。
+- `GET /api/sessions/:id` などは、未ロードなら store から読み込んでから応答する（ルートハンドラは async）。
+- `/api/health` は store の準備状態（パス / 可否 / 保存に失敗している live セッション数 `dirty`）を返す。store を準備できず起動時に拒否した場合も、セッション作成は 503（理由つき）で拒否する。
 
 ## セキュリティ
 
 - store は BFF 専用にし、サンドボックスへマウントしない。`PI_SESSION_STORE` が `PI_APP_CWD` の中なら起動時に拒否する。
 - 環境変数（変数）はサンドボックスの exec ごとの env としてエージェントの `bash` にも渡る。シークレットは渡らず、`serve` の起動時 env だけに入る（[secrets.md](secrets.md#作業フォルダの環境変数)）
-- store に残るのは生のユーザー入力・モデル出力。ツール出力は保存前（LLM へ渡す前）にマスクされる。ディスクに残る新しい露出であることを [secrets.md](secrets.md) に明記する。ホスト上で同一ユーザーの別プロセスからは読める（[sandbox.md](sandbox.md) の既存の残存リスクと同じ）。
+- store に残るのは生のユーザー入力・モデル出力で、ツール出力は保存前（LLM へ渡す前）にマスクされる。ストアを永続マウントした構成では、ホスト上で同一ユーザーの別プロセスからも読める（サンドボックスの残存リスクと同じ）。
 - 作業フォルダは従来どおりサンドボックスから読めるが、**書き込みはセッションの作業ディレクトリ（と共通スキル・`/tmp`・キャッシュ・デバイスファイル）に限られる**。エージェントの `bash` とその子プロセスにも Landlock が適用され、他会話のフォルダや他プロジェクトへの作成・書き込み・削除・rename・truncate はできない（[projects.md](projects.md#write--edit-の書き込み範囲)）。読み取りは制限しないため、他会話のスクラッチや添付を `read` / `bash` から見ること自体はできる。
-
-## デプロイ
-
-- BFF コンテナに `PI_SESSION_STORE` の永続ボリュームを追加する（例: `/session-store`）。**ワークスペースはマウントしない**（現行どおり）。
-- 未所属セッションのスクラッチと添付はワークスペースの永続マウント配下（既定スペースでは `/workspace/.u7agent/sessions/<id>` と `/workspace/.u7agent/uploads/<id>`）にでき、サンドボックスから見える。プロジェクト所属セッションの作業ディレクトリは登録ディレクトリそのものなので、ワークスペースの永続マウント配下にある限り残る。
-- `pnpm dev` は store の既定が `~/.pi/agent/u7agent/sessions` なので追加設定なし。`.gitignore` に `.u7agent/` を追加する。
-- Compose / target の変更は self-hosted-runner 側（[persistence.md](persistence.md) の正本）。
-
-## 責務の分け方
-
-- `server/src/session-store.ts`（新規）: store root の準備・走査、id 生成、meta / JSONL の読み書き（検証・migration・原子的書込み・書込みキュー）。
-- `server/src/sessions.ts`: live な `SessionRecord` の管理（現状どおり）、descriptor のマージ、id ごとの状態（loading / deleting）、遅延復元、sweep、世代。
-- `server/src/agent.ts`: `SessionManager.inMemory`、モデル解決とフォールバック記録、保存点のフック。
-- `server/src/session-prompt.ts`: system prompt と `promptSnapshot` の組み立て。
-- `server/src/projects.ts`: `projectId` の読み取り時解決（保存しない）。
 
 ## 検討した代替案
 
 - **会話とファイルを同じフォルダに置く**: サンドボックスが唯一の書込み者であるフォルダに BFF が追記する構成になり、symlink 差し替えでコンテナ境界を越えられる。却下。
 - **SDK のファイル永続化をそのまま使う**: 初回 assistant まで保存されない・モデル復元が利用可能なモデルの絞り込みを迂回する・書込みフラグを制御できない。却下。
-- **セッションの DELETE で作業フォルダも消す**: ファイル / ディレクトリ単位の削除 API は足したが、セッション削除でフォルダごと消すのは非破壊の方針から外れる。別 Issue に送る。
+- **セッションの DELETE で作業フォルダも消す**: セッション削除でフォルダごと消すのは非破壊の方針から外れる。ファイル / ディレクトリ単位の削除は 設定 → ファイル からできる。
 - **ID に UUID / 外部ライブラリ**: 長い / 依存が増える。10 hex 文字で足りる。
 
-## リスク・非ゴール
+## 非ゴールと既知の制限
 
 - 会話ログと作業ファイルは別の場所になる（同じ `<id>` で対応）。バックアップ / 移設は `PI_SESSION_STORE` を単位にする。
-- セッションの DELETE で作業ディレクトリと添付は消えない（ファイル / ディレクトリ単位の削除は 設定 → ファイル からできる）。
 - セッションの `promptSnapshot` は作成時の定義で固定される。定義の変更を反映したい場合は新しいセッションを作る。
+- compaction の `reason` / `estimatedTokensAfter` は `compaction_end` にしか無く復元後は欠ける（表示は `tokensBefore` で成立する）。
 - 非ゴール: セッションの DELETE で作業フォルダを消すこと、一括リネーム、ゴミ箱 / undo、容量管理、複数 BFF インスタンス、古い SDK セッション version の migration、pi CLI との双方向編集 / 汎用インポート、モデル無しでの履歴閲覧。
-- compaction の `reason` / `estimatedTokensAfter` は `compaction_end` にしか無く復元後は欠ける（表示は `tokensBefore` で成立する。[persistence.md](persistence.md) の方針どおり）。
-
-## 受け入れ条件
-
-- [ ] 会話ごとに store（`<store>/<id>/{meta.json,session.jsonl,sends.json}`）が作られ、未所属チャットのスクラッチ（既定スペースでは `.u7agent/sessions/<id>`）が作られ、ファイル画面の root になる
-- [ ] プロジェクト所属セッションの cwd は登録ディレクトリになり、同一プロジェクトの複数セッションがツリーを共有し、作成・復元でプロジェクトのディレクトリを作らない（無ければ 400）
-- [ ] 添付は所属スペースの置き場（[スペースごとの配置](#スペースごとの配置)）に保存され、注記の絶対パスで `read` でき、ファイル画面には出ない
-- [ ] `<appdir>/**` のプロジェクト登録は 400 になる
-- [ ] BFF を再起動しても、セッション一覧・タイトル・履歴・ファイルが復元され、続きから送信できる
-- [ ] 初回応答の完了前に再起動しても、保存済みのユーザーメッセージが復元される（保存点の順序テスト）
-- [ ] compaction を含む履歴が JSONL に残り、復元後も区切り表示が再現される
-- [ ] 利用可能なモデルから外したモデルのセッションは、そのモデルで再開されず、フォールバック後の実効モデルが JSONL / meta に残る
-- [ ] アイドル sweep で store / 作業フォルダが消えず、SSE 購読中のセッションは sweep されない
-- [ ] `DELETE /api/sessions/:id` は SDK ロードなしで動き（破損・モデル未認証でも可）、履歴だけを消してファイルを残す
-- [ ] load × DELETE、write × DELETE、sweep × 送信 / 購読、close × loading が store を復活させたり進行中の SDK を壊したりしない（状態予約とライフサイクルチェーンのテスト）
-- [ ] 部分書込み（ENOSPC）後に復旧して再試行でき、entry の重複・連結が起きない（復旧失敗時は追記を止める）
-- [ ] 中間破損・header 不一致・重複 ID・循環 parentId・未知 version のセッションは原本を書き換えずに開く要求が失敗し、DELETE はできる
-- [ ] SDK が自分で追記する entry / message role（`context_edit` / `usage` / `system` message）を含む履歴は 409 にならずに復元できる
-- [ ] 開けないセッションが複数あっても、移り先は一覧を 1 周するまでで打ち切り、未作成チャットへ落ちて理由を状態行に出す
-- [ ] 末尾が途絶えた JSONL（不完全行・改行欠け）は不完全分だけを捨てて復元できる
-- [ ] SSE はカーソル優先順位（ヘッダ → query → resync）と generation 不一致 / cursor の大小で正しく resync し、旧タブが古い表示のまま残らない
-- [ ] プロジェクト解除後もセッションのファイルと store が残り、一覧では未所属として解決され、購読中タブが resync で更新される
-- [ ] store が `PI_APP_CWD` の中なら起動時に拒否される
-- [ ] 未作成チャットのファイル画面・プロジェクト導線が壊れない（プロジェクト行の ⋯「このプロジェクトに新しい会話」とプロジェクトの追加からの新規会話は送信前から登録ディレクトリのツリーを出し、未所属の新規会話は導線を出さない）
-- [ ] `pnpm check` が通る
-- [ ] `docs/persistence.md` / `projects.md` / `api.md` / `api-sessions.md` / `secrets.md` / `run-lifecycle.md` / `architecture.md` / `model-effort.md` / `README.md` を更新する
-
-## 実装順（目安）
-
-1. `session-store.ts`（レイアウト・meta・JSONL の検証 / migration / 書込みキュー・走査・id）とテスト
-2. `agent.ts` の `SessionManager.inMemory` 化・`promptSnapshot`・モデル解決とフォールバック記録・保存点フック
-3. `SessionStore` の descriptor マージ・遅延復元・状態機械・sweep・DELETE
-4. SSE の generation、ルートの非同期化、health、プロジェクト ID の読み取り時解決
-5. クライアント（`eventGeneration`、confirm 文言）、docs 更新、Docker / Compose
