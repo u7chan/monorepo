@@ -7,7 +7,7 @@
  */
 import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
 import { httpError, messageFor } from "./http";
-import { MutationLock } from "./model-settings";
+import { MutationLock } from "./serial-lock";
 import type { OAuthLoginSelect, OAuthLoginSelectOption, OAuthLoginState } from "./schema";
 
 export const OAUTH_LOGIN_RUNTIME_UNAVAILABLE_MESSAGE = "ランタイムが利用できないため、サインインできません";

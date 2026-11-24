@@ -4,7 +4,7 @@
  */
 import type { CloudflareSettingsRow } from "./app-db";
 import { httpError } from "./http";
-import { MutationLock } from "./model-settings";
+import { MutationLock } from "./serial-lock";
 import { SecretKeyError, type SecretCipher } from "./secret-crypto";
 import { retainIfLongEnough } from "./secrets";
 import type { CloudflareMutationResponse, CloudflareSettingsResponse, UpdateCloudflareSettingsBody } from "./schema";

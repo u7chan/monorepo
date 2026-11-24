@@ -12,7 +12,7 @@ import {
   type AppSecretState,
 } from "./app-secrets";
 import { httpError, messageFor, type HttpError } from "./http";
-import { MutationLock } from "./model-settings";
+import { MutationLock } from "./serial-lock";
 import {
   DEFAULT_WEB_SEARCH_PROVIDER,
   WEB_SEARCH_PROVIDER_IDS,

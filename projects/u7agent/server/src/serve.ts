@@ -9,7 +9,7 @@ import { SERVE_DIR_REL, SERVE_LOG_REL, SERVE_STATE_REL, serveDebugLogRel } from 
 import type { ServeCommandRow } from "./app-db";
 import { messageFor } from "./errors";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, httpError } from "./http";
-import { MutationLock } from "./model-settings";
+import { MutationLock } from "./serial-lock";
 // serve 契約の待受ポート。プローブも待受 PID の特定も、サービス オリジンの転送先もこの値だけを見る
 import { SERVE_LISTEN_PORT } from "./preview-port";
 import type { SandboxServeClient } from "./sandbox/client";

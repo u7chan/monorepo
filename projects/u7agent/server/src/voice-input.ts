@@ -12,7 +12,7 @@ import {
   requireAppSecretCipher,
   type AppSecretState,
 } from "./app-secrets";
-import { MutationLock } from "./model-settings";
+import { MutationLock } from "./serial-lock";
 import {
   classifyProviderFailure,
   parseJsonBody,

@@ -6,7 +6,7 @@
 import type { GitSettingsRow } from "./app-db";
 import { httpError } from "./http";
 import { gitIdentityProblem, type GitIdentity } from "./git-identity";
-import { MutationLock } from "./model-settings";
+import { MutationLock } from "./serial-lock";
 import type { GitSettingsMutationResponse, GitSettingsResponse, UpdateGitSettingsBody } from "./schema";
 
 export const GIT_SETTINGS_NOT_STORED_MESSAGE = "Git の設定をアプリデータ（SQLite）へ保存できませんでした";

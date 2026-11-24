@@ -16,7 +16,7 @@ import {
 import { httpError, messageFor, type HttpError } from "./http";
 import { bgmSettings, BGM_MODEL } from "./bgm";
 import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
-import { MutationLock } from "./model-settings";
+import { MutationLock } from "./serial-lock";
 import type { ContentTrialSource } from "./content-trials";
 import { REDACTED } from "./redact";
 import type { ContentSettingsRow, ImageParameterDefaults, ImageSettingsRow } from "./app-db";

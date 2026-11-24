@@ -52,6 +52,7 @@ import {
 } from "./custom-providers";
 import { httpError, messageFor } from "./http";
 import type { AppSecretCipher } from "./secret-crypto";
+import { MutationLock } from "./serial-lock";
 import {
   PROVIDER_API_KEY_MIN_LENGTH,
   RUNTIME_MODELS_UNAVAILABLE_MESSAGE,
@@ -228,23 +229,6 @@ export type CustomProviderOutcome = { status: 200; response: ModelMutationRespon
 export type CatalogRefreshOutcome =
   | { status: 200; response: ModelCatalogRefreshResponse }
   | { status: 503; error: string };
-
-/**
- * 認証変更・DB 書込・state 公開を直列化する 1 本のロック。コンテンツ生成の設定も同じ型のロックで直列化する。
- * 前のタスクの失敗でチェーンを止めず、呼び出し側へは自分のタスクの結果だけを返す。
- */
-export class MutationLock {
-  #tail: Promise<unknown> = Promise.resolve();
-
-  run<T>(task: () => Promise<T>): Promise<T> {
-    const run = this.#tail.then(task, task);
-    this.#tail = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
-}
 
 /** 一度目の commit が applied/synced でなければ、同じ操作を 1 回だけ再試行する (冪等) */
 async function applyWithRetry(run: () => Promise<CredentialCommit>): Promise<CredentialCommit> {
