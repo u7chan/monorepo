@@ -2,6 +2,9 @@
  * アプリ DB に暗号化して保存する APIキー / Webhook URL の復号状態と固定文言。
  * 方式・AAD・評価のタイミングは docs/secrets.md を正とする。
  */
+import type { StoredAppSecret } from "./app-db";
+import type { AppSecretCipher, AppSecretScope } from "./secret-crypto";
+
 /**
  * `keyStored` (暗号文がある) と対で使う復号の評価結果。`keyAvailable` は「いま値を使える」、
  * `keyEvaluated` は「復号を試したか」で、未評価を誤鍵・破損と断定しないために分ける。
@@ -46,6 +49,40 @@ export function appSecretFailed(): AppSecretState {
 }
 
 /** master key が無い / 壊れていて復号を試せない */
-export function appSecretMasterKeyMissing(): AppSecretState {
+function appSecretMasterKeyMissing(): AppSecretState {
   return { keyAvailable: false, keyEvaluated: true, keyErrorMessage: APP_SECRET_MASTER_KEY_MESSAGE };
+}
+
+export function evaluateAppSecret({
+  cipher,
+  runtimeAvailable,
+  scope,
+  owner,
+  secret,
+  retain,
+}: {
+  cipher: AppSecretCipher | null;
+  runtimeAvailable: boolean;
+  scope: AppSecretScope;
+  owner: string;
+  secret: StoredAppSecret | null;
+  retain: (value: string) => void;
+}): { value: string | null; state: AppSecretState } {
+  if (!secret) return { value: null, state: appSecretNotStored() };
+  // runtime が無いと値を利用できないため、復号を試さない
+  if (!runtimeAvailable) return { value: null, state: appSecretUnevaluated() };
+  if (!cipher) return { value: null, state: appSecretMasterKeyMissing() };
+  try {
+    const value = cipher.decrypt(scope, owner, secret);
+    // マスカーへ登録できなかった値も、呼び出し側へ渡さない
+    retain(value);
+    return { value, state: appSecretAvailable() };
+  } catch {
+    return { value: null, state: appSecretFailed() };
+  }
+}
+
+export function requireAppSecretCipher(cipher: AppSecretCipher | null): AppSecretCipher {
+  if (!cipher) throw new Error(APP_SECRET_NOT_STORED_MESSAGE);
+  return cipher;
 }

@@ -6,10 +6,10 @@
 import {
   APP_SECRET_NOT_STORED_MESSAGE,
   appSecretAvailable,
-  appSecretFailed,
-  appSecretMasterKeyMissing,
   appSecretNotStored,
   appSecretUnevaluated,
+  evaluateAppSecret,
+  requireAppSecretCipher,
   type AppSecretState,
 } from "./app-secrets";
 import { MutationLock } from "./model-settings";
@@ -156,7 +156,11 @@ export class VoiceInputSettingsService {
       this.#retainSecret(apiKey);
       let secret: VoiceInputSettingsRow;
       try {
-        secret = this.#requireCipher().encrypt(VOICE_INPUT_SECRET_SCOPE, VOICE_INPUT_SECRET_OWNER, apiKey);
+        secret = requireAppSecretCipher(this.#appCipher).encrypt(
+          VOICE_INPUT_SECRET_SCOPE,
+          VOICE_INPUT_SECRET_OWNER,
+          apiKey,
+        );
       } catch {
         // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
         console.warn("[u7agent] voice input key encryption failed");
@@ -209,7 +213,16 @@ export class VoiceInputSettingsService {
         this.#keyState = appSecretUnevaluated();
         return;
       }
-      this.#evaluateKey(row);
+      const { value, state } = evaluateAppSecret({
+        cipher: this.#appCipher,
+        runtimeAvailable: this.#runtimeAvailable,
+        scope: VOICE_INPUT_SECRET_SCOPE,
+        owner: VOICE_INPUT_SECRET_OWNER,
+        secret: row ?? null,
+        retain: (value) => this.#retainSecret(value),
+      });
+      this.#apiKey = value;
+      this.#keyState = state;
     });
   }
 
@@ -280,44 +293,6 @@ export class VoiceInputSettingsService {
       clearTimeout(timer);
     }
     return { status: 200, response: failure };
-  }
-
-  /**
-   * 保存行の暗号文からキーを復号し、結果をメモリへ残す。runtime が無いときは復号しない
-   * (復号した値を使う経路が無い)。平文へは落とさない。
-   */
-  #evaluateKey(row: VoiceInputSettingsRow | undefined): void {
-    if (!row) {
-      this.#apiKey = null;
-      this.#keyState = appSecretNotStored();
-      return;
-    }
-    if (!this.#runtimeAvailable) {
-      this.#apiKey = null;
-      this.#keyState = appSecretUnevaluated();
-      return;
-    }
-    if (!this.#appCipher) {
-      this.#apiKey = null;
-      this.#keyState = appSecretMasterKeyMissing();
-      return;
-    }
-    try {
-      const apiKey = this.#appCipher.decrypt(VOICE_INPUT_SECRET_SCOPE, VOICE_INPUT_SECRET_OWNER, row);
-      // 外部通信・ログへ渡す前に保護対象へ入れる
-      this.#retainSecret(apiKey);
-      this.#apiKey = apiKey;
-      this.#keyState = appSecretAvailable();
-    } catch {
-      // 誤鍵・未知の鍵版・改ざんは区別せず、平文へも落とさない。行は消さず再登録の案内にする
-      this.#apiKey = null;
-      this.#keyState = appSecretFailed();
-    }
-  }
-
-  #requireCipher(): AppSecretCipher {
-    if (!this.#appCipher) throw new Error(APP_SECRET_NOT_STORED_MESSAGE);
-    return this.#appCipher;
   }
 
   /**
