@@ -3,16 +3,20 @@
 //   - タイトルは 1 行化し、先頭 60 文字で `…` を付けて切る
 //   - モデルの出力は 1 行だけを受理し、複数行・空は棄却する
 //   - 入力は依頼 → 定義 → 応答の順に枠を確保し、長い応答で依頼を落とさない
+//   - AI 要約を見送る理由 (Off / モデル不在 / 手動改名 / 依頼本文なし) と、予約した結果を
+//     適用しない理由 (手動改名・設定の世代とモデル) を純関数で決める
 
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  autoTitleSkipReason,
   buildTitlePrompt,
   normalizeTitleText,
   parseGeneratedTitle,
   TITLE_DEFINITION_MAX,
   TITLE_INPUT_BUDGET_CHARS,
   TITLE_MAX,
+  titleApplyBlockedReason,
   titleOriginOf,
   titleRequestOf,
   titleSkillCommandRecognized,
@@ -145,4 +149,36 @@ test("タイトルの由来は旧 meta の既存タイトルを手動として�
   assert.equal(titleOriginOf({ title: "" }), "auto");
   assert.equal(titleOriginOf({ title: "既存", titleOrigin: "ai" }), "ai");
   assert.equal(titleOriginOf({ title: "既存", titleOrigin: "unknown" }), "manual");
+});
+
+test("自動要約を見送る理由は設定と手動改名で決まり、手動タイトルを上書きしない", () => {
+  const on = { enabled: true, model: { provider: "example", id: "small" }, generation: 3 };
+  assert.equal(autoTitleSkipReason({ titleOrigin: "auto", request: "ログイン画面を直したい" }, on), undefined);
+  // Off とモデル不在は手動タイトルより先に見る (設定を戻したときに理由が変わる)
+  assert.equal(autoTitleSkipReason({ titleOrigin: "auto", request: "依頼" }, { ...on, enabled: false }), "disabled");
+  assert.equal(
+    autoTitleSkipReason({ titleOrigin: "auto", request: "依頼" }, { ...on, model: undefined }),
+    "model-unset",
+  );
+  assert.equal(autoTitleSkipReason({ titleOrigin: "manual", request: "依頼" }, on), "manual");
+  assert.equal(autoTitleSkipReason({ titleOrigin: "ai", request: "  " }, on), "no-request");
+});
+
+test("予約した結果の適用可否は手動改名と設定の世代・モデルで決まる", () => {
+  const settings = { enabled: true, model: { provider: "example", id: "small" }, generation: 4 };
+  const base = { titleOrigin: "auto" as const, trigger: "auto" as const, generation: 4, model: "example/small" };
+  assert.equal(titleApplyBlockedReason(base, settings), undefined);
+  // 自動要約は手動のタイトルを守る。会話メニューからの再要約は利用者が確認した操作なので置き換える
+  assert.equal(titleApplyBlockedReason({ ...base, titleOrigin: "manual" }, settings), "manual");
+  assert.equal(titleApplyBlockedReason({ ...base, titleOrigin: "manual", trigger: "manual" }, settings), undefined);
+  // 再保存・Off・モデル変更は世代とモデルの比較で検出する
+  assert.equal(titleApplyBlockedReason(base, { ...settings, generation: 5 }), "settings-changed");
+  assert.equal(titleApplyBlockedReason(base, { ...settings, enabled: false }), "settings-changed");
+  assert.equal(
+    titleApplyBlockedReason(base, { ...settings, model: { provider: "example", id: "other" } }),
+    "settings-changed",
+  );
+  assert.equal(titleApplyBlockedReason(base, undefined), "settings-changed");
+  // 理由は手動の保護を優先する (画面に出す理由を、設定の変化で塗り替えない)
+  assert.equal(titleApplyBlockedReason({ ...base, titleOrigin: "manual" }, { ...settings, generation: 5 }), "manual");
 });
