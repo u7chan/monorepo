@@ -37,7 +37,10 @@ describe("実行履歴の維持", () => {
         status: "completed",
         queueDepth: 0,
         run: { id: RUN_ID, status: "completed" },
-        messages: [{ role: "assistant", assistantId: `${RUN_ID}:0`, text: "完了しました" }],
+        messages: [
+          { role: "assistant", assistantId: `${RUN_ID}:0`, text: "![cafe](generated/cafe.png)" },
+          { role: "assistant", assistantId: `${RUN_ID}:1`, text: "完了しました" },
+        ],
       };
 
       const reconciler = createRunReconciler({
@@ -53,6 +56,7 @@ describe("実行履歴の維持", () => {
         status: "completed",
         text: "完了しました",
       });
+      expect(harness.store.getRunAssets(RUN_ID)).toEqual([{ path: "generated/cafe.png", kind: "image" }]);
     } finally {
       harness.cleanup();
     }
@@ -216,6 +220,42 @@ describe("実行履歴の維持", () => {
 
       expect(harness.store.getRun("1111111111111111")).toBeNull();
       expect(harness.store.getRun("2222222222222222")).not.toBeNull();
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  test("履歴削除で run_assets も消える", async () => {
+    const harness = await createHarness();
+
+    try {
+      const { connectionId, keyId } = seedConnection(harness);
+      const old = NOW - 91 * DAY;
+
+      harness.store.insertRun({
+        runId: RUN_ID,
+        connectionId,
+        keyId,
+        status: "running",
+        sessionUrl: "https://agent.example.com/s/0123456789?space=default",
+        createdAt: old,
+        updatedAt: old,
+      });
+      harness.store.completeRun(RUN_ID, "completed", "old", null, [{ path: "generated/old.png", kind: "image" }], old);
+
+      expect(harness.store.getRunAssets(RUN_ID)).toHaveLength(1);
+
+      const reconciler = createRunReconciler({
+        store: harness.store,
+        upstream: harness.upstream,
+        now: () => NOW,
+        retentionMs: 90 * DAY,
+      });
+
+      await reconciler.reconcile();
+
+      expect(harness.store.getRun(RUN_ID)).toBeNull();
+      expect(harness.store.getRunAssets(RUN_ID)).toEqual([]);
     } finally {
       harness.cleanup();
     }

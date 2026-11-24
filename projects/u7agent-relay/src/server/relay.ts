@@ -1,5 +1,6 @@
 import type { ConnectionRecord, Store } from "./db";
 import { AdminError, UpstreamError } from "./errors";
+import { extractRunAssets, type RunAsset } from "./assets";
 import { hashToken, matchesHash } from "./keys";
 import { sessionUrls } from "./targets";
 import type { UpstreamClient, UpstreamSession } from "./upstream";
@@ -9,7 +10,7 @@ const IDLE_STATUSES = new Set(["idle", "completed", "stopped", "error"]);
 export type ReplyPayload =
   | { status: "running" }
   | { status: "awaiting_answer"; sessionUrl: string }
-  | { status: "completed"; text: string }
+  | { status: "completed"; text: string; files: RunAsset[] }
   | { status: "stopped" }
   | { status: "error" };
 
@@ -109,7 +110,7 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
       }
 
       if (run.status === "completed" || run.status === "stopped" || run.status === "error") {
-        return terminalPayload(run.status, run.text);
+        return terminalPayload(run.status, run.text, store.getRunAssets(runId));
       }
 
       const session = await upstream.readSession(connection);
@@ -119,7 +120,7 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
       const saved = store.getRun(runId);
 
       if (saved && isTerminal(saved.status)) {
-        return terminalPayload(saved.status, saved.text);
+        return terminalPayload(saved.status, saved.text, store.getRunAssets(runId));
       }
 
       if (session.run?.id !== runId) {
@@ -133,11 +134,12 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
         return payload;
       }
 
-      store.updatePendingRun(
+      store.completeRun(
         runId,
         payload.status,
         payload.status === "completed" ? payload.text : null,
         payload.status === "error" ? "upstream_error" : null,
+        payload.status === "completed" ? payload.files : [],
         now(),
       );
 
@@ -145,7 +147,9 @@ export function createRelay(options: { store: Store; upstream: UpstreamClient; n
       // その場合は、遅れて届いた未終端の応答で上書きせず、保存済みの結果を返す。
       const latest = store.getRun(runId);
 
-      return latest && isTerminal(latest.status) ? terminalPayload(latest.status, latest.text) : payload;
+      return latest && isTerminal(latest.status)
+        ? terminalPayload(latest.status, latest.text, store.getRunAssets(runId))
+        : payload;
     },
   };
 }
@@ -173,7 +177,7 @@ export function sessionRunPayload(session: UpstreamSession, runId: string, conne
           message.role === "assistant" && message.assistantId?.startsWith(`${runId}:`) && message.text?.trim(),
       );
 
-      return { status: "completed", text: reply?.text ?? "" };
+      return { status: "completed", text: reply?.text ?? "", files: extractRunAssets(session.messages, runId) };
     }
     case "stopped":
     case "error":
@@ -187,8 +191,12 @@ function isTerminal(status: string): status is "completed" | "stopped" | "error"
   return status === "completed" || status === "stopped" || status === "error";
 }
 
-function terminalPayload(status: "completed" | "stopped" | "error", text: string | null): ReplyPayload {
-  return status === "completed" ? { status, text: text ?? "" } : { status };
+function terminalPayload(
+  status: "completed" | "stopped" | "error",
+  text: string | null,
+  files: RunAsset[],
+): ReplyPayload {
+  return status === "completed" ? { status, text: text ?? "", files } : { status };
 }
 
 /** 上流の最新実行と一致する未終端の履歴を、取得済みのセッションから確定させる。 */
@@ -205,11 +213,12 @@ function persistCompletedRuns(store: Store, connection: ConnectionRecord, sessio
         continue;
       }
 
-      store.updateRun(
+      store.completeRun(
         run.runId,
         payload.status,
         payload.status === "completed" ? payload.text : null,
         payload.status === "error" ? "upstream_error" : null,
+        payload.status === "completed" ? payload.files : [],
         now,
       );
     } catch {

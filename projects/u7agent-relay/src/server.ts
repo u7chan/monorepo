@@ -4,6 +4,7 @@ import { createAuthService } from "./server/auth";
 import { createConnectionService, createKeyService } from "./server/connections";
 import { loadConfig } from "./server/config";
 import { createStore, openDatabase } from "./server/db";
+import { createFilesService } from "./server/files";
 import { createRelay } from "./server/relay";
 import { createRunReconciler } from "./server/run-reconciler";
 import { createUpstreamClient } from "./server/upstream";
@@ -27,6 +28,7 @@ const store = createStore(database);
 const prunedRuns = store.pruneRuns(Date.now() - 90 * 24 * 60 * 60 * 1000);
 const upstream = createUpstreamClient();
 const relay = createRelay({ store, upstream, now: Date.now });
+const files = createFilesService({ store, upstream, now: Date.now });
 const connections = createConnectionService({ store, upstream, now: Date.now });
 const keys = createKeyService({ store, now: Date.now });
 const reconciler = createRunReconciler({
@@ -40,6 +42,7 @@ const app = createApp({
   auth,
   store,
   relay,
+  files,
   connections,
   keys,
   version: config.version,

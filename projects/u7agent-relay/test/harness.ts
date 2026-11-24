@@ -6,6 +6,7 @@ import { createApp } from "../src/server/app";
 import { createAuthService } from "../src/server/auth";
 import { createConnectionService, createKeyService } from "../src/server/connections";
 import { createStore, openDatabase } from "../src/server/db";
+import { createFilesService } from "../src/server/files";
 import { createRelay } from "../src/server/relay";
 import { createUpstreamClient, type FetchLike } from "../src/server/upstream";
 
@@ -24,7 +25,13 @@ export function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-export function createHarness(options: { fetchImpl?: FetchLike; trustProxy?: boolean } = {}) {
+export function createHarness(
+  options: {
+    fetchImpl?: FetchLike;
+    trustProxy?: boolean;
+    filesOptions?: { maxBytes?: number; maxConcurrent?: number; cwdTtlMs?: number };
+  } = {},
+) {
   const dataDir = mkdtempSync(join(tmpdir(), "u7agent-relay-test-"));
   const database = openDatabase(dataDir);
   const store = createStore(database);
@@ -36,6 +43,7 @@ export function createHarness(options: { fetchImpl?: FetchLike; trustProxy?: boo
     timeoutMs: 2_000,
   });
   const relay = createRelay({ store, upstream, now: () => NOW });
+  const files = createFilesService({ store, upstream, now: () => NOW, ...options.filesOptions });
   const connections = createConnectionService({ store, upstream, now: () => NOW });
   const keys = createKeyService({ store, now: () => NOW });
 
@@ -43,6 +51,7 @@ export function createHarness(options: { fetchImpl?: FetchLike; trustProxy?: boo
     auth,
     store,
     relay,
+    files,
     connections,
     keys,
     version: "test",
@@ -55,6 +64,7 @@ export function createHarness(options: { fetchImpl?: FetchLike; trustProxy?: boo
     store,
     auth,
     relay,
+    files,
     upstream,
     connections,
     keys,

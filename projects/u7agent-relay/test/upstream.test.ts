@@ -83,4 +83,22 @@ describe("upstream", () => {
       code: "upstream_unavailable",
     });
   });
+
+  test("ヘッダー後の本文はファイル取得の期限で切らない", async () => {
+    const fetchImpl: FetchLike = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          async start(controller) {
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            controller.enqueue(new Uint8Array([1]));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "Content-Length": "1" } },
+      );
+    const upstream = createUpstreamClient({ fetchImpl, fileHeaderTimeoutMs: 10 });
+    const response = await upstream.fetchDownload(TARGET, "projects/app/file.txt");
+
+    expect(await response.arrayBuffer()).toHaveLength(1);
+  });
 });

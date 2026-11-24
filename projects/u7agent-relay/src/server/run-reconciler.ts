@@ -85,11 +85,12 @@ export function createRunReconciler(options: {
             continue;
           }
 
-          store.updatePendingRun(
+          store.completeRun(
             run.runId,
             payload.status,
             payload.status === "completed" ? payload.text : null,
             payload.status === "error" ? "upstream_error" : null,
+            payload.status === "completed" ? payload.files : [],
             now(),
           );
         } catch {
