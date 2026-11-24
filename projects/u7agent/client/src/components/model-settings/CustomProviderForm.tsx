@@ -24,7 +24,7 @@ import {
   type CustomProviderFormErrors,
   type CustomProviderProbeState,
 } from "../../lib/customProviders";
-import { messageFor } from "../../lib/settingsResource";
+import { messageFor } from "../../lib/errors";
 import type {
   CreateCustomProviderBody,
   CustomProviderProbeBody,

@@ -11,9 +11,6 @@ export type ArchiveSettingsDraft = {
   excludeNames: string[];
 };
 
-/** 設定の読み込み前と下書きの破棄で使う初期値 */
-export const EMPTY_ARCHIVE_DRAFT: ArchiveSettingsDraft = { excludeNames: [] };
-
 /** 保存済みの設定から下書きを作る。未設定のときは実効値（= 既定の一覧）から始める */
 export function draftFromSettings(settings: ArchiveSettingsResponse | null): ArchiveSettingsDraft {
   return { excludeNames: [...(settings?.excludeNames ?? [])] };

@@ -9,7 +9,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import { join, resolve } from "node:path";
-import { createAskUserToolDefinitions, ASK_USER_TOOL_NAME, type AskUserHost } from "./ask-user-tool";
+import { createAskUserToolDefinitions, type AskUserHost } from "./ask-user-tool";
+import { ASK_USER_TOOL_NAME } from "./wait-total";
 import {
   REQUEST_NETWORK_ACCESS_TOOL_NAME,
   createRequestNetworkAccessToolDefinitions,

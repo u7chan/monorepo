@@ -14,7 +14,6 @@ import {
   WEB_SEARCH_TOOL_NAME,
   webSearchDataFlowNotice,
   webSearchKeyBadge,
-  webSearchKeyErrorNotice,
   webSearchKeyDeletedNote,
   webSearchKeyMissingNotice,
   webSearchKeySavedNote,
@@ -140,20 +139,6 @@ test("キー未設定の警告は、キー付きで未設定のときだけ出�
   assert.equal(
     webSearchKeyMissingNotice({ ...TAVILY, keyStored: true, keyAvailable: false, keyErrorMessage: "復号できません" }),
     "復号できません",
-  );
-});
-
-test("保存済みのキーを使えない理由は、サーバーの固定文言をそのまま出す", () => {
-  assert.equal(webSearchKeyErrorNotice(EXA), null);
-  assert.equal(webSearchKeyErrorNotice(TAVILY), null);
-  assert.equal(
-    webSearchKeyErrorNotice({ ...TAVILY, keyStored: true, keyAvailable: true, keyErrorMessage: "使えない" }),
-    null,
-    "使えるキーには警告を出さない",
-  );
-  assert.equal(
-    webSearchKeyErrorNotice({ ...TAVILY, keyStored: true, keyAvailable: false, keyErrorMessage: "使えない" }),
-    "使えない",
   );
 });
 

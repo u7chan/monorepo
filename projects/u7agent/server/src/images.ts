@@ -275,7 +275,6 @@ export const IMAGE_PROVIDER_ID = "openrouter";
  */
 export const IMAGE_GENERATION_PROVIDERS = [IMAGE_PROVIDER_ID, "codex"] as const;
 export type ImageProviderId = (typeof IMAGE_GENERATION_PROVIDERS)[number];
-export const DEFAULT_IMAGE_PROVIDER: ImageProviderId = IMAGE_PROVIDER_ID;
 
 export function isImageProviderId(value: string): value is ImageProviderId {
   return (IMAGE_GENERATION_PROVIDERS as readonly string[]).includes(value);

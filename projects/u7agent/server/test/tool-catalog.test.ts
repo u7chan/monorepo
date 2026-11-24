@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { hostToolDefinitions, investigationTools, sessionToolPlan, type SessionToolPlan } from "../src/tool-plan";
-import { ASK_USER_TOOL_NAME } from "../src/ask-user-tool";
+import { ASK_USER_TOOL_NAME } from "../src/wait-total";
 import { IMAGE_TOOL_NAME } from "../src/image-tools";
 import { INVESTIGATE_TOOL_NAME } from "../src/investigate-tool";
 import { REQUEST_NETWORK_ACCESS_TOOL_NAME } from "../src/request-network-access-tool";

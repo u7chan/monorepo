@@ -86,11 +86,6 @@ export function MarkdownFileImageProvider({ dir, rawUrl, children }: MarkdownFil
   return <MarkdownImageContext.Provider value={value}>{children}</MarkdownImageContext.Provider>;
 }
 
-/** 解決できた src だけを配信 URL へ差し替える。provider の外と解決できない src は入力をそのまま返す */
-export function useMarkdownImageSrc(src: string): string {
-  return useMarkdownImageResolution(src)?.src ?? src;
-}
-
 /** 画像 src の解決結果。provider の外と空の src は null (1 回の解決で URL と root 相対パスの両方を返す) */
 export function useMarkdownImageResolution(src: string): MarkdownImageResolution | null {
   const resolve = useContext(MarkdownImageContext);

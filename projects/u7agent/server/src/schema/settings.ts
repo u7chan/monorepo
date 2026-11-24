@@ -326,7 +326,6 @@ export type UpdateProviderKeyBody = z.infer<typeof UpdateProviderKeyBodySchema>;
 export const UpdateProviderMemoBodySchema = z.object({
   memo: z.string().max(PROVIDER_MEMO_MAX_LENGTH),
 });
-export type UpdateProviderMemoBody = z.infer<typeof UpdateProviderMemoBodySchema>;
 /** カスタムプロバイダーのモデル入力。上限と正の整数の検証は service が固定文言で行う */
 export const CustomProviderModelBodySchema = z.object({
   id: z.string(),
@@ -364,12 +363,10 @@ export type CustomProviderProbeBody = z.infer<typeof CustomProviderProbeBodySche
 export const SubmitOAuthLoginCodeBodySchema = z.object({
   code: z.string().trim().min(1).max(OAUTH_LOGIN_CODE_MAX_LENGTH),
 });
-export type SubmitOAuthLoginCodeBody = z.infer<typeof SubmitOAuthLoginCodeBodySchema>;
 /** OAuth サインインの方式選択。進行中の select の選択肢 id だけを受け付ける */
 export const SubmitOAuthLoginSelectBodySchema = z.object({
   id: z.string().trim().min(1).max(OAUTH_LOGIN_SELECT_ID_MAX_LENGTH),
 });
-export type SubmitOAuthLoginSelectBody = z.infer<typeof SubmitOAuthLoginSelectBodySchema>;
 /** 利用可能なモデルの一括保存。両方 null が「未設定へ戻す」なので DELETE は持たない */
 export const UpdateModelAvailabilityBodySchema = z.object({
   allowedModels: z.array(z.string()).nullable(),

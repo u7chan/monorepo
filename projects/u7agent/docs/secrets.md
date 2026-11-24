@@ -6,7 +6,7 @@
 
 ## 保護対象
 
-- `createRuntimeSecretMasker()`（`server/src/secret-guard.ts`）が `ModelRuntime.getProviders()` の各プロバイダーに対し pi-ai の公開ヘルパー `findEnvKeys()` で「設定済みのキー変数」を解決し、その非空値を保護対象にする。findEnvKeys が解決しない既知プロバイダーのキー変数（Bedrock の `AWS_BEARER_TOKEN_BEDROCK`）は補完テーブルで埋める。独自プロバイダー分は `PI_SECRET_ENV_VARS` で変数名を追加する
+- `agent.ts` の `collectSecretValues()`（`server/src/secret-guard.ts`）が `ModelRuntime.getProviders()` の各プロバイダーに対し pi-ai の公開ヘルパー `findEnvKeys()` で「設定済みのキー変数」を解決し、その非空値を保護対象にする。findEnvKeys が解決しない既知プロバイダーのキー変数（Bedrock の `AWS_BEARER_TOKEN_BEDROCK`）は補完テーブルで埋める。独自プロバイダー分は `PI_SECRET_ENV_VARS` で変数名を追加する。集めた値は `createMutableSecretMasker()`（`server/src/redact.ts`）へ渡す
 - 自動解決された値は 8 文字未満を通常出力の過剰改変防止のため対象外にする。`PI_SECRET_ENV_VARS` で明示指定された変数は運用者の意図なので長さに関係なく保護する。重複・包含する値は長い順に置換する
 - 設定 → モデルで登録したキーは `createMutableSecretMasker` の `setSecrets` で保護対象へ足す。登録は **SDK / DB へ渡す前**に行い、起動時は DB から読めた全行（orphan・不正値・適用失敗を含む）を適用前に登録する。削除・上書き後も**プロセス生存中は保護対象から外さない**（`session.jsonl` の raw 入力を再投影しても旧キーを出さないため。入力は 8..2048 文字で、これより短いキーは GUI の対象外）
 - 設定 → モデルのカスタムプロバイダーのAPIキーも、SDK / ログへ渡す前に `retainSecret()` で保護対象へ足す。保存先はアプリ DB の `custom_providers` で、同じ master key で暗号化する（復号は起動時・保存 / 更新 / 再同期 / probe のときだけで、GET は復号しない）。8 文字以上を必須にし、認証のないローカルサーバーにはダミーを使う（`Authorization: Bearer <キー>` として送られる。[model-settings.md](model-settings.md#カスタムプロバイダー)）

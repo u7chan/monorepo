@@ -3252,13 +3252,6 @@ export class AppDb {
 
   // --- serve (サービスの起動実績) ---
 
-  /** 作成順ではなく更新順。UI とエージェントが直近の実績を引きやすい */
-  listServeCommands(): ServeCommandRow[] {
-    return this.#query((db) =>
-      (db.prepare("SELECT * FROM serve_commands ORDER BY updatedAt").all() as Row[]).map(serveCommandOf),
-    );
-  }
-
   getServeCommand(cwd: string): ServeCommandRow | undefined {
     const row = this.#query(
       (db) => db.prepare("SELECT * FROM serve_commands WHERE cwd = ?").get(cwd) as Row | undefined,

@@ -9,7 +9,7 @@ import { generationCaptionsOf, type GenerationInfo } from "../src/lib/generation
 
 // MessageView は AttachedFiles 経由で api.ts (location.origin を読む) を辿るため、先に shim を置く
 globalThis.location ??= { origin: "http://localhost:3000", hostname: "localhost" } as Location;
-const { MarkdownCaptionProvider, MarkdownFileImageProvider, MarkdownImageProvider, useMarkdownImageSrc } =
+const { MarkdownCaptionProvider, MarkdownFileImageProvider, MarkdownImageProvider } =
   await import("../src/components/markdown/MarkdownImageRefs");
 const { MarkdownView } = await import("../src/components/markdown/MarkdownView");
 const { MessageView } = await import("../src/components/chat/MessageView");
@@ -144,28 +144,6 @@ test("描画: ファイルプレビューの Markdown では出さない", () =>
   );
   assert.ok(html.includes('src="/api/files/raw?path=generated/cafe.png"'), html);
   assert.equal(html.includes("openai/gpt-image-2"), false, "プレビューにキャプションが出ている");
-});
-
-/** `useMarkdownImageSrc` の既存契約 (provider の外と解決できない src は入力をそのまま返す) を直接見る */
-function SrcProbe({ src }: { src: string }) {
-  return createElement("span", { "data-src": useMarkdownImageSrc(src) });
-}
-
-test("解決 URL だけを返す既存の契約は変わらない", () => {
-  const probe = (src: string, provider: boolean): string => {
-    const element = createElement(SrcProbe, { src });
-    return renderToStaticMarkup(
-      provider
-        ? createElement(MarkdownImageProvider, { rootCwd: ROOT_CWD, cwd: CWD, rawUrl, children: element })
-        : element,
-    );
-  };
-  assert.equal(
-    probe("generated/cafe.png", true),
-    '<span data-src="/api/files/raw?path=projects/u7agent/generated/cafe.png"></span>',
-  );
-  assert.equal(probe("generated/cafe.png", false), '<span data-src="generated/cafe.png"></span>');
-  assert.equal(probe("https://example.test/cafe.png", true), '<span data-src="https://example.test/cafe.png"></span>');
 });
 
 test("描画: MessageView は本文の画像にキャプションを出し、未指定なら出さない", () => {

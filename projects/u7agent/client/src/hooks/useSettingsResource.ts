@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { isNotStoredError } from "../api";
-import { messageFor, mutationErrorNote, successNoteText, type SettingsSuccessNote } from "../lib/settingsResource";
+import { messageFor } from "../lib/errors";
+import { mutationErrorNote, successNoteText, type SettingsSuccessNote } from "../lib/settingsResource";
 import { createLoadingTracker, createRequestGate } from "./requestGate";
 
 export interface SettingsNote {

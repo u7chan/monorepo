@@ -8,7 +8,6 @@ import {
   INITIAL_VOICE_INPUT_COMPOSER_STATE,
   voiceInputComposerBlockedReason,
   voiceInputComposerBusy,
-  voiceInputComposerCanStop,
   voiceInputRemainingRatio,
   type VoiceInputComposerCallbacks,
   type VoiceInputComposerState,
@@ -73,11 +72,9 @@ test("開始すると接続中になり、確定で待機へ戻って確定テ�
 
   run.callbacks[0].onRecording({ startedAt: 100, deadline: 200 });
   assert.deepEqual(run.latest(), { phase: "recording", startedAt: 100, deadline: 200 });
-  assert.equal(voiceInputComposerCanStop(run.latest()), true);
 
   run.callbacks[0].onFinalizing({ reason: "manual", stoppedAt: 150 });
   assert.equal(run.latest().phase, "finalizing");
-  assert.equal(voiceInputComposerCanStop(run.latest()), false, "確定待ちでは録音を止め直せない");
 
   run.callbacks[0].onFinal({ text: "こんにちは", audioSeconds: 1.5 });
   assert.equal(run.latest().phase, "idle");

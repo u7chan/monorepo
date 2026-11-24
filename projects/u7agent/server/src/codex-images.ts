@@ -11,12 +11,7 @@ import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { readCappedBody } from "./bounded-body";
 import { startRequestDeadline } from "./request-deadline";
-import {
-  classifyProviderFailure,
-  parseJsonBody,
-  type ProviderFailureCode,
-  type ProviderFailureMessages,
-} from "./provider-failure";
+import { classifyProviderFailure, parseJsonBody, type ProviderFailureMessages } from "./provider-failure";
 import type { CodexAuth, GeneratedImage, ImageAuthStatus, ImageGenerationResult } from "./images";
 
 export const CODEX_PROVIDER_ID = "openai-codex";
@@ -57,8 +52,6 @@ export function codexAccountIdOf(accessToken: string): string | undefined {
     return undefined;
   }
 }
-
-export type CodexFailureCode = ProviderFailureCode;
 
 /** ModelRuntime が解決したアクセストークンから実行時認証を作る。accountId が読めないトークンは使わない */
 export function codexAuthOf(access: string | undefined): CodexAuth | undefined {

@@ -425,6 +425,11 @@ test("↑↓ は端で止まり、フォーカスが項目の外にあるとき�
   assert.equal(nextRowMenuIndex(-1, 4, "next"), 0);
   assert.equal(nextRowMenuIndex(-1, 4, "previous"), 3);
   assert.equal(nextRowMenuIndex(0, 0, "next"), -1);
+  // Home / End は先頭 / 末尾へ入る
+  assert.equal(nextRowMenuIndex(1, 4, "first"), 0);
+  assert.equal(nextRowMenuIndex(1, 4, "last"), 3);
+  assert.equal(nextRowMenuIndex(-1, 4, "first"), 0);
+  assert.equal(nextRowMenuIndex(-1, 4, "last"), 3);
 });
 
 test("出し分け: 行の ⋯ にセッション ID のコピーは出さない (作業フォルダ面の帯の専用項目)", () => {

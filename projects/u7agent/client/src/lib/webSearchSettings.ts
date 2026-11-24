@@ -12,7 +12,7 @@ import type {
 } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
 import type { ProviderBadge } from "./modelSettings";
-import { messageFor } from "./settingsResource";
+import { messageFor } from "./errors";
 
 /** セッションの `tools` ではなく `customTools` 側に載る名前（BFF ローカル） */
 export const WEB_SEARCH_TOOL_NAME = "web_search";
@@ -85,12 +85,6 @@ export function webSearchKeyBadge(provider: WebSearchProvider): ProviderBadge {
   if (provider.keyless) return { label: "キー不要", tone: "muted" };
   if (!provider.keyStored) return { label: "未設定", tone: "muted" };
   return provider.keyAvailable ? { label: "設定済み", tone: "ok" } : { label: "利用不可", tone: "warn" };
-}
-
-/** 保存済みのキーを使えない理由。未評価 / 復号失敗の文言はサーバーが返したものをそのまま出す */
-export function webSearchKeyErrorNotice(provider: WebSearchProvider): string | null {
-  if (provider.keyless || !provider.keyStored || provider.keyAvailable) return null;
-  return provider.keyErrorMessage;
 }
 
 /**

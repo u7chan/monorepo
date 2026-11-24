@@ -54,9 +54,7 @@ export const BackupAgentSchema = z
   .strict();
 export type BackupAgent = z.infer<typeof BackupAgentSchema>;
 export const BackupPromptsFileSchema = z.object({ prompts: z.array(BackupPromptSchema) }).strict();
-export type BackupPromptsFile = z.infer<typeof BackupPromptsFileSchema>;
 export const BackupAgentsFileSchema = z.object({ agents: z.array(BackupAgentSchema) }).strict();
-export type BackupAgentsFile = z.infer<typeof BackupAgentsFileSchema>;
 /** 警告とブロッカーのコード。日本語の文言は `client/src/lib/backup.ts` が持つ */
 export const BackupWarningSchema = z.object({ code: z.string(), name: z.string().optional() });
 export type BackupWarning = z.infer<typeof BackupWarningSchema>;

@@ -1,6 +1,6 @@
 /**
- * コンポーザーのエージェント選択（自前 listbox）の共通部。位置とキーボード移動の計算だけを持つ
- * 純関数を集める（描画と popover の操作は `client/src/components/composer/AgentPicker.tsx`）。
+ * コンポーザーのエージェント選択（自前 listbox）の共通部。位置の計算だけを持つ純関数を集める
+ * （描画と popover の操作は `client/src/components/composer/AgentPicker.tsx`）。
  * ⋯ メニュー（`rowMenu.ts`）とは共有しない: あちらは `role="menu"` の右端そろえ、こちらは
  * `role="listbox"` の左端そろえで、値もテストも別に固定する。
  */
@@ -37,17 +37,4 @@ export function agentPickerPlacement(
   const top =
     below + list.height > viewport.height - AGENT_PICKER_MARGIN && above >= AGENT_PICKER_MARGIN ? above : below;
   return { left, top: clamp(top, AGENT_PICKER_MARGIN, viewport.height - list.height - AGENT_PICKER_MARGIN) };
-}
-
-/** ↑↓ / Home / End の移動先。端では止まる（循環しない）。`index` が -1（フォーカスが項目の外）のときは端の項目へ入る */
-export function nextAgentOptionIndex(
-  index: number,
-  length: number,
-  direction: "next" | "previous" | "first" | "last",
-): number {
-  if (length <= 0) return -1;
-  if (direction === "first") return 0;
-  if (direction === "last") return length - 1;
-  if (index < 0) return direction === "next" ? 0 : length - 1;
-  return direction === "next" ? Math.min(index + 1, length - 1) : Math.max(index - 1, 0);
 }

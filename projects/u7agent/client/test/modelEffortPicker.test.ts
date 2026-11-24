@@ -6,10 +6,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ComposerSettings } from "../src/hooks/useU7Agent";
+import type { ComposerSettings } from "../src/lib/composerSettings";
 
-// useU7Agent が api.ts を読み、その時点で location を要求する (ブラウザ前提のモジュール)
-globalThis.location ??= { origin: "http://localhost" } as Location;
 const { ModelEffortPicker } = await import("../src/components/composer/ModelEffortControls");
 
 type Props = Parameters<typeof ModelEffortPicker>[0];

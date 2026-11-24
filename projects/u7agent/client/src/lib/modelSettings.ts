@@ -786,10 +786,6 @@ export function normalizeAllowedModels(allowed: string[]): string[] | null {
   return allowed.length > 0 ? allowed : null;
 }
 
-export function isModelAllowed(allowed: string[], key: string): boolean {
-  return allowed.includes(key);
-}
-
 /** 保存値・下書きにあるが、現在のカタログに無いエントリ。保存すると 400 になるため画面で消す */
 export function allowedModelsOutsideCatalog(allowed: string[], catalog: RuntimeModelsResponse | null): string[] {
   const keys = new Set(catalogModelEntries(catalog).map((entry) => entry.key));

@@ -20,8 +20,6 @@ import {
 } from "./schema";
 import { ASK_USER_TOOL_NAME } from "./wait-total";
 
-export { ASK_USER_TOOL_NAME };
-
 export const ASK_USER_DESCRIPTION =
   "Ask the user the questions you need and wait for the answers before continuing. " +
   "The user answers in a card in the chat, so the run stays running until every question is answered, " +

@@ -228,13 +228,10 @@ export const ContentTrialStateSchema = z.enum(CONTENT_TRIAL_STATES);
 export type ContentTrialStateValue = z.infer<typeof ContentTrialStateSchema>;
 /** 試行の種別。画像 / 音声 / BGM は同じジョブの仕組みと履歴を使う */
 export const ContentTrialKindSchema = z.enum(CONTENT_TRIAL_KINDS);
-export type ContentTrialKindValue = z.infer<typeof ContentTrialKindSchema>;
 /** 成果物の状態。`none` は保存していない行（段階 1 の行と、保存に失敗した成功）で `stored` は保存済み */
 export const ContentTrialArtifactStateSchema = z.enum(CONTENT_TRIAL_ARTIFACT_STATES);
-export type ContentTrialArtifactStateValue = z.infer<typeof ContentTrialArtifactStateSchema>;
 /** 保存できる成果物の形式。値の正は `server/src/content-trial-artifacts.ts` */
 export const ContentTrialArtifactFormatSchema = z.enum(TRIAL_ARTIFACT_FORMATS);
-export type ContentTrialArtifactFormatValue = z.infer<typeof ContentTrialArtifactFormatSchema>;
 /**
  * 保存済みの成果物のメタデータ。実体の置き場（パス）は応答に載せず、配信は trial id だけで引く。
  * 寸法は画像だけの値で、読めなかったときは null。
@@ -358,7 +355,6 @@ export const ContentCatalogRefreshErrorsSchema = z.object({
   speech: z.string().optional(),
   cost: z.string().optional(),
 });
-export type ContentCatalogRefreshErrors = z.infer<typeof ContentCatalogRefreshErrorsSchema>;
 export const ContentCatalogRefreshResponseSchema = ContentSettingsResponseSchema.extend({
   errors: ContentCatalogRefreshErrorsSchema,
 });
@@ -377,7 +373,6 @@ export const ContentMutationErrorSchema = z.object({
   error: z.string(),
   state: z.literal("not_stored"),
 });
-export type ContentMutationError = z.infer<typeof ContentMutationErrorSchema>;
 /**
  * provider / model の変更。キーは保持したまま差し替える（行が無ければ 400）。
  * `parameters` は保存する生成パラメータの既定で、省略 = 据え置き / `{}` = そのモデルの既定を削除 /
@@ -418,4 +413,3 @@ export type UpdateContentEnabledBody = z.infer<typeof UpdateContentEnabledBodySc
 export const UpdateContentKeyBodySchema = z.object({
   apiKey: z.string().min(PROVIDER_API_KEY_MIN_LENGTH).max(PROVIDER_API_KEY_MAX_LENGTH),
 });
-export type UpdateContentKeyBody = z.infer<typeof UpdateContentKeyBodySchema>;

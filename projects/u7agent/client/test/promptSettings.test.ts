@@ -6,7 +6,6 @@ import {
   AGENT_PROMPT_LIMIT,
   atPromptLimit,
   promptDraftChanged,
-  promptCandidates,
   promptDeleteBlockedReason,
   promptDraftError,
   promptDraftKey,
@@ -15,16 +14,14 @@ import {
   promptMutationNote,
   promptPayloadOf,
   promptRefreshFailure,
-  promptSelectionOf,
   promptUsageLabel,
-  splitPromptsByKind,
   syncPromptDraft,
   withPromptMoved,
   withPromptRemoved,
   withPromptSelected,
 } from "../src/lib/promptSettings";
 import { promptDeleteConfirmRequest } from "../src/lib/settingsConfirm";
-import type { AgentDef, CatalogResponse, PromptDef } from "../src/types";
+import type { CatalogResponse, PromptDef } from "../src/types";
 import { PromptSelector } from "../src/components/agent-settings/PromptSelector";
 import { PromptList } from "../src/components/prompt-settings/PromptList";
 import { createCatalogStore } from "../src/lib/catalogStore";
@@ -142,22 +139,6 @@ test("使用先の表示と削除できない理由を区別する", () => {
   assert.match(promptDeleteBlockedReason(builtin) ?? "", /組み込み/);
 });
 
-test("一覧は種別で分けられ、候補は全件をそのまま扱う", () => {
-  const prompts = [prompt("b1", { kind: "builtin" }), prompt("c1"), prompt("c2")];
-  assert.deepEqual(
-    splitPromptsByKind(prompts).custom.map((entry) => entry.id),
-    ["c1", "c2"],
-  );
-  assert.deepEqual(
-    splitPromptsByKind(prompts).builtin.map((entry) => entry.id),
-    ["b1"],
-  );
-  assert.deepEqual(
-    promptCandidates(prompts).map((entry) => entry.id),
-    ["b1", "c1", "c2"],
-  );
-});
-
 test("エージェントの参照は選択・解除・並べ替えの順序を保ち、上限で追加しない", () => {
   const ids = ["p1", "p2", "p3"];
   assert.deepEqual(withPromptSelected(ids, "p4"), ["p1", "p2", "p3", "p4"]);
@@ -174,21 +155,6 @@ test("エージェントの参照は選択・解除・並べ替えの順序を�
   // 端では動かさない
   assert.deepEqual(withPromptMoved(ids, "p1", -1), ids);
   assert.deepEqual(withPromptMoved(ids, "p3", 1), ids);
-});
-
-test("エージェントの参照は解決済みの並びから取り出す", () => {
-  const agent: AgentDef = {
-    id: "a1",
-    name: "調査",
-    description: "",
-    systemPrompt: "",
-    prompts: [
-      { id: "p1", kind: "custom", label: "ラベル 1", prompt: "本文 1" },
-      { id: "p2", kind: "builtin", label: "ラベル 2", prompt: "本文 2" },
-    ],
-  };
-  assert.deepEqual(promptSelectionOf(agent), ["p1", "p2"]);
-  assert.deepEqual(promptSelectionOf(undefined), []);
 });
 
 test("一覧は自作の行にだけグリップを出し、組み込みは先頭固定にする", () => {
