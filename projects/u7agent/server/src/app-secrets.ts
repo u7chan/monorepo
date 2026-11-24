@@ -49,7 +49,7 @@ export function appSecretFailed(): AppSecretState {
 }
 
 /** master key が無い / 壊れていて復号を試せない */
-export function appSecretMasterKeyMissing(): AppSecretState {
+function appSecretMasterKeyMissing(): AppSecretState {
   return { keyAvailable: false, keyEvaluated: true, keyErrorMessage: APP_SECRET_MASTER_KEY_MESSAGE };
 }
 
@@ -74,6 +74,7 @@ export function evaluateAppSecret({
   if (!cipher) return { value: null, state: appSecretMasterKeyMissing() };
   try {
     const value = cipher.decrypt(scope, owner, secret);
+    // マスカーへ登録できなかった値も、呼び出し側へ渡さない
     retain(value);
     return { value, state: appSecretAvailable() };
   } catch {

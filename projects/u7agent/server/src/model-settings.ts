@@ -15,10 +15,10 @@ import {
   APP_SECRET_DECRYPT_FAILED_MESSAGE,
   APP_SECRET_NOT_STORED_MESSAGE,
   appSecretAvailable,
-  appSecretFailed,
-  appSecretMasterKeyMissing,
   appSecretNotStored,
   appSecretUnevaluated,
+  evaluateAppSecret,
+  requireAppSecretCipher,
   type AppSecretState,
 } from "./app-secrets";
 import { sanitizeRuntimeAuth, type ModelCatalogRefreshAttempt, type RuntimeAuthStatusLike } from "./agent";
@@ -607,7 +607,7 @@ export class ModelSettingsService {
       this.#retainSecret(apiKey);
       let secret: StoredAppSecret;
       try {
-        secret = this.#requireCipher().encrypt("provider_credentials", provider, apiKey);
+        secret = requireAppSecretCipher(this.#appCipher).encrypt("provider_credentials", provider, apiKey);
       } catch {
         // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
         console.warn(`[u7agent] provider key encryption failed: ${provider}`);
@@ -673,7 +673,7 @@ export class ModelSettingsService {
       try {
         row = customProviderRowOf(
           definition,
-          this.#requireCipher().encrypt("custom_providers", definition.id, definition.apiKey),
+          requireAppSecretCipher(this.#appCipher).encrypt("custom_providers", definition.id, definition.apiKey),
         );
       } catch {
         // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
@@ -727,7 +727,7 @@ export class ModelSettingsService {
         const secret =
           typedKey === undefined
             ? { ciphertext: row.ciphertext, nonce: row.nonce, keyVersion: row.keyVersion }
-            : this.#requireCipher().encrypt("custom_providers", next.id, typedKey);
+            : requireAppSecretCipher(this.#appCipher).encrypt("custom_providers", next.id, typedKey);
         stored = customProviderRowOf({ ...next, apiKey: typedKey ?? "" }, secret);
       } catch {
         console.warn(`[u7agent] custom provider key encryption failed: ${provider}`);
@@ -1249,47 +1249,30 @@ export class ModelSettingsService {
     return this.#notStored(error);
   }
 
-  #requireCipher(): AppSecretCipher {
-    if (!this.#appCipher) throw new Error(APP_SECRET_NOT_STORED_MESSAGE);
-    return this.#appCipher;
-  }
-
-  /**
-   * 保存行を復号し、結果をメモリのキャッシュへ残す。復号した値は SDK へ渡す前に保護対象へ入れる。
-   * 平文へは落とさず、失敗は固定文言の状態として返す。
-   */
   #decryptRow(row: ProviderCredentialRow): { apiKey: string | null; state: AppSecretState } {
-    if (!this.#appCipher) {
-      const state = appSecretMasterKeyMissing();
-      this.#secretStates.set(row.provider, state);
-      return { apiKey: null, state };
-    }
-    try {
-      const apiKey = this.#appCipher.decrypt("provider_credentials", row.provider, row);
-      this.#retainSecret(apiKey);
-      const state = appSecretAvailable();
-      this.#secretStates.set(row.provider, state);
-      return { apiKey, state };
-    } catch {
-      const state = appSecretFailed();
-      this.#secretStates.set(row.provider, state);
-      return { apiKey: null, state };
-    }
+    const { value: apiKey, state } = evaluateAppSecret({
+      cipher: this.#appCipher,
+      runtimeAvailable: true,
+      scope: "provider_credentials",
+      owner: row.provider,
+      secret: row,
+      retain: (value) => this.#retainSecret(value),
+    });
+    this.#secretStates.set(row.provider, state);
+    return { apiKey, state };
   }
 
-  /**
-   * カスタム provider の保存行の復号。GET とは別で、SDK へ渡す直前と probe / 再同期のときだけ呼ぶ。
-   * 復号した値は返す前に保護対象へ入れ、平文へは落とさない。
-   */
   #decryptCustomKey(row: CustomProviderRow): { apiKey: string | null; state: AppSecretState } {
-    if (!this.#appCipher) return { apiKey: null, state: appSecretMasterKeyMissing() };
-    try {
-      const apiKey = this.#appCipher.decrypt("custom_providers", row.provider, row);
-      this.#retainSecret(apiKey);
-      return { apiKey, state: appSecretAvailable() };
-    } catch {
-      return { apiKey: null, state: appSecretFailed() };
-    }
+    const { value: apiKey, state } = evaluateAppSecret({
+      cipher: this.#appCipher,
+      // probe は SDK runtime を使わず、保存済みキーを上流へ送る
+      runtimeAvailable: true,
+      scope: "custom_providers",
+      owner: row.provider,
+      secret: row,
+      retain: (value) => this.#retainSecret(value),
+    });
+    return { apiKey, state };
   }
 
   /** 保存値の読取。行が無ければ未設定 (制限なし・既定なし) */
