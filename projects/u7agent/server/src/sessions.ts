@@ -1154,13 +1154,7 @@ export class SessionStore {
     }
   }
 
-  /**
-   * 通知トグル。model / thinkingLevel の設定変更と違い、SDK の設定変更も busy 判定も通さない
-   * (実行中でも切り替えられ、送るかどうかは finish 時点の値で決まる)。
-   * 未ロードのセッションは meta.json だけを書き換え、SDK セッションを開かない
-   * (モデルランタイムが使えない間でも通知を切り替えられるように)。
-   * 応答は live / 未ロード共通の `{ sessionId, notify }` だけにする (会話全文は返さない)。
-   */
+  /** 実行中でも切り替えられ、通知するかどうかは finish 時点の値で決まる。 */
   async setNotify(id: string, notify: boolean): Promise<SessionNotifyResponse | undefined> {
     // 復元中の id は完了を待つ (descriptor を先に書き換えると load の meta で上書きされる)
     const pending = this.lifecycle.get(id);
@@ -1168,21 +1162,31 @@ export class SessionStore {
     const live = this.records.get(id);
     if (live) {
       live.notify = notify;
-      // 履歴は変わらないので meta.json だけを書く
       await this.persist(live, { jsonl: false });
       // 保存失敗を成功扱いにしない (in-memory の実行は止めないが、この応答は 500)
       if (live.persistError) throw httpError(500, `セッションの保存に失敗しました: ${live.persistError}`);
       return { sessionId: live.id, notify: live.notify };
     }
+    return this.updateUnloadedMeta(
+      id,
+      (meta) => {
+        if (notify) meta.notify = true;
+        else delete meta.notify;
+      },
+      { sessionId: id, notify },
+    );
+  }
+
+  /** ランタイムが使えない間も更新できるよう、SDK セッションは開かない。 */
+  private updateUnloadedMeta<T>(id: string, update: (meta: SessionMeta) => void, response: T): Promise<T | undefined> {
     return this.queueMetaUpdate(id, async () => {
       if (this.deleting.has(id) || this.closing) return undefined;
+      // 待機前に読んだ descriptor を使うと、先行した更新を上書きしてしまう。
       const meta = this.descriptors.get(id);
       if (!meta || !this.storeDir) return undefined;
       const updated: SessionMeta = { ...meta };
-      if (notify) updated.notify = true;
-      else delete updated.notify;
+      update(updated);
       const storeDir = this.storeDir;
-      // 古い descriptor を独立保存して後続更新を消さないよう、直列化後に最新値を読む。
       const write = (async () => {
         await writeSessionMeta(storeDir, updated);
         this.descriptors.set(id, updated);
@@ -1195,7 +1199,7 @@ export class SessionStore {
       } finally {
         if (this.lifecycle.get(id) === write) this.lifecycle.delete(id);
       }
-      return { sessionId: id, notify };
+      return response;
     });
   }
 
@@ -1240,35 +1244,17 @@ export class SessionStore {
       }
       return { sessionId: live.id, pinned: live.pinned };
     }
-    return this.queueMetaUpdate(id, async () => {
-      if (this.deleting.has(id) || this.closing) return undefined;
-      const meta = this.descriptors.get(id);
-      if (!meta || !this.storeDir) return undefined;
-      const updated: SessionMeta = { ...meta };
-      if (pinned) updated.pinned = true;
-      else delete updated.pinned;
-      const storeDir = this.storeDir;
-      const write = (async () => {
-        await writeSessionMeta(storeDir, updated);
-        this.descriptors.set(id, updated);
-      })();
-      this.lifecycle.set(id, write);
-      try {
-        await write;
-      } catch (error) {
-        throw httpError(500, `セッションの保存に失敗しました: ${messageFor(error)}`);
-      } finally {
-        if (this.lifecycle.get(id) === write) this.lifecycle.delete(id);
-      }
-      return { sessionId: id, pinned };
-    });
+    return this.updateUnloadedMeta(
+      id,
+      (meta) => {
+        if (pinned) meta.pinned = true;
+        else delete meta.pinned;
+      },
+      { sessionId: id, pinned },
+    );
   }
 
-  /**
-   * 会話タイトルの変更。notify と同じく SDK に触らず busy 判定も通さないため、実行中でも変えられる。
-   * 未ロードのセッションは meta.json だけを書き換え、SDK セッションを開かない。応答は
-   * `{ sessionId, title }` だけを返し、一覧と同じ正規化 (trim / マスク / 上限) 後の値を載せる。
-   */
+  /** 通知トグルと同様、実行中でも改名できる。 */
   async setTitle(id: string, title: string): Promise<SessionTitleResponse | undefined> {
     // 自動タイトルと同じ正規化を 1 行に収める (改行を持つ名前が一覧の行を崩さないように)
     const next = truncate(this.masker.mask(title).replace(/\s+/g, " ").trim(), TITLE_MAX);
@@ -1286,26 +1272,14 @@ export class SessionStore {
       if (live.persistError) throw httpError(500, `セッションの保存に失敗しました: ${live.persistError}`);
       return { sessionId: live.id, title: live.title };
     }
-    return this.queueMetaUpdate(id, async () => {
-      if (this.deleting.has(id) || this.closing) return undefined;
-      const meta = this.descriptors.get(id);
-      if (!meta || !this.storeDir) return undefined;
-      const updated: SessionMeta = { ...meta, title: next, titleOrigin: "manual" };
-      const storeDir = this.storeDir;
-      const write = (async () => {
-        await writeSessionMeta(storeDir, updated);
-        this.descriptors.set(id, updated);
-      })();
-      this.lifecycle.set(id, write);
-      try {
-        await write;
-      } catch (error) {
-        throw httpError(500, `セッションの保存に失敗しました: ${messageFor(error)}`);
-      } finally {
-        if (this.lifecycle.get(id) === write) this.lifecycle.delete(id);
-      }
-      return { sessionId: id, title: next };
-    });
+    return this.updateUnloadedMeta(
+      id,
+      (meta) => {
+        meta.title = next;
+        meta.titleOrigin = "manual";
+      },
+      { sessionId: id, title: next },
+    );
   }
 
   async updateSettings(record: SessionRecord, input: UpdateSessionSettingsInput): Promise<SessionPayload> {
