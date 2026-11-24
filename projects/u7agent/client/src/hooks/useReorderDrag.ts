@@ -1,32 +1,25 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
 import { resolveLayoutMode, resolveWide, type LayoutMode } from "../lib/layout";
 import {
-  AGENT_DRAG_THRESHOLD,
+  REORDER_DRAG_THRESHOLD,
   alignCapturedRows,
   dropTargetFor,
   edgeScrollStep,
-  moveAgentId,
+  moveRowId,
   scrollableAncestor,
-} from "../lib/agentReorder";
+} from "../lib/listReorder";
 
 /**
  * 一覧ごとに変える名前。行の id を読む属性・追従に使う CSS 変数・ドラッグ中に body へ付けるクラスで、
- * classes が持つ定義 (styles/index.css) と行側の `className` が同じ値を使う。
+ * 呼び出し側の行が同じ値を使う（`className` / 属性は各一覧、定義は styles/index.css）。
  */
-export type AgentDragNaming = {
+export type ReorderDragNaming = {
   /** 行が id を持つ属性 (`data-agent-row` / `data-space-row`) */
   rowAttribute: string;
   /** 追従の translate に使う CSS 変数 */
   yVariable: string;
   /** ドラッグ中に body へ付けるクラス。styles/index.css がカーソルと選択抑止を持つ */
   bodyClass: string;
-};
-
-/** エージェント一覧の名前。スペース一覧は `SpaceSettingsPage` が自分の名前を渡す */
-export const AGENT_DRAG_NAMING: AgentDragNaming = {
-  rowAttribute: "data-agent-row",
-  yVariable: "--agent-drag-y",
-  bodyClass: "is-dragging-agent",
 };
 
 /** ドラッグ中のレイアウト。切替（並列表示 ⇄ 一覧 + シート / desktop ⇄ singleColumn）を知るための値 */
@@ -38,7 +31,7 @@ function currentDragLayout(): DragLayout {
 }
 
 /** pointer capture 中の 1 回のドラッグ。move ごとの再描画を避けるため ref に持つ */
-type AgentDragSession = {
+type ReorderDragSession = {
   pointerId: number;
   id: string;
   /**
@@ -60,11 +53,11 @@ type AgentDragSession = {
   layout: DragLayout;
 };
 
-export type AgentDragOptions = {
+export type ReorderDragOptions = {
   /** 行を含む容器（行は `naming.rowAttribute` に id を持つ）。pointer capture もこの要素が取る */
   containerRef: RefObject<HTMLElement | null>;
-  /** 行の属性・追従の CSS 変数・ドラッグ中の body クラス。未指定はエージェント一覧の名前 */
-  naming?: AgentDragNaming;
+  /** 行の属性・追従の CSS 変数・ドラッグ中の body クラス */
+  naming: ReorderDragNaming;
   /** ドラッグできる行の id（表示順）。ビルトインは含めない */
   ids: readonly string[];
   /** live 差し替え（下書きの更新） */
@@ -77,39 +70,40 @@ export type AgentDragOptions = {
   disabled: boolean;
 };
 
-export type AgentDragContainerHandlers = {
+export type ReorderDragContainerHandlers = {
   onPointerMove: (event: PointerEvent<HTMLElement>) => void;
   onPointerUp: (event: PointerEvent<HTMLElement>) => void;
   onPointerCancel: (event: PointerEvent<HTMLElement>) => void;
   onLostPointerCapture: (event: PointerEvent<HTMLElement>) => void;
 };
 
-export type AgentDrag = {
+export type ReorderDrag = {
   /** ドラッグ中の行の id（見た目の切替に使う） */
   draggingId: string | null;
   /** グリップへ配る配線（開始だけ。以降のイベントは容器へ retarget される） */
   gripHandlers: (id: string) => { onPointerDown: (event: PointerEvent<HTMLElement>) => void };
   /** 行の容器へ配る配線 */
-  containerHandlers: AgentDragContainerHandlers;
+  containerHandlers: ReorderDragContainerHandlers;
 };
 
 /**
- * 一覧のグリップのドラッグ。判定は `lib/agentReorder.ts` の純関数へ置き、ここは pointer capture・
- * live 差し替え・端の自動スクロール・終了経路の後始末だけを持つ（エージェント / スペースの一覧で共有）。
+ * 一覧のグリップのドラッグ。判定は `lib/listReorder.ts` の純関数へ置き、ここは pointer capture・
+ * live 差し替え・端の自動スクロール・終了経路の後始末だけを持つ（エージェント / 定型プロンプト /
+ * スペース / 環境変数の一覧で共有）。
  * 行側の名前（属性・ CSS 変数・ body クラス）は `naming` で受け、見た目のクラスは呼び出し側が付ける。
  * 終了経路（pointerup / pointercancel / lostpointercapture / Escape / unmount）は finishDrag 1 箇所に
  * まとめ、二重に走っても安全にする（SidebarResizeHandle と同じ作法）。
  */
-export function useAgentDrag({
+export function useReorderDrag({
   containerRef,
-  naming = AGENT_DRAG_NAMING,
+  naming,
   ids,
   onMove,
   onCommit,
   onCancel,
   disabled,
-}: AgentDragOptions): AgentDrag {
-  const dragRef = useRef<AgentDragSession | null>(null);
+}: ReorderDragOptions): ReorderDrag {
+  const dragRef = useRef<ReorderDragSession | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   // move / tick から最新の callback を使う（依存で identity が変わってもドラッグを切らない）
   const handlersRef = useRef({ onMove, onCommit, onCancel });
@@ -166,7 +160,7 @@ export function useAgentDrag({
    * スクロール枠の scrollTop が差し引かれない）。
    */
   const followPointer = useCallback(
-    (drag: AgentDragSession): boolean => {
+    (drag: ReorderDragSession): boolean => {
       const row = rowElements([drag.id])[0];
       if (!row) return false;
       const variable = namingRef.current.yVariable;
@@ -181,7 +175,7 @@ export function useAgentDrag({
 
   /** 端の帯に入ったら、いま実際にスクロールしている祖先（無ければページ）を回す */
   const autoScroll = useCallback(
-    (drag: AgentDragSession): boolean => {
+    (drag: ReorderDragSession): boolean => {
       const container = containerRef.current;
       if (!container) return false;
       const target = scrollableAncestor(container.parentElement) ?? document.scrollingElement;
@@ -229,7 +223,7 @@ export function useAgentDrag({
     });
     if (from !== -1) {
       // 移動前の添字で数えた挿入先へ差し替える
-      const next = moveAgentId(drag.current, from, dropTargetFor(centers, drag.pointerY, from));
+      const next = moveRowId(drag.current, from, dropTargetFor(centers, drag.pointerY, from));
       if (next.some((id, index) => id !== drag.current[index])) {
         drag.current = next;
         drag.moved = true;
@@ -276,7 +270,7 @@ export function useAgentDrag({
       if (!drag || drag.pointerId !== event.pointerId) return;
       drag.pointerY = event.clientY;
       if (!drag.grabbed) {
-        if (Math.abs(event.clientY - drag.startY) < AGENT_DRAG_THRESHOLD) return;
+        if (Math.abs(event.clientY - drag.startY) < REORDER_DRAG_THRESHOLD) return;
         drag.grabbed = true;
         document.body.classList.add(namingRef.current.bodyClass);
         setDraggingId(drag.id);
@@ -291,7 +285,7 @@ export function useAgentDrag({
     [onGripPointerDown],
   );
 
-  const containerHandlers: AgentDragContainerHandlers = {
+  const containerHandlers: ReorderDragContainerHandlers = {
     onPointerMove,
     onPointerUp: (event) => finishDrag(event.pointerId, true),
     onPointerCancel: (event) => finishDrag(event.pointerId, false),

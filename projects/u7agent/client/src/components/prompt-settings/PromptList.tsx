@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type { PromptDef } from "../../types";
-import { useAgentDrag, type AgentDragNaming } from "../../hooks/useAgentDrag";
+import { useReorderDrag, type ReorderDragNaming } from "../../hooks/useReorderDrag";
 import { cn } from "../../lib/cn";
 import { filterBySearch } from "../../lib/settingsSearch";
 import { PROMPT_LIST_EMPTY_NOTE } from "../../lib/promptSettings";
@@ -13,7 +13,7 @@ export const PROMPT_LIST_SEARCH_PLACEHOLDER = "定型プロンプトを検索";
 export const PROMPT_LIST_SEARCH_ARIA_LABEL = "定型プロンプトを検索";
 
 /** 一覧ごとに変える名前。styles/index.css の `.prompt-drag-row` / `body.is-dragging-prompt` と揃える */
-const PROMPT_DRAG_NAMING: AgentDragNaming = {
+const PROMPT_DRAG_NAMING: ReorderDragNaming = {
   rowAttribute: "data-prompt-row",
   yVariable: "--prompt-drag-y",
   bodyClass: "is-dragging-prompt",
@@ -55,7 +55,7 @@ export function PromptList({
   const searching = query.trim() !== "";
   // 検索中は並べ替えを開かない: 非表示の行との順序を決められず、確定すると見えていない行まで動く
   const dragDisabled = reorderDisabled || searching;
-  const drag = useAgentDrag({
+  const drag = useReorderDrag({
     containerRef,
     naming: PROMPT_DRAG_NAMING,
     ids: reorderIds,

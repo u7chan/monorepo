@@ -4,7 +4,7 @@ import { useSpaceApi } from "../SpaceContext";
 import { copyToClipboard } from "../lib/copyToClipboard";
 import { cn } from "../lib/cn";
 import { messageFor } from "../lib/errors";
-import { useAgentDrag } from "../hooks/useAgentDrag";
+import { useReorderDrag } from "../hooks/useReorderDrag";
 import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
 import {
   canSubmitEnvDraft,
@@ -315,7 +315,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
     }
   };
 
-  const drag = useAgentDrag({
+  const drag = useReorderDrag({
     containerRef,
     naming: ENV_DRAG_NAMING,
     ids: items.map((item) => item.secretId),

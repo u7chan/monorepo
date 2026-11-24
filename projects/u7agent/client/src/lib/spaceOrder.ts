@@ -1,6 +1,7 @@
 /**
  * 設定 → 会話スペース（/settings/spaces）の並べ替えの保存と反映。ドラッグの下書きはページが持ち、
- * 確定時の手順（保存 → 一覧へマージ）と失敗の分類だけをここへ閉じる。
+ * 確定時の手順（保存 → 一覧へマージ）と失敗の分類だけをここへ閉じる。下書きと送信の直列化は
+ * `lib/orderDraft.ts` が持つ。
  *
  * **取り直し（refresh）を持たない**: スペース一覧の取得経路は初回 mount と復旧画面の明示的な再取得だけで、
  * エージェントのような共有カタログの取り直しと組にできない。そのため結果不明の下書きはページに残したまま
@@ -12,13 +13,9 @@
  */
 import { ApiError } from "../api";
 import { messageFor } from "./errors";
+import { createOrderDraft, type OrderDraftState } from "./orderDraft";
 
-export type SpaceOrderState = {
-  /** ドラッグ中の下書き順（既定スペースを除く id）。null = 確定済みの一覧の順 */
-  draft: string[] | null;
-  /** 送信を直列化する。保存中は次のドラッグを始めさせない */
-  saving: boolean;
-};
+export type SpaceOrderState = OrderDraftState;
 
 /** 通知の種類。文言はページが持ち、ここは分類だけを渡す */
 export type SpaceOrderNoteKind =
@@ -56,51 +53,36 @@ export type SpaceOrderFlow = {
 };
 
 export function createSpaceOrderFlow(options: SpaceOrderFlowOptions): SpaceOrderFlow {
-  let state: SpaceOrderState = { draft: null, saving: false };
-  const publish = () => options.onChange({ draft: state.draft ? [...state.draft] : null, saving: state.saving });
+  const draft = createOrderDraft({ ids: options.ids, onChange: options.onChange });
 
   return {
-    state: () => ({ draft: state.draft ? [...state.draft] : null, saving: state.saving }),
-
+    state: () => draft.state(),
     preview(ids) {
-      if (state.saving) return;
-      state = { draft: [...ids], saving: state.saving };
-      publish();
+      draft.preview(ids);
     },
-
     cancel() {
-      if (!state.draft) return;
-      state = { draft: null, saving: state.saving };
-      publish();
+      draft.cancel();
     },
 
     async commit() {
-      // 保存中のドラッグは開始させない前提。ここでも直列化して、到達順の逆転で古い操作が最終値にならないようにする
-      if (state.saving) return;
-      // 動かしていないドラッグ（しきい値を越えて戻した / 同位置へ落とした）では送らない
-      const ids = state.draft;
-      const current = options.ids();
-      if (!ids || (ids.length === current.length && ids.every((id, index) => id === current[index]))) return;
       // 応答の反映可否は保存を始める前に捕る (離脱・再生成を跨いだ古い応答を捨てる)
       const canApply = options.capture();
-      state = { draft: [...ids], saving: true };
-      publish();
+      const ids = draft.begin();
+      if (!ids) return;
 
       let saved: readonly string[];
       try {
-        saved = await options.save([...ids]);
+        saved = await options.save(ids);
       } catch (error) {
         // 離脱後は共有の一覧にも、もう無いページの note にも触らない
         if (!canApply()) return;
         if (error instanceof ApiError) {
           // HTTP エラーの応答は保存されていないため、元の順へ戻して理由を出す
-          state = { draft: null, saving: false };
-          publish();
+          draft.finish(null);
           options.note("rejected", messageFor(error));
         } else {
           // 応答が返らない失敗は保存結果が不明。下書きは残したまま、次のドラッグは開始できるようにする
-          state = { draft: [...ids], saving: false };
-          publish();
+          draft.finish(ids);
           options.note("unknown", messageFor(error));
         }
         return;
@@ -110,8 +92,7 @@ export function createSpaceOrderFlow(options: SpaceOrderFlowOptions): SpaceOrder
       if (!canApply()) return;
       // 確定した順は、応答に入っていない行（応答待ちの間に作られた行）をその場に残して一覧へ反映する
       options.apply(saved);
-      state = { draft: null, saving: false };
-      publish();
+      draft.finish(null);
     },
   };
 }
