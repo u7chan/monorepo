@@ -16,7 +16,7 @@
 | 設定 → コンテンツ生成 | 画像（`/settings/content`）/ TTS（`/settings/content/speech`）/ BGM（`/settings/content/bgm`） | 共有APIキーと画像・TTSの選択、[BGM固定モデルの表示](bgm-generation.md)。タブの語彙の正は `client/src/lib/settingsNav.ts` |
 | 設定 → Web 検索（編集可）（`/settings/web-search`） | 検索の実行時設定 | `web_search` の実行時トグル・既定 provider・provider ごとの APIキー（[web-search.md](web-search.md#実行時トグル)） |
 
-プロバイダーとカタログの表示はランタイム画面からモデル画面へ移した。ランタイム画面は `GET /api/runtime/models` を呼ばない。health に載せていたモデル診断（`runtimeDiagnostics`）は撤去し、SDK バージョンだけを health 直下の `versions` に残した。
+プロバイダーとカタログは設定 → モデル（`/settings/models`）に出す。ランタイム画面は `GET /api/runtime/models` を呼ばない。health はモデルの診断を持たず、SDK バージョンを直下の `versions` にだけ返す。
 
 ## 保存先とスキーマ
 

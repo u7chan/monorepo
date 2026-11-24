@@ -122,7 +122,7 @@ TLS 終端をリバースプロキシへ置くと、要求 URL のオリジン�
 
 `modelOptions` は認証済みで利用可能なモデルのみ。設定 → モデル の「利用可能なモデル」を保存したときは、その許可リストと利用可能モデルの積だけになる（保存された既定モデルが許可リスト外なら `defaultModelError`、積が空なら `ready: false` と `設定 → モデル` を名指しした `error`。`errorCode` は互換のため `model_whitelist_empty` のまま）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_THINKING` → `medium` の順で決まる。解決の詳細は [model-effort.md](model-effort.md)。
 
-`versions` は実行中の SDK バージョンで、設定されている場合は `COMMIT_HASH` も含む。以前は `runtimeDiagnostics.versions` として返していたが、モデル診断の撤去に伴い health 直下へ移した（ランタイム初期化に失敗したときも `runtimeVersionInfo()` の値だけを返す）。プロバイダー別の集計と認証ソース（`environment` / `stored` / `runtime` / `fallback` / `models_json_key` / `models_json_command` / 未知の値は `unknown`）は [ランタイムのモデルカタログ](#ランタイムのモデルカタログ) が返す。認証状態のラベル、環境変数値、認証ファイル内容、生の認証エラーは health にもカタログにも含めない。
+`versions` は実行中の SDK バージョンで、設定されている場合は `COMMIT_HASH` も含む。health 直下に置き、モデルの診断は返さない（ランタイム初期化に失敗したときも `runtimeVersionInfo()` の値だけを返す）。プロバイダー別の集計と認証ソース（`environment` / `stored` / `runtime` / `fallback` / `models_json_key` / `models_json_command` / 未知の値は `unknown`）は [ランタイムのモデルカタログ](#ランタイムのモデルカタログ) が返す。認証状態のラベル、環境変数値、認証ファイル内容、生の認証エラーは health にもカタログにも含めない。
 
 ## ランタイムのモデルカタログ
 

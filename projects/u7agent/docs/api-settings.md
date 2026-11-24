@@ -374,7 +374,7 @@
 - `keyEpoch` はキーの世代で、**上書きと（行があったときの）削除で進む**。新規保存と未設定の削除では動かさない。試行の証拠は「現在の `keyEpoch` と現在のモデル」に一致する成功だけを数えるため、旧キーの実績が現在のキーの確認として扱われない（[image-generation.md](image-generation.md#設定画面)）
 - キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`。削除すると行ごと消え、`generate_image` / `generate_speech` / `generate_bgm` は次のセッション作成・復元から公開されなくなる（既存liveセッションの execute は実行時にキー無効エラーを返す）。
 
-音声の生成は試行（`POST /api/settings/content/trials` の `kind: "speech"`）に一本化し、設定を変えない別の生成ルートは持たない（旧 `/api/settings/content/speech/preview` は退役した）。本文・演技指示・話速は試行の入力スナップショットとして履歴に残り、成果物は同じ raw ルートで配信する。
+音声の生成は試行（`POST /api/settings/content/trials` の `kind: "speech"`）に一本化し、設定を変えない別の生成ルートを持たない。本文・演技指示・話速は試行の入力スナップショットとして履歴に残り、成果物は同じ raw ルートで配信する。
 
 ```json
 // POST /api/settings/content/trials (202。BGM。モデルは固定で、入力は prompt だけ)
