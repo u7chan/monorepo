@@ -201,6 +201,8 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 - 進行中の分岐は、同じスペースの削除が待つ（子は親と同じスペースに入るため）。待った後は親の存在と所属スペースを再確認する。
 - 子のタイトル試行は親から複製し、`pending` は子だけ `interrupted` に終端化する（子の最初の完了で要約し直さない。親の meta / `titleTask` は変えない）。親に試行が無ければ子も未試行で、子の最初の正常完了で 1 回だけ要約され得る（[session-title.md](session-title.md#実行のタイミングと試行)）。
 
+このうち共有フォルダの確認・破損の検証・親の保存と読み直し・境界までの複製・子の store の書込みと失敗時の巻き戻しは `server/src/fork-session.ts` が持つ。`SessionStore` に残るのは検証と、予約（`lifecycle` / `pendingMoves`）・確定・配信（子の open）の順序。
+
 ## ライフサイクル / 制限
 
 - 会話は BFF 専用ストアへ永続化し、起動時に一覧を復元する（[persistence.md](persistence.md)）。プロジェクトの登録はアプリデータの SQLite へ保存し、所属は `projectCwd` から読み取り時に解決する。

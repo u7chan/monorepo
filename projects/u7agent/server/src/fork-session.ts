@@ -34,8 +34,8 @@ export interface ForkSessionPort {
   /** 削除予約 / close。確定より前の各段の後でこれを見て、書いたものを戻す */
   isAborted(): boolean;
   /**
-   * 共有している作業フォルダの存在確認 (無ければ 409)。409 への写像は復元の経路と同じ 1 か所に
-   * 残したいので、ここでは検査の順序だけを持つ
+   * 共有している作業フォルダの存在確認 (無ければ 409)。復元 (`load`) と `requireForkWorkdir` も同じ
+   * 検査を使うため、409 への写像は会話ストアに残し、ここでは順序だけを持つ
    */
   requireSharedWorkdir(workdir: string): Promise<void>;
   /** 親の未保存 entry を確定させる。失敗は文字列で返す (in-memory の実行は止めない) */
