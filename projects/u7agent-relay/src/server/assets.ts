@@ -22,11 +22,32 @@ const MARKDOWN_DESTINATION = /!?\[[^\]]*\]\(\s*(?:<([^>\n]*)>|([^\s)]+))(?:\s+(?
  * 先頭の `./` と重複する `/` / `.` セグメントだけを落とす。
  */
 export function normalizeFilePath(raw: string): string | null {
+  return normalizeSegments(raw, true);
+}
+
+/** セッションの cwd は upstream が返す root 相対。root 自身（`""` / `.`）は対象外にする。 */
+export function normalizeCwd(raw: unknown): string | null {
+  return typeof raw === "string" ? normalizeSegments(raw, false) : null;
+}
+
+/**
+ * クライアントが渡す `path` は厳密に、upstream が返す cwd はパス文字を許して正規化する。
+ * cwd には空白・`?`・`#` などが含まれ得るが、絶対パス・`..`・NUL・バックスラッシュは拒否する。
+ */
+function normalizeSegments(raw: string, strict: boolean): string | null {
   if (raw === "" || raw.includes("\0") || raw.includes("\\") || raw.startsWith("/")) {
     return null;
   }
 
-  if (/\s/.test(raw) || raw.includes("?") || raw.includes("#") || raw.includes("://")) {
+  if (
+    strict &&
+    (/\s/.test(raw) ||
+      raw.includes("?") ||
+      raw.includes("#") ||
+      raw.includes("://") ||
+      raw.includes("<") ||
+      raw.includes(">"))
+  ) {
     return null;
   }
 
@@ -45,11 +66,6 @@ export function normalizeFilePath(raw: string): string | null {
   }
 
   return segments.length === 0 ? null : segments.join("/");
-}
-
-/** セッションの cwd は root 相対。root 自身（`""` / `.`）はファイル API の対象外にする。 */
-export function normalizeCwd(raw: unknown): string | null {
-  return typeof raw === "string" ? normalizeFilePath(raw) : null;
 }
 
 export function assetKindOf(path: string): AssetKind | null {
@@ -110,5 +126,8 @@ export function extractRunAssets(messages: UpstreamMessage[] | undefined, runId:
 
 /** コードブロック・インラインコードの中の字面をリンクとして拾わない。 */
 function stripCode(text: string): string {
-  return text.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
+  return text
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/~~~[\s\S]*?~~~/g, "")
+    .replace(/`[^`\n]*`/g, "");
 }

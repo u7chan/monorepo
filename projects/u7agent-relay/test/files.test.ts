@@ -13,7 +13,7 @@ import {
   type Harness,
 } from "./harness";
 
-type Call = { url: string; method: string; range: string | null; path: string | null };
+type Call = { url: string; method: string; range: string | null; path: string | null; acceptEncoding: string | null };
 
 function createFilesUpstream(
   options: {
@@ -39,7 +39,13 @@ function createFilesUpstream(
     const path = url.searchParams.get("path");
     const headers = new Headers(init?.headers);
 
-    calls.push({ url: String(input), method: init?.method ?? "GET", range: headers.get("range"), path });
+    calls.push({
+      url: String(input),
+      method: init?.method ?? "GET",
+      range: headers.get("range"),
+      path,
+      acceptEncoding: headers.get("accept-encoding"),
+    });
 
     if (url.pathname.startsWith("/api/sessions/")) {
       return jsonResponse(session);
@@ -195,6 +201,53 @@ describe("生成物のダウンロード", () => {
     }
   });
 
+  test("Content-Encoding がある応答では Content-Length を引き継がない", async () => {
+    const upstream = createFilesUpstream({
+      stat: () => ({ status: 200, path: "projects/app/demo.html" }),
+      download: () =>
+        new Response("<h1>hi</h1>", {
+          status: 200,
+          headers: { "Content-Encoding": "gzip", "Content-Length": "10", "Content-Type": "text/html" },
+        }),
+    });
+    const harness = await createHarness({ fetchImpl: upstream.fetchImpl });
+
+    try {
+      const { token } = seedCompletedRun(harness);
+      const response = await fileRequest(harness, token, "?path=demo.html");
+      const downloadCall = upstream.calls.find((call) => call.url.includes("/api/files/download"));
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-length")).toBeNull();
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(downloadCall?.acceptEncoding).toBe("identity");
+      expect(await response.text()).toBe("<h1>hi</h1>");
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  test("cwd に空白を含んでもダウンロードできる", async () => {
+    const cwd = "projects/my app";
+    const upstream = createFilesUpstream({
+      cwd,
+      stat: (path) => ({ status: 200, path }),
+    });
+    const harness = await createHarness({ fetchImpl: upstream.fetchImpl });
+
+    try {
+      const { token } = seedCompletedRun(harness);
+      const response = await fileRequest(harness, token, "?path=generated%2Fcafe.png");
+      const statCall = upstream.calls.find((call) => call.url.includes("/api/files/stat"));
+
+      expect(response.status).toBe(200);
+      expect(statCall?.path).toBe(`${cwd}/generated/cafe.png`);
+      expect(await response.arrayBuffer()).toHaveLength(3);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
   test("cwd の外を指す realpath は 400、root の cwd は 403", async () => {
     const outside = createFilesUpstream({ stat: () => ({ status: 200, path: "projects/other/x.png" }) });
     const outsideHarness = await createHarness({ fetchImpl: outside.fetchImpl });
@@ -245,7 +298,7 @@ describe("生成物のダウンロード", () => {
     }
   });
 
-  test("上流の 404 / 413 / 416 / 503 を写像する", async () => {
+  test("上流の 400 / 404 / 413 / 416 / 502 / 503 / 504 を写像する", async () => {
     const notFound = createFilesUpstream({ stat: () => ({ status: 404 }) });
     const notFoundHarness = await createHarness({ fetchImpl: notFound.fetchImpl });
 
@@ -310,6 +363,62 @@ describe("生成物のダウンロード", () => {
       expect(await response.json()).toEqual({ error: "upstream_unavailable" });
     } finally {
       unavailableHarness.cleanup();
+    }
+
+    const badPath = createFilesUpstream({ stat: () => ({ status: 400 }) });
+    const badPathHarness = await createHarness({ fetchImpl: badPath.fetchImpl });
+
+    try {
+      const { token } = seedCompletedRun(badPathHarness);
+      const response = await fileRequest(badPathHarness, token, "?path=generated%2Fcafe.png");
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid_path" });
+    } finally {
+      badPathHarness.cleanup();
+    }
+
+    const badGateway = createFilesUpstream({
+      raw: () => new Response("upstream", { status: 502 }),
+    });
+    const badGatewayHarness = await createHarness({ fetchImpl: badGateway.fetchImpl });
+
+    try {
+      const { token } = seedCompletedRun(badGatewayHarness);
+      const response = await fileRequest(badGatewayHarness, token, "?path=generated%2Fcafe.png");
+
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({ error: "upstream_unavailable" });
+    } finally {
+      badGatewayHarness.cleanup();
+    }
+
+    const rawTimeout = createFilesUpstream({
+      raw: () => new Response("upstream", { status: 504 }),
+    });
+    const rawTimeoutHarness = await createHarness({ fetchImpl: rawTimeout.fetchImpl });
+
+    try {
+      const { token } = seedCompletedRun(rawTimeoutHarness);
+      const response = await fileRequest(rawTimeoutHarness, token, "?path=generated%2Fcafe.png");
+
+      expect(response.status).toBe(504);
+      expect(await response.json()).toEqual({ error: "upstream_timeout" });
+    } finally {
+      rawTimeoutHarness.cleanup();
+    }
+
+    const statTimeout = createFilesUpstream({ stat: () => ({ status: 504 }) });
+    const statTimeoutHarness = await createHarness({ fetchImpl: statTimeout.fetchImpl });
+
+    try {
+      const { token } = seedCompletedRun(statTimeoutHarness);
+      const response = await fileRequest(statTimeoutHarness, token, "?path=generated%2Fcafe.png");
+
+      expect(response.status).toBe(504);
+      expect(await response.json()).toEqual({ error: "upstream_timeout" });
+    } finally {
+      statTimeoutHarness.cleanup();
     }
   });
 

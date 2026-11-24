@@ -86,6 +86,10 @@ export function createUpstreamClient(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), fileHeaderTimeoutMs);
     const onAbort = () => controller.abort();
+    const requestHeaders = new Headers(headers);
+
+    // 圧縮されると Content-Length が本文と一致しない。ダウンロードは生バイトで受ける。
+    requestHeaders.set("Accept-Encoding", "identity");
 
     if (signal) {
       if (signal.aborted) {
@@ -98,7 +102,7 @@ export function createUpstreamClient(
     try {
       const response = await fetchImpl(url, {
         method: "GET",
-        headers,
+        headers: requestHeaders,
         redirect: "error",
         signal: controller.signal,
       });

@@ -18,6 +18,8 @@ describe("normalizeFilePath", () => {
       "a b.png",
       "a?b.png",
       "a#b.png",
+      "a<b.png",
+      "a>b.png",
       "https://agent.example.com/a.png",
     ]) {
       expect(normalizeFilePath(value)).toBeNull();
@@ -29,6 +31,8 @@ describe("normalizeCwd", () => {
   test("root 自身はファイル API の対象外にする", () => {
     expect(normalizeCwd("projects/app/")).toBe("projects/app");
     expect(normalizeCwd("./projects/app")).toBe("projects/app");
+    expect(normalizeCwd("projects/my app")).toBe("projects/my app");
+    expect(normalizeCwd("projects/a?b#c")).toBe("projects/a?b#c");
     expect(normalizeCwd("")).toBeNull();
     expect(normalizeCwd(".")).toBeNull();
     expect(normalizeCwd("../app")).toBeNull();
@@ -80,11 +84,21 @@ describe("extractRunAssets", () => {
     ]);
   });
 
+  test("<dest> 形式のリンク先は受け付け、< / > を含むパスは捨てる", () => {
+    const text = ["![angle](<generated/angle.png>)", "![bad](generated/a<b.png)"].join("\n");
+    const assets = extractRunAssets([{ role: "assistant", assistantId: `${runId}:0`, text }], runId);
+
+    expect(assets).toEqual([{ path: "generated/angle.png", kind: "image" }]);
+  });
+
   test("コードの中の画像記法は拾わない", () => {
     const text = [
       "```",
       "![code](generated/code.png)",
       "```",
+      "~~~",
+      "![tilde](generated/tilde.png)",
+      "~~~",
       "`![inline](generated/inline.png)`",
       "![real](generated/real.png)",
     ].join("\n");

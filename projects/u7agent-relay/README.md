@@ -115,8 +115,10 @@ curl -fsS "http://localhost:8787/v1/runs/0123456789abcdef/files?path=generated%2
 - 上限は 1 ファイル 100 MiB、同時ダウンロードは接続先ごとに 2 本です。超過は `413 file_too_large` / `429 too_many_downloads`。
 - 上流の 400 / 404 / 413 / 502 / 503 / 504 は `invalid_path` / `file_not_found` / `file_too_large` / `upstream_unavailable` / `upstream_timeout` などに写像します。上流の本文は返しません。
 - 画像と音声以外に `Range` を付けても無視し、200 で全体を返します。
+- 上流へのファイル取得は `Accept-Encoding: identity` を要求します。上流が `Content-Encoding` を付けた場合は `Content-Length` を引き継がず、本文の長さはチャンク転送に任せます。
 - ファイルは `attachment` として返すため、relay のオリジンで HTML は実行されません。
 - 一覧の `kind` は本文のパスから決めるヒントです。実際に配信できるかは `stat` が返す realpath の拡張子で決まります。
+- 抽出は Markdown のフェンス（``` / ~~~）とインラインコードを除外します。インデントコードブロック内の記法は除外できない既知の制限があります。
 - `cwd` は接続先ごとに 60 秒キャッシュします。セッション移動の直後は最大 60 秒古い cwd を使うことがあり、その場合は `stat` の確認で fail closed になります。
 - `stat` と取得の間に symlink を差し替えられる競合は塞げません。静的な symlink は realpath の確認で拒否します。
 - プロジェクト会話の `cwd` はプロジェクトのルートです。その配下のファイルをキーで読める範囲になるため、接続先の会話とキーの配布先を信頼できる範囲に限ってください。

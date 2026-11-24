@@ -74,6 +74,10 @@ export function createFilesService(options: {
       throw new UpstreamError(502, "upstream_unavailable");
     }
 
+    if (stat.status === 504) {
+      throw new UpstreamError(504, "upstream_timeout");
+    }
+
     throw new UpstreamError(502, "upstream_invalid");
   }
 
@@ -151,7 +155,12 @@ export function createFilesService(options: {
       "X-Content-Type-Options": "nosniff",
     });
 
-    copyHeader(response, headers, "content-length");
+    // Content-Encoding がある応答は本文が展開済みでも長さが圧縮時のまま残ることがある。
+    const encoding = response.headers.get("content-encoding");
+
+    if (encoding === null || encoding === "identity") {
+      copyHeader(response, headers, "content-length");
+    }
 
     if (partial) {
       copyHeader(response, headers, "accept-ranges");
@@ -239,6 +248,7 @@ function upstreamFailure(status: number): AdminError | UpstreamError {
   if (status === 404) return new AdminError(404, "file_not_found");
   if (status === 413) return new AdminError(413, "file_too_large");
   if (status === 502 || status === 503) return new UpstreamError(502, "upstream_unavailable");
+  if (status === 504) return new UpstreamError(504, "upstream_timeout");
 
   return new UpstreamError(502, "upstream_invalid");
 }
