@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { allowlistCount, allowlistCountLabel } from "../../lib/agentAllowlist";
+import { allowlistCount, allowlistCountLabel, isNameAllowed } from "../../lib/agentAllowlist";
 import {
   ALLOWLIST_DEFAULT_LABEL,
   ALLOWLIST_DIRTY_LABEL,
@@ -25,12 +25,6 @@ import { SwitchRow } from "./SwitchRow";
 
 export const TOOL_SEARCH_PLACEHOLDER = "ツール名・説明で絞り込む";
 export const TOOL_SEARCH_ARIA_LABEL = "ツールを絞り込む";
-
-/** 行の ON / OFF。未指定 / 解除は全部 ON、明示リストは配列に含まれる名前だけ ON */
-function usedName(names: string[] | null | undefined, visible: readonly string[], name: string): boolean {
-  if (!Array.isArray(names)) return visible.includes(name);
-  return names.includes(name);
-}
 
 /**
  * エージェント編集のツールタブ。スキルと同じ 1 枚のパネルにグループ見出しとスイッチ行を積む。
@@ -109,7 +103,7 @@ export function ToolSelector({
                   rows.map((tool) => {
                     const notes = [
                       unavailableToolNote(tool.reason),
-                      usedName(toolNames, visibleNames, tool.name) ? undefined : offToolNote(tool.name),
+                      isNameAllowed(toolNames, visibleNames, tool.name) ? undefined : offToolNote(tool.name),
                     ].filter((note): note is string => Boolean(note));
                     return (
                       <SwitchRow
@@ -117,7 +111,7 @@ export function ToolSelector({
                         name={tool.name}
                         description={tool.description}
                         monoName
-                        checked={usedName(toolNames, visibleNames, tool.name)}
+                        checked={isNameAllowed(toolNames, visibleNames, tool.name)}
                         onToggle={(checked) => onToggleTool(tool.name, checked)}
                         // 使えない理由と外したときの依存を両方出す (片方だけだと状態を取り違える)
                         hint={notes.length > 0 ? notes.join(" ") : undefined}

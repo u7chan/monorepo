@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FileSkillsState } from "../../hooks/useFileSkills";
-import { allowlistCount, allowlistCountLabel } from "../../lib/agentAllowlist";
+import { allowlistCount, allowlistCountLabel, isNameAllowed } from "../../lib/agentAllowlist";
 import {
   ALLOWLIST_DEFAULT_LABEL,
   ALLOWLIST_DIRTY_LABEL,
@@ -140,7 +140,7 @@ export function SkillSelector({
       key={skill.path}
       name={skill.name}
       description={skill.description || ""}
-      checked={usedName(commonSkillNames, commonVisible, skill.name)}
+      checked={isNameAllowed(commonSkillNames, commonVisible, skill.name)}
       onToggle={(checked) => onToggleCommonSkill(skill.name, checked)}
       // 同名の組み込みと共通行が並ぶので、読み上げ名にスコープを付ける (表示は変えない)
       toggleLabel={`${COMMON_SKILL_SECTION_LABEL}スキル ${skill.name} を使う`}
@@ -213,7 +213,7 @@ export function SkillSelector({
                 name={skill.name}
                 description={skill.description}
                 badge={skill.version ? `v${skill.version}` : undefined}
-                checked={usedName(builtinSkillNames, builtinVisible, skill.name)}
+                checked={isNameAllowed(builtinSkillNames, builtinVisible, skill.name)}
                 onToggle={(checked) => onToggleBuiltinSkill(skill.name, checked)}
                 // 同名の共通行と並ぶので、読み上げ名にスコープを付ける (表示は変えない)
                 toggleLabel={`${BUILTIN_SECTION_LABEL}スキル ${skill.name} を使う`}
@@ -272,12 +272,6 @@ export function SkillSelector({
       </div>
     </div>
   );
-}
-
-/** 行の ON / OFF。未指定 / 解除は全部 ON、明示リストは配列に含まれる名前だけ ON */
-function usedName(names: string[] | null | undefined, visible: readonly string[], name: string): boolean {
-  if (!Array.isArray(names)) return visible.includes(name);
-  return names.includes(name);
 }
 
 /**
