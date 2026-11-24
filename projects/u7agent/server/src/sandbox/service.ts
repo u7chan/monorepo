@@ -41,11 +41,12 @@ import {
   type BashSpawnContext,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { COMMON_SKILLS_DIR, COMMON_SKILLS_SEGMENTS } from "../app-paths";
 import { DEFAULT_ARCHIVE_EXCLUDE_NAMES } from "../archive-rules";
 import { parseByteRange } from "../byte-range";
-import { messageFor, pathError } from "../errors";
+import { httpError, messageFor, pathError } from "../errors";
 import { isGitIdentityEnvName, isInjectableEnvName } from "../env-names";
 import { gitIdentityProblem, type GitIdentity } from "../git-identity";
 import { fitsImageInputPixels, IMAGE_INPUT_MAX_BYTES, inspectImageInput } from "../image-format";
@@ -217,29 +218,36 @@ function normalizeToolCallId(value: unknown): string {
   return typeof value === "string" && value.length > 0 ? value : randomUUID();
 }
 
-/** 上限を超えたボディは 413。 */
-async function readJsonBody(request: Request): Promise<unknown> {
-  const body = request.body;
-  if (!body) return {};
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > SANDBOX_MAX_BODY_BYTES) {
-      await reader.cancel().catch(() => {});
-      throw Object.assign(new Error("Request body is too large"), { statusCode: 413 });
+function routeError(c: Context, error: unknown, fallbackStatus: 400 | 500) {
+  const status = (error as { statusCode?: number }).statusCode ?? fallbackStatus;
+  return c.json({ error: messageFor(error) }, status as ContentfulStatusCode);
+}
+
+async function readRouteJson(c: Context): Promise<{ ok: true; body: unknown } | { ok: false; response: Response }> {
+  try {
+    const body = c.req.raw.body;
+    if (!body) return { ok: true, body: {} };
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > SANDBOX_MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw httpError(413, "Request body is too large");
+      }
+      text += decoder.decode(value, { stream: true });
     }
-    text += decoder.decode(value, { stream: true });
+    text += decoder.decode();
+    const trimmed = text.trim();
+    const parsed = trimmed ? (JSON.parse(trimmed) as unknown) : {};
+    return { ok: true, body: parsed };
+  } catch (error) {
+    return { ok: false, response: routeError(c, error, 400) };
   }
-  text += decoder.decode();
-  const trimmed = text.trim();
-  if (!trimmed) return {};
-  const parsed = JSON.parse(trimmed) as unknown;
-  return parsed;
 }
 
 /**
@@ -283,6 +291,12 @@ async function resolveWorkspaceDirectory(
   return { root, target };
 }
 
+export function workspaceEntryName(requested: string): string | undefined {
+  const name = basename(requested);
+  if (!requested || requested.endsWith("/") || name === "." || name === "..") return undefined;
+  return name;
+}
+
 /**
  * 引き継ぎメモの実パスを求める。親ディレクトリを realpath で検証し、最終要素は lstat で見て
  * symlink と通常ファイル以外を拒む (realpath で実体に解決すると root 外を読めてしまう)。
@@ -291,10 +305,8 @@ async function resolveWorkspaceDirectory(
  * 下準備で「読み取れない」として拒否させる (読み取り不能を空の本文や新規作成として扱わない)。
  */
 async function resolveHandoffPath(rootCwd: string, requested: string): Promise<{ target: string; existing: boolean }> {
-  const name = basename(requested);
-  if (!requested || requested.endsWith("/") || name === "." || name === "..") {
-    throw pathError(400, `Not a regular file: ${requested}`);
-  }
+  const name = workspaceEntryName(requested);
+  if (name === undefined) throw pathError(400, `Not a regular file: ${requested}`);
   const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
   const target = join(parent.target, name);
   const stats = await lstat(target).catch((error: NodeJS.ErrnoException) => {
@@ -306,15 +318,15 @@ async function resolveHandoffPath(rootCwd: string, requested: string): Promise<{
   return { target, existing: stats !== undefined };
 }
 
-/**
- * 引き継ぎメモ (HANDOFF.md) の読み取り。上限・UTF-8・バイナリの判定を引き継ぎ専用に持ち、
- * プレビューの上限 (SANDBOX_MAX_PREVIEW_BYTES) の変更に追随させない。
- */
-async function readHandoffText(target: string): Promise<string> {
+async function readBoundedText(
+  target: string,
+  limit: number,
+  messages: { tooLarge: string; invalidUtf8: string; binary: string },
+): Promise<string> {
   const handle = await open(target, "r");
   try {
     if (!(await handle.stat()).isFile()) throw pathError(400, "Not a regular file");
-    const limit = SANDBOX_MAX_HANDOFF_BYTES;
+    // stat 時点のサイズだけに頼ると、その後の増大を止められない。
     const buffer = Buffer.alloc(limit + 1);
     let size = 0;
     while (size < buffer.length) {
@@ -322,19 +334,28 @@ async function readHandoffText(target: string): Promise<string> {
       if (!bytesRead) break;
       size += bytesRead;
     }
-    if (size > limit) throw pathError(400, "HANDOFF.md は 2 MiB 以下にしてください");
+    if (size > limit) throw pathError(400, messages.tooLarge);
     let text: string;
     try {
       text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, size));
     } catch {
-      throw pathError(400, "HANDOFF.md は UTF-8 のテキストファイルにしてください");
+      throw pathError(400, messages.invalidUtf8);
     }
     // oxlint-disable-next-line no-control-regex -- バイナリ判定のため制御文字を検出する。
-    if (/[\u0000-\u0008\u000e-\u001f]/u.test(text)) throw pathError(400, "バイナリの HANDOFF.md は扱えません");
+    if (/[\u0000-\u0008\u000e-\u001f]/u.test(text)) throw pathError(400, messages.binary);
     return text;
   } finally {
     await handle.close();
   }
+}
+
+// HANDOFF.md の上限と文言はプレビューの変更に追随させない。
+function readHandoffText(target: string): Promise<string> {
+  return readBoundedText(target, SANDBOX_MAX_HANDOFF_BYTES, {
+    tooLarge: "HANDOFF.md は 2 MiB 以下にしてください",
+    invalidUtf8: "HANDOFF.md は UTF-8 のテキストファイルにしてください",
+    binary: "バイナリの HANDOFF.md は扱えません",
+  });
 }
 
 /**
@@ -414,29 +435,41 @@ async function rollbackHandoffText(
   });
 }
 
-/**
- * root 相対の通常ファイルを消す。symlink は拒否する (realpath で実体に解決してから消すと、root 内のリンクが
- * 指す root 外のファイルを消せてしまう)。要求パスの最終要素だけを lstat で見て、親は一覧と同じ解決を通す。
- * 親は要求パスの字句の dirname を native realpath へ渡し、`..` を symlink の後に適用させる (一覧と同じ)。
- */
-async function removeWorkspaceFile(rootCwd: string, requested: string): Promise<void> {
-  // 最終要素が消す対象の名前。`.` / `..` / 空 (root 自身) と末尾の区切りは通常ファイルではない
-  const name = basename(requested);
-  if (!requested || requested.endsWith("/") || name === "." || name === "..") {
-    throw pathError(400, `Not a regular file: ${requested}`);
-  }
-
-  // 字句解決済みの candidate から親を作ると `..` が symlink より先に適用され、一覧と別のファイルを指す
+async function resolveWorkspaceEntry(
+  rootCwd: string,
+  requested: string,
+  name: string,
+  allowedKind: "regular file" | "directory" | "file or directory",
+  symlinkError: string,
+) {
+  // 親は一覧と同じ解決を通す。字句正規化してしまうと `..` が symlink より先に適用される。
   const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
   const target = join(parent.target, name);
 
+  // 最終要素を realpath で辿ると、リンク先を削除・移動・配信の対象にしてしまう。
   const targetStat = await lstat(target).catch((error: unknown) => {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target}`);
     throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
   });
-  if (targetStat.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be deleted: ${target}`);
-  if (!targetStat.isFile()) throw pathError(400, `Not a regular file: ${target}`);
+  if (targetStat.isSymbolicLink()) throw pathError(400, `${symlinkError}: ${target}`);
+  const kind = targetStat.isFile() ? "regular file" : targetStat.isDirectory() ? "directory" : undefined;
+  if (!kind || (allowedKind !== "file or directory" && kind !== allowedKind)) {
+    throw pathError(400, `Not a ${allowedKind}: ${target}`);
+  }
+  return { parent, target, targetStat, kind };
+}
+
+async function removeWorkspaceFile(rootCwd: string, requested: string): Promise<void> {
+  const name = workspaceEntryName(requested);
+  if (name === undefined) throw pathError(400, `Not a regular file: ${requested}`);
+  const { target } = await resolveWorkspaceEntry(
+    rootCwd,
+    requested,
+    name,
+    "regular file",
+    "Symbolic links cannot be deleted",
+  );
 
   await unlink(target).catch((error: unknown) => {
     // lstat の直後に bash などが消した場合は目的を達しているため成功にする
@@ -445,31 +478,19 @@ async function removeWorkspaceFile(rootCwd: string, requested: string): Promise<
   });
 }
 
-/**
- * root 相対のディレクトリを消す。recursive のときだけ配下ごとで、省略時は空ディレクトリのみ (rmdir)。
- * symlink は削除対象そのものとして拒否する (realpath で実体へ解決してから消すと、root 内のリンクが指す
- * root 外を消せてしまう)。配下の symlink は fs.rm が辿らず、リンクだけを unlink してリンク先は残す (rm -rf と同じ)。
- */
 async function removeWorkspaceDirectory(rootCwd: string, requested: string, recursive: boolean): Promise<void> {
-  // 最終要素が消す対象の名前。`.` / `..` / 空 (root 自身) と末尾の区切りはディレクトリを表さない
-  const name = basename(requested);
-  if (!requested || requested.endsWith("/") || name === "." || name === "..") {
-    throw pathError(400, `Not a directory: ${requested}`);
-  }
-
-  // 親の解決は一覧 / ファイル削除と同じ (要求パスの字句 dirname を native realpath に渡し、`..` を symlink の後に適用する)
-  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
-  const target = join(parent.target, name);
-
-  const targetStat = await lstat(target).catch((error: unknown) => {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target}`);
-    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
-  });
-  if (targetStat.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be deleted: ${target}`);
-  if (!targetStat.isDirectory()) throw pathError(400, `Not a directory: ${target}`);
+  const name = workspaceEntryName(requested);
+  if (name === undefined) throw pathError(400, `Not a directory: ${requested}`);
+  const { target } = await resolveWorkspaceEntry(
+    rootCwd,
+    requested,
+    name,
+    "directory",
+    "Symbolic links cannot be deleted",
+  );
 
   if (recursive) {
+    // fs.rm は配下の symlink を辿らない (リンク先は削除しない)。
     await rm(target, { recursive: true }).catch((error: unknown) => {
       // lstat の直後に bash などが消した場合は目的を達しているため成功にする
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
@@ -487,35 +508,20 @@ async function removeWorkspaceDirectory(rootCwd: string, requested: string, recu
   });
 }
 
-/**
- * root 相対のエントリ (通常ファイル / ディレクトリ) の名前を変える。symlink は拒否する (realpath で実体へ解決してから
- * rename すると、root 内のリンクが指す root 外を動かせてしまう)。要求パスの最終要素だけを lstat で見て、
- * 親は一覧と同じ解決を通す。改名先が既存でも、lstat と realpath が同じ実体を指すなら通す (大文字小文字だけの変更)。
- */
 async function renameWorkspaceEntry(rootCwd: string, requested: string, name: string): Promise<SandboxRenameResult> {
-  // 最終要素が動かす対象の名前。`.` / `..` / 空 (root 自身) と末尾の区切りはエントリを表さない
-  const currentName = basename(requested);
-  if (!requested || requested.endsWith("/") || currentName === "." || currentName === "..") {
-    throw pathError(400, `Not a file or directory: ${requested}`);
-  }
-
-  // 親の解決は一覧 / 削除と同じ (要求パスの字句 dirname を native realpath へ渡し、`..` を symlink の後に適用する)
-  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
-  const target = join(parent.target, currentName);
-
-  const targetStat = await lstat(target).catch((error: unknown) => {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target}`);
-    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
-  });
-  if (targetStat.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be renamed: ${target}`);
-  if (!targetStat.isFile() && !targetStat.isDirectory()) {
-    throw pathError(400, `Not a file or directory: ${target}`);
-  }
+  const currentName = workspaceEntryName(requested);
+  if (currentName === undefined) throw pathError(400, `Not a file or directory: ${requested}`);
+  const { parent, target } = await resolveWorkspaceEntry(
+    rootCwd,
+    requested,
+    currentName,
+    "file or directory",
+    "Symbolic links cannot be renamed",
+  );
 
   // 名前は 1 セグメントだけなので、親の実パスへ連結すれば root 内に収まる
   const nextPath = join(parent.target, name);
-  // 既存があっても実体が同じなら通す。symlink は実体が同じでも別のエントリなので上書きしない
+  // 大文字小文字だけの変更は許すが、symlink は実体が同じでも別のエントリなので上書きしない。
   const existing = await lstat(nextPath).catch(() => undefined);
   if (existing && (existing.isSymbolicLink() || (await realpathNative(nextPath).catch(() => undefined)) !== target)) {
     throw pathError(409, `Already exists: ${nextPath}`);
@@ -529,37 +535,21 @@ async function renameWorkspaceEntry(rootCwd: string, requested: string, name: st
   return { path: relativeToRoot(parent.root, nextPath), name };
 }
 
-/**
- * root 相対のエントリ (通常ファイル / ディレクトリ) を別の親へ移す。symlink は拒否する (realpath で実体へ解決してから
- * rename すると、root 内のリンクが指す root 外を動かせてしまう)。移動元と移動先の親は一覧と同じ解決に通し、
- * 移動先の最終要素だけを 1 セグメント名として検証する。既存の移動先へは上書きしない (rename と同じ扱い)。
- */
 async function moveWorkspaceEntry(rootCwd: string, from: string, to: string): Promise<SandboxMoveResult> {
-  // 最終要素が動かす対象の名前。`.` / `..` / 空 (root 自身) と末尾の区切りはエントリを表さない
-  const currentName = basename(from);
-  if (!from || from.endsWith("/") || currentName === "." || currentName === "..") {
-    throw pathError(400, `Not a file or directory: ${from}`);
-  }
+  const currentName = workspaceEntryName(from);
+  if (currentName === undefined) throw pathError(400, `Not a file or directory: ${from}`);
 
-  // 移動先の最終要素はリネーム先と同じ 1 セグメント名 (空・`.` / `..`・区切り・制御文字は 400)
-  const nextName = basename(to);
-  if (!to || to.endsWith("/") || !isValidEntryName(nextName)) {
-    throw pathError(400, `Invalid name: ${to}`);
-  }
+  // 移動元を先に解決すると、名前の誤り (400) が移動元の不存在 (404) に隠れる。
+  const nextName = workspaceEntryName(to);
+  if (nextName === undefined || !isValidEntryName(nextName)) throw pathError(400, `Invalid name: ${to}`);
 
-  // 親の解決は一覧 / 削除 / リネームと同じ (要求パスの字句 dirname を native realpath へ渡し、`..` を symlink の後に適用する)
-  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(from));
-  const target = join(parent.target, currentName);
-
-  const targetStat = await lstat(target).catch((error: unknown) => {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target}`);
-    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
-  });
-  if (targetStat.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be moved: ${target}`);
-  if (!targetStat.isFile() && !targetStat.isDirectory()) {
-    throw pathError(400, `Not a file or directory: ${target}`);
-  }
+  const { target } = await resolveWorkspaceEntry(
+    rootCwd,
+    from,
+    currentName,
+    "file or directory",
+    "Symbolic links cannot be moved",
+  );
 
   // 移動先の親は root 内の実在ディレクトリ。無ければ呼び出し側が POST /v1/dirs で作ってから呼ぶ
   const nextParent = await resolveWorkspaceDirectory(rootCwd, dirname(to));
@@ -593,11 +583,6 @@ interface DownloadTarget {
 /** ダウンロードの計画。file は生配信、archive は走査済みの ZIP。 */
 type DownloadPlan = ({ kind: "file" } & DownloadTarget) | ({ kind: "archive"; walk: ArchivePlan } & DownloadTarget);
 
-/**
- * root 相対のダウンロード対象を解決する。最終要素は削除 / リネームと同じ lstat で見て、symlink は辿らず拒否する
- * （リンク先の内容を配ると root 内に閉じる検証を迂回する）。root 自身（`""` / `"."` / 末尾区切りのみ）は
- * ディレクトリとして扱い、フォルダ名には解決後の実ディレクトリ名を使う。
- */
 async function resolveDownloadTarget(rootCwd: string, requestedRaw: string): Promise<DownloadTarget> {
   // 末尾の区切りは同じ対象を指すため落とす (`..` の適用順を変える字句正規化はしない)
   const requested = requestedRaw.replace(/\/+$/, "");
@@ -606,21 +591,17 @@ async function resolveDownloadTarget(rootCwd: string, requestedRaw: string): Pro
     return { kind: "archive", name: basename(root) || "workspace", target, size: 0 };
   }
 
-  const name = basename(requested);
-  // 最終要素が親参照なら root の外を指し得る。削除 / リネームと同じく受け付けない (root 自身は上の分岐で扱う)
-  if (name === "." || name === "..") throw pathError(400, `Not a file or directory: ${requested}`);
-  // 親の解決は一覧 / 削除 / リネームと同じ (要求パスの字句 dirname を native realpath へ渡す)
-  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
-  const target = join(parent.target, name);
-  const targetStat = await lstat(target).catch((error: unknown) => {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target}`);
-    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
-  });
-  if (targetStat.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be downloaded: ${target}`);
-  if (targetStat.isFile()) return { kind: "file", name, target, size: targetStat.size };
-  if (targetStat.isDirectory()) return { kind: "archive", name, target, size: 0 };
-  throw pathError(400, `Not a file or directory: ${target}`);
+  const name = workspaceEntryName(requested);
+  if (name === undefined) throw pathError(400, `Not a file or directory: ${requested}`);
+  const { target, targetStat, kind } = await resolveWorkspaceEntry(
+    rootCwd,
+    requested,
+    name,
+    "file or directory",
+    "Symbolic links cannot be downloaded",
+  );
+  if (kind === "regular file") return { kind: "file", name, target, size: targetStat.size };
+  return { kind: "archive", name, target, size: 0 };
 }
 
 /**
@@ -2517,14 +2498,9 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     if (!(SANDBOX_TOOL_NAMES as readonly string[]).includes(toolName)) {
       return c.json({ error: `Unknown tool: ${toolName}` }, 404);
     }
-    let body: unknown;
-    try {
-      body = await readJsonBody(c.req.raw);
-    } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
-    }
-    const { toolCallId, params, cwd, env, writeScope, gitConfig, networkAccess } = (body ??
+    const parsed = await readRouteJson(c);
+    if (!parsed.ok) return parsed.response;
+    const { toolCallId, params, cwd, env, writeScope, gitConfig, networkAccess } = (parsed.body ??
       {}) as SandboxExecuteRequestBody;
     if (params !== undefined && (typeof params !== "object" || params === null || Array.isArray(params))) {
       return c.json({ error: "params must be an object" }, 400);
@@ -2560,8 +2536,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     try {
       executionCwd = (await resolveWorkspaceDirectory(rootCwd, cwd ?? "")).target;
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
     // bash の許可 root。エージェントの bash は要求 cwd から導出し、BFF 内部実行は要求 scope だけを使う
     // (内部実行で root へ落ちる既定経路を作らない)。
@@ -2573,8 +2548,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
             ? agentBashRoots(executionCwd, writeScopeFor(cwd ?? "", executionCwd))
             : [...requestBashRoots(requestedScope), ...fixedLandlockRoots];
       } catch (error) {
-        const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-        return c.json({ error: messageFor(error) }, statusCode as 400);
+        return routeError(c, error, 400);
       }
     }
     // gitConfig 付きの実行だけ、予約名を落として GIT_CONFIG_GLOBAL / GIT_CONFIG_NOSYSTEM を足す。
@@ -2693,33 +2667,14 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   app.get("/v1/files/preview", async (c) => {
     try {
       const { target } = await resolveWorkspaceDirectory(rootCwd, c.req.query("path") ?? "", false);
-      const handle = await open(target, "r");
-      try {
-        const limit = SANDBOX_MAX_PREVIEW_BYTES;
-        if (!(await handle.stat()).isFile()) throw pathError(400, "Not a regular file");
-        // stat 後の増大でも無制限に読み込まない。
-        const buffer = Buffer.alloc(limit + 1);
-        let size = 0;
-        while (size < buffer.length) {
-          const { bytesRead } = await handle.read(buffer, size, buffer.length - size, null);
-          if (!bytesRead) break;
-          size += bytesRead;
-        }
-        if (size > limit) throw pathError(400, "プレビューは2 MiB以下のファイルに対応しています");
-        let text: string;
-        try {
-          text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, size));
-        } catch {
-          throw pathError(400, "UTF-8のテキストファイルのみプレビューできます");
-        }
-        // oxlint-disable-next-line no-control-regex -- バイナリ判定のため制御文字を検出する。
-        if (/[\u0000-\u0008\u000e-\u001f]/u.test(text)) throw pathError(400, "バイナリファイルはプレビューできません");
-        return c.json({ text });
-      } finally {
-        await handle.close();
-      }
+      const text = await readBoundedText(target, SANDBOX_MAX_PREVIEW_BYTES, {
+        tooLarge: "プレビューは2 MiB以下のファイルに対応しています",
+        invalidUtf8: "UTF-8のテキストファイルのみプレビューできます",
+        binary: "バイナリファイルはプレビューできません",
+      });
+      return c.json({ text });
     } catch (error) {
-      return c.json({ error: messageFor(error) }, ((error as { statusCode?: number }).statusCode ?? 400) as 400);
+      return routeError(c, error, 400);
     }
   });
 
@@ -2727,8 +2682,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     try {
       return c.json(await listWorkspaceDirectory(rootCwd, c.req.query("path") ?? ""));
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
@@ -2740,8 +2694,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       return c.json({ path: relativeToRoot(root, target) });
     } catch (error) {
       // 想定外の失敗を 400 (拒否) に混ぜない。BFF / client では 400 以外は確認不能として扱う
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
@@ -2751,8 +2704,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       const { target } = await resolveWorkspaceDirectory(rootCwd, c.req.query("path") ?? "");
       return c.json(await readWorkspaceGitInfo(target, { timeoutMs: gitInfoTimeoutMs, gitPath }));
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
@@ -2761,8 +2713,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     try {
       return c.json(await listWorkspaceSkills(rootCwd, c.req.query("dir") ?? "", skillsScanTimeoutMs));
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
@@ -2793,8 +2744,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       };
       return c.json(check);
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 400);
     }
   });
 
@@ -2812,8 +2762,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         },
       });
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 400);
     }
   });
 
@@ -2833,8 +2782,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         }),
       );
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
@@ -2843,48 +2791,35 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     try {
       return c.json(await readCommonSkillDetail(skillCrud, c.req.query("relativePath") ?? "", c.req.raw.signal));
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 400);
     }
   });
 
   // 共通スキルの新規作成。既存のディレクトリ / 同名の共通スキルは 409 (上書きも連番化もしない)
   app.post("/v1/skills/file", async (c) => {
-    let body: unknown;
-    try {
-      body = await readJsonBody(c.req.raw);
-    } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
-    }
-    const fields = skillTextFieldsOf(body, ["name", "description", "body"]);
+    const parsed = await readRouteJson(c);
+    if (!parsed.ok) return parsed.response;
+    const fields = skillTextFieldsOf(parsed.body, ["name", "description", "body"]);
     if (!fields.ok) return c.json({ error: fields.message }, 400);
     try {
       const input = fields.value as unknown as SandboxSkillCreateBody;
       return c.json(await createCommonSkill(skillCrud, input, c.req.raw.signal), 201);
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
   // 共通スキルの保存。name は受け付けず、fileVersion の一致と SDK 検証を要求する
   app.patch("/v1/skills/file", async (c) => {
-    let body: unknown;
-    try {
-      body = await readJsonBody(c.req.raw);
-    } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
-    }
-    const fields = skillTextFieldsOf(body, ["relativePath", "fileVersion", "description", "body"]);
+    const parsed = await readRouteJson(c);
+    if (!parsed.ok) return parsed.response;
+    const fields = skillTextFieldsOf(parsed.body, ["relativePath", "fileVersion", "description", "body"]);
     if (!fields.ok) return c.json({ error: fields.message }, 400);
     try {
       const input = fields.value as unknown as SandboxSkillSaveBody;
       return c.json(await saveCommonSkill(skillCrud, input, c.req.raw.signal));
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
@@ -2893,8 +2828,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     try {
       return c.json(await previewCommonSkillDelete(skillCrud, c.req.query("relativePath") ?? "", c.req.raw.signal));
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 400);
     }
   });
 
@@ -2909,8 +2843,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       );
       return c.body(null, 204);
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 400);
     }
   });
 
@@ -2922,8 +2855,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       );
       return c.body(null, 204);
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 400);
     }
   });
 
@@ -2975,8 +2907,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         },
       });
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
@@ -3004,8 +2935,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         },
       });
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 400);
     }
   });
 
@@ -3028,8 +2958,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       });
       return c.json(downloadPlanFor(plan, maxFileBytes.value));
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 400);
     }
   });
 
@@ -3047,8 +2976,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       });
       return c.json(downloadCheckFor(plan));
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 400);
     }
   });
 
@@ -3086,13 +3014,10 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         },
       });
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
-  // 引き継ぎメモ (HANDOFF.md) の読取り。専用の上限・UTF-8・バイナリ判定を持ち、不存在は 404。
-  // プレビュー API の流用はしない (上限が変わるため)。最終要素の symlink は書込みと同じく拒む
   app.get("/v1/files/handoff", async (c) => {
     try {
       const requested = c.req.query("path") ?? "";
@@ -3100,21 +3025,19 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       if (!existing) throw pathError(404, `Path not found: ${requested}`);
       return c.json({ text: await readHandoffText(target) });
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 400);
     }
   });
 
   // 引き継ぎメモの先頭追記。読んでから書くまでを実パス単位の排他の中で行い、既存の中身は解釈せずそのまま残す。
   app.post("/v1/files/handoff", async (c) => {
-    let body: unknown;
-    try {
-      body = await readJsonBody(c.req.raw);
-    } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
-    }
-    const { path, section, dedupeKey } = (body ?? {}) as { path?: unknown; section?: unknown; dedupeKey?: unknown };
+    const parsed = await readRouteJson(c);
+    if (!parsed.ok) return parsed.response;
+    const { path, section, dedupeKey } = (parsed.body ?? {}) as {
+      path?: unknown;
+      section?: unknown;
+      dedupeKey?: unknown;
+    };
     if (typeof path !== "string" || typeof section !== "string" || typeof dedupeKey !== "string") {
       return c.json({ error: "path, section and dedupeKey must be strings" }, 400);
     }
@@ -3128,22 +3051,16 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         ),
       );
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
   // 新規作成した引き継ぎメモの取り消し。内容が expected と一致するときだけ、追記と同じ実パス排他の
   // 中で削除する (背後で進んだ他の追記を巻き戻さない)
   app.post("/v1/files/handoff/rollback", async (c) => {
-    let body: unknown;
-    try {
-      body = await readJsonBody(c.req.raw);
-    } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
-    }
-    const { path, expected } = (body ?? {}) as { path?: unknown; expected?: unknown };
+    const parsed = await readRouteJson(c);
+    if (!parsed.ok) return parsed.response;
+    const { path, expected } = (parsed.body ?? {}) as { path?: unknown; expected?: unknown };
     if (typeof path !== "string" || typeof expected !== "string") {
       return c.json({ error: "path and expected must be strings" }, 400);
     }
@@ -3154,8 +3071,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         ),
       );
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
@@ -3175,21 +3091,15 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       );
       return c.json(uploaded, 201);
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
   // 親をまたいで動かせるのは通常ファイルとディレクトリだけ (symlink は 400)。応答は移動後の root 相対パス
   app.post("/v1/files/move", async (c) => {
-    let body: unknown;
-    try {
-      body = await readJsonBody(c.req.raw);
-    } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
-    }
-    const { from, to } = (body ?? {}) as SandboxMoveRequestBody;
+    const parsed = await readRouteJson(c);
+    if (!parsed.ok) return parsed.response;
+    const { from, to } = (parsed.body ?? {}) as SandboxMoveRequestBody;
     if (typeof from !== "string") return c.json({ error: "from must be a string" }, 400);
     if (typeof to !== "string") return c.json({ error: "to must be a string" }, 400);
     try {
@@ -3203,21 +3113,15 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         ),
       );
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
   // 名前を変えられるのは通常ファイルとディレクトリだけ (symlink は 400)。応答は改名後の root 相対パス
   app.post("/v1/files/rename", async (c) => {
-    let body: unknown;
-    try {
-      body = await readJsonBody(c.req.raw);
-    } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
-    }
-    const { path, name } = (body ?? {}) as SandboxRenameRequestBody;
+    const parsed = await readRouteJson(c);
+    if (!parsed.ok) return parsed.response;
+    const { path, name } = (parsed.body ?? {}) as SandboxRenameRequestBody;
     if (typeof path !== "string") return c.json({ error: "path must be a string" }, 400);
     if (typeof name !== "string") return c.json({ error: "name must be a string" }, 400);
     // 名前の検証は保存名と同じ規則。同名の扱い (409) はパスの解決後に行う
@@ -3225,20 +3129,14 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     try {
       return c.json(await withCommonGate([{ path, mode: "any" }], () => renameWorkspaceEntry(rootCwd, path, name)));
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
   app.post("/v1/dirs", async (c) => {
-    let body: unknown;
-    try {
-      body = await readJsonBody(c.req.raw);
-    } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
-    }
-    const { path } = (body ?? {}) as SandboxCreateDirRequestBody;
+    const parsed = await readRouteJson(c);
+    if (!parsed.ok) return parsed.response;
+    const { path } = (parsed.body ?? {}) as SandboxCreateDirRequestBody;
     if (typeof path !== "string") {
       return c.json({ error: "path must be a string" }, 400);
     }
@@ -3247,8 +3145,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         path: await withCommonGate([{ path, mode: "inside" }], () => createWorkspaceDirectory(rootCwd, path)),
       });
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 500);
     }
   });
 
@@ -3263,8 +3160,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       );
       return c.body(null, 204);
     } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-      return c.json({ error: messageFor(error) }, statusCode as 400);
+      return routeError(c, error, 400);
     }
   });
 
