@@ -2,19 +2,17 @@
 // 取り消したときに録音を始めないこと（false を返すこと）を純関数で固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { DeviceSettingsStorage } from "../src/lib/deviceSettingsStore";
 import {
   markVoiceInputConsent,
   requestVoiceInputConsent,
   VOICE_INPUT_CONSENT_STORAGE_KEY,
   voiceInputConsentGiven,
   voiceInputConsentRequest,
-  type VoiceInputConsentStorage,
 } from "../src/lib/voiceInput/consent";
 import type { ConfirmRequest } from "../src/lib/confirmDialog";
 
-const storage = (
-  initial: Record<string, string> = {},
-): VoiceInputConsentStorage & { values: Record<string, string> } => {
+const storage = (initial: Record<string, string> = {}): DeviceSettingsStorage & { values: Record<string, string> } => {
   const values = { ...initial };
   return {
     values,
@@ -72,7 +70,7 @@ test("保存領域を持てない環境では、承諾しても録音を止め�
 });
 
 test("例外を投げる保存領域でも落ちない", () => {
-  const broken: VoiceInputConsentStorage = {
+  const broken: DeviceSettingsStorage = {
     getItem: () => {
       throw new Error("denied");
     },

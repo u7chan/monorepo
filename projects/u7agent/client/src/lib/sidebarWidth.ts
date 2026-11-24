@@ -1,10 +1,11 @@
 /**
  * 左バー (Sidebar) の幅の規則。幅は「その端末のその窓」に依存する表示設定なので、
  * どこで境界を引くかはこの純関数だけが決め、保存は localStorage の 1 キーに閉じる。
- * DOM に触れるのは保存先の解決だけ (docs/ui-layout.md)。
+ * 保存先の解決と状態の控えは deviceSettingsStore.ts (docs/ui-layout.md)。
  * 右パネル (sessionFilesPanel.ts) と形は同じで、bounds が viewport に依存しない点だけが違う。
  */
 
+import { createDeviceSettingsStore, type DeviceSettingsStorage, type DeviceSettingsStore } from "./deviceSettingsStore";
 import { SIDEBAR_WIDTH } from "./layout";
 
 /**
@@ -56,60 +57,15 @@ export function parseSidebarWidth(raw: string | null): number | null {
   return width;
 }
 
-export type SidebarWidthStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
-
-export type SidebarWidthStore = {
-  /** 保存値。無ければ null (未設定) */
-  read(): number | null;
-  /** null は保存を消す (ダブルクリックの「未指定へ戻す」) */
-  write(width: number | null): void;
-};
-
-/**
- * 選んだ幅を localStorage の 1 キーで読み書きする。保存領域が使えない環境 (private browsing 等)
- * でも操作を止めず、代わりに同じセッション内のメモリを使う。write が失敗した後でも、
- * 再読み込みするまでは選び直した幅を保つ (sessionFilesPanel.ts と同じ扱い)。
- */
-export function createSidebarWidthStore(storage?: SidebarWidthStorage | null): SidebarWidthStore {
-  // 一度でも読み書きしたら、以降はここが正 (書けなくても session 内は保つ)
-  let memory: number | null | undefined;
-  // 引数を省いたときは毎回引き直す (例外を投げる環境と、window が無いテストの両方に対応する)
-  const resolve = (): SidebarWidthStorage | null => (storage === undefined ? defaultWidthStorage() : storage);
-
-  return {
-    read() {
-      if (memory !== undefined) return memory;
-      const target = resolve();
-      if (!target) return null;
-      try {
-        memory = parseSidebarWidth(target.getItem(SIDEBAR_WIDTH_KEY));
-        return memory;
-      } catch {
-        return null;
-      }
-    },
-    write(width) {
-      memory = width;
-      const target = resolve();
-      if (!target) return;
-      try {
-        if (width === null) target.removeItem(SIDEBAR_WIDTH_KEY);
-        else target.setItem(SIDEBAR_WIDTH_KEY, String(width));
-      } catch {
-        // 保存できない。次に選び直したときにまた試す
-      }
-    },
-  };
+export function createSidebarWidthStore(storage?: DeviceSettingsStorage | null): DeviceSettingsStore<number | null> {
+  return createDeviceSettingsStore<number | null>(storage, {
+    key: SIDEBAR_WIDTH_KEY,
+    parse: parseSidebarWidth,
+    // null は保存を消す (ダブルクリックの「未指定へ戻す」)
+    serialize: (width) => (width === null ? null : String(width)),
+    fallback: () => null,
+  });
 }
 
 /** アプリが使う既定の store */
 export const sidebarWidthStore = createSidebarWidthStore();
-
-/** localStorage の accessor 自体が例外になる環境 (private browsing 等) がある */
-function defaultWidthStorage(): SidebarWidthStorage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}

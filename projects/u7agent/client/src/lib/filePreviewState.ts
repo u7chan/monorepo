@@ -2,10 +2,12 @@
  * ファイル画面の復元用 snapshot の encode / decode と、その保存先 (localStorage) の薄い境界。
  * 保存するのは「タブの並び / 表示中 / タブごとの表示モード / 開いているディレクトリ」だけで、
  * 本文・children・loading・error は持たない (他キーや複数 cwd と合算した容量と鮮度のため。
- * 復帰時は既存の取得経路で取り直す)。DOM に依存するのは保存先の解決だけ。
+ * 復帰時は既存の取得経路で取り直す)。保存先の解決は deviceSettingsStore.ts。
  */
+import { deviceSettingsStorage, type DeviceSettingsStorage } from "./deviceSettingsStore";
 import { FILE_TAB_LIMIT, type PreviewMode, type PreviewModes } from "./fileTabs";
 import { FILE_TREE_ROOT, normalizeFileTreeRoot } from "./fileTree";
+import { isRecord } from "./isRecord";
 
 export const FILE_SNAPSHOT_KEY = "u7agent-files";
 export const FILE_SNAPSHOT_VERSION = 1;
@@ -83,8 +85,6 @@ export function withFilePreviewSnapshot(
   return Object.fromEntries(entries.slice(-FILE_SNAPSHOT_CWD_LIMIT));
 }
 
-export type SnapshotStorage = Pick<Storage, "getItem" | "setItem">;
-
 export type FilePreviewStore = {
   /** cwd の保存値。write が失敗した cwd はメモリ側が最新になる */
   read(cwd: string): FilePreviewSnapshot | null;
@@ -98,16 +98,14 @@ export type FilePreviewStore = {
  * メモリ snapshot が最新になるため、同一セッション内の往復 (設定を離れて戻る等) は復元できる。
  * ただし write 失敗後の F5 では古い保存値が戻り得る (復元は保証しない)。
  */
-export function createFilePreviewStore(storage?: SnapshotStorage | null): FilePreviewStore {
+export function createFilePreviewStore(storage?: DeviceSettingsStorage | null): FilePreviewStore {
   const memory = new Map<string, FilePreviewSnapshot | null>();
-  // 引数を省いたときは毎回引き直す (例外を投げる環境と、window が無いテストの両方に対応する)
-  const resolveStorage = (): SnapshotStorage | null => (storage === undefined ? defaultSnapshotStorage() : storage);
 
   return {
     read(cwd) {
       const key = normalizeFileTreeRoot(cwd);
       if (memory.has(key)) return memory.get(key) ?? null;
-      const target = resolveStorage();
+      const target = deviceSettingsStorage(storage);
       if (!target) return null;
       try {
         const snapshots = decodeFilePreviewSnapshots(target.getItem(FILE_SNAPSHOT_KEY));
@@ -120,7 +118,7 @@ export function createFilePreviewStore(storage?: SnapshotStorage | null): FilePr
       const key = normalizeFileTreeRoot(cwd);
       // メモリ側は常に最新にする (保存できなくても同一セッション内の往復は復元できる)
       memory.set(key, snapshot);
-      const target = resolveStorage();
+      const target = deviceSettingsStorage(storage);
       if (!target) return;
       // 読み手 (decode) が捨てる形は書かない。書くと次の起動でその cwd のタブもモードも失われる
       if (snapshot && !parseFilePreviewSnapshot(snapshot)) return;
@@ -142,15 +140,6 @@ export function createFilePreviewStore(storage?: SnapshotStorage | null): FilePr
 
 /** アプリが使う既定の store (localStorage + cwd ごとのメモリ snapshot) */
 export const filePreviewStore = createFilePreviewStore();
-
-/** localStorage の accessor 自体が例外になる環境 (private browsing 等) がある */
-function defaultSnapshotStorage(): SnapshotStorage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
 
 function parsePaths(value: unknown): string[] | null {
   if (!Array.isArray(value) || value.length > FILE_TAB_LIMIT) return null;
@@ -185,8 +174,4 @@ function parseDirectories(value: unknown): string[] | null {
 function isDirectoryPath(path: string): boolean {
   if (path === "" || path === FILE_TREE_ROOT || path.startsWith("/")) return false;
   return path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

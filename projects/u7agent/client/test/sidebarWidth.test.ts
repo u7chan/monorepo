@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { Sidebar } from "../src/components/Sidebar";
 import type { SidebarResize } from "../src/hooks/useSidebarWidth";
+import type { DeviceSettingsStorage } from "../src/lib/deviceSettingsStore";
 import { SIDEBAR_OVERLAY_WIDTH, SIDEBAR_WIDTH } from "../src/lib/layout";
 import {
   SESSION_FILES_CHAT_MIN_WIDTH,
@@ -22,7 +23,6 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_STEP,
   SIDEBAR_WIDTH_STORE_LIMIT,
-  type SidebarWidthStorage,
 } from "../src/lib/sidebarWidth";
 
 test("bounds は定数で、下限は既定幅 (252px) / 上限は 400px", () => {
@@ -84,7 +84,7 @@ test("保存値が今の bounds の外でも捨てない (表示側で clamp す
   assert.equal(sidebarWidth(stored, sidebarWidthBounds()), 400);
 });
 
-class MemoryStorage implements SidebarWidthStorage {
+class MemoryStorage implements DeviceSettingsStorage {
   value: string | null = null;
   getItem(): string | null {
     return this.value;
@@ -113,7 +113,7 @@ test("store は 1 キーを読み書きし、未指定へ戻すとキーを消�
 });
 
 test("保存領域が使えない環境でも操作を止めない (session 内のメモリで保つ)", () => {
-  const throwing: SidebarWidthStorage = {
+  const throwing: DeviceSettingsStorage = {
     getItem: () => {
       throw new Error("SecurityError");
     },

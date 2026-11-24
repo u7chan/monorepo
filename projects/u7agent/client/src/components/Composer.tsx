@@ -35,7 +35,8 @@ import {
   voiceInputComposerBusy,
   type VoiceInputComposerPhase,
 } from "../lib/voiceInput/composer";
-import { requestVoiceInputConsent, voiceInputConsentStorage } from "../lib/voiceInput/consent";
+import { deviceSettingsStorage } from "../lib/deviceSettingsStore";
+import { requestVoiceInputConsent } from "../lib/voiceInput/consent";
 import {
   applyVoiceInputPartial,
   beginVoiceInputDraft,
@@ -454,7 +455,7 @@ export function Composer({
     void (async () => {
       const scope = voiceScopeRef.current;
       const allowed = await requestVoiceInputConsent({
-        storage: voiceInputConsentStorage(),
+        storage: deviceSettingsStorage(),
         confirm,
         model: voiceInputModel,
       });

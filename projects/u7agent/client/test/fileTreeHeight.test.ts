@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { FileTreeHeightResizeHandle } from "../src/components/file-tree/FileTreeHeightResizeHandle";
+import type { DeviceSettingsStorage } from "../src/lib/deviceSettingsStore";
 import {
   canResizeFileTreeHeight,
   clampFileTreeHeight,
@@ -20,7 +21,6 @@ import {
   FILE_TREE_HEIGHT_STORE_LIMIT,
   FILE_TREE_PREVIEW_MIN_HEIGHT,
   type FileTreeHeightBounds,
-  type FileTreeHeightStorage,
 } from "../src/lib/fileTreeHeight";
 
 test("bounds は容器の高さから上限を引き、未計測 (0 以下) は null にする", () => {
@@ -108,7 +108,7 @@ test("保存値は 0 (完全に隠した状態) を採り、壊れていれば�
   assert.equal(parseFileTreeHeight(null), null);
 });
 
-class MemoryStorage implements FileTreeHeightStorage {
+class MemoryStorage implements DeviceSettingsStorage {
   value: string | null = null;
   getItem(): string | null {
     return this.value;
@@ -141,7 +141,7 @@ test("store は 1 キーを読み書きし、未指定へ戻すとキーを消�
 });
 
 test("保存領域が使えない環境でも操作を止めない (session 内のメモリで保つ)", () => {
-  const throwing: FileTreeHeightStorage = {
+  const throwing: DeviceSettingsStorage = {
     getItem: () => {
       throw new Error("SecurityError");
     },

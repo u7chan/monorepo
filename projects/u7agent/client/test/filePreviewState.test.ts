@@ -1,6 +1,7 @@
 // ファイル画面の保存 schema。壊れた入力・上限・prototype 名・保存領域の例外を純関数と薄い境界で固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { DeviceSettingsStorage } from "../src/lib/deviceSettingsStore";
 import {
   createFilePreviewStore,
   decodeFilePreviewSnapshots,
@@ -13,7 +14,6 @@ import {
   parseFilePreviewSnapshot,
   type FilePreviewSnapshot,
   type FilePreviewSnapshots,
-  type SnapshotStorage,
 } from "../src/lib/filePreviewState";
 import type { PreviewMode, PreviewModes } from "../src/lib/fileTabs";
 
@@ -29,7 +29,7 @@ const raw = (value: unknown): string => JSON.stringify(value);
 const body = (cwds: unknown, version: unknown = FILE_SNAPSHOT_VERSION): string => raw({ version, cwds });
 const bytes = (text: string): number => new TextEncoder().encode(text).length;
 
-class FakeStorage implements SnapshotStorage {
+class FakeStorage implements DeviceSettingsStorage {
   value: string | null = null;
   failRead = false;
   failWrite = false;

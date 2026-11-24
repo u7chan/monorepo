@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import test from "node:test";
+import type { DeviceSettingsStorage } from "../src/lib/deviceSettingsStore";
 import { canShareSessionRoot } from "../src/lib/sessionFiles";
 import {
   canResizeSessionFilesPanel,
@@ -13,7 +14,6 @@ import {
   SESSION_FILES_WIDTH_KEY,
   SESSION_FILES_WIDTH_STEP,
   SESSION_FILES_WIDTH_STORE_LIMIT,
-  type SessionFilesPanelWidthStorage,
 } from "../src/lib/sessionFilesPanel";
 
 /** desktop で左バー (既定幅 252px) が docked のときの main 列の幅 */
@@ -121,7 +121,7 @@ test("root 共有の入口は projectSession が明示的な false のときだ�
   assert.equal(canShareSessionRoot({ sessionId: undefined, projectSession: false }), false);
 });
 
-class MemoryStorage implements SessionFilesPanelWidthStorage {
+class MemoryStorage implements DeviceSettingsStorage {
   value: string | null = null;
   getItem(): string | null {
     return this.value;
@@ -150,7 +150,7 @@ test("store は 1 キーを読み書きし、未指定へ戻すとキーを消�
 });
 
 test("保存領域が使えない環境でも操作を止めない (session 内のメモリで保つ)", () => {
-  const throwing: SessionFilesPanelWidthStorage = {
+  const throwing: DeviceSettingsStorage = {
     getItem: () => {
       throw new Error("SecurityError");
     },

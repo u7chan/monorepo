@@ -1,8 +1,10 @@
 /**
  * ファイルツリー (FileBrowser) のアイコンの見た目。形と FileKind の分類は icons.tsx / lib/fileKind.ts が持ち、
- * ここは「どう色を載せるか」だけを決める。表示設定なので保存は localStorage の 1 キーに閉じる。
- * DOM に触れるのは保存先の解決だけ (docs/file-tree.md)。
+ * ここは「どう色を載せるか」だけを決める。表示設定なので保存は localStorage の 1 キーに閉じ、
+ * 保存先の解決は deviceSettingsStore.ts (docs/file-tree.md)。
  */
+
+import { deviceSettingsStorage, type DeviceSettingsStorage } from "./deviceSettingsStore";
 
 /** 選べる見た目。並びは設定画面の並びで、先頭が既定 */
 export const FILE_ICON_STYLES = [
@@ -32,8 +34,6 @@ export function parseFileIconStyle(raw: string | null): FileIconStyle {
   return isFileIconStyle(raw) ? raw : DEFAULT_FILE_ICON_STYLE;
 }
 
-export type FileIconStyleStorage = Pick<Storage, "getItem" | "setItem">;
-
 export type FileIconStyleStore = {
   /** 保存値 (未知の値は既定へ倒したもの) */
   read(): FileIconStyle;
@@ -45,19 +45,17 @@ export type FileIconStyleStore = {
 
 /**
  * 選んだ見た目を localStorage の 1 キーで読み書きする。保存領域が使えない環境 (private browsing 等) でも
- * 操作を止めず、代わりに同じセッション内のメモリを使う (fileTreeWidth.ts と同じ扱い)。
+ * 操作を止めず、代わりに同じセッション内のメモリを使う。
  */
-export function createFileIconStyleStore(storage?: FileIconStyleStorage | null): FileIconStyleStore {
+export function createFileIconStyleStore(storage?: DeviceSettingsStorage | null): FileIconStyleStore {
   // 一度でも読み書きしたら、以降はここが正 (書けなくても session 内は保つ)
   let memory: FileIconStyle | undefined;
   const listeners = new Set<() => void>();
-  // 引数を省いたときは毎回引き直す (例外を投げる環境と、window が無いテストの両方に対応する)
-  const resolve = (): FileIconStyleStorage | null => (storage === undefined ? defaultStyleStorage() : storage);
 
   return {
     read() {
       if (memory !== undefined) return memory;
-      const target = resolve();
+      const target = deviceSettingsStorage(storage);
       if (!target) return DEFAULT_FILE_ICON_STYLE;
       try {
         return parseFileIconStyle(target.getItem(FILE_ICON_STYLE_KEY));
@@ -67,7 +65,7 @@ export function createFileIconStyleStore(storage?: FileIconStyleStorage | null):
     },
     write(style) {
       memory = style;
-      const target = resolve();
+      const target = deviceSettingsStorage(storage);
       if (target) {
         try {
           target.setItem(FILE_ICON_STYLE_KEY, style);
@@ -88,12 +86,3 @@ export function createFileIconStyleStore(storage?: FileIconStyleStorage | null):
 
 /** アプリが使う既定の store */
 export const fileIconStyleStore = createFileIconStyleStore();
-
-/** localStorage の accessor 自体が例外になる環境 (private browsing 等) がある */
-function defaultStyleStorage(): FileIconStyleStorage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}

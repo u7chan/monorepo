@@ -3,18 +3,16 @@
  * （設定を読んだことと、この会話で音声を送ることを承諾したことは別）。既読は localStorage の 1 キーに閉じる。
  */
 import type { ConfirmRequest } from "../confirmDialog";
+import type { DeviceSettingsStorage } from "../deviceSettingsStore";
 import { VOICE_INPUT_DATA_POLICY_URL } from "../voiceInputSettings";
 
 export const VOICE_INPUT_CONSENT_STORAGE_KEY = "u7agent.voice-input.consent";
 
-/** localStorage の代わりに使う最小の口。保存領域を持てない環境では null を渡し、毎回確認する */
-export type VoiceInputConsentStorage = Pick<Storage, "getItem" | "setItem">;
-
-/** 保存領域が無い・例外になる環境 (private browsing 等) でも録音は止めない。既読が残らないだけにする */
-function safely<T>(
-  action: (storage: VoiceInputConsentStorage) => T,
-  storage: VoiceInputConsentStorage | null,
-): T | null {
+/**
+ * 保存領域が無い・例外になる環境 (private browsing 等) でも録音は止めない。null を渡されたときは
+ * 既読が残らないだけにし、毎回確認する。
+ */
+function safely<T>(action: (storage: DeviceSettingsStorage) => T, storage: DeviceSettingsStorage | null): T | null {
   if (storage === null) return null;
   try {
     return action(storage);
@@ -24,22 +22,13 @@ function safely<T>(
 }
 
 /** この端末で確認済みか */
-export function voiceInputConsentGiven(storage: VoiceInputConsentStorage | null): boolean {
+export function voiceInputConsentGiven(storage: DeviceSettingsStorage | null): boolean {
   return safely((store) => store.getItem(VOICE_INPUT_CONSENT_STORAGE_KEY) === "1", storage) === true;
 }
 
 /** 確認して録音を始めたことを覚える */
-export function markVoiceInputConsent(storage: VoiceInputConsentStorage | null): void {
+export function markVoiceInputConsent(storage: DeviceSettingsStorage | null): void {
   safely((store) => store.setItem(VOICE_INPUT_CONSENT_STORAGE_KEY, "1"), storage);
-}
-
-/** localStorage の accessor 自体が例外になる環境 (private browsing 等) がある。無い環境では null */
-export function voiceInputConsentStorage(): VoiceInputConsentStorage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -68,7 +57,8 @@ export async function requestVoiceInputConsent({
   confirm,
   model,
 }: {
-  storage: VoiceInputConsentStorage | null;
+  /** 保存領域を持てない環境では null (毎回確認する) */
+  storage: DeviceSettingsStorage | null;
   confirm: (request: ConfirmRequest) => Promise<boolean>;
   model: string;
 }): Promise<boolean> {
