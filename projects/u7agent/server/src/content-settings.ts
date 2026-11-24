@@ -474,11 +474,9 @@ export class ContentSettingsService {
     });
   }
 
-  /**
-   * 有効 / 無効。行ごと消すとキーと選択まで失うため、一時的に止めたいだけのときはこちらを使う。
-   * 行が無ければ 400（キー登録が先。止める対象が無い）。
-   */
-  async putEnabled(enabled: boolean): Promise<ContentMutationOutcome> {
+  #updateExisting(
+    update: (existing: ContentSettingsRow) => ContentSettingsRow | { status: 503; error: string },
+  ): Promise<ContentMutationOutcome> {
     return this.#lock.run(async () => {
       let existing: ContentSettingsRow | undefined;
       try {
@@ -488,7 +486,8 @@ export class ContentSettingsService {
         return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
       }
       if (!existing) throw badRequest(CONTENT_SETTINGS_UNCONFIGURED_MESSAGE);
-      const next: ContentSettingsRow = { ...existing, enabled };
+      const next = update(existing);
+      if ("status" in next) return next;
       try {
         this.#db.saveContentSettings(next);
       } catch {
@@ -498,6 +497,11 @@ export class ContentSettingsService {
       this.#apply(next);
       return { status: 200, response: this.#applied(next) };
     });
+  }
+
+  /** 行ごと消すとキーと選択も失うため、一時的な停止にはトグルだけを変える */
+  async putEnabled(enabled: boolean): Promise<ContentMutationOutcome> {
+    return this.#updateExisting((existing) => ({ ...existing, enabled }));
   }
 
   /**
@@ -510,15 +514,7 @@ export class ContentSettingsService {
     model: string;
     parameters?: ImageParameterValues | undefined;
   }): Promise<ContentMutationOutcome> {
-    return this.#lock.run(async () => {
-      let existing: ContentSettingsRow | undefined;
-      try {
-        existing = this.#db.readContentSettings();
-      } catch (error) {
-        console.warn(`[u7agent] content settings read failed: ${this.#maskError(messageFor(error))}`);
-        return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
-      }
-      if (!existing) throw badRequest(CONTENT_SETTINGS_UNCONFIGURED_MESSAGE);
+    return this.#updateExisting((existing) => {
       if (input.provider !== IMAGE_PROVIDER_ID) throw badRequest(CONTENT_PROVIDER_UNSUPPORTED_MESSAGE);
       const inCatalog = this.#catalog
         .snapshot()
@@ -538,20 +534,12 @@ export class ContentSettingsService {
         input.parameters === undefined
           ? existing.imageParams
           : this.#updatedImageParams(existing.imageParams, input.model, input.parameters);
-      const next: ContentSettingsRow = {
+      return {
         ...existing,
         provider: input.provider,
         imageModel: input.model,
         imageParams: nextImageParams,
       };
-      try {
-        this.#db.saveContentSettings(next);
-      } catch {
-        console.warn("[u7agent] content settings save failed");
-        return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
-      }
-      this.#apply(next);
-      return { status: 200, response: this.#applied(next) };
     });
   }
 
@@ -580,15 +568,7 @@ export class ContentSettingsService {
    * 400 にすると、使えていた選択を別の入り口からやり直せなくなる。
    */
   async putSpeechSelection(input: { model: string; voice: string }): Promise<ContentMutationOutcome> {
-    return this.#lock.run(async () => {
-      let existing: ContentSettingsRow | undefined;
-      try {
-        existing = this.#db.readContentSettings();
-      } catch (error) {
-        console.warn(`[u7agent] content settings read failed: ${this.#maskError(messageFor(error))}`);
-        return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
-      }
-      if (!existing) throw badRequest(CONTENT_SETTINGS_UNCONFIGURED_MESSAGE);
+    return this.#updateExisting((existing) => {
       // キーを復号できていない状態で照合を飛ばして保存しない (キー入りの値を残さない)
       if (this.#keyStored(existing) && !this.#keyState.keyAvailable) {
         return { status: 503, error: CONTENT_KEY_UNAVAILABLE_MESSAGE };
@@ -614,15 +594,7 @@ export class ContentSettingsService {
         }
       }
       const speechVoice = input.voice === "" ? null : input.voice;
-      const next: ContentSettingsRow = { ...existing, speechModel: input.model, speechVoice };
-      try {
-        this.#db.saveContentSettings(next);
-      } catch {
-        console.warn("[u7agent] content settings save failed");
-        return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
-      }
-      this.#apply(next);
-      return { status: 200, response: this.#applied(next) };
+      return { ...existing, speechModel: input.model, speechVoice };
     });
   }
 

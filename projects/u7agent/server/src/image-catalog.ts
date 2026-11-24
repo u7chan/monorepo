@@ -1,16 +1,5 @@
-/**
- * 画像モデルカタログの取得と保持。live（OpenRouter の画像モデル一覧 API）を正とし、取得できないときは
- * 前回の成功（アプリ DB のキャッシュ）→ SDK 同梱カタログの順に落とす。一覧 API は API キーを見ないため、
- * 取得はキーの有無・有効性と独立に扱う（正は docs/image-generation.md）。
- */
 import type { ImageCatalogModelRow, ImageCatalogRow } from "./app-db";
-import {
-  CATALOG_ERROR_RATE_LIMITED,
-  CATALOG_ERROR_TIMEOUT,
-  CATALOG_ERROR_UNKNOWN,
-  CATALOG_TIMEOUT_MS,
-} from "./content-model-catalog";
-import { messageFor } from "./errors";
+import { CATALOG_TIMEOUT_MS, createContentModelCatalog } from "./content-model-catalog";
 import { startRequestDeadline } from "./request-deadline";
 import {
   IMAGE_ABORTED_MESSAGE,
@@ -89,9 +78,6 @@ export const IMAGE_INPUT_ENDPOINTS_UNSUPPORTED_MESSAGE =
 
 export const IMAGE_INPUT_ENDPOINTS_UNKNOWN_MESSAGE =
   "参照画像を受け付ける経路を provider に確認できませんでした。編集は行っておらず、クレジットは消費していません。時間をおいて試してください";
-
-/** 取得失敗の分類。上流の原文はログにも UI にも出さず、この 3 つへ寄せる */
-type FetchOutcome = { entries: ImageCatalogEntry[]; fetchedAt: number } | { error: string };
 
 /**
  * live 応答の `supported_parameters.output_format.values` を読む。宣言が無い / 形が違うときは undefined
@@ -292,79 +278,52 @@ async function fetchImageInputSupport(
 
 export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
   const store = options.store;
-  const sdkCatalog = options.sdkCatalog ?? (() => imageModelCatalog());
   const baseFetch = options.fetchImpl ?? fetch;
-  const now = options.now ?? (() => Date.now());
   const timeoutMs = options.timeoutMs ?? CATALOG_TIMEOUT_MS;
-
-  let entries: ImageCatalogEntry[] = [...sdkCatalog()];
-  let source: ImageCatalogSource = "sdk";
-  let fetchedAt: number | null = null;
+  const catalog = createContentModelCatalog({
+    kind: "image",
+    url: IMAGE_CATALOG_URL,
+    fallbackEntries: options.sdkCatalog ?? imageModelCatalog,
+    fallbackSource: "sdk",
+    fetchImpl: baseFetch,
+    now: options.now,
+    timeoutMs,
+    entriesOf,
+    readCache: () => store.readImageCatalog(),
+    saveCache: (row) => store.saveImageCatalog(row),
+    entryOf,
+    cacheModelOf,
+  });
   /** endpoint の確認に成功した組。失敗は残さず、次の実行で引き直す */
   const verifiedEndpoints = new Set<string>();
 
-  /**
-   * 取得成功を採用する。メモリを先に更新し、キャッシュ保存の失敗は次の起動で前回の一覧が消えるだけなので
-   * ログに留める（いま返している一覧は live のままで正しい）。
-   */
-  const adopt = (outcome: { entries: ImageCatalogEntry[]; fetchedAt: number }): void => {
-    entries = outcome.entries;
-    source = "live";
-    fetchedAt = outcome.fetchedAt;
-    try {
-      store.saveImageCatalog({ fetchedAt: outcome.fetchedAt, models: outcome.entries.map(cacheModelOf) });
-    } catch {
-      console.warn("[u7agent] image catalog cache save failed");
-    }
-  };
-
-  const fetchLive = async (): Promise<FetchOutcome> => {
-    const deadline = startRequestDeadline(timeoutMs);
-    try {
-      const response = await baseFetch(IMAGE_CATALOG_URL, { signal: deadline.signal });
-      const text = await response.text();
-      let body: unknown;
-      try {
-        body = text === "" ? undefined : JSON.parse(text);
-      } catch {
-        body = undefined;
-      }
-      const entries = response.ok ? entriesOf(body) : undefined;
-      if (entries) return { entries, fetchedAt: now() };
-      if (deadline.timedOut) return { error: CATALOG_ERROR_TIMEOUT };
-      if (response.status === 429 || response.status >= 500) return { error: CATALOG_ERROR_RATE_LIMITED };
-      return { error: CATALOG_ERROR_UNKNOWN };
-    } catch {
-      return deadline.timedOut ? { error: CATALOG_ERROR_TIMEOUT } : { error: CATALOG_ERROR_UNKNOWN };
-    } finally {
-      deadline.clear();
-    }
-  };
-
   return {
-    snapshot: () => ({
+    snapshot: () => {
+      const { entries, source, fetchedAt } = catalog.snapshot();
       // 形式が不明なモデル（SDK 同梱・古いキャッシュ）は落とさない。生成パラメータの宣言は画面が選択肢を
       // 描くために応答へ載せるが、画像入力の宣言はサーバー側の判定にだけ使うので載せない
-      entries: entries
-        .filter((entry) => !isUnsaveableOutputOnly(entry.outputFormats))
-        .map(({ provider, id, name, parameters }) => ({
-          provider,
-          id,
-          name,
-          ...(parameters ? { parameters } : {}),
-        })),
-      source,
-      fetchedAt,
-    }),
+      return {
+        entries: entries
+          .filter((entry) => !isUnsaveableOutputOnly(entry.outputFormats))
+          .map(({ provider, id, name, parameters }) => ({
+            provider,
+            id,
+            name,
+            ...(parameters ? { parameters } : {}),
+          })),
+        source,
+        fetchedAt,
+      };
+    },
 
-    outputFormatsOf: (model) => entries.find((entry) => entry.id === model)?.outputFormats,
+    outputFormatsOf: (model) => catalog.entryFor(model)?.outputFormats,
 
-    parametersOf: (model) => entries.find((entry) => entry.id === model)?.parameters,
+    parametersOf: (model) => catalog.entryFor(model)?.parameters,
 
-    imageInputOf: (model) => entries.find((entry) => entry.id === model)?.input,
+    imageInputOf: (model) => catalog.entryFor(model)?.input,
 
     checkImageInput: async (model, signal) => {
-      const entry = entries.find((candidate) => candidate.id === model);
+      const entry = catalog.entryFor(model);
       const support = imageInputSupportOf(entry?.input);
       if (support === "unsupported") return IMAGE_INPUT_UNSUPPORTED_MESSAGE;
       if (!entry || support === "unknown") return IMAGE_INPUT_UNKNOWN_MESSAGE;
@@ -382,26 +341,7 @@ export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
         : IMAGE_INPUT_ENDPOINTS_UNKNOWN_MESSAGE;
     },
 
-    loadStored: () => {
-      try {
-        const stored = store.readImageCatalog();
-        if (!stored) return;
-        entries = stored.models.map(entryOf);
-        source = "stored";
-        fetchedAt = stored.fetchedAt;
-      } catch (error) {
-        console.warn(`[u7agent] image catalog cache unavailable: ${messageFor(error)}`);
-      }
-    },
-
-    refresh: async () => {
-      const outcome = await fetchLive();
-      if ("error" in outcome) {
-        console.warn(`[u7agent] image catalog fetch failed: ${outcome.error}`);
-        return outcome.error;
-      }
-      adopt(outcome);
-      return null;
-    },
+    loadStored: catalog.loadStored,
+    refresh: catalog.refresh,
   };
 }

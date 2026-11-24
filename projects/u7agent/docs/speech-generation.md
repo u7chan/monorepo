@@ -12,7 +12,7 @@
 
 ## モデルカタログ
 
-選択肢の正は keyless な live 一覧（`GET https://openrouter.ai/api/v1/models?output_modalities=speech`）。pi-ai に TTS の実装が無く SDK 同梱カタログへ落とせないため、取得できないときは**同梱の既定 1 件**を使う。実装は `server/src/speech-catalog.ts`。
+選択肢の正は keyless な live 一覧（`GET https://openrouter.ai/api/v1/models?output_modalities=speech`）。pi-ai に TTS の実装が無く SDK 同梱カタログへ落とせないため、取得できないときは**同梱の既定 1 件**を使う。一覧の取得・キャッシュは `server/src/content-model-catalog.ts`、音声モデルの宣言の解釈と同梱カタログは `server/src/speech-catalog.ts`。
 
 | 出どころ (`catalogSource`) | いつ | `fetchedAt` |
 | --- | --- | --- |
@@ -23,7 +23,7 @@
 - `default` は画像の `sdk` と同じ「live もキャッシュも無い」状態を表す。名前を分けるのは、同梱物が SDK カタログではなく**このリポジトリが持つ 1 件**だから（同じ語を使うと、SDK の更新で直るのか手で直すのかが読み分けられない）
 - 取得は **API キーを使わない**（一覧 API は認証を見ないので、認証ヘッダも付けない）。**キーの死活チェックには使えない**
 - 取得契機は 起動時（`content_settings` に行があるとき）/ 画面の [カタログ更新]。`GET /api/settings/content` はネットワークに触れず、メモリ上の現在値を返すだけ。手動の [カタログ更新] は画像・価格と同じ 1 本（[content-cost.md](content-cost.md)）
-- 期限は 10 秒 + リトライなし。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
+- 取得の期限・失敗時の扱いは [画像と共通](image-generation.md#モデルカタログ)
 - 取得するのは `id` / `name` / `supported_voices` の 3 つ。**形式は一覧 API の宣言からは選べない**（要求できるのは `mp3` / `pcm` だけで、どちらが通るかは生成時の 400 で初めて分かる）ため、カタログの宣言で絞り込みはしない
 - 取得成功時だけ DB（`speech_catalog`）へ `{ id, name, voices? }` を残す。テーブルの形は `image_catalog` と同型で、item の JSON だけが違う（`voices` を持つ）。キャッシュは派生データとして扱い、読めない行は未取得として読んで health を落とさない
 - キャッシュが `default` のとき（live に一度も成功していないとき）は**保存時の照合をしない**。同梱が 1 件しかない状態で照合すると、保存済みの選択を再保存できなくなる

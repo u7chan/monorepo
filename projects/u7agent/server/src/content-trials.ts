@@ -369,6 +369,15 @@ interface TrialTarget {
   parameters: ImageParameterValues | null;
 }
 
+type TrialGenerationFailure = { ok: false; code: ContentTrialFailureCode; message: string };
+type TrialArtifactData = {
+  format: TrialArtifactFormat;
+  bytes: Uint8Array;
+  width: number | null;
+  height: number | null;
+};
+type TrialArtifactPreparation = ({ ok: true } & TrialArtifactData) | { ok: false; reason: TrialArtifactRejectReason };
+
 /** 終端の決定内容。成果物は `succeeded` のときだけ入る（DB へは状態と 1 文で書く） */
 interface TerminalDecision {
   state: Exclude<ContentTrialState, "running">;
@@ -653,15 +662,18 @@ export class ContentTrialsService {
   get(id: string): ContentTrialReadOutcome {
     this.#reconcileIfDue();
     this.#retryUnrecorded();
-    let row: ContentTrialRow | undefined;
+    const row = this.#readTrial(id);
+    if (!row) return { status: 404, error: CONTENT_TRIAL_NOT_FOUND_MESSAGE };
+    return { status: 200, trial: this.#view(row) };
+  }
+
+  #readTrial(id: string): ContentTrialRow | undefined {
     try {
-      row = this.#db.readContentTrial(id);
+      return this.#db.readContentTrial(id);
     } catch (error) {
       console.warn(`[u7agent] content trial read failed: ${this.#maskError(messageFor(error))}`);
       throw error;
     }
-    if (!row) return { status: 404, error: CONTENT_TRIAL_NOT_FOUND_MESSAGE };
-    return { status: 200, trial: this.#view(row) };
   }
 
   /**
@@ -727,13 +739,7 @@ export class ContentTrialsService {
    * `succeeded` + `stored` 以外の行、行の id と一致しない保存名、置き場に無いファイルは 404。
    */
   async raw(id: string): Promise<ContentTrialRawOutcome> {
-    let row: ContentTrialRow | undefined;
-    try {
-      row = this.#db.readContentTrial(id);
-    } catch (error) {
-      console.warn(`[u7agent] content trial read failed: ${this.#maskError(messageFor(error))}`);
-      throw error;
-    }
+    const row = this.#readTrial(id);
     const format = row ? storedFormatOf(row) : undefined;
     if (!row || !format || !this.#artifacts) return { status: 404, error: CONTENT_TRIAL_ARTIFACT_MISSING_MESSAGE };
     // 保存名は行の id と形式から作り直す（行のパスをそのまま使わない）
@@ -770,13 +776,7 @@ export class ContentTrialsService {
       }
       return { status: 200, trial: this.#view(row) };
     }
-    let row: ContentTrialRow | undefined;
-    try {
-      row = this.#db.readContentTrial(id);
-    } catch (error) {
-      console.warn(`[u7agent] content trial read failed: ${this.#maskError(messageFor(error))}`);
-      throw error;
-    }
+    const row = this.#readTrial(id);
     if (!row) return { status: 404, error: CONTENT_TRIAL_NOT_FOUND_MESSAGE };
     // レジストリに無い `running` は前のプロセスの取り残し。中断として倒してから終端として返す
     if (row.state === "running") {
@@ -791,13 +791,7 @@ export class ContentTrialsService {
    * 行を消してからその行の成果物を消し、消し残しは再照合に任せる。
    */
   async remove(id: string): Promise<ContentTrialRemoveOutcome> {
-    let row: ContentTrialRow | undefined;
-    try {
-      row = this.#db.readContentTrial(id);
-    } catch (error) {
-      console.warn(`[u7agent] content trial read failed: ${this.#maskError(messageFor(error))}`);
-      throw error;
-    }
+    const row = this.#readTrial(id);
     if (!row) return { status: 404, error: CONTENT_TRIAL_NOT_FOUND_MESSAGE };
     if (row.state === "running") return { status: 409, error: CONTENT_TRIAL_DELETE_RUNNING_MESSAGE };
     const removed = this.#db.deleteContentTrial(id) ? 1 : 0;
@@ -923,62 +917,59 @@ export class ContentTrialsService {
     });
   }
 
-  /** 画像の provider を 1 回呼び、結果に応じて終端と成果物を確定する */
-  async #generateImageOnce(job: RunningJob, target: TrialTarget): Promise<void> {
+  #generateImageOnce(job: RunningJob, target: TrialTarget): Promise<void> {
     const generate = this.#generateImage;
-    if (!generate) return;
-    let result: ImageGenerationResult;
-    try {
-      result = await generate({
-        provider: IMAGE_PROVIDER_ID,
-        model: target.model,
-        prompt: target.prompt,
-        // 未指定は送らない（宣言が無いモデルの既定のまま従来の本文を作る）
-        ...(target.parameters === null ? {} : { parameters: target.parameters }),
-        apiKey: target.apiKey,
-        signal: job.controller.signal,
-      });
-    } catch (error) {
-      // 生成器は例外を投げない契約だが、投げても試行を running のまま残さない
-      result = { ok: false, code: "unknown", message: messageFor(error) };
-    }
-    if (job.terminal !== null) return;
-    if (!result.ok) {
-      this.#settleFailure(job, result.code, result.message);
-      return;
-    }
-    // 生成は成功した（課金済み）。保存できなかった結果は成功として見せない
-    const prepared = prepareTrialImageArtifact(result.image);
-    if (!prepared.ok) {
-      this.#settle(job, storageFailure(prepared.reason));
-      return;
-    }
-    await this.#storeArtifact(job, {
-      format: prepared.format,
-      bytes: prepared.bytes,
-      width: prepared.width,
-      height: prepared.height,
-    });
+    if (!generate) return Promise.resolve();
+    return this.#generateOnce<Extract<ImageGenerationResult, { ok: true }>>(
+      job,
+      () =>
+        generate({
+          provider: IMAGE_PROVIDER_ID,
+          model: target.model,
+          prompt: target.prompt,
+          // 未指定なら provider の既定に任せる
+          ...(target.parameters === null ? {} : { parameters: target.parameters }),
+          apiKey: target.apiKey,
+          signal: job.controller.signal,
+        }),
+      ({ image }) => prepareTrialImageArtifact(image),
+    );
   }
 
-  /** 音声の provider を 1 回呼ぶ。pcm は RIFF 化して wav として保存する */
-  async #generateSpeechOnce(job: RunningJob, target: TrialTarget): Promise<void> {
+  #generateSpeechOnce(job: RunningJob, target: TrialTarget): Promise<void> {
     const generate = this.#generateSpeech;
-    if (!generate) return;
-    let result: SpeechGenerationResult;
+    if (!generate) return Promise.resolve();
+    return this.#generateOnce<Extract<SpeechGenerationResult, { ok: true }>>(
+      job,
+      () =>
+        generate({
+          provider: target.provider,
+          model: target.model,
+          text: target.prompt,
+          // 空の声を送らず、モデルの既定に任せる
+          ...(target.voice === null ? {} : { voice: target.voice }),
+          ...(target.instructions === null ? {} : { instructions: target.instructions }),
+          ...(target.speed === null ? {} : { speed: target.speed }),
+          apiKey: target.apiKey,
+          signal: job.controller.signal,
+        }),
+      ({ speech }) => {
+        const prepared = prepareTrialSpeechArtifact(speech);
+        return prepared.ok ? { ...prepared, width: null, height: null } : prepared;
+      },
+    );
+  }
+
+  async #generateOnce<Result extends { ok: true }>(
+    job: RunningJob,
+    generate: () => Promise<Result | TrialGenerationFailure>,
+    prepareArtifact: (result: Result) => TrialArtifactPreparation,
+  ): Promise<void> {
+    let result: Result | TrialGenerationFailure;
     try {
-      result = await generate({
-        provider: target.provider,
-        model: target.model,
-        text: target.prompt,
-        // 空は「送らない」（宣言が無いモデルの既定声に委ねる）
-        ...(target.voice === null ? {} : { voice: target.voice }),
-        ...(target.instructions === null ? {} : { instructions: target.instructions }),
-        ...(target.speed === null ? {} : { speed: target.speed }),
-        apiKey: target.apiKey,
-        signal: job.controller.signal,
-      });
+      result = await generate();
     } catch (error) {
+      // 生成器の契約外の例外でも running のままにしない。保存側の例外は生成失敗に分類しない。
       result = { ok: false, code: "unknown", message: messageFor(error) };
     }
     if (job.terminal !== null) return;
@@ -986,13 +977,13 @@ export class ContentTrialsService {
       this.#settleFailure(job, result.code, result.message);
       return;
     }
-    const prepared = prepareTrialSpeechArtifact(result.speech);
+    const prepared = prepareArtifact(result);
     if (!prepared.ok) {
+      // 課金済みでも、保存できない結果は成功として見せない。
       this.#settle(job, storageFailure(prepared.reason));
       return;
     }
-    // 音声に寸法は無い（履歴の行は形式とサイズだけを出す）
-    await this.#storeArtifact(job, { format: prepared.format, bytes: prepared.bytes, width: null, height: null });
+    await this.#storeArtifact(job, prepared);
   }
 
   /**
@@ -1039,10 +1030,7 @@ export class ContentTrialsService {
   }
 
   /** 成果物を書いて成功の終端を確定する。行とファイルの片側だけを残さない */
-  async #storeArtifact(
-    job: RunningJob,
-    prepared: { format: TrialArtifactFormat; bytes: Uint8Array; width: number | null; height: number | null },
-  ): Promise<void> {
+  async #storeArtifact(job: RunningJob, prepared: TrialArtifactData): Promise<void> {
     const store = this.#artifacts;
     if (!store) {
       // 置き場を用意できていない起動（永続化なし）。成功として見せない

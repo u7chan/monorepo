@@ -217,6 +217,29 @@ test("期限切れはタイムアウトとして分類する", async () => {
   assert.equal(await catalog.refresh(), CATALOG_ERROR_TIMEOUT);
 });
 
+test("期限後の応答は取得できた一覧を採用し、失敗なら HTTP status より期限を優先する", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const timeoutMs = 5;
+  let status = 200;
+  const { catalog, store } = create({
+    timeoutMs,
+    fetch: (_input, init) => {
+      t.mock.timers.tick(timeoutMs);
+      assert.equal(init?.signal?.aborted, true);
+      return Promise.resolve(jsonResponse({ data: LIVE }, status));
+    },
+  });
+
+  assert.equal(await catalog.refresh(), null);
+  assert.equal(catalog.snapshot().source, "live");
+  const before = catalog.snapshot();
+  const cached = store.row;
+  status = 503;
+  assert.equal(await catalog.refresh(), CATALOG_ERROR_TIMEOUT);
+  assert.deepEqual(catalog.snapshot(), before);
+  assert.equal(store.row, cached);
+});
+
 test("キャッシュを読んでから live を試し、失敗したらキャッシュの一覧と取得時刻を保つ", async () => {
   const store = new FakeCatalogStore();
   store.row = { fetchedAt: 500, models: [{ id: "inclusionai/ming-image-0.1-design-layer", name: "Ming Image" }] };
