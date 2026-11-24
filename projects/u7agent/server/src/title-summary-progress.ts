@@ -10,13 +10,19 @@ import { modelLabel } from "./model-ref";
 import type { RunState, SessionRecord } from "./session-record";
 import type { SecretMasker } from "./redact";
 import type { ThinkingLevel } from "./schema";
-import { settledTitleAttemptOf, titleRequestOf, titleSummaryOf, TITLE_ATTEMPT_ERROR_MAX } from "./session-title";
-import type { SessionTitleSummary, TitleAttempt, TitleSkipReason } from "./session-title";
+import {
+  settledTitleAttemptOf,
+  autoTitleSkipReason,
+  titleApplyBlockedReason,
+  titleRequestOf,
+  titleSummaryOf,
+  TITLE_ATTEMPT_ERROR_MAX,
+} from "./session-title";
+import type { SessionTitleSummary, TitleAttempt } from "./session-title";
 import { contentText, truncate } from "./session-projection";
 import { writeSessionMeta, type SessionMeta } from "./session-store";
 import type { TitleSummaryHost, TitleSummaryResult, TitleSummaryUsage } from "./title-summary";
 import type { TitleSummaryQueue, TitleSummaryQueueResult } from "./title-summary-queue";
-import type { TitleSummaryRuntimeSettings } from "./title-summary-settings";
 
 /** 進行が会話ストアへ要求する口。private を公開せずに切り出すための境界 */
 export interface TitleSummaryProgressPort {
@@ -85,7 +91,7 @@ export class TitleSummaryProgress {
     if (!response) return;
     const settings = host.settings();
     const request = record.titleRequest ?? record.title;
-    const skipReason = this.autoTitleSkipReason(record, settings, request);
+    const skipReason = autoTitleSkipReason({ titleOrigin: record.titleOrigin, request }, settings);
     const model = modelLabel(settings.model);
     const thinkingLevel = settings.thinkingLevel;
     const attempt: TitleAttempt = {
@@ -121,19 +127,6 @@ export class TitleSummaryProgress {
         record.run?.status === "completed" &&
         !record.compacting,
     });
-  }
-
-  /** 自動要約を見送る理由。判定は残すが、生成は呼ばない */
-  private autoTitleSkipReason(
-    record: SessionRecord,
-    settings: TitleSummaryRuntimeSettings,
-    request: string,
-  ): TitleSkipReason | undefined {
-    if (!settings.enabled) return "disabled";
-    if (!settings.model) return "model-unset";
-    if (record.titleOrigin === "manual") return "manual";
-    if (request.trim() === "") return "no-request";
-    return undefined;
   }
 
   /**
@@ -256,13 +249,13 @@ export class TitleSummaryProgress {
     // 保存を待つ間に取り消された (Off / 手動改名 / 停止)。結果の適用だけでなく開始も止める
     if (record.titleTask !== task) return;
     const current = host.settings();
-    const manualTitle = input.trigger === "auto" && record.titleOrigin === "manual";
-    if (!current || !this.titleSummarySettingsMatch(current, input.generation, model) || manualTitle) {
+    const blocked = titleApplyBlockedReason(
+      { titleOrigin: record.titleOrigin, trigger: input.trigger, generation: input.generation, model },
+      current,
+    );
+    if (blocked) {
       delete record.titleTask;
-      this.settleTitleAttempt(record, task, {
-        state: "skipped",
-        skipReason: manualTitle ? "manual" : "settings-changed",
-      });
+      this.settleTitleAttempt(record, task, { state: "skipped", skipReason: blocked });
       return;
     }
     const startedAt = Date.now();
@@ -309,8 +302,8 @@ export class TitleSummaryProgress {
   }
 
   /**
-   * 生成結果の適用。予約後にタイトルが手動で変えられた / 設定が変わった / 取り消された結果は捨てる
-   * (文字列比較ではなく、タイトルの由来と設定の世代で判定する)。usage は採用できたかと独立に残す。
+   * 生成結果の適用。予約後にタイトルが手動で変えられた / 設定が変わった / 取り消された結果は捨てる。
+   * usage は採用できたかと独立に残す。
    */
   private applyTitleSummary(
     record: SessionRecord,
@@ -337,12 +330,19 @@ export class TitleSummaryProgress {
       return;
     }
     const current = this.port.host()?.settings();
-    // 自動要約は手動のタイトルを守る。会話メニューからの再要約は、利用者が確認した操作なので置き換える
-    const manualBlocked = record.titleOrigin === "manual" && record.titleAttempt?.trigger !== "manual";
-    if (!current || !this.titleSummarySettingsMatch(current, task.generation, task.model) || manualBlocked) {
+    const blocked = titleApplyBlockedReason(
+      {
+        titleOrigin: record.titleOrigin,
+        trigger: record.titleAttempt?.trigger,
+        generation: task.generation,
+        model: task.model,
+      },
+      current,
+    );
+    if (blocked) {
       this.settleTitleAttempt(record, task, {
         state: "skipped",
-        skipReason: manualBlocked ? "manual" : "settings-changed",
+        skipReason: blocked,
         durationMs,
         ...usageFields(result.usage),
       });
@@ -370,15 +370,6 @@ export class TitleSummaryProgress {
     void this.port.persist(record).then(() => {
       if (this.port.isLive(record)) this.port.resync(record);
     });
-  }
-
-  /** 予約時の設定 (世代・モデル) が現在も同じか。On/Off と定義の変更も世代で検出する */
-  private titleSummarySettingsMatch(
-    current: { enabled: boolean; model?: { provider: string; id: string }; generation: number },
-    generation: number,
-    model: string | undefined,
-  ): boolean {
-    return current.enabled && current.generation === generation && modelLabel(current.model) === model;
   }
 
   private settleTitleAttempt(

@@ -15,6 +15,7 @@
 | ラン / 未配信入力（送信ID）の配送 / 購読 / セッション状態 | `server/src/sessions.ts` | [run-lifecycle.md](run-lifecycle.md) |
 | 調査の子セッション（investigate） | `server/src/investigate-tool.ts`、`server/src/investigate-runner.ts` | [subagent.md](subagent.md) |
 | 会話ストア（永続化 / 復元） | `server/src/session-store.ts` | [session-files.md](session-files.md)、[persistence.md](persistence.md) |
+| 会話タイトルの AI 要約の進行（1 会話 1 試行 / 順番待ち / 適用 / 取消） | `server/src/title-summary-progress.ts` | [session-title.md](session-title.md) |
 | pi イベント → SSE イベント変換 | `server/src/run-events.ts` | [run-lifecycle.md](run-lifecycle.md) |
 | 履歴 / payload / compaction の DTO 組み立て | `server/src/session-projection.ts`、`session-payload.ts`、`compaction-view.ts` | [run-lifecycle.md](run-lifecycle.md)、[compaction.md](compaction.md) |
 | HTTP 契約（DTO の正） | `server/src/schema.ts` | [api.md](api.md) |

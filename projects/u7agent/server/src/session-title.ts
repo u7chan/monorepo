@@ -1,10 +1,12 @@
 /**
- * 会話タイトルの入力抽出・正規化・AI要約の入力組み立て。会話ストア (sessions.ts) と
- * AI要約の応答の検証が同じ規則を使うよう、純関数だけをここへ置く。
- * 設定の保存と API は title-summary-settings.ts / routes/title-summary.ts が持つ。
+ * 会話タイトルの入力抽出・正規化・AI要約の入力組み立てと、要約を見送る / 適用しない判断。
+ * 会話ストア (sessions.ts) と AI要約の応答の検証が同じ規則を使うよう、純関数だけをここへ置く。
+ * 設定の保存と API は title-summary-settings.ts / routes/title-summary.ts、進行 (予約・順番待ち・取消) は
+ * title-summary-progress.ts が持つ。
  */
 import type { SecretMasker } from "./redact";
-import type { SessionTitleSummary, ThinkingLevel, TitleAttempt, TitleOrigin } from "./schema";
+import { modelLabel } from "./model-ref";
+import type { SessionTitleSummary, ThinkingLevel, TitleAttempt, TitleOrigin, TitleSkipReason } from "./schema";
 import { truncate } from "./session-projection";
 import { parseSkillCommand } from "./session-skills";
 
@@ -176,4 +178,57 @@ export function titleOriginOf(meta: { title?: string; titleOrigin?: unknown }): 
     return meta.titleOrigin;
   }
   return meta.title ? "manual" : "auto";
+}
+
+/**
+ * 要約の可否を決めるのに要る設定の射影。実効値をそのまま渡せる形にし、判定の純関数が
+ * 設定サービス (DB の読み書き) を import しないで済むようにする。
+ */
+export interface TitleSummarySettingsSnapshot {
+  enabled: boolean;
+  model: { provider: string; id: string } | undefined;
+  generation: number;
+}
+
+/** 自動要約を見送る理由。判定 (試行の記録) は残すが、生成は呼ばない */
+export function autoTitleSkipReason(
+  input: { titleOrigin: TitleOrigin; request: string },
+  settings: TitleSummarySettingsSnapshot,
+): TitleSkipReason | undefined {
+  if (!settings.enabled) return "disabled";
+  if (!settings.model) return "model-unset";
+  if (input.titleOrigin === "manual") return "manual";
+  if (input.request.trim() === "") return "no-request";
+  return undefined;
+}
+
+/** 予約した結果を適用しない理由 */
+export type TitleApplyBlockedReason = "manual" | "settings-changed";
+
+/**
+ * 予約した結果を適用してよいか。タイトル文字列の比較ではなく、手動改名の保護と、予約時に確定した
+ * 設定の世代・モデルで判定する (再保存や Off への変更を、結果が届く前に検出する)。
+ */
+export function titleApplyBlockedReason(
+  input: {
+    titleOrigin: TitleOrigin;
+    /** 予約を作った経路。手動の再要約だけが手動タイトルを置き換えられる */
+    trigger: "auto" | "manual" | undefined;
+    generation: number;
+    /** 予約時に確定したモデルのラベル */
+    model: string | undefined;
+  },
+  settings: TitleSummarySettingsSnapshot | undefined,
+): TitleApplyBlockedReason | undefined {
+  // 自動要約は手動のタイトルを守る。会話メニューからの再要約は、利用者が確認した操作なので置き換える
+  if (input.titleOrigin === "manual" && input.trigger !== "manual") return "manual";
+  if (
+    !settings ||
+    !settings.enabled ||
+    settings.generation !== input.generation ||
+    modelLabel(settings.model) !== input.model
+  ) {
+    return "settings-changed";
+  }
+  return undefined;
 }
