@@ -16,10 +16,7 @@ const createController = (confirm: ConfirmFn, onChange: (state: RuntimeDebugServ
     onChange,
   });
 
-/**
- * 設定 → ランタイム のデバッグ節が使う、デバッグ用 serve の一覧。mount の間だけ 4 秒で回す。
- * 公開カードとは別に取得し、失敗もこの節の中だけで見せる。
- */
+/** 設定 → ランタイム のデバッグ節。この hook が mount されている間だけ 4 秒で回す。 */
 export function useRuntimeDebugServe() {
   const { state, refresh, controller } = useRuntimePolling(INITIAL_RUNTIME_DEBUG_SERVE_STATE, createController);
   const stop = useCallback(
