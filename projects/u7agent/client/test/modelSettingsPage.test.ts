@@ -55,6 +55,10 @@ function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
     createdAt: 1,
     lastUsedAt: 2,
     pinned: false,
+    titleSummary: { origin: "auto" },
+    notify: false,
+    canHandoff: true,
+    hasRawLog: false,
     serveCommand: null,
     ...overrides,
   };

@@ -195,6 +195,7 @@ test("diagnostics never carries message, question or answer bodies", async () =>
         name: "ask_user",
         args: argsLiteral,
         questions: [{ question: marker, options: [{ label: marker }] }],
+        startedAt: 1_700_000_000_000,
       });
       bff.store.emit(record, "tool_end", {
         id: "t-1",
@@ -226,6 +227,7 @@ test("diagnostics never carries message, question or answer bodies", async () =>
         name: "ask_user",
         argsChars: argsLiteral.length,
         questions: 1,
+        startedAt: 1_700_000_000_000,
       });
       assert.deepEqual(items.get("tool_end"), {
         id: "t-1",

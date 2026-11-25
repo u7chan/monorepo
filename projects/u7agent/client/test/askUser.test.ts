@@ -81,6 +81,11 @@ function payload(
     piSessionId: "pi-s-1",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status,
     title: "",
     createdAt: 1,
@@ -200,6 +205,7 @@ test("toolStart / toolEnd / runEnd でカードの質問と回答が揃う", () 
   const started = chatReducer(initialChatState, { type: "resync", payload: payload([], run([], "queued"), "queued") });
   const asked = chatReducer(started, {
     type: "toolStart",
+    startedAt: 2,
     id: "call-1",
     name: "ask_user",
     args: '{"questions":[…]}',
@@ -242,7 +248,13 @@ test("toolStart / toolEnd / runEnd でカードの質問と回答が揃う", () 
   assert.deepEqual(answered.runTools["call-1"]?.answers?.length, 2);
   assert.equal(pendingAskUserQuestionCount(answered.runTools, "running"), 0);
 
-  const ended = chatReducer(answered, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(answered, {
+    type: "runEnd",
+    durationMs: 1_000,
+    runId: "run-1",
+    status: "completed",
+    queueDepth: 0,
+  });
   assert.equal(askCards(ended.bubbles).length, 1, "runEnd でも記録として残す");
 });
 
@@ -280,6 +292,7 @@ test("回答待ち + キュー送信は settle まで送信を止め、settle �
   state = chatReducer(state, { type: "queued", position: 1, queueDepth: 1 });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 2,
     id: "call-1",
     name: "ask_user",
     args: '{"questions":[…]}',
@@ -313,6 +326,7 @@ test("並行した ask_user は全部 settle するまで状態行の待機の�
   let state = chatReducer(initialChatState, { type: "resync", payload: payload([], run([], "running"), "running") });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 2,
     id: "call-1",
     name: "ask_user",
     args: "{}",
@@ -321,6 +335,7 @@ test("並行した ask_user は全部 settle するまで状態行の待機の�
   });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 2,
     id: "call-2",
     name: "ask_user",
     args: "{}",

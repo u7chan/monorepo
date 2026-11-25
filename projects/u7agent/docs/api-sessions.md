@@ -51,14 +51,14 @@
 `titleSummary` は会話タイトルの由来 (`origin`: `auto` / `ai` / `manual`) と最新の AI 要約の試行
 (`attempt`: `runId` / `at` / `state` / `trigger` / `model` / `thinkingLevel` / `generation` / `usage` /
 `durationMs` / `error` / `skipReason`) を表す。タイトル本文は `title` が持つ。`attempt` はまだ試行が無ければ
-省略し、旧サーバーは `titleSummary` 自体を省略する (クライアントは未対応として扱う)。`state` は `pending` /
+省略する。`state` は `pending` /
 `done` / `failed` / `skipped`、`skipReason` は `disabled` / `model-unset` / `manual` / `no-request` /
 `cancelled` / `settings-changed` / `not-ready` / `interrupted`。`error` はマスク済み・長さ上限つきで、依頼本文と生成タイトルは
 載せない (詳細は [session-title.md](session-title.md#実行のタイミングと試行))。
 
 `runStartedAt` / `finishedAt` は live な実行の開始・終了、`compactionStartedAt` は圧縮の開始、`awaitingSince` は未 settle の質問のうち最も古い開始時刻、`lastRunDurationMs` は直近のランの所要時間（`runOutcomes` にあるときだけ）で、どれも該当が無ければキーを省略する。未ロードの会話は `idle` でこれらの時刻を載せない（`lastUsedAt` を開始時刻の代用にしない）。終了済みの live レコードは終了から 120 分の間だけ sweep の対象外になる。
 
-`pinned` はサイドバーで固定するかを示す（常に boolean）。`awaitingAnswer` は `ask_user` の未 settle の回答待ちがあるか（省略 = false）。この間もランは `running` のままで、左バーの行が「回答待ち」になる（[ask-user.md](ask-user.md#ui)）。待機を持たない未ロードの会話は省略し、ロード済みの会話は待機が無くても `false` を返す。`canHandoff` は同じ会話のままエージェント / スペースを引き継げるか（常に true。旧サーバーは省略 = false）。`parentSessionId` は分岐元の会話 id（分岐していない会話と、分岐元の記録を持たない保存済みの会話はキーを省略する。分岐先はこの値から引く）。`projectSession` はプロジェクト所属か（真では引き継ぎ先のスペースを選ばない）。`handoffCleanup` は引き継ぎの確定後に残った履歴削除（片付け）が残っているか（省略 = false。真の間は開く要求が 409 になり、新しい引き継ぎも受け付けない）。`historyCleanup` は会話履歴のクリアの確定後に残った旧履歴の削除が未完了か（省略 = false。真の間は開く要求が 409 になり、クリアも 409。次に開いたときに削除から再試行する）。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（省略 = false）。設定 → ランタイム の診断タブは、まだ診断応答を取れていないときの出し分けにこの値を使い、応答が取れていれば `raw.available` を正とする。false のときだけダウンロードを押せなくし、理由を 1 行で出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
+`pinned` はサイドバーで固定するかを示す（常に boolean）。`awaitingAnswer` は `ask_user` の未 settle の回答待ちがあるか（省略 = false）。この間もランは `running` のままで、左バーの行が「回答待ち」になる（[ask-user.md](ask-user.md#ui)）。待機を持たない未ロードの会話は省略し、ロード済みの会話は待機が無くても `false` を返す。`canHandoff` は同じ会話のままエージェント / スペースを引き継げるか（常に true）。`parentSessionId` は分岐元の会話 id（分岐していない会話と、分岐元の記録を持たない保存済みの会話はキーを省略する。分岐先はこの値から引く）。`projectSession` はプロジェクト所属か（真では引き継ぎ先のスペースを選ばない）。`handoffCleanup` は引き継ぎの確定後に残った履歴削除（片付け）が残っているか（省略 = false。真の間は開く要求が 409 になり、新しい引き継ぎも受け付けない）。`historyCleanup` は会話履歴のクリアの確定後に残った旧履歴の削除が未完了か（省略 = false。真の間は開く要求が 409 になり、クリアも 409。次に開いたときに削除から再試行する）。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（常に boolean）。設定 → ランタイム の診断タブは、まだ診断応答を取れていないときの出し分けにこの値を使い、応答が取れていれば `raw.available` を正とする。false のときだけダウンロードを押せなくし、理由を 1 行で出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
 
 `serveCommand` はその会話の作業ディレクトリ（workdir）の serve 成功実績で、`{ cwd, command }` か **無ければ `null`**（キーは常に載る）。cwd を共有するプロジェクト会話は同じ値を返し、別ディレクトリの実績は返さない。実行状況（`/activity`）はこれを終了行に起動の操作を出す条件と、起動の確認に出す作業ディレクトリ・コマンドに使う（[frontend.md](frontend.md#全スペースの一覧)）。
 
@@ -190,15 +190,15 @@
 
 `eventGeneration` は SSE の世代（[イベント購読](api-session-runtime.md#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
 
-`historyGeneration` は**会話履歴の世代**で、履歴のクリアでだけ変わり、SSE の世代とは独立に再起動後も残る（旧データと旧サーバーは省略 = 空文字）。クリアでは同じ会話 ID のまま履歴が入れ替わるため、クライアントはこの値が変わったときに旧カーソル・旧バブル・取得中の旧ページ・進行中の旧要求を失効させて履歴を取り直す（[frontend.md](frontend.md#チャット状態とレンダリング)）。`eventGeneration` で代用しないのは、BFF の再起動や sweep でも変わるため。
+`historyGeneration` は**会話履歴の世代**で、履歴のクリアでだけ変わり、SSE の世代とは独立に再起動後も残る（旧データは空文字）。クリアでは同じ会話 ID のまま履歴が入れ替わるため、クライアントはこの値が変わったときに旧カーソル・旧バブル・取得中の旧ページ・進行中の旧要求を失効させて履歴を取り直す（[frontend.md](frontend.md#チャット状態とレンダリング)）。`eventGeneration` で代用しないのは、BFF の再起動や sweep でも変わるため。
 
 `pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ sendId, runId?, text, at, state, position? }` で、`text` は表示用にマスク済み、`runId` は実行へ割り当て済みのときだけ載る（手動圧縮待ちなど未割当の送信では省略する）。`state` は `unsent`（未送信）/ `queued`（配送待ち。取消できる）/ `steering`（SDK が取り出して反映中。取消・再送・破棄は不可）/ `running`（実行中）で、`queued` と `steering` の境目は SDK の実キューから取り出されたかどうか。判定は `server/src/schema.ts` の `PendingSendSchema` と `server/src/session-steering.ts` / `server/src/session-payload.ts` を正とする。`position` は **BFF の配送キューの並び**（SDK へ渡した分も含む）の index + 1 で、`queueDepth` も同じ集合を数える（上限も同じ件数で判定する）。送信の照合・取消・再送・破棄はすべて `sendId` で行い、`runId` は実行への所属だけを表す。
 
-`pendingSends` の並び（受理順）は再送で実際のキューの並びと入れ替わる（再送は末尾へ積まれ、受理の記録は元の位置に残る）ため、順位は並びから数えず `position` を読む。クライアントは未保存の送信を「未送信」へ切り替え、配送に残る送信は受理済みの pending として保つ（別タブの再送中に表示から消さない。履歴の初回応答前でもバブルを足す）。手元にバブルが無い未送信は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendSendId` へ `sendId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した実行の送信は配送対象から外れて `unsent` になる**（`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う（`state` があっても `position` が無いときは順位が不明として扱う）。
+`pendingSends` の並び（受理順）は再送で実際のキューの並びと入れ替わる（再送は末尾へ積まれ、受理の記録は元の位置に残る）ため、順位は並びから数えず `position` を読む。クライアントは未保存の送信を「未送信」へ切り替え、配送に残る送信は受理済みの pending として保つ（別タブの再送中に表示から消さない。履歴の初回応答前でもバブルを足す）。手元にバブルが無い未送信は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendSendId` へ `sendId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した実行の送信は配送対象から外れて `unsent` になる**（`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。`position` はキューに無い送信（steering へ移った・注入済み）では載らないため、`state` があっても `position` が無いときは順位が不明として扱う。
 
 `handoff` は直前の引き継ぎの状態（`{ operationId, at, memo, consumed, cleanupPending }`）。`operationId` は引き継ぎごとのランダムな 8 hex、`memo` は `HANDOFF.md` を書いたか、`consumed` は引き継ぎ後に最初の送信を受理済みか（未送信の破棄では戻らない）、`cleanupPending` は片付けが残っているか。チップ「HANDOFF.mdを参照」は `memo && !consumed` のときだけ出す（表示はクライアントのメモリではなくこの値から導出する。 [ui-layout.md](ui-layout.md#スペース)）。引き継ぎを受けていない会話と、引き継ぎの記録を持たない保存済みの会話はキーを省略する。
 
-`networkAccess` は bash の外向き HTTPS の実効状態（`{ mode, approved }`）。`mode` は環境の `PI_SANDBOX_NETWORK_POLICY`（`allow` / `ask` / `deny`）、`approved` はこの会話の承認が立っているか。承認は BFF のメモリだけにあり、停止・会話削除・sweep で戻る。クライアントは拒否済みカードの「許可に変更」を `mode === "ask" && !approved` のときだけ出し、押した後の表示にもこの値を使う。旧サーバーはキーを省略する（救済の導線を出さない）。詳細は [sandbox.md](sandbox.md#セッション単位の-egress-ポリシー承認) と [api-session-turns.md](api-session-turns.md#post-apisessionsidnetwork-accessapprove)。
+`networkAccess` は bash の外向き HTTPS の実効状態（`{ mode, approved }`）。`mode` は環境の `PI_SANDBOX_NETWORK_POLICY`（`allow` / `ask` / `deny`）、`approved` はこの会話の承認が立っているか。承認は BFF のメモリだけにあり、停止・会話削除・sweep で戻る。クライアントは拒否済みカードの「許可に変更」を `mode === "ask" && !approved` のときだけ出し、押した後の表示にもこの値を使う。詳細は [sandbox.md](sandbox.md#セッション単位の-egress-ポリシー承認) と [api-session-turns.md](api-session-turns.md#post-apisessionsidnetwork-accessapprove)。
 
 JSONL が破損している（SDK が追記する entry type / message role を store が知らない、途中の行が壊れている等）セッションを開く要求は 409（store のパスを含む文言）で拒否する。原本は書き換えず、一覧にも残る（[session-files.md](session-files.md#会話の保存)）。開けなかったときのクライアントの移り先は [frontend.md](frontend.md#クライアントの-effect-契約) を参照。
 

@@ -14,6 +14,11 @@ function runningPayload(): SessionPayload {
     piSessionId: "pi-session-a",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     model: "stub/stub-model",
     thinkingLevel: "high",
     supportsThinking: true,
@@ -40,6 +45,7 @@ function stateWithSession() {
   const resynced = chatReducer(initialChatState, { type: "resync", payload: runningPayload() });
   return chatReducer(resynced, {
     type: "toolStart",
+    startedAt: 1700000000002,
     id: "tool-1",
     name: "read",
     args: "README.md",
@@ -353,7 +359,7 @@ test("runTools は runStart / newChat / セッション切替で初期化し、r
   assert.deepEqual(Object.keys(running.runTools), ["t1"]);
 
   // runEnd はカードを残す (終了後に遅れて適用される履歴ページへ補うため)
-  const ended = chatReducer(running, { type: "runEnd", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(running, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.deepEqual(Object.keys(ended.runTools), ["t1"]);
   assert.deepEqual(ended.toolBubbleIds, {}, "索引は次の run のイベントを誤適用しないよう空にする");
 
@@ -379,14 +385,14 @@ test("liveToolIds はライブのイベントでだけ増え、セッション�
   });
   assert.deepEqual(restored.liveToolIds, []);
 
-  const started = chatReducer(restored, { type: "toolStart", id: "t2", name: "bash", args: "ls", at: 1 });
+  const started = chatReducer(restored, { type: "toolStart", startedAt: 1, id: "t2", name: "bash", args: "ls", at: 1 });
   assert.deepEqual(started.liveToolIds, ["t2"]);
   const ended = chatReducer(started, { type: "toolEnd", id: "t2", isError: false, output: "ok" });
   assert.deepEqual(ended.liveToolIds, ["t2"], "同じ id を二重に持たない");
-  assert.deepEqual(chatReducer(ended, { type: "toolStart", id: "t3", name: "read", args: "a", at: 2 }).liveToolIds, [
-    "t2",
-    "t3",
-  ]);
+  assert.deepEqual(
+    chatReducer(ended, { type: "toolStart", startedAt: 2, id: "t3", name: "read", args: "a", at: 2 }).liveToolIds,
+    ["t2", "t3"],
+  );
 
   // 別の会話へ切り替えたら持ち越さない (古い id を新しい会話のライブ観測と誤読させない)
   assert.deepEqual(
@@ -454,6 +460,7 @@ test("補完先が無い run 側カードは保留し、text / toolStart で補�
   // toolStart が作る assistant バブルへ、保留分と合わせて回る
   const withTool = chatReducer(held([toolCall("t1", { done: false, output: "" })]), {
     type: "toolStart",
+    startedAt: 3,
     id: "t2",
     name: "read",
     args: "README.md",
@@ -473,7 +480,14 @@ test("保留中の run 側カードは新しい toolStart より先に並ぶ (�
   });
   assert.deepEqual(Object.keys(held.runTools), ["t1"], "補完先が無ければ保留する");
 
-  const withTool = chatReducer(held, { type: "toolStart", id: "t2", name: "read", args: "README.md", at: 3 });
+  const withTool = chatReducer(held, {
+    type: "toolStart",
+    startedAt: 3,
+    id: "t2",
+    name: "read",
+    args: "README.md",
+    at: 3,
+  });
   assert.deepEqual(Object.keys(withTool.runTools), ["t1", "t2"], "run 側の挿入順を保つ");
   const targetId = withTool.bubbles.at(-1)?.id;
   assert.deepEqual(
@@ -532,7 +546,7 @@ test("steering 後の履歴再取得でも run のツールカードを次の応
   // What: assistant_end → ツール → steering → resync / resyncHistory を挟んでも所有者は 1 枚目のまま
   let state = streamingTurn();
   state = chatReducer(state, { type: "assistantEnd" });
-  state = chatReducer(state, { type: "toolStart", id: "tool-1", name: "bash", args: "{}", at: 11 });
+  state = chatReducer(state, { type: "toolStart", startedAt: 11, id: "tool-1", name: "bash", args: "{}", at: 11 });
   state = chatReducer(state, { type: "toolEnd", id: "tool-1", isError: false, output: "ok" });
   state = chatReducer(state, { type: "localUser", text: "追記", at: 12 });
   state = chatReducer(state, { type: "echoSendId", sendId: "send-2", stateSeq: state.stateSeq });
@@ -583,7 +597,7 @@ test("steering 後の履歴再取得でも run のツールカードを次の応
 test("assistant_end を跨がないツールイベントは開いている応答に付く", () => {
   // What: 同じ応答のストリーミング中に届くツールは、その応答のカードへ付く (境界を跨がない)
   let state = streamingTurn();
-  state = chatReducer(state, { type: "toolStart", id: "tool-9", name: "read", args: "{}", at: 11 });
+  state = chatReducer(state, { type: "toolStart", startedAt: 11, id: "tool-9", name: "read", args: "{}", at: 11 });
   state = chatReducer(state, { type: "toolEnd", id: "tool-9", isError: false, output: "ok" });
   state = chatReducer(state, { type: "text", delta: "続き", at: 12 });
 
@@ -652,6 +666,7 @@ test("同じ本文の別応答でも assistantId でツール所有者を分け�
   state = chatReducer(state, { type: "text", delta: "確認します", at: 11, assistantId: "run-1:2" });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 12,
     id: "work-2",
     name: "bash",
     args: "",
@@ -711,6 +726,7 @@ test("新しい会話のツール付き応答でも assistantId が変われば�
   state = chatReducer(state, { type: "text", delta: "前半", at: 2, assistantId: "run-1:1" });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 3,
     id: "tool-1",
     name: "bash",
     args: "",
@@ -757,8 +773,24 @@ test("assistant_end 後の並列ツール再接続で閉じた応答を本文の
   });
   state = chatReducer(state, { type: "text", delta: "A", at: 2, assistantId: "run-1:1" });
   state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
-  state = chatReducer(state, { type: "toolStart", id: "t1", name: "bash", args: "", at: 3, assistantId: "run-1:1" });
-  state = chatReducer(state, { type: "toolStart", id: "t2", name: "bash", args: "", at: 4, assistantId: "run-1:1" });
+  state = chatReducer(state, {
+    type: "toolStart",
+    startedAt: 3,
+    id: "t1",
+    name: "bash",
+    args: "",
+    at: 3,
+    assistantId: "run-1:1",
+  });
+  state = chatReducer(state, {
+    type: "toolStart",
+    startedAt: 4,
+    id: "t2",
+    name: "bash",
+    args: "",
+    at: 4,
+    assistantId: "run-1:1",
+  });
   assert.equal(state.currentAssistantId, null, "ツール開始で本文の補完先を開き直さない");
 
   const payload = streamingPayload();
@@ -828,6 +860,7 @@ test("本文のない別応答のツールは、次の本文 item まで溜め�
   state = chatReducer(state, { type: "text", delta: "A", at: 2, assistantId: "run-1:1" });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 3,
     id: "work-1",
     name: "bash",
     args: "",
@@ -839,6 +872,7 @@ test("本文のない別応答のツールは、次の本文 item まで溜め�
   // 本文を持たない 2 応答目。閉じた A が toolTargetAssistantId に残ったまま次 ID のツールが届く
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 4,
     id: "work-2",
     name: "bash",
     args: "",
@@ -939,6 +973,7 @@ test("本文を持たない ask_user の回答カードは所有者IDを保っ�
   });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 2,
     id: "q1",
     name: "ask_user",
     args: "",
@@ -999,6 +1034,7 @@ test("本文を持たない ask_user の回答カードは所有者IDを保っ�
   afterClosed = chatReducer(afterClosed, { type: "assistantEnd", assistantId: "run-1:1" });
   afterClosed = chatReducer(afterClosed, {
     type: "toolStart",
+    startedAt: 3,
     id: "q2",
     name: "ask_user",
     args: "",
@@ -1068,6 +1104,7 @@ test("ID の無い旧回答に、本文のない新ランの結末を付けな�
   });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 11,
     id: "work-new",
     name: "bash",
     args: "",
@@ -1237,6 +1274,7 @@ test("本文なし応答の再接続カードと繰り上げ投影で同じツ�
     state = chatReducer(state, { type: "text", delta: "A", at: 2, assistantId: "run-1:1" });
     state = chatReducer(state, {
       type: "toolStart",
+      startedAt: 3,
       id: "work-1",
       name: "bash",
       args: "",
@@ -1249,6 +1287,7 @@ test("本文なし応答の再接続カードと繰り上げ投影で同じツ�
     const running2 = bodylessTool(name, false);
     state = chatReducer(state, {
       type: "toolStart",
+      startedAt: 4,
       id: running2.id,
       name,
       args: "",
@@ -1464,6 +1503,7 @@ test("停止した本文なし応答のツールカードは、次の run と再
   });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 11,
     id: "work-stop",
     name: "bash",
     args: "$ sleep 120",
@@ -1746,6 +1786,7 @@ test("同じターンの本文なしツール応答が複数でも、所有者�
   });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 11,
     id: "work-a",
     name: "bash",
     args: "$ pwd",
@@ -1755,6 +1796,7 @@ test("同じターンの本文なしツール応答が複数でも、所有者�
   state = chatReducer(state, { type: "toolEnd", id: "work-a", isError: false, output: "ok" });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 12,
     id: "work-b",
     name: "bash",
     args: "$ sleep 120",
@@ -1987,7 +2029,15 @@ test("同じターンの後に本文 C が届くと、live も C のカードへ
     ["work-a", "run-1:1"],
     ["work-b", "run-1:2"],
   ] as const) {
-    live = chatReducer(live, { type: "toolStart", id, name: "bash", args: "$ pwd", at: 11, assistantId });
+    live = chatReducer(live, {
+      type: "toolStart",
+      startedAt: 11,
+      id,
+      name: "bash",
+      args: "$ pwd",
+      at: 11,
+      assistantId,
+    });
     live = chatReducer(live, { type: "toolEnd", id, isError: false, output: "ok" });
   }
   // 本文 C が届いて確定する。ここが live の最終状態 (終端 resync / 履歴取得より前)
@@ -2058,6 +2108,7 @@ test("assistant_end を取りこぼしても、run_end で本文の応答へカ�
   });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 11,
     id: "work-a",
     name: "bash",
     args: "$ pwd",
@@ -2159,6 +2210,7 @@ test("本文なし ask_user の回答後に本文が続くと、live も回答�
   });
   live = chatReducer(live, {
     type: "toolStart",
+    startedAt: 11,
     id: "ask-1",
     name: "ask_user",
     args: "",
@@ -2272,7 +2324,15 @@ test("履歴が assistant_end を追い越しても、本文へ繰り上げた�
       ["work-a", "run-1:1"],
       ["work-b", "run-1:2"],
     ] as const) {
-      state = chatReducer(state, { type: "toolStart", id, name: "bash", args: "$ pwd", at: 11, assistantId });
+      state = chatReducer(state, {
+        type: "toolStart",
+        startedAt: 11,
+        id,
+        name: "bash",
+        args: "$ pwd",
+        at: 11,
+        assistantId,
+      });
       state = chatReducer(state, { type: "toolEnd", id, isError: false, output: "ok" });
     }
     return chatReducer(state, { type: "text", delta: answerC, at: 13, assistantId: "run-1:3" });

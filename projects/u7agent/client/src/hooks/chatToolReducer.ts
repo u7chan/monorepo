@@ -58,7 +58,7 @@ export function applyToolAction(state: ChatState, action: ToolChatAction): ChatS
         isError: false,
         done: false,
         output: "",
-        ...(action.startedAt !== undefined ? { startedAt: action.startedAt } : {}),
+        startedAt: action.startedAt,
         ...(action.skill ? { skill: action.skill } : {}),
         ...(action.questions ? { questions: action.questions } : {}),
       };
@@ -79,7 +79,7 @@ export function applyToolAction(state: ChatState, action: ToolChatAction): ChatS
         const target = state.bubbles.find((bubble) => bubble.id === targetId);
         if (target !== undefined && isToolHostBubble(target) && target.text === "") targetId = undefined;
       }
-      // 旧サーバー (応答IDなし) は本文の補完先そのものへ足す
+      // 応答IDを持たないツールは本文の補完先そのものへ足す
       if (targetId === undefined && action.assistantId === undefined) {
         base = openAssistantForKey(state, action.at, undefined);
         targetId = base.currentAssistantId ?? undefined;

@@ -93,10 +93,10 @@ export function applyQueueAction(state: ChatState, action: QueueChatAction): Cha
       // 無いため特定できず、控えを残して対応付いた時点で切り替える
       const cleared = new Set(action.sendIds ?? []);
       const bubbles = state.bubbles.map((bubble) => {
-        // 送信IDを持たない旧サーバーのバブルは run id で突き合わせる
+        // 送信IDを持たないバブルは run id で突き合わせる
         const key = bubble.sendId ?? bubble.runId;
         const markUnsent = key !== undefined && cleared.has(key) && bubble.unsent !== true;
-        // キューそのものが空になったので、送信IDが分からない分 (旧サーバー) の待機也表示を戻す
+        // キューそのものが空になったので、送信IDが分からない分の待機也表示を戻す
         if (!markUnsent && bubble.queued !== true) return bubble;
         return markUnsent ? { ...bubble, ...UNSENT_CLEARED } : { ...bubble, ...QUEUE_CLEARED };
       });
@@ -213,7 +213,7 @@ export function applyQueueAction(state: ChatState, action: QueueChatAction): Cha
           bubble.entryId !== undefined &&
           bubble.role === "user" &&
           (bubble.sendId === action.sendId ||
-            // 旧サーバーの item は送信IDを持たないため、run の一致へ縮退する
+            // 送信IDを持たない item は run の一致へ縮退する
             (bubble.sendId === undefined && action.runId !== undefined && bubble.runId === action.runId)),
       );
       if (target !== undefined) {

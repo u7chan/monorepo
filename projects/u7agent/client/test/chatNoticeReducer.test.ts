@@ -12,6 +12,11 @@ function runningPayload(): SessionPayload {
     piSessionId: "pi-session-a",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     model: "stub/stub-model",
     thinkingLevel: "high",
     supportsThinking: true,
@@ -48,7 +53,7 @@ test("操作の結果 (notice) は応答や同じ会話の resync では消え�
   const resyncedAgain = chatReducer(statused, { type: "resync", payload: runningPayload() });
   assert.equal(resyncedAgain.notice, "待機中のメッセージが見つかりません", "同じ会話の取り直しでは残す");
 
-  const ended = chatReducer(resyncedAgain, { type: "runEnd", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(resyncedAgain, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.equal(ended.activity, "完了");
   assert.equal(ended.notice, "待機中のメッセージが見つかりません", "終端の活動文言でも消さない");
 

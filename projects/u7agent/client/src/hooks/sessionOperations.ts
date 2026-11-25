@@ -152,7 +152,7 @@ export async function clearSessionHistory(id: string, deps: ClearHistoryDeps): P
   // 確認の対象となる履歴世代を先に控える。別タブが先にクリアしていればサーバーが 409 にする
   let generation: string;
   try {
-    generation = (await deps.getSession(id)).historyGeneration ?? "";
+    generation = (await deps.getSession(id)).historyGeneration;
   } catch (error) {
     deps.dispatch({ type: "setActivity", text: `会話履歴をクリアできませんでした。${messageFor(error)}` });
     return;

@@ -438,7 +438,7 @@ function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: H
 }
 
 /**
- * host の控えが payload の run のものか。どちらかが不明 (旧サーバー / run を持たない payload) な
+ * host の控えが payload の run のものか。どちらかが不明 (run を持たない payload / 保存済みデータ) な
  * ときは run の変更を判定できないため保持する。判定できるときに違えば、前の run の完了済み host を
  * live に戻さない
  */
@@ -529,9 +529,8 @@ export function historyToBubbles(
 /** 送信IDが結び付く前に届いた待機位置を、より新しい状態が無い分だけ残す */
 function pruneQueuedSnapshots(
   snapshots: ChatState["queuedSnapshots"],
-  pendingSends: PendingSend[] | undefined,
+  pendingSends: PendingSend[],
 ): ChatState["queuedSnapshots"] {
-  if (pendingSends === undefined) return snapshots;
   const waiting = new Map(
     pendingSends
       .filter((send) => send.state === "queued" || send.state === "steering")
@@ -587,7 +586,7 @@ function sendStateOf(send: PendingSend): Pick<Bubble, "queued" | "queuedState" |
  * `unsent` は pending を外して「未送信」へ切り替え、`queued` / `running` は受理済みの pending として
  * 保つ (別タブの再送中に表示から消さない)。手元にバブルが無い分は末尾へ足す (履歴の初回応答前でも
  * 失わない)。一覧から消えた未送信バブルは、別タブの再送 / 破棄で記録が消えたものとして落とす。
- * `undefined` (旧サーバー) は現状維持。payload に載った送信は停止の控え (`clearedSendIds`) から外す。
+ * payload に載った送信は停止の控え (`clearedSendIds`) から外す。
  * 待機の表示は payload が正で、一覧から消えた run の待機も解除する (entry が保存された / 実行が始まった)。
  */
 function applyPendingSends(
@@ -595,16 +594,15 @@ function applyPendingSends(
   pendingEchoIds: number[],
   nextId: number,
   clearedSendIds: string[],
-  pendingSends: PendingSend[] | undefined,
+  pendingSends: PendingSend[],
 ): { bubbles: Bubble[]; pendingEchoIds: number[]; nextId: number; clearedSendIds: string[] } {
-  if (pendingSends === undefined) return { bubbles, pendingEchoIds, nextId, clearedSendIds };
   const bySendId = new Map(pendingSends.map((send) => [send.sendId, send]));
   const pending = new Set(pendingEchoIds);
   const seen = new Set<string>();
   const next: Bubble[] = [];
   let cursor = nextId;
   for (const bubble of bubbles) {
-    // 送信IDを持たないバブル (旧サーバー) は run id でも突き合わせる
+    // 送信IDを持たないバブル (送信IDの記録が無い保存済みの履歴) は run id でも突き合わせる
     const send =
       bubble.sendId !== undefined
         ? bySendId.get(bubble.sendId)
@@ -1061,9 +1059,9 @@ export function applyHistoryAction(state: ChatState, action: HistoryChatAction):
         sessionThinkingLevel: payload.thinkingLevel,
         sessionAgentId: payload.agent?.id,
         sessionAgentName: payload.agent?.name,
-        // 引き継ぎの状態も payload だけを正とする (旧サーバーは載せない = undefined)
+        // 引き継ぎの状態も payload だけを正とする (引き継ぎが無ければキーが無い)
         handoff: payload.handoff,
-        // egress の承認状態も payload だけを正とする (旧サーバーは載せない = undefined)
+        // egress の承認状態も payload だけを正とする
         networkAccess: payload.networkAccess,
         supportsThinking: payload.supportsThinking ?? false,
         availableThinkingLevels: payload.availableThinkingLevels ?? [],

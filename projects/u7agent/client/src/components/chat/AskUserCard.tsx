@@ -552,7 +552,7 @@ export function AskUserCard({
   answerable: boolean;
   onAnswer: (toolCallId: string, answers: AskUserAnswer[]) => Promise<AnswerResult>;
   singleColumn: boolean;
-  /** この会話の egress の実効状態。旧サーバーは undefined で、拒否の救済を出さない */
+  /** この会話の egress の実効状態 (payload を受ける前は undefined で、拒否の救済を出さない) */
   networkAccess?: SessionNetworkAccess;
   /** 拒否済みの承認カードを、モデルを介さずに許可へ変える。未指定は導線を出さない */
   onApproveNetworkAccess?: (host: string) => Promise<AnswerResult>;

@@ -61,7 +61,7 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定し�
 | POST | `/api/notifications/test` | 保存済み設定で 1 通。`{ ok, status, latencyMs, message?, code?, retryAfter?, at }` を 200 で返す（アプリ側のエラーだけ 4xx）。タイムアウトは 5 秒 |
 | PATCH | `/api/sessions/:id/notify` | `{ notify: boolean }` → `{ sessionId, notify }` を 200 で返す |
 | POST | `/api/sessions` | `notify?: boolean`（新規チャットで選んだ値を、作成されるセッションへ引き継ぐ） |
-| GET | `/api/sessions` / `/api/sessions/:id` | `notify: boolean`（サーバーは常に載せ、読む側は省略を false として扱う） |
+| GET | `/api/sessions` / `/api/sessions/:id` | `notify: boolean`（常に載る） |
 
 - `PATCH /api/sessions/:id/notify` は専用経路。Model / Effort の `PATCH /settings` には相乗りせず、SDK の設定変更も busy 判定も通さないため実行中でも切り替えられる。live / 未ロードのどちらでも同じ応答で、会話全文は返さない（未ロードでは SDK セッションを開かない）。未知の id は 404
 - 直近結果（`lastResult`）は通常通知・質問通知・テスト送信で共通の 1 件。送信開始の世代で新しい方を優先し、古い完了で新しい結果を上書きしない。Webhook URL を変えるとクリアする。再起動後は SQLite から復元する

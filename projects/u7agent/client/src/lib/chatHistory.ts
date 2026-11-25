@@ -197,7 +197,7 @@ function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
 /**
  * ライブバブルと item の同一性。送信の run id が分かるバブルは runId の一致で厳密に対応付ける
  * (別クライアントの同一文面 entry を自分のエコーと誤認しない)。どちらかに run id が無いときは
- * 従来どおり role + 正規形の本文で突き合わせる (旧サーバー / 対応を失った履歴への縮退)。
+ * 従来どおり role + 正規形の本文で突き合わせる (送信IDを持たない保存済みの履歴への縮退)。
  */
 function matchesLive(
   bubble: Bubble,
@@ -212,7 +212,7 @@ function matchesLive(
   }
   // 送信IDが双方にあれば、同じ実行に属する複数の送信でも 1:1 に対応付く
   if (bubble.sendId !== undefined && item.sendId !== undefined) return bubble.sendId === item.sendId;
-  // 送信IDを持たない item (旧サーバー / 保存前に再起動した履歴) は run の一致へ縮退する
+  // 送信IDを持たない item (保存前に再起動した履歴 / 記録の無い保存済みの履歴) は run の一致へ縮退する
   if (bubble.runId !== undefined && item.runId !== undefined) return bubble.runId === item.runId;
   if (bubble.sendId !== undefined || item.sendId !== undefined) return false;
   // 未送信 / 受理済み (まだ entry になっていない送信) は本文の縮退に使わない。別クライアントの

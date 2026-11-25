@@ -26,6 +26,11 @@ function runningPayload(): SessionPayload {
     piSessionId: "pi-session-a",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     model: "stub/stub-model",
     thinkingLevel: "high",
     supportsThinking: true,
@@ -52,6 +57,7 @@ function stateWithSession() {
   const resynced = chatReducer(initialChatState, { type: "resync", payload: runningPayload() });
   return chatReducer(resynced, {
     type: "toolStart",
+    startedAt: 1700000000002,
     id: "tool-1",
     name: "read",
     args: "README.md",
@@ -391,7 +397,12 @@ test("resync は圧縮履歴を payload で置き換える", () => {
 });
 
 test("新しい会話へ戻しても runEndSeq は戻らない", () => {
-  const ended = chatReducer(stateWithSession(), { type: "runEnd", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(stateWithSession(), {
+    type: "runEnd",
+    durationMs: 1_000,
+    status: "completed",
+    queueDepth: 0,
+  });
   assert.equal(chatReducer(ended, { type: "newChat" }).runEndSeq, ended.runEndSeq);
 });
 
@@ -1681,6 +1692,7 @@ test("終端 resync を繰り返しても、実行の最後の応答にだけ Do
     state = chatReducer(state, { type: "text", delta: "A", at: 2, assistantId: "run-1:1" });
     state = chatReducer(state, {
       type: "toolStart",
+      startedAt: 3,
       id: "work-1",
       name: "bash",
       args: "",

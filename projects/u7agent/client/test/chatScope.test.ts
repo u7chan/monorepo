@@ -21,6 +21,10 @@ function session(sessionId: string, projectId?: string): SessionSummary {
     createdAt: 1,
     lastUsedAt: 1,
     serveCommand: null,
+    titleSummary: { origin: "auto" },
+    notify: false,
+    canHandoff: true,
+    hasRawLog: false,
     pinned: false,
     projectId,
   };

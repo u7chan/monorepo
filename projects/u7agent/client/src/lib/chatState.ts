@@ -43,7 +43,7 @@ export type ChatState = {
   sessionId: string;
   /** ヘッダ / お知らせに出す現在のタイトル。一覧の取得を待たず payload の値を正にする */
   title: string;
-  /** タイトルの由来と AI 要約の試行 (旧サーバーは載せない) */
+  /** タイトルの由来と AI 要約の試行 (payload を受ける前は undefined) */
   titleSummary?: SessionTitleSummary;
   /** 圧縮イベントの区切り位置。復元は全履歴の entry 順、旧 payload では beforeMessageIndex */
   dividers: CompactionMarker[];
@@ -110,7 +110,7 @@ export type ChatState = {
   handoff?: SessionHandoffState;
   /**
    * この会話の egress の実効状態 (payload の networkAccess)。拒否済みカードを許可へ変えられるかの
-   * 判定に使い、旧サーバーは undefined (救済の導線を出さない)。
+   * 判定に使い、payload を受ける前は undefined (救済の導線を出さない)。
    */
   networkAccess?: SessionNetworkAccess;
   supportsThinking: boolean;
@@ -171,7 +171,7 @@ export type ChatState = {
   /**
    * `liveHostAssistantIds` を採用した run の id。切断中に前の run が終わり次の run が始まると
    * (`run_start` のリプレイなしで) `resync` だけが届くため、run が変わったら前ターンの host を
-   * 復元しない。どちらかが不明 (旧サーバー) なときは run の変更を判定できないので保持する
+   * 復元しない。どちらかが不明 (run を持たない payload) なときは run の変更を判定できないので保持する
    */
   liveHostRunId?: string;
   /**
@@ -206,7 +206,7 @@ export type ChatAction =
   /** 上方向の追加取得 (古いページ)。cursor は要求時に読んだ先頭 item id で、適用中の先頭と一致したときだけ適用する */
   | { type: "prependHistory"; cursor: string; page: HistoryPage }
   | { type: "historyLoading"; loading: boolean }
-  /** 旧サーバー (履歴 API 無し) / セッション消滅。payload.messages ベースの表示へ戻す */
+  /** 履歴 API の 404 (未知ルート / セッション消滅)。payload.messages ベースの表示へ戻す */
   | { type: "historyUnsupported"; payload?: SessionPayload }
   | { type: "runStart"; runId?: string; initialSendId?: string; prompt: string; at: number; startedAt: number }
   | { type: "localUser"; text: string; at: number }
@@ -236,8 +236,8 @@ export type ChatAction =
       assistantId?: string;
       skill?: SkillLoad;
       questions?: AskUserQuestion[];
-      /** BFF 計測の開始時刻。旧サーバーは載せない (実行時間を出さない) */
-      startedAt?: number;
+      /** BFF 計測の開始時刻 (`run.toolCalls[].startedAt` と同じ値) */
+      startedAt: number;
       at: number;
     }
   | {
@@ -245,7 +245,7 @@ export type ChatAction =
       id: string;
       isError: boolean;
       output: string;
-      /** BFF 計測の終了時刻。旧サーバーは載せない (実行時間を出さない) */
+      /** BFF 計測の終了時刻。開始を観測しなかったツールは載らない */
       endedAt?: number;
       answers?: AskUserAnswer[];
     }
@@ -276,8 +276,8 @@ export type ChatAction =
       runId?: string;
       status: RunStatus;
       queueDepth: number;
-      /** BFF 計測のラン全体の所要時間。旧サーバーは載せない */
-      durationMs?: number;
+      /** BFF 計測のラン全体の所要時間 */
+      durationMs: number;
       error?: string;
       /** 最終失敗の分類コード。`status === "error"` のときだけサーバーが載せる */
       errorCode?: RunErrorCode;
@@ -338,7 +338,7 @@ export const initialChatState: ChatState = {
   sessionThinkingLevel: undefined,
   sessionAgentId: undefined,
   sessionAgentName: undefined,
-  // 旧サーバーは payload に載せないため undefined。承認の救済は出さない
+  // payload を受ける前は undefined。承認の救済は出さない
   networkAccess: undefined,
   supportsThinking: false,
   availableThinkingLevels: [],
