@@ -22,10 +22,10 @@ import type { ContentSettingsResponse, ContentTrialSummary, UpdateContentImageBo
 import { CheckIcon, TrashIcon } from "../icons";
 import { MetaChip } from "../model-settings/MetaChip";
 import { SegmentedControl } from "../SegmentedControl";
-import { SelectField } from "../SelectField";
 import { SelectMenu, type SelectMenuOption } from "../SelectMenu";
 import { CatalogRefreshButton } from "./CatalogRefreshButton";
 import { EvidenceLine } from "./ImageTrialSection";
+import { ImageParameterFields } from "./ImageParameterFields";
 
 /** モデル一覧の並び替え。見出しの軸も切り替わる（ベンダー / 価格の単位） */
 const IMAGE_MODEL_SORT_ITEMS = [
@@ -167,46 +167,16 @@ export function ImageModelSection({
       )}
       {/* 既定はモデルの宣言に応じた欄だけを出す。宣言が無ければ「既定なし」だけを書く */}
       {defaults.fields.length === 0 ? null : (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {defaults.fields.map((field) => {
-            const value = defaults.values[field.name] ?? "";
-            const set = (next: string) =>
-              onChangeDefaultsDraft({ model: selectedModel, values: { ...defaults.values, [field.name]: next } });
-            return (
-              <label key={field.name} className="grid min-w-0 gap-1">
-                <span className="text-2xs text-ink-muted">{field.name}</span>
-                {field.kind === "enum" ? (
-                  <SelectField
-                    aria-label={`既定の ${field.name}`}
-                    value={value}
-                    disabled={busy}
-                    onChange={(event) => set(event.currentTarget.value)}
-                  >
-                    <option value="">{IMAGE_DEFAULT_NONE_LABEL}</option>
-                    {field.values.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </SelectField>
-                ) : (
-                  <input
-                    className="field min-w-0 text-xs"
-                    type="number"
-                    inputMode="numeric"
-                    min={field.min}
-                    max={field.max}
-                    value={value}
-                    placeholder={IMAGE_DEFAULT_NONE_LABEL}
-                    aria-label={`既定の ${field.name}`}
-                    disabled={busy}
-                    onChange={(event) => set(event.currentTarget.value)}
-                  />
-                )}
-              </label>
-            );
-          })}
-        </div>
+        <ImageParameterFields
+          fields={defaults.fields}
+          values={defaults.values}
+          onChange={(name, next) =>
+            onChangeDefaultsDraft({ model: selectedModel, values: { ...defaults.values, [name]: next } })
+          }
+          disabled={busy}
+          labelPrefix="既定の"
+          emptyLabel={IMAGE_DEFAULT_NONE_LABEL}
+        />
       )}
       {defaults.body.ok ? null : (
         <p role="alert" className="text-2xs break-words text-warn">
