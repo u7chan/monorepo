@@ -17,7 +17,7 @@ export function httpError(statusCode: number, message: string): HttpError {
 }
 
 /**
- * サンドボックスのパス検証で使う例外。呼び出し 164 箇所が名前で読んでいるため、`httpError` の別名を残す
+ * サンドボックスのパス検証で使う例外。呼び出し側はこの名前で意図を読むため、`httpError` の別名を残す
  * (文言と statusCode の対応は呼び出し側が決める)。
  */
 export function pathError(statusCode: number, message: string): HttpError {

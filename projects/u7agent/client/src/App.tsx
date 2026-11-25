@@ -113,8 +113,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   const singleColumn = singleColumnMode !== null;
   // 左バーの置き方だけが変わる (中身はどちらも同じ Sidebar)。overlay は ☰ から開く
   const viewportWidth = useViewportWidth();
-  // 実行状況は Issue / docs の 901px 以上で docked にする (チャットの 1200px 判定は変えない)。
-  // overlay の帯 (641–900px と singleColumn) はモバイルヘッダなので、タップ領域を 44px 以上にする
+  // 実行状況の左バーの置き方 (チャットの 1200px 判定とは別の境界) は lib/layout.ts が決める。
+  // overlay の帯はモバイルヘッダなので、タップ領域を 44px 以上にする
   const activityPlacement = resolveActivitySidebarPlacement(viewportWidth, layout);
   const activityDocked = route.view === "activity" && activityPlacement === "docked";
   const compactTapTargets = activityPlacement === "overlay";

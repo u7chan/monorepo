@@ -1,6 +1,7 @@
 /**
  * pi SDK の型が BFF の用途に合わない箇所を埋める互換層。SDK のイベント・SessionEntry・
- * AgentSession のうち BFF が使う分だけを写し、スタブや旧 SDK でも動くよう欠けたフィールドを許す。
+ * AgentSession のうち BFF が使う分だけを写し、スタブや復元した古い履歴でも動くよう欠けたフィールドを許す。
+ * SDK 自体は同じイメージに入るため、型どおりの形を返す前提でよい。
  */
 import type { AgentDef, ContextUsage, ModelRef, ThinkingLevel, Usage } from "./schema";
 import type { PromptSnapshot } from "./session-store";
@@ -15,10 +16,10 @@ export interface PiCompactionResult {
 export interface PiSessionMessageLike {
   role?: string;
   content?: unknown;
-  /** 生成に使ったモデル。usage と同じく、報告しない SDK / スタブでは欠ける */
+  /** 生成に使ったモデル。usage と同じく、復元した古い履歴やスタブでは欠ける */
   provider?: string;
   model?: string;
-  /** ログの時刻。SDK は epoch ms (number) で、旧 SDK・スタブでは欠ける / 別型もあり得る */
+  /** ログの時刻。SDK は epoch ms (number) で、復元した古い履歴やスタブでは欠ける / 別型もあり得る */
   timestamp?: unknown;
   stopReason?: string;
   usage?: unknown;
@@ -80,7 +81,7 @@ export interface PiSessionLike {
     errorMessage?: string;
     timestamp?: number;
     usage?: unknown;
-    /** SDK の AssistantMessage が持つ生成元モデル。旧 SDK・スタブでは欠ける */
+    /** SDK の AssistantMessage が持つ生成元モデル。復元した古い履歴やスタブでは欠ける */
     provider?: string;
     model?: string;
     /** SDK が記録した応答 / ツール実行の所要時間。0 を取り得るので、0 は未記録として扱う */
@@ -96,7 +97,7 @@ export interface PiSessionLike {
   isIdle: boolean;
   /**
    * SDK の steering モード。`"all"` は実キューを次のモデル判断の前に全件注入する。
-   * 旧 SDK はこの設定を持たない (undefined) ため、BFF は 1 件ずつの配送に留める
+   * スタブはこの設定を持たない (undefined) ことがあり、BFF は 1 件ずつの配送に留める
    */
   steeringMode?: "all" | "one-at-a-time";
   subscribe(listener: PiSessionEventListener): () => void;
@@ -104,7 +105,7 @@ export interface PiSessionLike {
   abort(): Promise<unknown>;
   /**
    * SDK の Agent。実キューへの残存確認だけに使い、取消の成否は `peekQueuedMessages()` で判定する
-   * (表示用ミラーや private フィールドには依存しない)。スタブ・旧 SDK では欠けてもよい
+   * (表示用ミラーや private フィールドには依存しない)。スタブでは欠けてもよい
    */
   agent?: {
     peekQueuedMessages(): unknown[];
@@ -113,15 +114,15 @@ export interface PiSessionLike {
   /**
    * 実行中の追加入力。SDK が現在の応答とそのツールの完了後、次のモデル呼び出し前へ渡す。
    * idle ではランを開始しないため、BFF は実行中だけ渡す。拡張の入力ハンドラを await してから
-   * 実キューへ積むため、BFF は受付を直列化する。旧 SDK・スタブでは欠けてもよい
+   * 実キューへ積むため、BFF は受付を直列化する。スタブでは欠けてもよい
    */
   steer?(text: string): Promise<"queued" | "handled">;
   /** SDK が保持する未注入の入力を捨てる。実キューを消す (取消・停止で使う) */
   clearQueue?(): unknown;
   setModel(model: unknown, options?: { persist?: boolean }): Promise<void>;
-  /** SDK の SessionManager。compaction の entry を読むためだけに参照する (旧 SDK では undefined) */
+  /** SDK の SessionManager。compaction の entry を読むためだけに参照する (スタブでは undefined) */
   sessionManager?: { getBranch?(): unknown[] };
-  /** 手動 compaction。SDK が持たない実装 (スタブ・旧 SDK) では undefined */
+  /** 手動 compaction。スタブでは undefined */
   compact?(customInstructions?: string): Promise<unknown>;
   /**
    * 実行中の compaction を中断する。SDK の abort() も内部で呼ぶが、BFF は stop と同じ経路
@@ -135,7 +136,7 @@ export interface PiSessionLike {
   /** 現在のモデルが選べる thinkingLevel (非推論モデルは ["off"] のみ) */
   getAvailableThinkingLevels(): string[];
   supportsThinking(): boolean;
-  /** SDK が持たない実装 (スタブ・旧 SDK) では undefined を返してよい */
+  /** スタブでは undefined を返してよい */
   getContextUsage?(): unknown;
   dispose?(): void;
   disposed?: boolean;
@@ -176,7 +177,7 @@ export interface PiRuntimeLike {
   resolveModel?(model: ModelRef): unknown;
 }
 
-/** 旧 SDK は sessionManager を持たないため空配列へ落とす (compaction 履歴が無いものとして扱う) */
+/** sessionManager を持たないスタブでは空配列へ落とす (compaction 履歴が無いものとして扱う) */
 export function branchEntriesOf(session: PiSessionLike): PiSessionEntryLike[] {
   const entries = session.sessionManager?.getBranch?.();
   return Array.isArray(entries) ? (entries as PiSessionEntryLike[]) : [];
@@ -189,7 +190,7 @@ export function lastAssistantMessage(session: PiSessionLike): PiSessionLike["mes
   return undefined;
 }
 
-/** 契約外の usage (部分的な実装・旧 SDK) は数字として扱わず、キーごと落とす。 */
+/** 契約外の usage (復元した古い履歴・スタブ) は数字として扱わず、キーごと落とす。 */
 export function parseUsage(raw: unknown): Usage | undefined {
   const parsed = UsageSchema.safeParse(raw);
   return parsed.success ? parsed.data : undefined;

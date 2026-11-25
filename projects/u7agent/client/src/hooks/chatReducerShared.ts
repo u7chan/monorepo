@@ -78,8 +78,6 @@ export function normalizeInitialSend(bubbles: Bubble[], initialSendId: string | 
   );
 }
 
-/** 送信エコーの照合用の正規形。添付の注記を落とし、`/skill:` の展開結果は打ったコマンドの形へ戻す。
- * ローカルエコー (素の入力) と run_start (展開済みの本文) を同じ形に寄せるために使う。 */
 export function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: number): ChatState {
   const bubble: Bubble = { id: state.nextId, role, text, tools: [], skillLoads: [], at };
   return {

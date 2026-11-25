@@ -2,7 +2,7 @@ import type { ContentSettingsResponse, ContentTrialSummary } from "../../types";
 import { EvidenceLine } from "./ImageTrialSection";
 
 /**
- * 音楽（BGM）の保存される設定。モデルは Issue の非ゴールで選ばせないため、読取専用の 1 行と証拠だけを出し、
+ * 音楽（BGM）の保存される設定。モデルは固定で選ばせないため、読取専用の 1 行と証拠だけを出し、
  * 入力と結果は試行の面（`BgmTrialSection`）へ置く。
  */
 export function BgmModelSection({

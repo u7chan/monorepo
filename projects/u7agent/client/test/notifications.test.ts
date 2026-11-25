@@ -210,7 +210,7 @@ test("失敗文言は status と code から出し分け、URL と原文は使�
     headline: "レート制限中です",
     detail: "時間を置いて再試行してください。",
   });
-  // retryAfter があれば待機秒数を文言に含める (Issue の画面設計)
+  // retryAfter があれば待機秒数を文言に含める (429 の案内)
   assert.deepEqual(notificationResultView(result({ ok: false, status: 429, retryAfter: 2 })), {
     ok: false,
     headline: "レート制限中です",

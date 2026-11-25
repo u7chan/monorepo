@@ -508,7 +508,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     )
     // 待機キューからの 1 件だけの取り消し (実行は止めず、本文は未送信として残す)
     .delete("/api/sessions/:id/queue/:sendId", appData, sessionRoutes.cancelQueued)
-    // 未送信メッセージの破棄 (再送は POST /messages の resendRunId)
+    // 未送信メッセージの破棄 (再送は POST /messages の resendSendId)
     .delete("/api/sessions/:id/unsent/:sendId", appData, sessionRoutes.discardUnsent)
     .get("/api/sessions/:id/events", appData, sessionRoutes.events)
     .get("/api/serve/status", appData, serveRoutes.status)
@@ -602,7 +602,8 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     // pi.dev への外向き通信だけで DB に触れないため appData のゲートは通さず、
     // `:provider` より先に置いて静的パスがパラメータへ食われないようにする
     .post("/api/settings/models/catalog/refresh", modelSettingsRoutes.catalogRefresh)
-    // カスタムプロバイダー (オンメモリ)。DB を触らないので appDataMutation は通さない。
+    // カスタムプロバイダー。アプリ DB を先に確定し、DB を読めないときの 503 はハンドラが返す
+    // (appDataMutation を通さないので `state: "not_stored"` は付かない)。
     // `models/:provider/...` と同じ深さに param ルートを並べると、provider id がパス接頭辞と
     // 同じ既存 provider の API を食うため、別の名前空間に置く
     .post(

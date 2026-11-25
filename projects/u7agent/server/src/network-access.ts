@@ -80,8 +80,8 @@ export class NetworkAccessApprovals {
   }
 
   /**
-   * 1 つのホストの拒否だけを捨てる。拒否済みカードからの許可はこのホストだけを解く
-   * (承認そのものは会話単位のままで、ホスト単位の制限は #2452 の範囲)
+   * 1 つのホストの拒否だけを捨てる。拒否済みカードからの許可は、押したカードのホストだけを解く
+   * (承認そのものは会話単位のまま)
    */
   clearDenial(sessionId: string, host: string): void {
     const hosts = this.denials.get(sessionId);

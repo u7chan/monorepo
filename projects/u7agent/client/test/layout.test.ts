@@ -70,7 +70,7 @@ test("一覧と編集面を並べる境界は 900px (resolveWide)", () => {
 });
 
 test("実行状況は 901px 以上で docked、641–900px と singleColumn は overlay", () => {
-  // チャットの 1200px 判定より広い帯でも docked にする (Issue / docs の 901px 境界)
+  // チャットの 1200px 判定より広い帯でも docked にする (docs の 901px 境界)
   assert.equal(ACTIVITY_DOCKED_MIN_WIDTH, 901);
   assert.equal(resolveActivitySidebarPlacement(900, "desktop"), "overlay");
   assert.equal(resolveActivitySidebarPlacement(901, "desktop"), "docked");
