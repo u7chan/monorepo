@@ -7,10 +7,11 @@ import {
   contentProviderLabel,
   deleteContentKeyConfirmRequest,
   keyDraftAfterSave,
-} from "../lib/contentSettings";
+} from "../lib/contentSettings/shared";
 import { tabIndicator, trialKindSubsection } from "../lib/contentTrials";
 import { CONTENT_SUBSECTIONS, DEFAULT_CONTENT_SUBSECTION, type ContentSubsection } from "../lib/settingsNav";
-import { ContentCostSection, ContentSettingsTab } from "./content-settings/ContentSettingsTab";
+import { ContentCostSection } from "./content-settings/ContentCostSection";
+import { ContentSettingsTab } from "./content-settings/ContentSettingsTab";
 import { ContentKeySection } from "./content-settings/ContentKeySection";
 import { useConfirm } from "./ConfirmProvider";
 import { ProviderBadgeTag } from "./model-settings/ProviderBadgeTag";

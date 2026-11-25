@@ -60,7 +60,7 @@ import {
   imageParameterFields,
   pruneImageTrialParameters,
 } from "../src/lib/imageParameters";
-import { imageScreenModel } from "../src/lib/contentSettings";
+import { imageScreenModel } from "../src/lib/contentSettings/image";
 import type { ContentTrial, ImageModel, ImageParameterValues } from "../src/types";
 
 const MODEL = "openrouter/openai/gpt-image-2";

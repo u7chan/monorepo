@@ -4,18 +4,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  contentCatalogRefreshNote,
-  contentEnabledNote,
   hiddenImageModelCount,
-  costNotice,
   imageModelVisibilityNotice,
   imagePriceDisplay,
   visibleImageModelOptions,
-  contentKeyErrorNotice,
-  contentKeyStatusBadge,
-  contentProviderId,
-  contentProviderLabel,
-  deleteContentKeyConfirmRequest,
   imageAuthBadge,
   imageAuthNotice,
   imageCatalogNotice,
@@ -35,23 +27,35 @@ import {
   imageModelValue,
   imageScreenModel,
   imageSelectionSaveDisabled,
+} from "../src/lib/contentSettings/image";
+import {
+  contentCatalogRefreshNote,
+  contentEnabledNote,
+  contentKeyErrorNotice,
+  contentKeyStatusBadge,
+  contentProviderId,
+  contentProviderLabel,
+  costNotice,
+  deleteContentKeyConfirmRequest,
   keyDraftAfterSave,
+} from "../src/lib/contentSettings/shared";
+import {
+  hiddenSpeechModelCount,
   speechCatalogNotice,
   speechDefaultVoice,
   speechModelOptions,
   speechModelValue,
+  speechModelVisibilityNotice,
   speechPriceDisplay,
   speechSaveDisabled,
   speechSelection,
-  speechModelVisibilityNotice,
-  visibleSpeechModelOptions,
-  hiddenSpeechModelCount,
   speechSpeed,
   speechSpeedStep,
   speechVoiceDraft,
   speechVoiceMode,
   speechVoiceValue,
-} from "../src/lib/contentSettings";
+  visibleSpeechModelOptions,
+} from "../src/lib/contentSettings/speech";
 import { imageParameterDraftOf } from "../src/lib/imageParameters";
 import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings, ImageModel } from "../src/types";
 

@@ -7,9 +7,10 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
-import { ContentCostSection, ContentSettingsTab } from "../src/components/content-settings/ContentSettingsTab";
+import { ContentCostSection } from "../src/components/content-settings/ContentCostSection";
+import { ContentSettingsTab } from "../src/components/content-settings/ContentSettingsTab";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
-import type { ContentSavingAction } from "../src/lib/contentSettings";
+import type { ContentSavingAction } from "../src/lib/contentSettings/shared";
 import type { ContentSubsection } from "../src/lib/settingsNav";
 import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings, ContentTrial } from "../src/types";
 
