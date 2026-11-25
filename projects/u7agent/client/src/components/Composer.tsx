@@ -1,20 +1,16 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type ClipboardEvent,
   type DragEvent,
   type FormEvent,
   type KeyboardEvent,
-  type MouseEvent,
-  type PointerEvent,
-  type SyntheticEvent,
 } from "react";
-import { useComposerVoiceInput } from "../hooks/useComposerVoiceInput";
-import { useExitPhase } from "../hooks/useExitPhase";
-import { useVoiceInputRemaining } from "../hooks/useVoiceInputRemaining";
+import { useComposerExpansion } from "../hooks/useComposerExpansion";
+import { useComposerVoiceDraft } from "../hooks/useComposerVoiceDraft";
+import { useStopPromotionHold } from "../hooks/useStopPromotionHold";
 import type { Attachment } from "../lib/attachments";
 import type { ComposerSettings } from "../lib/composerSettings";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
@@ -31,22 +27,7 @@ import { runRetryBlockedReason, type RunErrorInfo } from "../lib/runRetry";
 import { skillCommandText } from "../lib/sessionSkills";
 import { shouldClearSuggestionOnBackspace } from "../lib/suggestion";
 import type { AgentDef, AgentSuggestion, ContextUsage, ModelRef, RunStatus, ThinkingLevel, ToolCall } from "../types";
-import {
-  voiceInputComposerBlockedReason,
-  voiceInputComposerBusy,
-  type VoiceInputComposerPhase,
-} from "../lib/voiceInput/composer";
-import { deviceSettingsStorage } from "../lib/deviceSettingsStore";
-import { requestVoiceInputConsent } from "../lib/voiceInput/consent";
-import {
-  applyVoiceInputPartial,
-  beginVoiceInputDraft,
-  finishVoiceInputDraft,
-  revertVoiceInputDraft,
-  type VoiceInputDraft,
-  type VoiceInputDraftUpdate,
-} from "../lib/voiceInput/draft";
-import { glowVoiceInputText } from "../lib/voiceInput/glow";
+import type { VoiceInputComposerPhase } from "../lib/voiceInput/composer";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
@@ -133,14 +114,6 @@ export type ComposerProps = {
 const MAX_TEXTAREA_HEIGHT = 180;
 /** singleColumn では入力欄が画面を占めないよう低く抑える */
 const SINGLE_COLUMN_TEXTAREA_HEIGHT = 120;
-/**
- * 送信の直後に主スロットの入れ替えを保留する時間。本文を消した描画で ↑ が ■ へ変わると、1 回目の
- * クリックの続き (二度押し / ダブルタップ) がそのまま停止に届き、走っている実行と待機キューが落ちる
- */
-const STOP_PROMOTION_HOLD_MS = 500;
-
-/** 所有領域を手入力で失くしたときの注記。確定テキストを入れない理由を 1 行で伝える */
-const VOICE_INPUT_DRAFT_EDITED_NOTICE = "下書きを編集したため、確定したテキストは反映していません。";
 
 /**
  * ドロップ座標に対応する入力欄の文字位置。`caretRangeFromPoint` は textarea で正しい位置を返さない
@@ -219,56 +192,31 @@ export function Composer({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [dropKind, setDropKind] = useState<ComposerDropKind | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  // 送信のたびに増やす保留の番号 (0 以外 = 保留中)。番号を進めると、保留中に送った分も期限を延ばす
-  const [sendHold, setSendHold] = useState(0);
-  const dialogRef = useRef<HTMLDialogElement | null>(null);
-  // 送信で畳んだか (close() の後に、送信後の焦点の規則で焦点を決め直す根拠)
-  const collapsedBySendRef = useRef(false);
-  // 退場アニメの間だけ dialog を開いたままにする (閉じる前に拡大の位置から消えないようにする)
-  const expandPhase = useExitPhase(expanded, dialogRef);
-  // 見た目の面を拡大側へ切り替える条件。退場アニメの間も拡大の寸法を保つ
-  const expandedUi = expanded || expandPhase === "closing";
+  const expansion = useComposerExpansion({ inputRef, sending, visible, mode });
+  const { expanded, expandedUi, dialogRef } = expansion;
+  const sendHold = useStopPromotionHold();
   // 直前の dragover の座標。drop で参照の挿入位置を決める (drop の座標は実装によっては 0 になる)
   const dropPointRef = useRef<{ x: number; y: number } | null>(null);
   // 確認ダイアログ (初回の録音で 1 度だけ出す)
   const confirm = useConfirm();
-  const voice = useComposerVoiceInput();
-  // 音声由来の注記 (確定文を入れられなかった理由など)。会話の notice と並べて同じ行に出す
-  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   // 本文の写し。音声のコールバックは再描画をまたいで届くので、state の遅れを挟まずに前の本文と比べる
   const valueRef = useRef(value);
-  // 所有領域 (開始時のカーソル / 選択を基準に、システムが差し替えてよい範囲)
-  const voiceDraftRef = useRef<VoiceInputDraft | null>(null);
-  // 録音を始めたときの焦点。確定後に焦点を戻すかの判定に使う (利用者が別の場所へ移っていたら奪わない)
-  const voiceFocusRef = useRef<Element | null>(null);
-  // 途中の文字を光らせている最中の演出。次の途中文と取消で切る
-  const voiceGlowRef = useRef<Animation | null>(null);
-  // 途中文で本文が変わった回数。描画の後に光らせる合図で、0 は未開始
-  const [voiceGlowCount, setVoiceGlowCount] = useState(0);
-  // 確認を開いている間に会話が変わったかを見る基準（戻ってきたら、別の会話の下書きへ録音を始めない）
-  const voiceScopeRef = useRef(voiceInputScope);
-  voiceScopeRef.current = voiceInputScope;
   /** 本文の書き換えは必ずここを通す (valueRef を同じ描画で最新にする) */
   const applyValue = useCallback((next: string) => {
     valueRef.current = next;
     setValue(next);
   }, []);
-  const { state: voiceState, start: startVoice, stop: stopVoice, cancel: cancelVoice } = voice;
-  const voiceBlockedReason = voiceInputComposerBlockedReason(voiceState.phase);
-  const voiceBusy = voiceInputComposerBusy(voiceState.phase);
-  // 音声の操作が終わった直後の保留 (送信直後の停止の保留と同じ理由)。取消 / 確定で主スロットが
-  // 入れ替わった位置を続けて押すと、そのまま送信へ届いてしまう
-  const [voiceHold, setVoiceHold] = useState(false);
-  const voicePhaseRef = useRef(voiceState.phase);
-  useEffect(() => {
-    const previous = voicePhaseRef.current;
-    voicePhaseRef.current = voiceState.phase;
-    if (previous === "idle" || voiceState.phase !== "idle") return;
-    setVoiceHold(true);
-    const timer = window.setTimeout(() => setVoiceHold(false), STOP_PROMOTION_HOLD_MS);
-    return () => window.clearTimeout(timer);
-  }, [voiceState.phase]);
+  const readBody = useCallback(() => valueRef.current, []);
+  const voice = useComposerVoiceDraft({
+    inputRef,
+    readBody,
+    replaceBody: applyValue,
+    confirm,
+    model: voiceInputModel,
+    scope: voiceInputScope,
+    visible,
+    ...(onVoiceInputPhaseChange === undefined ? {} : { onPhaseChange: onVoiceInputPhaseChange }),
+  });
 
   const attachmentsBusy = attachments.some((item) => item.status !== "done");
   const hasAttachment = attachments.some((item) => item.status === "done");
@@ -280,12 +228,6 @@ export function Composer({
     if (!suggestion) return;
     inputRef.current?.focus();
   }, [suggestion]);
-
-  useEffect(() => {
-    if (sendHold === 0) return;
-    const timer = window.setTimeout(() => setSendHold(0), STOP_PROMOTION_HOLD_MS);
-    return () => window.clearTimeout(timer);
-  }, [sendHold]);
 
   // チップを外しても続きを書けるよう、× の後は本文へフォーカスを戻す
   const clearSuggestion = () => {
@@ -306,63 +248,6 @@ export function Composer({
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, maxTextareaHeight)}px`;
   }, [value, maxTextareaHeight, visible, expandedUi]);
-
-  // 拡大の開閉は native の showModal / close に任せる (背景の操作を止める・Escape・焦点の復帰が標準で付く)。
-  // close を layout effect に置くのは、退場アニメの終了と同じ描画で閉じるため (1 フレーム拡大のまま残らない)
-  useLayoutEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog === null) return;
-    if (expanded && !dialog.open) {
-      // showModal() は「autofocus が付いた最初の要素、無ければ先頭の操作要素」へ焦点を移す。先頭の操作要素
-      // (Model / Effort) を一瞬掴むと、本文の IME の変換中が blur で切れる。開く間だけ本文へ autofocus を
-      // 付け、焦点移動の理由ごと無くす (拡大の目的は書き続けることなので、焦点は本文に残す)
-      const textarea = inputRef.current;
-      textarea?.setAttribute("autofocus", "");
-      dialog.showModal();
-      textarea?.removeAttribute("autofocus");
-      textarea?.focus();
-    } else if (!expanded && expandPhase === "closed" && dialog.open) {
-      dialog.close();
-      // close() は「開く前に焦点があった要素」(拡大のボタン) へ**同期で**戻す。送信で畳むときは、送信後の
-      // 焦点の規則 (fine は本文 / coarse は外す。docs/ui-layout.md) をその後に適用し直す
-      if (collapsedBySendRef.current) {
-        collapsedBySendRef.current = false;
-        if (composerFocusAfterSend(hasCoarsePointer()) === "focus") inputRef.current?.focus();
-      }
-    }
-  }, [expanded, expandPhase]);
-
-  // 送信したら畳む (拡大のまま残すと、応答が見えない位置で書き続けることになる)。畳んだ後に焦点を決め直す印は
-  // この時点の `expanded` で立てる (`sending` を後から読むと、run が先に終わっていて落ちる)
-  useEffect(() => {
-    if (!sending) return;
-    if (expanded) collapsedBySendRef.current = true;
-    setExpanded(false);
-  }, [sending]);
-
-  // 退場アニメの間の Escape は自分で消費する。2 回目の Escape の `cancel` は `cancelable: false` (CloseWatcher の
-  // 仕様) で preventDefault では止められず、UA が即座に閉じると全画面の寸法のまま通常フローへ戻ってしまう。
-  // keydown の既定動作ごと止めるのはこの経路のため。設定ページへ移るとき (visible が false) はそのまま通す
-  useEffect(() => {
-    if (expandPhase !== "closing" || !visible) return;
-    const onKeyDown = (event: WindowEventMap["keydown"]) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [expandPhase, visible]);
-
-  // チャット以外へ移る / レイアウトが切り替わるときは畳む。dialog は top layer へ移るため、開いたままだと
-  // 隠れた (inert な) 面の中で modal だけが残る
-  useEffect(() => {
-    if (!visible) setExpanded(false);
-  }, [visible]);
-
-  useEffect(() => {
-    setExpanded(false);
-  }, [mode]);
 
   // 送信経路は入力欄に限らない (再実行カードも同じ送信)。畳む条件の根拠は docs/ui-layout.md
   useEffect(() => {
@@ -385,130 +270,6 @@ export function Composer({
     [onReloadSkills],
   );
 
-  /** 所有領域の更新を本文へ反映する。カーソルは入力欄が焦点を持っているときだけ戻す */
-  const applyVoiceDraft = useCallback(
-    (update: VoiceInputDraftUpdate) => {
-      voiceDraftRef.current = update.draft;
-      if (update.value !== valueRef.current) applyValue(update.value);
-      if (update.caret === null) return;
-      const caret = update.caret;
-      // コールバックは再描画をまたいで届くので、value を書き換えた後の選択を描画後に戻す
-      requestAnimationFrame(() => {
-        const el = inputRef.current;
-        if (!el || el.ownerDocument.activeElement !== el) return;
-        el.setSelectionRange(caret, caret);
-      });
-    },
-    [applyValue],
-  );
-
-  // 光らせるのは新しい文字が DOM に入った後にする。同じ呼び出しで始めると描画の前に演出が走り、
-  // 最初の途中文ではプレースホルダが光る
-  useLayoutEffect(() => {
-    const el = inputRef.current;
-    if (voiceGlowCount === 0 || el === null) return;
-    voiceGlowRef.current = glowVoiceInputText(el, voiceGlowRef.current);
-  }, [voiceGlowCount]);
-
-  /** 取消・失敗。所有領域だけを開始前へ戻す（開始後の手入力は巻き戻さない） */
-  const handleVoiceCancel = useCallback(() => {
-    const draft = voiceDraftRef.current;
-    voiceDraftRef.current = null;
-    voiceFocusRef.current = null;
-    voiceGlowRef.current?.cancel();
-    voiceGlowRef.current = null;
-    if (draft === null) return;
-    applyVoiceDraft(revertVoiceInputDraft(draft, valueRef.current));
-  }, [applyVoiceDraft]);
-
-  /**
-   * 確定。所有を失っていれば本文を変えず、残った途中文と確定テキストの重複を作らない。
-   * 入れたときはカーソルを確定テキストの直後へ戻し、焦点を入力欄へ返す。
-   */
-  const handleVoiceFinal = useCallback(
-    (text: string) => {
-      const draft = voiceDraftRef.current;
-      voiceDraftRef.current = null;
-      const focused = voiceFocusRef.current;
-      voiceFocusRef.current = null;
-      if (draft === null) return;
-      const update = finishVoiceInputDraft(draft, valueRef.current, text);
-      if (!update.applied) {
-        if (update.draft.status === "detached") setVoiceNotice(VOICE_INPUT_DRAFT_EDITED_NOTICE);
-        return;
-      }
-      applyValue(update.value);
-      const caret = update.caret;
-      requestAnimationFrame(() => {
-        const el = inputRef.current;
-        if (!el || caret === null) return;
-        const active = el.ownerDocument.activeElement;
-        // 利用者が別の場所を操作していたら焦点を奪わない（録音中に別の面へ移った場合だけ戻さない）
-        if (active === el || active === el.ownerDocument.body || active === focused) el.focus();
-        el.setSelectionRange(caret, caret);
-      });
-    },
-    [applyValue],
-  );
-
-  /** マイク。初回だけ確認を出し、承諾したら開始時のカーソル / 選択を控えて録音を始める */
-  const startVoiceInput = useCallback(() => {
-    void (async () => {
-      const scope = voiceScopeRef.current;
-      const allowed = await requestVoiceInputConsent({
-        storage: deviceSettingsStorage(),
-        confirm,
-        model: voiceInputModel,
-      });
-      if (!allowed) return;
-      // 確認を開いている間に会話が変わっていたら、その会話の下書きへは始めない
-      if (voiceScopeRef.current !== scope) return;
-      const el = inputRef.current;
-      const current = valueRef.current;
-      const caret = el?.selectionStart ?? current.length;
-      voiceDraftRef.current = beginVoiceInputDraft(current, caret, el?.selectionEnd ?? current.length);
-      voiceFocusRef.current = document.activeElement;
-      setVoiceNotice(null);
-      startVoice({
-        onPartial: (text) => {
-          const draft = voiceDraftRef.current;
-          if (draft === null) return;
-          const previous = valueRef.current;
-          const at = inputRef.current?.selectionStart ?? previous.length;
-          const update = applyVoiceInputPartial(draft, previous, text, at);
-          applyVoiceDraft(update);
-          // 文字が変わらなかった途中文では光らせない（同じ文が続くと、光りっぱなしに見える）
-          if (update.applied && update.value !== previous) setVoiceGlowCount((count) => count + 1);
-        },
-        onFinal: handleVoiceFinal,
-        onCancel: handleVoiceCancel,
-        onError: (failure) => {
-          handleVoiceCancel();
-          setVoiceNotice(`音声入力を続けられませんでした（${failure.message}）`);
-        },
-      });
-    })();
-  }, [applyVoiceDraft, confirm, handleVoiceCancel, handleVoiceFinal, startVoice, voiceInputModel]);
-
-  // 設定・実行状況へ移るときは録音を続けない（非表示の面でマイクを握ったままにしない）
-  useEffect(() => {
-    if (!visible) cancelVoice();
-  }, [visible, cancelVoice]);
-
-  // 会話の切替（添付が暗黙に作った会話への移動を含む）でも中断する。確定テキストが次の会話の下書きへ混ざらない
-  useEffect(() => {
-    cancelVoice();
-    setVoiceNotice(null);
-  }, [voiceInputScope, cancelVoice]);
-
-  // 再実行 / 未送信の再送を App が止められるよう、音声の操作中の phase を知らせる
-  const notifyVoicePhase = useRef(onVoiceInputPhaseChange);
-  notifyVoicePhase.current = onVoiceInputPhaseChange;
-  useEffect(() => {
-    notifyVoicePhase.current?.(voiceState.phase);
-  }, [voiceState.phase]);
-  useEffect(() => () => notifyVoicePhase.current?.("idle"), []);
-
   const submit = () => {
     // 音声の操作中・終了直後の保留中は入口で止める（Enter / submit / 送信ボタンが同じ経路へ合流する）
     const sent = submitComposer(
@@ -521,15 +282,15 @@ export function Composer({
         settingsChanging: settings.changing,
         ...(settings.sendBlockedReason === undefined ? {} : { sendBlockedReason: settings.sendBlockedReason }),
         attachmentsBusy,
-        voicePhase: voiceState.phase,
-        voiceHold,
+        voicePhase: voice.phase,
+        voiceHold: voice.hold,
       },
       {
         clearDraft: () => {
           applyValue("");
-          setVoiceNotice(null);
+          voice.clearNotice();
         },
-        holdStopPromotion: () => setSendHold((count) => count + 1),
+        holdStopPromotion: sendHold.hold,
         clearSuggestion: onClearSuggestion,
         send: onSend,
       },
@@ -638,36 +399,13 @@ export function Composer({
     submit();
   };
 
-  // Escape は dialog の標準の閉じ方 (cancel) で受ける
-  const handleCancel = (event: SyntheticEvent<HTMLDialogElement>) => {
-    // 添付画像の拡大 (portal の dialog) の cancel も React のツリーを伝わって届く。自分の dialog の分だけを受け、
-    // 開いてもいない面を閉じない (event をそのまま通せば、画像側が標準どおり閉じる)
-    if (event.target !== event.currentTarget) return;
-    // 退場アニメの間 (expanded が false) も既定動作を止める。止めると、全画面の寸法のまま通常フローへ戻る
-    // 1 フレームが出る (実際の close() は phase が closed になった経路だけ)
-    event.preventDefault();
-    setExpanded(false);
-  };
-
-  /** 背景 (dialog 自身) のクリックだけを閉じる要求にする。中央の箱の中のクリックは含めない */
-  const handleDialogClick = (event: MouseEvent<HTMLDialogElement>) => {
-    if (!expanded || event.target !== dialogRef.current) return;
-    setExpanded(false);
-  };
-
-  /** 余白の押下で外装の dialog に焦点を移さない (移ると画面幅いっぱいの輪郭が入力欄の上下に出る) */
-  const handleDialogPointerDown = (event: PointerEvent<HTMLDialogElement>) => {
-    if (event.target !== event.currentTarget) return;
-    event.preventDefault();
-  };
-
   // 再実行の押せない理由は送信経路と同じガードから導く (実際に遮っているものだけを出す)
   const retryBlockedReason = runRetryBlockedReason({
     sending,
     settingsChanging: settings.changing,
     attachmentsBusy,
     runtimeReady,
-    ...(voiceBlockedReason === undefined ? {} : { voiceInput: voiceBlockedReason }),
+    ...(voice.blockedReason === undefined ? {} : { voiceInput: voice.blockedReason }),
   });
   // 主スロットを送信と停止のどちらにするか (docs/ui-layout.md#入力欄の主ボタン送信と停止)
   const sendable = value.trim().length > 0 || hasAttachment || suggestion !== null;
@@ -676,13 +414,11 @@ export function Composer({
     sendable,
     // アップロード中は「送るものがあるのに送れない」状態なので、停止を主スロットへ上げない
     sendBlocked: Boolean(settings.sendBlockedReason) || attachmentsBusy,
-    stopPrimaryHeld: sendHold > 0 || voiceHold,
-    voicePhase: voiceState.phase,
+    stopPrimaryHeld: sendHold.held || voice.hold,
+    voicePhase: voice.phase,
   });
   const stopPrimary = composerPrimaryStop(action);
-  // 残り時間の弧。期限まで 1 秒刻みで描き直す (録音中だけ時計を進める)
-  const voiceRemaining = useVoiceInputRemaining(voiceState.deadline, voiceState.startedAt);
-  const showMicrophone = voiceInputAvailable && !voiceBusy;
+  const showMicrophone = voiceInputAvailable && !voice.busy;
   // 待機件数の正は直上ブロック。ボタンは破棄する範囲だけを示し、数を二重に出さない
   const stopButton = (
     <button
@@ -716,7 +452,7 @@ export function Composer({
         sending ||
         attachmentsBusy ||
         settings.changing ||
-        voiceHold ||
+        voice.hold ||
         Boolean(settings.sendBlockedReason) ||
         !sendable
       }
@@ -734,7 +470,7 @@ export function Composer({
     Boolean(text),
   );
   // 音声の注記と会話の notice は同じ 1 行に並べる（状態行の下の行を増やすと composer の高さが動く）
-  const shownNotice = [notice, voiceNotice].filter((text): text is string => Boolean(text)).join(" / ") || undefined;
+  const shownNotice = [notice, voice.notice].filter((text): text is string => Boolean(text)).join(" / ") || undefined;
   const suggestionChip = suggestion ? (
     <SuggestionChip suggestion={suggestion} singleColumn={singleColumn} onClear={clearSuggestion} />
   ) : null;
@@ -748,10 +484,10 @@ export function Composer({
         // 閉じている間は role=dialog を名乗らない (通常のブロックとして置く外装なので、読み上げの区切りにしない)
         role={expandedUi ? undefined : "presentation"}
         aria-label={expandedUi ? "メッセージ入力" : undefined}
-        data-closing={expandPhase === "closing"}
-        onCancel={handleCancel}
-        onClick={handleDialogClick}
-        onPointerDown={handleDialogPointerDown}
+        data-closing={expansion.expandPhase === "closing"}
+        onCancel={expansion.cancel}
+        onClick={expansion.backdropClick}
+        onPointerDown={expansion.backdropPointerDown}
         className={cn(
           "composer-dialog text-ink",
           expandedUi
@@ -919,7 +655,7 @@ export function Composer({
                 aria-label={expanded ? "入力欄を元の大きさに戻す" : "入力欄を拡大"}
                 aria-expanded={expanded}
                 title={expanded ? "入力欄を元の大きさに戻す" : "入力欄を拡大"}
-                onClick={() => setExpanded(!expanded)}
+                onClick={expansion.toggle}
                 className={cn(
                   "absolute top-1 right-1 grid cursor-pointer place-items-center rounded-md text-ink-ghost transition-colors hover:text-accent-text",
                   singleColumn ? "size-8" : "size-7",
@@ -929,14 +665,14 @@ export function Composer({
               </button>
               {/* 入力欄の行は [textarea] [マイク] [主ボタン]。マイクは録音・接続・確定待ちの間は隠し、
                   その間の主スロットを音声の操作が占有する (docs/ui-layout.md) */}
-              {showMicrophone ? <VoiceInputStartButton singleColumn={singleColumn} onClick={startVoiceInput} /> : null}
+              {showMicrophone ? <VoiceInputStartButton singleColumn={singleColumn} onClick={voice.start} /> : null}
               {composerSecondaryStop(action) && stopVisible ? stopButton : null}
               {stopPrimary ? (
                 stopButton
               ) : action === "voiceCancel" ? (
-                <VoiceInputCancelButton singleColumn={singleColumn} onClick={cancelVoice} />
+                <VoiceInputCancelButton singleColumn={singleColumn} onClick={voice.cancel} />
               ) : action === "voiceStop" ? (
-                <VoiceInputStopButton singleColumn={singleColumn} remaining={voiceRemaining} onClick={stopVoice} />
+                <VoiceInputStopButton singleColumn={singleColumn} remaining={voice.remaining} onClick={voice.stop} />
               ) : action === "voiceFinalizing" ? (
                 <VoiceInputFinalizingButton singleColumn={singleColumn} />
               ) : (
