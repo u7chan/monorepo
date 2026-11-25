@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getNotifications, testNotification, updateNotifications } from "../api";
+import { getNotifications, testNotification, updateNotifications } from "../api/settings";
 import { messageFor } from "../lib/errors";
 import { draftBody, draftFromSettings, draftIsDirty, syncDraft, type NotificationDraft } from "../lib/notifications";
 import { MEMORY_NOTE } from "../lib/settingsNotes";

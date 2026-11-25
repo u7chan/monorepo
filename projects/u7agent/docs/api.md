@@ -4,7 +4,7 @@
 
 例の JSON のモデルは `<provider>` / `<id>` のプレースホルダで示す。実値は環境の利用可能モデル（設定 → モデル（`/settings/models`）の「利用可能なモデル」と available の積）で決まる。
 
-DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@hono/zod-validator` で検証され、client（`client/src/api.ts`）は `hono/client`（hc）でこの契約を型として参照する。
+DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@hono/zod-validator` で検証され、client（`client/src/api/http.ts`）は `hono/client`（hc）でこの契約を型として参照する。
 
 このファイルは規約と索引、共通のエンドポイントを持つ。領域ごとの契約は [api-files.md](api-files.md) / [api-settings.md](api-settings.md) / [api-sharing.md](api-sharing.md) / [api-sessions.md](api-sessions.md) / [api-catalog.md](api-catalog.md) / [sandbox-api.md](sandbox-api.md) に分かれる。
 
@@ -71,7 +71,7 @@ TLS 終端をリバースプロキシへ置くと、要求 URL のオリジン�
 
 ## 型の共有
 
-- `server/src/app.ts` は同じ `Hono` インスタンスへ登録フェーズの順（入口ガード → raw 本文のルート → `bodyGuard` → 通常のルート → catch-all）にルートを足し、`AppType` を export。client は `hc<AppType>(location.origin)` で型付きクライアントを構築する（`client/src/api.ts`）。SSE は型付け対象外で、`EventEntry` のみ server から型 import する。
+- `server/src/app.ts` は同じ `Hono` インスタンスへ登録フェーズの順（入口ガード → raw 本文のルート → `bodyGuard` → 通常のルート → catch-all）にルートを足し、`AppType` を export。client は `hc<AppType>(location.origin)` で型付きクライアントを構築する（`client/src/api/http.ts`）。SSE は型付け対象外で、`EventEntry` のみ server から型 import する。
 - ルート登録の外側の実装は `server/src/routes/`（ハンドラ）、`server/src/http.ts`（本文ガード / 既定の検証エラー / 設定変更とダウンロード中継の応答）、`server/src/static.ts`（静的配信 / CSP）、`server/src/bootstrap.ts`（pi ランタイムと store の組み立て）に分かれている。ルートの追加・変更は `app.ts` のフェーズ関数（raw 本文を受けるルートは `registerRawBodyRoutes`、通常は `registerDomainRoutes`）と該当する route モジュールを参照する。
 - 本文の上限つき読み取りは BFF とサンドボックスが `server/src/bounded-body.ts` を共有する。外部呼び出しの期限と中断の扱いは `server/src/request-deadline.ts` を参照。HTTP status や失敗分類への変換は各呼び出し側が持つ。
 - server / client の両 tsconfig は `moduleResolution: bundler` + noEmit。server は tsx で実行するため拡張子なし import で統一し、client は workspace package `server` のソースを型として直接参照する。

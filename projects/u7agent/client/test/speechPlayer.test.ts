@@ -6,11 +6,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { Bubble, ToolCard } from "../src/lib/chatTypes";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost:3000", hostname: "localhost" } as Location;
-const { fileRawUrl } = await import("../src/api");
+const { fileRawUrl } = await import("../src/api/files");
 const { SpeechPlayerList } = await import("../src/components/chat/SpeechPlayerList");
-// MessageView は AttachedFiles 経由で api.ts を辿る
+// MessageView は AttachedFiles 経由で api/http.ts を辿る
 const { MessageView } = await import("../src/components/chat/MessageView");
 
 const VERSION = 7;

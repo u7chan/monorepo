@@ -7,7 +7,7 @@ import test from "node:test";
 import type { Bubble, ToolCard } from "../src/lib/chatTypes";
 import { generationCaptionsOf, type GenerationInfo } from "../src/lib/generationInfo";
 
-// MessageView は AttachedFiles 経由で api.ts (location.origin を読む) を辿るため、先に shim を置く
+// MessageView は AttachedFiles 経由で api/http.ts (location.origin を読む) を辿るため、先に shim を置く
 globalThis.location ??= { origin: "http://localhost:3000", hostname: "localhost" } as Location;
 const { MarkdownCaptionProvider, MarkdownFileImageProvider, MarkdownImageProvider } =
   await import("../src/components/markdown/MarkdownImageRefs");

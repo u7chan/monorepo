@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { getFiles, type CreateProjectInput } from "../api";
+import type { CreateProjectInput } from "../api/sessions";
+import { getFiles } from "../api/files";
 import { cn } from "../lib/cn";
 import { messageFor } from "../lib/errors";
 import { parentWorkspacePath, projectChildPath, WORKSPACE_ROOT, workspaceBaseName } from "../lib/projectPath";

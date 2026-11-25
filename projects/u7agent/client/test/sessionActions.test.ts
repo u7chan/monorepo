@@ -705,7 +705,7 @@ test("does nothing when no session is displayed", async () => {
   assert.deepEqual(actions, []);
 });
 
-/** api.ts の ApiError と同じ形 (location を参照するため class は読み込まない) */
+/** api/http.ts の ApiError と同じ形 (location を参照するため class は読み込まない) */
 function apiFailure(message: string, status: number): Error {
   return Object.assign(new Error(message), { status });
 }

@@ -16,10 +16,11 @@ import type {
   ContentTrialSummary,
 } from "../src/types";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む。
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む。
 // 取得の失敗の分類（404 とそれ以外）は本番と同じ関数を通す
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { ApiError, contentTrialStartFailure, isMissingContentTrial } = await import("../src/api");
+const { ApiError } = await import("../src/api/http");
+const { contentTrialStartFailure, isMissingContentTrial } = await import("../src/api/settings");
 
 const USAGE: ContentTrialArtifactUsageValue = { count: 1, bytes: 2_048 };
 

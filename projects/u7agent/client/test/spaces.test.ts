@@ -26,7 +26,11 @@ import { createRequestGate, createMountScope } from "../src/hooks/requestGate";
 import type { ChatAction } from "../src/hooks/chatReducer";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { ApiError, createSpaceApi, getCatalog, getFiles, listSpaces, createSpace } = await import("../src/api");
+const { ApiError } = await import("../src/api/http");
+const { createSpaceApi } = await import("../src/api/sessions");
+const { listSpaces, createSpace } = await import("../src/api/spaces");
+const { getCatalog } = await import("../src/api/catalog");
+const { getFiles } = await import("../src/api/files");
 // spaceOrder / spaceRename は api を（ApiError のために）読むので、location を用意した後で読む
 const { createSpaceOrderFlow } = await import("../src/lib/spaceOrder");
 const { createSpaceRenameFlow } = await import("../src/lib/spaceRename");

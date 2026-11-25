@@ -11,7 +11,7 @@
  * **離脱前に始めた保存の応答も反映しない**（`capture`）。一覧はページより長生きするので、古い応答が
  * 新しいページの確定した並びを巻き戻さないようにする。
  */
-import { ApiError } from "../api";
+import { ApiError } from "../api/http";
 import { messageFor } from "./errors";
 import { createOrderDraft, type OrderDraftState } from "./orderDraft";
 

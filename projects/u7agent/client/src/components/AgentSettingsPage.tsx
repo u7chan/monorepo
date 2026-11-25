@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { reorderAgents } from "../api";
+import { reorderAgents } from "../api/catalog";
 import { useFileSkills } from "../hooks/useFileSkills";
 import { useWideLayout } from "../hooks/useLayoutMode";
 import { useLatestRef } from "../hooks/useLatestRef";

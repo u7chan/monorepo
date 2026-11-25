@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError } from "../api/http";
 import {
-  ApiError,
   deleteSharedContent,
   deleteSharedContentThumbnail,
   getAllSharedContents,
@@ -9,7 +9,7 @@ import {
   renameSharedContent,
   resumeSharedContent,
   stopSharedContent,
-} from "../api";
+} from "../api/shared";
 import { thumbnailFailureNeedsRefetch, withSharedContentThumbnail } from "../lib/sharedThumbnail";
 import { messageFor } from "../lib/errors";
 import {

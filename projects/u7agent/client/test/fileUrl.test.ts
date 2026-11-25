@@ -34,7 +34,7 @@ test("fileRawUrl は version 指定時だけ v を付け、未指定時は従来
     value: { origin: "http://localhost:5173", hostname: "localhost" },
     configurable: true,
   });
-  const { fileRawUrl } = await import("../src/api");
+  const { fileRawUrl } = await import("../src/api/files");
   assert.equal(fileRawUrl("generated/cafe.png"), "http://localhost:5173/api/files/raw?path=generated%2Fcafe.png");
   assert.equal(fileRawUrl("generated/cafe.png", undefined), fileRawUrl("generated/cafe.png"));
   for (const path of ["generated/cafe.png", "日本語/画像.png", "a+b#c&v=99.png"]) {
@@ -54,12 +54,12 @@ test("fileRawUrl は version 指定時だけ v を付け、未指定時は従来
 });
 
 test("fileHtmlPreviewUrl はクエリではなくパス形式で同一オリジンの URL を組み立てる", async () => {
-  // api.ts は module の読み込み時に location.origin を参照する (node のテストには DOM が無い)
+  // api/http.ts は module の読み込み時に location.origin を参照する (node のテストには DOM が無い)
   Object.defineProperty(globalThis, "location", {
     value: { origin: "http://localhost:5173", hostname: "localhost" },
     configurable: true,
   });
-  const { fileHtmlPreviewUrl } = await import("../src/api");
+  const { fileHtmlPreviewUrl } = await import("../src/api/files");
   const cases: Array<[string, string]> = [
     ["a.html", "http://localhost:5173/api/files/html/a.html"],
     ["dir/a b.png", "http://localhost:5173/api/files/html/dir/a%20b.png"],
@@ -76,7 +76,7 @@ test("fileStoragePreviewUrl は公開オリジンを優先し、無ければ hea
     value: { origin: "http://localhost:3000", hostname: "localhost" },
     configurable: true,
   });
-  const { fileStoragePreviewUrl } = await import("../src/api");
+  const { fileStoragePreviewUrl } = await import("../src/api/files");
   const cases: Array<[string, { origin?: string; port?: number }, string]> = [
     ["a.html", { port: 4318 }, "http://localhost:4318/api/files/html/a.html"],
     ["dir/a b.png", { port: 8017 }, "http://localhost:8017/api/files/html/dir/a%20b.png"],
@@ -100,7 +100,7 @@ test("fileDownloadUrl は path をクエリで渡し、サーバー側の 1 回�
     value: { origin: "http://localhost:5173", hostname: "localhost" },
     configurable: true,
   });
-  const { fileDownloadUrl } = await import("../src/api");
+  const { fileDownloadUrl } = await import("../src/api/files");
   for (const path of ["a.txt", "src/nested 日本語", "a+b#c.txt", ""]) {
     const url = new URL(fileDownloadUrl(path));
     assert.equal(url.origin, "http://localhost:5173");

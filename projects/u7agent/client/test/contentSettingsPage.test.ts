@@ -13,7 +13,7 @@ import type { ContentSubsection } from "../src/lib/settingsNav";
 import type { ContentTrials } from "../src/hooks/useContentTrials";
 import type { ContentSettingsResponse, ContentTrial } from "../src/types";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { ContentSettingsView } = await import("../src/components/ContentSettingsPage");
 const { ConfirmProvider } = await import("../src/components/ConfirmProvider");

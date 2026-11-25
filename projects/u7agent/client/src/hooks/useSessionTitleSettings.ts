@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getTitleSummarySettings, postTitleSummaryTest, putTitleSummarySettings } from "../api";
+import { getTitleSummarySettings, postTitleSummaryTest, putTitleSummarySettings } from "../api/settings";
 import { messageFor } from "../lib/errors";
 import {
   SESSION_TITLE_DEFINITION_RESET_NOTE,

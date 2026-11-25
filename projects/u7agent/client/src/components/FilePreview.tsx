@@ -10,7 +10,7 @@ import {
   type RefObject,
   type SyntheticEvent,
 } from "react";
-import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api";
+import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api/files";
 import { useExitPhase } from "../hooks/useExitPhase";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isAudioName, isImageName } from "../lib/attachments";

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getGitInfo } from "../api";
+import { getGitInfo } from "../api/files";
 import { normalizeFileTreeRoot } from "../lib/fileTree";
 import { createRequestGate } from "./requestGate";
 

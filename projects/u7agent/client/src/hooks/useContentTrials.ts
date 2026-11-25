@@ -8,7 +8,7 @@ import {
   isMissingContentTrial,
   listContentTrials,
   startContentTrial,
-} from "../api";
+} from "../api/settings";
 import { trialKindOfSubsection } from "../lib/contentTrials";
 import { createContentTrialsController, INITIAL_CONTENT_TRIALS_STATE } from "../lib/contentTrialsStore";
 import type { ContentSubsection } from "../lib/settingsNav";

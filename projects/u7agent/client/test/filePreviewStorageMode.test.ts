@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { FilePreviewProps } from "../src/components/FilePreview";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 // (dev はアプリが Vite の 3000 に居る想定にして、iframe が BFF の 4318 へ向くことを見る)
 globalThis.location ??= { origin: "http://localhost:3000", hostname: "localhost" } as Location;
 const { FilePreview } = await import("../src/components/FilePreview");

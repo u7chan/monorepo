@@ -9,7 +9,7 @@
  * （docs/ui-layout.md#スペース）。
  */
 import type { Space } from "server";
-import { ApiError } from "../api";
+import { ApiError } from "../api/http";
 import { messageFor } from "./errors";
 
 /** 失敗の分類。文言は `spaceRenameNoteText` が持ち、ここは分類だけを渡す */

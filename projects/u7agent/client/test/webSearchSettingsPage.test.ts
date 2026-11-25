@@ -9,7 +9,7 @@ import type { WebSearchSettings } from "../src/hooks/useWebSearchSettings";
 import { WEB_SEARCH_SETTINGS_NOTE } from "../src/lib/webSearchSettings";
 import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { WebSearchSettingsView } = await import("../src/components/WebSearchSettingsPage");
 const { ConfirmProvider } = await import("../src/components/ConfirmProvider");

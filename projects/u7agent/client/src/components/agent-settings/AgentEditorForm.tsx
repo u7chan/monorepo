@@ -1,5 +1,5 @@
 import { useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { createAgent, deleteAgent, updateAgent } from "../../api";
+import { createAgent, deleteAgent, updateAgent } from "../../api/catalog";
 import type { FileSkillsState } from "../../hooks/useFileSkills";
 import { fileToAgentIcon } from "../../lib/agentIconFile";
 import { AGENT_PRESETS, agentPresetValue } from "../../lib/agentPresets";

@@ -6,7 +6,7 @@ import {
   getFileSkillDetail,
   getFileSkills,
   saveFileSkill,
-} from "../api";
+} from "../api/catalog";
 import {
   fileSkillCreateDirty,
   fileSkillDraftDirty,

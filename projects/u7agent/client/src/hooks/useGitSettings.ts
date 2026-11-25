@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { deleteGitSettings, getGitSettings, putGitSettings } from "../api";
+import { deleteGitSettings, getGitSettings, putGitSettings } from "../api/settings";
 import {
   GIT_SETTINGS_CLEARED_NOTE,
   GIT_SETTINGS_LOAD_ERROR,

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject, type ReactNode } from "react";
-import { deleteDirectory, deleteFile, fileDownloadUrl, getFileDownloadCheck, getFiles, renameEntry } from "../api";
+import {
+  deleteDirectory,
+  deleteFile,
+  fileDownloadUrl,
+  getFileDownloadCheck,
+  getFiles,
+  renameEntry,
+} from "../api/files";
 import { useFileIconStyle } from "../hooks/useFileIconStyle";
 import { useFileTreeHeight } from "../hooks/useFileTreeHeight";
 import { useFileTreeWidth } from "../hooks/useFileTreeWidth";

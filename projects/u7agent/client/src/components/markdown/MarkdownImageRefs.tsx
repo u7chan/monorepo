@@ -23,7 +23,7 @@ export type MarkdownImageProviderProps = {
   /** 選択中セッションの作業フォルダ (payload.cwd)。未確定 ("") のときは何も解決しない */
   cwd: string;
   /**
-   * root 相対パスから URL を組み立てる。`client/src/api.ts` は module 評価時に `location.origin` を
+   * root 相対パスから URL を組み立てる。`client/src/api/http.ts` は module 評価時に `location.origin` を
    * 読むため、`components/markdown/` からは直接 import せず App が注入する（FileRefProvider と同じ形）。
    */
   rawUrl: (rootRelativePath: string) => string;
@@ -66,7 +66,7 @@ export function MarkdownCaptionProvider({
 export type MarkdownFileImageProviderProps = {
   /** 表示中のファイルのディレクトリ (ワークスペース root 相対。`"."` は root) */
   dir: string;
-  /** 解決した root 相対パスから配信 URL を組み立てる。`client/src/api.ts` を markdown 層から import しないため注入する */
+  /** 解決した root 相対パスから配信 URL を組み立てる。`client/src/api/http.ts` を markdown 層から import しないため注入する */
   rawUrl: (rootRelativePath: string) => string;
   children: ReactNode;
 };

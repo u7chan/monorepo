@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CreateProjectInput } from "../api";
+import type { CreateProjectInput } from "../api/sessions";
 import type { SpaceContextValue } from "../SpaceContext";
 import { missingLinkNote } from "../lib/notifications";
 import { openOwnerSession } from "../lib/ownerLink";

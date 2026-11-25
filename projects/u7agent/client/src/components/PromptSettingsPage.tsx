@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { reorderPrompts } from "../api";
+import { reorderPrompts } from "../api/catalog";
 import { usePrompts } from "../hooks/usePrompts";
 import { useWideLayout } from "../hooks/useLayoutMode";
 import { useLatestRef } from "../hooks/useLatestRef";

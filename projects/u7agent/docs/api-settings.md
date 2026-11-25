@@ -461,7 +461,7 @@
 - 保存容量はディレクトリを走査せず、`succeeded` + `stored` の行のバイト数を合計する（`artifactUsage`）。時間ベースの自動削除はしない
 - 保存容量の警告は server の定数（`server/src/content-trial-artifacts.ts`）で判定し、一覧の `artifactWarning` に**しきい値と警告かどうかだけ**を載せる。しきい値の値と比べ方の正はそこだけで、画面は応答の `thresholdBytes` をそのまま使って文言・色・表示位置を決める（client にしきい値を持たない。`artifactWarning` を返さない応答では警告しない）。消すかどうかも画面と利用者が決め、server は自動削除しない
 - 生成の前に置き場の空きを見て、1 件分の上限に余白を足した分に満たないときは**行を作らずに開始を拒否する**（`server/src/content-trial-disk-space.ts`、503 `{ error, code: "disk_shortage" }`。クレジットは消費していない）。空きは `<storeDir>/trials` を `fs/promises` の `statfs` で読み、置き場がまだ無いときは作られる親を見る（どちらも読み口は依存として注入し、テストは固定値を渡す）
-- **開始拒否と `storage` の終端失敗は意味が違う。** 開始拒否は行も課金も作らない 503 で、`failureCode` を持たない。`failureCode: "storage"` は生成が成功した後に保存できなかった `failed`（`charged: true`）で、再試行は再課金になる。どちらも「保存先の問題」だが、利用者に課金の有無を伝える文言を混ぜない。画面は開始の拒否を応答の `code` で分類し（`client/src/api.ts` が `ApiError.code` に載せる）、空き不足だけを行も課金も作らない拒否として、他の開始失敗（409 の同時実行・400 系）とは別の文言で出す。分類と文言は `client/src/lib/contentTrials.ts` の純関数が持つ
+- **開始拒否と `storage` の終端失敗は意味が違う。** 開始拒否は行も課金も作らない 503 で、`failureCode` を持たない。`failureCode: "storage"` は生成が成功した後に保存できなかった `failed`（`charged: true`）で、再試行は再課金になる。どちらも「保存先の問題」だが、利用者に課金の有無を伝える文言を混ぜない。画面は開始の拒否を応答の `code` で分類し（`client/src/api/http.ts` が `ApiError.code` に載せる）、空き不足だけを行も課金も作らない拒否として、他の開始失敗（409 の同時実行・400 系）とは別の文言で出す。分類と文言は `client/src/lib/contentTrials.ts` の純関数が持つ
 - 空き不足は**再利用（同じ入力の保存済み成功、200）を阻害しない**（provider を呼ばず課金もしないため）。`force: true`（履歴の [もう一度生成]）は新しい保存が要るため、空きが足りなければ 409 や再利用ではなく開始拒否になる
 - 空きを測れない環境（`statfs` の非対応・権限の失敗）は**通過に倒す**。測れないことを理由に正しい試行まで止めない（保存できなければ従来どおり `storage` の失敗になる）
 

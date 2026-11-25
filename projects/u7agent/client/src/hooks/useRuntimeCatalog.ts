@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Dispatch } from "react";
-import { getCatalog, getHealth } from "../api";
+import { getCatalog } from "../api/catalog";
+import { getHealth } from "../api/runtime";
 import { selectableAgents } from "../lib/agentSelection";
 import { createCatalogStore } from "../lib/catalogStore";
 import type { CatalogResponse, Health } from "../types";

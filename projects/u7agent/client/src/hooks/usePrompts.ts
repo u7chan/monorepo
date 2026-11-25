@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { createPrompt, deletePrompt, getPrompts, updatePrompt } from "../api";
+import { createPrompt, deletePrompt, getPrompts, updatePrompt } from "../api/catalog";
 import { reorderRows } from "../lib/listReorder";
 import { messageFor } from "../lib/errors";
 import { promptRefreshFailure } from "../lib/promptSettings";

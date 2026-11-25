@@ -1,5 +1,5 @@
 import { useRef, useState, useSyncExternalStore } from "react";
-import { applySkillsImport, getSkillsExportCheck, planSkillsImport, skillsExportUrl } from "../api";
+import { applySkillsImport, getSkillsExportCheck, planSkillsImport, skillsExportUrl } from "../api/catalog";
 import { startArchiveDownload } from "../lib/archive";
 import { createSkillArchive, type SkillArchiveState } from "../lib/skillArchive";
 

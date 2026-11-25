@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
-import { getHealth } from "../api";
+import { getHealth } from "../api/runtime";
 import { useSpaceApi } from "../SpaceContext";
 import { attachmentRejection, attachmentsForSend, attachmentsForSession, type Attachment } from "../lib/attachments";
 import { messageFor } from "../lib/errors";

@@ -1,6 +1,6 @@
 # ファイル API
 
-ファイルの一覧・プレビュー・配信・ダウンロード・アップロードの HTTP 契約。DTO の正は `server/src/schema.ts`、クライアントは `client/src/api.ts` の hc で参照する。規約と索引は [api.md](api.md) を参照する。
+ファイルの一覧・プレビュー・配信・ダウンロード・アップロードの HTTP 契約。DTO の正は `server/src/schema.ts`、クライアントは `client/src/api/http.ts` の hc で参照する。規約と索引は [api.md](api.md) を参照する。
 
 ## ファイル一覧
 
@@ -28,13 +28,13 @@
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定。`{ "error": "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)" }`
 - 502: サンドボックスへ到達できない / 認証失敗 / サンドボックス側のエラー / 契約外の応答（BFF が zod で検証して弾く）
 
-client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型として参照し、ディレクトリを展開したときにそのパスだけを取得する（遅延ロード）。並び順はサーバーが決めるため再ソートしない。自動更新は無く、画面の「再読み込み」で取り直す。`path` はワークスペース root 相対のままで、選択中セッションの配下を表示するときはクライアントがそのセッションの `cwd`（root 相対）を前置してパスを組み立てる。
+client（`client/src/api/files.ts` の `getFiles`）は hc でこの契約を型として参照し、ディレクトリを展開したときにそのパスだけを取得する（遅延ロード）。並び順はサーバーが決めるため再ソートしない。自動更新は無く、画面の「再読み込み」で取り直す。`path` はワークスペース root 相対のままで、選択中セッションの配下を表示するときはクライアントがそのセッションの `cwd`（root 相対）を前置してパスを組み立てる。
 
 この API はワークスペース root 相対で全体を見る（設定 → ファイル）が、モデルの `write` / `edit` の書き込み範囲はセッションの作業ディレクトリと `<root>/.agents/skills` に限られる（[projects.md](projects.md#write--edit-の書き込み範囲)）。
 
 ### 削除
 
-`DELETE /api/files?path=<root 相対>` はサンドボックスへ委譲し、BFF はワークスペースに触らない。`recursive` が正確に文字列 `true` のときだけディレクトリの削除（`DELETE /v1/dirs?recursive=true`。[sandbox-api.md](sandbox-api.md#delete-v1dirs)）へ回し、省略時は従来どおり通常ファイルの削除（`DELETE /v1/files`）へ回す。`client/src/api.ts` の `deleteFile` / `deleteDirectory` は成功時に本文を読まない。
+`DELETE /api/files?path=<root 相対>` はサンドボックスへ委譲し、BFF はワークスペースに触らない。`recursive` が正確に文字列 `true` のときだけディレクトリの削除（`DELETE /v1/dirs?recursive=true`。[sandbox-api.md](sandbox-api.md#delete-v1dirs)）へ回し、省略時は従来どおり通常ファイルの削除（`DELETE /v1/files`）へ回す。`client/src/api/files.ts` の `deleteFile` / `deleteDirectory` は成功時に本文を読まない。
 
 - 204: 削除した（本文なし）
 - 400 / 404: root 外 / 不正 / 対象外（通常ファイル以外 / ディレクトリ以外） / symlink / ディレクトリを `recursive` なしで消そうとした（400）、実在しない（404）。サンドボックス側の文言をそのまま返す
@@ -45,7 +45,7 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 
 ### リネーム
 
-`POST /api/files/rename` は `{ path, name }`（どちらも string）を受け、サンドボックスの `POST /v1/files/rename`（[sandbox-api-files.md](sandbox-api-files.md#post-v1filesrename)）へ委譲する。BFF はワークスペースに触らない。`client/src/api.ts` の `renameEntry(path, name)` が呼び、応答は改名後のワークスペース root 相対パス。
+`POST /api/files/rename` は `{ path, name }`（どちらも string）を受け、サンドボックスの `POST /v1/files/rename`（[sandbox-api-files.md](sandbox-api-files.md#post-v1filesrename)）へ委譲する。BFF はワークスペースに触らない。`client/src/api/files.ts` の `renameEntry(path, name)` が呼び、応答は改名後のワークスペース root 相対パス。
 
 ```json
 // request
@@ -104,7 +104,7 @@ Content-Type: application/octet-stream
 - 200: `branch` は HEAD のブランチ名で、detached HEAD は短縮 SHA。**repo の外・`git` の無い環境は `branch: null`** で、UI はチップを出さないだけにする（一覧の表示は止めない）。`Cache-Control: no-store`（再読み込みで取り直す）
 - 400 / 404 / 502 / 503: パス検証とサンドボックス失敗の扱いは `GET /api/files` と同じ（400 root 外 / 404 実在しない / 502 到達不能・契約外の応答 / 503 未設定）
 
-client（`client/src/api.ts` の `getGitInfo`）は作業フォルダの行が呼ぶ。取り直しの合図は一覧と同じ `reloadToken`（パネルの「再読み込み」と run の終了）で、失敗時は古い値を消してチップを出さない（[ui-layout.md](ui-layout.md#作業環境パネル)）。
+client（`client/src/api/files.ts` の `getGitInfo`）は作業フォルダの行が呼ぶ。取り直しの合図は一覧と同じ `reloadToken`（パネルの「再読み込み」と run の終了）で、失敗時は古い値を消してチップを出さない（[ui-layout.md](ui-layout.md#作業環境パネル)）。
 
 ### 存在確認
 
@@ -123,7 +123,7 @@ client（`client/src/api.ts` の `getGitInfo`）は作業フォルダの行が�
 - 400: `path` が不正 / root 外へ解決される / 通常ファイル以外（ディレクトリ・特殊ファイル）。**本文を読まない**ため、テキストプレビューの 400（バイナリ・UTF-8 不正・2 MiB 超）はこの API では返らない
 - 502 / 503: 到達不能・契約外の応答 / 未設定。**不存在の判定には使わない**（[file-tree.md](file-tree.md#クリックと要求) の分類で確認不能として扱う）
 
-client（`client/src/api.ts` の `statFile`）は `client/src/lib/fileRefOpen.ts` の `classifyFileRefFailure` と組で使い、200 だけを実在、404 を不存在、400 を拒否、それ以外を確認不能として扱う。
+client（`client/src/api/files.ts` の `statFile`）は `client/src/lib/fileRefOpen.ts` の `classifyFileRefFailure` と組で使い、200 だけを実在、404 を不存在、400 を拒否、それ以外を確認不能として扱う。
 
 ## テキストプレビュー
 
@@ -186,7 +186,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 502: サンドボックスへ到達できない / 認証失敗 / 本文が無い
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
-クライアントは `client/src/api.ts` の `fileRawUrl(path, version?)` で URL を組み立て、`<img>` / `<audio>` の src に使う（取得はブラウザに任せ、本文は JSON に載せない。再生 / シークの要求はブラウザが `Range` を付けて送る）。version を指定したときだけ `&v=<version>` を付け、未指定なら従来の URL のままにする。`v` は同一 document 内の raw キャッシュを避けるためのクライアント側の版で、サーバーは版別のファイルを保持せず、常に現在のファイルを返す。
+クライアントは `client/src/api/files.ts` の `fileRawUrl(path, version?)` で URL を組み立て、`<img>` / `<audio>` の src に使う（取得はブラウザに任せ、本文は JSON に載せない。再生 / シークの要求はブラウザが `Range` を付けて送る）。version を指定したときだけ `&v=<version>` を付け、未指定なら従来の URL のままにする。`v` は同一 document 内の raw キャッシュを避けるためのクライアント側の版で、サーバーは版別のファイルを保持せず、常に現在のファイルを返す。
 
 版は `client/src/hooks/useImageVersion.ts` の document 内で共有する単調な採番から取得する。各面は mount 時と更新トークン変更時だけ新しい版を割り当て、通常の再描画では同じ版を保つ。`runEndSeq` とパネルの手動更新回数は採番の**合図**であり、その数値を直接 `v` に使わない。独立カウンタの数値や mount ごとのゼロ戻りを URL に使うと、別の面や前の mount で取得済みの古い応答と衝突するため。採番は localStorage へ保存しない（新しい document では in-document キャッシュも作り直される）。StrictMode や破棄された描画で番号が飛んでも、再利用しないことを優先する。画像と音声は同じ版を共有する（どちらも raw の応答で、同じファイルを差し替えたら両方を取り直す）。
 
@@ -218,7 +218,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 502: サンドボックスへ到達できない / 認証失敗 / 本文が無い / check の応答が契約外
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
-クライアントは `client/src/api.ts` の `getFileDownloadCheck(path)` で先に見積りを取り、`fileDownloadUrl(path)` の URL を `<a download>` のプログラム的クリックで開く（本文を `fetch` して保持しない。100 MiB のメモリを避け、ページ遷移もしない）。確認ダイアログ・エラー表示・行の出し分けは [file-actions.md](file-actions.md#ダウンロード)。
+クライアントは `client/src/api/files.ts` の `getFileDownloadCheck(path)` で先に見積りを取り、`fileDownloadUrl(path)` の URL を `<a download>` のプログラム的クリックで開く（本文を `fetch` して保持しない。100 MiB のメモリを避け、ページ遷移もしない）。確認ダイアログ・エラー表示・行の出し分けは [file-actions.md](file-actions.md#ダウンロード)。
 
 ## アーカイブの除外名
 
