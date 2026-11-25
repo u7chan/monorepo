@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useComposerExpansion } from "../hooks/useComposerExpansion";
 import { useComposerVoiceDraft } from "../hooks/useComposerVoiceDraft";
+import { useStopPromotionHold } from "../hooks/useStopPromotionHold";
 import type { Attachment } from "../lib/attachments";
 import type { ComposerSettings } from "../lib/composerSettings";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
@@ -113,11 +114,6 @@ export type ComposerProps = {
 const MAX_TEXTAREA_HEIGHT = 180;
 /** singleColumn では入力欄が画面を占めないよう低く抑える */
 const SINGLE_COLUMN_TEXTAREA_HEIGHT = 120;
-/**
- * 送信の直後に主スロットの入れ替えを保留する時間。本文を消した描画で ↑ が ■ へ変わると、1 回目の
- * クリックの続き (二度押し / ダブルタップ) がそのまま停止に届き、走っている実行と待機キューが落ちる
- */
-const STOP_PROMOTION_HOLD_MS = 500;
 
 /**
  * ドロップ座標に対応する入力欄の文字位置。`caretRangeFromPoint` は textarea で正しい位置を返さない
@@ -198,8 +194,7 @@ export function Composer({
   const [dropKind, setDropKind] = useState<ComposerDropKind | null>(null);
   const expansion = useComposerExpansion({ inputRef, sending, visible, mode });
   const { expanded, expandedUi, dialogRef } = expansion;
-  // 送信のたびに増やす保留の番号 (0 以外 = 保留中)。番号を進めると、保留中に送った分も期限を延ばす
-  const [sendHold, setSendHold] = useState(0);
+  const sendHold = useStopPromotionHold();
   // 直前の dragover の座標。drop で参照の挿入位置を決める (drop の座標は実装によっては 0 になる)
   const dropPointRef = useRef<{ x: number; y: number } | null>(null);
   // 確認ダイアログ (初回の録音で 1 度だけ出す)
@@ -233,12 +228,6 @@ export function Composer({
     if (!suggestion) return;
     inputRef.current?.focus();
   }, [suggestion]);
-
-  useEffect(() => {
-    if (sendHold === 0) return;
-    const timer = window.setTimeout(() => setSendHold(0), STOP_PROMOTION_HOLD_MS);
-    return () => window.clearTimeout(timer);
-  }, [sendHold]);
 
   // チップを外しても続きを書けるよう、× の後は本文へフォーカスを戻す
   const clearSuggestion = () => {
@@ -301,7 +290,7 @@ export function Composer({
           applyValue("");
           voice.clearNotice();
         },
-        holdStopPromotion: () => setSendHold((count) => count + 1),
+        holdStopPromotion: sendHold.hold,
         clearSuggestion: onClearSuggestion,
         send: onSend,
       },
@@ -425,7 +414,7 @@ export function Composer({
     sendable,
     // アップロード中は「送るものがあるのに送れない」状態なので、停止を主スロットへ上げない
     sendBlocked: Boolean(settings.sendBlockedReason) || attachmentsBusy,
-    stopPrimaryHeld: sendHold > 0 || voice.hold,
+    stopPrimaryHeld: sendHold.held || voice.hold,
     voicePhase: voice.phase,
   });
   const stopPrimary = composerPrimaryStop(action);

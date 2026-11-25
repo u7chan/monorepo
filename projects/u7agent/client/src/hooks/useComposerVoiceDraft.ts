@@ -17,16 +17,11 @@ import {
 } from "../lib/voiceInput/draft";
 import { glowVoiceInputText } from "../lib/voiceInput/glow";
 import { useComposerVoiceInput } from "./useComposerVoiceInput";
+import { useStopPromotionHold } from "./useStopPromotionHold";
 import { useVoiceInputRemaining } from "./useVoiceInputRemaining";
 
 /** 所有領域を手入力で失くしたときの注記。確定テキストを入れない理由を 1 行で伝える */
 const VOICE_INPUT_DRAFT_EDITED_NOTICE = "下書きを編集したため、確定したテキストは反映していません。";
-
-/**
- * 送信の直後に主スロットの入れ替えを保留する時間。本文を消した描画で ↑ が ■ へ変わると、1 回目の
- * クリックの続き (二度押し / ダブルタップ) がそのまま停止に届き、走っている実行と待機キューが落ちる
- */
-const STOP_PROMOTION_HOLD_MS = 500;
 
 export type ComposerVoiceDraftOptions = {
   /** 拡大しても同じ textarea。現在の選択範囲を読み、反映後のカーソルと焦点を戻す */
@@ -98,16 +93,15 @@ export function useComposerVoiceDraft({
   scopeRef.current = scope;
   // 音声の操作が終わった直後の保留 (送信直後の停止の保留と同じ理由)。取消 / 確定で主スロットが
   // 入れ替わった位置を続けて押すと、そのまま送信へ届いてしまう
-  const [hold, setHold] = useState(false);
+  const promotion = useStopPromotionHold();
+  const holdAfterPhase = promotion.hold;
   const phaseRef = useRef(voiceState.phase);
   useEffect(() => {
     const previous = phaseRef.current;
     phaseRef.current = voiceState.phase;
     if (previous === "idle" || voiceState.phase !== "idle") return;
-    setHold(true);
-    const timer = window.setTimeout(() => setHold(false), STOP_PROMOTION_HOLD_MS);
-    return () => window.clearTimeout(timer);
-  }, [voiceState.phase]);
+    holdAfterPhase();
+  }, [voiceState.phase, holdAfterPhase]);
 
   /** 所有領域の更新を本文へ反映する。カーソルは入力欄が焦点を持っているときだけ戻す */
   const applyVoiceDraft = useCallback(
@@ -241,7 +235,7 @@ export function useComposerVoiceDraft({
     phase: voiceState.phase,
     blockedReason: voiceInputComposerBlockedReason(voiceState.phase),
     busy: voiceInputComposerBusy(voiceState.phase),
-    hold,
+    hold: promotion.held,
     notice,
     clearNotice,
     remaining,
