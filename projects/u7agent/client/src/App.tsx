@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { ApiError, statFile, type CreateProjectInput } from "./api";
+import { ApiError, statFile } from "./api";
 import { useSpace } from "./SpaceContext";
 import { ActivityPage } from "./components/ActivityPage";
 import { ChatArea } from "./components/ChatArea";
@@ -15,7 +15,7 @@ import { Sidebar } from "./components/Sidebar";
 import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesPanel";
 import { SessionForkDialog } from "./components/SessionForkDialog";
 import { SessionForkLinks } from "./components/SessionForkLinks";
-import { SessionHandoffDialog, type SessionHandoffRequest } from "./components/SessionHandoffDialog";
+import { SessionHandoffDialog } from "./components/SessionHandoffDialog";
 import { SessionTitleDialog } from "./components/SessionTitleDialog";
 import { SessionTitleNotice } from "./components/SessionTitleNotice";
 import { Topbar } from "./components/Topbar";
@@ -28,6 +28,7 @@ import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useMarkdownImageRawUrl } from "./hooks/useMarkdownImageRawUrl";
 import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
+import { useSessionDialogs } from "./hooks/useSessionDialogs";
 import { useSessionTitleNotice } from "./hooks/useSessionTitleNotice";
 import { useSuggestionChip } from "./hooks/useSuggestionChip";
 import { useSidebarWidth } from "./hooks/useSidebarWidth";
@@ -67,22 +68,8 @@ import { sessionsInSpace } from "./lib/spaceSessions";
 import { servedAppBusyKind, servedAppFocusRequest, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
 import { workdirBusyKind } from "./lib/sessionBusy";
 import { shareRunBlockedReason } from "./lib/sharedContents";
-import {
-  handoffAgentChoices,
-  handoffBlockedReason,
-  handoffCleanupNote,
-  handoffMemoDisabledReason,
-  sessionHandoffDialogText,
-  type HandoffNote,
-} from "./lib/sessionHandoff";
-import {
-  type SessionForkRequest,
-  forkAgentChoices,
-  forkBlockedReason,
-  forkOpenDecision,
-  forkRelations,
-  sessionForkDialogText,
-} from "./lib/sessionFork";
+import { handoffAgentChoices, sessionHandoffDialogText, type HandoffNote } from "./lib/sessionHandoff";
+import { forkAgentChoices, forkRelations, sessionForkDialogText } from "./lib/sessionFork";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
   DEFAULT_SHARING_SUBSECTION,
@@ -92,7 +79,6 @@ import {
   type SidebarMode,
 } from "./lib/settingsNav";
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
-import { ownerLinkSpace } from "./lib/spaceSelection";
 
 export type AppProps = {
   /**
@@ -191,7 +177,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     sessionId: app.sessionId,
     projectId: app.sessionId === "" ? (app.selectedProjectId ?? "") : "",
   });
-  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   // 入力欄のチップ (定型プロンプト / 引き継ぎの案内) と、選択を捨てる契機。下書きなので状態は App 側に置く
   const suggestionChip = useSuggestionChip({
     agentId: app.selectedAgent?.id,
@@ -199,26 +184,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     sessionId: app.sessionId,
     handoff: app.chat.handoff,
   });
-  // 引き継ぎの対象 (会話 id と、ダイアログに出す値)。開いている間は専用ダイアログがエージェント /
-  // スペース / メモを選ぶ。無効理由はサーバーの判定と同じ条件を開いた時点の一覧から導く
-  const [handoffTarget, setHandoffTarget] = useState<{
-    sessionId: string;
-    title: string;
-    agentId: string;
-    agentName: string;
-    projectSession: boolean;
-    memoDisabledReason: string;
-    blockedNote: string;
-  } | null>(null);
-  // 分岐の対象 (会話 id と、ダイアログに出す値)。ダイアログはエージェントだけを選び、
-  // スペース・作業フォルダ・添付は親から決まる
-  const [forkTarget, setForkTarget] = useState<{
-    sessionId: string;
-    title: string;
-    agentId: string;
-    agentName: string;
-    blockedNote: string;
-  } | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   // 作業フォルダの開閉は保存しない (desktop は右パネル、singleColumn は全画面シートで state も分ける)。
   // 起動時は閉 (会話 URL を開いてもパネルは勝手に開かない)。既定を当てるのは利用者操作の新規会話の入口だけ
@@ -252,23 +217,9 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   const [notifyAttempted, setNotifyAttempted] = useState(false);
   // 押して On にした回数 (ベルの演出の世代)。会話の切替 / リロードで値が On に上がるだけでは進めない
   const [notifyRing, setNotifyRing] = useState(0);
-  // AI要約のダイアログを開いている会話。行のメニューから開く (会話の選択は変えない)
-  const [titleSummaryTargetId, setTitleSummaryTargetId] = useState<string | null>(null);
   const sidebarMode: SidebarMode = route.view === "settings" ? "settings" : "nav";
   // URL にセクションが無いときだけ「最後に開いていたセクション」を見せる (URL の指定を上書きしない)
   const settingsSection: SettingsSection = route.view === "settings" ? route.section : lastSettingsSection;
-  const closeProjectDialog = useCallback(() => setProjectDialogOpen(false), []);
-  // 操作に成功した後の画面移動。ダイアログの退場が終わってから実行する (退場中に切り替えると面ごと消える)
-  const afterDialogCloseRef = useRef<(() => void) | null>(null);
-  const closeDialogThen = useCallback(
-    (close: () => void) => () => {
-      const after = afterDialogCloseRef.current;
-      afterDialogCloseRef.current = null;
-      close();
-      after?.();
-    },
-    [],
-  );
   const openNav = useCallback(() => setNavOpen(true), []);
   // 実際に閉じる (ドロワーを unmount する)。退場アニメは NavSheet が持ち、その完了 (dialog の close) から届く
   const closeNav = useCallback(() => setNavOpen(false), []);
@@ -564,17 +515,18 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     [app.selectedProjectId, handleNewChat],
   );
 
-  // プロジェクトの追加も「そのディレクトリで作業を始める」入口なので、成功後は ＋ と同じ新規会話へ入る。
-  // 選ぶのは一覧への反映後 (先に選ぶと、一覧に無い id として未所属へ戻され得る)
-  const handleCreateProject = useCallback(
-    async (input: CreateProjectInput) => {
-      const project = await app.createProject(input);
-      // 新しい会話へ入るのは、追加のダイアログが閉じ切ってから (退場の後ろへ回す)
-      afterDialogCloseRef.current = () => handleNewChat(undefined, project.id);
-      return project;
-    },
-    [app, handleNewChat],
-  );
+  // 専用ダイアログ (プロジェクト / AI要約 / 分岐 / 引き継ぎ) の対象と、退場してから画面を移す順序。
+  // 対象は開いた時点の一覧から導き、移動はダイアログが閉じ切ってから実行する
+  const dialogs = useSessionDialogs({
+    app,
+    space,
+    navigate,
+    view: route.view,
+    sessions: spaceSessions,
+    backToChat,
+    newChat: handleNewChat,
+    ...(onHandoffNote ? { onHandoffNote } : {}),
+  });
 
   const refreshCatalog = useCallback(async () => {
     const catalog = await app.loadCatalog();
@@ -601,10 +553,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     },
     [navigate],
   );
-
-  const openTitleSummary = useCallback((sessionId: string) => {
-    setTitleSummaryTargetId(sessionId);
-  }, []);
 
   // 設定のタブ切替も URL へ集約する (既定タブはパスへ出さない)
   const openSettingsTab = useCallback(
@@ -655,64 +603,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     onOpenSettings: () => openSettingsSection("notifications"),
   };
 
-  /**
-   * 引き継ぎの実行。成功したら移動先のスペースへ切り替えて、引き継ぎ後の会話を開き直す。
-   * 切替は設定 → ランタイムの起動元リンクと同じ経路 (`openOwnerSession`) を使い、
-   * 同じスペースなら切り替えずに開き直す。履歴は同じ id のまま入れ替わるため、開き直しでは
-   * 旧バブルを捨てる (`discardHistory`)。
-   */
-  const handleHandoff = useCallback(
-    async (request: SessionHandoffRequest) => {
-      const sessionId = handoffTarget?.sessionId;
-      if (!sessionId) return;
-      const result = await app.handoffSession(sessionId, request);
-      const note = handoffCleanupNote(result, sessionId);
-      // 別スペースへ切り替えると配下の App は作り直される。この App の状態行へ出しても消えるため、
-      // 結果を親 (SpacesApp) へ渡し、移動先の App が入口の解決の後に出す
-      const switching = ownerLinkSpace(result.spaceId, space.selected.id, space.spaces) !== undefined;
-      // 別スペースへの切替は SpacesApp の配下を作り直すため、退場の後ろへ回す (先に切り替えると面が消える)。
-      // 警告は切替と同じ描画で渡す (先に渡すと移動元の App が消費し、移動先に出ない)
-      afterDialogCloseRef.current = () => {
-        if (note && switching) onHandoffNote?.(note);
-        openOwnerSession(sessionId, result.spaceId, {
-          spaces: space.spaces,
-          currentSpaceId: space.selected.id,
-          navigate,
-          selectSpace: space.select,
-          openInPlace: (id) => {
-            // 開き直しで履歴を読み直す。片付けが残った応答では、開けなかったときもその警告を優先して出す
-            void app.selectSession(id, undefined, { fallbackOnFailure: false, discardHistory: true }).then((opened) => {
-              const text = note?.text ?? missingLinkNote(true, opened);
-              if (text) app.dispatch({ type: "setActivity", text });
-            });
-            backToChat();
-          },
-        });
-      };
-    },
-    [app, backToChat, handoffTarget, navigate, onHandoffNote, space],
-  );
-
-  /**
-   * 分岐の実行。子は同じスペースにできるため、成功したら子を開く (URL は選択に追従する)。
-   * 要求を出した後に利用者が別の会話を選んでいたら、遅れて届いた応答でその選択を巻き戻さない。
-   */
-  const handleFork = useCallback(
-    async (request: SessionForkRequest) => {
-      const sessionId = forkTarget?.sessionId;
-      if (!sessionId) return;
-      const selection = app.selectionSeqRef.current;
-      const child = await app.forkSession(sessionId, request);
-      if (forkOpenDecision(selection, app.selectionSeqRef.current) === "keep") return;
-      // 子を開くのは分岐のダイアログが閉じ切ってから (退場の後ろへ回す)
-      afterDialogCloseRef.current = () => {
-        void app.selectSession(child.sessionId);
-        if (route.view !== "chat") navigate({ view: "chat", sessionId: child.sessionId });
-      };
-    },
-    [app, forkTarget, navigate, route.view],
-  );
-
   // 移動先の App へ渡された引き継ぎの警告。入口 (`/s/<id>`) の解決が終わってから出す
   // (先に出すと、payload を適用する `resync` の初期化で消える)。解決までに別の会話へ移っていたら
   // 出さずに捨てる (関係ない会話の状態行に残さない)
@@ -756,37 +646,17 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     deleteSession: (sessionId: string) => {
       void app.deleteSession(sessionId);
     },
-    forkSession: (sessionId: string) => {
-      const item = spaceSessions.find((entry) => entry.sessionId === sessionId);
-      setForkTarget({
-        sessionId,
-        title: item?.title ?? "",
-        agentId: item?.agentId ?? "",
-        agentName: item?.agentName ?? "",
-        blockedNote: item ? forkBlockedReason(item) : "会話が見つかりません",
-      });
-    },
+    forkSession: dialogs.openFork,
     clearHistory: (sessionId: string) => {
       void app.clearHistory(sessionId);
     },
-    handoffSession: (sessionId: string) => {
-      const item = spaceSessions.find((entry) => entry.sessionId === sessionId);
-      setHandoffTarget({
-        sessionId,
-        title: item?.title ?? "",
-        agentId: item?.agentId ?? "",
-        agentName: item?.agentName ?? "",
-        projectSession: item?.projectSession === true,
-        memoDisabledReason: handoffMemoDisabledReason(item?.messageCount ?? 0),
-        blockedNote: item ? handoffBlockedReason(item) : "会話が見つかりません",
-      });
-    },
+    handoffSession: dialogs.openHandoff,
     togglePinned: (sessionId: string) => app.togglePinned(sessionId),
-    onOpenTitleSummary: openTitleSummary,
+    onOpenTitleSummary: dialogs.openTitleSummary,
     deleteProject: (projectId: string) => {
       void app.deleteProject(projectId);
     },
-    onNewProject: () => setProjectDialogOpen(true),
+    onNewProject: dialogs.openProject,
     onOpenSettingsSection: openSettingsSection,
   };
 
@@ -823,13 +693,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   // 会話が無いときだけ「新しい会話」と言い切る (一覧が未取得でも sessionId は確定している)
   const barTitle = app.sessionId ? activeSession?.title || "無題のセッション" : "新しい会話";
   const barAgentName = activeSession?.agentName || app.selectedAgent?.name;
-  const titleSummaryTarget = titleSummaryTargetId
-    ? spaceSessions.find((item) => item.sessionId === titleSummaryTargetId)
-    : undefined;
-  // 会話の削除 / スペース切替で対象が消えたらダイアログを閉じる
-  useEffect(() => {
-    if (titleSummaryTargetId && !titleSummaryTarget) setTitleSummaryTargetId(null);
-  }, [titleSummaryTarget, titleSummaryTargetId]);
   // 会話の AI 要約が終わった瞬間だけ、チャット上に 1 回だけ知らせる (常設のバッジは置かない)
   const { notice: sessionTitleNotice, dismiss: dismissSessionTitleNotice } = useSessionTitleNotice({
     sessionId: app.sessionId,
@@ -927,7 +790,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                 <div className="px-6 pb-3 singleColumn:px-3">
                   <SessionTitleNotice
                     notice={sessionTitleNotice}
-                    onOpen={() => openTitleSummary(app.sessionId)}
+                    onOpen={() => dialogs.openTitleSummary(app.sessionId)}
                     onDismiss={dismissSessionTitleNotice}
                   />
                 </div>
@@ -1120,56 +983,52 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       {/* overlay の左バーは docked の Sidebar と排他にする (docked へ戻ったフレームで両方を描かない)。
           閉じるのも NavSheet 側 (退場アニメの完了 → dialog の close) なので、App は閉じる要求を持たない */}
       {navOpen && !sidebarDocked ? <NavSheet {...navProps} onClose={closeNav} /> : null}
-      {projectDialogOpen ? (
-        <ProjectDialog
-          singleColumn={singleColumn}
-          onClose={closeDialogThen(closeProjectDialog)}
-          onCreate={handleCreateProject}
-        />
+      {dialogs.projectOpen ? (
+        <ProjectDialog singleColumn={singleColumn} onClose={dialogs.closeProject} onCreate={dialogs.createProject} />
       ) : null}
-      {titleSummaryTarget ? (
+      {dialogs.titleSummaryTarget ? (
         <SessionTitleDialog
-          sessionId={titleSummaryTarget.sessionId}
+          sessionId={dialogs.titleSummaryTarget.sessionId}
           title={
-            titleSummaryTarget.sessionId === app.sessionId
-              ? app.chat.title || titleSummaryTarget.title
-              : titleSummaryTarget.title
+            dialogs.titleSummaryTarget.sessionId === app.sessionId
+              ? app.chat.title || dialogs.titleSummaryTarget.title
+              : dialogs.titleSummaryTarget.title
           }
           titleSummary={
-            titleSummaryTarget.sessionId === app.sessionId
-              ? (app.chat.titleSummary ?? titleSummaryTarget.titleSummary)
-              : titleSummaryTarget.titleSummary
+            dialogs.titleSummaryTarget.sessionId === app.sessionId
+              ? (app.chat.titleSummary ?? dialogs.titleSummaryTarget.titleSummary)
+              : dialogs.titleSummaryTarget.titleSummary
           }
-          onClose={() => setTitleSummaryTargetId(null)}
+          onClose={dialogs.closeTitleSummary}
           onOpenSettings={() => {
-            setTitleSummaryTargetId(null);
+            dialogs.closeTitleSummary();
             openSettingsSection("session-title");
           }}
           onUpdated={() => void app.refreshSessions()}
         />
       ) : null}
-      {forkTarget ? (
+      {dialogs.forkTarget ? (
         <SessionForkDialog
           singleColumn={singleColumn}
-          text={sessionForkDialogText(forkTarget.title)}
-          agents={forkAgentChoices(app.agents, forkTarget.agentId, forkTarget.agentName)}
-          blockedNote={forkTarget.blockedNote}
-          onClose={closeDialogThen(() => setForkTarget(null))}
-          onFork={handleFork}
+          text={sessionForkDialogText(dialogs.forkTarget.title)}
+          agents={forkAgentChoices(app.agents, dialogs.forkTarget.agentId, dialogs.forkTarget.agentName)}
+          blockedNote={dialogs.forkTarget.blockedNote}
+          onClose={dialogs.closeFork}
+          onFork={dialogs.handleFork}
         />
       ) : null}
-      {handoffTarget ? (
+      {dialogs.handoffTarget ? (
         <SessionHandoffDialog
           singleColumn={singleColumn}
-          text={sessionHandoffDialogText(handoffTarget.title, handoffTarget.projectSession)}
-          agents={handoffAgentChoices(app.agents, handoffTarget.agentId, handoffTarget.agentName)}
+          text={sessionHandoffDialogText(dialogs.handoffTarget.title, dialogs.handoffTarget.projectSession)}
+          agents={handoffAgentChoices(app.agents, dialogs.handoffTarget.agentId, dialogs.handoffTarget.agentName)}
           spaces={space.spaces}
           currentSpaceId={space.selected.id}
-          projectSession={handoffTarget.projectSession}
-          memoDisabledReason={handoffTarget.memoDisabledReason}
-          blockedNote={handoffTarget.blockedNote}
-          onClose={closeDialogThen(() => setHandoffTarget(null))}
-          onHandoff={handleHandoff}
+          projectSession={dialogs.handoffTarget.projectSession}
+          memoDisabledReason={dialogs.handoffTarget.memoDisabledReason}
+          blockedNote={dialogs.handoffTarget.blockedNote}
+          onClose={dialogs.closeHandoff}
+          onHandoff={dialogs.handleHandoff}
         />
       ) : null}
     </div>
