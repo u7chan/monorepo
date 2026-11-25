@@ -250,8 +250,6 @@ export const PostMessageBodySchema = z.object({
   attachments: z.array(z.string()).optional(),
   /** 未送信メッセージの再送。本文は保存済みの生テキストを使い、同じ送信IDで実行し直す */
   resendSendId: z.string().optional(),
-  /** `resendSendId` の互換名。同時指定は 400 */
-  resendRunId: z.string().optional(),
 });
 export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;
 /**

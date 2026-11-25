@@ -54,7 +54,7 @@ export function PromptDetail({
         <ul className="grid gap-1">
           {prompt.usedBy.map((entry) => (
             <li
-              key={`${entry.builtin ? "builtin" : "agent"}:${entry.agentId}`}
+              key={entry.agentId}
               className="flex min-w-0 items-baseline gap-2 rounded-lg border border-line bg-soft px-2.5 py-1.5"
             >
               <span className="min-w-0 truncate text-1xs text-ink-strong">{promptUsageLabel(entry)}</span>

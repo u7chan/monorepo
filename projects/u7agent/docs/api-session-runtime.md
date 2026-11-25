@@ -96,7 +96,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 
 ## `POST /api/sessions/:id/stop`
 
-実行中のランを中断し、待機キューを破棄する。`{ ok: true, status: "stopped" }` を返す。旧 `POST /api/sessions/:id/abort` も同じ動作のエイリアス。
+実行中のランを中断し、待機キューを破棄する。`{ ok: true, status: "stopped" }` を返す。
 
 圧縮中に呼んだ場合は SDK の `abortCompaction()` も走り（`abort()` が内部で呼ぶ）、BFF は圧縮の task（保存と終端配信）の settle を待ってから応答するため、応答の `status` が `compacting` になることはない。SDK が entry を append 済み（保存待ち）の段階では圧縮を巻き戻せないので、表示と応答は圧縮の成功と保存結果を正とする。
 

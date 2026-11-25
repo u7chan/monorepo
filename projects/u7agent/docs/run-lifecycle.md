@@ -149,7 +149,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 ## 停止と破棄
 
-`POST /api/sessions/:id/stop`（旧 `/abort` もエイリアスとして有効）:
+`POST /api/sessions/:id/stop`:
 
 1. 新規の送信を 409 にし、配送キューと SDK の実キューを回収して `queue_cleared` イベントを記録（回収した送信の `sendIds` を載せ、クライアントは該当する送信を「未送信」へ切り替える。記録は `sends.json` に残るため、再送か破棄まで未送信として読める）
 2. 未 settle の `ask_user` の待機を取り消す（[ask-user.md](ask-user.md#待機のライフサイクル)。ツールは `isError: true` の結果を返し、カードは「回答なしで終了」として残る）

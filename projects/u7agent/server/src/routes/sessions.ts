@@ -320,12 +320,8 @@ export function createSessionRoutes({
       if (!record) return c.json({ error: "Session not found" }, 404);
       // 未送信メッセージの再送は、保存済みの生の本文をサーバー側で使う。クライアントへは表示用の
       // マスク済みの本文しか渡らないため、本文を送り直させるとキーが欠けたまま送られる
-      if (body.resendSendId !== undefined && body.resendRunId !== undefined) {
-        return c.json({ error: "resendSendId と resendRunId は同時に指定できません" }, 400);
-      }
-      const resendSendId = body.resendSendId ?? body.resendRunId;
-      if (resendSendId !== undefined) {
-        const result = store.resend(record, resendSendId);
+      if (body.resendSendId !== undefined) {
+        const result = store.resend(record, body.resendSendId);
         if (!result) return c.json({ error: "この送信は再開できません（保存済みか破棄済みです）" }, 409);
         const { handoffSaving, ...rest } = result;
         await awaitHandoffSave(handoffSaving);

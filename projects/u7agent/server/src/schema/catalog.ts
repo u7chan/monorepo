@@ -40,12 +40,10 @@ export const PromptRefSchema = z.object({
   prompt: z.string(),
 });
 export type PromptRef = z.infer<typeof PromptRefSchema>;
-/** マスタの使用先 1 件。旧クライアント互換のため builtin を持つ (現在は常に false) */
+/** マスタの使用先 1 件 */
 export const PromptUsageSchema = z.object({
   agentId: z.string(),
   agentName: z.string(),
-  /** 組み込みエージェントの固定参照か (DB の紐づけではない) */
-  builtin: z.boolean(),
 });
 export type PromptUsage = z.infer<typeof PromptUsageSchema>;
 /** 使用先を伴い、削除できない理由を画面が説明できる */

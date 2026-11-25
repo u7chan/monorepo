@@ -118,9 +118,9 @@ export function promptRefreshFailure(
   return reasons.length > 0 ? reasons.join(" ") : undefined;
 }
 
-/** 使用先の 1 行。組み込みの汎用アシスタントは DB の紐づけではないことを添える */
+/** 使用先の 1 行 (エージェント名) */
 export function promptUsageLabel(usage: PromptUsage): string {
-  return usage.builtin ? `${usage.agentName}（組み込み）` : usage.agentName;
+  return usage.agentName;
 }
 
 /** 使用中の削除を止める理由。空なら削除できる */

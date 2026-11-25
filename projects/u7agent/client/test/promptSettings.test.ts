@@ -124,15 +124,11 @@ test("保存 / 削除の成立と再取得の失敗を混ぜず、失敗の理�
 });
 
 test("使用先の表示と削除できない理由を区別する", () => {
-  assert.equal(
-    promptUsageLabel({ agentId: "agent-general", agentName: "汎用アシスタント", builtin: true }),
-    "汎用アシスタント（組み込み）",
-  );
-  assert.equal(promptUsageLabel({ agentId: "a1", agentName: "調査", builtin: false }), "調査");
+  assert.equal(promptUsageLabel({ agentId: "a1", agentName: "調査" }), "調査");
 
   const unused = prompt("p1");
   assert.equal(promptDeleteBlockedReason(unused), undefined);
-  const used = prompt("p2", { usedBy: [{ agentId: "a1", agentName: "調査", builtin: false }] });
+  const used = prompt("p2", { usedBy: [{ agentId: "a1", agentName: "調査" }] });
   assert.match(promptDeleteBlockedReason(used) ?? "", /調査/);
   assert.match(promptDeleteBlockedReason(used) ?? "", /解除/);
   const builtin = prompt("p3", { kind: "builtin" });

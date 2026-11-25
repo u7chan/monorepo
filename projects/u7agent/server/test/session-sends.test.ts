@@ -477,19 +477,13 @@ test("POST /messages の resendSendId と DELETE /unsent で、未送信の再�
       [["同じ本文", first.sendId, first.runId]],
     );
 
-    // 保存済み / 未知の送信IDの再送は 409。互換名との同時指定は 400
+    // 保存済み / 未知の送信IDの再送は 409
     const conflict = await bff2.app.request(`/api/sessions/${created.sessionId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ resendSendId: first.sendId }),
     });
     assert.equal(conflict.status, 409);
-    const ambiguous = await bff2.app.request(`/api/sessions/${created.sessionId}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resendSendId: queued.sendId, resendRunId: queued.sendId }),
-    });
-    assert.equal(ambiguous.status, 400);
 
     // 未送信の破棄は 200、二度目は 404
     const discarded = await bff2.app.request(`/api/sessions/${created.sessionId}/unsent/${queued.sendId}`, {
