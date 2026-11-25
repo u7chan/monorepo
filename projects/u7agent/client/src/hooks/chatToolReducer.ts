@@ -46,7 +46,6 @@ type ToolChatAction = Extract<
   }
 >;
 
-/** ツールカード (開始 / 終了 / 進捗) と圧縮の取り込みを受け持つ */
 export function applyToolAction(state: ChatState, action: ToolChatAction): ChatState {
   switch (action.type) {
     case "toolStart": {

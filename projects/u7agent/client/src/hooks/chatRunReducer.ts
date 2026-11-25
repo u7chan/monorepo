@@ -1,5 +1,5 @@
 // 実行 (run) の開始から終端までと、その間に届く本文・usage・状態を受け持つ。
-import { canonicalUserText, fallbackEchoTarget } from "../lib/chatHistory";
+import { canonicalUserText, fallbackEchoTarget, rebuildToolBubbleIds } from "../lib/chatHistory";
 import type { Bubble, CompactionMarker } from "../lib/chatTypes";
 import { retryableRunError, runErrorFrom } from "../lib/runRetry";
 import { runOutcomeOf } from "../lib/turnEnd";
@@ -8,10 +8,9 @@ import type { ChatAction, ChatState } from "../lib/chatState";
 import {
   QUEUE_CLEARED,
   attachAssistantTurnEnd,
-  attachTurnEnd,
+  attachUserTurnEnd,
   mergeRetrySnapshot,
   normalizeInitialSend,
-  toolBubbleIdsOf,
   updateBubble,
   withoutQueuedSnapshots,
 } from "./chatReducerShared";
@@ -51,7 +50,7 @@ function withCarriedToolCards(state: ChatState): ChatState {
   return {
     ...state,
     bubbles,
-    toolBubbleIds: toolBubbleIdsOf(bubbles),
+    toolBubbleIds: rebuildToolBubbleIds(bubbles),
     currentAssistantId: currentDropped ? null : state.currentAssistantId,
     currentAssistantKey: currentDropped ? undefined : state.currentAssistantKey,
     toolTargetAssistantId:
@@ -152,10 +151,6 @@ type RunChatAction = Extract<
   }
 >;
 
-/**
- * 実行 (run) の開始から終端までと、その間に届く本文・usage・状態を受け持つ。`chatReducer` から委譲される。
- * 履歴の組み直しとは独立した遷移なので、ここへ切り出しても意味は変わらない。
- */
 export function applyRunAction(state: ChatState, action: RunChatAction): ChatState {
   switch (action.type) {
     case "runStart": {
@@ -471,7 +466,7 @@ export function applyRunAction(state: ChatState, action: RunChatAction): ChatSta
           ? { ...settled, bubbles: normalized }
           : {
               ...settled,
-              bubbles: attachTurnEnd(normalized, action.runId, initialSendId, outcome, action.durationMs),
+              bubbles: attachUserTurnEnd(normalized, action.runId, initialSendId, outcome, action.durationMs),
             };
       const bubbles =
         action.runId === undefined || outcome === undefined || action.durationMs === undefined

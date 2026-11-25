@@ -4,6 +4,7 @@ import {
   mergeHistoryPage,
   prependHistoryPage,
   rebuildHistoryPage,
+  rebuildToolBubbleIds,
   toolCardOf,
 } from "../lib/chatHistory";
 import type { HistoryMergeResult } from "../lib/chatHistory";
@@ -20,12 +21,11 @@ import {
   QUEUE_CLEARED,
   UNSENT_CLEARED,
   attachAssistantTurnEnd,
-  attachTurnEnd,
+  attachUserTurnEnd,
   holdsFetchedHistory,
   legacyMarkers,
   mergeRetrySnapshot,
   normalizeInitialSend,
-  toolBubbleIdsOf,
 } from "./chatReducerShared";
 import { attachRunToolCards, carryToolCardsToAnswers, settleToolHosts } from "./chatCards";
 
@@ -282,7 +282,7 @@ function mergeStreamingIntoHistory(
     return {
       bubbles: kept,
       currentAssistantId: liveId !== null && kept.some((bubble) => bubble.id === liveId) ? liveId : null,
-      toolBubbleIds: toolBubbleIdsOf(kept),
+      toolBubbleIds: rebuildToolBubbleIds(kept),
     };
   }
   let matchIndex = -1;
@@ -335,7 +335,7 @@ function mergeStreamingIntoHistory(
     // 照合できない履歴マージでライブのカードが消えていても、今ターンの応答として残す (データを失わない)
     const base = bubbles.some((bubble) => bubble.id === liveId) ? bubbles : [...bubbles, live];
     const kept = restoreSettledTools(state, base, liveId, pairs);
-    return { bubbles: kept, currentAssistantId: liveId, toolBubbleIds: toolBubbleIdsOf(kept) };
+    return { bubbles: kept, currentAssistantId: liveId, toolBubbleIds: rebuildToolBubbleIds(kept) };
   }
   const mergedBubble = mergeAssistantCard(live, bubbles[matchIndex]);
   const next = restoreSettledTools(
@@ -346,7 +346,7 @@ function mergeStreamingIntoHistory(
     liveId,
     pairs,
   );
-  return { bubbles: next, currentAssistantId: liveId, toolBubbleIds: toolBubbleIdsOf(next) };
+  return { bubbles: next, currentAssistantId: liveId, toolBubbleIds: rebuildToolBubbleIds(next) };
 }
 
 /**
@@ -725,10 +725,6 @@ type HistoryChatAction = Extract<
   }
 >;
 
-/**
- * 履歴の同期 (新規チャット / 再同期 / ページの取り込み) を受け持つ。payload からの組み直しが大きく、
- * 送信キューやツールカードとは独立して読めるため `chatReducer` から切り出した。意味と順序は変えない。
- */
 export function applyHistoryAction(state: ChatState, action: HistoryChatAction): ChatState {
   switch (action.type) {
     case "newChat": {
@@ -1127,7 +1123,7 @@ export function applyHistoryAction(state: ChatState, action: HistoryChatAction):
         const durationMs = initialUser?.runDurationMs ?? Math.max(0, payload.run.endedAt - payload.run.startedAt);
         const outcome = initialUser?.runOutcome ?? runOutcome;
         if (initialUser !== undefined && initialUser.runDurationMs === undefined) {
-          settledBubbles = attachTurnEnd(
+          settledBubbles = attachUserTurnEnd(
             settledBubbles,
             payload.run.id,
             payload.run.initialSendId,

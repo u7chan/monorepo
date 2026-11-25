@@ -1,11 +1,11 @@
 // ライブで積む応答カードと、ツールカードの持ち主を決める規則。履歴 / 実行 / ツールの各群が共有する。
-import { toolCardOf } from "../lib/chatHistory";
+import { rebuildToolBubbleIds, toolCardOf } from "../lib/chatHistory";
 import { isPendingAskUser } from "../lib/askUser";
 import { isToolHostBubble } from "../lib/chatTypes";
 import type { Bubble, ToolCard } from "../lib/chatTypes";
 import type { ToolCall } from "../types";
 import type { ChatState } from "../lib/chatState";
-import { appendBubble, toolBubbleIdsOf, updateBubble } from "./chatReducerShared";
+import { appendBubble, updateBubble } from "./chatReducerShared";
 
 /**
  * 本文なし応答のカードを、同じターンで次に確定した本文の応答へ寄せる。履歴の投影は本文なし応答の
@@ -273,7 +273,7 @@ export function settleToolHosts(state: ChatState): ChatState {
       });
     });
   }
-  return { ...state, bubbles, nextId, toolBubbleIds: toolBubbleIdsOf(bubbles) };
+  return { ...state, bubbles, nextId, toolBubbleIds: rebuildToolBubbleIds(bubbles) };
 }
 
 /**

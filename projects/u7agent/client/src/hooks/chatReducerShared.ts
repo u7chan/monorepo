@@ -78,17 +78,6 @@ export function normalizeInitialSend(bubbles: Bubble[], initialSendId: string | 
   );
 }
 
-/** ツールカードの持ち主の索引。同じ call は最初に持つバブルだけを指す */
-export function toolBubbleIdsOf(bubbles: Bubble[]): Record<string, number> {
-  const ids: Record<string, number> = {};
-  for (const bubble of bubbles) {
-    for (const card of bubble.tools) {
-      if (ids[card.id] === undefined) ids[card.id] = bubble.id;
-    }
-  }
-  return ids;
-}
-
 /** 送信エコーの照合用の正規形。添付の注記を落とし、`/skill:` の展開結果は打ったコマンドの形へ戻す。
  * ローカルエコー (素の入力) と run_start (展開済みの本文) を同じ形に寄せるために使う。 */
 export function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: number): ChatState {
@@ -140,7 +129,7 @@ export const UNSENT_CLEARED = {
 } as const;
 
 /** run が終わったことを、その実行を開始した送信のバブルへだけ写す (追加入力へ複製しない) */
-export function attachTurnEnd(
+export function attachUserTurnEnd(
   bubbles: Bubble[],
   runId: string,
   initialSendId: string | undefined,

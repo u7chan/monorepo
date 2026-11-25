@@ -9,7 +9,6 @@ type NoticeChatAction = Extract<
   }
 >;
 
-/** 操作の結果と活動行、開始演出の終わりを受け持つ */
 export function applyNoticeAction(state: ChatState, action: NoticeChatAction): ChatState {
   switch (action.type) {
     case "notice":

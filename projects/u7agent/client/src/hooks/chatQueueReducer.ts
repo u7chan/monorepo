@@ -47,7 +47,6 @@ type QueueChatAction = Extract<
   }
 >;
 
-/** 送信キュー (待機の位置 / 取り消し / エコーと送信IDの対応付け / 再送) を受け持つ */
 export function applyQueueAction(state: ChatState, action: QueueChatAction): ChatState {
   switch (action.type) {
     case "queued": {
