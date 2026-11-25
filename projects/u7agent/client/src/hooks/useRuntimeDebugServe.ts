@@ -1,33 +1,29 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { getRuntimeDebugServeStatus, stopRuntimeDebugServe } from "../api";
-import { useConfirm } from "../components/ConfirmProvider";
-import { createRuntimeDebugServeController, INITIAL_RUNTIME_DEBUG_SERVE_STATE } from "../lib/runtimeDebugServe";
+import type { ConfirmFn } from "../components/ConfirmProvider";
+import {
+  createRuntimeDebugServeController,
+  INITIAL_RUNTIME_DEBUG_SERVE_STATE,
+  type RuntimeDebugServeState,
+} from "../lib/runtimeDebugServe";
+import { useRuntimePolling } from "./useRuntimePolling";
 
+const createController = (confirm: ConfirmFn, onChange: (state: RuntimeDebugServeState) => void) =>
+  createRuntimeDebugServeController({
+    getStatus: () => getRuntimeDebugServeStatus(AbortSignal.timeout(15_000)),
+    stop: (input) => stopRuntimeDebugServe(input, AbortSignal.timeout(30_000)),
+    confirm,
+    onChange,
+  });
+
+/** 設定 → ランタイム のデバッグ節。この hook が mount されている間だけ 4 秒で回す。 */
 export function useRuntimeDebugServe() {
-  const confirm = useConfirm();
-  const [state, setState] = useState(INITIAL_RUNTIME_DEBUG_SERVE_STATE);
-  const controller = useRef<ReturnType<typeof createRuntimeDebugServeController> | null>(null);
-  useEffect(() => {
-    const current = createRuntimeDebugServeController({
-      getStatus: () => getRuntimeDebugServeStatus(AbortSignal.timeout(15_000)),
-      stop: (input) => stopRuntimeDebugServe(input, AbortSignal.timeout(30_000)),
-      confirm,
-      onChange: setState,
-    });
-    controller.current = current;
-    void current.refresh();
-    const timer = setInterval(() => void current.refresh(), 4_000);
-    return () => {
-      clearInterval(timer);
-      current.dispose();
-      controller.current = null;
-    };
-  }, [confirm]);
-  const refresh = useCallback(async () => {
-    await controller.current?.refresh();
-  }, []);
-  const stop = useCallback(async (port: number) => {
-    await controller.current?.stop(port);
-  }, []);
+  const { state, refresh, controller } = useRuntimePolling(INITIAL_RUNTIME_DEBUG_SERVE_STATE, createController);
+  const stop = useCallback(
+    async (port: number) => {
+      await controller.current?.stop(port);
+    },
+    [controller],
+  );
   return { ...state, refresh, stop };
 }

@@ -15,8 +15,9 @@ import {
 import { SHARING_SUBSECTIONS, type SharingSubsection } from "../lib/settingsNav";
 import { UNSAVED_RELOAD_NOTE } from "../lib/settingsNotes";
 import type { SessionSummary } from "../types";
-import { CheckIcon, RunSpinnerIcon, StopIcon } from "./icons";
+import { RunSpinnerIcon, StopIcon } from "./icons";
 import { useConfirm } from "./ConfirmProvider";
+import { ExcludeNamesToolbar } from "./ExcludeNamesToolbar";
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
@@ -80,7 +81,7 @@ export function SharingSettingsView({
   const exclusionsTab = sharingSubsection === "exclusions";
   const counts = sharedContentFilterCounts(contents.items);
   const undeployedCounts = sharedContentUndeployedFilterCounts(contents.items);
-  const { settings, dirty, saving, reloading, save, reset, discard } = sharedContentExclusions;
+  const { dirty } = sharedContentExclusions;
   const submitExcludeInput = () => {
     // 追加できなかったときは入力を残す（上限や重複の理由をその場で直せるように）
     if (sharedContentExclusions.add(excludeInput)) setExcludeInput("");
@@ -158,28 +159,7 @@ export function SharingSettingsView({
       ) : null}
     </>
   ) : exclusionsTab ? (
-    <>
-      {/* 再読み込みは下書きを捨てるので、変更がある間は押せない (理由の置き場は下の caption / context) */}
-      <ReloadButton onClick={() => void sharedContentExclusions.reload()} disabled={dirty || reloading}>
-        再読み込み
-      </ReloadButton>
-      <span aria-hidden="true" className="h-4 w-px bg-line" />
-      <button type="button" className="btn-quiet" disabled={!dirty || saving} onClick={discard}>
-        破棄
-      </button>
-      <button
-        type="button"
-        className="btn-quiet"
-        disabled={!settings?.overridden || saving}
-        onClick={() => void reset()}
-      >
-        既定に戻す
-      </button>
-      <button type="button" className="btn-primary" disabled={!dirty || saving} onClick={() => void save()}>
-        <CheckIcon />
-        保存
-      </button>
-    </>
+    <ExcludeNamesToolbar settings={sharedContentExclusions} />
   ) : (
     <ReloadButton onClick={() => void cloudflare.reload()} disabled={cloudflare.reloading}>
       再読み込み

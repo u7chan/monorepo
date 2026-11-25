@@ -2,6 +2,7 @@ import type { RuntimeDebugServeEntry, RuntimeDebugServeStatus } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
 import { messageFor } from "./errors";
 import { messageFullTimeLabel } from "./messageTime";
+import { createRuntimePoller } from "./runtimePoller";
 
 /** デバッグ用 serve の一覧。公開カードとは別に取得し、失敗もデバッグ節の中だけで見せる */
 export interface RuntimeDebugServeState {
@@ -54,54 +55,34 @@ export function createRuntimeDebugServeController(deps: {
   confirm: (request: ConfirmRequest) => Promise<boolean>;
   onChange: (state: RuntimeDebugServeState) => void;
 }) {
-  let state = INITIAL_RUNTIME_DEBUG_SERVE_STATE;
-  let active = true;
-  let inFlight = false;
-  let revision = 0;
-  const update = (patch: Partial<RuntimeDebugServeState>) => {
-    if (!active) return;
-    state = { ...state, ...patch };
-    deps.onChange(state);
-  };
-  const refresh = async () => {
-    if (!active || inFlight || state.stoppingPort !== null) return;
-    inFlight = true;
-    const issued = revision;
-    try {
-      const status = await deps.getStatus();
-      if (issued !== revision) return;
-      update({ status, loading: false, failed: false });
-    } catch {
-      if (issued !== revision) return;
-      update({ status: null, loading: false, failed: true });
-    } finally {
-      inFlight = false;
-    }
-  };
+  const poller = createRuntimePoller<RuntimeDebugServeStatus, RuntimeDebugServeState>({
+    initial: INITIAL_RUNTIME_DEBUG_SERVE_STATE,
+    isBusy: (state) => state.stoppingPort !== null,
+    fetchStatus: deps.getStatus,
+    onChange: deps.onChange,
+  });
+
   return {
-    refresh,
+    refresh: poller.refresh,
     stop: async (port: number) => {
-      const entry = state.status?.servers.find((server) => server.port === port);
-      if (!active || state.stoppingPort !== null || !entry) return;
-      revision += 1;
-      update({ stoppingPort: port, error: undefined });
+      const current = poller.state();
+      const entry = current.status?.servers.find((server) => server.port === port);
+      if (!poller.isActive() || current.stoppingPort !== null || !entry) return;
+      poller.begin({ stoppingPort: port, error: undefined });
       try {
-        if (!(await deps.confirm(runtimeDebugServeStopConfirm(entry))) || !active) return;
+        if (!(await deps.confirm(runtimeDebugServeStopConfirm(entry))) || !poller.isActive()) return;
         await deps.stop({ port });
         // 一覧はサーバーの取り直しで置き換える (取得の失敗は停止の失敗にせず、次のポーリングが failed として出す)
         const status = await deps.getStatus().catch(() => null);
-        if (status) update({ status, failed: false, loading: false });
+        if (status) poller.update({ status, failed: false, loading: false });
       } catch (error) {
-        update({ error: messageFor(error) });
+        poller.update({ error: messageFor(error) });
       } finally {
-        update({ stoppingPort: null });
+        poller.update({ stoppingPort: null });
         // 取消や失敗の後も、確認した port で自動再試行はせず状態だけ取り直す。
-        void refresh();
+        void poller.refresh();
       }
     },
-    dispose: () => {
-      active = false;
-      revision += 1;
-    },
+    dispose: poller.dispose,
   };
 }
