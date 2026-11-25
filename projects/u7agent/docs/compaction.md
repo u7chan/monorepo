@@ -142,7 +142,7 @@ pnpm check   # lint → format:check → 型チェック → テスト → ク�
 - `server/test/session-history.test.ts` — 全履歴の投影（`active` / `summarized` / `excluded`、複数回の compaction、`firstKeptEntryId` が metadata entry を指す場合、context_edit の除外、マスク）と、カーソル型ページネーション（重複・欠落なし、不明カーソルの 400、route の limit / 404）を固定する。実 API は呼ばない
 - `server/test/compaction-cut.test.ts` — SDK 公開の `findCutPoint` / `estimateTokens` で、上表のカット可否を固定する（実 API は呼ばない）
 - `client/test/compaction.test.ts` — 区切り / 要約一覧のラベル整形と手動圧縮の確認文言を純関数として固定し、確認してから要求を出す順序をソース走査で固定する（DOM は使わない）
-- `client/test/chatReducer.test.ts` — `compaction` の取り込み、`resync` からの compacting / 開始時刻 / activity の導出と終端での解除、圧縮中の `queued`、run をまたぐ解除を固定する
+- `client/test/chatToolReducer.test.ts` / `client/test/chatHistoryReducer.test.ts` / `client/test/chatQueueReducer.test.ts` / `client/test/chatRunReducer.test.ts` — `compaction` の取り込み、`resync` からの compacting / 開始時刻 / activity の導出と終端での解除、圧縮中の `queued`、run をまたぐ解除を固定する
 - `client/test/historyResync.test.ts` — 全履歴ページと `resync` の整合（取得済みの履歴を消さない、ライブバブルの置き換え、欠落区間の再取得）を固定する。履歴 API の失敗 / 空ページで `payload.messages` へ戻さないこともここで固定する
 - `client/test/composerStatus.test.ts` / `client/test/composerSettings.test.ts` / `client/test/sessionActions.test.ts` — ボタンの配置と活性条件、押せないときの理由、同期応答の操作世代ガードを固定する
 
