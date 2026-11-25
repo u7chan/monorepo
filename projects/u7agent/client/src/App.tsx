@@ -2,37 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { ApiError, statFile, type CreateProjectInput } from "./api";
 import { useSpace } from "./SpaceContext";
 import { ActivityPage } from "./components/ActivityPage";
-import { SpaceSettingsPage } from "./components/SpaceSettingsPage";
-import { AgentSettingsPage } from "./components/AgentSettingsPage";
-import { PromptSettingsPage } from "./components/PromptSettingsPage";
-import { AppearancePage } from "./components/AppearancePage";
 import { ChatArea } from "./components/ChatArea";
 import { DiagnosticsContext } from "./DiagnosticsContext";
 import { SingleColumnBar } from "./components/SingleColumnBar";
 import { Composer } from "./components/Composer";
 import { useConfirm } from "./components/ConfirmProvider";
-import { ContentSettingsPage } from "./components/ContentSettingsPage";
-import { FileTreePage } from "./components/FileTreePage";
-import { GitSettingsPage } from "./components/GitSettingsPage";
 import { NavSheet } from "./components/NavSheet";
-import { ModelSettingsPage } from "./components/ModelSettingsPage";
-import { NotificationSettingsPage } from "./components/NotificationSettingsPage";
 import { ProjectDialog } from "./components/ProjectDialog";
-import { RuntimePage } from "./components/RuntimePage";
+import { SettingsScreen } from "./components/SettingsScreen";
+import type { SettingsPageProps } from "./components/SettingsPageLayout";
 import { Sidebar } from "./components/Sidebar";
 import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesPanel";
-import { SharingSettingsPage } from "./components/SharingSettingsPage";
 import { SessionForkDialog } from "./components/SessionForkDialog";
 import { SessionForkLinks } from "./components/SessionForkLinks";
 import { SessionHandoffDialog, type SessionHandoffRequest } from "./components/SessionHandoffDialog";
 import { SessionTitleDialog } from "./components/SessionTitleDialog";
 import { SessionTitleNotice } from "./components/SessionTitleNotice";
-import { SkillSettingsPage } from "./components/SkillSettingsPage";
-import { BackupSettingsPage } from "./components/BackupSettingsPage";
 import { Topbar } from "./components/Topbar";
-import { WebSearchSettingsPage } from "./components/WebSearchSettingsPage";
-import { VoiceInputSettingsPage } from "./components/VoiceInputSettingsPage";
-import { SessionTitleSettingsPage } from "./components/SessionTitleSettingsPage";
 import { FileRefProvider } from "./components/markdown/FileRefLink";
 import { MarkdownImageProvider } from "./components/markdown/MarkdownImageRefs";
 import { useU7Agent, type SendMessageOptions } from "./hooks/useU7Agent";
@@ -66,7 +52,7 @@ import { classifyFileRefFailure, createFileRefOpener, fileRefCheckPath, type Fil
 import { resolveActivitySidebarPlacement, resolveSidebarPlacement } from "./lib/layout";
 import { openOwnerSession } from "./lib/ownerLink";
 import { queuedSendsOf } from "./lib/queueWait";
-import { sessionPath, settingsTabOf, settingsTabRoute } from "./lib/route";
+import { sessionPath, settingsTabRoute } from "./lib/route";
 import {
   missingLinkNote,
   notificationHasFailure,
@@ -898,136 +884,10 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
 
   // 設定ページは main を丸ごと使う (チャットとは排他)。singleColumn ではヘッダが SingleColumnBar の代わりになり、
   // 狭い desktop では左バーが overlay になるため、どちらも nav の導線をページへ渡す
-  const pageProps = { singleColumn, onBack: backToChat, onOpenNav: sidebarDocked ? undefined : openNav };
-
-  // 設定のセクション → 画面。case の書き忘れは default の `satisfies never` が型エラーにする
-  // (client の tsconfig は noImplicitReturns が無いので、union を足しただけでは気付けない)
-  const settingsScreen = () => {
-    switch (settingsSection) {
-      case "spaces":
-        return <SpaceSettingsPage {...pageProps} onSelectSpace={openChatWithoutSession} />;
-      case "agents":
-        return (
-          <AgentSettingsPage
-            {...pageProps}
-            catalog={app.catalog}
-            agentId={app.agentId}
-            refreshCatalog={refreshCatalog}
-            applyAgentOrder={app.applyAgentOrder}
-            modelOptions={app.health?.modelOptions ?? []}
-            defaultModel={app.health?.model}
-            defaultThinkingLevel={app.health?.defaultThinkingLevel}
-          />
-        );
-      case "prompts":
-        // マスタの変更はエージェントへ解決済みの値として載るため、保存後にカタログを取り直す
-        return (
-          <PromptSettingsPage {...pageProps} refreshCatalog={refreshCatalog} applyPromptOrder={app.applyPromptOrder} />
-        );
-      case "skills":
-        return (
-          <SkillSettingsPage
-            {...pageProps}
-            catalog={app.catalog}
-            filePreviewPort={app.health?.filePreviewPort}
-            filePreviewOrigin={app.health?.filePreviewOrigin}
-            rootCwd={app.health?.cwd}
-          />
-        );
-      case "files":
-        // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。
-        // 設定のファイルはワークスペース全体に固定し、セッションの作業フォルダはツリーから辿って開く
-        return (
-          <FileTreePage
-            {...pageProps}
-            cwd=""
-            rootCwd={app.health?.cwd}
-            excludeNames={excludeNames}
-            filePreviewPort={app.health?.filePreviewPort}
-            filePreviewOrigin={app.health?.filePreviewOrigin}
-            archiveSettings={app.archiveSettings}
-            filesSubsection={settingsTabOf(route, "files")}
-            onSelectFilesSubsection={(subsection) => openSettingsTab("files", subsection)}
-            onOpenSharingExclusions={() => openSettingsTab("sharing", "exclusions")}
-          />
-        );
-      case "git":
-        return <GitSettingsPage {...pageProps} />;
-      case "backup":
-        // 復元 / 全削除はカタログ (定義とマスタ) を変えるため、成功後に取り直す
-        return <BackupSettingsPage {...pageProps} refreshCatalog={refreshCatalog} />;
-      case "appearance":
-        return (
-          <AppearancePage
-            {...pageProps}
-            appearanceSubsection={settingsTabOf(route, "appearance")}
-            onSelectAppearanceSubsection={(subsection) => openSettingsTab("appearance", subsection)}
-          />
-        );
-      case "models":
-        // 最終使用の導出元は起動時から facade が持つ一覧。この画面だけに渡す (再取得はしない)
-        return (
-          <ModelSettingsPage
-            {...pageProps}
-            onRefreshHealth={app.refreshHealth}
-            sessions={spaceSessions}
-            sessionsLoaded={app.sessionsLoaded}
-            modelsSubsection={settingsTabOf(route, "models")}
-            onSelectModelsSubsection={(subsection) => openSettingsTab("models", subsection)}
-          />
-        );
-      case "content":
-        return (
-          <ContentSettingsPage
-            {...pageProps}
-            contentSubsection={settingsTabOf(route, "content")}
-            onSelectContentSubsection={(subsection) => openSettingsTab("content", subsection)}
-            refreshToolCatalog={refreshCatalog}
-          />
-        );
-      case "web-search":
-        return <WebSearchSettingsPage {...pageProps} refreshCatalog={refreshCatalog} />;
-      case "voice-input":
-        // 録音の入口は入力欄のマイク。キーの保存 / 削除で入力欄の可用性を取り直す
-        return <VoiceInputSettingsPage {...pageProps} onVoiceInputKeyChanged={voiceInputAvailability.reload} />;
-      case "session-title":
-        // 本会話のモデルとは独立した設定なので、モデル画面の共有 state は渡さない (開いたときだけ取得する)
-        return <SessionTitleSettingsPage {...pageProps} />;
-      case "runtime":
-        return (
-          <RuntimePage
-            {...pageProps}
-            runtimeSubsection={settingsTabOf(route, "runtime")}
-            onSelectRuntimeSubsection={(subsection) => openSettingsTab("runtime", subsection)}
-            health={app.health}
-            onRefreshHealth={app.refreshHealth}
-            sessions={spaceSessions}
-            openSessionId={app.sessionId}
-            onOpenSession={openSettingsSession}
-          />
-        );
-      case "sharing":
-        return (
-          <SharingSettingsPage
-            {...pageProps}
-            sessions={app.sessions}
-            sessionsLoaded={app.sessionsLoaded && !app.sessionsFetch.failed}
-            onOpenSession={openSettingsSession}
-            sharedContentExclusions={app.sharedContentExclusions}
-            onOpenArchiveExclusions={() => openSettingsTab("files", "archive")}
-            sharingSubsection={settingsTabOf(route, "sharing")}
-            onSelectSharingSubsection={(subsection) => openSettingsTab("sharing", subsection)}
-          />
-        );
-      case "notifications":
-        return <NotificationSettingsPage {...pageProps} notifications={app.notifications} />;
-      default: {
-        // 保存値も URL も SETTINGS_SECTIONS の既知の値だけを渡すため到達しない。
-        // 空の設定画面を出すより、気付ける形で落とす
-        settingsSection satisfies never;
-        throw new Error(`未知の設定セクション: ${settingsSection}`);
-      }
-    }
+  const pageProps: SettingsPageProps = {
+    singleColumn,
+    onBack: backToChat,
+    onOpenNav: sidebarDocked ? undefined : openNav,
   };
 
   // 診断の操作は設定 → ランタイムの診断タブのカードが使う。facade はここで 1 つだけ作るため、文脈で配る
@@ -1206,7 +1066,19 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
               inert={settingsPhase === "closing"}
               className="settings-view col-start-1 row-start-1 grid min-h-0 min-w-0 grid-cols-1"
             >
-              {settingsScreen()}
+              <SettingsScreen
+                section={settingsSection}
+                route={route}
+                page={pageProps}
+                app={app}
+                sessions={spaceSessions}
+                refreshCatalog={refreshCatalog}
+                excludeNames={excludeNames}
+                onOpenTab={openSettingsTab}
+                onOpenSession={openSettingsSession}
+                onSelectSpace={openChatWithoutSession}
+                onVoiceInputKeyChanged={voiceInputAvailability.reload}
+              />
             </div>
           ) : null}
           {activityPhase !== "closed" ? (
