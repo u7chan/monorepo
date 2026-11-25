@@ -8,7 +8,7 @@ import { MarkdownView } from "../src/components/markdown/MarkdownView";
 import { filePreviewStore } from "../src/lib/filePreviewState";
 
 globalThis.location ??= { origin: "http://localhost:3000", hostname: "localhost" } as Location;
-const { fileRawUrl } = await import("../src/api");
+const { fileRawUrl } = await import("../src/api/files");
 const { useMarkdownImageRawUrl } = await import("../src/hooks/useMarkdownImageRawUrl");
 const { FileBrowser } = await import("../src/components/FileBrowser");
 const { ConfirmProvider } = await import("../src/components/ConfirmProvider");

@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 
-// FileBrowser / FilePreview は api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// FileBrowser / FilePreview は api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { FileBreadcrumb } = await import("../src/components/FilePreview");
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getFilePreview } from "../../api";
+import { getFilePreview } from "../../api/files";
 import {
   BUILTIN_SKILL_OVERRIDE_NOTE,
   BUILTIN_SKILL_READONLY_NOTE,

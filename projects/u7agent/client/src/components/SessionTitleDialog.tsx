@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getTitleSummarySettings } from "../api";
+import { getTitleSummarySettings } from "../api/settings";
 import { useSpaceApi } from "../SpaceContext";
 import { cn } from "../lib/cn";
 import { effortLabel } from "../lib/composerSettings";

@@ -1,4 +1,5 @@
-import { ApiError, postVoiceInputSession } from "../../api";
+import { ApiError } from "../../api/http";
+import { postVoiceInputSession } from "../../api/settings";
 import { makeVoiceInputAudioDeadline } from "./deadline";
 import type { VoiceInputPlatform, VoiceInputSessionAnswer } from "./session";
 

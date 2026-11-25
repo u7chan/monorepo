@@ -20,7 +20,7 @@ import {
   SKILL_IMPORT_LABEL,
 } from "../src/lib/fileSkills";
 
-// api.ts (location.origin を読む) と useLayoutMode (viewport を読む) を辿るため、node では最小の shim を置く
+// api/http.ts (location.origin を読む) と useLayoutMode (viewport を読む) を辿るため、node では最小の shim を置く
 globalThis.location ??= { origin: "http://localhost" } as Location;
 (globalThis as unknown as { window: unknown }).window = {
   innerWidth: 1440,

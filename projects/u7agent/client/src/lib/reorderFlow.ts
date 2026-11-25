@@ -4,7 +4,7 @@
  * 下書きと送信の直列化は `lib/orderDraft.ts` が持つ。
  * DOM も React も知らないので、呼び出し側のページが状態を受け取って描画に使う。
  */
-import { ApiError } from "../api";
+import { ApiError } from "../api/http";
 import { messageFor } from "./errors";
 import { createOrderDraft, type OrderDraftState } from "./orderDraft";
 

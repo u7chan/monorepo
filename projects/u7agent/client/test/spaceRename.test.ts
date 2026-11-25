@@ -4,7 +4,7 @@ import type { Space } from "server";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
 // spaceRename は api を（ApiError のために）読むので、location を用意した後で読む
-const { ApiError } = await import("../src/api");
+const { ApiError } = await import("../src/api/http");
 const { createSpaceRenameFlow, spaceRenameNoteText } = await import("../src/lib/spaceRename");
 
 const normal: Space = { id: "default", name: "既定", createdAt: 0 };

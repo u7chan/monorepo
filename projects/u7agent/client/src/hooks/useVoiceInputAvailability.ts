@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getVoiceInputSettings } from "../api";
+import { getVoiceInputSettings } from "../api/settings";
 import {
   voiceInputAvailability,
   voiceInputMicrophoneShown,

@@ -1,4 +1,4 @@
-import { fileRawUrl } from "../../api";
+import { fileRawUrl } from "../../api/files";
 import { attachmentFetchPath, formatBytes, isImageName, type Attachment } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
 import { ZoomableImage } from "../ImageZoom";

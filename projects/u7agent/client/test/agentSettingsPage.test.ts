@@ -7,9 +7,9 @@ import test from "node:test";
 import type { ReorderNoteKind, ReorderState } from "../src/lib/reorderFlow";
 import type { AgentDef, CatalogResponse } from "../src/types";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { ApiError } = await import("../src/api");
+const { ApiError } = await import("../src/api/http");
 const { createReorderFlow } = await import("../src/lib/reorderFlow");
 const { createCatalogStore } = await import("../src/lib/catalogStore");
 const { agentFormKey } = await import("../src/components/agent-settings/AgentEditorForm");

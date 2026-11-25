@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { getRuntimeServeStatus, startRuntimeServe, stopRuntimeServe } from "../api";
+import { getRuntimeServeStatus, startRuntimeServe, stopRuntimeServe } from "../api/runtime";
 import type { ConfirmFn } from "../components/ConfirmProvider";
 import type { ConfirmRequest } from "../lib/confirmDialog";
 import {

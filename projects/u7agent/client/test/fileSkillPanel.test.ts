@@ -10,7 +10,7 @@ import { SKILL_USAGE_EMPTY_NOTE, SKILL_USAGE_TAB_NOTE } from "../src/lib/fileSki
 import { SKILL_USAGE_NOTE, SKILL_USAGE_UNAVAILABLE_NOTE, skillUsageByPath } from "../src/lib/skillUsage";
 import type { AgentDef, FileSkillInfo, SandboxSkillFileDetail } from "../src/types";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { FileSkillPanel } = await import("../src/components/skill-settings/FileSkillPanel");
 

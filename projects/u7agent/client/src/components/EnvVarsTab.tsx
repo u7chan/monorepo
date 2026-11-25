@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, type SecretsScope } from "../api";
+import { ApiError } from "../api/http";
+import type { SecretsScope } from "../api/sessions";
 import { useSpaceApi } from "../SpaceContext";
 import { copyToClipboard } from "../lib/copyToClipboard";
 import { cn } from "../lib/cn";

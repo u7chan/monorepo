@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
-import type { SecretsScope } from "../api";
+import type { SecretsScope } from "../api/sessions";
 import { usePointerDrag } from "../hooks/usePointerDrag";
 import { sessionEnvScopeKey, sessionEnvTabs, type SessionEnvTab } from "../lib/sessionEnv";
 import { SESSION_FILES_HIDDEN_NAMES } from "../lib/sessionFiles";

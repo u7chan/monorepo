@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { isNotStoredError } from "../api";
+import { isNotStoredError } from "../api/http";
 import { messageFor } from "../lib/errors";
 import { mutationErrorNote, successNoteText, type SettingsSuccessNote } from "../lib/settingsResource";
 import { createLoadingTracker, createRequestGate } from "./requestGate";

@@ -15,7 +15,7 @@ import { createRuntimeServeController, INITIAL_RUNTIME_SERVE_STATE } from "../sr
 import type { SessionsFetchSnapshot } from "../src/lib/sessionsFetch";
 import type { Project, SessionSummary } from "../src/types";
 
-// api.ts は location.origin を読むため、node では最小の shim を置いてから読み込む
+// api/http.ts は location.origin を読むため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { ActivityPage } = await import("../src/components/ActivityPage");
 const { ActivityRowItem } = await import("../src/components/ActivityRowItem");

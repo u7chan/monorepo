@@ -19,7 +19,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-/** api.ts の ApiError と同じ形（location を参照する class はテストから読み込まない） */
+/** api/http.ts の ApiError と同じ形（location を参照する class はテストから読み込まない） */
 function apiFailure(message: string, status: number): Error {
   return Object.assign(new Error(message), { status });
 }

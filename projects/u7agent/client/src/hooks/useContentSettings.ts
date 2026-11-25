@@ -9,7 +9,7 @@ import {
   putContentImageSettings,
   putContentSpeechSettings,
   refreshContentCatalog,
-} from "../api";
+} from "../api/settings";
 import { CONTENT_IMAGE_SAVED_NOTE, contentImageProviderNote } from "../lib/contentSettings/image";
 import { CONTENT_SPEECH_SAVED_NOTE } from "../lib/contentSettings/speech";
 import {

@@ -17,7 +17,7 @@ import type {
   SessionSummary,
 } from "../src/types";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { ModelSettingsPage, ModelSettingsView } = await import("../src/components/ModelSettingsPage");
 const { ConfirmProvider } = await import("../src/components/ConfirmProvider");

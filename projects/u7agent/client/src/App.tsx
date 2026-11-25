@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { ApiError, statFile } from "./api";
+import { ApiError } from "./api/http";
+import { statFile } from "./api/files";
 import { useSpace } from "./SpaceContext";
 import { ActivityPage } from "./components/ActivityPage";
 import { ChatArea } from "./components/ChatArea";

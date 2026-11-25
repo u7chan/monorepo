@@ -64,7 +64,7 @@ export function sessionSkillsSourceKey(source: SessionSkillsSource): string {
   return source.kind === "session" ? `session:${source.sessionId}` : `preview:${source.projectId}:${source.agentId}`;
 }
 
-/** 一覧の取得。フックは api.ts を渡し、テストは stub を渡す */
+/** 一覧の取得。フックは `api/sessions.ts` の取得関数を渡し、テストは stub を渡す */
 export type SessionSkillsFetchers = {
   session: (sessionId: string) => Promise<SessionSkillsResponse>;
   preview: (input: { projectId: string; agentId: string }) => Promise<SessionSkillsPreview>;

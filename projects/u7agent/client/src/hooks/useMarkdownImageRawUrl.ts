@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { fileRawUrl } from "../api";
+import { fileRawUrl } from "../api/files";
 import { useImageVersion } from "./useImageVersion";
 
 export function useMarkdownImageRawUrl(runEndSeq: number): (path: string) => string {

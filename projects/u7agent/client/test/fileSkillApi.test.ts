@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
+const { ApiError } = await import("../src/api/http");
 const {
-  ApiError,
   applySkillsImport,
   createFileSkill,
   deleteFileSkill,
@@ -15,7 +15,7 @@ const {
   planSkillsImport,
   saveFileSkill,
   skillsExportUrl,
-} = await import("../src/api");
+} = await import("../src/api/catalog");
 
 const DETAIL = {
   name: "alpha",

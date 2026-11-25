@@ -1,4 +1,4 @@
-import { getArchiveSettings, resetArchiveSettings, updateArchiveSettings } from "../api";
+import { getArchiveSettings, resetArchiveSettings, updateArchiveSettings } from "../api/settings";
 import { validateExcludeNames } from "../lib/archiveSettings";
 import type { ArchiveSettingsResponse } from "../types";
 import { useExcludeNamesSettings, type ExcludeNamesSettings } from "./useExcludeNamesSettings";

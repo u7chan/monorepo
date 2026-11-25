@@ -21,7 +21,7 @@ import { sessionRowActions } from "../src/lib/sidebarRowMenu";
 import type { AgentDef, SessionSummary } from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { createSpaceApi } = await import("../src/api");
+const { createSpaceApi } = await import("../src/api/sessions");
 
 const general: AgentDef = { id: "general", name: "汎用アシスタント", description: "", systemPrompt: "" };
 const research: AgentDef = { ...general, id: "research", name: "調査" };

@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isNotStoredError } from "../api/http";
 import {
   cancelOAuthLogin,
   deleteCustomProvider,
   deleteProviderApiKey,
   getModelsSettings,
-  getRuntimeModels,
-  isNotStoredError,
   logoutOAuthProvider,
   postCustomProvider,
   probeCustomProvider,
@@ -18,7 +17,8 @@ import {
   selectOAuthLoginMethod,
   startOAuthLogin,
   submitOAuthLoginCode,
-} from "../api";
+} from "../api/settings";
+import { getRuntimeModels } from "../api/runtime";
 import {
   CUSTOM_PROVIDER_CREATED_NOTE,
   CUSTOM_PROVIDER_DELETED_NOTE,

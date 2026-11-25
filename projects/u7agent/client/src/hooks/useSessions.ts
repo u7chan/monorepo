@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Dispatch, RefObject } from "react";
-import { ApiError } from "../api";
+import { ApiError } from "../api/http";
 import { useSpace } from "../SpaceContext";
 import type { ChatHistoryState } from "../lib/chatTypes";
 import { adoptKnownAgentId } from "../lib/agentSelection";

@@ -8,7 +8,7 @@ export function messageFor(error: unknown): string {
 
 /**
  * HTTP の応答として返った失敗の status。接続自体の失敗と区別するために使う。
- * `ApiError` を import しないのは、`api.ts` が `location` を参照し、DOM の無いテストから読めないため
+ * `ApiError` を import しないのは、`api/http.ts` が `location` を参照し、DOM の無いテストから読めないため
  * (応答の失敗だけが数値の status を持つ)。
  */
 export function apiFailureStatus(error: unknown): number | undefined {

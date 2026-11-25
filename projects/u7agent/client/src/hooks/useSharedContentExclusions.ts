@@ -1,4 +1,4 @@
-import { getSharedContentExclusions, resetSharedContentExclusions, updateSharedContentExclusions } from "../api";
+import { getSharedContentExclusions, resetSharedContentExclusions, updateSharedContentExclusions } from "../api/shared";
 import { validateSharedContentExcludeNames } from "../lib/sharedContentExclusions";
 import type { SharedContentExclusionsResponse } from "../types";
 import { useExcludeNamesSettings, type ExcludeNamesSettings } from "./useExcludeNamesSettings";

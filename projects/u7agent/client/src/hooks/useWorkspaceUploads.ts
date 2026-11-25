@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { uploadWorkspaceFile } from "../api";
+import { uploadWorkspaceFile } from "../api/files";
 import { messageFor } from "../lib/errors";
 import {
   mergeUploadTasks,

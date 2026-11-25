@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import type { CreateProjectInput } from "../api";
+import type { CreateProjectInput } from "../api/sessions";
 import { useSpaceApi } from "../SpaceContext";
 import type { Project } from "../types";
 import { alwaysCurrent, createRequestGate } from "./requestGate";

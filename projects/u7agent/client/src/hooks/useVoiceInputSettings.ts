@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { deleteVoiceInputKey, getVoiceInputSettings, postVoiceInputTest, putVoiceInputKey } from "../api";
+import { deleteVoiceInputKey, getVoiceInputSettings, postVoiceInputTest, putVoiceInputKey } from "../api/settings";
 import {
   runVoiceInputTest,
   voiceInputDeletedNote,

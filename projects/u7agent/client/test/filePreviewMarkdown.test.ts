@@ -6,7 +6,7 @@ import test from "node:test";
 import type { FilePreviewProps } from "../src/components/FilePreview";
 import { MarkdownFilePreview } from "../src/components/markdown/MarkdownFilePreview";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost:3000", hostname: "localhost" } as Location;
 const { FilePreview } = await import("../src/components/FilePreview");
 
