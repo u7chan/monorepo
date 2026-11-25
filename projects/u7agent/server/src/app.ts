@@ -6,6 +6,7 @@ import { zValidator } from "@hono/zod-validator";
 import type { AppDb } from "./app-db";
 import { createBffContext } from "./bootstrap";
 import type { CreateBffAppOptions } from "./bootstrap";
+import { serverBuildId } from "./build-id";
 import { DEFAULT_FILE_PREVIEW_PORT } from "./file-preview-port";
 import { bodyGuard, jsonBodyValidator, messageFor, requestBodyValidationHook, statusCodeOf } from "./http";
 import { mutationOriginGuard, sameOriginOnlyGuard } from "./mutation-origin";
@@ -851,6 +852,8 @@ function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, 
     appOrigin,
     filePreviewOrigin,
     serviceOrigin,
+    // 起動時に 1 回だけ決める (識別子は処理中に変わらない)
+    buildId = serverBuildId(),
   } = opts;
   const {
     cwd,
@@ -905,6 +908,7 @@ function createBffRoutes(context: Awaited<ReturnType<typeof createBffContext>>, 
     ...(appOrigin === undefined ? {} : { appOrigin }),
     ...(filePreviewOrigin === undefined ? {} : { filePreviewOrigin }),
     ...(serviceOrigin === undefined ? {} : { serviceOrigin }),
+    buildId,
   });
   const runtimeRoutes = createRuntimeRoutes({
     pi,

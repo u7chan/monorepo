@@ -99,6 +99,11 @@ export type CreateBffAppOptions = {
   filePreviewOrigin?: string;
   /** ブラウザから見たサービス オリジン (env `PI_PREVIEW_ORIGIN`)。サービスリンクと Location の書き換えに使う */
   serviceOrigin?: string;
+  /**
+   * `GET /api/health` が返す版の識別子。未指定は起動時の env (`U7AGENT_BUILD_ID` → `COMMIT_HASH`) から
+   * 決める。テストと fixture が、再ビルドせずに client との版ずれを作るために上書きする
+   */
+  buildId?: string;
   /** 会話ストアの絶対パス。null で永続化なし。未指定は PI_SESSION_STORE → 既定 (<agentDir>/u7agent/sessions) */
   sessionStoreDir?: string | null;
   /** 通知送信のテスト用。省略時は globalThis.fetch */
