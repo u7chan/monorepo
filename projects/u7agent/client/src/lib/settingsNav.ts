@@ -146,6 +146,62 @@ export const SHARING_SUBSECTIONS: { subsection: SharingSubsection; label: string
 
 export const DEFAULT_SHARING_SUBSECTION: SharingSubsection = "contents";
 
+/**
+ * タブ (サブセクション) を持つ設定のセクションと、そのタブの値・`Route` のフィールド名の対応。
+ * `Route` のセクションごとのフィールドの型もこの対応で決まる (lib/route.ts)。
+ */
+type SettingsTabDefinitions = {
+  appearance: { subsection: AppearanceSubsection; field: "appearanceSubsection" };
+  models: { subsection: ModelsSubsection; field: "modelsSubsection" };
+  content: { subsection: ContentSubsection; field: "contentSubsection" };
+  files: { subsection: FilesSubsection; field: "filesSubsection" };
+  sharing: { subsection: SharingSubsection; field: "sharingSubsection" };
+  runtime: { subsection: RuntimeSubsection; field: "runtimeSubsection" };
+};
+
+/** タブを持つ設定のセクション */
+export type SettingsTabSection = keyof SettingsTabDefinitions;
+
+/** セクションが持ちうるタブの値 (例: 設定 → モデル なら "models" | "providers") */
+export type SettingsSubsection<S extends SettingsTabSection> = SettingsTabDefinitions[S]["subsection"];
+
+/** セクションのタブを載せる `Route` のフィールド名 */
+export type SettingsTabField<S extends SettingsTabSection> = SettingsTabDefinitions[S]["field"];
+
+/** 表の 1 行 (タブの一覧・既定と、`Route` のフィールド名) */
+type SettingsTabSpec<S extends SettingsTabSection> = {
+  field: SettingsTabField<S>;
+  items: readonly { subsection: SettingsSubsection<S>; label: string }[];
+  defaultSubsection: SettingsSubsection<S>;
+};
+
+/**
+ * セクション → タブの一覧・既定・`Route` のフィールド名。URL の解釈・正準化・現在タブの取り出しは
+ * lib/route.ts の関数がこの表だけを引くので、タブを持つ画面を足すときに直すのはこの表と画面だけ。
+ */
+export const SETTINGS_TABS: { [S in SettingsTabSection]: SettingsTabSpec<S> } = {
+  appearance: {
+    field: "appearanceSubsection",
+    items: APPEARANCE_SUBSECTIONS,
+    defaultSubsection: DEFAULT_APPEARANCE_SUBSECTION,
+  },
+  models: { field: "modelsSubsection", items: MODELS_SUBSECTIONS, defaultSubsection: DEFAULT_MODELS_SUBSECTION },
+  content: { field: "contentSubsection", items: CONTENT_SUBSECTIONS, defaultSubsection: DEFAULT_CONTENT_SUBSECTION },
+  files: { field: "filesSubsection", items: FILES_SUBSECTIONS, defaultSubsection: DEFAULT_FILES_SUBSECTION },
+  sharing: { field: "sharingSubsection", items: SHARING_SUBSECTIONS, defaultSubsection: DEFAULT_SHARING_SUBSECTION },
+  runtime: { field: "runtimeSubsection", items: RUNTIME_SUBSECTIONS, defaultSubsection: DEFAULT_RUNTIME_SUBSECTION },
+};
+
+/** そのセクションがタブを持つかを、表で判定する */
+export function isSettingsTabSection(section: SettingsSection): section is SettingsTabSection {
+  return section in SETTINGS_TABS;
+}
+
+/** 表から 1 行を引く (セクションを型引数にして、フィールド名とタブの値を対応させる) */
+export function settingsTabSpec<S extends SettingsTabSection>(section: S): SettingsTabSpec<S> {
+  return SETTINGS_TABS[section];
+}
+
 /** URL にセクションが無いときの行き先 (「設定」の導線と、保存値が読めないときの既定) */
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "agents";
 
