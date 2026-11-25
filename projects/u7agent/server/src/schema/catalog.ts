@@ -1,4 +1,7 @@
-/** エージェント / 定型プロンプト / ツールのカタログと要求 body。DTO のフィールド名と optional の扱いは client と揃える。 */
+/**
+ * エージェント / 定型プロンプト / ツールのカタログと要求 body。DTO のフィールド名と optional の扱いは client と揃える。
+ * 応答の契約は docs/api-catalog.md を正とし、ここには型から読めない不変条件と Why not だけを書く。
+ */
 import { z } from "zod";
 import {
   ModelRefSchema,
@@ -9,10 +12,7 @@ import {
   ThinkingLevelSchema,
 } from "./common";
 
-/**
- * 入力欄のチップ 1 件。label がボタン文言、prompt が送信文字列。
- * 定型プロンプトのマスタ (`PromptRefSchema`) と、マスタに属さない引き継ぎのチップが同じ形を使う。
- */
+/** 定型プロンプトのマスタ (`PromptRefSchema`) と、マスタに属さない引き継ぎのチップが同じ形を使う */
 export const AgentSuggestionSchema = z.object({
   label: z.string(),
   prompt: z.string(),
@@ -48,10 +48,9 @@ export const PromptUsageSchema = z.object({
   builtin: z.boolean(),
 });
 export type PromptUsage = z.infer<typeof PromptUsageSchema>;
-/** `GET /api/prompts` の 1 件。使用先を伴い、削除できない理由を画面が説明できる */
+/** 使用先を伴い、削除できない理由を画面が説明できる */
 export const PromptDefSchema = PromptRefSchema.extend({ usedBy: z.array(PromptUsageSchema) });
 export type PromptDef = z.infer<typeof PromptDefSchema>;
-/** `GET /api/prompts` の応答。並びはサーバーが決める (保存した順) */
 export const PromptsResponseSchema = z.object({ prompts: z.array(PromptDefSchema) });
 export type PromptsResponse = z.infer<typeof PromptsResponseSchema>;
 /**
@@ -61,34 +60,16 @@ export type PromptsResponse = z.infer<typeof PromptsResponseSchema>;
 export const PROMPT_ORDER_IDS_MAX = 500;
 export const ReorderPromptsBodySchema = z.object({ ids: z.array(z.string()).max(PROMPT_ORDER_IDS_MAX) });
 export type ReorderPromptsBody = z.infer<typeof ReorderPromptsBodySchema>;
-/** `POST /api/prompts` の応答。作成した 1 件を使用先 (空) つきで返す */
 export const PromptResponseSchema = z.object({ prompt: PromptDefSchema });
 export type PromptResponse = z.infer<typeof PromptResponseSchema>;
-/**
- * 使用中の自作マスタの削除拒否 (409) の応答。どこで使われているかを画面がそのまま出せるようにする。
- * データは変更しない (docs/api-catalog.md)。
- */
+/** 使用中の自作マスタの削除拒否 (409) の応答。データは変更しない */
 export const PromptDeleteConflictSchema = z.object({ error: z.string(), usedBy: z.array(PromptUsageSchema) });
 export type PromptDeleteConflict = z.infer<typeof PromptDeleteConflictSchema>;
-/**
- * ツール 1 件の種別。`sandbox` はサンドボックスで動く作業ツール、`app` は BFF ローカルのツール。
- * 画面のグループ分けに使う (`docs/api-catalog.md#ツール許可リスト`)。
- */
 export const ToolGroupSchema = z.enum(["sandbox", "app"]);
 export type ToolGroup = z.infer<typeof ToolGroupSchema>;
-/**
- * アプリ側でツールを使えない理由のコード。文言はクライアントの lib が持ち、応答にはコードだけを載せる
- * (既存の分担は `client/src/lib/fileSkills.ts` / `client/src/lib/settingsNotes.ts`)。
- * `no_key` は OpenRouter のキー未登録、`no_auth` は Codex のサインインが無いことを表す
- * (画像は選択 provider の認証で決まる。docs/api-catalog.md)。
- */
+/** アプリ側でツールを使えない理由のコード。文言はクライアントが持ち、応答にはコードだけを載せる */
 export const ToolUnavailableReasonSchema = z.enum(["deploy_allowlist", "app_disabled", "no_key", "no_auth"]);
 export type ToolUnavailableReason = z.infer<typeof ToolUnavailableReasonSchema>;
-/**
- * `GET /api/agents` が返すツール 1 件 (`builtinSkills` と同じ位置づけ)。`available` は取得時点の
- * アプリ側の実効で、エージェントの許可リストは掛けない (許可リストと一緒に画面が判断する)。
- * `reason` は `available: false` のときだけ載る。
- */
 export const ToolCatalogEntrySchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -102,51 +83,18 @@ export const AgentDefSchema = z.object({
   name: z.string(),
   description: z.string(),
   systemPrompt: z.string(),
-  /**
-   * 共通スキルの許可リスト。未指定 = 全可視、`[]` = すべて OFF (この 2 つは混同しない)。
-   * プロジェクト / 組み込みのスキルは対象外 (docs/api-catalog.md)。
-   */
   commonSkillNames: z.array(z.string()).optional(),
-  /**
-   * 組み込みスキルの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (この 2 つは混同しない)。
-   * プロジェクト / 共通のスキルは対象外 (docs/api-catalog.md#組み込みスキル)。
-   */
   builtinSkillNames: z.array(z.string()).optional(),
-  /**
-   * 組み込みスキルを自然文で発火させるか。未指定 = 発火する (既定)。false なら組み込みスキルを
-   * `/skill:` とスキルボタンからのみ起動する (docs/api-catalog.md#自然文での発火)。
-   */
   allowNaturalInvocationBuiltin: z.boolean().optional(),
-  /**
-   * ファイルスキル (共通 `.agents/skills` とプロジェクト `<cwd>/.agents/skills`) を自然文で発火させるか。
-   * 未指定 = 発火する (既定)。組み込み側とは独立で、片方の false は他方へ波及しない。
-   */
   allowNaturalInvocationFile: z.boolean().optional(),
-  /**
-   * ツールの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (この 2 つは混同しない)。実効は
-   * アプリ側の可否との積で、アプリ側が止めているツールは許可リストに入れても使えない
-   * (docs/api-catalog.md#ツール許可リスト)。
-   */
   toolNames: z.array(z.string()).optional(),
-  /**
-   * プリセット ID (`preset:<id>`) または webp / png の data URL。未指定のときはキー自体を省略する
-   * (null は保存・応答に現れない)。プリセットの実体はクライアントが解決する
-   */
+  /** プリセットの実体はクライアントが解決する */
   icon: z.string().optional(),
-  // 未指定のときはキー自体を省略する (null は保存・応答に現れない)
   model: ModelRefSchema.optional(),
   thinkingLevel: ThinkingLevelSchema.optional(),
-  /**
-   * 空の会話に出す定型プロンプト (参照先マスタを解決した値)。並びが表示順で、表示の同一性は `id`。
-   * 未指定なら firstview のボタンを出さない (アプリ既定のフォールバックは持たない)。
-   */
   prompts: z.array(PromptRefSchema).optional(),
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
-/**
- * アプリに同梱する組み込みスキル 1 件。エージェント定義の `builtinSkillNames`
- * でエージェント別に外すため、スキル欄の行に使う。
- */
 export const BuiltinSkillInfoSchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -154,21 +102,11 @@ export const BuiltinSkillInfoSchema = z.object({
   version: z.string(),
 });
 export type BuiltinSkillInfo = z.infer<typeof BuiltinSkillInfoSchema>;
-/**
- * GET `/api/agents` の応答。`builtinAgent` はサーバー所有の汎用エージェントで、
- * `agents` (ユーザー定義) には含まれない。サーバーは常にオブジェクトを返し、
- * `null` はクライアントが取得前に持つ初期状態だけを表す。
- */
 export const CatalogResponseSchema = z.object({
   agents: z.array(AgentDefSchema),
   builtinAgent: AgentDefSchema.nullable(),
   builtinSkills: z.array(BuiltinSkillInfoSchema),
-  /** アプリが扱うツールの一覧 (`builtinSkills` と同じく、エージェント定義ではない) */
   tools: z.array(ToolCatalogEntrySchema),
-  /**
-   * 参照できる定型プロンプトのマスタ一覧 (選択肢)。エージェントに解決済みで載る `prompts` とは別で、
-   * こちらは全件。並びはサーバーが決める (組み込みが先、その中は作成順)
-   */
   prompts: z.array(PromptRefSchema),
 });
 export type CatalogResponse = z.infer<typeof CatalogResponseSchema>;
@@ -180,21 +118,10 @@ export const AgentPayloadInfoSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
-  /** 共通スキルの許可リスト。未指定 = 全可視、`[]` = すべて OFF (未指定のときはキーを省略する) */
   commonSkillNames: z.array(z.string()).optional(),
-  /** 組み込みスキルの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (未指定のときはキーを省略する) */
   builtinSkillNames: z.array(z.string()).optional(),
-  /**
-   * 組み込みスキルを自然文で発火させるか。未指定 = 発火する (既定)。false のときだけキーを載せる。
-   * セッション作成時のスナップショットで、定義を編集しても復元後の会話は変わらない
-   */
   allowNaturalInvocationBuiltin: z.boolean().optional(),
-  /** ファイルスキル (共通 / プロジェクト) 側の同じスナップショット値。false のときだけキーを載せる */
   allowNaturalInvocationFile: z.boolean().optional(),
-  /**
-   * ツールの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (未指定のときはキーを省略する)。
-   * セッション作成時のスナップショットで、定義を編集しても復元後の会話は変わらない
-   */
   toolNames: z.array(z.string()).optional(),
 });
 export type AgentPayloadInfo = z.infer<typeof AgentPayloadInfoSchema>;
@@ -212,9 +139,6 @@ const agentBodyShape = {
   skillIds: z.unknown().optional(),
   commonSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
   builtinSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
-  /**
-   * スコープ別の自然文発火。省略は現在値の維持、`null` は既定 (発火する) への解除で、2 キーは独立。
-   */
   allowNaturalInvocationBuiltin: z.boolean().nullish(),
   allowNaturalInvocationFile: z.boolean().nullish(),
   /**
@@ -226,10 +150,6 @@ const agentBodyShape = {
   icon: z.string().nullish(),
   model: ModelRefSchema.nullish(),
   thinkingLevel: ThinkingLevelSchema.nullish(),
-  /**
-   * 参照するマスタの ID (並び = 表示順)。未指定は現状維持、`[]` は全解除。
-   * 未知・重複・上限超過は保存前に 400 で断り、部分保存しない。
-   */
   promptIds: z.array(z.string().max(PROMPT_ID_MAX)).max(AGENT_PROMPT_LIMIT).nullish(),
   /**
    * 撤去済みの直接書き込み。**形は受けるが値は catalog が拒否する** (400)。

@@ -48,10 +48,7 @@ import type {
   WebSearchTestResponse,
 } from "../types";
 
-/**
- * 通知設定。Webhook URL は write-only で、応答には保存の有無（`configured`）と復号の状態（`webhookAvailable` / `webhookEvaluated` / `webhookErrorMessage`）だけを載せる。
- * テスト送信は保存済み設定で 1 通送り、Discord 側の失敗も結果 (ok: false) として 200 で返る。
- */
+/** Webhook URL は write-only。テスト送信は保存済み設定で 1 通送り、Discord 側の失敗も 200 の結果で返る */
 export const getNotifications = async (): Promise<NotificationsResponse> => {
   const res = await ensureOk(client.api.notifications.$get());
   return res.json();
@@ -67,10 +64,7 @@ export const testNotification = async (): Promise<NotificationResult> => {
   return res.json();
 };
 
-/**
- * アーカイブの除外名。`excludeNames` は常に実効値で、`overridden` が false のときは既定の一覧を使っている。
- * 保存（PUT）と既定に戻す（DELETE）も同じ形を返すため、画面は応答をそのまま次の状態にできる。
- */
+/** 保存 (PUT) も既定に戻す (DELETE) も GET と同じ形を返すので、画面は応答をそのまま次の状態にできる */
 export const getArchiveSettings = async (): Promise<ArchiveSettingsResponse> => {
   const res = await ensureOk(client.api.settings.archive.$get());
   return res.json();
@@ -87,43 +81,27 @@ export const resetArchiveSettings = async (): Promise<ArchiveSettingsResponse> =
   return res.json();
 };
 
-/**
- * 設定 → モデルのプロバイダー認証状態（純粋読取）。キー値は含まれない。
- * モデル数と一覧は別途 `getRuntimeModels()` が持ち、片方の失敗が他方を隠さない。
- */
+/** キー値は含まれない。モデルの一覧と可用性は `getRuntimeModels()` が持ち、片方の失敗が他方を隠さない */
 export const getModelsSettings = async (): Promise<ModelsSettingsResponse> => {
   const res = await ensureOk(client.api.settings.models.$get());
   return res.json();
 };
 
-/**
- * pi.dev のモデルカタログを取り直す。取得できなくても 200 で、失敗は `catalogError` にだけ載る
- * （一覧は手元に残る）。設定は変わらないため、応答は `GET /api/runtime/models` と同じ形 + この 1 フィールド。
- */
+/** 取得できなくても 200 で、失敗は `catalogError` にだけ載る（一覧は手元に残る） */
 export const refreshModelCatalog = () =>
   read<ModelCatalogRefreshResponse>(client.api.settings.models.catalog.refresh.$post());
 
-/**
- * 利用可能なモデルとアプリ既定モデルの一括保存。両方 null は「未設定へ戻す」。
- * SDK 呼び出しを含まないため `applied_unsynced` にはならない。
- */
 export const putModelAvailability = (input: UpdateModelAvailabilityBody) =>
   read<ModelMutationResponse>(client.api.settings.models.allowed.$put({ json: input }));
 
-/** APIキーの登録（既存は上書き）。保存は確定し、SDK へ未反映なら `state: "applied_unsynced"` で返る */
 export const putProviderApiKey = (provider: string, apiKey: string) =>
   read<ModelMutationResponse>(
     client.api.settings.models[":provider"].key.$put({ param: { provider }, json: { apiKey } }),
   );
 
-/** この画面で登録したキーの削除。この画面の管理外（行が無い）は 400 */
 export const deleteProviderApiKey = (provider: string) =>
   read<ModelMutationResponse>(client.api.settings.models[":provider"].key.$delete({ param: { provider } }));
 
-/**
- * provider のメモ（人間用の任意文字列）。SDK に触れないため常に `state: "applied"`。
- * 空文字を送ると行が消えて `memo: null` に戻る。
- */
 export const putProviderMemo = (provider: string, memo: string) =>
   read<ModelMutationResponse>(
     client.api.settings.models[":provider"].memo.$put({ param: { provider }, json: { memo } }),
@@ -142,14 +120,10 @@ export const putCustomProvider = (provider: string, input: UpdateCustomProviderB
     client.api.settings["custom-providers"][":provider"].$put({ param: { provider }, json: input }),
   );
 
-/** カスタムプロバイダーの削除。アプリ DB の行を消してから、実行中のランタイムの定義とキーを外す */
 export const deleteCustomProvider = (provider: string) =>
   read<ModelMutationResponse>(client.api.settings["custom-providers"][":provider"].$delete({ param: { provider } }));
 
-/**
- * カスタムプロバイダーの `/models` を取得する。接続できない場合も 200 の分類で返るため、
- * ここが失敗するのは body 不正 (400) だけ。`settings` は変えない。
- */
+/** 接続できない場合も 200 の分類で返るため、ここが失敗するのは本文不正 (400) だけ */
 export const probeCustomProvider = (input: CustomProviderProbeBody) =>
   read<CustomProviderProbeResponse>(client.api.settings["custom-providers"].probe.$post({ json: input }));
 
@@ -157,10 +131,6 @@ export const probeCustomProvider = (input: CustomProviderProbeBody) =>
 export const resyncProviderApiKey = (provider: string) =>
   read<ModelMutationResponse>(client.api.settings.models[":provider"].resync.$post({ param: { provider } }));
 
-/**
- * OAuth サインインの開始。応答は GET と同じ形で、進行中の認可 URL は provider.login にだけ載る。
- * アプリ DB は変わらないため `state` は無い。進行中の二重開始は 409。
- */
 export const startOAuthLogin = (provider: string) =>
   read<ModelsSettingsResponse>(client.api.settings.models[":provider"].login.$post({ param: { provider } }));
 
@@ -190,51 +160,33 @@ export const cancelOAuthLogin = (provider: string) =>
 export const logoutOAuthProvider = (provider: string) =>
   read<ModelsSettingsResponse>(client.api.settings.models[":provider"].logout.$post({ param: { provider } }));
 
-/**
- * 設定 → コンテンツ生成の設定（純粋読取）。APIキーは含まれず、登録済みでも値は返らない。
- * 画像モデルの選択肢は `image.models` で、キー未設定なら configured: false。
- */
+/** APIキーは登録済みでも値が返らず、有無だけを返す */
 export const getContentSettings = async (): Promise<ContentSettingsResponse> => {
   const res = await ensureOk(client.api.settings.content.$get());
   return res.json();
 };
 
-/**
- * 有効 / 無効（画像・音声・BGM 共通の 1 つのトグル）。キーと選択は保持され、行が無ければ 400。
- * 保存した瞬間から、既存のセッションにも次の呼び出しから効く。
- */
+/** 画像・音声・BGM 共通の 1 つのトグル。保存した瞬間から既存のセッションの次の呼び出しにも効く */
 export const putContentEnabled = async (enabled: boolean): Promise<ContentMutationResponse> => {
   const res = await ensureOk(client.api.settings.content.$put({ json: { enabled } }));
   return res.json();
 };
 
-/** 画像モデルの変更。キーは保持され、行が無ければ 400 */
 export const putContentImageSettings = (input: UpdateContentImageBody) =>
   read<ContentMutationResponse>(client.api.settings.content.image.$put({ json: input }));
 
-/**
- * 画像の生成元（openrouter / codex）の変更。キーもモデルも伴わず、行が無くても受け付ける
- * （Codex はAPIキーを使わない）。切り替えても他方の設定は消えない。
- */
+/** キーもモデルも伴わない（Codex はAPIキーを使わない）。切り替えても他方の設定は消えない */
 export const putContentImageProvider = (input: UpdateContentImageProviderBody) =>
   read<ContentMutationResponse>(client.api.settings.content.image.provider.$put({ json: input }));
 
-/**
- * 音声モデル / ボイスの変更。キーと画像モデルは保持され、行が無ければ 400。
- * `voice` の空文字は「指定なし」（宣言が無いモデルで送らない）を表す。
- */
+/** `voice` の空文字は「指定なし」（宣言が無いモデルで送らない）を表す */
 export const putContentSpeechSettings = (input: UpdateContentSpeechBody) =>
   read<ContentMutationResponse>(client.api.settings.content.speech.$put({ json: input }));
 
-/** コンテンツ生成（画像 / 音声）のAPIキーの登録・上書き。行が無ければ既定 provider / model で作成される */
 export const putContentApiKey = (apiKey: string) =>
   read<ContentMutationResponse>(client.api.settings.content.key.$put({ json: { apiKey } }));
 
-/**
- * 試行ジョブの開始。応答は 202（開始）か 200（同じ入力の保存済み結果を再利用。課金しない）で、
- * 状態は `getContentTrial` / `listContentTrials` で取る。
- * リクエストの signal には結び付けない（画面を離れても続き、中断はキャンセル API だけが行う）。
- */
+/** 同じ入力の保存済み結果を再利用したときは課金しない。リクエストの signal には結び付けない (画面を離れても続き、中断はキャンセル API だけが行う) */
 export const startContentTrial = (input: CreateContentTrialBody) =>
   read<ContentTrialStartResponse>(client.api.settings.content.trials.$post({ json: input }));
 
@@ -247,8 +199,7 @@ export function contentTrialStartFailure(error: unknown): "disk_shortage" | "oth
 }
 
 /**
- * 試行の一覧（新しい順）。`kind` を省くと全種別。`limit` / `before` でページを進め、`state: "running"` は
- * 実行中の行だけを取る（実行中のポーリングを履歴の件数に比例させない）。
+ * 試行の一覧（新しい順）を取る。実行中のポーリングを履歴の件数に比例させないため、`state: "running"` で絞る。
  * 取得のたびにサーバーが running の再照合をする。
  */
 export interface ContentTrialsQuery {
@@ -256,7 +207,6 @@ export interface ContentTrialsQuery {
   limit?: number;
   /** 前のページの `nextBefore`。不透明なので組み立てない */
   before?: string;
-  /** 実行中の行だけを取る */
   state?: "running";
 }
 
@@ -341,7 +291,6 @@ export const getWebSearchSettings = async (): Promise<WebSearchSettingsResponse>
 export const putWebSearchSettings = (enabled: boolean) =>
   read<WebSearchMutationResponse>(client.api.settings["web-search"].$put({ json: { enabled } }));
 
-/** 既定の検索プロバイダー。選んだ時点で保存され、次の検索から使われる */
 export const putWebSearchProvider = (provider: WebSearchProviderId) =>
   read<WebSearchMutationResponse>(client.api.settings["web-search"].provider.$put({ json: { provider } }));
 
@@ -505,5 +454,4 @@ export const applyBackupRestore = (file: File, targets: readonly BackupTarget[])
     }),
   );
 
-/** ユーザー定義エージェント / 自作プロンプト / 共通スキルの全削除 */
 export const resetDefinitions = () => read<BackupResetResult>(client.api.backup.reset.$post());

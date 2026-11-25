@@ -13,39 +13,26 @@ export const getFiles = (path = ".") => read<FileListing>(client.api.files.$get(
  */
 export const statFile = (path: string) => read<FileStat>(client.api.files.stat.$get({ query: { path } }));
 
-/**
- * 作業フォルダ (root 相対) が属する repo のブランチ。repo の外・git が無い環境は null で、
- * 表示側はチップを出さないだけにする (一覧の表示を止めない)。
- */
+/** repo の外・git が無い環境は null。表示側はチップを出さないだけにして、一覧の表示を止めない */
 export const getGitInfo = (path = ".") => read<GitInfo>(client.api.files.git.$get({ query: { path } }));
 
-/**
- * ファイルの削除。成功は 204 で本文が無いため JSON は読まない。パスは GET /api/files と同じ root 相対で、
- * 検証 (root 外 / 不存在 / symlink / ディレクトリ) はサンドボックスに委ねる。
- */
+/** 成功は 204 で本文が無い。パスの検証 (root 外 / 不存在 / symlink / ディレクトリ) はサンドボックスに委ねる */
 export const deleteFile = async (path: string): Promise<void> => {
   await ensureOk(client.api.files.$delete({ query: { path } }));
 };
 
-/**
- * ディレクトリの削除。配下ごと消す `recursive=true` を明示して呼ぶ (空ディレクトリも同じ経路)。
- * 成功は 204 で本文が無いため JSON は読まない。検証 (root 外 / 不存在 / ディレクトリ以外 / symlink) はサンドボックスに委ねる。
- */
+/** 配下ごと消す `recursive=true` を明示して呼ぶ (空ディレクトリも同じ経路)。検証はサンドボックスに委ねる */
 export const deleteDirectory = async (path: string): Promise<void> => {
   await ensureOk(client.api.files.$delete({ query: { path, recursive: "true" } }));
 };
 
-/**
- * エントリ (ファイル / ディレクトリ) のリネーム。`path` は GET /api/files と同じ root 相対で、`name` は 1 セグメントの新しい名前。
- * 検証 (root 外 / 不存在 / 形式 / symlink / 同名 409) はサンドボックスに委ね、応答は改名後の root 相対パス。
- */
+/** `name` は 1 セグメントの新しい名前。検証 (root 外 / 形式 / symlink / 同名 409) はサンドボックスに委ねる */
 export const renameEntry = (path: string, name: string) =>
   read<FileRename>(client.api.files.rename.$post({ json: { path, name } }));
 
 /**
- * 設定 → ファイル と作業環境（作業フォルダ）のドラッグ＆ドロップ。raw の本文で 1 ファイルを送り、保存先 (`path`。"" は root) と
- * 名前は query で渡す。保存名の検証・同名時の連番・上限の最終判定はサンドボックスが行う。
- * 一覧の再取得は呼び出し側 (hook) が全件の決着後に 1 回だけ行う。
+ * 設定 → ファイル と作業環境（作業フォルダ）のドラッグ＆ドロップ。1 ファイルを raw で送る。
+ * 保存名の検証・同名時の連番・上限の最終判定はサンドボックスが行い、一覧の再取得は呼び出し側 (hook) が全件の決着後に 1 回だけ行う。
  */
 export const uploadWorkspaceFile = (path: string, file: File, signal?: AbortSignal) =>
   read<FileUpload>(
@@ -90,15 +77,12 @@ export const fileRawUrl = (path: string, version?: number): string => {
   return url.toString();
 };
 
-/**
- * ダウンロードの事前チェック。download と同じ走査の見積り（種別 / 保存名 / 除外名 / 合計サイズ / 件数）を返し、
- * 除外名のディレクトリ・上限超過は 400 / 413 で reject する（UI はツリーの行に理由を出す）。
- */
+/** UI は 400 / 413 の理由をツリーの行に出す (download と同じ走査の見積りを先に取る) */
 export const getFileDownloadCheck = (path: string) =>
   read<FileDownloadCheck>(client.api.files.download.check.$get({ query: { path } }));
 
 /**
- * ダウンロードの URL（`<a download>` の href）。ファイルは生配信、ディレクトリは ZIP になり、
- * 保存名は応答の `Content-Disposition` が決める。本文は fetch せずブラウザに任せる（100 MiB を保持しない）。
+ * ダウンロードの URL（`<a download>` の href）。保存名は応答の `Content-Disposition` が決める。
+ * 本文は fetch せずブラウザに任せる（100 MiB を保持しない）。
  */
 export const fileDownloadUrl = (path: string): string => client.api.files.download.$url({ query: { path } }).toString();
