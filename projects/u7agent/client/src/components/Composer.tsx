@@ -680,7 +680,7 @@ export function Composer({
               )}
             </div>
           </form>
-          {/* 停止は入力欄の行 (主ボタン / 控え) へ移した。footnote は理由だけを持つ */}
+          {/* footnote は警告の理由だけを持ち、停止の導線は入力欄の行にある */}
           {singleColumn ? (
             footnoteWarnings.length > 0 ? (
               <div className="px-1 pt-1.5 text-2xs text-ink-ghost">

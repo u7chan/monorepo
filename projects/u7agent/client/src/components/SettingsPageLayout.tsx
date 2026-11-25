@@ -30,6 +30,8 @@ export type SettingsPageLayoutProps = SettingsPageProps & {
 /**
  * 設定ページの共通の外装。元の full screen dialog をやめてメイン列に置くため、
  * ヘッダ + 本文 (+ ノート) を viewport の高さいっぱいに組む。
+ * 取得と保存は各ページの hook が持ち (開いたときだけ取得し、再読み込みはそのページの設定だけを
+ * 取り直す)、この外装と `*View` は描画だけを行う。
  */
 export function SettingsPageLayout({
   eyebrow,

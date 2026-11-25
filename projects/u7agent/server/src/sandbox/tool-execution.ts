@@ -180,7 +180,7 @@ export function createToolExecution(
       return { path: target, create: entry.create === true };
     });
 
-  // --- アプリの global gitconfig。置き場所は HOME 配下の固定パスで、write root の外側にある ---
+  // アプリの global gitconfig は HOME 配下の固定パスで、write root の外側にある
   const gitTarget = gitConfigTarget(options.homeDir ?? homedir());
   const gitStatus: { state: "ready" | "failed"; reason?: GitConfigFailureReason } = { state: "ready" };
   const ownershipChecked = new Map<string, boolean>();

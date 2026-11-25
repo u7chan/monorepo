@@ -112,7 +112,7 @@ export function fileRowActions({
   if (!symlink && !isArchiveExcludedName(name, excludeNames)) {
     actions.push(
       type === "dir"
-        ? // ディレクトリの zip は除外を含むため、押す前の開示を 2 行目へ移す (以前の title 相当)
+        ? // ディレクトリの zip は除外を含むため、押す前の開示を 2 行目に置く
           {
             kind: "download",
             label: "ZIP でダウンロード",

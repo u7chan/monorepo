@@ -119,7 +119,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   const activityDocked = route.view === "activity" && activityPlacement === "docked";
   const compactTapTargets = activityPlacement === "overlay";
   const sidebarDocked = resolveSidebarPlacement(viewportWidth, layout) === "docked" || activityDocked;
-  // 左バーの幅は docked のシェル (grid の 1 列目) が使う。overlay のドロワーは従来どおり固定幅
+  // 左バーの幅は docked のシェル (grid の 1 列目) が使う。overlay のドロワーは固定幅
   const sidebarWidth = useSidebarWidth();
   // 右パネルの幅は main 列の残りで決まる (docked は左バーの実幅を引く。overlay は main = viewport)
   const panelWidth = useSessionFilesPanelWidth({
@@ -127,7 +127,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     mainWidth: sidebarDocked ? viewportWidth - sidebarWidth.width : viewportWidth,
   });
   const mainView = route.view;
-  // 一覧の state は全スペースで 1 本。サイドバー・モデルの最終使用・選択の移り先は、従来どおり
+  // 一覧の state は全スペースで 1 本。サイドバー・モデルの最終使用・選択の移り先は
   // 現在のスペースだけを見る (現在スペースの一覧の意味を変えない)
   const spaceSessions = useMemo(
     () => sessionsInSpace(app.sessions, space.selected.id),

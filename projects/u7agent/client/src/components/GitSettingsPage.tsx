@@ -5,10 +5,7 @@ import { SettingsPlaceholder } from "./SettingsPlaceholder";
 import { TabToolbar } from "./TabToolbar";
 import { GitSettingsTab } from "./git-settings/GitSettingsTab";
 
-/**
- * 設定 → Git。hook はこの画面が持ち (開いたときだけ取得する)、
- * 再読み込みもこの画面の設定だけを取り直す。
- */
+/** 設定 → Git */
 export function GitSettingsPage({ singleColumn, onBack, onOpenNav }: SettingsPageProps) {
   const gitSettings = useGitSettings();
   return (
@@ -16,7 +13,6 @@ export function GitSettingsPage({ singleColumn, onBack, onOpenNav }: SettingsPag
   );
 }
 
-/** 表示だけを持つ部分。取得の成否は gitSettings が持ち、ここは描画に徹する */
 export function GitSettingsView({
   gitSettings,
   singleColumn = false,

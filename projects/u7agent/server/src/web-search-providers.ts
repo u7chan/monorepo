@@ -99,7 +99,7 @@ function readResultItems(
     });
 }
 
-/* --- Exa (keyless な MCP へ JSON-RPC の tools/call を 1 回送る) --- */
+/* Exa: keyless な MCP へ JSON-RPC の tools/call を 1 回送る */
 
 /** tools/call で呼ぶ Exa のツール名。advanced が消えたときの basic へのフォールバックは持たない */
 export const EXA_API_TOOL_NAME = "web_search_advanced_exa";
@@ -199,7 +199,7 @@ const exaProvider: WebSearchProvider = {
   },
 };
 
-/* --- Tavily (APIキー必須の検索 API) --- */
+/* Tavily: APIキー必須の検索 API */
 
 export const TAVILY_ENDPOINT = "https://api.tavily.com/search";
 

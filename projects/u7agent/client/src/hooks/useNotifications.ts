@@ -25,7 +25,6 @@ export function useNotifications() {
   /** 直前の保存値。取得値へ下書きを追従させるときの「未編集」判定に使う */
   const settingsRef = useRef<NotificationsResponse | null>(null);
   const [beginLoad] = useState(createRequestGate);
-  // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
   const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
 
   const setDraft = useCallback((patch: Partial<NotificationDraft>) => {

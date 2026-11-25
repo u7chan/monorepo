@@ -52,7 +52,6 @@ export function SessionForkDialog({
     void (async () => {
       try {
         await onFork(forkRequest(choice));
-        // 閉じるまで busy を戻さない (成功後に二重送信できないように)
         shellRef.current?.requestClose();
       } catch (err) {
         // 一覧の状態は巻き戻さず、理由だけをこの画面へ出す

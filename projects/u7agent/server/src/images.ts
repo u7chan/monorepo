@@ -252,7 +252,7 @@ export function normalizeImageParameters(
 }
 
 /**
- * 送信本文へ足す値。省略された値は載せない（未指定のときの本文を従来と同一に保ち、provider の既定に任せる）。
+ * 送信本文へ足す値。省略された値は載せない（未指定のときの本文を変えず、provider の既定に任せる）。
  */
 export function imageParameterBody(
   values: ImageParameterValues | undefined,
@@ -393,7 +393,7 @@ export interface ImageRequestBase {
   /** ユーザー中断。timeout の自前タイマーとは別に扱う */
   signal?: AbortSignal | undefined;
   /**
-   * 参照画像（検証済みの data URL）。空 / 省略なら従来どおりの新規生成で、送信 JSON に
+   * 参照画像（検証済みの data URL）。空 / 省略なら新規生成で、送信 JSON に
    * `input_references` を付けない。値はツール引数・結果・ログへ出さない。
    */
   inputReferences?: readonly string[] | undefined;

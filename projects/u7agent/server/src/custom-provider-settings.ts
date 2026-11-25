@@ -199,14 +199,12 @@ export class CustomProviderSettings {
         requireAppSecretCipher(this.port.appCipher).encrypt("custom_providers", definition.id, definition.apiKey),
       );
     } catch {
-      // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
       console.warn(`[u7agent] custom provider key encryption failed: ${definition.id}`);
       return notStored(APP_SECRET_NOT_STORED_MESSAGE);
     }
     try {
       this.port.db.saveCustomProvider(row);
     } catch {
-      // DB の理由は AppDb の境界がマスクして記録する。ここは操作の分類だけに絞る
       console.warn(`[u7agent] custom provider save failed: ${definition.id}`);
       return notStored(CUSTOM_PROVIDER_NOT_STORED_MESSAGE);
     }

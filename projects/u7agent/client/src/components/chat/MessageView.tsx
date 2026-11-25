@@ -92,7 +92,7 @@ export function MessageView({
   skillBadges: SkillBadge[];
   copied: boolean;
   singleColumn: boolean;
-  /** assistant の表示名 (セッションのスナップショット)。未指定は従来の「アシスタント」 */
+  /** assistant の表示名 (セッションのスナップショット)。未指定は「アシスタント」 */
   agentName?: string;
   /** 未設定なら SparkleIcon へフォールバックする */
   agentIcon?: string;

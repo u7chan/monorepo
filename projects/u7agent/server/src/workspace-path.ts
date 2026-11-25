@@ -1,6 +1,6 @@
 /**
- * 生成物をサンドボックスへ保存するときのパス変換。`generate_image` と `generate_speech` で
- * 同じ拒否規則・同じ文言を使うため、ツールの種別に依存しない層として切り出す。
+ * 生成物をサンドボックスへ保存するときのパス変換。`generate_image` と `generate_speech` が
+ * 同じ拒否規則・同じ文言を使うため、ツールの種別に依存しない層に置く。
  */
 
 export interface ToolPathTarget {

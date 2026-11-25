@@ -271,7 +271,7 @@ function isPrivateIpv6(address: string): boolean {
 export const CONTENT_COST_ALLOW_PRIVATE_ENV = "PI_CONTENT_COST_ALLOW_PRIVATE";
 
 /**
- * env の値を解釈する。未設定・未知の値は false（従来どおりグローバルだけを許可）へ倒す。
+ * env の値を解釈する。未設定・未知の値は false（グローバルだけを許可）へ倒す。
  * 接続先の制限は安全側の設定なので、設定ミスで緩まない向きに倒す（`networkAccessMode()` とは逆）。
  */
 export function allowPrivateCostHost(raw: string | undefined = process.env[CONTENT_COST_ALLOW_PRIVATE_ENV]): boolean {

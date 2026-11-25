@@ -82,6 +82,7 @@ export function evaluateAppSecret({
   }
 }
 
+/** 暗号化できない (master key 未設定 / 不正) ときは平文で保存させず、固定文言の例外で止める */
 export function requireAppSecretCipher(cipher: AppSecretCipher | null): AppSecretCipher {
   if (!cipher) throw new Error(APP_SECRET_NOT_STORED_MESSAGE);
   return cipher;

@@ -234,10 +234,8 @@ export const SessionHistoryClearResponseSchema = z.object({
 });
 export type SessionHistoryClearResponse = z.infer<typeof SessionHistoryClearResponseSchema>;
 
-// ---------------------------------------------------------------------------
-// リクエスト body スキーマ
-// route が見るのは JSON の形と型だけ。必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
-// ---------------------------------------------------------------------------
+// リクエスト body スキーマ。route が見るのは JSON の形と型だけで、
+// 必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
 export const PostMessageBodySchema = z.object({
   /** 通常の送信は必須。`resendSendId` を指定した再送では本文を送らず、サーバーが保存済みの本文を使う */
   text: z.string().optional(),
@@ -435,9 +433,7 @@ export type EventEntry = {
   [T in SSEEventType]: EventEntryFor<T>;
 }[SSEEventType];
 
-// ---------------------------------------------------------------------------
 // セッション診断 (GET /api/sessions/:id/diagnostics。docs/diagnostics.md)
-// ---------------------------------------------------------------------------
 /** diagnostics の items が持つ種別。SSE の型と 1:1 で、イベントを足すとこの enum も型で要求される */
 const SSEEventTypeSchema = z.enum(Object.keys(EventDataSchemas) as [SSEEventType, ...SSEEventType[]]);
 /**

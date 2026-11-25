@@ -113,7 +113,6 @@ export function SelectMenu<TValue extends string = string>({
 
   const select = (next: TValue) => {
     if (next !== value) onChange(next);
-    // フォーカスは外さない: blur すると native の復帰が起きず、トリガーへ戻らない
     menu.close();
   };
 

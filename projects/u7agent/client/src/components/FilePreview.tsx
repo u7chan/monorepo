@@ -453,7 +453,7 @@ export function FileBreadcrumb({
   const crumbs = fileTreeBreadcrumbs(activePath);
 
   return (
-    // 表示はこれまでと同じ全体パス (tooltip) を保ち、横幅が足りなければ横スクロールへ逃がす
+    // 全体パス (tooltip) を保つため、横幅が足りなければ横スクロールへ逃がす
     <nav
       aria-label="ファイルの場所"
       title={fileTreeFetchPath(rootPath, activePath)}

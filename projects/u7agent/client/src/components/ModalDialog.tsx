@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObjec
 import { useExitPhase } from "../hooks/useExitPhase";
 import { cn } from "../lib/cn";
 
-/** 閉じる要求の入口。X / キャンセル / 背景 / 実行成功のどの経路もこの 1 本を通す */
+/**
+ * 閉じる要求の入口。X / キャンセル / 背景 / 実行成功のどの経路もこの 1 本を通す。
+ * 実行成功で呼ぶときは busy を戻さない (退場の間の二重送信を防ぐ。失敗のときだけ戻す)
+ */
 export type ModalDialogHandle = { requestClose: () => void };
 
 /** 枠の形。幅・全画面・下端シートの別だけを殻が持ち、呼び出し側は中身の組み方を持つ */

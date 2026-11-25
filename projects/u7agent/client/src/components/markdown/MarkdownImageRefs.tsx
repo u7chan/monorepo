@@ -32,7 +32,7 @@ export type MarkdownImageProviderProps = {
 
 /**
  * `![alt](src)` の 3 段解決（cwd 相対 → root 相対 → URL）。外部 URL は resolveFileRef が弾き、
- * provider の外では従来どおり素の img のまま（CSP が外部 URL を止める）。
+ * provider の外では素の img のまま（CSP が外部 URL を止める）。
  */
 export function MarkdownImageProvider({ rootCwd, cwd, rawUrl, children }: MarkdownImageProviderProps) {
   const value = useMemo<MarkdownImageResolver>(

@@ -3,7 +3,7 @@ import { CheckIcon } from "../icons";
 import { ToggleSwitch } from "../ToggleSwitch";
 
 /**
- * コストマスタの接続先。価格は手動の [カタログ更新] のときだけ取りに行く。未設定でも従来どおり動くため、
+ * コストマスタの接続先。価格は手動の [カタログ更新] のときだけ取りに行く。未設定でも動くため、
  * OFF の間は URL を残したまま入力欄だけを非活性にする。
  */
 export function ContentCostSection({

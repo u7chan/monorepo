@@ -400,7 +400,6 @@ export class ModelSettingsService {
       try {
         this.#db.saveModelSettings(stored);
       } catch {
-        // DB の理由は AppDb の境界がマスクして記録する。ここは操作の分類だけに絞る
         console.warn("[u7agent] model selection save failed");
         return this.#notStored(MODEL_SELECTION_NOT_STORED_MESSAGE);
       }
@@ -448,7 +447,6 @@ export class ModelSettingsService {
         if (trimmed) this.#db.saveProviderMemo(provider, trimmed);
         else this.#db.deleteProviderMemo(provider);
       } catch {
-        // DB の理由は AppDb の境界がマスクして記録する。ここは provider と操作の分類だけに絞る
         console.warn(`[u7agent] provider memo ${trimmed ? "save" : "delete"} failed: ${provider}`);
         return this.#notStored(PROVIDER_MEMO_NOT_STORED_MESSAGE);
       }
@@ -481,7 +479,6 @@ export class ModelSettingsService {
       try {
         secret = requireAppSecretCipher(this.#appCipher).encrypt("provider_credentials", provider, apiKey);
       } catch {
-        // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
         console.warn(`[u7agent] provider key encryption failed: ${provider}`);
         return this.#notStored(APP_SECRET_NOT_STORED_MESSAGE);
       }
@@ -489,7 +486,6 @@ export class ModelSettingsService {
         // 保存日時は DB を持つ (最終使用は保存しない)。projects.createdAt と同じく呼び出し側で作る
         this.#db.saveProviderCredential(provider, secret, Date.now());
       } catch {
-        // DB の理由は AppDb の境界がマスクして記録する。ここは provider と操作の分類だけに絞る
         console.warn(`[u7agent] provider key save failed: ${provider}`);
         return this.#notStored();
       }

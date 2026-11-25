@@ -71,7 +71,7 @@ function useFileRefAction(opener: FileRefOpener | null, target: FileRefTarget | 
   return { checking: state === "checking", failure, open };
 }
 
-/** 参照にならない字面と provider の外 (設定ページの再利用など) は従来どおりのインラインコードにする */
+/** 参照にならない字面と provider の外 (設定ページの再利用など) はインラインコードにする */
 export function InlineFileRef({ text }: { text: string }) {
   const opener = useContext(FileRefContext);
   const target = opener === null ? null : opener.resolve(text);
@@ -96,7 +96,7 @@ export function InlineFileRef({ text }: { text: string }) {
 
 /**
  * 作業フォルダ / スキルのファイルを指す Markdown リンクを、インラインコードと同じ導線で開く。
- * 解決できない href は従来どおりのリンクのままにする (一般の相対 Web リンクを横取りしないため)。
+ * 解決できない href はリンクのままにする (一般の相対 Web リンクを横取りしないため)。
  */
 export function MarkdownLink({ href, title, children }: { href: string; title?: string; children: ReactNode }) {
   const opener = useContext(FileRefContext);

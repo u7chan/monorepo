@@ -36,7 +36,7 @@ export function composerAction({
   stopPrimaryHeld,
   voicePhase = "idle",
 }: ComposerActionInput): ComposerAction {
-  // 音声が待機の間は従来の規則をそのまま使う (録音のために run と待機キューの停止導線を落とさない)
+  // 音声が待機の間も本文の規則を使う (録音のために run と待機キューの停止導線を落とさない)
   if (voicePhase === "connecting") return "voiceCancel";
   if (voicePhase === "recording") return "voiceStop";
   if (voicePhase === "finalizing") return "voiceFinalizing";

@@ -78,7 +78,6 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
   const [reloading, setReloading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [beginLoad] = useState(createRequestGate);
-  // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
   const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
   const [refreshTracker] = useState(() => createLoadingTracker(setRefreshing));
   // provider ごとの直近のサインイン状態。進行中 → 終端の遷移で health とカタログを 1 回だけ取り直す

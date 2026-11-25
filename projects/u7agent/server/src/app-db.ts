@@ -92,9 +92,9 @@ export interface ModelSettingsRow {
 /**
  * コンテンツ生成の保存行。**行が無い = 未設定**で、キー削除は行ごと消す。APIキーは AEAD の暗号文で、
  * 3 列がすべて NULL = キー未設定 (契約は docs/secrets.md / docs/image-generation.md)。
- * `enabled` はアプリ全体の有効 / 無効で、v25 -> v26 で足した列（既存行は ON）。OFF でも行は残すため、
+ * `enabled` はアプリ全体の有効 / 無効（既存行は ON）。OFF でも行は残すため、
  * キーと選択は消えない（削除は別操作）。
- * 音声の 2 列は v15 -> v16 で足した nullable 列で、NULL は既定（モデル）と「宣言する先頭ボイス」
+ * 音声の 2 列は nullable 列で、NULL は既定（モデル）と「宣言する先頭ボイス」
  * （voice）へフォールバックして読む。
  */
 export interface ContentSettingsRow {
@@ -105,7 +105,7 @@ export interface ContentSettingsRow {
   enabled: boolean;
   /**
    * 画像の生成パラメータの既定（bare なモデル id → 値）。null = 既定なし、`{}` = 空の map を保存済み
-   * （v43 → v44 の加算移行で足した列で、既存行は NULL のまま）。
+   * （既存行は NULL のまま）。
    */
   imageParams: ImageParameterDefaults | null;
   /** APIキーの暗号文。null = キー未設定 */
@@ -152,7 +152,7 @@ export interface ContentTrialArtifactRow {
 export interface ContentTrialRow {
   id: string;
   kind: string;
-  /** 生成元。NULL の既存行は openrouter として読む（v42 で足した列） */
+  /** 生成元。NULL の既存行は openrouter として読む */
   provider: string;
   /** 送信時のモデル (`provider/id`)。現在の保存値とは別に持つ */
   model: string;
@@ -162,7 +162,7 @@ export interface ContentTrialRow {
   instructions: string | null;
   speed: number | null;
   /**
-   * 画像の入力スナップショット。null = 未指定（v42 → v43 で足した列）。表示用の別列は持たず、
+   * 画像の入力スナップショット。null = 未指定。表示用の別列は持たず、
    * 保存する正規化 JSON をそのまま再利用の照合に使う
    */
   parameters: ImageParameterValues | null;
@@ -937,7 +937,7 @@ export class AppDb {
       const version = instance.#schemaVersion();
       // user_version が 0 = 未初期化 (新規ファイル・0 バイトの残骸・メモリ DB)。このときだけ初期値を入れる
       if (version === 0) instance.#schema.recreate(true);
-      // 古い版は加算的に移行する (定義を消さない)。未知の新しい版だけ従来どおり作り直す
+      // 古い版は加算的に移行する (定義を消さない)。未知の新しい版だけ作り直す
       else if (version < APP_DB_SCHEMA_VERSION) instance.#schema.migrate(version);
       else if (version > APP_DB_SCHEMA_VERSION) instance.#schema.recreate(false);
       // 廃止した組み込みプロンプトの行を、新規作成・移行・再起動のすべての経路で消す
@@ -1013,6 +1013,7 @@ export class AppDb {
   /**
    * 稼働中の失敗も 503 に寄せる (成功したら解除する)。理由は health にも出る。
    * `storedValueKey` を渡した読取は「壊れた保存値」として扱い、別テーブルの成功では消さない。
+   * 呼び出し側は理由 (例外文言) を写さず、操作の分類だけを返す (マスクと記録はここで済ませている)。
    */
   #query<T>(fn: (db: DatabaseSync) => T, storedValueKey?: string): T {
     const db = this.#handle();
@@ -1078,8 +1079,6 @@ export class AppDb {
     return Number(row?.user_version ?? 0);
   }
 
-  // --- notification settings (1 行だけ) ---
-
   getNotificationSettings(): NotificationSettingsRow | undefined {
     const row = this.#secretQuery(
       (db) => db.prepare("SELECT * FROM notification_settings WHERE id = 1").get() as Row | undefined,
@@ -1112,8 +1111,6 @@ export class AppDb {
     );
   }
 
-  // --- archive settings (1 行だけ。行が無い = 未設定) ---
-
   readArchiveExcludeNames(): string[] | undefined {
     return this.#query((db) => {
       const row = db.prepare("SELECT * FROM archive_settings WHERE id = 1").get() as Row | undefined;
@@ -1140,8 +1137,6 @@ export class AppDb {
   resetArchiveExcludeNames(): boolean {
     return this.#query((db) => db.prepare("DELETE FROM archive_settings WHERE id = 1").run().changes > 0);
   }
-
-  // --- provider credentials (GUI から登録したプロバイダー API キー) ---
 
   listProviderCredentials(): ProviderCredentialRow[] {
     return this.#secretQuery((db) =>
@@ -1181,8 +1176,6 @@ export class AppDb {
     );
   }
 
-  // --- provider memos (provider に紐づく人間用メモ。行が無い = 未設定) ---
-
   listProviderMemos(): ProviderMemoRow[] {
     return this.#memoQuery((db) =>
       (db.prepare("SELECT * FROM provider_memos ORDER BY rowid").all() as Row[])
@@ -1215,8 +1208,6 @@ export class AppDb {
       (db) => db.prepare("DELETE FROM provider_memos WHERE provider = ?").run(provider).changes > 0,
     );
   }
-
-  // --- custom providers (定義と暗号化したAPIキー。行が無い = 未登録) ---
 
   listCustomProviders(): CustomProviderRow[] {
     return this.#secretQuery((db) =>
@@ -1268,8 +1259,6 @@ export class AppDb {
     );
   }
 
-  // --- model settings (1 行だけ。行が無い = 未設定) ---
-
   /** 行が無ければ undefined。壊れた JSON は黙って未設定へ落とさず 503 にする */
   readModelSettings(): ModelSettingsRow | undefined {
     return this.#query((db) => {
@@ -1310,8 +1299,6 @@ export class AppDb {
   resetModelSettings(): boolean {
     return this.#query((db) => db.prepare("DELETE FROM model_settings WHERE id = 1").run().changes > 0);
   }
-
-  // --- content settings (1 行だけ。行が無い = 未設定) ---
 
   /** 行が無ければ undefined。空文字へ手編集された行も未設定として読む (キーは暗号文だけを返す) */
   readContentSettings(): ContentSettingsRow | undefined {
@@ -1371,8 +1358,6 @@ export class AppDb {
         .run(settings.provider, settings.codexParams),
     );
   }
-
-  // --- content trials (履歴。時間ベースの自動削除はしない) ---
 
   /** 現在のキー世代。行が無ければ 0 (まだ一度もキーを保存していない) */
   readContentKeyEpoch(): number {
@@ -1628,8 +1613,6 @@ export class AppDb {
     );
   }
 
-  // --- cloudflare settings (1 行だけ。行が無い = 未登録) ---
-
   /**
    * 行が無ければ undefined。NOT NULL の列が欠けた行は、未登録と読み違えて上書きしないよう例外にする
    * (サービスが 503 へ変換し、DELETE だけは通す)。
@@ -1668,8 +1651,6 @@ export class AppDb {
     return this.#query((db) => db.prepare("DELETE FROM cloudflare_settings WHERE id = 1").run().changes > 0);
   }
 
-  // --- web search settings (1 行だけ。行が無い = 既定（無効 / exa）) ---
-
   /** 行が無ければ undefined = 既定（無効 / exa）。0 / 1 以外へ手編集された行も 1 として読む */
   readWebSearchSettings(): WebSearchSettingsRow | undefined {
     const row = this.#query(
@@ -1693,8 +1674,6 @@ export class AppDb {
         .run(settings.enabled ? 1 : 0, settings.provider),
     );
   }
-
-  // --- title summary settings (1 行だけ。行が無い = 既定 = Off / モデル未選択) ---
 
   /** 行が無ければ undefined = 既定。空白だけの定義も既定として読む */
   readTitleSummarySettings(): TitleSummarySettingsRow | undefined {
@@ -1723,8 +1702,6 @@ export class AppDb {
     );
   }
 
-  // --- git settings (1 行だけ。行が無い = 未設定) ---
-
   /** 行が無ければ undefined = 未設定。片方だけの行は壊れた保存値として未設定に倒す */
   readGitSettings(): GitSettingsRow | undefined {
     const row = this.#query((db) => db.prepare("SELECT * FROM git_settings WHERE id = 1").get() as Row | undefined);
@@ -1751,7 +1728,6 @@ export class AppDb {
     this.#query((db) => db.prepare("DELETE FROM git_settings WHERE id = 1").run());
   }
 
-  // --- web search provider keys (1 行 1 provider。行が無い = キー未設定) ---
   /** 行が無ければ undefined。値は暗号文だけで、復号はサービス側が行う */
   readWebSearchProviderKey(provider: string): StoredAppSecret | undefined {
     const row = this.#secretQuery(
@@ -1783,8 +1759,6 @@ export class AppDb {
     );
   }
 
-  // --- voice input settings (1 行だけ。行が無い = キー未設定) ---
-
   /** 行が無ければ undefined。値は暗号文だけで、復号はサービス側が行う */
   readVoiceInputSettings(): VoiceInputSettingsRow | undefined {
     const row = this.#secretQuery(
@@ -1814,8 +1788,6 @@ export class AppDb {
     return this.#secretQuery((db) => db.prepare("DELETE FROM voice_input_settings WHERE id = 1").run().changes > 0);
   }
 
-  // --- image catalog (live カタログのキャッシュ 1 行) ---
-
   /** 行が無い / 形が崩れているときは undefined（未取得として SDK カタログへ落とす。health の失敗にはしない） */
   readImageCatalog(): ImageCatalogRow | undefined {
     const row = this.#query((db) => db.prepare("SELECT * FROM image_catalog WHERE id = 1").get() as Row | undefined);
@@ -1838,8 +1810,6 @@ export class AppDb {
     );
   }
 
-  // --- speech catalog (live カタログのキャッシュ 1 行) ---
-
   /** 行が無い / 形が崩れているときは undefined（未取得として同梱の既定カタログへ落とす。health の失敗にはしない） */
   readSpeechCatalog(): SpeechCatalogRow | undefined {
     const row = this.#query((db) => db.prepare("SELECT * FROM speech_catalog WHERE id = 1").get() as Row | undefined);
@@ -1849,8 +1819,6 @@ export class AppDb {
     if (!models || !Number.isFinite(fetchedAt)) return undefined;
     return { fetchedAt, models };
   }
-
-  // --- content cost settings (1 行だけ。行が無い = 未設定) ---
 
   /** 行が無い / 空 URL の行は undefined（未設定。GET は OFF の投影を返す） */
   readContentCostSettings(): ContentCostSettingsRow | undefined {
@@ -1880,8 +1848,6 @@ export class AppDb {
     return this.#query((db) => db.prepare("DELETE FROM content_cost_settings WHERE id = 1").run().changes > 0);
   }
 
-  // --- content cost catalog (価格スナップショット 1 行) ---
-
   /** 行が無い / 形が崩れているときは undefined（未取得として `--` の表示へ倒す。health の失敗にはしない） */
   readContentCostCatalog(): ContentCostCatalogRow | undefined {
     const row = this.#query(
@@ -1907,8 +1873,6 @@ export class AppDb {
   deleteContentCostCatalog(): void {
     this.#query((db) => db.prepare("DELETE FROM content_cost_catalog WHERE id = 1").run());
   }
-
-  // --- speech formats (モデルごとの応答形式の学習結果) ---
 
   /** 行が無い / 形式が読めない行は undefined（未学習として mp3 から試す。health の失敗にはしない） */
   readSpeechFormat(model: string): SpeechAudioFormat | undefined {
@@ -1943,8 +1907,6 @@ export class AppDb {
         .run(row.fetchedAt, JSON.stringify(row.models)),
     );
   }
-
-  // --- spaces ---
 
   listSpaces(): Space[] {
     return this.#query((db) =>
@@ -2000,8 +1962,6 @@ export class AppDb {
     });
   }
 
-  // --- projects ---
-
   listProjects(): Project[] {
     return this.#query((db) => (db.prepare("SELECT * FROM projects ORDER BY rowid").all() as Row[]).map(projectOf));
   }
@@ -2027,8 +1987,6 @@ export class AppDb {
   deleteProject(id: string): boolean {
     return this.#query((db) => db.prepare("DELETE FROM projects WHERE id = ?").run(id).changes > 0);
   }
-
-  // --- agents ---
 
   /** 表示順 (sortOrder 昇順)。移行前の行は NULL なので、同じ NULL 同士は rowid = 作成順で並ぶ */
   listAgents(): StoredAgent[] {
@@ -2116,8 +2074,6 @@ export class AppDb {
     // 参照 (agent_prompts) は外部キーの ON DELETE CASCADE で一緒に消え、マスタは残る
     return this.#query((db) => db.prepare("DELETE FROM agents WHERE id = ?").run(id).changes > 0);
   }
-
-  // --- prompts (定型プロンプトのマスタ) ---
 
   /**
    * 一覧の並びは組み込みが先、その中は作成順。自作は保存した sortOrder の昇順で、未設定 (移行前の行) は
@@ -2245,8 +2201,6 @@ export class AppDb {
     );
   }
 
-  // --- serve (サービスの起動実績) ---
-
   getServeCommand(cwd: string): ServeCommandRow | undefined {
     const row = this.#query(
       (db) => db.prepare("SELECT * FROM serve_commands WHERE cwd = ?").get(cwd) as Row | undefined,
@@ -2265,8 +2219,6 @@ export class AppDb {
         .run(row.cwd, row.command, row.updatedAt),
     );
   }
-
-  // --- secrets (作業フォルダ単位の環境変数) ---
 
   /** 表示順 (sortOrder 昇順、同じなら名前順)。`serve_commands` と同じく cwd がキー */
   listSecrets(cwd: string): SecretRow[] {
@@ -2361,8 +2313,6 @@ export class AppDb {
     return this.#query((db) => db.prepare("DELETE FROM secrets WHERE secretId = ?").run(secretId).changes > 0);
   }
 
-  // --- assistant metrics (応答 1 件ごとの実測。派生データ) ---
-
   /**
    * 保存は (session_id, assistant_id) の upsert。**best-effort** で、失敗しても例外を投げない
    * (呼び出し側はランを止めない)。単一ステートメントなので自動コミットで確定する。
@@ -2416,8 +2366,6 @@ export class AppDb {
   deleteAssistantMetrics(sessionId: string): void {
     this.#metricsQuery((db) => db.prepare("DELETE FROM assistant_metrics WHERE session_id = ?").run(sessionId));
   }
-
-  // --- 複数テーブルにまたがる更新 (部分適用を残さない) ---
 
   /**
    * cwd をキーにする行 (secrets / serve_commands) を移動先へ付け替える。移動先に同名の行があると

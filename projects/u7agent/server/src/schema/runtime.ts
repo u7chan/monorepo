@@ -222,6 +222,4 @@ export const RuntimeDebugServeStopResultSchema = z.object({
 });
 export type RuntimeDebugServeStopResult = z.infer<typeof RuntimeDebugServeStopResultSchema>;
 
-// ---------------------------------------------------------------------------
 // 環境変数 (作業環境 → 環境変数。docs/secrets.md)
-// ---------------------------------------------------------------------------

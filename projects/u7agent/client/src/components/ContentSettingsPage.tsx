@@ -28,10 +28,7 @@ export type ContentSettingsPageProps = SettingsPageProps & {
   onSelectContentSubsection: (subsection: ContentSubsection) => void;
 };
 
-/**
- * 設定 → コンテンツ生成。hook はこの画面が持ち (開いたときだけ取得する)、
- * 再読み込みもこの画面の設定だけを取り直す。
- */
+/** 設定 → コンテンツ生成 */
 export function ContentSettingsPage({
   contentSubsection,
   onSelectContentSubsection,
@@ -61,7 +58,6 @@ export function ContentSettingsPage({
   );
 }
 
-/** 表示だけを持つ部分。取得の成否は contentSettings が持ち、ここは描画に徹する */
 export function ContentSettingsView({
   contentSettings,
   contentTrials,

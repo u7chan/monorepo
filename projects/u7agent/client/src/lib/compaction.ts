@@ -11,7 +11,7 @@ const REASON_LABELS: Record<string, string> = {
 
 /**
  * 手動圧縮の確認。押した時点で不可逆性と課金を示す (状態行に注意書きを開く導線は置かない)。
- * 出す側は `App` の `handleCompact` で、文言は DOM なしで検証できるようここに切り出す。
+ * 出す側は `App` の `handleCompact` で、文言は DOM なしで検証できるよう純関数に置く。
  */
 export function compactConfirmRequest(): ConfirmRequest {
   return {

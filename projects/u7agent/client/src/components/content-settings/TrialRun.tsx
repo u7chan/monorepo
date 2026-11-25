@@ -5,7 +5,7 @@ import { CheckIcon } from "../icons";
 
 /**
  * 3 タブ共通のワンショット生成の面。見出し・説明・余白を 1 か所に持ち、面ごとの差は入力欄の中身だけにする。
- * 保存容量は履歴タブへ移した（生成タブは保存済みの件数ではなく、いま作るものを見る面）。
+ * 生成タブは保存済みの件数ではなく、いま作るものを見る面 (保存容量は履歴タブが持つ)。
  */
 export function TrialRunSection({ description, children }: { description: string; children: ReactNode }) {
   return (

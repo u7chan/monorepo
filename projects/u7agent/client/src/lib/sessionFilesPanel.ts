@@ -1,12 +1,8 @@
-/**
- * 右パネル (作業フォルダ) の幅の規則。幅は「その端末のその窓」に依存する表示設定なので、
- * どこで境界を引くかはこの純関数だけが決め、保存は localStorage の 1 キーに閉じる。
- * 保存先の解決と状態の控えは deviceSettingsStore.ts (docs/ui-layout.md)。
- */
+/** 右パネル (作業フォルダ) の幅の規則 */
 
 import { createDeviceSettingsStore, type DeviceSettingsStorage, type DeviceSettingsStore } from "./deviceSettingsStore";
 
-/** 未指定のときの幅 = 従来の min(360px, 30vw)。これより狭い幅は選べない */
+/** 未指定のときの幅の上限 (360px)。これより狭い幅は選べない */
 export const SESSION_FILES_WIDTH_DEFAULT_MAX = 360;
 /** 未指定のときの幅の viewport 比 (30vw) */
 export const SESSION_FILES_WIDTH_DEFAULT_RATIO = 0.3;
@@ -22,9 +18,7 @@ export const SESSION_FILES_WIDTH_LIMIT = 671;
 export const SESSION_FILES_CHAT_MIN_WIDTH = 320;
 /** キーボード操作 (←→) の 1 歩 */
 export const SESSION_FILES_WIDTH_STEP = 16;
-/** これより大きい保存値は壊れた値として捨てる */
 export const SESSION_FILES_WIDTH_STORE_LIMIT = 2000;
-/** 保存キー。テーマ等と同じく端末ローカルの表示設定として持つ */
 export const SESSION_FILES_WIDTH_KEY = "u7agent-session-files-width";
 
 export type SessionFilesPanelBounds = {
@@ -52,7 +46,7 @@ export function clampSessionFilesPanelWidth(width: number, bounds: SessionFilesP
   return Math.min(bounds.max, Math.max(bounds.min, Math.round(width)));
 }
 
-/** 表示幅。未指定 (null) は最小幅 = 従来幅 */
+/** 表示幅。未指定 (null) は最小幅 */
 export function sessionFilesPanelWidth(requested: number | null, bounds: SessionFilesPanelBounds): number {
   return requested === null ? bounds.min : clampSessionFilesPanelWidth(requested, bounds);
 }
@@ -76,7 +70,6 @@ export function createSessionFilesPanelWidthStore(
   return createDeviceSettingsStore<number | null>(storage, {
     key: SESSION_FILES_WIDTH_KEY,
     parse: parseSessionFilesPanelWidth,
-    // null は保存を消す (ダブルクリックの「未指定へ戻す」)
     serialize: (width) => (width === null ? null : String(width)),
     fallback: () => null,
   });

@@ -124,7 +124,7 @@ export function SettingsScreen({
         />
       );
     case "models":
-      // 最終使用の導出元は起動時から facade が持つ一覧。この画面だけに渡す (再取得はしない)
+      // 最終使用の導出元は facade が持つ一覧。この画面だけに渡す (再取得はしない)
       return (
         <ModelSettingsPage
           {...page}

@@ -14,7 +14,8 @@ type DragState = {
 };
 
 export type PointerDragOptions = {
-  /** ドラッグ開始時点の値 (幅など)。pointerdown の瞬間に控え、以後の移動量の基準にする */
+  /** ドラッグ開始時点の値 (幅など)。pointerdown の瞬間に控え、以後の移動量の基準にする
+   * (毎回の移動量を足し込まないので、clamp で端に貼り付いても戻せば追従する) */
   start: number;
   /** 横移動量 (px) と開始値を受け取り、表示する値を返す。返した値がそのまま終了時の値になる */
   move: (deltaX: number, start: number) => number;
@@ -34,6 +35,8 @@ export type PointerDragHandlers = {
 /**
  * ウィンドウ境界のドラッグ (pointerdown → move → 終了経路) の殻。幅の計算・`aria-*` の値・
  * 保存と commit のタイミングは呼び出し側に残す (3 か所で向きも clamp も確定の条件も違うため)。
+ * 呼び出し側は move の値で state を更新せず (読み上げへは DOM へ直接書く)、動いたときだけ確定する
+ * — 移動ゼロのクリックは幅を選んだ操作ではない。
  */
 export function usePointerDrag({ start, move, end }: PointerDragOptions): PointerDragHandlers {
   const dragRef = useRef<DragState | null>(null);

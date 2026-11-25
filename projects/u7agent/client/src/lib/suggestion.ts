@@ -50,7 +50,7 @@ export function suggestionSendText(prompt: string, text: string): string {
 /**
  * タイトル用に送る本文。チップ (定型プロンプト) を結合する前の入力を trim するだけで、
  * 送信本文の組み立て (suggestionSendText) とは別に持つ (タイトルから固定文を外すため)。
- * 空なら undefined を返し、サーバーに従来の判定 (本文全体) をさせる。
+ * 空なら undefined を返し、サーバーに本文全体での判定をさせる。
  */
 export function suggestionTitleSource(text: string): string | undefined {
   const body = text.trim();

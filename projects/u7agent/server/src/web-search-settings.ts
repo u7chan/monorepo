@@ -147,14 +147,12 @@ export class WebSearchSettingsService {
       try {
         secret = requireAppSecretCipher(this.#cipher).encrypt("web_search_provider_keys", id, apiKey);
       } catch {
-        // master key 未設定 / 不正では平文で保存しない
         console.warn("[u7agent] web search key encryption failed");
         return { status: 503, error: APP_SECRET_NOT_STORED_MESSAGE };
       }
       try {
         this.#db.saveWebSearchProviderKey(id, secret);
       } catch {
-        // DB の理由は AppDb の境界がマスクして記録する。ここは操作の分類だけに絞る
         console.warn("[u7agent] web search key save failed");
         return { status: 503, error: WEB_SEARCH_KEY_NOT_STORED_MESSAGE };
       }
@@ -248,7 +246,6 @@ export class WebSearchSettingsService {
       this.#db.saveWebSearchSettings(row);
       return true;
     } catch (error) {
-      // DB の理由は AppDb の境界がマスクして記録するため、ここでは操作の分類だけを返す
       console.warn(`[u7agent] web search settings save failed: ${this.#maskError(messageFor(error))}`);
       return false;
     }

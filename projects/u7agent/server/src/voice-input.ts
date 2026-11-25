@@ -163,14 +163,12 @@ export class VoiceInputSettingsService {
           apiKey,
         );
       } catch {
-        // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
         console.warn("[u7agent] voice input key encryption failed");
         return { status: 503, error: APP_SECRET_NOT_STORED_MESSAGE };
       }
       try {
         this.#db.saveVoiceInputSettings(secret);
       } catch {
-        // DB の理由は AppDb の境界がマスクして記録する。ここは操作の分類だけに絞る
         console.warn("[u7agent] voice input key save failed");
         return { status: 503, error: VOICE_INPUT_KEY_NOT_STORED_MESSAGE };
       }

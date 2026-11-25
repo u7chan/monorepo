@@ -345,7 +345,6 @@ export function AgentEditorForm({
                           required
                           maxLength={80}
                           value={form.name}
-                          // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
                           onChange={(e) => {
                             const name = e.currentTarget.value;
                             setForm((p) => ({ ...p, name }));
