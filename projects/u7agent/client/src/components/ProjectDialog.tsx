@@ -89,7 +89,6 @@ export function ProjectDialog({ onClose, onCreate, singleColumn = false }: Proje
             ? { cwd: projectChildPath(path, trimmed), name: trimmed, create: true }
             : { cwd: path, name: trimmed },
         );
-        // 閉じるまで busy を戻さない (成功後に二重送信できないように)
         shellRef.current?.requestClose();
       } catch (err) {
         setError(messageFor(err));

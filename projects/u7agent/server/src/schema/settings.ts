@@ -640,7 +640,7 @@ export const UpdateTitleSummaryBodySchema = z.object({
 });
 export type UpdateTitleSummaryBody = z.infer<typeof UpdateTitleSummaryBodySchema>;
 
-// --- Git のグローバル identity (設定 → Git) ---
+// Git のグローバル identity (設定 → Git)
 /**
  * GET /api/settings/git の応答。未設定は両方 null と configured: false で表し、
  * 片方だけ保存された状態は作らない (片方だけの PUT は 400)。
@@ -715,4 +715,4 @@ export const RuntimeInUseResponseSchema = z.object({
 });
 export type RuntimeInUseResponse = z.infer<typeof RuntimeInUseResponseSchema>;
 
-// --- バックアップ (定義の書き出し / 復元 / 全削除) ---
+// バックアップ (定義の書き出し / 復元 / 全削除)

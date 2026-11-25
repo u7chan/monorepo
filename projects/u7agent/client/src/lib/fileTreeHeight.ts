@@ -1,13 +1,12 @@
 /**
  * ファイルツリー (FileBrowser) の高さの規則。**上下 2 段のときだけ**効く (左右 2 段では高さは容器に従う)。
  * 幅 (fileTreeWidth.ts) と形は同じで、既定が「内容の高さ」で px を持たない点と、0px (ツリーを完全に
- * 隠す) を選べる点が違う。保存は localStorage の 1 キーに閉じ、保存先の解決と状態の控えは
- * deviceSettingsStore.ts (docs/ui-layout.md)。
+ * 隠す) を選べる点が違う。
  */
 
 import { createDeviceSettingsStore, type DeviceSettingsStorage, type DeviceSettingsStore } from "./deviceSettingsStore";
 
-/** 未指定のときの上限 = 従来の `max-h-64` */
+/** 未指定のときの上限 (256px) */
 export const FILE_TREE_HEIGHT_DEFAULT_MAX = 256;
 /** 選べる下限。0px はツリーを完全に隠す (境界のハンドルは残るので戻せる) */
 export const FILE_TREE_HEIGHT_MIN = 0;
@@ -15,9 +14,7 @@ export const FILE_TREE_HEIGHT_MIN = 0;
 export const FILE_TREE_PREVIEW_MIN_HEIGHT = 240;
 /** キーボード操作 (↑↓) の 1 歩 */
 export const FILE_TREE_HEIGHT_STEP = 16;
-/** これより大きい保存値は壊れた値として捨てる */
 export const FILE_TREE_HEIGHT_STORE_LIMIT = 2000;
-/** 保存キー。テーマ等と同じく端末ローカルの表示設定として持つ */
 export const FILE_TREE_HEIGHT_KEY = "u7agent-file-tree-height";
 
 export type FileTreeHeightBounds = {
@@ -85,7 +82,6 @@ export function createFileTreeHeightStore(storage?: DeviceSettingsStorage | null
   return createDeviceSettingsStore<number | null>(storage, {
     key: FILE_TREE_HEIGHT_KEY,
     parse: parseFileTreeHeight,
-    // null は保存を消す (ダブルクリックの「未指定へ戻す」)
     serialize: (height) => (height === null ? null : String(height)),
     fallback: () => null,
   });

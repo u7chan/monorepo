@@ -20,7 +20,6 @@ export function LinkCard({ value, onChange }: LinkCardProps) {
             aria-label="通知から会話を開く URL のベース"
             autoComplete="off"
             spellCheck={false}
-            // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
             onChange={(event) => {
               const next = event.currentTarget.value;
               onChange(next);

@@ -1,8 +1,6 @@
 /**
- * 左バー (Sidebar) の幅の規則。幅は「その端末のその窓」に依存する表示設定なので、
- * どこで境界を引くかはこの純関数だけが決め、保存は localStorage の 1 キーに閉じる。
- * 保存先の解決と状態の控えは deviceSettingsStore.ts (docs/ui-layout.md)。
- * 右パネル (sessionFilesPanel.ts) と形は同じで、bounds が viewport に依存しない点だけが違う。
+ * 左バー (Sidebar) の幅の規則。右パネル (sessionFilesPanel.ts) と形は同じで、
+ * bounds が viewport に依存しない点だけが違う。
  */
 
 import { createDeviceSettingsStore, type DeviceSettingsStorage, type DeviceSettingsStore } from "./deviceSettingsStore";
@@ -16,9 +14,7 @@ import { SIDEBAR_WIDTH } from "./layout";
 export const SIDEBAR_WIDTH_MAX = 400;
 /** キーボード操作 (→←) の 1 歩 */
 export const SIDEBAR_WIDTH_STEP = 16;
-/** これより大きい保存値は壊れた値として捨てる */
 export const SIDEBAR_WIDTH_STORE_LIMIT = 2000;
-/** 保存キー。テーマ等と同じく端末ローカルの表示設定として持つ */
 export const SIDEBAR_WIDTH_KEY = "u7agent-sidebar-width";
 
 export type SidebarWidthBounds = {
@@ -39,7 +35,7 @@ export function clampSidebarWidth(width: number, bounds: SidebarWidthBounds): nu
   return Math.min(bounds.max, Math.max(bounds.min, Math.round(width)));
 }
 
-/** 表示幅。未指定 (null) は既定幅 = 下限 (従来の 252px) */
+/** 表示幅。未指定 (null) は既定幅 = 下限 (252px) */
 export function sidebarWidth(requested: number | null, bounds: SidebarWidthBounds): number {
   return requested === null ? bounds.min : clampSidebarWidth(requested, bounds);
 }
@@ -61,7 +57,6 @@ export function createSidebarWidthStore(storage?: DeviceSettingsStorage | null):
   return createDeviceSettingsStore<number | null>(storage, {
     key: SIDEBAR_WIDTH_KEY,
     parse: parseSidebarWidth,
-    // null は保存を消す (ダブルクリックの「未指定へ戻す」)
     serialize: (width) => (width === null ? null : String(width)),
     fallback: () => null,
   });

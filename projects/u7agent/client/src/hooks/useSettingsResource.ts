@@ -32,7 +32,6 @@ export function useSettingsResource<TResponse, TAction extends string>(options: 
   const [saving, setSaving] = useState<TAction | null>(null);
   const [reloading, setReloading] = useState(false);
   const [beginLoad] = useState(createRequestGate);
-  // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
   const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
 
   const reload = useCallback(async (): Promise<void> => {

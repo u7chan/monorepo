@@ -1,13 +1,10 @@
 /**
- * ファイルツリー (FileBrowser) の幅の規則。幅は「その端末のその窓」に依存する表示設定なので、
- * どこで境界を引くかはこの純関数だけが決め、保存は localStorage の 1 キーに閉じる。
- * 保存先の解決と状態の控えは deviceSettingsStore.ts (docs/ui-layout.md)。
- * 左バー / 右パネルと違い、bounds は本文のコンテナ幅 (= プレビューに残す幅) に依存する。
+ * ファイルツリー (FileBrowser) の幅の規則。bounds は本文のコンテナ幅 (= プレビューに残す幅) に依存する。
  */
 
 import { createDeviceSettingsStore, type DeviceSettingsStorage, type DeviceSettingsStore } from "./deviceSettingsStore";
 
-/** 選べる下限 = 従来の @2xl:w-72 (288px)。狭い窓では既定幅もここで止まる */
+/** 選べる下限 (288px)。狭い窓では既定幅もここで止まる */
 export const FILE_TREE_WIDTH_MIN = 288;
 /** 左右 2 段になるコンテナ幅 (Tailwind の `@2xl` = 42rem)。これ未満は上下 2 段で、高さ (fileTreeHeight.ts) を選ぶ面 */
 export const FILE_TREE_STACK_BREAKPOINT = 672;
@@ -17,12 +14,10 @@ export const FILE_TREE_WIDTH_DEFAULT_MAX = 400;
 export const FILE_TREE_WIDTH_DEFAULT_DIVISOR = 3;
 /** 選べる上限。深さ 5 でも名前が 270px 以上見える幅 */
 export const FILE_TREE_WIDTH_MAX = 560;
-/** プレビューに残す最低幅。今日の左右 2 段の境界 (@2xl = 672px) − 288px を下限として引き継ぐ */
+/** プレビューに残す最低幅。左右 2 段の境界 (@2xl = 672px) − 288px を下限とする */
 export const FILE_TREE_PREVIEW_MIN_WIDTH = 384; /** キーボード操作 (→←) の 1 歩 */
 export const FILE_TREE_WIDTH_STEP = 16;
-/** これより大きい保存値は壊れた値として捨てる */
 export const FILE_TREE_WIDTH_STORE_LIMIT = 2000;
-/** 保存キー。テーマ等と同じく端末ローカルの表示設定として持つ */
 export const FILE_TREE_WIDTH_KEY = "u7agent-file-tree-width";
 
 export type FileTreeWidthBounds = {
@@ -89,7 +84,6 @@ export function createFileTreeWidthStore(storage?: DeviceSettingsStorage | null)
   return createDeviceSettingsStore<number | null>(storage, {
     key: FILE_TREE_WIDTH_KEY,
     parse: parseFileTreeWidth,
-    // null は保存を消す (ダブルクリックの「未指定へ戻す」)
     serialize: (width) => (width === null ? null : String(width)),
     fallback: () => null,
   });

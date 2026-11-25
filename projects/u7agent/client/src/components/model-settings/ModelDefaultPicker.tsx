@@ -47,7 +47,6 @@ export function ModelDefaultPicker({
 
   const selectOption = (key: string | null) => {
     if (key !== value) onChange(key);
-    // フォーカスは外さない: blur すると native の復帰が起きず、トリガーへ戻らない
     picker.close();
   };
 

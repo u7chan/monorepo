@@ -217,7 +217,7 @@ function InlineNode({ node, inLink = false, caption = true }: { node: MdInline; 
       // 解析できなかった記法は消さずに等幅で見せる
       return <code className="md-lit">{node.text}</code>;
     case "code":
-      // <a> の中に button を入れない (リンクの children は従来どおり code として描く)
+      // <a> の中に button を入れない (リンクの children は code として描く)
       return inLink ? <code>{node.text}</code> : <InlineFileRef text={node.text} />;
     case "strong":
       return (
@@ -245,7 +245,7 @@ function InlineNode({ node, inLink = false, caption = true }: { node: MdInline; 
       );
     case "image": {
       const imageSrc = resolution?.src ?? node.src;
-      // <a> の中に button を置けない。リンクの children は従来どおり素の img で描く
+      // <a> の中に button を置けない。リンクの children は素の img で描く
       const image = inLink ? (
         <img className="md-img" src={imageSrc} alt={node.alt} />
       ) : (

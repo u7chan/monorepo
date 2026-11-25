@@ -44,7 +44,6 @@ export function AgentPicker({
 
   const selectAgent = (next: string) => {
     if (next !== agentId) onChangeAgent(next);
-    // フォーカスは外さない: blur すると native の復帰が起きず、トリガーへ戻らない
     picker.close();
   };
 

@@ -126,7 +126,7 @@ function sharedContentThumbnailOf(row: Row): SharedContentThumbnailRow | null {
 export class SharedContentRepository {
   constructor(private readonly db: SharedContentDb) {}
 
-  // --- shared_content_settings (共有の除外名。1 行だけ。行が無い = 未設定) ---
+  // shared_content_settings: 1 行だけ。行が無い = 未設定
 
   readSharedContentExcludeNames(): string[] | undefined {
     return this.db.query((db) => {
@@ -152,8 +152,6 @@ export class SharedContentRepository {
   resetSharedContentExcludeNames(): boolean {
     return this.db.query((db) => db.prepare("DELETE FROM shared_content_settings WHERE id = 1").run().changes > 0);
   }
-
-  // --- shared_contents (1 行 1 共有物) ---
 
   insertSharedContent(row: SharedContentRow): void {
     this.db.query((db) =>

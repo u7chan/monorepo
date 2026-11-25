@@ -1,6 +1,6 @@
 /**
  * 一覧の state は全スペースで 1 本 (実行状況ダッシュボードのため) なので、現在のスペースの一覧は
- * ここで抜く。サイドバー・モデルの最終使用・選択の移り先は、従来どおり現在スペースだけを見る。
+ * ここで抜く。サイドバー・モデルの最終使用・選択の移り先は現在スペースだけを見る。
  */
 import type { SessionSummary } from "../types";
 import { DEFAULT_SPACE_ID } from "./spaceSelection";

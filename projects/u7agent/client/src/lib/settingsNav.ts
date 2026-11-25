@@ -210,8 +210,8 @@ export const SETTINGS_SECTION_KEY = "u7agent-settings-section";
 
 /**
  * 保存済みの生値を検証する。未知の値 (削除したセクション等) は既定へ畳む。
- * 旧 設定 → ダウンロード ("archive") は 設定 → ファイル の「ダウンロードの除外」タブへ移したため、
- * 保存値だけ files へ読み替える (タブまでは覚えない。URL の読み替えは lib/route.ts が持つ)
+ * 保存値の "archive" は 設定 → ファイル の「ダウンロードの除外」タブを指すので files へ読み替える
+ * (タブまでは覚えない。URL の読み替えは lib/route.ts が持つ)
  */
 export function parseStoredSettingsSection(raw: string | null): SettingsSection {
   const section = raw === "archive" ? "files" : raw;

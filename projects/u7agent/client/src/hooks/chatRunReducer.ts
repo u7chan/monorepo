@@ -37,7 +37,7 @@ function echoAbsorbTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: 
     return bubbles.find((bubble) => live(bubble) && bubble.sendId === echo.sendId);
   }
   if (echo.runId !== undefined) {
-    // 送信IDを持たない item (保存済みの履歴) は run の最初の user item へ従来どおり縮退する
+    // 送信IDを持たない item (保存済みの履歴) は run の最初の user item へ縮退する
     return bubbles.find((bubble) => live(bubble) && bubble.sendId === undefined && bubble.runId === echo.runId);
   }
   return fallbackEchoTarget(bubbles, markers, echo);
@@ -309,7 +309,7 @@ export function applyRunAction(state: ChatState, action: RunChatAction): ChatSta
         const withBubble = attachRunToolCards(opened, false);
         return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
       }
-      // 応答IDを持たない delta は従来どおり開いている応答へ積む
+      // 応答IDを持たない delta は開いている応答へ積む
       const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
       return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
     }

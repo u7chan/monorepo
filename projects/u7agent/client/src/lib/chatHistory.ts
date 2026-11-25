@@ -197,7 +197,7 @@ function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
 /**
  * ライブバブルと item の同一性。送信の run id が分かるバブルは runId の一致で厳密に対応付ける
  * (別クライアントの同一文面 entry を自分のエコーと誤認しない)。どちらかに run id が無いときは
- * 従来どおり role + 正規形の本文で突き合わせる (送信IDを持たない保存済みの履歴への縮退)。
+ * role + 正規形の本文で突き合わせる (送信IDを持たない保存済みの履歴への縮退)。
  */
 function matchesLive(
   bubble: Bubble,

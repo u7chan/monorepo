@@ -442,7 +442,6 @@ export class ContentSettingsService {
       try {
         encrypted = requireAppSecretCipher(this.#appCipher).encrypt("content_settings", CONTENT_SECRET_OWNER, apiKey);
       } catch {
-        // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
         console.warn("[u7agent] content key encryption failed");
         return { status: 503, error: APP_SECRET_NOT_STORED_MESSAGE };
       }
@@ -460,7 +459,6 @@ export class ContentSettingsService {
       try {
         this.#db.saveContentSettings(next);
       } catch {
-        // DB の理由は AppDb の境界がマスクして記録する。ここは操作の分類だけに絞る
         console.warn("[u7agent] content key save failed");
         return { status: 503, error: CONTENT_KEY_NOT_STORED_MESSAGE };
       }

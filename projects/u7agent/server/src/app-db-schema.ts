@@ -14,9 +14,8 @@ export const APP_DB_SCHEMA_VERSION = 49;
 
 // 既存 DB のテーブル再構築を避けるため旧 mention 列は残し、現行アプリからは参照しない。
 /**
- * v1 -> v2 で足したテーブル。`IF NOT EXISTS` で定義を 1 つに保ち、新規作成と加算移行の両方から使う
+ * `IF NOT EXISTS` で定義を 1 つに保ち、新規作成と加算移行の両方から使う
  * (加算移行では既存の projects / agents / skills を消さない)。
- * Webhook URL は v30 -> v31 で `webhookCiphertext` / `webhookNonce` / `webhookKeyVersion` へ移した。
  */
 const NOTIFICATION_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS notification_settings (
@@ -33,7 +32,7 @@ CREATE TABLE IF NOT EXISTS notification_settings (
 `;
 
 /**
- * v2 -> v3 で足したテーブル。除外名は JSON 配列テキストで、**行が無い = 未設定**（実効値は既定）。
+ * 除外名は JSON 配列テキストで、**行が無い = 未設定**（実効値は既定）。
  * 明示空（`[]`）と区別するため、既定へ戻すときは行ごと消す。
  */
 const ARCHIVE_SETTINGS_TABLE = `
@@ -44,9 +43,8 @@ CREATE TABLE IF NOT EXISTS archive_settings (
 `;
 
 /**
- * v3 -> v4 で足したテーブル。GUI から登録したプロバイダー API キーを 1 行 1 プロバイダーで持つ。
- * APIキーは v30 -> v31 で AEAD の暗号文 (`ciphertext` / `nonce` / `keyVersion`) だけを持つキー専用テーブルへ
- * 作り直した (v6 -> v7 で足した `updatedAt` も作り直しで NOT NULL へ揃えた)。
+ * GUI から登録したプロバイダー API キーを 1 行 1 プロバイダーで持つ。値は AEAD の暗号文
+ * (`ciphertext` / `nonce` / `keyVersion`) だけで、平文の列は持たない。
  * 値は必ずバインドして渡す (SQL 文字列へ埋め込まない)。
  */
 const PROVIDER_CREDENTIALS_TABLE = `
@@ -60,7 +58,7 @@ CREATE TABLE IF NOT EXISTS provider_credentials (
 `;
 
 /**
- * v4 -> v5 で足したテーブル。利用可能なモデルは JSON 配列テキストで、**行が無い = 未設定**。
+ * 利用可能なモデルは JSON 配列テキストで、**行が無い = 未設定**。
  * 空配列も未設定 (制限なし) へ正規化するため、両方が null の保存は行ごと消す。
  */
 const MODEL_SETTINGS_TABLE = `
@@ -72,7 +70,7 @@ CREATE TABLE IF NOT EXISTS model_settings (
 `;
 
 /**
- * v5 -> v6 で足したテーブル。provider に紐づく人間用メモで、**行が無い = 未設定**。
+ * provider に紐づく人間用メモで、**行が無い = 未設定**。
  * credential とは別テーブルにし、キーの登録有無 (managed) とメモを混ぜない。
  */
 const PROVIDER_MEMOS_TABLE = `
@@ -83,7 +81,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 `;
 
 /**
- * v31 -> v32 で足したテーブル。設定 → モデルで作ったカスタムプロバイダーを 1 行 1 provider で持つ。
+ * 設定 → モデルで作ったカスタムプロバイダーを 1 行 1 provider で持つ。
  * 定義と APIキーの暗号文を同じ行に置き、**行が無い = 未登録** (削除は行ごと消す)。
  * モデルは 1 provider = 1 model の現行仕様に合わせて 3 列で持つ (JSON の配列にはしない)。
  * `provider_credentials` と同じくアプリ所有なので `DROP_TABLES` に入れるが、
@@ -104,14 +102,11 @@ CREATE TABLE IF NOT EXISTS custom_providers (
 `;
 
 /**
- * v7 -> v8 で足したテーブル。v14 -> v15 で `image_settings`（provider / model / apiKey）から
- * コンテンツ生成の `content_settings`（provider / imageModel / ...）へ改名した。
- * 1 行だけ持ち、**行が無い = 未設定**（キー削除は行ごと消す）。provider_credentials とは別管理にし、
- * プロバイダー登録キーを生成へ流用しない（docs/image-generation.md）。
- * APIキーは v30 -> v31 で平文列から AEAD の暗号文へ移し、3 列 NULL = キー未設定にした。
- * 音声の `speechModel` / `speechVoice` は v15 -> v16 の列追加で、既存行は NULL になる
- * （NULL は既定へフォールバックする。docs/speech-generation.md）。
- * 画像の生成パラメータの既定は v43 -> v44 の列追加で、NULL = 既定なし（空 map とは区別して読む）。
+ * コンテンツ生成の設定を 1 行だけ持ち、**行が無い = 未設定**（キー削除は行ごと消す）。
+ * provider_credentials とは別管理にし、プロバイダー登録キーを生成へ流用しない（docs/image-generation.md）。
+ * APIキーは AEAD の暗号文だけを持ち、3 列 NULL = キー未設定。
+ * 音声の `speechModel` / `speechVoice` が NULL なら既定へフォールバックする（docs/speech-generation.md）。
+ * 画像の生成パラメータの既定は NULL = 既定なし（空 map とは区別して読む）。
  */
 const CONTENT_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS content_settings (
@@ -129,14 +124,14 @@ CREATE TABLE IF NOT EXISTS content_settings (
 `;
 
 /**
- * v37 -> v38 で足したテーブル。設定 → コンテンツ生成の試行ジョブのメタデータ。
+ * 設定 → コンテンツ生成の試行ジョブのメタデータ。
  * 行は履歴そのもので、時間ベースの自動削除はしない。`state` の終端値は不変で、`running` からしか
  * 終端へは進まない (docs/api-settings.md)。APIキーは列に持たず、`keyEpoch` だけを残す。
- * 成果物の実体は `<storeDir>/trials` に置き、この表には名前・大きさ・形式・寸法だけを持つ (v38 -> v39)。
+ * 成果物の実体は `<storeDir>/trials` に置き、この表には名前・大きさ・形式・寸法だけを持つ。
  * 容量は `succeeded` かつ `artifactState = 'stored'` の `artifactBytes` を合計して出す (走査しない)。
  * 音声の入力スナップショットは `voice` / `instructions` / `speed` に持ち、同じ入力の再利用もこの 3 列で照合する
- * (v39 -> v40。画像の行は 3 列とも NULL)。
- * 生成元は `provider`（v41 -> v42。NULL の既存行は openrouter として読む。v1 の試行は openrouter だけ）。
+ * (画像の行は 3 列とも NULL)。
+ * 生成元は `provider` で、NULL の既存行は openrouter として読む。
  * **`DROP_TABLES` に入れない**: 古いビルドへ戻したとき (recreate) はこのテーブルを知らないので放置され、
  * 新ビルドへ戻すと migrate() の `CREATE TABLE IF NOT EXISTS` がそのまま合流させる。
  */
@@ -170,7 +165,7 @@ CREATE INDEX IF NOT EXISTS content_trials_started ON content_trials (startedAt);
 `;
 
 /**
- * v37 -> v38 で足したテーブル。コンテンツ生成のAPIキーの世代。`content_settings` の行はキー削除で
+ * コンテンツ生成のAPIキーの世代。`content_settings` の行はキー削除で
  * 消えるため、世代は消えない専用の 1 行に持つ（行が無い = 0 世代）。`content_trials` と同じく
  * `DROP_TABLES` に入れない（世代が戻ると、旧キーの実績が現在のキーの証拠に見えてしまう）。
  */
@@ -182,8 +177,8 @@ CREATE TABLE IF NOT EXISTS content_key_epoch (
 `;
 
 /**
- * v8 -> v9 で足したテーブル。取得に失敗した起動でも前回の一覧を出せるように、
- * 最後に成功した live カタログを 1 行だけ残す (docs/image-generation.md)。
+ * 取得に失敗した起動でも前回の一覧を出せるように、最後に成功した live カタログを 1 行だけ残す
+ * (docs/image-generation.md)。
  */
 const IMAGE_CATALOG_TABLE = `
 CREATE TABLE IF NOT EXISTS image_catalog (
@@ -194,7 +189,7 @@ CREATE TABLE IF NOT EXISTS image_catalog (
 `;
 
 /**
- * v15 -> v16 で足したテーブル。`image_catalog` と同型で、音声モデルの live 一覧を 1 行だけ残す
+ * `image_catalog` と同型で、音声モデルの live 一覧を 1 行だけ残す
  * （item の JSON は `voices` を含むため違う。docs/speech-generation.md）。
  */
 const SPEECH_CATALOG_TABLE = `
@@ -206,7 +201,7 @@ CREATE TABLE IF NOT EXISTS speech_catalog (
 `;
 
 /**
- * v47 -> v48 で足したテーブル。コストマスタの接続先を 1 行だけ持ち、**行が無い = 未設定**。
+ * コストマスタの接続先を 1 行だけ持ち、**行が無い = 未設定**。
  * `content_settings` に足さない理由は、キー削除が行ごと消すテーブルへ、キーと独立の運用設定を
  * 同居させないため。**`DROP_TABLES` に入れる**: 失ってはいけない値を持たず、戻すと未設定になるだけ。
  */
@@ -219,7 +214,7 @@ CREATE TABLE IF NOT EXISTS content_cost_settings (
 `;
 
 /**
- * v47 -> v48 で足したテーブル。取得に成功した価格スナップショットを 1 行だけ残す
+ * 取得に成功した価格スナップショットを 1 行だけ残す
  * （`image_catalog` と同じ派生キャッシュ。docs/persistence.md）。取得失敗時は行を消さず前回値を使う。
  */
 const CONTENT_COST_CATALOG_TABLE = `
@@ -233,7 +228,7 @@ CREATE TABLE IF NOT EXISTS content_cost_catalog (
 `;
 
 /**
- * v40 -> v41 で足したテーブル。モデルごとの応答形式 (mp3 / pcm) の学習結果を 1 行 1 モデルで持つ。
+ * モデルごとの応答形式 (mp3 / pcm) の学習結果を 1 行 1 モデルで持つ。
  * **行が無い = 未学習** (mp3 から試す)。一覧 API が宣言しない形式を生成の 400 と応答から学ぶ派生データ
  * なので、読めない行は未学習として読み、health を落とさない (docs/speech-generation.md)。
  */
@@ -246,7 +241,7 @@ CREATE TABLE IF NOT EXISTS speech_formats (
 `;
 
 /**
- * v9 -> v10 で足したテーブル。serve の起動に成功したコマンドを作業ディレクトリ単位で持つ
+ * serve の起動に成功したコマンドを作業ディレクトリ単位で持つ
  * (**行が無い = 実績なし**)。稼働記録 (サンドボックスの作業領域) とは別物で、こちらは実績の再利用だけに使う。
  */
 const SERVE_COMMANDS_TABLE = `
@@ -258,7 +253,7 @@ CREATE TABLE IF NOT EXISTS serve_commands (
 `;
 
 /**
- * v10 -> v11 で足したテーブル。作業フォルダ (cwd) 単位の環境変数で、`serve_commands` と同じキー空間。
+ * 作業フォルダ (cwd) 単位の環境変数で、`serve_commands` と同じキー空間。
  *
  * **このテーブルは列追加だけの加算移行を恒久ルールとする** (削除・リネーム・作り直しをしない)。
  * 秘密が消える移行は、たとえ古い版へ戻す経路でも許さない。`DROP_TABLES` にも入れない:
@@ -283,9 +278,9 @@ CREATE TABLE IF NOT EXISTS secrets (
 `;
 
 /**
- * v11 -> v12 で足したテーブル。`web_search` の有効 / 無効と既定 provider を 1 行だけ持ち、
+ * `web_search` の有効 / 無効と既定 provider を 1 行だけ持ち、
  * **行が無い = 既定（無効 / exa）**。コンテンツ生成（`content_settings`）と並ぶツール公開の状態で、
- * 行があるときは `enabled` と `provider` が正。`provider` の列は v12 -> v13 で足した（docs/web-search.md）。
+ * 行があるときは `enabled` と `provider` が正（docs/web-search.md）。
  */
 const WEB_SEARCH_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS web_search_settings (
@@ -296,10 +291,10 @@ CREATE TABLE IF NOT EXISTS web_search_settings (
 `;
 
 /**
- * v12 -> v13 で足したテーブル。provider ごとの APIキーを 1 行 1 provider で持ち、
+ * provider ごとの APIキーを 1 行 1 provider で持ち、
  * **行が無い = キー未設定**（削除は行ごと消す）。できれば 1 列にまとめたくない理由は、
  * キー付きの provider が増えたときに「このキーはどの provider のものか」を列が表せないため。
- * v30 -> v31 で AEAD の暗号文 (`ciphertext` / `nonce` / `keyVersion`) だけを持つ形へ作り直した。
+ * 値は AEAD の暗号文 (`ciphertext` / `nonce` / `keyVersion`) だけで、平文の列は持たない。
  */
 const WEB_SEARCH_PROVIDER_KEYS_TABLE = `
 CREATE TABLE IF NOT EXISTS web_search_provider_keys (
@@ -311,7 +306,7 @@ CREATE TABLE IF NOT EXISTS web_search_provider_keys (
 `;
 
 /**
- * v48 -> v49 で足したテーブル。設定 → 音声入力の OpenAI Platform のキーを 1 行だけ持ち、
+ * 設定 → 音声入力の OpenAI Platform のキーを 1 行だけ持ち、
  * **行が無い = キー未設定**（削除は行ごと消す）。コンテンツ生成の `content_settings` と同居させないのは、
  * キー削除や照合の規則（音声の値にキーを混ぜない等）へ無関係な制約を持ち込まないため。
  * **`DROP_TABLES` に入れない**: キーを失う経路を増やさない (`secrets` と同じ扱い)。古いビルドへ戻したときの
@@ -326,7 +321,7 @@ CREATE TABLE IF NOT EXISTS voice_input_settings (
 );
 `;
 
-/** v32 -> v33 で足したテーブル。応答 1 件分の実測を派生データとして持つ (docs/persistence.md) */
+/** 応答 1 件分の実測を派生データとして持つ (docs/persistence.md) */
 const ASSISTANT_METRICS_TABLE = `
 CREATE TABLE IF NOT EXISTS assistant_metrics (
   session_id      TEXT NOT NULL,
@@ -350,7 +345,7 @@ CREATE INDEX IF NOT EXISTS assistant_metrics_at ON assistant_metrics (at);
 `;
 
 /**
- * v24 -> v25 で足したテーブル。会話タイトルの AI 要約の設定を 1 行だけ持つ。
+ * 会話タイトルの AI 要約の設定を 1 行だけ持つ。
  * **行が無い = 既定 (Off / モデル未選択 / 既定の定義)**。本会話のモデルや compaction の要約とは別の設定。
  */
 const TITLE_SUMMARY_SETTINGS_TABLE = `
@@ -364,8 +359,8 @@ CREATE TABLE IF NOT EXISTS title_summary_settings (
 `;
 
 /**
- * v44 -> v45 で足したテーブル。Git のグローバル identity を 1 行だけ持つ。
- * v45 -> v46 で初期 identity を入れ、行が無ければ未設定として読む (両方揃っているときだけ有効)。
+ * Git のグローバル identity を 1 行だけ持つ。既定の identity はマイグレーションが入れ、
+ * 行が無ければ未設定として読む (両方揃っているときだけ有効)。
  */
 const GIT_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS git_settings (
@@ -380,7 +375,7 @@ const SPACES_TABLE = `CREATE TABLE IF NOT EXISTS spaces (
 );`;
 
 /**
- * v23 -> v24 で足したテーブル。Cloudflare へ公開した静的成果物を 1 行 1 共有物で持つ。
+ * Cloudflare へ公開した静的成果物を 1 行 1 共有物で持つ。
  *
  * **このテーブルは削除・リネームをしない加算移行の対象で、`DROP_TABLES` に入れない**: 行が消えると
  * Cloudflare 側に公開物が残ったまま追跡・停止・削除できなくなる。`secrets` と同じ理由で、古いビルドへ
@@ -413,7 +408,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS shared_contents_remote ON shared_contents (pro
 `;
 
 /**
- * v23 -> v24 で足したテーブル。Cloudflare の資格情報を 1 行だけ持ち、**行が無い = 未登録**。
+ * Cloudflare の資格情報を 1 行だけ持ち、**行が無い = 未登録**。
  * `secrets` と同じく `DROP_TABLES` に入れない (暗号文を移行経路で失わない)。
  */
 const CLOUDFLARE_SETTINGS_TABLE = `
@@ -428,7 +423,7 @@ CREATE TABLE IF NOT EXISTS cloudflare_settings (
 `;
 
 /**
- * v26 -> v27 で足したテーブル。共有の除外名は JSON 配列テキストで、**行が無い = 未設定**（実効値は既定）。
+ * 共有の除外名は JSON 配列テキストで、**行が無い = 未設定**（実効値は既定）。
  * 明示空（`[]`）と区別するため、既定へ戻すときは行ごと消す。
  *
  * **`DROP_TABLES` に入れない**: 行が消えると利用者の除外が既定へ戻り、次の更新で公開範囲が意図せず変わる
@@ -443,10 +438,10 @@ CREATE TABLE IF NOT EXISTS shared_content_settings (
 `;
 
 /**
- * v33 -> v34 で足した定型プロンプトのマスタ。`kind` は `builtin` / `custom` で、組み込み行は
- * 起動時に `builtin-catalog.ts` の定義へ同期される。本文とラベルには一意制約を付けない
+ * 定型プロンプトのマスタ。`kind` は `builtin` / `custom` で、組み込み行は起動時に
+ * `builtin-catalog.ts` の定義へ同期される。本文とラベルには一意制約を付けない
  * (同じ本文の別マスタをまとめない)。`sortOrder` は自作の表示順で、組み込みは NULL のまま
- * 一覧の先頭へ固定する (v35 -> v36 の加算移行で足した)。
+ * 一覧の先頭へ固定する。
  */
 const PROMPTS_TABLE = `CREATE TABLE IF NOT EXISTS prompts (
   id TEXT PRIMARY KEY,
@@ -457,7 +452,7 @@ const PROMPTS_TABLE = `CREATE TABLE IF NOT EXISTS prompts (
 );`;
 
 /**
- * v33 -> v34 で足したエージェントからマスタへの順序付き参照。`ON DELETE RESTRICT` で使用中の削除を
+ * エージェントからマスタへの順序付き参照。`ON DELETE RESTRICT` で使用中の削除を
  * DB でも防ぎ、`ON DELETE CASCADE` でエージェント削除時は紐づけだけを消す（マスタは残す）。
  * 上限 (1..6) と重複禁止も DB 側の制約で守る。`INTEGER` 宣言だけでは SQLite が REAL (1.5) を
  * そのまま受けるため、型まで CHECK で縛る (位置は 1..6 の整数だけ)。
@@ -471,7 +466,7 @@ const AGENT_PROMPTS_TABLE = `CREATE TABLE IF NOT EXISTS agent_prompts (
 );`;
 
 /**
- * v41 -> v42 で足したテーブル。画像の生成元（openrouter / codex）を 1 行だけ持ち、**行が無い = 既定**。
+ * 画像の生成元（openrouter / codex）を 1 行だけ持ち、**行が無い = 既定**。
  * `content_settings` の行と分ける理由は、OpenRouter キーの削除（行ごと消す）で Codex の選択まで
  * 消えないようにするため。**`DROP_TABLES` に入れる**: 失ってはいけない値を持たない設定の写しで、
  * 戻すと既定 (openrouter) へ戻るだけ。

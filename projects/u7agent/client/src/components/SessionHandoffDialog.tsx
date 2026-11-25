@@ -76,7 +76,6 @@ export function SessionHandoffDialog({
           ...(handoffAgentId(choice) === undefined ? {} : { agentId: handoffAgentId(choice) }),
           memo: memoDisabledReason === "" && memo,
         });
-        // 閉じるまで busy を戻さない (成功後に二重送信できないように)
         shellRef.current?.requestClose();
       } catch (err) {
         // 一覧の状態は巻き戻さず、理由だけをこの画面へ出す

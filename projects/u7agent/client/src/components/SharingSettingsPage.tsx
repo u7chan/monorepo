@@ -55,7 +55,6 @@ export function SharingSettingsPage(props: SharingSettingsPageProps) {
   return <SharingSettingsView {...props} cloudflare={cloudflare} contents={contents} />;
 }
 
-/** 表示だけを持つ部分。取得と変更は cloudflare / contents / exclusions が持ち、ここはタブと描画に徹する */
 export function SharingSettingsView({
   cloudflare,
   contents,

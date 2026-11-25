@@ -1,5 +1,5 @@
 /**
- * 設定 → モデルの表示変換。コンポーネントから切り出し、認証バッジ・並び・保存後の文言をテストできるようにする。
+ * 設定 → モデルの表示変換。認証バッジ・並び・保存後の文言を DOM なしで固定する。
  * 保存先 (managed = DB) と実効値 (auth.source) と未反映 (degraded) は混ぜず、別々に出す。
  * 案内文 (degradedNotice) は、そのカードで実際に押せる回復操作 (resyncAvailable) と一致させる。
  * モデル候補（選択）の編集は、選択の正を `GET /api/settings/models` の allowedModels に保ち、
@@ -168,7 +168,7 @@ export function providerUsage(sessions: SessionSummary[], provider: string): Pro
   return { sessions: count, lastUsedAt };
 }
 
-// --- provider 詳細の入力下書き（両タブの親が持つ） ---
+// provider 詳細の入力下書きは両タブの親が持つ
 
 /** provider 詳細の入力下書き。タブ切替・provider 切替・検索を跨いで親が保つ */
 export interface ProviderDraft {
@@ -267,7 +267,7 @@ export function validateMemo(value: string): string | undefined {
 
 export type MutationAction = "save" | "delete" | "resync" | "availability" | "memo";
 
-// --- OAuth サインイン (Sign in with ChatGPT など) ---
+// OAuth サインイン (Sign in with ChatGPT など)
 
 /** 進行中はこの間隔で `GET /api/settings/models` を読み直す (ブラウザの承認はサーバー側で進む) */
 export const OAUTH_LOGIN_POLL_MS = 2_000;
@@ -314,7 +314,7 @@ export async function refreshModelsForAuthChange(input: {
 export const OAUTH_UNSUPPORTED_NOTICE =
   "このプロバイダーは、この画面のサインイン対象に含まれていません。同じ agent dir を使う pi /login でサインインしてください（手順は docs/model-settings.md の OAuth サインイン）。";
 
-// --- OAuth サインインの文言 (常時表示の説明はクライアントの純関数が持つ) ---
+// OAuth サインインの文言 (常時表示の説明はこの module の純関数が持つ)
 
 /** 未認証の説明。サインインの操作の前に、何が起きるかを先に伝える */
 export const OAUTH_IDLE_NOTICE = "ブラウザのタブで承認すると、この画面の表示が自動で更新されます。";
@@ -574,7 +574,7 @@ export function mutationNote(
   }
 }
 
-// --- カタログの手動更新 (POST /api/settings/models/catalog/refresh) ---
+// カタログの手動更新 (POST /api/settings/models/catalog/refresh)
 
 /** サーバーが取得失敗を `catalogError` に載せなかったときの完了文言 */
 export const MODEL_CATALOG_REFRESH_NOTE = "カタログを更新しました。";
@@ -614,7 +614,7 @@ export async function runModelCatalogRefresh(
   }
 }
 
-// --- モデル候補（選択リスト）とアプリ既定モデルの編集 ---
+// モデル候補 (選択リスト) とアプリ既定モデルの編集
 
 /** カタログのモデル参照を "provider/model" にする（API の allowedModels と同じ表記） */
 export function modelRefKey(ref: ModelRef): string {

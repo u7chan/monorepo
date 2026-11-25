@@ -72,7 +72,7 @@ export interface PiModelRef {
 export const SANDBOX_SETUP_REQUIRED_MESSAGE =
   "サンドボックスが設定されていません。PI_SANDBOX_URL と PI_SANDBOX_TOKEN を設定してサーバーを再起動してください (ローカルでのツール実行にはフォールバックしません)。";
 
-/** 設定の入口を GUI へ移した後も process.env に残りうる、読み取らなくなった環境変数 */
+/** モデルの選択は GUI の設定が正。process.env に残っていても読まない変数 (起動ログで知らせる) */
 export const IGNORED_MODEL_ENVIRONMENT_VARIABLES = ["PI_MODELS", "PI_MODEL", "PI_PROVIDER"] as const;
 
 /** 残っている環境変数名を起動ログと設定画面の注記へ出す。空文字は「設定していない」と同じ扱い */

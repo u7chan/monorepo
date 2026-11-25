@@ -5,10 +5,7 @@ import { SettingsPlaceholder } from "./SettingsPlaceholder";
 import { TabToolbar } from "./TabToolbar";
 import { VoiceInputSettingsTab } from "./voice-input-settings/VoiceInputSettingsTab";
 
-/**
- * 設定 → 音声入力。hook はこの画面が持ち (開いたときだけ取得する)、
- * 再読み込みもこの画面の設定だけを取り直す。
- */
+/** 設定 → 音声入力 */
 export function VoiceInputSettingsPage({
   singleColumn,
   onBack,
@@ -27,7 +24,6 @@ export function VoiceInputSettingsPage({
   );
 }
 
-/** 表示だけを持つ部分。取得の成否は voiceInputSettings が持ち、ここは描画に徹する */
 export function VoiceInputSettingsView({
   voiceInputSettings,
   onVoiceInputKeyChanged,

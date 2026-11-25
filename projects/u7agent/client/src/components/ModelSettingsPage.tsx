@@ -33,8 +33,7 @@ export type ModelSettingsPageProps = SettingsPageProps & {
 
 /**
  * 設定 → モデル。「モデルを選ぶ / プロバイダー」の 2 タブを持ち、表示の正は URL
- * (`/settings/models`、`/settings/models/providers`) に置く。hook はこの画面が持ち
- * (カタログ全件を起動のたびに読まない。開いたときだけ取得する)。
+ * (`/settings/models`、`/settings/models/providers`) に置く。カタログ全件は起動のたびに読まない。
  */
 export function ModelSettingsPage({
   onRefreshHealth,
@@ -64,7 +63,6 @@ export function ModelSettingsPage({
 /** 取得前の下書きの置き場。settings が届くと同じ render で保存値から作り直す */
 const EMPTY_DRAFT: AvailabilityDraft = { allowed: [], defaultModel: null };
 
-/** 表示だけを持つ部分。取得の成否は modelSettings が持ち、ここはタブと描画に徹する */
 export function ModelSettingsView({
   modelSettings,
   sessions = [],
