@@ -9,21 +9,8 @@ import { createBffApp } from "../src/app";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionPinnedResponseSchema } from "../src/schema";
 import { sessionMetaPath } from "../src/session-store";
+import { jsonBody, jsonPatch, jsonPost } from "./http-helpers";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPatch = (payload: unknown): RequestInit => ({
-  method: "PATCH",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 function stubWorkspace(): SandboxWorkspaceClient {
   return {

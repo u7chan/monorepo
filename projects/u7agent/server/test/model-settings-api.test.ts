@@ -21,6 +21,7 @@ import {
   RUNTIME_MODELS_UNAVAILABLE_MESSAGE,
   type RuntimeModelsResponse,
 } from "../src/schema";
+import { jsonBody, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, waitFor, type StubPiOptions } from "./stub-pi";
 
 // アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
@@ -28,14 +29,6 @@ process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const KEY = "sk-ant-dummy-key-0123456789abcdef";
 const OTHER_KEY = "sk-openai-dummy-key-0123456789";
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
 
 function stubOptions(options: StubPiOptions = {}): StubPiOptions {
   return {

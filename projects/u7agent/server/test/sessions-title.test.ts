@@ -13,23 +13,10 @@ import { createBffApp } from "../src/app";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionTitleResponseSchema } from "../src/schema";
 import { sessionMetaPath } from "../src/session-store";
+import { jsonBody, jsonPatch, jsonPost } from "./http-helpers";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
 
 const KEY = "sk-ant-dummy-key-0123456789abcdef";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPatch = (payload: unknown): RequestInit => ({
-  method: "PATCH",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 /** 会話ストアありのセッション作成が通る最小のサンドボックス */
 function stubWorkspace(): SandboxWorkspaceClient {

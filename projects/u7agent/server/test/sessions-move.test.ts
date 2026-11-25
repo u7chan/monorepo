@@ -19,22 +19,9 @@ import { createAgentCatalog } from "../src/agents";
 import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import { sessionJsonlPath, sessionMetaPath, sessionSendsPath } from "../src/session-store";
 import { SessionStore } from "../src/sessions";
+import { jsonBody, jsonPatch, jsonPost } from "./http-helpers";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
 import { createServeSandboxStub } from "./serve-stub";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPatch = (payload: unknown): RequestInit => ({
-  method: "PATCH",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 /** 引き継ぎメモの上限。サンドボックスのプレビュー上限とは別に持つ */
 const HANDOFF_MAX_BYTES = 2 * 1024 * 1024;

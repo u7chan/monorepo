@@ -12,19 +12,8 @@ import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { AGENT_ORDER_IDS_MAX, PROMPT_ORDER_IDS_MAX } from "../src/schema";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
+import { jsonBody, jsonPatch, jsonPost } from "./http-helpers";
 import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_USAGE } from "./stub-pi";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPatch = (payload: unknown): RequestInit => ({
-  method: "PATCH",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
 
 async function createSession(app: Hono) {
   const response = await app.request("/api/sessions", jsonPost({}));
@@ -84,7 +73,6 @@ async function eventsUrl(app: Hono, sessionId: string, after?: number): Promise<
 type ParsedSseEvent = { id: number | null; type: string; data: any };
 
 /** Response.json() は unknown を返すためテスト用に any に寄せる */
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 test("server exposes the async session API end to end", async () => {
   const pi = createStubPi({ chunkDelayMs: 10 });

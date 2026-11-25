@@ -12,6 +12,7 @@ import {
 } from "../src/routes/files";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SANDBOX_MAX_UPLOAD_BYTES, type SandboxFileListing, type SandboxGitInfo } from "../src/sandbox/protocol";
+import { jsonBody } from "./http-helpers";
 
 const LISTING: SandboxFileListing = {
   path: "src",
@@ -112,8 +113,6 @@ function stubFiles(
     },
   };
 }
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 /** iframe へ流す CSP。段階 (Lv) ごとの値を 1 箇所で固定する (iframe 側の sandbox 属性は client のテストが見る) */
 const CSP_INLINE =

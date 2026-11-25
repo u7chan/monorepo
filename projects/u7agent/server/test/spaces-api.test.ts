@@ -12,6 +12,7 @@ import { sessionUploadsRel, sessionWorkdirRel, spaceDirRel } from "../src/app-pa
 import { SandboxRequestError } from "../src/sandbox/client";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SessionPayload, Space } from "../src/schema";
+import { jsonBody } from "./http-helpers";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
 import { createServeSandboxStub, publicListener } from "./serve-stub";
 import { encryptedSecret, testAppCipher } from "./app-secret-fixture";
@@ -21,7 +22,6 @@ const json = (body: unknown, method = "POST"): RequestInit => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 function fixtureWorkspace() {
   const dirs: string[] = [];

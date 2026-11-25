@@ -5,15 +5,8 @@ import test from "node:test";
 import { createBffApp } from "../src/app";
 import { APP_SECRET_MASTER_KEY_MESSAGE } from "../src/app-secrets";
 import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import { jsonBody, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 test("master key 未設定でも起動し、DB 保存キーを使う機能だけが未設定 / 503 になる", async () => {
   const previous = process.env[SECRET_MASTER_KEY_ENV];

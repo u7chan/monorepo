@@ -7,20 +7,13 @@ import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
 import { SECRET_KEY_BYTES, SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
+import { jsonBody, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 const KEY = `1:${Buffer.alloc(SECRET_KEY_BYTES, 7).toString("base64")}`;
 const ACCOUNT = "0123456789abcdef0123456789abcdef";
 const OTHER_ACCOUNT = "fedcba9876543210fedcba9876543210";
 const TOKEN = `cf-${"b".repeat(37)}`;
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 async function setup(options: { masterKey?: boolean; cloudflareFetch?: typeof fetch } = {}) {
   const previous = process.env[SECRET_MASTER_KEY_ENV];

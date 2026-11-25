@@ -13,6 +13,7 @@ import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import { DEFAULT_IMAGE_MODEL } from "../src/content-settings";
 import { IMAGE_PROVIDER_ID } from "../src/images";
 import { bgmSettings } from "../src/bgm";
+import { jsonBody, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 // アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
@@ -21,14 +22,6 @@ process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 const KEY = "sk-image-dummy-key-0123456789abcdef";
 const OTHER_KEY = "sk-image-other-key-0123456789";
 const CATALOG_MODEL = "black-forest-labs/flux.2-max";
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
 
 async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-content-settings-"));

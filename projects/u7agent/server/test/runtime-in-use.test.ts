@@ -17,6 +17,7 @@ import { DEFAULT_SPEECH_MODEL } from "../src/speech-catalog";
 import type { TitleSummarySettingsService } from "../src/title-summary-settings";
 import type { WebSearchSettingsService } from "../src/web-search-settings";
 import { TEST_MASTER_KEY } from "./app-secret-fixture";
+import { jsonBody, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 // 検証対象の応答にキー・暗号文を載せないことを確かめるため、このファイルの BFF には master key を立てる
@@ -26,14 +27,6 @@ const CONTENT_KEY = "sk-content-dummy-key-0123456789abcdef";
 const CLOUDFLARE_TOKEN = "cloudflare-dummy-token-0123456789";
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const TITLE_MODEL = "stub/stub-model";
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
 
 async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-runtime-in-use-"));

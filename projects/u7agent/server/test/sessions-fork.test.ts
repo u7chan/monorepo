@@ -14,22 +14,9 @@ import type { SandboxHandoffClient, SandboxMoveClient, SandboxWorkspaceClient } 
 import { SandboxRequestError } from "../src/sandbox/client";
 import { HANDOFF_FILE_NAME } from "../src/handoff-memo";
 import { parseSessionFile, sessionJsonlPath, sessionMetaPath } from "../src/session-store";
+import { jsonBody, jsonPatch, jsonPost } from "./http-helpers";
 import { createServeSandboxStub } from "./serve-stub";
 import { STUB_PLAIN_MODEL, asPiBff, createStubPi, waitFor, type StubPiOptions } from "./stub-pi";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPatch = (payload: unknown): RequestInit => ({
-  method: "PATCH",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 async function pathExists(path: string): Promise<boolean> {
   return lstat(path).then(

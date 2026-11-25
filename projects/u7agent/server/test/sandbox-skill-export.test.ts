@@ -10,6 +10,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createSandboxService, type SandboxServiceOptions } from "../src/sandbox/service";
 import type { SandboxDownloadCheck } from "../src/sandbox/protocol";
+import { authHeaders } from "./http-helpers";
 import { parseZip, type ParsedZipEntry } from "./zip-reader";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
@@ -37,17 +38,13 @@ function createService(root: string, options: Partial<SandboxServiceOptions> = {
   return createSandboxService({ token: TOKEN, rootCwd: root, ...options });
 }
 
-function authHeaders(): Record<string, string> {
-  return { Authorization: `Bearer ${TOKEN}` };
-}
-
 async function exportSkills(app: App): Promise<{ status: number; headers: Headers; body: Buffer }> {
-  const response = await app.request("/v1/skills/export", { headers: authHeaders() });
+  const response = await app.request("/v1/skills/export", { headers: authHeaders(TOKEN) });
   return { status: response.status, headers: response.headers, body: Buffer.from(await response.arrayBuffer()) };
 }
 
 async function checkExport(app: App): Promise<{ status: number; body: SandboxDownloadCheck | { error: string } }> {
-  const response = await app.request("/v1/skills/export/check", { headers: authHeaders() });
+  const response = await app.request("/v1/skills/export/check", { headers: authHeaders(TOKEN) });
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : {} };
 }
@@ -133,7 +130,7 @@ test("`.git` は全階層で外し、利用者の除外設定 (exclude query) �
 
     // exclude query を付けても内容は変わらない (持ち出しは利用者の除外設定を見ない)
     const withQuery = await service.app.request("/v1/skills/export?exclude=node_modules&exclude=dist", {
-      headers: authHeaders(),
+      headers: authHeaders(TOKEN),
     });
     assert.equal(withQuery.status, 200);
     assert.deepEqual(entryNames(parseZip(Buffer.from(await withQuery.arrayBuffer()))), names);
