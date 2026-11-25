@@ -9,7 +9,7 @@ import {
   trialStartBlockedReason,
   type SpeechTrialDraft,
 } from "../../lib/contentTrials";
-import { SPEECH_SPEED_MIN, SPEECH_SPEED_STEP, speechSpeedStep } from "../../lib/contentSettings";
+import { SPEECH_SPEED_MIN, SPEECH_SPEED_STEP, speechSpeedStep } from "../../lib/contentSettings/speech";
 import { speechTrialDefaultTarget } from "../../lib/trialDefault";
 import { useTrialSection } from "../../hooks/useTrialSection";
 import type {

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createSandboxService } from "../src/sandbox/service";
+import { authHeaders } from "./http-helpers";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
 
@@ -28,17 +29,13 @@ function makeRoot(prefix: string): string {
   return mkdtempSync(join(tmpdir(), `pi-sbx-${prefix}-`));
 }
 
-function authHeaders(): Record<string, string> {
-  return { Authorization: `Bearer ${TOKEN}` };
-}
-
 async function move(
   app: App,
   body: { from?: unknown; to?: unknown },
 ): Promise<{ status: number; body: { path?: string; error?: string } }> {
   const response = await app.request("/v1/files/move", {
     method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    headers: { ...authHeaders(TOKEN), "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const text = await response.text();
@@ -67,12 +64,12 @@ test("move moves a regular file to another parent and returns the new root-relat
     assert.equal(await readFile(join(root, "projects", "shot.png"), "utf-8"), "original");
 
     // 一覧にも移動先の親でだけ出る (元の親の一覧からは消える)
-    const sourceListing = await service.app.request("/v1/files?path=uploads%2Fnested", { headers: authHeaders() });
+    const sourceListing = await service.app.request("/v1/files?path=uploads%2Fnested", { headers: authHeaders(TOKEN) });
     assert.deepEqual(
       ((await sourceListing.json()) as { entries: Array<{ name: string }> }).entries.map((entry) => entry.name),
       [],
     );
-    const destinationListing = await service.app.request("/v1/files?path=projects", { headers: authHeaders() });
+    const destinationListing = await service.app.request("/v1/files?path=projects", { headers: authHeaders(TOKEN) });
     assert.deepEqual(
       ((await destinationListing.json()) as { entries: Array<{ name: string }> }).entries.map((entry) => entry.name),
       ["shot.png"],
@@ -97,7 +94,7 @@ test("move moves a directory with its children to another parent and keeps the t
     assert.equal(await readFile(join(root, "spaces", "s1", "moved", "deep", "inner.txt"), "utf-8"), "inner");
 
     // 移動後も一覧の path として辿れる
-    const listing = await service.app.request("/v1/files?path=spaces%2Fs1%2Fmoved", { headers: authHeaders() });
+    const listing = await service.app.request("/v1/files?path=spaces%2Fs1%2Fmoved", { headers: authHeaders(TOKEN) });
     assert.equal(listing.status, 200);
     assert.deepEqual(
       ((await listing.json()) as { entries: Array<{ name: string }> }).entries.map((entry) => entry.name),

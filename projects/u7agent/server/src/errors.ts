@@ -1,6 +1,5 @@
 /**
- * 例外からログ・応答に出す 1 行。サンドボックスからも参照するので HTTP の module とは分ける。
- * 依存は言語標準だけに留める (hono / zod / node:* を引くとサンドボックスの起動が BFF 側へ縛られる)。
+ * サンドボックスからも参照するので HTTP の module とは分け、言語標準以外に依存しない。
  */
 export function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -18,7 +17,7 @@ export function httpError(statusCode: number, message: string): HttpError {
 }
 
 /**
- * サンドボックスのパス検証で使う例外。呼び出し 164 箇所が名前で読んでいるため、`httpError` の別名を残す
+ * サンドボックスのパス検証で使う例外。呼び出し側はこの名前で意図を読むため、`httpError` の別名を残す
  * (文言と statusCode の対応は呼び出し側が決める)。
  */
 export function pathError(statusCode: number, message: string): HttpError {

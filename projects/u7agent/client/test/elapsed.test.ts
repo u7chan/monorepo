@@ -1,7 +1,8 @@
 // 経過時間表示。境界 (秒 → 分 → 時) と負値の丸めを固定値で検証する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { askUserWaitTotalMs, elapsedBeatIndex, formatElapsed, isElapsedTier, runElapsedMs } from "../src/lib/elapsed";
+import { elapsedBeatIndex, formatElapsed, isElapsedTier, runElapsedMs } from "../src/lib/elapsed";
+import { askUserWaitTotalMs } from "server/wait-total";
 
 test("formatElapsed は秒・分・時で刻む", () => {
   assert.equal(formatElapsed(0), "0s");

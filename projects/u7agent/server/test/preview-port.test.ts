@@ -9,7 +9,7 @@ import {
   SERVE_LISTEN_PORT,
 } from "../src/preview-port";
 import { SANDBOX_DEFAULT_PORT } from "../src/sandbox/protocol";
-import { appendSystemPrompt } from "../src/agent";
+import { appendSystemPrompt } from "../src/session-prompt";
 import { createBffApp } from "../src/app";
 import { HealthSchema } from "../src/schema";
 

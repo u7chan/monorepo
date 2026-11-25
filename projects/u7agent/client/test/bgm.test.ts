@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
-import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import { chatReducer } from "../src/hooks/chatReducer";
 import { historyItemsToBundle } from "../src/lib/chatHistory";
 import { estimateChatItemHeight } from "../src/lib/chatItems";
 import type { Bubble, ToolCard } from "../src/lib/chatTypes";
@@ -46,7 +47,14 @@ test("ライブと履歴復元はBGM2本とTTSのカード・caption・版付き
   ];
   let live = initialChatState;
   for (const card of cards) {
-    live = chatReducer(live, { type: "toolStart", id: card.id, name: card.name, args: card.args, at: 100 });
+    live = chatReducer(live, {
+      type: "toolStart",
+      startedAt: 100,
+      id: card.id,
+      name: card.name,
+      args: card.args,
+      at: 100,
+    });
     live = chatReducer(live, { type: "toolEnd", id: card.id, isError: false, output: card.output });
   }
   const restored = historyItemsToBundle(1, [

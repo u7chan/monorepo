@@ -1,14 +1,15 @@
 /**
- * 設定 → エージェント（/settings/agents）の一覧をグリップで並べ替える計算。判定だけをここへ置き、
- * DOM の読み書き（行の追従・自動スクロール・pointer capture）は `hooks/useAgentDrag.ts` が持つ。
+ * 設定の一覧（エージェント / 定型プロンプト / 会話スペース / 環境変数）をグリップで並べ替える計算。
+ * 判定だけをここへ置き、DOM の読み書き（行の追従・自動スクロール・pointer capture）は
+ * `hooks/useReorderDrag.ts` が持つ。
  */
 
 /** 押しただけ（行の選択 / タップ）と区別する移動量。これ未満では掴んでいない */
-export const AGENT_DRAG_THRESHOLD = 4;
+export const REORDER_DRAG_THRESHOLD = 4;
 
 /** 端と見なす帯の幅と、1 フレームあたりの最大スクロール量 (px) */
-export const AGENT_DRAG_SCROLL_BAND = 48;
-export const AGENT_DRAG_SCROLL_STEP = 12;
+export const REORDER_SCROLL_BAND = 48;
+export const REORDER_SCROLL_STEP = 12;
 
 /** 行の中心線の一覧から挿入先 (0..centers.length) を求める。中心線より下の行の数が挿入先になる */
 export function dropIndexFor(centers: readonly number[], pointerY: number): number {
@@ -32,7 +33,7 @@ export function dropTargetFor(centers: readonly number[], pointerY: number, from
  * `ids[from]` を `to`（移動前の添字で数えた挿入先）へ動かす。範囲外の `from` は何もしない。
  * 移動後の添字は、後ろへ動かすときだけ 1 つ手前になる。
  */
-export function moveAgentId(ids: readonly string[], from: number, to: number): string[] {
+export function moveRowId(ids: readonly string[], from: number, to: number): string[] {
   if (from < 0 || from >= ids.length) return [...ids];
   const next = [...ids];
   const [moved] = next.splice(from, 1);
@@ -53,20 +54,20 @@ export function reorderRows<T extends { id: string }>(rows: readonly T[], ids: r
   return rows.map((row) => (used.has(row.id) ? queue[next++] : row));
 }
 
-/** サーバーが返した順へ agents を並べ替える。ids に無い行は元の相対順で末尾に回す */
-export function applyAgentOrder<T extends { id: string }>(agents: readonly T[], ids: readonly string[]): T[] {
-  const byId = new Map(agents.map((agent) => [agent.id, agent]));
+/** サーバーが返した順へ rows を並べ替える。ids に無い行は元の相対順で末尾に回す */
+export function applyRowOrder<T extends { id: string }>(rows: readonly T[], ids: readonly string[]): T[] {
+  const byId = new Map(rows.map((row) => [row.id, row]));
   const ordered: T[] = [];
   for (const id of ids) {
-    const agent = byId.get(id);
-    if (!agent) continue;
+    const row = byId.get(id);
+    if (!row) continue;
     byId.delete(id);
-    ordered.push(agent);
+    ordered.push(row);
   }
-  for (const agent of agents) {
-    if (!byId.has(agent.id)) continue;
-    byId.delete(agent.id);
-    ordered.push(agent);
+  for (const row of rows) {
+    if (!byId.has(row.id)) continue;
+    byId.delete(row.id);
+    ordered.push(row);
   }
   return ordered;
 }
@@ -79,8 +80,8 @@ export function edgeScrollStep(
   pointerY: number,
   top: number,
   bottom: number,
-  band = AGENT_DRAG_SCROLL_BAND,
-  step = AGENT_DRAG_SCROLL_STEP,
+  band = REORDER_SCROLL_BAND,
+  step = REORDER_SCROLL_STEP,
 ): number {
   const width = Math.min(band, Math.max(1, (bottom - top) / 2));
   if (pointerY < top + width) {

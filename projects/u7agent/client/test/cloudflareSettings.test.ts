@@ -6,7 +6,6 @@ import {
   cloudflareCheckEnabled,
   cloudflareDeleteConfirmRequest,
   cloudflareDraftDirty,
-  cloudflareDraftFromSettings,
   cloudflareHttpStatusLabel,
   cloudflareSaveBody,
   type CloudflareCheckEnableInput,
@@ -36,13 +35,9 @@ const checkResult = (
   ...overrides,
 });
 
-test("下書きは保存済みアカウント ID から始まり、トークンは常に空", () => {
-  assert.deepEqual(cloudflareDraftFromSettings(null), { accountId: "", apiToken: "" });
-  assert.deepEqual(cloudflareDraftFromSettings(settings()), { accountId: ACCOUNT, apiToken: "" });
-});
-
 test("アカウント ID の大文字小文字だけでは dirty にせず、トークンの入力で dirty にする", () => {
-  const draft = cloudflareDraftFromSettings(settings());
+  // 保存済みアカウント ID から始まり、トークンは常に空 (描画は cloudflareSettingsPage.test.ts)
+  const draft = { accountId: ACCOUNT, apiToken: "" };
   assert.equal(cloudflareDraftDirty(draft, settings()), false);
   assert.equal(cloudflareDraftDirty({ ...draft, accountId: ACCOUNT.toUpperCase() }, settings()), false);
   assert.equal(cloudflareDraftDirty({ ...draft, accountId: ACCOUNT.slice(1) }, settings()), true);

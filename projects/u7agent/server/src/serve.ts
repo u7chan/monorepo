@@ -9,7 +9,7 @@ import { SERVE_DIR_REL, SERVE_LOG_REL, SERVE_STATE_REL, serveDebugLogRel } from 
 import type { ServeCommandRow } from "./app-db";
 import { messageFor } from "./errors";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, httpError } from "./http";
-import { MutationLock } from "./model-settings";
+import { SerialLock } from "./serial-lock";
 // serve 契約の待受ポート。プローブも待受 PID の特定も、サービス オリジンの転送先もこの値だけを見る
 import { SERVE_LISTEN_PORT } from "./preview-port";
 import type { SandboxServeClient } from "./sandbox/client";
@@ -471,10 +471,10 @@ export class ServeService {
   #startTimeoutMs: number;
   #stopTimeoutMs: number;
   #cacheMs: number;
-  #lock = new MutationLock();
+  #lock = new SerialLock();
   #cached: ServeObservation | null = null;
   /** デバッグ用のロック。公開枠と共有しない (レンジ走査で公開の起動・停止を待たせない) */
-  #debugLock = new MutationLock();
+  #debugLock = new SerialLock();
   #debugLeases = new Map<string, DebugServeLease>();
 
   constructor(options: ServeServiceOptions) {

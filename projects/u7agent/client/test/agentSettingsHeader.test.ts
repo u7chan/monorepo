@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { AgentDef, CatalogResponse } from "../src/types";
 
-// api.ts (location.origin を読む) と useLayoutMode (viewport を読む) を辿るため、node では最小の shim を置く
+// api/http.ts (location.origin を読む) と useLayoutMode (viewport を読む) を辿るため、node では最小の shim を置く
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const viewport = { innerWidth: 1440, innerHeight: 900 };
 (globalThis as unknown as { window: unknown }).window = {

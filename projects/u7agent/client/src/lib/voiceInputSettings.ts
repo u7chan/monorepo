@@ -6,7 +6,7 @@
 import type { VoiceInputSettingsResponse, VoiceInputTestFailure, VoiceInputTestResponse } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
 import type { ProviderBadge } from "./modelSettings";
-import { messageFor } from "./settingsResource";
+import { messageFor } from "./errors";
 
 /** キーの入力の境界。サーバー（server/src/schema/settings.ts）と同じ値で、外れた入力は送らない */
 export const VOICE_INPUT_KEY_MIN_LENGTH = 8;

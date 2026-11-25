@@ -52,7 +52,7 @@ export type Bubble = {
   text: string;
   /**
    * assistant を生成したモデル (`provider/id`)。null はモデル情報なし (旧履歴 / 未報告)、
-   * undefined は未確定 (ライブの assistant_end 前) または旧サーバー
+   * undefined は未確定 (ライブの assistant_end 前)
    */
   model?: string | null;
   tools: ToolCard[];
@@ -65,7 +65,7 @@ export type Bubble = {
   since?: string;
   /**
    * 受付ごとの送信ID (POST 応答の sendId)。ローカルエコー / 待機 / 履歴 item / pendingSends を
-   * 本文一致に依らず対応付ける。旧サーバーの応答では載らない
+   * 本文一致に依らず対応付ける。送信IDの記録が無い保存済みの履歴では載らない
    */
   sendId?: string;
   /**
@@ -109,7 +109,7 @@ export type Bubble = {
   queuedState?: "queued" | "steering";
   /**
    * サーバーが配った待機の順位 (1 始まり)。表示直前に保持分を並べ直すための根拠で、表示する番号は
-   * `lib/queueWait` が付ける。順位が不明 (旧サーバー) は載らない
+   * `lib/queueWait` が付ける。順位が不明 (キューに無い送信) は載らない
    */
   queuePosition?: number;
   /**
@@ -143,10 +143,10 @@ export type CompactionMarker = {
   compactions: CompactionInfo[];
 };
 
-/** 全履歴ページの取得状態。supported=false は旧サーバー (履歴 API 無し) の表示 */
+/** 全履歴ページの取得状態。supported=false は履歴 API が使えない (404) ときの表示 */
 export type ChatHistoryState = {
   supported: boolean;
-  /** 履歴 API が無い旧サーバー。初期表示を payload.messages の全量で組み直す */
+  /** 履歴 API の 404 (未知ルート / セッション消滅)。初期表示を payload.messages の全量で組み直す */
   unsupported: boolean;
   hasMore: boolean;
   nextCursor: string | null;

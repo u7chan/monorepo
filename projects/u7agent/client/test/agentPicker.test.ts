@@ -5,9 +5,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AgentPicker } from "../src/components/composer/AgentPicker";
 import {
   AGENT_PICKER_GAP,
+  AGENT_PICKER_LIST_MAX_HEIGHT,
   AGENT_PICKER_MARGIN,
+  agentPickerListMaxHeight,
+  agentPickerMaxWidth,
   agentPickerPlacement,
-  nextAgentOptionIndex,
 } from "../src/lib/agentPicker";
 import type { AgentDef } from "../src/types";
 
@@ -40,20 +42,12 @@ test("位置: 左右と上下を viewport の内側へ clamp する", () => {
   assert.equal(tall.top, 200 - 150 - AGENT_PICKER_MARGIN);
 });
 
-test("キーボード: ↑↓ は端で止まり、Home / End は先頭 / 末尾へ入る", () => {
-  assert.equal(nextAgentOptionIndex(0, 3, "next"), 1);
-  assert.equal(nextAgentOptionIndex(2, 3, "next"), 2);
-  assert.equal(nextAgentOptionIndex(2, 3, "previous"), 1);
-  assert.equal(nextAgentOptionIndex(0, 3, "previous"), 0);
-  assert.equal(nextAgentOptionIndex(1, 3, "first"), 0);
-  assert.equal(nextAgentOptionIndex(1, 3, "last"), 2);
-  // フォーカスが項目の外 (-1) なら端へ入る。空のリストは移動先が無い
-  assert.equal(nextAgentOptionIndex(-1, 3, "next"), 0);
-  assert.equal(nextAgentOptionIndex(-1, 3, "previous"), 2);
-  assert.equal(nextAgentOptionIndex(-1, 3, "first"), 0);
-  assert.equal(nextAgentOptionIndex(-1, 3, "last"), 2);
-  assert.equal(nextAgentOptionIndex(0, 0, "next"), -1);
-  assert.equal(nextAgentOptionIndex(0, 0, "last"), -1);
+test("寸法: 幅は viewport の余白を残して縮め、高さは既定の上限と残りの小さい方にする", () => {
+  assert.equal(agentPickerMaxWidth(1000, AGENT_PICKER_MARGIN), 984);
+  assert.equal(agentPickerMaxWidth(10, AGENT_PICKER_MARGIN), 0, "余白も取れない viewport では 0 にする");
+  assert.equal(agentPickerListMaxHeight(800, AGENT_PICKER_MARGIN, 50), AGENT_PICKER_LIST_MAX_HEIGHT);
+  assert.equal(agentPickerListMaxHeight(300, AGENT_PICKER_MARGIN, 50), 234, "低い viewport では残りへ縮める");
+  assert.equal(agentPickerListMaxHeight(60, AGENT_PICKER_MARGIN, 50), 0, "負にしない");
 });
 
 function agent(id: string, name: string): AgentDef {

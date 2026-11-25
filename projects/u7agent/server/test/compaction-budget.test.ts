@@ -16,7 +16,7 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { compactionSettingsFromEnv } from "../src/agent";
+import { compactionSettingsFromEnv } from "../src/session-settings";
 
 /** 要約リクエストの出力枠。openai-completions の compat 次第でフィールド名が変わる */
 type SummaryRequest = { max_tokens?: number; max_completion_tokens?: number };

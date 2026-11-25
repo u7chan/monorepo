@@ -3,8 +3,11 @@ import test from "node:test";
 import type { HistoryPage } from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
+const { ApiError, isNotStoredError } = await import("../src/api/http");
+const { createSpaceApi } = await import("../src/api/sessions");
+const { deleteSpace, renameSpace } = await import("../src/api/spaces");
+const { getGitInfo, statFile, uploadWorkspaceFile } = await import("../src/api/files");
 const {
-  ApiError,
   applyBackupRestore,
   backupExportUrl,
   cancelOAuthLogin,
@@ -18,7 +21,6 @@ const {
   getTitleSummarySettings,
   getVoiceInputSettings,
   getWebSearchSettings,
-  isNotStoredError,
   postVoiceInputSession,
   postVoiceInputTest,
   putVoiceInputKey,
@@ -29,30 +31,28 @@ const {
   putTitleSummarySettings,
   postTitleSummaryTest,
   postWebSearchTest,
-  createSpaceApi,
-  deleteSpace,
-  renameSpace,
   updateArchiveSettings,
   resetArchiveSettings,
-  getSharedContentExclusions,
-  updateSharedContentExclusions,
-  resetSharedContentExclusions,
-  getGitInfo,
-  getSharedContentPreview,
-  renameSharedContent,
-  statFile,
-  uploadWorkspaceFile,
-  getRuntimeDebugServeStatus,
-  getRuntimeServeStatus,
   logoutOAuthProvider,
   selectOAuthLoginMethod,
   startContentTrial,
   startOAuthLogin,
+  submitOAuthLoginCode,
+} = await import("../src/api/settings");
+const {
+  getSharedContentExclusions,
+  updateSharedContentExclusions,
+  resetSharedContentExclusions,
+  getSharedContentPreview,
+  renameSharedContent,
+} = await import("../src/api/shared");
+const {
+  getRuntimeDebugServeStatus,
+  getRuntimeServeStatus,
   startRuntimeServe,
   stopRuntimeDebugServe,
   stopRuntimeServe,
-  submitOAuthLoginCode,
-} = await import("../src/api");
+} = await import("../src/api/runtime");
 const { browserVoiceInputPlatform } = await import("../src/lib/voiceInput/browser");
 const { getSessionHistory, updateSessionTitle, postMessage, summarizeSessionTitle } = createSpaceApi("default");
 

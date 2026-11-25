@@ -24,7 +24,7 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定し�
 <ベース URL>/s/<sessionId>?space=<spaceId>   ← 会話の所属。ベース URL 未設定なら行ごと出さない
 ```
 
-- `<実行時間>` はランの所要時間（[run-lifecycle.md](run-lifecycle.md#状態)）で、キュー待ちと回答待ち（`ask_user` の実行区間）を含めない。回答待ちが長い会話では、実際に待った時間より短い値になる
+- `<実行時間>` はランの所要時間（[run-lifecycle.md](run-lifecycle.md#状態)）で、キュー待ちと回答待ち（`ask_user` と承認 `request_network_access` の実行区間）を含めない。回答待ちが長い会話では、実際に待った時間より短い値になる
 - `space` はその会話の所属スペース。**保存値に依存させず、そのスペースで開くために常に載せる**（既定スペースも `default` として載せる）。所属が引けない / 不正な値のときは `?space=` を付けずに送り、保存値で解決させる（正規化は通知層で行い、通知そのものは失わない）
 - 会話を別のスペースへ引っ越すと、移動前に送った通知の `?space=` は旧スペースを指すため 404 になる（会話は移動先にある）。既知の制限で、通知の再送や URL の書換えはしない（[api-session-state.md](api-session-state.md#post-apisessionsidmove)）
 - 本文は **mask → truncate** の順（逆順だと上限の境界でキーの末尾が欠ける）。mask は APIキーの masker と Webhook URL の専用マスクの両方で、質問通知の質問文も同じ
@@ -57,11 +57,11 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定し�
 | メソッド | パス | 内容 |
 | --- | --- | --- |
 | GET | `/api/notifications` | `{ enabled, askUser, provider: "discord", configured, webhookAvailable, webhookEvaluated, webhookErrorMessage, baseUrl?, lastResult? }` |
-| PUT | `/api/notifications` | `{ enabled?, askUser?, webhookUrl?（null で解除）, baseUrl?（null で解除） }`。宛先とベース URL を検証し、保存時に送信テストはしない。旧クライアントの `mention` は無視する |
+| PUT | `/api/notifications` | `{ enabled?, askUser?, webhookUrl?（null で解除）, baseUrl?（null で解除） }`。宛先とベース URL を検証し、保存時に送信テストはしない。未知のキー（廃止した `mention` など）は無視する |
 | POST | `/api/notifications/test` | 保存済み設定で 1 通。`{ ok, status, latencyMs, message?, code?, retryAfter?, at }` を 200 で返す（アプリ側のエラーだけ 4xx）。タイムアウトは 5 秒 |
 | PATCH | `/api/sessions/:id/notify` | `{ notify: boolean }` → `{ sessionId, notify }` を 200 で返す |
 | POST | `/api/sessions` | `notify?: boolean`（新規チャットで選んだ値を、作成されるセッションへ引き継ぐ） |
-| GET | `/api/sessions` / `/api/sessions/:id` | `notify: boolean`（サーバーは常に載せ、読む側は省略を false として扱う） |
+| GET | `/api/sessions` / `/api/sessions/:id` | `notify: boolean`（常に載る） |
 
 - `PATCH /api/sessions/:id/notify` は専用経路。Model / Effort の `PATCH /settings` には相乗りせず、SDK の設定変更も busy 判定も通さないため実行中でも切り替えられる。live / 未ロードのどちらでも同じ応答で、会話全文は返さない（未ロードでは SDK セッションを開かない）。未知の id は 404
 - 直近結果（`lastResult`）は通常通知・質問通知・テスト送信で共通の 1 件。送信開始の世代で新しい方を優先し、古い完了で新しい結果を上書きしない。Webhook URL を変えるとクリアする。再起動後は SQLite から復元する

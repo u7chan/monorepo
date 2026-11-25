@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { Bubble, CompactionMarker } from "../hooks/chatReducer";
+import type { Bubble, CompactionMarker } from "../lib/chatTypes";
 import { isLiveTurnBubble } from "../lib/chatItems";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import {
@@ -74,7 +74,7 @@ export type ChatAreaProps = {
     toolCallId: string,
     answers: AskUserAnswer[],
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
-  /** この会話の egress の承認状態。拒否済みカードの救済の可否に使う (旧サーバーは undefined) */
+  /** この会話の egress の承認状態。拒否済みカードの救済の可否に使う (payload を受ける前は undefined) */
   networkAccess?: SessionNetworkAccess;
   /** 拒否済みの承認カードを、モデルを介さずに許可へ変える */
   onApproveNetworkAccess?: (host: string) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -340,7 +340,7 @@ export function ChatArea({
         queueStarted={startingRunId !== undefined && bubble.runId === startingRunId}
         onStartFlashEnd={onStartFlashEnd}
         onAnswerQuestion={onAnswerQuestion}
-        {...(networkAccess === undefined ? {} : { networkAccess })}
+        networkAccess={networkAccess}
         {...(onApproveNetworkAccess === undefined ? {} : { onApproveNetworkAccess })}
       />
     );

@@ -1,18 +1,18 @@
-// 設定 → エージェントの並べ替えの計算（client/src/lib/agentReorder.ts）。DOM も api も読み込まない純関数だけを固定する。
+// 設定の一覧（エージェント / 定型プロンプト / 会話スペース）の並べ替えの計算（client/src/lib/listReorder.ts）。DOM も api も読み込まない純関数だけを固定する。
 // ここが崩れると、ドラッグの挿入先・追従量・行の並びがずれ、確定した順がカタログへ反映されない。
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  AGENT_DRAG_SCROLL_STEP,
+  REORDER_SCROLL_STEP,
   alignCapturedRows,
-  applyAgentOrder,
+  applyRowOrder,
   dropIndexFor,
   dropTargetFor,
   edgeScrollStep,
-  moveAgentId,
+  moveRowId,
   reorderRows,
   scrollableAncestor,
-} from "../src/lib/agentReorder";
+} from "../src/lib/listReorder";
 
 test("dropIndexFor は中心線を越えた行の数を挿入先にする", () => {
   const centers = [10, 30, 50];
@@ -27,30 +27,30 @@ test("dropIndexFor は中心線を越えた行の数を挿入先にする", () =
 
 test("dropTargetFor は掴んだ行を除いた中心線から挿入先を求める", () => {
   // [a, b, c] で a (from=0) を掴んでいる。他は b(130) と c(160) が見えている
-  const down = (pointerY: number) => moveAgentId(["a", "b", "c"], 0, dropTargetFor([130, 160], pointerY, 0));
+  const down = (pointerY: number) => moveRowId(["a", "b", "c"], 0, dropTargetFor([130, 160], pointerY, 0));
   assert.deepEqual(down(100), ["a", "b", "c"], "b の中心線より上では動かない");
   assert.deepEqual(down(140), ["b", "a", "c"]);
   assert.deepEqual(down(165), ["b", "c", "a"]);
   // c (from=2) を上へ: 自分の中心線より下では動かない
-  const up = (pointerY: number) => moveAgentId(["a", "b", "c"], 2, dropTargetFor([100, 130], pointerY, 2));
+  const up = (pointerY: number) => moveRowId(["a", "b", "c"], 2, dropTargetFor([100, 130], pointerY, 2));
   assert.deepEqual(up(140), ["a", "b", "c"], "自分の位置のまま");
   assert.deepEqual(up(125), ["a", "c", "b"]);
   assert.deepEqual(up(90), ["c", "a", "b"]);
 });
 
-test("moveAgentId は前後のどちらへ動かしても 1 件だけ動かす", () => {
+test("moveRowId は前後のどちらへ動かしても 1 件だけ動かす", () => {
   const ids = ["a", "b", "c", "d"];
   // 前へ動かす: 挿入先の添字がそのまま位置になる
-  assert.deepEqual(moveAgentId(ids, 3, 1), ["a", "d", "b", "c"]);
-  assert.deepEqual(moveAgentId(ids, 2, 0), ["c", "a", "b", "d"]);
+  assert.deepEqual(moveRowId(ids, 3, 1), ["a", "d", "b", "c"]);
+  assert.deepEqual(moveRowId(ids, 2, 0), ["c", "a", "b", "d"]);
   // 後ろへ動かす: 挿入先は移動前の添字で数えるので 1 つ手前になる
-  assert.deepEqual(moveAgentId(ids, 0, 3), ["b", "c", "a", "d"]);
-  assert.deepEqual(moveAgentId(ids, 1, 4), ["a", "c", "d", "b"]);
+  assert.deepEqual(moveRowId(ids, 0, 3), ["b", "c", "a", "d"]);
+  assert.deepEqual(moveRowId(ids, 1, 4), ["a", "c", "d", "b"]);
   // 動かさない位置 (自分の直前 / 直後) と範囲外は同じ並びを返す
-  assert.deepEqual(moveAgentId(ids, 1, 1), ids);
-  assert.deepEqual(moveAgentId(ids, 1, 2), ids);
-  assert.deepEqual(moveAgentId(ids, 9, 0), ids);
-  assert.notEqual(moveAgentId(ids, 0, 1), ids, "元の配列を書き換えない");
+  assert.deepEqual(moveRowId(ids, 1, 1), ids);
+  assert.deepEqual(moveRowId(ids, 1, 2), ids);
+  assert.deepEqual(moveRowId(ids, 9, 0), ids);
+  assert.notEqual(moveRowId(ids, 0, 1), ids, "元の配列を書き換えない");
 });
 
 test("reorderRows は渡した id だけを並べ替え、ビルトインなど他の行は位置を保つ", () => {
@@ -91,19 +91,19 @@ test("reorderRows は渡した id を、スペース一覧でも既定の先頭�
   );
 });
 
-test("applyAgentOrder はサーバーの順に並べ、渡されなかった行を末尾へ回す", () => {
+test("applyRowOrder はサーバーの順に並べ、渡されなかった行を末尾へ回す", () => {
   const agents = [{ id: "a" }, { id: "b" }, { id: "c" }];
   assert.deepEqual(
-    applyAgentOrder(agents, ["c", "a", "b"]).map((agent) => agent.id),
+    applyRowOrder(agents, ["c", "a", "b"]).map((agent) => agent.id),
     ["c", "a", "b"],
   );
   // 未知の id は捨て、渡されなかった行は元の相対順のまま末尾
   assert.deepEqual(
-    applyAgentOrder(agents, ["b", "missing"]).map((agent) => agent.id),
+    applyRowOrder(agents, ["b", "missing"]).map((agent) => agent.id),
     ["b", "a", "c"],
   );
   // 定義オブジェクトはそのまま使う (順序だけを差し替える)
-  assert.equal(applyAgentOrder(agents, ["b", "a", "c"])[0], agents[1]);
+  assert.equal(applyRowOrder(agents, ["b", "a", "c"])[0], agents[1]);
 });
 
 test("alignCapturedRows は捕捉した行が 1 つでも欠けると null を返し、ドラッグを取り消させる", () => {
@@ -128,12 +128,12 @@ test("edgeScrollStep は帯の外では 0、端に近いほど大きい", () => 
   assert.equal(edgeScrollStep(150, 100, 200), 0);
   assert.ok(edgeScrollStep(101, 100, 200) < 0, "上端では上へ回す");
   assert.ok(edgeScrollStep(199, 100, 200) > 0, "下端では下へ回す");
-  assert.equal(edgeScrollStep(100, 100, 200), -AGENT_DRAG_SCROLL_STEP);
-  assert.equal(edgeScrollStep(200, 100, 200), AGENT_DRAG_SCROLL_STEP);
+  assert.equal(edgeScrollStep(100, 100, 200), -REORDER_SCROLL_STEP);
+  assert.equal(edgeScrollStep(200, 100, 200), REORDER_SCROLL_STEP);
   // 端から離れるほど小さい
-  assert.ok(Math.abs(edgeScrollStep(140, 100, 200)) < AGENT_DRAG_SCROLL_STEP);
+  assert.ok(Math.abs(edgeScrollStep(140, 100, 200)) < REORDER_SCROLL_STEP);
   // 低い一覧では帯を容器の半分までに抑える (常に最大で回さない)
-  assert.equal(edgeScrollStep(40, 40, 50), -AGENT_DRAG_SCROLL_STEP);
+  assert.equal(edgeScrollStep(40, 40, 50), -REORDER_SCROLL_STEP);
   assert.equal(edgeScrollStep(45, 40, 50), 0);
 });
 

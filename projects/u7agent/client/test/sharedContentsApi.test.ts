@@ -5,15 +5,9 @@ import test from "node:test";
 import type { SharedContentResponse } from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const {
-  ApiError,
-  deleteSharedContent,
-  getAllSharedContents,
-  isNotStoredError,
-  publishSharedContent,
-  resumeSharedContent,
-  stopSharedContent,
-} = await import("../src/api");
+const { ApiError, isNotStoredError } = await import("../src/api/http");
+const { deleteSharedContent, getAllSharedContents, publishSharedContent, resumeSharedContent, stopSharedContent } =
+  await import("../src/api/shared");
 
 const item: SharedContentResponse = {
   id: "abc123",

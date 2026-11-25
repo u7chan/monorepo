@@ -1,6 +1,6 @@
 /**
- * 生成物をサンドボックスへ保存するときのパス変換。`generate_image` と `generate_speech` で
- * 同じ拒否規則・同じ文言を使うため、ツールの種別に依存しない層として切り出す。
+ * 生成物をサンドボックスへ保存するときのパス変換。`generate_image` と `generate_speech` が
+ * 同じ拒否規則・同じ文言を使うため、ツールの種別に依存しない層に置く。
  */
 
 export interface ToolPathTarget {
@@ -43,7 +43,7 @@ export function rootRelativeDir(cwd: string, dir: string): string {
 }
 
 /** cwd 相対の保存先。ツール結果と read / Markdown の起点を揃えるため root 相対は返さない */
-export function cwdRelativePath(dir: string, name: string): string {
+export function joinCwdRelativePath(dir: string, name: string): string {
   const child = segmentsOf(dir).join("/");
   return child === "" ? name : `${child}/${name}`;
 }

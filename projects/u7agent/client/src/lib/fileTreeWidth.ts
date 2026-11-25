@@ -1,11 +1,10 @@
 /**
- * ファイルツリー (FileBrowser) の幅の規則。幅は「その端末のその窓」に依存する表示設定なので、
- * どこで境界を引くかはこの純関数だけが決め、保存は localStorage の 1 キーに閉じる。
- * DOM に触れるのは保存先の解決だけ (docs/ui-layout.md)。
- * 左バー / 右パネルと違い、bounds は本文のコンテナ幅 (= プレビューに残す幅) に依存する。
+ * ファイルツリー (FileBrowser) の幅の規則。bounds は本文のコンテナ幅 (= プレビューに残す幅) に依存する。
  */
 
-/** 選べる下限 = 従来の @2xl:w-72 (288px)。狭い窓では既定幅もここで止まる */
+import { createDeviceSettingsStore, type DeviceSettingsStorage, type DeviceSettingsStore } from "./deviceSettingsStore";
+
+/** 選べる下限 (288px)。狭い窓では既定幅もここで止まる */
 export const FILE_TREE_WIDTH_MIN = 288;
 /** 左右 2 段になるコンテナ幅 (Tailwind の `@2xl` = 42rem)。これ未満は上下 2 段で、高さ (fileTreeHeight.ts) を選ぶ面 */
 export const FILE_TREE_STACK_BREAKPOINT = 672;
@@ -15,12 +14,10 @@ export const FILE_TREE_WIDTH_DEFAULT_MAX = 400;
 export const FILE_TREE_WIDTH_DEFAULT_DIVISOR = 3;
 /** 選べる上限。深さ 5 でも名前が 270px 以上見える幅 */
 export const FILE_TREE_WIDTH_MAX = 560;
-/** プレビューに残す最低幅。今日の左右 2 段の境界 (@2xl = 672px) − 288px を下限として引き継ぐ */
+/** プレビューに残す最低幅。左右 2 段の境界 (@2xl = 672px) − 288px を下限とする */
 export const FILE_TREE_PREVIEW_MIN_WIDTH = 384; /** キーボード操作 (→←) の 1 歩 */
 export const FILE_TREE_WIDTH_STEP = 16;
-/** これより大きい保存値は壊れた値として捨てる */
 export const FILE_TREE_WIDTH_STORE_LIMIT = 2000;
-/** 保存キー。テーマ等と同じく端末ローカルの表示設定として持つ */
 export const FILE_TREE_WIDTH_KEY = "u7agent-file-tree-width";
 
 export type FileTreeWidthBounds = {
@@ -83,60 +80,14 @@ export function parseFileTreeWidth(raw: string | null): number | null {
   return width;
 }
 
-export type FileTreeWidthStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
-
-export type FileTreeWidthStore = {
-  /** 保存値。無ければ null (未設定) */
-  read(): number | null;
-  /** null は保存を消す (ダブルクリックの「未指定へ戻す」) */
-  write(width: number | null): void;
-};
-
-/**
- * 選んだ幅を localStorage の 1 キーで読み書きする。保存領域が使えない環境 (private browsing 等)
- * でも操作を止めず、代わりに同じセッション内のメモリを使う。write が失敗した後でも、
- * 再読み込みするまでは選び直した幅を保つ (sidebarWidth.ts と同じ扱い)。
- */
-export function createFileTreeWidthStore(storage?: FileTreeWidthStorage | null): FileTreeWidthStore {
-  // 一度でも読み書きしたら、以降はここが正 (書けなくても session 内は保つ)
-  let memory: number | null | undefined;
-  // 引数を省いたときは毎回引き直す (例外を投げる環境と、window が無いテストの両方に対応する)
-  const resolve = (): FileTreeWidthStorage | null => (storage === undefined ? defaultWidthStorage() : storage);
-
-  return {
-    read() {
-      if (memory !== undefined) return memory;
-      const target = resolve();
-      if (!target) return null;
-      try {
-        memory = parseFileTreeWidth(target.getItem(FILE_TREE_WIDTH_KEY));
-        return memory;
-      } catch {
-        return null;
-      }
-    },
-    write(width) {
-      memory = width;
-      const target = resolve();
-      if (!target) return;
-      try {
-        if (width === null) target.removeItem(FILE_TREE_WIDTH_KEY);
-        else target.setItem(FILE_TREE_WIDTH_KEY, String(width));
-      } catch {
-        // 保存できない。次に選び直したときにまた試す
-      }
-    },
-  };
+export function createFileTreeWidthStore(storage?: DeviceSettingsStorage | null): DeviceSettingsStore<number | null> {
+  return createDeviceSettingsStore<number | null>(storage, {
+    key: FILE_TREE_WIDTH_KEY,
+    parse: parseFileTreeWidth,
+    serialize: (width) => (width === null ? null : String(width)),
+    fallback: () => null,
+  });
 }
 
 /** アプリが使う既定の store */
 export const fileTreeWidthStore = createFileTreeWidthStore();
-
-/** localStorage の accessor 自体が例外になる環境 (private browsing 等) がある */
-function defaultWidthStorage(): FileTreeWidthStorage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}

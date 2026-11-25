@@ -9,6 +9,7 @@ import {
   allowedNames,
   disableGroup,
   isExplicitAllowlist,
+  isNameAllowed,
   missingNames,
   toggleAllowed,
   usedCount,
@@ -52,6 +53,18 @@ test("件数は検索で絞る前の visible 行から数え、0 件でも表示
   assert.deepEqual(allowlistCount([], VISIBLE), { used: 0, total: 3 });
   assert.equal(allowlistCountLabel({ used: 0, total: 0 }), "使用 0 / 全 0");
   assert.equal(usedCount(["gone"], VISIBLE), 0, "一覧に無い保存名は使用中に数えない");
+});
+
+test("行 1 本の ON / OFF は未指定 / 解除なら visible にあること、明示リストなら配列にあること", () => {
+  assert.equal(isNameAllowed(undefined, VISIBLE, "alpha"), true);
+  assert.equal(isNameAllowed(null, VISIBLE, "alpha"), true);
+  assert.equal(isNameAllowed([], VISIBLE, "alpha"), false, "空の明示リストはすべて OFF");
+  assert.equal(isNameAllowed(["alpha"], VISIBLE, "alpha"), true);
+  assert.equal(isNameAllowed(["alpha"], VISIBLE, "beta"), false);
+  // 未指定 / 解除は visible の外を ON にしない (検索で隠れた行を勝手に使用中にしないため)。
+  // 明示リストは保存名をそのまま見るので、一覧に無い名前も ON になりうる
+  assert.equal(isNameAllowed(undefined, VISIBLE, "gone"), false);
+  assert.equal(isNameAllowed(["gone"], VISIBLE, "gone"), true);
 });
 
 test("一覧に無い保存名は明示リストのときだけ拾う", () => {

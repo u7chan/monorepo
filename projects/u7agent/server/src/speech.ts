@@ -8,6 +8,7 @@
  * ツール（`speech-tools.ts`）と設定画面の試行の両方がこの生成器を通る。
  */
 import { messageFor } from "./errors";
+import { startRequestDeadline } from "./request-deadline";
 import {
   classifyProviderFailure,
   parseJsonBody,
@@ -247,22 +248,11 @@ export function createSpeechGenerator(options: SpeechGeneratorOptions = {}): Spe
 
   return {
     generate: async (input) => {
-      // 期限はここでのみ掛ける。応答と status を自分で読むため、abort の理由は timedOut で判別する
-      const controller = new AbortController();
-      let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs);
-      const onUserAbort = (): void => controller.abort();
-      input.signal?.addEventListener("abort", onUserAbort, { once: true });
-      if (input.signal?.aborted) onUserAbort();
-      const aborted = (): boolean => input.signal?.aborted === true;
+      const deadline = startRequestDeadline(timeoutMs, input.signal);
 
       let status: number | undefined;
       try {
-        // 学習済みの形式があればそれを、無ければ mp3 から試す。再試行しても期限と中断の扱いを
-        // 変えないよう controller は共有する
+        // 形式を変えても期限は延長しない。
         let format: SpeechAudioFormat = rememberedFormat(input.model) ?? "mp3";
         for (let attempt = 0; ; attempt += 1) {
           status = undefined;
@@ -280,7 +270,7 @@ export function createSpeechGenerator(options: SpeechGeneratorOptions = {}): Spe
               ...(input.speed === undefined ? {} : { speed: input.speed }),
               response_format: format,
             }),
-            signal: controller.signal,
+            signal: deadline.signal,
           });
           if (!response.ok) status = response.status;
           const contentType = response.headers.get("content-type") ?? "";
@@ -315,28 +305,27 @@ export function createSpeechGenerator(options: SpeechGeneratorOptions = {}): Spe
             console.info(`[u7agent] speech format fallback: model=${input.model} from=${format} to=${suggested}`);
             format = suggested;
             // 中断済みなら待機を伴う再試行をせず、最後の試行の材料で分類する
-            if (aborted()) {
+            if (deadline.aborted) {
               return classifyProviderFailure(
-                { status, timedOut, aborted: true, providerMessage, maskText },
+                { status, timedOut: deadline.timedOut, aborted: true, providerMessage, maskText },
                 SPEECH_FAILURE_MESSAGES,
               );
             }
             continue;
           }
           return classifyProviderFailure(
-            { status, timedOut, aborted: aborted(), providerMessage, maskText },
+            { status, timedOut: deadline.timedOut, aborted: deadline.aborted, providerMessage, maskText },
             SPEECH_FAILURE_MESSAGES,
           );
         }
       } catch (error) {
         const message = messageFor(error);
         return classifyProviderFailure(
-          { status, timedOut, aborted: aborted(), providerMessage: message, maskText },
+          { status, timedOut: deadline.timedOut, aborted: deadline.aborted, providerMessage: message, maskText },
           SPEECH_FAILURE_MESSAGES,
         );
       } finally {
-        clearTimeout(timer);
-        input.signal?.removeEventListener("abort", onUserAbort);
+        deadline.clear();
       }
     },
   };

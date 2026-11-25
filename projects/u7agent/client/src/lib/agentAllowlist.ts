@@ -18,6 +18,11 @@ export function allowedNames(names: Allowlist, visibleNames: readonly string[]):
   return isExplicitAllowlist(names) ? [...names] : [...visibleNames];
 }
 
+/** 行 1 本の ON / OFF。未指定 / 解除は visible の行が ON、明示リストは配列に含まれる名前だけ ON */
+export function isNameAllowed(names: Allowlist, visibleNames: readonly string[], name: string): boolean {
+  return isExplicitAllowlist(names) ? names.includes(name) : visibleNames.includes(name);
+}
+
 /** visible 行のうち使用中の件数。検索で絞る前の一覧を渡す */
 export function usedCount(names: Allowlist, visibleNames: readonly string[]): number {
   const allowed = new Set(allowedNames(names, visibleNames));

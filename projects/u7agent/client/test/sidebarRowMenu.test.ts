@@ -52,6 +52,10 @@ function renderSessionRow(
     createdAt: 0,
     lastUsedAt: 0,
     pinned: false,
+    titleSummary: { origin: "auto" },
+    notify: false,
+    canHandoff: true,
+    hasRawLog: false,
     serveCommand: null,
     ...overrides,
   };

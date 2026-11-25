@@ -30,6 +30,7 @@ import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import { TEST_MASTER_KEY } from "./app-secret-fixture";
 import { createBffApp } from "../src/app";
 import { IMAGE_PROVIDER_ID } from "../src/images";
+import { jsonBody, jsonPost, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
@@ -456,19 +457,6 @@ test("接続先の検証は DNS の全 IP を見て、リダイレクトを追�
 });
 
 // --- 設定 API（統合 refresh と PUT /cost-url） ---
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
 
 const liveImageCatalogFetch: typeof fetch = async () =>
   new Response(

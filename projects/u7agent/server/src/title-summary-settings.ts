@@ -4,8 +4,9 @@
  * 起動時の適用も同じロックを通す (web-search-settings.ts と同じ契約)。方針は docs/session-title.md を正とする。
  */
 import type { TitleSummarySettingsRow } from "./app-db";
+import { parseModelRef } from "./model-ref";
 import { httpError, messageFor } from "./http";
-import { MutationLock } from "./model-settings";
+import { SerialLock } from "./serial-lock";
 import { ThinkingLevelSchema, type ModelOption, type ThinkingLevel } from "./schema";
 import { TITLE_DEFINITION_DEFAULT, TITLE_DEFINITION_MAX, type TitleSummaryModelChoice } from "./session-title";
 import type { UpdateTitleSummaryBody, TitleSummarySettingsResponse } from "./schema";
@@ -58,7 +59,7 @@ interface StoredState {
 export class TitleSummarySettingsService {
   #db: TitleSummarySettingsDb;
   #models: () => readonly ModelOption[];
-  #lock = new MutationLock();
+  #lock = new SerialLock();
   #state: StoredState = {
     enabled: false,
     model: null,
@@ -254,11 +255,4 @@ function effectiveThinkingLevel(
 function parseThinkingLevel(value: unknown): ThinkingLevel | undefined {
   const parsed = ThinkingLevelSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
-}
-
-export function parseModelRef(model: string | null): { provider: string; id: string } | undefined {
-  if (!model) return undefined;
-  const slash = model.indexOf("/");
-  if (slash <= 0 || slash === model.length - 1) return undefined;
-  return { provider: model.slice(0, slash), id: model.slice(slash + 1) };
 }

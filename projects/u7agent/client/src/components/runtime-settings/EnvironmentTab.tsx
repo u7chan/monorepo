@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getRuntimeEnvironment, getRuntimeInUse } from "../../api";
+import { getRuntimeEnvironment, getRuntimeInUse } from "../../api/runtime";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { cn } from "../../lib/cn";
 import {

@@ -4,8 +4,8 @@ import {
   deleteCloudflareSettings,
   getCloudflareSettings,
   updateCloudflareSettings,
-} from "../api";
-import { messageFor } from "../lib/settingsResource";
+} from "../api/settings";
+import { messageFor } from "../lib/errors";
 import type {
   CloudflareConnectionCheckResponse,
   CloudflareSettingsResponse,

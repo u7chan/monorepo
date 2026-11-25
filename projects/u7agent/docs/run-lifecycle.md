@@ -56,7 +56,7 @@ SDK の `agent_settled` は、BFF が持つ追加入力の注入完了を意味�
 - SDK の実キューに未注入で残るかは `session.agent.peekQueuedMessages()` で見る。実キューにある間は BFF の一覧でも `queued`（取消できる）、SDK が取り出した後は `steering`（反映中、取消・再送・破棄は不可）として配る。取り出し済みかは保存せず、`handedOff` かつ `steered` の件数から実キューの件数を引いた先頭分として導出する（実キューには受付順の末尾側が残る）。
 - 実行が終端したとき、実キューに残っていれば `clearQueue()` して BFF の配送へ戻し、次の実行の開始送信にする。SDK が取り出して user を注入しなかった場合は配送対象から外し、未送信として残す（自動で再投入しない）。取り出し済みかは `clearQueue()` の前に実キュー件数から確定する。
 - アイドルの SDK へ `steer()` だけを残さない。BFF の終端処理中や手動圧縮中は待機だけを保持し、終端後に先頭から次の実行を開始する。
-- `session.steeringMode` が `"all"` でない SDK（旧 SDK）は、実キューが先頭 1 件しか見えず一括ドレインの前提が成り立たないため、一括配送をせず 1 件ずつ渡す。
+- `session.steeringMode` が `"all"` でないときは、実キューが先頭 1 件しか見えず一括ドレインの前提が成り立たないため、一括配送をせず 1 件ずつ渡す。
 
 ## キャッシュの温め直し（cacheWarming）
 
@@ -124,7 +124,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 `statusOf()` は compacting → running → queued → 終端 の順に見るため、実行中に送ったメッセージでは `queued` にならない（追加入力は `running` のまま配信される）。`compacting` は queue より優先して返る（圧縮中の送信はキュ��に積まれるが、表示は圧縮中）。手動圧縮のライフサイクル・排他・終端の順序は [compaction.md](compaction.md#手動圧縮) を正とする。終端（`completed` / `stopped` / `error`）は一覧 API には出るが、左バーは live のみを出す（表示規則は [ui-layout.md](ui-layout.md#nav-モード) を正とする）。
 
-`finish()` はラン終了時に、キュー待ちと回答待ち（`ask_user` の実行区間）を含まない SDK 実行全体の所要時間（`startRun()` から `finish()` まで）と終端の 3 値（`completed` / `stopped` / `error`）を run id ごとに `SessionRecord` へ控える。回答待ちの区間の規則は [ask-user.md](ask-user.md#回答待ちと所要時間) を正とする。所要時間と結末は **開始送信の item にだけ**載せ、追加入力へ複製しない。ターンの結末（`turnEnd`）は、その実行の最後の本文あり応答 item にだけ載せる（本文なしの終端では応答を捏造せず、既存の状態表示を使う）。ライブは `run_end` の `durationMs` と `status` を開始送信のパブルへ写す（履歴経路の値を正とする）。控えはメモリのみ（`toolTimings` / `compactionMeta` と同じセッション寿命）で、再起動とアイドル sweep の後は載らず、表示側はセグメントごと出さない。
+`finish()` はラン終了時に、キュー待ちと回答待ち（`ask_user` と承認 `request_network_access` の実行区間）を含まない SDK 実行全体の所要時間（`startRun()` から `finish()` まで）と終端の 3 値（`completed` / `stopped` / `error`）を run id ごとに `SessionRecord` へ控える。回答待ちの区間の規則は [ask-user.md](ask-user.md#回答待ちと所要時間) を正とする。所要時間と結末は **開始送信の item にだけ**載せ、追加入力へ複製しない。ターンの結末（`turnEnd`）は、その実行の最後の本文あり応答 item にだけ載せる（本文なしの終端では応答を捏造せず、既存の状態表示を使う）。ライブは `run_end` の `durationMs` と `status` を開始送信のパブルへ写す（履歴経路の値を正とする）。控えはメモリのみ（`toolTimings` / `compactionMeta` と同じセッション寿命）で、再起動とアイドル sweep の後は載らず、表示側はセグメントごと出さない。
 
 ## イベントログと SSE
 
@@ -149,7 +149,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 ## 停止と破棄
 
-`POST /api/sessions/:id/stop`（旧 `/abort` もエイリアスとして有効）:
+`POST /api/sessions/:id/stop`:
 
 1. 新規の送信を 409 にし、配送キューと SDK の実キューを回収して `queue_cleared` イベントを記録（回収した送信の `sendIds` を載せ、クライアントは該当する送信を「未送信」へ切り替える。記録は `sends.json` に残るため、再送か破棄まで未送信として読める）
 2. 未 settle の `ask_user` の待機を取り消す（[ask-user.md](ask-user.md#待機のライフサイクル)。ツールは `isError: true` の結果を返し、カードは「回答なしで終了」として残る）
@@ -179,6 +179,8 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 6. dispose・書込み drain・履歴の削除・`handoffCleanup` の解除
 7. 購読を close して応答
 
+このうち 2〜6（メモの下準備・移動・追記・確定・確定後の片付け）は `server/src/handoff-move.ts` が持つ。`SessionStore` に残るのは 1 の検証と、予約（`lifecycle` / `pendingMoves`）・確定・配信（resync / 購読の close）の順序。
+
 - **3〜5 の失敗（確定前）**: 移したものを逆順で戻してエラーを返す。会話は元のままで、チップも出ない。新規作成したメモは自分が書いた内容と一致するときだけ削除し、**既存への追記は戻さない**（他の追記や編集を巻き戻さないため。下準備のあとに別の会話の追記が入っていれば、照合と削除をサンドボックスの同じ実パス排他の中で行うので消えない）。
 - **6 の履歴削除に失敗（確定後）**: 成功の応答を返し `cleanupPending` を載せる（meta の `handoffCleanup` は真のまま）。クライアントは移動先へ切り替えて状態行に警告を出す（スペース切替をまたぐため、結果を `SpacesApp` が持ち、移動先の `App` が入口の解決後に出す）。以降の「開く」要求は片付けを試してから SDK セッションを作り、削除に失敗し続ける間は 409 で拒む（一覧には残り、`DELETE` はできる）。新しい引き継ぎも先に片付けを求める。
 - **6 の `handoffCleanup` 解除に失敗**: 確定は済んでいるため印が残るだけ。次の保存で再試行する。
@@ -199,11 +201,13 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 - 進行中の分岐は、同じスペースの削除が待つ（子は親と同じスペースに入るため）。待った後は親の存在と所属スペースを再確認する。
 - 子のタイトル試行は親から複製し、`pending` は子だけ `interrupted` に終端化する（子の最初の完了で要約し直さない。親の meta / `titleTask` は変えない）。親に試行が無ければ子も未試行で、子の最初の正常完了で 1 回だけ要約され得る（[session-title.md](session-title.md#実行のタイミングと試行)）。
 
+このうち共有フォルダの確認・破損の検証・親の保存と読み直し・境界までの複製・子の store の書込みと失敗時の巻き戻しは `server/src/fork-session.ts` が持つ。`SessionStore` に残るのは検証と、予約（`lifecycle` / `pendingMoves`）・確定・配信（子の open）の順序。
+
 ## ライフサイクル / 制限
 
 - 会話は BFF 専用ストアへ永続化し、起動時に一覧を復元する（[persistence.md](persistence.md)）。プロジェクトの登録はアプリデータの SQLite へ保存し、所属は `projectCwd` から読み取り時に解決する。
-- 1 時間未使用のアイドルセッションは SWEEP でメモリから外す（実行中・キューあり・SSE 購読中は対象外）。ストアと作業フォルダは残り、次回アクセス時に SDK セッションを復元する。
+- 1 時間未使用のアイドルセッションは SWEEP でメモリから外す（実行中 / キューあり / 圧縮中・タイトル要約中・設定変更中・SSE 購読中は対象外。終了直後の 120 分は実行状況の行に残すため外さない）。ストアと作業フォルダは残り、次回アクセス時に SDK セッションを復元する。
 - `ask_user` の回答待ちはタイムアウトを持たず、`sweep` の対象外（busy）でもある。放置するとランは `running` のまま残り、他クライアントの送信は BFF の配送キュー（最大 10 件、超過は 429）に溜まり、Discord の完了通知も来ない。回答待ちの間に受理した入力は同じ実行への steering として扱い、回答と同じバッチの全ツール完了後に注入する（回答・取消にはしない）。逃げ道は停止だけで、停止は未配信の入力を未送信へ回収する（待機中の分は 1 件ずつ `DELETE /api/sessions/:id/queue/:sendId` で取り消せる。運用影響は [ask-user.md](ask-user.md#運用影響と既知の制限)）。
-- id ごとの状態（未ロード / loading / live / evicting / deleting）とライフサイクルの Promise チェーンで、ロード・sweep・削除の競合を直列化する。読み書きするファイルは `session-store` の書込みキューでも直列化する。
+- id ごとの状態は record の有無（未ロード）・`deleting` の集合・同じ id の操作を直列化する `lifecycle` の Promise チェーンで持ち、ロード・sweep・削除の競合をそこで直列化する（[session-files.md](session-files.md#ライフサイクルと排他)）。読み書きするファイルは `session-store` の書込みキューでも直列化する。
 - サーバ終了時は進行中の書込みを flush してから全セッションを abort + dispose する。
 - テスト（`server/test/`）は pi をスタブし、`createBffApp({ pi })` に注入して検証する。HTTP 層は `app.request()` で叩き（listen なし）、store 挙動は直接検証する。実 API は呼ばない。

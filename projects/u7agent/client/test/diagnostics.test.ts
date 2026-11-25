@@ -2,7 +2,8 @@
 // スナップショット / 1 つの JSON への組み立てを、本文を載せない契約ごと固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { initialChatState, type ChatState } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { ChatState } from "../src/lib/chatState";
 import {
   buildDiagnosticsReport,
   CLIENT_EVENT_LIMIT,

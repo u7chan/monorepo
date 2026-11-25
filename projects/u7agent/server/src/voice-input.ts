@@ -1,18 +1,19 @@
 /**
  * 設定 → 音声入力のサービス。OpenAI Platform のキーをアプリ DB の `voice_input_settings`（id = 1）へ
- * AEAD で保存し、復号結果はメモリだけに持つ。録音と文字起こしは別の Issue で、ここはキーの保存・
- * 疎通確認・状態の公開だけを担う。契約は docs/api-settings.md / docs/secrets.md を正とする。
+ * AEAD で保存し、復号結果はメモリだけに持つ。録音と文字起こしは音声入力セッション
+ * (`voice-input-session.ts`) と client が担い、ここはキーの保存・疎通確認・状態の公開だけを担う。
+ * 契約は docs/api-settings.md / docs/secrets.md を正とする。
  */
 import {
   APP_SECRET_NOT_STORED_MESSAGE,
   appSecretAvailable,
-  appSecretFailed,
-  appSecretMasterKeyMissing,
   appSecretNotStored,
   appSecretUnevaluated,
+  evaluateAppSecret,
+  requireAppSecretCipher,
   type AppSecretState,
 } from "./app-secrets";
-import { MutationLock } from "./model-settings";
+import { SerialLock } from "./serial-lock";
 import {
   classifyProviderFailure,
   parseJsonBody,
@@ -128,7 +129,7 @@ export class VoiceInputSettingsService {
   #appCipher: AppSecretCipher | null;
   #fetchImpl: typeof fetch | undefined;
   #timeoutMs: number;
-  #lock = new MutationLock();
+  #lock = new SerialLock();
   /** 復号済みのキー。外部通信の前に使うためだけにメモリへ持ち、GET では復号しない */
   #apiKey: string | null = null;
   /** 保存済みキーの復号結果。起動時と保存 / 置換のときだけ更新する */
@@ -156,16 +157,18 @@ export class VoiceInputSettingsService {
       this.#retainSecret(apiKey);
       let secret: VoiceInputSettingsRow;
       try {
-        secret = this.#requireCipher().encrypt(VOICE_INPUT_SECRET_SCOPE, VOICE_INPUT_SECRET_OWNER, apiKey);
+        secret = requireAppSecretCipher(this.#appCipher).encrypt(
+          VOICE_INPUT_SECRET_SCOPE,
+          VOICE_INPUT_SECRET_OWNER,
+          apiKey,
+        );
       } catch {
-        // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
         console.warn("[u7agent] voice input key encryption failed");
         return { status: 503, error: APP_SECRET_NOT_STORED_MESSAGE };
       }
       try {
         this.#db.saveVoiceInputSettings(secret);
       } catch {
-        // DB の理由は AppDb の境界がマスクして記録する。ここは操作の分類だけに絞る
         console.warn("[u7agent] voice input key save failed");
         return { status: 503, error: VOICE_INPUT_KEY_NOT_STORED_MESSAGE };
       }
@@ -209,7 +212,16 @@ export class VoiceInputSettingsService {
         this.#keyState = appSecretUnevaluated();
         return;
       }
-      this.#evaluateKey(row);
+      const { value, state } = evaluateAppSecret({
+        cipher: this.#appCipher,
+        runtimeAvailable: this.#runtimeAvailable,
+        scope: VOICE_INPUT_SECRET_SCOPE,
+        owner: VOICE_INPUT_SECRET_OWNER,
+        secret: row ?? null,
+        retain: (value) => this.#retainSecret(value),
+      });
+      this.#apiKey = value;
+      this.#keyState = state;
     });
   }
 
@@ -280,44 +292,6 @@ export class VoiceInputSettingsService {
       clearTimeout(timer);
     }
     return { status: 200, response: failure };
-  }
-
-  /**
-   * 保存行の暗号文からキーを復号し、結果をメモリへ残す。runtime が無いときは復号しない
-   * (復号した値を使う経路が無い)。平文へは落とさない。
-   */
-  #evaluateKey(row: VoiceInputSettingsRow | undefined): void {
-    if (!row) {
-      this.#apiKey = null;
-      this.#keyState = appSecretNotStored();
-      return;
-    }
-    if (!this.#runtimeAvailable) {
-      this.#apiKey = null;
-      this.#keyState = appSecretUnevaluated();
-      return;
-    }
-    if (!this.#appCipher) {
-      this.#apiKey = null;
-      this.#keyState = appSecretMasterKeyMissing();
-      return;
-    }
-    try {
-      const apiKey = this.#appCipher.decrypt(VOICE_INPUT_SECRET_SCOPE, VOICE_INPUT_SECRET_OWNER, row);
-      // 外部通信・ログへ渡す前に保護対象へ入れる
-      this.#retainSecret(apiKey);
-      this.#apiKey = apiKey;
-      this.#keyState = appSecretAvailable();
-    } catch {
-      // 誤鍵・未知の鍵版・改ざんは区別せず、平文へも落とさない。行は消さず再登録の案内にする
-      this.#apiKey = null;
-      this.#keyState = appSecretFailed();
-    }
-  }
-
-  #requireCipher(): AppSecretCipher {
-    if (!this.#appCipher) throw new Error(APP_SECRET_NOT_STORED_MESSAGE);
-    return this.#appCipher;
   }
 
   /**

@@ -22,14 +22,7 @@ import {
   validateSharedContentExcludeNames,
 } from "../src/shared-content-rules";
 import type { SharedContentExclusionsResponse } from "../src/schema";
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
+import { jsonBody, jsonPut } from "./http-helpers";
 
 async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-shared-exclusions-"));
@@ -186,7 +179,7 @@ test("壊れた JSON の行があると設定 API は 503 になる", () => {
   try {
     const db = AppDb.open({ storeDir: dir });
     // 保存経路では作れない壊れた行を直接入れる
-    db.saveSharedContentExcludeNames(["AGENTS.md"]);
+    db.sharedContents.saveSharedContentExcludeNames(["AGENTS.md"]);
     db.close();
     const raw = new DatabaseSync(join(dir, "u7agent.db"));
     raw.prepare("UPDATE shared_content_settings SET excludeNames = ?").run("not json");

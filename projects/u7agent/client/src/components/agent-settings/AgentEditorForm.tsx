@@ -1,5 +1,5 @@
 import { useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { createAgent, deleteAgent, updateAgent } from "../../api";
+import { createAgent, deleteAgent, updateAgent } from "../../api/catalog";
 import type { FileSkillsState } from "../../hooks/useFileSkills";
 import { fileToAgentIcon } from "../../lib/agentIconFile";
 import { AGENT_PRESETS, agentPresetValue } from "../../lib/agentPresets";
@@ -196,32 +196,6 @@ export function withToolGroupDisabled(
   return { ...form, toolNames: disableGroup(form.toolNames, target, allVisibleNames) };
 }
 
-/** テストと SkillSelector のために残す旧 API。すべて既定へ戻す (両方の許可リスト) */
-export function withAllCommonSkillsVisible(form: AgentForm): AgentForm {
-  return { ...form, commonSkillNames: null };
-}
-
-export function withAllBuiltinSkillsEnabled(form: AgentForm): AgentForm {
-  return { ...form, builtinSkillNames: null };
-}
-
-/**
- * 「すべて外す」。`[]` の明示リストにして、あとから同梱された分も自動では入れない
- * (docs/api-catalog.md#組み込みスキル)。
- */
-export function withAllBuiltinSkillsDisabled(form: AgentForm): AgentForm {
-  return { ...form, builtinSkillNames: [] };
-}
-
-export function withAllToolsEnabled(form: AgentForm): AgentForm {
-  return { ...form, toolNames: null };
-}
-
-/** 「すべて外す」。`[]` の明示リストにして、あとから増えたツールも自動では入れない */
-export function withAllToolsDisabled(form: AgentForm): AgentForm {
-  return { ...form, toolNames: [] };
-}
-
 /** 件数の表示 (タブのラベル)。検索中も未絞込の visible 行を数える */
 function assignLabel(count: { used: number; total: number }): string {
   return `${AGENT_TAB_ASSIGN_LABEL} ${count.used}/${count.total}`;
@@ -371,7 +345,6 @@ export function AgentEditorForm({
                           required
                           maxLength={80}
                           value={form.name}
-                          // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
                           onChange={(e) => {
                             const name = e.currentTarget.value;
                             setForm((p) => ({ ...p, name }));

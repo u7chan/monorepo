@@ -1,8 +1,10 @@
 import type { Context, Env, Input, MiddlewareHandler, TypedResponse } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { JSONParsed } from "hono/utils/types";
 import type { z } from "zod";
+import { declaredBodyTooLarge, readBodyBytes, readBodyText } from "./bounded-body";
 import { httpError, messageFor, type HttpError } from "./errors";
-import { SandboxRequestError } from "./sandbox/client";
+import { SandboxRequestError, type SandboxDownloadFile } from "./sandbox/client";
 
 /** bodyGuard が読み切って text 化する JSON body の上限 */
 const MAX_BODY_BYTES = 64 * 1024;
@@ -24,6 +26,17 @@ type JsonBodyParseResult<S extends z.ZodType> = z.ZodSafeParseResult<z.output<S>
 
 /** addValidatedData が object しか受け取らないため、body schema の出力は object に限定する */
 type JsonBodySchema = z.ZodType<object>;
+
+function invalidRequestBody(c: Context) {
+  return c.json({ error: "Invalid request body" }, 400);
+}
+
+export function requestBodyValidationHook<E extends Env, P extends string>(
+  result: { success: boolean },
+  c: Context<E, P>,
+) {
+  if (!result.success) return invalidRequestBody(c);
+}
 
 /**
  * Content-Type を見ずに JSON body を読む zValidator("json") の代替。
@@ -51,32 +64,11 @@ export function jsonBodyValidator<
     const result = schema.safeParse(parsed);
     if (!result.success) {
       // hook が応答を返さない場合も、未検証の body のまま handler を動かさない
-      return hook(result, c) ?? c.json({ error: "Invalid request body" }, 400);
+      return hook(result, c) ?? invalidRequestBody(c);
     }
     c.req.addValidatedData("json", result.data);
     await next();
   };
-}
-
-/** Content-Length を信用せず、body を読みながら上限を見る。 */
-async function readBodyText(request: Request, maxBytes: number): Promise<string> {
-  const body = request.body;
-  if (!body) return "";
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > maxBytes) {
-      await reader.cancel().catch(() => {});
-      throw httpError(413, "Request body is too large");
-    }
-    text += decoder.decode(value, { stream: true });
-  }
-  return text + decoder.decode();
 }
 
 /**
@@ -88,46 +80,24 @@ export async function bodyGuard(c: Context, next: () => Promise<void>) {
   if (method === "POST" || method === "PATCH" || method === "PUT") {
     const limit = MAX_BODY_BYTES;
     const contentLength = Number.parseInt(c.req.header("content-length") ?? "", 10);
-    if (Number.isFinite(contentLength) && contentLength > limit) {
+    if (declaredBodyTooLarge(contentLength, limit)) {
       return c.json({ error: "Request body is too large" }, 413);
     }
-    const text = await readBodyText(c.req.raw, limit);
+    const text = await readBodyText(c.req.raw.body?.getReader(), limit);
+    if (text === undefined) throw httpError(413, "Request body is too large");
     // bodyCache の型は解決後の値だが、ランタイムは Promise を期待するため型を吐く。
     (c.req.bodyCache as { text?: unknown }).text = Promise.resolve(text.trim() ? text : "{}");
   }
   await next();
 }
 
-/**
- * raw の本文を上限付きで読む（画像の受け取り用）。`bodyGuard` の 64 KiB とは別に呼び出し側が上限を決める。
- * 宣言された `Content-Length` ではなく実受信バイト数で判定するため、途中で打ち切られてもメモリは増えない。
- */
 export async function readRawBody(
   request: Request,
   maxBytes: number,
   message = "Request body is too large",
 ): Promise<Uint8Array> {
-  const body = request.body;
-  if (!body) return new Uint8Array();
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > maxBytes) {
-      await reader.cancel().catch(() => {});
-      throw httpError(413, message);
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
+  const bytes = await readBodyBytes(request.body?.getReader(), maxBytes);
+  if (bytes === undefined) throw httpError(413, message);
   return bytes;
 }
 
@@ -139,6 +109,43 @@ export function sandboxFailureStatus(error: unknown): number {
 /** サンドボックスの 4xx はそのまま、接続失敗は 502 にして応答する。 */
 export function sandboxFailure(c: Context, error: unknown) {
   return c.json({ error: messageFor(error) }, sandboxFailureStatus(error) as ContentfulStatusCode);
+}
+
+type SettingsMutationOutcome<T> = { status: 200; response: T } | { status: 503; error: string };
+type InvalidSettingsMutation = { status: 400; error: string };
+
+type SettingsMutationResponse<T> =
+  | (Response & TypedResponse<JSONParsed<T>, 200, "json">)
+  | (Response & TypedResponse<{ error: string; state: "not_stored" }, 503, "json">);
+
+// 400 を返せない更新処理もあるため、全ルートの AppType に 400 を載せない。
+export function respondSettingsMutation<T extends object>(
+  c: Context,
+  outcome: SettingsMutationOutcome<T>,
+): SettingsMutationResponse<T>;
+export function respondSettingsMutation<T extends object>(
+  c: Context,
+  outcome: SettingsMutationOutcome<T> | InvalidSettingsMutation,
+): SettingsMutationResponse<T> | (Response & TypedResponse<{ error: string }, 400, "json">);
+export function respondSettingsMutation<T extends object>(
+  c: Context,
+  outcome: SettingsMutationOutcome<T> | InvalidSettingsMutation,
+) {
+  if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
+  if (outcome.status === 400) return c.json({ error: outcome.error }, 400);
+  return c.json(outcome.response, 200);
+}
+
+/** 本文は JSON に載せず、サンドボックスが決めた保存名と長さを改変しない。 */
+export function relaySandboxDownload(c: Context, file: SandboxDownloadFile) {
+  if (!file.body) return c.json({ error: "サンドボックスが本文を返しませんでした" }, 502);
+  return c.body(file.body, 200, {
+    "Content-Type": file.contentType,
+    "Content-Disposition": file.contentDisposition,
+    ...(file.contentLength === undefined ? {} : { "Content-Length": String(file.contentLength) }),
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
 }
 
 /** 未設定時の案内。JSON と HTML の両方の応答で同じ文言を使う。 */

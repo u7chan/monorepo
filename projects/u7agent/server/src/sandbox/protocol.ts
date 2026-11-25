@@ -1,7 +1,9 @@
 /**
- * BFF ⇄ サンドボックスのツール実行 API のワイヤ形式。BFF 側 client とサンドボックス側 service の両方が import するため、
- * pi SDK の型には依存せず payload を unknown で受ける。
+ * BFF ⇄ サンドボックスのツール実行 API のワイヤ形式。応答の契約は docs/sandbox-api.md / docs/sandbox-api-files.md /
+ * docs/sandbox-api-skills.md / docs/sandbox-api-runtime.md を正とし、ここには型から読めない不変条件と Why not だけを書く。
+ * BFF 側 client とサンドボックス側 service の両方が import するため、pi SDK の型には依存せず payload を unknown で受ける。
  */
+import { fileExtension } from "../path-strings";
 
 /** 実行開始。executionId はサンドボックスが払い出し、cancel で使う。 */
 export interface SandboxStartEvent {
@@ -46,19 +48,13 @@ export interface SandboxWriteScopeEntry {
   create?: boolean;
 }
 
-/** POST /v1/tools/:tool/execute のリクエストボディ。 */
 export interface SandboxExecuteRequestBody {
   /** BFF 側 SDK のツール呼び出し ID (出力対応付け用)。省略時は払い出す。 */
   toolCallId?: string;
   /** ツール引数。SDK 側でスキーマ検証済みの値が届く。 */
   params?: Record<string, unknown>;
-  /** 実行する作業ディレクトリ (rootCwd 相対)。省略・空文字は root。root 外は 400。 */
+  /** 実行する作業ディレクトリ (rootCwd 相対)。省略・空文字は root */
   cwd?: string;
-  /**
-   * この実行だけの書き込み許可 root (rootCwd 相対)。指定すると要求 cwd を使わず、この範囲だけを
-   * 要求由来の root にする (BFF 内部実行の serve 操作用)。省略時はエージェントの bash として
-   * 要求 cwd と共通スキル置き場から導出する。
-   */
   writeScope?: SandboxWriteScopeEntry[];
   /**
    * この実行の子プロセスへ足す環境変数 (作業フォルダの変数 / serve 起動時の変数 + シークレット)。
@@ -78,12 +74,10 @@ export interface SandboxExecuteRequestBody {
   networkAccess?: boolean;
 }
 
-/** POST /v1/dirs のリクエストボディ。path は rootCwd 相対。 */
 export interface SandboxCreateDirRequestBody {
   path: string;
 }
 
-/** POST /v1/dirs の応答。path は作成した実ディレクトリの root 相対の正規化パス (root は ".")。 */
 export interface SandboxCreateDirResult {
   path: string;
 }
@@ -93,15 +87,10 @@ export interface SandboxCreateDirResult {
  * 環境依存で取れない項目は "不明"、存在は確認できたがバージョンを取れないコマンドは version: null にする。
  */
 export interface SandboxRuntimeEnvironment {
-  /** OS の名称と版 (例: Debian GNU/Linux 13 (trixie)) */
   os: string;
-  /** 正規化した CPU アーキテクチャ (x86_64 / aarch64 など) */
   arch: string;
-  /** 実行ユーザー名 */
   user: string;
-  /** root (UID 0) で動いているか */
   isRoot: boolean;
-  /** ワークスペース root (絶対パス) */
   workspace: string;
 }
 
@@ -174,7 +163,6 @@ export interface SandboxListenerProcess {
   pid: number;
   /** `/proc/<pid>/stat` の起動時刻 (epoch ms)。PID 再利用の照合に使う。0 は不明 */
   startedAt: number;
-  /** この待受に使われているソケットの inode (昇順) */
   inodes: number[];
   /** 自身から親をたどった PID (自身を含む) */
   ancestors: number[];
@@ -191,9 +179,7 @@ export type SandboxListenerAddressScope = "loopback" | "any" | "other";
 
 /** GET /v1/procs/listeners の応答。scan が false のときは inode とアドレス種別だけを返し、PID は探さない。 */
 export interface SandboxListenerScan {
-  /** 指定ポートの待受ソケット inode (昇順)。待受が無ければ空配列 */
   inodes: number[];
-  /** `inodes` と同じ添字で対応する待受アドレスの種別 */
   addressScopes: SandboxListenerAddressScope[];
   /** scan=true のときだけ特定する。特定できなければ null */
   listener: SandboxListenerProcess | null;
@@ -202,7 +188,6 @@ export interface SandboxListenerScan {
 /** レンジ走査の 1 ポート分。待受のあったポートだけを返す */
 export interface SandboxListenerPort {
   port: number;
-  /** このポートの待受ソケット inode (昇順) */
   inodes: number[];
 }
 
@@ -211,25 +196,21 @@ export interface SandboxListenerRangeScan {
   ports: SandboxListenerPort[];
 }
 
-/** POST /v1/files/rename のリクエストボディ。path は root 相対のエントリ (ファイル / ディレクトリ)、name は 1 セグメント。 */
 export interface SandboxRenameRequestBody {
   path: string;
   name: string;
 }
 
-/** POST /v1/files/rename の応答。path は名前を変えたエントリの root 相対の正規化パス (root は ".")。 */
 export interface SandboxRenameResult {
   path: string;
   name: string;
 }
 
-/** POST /v1/files/move のリクエストボディ。from / to は root 相対のエントリ (ファイル / ディレクトリ) パス。 */
 export interface SandboxMoveRequestBody {
   from: string;
   to: string;
 }
 
-/** POST /v1/files/move の応答。path は移動後のエントリの root 相対の正規化パス (root は ".")。 */
 export interface SandboxMoveResult {
   path: string;
 }
@@ -314,17 +295,12 @@ export interface SandboxFileEntry {
 export interface SandboxFileListing {
   path: string;
   entries: SandboxFileEntry[];
-  /** 1 ディレクトリの上限で打ち切ったか */
   truncated: boolean;
 }
 
 /** 1 ディレクトリあたりの上限 (SDK の ls ツールの既定上限に揃える) */
 export const SANDBOX_MAX_FILE_ENTRIES = 500;
 
-/**
- * GET /v1/files/stat の応答。path は確認した通常ファイルの root 相対の正規化パス (root は "." で、
- * symlink を経由した要求は辿った先のパス)。本文は返さず、存在確認だけに使う。
- */
 export interface SandboxFileStat {
   path: string;
 }
@@ -354,11 +330,6 @@ export interface SandboxSkillsResponse {
   skills: SandboxSkillEntry[];
 }
 
-/**
- * GET /v1/skills/file の応答。name / description は SDK の発見結果 (name 欠落は親ディレクトリ名)。
- * body は frontmatter を除いた本文で trim しない (先頭の閉じ行の改行は境界として除き、本文中の改行と
- * 前後の空白はそのまま。改行は LF に正規化する)。editable が false のときだけ reason が入る。
- */
 export interface SandboxSkillFileDetail {
   name: string;
   description: string;
@@ -379,7 +350,6 @@ export interface SandboxSkillCreateBody {
   body: string;
 }
 
-/** POST /v1/skills/file の応答。fileVersion は公開した内容の版 */
 export interface SandboxSkillCreateResult {
   relativePath: string;
   fileVersion: string;
@@ -388,37 +358,26 @@ export interface SandboxSkillCreateResult {
 /** PATCH /v1/skills/file の要求。name の変更は受け付けない */
 export interface SandboxSkillSaveBody {
   relativePath: string;
-  /** 編集内容を取得したときの fileVersion。不一致は 409 */
   fileVersion: string;
   description: string;
   body: string;
 }
 
-/** PATCH /v1/skills/file の応答 */
 export interface SandboxSkillSaveResult {
   relativePath: string;
   fileVersion: string;
 }
 
-/**
- * GET /v1/skills/file/delete-preview の応答。削除する専用フォルダと treeVersion、消えるエントリの
- * 一覧 (フォルダ相対・ソート済み) を返す。削除要求は treeVersion の一致を要求する。
- */
 export interface SandboxSkillDeletePreview {
   relativePath: string;
   name: string;
-  /** 削除するフォルダ (root 相対) */
   dir: string;
   /** フォルダ全体のダイジェスト。エントリ種別・内容ハッシュ・symlink のリンク文字列を含む */
   treeVersion: string;
   entries: number;
   bytes: number;
-  /** 付随ファイルを含む、消えるエントリ (フォルダ相対。ディレクトリは末尾 `/`) */
   files: string[];
 }
-
-/** スキルの説明の上限 (SDK の validateDescription と同じ値) */
-export const SANDBOX_SKILL_DESCRIPTION_MAX_LENGTH = 1024;
 
 /** スキル取り込みの plan が返す 1 件の分類。`invalid` のときだけ理由が入る */
 export type SandboxSkillImportStatus = "new" | "identical" | "conflict" | "invalid";
@@ -432,28 +391,23 @@ export interface SandboxSkillImportPlanEntry {
 /** POST /v1/skills/import の dry run の応答。何も変更しない */
 export interface SandboxSkillsImportPlan {
   skills: SandboxSkillImportPlanEntry[];
-  /** 検証に使った ZIP の総エントリ数 (ディレクトリを含む) */
   entries: number;
-  /** 検証に使った ZIP の展開後の総バイト数 */
   bytes: number;
 }
 
 /** 取り込んだ (置き換えた) スキル 1 件。fileVersion は取り込んだ SKILL.md のバイト列の SHA-256 */
 export interface SandboxSkillImportApplied {
   name: string;
-  /** `.agents/skills/<name>/SKILL.md` (root 相対) */
   relativePath: string;
   fileVersion: string;
   replaced: boolean;
 }
 
-/** 取り込まなかったスキル 1 件とその理由 */
 export interface SandboxSkillImportSkipped {
   name: string;
   reason: string;
 }
 
-/** POST /v1/skills/import の apply の応答 */
 export interface SandboxSkillsImportApply {
   applied: SandboxSkillImportApplied[];
   skipped: SandboxSkillImportSkipped[];
@@ -470,15 +424,11 @@ export type SandboxSkillsImportResult = SandboxSkillsImportPlan | SandboxSkillsI
  */
 export const SANDBOX_MAX_SKILL_SAVE_BYTES = 64 * 1024;
 
-/** GET /v1/files/preview の応答。UTF-8 へデコード済みのテキスト。 */
-
 export interface SandboxFilePreview {
   text: string;
 }
 
-/** 計画の一覧に載せる 1 ファイル。ディレクトリは件数だけを数え、ここには入れない */
 export interface SandboxDownloadPlanFile {
-  /** ZIP 内のパス (ディレクトリの前置きを含む) */
   name: string;
   size: number;
 }
@@ -488,16 +438,11 @@ export interface SandboxDownloadPlanFile {
  * `files` / `links` / `oversizeFiles` は上限で打ち切り、全体の `entries` / `bytes` は常に走査した値。
  */
 export interface SandboxDownloadPlan {
-  /** file = 単体ファイルの生配信、archive = ディレクトリの ZIP */
   kind: "file" | "archive";
-  /** 保存名。ファイルはその名前、ZIP は `<フォルダ名>.zip` */
   name: string;
-  /** ZIP のエントリ数 (ディレクトリも数える。単体ファイルは 0) */
   entries: number;
-  /** 含まれるファイルの合計サイズ (単体ファイルはそのサイズ) */
   bytes: number;
   files: SandboxDownloadPlanFile[];
-  /** `files` を上限で打ち切ったか */
   truncated: boolean;
   /** symlink / 特殊ファイルのパス。公開されないので一覧と分けて返す */
   links: string[];
@@ -511,18 +456,12 @@ export interface SandboxDownloadPlan {
   skipped: string[];
 }
 
-/**
- * GET /v1/files/download/check の応答。download と同じ走査（除外 / symlink / 上限）の結果を返し、
- * ブラウザに生 JSON を見せずに理由をツリー内へ出すための事前チェック。
- */
+/** GET /v1/files/download/check の応答。download と同じ走査 (除外 / symlink / 上限) の結果を返す */
 export interface SandboxDownloadCheck {
-  /** file = 単体ファイルの生配信、archive = ディレクトリの ZIP */
   kind: "file" | "archive";
-  /** 保存名。ファイルはその名前、ZIP は `<フォルダ名>.zip` */
   name: string;
   /** 含まれるファイルの合計サイズ（単体ファイルはそのサイズ）。単体ファイルも ZIP と同じ上限で拒否する */
   bytes: number;
-  /** ZIP のエントリ数（単体ファイルは 0） */
   entries: number;
   /** 除外規則で落とした名前（重複なし・規則の順） */
   skipped: string[];
@@ -540,7 +479,6 @@ export const SANDBOX_MAX_PREVIEW_BYTES = 2 * 1024 * 1024;
  */
 export const SANDBOX_MAX_HANDOFF_BYTES = 2 * 1024 * 1024;
 
-/** GET /v1/files/handoff の応答。本文は UTF-8 のテキストだけ (バイナリは 400) */
 export interface SandboxHandoffRead {
   text: string;
 }
@@ -553,15 +491,6 @@ export interface SandboxHandoffWrite {
   path: string;
   written: boolean;
   created: boolean;
-}
-
-/**
- * POST /v1/files/handoff/rollback の要求。`expected` は新規作成の rollback で自分が書いた全文
- * (先頭に置いた節 + 作成前からあった本文)。
- */
-export interface SandboxHandoffRollbackInput {
-  path: string;
-  expected: string;
 }
 
 /**
@@ -605,7 +534,6 @@ export function maxFileBytesQueryError(): string {
   return `maxFileBytes must be a positive integer up to ${SANDBOX_MAX_ARCHIVE_BYTES}`;
 }
 
-/** `maxFileBytes` は 1 つだけ受け、正の整数だけを認める (全体の上限を超える値も断る) */
 export function parseMaxFileBytesQuery(values: string[] | undefined): MaxFileBytesQuery {
   if (!values || values.length === 0) return { ok: true };
   if (values.length !== 1) return { ok: false, message: maxFileBytesQueryError() };
@@ -654,13 +582,6 @@ export const RAW_MEDIA_CONTENT_TYPES: Record<string, string> = {
   flac: "audio/flac",
 };
 
-/** パスの拡張子を小文字で取る。拡張子なしと dotfile は undefined。 */
-function fileExtension(path: string): string | undefined {
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  const dot = name.lastIndexOf(".");
-  return dot <= 0 ? undefined : name.slice(dot + 1).toLowerCase();
-}
-
 function contentTypeFor(allowlist: Record<string, string>, path: string): string | undefined {
   const extension = fileExtension(path);
   // `Object.prototype` の名前 (`.constructor` など) を拡張子に使われても allowlist を通過させない
@@ -668,12 +589,10 @@ function contentTypeFor(allowlist: Record<string, string>, path: string): string
   return allowlist[extension];
 }
 
-/** パスの拡張子から配信用の Content-Type を引く。allowlist 外 (拡張子なし・dotfile 含む) は undefined。 */
 export function rawImageContentType(path: string): string | undefined {
   return contentTypeFor(RAW_IMAGE_CONTENT_TYPES, path);
 }
 
-/** 音声の配信用 Content-Type。判定規則は画像と同じ。 */
 export function rawMediaContentType(path: string): string | undefined {
   return contentTypeFor(RAW_MEDIA_CONTENT_TYPES, path);
 }
@@ -695,12 +614,10 @@ export function isValidEntryName(name: string): boolean {
   return !/[\u0000-\u001f\u007f]/.test(name);
 }
 
-/** POST /v1/files/upload の応答。path は作成した実ファイルの root 相対の正規化パス。 */
 export interface SandboxFileUpload {
   path: string;
   /** 実際に保存された名前。同名があった場合は連番つきになる */
   name: string;
-  /** 要求名と違う名前で保存されたか */
   renamed: boolean;
   size: number;
 }

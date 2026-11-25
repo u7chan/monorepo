@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSecretMasker } from "../src/redact";
-import type { ModelCatalogRefreshAttempt } from "../src/agent";
+import type { ModelCatalogRefreshAttempt } from "../src/model-state";
 import {
   MODEL_CATALOG_ERROR_OFFLINE,
   MODEL_CATALOG_ERROR_PARTIAL,
@@ -1266,6 +1266,35 @@ const CATALOG: ModelRef[] = [
 ];
 /** API の許可リストは "provider/model" の文字列 (DB 行は ModelRef の JSON 配列) */
 const CATALOG_LABELS = CATALOG.map((model) => `${model.provider}/${model.id}`);
+
+test("モデル設定の参照は両側の空白を取り除き、ID 内の / を残す", async () => {
+  const db = fakeDb();
+  const ref = { provider: "router", id: "vendor/model" };
+  const runtime = fakeRuntime({ catalog: [ref] });
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const response = okBody(
+    await service.putModelSelection({
+      allowedModels: [" router / vendor/model "],
+      defaultModel: "\trouter /vendor/model\n",
+    }),
+  );
+  assert.deepEqual(response.allowedModels, ["router/vendor/model"]);
+  assert.equal(response.defaultModel, "router/vendor/model");
+  assert.deepEqual(db.readSelection(), { allowedModels: [ref], defaultModel: "router/vendor/model" });
+});
+
+test("モデル設定の参照は空白だけの provider や ID を形式エラーにする", async () => {
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service } = createService({ db: fakeDb().db, runtime: runtime.runtime });
+
+  for (const value of [" /model", "router/ \t"]) {
+    await assert.rejects(() => service.putModelSelection({ allowedModels: null, defaultModel: value }), {
+      statusCode: 400,
+      message: MODEL_SELECTION_FORMAT_MESSAGE,
+    });
+  }
+});
 
 test("GET は保存値を返し、無視している環境変数名を載せる", () => {
   const db = fakeDb(

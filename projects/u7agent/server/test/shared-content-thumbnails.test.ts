@@ -26,7 +26,7 @@ async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-shared-thumb-"));
   const bff = await createBffApp({ cwd: "/workspace", sessionStoreDir: dir, pi: null, workspace: null });
   const seed = (id: string) =>
-    bff.appDb.insertSharedContent({
+    bff.appDb.sharedContents.insertSharedContent({
       id,
       sessionId: "0123456789",
       name: id,
@@ -239,17 +239,22 @@ test("起動時の再照合で、行の無いファイルを消し、実体の�
     // 行が指さない古い版（差し替えの途中で落ちた残骸）
     await writeFile(join(thumbnailDir, "old.1.png"), png({ width: 800, height: 500 }));
     seed("old");
-    bff.appDb.updateSharedContentThumbnail("old", { updatedAt: 2, width: 800, height: 500, bytes: 10 });
+    bff.appDb.sharedContents.updateSharedContentThumbnail("old", { updatedAt: 2, width: 800, height: 500, bytes: 10 });
     await writeFile(join(thumbnailDir, "old.2.png"), png({ width: 800, height: 500 }));
     // 実体が無い行
     seed("ghost");
-    bff.appDb.updateSharedContentThumbnail("ghost", { updatedAt: 5, width: 800, height: 500, bytes: 10 });
+    bff.appDb.sharedContents.updateSharedContentThumbnail("ghost", {
+      updatedAt: 5,
+      width: 800,
+      height: 500,
+      bytes: 10,
+    });
 
     await bff.sharedContents.reconcileThumbnails();
 
     assert.deepEqual(await thumbnails(dir), ["old.2.png"]);
-    assert.equal(bff.appDb.getSharedContent("old")?.thumbnail?.updatedAt, 2, "行が指す版は残す");
-    assert.equal(bff.appDb.getSharedContent("ghost")?.thumbnail, null);
+    assert.equal(bff.appDb.sharedContents.getSharedContent("old")?.thumbnail?.updatedAt, 2, "行が指す版は残す");
+    assert.equal(bff.appDb.sharedContents.getSharedContent("ghost")?.thumbnail, null);
     assert.equal((await bff.app.request("/api/shared-contents/ghost/thumbnail")).status, 404);
   } finally {
     await restore();

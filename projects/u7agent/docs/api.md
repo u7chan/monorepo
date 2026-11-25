@@ -4,7 +4,7 @@
 
 例の JSON のモデルは `<provider>` / `<id>` のプレースホルダで示す。実値は環境の利用可能モデル（設定 → モデル（`/settings/models`）の「利用可能なモデル」と available の積）で決まる。
 
-DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@hono/zod-validator` で検証され、client（`client/src/api.ts`）は `hono/client`（hc）でこの契約を型として参照する。
+DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@hono/zod-validator` で検証され、client（`client/src/api/http.ts`）は `hono/client`（hc）でこの契約を型として参照する。
 
 このファイルは規約と索引、共通のエンドポイントを持つ。領域ごとの契約は [api-files.md](api-files.md) / [api-settings.md](api-settings.md) / [api-sharing.md](api-sharing.md) / [api-sessions.md](api-sessions.md) / [api-catalog.md](api-catalog.md) / [sandbox-api.md](sandbox-api.md) に分かれる。
 
@@ -28,7 +28,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 画像配信（raw） | `GET /api/files/raw` | [api-files.md](api-files.md) |
 | ダウンロード（ファイル / ZIP） | `GET /api/files/download`、`GET /api/files/download/check` | [api-files.md](api-files.md) |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
-| セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/history`、`/history/clear`、`/files`、`/messages`、`/unsent/:sendId`、`/queue/:sendId`、`/questions/:toolCallId/answer`、`/network-access/approve`、`/events`、`/settings`、`/title`、`/title/summarize`、`/pin`、`/fork`、`/move`、`/stop`、`/abort`、`/compact`、`/diagnostics`、`/raw` | [api-sessions.md](api-sessions.md)、[api-session-state.md](api-session-state.md)、[api-session-turns.md](api-session-turns.md)、[api-session-runtime.md](api-session-runtime.md) |
+| セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/history`、`/history/clear`、`/files`、`/messages`、`/unsent/:sendId`、`/queue/:sendId`、`/questions/:toolCallId/answer`、`/network-access/approve`、`/events`、`/settings`、`/title`、`/title/summarize`、`/pin`、`/fork`、`/move`、`/stop`、`/compact`、`/diagnostics`、`/raw` | [api-sessions.md](api-sessions.md)、[api-session-state.md](api-session-state.md)、[api-session-turns.md](api-session-turns.md)、[api-session-runtime.md](api-session-runtime.md) |
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | 定義のバックアップ（設定 → バックアップ `/settings/backup`） | `GET /api/backup/export/check`、`GET /api/backup/export`、`POST /api/backup/restore`、`POST /api/backup/reset` | [backup.md](backup.md)、[api-catalog.md](api-catalog.md#定義のバックアップ)、[api-settings.md](api-settings.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | [api-files.md](api-files.md) |
@@ -71,8 +71,9 @@ TLS 終端をリバースプロキシへ置くと、要求 URL のオリジン�
 
 ## 型の共有
 
-- `server/src/app.ts` は同じ `Hono` インスタンスへ登録フェーズの順（入口ガード → raw 本文のルート → `bodyGuard` → 通常のルート → catch-all）にルートを足し、`AppType` を export。client は `hc<AppType>(location.origin)` で型付きクライアントを構築する（`client/src/api.ts`）。SSE は型付け対象外で、`EventEntry` のみ server から型 import する。
-- ルート登録の外側の実装は `server/src/routes/`（ハンドラ）、`server/src/http.ts`（body ガード / エラー変換）、`server/src/static.ts`（静的配信 / CSP）、`server/src/bootstrap.ts`（pi ランタイムと store の組み立て）に分かれている。ルートの追加・変更は `app.ts` のフェーズ関数（raw 本文を受けるルートは `registerRawBodyRoutes`、通常は `registerDomainRoutes`）と該当する route モジュールを読めば済む。
+- `server/src/app.ts` は同じ `Hono` インスタンスへ登録フェーズの順（入口ガード → raw 本文のルート → `bodyGuard` → 通常のルート → catch-all）にルートを足し、`AppType` を export。client は `hc<AppType>(location.origin)` で型付きクライアントを構築する（`client/src/api/http.ts`）。SSE は型付け対象外で、`EventEntry` のみ server から型 import する。
+- ルート登録の外側の実装は `server/src/routes/`（ハンドラ）、`server/src/http.ts`（本文ガード / 既定の検証エラー / 設定変更とダウンロード中継の応答）、`server/src/static.ts`（静的配信 / CSP）、`server/src/bootstrap.ts`（pi ランタイムと store の組み立て）に分かれている。ルートの追加・変更は `app.ts` のフェーズ関数（raw 本文を受けるルートは `registerRawBodyRoutes`、通常は `registerDomainRoutes`）と該当する route モジュールを参照する。
+- 本文の上限つき読み取りは BFF とサンドボックスが `server/src/bounded-body.ts` を共有する。外部呼び出しの期限と中断の扱いは `server/src/request-deadline.ts` を参照。HTTP status や失敗分類への変換は各呼び出し側が持つ。
 - server / client の両 tsconfig は `moduleResolution: bundler` + noEmit。server は tsx で実行するため拡張子なし import で統一し、client は workspace package `server` のソースを型として直接参照する。
 
 ## ヘルスチェック
@@ -121,7 +122,7 @@ TLS 終端をリバースプロキシへ置くと、要求 URL のオリジン�
 
 `modelOptions` は認証済みで利用可能なモデルのみ。設定 → モデル の「利用可能なモデル」を保存したときは、その許可リストと利用可能モデルの積だけになる（保存された既定モデルが許可リスト外なら `defaultModelError`、積が空なら `ready: false` と `設定 → モデル` を名指しした `error`。`errorCode` は互換のため `model_whitelist_empty` のまま）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_THINKING` → `medium` の順で決まる。解決の詳細は [model-effort.md](model-effort.md)。
 
-`versions` は実行中の SDK バージョンで、設定されている場合は `COMMIT_HASH` も含む。以前は `runtimeDiagnostics.versions` として返していたが、モデル診断の撤去に伴い health 直下へ移した（ランタイム初期化に失敗したときも `runtimeVersionInfo()` の値だけを返す）。プロバイダー別の集計と認証ソース（`environment` / `stored` / `runtime` / `fallback` / `models_json_key` / `models_json_command` / 未知の値は `unknown`）は [ランタイムのモデルカタログ](#ランタイムのモデルカタログ) が返す。認証状態のラベル、環境変数値、認証ファイル内容、生の認証エラーは health にもカタログにも含めない。
+`versions` は実行中の SDK バージョンで、設定されている場合は `COMMIT_HASH` も含む。health 直下に置き、モデルの診断は返さない（ランタイム初期化に失敗したときも `runtimeVersionInfo()` の値だけを返す）。プロバイダー別の集計と認証ソース（`environment` / `stored` / `runtime` / `fallback` / `models_json_key` / `models_json_command` / 未知の値は `unknown`）は [ランタイムのモデルカタログ](#ランタイムのモデルカタログ) が返す。認証状態のラベル、環境変数値、認証ファイル内容、生の認証エラーは health にもカタログにも含めない。
 
 ## ランタイムのモデルカタログ
 

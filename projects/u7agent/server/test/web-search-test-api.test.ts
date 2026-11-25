@@ -14,6 +14,7 @@ import {
 } from "../src/web-search-tool";
 import { WEB_SEARCH_TEST_UNAVAILABLE_MESSAGE } from "../src/web-search-test";
 import { TEST_MASTER_KEY } from "./app-secret-fixture";
+import { jsonBody, jsonPost, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 // キーのマスクは保存済みの値で検証する。このファイルの BFF には master key を立てて起動する
@@ -21,18 +22,6 @@ process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const SECRET = "tvly-secret-value-0123456789";
 const DATE_LINE = /^現在日時: \d{4}-\d{2}-\d{2} \(Asia\/Tokyo\)\n/;
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 /** 既定は無効なので、検索を実行するテストだけ明示的に有効にする */
 const enableWebSearch = async (app: {

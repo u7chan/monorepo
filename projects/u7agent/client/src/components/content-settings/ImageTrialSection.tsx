@@ -29,9 +29,9 @@ import type {
   UpdateContentImageBody,
 } from "../../types";
 import { ZoomableImage } from "../ImageZoom";
-import { SelectField } from "../SelectField";
 import { TrialArtifactMeta, TrialResultViewport } from "./TrialResultViewport";
 import { TrialEmptyNote, TrialNoteLines, TrialRunControls, TrialRunSection } from "./TrialRun";
+import { ImageParameterFields } from "./ImageParameterFields";
 import { TrialDefaultAction, UNCONFIGURED_BLOCKED_NOTE } from "./TrialDefaultAction";
 
 export type ImageTrialSectionProps = {
@@ -127,52 +127,15 @@ export function ImageTrialSection({
       </label>
 
       {fields.length === 0 ? null : (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {fields.map((field) => {
-            const value = parameters[field.name] ?? "";
-            const set = (next: string) => onChangeParameters({ ...parameters, [field.name]: next });
-            return (
-              <div key={field.name} className="grid content-start gap-1">
-                <label className="grid min-w-0 gap-1">
-                  <span className="text-2xs text-ink-muted">{field.name}</span>
-                  {field.kind === "enum" ? (
-                    <SelectField
-                      aria-label={`試行の ${field.name}`}
-                      value={value}
-                      disabled={busy}
-                      onChange={(event) => set(event.currentTarget.value)}
-                    >
-                      <option value="">{IMAGE_PARAMETER_DEFAULT_LABEL}</option>
-                      {field.values.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </SelectField>
-                  ) : (
-                    <input
-                      className="field min-w-0 text-xs"
-                      type="number"
-                      inputMode="numeric"
-                      min={field.min}
-                      max={field.max}
-                      value={value}
-                      placeholder={IMAGE_PARAMETER_DEFAULT_LABEL}
-                      aria-label={`試行の ${field.name}`}
-                      disabled={busy}
-                      onChange={(event) => set(event.currentTarget.value)}
-                    />
-                  )}
-                </label>
-                {value === "" ? null : (
-                  <button type="button" className="btn-quiet w-fit" disabled={busy} onClick={() => set("")}>
-                    既定に戻す
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <ImageParameterFields
+          fields={fields}
+          values={parameters}
+          onChange={(name, next) => onChangeParameters({ ...parameters, [name]: next })}
+          disabled={busy}
+          labelPrefix="試行の"
+          emptyLabel={IMAGE_PARAMETER_DEFAULT_LABEL}
+          fieldAction={{ label: "既定に戻す", onClick: (name) => onChangeParameters({ ...parameters, [name]: "" }) }}
+        />
       )}
 
       {/* 空欄の扱いは入力欄のすぐ下に書く（宣言に応じて何を指定できるか） */}

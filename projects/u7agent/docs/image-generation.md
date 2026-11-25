@@ -10,7 +10,7 @@
 
 ## モデルカタログ
 
-選択肢の正は OpenRouter の live 一覧（`GET https://openrouter.ai/api/v1/images/models`）。pi-ai 同梱のカタログは SDK のリリース時点のスナップショットで、live とずれる（追加されたモデルが出ない / `/images` に無い `openrouter/auto*` が混ざる）。実装は `server/src/image-catalog.ts`。
+選択肢の正は OpenRouter の live 一覧（`GET https://openrouter.ai/api/v1/images/models`）。pi-ai 同梱のカタログは SDK のリリース時点のスナップショットで、live とずれる（追加されたモデルが出ない / `/images` に無い `openrouter/auto*` が混ざる）。一覧の取得・キャッシュは `server/src/content-model-catalog.ts`、画像モデルの宣言の解釈と絞り込みは `server/src/image-catalog.ts`。
 
 | 出どころ (`catalogSource`) | いつ | `fetchedAt` |
 | --- | --- | --- |
@@ -21,7 +21,7 @@
 - 取得は **API キーを使わない**（一覧 API は認証を見ないので、認証ヘッダも付けない）。キーの有無・有効性とは独立で、**キーの死活チェックには使えない**（無効なキーでも 200 が返る）
 - 取得契機は 起動時（`content_settings` に行があるとき）/ 手動の [カタログ更新]。`GET /api/settings/content` はネットワークに触らず、メモリ上の現在値を返すだけ。キー保存にも紐づけない（設定の変更を外部 API の待ち時間へ巻き込まない）
 - 手動の [カタログ更新] は、一覧と同時にコストマスタ（任意設定）から価格と `visible` も取る。未設定・OFF・取得失敗でも一覧の取得は従来どおりで、価格は `--` / 全件表示に倒れる（[content-cost.md](content-cost.md)）
-- 期限は 10 秒（`IMAGE_CATALOG_TIMEOUT_MS`）+ リトライなし。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
+- 期限（`server/src/content-model-catalog.ts`）を設け、リトライはしない。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
 - 取得成功時だけ DB（`image_catalog`）へ `id` と表示名、あれば出力形式の宣言（`outputFormats`）と画像入力の宣言（`input`）、生成パラメータの宣言（`parameters`）を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
 - 生成パラメータの宣言は `supported_parameters` から読み、名前を `aspect_ratio` / `resolution` / `quality` / `output_format` / `background` / `seed` に限る。descriptor は `enum`（`values`）/ `range`（`min` / `max`）/ `boolean` の 3 種類だけで、`boolean` は「そのパラメータを受け付ける」の意味（値そのものは送らない）。`seed` の値は 0 以上 2^31-1 以下の整数で、宣言がそれを超えていてもこの範囲に切る
 - 宣言の読み取りは `server/src/images.ts` の `imageParameterDeclarationsOf()` 1 つを live とキャッシュの両方に使い、未知のキー・形違い・空の `values` は落とす（1 つも読めなければ「不明」）。`output_format` の値は保存できる形式（png / jpeg / webp）との積にし、積が空なら宣言なしに倒す（[保存できない形式のモデル](#保存できない形式のモデル)の判定と食い違わせない）
@@ -43,7 +43,7 @@
 - `stored`: 「OpenRouter から取得できなかったため、前回の一覧を表示しています（最終取得: …）」
 - `sdk`: 「OpenRouter から取得できていないため、SDK の組み込み一覧を表示しています」
 - [カタログ更新] は、取得対象の一覧を持っているタブのモデル節に置く（画像は生成元が OpenRouter のときだけ、音声は常に。BGM と履歴には出さない）。`POST /api/settings/content/catalog/refresh`（画像・音声・価格をまとめて取る）。**常に 200** で現在値を返し、今回の取得に失敗した系統だけ `errors.image` / `errors.speech` / `errors.cost` に固定文言を載せる。UI は一覧の失敗と価格の失敗を分けて「表示中の一覧 / 価格は変わりません」と出す。表示を作り直すだけの [再読み込み] は帯にだけ置く（[ui-layout.md](ui-layout.md#モードごとの構成)）
-- 価格は `image.models[].prices` をそのまま整形し、モデル欄のチップと選択肢に出す。基本単価（`variant: ""`）を優先し、無いモデルだけ同じ unit の範囲を出す。`prices` が空なら `--`、宣言された `0` は `$0`。token 建ては 1 枚の実額ではない注記を添える（整形は `client/src/lib/contentSettings.ts` の `imagePriceDisplay()`）
+- 価格は `image.models[].prices` をそのまま整形し、モデル欄のチップと選択肢に出す。基本単価（`variant: ""`）を優先し、無いモデルだけ同じ unit の範囲を出す。`prices` が空なら `--`、宣言された `0` は `$0`。token 建ては 1 枚の実額ではない注記を添える（整形は `client/src/lib/contentSettings/image.ts` の `imagePriceDisplay()`）
 - `visible: false` のモデルは選択肢から外す。保存中の値がそれに当たる場合は専用ラベルで選択肢に残し、「一覧に出していない・保存済み」の警告を出す（保存・試行は今までどおり通る）。一覧に載せなかった件数は「N 件は一覧に出していません」と注記する。コストマスタの ON/OFF と URL は画像・音声で共有するため**帯の左**に置き（入口は価格を出す面だけ）、OFF の間は価格のチップが `価格 --` に倒れ、「コスト表示は停止中（前回取得: …）」を出す（[content-cost.md](content-cost.md#画面表示)）
 
 ## 保存できない形式のモデル
@@ -94,7 +94,7 @@ SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品�
 3. `endpoints` が指す URL（無ければ `GET /api/v1/images/models/<id>/endpoints`）を編集実行時に取得し、**すべての** endpoint が `supported_parameters.input_references` で 1 枚を許容する
 
 - 状態は「対応 / 非対応 / 不明」を区別する。宣言の不在・形違い・旧キャッシュは「不明」で、編集だけを止め、新規生成は止めない
-- endpoint の取得は編集実行時だけ（起動時や `GET /api/settings/content` では通信しない）。認証ヘッダを付けず、期限は `IMAGE_CATALOG_TIMEOUT_MS` と同じ。成功だけをプロセス内メモリに残し、失敗はキャッシュせず次の実行で引き直す
+- endpoint の取得は編集実行時だけ（起動時や `GET /api/settings/content` では通信しない）。認証ヘッダを付けず、期限はモデル一覧の取得と同じ。成功だけをプロセス内メモリに残し、失敗はキャッシュせず次の実行で引き直す
 - endpoint 応答の形は、live で観測したとおり `{ id, endpoints: [...] }` を読む（各要素の `supported_parameters.input_references` が参照枚数の宣言）。トップレベルの `data[]` は live の応答には無いため依存しない。`data[]` だけを返す旧い形は後方互換として読み、`endpoints` が配列でなく `data` も無い（または空の）応答は契約外として「不明」に落とす
 - endpoint 応答が `architecture` を持たないことは契約外にしない（モデル一覧側で確認する）。`input_references` の宣言が無い / 形が違う endpoint は「不明」として止める
 - モデル名の固定対応表は持たない。`provider.only` によるルートの pin も行わない（対応 / 非対応が混在するモデルは編集対象外として案内する）
@@ -254,7 +254,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 
 ## 設定画面
 
-設定 → コンテンツ生成の「画像生成」タブ（`/settings/content`。既定。音声（TTS）は `/settings/content/speech`）。表示の正は `client/src/lib/contentSettings.ts` の純関数（モデルの宣言から入力欄を組み立てる規則は `client/src/lib/imageParameters.ts`）、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx`（本文）と `client/src/components/ContentSettingsPage.tsx`（帯と共通の設定）に閉じる。本文は選択中の面だけを描く。
+設定 → コンテンツ生成の「画像生成」タブ（`/settings/content`。既定。音声（TTS）は `/settings/content/speech`）。表示の正は `client/src/lib/contentSettings/image.ts` の純関数（モデルの宣言から入力欄を組み立てる規則は `client/src/lib/imageParameters.ts`）、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx`（タブの殻）と `client/src/components/content-settings/ImageProviderSection.tsx` / `ImageModelSection.tsx`（本文）、`client/src/components/ContentSettingsPage.tsx`（帯と共通の設定）に閉じる。本文は選択中の面だけを描く。
 
 - タブは 画像生成 / 音声（TTS） / 音楽（BGM） / 履歴 の 4 つ。生成の 3 タブは「設定 + その場の 1 回の試行 + 直近の結果」だけを持ち、履歴は `/settings/content/history` の専用タブが全種別をまとめて見る。生成タブは開いている種別の一覧だけを取り、履歴タブは種別で絞らずに全種別を取る（`client/src/lib/settingsNav.ts` の `CONTENT_SUBSECTIONS`）
 - **有効 / 無効とAPIキーは 3 種別共通なので、タブの外（帯の左）に置く。** 帯は「アプリ全体」の見出し + 有効 / 無効のスイッチ + `OpenRouter キー <状態> [変更]` を持ち、どのタブでも同じ位置に出す（履歴タブでも止められる）。キーの入力は [変更] で開く 1 行で、未設定のときは最初から開く。状態の理由（未評価 / 復号失敗 / master key 未設定）と無効時の固定文言は、開かなくても読めるよう帯の直下に出す。行が無い（未設定）間は `PUT /api/settings/content` が 400 のため、スイッチ自体を出さない（キーは未設定のまま帯に出す）
@@ -262,7 +262,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 - 未設定では本文にキー入力も設定の畳みも出さず、タブ行と試行の面だけを出す（理由は試行の面が持つ）。ただし試行の履歴があるときは、履歴タブも出して読めるようにする（新規生成だけを止める）。`PUT /api/settings/content/image` は行が無いと 400 のため、モデル選択と削除はキー保存（`PUT /api/settings/content/key`）に成功してから現れる
 - タブ行の下の provider 見出し（ロゴ + 表示名 + provider id + `画像 <n>` / `音声 <n>`）を出す。件数チップはタブ文脈でどちらの件数か分かるよう、面の名前を接頭する。ロゴは `client/src/components/ProviderIcon.tsx` の `providerIconKey()` で引き、表示名と id は `contentProviderId()` / `contentProviderLabel()` が決める。v1 は openrouter だけなので未設定（`null`）でも OpenRouter を出し、provider が増えれば `settings.provider` に追随して同じ見出しのロゴが切り替わる（対応表に無い provider は頭文字のタイルへ落ちる）。件数と登録状態のチップはプロバイダータブと同じ `MetaChip` を使う
 - 登録状態バッジ（設定済み / 未設定 / 利用不可）は帯のキーの行に出す（プロバイダータブと同じ見た目。`contentKeyStatusBadge()`）。本文の見出しには重ねない（同じ状態を 1 画面に 2 回出さない）。キー欄の補足には provider 名（OpenRouter）を添え、モデル欄に出る `OpenAI: …` と混同させない
-- キーの入力は `type="password"` / `autoComplete="off"` で、保存値を再表示しない（常に空から入力する）。入力欄は`client/src/components/content-settings/ContentKeySection.tsx` が持ち、[上書き保存] は成功したときだけ入力を消し、[削除] は共通の確認ダイアログ（`deleteContentKeyConfirmRequest()`。対象の provider は clamp した行に出す）の後に行ごと消して未設定へ戻す
+- キーの入力は `type="password"` / `autoComplete="off"` で、保存値を再表示しない（常に空から入力する）。入力欄は `client/src/components/StoredApiKeySection.tsx`（画像 / 音声 / BGM の共通の欄）が持ち、[上書き保存] は成功したときだけ入力を消し、[削除] は共通の確認ダイアログ（`deleteContentKeyConfirmRequest()`。対象の provider は clamp した行に出す）の後に行ごと消して未設定へ戻す
 - 本文の「設定」はタブ固有の値（選択中のモデル。音声はボイスも）を要約 1 行に畳み、[変更] で展開する。展開した中に 保存される設定（モデル・ボイス・既定のパラメータ・コスト表示）を置き、生成と結果を同じ画面に収める。開閉は高さの遷移（`Fold`）で見せ、中身は畳んでいる間も残す（inert で外すだけ。選択の下書きを開閉で捨てない）。入れるものが無い面（生成元が Codex の画像タブ）では畳みごと出さない
 - 有効 / 無効のトグルは**タブの外（帯の左）に 1 つだけ**置く（画像・音声・BGM・履歴のどのタブでも同じ位置）。OFF の間は API が返す `disabledMessage` を帯の直下に出す。行が無い（未設定）間は止める対象が無く `PUT /api/settings/content` も 400 のため、スイッチ自体を出さない。保存に成功したらエージェントのツール一覧を取り直す（エージェント編集のツール欄が取得時点のスナップショットを見るため）
 - 生成タブは「設定に反映しない試行」の見出しの下に、入力・[試行する] / [中断]・注記・**直近の結果 1 件**を出す。プロンプトは保存値ではなく履歴に残し、開始と証拠は**画面の選択値（下書き優先）**から作る（保存前に [試行する] を押しても、画面に出ているモデルで走る）。保存されるモデルは [保存] で確定し、未保存の選択には「未保存」を出す
@@ -319,7 +319,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 - チップとバッジの値は結果本文の生の値（実行に使った id）で、カタログの表示名へは解決しない（[非ゴール](#非ゴール)）。読むのは結果本文の先頭の数行だけで、モデル行が投影（先頭 900 文字）の切詰めで欠けない位置にある前提を使う
 - 改行で終わっていない行は値にしない。投影で切られた行の断片（ファイル名を失った保存パスなど）を実パスとして出さないためで、この場合モデルだけを出し、保存パスは出さない
 - 出さない条件: 対象ツール以外、結果本文にモデル行が無い（モデル行を書く前のセッション）、失敗したカード（throw は結果本文を残さない）、実行中（結果が届くまでモデルは確定しない）。値が読めないときに「不明」のような行を足さない
-- 同じカードが 2 つのバブルに現れない（`chatReducer` がツールカードのバブルを固定する）ため、バブル横断の重複排除は入れない
+- 同じカードが 2 つのバブルに現れない（`client/src/hooks/chatCards.ts` がツールカードのバブルを固定する）ため、バブル横断の重複排除は入れない
 - 「ツール履歴をすべてコピー」の本文は変えない（args / output の生テキストと `#N` の対応を保つ）
 
 ### 生成物のキャプション
@@ -366,7 +366,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 | `server/test/content-trials.test.ts` / `server/test/content-trials-api.test.ts` | 試行の開始 / 取得 / キャンセル / 完了 / 失敗 / 中断の状態遷移と終端の不変性、完了直前のキャンセル、遅い結果の破棄、実行中の削除拒否、種別ごとの同時 1 本と provider が終わるまでのスロット保持、キャンセルで abort すること、起動時と一覧取得時の `running` → `interrupted`、終端の記録失敗からの再試行、close の中断、開始前の検証（未設定 / OFF / runtime 不可 / カタログ外 / 空・長すぎるプロンプト / 宣言外・宣言不明・透過できない形式の画像のパラメータ）、失敗文言のマスク、APIキーが応答・履歴に載らないこと、キー削除後も履歴を読めること、成果物の保存と `storage` の分類（課金済み）、保存できない形式・大きさの保存前拒否、同じ入力の再利用（現在のキー世代・成果物ファイルの存在、画像のパラメータの一致・不一致・未指定同士、provider を呼ばず新しい成功を記録しない）、`force` の新規生成、raw 配信の MIME と `nosniff` / `no-store` / `?download=1`、未知の id とパスを混ぜた要求の拒否、保存していない行の 404、成果物の削除、起動時の孤児掃除、実行中ジョブ（保存後・終端更新前）のファイルを消さないこと、一覧の取得中に確定したジョブの成果物を消さないこと（その後の raw 配信・容量・再利用も壊れないこと）、容量が保存済みの成功だけを数えること、時間ベースの自動削除が無いこと |
 | `server/test/content-trial-artifacts.test.ts` | 保存できる形式の許可リスト（png / jpeg / webp と、svg / html / 不明 MIME の保存前拒否）、実バイトからの寸法、壊れた base64 と上限超過、保存名が `<trialId>.<ext>` に固定されること、置き場の外を指す名前の拒否、読み書き・削除・一覧 |
 | `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`enabled` の列追加（既存行は ON）と往復、`image_catalog` の upsert と壊れた行（health を落とさない）、形式 / 画像入力 / 生成パラメータの宣言の往復と形違いの読み方、`content_settings.imageParams` の往復（空の map と NULL の区別）と v43 → v44 の加算移行、壊れた JSON の行の破損 |
-| `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
+| `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src / `components/markdown/` が `client/src/api/http.ts` を import しないこと |
 | `client/test/imageRefresh.test.ts` | 実フックの再描画安定性・更新時の URL 非衝突 / 実 Markdown と FileBrowser の再 mount が過去の URL を再利用しないこと（SSR） |
 | `client/test/contentTrials.test.ts` | 状態ラベルと失敗分類の写像、証拠の相対時刻・所要時間、現在のキー世代と選択中モデル・保存済みの成功だけを数える証拠、失敗へのフォールバックと未確認、旧キーの行、面の状態の優先順位、開始を止める理由、タブの印の優先順位と読み上げ名、新着結果の判定（成功 / 失敗だけ）、試行の要求（`force` は [もう一度生成] だけ）と再生成の確認（送る内容・モデル・課金）、**画像の生成パラメータ**（カタログからの宣言の引き当て、入力欄の出し分け、モデル切替時の宣言外のキーの除去、明示値だけの要求と宣言外の値の課金前の拒否、履歴からの下書きの復元、結果のチップ、履歴の全行と未指定の表示、設定画面の注記）、実行中の有無、成果物の URL と要約（`none` の行は対象外）、履歴のモデル / 成功失敗の絞り込みと月区切り、ビューポートの既定選択、削除してから一覧を取り直す順序（容量の取り直し） |
 | `client/test/contentTrialsStore.test.ts` | 一覧の取得中に開始 / 中断した試行の状態を、遅れて届いた一覧の応答が巻き戻さないこと（実行中の行が残り、ポーリング対象のまま）、開始の注記を取り直しの失敗で上書きしないこと、再利用の注記と行の差し替え、busy と失敗の注記、開いていないタブの新着の印、unmount 後の応答の破棄 |

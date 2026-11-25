@@ -1,7 +1,8 @@
-import { useCallback, useId, useRef } from "react";
-import { AGENT_PICKER_MARGIN, AGENT_PICKER_LIST_MAX_HEIGHT, agentPickerPlacement } from "../../lib/agentPicker";
+import { useId } from "react";
+import { AGENT_PICKER_MARGIN } from "../../lib/agentPicker";
 import { cn } from "../../lib/cn";
-import { usePopoverShell, type PopoverPlaceInput } from "../../hooks/usePopoverShell";
+import { useAgentPickerPopover } from "../../hooks/useAgentPickerPopover";
+import { usePopoverShell } from "../../hooks/usePopoverShell";
 import type { AgentDef } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { MenuItem } from "../MenuItem";
@@ -26,30 +27,10 @@ export function AgentPicker({
 }) {
   const pickerId = useId();
   const triggerId = `${pickerId}-trigger`;
-  const listRef = useRef<HTMLDivElement | null>(null);
   const selected = agents.find((agent) => agent.id === agentId);
   const selectedIndex = agents.findIndex((agent) => agent.id === agentId);
 
-  // 幅を先に確定させる: max-width で折り返しと内部スクロールが決まり、rect が最終の大きさになる
-  const sizePicker = useCallback(({ popover, trigger, viewport, margin }: PopoverPlaceInput & { margin: number }) => {
-    if (trigger === null) return;
-    const anchor = trigger.getBoundingClientRect();
-    popover.style.minWidth = `${anchor.width}px`;
-    popover.style.maxWidth = `${viewport.width - margin * 2}px`;
-    const list = listRef.current;
-    if (list !== null) {
-      // 高さの上限はスクロールする一覧に当てる (検索欄を持つ面と同じ作法)。一覧以外の高さは
-      // popover と一覧の rect の差で測る。上限が既定より広いときは既定のままにする
-      const chrome = popover.getBoundingClientRect().height - list.getBoundingClientRect().height;
-      const available = viewport.height - margin * 2 - chrome;
-      list.style.maxHeight = `${Math.max(0, Math.min(AGENT_PICKER_LIST_MAX_HEIGHT, available))}px`;
-    }
-  }, []);
-
-  const place = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
-    if (trigger === null) return null;
-    return agentPickerPlacement(trigger.getBoundingClientRect(), popover.getBoundingClientRect(), viewport);
-  }, []);
+  const { listRef, size: sizePicker, place } = useAgentPickerPopover();
 
   // ツリーのスクロールでも閉じずトリガーへ追随させ、焦点が外れたら閉じる (この画面の殻の使い方)。
   // 開いた直後は選択中の行へ入る (native select と同じ)
@@ -63,7 +44,6 @@ export function AgentPicker({
 
   const selectAgent = (next: string) => {
     if (next !== agentId) onChangeAgent(next);
-    // フォーカスは外さない: blur すると native の復帰が起きず、トリガーへ戻らない
     picker.close();
   };
 

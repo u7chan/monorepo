@@ -30,6 +30,10 @@ function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
     messageCount: 1,
     createdAt: NOW - 600_000,
     lastUsedAt: NOW - 60_000,
+    titleSummary: { origin: "auto" },
+    notify: false,
+    canHandoff: true,
+    hasRawLog: false,
     serveCommand: null,
     ...overrides,
   };

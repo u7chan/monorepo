@@ -14,7 +14,7 @@ import type {
   ImageGenerationProvider,
   ImageParameterValues,
 } from "../types";
-import { speechSpeed } from "./contentSettings";
+import { speechSpeed } from "./contentSettings/speech";
 import {
   IMAGE_PARAMETER_DEFAULT_LABEL,
   IMAGE_PARAMETER_ORDER,

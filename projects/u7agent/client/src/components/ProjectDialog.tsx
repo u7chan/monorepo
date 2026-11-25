@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { getFiles, type CreateProjectInput } from "../api";
+import type { CreateProjectInput } from "../api/sessions";
+import { getFiles } from "../api/files";
 import { cn } from "../lib/cn";
 import { messageFor } from "../lib/errors";
 import { parentWorkspacePath, projectChildPath, WORKSPACE_ROOT, workspaceBaseName } from "../lib/projectPath";
@@ -88,7 +89,6 @@ export function ProjectDialog({ onClose, onCreate, singleColumn = false }: Proje
             ? { cwd: projectChildPath(path, trimmed), name: trimmed, create: true }
             : { cwd: path, name: trimmed },
         );
-        // 閉じるまで busy を戻さない (成功後に二重送信できないように)
         shellRef.current?.requestClose();
       } catch (err) {
         setError(messageFor(err));

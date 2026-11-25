@@ -68,7 +68,6 @@ export function FileSkillEditorForm({
             pattern="[a-z0-9-]+"
             value={draft.name}
             onChange={(event) => {
-              // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
               const name = event.currentTarget.value;
               setDraft({ name });
             }}

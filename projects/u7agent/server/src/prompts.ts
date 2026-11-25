@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import type { AppDb, PromptRow } from "./app-db";
 import { httpError } from "./http";
+import { normalizeReorderIds } from "./reorder-ids";
 import { AGENT_PROMPT_LIMIT, PROMPT_LABEL_MAX, PROMPT_TEXT_MAX } from "./schema";
 import type { PromptDef, PromptRef, PromptUsage } from "./schema";
 
@@ -101,7 +102,7 @@ export function createPromptCatalog({ db }: { db: AppDb }): PromptCatalog {
     const usedBy: PromptUsage[] = [];
     for (const link of links) {
       if (link.promptId !== promptId) continue;
-      usedBy.push({ agentId: link.agentId, agentName: names.get(link.agentId) ?? "", builtin: false });
+      usedBy.push({ agentId: link.agentId, agentName: names.get(link.agentId) ?? "" });
     }
     return usedBy;
   };
@@ -168,22 +169,9 @@ export function createPromptCatalog({ db }: { db: AppDb }): PromptCatalog {
     },
 
     reorder(ids) {
-      // 並べ替えの対象は自作だけで、未知の id を捨てる方針は
-      // エージェントの並べ替えと同じ (docs/api-catalog.md)
       const current = db.listPrompts().filter((row) => row.kind === "custom");
-      const known = new Set(current.map((row) => row.id));
-      const seen = new Set<string>();
-      const order: string[] = [];
-      for (const id of ids) {
-        if (typeof id !== "string" || !known.has(id) || seen.has(id)) continue;
-        seen.add(id);
-        order.push(id);
-      }
-      // 渡されなかった行は末尾へ、元の相対順のまま (1 度も触られていない行を並べ替えない)
-      for (const row of current) {
-        if (!seen.has(row.id)) order.push(row.id);
-      }
-      db.reorderPrompts(order);
+      const currentIds = current.map((row) => row.id);
+      db.reorderPrompts(normalizeReorderIds(currentIds, ids));
       return list();
     },
 

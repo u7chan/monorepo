@@ -21,13 +21,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { CURRENT_SESSION_VERSION, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { SESSION_DIR_REL, assertSessionId, isSessionId, sessionWorkdirRel } from "./app-paths";
 import { messageFor } from "./errors";
-import {
-  TitleAttemptSchema,
-  type AgentPayloadInfo,
-  type ThinkingLevel,
-  type TitleAttempt,
-  type TitleOrigin,
-} from "./schema";
+import { TitleAttemptSchema, type AgentPayloadInfo, type TitleAttempt, type TitleOrigin } from "./schema";
 import { truncate } from "./session-projection";
 import { TITLE_REQUEST_MAX } from "./session-title";
 import { isSpaceId } from "./spaces";
@@ -943,9 +937,4 @@ export class SessionFileWriter {
     this.lastPersistedId = entries.length > 0 ? ((entries[entries.length - 1].id as string) ?? null) : null;
     this.needsSeparator = false;
   }
-}
-
-/** thinking level の保存値。SDK の型へ寄せるのは呼び出し側 */
-export function parseThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
-  return value as ThinkingLevel | undefined;
 }

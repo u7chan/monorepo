@@ -3,21 +3,10 @@ import test from "node:test";
 import type { AgentForm } from "../src/components/agent-settings/AgentEditorForm";
 import type { AgentDef } from "../src/types";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const {
-  agentFormKey,
-  agentFormOf,
-  agentPayloadOf,
-  withAllBuiltinSkillsDisabled,
-  withAllBuiltinSkillsEnabled,
-  withAllCommonSkillsVisible,
-  withAllToolsDisabled,
-  withAllToolsEnabled,
-  withBuiltinSkillToggled,
-  withCommonSkillToggled,
-  withToolToggled,
-} = await import("../src/components/agent-settings/AgentEditorForm");
+const { agentFormKey, agentFormOf, agentPayloadOf, withBuiltinSkillToggled, withCommonSkillToggled, withToolToggled } =
+  await import("../src/components/agent-settings/AgentEditorForm");
 
 function agent(overrides: Partial<AgentDef> = {}): AgentDef {
   return { id: "agent-a", name: "実装", description: "", systemPrompt: "", ...overrides };
@@ -37,6 +26,14 @@ test("下書きは未指定 / 空の許可リスト / 明示リストを区別�
   // カタログの配列を直接編集しないようコピーして持つ
   const catalogNames = ["writer"];
   assert.notEqual(agentFormOf(agent({ commonSkillNames: catalogNames })).commonSkillNames, catalogNames);
+
+  // 定型プロンプトの参照は、解決済みの並びから ID だけを取り出す (未指定は空)
+  const prompts = [
+    { id: "p1", kind: "custom" as const, label: "ラベル 1", prompt: "本文 1" },
+    { id: "p2", kind: "builtin" as const, label: "ラベル 2", prompt: "本文 2" },
+  ];
+  assert.deepEqual(agentFormOf(agent({ prompts })).promptIds, ["p1", "p2"]);
+  assert.deepEqual(agentFormOf(undefined).promptIds, []);
 });
 
 test("自然文での発火はスコープ別に既定 ON、OFF もそのまま保存し、下書きの初期化キーに含める", () => {
@@ -61,7 +58,7 @@ test("自然文での発火はスコープ別に既定 ON、OFF もそのまま�
   assert.notEqual(agentFormKey(agent()), agentFormKey(agent({ allowNaturalInvocationFile: false })));
 });
 
-test("保存ペイロードは未指定ならキーが落ち、null は解除として送られる", () => {
+test("保存ペイロードは未指定ならキーが落ち、null は解除として送られる", async () => {
   assert.equal(Object.hasOwn(sent(agentFormOf(agent())), "commonSkillNames"), false);
   assert.deepEqual(sent(agentFormOf(agent({ commonSkillNames: [] }))).commonSkillNames, []);
   assert.deepEqual(sent(agentFormOf(agent({ commonSkillNames: ["writer"] }))).commonSkillNames, ["writer"]);
@@ -70,7 +67,8 @@ test("保存ペイロードは未指定ならキーが落ち、null は解除と
   assert.equal(Object.hasOwn(agentFormOf(agent()), "skillIds"), false);
   assert.equal(Object.hasOwn(sent(agentFormOf(agent())), "skillIds"), false);
 
-  const cleared = sent(withAllCommonSkillsVisible(agentFormOf(agent({ commonSkillNames: ["writer"] }))));
+  const { withAllSkillsReset } = await import("../src/components/agent-settings/AgentEditorForm");
+  const cleared = sent(withAllSkillsReset(agentFormOf(agent({ commonSkillNames: ["writer"] }))));
   assert.equal(Object.hasOwn(cleared, "commonSkillNames"), true);
   assert.equal(cleared.commonSkillNames, null);
 });
@@ -93,17 +91,6 @@ test("明示リストのトグルは対象の名前だけを増減し、一覧�
   assert.deepEqual(withCommonSkillToggled(form, "alpha", true, VISIBLE).commonSkillNames, ["alpha", "gone"]);
 });
 
-test("「すべて表示に戻す」は null を送り、undefined (キー省略) へは戻らない", () => {
-  const form = withAllCommonSkillsVisible(agentFormOf(agent({ commonSkillNames: [] })));
-  assert.equal(form.commonSkillNames, null);
-  const payload = sent(form);
-  assert.equal(Object.hasOwn(payload, "commonSkillNames"), true);
-  assert.equal(payload.commonSkillNames, null);
-
-  // 戻した後は全可視として振る舞い、外せばまた明示リストになる
-  assert.deepEqual(withCommonSkillToggled(form, "beta", false, VISIBLE).commonSkillNames, ["alpha"]);
-});
-
 test("ツールの下書きも未指定 / 空の許可リスト / 明示リストを区別する", () => {
   assert.equal(agentFormOf(agent()).toolNames, undefined);
   assert.equal(agentFormOf(undefined).toolNames, undefined);
@@ -114,15 +101,15 @@ test("ツールの下書きも未指定 / 空の許可リスト / 明示リス�
   assert.notEqual(agentFormOf(agent({ toolNames: catalogNames })).toolNames, catalogNames);
 });
 
-test("ツールの保存ペイロードは未指定ならキーが落ち、null は解除として送られる", () => {
+test("ツールの保存ペイロードは未指定ならキーが落ち、null は解除として送られる", async () => {
   assert.equal(Object.hasOwn(sent(agentFormOf(agent())), "toolNames"), false);
   assert.deepEqual(sent(agentFormOf(agent({ toolNames: [] }))).toolNames, []);
   assert.deepEqual(sent(agentFormOf(agent({ toolNames: ["read"] }))).toolNames, ["read"]);
 
-  const cleared = sent(withAllToolsEnabled(agentFormOf(agent({ toolNames: ["read"] }))));
+  const { withAllToolsReset } = await import("../src/components/agent-settings/AgentEditorForm");
+  const cleared = sent(withAllToolsReset(agentFormOf(agent({ toolNames: ["read"] }))));
   assert.equal(Object.hasOwn(cleared, "toolNames"), true);
   assert.equal(cleared.toolNames, null);
-  assert.deepEqual(sent(withAllToolsDisabled(agentFormOf(agent()))).toolNames, []);
 });
 
 test("ツールのトグルは未指定から見えている一覧を固定し、明示リストでは増減だけする", () => {
@@ -152,15 +139,6 @@ test("組み込みの下書きも未指定 / 空の許可リスト / 明示リ�
   // カタログの配列を直接編集しないようコピーして持つ
   const catalogNames = ["serve"];
   assert.notEqual(agentFormOf(agent({ builtinSkillNames: catalogNames })).builtinSkillNames, catalogNames);
-});
-
-test("組み込みの全外しは空の明示リスト、使用への復帰は null で送る", () => {
-  const disabled = sent(withAllBuiltinSkillsDisabled(agentFormOf(agent())));
-  assert.deepEqual(disabled.builtinSkillNames, []);
-
-  const enabled = sent(withAllBuiltinSkillsEnabled(agentFormOf(agent({ builtinSkillNames: [] }))));
-  assert.equal(Object.hasOwn(enabled, "builtinSkillNames"), true);
-  assert.equal(enabled.builtinSkillNames, null);
 });
 
 test("組み込みのトグルは未指定から見えている一覧を固定し、明示リストでは増減だけする", () => {

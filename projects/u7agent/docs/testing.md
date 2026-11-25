@@ -36,7 +36,7 @@ GUI は有料 API を使わない一時ストア / ポート / stub pi で、次
 
 ## 追加入力 (steering) の受入
 
-自動検証は server の `server/test/session-steering.test.ts`（BFF の配送状態機械・受付済みの待機の一括配送・取消・停止・終端の回収）と `server/test/sdk-steering.test.ts`（実 SDK の AgentSession と BFF をつなぎ、`agent_settled` を待たずに次のモデル要求へ修正指示が入ること、複数の追加入力が 1 回のモデル要求にまとまること、組み込み provider adapter の要求本文）、`server/test/session-sends.test.ts`（送信ID / 実行ID の保存と旧データの補完）、client の `client/test/queueWait.test.ts` / `queuedSends.test.ts`（`queued` / `steering` の表示と取消可否）/ `chatReducer.test.ts` / `unsentMessages.test.ts`（送信IDでの照合・未送信の復旧）で行う。GUI は実行中の送信・待機から実行への遷移・1 件取消・停止後の未送信・別タブ / 再読み込みを [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) で確認する。
+自動検証は server の `server/test/session-steering.test.ts`（BFF の配送状態機械・受付済みの待機の一括配送・取消・停止・終端の回収）と `server/test/sdk-steering.test.ts`（実 SDK の AgentSession と BFF をつなぎ、`agent_settled` を待たずに次のモデル要求へ修正指示が入ること、複数の追加入力が 1 回のモデル要求にまとまること、組み込み provider adapter の要求本文）、`server/test/session-sends.test.ts`（送信ID / 実行ID の保存と旧データの補完）、client の `client/test/queueWait.test.ts` / `queuedSends.test.ts`（`queued` / `steering` の表示と取消可否）/ `chatQueueReducer.test.ts` / `unsentMessages.test.ts`（送信IDでの照合・未送信の復旧）で行う。GUI は実行中の送信・待機から実行への遷移・1 件取消・停止後の未送信・別タブ / 再読み込みを [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) で確認する。
 
 ## ファイルのアップロード受入
 
@@ -82,7 +82,7 @@ GUI は一時ストア / stub pi で、desktop と singleColumn の両方を確�
 
 ## スペースの受入
 
-自動検証は `server/test/spaces-api.test.ts`（加算移行・複数所属・live / 未ロード / sweep / 再起動・添付 / cwd・復元前の所属拒否・プロジェクト利用拒否・並べ替えの正規化と永続・既定スペースの先頭固定・入力不正の 400・更新失敗時の rollback・DB 障害時の既定スペースの停止 / 削除）、`client/test/spaces.test.ts`（既定の保存先の解決・選択の fail-closed・初期選択の優先順位・各 API の文脈・作成待ちの要求元固定・遅い一覧応答・並べ替えの保存の分類と一覧へのマージ・保存待ちの作成 / 削除との競合・削除後の選択・削除の成功後処理（成功時点の選択 / URL → 保存値 → 選択の順）・行の ⋯ の出し分け（既定スペースは空）・削除の確認文言）、`client/test/agentReorder.test.ts`（一覧の並べ替えの計算と、スペース一覧でも既定の先頭と渡さなかった行の位置を保つこと）、`client/test/ownerLink.test.ts`（起動元リンクの切替先と順序）と既存の session / API / fallback / 通知リンクテストで行う。引き継ぎは server 側の `server/test/sessions-move.test.ts`（同スペース / 別スペース / プロジェクト所属、エージェント差し替えと復元後の実行、入口条件（未知の `agentId`・メモ × 0 件 / 壊れた JSONL・読めない既存メモ・busy）、メモの内容 / 先頭追記 / 既存の保持 / mask、書込み / meta の失敗時の rollback、消費済み印の保存（後続の送信も待つ・失敗は 500）、確定後の片付けと再起動をまたぐ復旧）と `server/test/handoff-memo.test.ts` / `server/test/sandbox-handoff.test.ts`（節の組み立てと上限 / mask / ハッシュ、読み書き API の上限 / UTF-8 / symlink / 冪等化 / 同時追記 / 条件付き削除と排他内の再判定 / `ENOENT` 以外の lstat 失敗は 404 にしない）で固定する。client 側は `client/test/sessionHandoff.test.ts`（ダイアログの文言・無効理由・チップの導出・移動先へ渡す警告）、`client/test/sessionHandoffDialog.test.ts`（描画と既定 / 無効 / プロジェクトのメモ説明）、`client/test/historyResync.test.ts` / `client/test/requestGate.test.ts`（同じ会話 id のまま履歴が入れ替わる引き継ぎで旧バブルを捨て、保留していた旧ページを適用しないこと）、`client/test/sidebarRowMenu.test.ts`（項目の出し分け・無効理由・並び）、`client/test/apiContracts.test.ts`（要求元が query で `spaceId` / `agentId` / `memo` が body）でも固定する。スペースの削除は `client/test/apiContracts.test.ts`（`DELETE /api/spaces/:id` が文脈の `spaceId` を付けないことと、409 の文言 / status を保つこと）でも固定する。GUI は専用の一時ストア / workspace / ポートと stub pi を使い、実データや有料 API に触れない。
+自動検証は `server/test/spaces-api.test.ts`（加算移行・複数所属・live / 未ロード / sweep / 再起動・添付 / cwd・復元前の所属拒否・プロジェクト利用拒否・並べ替えの正規化と永続・既定スペースの先頭固定・入力不正の 400・更新失敗時の rollback・DB 障害時の既定スペースの停止 / 削除）、`client/test/spaces.test.ts`（既定の保存先の解決・選択の fail-closed・初期選択の優先順位・各 API の文脈・作成待ちの要求元固定・遅い一覧応答・並べ替えの保存の分類と一覧へのマージ・保存待ちの作成 / 削除との競合・削除後の選択・削除の成功後処理（成功時点の選択 / URL → 保存値 → 選択の順）・行の ⋯ の出し分け（既定スペースは空）・削除の確認文言）、`client/test/listReorder.test.ts`（一覧の並べ替えの計算と、スペース一覧でも既定の先頭と渡さなかった行の位置を保つこと）、`client/test/ownerLink.test.ts`（起動元リンクの切替先と順序）と既存の session / API / fallback / 通知リンクテストで行う。引き継ぎは server 側の `server/test/sessions-move.test.ts`（同スペース / 別スペース / プロジェクト所属、エージェント差し替えと復元後の実行、入口条件（未知の `agentId`・メモ × 0 件 / 壊れた JSONL・読めない既存メモ・busy）、メモの内容 / 先頭追記 / 既存の保持 / mask、書込み / meta の失敗時の rollback、消費済み印の保存（後続の送信も待つ・失敗は 500）、確定後の片付けと再起動をまたぐ復旧）と `server/test/handoff-memo.test.ts` / `server/test/sandbox-handoff.test.ts`（節の組み立てと上限 / mask / ハッシュ、読み書き API の上限 / UTF-8 / symlink / 冪等化 / 同時追記 / 条件付き削除と排他内の再判定 / `ENOENT` 以外の lstat 失敗は 404 にしない）で固定する。client 側は `client/test/sessionHandoff.test.ts`（ダイアログの文言・無効理由・チップの導出・移動先へ渡す警告）、`client/test/sessionHandoffDialog.test.ts`（描画と既定 / 無効 / プロジェクトのメモ説明）、`client/test/historyResync.test.ts` / `client/test/requestGate.test.ts`（同じ会話 id のまま履歴が入れ替わる引き継ぎで旧バブルを捨て、保留していた旧ページを適用しないこと）、`client/test/sidebarRowMenu.test.ts`（項目の出し分け・無効理由・並び）、`client/test/apiContracts.test.ts`（要求元が query で `spaceId` / `agentId` / `memo` が body）でも固定する。スペースの削除は `client/test/apiContracts.test.ts`（`DELETE /api/spaces/:id` が文脈の `spaceId` を付けないことと、409 の文言 / status を保つこと）でも固定する。GUI は専用の一時ストア / workspace / ポートと stub pi を使い、実データや有料 API に触れない。
 
 desktop と singleColumn の両方で次を確認する。
 
@@ -242,7 +242,7 @@ GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui
 
 ## 実行中の thinking の受入
 
-自動検証は `server/test/live-thinking.test.ts`（code point 単位の末尾・500ms の間引き・phase 変化での即時クリア・`cancelPending` が masker の境界を保つこと・保留末尾を公開しないこと・masker が途中で失敗したブロックを次の境界まで配信しないこと）、`server/test/run-status.test.ts`（`thinking_delta` が `status.thinking` になり、text / tool / message_end で消えること、本文 → thinking → 本文と `thinking_start` 欠落でも phase と末尾が追従すること、finalize の後に配らないこと）、`server/test/sessions-secrets.test.ts`（分割した秘密値が SSE に出ないこと・カーソルのリプレイが `thinking` を落とすこと・resync が保留配信を取り消すこと）、`server/test/diagnostics.test.ts` と `client/test/diagnostics.test.ts`（要約が `thinkingChars` だけを持つこと）、client の `client/test/liveThinking.test.ts`（末尾 2 行・160 code point・空行・絵文字）、`client/test/chatReducer.test.ts`（set / phase の変化 / 切断 / 同じ run と別 run の resync / run_end / newChat）、`client/test/sessionStream.test.ts`（`status.thinking` の経路とリプレイで戻らないこと、`EventSource.onerror` が CONNECTING でも末尾を消して CLOSED だけ張り直すこと）、`client/test/composerStatus.test.ts`（固定領域を常に確保すること・空でも高さが変わらないこと・`aria-hidden` と `title`・状態行の `aria-live` の外にあること・送信中は圧縮と再実行の理由行を出さないこと）で行う。
+自動検証は `server/test/live-thinking.test.ts`（code point 単位の末尾・500ms の間引き・phase 変化での即時クリア・`cancelPending` が masker の境界を保つこと・保留末尾を公開しないこと・masker が途中で失敗したブロックを次の境界まで配信しないこと）、`server/test/run-status.test.ts`（`thinking_delta` が `status.thinking` になり、text / tool / message_end で消えること、本文 → thinking → 本文と `thinking_start` 欠落でも phase と末尾が追従すること、finalize の後に配らないこと）、`server/test/sessions-secrets.test.ts`（分割した秘密値が SSE に出ないこと・カーソルのリプレイが `thinking` を落とすこと・resync が保留配信を取り消すこと）、`server/test/diagnostics.test.ts` と `client/test/diagnostics.test.ts`（要約が `thinkingChars` だけを持つこと）、client の `client/test/liveThinking.test.ts`（末尾 2 行・160 code point・空行・絵文字）、`client/test/chatRunReducer.test.ts`（set / phase の変化 / 切断 / 同じ run と別 run の resync / run_end / newChat）、`client/test/sessionStream.test.ts`（`status.thinking` の経路とリプレイで戻らないこと、`EventSource.onerror` が CONNECTING でも末尾を消して CLOSED だけ張り直すこと）、`client/test/composerStatus.test.ts`（固定領域を常に確保すること・空でも高さが変わらないこと・`aria-hidden` と `title`・状態行の `aria-live` の外にあること・送信中は圧縮と再実行の理由行を出さないこと）で行う。
 
 GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の合成シナリオで、desktop と singleColumn を確認する。本文に「長い思考」を含めると長い thinking（1200 code point 超）・複数回の更新・2 秒の無音・ツール実行への遷移を流し、「思考の再開」で本文 → thinking → 本文の再開を、「質問して」で thinking → 質問カード → 回答後の本文を流す（質問の待機は BFF の `askQuestion` に登録するので、回答は通常の回答 API から行う）。
 
@@ -268,27 +268,9 @@ GUI の受入は実マイクと実 API が要るため人間が HTTPS か localh
 - 初回の開始時だけ確認ダイアログが出て、キャンセルでは録音も送信も始まらない。2 回目以降は出ない
 - キー未設定・復号不能・非 secure context ではマイクが出ない
 
-## client の棚卸し
-
-整理前のローカル checkout は `client/test/*.test.ts` が 119 ファイル、うち `readFileSync` を使うものが 61 ファイルだった。ファイル数ではなくテストケース単位で分類し、混在する純関数・SSR の検査は残した。以下のファイル名は `client/test/` 相対。
-
-| 分類 | 対象と扱い |
-| --- | --- |
-| 振る舞いへ置換 | `historyWiring` → `apiContracts` で実 fetch の要求・応答・エラーを検査。履歴のページ追加・gap fill・resync は既存の `chatHistory` / `historyResync` / `chatReducer` に集約 |
-| 振る舞いへ置換 | `navDrawerMotion` → `animationEnd` で終了イベント・子のイベントの除外・イベントなしの timeout・二重完了の防止・cleanup を検査。`cssTime` の時間 parser は維持 |
-| 振る舞いへ置換 | `fileSkillList` / `skillSelector` / `settingsDetailSheet` / `toggleSwitch` は実コンポーネントの描画属性・内容を検査。スイッチの callback は実 handler を呼ぶ |
-| 振る舞いへ統合 | `filePreviewCopy` / `filePreviewImage` / `filePreviewNewTab` のうち画像 URL・メタ、HTML の sandbox・配信元、別タブの `noopener` と操作名は `filePreviewStorageMode` の SSR へ。コピー本文の正規化は `fileCode`、タブの状態は `fileTabs`、保存は `filePreviewState` に集約 |
-| 純関数・描画を維持 | `agentLabel` / `agentPicker` / `archiveExcludeSettings` / `chatScopeWiring` / `chatScroll` / `compaction` / `composerEnter` / `fileCode` / `fileDownloadRow` / `fileRefRequest` / `fileRowMenu` / `fileTreeReveal` / `fileTreeWidth` / `fileTreeHeight` のコード断片・レイアウト検査だけを除去 |
-| 純関数・描画を維持 | `imageZoom` / `markdownCodeBlock` / `markdownFileRef` / `markdownImage` / `modelSettingsPage` / `notifyToggle` / `fileSkillPanel` / `runRetry` / `serveStatus` / `servedApp` / `sessionFilesPanel` / `sidebarOverlay` / `sidebarProjects` / `sidebarRowMenu` / `sidebarWidth` / `skillPicker` / `userMessageCollapse` の wiring 検査だけを除去 |
-| 純関数へ集約 | `fileMention` は判定・挿入・引用を維持。`markdownHighlight` は言語・トークン分解・上限を維持し、CSS 色の定義数は検査しない。`markdownDiagram` の DOM 禁止検査は `markdownSafety` と重複していたため除去 |
-| 手動受入へ | `activityShimmer` / `popoverPanel` / `mobileOverflow` / `fileBrowserScrollGutter` / `sidebarScrollGutter` / `fileBrowserRowTime` / `fileTreeFold` は具体的な CSS・配置の検査を除去。`markdownTable` は表の描画を残し、折り返し・スクロール・整列はブラウザで確認 |
-| 既存契約へ集約 | `fileBrowserRename` の出し分けは `fileRowMenu`、経路の張り替えは `fileTree` / `fileTabs`、API・非破壊性は server テストで検査。`sessionRename` の PATCH は `apiContracts`、操作の表示は `sidebarRowMenu` に集約し、prompt と画面反映はブラウザで確認 |
-| lint / typecheck へ | `u7AgentContract` の facade 名・export 名、props の有無、import・関数名・hook 名の文字列検査を除去。起動・選択・古い応答の採否は `sessionFallback` / `pendingSessionOpen` / `sessionActions` 等の制御ロジックを維持 |
-| 限定的な検査を維持 | `eventInStateUpdater` / `markdownSafety` / `filePreviewSafety` / `themeSync` / `providerIcon`。`fileCode` に混在していた安全性検査は `filePreviewSafety` に分離。理由と範囲は次節 |
-
-source scan を消しただけではイベント伝播・実 DOM の焦点・hook 間の連携の回帰を保証できない。SSR は公開属性と内容だけを検査し、ネイティブ dialog / popover、スクロール、ResizeObserver、実際のクリック領域は次の受入で確認する。DOM / browser test の新規依存や巨大な E2E suite は追加しない。
-
 ## 残す限定的な検査
+
+SSR は公開属性と内容だけを検査するため、イベント伝播・実 DOM の焦点・hook 間の連携・ネイティブ dialog / popover、スクロール、ResizeObserver、実際のクリック領域は GUI 受入で確認する。DOM / browser test の新規依存や巨大な E2E suite は追加しない。以下は型・SSR で代替できないため残す検査。
 
 - `eventInStateUpdater.test.ts`: React の遅延 updater 内でイベントを読むと入力で画面が落ちる。型ではイベント寿命を保証できないため、禁止パターンの検査を残す。文字列走査は lint 相当の補助で、すべての alias や構文を解析するものではない。
 - `markdownSafety.test.ts`: Markdown 由来の DOM 文字列生成とインライン style の禁止を、parser / renderer のディレクトリ配下（子ディレクトリも含む）に限定して検査する。ファイル名一覧は契約にしない。入力の安全性は既存 parser の採否テストと併用する。
@@ -324,7 +306,7 @@ GUI は一時ストアと実ファイル fixture で、desktop と singleColumn 
 
 ## Git identity の受入
 
-自動検証は `server/test/git-identity.test.ts`（値の規則と INI の quote）、`server/test/git-settings-api.test.ts`（GET / PUT / DELETE・片方だけの 400・DB 永続化・same-origin の 403・DB 障害時の 503 と `null`・壊れた保存値の null 化）、`server/test/sandbox-git-config.test.ts`（固定パスの 0600・原子的な書換・内容一致時の skip と親 symlink の再検査・HOME が write root の内側なら拒否・runtime info の `git-config-v1` と `gitConfig`・global config の実効・未設定時の commit 失敗・repo local の優先・`git config --global` の書込拒否・予約名の剥がしと旧 BFF 互換・準備失敗時の bash だけの fail-closed・`dubious ownership` の cwd 単位の検出とキャッシュ）、`server/test/app-db.test.ts`（v44 → v45 の加算移行、v45 → v46 の初期 identity、明示的に消した行が再起動で戻らないこと）、`server/test/remote-tools.test.ts` と `server/test/sandbox-client.test.ts`（bash だけに `gitConfig` を付け、未設定も `null` で送る）、`client/test/gitSettings.test.ts`（入力規則と保存可否）、`client/test/runtimeEnvironment.test.ts`（未対応 / 準備失敗 / 準備済みと `ownershipWarnings` の診断表示）で行う。
+自動検証は `server/test/git-identity.test.ts`（値の規則と INI の quote）、`server/test/git-settings-api.test.ts`（GET / PUT / DELETE・片方だけの 400・DB 永続化・same-origin の 403・DB 障害時の 503 と `null`・壊れた保存値の null 化）、`server/test/sandbox-git-config.test.ts`（固定パスの 0600・原子的な書換・内容一致時の skip と親 symlink の再検査・HOME が write root の内側なら拒否・runtime info の `git-config-v1` と `gitConfig`・global config の実効・未設定時の commit 失敗・repo local の優先・`git config --global` の書込拒否・予約名の剥がしと `gitConfig` の無い実行・準備失敗時の bash だけの fail-closed・`dubious ownership` の cwd 単位の検出とキャッシュ）、`server/test/app-db.test.ts`（v44 → v45 の加算移行、v45 → v46 の初期 identity、明示的に消した行が再起動で戻らないこと）、`server/test/remote-tools.test.ts` と `server/test/sandbox-client.test.ts`（bash だけに `gitConfig` を付け、未設定も `null` で送る）、`client/test/gitSettings.test.ts`（入力規則と保存可否）、`client/test/runtimeEnvironment.test.ts`（未対応 / 準備失敗 / 準備済みと `ownershipWarnings` の診断表示）で行う。
 
 GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の実サンドボックスで、desktop と singleColumn の両方を確認する。
 

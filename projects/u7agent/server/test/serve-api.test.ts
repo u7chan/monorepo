@@ -16,7 +16,7 @@ import {
   ServeStatusSchema,
 } from "../src/schema";
 import { UnknownRemoteToolError, createRemoteToolDefinitions } from "../src/sandbox/remote-tools";
-import { SANDBOX_TOOL_NAMES } from "../src/sandbox/service";
+import { SANDBOX_TOOL_NAMES } from "../src/sandbox/execute-request";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { DEBUG_SERVE_PORT_FROM } from "../src/serve";
 import {
@@ -25,16 +25,9 @@ import {
   SERVE_TOOL_GUIDELINES,
   withServeTool,
 } from "../src/serve-tool";
+import { jsonBody, jsonPost } from "./http-helpers";
 import { createServeSandboxStub, publicListener, setPublicListener } from "./serve-stub";
 import { asPiBff, createStubPi } from "./stub-pi";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 const workspace: SandboxWorkspaceClient = {
   previewFile: async () => ({ text: "" }),

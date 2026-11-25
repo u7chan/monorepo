@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import type { Space } from "server";
-import type { createSpaceApi } from "./api";
+import type { createSpaceApi } from "./api/sessions";
 
 export type SpaceContextValue = {
   spaces: Space[];

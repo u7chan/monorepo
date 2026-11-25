@@ -53,14 +53,14 @@
 | 単価が負・非数値・未知の `unit` | その行を捨てる（`0` にしない） |
 | 取得失敗・タイムアウト・契約外 | 前回の値を維持する |
 
-- `prices` は `(unit, side, variant)` で一意にし、`{ unit, side, variant, costUsd, currency }` だけを返す。画像は `side: "output"` の行だけを返し、音声は入力と出力の両方を返す（音声の並びは `client/src/lib/contentSettings.ts` の `speechPriceDisplay()` が 1 箇所で決める）
+- `prices` は `(unit, side, variant)` で一意にし、`{ unit, side, variant, costUsd, currency }` だけを返す。画像は `side: "output"` の行だけを返し、音声は入力と出力の両方を返す（音声の並びは `client/src/lib/contentSettings/speech.ts` の `speechPriceDisplay()` が 1 箇所で決める）
 - **除外は表示の投影だけ**。`visible: false` でも `PUT /api/settings/content/image` の照合（保存済みの選択の再保存・パラメータ保存）と試行の照合は現在の一覧をそのまま使う。生成はもともと一覧を見ない
 - 既存の svg-only の絞り込み（`isUnsaveableOutputOnly()`）は変えない。`visible` はこれと独立した表示条件
 - 変更系の応答（キー保存・トグル・選択など）にも同じ `cost` と価格が乗る（`ContentMutationResponseSchema` が `ContentSettingsResponseSchema` を拡張しているため）
 
 ## 画面表示
 
-- 画像のモデル欄のチップと選択肢に価格を出す。整形の正は `client/src/lib/contentSettings.ts` の `imagePriceDisplay()`（基本単価優先・範囲・`--`・`$0`・token の換算）
+- 画像のモデル欄のチップと選択肢に価格を出す。整形の正は `client/src/lib/contentSettings/image.ts` の `imagePriceDisplay()`（基本単価優先・範囲・`--`・`$0`・token の換算）
 - 音声は入力側を主、出力側を副にしてチップを 2 つまで出し、選択肢のラベルにも主の単価を添える。整形は `speechPriceDisplay()`（`character` / `byte` / `token` は 1M あたり、`minute` は分あたり。`$0` と `--` を区別する）
 - `visible: false` は**描画の選択肢からだけ**外す。`imageModelOptions()` は全件のまま残し、`visibleImageModelOptions()` が現在値だけ専用ラベルで残す。保存中の値が無効なら「一覧に出していない・保存済み」の警告を出す
 - 一覧に載せなかった件数は「N 件は一覧に出していません」と注記する（黙って消えたように見せない）

@@ -14,15 +14,8 @@ import { createBffApp } from "../src/app";
 import type { TitleSummarySettingsRow } from "../src/app-db";
 import { TITLE_DEFINITION_DEFAULT, TITLE_DEFINITION_MAX } from "../src/session-title";
 import { TitleSummarySettingsService } from "../src/title-summary-settings";
+import { jsonBody, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi, modelOptionOf, STUB_MODEL, STUB_PLAIN_MODEL } from "./stub-pi";
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-title-settings-"));

@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Dispatch } from "react";
-import { getCatalog, getHealth } from "../api";
+import { getCatalog } from "../api/catalog";
+import { getHealth } from "../api/runtime";
 import { selectableAgents } from "../lib/agentSelection";
 import { createCatalogStore } from "../lib/catalogStore";
 import type { CatalogResponse, Health } from "../types";
-import type { ChatAction } from "./chatReducer";
+import type { ChatAction } from "../lib/chatState";
 import { runtimeStatusForHealth, type RuntimeStatus } from "./runtimeStatus";
-import { createMountScope } from "./requestGate";
+import { alwaysCurrent, createMountScope } from "./requestGate";
 
 const AGENT_KEY = "u7agent-agent";
-const alwaysCurrent = () => true;
 
 /** 取得前のカタログ。ビルトインは null で、ツール欄は空を「取得できていない」として理由を出す */
 const EMPTY_CATALOG: CatalogResponse = {

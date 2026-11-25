@@ -5,7 +5,7 @@ import {
   getSharedContentPreview,
   getSharedContents,
   publishSharedContent,
-} from "../api";
+} from "../api/shared";
 import { messageFor } from "../lib/errors";
 import {
   settleAcceptedDetail,

@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getNotifications, testNotification, updateNotifications } from "../api";
+import { getNotifications, testNotification, updateNotifications } from "../api/settings";
 import { messageFor } from "../lib/errors";
 import { draftBody, draftFromSettings, draftIsDirty, syncDraft, type NotificationDraft } from "../lib/notifications";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import type { NotificationResult, NotificationsResponse } from "../types";
-import { createLoadingTracker, createRequestGate } from "./requestGate";
+import { alwaysCurrent, createLoadingTracker, createRequestGate } from "./requestGate";
 
 /** 一覧 (4 秒) と同じ間隔。バックグラウンドのラン完了で直近結果が変わっても、⚠ をリロードなしで反映する */
 const NOTIFICATIONS_POLL_MS = 4_000;
-
-const alwaysCurrent = () => true;
 
 /**
  * 通知設定の state と操作。設定ページを開いていなくてもナビの ⚠ が要るため、facade (useU7Agent) が
@@ -27,7 +25,6 @@ export function useNotifications() {
   /** 直前の保存値。取得値へ下書きを追従させるときの「未編集」判定に使う */
   const settingsRef = useRef<NotificationsResponse | null>(null);
   const [beginLoad] = useState(createRequestGate);
-  // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
   const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
 
   const setDraft = useCallback((patch: Partial<NotificationDraft>) => {

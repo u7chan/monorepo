@@ -179,7 +179,7 @@ export function formatActivityClock(ms: number): string {
   return hours > 0 ? `${hours}:${pad2(minutes)}:${pad2(seconds)}` : `${pad2(minutes)}:${pad2(seconds)}`;
 }
 
-/** 終了行の表示。所要時間が無ければ終了時刻だけにする (旧サーバー・再起動後) */
+/** 終了行の表示。所要時間が無ければ終了時刻だけにする (再起動後 / 未ロードの会話) */
 export function activityFinishedLabel(
   row: ActivityRow,
   now: number,

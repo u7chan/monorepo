@@ -46,7 +46,7 @@ test("描画: 同じ画像の解決 URL は version が変わったときだけ�
     value: { origin: "http://localhost:5173", hostname: "localhost" },
     configurable: true,
   });
-  const { fileRawUrl } = await import("../src/api");
+  const { fileRawUrl } = await import("../src/api/files");
   const imageUrl = (version: number, suffix = ""): URL => {
     const html = render(`![cafe](generated/cafe.png)${suffix}`, {
       raw: (path) => fileRawUrl(path, version),

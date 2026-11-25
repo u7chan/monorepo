@@ -13,14 +13,6 @@ export type NotificationDraft = {
   baseUrl: string;
 };
 
-/** 設定の読み込み前と下書きの破棄で使う初期値 */
-export const EMPTY_NOTIFICATION_DRAFT: NotificationDraft = {
-  enabled: false,
-  askUser: true,
-  webhookUrl: null,
-  baseUrl: "",
-};
-
 /** 保存済みの設定から下書きを作る。URL は write-only なので常に空 (変更時にだけ入れ直す) */
 export function draftFromSettings(settings: NotificationsResponse | null): NotificationDraft {
   return {
@@ -174,7 +166,7 @@ const RESULT_TIME_FORMAT: Intl.DateTimeFormatOptions = {
   hourCycle: "h23",
 };
 
-/** 直近結果の日時。ja-JP の「2026/09/24 12:31」を、Issue の表記に合わせてハイフン区切りへ直す */
+/** 直近結果の日時。ja-JP の既定は `/` 区切りなので、日付はハイフンへ直す (例: `2026-09-24 12:31`) */
 export function resultTimeLabel(at: number, timeZone?: string): string {
   return new Intl.DateTimeFormat("ja-JP", { ...RESULT_TIME_FORMAT, timeZone }).format(at).replaceAll("/", "-");
 }
@@ -260,7 +252,7 @@ export function notificationResultView(result: NotificationResult | undefined): 
   return { ok: false, headline: `${result.message || `送信に失敗しました（HTTP ${result.status}）`}${code}` };
 }
 
-/** プレビューの見本。実データはサーバーが組み立てるため、形だけを Issue の例に揃える */
+/** プレビューの見本。実データはサーバーが組み立てるため、形だけを揃えて保存前に確かめられるようにする */
 const PREVIEW_SESSION_ID = "a1b2c3d4e5";
 /** 見本の所属スペース。実通知は会話の所属 (既定スペースは default) を常に載せる */
 const PREVIEW_SPACE_ID = "space-a1b2c3d4e5f6a7b8";

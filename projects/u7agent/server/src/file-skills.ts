@@ -113,7 +113,7 @@ export interface ComposeFileSkillsOptions {
  * sources を優先順位の順に走査し、同じ実体 (path) と同名 (name) を先勝ちで一意化する。
  * ファイルの改名・削除・マージはせず、落ちた側を応答の shadowed に記録するだけにする。
  * ただし組み込みは一覧の別グループとして常に見せる必要があるため、上書きされた場合も行を残し
- * `overridden` を立てる (注入はしない)。ファイルスキル同士の重複は従来どおり警告にまとめる。
+ * `overridden` を立てる (注入はしない)。ファイルスキル同士の重複は警告にまとめる。
  */
 export function composeFileSkills(
   sources: FileSkillSource[],

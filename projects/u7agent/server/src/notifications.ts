@@ -7,9 +7,9 @@ import {
   APP_SECRET_MASTER_KEY_MESSAGE,
   appSecretAvailable,
   appSecretFailed,
-  appSecretMasterKeyMissing,
   appSecretNotStored,
   appSecretUnevaluated,
+  evaluateAppSecret,
   type AppSecretState,
 } from "./app-secrets";
 import { httpError, messageFor } from "./http";
@@ -242,26 +242,21 @@ export class NotificationService {
     }
   }
 
-  /** 保存済みの暗号文から URL を復号する。結果はプロセスのメモリだけに残す */
   #evaluateWebhook(secret: StoredAppSecret): void {
-    this.#webhookUrl = null;
-    if (!this.#runtimeAvailable) {
-      this.#webhookState = appSecretUnevaluated();
-      return;
-    }
-    if (!this.#cipher) {
-      this.#webhookState = appSecretMasterKeyMissing();
-      return;
-    }
+    const { value, state } = evaluateAppSecret({
+      cipher: this.#cipher,
+      runtimeAvailable: this.#runtimeAvailable,
+      scope: "notification_settings",
+      owner: WEBHOOK_SECRET_OWNER,
+      secret,
+      retain: (value) => this.#retainSecret(value),
+    });
+    this.#webhookUrl = value;
+    this.#webhookState = state;
+    if (value === null) return;
     try {
-      const webhookUrl = this.#cipher.decrypt("notification_settings", WEBHOOK_SECRET_OWNER, secret);
-      // 他機能の応答・ログへ広がらないよう、共通マスカーへも登録してから使う
-      this.#retainSecret(webhookUrl);
-      this.#webhookUrl = webhookUrl;
-      this.#webhookState = appSecretAvailable();
-      this.#remember(webhookUrl);
+      this.#remember(value);
     } catch {
-      // 誤鍵・未知の鍵版・改ざんは区別せず、平文へも落とさない
       this.#webhookState = appSecretFailed();
     }
   }

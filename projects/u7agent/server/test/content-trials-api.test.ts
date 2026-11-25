@@ -23,6 +23,7 @@ import { BGM_MODEL, BGM_PROMPT_MAX_LENGTH } from "../src/bgm";
 import { DEFAULT_IMAGE_MODEL } from "../src/content-settings";
 import { DEFAULT_SPEECH_MODEL } from "../src/speech-catalog";
 import { IMAGE_PROVIDER_ID, type ImageGenerationInput, type ImageGenerationResult } from "../src/images";
+import { jsonBody, jsonPost, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 // アプリ DB の APIキーは暗号化して保存する。このファイルの BFF には master key を立てて起動する
@@ -43,20 +44,6 @@ function pngImage(width = 8, height = 6): { mimeType: string; data: string } {
   view.setUint32(20, height);
   return { mimeType: "image/png", data: Buffer.from(bytes).toString("base64") };
 }
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
 
 async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-content-trials-"));

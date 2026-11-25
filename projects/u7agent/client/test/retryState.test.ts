@@ -4,7 +4,8 @@
 // 予定時刻を過ぎても次の message_start が来ないときは「開始待ち」へ切り替える。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import { chatReducer } from "../src/hooks/chatReducer";
 import { applySessionEvent, type SessionStreamDeps } from "../src/hooks/sessionStream";
 import { createDiagnosticsRecorder } from "../src/lib/diagnostics";
 import { activityDisplay, retryActivityText, retryRemainingMs } from "../src/lib/retryState";
@@ -18,6 +19,11 @@ function payload(overrides: Partial<SessionPayload> = {}): SessionPayload {
     piSessionId: "pi-s-1",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status: "running",
     title: "",
     createdAt: 1,
@@ -231,6 +237,7 @@ test("runEnd clears the active retry but keeps the cumulative count for the resu
   let state = chatReducer(initialChatState, { type: "resync", payload: payload(), receivedAt: 500 });
   state = chatReducer(state, {
     type: "runEnd",
+    durationMs: 1_000,
     status: "error",
     queueDepth: 0,
     error: "レート制限により実行に失敗しました（自動再試行2回）。時間をおいて再実行してください",
@@ -247,6 +254,7 @@ test("runStart and newChat reset the retry state", () => {
   // 最終失敗の分類コードも次のラン / 新規チャットへ引き継がない
   waiting = chatReducer(waiting, {
     type: "runEnd",
+    durationMs: 1_000,
     status: "error",
     queueDepth: 0,
     error: "レート制限により実行に失敗しました",

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ToolCard } from "../../hooks/chatReducer";
+import type { ToolCard } from "../../lib/chatTypes";
 import { cn } from "../../lib/cn";
 import { selectCopyTarget } from "../../lib/copyToClipboard";
 import { generationBadgesOf, generationInfoOf, type GenerationBadge } from "../../lib/generationInfo";

@@ -198,5 +198,3 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
 
   return { ...state, refresh, start, stop, cancel, openRow, dismissRow };
 }
-
-export type ServeController = ReturnType<typeof useServeStatus>;

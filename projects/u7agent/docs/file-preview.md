@@ -113,7 +113,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 本文の取得上限はテキストプレビュー追加（#1386）のときに 256 KiB で置いた控えめな既定で、実測から決めた値ではない。単体 HTML の成果物（Three.js を埋め込んだゲームなど、およそ 680 KiB）が 256 KiB を超えてプレビューできなくなったため 2 MiB へ引き上げた。ハイライトの上限（`FILE_PREVIEW_MAX_LENGTH`）は据え置きで、上限内の本文は最後まで表示され、ハイライトだけが落ちる。
 
-同じ値はテキストプレビュー以外に、HTML プレビューの iframe 文書と相対アセット（`.js` / `.css` / `.json` / `.txt`）、`/skill:` 展開でプロンプトへ入れる SKILL.md 本文にも掛かる（プロンプト長の上限ではない）。本文の取得上限を変えるときは、`SANDBOX_MAX_PREVIEW_BYTES`・`server/src/sandbox/service.ts` のエラー文言・`FilePreviewSchema` の `max`（UTF-16 単位。UTF-8 ではバイト数 ≥ 単位数なので同じ値でよい）・テストとドキュメントの表記を揃える。
+同じ値はテキストプレビュー以外に、HTML プレビューの iframe 文書と相対アセット（`.js` / `.css` / `.json` / `.txt`）、`/skill:` 展開でプロンプトへ入れる SKILL.md 本文にも掛かる（プロンプト長の上限ではない）。本文の取得上限を変えるときは、`SANDBOX_MAX_PREVIEW_BYTES`・`server/src/sandbox/workspace-files.ts` のエラー文言・`FilePreviewSchema` の `max`（UTF-16 単位。UTF-8 ではバイト数 ≥ 単位数なので同じ値でよい）・テストとドキュメントの表記を揃える。
 
 ## HTML プレビュー
 
@@ -178,7 +178,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 ### クライアントの振る舞い
 
 - 既定はプレビュー。他の拡張子は従来どおりソース表示で、ソース / プレビュー の切替は HTML と Markdown と SVG のタブに出し、別オリジンのスイッチは HTML のタブにだけ出す
-- iframe の src は `client/src/api.ts` の `fileHtmlPreviewUrl(path)` が組み立てるパス形式の URL で、path はセグメント単位で encode する（`client/src/lib/fileUrl.ts`）。ストレージ有効側の URL は `fileStoragePreviewUrl(path, { origin, port })` で組み立てる（health の origin を優先し、無ければ `http://<location.hostname>:<port>` の別オリジン。`location.host` は使わない = dev はアプリが Vite の 3000 に居るため）。ポリシー（CSP の段階）はクライアントへ配らない
+- iframe の src は `client/src/api/files.ts` の `fileHtmlPreviewUrl(path)` が組み立てるパス形式の URL で、path はセグメント単位で encode する（`client/src/lib/fileUrl.ts`）。ストレージ有効側の URL は `fileStoragePreviewUrl(path, { origin, port })` で組み立てる（health の origin を優先し、無ければ `http://<location.hostname>:<port>` の別オリジン。`location.host` は使わない = dev はアプリが Vite の 3000 に居るため）。ポリシー（CSP の段階）はクライアントへ配らない
 - パス行の別オリジンのスイッチ（`ToggleSwitch` の `size="sm"`。パス行の ソース / プレビュー と同じ高さに揃える）がタブごとの配信元を切り替える（`role="switch"` + `aria-checked`）。**既定は ON（別オリジン）**で、OFF にすると現行どおりの同一オリジン URL + `allow-scripts` へ戻る。切替は iframe の src が変わる = プレビューが再読み込みされる。`title` には押した結果を状態別に書き、OFF のときは「別オリジンで開き直し、localStorage などを使えるようにします」、ON のときは「アプリと同じオリジンで開き直し、localStorage などを使えなくします」にする
 - プレビュー先は health の `filePreviewOrigin`（env `PI_FILE_PREVIEW_ORIGIN`）を優先し、無ければ `filePreviewPort`（ブラウザから見たポート）で組む。どちらも未取得の間はスイッチを無効にし、client にポートを焼き込まない。TLS 終端の後ろでは scheme が変わるため、公開する配備は origin を渡す（origin があればポートは要らない）。CSP の `frame-src` も同じ値を使う（origin が無ければ `http://*:<プレビュー ポート>`）。既定が ON でもプレビュー先が無ければ隔離のまま開く（`aria-checked` も実体に合わせる）。`App` が health から受けて、ファイルを開ける面（設定 → ファイル / チャットの作業フォルダ面（右パネル / sheet）/ チャットのスキル面 / 設定 → スキルのファイルタブ）の `FileBrowser` へ prop で渡す（面ごとに health を取り直さない）
 - 配信元の選択はタブごとに保持し、タブを閉じると既定（ストレージ有効）へ戻る（`previewOriginFor` / `withPreviewOrigin` / `dropClosedPreviewOrigins` / `renamePreviewOrigins`）。表示モードと違い**保存はしない**ので、F5 と タブを閉じて開き直すと既定（ON）から始まる
@@ -310,7 +310,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 | `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
 | `client/test/copyResult.test.ts` | コピー結果の controller: 所有者 (会話) の切替と unmount の invalidate をまたいで、deferred な成功 / 失敗を適用しないこと（A→B・A→B→A）/ 成功 2 秒・失敗 8 秒の表示と、切替でのタイマー破棄 |
 | `client/test/sessionFilesPath.test.ts` | 帯のパスの分割（未所属の 2 段 / プロジェクトの 1 段 / 末尾の `/` / root `.` / 1 段だけ）/ 絶対パスの組み立て（root `.` は `rootCwd` そのまま・未取得は undefined）/ ⋯ の項目と disabled の理由（片方だけ・両方）/ 全 disabled で ⋯ を出さず理由を常設すること（SSR） |
-| `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
+| `client/test/chatRunReducer.test.ts` / `client/test/chatHistoryReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
 | `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileRawUrl` が version 指定時だけ `v` を付け、未指定時の URL を保つこと / `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること / `fileStoragePreviewUrl` が公開オリジンを優先し、無ければ hostname + ポートで別オリジンの URL を組み立てること（どちらも無ければ URL を作らない） |
 | `client/test/filePreviewError.test.ts` | 共通スキル配下の `Path not found` にだけ補助文を出すこと（作業フォルダ側・接頭辞の別名・他のエラーでは出さない） |

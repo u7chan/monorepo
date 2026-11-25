@@ -28,7 +28,6 @@ export const FileSkillShadowedSchema = z.object({
   /** root 相対 (表示用)。root の外へ解決する場合は絶対パスのまま */
   relativePath: z.string(),
 });
-export type FileSkillShadowed = z.infer<typeof FileSkillShadowedSchema>;
 export const FileSkillInfoSchema = z.object({
   name: z.string(),
   description: z.string(),

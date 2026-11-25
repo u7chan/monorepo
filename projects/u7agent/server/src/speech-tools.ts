@@ -17,7 +17,7 @@ import {
   type SpeechGenerationResult,
   type SpeechGenerationSettings,
 } from "./speech";
-import { cwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
+import { joinCwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
 
 export const SPEECH_TOOL_NAME = "generate_speech";
 
@@ -126,10 +126,7 @@ export interface SpeechToolDefinitionOptions {
   masker: SecretMasker;
   /** 実行のたびに読む。未設定・削除後は undefined（キー無効エラー） */
   readSettings: () => SpeechGenerationSettings | undefined;
-  /**
-   * 実行のたびに読む有効 / 無効。OFF は provider を叩く前に固定文言で止める（セッション作成時に
-   * 凍結しないので、既存の会話にも次の呼び出しから効く）。省くと常に有効
-   */
+  /** 実行のたびに読む有効 / 無効。省略すると常に有効 */
   readEnabled?: () => boolean;
   /** 実行のたびに読むカタログの話者の宣言。未知名・宣言なしは undefined（＝止めない） */
   readVoices: (model: string) => readonly string[] | undefined;
@@ -154,7 +151,6 @@ export function createSpeechToolDefinitions(options: SpeechToolDefinitionOptions
     parameters: generateSpeechSchema,
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     async execute(_toolCallId, params: GenerateSpeechParams, signal) {
-      // 判定を execute まで遅らせないと、OFF が既存セッションの次の呼び出しに効かない
       if (!(options.readEnabled?.() ?? true)) throw new Error(CONTENT_DISABLED_MESSAGE);
       // 支出の前に path と本文の長さを検証する。dir と name は実際に保存するまで確定しない
       const explicit =
@@ -197,7 +193,7 @@ export function createSpeechToolDefinitions(options: SpeechToolDefinitionOptions
         signal,
       });
       // 同名はサンドボックスが `-1` を付けて退避するため、実際に保存された名前を返す
-      const path = cwdRelativePath(dir, uploaded.name);
+      const path = joinCwdRelativePath(dir, uploaded.name);
       // 使用モデルとボイスを結果本文へ残す。投影 (toolResultSummary) は先頭 900 文字で切るため、
       // 長い path でも欠けないよう先頭の行に置く（会話履歴は session.jsonl の toolResult を正とする）
       return {

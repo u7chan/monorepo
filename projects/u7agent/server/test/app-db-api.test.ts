@@ -8,15 +8,8 @@ import test from "node:test";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
+import { jsonBody, jsonPost } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 function isServiceUnavailable(error: unknown): boolean {
   return (error as { statusCode?: number }).statusCode === 503;

@@ -24,7 +24,7 @@
 ```
 
 - **abort / 取り消しでは throw せず `isError: true` を返す**: `details: { questions, answers: [] }` と「回答が得られないまま停止しました」。`AgentToolResult.isError` は「throw せず失敗を返し、`details` を UI に残す」契約で、throw すると SDK の `createErrorToolResult` が `details` を空にするため、停止後の再読込でカードを復元できなくなる
-- 有効化は常時で、設定で切る導線は無い。`PI_AGENT_TOOLS` は `tools` の allowlist を作るため、**ask_user は環境変数では外せない**（`server/src/agent.ts`）。エージェント定義の `toolNames` では外せる（外すと新しい会話で公開されない。[api-catalog.md](api-catalog.md#ツール許可リスト)）
+- 有効化は常時で、設定で切る導線は無い。`PI_AGENT_TOOLS` は `tools` の allowlist を作るため、**ask_user は環境変数では外せない**（`server/src/tool-plan.ts`）。エージェント定義の `toolNames` では外せる（外すと新しい会話で公開されない。[api-catalog.md](api-catalog.md#ツール許可リスト)）
 
 ## 待機のライフサイクル
 
@@ -37,7 +37,7 @@
 ## 回答待ちと所要時間
 
 - 回答待ちの間、実行中インジケータの経過時間は増えない。経過時間は `now - run.startedAt - 回答待ちの実行区間の和(now)` で、値が動かない間は演出の拍も進まない。回答待ちとするのは `ask_user` と承認（`request_network_access`）
-- 区間は既存のツール計測（`ToolCall.startedAt` → `endedAt`、開いているものは評価時刻まで）だけを正とする。質問の登録 / settle には別の時刻を持たせない。和集合で数えるため、1 つの assistant メッセージで 2 枚の質問が並行に待っても二重に引かない。`startedAt` の無いカード（開始を観測しなかった / 旧サーバー）は区間を作らず、従来どおり待機を含めて数える
+- 区間は既存のツール計測（`ToolCall.startedAt` → `endedAt`、開いているものは評価時刻まで）だけを正とする。質問の登録 / settle には別の時刻を持たせない。和集合で数えるため、1 つの assistant メッセージで 2 枚の質問が並行に待っても二重に引かない。`startedAt` の無いカード（開始を観測しなかった）は区間を作らず、従来どおり待機を含めて数える
 - 和集合の計算は `server/src/wait-total.ts` の 1 か所に置き、client は表示のため `server/wait-total` から import する（BFF の依存を client bundle へ入れないための入口）
 - BFF の確定値（`run_end.durationMs` / 履歴 item の `runDurationMs` と `turnEnd` / Discord 通知の所要時間）も同じ規則で、ランの作業時間になる。`finish()` は開いた区間を `endedAt` で閉じ、`tool_execution_end` が終端より後に届いても控えた値を書き換えない
 - 演出と色の判定も、控除後の経過時間をそのまま使う（拍の間隔と色の閾値の正は `client/src/lib/elapsed.ts`）。圧縮時間と自動再試行の待機は BFF が動いている時間なので、従来どおり含める（対象は `ask_user` と承認（`request_network_access`）。同じバッチで並行した他ツールの時間も、区間の和を引く結果として除かれる）

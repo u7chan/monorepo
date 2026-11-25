@@ -35,7 +35,7 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 - 複数回圧縮しても圧縮イベントは entry の位置に残り、各要約をその場で開ける。現在有効な範囲は最新の SDK 状態（最新 compaction の cut 以降）を正とする。
 - 要約で置き換わった範囲は薄暗く表示し、「要約済み」タグを出す。色だけに依存しないよう、最新の有効コンテキストの先頭に境界ラベル（`ここから現在の有効な会話`）を出す。保持された圧縮前の発言（cut 以降）は通常表示のまま。
 - 初回は最新ページだけを取り、上端付近で古いページを追加取得する。履歴ページが届くまでの初期表示は `payload.messages` の直近 200 件だけを組み、古い側はページ取得へ委ねる（`LEGACY_INITIAL_MAX_MESSAGES`）。ページ間の連続性は `prevCursor`（先頭 item の直前の id）で検証し、保持分と繋がらない（別タブで `limit` 以上追記された / 分岐が変わった）ときは欠落区間を取り直し、保留中の最新ページと組み合わせて適用する。それでも繋がらないときだけ最新ページで組み直す。取得済みのページはコンテキスト状態の更新だけを受け、閲覧位置は前置き前後の高さの差で補正する（[frontend.md](frontend.md#全履歴のタイムラインと仮想スクロール)）。
-- 履歴ページの取得に失敗しても、取り込み済みの item がある間は `payload.messages`（有効コンテキスト）へ表示を戻さない。`resync` のたびに再取得するので、成功したページで表示が追いつく。ページが空なら現行ブランチに item が無いということなので、保持分を捨てて現行ブランチへ揃える（保存に失敗したまま再起動した会話など、正当に空になった状態へ収束させる）。ページを一度も取れていない旧サーバーだけが、404 を受けた時点で `payload.messages` の全量での表示に戻る（ライブ本文・送信エコーがある間は保持し、次の resync で全量へ揃える）。
+- 履歴ページの取得に失敗しても、取り込み済みの item がある間は `payload.messages`（有効コンテキスト）へ表示を戻さない。`resync` のたびに再取得するので、成功したページで表示が追いつく。ページが空なら現行ブランチに item が無いということなので、保持分を捨てて現行ブランチへ揃える（保存に失敗したまま再起動した会話など、正当に空になった状態へ収束させる）。履歴ページを一度も取れていない状態で 404 を受けたとき（セッションが消えた場合）だけ、`payload.messages` の全量での表示に戻る（ライブ本文・送信エコーがある間は保持し、次の resync で全量へ揃える）。
 
 ## 手動圧縮
 
@@ -142,7 +142,7 @@ pnpm check   # lint → format:check → 型チェック → テスト → ク�
 - `server/test/session-history.test.ts` — 全履歴の投影（`active` / `summarized` / `excluded`、複数回の compaction、`firstKeptEntryId` が metadata entry を指す場合、context_edit の除外、マスク）と、カーソル型ページネーション（重複・欠落なし、不明カーソルの 400、route の limit / 404）を固定する。実 API は呼ばない
 - `server/test/compaction-cut.test.ts` — SDK 公開の `findCutPoint` / `estimateTokens` で、上表のカット可否を固定する（実 API は呼ばない）
 - `client/test/compaction.test.ts` — 区切り / 要約一覧のラベル整形と手動圧縮の確認文言を純関数として固定し、確認してから要求を出す順序をソース走査で固定する（DOM は使わない）
-- `client/test/chatReducer.test.ts` — `compaction` の取り込み、`resync` からの compacting / 開始時刻 / activity の導出と終端での解除、圧縮中の `queued`、run をまたぐ解除を固定する
+- `client/test/chatToolReducer.test.ts` / `client/test/chatHistoryReducer.test.ts` / `client/test/chatQueueReducer.test.ts` / `client/test/chatRunReducer.test.ts` — `compaction` の取り込み、`resync` からの compacting / 開始時刻 / activity の導出と終端での解除、圧縮中の `queued`、run をまたぐ解除を固定する
 - `client/test/historyResync.test.ts` — 全履歴ページと `resync` の整合（取得済みの履歴を消さない、ライブバブルの置き換え、欠落区間の再取得）を固定する。履歴 API の失敗 / 空ページで `payload.messages` へ戻さないこともここで固定する
 - `client/test/composerStatus.test.ts` / `client/test/composerSettings.test.ts` / `client/test/sessionActions.test.ts` — ボタンの配置と活性条件、押せないときの理由、同期応答の操作世代ガードを固定する
 

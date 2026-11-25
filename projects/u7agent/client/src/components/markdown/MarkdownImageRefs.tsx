@@ -23,7 +23,7 @@ export type MarkdownImageProviderProps = {
   /** 選択中セッションの作業フォルダ (payload.cwd)。未確定 ("") のときは何も解決しない */
   cwd: string;
   /**
-   * root 相対パスから URL を組み立てる。`client/src/api.ts` は module 評価時に `location.origin` を
+   * root 相対パスから URL を組み立てる。`client/src/api/http.ts` は module 評価時に `location.origin` を
    * 読むため、`components/markdown/` からは直接 import せず App が注入する（FileRefProvider と同じ形）。
    */
   rawUrl: (rootRelativePath: string) => string;
@@ -32,7 +32,7 @@ export type MarkdownImageProviderProps = {
 
 /**
  * `![alt](src)` の 3 段解決（cwd 相対 → root 相対 → URL）。外部 URL は resolveFileRef が弾き、
- * provider の外では従来どおり素の img のまま（CSP が外部 URL を止める）。
+ * provider の外では素の img のまま（CSP が外部 URL を止める）。
  */
 export function MarkdownImageProvider({ rootCwd, cwd, rawUrl, children }: MarkdownImageProviderProps) {
   const value = useMemo<MarkdownImageResolver>(
@@ -66,7 +66,7 @@ export function MarkdownCaptionProvider({
 export type MarkdownFileImageProviderProps = {
   /** 表示中のファイルのディレクトリ (ワークスペース root 相対。`"."` は root) */
   dir: string;
-  /** 解決した root 相対パスから配信 URL を組み立てる。`client/src/api.ts` を markdown 層から import しないため注入する */
+  /** 解決した root 相対パスから配信 URL を組み立てる。`client/src/api/http.ts` を markdown 層から import しないため注入する */
   rawUrl: (rootRelativePath: string) => string;
   children: ReactNode;
 };
@@ -84,11 +84,6 @@ export function MarkdownFileImageProvider({ dir, rawUrl, children }: MarkdownFil
     [dir, rawUrl],
   );
   return <MarkdownImageContext.Provider value={value}>{children}</MarkdownImageContext.Provider>;
-}
-
-/** 解決できた src だけを配信 URL へ差し替える。provider の外と解決できない src は入力をそのまま返す */
-export function useMarkdownImageSrc(src: string): string {
-  return useMarkdownImageResolution(src)?.src ?? src;
 }
 
 /** 画像 src の解決結果。provider の外と空の src は null (1 回の解決で URL と root 相対パスの両方を返す) */

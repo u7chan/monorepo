@@ -8,14 +8,14 @@ HTTP 契約と環境変数は [sandbox-api.md](sandbox-api.md)、APIキーのマ
 
 ```
 pi SDK (BFF)                       sandbox service (別プロセス / 別コンテナ)
-  customTools (remote-tools.ts)         service.ts: SDK 組込みツールをローカル実行
+  customTools (remote-tools.ts)         service.ts: 認証とルート登録
    ├ execute() プロキシ  ── Bearer ──▶  POST /v1/tools/:tool/execute (NDJSON)
-   ├ onUpdate ◀──── update イベント      (onUpdate を relay)
+   ├ onUpdate ◀──── update イベント      tool-execution.ts: SDK 組込みツールをローカル実行
    └ result / error ◀── result / error   POST /v1/executions/:id/cancel
 ```
 
 - `remote-tools.ts`: ツールのメタデータ（名前・説明・TypeBox スキーマ）はローカルで生成した SDK 組込み定義から借り、`execute` だけを差し替える。grep / find が BFF ローカルで rg / fd を起動しないよう、検索プロセスも含めてすべてサンドボックス側で完結する。`PI_AGENT_TOOLS` に未知のツール名（`powershell` など）を書いたときは設定ミスとして例外にする（エージェント定義の `toolNames` は実効との積でしか効かないため、ここへは渡らない名前が増えても例外経路は増えない。[api-catalog.md](api-catalog.md#ツール許可リスト)）
-- `service.ts`: SDK のローカルツール実装を実ファイルシステムに対して実行し、NDJSON（`start` / `update` / `result` / `error`）で応答する。bash は `exposeSessionEnvironment: false` で生成しセッションメタ変数を子プロセスへ注入しない。さらに `spawnHook` で `PI_SANDBOX_TOKEN` を子プロセスの env から剥がす（サンドボックス内の唯一の秘密値がツール出力へ現れないようにする）
+- `tool-execution.ts`: SDK のローカルツール実装を実ファイルシステムに対して実行し、NDJSON（`start` / `update` / `result` / `error`）で応答する。bash は `exposeSessionEnvironment: false` で生成しセッションメタ変数を子プロセスへ注入しない。さらに `spawnHook` で `PI_SANDBOX_TOKEN` を子プロセスの env から剥がす（サンドボックス内の共有トークンがツール出力へ現れないようにする）
 - `client.ts`: ストリームを解釈して SDK の `execute()` 契約（`onUpdate` / 最終結果 / abort）へ写し替える。abort は cancel エンドポイント（専用タイムアウト付き signal で送信。実行IDが判明後）と接続切断の両方でサンドボックスへ伝播し、サンドボックス側は SDK ツールの `AbortSignal` で子プロセスを殺す
 
 ## 認証と到達性
@@ -42,7 +42,7 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 - 起動時の環境変数（作業環境 → 環境変数）は、`POST /v1/tools/bash/execute` の `env` フィールドで渡し、起動したプロセスの子孫へ継承させる。**値は起動スクリプトのコマンド文字列へ埋めない**（base64 化もしない）。解決は起動元の作業フォルダの `cwd` から行い、解決に失敗したら起動しない（[secrets.md](secrets.md#作業フォルダの環境変数)、[sandbox-api.md](sandbox-api.md#post-v1toolstoolexecute)）。サンドボックスの `bash` は子プロセスから `PI_SANDBOX_TOKEN` と master key を剥がす
 - 起動・停止・記録の読み書きは既存のサンドボックス実行 API（`POST /v1/tools/bash/execute`）を BFF から呼ぶ（作業領域を触る処理は bash 実行に集め、BFF は作業領域に触れない）。待受ソケットと PID の観測だけは上の `GET /v1/procs/listeners`（読み取り専用）を使う。作業ディレクトリも起動コマンドも base64 で渡し、shell の構文として評価させない（パス中の `$` やバッククォートで起動が壊れない）。**起動したアプリは作業ディレクトリと `/tmp`・ホームのキャッシュの外へ書けない**（起動の writeScope に起動対象の workdir と `<root>/.u7agent/serve` だけを渡し、子孫へ Landlock が継承されるため。ログは `<root>/.u7agent/serve/app.log` に落とす）。成功の境界は「バックグラウンド起動の shell が終わってから、期限（10 秒）までにプローブが到達可になり、**かつ到達した待受プロセスがその起動に由来すること**（起動 PID 自身か、その子孫）を確かめられること」。期限超過した別の起動が遅れて listen しても、それを今回の成功とは扱わない（所有者も実績も更新しない）。到達できたら「いま待受しているプロセス」を正として記録を書き直し、実績を更新する（失敗したコマンドで以前の成功を上書きしない）。失敗・中断でも起動を試みた事実（所有者・起動時刻・PID・ログ）は残す。
 - 停止の対象は**常に「いま待受している PID」**で、記録の PID ではない。会話からの停止では、既知所有者（照合が一致）は所有者の会話だけが停止でき、起動元不明のときは誰でも停止できる（誰も止められないサーバーを残さないため）。設定 → ランタイムからは会話の選択に関係なく全体を管理できる（[全体管理の契約](api-sharing.md#ランタイムからの全体管理)）。待受 PID を特定できないときは停止せず、その理由を返す（エージェントへ依頼する導線を案内する）。停止後はプローブで解放を確認してから応答する。
-- 起動 / 停止 / 置き換えは BFF 全体で 1 本に直列化し（`server/src/model-settings.ts` の `MutationLock`）、判定と実行をロックの内側で行う。置き換えは確認した値（起動世代 + いま待受しているソケットの inode）と実行時の値を再照合し、不一致は 409 にする（記録を残したまま生の bash で入れ替わった場合も検知する）。同時要求で「両方が到達不可を確認して起動する」状態を作らない。
+- 起動 / 停止 / 置き換えは BFF 全体で 1 本に直列化し（ロックの実装は `server/src/serial-lock.ts`）、判定と実行をロックの内側で行う。置き換えは確認した値（起動世代 + いま待受しているソケットの inode）と実行時の値を再照合し、不一致は 409 にする（記録を残したまま生の bash で入れ替わった場合も検知する）。同時要求で「両方が到達不可を確認して起動する」状態を作らない。
 - **実行状況（`/activity`）からも起動できる**（全体管理の `POST /api/serve/runtime/start`）。閲覧中の会話に依存せず、別スペースの会話も起動できる（`/api/serve/start` は `?spaceId` と `sessionId` の所属一致を要求するため使えない）。ロック・世代照合・エラー分類は会話からの起動と同じ経路を通す。**公開枠が 1 本なので起動は常に置き換えの可能性を持つ**が、確認に現在の起動元とその作業ディレクトリ・起動コマンドを出し、確認してから実行する。確定は最大 10 秒のプローブ待ちなので、起動とオープンを 1 タップにまとめず（上の自動オープンを採らない理由と同じ）、**画面を離れても起動は止めない**（止めるのは明示の停止だけ）。失敗と 409 はその場に出し、自動リトライしない
 - 状態の取得は閲覧中の会話から見た値を返し、**BFF の状態取得失敗（プローブ / サンドボックス呼び出しの失敗）と到達不可は別物**として扱う（失敗は 502 / 503、UI はリンクも操作も出さない）。取得は短くキャッシュし、複数タブが同じ結果を使う（起動・停止の直後は必ず捨てる）。
 - 起動をこのタブで観測した直後だけ、バーの直下に「開く」の 1 行を出す（singleColumn のみ）。起動元（エージェント / 別タブの GUI / 生の `bash`）はポーリングから区別できないため、文言は 1 つにする。行の条件と遷移は `client/src/lib/servedApp.ts` と `client/test/servedApp.test.ts` が正で、自動で消える時間の上限は持たない（出口は ✕ と状態の変化）。**起動完了後の自動オープンは採らない**: `window.open` / `target="_blank"` はユーザー操作の文脈（transient activation）の中でしか通らず、起動はプローブの完了まで最大 10 秒かかるため、速いときだけ開いて遅いときはブロックされ、無言で失敗して設定が壊れて見える（「起動」と「開く」を 1 タップにまとめるのも同じ理由で不可）。**desktop は行を出さず、既存の「サービス」リンクへ焦点を移す**（バーに行を増やさず、右寄せクラスタの位置も動かさない。移すのはこのタブの GUI 起動が成功したときだけで、入力欄に焦点がある間は動かさない）。
@@ -59,7 +59,7 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 ## パスと並行実行
 
 - BFF のワークスペース root（`PI_APP_CWD=/workspace`）とサンドボックスの作業領域 root（`PI_SANDBOX_CWD=/workspace`）を同じコンテナ内パスに揃え、パス変換なしでサンドボックス側へ解決させる。セッションごとの作業ディレクトリは root 相対で渡し、サンドボックスが root と結合して実パスにする（[projects.md](projects.md)）。作業領域の永続マウントはサンドボックスだけへ付け、BFF には付けない
-- `..` の適用順はカーネル（symlink を辿ってから `..`）に合わせ、lexical な畳み込みはしない。root 内外の判定は realpath で解決した実パスで行う（規則は `server/src/sandbox/fs-path.ts` に集約し、BFF 側の `service.ts` はそれを呼ぶ）
+- `..` の適用順はカーネル（symlink を辿ってから `..`）に合わせ、lexical な畳み込みはしない。サンドボックスのパス検証（`server/src/sandbox/fs-path.ts`）は realpath で解決した実パスを、`server/src/path-strings.ts` のパス内包判定へ渡す
 - **bash とその子プロセスは Landlock でファイルの作成・書き込み・削除・rename・truncate を制限する**。許可 root は実行ごとにサンドボックスが組み立て、pi SDK の `BashToolOptions.shellPath` に渡したラッパー（`u7agent-landlock`）が `PR_SET_NO_NEW_PRIVS` → `landlock_restrict_self` → `exec` する。結果は許可 root の外側で `EACCES`（HTTP 400 ではない）になり、リダイレクト・`cp`・`mv` も同じ。子プロセスへ継承されるため、bash から起動したサーバーやビルドも同じ制限の下で動く
   - エージェントの bash の許可 root（基準集合）は実行 cwd（realpath）・`<root>/.agents/skills`・`/tmp`・ホーム配下のキャッシュ（`~/.cache` / `~/.npm` / `~/.local/share/pnpm`）・`/dev/null` と `/dev/shm`。読み取りは制限しない（Landlock の read 権利は扱わない）
   - BFF 内部で走らせる bash（serve の観測・記録・起動・停止）は要求 cwd から基準集合を導出せず、呼び出し側が渡した `writeScope`（root 相対）だけを要求由来の root にする。固定の `/tmp` とキャッシュ、デバイスファイルは全実行で共通
@@ -76,13 +76,13 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 - BFF は `POST /v1/tools/:tool/execute` の `gitConfig` に identity か `null` を入れて送る（未設定・DB 読取失敗は `null`）。`null` は「何もしない」ではなく「`useConfigOnly` だけの config を使う」を意味し、DB 障害で古い identity を使い回さない。
 - サンドボックスは `~/.config/u7agent/gitconfig`（`HOME` は `os.homedir()`）を固定パスとして temp + rename で原子的に書き、`[user]` の `name` / `email` と `useConfigOnly = true` だけを持つ。内容が同じなら書かないが、比較の前にも親の `lstat` を通す。
 - 置き場所はワークスペース root と全 Landlock write root の外側でなければならず、親ディレクトリ（`~/.config` / `~/.config/u7agent`）と既存ファイルが symlink なら書かない。これでエージェントの `git config --global` は `EACCES` になり、アプリの config を書き換えられない。書込は実行ごとに直列化し、起動時の `useConfigOnly` が最初の exec の identity を上書きしない。
-- `gitConfig` がある bash だけ、注入 env から予約名を落として `GIT_CONFIG_GLOBAL` と `GIT_CONFIG_NOSYSTEM=1` を足す。`GIT_SSH_COMMAND` / `GIT_SSL_CAINFO` / `GIT_TERMINAL_PROMPT` / `GIT_PROXY_COMMAND` は予約しない。`gitConfig` の無い実行（旧 BFF / serve 起動）は従来どおりで、既存の環境変数を剥がさない。
+- `gitConfig` がある bash だけ、注入 env から予約名を落として `GIT_CONFIG_GLOBAL` と `GIT_CONFIG_NOSYSTEM=1` を足す。`GIT_SSH_COMMAND` / `GIT_SSL_CAINFO` / `GIT_TERMINAL_PROMPT` / `GIT_PROXY_COMMAND` は予約しない。`gitConfig` の無い実行（serve の起動・停止や、identity を注入できない実行）は従来どおりで、既存の環境変数を剥がさない。
 - 準備に失敗したときは `gitConfig` 付きの bash だけを fail-closed にし、read / write / serve / ファイル API は動かす。失敗理由と解決パスは `GET /v1/runtime/info` に常時出し、権限を直した後の次 exec で再準備する（再起動不要）。
 - `GIT_CONFIG_NOSYSTEM=1` は system config の `user.*` を落とすが、`safe.directory` の供給源も落とす。cwd ごとに `git -C <cwd> rev-parse` を 1 回だけ打って `dubious ownership` を検出し、runtime info の `gitConfig.ownershipWarnings` に出す。**system config の `safe.directory` に依存していた配備は、workspace の所有ユーザーをサンドボックスの実行ユーザーへ `chown` する。**
 - 優先順位: repo local の `.git/config` が最優先。セッション固有の `.gitconfig` を使うコマンドは `GIT_CONFIG_GLOBAL` を明示的に上書きする（明示設定なので許容）。ホストの `~/.gitconfig` は読まれない。`serve` で起動するアプリの git と、BFF のホスト `~/.gitconfig` は変えない。
 - この機能が消すのは「黙って仮 identity になる事故」だけで、明示的な捏造（repo local / `-c` / `GIT_AUTHOR_*` / `GIT_COMMITTER_*`）は防がない。エージェントの system prompt でも捏造を禁じるが、強制は git の設定に閉じる（wrapper / hook による完全強制は非ゴール）。
 - BFF の API 認証は既存の全体課題で、この機能の対象外。**サンドボックスから BFF に到達できる配備では、この設定 API が全会話の identity を変える直接のバイパスになる。** defense-in-depth として、`PUT` / `DELETE /api/settings/git` だけ `Origin` か `Sec-Fetch-Site: same-origin` を要求する（認証ではない）。
-- 旧 sandbox は `git-config-v1` capability を返さない。BFF はその不一致を runtime diagnostics に出し、bash は止めない。逆に旧 BFF は `gitConfig` を送らず、sandbox は従来どおり動く。
+- 旧 sandbox は `git-config-v1` capability を返さない。BFF はその不一致を runtime diagnostics に出し、bash は止めない。`gitConfig` を送らない実行（serve の起動・停止）でも、sandbox は従来どおり動く。
 
 ## 外向き TCP の制限
 
@@ -125,7 +125,7 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 - イメージには bash / git / ripgrep / fd を事前搭載する。ripgrep・fd はサンドボックス内で必要。fd は pi SDK の find ツールが渡す `--no-require-git`（fd 9.0 で追加）を満たす必要があり、apt の fd-find はベースイメージの追随で要件を割る版（bookworm は 8.6.0）に戻り得るため、`scripts/install-fd.mjs` でリリースバイナリ（sha256 固定）を `test` / `final` の両ステージへ入れる（trixie の fd-find は 10.2.0 で条件を満たすが、取得方式は変えていない）
 - **Landlock ラッパー（`scripts/landlock-exec.py` → イメージの `/usr/local/bin/u7agent-landlock`）を同梱する**。bash はこのラッパー経由でしか起動せず、ラッパーを解決できなければ実行しない。Python 実装なので `python3` が要る（`final` は既存の apt のもの）。dev は `pnpm dev` が `$HOME/.local/libexec/u7agent` へ、`/bin/sh` の入口（`u7agent-landlock`）と python の本体（`u7agent-landlock.py`）の 2 ファイルで配置する（許可 root の外に置き、エージェント自身に書き換えられないようにするため。単体でフォークを起こすときは `node scripts/install-landlock.mjs`）
 - ラッパーの前提は **Linux かつ Landlock ABI 4 以上（カーネル 6.7 以上）**と、Landlock の syscall を通す **Docker 24 以上**（既定 seccomp profile）。`test` ステージにも python3 とラッパーを入れ、ビルド時に `--abi`、「許可 root の外への書き込みが拒否されること」、「許可外ポートへの connect が `EACCES` になること」を probe する（テストの skip に頼らずビルドを失敗させる）。`final` には probe を置かない
-- HTTP 取得とアセット検証用に curl / jq / file / unzip / xz / zip も入れる。curl を正規手段にして `node -e` のワンライナー fetch へ迂回させないのが目的で、この一覧は `server/src/agent.ts` の `appendSystemPrompt` が名指しする。apt 行から落ちた場合は `final` ステージの `command -v` 検査でビルドが失敗する
+- HTTP 取得とアセット検証用に curl / jq / file / unzip / xz / zip も入れる。curl を正規手段にして `node -e` のワンライナー fetch へ迂回させないのが目的で、この一覧は `server/src/session-prompt.ts` の `appendSystemPrompt` が名指しする。apt 行から落ちた場合は `final` ステージの `command -v` 検査でビルドが失敗する
 - Python は 3.13 系（ベースイメージ trixie の apt `python3`。実測 3.13.5）と uv（`ghcr.io/astral-sh/uv:0.12.18` から `/uv` / `/uvx` を COPY）を入れる。`python3-pip` は入れない — pip が要るのは `uv venv --seed` か `python3 -m venv` の ensurepip だけで、uv の経路は `uv pip install --python .venv/bin/python` で完結する。`command -v` 検査は uv を COPY した後の apt の RUN にあり、`python3` と `uv` も見る
 - Python の依存は**作業ディレクトリ直下の `.venv`** に入れる。イメージ内の `/home/node` はコンテナのレイヤに属し、永続マウントは `/workspace`（と会話ストア）にしかないため、`~/.local` や `uv tool` の既定先に置いた依存は再作成で消える。`.venv` は作成時の絶対パスを内部に持つので、同じイメージ・同じマウント先・同じ絶対パスなら再作成後もそのまま使える（`uv venv` の既定は system Python を使い、`pyvenv.cfg` の `home` は apt の `/usr/bin` を指す）。`--target` / `--prefix` を作業ディレクトリ内で使うことは方針として防いでいないが、`~/.local` 全体（`uv tool` の既定先を含む）は Landlock の許可 root の外なので bash の子プロセスからは書けない（pnpm 用の `~/.local/share/pnpm` だけを許可している。[残存リスク](#残存リスク)）
 - サンドボックスは非rootの `node` ユーザー（UID/GID 1000）で動く。ホスト側の永続領域実パス・所有権・Compose 構成はデプロイ側リポジトリ（self-hosted-runner）で管理する（[persistence.md](persistence.md)）

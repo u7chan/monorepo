@@ -1,13 +1,14 @@
 /**
  * サンドボックスのパス検証と、作業ディレクトリの前提。ルート境界の規則 (symlink を辿った実パスで判定する、
  * 要求パスの `..` を字句的に畳まない、書き込み許可 root を毎回引き直す) をここ 1 箇所に集める。
- * 依存は node 標準と `../errors` / `../app-paths` だけに留める (service.ts と SDK を import しない)。
+ * service.ts と SDK に依存しない。
  */
 import { realpath as realpathCallback } from "node:fs";
 import { lstat, mkdir, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { COMMON_SKILLS_DIR, COMMON_SKILLS_SEGMENTS } from "../app-paths";
 import { messageFor, pathError } from "../errors";
+import { isInsideRoot } from "../path-strings";
 
 /**
  * カーネルと同じ解決順 (symlink を辿ってから `..` を適用する) で実パスを返す。
@@ -27,10 +28,6 @@ export function realpathNative(target: string): Promise<string> {
 export function joinRequestPath(root: string, requested: string): string {
   if (!requested) return root;
   return isAbsolute(requested) ? requested : `${root}${sep}${requested}`;
-}
-
-export function isInsideRoot(root: string, target: string): boolean {
-  return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
 
 /** root 相対の正規化パス。区切りは常に "/" (root は ".")。 */
@@ -85,13 +82,13 @@ export async function createWorkspaceDirectory(rootCwd: string, requested: strin
   } catch {
     throw pathError(400, `Invalid path: ${requested}`);
   }
-  if (!isInsideRoot(root, candidate)) throw pathError(400, `Path outside the workspace: ${candidate}`);
+  if (!isInsideRoot(root, candidate, sep)) throw pathError(400, `Path outside the workspace: ${candidate}`);
 
   const ancestor = await deepestExistingPath(candidate);
   const realAncestor = await realpathNative(ancestor).catch((error: unknown) => {
     throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
   });
-  if (!isInsideRoot(root, realAncestor)) throw pathError(400, `Path outside the workspace: ${realAncestor}`);
+  if (!isInsideRoot(root, realAncestor, sep)) throw pathError(400, `Path outside the workspace: ${realAncestor}`);
 
   await mkdir(candidate, { recursive: true }).catch((error: unknown) => {
     throw pathError(400, `Cannot create directory: ${messageFor(error)}`);
@@ -101,7 +98,7 @@ export async function createWorkspaceDirectory(rootCwd: string, requested: strin
   const target = await realpathNative(candidate).catch((error: unknown) => {
     throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
   });
-  if (!isInsideRoot(root, target)) throw pathError(400, `Path outside the workspace: ${target}`);
+  if (!isInsideRoot(root, target, sep)) throw pathError(400, `Path outside the workspace: ${target}`);
   const targetStat = await stat(target).catch(() => undefined);
   if (!targetStat?.isDirectory()) throw pathError(400, `Not a directory: ${candidate}`);
   return relativeToRoot(root, target);
@@ -153,7 +150,7 @@ export async function resolveCommonSkillTarget(input: {
   }
   const lexicalRoot = resolve(input.rootCwd);
   const lexical = join(lexicalRoot, ...segments);
-  if (!isInsideRoot(lexicalRoot, lexical)) throw pathError(400, `Path outside the workspace: ${lexical}`);
+  if (!isInsideRoot(lexicalRoot, lexical, sep)) throw pathError(400, `Path outside the workspace: ${lexical}`);
   const realRoot = await realpathNative(lexicalRoot).catch((error: unknown) => {
     throw pathError(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`);
   });
@@ -163,20 +160,20 @@ export async function resolveCommonSkillTarget(input: {
     if (input.mustExist) throw pathError(404, `Path not found: ${lexical}`);
     // 置き場がこれから作られるときは、最寄りの実在祖先が root 内であることだけを要求する
     const anchor = await deepestExistingReal(lexical);
-    if (!anchor || !isInsideRoot(realRoot, anchor.real)) {
+    if (!anchor || !isInsideRoot(realRoot, anchor.real, sep)) {
       throw pathError(400, `Path outside the workspace: ${lexical}`);
     }
     return { relativePath: requested, lexical, real, realRoot, realSkillsDir };
   }
-  if (!isInsideRoot(realRoot, realSkillsDir)) {
+  if (!isInsideRoot(realRoot, realSkillsDir, sep)) {
     throw pathError(400, `Common skills directory resolves outside the workspace: ${COMMON_SKILLS_DIR}`);
   }
   if (real !== undefined) {
-    if (!isInsideRoot(realSkillsDir, real)) throw pathError(400, `Not a common skill path: ${requested}`);
+    if (!isInsideRoot(realSkillsDir, real, sep)) throw pathError(400, `Not a common skill path: ${requested}`);
   } else {
     if (input.mustExist) throw pathError(404, `Path not found: ${lexical}`);
     const anchor = await deepestExistingReal(lexical);
-    if (!anchor || !isInsideRoot(realSkillsDir, anchor.real)) {
+    if (!anchor || !isInsideRoot(realSkillsDir, anchor.real, sep)) {
       throw pathError(400, `Not a common skill path: ${requested}`);
     }
   }
@@ -200,4 +197,76 @@ export function skillScanFailure(scanned: SkillScanResult): string | undefined {
   }
   if (scanned.diagnostics.length > 0) return scanned.diagnostics.map((item) => item.message).join(" / ");
   return undefined;
+}
+
+/**
+ * root 相対の要求パスを解決し、実在するディレクトリで root 配下であることを検証する。
+ * ツール実行の cwd と一覧の共通の入口で、`..` の適用順はカーネル (symlink → `..`) に合わせる。
+ */
+export async function resolveWorkspaceDirectory(
+  rootCwd: string,
+  requested: string,
+  directory = true,
+): Promise<{ root: string; target: string }> {
+  // root 自体も realpath で解決し、両辺を実パスで比較する (root の symlink 経由でも判定が崩れないように)
+  const root = await realpathNative(rootCwd).catch((error: unknown) => {
+    throw pathError(500, `Cannot resolve the sandbox workspace: ${messageFor(error)}`);
+  });
+
+  // メッセージ表示と、実在しない要求の lexical 判定に使う字句正規化済みのパス
+  let candidate: string;
+  try {
+    candidate = resolve(root, requested || ".");
+  } catch {
+    throw pathError(400, `Invalid path: ${requested}`);
+  }
+
+  // 字句的に畳んでから realpath へ渡すと `..` が symlink より先に適用され、カーネルの解決順とずれる。
+  // 生の要求パスを native realpath (realpath(3)) に渡し、symlink を辿ってから `..` を解決させる。
+  const target = await realpathNative(joinRequestPath(root, requested)).catch((error: unknown) => {
+    // 解決できない = 実在しない (か解決不能) なので、lexical な位置で判定する。
+    // root 外の未作成パスを 404 にすると「root 外は 400」の入力検証が抜ける。
+    if (!isInsideRoot(root, candidate, sep)) throw pathError(400, `Path outside the workspace: ${candidate}`);
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${candidate}`);
+    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
+  });
+  if (!isInsideRoot(root, target, sep)) throw pathError(400, `Path outside the workspace: ${target}`);
+
+  const targetStat = await stat(target).catch(() => undefined);
+  if (!targetStat) throw pathError(404, `Path not found: ${candidate}`);
+  if (directory && !targetStat.isDirectory()) throw pathError(400, `Not a directory: ${candidate}`);
+  if (!directory && !targetStat.isFile()) throw pathError(400, `Not a regular file: ${candidate}`);
+  return { root, target };
+}
+
+export function workspaceEntryName(requested: string): string | undefined {
+  const name = basename(requested);
+  if (!requested || requested.endsWith("/") || name === "." || name === "..") return undefined;
+  return name;
+}
+
+export async function resolveWorkspaceEntry(
+  rootCwd: string,
+  requested: string,
+  name: string,
+  allowedKind: "regular file" | "directory" | "file or directory",
+  symlinkError: string,
+) {
+  // 親は一覧と同じ解決を通す。字句正規化してしまうと `..` が symlink より先に適用される。
+  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
+  const target = join(parent.target, name);
+
+  // 最終要素を realpath で辿ると、リンク先を削除・移動・配信の対象にしてしまう。
+  const targetStat = await lstat(target).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target}`);
+    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
+  });
+  if (targetStat.isSymbolicLink()) throw pathError(400, `${symlinkError}: ${target}`);
+  const kind = targetStat.isFile() ? "regular file" : targetStat.isDirectory() ? "directory" : undefined;
+  if (!kind || (allowedKind !== "file or directory" && kind !== allowedKind)) {
+    throw pathError(400, `Not a ${allowedKind}: ${target}`);
+  }
+  return { parent, target, targetStat, kind };
 }

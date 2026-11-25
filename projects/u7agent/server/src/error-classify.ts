@@ -4,7 +4,7 @@
  * 優先順位は恒久的な利用枠 / 認証 / モデルの可用性 → コンテキスト超過 → 一時的な rate limit → unknown の順。
  * OAuth の失効・更新失敗は再サインインだけが復旧手段なので、APIキーの案内とは分類を分ける。
  */
-import { AUTH_REQUIRED_MESSAGE } from "./agent";
+import { AUTH_REQUIRED_MESSAGE } from "./model-state";
 import { messageFor } from "./errors";
 import type { RunErrorCode } from "./schema";
 

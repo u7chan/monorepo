@@ -7,24 +7,13 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Hono } from "hono";
 import { VERSION } from "@earendil-works/pi-coding-agent";
-import { AUTH_REQUIRED_MESSAGE, MODEL_UNSET_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
+import { AUTH_REQUIRED_MESSAGE, MODEL_UNSET_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/model-state";
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { AGENT_ORDER_IDS_MAX, PROMPT_ORDER_IDS_MAX } from "../src/schema";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
+import { jsonBody, jsonPatch, jsonPost } from "./http-helpers";
 import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_USAGE } from "./stub-pi";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPatch = (payload: unknown): RequestInit => ({
-  method: "PATCH",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
 
 async function createSession(app: Hono) {
   const response = await app.request("/api/sessions", jsonPost({}));
@@ -84,7 +73,6 @@ async function eventsUrl(app: Hono, sessionId: string, after?: number): Promise<
 type ParsedSseEvent = { id: number | null; type: string; data: any };
 
 /** Response.json() は unknown を返すためテスト用に any に寄せる */
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 test("server exposes the async session API end to end", async () => {
   const pi = createStubPi({ chunkDelayMs: 10 });
@@ -812,6 +800,26 @@ test("session creation resolves request → definition → app default per field
   }
 });
 
+test("health では unknown/unknown をそのまま返し、会話の表示からは省く", async () => {
+  const model = { ...STUB_MODEL, provider: "unknown", id: "unknown" };
+  const pi = createStubPi({ availableModels: [model], selectedModel: model });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
+  try {
+    const health = await jsonBody(bff.app.request("/api/health"));
+    assert.equal(health.model, "unknown/unknown");
+    assert.deepEqual(health.availableModels, ["unknown/unknown"]);
+
+    const { sessionId } = await createSession(bff.app);
+    assert.equal((await jsonBody(bff.app.request(`/api/sessions/${sessionId}`))).model, undefined);
+    const listed = await jsonBody(bff.app.request("/api/sessions"));
+    const summary = listed.sessions.find((session: { sessionId: string }) => session.sessionId === sessionId);
+    assert.ok(summary);
+    assert.equal(summary.model, undefined);
+  } finally {
+    await bff.close();
+  }
+});
+
 test("a session runs on its own model when it differs from the app default", async () => {
   // アプリ既定 (health.model) と会話の実効モデルが違うとき、送信に使うモデルが
   // 会話の選択値から動かないことを検証する。
@@ -1203,7 +1211,7 @@ test("prompt master endpoints expose no built-ins and support custom CRUD", asyn
     const usedBy = (await jsonBody(app.request("/api/prompts"))).prompts.find(
       (prompt: { id: string }) => prompt.id === custom.id,
     );
-    assert.deepEqual(usedBy.usedBy, [{ agentId: agentBody.id, agentName: "参照あり", builtin: false }]);
+    assert.deepEqual(usedBy.usedBy, [{ agentId: agentBody.id, agentName: "参照あり" }]);
     const conflict = await app.request(`/api/prompts/${custom.id}`, { method: "DELETE" });
     assert.equal(conflict.status, 409);
     assert.deepEqual((await jsonBody(conflict)).usedBy, usedBy.usedBy);

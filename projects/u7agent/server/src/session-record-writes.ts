@@ -5,6 +5,7 @@
  */
 import { workspaceAbs } from "./app-paths";
 import { messageFor } from "./errors";
+import { modelLabel } from "./model-ref";
 import type { PiSessionLike } from "./pi-runtime";
 import type { SessionRecord } from "./session-record";
 import { displayableMessages, truncate } from "./session-projection";
@@ -38,11 +39,6 @@ export function entriesOf(session: PiSessionLike): SessionEntryLike[] {
   const manager = session.sessionManager as { getEntries?(): unknown[]; getBranch?(): unknown[] } | undefined;
   const entries = manager?.getEntries?.() ?? manager?.getBranch?.() ?? [];
   return Array.isArray(entries) ? (entries as SessionEntryLike[]) : [];
-}
-
-export function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
-  if (!model) return undefined;
-  return `${model.provider}/${model.id}`;
 }
 
 /** meta / JSONL / 送信対応記録の書込み。順序と失敗時の扱いはこの 1 つの実装に閉じる */

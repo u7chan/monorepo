@@ -8,13 +8,10 @@ import { join } from "node:path";
 import test from "node:test";
 import { createSandboxService } from "../src/sandbox/service";
 import type { SandboxRuntimeProbeResult } from "../src/sandbox/runtime-info";
+import { authHeaders } from "./http-helpers";
 
 const TOKEN = "runtime-route-token-0123456789abcdef";
 const HAS_SH = existsSync("/bin/sh");
-
-function authHeaders(): Record<string, string> {
-  return { Authorization: `Bearer ${TOKEN}` };
-}
 
 test("serves the runtime info only with a valid token and keeps /healthz public", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-runtime-"));
@@ -49,7 +46,7 @@ test("serves the runtime info only with a valid token and keeps /healthz public"
   assert.equal("environment" in healthzBody, false);
   assert.equal("commands" in healthzBody, false);
 
-  const response = await service.app.request("/v1/runtime/info", { headers: authHeaders() });
+  const response = await service.app.request("/v1/runtime/info", { headers: authHeaders(TOKEN) });
   assert.equal(response.status, 200);
   const text = await response.text();
   assert.equal(text.includes(TOKEN), false, "共有トークンを応答へ出さない");
@@ -73,7 +70,7 @@ test("reports a fixed error when the probe itself fails", async () => {
       throw new Error(`internal failure at /secret/path token=${TOKEN}`);
     },
   });
-  const response = await service.app.request("/v1/runtime/info", { headers: authHeaders() });
+  const response = await service.app.request("/v1/runtime/info", { headers: authHeaders(TOKEN) });
   assert.equal(response.status, 500);
   const text = await response.text();
   assert.equal(text.includes(TOKEN), false);
@@ -87,7 +84,7 @@ test("detects the real workspace without running a fake command from the workspa
   // 実行環境の検出はワークスペースを PATH に含めないため、ここに置いた bash は実行されない
   writeFileSync(join(root, "bash"), `#!/bin/sh\ntouch '${marker}'\nprintf '9.9.9\\n'\n`, { mode: 0o755 });
   const service = createSandboxService({ token: TOKEN, rootCwd: root });
-  const response = await service.app.request("/v1/runtime/info", { headers: authHeaders() });
+  const response = await service.app.request("/v1/runtime/info", { headers: authHeaders(TOKEN) });
   assert.equal(response.status, 200);
   const info = (await response.json()) as SandboxRuntimeProbeResult;
   assert.equal(info.environment.workspace, root);

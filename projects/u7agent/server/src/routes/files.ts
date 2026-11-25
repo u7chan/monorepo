@@ -3,11 +3,13 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { ArchiveSettings } from "../archive-settings";
 import {
   messageFor,
+  relaySandboxDownload,
   sandboxFailure,
   sandboxFailureStatus,
   sandboxNotConfigured,
   SANDBOX_NOT_CONFIGURED_MESSAGE,
 } from "../http";
+import { fileExtension } from "../path-strings";
 import {
   FileDownloadCheckSchema,
   FileListingSchema,
@@ -84,13 +86,6 @@ function escapeHtml(text: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
-}
-
-/** 拡張子を小文字で取る。拡張子なしと dotfile は undefined で、画像 allowlist と同じ規則。 */
-function fileExtension(path: string): string | undefined {
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  const dot = name.lastIndexOf(".");
-  return dot <= 0 ? undefined : name.slice(dot + 1).toLowerCase();
 }
 
 function isHtmlDocumentPath(path: string): boolean {
@@ -349,22 +344,12 @@ export function createFileRoutes({
     },
     /** 画像 / 音声の生配信 (チャットのサムネイル / ファイル画面のプレビュー)。判定は BFF とサンドボックスの両方で行う。 */
     raw: async (c: Context) => serveRawMedia(c, c.req.query("path") ?? ""),
-    /**
-     * ダウンロード (通常ファイルは raw / ディレクトリは ZIP)。本文は JSON に載せず、サンドボックスの
-     * ストリームと Content-Type / Content-Disposition / 長さをそのまま中継する。判定はサンドボックスが行う。
-     */
+    /** 通常ファイルか ZIP かは BFF で判断しない。 */
     download: async (c: Context) => {
       if (!workspace) return sandboxNotConfigured(c);
       try {
         const file = await workspace.downloadEntry(c.req.query("path") ?? "", archiveSettings.effectiveNames());
-        if (!file.body) return c.json({ error: "サンドボックスが本文を返しませんでした" }, 502);
-        return c.body(file.body, 200, {
-          "Content-Type": file.contentType,
-          "Content-Disposition": file.contentDisposition,
-          ...(file.contentLength === undefined ? {} : { "Content-Length": String(file.contentLength) }),
-          "Cache-Control": "no-store",
-          "X-Content-Type-Options": "nosniff",
-        });
+        return relaySandboxDownload(c, file);
       } catch (error) {
         return sandboxFailure(c, error);
       }

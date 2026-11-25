@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { AppDb, APP_DB_FILENAME, APP_DB_SCHEMA_VERSION } from "../src/app-db";
+import { AppDb, APP_DB_FILENAME } from "../src/app-db";
+import { APP_DB_SCHEMA_VERSION } from "../src/app-db-schema";
 import { createAgentCatalog } from "../src/agents";
 import { createPromptCatalog } from "../src/prompts";
 import { AGENT_PROMPT_LIMIT } from "../src/schema";
@@ -107,7 +108,7 @@ test("deleting an agent cascades only its references and keeps masters and other
 
   assert.equal(catalog.removeAgent(drop.id), true);
   assert.equal(db.listAgentPromptLinks().filter((link) => link.agentId === drop.id).length, 0);
-  assert.deepEqual(prompts.get(shared.id)?.usedBy, [{ agentId: keep.id, agentName: "残す", builtin: false }]);
+  assert.deepEqual(prompts.get(shared.id)?.usedBy, [{ agentId: keep.id, agentName: "残す" }]);
   assert.deepEqual(
     catalog.getAgent(keep.id)?.prompts?.map((prompt) => prompt.id),
     [shared.id],

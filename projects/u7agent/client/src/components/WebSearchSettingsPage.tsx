@@ -5,10 +5,7 @@ import { SettingsPlaceholder } from "./SettingsPlaceholder";
 import { TabToolbar } from "./TabToolbar";
 import { WebSearchSettingsTab } from "./web-search-settings/WebSearchSettingsTab";
 
-/**
- * 設定 → Web 検索。hook はこの画面が持ち (開いたときだけ取得する)、
- * 再読み込みもこの画面の設定だけを取り直す。
- */
+/** 設定 → Web 検索 */
 export function WebSearchSettingsPage({
   singleColumn,
   refreshCatalog,
@@ -27,7 +24,6 @@ export function WebSearchSettingsPage({
   );
 }
 
-/** 表示だけを持つ部分。取得の成否は webSearchSettings が持ち、ここは描画に徹する */
 export function WebSearchSettingsView({
   webSearchSettings,
   singleColumn = false,

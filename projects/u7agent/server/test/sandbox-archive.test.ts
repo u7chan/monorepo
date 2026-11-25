@@ -9,6 +9,7 @@ import { basename, join } from "node:path";
 import test from "node:test";
 import { createSandboxService, type SandboxServiceOptions } from "../src/sandbox/service";
 import type { SandboxDownloadCheck, SandboxDownloadPlan } from "../src/sandbox/protocol";
+import { authHeaders } from "./http-helpers";
 import { parseZip, type ParsedZipEntry } from "./zip-reader";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
@@ -36,10 +37,6 @@ function createService(root: string, options: Partial<SandboxServiceOptions> = {
   return createSandboxService({ token: TOKEN, rootCwd: root, ...options });
 }
 
-function authHeaders(): Record<string, string> {
-  return { Authorization: `Bearer ${TOKEN}` };
-}
-
 /** `exclude` は繰り返しの query。undefined は「param なし」で、空配列は「空値のみ」を表す */
 function archiveUrl(base: string, path: string, excludes: readonly string[] | undefined): string {
   const params = new URLSearchParams({ path });
@@ -55,7 +52,7 @@ async function download(
 ): Promise<{ status: number; headers: Headers; body: Buffer }> {
   const response = await app.request(archiveUrl("/v1/files/download", path, excludes), {
     ...init,
-    headers: { ...authHeaders(), ...init?.headers },
+    headers: { ...authHeaders(TOKEN), ...init?.headers },
   });
   return { status: response.status, headers: response.headers, body: Buffer.from(await response.arrayBuffer()) };
 }
@@ -66,7 +63,7 @@ async function check(
   excludes?: readonly string[],
 ): Promise<{ status: number; body: SandboxDownloadCheck | { error: string } }> {
   const response = await app.request(archiveUrl("/v1/files/download/check", path, excludes), {
-    headers: authHeaders(),
+    headers: authHeaders(TOKEN),
   });
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : {} };
@@ -81,7 +78,7 @@ async function plan(
   const params = new URLSearchParams({ path });
   if (excludes) for (const name of excludes) params.append("exclude", name);
   if (maxFileBytes !== undefined) params.set("maxFileBytes", String(maxFileBytes));
-  const response = await app.request(`/v1/files/download/plan?${params.toString()}`, { headers: authHeaders() });
+  const response = await app.request(`/v1/files/download/plan?${params.toString()}`, { headers: authHeaders(TOKEN) });
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : {} };
 }
@@ -624,7 +621,7 @@ test("plan の maxFileBytes は正の整数だけを受け、単体ファイル�
     for (const invalid of ["0", "-1", "1.5", "abc", "", "104857601"]) {
       const raw = await service.app.request(
         `/v1/files/download/plan?path=index.html&exclude=&maxFileBytes=${invalid}`,
-        { headers: authHeaders() },
+        { headers: authHeaders(TOKEN) },
       );
       assert.equal(raw.status, 400, invalid);
       assert.match(((await raw.json()) as { error: string }).error, /maxFileBytes/);

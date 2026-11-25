@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { Bubble, ToolCard } from "../../hooks/chatReducer";
+import type { Bubble, ToolCard } from "../../lib/chatTypes";
 import { finishOnAnimationEnd } from "../../lib/animationEnd";
 import { splitAttachedFiles } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
@@ -92,7 +92,7 @@ export function MessageView({
   skillBadges: SkillBadge[];
   copied: boolean;
   singleColumn: boolean;
-  /** assistant の表示名 (セッションのスナップショット)。未指定は従来の「アシスタント」 */
+  /** assistant の表示名 (セッションのスナップショット)。未指定は「アシスタント」 */
   agentName?: string;
   /** 未設定なら SparkleIcon へフォールバックする */
   agentIcon?: string;
@@ -130,7 +130,7 @@ export function MessageView({
     toolCallId: string,
     answers: AskUserAnswer[],
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
-  /** この会話の egress の承認状態。拒否済みの承認カードを許可へ変えられるかの根拠 (旧サーバーは undefined) */
+  /** この会話の egress の承認状態。拒否済みの承認カードを許可へ変えられるかの根拠 (payload を受ける前は undefined) */
   networkAccess?: SessionNetworkAccess;
   /** 拒否済みの承認カードを、モデルを介さずに許可へ変える */
   onApproveNetworkAccess?: (host: string) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -192,7 +192,7 @@ export function MessageView({
             answerable={answerable === true && onAnswerQuestion !== undefined}
             onAnswer={onAnswerQuestion ?? rejectAnswer}
             singleColumn={singleColumn}
-            {...(networkAccess === undefined ? {} : { networkAccess })}
+            networkAccess={networkAccess}
             {...(onApproveNetworkAccess === undefined ? {} : { onApproveNetworkAccess })}
           />
         ))}

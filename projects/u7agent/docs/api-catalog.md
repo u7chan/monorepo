@@ -143,7 +143,7 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 
 ### 組み込みスキル
 
-- `server/src/builtin-skills/<name>/SKILL.md` をアプリに同梱し、起動時に SDK の `loadSkillsFromDir` で読み込む（frontmatter の検証も SDK に委譲し、同梱物が壊れていれば起動しない）。版は `server/src/builtin-skills.ts` の `VERSIONS` で宣言し、一覧に表示する。SKILL.md を読まなくても置き場所を外さないよう、system prompt にも置き場（プロジェクト所属は作業ディレクトリ配下の `.agents/skills`、未所属は `<root>/.agents/skills`）を明記してある（`server/src/agent.ts` の `appendSystemPrompt`）
+- `server/src/builtin-skills/<name>/SKILL.md` をアプリに同梱し、起動時に SDK の `loadSkillsFromDir` で読み込む（frontmatter の検証も SDK に委譲し、同梱物が壊れていれば起動しない）。版は `server/src/builtin-skills.ts` の `VERSIONS` で宣言し、一覧に表示する。SKILL.md を読まなくても置き場所を外さないよう、system prompt にも置き場（プロジェクト所属は作業ディレクトリ配下の `.agents/skills`、未所属は `<root>/.agents/skills`）を明記してある（`server/src/session-prompt.ts` の `appendSystemPrompt`）
 - ワークスペースへ実体を作らない（git status を汚さず、アプリ更新で常に最新、改変不可）。`path` は仮想パス `<root>/.u7agent/builtin-skills/<name>/SKILL.md` で、`.u7agent` 配下なのでプロジェクトとしては登録できない。SDK の `sourceInfo.scope` に組み込みが無いため `temporary`（path 扱い）にする
 - モデルの `read` は BFF が横取りして同梱の本文を返す（サンドボックスへ送らない）。`ls` / `grep` / `find` / `bash` からは見えない。`PI_AGENT_TOOLS` から `read` を外した構成ではモデルは本文を読めず、一覧表示だけになる（エージェント定義の `toolNames` でも同じく外せる。[ツール許可リスト](#ツール許可リスト)）
 - 仮想パスは実ファイルが無く、`write` / `edit` の書き込み範囲（セッションの作業ディレクトリと `<root>/.agents/skills`）の外なので変更できない（同梱物を変えるにはイメージを更新する）。`read` は常に同梱の本文を返す
@@ -219,8 +219,8 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 - エージェントの作成・更新は `promptIds` を受け、**未指定は現状維持、`[]` は全解除**。未知・重複・上限超過は保存の前に 400 で断り、部分保存しない。
 - 旧 `suggestions` の書き込みは 400（`suggestions is no longer supported; use promptIds`）。黙って捨てて保存成功と誤認させない。
 - マスタは `label` / `prompt` を trim して保存し、上限はそれぞれ 60 / 500 文字（超過は切らずに 400）。**作成は両項目が必須**で、未指定・空文字は保存前に 400（更新は省略した項目を現在値のまま保つ）。一意制約は付けず、同文の別マスタを持てる。マスタ全体の件数に上限は掛けず、エージェント 1 体の参照上限だけを DB と API の両方で守る。
-- 使用中の削除は 409 で、応答の `usedBy`（`{ agentId, agentName, builtin }`）に使用先を返す。データは変更しない。エージェントを削除してもマスタは残り、参照だけが外部キーの `ON DELETE CASCADE` で消える。
-- 組み込みの汎用アシスタントは定型プロンプトを参照しない。`usedBy` の `builtin` は旧クライアントとの互換のため形だけ残り、現在は常に `false`。
+- 使用中の削除は 409 で、応答の `usedBy`（`{ agentId, agentName }`）に使用先を返す。データは変更しない。エージェントを削除してもマスタは残り、参照だけが外部キーの `ON DELETE CASCADE` で消える。
+- 組み込みの汎用アシスタントは定型プロンプトを参照しない。
 
 ```json
 {

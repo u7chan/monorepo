@@ -1,12 +1,10 @@
-import { useCallback, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
-import { POPOVER_MARGIN, popoverLeft, popoverTop, popoverWidth } from "../lib/popoverPlacement";
-import { filterSelectMenuOptions, initialSelectMenuIndex, selectMenuPlacement } from "../lib/selectMenu";
-import { usePopoverShell, type PopoverPlaceInput } from "../hooks/usePopoverShell";
+import { POPOVER_MARGIN } from "../lib/popoverPlacement";
+import { filterSelectMenuOptions, initialSelectMenuIndex } from "../lib/selectMenu";
+import { usePopoverShell } from "../hooks/usePopoverShell";
+import { useSearchableSelectMenu } from "../hooks/useSearchableSelectMenu";
 import { CheckIcon } from "./icons";
-
-/** 一覧の幅の下限。説明の 1 行が読める幅を確保する */
-const MIN_WIDTH = 260;
 
 export type SelectMenuOption<TValue extends string = string> = {
   value: TValue;
@@ -63,7 +61,6 @@ export function SelectMenu<TValue extends string = string>({
 }: SelectMenuProps<TValue>) {
   const menuId = useId();
   const triggerId = useId();
-  const listRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
   const noteRef = useRef<HTMLParagraphElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -78,33 +75,21 @@ export function SelectMenu<TValue extends string = string>({
     else groups.push({ group: option.group, items: [option] });
   }
 
-  // 幅と高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
-  const sizeMenu = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
-    if (trigger === null) return;
-    const anchor = trigger.getBoundingClientRect();
-    popover.style.width = `${popoverWidth(Math.max(anchor.width, MIN_WIDTH), viewport.width)}px`;
-    const list = listRef.current;
-    if (list !== null) {
-      const { maxHeight } = selectMenuPlacement(anchor, viewport.height);
-      // 注記と検索の行を下端・上端に残すため、上限は一覧からそれらの高さを引いて当てる
-      const chrome =
-        (noteRef.current?.getBoundingClientRect().height ?? 0) +
-        (headerRef.current?.getBoundingClientRect().height ?? 0) +
-        2;
-      list.style.maxHeight = `${Math.max(0, maxHeight - chrome)}px`;
-    }
-  }, []);
-
-  const place = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
-    if (trigger === null) return null;
-    const anchor = trigger.getBoundingClientRect();
-    const width = popoverWidth(Math.max(anchor.width, MIN_WIDTH), viewport.width);
-    const { above } = selectMenuPlacement(anchor, viewport.height);
-    return {
-      left: popoverLeft(anchor, width, viewport.width),
-      top: popoverTop(anchor, popover.getBoundingClientRect().height, above, viewport.height),
-    };
-  }, []);
+  // 注記と検索の行を下端・上端に残すため、上限は一覧からそれらの高さを引いて当てる
+  const chrome = () =>
+    (noteRef.current?.getBoundingClientRect().height ?? 0) +
+    (headerRef.current?.getBoundingClientRect().height ?? 0) +
+    2;
+  const {
+    listRef,
+    size: sizeMenu,
+    place,
+    onSearchKeyDown,
+  } = useSearchableSelectMenu({
+    value,
+    values: visible.map((option) => option.value),
+    chrome,
+  });
 
   // 検索できる一覧は行ではなく検索から入る (件数が多い一覧を矢印だけで辿らせない)。絞り込みは
   // 開くたびに空へ戻す (前回の検索語で一覧が欠けて見えるのを避ける)
@@ -126,29 +111,8 @@ export function SelectMenu<TValue extends string = string>({
     },
   });
 
-  /** 検索欄のキー。Enter は外側の form を送信させない (↑↓ は一覧の選択中の行 / 末尾へ抜ける) */
-  const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      return;
-    }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    // 検索欄から一覧へ抜ける 1 手。↓ は選択中の行 (無ければ先頭)、↑ は末尾へ入る
-    event.preventDefault();
-    const items = listRef.current?.querySelectorAll<HTMLButtonElement>("button[role='option']") ?? [];
-    const index =
-      event.key === "ArrowDown"
-        ? initialSelectMenuIndex(
-            value,
-            visible.map((option) => option.value),
-          )
-        : items.length - 1;
-    items[Math.min(Math.max(index, 0), items.length - 1)]?.focus();
-  };
-
   const select = (next: TValue) => {
     if (next !== value) onChange(next);
-    // フォーカスは外さない: blur すると native の復帰が起きず、トリガーへ戻らない
     menu.close();
   };
 

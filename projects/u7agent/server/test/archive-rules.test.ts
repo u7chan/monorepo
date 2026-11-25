@@ -6,13 +6,13 @@ import { createBffApp } from "../src/app";
 import {
   ARCHIVE_EXCLUDE_COUNT_ERROR,
   ARCHIVE_EXCLUDE_MAX_NAME_LENGTH,
-  ARCHIVE_EXCLUDE_MAX_NAMES,
   ARCHIVE_EXCLUDE_NAME_ERROR,
   DEFAULT_ARCHIVE_EXCLUDE_NAMES,
   normalizeArchiveExcludeNames,
   resolveArchiveExcludeNames,
   validateArchiveExcludeNames,
 } from "../src/archive-rules";
+import { ARCHIVE_EXCLUDE_MAX_NAMES } from "../src/sandbox/protocol";
 
 test("既定の除外名は再生成物とビルド成果物だけで、vendor や public は入れない", () => {
   const names = [...DEFAULT_ARCHIVE_EXCLUDE_NAMES];

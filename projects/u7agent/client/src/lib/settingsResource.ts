@@ -3,8 +3,6 @@
  */
 import { messageFor } from "./errors";
 
-export { messageFor };
-
 /**
  * 変更系の失敗の注記。何も保存されなかった (503 not_stored / 400) ことを文言で区別する。
  * 分類は api 側（`isNotStoredError`）が行い、ここは結果だけを受ける。

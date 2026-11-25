@@ -1,6 +1,6 @@
 # 利用可能なモデルとプロバイダーAPIキーの設定
 
-設定 → モデル（`/settings/models`）から、**モデル候補（選択リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキーとメモ**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。保存と反映の実装は `server/src/model-settings.ts`、HTTP 契約は [api-settings.md](api-settings.md#利用可能なモデルとプロバイダーapiキー) を正とする。
+設定 → モデル（`/settings/models`）から、**モデル候補（選択リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキーとメモ**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。保存と反映の実装は `server/src/model-settings.ts`（キー・メモ・利用可能なモデル・カタログ）と `server/src/custom-provider-settings.ts`（カスタムプロバイダー）、応答 DTO の組み立ては `server/src/model-settings-response.ts`、HTTP 契約は [api-settings.md](api-settings.md#利用可能なモデルとプロバイダーapiキー) を正とする。
 
 - 保存の正は **アプリ DB**（`provider_credentials` / `model_settings` / `provider_memos`）。SDK の runtime overlay は実効状態で、再起動で消える
 - APIキーの変更系は「DB を希望状態として先に確定」し、SDK への反映に失敗しても DB を戻さない（補償ロールバックを持たない）。反映できなかった変更は **degraded（保存済み・未反映）** として画面に出し、`resync` / 次回の変更 / 再起動で収束させる
@@ -16,7 +16,7 @@
 | 設定 → コンテンツ生成 | 画像（`/settings/content`）/ TTS（`/settings/content/speech`）/ BGM（`/settings/content/bgm`） | 共有APIキーと画像・TTSの選択、[BGM固定モデルの表示](bgm-generation.md)。タブの語彙の正は `client/src/lib/settingsNav.ts` |
 | 設定 → Web 検索（編集可）（`/settings/web-search`） | 検索の実行時設定 | `web_search` の実行時トグル・既定 provider・provider ごとの APIキー（[web-search.md](web-search.md#実行時トグル)） |
 
-プロバイダーとカタログの表示はランタイム画面からモデル画面へ移した。ランタイム画面は `GET /api/runtime/models` を呼ばない。health に載せていたモデル診断（`runtimeDiagnostics`）は撤去し、SDK バージョンだけを health 直下の `versions` に残した。
+プロバイダーとカタログは設定 → モデル（`/settings/models`）に出す。ランタイム画面は `GET /api/runtime/models` を呼ばない。health はモデルの診断を持たず、SDK バージョンを直下の `versions` にだけ返す。
 
 ## 保存先とスキーマ
 
@@ -185,7 +185,7 @@ Ollama / LM Studio / vLLM / llama.cpp などの OpenAI 互換エンドポイン�
 - 一覧は通常のプロバイダー一覧に混ぜず、専用の「カスタムプロバイダー」セクションに置く。`customProviders[]` が管理の正で、キーは返さない（有無だけを `hasKey` で表す）。`providers[]` の `custom: true` は**このプロセスで `registerProvider()` した行だけ**に付け、built-in / `models.json` と id が衝突して登録できなかった行の runtime entry には付けない（通常の一覧から built-in を隠さないため）。register できなかったカスタム行と削除待ち tombstone は `providers[]` に孤児の行として補完せず、`customProviders[]` だけに出す（同じ id の幽霊行を通常一覧に出さない）
 - **1 provider = 1 model**。1 台の PC で複数モデルを同時に動かさない前提なので、複数モデルを 1 provider で使うときは `models.json` の領域に委ねる。API は `openai-completions` 固定で、モデルは `input: ["text"]` / `reasoning: false` / `cost: 0` として登録する。DB では `modelId` / `contextWindow` / `maxTokens` の 3 列で持つ（モデル配列の JSON 列にはしない）
 - **定義とAPIキーは同じ行**に置き、キーは `provider_credentials` と同じ AEAD（`ciphertext` / `nonce` / `keyVersion`）で保存する。AAD は `u7agent-app-secret:custom_providers:<provider>` で、`provider` は作成後に変えられない（[secrets.md](secrets.md#アプリ-db-に保存する-apiキーと-webhook-url)）。平文キーの列・`hasKey` の保存列は作らず、`hasKey` は暗号文の有無から導出する。並びは追加順（rowid）で、並べ替え UI は持たない
-- **モデル ID は `/models` から選べる**。モデル ID 欄の [モデル一覧から選ぶ] で `GET {baseUrl}/models` を 1 回叩き、検索付きの popover で 1 件選ぶと入力欄へ入る。入力欄は自由入力のままなので、一覧に無い ID も保存できる（疎通確認と一覧取得を同じボタンにまとめ、[接続を確認] は別に置かない）。結果は保存せず、`GET /api/settings/models`・保存・起動・[カタログ更新] では取得しない。`MutationLock` も取らない（5 秒の通信でキー変更を待たせない）。失敗は 200 の分類（`unauthorized` / `not_found` / `http_error` / `redirected` / `invalid_response` / `timeout` / `unreachable`）で返し、`httpStatus` は 400 以上だけ、文言はサーバー定数が正。`models` は登録と同じ `parseModelId` を通った ID だけを重複除去・昇順にして 200 件で打ち切る（選んだ ID が必ず保存検証を通る）。応答にはキーも本文も載せない。probe が保存済みのキーを使うときだけ暗号文を復号し、master key 未設定 / 復号失敗は 503 で閉じる（DB は変えない）
+- **モデル ID は `/models` から選べる**。モデル ID 欄の [モデル一覧から選ぶ] で `GET {baseUrl}/models` を 1 回叩き、検索付きの popover で 1 件選ぶと入力欄へ入る。入力欄は自由入力のままなので、一覧に無い ID も保存できる（疎通確認と一覧取得を同じボタンにまとめ、[接続を確認] は別に置かない）。結果は保存せず、`GET /api/settings/models`・保存・起動・[カタログ更新] では取得しない。モデル設定の更新ロックも取らない（5 秒の通信でキー変更を待たせない）。失敗は 200 の分類（`unauthorized` / `not_found` / `http_error` / `redirected` / `invalid_response` / `timeout` / `unreachable`）で返し、`httpStatus` は 400 以上だけ、文言はサーバー定数が正。`models` は登録と同じ `parseModelId` を通った ID だけを重複除去・昇順にして 200 件で打ち切る（選んだ ID が必ず保存検証を通る）。応答にはキーも本文も載せない。probe が保存済みのキーを使うときだけ暗号文を復号し、master key 未設定 / 復号失敗は 503 で閉じる（DB は変えない）
 - **キーは必須**（8..2048 文字）。認証のないローカルサーバーにはダミーを入れる。ダミーも `Authorization: Bearer <キー>` として送られ、Ollama / LM Studio / vLLM などは無視する。キーは応答に返さず、更新時の空欄は既存の暗号文を維持する
 - **contextWindow はモデルごとの必須選択**で既定を持たない。自由入力ではなく、8K / 16K / 32K / 64K / 128K / 256K / 384K / 512K のプルダウン（`8K (8,192)` の形）から選ぶ。保存済みの値がプリセットに無い定義（以前の自由入力など）は、その値を選択肢に 1 件だけ足して丸めない。OpenAI 互換 API からは窓を取得できず、ローカルモデルの窓は大きくないため、SDK の既定（128000）は使わない。`maxTokens` は任意で、既定は `server/src/custom-providers.ts` が持つ。実モデルより大きい値を選ぶと送信がコンテキスト超過で失敗するので、画面は保存を止めないが注意を出す
 - **provider id は作成後に変更できない**。built-in / `models.json` / DB のカスタム行 / 削除待ちの tombstone / 孤立した `provider_credentials` / `provider_memos` の行と衝突したら 400。`baseUrl` は `http` / `https` のみで、userinfo・query・fragment を拒否し、末尾の `/` を落とす
@@ -208,7 +208,7 @@ Ollama / LM Studio / vLLM / llama.cpp などの OpenAI 互換エンドポイン�
 使っていないキーの解約・整理の材料として、各カードに「キー最終保存」と「最終使用」を出す。どちらも事実だけを示し、キーの有効性や API 呼び出しの成功を断定しない。
 
 - 「キー最終保存」は `managed` の provider だけに出す。`keyUpdatedAt` が `null` の行（移行前）は「保存日不明」と書く。`managed` でない provider（環境変数認証など）には日時行を出さない
-- 「最終使用」は `model` + `lastUsedAt` を provider ごとに集計した値（`client/src/lib/modelSettings.ts` の `providerUsage()`）で、`provider/model` の区切りは**最初の `/`** だけ（model id に `/` を含み得る。server の `parseModelRef` と同じ規則）。`model` の無い会話は母数から除く
+- 「最終使用」は `model` + `lastUsedAt` を provider ごとに集計した値（`client/src/lib/modelSettings.ts` の `providerUsage()`）で、`provider/model` の区切りは**最初の `/`** だけ（model id に `/` を含み得る。`server/src/model-ref.ts` と同じ区切り規則）。`model` の無い会話は母数から除く
 - 表示は `最終使用: <messageTimeLabel(lastUsedAt)> · この provider の会話 N 件` で、1 件も無ければ「この provider の会話はありません」。`managed` でなく会話も 0 件のときは、どちらの行も出さない（ノイズを作らない）。日時整形は `client/src/lib/messageTime.ts` の `messageTimeLabel()`（今日 = 時刻 / 今年 = 月日 / それ以前 = 年月日）をそのまま使い、相対表記は持たない。件数と最終保存・最終使用は 1 行のチップとして並べ、文の連結で増えた時に備えて行を `flex-wrap` で折り返す
 - `lastUsedAt` は会話の最終更新（作成・設定変更・送信・停止・ランの開始/再開）で、provider への API 呼び出し成功を意味しない。設定変更だけでも更新されるため、厳密な課金確認には使えない
 - セッション一覧の state は `[]` 初期値のため、`useSessions` の `sessionsLoaded`（初回の取得に成功するまで false）が true になるまで「最終使用」の行を出さない。false を「会話 0 件」と混同しない。取得に失敗しても false へ戻さず、前回の一覧と状態を保つ
@@ -262,7 +262,7 @@ Ollama / LM Studio / vLLM / llama.cpp などの OpenAI 互換エンドポイン�
    - カタログに無い provider（orphan）と 8 文字未満の行は SDK へ渡さず、`degraded: "apply"` だけ記録する（GET の削除導線）
 5. 最後に `refreshModelState()` を 1 回
 
-`degraded` はこのプロセスのメモリだけが持つ（再起動で消える）。GET はカタログの provider、`provider_credentials` 行、`provider_memos` 行、degraded の和集合を返し、DB 行にしか無い provider は `orphan: true` / `canSetApiKey: false` / `managed: true` として削除導線を出し、メモ行にしか無い provider は `managed: false` / `orphan: true` として出す。`#settingOf` の degraded 自動付与（orphan → `apply`）は credential 行がある（`appliable`）provider だけに限り、メモだけの orphan に「保存済み（未反映）」と [再同期] を出さない。
+`degraded` はこのプロセスのメモリだけが持つ（再起動で消える）。GET はカタログの provider、`provider_credentials` 行、`provider_memos` 行、degraded の和集合を返し、DB 行にしか無い provider は `orphan: true` / `canSetApiKey: false` / `managed: true` として削除導線を出し、メモ行にしか無い provider は `managed: false` / `orphan: true` として出す。`composeModelSettingsResponse()`（`server/src/model-settings-response.ts`）の degraded 自動付与（orphan → `apply`）は credential 行がある（`appliable`）provider だけに限り、メモだけの orphan に「保存済み（未反映）」と [再同期] を出さない。
 
 ## 秘密マスク
 

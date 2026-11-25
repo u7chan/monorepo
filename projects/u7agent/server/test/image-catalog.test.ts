@@ -2,16 +2,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ImageCatalogRow } from "../src/app-db";
-import type { ImageParameterDeclarations } from "../src/images";
 import {
-  createImageCatalog,
-  IMAGE_CATALOG_ERROR_RATE_LIMITED,
-  IMAGE_CATALOG_ERROR_TIMEOUT,
-  IMAGE_CATALOG_ERROR_UNKNOWN,
-  IMAGE_CATALOG_TIMEOUT_MS,
-  IMAGE_CATALOG_URL,
-  type ImageCatalogStore,
-} from "../src/image-catalog";
+  CATALOG_ERROR_RATE_LIMITED,
+  CATALOG_ERROR_TIMEOUT,
+  CATALOG_ERROR_UNKNOWN,
+  CATALOG_TIMEOUT_MS,
+} from "../src/content-model-catalog";
+import type { ImageParameterDeclarations } from "../src/images";
+import { createImageCatalog, IMAGE_CATALOG_URL, type ImageCatalogStore } from "../src/image-catalog";
 
 const LIVE = [
   { id: "openai/gpt-image-2", name: "GPT Image 2" },
@@ -66,7 +64,7 @@ function create(
     store,
     fetchImpl: baseFetch,
     now: options.now ?? (() => 1000),
-    timeoutMs: options.timeoutMs ?? IMAGE_CATALOG_TIMEOUT_MS,
+    timeoutMs: options.timeoutMs ?? CATALOG_TIMEOUT_MS,
     sdkCatalog: options.sdkCatalog ?? (() => SDK.filter((entry) => !entry.id.startsWith("openrouter/"))),
   });
   return { catalog, store, calls };
@@ -195,12 +193,12 @@ test("キャッシュの宣言も一覧の絞り込みと生成前ガードに�
 
 test("失敗は固定文言へ分類し、一覧は前のまま保つ", async () => {
   const cases: { response: Response; error: string }[] = [
-    { response: jsonResponse({ error: "boom" }, 429), error: IMAGE_CATALOG_ERROR_RATE_LIMITED },
-    { response: jsonResponse({ error: "boom" }, 500), error: IMAGE_CATALOG_ERROR_RATE_LIMITED },
-    { response: jsonResponse({ error: "not found" }, 404), error: IMAGE_CATALOG_ERROR_UNKNOWN },
-    { response: new Response("<html>proxy</html>", { status: 200 }), error: IMAGE_CATALOG_ERROR_UNKNOWN },
-    { response: jsonResponse({ data: [] }), error: IMAGE_CATALOG_ERROR_UNKNOWN },
-    { response: jsonResponse({ nope: true }), error: IMAGE_CATALOG_ERROR_UNKNOWN },
+    { response: jsonResponse({ error: "boom" }, 429), error: CATALOG_ERROR_RATE_LIMITED },
+    { response: jsonResponse({ error: "boom" }, 500), error: CATALOG_ERROR_RATE_LIMITED },
+    { response: jsonResponse({ error: "not found" }, 404), error: CATALOG_ERROR_UNKNOWN },
+    { response: new Response("<html>proxy</html>", { status: 200 }), error: CATALOG_ERROR_UNKNOWN },
+    { response: jsonResponse({ data: [] }), error: CATALOG_ERROR_UNKNOWN },
+    { response: jsonResponse({ nope: true }), error: CATALOG_ERROR_UNKNOWN },
   ];
   for (const { response, error } of cases) {
     const { catalog } = create({ fetch: async () => response });
@@ -216,7 +214,30 @@ test("期限切れはタイムアウトとして分類する", async () => {
       init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
     });
   const { catalog } = create({ fetch: hanging, timeoutMs: 5 });
-  assert.equal(await catalog.refresh(), IMAGE_CATALOG_ERROR_TIMEOUT);
+  assert.equal(await catalog.refresh(), CATALOG_ERROR_TIMEOUT);
+});
+
+test("期限後の応答は取得できた一覧を採用し、失敗なら HTTP status より期限を優先する", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const timeoutMs = 5;
+  let status = 200;
+  const { catalog, store } = create({
+    timeoutMs,
+    fetch: (_input, init) => {
+      t.mock.timers.tick(timeoutMs);
+      assert.equal(init?.signal?.aborted, true);
+      return Promise.resolve(jsonResponse({ data: LIVE }, status));
+    },
+  });
+
+  assert.equal(await catalog.refresh(), null);
+  assert.equal(catalog.snapshot().source, "live");
+  const before = catalog.snapshot();
+  const cached = store.row;
+  status = 503;
+  assert.equal(await catalog.refresh(), CATALOG_ERROR_TIMEOUT);
+  assert.deepEqual(catalog.snapshot(), before);
+  assert.equal(store.row, cached);
 });
 
 test("キャッシュを読んでから live を試し、失敗したらキャッシュの一覧と取得時刻を保つ", async () => {
@@ -229,7 +250,7 @@ test("キャッシュを読んでから live を試し、失敗したらキャ�
     source: "stored",
     fetchedAt: 500,
   });
-  assert.equal(await failing.catalog.refresh(), IMAGE_CATALOG_ERROR_RATE_LIMITED);
+  assert.equal(await failing.catalog.refresh(), CATALOG_ERROR_RATE_LIMITED);
   assert.equal(failing.catalog.snapshot().source, "stored", "取得できなければ前回の一覧のままにする");
   assert.equal(failing.catalog.snapshot().fetchedAt, 500);
 });

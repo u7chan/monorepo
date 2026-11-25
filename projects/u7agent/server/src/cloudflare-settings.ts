@@ -4,7 +4,7 @@
  */
 import type { CloudflareSettingsRow } from "./app-db";
 import { httpError } from "./http";
-import { MutationLock } from "./model-settings";
+import { SerialLock } from "./serial-lock";
 import { SecretKeyError, type SecretCipher } from "./secret-crypto";
 import { retainIfLongEnough } from "./secrets";
 import type { CloudflareMutationResponse, CloudflareSettingsResponse, UpdateCloudflareSettingsBody } from "./schema";
@@ -39,12 +39,17 @@ export interface CloudflareSettingsDb {
   readCloudflareSettings(): CloudflareSettingsRow | undefined;
   saveCloudflareSettings(settings: CloudflareSettingsRow): void;
   deleteCloudflareSettings(): boolean;
+}
+
+/** アカウント切替の判定にだけ使う共有物の口（このサービスは共有物を書かない） */
+export interface CloudflareSharedContents {
   /** 未公開の行 (providerAccount が NULL) は対象外 */
   hasSharedContentsForOtherAccount(accountId: string): boolean;
 }
 
 export interface CloudflareSettingsOptions {
   db: CloudflareSettingsDb;
+  sharedContents: CloudflareSharedContents;
   /** master key が無いときは null。登録と復号は 503 で拒否する */
   cipher: SecretCipher | null;
   /** 保存・復号したトークンをログ / 例外のマスク対象へ足す */
@@ -64,13 +69,15 @@ export interface CloudflareCredential {
 
 export class CloudflareSettingsService {
   #db: CloudflareSettingsDb;
+  #sharedContents: CloudflareSharedContents;
   #cipher: SecretCipher | null;
   #retainSecret: (value: string) => void;
   #now: () => number;
-  #lock = new MutationLock();
+  #lock = new SerialLock();
 
-  constructor({ db, cipher, retainSecret, now }: CloudflareSettingsOptions) {
+  constructor({ db, sharedContents, cipher, retainSecret, now }: CloudflareSettingsOptions) {
     this.#db = db;
+    this.#sharedContents = sharedContents;
     this.#cipher = cipher;
     this.#retainSecret = retainSecret;
     this.#now = now ?? Date.now;
@@ -102,7 +109,8 @@ export class CloudflareSettingsService {
 
       const existing = this.#read();
       if (!existing && !apiToken) throw httpError(400, CLOUDFLARE_TOKEN_REQUIRED_ERROR);
-      if (this.#db.hasSharedContentsForOtherAccount(accountId)) throw httpError(409, CLOUDFLARE_ACCOUNT_SWITCH_ERROR);
+      if (this.#sharedContents.hasSharedContentsForOtherAccount(accountId))
+        throw httpError(409, CLOUDFLARE_ACCOUNT_SWITCH_ERROR);
 
       let row: CloudflareSettingsRow;
       if (apiToken) {

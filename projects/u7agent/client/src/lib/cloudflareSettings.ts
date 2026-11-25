@@ -16,10 +16,6 @@ export interface CloudflareDraft {
   apiToken: string;
 }
 
-export function cloudflareDraftFromSettings(settings: CloudflareSettingsResponse | null): CloudflareDraft {
-  return { accountId: settings?.accountId ?? "", apiToken: "" };
-}
-
 /** アカウント ID は大文字小文字を無視して比べる (サーバーが小文字へ正規化する) */
 export function cloudflareDraftDirty(draft: CloudflareDraft, settings: CloudflareSettingsResponse | null): boolean {
   const saved = settings?.accountId ?? "";

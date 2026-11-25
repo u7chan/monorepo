@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendSystemPrompt, composePromptSnapshot, investigationSystemPrompt, investigationTools } from "../src/agent";
+import { appendSystemPrompt, composePromptSnapshot, investigationSystemPrompt } from "../src/session-prompt";
+import { investigationTools } from "../src/tool-plan";
 import { allowsNaturalInvocation, createAgentCatalog } from "../src/agents";
 import { AppDb } from "../src/app-db";
 import { createPromptCatalog } from "../src/prompts";
@@ -284,7 +285,7 @@ test("deleting an agent keeps the master and other references", () => {
     [prompt.id],
     "エージェントを消してもマスタは残る",
   );
-  assert.deepEqual(prompts.get(prompt.id)?.usedBy, [{ agentId: keep.id, agentName: "残す", builtin: false }]);
+  assert.deepEqual(prompts.get(prompt.id)?.usedBy, [{ agentId: keep.id, agentName: "残す" }]);
   assert.deepEqual(
     catalog.getAgent(keep.id)?.prompts?.map((p) => p.id),
     [prompt.id],

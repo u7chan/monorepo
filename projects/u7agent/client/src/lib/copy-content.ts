@@ -1,4 +1,4 @@
-import type { ToolCard } from "../hooks/chatReducer";
+import type { ToolCard } from "./chatTypes";
 
 export function toolCallCopyText(card: Pick<ToolCard, "name" | "args" | "output">): string {
   const lines = [`tool: ${card.name}`];

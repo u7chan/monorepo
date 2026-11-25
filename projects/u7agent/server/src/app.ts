@@ -7,7 +7,7 @@ import type { AppDb } from "./app-db";
 import { createBffContext } from "./bootstrap";
 import type { CreateBffAppOptions } from "./bootstrap";
 import { DEFAULT_FILE_PREVIEW_PORT } from "./file-preview-port";
-import { bodyGuard, jsonBodyValidator, messageFor, statusCodeOf } from "./http";
+import { bodyGuard, jsonBodyValidator, messageFor, requestBodyValidationHook, statusCodeOf } from "./http";
 import { mutationOriginGuard, sameOriginOnlyGuard } from "./mutation-origin";
 import { DEFAULT_PREVIEW_PORT } from "./preview-port";
 import { createArchiveRoutes } from "./routes/archive";
@@ -295,31 +295,19 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
   } = routes;
   const routed = app
     .get("/api/spaces", appData, (c) => c.json({ spaces: spaces.list() }))
-    .post(
-      "/api/spaces",
-      appDataMutation,
-      jsonBodyValidator(CreateSpaceBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => c.json({ space: spaces.create(c.req.valid("json").name) }, 201),
+    .post("/api/spaces", appDataMutation, jsonBodyValidator(CreateSpaceBodySchema, requestBodyValidationHook), (c) =>
+      c.json({ space: spaces.create(c.req.valid("json").name) }, 201),
     )
     // 並べ替え。応答は正規化後の一覧で、これが以後の GET と一致する (docs/api.md#スペース)
-    .patch(
-      "/api/spaces/order",
-      appData,
-      jsonBodyValidator(ReorderSpacesBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => c.json({ spaces: spaces.reorder(c.req.valid("json").ids) }),
+    .patch("/api/spaces/order", appData, jsonBodyValidator(ReorderSpacesBodySchema, requestBodyValidationHook), (c) =>
+      c.json({ spaces: spaces.reorder(c.req.valid("json").ids) }),
     )
     // 追加スペースの改名。表示名だけを変え、id・並び・会話の所属は変えない (docs/api.md#スペース)。
     // Hono は登録順に照合するため、`order` を id として拾わないよう `PATCH /api/spaces/order` より後ろに置く
     .patch(
       "/api/spaces/:id",
       appDataMutation,
-      jsonBodyValidator(RenameSpaceBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(RenameSpaceBodySchema, requestBodyValidationHook),
       (c) => c.json({ space: spaces.rename(c.req.param("id"), c.req.valid("json").name) }),
     )
     // 追加スペースの削除。会話・履歴・作業フォルダ・cwd キーの行まで消す (docs/api.md#スペース)
@@ -339,12 +327,8 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     // 一覧と同じパスに DELETE を重ねる (パスはクエリで受ける)
     .delete("/api/files", fileRoutes.remove)
     // パスは本文で受ける (改名先の名前をクエリに載せない)
-    .post(
-      "/api/files/rename",
-      jsonBodyValidator(RenameFileBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => fileRoutes.rename(c, c.req.valid("json")),
+    .post("/api/files/rename", jsonBodyValidator(RenameFileBodySchema, requestBodyValidationHook), (c) =>
+      fileRoutes.rename(c, c.req.valid("json")),
     )
     .get("/api/files/preview", fileRoutes.preview)
     // `:path{.+}` はルート配下のパスを 1 セグメントで受ける (wildcard `*` は Hono 4 で param として取れない)
@@ -354,84 +338,48 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     // `download` の下に置く静的パス。`download` 自身と衝突しない
     .get("/api/files/download/check", fileRoutes.downloadCheck)
     .get("/api/projects", appData, projectRoutes.list)
-    .post(
-      "/api/projects",
-      appData,
-      zValidator("json", CreateProjectBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => projectRoutes.create(c, c.req.valid("json")),
+    .post("/api/projects", appData, zValidator("json", CreateProjectBodySchema, requestBodyValidationHook), (c) =>
+      projectRoutes.create(c, c.req.valid("json")),
     )
     .delete("/api/projects/:id", appData, projectRoutes.remove)
     .get("/api/agents", appData, catalogRoutes.snapshot)
-    .post(
-      "/api/agents",
-      appData,
-      jsonBodyValidator(CreateAgentBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => catalogRoutes.createAgent(c, c.req.valid("json")),
+    .post("/api/agents", appData, jsonBodyValidator(CreateAgentBodySchema, requestBodyValidationHook), (c) =>
+      catalogRoutes.createAgent(c, c.req.valid("json")),
     )
     // 静的セグメントは /api/agents/:id より前に置く (後ろだと Hono が `order` を id として拾う)
-    .patch(
-      "/api/agents/order",
-      appData,
-      jsonBodyValidator(ReorderAgentsBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => catalogRoutes.reorderAgents(c, c.req.valid("json")),
+    .patch("/api/agents/order", appData, jsonBodyValidator(ReorderAgentsBodySchema, requestBodyValidationHook), (c) =>
+      catalogRoutes.reorderAgents(c, c.req.valid("json")),
     )
-    .patch(
-      "/api/agents/:id",
-      appData,
-      jsonBodyValidator(UpdateAgentBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => catalogRoutes.updateAgent(c, c.req.valid("json")),
+    .patch("/api/agents/:id", appData, jsonBodyValidator(UpdateAgentBodySchema, requestBodyValidationHook), (c) =>
+      catalogRoutes.updateAgent(c, c.req.valid("json")),
     )
-    .put(
-      "/api/agents/:id",
-      appData,
-      jsonBodyValidator(UpdateAgentBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => catalogRoutes.updateAgent(c, c.req.valid("json")),
+    .put("/api/agents/:id", appData, jsonBodyValidator(UpdateAgentBodySchema, requestBodyValidationHook), (c) =>
+      catalogRoutes.updateAgent(c, c.req.valid("json")),
     )
     .delete("/api/agents/:id", appData, catalogRoutes.removeAgent)
     // 定型プロンプトのマスタ。種別 (組み込み / 自作) と ID はサーバーが決め、使用中の削除は 409
     .get("/api/prompts", appData, promptRoutes.list)
-    .post(
-      "/api/prompts",
-      appDataMutation,
-      jsonBodyValidator(CreatePromptBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => promptRoutes.create(c, c.req.valid("json")),
+    .post("/api/prompts", appDataMutation, jsonBodyValidator(CreatePromptBodySchema, requestBodyValidationHook), (c) =>
+      promptRoutes.create(c, c.req.valid("json")),
     )
     // 静的セグメントは /api/prompts/:id より前に置く (後ろだと Hono が `order` を id として拾う)
     .patch(
       "/api/prompts/order",
       appDataMutation,
-      jsonBodyValidator(ReorderPromptsBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(ReorderPromptsBodySchema, requestBodyValidationHook),
       (c) => promptRoutes.reorder(c, c.req.valid("json")),
     )
     .get("/api/prompts/:id", appData, promptRoutes.get)
     .patch(
       "/api/prompts/:id",
       appDataMutation,
-      jsonBodyValidator(UpdatePromptBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdatePromptBodySchema, requestBodyValidationHook),
       (c) => promptRoutes.update(c, c.req.valid("json")),
     )
     .put(
       "/api/prompts/:id",
       appDataMutation,
-      jsonBodyValidator(UpdatePromptBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdatePromptBodySchema, requestBodyValidationHook),
       (c) => promptRoutes.update(c, c.req.valid("json")),
     )
     .delete("/api/prompts/:id", appDataMutation, promptRoutes.remove)
@@ -443,19 +391,11 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .get("/api/skills/files/detail", skillFileRoutes.detail)
     .get("/api/skills/files/delete-preview", skillFileRoutes.deletePreview)
     .delete("/api/skills/files", skillFileRoutes.remove)
-    .post(
-      "/api/skills/files",
-      jsonBodyValidator(CreateFileSkillBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => skillFileRoutes.create(c, c.req.valid("json")),
+    .post("/api/skills/files", jsonBodyValidator(CreateFileSkillBodySchema, requestBodyValidationHook), (c) =>
+      skillFileRoutes.create(c, c.req.valid("json")),
     )
-    .patch(
-      "/api/skills/files",
-      jsonBodyValidator(SaveFileSkillBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => skillFileRoutes.save(c, c.req.valid("json")),
+    .patch("/api/skills/files", jsonBodyValidator(SaveFileSkillBodySchema, requestBodyValidationHook), (c) =>
+      skillFileRoutes.save(c, c.req.valid("json")),
     )
     // セッション未確定 (新規チャット) の一覧
     .get("/api/skills/session", appData, sessionRoutes.previewSkills)
@@ -464,13 +404,8 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .get("/api/backup/export", appData, backupRoutes.exportZip)
     .post("/api/backup/reset", appDataMutation, backupRoutes.reset)
     .get("/api/sessions", appData, sessionRoutes.list)
-    .post(
-      "/api/sessions",
-      appData,
-      jsonBodyValidator(CreateSessionBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => sessionRoutes.create(c, c.req.valid("json")),
+    .post("/api/sessions", appData, jsonBodyValidator(CreateSessionBodySchema, requestBodyValidationHook), (c) =>
+      sessionRoutes.create(c, c.req.valid("json")),
     )
     .patch(
       "/api/sessions/:id/settings",
@@ -531,9 +466,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .post(
       "/api/sessions/:id/fork",
       appDataMutation,
-      jsonBodyValidator(ForkSessionBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(ForkSessionBodySchema, requestBodyValidationHook),
       (c) => sessionRoutes.fork(c, c.req.valid("json")),
     )
     .get("/api/sessions/:id", appData, sessionRoutes.get)
@@ -545,7 +478,6 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .get("/api/sessions/:id/raw", appData, sessionRoutes.rawLog)
     .delete("/api/sessions/:id", sessionRoutes.remove)
     .post("/api/sessions/:id/stop", sessionRoutes.stop)
-    .post("/api/sessions/:id/abort", sessionRoutes.stop)
     // body 無し。手動 compaction は完了まで待って `{ sessionId, status }` を返す
     .post("/api/sessions/:id/compact", sessionRoutes.compact)
     .get("/api/sessions/:id/skills", sessionRoutes.skills)
@@ -561,9 +493,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .post(
       "/api/sessions/:id/questions/:toolCallId/answer",
       appData,
-      zValidator("json", AnswerQuestionBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      zValidator("json", AnswerQuestionBodySchema, requestBodyValidationHook),
       (c) => sessionRoutes.answerQuestion(c, c.req.valid("json")),
     )
     // 拒否済みの承認カードからの許可。回答待ちは settle 済みなので、回答 API ではなく専用の操作で受ける
@@ -577,7 +507,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     )
     // 待機キューからの 1 件だけの取り消し (実行は止めず、本文は未送信として残す)
     .delete("/api/sessions/:id/queue/:sendId", appData, sessionRoutes.cancelQueued)
-    // 未送信メッセージの破棄 (再送は POST /messages の resendRunId)
+    // 未送信メッセージの破棄 (再送は POST /messages の resendSendId)
     .delete("/api/sessions/:id/unsent/:sendId", appData, sessionRoutes.discardUnsent)
     .get("/api/sessions/:id/events", appData, sessionRoutes.events)
     .get("/api/serve/status", appData, serveRoutes.status)
@@ -587,71 +517,52 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .post(
       "/api/serve/debug/stop",
       appDataMutation,
-      jsonBodyValidator(RuntimeDebugServeStopBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(RuntimeDebugServeStopBodySchema, requestBodyValidationHook),
       (c) => serveRoutes.debugStop(c, c.req.valid("json")),
     )
     .post(
       "/api/serve/runtime/stop",
       appDataMutation,
-      jsonBodyValidator(RuntimeServeStopBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(RuntimeServeStopBodySchema, requestBodyValidationHook),
       (c) => serveRoutes.runtimeStop(c, c.req.valid("json")),
     )
     // 実行状況からの起動。閲覧中の会話に依存せず、別スペースの会話も起動できる (全体管理の面)
     .post(
       "/api/serve/runtime/start",
       appDataMutation,
-      jsonBodyValidator(RuntimeServeStartBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(RuntimeServeStartBodySchema, requestBodyValidationHook),
       (c) => serveRoutes.runtimeStart(c, c.req.valid("json")),
     )
     .post(
       "/api/serve/start",
       // 起動は実績を書き換える変更系なので、503 では何も保存していないことを state でも示す
       appDataMutation,
-      jsonBodyValidator(ServeStartBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(ServeStartBodySchema, requestBodyValidationHook),
       (c) => serveRoutes.start(c, c.req.valid("json")),
     )
-    .post(
-      "/api/serve/stop",
-      appDataMutation,
-      jsonBodyValidator(ServeStopBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => serveRoutes.stop(c, c.req.valid("json")),
+    .post("/api/serve/stop", appDataMutation, jsonBodyValidator(ServeStopBodySchema, requestBodyValidationHook), (c) =>
+      serveRoutes.stop(c, c.req.valid("json")),
     )
     .get("/api/secrets", appData, secretRoutes.list)
     .post(
       "/api/secrets",
       // 登録は行を増やす変更系なので、503 では何も保存していないことを state でも示す
       appDataMutation,
-      jsonBodyValidator(CreateSecretBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(CreateSecretBodySchema, requestBodyValidationHook),
       (c) => secretRoutes.create(c, c.req.valid("json")),
     )
     // 静的セグメントは /api/secrets/:secretId より前に置く
     .patch(
       "/api/secrets/order",
       appDataMutation,
-      jsonBodyValidator(ReorderSecretsBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(ReorderSecretsBodySchema, requestBodyValidationHook),
       (c) => secretRoutes.reorder(c, c.req.valid("json")),
     )
     .get("/api/secrets/:secretId", appData, secretRoutes.detail)
     .put(
       "/api/secrets/:secretId",
       appDataMutation,
-      jsonBodyValidator(UpdateSecretBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateSecretBodySchema, requestBodyValidationHook),
       (c) => secretRoutes.update(c, c.req.valid("json")),
     )
     .delete("/api/secrets/:secretId", appDataMutation, secretRoutes.remove)
@@ -659,9 +570,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .put(
       "/api/notifications",
       appData,
-      jsonBodyValidator(UpdateNotificationsBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateNotificationsBodySchema, requestBodyValidationHook),
       (c) => notificationRoutes.update(c, c.req.valid("json")),
     )
     .post("/api/notifications/test", appData, notificationRoutes.test)
@@ -669,9 +578,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .put(
       "/api/settings/archive",
       appData,
-      jsonBodyValidator(UpdateArchiveSettingsBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateArchiveSettingsBodySchema, requestBodyValidationHook),
       (c) => archiveRoutes.update(c, c.req.valid("json")),
     )
     .delete("/api/settings/archive", appData, archiveRoutes.reset)
@@ -680,9 +587,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .put(
       "/api/settings/shared-content-exclusions",
       appData,
-      jsonBodyValidator(UpdateSharedContentExclusionsBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateSharedContentExclusionsBodySchema, requestBodyValidationHook),
       (c) => sharedContentExclusionsRoutes.update(c, c.req.valid("json")),
     )
     .delete("/api/settings/shared-content-exclusions", appData, sharedContentExclusionsRoutes.reset)
@@ -690,55 +595,44 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .put(
       "/api/settings/models/allowed",
       appDataMutation,
-      jsonBodyValidator(UpdateModelAvailabilityBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateModelAvailabilityBodySchema, requestBodyValidationHook),
       (c) => modelSettingsRoutes.putAllowed(c, c.req.valid("json")),
     )
     // pi.dev への外向き通信だけで DB に触れないため appData のゲートは通さず、
     // `:provider` より先に置いて静的パスがパラメータへ食われないようにする
     .post("/api/settings/models/catalog/refresh", modelSettingsRoutes.catalogRefresh)
-    // カスタムプロバイダー (オンメモリ)。DB を触らないので appDataMutation は通さない。
+    // カスタムプロバイダー。アプリ DB を先に確定し、DB を読めないときの 503 はハンドラが返す
+    // (appDataMutation を通さないので `state: "not_stored"` は付かない)。
     // `models/:provider/...` と同じ深さに param ルートを並べると、provider id がパス接頭辞と
     // 同じ既存 provider の API を食うため、別の名前空間に置く
     .post(
       "/api/settings/custom-providers",
-      jsonBodyValidator(CreateCustomProviderBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(CreateCustomProviderBodySchema, requestBodyValidationHook),
       (c) => modelSettingsRoutes.createCustomProvider(c, c.req.valid("json")),
     )
     // 状態を変えないため state を持たず、接続できない場合も 200 の分類で返す
     .post(
       "/api/settings/custom-providers/probe",
-      jsonBodyValidator(CustomProviderProbeBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(CustomProviderProbeBodySchema, requestBodyValidationHook),
       (c) => modelSettingsRoutes.probeCustomProvider(c, c.req.valid("json")),
     )
     .put(
       "/api/settings/custom-providers/:provider",
-      jsonBodyValidator(UpdateCustomProviderBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateCustomProviderBodySchema, requestBodyValidationHook),
       (c) => modelSettingsRoutes.updateCustomProvider(c, c.req.valid("json")),
     )
     .delete("/api/settings/custom-providers/:provider", modelSettingsRoutes.deleteCustomProvider)
     .put(
       "/api/settings/models/:provider/key",
       appDataMutation,
-      jsonBodyValidator(UpdateProviderKeyBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateProviderKeyBodySchema, requestBodyValidationHook),
       (c) => modelSettingsRoutes.putKey(c, c.req.valid("json").apiKey),
     )
     .delete("/api/settings/models/:provider/key", appDataMutation, modelSettingsRoutes.deleteKey)
     .put(
       "/api/settings/models/:provider/memo",
       appDataMutation,
-      jsonBodyValidator(UpdateProviderMemoBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateProviderMemoBodySchema, requestBodyValidationHook),
       (c) => modelSettingsRoutes.putMemo(c, c.req.valid("json").memo),
     )
     .post("/api/settings/models/:provider/resync", appDataMutation, modelSettingsRoutes.resync)
@@ -746,16 +640,12 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .post("/api/settings/models/:provider/login", modelSettingsRoutes.startOAuthLogin)
     .post(
       "/api/settings/models/:provider/login/code",
-      jsonBodyValidator(SubmitOAuthLoginCodeBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(SubmitOAuthLoginCodeBodySchema, requestBodyValidationHook),
       (c) => modelSettingsRoutes.submitOAuthLoginCode(c, c.req.valid("json").code),
     )
     .post(
       "/api/settings/models/:provider/login/select",
-      jsonBodyValidator(SubmitOAuthLoginSelectBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(SubmitOAuthLoginSelectBodySchema, requestBodyValidationHook),
       (c) => modelSettingsRoutes.submitOAuthLoginSelection(c, c.req.valid("json").id),
     )
     .delete("/api/settings/models/:provider/login", modelSettingsRoutes.cancelOAuthLogin)
@@ -764,49 +654,37 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .put(
       "/api/settings/content",
       appDataMutation,
-      jsonBodyValidator(UpdateContentEnabledBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateContentEnabledBodySchema, requestBodyValidationHook),
       (c) => contentSettingsRoutes.putEnabled(c, c.req.valid("json")),
     )
     .put(
       "/api/settings/content/image",
       appDataMutation,
-      jsonBodyValidator(UpdateContentImageBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateContentImageBodySchema, requestBodyValidationHook),
       (c) => contentSettingsRoutes.putSelection(c, c.req.valid("json")),
     )
     .put(
       "/api/settings/content/image/provider",
       appDataMutation,
-      jsonBodyValidator(UpdateContentImageProviderBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateContentImageProviderBodySchema, requestBodyValidationHook),
       (c) => contentSettingsRoutes.putImageProvider(c, c.req.valid("json")),
     )
     .put(
       "/api/settings/content/key",
       appDataMutation,
-      jsonBodyValidator(UpdateContentKeyBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateContentKeyBodySchema, requestBodyValidationHook),
       (c) => contentSettingsRoutes.putKey(c, c.req.valid("json").apiKey),
     )
     .put(
       "/api/settings/content/speech",
       appDataMutation,
-      jsonBodyValidator(UpdateContentSpeechBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateContentSpeechBodySchema, requestBodyValidationHook),
       (c) => contentSettingsRoutes.putSpeechSelection(c, c.req.valid("json")),
     )
     .put(
       "/api/settings/content/cost-url",
       appDataMutation,
-      jsonBodyValidator(UpdateContentCostBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateContentCostBodySchema, requestBodyValidationHook),
       (c) => contentSettingsRoutes.putCost(c, c.req.valid("json")),
     )
     .delete("/api/settings/content/key", appDataMutation, contentSettingsRoutes.deleteKey)
@@ -816,9 +694,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .post(
       "/api/settings/content/trials",
       appData,
-      jsonBodyValidator(CreateContentTrialBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(CreateContentTrialBodySchema, requestBodyValidationHook),
       (c) => contentSettingsRoutes.startTrial(c, c.req.valid("json")),
     )
     .get("/api/settings/content/trials/:id", appData, contentSettingsRoutes.getTrial)
@@ -830,9 +706,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .put(
       "/api/settings/cloudflare",
       appDataMutation,
-      jsonBodyValidator(UpdateCloudflareSettingsBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateCloudflareSettingsBodySchema, requestBodyValidationHook),
       (c) => cloudflareSettingsRoutes.update(c, c.req.valid("json")),
     )
     .delete("/api/settings/cloudflare", appDataMutation, cloudflareSettingsRoutes.remove)
@@ -880,25 +754,19 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .put(
       "/api/settings/web-search",
       appDataMutation,
-      jsonBodyValidator(UpdateWebSearchBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateWebSearchBodySchema, requestBodyValidationHook),
       (c) => webSearchSettingsRoutes.putEnabled(c, c.req.valid("json")),
     )
     .put(
       "/api/settings/web-search/provider",
       appDataMutation,
-      jsonBodyValidator(UpdateWebSearchProviderBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateWebSearchProviderBodySchema, requestBodyValidationHook),
       (c) => webSearchSettingsRoutes.putProvider(c, c.req.valid("json")),
     )
     .put(
       "/api/settings/web-search/providers/:provider/key",
       appDataMutation,
-      jsonBodyValidator(UpdateWebSearchKeyBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateWebSearchKeyBodySchema, requestBodyValidationHook),
       // キー値はマスカー登録のあるサービス側でだけ扱い、パス / クエリへは出さない
       (c) => webSearchSettingsRoutes.putKey(c, c.req.param("provider"), c.req.valid("json").apiKey),
     )
@@ -908,9 +776,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .post(
       "/api/settings/web-search/test",
       appData,
-      jsonBodyValidator(WebSearchTestBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(WebSearchTestBodySchema, requestBodyValidationHook),
       // クエリは自由文なので、ログや履歴に残る URL ではなく本文で受け取る
       (c) => webSearchSettingsRoutes.test(c, c.req.valid("json")),
     )
@@ -919,9 +785,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
       "/api/settings/voice-input/key",
       sameOriginOnly,
       appDataMutation,
-      jsonBodyValidator(UpdateVoiceInputKeyBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateVoiceInputKeyBodySchema, requestBodyValidationHook),
       // キー値はマスカー登録のあるサービス側でだけ扱い、パス / クエリへは出さない
       (c) => voiceInputRoutes.putKey(c, c.req.valid("json").apiKey),
     )
@@ -931,9 +795,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .put(
       "/api/settings/git",
       sameOriginOnly,
-      jsonBodyValidator(UpdateGitSettingsBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateGitSettingsBodySchema, requestBodyValidationHook),
       (c) => gitSettingsRoutes.put(c, c.req.valid("json")),
     )
     .delete("/api/settings/git", sameOriginOnly, (c) => gitSettingsRoutes.clear(c))
@@ -942,9 +804,7 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .put(
       "/api/settings/session-title",
       appDataMutation,
-      jsonBodyValidator(UpdateTitleSummaryBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
+      jsonBodyValidator(UpdateTitleSummaryBodySchema, requestBodyValidationHook),
       (c) => titleSummaryRoutes.put(c, c.req.valid("json")),
     );
   return routed;

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { AppDb } from "./app-db";
 import { httpError } from "./http";
+import { normalizeReorderIds } from "./reorder-ids";
 import type { Space } from "./schema";
 
 export const DEFAULT_SPACE_ID = "default";
@@ -80,24 +81,10 @@ export class SpaceStore {
     return { ...current, name };
   }
 
-  /**
-   * 並べ替え。既定スペース・未知の id・重複は捨て、渡されなかった行は元の相対順で末尾に回す
-   * (`reorderAgents` と同じ方針。docs/api.md#スペース)。既定スペースは `list()` が先頭に置く。
-   */
   reorder(ids: readonly string[]): Space[] {
-    const current = this.db.listSpaces();
-    const known = new Set(current.map((space) => space.id));
-    const seen = new Set<string>();
-    const order: string[] = [];
-    for (const id of ids) {
-      if (typeof id !== "string" || !known.has(id) || seen.has(id)) continue;
-      seen.add(id);
-      order.push(id);
-    }
-    for (const space of current) {
-      if (!seen.has(space.id)) order.push(space.id);
-    }
-    this.db.reorderSpaces(order);
+    // 既定スペースは DB に保存せず、list() が先頭に置く。
+    const currentIds = this.db.listSpaces().map((space) => space.id);
+    this.db.reorderSpaces(normalizeReorderIds(currentIds, ids));
     return this.list();
   }
 }

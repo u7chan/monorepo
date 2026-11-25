@@ -5,7 +5,10 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
-import { chatReducer, initialChatState, type Bubble, type ChatState, type ToolCard } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { ChatState } from "../src/lib/chatState";
+import type { Bubble, ToolCard } from "../src/lib/chatTypes";
+import { chatReducer } from "../src/hooks/chatReducer";
 import { isPendingAskUserCard, pendingAskUserQuestionCount } from "../src/lib/askUser";
 import { chatRenderItems } from "../src/lib/chatItems";
 import type { TurnEnd } from "../src/lib/turnEnd";
@@ -19,7 +22,7 @@ import type {
   Usage,
 } from "../src/types";
 
-// MessageView は AttachedFiles 経由で api.ts (location.origin を読む) を辿るため、先に shim を置く
+// MessageView は AttachedFiles 経由で api/http.ts (location.origin を読む) を辿るため、先に shim を置く
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { MessageView } = await import("../src/components/chat/MessageView");
 
@@ -68,6 +71,11 @@ function payload(
     piSessionId: "pi-s-1",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status: "running",
     title: "",
     createdAt: 1,
@@ -145,7 +153,7 @@ function historyPage(messageCount: number): HistoryPage {
 }
 
 /** live の質問カード (本文なし応答 → usage → ツール開始 → 回答待ち) */
-function liveState(model?: string | null): ChatState {
+function liveState(model: string | null): ChatState {
   let state = chatReducer(initialChatState, {
     type: "runStart",
     runId: "run-1",
@@ -157,7 +165,7 @@ function liveState(model?: string | null): ChatState {
   state = chatReducer(state, {
     type: "assistantEnd",
     assistantId: OWNER,
-    ...(model === undefined ? {} : { model }),
+    model,
   });
   return chatReducer(state, {
     type: "toolStart",
@@ -172,7 +180,7 @@ function liveState(model?: string | null): ChatState {
 }
 
 test("本文なし・未回答の ask_user は再読み込み後も元の応答の時刻と応答時間を出す", () => {
-  const liveHtml = renderMessage(askItem(liveState()).bubble);
+  const liveHtml = renderMessage(askItem(liveState(null)).bubble);
   assert.match(liveHtml, /850ms/);
 
   const reload = chatReducer(initialChatState, {
@@ -341,9 +349,14 @@ test("本文なし応答の ask_user でも、assistant_end の確定モデル�
   assert.match(unknown, /モデル不明/, "null は不明として出す");
   assert.doesNotMatch(unknown, /example\//, "不明のときは識別子を出さない");
 
-  // 旧サーバー (assistant_end に model が無い) は非表示のまま
-  const legacy = renderMessage(askItem(liveState()).bubble);
-  assert.doesNotMatch(legacy, /モデル不明|example\/model-a/);
+  // モデルを持たない保存済みの assistantMeta は非表示のまま
+  const legacy = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payload([{ role: "user", text: "質問して" }], runPayload([askCall("call-1", OWNER)]), {
+      assistantMeta: [{ assistantId: OWNER, at: ASKED_AT, usage: USAGE, metrics: METRICS }],
+    }),
+  });
+  assert.doesNotMatch(renderMessage(askItem(legacy).bubble), /モデル不明|example\/model-a/);
 
   // 再読み込みは payload の assistantMeta が同じ値を持ち、合成バブルのヘッダーに出る
   const reload = chatReducer(initialChatState, {

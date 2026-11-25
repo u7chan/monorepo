@@ -8,6 +8,7 @@
  */
 import type { ImageApi, ImageModel } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
+import { readCappedBody } from "./bounded-body";
 import { messageFor } from "./errors";
 import {
   classifyProviderFailure,
@@ -17,6 +18,7 @@ import {
   type ProviderFailureContext,
   type ProviderFailureMessages,
 } from "./provider-failure";
+import { startRequestDeadline } from "./request-deadline";
 import type { SpeechGenerationSettings } from "./speech";
 import type { BgmGenerationSettings } from "./bgm";
 import type { ImageParameterValues } from "./schema";
@@ -250,7 +252,7 @@ export function normalizeImageParameters(
 }
 
 /**
- * 送信本文へ足す値。省略された値は載せない（未指定のときの本文を従来と同一に保ち、provider の既定に任せる）。
+ * 送信本文へ足す値。省略された値は載せない（未指定のときの本文を変えず、provider の既定に任せる）。
  */
 export function imageParameterBody(
   values: ImageParameterValues | undefined,
@@ -273,7 +275,6 @@ export const IMAGE_PROVIDER_ID = "openrouter";
  */
 export const IMAGE_GENERATION_PROVIDERS = [IMAGE_PROVIDER_ID, "codex"] as const;
 export type ImageProviderId = (typeof IMAGE_GENERATION_PROVIDERS)[number];
-export const DEFAULT_IMAGE_PROVIDER: ImageProviderId = IMAGE_PROVIDER_ID;
 
 export function isImageProviderId(value: string): value is ImageProviderId {
   return (IMAGE_GENERATION_PROVIDERS as readonly string[]).includes(value);
@@ -392,7 +393,7 @@ export interface ImageRequestBase {
   /** ユーザー中断。timeout の自前タイマーとは別に扱う */
   signal?: AbortSignal | undefined;
   /**
-   * 参照画像（検証済みの data URL）。空 / 省略なら従来どおりの新規生成で、送信 JSON に
+   * 参照画像（検証済みの data URL）。空 / 省略なら新規生成で、送信 JSON に
    * `input_references` を付けない。値はツール引数・結果・ログへ出さない。
    */
   inputReferences?: readonly string[] | undefined;
@@ -445,39 +446,6 @@ const IMAGE_FAILURE_MESSAGES: ProviderFailureMessages = {
   aborted: IMAGE_ABORTED_MESSAGE,
   unknown: IMAGE_UNKNOWN_FAILURE_MESSAGE,
 };
-
-/**
- * 本文を上限まで読む。超えたら本文を捨てて undefined を返す（大きな応答をメモリへ載せない）。
- * content-length は当てにならない応答もあるため、宣言と実バイトの両方で見る。
- */
-async function readCappedBody(response: Response, maxBytes: number): Promise<string | undefined> {
-  const declared = Number(response.headers.get("content-length") ?? "");
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    await response.body?.cancel().catch(() => {});
-    return undefined;
-  }
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => {});
-      return undefined;
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
-}
 
 /** media_type が読めないときの画像形式。OpenRouter は識別できるときだけ返す */
 const DEFAULT_IMAGE_MIME_TYPE = "image/png";
@@ -579,17 +547,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
       }
       const model: ImageModel<ImageApi> = { ...template, id: input.model };
 
-      // 期限はここでのみ掛ける。SDK と違い応答と status を自分で読むため、abort の理由は timedOut で判別する
-      const controller = new AbortController();
-      let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs);
-      const onUserAbort = (): void => controller.abort();
-      input.signal?.addEventListener("abort", onUserAbort, { once: true });
-      if (input.signal?.aborted) onUserAbort();
-      const aborted = (): boolean => input.signal?.aborted === true;
+      const deadline = startRequestDeadline(timeoutMs, input.signal);
 
       let status: number | undefined;
       const inputReferences = input.inputReferences ?? [];
@@ -615,7 +573,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
             ...model.headers,
           },
           body: JSON.stringify(requestBody),
-          signal: controller.signal,
+          signal: deadline.signal,
         });
         if (!response.ok) status = response.status;
         const text = await readCappedBody(response, IMAGE_RESPONSE_MAX_BYTES);
@@ -626,8 +584,8 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
         if (image) return { ok: true, image };
         return classifyImageFailure({
           status,
-          timedOut,
-          aborted: aborted(),
+          timedOut: deadline.timedOut,
+          aborted: deadline.aborted,
           providerMessage: withholdProviderText ? undefined : providerMessageOf(body, text, !response.ok),
           maskText,
         });
@@ -635,14 +593,13 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
         const message = messageFor(error);
         return classifyImageFailure({
           status,
-          timedOut,
-          aborted: aborted(),
+          timedOut: deadline.timedOut,
+          aborted: deadline.aborted,
           providerMessage: withholdProviderText ? undefined : message,
           maskText,
         });
       } finally {
-        clearTimeout(timer);
-        input.signal?.removeEventListener("abort", onUserAbort);
+        deadline.clear();
       }
     },
   };

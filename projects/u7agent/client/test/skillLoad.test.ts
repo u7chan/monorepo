@@ -6,7 +6,10 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SkillLoadList } from "../src/components/chat/SkillLoadList";
-import { chatReducer, historyToBubbles, initialChatState, type Bubble, type ToolCard } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { Bubble, ToolCard } from "../src/lib/chatTypes";
+import { historyToBubbles } from "../src/hooks/chatHistoryReducer";
+import { chatReducer } from "../src/hooks/chatReducer";
 import { toolHistoryCopyText } from "../src/lib/copy-content";
 import {
   formatReadLineRange,
@@ -43,6 +46,11 @@ function payload(
     piSessionId: "pi-s-1",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status,
     title: "",
     createdAt: 1,
@@ -87,6 +95,7 @@ test("ツール履歴の件数・サマリー・コピー本文にスキル読�
 test("ライブ: toolStart の skill はバッジになり、toolEnd で成功 / 失敗が確定する", () => {
   const started = chatReducer(initialChatState, {
     type: "toolStart",
+    startedAt: 1,
     id: LOAD.id,
     name: "read",
     args: LOAD.path,
@@ -204,7 +213,7 @@ test("resync: 情報源が別バブルに分かれても同じ toolCallId は 1 
   assert.equal(historyPreview(visibleTools), "bash — $ ls -la");
   assert.equal(toolHistoryCopyText(visibleTools), "#1 tool: bash\nargs: $ ls -la\noutput:\nfile list");
 
-  const ended = chatReducer(resynced, { type: "runEnd", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(resynced, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.equal(allBadges(ended.bubbles).length, 2, "runEnd でカードが残っても履歴側と重複しない");
 });
 
@@ -265,7 +274,7 @@ test("描画: 4 件以上は 3 件 + N に畳み、+N の中に残りを入れ�
 
 /* ===== MessageView (スキルしかないバブルでツール履歴を出さない) ===== */
 
-// MessageView は api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// MessageView は api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { MessageView } = await import("../src/components/chat/MessageView");
 

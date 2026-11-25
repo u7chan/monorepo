@@ -5,10 +5,7 @@ import { SettingsPlaceholder } from "./SettingsPlaceholder";
 import { TabToolbar } from "./TabToolbar";
 import { SessionTitleSettingsTab } from "./session-title-settings/SessionTitleSettingsTab";
 
-/**
- * 設定 → 会話タイトル。hook はこの画面が持ち (開いたときだけ取得する)、
- * 再読み込みもこの画面の設定だけを取り直す。
- */
+/** 設定 → 会話タイトル */
 export function SessionTitleSettingsPage({ singleColumn, onBack, onOpenNav }: SettingsPageProps) {
   const sessionTitleSettings = useSessionTitleSettings();
   return (
@@ -21,7 +18,6 @@ export function SessionTitleSettingsPage({ singleColumn, onBack, onOpenNav }: Se
   );
 }
 
-/** 表示だけを持つ部分。取得の成否は sessionTitleSettings が持ち、ここは描画に徹する */
 export function SessionTitleSettingsView({
   sessionTitleSettings,
   singleColumn = false,

@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { chatReducer, initialChatState, type ChatState } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { ChatState } from "../src/lib/chatState";
+import { chatReducer } from "../src/hooks/chatReducer";
 import type { Bubble } from "../src/lib/chatTypes";
 import type { HistoryPage, SessionPayload } from "../src/types";
 
-// MessageView は AttachedFiles 経由で api.ts (location.origin を読む) を辿るため、先に shim を置く
+// MessageView は AttachedFiles 経由で api/http.ts (location.origin を読む) を辿るため、先に shim を置く
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { MessageView } = await import("../src/components/chat/MessageView");
 
@@ -21,6 +23,11 @@ function payload(): SessionPayload {
     piSessionId: "pi-s-1",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status: "running",
     title: "",
     createdAt: 1,
@@ -112,9 +119,8 @@ test("履歴が assistant_end を追い越しても、確定まではモデル�
   assert.doesNotMatch(html, /選択モデル/, "tooltip にラベルを付けない");
 });
 
-test("モデルは表示名 → provider/id の順に解決し、null は不明、未指定は出さない", () => {
-  // What: 候補に無いモデルは provider/id を出し、null (モデル情報なし) は「モデル不明」、
-  // キー省略 (旧サーバー / assistant_end 前) はバッジごと出さない
+test("モデルは表示名 → provider/id の順に解決し、null は不明", () => {
+  // What: 候補に無いモデルは provider/id を出し、null (モデル情報なし) は「モデル不明」
   const bubble = answeredBubble(streaming());
 
   const resolved = render({ ...bubble, model: MODEL }, "Model A");
@@ -128,8 +134,4 @@ test("モデルは表示名 → provider/id の順に解決し、null は不明�
   const unknown = render({ ...bubble, model: null });
   assert.match(unknown, /モデル不明/);
   assert.doesNotMatch(unknown, /example\//);
-
-  const hidden = render(bubble);
-  assert.doesNotMatch(hidden, /モデル不明|example\//);
-  assert.ok(!hidden.includes(`title="${MODEL}"`), "モデルの tooltip を出さない");
 });

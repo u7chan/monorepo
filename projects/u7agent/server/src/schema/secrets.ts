@@ -4,7 +4,6 @@ import { z } from "zod";
 
 /** 種別。型の正は secret-crypto.ts の SecretKind で、ここは同じ値であることを satisfies で固定する */
 export const SecretKindSchema = z.enum(["variable", "secret"] satisfies readonly [SecretKind, ...SecretKind[]]);
-export type SecretKindValue = z.infer<typeof SecretKindSchema>;
 /** 一覧 / 変更後に行が返す項目。値は種別に関係なく含めない (値は detail の変数だけ) */
 export const SecretItemSchema = z.object({
   secretId: z.string(),

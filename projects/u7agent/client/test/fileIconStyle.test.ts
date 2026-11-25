@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { FileIcon, FolderIcon } from "../src/components/icons";
+import type { DeviceSettingsStorage } from "../src/lib/deviceSettingsStore";
 import {
   createFileIconStyleStore,
   DEFAULT_FILE_ICON_STYLE,
@@ -13,10 +14,9 @@ import {
   fileIconStyleStore,
   isFileIconStyle,
   parseFileIconStyle,
-  type FileIconStyleStorage,
 } from "../src/lib/fileIconStyle";
 
-class MemoryStorage implements FileIconStyleStorage {
+class MemoryStorage implements DeviceSettingsStorage {
   value: string | null = null;
   getItem(): string | null {
     return this.value;
@@ -65,7 +65,7 @@ test("store は 1 キーを読み書きし、未知の値は既定として読�
 });
 
 test("保存領域が使えない環境でも操作を止めない (session 内のメモリで保つ)", () => {
-  const throwing: FileIconStyleStorage = {
+  const throwing: DeviceSettingsStorage = {
     getItem: () => {
       throw new Error("SecurityError");
     },

@@ -6,7 +6,7 @@ import {
   getFileSkillDetail,
   getFileSkills,
   saveFileSkill,
-} from "../api";
+} from "../api/catalog";
 import {
   fileSkillCreateDirty,
   fileSkillDraftDirty,
@@ -15,6 +15,7 @@ import {
   type FileSkillDraft,
   type FileSkillEditorState,
 } from "../lib/fileSkillEditor";
+import { messageFor } from "../lib/errors";
 import type { FileSkillInfo, SandboxSkillDeletePreview } from "../types";
 import { createRequestGate } from "./requestGate";
 
@@ -26,10 +27,6 @@ export type FileSkillsState =
 
 /** 保存 / 作成 / 削除の結果。競合 (409) は conflict で区別し、UI が下書きを残す判断に使う */
 export type FileSkillResult = { ok: true; relativePath: string } | { ok: false; message: string; conflict: boolean };
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function isConflict(error: unknown): boolean {
   return (error as { status?: number } | null)?.status === 409;
@@ -66,7 +63,7 @@ export function useFileSkills(): {
       const { skills } = await getFileSkills();
       if (canApply()) setState({ status: "ready", skills });
     } catch (error) {
-      if (canApply()) setState({ status: "error", message: errorText(error) });
+      if (canApply()) setState({ status: "error", message: messageFor(error) });
     }
   }, [beginFileSkillsRequest]);
 
@@ -87,7 +84,7 @@ export function useFileSkills(): {
         const detail = await getFileSkillDetail(relativePath);
         if (canApply()) dispatch({ type: "loaded", relativePath, detail });
       } catch (error) {
-        if (canApply()) dispatch({ type: "failed", message: errorText(error) });
+        if (canApply()) dispatch({ type: "failed", message: messageFor(error) });
       }
     },
     [beginDetailRequest],
@@ -124,7 +121,7 @@ export function useFileSkills(): {
         return { ok: true, relativePath: result.relativePath };
       } catch (error) {
         if (isConflict(error)) dispatch({ type: "conflict" });
-        return { ok: false, message: errorText(error), conflict: isConflict(error) };
+        return { ok: false, message: messageFor(error), conflict: isConflict(error) };
       }
     }
     try {
@@ -137,8 +134,8 @@ export function useFileSkills(): {
       await loadDetail(created.relativePath);
       return { ok: true, relativePath: created.relativePath };
     } catch (error) {
-      dispatch({ type: "createFailed", message: errorText(error) });
-      return { ok: false, message: errorText(error), conflict: isConflict(error) };
+      dispatch({ type: "createFailed", message: messageFor(error) });
+      return { ok: false, message: messageFor(error), conflict: isConflict(error) };
     }
   }, [editor, load, loadDetail]);
 
@@ -158,7 +155,7 @@ export function useFileSkills(): {
         dispatch({ type: "close" });
         return { ok: true, relativePath };
       } catch (error) {
-        return { ok: false, message: errorText(error), conflict: isConflict(error) };
+        return { ok: false, message: messageFor(error), conflict: isConflict(error) };
       }
     },
     [load],

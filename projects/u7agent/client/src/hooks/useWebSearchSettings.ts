@@ -6,7 +6,7 @@ import {
   putWebSearchApiKey,
   putWebSearchProvider,
   putWebSearchSettings,
-} from "../api";
+} from "../api/settings";
 import {
   createSettingsGeneration,
   WEB_SEARCH_SETTINGS_NOTE,

@@ -55,7 +55,7 @@ export interface PopoverShellOptions {
   openFocus?: PopoverOpenFocus;
   /**
    * トリガーの ↑↓ でも開く (native select と同じ作法)。既定は開かない: 矢印で開く画面だけが true にする
-   * (⋯ ボタンなど、これまで矢印に反応していなかったトリガーの操作を増やさない)
+   * (⋯ ボタンなど、矢印に反応しないトリガーの操作を増やさない)
    */
   openOnArrowKeys?: boolean;
   /** 開閉の通知 (標準の close も含む)。親が開閉を持つ画面向け */
@@ -66,7 +66,7 @@ export interface PopoverShellOptions {
 export type PopoverActions = {
   /** いまの位置へ置き直す (幅 / 高さの上限も書き直す) */
   place: () => void;
-  /** 閉じる (焦点は移さない) */
+  /** 閉じる (焦点は移さない。blur させると native の復帰が起きず、トリガーへ戻れない) */
   close: () => void;
 };
 
@@ -307,8 +307,8 @@ export function usePopoverShell(place: PopoverPlace, margin: number, options: Po
 
   /**
    * トリガーの ↑↓ で開く (`openOnArrowKeys: true` の画面だけ)。押したときと同じ経路 (click) を通すので、
-   * 開く前に取得や絞り込みの初期化がある画面も同じ手順になる。既定で開かないのは、これまで矢印に
-   * 反応しなかったトリガーの操作を増やさないため
+   * 開く前に取得や絞り込みの初期化がある画面も同じ手順になる。既定で開かないのは、矢印に
+   * 反応しないトリガーの操作を増やさないため
    */
   const onTriggerKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>) => {

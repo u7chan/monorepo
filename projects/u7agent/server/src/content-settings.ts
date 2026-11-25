@@ -7,16 +7,16 @@
 import {
   APP_SECRET_NOT_STORED_MESSAGE,
   appSecretAvailable,
-  appSecretFailed,
-  appSecretMasterKeyMissing,
   appSecretNotStored,
   appSecretUnevaluated,
+  evaluateAppSecret,
+  requireAppSecretCipher,
   type AppSecretState,
 } from "./app-secrets";
 import { httpError, messageFor, type HttpError } from "./http";
 import { bgmSettings, BGM_MODEL } from "./bgm";
 import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
-import { MutationLock } from "./model-settings";
+import { SerialLock } from "./serial-lock";
 import type { ContentTrialSource } from "./content-trials";
 import { REDACTED } from "./redact";
 import type { ContentSettingsRow, ImageParameterDefaults, ImageSettingsRow } from "./app-db";
@@ -136,7 +136,7 @@ export class ContentSettingsService {
   #codexParams: string | null = null;
   /** content_settings の現在値。ツール公開の判定を DB の読取失敗に巻き込まないための写し */
   #row: ContentSettingsRow | undefined;
-  #lock = new MutationLock();
+  #lock = new SerialLock();
   /**
    * 復号済みの APIキー。画像 / 音声 / BGM / 試行へ渡すためにメモリだけに持ち、
    * GET では復号しない。null は「復号できていない」で、保存値の有無とは別。
@@ -208,40 +208,21 @@ export class ContentSettingsService {
     return row !== undefined && row.ciphertext !== null && row.nonce !== null && row.keyVersion !== null;
   }
 
-  /**
-   * 保存行の暗号文から APIキーを復号し、結果をメモリへ残す。runtime が無いときは復号しない
-   * (復号した値を使う経路が無い)。平文へは落とさない。
-   */
   #evaluateKey(row: ContentSettingsRow | undefined): void {
     const secret =
       row && row.ciphertext !== null && row.nonce !== null && row.keyVersion !== null
         ? { ciphertext: row.ciphertext, nonce: row.nonce, keyVersion: row.keyVersion }
         : null;
-    if (!secret) {
-      this.#apiKey = null;
-      this.#keyState = appSecretNotStored();
-      return;
-    }
-    if (!this.#runtimeAvailable) {
-      this.#apiKey = null;
-      this.#keyState = appSecretUnevaluated();
-      return;
-    }
-    if (!this.#appCipher) {
-      this.#apiKey = null;
-      this.#keyState = appSecretMasterKeyMissing();
-      return;
-    }
-    try {
-      const apiKey = this.#appCipher.decrypt("content_settings", CONTENT_SECRET_OWNER, secret);
-      // ツール・応答・ログへ渡す前に保護対象へ入れる
-      this.#retainSecret(apiKey);
-      this.#apiKey = apiKey;
-      this.#keyState = appSecretAvailable();
-    } catch {
-      this.#apiKey = null;
-      this.#keyState = appSecretFailed();
-    }
+    const { value, state } = evaluateAppSecret({
+      cipher: this.#appCipher,
+      runtimeAvailable: this.#runtimeAvailable,
+      scope: "content_settings",
+      owner: CONTENT_SECRET_OWNER,
+      secret,
+      retain: (value) => this.#retainSecret(value),
+    });
+    this.#apiKey = value;
+    this.#keyState = state;
   }
 
   /** 音声ツールの語彙（`model` / `voice`）へ写す。応答と同じ解決を使い、表示と実行時を食い違わせない */
@@ -459,9 +440,8 @@ export class ContentSettingsService {
       this.#retainSecret(apiKey);
       let encrypted: { ciphertext: Uint8Array; nonce: Uint8Array; keyVersion: number };
       try {
-        encrypted = this.#requireCipher().encrypt("content_settings", CONTENT_SECRET_OWNER, apiKey);
+        encrypted = requireAppSecretCipher(this.#appCipher).encrypt("content_settings", CONTENT_SECRET_OWNER, apiKey);
       } catch {
-        // master key 未設定 / 不正では平文で保存しない。何も変えずに not_stored を返す
         console.warn("[u7agent] content key encryption failed");
         return { status: 503, error: APP_SECRET_NOT_STORED_MESSAGE };
       }
@@ -479,7 +459,6 @@ export class ContentSettingsService {
       try {
         this.#db.saveContentSettings(next);
       } catch {
-        // DB の理由は AppDb の境界がマスクして記録する。ここは操作の分類だけに絞る
         console.warn("[u7agent] content key save failed");
         return { status: 503, error: CONTENT_KEY_NOT_STORED_MESSAGE };
       }
@@ -493,11 +472,9 @@ export class ContentSettingsService {
     });
   }
 
-  /**
-   * 有効 / 無効。行ごと消すとキーと選択まで失うため、一時的に止めたいだけのときはこちらを使う。
-   * 行が無ければ 400（キー登録が先。止める対象が無い）。
-   */
-  async putEnabled(enabled: boolean): Promise<ContentMutationOutcome> {
+  #updateExisting(
+    update: (existing: ContentSettingsRow) => ContentSettingsRow | { status: 503; error: string },
+  ): Promise<ContentMutationOutcome> {
     return this.#lock.run(async () => {
       let existing: ContentSettingsRow | undefined;
       try {
@@ -507,7 +484,8 @@ export class ContentSettingsService {
         return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
       }
       if (!existing) throw badRequest(CONTENT_SETTINGS_UNCONFIGURED_MESSAGE);
-      const next: ContentSettingsRow = { ...existing, enabled };
+      const next = update(existing);
+      if ("status" in next) return next;
       try {
         this.#db.saveContentSettings(next);
       } catch {
@@ -517,6 +495,11 @@ export class ContentSettingsService {
       this.#apply(next);
       return { status: 200, response: this.#applied(next) };
     });
+  }
+
+  /** 行ごと消すとキーと選択も失うため、一時的な停止にはトグルだけを変える */
+  async putEnabled(enabled: boolean): Promise<ContentMutationOutcome> {
+    return this.#updateExisting((existing) => ({ ...existing, enabled }));
   }
 
   /**
@@ -529,15 +512,7 @@ export class ContentSettingsService {
     model: string;
     parameters?: ImageParameterValues | undefined;
   }): Promise<ContentMutationOutcome> {
-    return this.#lock.run(async () => {
-      let existing: ContentSettingsRow | undefined;
-      try {
-        existing = this.#db.readContentSettings();
-      } catch (error) {
-        console.warn(`[u7agent] content settings read failed: ${this.#maskError(messageFor(error))}`);
-        return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
-      }
-      if (!existing) throw badRequest(CONTENT_SETTINGS_UNCONFIGURED_MESSAGE);
+    return this.#updateExisting((existing) => {
       if (input.provider !== IMAGE_PROVIDER_ID) throw badRequest(CONTENT_PROVIDER_UNSUPPORTED_MESSAGE);
       const inCatalog = this.#catalog
         .snapshot()
@@ -557,20 +532,12 @@ export class ContentSettingsService {
         input.parameters === undefined
           ? existing.imageParams
           : this.#updatedImageParams(existing.imageParams, input.model, input.parameters);
-      const next: ContentSettingsRow = {
+      return {
         ...existing,
         provider: input.provider,
         imageModel: input.model,
         imageParams: nextImageParams,
       };
-      try {
-        this.#db.saveContentSettings(next);
-      } catch {
-        console.warn("[u7agent] content settings save failed");
-        return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
-      }
-      this.#apply(next);
-      return { status: 200, response: this.#applied(next) };
     });
   }
 
@@ -599,15 +566,7 @@ export class ContentSettingsService {
    * 400 にすると、使えていた選択を別の入り口からやり直せなくなる。
    */
   async putSpeechSelection(input: { model: string; voice: string }): Promise<ContentMutationOutcome> {
-    return this.#lock.run(async () => {
-      let existing: ContentSettingsRow | undefined;
-      try {
-        existing = this.#db.readContentSettings();
-      } catch (error) {
-        console.warn(`[u7agent] content settings read failed: ${this.#maskError(messageFor(error))}`);
-        return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
-      }
-      if (!existing) throw badRequest(CONTENT_SETTINGS_UNCONFIGURED_MESSAGE);
+    return this.#updateExisting((existing) => {
       // キーを復号できていない状態で照合を飛ばして保存しない (キー入りの値を残さない)
       if (this.#keyStored(existing) && !this.#keyState.keyAvailable) {
         return { status: 503, error: CONTENT_KEY_UNAVAILABLE_MESSAGE };
@@ -633,15 +592,7 @@ export class ContentSettingsService {
         }
       }
       const speechVoice = input.voice === "" ? null : input.voice;
-      const next: ContentSettingsRow = { ...existing, speechModel: input.model, speechVoice };
-      try {
-        this.#db.saveContentSettings(next);
-      } catch {
-        console.warn("[u7agent] content settings save failed");
-        return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
-      }
-      this.#apply(next);
-      return { status: 200, response: this.#applied(next) };
+      return { ...existing, speechModel: input.model, speechVoice };
     });
   }
 
@@ -692,7 +643,6 @@ export class ContentSettingsService {
         this.#apiKey = null;
         this.#keyState = appSecretUnevaluated();
       } else {
-        // 起動時に 1 回だけ復号し、SDK / ツールへ渡す前に保護対象へ入れる
         this.#evaluateKey(row);
       }
       // キーの有無で一覧の表示は変わらないが、未設定では一覧を出す画面が無いので取得しない
@@ -785,11 +735,6 @@ export class ContentSettingsService {
       },
       readVoices: (model) => this.#speechCatalog.voicesOf(model),
     });
-  }
-
-  #requireCipher(): AppSecretCipher {
-    if (!this.#appCipher) throw new Error(APP_SECRET_NOT_STORED_MESSAGE);
-    return this.#appCipher;
   }
 
   /**

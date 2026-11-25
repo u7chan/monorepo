@@ -10,13 +10,14 @@ import {
   type RefObject,
   type SyntheticEvent,
 } from "react";
-import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api";
+import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api/files";
 import { useExitPhase } from "../hooks/useExitPhase";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isAudioName, isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
 import { lineNumbers } from "../lib/codeLines";
 import { selectCopyTarget } from "../lib/copyToClipboard";
+import { messageFor } from "../lib/errors";
 import { buildPreviewCode, isHtmlPath, isMarkdownPath, isSvgPath, previewCopyText } from "../lib/fileCode";
 import { filePreviewErrorHint } from "../lib/filePreviewError";
 import {
@@ -51,10 +52,6 @@ const PREVIEW_MODES: { value: PreviewMode; label: string }[] = [
 
 const PREVIEW_ORIGIN_ON_NOTE = "別オリジンで開き直し、localStorage などを使えるようにします";
 const PREVIEW_ORIGIN_OFF_NOTE = "アプリと同じオリジンで開き直し、localStorage などを使えなくします";
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export type FilePreviewProps = {
   /** 一覧と本文の再読み込みの版。画像の raw URL にも使う */
@@ -204,7 +201,7 @@ export function FilePreview({
         if (!controller.signal.aborted) setResults((prev) => ({ ...prev, [activePath]: value }));
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) setResults((prev) => ({ ...prev, [activePath]: { error: errorText(error) } }));
+        if (!controller.signal.aborted) setResults((prev) => ({ ...prev, [activePath]: { error: messageFor(error) } }));
       },
     );
     return () => controller.abort();
@@ -456,7 +453,7 @@ export function FileBreadcrumb({
   const crumbs = fileTreeBreadcrumbs(activePath);
 
   return (
-    // 表示はこれまでと同じ全体パス (tooltip) を保ち、横幅が足りなければ横スクロールへ逃がす
+    // 全体パス (tooltip) を保つため、横幅が足りなければ横スクロールへ逃がす
     <nav
       aria-label="ファイルの場所"
       title={fileTreeFetchPath(rootPath, activePath)}

@@ -4,16 +4,16 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { Sidebar } from "../src/components/Sidebar";
+import type { DeviceSettingsStorage } from "../src/lib/deviceSettingsStore";
 import {
   createSidebarSectionsStore,
   decodeExpandedSidebarSections,
   encodeExpandedSidebarSections,
   SIDEBAR_SECTIONS_KEY,
   SIDEBAR_SECTIONS_VERSION,
-  type SidebarSectionsStorage,
 } from "../src/lib/sidebarSections";
 
-class MemoryStorage implements SidebarSectionsStorage {
+class MemoryStorage implements DeviceSettingsStorage {
   value: string | null = null;
   lastKey: string | null = null;
 
@@ -90,7 +90,7 @@ test("壊れた保存値や利用できない storage でもカテゴリを操�
     ["unassigned"],
   );
 
-  const throwing: SidebarSectionsStorage = {
+  const throwing: DeviceSettingsStorage = {
     getItem: () => {
       throw new Error("SecurityError");
     },

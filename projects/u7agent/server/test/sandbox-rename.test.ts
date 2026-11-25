@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createSandboxService } from "../src/sandbox/service";
+import { authHeaders } from "./http-helpers";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
 
@@ -29,17 +30,13 @@ function makeRoot(prefix: string): string {
   return mkdtempSync(join(tmpdir(), `pi-sbx-${prefix}-`));
 }
 
-function authHeaders(): Record<string, string> {
-  return { Authorization: `Bearer ${TOKEN}` };
-}
-
 async function rename(
   app: App,
   body: { path?: unknown; name?: unknown },
 ): Promise<{ status: number; body: { path?: string; name?: string; error?: string } }> {
   const response = await app.request("/v1/files/rename", {
     method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    headers: { ...authHeaders(TOKEN), "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const text = await response.text();
@@ -72,7 +69,7 @@ test("rename moves a regular file and returns the new root-relative path", async
     assert.equal(await readFile(join(root, "uploads", "nested", "shot.png"), "utf-8"), "original");
 
     // 一覧にも新しい名前で出る (旧名の行は消える)
-    const listing = await service.app.request("/v1/files?path=uploads%2Fnested", { headers: authHeaders() });
+    const listing = await service.app.request("/v1/files?path=uploads%2Fnested", { headers: authHeaders(TOKEN) });
     assert.deepEqual(
       ((await listing.json()) as { entries: Array<{ name: string }> }).entries.map((entry) => entry.name),
       ["shot.png"],
@@ -96,7 +93,7 @@ test("rename moves a directory with its children and keeps the tree reachable", 
     assert.equal(await readFile(join(root, "new", "deep", "inner.txt"), "utf-8"), "inner");
 
     // 改名後も一覧の path として辿れる (親の一覧にも新しい名前だけが出る)
-    const listing = await service.app.request("/v1/files?path=new%2Fdeep", { headers: authHeaders() });
+    const listing = await service.app.request("/v1/files?path=new%2Fdeep", { headers: authHeaders(TOKEN) });
     assert.equal(listing.status, 200);
     assert.deepEqual(
       ((await listing.json()) as { entries: Array<{ name: string }> }).entries.map((entry) => entry.name),

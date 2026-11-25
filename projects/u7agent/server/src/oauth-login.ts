@@ -7,7 +7,7 @@
  */
 import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
 import { httpError, messageFor } from "./http";
-import { MutationLock } from "./model-settings";
+import { SerialLock } from "./serial-lock";
 import type { OAuthLoginSelect, OAuthLoginSelectOption, OAuthLoginState } from "./schema";
 
 export const OAUTH_LOGIN_RUNTIME_UNAVAILABLE_MESSAGE = "ランタイムが利用できないため、サインインできません";
@@ -430,7 +430,7 @@ export class OAuthLoginService {
   #logins = new Map<string, OAuthLoginSession>();
   // キー変更と同じロックは使わない。進行中のサインインは分単位で待つため、同じロックで直列化すると
   // その間キーの保存が止まる。触るストアも違う (DB と auth.json)
-  #lock = new MutationLock();
+  #lock = new SerialLock();
 
   constructor(options: OAuthLoginOptions) {
     this.#runtime = options.runtime;

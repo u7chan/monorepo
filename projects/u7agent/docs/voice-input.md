@@ -3,6 +3,8 @@
 録音 1 回分の接続・期限・終了と、入力欄（Composer）への挿入の扱いをまとめる。ブラウザ側の状態機械は
 `client/src/lib/voiceInput/session.ts`、設定画面のプレイグラウンドは `client/src/lib/voiceInput/playground.ts`、
 入力欄の所有領域は `client/src/lib/voiceInput/draft.ts`、録音の制御は `client/src/lib/voiceInput/composer.ts`、
+入力欄への反映（開始位置の控え・途中文と確定テキストの差し替え・取消・焦点と演出・終了直後の保留）は
+`client/src/hooks/useComposerVoiceDraft.ts`、
 Realtime セッションの中継は [api-settings.md](api-settings.md#音声入力の-realtime-中継) を正とする。
 
 ## 接続

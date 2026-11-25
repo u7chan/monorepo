@@ -4,7 +4,7 @@
  */
 import type { SessionRecord } from "./session-record";
 
-/** SDK が実キューを一括でドレインする設定か (旧 SDK は `steeringMode` を持たない) */
+/** SDK が実キューを一括でドレインする設定か (スタブは `steeringMode` を持たないことがある) */
 export function batchesSteering(record: SessionRecord): boolean {
   return record.session.steeringMode === "all";
 }

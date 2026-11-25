@@ -2,8 +2,8 @@ import { createPiBff } from "./agent";
 import type { PiBff } from "./agent";
 import { ignoredModelEnvironmentVariables } from "./agent";
 import { join } from "node:path";
-import { CredentialSynchronizationError, readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { AppDb } from "./app-db";
+import { createBffRuntime, type BffRuntime } from "./bff-runtime";
 import { createAgentCatalog } from "./agents";
 import type { AgentCatalog } from "./agents";
 import { createPromptCatalog } from "./prompts";
@@ -14,32 +14,29 @@ import type { BackupModelResolver } from "./backup/plan";
 import type { BackupService } from "./backup/service";
 import type { ArchiveSettings } from "./archive-settings";
 import { BUILTIN_SKILLS } from "./builtin-skills";
-import { createDeviceIdStore, DEVICE_ID_PATH } from "./device-id";
 import { messageFor } from "./http";
 import { ContentSettingsService } from "./content-settings";
 import { ContentTrialsService } from "./content-trials";
 import { TRIAL_ARTIFACTS_DIR_NAME, createTrialArtifactStore } from "./content-trial-artifacts";
 import { createTrialDiskCheck, type TrialStatfs } from "./content-trial-disk-space";
 import { createImageCatalog } from "./image-catalog";
-import { CODEX_PROVIDER_ID, codexAuthOf, codexAuthStatusOf } from "./codex-images";
 import { createSpeechCatalog } from "./speech-catalog";
 import { allowPrivateCostHost, createContentCostCatalog, type ContentCostOptions } from "./content-cost";
 import { WebSearchSettingsService } from "./web-search-settings";
-import { createWebSearchTest, type WebSearchTest } from "./web-search-test";
+import type { WebSearchTest } from "./web-search-test";
 import { VoiceInputSettingsService } from "./voice-input";
 import { VoiceInputSessionService, type VoiceInputSessionTiming } from "./voice-input-session";
 import { TitleSummarySettingsService } from "./title-summary-settings";
 import { GitSettingsService } from "./git-settings";
 import {
-  createTitleSummaryGenerate,
   createTitleSummaryTest,
   type TitleSummaryGenerate,
   type TitleSummaryHost,
   type TitleSummaryTest,
 } from "./title-summary";
 import { TitleSummaryQueue } from "./title-summary-queue";
-import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
-import { OAuthLoginService, canSignInHere, type OAuthLoginRuntime } from "./oauth-login";
+import { ModelSettingsService } from "./model-settings";
+import { OAuthLoginService } from "./oauth-login";
 import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
@@ -246,6 +243,94 @@ export type BffContext = {
 };
 
 export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<BffContext> {
+  // 段はこの順で呼ぶ。並びだけで守られている起動順の理由は、それぞれの呼び出しの上に書く。
+  const started = await startRuntime(opts);
+  const { runtime } = started;
+  // DB の例外文言に登録済みキーが現れても、ログ / health / 503 に生のまま載せないよう、マスカーの境界を DB より先に作る。
+  const storage = await openStorage(opts, started);
+  // 鍵輪は、アプリ DB に暗号化して保存した行 (シークレット / APIキー / Webhook URL) を読み書きする前に作る。
+  const keys = loadMasterKeys();
+  // モデルとサインインは DB を希望状態の正として SDK へ写す。セッション作成の前 (listen 前) に 1 回だけ通す。
+  const model = await applyModelSettings({ opts, appDb: storage.appDb, appCipher: keys.appCipher, runtime });
+  // コンテンツ生成は provider キーとは別の行なので、モデルの適用が失敗しても独立に適用する。
+  const content = await applyContentSettings({
+    opts,
+    appDb: storage.appDb,
+    storeDir: storage.storeDir,
+    appCipher: keys.appCipher,
+    runtime,
+  });
+  // 外部連携の設定も同じ鍵輪を使う。会話タイトルの生成器は、この後の SessionStore が受け取る。
+  const integration = await applyIntegrationSettings({ opts, appDb: storage.appDb, keys, runtime });
+  // 会話ストアはカタログ・通知・サンドボックスの束を要するので、それらを作ってから開いて前のプロセスの状態を戻す。
+  const conversation = await openConversation({
+    opts,
+    cwd: started.cwd,
+    appDb: storage.appDb,
+    storeDir: storage.storeDir,
+    sessionStore: storage.sessionStore,
+    sessionStoreError: storage.sessionStoreError,
+    appCipher: keys.appCipher,
+    titleSummarySettings: integration.titleSummarySettings,
+    titleSummaryGenerate: integration.titleSummaryGenerate,
+    runtime,
+  });
+  // serve と公開は SessionStore の実体 (所有者の判定経路) を要するので、会話を開いた後に作る。
+  const publishing = await startPublishing({
+    opts,
+    cwd: started.cwd,
+    appDb: storage.appDb,
+    storeDir: storage.storeDir,
+    runtime,
+    conversation,
+    secrets: integration.secrets,
+    cloudflareSettings: integration.cloudflareSettings,
+  });
+  return {
+    cwd: started.cwd,
+    pi: runtime.pi,
+    initError: started.initError,
+    catalog: conversation.catalog,
+    prompts: conversation.prompts,
+    projects: conversation.projects,
+    store: conversation.store,
+    workspace: conversation.workspace,
+    runtimeDiagnostics: conversation.runtimeDiagnostics,
+    skillSandbox: conversation.skillSandbox,
+    skillArchiveSandbox: conversation.skillArchiveSandbox,
+    backup: publishing.backup,
+    sessionStore: conversation.sessionStore,
+    appDb: storage.appDb,
+    notifications: conversation.notifications,
+    archiveSettings: conversation.archiveSettings,
+    modelSettings: model.modelSettings,
+    oauthLogin: model.oauthLogin,
+    contentSettings: content.contentSettings,
+    contentTrials: content.contentTrials,
+    webSearchSettings: integration.webSearchSettings,
+    webSearchTest: integration.webSearchTest,
+    voiceInputSettings: integration.voiceInputSettings,
+    voiceInputSession: integration.voiceInputSession,
+    titleSummarySettings: integration.titleSummarySettings,
+    titleSummaryTest: integration.titleSummaryTest,
+    gitSettings: integration.gitSettings,
+    serve: publishing.serve,
+    secrets: integration.secrets,
+    cloudflareSettings: integration.cloudflareSettings,
+    cloudflareConnection: publishing.cloudflareConnection,
+    sharedContents: publishing.sharedContents,
+    sharedContentExclusions: conversation.sharedContentExclusions,
+  };
+}
+
+/** 段 1: pi の組み立てと、ランタイムなしの代替 */
+type StartedRuntime = {
+  cwd: string;
+  initError: string | undefined;
+  runtime: BffRuntime;
+};
+
+async function startRuntime(opts: CreateBffAppOptions): Promise<StartedRuntime> {
   const cwd = opts.cwd ?? process.cwd();
   let pi: PiBff | null = opts.pi ?? null;
   let initError: string | undefined;
@@ -257,10 +342,18 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       console.error(`[u7agent] Pi runtime unavailable: ${initError}`);
     }
   }
-  // DB の例外文言に登録済みキーが現れても、ログ / health / 503 に生のまま載せない境界を先に作る。
-  // 可変マスカーなので、起動後に登録されたキーにも効く。pi が無いときだけ identity に落ちる。
-  const maskError = (text: string): string => (pi ? pi.secretMasker.mask(text) : text);
+  return { cwd, initError, runtime: createBffRuntime(pi) };
+}
 
+/** 段 2: 会話ストアの置き場とアプリ DB */
+type StorageStage = {
+  appDb: AppDb;
+  storeDir: string | null;
+  sessionStore: SessionStoreStatus;
+  sessionStoreError: string | undefined;
+};
+
+async function openStorage(opts: CreateBffAppOptions, { cwd, runtime }: StartedRuntime): Promise<StorageStage> {
   // 会話ストアはサンドボックスと共有しない。設定ミス (ワークスペース内の指定) は永続化なしに落とし、
   // health で理由を見せてセッション作成だけを 503 で止める。
   let sessionStore: SessionStoreStatus = { path: null, ok: true };
@@ -287,33 +380,55 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     }
   }
   const appDb = sessionStoreError
-    ? AppDb.unavailable({ storeDir, error: sessionStoreError, sanitizeError: maskError })
-    : AppDb.open({ storeDir, sanitizeError: maskError });
+    ? AppDb.unavailable({ storeDir, error: sessionStoreError, sanitizeError: runtime.maskError })
+    : AppDb.open({ storeDir, sanitizeError: runtime.maskError });
 
-  // プロバイダー API キーは DB を希望状態の正とし、起動時に SDK の runtime overlay へ写す。
-  // 失敗しても起動は続け、degraded として設定画面から回復できるようにする。
-  // 利用可能なモデルとアプリ既定モデルは DB を正とし、起動時に pi の実行時選択へ写す。
-  // provider キーとは別の読取なので、片方が読めなくても他方の適用と最後の再計算を行う。
+  return { appDb, storeDir, sessionStore, sessionStoreError };
+}
+
+/** 段 3: シークレットとアプリ DB の暗号に使うマスターキー輪 */
+type KeyStage = {
+  cipher: SecretCipher | null;
+  appCipher: AppSecretCipher | null;
+  unavailableReason: string | undefined;
+};
+
+function loadMasterKeys(): KeyStage {
   // シークレットとアプリ DB のキー / Webhook URL は同じ鍵輪を使い、host 側 (環境変数 / 鍵ファイル) から受け取る。
   // 未設定 / 壊れた宣言では「秘密の利用」だけを拒否し、変数 (平文) と起動は続行する。
-  const secretCrypto = (() => {
-    let cipher: SecretCipher | null = null;
-    let appCipher: AppSecretCipher | null = null;
-    let unavailableReason: string | undefined;
-    try {
-      const ring = resolveMasterKeys(process.env);
-      cipher = ring ? createSecretCipher(ring) : null;
-      appCipher = ring ? createAppSecretCipher(ring) : null;
-      if (!ring) unavailableReason = "シークレットの master key が未設定です (U7AGENT_SECRET_MASTER_KEY)";
-    } catch (error) {
-      unavailableReason =
-        error instanceof SecretKeyError
-          ? error.message
-          : `シークレットの master key を読み込めません: ${messageFor(error)}`;
-      console.error(`[u7agent] secret master key unavailable: ${unavailableReason}`);
-    }
-    return { cipher, appCipher, unavailableReason };
-  })();
+  let cipher: SecretCipher | null = null;
+  let appCipher: AppSecretCipher | null = null;
+  let unavailableReason: string | undefined;
+  try {
+    const ring = resolveMasterKeys(process.env);
+    cipher = ring ? createSecretCipher(ring) : null;
+    appCipher = ring ? createAppSecretCipher(ring) : null;
+    if (!ring) unavailableReason = "シークレットの master key が未設定です (U7AGENT_SECRET_MASTER_KEY)";
+  } catch (error) {
+    unavailableReason =
+      error instanceof SecretKeyError
+        ? error.message
+        : `シークレットの master key を読み込めません: ${messageFor(error)}`;
+    console.error(`[u7agent] secret master key unavailable: ${unavailableReason}`);
+  }
+  return { cipher, appCipher, unavailableReason };
+}
+
+/** 段 4: プロバイダー API キーと OAuth サインイン */
+type ModelStage = {
+  oauthLogin: OAuthLoginService;
+  modelSettings: ModelSettingsService;
+};
+
+async function applyModelSettings(input: {
+  opts: CreateBffAppOptions;
+  appDb: AppDb;
+  appCipher: AppSecretCipher | null;
+  runtime: BffRuntime;
+}): Promise<ModelStage> {
+  const { opts, appDb, appCipher, runtime } = input;
+  // プロバイダー API キーは DB を希望状態の正とし、起動時に SDK の runtime overlay へ写す。
+  // 失敗しても起動は続け、degraded として設定画面から回復できるようにする。
   const ignoredEnvironmentVariables = ignoredModelEnvironmentVariables();
   if (ignoredEnvironmentVariables.length > 0) {
     console.warn(
@@ -326,25 +441,44 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // 希望状態を写し直す係を渡す。実体 (ModelSettingsService) はこの後で作るので、束縛だけを遅らせる
   let reapplyStoredKey: (provider: string) => Promise<void> = async () => {};
   const oauthLogin = new OAuthLoginService({
-    runtime: pi ? createOAuthLoginRuntime(pi) : null,
-    refresh: pi ? pi.refreshModelState : async () => {},
+    runtime: runtime.oauthLogin(),
+    refresh: runtime.refreshModelState,
     reapplyStoredKey: (provider) => reapplyStoredKey(provider),
-    maskError,
+    maskError: runtime.maskError,
   });
   const modelSettings = new ModelSettingsService({
     db: appDb,
-    runtime: pi ? createProviderKeyRuntime(pi) : null,
+    runtime: runtime.providerKeys(),
     oauthLogin,
-    retainSecret: pi ? pi.retainSecret : () => {},
-    maskError,
-    refreshModelState: pi ? pi.refreshModelState : async () => {},
-    setModelSelection: pi ? pi.setModelSelection : () => {},
+    retainSecret: runtime.retainSecret,
+    maskError: runtime.maskError,
+    refreshModelState: runtime.refreshModelState,
+    setModelSelection: runtime.setModelSelection,
     probeFetch: opts.customProviderProbeFetch,
     ignoredEnvironmentVariables,
-    appCipher: secretCrypto.appCipher,
+    appCipher,
   });
   reapplyStoredKey = (provider) => modelSettings.reapplyStoredKey(provider);
+  // 利用可能なモデルとアプリ既定モデルは DB を正とし、起動時に pi の実行時選択へ写す。
+  // provider キーとは別の読取なので、片方が読めなくても他方の適用と最後の再計算を行う。
   await modelSettings.applyStored();
+  return { oauthLogin, modelSettings };
+}
+
+/** 段 5: コンテンツ生成のカタログ・設定・試行 */
+type ContentStage = {
+  contentSettings: ContentSettingsService;
+  contentTrials: ContentTrialsService;
+};
+
+async function applyContentSettings(input: {
+  opts: CreateBffAppOptions;
+  appDb: AppDb;
+  storeDir: string | null;
+  appCipher: AppSecretCipher | null;
+  runtime: BffRuntime;
+}): Promise<ContentStage> {
+  const { opts, appDb, storeDir, appCipher, runtime } = input;
   // コンテンツ生成は provider キーとは独立した 1 行で、行の有無を PiBff のツール公開へ写す。
   // 書込は自分のロックで直列化し、applyStored() も同じロックを通す（model-settings と同じ順序）。
   // モデル一覧は live を正とし、取得できないときは前回の成功（アプリ DB）→ SDK 同梱へ落ちる。
@@ -362,34 +496,20 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   });
   const contentSettings = new ContentSettingsService({
     db: appDb,
-    runtimeAvailable: pi !== null,
-    retainSecret: pi ? pi.retainSecret : () => {},
+    runtimeAvailable: runtime.available,
+    retainSecret: runtime.retainSecret,
     catalog: imageCatalog,
     speechCatalog,
     cost: costCatalog,
-    setContentGeneration: pi ? pi.setContentGeneration : () => {},
-    // 表示には auth.json の保存値だけを使う（GET でトークン解決・外部通信を起こさない）。
-    // 生成の実行時だけ SDK に解決させ、返ったアクセストークンはマスカーへ入れてから使う
-    codexAuth: {
-      status: pi
-        ? () => codexAuthStatusOf(join(pi.agentDir, "auth.json"))
-        : () => ({ state: "missing" as const, kind: null }),
-      resolve: pi
-        ? async () => {
-            const auth = await pi.modelRuntime.getAuth(CODEX_PROVIDER_ID);
-            const access = auth?.auth.apiKey;
-            if (access) pi.retainSecret(access);
-            return codexAuthOf(access);
-          }
-        : async () => undefined,
-    },
-    maskError,
-    appCipher: secretCrypto.appCipher,
+    setContentGeneration: runtime.setContentGeneration,
+    codexAuth: runtime.codexAuth,
+    maskError: runtime.maskError,
+    appCipher,
   });
   await contentSettings.applyStored();
   // 形式の学習結果は派生データだが、再起動後に同じ 400 往復を繰り返さないためアプリ DB へ残す。
   // 生成器は PiBff が持ち、DB はここが持つので、注入は setServe などと同じ形にする
-  pi?.setSpeechFormatStore({
+  runtime.setSpeechFormatStore({
     read: (model) => appDb.readSpeechFormat(model),
     save: (model, format) => appDb.saveSpeechFormat(model, format),
   });
@@ -399,38 +519,62 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   const contentTrials = new ContentTrialsService({
     db: appDb,
     source: contentSettings.trialSource(),
-    generateImage: pi ? pi.generateImage : undefined,
+    generateImage: runtime.generateImage,
     // 音声も同じジョブの仕組みに載せる。未注入（ランタイムなしで起動）は画像と同じく 503 にする
-    generateSpeech: pi ? pi.generateSpeech : undefined,
+    generateSpeech: runtime.generateSpeech,
     // BGM の生成器はチャットの `generate_bgm` と同じもの（同時実行枠も共有する）
-    generateBgm: pi ? pi.generateBgm : undefined,
+    generateBgm: runtime.generateBgm,
     artifacts: trialArtifactsDir ? createTrialArtifactStore(trialArtifactsDir) : undefined,
     // 生成の前に置き場の空きを見る（永続化なしの構成では保存できないため、判定しない）
     diskSpace: trialArtifactsDir
       ? createTrialDiskCheck({ dir: trialArtifactsDir, statfs: opts.trialStatfs })
       : undefined,
-    maskError,
+    maskError: runtime.maskError,
   });
   await contentTrials.applyStored();
+  return { contentSettings, contentTrials };
+}
+
+/** 段 6: Web 検索・音声入力・タイトル要約・Git・環境変数・Cloudflare の資格情報 */
+type IntegrationStage = {
+  webSearchSettings: WebSearchSettingsService;
+  webSearchTest: WebSearchTest | null;
+  voiceInputSettings: VoiceInputSettingsService;
+  voiceInputSession: VoiceInputSessionService;
+  titleSummarySettings: TitleSummarySettingsService;
+  titleSummaryGenerate: TitleSummaryGenerate | null;
+  titleSummaryTest: TitleSummaryTest | null;
+  gitSettings: GitSettingsService;
+  secrets: SecretService;
+  cloudflareSettings: CloudflareSettingsService;
+};
+
+async function applyIntegrationSettings(input: {
+  opts: CreateBffAppOptions;
+  appDb: AppDb;
+  keys: KeyStage;
+  runtime: BffRuntime;
+}): Promise<IntegrationStage> {
+  const { opts, appDb, keys, runtime } = input;
   // Web 検索は「既定 OFF / Exa」なので、行が無ければ無効のまま立ち、設定行とキーがあるときだけ写す。
   // コンテンツ生成と同じく、写しはロックの内側で差し替える (設定 API と起動時の適用を直列化する)
   const webSearchSettings = new WebSearchSettingsService({
     db: appDb,
-    setWebSearch: pi ? pi.setWebSearch : () => {},
-    retainSecret: pi ? pi.retainSecret : () => {},
-    maskError,
-    cipher: secretCrypto.appCipher,
-    runtimeAvailable: pi !== null,
+    setWebSearch: runtime.setWebSearch,
+    retainSecret: runtime.retainSecret,
+    maskError: runtime.maskError,
+    cipher: keys.appCipher,
+    runtimeAvailable: runtime.available,
   });
   await webSearchSettings.applyStored();
   // 音声入力のキーはコンテンツ生成 (OpenRouter) とは別の行で、OpenAI Platform のキーを AEAD で保存する。
   // 起動時に復号できたキーだけをマスカーへ入れ、疎通確認と中継は同じ利用判定を通す
   const voiceInputSettings = new VoiceInputSettingsService({
     db: appDb,
-    runtimeAvailable: pi !== null,
-    retainSecret: pi ? pi.retainSecret : () => {},
-    maskError,
-    appCipher: secretCrypto.appCipher,
+    runtimeAvailable: runtime.available,
+    retainSecret: runtime.retainSecret,
+    maskError: runtime.maskError,
+    appCipher: keys.appCipher,
     ...(opts.voiceInputFetch === undefined ? {} : { fetchImpl: opts.voiceInputFetch }),
   });
   await voiceInputSettings.applyStored();
@@ -441,52 +585,83 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     ...(opts.voiceInputSessionTiming === undefined ? {} : { timing: opts.voiceInputSessionTiming }),
   });
   // テスト検索はツールと同じ runner と同じ設定の写しを使う (画面とチャットで結果が食い違わない)
-  const webSearchTest: WebSearchTest | null = pi
-    ? createWebSearchTest({
-        runtime: () => webSearchSettings.runtime(),
-        masker: pi.secretMasker,
-        ...(opts.webSearchTestFetch === undefined ? {} : { fetchImpl: opts.webSearchTestFetch }),
-      })
-    : null;
+  const webSearchTest = runtime.webSearchTest(() => webSearchSettings.runtime(), opts.webSearchTestFetch);
   // 会話タイトルの AI 要約はモデル / 定義を DB で持つ。生成は会話ストアが判定し、ここは設定と 1 回の呼び出しだけ。
-  const titleSummarySettings = new TitleSummarySettingsService({ db: appDb, models: () => pi?.modelOptions ?? [] });
+  const titleSummarySettings = new TitleSummarySettingsService({ db: appDb, models: runtime.modelOptions });
   await titleSummarySettings.applyStored();
   // Git の identity はサンドボックスの global gitconfig へ exec のたびに写す。DB が読めないときは null
   // (= useConfigOnly だけ) に倒し、古い identity を使い回さない
   const gitSettings = new GitSettingsService({ db: appDb });
-  pi?.setGitIdentity(gitSettings);
+  runtime.setGitIdentity(gitSettings);
   const titleSummaryGenerate: TitleSummaryGenerate | null =
-    opts.titleSummaryGenerate !== undefined
-      ? opts.titleSummaryGenerate
-      : pi
-        ? createTitleSummaryGenerate(
-            {
-              resolveModel: (model) => pi.resolveModel(model),
-              // sessionId (プロバイダーのルーティング)・出力予算・Effort・取消をそのまま渡す
-              complete: (model, context, options) => pi.modelRuntime.completeSimple(model, context, options),
-            },
-            pi.secretMasker,
-          )
-        : null;
+    opts.titleSummaryGenerate !== undefined ? opts.titleSummaryGenerate : runtime.titleSummaryGenerate();
   const titleSummaryTest: TitleSummaryTest | null = titleSummaryGenerate
     ? createTitleSummaryTest(() => titleSummarySettings.runtime(), titleSummaryGenerate)
     : null;
   const secrets = new SecretService({
     store: appDb,
-    cipher: secretCrypto.cipher,
-    ...(secretCrypto.unavailableReason ? { unavailableReason: secretCrypto.unavailableReason } : {}),
-    retainSecret: pi ? pi.retainSecret : () => {},
+    cipher: keys.cipher,
+    ...(keys.unavailableReason ? { unavailableReason: keys.unavailableReason } : {}),
+    retainSecret: runtime.retainSecret,
   });
   // Cloudflare の資格情報も同じ鍵輪を使う。公開トークンは agent / sandbox へ渡さず、
   // 公開バックエンドと接続確認が credential() で読むまで BFF のメモリ外へ出さない。
   const cloudflareSettings = new CloudflareSettingsService({
     db: appDb,
-    cipher: secretCrypto.cipher,
-    retainSecret: pi ? pi.retainSecret : () => {},
+    sharedContents: appDb.sharedContents,
+    cipher: keys.cipher,
+    retainSecret: runtime.retainSecret,
   });
   // エージェントの bash へ渡す変数は exec のたびに解決する (変更が「次の bash」から効く) ため、
   // 値ではなく解決関数を注入する。シークレットはここに含めない (serve の起動時だけ渡す)。
-  pi?.setSessionEnv({ variablesFor: (cwd) => secrets.variablesFor(cwd) });
+  runtime.setSessionEnv({ variablesFor: (cwd) => secrets.variablesFor(cwd) });
+  return {
+    webSearchSettings,
+    webSearchTest,
+    voiceInputSettings,
+    voiceInputSession,
+    titleSummarySettings,
+    titleSummaryGenerate,
+    titleSummaryTest,
+    gitSettings,
+    secrets,
+    cloudflareSettings,
+  };
+}
+
+/** 段 7: 会話ストアと、それを組み立てるカタログ・通知・サンドボックスの束 */
+type ConversationStage = {
+  prompts: PromptCatalog;
+  catalog: AgentCatalog;
+  projects: ProjectStore;
+  notifications: NotificationService;
+  archiveSettings: ArchiveSettings;
+  sharedContentExclusions: SharedContentExclusions;
+  sandboxClient: ReturnType<typeof createSandboxToolClientFromEnv> | undefined;
+  workspace: SandboxWorkspaceClient | null;
+  runtimeDiagnostics: SandboxRuntimeDiagnostics | null;
+  skillSandbox: SandboxSkillFileClient | null;
+  skillArchiveSandbox: SandboxSkillArchiveClient | null;
+  previewSandbox: SandboxDownloadPlanClient | null;
+  store: SessionStore;
+  sessionStore: SessionStoreStatus;
+};
+
+async function openConversation(input: {
+  opts: CreateBffAppOptions;
+  cwd: string;
+  appDb: AppDb;
+  storeDir: string | null;
+  sessionStore: SessionStoreStatus;
+  sessionStoreError: string | undefined;
+  appCipher: AppSecretCipher | null;
+  titleSummarySettings: TitleSummarySettingsService;
+  titleSummaryGenerate: TitleSummaryGenerate | null;
+  runtime: BffRuntime;
+}): Promise<ConversationStage> {
+  const { opts, cwd, appDb, storeDir, appCipher, runtime, titleSummarySettings, titleSummaryGenerate } = input;
+  // ストアの準備 (init) に失敗したら、この段の戻り値の状態も 503 側へ倒す
+  let { sessionStore, sessionStoreError } = input;
   // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる。
   // ツールの一覧はアプリ側の実効 (キー / 実行時トグル / serve host / 環境変数) を取得時に写すため、
   // 値ではなく pi の解決関数を渡す (runtime が無いときは空 = クライアントが「取得できていない」と出す)
@@ -497,7 +672,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       description: skill.description,
       version: skill.version,
     })),
-    tools: () => pi?.toolCatalog() ?? [],
+    tools: runtime.toolCatalog,
     db: appDb,
     prompts,
   });
@@ -505,11 +680,11 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // 通知はセッションと同じ secret masker を使い、本文とエラーから秘密値を落とす
   const notifications = new NotificationService({
     db: appDb,
-    masker: pi?.secretMasker,
+    masker: runtime.masker,
     fetchImpl: opts.notificationFetch,
-    cipher: secretCrypto.appCipher,
-    runtimeAvailable: pi !== null,
-    retainSecret: pi ? pi.retainSecret : () => {},
+    cipher: appCipher,
+    runtimeAvailable: runtime.available,
+    retainSecret: runtime.retainSecret,
   });
   // アーカイブの除外名は設定ストアが唯一の決定点で、サンドボックスへはリクエストごとに渡す
   const archiveSettings = createArchiveSettings({ db: appDb });
@@ -539,9 +714,9 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   const previewSandbox =
     opts.previewSandbox !== undefined ? opts.previewSandbox : sandboxClient !== undefined ? sandboxClient : null;
   const store = new SessionStore({
-    pi,
+    pi: runtime.pi,
     catalog,
-    masker: pi?.secretMasker,
+    masker: runtime.masker,
     projects,
     storeDir,
     storeError: sessionStoreError,
@@ -569,6 +744,52 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       console.error(`[u7agent] session store init failed: ${sessionStoreError}`);
     }
   }
+  return {
+    prompts,
+    catalog,
+    projects,
+    notifications,
+    archiveSettings,
+    sharedContentExclusions,
+    sandboxClient,
+    workspace,
+    runtimeDiagnostics,
+    skillSandbox,
+    skillArchiveSandbox,
+    previewSandbox,
+    store,
+    sessionStore,
+  };
+}
+
+/** 段 8: serve・共有コンテンツの公開・Cloudflare の接続確認・バックアップ */
+type PublishingStage = {
+  serve: ServeService;
+  sharedContents: SharedContentsService;
+  cloudflareConnection: CloudflareConnectionService;
+  backup: BackupService;
+};
+
+async function startPublishing(input: {
+  opts: CreateBffAppOptions;
+  cwd: string;
+  appDb: AppDb;
+  storeDir: string | null;
+  runtime: BffRuntime;
+  conversation: ConversationStage;
+  secrets: SecretService;
+  cloudflareSettings: CloudflareSettingsService;
+}): Promise<PublishingStage> {
+  const { opts, cwd, appDb, storeDir, runtime, conversation, secrets, cloudflareSettings } = input;
+  const {
+    store,
+    sandboxClient,
+    workspace,
+    skillSandbox,
+    skillArchiveSandbox,
+    previewSandbox,
+    sharedContentExclusions,
+  } = conversation;
   // serve の実体はアプリデータ (実績) とサンドボックスの両方を持つここで作り、GUI のルートと
   // エージェントの serve ツールの両方へ同じものを渡す (所有者の判定経路を 1 本に保つ)
   const serveSandbox =
@@ -581,13 +802,13 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     sandboxHost: opts.serveHost ?? sandboxHostFromUrl(process.env.PI_SANDBOX_URL),
     ...(opts.serveProbe ? { probe: opts.serveProbe } : {}),
   });
-  pi?.setServe(createServeToolHost(serve));
+  runtime.setServe(createServeToolHost(serve));
   // ask_user の待機は run 状態と同じ SessionStore が持つ。ツール定義はこのホストへ委譲する
-  pi?.setAskUser(store.askUserHost());
+  runtime.setAskUser(store.askUserHost());
   // egress の承認も同じ SessionStore が持つ (メモリのみ、abort / 削除で未承認へ戻す)
-  pi?.setNetworkAccess(store.networkAccessHost());
+  runtime.setNetworkAccess(store.networkAccessHost());
   // investigate の子 runner も SessionStore が持つ。子は record に載せず、親 run の signal で止める
-  pi?.setInvestigate(store.investigateHost());
+  runtime.setInvestigate(store.investigateHost());
   // 公開と接続確認が同じ client 設定（base URL / timeout / fetch）を使うよう、factory はここ 1 箇所に置く
   const createCloudflare = (credential: CloudflareCredential) =>
     new CloudflareApiClient({
@@ -596,15 +817,15 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       ...(opts.cloudflareFetch ? { fetchImpl: opts.cloudflareFetch } : {}),
     });
   const sharedContents = new SharedContentsService({
-    store: appDb,
+    store: appDb.sharedContents,
     sessions: store,
     workspace,
     planSandbox: previewSandbox,
     credentials: cloudflareSettings,
     createCloudflare,
     rootCwd: cwd,
-    maskError,
-    secretValues: () => pi?.secretMasker.secrets ?? [],
+    maskError: runtime.maskError,
+    secretValues: runtime.secretValues,
     exclusions: sharedContentExclusions,
     // サムネイルも DB と同じ領域の兄弟 (`<storeDir>/shared-thumbnails`) に置く。
     // 永続化なしの構成 (storeDir が無い) では保存できないので、配信も 503 になる
@@ -616,39 +837,18 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   });
   // 中断した公開を起動時に回収する。失敗しても起動は止めず、行は publishing + lastError のまま残す
   await sharedContents.recoverInterrupted().catch((error) => {
-    console.warn(`[u7agent] shared content recovery failed: ${maskError(messageFor(error))}`);
+    console.warn(`[u7agent] shared content recovery failed: ${runtime.maskError(messageFor(error))}`);
   });
   // サムネイルの行と実体を揃える。行の無いファイルを消し、実体の無い行を未設定へ倒す
   await sharedContents.reconcileThumbnails().catch((error) => {
-    console.warn(`[u7agent] shared content thumbnail reconciliation failed: ${maskError(messageFor(error))}`);
+    console.warn(`[u7agent] shared content thumbnail reconciliation failed: ${runtime.maskError(messageFor(error))}`);
   });
   /**
    * 復元でのモデルの可否は、セッション作成と同じ実効一覧で判定する。APIキー未設定で一覧が空、
    * またはカタログが取れていないときは判断せず保持する (docs/backup.md)。
    */
   const backupModels: BackupModelResolver =
-    opts.backupModels ??
-    ((model) => {
-      if (!pi || pi.availabilityError) return "unknown";
-      const runtimeCatalog = pi.modelCatalog;
-      if (!runtimeCatalog || runtimeCatalog.catalogCount === 0) return "unknown";
-      const inCatalog = runtimeCatalog.providers.some(
-        (provider) => provider.provider === model.provider && provider.models.some((entry) => entry.id === model.id),
-      );
-      if (!inCatalog) return "not_in_catalog";
-      let allowed: { provider: string; id: string }[] | null = null;
-      try {
-        allowed = appDb.readModelSettings()?.allowedModels ?? null;
-      } catch {
-        // 許可リストを読めないときは「明示的な除外」を判断しない (モデルを落とさない)
-        allowed = null;
-      }
-      if (allowed && !allowed.some((ref) => ref.provider === model.provider && ref.id === model.id)) {
-        return "not_allowed";
-      }
-      if (pi.modelOptions.length === 0) return "unknown";
-      return pi.resolveModel(model) ? "available" : "unknown";
-    });
+    opts.backupModels ?? runtime.backupModels(() => appDb.readModelSettings()?.allowedModels ?? null);
 
   const backup = createBackupService({
     db: appDb,
@@ -658,183 +858,12 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     models: backupModels,
     // 組み込みスキルは同梱物が正で、ツールは pi の実効一覧。どちらも取れない構成では判定しない
     knownSkills: () => ({ builtin: BUILTIN_SKILLS.map((skill) => skill.name) }),
-    knownTools: () => pi?.toolCatalog().map((tool) => tool.name),
+    knownTools: runtime.knownToolNames,
   });
-
-  return {
-    cwd,
-    pi,
-    initError,
-    catalog,
-    prompts,
-    projects,
-    store,
-    workspace,
-    runtimeDiagnostics,
-    skillSandbox,
-    skillArchiveSandbox,
-    backup,
-    sessionStore,
-    appDb,
-    notifications,
-    archiveSettings,
-    modelSettings,
-    oauthLogin,
-    contentSettings,
-    contentTrials,
-    webSearchSettings,
-    webSearchTest,
-    voiceInputSettings,
-    voiceInputSession,
-    titleSummarySettings,
-    titleSummaryTest,
-    gitSettings,
-    serve,
-    secrets,
-    cloudflareSettings,
-    cloudflareConnection,
-    sharedContents,
-    sharedContentExclusions,
-  };
+  return { serve, sharedContents, cloudflareConnection, backup };
 }
 
 /** 会話ストアへ渡す AI 要約の口。設定は呼び出しのたびに読み、世代の比較はストアが行う */
 function titleSummaryHost(settings: TitleSummarySettingsService, generate: TitleSummaryGenerate): TitleSummaryHost {
   return { settings: () => settings.runtime(), generate };
-}
-
-/** SDK のログインで名乗る名前。同意画面の `agent_name_hint` に出る静的な文字列で、秘密情報ではない */
-export const OAUTH_AGENT_NAME = "u7agent";
-
-/**
- * SDK の ModelRuntime を OAuthLoginRuntime へ写す。`login` の戻り値 (credential) は捨て、保存は SDK に委ねる。
- * device id は agent dir 配下のファイルへ永続化し、プロセスを再起動しても同じ UUID を返す。
- */
-export function createOAuthLoginRuntime(pi: PiBff): OAuthLoginRuntime {
-  const { modelRuntime } = pi;
-  const deviceIds = createDeviceIdStore(join(pi.agentDir, DEVICE_ID_PATH), (message) =>
-    console.warn(`[u7agent] ${message}`),
-  );
-  return {
-    list: () =>
-      modelRuntime.getProviders().map((provider) => ({
-        provider: provider.id,
-        supportsOAuth: Boolean(provider.auth?.oauth),
-        oauthLoginLabel: provider.auth?.oauth?.loginLabel ?? null,
-      })),
-    loginOAuth: (provider, interaction) =>
-      settleCredentialOperation("login", provider, () =>
-        modelRuntime.login(provider, "oauth", interaction, {
-          getDeviceId: () => deviceIds.getOrCreate(),
-          agentName: OAUTH_AGENT_NAME,
-        }),
-      ),
-    logoutOAuth: (provider, { signal }) =>
-      settleCredentialOperation("logout", provider, () => modelRuntime.logout(provider, { signal })),
-    credentialKind: (provider) => (modelRuntime.isUsingOAuth(provider) ? "oauth" : null),
-    // readStoredCredential は読取に失敗したら undefined を返す。種別以外はここで捨てる
-    storedCredentialKind: (provider) => readStoredCredential(provider, join(pi.agentDir, "auth.json"))?.type,
-  };
-}
-
-/**
- * SDK は auth.json への commit 後に snapshot の同期が失敗しても CSE を投げるため、provider と操作が
- * 一致する CSE だけを「保存済み・反映は次回の再計算で追いつく」として成功に倒す (credential は返さない)。
- */
-async function settleCredentialOperation(
-  operation: "login" | "logout",
-  provider: string,
-  run: () => Promise<unknown>,
-): Promise<void> {
-  try {
-    await run();
-  } catch (error) {
-    if (
-      error instanceof CredentialSynchronizationError &&
-      error.providerId === provider &&
-      error.operation === operation
-    ) {
-      console.warn(`[u7agent] oauth ${operation} credential synced late: ${provider}`);
-      return;
-    }
-    throw error;
-  }
-}
-
-/**
- * SDK の ModelRuntime を ProviderKeyRuntime へ写す。SDK の例外は throw せず CredentialCommit へ分類し、
- * `credential` / `cause` / 生の例外文言はこの境界から外へ出さない。
- */
-export function createProviderKeyRuntime(pi: PiBff): ProviderKeyRuntime {
-  const { modelRuntime } = pi;
-  // SDK が実際に読む保存先と同じパス。表示専用の覗き見にだけ使う
-  const storedAuthPath = join(pi.agentDir, "auth.json");
-  return {
-    list: () =>
-      modelRuntime.getProviders().map((provider) => {
-        const supportsOAuth = Boolean(provider.auth?.oauth);
-        return {
-          provider: provider.id,
-          name: provider.name || provider.id,
-          // auth.apiKey.login は「対話でキー入力を受け付ける」印。ambient / keyless は login を持たない
-          canSetApiKey: Boolean(provider.auth?.apiKey?.login),
-          supportsOAuth,
-          // 画面がサインインの操作を出せるかの判定。OAuth を求める方式でも、この画面が扱えない対話を
-          // 必要とする flow はここで false になる (許可リストは oauth-login 側が持つ)
-          canSignInHere: canSignInHere(provider.id, supportsOAuth),
-          // OAuth の表示名だけを渡す (ログイン手段の名前で、トークンや client_id ではない)
-          oauthLoginLabel: provider.auth?.oauth?.loginLabel ?? null,
-        };
-      }),
-    auth: (provider) => modelRuntime.getProviderAuthStatus(provider),
-    credentialKind: (provider) => (modelRuntime.isUsingOAuth(provider) ? "oauth" : "api_key"),
-    // readStoredCredential は読取に失敗したら undefined を返す。種別以外はここで捨てる
-    storedCredentialKind: (provider) => readStoredCredential(provider, storedAuthPath)?.type,
-    // 認証の有無を見ない getModels() を引く (未認証のモデルも許可リストには入れられる)
-    catalog: () => modelRuntime.getModels().map((model) => ({ provider: model.provider, id: model.id })),
-    refreshCatalog: (options) => pi.refreshModelCatalog(options),
-    catalogSnapshot: () => pi.modelCatalog,
-    applyApiKey: (provider, apiKey, { signal }) =>
-      commitCredential("setRuntimeApiKey", provider, signal, () =>
-        modelRuntime.setRuntimeApiKey(provider, apiKey, { signal }),
-      ),
-    removeApiKey: (provider, { signal }) =>
-      commitCredential("removeRuntimeApiKey", provider, signal, () =>
-        modelRuntime.removeRuntimeApiKey(provider, { signal }),
-      ),
-    // SDK の検証は登録内容の反映前に行われるため、throw しても旧登録は残る (呼び出し側が 400 にする)
-    registerProvider: (provider, config) =>
-      modelRuntime.registerProvider(provider, {
-        name: config.name,
-        baseUrl: config.baseUrl,
-        api: config.api,
-        models: config.models.map((model) => ({ ...model, type: "chat" as const })),
-      }),
-    unregisterProvider: (provider) => modelRuntime.unregisterProvider(provider),
-  };
-}
-
-/**
- * SDK は Map への commit 後に同期が失敗した場合も CSE を投げるため、例外を「未適用」と見なさない。
- * provider / operation が一致する CSE だけを commit 済みと判定し、timeout・実行中 abort は unknown に倒す。
- */
-async function commitCredential(
-  operation: "setRuntimeApiKey" | "removeRuntimeApiKey",
-  provider: string,
-  signal: AbortSignal,
-  run: () => Promise<unknown>,
-): Promise<CredentialCommit> {
-  // 開始前と確実に識別できる abort だけを not_applied とする (呼び出し側の timeout が先に切れている場合)。
-  if (signal.aborted) return { outcome: "not_applied" };
-  try {
-    await run();
-    return { outcome: "applied", synced: true };
-  } catch (error) {
-    if (error instanceof CredentialSynchronizationError) {
-      return error.providerId === provider && error.operation === operation
-        ? { outcome: "applied", synced: false }
-        : { outcome: "unknown" };
-    }
-    return { outcome: "unknown" };
-  }
 }

@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { Bubble } from "../src/lib/chatTypes";
 
-// MessageView は AttachedFiles 経由で api.ts (location.origin を読む) を辿るため、先に shim を置く
+// MessageView は AttachedFiles 経由で api/http.ts (location.origin を読む) を辿るため、先に shim を置く
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { MessageView } = await import("../src/components/chat/MessageView");
 

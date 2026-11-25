@@ -20,17 +20,14 @@ export function SidebarResizeHandle({ width, min, max, preview, commit, reset }:
   const drag = usePointerDrag({
     start: width,
     move: (deltaX, start) => {
-      // 開始幅からの絶対計算にする (clamp で端に貼り付いても、戻せば追従する)。
       // ハンドルは左バーの右端にあるため、右へ動かす = 幅を増やす
       const next = clampSidebarWidth(start + deltaX, bounds);
       preview(next);
-      // 読み上げの値も表示と同じタイミングで動かす (state へ入るのは終了時)
       handleRef.current?.setAttribute("aria-valuenow", String(next));
       return next;
     },
     end: (value, start) => {
       handleRef.current?.setAttribute("aria-valuenow", String(value));
-      // 移動ゼロのクリックは幅を選んだ操作ではないので、commit も保存もしない
       if (value !== start) commit(value);
     },
   });

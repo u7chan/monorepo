@@ -53,7 +53,6 @@ export function DiscordCard({
               aria-label="Webhook URL"
               autoComplete="off"
               spellCheck={false}
-              // updater は遅延評価されるため、イベントの値は updater の外で読む (currentTarget は null になる)
               onChange={(event) => {
                 const value = event.currentTarget.value;
                 onChangeWebhookUrl(value);

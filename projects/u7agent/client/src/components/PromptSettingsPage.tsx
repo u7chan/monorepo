@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { reorderPrompts } from "../api";
+import { useRef, useState } from "react";
+import { reorderPrompts } from "../api/catalog";
 import { usePrompts } from "../hooks/usePrompts";
 import { useWideLayout } from "../hooks/useLayoutMode";
-import { reorderRows } from "../lib/agentReorder";
+import { useLatestRef } from "../hooks/useLatestRef";
+import { useListDetailPane } from "../hooks/useListDetailPane";
+import { reorderRows } from "../lib/listReorder";
+import { orderFailureNoteText } from "../lib/orderNote";
 import { cn } from "../lib/cn";
 import { MEMORY_NOTE, RELOAD_ABOVE_NOTE } from "../lib/settingsNotes";
 import {
@@ -38,16 +41,10 @@ function PromptLoadError({ message }: { message: string }) {
   );
 }
 
-/** 一覧と詳細のどちらを見せるか。並列表示では使わない */
-type PromptView = "list" | "detail";
-
-/** 並べ替えの失敗の文言。保存されたかどうかで伝えることを分ける（client/src/lib/reorderFlow.ts） */
+/** 並べ替えの失敗の文言。保存できなかった場合の共通の文に、取り直しだけの文を足す（client/src/lib/orderNote.ts） */
 function orderNoteText(kind: ReorderNoteKind, message: string): string {
-  if (kind === "rejected") return `並び順を保存できませんでした。${message}`;
-  if (kind === "unknown") {
-    return `並び順を保存できたか確認できません。再読み込みするとサーバーの並びに合わせます。（${message}）`;
-  }
-  return `並び順は保存しましたが、${message}`;
+  if (kind === "refresh") return `並び順は保存しましたが、${message}`;
+  return orderFailureNoteText(kind, message);
 }
 
 /**
@@ -70,8 +67,8 @@ export function PromptSettingsPage({
   const prompts = usePrompts({ onChanged: refreshCatalog });
   const wide = useWideLayout();
   const split = !singleColumn && wide;
-  const [view, setView] = useState<PromptView>("list");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const pane = useListDetailPane({ split, selectedId: editingId, rowAttribute: "data-prompt-row" });
   // 新規の下書き中は、一覧が届いても選択を勝手に埋めない (空のフォームへ入力し始めた値を消さない)
   const [creating, setCreating] = useState(false);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
@@ -82,23 +79,16 @@ export function PromptSettingsPage({
   const list = prompts.state.prompts;
   const loadError = prompts.state.status === "error" ? prompts.state.message : undefined;
 
-  // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/reorderFlow が持ち、
+  // 並べ替えの下書きと保存。ドラッグの計算は lib/listReorder、保存の手順は lib/reorderFlow が持ち、
   // ここは state への反映と文言だけを持つ（エージェントの一覧と同じ組み方）
   const [order, setOrder] = useState<ReorderState>({ draft: null, saving: false });
-  const orderDeps = useRef({
+  const orderDeps = useLatestRef({
     list,
     applyOrder: prompts.applyOrder,
     applyPromptOrder,
     refresh: prompts.refresh,
     setNoteText,
   });
-  orderDeps.current = {
-    list,
-    applyOrder: prompts.applyOrder,
-    applyPromptOrder,
-    refresh: prompts.refresh,
-    setNoteText,
-  };
   const [orderFlow] = useState(() =>
     createReorderFlow({
       ids: () => orderDeps.current.list.filter((prompt) => prompt.kind === "custom").map((prompt) => prompt.id),
@@ -148,7 +138,7 @@ export function PromptSettingsPage({
 
   const selectPrompt = (nextId: string | null) => {
     setEditingId(nextId);
-    if (!split) setView("detail");
+    pane.openDetail();
   };
 
   const startNewPrompt = () => {
@@ -156,38 +146,6 @@ export function PromptSettingsPage({
     setNoteText("新しい定型プロンプトを作成します。");
     selectPrompt(null);
   };
-
-  // 一覧 ⇄ 詳細の焦点。詳細では見出しへ、戻ったときは選択中の行へ移す (docs/ui-layout.md)
-  const listRef = useRef<HTMLDivElement>(null);
-  const detailRef = useRef<HTMLDivElement>(null);
-  const previousView = useRef<PromptView>(view);
-  useEffect(() => {
-    const previous = previousView.current;
-    previousView.current = view;
-    if (split || previous === view) return;
-    if (view === "detail") {
-      detailRef.current?.focus();
-      return;
-    }
-    const row = editingId
-      ? listRef.current?.querySelector<HTMLButtonElement>(`[data-prompt-row="${CSS.escape(editingId)}"] button`)
-      : undefined;
-    (row ?? listRef.current?.querySelector<HTMLButtonElement>("button"))?.focus();
-  }, [view, split, editingId]);
-
-  // 詳細の Escape は一覧へ戻す。capture で受け、App の「設定 → チャット」より先に消費する
-  useEffect(() => {
-    if (split || view !== "detail") return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (document.querySelector("dialog[open], :popover-open")) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setView("list");
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [split, view]);
 
   const confirm = useConfirm();
 
@@ -210,7 +168,7 @@ export function PromptSettingsPage({
       // 保存そのものは成功している。取り直しの失敗だけを別の文で伝える
       const saved = promptMutationNote("saved", result.refreshError);
       setNoteText(saved.text, saved.error);
-      if (!split) setView("list");
+      pane.backToList();
     } finally {
       setBusy(false);
     }
@@ -230,7 +188,7 @@ export function PromptSettingsPage({
       setEditingId(null);
       const deleted = promptMutationNote("deleted", result.refreshError);
       setNoteText(deleted.text, deleted.error);
-      if (!split) setView("list");
+      pane.backToList();
     } finally {
       setBusy(false);
     }
@@ -258,8 +216,8 @@ export function PromptSettingsPage({
   const detail = (
     <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
       <SettingsDetailHeader
-        ref={detailRef}
-        back={split ? undefined : { label: "定型プロンプト一覧へ", onClick: () => setView("list") }}
+        ref={pane.detailRef}
+        back={split ? undefined : { label: "定型プロンプト一覧へ", onClick: pane.backToList }}
         heading={editingPrompt?.label ?? "新しい定型プロンプト"}
         title={
           split ? (
@@ -324,8 +282,8 @@ export function PromptSettingsPage({
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
-      note={split || view === "list" ? note : undefined}
-      collapseHeader={singleColumn && view === "detail"}
+      note={split || pane.view === "list" ? note : undefined}
+      collapseHeader={singleColumn && pane.view === "detail"}
     >
       {loadError !== undefined && list.length === 0 ? (
         <PromptLoadError message={loadError} />
@@ -351,14 +309,14 @@ export function PromptSettingsPage({
             <div className="grid min-h-0 min-w-0 grid-rows-1">
               {/* 一覧は隠れている間も mount したままにする (検索語とスクロールを詳細との往復で失わない) */}
               <div
-                ref={listRef}
-                hidden={view === "detail"}
-                inert={view === "detail"}
+                ref={pane.listRef}
+                hidden={pane.view === "detail"}
+                inert={pane.view === "detail"}
                 className="grid min-h-0 grid-rows-1"
               >
                 {listPane}
               </div>
-              {view === "detail" ? detail : null}
+              {pane.view === "detail" ? detail : null}
             </div>
           )}
         </div>

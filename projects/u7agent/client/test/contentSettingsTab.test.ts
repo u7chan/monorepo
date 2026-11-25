@@ -7,9 +7,10 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
-import { ContentCostSection, ContentSettingsTab } from "../src/components/content-settings/ContentSettingsTab";
+import { ContentCostSection } from "../src/components/content-settings/ContentCostSection";
+import { ContentSettingsTab } from "../src/components/content-settings/ContentSettingsTab";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
-import type { ContentSavingAction } from "../src/lib/contentSettings";
+import type { ContentSavingAction } from "../src/lib/contentSettings/shared";
 import type { ContentSubsection } from "../src/lib/settingsNav";
 import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings, ContentTrial } from "../src/types";
 
@@ -932,7 +933,7 @@ const BGM_TRIAL_BASE: ContentTrial = {
 
 test("BGM の面は固定モデルと試行の入力・再生を出し、モデル選択と長さの指定は出さない", () => {
   const html = render({ subsection: "bgm", trials: [BGM_TRIAL_BASE] });
-  // 保存される設定はモデルの読取専用 1 行だけ（Issue の非ゴール: モデル選択を持たない）
+  // 保存される設定はモデルの読取専用 1 行だけ（モデル選択はこの面では持たない）
   assert.match(html, /aria-label="BGM生成の固定モデル"[^>]*readOnly=""/);
   assert.equal((html.match(/<select/g) ?? []).length, 0, "生成タブに履歴の絞り込みを出さない");
   // 尺・BPM・ループの入力は持たない（注記で「保証しない」と伝えるだけ）

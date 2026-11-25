@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 import type { Space } from "server";
 import { messageFor } from "../lib/errors";
 import { handoffAgentId, type HandoffAgentChoice, type SessionHandoffDialogText } from "../lib/sessionHandoff";
+import { AgentChoiceList } from "./AgentChoiceList";
 import { MenuItem } from "./MenuItem";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { WorkDialog } from "./WorkDialog";
@@ -75,7 +76,6 @@ export function SessionHandoffDialog({
           ...(handoffAgentId(choice) === undefined ? {} : { agentId: handoffAgentId(choice) }),
           memo: memoDisabledReason === "" && memo,
         });
-        // 閉じるまで busy を戻さない (成功後に二重送信できないように)
         shellRef.current?.requestClose();
       } catch (err) {
         // 一覧の状態は巻き戻さず、理由だけをこの画面へ出す
@@ -113,24 +113,15 @@ export function SessionHandoffDialog({
         </p>
       ))}
 
-      <div className="grid gap-1.5">
-        <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">{text.agentLabel}</span>
-        <div className="grid gap-1">
-          {agents.map((agent) => (
-            <MenuItem
-              key={agent.id}
-              label={agent.current ? `${agent.name}（現在）` : agent.name}
-              variant="choice"
-              selected={agent.id === agentId}
-              current="true"
-              onClick={() => {
-                setAgentId(agent.id);
-                setError("");
-              }}
-            />
-          ))}
-        </div>
-      </div>
+      <AgentChoiceList
+        label={text.agentLabel}
+        agents={agents}
+        agentId={agentId}
+        onSelect={(id) => {
+          setAgentId(id);
+          setError("");
+        }}
+      />
 
       {projectSession ? null : (
         <div className="grid gap-1.5">

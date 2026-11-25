@@ -38,7 +38,7 @@ import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
 import type { SecretMasker } from "./redact";
 import { SPEECH_TOOL_NAME } from "./speech-tools";
 import { BGM_TOOL_NAME } from "./bgm-tools";
-import { cwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
+import { joinCwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
 
 export const IMAGE_TOOL_NAME = "generate_image";
 
@@ -370,10 +370,7 @@ export interface ImageToolDefinitionOptions {
   masker: SecretMasker;
   /** 実行のたびに読む。未設定・削除後は undefined（キー無効エラー） */
   readSettings: () => ImageGenerationSettings | undefined;
-  /**
-   * 実行のたびに読む有効 / 無効。OFF は provider を叩く前に固定文言で止める（セッション作成時に
-   * 凍結しないので、既存の会話にも次の呼び出しから効く）。省くと常に有効
-   */
+  /** 実行のたびに読む有効 / 無効。省略すると常に有効 */
   readEnabled?: () => boolean;
   /** 実行のたびに読むカタログの形式宣言。未知名・宣言なしは undefined（＝止めない） */
   readOutputFormats: (model: string) => readonly string[] | undefined;
@@ -404,7 +401,6 @@ export function createImageToolDefinitions(options: ImageToolDefinitionOptions):
     parameters: generateImageSchema,
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     async execute(_toolCallId, params: GenerateImageParams, signal) {
-      // 判定を execute まで遅らせないと、OFF が既存セッションの次の呼び出しに効かない
       if (!(options.readEnabled?.() ?? true)) throw new Error(CONTENT_DISABLED_MESSAGE);
       // 支出の前に path・参照画像・形式を検証する。dir と name は実際に保存するまで確定しない
       const explicit = params.path === undefined ? undefined : parseToolPath(params.path);
@@ -467,7 +463,7 @@ export function createImageToolDefinitions(options: ImageToolDefinitionOptions):
         signal,
       });
       // 同名はサンドボックスが `-1` を付けて退避するため、実際に保存された名前を返す
-      const path = cwdRelativePath(dir, uploaded.name);
+      const path = joinCwdRelativePath(dir, uploaded.name);
       // 使用モデルを結果本文へ残す。投影 (toolResultSummary) は先頭 900 文字で切るため、
       // 長い path でもモデルが欠けないよう先頭の行に置く。会話履歴は session.jsonl の toolResult を正とするため、
       // ここに載せた行が (ライブ / 復元後の両方で) ツール履歴の出力として見える (docs/image-generation.md)

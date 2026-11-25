@@ -1,6 +1,6 @@
 # 静的コンテンツ共有の設計判断
 
-公開単位・Cloudflare の資格情報・記録と移行・共有物のライフサイクル・公開の実行モデルなど、実装より先に決めた契約と、採用しなかった案。実装は `server/src/shared-contents.ts`、HTTP 契約は [static-sharing-api.md](static-sharing-api.md)、画面と既知の制限は [static-sharing.md](static-sharing.md) を参照する。状態・列・上限値の正は実装とテスト（`server/src/app-db.ts`）。
+公開単位・Cloudflare の資格情報・記録と移行・共有物のライフサイクル・公開の実行モデルなど、実装より先に決めた契約と、採用しなかった案。実装は `server/src/shared-contents.ts`、HTTP 契約は [static-sharing-api.md](static-sharing-api.md)、画面と既知の制限は [static-sharing.md](static-sharing.md) を参照する。状態・行の形の正は `server/src/shared-content-repository.ts`、列の正は `server/src/app-db-schema.ts`。
 
 ## 決定事項
 
@@ -26,7 +26,7 @@
 
 ### 記録と移行
 
-- `shared_contents` と `cloudflare_settings` をアプリデータの SQLite に持つ。列は `server/src/app-db.ts` を正とする。
+- `shared_contents` と `cloudflare_settings` をアプリデータの SQLite に持つ。列は `server/src/app-db-schema.ts` を正とする。
 - どちらも**列追加だけの加算移行**を恒久ルールとし、`DROP_TABLES` に入れない（[persistence.md](persistence.md#アプリデータsqlite)）。行が消えると Cloudflare 側の公開物を追跡・停止・削除できなくなるため。
 - `shared_contents` は `provider` と `providerAccount` と `remoteId` の組を一意にし、同じ公開先を 2 つの共有物が指さないようにする（`remoteId` が未作成の行は複数持てる）。
 - 公開の受付時に `provider` / `providerAccount` / `remoteId` / `publicUrl` を確定して保存する（script 名は id から、URL は script 名とアカウントの workers.dev サブドメインから決まり、以後変えない）。
@@ -44,7 +44,7 @@
 
 ### 共有物のライフサイクル
 
-状態は `SharedContentStatus`（`server/src/app-db.ts`）で表し、許可する遷移は API 側で検証する。`status` は**外部から見た現在の公開状態**で、最後の操作の成否ではない。
+状態は `SharedContentStatus`（`server/src/shared-content-repository.ts`）で表し、許可する遷移は API 側で検証する。`status` は**外部から見た現在の公開状態**で、最後の操作の成否ではない。
 
 - `failed` は一度も公開できていない状態。未公開の行を停止したとき、照会で無効や script の不在を確認したときもここへ寄せる。停止は受け付けず、公開の再試行（更新）だけを受け付ける。
 - `stopped` は公開実績（`publishedAt !== null`）のある行だけが取る。**`published` / `stopped` は `publishedAt !== null` を不変条件にする。** 公開実績の無い行を再公開で `published` に戻すと、subdomain を有効にしただけで deployment の無い URL が「公開済み」になる。

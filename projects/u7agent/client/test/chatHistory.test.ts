@@ -1,7 +1,7 @@
 // 全履歴ページのマージ / 前置き / 再構築の純関数テスト。実 DOM は使わず、バブル列と区切りの順序・状態だけを固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Bubble, CompactionMarker } from "../src/lib/chatTypes";
+import type { Bubble, CompactionMarker, ToolCard } from "../src/lib/chatTypes";
 import type { HistoryBundle } from "../src/lib/chatHistory";
 import {
   applyHistoryCounts,
@@ -10,6 +10,7 @@ import {
   mergeHistoryPage,
   prependHistoryPage,
   rebuildHistoryPage,
+  rebuildToolBubbleIds,
 } from "../src/lib/chatHistory";
 import type { CompactionInfo, HistoryItem, HistoryMessageItem, HistoryPage } from "../src/types";
 
@@ -585,4 +586,18 @@ test("historyItemsToBundle は assistant のモデルを写し、null は不明�
   assert.equal(bundle.bubbles[0]?.model, "openai/gpt-6-luna");
   assert.equal(bundle.bubbles[1]?.model, null);
   assert.equal(bundle.bubbles[2]?.model, undefined, "user はモデルを持たない");
+});
+
+// What: 同じ call が 2 つのバブルに載っても、索引は先に持つバブルだけを指す (後に足した分で持ち主を変えない)
+test("rebuildToolBubbleIds は同じ call を最初に持つバブルへ割り当てる", () => {
+  const card = (id: string): ToolCard => ({ id, name: "read", args: "{}", phase: "done", output: "" });
+  const bubble = (id: number, text: string, tools: ToolCard[]): Bubble => ({
+    id,
+    role: "assistant",
+    text,
+    tools,
+    skillLoads: [],
+  });
+  const bubbles = [bubble(1, "", [card("call-a")]), bubble(2, "本文", [card("call-a"), card("call-b")])];
+  assert.deepEqual(rebuildToolBubbleIds(bubbles), { "call-a": 1, "call-b": 2 });
 });

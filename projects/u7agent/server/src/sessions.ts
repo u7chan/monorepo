@@ -21,12 +21,20 @@ function settleQuestion(pending: PendingQuestion, finish: () => void): void {
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { dirname, posix } from "node:path";
 import { spaceIdOf } from "./spaces";
 import { sessionUploadsRel, workspaceAbs } from "./app-paths";
-import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
-import { composePromptSnapshot } from "./agent";
-import { buildHandoffSection, HANDOFF_FILE_NAME, type HandoffMemoSection } from "./handoff-memo";
+import { SANDBOX_SETUP_REQUIRED_MESSAGE, type PiBff } from "./agent";
+import { composePromptSnapshot } from "./session-prompt";
+import { applyHandoffMove, prepareHandoffMemo, type HandoffMoveFiles, type HandoffMovePort } from "./handoff-move";
+import { cleanupHistoryClear, clearedSessionMeta, confirmHistoryClear, type HistoryClearPort } from "./history-clear";
+import {
+  copyForkEntries,
+  discardForkedSession,
+  forkedSessionMeta,
+  writeForkedSession,
+  type ForkSessionFiles,
+  type ForkSessionPort,
+} from "./fork-session";
 import type { AssistantMetricsRow, AssistantMetricsStore, CwdKeyStore } from "./app-db";
 import { httpError, messageFor, type HttpError } from "./errors";
 import { sandboxFailureStatus } from "./http";
@@ -61,6 +69,7 @@ import { classifyRunError, composeRunError, retryWaitingText } from "./error-cla
 import { computeMessageMetrics, createRunEventBridge, type RunSettlement } from "./run-events";
 import { runDurationMs } from "./run-metrics";
 import { withoutThinking } from "./live-thinking";
+import { KeyedSerialLock } from "./serial-lock";
 import type {
   CreateSessionOptions,
   PendingQuestion,
@@ -74,11 +83,9 @@ import type {
 } from "./session-record";
 import { projectSessionPayload, projectSessionSummary } from "./session-payload";
 import { batchesSteering, sdkQueueLength, takenSendIdsOf } from "./session-steering";
-import { SANDBOX_MAX_HANDOFF_BYTES } from "./sandbox/protocol";
 import { RunOutcomeSchema } from "./schema";
 import {
   normalizeTitleText,
-  TITLE_ATTEMPT_ERROR_MAX,
   TITLE_MAX,
   TITLE_REQUEST_MAX,
   titleOriginOf,
@@ -88,13 +95,13 @@ import {
   type SessionTitleSummary,
   type TitleAttempt,
   type TitleOrigin,
-  type TitleSkipReason,
 } from "./session-title";
-import type { TitleSummaryHost, TitleSummaryResult, TitleSummaryUsage } from "./title-summary";
-import type { TitleSummaryRuntimeSettings } from "./title-summary-settings";
-import { TitleSummaryQueue, type TitleSummaryQueueResult } from "./title-summary-queue";
-import { contentText, displayableMessages, truncate } from "./session-projection";
-import { SessionRecordWrites, entriesOf, modelLabel } from "./session-record-writes";
+import type { TitleSummaryHost } from "./title-summary";
+import { TitleSummaryQueue } from "./title-summary-queue";
+import { TitleSummaryProgress } from "./title-summary-progress";
+import { displayableMessages, truncate } from "./session-projection";
+import { formatModelRef, modelLabel, parseModelRef } from "./model-ref";
+import { SessionRecordWrites, entriesOf } from "./session-record-writes";
 import type { SandboxHandoffClient, SandboxMoveClient, SandboxWorkspaceClient } from "./sandbox/client";
 import { SandboxRequestError } from "./sandbox/client";
 import {
@@ -111,11 +118,9 @@ import {
   readSessionSends,
   removeSessionDir,
   removeSessionHistory,
-  sessionHeaderOf,
   sessionJsonlPath,
   sessionWorkdirRel,
   writeSessionMeta,
-  writeSessionDir,
   ASSISTANT_ID_FIELD,
   writeSessionSends,
   type PromptSnapshot,
@@ -299,23 +304,6 @@ function assistantMetricsRowOf(
   };
 }
 
-/** 補助呼び出しの usage を試行の記録へ写す (タイトルを採用できなくても消費した分を残す) */
-function usageFields(usage: TitleSummaryUsage | undefined): Partial<TitleAttempt> {
-  if (!usage) return {};
-  return {
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    costTotal: usage.costTotal,
-  };
-}
-
-function parseModelLabel(value: string | undefined): ModelRef | undefined {
-  if (!value) return undefined;
-  const slash = value.indexOf("/");
-  if (slash <= 0 || slash === value.length - 1) return undefined;
-  return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
-}
-
 /** SSE のカーソル。`<generation>:<seq>` を基本とし、旧クライアントの数値のみも受ける */
 export function parseEventCursor(raw: string | undefined): { generation?: string; seq: number } | undefined {
   if (raw === undefined || raw.trim() === "") return undefined;
@@ -331,16 +319,6 @@ export function parseEventCursor(raw: string | undefined): { generation?: string
 function lastEntryId(entries: SessionEntryLike[]): string | undefined {
   const last = entries[entries.length - 1];
   return typeof last?.id === "string" ? last.id : undefined;
-}
-
-/**
- * 境界 entry までの複製。境界が未指定 (境界の時点で entry 0 件) は空、指定された境界が
- * 読み直した記録に無ければ undefined (中途半端な履歴を子へ書かない)。
- */
-function copiedEntries(entries: SessionEntryLike[], boundaryId: string | undefined): SessionEntryLike[] | undefined {
-  if (boundaryId === undefined) return [];
-  const index = entries.findIndex((entry) => entry.id === boundaryId);
-  return index === -1 ? undefined : entries.slice(0, index + 1);
 }
 
 /**
@@ -426,9 +404,9 @@ export class SessionStore {
   /** id ごとのライフサイクル (load / evict)。完了まで同じ id の再ロードを待たせる */
   lifecycle: Map<string, Promise<unknown>>;
   /** 未ロード会話の meta-only 更新。タイトル・通知・ピン間で保存コピーを直列化する */
-  metaUpdates: Map<string, Promise<void>>;
+  metaUpdates: KeyedSerialLock<string>;
   /** 同一会話のピン更新。save / restore / delete と競合しないよう直列化する */
-  pinUpdates: Map<string, Promise<void>>;
+  pinUpdates: KeyedSerialLock<string>;
   /** 削除予約中の id */
   deleting: Set<string>;
   /**
@@ -453,6 +431,8 @@ export class SessionStore {
   titleSummary: TitleSummaryHost | null;
   /** 補助呼び出しの共有枠 (同時実行数・待ち期限) */
   titleSummaryQueue: TitleSummaryQueue;
+  /** AI 要約の進行 (判定・予約・順番待ち・適用・取消)。状態の遷移はこちらが持つ */
+  private readonly titleProgress: TitleSummaryProgress;
   /** 送信対応記録の書込み (テスト差し替え用) */
   writeSendsFile: (storeDir: string, id: string, sends: SessionSends) => void;
   /** 保存経路 (meta / JSONL / 送信対応記録)。順序と失敗時の扱いはこちらが持つ */
@@ -496,6 +476,21 @@ export class SessionStore {
     this.notifications = notifications ?? null;
     this.titleSummary = titleSummary ?? null;
     this.titleSummaryQueue = titleSummaryQueue ?? new TitleSummaryQueue();
+    this.titleProgress = new TitleSummaryProgress({
+      masker: this.masker,
+      isLive: (record) => this.records.get(record.id) === record,
+      assertLive: (record) => this.assertRecordLive(record),
+      isBusy: (record) => this.isBusy(record),
+      isRunning: (record) => this.runInProgress(record),
+      persist: (record) => this.persist(record, { jsonl: false }),
+      resync: (record) => {
+        this.emitResync(record);
+      },
+      host: () => this.titleSummary,
+      queue: () => this.titleSummaryQueue,
+      storeDir: () => this.storeDir,
+      descriptors: () => this.descriptors,
+    });
     this.writeSendsFile = writeSends ?? writeSessionSends;
     this.investigator = createInvestigateRunner({
       masker: this.masker,
@@ -519,8 +514,8 @@ export class SessionStore {
     this.records = new Map();
     this.descriptors = new Map();
     this.lifecycle = new Map();
-    this.metaUpdates = new Map();
-    this.pinUpdates = new Map();
+    this.metaUpdates = new KeyedSerialLock();
+    this.pinUpdates = new KeyedSerialLock();
     this.deleting = new Set();
     this.handoffSaves = new WeakMap();
     this.pendingMoves = new Set();
@@ -557,30 +552,7 @@ export class SessionStore {
         console.warn(`[u7agent] セッションの meta.json を読めません: ${id}`);
       }
     }
-    await this.recoverInterruptedTitleAttempts();
-  }
-
-  /**
-   * 前のプロセスが予約 (pending) のまま落ちた試行を、起動時に interrupted として保存し直す。
-   * 未ロードの一覧だけを見ても「実行中」が残らないようにする (summaryOfMeta の投影と二重の防御)。
-   */
-  private async recoverInterruptedTitleAttempts(): Promise<void> {
-    const storeDir = this.storeDir;
-    if (!storeDir) return;
-    for (const [id, meta] of this.descriptors) {
-      if (meta.titleAttempt?.state !== "pending") continue;
-      const settled = settledTitleAttemptOf(meta.titleAttempt);
-      if (!settled) continue;
-      const updated = { ...meta, titleAttempt: settled };
-      this.descriptors.set(id, updated);
-      try {
-        await writeSessionMeta(storeDir, updated);
-      } catch (error) {
-        console.warn(
-          `[u7agent] 中断したタイトル試行の保存に失敗しました (${id}): ${this.masker.mask(messageFor(error))}`,
-        );
-      }
-    }
+    await this.titleProgress.recoverInterruptedAttempts();
   }
 
   async create({
@@ -762,7 +734,7 @@ export class SessionStore {
 
   private async ensureWorkdir(workdirRel: string): Promise<void> {
     if (!workdirRel) return;
-    if (!this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    if (!this.workspace) throw httpError(503, SANDBOX_SETUP_REQUIRED_MESSAGE);
     await this.workspace.createDir(workdirRel);
   }
 
@@ -850,7 +822,7 @@ export class SessionStore {
    * (作ると「ファイルが消えた」ように見える)。
    */
   private async requireSharedWorkdir(workdir: string): Promise<void> {
-    if (!this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    if (!this.workspace) throw httpError(503, SANDBOX_SETUP_REQUIRED_MESSAGE);
     try {
       await this.workspace.listFiles(workdir);
     } catch (error) {
@@ -868,7 +840,7 @@ export class SessionStore {
    */
   async requireProjectDir(cwd: string): Promise<void> {
     if (!this.storeDir) return;
-    if (!this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    if (!this.workspace) throw httpError(503, SANDBOX_SETUP_REQUIRED_MESSAGE);
     try {
       await this.workspace.listFiles(cwd);
     } catch (error) {
@@ -1050,7 +1022,7 @@ export class SessionStore {
       lastModel && typeof lastModel.provider === "string" && typeof lastModel.modelId === "string"
         ? { provider: lastModel.provider, id: lastModel.modelId }
         : undefined;
-    const candidate = [recordedModel, parseModelLabel(meta.model)].find(
+    const candidate = [recordedModel, parseModelRef(meta.model)].find(
       (reference) => reference && this.pi?.resolveModel?.(reference),
     );
     const lastThinking = [...entries].reverse().find((entry) => entry.type === "thinking_level_change");
@@ -1139,28 +1111,7 @@ export class SessionStore {
     }
   }
 
-  private async queueMetaUpdate<T>(id: string, update: () => Promise<T>): Promise<T> {
-    const previous = this.metaUpdates.get(id) ?? Promise.resolve();
-    const operation = previous.then(update);
-    const settled = operation.then(
-      () => {},
-      () => {},
-    );
-    this.metaUpdates.set(id, settled);
-    try {
-      return await operation;
-    } finally {
-      if (this.metaUpdates.get(id) === settled) this.metaUpdates.delete(id);
-    }
-  }
-
-  /**
-   * 通知トグル。model / thinkingLevel の設定変更と違い、SDK の設定変更も busy 判定も通さない
-   * (実行中でも切り替えられ、送るかどうかは finish 時点の値で決まる)。
-   * 未ロードのセッションは meta.json だけを書き換え、SDK セッションを開かない
-   * (モデルランタイムが使えない間でも通知を切り替えられるように)。
-   * 応答は live / 未ロード共通の `{ sessionId, notify }` だけにする (会話全文は返さない)。
-   */
+  /** 実行中でも切り替えられ、通知するかどうかは finish 時点の値で決まる。 */
   async setNotify(id: string, notify: boolean): Promise<SessionNotifyResponse | undefined> {
     // 復元中の id は完了を待つ (descriptor を先に書き換えると load の meta で上書きされる)
     const pending = this.lifecycle.get(id);
@@ -1168,21 +1119,31 @@ export class SessionStore {
     const live = this.records.get(id);
     if (live) {
       live.notify = notify;
-      // 履歴は変わらないので meta.json だけを書く
       await this.persist(live, { jsonl: false });
       // 保存失敗を成功扱いにしない (in-memory の実行は止めないが、この応答は 500)
       if (live.persistError) throw httpError(500, `セッションの保存に失敗しました: ${live.persistError}`);
       return { sessionId: live.id, notify: live.notify };
     }
-    return this.queueMetaUpdate(id, async () => {
+    return this.updateUnloadedMeta(
+      id,
+      (meta) => {
+        if (notify) meta.notify = true;
+        else delete meta.notify;
+      },
+      { sessionId: id, notify },
+    );
+  }
+
+  /** ランタイムが使えない間も更新できるよう、SDK セッションは開かない。 */
+  private updateUnloadedMeta<T>(id: string, update: (meta: SessionMeta) => void, response: T): Promise<T | undefined> {
+    return this.metaUpdates.run(id, async () => {
       if (this.deleting.has(id) || this.closing) return undefined;
+      // 待機前に読んだ descriptor を使うと、先行した更新を上書きしてしまう。
       const meta = this.descriptors.get(id);
       if (!meta || !this.storeDir) return undefined;
       const updated: SessionMeta = { ...meta };
-      if (notify) updated.notify = true;
-      else delete updated.notify;
+      update(updated);
       const storeDir = this.storeDir;
-      // 古い descriptor を独立保存して後続更新を消さないよう、直列化後に最新値を読む。
       const write = (async () => {
         await writeSessionMeta(storeDir, updated);
         this.descriptors.set(id, updated);
@@ -1195,27 +1156,13 @@ export class SessionStore {
       } finally {
         if (this.lifecycle.get(id) === write) this.lifecycle.delete(id);
       }
-      return { sessionId: id, notify };
+      return response;
     });
   }
 
   /** ピン留めは SDK の設定・履歴・最終使用時刻に触れず、live / 未ロードとも meta だけを更新する。 */
-  async setPinned(id: string, pinned: boolean): Promise<SessionPinnedResponse | undefined> {
-    const previous = this.pinUpdates.get(id) ?? Promise.resolve();
-    const update = previous.then(
-      () => this.setPinnedState(id, pinned),
-      () => this.setPinnedState(id, pinned),
-    );
-    const settled = update.then(
-      () => {},
-      () => {},
-    );
-    this.pinUpdates.set(id, settled);
-    try {
-      return await update;
-    } finally {
-      if (this.pinUpdates.get(id) === settled) this.pinUpdates.delete(id);
-    }
+  setPinned(id: string, pinned: boolean): Promise<SessionPinnedResponse | undefined> {
+    return this.pinUpdates.run(id, () => this.setPinnedState(id, pinned));
   }
 
   private async setPinnedState(id: string, pinned: boolean): Promise<SessionPinnedResponse | undefined> {
@@ -1240,35 +1187,17 @@ export class SessionStore {
       }
       return { sessionId: live.id, pinned: live.pinned };
     }
-    return this.queueMetaUpdate(id, async () => {
-      if (this.deleting.has(id) || this.closing) return undefined;
-      const meta = this.descriptors.get(id);
-      if (!meta || !this.storeDir) return undefined;
-      const updated: SessionMeta = { ...meta };
-      if (pinned) updated.pinned = true;
-      else delete updated.pinned;
-      const storeDir = this.storeDir;
-      const write = (async () => {
-        await writeSessionMeta(storeDir, updated);
-        this.descriptors.set(id, updated);
-      })();
-      this.lifecycle.set(id, write);
-      try {
-        await write;
-      } catch (error) {
-        throw httpError(500, `セッションの保存に失敗しました: ${messageFor(error)}`);
-      } finally {
-        if (this.lifecycle.get(id) === write) this.lifecycle.delete(id);
-      }
-      return { sessionId: id, pinned };
-    });
+    return this.updateUnloadedMeta(
+      id,
+      (meta) => {
+        if (pinned) meta.pinned = true;
+        else delete meta.pinned;
+      },
+      { sessionId: id, pinned },
+    );
   }
 
-  /**
-   * 会話タイトルの変更。notify と同じく SDK に触らず busy 判定も通さないため、実行中でも変えられる。
-   * 未ロードのセッションは meta.json だけを書き換え、SDK セッションを開かない。応答は
-   * `{ sessionId, title }` だけを返し、一覧と同じ正規化 (trim / マスク / 上限) 後の値を載せる。
-   */
+  /** 通知トグルと同様、実行中でも改名できる。 */
   async setTitle(id: string, title: string): Promise<SessionTitleResponse | undefined> {
     // 自動タイトルと同じ正規化を 1 行に収める (改行を持つ名前が一覧の行を崩さないように)
     const next = truncate(this.masker.mask(title).replace(/\s+/g, " ").trim(), TITLE_MAX);
@@ -1281,31 +1210,19 @@ export class SessionStore {
       live.title = next;
       // 手動改名を正とする。進行中の AI 要約は費用をかけ続けないよう取り消し、届いた結果も捨てる
       live.titleOrigin = "manual";
-      this.cancelTitleSummary(live);
+      this.titleProgress.cancel(live);
       await this.persist(live, { jsonl: false });
       if (live.persistError) throw httpError(500, `セッションの保存に失敗しました: ${live.persistError}`);
       return { sessionId: live.id, title: live.title };
     }
-    return this.queueMetaUpdate(id, async () => {
-      if (this.deleting.has(id) || this.closing) return undefined;
-      const meta = this.descriptors.get(id);
-      if (!meta || !this.storeDir) return undefined;
-      const updated: SessionMeta = { ...meta, title: next, titleOrigin: "manual" };
-      const storeDir = this.storeDir;
-      const write = (async () => {
-        await writeSessionMeta(storeDir, updated);
-        this.descriptors.set(id, updated);
-      })();
-      this.lifecycle.set(id, write);
-      try {
-        await write;
-      } catch (error) {
-        throw httpError(500, `セッションの保存に失敗しました: ${messageFor(error)}`);
-      } finally {
-        if (this.lifecycle.get(id) === write) this.lifecycle.delete(id);
-      }
-      return { sessionId: id, title: next };
-    });
+    return this.updateUnloadedMeta(
+      id,
+      (meta) => {
+        meta.title = next;
+        meta.titleOrigin = "manual";
+      },
+      { sessionId: id, title: next },
+    );
   }
 
   async updateSettings(record: SessionRecord, input: UpdateSessionSettingsInput): Promise<SessionPayload> {
@@ -1325,7 +1242,7 @@ export class SessionStore {
     // available へ厳密照合し、暗黙のフォールバックはしない
     const modelObject = input.model ? this.pi.resolveModel?.(input.model) : undefined;
     if (input.model && !modelObject) {
-      throw httpError(400, `Model is not available: ${input.model.provider}/${input.model.id}`);
+      throw httpError(400, `Model is not available: ${formatModelRef(input.model)}`);
     }
     const { session } = record;
     // フラグは変更開始前に同期的に予約する (await 後だと送信が割り込む)。
@@ -2000,7 +1917,7 @@ export class SessionStore {
   /**
    * 拒否済みの承認カードから、モデルを介さずに許可へ変える。モデルが再要求しないと救済できない
    * 状態を、ユーザーの直接の判断で開くための経路 (docs/sandbox.md)。承認は会話単位なので 443 全体が開き、
-   * 押したカードのホストの拒否記録だけを消す (ほかのホストの記録は #2452 でホスト単位になるまで残す)。
+   * 押したカードのホストの拒否記録だけを消す (ほかのホストの記録は残す)。
    */
   approveDeniedNetworkAccess(
     record: SessionRecord,
@@ -2683,7 +2600,7 @@ export class SessionStore {
     if (this.storeError) throw httpError(503, `会話ストアを利用できません: ${this.storeError}`);
     if (!this.storeDir) throw httpError(503, "セッションの移動には会話ストアが必要です");
     if (!this.moveSandbox || !this.workspace || !this.handoffSandbox) {
-      throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+      throw httpError(503, SANDBOX_SETUP_REQUIRED_MESSAGE);
     }
     const live = this.records.get(id);
     const meta = live?.meta ?? this.descriptors.get(id);
@@ -2715,9 +2632,13 @@ export class SessionStore {
     }
 
     const storeDir = this.storeDir;
-    const moveSandbox = this.moveSandbox;
-    const workspace = this.workspace;
-    const handoffSandbox = this.handoffSandbox;
+    const files: HandoffMoveFiles = {
+      storeDir,
+      moveSandbox: this.moveSandbox,
+      workspace: this.workspace,
+      handoffSandbox: this.handoffSandbox,
+      cwdKeys: this.cwdKeys,
+    };
     // 移動先も owner 経由で解く (同じスペースの引き継ぎでは共有フォルダのまま、メモはそこへ書く)
     const toWorkdir = meta.projectCwd ?? this.scratchOf(this.workdirOwnerOf(meta), target);
     const toUploads = sessionUploadsRel(this.uploadsOwnerOf(meta), target);
@@ -2738,80 +2659,20 @@ export class SessionStore {
 
     const operationId = generateHandoffOperationId();
     const at = Date.now();
-
-    // メモの下準備 (副作用なし)。材料と既存の HANDOFF.md をここで読み、会話の状態を変える前に拒否する。
-    // 追記後の全文を組み立てるのはここでの上限判定のためで、書込みは排他の中で再読取りして再適用する
-    let memoSection: HandoffMemoSection | undefined;
-    let memoExisting = "";
-    const memoPath = posix.join(toWorkdir, HANDOFF_FILE_NAME);
-    if (memo) {
-      const { parsed } = await readSessionFile(storeDir, id);
-      if (parsed.kind === "damaged") {
-        throw httpError(
-          400,
-          `保存された会話を読めないためメモを作れません (${parsed.reason})。「メモを作る」を外すと引き継げます`,
-        );
-      }
-      const section = buildHandoffSection({
-        entries: parsed.kind === "ok" ? parsed.entries : [],
-        title: current.title,
-        fromAgent: current.agent.name,
-        toAgent: agentInfo.name,
-        operationId,
-        at,
-        masker: this.masker,
-      });
-      if (!section) throw httpError(400, "メモにできる会話がまだありません。「メモを作る」を外すと引き継げます");
-      const readPath = moving ? posix.join(fromWorkdir, HANDOFF_FILE_NAME) : memoPath;
-      try {
-        memoExisting = (await handoffSandbox.readHandoff(readPath)).text;
-      } catch (error) {
-        if (error instanceof SandboxRequestError && error.status === 404) {
-          memoExisting = "";
-        } else {
-          throw httpError(
-            400,
-            `作業フォルダの HANDOFF.md を読めないためメモを作れません (${messageFor(error)})。「メモを作る」を外すと引き継げます`,
-          );
-        }
-      }
-      const total =
-        Buffer.byteLength(memoExisting, "utf8") +
-        // 先頭見出しのハッシュが既にあるときは追記されないので、追記分を足さずに評価する
-        // (確定前の失敗からの再試行で、全文がちょうど上限でも通す)
-        (memoExisting.split("\n", 1)[0]?.includes(section.hash) ? 0 : Buffer.byteLength(section.text, "utf8"));
-      if (total > SANDBOX_MAX_HANDOFF_BYTES) {
-        throw httpError(
-          400,
-          "HANDOFF.md が上限 (2 MiB) を超えるためメモを作れません。「メモを作る」を外すと引き継げます",
-        );
-      }
-      memoSection = section;
-    }
-
-    // meta 書換えより前の失敗だけを戻す。移動先に残った空ディレクトリは無害なので消さない
-    const undo: Array<() => Promise<void> | void> = [];
-    const rollback = async (): Promise<string | undefined> => {
-      let failure: string | undefined;
-      for (const step of [...undo].reverse()) {
-        try {
-          await step();
-        } catch (error) {
-          failure = failure ?? messageFor(error);
-        }
-      }
-      return failure;
-    };
-    const abortMove = async (): Promise<undefined> => {
-      const failure = await rollback();
-      if (failure) throw httpError(500, `移動を中止し、元の場所へ戻せませんでした: ${failure}`);
-      return undefined;
-    };
-    const failMove = async (error: unknown): Promise<never> => {
-      const failure = await rollback();
-      if (failure) throw httpError(500, `移動に失敗し、元の場所へ戻せませんでした: ${failure}`);
-      throw error instanceof SandboxRequestError ? httpError(sandboxFailureStatus(error), error.message) : error;
-    };
+    const prepared = memo
+      ? await prepareHandoffMemo(files, {
+          id,
+          title: current.title,
+          fromAgent: current.agent.name,
+          toAgent: agentInfo.name,
+          operationId,
+          at,
+          masker: this.masker,
+          moving,
+          fromWorkdir,
+          toWorkdir,
+        })
+      : undefined;
 
     const updated: SessionMeta = {
       ...current,
@@ -2821,104 +2682,58 @@ export class SessionStore {
       agentId,
       agent: agentInfo,
       promptSnapshot,
-      handoff: { operationId, at, memo: memoSection !== undefined, consumed: false } satisfies SessionHandoffRecord,
+      handoff: { operationId, at, memo: prepared !== undefined, consumed: false } satisfies SessionHandoffRecord,
       handoffCleanup: true,
     };
-    try {
-      if (moving) {
-        // 移動先の親は move が要求する (既存ディレクトリは成功扱いなので再実行でも冪等)
-        await workspace.createDir(dirname(toWorkdir));
-        await workspace.createDir(dirname(toUploads));
-        if (this.moveAborted(id)) return abortMove();
-
-        if (await this.moveSandboxEntry(moveSandbox, fromWorkdir, toWorkdir)) {
-          undo.push(async () => {
-            await moveSandbox.moveEntry(toWorkdir, fromWorkdir);
-          });
-        }
-        if (this.moveAborted(id)) return abortMove();
-
-        if (await this.moveSandboxEntry(moveSandbox, fromUploads, toUploads)) {
-          undo.push(async () => {
-            await moveSandbox.moveEntry(toUploads, fromUploads);
-          });
-        }
-        if (this.moveAborted(id)) return abortMove();
-
-        // cwd をキーにする行は移動先へ付け替える (値の AAD は cwd を含まないので再暗号化は不要)
-        try {
-          this.cwdKeys?.moveCwd(fromWorkdir, toWorkdir);
-        } catch (error) {
-          throw httpError(500, `環境変数とサービス実績の付け替えに失敗しました: ${messageFor(error)}`);
-        }
-        undo.push(() => this.cwdKeys?.moveCwd(toWorkdir, fromWorkdir));
-      }
-
-      // メモは確定より前に書く (確定した時点でメモの状態が最終になる)。失敗したらここまでの移動を戻す
-      if (memoSection) {
-        const written = await handoffSandbox.writeHandoff({
-          path: memoPath,
-          section: memoSection.text,
-          dedupeKey: memoSection.hash,
-        });
-        if (written.created) {
-          // 新規作成の rollback は、自分が書いた内容と一致するときだけ消す。既存への追記は戻さない
-          const expected = `${memoSection.text}${memoExisting}`;
-          undo.push(async () => {
-            await handoffSandbox.rollbackHandoff({ path: memoPath, expected });
-          });
-        }
-      }
-      if (this.moveAborted(id)) return abortMove();
-
-      await writeSessionMeta(storeDir, updated);
-      this.descriptors.set(id, updated);
-      if (live) live.meta = updated;
-    } catch (error) {
-      return failMove(error);
-    }
-
-    // ここから先は meta が確定済み。失敗しても戻さず、片付けの印を残して次回の保存 / 開くときに再試行する
-    let cleanupPending = false;
-    if (live) {
-      live.session.dispose?.();
-      this.records.delete(id);
-      // dispose 後の書込みを drain してから消す (削除後に書き戻されて未送信が復活しないように)
-      await this.recordWrites.drain(live);
-    }
-    try {
-      await removeSessionHistory(storeDir, id);
-    } catch {
-      cleanupPending = true;
-    }
-    if (!cleanupPending) {
-      this.deleteAssistantMetrics(id);
-      const cleared: SessionMeta = { ...updated };
-      delete cleared.handoffCleanup;
-      try {
-        await writeSessionMeta(storeDir, cleared);
-        this.descriptors.set(id, cleared);
-        if (live) live.meta = cleared;
-      } catch {
-        // 確定は済んでいる。印が残るだけなので次の保存で再試行する
-        cleanupPending = true;
-      }
-    }
+    const result = await applyHandoffMove(files, this.handoffMovePort(id, live, storeDir), {
+      id,
+      moving,
+      fromWorkdir,
+      fromUploads,
+      toWorkdir,
+      toUploads,
+      updated,
+      memo: prepared,
+      live,
+    });
+    if (result.kind === "aborted") return undefined;
     if (live) {
       // 確定後の失敗は、応答だけでなく購読中のタブへ resync でも伝える (開けない理由を先に出す)
-      if (cleanupPending) this.emitResync(live);
+      if (result.cleanupPending) this.emitResync(live);
       this.closeSubscribers(live);
     }
     return {
       sessionId: id,
       title: updated.title || "無題のセッション",
       spaceId: target,
-      memo: memoSection !== undefined,
-      cleanupPending,
+      memo: prepared !== undefined,
+      cleanupPending: result.cleanupPending,
     };
   }
 
-  /** 削除予約 / close を検出する。move は各 await の後でこれを見てロールバックする */
+  /**
+   * 引き継ぎの手順 (`handoff-move`) へ渡す口。private を公開せずに切り出すため、この場の closure にする。
+   * `live` は手順の開始時の record で、確定後の片付けで open から外れるまで同じものを指す。
+   */
+  private handoffMovePort(id: string, live: SessionRecord | undefined, storeDir: string): HandoffMovePort {
+    return {
+      isAborted: () => this.moveAborted(id),
+      saveMeta: async (meta) => {
+        await writeSessionMeta(storeDir, meta);
+        this.descriptors.set(id, meta);
+        if (live) live.meta = meta;
+      },
+      releaseRecord: async (record) => {
+        record.session.dispose?.();
+        this.records.delete(id);
+        // dispose 後の書込みを drain してから消す (削除後に書き戻されて未送信が復活しないように)
+        await this.recordWrites.drain(record);
+      },
+      deleteAssistantMetrics: (sessionId) => this.deleteAssistantMetrics(sessionId),
+    };
+  }
+
+  /** 削除予約 / close を検出する。引き継ぎの手順 (handoff-move) は各 await の後でこれを見てロールバックする */
   private moveAborted(id: string): boolean {
     return this.deleting.has(id) || this.closing;
   }
@@ -2962,104 +2777,87 @@ export class SessionStore {
     if (!storeDir) throw httpError(503, "会話履歴のクリアには会話ストアが必要です");
     if (this.closing) throw httpError(503, "サーバーを終了しています");
     const live = this.records.get(id);
-    let current = live?.meta ?? this.descriptors.get(id);
-    if (!current) return undefined;
-    this.assertHistoryClearable(current, live, expectHistoryGeneration, expectSpaceId);
+    const meta = live?.meta ?? this.descriptors.get(id);
+    if (!meta) return undefined;
+    this.assertHistoryClearable(meta, live, expectHistoryGeneration, expectSpaceId);
     // 未ロードでも SDK セッションや作業フォルダは作らず、JSONL の設定記録と meta だけを照合する
-    const restored = live ? this.effectiveInputsOf(live) : await this.clearedInputsOf(current);
-    // 確定前に届いた古い保存 (タイトル要約を含む) を待ち、ここから先はもう書かない
-    if (live) live.clearingHistory = true;
-    let confirmed = false;
-    try {
-      if (live) await this.recordWrites.drain(live);
-      // drain 中の setTitle / setNotify を落とさないよう、最新の meta から組み立て直す
-      current = live?.meta ?? this.descriptors.get(id);
-      if (!current) return undefined;
-      this.assertHistoryClearable(current, live, expectHistoryGeneration, expectSpaceId);
-      const inputs = live ? this.effectiveInputsOf(live) : restored;
-      if (!this.hasHistoryToClear(current, live)) {
-        // 現世代で消すものが無い。新しい世代も作らず、クライアントに自動再試行をさせない
-        if (live) live.clearingHistory = false;
-        return {
-          sessionId: id,
-          title: current.title || NO_UNTITLED_TITLE,
-          historyGeneration: current.historyGeneration ?? "",
-          changed: false,
-        };
-      }
-      const historyGeneration = randomBytes(4).toString("hex");
-      const keepTitle = titleOriginOf(current) === "manual";
-      const updated: SessionMeta = {
-        ...current,
-        messageCount: 0,
-        historyGeneration,
-        historyCleanup: true,
-        ...(inputs.model ? { model: inputs.model } : {}),
-        ...(inputs.thinkingLevel ? { thinkingLevel: inputs.thinkingLevel } : {}),
-        title: keepTitle ? current.title : "",
-        titleOrigin: keepTitle ? "manual" : "auto",
-        // 既存の引き継ぎメモは残し、未使用の参照チップだけを解除する (送信の受理と同じ印)
-        ...(current.handoff ? { handoff: { ...current.handoff, consumed: true } } : {}),
+    const restored = live ? this.effectiveInputsOf(live) : await this.clearedInputsOf(meta);
+    const port = this.historyClearPort(id, live, storeDir);
+    // 確定: 書込みを止めて drain し、最新の meta で組み直してから書く
+    const confirmed = await confirmHistoryClear(port, {
+      live,
+      buildMeta: (current) => {
+        this.assertHistoryClearable(current, live, expectHistoryGeneration, expectSpaceId);
+        const inputs = live ? this.effectiveInputsOf(live) : restored;
+        if (!this.hasHistoryToClear(current, live)) return undefined;
+        return clearedSessionMeta(current, inputs, randomBytes(4).toString("hex"));
+      },
+    });
+    if (confirmed.kind === "missing") return undefined;
+    if (confirmed.kind === "unchanged") {
+      // 現世代で消すものが無い。新しい世代も作らず、クライアントに自動再試行をさせない
+      return {
+        sessionId: id,
+        title: confirmed.meta.title || NO_UNTITLED_TITLE,
+        historyGeneration: confirmed.meta.historyGeneration ?? "",
+        changed: false,
       };
-      delete updated.titleRequest;
-      delete updated.titleAttempt;
-      // ここが確定点。新しい履歴世代・片付け待ち・チップの解除を meta に同時に保存する
-      await writeSessionMeta(storeDir, updated);
-      confirmed = true;
-      this.descriptors.set(id, updated);
-      if (live) {
-        live.meta = updated;
-        live.title = updated.title;
-        live.titleOrigin = keepTitle ? "manual" : "auto";
-        delete live.titleAttempt;
-        delete live.titleRequest;
-        // 旧世代の AI 要約は取り消す (以後の結果・使用量は適用しない)
-        this.cancelTitleSummary(live);
-        this.emitHistoryCleared(live, updated);
-      }
-      // 確定後は旧 SDK と購読を閉じ、書込みが止まってから旧履歴を片付ける
-      if (live) {
+    }
+    // 配信: 確定値を live な record へ反映し、旧世代の要約を取り消してから resync する
+    if (live) {
+      live.title = confirmed.meta.title;
+      live.titleOrigin = confirmed.meta.titleOrigin ?? "auto";
+      delete live.titleAttempt;
+      delete live.titleRequest;
+      // 旧世代の AI 要約は取り消す (以後の結果・使用量は適用しない)
+      this.titleProgress.cancel(live);
+      this.emitHistoryCleared(live, confirmed.meta);
+    }
+    // 片付け: dispose して書込みを止め、旧履歴と実測を消して片付けの印を落とす
+    const cleanupPending = await cleanupHistoryClear({ storeDir }, port, { id, live, meta: confirmed.meta });
+    if (live) this.closeSubscribers(live);
+    return {
+      sessionId: id,
+      title: confirmed.meta.title || NO_UNTITLED_TITLE,
+      historyGeneration: confirmed.meta.historyGeneration ?? "",
+      changed: true,
+      cleanupPending,
+    };
+  }
+
+  /**
+   * 履歴クリアの手順 (`history-clear`) へ渡す口。private を公開せずに切り出すため、この場の closure にする。
+   * `live` は手順の開始時の record で、確定後の片付けで open から外れるまで同じものを指す。
+   */
+  private historyClearPort(id: string, live: SessionRecord | undefined, storeDir: string): HistoryClearPort {
+    return {
+      holdWrites: (record) => {
+        record.clearingHistory = true;
+      },
+      releaseWrites: (record) => {
+        record.clearingHistory = false;
+      },
+      drainWrites: async (record) => {
+        await this.recordWrites.drain(record);
+      },
+      currentMeta: () => live?.meta ?? this.descriptors.get(id),
+      saveMeta: async (next) => {
+        await writeSessionMeta(storeDir, next);
+        this.descriptors.set(id, next);
+        if (live) live.meta = next;
+      },
+      releaseRecord: async (record) => {
         // dispose の失敗で record を残すと、確定済みのまま操作できない状態になるため先に外す
         try {
-          live.session.dispose?.();
+          record.session.dispose?.();
         } catch {
           // 購読と書込みは下の drain と close で閉じる
         }
         this.records.delete(id);
-        await this.recordWrites.drain(live);
-      }
-      let cleanupPending = false;
-      try {
-        await removeSessionHistory(storeDir, id);
-      } catch {
-        cleanupPending = true;
-      }
-      if (!cleanupPending) {
-        this.deleteAssistantMetrics(id);
-        const cleared: SessionMeta = { ...updated };
-        delete cleared.historyCleanup;
-        try {
-          await writeSessionMeta(storeDir, cleared);
-          this.descriptors.set(id, cleared);
-          if (live) live.meta = cleared;
-        } catch {
-          // 確定は済んでいる。印が残るだけなので次の読み込み / 保存で再試行する
-          cleanupPending = true;
-        }
-      }
-      if (live) this.closeSubscribers(live);
-      return {
-        sessionId: id,
-        title: updated.title || NO_UNTITLED_TITLE,
-        historyGeneration,
-        changed: true,
-        cleanupPending,
-      };
-    } catch (error) {
-      // 確定前の失敗は旧履歴を残し、保留した保存を解く (確定後は旧世代の結果を適用しない)
-      if (!confirmed && live) live.clearingHistory = false;
-      throw error;
-    }
+        await this.recordWrites.drain(record);
+      },
+      deleteAssistantMetrics: (sessionId) => this.deleteAssistantMetrics(sessionId),
+    };
   }
 
   /** クリアを受け付けてよいか。busy / 片付け中 / 履歴世代の不一致は副作用の前に 409 にする */
@@ -3211,32 +3009,10 @@ export class SessionStore {
     // 「指定あり」は引き継ぎと同じく現在の定義から作り直す
     const resolved = agentId === undefined ? undefined : resolveAgentSkills(this.catalog, agentId);
     const placement = this.placementOf(meta);
-    // 共有する作業フォルダが無ければ、空フォルダを作らずに 409 で断る
-    await this.requireSharedWorkdir(placement.workdir);
-    if (this.forkAborted(parent.id)) throw httpError(404, "Session not found");
-    // 破損した原本は writer の全体書直しで上書きされ得るため、必ず persist より前に検証する
-    const before = await readSessionFile(storeDir, parent.id);
-    if (before.parsed.kind === "damaged") {
-      throw httpError(
-        409,
-        `${new SessionDamagedError(before.parsed.reason).message} (${sessionJsonlPath(parent.id, storeDir)})`,
-      );
-    }
-    // live な親の未保存 entry を確定させる (検証の後。境界まではこの保存で読み直せる)
-    const failure = await this.persist(parent);
-    await this.flush(parent);
-    const saveError = failure ?? parent.persistError ?? parent.writer?.error;
-    if (saveError) throw httpError(500, `セッションの保存に失敗しました: ${saveError}`);
-    if (this.forkAborted(parent.id)) throw httpError(404, "Session not found");
-    const after = await readSessionFile(storeDir, parent.id);
-    if (after.parsed.kind === "damaged") {
-      throw httpError(500, "セッションの保存に失敗しました: 会話の記録を読み直せません");
-    }
-    const entries = after.parsed.kind === "ok" ? after.parsed.entries : [];
-    const copied = copiedEntries(entries, boundaryId);
-    if (!copied) {
-      throw httpError(500, "セッションの保存に失敗しました: 分岐の境界が記録に見つかりません");
-    }
+    const files: ForkSessionFiles = { storeDir, rootCwd: this.rootCwd };
+    const port = this.forkSessionPort(parent.id);
+    // 確定前: 共有フォルダの確認・破損の検証・親の保存・境界までの切り出し
+    const entries = await copyForkEntries(files, port, { parent, workdir: placement.workdir, boundaryId });
 
     const childId = generateSessionId(storeDir);
     const now = Date.now();
@@ -3244,51 +3020,33 @@ export class SessionStore {
     // 別オブジェクトへ差し替え、AI 要約の予約は record.titleAttempt を先に更新するため、先頭で
     // 捕まえた meta から複製すると親が pending でも子が未試行になる (子で二重に要約し直す)
     const current = parent.meta;
-    const model = modelLabel(parent.session.model) ?? current.model;
-    const thinkingLevel = parent.session.thinkingLevel ?? current.thinkingLevel;
-    const attempt = settledTitleAttemptOf(parent.titleAttempt ?? current.titleAttempt);
-    const childMeta: SessionMeta = {
-      spaceId,
-      version: 1,
+    const childMeta = forkedSessionMeta(current, {
       id: childId,
-      title: parent.title || current.title,
-      createdAt: now,
-      lastUsedAt: now,
-      // 表示件数は子を開いたときに実履歴から補正する (分岐の成否には影響しない)
-      messageCount: current.messageCount,
-      agentId: resolved?.agentInfo.id ?? current.agentId,
-      agent: resolved?.agentInfo ?? current.agent,
-      promptSnapshot: resolved?.promptSnapshot ?? current.promptSnapshot,
-      ...(current.projectCwd ? { projectCwd: current.projectCwd } : {}),
-      ...(current.projectName ? { projectName: current.projectName } : {}),
-      ...(model ? { model } : {}),
-      ...(thinkingLevel ? { thinkingLevel } : {}),
-      titleOrigin: parent.titleOrigin ?? titleOriginOf(current),
-      // 親に試行が無ければ子も未試行 (一度も正常完了していないなら子の最初の完了で 1 回だけ要約され得る)。
-      // pending は子だけ interrupted に終端化し、親の meta / titleTask は変えない
-      ...(attempt ? { titleAttempt: attempt } : {}),
-      ...((parent.titleRequest ?? current.titleRequest)
-        ? { titleRequest: (parent.titleRequest ?? current.titleRequest) as string }
-        : {}),
-      parentSessionId: parent.id,
-      forkedAt: now,
+      at: now,
+      spaceId,
+      parent: {
+        id: parent.id,
+        title: parent.title,
+        titleOrigin: parent.titleOrigin,
+        titleAttempt: parent.titleAttempt,
+        titleRequest: parent.titleRequest,
+      },
+      model: modelLabel(parent.session.model),
+      thinkingLevel: parent.session.thinkingLevel,
+      agent: resolved ? { agentInfo: resolved.agentInfo, promptSnapshot: resolved.promptSnapshot } : undefined,
       workdirOwner: this.workdirOwnerOf(meta),
       uploadsOwner: this.uploadsOwnerOf(meta),
-    };
-    // 表示用の実測は派生データ。複製できなくても分岐は成功させる (SDK の記録値へ落ちる)
-    this.copyAssistantMetrics(parent.id, childId);
+    });
+    // 確定: 子の store を書き、一覧へ入れる
+    await writeForkedSession(files, port, {
+      id: childId,
+      parentId: parent.id,
+      meta: childMeta,
+      entries,
+      workdir: placement.workdir,
+    });
     try {
-      await writeSessionDir(storeDir, childId, {
-        meta: childMeta,
-        header: sessionHeaderOf(childMeta, workspaceAbs(this.rootCwd, placement.workdir)),
-        entries: copied,
-      });
-    } catch (error) {
-      this.deleteAssistantMetrics(childId);
-      throw httpError(500, `セッションの保存に失敗しました: ${messageFor(error)}`);
-    }
-    this.descriptors.set(childId, childMeta);
-    try {
+      // 配信: 子を open して返す
       const child = await this.resolve(childId);
       if (!child) {
         throw this.closing
@@ -3298,25 +3056,34 @@ export class SessionStore {
       return child;
     } catch (error) {
       // 子の load が失敗した / load 中に DELETE された場合も、store だけの半端な子を残さない
-      await this.discardFork(childId);
+      await discardForkedSession(files, port, childId);
       throw error;
     }
   }
 
-  /** 分岐の途中で親が消えたか (DELETE / close) */
-  private forkAborted(parentId: string): boolean {
-    return this.moveAborted(parentId);
-  }
-
-  /** 分岐の失敗を回収する。SDK セッション・record / descriptor・子ディレクトリ・複製した実測を残さない */
-  private async discardFork(id: string): Promise<void> {
-    const record = this.records.get(id);
-    this.records.delete(id);
-    this.descriptors.delete(id);
-    record?.session.dispose?.();
-    if (record) this.closeSubscribers(record);
-    this.deleteAssistantMetrics(id);
-    if (this.storeDir) await removeSessionDir(this.storeDir, id).catch(() => {});
+  /**
+   * 分岐の手順 (`fork-session`) へ渡す口。private を公開せずに切り出すため、この場の closure にする。
+   * 確定より前の各段の後で親の削除予約 / close を見るため、親の id を受け取る。
+   */
+  private forkSessionPort(parentId: string): ForkSessionPort {
+    return {
+      isAborted: () => this.moveAborted(parentId),
+      requireSharedWorkdir: (workdir) => this.requireSharedWorkdir(workdir),
+      saveParent: (record) => this.persist(record),
+      flushParent: (record) => this.flush(record),
+      copyAssistantMetrics: (fromId, toId) => this.copyAssistantMetrics(fromId, toId),
+      deleteAssistantMetrics: (sessionId) => this.deleteAssistantMetrics(sessionId),
+      registerChild: (id, next) => {
+        this.descriptors.set(id, next);
+      },
+      releaseChild: (id) => {
+        const record = this.records.get(id);
+        this.records.delete(id);
+        this.descriptors.delete(id);
+        record?.session.dispose?.();
+        if (record) this.closeSubscribers(record);
+      },
+    };
   }
 
   /** 応答の実測を子の session_id へ写す。派生データなので失敗しても分岐を止めない */
@@ -3329,26 +3096,6 @@ export class SessionStore {
       }
     } catch (error) {
       console.warn(`[u7agent] assistant metrics copy failed: ${this.masker.mask(messageFor(error))}`);
-    }
-  }
-  /**
-   * 作業フォルダ / 添付を 1 つ移す。元が無い (404) は「運ぶものが無い」として false を返し、
-   * 移動先が既にある (409) はマージできないため、手動での退避先の削除を案内する。
-   */
-  private async moveSandboxEntry(client: SandboxMoveClient, from: string, to: string): Promise<boolean> {
-    try {
-      await client.moveEntry(from, to);
-      return true;
-    } catch (error) {
-      if (!(error instanceof SandboxRequestError)) throw error;
-      if (error.status === 404) return false;
-      if (error.status === 409) {
-        throw httpError(
-          409,
-          `移動先に既存のエントリがあります。退避先を削除してから再実行してください: ${error.message}`,
-        );
-      }
-      throw error;
     }
   }
 
@@ -3468,7 +3215,7 @@ export class SessionStore {
       this.cancelQuestions(record);
       this.networkAccess.revoke(record.id);
       // 進行中のタイトル要約も外部呼び出しを止める (結果は次の起動へ持ち越さない)
-      this.cancelTitleSummary(record);
+      this.titleProgress.cancel(record);
       if (this.isBusy(record)) await record.session.abort().catch(() => {});
       await compaction?.catch(() => {});
       await this.flush(record);
@@ -3544,7 +3291,7 @@ export class SessionStore {
       delete run.retry;
       if (error) run.error = this.masker.mask(composeRunError(error, run.totalRetryCount));
       // 分類コードは最終失敗のときだけ公開する。停止要求と例外が同時なら status は stopped で、
-      // クライアントに再実行カードを出させない (run.error は従来どおり残す)
+      // クライアントに再実行カードを出させない (run.error は残す)
       if (run.status === "error" && error) run.errorCode = error.code;
       // 一覧 API / meta と同じ表示メッセージ数。ここを履歴の生件数 (session.messages.length) へ
       // 戻すと同名フィールドの定義が 2 つに戻る
@@ -3578,7 +3325,7 @@ export class SessionStore {
       // 送信は fire-and-forget。run_end の記録・persist・キューの pump を待たせない
       this.notifyCompleted(record, run, bridge.settledAssistantText(), durationMs);
       // タイトルの AI 要約は補助呼び出しで、本文の完了・保存・次の送信を待たせない
-      void this.summarizeTitle(record, run, bridge.settledAssistantText()).catch(() => {});
+      void this.titleProgress.summarize(record, run, bridge.settledAssistantText()).catch(() => {});
 
       // 受付処理中の steering が終端後に実キューへ残らないよう、回収を待ってから次を開始する
       void this.recoverSteeringAtFinish(record)
@@ -3675,343 +3422,13 @@ export class SessionStore {
     return run;
   }
 
-  /**
-   * 判定点 (初めて本文を伴う正常完了が得られたランの直後) で AI 要約を 1 回だけ予約する。
-   * Off・モデル不在・手動改名・依頼本文なしでも判定を残し、後続のターンや設定変更で再走査しない。
-   * 予約は外部呼び出しより先に保存し、保存できないときは生成を始めない (再起動・複数タブ・
-   * クラッシュで重複実行しないための前提)。
-   */
-  private async summarizeTitle(record: SessionRecord, run: RunState, assistantText: string | undefined): Promise<void> {
-    const host = this.titleSummary;
-    if (!host || record.titleAttempt) return;
-    if (run.status !== "completed") return;
-    const response = assistantText?.trim();
-    if (!response) return;
-    const settings = host.settings();
-    const request = record.titleRequest ?? record.title;
-    const skipReason = this.autoTitleSkipReason(record, settings, request);
-    const model = modelLabel(settings.model);
-    const thinkingLevel = settings.thinkingLevel;
-    const attempt: TitleAttempt = {
-      runId: run.id,
-      at: Date.now(),
-      state: skipReason ? "skipped" : "pending",
-      trigger: "auto",
-      ...(model ? { model } : {}),
-      ...(thinkingLevel ? { thinkingLevel } : {}),
-      generation: settings.generation,
-      ...(skipReason ? { skipReason } : {}),
-    };
-    record.titleAttempt = attempt;
-    if (skipReason || !settings.model) {
-      await this.persist(record, { jsonl: false });
-      if (this.records.get(record.id) === record) this.emitResync(record);
-      return;
-    }
-    await this.runTitleSummary(record, {
-      attempt,
-      trigger: "auto",
-      model: settings.model,
-      thinkingLevel,
-      definition: settings.definition,
-      request,
-      response,
-      generation: settings.generation,
-      shouldStart: (task) =>
-        this.records.get(record.id) === record &&
-        !record.clearingHistory &&
-        record.titleTask === task &&
-        record.run?.id === run.id &&
-        record.run?.status === "completed" &&
-        !record.compacting,
-    });
-  }
-
-  /** 自動要約を見送る理由。判定は残すが、生成は呼ばない */
-  private autoTitleSkipReason(
-    record: SessionRecord,
-    settings: TitleSummaryRuntimeSettings,
-    request: string,
-  ): TitleSkipReason | undefined {
-    if (!settings.enabled) return "disabled";
-    if (!settings.model) return "model-unset";
-    if (record.titleOrigin === "manual") return "manual";
-    if (request.trim() === "") return "no-request";
-    return undefined;
-  }
-
-  /**
-   * 会話メニューからの明示的な再要約。1 会話 1 回の自動要約とは別に、利用者の操作で何度でも実行できる。
-   * 生成を待ってから現在のタイトルと試行を返す (呼び出し側は失敗理由をそのまま画面へ出せる)。
-   * 実行中・圧縮中・別の要約の実行中は受け付けない。
-   */
-  async manualSummarizeTitle(record: SessionRecord): Promise<{ title: string; titleSummary: SessionTitleSummary }> {
-    this.assertRecordLive(record);
-    const host = this.titleSummary;
-    if (!host) throw httpError(503, "AI要約を利用できません");
-    if (this.isBusy(record)) throw httpError(409, "会話の実行中は再要約できません");
-    if (record.titleTask) throw httpError(409, "AI要約を実行中です");
-    const settings = host.settings();
-    if (!settings.enabled) throw httpError(409, "AI要約は Off です");
-    const model = settings.model;
-    if (!model) throw httpError(409, "要約モデルが選択されていません");
-    const request = this.manualTitleRequest(record);
-    if (!request) throw httpError(409, "依頼本文がないため再要約できません");
-    const response = this.manualTitleResponse(record);
-    if (!response) throw httpError(409, "要約できる応答がありません");
-    const attempt: TitleAttempt = {
-      runId: `manual-${randomBytes(8).toString("hex")}`,
-      at: Date.now(),
-      state: "pending",
-      trigger: "manual",
-      ...(modelLabel(model) ? { model: modelLabel(model) } : {}),
-      ...(settings.thinkingLevel ? { thinkingLevel: settings.thinkingLevel } : {}),
-      generation: settings.generation,
-    };
-    await this.runTitleSummary(record, {
-      attempt,
-      trigger: "manual",
-      model,
-      thinkingLevel: settings.thinkingLevel,
-      definition: settings.definition,
-      request,
-      response,
-      generation: settings.generation,
-      shouldStart: (task) =>
-        this.records.get(record.id) === record &&
-        !record.clearingHistory &&
-        record.titleTask === task &&
-        !this.runInProgress(record) &&
-        record.queue.length === 0 &&
-        !record.compacting,
-    });
-    // 終端の保存は settle が非同期に始める。応答を見た直後の一覧が古いタイトルを返さないよう、
-    // 同じ record の保存列 (persistTail) の最後まで待ってから返す
-    await this.persist(record, { jsonl: false });
-    return {
-      title: record.title,
-      titleSummary: titleSummaryOf({ origin: record.titleOrigin, attempt: record.titleAttempt }, this.masker),
-    };
-  }
-
-  /**
-   * 再要約の依頼本文。新形式は送信時に保存した先頭を使い、保存前の会話 (旧 meta) だけ最初の
-   * user メッセージから作る。定型プロンプトが混ざり得るが、再要約を不能にしない方を選ぶ。
-   */
-  private manualTitleRequest(record: SessionRecord): string {
-    const stored = record.titleRequest?.trim();
-    if (stored) return stored;
-    const firstUser = record.session.messages.find((message) => message.role === "user");
-    if (!firstUser) return "";
-    const raw = contentText(firstUser.content).trim();
-    return raw ? this.masker.mask(titleRequestOf(raw)).trim() : "";
-  }
-
-  /** 再要約の応答。最後の完了した assistant テキストだけを使い、エラー / 中断の応答は対象外にする */
-  private manualTitleResponse(record: SessionRecord): string {
-    const messages = record.session.messages;
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message.role !== "assistant") continue;
-      if (message.stopReason === "error" || message.stopReason === "aborted") continue;
-      const text = this.masker.mask(contentText(message.content)).trim();
-      if (text) return text;
-    }
-    return "";
-  }
-
-  /**
-   * 予約の保存 → 設定の再確認 → 順番待ち → 生成 → 適用。自動 / 手動の違いは入力と shouldStart だけ。
-   * 予約 (pending) と終端 (done / failed / skipped) の両方で resync を配り、一覧と開いている画面の
-   * 状態表示を診断を開かなくても追従させる。
-   */
-  private async runTitleSummary(
-    record: SessionRecord,
-    input: {
-      attempt: TitleAttempt;
-      trigger: "auto" | "manual";
-      model: { provider: string; id: string };
-      thinkingLevel?: ThinkingLevel;
-      definition: string;
-      request: string;
-      response: string;
-      generation: number;
-      shouldStart: (task: NonNullable<SessionRecord["titleTask"]>) => boolean;
-    },
-  ): Promise<void> {
-    const host = this.titleSummary;
-    if (!host || record.clearingHistory) return;
-    const model = modelLabel(input.model);
-    const abort = new AbortController();
-    const task = { runId: input.attempt.runId, generation: input.generation, model, abort };
-    record.titleAttempt = input.attempt;
-    record.titleTask = task;
-    const failure = await this.persist(record, { jsonl: false });
-    if (failure) {
-      // 予約が保存できていない状態で送ると、クラッシュ後に試行済みかを復元できない
-      if (record.titleTask === task) delete record.titleTask;
-      this.settleTitleAttempt(record, task, {
-        state: "failed",
-        error: truncate(this.masker.mask(failure), TITLE_ATTEMPT_ERROR_MAX),
-      });
-      return;
-    }
-    if (this.records.get(record.id) === record) this.emitResync(record);
-    // 保存を待つ間に取り消された (Off / 手動改名 / 停止)。結果の適用だけでなく開始も止める
-    if (record.titleTask !== task) return;
-    const current = host.settings();
-    const manualTitle = input.trigger === "auto" && record.titleOrigin === "manual";
-    if (!current || !this.titleSummarySettingsMatch(current, input.generation, model) || manualTitle) {
-      delete record.titleTask;
-      this.settleTitleAttempt(record, task, {
-        state: "skipped",
-        skipReason: manualTitle ? "manual" : "settings-changed",
-      });
-      return;
-    }
-    const startedAt = Date.now();
-    let queued: TitleSummaryQueueResult<TitleSummaryResult>;
-    try {
-      queued = await this.titleSummaryQueue.run(
-        {
-          signal: abort.signal,
-          // 順番待ちの間に本会話が動き出したら (新しい実行・圧縮)、本会話を優先して捨てる。
-          // SDK の isStreaming は終端直後にまだ true のことがあるため、判定は run の同一性で行う
-          shouldStart: () =>
-            this.records.get(record.id) === record && record.titleTask === task && input.shouldStart(task),
-        },
-        () =>
-          host.generate({
-            model: input.model,
-            definition: input.definition,
-            request: input.request,
-            response: input.response,
-            sessionId: record.session.sessionId,
-            thinkingLevel: input.thinkingLevel,
-            signal: abort.signal,
-          }),
-      );
-    } catch (error) {
-      // 補助呼び出しの想定外の失敗はタイトルを変えず、試行だけ消費する (自動再試行しない)
-      if (record.titleTask === task) delete record.titleTask;
-      this.settleTitleAttempt(record, task, {
-        state: "failed",
-        error: truncate(this.masker.mask(messageFor(error)), TITLE_ATTEMPT_ERROR_MAX),
-      });
-      return;
-    }
-    if (queued.kind === "skipped") {
-      if (record.titleTask !== task) return;
-      delete record.titleTask;
-      this.settleTitleAttempt(record, task, {
-        state: "skipped",
-        skipReason: queued.reason === "cancelled" ? "cancelled" : "not-ready",
-        durationMs: Date.now() - startedAt,
-      });
-      return;
-    }
-    this.applyTitleSummary(record, task, queued.value, Date.now() - startedAt);
-  }
-
-  /**
-   * 生成結果の適用。予約後にタイトルが手動で変えられた / 設定が変わった / 取り消された結果は捨てる
-   * (文字列比較ではなく、タイトルの由来と設定の世代で判定する)。usage は採用できたかと独立に残す。
-   */
-  private applyTitleSummary(
-    record: SessionRecord,
-    task: { runId: string; generation: number; model: string | undefined },
-    result: TitleSummaryResult,
-    durationMs: number,
-  ): void {
-    if (record.clearingHistory) return;
-    const running = record.titleTask;
-    if (running === undefined) {
-      // 取消後に届いた結果はタイトルへ適用しないが、送信済みの要求の usage は試行へ残す
-      this.recordTitleAttemptUsage(record, task, result.usage);
-      return;
-    }
-    if (running.runId !== task.runId) return;
-    delete record.titleTask;
-    if (!result.ok) {
-      this.settleTitleAttempt(record, task, {
-        state: "failed",
-        error: result.error,
-        durationMs,
-        ...usageFields(result.usage),
-      });
-      return;
-    }
-    const current = this.titleSummary?.settings();
-    // 自動要約は手動のタイトルを守る。会話メニューからの再要約は、利用者が確認した操作なので置き換える
-    const manualBlocked = record.titleOrigin === "manual" && record.titleAttempt?.trigger !== "manual";
-    if (!current || !this.titleSummarySettingsMatch(current, task.generation, task.model) || manualBlocked) {
-      this.settleTitleAttempt(record, task, {
-        state: "skipped",
-        skipReason: manualBlocked ? "manual" : "settings-changed",
-        durationMs,
-        ...usageFields(result.usage),
-      });
-      return;
-    }
-    record.title = result.title;
-    record.titleOrigin = "ai";
-    // settle が meta の保存と resync を行う (タイトルの変更も一覧と開いている画面へ届く)
-    this.settleTitleAttempt(record, task, { state: "done", durationMs, ...usageFields(result.usage) });
-  }
-
-  /**
-   * 取得できた usage だけを試行へ足す。取消後 (state が skipped) でも記録し、
-   * タイトルを適用するかとは独立に、送信済みの要求の費用を残す。
-   */
-  private recordTitleAttemptUsage(
-    record: SessionRecord,
-    task: { runId: string },
-    usage: TitleSummaryUsage | undefined,
-  ): void {
-    if (record.clearingHistory) return;
-    const attempt = record.titleAttempt;
-    if (!attempt || attempt.runId !== task.runId || !usage) return;
-    record.titleAttempt = { ...attempt, ...usageFields(usage) };
-    void this.persist(record, { jsonl: false }).then(() => {
-      if (this.records.get(record.id) === record) this.emitResync(record);
-    });
-  }
-
-  /** 予約時の設定 (世代・モデル) が現在も同じか。On/Off と定義の変更も世代で検出する */
-  private titleSummarySettingsMatch(
-    current: { enabled: boolean; model?: { provider: string; id: string }; generation: number },
-    generation: number,
-    model: string | undefined,
-  ): boolean {
-    return current.enabled && current.generation === generation && modelLabel(current.model) === model;
-  }
-
-  private settleTitleAttempt(
-    record: SessionRecord,
-    task: { runId: string },
-    patch: Pick<TitleAttempt, "state"> &
-      Partial<Pick<TitleAttempt, "inputTokens" | "outputTokens" | "costTotal" | "durationMs" | "error" | "skipReason">>,
-  ): void {
-    if (record.clearingHistory) return;
-    const attempt = record.titleAttempt;
-    if (!attempt || attempt.state !== "pending" || attempt.runId !== task.runId) return;
-    record.titleAttempt = { ...attempt, ...patch };
-    void this.persist(record, { jsonl: false }).then(() => {
-      if (this.records.get(record.id) === record) this.emitResync(record);
-    });
+  manualSummarizeTitle(record: SessionRecord): Promise<{ title: string; titleSummary: SessionTitleSummary }> {
+    return this.titleProgress.summarizeManually(record);
   }
 
   /** 未開始 / 進行中の AI 要約を取り消す (設定を Off にしたとき)。予約済みの試行は残す */
   cancelTitleSummaries(): void {
-    for (const record of this.records.values()) this.cancelTitleSummary(record);
-  }
-
-  private cancelTitleSummary(record: SessionRecord): void {
-    const task = record.titleTask;
-    if (!task) return;
-    delete record.titleTask;
-    task.abort.abort();
-    this.settleTitleAttempt(record, task, { state: "skipped", skipReason: "cancelled" });
+    this.titleProgress.cancelAll(this.records.values());
   }
 
   /**

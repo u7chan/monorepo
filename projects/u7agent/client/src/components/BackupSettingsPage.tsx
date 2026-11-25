@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
+import { ApiError } from "../api/http";
 import {
-  ApiError,
   applyBackupRestore,
   backupExportUrl,
   getBackupExportCheck,
   planBackupRestore,
   resetDefinitions,
-} from "../api";
+} from "../api/settings";
 import {
   BACKUP_EXPORT_HEADING,
   BACKUP_PAGE_TITLE,

@@ -1,11 +1,19 @@
 /**
- * 設定画面のプルダウン（自前 listbox）の、位置とキーボード移動の計算。
+ * 設定画面のプルダウン（自前 listbox）の、位置・幅とフォーカスの決め方。
  * 位置は composer と同じ `popoverPlacement` を使い、向きだけ下優先にする（設定の欄は画面の中ほどにあるため）。
  */
-import { POPOVER_GAP, POPOVER_MARGIN } from "./popoverPlacement";
+import { POPOVER_GAP, POPOVER_MARGIN, popoverWidth } from "./popoverPlacement";
 
 /** 下に開く余地がこれ未満のときだけ、上へ倒すかを考える (px) */
 export const SELECT_MENU_MIN_BELOW = 120;
+
+/** 一覧の幅の下限。説明の 1 行が読める幅を確保する */
+export const SELECT_MENU_MIN_WIDTH = 260;
+
+/** 一覧の幅。欄より狭くせず、狭い viewport では左右の余白を残して縮める */
+export function selectMenuWidth(anchorWidth: number, viewportWidth: number): number {
+  return popoverWidth(Math.max(anchorWidth, SELECT_MENU_MIN_WIDTH), viewportWidth);
+}
 
 export type SelectMenuAnchor = Pick<DOMRect, "top" | "bottom">;
 
@@ -20,23 +28,24 @@ export function selectMenuPlacement(
   return { above, maxHeight: Math.max(0, above ? aboveSpace : belowSpace) };
 }
 
-/** ↑↓ / Home / End の移動先。端では止まる（循環しない）。`-1`（フォーカスが行の外）からは端へ入る */
-export function nextSelectMenuIndex(
-  index: number,
-  length: number,
-  direction: "next" | "previous" | "first" | "last",
-): number {
-  if (length <= 0) return -1;
-  if (direction === "first") return 0;
-  if (direction === "last") return length - 1;
-  if (index < 0) return direction === "next" ? 0 : length - 1;
-  return direction === "next" ? Math.min(index + 1, length - 1) : Math.max(index - 1, 0);
-}
-
 /** 開いたときにフォーカスする行。選択中の行が無ければ先頭 */
-export function initialSelectMenuIndex(value: string, values: string[]): number {
+export function initialSelectMenuIndex(value: string, values: readonly string[]): number {
   const index = values.indexOf(value);
   return index === -1 ? 0 : index;
+}
+
+/**
+ * 検索欄の ↑↓ で入る行。↓ は選択中の行 (無ければ先頭)、↑ は末尾へ入る。
+ * 一覧が空なら -1 を返し、呼び出し側は焦点を移さない。
+ */
+export function selectMenuArrowIndex(
+  key: "ArrowDown" | "ArrowUp",
+  value: string,
+  values: readonly string[],
+  itemCount: number,
+): number {
+  const index = key === "ArrowDown" ? initialSelectMenuIndex(value, values) : itemCount - 1;
+  return Math.min(Math.max(index, 0), itemCount - 1);
 }
 
 export type SelectMenuFilterable = {

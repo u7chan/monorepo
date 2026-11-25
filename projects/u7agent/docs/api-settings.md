@@ -215,7 +215,7 @@
 | --- | --- | --- |
 | POST | `/api/voice-input/session` | `Content-Type: application/sdp` の offer を受け、短命キーを発行して Calls へ渡し、answer SDP を `200 application/sdp` + `Cache-Control: no-store` で返す。失敗は JSON |
 
-- このルートは raw body ルートとして `bodyGuard` より前に登録し、`readRawBody` で実受信バイトを見る。`bodyGuard` は本文を text としてキャッシュするため、SDP を先に消費・テキスト化させない
+- `bodyGuard` は本文を text としてキャッシュするため、このルートはその手前で SDP を受け取る。本文は `server/src/bounded-body.ts` のバイト読み取りで上限を検査し、超過は HTTP 413 にする
 - 入口の拒否は 415（`Content-Type: application/sdp` 以外）/ 413（実受信バイトが上限超過）/ 400（空・`v=` で始まらない）/ 408（本文の読取が全体予算超過）で、ここまでで上流を呼ばない
 - 処理は、キー利用判定（未登録 409 / DB・`pi === null`・復号不能 503）→ 同時発行枠（上限超過は上流を呼ばず 429）→ 短命キーの発行（`POST https://api.openai.com/v1/realtime/client_secrets`、`expires_after` 60 秒、`session.type = "transcription"`、モデルは `gpt-live-transcribe` 固定）→ キーの読み直し → `POST https://api.openai.com/v1/realtime/calls`（`Authorization: Bearer <ek>`）→ キーの読み直し、の順
 - 発行の応答は `session.type` と `ek_` 形式と「入力のキーと一致しないこと」を検査し、違えば 502 で Calls を呼ばない。Calls が 2xx でも answer が空・SDP でない・上限超過なら 502
@@ -374,7 +374,7 @@
 - `keyEpoch` はキーの世代で、**上書きと（行があったときの）削除で進む**。新規保存と未設定の削除では動かさない。試行の証拠は「現在の `keyEpoch` と現在のモデル」に一致する成功だけを数えるため、旧キーの実績が現在のキーの確認として扱われない（[image-generation.md](image-generation.md#設定画面)）
 - キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`。削除すると行ごと消え、`generate_image` / `generate_speech` / `generate_bgm` は次のセッション作成・復元から公開されなくなる（既存liveセッションの execute は実行時にキー無効エラーを返す）。
 
-音声の生成は試行（`POST /api/settings/content/trials` の `kind: "speech"`）に一本化し、設定を変えない別の生成ルートは持たない（旧 `/api/settings/content/speech/preview` は退役した）。本文・演技指示・話速は試行の入力スナップショットとして履歴に残り、成果物は同じ raw ルートで配信する。
+音声の生成は試行（`POST /api/settings/content/trials` の `kind: "speech"`）に一本化し、設定を変えない別の生成ルートを持たない。本文・演技指示・話速は試行の入力スナップショットとして履歴に残り、成果物は同じ raw ルートで配信する。
 
 ```json
 // POST /api/settings/content/trials (202。BGM。モデルは固定で、入力は prompt だけ)
@@ -461,7 +461,7 @@
 - 保存容量はディレクトリを走査せず、`succeeded` + `stored` の行のバイト数を合計する（`artifactUsage`）。時間ベースの自動削除はしない
 - 保存容量の警告は server の定数（`server/src/content-trial-artifacts.ts`）で判定し、一覧の `artifactWarning` に**しきい値と警告かどうかだけ**を載せる。しきい値の値と比べ方の正はそこだけで、画面は応答の `thresholdBytes` をそのまま使って文言・色・表示位置を決める（client にしきい値を持たない。`artifactWarning` を返さない応答では警告しない）。消すかどうかも画面と利用者が決め、server は自動削除しない
 - 生成の前に置き場の空きを見て、1 件分の上限に余白を足した分に満たないときは**行を作らずに開始を拒否する**（`server/src/content-trial-disk-space.ts`、503 `{ error, code: "disk_shortage" }`。クレジットは消費していない）。空きは `<storeDir>/trials` を `fs/promises` の `statfs` で読み、置き場がまだ無いときは作られる親を見る（どちらも読み口は依存として注入し、テストは固定値を渡す）
-- **開始拒否と `storage` の終端失敗は意味が違う。** 開始拒否は行も課金も作らない 503 で、`failureCode` を持たない。`failureCode: "storage"` は生成が成功した後に保存できなかった `failed`（`charged: true`）で、再試行は再課金になる。どちらも「保存先の問題」だが、利用者に課金の有無を伝える文言を混ぜない。画面は開始の拒否を応答の `code` で分類し（`client/src/api.ts` が `ApiError.code` に載せる）、空き不足だけを行も課金も作らない拒否として、他の開始失敗（409 の同時実行・400 系）とは別の文言で出す。分類と文言は `client/src/lib/contentTrials.ts` の純関数が持つ
+- **開始拒否と `storage` の終端失敗は意味が違う。** 開始拒否は行も課金も作らない 503 で、`failureCode` を持たない。`failureCode: "storage"` は生成が成功した後に保存できなかった `failed`（`charged: true`）で、再試行は再課金になる。どちらも「保存先の問題」だが、利用者に課金の有無を伝える文言を混ぜない。画面は開始の拒否を応答の `code` で分類し（`client/src/api/http.ts` が `ApiError.code` に載せる）、空き不足だけを行も課金も作らない拒否として、他の開始失敗（409 の同時実行・400 系）とは別の文言で出す。分類と文言は `client/src/lib/contentTrials.ts` の純関数が持つ
 - 空き不足は**再利用（同じ入力の保存済み成功、200）を阻害しない**（provider を呼ばず課金もしないため）。`force: true`（履歴の [もう一度生成]）は新しい保存が要るため、空きが足りなければ 409 や再利用ではなく開始拒否になる
 - 空きを測れない環境（`statfs` の非対応・権限の失敗）は**通過に倒す**。測れないことを理由に正しい試行まで止めない（保存できなければ従来どおり `storage` の失敗になる）
 

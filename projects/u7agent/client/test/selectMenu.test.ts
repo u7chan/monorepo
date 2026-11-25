@@ -9,8 +9,9 @@ import { SelectMenu } from "../src/components/SelectMenu";
 import {
   filterSelectMenuOptions,
   initialSelectMenuIndex,
-  nextSelectMenuIndex,
+  selectMenuArrowIndex,
   selectMenuPlacement,
+  selectMenuWidth,
   SELECT_MENU_MIN_BELOW,
 } from "../src/lib/selectMenu";
 
@@ -53,21 +54,25 @@ test("位置: 高さの上限は負にしない", () => {
   assert.deepEqual(selectMenuPlacement({ top: 0, bottom: 0 }, 0), { above: false, maxHeight: 0 });
 });
 
-test("キーボード: ↑↓ は端で止まり、Home / End は先頭 / 末尾へ入る", () => {
-  assert.equal(nextSelectMenuIndex(0, 2, "next"), 1);
-  assert.equal(nextSelectMenuIndex(1, 2, "next"), 1, "末尾で止まる");
-  assert.equal(nextSelectMenuIndex(0, 2, "previous"), 0, "先頭で止まる");
-  assert.equal(nextSelectMenuIndex(-1, 2, "next"), 0);
-  assert.equal(nextSelectMenuIndex(-1, 2, "previous"), 1);
-  assert.equal(nextSelectMenuIndex(1, 2, "first"), 0);
-  assert.equal(nextSelectMenuIndex(0, 2, "last"), 1);
-  assert.equal(nextSelectMenuIndex(0, 0, "next"), -1, "行が無いときは動かさない");
+test("幅: 一覧は欄より狭くせず、狭い viewport では左右の余白を残して縮める", () => {
+  assert.equal(selectMenuWidth(300, 1000), 300);
+  assert.equal(selectMenuWidth(100, 1000), 260, "欄が狭くても説明の 1 行が読める下限を持つ");
+  assert.equal(selectMenuWidth(300, 200), 184, "viewport の左右の余白を残して縮める");
+  assert.equal(selectMenuWidth(300, 10), 0, "余白も取れない viewport では 0 にする");
 });
 
 test("開いたときのフォーカスは選択中の行、無ければ先頭", () => {
   assert.equal(initialSelectMenuIndex("tavily", ["exa", "tavily"]), 1);
   assert.equal(initialSelectMenuIndex("brave", ["exa", "tavily"]), 0);
   assert.equal(initialSelectMenuIndex("exa", []), 0);
+});
+
+test("検索欄の ↑↓: ↓ は選択中の行 (無ければ先頭)、↑ は末尾、空の一覧では移さない", () => {
+  assert.equal(selectMenuArrowIndex("ArrowDown", "tavily", ["exa", "tavily"], 2), 1);
+  assert.equal(selectMenuArrowIndex("ArrowDown", "brave", ["exa", "tavily"], 2), 0);
+  assert.equal(selectMenuArrowIndex("ArrowUp", "exa", ["exa", "tavily"], 2), 1);
+  assert.equal(selectMenuArrowIndex("ArrowDown", "tavily", ["exa", "tavily"], 1), 0, "行が減っていても範囲へ収める");
+  assert.equal(selectMenuArrowIndex("ArrowDown", "exa", [], 0), -1, "空なら焦点を移さない");
 });
 
 test("トリガーは選択中の名前と副表示を出し、listbox を参照する", () => {

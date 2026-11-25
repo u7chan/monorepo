@@ -34,8 +34,5 @@ export type CreateProjectBody = z.infer<typeof CreateProjectBodySchema>;
  */
 export const SPACE_ORDER_IDS_MAX = 200;
 export const ReorderSpacesBodySchema = z.object({ ids: z.array(z.string()).max(SPACE_ORDER_IDS_MAX) });
-export type ReorderSpacesBody = z.infer<typeof ReorderSpacesBodySchema>;
 
-// ---------------------------------------------------------------------------
 // SSE イベント (sessions.ts の emit 呼び出しを正とする)
-// ---------------------------------------------------------------------------

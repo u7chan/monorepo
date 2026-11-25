@@ -6,7 +6,6 @@ import {
   addExcludeName,
   archiveSettingsDirty,
   draftFromSettings,
-  EMPTY_ARCHIVE_DRAFT,
   excludeNamesNote,
   removeExcludeName,
   validateExcludeName,
@@ -29,7 +28,7 @@ function settings(overrides: Partial<ArchiveSettingsResponse> = {}): ArchiveSett
 }
 
 test("下書きは保存済みの実効値から作り、配列を共有しない", () => {
-  assert.deepEqual(draftFromSettings(null), EMPTY_ARCHIVE_DRAFT);
+  assert.deepEqual(draftFromSettings(null), { excludeNames: [] });
   const source = settings();
   const draft = draftFromSettings(source);
   assert.deepEqual(draft.excludeNames, DEFAULTS);

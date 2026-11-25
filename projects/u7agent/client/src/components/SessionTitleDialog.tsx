@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError, getTitleSummarySettings } from "../api";
+import { getTitleSummarySettings } from "../api/settings";
 import { useSpaceApi } from "../SpaceContext";
 import { cn } from "../lib/cn";
 import { effortLabel } from "../lib/composerSettings";
+import { messageFor } from "../lib/errors";
 import { fileTimeLabel } from "../lib/messageTime";
 import { formatCost } from "../lib/usageFormat";
 import {
@@ -101,7 +102,7 @@ export function SessionTitleDialog({
       setCurrentSummary(result.titleSummary);
       onUpdated();
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : cause instanceof Error ? cause.message : String(cause));
+      setError(messageFor(cause));
     } finally {
       setBusy(false);
     }

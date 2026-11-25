@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { readRawBody, statusCodeOf } from "../http";
+import { readRawBody, respondSettingsMutation, statusCodeOf } from "../http";
 import type { VoiceInputSessionFailure } from "../schema";
 import {
   VOICE_INPUT_SDP_MAX_BYTES,
@@ -11,7 +11,7 @@ import {
   withinDeadline,
   type VoiceInputSessionService,
 } from "../voice-input-session";
-import type { VoiceInputMutationOutcome, VoiceInputSettingsService, VoiceInputTestOutcome } from "../voice-input";
+import type { VoiceInputSettingsService, VoiceInputTestOutcome } from "../voice-input";
 
 /**
  * 音声入力の API。設定（キーは write-only）と Realtime セッションの中継を持ち、鍵の値・暗号文・
@@ -27,9 +27,9 @@ export function createVoiceInputRoutes({
   return {
     list: (c: Context) => c.json(voiceInputSettings.settings()),
 
-    putKey: async (c: Context, apiKey: string) => respond(c, await voiceInputSettings.putKey(apiKey)),
+    putKey: async (c: Context, apiKey: string) => respondSettingsMutation(c, await voiceInputSettings.putKey(apiKey)),
 
-    deleteKey: async (c: Context) => respond(c, await voiceInputSettings.deleteKey()),
+    deleteKey: async (c: Context) => respondSettingsMutation(c, await voiceInputSettings.deleteKey()),
 
     /**
      * 課金なしの疎通確認。上流の確認失敗だけを 200 の `ok: false` で返し、
@@ -74,11 +74,6 @@ export function createVoiceInputRoutes({
       return c.json(body, outcome.status);
     },
   };
-}
-
-function respond(c: Context, outcome: VoiceInputMutationOutcome) {
-  if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
-  return c.json(outcome.response, 200);
 }
 
 function respondTest(c: Context, outcome: VoiceInputTestOutcome) {

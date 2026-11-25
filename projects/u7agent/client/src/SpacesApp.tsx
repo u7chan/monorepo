@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Space } from "server";
 import App from "./App";
-import { createSpace, createSpaceApi, deleteSpace, listSpaces, renameSpace, reorderSpaces } from "./api";
+import { createSpaceApi } from "./api/sessions";
+import { createSpace, deleteSpace, listSpaces, renameSpace, reorderSpaces } from "./api/spaces";
 import { SpaceContext } from "./SpaceContext";
 import { ConfirmProvider } from "./components/ConfirmProvider";
-import { reorderRows } from "./lib/agentReorder";
+import { reorderRows } from "./lib/listReorder";
 import { entrySpaceOf, parseRoute } from "./lib/route";
 import type { HandoffNote } from "./lib/sessionHandoff";
 import { removeSpaceAndApply } from "./lib/spaceDelete";

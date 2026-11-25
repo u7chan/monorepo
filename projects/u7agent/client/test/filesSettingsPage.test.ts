@@ -10,7 +10,7 @@ import { UNSAVED_RELOAD_NOTE } from "../src/lib/settingsNotes";
 import type { FilesSubsection } from "../src/lib/settingsNav";
 import type { ArchiveSettingsResponse } from "../src/types";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { FileTreePage } = await import("../src/components/FileTreePage");
 const { ConfirmProvider } = await import("../src/components/ConfirmProvider");

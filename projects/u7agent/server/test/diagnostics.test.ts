@@ -17,13 +17,8 @@ import { REDACTED, createSecretMasker } from "../src/redact";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionDiagnosticsSchema, type EventEntry } from "../src/schema";
 import { sessionJsonlPath } from "../src/session-store";
+import { jsonBody, jsonPost } from "./http-helpers";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
 
 function stubWorkspace(): SandboxWorkspaceClient {
   return {
@@ -39,10 +34,6 @@ async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-}
-
-async function jsonBody(response: Response | Promise<Response>): Promise<any> {
-  return (await response).json();
 }
 
 /** run が終わるまで待ってから診断を読む (イベント列が揃った状態で見る) */
@@ -204,6 +195,7 @@ test("diagnostics never carries message, question or answer bodies", async () =>
         name: "ask_user",
         args: argsLiteral,
         questions: [{ question: marker, options: [{ label: marker }] }],
+        startedAt: 1_700_000_000_000,
       });
       bff.store.emit(record, "tool_end", {
         id: "t-1",
@@ -235,6 +227,7 @@ test("diagnostics never carries message, question or answer bodies", async () =>
         name: "ask_user",
         argsChars: argsLiteral.length,
         questions: 1,
+        startedAt: 1_700_000_000_000,
       });
       assert.deepEqual(items.get("tool_end"), {
         id: "t-1",

@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { ProjectRow } from "../src/components/sidebar/ProjectRow";
+import type { DeviceSettingsStorage } from "../src/lib/deviceSettingsStore";
 import {
   createSidebarProjectsStore,
   decodeExpandedProjects,
@@ -12,14 +13,13 @@ import {
   SIDEBAR_PROJECTS_LIMIT,
   SIDEBAR_PROJECTS_VERSION,
   projectDeleteConfirmRequest,
-  type SidebarProjectsStorage,
 } from "../src/lib/sidebarProjects";
 import type { Project, SessionSummary } from "../src/types";
 
 const stored = (expanded: unknown, version: unknown = SIDEBAR_PROJECTS_VERSION): string =>
   JSON.stringify({ version, expanded });
 
-class MemoryStorage implements SidebarProjectsStorage {
+class MemoryStorage implements DeviceSettingsStorage {
   value: string | null = null;
   removals = 0;
   lastKey: string | null = null;
@@ -112,7 +112,7 @@ test("store は読み手が捨てる形を書かず、上限を超えたら先�
 });
 
 test("保存領域が使えない環境でも操作を止めない (session 内のメモリで保つ)", () => {
-  const throwing: SidebarProjectsStorage = {
+  const throwing: DeviceSettingsStorage = {
     getItem: () => {
       throw new Error("SecurityError");
     },
@@ -147,6 +147,10 @@ const session: SessionSummary = {
   messageCount: 1,
   createdAt: 0,
   lastUsedAt: 0,
+  titleSummary: { origin: "auto" },
+  notify: false,
+  canHandoff: true,
+  hasRawLog: false,
   pinned: false,
   projectId: "p-1",
   serveCommand: null,

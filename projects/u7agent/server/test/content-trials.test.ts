@@ -564,6 +564,26 @@ test("成功は成果物を保存して succeeded にし、寸法・サイズ・
   assert.equal(harness.db.rows.get(third.trial.id)?.failureCode, "aborted");
 });
 
+test("試行の行を取得できないときは操作ごとに理由をマスクして記録し、元のエラーを伝える", async (t) => {
+  const { db, service } = createHarness();
+  const id = trialId(99);
+  const error = new Error(`read failed for ${KEY}`);
+  t.mock.method(db, "readContentTrial", () => {
+    throw error;
+  });
+  const warning = t.mock.method(console, "warn", () => {});
+  const isOriginal = (caught: unknown) => caught === error;
+
+  assert.throws(() => service.get(id), isOriginal);
+  assert.throws(() => service.cancel(id), isOriginal);
+  await assert.rejects(service.remove(id), isOriginal);
+  await assert.rejects(service.raw(id), isOriginal);
+  assert.deepEqual(
+    warning.mock.calls.map((call) => call.arguments),
+    Array.from({ length: 4 }, () => ["[u7agent] content trial read failed: read failed for [REDACTED]"]),
+  );
+});
+
 test("同じ入力の保存済み成功は provider を呼ばず 200 で返し、新しい成功を記録しない", async () => {
   const harness = createHarness();
   const first = await harness.start("a cat on a sofa");

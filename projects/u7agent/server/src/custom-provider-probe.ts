@@ -3,7 +3,9 @@
  * `GET {baseUrl}/models` を 1 回だけ叩き、接続できない理由と、選べるモデル ID を返す。
  * 結果は保存せず、失敗も 200 の分類として返す契約 (docs/model-settings.md)。
  */
+import { declaredBodyTooLarge, readBodyText } from "./bounded-body";
 import { isCustomProviderModelId, normalizeCustomProviderBaseUrl } from "./custom-providers";
+import { startRequestDeadline } from "./request-deadline";
 import type { CustomProviderProbeFailure, CustomProviderProbeResponse } from "./schema";
 
 /** `/models` の取得期限。モデル一覧は小さく、待たせる理由が無いので鍵同期 (20 秒) とは別に短くする */
@@ -48,40 +50,6 @@ function classified(
   };
 }
 
-/**
- * 応答本文を上限まで読む。Content-Length は自己申告なので信用せず、届いたバイト数で打ち切る
- * (http.ts の readBodyText と同じ方針)。上限超過は undefined (= 形式不明) にする。
- */
-async function readBoundedText(response: Response, maxBytes: number): Promise<string | undefined> {
-  const declared = Number.parseInt(response.headers.get("content-length") ?? "", 10);
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    await response.body?.cancel().catch(() => {});
-    return undefined;
-  }
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > maxBytes) {
-        await reader.cancel().catch(() => {});
-        return undefined;
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-    return text + decoder.decode();
-  } catch (error) {
-    // abort 以外の読み取り失敗でも、ストリームを残して接続を開いたままにしない
-    await reader.cancel().catch(() => {});
-    throw error;
-  }
-}
-
 /** 本文を使わない経路の応答を破棄する。cancel しないと接続がプールに残り、期限後も開いたままになる */
 async function discardBody(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => {});
@@ -121,12 +89,7 @@ export async function probeCustomProviderModels(
   const baseUrl = normalizeCustomProviderBaseUrl(input.baseUrl);
   const checkedAt = (options.now ?? Date.now)();
   const fetchImpl = options.fetchImpl ?? fetch;
-  const controller = new AbortController();
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, options.timeoutMs ?? CUSTOM_PROVIDER_PROBE_TIMEOUT_MS);
+  const deadline = startRequestDeadline(options.timeoutMs ?? CUSTOM_PROVIDER_PROBE_TIMEOUT_MS);
   try {
     let response: Response;
     try {
@@ -134,10 +97,10 @@ export async function probeCustomProviderModels(
         method: "GET",
         headers: { Authorization: `Bearer ${input.apiKey}`, Accept: "application/json" },
         redirect: "manual",
-        signal: controller.signal,
+        signal: deadline.signal,
       });
     } catch {
-      return classified(baseUrl, checkedAt, timedOut ? "timeout" : "unreachable");
+      return classified(baseUrl, checkedAt, deadline.timedOut ? "timeout" : "unreachable");
     }
     if (response.status >= 300 && response.status < 400) {
       await discardBody(response);
@@ -157,9 +120,17 @@ export async function probeCustomProviderModels(
     }
     let text: string | undefined;
     try {
-      text = await readBoundedText(response, CUSTOM_PROVIDER_PROBE_BODY_MAX_BYTES);
+      const declared = Number.parseInt(response.headers.get("content-length") ?? "", 10);
+      if (declaredBodyTooLarge(declared, CUSTOM_PROVIDER_PROBE_BODY_MAX_BYTES)) {
+        await discardBody(response);
+        return classified(baseUrl, checkedAt, "invalid_response");
+      }
+      // abort 以外の読み取り失敗でも、ストリームを残して接続を開いたままにしない。
+      text = await readBodyText(response.body?.getReader(), CUSTOM_PROVIDER_PROBE_BODY_MAX_BYTES, {
+        cancelOnReadError: true,
+      });
     } catch {
-      return classified(baseUrl, checkedAt, timedOut ? "timeout" : "invalid_response");
+      return classified(baseUrl, checkedAt, deadline.timedOut ? "timeout" : "invalid_response");
     }
     if (text === undefined) return classified(baseUrl, checkedAt, "invalid_response");
     let body: unknown;
@@ -180,6 +151,6 @@ export async function probeCustomProviderModels(
       message: null,
     };
   } finally {
-    clearTimeout(timer);
+    deadline.clear();
   }
 }

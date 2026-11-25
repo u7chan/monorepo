@@ -7,13 +7,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ContentSettings } from "../src/hooks/useContentSettings";
-import { CONTENT_SETTINGS_NOTE } from "../src/lib/contentSettings";
+import { CONTENT_SETTINGS_NOTE } from "../src/lib/contentSettings/shared";
 import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 import type { ContentSubsection } from "../src/lib/settingsNav";
 import type { ContentTrials } from "../src/hooks/useContentTrials";
 import type { ContentSettingsResponse, ContentTrial } from "../src/types";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+// api/http.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { ContentSettingsView } = await import("../src/components/ContentSettingsPage");
 const { ConfirmProvider } = await import("../src/components/ConfirmProvider");

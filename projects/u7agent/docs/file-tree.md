@@ -169,7 +169,7 @@ assistant 本文のインラインコードと Markdown リンクが指すファ
 
 ### 面のモード（作業フォルダとスキル）
 
-参照から開く面は `SessionFilesPanel` / `SessionFilesSheet` の 1 つのスロットに**モード**として載せる（面ごとの別ペインは追加しない）。モードは `{ kind: "work" } | { kind: "skill", root }`（`client/src/lib/fileRefRequest.ts`）で、App が要求の種別から決める。
+参照から開く面は `SessionFilesPanel` / `SessionFilesSheet` の 1 つのスロットに**モード**として載せる（面ごとの別ペインは追加しない）。モードは `{ kind: "work" } | { kind: "skill", root }`（`client/src/lib/fileRefRequest.ts`）で、面を保持するフック（`client/src/hooks/useSessionFilesFace.ts`）が要求の種別から `filesModeForTarget` で決める。
 
 | モード | 中身 | ヘッダ |
 | --- | --- | --- |
@@ -192,7 +192,7 @@ assistant 本文のインラインコードと Markdown リンクが指すファ
 
 ## ツリーの行のドラッグ（入力欄への参照）
 
-デスクトップの右パネルのファイル行をチャットの入力欄へドロップすると、その行のパスが本文へ `@<作業フォルダ相対のパス>` として挿さる。**添付（アップロード）ではない**のでファイルは送られず、モデルが必要なときに `read` で開く（`@<path>` が cwd 相対の参照であることは `server/src/agent.ts` の `appendSystemPrompt` が説明する）。字面と区切りの規則は `client/src/lib/fileMention.ts` の純関数、ドロップの受け取りは `Composer` が持つ。
+デスクトップの右パネルのファイル行をチャットの入力欄へドロップすると、その行のパスが本文へ `@<作業フォルダ相対のパス>` として挿さる。**添付（アップロード）ではない**のでファイルは送られず、モデルが必要なときに `read` で開く（`@<path>` が cwd 相対の参照であることは `server/src/session-prompt.ts` の `appendSystemPrompt` が説明する）。字面と区切りの規則は `client/src/lib/fileMention.ts` の純関数、ドロップの受け取りは `Composer` が持つ。
 
 - ドラッグできるのは参照のパスが作業フォルダと一致する面だけ（`FileBrowser` の `canRef`。渡すのは desktop の作業フォルダ面）。設定 → ファイル はワークスペース root、スキル面（設定 → スキルのファイルタブ / チャットのスキル面）は SKILL.md の親ディレクトリで、パスの意味が違う。singleColumn の sheet は全画面 modal で入力欄へ届かない
 - ディレクトリ行はドラッグできない（`@<dir>` はファイルとして `read` できない）

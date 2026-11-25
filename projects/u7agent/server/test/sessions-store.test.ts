@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AUTH_REQUIRED_MESSAGE } from "../src/agent";
+import { AUTH_REQUIRED_MESSAGE } from "../src/model-state";
 import { createAgentCatalog } from "../src/agents";
 import type { AssistantMetricsRow, AssistantMetricsStore } from "../src/app-db";
 import { composeRunError } from "../src/error-classify";

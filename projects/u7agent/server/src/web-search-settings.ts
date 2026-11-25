@@ -6,13 +6,13 @@
 import {
   APP_SECRET_NOT_STORED_MESSAGE,
   appSecretAvailable,
-  appSecretFailed,
-  appSecretMasterKeyMissing,
   appSecretUnevaluated,
+  evaluateAppSecret,
+  requireAppSecretCipher,
   type AppSecretState,
 } from "./app-secrets";
 import { httpError, messageFor, type HttpError } from "./http";
-import { MutationLock } from "./model-settings";
+import { SerialLock } from "./serial-lock";
 import {
   DEFAULT_WEB_SEARCH_PROVIDER,
   WEB_SEARCH_PROVIDER_IDS,
@@ -76,7 +76,7 @@ export class WebSearchSettingsService {
   #setWebSearch: (config: WebSearchRuntimeConfig) => void;
   #retainSecret: (value: string) => void;
   #maskError: (text: string) => string;
-  #lock = new MutationLock();
+  #lock = new SerialLock();
   #state: WebSearchState = { enabled: false, provider: DEFAULT_WEB_SEARCH_PROVIDER, keys: new Map() };
   #runtime: WebSearchRuntimeConfig = {
     readEnabled: () => false,
@@ -145,16 +145,14 @@ export class WebSearchSettingsService {
       this.#retainSecret(apiKey);
       let secret: StoredAppSecret;
       try {
-        secret = this.#requireCipher().encrypt("web_search_provider_keys", id, apiKey);
+        secret = requireAppSecretCipher(this.#cipher).encrypt("web_search_provider_keys", id, apiKey);
       } catch {
-        // master key 未設定 / 不正では平文で保存しない
         console.warn("[u7agent] web search key encryption failed");
         return { status: 503, error: APP_SECRET_NOT_STORED_MESSAGE };
       }
       try {
         this.#db.saveWebSearchProviderKey(id, secret);
       } catch {
-        // DB の理由は AppDb の境界がマスクして記録する。ここは操作の分類だけに絞る
         console.warn("[u7agent] web search key save failed");
         return { status: 503, error: WEB_SEARCH_KEY_NOT_STORED_MESSAGE };
       }
@@ -196,8 +194,16 @@ export class WebSearchSettingsService {
           if (info.keyless) continue;
           const secret = this.#db.readWebSearchProviderKey(info.id);
           if (!secret) continue;
-          const apiKey = this.#evaluateKey(info.id, secret);
-          if (apiKey !== null) keys.set(info.id, apiKey);
+          const { value, state } = evaluateAppSecret({
+            cipher: this.#cipher,
+            runtimeAvailable: this.#runtimeAvailable,
+            scope: "web_search_provider_keys",
+            owner: info.id,
+            secret,
+            retain: (value) => this.#retainSecret(value),
+          });
+          this.#secretStates.set(info.id, state);
+          if (value !== null) keys.set(info.id, value);
         }
       } catch (error) {
         // 途中まで復号できたキーも保護対象へは残す（写しは既定へ倒すだけで、値は捨てない）
@@ -206,36 +212,6 @@ export class WebSearchSettingsService {
       this.#state = { enabled: row?.enabled ?? false, provider: webSearchProviderIdOf(row?.provider), keys };
       this.#apply();
     });
-  }
-
-  /**
-   * 保存済みの暗号文を復号し、結果をメモリへ残す。runtime が無いときは復号しない（使う経路が無いため）。
-   * 復号した値は写しへ渡す前に保護対象へ入れる。
-   */
-  #evaluateKey(id: WebSearchProviderId, secret: StoredAppSecret): string | null {
-    if (!this.#runtimeAvailable) {
-      this.#secretStates.set(id, appSecretUnevaluated());
-      return null;
-    }
-    if (!this.#cipher) {
-      this.#secretStates.set(id, appSecretMasterKeyMissing());
-      return null;
-    }
-    try {
-      const apiKey = this.#cipher.decrypt("web_search_provider_keys", id, secret);
-      this.#retainSecret(apiKey);
-      this.#secretStates.set(id, appSecretAvailable());
-      return apiKey;
-    } catch {
-      // 誤鍵・未知の鍵版・改ざんは区別せず、平文へも落とさない
-      this.#secretStates.set(id, appSecretFailed());
-      return null;
-    }
-  }
-
-  #requireCipher(): AppSecretCipher {
-    if (!this.#cipher) throw new Error(APP_SECRET_NOT_STORED_MESSAGE);
-    return this.#cipher;
   }
 
   /**
@@ -270,7 +246,6 @@ export class WebSearchSettingsService {
       this.#db.saveWebSearchSettings(row);
       return true;
     } catch (error) {
-      // DB の理由は AppDb の境界がマスクして記録するため、ここでは操作の分類だけを返す
       console.warn(`[u7agent] web search settings save failed: ${this.#maskError(messageFor(error))}`);
       return false;
     }

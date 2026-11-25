@@ -29,7 +29,7 @@ import { ServeCommandSchema } from "./runtime";
 
 /**
  * 会話の引き継ぎの状態。`consumed` は引き継ぎ後に最初に受理した送信で立ち、
- * チップ (HANDOFF.md を参照) の表示条件になる。旧サーバーは載せない (省略 = 引き継ぎなし)。
+ * チップ (HANDOFF.md を参照) の表示条件になる (省略 = 引き継ぎなし)。
  */
 export const SessionHandoffStateSchema = z.object({
   operationId: z.string(),
@@ -52,9 +52,9 @@ export const SessionPayloadSchema = z.object({
   eventGeneration: z.string(),
   /**
    * 会話履歴の世代。履歴クリアでだけ変わり、SSE の世代 (eventGeneration) とは独立に再起動後も残る。
-   * 変わったら同じ会話のまま旧カーソル・旧バブルを捨てて履歴を取り直す。旧サーバーは省略する
+   * 変わったら同じ会話のまま旧カーソル・旧バブルを捨てて履歴を取り直す。旧データは空文字
    */
-  historyGeneration: z.string().optional(),
+  historyGeneration: z.string(),
   projectId: z.string().optional(),
   model: z.string().optional(),
   thinkingLevel: z.string().optional(),
@@ -63,19 +63,19 @@ export const SessionPayloadSchema = z.object({
   availableThinkingLevels: z.array(ThinkingLevelSchema).optional(),
   status: RunStatusSchema,
   title: z.string(),
-  /** 会話タイトルの由来と AI 要約の試行。旧サーバーは載せない */
-  titleSummary: SessionTitleSummarySchema.optional(),
+  /** 会話タイトルの由来と AI 要約の試行 */
+  titleSummary: SessionTitleSummarySchema,
   createdAt: z.number(),
   lastUsedAt: z.number(),
   /** この payload を組み立てた時刻 (epoch ms)。retry.retryAt との差でクライアントが残り時間を出す */
   serverNow: z.number(),
   queueDepth: z.number(),
-  /** 受理済みでまだ保存されていない送信 (古い→新しい)。旧サーバーは載せないため省略可 (省略 = 未対応) */
-  pendingSends: z.array(PendingSendSchema).optional(),
+  /** 受理済みでまだ保存されていない送信 (古い→新しい) */
+  pendingSends: z.array(PendingSendSchema),
   /** 手動圧縮の開始時刻 (epoch ms)。status === "compacting" のときだけ載る */
   compactionStartedAt: z.number().optional(),
-  /** この会話の完了を Discord へ送るか。サーバーは常に載せ、読む側は省略を false として扱う */
-  notify: z.boolean().optional(),
+  /** この会話の完了を Discord へ送るか */
+  notify: z.boolean(),
   /** サイドバーに固定するか */
   pinned: z.boolean(),
   lastSeq: z.number(),
@@ -86,18 +86,18 @@ export const SessionPayloadSchema = z.object({
   messages: z.array(ChatMessageSchema),
   /**
    * 表示 item にならない assistant 応答のメタ情報 (未回答の ask_user を合成するときに使う)。
-   * 同じ BFF が SDK 履歴から引ける間だけ載り、旧サーバーはキー自体を省略する
+   * 同じ BFF が SDK 履歴から引ける間だけ載る
    */
   assistantMeta: z.array(AssistantMetaSchema).optional(),
   /** 会話の圧縮履歴 (古い→新しい)。区切りは messages に混ぜず、回数はこの長さから導出する */
   compactions: z.array(CompactionInfoSchema),
   /** セッションのコンテキスト使用量。SDK が持たない (スタブ等) ときはキーを省略する */
   context: ContextUsageSchema.optional(),
-  /** 直前の引き継ぎの状態。引き継ぎを受けていない会話と旧サーバーは省略する */
+  /** 直前の引き継ぎの状態。引き継ぎを受けていない会話は省略する */
   handoff: SessionHandoffStateSchema.optional(),
-  /** この会話の egress の実効状態。旧サーバーはキーを省略する (省略 = 承認の状態を出さない) */
-  networkAccess: SessionNetworkAccessSchema.optional(),
-  /** 分岐元の会話 id。分岐した会話だけが載せ、親のタイトルは一覧から引く (旧サーバーは省略する) */
+  /** この会話の egress の実効状態 */
+  networkAccess: SessionNetworkAccessSchema,
+  /** 分岐元の会話 id。分岐した会話だけが載せ、親のタイトルは一覧から引く */
   parentSessionId: z.string().optional(),
 });
 export type SessionPayload = z.infer<typeof SessionPayloadSchema>;
@@ -105,31 +105,31 @@ export const SessionSummarySchema = z.object({
   spaceId: z.string().optional(),
   sessionId: z.string(),
   title: z.string(),
-  /** 会話タイトルの由来と AI 要約の試行。旧サーバーは載せない */
-  titleSummary: SessionTitleSummarySchema.optional(),
+  /** 会話タイトルの由来と AI 要約の試行 */
+  titleSummary: SessionTitleSummarySchema,
   agentId: z.string(),
   agentName: z.string().optional(),
   status: RunStatusSchema,
   /**
-   * ask_user の未 settle の待機があるか。待機を持たない未ロードの会話と旧サーバーは省略し、
+   * ask_user の未 settle の待機があるか。待機を持たない未ロードの会話は省略し、
    * `running` の意味 (BFF がそのランのために動いている) は変えない
    */
   awaitingAnswer: z.boolean().optional(),
   queueDepth: z.number(),
-  /** この会話の完了を Discord へ送るか。サーバーは常に載せ、読む側は省略を false として扱う */
-  notify: z.boolean().optional(),
+  /** この会話の完了を Discord へ送るか */
+  notify: z.boolean(),
   /** サイドバーに固定するか。未指定の旧データは false として扱う */
   pinned: z.boolean(),
-  /** 同じ会話のままエージェント / スペースを引き継げるか。旧サーバーは載せないため省略可 (省略 = false) */
-  canHandoff: z.boolean().optional(),
+  /** 同じ会話のままエージェント / スペースを引き継げるか */
+  canHandoff: z.boolean(),
   /** プロジェクト所属か。真では引き継ぎ先のスペースを選ばない (同じ作業ディレクトリで移す先がない) */
   projectSession: z.boolean().optional(),
   /** 確定後の履歴削除 (片付け) が残っているか。残っている間は開けない / 新しい引き継ぎを受けない */
   handoffCleanup: z.boolean().optional(),
   /** 履歴クリアの確定後に残った削除 (片付け) が未完了か。残っている間は開けず、履歴クリアも 409 */
   historyCleanup: z.boolean().optional(),
-  /** 生ログ (`session.jsonl`) をダウンロードできるか。旧サーバーは載せないため省略可 (省略 = false) */
-  hasRawLog: z.boolean().optional(),
+  /** 生ログ (`session.jsonl`) をダウンロードできるか */
+  hasRawLog: z.boolean(),
   messageCount: z.number(),
   createdAt: z.number(),
   lastUsedAt: z.number(),
@@ -234,12 +234,10 @@ export const SessionHistoryClearResponseSchema = z.object({
 });
 export type SessionHistoryClearResponse = z.infer<typeof SessionHistoryClearResponseSchema>;
 
-// ---------------------------------------------------------------------------
-// リクエスト body スキーマ
-// route が見るのは JSON の形と型だけ。必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
-// ---------------------------------------------------------------------------
+// リクエスト body スキーマ。route が見るのは JSON の形と型だけで、
+// 必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
 export const PostMessageBodySchema = z.object({
-  /** 通常の送信は必須。`resendRunId` を指定した再送では本文を送らず、サーバーが保存済みの本文を使う */
+  /** 通常の送信は必須。`resendSendId` を指定した再送では本文を送らず、サーバーが保存済みの本文を使う */
   text: z.string().optional(),
   /**
    * タイトル用の入力。定型プロンプト (suggestion) を結合する前の本文で、省略時は `text` を使う
@@ -250,8 +248,6 @@ export const PostMessageBodySchema = z.object({
   attachments: z.array(z.string()).optional(),
   /** 未送信メッセージの再送。本文は保存済みの生テキストを使い、同じ送信IDで実行し直す */
   resendSendId: z.string().optional(),
-  /** `resendSendId` の互換名。同時指定は 400 */
-  resendRunId: z.string().optional(),
 });
 export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;
 /**
@@ -333,12 +329,12 @@ export const EventDataSchemas = {
   // (切断中に始まった run の `run_start` がリプレイされても開始時刻がぶれない)
   run_start: z.object({
     runId: z.string(),
-    /** この実行を開始した送信のID (旧サーバーは載せない) */
-    initialSendId: z.string().optional(),
+    /** この実行を開始した送信のID */
+    initialSendId: z.string(),
     prompt: z.string(),
     startedAt: z.number(),
   }),
-  text: z.object({ delta: z.string(), assistantId: z.string().optional() }),
+  text: z.object({ delta: z.string(), assistantId: z.string() }),
   tool_start: z.object({
     id: z.string(),
     name: z.string(),
@@ -346,7 +342,7 @@ export const EventDataSchemas = {
     skill: SkillLoadSchema.optional(),
     questions: z.array(AskUserQuestionSchema).optional(),
     /** BFF がイベントの到着時刻で測った開始時刻。`run.toolCalls[].startedAt` と同じ値 */
-    startedAt: z.number().optional(),
+    startedAt: z.number(),
     /** このツールを要求した assistant 応答のID */
     assistantId: z.string().optional(),
   }),
@@ -369,36 +365,37 @@ export const EventDataSchemas = {
     position: z.number(),
     queueDepth: z.number(),
     /** 待機した送信のID。応答が届く前でも、この値で自分の待機を特定できる */
-    sendId: z.string().optional(),
+    sendId: z.string(),
     prompt: z.string(),
   }),
   // 停止で破棄した待機メッセージの送信ID。クライアントが「未送信」へ切り替えるために使う
-  queue_cleared: z.object({ sendIds: z.array(z.string()).optional() }).strict(),
+  // (破棄した送信が無いときはイベント自体を配らない)
+  queue_cleared: z.object({ sendIds: z.array(z.string()) }).strict(),
   // assistant の message_end ごとに 1 件。usage はプロバイダが報告したときだけ入る
   usage: z.object({
     usage: UsageSchema.optional(),
     metrics: MessageMetricsSchema.optional(),
     context: ContextUsageSchema.optional(),
-    assistantId: z.string().optional(),
+    assistantId: z.string(),
   }),
   /**
    * assistant の応答が終わった (message_end)。クライアントは開いている応答カードを閉じ、
    * 続く delta を次のカードへ入れる。usage とは別で、model だけを載せる
    */
   assistant_end: z.object({
-    assistantId: z.string().optional(),
-    /** 応答を生成したモデル (`provider/model`)。null は不明、未指定は旧サーバー */
-    model: z.string().nullable().optional(),
+    assistantId: z.string(),
+    /** 応答を生成したモデル (`provider/model`)。null は生成元が不明 */
+    model: z.string().nullable(),
   }),
   run_end: z.object({
-    runId: z.string().optional(),
+    runId: z.string(),
     status: RunStatusSchema,
     queueDepth: z.number(),
     /**
      * BFF 計測のラン全体の所要時間。クライアントが完了時の合計時間として表示する。
-     * キュー待ちは含めない (開始は `startRun()` の時刻)。旧サーバーは載せない
+     * キュー待ちは含めない (開始は `startRun()` の時刻)
      */
-    durationMs: z.number().optional(),
+    durationMs: z.number(),
     error: z.string().optional(),
     /** 最終失敗の分類コード。payload の `run.errorCode` と同じ値で、error と組で載る */
     errorCode: RunErrorCodeSchema.optional(),
@@ -436,9 +433,7 @@ export type EventEntry = {
   [T in SSEEventType]: EventEntryFor<T>;
 }[SSEEventType];
 
-// ---------------------------------------------------------------------------
 // セッション診断 (GET /api/sessions/:id/diagnostics。docs/diagnostics.md)
-// ---------------------------------------------------------------------------
 /** diagnostics の items が持つ種別。SSE の型と 1:1 で、イベントを足すとこの enum も型で要求される */
 const SSEEventTypeSchema = z.enum(Object.keys(EventDataSchemas) as [SSEEventType, ...SSEEventType[]]);
 /**
@@ -515,7 +510,7 @@ export const SessionDiagnosticsSchema = z.object({
   questions: z.array(z.object({ toolCallId: z.string(), questionCount: z.number(), settled: z.boolean() })),
   /**
    * タイトルの由来と AI 要約の試行 (状態・モデル・usage)。依頼本文と生成タイトルは載せない
-   * (診断 JSON が本文を含まない契約の一部)。旧サーバーは載せないため省略可。
+   * (診断 JSON が本文を含まない契約の一部)。タイトルの記録が無いときは省略する。
    */
   title: SessionTitleSummarySchema.optional(),
   events: z.object({

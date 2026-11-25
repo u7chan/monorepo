@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject, type ReactNode } from "react";
-import { deleteDirectory, deleteFile, fileDownloadUrl, getFileDownloadCheck, getFiles, renameEntry } from "../api";
+import {
+  deleteDirectory,
+  deleteFile,
+  fileDownloadUrl,
+  getFileDownloadCheck,
+  getFiles,
+  renameEntry,
+} from "../api/files";
 import { useFileIconStyle } from "../hooks/useFileIconStyle";
 import { useFileTreeHeight } from "../hooks/useFileTreeHeight";
 import { useFileTreeWidth } from "../hooks/useFileTreeWidth";
@@ -13,6 +20,7 @@ import { cn } from "../lib/cn";
 import { renameInputValue } from "../lib/confirmDialog";
 import { archiveConfirmRequest, startArchiveDownload } from "../lib/archive";
 import { formatBytes } from "../lib/attachments";
+import { messageFor } from "../lib/errors";
 import {
   applyFileTreeError,
   applyFileTreeListing,
@@ -80,10 +88,6 @@ const FILE_INDENT = 32;
 const NO_HIDDEN_NAMES: readonly string[] = [];
 /** reveal の一時ハイライトを残す時間。行が見つかってスクロールしてから数える */
 const REVEAL_HIGHLIGHT_MS = 1600;
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export type FileBrowserProps = {
   /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
@@ -304,7 +308,7 @@ export function FileBrowser({
             }),
           );
         } catch (error) {
-          setTree((prev) => applyFileTreeError(prev, path, errorText(error)));
+          setTree((prev) => applyFileTreeError(prev, path, messageFor(error)));
         } finally {
           inFlightRef.current.delete(path);
           const reload = settleFileTreeRequest(reloadGateRef.current, inFlightRef.current.size);
@@ -358,7 +362,7 @@ export function FileBrowser({
           setTree((prev) => removeFileTreeEntry(prev, path));
         }
       } catch (error) {
-        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));
+        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), messageFor(error)));
       } finally {
         deletingRef.current.delete(path);
       }
@@ -387,7 +391,7 @@ export function FileBrowser({
         setPreviewModes((prev) => renamePreviewModes(prev, path, nextPath));
         setPreviewOrigins((prev) => renamePreviewOrigins(prev, path, nextPath));
       } catch (error) {
-        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));
+        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), messageFor(error)));
       } finally {
         renamingRef.current.delete(path);
       }
@@ -410,7 +414,7 @@ export function FileBrowser({
         if (type === "dir" && check.skipped.length > 0 && !(await confirm(archiveConfirmRequest(name, check)))) return;
         startArchiveDownload(fileDownloadUrl(fetchPath), check.name);
       } catch (error) {
-        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));
+        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), messageFor(error)));
       } finally {
         downloadingRef.current.delete(path);
       }
@@ -437,6 +441,25 @@ export function FileBrowser({
   // 表示中のタブのサイズは取得済みの行から引く (メタ表示のために一覧を取り直さない)。未取得は undefined
   const activeSize = tabs.active === null ? undefined : fileTreeEntryFor(tree, tabs.active)?.size;
   const rootNode = fileTreeDirectoryState(tree, FILE_TREE_ROOT) ?? { open: true, loading: false };
+  const rowScope: FileTreeRowScope = {
+    absolutePathOf,
+    tree,
+    selected: tabs.active,
+    canRename,
+    readOnly,
+    canRef,
+    excludeNames,
+    onShare: onShareDirectory,
+    canShareSessionRoot,
+    shareBlockedReason,
+    revealPath: reveal?.path ?? null,
+    revealRef: revealRowRef,
+    onToggle: toggle,
+    onSelect: openTab,
+    onRename: renameRow,
+    onDelete: removeEntry,
+    onDownload: downloadRow,
+  };
 
   return (
     // 外装が渡す枠 (グリッドの 1 行 / flex の 1 要素) をそのまま埋める。内側の 1 段は @container でないと
@@ -490,28 +513,7 @@ export function FileBrowser({
                 </MessageRow>
               ) : null}
               {rootNode.children ? (
-                <Branch
-                  parent={FILE_TREE_ROOT}
-                  absolutePathOf={absolutePathOf}
-                  node={rootNode}
-                  depth={0}
-                  tree={tree}
-                  selected={tabs.active}
-                  canRename={canRename}
-                  readOnly={readOnly}
-                  canRef={canRef}
-                  excludeNames={excludeNames}
-                  onShare={onShareDirectory}
-                  canShareSessionRoot={canShareSessionRoot}
-                  shareBlockedReason={shareBlockedReason}
-                  onToggle={toggle}
-                  onSelect={openTab}
-                  onRename={renameRow}
-                  onDelete={removeEntry}
-                  onDownload={downloadRow}
-                  revealPath={reveal?.path ?? null}
-                  revealRef={revealRowRef}
-                />
+                <Branch parent={FILE_TREE_ROOT} node={rootNode} depth={0} scope={rowScope} />
               ) : rootNode.error ? null : (
                 <MessageRow depth={0}>
                   <LoadingMark />
@@ -572,12 +574,13 @@ export function FileBrowser({
   );
 }
 
-type BranchProps = {
-  parent: string;
+/**
+ * 木のどの行でも同じ値の束。行ごとに変わる `parent` / `node` / `entry` / `depth` だけを props に残す。
+ * 行の操作を足すときに直すのは、この型・`FileBrowser` での生成・その操作を使う行の 3 か所。
+ */
+type FileTreeRowScope = {
   /** 画面 root 相対パスをワークスペースの絶対パスへ写す (health 未取得は undefined) */
   absolutePathOf: (path: string) => string | undefined;
-  node: FileTreeDirectoryState;
-  depth: number;
   tree: FileTreeState;
   selected: string | null;
   canRename: boolean;
@@ -601,57 +604,21 @@ type BranchProps = {
   onDownload: (path: string, name: string, type: "file" | "dir") => void;
 };
 
-function Branch({
-  parent,
-  absolutePathOf,
-  node,
-  depth,
-  tree,
-  selected,
-  canRename,
-  readOnly,
-  canRef,
-  excludeNames,
-  onShare,
-  canShareSessionRoot,
-  shareBlockedReason,
-  revealPath,
-  revealRef,
-  onToggle,
-  onSelect,
-  onRename,
-  onDelete,
-  onDownload,
-}: BranchProps) {
+type BranchProps = {
+  parent: string;
+  node: FileTreeDirectoryState;
+  depth: number;
+  scope: FileTreeRowScope;
+};
+
+function Branch({ parent, node, depth, scope }: BranchProps) {
   const entries = node.children ?? [];
   return (
     // 明示的な minmax(0,1fr) で行幅を容器に固定する (auto だと長い名前の max-content まで広がり、省略記号ではなく overflow で切れる)
     <div className="grid min-w-0 grid-cols-1 gap-0.5">
       {entries.length === 0 ? <MessageRow depth={depth}>（空）</MessageRow> : null}
       {entries.map((entry) => (
-        <EntryRow
-          key={entry.name}
-          parent={parent}
-          absolutePathOf={absolutePathOf}
-          entry={entry}
-          depth={depth}
-          tree={tree}
-          selected={selected}
-          canRename={canRename}
-          readOnly={readOnly}
-          canRef={canRef}
-          excludeNames={excludeNames}
-          onShare={onShare}
-          canShareSessionRoot={canShareSessionRoot}
-          shareBlockedReason={shareBlockedReason}
-          revealPath={revealPath}
-          revealRef={revealRef}
-          onToggle={onToggle}
-          onSelect={onSelect}
-          onRename={onRename}
-          onDelete={onDelete}
-          onDownload={onDownload}
-        />
+        <EntryRow key={entry.name} parent={parent} entry={entry} depth={depth} scope={scope} />
       ))}
       {node.truncated ? <MessageRow depth={depth}>上限のため {entries.length} 件のみ表示しています</MessageRow> : null}
     </div>
@@ -676,65 +643,31 @@ function RowTail({ children }: { children: ReactNode }) {
 
 function EntryRow({
   parent,
-  absolutePathOf,
   entry,
   depth,
-  tree,
-  selected,
-  canRename,
-  readOnly,
-  canRef,
-  excludeNames,
-  onShare,
-  canShareSessionRoot,
-  shareBlockedReason,
-  revealPath,
-  revealRef,
-  onToggle,
-  onSelect,
-  onRename,
-  onDelete,
-  onDownload,
+  scope,
 }: {
   parent: string;
-  absolutePathOf: (path: string) => string | undefined;
   entry: FileEntry;
   depth: number;
-  tree: FileTreeState;
-  selected: string | null;
-  canRename: boolean;
-  readOnly: boolean;
-  canRef: boolean;
-  excludeNames: readonly string[];
-  onShare?: (path: string) => void;
-  /** root 直下の `index.html` 行に「このフォルダを共有」を出すか */
-  canShareSessionRoot: boolean;
-  /** 「共有」を押せない理由 (実行中など)。undefined なら押せる */
-  shareBlockedReason?: string;
-  revealPath: string | null;
-  revealRef: RefObject<HTMLDivElement | null>;
-  onToggle: (path: string) => void;
-  onSelect: (path: string) => void;
-  onRename: (path: string, name: string) => void;
-  onDelete: (path: string, type: "file" | "dir") => void;
-  onDownload: (path: string, name: string, type: "file" | "dir") => void;
+  scope: FileTreeRowScope;
 }) {
   const path = fileTreeChildPath(parent, entry.name);
-  const absolutePath = absolutePathOf(path);
+  const absolutePath = scope.absolutePathOf(path);
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
-  const revealed = revealPath === path;
+  const revealed = scope.revealPath === path;
   const rowActions = (
     <EntryRowActions
       name={entry.name}
       type={entry.type}
       symlink={entry.symlink}
-      canRename={canRename}
-      readOnly={readOnly}
-      excludeNames={excludeNames}
+      canRename={scope.canRename}
+      readOnly={scope.readOnly}
+      excludeNames={scope.excludeNames}
       absolutePath={absolutePath}
-      canShare={onShare !== undefined}
-      canShareSessionRoot={canShareSessionRoot}
-      shareBlockedReason={shareBlockedReason}
+      canShare={scope.onShare !== undefined}
+      canShareSessionRoot={scope.canShareSessionRoot}
+      shareBlockedReason={scope.shareBlockedReason}
       depth={depth}
       copied={copiedId === path}
       onCopyPath={() => void copyMessage(path, path)}
@@ -742,15 +675,15 @@ function EntryRow({
         // 絶対パスを作れない行には項目が出ない。undefined で押されても何もしない
         if (absolutePath !== undefined) void copyMessage(absolutePath, path);
       }}
-      onRename={() => onRename(path, entry.name)}
-      onDelete={() => onDelete(path, entry.type)}
-      onDownload={() => onDownload(path, entry.name, entry.type)}
-      onShare={() => onShare?.(fileRowShareTarget({ type: entry.type, path, parent }))}
+      onRename={() => scope.onRename(path, entry.name)}
+      onDelete={() => scope.onDelete(path, entry.type)}
+      onDownload={() => scope.onDownload(path, entry.name, entry.type)}
+      onShare={() => scope.onShare?.(fileRowShareTarget({ type: entry.type, path, parent }))}
     />
   );
 
   if (entry.type === "dir") {
-    const node = fileTreeDirectoryState(tree, path);
+    const node = fileTreeDirectoryState(scope.tree, path);
     const open = node?.open ?? false;
     // 一覧が届いたか。空のディレクトリは children: [] なので、未取得 (undefined) と区別する
     const loaded = node?.children !== undefined || node?.error !== undefined;
@@ -763,7 +696,7 @@ function EntryRow({
         {/* 行全体を button にすると時刻が accessible name に混ざり、時刻のクリックでも開閉するため、
             ファイル行と同じ「div + flex-1 の操作 button」に分ける */}
         <div
-          ref={revealed ? revealRef : undefined}
+          ref={revealed ? scope.revealRef : undefined}
           style={
             {
               "--tree-indent": `${depth * INDENT + 8}px`,
@@ -784,7 +717,7 @@ function EntryRow({
           <button
             type="button"
             aria-expanded={open}
-            onClick={() => onToggle(path)}
+            onClick={() => scope.onToggle(path)}
             className="flex min-w-(--name-min-width) flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left singleColumn:min-h-11"
           >
             <span
@@ -827,44 +760,21 @@ function EntryRow({
                 {node.error}
               </MessageRow>
             ) : null}
-            {node?.children ? (
-              <Branch
-                parent={path}
-                absolutePathOf={absolutePathOf}
-                node={node}
-                depth={depth + 1}
-                tree={tree}
-                selected={selected}
-                canRename={canRename}
-                readOnly={readOnly}
-                canRef={canRef}
-                excludeNames={excludeNames}
-                onShare={onShare}
-                canShareSessionRoot={canShareSessionRoot}
-                shareBlockedReason={shareBlockedReason}
-                revealPath={revealPath}
-                revealRef={revealRef}
-                onToggle={onToggle}
-                onSelect={onSelect}
-                onRename={onRename}
-                onDelete={onDelete}
-                onDownload={onDownload}
-              />
-            ) : null}
+            {node?.children ? <Branch parent={path} node={node} depth={depth + 1} scope={scope} /> : null}
           </div>
         </div>
       </div>
     );
   }
 
-  const isSelected = selected === path;
+  const isSelected = scope.selected === path;
   return (
     // 行全体は選択、右端は ⋯ の操作メニュー。入れ子の button は作れないため、行は div にして button を並べる
     <div
-      ref={revealed ? revealRef : undefined}
-      draggable={canRef}
+      ref={revealed ? scope.revealRef : undefined}
+      draggable={scope.canRef}
       onDragStart={
-        canRef
+        scope.canRef
           ? (event) => {
               // 添付 (Files) と区別する型と、他アプリへ落としても本文になる字面の両方を積む
               event.dataTransfer.setData(FILE_MENTION_MIME, path);
@@ -873,7 +783,7 @@ function EntryRow({
             }
           : undefined
       }
-      title={canRef ? `${path}（ドラッグでチャットの参照にできます）` : undefined}
+      title={scope.canRef ? `${path}（ドラッグでチャットの参照にできます）` : undefined}
       style={
         {
           "--tree-indent": `${depth * INDENT + FILE_INDENT}px`,
@@ -893,7 +803,7 @@ function EntryRow({
       <button
         type="button"
         aria-current={isSelected ? "true" : undefined}
-        onClick={() => onSelect(path)}
+        onClick={() => scope.onSelect(path)}
         className="flex min-w-(--name-min-width) flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left singleColumn:min-h-11"
       >
         <FileIcon kind={fileKind(entry.name)} />

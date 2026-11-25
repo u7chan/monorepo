@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Space } from "server";
+import type { DeviceSettingsStorage } from "../src/lib/deviceSettingsStore";
 import {
   createSpaceSelectionStore,
   initialSpaceSelection,
@@ -10,7 +11,6 @@ import {
   spaceSelectionStore,
   DEFAULT_SPACE_ID,
   SPACE_SELECTION_KEY,
-  type SpaceSelectionStorage,
 } from "../src/lib/spaceSelection";
 import {
   spaceDeleteConfirmRequest,
@@ -19,14 +19,18 @@ import {
   SPACE_NAME_MAX_LENGTH,
 } from "../src/lib/spaceSettings";
 import { removeSpaceAndApply } from "../src/lib/spaceDelete";
-import { reorderRows } from "../src/lib/agentReorder";
+import { reorderRows } from "../src/lib/listReorder";
 import { createSessionCreation } from "../src/hooks/sessionCreation";
 import { sendChatMessage, type SendChatMessageDeps } from "../src/hooks/sessionActions";
 import { createRequestGate, createMountScope } from "../src/hooks/requestGate";
-import type { ChatAction } from "../src/hooks/chatReducer";
+import type { ChatAction } from "../src/lib/chatState";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { ApiError, createSpaceApi, getCatalog, getFiles, listSpaces, createSpace } = await import("../src/api");
+const { ApiError } = await import("../src/api/http");
+const { createSpaceApi } = await import("../src/api/sessions");
+const { listSpaces, createSpace } = await import("../src/api/spaces");
+const { getCatalog } = await import("../src/api/catalog");
+const { getFiles } = await import("../src/api/files");
 // spaceOrder / spaceRename は api を（ApiError のために）読むので、location を用意した後で読む
 const { createSpaceOrderFlow } = await import("../src/lib/spaceOrder");
 const { createSpaceRenameFlow } = await import("../src/lib/spaceRename");
@@ -188,7 +192,7 @@ test("削除の確認はスペース名と消える対象、実行中の停止�
 });
 
 /** 保存領域 1 つ分。window が無い Node でも store を検査できるよう注入する */
-function fakeStorage(): SpaceSelectionStorage & { data: Map<string, string> } {
+function fakeStorage(): DeviceSettingsStorage & { data: Map<string, string> } {
   const data = new Map<string, string>();
   return {
     data,

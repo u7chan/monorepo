@@ -21,6 +21,7 @@ import { createSecretMasker } from "../src/redact";
 import { SECRET_KEY_BYTES, SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import type { NotificationResult } from "../src/schema";
 import { testAppCipher } from "./app-secret-fixture";
+import { jsonBody, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 import { APP_SECRET_DECRYPT_FAILED_MESSAGE, APP_SECRET_MASTER_KEY_MESSAGE } from "../src/app-secrets";
 
@@ -39,14 +40,6 @@ async function withMasterKey<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 const OTHER_WEBHOOK = "https://discord.com/api/webhooks/999/zyxwvutsrqponmlkjihgfedcba";
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 const statusOf = (error: unknown): number | undefined => (error as { statusCode?: number }).statusCode;
 

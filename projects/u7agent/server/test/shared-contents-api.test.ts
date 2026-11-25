@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
-import type { SharedContentRow } from "../src/app-db";
 import { SESSION_DIR_REL } from "../src/app-paths";
 import { SECRET_KEY_BYTES, SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "../src/sandbox/client";
@@ -14,29 +13,14 @@ import { SandboxRequestError } from "../src/sandbox/client";
 import type { SandboxDownloadPlan } from "../src/sandbox/protocol";
 import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
 import { DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES } from "../src/shared-content-rules";
+import type { SharedContentRow } from "../src/shared-content-repository";
 import { SHARED_CONTENT_PROJECT_SESSION_ROOT, SHARED_CONTENT_RECONCILE_FAILED } from "../src/shared-contents";
+import { jsonBody, jsonPatch, jsonPost, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 const KEY = `1:${Buffer.alloc(SECRET_KEY_BYTES, 11).toString("base64")}`;
 const ACCOUNT = "0123456789abcdef0123456789abcdef";
 const TOKEN = "cf-test-token-0123456789";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-const jsonPatch = (payload: unknown): RequestInit => ({
-  method: "PATCH",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 /** ZIP の元ファイルを作り、呼ばれるたびに新しいストリームを返す */
 async function makeZip(dir: string): Promise<() => ReadableStream<Uint8Array>> {
@@ -235,7 +219,7 @@ function seedRow(
   id: string,
   overrides: Partial<SharedContentRow> = {},
 ): void {
-  bff.appDb.insertSharedContent({
+  bff.appDb.sharedContents.insertSharedContent({
     id,
     sessionId,
     name: id,
@@ -577,7 +561,7 @@ test("何も保存しない失敗は state: not_stored のまま行を変えな�
     await waitForSettled(unsaved.bff, created.id);
     const before = await jsonBody(await unsaved.bff.app.request(`/api/shared-contents/${created.id}`));
     // provider の無効化は通るが、行の更新だけが失敗する状況を作る
-    unsaved.bff.appDb.updateSharedContentState = () => {
+    unsaved.bff.appDb.sharedContents.updateSharedContentState = () => {
       throw new Error("write failed");
     };
     const response = await unsaved.bff.app.request(`/api/shared-contents/${created.id}/stop`, { method: "POST" });

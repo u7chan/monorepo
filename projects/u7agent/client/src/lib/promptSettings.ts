@@ -3,7 +3,7 @@
  * (選択・解除・並べ替え) の純粋なロジック。表示の同一性はマスタの `id` で持ち、同じ本文の別マスタを
  * 本文でまとめない (docs/api-catalog.md)。
  */
-import type { AgentDef, PromptDef, PromptUsage } from "../types";
+import type { PromptDef, PromptUsage } from "../types";
 
 /** サーバーの検証と同じ上限。入力欄の `maxLength` と残量の表示に使う */
 export const PROMPT_LABEL_MAX = 60;
@@ -118,9 +118,9 @@ export function promptRefreshFailure(
   return reasons.length > 0 ? reasons.join(" ") : undefined;
 }
 
-/** 使用先の 1 行。組み込みの汎用アシスタントは DB の紐づけではないことを添える */
+/** 使用先の 1 行 (エージェント名) */
 export function promptUsageLabel(usage: PromptUsage): string {
-  return usage.builtin ? `${usage.agentName}（組み込み）` : usage.agentName;
+  return usage.agentName;
 }
 
 /** 使用中の削除を止める理由。空なら削除できる */
@@ -129,30 +129,6 @@ export function promptDeleteBlockedReason(prompt: PromptDef): string | undefined
   if (prompt.usedBy.length === 0) return undefined;
   const names = prompt.usedBy.map(promptUsageLabel).join("、");
   return `${names} が使用中です。すべての紐づけを解除すると削除できます。`;
-}
-
-/** 組み込みと自作の区別。一覧の見出しと絞り込みに使う */
-export function splitPromptsByKind(prompts: readonly PromptDef[]): {
-  builtin: PromptDef[];
-  custom: PromptDef[];
-} {
-  return {
-    builtin: prompts.filter((prompt) => prompt.kind === "builtin"),
-    custom: prompts.filter((prompt) => prompt.kind === "custom"),
-  };
-}
-
-/** エージェントが参照しているマスタの ID (表示順) */
-export function promptSelectionOf(agent: AgentDef | undefined): string[] {
-  return agent?.prompts?.map((prompt) => prompt.id) ?? [];
-}
-
-/**
- * 参照の候補。マスタの一覧をそのまま出し、選択済みは呼び出し側が `promptSelectionOf` で重ねる。
- * 一覧を取得できていない間は空 (選択肢を勝手に作らない)。
- */
-export function promptCandidates(prompts: readonly PromptDef[]): PromptDef[] {
-  return [...prompts];
 }
 
 /** 上限に達しているか (新規の追加を止める理由の判定) */

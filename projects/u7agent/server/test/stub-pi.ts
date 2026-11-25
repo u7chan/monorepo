@@ -4,9 +4,8 @@
  */
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, AuthInteraction, LoginOptions, Model as PiAiModel } from "@earendil-works/pi-ai";
-import type { ModelCatalogRefreshAttempt, PiBff } from "../src/agent";
-import type { ModelSelection } from "../src/agent";
-import { MODEL_UNSET_MESSAGE } from "../src/agent";
+import type { PiBff } from "../src/agent";
+import { MODEL_UNSET_MESSAGE, type ModelCatalogRefreshAttempt, type ModelSelection } from "../src/model-state";
 import type { AskUserHost } from "../src/ask-user-tool";
 import type { NetworkAccessHost } from "../src/request-network-access-tool";
 import type { CustomProviderRuntimeConfig } from "../src/custom-providers";
@@ -1749,7 +1748,7 @@ export function createStubPi(options: StubPiOptions = {}) {
       }),
     sessions,
     createInputs,
-    // 設定 → モデル (bootstrap の createProviderKeyRuntime) が触る SDK 面の模倣
+    // 設定 → モデル (bff-runtime の createProviderKeyRuntime) が触る SDK 面の模倣
     modelRuntime: createStubModelRuntime(options, modelRuntimeCalls, oauthCalls),
     modelRuntimeCalls,
     oauthCalls,
@@ -1838,7 +1837,7 @@ export function createStubPi(options: StubPiOptions = {}) {
       modelStateRefreshSignals.push(refreshOptions.signal);
     },
     modelStateRefreshSignals,
-    // カタログ更新 (bootstrap の createProviderKeyRuntime) が触る SDK 面の模倣。
+    // カタログ更新 (bff-runtime の createProviderKeyRuntime) が触る SDK 面の模倣。
     // 実 SDK の refresh と同じく、呼び出し時の signal が既に abort 済みなら即座に aborted で返す。
     refreshModelCatalog: async (refreshOptions: { allowNetwork: boolean; force: boolean; signal: AbortSignal }) => {
       catalogRefreshCalls.push({

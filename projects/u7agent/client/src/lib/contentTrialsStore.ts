@@ -27,7 +27,7 @@ import {
   trialStartFailureNote,
   type TrialStartFailure,
 } from "./contentTrials";
-import { messageFor } from "./settingsResource";
+import { messageFor } from "./errors";
 
 export interface ContentTrialsNote {
   text: string;
@@ -465,5 +465,3 @@ export function createContentTrialsController(deps: {
     },
   };
 }
-
-export type ContentTrialsController = ReturnType<typeof createContentTrialsController>;

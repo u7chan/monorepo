@@ -1,7 +1,7 @@
 import type { Dispatch, RefObject } from "react";
 import type { EventEntry, SessionPayload, SessionSummary } from "../types";
 import type { DiagnosticsRecorder } from "../lib/diagnostics";
-import type { ChatAction } from "./chatReducer";
+import type { ChatAction } from "../lib/chatState";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
 
 export type SessionStreamDeps = {
@@ -106,7 +106,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       dispatch({
         type: "runStart",
         runId: entry.data.runId,
-        ...(entry.data.initialSendId === undefined ? {} : { initialSendId: entry.data.initialSendId }),
+        initialSendId: entry.data.initialSendId,
         prompt: entry.data.prompt,
         at: entry.at,
         startedAt: entry.data.startedAt,
@@ -120,7 +120,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         type: "text",
         delta: entry.data.delta,
         at: entry.at,
-        ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
+        assistantId: entry.data.assistantId,
       });
       return;
     case "tool_start":
@@ -132,7 +132,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         args: entry.data.args,
         skill: entry.data.skill,
         ...(entry.data.questions ? { questions: entry.data.questions } : {}),
-        ...(entry.data.startedAt !== undefined ? { startedAt: entry.data.startedAt } : {}),
+        startedAt: entry.data.startedAt,
         at: entry.at,
       });
       return;
@@ -155,14 +155,14 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         usage: entry.data.usage,
         metrics: entry.data.metrics,
         context: entry.data.context,
-        ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
+        assistantId: entry.data.assistantId,
       });
       return;
     case "assistant_end":
       dispatch({
         type: "assistantEnd",
-        ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
-        ...(entry.data.model === undefined ? {} : { model: entry.data.model }),
+        assistantId: entry.data.assistantId,
+        model: entry.data.model,
       });
       return;
     case "compaction":
@@ -192,7 +192,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
     case "queued":
       dispatch({
         type: "queued",
-        ...(entry.data.sendId === undefined ? {} : { sendId: entry.data.sendId }),
+        sendId: entry.data.sendId,
         position: entry.data.position,
         queueDepth: entry.data.queueDepth,
       });
@@ -207,7 +207,6 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         runId: entry.data.runId,
         status: entry.data.status,
         queueDepth: entry.data.queueDepth,
-        // 旧サーバーは載せない (undefined のまま = 結末のセグメントを付けない)
         durationMs: entry.data.durationMs,
         error: entry.data.error,
         // 分類コードは status が error のときだけサーバーが載せる (後方互換のため undefined があり得る)

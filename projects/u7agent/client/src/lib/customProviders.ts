@@ -1,6 +1,6 @@
 /**
- * 設定 → モデルの「カスタムプロバイダー」の表示・入力検証・文言。コンポーネントから切り出し、
- * 保存前の検証と、オンメモリであることの注意書きを DOM なしで固定できるようにする。
+ * 設定 → モデルの「カスタムプロバイダー」の表示・入力検証・文言。
+ * 保存前の検証と、保存先（アプリ DB・暗号化）の注意書きを DOM なしで固定する。
  * サーバーの検証 (server/src/custom-providers.ts) と同じ境界を、保存前に同じ理由で止めるために持つ。
  */
 import type {
@@ -99,7 +99,6 @@ export const CUSTOM_PROVIDER_PROBE_PENDING_NOTE = "モデル一覧を取得し�
 export const CUSTOM_PROVIDER_PROBE_EMPTY_MESSAGE =
   "接続できましたが、モデル一覧は空でした。モデル ID を直接入力してください。";
 export const CUSTOM_PROVIDER_PROBE_MISSING_NOTE = "このモデル ID は取得した一覧にありません。";
-export const CUSTOM_PROVIDER_PROBE_EMPTY_LIST = "該当するモデルがありません。";
 
 /** フォームの下書き。数値は入力欄の文字列のまま持ち、保存前に検証する */
 export interface CustomProviderFormDraft {

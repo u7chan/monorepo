@@ -11,6 +11,7 @@ import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import { VOICE_INPUT_MODEL } from "../src/voice-input";
 import { TEST_MASTER_KEY } from "./app-secret-fixture";
 import { APP_SECRET_UNEVALUATED_MESSAGE } from "../src/app-secrets";
+import { jsonBody } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 // アプリ DB の APIキーは暗号化して保存する。このファイルの BFF には master key を立てて起動する
@@ -18,8 +19,6 @@ process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const KEY = "sk-voice-dummy-key-0123456789abcdef";
 const OTHER_KEY = "sk-voice-other-key-0123456789";
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 /** ブラウザからの same-origin 要求を模す (キーの登録・削除・疎通確認はヘッダの無い直接クライアントを拒否する) */
 const sameOrigin = { Origin: "http://localhost" };

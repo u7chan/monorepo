@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { reorderAgents } from "../api";
+import { useRef, useState } from "react";
+import { reorderAgents } from "../api/catalog";
 import { useFileSkills } from "../hooks/useFileSkills";
 import { useWideLayout } from "../hooks/useLayoutMode";
+import { useLatestRef } from "../hooks/useLatestRef";
+import { useListDetailPane } from "../hooks/useListDetailPane";
 import { selectableAgents } from "../lib/agentSelection";
 import { createReorderFlow, type ReorderNoteKind, type ReorderState } from "../lib/reorderFlow";
-import { reorderRows } from "../lib/agentReorder";
+import { reorderRows } from "../lib/listReorder";
+import { orderFailureNoteText } from "../lib/orderNote";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import {
@@ -33,16 +36,10 @@ export type AgentSettingsPageProps = SettingsPageProps & {
   defaultThinkingLevel?: ThinkingLevel;
 };
 
-/** 一覧と詳細のどちらを見せるか。並列表示では使わない */
-type AgentView = "list" | "detail";
-
-/** 並べ替えの失敗の文言。保存されたかどうかで伝えることを分ける（client/src/lib/reorderFlow.ts） */
+/** 並べ替えの失敗の文言。保存できなかった場合の共通の文に、取り直しだけの文を足す（client/src/lib/orderNote.ts） */
 function orderNoteText(kind: ReorderNoteKind, message: string): string {
-  if (kind === "rejected") return `並び順を保存できませんでした。${message}`;
-  if (kind === "unknown") {
-    return `並び順を保存できたか確認できません。再読み込みするとサーバーの並びに合わせます。（${message}）`;
-  }
-  return `並び順は保存しましたが、一覧を取り直せませんでした。${message}`;
+  if (kind === "refresh") return `並び順は保存しましたが、一覧を取り直せませんでした。${message}`;
+  return orderFailureNoteText(kind, message);
 }
 
 /**
@@ -63,21 +60,20 @@ export function AgentSettingsPage({
   onOpenNav,
 }: AgentSettingsPageProps) {
   const agents = selectableAgents(catalog);
-  // 並べるのは 900px 以上だけ。狭いときはページ内の view state で一覧と詳細を切り替える
+  // 並べるのは 900px 以上だけ。狭いときはページ内の面で一覧と詳細を切り替える
   const wide = useWideLayout();
   const split = !singleColumn && wide;
-  const [view, setView] = useState<AgentView>("list");
   const [editingId, setEditingId] = useState<string | null>(() => agentId || catalog.agents[0]?.id || null);
+  const pane = useListDetailPane({ split, selectedId: editingId, rowAttribute: "data-agent-row" });
   // 共通スキル (`.agents/skills`) の一覧。エージェントへ割り当てる値の編集にだけ使う (読み取り専用)
   const fileSkills = useFileSkills();
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
-  // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/reorderFlow が持ち、
+  // 並べ替えの下書きと保存。ドラッグの計算は lib/listReorder、保存の手順は lib/reorderFlow が持ち、
   // ここは state への反映と文言だけを持つ（編集フォームの下書きをページが持つのと同じ理由）
   const [order, setOrder] = useState<ReorderState>({ draft: null, saving: false });
-  const orderDeps = useRef({ catalogAgents: catalog.agents, applyAgentOrder, refreshCatalog, setNoteText });
-  orderDeps.current = { catalogAgents: catalog.agents, applyAgentOrder, refreshCatalog, setNoteText };
+  const orderDeps = useLatestRef({ catalogAgents: catalog.agents, applyAgentOrder, refreshCatalog, setNoteText });
   const [orderFlow] = useState(() =>
     createReorderFlow({
       ids: () => orderDeps.current.catalogAgents.map((agent) => agent.id),
@@ -119,47 +115,13 @@ export function AgentSettingsPage({
   const selectAgent = (nextId: string | null) => {
     setEditingId(nextId);
     // 並べて見られないときだけ詳細へ切り替える (900px 以上はページ内のフォームをそのまま使う)
-    if (!split) setView("detail");
+    pane.openDetail();
   };
 
   const startNewAgent = () => {
     setNoteText("新しいエージェントを作成します。");
     selectAgent(null);
   };
-
-  // 一覧 ⇄ 詳細の焦点。詳細では見出し (ヘッダ) へ、戻ったときは選択中の行へ移す (docs/ui-layout.md)
-  const listRef = useRef<HTMLDivElement>(null);
-  const detailRef = useRef<HTMLDivElement>(null);
-  const previousView = useRef<AgentView>(view);
-  useEffect(() => {
-    const previous = previousView.current;
-    previousView.current = view;
-    if (split || previous === view) return;
-    if (view === "detail") {
-      detailRef.current?.focus();
-      return;
-    }
-    const row = editingId
-      ? listRef.current?.querySelector<HTMLButtonElement>(`[data-agent-row="${CSS.escape(editingId)}"] button`)
-      : undefined;
-    (row ?? listRef.current?.querySelector<HTMLButtonElement>("button"))?.focus();
-  }, [view, split, editingId]);
-
-  // 詳細の Escape は一覧へ戻す。capture で受けるのは、焦点が詳細の外へ落ちていても
-  // App の「設定 → チャット」の Escape (window の bubble) より先に消費するため
-  useEffect(() => {
-    if (split || view !== "detail") return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      // モーダル / popover が開いている間は、そちらの標準の閉じ方に任せる
-      if (document.querySelector("dialog[open], :popover-open")) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setView("list");
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [split, view]);
 
   const list = (
     <AgentList
@@ -200,7 +162,7 @@ export function AgentSettingsPage({
       onSelectAgent={selectAgent}
       onNote={setNoteText}
       onDone={() => {
-        if (!split) setView("list");
+        pane.backToList();
       }}
       note={split ? undefined : note}
     />
@@ -219,8 +181,8 @@ export function AgentSettingsPage({
   const detail = (
     <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
       <SettingsDetailHeader
-        ref={detailRef}
-        back={split ? undefined : { label: "エージェント一覧へ", onClick: () => setView("list") }}
+        ref={pane.detailRef}
+        back={split ? undefined : { label: "エージェント一覧へ", onClick: pane.backToList }}
         // ページのヘッダを畳む面でも見出し (h2) を 1 つ残す
         heading={editingAgent?.name ?? "新しいエージェント"}
         title={
@@ -265,9 +227,9 @@ export function AgentSettingsPage({
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
-      note={split || view === "list" ? note : undefined}
+      note={split || pane.view === "list" ? note : undefined}
       // 詳細を開いている間はページの説明を落とし、戻る / ☰ の操作行だけにする
-      collapseHeader={singleColumn && view === "detail"}
+      collapseHeader={singleColumn && pane.view === "detail"}
     >
       {split ? (
         <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">
@@ -277,10 +239,15 @@ export function AgentSettingsPage({
       ) : (
         <div className="grid min-h-0 min-w-0 grid-rows-1">
           {/* 一覧は隠れている間も mount したままにする (検索語とスクロールを詳細との往復で失わない) */}
-          <div ref={listRef} hidden={view === "detail"} inert={view === "detail"} className="grid min-h-0 grid-rows-1">
+          <div
+            ref={pane.listRef}
+            hidden={pane.view === "detail"}
+            inert={pane.view === "detail"}
+            className="grid min-h-0 grid-rows-1"
+          >
             {list}
           </div>
-          {view === "detail" ? detail : null}
+          {pane.view === "detail" ? detail : null}
         </div>
       )}
     </SettingsPageLayout>

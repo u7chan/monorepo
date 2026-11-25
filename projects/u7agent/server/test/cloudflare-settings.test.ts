@@ -63,6 +63,7 @@ function service(db: FakeDb, key = KEY_1, retained: string[] = []) {
   return {
     service: new CloudflareSettingsService({
       db,
+      sharedContents: db,
       cipher: key ? createSecretCipher(parseMasterKeys(key)) : null,
       retainSecret: (value) => retained.push(value),
     }),

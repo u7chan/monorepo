@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { messageFor, statusCodeOf } from "../http";
-import type { CustomProviderOutcome, ModelSettingsService, MutationOutcome } from "../model-settings";
+import type { CustomProviderOutcome } from "../custom-provider-settings";
+import type { ModelSettingsService, MutationOutcome } from "../model-settings";
 import type { OAuthLoginOutcome, OAuthLoginService } from "../oauth-login";
 import type {
   CreateCustomProviderBody,

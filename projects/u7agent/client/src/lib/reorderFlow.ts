@@ -1,17 +1,14 @@
 /**
  * 設定の一覧（エージェント / 定型プロンプト）の並べ替えの保存と反映。ドラッグの下書きはページが持ち、
  * 確定時の手順（保存 → 即時反映 → 取り直し）と、失敗の分類だけをここへ閉じる。
+ * 下書きと送信の直列化は `lib/orderDraft.ts` が持つ。
  * DOM も React も知らないので、呼び出し側のページが状態を受け取って描画に使う。
  */
-import { ApiError } from "../api";
+import { ApiError } from "../api/http";
 import { messageFor } from "./errors";
+import { createOrderDraft, type OrderDraftState } from "./orderDraft";
 
-export type ReorderState = {
-  /** ドラッグ中の下書き順（並べ替え対象の id）。null = サーバーの確定順 */
-  draft: string[] | null;
-  /** 送信を直列化する。保存中は次のドラッグを始めさせない */
-  saving: boolean;
-};
+export type ReorderState = OrderDraftState;
 
 /** 通知の種類。文言はページが持ち、ここは分類だけを渡す */
 export type ReorderNoteKind =
@@ -52,60 +49,47 @@ export type ReorderFlow = {
 };
 
 export function createReorderFlow(options: ReorderFlowOptions): ReorderFlow {
-  let state: ReorderState = { draft: null, saving: false };
   /** 応答が返らず結果不明のまま残している下書き。次の取得（settle）までだけ表示に残す */
   let unconfirmed = false;
-  const publish = () => options.onChange({ draft: state.draft ? [...state.draft] : null, saving: state.saving });
+  const draft = createOrderDraft({ ids: options.ids, onChange: options.onChange });
 
   return {
-    state: () => ({ draft: state.draft ? [...state.draft] : null, saving: state.saving }),
+    state: () => draft.state(),
 
     preview(ids) {
-      if (state.saving) return;
+      // 保存中で受け付けなかったときは、結果不明のまま残している下書きの印も変えない
+      if (!draft.preview(ids)) return;
       unconfirmed = false;
-      state = { draft: [...ids], saving: state.saving };
-      publish();
     },
 
     cancel() {
-      if (!state.draft) return;
+      if (!draft.cancel()) return;
       unconfirmed = false;
-      state = { draft: null, saving: state.saving };
-      publish();
     },
 
     settle() {
       if (!unconfirmed) return;
       unconfirmed = false;
-      state = { draft: null, saving: state.saving };
-      publish();
+      draft.discard();
     },
 
     async commit() {
-      // 保存中のドラッグは開始させない前提。ここでも直列化して、到達順の逆転で古い操作が最終値にならないようにする
-      if (state.saving) return;
-      // 動かしていないドラッグ（しきい値を越えて戻した / 同位置へ落とした）では送らない
-      const ids = state.draft;
-      const current = options.ids();
-      if (!ids || (ids.length === current.length && ids.every((id, index) => id === current[index]))) return;
-      state = { draft: [...ids], saving: true };
-      publish();
+      const ids = draft.begin();
+      if (!ids) return;
 
       let saved: string[];
       try {
-        saved = await options.save([...ids]);
+        saved = await options.save(ids);
       } catch (error) {
         if (error instanceof ApiError) {
           // HTTP エラーの応答は保存されていないため、元の順へ戻して理由を出す
           unconfirmed = false;
-          state = { draft: null, saving: false };
-          publish();
+          draft.finish(null);
           options.note("rejected", messageFor(error));
         } else {
           // 応答が返らない失敗は保存結果が不明。表示は戻さず、**次の取得（settle）**でサーバーの正に合わせる
           unconfirmed = true;
-          state = { draft: [...ids], saving: false };
-          publish();
+          draft.finish(ids);
           options.note("unknown", messageFor(error));
         }
         return;
@@ -114,8 +98,7 @@ export function createReorderFlow(options: ReorderFlowOptions): ReorderFlow {
       // 確定した順は、取り直しの応答を待たずに共有カタログへ反映する
       unconfirmed = false;
       options.apply(saved);
-      state = { draft: null, saving: false };
-      publish();
+      draft.finish(null);
       try {
         await options.refresh();
       } catch (error) {

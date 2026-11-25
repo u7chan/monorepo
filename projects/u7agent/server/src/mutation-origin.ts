@@ -19,7 +19,7 @@ export function mutationOriginGuard(appOrigin?: string) {
     if ((origin !== undefined && !allowed) || (site !== undefined && site !== "same-origin")) {
       return c.json({ error: "Cross-origin mutations are forbidden" }, 403);
     }
-    // Origin / Fetch Metadata の無い curl 等は従来どおり許可する。これは認証ではない。
+    // Origin / Fetch Metadata の無い curl 等は許可する。これは認証ではない。
     await next();
   };
 }

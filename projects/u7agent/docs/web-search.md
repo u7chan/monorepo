@@ -6,7 +6,7 @@
 - provider は `server/src/web-search-providers.ts` の adapter。**endpoint・request / response の形式・失敗の分類**を持ち、モデル向けの契約（引数・整形・上限・timeout / abort・マスク）は `web-search-tool.ts` が持つ
 - 結果は provider ごとの差を **共通形式 `WebSearchResultItem[]`（`title` / `url` / `excerpt` / 任意の `publishedDate`）へ正規化**する。モデルから見た Tool Schema は provider を変えても変わらない
 - ツールは **BFF ローカル**。サンドボックスのリモート定義ではなく、`createRemoteToolDefinitions` / `REMOTE_TOOL_NAMES` の外にあり、`PI_AGENT_TOOLS` の影響を受けない。`configuredTools()` の結果はそのまま `createRemoteToolDefinitions` へ渡り、未知の名前は `UnknownRemoteToolError` になるため、`web_search` を混ぜてはならない（[sandbox.md](sandbox.md)）
-- セッションの `tools` へは `withWebSearchTool()`、`customTools` へは `createWebSearchToolDefinitions()` で足す（`server/src/agent.ts`）。`PI_AGENT_TOOLS` の対象外だが、**エージェント定義の `toolNames`（[api-catalog.md](api-catalog.md#ツール許可リスト)）で外せる**。アプリ側の実効（実行時トグル）と許可リストの積で公開が決まる
+- セッションの `tools` へは `withWebSearchTool()`（`server/src/tool-plan.ts`）、`customTools` へは `createWebSearchToolDefinitions()` で足す（`server/src/agent.ts`）。`PI_AGENT_TOOLS` の対象外だが、**エージェント定義の `toolNames`（[api-catalog.md](api-catalog.md#ツール許可リスト)）で外せる**。アプリ側の実効（実行時トグル）と許可リストの積で公開が決まる
 - 検索は `fetch` だけで完結し、BFF から子プロセスを起こさない（[secrets.md](secrets.md) のレイヤー 1）
 - クエリは既定 provider のホスト（Exa なら `mcp.exa.ai`、Tavily なら `api.tavily.com`）へ渡る。自己ホスト構成でも外部送信先が 1 つ増える
 - Remote MCP の Registry とエージェントごとの tool allowlist には載せない（MCP クライアントを介さない BFF の固定ツール）。ここでの「エージェントごとの tool allowlist」は SDK / MCP 側の機構で、このアプリのエージェント定義の `toolNames`（[api-catalog.md](api-catalog.md#ツール許可リスト)）とは別物（同じ英語を使うため、ツールの許可リストはこのアプリでは `toolNames` と呼ぶ）。pi SDK 拡張の読み込みも行わない（`noExtensions: true` を維持する）
@@ -114,7 +114,7 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 - 正はアプリ DB の `web_search_settings`（id = 1 の 1 行、`enabled` と `provider`）で、**行が無い = 既定（無効 / Exa）**。第三者ホストへの送信を既定にせず、使うときだけ有効にする（[persistence.md](persistence.md#アプリデータsqlite)）
 - ツールは `execute` のたびに `readEnabled()` を読む。**セッション作成時に凍結しない**ため、OFF にした瞬間から既存のセッションの次の呼び出しにも効く（ツール一覧は新しい会話にしか効かないので、実行時に拒否する）
 - OFF の間は検索も送信もしない。provider の `fetch` を呼ばず、固定文言 `WEB_SEARCH_DISABLED_MESSAGE`（「Web 検索は無効化されています。有効にするには 設定 → Web 検索 を開いてください。」）で throw する。設定画面は API が返す `disabledMessage` をそのまま出す
-- 経路は 設定サービス（`server/src/web-search-settings.ts`）→ `PiBff.setWebSearch()` → ツールの `readEnabled()` / `readProvider()` / `readApiKey()`。書き込みと `applyStored()` は `MutationLock` の内側で直列化する（コンテンツ生成と同じ形）
+- 経路は 設定サービス（`server/src/web-search-settings.ts`）→ `PiBff.setWebSearch()` → ツールの `readEnabled()` / `readProvider()` / `readApiKey()`。書き込みと `applyStored()` は設定サービスの同じロックで直列化する
 - DB を読めない起動でも**無効 / Exa** で立ち、警告だけを残す（行が無い = 既定と同じ扱いにする）。設定 API は DB の 503 で気付ける（[persistence.md](persistence.md#アプリデータsqlite)）
 - モデルから見るとツールは存在したままなので、無効時もモデルは呼べて、そのたびに固定文言の失敗が返る（無駄な往復を避けたくなったら system prompt / `promptGuidelines` への反映を別途検討する）。日時依存の質問を `web_search` へ誘導する指針のぶん、OFF 中の空振り呼び出しは増える
 

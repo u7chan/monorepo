@@ -37,9 +37,6 @@ export const ARCHIVE_EXCLUDE_NAME_ERROR = "除外名に使えない名前があ�
 /** 件数上限の理由 */
 export const ARCHIVE_EXCLUDE_COUNT_ERROR = `除外名は ${ARCHIVE_EXCLUDE_MAX_NAMES} 件までです`;
 
-// 定義はワイヤ契約 (protocol.ts) にあり、サンドボックスの query 検証と同じ値を使う。設定側の入口をここに揃える
-export { ARCHIVE_EXCLUDE_MAX_NAMES };
-
 /**
  * 保存する一覧を整える。前後の空白はパスとして意味を持たず（完全一致でしか照合しないため）黙って一致しなくなる。
  * 空文字は落とし、重複は先勝ちで畳む（順序と大文字小文字はそのまま保つ）。

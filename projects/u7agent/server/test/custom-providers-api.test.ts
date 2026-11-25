@@ -22,6 +22,7 @@ import {
   APP_SECRET_MASTER_KEY_MESSAGE,
   APP_SECRET_NOT_STORED_MESSAGE,
 } from "../src/app-secrets";
+import { jsonBody } from "./http-helpers";
 import { asPiBff, createStubPi, type StubPiOptions } from "./stub-pi";
 
 // アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
@@ -29,8 +30,6 @@ process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const KEY = "sk-custom-dummy-key-0123456789";
 const NEW_KEY = "sk-custom-dummy-key-new-0123456789";
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 function jsonRequest(method: string, payload?: unknown): RequestInit {
   return {

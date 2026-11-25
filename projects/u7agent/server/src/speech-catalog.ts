@@ -1,10 +1,5 @@
-/**
- * 音声モデルカタログの取得と保持。live（OpenRouter の音声モデル一覧 API）を正とし、取得できないときは
- * 前回の成功（アプリ DB のキャッシュ）→ 同梱の既定 1 件の順に落とす。一覧 API は API キーを見ないため、
- * 取得はキーの有無・有効性と独立に扱う（正は docs/speech-generation.md）。
- */
 import type { SpeechCatalogModelRow, SpeechCatalogRow } from "./app-db";
-import { messageFor } from "./errors";
+import { CATALOG_TIMEOUT_MS, createContentModelCatalog } from "./content-model-catalog";
 import { SPEECH_PROVIDER_ID } from "./speech";
 
 /** いま表示している一覧の出どころ。live 以外は取得に失敗した状態を表す */
@@ -55,12 +50,6 @@ export interface SpeechCatalog {
 
 /** live 一覧の URL。取得先をこの 1 箇所に固定する */
 export const SPEECH_CATALOG_URL = "https://openrouter.ai/api/v1/models?output_modalities=speech";
-
-export const SPEECH_CATALOG_TIMEOUT_MS = 10_000;
-
-export const SPEECH_CATALOG_ERROR_TIMEOUT = "モデル一覧の取得がタイムアウトしました";
-export const SPEECH_CATALOG_ERROR_RATE_LIMITED = "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）";
-export const SPEECH_CATALOG_ERROR_UNKNOWN = "モデル一覧を取得できませんでした";
 
 /** 既定の音声モデル。live もキャッシュも無いときの 1 件で、キー登録で作る行の初期値でもある */
 export const DEFAULT_SPEECH_MODEL = "google/gemini-3.8-flash-tts";
@@ -115,9 +104,6 @@ export function defaultSpeechCatalog(): SpeechCatalogEntry[] {
   ];
 }
 
-/** 取得失敗の分類。上流の原文はログにも UI にも出さず、この 3 つへ寄せる */
-type FetchOutcome = { entries: SpeechCatalogEntry[]; fetchedAt: number } | { error: string };
-
 /**
  * live 応答の `supported_voices` を読む。宣言が無い / 形が違う / 空のときは undefined（＝不明）として
  * 扱い、生成前ガードも UI の自由記述も動かさない。
@@ -167,88 +153,29 @@ function entriesOf(body: unknown): SpeechCatalogEntry[] | undefined {
 
 export function createSpeechCatalog(options: SpeechCatalogOptions): SpeechCatalog {
   const store = options.store;
-  const defaultCatalog = options.defaultCatalog ?? (() => defaultSpeechCatalog());
-  const baseFetch = options.fetchImpl ?? fetch;
-  const now = options.now ?? (() => Date.now());
-  const timeoutMs = options.timeoutMs ?? SPEECH_CATALOG_TIMEOUT_MS;
-
-  let entries: SpeechCatalogEntry[] = [...defaultCatalog()];
-  let source: SpeechCatalogSource = "default";
-  let fetchedAt: number | null = null;
-
-  /**
-   * 取得成功を採用する。メモリを先に更新し、キャッシュ保存の失敗は次の起動で前回の一覧が消えるだけなので
-   * ログに留める（いま返している一覧は live のままで正しい）。
-   */
-  const adopt = (outcome: { entries: SpeechCatalogEntry[]; fetchedAt: number }): void => {
-    entries = outcome.entries;
-    source = "live";
-    fetchedAt = outcome.fetchedAt;
-    try {
-      store.saveSpeechCatalog({ fetchedAt: outcome.fetchedAt, models: outcome.entries.map(cacheModelOf) });
-    } catch {
-      console.warn("[u7agent] speech catalog cache save failed");
-    }
-  };
-
-  const fetchLive = async (): Promise<FetchOutcome> => {
-    // 期限はこのタイマーだけに掛ける
-    const controller = new AbortController();
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeoutMs);
-    try {
-      const response = await baseFetch(SPEECH_CATALOG_URL, { signal: controller.signal });
-      const text = await response.text();
-      let body: unknown;
-      try {
-        body = text === "" ? undefined : JSON.parse(text);
-      } catch {
-        body = undefined;
-      }
-      const entries = response.ok ? entriesOf(body) : undefined;
-      if (entries) return { entries, fetchedAt: now() };
-      if (timedOut) return { error: SPEECH_CATALOG_ERROR_TIMEOUT };
-      if (response.status === 429 || response.status >= 500) return { error: SPEECH_CATALOG_ERROR_RATE_LIMITED };
-      return { error: SPEECH_CATALOG_ERROR_UNKNOWN };
-    } catch {
-      return timedOut ? { error: SPEECH_CATALOG_ERROR_TIMEOUT } : { error: SPEECH_CATALOG_ERROR_UNKNOWN };
-    } finally {
-      clearTimeout(timer);
-    }
-  };
+  const catalog = createContentModelCatalog({
+    kind: "speech",
+    url: SPEECH_CATALOG_URL,
+    fallbackEntries: options.defaultCatalog ?? defaultSpeechCatalog,
+    fallbackSource: "default",
+    fetchImpl: options.fetchImpl ?? fetch,
+    now: options.now,
+    timeoutMs: options.timeoutMs ?? CATALOG_TIMEOUT_MS,
+    entriesOf,
+    readCache: () => store.readSpeechCatalog(),
+    saveCache: (row) => store.saveSpeechCatalog(row),
+    entryOf,
+    cacheModelOf,
+  });
 
   return {
-    snapshot: () => ({
-      entries: entries.map(entryOf),
-      source,
-      fetchedAt,
-    }),
-
-    voicesOf: (model) => entries.find((entry) => entry.id === model)?.voices,
-
-    loadStored: () => {
-      try {
-        const stored = store.readSpeechCatalog();
-        if (!stored) return;
-        entries = stored.models.map(entryOf);
-        source = "stored";
-        fetchedAt = stored.fetchedAt;
-      } catch (error) {
-        console.warn(`[u7agent] speech catalog cache unavailable: ${messageFor(error)}`);
-      }
+    snapshot: () => {
+      const { entries, source, fetchedAt } = catalog.snapshot();
+      return { entries: entries.map(entryOf), source, fetchedAt };
     },
 
-    refresh: async () => {
-      const outcome = await fetchLive();
-      if ("error" in outcome) {
-        console.warn(`[u7agent] speech catalog fetch failed: ${outcome.error}`);
-        return outcome.error;
-      }
-      adopt(outcome);
-      return null;
-    },
+    voicesOf: (model) => catalog.entryFor(model)?.voices,
+    loadStored: catalog.loadStored,
+    refresh: catalog.refresh,
   };
 }

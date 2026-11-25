@@ -1,10 +1,12 @@
 // 未送信メッセージ (202 で受理したがサーバー再起動で entry にならなかった送信) の回帰テスト。
-// Issue #1614 の 2 ケース (別タブの同一文面への誤吸収 / 同一文面2件の二重表示) を reducer で再現し、
+// 次の 2 ケース (別タブの同一文面への誤吸収 / 同一文面2件の二重表示) を reducer で再現し、
 // 再起動・リロード・旧保存データ・再送 / 破棄の扱いを固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Dispatch } from "react";
-import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { ChatAction } from "../src/lib/chatState";
+import { chatReducer } from "../src/hooks/chatReducer";
 import { cancelQueuedMessage } from "../src/hooks/sessionActions";
 import type { HistoryPage, PendingSend, SessionPayload } from "../src/types";
 
@@ -14,6 +16,10 @@ function payload(pendingSends?: PendingSend[], sessionId = "session-a"): Session
     piSessionId: `pi-${sessionId}`,
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status: "idle",
     title: "",
     createdAt: 1,
@@ -25,7 +31,7 @@ function payload(pendingSends?: PendingSend[], sessionId = "session-a"): Session
     run: null,
     messages: [],
     compactions: [],
-    ...(pendingSends ? { pendingSends } : {}),
+    pendingSends: pendingSends ?? [],
   };
 }
 
@@ -142,11 +148,11 @@ test("リロード後も未送信メッセージはバブルとして見え、�
   );
 });
 
-test("旧サーバー (pendingSends 無し) の resync は pending エコーを変えない", () => {
+test("pendingSends が空の resync は pending エコーを変えない", () => {
   const mine = echoWithRunId(withHistory(), "同じ本文", "run-a", 2);
   const echoId = mine.pendingEchoIds[0];
   const resynced = chatReducer(mine, { type: "resync", payload: payload() });
-  assert.deepEqual(resynced.pendingEchoIds, [echoId], "未対応の payload では現状維持");
+  assert.deepEqual(resynced.pendingEchoIds, [echoId], "載っている送信が無ければ現状維持");
   assert.equal(resynced.bubbles.find((bubble) => bubble.id === echoId)?.unsent, undefined);
 });
 
@@ -345,14 +351,6 @@ test("停止でキューを破棄した送信は、queue_cleared の run id で�
     "破棄された待機分だけを未送信にする",
   );
   assert.deepEqual(cleared.pendingEchoIds, [queued.pendingEchoIds[0]], "実行中のエコーは pending のまま");
-
-  // 旧サーバー (runIds 無し) は現状維持
-  const legacy = chatReducer(queued, { type: "queueCleared" });
-  assert.deepEqual(legacy.pendingEchoIds, queued.pendingEchoIds);
-  assert.equal(
-    legacy.bubbles.some((bubble) => bubble.unsent === true),
-    false,
-  );
 });
 
 test("セッションを切り替えた resync では、前のセッションの未送信を持ち越さない", () => {
