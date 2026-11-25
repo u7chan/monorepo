@@ -5,30 +5,21 @@ import { useSpace } from "../SpaceContext";
 import type { ChatHistoryState } from "../lib/chatTypes";
 import { adoptKnownAgentId } from "../lib/agentSelection";
 import { messageFor } from "../lib/errors";
-import { renameInputValue } from "../lib/confirmDialog";
 import { createFileRefRequests } from "../lib/fileRefRequest";
 import type { FileRefTarget } from "../lib/fileRef";
 import { missingLinkNote, type SessionOpenResult } from "../lib/notifications";
-import { sessionDeleteConfirmRequest, sessionRenameRequest } from "../lib/sidebarRowMenu";
-import {
-  HISTORY_CLEAR_CLEANUP_NOTE,
-  historyClearedBetween,
-  sessionHistoryClearConfirmRequest,
-  withoutOldHistory,
-} from "../lib/sessionHistoryClear";
 import type {
   AgentDef,
   EventEntry,
   Health,
   ModelRef,
-  SessionHistoryClearResponse,
   SessionMoveResponse,
   SessionPayload,
   SessionSummary,
   ThinkingLevel,
 } from "../types";
 import type { ChatAction } from "./chatReducer";
-import { alwaysCurrent, createGenerationTracker } from "./requestGate";
+import { alwaysCurrent } from "./requestGate";
 import { createSessionsFetch } from "../lib/sessionsFetch";
 import { sessionsInSpace } from "../lib/spaceSessions";
 import { createNotifyCarry, createNotifyToggleRunner } from "./notifyToggle";
@@ -36,6 +27,14 @@ import { createPinnedToggleRunner } from "./pinnedToggle";
 import { createSessionCreation } from "./sessionCreation";
 import { createPreselection } from "./preselection";
 import { applySessionEvent, recoverDecision } from "./sessionStream";
+import { createSessionHistory } from "./sessionHistory";
+import {
+  branchSession,
+  clearSessionHistory,
+  moveSession,
+  removeSession,
+  renameSessionTitle,
+} from "./sessionOperations";
 import { createDiagnosticsRecorder, type DiagnosticsRecorder } from "../lib/diagnostics";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
 import { compactChat } from "./sessionActions";
@@ -164,46 +163,18 @@ export function useSessions({
   const notifyPending = useSyncExternalStore(notifyCarry.subscribe, notifyCarry.snapshot);
 
   /**
-   * 履歴ページの要求世代と二重取得の防止。カーソル (nextCursor / hasMore) は reducer の
-   * history が正で、適用されなかったページ (gap) の値をここへ持ち込まない。世代は会話の切替 /
-   * 新規チャット / 引き継ぎ後の開き直しでも失効させる (取得中の旧ページを適用しない)。
+   * 履歴ページの要求世代・カーソル・クリアの検知は制御 module が持ち、ここへは取り直す合図だけを置く。
+   * カーソル (nextCursor / hasMore) の正は reducer の history なので、その ref を渡す。
    */
-  const historyGenerationRef = useRef(createGenerationTracker());
-  /**
-   * 同じ会話で最後に適用した履歴世代 (payload の historyGeneration)。値が変わったら履歴が
-   * クリアされたとみなし、旧カーソル・旧バブル・取得中の旧ページを捨てて取り直す。会話の切替では
-   * 比較しない (sessionId も一緒に持つ)。
-   */
-  const historyScopeRef = useRef<{ sessionId: string; generation: string }>({ sessionId: "", generation: "" });
-  const historyLoadingRef = useRef(false);
-  /** 履歴 API が無いときの組み直しに使う直近 payload。セッションを離れるたびに捨てる */
-  const latestPayloadRef = useRef<SessionPayload | undefined>(undefined);
-
-  /** 最新ページを取り直す。resync (再接続 / 圧縮 / context_edit) のたびに呼び、取得済みの古いページは残す */
-  const refreshHistory = useCallback(
-    async (targetId: string, isCurrent: () => boolean = alwaysCurrent): Promise<void> => {
-      if (!targetId) return;
-      const generation = historyGenerationRef.current.begin();
-      try {
-        const page = await getSessionHistory(targetId);
-        // 古い応答 (別セッション / 連続 resync / 失効した世代) で新しい表示を戻さない
-        if (!isCurrent() || sessionIdRef.current !== targetId || !historyGenerationRef.current.holds(generation))
-          return;
-        dispatch({ type: "resyncHistory", page });
-      } catch (error) {
-        if (!isCurrent() || sessionIdRef.current !== targetId || !historyGenerationRef.current.holds(generation))
-          return;
-        // 履歴 API を持たない旧サーバーは 404 (未知ルート)。payload.messages での表示に戻す
-        if (error instanceof ApiError && error.status === 404) {
-          const fallback = latestPayloadRef.current;
-          dispatch({
-            type: "historyUnsupported",
-            ...(fallback?.sessionId === targetId ? { payload: fallback } : {}),
-          });
-        }
-      }
-    },
-    [dispatch],
+  const historyRequestRef = useRef(getSessionHistory);
+  historyRequestRef.current = getSessionHistory;
+  const [history] = useState(() =>
+    createSessionHistory({
+      sessionIdRef,
+      historyStateRef,
+      requestPage: (id, before) => historyRequestRef.current(id, before === undefined ? {} : { before }),
+      dispatch,
+    }),
   );
 
   /**
@@ -244,19 +215,9 @@ export function useSessions({
   );
   const applySnapshot = useCallback(
     (incoming: SessionPayload) => {
-      // 同じ会話で履歴世代が変わった = 履歴のクリア。旧カーソル・進行中の旧要求を失効させ、
-      // payload に残る旧メッセージは適用しない (表示はクリア後の履歴を取り直して正とする)
-      const nextHistoryGeneration = incoming.historyGeneration ?? "";
-      const historyCleared =
-        sessionIdRef.current === incoming.sessionId && historyClearedBetween(historyScopeRef.current, incoming);
-      historyScopeRef.current = { sessionId: incoming.sessionId, generation: nextHistoryGeneration };
-      if (historyCleared) {
-        historyGenerationRef.current.invalidate();
-        historyLoadingRef.current = false;
-        latestPayloadRef.current = undefined;
-        dispatch({ type: "resetHistory" });
-      }
-      const payload = historyCleared ? withoutOldHistory(incoming) : incoming;
+      // 同じ会話で履歴世代が変わっていたら、旧カーソル・旧バブル・取得中の旧ページを捨て、
+      // payload に残る旧メッセージを適用しない (表示はクリア後の履歴を取り直して正とする)
+      const payload = history.acceptPayload(incoming);
       lastSeqRef.current = payload.lastSeq || 0;
       generationRef.current = payload.eventGeneration || "";
       // payload の適用はセッションを開いた合図でもある。対象を合わせてカーソルを seed し、
@@ -268,10 +229,9 @@ export function useSessions({
       // 権威ある状態が届いた。圧縮を抜けたなら、進行中の同期応答は古いので捨てる
       if (payload.status !== "compacting") sessionOpsRef.current += 1;
       snapshotSeqRef.current += 1;
-      latestPayloadRef.current = payload;
       dispatch({ type: "resync", payload, receivedAt: Date.now() });
       // 表示の正は全履歴ページ。ここでは状態だけを同期し、最新ページを別途取り直す
-      void refreshHistory(payload.sessionId);
+      void history.refresh(payload.sessionId);
       // 圧縮は run の開始 / 終了を伴わないため、一覧の「圧縮中」がポーリング (4 秒) まで古いままになる。
       // 一覧とずれたときだけ取り直す (毎回叩かない)
       const listed = sessionsRef.current.find((item) => item.sessionId === payload.sessionId);
@@ -290,7 +250,7 @@ export function useSessions({
         void refreshSessions();
       }
     },
-    [dispatch, refreshHistory, refreshSessions],
+    [dispatch, history, refreshSessions],
   );
 
   /**
@@ -336,9 +296,7 @@ export function useSessions({
       // 切替待機中に旧セッションの本文から作られた要求を、確定時にも落とす (開始時の破棄だけでは残る)
       if (sessionIdRef.current !== payload.sessionId) fileRefRequests.clear();
       // 旧セッションのカーソルを持ち越さない (in-flight の応答も世代で無効化する)
-      historyGenerationRef.current.invalidate();
-      historyLoadingRef.current = false;
-      latestPayloadRef.current = undefined;
+      history.discard();
       sessionIdRef.current = payload.sessionId;
       setSessionId(payload.sessionId);
       // 復元したセッションの agent はカタログに無いことがある (削除済み / ID 変更)。
@@ -348,7 +306,7 @@ export function useSessions({
       applySnapshot(payload);
       setEpoch((e) => e + 1); // lastSeq を更新してから SSE を張り直す
     },
-    [agentId, agents, applySnapshot, fileRefRequests, setAgentId],
+    [agentId, agents, applySnapshot, fileRefRequests, history, setAgentId],
   );
 
   const applyNotify = useCallback((id: string, notify: boolean): void => {
@@ -413,12 +371,7 @@ export function useSessions({
       // 引き継ぎ後は同じ id でも履歴が入れ替わっている。payload の resync は同じ id を「履歴を保つ
       // 会話」と見るため、先に旧バブルと履歴のカーソルを捨てて新しい世代を開く。取得中の旧ページも
       // ここで失効させる (GET の成功を待つと、その間の旧ページが有効扱いになり履歴が戻る)
-      if (discardHistory) {
-        historyGenerationRef.current.invalidate();
-        historyLoadingRef.current = false;
-        latestPayloadRef.current = undefined;
-        dispatch({ type: "resetHistory" });
-      }
+      if (discardHistory) history.reset();
       // 破損した候補が互いを指して往復するため、フォールバックも一覧 1 周で止める
       const failed = new Set<string>();
       let pending: string | undefined = id;
@@ -454,7 +407,7 @@ export function useSessions({
       }
       return "fallback";
     },
-    [applySelectedSession, dispatch, fileRefRequests, refreshHealth],
+    [applySelectedSession, dispatch, fileRefRequests, history, refreshHealth],
   );
 
   const newChat = useCallback(
@@ -470,22 +423,19 @@ export function useSessions({
       // 進行中の作成を持ち越さない (新しい会話が前のセッションを掴まないようにする)
       sessionCreation.clear();
       // 全履歴のカーソルも持ち越さない (in-flight の応答は世代で無効化する)
-      historyGenerationRef.current.invalidate();
-      historyLoadingRef.current = false;
-      latestPayloadRef.current = undefined;
+      history.forgetChat();
       // 新規チャットの通知の先行選択と Model / Effort の手動選択も持ち越さない
       // (作成中の古い応答でこの選択を消させない)
       notifyCarry.reset();
       preselectionCarry.reset();
       sessionIdRef.current = "";
       lastSeqRef.current = 0;
-      historyScopeRef.current = { sessionId: "", generation: "" };
       setSessionId("");
       // 未作成チャットの作業場所は選択中プロジェクト。前のセッションの cwd を持ち越さない
       setCwd("");
       dispatch({ type: "newChat" });
     },
-    [dispatch, fileRefRequests, notifyCarry, preselectionCarry, selectProject, setAgentId, sessionCreation],
+    [dispatch, fileRefRequests, history, notifyCarry, preselectionCarry, selectProject, setAgentId, sessionCreation],
   );
 
   // selectSession ↔ newChat の相互参照用
@@ -604,63 +554,17 @@ export function useSessions({
     });
   }, [dispatch, setRuntimeStatus]);
 
-  /**
-   * 上方向の追加取得。カーソルは entry id なので、取得中に追記 / 圧縮されても同じ item を二度返さない。
-   * 取得結果は reducer が既存のバブルへ前置きする (古い側は消させない)。
-   */
+  /** 上方向の追加取得。判定は履歴の制御 module が持ち、ここは reducer と結線する */
   const loadOlderHistory = useCallback(async (): Promise<void> => {
-    const id = sessionIdRef.current;
-    if (!id) return;
-    const state = historyStateRef.current;
-    const cursor = state.nextCursor;
-    if (historyLoadingRef.current || !state.hasMore || !cursor) return;
-    historyLoadingRef.current = true;
-    dispatch({ type: "historyLoading", loading: true });
-    try {
-      const page = await getSessionHistory(id, { before: cursor });
-      // 取得中にセッション / ブランチ / 保持分の先頭が変わっていたら、古いページを混ぜない
-      if (sessionIdRef.current !== id || historyStateRef.current.nextCursor !== cursor) return;
-      dispatch({ type: "prependHistory", cursor, page });
-    } catch (error) {
-      if (sessionIdRef.current !== id) return;
-      if (error instanceof ApiError && error.status === 400) {
-        // 不明なカーソルは履歴が入れ替わった証拠。最新ページから取り直せば次の操作で遡れる
-        void refreshHistory(id);
-      } else {
-        dispatch({ type: "setActivity", text: `過去の履歴を取得できませんでした。${messageFor(error)}` });
-      }
-    } finally {
-      historyLoadingRef.current = false;
-      dispatch({ type: "historyLoading", loading: false });
-    }
-  }, [dispatch, historyStateRef, refreshHistory]);
+    await history.loadOlder();
+  }, [history]);
 
-  /**
-   * 欠落区間の取得。resync の最新ページが保持分と繋がらないときに呼ばれ、保留中の最新ページと
-   * 合わせて適用する。適用可否は reducer が保留中の cursor と突き合わせて判定するため、ここでは
-   * seq を進めない (連続 resync で保留が同じでも応答を捨てない)。
-   */
+  /** 欠落区間の取得。適用可否は reducer が保留中の cursor と突き合わせて判定する */
   const fillHistoryGap = useCallback(
     async (cursor: string): Promise<void> => {
-      const id = sessionIdRef.current;
-      if (!id) return;
-      try {
-        const page = await getSessionHistory(id, { before: cursor });
-        if (sessionIdRef.current !== id) return;
-        dispatch({ type: "historyGap", cursor, page });
-      } catch (error) {
-        if (sessionIdRef.current !== id) return;
-        if (error instanceof ApiError && error.status === 400) {
-          // カーソルが現行ブランチに無い (分岐が変わった)。最新ページから取り直す
-          void refreshHistory(id);
-        } else {
-          // 保留を解いて、次の resync で再試行できる状態に戻す
-          dispatch({ type: "historyGapFailed", cursor });
-          dispatch({ type: "setActivity", text: `履歴の欠落区間を取得できませんでした。${messageFor(error)}` });
-        }
-      }
+      await history.fillGap(cursor);
     },
-    [dispatch, refreshHistory],
+    [history],
   );
 
   /** 選択中の会話の通知の値。一覧 (4 秒のポーリングと変更直後の反映) を正とし、新規チャットは先行選択を使う */
@@ -735,121 +639,60 @@ export function useSessions({
 
   const deleteSession = useCallback(
     async (id: string): Promise<void> => {
-      const title = sessionsRef.current.find((item) => item.sessionId === id)?.title ?? "";
-      if (!(await confirm(sessionDeleteConfirmRequest(title)))) return;
-      try {
-        await apiDeleteSession(id);
-      } catch (error) {
-        console.error(error);
-      }
-      const list = await refreshSessionsNow();
-      if (id === sessionIdRef.current) {
-        // 取得できなかったときは前回の一覧から選ぶ (消えたセッションを掴んでも selectSession が移す)
-        const next = nextAfterRemoval(sessionsInSpace(list ?? sessionsRef.current, spaceIdRef.current));
-        if (next.kind === "select") await selectSession(next.sessionId);
-        else newChatRef.current();
-      }
+      await removeSession(id, {
+        sessionIdRef,
+        sessionsRef,
+        spaceIdRef,
+        refreshSessionsNow,
+        selectSession,
+        newChat: () => newChatRef.current(),
+        confirm,
+        remove: apiDeleteSession,
+      });
     },
-    [refreshSessionsNow, selectSession, confirm],
+    [apiDeleteSession, confirm, refreshSessionsNow, selectSession],
   );
 
-  /**
-   * 会話を引き継ぐ。履歴は破棄され、エージェントは差し替わり、別スペースなら作業フォルダ / 添付 / cwd キーの行が
-   * 移動先へ移る (不可逆)。成功したら一覧を取り直し、応答を返す (スペースの切替と会話の開き直しは
-   * App が `openOwnerSession` と同じ経路で行う。一覧からの削除と同じ移り先の規則は使わない)。
-   * 失敗は理由をダイアログへ返すため投げ直す。
-   */
-  /**
-   * 会話を分岐する。子は親の末尾までの履歴を持ち、作業フォルダ / 添付は親と共有する。
-   * 成功したら一覧を取り直し、子の payload を返す (子を開くかは App が選択の世代で決める)。
-   * 失敗は理由をダイアログへ返すため投げ直す。
-   */
   const forkSession = useCallback(
-    async (id: string, request: { agentId?: string }): Promise<SessionPayload> => {
-      const child = await apiForkSession(id, request);
-      await refreshSessionsNow();
-      return child;
-    },
+    async (id: string, request: { agentId?: string }): Promise<SessionPayload> =>
+      branchSession(id, request, { fork: apiForkSession, refreshSessionsNow }),
     [apiForkSession, refreshSessionsNow],
   );
 
   const handoffSession = useCallback(
-    async (id: string, request: { spaceId: string; agentId?: string; memo: boolean }): Promise<SessionMoveResponse> => {
-      // 要求元は現在のスペース (space.api の query)、移動先は body で渡す
-      const result = await apiHandoffSession(id, request);
-      await refreshSessionsNow();
-      return result;
-    },
+    async (id: string, request: { spaceId: string; agentId?: string; memo: boolean }): Promise<SessionMoveResponse> =>
+      moveSession(id, request, { handoff: apiHandoffSession, refreshSessionsNow }),
     [apiHandoffSession, refreshSessionsNow],
   );
 
-  /**
-   * 会話履歴のクリア。確認時点の履歴世代を控えてから確認し、成功したら一覧を取り直す。
-   * 開いている会話は同じ id / URL のまま開き直し、旧バブルと取得中の旧ページを捨てる
-   * (クリア後の再読み込みは `applySnapshot` の履歴世代の判定でも行う)。
-   */
   const clearHistory = useCallback(
     async (id: string): Promise<void> => {
-      const title = sessionsRef.current.find((item) => item.sessionId === id)?.title ?? "";
-      // 確認の対象となる履歴世代を先に控える。別タブが先にクリアしていればサーバーが 409 にする
-      let generation: string;
-      try {
-        generation = (await getSession(id)).historyGeneration ?? "";
-      } catch (error) {
-        dispatch({ type: "setActivity", text: `会話履歴をクリアできませんでした。${messageFor(error)}` });
-        return;
-      }
-      if (!(await confirm(sessionHistoryClearConfirmRequest(title)))) return;
-      let result: SessionHistoryClearResponse;
-      try {
-        result = await apiClearSessionHistory(id, { historyGeneration: generation });
-      } catch (error) {
-        dispatch({ type: "setActivity", text: `会話履歴をクリアできませんでした。${messageFor(error)}` });
-        return;
-      }
-      await refreshSessionsNow();
-      // 開いていない会話はここまで (開いている会話の状態行を別の会話の結果で乱さない)
-      if (sessionIdRef.current !== id) return;
-      if (!result.changed) {
-        dispatch({ type: "setActivity", text: "消す会話履歴はありませんでした" });
-        return;
-      }
-      if (result.cleanupPending) {
-        // 片付け待ちは開き直すと 409 になる。URL を変えずに手元の履歴だけを捨て、警告を状態行へ出す
-        historyGenerationRef.current.invalidate();
-        historyLoadingRef.current = false;
-        latestPayloadRef.current = undefined;
-        historyScopeRef.current = { sessionId: id, generation: result.historyGeneration };
-        dispatch({ type: "resetHistory" });
-        dispatch({ type: "setActivity", text: HISTORY_CLEAR_CLEANUP_NOTE });
-        return;
-      }
-      const opened = await selectSession(id, undefined, { fallbackOnFailure: false, discardHistory: true });
-      // 開けなかった理由は開き直しの後に出す (resync が活動表示を消すため)
-      const text = opened === "opened" ? "会話履歴をクリアしました" : missingLinkNote(true, opened);
-      if (text) dispatch({ type: "setActivity", text });
+      await clearSessionHistory(id, {
+        sessionIdRef,
+        sessionsRef,
+        refreshSessionsNow,
+        selectSession,
+        confirm,
+        getSession,
+        clear: apiClearSessionHistory,
+        history,
+        dispatch,
+      });
     },
-    [apiClearSessionHistory, confirm, dispatch, getSession, refreshSessionsNow, selectSession],
+    [apiClearSessionHistory, confirm, dispatch, getSession, history, refreshSessionsNow, selectSession],
   );
 
-  /**
-   * 会話タイトルの変更。初期値は現在のタイトルで、取り消し・空・未変更はサーバーへ送らない。
-   * 応答のタイトルを一覧へ反映する (ヘッダの表示も一覧から引くため、これだけで画面が追従する)。
-   * 失敗は楽観反映をしないので、理由だけを状態行へ出す。
-   */
   const renameSession = useCallback(
     async (id: string): Promise<void> => {
-      const current = sessionsRef.current.find((item) => item.sessionId === id)?.title ?? "";
-      const next = renameInputValue(await prompt(sessionRenameRequest(current)), current);
-      if (next === undefined) return;
-      try {
-        const result = await updateSessionTitle(id, next);
-        applyTitle(result.sessionId, result.title);
-      } catch (error) {
-        dispatch({ type: "setActivity", text: `セッション名を変更できませんでした。${messageFor(error)}` });
-      }
+      await renameSessionTitle(id, {
+        sessionsRef,
+        prompt,
+        applyTitle,
+        rename: updateSessionTitle,
+        dispatch,
+      });
     },
-    [applyTitle, dispatch, prompt],
+    [applyTitle, dispatch, prompt, updateSessionTitle],
   );
 
   const reselectIfMissing = useCallback(
