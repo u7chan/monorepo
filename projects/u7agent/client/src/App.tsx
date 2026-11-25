@@ -29,6 +29,7 @@ import { useMarkdownImageRawUrl } from "./hooks/useMarkdownImageRawUrl";
 import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
 import { useSessionTitleNotice } from "./hooks/useSessionTitleNotice";
+import { useSuggestionChip } from "./hooks/useSuggestionChip";
 import { useSidebarWidth } from "./hooks/useSidebarWidth";
 import { useVoiceInputAvailability } from "./hooks/useVoiceInputAvailability";
 import { useViewportWidth } from "./hooks/useViewportWidth";
@@ -71,7 +72,6 @@ import {
   handoffBlockedReason,
   handoffCleanupNote,
   handoffMemoDisabledReason,
-  handoffSuggestion,
   sessionHandoffDialogText,
   type HandoffNote,
 } from "./lib/sessionHandoff";
@@ -93,8 +93,6 @@ import {
 } from "./lib/settingsNav";
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
 import { ownerLinkSpace } from "./lib/spaceSelection";
-import { suggestionScopeChange, type SuggestionScope } from "./lib/suggestion";
-import type { AgentSuggestion, PromptRef } from "./types";
 
 export type AppProps = {
   /**
@@ -194,48 +192,13 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     projectId: app.sessionId === "" ? (app.selectedProjectId ?? "") : "",
   });
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
-  // 選択中の定型プロンプト。入力欄の下書きなので Composer ではなく状態を持つ App が持ち、送信は handleSend に寄せる
-  const [suggestion, setSuggestion] = useState<AgentSuggestion | null>(null);
-  // 選択を捨てる契機の監視キー。持ち越すと、別の会話・別のエージェントの提案が入力欄に残る (添付と同じ契約)。
-  // スペースの切替は App ごと作り直すため、ここでは見ない。会話 id だけの変化 (添付が暗黙に作った会話) では
-  // 捨てないので、判定は lib/suggestion.ts の純関数が持つ
-  const [suggestionScope, setSuggestionScope] = useState<SuggestionScope>(() => ({
+  // 入力欄のチップ (定型プロンプト / 引き継ぎの案内) と、選択を捨てる契機。下書きなので状態は App 側に置く
+  const suggestionChip = useSuggestionChip({
     agentId: app.selectedAgent?.id,
     selectionSeq: app.selectionSeqRef.current,
     sessionId: app.sessionId,
-  }));
-  const nextSuggestionScope: SuggestionScope = {
-    agentId: app.selectedAgent?.id,
-    selectionSeq: app.selectionSeqRef.current,
-    sessionId: app.sessionId,
-  };
-  if (suggestionScopeChange(suggestionScope, nextSuggestionScope) === "drop") {
-    setSuggestionScope(nextSuggestionScope);
-    setSuggestion(null);
-  } else if (suggestionScope.sessionId !== nextSuggestionScope.sessionId) {
-    // 添付が会話を暗黙に作っただけ。チップは同じ下書きの続きとして、その会話へ移す
-    setSuggestionScope(nextSuggestionScope);
-  }
-  // 押すたびに新しい値を渡す (同じチップを押し直しても、入力欄へフォーカスを戻す合図にする)
-  // チップは選択した時点の文言を写して持つ (マスタを編集しても、選択済みのチップは書き換えない)
-  const selectSuggestion = useCallback(
-    (next: PromptRef) => setSuggestion({ label: next.label, prompt: next.prompt }),
-    [],
-  );
-  // 引き継ぎのチップを外した印 (操作 ID)。表示は会話の状態から導出し、外したことだけを覚える
-  // (リロードでは戻り、新しい引き継ぎでは ID が変わるため再び出る)
-  const [dismissedHandoff, setDismissedHandoff] = useState<string | null>(null);
-  const handoffChip = handoffSuggestion(app.chat.handoff);
-  const handoffOperationId = app.chat.handoff?.operationId ?? "";
-  // 引き継ぎ直後の入力欄のチップ。エージェントの定型プロンプトが選ばれていればそちらを優先する
-  const activeSuggestion = suggestion ?? (handoffChip && dismissedHandoff !== handoffOperationId ? handoffChip : null);
-  const clearActiveSuggestion = useCallback(() => {
-    if (suggestion) {
-      setSuggestion(null);
-      return;
-    }
-    if (handoffChip) setDismissedHandoff(handoffOperationId);
-  }, [handoffChip, handoffOperationId, suggestion]);
+    handoff: app.chat.handoff,
+  });
   // 引き継ぎの対象 (会話 id と、ダイアログに出す値)。開いている間は専用ダイアログがエージェント /
   // スペース / メモを選ぶ。無効理由はサーバーの判定と同じ条件を開いた時点の一覧から導く
   const [handoffTarget, setHandoffTarget] = useState<{
@@ -994,7 +957,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                   rawUrl={markdownImageRawUrl}
                   sessionId={app.sessionId}
                   sendSeq={app.chat.sendSeq}
-                  onSuggestion={selectSuggestion}
+                  onSuggestion={suggestionChip.select}
                   onResendUnsent={handleResendUnsent}
                   onDiscardUnsent={handleDiscardUnsent}
                   answerable={app.chat.runStatus === "running"}
@@ -1036,7 +999,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
               sessionAgent={composerAgent}
               mode={layout}
               attachments={app.attachments}
-              suggestion={activeSuggestion}
+              suggestion={suggestionChip.active}
               rootCwd={app.health?.cwd ?? ""}
               skills={app.sessionSkills}
               onSend={handleComposerSend}
@@ -1047,7 +1010,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
               onRetry={handleRetry}
               onAttachFiles={app.attachFiles}
               onRemoveAttachment={app.removeAttachment}
-              onClearSuggestion={clearActiveSuggestion}
+              onClearSuggestion={suggestionChip.clear}
               onChangeModel={app.changeModel}
               onChangeThinkingLevel={app.changeThinkingLevel}
               onReloadSkills={app.revalidateSessionSkills}
