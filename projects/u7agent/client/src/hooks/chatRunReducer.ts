@@ -272,8 +272,6 @@ export function applyRunAction(state: ChatState, action: RunChatAction): ChatSta
         // 前の run の host を次の run のページ再構築で復元しない
         liveHostAssistantIds: [],
         liveHostRunId: undefined,
-        closedAssistantTexts:
-          action.runId !== undefined && action.runId === state.currentRunId ? state.closedAssistantTexts : [],
         stateSeq: state.stateSeq + 1,
         queuedSnapshots:
           action.initialSendId === undefined
@@ -317,32 +315,19 @@ export function applyRunAction(state: ChatState, action: RunChatAction): ChatSta
     case "assistantEnd": {
       if (state.thinkingText !== undefined) state = { ...state, thinkingText: undefined };
       const key = action.assistantId;
-      const target =
-        key !== undefined
-          ? state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === key)
-          : state.currentAssistantId === null
-            ? undefined
-            : state.bubbles.find((bubble) => bubble.id === state.currentAssistantId);
+      const target = state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === key);
       if (target === undefined) {
-        if (key !== undefined) {
-          // 本文なしの ask_user など、まだバブルが無い応答の確定モデルは応答IDごとに控える。
-          // 後から合成するバブル (ensureAssistant / appendOwnedAssistant) が同じキーを読む
-          return action.model === undefined
-            ? state
-            : {
-                ...state,
-                assistantMeta: {
-                  ...state.assistantMeta,
-                  [key]: { ...state.assistantMeta[key], assistantId: key, model: action.model },
-                },
-              };
-        }
-        return state.toolTargetAssistantId === undefined
-          ? state
-          : { ...state, currentAssistantId: null, currentAssistantKey: undefined, toolTargetAssistantId: undefined };
+        // 本文なしの ask_user など、まだバブルが無い応答の確定モデルは応答IDごとに控える。
+        // 後から合成するバブル (ensureAssistant / appendOwnedAssistant) が同じキーを読む
+        return {
+          ...state,
+          assistantMeta: {
+            ...state.assistantMeta,
+            [key]: { ...state.assistantMeta[key], assistantId: key, model: action.model },
+          },
+        };
       }
-      const closesCurrent =
-        state.currentAssistantId === target.id || (key !== undefined && state.currentAssistantKey === key);
+      const closesCurrent = state.currentAssistantId === target.id || state.currentAssistantKey === key;
       // 本文の応答が確定した時点で、同じターンの本文なし応答のカードをこの応答へ寄せる (投影と同じ所有者)
       return withCarriedToolCards({
         ...state,
@@ -350,14 +335,8 @@ export function applyRunAction(state: ChatState, action: RunChatAction): ChatSta
         currentAssistantKey: closesCurrent ? undefined : state.currentAssistantKey,
         toolTargetAssistantId: closesCurrent ? target.id : state.toolTargetAssistantId,
         bubbles: state.bubbles.map((bubble) =>
-          bubble.id === target.id
-            ? { ...bubble, settled: true, ...(action.model === undefined ? {} : { model: action.model }) }
-            : bubble,
+          bubble.id === target.id ? { ...bubble, settled: true, model: action.model } : bubble,
         ),
-        closedAssistantTexts:
-          key !== undefined || target.text === ""
-            ? state.closedAssistantTexts
-            : [...new Set([...state.closedAssistantTexts, target.text])],
       });
     }
 
@@ -489,7 +468,6 @@ export function applyRunAction(state: ChatState, action: RunChatAction): ChatSta
         currentAssistantId: null,
         currentAssistantKey: undefined,
         currentRunId: undefined,
-        closedAssistantTexts: [],
         toolTargetAssistantId: undefined,
         // ターンが終われば host は確定済みの item になる (次の resync で印を戻さない)
         liveHostAssistantIds: [],

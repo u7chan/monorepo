@@ -278,7 +278,7 @@ test("送信に失敗したエコーを戻し、次の同一本文が正しく�
 
 test("圧縮中に届いた queued は compacting を維持し、文言も圧縮中として出す", () => {
   const compacting = chatReducer(initialChatState, { type: "resync", payload: compactingPayload() });
-  const queued = chatReducer(compacting, { type: "queued", position: 1, queueDepth: 1 });
+  const queued = chatReducer(compacting, { type: "queued", sendId: "send-1", position: 1, queueDepth: 1 });
 
   assert.equal(queued.runStatus, "compacting");
   assert.equal(queued.compactionStartedAt, 1700000005000);
@@ -288,6 +288,7 @@ test("圧縮中に届いた queued は compacting を維持し、文言も圧縮
   // 圧縮でないときは従来どおり running
   const running = chatReducer(chatReducer(initialChatState, { type: "runStart", prompt: "p", at: 1, startedAt: 1 }), {
     type: "queued",
+    sendId: "send-1",
     position: 1,
     queueDepth: 1,
   });
@@ -588,7 +589,7 @@ test("run_end は残りの件数を数えず、開始の合図とその run の�
   assert.equal(cleared.bubbles.find((bubble) => bubble.sendId === "run-b")?.queued, undefined);
 });
 
-test("queue_cleared は待機の表示を消し、runIds が無くても解除する", () => {
+test("queue_cleared は破棄した送信を未送信にし、待機の表示を消す", () => {
   const queued = queuedEcho(initialChatState, "待機する本文", "run-b", 1);
   const cleared = chatReducer(queued, { type: "queueCleared", sendIds: ["run-b"] });
   assert.deepEqual(
@@ -598,20 +599,11 @@ test("queue_cleared は待機の表示を消し、runIds が無くても解除�
     [[undefined, undefined, true]],
   );
   assert.equal(cleared.startingRunId, undefined);
-
-  // 旧サーバー (runIds 無し) は未送信へは切り替えないが、キューは空なので待機の表示は戻す
-  const legacy = chatReducer(queued, { type: "queueCleared" });
-  assert.deepEqual(
-    legacy.bubbles
-      .filter((bubble) => bubble.runId === "run-b")
-      .map((bubble) => [bubble.queued, bubble.unsent === true]),
-    [[undefined, false]],
-  );
 });
 
 test("queueCanceled は対象の待機だけを未送信へ戻し、他の待機を変えない", () => {
   const queued = queuedEcho(queuedEcho(historyWithOld(), "先に積む本文", "run-a", 1), "取り消す本文", "run-b", 2);
-  const waiting = chatReducer(queued, { type: "queued", position: 2, queueDepth: 2 });
+  const waiting = chatReducer(queued, { type: "queued", sendId: "run-b", position: 2, queueDepth: 2 });
   const keptEchoId = waiting.bubbles.find((bubble) => bubble.runId === "run-a")?.id;
   const target = waiting.bubbles.find((bubble) => bubble.runId === "run-b");
   assert.ok(keptEchoId !== undefined && target !== undefined);

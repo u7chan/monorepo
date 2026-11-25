@@ -323,7 +323,6 @@ function mergeStreamingIntoHistory(
       for (let index = bubbles.length - 1; index > turnIndex; index -= 1) {
         const bubble = bubbles[index];
         if (bubble.role !== "assistant" || bubble.entryId === undefined) continue;
-        if (state.closedAssistantTexts.includes(bubble.text)) continue;
         if (bubble.text === live.text || (bubble.text.length > 0 && live.text.startsWith(bubble.text))) {
           matchIndex = index;
           break;
@@ -751,7 +750,6 @@ export function applyHistoryAction(state: ChatState, action: HistoryChatAction):
         clearedSendIds: [],
         queuedSnapshots: {},
         currentRunId: undefined,
-        closedAssistantTexts: [],
         toolTargetAssistantId: undefined,
         liveToolIds: [],
         currentAssistantId: null,
@@ -1162,7 +1160,6 @@ export function applyHistoryAction(state: ChatState, action: HistoryChatAction):
         toolBubbleIds: finalized.toolBubbleIds,
         clearedSendIds: applied.clearedSendIds,
         stateSeq: state.stateSeq + 1,
-        closedAssistantTexts: switchedSession ? [] : state.closedAssistantTexts,
         // 実行中でなければ host は確定済み (settleToolHosts) なので、次のページ再構築で戻さない
         liveHostAssistantIds: retainedHostIds,
         liveHostRunId: retainedHostIds.length === 0 ? undefined : state.liveHostRunId,

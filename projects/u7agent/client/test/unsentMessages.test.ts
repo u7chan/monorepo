@@ -351,14 +351,6 @@ test("停止でキューを破棄した送信は、queue_cleared の run id で�
     "破棄された待機分だけを未送信にする",
   );
   assert.deepEqual(cleared.pendingEchoIds, [queued.pendingEchoIds[0]], "実行中のエコーは pending のまま");
-
-  // 旧サーバー (runIds 無し) は現状維持
-  const legacy = chatReducer(queued, { type: "queueCleared" });
-  assert.deepEqual(legacy.pendingEchoIds, queued.pendingEchoIds);
-  assert.equal(
-    legacy.bubbles.some((bubble) => bubble.unsent === true),
-    false,
-  );
 });
 
 test("セッションを切り替えた resync では、前のセッションの未送信を持ち越さない", () => {

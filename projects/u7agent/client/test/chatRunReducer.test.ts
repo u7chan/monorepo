@@ -176,7 +176,7 @@ function streamingTurn(): ChatState {
     at: 10,
     startedAt: 10,
   });
-  return chatReducer(state, { type: "text", delta: "前半", at: 11 });
+  return chatReducer(state, { type: "text", delta: "前半", at: 11, assistantId: "run-1:1" });
 }
 
 /** 実行中 run の payload。resync が同じ run の継続かを run.id で判定する */
@@ -395,7 +395,7 @@ test("runStartedAt はキューをまたいで持ち越さず、次のランで�
   });
 
   // 次のメッセージが待機中でも、実行中のランは起点を持ち続ける
-  const queued = chatReducer(started, { type: "queued", position: 1, queueDepth: 1 });
+  const queued = chatReducer(started, { type: "queued", sendId: "send-1", position: 1, queueDepth: 1 });
   assert.equal(queued.runStartedAt, 100);
 
   // ランが終わると待機中 (queueDepth > 0) でも起点を落とし、次の run_start で入れ替える
@@ -679,7 +679,7 @@ test("assistant_end は同じ実行の次の応答を新しいカードにし、
   state = chatReducer(state, { type: "resync", payload: streamingPayload() });
   assert.equal(state.currentAssistantId, first, "注入の resync では同じ応答を続ける");
 
-  state = chatReducer(state, { type: "assistantEnd" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   assert.equal(state.currentAssistantId, null, "応答の終端で次の delta の補完先を閉じる");
   state = chatReducer(state, { type: "text", delta: "次", at: 12 });
 
@@ -718,7 +718,7 @@ test("assistant_end は同じ実行の次の応答を新しいカードにし、
 test("ツール付き応答の後も assistant_end でカードを閉じ、steering の次応答を分ける", () => {
   // What: ツール実行 → steering 追記 → 次応答で live が 1 カードに混ざらない (GUI 受入の再現)
   let state = streamingTurn();
-  state = chatReducer(state, { type: "assistantEnd" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = chatReducer(state, {
     type: "toolStart",
     startedAt: 11,
@@ -758,7 +758,14 @@ test("同じターンでも assistant_end で閉じた前の応答へ今の応�
       { kind: "message", id: "u-1", context: "active", role: "user", text: "質問", sendId: "send-1", runId: "run-1" },
     ];
     if (assistant) {
-      items.push({ kind: "message", id: "a-1", context: "active", role: "assistant", text: "はい" });
+      items.push({
+        kind: "message",
+        id: "a-1",
+        context: "active",
+        role: "assistant",
+        text: "はい",
+        assistantId: "run-1:1",
+      });
     }
     return {
       sessionId: "session-a",
@@ -781,9 +788,9 @@ test("同じターンでも assistant_end で閉じた前の応答へ今の応�
     at: 10,
     startedAt: 10,
   });
-  state = chatReducer(state, { type: "text", delta: "はい", at: 11 });
-  state = chatReducer(state, { type: "assistantEnd" });
-  state = chatReducer(state, { type: "text", delta: "はい、別の応答です", at: 12 });
+  state = chatReducer(state, { type: "text", delta: "はい", at: 11, assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
+  state = chatReducer(state, { type: "text", delta: "はい、別の応答です", at: 12, assistantId: "run-1:2" });
 
   state = chatReducer(state, { type: "resyncHistory", page: page(true) });
   assert.deepEqual(
@@ -817,7 +824,7 @@ test("message_end の不足本文は assistant_end より前に届き、1 カー
     context: CONTEXT,
     assistantId: "run-1:1",
   });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = chatReducer(state, {
     type: "runEnd",
     runId: "run-1",
@@ -947,7 +954,10 @@ test("旧サーバー / 取りこぼしに備えて text / toolStart / assistant
       .thinkingText,
     undefined,
   );
-  assert.equal(chatReducer(thinking, { type: "assistantEnd", assistantId: "run-1:1" }).thinkingText, undefined);
+  assert.equal(
+    chatReducer(thinking, { type: "assistantEnd", assistantId: "run-1:1", model: null }).thinkingText,
+    undefined,
+  );
 });
 
 test("切断を検知したら tail だけを消す", () => {

@@ -151,11 +151,6 @@ export type ChatState = {
   /** 開いている assistant 応答のサーバー ID (`currentAssistantId` のバブルが持つ値) */
   currentAssistantKey?: string;
   /**
-   * この実行で assistant_end まで観測した応答の本文。履歴再取得の照合で、同じターン内の
-   * 前の応答を今の応答と取り違えないために使う
-   */
-  closedAssistantTexts: string[];
-  /**
    * assistant_end で閉じた直後の応答カード。その応答が要求したツールは次の本文より先に届くため、
    * 次の delta が来るまではこのカードへ足す (新しいカードを空のまま作らない)
    */
@@ -226,7 +221,7 @@ export type ChatAction =
   | { type: "dropLocalUser" }
   | { type: "text"; delta: string; at: number; assistantId?: string }
   /** assistant の応答が終わった。開いているカードを閉じ、次の delta を新しいカードで始める */
-  | { type: "assistantEnd"; assistantId?: string; model?: string | null }
+  | { type: "assistantEnd"; assistantId: string; model: string | null }
   | {
       type: "toolStart";
       id: string;
@@ -262,9 +257,9 @@ export type ChatAction =
    * 切断 (error / 無音 / 明示再接続) を検知した時点で tail だけを消す。次の thinking delta で戻す
    */
   | { type: "thinkingCleared" }
-  | { type: "queued"; sendId?: string; position: number; queueDepth: number }
+  | { type: "queued"; sendId: string; position: number; queueDepth: number }
   /** 停止で待機キューを破棄した。sendIds は破棄された送信で、未送信の表示へ切り替える */
-  | { type: "queueCleared"; sendIds?: string[] }
+  | { type: "queueCleared"; sendIds: string[] }
   /** 待機中の 1 件を取り消した。その送信だけ未送信の表示へ切り替える (実行は止めない) */
   | { type: "queueCanceled"; sendId: string }
   /** 開始の Flash (リングの広がり) が DOM 側で終わった。ライブ専用の合図を落とす */
@@ -357,7 +352,6 @@ export const initialChatState: ChatState = {
   queuedSnapshots: {},
   currentRunId: undefined,
   currentAssistantKey: undefined,
-  closedAssistantTexts: [],
   toolTargetAssistantId: undefined,
   liveHostAssistantIds: [],
   liveHostRunId: undefined,

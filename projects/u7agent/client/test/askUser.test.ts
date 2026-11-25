@@ -289,7 +289,7 @@ test("本文を持たない assistant の ask_user は resync でカードごと
 test("回答待ち + キュー送信は settle まで送信を止め、settle 後は状態行に待機の文言を残さない", () => {
   // 起票の事象: 質問が出る前に受け付けた送信がキューに残ったまま、カードが全問「回答しない」で settle する
   let state = chatReducer(initialChatState, { type: "resync", payload: payload([], run([], "running"), "running") });
-  state = chatReducer(state, { type: "queued", position: 1, queueDepth: 1 });
+  state = chatReducer(state, { type: "queued", sendId: "send-1", position: 1, queueDepth: 1 });
   state = chatReducer(state, {
     type: "toolStart",
     startedAt: 2,
