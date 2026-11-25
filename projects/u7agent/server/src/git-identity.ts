@@ -15,7 +15,7 @@ export interface GitIdentity {
   userEmail: string;
 }
 
-/** 初期 identity。新規 DB と、まだ行が無い DB へ入れる (消したあとは再挿入しない) */
+/** 初期 identity。入れるのは新規 DB と v46 未満からの移行だけ */
 export const DEFAULT_GIT_IDENTITY: GitIdentity = {
   userName: "u7agent",
   userEmail: "u7agent@example.com",
