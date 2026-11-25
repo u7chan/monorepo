@@ -20,7 +20,7 @@ client・BFF・サンドボックスは同じイメージで配る（`Dockerfile
 - **旧 SDK**: オブジェクトの形が欠けることは想定しない。依存は固定ではないが、SDK は同じイメージに入るため実運用では起こらない。欠けた形を渡すのはテストのスタブと、古い SDK が書いた履歴の値であり、型はそれに合わせて緩くし、コードは変えない。
 - **版ずれの案内**: 版が食い違うことを検知して利用者へ再読み込みを促すかは、新しい挙動として別に決める。この節は案内を出さないことを決めていない。
 
-下表の「扱い」は決定と、その決定を実装した変更（括弧内の Issue）を示す。「削除済み」の分岐はもう実装に無いので、いまのコードが持つ分岐を知りたいときは「残す」の行だけを読む。決定の記録として「削除済み」の行は消さない（同じ組み合わせを互換の契約へ戻さないため）。
+下表の「扱い」は決定と、その決定を実装した変更（括弧内の Issue）を示す。「削除済み」の行の分岐は実装から消えているが、理由欄に書いた版以外の理由で通る分岐（`tool_start.assistantId` と一覧の `lastRunDurationMs`）は残る。決定の記録として「削除済み」の行は消さない（同じ組み合わせを互換の契約へ戻さないため）。
 
 | 想定 | 組み合わせ | 扱い | 理由 |
 | --- | --- | --- | --- |
@@ -28,7 +28,7 @@ client・BFF・サンドボックスは同じイメージで配る（`Dockerfile
 | 履歴 API の 404 で `payload.messages` の全量へ表示を戻す | 新 client × 旧サーバー | 残す | 版以外でも通る（セッション消滅） |
 | 開始時刻・所要時間を載せない応答（`tool_start.startedAt` / `run_end.durationMs`） | 新 client × 旧サーバー | 削除済み（#2730） | 版だけが理由。現行は常に載せる（一覧の `lastRunDurationMs` は `runOutcomes` がメモリのみなので、再起動後と未ロードの会話では載らず残す） |
 | SSE の識別子の省略（`run_start.initialSendId` / `text`・`usage`・`assistant_end` の `assistantId` / `queued.sendId` / `queue_cleared.sendIds` / `assistant_end.model`） | 新 client × 旧サーバー | 削除済み（#2730） | 版だけが理由。現行は常に載せる（`model` の `null` は「生成元が不明」で、欠けではない。`tool_start.assistantId` は、その run で assistant の応答が始まる前にツールが始まったときだけ載らないので残す） |
-| payload と一覧の省略（`pendingSends` / `canHandoff` / `hasRawLog` / `networkAccess` / `notify` / `titleSummary` / `historyGeneration` / `pinned`） | 新 client × 旧サーバー | 削除済み（#2730） | 版だけが理由。現行は常に載せる（`pinned` は DTO では元から必須で、消したのは省略の分岐だけ） |
+| payload と一覧の省略（`pendingSends` / `canHandoff` / `hasRawLog` / `networkAccess` / `notify` / `titleSummary` / `historyGeneration` / `pinned`） | 新 client × 旧サーバー | 削除済み（#2730） | 版だけが理由。現行は常に載せる（`pinned` は DTO も client も元から必須で、消したものは無い） |
 | `tool_end.endedAt` を載せないツール | 新 client × 旧サーバー | 残す | 版以外でも通る（開始を観測しなかったツール。run の外で始まった・取りこぼした） |
 | `pendingSends[].position` を載せない送信 | 新 client × 旧サーバー | 残す | 版以外でも通る（キューに無い送信。steering へ移った・注入済み） |
 | `assistantMeta` のキー省略 | 新 client × 旧サーバー | 残す | 版以外でも通る（載せる応答が無い） |
