@@ -66,7 +66,7 @@ import { classifyFileRefFailure, createFileRefOpener, fileRefCheckPath, type Fil
 import { resolveActivitySidebarPlacement, resolveSidebarPlacement } from "./lib/layout";
 import { openOwnerSession } from "./lib/ownerLink";
 import { queuedSendsOf } from "./lib/queueWait";
-import { sessionPath } from "./lib/route";
+import { sessionPath, settingsTabOf, settingsTabRoute } from "./lib/route";
 import {
   missingLinkNote,
   notificationHasFailure,
@@ -99,19 +99,10 @@ import {
 } from "./lib/sessionFork";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
-  DEFAULT_APPEARANCE_SUBSECTION,
-  DEFAULT_CONTENT_SUBSECTION,
-  DEFAULT_FILES_SUBSECTION,
-  DEFAULT_MODELS_SUBSECTION,
-  DEFAULT_RUNTIME_SUBSECTION,
   DEFAULT_SHARING_SUBSECTION,
-  type AppearanceSubsection,
-  type ContentSubsection,
-  type FilesSubsection,
-  type ModelsSubsection,
-  type RuntimeSubsection,
   type SettingsSection,
-  type SharingSubsection,
+  type SettingsSubsection,
+  type SettingsTabSection,
   type SidebarMode,
 } from "./lib/settingsNav";
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
@@ -666,62 +657,10 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     setTitleSummaryTargetId(sessionId);
   }, []);
 
-  // 外観のタブ切替も URL へ集約する (既定タブはパスへ出さない)
-  const openAppearanceSubsection = useCallback(
-    (subsection: AppearanceSubsection) => {
-      navigate(
-        subsection === DEFAULT_APPEARANCE_SUBSECTION
-          ? { view: "settings", section: "appearance" }
-          : { view: "settings", section: "appearance", appearanceSubsection: subsection },
-      );
-    },
-    [navigate],
-  );
-
-  // モデルのタブ切替も URL へ集約する。既定タブはパスへ出さない (正準形は lib/route.ts が決める)
-  const openModelsSubsection = useCallback(
-    (subsection: ModelsSubsection) => {
-      navigate(
-        subsection === DEFAULT_MODELS_SUBSECTION
-          ? { view: "settings", section: "models" }
-          : { view: "settings", section: "models", modelsSubsection: subsection },
-      );
-    },
-    [navigate],
-  );
-
-  // コンテンツ生成のタブ切替も URL へ集約する (既定タブはパスへ出さない)
-  const openContentSubsection = useCallback(
-    (subsection: ContentSubsection) => {
-      navigate(
-        subsection === DEFAULT_CONTENT_SUBSECTION
-          ? { view: "settings", section: "content" }
-          : { view: "settings", section: "content", contentSubsection: subsection },
-      );
-    },
-    [navigate],
-  );
-
-  // ファイルのタブ切替も URL へ集約する (既定タブはパスへ出さない)
-  const openFilesSubsection = useCallback(
-    (subsection: FilesSubsection) => {
-      navigate(
-        subsection === DEFAULT_FILES_SUBSECTION
-          ? { view: "settings", section: "files" }
-          : { view: "settings", section: "files", filesSubsection: subsection },
-      );
-    },
-    [navigate],
-  );
-
-  // 共有のタブ切替も URL へ集約する (既定タブはパスへ出さない)
-  const openSharingSubsection = useCallback(
-    (subsection: SharingSubsection) => {
-      navigate(
-        subsection === DEFAULT_SHARING_SUBSECTION
-          ? { view: "settings", section: "sharing" }
-          : { view: "settings", section: "sharing", sharingSubsection: subsection },
-      );
+  // 設定のタブ切替も URL へ集約する (既定タブはパスへ出さない)
+  const openSettingsTab = useCallback(
+    <S extends SettingsTabSection>(section: S, subsection: SettingsSubsection<S>) => {
+      navigate(settingsTabRoute(section, subsection));
     },
     [navigate],
   );
@@ -730,20 +669,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   // singleColumn のシートだけを閉じる (設定面を modal が覆ったままにしない)
   const openSharingSettingsFromDialog = useCallback(() => {
     closeSessionFilesSheet();
-    openSharingSubsection(DEFAULT_SHARING_SUBSECTION);
-  }, [closeSessionFilesSheet, openSharingSubsection]);
-
-  // ランタイムのタブ切替も同じく URL へ集約する
-  const openRuntimeSubsection = useCallback(
-    (subsection: RuntimeSubsection) => {
-      navigate(
-        subsection === DEFAULT_RUNTIME_SUBSECTION
-          ? { view: "settings", section: "runtime" }
-          : { view: "settings", section: "runtime", runtimeSubsection: subsection },
-      );
-    },
-    [navigate],
-  );
+    openSettingsTab("sharing", DEFAULT_SHARING_SUBSECTION);
+  }, [closeSessionFilesSheet, openSettingsTab]);
 
   /**
    * 設定面のリンク（共有物の公開元 / ランタイムの起動元）から会話へ移る。所属が別スペースなら
@@ -1019,13 +946,9 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             filePreviewPort={app.health?.filePreviewPort}
             filePreviewOrigin={app.health?.filePreviewOrigin}
             archiveSettings={app.archiveSettings}
-            filesSubsection={
-              route.view === "settings" && route.section === "files"
-                ? (route.filesSubsection ?? DEFAULT_FILES_SUBSECTION)
-                : DEFAULT_FILES_SUBSECTION
-            }
-            onSelectFilesSubsection={openFilesSubsection}
-            onOpenSharingExclusions={() => openSharingSubsection("exclusions")}
+            filesSubsection={settingsTabOf(route, "files")}
+            onSelectFilesSubsection={(subsection) => openSettingsTab("files", subsection)}
+            onOpenSharingExclusions={() => openSettingsTab("sharing", "exclusions")}
           />
         );
       case "git":
@@ -1037,12 +960,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
         return (
           <AppearancePage
             {...pageProps}
-            appearanceSubsection={
-              route.view === "settings" && route.section === "appearance"
-                ? (route.appearanceSubsection ?? DEFAULT_APPEARANCE_SUBSECTION)
-                : DEFAULT_APPEARANCE_SUBSECTION
-            }
-            onSelectAppearanceSubsection={openAppearanceSubsection}
+            appearanceSubsection={settingsTabOf(route, "appearance")}
+            onSelectAppearanceSubsection={(subsection) => openSettingsTab("appearance", subsection)}
           />
         );
       case "models":
@@ -1053,24 +972,16 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             onRefreshHealth={app.refreshHealth}
             sessions={spaceSessions}
             sessionsLoaded={app.sessionsLoaded}
-            modelsSubsection={
-              route.view === "settings" && route.section === "models"
-                ? (route.modelsSubsection ?? DEFAULT_MODELS_SUBSECTION)
-                : DEFAULT_MODELS_SUBSECTION
-            }
-            onSelectModelsSubsection={openModelsSubsection}
+            modelsSubsection={settingsTabOf(route, "models")}
+            onSelectModelsSubsection={(subsection) => openSettingsTab("models", subsection)}
           />
         );
       case "content":
         return (
           <ContentSettingsPage
             {...pageProps}
-            contentSubsection={
-              route.view === "settings" && route.section === "content"
-                ? (route.contentSubsection ?? DEFAULT_CONTENT_SUBSECTION)
-                : DEFAULT_CONTENT_SUBSECTION
-            }
-            onSelectContentSubsection={openContentSubsection}
+            contentSubsection={settingsTabOf(route, "content")}
+            onSelectContentSubsection={(subsection) => openSettingsTab("content", subsection)}
             refreshToolCatalog={refreshCatalog}
           />
         );
@@ -1086,12 +997,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
         return (
           <RuntimePage
             {...pageProps}
-            runtimeSubsection={
-              route.view === "settings" && route.section === "runtime"
-                ? (route.runtimeSubsection ?? DEFAULT_RUNTIME_SUBSECTION)
-                : DEFAULT_RUNTIME_SUBSECTION
-            }
-            onSelectRuntimeSubsection={openRuntimeSubsection}
+            runtimeSubsection={settingsTabOf(route, "runtime")}
+            onSelectRuntimeSubsection={(subsection) => openSettingsTab("runtime", subsection)}
             health={app.health}
             onRefreshHealth={app.refreshHealth}
             sessions={spaceSessions}
@@ -1107,15 +1014,9 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             sessionsLoaded={app.sessionsLoaded && !app.sessionsFetch.failed}
             onOpenSession={openSettingsSession}
             sharedContentExclusions={app.sharedContentExclusions}
-            onOpenArchiveExclusions={() => {
-              openFilesSubsection("archive");
-            }}
-            sharingSubsection={
-              route.view === "settings" && route.section === "sharing"
-                ? (route.sharingSubsection ?? DEFAULT_SHARING_SUBSECTION)
-                : DEFAULT_SHARING_SUBSECTION
-            }
-            onSelectSharingSubsection={openSharingSubsection}
+            onOpenArchiveExclusions={() => openSettingsTab("files", "archive")}
+            sharingSubsection={settingsTabOf(route, "sharing")}
+            onSelectSharingSubsection={(subsection) => openSettingsTab("sharing", subsection)}
           />
         );
       case "notifications":
