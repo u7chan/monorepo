@@ -141,8 +141,8 @@ export const AssistantMetaSchema = z.object({
   /** SDK が持つメッセージの作成時刻 (epoch ms)。時刻を持たない履歴ではキーを省略する */
   at: z.number().optional(),
   /**
-   * 応答を生成したモデル (`provider/model`)。null はモデル情報なし、未指定は旧サーバー。
-   * 欠けた値を現在のセッションモデルで補わない (別のモデルで生成した応答に誤って付く)
+   * 応答を生成したモデル (`provider/model`)。null はモデル情報なし。欠けた値を現在のセッションモデルで
+   * 補わない (別のモデルで生成した応答に誤って付く)
    */
   model: z.string().nullable().optional(),
   usage: UsageSchema.optional(),
@@ -194,8 +194,8 @@ export const ChatMessageSchema = z.object({
   text: z.string(),
   stopReason: z.string().optional(),
   /**
-   * assistant を生成したモデル (`provider/model`)。null はモデル情報なし (旧履歴 / 未報告)、
-   * 未指定は旧サーバー。user は持たない
+   * assistant を生成したモデル (`provider/model`)。null はモデル情報なし (旧履歴 / 未報告)。
+   * user は持たない
    */
   model: z.string().nullable().optional(),
   /** assistant 応答の実行内 ID。live の delta / ツールと履歴を本文一致に依らず対応付ける */
@@ -237,12 +237,12 @@ export const HistoryMessageItemSchema = ChatMessageSchema.extend({
   context: HistoryContextStateSchema,
   /**
    * user メッセージを送信した送信ID。クライアントが自分の送信エコー (POST 応答の sendId) と
-   * entry を本文一致に依らず対応付ける。旧サーバーは載せない
+   * entry を本文一致に依らず対応付ける。送信IDの記録が無い保存済みの履歴では載らない
    */
   sendId: z.string().optional(),
   /**
    * user メッセージを注入した run の id。同じ実行へ複数の送信が属するため、送信の識別には使わない。
-   * 旧サーバー / 対応を失った履歴では載らない
+   * 対応を失った保存済みの履歴では載らない
    */
   runId: z.string().optional(),
   /**
@@ -288,7 +288,7 @@ export const PendingSendSchema = z.object({
   state: z.enum(["unsent", "queued", "steering", "running"]),
   /**
    * 待機中の順位 (1 始まり)。`state` が queued / steering のときだけ載り、BFF と SDK の未注入分を
-   * 合わせた並びの index + 1 (SSE `queued` の `position` と同じ意味)。旧サーバーは載せない
+   * 合わせた並びの index + 1 (SSE `queued` の `position` と同じ意味)。キューに無い送信は載らない
    */
   position: z.number().optional(),
 });
@@ -323,7 +323,7 @@ export const NetworkAccessModeSchema = z.enum(["allow", "ask", "deny"]);
 export type NetworkAccessMode = z.infer<typeof NetworkAccessModeSchema>;
 /**
  * この会話の egress の実効状態。`approved` は BFF のメモリだけにあり、停止・会話削除・sweep で戻る。
- * 拒否済みカードの「許可に変更」を出す条件と、押した後の表示に使う (旧サーバーはキーを省略する)。
+ * 拒否済みカードの「許可に変更」を出す条件と、押した後の表示に使う。
  */
 export const SessionNetworkAccessSchema = z.object({
   mode: NetworkAccessModeSchema,

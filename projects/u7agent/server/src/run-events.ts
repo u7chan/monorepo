@@ -194,7 +194,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     // message_start を観測できないプロバイダでも delta に応答IDを付ける
     currentAssistantId ??= nextAssistantId();
     currentAssistantText += delta;
-    emit("text", { delta, ...(currentAssistantId === undefined ? {} : { assistantId: currentAssistantId }) });
+    emit("text", { delta, assistantId: currentAssistantId });
   };
 
   /**
@@ -337,16 +337,14 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
                 usage,
                 metrics,
                 context: contextUsageOf(session),
-                ...(currentAssistantId === undefined ? {} : { assistantId: currentAssistantId }),
+                assistantId: currentAssistantId,
               });
             }
             // usage を先に配ってから閉じる (usage は開いている応答へ付く)。model は応答の生成元を
-            // 表すため、usage / metrics を報告しないプロバイダでもここで配る
-            const model = assistantModelLabel(event.message);
-            emit("assistant_end", {
-              ...(currentAssistantId === undefined ? {} : { assistantId: currentAssistantId }),
-              ...(model === undefined ? {} : { model }),
-            });
+            // 表すため、usage / metrics を報告しないプロバイダでもここで配る。role は assistant と
+            // 確認済みなので undefined にはならず、null (生成元が不明) だけを返し得る
+            const model = assistantModelLabel(event.message) ?? null;
+            emit("assistant_end", { assistantId: currentAssistantId, model });
             assistantStartedAt = undefined;
             firstTokenAt = undefined;
           }
