@@ -10,7 +10,7 @@ import type {
   SessionSummary,
   StopResult,
 } from "../types";
-import type { ChatAction } from "./chatReducer";
+import type { ChatAction } from "../lib/chatState";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
 
 /**

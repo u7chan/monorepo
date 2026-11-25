@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Dispatch } from "react";
-import type { ChatAction } from "../src/hooks/chatReducer";
+import type { ChatAction } from "../src/lib/chatState";
 import {
   branchSession,
   clearSessionHistory,

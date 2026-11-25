@@ -1,6 +1,8 @@
 // HTTP / 永続化を混ぜると純粋な投影コストを比較できないため、関数を直接呼ぶ。手動実行専用。
 import { performance } from "node:perf_hooks";
-import { chatReducer, historyToBubbles, initialChatState } from "../client/src/hooks/chatReducer";
+import { initialChatState } from "../client/src/lib/chatState";
+import { historyToBubbles } from "../client/src/hooks/chatHistoryReducer";
+import { chatReducer } from "../client/src/hooks/chatReducer";
 import { mergeHistoryPage } from "../client/src/lib/chatHistory";
 import type { ChatMessage, HistoryPage, SessionPayload } from "../client/src/types";
 import { runServerBenchmark } from "./bench-history-server";

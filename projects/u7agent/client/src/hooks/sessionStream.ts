@@ -1,7 +1,7 @@
 import type { Dispatch, RefObject } from "react";
 import type { EventEntry, SessionPayload, SessionSummary } from "../types";
 import type { DiagnosticsRecorder } from "../lib/diagnostics";
-import type { ChatAction } from "./chatReducer";
+import type { ChatAction } from "../lib/chatState";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
 
 export type SessionStreamDeps = {

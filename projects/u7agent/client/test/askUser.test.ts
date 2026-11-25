@@ -6,14 +6,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import { AskUserCard } from "../src/components/chat/AskUserCard";
-import {
-  chatReducer,
-  historyToBubbles,
-  initialChatState,
-  type Bubble,
-  type ChatState,
-  type ToolCard,
-} from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { ChatState } from "../src/lib/chatState";
+import type { Bubble, ToolCard } from "../src/lib/chatTypes";
+import { historyToBubbles } from "../src/hooks/chatHistoryReducer";
+import { chatReducer } from "../src/hooks/chatReducer";
 import {
   askUserAnsweredNothing,
   askUserAnswerText,

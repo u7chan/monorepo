@@ -2,7 +2,9 @@
 // 初回 (旧 payload) → resyncHistory → 以降の resync は取得済みの古いページを消さない、を固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatReducer, initialChatState, LEGACY_INITIAL_MAX_MESSAGES } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import { LEGACY_INITIAL_MAX_MESSAGES } from "../src/hooks/chatHistoryReducer";
+import { chatReducer } from "../src/hooks/chatReducer";
 import { createGenerationTracker } from "../src/hooks/requestGate";
 import type { TurnEnd } from "../src/lib/turnEnd";
 import type { CompactionInfo, HistoryMessageItem, HistoryPage, SessionPayload, ToolCall, Usage } from "../src/types";

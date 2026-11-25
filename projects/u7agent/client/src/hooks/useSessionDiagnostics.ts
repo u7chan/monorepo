@@ -17,7 +17,7 @@ import {
   type DiagnosticsReport,
 } from "../lib/diagnostics";
 import type { SessionDiagnostics } from "../types";
-import type { ChatState } from "./chatReducer";
+import type { ChatState } from "../lib/chatState";
 
 /** コピーの結果。失敗しても `text` は捨てず、そのままファイル保存へ回せるようにする */
 export type DiagnosticsCopyResult = {

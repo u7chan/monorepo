@@ -2,7 +2,7 @@
  * スキル読み込みバッジの表記と、履歴 (ChatMessage.skillLoads) / ライブ (ToolCard.skill) の統合。
  * 同じ出来事が文脈によってカード行とバッジのどちらかになると二重に見えるため、整形と選別はここ 1 箇所に置く。
  */
-import type { Bubble, ToolCard } from "../hooks/chatReducer";
+import type { Bubble, ToolCard } from "./chatTypes";
 import type { SkillLoad } from "../types";
 
 /** pi の formatReadLineRange() と同じ表記。offset 省略は 1 行目、limit 省略は最終行までを意味する */

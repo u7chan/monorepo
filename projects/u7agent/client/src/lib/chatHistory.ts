@@ -333,7 +333,8 @@ function consumePendingFallback(bubbles: Bubble[], markers: CompactionMarker[], 
   return consumed;
 }
 
-function rebuildToolBubbleIds(bubbles: Bubble[]): Record<string, number> {
+/** ツールカードの持ち主の索引。同じ call は最初に持つバブルだけを指す */
+export function rebuildToolBubbleIds(bubbles: Bubble[]): Record<string, number> {
   const ids: Record<string, number> = {};
   for (const bubble of bubbles) {
     for (const card of bubble.tools) {

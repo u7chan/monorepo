@@ -2,7 +2,7 @@
  * ツール履歴の行サマリー。ライブのカード行と、外側 `<details>` を畳んだときのサマリーで同じ関数を使う。
  * スキル読み込みはバッジ側で見せるため、呼び出し側が nonSkillToolCards() で外してから渡す。
  */
-import type { ToolCard } from "../hooks/chatReducer";
+import type { ToolCard } from "./chatTypes";
 
 const TOOL_SUMMARY_MAX_LENGTH = 96;
 

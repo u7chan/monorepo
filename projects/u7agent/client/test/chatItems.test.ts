@@ -9,7 +9,9 @@ import {
   unsentActionIdOf,
   unsentActionsOf,
 } from "../src/lib/chatItems";
-import { chatReducer, initialChatState, type ChatState } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { ChatState } from "../src/lib/chatState";
+import { chatReducer } from "../src/hooks/chatReducer";
 import type { CompactionInfo } from "../src/types";
 
 function bubble(id: number, entryId: string, context: Bubble["context"], text: string): Bubble {

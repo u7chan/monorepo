@@ -1,4 +1,4 @@
-import type { ChatState } from "../hooks/chatReducer";
+import type { ChatState } from "./chatState";
 import { MODEL_UNSET_GUIDE } from "./modelSettings";
 import { pendingAskUserQuestionCount } from "./askUser";
 import { sessionBusy } from "./sessionBusy";

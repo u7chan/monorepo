@@ -1,5 +1,5 @@
 // セッションの作業フォルダを出せる条件を固定する。表示方法は desktop=右パネル / singleColumn=全画面シートだが、
-// root の可用性は layout に依存させない (run_end での取り直しは client/test/chatReducer.test.ts が見る)。
+// root の可用性は layout に依存させない (run_end での取り直しは client/test/chatRunReducer.test.ts が見る)。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "../src/lib/sessionFiles";

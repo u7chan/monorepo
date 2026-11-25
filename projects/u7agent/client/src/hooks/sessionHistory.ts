@@ -3,7 +3,7 @@ import type { ChatHistoryState } from "../lib/chatTypes";
 import { apiFailureStatus, messageFor } from "../lib/errors";
 import { historyClearedBetween, withoutOldHistory } from "../lib/sessionHistoryClear";
 import type { HistoryPage, SessionPayload } from "../types";
-import type { ChatAction } from "./chatReducer";
+import type { ChatAction } from "../lib/chatState";
 import { alwaysCurrent, createGenerationTracker } from "./requestGate";
 
 export type SessionHistoryDeps = {

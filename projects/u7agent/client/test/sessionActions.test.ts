@@ -6,7 +6,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Dispatch } from "react";
-import { chatReducer, initialChatState, type ChatAction, type ChatState } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { ChatAction, ChatState } from "../src/lib/chatState";
+import { chatReducer } from "../src/hooks/chatReducer";
 import {
   answerChatQuestion,
   cancelQueuedMessage,

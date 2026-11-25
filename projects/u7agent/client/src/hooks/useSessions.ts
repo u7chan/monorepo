@@ -18,7 +18,7 @@ import type {
   SessionSummary,
   ThinkingLevel,
 } from "../types";
-import type { ChatAction } from "./chatReducer";
+import type { ChatAction } from "../lib/chatState";
 import { alwaysCurrent } from "./requestGate";
 import { createSessionsFetch } from "../lib/sessionsFetch";
 import { sessionsInSpace } from "../lib/spaceSessions";

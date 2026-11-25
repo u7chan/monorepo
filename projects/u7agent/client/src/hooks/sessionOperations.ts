@@ -13,7 +13,7 @@ import type {
   SessionSummary,
   SessionTitleResponse,
 } from "../types";
-import type { ChatAction } from "./chatReducer";
+import type { ChatAction } from "../lib/chatState";
 import type { SessionHistory } from "./sessionHistory";
 import { nextAfterRemoval } from "./sessionFallback";
 

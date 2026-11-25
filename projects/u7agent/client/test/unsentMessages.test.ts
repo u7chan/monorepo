@@ -4,7 +4,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Dispatch } from "react";
-import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { ChatAction } from "../src/lib/chatState";
+import { chatReducer } from "../src/hooks/chatReducer";
 import { cancelQueuedMessage } from "../src/hooks/sessionActions";
 import type { HistoryPage, PendingSend, SessionPayload } from "../src/types";
 

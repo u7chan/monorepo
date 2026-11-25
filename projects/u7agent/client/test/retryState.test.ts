@@ -4,7 +4,8 @@
 // 予定時刻を過ぎても次の message_start が来ないときは「開始待ち」へ切り替える。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import { chatReducer } from "../src/hooks/chatReducer";
 import { applySessionEvent, type SessionStreamDeps } from "../src/hooks/sessionStream";
 import { createDiagnosticsRecorder } from "../src/lib/diagnostics";
 import { activityDisplay, retryActivityText, retryRemainingMs } from "../src/lib/retryState";
