@@ -4,7 +4,7 @@ import { messageFor } from "../lib/errors";
 import type { SessionForkDialogText, SessionForkRequest } from "../lib/sessionFork";
 import { forkRequest } from "../lib/sessionFork";
 import type { HandoffAgentChoice } from "../lib/sessionHandoff";
-import { MenuItem } from "./MenuItem";
+import { AgentChoiceList } from "./AgentChoiceList";
 import { WorkDialog } from "./WorkDialog";
 import type { ModalDialogHandle } from "./ModalDialog";
 
@@ -90,29 +90,21 @@ export function SessionForkDialog({
         </p>
       ))}
 
-      <div className="grid gap-1.5">
-        <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">{text.agentLabel}</span>
-        <div className="grid gap-1">
-          {agents.map((agent) => (
-            <MenuItem
-              key={agent.id}
-              label={agent.current ? `${agent.name}（現在）` : agent.name}
-              variant="choice"
-              selected={agent.id === agentId}
-              current="true"
-              onClick={() => {
-                setAgentId(agent.id);
-                setError("");
-              }}
-            />
-          ))}
-        </div>
+      <AgentChoiceList
+        label={text.agentLabel}
+        agents={agents}
+        agentId={agentId}
+        onSelect={(id) => {
+          setAgentId(id);
+          setError("");
+        }}
+      >
         <p className={cn("break-words", agentId === currentAgent?.id ? "text-ink-muted" : "text-warn-text")}>
           {agentId === currentAgent?.id
             ? "現在のエージェントの役割・指示・ツールの許可をそのまま引き継ぎます。"
             : text.agentNote}
         </p>
-      </div>
+      </AgentChoiceList>
     </WorkDialog>
   );
 }

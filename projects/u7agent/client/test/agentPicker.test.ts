@@ -3,7 +3,14 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AgentPicker } from "../src/components/composer/AgentPicker";
-import { AGENT_PICKER_GAP, AGENT_PICKER_MARGIN, agentPickerPlacement } from "../src/lib/agentPicker";
+import {
+  AGENT_PICKER_GAP,
+  AGENT_PICKER_LIST_MAX_HEIGHT,
+  AGENT_PICKER_MARGIN,
+  agentPickerListMaxHeight,
+  agentPickerMaxWidth,
+  agentPickerPlacement,
+} from "../src/lib/agentPicker";
 import type { AgentDef } from "../src/types";
 
 const viewport = { width: 1000, height: 800 };
@@ -33,6 +40,14 @@ test("位置: 左右と上下を viewport の内側へ clamp する", () => {
     { width: 1000, height: 200 },
   );
   assert.equal(tall.top, 200 - 150 - AGENT_PICKER_MARGIN);
+});
+
+test("寸法: 幅は viewport の余白を残して縮め、高さは既定の上限と残りの小さい方にする", () => {
+  assert.equal(agentPickerMaxWidth(1000, AGENT_PICKER_MARGIN), 984);
+  assert.equal(agentPickerMaxWidth(10, AGENT_PICKER_MARGIN), 0, "余白も取れない viewport では 0 にする");
+  assert.equal(agentPickerListMaxHeight(800, AGENT_PICKER_MARGIN, 50), AGENT_PICKER_LIST_MAX_HEIGHT);
+  assert.equal(agentPickerListMaxHeight(300, AGENT_PICKER_MARGIN, 50), 234, "低い viewport では残りへ縮める");
+  assert.equal(agentPickerListMaxHeight(60, AGENT_PICKER_MARGIN, 50), 0, "負にしない");
 });
 
 function agent(id: string, name: string): AgentDef {

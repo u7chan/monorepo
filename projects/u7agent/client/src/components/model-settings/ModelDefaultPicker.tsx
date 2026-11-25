@@ -1,7 +1,8 @@
-import { useCallback, useId, useRef, useState } from "react";
-import { AGENT_PICKER_LIST_MAX_HEIGHT, AGENT_PICKER_MARGIN, agentPickerPlacement } from "../../lib/agentPicker";
+import { useId, useRef, useState } from "react";
+import { AGENT_PICKER_MARGIN } from "../../lib/agentPicker";
 import { cn } from "../../lib/cn";
-import { usePopoverShell, type PopoverPlaceInput } from "../../hooks/usePopoverShell";
+import { useAgentPickerPopover } from "../../hooks/useAgentPickerPopover";
+import { usePopoverShell } from "../../hooks/usePopoverShell";
 import { filterDefaultModelOptions, type DefaultModelOption } from "../../lib/modelSettings";
 
 /**
@@ -22,7 +23,6 @@ export function ModelDefaultPicker({
 }) {
   const pickerId = useId();
   const triggerId = `${pickerId}-trigger`;
-  const listRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
   const selected = options.find((option) => option.key === value) ?? options[0];
@@ -30,26 +30,7 @@ export function ModelDefaultPicker({
   const selectable = options.length > 1;
   const triggerDisabled = disabled || !selectable;
 
-  // 幅を先に確定させる: max-width で折り返しと内部スクロールが決まり、rect が最終の大きさになる
-  const sizePicker = useCallback(({ popover, trigger, viewport, margin }: PopoverPlaceInput & { margin: number }) => {
-    if (trigger === null) return;
-    const anchor = trigger.getBoundingClientRect();
-    popover.style.minWidth = `${anchor.width}px`;
-    popover.style.maxWidth = `${viewport.width - margin * 2}px`;
-    const list = listRef.current;
-    if (list !== null) {
-      // 高さの上限はスクロールする一覧に当てる。検索欄と外枠の高さを popover と一覧の rect の差で測り、
-      // 低い viewport (ソフトキーボード表示中を含む) では既定より縮める
-      const chrome = popover.getBoundingClientRect().height - list.getBoundingClientRect().height;
-      const available = viewport.height - margin * 2 - chrome;
-      list.style.maxHeight = `${Math.max(0, Math.min(AGENT_PICKER_LIST_MAX_HEIGHT, available))}px`;
-    }
-  }, []);
-
-  const place = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
-    if (trigger === null) return null;
-    return agentPickerPlacement(trigger.getBoundingClientRect(), popover.getBoundingClientRect(), viewport);
-  }, []);
+  const { listRef, size: sizePicker, place } = useAgentPickerPopover();
 
   // 開いた直後は検索欄へ入る (候補が多く、絞り込む方が速い)。絞り込みは開くたびに空へ戻す
   // (前回の検索語で開き直すと、選ぼうとした一覧が欠けて見える)。外への移動で閉じるのは hook が持つ
