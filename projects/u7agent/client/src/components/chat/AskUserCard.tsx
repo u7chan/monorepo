@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { ToolCard } from "../../hooks/chatReducer";
+import type { ToolCard } from "../../lib/chatTypes";
 import {
   APPROVAL_RESCUE_HINT,
   APPROVAL_RESCUE_NOTE,

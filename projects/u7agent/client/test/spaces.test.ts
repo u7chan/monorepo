@@ -23,7 +23,7 @@ import { reorderRows } from "../src/lib/listReorder";
 import { createSessionCreation } from "../src/hooks/sessionCreation";
 import { sendChatMessage, type SendChatMessageDeps } from "../src/hooks/sessionActions";
 import { createRequestGate, createMountScope } from "../src/hooks/requestGate";
-import type { ChatAction } from "../src/hooks/chatReducer";
+import type { ChatAction } from "../src/lib/chatState";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { ApiError, createSpaceApi, getCatalog, getFiles, listSpaces, createSpace } = await import("../src/api");

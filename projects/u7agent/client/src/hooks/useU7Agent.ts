@@ -8,7 +8,8 @@ import { projectDeleteConfirmRequest } from "../lib/sidebarProjects";
 import { useConfirm } from "../components/ConfirmProvider";
 import { deriveComposerSettings } from "../lib/composerSettings";
 import type { AskUserAnswer, RunStatus, SessionSummary } from "../types";
-import { chatReducer, initialChatState } from "./chatReducer";
+import { initialChatState } from "../lib/chatState";
+import { chatReducer } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
 import {
   answerChatQuestion,

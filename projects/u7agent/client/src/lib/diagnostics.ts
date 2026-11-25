@@ -5,7 +5,7 @@
  * 本文 (メッセージ / 質問 / 回答) は入れず、件数と長さに落とす。貼り付け先では画面の文脈が失われるため、
  * JSON 自身に種別と注意を書く (docs/diagnostics.md)。
  */
-import type { ChatState } from "../hooks/chatReducer";
+import type { ChatState } from "./chatState";
 import type { Bubble, ChatHistoryState, ToolCard } from "./chatTypes";
 import { startArchiveDownload } from "./archive";
 import type { ConfirmRequest } from "./confirmDialog";

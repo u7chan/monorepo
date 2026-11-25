@@ -4,7 +4,7 @@ import { getCatalog, getHealth } from "../api";
 import { selectableAgents } from "../lib/agentSelection";
 import { createCatalogStore } from "../lib/catalogStore";
 import type { CatalogResponse, Health } from "../types";
-import type { ChatAction } from "./chatReducer";
+import type { ChatAction } from "../lib/chatState";
 import { runtimeStatusForHealth, type RuntimeStatus } from "./runtimeStatus";
 import { alwaysCurrent, createMountScope } from "./requestGate";
 

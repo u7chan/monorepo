@@ -5,7 +5,9 @@
 // 残らないことと、bubble id (nextId) をセッション跨ぎで再利用しないことを固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatReducer, initialChatState, type ChatState } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { ChatState } from "../src/lib/chatState";
+import { chatReducer } from "../src/hooks/chatReducer";
 import { chatRenderItems } from "../src/lib/chatItems";
 import { queuedSendsOf } from "../src/lib/queueWait";
 import type {

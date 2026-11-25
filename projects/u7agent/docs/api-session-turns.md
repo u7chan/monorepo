@@ -87,7 +87,7 @@ References are relative to /workspace/.agents/skills/writer.
 - 添付の保存先はセッションの作業ディレクトリの外（プロジェクト所属ではリポジトリの外）にあるため、注記は**絶対パス**で示す。モデルはそのパスで `read` する
 - 履歴（`messages[].text`）と SSE の `run_start.prompt` には注記込みの本文が入る。組み立ては `server/src/attachments.ts` だけが行う
 - タイトルは注記を除いた本文から作る（添付だけの送信では空のまま）
-- クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、送信応答の `sendId` が付いた後（`echoSendId`）に `run_start` の注記込み本文へ差し替える。`run_start` が応答より先でも本文は控えておくため、別送信 (別タブ) の本文では差し替えない（`client/src/hooks/chatReducer.ts`。送信IDが無い旧経路だけ送信順の待ち行列と本文の正規形で突き合わせる）
+- クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、送信応答の `sendId` が付いた後（`echoSendId`）に `run_start` の注記込み本文へ差し替える。`run_start` が応答より先でも本文は控えておくため、別送信 (別タブ) の本文では差し替えない（`client/src/hooks/chatRunReducer.ts`。送信IDが無い旧経路だけ送信順の待ち行列と本文の正規形で突き合わせる）
 
 ### ask_user（`questions` / `answers`）
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { Bubble, ToolCard } from "../../hooks/chatReducer";
+import type { Bubble, ToolCard } from "../../lib/chatTypes";
 import { finishOnAnimationEnd } from "../../lib/animationEnd";
 import { splitAttachedFiles } from "../../lib/attachments";
 import { cn } from "../../lib/cn";

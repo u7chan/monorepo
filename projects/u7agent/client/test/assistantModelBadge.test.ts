@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { chatReducer, initialChatState, type ChatState } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { ChatState } from "../src/lib/chatState";
+import { chatReducer } from "../src/hooks/chatReducer";
 import type { Bubble } from "../src/lib/chatTypes";
 import type { HistoryPage, SessionPayload } from "../src/types";
 

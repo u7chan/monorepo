@@ -6,7 +6,10 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SkillLoadList } from "../src/components/chat/SkillLoadList";
-import { chatReducer, historyToBubbles, initialChatState, type Bubble, type ToolCard } from "../src/hooks/chatReducer";
+import { initialChatState } from "../src/lib/chatState";
+import type { Bubble, ToolCard } from "../src/lib/chatTypes";
+import { historyToBubbles } from "../src/hooks/chatHistoryReducer";
+import { chatReducer } from "../src/hooks/chatReducer";
 import { toolHistoryCopyText } from "../src/lib/copy-content";
 import {
   formatReadLineRange,
