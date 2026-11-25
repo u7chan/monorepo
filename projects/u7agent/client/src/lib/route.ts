@@ -2,9 +2,8 @@
  * URL の pathname と画面の対応。DOM も history も触らない純関数だけを置き、URL の読み書きは
  * hooks/useRoute.ts が担う。`/` はチャット (会話を指定しない)、`/activity` は全スペース横断の
  * 実行状況、`/settings/<section>` は設定の各画面
- * (SETTINGS_SECTIONS)、`/settings/<section>/<sub>` はタブを持つ画面 (MODELS_SUBSECTIONS /
- * CONTENT_SUBSECTIONS / FILES_SUBSECTIONS / RUNTIME_SUBSECTIONS / SHARING_SUBSECTIONS /
- * APPEARANCE_SUBSECTIONS)、`/s/<sessionId>` はチャット + URL が指定する会話。
+ * (SETTINGS_SECTIONS)、`/settings/<section>/<sub>` はタブを持つ画面 (SETTINGS_TABS)、
+ * `/s/<sessionId>` はチャット + URL が指定する会話。
  * 未知・不正なパスはチャットへ畳み、routePath は常に正準形 (小文字・末尾スラッシュなし・既定タブの
  * パスなし) を返す。
  * `/s/<sessionId>` の `space` クエリだけは会話を指定した URL の入力として解釈し (entrySpaceOf)、
@@ -12,27 +11,34 @@
  * `space` を解釈しない。
  */
 import {
-  APPEARANCE_SUBSECTIONS,
-  CONTENT_SUBSECTIONS,
-  DEFAULT_APPEARANCE_SUBSECTION,
-  DEFAULT_CONTENT_SUBSECTION,
-  DEFAULT_FILES_SUBSECTION,
-  DEFAULT_MODELS_SUBSECTION,
-  DEFAULT_RUNTIME_SUBSECTION,
-  DEFAULT_SHARING_SUBSECTION,
-  FILES_SUBSECTIONS,
-  MODELS_SUBSECTIONS,
-  RUNTIME_SUBSECTIONS,
+  isSettingsTabSection,
   SETTINGS_SECTIONS,
-  SHARING_SUBSECTIONS,
-  type AppearanceSubsection,
-  type ContentSubsection,
-  type FilesSubsection,
-  type ModelsSubsection,
-  type RuntimeSubsection,
+  settingsTabSpec,
   type SettingsSection,
-  type SharingSubsection,
+  type SettingsSubsection,
+  type SettingsTabField,
+  type SettingsTabSection,
 } from "./settingsNav";
+
+/** すべてのタブのフィールド名 */
+type AnySettingsTabField = SettingsTabField<SettingsTabSection>;
+
+/**
+ * タブを持つ設定画面。そのセクションのフィールドだけを持て、他のセクションのフィールドは持てない
+ * (セクションとタブの不整合を型で作れなくする)。
+ */
+type SettingsTabRoute = {
+  [S in SettingsTabSection]: { view: "settings"; section: S } & {
+    [K in SettingsTabField<S>]?: SettingsSubsection<S>;
+  } & { [K in Exclude<AnySettingsTabField, SettingsTabField<S>>]?: never };
+}[SettingsTabSection];
+
+/**
+ * タブを持たない設定画面。セクションは広い型のまま受ける (保存値から開く) が、タブのフィールドは持てない。
+ */
+type PlainSettingsRoute = { view: "settings"; section: SettingsSection } & {
+  [K in AnySettingsTabField]?: never;
+};
 
 export type Route =
   | {
@@ -47,22 +53,8 @@ export type Route =
       /** 全スペース横断の実行状況。会話を指定しないので、戻る先は選択中の会話か新規会話 */
       view: "activity";
     }
-  | {
-      view: "settings";
-      section: SettingsSection;
-      /** 設定 → モデルのタブ。既定タブは省略し、パスにも出さない */
-      modelsSubsection?: ModelsSubsection;
-      /** 設定 → コンテンツ生成のタブ。同じく既定タブ (画像生成) は省略する */
-      contentSubsection?: ContentSubsection;
-      /** 設定 → ファイルのタブ。既定タブは省略し、パスにも出さない */
-      filesSubsection?: FilesSubsection;
-      /** 設定 → ランタイムのタブ。同じく既定タブは省略する */
-      runtimeSubsection?: RuntimeSubsection;
-      /** 設定 → 共有のタブ。既定タブは省略する */
-      sharingSubsection?: SharingSubsection;
-      /** 設定 → 外観のタブ。同じく既定タブ (テーマ) は省略する */
-      appearanceSubsection?: AppearanceSubsection;
-    };
+  | SettingsTabRoute
+  | PlainSettingsRoute;
 
 /** 会話を指定しないチャット (正準形の `/`)。未知・解釈不能なパスを畳む先でもある */
 export const CHAT_ROUTE: Route = { view: "chat" };
@@ -70,8 +62,8 @@ export const CHAT_ROUTE: Route = { view: "chat" };
 /**
  * pathname から画面を決める。クエリとフラグメントは pathname に含めない契約
  * (含めると `#foo` 付きのリンクが画面として解釈できなくなる) ため、境界側で切り落とす。
- * タブを持つ画面 (models / content / files / runtime / sharing / appearance) だけは `/settings/<section>/<sub>` の 1 セグメントを解釈し、
- * 未知のサブセクションと既定タブの明示 (`/settings/models/models` 等) は既定タブへ正準化する。
+ * タブを持つ画面は `/settings/<section>/<sub>` の 1 セグメントを解釈し、未知のサブセクションと
+ * 既定タブの明示 (`/settings/models/models` 等) は既定タブへ正準化する。
  * 旧 設定 → ダウンロード (`/settings/archive`) は 設定 → ファイル の「ダウンロードの除外」タブへ読み替える。
  */
 export function parseRoute(pathname: string): Route {
@@ -82,97 +74,66 @@ export function parseRoute(pathname: string): Route {
   if (kind === "settings") {
     // 旧 設定 → ダウンロード。"archive" はセクションとしては削除したので、先に読み替える
     if (second?.toLowerCase() === "archive") {
-      return third === undefined ? { view: "settings", section: "files", filesSubsection: "archive" } : CHAT_ROUTE;
+      return third === undefined ? settingsTabRoute("files", "archive") : CHAT_ROUTE;
     }
     const found = SETTINGS_SECTIONS.find((item) => item.section === second?.toLowerCase());
     if (!found) return CHAT_ROUTE;
-    if (found.section === "files") {
-      if (rest.length > 0) return CHAT_ROUTE;
-      const subsection = FILES_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
-      return subsection && subsection !== DEFAULT_FILES_SUBSECTION
-        ? { view: "settings", section: "files", filesSubsection: subsection }
-        : { view: "settings", section: "files" };
-    }
-    if (found.section === "content") {
-      if (rest.length > 0) return CHAT_ROUTE;
-      const subsection = CONTENT_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
-      return subsection && subsection !== DEFAULT_CONTENT_SUBSECTION
-        ? { view: "settings", section: "content", contentSubsection: subsection }
-        : { view: "settings", section: "content" };
-    }
-    if (found.section === "runtime") {
-      if (rest.length > 0) return CHAT_ROUTE;
-      const subsection = RUNTIME_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
-      return subsection && subsection !== DEFAULT_RUNTIME_SUBSECTION
-        ? { view: "settings", section: "runtime", runtimeSubsection: subsection }
-        : { view: "settings", section: "runtime" };
-    }
-    if (found.section === "sharing") {
-      if (rest.length > 0) return CHAT_ROUTE;
-      const subsection = SHARING_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
-      return subsection && subsection !== DEFAULT_SHARING_SUBSECTION
-        ? { view: "settings", section: "sharing", sharingSubsection: subsection }
-        : { view: "settings", section: "sharing" };
-    }
-    if (found.section === "appearance") {
-      if (rest.length > 0) return CHAT_ROUTE;
-      const subsection = APPEARANCE_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
-      return subsection && subsection !== DEFAULT_APPEARANCE_SUBSECTION
-        ? { view: "settings", section: "appearance", appearanceSubsection: subsection }
-        : { view: "settings", section: "appearance" };
-    }
-    if (found.section !== "models")
+    if (!isSettingsTabSection(found.section))
       return third === undefined ? { view: "settings", section: found.section } : CHAT_ROUTE;
     if (rest.length > 0) return CHAT_ROUTE;
-    const subsection = MODELS_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
-    return subsection && subsection !== DEFAULT_MODELS_SUBSECTION
-      ? { view: "settings", section: "models", modelsSubsection: subsection }
-      : { view: "settings", section: "models" };
+    return settingsTabRoute(found.section, settingsTabSegment(found.section, third));
   }
   // id は不透明な値なので、decode 済みのものをそのまま持ち URL へ戻すときだけ encode する
   if (kind === "activity") return second === undefined ? { view: "activity" } : CHAT_ROUTE;
   return kind === "s" && second && third === undefined ? { view: "chat", sessionId: second } : CHAT_ROUTE;
 }
 
+/**
+ * URL の 1 セグメントをそのセクションのタブとして読み、未知のタブと既定タブの明示は既定タブへ畳む。
+ * 大文字小文字は他のセクション名と同じく区別しない。
+ */
+function settingsTabSegment<S extends SettingsTabSection>(
+  section: S,
+  segment: string | undefined,
+): SettingsSubsection<S> {
+  const spec = settingsTabSpec(section);
+  const found = spec.items.find((item) => item.subsection === segment?.toLowerCase());
+  return found?.subsection ?? spec.defaultSubsection;
+}
+
+/**
+ * 設定のタブを選ぶ route。既定タブは載せない (URL に出さない正準形を 1 か所で作る)。
+ * Why not: セクションごとに組み立てを書き分けると、既定タブの判断がタブ切替の呼び出し側にも写る
+ */
+export function settingsTabRoute<S extends SettingsTabSection>(section: S, subsection: SettingsSubsection<S>): Route {
+  const spec = settingsTabSpec(section);
+  if (subsection === spec.defaultSubsection) return { view: "settings", section };
+  return withSettingsTab(section, spec.field, subsection);
+}
+
+/** route が選んでいるタブ。セクションが違う route と、載っていない既定タブは既定へ畳む */
+export function settingsTabOf<S extends SettingsTabSection>(route: Route, section: S): SettingsSubsection<S> {
+  const spec = settingsTabSpec(section);
+  if (route.view !== "settings" || route.section !== section) return spec.defaultSubsection;
+  return (route as { [K in SettingsTabField<S>]?: SettingsSubsection<S> })[spec.field] ?? spec.defaultSubsection;
+}
+
+/**
+ * 表のフィールド名でタブを載せる。フィールド名はセクションごとに変わるため、名前で載せるのはここだけ
+ * (型の対応は settingsTabRoute の引数が保証する)。
+ */
+function withSettingsTab(section: SettingsSection, field: string, subsection: string): Route {
+  return { view: "settings", section, [field]: subsection };
+}
+
 /** 画面から pathname を作る。URL の分解は呼び出し側が行い、ここではクエリもフラグメントも付けない */
 export function routePath(route: Route): string {
   if (route.view === "activity") return "/activity";
   if (route.view === "settings") {
-    if (
-      route.section === "content" &&
-      route.contentSubsection &&
-      route.contentSubsection !== DEFAULT_CONTENT_SUBSECTION
-    ) {
-      return `/settings/content/${route.contentSubsection}`;
-    }
-    if (route.section === "files" && route.filesSubsection && route.filesSubsection !== DEFAULT_FILES_SUBSECTION) {
-      return `/settings/files/${route.filesSubsection}`;
-    }
-    if (route.section === "models" && route.modelsSubsection && route.modelsSubsection !== DEFAULT_MODELS_SUBSECTION) {
-      return `/settings/models/${route.modelsSubsection}`;
-    }
-    if (
-      route.section === "runtime" &&
-      route.runtimeSubsection &&
-      route.runtimeSubsection !== DEFAULT_RUNTIME_SUBSECTION
-    ) {
-      return `/settings/runtime/${route.runtimeSubsection}`;
-    }
-    if (
-      route.section === "sharing" &&
-      route.sharingSubsection &&
-      route.sharingSubsection !== DEFAULT_SHARING_SUBSECTION
-    ) {
-      return `/settings/sharing/${route.sharingSubsection}`;
-    }
-    if (
-      route.section === "appearance" &&
-      route.appearanceSubsection &&
-      route.appearanceSubsection !== DEFAULT_APPEARANCE_SUBSECTION
-    ) {
-      return `/settings/appearance/${route.appearanceSubsection}`;
-    }
-    return `/settings/${route.section}`;
+    if (!isSettingsTabSection(route.section)) return `/settings/${route.section}`;
+    const { defaultSubsection } = settingsTabSpec(route.section);
+    const subsection = settingsTabOf(route, route.section);
+    return subsection === defaultSubsection ? `/settings/${route.section}` : `/settings/${route.section}/${subsection}`;
   }
   return route.sessionId ? `/s/${encodeURIComponent(route.sessionId)}` : "/";
 }
