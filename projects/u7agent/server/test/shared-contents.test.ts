@@ -2117,7 +2117,7 @@ test("停止 / 再公開 / 削除は状態を保存できなければ成功扱�
   }
 });
 
-// What: 本 Issue の操作を経た行だけが、published / stopped ⇒ publishedAt !== null を満たすこと。
+// What: 公開 / 停止の操作を経た行だけが、published / stopped ⇒ publishedAt !== null を満たすこと。
 // 未操作の既存不整合行（publishedAt 無しの published / stopped）は対象外で、自動修復もしない。
 test("本 Issue の操作を経た行は published / stopped に必ず publishedAt を持つ", async () => {
   const zip = zipFactory({ "index.html": "<h1>v1</h1>" });

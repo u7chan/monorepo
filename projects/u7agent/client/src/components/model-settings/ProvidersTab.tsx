@@ -75,7 +75,7 @@ export type ProvidersTabProps = ProviderOperations & {
   sessions: SessionSummary[];
   sessionsLoaded: boolean;
   singleColumn: boolean;
-  /** カスタムプロバイダー（オンメモリ）の作成・更新・削除 */
+  /** カスタムプロバイダーの作成・更新・削除 */
   onCreateCustom: (body: CreateCustomProviderBody) => Promise<boolean>;
   onUpdateCustom: (provider: string, body: UpdateCustomProviderBody) => Promise<boolean>;
   onDeleteCustom: (provider: string) => Promise<boolean>;

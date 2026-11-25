@@ -1,7 +1,8 @@
 /**
  * 設定 → 音声入力のサービス。OpenAI Platform のキーをアプリ DB の `voice_input_settings`（id = 1）へ
- * AEAD で保存し、復号結果はメモリだけに持つ。録音と文字起こしは別の Issue で、ここはキーの保存・
- * 疎通確認・状態の公開だけを担う。契約は docs/api-settings.md / docs/secrets.md を正とする。
+ * AEAD で保存し、復号結果はメモリだけに持つ。録音と文字起こしは音声入力セッション
+ * (`voice-input-session.ts`) と client が担い、ここはキーの保存・疎通確認・状態の公開だけを担う。
+ * 契約は docs/api-settings.md / docs/secrets.md を正とする。
  */
 import {
   APP_SECRET_NOT_STORED_MESSAGE,

@@ -130,8 +130,8 @@ export const putProviderMemo = (provider: string, memo: string) =>
   );
 
 /**
- * カスタムプロバイダー（オンメモリ）の登録。DB へは書かないため常に `state: "applied"`。
- * 検証失敗は 400、SDK へ反映できないときは 503 `{ error }`（`not_stored` は付かない）。
+ * カスタムプロバイダーの登録。アプリ DB を先に確定し、SDK へ反映できないときも 200 の
+ * `applied_unsynced` で返る。503 は DB 確定前だけ（検証失敗は 400）。
  */
 export const postCustomProvider = (input: CreateCustomProviderBody) =>
   read<ModelMutationResponse>(client.api.settings["custom-providers"].$post({ json: input }));

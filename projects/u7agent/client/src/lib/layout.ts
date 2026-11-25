@@ -27,15 +27,15 @@ export function resolveWide(width: number): boolean {
 }
 
 /**
- * 実行状況 ( `/activity` ) を docked にする幅。Issue の「901px 以上は docked / 641–900px は
- * モバイルヘッダ」に合わせ、既存の `WIDE_MIN_WIDTH` (900px 以上で wide) より 1px 広い境界を持つ。
+ * 実行状況 ( `/activity` ) を docked にする幅。`docs/ui-layout.md` の実行状況の節に合わせ、
+ * 既存の `WIDE_MIN_WIDTH` (900px 以上で wide) より 1px 広い境界を持つ。
  * チャットの 1200px 判定 (`resolveSidebarPlacement`) は変えない。
  */
 export const ACTIVITY_DOCKED_MIN_WIDTH = WIDE_MIN_WIDTH + 1;
 
 /**
  * 実行状況の左バーの置き方。singleColumn は常に overlay で、desktop でも 901px 未満は overlay
- * (641–900px はモバイルヘッダを出す)。overlay のときは 44px のタップ領域を当てる。
+ * (モバイルヘッダを出す)。overlay のときは 44px のタップ領域を当てる。
  */
 export function resolveActivitySidebarPlacement(width: number, mode: LayoutMode): SidebarPlacement {
   if (mode !== "desktop") return "overlay";

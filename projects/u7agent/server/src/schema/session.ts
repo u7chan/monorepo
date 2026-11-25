@@ -239,7 +239,7 @@ export type SessionHistoryClearResponse = z.infer<typeof SessionHistoryClearResp
 // route が見るのは JSON の形と型だけ。必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
 // ---------------------------------------------------------------------------
 export const PostMessageBodySchema = z.object({
-  /** 通常の送信は必須。`resendRunId` を指定した再送では本文を送らず、サーバーが保存済みの本文を使う */
+  /** 通常の送信は必須。`resendSendId` を指定した再送では本文を送らず、サーバーが保存済みの本文を使う */
   text: z.string().optional(),
   /**
    * タイトル用の入力。定型プロンプト (suggestion) を結合する前の本文で、省略時は `text` を使う
