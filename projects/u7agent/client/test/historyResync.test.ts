@@ -15,6 +15,11 @@ function payload(messages: { role: "user" | "assistant"; text: string; tools?: T
     piSessionId: "pi-session-a",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status: "idle",
     title: "",
     createdAt: 1,
@@ -140,7 +145,7 @@ test("確定した応答は resync を跨いで残り、履歴ページで entry
   const echoed = chatReducer(base, { type: "localUser", text: "次の質問", at: 2 });
   const started = chatReducer(echoed, { type: "runStart", prompt: "次の質問", at: 2, startedAt: 2 });
   const streaming = chatReducer(started, { type: "text", delta: "生成中", at: 3 });
-  const ended = chatReducer(streaming, { type: "runEnd", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(streaming, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   // 完了後の resync でも確定した応答を残す
   const resynced = chatReducer(ended, {
     type: "resync",
@@ -1095,11 +1100,12 @@ test("resync で消えた実行中カードは resyncHistory の適用で戻り�
   });
   const started = chatReducer(base, { type: "runStart", prompt: "1通目", at: 2, startedAt: 2 });
   const bashDone = chatReducer(
-    chatReducer(started, { type: "toolStart", id: "t-bash", name: "bash", args: "$ ls", at: 3 }),
+    chatReducer(started, { type: "toolStart", startedAt: 3, id: "t-bash", name: "bash", args: "$ ls", at: 3 }),
     { type: "toolEnd", id: "t-bash", isError: false, output: "bash ok" },
   );
   const readRunning = chatReducer(bashDone, {
     type: "toolStart",
+    startedAt: 4,
     id: "t-read",
     name: "read",
     args: "README.md",
@@ -1220,7 +1226,7 @@ test("runEnd 後の resync / resyncHistory でも直近 run のカードが残�
   });
   assert.equal(running.currentAssistantId, running.bubbles[1]?.id);
 
-  const ended = chatReducer(running, { type: "runEnd", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(running, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.deepEqual(Object.keys(ended.runTools), ["t1"], "runEnd では消さない");
   assert.deepEqual(ended.toolBubbleIds, {});
 
@@ -1369,7 +1375,7 @@ test("完了した run の履歴ページ適用では補完先へ向けない (�
     type: "resync",
     payload: runningPayloadWithTools([{ role: "user", text: "1通目" }], [toolCall("t1", { done: false, output: "" })]),
   });
-  const ended = chatReducer(running, { type: "runEnd", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(running, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.equal(ended.runStatus, "idle");
   assert.equal(ended.currentAssistantId, null);
   assert.deepEqual(Object.keys(ended.runTools), ["t1"], "runEnd でもカードは残る (遅れて届くページへ補う)");
@@ -1640,7 +1646,7 @@ test("404 フォールバックはライブ本文と取得済み履歴を捨て�
 test("404 の全量復元は古い payload の実行状態を再適用しない", () => {
   const running = runningPayloadWithTools([{ role: "user", text: "依頼" }], []);
   const started = chatReducer(initialChatState, { type: "resync", payload: running });
-  const ended = chatReducer(started, { type: "runEnd", status: "stopped", queueDepth: 0 });
+  const ended = chatReducer(started, { type: "runEnd", durationMs: 1_000, status: "stopped", queueDepth: 0 });
   assert.equal(ended.runStatus, "stopped");
 
   const fallback = chatReducer(ended, { type: "historyUnsupported", payload: running });

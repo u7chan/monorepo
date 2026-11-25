@@ -130,7 +130,7 @@ export function MessageView({
     toolCallId: string,
     answers: AskUserAnswer[],
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
-  /** この会話の egress の承認状態。拒否済みの承認カードを許可へ変えられるかの根拠 (旧サーバーは undefined) */
+  /** この会話の egress の承認状態。拒否済みの承認カードを許可へ変えられるかの根拠 (payload を受ける前は undefined) */
   networkAccess?: SessionNetworkAccess;
   /** 拒否済みの承認カードを、モデルを介さずに許可へ変える */
   onApproveNetworkAccess?: (host: string) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -192,7 +192,7 @@ export function MessageView({
             answerable={answerable === true && onAnswerQuestion !== undefined}
             onAnswer={onAnswerQuestion ?? rejectAnswer}
             singleColumn={singleColumn}
-            {...(networkAccess === undefined ? {} : { networkAccess })}
+            networkAccess={networkAccess}
             {...(onApproveNetworkAccess === undefined ? {} : { onApproveNetworkAccess })}
           />
         ))}

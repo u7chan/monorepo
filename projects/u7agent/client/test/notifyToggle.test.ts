@@ -389,6 +389,10 @@ test("サイドバーのセッション行は On の会話だけ鳴っている�
     messageCount: 2,
     createdAt: 0,
     lastUsedAt: 0,
+    titleSummary: { origin: "auto" },
+    notify: false,
+    canHandoff: true,
+    hasRawLog: false,
     pinned: false,
     serveCommand: null,
   };

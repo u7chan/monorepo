@@ -238,7 +238,7 @@ export function useSessions({
       const listedCompacting = listed?.status === "compacting";
       // AI 要約でタイトル / 試行が後から変わると一覧の行だけが古いままになるため、ずれたときは取り直す
       const listedAttempt = listed?.titleSummary?.attempt;
-      const payloadAttempt = payload.titleSummary?.attempt;
+      const payloadAttempt = payload.titleSummary.attempt;
       const attemptChanged =
         listed !== undefined &&
         (listedAttempt?.runId !== payloadAttempt?.runId || listedAttempt?.state !== payloadAttempt?.state);

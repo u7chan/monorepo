@@ -30,6 +30,11 @@ function payload(sessionId: string, lastSeq: number): SessionPayload {
     piSessionId: `pi-${sessionId}`,
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status: "idle",
     title: "",
     createdAt: 1,
@@ -77,7 +82,7 @@ function createHarness() {
 test("advances lastSeq to the highest seq seen, never backwards", () => {
   const { deps } = createHarness();
 
-  applySessionEvent({ seq: 5, type: "text", data: { delta: "a" }, at: 1 }, deps);
+  applySessionEvent({ seq: 5, type: "text", data: { delta: "a", assistantId: "r-1:1" }, at: 1 }, deps);
   assert.equal(deps.lastSeqRef.current, 5);
 
   applySessionEvent({ seq: 3, type: "resync", data: payload("s-1", 3), at: 2 }, deps);
@@ -87,9 +92,9 @@ test("advances lastSeq to the highest seq seen, never backwards", () => {
 test("routes text events to the chat reducer", () => {
   const { record, deps } = createHarness();
 
-  applySessionEvent({ seq: 1, type: "text", data: { delta: "hi" }, at: 7 }, deps);
+  applySessionEvent({ seq: 1, type: "text", data: { delta: "hi", assistantId: "r-1:1" }, at: 7 }, deps);
 
-  assert.deepEqual(record.actions, [{ type: "text", delta: "hi", at: 7 }]);
+  assert.deepEqual(record.actions, [{ type: "text", delta: "hi", at: 7, assistantId: "r-1:1" }]);
 });
 
 test("routes the skill load from tool_start events to the chat reducer", () => {
@@ -97,12 +102,13 @@ test("routes the skill load from tool_start events to the chat reducer", () => {
   const skill = { id: "call-1", name: "gh", path: "/work/.agents/skills/gh/SKILL.md", offset: 5, limit: 3 };
 
   applySessionEvent(
-    { seq: 1, type: "tool_start", data: { id: "call-1", name: "read", args: skill.path, skill }, at: 7 },
+    { seq: 1, type: "tool_start", data: { id: "call-1", name: "read", args: skill.path, skill, startedAt: 7 }, at: 7 },
     deps,
   );
 
-  // 型が optional のため、経路の写し忘れはコンパイルでは検出できない (ここで固定する)
-  assert.deepEqual(record.actions, [{ type: "toolStart", id: "call-1", name: "read", args: skill.path, skill, at: 7 }]);
+  assert.deepEqual(record.actions, [
+    { type: "toolStart", id: "call-1", name: "read", args: skill.path, skill, startedAt: 7, at: 7 },
+  ]);
   const state = record.actions.reduce(chatReducer, initialChatState);
   assert.deepEqual(state.bubbles[0].tools[0].skill, skill, "reducer まで通って ToolCard に載る");
 });
@@ -120,7 +126,10 @@ test("applies resync snapshots without dispatching chat actions", () => {
 test("refreshes the session list when a run starts", () => {
   const { record, deps } = createHarness();
 
-  applySessionEvent({ seq: 1, type: "run_start", data: { runId: "r-1", prompt: "go", startedAt: 900 }, at: 1 }, deps);
+  applySessionEvent(
+    { seq: 1, type: "run_start", data: { runId: "r-1", initialSendId: "send-1", prompt: "go", startedAt: 900 }, at: 1 },
+    deps,
+  );
 
   assert.equal(record.refreshed, 1, "このタブで開いている会話のラン開始を、ポーリングを待たずに一覧へ出す");
 });
@@ -128,8 +137,14 @@ test("refreshes the session list when a run starts", () => {
 test("refreshes the session list on queue changes", () => {
   const { record, deps } = createHarness();
 
-  applySessionEvent({ seq: 1, type: "queued", data: { position: 1, queueDepth: 2, prompt: "go" }, at: 1 }, deps);
-  applySessionEvent({ seq: 2, type: "run_end", data: { status: "completed", queueDepth: 0 }, at: 2 }, deps);
+  applySessionEvent(
+    { seq: 1, type: "queued", data: { position: 1, queueDepth: 2, sendId: "send-1", prompt: "go" }, at: 1 },
+    deps,
+  );
+  applySessionEvent(
+    { seq: 2, type: "run_end", data: { runId: "r-1", status: "completed", queueDepth: 0, durationMs: 1_000 }, at: 2 },
+    deps,
+  );
 
   assert.equal(record.refreshed, 2, "キュー残数と一覧の run 状態を揃える");
 });
@@ -138,7 +153,12 @@ test("reports a failed run through runtimeStatus", () => {
   const { record, deps } = createHarness();
 
   applySessionEvent(
-    { seq: 1, type: "run_end", data: { status: "error", queueDepth: 0, error: "sandbox is down" }, at: 1 },
+    {
+      seq: 1,
+      type: "run_end",
+      data: { runId: "r-1", status: "error", queueDepth: 0, durationMs: 1_000, error: "sandbox is down" },
+      at: 1,
+    },
     deps,
   );
 
@@ -150,7 +170,10 @@ test("reports a failed run through runtimeStatus", () => {
 test("leaves runtimeStatus alone when a run ends normally", () => {
   const { record, deps } = createHarness();
 
-  applySessionEvent({ seq: 1, type: "run_end", data: { status: "completed", queueDepth: 0 }, at: 1 }, deps);
+  applySessionEvent(
+    { seq: 1, type: "run_end", data: { runId: "r-1", status: "completed", queueDepth: 0, durationMs: 1_000 }, at: 1 },
+    deps,
+  );
 
   assert.deepEqual(record.statuses, []);
 });
@@ -159,11 +182,10 @@ test("passes the run total duration from run_end to the reducer", () => {
   const { record, deps } = createHarness();
 
   applySessionEvent(
-    { seq: 1, type: "run_end", data: { status: "completed", queueDepth: 0, durationMs: 72_000 }, at: 1 },
+    { seq: 1, type: "run_end", data: { runId: "r-1", status: "completed", queueDepth: 0, durationMs: 72_000 }, at: 1 },
     deps,
   );
 
-  // 合計時間は状態行の凍結表示にだけ使う。型が optional のため、写し忘れはコンパイルでは検出できない
   const action = record.actions[0] as { type: string; durationMs?: number };
   assert.equal(action.type, "runEnd");
   assert.equal(action.durationMs, 72_000);
@@ -174,11 +196,18 @@ test("takes the run start from the event data, not from the receive time", () =>
 
   // 受信時刻 (at) は切断中のリプレイでぶれるため、経過時間の起点には data の startedAt を使う
   applySessionEvent(
-    { seq: 1, type: "run_start", data: { runId: "r-1", prompt: "go", startedAt: 900 }, at: 5000 },
+    {
+      seq: 1,
+      type: "run_start",
+      data: { runId: "r-1", initialSendId: "send-1", prompt: "go", startedAt: 900 },
+      at: 5000,
+    },
     deps,
   );
 
-  assert.deepEqual(record.actions, [{ type: "runStart", runId: "r-1", prompt: "go", at: 5000, startedAt: 900 }]);
+  assert.deepEqual(record.actions, [
+    { type: "runStart", runId: "r-1", initialSendId: "send-1", prompt: "go", at: 5000, startedAt: 900 },
+  ]);
 });
 
 test("treats a stream that stopped sending heartbeat as silent", () => {
@@ -202,8 +231,10 @@ test("passes the failure code from run_end to the reducer", () => {
       seq: 3,
       type: "run_end",
       data: {
+        runId: "r-1",
         status: "error",
         queueDepth: 0,
+        durationMs: 1_000,
         error: "レート制限により実行に失敗しました（自動再試行2回）。時間をおいて再実行してください",
         errorCode: "rate_limit",
       },
@@ -278,8 +309,8 @@ test("assistant_end 後の再接続 resync で閉じた応答を開き直さな�
     data: { runId: "run-1", initialSendId: "send-1", prompt: "go", startedAt: 1 },
     at: 1,
   });
-  apply({ seq: 2, type: "text", data: { delta: "A" }, at: 2 });
-  apply({ seq: 3, type: "assistant_end", data: {}, at: 3 });
+  apply({ seq: 2, type: "text", data: { delta: "A", assistantId: "run-1:1" }, at: 2 });
+  apply({ seq: 3, type: "assistant_end", data: { assistantId: "run-1:1", model: "stub/stub-model" }, at: 3 });
   apply({ seq: 4, type: "tool_start", data: { id: "tool-1", name: "bash", args: "", startedAt: 4 }, at: 4 });
   apply({ seq: 5, type: "tool_start", data: { id: "tool-2", name: "bash", args: "", startedAt: 5 }, at: 5 });
   apply({ seq: 6, type: "tool_end", data: { id: "tool-1", isError: false, output: "ok" }, at: 6 });
@@ -305,7 +336,7 @@ test("assistant_end 後の再接続 resync で閉じた応答を開き直さな�
     ],
   };
   apply({ seq: 8, type: "resync", data: snapshot, at: 8 });
-  apply({ seq: 9, type: "text", data: { delta: "B" }, at: 9 });
+  apply({ seq: 9, type: "text", data: { delta: "B", assistantId: "run-1:2" }, at: 9 });
 
   const assistants = state.bubbles.filter((bubble) => bubble.role === "assistant");
   assert.deepEqual(

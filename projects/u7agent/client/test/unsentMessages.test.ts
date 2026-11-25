@@ -16,6 +16,10 @@ function payload(pendingSends?: PendingSend[], sessionId = "session-a"): Session
     piSessionId: `pi-${sessionId}`,
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status: "idle",
     title: "",
     createdAt: 1,
@@ -27,7 +31,7 @@ function payload(pendingSends?: PendingSend[], sessionId = "session-a"): Session
     run: null,
     messages: [],
     compactions: [],
-    ...(pendingSends ? { pendingSends } : {}),
+    pendingSends: pendingSends ?? [],
   };
 }
 
@@ -144,11 +148,11 @@ test("リロード後も未送信メッセージはバブルとして見え、�
   );
 });
 
-test("旧サーバー (pendingSends 無し) の resync は pending エコーを変えない", () => {
+test("pendingSends が空の resync は pending エコーを変えない", () => {
   const mine = echoWithRunId(withHistory(), "同じ本文", "run-a", 2);
   const echoId = mine.pendingEchoIds[0];
   const resynced = chatReducer(mine, { type: "resync", payload: payload() });
-  assert.deepEqual(resynced.pendingEchoIds, [echoId], "未対応の payload では現状維持");
+  assert.deepEqual(resynced.pendingEchoIds, [echoId], "載っている送信が無ければ現状維持");
   assert.equal(resynced.bubbles.find((bubble) => bubble.id === echoId)?.unsent, undefined);
 });
 

@@ -283,10 +283,10 @@ test("queued の応答が run_end より後に届いても、表示は完了の�
   await postCalled.promise;
   // 実 API で観測した順序: queued → run #1 の run_end → pump の run_start → run #2 の run_end
   dispatch({ type: "queued", position: 1, queueDepth: 1 });
-  dispatch({ type: "runEnd", status: "completed", queueDepth: 1 });
+  dispatch({ type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 1 });
   assert.equal(state().runStatus, "queued", "run #1 の終了で待機中の表示になる");
   dispatch({ type: "runStart", prompt: "2つ目", at: 2, startedAt: 2 });
-  dispatch({ type: "runEnd", status: "completed", queueDepth: 0 });
+  dispatch({ type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.equal(state().runStatus, "idle");
 
   // run #1 を指す queued 応答 (queueDepth 1) がここで届く
@@ -314,7 +314,7 @@ test("即時 run の応答が run_end より後に届いても、表示は完了
   const sending = sendChatMessage("1つ目", deps);
   await postCalled.promise;
   dispatch({ type: "runStart", prompt: "1つ目", at: 1, startedAt: 1 });
-  dispatch({ type: "runEnd", status: "completed", queueDepth: 0 });
+  dispatch({ type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.equal(state().runStatus, "idle");
 
   posted.resolve({ queued: false, queueDepth: 0, sendId: "send-1", runId: "run-1" });
@@ -551,6 +551,11 @@ function stoppedPayload(): SessionPayload {
     piSessionId: "pi-s-1",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     model: "stub/stub-model",
     thinkingLevel: "high",
     supportsThinking: true,
@@ -583,7 +588,7 @@ test("run_end が先に届いた停止応答では、同じ描画バッチでも
     },
   });
 
-  dispatched.push({ type: "runEnd", runId: "run-1", status: "stopped", queueDepth: 0 });
+  dispatched.push({ type: "runEnd", durationMs: 1_000, runId: "run-1", status: "stopped", queueDepth: 0 });
   reply.resolve({ ok: true, status: "stopped" });
   await stopping;
 
@@ -611,7 +616,7 @@ test("停止応答の後に run_end が届いたら、状態行は停止しま�
   await stopping;
   assert.equal(state.activity, "停止要求を送信しました", "終端を確認する前は要求中と示す");
 
-  state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "stopped", queueDepth: 0 });
+  state = chatReducer(state, { type: "runEnd", durationMs: 1_000, runId: "run-1", status: "stopped", queueDepth: 0 });
   assert.equal(state.runStatus, "stopped");
   assert.equal(state.activity, "停止しました");
 });
@@ -629,7 +634,13 @@ test("停止要求より先に自然完了したら、後着の停止応答で�
     },
   });
 
-  const completed = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0 });
+  const completed = chatReducer(state, {
+    type: "runEnd",
+    durationMs: 1_000,
+    runId: "run-1",
+    status: "completed",
+    queueDepth: 0,
+  });
   state = completed;
   reply.resolve({ ok: true, status: "idle" });
   await stopping;
@@ -1013,6 +1024,11 @@ function runningPayload(status: SessionPayload["status"]): SessionPayload {
     piSessionId: "pi-s-1",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status,
     title: "待機中のメッセージ",
     createdAt: 1,
@@ -1058,7 +1074,7 @@ test("取り消しの失敗理由は、直後に届く status / resync の活動
     state = chatReducer(state, { type: "status", state: "thinking", text: "考え中…" });
     assert.equal(state.activity, "考え中…");
     assert.equal(state.notice, "実行が始まったため取り消せません");
-    state = chatReducer(state, { type: "runEnd", status: "completed", queueDepth: 0 });
+    state = chatReducer(state, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
     assert.equal(state.activity, "完了");
     assert.equal(state.notice, "実行が始まったため取り消せません");
   }

@@ -117,7 +117,7 @@ function sameRun(bubble: Bubble, turn: Bubble | undefined): boolean {
 
 /**
  * 未送信バブルの再送 / 破棄が操作する送信ID。実行IDと取り違えると API が 409 / 404 になるため、
- * 表示に使う run id とは別に引く。旧サーバーが run id だけを載せた履歴では run id へ縮退する。
+ * 表示に使う run id とは別に引く。run id だけを持つ保存済みの履歴では run id へ縮退する。
  */
 export function unsentActionIdOf(bubble: Bubble): string | undefined {
   if (bubble.unsent !== true) return undefined;
@@ -148,7 +148,7 @@ function itemTurnEnd(bubble: Bubble): TurnEnd | undefined {
 
 /**
  * 閉じたターンの結末を、そのターンで最後に積んだ応答のメタ行へ足す (user バブル由来の導出)。
- * item 自身が結末を持つときは上書きしない。値の無いターン (旧サーバー / 再起動後) と、user entry が
+ * item 自身が結末を持つときは上書きしない。値の無いターン (再起動後) と、user entry が
  * 保存されなかったターン (未送信) には足さない。本文を持つ応答だけに足すのは、ツールだけのターンが
  * ライブでは本文の空な assistant バブル (`ensureAssistant`) を持ち、履歴では表示メッセージに
  * ならないため (付けるとライブと履歴で見え方が食い違う)。user 自身のメッセージの下にも出さない:

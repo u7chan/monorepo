@@ -85,7 +85,7 @@ export function createSessionHistory({
       dispatch({ type: "resyncHistory", page });
     } catch (error) {
       if (!applies(token, targetId, isCurrent)) return;
-      // 履歴 API を持たない旧サーバーは 404 (未知ルート)。payload.messages での表示に戻す
+      // 履歴 API の 404 (未知ルート / セッション消滅) では payload.messages での表示に戻す
       if (apiFailureStatus(error) === 404) {
         const fallback = latestPayload;
         dispatch({ type: "historyUnsupported", ...(fallback?.sessionId === targetId ? { payload: fallback } : {}) });
@@ -155,7 +155,7 @@ export function createSessionHistory({
       // 同じ会話で履歴世代が変わった = 履歴のクリア。旧カーソルと進行中の旧要求を失効させ、
       // payload に残る旧メッセージは適用しない (表示はクリア後の履歴を取り直して正とする)
       const cleared = sessionIdRef.current === incoming.sessionId && historyClearedBetween(scope, incoming);
-      scope = { sessionId: incoming.sessionId, generation: incoming.historyGeneration ?? "" };
+      scope = { sessionId: incoming.sessionId, generation: incoming.historyGeneration };
       if (cleared) reset();
       const payload = cleared ? withoutOldHistory(incoming) : incoming;
       latestPayload = payload;

@@ -19,6 +19,11 @@ function payload(overrides: Partial<SessionPayload> = {}): SessionPayload {
     piSessionId: "pi-s-1",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status: "running",
     title: "",
     createdAt: 1,
@@ -232,6 +237,7 @@ test("runEnd clears the active retry but keeps the cumulative count for the resu
   let state = chatReducer(initialChatState, { type: "resync", payload: payload(), receivedAt: 500 });
   state = chatReducer(state, {
     type: "runEnd",
+    durationMs: 1_000,
     status: "error",
     queueDepth: 0,
     error: "レート制限により実行に失敗しました（自動再試行2回）。時間をおいて再実行してください",
@@ -248,6 +254,7 @@ test("runStart and newChat reset the retry state", () => {
   // 最終失敗の分類コードも次のラン / 新規チャットへ引き継がない
   waiting = chatReducer(waiting, {
     type: "runEnd",
+    durationMs: 1_000,
     status: "error",
     queueDepth: 0,
     error: "レート制限により実行に失敗しました",

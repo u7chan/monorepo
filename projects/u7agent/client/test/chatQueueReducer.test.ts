@@ -15,6 +15,11 @@ function runningPayload(): SessionPayload {
     piSessionId: "pi-session-a",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     model: "stub/stub-model",
     thinkingLevel: "high",
     supportsThinking: true,
@@ -167,6 +172,7 @@ test("ローカル生成のバブルは action で受け取った時刻を使う
   // 本文が無くツールだけの assistant も同じ経路で時刻を持つ
   const toolOnly = chatReducer(initialChatState, {
     type: "toolStart",
+    startedAt: 500,
     id: "tool-1",
     name: "read",
     args: "README.md",
@@ -469,18 +475,6 @@ test("payload の pendingSends が待機と順位を配り、一覧から消え�
   );
 });
 
-test("旧サーバー (pendingSends 無し) の resync は待機の表示を変えない", () => {
-  const queued = queuedEcho(historyWithOld(), "待機する本文", "run-b", 2);
-  const resynced = chatReducer(queued, { type: "resync", payload: runningPayload() });
-
-  assert.deepEqual(
-    resynced.bubbles
-      .filter((bubble) => bubble.runId === "run-b")
-      .map((bubble) => [bubble.queued === true, bubble.queuePosition]),
-    [[true, 2]],
-  );
-});
-
 // What: エコーは送信応答より先に描画される。payload が先に同じ送信を配ったときに新しいバブルを
 
 // 足すと、応答が届くまで同じ発言が 2 件並び、追従中のスクロールが跳ねる
@@ -541,7 +535,7 @@ test("run_start はその run の待機を解除し、開始の合図は状態�
     [
       chatReducer(started, { type: "status", state: "thinking", text: "考え中…" }),
       chatReducer(started, { type: "usage" }),
-      chatReducer(started, { type: "toolStart", id: "t1", name: "read", args: "", at: 12 }),
+      chatReducer(started, { type: "toolStart", startedAt: 12, id: "t1", name: "read", args: "", at: 12 }),
       chatReducer(started, { type: "text", delta: "あ", at: 12 }),
     ].map((state) => state.startingRunId),
     ["run-b", "run-b", "run-b", "run-b"],
@@ -582,7 +576,13 @@ test("run_end は残りの件数を数えず、開始の合図とその run の�
   assert.equal(ended.activity, "完了", "件数は直上ブロックが正。状態行は活動の語だけ");
 
   // 実行されなかった待機は run_end では消さない (次の実行の開始送信になる)。停止は queue_cleared が担う
-  const interrupted = chatReducer(queued, { type: "runEnd", runId: "run-b", status: "stopped", queueDepth: 0 });
+  const interrupted = chatReducer(queued, {
+    type: "runEnd",
+    durationMs: 1_000,
+    runId: "run-b",
+    status: "stopped",
+    queueDepth: 0,
+  });
   assert.equal(interrupted.bubbles.find((bubble) => bubble.sendId === "run-b")?.queued, true);
   const cleared = chatReducer(interrupted, { type: "queueCleared", sendIds: ["run-b"] });
   assert.equal(cleared.bubbles.find((bubble) => bubble.sendId === "run-b")?.queued, undefined);

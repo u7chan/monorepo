@@ -14,6 +14,11 @@ function runningPayload(): SessionPayload {
     piSessionId: "pi-session-a",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     model: "stub/stub-model",
     thinkingLevel: "high",
     supportsThinking: true,
@@ -40,6 +45,7 @@ function stateWithSession() {
   const resynced = chatReducer(initialChatState, { type: "resync", payload: runningPayload() });
   return chatReducer(resynced, {
     type: "toolStart",
+    startedAt: 1700000000002,
     id: "tool-1",
     name: "read",
     args: "README.md",
@@ -248,7 +254,14 @@ test("usage は本文・ツールカードより先に届いても次の assista
   );
   assert.deepEqual(pending.bubbles.find((bubble) => bubble.id === firstBubbleId)?.metrics, METRICS);
 
-  const withTool = chatReducer(pending, { type: "toolStart", id: "tool-1", name: "read", args: "README.md", at: 400 });
+  const withTool = chatReducer(pending, {
+    type: "toolStart",
+    startedAt: 400,
+    id: "tool-1",
+    name: "read",
+    args: "README.md",
+    at: 400,
+  });
   assert.equal(withTool.bubbles.length, countBeforeUsage + 1, "ツールカードで作られるバブルへ回る");
   const lastBubble = withTool.bubbles.at(-1);
   assert.deepEqual(lastBubble?.usage, secondUsage);
@@ -282,9 +295,16 @@ test("保留した usage は run をまたがず、resync でも消える", () =
   const pending = chatReducer(started, { type: "usage", usage: USAGE, metrics: METRICS });
 
   // バブルができないまま run が終わったら捨てる
-  const ended = chatReducer(pending, { type: "runEnd", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(pending, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.equal(ended.pendingUsage, undefined);
-  const nextTool = chatReducer(ended, { type: "toolStart", id: "tool-1", name: "read", args: "x", at: 300 });
+  const nextTool = chatReducer(ended, {
+    type: "toolStart",
+    startedAt: 300,
+    id: "tool-1",
+    name: "read",
+    args: "x",
+    at: 300,
+  });
   assert.equal(nextTool.bubbles[0]?.usage, undefined, "次の run へ持ち越さない");
 
   // resync はサーバー payload が正なので保留値を捨てる
@@ -301,6 +321,7 @@ test("run_end の context は usage の値を上書きする", () => {
 
   const ended = chatReducer(withUsage, {
     type: "runEnd",
+    durationMs: 1_000,
     status: "completed",
     queueDepth: 0,
     context: CONTEXT,
@@ -308,7 +329,7 @@ test("run_end の context は usage の値を上書きする", () => {
   assert.deepEqual(ended.context, CONTEXT, "SDK の履歴反映後の値を採用する");
 
   // context を伴わない run_end では直前の値を保つ
-  const kept = chatReducer(ended, { type: "runEnd", status: "completed", queueDepth: 0 });
+  const kept = chatReducer(ended, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.deepEqual(kept.context, CONTEXT);
 });
 
@@ -322,13 +343,14 @@ test("run_end と、running を抜けた resync で runEndSeq が進む", () => 
   const running = stateWithSession();
 
   // 通常の run_end
-  const ended = chatReducer(running, { type: "runEnd", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(running, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.equal(ended.runEndSeq, running.runEndSeq + 1);
 
   // run_start と run_end が同じバッチで届いても、reducer は 1 回ずつ数える
   // (描画を挟まないため、画面側は running を観測できない。右パネルの取り直しはこの値だけを起点にする)
   const batched = chatReducer(chatReducer(running, { type: "runStart", prompt: "続けて", at: 1, startedAt: 1 }), {
     type: "runEnd",
+    durationMs: 1_000,
     status: "completed",
     queueDepth: 0,
   });
@@ -377,7 +399,7 @@ test("runStartedAt はキューをまたいで持ち越さず、次のランで�
   assert.equal(queued.runStartedAt, 100);
 
   // ランが終わると待機中 (queueDepth > 0) でも起点を落とし、次の run_start で入れ替える
-  const ended = chatReducer(queued, { type: "runEnd", status: "completed", queueDepth: 1 });
+  const ended = chatReducer(queued, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 1 });
   assert.equal(ended.runStatus, "queued");
   assert.equal(ended.runStartedAt, undefined);
 
@@ -395,7 +417,10 @@ test("runStartedAt は受信時刻ではなくサーバーの開始時刻を使�
   });
   assert.equal(started.runStartedAt, 1700000000123);
 
-  assert.equal(chatReducer(started, { type: "runEnd", status: "completed", queueDepth: 0 }).runStartedAt, undefined);
+  assert.equal(
+    chatReducer(started, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 }).runStartedAt,
+    undefined,
+  );
   assert.equal(chatReducer(started, { type: "newChat" }).runStartedAt, undefined);
 });
 
@@ -421,7 +446,7 @@ test("圧縮の開始時刻は run_start / run_end / setRun をまたいで残�
   const queuedStatus = chatReducer(compacting, { type: "setRun", runStatus: "queued", queueDepth: 1 });
   assert.equal(queuedStatus.compactionStartedAt, undefined);
 
-  const ended = chatReducer(compacting, { type: "runEnd", status: "stopped", queueDepth: 0 });
+  const ended = chatReducer(compacting, { type: "runEnd", durationMs: 1_000, status: "stopped", queueDepth: 0 });
   assert.equal(ended.compactionStartedAt, undefined);
 
   // 新しい会話へ戻しても残らない
@@ -438,7 +463,13 @@ test("要求時の世代が古い停止応答の setRun は状態を作り直さ
     startedAt: 1,
   });
   const requestSeq = started.stateSeq;
-  const ended = chatReducer(started, { type: "runEnd", runId: "run-1", status: "stopped", queueDepth: 0 });
+  const ended = chatReducer(started, {
+    type: "runEnd",
+    durationMs: 1_000,
+    runId: "run-1",
+    status: "stopped",
+    queueDepth: 0,
+  });
   const late = chatReducer(ended, {
     type: "setRun",
     runStatus: "stopped",
@@ -463,6 +494,7 @@ test("要求時の世代が古い停止応答の setRun は状態を作り直さ
 test("runEnd は分類コードを保持し、カードを出すときだけ活動欄の文言を空にする", () => {
   const ended = chatReducer(initialChatState, {
     type: "runEnd",
+    durationMs: 1_000,
     status: "error",
     queueDepth: 0,
     error: RUN_ERROR_TEXT,
@@ -477,6 +509,7 @@ test("runEnd は分類コードを保持し、カードを出すときだけ活�
 test("runEnd はカードを出さない分類でもコードを保持し、文言は状態行に残す", () => {
   const ended = chatReducer(initialChatState, {
     type: "runEnd",
+    durationMs: 1_000,
     status: "error",
     queueDepth: 0,
     error: "入力がモデルのコンテキスト上限を超えました",
@@ -488,7 +521,7 @@ test("runEnd はカードを出さない分類でもコードを保持し、文�
 });
 
 test("runEnd は分類コードが無ければ従来どおり汎用文言を出す", () => {
-  const ended = chatReducer(initialChatState, { type: "runEnd", status: "error", queueDepth: 0 });
+  const ended = chatReducer(initialChatState, { type: "runEnd", durationMs: 1_000, status: "error", queueDepth: 0 });
 
   assert.equal(ended.runError, undefined);
   assert.equal(ended.activity, "エラー: 実行に失敗しました");
@@ -497,6 +530,7 @@ test("runEnd は分類コードが無ければ従来どおり汎用文言を出�
 test("停止で確定した runEnd は分類コードを載せない (停止と例外が同時の場合)", () => {
   const ended = chatReducer(initialChatState, {
     type: "runEnd",
+    durationMs: 1_000,
     status: "stopped",
     queueDepth: 0,
     error: RUN_ERROR_TEXT,
@@ -510,6 +544,7 @@ test("停止で確定した runEnd は分類コードを載せない (停止と�
 test("キュー待ちを挟んだ失敗はカードを出さず、文言を状態行に残す", () => {
   const ended = chatReducer(initialChatState, {
     type: "runEnd",
+    durationMs: 1_000,
     status: "error",
     queueDepth: 1,
     error: RUN_ERROR_TEXT,
@@ -523,6 +558,7 @@ test("キュー待ちを挟んだ失敗はカードを出さず、文言を状�
 test("新しいラン・成功・停止・実行中への移行・チャット切替で失敗を消す", () => {
   const failed = chatReducer(initialChatState, {
     type: "runEnd",
+    durationMs: 1_000,
     status: "error",
     queueDepth: 0,
     error: RUN_ERROR_TEXT,
@@ -531,8 +567,14 @@ test("新しいラン・成功・停止・実行中への移行・チャット�
   assert.notEqual(failed.runError, undefined);
 
   assert.equal(chatReducer(failed, { type: "runStart", prompt: "続き", at: 1, startedAt: 1 }).runError, undefined);
-  assert.equal(chatReducer(failed, { type: "runEnd", status: "completed", queueDepth: 0 }).runError, undefined);
-  assert.equal(chatReducer(failed, { type: "runEnd", status: "stopped", queueDepth: 0 }).runError, undefined);
+  assert.equal(
+    chatReducer(failed, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 }).runError,
+    undefined,
+  );
+  assert.equal(
+    chatReducer(failed, { type: "runEnd", durationMs: 1_000, status: "stopped", queueDepth: 0 }).runError,
+    undefined,
+  );
   // 送信の応答で実行中へ移ったら、run_start が遅れても古い失敗を残さない
   assert.equal(chatReducer(failed, { type: "setRun", runStatus: "running" }).runError, undefined);
   assert.equal(chatReducer(failed, { type: "newChat" }).runError, undefined);
@@ -551,7 +593,7 @@ test("status の state が活動表示の由来になり、run_end で消える"
   const tool = chatReducer(thinking, { type: "status", state: "tool", text: "read を実行中…" });
   assert.equal(tool.activityState, "tool", "由来は文言ではなくサーバーの state から取る");
 
-  const ended = chatReducer(tool, { type: "runEnd", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(tool, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.equal(ended.activityState, undefined, "終わった run の由来を残さない");
 });
 
@@ -604,7 +646,7 @@ test("run_end は runId 一致の user パブルへ所要時間と結末を写�
   }
 });
 
-test("run_end の値は別 run / 旧サーバー / 終端以外では写さない", () => {
+test("run_end の値は別 run / 終端以外では写さない", () => {
   const live = stateWithLiveEcho("run-l");
   const other = chatReducer(live, {
     type: "runEnd",
@@ -614,9 +656,6 @@ test("run_end の値は別 run / 旧サーバー / 終端以外では写さな�
     durationMs: 80_000,
   });
   assert.equal(other.bubbles[0]?.runDurationMs, undefined, "run id が違えば写さない");
-
-  const old = chatReducer(live, { type: "runEnd", runId: "run-l", status: "completed", queueDepth: 0 });
-  assert.equal(old.bubbles[0]?.runDurationMs, undefined, "durationMs の無い旧サーバーでは写さない");
 
   // run_end の status は 7 値。終端以外は結末として通さない (行を出さない)
   for (const status of ["idle", "running", "queued", "compacting"] as const) {
@@ -682,6 +721,7 @@ test("ツール付き応答の後も assistant_end でカードを閉じ、steer
   state = chatReducer(state, { type: "assistantEnd" });
   state = chatReducer(state, {
     type: "toolStart",
+    startedAt: 11,
     id: "tool-1",
     name: "bash",
     args: '{"command":"true"}',
@@ -903,7 +943,8 @@ test("旧サーバー / 取りこぼしに備えて text / toolStart / assistant
   const thinking = thinkingState();
   assert.equal(chatReducer(thinking, { type: "text", delta: "本文", at: 2 }).thinkingText, undefined);
   assert.equal(
-    chatReducer(thinking, { type: "toolStart", id: "call-1", name: "read", args: "a.md", at: 2 }).thinkingText,
+    chatReducer(thinking, { type: "toolStart", startedAt: 2, id: "call-1", name: "read", args: "a.md", at: 2 })
+      .thinkingText,
     undefined,
   );
   assert.equal(chatReducer(thinking, { type: "assistantEnd", assistantId: "run-1:1" }).thinkingText, undefined);
@@ -925,7 +966,13 @@ test("resync / runEnd / newChat は tail を落とす", () => {
     undefined,
   );
 
-  const ended = chatReducer(thinking, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(thinking, {
+    type: "runEnd",
+    durationMs: 1_000,
+    runId: "run-1",
+    status: "completed",
+    queueDepth: 0,
+  });
   assert.equal(ended.thinkingText, undefined);
 
   const fresh = chatReducer(thinking, { type: "newChat" });

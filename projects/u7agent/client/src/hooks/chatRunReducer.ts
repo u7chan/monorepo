@@ -37,7 +37,7 @@ function echoAbsorbTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: 
     return bubbles.find((bubble) => live(bubble) && bubble.sendId === echo.sendId);
   }
   if (echo.runId !== undefined) {
-    // 旧サーバーの item は送信IDを持たない。run の最初の user item へ従来どおり縮退する
+    // 送信IDを持たない item (保存済みの履歴) は run の最初の user item へ従来どおり縮退する
     return bubbles.find((bubble) => live(bubble) && bubble.sendId === undefined && bubble.runId === echo.runId);
   }
   return fallbackEchoTarget(bubbles, markers, echo);
@@ -281,7 +281,7 @@ export function applyRunAction(state: ChatState, action: RunChatAction): ChatSta
             : withoutQueuedSnapshots(state.queuedSnapshots, [action.initialSendId]),
         // 実行が始まった送信は停止の控えから外す (遅れて届いた 202 で未送信へ戻さない)
         clearedSendIds: (() => {
-          // 旧サーバーは開始送信IDを配らないため run id で縮退する
+          // 開始送信IDが無い run_start は run id で縮退する
           const started = action.initialSendId ?? action.runId;
           return started === undefined ? next.clearedSendIds : next.clearedSendIds.filter((id) => id !== started);
         })(),
@@ -289,7 +289,7 @@ export function applyRunAction(state: ChatState, action: RunChatAction): ChatSta
     }
 
     case "text": {
-      // 本文が来たら thinking の末尾は用済み (旧サーバー / 取りこぼした status への保険)
+      // 本文が来たら thinking の末尾は用済み (取りこぼした status への保険)
       if (state.thinkingText !== undefined) state = { ...state, thinkingText: undefined };
       const key = action.assistantId;
       if (key !== undefined) {
@@ -309,7 +309,7 @@ export function applyRunAction(state: ChatState, action: RunChatAction): ChatSta
         const withBubble = attachRunToolCards(opened, false);
         return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
       }
-      // 旧サーバーの delta は従来どおり開いている応答へ積む
+      // 応答IDを持たない delta は従来どおり開いている応答へ積む
       const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
       return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
     }
@@ -462,14 +462,14 @@ export function applyRunAction(state: ChatState, action: RunChatAction): ChatSta
       const outcome = runOutcomeOf(status);
       const normalized = normalizeInitialSend(settled.bubbles, initialSendId);
       const withTurnEnd =
-        action.runId === undefined || outcome === undefined || action.durationMs === undefined
+        action.runId === undefined || outcome === undefined
           ? { ...settled, bubbles: normalized }
           : {
               ...settled,
               bubbles: attachUserTurnEnd(normalized, action.runId, initialSendId, outcome, action.durationMs),
             };
       const bubbles =
-        action.runId === undefined || outcome === undefined || action.durationMs === undefined
+        action.runId === undefined || outcome === undefined
           ? withTurnEnd.bubbles
           : attachAssistantTurnEnd(
               withTurnEnd.bubbles,

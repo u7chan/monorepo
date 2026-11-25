@@ -60,7 +60,7 @@ export function historyClearedBetween(
   previous: { sessionId: string; generation: string },
   payload: Pick<SessionPayload, "sessionId" | "historyGeneration">,
 ): boolean {
-  return previous.sessionId === payload.sessionId && previous.generation !== (payload.historyGeneration ?? "");
+  return previous.sessionId === payload.sessionId && previous.generation !== payload.historyGeneration;
 }
 
 /**

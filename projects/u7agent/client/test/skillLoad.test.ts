@@ -46,6 +46,11 @@ function payload(
     piSessionId: "pi-s-1",
     cwd: "",
     eventGeneration: "gen-1",
+    historyGeneration: "",
+    titleSummary: { origin: "auto" },
+    pendingSends: [],
+    notify: false,
+    networkAccess: { mode: "allow", approved: false },
     status,
     title: "",
     createdAt: 1,
@@ -90,6 +95,7 @@ test("ツール履歴の件数・サマリー・コピー本文にスキル読�
 test("ライブ: toolStart の skill はバッジになり、toolEnd で成功 / 失敗が確定する", () => {
   const started = chatReducer(initialChatState, {
     type: "toolStart",
+    startedAt: 1,
     id: LOAD.id,
     name: "read",
     args: LOAD.path,
@@ -207,7 +213,7 @@ test("resync: 情報源が別バブルに分かれても同じ toolCallId は 1 
   assert.equal(historyPreview(visibleTools), "bash — $ ls -la");
   assert.equal(toolHistoryCopyText(visibleTools), "#1 tool: bash\nargs: $ ls -la\noutput:\nfile list");
 
-  const ended = chatReducer(resynced, { type: "runEnd", status: "completed", queueDepth: 0 });
+  const ended = chatReducer(resynced, { type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 0 });
   assert.equal(allBadges(ended.bubbles).length, 2, "runEnd でカードが残っても履歴側と重複しない");
 });
 

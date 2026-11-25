@@ -54,8 +54,7 @@ test("確認は対象の会話と、消えるもの / 残るものを示す", ()
 test("同じ会話で履歴世代が変わったときだけクリアとみなす", () => {
   const scope = { sessionId: "s-1", generation: "aaaa" };
   assert.equal(historyClearedBetween(scope, { sessionId: "s-1", historyGeneration: "bbbb" }), true);
-  // 旧データ (世代なし) から新しい世代へ変わった場合もクリア
-  assert.equal(historyClearedBetween({ sessionId: "s-1", generation: "" }, { sessionId: "s-1" }), false);
+  // 旧データ (空文字) から新しい世代へ変わった場合もクリア
   assert.equal(
     historyClearedBetween({ sessionId: "s-1", generation: "" }, { sessionId: "s-1", historyGeneration: "bbbb" }),
     true,
@@ -63,7 +62,10 @@ test("同じ会話で履歴世代が変わったときだけクリアとみな�
   // 同じ世代 / 別の会話への切替 / 会話を開く前は、履歴が変わっていない
   assert.equal(historyClearedBetween(scope, { sessionId: "s-1", historyGeneration: "aaaa" }), false);
   assert.equal(historyClearedBetween(scope, { sessionId: "s-2", historyGeneration: "bbbb" }), false);
-  assert.equal(historyClearedBetween({ sessionId: "", generation: "" }, { sessionId: "s-1" }), false);
+  assert.equal(
+    historyClearedBetween({ sessionId: "", generation: "" }, { sessionId: "s-1", historyGeneration: "bbbb" }),
+    false,
+  );
 });
 
 test("クリアの resync から旧履歴の値 (メッセージ・圧縮・未送信・実行) を落とす", () => {
