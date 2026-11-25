@@ -42,16 +42,13 @@ import { CustomProviderForm } from "./CustomProviderForm";
 import { MetaChip } from "./MetaChip";
 import { OAuthSignInSection } from "./OAuthSignInSection";
 import { ProviderBadgeTag } from "./ProviderBadgeTag";
+import { ProviderRow } from "./ProviderRow";
 
-export type ProvidersTabProps = {
-  settings: ModelsSettingsResponse;
-  catalog: RuntimeModelsResponse | null;
-  catalogError: string | null;
-  /** 変更中の provider id。null なら操作なし */
-  saving: string | null;
-  sessions: SessionSummary[];
-  sessionsLoaded: boolean;
-  singleColumn: boolean;
+/**
+ * provider への操作の束。タブの props と詳細ペインの props で同じ 12 個を数え直さないよう
+ * 1 つの型にまとめる。何をいつ保存するかは親が決め、ここは関数を持つだけ。
+ */
+type ProviderOperations = {
   onSave: (provider: string, apiKey: string) => Promise<boolean>;
   onSaveMemo: (provider: string, memo: string) => Promise<boolean>;
   onDelete: (provider: string) => Promise<boolean>;
@@ -61,18 +58,29 @@ export type ProvidersTabProps = {
   onSelectLoginMethod: (provider: string, id: string) => Promise<boolean>;
   onCancelLogin: (provider: string) => Promise<boolean>;
   onSignOut: (provider: string) => Promise<boolean>;
-  /** カスタムプロバイダー（オンメモリ）の作成・更新・削除 */
-  onCreateCustom: (body: CreateCustomProviderBody) => Promise<boolean>;
-  onUpdateCustom: (provider: string, body: UpdateCustomProviderBody) => Promise<boolean>;
-  onDeleteCustom: (provider: string) => Promise<boolean>;
-  /** カスタムプロバイダーの `/models` probe。設定は変えない */
-  onProbeCustom: (input: CustomProviderProbeBody) => Promise<CustomProviderProbeResponse>;
   /** provider ごとの入力下書き (apiKey / memo)。両タブの親が保持する */
   drafts: Record<string, ProviderDraft>;
   /** 下書きのフィールド単位の更新。触っていないフィールドは親側の最新値を保つ */
   onChangeDraft: (provider: string, patch: Partial<ProviderDraft>) => void;
   /** キー登録後にモデルを選びに行く導線 */
   onOpenModels: () => void;
+};
+
+export type ProvidersTabProps = ProviderOperations & {
+  settings: ModelsSettingsResponse;
+  catalog: RuntimeModelsResponse | null;
+  catalogError: string | null;
+  /** 変更中の provider id。null なら操作なし */
+  saving: string | null;
+  sessions: SessionSummary[];
+  sessionsLoaded: boolean;
+  singleColumn: boolean;
+  /** カスタムプロバイダー（オンメモリ）の作成・更新・削除 */
+  onCreateCustom: (body: CreateCustomProviderBody) => Promise<boolean>;
+  onUpdateCustom: (provider: string, body: UpdateCustomProviderBody) => Promise<boolean>;
+  onDeleteCustom: (provider: string) => Promise<boolean>;
+  /** カスタムプロバイダーの `/models` probe。設定は変えない */
+  onProbeCustom: (input: CustomProviderProbeBody) => Promise<CustomProviderProbeResponse>;
 };
 
 /**
@@ -205,46 +213,24 @@ export function ProvidersTab({
                   {CUSTOM_PROVIDER_SECTION_TITLE}
                 </div>
                 <CustomProviderSectionNotes />
-                {customMatched.map((provider) => {
-                  const isActive = !addingCustom && provider.id === customSelected?.id;
-                  const badge = customProviderBadge(provider);
-                  return (
-                    <button
-                      key={provider.id}
-                      type="button"
-                      aria-current={isActive ? "true" : undefined}
-                      onClick={() => {
-                        dispatch({ type: "select-row", key: customProviderSelectionKey(provider.id) });
-                        if (singleColumn) {
-                          setQuery("");
-                          focusAfterSelection.current = true;
-                          setListOpen(false);
-                        }
-                      }}
-                      className={cn(
-                        "flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors",
-                        isActive ? "border-accent/40 bg-accent-wash" : "border-transparent hover:bg-hover",
-                      )}
-                    >
-                      <ProviderIcon provider={provider.id} name={provider.name} />
-                      <span className="grid min-w-0 flex-1 gap-0.5">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate text-xs text-ink">{provider.name}</span>
-                          {badge ? (
-                            <span
-                              className={cn("text-2xs whitespace-nowrap", badge.warn ? "text-warn" : "text-ink-muted")}
-                            >
-                              {badge.text}
-                            </span>
-                          ) : null}
-                        </span>
-                        <code className="truncate text-2xs text-ink-ghost">
-                          {provider.id} · {provider.model.id}
-                        </code>
-                      </span>
-                    </button>
-                  );
-                })}
+                {customMatched.map((provider) => (
+                  <ProviderRow
+                    key={provider.id}
+                    id={provider.id}
+                    name={provider.name}
+                    badge={customProviderBadge(provider)}
+                    detail={`${provider.id} · ${provider.model.id}`}
+                    active={!addingCustom && provider.id === customSelected?.id}
+                    onSelect={() => {
+                      dispatch({ type: "select-row", key: customProviderSelectionKey(provider.id) });
+                      if (singleColumn) {
+                        setQuery("");
+                        focusAfterSelection.current = true;
+                        setListOpen(false);
+                      }
+                    }}
+                  />
+                ))}
                 <button
                   type="button"
                   className="mt-1 rounded-lg border border-dashed border-line-strong px-2 py-1.5 text-left text-2xs text-accent-text transition-colors hover:bg-hover"
@@ -272,45 +258,24 @@ export function ProvidersTab({
                       <div className="px-1.5 pt-2 pb-0.5 text-3xs tracking-label text-ink-ghost uppercase">
                         {section.label}
                       </div>
-                      {section.providers.map((provider) => {
-                        const meta = providerListMeta(provider, catalog);
-                        const isActive = provider.provider === active?.provider;
-                        return (
-                          <button
-                            key={provider.provider}
-                            type="button"
-                            aria-current={isActive ? "true" : undefined}
-                            onClick={() => {
-                              dispatch({ type: "select-row", key: providerSelectionKey(provider.provider) });
-                              if (singleColumn) {
-                                setQuery("");
-                                focusAfterSelection.current = true;
-                                setListOpen(false);
-                              }
-                            }}
-                            className={cn(
-                              "flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors",
-                              isActive ? "border-accent/40 bg-accent-wash" : "border-transparent hover:bg-hover",
-                            )}
-                          >
-                            <ProviderIcon provider={provider.provider} name={provider.name} />
-                            <span className="grid min-w-0 flex-1 gap-0.5">
-                              <span className="flex min-w-0 items-center gap-2">
-                                <span className="min-w-0 flex-1 truncate text-xs text-ink">{provider.name}</span>
-                                <span
-                                  className={cn(
-                                    "text-2xs whitespace-nowrap",
-                                    meta.warn ? "text-warn" : "text-ink-muted",
-                                  )}
-                                >
-                                  {meta.text}
-                                </span>
-                              </span>
-                              <code className="truncate text-2xs text-ink-ghost">{provider.provider}</code>
-                            </span>
-                          </button>
-                        );
-                      })}
+                      {section.providers.map((provider) => (
+                        <ProviderRow
+                          key={provider.provider}
+                          id={provider.provider}
+                          name={provider.name}
+                          badge={providerListMeta(provider, catalog)}
+                          detail={provider.provider}
+                          active={provider.provider === active?.provider}
+                          onSelect={() => {
+                            dispatch({ type: "select-row", key: providerSelectionKey(provider.provider) });
+                            if (singleColumn) {
+                              setQuery("");
+                              focusAfterSelection.current = true;
+                              setListOpen(false);
+                            }
+                          }}
+                        />
+                      ))}
                     </div>
                   ),
                 )
@@ -501,19 +466,7 @@ function ProviderDetail({
   sessionsLoaded: boolean;
   saving: boolean;
   busy: boolean;
-  onSave: (provider: string, apiKey: string) => Promise<boolean>;
-  onSaveMemo: (provider: string, memo: string) => Promise<boolean>;
-  onDelete: (provider: string) => Promise<boolean>;
-  onResync: (provider: string) => Promise<boolean>;
-  onLogin: (provider: string) => Promise<boolean>;
-  onSubmitLoginCode: (provider: string, code: string) => Promise<boolean>;
-  onSelectLoginMethod: (provider: string, id: string) => Promise<boolean>;
-  onCancelLogin: (provider: string) => Promise<boolean>;
-  onSignOut: (provider: string) => Promise<boolean>;
-  drafts: Record<string, ProviderDraft>;
-  onChangeDraft: (provider: string, patch: Partial<ProviderDraft>) => void;
-  onOpenModels: () => void;
-}) {
+} & ProviderOperations) {
   const badge = providerAuthBadge(provider);
   const notice = degradedNotice(provider);
   const hiddenNotice = hiddenStoredOAuthNotice(provider);
