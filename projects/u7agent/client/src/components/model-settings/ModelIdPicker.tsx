@@ -1,17 +1,14 @@
-import { useCallback, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useId, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 import {
   CUSTOM_PROVIDER_PROBE_LABEL,
   CUSTOM_PROVIDER_PROBE_PENDING_LABEL,
   filterModelIds,
 } from "../../lib/customProviders";
-import { popoverLeft, popoverTop, popoverWidth } from "../../lib/popoverPlacement";
 import { POPOVER_MARGIN } from "../../lib/popoverPlacement";
-import { initialSelectMenuIndex, selectMenuPlacement } from "../../lib/selectMenu";
-import { usePopoverShell, type PopoverPlaceInput } from "../../hooks/usePopoverShell";
+import { usePopoverShell } from "../../hooks/usePopoverShell";
+import { useSearchableSelectMenu } from "../../hooks/useSearchableSelectMenu";
 import { CheckIcon } from "../icons";
-
-const MIN_WIDTH = 260;
 
 export type ModelIdPickerProps = {
   /** 現在のモデル ID。一覧の選択状態にだけ使う (入力欄の正は親) */
@@ -34,37 +31,25 @@ export type ModelIdPickerProps = {
  */
 export function ModelIdPicker({ value, loading, disabled, onRequest, onPick }: ModelIdPickerProps) {
   const pickerId = useId();
-  const listRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [ids, setIds] = useState<readonly string[]>([]);
   const [query, setQuery] = useState("");
   const requesting = useRef(false);
   const choices = filterModelIds(ids, query);
 
-  // 幅と一覧の高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
-  const sizePicker = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
-    if (trigger === null) return;
-    const anchor = trigger.getBoundingClientRect();
-    popover.style.width = `${popoverWidth(Math.max(anchor.width, MIN_WIDTH), viewport.width)}px`;
-    const list = listRef.current;
-    if (list !== null) {
-      // 検索欄と一覧の外枠の高さを引いた分だけを一覧のスクロールに当てる
-      const { maxHeight } = selectMenuPlacement(anchor, viewport.height);
-      const chrome = popover.getBoundingClientRect().height - list.getBoundingClientRect().height;
-      list.style.maxHeight = `${Math.max(0, maxHeight - chrome)}px`;
-    }
-  }, []);
-
-  const place = useCallback(({ popover, trigger, viewport }: PopoverPlaceInput) => {
-    if (trigger === null) return null;
-    const anchor = trigger.getBoundingClientRect();
-    const width = popoverWidth(Math.max(anchor.width, MIN_WIDTH), viewport.width);
-    const { above } = selectMenuPlacement(anchor, viewport.height);
-    return {
-      left: popoverLeft(anchor, width, viewport.width),
-      top: popoverTop(anchor, popover.getBoundingClientRect().height, above, viewport.height),
-    };
-  }, []);
+  // 検索欄と一覧の外枠の高さを引いた分だけを一覧のスクロールに当てる
+  const chrome = ({ popover, list }: { popover: HTMLElement; list: HTMLElement }) =>
+    popover.getBoundingClientRect().height - list.getBoundingClientRect().height;
+  const {
+    listRef,
+    size: sizePicker,
+    place,
+    onSearchKeyDown,
+  } = useSearchableSelectMenu({
+    value,
+    values: choices,
+    chrome,
+  });
 
   // 開いた直後は検索欄へ入る (自由入力の欄なので、一覧を辿るより打つ方が速い)
   const { triggerProps, popoverProps, exitProps, itemRef, isOpen, open, close } = usePopoverShell(
@@ -97,20 +82,6 @@ export function ModelIdPicker({ value, loading, disabled, onRequest, onPick }: M
   const toggle = () => {
     if (isOpen) close();
     else void requestAndOpen();
-  };
-
-  /** 検索欄のキー。Enter は外側の登録フォームを送信させない (行の決定は一覧側の button が担う) */
-  const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      return;
-    }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    // 検索欄から一覧へ抜ける 1 手。↓ は選択中の行 (無ければ先頭)、↑ は末尾へ入る
-    event.preventDefault();
-    const items = listRef.current?.querySelectorAll<HTMLButtonElement>("button[role='option']") ?? [];
-    const index = event.key === "ArrowDown" ? initialSelectMenuIndex(value, choices) : items.length - 1;
-    items[Math.min(Math.max(index, 0), items.length - 1)]?.focus();
   };
 
   const select = (id: string) => {

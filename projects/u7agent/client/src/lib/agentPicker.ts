@@ -1,6 +1,8 @@
 /**
- * コンポーザーのエージェント選択（自前 listbox）の共通部。位置の計算だけを持つ純関数を集める
- * （描画と popover の操作は `client/src/components/composer/AgentPicker.tsx`）。
+ * コンポーザーのエージェント選択と既定モデルのピッカー（自前 listbox）の共通部。位置と寸法の上限を
+ * 持つ純関数を集める（描画は `client/src/components/composer/AgentPicker.tsx` /
+ * `client/src/components/model-settings/ModelDefaultPicker.tsx`、寸法の書き込みは
+ * `client/src/hooks/useAgentPickerPopover.ts`）。
  * ⋯ メニュー（`rowMenu.ts`）とは共有しない: あちらは `role="menu"` の右端そろえ、こちらは
  * `role="listbox"` の左端そろえで、値もテストも別に固定する。
  */
@@ -15,6 +17,20 @@ export const AGENT_PICKER_MARGIN = 8;
 export const AGENT_PICKER_LIST_MAX_HEIGHT = 256;
 
 export type AgentPickerRect = Pick<DOMRect, "top" | "left" | "right" | "bottom">;
+
+/** 一覧の幅の上限 (px)。viewport の端から左右の余白を引く */
+export function agentPickerMaxWidth(viewportWidth: number, margin: number): number {
+  return Math.max(0, viewportWidth - margin * 2);
+}
+
+/**
+ * 一覧の高さの上限 (px)。既定の上限と、viewport から余白と一覧以外の高さを引いた残りの小さい方。
+ * 低い viewport (ソフトキーボード表示中を含む) ではここで縮める。
+ */
+export function agentPickerListMaxHeight(viewportHeight: number, margin: number, chrome: number): number {
+  const available = viewportHeight - margin * 2 - chrome;
+  return Math.max(0, Math.min(AGENT_PICKER_LIST_MAX_HEIGHT, available));
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, max));
