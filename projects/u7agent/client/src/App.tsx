@@ -29,6 +29,7 @@ import { useMarkdownImageRawUrl } from "./hooks/useMarkdownImageRawUrl";
 import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
 import { useSessionDialogs } from "./hooks/useSessionDialogs";
+import { useSessionFilesFace } from "./hooks/useSessionFilesFace";
 import { useSessionTitleNotice } from "./hooks/useSessionTitleNotice";
 import { useSuggestionChip } from "./hooks/useSuggestionChip";
 import { useSidebarWidth } from "./hooks/useSidebarWidth";
@@ -37,18 +38,11 @@ import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
 import { activityProgressCount } from "./lib/activity";
 import { chatScope } from "./lib/chatScope";
-import { nextSheetView, type SheetView } from "./lib/sheetView";
 import { cn } from "./lib/cn";
 import { chatActionUnlessVoiceInput, type VoiceInputComposerPhase } from "./lib/voiceInput/composer";
 import { compactConfirmRequest } from "./lib/compaction";
 import { confirmTargetUnchanged } from "./lib/confirmDialog";
-import {
-  fileRefRequestForSession,
-  filesModeForTarget,
-  filesModeScopeChanged,
-  DEFAULT_FILES_MODE,
-  type FilesMode,
-} from "./lib/fileRefRequest";
+import { fileRefRequestForSession } from "./lib/fileRefRequest";
 import type { FileRefTarget } from "./lib/fileRef";
 import { classifyFileRefFailure, createFileRefOpener, fileRefCheckPath, type FileRefCheck } from "./lib/fileRefOpen";
 import { resolveActivitySidebarPlacement, resolveSidebarPlacement } from "./lib/layout";
@@ -62,7 +56,7 @@ import {
   notifyDeliverable,
   notifyUnavailableNote,
 } from "./lib/notifications";
-import { canShareSessionRoot, sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
+import { canShareSessionRoot, sessionFilesRoot } from "./lib/sessionFiles";
 import { sessionEnvScope } from "./lib/sessionEnv";
 import { sessionsInSpace } from "./lib/spaceSessions";
 import { servedAppBusyKind, servedAppFocusRequest, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
@@ -185,34 +179,16 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     handoff: app.chat.handoff,
   });
   const [navOpen, setNavOpen] = useState(false);
-  // 作業フォルダの開閉は保存しない (desktop は右パネル、singleColumn は全画面シートで state も分ける)。
-  // 起動時は閉 (会話 URL を開いてもパネルは勝手に開かない)。既定を当てるのは利用者操作の新規会話の入口だけ
-  const [sessionFilesOpen, setSessionFilesOpen] = useState(false);
-  const [sessionFilesSheetOpen, setSessionFilesSheetOpen] = useState(false);
-  // シートを閉じる契機の監視キー。route 全体は比べない (会話 URL の置換だけでは閉じない)
-  const [sheetScope, setSheetScope] = useState(() => ({ singleColumn, view: mainView, root: filesRoot }));
-  // 設定ページへの出入り / root の変更 / desktop への復帰でシートを閉じる。showModal() は子の Effect で
-  // 親より先に走るため、Effect ではなく前の描画の値と比べる描画中の同期で閉じる
-  const sheetScopeChanged =
-    sheetScope.singleColumn !== singleColumn || sheetScope.view !== mainView || sheetScope.root !== filesRoot;
-  if (sheetScopeChanged) {
-    setSheetScope({ singleColumn, view: mainView, root: filesRoot });
-    setSessionFilesSheetOpen(false);
-  }
-  // 面のモード (作業フォルダ / スキル)。要求の種別で切り替え、閉じる導線 / セッション切替 / チャット以外への
-  // 移動 / singleColumn ⇄ desktop の切替で既定 (作業フォルダ) へ戻す
-  const [filesMode, setFilesMode] = useState<FilesMode>(DEFAULT_FILES_MODE);
-  // モードを既定へ戻す契機の監視キー。root (cwd) だけでは同一プロジェクトのセッション切替 / 新規チャットを
-  // 拾えないため、選択中セッションの識別子も見る (シートの閉じと同じ描画中の同期で反映する)
-  const [filesModeScope, setFilesModeScope] = useState(() => ({
+  // 作業フォルダの面 (desktop の右パネル / singleColumn の全画面シート) と、面ローカルの状態。
+  // 閉じる契機の監視キーと、モードを既定へ戻す契機も面の側が持つ
+  const filesFace = useSessionFilesFace({
     singleColumn,
     view: mainView,
     sessionId: app.sessionId,
-  }));
-  if (filesModeScopeChanged(filesModeScope, { singleColumn, view: mainView, sessionId: app.sessionId })) {
-    setFilesModeScope({ singleColumn, view: mainView, sessionId: app.sessionId });
-    setFilesMode(DEFAULT_FILES_MODE);
-  }
+    root: filesRoot,
+    panelRef: panelWidth.mainRef,
+    requestFileRef: app.requestFileRef,
+  });
   // 配信できない設定で通知を On にしようとしたか。押した後だけ出す注記の根拠で、会話を移ったら捨てる
   const [notifyAttempted, setNotifyAttempted] = useState(false);
   // 押して On にした回数 (ベルの演出の世代)。会話の切替 / リロードで値が On に上がるだけでは進めない
@@ -232,20 +208,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   // スペースの切替は App ごと作り直すため、URL に会話を残すと新しいスペースで「見つかりません」になる。
   // 会話を持たない chat へ戻してから選ばせる (戻るボタンの backToChat とは目的が違う)
   const openChatWithoutSession = useCallback(() => navigate({ view: "chat" }), [navigate]);
-  // ファイル参照から開いたときの起点要素。singleColumn の sheet は閉じたときにここへ focus を戻す
-  const fileRefOriginRef = useRef<HTMLElement | null>(null);
-  const { requestFileRef } = app;
-  /** 実在を確認できた参照だけを開く (面のモード切替 / パネル / 要求の登録) */
-  const openFileRefTarget = useCallback(
-    (target: FileRefTarget) => {
-      // 面のモードを要求の種別へ切り替えてから開く (逆向きの参照も面が入れ替わって消費する)
-      setFilesMode(filesModeForTarget(target));
-      if (singleColumn) setSessionFilesSheetOpen(true);
-      else setSessionFilesOpen(true);
-      requestFileRef(target);
-    },
-    [singleColumn, requestFileRef],
-  );
   /** 参照の実在確認。通常ファイルとしての 200 だけを成功とし、それ以外は status で分類する */
   const checkFileRef = useCallback(
     async (target: FileRefTarget): Promise<FileRefCheck> => {
@@ -263,13 +225,13 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   // 依存は毎回の描画で上書きする ref 経由で読む (確認と面の開き方は layout や cwd で変わる)
   const fileRefDepsRef = useRef({
     checkFileRef,
-    openFileRefTarget,
+    openFileRefTarget: filesFace.openTarget,
     sessionIdRef: app.sessionIdRef,
     fileRefSwitchSeq: app.fileRefSwitchSeq,
   });
   fileRefDepsRef.current = {
     checkFileRef,
-    openFileRefTarget,
+    openFileRefTarget: filesFace.openTarget,
     sessionIdRef: app.sessionIdRef,
     fileRefSwitchSeq: app.fileRefSwitchSeq,
   };
@@ -288,32 +250,11 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   const openFileRef = useCallback(
     (target: FileRefTarget, origin: HTMLElement | null) => {
       // 起点はクリック時に自分で持つ (document.activeElement がクリックした button を指すとは限らない)
-      fileRefOriginRef.current = origin;
+      filesFace.originRef.current = origin;
       return fileRefOpener.open(target);
     },
-    [fileRefOpener],
+    [fileRefOpener, filesFace.originRef],
   );
-  const backToWorkFiles = useCallback(() => setFilesMode(DEFAULT_FILES_MODE), []);
-  const toggleSessionFiles = useCallback(() => {
-    // トグルからの開閉ではファイル参照へ focus を戻さない
-    fileRefOriginRef.current = null;
-    // 閉じる導線は面ごと既定 (作業フォルダ面) へ戻す (開き直してもスキル面を残さない)
-    setFilesMode(DEFAULT_FILES_MODE);
-    // 押した面 (layout で決まる) だけを反転する
-    if (singleColumn) setSessionFilesSheetOpen((open) => !open);
-    else setSessionFilesOpen((open) => !open);
-  }, [singleColumn]);
-  // 閉じる導線は押した面だけを閉じる。特にシートの close で desktop のパネルを閉じると、
-  // singleColumn を往復しただけで開閉が変わる (レイアウト切替は互いの state に影響しない)
-  const closeSessionFiles = useCallback(() => {
-    setSessionFilesOpen(false);
-    setFilesMode(DEFAULT_FILES_MODE);
-  }, []);
-  const closeSessionFilesSheet = useCallback(() => {
-    setSessionFilesSheetOpen(false);
-    setFilesMode(DEFAULT_FILES_MODE);
-  }, []);
-
   // 幅を広げて左バーが docked に戻ったら、ドロワーは畳む (開いたままにしない)
   useEffect(() => {
     if (sidebarDocked) setNavOpen(false);
@@ -500,10 +441,10 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   const handleNewChat = useCallback(
     (agentId?: string, projectId?: string) => {
       const target = projectId ?? "";
-      setSessionFilesOpen(sessionFilesDefaultOpen({ singleColumn, projectId: target }));
+      filesFace.openForNewChat(target);
       app.newChat(agentId, target);
     },
-    [app, singleColumn],
+    [app, filesFace.openForNewChat],
   );
 
   // セッション中のエージェントは作成時に固定される (定義は meta の promptSnapshot) ため、この入口は
@@ -565,9 +506,9 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   // 共有ダイアログの結果から 設定 → 共有 へ移る。ダイアログ自身は閉じるので、ここでは
   // singleColumn のシートだけを閉じる (設定面を modal が覆ったままにしない)
   const openSharingSettingsFromDialog = useCallback(() => {
-    closeSessionFilesSheet();
+    filesFace.closeSheet();
     openSettingsTab("sharing", DEFAULT_SHARING_SUBSECTION);
-  }, [closeSessionFilesSheet, openSettingsTab]);
+  }, [filesFace.closeSheet, openSettingsTab]);
 
   /**
    * 設定面のリンク（共有物の公開元 / ランタイムの起動元）から会話へ移る。所属が別スペースなら
@@ -660,17 +601,10 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     onOpenSettingsSection: openSettingsSection,
   };
 
-  // 表示方法だけを layout で分ける (desktop は右パネル、singleColumn は全画面シート)。設定 → ファイルは
-  // ワークスペース root 固定なので、作業フォルダとは別の入口にする
-  const filesPanelOpen = !singleColumn && filesRoot !== "" && sessionFilesOpen;
-  const filesSheetOpen = singleColumn && filesRoot !== "" && sessionFilesSheetOpen;
-  // 開閉の phase。閉じた後も退場アニメの間だけ mount を延ばし、CSS の再生と state の寿命を合わせる
-  // (hooks/useExitPhase)。シートは dialog 自身がアニメを持つので、その ref も App が持つ
-  const filesSheetRef = useRef<HTMLDialogElement | null>(null);
+  // 設定 / 実行状況の退場 phase。閉じた後も退場アニメの間だけ mount を延ばし、CSS の再生と state の寿命を
+  // 合わせる (hooks/useExitPhase)。作業フォルダの面の phase は filesFace が持つ
   const settingsViewRef = useRef<HTMLDivElement | null>(null);
   const activityViewRef = useRef<HTMLDivElement | null>(null);
-  const filesPanelPhase = useExitPhase(filesPanelOpen, panelWidth.mainRef);
-  const filesSheetPhase = useExitPhase(filesSheetOpen, filesSheetRef);
   const settingsPhase = useExitPhase(mainView === "settings", settingsViewRef);
   // 実行状況も同じマスへ重ねる。退場アニメの間は mount を保ち、隠れた側は inert にする
   const activityPhase = useExitPhase(mainView === "activity", activityViewRef);
@@ -679,11 +613,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   useEffect(() => {
     if (activityOpen) void app.refreshSessions();
   }, [activityOpen, app.refreshSessions]);
-  // 退場中はシートの見え方を固定する。key (root) が動くと dialog が作り直され、退場アニメが途中で切れる
-  // (終了待ちの listener が外れた要素に残り、スライド中に中身も入れ替わる)。追従させる条件は lib/sheetView.ts
-  const [sheetView, setSheetView] = useState<SheetView>(() => ({ root: filesRoot, mode: filesMode }));
-  const nextView = nextSheetView(sheetView, { root: filesRoot, mode: filesMode }, filesSheetOpen, sheetScopeChanged);
-  if (nextView !== null) setSheetView(nextView);
   // 未消費の要求は選択中セッションのときだけパネルへ渡す (セッションが変われば useSessions が破棄する)。
   // 面へ渡すのは 1 つの要求で、自分宛ての種別だけを適用する (面のモードは要求の種別で切り替える)
   const pendingFileRef = fileRefRequestForSession(app.fileRefRequest, app.sessionId);
@@ -733,8 +662,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
         // パネルの列幅。ドラッグ中は同じ変数を直接書き換える (hooks/useSessionFilesPanelWidth)
         style={{ "--session-files-width": `${panelWidth.width}px` } as CSSProperties}
         // 開閉の列幅は .session-files-columns が持つ。ドラッグ中の幅はそのまま変数を書き換える
-        data-open={filesPanelPhase === "open"}
-        data-closing={filesPanelPhase === "closing"}
+        data-open={filesFace.panelPhase === "open"}
+        data-closing={filesFace.panelPhase === "closing"}
         className="session-files-columns grid min-h-0 min-w-0 grid-rows-1 overflow-hidden"
       >
         <div className="grid min-h-0 min-w-0 grid-cols-1 grid-rows-1 overflow-hidden">
@@ -762,7 +691,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                   scope={scope}
                   runtimeStatus={app.runtimeStatus}
                   notify={notifyToggle}
-                  sessionFiles={filesRoot ? { open: filesSheetOpen, onToggle: toggleSessionFiles } : undefined}
+                  sessionFiles={filesRoot ? { open: filesFace.sheetOpen, onToggle: filesFace.toggle } : undefined}
                   activity={activityEntry}
                   onOpenNav={openNav}
                 />
@@ -772,7 +701,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                   scope={scope}
                   runtimeStatus={app.runtimeStatus}
                   notify={notifyToggle}
-                  sessionFiles={filesRoot ? { open: filesPanelOpen, onToggle: toggleSessionFiles } : undefined}
+                  sessionFiles={filesRoot ? { open: filesFace.panelOpen, onToggle: filesFace.toggle } : undefined}
                   nav={sidebarDocked ? undefined : { onOpen: openNav }}
                   activity={sidebarDocked ? undefined : activityEntry}
                 />
@@ -930,10 +859,10 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             </div>
           ) : null}
         </div>
-        {filesPanelPhase !== "closed" ? (
+        {filesFace.panelPhase !== "closed" ? (
           <SessionFilesPanel
             key={filesRoot}
-            phase={filesPanelPhase}
+            phase={filesFace.panelPhase}
             root={filesRoot}
             rootCwd={app.health?.cwd}
             envScope={envScope ?? {}}
@@ -943,11 +872,11 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             runEndSeq={app.chat.runEndSeq}
             shareBlockedReason={shareBlockedReason}
             onOpenSharingSettings={openSharingSettingsFromDialog}
-            onClose={closeSessionFiles}
+            onClose={filesFace.closePanel}
             openRequest={pendingFileRef}
             onHandled={app.ackFileRef}
-            mode={filesMode}
-            onBackToWork={backToWorkFiles}
+            mode={filesFace.mode}
+            onBackToWork={filesFace.backToWork}
             sessionTitle={activeSession?.title}
             canShareSessionRoot={sessionRootShareEnabled}
             projectSession={activeSession?.projectSession}
@@ -955,12 +884,12 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           />
         ) : null}
       </main>
-      {filesSheetPhase !== "closed" ? (
+      {filesFace.sheetPhase !== "closed" ? (
         <SessionFilesSheet
-          key={sheetView.root}
-          dialogRef={filesSheetRef}
-          phase={filesSheetPhase}
-          root={sheetView.root}
+          key={filesFace.sheetView.root}
+          dialogRef={filesFace.sheetRef}
+          phase={filesFace.sheetPhase}
+          root={filesFace.sheetView.root}
           rootCwd={app.health?.cwd}
           envScope={envScope ?? {}}
           excludeNames={excludeNames}
@@ -969,15 +898,15 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           runEndSeq={app.chat.runEndSeq}
           shareBlockedReason={shareBlockedReason}
           onOpenSharingSettings={openSharingSettingsFromDialog}
-          onClose={closeSessionFilesSheet}
+          onClose={filesFace.closeSheet}
           openRequest={pendingFileRef}
           onHandled={app.ackFileRef}
-          mode={sheetView.mode}
-          onBackToWork={backToWorkFiles}
+          mode={filesFace.sheetView.mode}
+          onBackToWork={filesFace.backToWork}
           sessionTitle={activeSession?.title}
           canShareSessionRoot={sessionRootShareEnabled}
           projectSession={activeSession?.projectSession}
-          returnFocus={fileRefOriginRef.current}
+          returnFocus={filesFace.originRef.current}
         />
       ) : null}
       {/* overlay の左バーは docked の Sidebar と排他にする (docked へ戻ったフレームで両方を描かない)。
