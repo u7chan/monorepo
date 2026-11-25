@@ -478,7 +478,6 @@ function registerDomainRoutes<E extends Env, S extends Schema>(app: Hono<E, S>, 
     .get("/api/sessions/:id/raw", appData, sessionRoutes.rawLog)
     .delete("/api/sessions/:id", sessionRoutes.remove)
     .post("/api/sessions/:id/stop", sessionRoutes.stop)
-    .post("/api/sessions/:id/abort", sessionRoutes.stop)
     // body 無し。手動 compaction は完了まで待って `{ sessionId, status }` を返す
     .post("/api/sessions/:id/compact", sessionRoutes.compact)
     .get("/api/sessions/:id/skills", sessionRoutes.skills)

@@ -108,7 +108,7 @@ test("deleting an agent cascades only its references and keeps masters and other
 
   assert.equal(catalog.removeAgent(drop.id), true);
   assert.equal(db.listAgentPromptLinks().filter((link) => link.agentId === drop.id).length, 0);
-  assert.deepEqual(prompts.get(shared.id)?.usedBy, [{ agentId: keep.id, agentName: "残す", builtin: false }]);
+  assert.deepEqual(prompts.get(shared.id)?.usedBy, [{ agentId: keep.id, agentName: "残す" }]);
   assert.deepEqual(
     catalog.getAgent(keep.id)?.prompts?.map((prompt) => prompt.id),
     [shared.id],

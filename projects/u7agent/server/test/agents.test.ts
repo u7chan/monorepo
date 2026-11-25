@@ -285,7 +285,7 @@ test("deleting an agent keeps the master and other references", () => {
     [prompt.id],
     "エージェントを消してもマスタは残る",
   );
-  assert.deepEqual(prompts.get(prompt.id)?.usedBy, [{ agentId: keep.id, agentName: "残す", builtin: false }]);
+  assert.deepEqual(prompts.get(prompt.id)?.usedBy, [{ agentId: keep.id, agentName: "残す" }]);
   assert.deepEqual(
     catalog.getAgent(keep.id)?.prompts?.map((p) => p.id),
     [prompt.id],

@@ -1211,7 +1211,7 @@ test("prompt master endpoints expose no built-ins and support custom CRUD", asyn
     const usedBy = (await jsonBody(app.request("/api/prompts"))).prompts.find(
       (prompt: { id: string }) => prompt.id === custom.id,
     );
-    assert.deepEqual(usedBy.usedBy, [{ agentId: agentBody.id, agentName: "参照あり", builtin: false }]);
+    assert.deepEqual(usedBy.usedBy, [{ agentId: agentBody.id, agentName: "参照あり" }]);
     const conflict = await app.request(`/api/prompts/${custom.id}`, { method: "DELETE" });
     assert.equal(conflict.status, 409);
     assert.deepEqual((await jsonBody(conflict)).usedBy, usedBy.usedBy);

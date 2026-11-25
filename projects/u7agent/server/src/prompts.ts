@@ -102,7 +102,7 @@ export function createPromptCatalog({ db }: { db: AppDb }): PromptCatalog {
     const usedBy: PromptUsage[] = [];
     for (const link of links) {
       if (link.promptId !== promptId) continue;
-      usedBy.push({ agentId: link.agentId, agentName: names.get(link.agentId) ?? "", builtin: false });
+      usedBy.push({ agentId: link.agentId, agentName: names.get(link.agentId) ?? "" });
     }
     return usedBy;
   };
