@@ -52,30 +52,49 @@ import type {
  * 通知設定。Webhook URL は write-only で、応答には保存の有無（`configured`）と復号の状態（`webhookAvailable` / `webhookEvaluated` / `webhookErrorMessage`）だけを載せる。
  * テスト送信は保存済み設定で 1 通送り、Discord 側の失敗も結果 (ok: false) として 200 で返る。
  */
-export const getNotifications = () => read<NotificationsResponse>(client.api.notifications.$get());
+export const getNotifications = async (): Promise<NotificationsResponse> => {
+  const res = await ensureOk(client.api.notifications.$get());
+  return res.json();
+};
 
-export const updateNotifications = (input: UpdateNotificationsBody) =>
-  read<NotificationsResponse>(client.api.notifications.$put({ json: input }));
+export const updateNotifications = async (input: UpdateNotificationsBody): Promise<NotificationsResponse> => {
+  const res = await ensureOk(client.api.notifications.$put({ json: input }));
+  return res.json();
+};
 
-export const testNotification = () => read<NotificationResult>(client.api.notifications.test.$post());
+export const testNotification = async (): Promise<NotificationResult> => {
+  const res = await ensureOk(client.api.notifications.test.$post());
+  return res.json();
+};
 
 /**
  * アーカイブの除外名。`excludeNames` は常に実効値で、`overridden` が false のときは既定の一覧を使っている。
  * 保存（PUT）と既定に戻す（DELETE）も同じ形を返すため、画面は応答をそのまま次の状態にできる。
  */
-export const getArchiveSettings = () => read<ArchiveSettingsResponse>(client.api.settings.archive.$get());
+export const getArchiveSettings = async (): Promise<ArchiveSettingsResponse> => {
+  const res = await ensureOk(client.api.settings.archive.$get());
+  return res.json();
+};
 
-export const updateArchiveSettings = (excludeNames: string[]) =>
-  read<ArchiveSettingsResponse>(client.api.settings.archive.$put({ json: { excludeNames } }));
+export const updateArchiveSettings = async (excludeNames: string[]): Promise<ArchiveSettingsResponse> => {
+  const res = await ensureOk(client.api.settings.archive.$put({ json: { excludeNames } }));
+  return res.json();
+};
 
 /** 保存行を消して未設定へ戻す（既定名を保存し直さないので、将来の既定の追加に追随する） */
-export const resetArchiveSettings = () => read<ArchiveSettingsResponse>(client.api.settings.archive.$delete());
+export const resetArchiveSettings = async (): Promise<ArchiveSettingsResponse> => {
+  const res = await ensureOk(client.api.settings.archive.$delete());
+  return res.json();
+};
 
 /**
  * 設定 → モデルのプロバイダー認証状態（純粋読取）。キー値は含まれない。
  * モデル数と一覧は別途 `getRuntimeModels()` が持ち、片方の失敗が他方を隠さない。
  */
-export const getModelsSettings = () => read<ModelsSettingsResponse>(client.api.settings.models.$get());
+export const getModelsSettings = async (): Promise<ModelsSettingsResponse> => {
+  const res = await ensureOk(client.api.settings.models.$get());
+  return res.json();
+};
 
 /**
  * pi.dev のモデルカタログを取り直す。取得できなくても 200 で、失敗は `catalogError` にだけ載る
@@ -175,14 +194,19 @@ export const logoutOAuthProvider = (provider: string) =>
  * 設定 → コンテンツ生成の設定（純粋読取）。APIキーは含まれず、登録済みでも値は返らない。
  * 画像モデルの選択肢は `image.models` で、キー未設定なら configured: false。
  */
-export const getContentSettings = () => read<ContentSettingsResponse>(client.api.settings.content.$get());
+export const getContentSettings = async (): Promise<ContentSettingsResponse> => {
+  const res = await ensureOk(client.api.settings.content.$get());
+  return res.json();
+};
 
 /**
  * 有効 / 無効（画像・音声・BGM 共通の 1 つのトグル）。キーと選択は保持され、行が無ければ 400。
  * 保存した瞬間から、既存のセッションにも次の呼び出しから効く。
  */
-export const putContentEnabled = (enabled: boolean) =>
-  read<ContentMutationResponse>(client.api.settings.content.$put({ json: { enabled } }));
+export const putContentEnabled = async (enabled: boolean): Promise<ContentMutationResponse> => {
+  const res = await ensureOk(client.api.settings.content.$put({ json: { enabled } }));
+  return res.json();
+};
 
 /** 画像モデルの変更。キーは保持され、行が無ければ 400 */
 export const putContentImageSettings = (input: UpdateContentImageBody) =>
@@ -278,26 +302,40 @@ export const deleteContentApiKey = () => read<ContentMutationResponse>(client.ap
  * 設定 → 共有 → 接続 の Cloudflare 資格情報。GET は登録状態とアカウント ID だけで、
  * API トークンは返らない。PUT の `apiToken` を省略すると保存済みトークンを維持する。
  */
-export const getCloudflareSettings = () => read<CloudflareSettingsResponse>(client.api.settings.cloudflare.$get());
+export const getCloudflareSettings = async (): Promise<CloudflareSettingsResponse> => {
+  const res = await ensureOk(client.api.settings.cloudflare.$get());
+  return res.json();
+};
 
-export const updateCloudflareSettings = (input: UpdateCloudflareSettingsBody) =>
-  read<CloudflareMutationResponse>(client.api.settings.cloudflare.$put({ json: input }));
+export const updateCloudflareSettings = async (
+  input: UpdateCloudflareSettingsBody,
+): Promise<CloudflareMutationResponse> => {
+  const res = await ensureOk(client.api.settings.cloudflare.$put({ json: input }));
+  return res.json();
+};
 
-export const deleteCloudflareSettings = () =>
-  read<CloudflareMutationResponse>(client.api.settings.cloudflare.$delete());
+export const deleteCloudflareSettings = async (): Promise<CloudflareMutationResponse> => {
+  const res = await ensureOk(client.api.settings.cloudflare.$delete());
+  return res.json();
+};
 
 /**
  * 保存済みの資格情報で Cloudflare へ届くかを確認する。何も保存せず、Cloudflare 側の失敗も 200 の
  * 結果として返る。未登録（409）と master key 不在・復号不可（503）だけが失敗になる。
  */
-export const checkCloudflareConnection = () =>
-  read<CloudflareConnectionCheckResponse>(client.api.settings.cloudflare.check.$post());
+export const checkCloudflareConnection = async (): Promise<CloudflareConnectionCheckResponse> => {
+  const res = await ensureOk(client.api.settings.cloudflare.check.$post());
+  return res.json();
+};
 
 /**
  * 設定 → Web 検索。有効 / 無効の 1 つだけを返し、無効時にモデルへ返る固定文言も載せる。
  * 正はアプリ DB の `web_search_settings` で、行が無い = 既定（無効）。
  */
-export const getWebSearchSettings = () => read<WebSearchSettingsResponse>(client.api.settings["web-search"].$get());
+export const getWebSearchSettings = async (): Promise<WebSearchSettingsResponse> => {
+  const res = await ensureOk(client.api.settings["web-search"].$get());
+  return res.json();
+};
 
 /** Web 検索の有効 / 無効。保存した瞬間から、既存のセッションの次の呼び出しにも効く */
 export const putWebSearchSettings = (enabled: boolean) =>
@@ -320,8 +358,10 @@ export const putWebSearchApiKey = (provider: WebSearchProviderId, apiKey: string
  * 設定 → Web 検索のテスト検索。保存済みの設定で 1 回だけ検索し、モデルへ返る本文をそのまま返す。
  * 検索の失敗も 200 の `ok: false` で返る（会話にも設定にも残らない）。
  */
-export const postWebSearchTest = (query: string) =>
-  read<WebSearchTestResponse>(client.api.settings["web-search"].test.$post({ json: { query } }));
+export const postWebSearchTest = async (query: string): Promise<WebSearchTestResponse> => {
+  const res = await ensureOk(client.api.settings["web-search"].test.$post({ json: { query } }));
+  return res.json();
+};
 
 /** provider の APIキーの削除（行ごと消して未設定へ戻す）。未設定でも 200 の冪等 */
 export const deleteWebSearchApiKey = (provider: WebSearchProviderId) =>
@@ -335,7 +375,10 @@ export const deleteWebSearchApiKey = (provider: WebSearchProviderId) =>
  * 設定 → 音声入力。保存済みのキーの状態（有無 / 復号できたか）と固定モデルを読む。
  * キーの値は返らず、GET は復号もしない。
  */
-export const getVoiceInputSettings = () => read<VoiceInputSettingsResponse>(client.api.settings["voice-input"].$get());
+export const getVoiceInputSettings = async (): Promise<VoiceInputSettingsResponse> => {
+  const res = await ensureOk(client.api.settings["voice-input"].$get());
+  return res.json();
+};
 
 /** 音声入力のAPIキーの登録・上書き。応答にキーは返らない */
 export const putVoiceInputKey = (apiKey: string) =>
@@ -349,7 +392,10 @@ export const deleteVoiceInputKey = () =>
  * 音声入力の疎通確認。短命キーの発行だけを呼び、音声は送らない（課金なし）。
  * 上流の確認失敗は 200 の `ok: false` で返り、未登録 / 利用不可は HTTP エラーになる。
  */
-export const postVoiceInputTest = () => read<VoiceInputTestResponse>(client.api.settings["voice-input"].test.$post());
+export const postVoiceInputTest = async (): Promise<VoiceInputTestResponse> => {
+  const res = await ensureOk(client.api.settings["voice-input"].test.$post());
+  return res.json();
+};
 
 /**
  * 音声入力の Realtime セッション開始。offer SDP を BFF へ中継し、answer SDP を受け取る。
@@ -369,29 +415,43 @@ export const postVoiceInputSession = async (offerSdp: string, signal: AbortSigna
 };
 
 /** 設定 → Git。グローバルな identity（user.name / user.email）を読む。未設定は両方 null */
-export const getGitSettings = () => read<GitSettingsResponse>(client.api.settings.git.$get());
+export const getGitSettings = async (): Promise<GitSettingsResponse> => {
+  const res = await ensureOk(client.api.settings.git.$get());
+  return res.json();
+};
 
 /** 両方必須。片方だけの保存はサーバーが 400 で拒否する */
-export const putGitSettings = (userName: string, userEmail: string) =>
-  read<GitSettingsMutationResponse>(client.api.settings.git.$put({ json: { userName, userEmail } }));
+export const putGitSettings = async (userName: string, userEmail: string): Promise<GitSettingsMutationResponse> => {
+  const res = await ensureOk(client.api.settings.git.$put({ json: { userName, userEmail } }));
+  return res.json();
+};
 
 /** 未設定へ戻す（冪等）。次の bash から useConfigOnly だけの config になる */
-export const deleteGitSettings = () => read<GitSettingsMutationResponse>(client.api.settings.git.$delete());
+export const deleteGitSettings = async (): Promise<GitSettingsMutationResponse> => {
+  const res = await ensureOk(client.api.settings.git.$delete());
+  return res.json();
+};
 
 /**
  * 設定 → 会話タイトル。AI 要約の On/Off・要約モデル・定義を持つ。行が無い = 既定 (Off) で、
  * 本会話のモデルとは独立している。
  */
-export const getTitleSummarySettings = () =>
-  read<TitleSummarySettingsResponse>(client.api.settings["session-title"].$get());
+export const getTitleSummarySettings = async (): Promise<TitleSummarySettingsResponse> => {
+  const res = await ensureOk(client.api.settings["session-title"].$get());
+  return res.json();
+};
 
 /** 3 項目の保存。省略した項目はサーバーが保存値を保つ (Off への変更でもモデルを消さない) */
-export const putTitleSummarySettings = (body: UpdateTitleSummaryBody) =>
-  read<TitleSummarySettingsResponse>(client.api.settings["session-title"].$put({ json: body }));
+export const putTitleSummarySettings = async (body: UpdateTitleSummaryBody): Promise<TitleSummarySettingsResponse> => {
+  const res = await ensureOk(client.api.settings["session-title"].$put({ json: body }));
+  return res.json();
+};
 
 /** 保存済みの設定で 1 回だけ生成する。タイトルは保存しない。生成の失敗も 200 の `ok: false` で返る */
-export const postTitleSummaryTest = () =>
-  read<TitleSummaryTestResponse>(client.api.settings["session-title"].test.$post());
+export const postTitleSummaryTest = async (): Promise<TitleSummaryTestResponse> => {
+  const res = await ensureOk(client.api.settings["session-title"].test.$post());
+  return res.json();
+};
 
 /** コストマスタの接続先とトグル。保存時に取得しない（価格は [カタログ更新] で取る） */
 export const putContentCost = (input: UpdateContentCostBody) =>

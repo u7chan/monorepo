@@ -65,9 +65,16 @@ async function apiError(res: Response): Promise<ApiError> {
 }
 
 /**
- * 失敗の応答を `ApiError` に写して投げる。本文を読まない経路（204 / text / blob）も必ずこれを通す。
- * 成功時の応答を返すのは、本文を読む経路が同じ応答を続けて使うため。
+ * hc の応答は status ごとの ClientResponse の union で、失敗の応答は `ok: false` を持つ。
+ * `if (!res.ok) throw` と同じ絞り込みを戻り値の型でも行い、本文の型を成功の応答の側に残す。
  */
+type OkResponse<R extends Response> = Exclude<R, { ok: false }>;
+
+/**
+ * 失敗の応答を `ApiError` に写して投げる。本文を読まない経路（204 / text / blob）も必ずこれを通す。
+ * 応答の型を `Response` に広げると hc の `json()` が `any` になり、server の応答の変更を typecheck が検出できない。
+ */
+export function ensureOk<R extends Response>(response: Promise<R>): Promise<OkResponse<R>>;
 export async function ensureOk(response: Promise<Response>): Promise<Response> {
   const res = await response;
   if (!res.ok) throw await apiError(res);
@@ -76,7 +83,8 @@ export async function ensureOk(response: Promise<Response>): Promise<Response> {
 
 /**
  * `ensureOk` の後に本文を JSON として読む。`T` には成功の応答の DTO（正は `types.ts`）を置く。
- * hc の `json()` は失敗の応答の型も含むため、成功の型はここで受ける。
+ * hc の `json()` が成功と失敗の応答の union を返す endpoint だけが使う。union が残らない endpoint は
+ * `ensureOk` の戻り値に `res.json()` を直に当て、宣言した戻り値型との照合を残す。
  */
 export async function read<T>(response: Promise<Response>): Promise<T> {
   const res = await ensureOk(response);

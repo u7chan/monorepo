@@ -21,38 +21,62 @@ import type {
   CreatePromptBody,
 } from "../types";
 
-export const getCatalog = () => read<CatalogResponse>(client.api.agents.$get());
+export const getCatalog = async (): Promise<CatalogResponse> => {
+  const res = await ensureOk(client.api.agents.$get());
+  return res.json();
+};
 
-export const createAgent = (input: CreateAgentBody) =>
-  read<{ agent: AgentDef }>(client.api.agents.$post({ json: input }));
+export const createAgent = async (input: CreateAgentBody): Promise<{ agent: AgentDef }> => {
+  const res = await ensureOk(client.api.agents.$post({ json: input }));
+  return res.json();
+};
 
-export const updateAgent = (id: string, input: UpdateAgentBody) =>
-  read<{ agent: AgentDef }>(client.api.agents[":id"].$patch({ param: { id }, json: input }));
+export const updateAgent = async (id: string, input: UpdateAgentBody): Promise<{ agent: AgentDef }> => {
+  const res = await ensureOk(client.api.agents[":id"].$patch({ param: { id }, json: input }));
+  return res.json();
+};
 
-export const deleteAgent = (id: string) => read<unknown>(client.api.agents[":id"].$delete({ param: { id } }));
+export const deleteAgent = async (id: string): Promise<unknown> => {
+  const res = await ensureOk(client.api.agents[":id"].$delete({ param: { id } }));
+  return res.json();
+};
 
 /** 並べ替え。応答の agents がサーバーの採用した順（定義は変えない） */
-export const reorderAgents = (ids: readonly string[]) =>
-  read<{ agents: AgentDef[] }>(client.api.agents.order.$patch({ json: { ids: [...ids] } }));
+export const reorderAgents = async (ids: readonly string[]): Promise<{ agents: AgentDef[] }> => {
+  const res = await ensureOk(client.api.agents.order.$patch({ json: { ids: [...ids] } }));
+  return res.json();
+};
 
 /**
  * 定型プロンプトのマスタ一覧。使用先 (`usedBy`) つきで、組み込みが先に並ぶ。自作は保存した順。
  * エージェントの応答に載る解決済みの定型文はカタログ側 (`getCatalog`) が持つ。
  */
-export const getPrompts = () => read<PromptsResponse>(client.api.prompts.$get());
+export const getPrompts = async (): Promise<PromptsResponse> => {
+  const res = await ensureOk(client.api.prompts.$get());
+  return res.json();
+};
 
 /** 並べ替え。応答の prompts がサーバーの採用した順（定義は変えない） */
-export const reorderPrompts = (ids: readonly string[]) =>
-  read<PromptsResponse>(client.api.prompts.order.$patch({ json: { ids: [...ids] } }));
+export const reorderPrompts = async (ids: readonly string[]): Promise<PromptsResponse> => {
+  const res = await ensureOk(client.api.prompts.order.$patch({ json: { ids: [...ids] } }));
+  return res.json();
+};
 
-export const createPrompt = (input: CreatePromptBody) =>
-  read<{ prompt: PromptDef }>(client.api.prompts.$post({ json: input }));
+export const createPrompt = async (input: CreatePromptBody): Promise<{ prompt: PromptDef }> => {
+  const res = await ensureOk(client.api.prompts.$post({ json: input }));
+  return res.json();
+};
 
-export const updatePrompt = (id: string, input: UpdatePromptBody) =>
-  read<PromptResponse>(client.api.prompts[":id"].$patch({ param: { id }, json: input }));
+export const updatePrompt = async (id: string, input: UpdatePromptBody): Promise<PromptResponse> => {
+  const res = await ensureOk(client.api.prompts[":id"].$patch({ param: { id }, json: input }));
+  return res.json();
+};
 
 /** 削除は使用中 (409) を ApiError で返す。使用先は本文の `usedBy` に載る */
-export const deletePrompt = (id: string) => read<unknown>(client.api.prompts[":id"].$delete({ param: { id } }));
+export const deletePrompt = async (id: string): Promise<unknown> => {
+  const res = await ensureOk(client.api.prompts[":id"].$delete({ param: { id } }));
+  return res.json();
+};
 
 /**
  * 共通スキル (`.agents/skills`) の一覧。サンドボックス未設定は 503、サンドボックス側の失敗は

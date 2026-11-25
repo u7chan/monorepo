@@ -1,4 +1,4 @@
-import { client, read } from "./http";
+import { client, ensureOk, read } from "./http";
 import type {
   Health,
   RuntimeDebugServeStatus,
@@ -9,21 +9,33 @@ import type {
   RuntimeServeStatus,
 } from "../types";
 
-export const getHealth = () => read<Health>(client.api.health.$get());
+export const getHealth = async (): Promise<Health> => {
+  const res = await ensureOk(client.api.health.$get());
+  return res.json();
+};
 
-export const getRuntimeModels = () => read<RuntimeModelsResponse>(client.api.runtime.models.$get());
+export const getRuntimeModels = async (): Promise<RuntimeModelsResponse> => {
+  const res = await ensureOk(client.api.runtime.models.$get());
+  return res.json();
+};
 
 /**
  * 実行環境の診断。未接続を含む 6 状態を HTTP 200 で返すため、ここでの失敗は BFF 自体の異常を表す。
  * UI は HTTP ステータスではなく応答の `state` で分岐する。
  */
-export const getRuntimeEnvironment = () => read<RuntimeEnvironmentResponse>(client.api.runtime.environment.$get());
+export const getRuntimeEnvironment = async (): Promise<RuntimeEnvironmentResponse> => {
+  const res = await ensureOk(client.api.runtime.environment.$get());
+  return res.json();
+};
 
 /**
  * 環境タブが「いま使われるモデル」と「外部連携」を 1 回で読むための集約。設定 API のカタログは含まない。
  * 失敗は BFF / アプリ DB の異常を表し、UI は取得状態 (loading / ready / error) で分岐する。
  */
-export const getRuntimeInUse = () => read<RuntimeInUseResponse>(client.api.runtime["in-use"].$get());
+export const getRuntimeInUse = async (): Promise<RuntimeInUseResponse> => {
+  const res = await ensureOk(client.api.runtime["in-use"].$get());
+  return res.json();
+};
 
 export const getRuntimeServeStatus = (signal?: AbortSignal) =>
   read<RuntimeServeStatus>(client.api.serve.runtime.status.$get({}, { init: { signal } }));
