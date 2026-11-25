@@ -7,7 +7,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ContentSettings } from "../src/hooks/useContentSettings";
-import { CONTENT_SETTINGS_NOTE } from "../src/lib/contentSettings";
+import { CONTENT_SETTINGS_NOTE } from "../src/lib/contentSettings/shared";
 import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 import type { ContentSubsection } from "../src/lib/settingsNav";
 import type { ContentTrials } from "../src/hooks/useContentTrials";

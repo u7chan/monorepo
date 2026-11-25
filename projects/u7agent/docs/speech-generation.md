@@ -36,7 +36,7 @@
 
 ### 画面表示
 
-選択肢の出どころは live 以外を「取得に失敗している状態」として区別し、最後に live を取得できた時刻を添える（黙って古い一覧を見せない）。`default` は同梱の既定を見ていることを文言で伝える。文言と表示の正は `client/src/lib/contentSettings.ts` の純関数。[カタログ更新] は `POST /api/settings/content/catalog/refresh` で、**常に 200** の応答に現在値と系統別の `errors` を載せる（音声の失敗は `errors.speech`）。
+選択肢の出どころは live 以外を「取得に失敗している状態」として区別し、最後に live を取得できた時刻を添える（黙って古い一覧を見せない）。`default` は同梱の既定を見ていることを文言で伝える。文言と表示の正は `client/src/lib/contentSettings/speech.ts` の純関数。[カタログ更新] は `POST /api/settings/content/catalog/refresh` で、**常に 200** の応答に現在値と系統別の `errors` を載せる（音声の失敗は `errors.speech`）。
 
 - モデル欄のチップと選択肢に、コストマスタから写した単価を出す。**入力側（文字・バイト・入力トークン）を主、出力側（音声トークン・分）を副**にし、整形と並びは `speechPriceDisplay()` に閉じる（[content-cost.md](content-cost.md#画面表示)）
 - `visible: false` は**描画の選択肢からだけ**外し、保存中の値は専用ラベルで残す。一覧に載せなかった件数と、保存値が非表示・カタログ外である理由を注記する（画像と同じ規則）
@@ -155,7 +155,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `c
 
 ## 設定画面
 
-設定 → コンテンツ生成の「音声（TTS）」タブ（`/settings/content/speech`）に音声のセクションを置く（provider の見出しとキー欄は画像と同じ画面のタブの外で共有する）。表示の正は `client/src/lib/contentSettings.ts` の純関数、ボイス欄のグループとラベルは `client/src/lib/speechVoices.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` とボイス欄の `client/src/components/content-settings/SpeechVoiceOptions.tsx` に閉じる。音声セクションの見出しは画像 / BGM と同じ「保存される設定」で、タブ名がどの生成物かを示す。
+設定 → コンテンツ生成の「音声（TTS）」タブ（`/settings/content/speech`）に音声のセクションを置く（provider の見出しとキー欄は画像と同じ画面のタブの外で共有する）。表示の正は `client/src/lib/contentSettings/speech.ts` の純関数、ボイス欄のグループとラベルは `client/src/lib/speechVoices.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/SpeechModelSection.tsx` とボイス欄の `client/src/components/content-settings/SpeechVoiceOptions.tsx` に閉じる。音声セクションの見出しは画像 / BGM と同じ「保存される設定」で、タブ名がどの生成物かを示す。
 
 - 未設定（行が無い）ではキー入力だけを出し、音声の欄もモデルと同じくキー保存後に現れる（タブ行も同時に現れる）
 - モデルとボイスの選択は、保存済みの値がカタログから落ちていても現在値を見失わせない。ボイス欄は選択中モデルの宣言に応じて選択 / 自由記述を切り替え、空欄は「送らない」を表す
@@ -183,7 +183,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings` の `c
 - 音声の長さ（尺）は保存時に読めないため出さない（mp3 / wav のデコードを持たない）。所要時間は試行の実測を出す
 - クライアントは生成中に入力と実行を無効化し、課金の条件（生成は 1 回ごと / 同じ入力の保存済み結果があるときは課金されない）と、失敗・中断・タイムアウトでも課金されうることを伝える（後者は 3 タブ共通の注記）。履歴の [もう一度生成] は確認ダイアログを挟み、force で新しい試行として課金されることを伝える。失敗時は分類済みの文言を出し、入力は保つ（そのまま直して再試行できる）。本文が空 / 話速が不正なときは送信前に止める（**この検証に当たったときはサーバーの 400 文言ではなくクライアントの文言を出す**）
 - 試行（開始と履歴・再生）は、保存値を書き換えず画面で選んだ値で行う。開始の入力欄に保存フォーム用のゲート（`value=""` / `disabled`）は持ち込まない。結果カードから既定へ保存する導線だけは例外で、同じ `PUT` を呼ぶため保存フォームと同じ状態（キー未設定・保存中）で止める
-- 表示の正は `client/src/lib/contentTrials.ts`（試行の要求（`force` を付ける出どころ）・スナップショットの復元・履歴の行）と `client/src/lib/contentSettings.ts`（モデル / ボイス / 話速の増減）の純関数、既定へ保存する対象は `client/src/lib/trialDefault.ts`、描画は `client/src/components/content-settings/SpeechTrialSection.tsx` と 3 タブ共通の `client/src/components/content-settings/TrialRun.tsx` / `TrialResultViewport.tsx` / `TrialHistory.tsx` に閉じる（ボイス欄のラベルと並びは `client/src/lib/speechVoices.ts` の純関数、描画は `client/src/components/content-settings/SpeechVoiceOptions.tsx` に出し、保存フォームと共有する）。再生そのものは自動テストせず GUI 受入にする（[testing.md](testing.md)）
+- 表示の正は `client/src/lib/contentTrials.ts`（試行の要求（`force` を付ける出どころ）・スナップショットの復元・履歴の行）と `client/src/lib/contentSettings/speech.ts`（モデル / ボイス / 話速の増減）の純関数、既定へ保存する対象は `client/src/lib/trialDefault.ts`、描画は `client/src/components/content-settings/SpeechTrialSection.tsx` と 3 タブ共通の `client/src/components/content-settings/TrialRun.tsx` / `TrialResultViewport.tsx` / `TrialHistory.tsx` に閉じる（ボイス欄のラベルと並びは `client/src/lib/speechVoices.ts` の純関数、描画は `client/src/components/content-settings/SpeechVoiceOptions.tsx` に出し、保存フォームと共有する）。再生そのものは自動テストせず GUI 受入にする（[testing.md](testing.md)）
 
 ## API
 

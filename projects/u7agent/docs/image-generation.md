@@ -43,7 +43,7 @@
 - `stored`: 「OpenRouter から取得できなかったため、前回の一覧を表示しています（最終取得: …）」
 - `sdk`: 「OpenRouter から取得できていないため、SDK の組み込み一覧を表示しています」
 - [カタログ更新] は、取得対象の一覧を持っているタブのモデル節に置く（画像は生成元が OpenRouter のときだけ、音声は常に。BGM と履歴には出さない）。`POST /api/settings/content/catalog/refresh`（画像・音声・価格をまとめて取る）。**常に 200** で現在値を返し、今回の取得に失敗した系統だけ `errors.image` / `errors.speech` / `errors.cost` に固定文言を載せる。UI は一覧の失敗と価格の失敗を分けて「表示中の一覧 / 価格は変わりません」と出す。表示を作り直すだけの [再読み込み] は帯にだけ置く（[ui-layout.md](ui-layout.md#モードごとの構成)）
-- 価格は `image.models[].prices` をそのまま整形し、モデル欄のチップと選択肢に出す。基本単価（`variant: ""`）を優先し、無いモデルだけ同じ unit の範囲を出す。`prices` が空なら `--`、宣言された `0` は `$0`。token 建ては 1 枚の実額ではない注記を添える（整形は `client/src/lib/contentSettings.ts` の `imagePriceDisplay()`）
+- 価格は `image.models[].prices` をそのまま整形し、モデル欄のチップと選択肢に出す。基本単価（`variant: ""`）を優先し、無いモデルだけ同じ unit の範囲を出す。`prices` が空なら `--`、宣言された `0` は `$0`。token 建ては 1 枚の実額ではない注記を添える（整形は `client/src/lib/contentSettings/image.ts` の `imagePriceDisplay()`）
 - `visible: false` のモデルは選択肢から外す。保存中の値がそれに当たる場合は専用ラベルで選択肢に残し、「一覧に出していない・保存済み」の警告を出す（保存・試行は今までどおり通る）。一覧に載せなかった件数は「N 件は一覧に出していません」と注記する。コストマスタの ON/OFF と URL は画像・音声で共有するため**帯の左**に置き（入口は価格を出す面だけ）、OFF の間は価格のチップが `価格 --` に倒れ、「コスト表示は停止中（前回取得: …）」を出す（[content-cost.md](content-cost.md#画面表示)）
 
 ## 保存できない形式のモデル
@@ -254,7 +254,7 @@ SDK の `openrouter-images` は `chat/completions` へ投げるが、画像生�
 
 ## 設定画面
 
-設定 → コンテンツ生成の「画像生成」タブ（`/settings/content`。既定。音声（TTS）は `/settings/content/speech`）。表示の正は `client/src/lib/contentSettings.ts` の純関数（モデルの宣言から入力欄を組み立てる規則は `client/src/lib/imageParameters.ts`）、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx`（本文）と `client/src/components/ContentSettingsPage.tsx`（帯と共通の設定）に閉じる。本文は選択中の面だけを描く。
+設定 → コンテンツ生成の「画像生成」タブ（`/settings/content`。既定。音声（TTS）は `/settings/content/speech`）。表示の正は `client/src/lib/contentSettings/image.ts` の純関数（モデルの宣言から入力欄を組み立てる規則は `client/src/lib/imageParameters.ts`）、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx`（タブの殻）と `client/src/components/content-settings/ImageProviderSection.tsx` / `ImageModelSection.tsx`（本文）、`client/src/components/ContentSettingsPage.tsx`（帯と共通の設定）に閉じる。本文は選択中の面だけを描く。
 
 - タブは 画像生成 / 音声（TTS） / 音楽（BGM） / 履歴 の 4 つ。生成の 3 タブは「設定 + その場の 1 回の試行 + 直近の結果」だけを持ち、履歴は `/settings/content/history` の専用タブが全種別をまとめて見る。生成タブは開いている種別の一覧だけを取り、履歴タブは種別で絞らずに全種別を取る（`client/src/lib/settingsNav.ts` の `CONTENT_SUBSECTIONS`）
 - **有効 / 無効とAPIキーは 3 種別共通なので、タブの外（帯の左）に置く。** 帯は「アプリ全体」の見出し + 有効 / 無効のスイッチ + `OpenRouter キー <状態> [変更]` を持ち、どのタブでも同じ位置に出す（履歴タブでも止められる）。キーの入力は [変更] で開く 1 行で、未設定のときは最初から開く。状態の理由（未評価 / 復号失敗 / master key 未設定）と無効時の固定文言は、開かなくても読めるよう帯の直下に出す。行が無い（未設定）間は `PUT /api/settings/content` が 400 のため、スイッチ自体を出さない（キーは未設定のまま帯に出す）

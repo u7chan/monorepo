@@ -1,6 +1,6 @@
 /**
  * 試行の結果から、その試行のモデル（音声はボイスも）を既定として保存する導線。表示条件と PUT の本文を
- * `client/src/lib/contentSettings.ts` の純関数に寄せ、保存の進行と失敗の注記は UI から切り離して持つ。
+ * コンテンツ生成の設定の純関数に寄せ、保存の進行と失敗の注記は UI から切り離して持つ。
  */
 import {
   imageDefaultBody,
@@ -8,10 +8,8 @@ import {
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
-  speechModelOptions,
-  speechModelValue,
-  speechSelection,
-} from "./contentSettings";
+} from "./contentSettings/image";
+import { speechModelOptions, speechModelValue, speechSelection } from "./contentSettings/speech";
 import { imageModelParameterDeclarations, imageParameterDraftOf, imageParameterFields } from "./imageParameters";
 import type {
   ContentSettingsResponse,

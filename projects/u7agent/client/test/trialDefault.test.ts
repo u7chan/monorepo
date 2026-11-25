@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { speechScreenSelection } from "../src/lib/contentSettings";
+import { speechScreenSelection } from "../src/lib/contentSettings/speech";
 import {
   createTrialDefaultAction,
   imageTrialDefaultTarget,

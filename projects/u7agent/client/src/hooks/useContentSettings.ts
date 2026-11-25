@@ -10,18 +10,17 @@ import {
   putContentSpeechSettings,
   refreshContentCatalog,
 } from "../api";
+import { CONTENT_IMAGE_SAVED_NOTE, contentImageProviderNote } from "../lib/contentSettings/image";
+import { CONTENT_SPEECH_SAVED_NOTE } from "../lib/contentSettings/speech";
 import {
+  CONTENT_COST_SAVED_NOTE,
   CONTENT_KEY_DELETED_NOTE,
   CONTENT_KEY_SAVED_NOTE,
-  CONTENT_IMAGE_SAVED_NOTE,
   CONTENT_SETTINGS_NOTE,
-  CONTENT_SPEECH_SAVED_NOTE,
-  CONTENT_COST_SAVED_NOTE,
-  contentImageProviderNote,
   contentCatalogRefreshNote,
   contentEnabledNote,
   type ContentSavingAction,
-} from "../lib/contentSettings";
+} from "../lib/contentSettings/shared";
 import { validateApiKey } from "../lib/modelSettings";
 import { messageFor } from "../lib/errors";
 import type {
