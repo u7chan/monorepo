@@ -3,6 +3,9 @@
 /** Vite の define が埋めるビルド識別子。Vite の外 (テスト / tsc) では未定義になる */
 declare const __U7AGENT_BUILD__: string | undefined;
 
+/** Vite の define が埋める版の識別子 (BFF の buildId と突き合わせる)。dev サーバーでは空文字 */
+declare const __U7AGENT_BUILD_ID__: string | undefined;
+
 /**
  * UI を増やさない診断の入口。コピーと同じ文字列を返すだけにして、画面には出さない
  * (docs/diagnostics.md)。
