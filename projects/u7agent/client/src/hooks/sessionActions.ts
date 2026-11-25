@@ -1,5 +1,5 @@
 import type { Dispatch, RefObject } from "react";
-import { messageFor } from "../lib/errors";
+import { apiFailureStatus, messageFor } from "../lib/errors";
 import type {
   ApproveNetworkAccessResponse,
   AskUserAnswer,
@@ -12,14 +12,6 @@ import type {
 } from "../types";
 import type { ChatAction } from "./chatReducer";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
-
-/**
- * HTTP の応答として返った失敗 (400 / 409 / 500)。接続自体の失敗と区別する
- * (api.ts は location を参照するため、ここでは class ではなく status の有無を見る)。
- */
-function isApiFailure(error: unknown): boolean {
-  return error instanceof Error && typeof (error as { status?: unknown }).status === "number";
-}
 
 /**
  * 利用者の操作の開始。前の操作の結果 (notice) はここで用済みにする。応答の適用時に消すと、先に
@@ -243,7 +235,7 @@ export async function resendUnsentMessage(sendId: string, deps: ResendUnsentDeps
     if (deps.sessionIdRef.current !== id) return;
     deps.dispatch({ type: "setActivity", text: messageFor(error) });
     // 400 / 409 は操作の結果 (理由は文言が持つ)。接続状態に倒すのは通信自体の失敗だけ
-    if (!isApiFailure(error)) deps.setRuntimeStatus(runtimeStatusForError(error));
+    if (apiFailureStatus(error) === undefined) deps.setRuntimeStatus(runtimeStatusForError(error));
   }
 }
 
@@ -304,7 +296,7 @@ export async function cancelQueuedMessage(sendId: string, deps: CancelQueuedDeps
     deps.dispatch({ type: "queueCanceled", sendId });
   } catch (error) {
     if (deps.sessionIdRef.current !== id) return;
-    const status = isApiFailure(error) ? (error as { status: number }).status : undefined;
+    const status = apiFailureStatus(error);
     // 取り直しを先に終わらせる。resync は活動文言を空にするため、後に理由を出す
     if (status === 409 || status === 404) await deps.recover();
     if (deps.sessionIdRef.current !== id) return;
@@ -337,7 +329,7 @@ export async function answerChatQuestion(
     if (deps.sessionIdRef.current !== id) return { ok: false, error: "会話が切り替わりました" };
     return result;
   } catch (error) {
-    const status = isApiFailure(error) ? (error as { status: number }).status : undefined;
+    const status = apiFailureStatus(error);
     if (status === 409 || status === 404) void deps.recover();
     return { ok: false, error: messageFor(error) };
   }
@@ -365,7 +357,7 @@ export async function approveDeniedNetworkAccess(
     if (deps.sessionIdRef.current !== id) return { ok: false, error: "会話が切り替わりました" };
     return { ok: true };
   } catch (error) {
-    const status = isApiFailure(error) ? (error as { status: number }).status : undefined;
+    const status = apiFailureStatus(error);
     if (status === 409 || status === 404) void deps.recover();
     return { ok: false, error: messageFor(error) };
   }
@@ -402,6 +394,6 @@ export async function compactChat({
     const status = runtimeStatusForError(error);
     dispatch({ type: "setActivity", text: status.detail || status.text });
     // 400 / 409 / 500 は操作の結果 (理由は終端 status が配る)。接続状態に倒すのは通信自体の失敗だけ
-    if (!isApiFailure(error)) setRuntimeStatus(status);
+    if (apiFailureStatus(error) === undefined) setRuntimeStatus(status);
   }
 }

@@ -2,7 +2,7 @@
  * 会話履歴のクリア (同じ URL のまま履歴だけを消す) の純関数。実行を止める理由・確認文言・
  * 履歴世代の判定と、旧履歴を落とした payload の組み立てを持ち、DOM に依存させない
  * (client に DOM テスト基盤が無いため、文言はここで固定する)。要求と再読み込みの順序は
- * `client/src/hooks/useSessions.ts` が持つ。
+ * `client/src/hooks/sessionHistory.ts` が持つ。
  */
 import type { ConfirmRequest } from "./confirmDialog";
 import { sessionBusy } from "./sessionBusy";
