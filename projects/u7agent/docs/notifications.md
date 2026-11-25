@@ -57,7 +57,7 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定し�
 | メソッド | パス | 内容 |
 | --- | --- | --- |
 | GET | `/api/notifications` | `{ enabled, askUser, provider: "discord", configured, webhookAvailable, webhookEvaluated, webhookErrorMessage, baseUrl?, lastResult? }` |
-| PUT | `/api/notifications` | `{ enabled?, askUser?, webhookUrl?（null で解除）, baseUrl?（null で解除） }`。宛先とベース URL を検証し、保存時に送信テストはしない。旧クライアントの `mention` は無視する |
+| PUT | `/api/notifications` | `{ enabled?, askUser?, webhookUrl?（null で解除）, baseUrl?（null で解除） }`。宛先とベース URL を検証し、保存時に送信テストはしない。未知のキー（廃止した `mention` など）は無視する |
 | POST | `/api/notifications/test` | 保存済み設定で 1 通。`{ ok, status, latencyMs, message?, code?, retryAfter?, at }` を 200 で返す（アプリ側のエラーだけ 4xx）。タイムアウトは 5 秒 |
 | PATCH | `/api/sessions/:id/notify` | `{ notify: boolean }` → `{ sessionId, notify }` を 200 で返す |
 | POST | `/api/sessions` | `notify?: boolean`（新規チャットで選んだ値を、作成されるセッションへ引き継ぐ） |
