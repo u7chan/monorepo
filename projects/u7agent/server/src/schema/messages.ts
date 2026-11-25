@@ -1,20 +1,19 @@
-/** 会話の中身の DTO (ツール呼び出し / run / usage / 履歴の項目)。DTO のフィールド名と optional の扱いは client と揃える。 */
+/**
+ * 会話の中身の DTO (ツール呼び出し / run / usage / 履歴の項目)。DTO のフィールド名と optional の扱いは client と揃える。
+ * 応答の契約は docs/api-sessions.md / docs/api-session-turns.md / docs/api-session-state.md を正とし、
+ * ここには型から読めない不変条件と Why not だけを書く。
+ */
 import { z } from "zod";
 import { AskUserAnswerSchema, AskUserQuestionSchema, RunOutcomeSchema, RunStatusSchema } from "./common";
 
-/**
- * スキル読み込み 1 件 (`read` で basename が SKILL.md の呼び出し)。履歴の `ChatMessage.skillLoads` と
- * ライブの `ToolCall.skill` で同じ形を使う。name は frontmatter の name ではなく解決後の親ディレクトリ名。
- */
 export const SkillLoadSchema = z.object({
   /** toolCallId */
   id: z.string(),
   name: z.string(),
-  /** 解決後の絶対パス (ライブ / 履歴で同じ値にする) */
   path: z.string(),
   offset: z.number().optional(),
   limit: z.number().optional(),
-  /** 結果がエラーだったときだけ true。キー省略 = ロード扱い (ライブは結果が無いので持たない) */
+  /** 結果がエラーだったときだけ true。省略はロードとして扱う */
   isError: z.boolean().optional(),
 });
 export type SkillLoad = z.infer<typeof SkillLoadSchema>;
@@ -29,26 +28,13 @@ export const ToolCallSchema = z.object({
   output: z.string(),
   /** ライブでスキル読み込みだったときだけ載る (履歴側は ChatMessage.skillLoads) */
   skill: SkillLoadSchema.optional(),
-  /**
-   * investigate の進捗 (現在の活動 + 子の本文末尾)。SSE の `tool_progress` だけが作るライブ専用で、
-   * payload (`run.toolCalls`) と履歴 (`messages[].tools`) には載らない (`docs/api-session-turns.md`)。
-   */
+  /** investigate の進捗。SSE の `tool_progress` だけが作り、payload と履歴には載らない */
   progress: z.string().optional(),
-  /**
-   * ask_user の質問。skill と違い、ライブ (`tool_start` / `payload.run.toolCalls`) と履歴
-   * (`messages[].tools`) の両方で同じ ToolCall に載る (`docs/api-sessions.md`)。
-   */
+  /** ask_user の質問。ライブと履歴 (`messages[].tools`) の両方で同じ ToolCall に載る */
   questions: z.array(AskUserQuestionSchema).optional(),
-  /**
-   * ask_user の回答。ツール結果の `details` から導出する。停止・中止では空配列になり、
-   * カードは「回答なしで終了」として復元できる (実行中は未回答なので undefined)。
-   */
+  /** ask_user の回答。停止・中止では空配列になり、実行中は未回答なので載らない */
   answers: z.array(AskUserAnswerSchema).optional(),
-  /**
-   * ツール実行の開始 / 終了 (BFF 計測のサーバー時計, epoch ms)。SDK は実行時刻を持たないため、
-   * イベントの到着時刻で測った値だけを載せる (`docs/api-sessions.md`)。両方揃ったカードだけが
-   * 実行時間を出せる (停止・中止で `tool_execution_end` が来なかったカードは `endedAt` が無い)。
-   */
+  /** ツール実行の開始 / 終了 (BFF 計測のサーバー時計, epoch ms)。両方揃ったカードだけが実行時間を出せる */
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),
 });
@@ -68,8 +54,8 @@ export const RunErrorCodeSchema = z.enum([
 export type RunErrorCode = z.infer<typeof RunErrorCodeSchema>;
 /**
  * 進行中の自動再試行。`waiting` は SDK の backoff 中 (retryAt まで)、`retrying` は次の
- * assistant の message_start を観測した後。`attempt` は現在の連続失敗系列の番号で、
- * ラン全体の回数は RunPayload.totalRetryCount が持つ。
+ * assistant の message_start を観測した後。`attempt` は連続失敗系列の番号で、ラン全体の回数は
+ * `RunPayload.totalRetryCount` が持つ。
  */
 export const RunRetryStateSchema = z.object({
   phase: z.enum(["waiting", "retrying"]),
@@ -132,9 +118,8 @@ export const MessageMetricsSchema = z.object({
 });
 export type MessageMetrics = z.infer<typeof MessageMetricsSchema>;
 /**
- * 本文を持たない assistant 応答の時刻 / usage / 応答時間。履歴 item にならない未回答の ask_user を
- * クライアントが復元するとき、元の応答の値を `assistantId` で引き当てるために payload へ載せる。
- * 値の無い項目はキーごと省き、再起動後・旧 payload では配列自体を載せない。
+ * 本文を持たない assistant 応答の時刻 / usage / 応答時間。未回答の ask_user を `assistantId` で
+ * 引き当てて復元するための値で、無い項目はキーごと省き、再起動後・旧 payload では配列自体が無い。
  */
 export const AssistantMetaSchema = z.object({
   assistantId: z.string(),
@@ -270,8 +255,8 @@ export type HistoryItem = z.infer<typeof HistoryItemSchema>;
 /**
  * 202 で受理したが user entry としてまだ保存されていない送信。サーバー再起動でキューごと消えた分は
  * `unsent` として見せ、実行中 / キュー待ちの分は pending エコーのまま扱わせる (表示から消さない)。
- * `text` は表示用にマスク済み (再送は本文を送り直さず `runId` でサーバーへ依頼する)。`position` は
- * `queued` の順位で、`unsentSends` の並び (受理順) を順位として数えさせないために載せる。
+ * `text` は表示用にマスク済み。`position` は `queued` の順位で、`unsentSends` の並び (受理順) を
+ * 順位として数えさせないために載せる。
  */
 export const PendingSendSchema = z.object({
   /** 受付ごとの送信ID。取消・再送・破棄・バブルとの対応はこの値で行う */
@@ -280,11 +265,7 @@ export const PendingSendSchema = z.object({
   runId: z.string().optional(),
   text: z.string(),
   at: z.number(),
-  /**
-   * queued = BFF 待機中または SDK 実キューに残る (取消の対象)。steering = SDK が取り出して注入待ち
-   * (取消・再送・破棄は不可)。running = 開始送信の準備中か注入済みで保存待ち。unsent = 配送対象から
-   * 外れた未保存の送信 (再送・破棄の対象)
-   */
+  /** 取消の対象は `queued` だけ。`steering` / `running` は取消・再送・破棄を受け付けない */
   state: z.enum(["unsent", "queued", "steering", "running"]),
   /**
    * 待機中の順位 (1 始まり)。`state` が queued / steering のときだけ載り、BFF と SDK の未注入分を
@@ -294,10 +275,8 @@ export const PendingSendSchema = z.object({
 });
 export type PendingSend = z.infer<typeof PendingSendSchema>;
 /**
- * カーソル型の履歴ページ。items は古い→新しい、nextCursor はさらに古いページを取るための
- * 先頭 item の id。prevCursor は先頭 item の直前の item id (ページ間の連続性検証用)。
- * messageCount / summarizedMessageCount はページではなく現行ブランチ全体の値で、
- * クライアントが保持済みページの dim (summarized) 判定を更新するのに使う。
+ * カーソル型の履歴ページ。items は古い→新しい。
+ * messageCount / summarizedMessageCount はページではなく、現行ブランチ全体の値。
  */
 export const HistoryPageSchema = z.object({
   sessionId: z.string(),

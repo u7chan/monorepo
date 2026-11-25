@@ -55,10 +55,7 @@ export type SessionFileUpload = {
   size: number;
 };
 
-/**
- * 作業環境 → 環境変数の要求元。会話 (sessionId) か、まだ会話が無いプロジェクト起点の新規会話 (projectId)。
- * cwd はサーバーが解決するため client は送らない。
- */
+/** cwd はサーバーが解決するため client は送らない */
 export type SecretsScope = { sessionId?: string; projectId?: string };
 
 function scopeQuery(scope: SecretsScope): { sessionId?: string; projectId?: string } {
@@ -191,7 +188,6 @@ export function createSpaceApi(spaceId: string) {
       ),
     deleteSecret: (input: SecretsScope, secretId: string) =>
       read<SecretRemovalResponse>(fetch(scope(detailUrl(input, secretId)), { method: "DELETE" })),
-    /** 並べ替え。応答の items がサーバーの採用した順（値は含まれない） */
     reorderSecrets: (input: SecretsScope, ids: readonly string[]) =>
       read<SecretsListResponse>(scoped.api.secrets.order.$patch({ json: { ...scopeQuery(input), ids: [...ids] } })),
   };
