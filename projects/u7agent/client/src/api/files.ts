@@ -1,44 +1,30 @@
 import { encodeFilePathParam } from "../lib/fileUrl";
 import { publicOrigin } from "../lib/publicOrigin";
-import { apiError, client } from "./http";
+import { client, ensureOk, read } from "./http";
 import type { FileDownloadCheck, FileListing, FilePreview, FileRename, FileStat, FileUpload, GitInfo } from "../types";
 
 // 並び順と件数上限はサーバーが決めるため、クライアントでは再ソートしない
-export const getFiles = async (path = "."): Promise<FileListing> => {
-  const res = await client.api.files.$get({ query: { path } });
-  if (!res.ok) throw await apiError(res);
-  // 400 (root 外) / 503 (未設定) の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
-  return (await res.json()) as FileListing;
-};
+export const getFiles = (path = ".") => read<FileListing>(client.api.files.$get({ query: { path } }));
 
 /**
  * 単一ファイルの存在確認（本文は取得しない）。通常ファイルとして実在するときだけ 200 で、404 は不存在、
  * 400 は不正・root 外・通常ファイル以外。502 / 503 はサンドボックス側の失敗で、**実在の確認には使えない**
  * （不存在と混同しない扱いは呼び出し側の `classifyFileRefFailure` が決める）。
  */
-export const statFile = async (path: string): Promise<FileStat> => {
-  const res = await client.api.files.stat.$get({ query: { path } });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as FileStat;
-};
+export const statFile = (path: string) => read<FileStat>(client.api.files.stat.$get({ query: { path } }));
 
 /**
  * 作業フォルダ (root 相対) が属する repo のブランチ。repo の外・git が無い環境は null で、
  * 表示側はチップを出さないだけにする (一覧の表示を止めない)。
  */
-export const getGitInfo = async (path = "."): Promise<GitInfo> => {
-  const res = await client.api.files.git.$get({ query: { path } });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as GitInfo;
-};
+export const getGitInfo = (path = ".") => read<GitInfo>(client.api.files.git.$get({ query: { path } }));
 
 /**
  * ファイルの削除。成功は 204 で本文が無いため JSON は読まない。パスは GET /api/files と同じ root 相対で、
  * 検証 (root 外 / 不存在 / symlink / ディレクトリ) はサンドボックスに委ねる。
  */
 export const deleteFile = async (path: string): Promise<void> => {
-  const res = await client.api.files.$delete({ query: { path } });
-  if (!res.ok) throw await apiError(res);
+  await ensureOk(client.api.files.$delete({ query: { path } }));
 };
 
 /**
@@ -46,43 +32,32 @@ export const deleteFile = async (path: string): Promise<void> => {
  * 成功は 204 で本文が無いため JSON は読まない。検証 (root 外 / 不存在 / ディレクトリ以外 / symlink) はサンドボックスに委ねる。
  */
 export const deleteDirectory = async (path: string): Promise<void> => {
-  const res = await client.api.files.$delete({ query: { path, recursive: "true" } });
-  if (!res.ok) throw await apiError(res);
+  await ensureOk(client.api.files.$delete({ query: { path, recursive: "true" } }));
 };
 
 /**
  * エントリ (ファイル / ディレクトリ) のリネーム。`path` は GET /api/files と同じ root 相対で、`name` は 1 セグメントの新しい名前。
  * 検証 (root 外 / 不存在 / 形式 / symlink / 同名 409) はサンドボックスに委ね、応答は改名後の root 相対パス。
  */
-export const renameEntry = async (path: string, name: string): Promise<FileRename> => {
-  const res = await client.api.files.rename.$post({ json: { path, name } });
-  if (!res.ok) throw await apiError(res);
-  // 400 / 404 / 409 / 503 の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
-  return (await res.json()) as FileRename;
-};
+export const renameEntry = (path: string, name: string) =>
+  read<FileRename>(client.api.files.rename.$post({ json: { path, name } }));
 
 /**
  * 設定 → ファイル と作業環境（作業フォルダ）のドラッグ＆ドロップ。raw の本文で 1 ファイルを送り、保存先 (`path`。"" は root) と
  * 名前は query で渡す。保存名の検証・同名時の連番・上限の最終判定はサンドボックスが行う。
  * 一覧の再取得は呼び出し側 (hook) が全件の決着後に 1 回だけ行う。
  */
-export const uploadWorkspaceFile = async (path: string, file: File, signal?: AbortSignal): Promise<FileUpload> => {
-  const res = await fetch(client.api.files.upload.$url({ query: { path, name: file.name } }), {
-    method: "POST",
-    body: file,
-    signal,
-  });
-  if (!res.ok) throw await apiError(res);
-  // 400 (名前 / root 外) / 413 / 502 / 503 の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
-  return (await res.json()) as FileUpload;
-};
+export const uploadWorkspaceFile = (path: string, file: File, signal?: AbortSignal) =>
+  read<FileUpload>(
+    fetch(client.api.files.upload.$url({ query: { path, name: file.name } }), {
+      method: "POST",
+      body: file,
+      signal,
+    }),
+  );
 
-export const getFilePreview = async (path: string, signal: AbortSignal): Promise<FilePreview> => {
-  const res = await client.api.files.preview.$get({ query: { path } }, { init: { signal } });
-  if (!res.ok) throw await apiError(res);
-  // 400 (root 外 / バイナリ等) / 503 (未設定) の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
-  return (await res.json()) as FilePreview;
-};
+export const getFilePreview = (path: string, signal: AbortSignal) =>
+  read<FilePreview>(client.api.files.preview.$get({ query: { path } }, { init: { signal } }));
 
 /**
  * HTML プレビュー (iframe の src)。取得は iframe に任せるので、ここでは URL だけを組み立てる。
@@ -119,11 +94,8 @@ export const fileRawUrl = (path: string, version?: number): string => {
  * ダウンロードの事前チェック。download と同じ走査の見積り（種別 / 保存名 / 除外名 / 合計サイズ / 件数）を返し、
  * 除外名のディレクトリ・上限超過は 400 / 413 で reject する（UI はツリーの行に理由を出す）。
  */
-export const getFileDownloadCheck = async (path: string): Promise<FileDownloadCheck> => {
-  const res = await client.api.files.download.check.$get({ query: { path } });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as FileDownloadCheck;
-};
+export const getFileDownloadCheck = (path: string) =>
+  read<FileDownloadCheck>(client.api.files.download.check.$get({ query: { path } }));
 
 /**
  * ダウンロードの URL（`<a download>` の href）。ファイルは生配信、ディレクトリは ZIP になり、

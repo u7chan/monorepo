@@ -39,7 +39,7 @@ export function isNotStoredError(error: unknown): boolean {
 // Vite dev は /api を 4317 へプロキシするため同一オリジンで扱える
 export const client = hc<AppType>(location.origin);
 
-export async function apiError(res: Response): Promise<ApiError> {
+async function apiError(res: Response): Promise<ApiError> {
   const body: unknown = await res.json().catch(() => null);
   const message =
     typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
@@ -62,4 +62,23 @@ export async function apiError(res: Response): Promise<ApiError> {
     ...(code === undefined ? {} : { code }),
     ...(plan === undefined ? {} : { plan }),
   });
+}
+
+/**
+ * 失敗の応答を `ApiError` に写して投げる。本文を読まない経路（204 / text / blob）も必ずこれを通す。
+ * 成功時の応答を返すのは、本文を読む経路が同じ応答を続けて使うため。
+ */
+export async function ensureOk(response: Promise<Response>): Promise<Response> {
+  const res = await response;
+  if (!res.ok) throw await apiError(res);
+  return res;
+}
+
+/**
+ * `ensureOk` の後に本文を JSON として読む。`T` には成功の応答の DTO（正は `types.ts`）を置く。
+ * hc の `json()` は失敗の応答の型も含むため、成功の型はここで受ける。
+ */
+export async function read<T>(response: Promise<Response>): Promise<T> {
+  const res = await ensureOk(response);
+  return (await res.json()) as T;
 }

@@ -1,6 +1,6 @@
 import { hc } from "hono/client";
 import type { AppType } from "server";
-import { apiError, client } from "./http";
+import { client, ensureOk, read } from "./http";
 import type {
   ApproveNetworkAccessResponse,
   AskUserAnswer,
@@ -84,11 +84,6 @@ export function createSpaceApi(spaceId: string) {
     fetch: (input: RequestInfo | URL, init?: RequestInit) =>
       fetch(scope(new URL(input instanceof Request ? input.url : String(input), location.origin)), init),
   });
-  const read = async <T>(response: Promise<Response>): Promise<T> => {
-    const res = await response;
-    if (!res.ok) throw await apiError(res);
-    return res.json() as Promise<T>;
-  };
   const session = scoped.api.sessions[":id"];
   return {
     /**
@@ -163,8 +158,7 @@ export function createSpaceApi(spaceId: string) {
      * 文字列化せず Blob のまま返す (BOM や不正 UTF-8 を再エンコードで改変しない)。
      */
     getSessionRawLog: async (id: string): Promise<Blob> => {
-      const res = await fetch(scope(session.raw.$url({ param: { id } })));
-      if (!res.ok) throw await apiError(res);
+      const res = await ensureOk(fetch(scope(session.raw.$url({ param: { id } }))));
       return res.blob();
     },
     getSessionSkillsPreview: (input: { projectId: string; agentId: string }) =>
