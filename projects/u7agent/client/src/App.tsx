@@ -171,7 +171,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     sessionId: app.sessionId,
     projectId: app.sessionId === "" ? (app.selectedProjectId ?? "") : "",
   });
-  // 入力欄のチップ (定型プロンプト / 引き継ぎの案内) と、選択を捨てる契機。下書きなので状態は App 側に置く
+  // 入力欄のチップ (定型プロンプト / 引き継ぎの案内) と、選択を捨てる契機。下書きなので Composer ではなくここが持つ
   const suggestionChip = useSuggestionChip({
     agentId: app.selectedAgent?.id,
     selectionSeq: app.selectionSeqRef.current,
@@ -456,8 +456,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     [app.selectedProjectId, handleNewChat],
   );
 
-  // 専用ダイアログ (プロジェクト / AI要約 / 分岐 / 引き継ぎ) の対象と、退場してから画面を移す順序。
-  // 対象は開いた時点の一覧から導き、移動はダイアログが閉じ切ってから実行する
+  // 専用ダイアログ (プロジェクト / AI要約 / 分岐 / 引き継ぎ) の対象と、退場してから画面を移す順序
   const dialogs = useSessionDialogs({
     app,
     space,
@@ -466,7 +465,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     sessions: spaceSessions,
     backToChat,
     newChat: handleNewChat,
-    ...(onHandoffNote ? { onHandoffNote } : {}),
+    onHandoffNote,
   });
 
   const refreshCatalog = useCallback(async () => {

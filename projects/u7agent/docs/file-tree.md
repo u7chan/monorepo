@@ -169,7 +169,7 @@ assistant 本文のインラインコードと Markdown リンクが指すファ
 
 ### 面のモード（作業フォルダとスキル）
 
-参照から開く面は `SessionFilesPanel` / `SessionFilesSheet` の 1 つのスロットに**モード**として載せる（面ごとの別ペインは追加しない）。モードは `{ kind: "work" } | { kind: "skill", root }`（`client/src/lib/fileRefRequest.ts`）で、App が要求の種別から決める。
+参照から開く面は `SessionFilesPanel` / `SessionFilesSheet` の 1 つのスロットに**モード**として載せる（面ごとの別ペインは追加しない）。モードは `{ kind: "work" } | { kind: "skill", root }`（`client/src/lib/fileRefRequest.ts`）で、面を保持するフック（`client/src/hooks/useSessionFilesFace.ts`）が要求の種別から `filesModeForTarget` で決める。
 
 | モード | 中身 | ヘッダ |
 | --- | --- | --- |
