@@ -186,7 +186,7 @@ function streamingTurn(): ChatState {
     at: 10,
     startedAt: 10,
   });
-  return chatReducer(state, { type: "text", delta: "前半", at: 11 });
+  return chatReducer(state, { type: "text", delta: "前半", at: 11, assistantId: "run-1:1" });
 }
 
 /** 継続 resync の直後に取り直される最新ページ (assistant は任意で部分テキスト) */
@@ -482,7 +482,7 @@ test("新しい会話のストリーミング中も、同じ実行の resync は
     at: 10,
     startedAt: 10,
   });
-  state = chatReducer(state, { type: "text", delta: "前半", at: 11 });
+  state = chatReducer(state, { type: "text", delta: "前半", at: 11, assistantId: "run-1:1" });
   const streaming = state.currentAssistantId;
   assert.notEqual(streaming, null);
 
@@ -512,7 +512,7 @@ test("同じ実行の resync の後も Done は 1 枚になった最終応答へ
     at: 10,
     startedAt: 10,
   });
-  state = chatReducer(state, { type: "text", delta: "前半", at: 11 });
+  state = chatReducer(state, { type: "text", delta: "前半", at: 11, assistantId: "run-1:1" });
   const streaming = state.currentAssistantId;
   state = chatReducer(state, { type: "resync", payload: streamingPayload() });
   assert.equal(state.currentAssistantId, streaming);
@@ -738,7 +738,7 @@ test("前ターンの assistant は今ターンの本文一致で上書き・移
 test("assistant_end で閉じた失敗試行も attempt_discarded で捨てる", () => {
   // What: message_end 後に届く取り消しの resync でも、閉じた失敗試行のカードを残さない
   let state = streamingTurn();
-  state = chatReducer(state, { type: "assistantEnd" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   const payload = streamingPayload();
   payload.resyncReason = "attempt_discarded";
   state = chatReducer(state, { type: "resync", payload });
@@ -761,8 +761,8 @@ test("履歴ページ未取得の会話でも assistant_end のカードは継�
     at: 10,
     startedAt: 10,
   });
-  state = chatReducer(state, { type: "text", delta: "前半", at: 11 });
-  state = chatReducer(state, { type: "assistantEnd" });
+  state = chatReducer(state, { type: "text", delta: "前半", at: 11, assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
 
   const payload = streamingPayload();
   payload.messages = [{ role: "user", text: "質問" }];
@@ -783,7 +783,7 @@ test("履歴ページ未取得の会話でも assistant_end のカードは継�
 test("取り消しの resync でも投影に残る完了済みの応答は消さない", () => {
   // What: 失敗試行の取り消しで、既に保存済みの同じ run の応答カードまで巻き込まない
   let state = streamingTurn();
-  state = chatReducer(state, { type: "assistantEnd" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   const payload = streamingPayload();
   payload.messages = [
     { role: "user", text: "質問" },
@@ -816,8 +816,8 @@ test("会話切替で前の会話の確定済み応答を持ち越さない", ()
     at: 10,
     startedAt: 10,
   });
-  state = chatReducer(state, { type: "text", delta: "A の回答", at: 11 });
-  state = chatReducer(state, { type: "assistantEnd" });
+  state = chatReducer(state, { type: "text", delta: "A の回答", at: 11, assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   assert.equal(
     state.bubbles.some((bubble) => bubble.text === "A の回答"),
     true,
@@ -862,7 +862,7 @@ test("最初のターンが速く完了しても live の user が先で Done �
   });
   state = chatReducer(state, { type: "text", delta: "回答", at: 2, assistantId: "run-1:1" });
   state = chatReducer(state, { type: "usage", usage: USAGE, metrics: METRICS, assistantId: "run-1:1" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0, durationMs: 1234 });
 
   const payload = runningPayload();
@@ -960,9 +960,9 @@ test("再接続後の steering でも user と応答末尾を重複させない"
     item.kind === "message" && item.role === "assistant" ? { ...item, text: "前半後半" } : item,
   );
   state = chatReducer(state, { type: "resyncHistory", page: refreshed });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = chatReducer(state, { type: "text", delta: "追記を受け取って", at: 4, assistantId: "run-1:2" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2", model: null });
   state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0, durationMs: 900 });
 
   assert.deepEqual(
@@ -1136,7 +1136,7 @@ test("同じ質問の次ラン中に resync しても前ランの Done を移さ
     startedAt: 1,
   });
   state = chatReducer(state, { type: "text", delta: "旧回答", at: 2, assistantId: "run-1:1" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0, durationMs: 1000 });
 
   state = chatReducer(state, { type: "localUser", text: "同じ質問", at: 10 });
@@ -1528,7 +1528,7 @@ test("新規会話の1通目: run_start → resync → text → run_end で user
   });
   state = chatReducer(state, { type: "text", delta: "回答", at: 2, assistantId: "run-1:1" });
   state = chatReducer(state, { type: "usage", usage: USAGE, metrics: METRICS });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0, durationMs: 500 });
 
   assert.deepEqual(
@@ -1567,7 +1567,7 @@ test("新規会話の1通目: payload が assistant のみでも pending の use
     payload: firstTurnPayload(question, [{ role: "assistant", text: "", assistantId: "run-1:1" }]),
   });
   state = chatReducer(state, { type: "text", delta: "回答", at: 2, assistantId: "run-1:1" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0, durationMs: 500 });
 
   assert.deepEqual(
@@ -1598,7 +1598,7 @@ test("新規会話の1通目: run_end を落としても終端 payload から Do
     payload: firstTurnPayload(question, [{ role: "user", text: question, sendId: "send-1", runId: "run-1" }]),
   });
   state = chatReducer(state, { type: "text", delta: "回答", at: 2, assistantId: "run-1:1" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
 
   const terminal = firstTurnPayload(question, [{ role: "user", text: question, sendId: "send-1", runId: "run-1" }]);
   terminal.status = "completed";
@@ -1634,7 +1634,7 @@ test("新規会話の1通目: pending が steering でも render は user → as
   state = chatReducer(state, { type: "resync", payload });
   state = chatReducer(state, { type: "text", delta: "回答", at: 2, assistantId: "run-1:1" });
   state = chatReducer(state, { type: "usage", usage: USAGE, metrics: METRICS });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0, durationMs: 500 });
 
   assert.deepEqual(renderedMessages(state), [`user:${question}`, "assistant:回答"]);
@@ -1672,7 +1672,7 @@ test("新規会話の1通目: 履歴取得が assistant だけでも render は 
     },
   });
   state = chatReducer(state, { type: "usage", usage: USAGE, metrics: METRICS });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0, durationMs: 500 });
 
   assert.deepEqual(renderedMessages(state), [`user:${question}`, "assistant:回答"]);
@@ -1700,9 +1700,9 @@ test("終端 resync を繰り返しても、実行の最後の応答にだけ Do
       assistantId: "run-1:1",
     });
     state = chatReducer(state, { type: "toolEnd", id: "work-1", isError: false, output: "ok" });
-    state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+    state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
     state = chatReducer(state, { type: "text", delta: "B", at: 4, assistantId: "run-1:2" });
-    state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+    state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2", model: null });
     state = chatReducer(state, {
       type: "runEnd",
       runId: "run-1",

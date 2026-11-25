@@ -282,7 +282,7 @@ test("queued の応答が run_end より後に届いても、表示は完了の�
   const sending = sendChatMessage("2つ目", deps);
   await postCalled.promise;
   // 実 API で観測した順序: queued → run #1 の run_end → pump の run_start → run #2 の run_end
-  dispatch({ type: "queued", position: 1, queueDepth: 1 });
+  dispatch({ type: "queued", sendId: "send-1", position: 1, queueDepth: 1 });
   dispatch({ type: "runEnd", durationMs: 1_000, status: "completed", queueDepth: 1 });
   assert.equal(state().runStatus, "queued", "run #1 の終了で待機中の表示になる");
   dispatch({ type: "runStart", prompt: "2つ目", at: 2, startedAt: 2 });

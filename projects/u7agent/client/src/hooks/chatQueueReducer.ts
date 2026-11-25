@@ -51,28 +51,22 @@ export function applyQueueAction(state: ChatState, action: QueueChatAction): Cha
   switch (action.type) {
     case "queued": {
       // 自分の送信の待機を SSE が先に配る経路 (応答より前) でも送信IDで対応付ける
-      const bubbles =
-        action.sendId === undefined
-          ? state.bubbles
-          : state.bubbles.map((bubble) =>
-              bubble.sendId === action.sendId && bubble.entryId === undefined
-                ? {
-                    ...bubble,
-                    accepted: true,
-                    queued: true,
-                    queuedState: "queued" as const,
-                    queuePosition: action.position,
-                  }
-                : bubble,
-            );
+      const bubbles = state.bubbles.map((bubble) =>
+        bubble.sendId === action.sendId && bubble.entryId === undefined
+          ? {
+              ...bubble,
+              accepted: true,
+              queued: true,
+              queuedState: "queued" as const,
+              queuePosition: action.position,
+            }
+          : bubble,
+      );
       // 送信IDがまだ結び付いていないエコーには、この送信の待機位置として控えて応答時に引き継ぐ
-      const bound = action.sendId !== undefined && bubbles.some((bubble) => bubble.sendId === action.sendId);
-      const queuedSnapshots =
-        action.sendId === undefined
-          ? state.queuedSnapshots
-          : bound
-            ? withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId])
-            : { ...state.queuedSnapshots, [action.sendId]: { position: action.position } };
+      const bound = bubbles.some((bubble) => bubble.sendId === action.sendId);
+      const queuedSnapshots = bound
+        ? withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId])
+        : { ...state.queuedSnapshots, [action.sendId]: { position: action.position } };
       return {
         ...state,
         bubbles,
@@ -91,7 +85,7 @@ export function applyQueueAction(state: ChatState, action: QueueChatAction): Cha
       // 破棄された待機メッセージは実行されない。送信IDが分かる分を未送信へ切り替え、
       // 「送信済み」の見た目のまま残さない。応答 (echoSendId) がまだ届いていないエコーは送信IDが
       // 無いため特定できず、控えを残して対応付いた時点で切り替える
-      const cleared = new Set(action.sendIds ?? []);
+      const cleared = new Set(action.sendIds);
       const bubbles = state.bubbles.map((bubble) => {
         // 送信IDを持たないバブルは run id で突き合わせる
         const key = bubble.sendId ?? bubble.runId;
@@ -109,7 +103,7 @@ export function applyQueueAction(state: ChatState, action: QueueChatAction): Cha
         bubbles,
         pendingEchoIds,
         stateSeq: state.stateSeq + 1,
-        queuedSnapshots: withoutQueuedSnapshots(state.queuedSnapshots, action.sendIds ?? []),
+        queuedSnapshots: withoutQueuedSnapshots(state.queuedSnapshots, action.sendIds),
         // 取りこぼしを防ぐため直近の分だけ持ち、対応が取れたら消す
         clearedSendIds: [...state.clearedSendIds, ...cleared].slice(-20),
         queueDepth: 0,

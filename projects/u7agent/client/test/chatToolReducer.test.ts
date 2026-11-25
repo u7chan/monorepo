@@ -135,7 +135,7 @@ function streamingTurn(): ChatState {
     at: 10,
     startedAt: 10,
   });
-  return chatReducer(state, { type: "text", delta: "前半", at: 11 });
+  return chatReducer(state, { type: "text", delta: "前半", at: 11, assistantId: "run-1:1" });
 }
 
 /** assistant カードの本文・所有者ID・ツールID */
@@ -545,7 +545,7 @@ test("progress は resync で消える (payload が正の復元に live 値を�
 test("steering 後の履歴再取得でも run のツールカードを次の応答へ移さない", () => {
   // What: assistant_end → ツール → steering → resync / resyncHistory を挟んでも所有者は 1 枚目のまま
   let state = streamingTurn();
-  state = chatReducer(state, { type: "assistantEnd" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = chatReducer(state, { type: "toolStart", startedAt: 11, id: "tool-1", name: "bash", args: "{}", at: 11 });
   state = chatReducer(state, { type: "toolEnd", id: "tool-1", isError: false, output: "ok" });
   state = chatReducer(state, { type: "localUser", text: "追記", at: 12 });
@@ -674,7 +674,7 @@ test("同じ本文の別応答でも assistantId でツール所有者を分け�
     assistantId: "run-1:2",
   });
   state = chatReducer(state, { type: "toolEnd", id: "work-2", isError: false, output: "ok" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2", model: null });
 
   // 再接続: run の全ツールと保存済み 1 応答目を配る
   const payload = streamingPayload();
@@ -772,7 +772,7 @@ test("assistant_end 後の並列ツール再接続で閉じた応答を本文の
     startedAt: 1,
   });
   state = chatReducer(state, { type: "text", delta: "A", at: 2, assistantId: "run-1:1" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = chatReducer(state, {
     type: "toolStart",
     startedAt: 3,
@@ -868,7 +868,7 @@ test("本文のない別応答のツールは、次の本文 item まで溜め�
     assistantId: "run-1:1",
   });
   state = chatReducer(state, { type: "toolEnd", id: "work-1", isError: false, output: "ok" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   // 本文を持たない 2 応答目。閉じた A が toolTargetAssistantId に残ったまま次 ID のツールが届く
   state = chatReducer(state, {
     type: "toolStart",
@@ -1031,7 +1031,7 @@ test("本文を持たない ask_user の回答カードは所有者IDを保っ�
     startedAt: 1,
   });
   afterClosed = chatReducer(afterClosed, { type: "text", delta: "A", at: 2, assistantId: "run-1:1" });
-  afterClosed = chatReducer(afterClosed, { type: "assistantEnd", assistantId: "run-1:1" });
+  afterClosed = chatReducer(afterClosed, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   afterClosed = chatReducer(afterClosed, {
     type: "toolStart",
     startedAt: 3,
@@ -1282,7 +1282,7 @@ test("本文なし応答の再接続カードと繰り上げ投影で同じツ�
       assistantId: "run-1:1",
     });
     state = chatReducer(state, { type: "toolEnd", id: "work-1", isError: false, output: "ok" });
-    state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+    state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
     // 本文を持たない 2 応答目のツール
     const running2 = bodylessTool(name, false);
     state = chatReducer(state, {
@@ -1352,7 +1352,7 @@ test("本文なし応答の再接続カードと繰り上げ投影で同じツ�
       ...(name === "ask_user" ? { answers: [{ index: 0, text: "はい" }] } : {}),
     });
     state = chatReducer(state, { type: "text", delta: "B", at: 6, assistantId: "run-1:3" });
-    state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:3" });
+    state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:3", model: null });
 
     const carried = bodylessTool(name, true);
     const completed = runningPayload();
@@ -1571,7 +1571,7 @@ test("停止した本文なし応答のツールカードは、次の run と再
     startedAt: 30,
   });
   state = chatReducer(state, { type: "text", delta: "B", at: 31, assistantId: "run-2:1" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-2:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-2:1", model: null });
   const messages: SessionPayload["messages"] = [
     { role: "user", text: "前の質問" },
     { role: "assistant", text: "旧回答" },
@@ -1857,7 +1857,7 @@ test("同じターンの本文なしツール応答が複数でも、所有者�
     startedAt: 30,
   });
   state = chatReducer(state, { type: "text", delta: "B", at: 31, assistantId: "run-2:1" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-2:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-2:1", model: null });
   state = chatReducer(state, {
     type: "resync",
     payload: {
@@ -2042,7 +2042,7 @@ test("同じターンの後に本文 C が届くと、live も C のカードへ
   }
   // 本文 C が届いて確定する。ここが live の最終状態 (終端 resync / 履歴取得より前)
   live = chatReducer(live, { type: "text", delta: answerC, at: 13, assistantId: "run-1:3" });
-  live = chatReducer(live, { type: "assistantEnd", assistantId: "run-1:3" });
+  live = chatReducer(live, { type: "assistantEnd", assistantId: "run-1:3", model: null });
 
   assert.deepEqual(
     owners(live),
@@ -2226,7 +2226,7 @@ test("本文なし ask_user の回答後に本文が続くと、live も回答�
     answers: [{ index: 0, selected: ["はい"] }],
   });
   live = chatReducer(live, { type: "text", delta: answerC, at: 13, assistantId: "run-1:2" });
-  live = chatReducer(live, { type: "assistantEnd", assistantId: "run-1:2" });
+  live = chatReducer(live, { type: "assistantEnd", assistantId: "run-1:2", model: null });
   const reloaded = chatReducer(chatReducer(initialChatState, { type: "resync", payload }), {
     type: "resyncHistory",
     page,
@@ -2358,7 +2358,9 @@ test("履歴が assistant_end を追い越しても、本文へ繰り上げた�
   // 履歴が assistant_end を追い越す順序。履歴適用の時点で同じ C に 2 度載せない
   const mergedFirst = chatReducer(streaming(), { type: "resyncHistory", page });
   assert.deepEqual(owners(mergedFirst), expected, "履歴適用の時点で重複させない");
-  const historyFirst = terminal(chatReducer(mergedFirst, { type: "assistantEnd", assistantId: "run-1:3" }));
+  const historyFirst = terminal(
+    chatReducer(mergedFirst, { type: "assistantEnd", assistantId: "run-1:3", model: null }),
+  );
   assert.deepEqual(owners(historyFirst), expected, "追い越しても a / b の 2 枚のまま");
   assert.deepEqual(
     historyFirst.bubbles
@@ -2370,7 +2372,7 @@ test("履歴が assistant_end を追い越しても、本文へ繰り上げた�
 
   // 逆順 (assistant_end → 履歴 → 終端 resync) でも同じ
   const endFirst = terminal(
-    chatReducer(chatReducer(streaming(), { type: "assistantEnd", assistantId: "run-1:3" }), {
+    chatReducer(chatReducer(streaming(), { type: "assistantEnd", assistantId: "run-1:3", model: null }), {
       type: "resyncHistory",
       page,
     }),

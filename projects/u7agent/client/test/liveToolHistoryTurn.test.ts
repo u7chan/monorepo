@@ -45,7 +45,7 @@ function bodylessTool(state: ChatState, seq: number, options: { id?: string; end
   const id = options.id ?? `tool-${seq}`;
   const assistantId = `run-1:${seq}`;
   let next = chatReducer(state, { type: "usage", assistantId, usage: USAGE, metrics: METRICS });
-  next = chatReducer(next, { type: "assistantEnd", assistantId });
+  next = chatReducer(next, { type: "assistantEnd", assistantId, model: null });
   next = chatReducer(next, {
     type: "toolStart",
     id,
@@ -226,7 +226,7 @@ test("run_end はライブの印を落とすだけで、ヘッダーの位置・
   let live = startRun();
   for (const seq of [1, 2, 3]) live = bodylessTool(live, seq);
   live = chatReducer(live, { type: "text", delta: "調べました", at: 40, assistantId: "run-1:4" });
-  live = chatReducer(live, { type: "assistantEnd", assistantId: "run-1:4" });
+  live = chatReducer(live, { type: "assistantEnd", assistantId: "run-1:4", model: null });
   const before = liveHeader(live);
   const [host] = toolBubbles(live);
   const position = live.bubbles.findIndex((bubble) => bubble.id === host.id);
@@ -565,10 +565,10 @@ test("ツールだけの応答がターン途中でも、確定履歴どおり�
   // C と D の item に分かれ (全ターン 1 ヘッダーへ広げない)、確定履歴と同じ数になる
   let state = startRun();
   state = chatReducer(state, { type: "text", delta: "A", at: 11, assistantId: "run-1:1" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1", model: null });
   state = bodylessTool(state, 2, { id: "work-b" });
   state = chatReducer(state, { type: "text", delta: "C", at: 41, assistantId: "run-1:3" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:3" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:3", model: null });
   state = bodylessTool(state, 4, { id: "work-d" });
 
   assert.deepEqual(
@@ -690,7 +690,7 @@ test("待機エコーが host の後ろに積まれても、次の本文は host
     stateSeq: state.stateSeq,
   });
   state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2", model: null });
   const settled = chatReducer(state, {
     runId: "run-1",
     type: "runEnd",
@@ -763,7 +763,7 @@ test("本文 item を引き取った host は run_end まで live のままで�
   let state = startRun();
   state = bodylessTool(state, 1, { id: "work-a" });
   state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2", model: null });
   state = chatReducer(state, {
     type: "toolStart",
     startedAt: 61,
@@ -813,7 +813,7 @@ test("履歴照合の後も、本文 item を引き取った host は run_end �
   let state = startRun();
   state = bodylessTool(state, 1, { id: "work-a" });
   state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2", model: null });
   state = chatReducer(state, {
     type: "toolStart",
     startedAt: 61,
@@ -903,7 +903,7 @@ test("本文 item を引き取った host の ask_user は、その item に残�
   let state = startRun();
   state = bodylessTool(state, 1, { id: "work-a" });
   state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2", model: null });
   state = chatReducer(state, {
     type: "toolStart",
     startedAt: 61,
@@ -934,7 +934,7 @@ test("本文 item を引き取った host の ask_user は、その item に残�
 
   state = chatReducer(state, { type: "toolEnd", id: "ask", isError: false, output: "", answers: [] });
   state = chatReducer(state, { type: "text", delta: "D", at: 62, assistantId: "run-1:3" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:3" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:3", model: null });
   const settled = chatReducer(state, {
     runId: "run-1",
     type: "runEnd",
@@ -962,7 +962,7 @@ test("2回目の resync でページを組み直しても、本文 item を引�
   let state = startRun();
   state = bodylessTool(state, 1, { id: "work-a" });
   state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2", model: null });
   state = chatReducer(state, {
     type: "toolStart",
     id: "work-c",
@@ -1125,7 +1125,7 @@ test("run が変わった resync では、前ターンの完了済み host を l
   let state = startRun();
   state = bodylessTool(state, 1, { id: "work-a" });
   state = chatReducer(state, { type: "text", delta: "C", at: 60, assistantId: "run-1:2" });
-  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:2", model: null });
   const r1Page: HistoryPage = {
     sessionId: "session-a",
     items: [

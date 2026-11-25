@@ -119,9 +119,8 @@ test("履歴が assistant_end を追い越しても、確定まではモデル�
   assert.doesNotMatch(html, /選択モデル/, "tooltip にラベルを付けない");
 });
 
-test("モデルは表示名 → provider/id の順に解決し、null は不明、未指定は出さない", () => {
-  // What: 候補に無いモデルは provider/id を出し、null (モデル情報なし) は「モデル不明」、
-  // キー省略 (旧サーバー / assistant_end 前) はバッジごと出さない
+test("モデルは表示名 → provider/id の順に解決し、null は不明", () => {
+  // What: 候補に無いモデルは provider/id を出し、null (モデル情報なし) は「モデル不明」
   const bubble = answeredBubble(streaming());
 
   const resolved = render({ ...bubble, model: MODEL }, "Model A");
@@ -135,8 +134,4 @@ test("モデルは表示名 → provider/id の順に解決し、null は不明�
   const unknown = render({ ...bubble, model: null });
   assert.match(unknown, /モデル不明/);
   assert.doesNotMatch(unknown, /example\//);
-
-  const hidden = render(bubble);
-  assert.doesNotMatch(hidden, /モデル不明|example\//);
-  assert.ok(!hidden.includes(`title="${MODEL}"`), "モデルの tooltip を出さない");
 });
