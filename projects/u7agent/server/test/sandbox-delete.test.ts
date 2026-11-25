@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createSandboxService } from "../src/sandbox/service";
+import { authHeaders } from "./http-helpers";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
 
@@ -29,13 +30,9 @@ function makeRoot(prefix: string): string {
   return mkdtempSync(join(tmpdir(), `pi-sbx-${prefix}-`));
 }
 
-function authHeaders(): Record<string, string> {
-  return { Authorization: `Bearer ${TOKEN}` };
-}
-
 async function remove(app: App, path?: string): Promise<{ status: number; body: { error?: string } }> {
   const query = path === undefined ? "" : `?path=${encodeURIComponent(path)}`;
-  const response = await app.request(`/v1/files${query}`, { method: "DELETE", headers: authHeaders() });
+  const response = await app.request(`/v1/files${query}`, { method: "DELETE", headers: authHeaders(TOKEN) });
   const text = await response.text();
   return { status: response.status, body: text ? (JSON.parse(text) as { error?: string }) : {} };
 }
@@ -66,7 +63,7 @@ test("delete removes a regular file and frees the name for the next upload", asy
     // 受け入れ条件: 消した後は同じ名前で保存でき、連番 (-1) が付かない
     const upload = await service.app.request("/v1/files/upload?dir=uploads&name=photo.png", {
       method: "POST",
-      headers: authHeaders(),
+      headers: authHeaders(TOKEN),
       body: "second",
     });
     assert.equal(upload.status, 201);

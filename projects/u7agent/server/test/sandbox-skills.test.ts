@@ -8,6 +8,7 @@ import { realpath } from "node:fs/promises";
 import test from "node:test";
 import { createSandboxService } from "../src/sandbox/service";
 import type { SandboxSkillEntry, SandboxSkillsResponse } from "../src/sandbox/protocol";
+import { authHeaders } from "./http-helpers";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
 // Windows では開発者モードが無いと symlink を作れない
@@ -22,10 +23,6 @@ const HAS_SYMLINK = (() => {
 })();
 const SYMLINK_SKIP_REASON = "symlinks are not available on this platform";
 
-function authHeaders(): Record<string, string> {
-  return { Authorization: `Bearer ${TOKEN}` };
-}
-
 /** SKILL.md を 1 つ作る。name / description の指定は CLI 引数なしで済むよう固定の雛形にする。 */
 async function writeSkill(root: string, relativeDir: string, frontmatter: string): Promise<void> {
   const dir = join(root, relativeDir);
@@ -37,7 +34,7 @@ async function listSkills(
   app: ReturnType<typeof createSandboxService>["app"],
   dir: string,
 ): Promise<{ status: number; skills: SandboxSkillEntry[]; error?: string }> {
-  const response = await app.request(`/v1/skills?dir=${encodeURIComponent(dir)}`, { headers: authHeaders() });
+  const response = await app.request(`/v1/skills?dir=${encodeURIComponent(dir)}`, { headers: authHeaders(TOKEN) });
   const body = (await response.json()) as SandboxSkillsResponse & { error?: string };
   return { status: response.status, skills: body.skills ?? [], ...(body.error ? { error: body.error } : {}) };
 }

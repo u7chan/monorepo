@@ -7,6 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createSandboxService } from "../src/sandbox/service";
 import type { SandboxFileUpload } from "../src/sandbox/protocol";
+import { authHeaders } from "./http-helpers";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
 
@@ -14,10 +15,6 @@ type App = ReturnType<typeof createSandboxService>["app"];
 
 async function makeRoot(prefix: string): Promise<string> {
   return mkdtemp(join(tmpdir(), `pi-sbx-${prefix}-`));
-}
-
-function authHeaders(): Record<string, string> {
-  return { Authorization: `Bearer ${TOKEN}` };
 }
 
 async function upload(
@@ -29,7 +26,7 @@ async function upload(
   if (options.name !== undefined) query.set("name", options.name);
   const response = await app.request(`/v1/files/upload?${query.toString()}`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: authHeaders(TOKEN),
     body: options.body ?? "hello",
   });
   return { status: response.status, body: (await response.json()) as SandboxFileUpload & { error?: string } };
@@ -150,7 +147,7 @@ test("raw streams allowlisted images and audio with their type and length", asyn
     await writeFile(join(root, "uploads", "logo.PNG"), png);
     await writeFile(join(root, "uploads", "bgm.MP3"), mp3);
 
-    const image = await service.app.request("/v1/files/raw?path=uploads%2Flogo.PNG", { headers: authHeaders() });
+    const image = await service.app.request("/v1/files/raw?path=uploads%2Flogo.PNG", { headers: authHeaders(TOKEN) });
     assert.equal(image.status, 200);
     assert.equal(image.headers.get("content-type"), "image/png");
     assert.equal(image.headers.get("content-length"), String(png.byteLength));
@@ -159,7 +156,7 @@ test("raw streams allowlisted images and audio with their type and length", asyn
     assert.equal(image.headers.get("x-content-type-options"), "nosniff");
     assert.deepEqual(Buffer.from(await image.arrayBuffer()), png);
 
-    const audio = await service.app.request("/v1/files/raw?path=uploads%2Fbgm.MP3", { headers: authHeaders() });
+    const audio = await service.app.request("/v1/files/raw?path=uploads%2Fbgm.MP3", { headers: authHeaders(TOKEN) });
     assert.equal(audio.status, 200);
     assert.equal(audio.headers.get("content-type"), "audio/mpeg");
     assert.equal(audio.headers.get("content-length"), String(mp3.byteLength));
@@ -179,7 +176,7 @@ async function rawRange(
   range: string,
 ): Promise<{ status: number; contentRange: string | null; bytes: Buffer }> {
   const response = await app.request(`/v1/files/raw?path=${encodeURIComponent(path)}`, {
-    headers: { ...authHeaders(), Range: range },
+    headers: { ...authHeaders(TOKEN), Range: range },
   });
   return {
     status: response.status,
@@ -214,7 +211,7 @@ test("raw serves a single byte range with 206 and Content-Range", async () => {
     ];
     for (const [range, contentRange, expected] of cases) {
       const response = await service.app.request("/v1/files/raw?path=uploads%2Fclip.mp3", {
-        headers: { ...authHeaders(), Range: range },
+        headers: { ...authHeaders(TOKEN), Range: range },
       });
       assert.equal(response.status, 206, range);
       assert.equal(response.headers.get("content-range"), contentRange, range);
@@ -229,7 +226,7 @@ test("raw serves a single byte range with 206 and Content-Range", async () => {
     // 画像も同じ経路で部分取得できる
     await writeFile(join(root, "uploads", "icon.png"), Buffer.from([1, 2, 3, 4]));
     const image = await service.app.request("/v1/files/raw?path=uploads%2Ficon.png", {
-      headers: { ...authHeaders(), Range: "bytes=1-2" },
+      headers: { ...authHeaders(TOKEN), Range: "bytes=1-2" },
     });
     assert.equal(image.status, 206);
     assert.equal(image.headers.get("content-range"), "bytes 1-2/4");
@@ -266,7 +263,7 @@ test("raw answers 416 only when the range cannot be satisfied", async () => {
     assert.equal(empty.status, 416);
     assert.equal(empty.contentRange, "bytes */0");
     // Range 無しの 0 バイトは従来どおり 200
-    const whole = await service.app.request("/v1/files/raw?path=uploads%2Fempty.wav", { headers: authHeaders() });
+    const whole = await service.app.request("/v1/files/raw?path=uploads%2Fempty.wav", { headers: authHeaders(TOKEN) });
     assert.equal(whole.status, 200);
     assert.equal(whole.headers.get("content-length"), "0");
   } finally {
@@ -297,7 +294,7 @@ test("raw ignores a Range it cannot interpret and answers 200", async () => {
     ];
     for (const range of cases) {
       const response = await service.app.request("/v1/files/raw?path=uploads%2Fclip.mp3", {
-        headers: { ...authHeaders(), Range: range },
+        headers: { ...authHeaders(TOKEN), Range: range },
       });
       assert.equal(response.status, 200, range);
       assert.equal(response.headers.get("content-range"), null, range);
@@ -325,7 +322,7 @@ test("raw maps each allowlisted audio extension to its Content-Type", async () =
     for (const [name, contentType] of cases) {
       await writeFile(join(root, "uploads", name), Buffer.from([1]));
       const response = await service.app.request(`/v1/files/raw?path=${encodeURIComponent(`uploads/${name}`)}`, {
-        headers: authHeaders(),
+        headers: authHeaders(TOKEN),
       });
       assert.equal(response.status, 200, name);
       assert.equal(response.headers.get("content-type"), contentType, name);
@@ -346,28 +343,32 @@ test("raw rejects non-allowlisted extensions, missing files and oversize images 
     await writeFile(join(root, "uploads", "big.mp3"), Buffer.alloc(5));
     await writeFile(join(root, "uploads", ".mp3"), Buffer.alloc(1));
 
-    const notFile = await service.app.request("/v1/files/raw?path=uploads%2Fpage.html", { headers: authHeaders() });
+    const notFile = await service.app.request("/v1/files/raw?path=uploads%2Fpage.html", {
+      headers: authHeaders(TOKEN),
+    });
     assert.equal(notFile.status, 400);
     assert.match(((await notFile.json()) as { error: string }).error, /^Not a servable file: /);
-    const svg = await service.app.request("/v1/files/raw?path=uploads%2Fvector.svg", { headers: authHeaders() });
+    const svg = await service.app.request("/v1/files/raw?path=uploads%2Fvector.svg", { headers: authHeaders(TOKEN) });
     assert.equal(svg.status, 400);
     // dotfile は拡張子なしと同じで、Object.prototype の名前も allowlist を通過させない
     for (const name of [".mp3", "x.constructor", "x.__proto__"]) {
       const prototypeKey = await service.app.request(`/v1/files/raw?path=${encodeURIComponent(`uploads/${name}`)}`, {
-        headers: authHeaders(),
+        headers: authHeaders(TOKEN),
       });
       assert.equal(prototypeKey.status, 400, name);
     }
-    const missing = await service.app.request("/v1/files/raw?path=uploads%2Fnope.png", { headers: authHeaders() });
+    const missing = await service.app.request("/v1/files/raw?path=uploads%2Fnope.png", { headers: authHeaders(TOKEN) });
     assert.equal(missing.status, 404);
     for (const name of ["big.png", "big.mp3"]) {
-      const tooLarge = await service.app.request(`/v1/files/raw?path=uploads%2F${name}`, { headers: authHeaders() });
+      const tooLarge = await service.app.request(`/v1/files/raw?path=uploads%2F${name}`, {
+        headers: authHeaders(TOKEN),
+      });
       assert.equal(tooLarge.status, 413, name);
       assert.deepEqual(await tooLarge.json(), { error: "File is too large (max 4 bytes)" }, name);
     }
-    const outside = await service.app.request("/v1/files/raw?path=..%2Fpage.png", { headers: authHeaders() });
+    const outside = await service.app.request("/v1/files/raw?path=..%2Fpage.png", { headers: authHeaders(TOKEN) });
     assert.equal(outside.status, 400);
-    const directory = await service.app.request("/v1/files/raw?path=uploads", { headers: authHeaders() });
+    const directory = await service.app.request("/v1/files/raw?path=uploads", { headers: authHeaders(TOKEN) });
     assert.equal(directory.status, 400, "拡張子のないディレクトリは allowlist で先に弾く");
   } finally {
     service.close();

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { parseRecursiveQuery, SANDBOX_MAX_FILE_ENTRIES } from "../src/sandbox/protocol";
 import { createSandboxService } from "../src/sandbox/service";
+import { authHeaders } from "./http-helpers";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
 
@@ -29,13 +30,9 @@ function makeRoot(prefix: string): string {
   return mkdtempSync(join(tmpdir(), `pi-sbx-${prefix}-`));
 }
 
-function authHeaders(): Record<string, string> {
-  return { Authorization: `Bearer ${TOKEN}` };
-}
-
 /** query は生で渡す (recursive の重複と空値を URLSearchParams を介さずに組めるようにする) */
 async function removeDir(app: App, query: string): Promise<{ status: number; body: { error?: string }; text: string }> {
-  const response = await app.request(`/v1/dirs${query}`, { method: "DELETE", headers: authHeaders() });
+  const response = await app.request(`/v1/dirs${query}`, { method: "DELETE", headers: authHeaders(TOKEN) });
   const text = await response.text();
   return { status: response.status, body: text ? (JSON.parse(text) as { error?: string }) : {}, text };
 }
@@ -259,7 +256,7 @@ test("delete dir removes children that the listing cap hides", async () => {
     const names = Array.from({ length: SANDBOX_MAX_FILE_ENTRIES + 1 }, (_, index) => `f${index}.txt`);
     await Promise.all(names.map((name) => writeFile(join(root, "many", name), "x")));
 
-    const listed = await service.app.request("/v1/files?path=many", { headers: authHeaders() });
+    const listed = await service.app.request("/v1/files?path=many", { headers: authHeaders(TOKEN) });
     assert.equal(listed.status, 200);
     assert.equal(
       ((await listed.json()) as { truncated: boolean }).truncated,

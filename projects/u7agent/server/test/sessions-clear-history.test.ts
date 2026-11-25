@@ -25,23 +25,10 @@ import {
 } from "../src/session-store";
 import { sessionWorkdirRel } from "../src/app-paths";
 import type { TitleSummaryGenerate, TitleSummaryGenerateInput, TitleSummaryResult } from "../src/title-summary";
+import { jsonBody, jsonPatch, jsonPost } from "./http-helpers";
 import { asPiBff, createStubPi, STUB_MODEL, waitFor } from "./stub-pi";
 
 const MODEL = `${STUB_MODEL.provider}/${STUB_MODEL.id}`;
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPatch = (payload: unknown): RequestInit => ({
-  method: "PATCH",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 /** 会話ストアありのセッション作成が通る最小のサンドボックス (実ファイルは触らない) */
 function stubWorkspace(): SandboxWorkspaceClient {

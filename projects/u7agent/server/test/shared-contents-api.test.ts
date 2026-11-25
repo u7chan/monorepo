@@ -15,28 +15,12 @@ import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
 import { DEFAULT_SHARED_CONTENT_EXCLUDE_NAMES } from "../src/shared-content-rules";
 import type { SharedContentRow } from "../src/shared-content-repository";
 import { SHARED_CONTENT_PROJECT_SESSION_ROOT, SHARED_CONTENT_RECONCILE_FAILED } from "../src/shared-contents";
+import { jsonBody, jsonPatch, jsonPost, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 const KEY = `1:${Buffer.alloc(SECRET_KEY_BYTES, 11).toString("base64")}`;
 const ACCOUNT = "0123456789abcdef0123456789abcdef";
 const TOKEN = "cf-test-token-0123456789";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-const jsonPatch = (payload: unknown): RequestInit => ({
-  method: "PATCH",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 /** ZIP の元ファイルを作り、呼ばれるたびに新しいストリームを返す */
 async function makeZip(dir: string): Promise<() => ReadableStream<Uint8Array>> {

@@ -13,6 +13,7 @@ import { CONTENT_SPEECH_KEY_INCLUDED_MESSAGE, DEFAULT_IMAGE_MODEL } from "../src
 import { IMAGE_PROVIDER_ID } from "../src/images";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
 import { DEFAULT_SPEECH_MODEL } from "../src/speech-catalog";
+import { jsonBody, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 // アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
@@ -20,14 +21,6 @@ process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const KEY = "sk-speech-dummy-key-0123456789abcdef";
 const OTHER_MODEL = "fish/audio";
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
 
 async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-speech-settings-"));

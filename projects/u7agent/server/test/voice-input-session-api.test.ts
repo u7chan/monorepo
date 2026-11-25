@@ -9,6 +9,7 @@ import { createBffApp } from "../src/app";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import { TEST_MASTER_KEY } from "./app-secret-fixture";
+import { jsonBody } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 import {
   VOICE_INPUT_MODEL,
@@ -60,8 +61,6 @@ const CLIENT_SECRET_RESPONSE = {
   expires_at: 1_730_000_060,
   session: { type: "transcription" },
 };
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 const sdpResponse = (body: string, status = 200) =>
   new Response(body, { status, headers: { "content-type": "application/sdp" } });

@@ -19,30 +19,11 @@ import { sessionMetaPath } from "../src/session-store";
 import { suggestionSendText } from "../../client/src/lib/suggestion";
 import { TitleSummaryQueue } from "../src/title-summary-queue";
 import type { TitleSummaryGenerate, TitleSummaryGenerateInput, TitleSummaryResult } from "../src/title-summary";
+import { jsonBody, jsonPatch, jsonPost, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi, STUB_MODEL, STUB_USAGE, waitFor } from "./stub-pi";
 
 const MODEL = `${STUB_MODEL.provider}/${STUB_MODEL.id}`;
 const PROMPT = "あなたはWebアプリケーションのUX改善を支援するアシスタントです。以下の依頼について提案してください。";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPatch = (payload: unknown): RequestInit => ({
-  method: "PATCH",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 /** 会話ストアありのセッション作成が通る最小のサンドボックス */
 function stubWorkspace(): SandboxWorkspaceClient {

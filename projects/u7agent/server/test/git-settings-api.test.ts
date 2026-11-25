@@ -6,9 +6,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
 import { GitSettingsService } from "../src/git-settings";
+import { jsonBody } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 /** ブラウザからの same-origin 要求を模す (この API はヘッダの無い直接クライアントを拒否する) */
 const sameOrigin = { Origin: "http://localhost" };

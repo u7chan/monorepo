@@ -22,14 +22,7 @@ import {
   validateSharedContentExcludeNames,
 } from "../src/shared-content-rules";
 import type { SharedContentExclusionsResponse } from "../src/schema";
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
+import { jsonBody, jsonPut } from "./http-helpers";
 
 async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-shared-exclusions-"));

@@ -12,17 +12,10 @@ import { sessionUploadsRel } from "../src/app-paths";
 import { MAX_ATTACHMENT_BYTES, composePrompt, stripAttachedFiles } from "../src/attachments";
 import { SandboxRequestError, createSandboxToolClient, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import { createSandboxService } from "../src/sandbox/service";
+import { jsonBody, jsonPost } from "./http-helpers";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 type UploadCall = { dir: string; name: string; size: number };
 

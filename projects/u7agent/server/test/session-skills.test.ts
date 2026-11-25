@@ -19,15 +19,8 @@ import {
   resolveSessionSkills,
   type SessionSkillsInput,
 } from "../src/session-skills";
+import { jsonBody, jsonPost } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response): Promise<any> => (await response.json()) as any;
 
 function skillEntry(path: string, name: string, overrides: Partial<SandboxSkillEntry> = {}): SandboxSkillEntry {
   return { name, description: `${name} の説明`, path, disableModelInvocation: false, ...overrides };

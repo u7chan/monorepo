@@ -5,29 +5,10 @@ import test from "node:test";
 import { createBffApp } from "../src/app";
 import { SECRET_MASTER_KEY_ENV, SECRET_KEY_BYTES } from "../src/secret-crypto";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
+import { jsonBody, jsonPatch, jsonPost, jsonPut } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 const KEY = Buffer.alloc(SECRET_KEY_BYTES, 9).toString("base64");
-
-const jsonPost = (payload: unknown): RequestInit => ({
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPut = (payload: unknown): RequestInit => ({
-  method: "PUT",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonPatch = (payload: unknown): RequestInit => ({
-  method: "PATCH",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
-});
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 const workspace: SandboxWorkspaceClient = {
   previewFile: async () => ({ text: "" }),

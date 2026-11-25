@@ -10,14 +10,13 @@ import { APP_DB_FILENAME } from "../src/app-db";
 import { DatabaseSync } from "node:sqlite";
 import { createBffApp } from "../src/app";
 import { WEB_SEARCH_DISABLED_MESSAGE } from "../src/web-search-tool";
+import { jsonBody } from "./http-helpers";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 // アプリ DB の APIキー / Webhook URL は暗号化して保存する。このファイルの BFF には master key を立てて起動する
 process.env[SECRET_MASTER_KEY_ENV] = TEST_MASTER_KEY;
 
 const SECRET = "tvly-secret-value-0123456789";
-
-const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 const jsonRequest = (method: "PUT" | "DELETE", payload?: unknown): RequestInit =>
   payload === undefined
