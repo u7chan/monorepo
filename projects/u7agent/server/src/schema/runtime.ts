@@ -109,6 +109,11 @@ export const HealthSchema = z.object({
   serviceOrigin: z.string().optional(),
   /** 実行中の SDK バージョン。ランタイムの診断とは独立に出し続ける */
   versions: RuntimeVersionsSchema.optional(),
+  /**
+   * client と BFF が同じイメージから配られたかを見分ける版の識別子。空文字は識別子なしで、
+   * client はこれと自分のビルド識別子が両方取れたときだけ版ずれの案内を出す
+   */
+  buildId: z.string().optional(),
   /** ダウンロード ZIP の除外規則の実効値。UI は行にダウンロードを出すかの判定に使う */
   archive: z
     .object({

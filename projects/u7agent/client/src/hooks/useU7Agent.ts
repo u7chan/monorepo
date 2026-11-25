@@ -89,6 +89,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
 
   const {
     health,
+    versionMismatch,
     catalog,
     agents,
     runtimeStatus,
@@ -518,6 +519,8 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     agentId,
     setAgentId,
     runtimeStatus,
+    /** 版ずれの案内を出すかの唯一の判定結果 (health を 1 か所で比べた結果) */
+    versionMismatch,
     cwd,
     fileRefRequest,
     requestFileRef,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Dispatch } from "react";
 import { getCatalog } from "../api/catalog";
 import { getHealth } from "../api/runtime";
@@ -8,6 +8,10 @@ import type { CatalogResponse, Health } from "../types";
 import type { ChatAction } from "../lib/chatState";
 import { runtimeStatusForHealth, type RuntimeStatus } from "./runtimeStatus";
 import { alwaysCurrent, createMountScope } from "./requestGate";
+import { clientBuildId, createVersionMismatchTracker } from "../lib/versionMismatch";
+
+/** 画面の生存期間で 1 つだけ持つ版ずれの判定 (App はスペース切替で作り直される) */
+const pageVersionMismatch = createVersionMismatchTracker(clientBuildId());
 
 const AGENT_KEY = "u7agent-agent";
 
@@ -31,6 +35,8 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
   const [catalogStore] = useState(() => createCatalogStore(EMPTY_CATALOG));
   const catalog = useSyncExternalStore(catalogStore.subscribe, catalogStore.get);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({ text: "起動中", error: false });
+  /** health の版の識別子が自分のビルドと食い違ったか。再読み込みするまで消さない */
+  const [versionMismatch, setVersionMismatch] = useState(false);
   const [agentId, setAgentIdState] = useState<string>(() => localStorage.getItem(AGENT_KEY) || "");
 
   const setAgentId = useCallback(
@@ -42,9 +48,17 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
     [mountScope],
   );
 
+  /** health の版の識別子を比べ終えたか (比べるのは起動時の 1 回だけ) */
+  const versionCompared = useRef(false);
+
   const applyHealth = useCallback(
     (next: Health) => {
       setHealth(next);
+      // 版ずれの比較はこの 1 か所だけ。health は resync や再取得でも届くが、比べるのは最初の 1 回だけにする
+      if (!versionCompared.current) {
+        versionCompared.current = true;
+        setVersionMismatch(pageVersionMismatch.check(next.buildId));
+      }
       const status = runtimeStatusForHealth(next);
       setRuntimeStatus(status);
       if (status.error && !next.ready && status.detail) {
@@ -119,6 +133,7 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
 
   return {
     health,
+    versionMismatch,
     catalog,
     agents,
     runtimeStatus,

@@ -80,7 +80,7 @@ TLS 終端をリバースプロキシへ置くと、要求 URL のオリジン�
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `modelOptions` / `defaultThinkingLevel` / `cwd` / `versions` / `filePreviewPort`、設定時のみ `appOrigin` / `filePreviewOrigin` / `serviceOrigin`）と永続化の状態。認証が無い場合は `errorCode: "authentication_required"`、保存された許可リストと利用可能モデルが交差しない場合は `errorCode: "model_whitelist_empty"` |
+| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `modelOptions` / `defaultThinkingLevel` / `cwd` / `versions` / `buildId` / `filePreviewPort`、設定時のみ `appOrigin` / `filePreviewOrigin` / `serviceOrigin`）と永続化の状態。認証が無い場合は `errorCode: "authentication_required"`、保存された許可リストと利用可能モデルが交差しない場合は `errorCode: "model_whitelist_empty"` |
 
 `ready` は「ランタイムが使え、利用可能モデルが 1 つ以上ある」の意で、アプリ既定モデル（`model`）が使えるかとは独立している。`model` はあくまでアプリ既定（新規セッションで明示も定義も無いときに使う値）で、チャットごとの実効モデルではない。チャットの実効モデルはセッションの payload / 一覧の `model` を参照する。利用可能な候補があるのに保存された既定モデルが無いときは `model` を返さず `defaultModelUnset: true` にする（候補の先頭で代用しない。この状態でモデル無指定のセッション作成は 503。候補 0 件は `defaultModelUnset` ではなく可用性エラーの側で表す）。設定 → モデル で保存した既定モデルが利用不能でも候補が他にあれば `ready: true` と `defaultModelError` を返し、別モデルへは自動で切り替えない。`sandboxConfigured` は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が揃っているか（未設定ならセッション作成が 503 になる）を示す。`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読まない（設定されていても無視する）。
 
@@ -123,6 +123,8 @@ TLS 終端をリバースプロキシへ置くと、要求 URL のオリジン�
 `modelOptions` は認証済みで利用可能なモデルのみ。設定 → モデル の「利用可能なモデル」を保存したときは、その許可リストと利用可能モデルの積だけになる（保存された既定モデルが許可リスト外なら `defaultModelError`、積が空なら `ready: false` と `設定 → モデル` を名指しした `error`。`errorCode` は互換のため `model_whitelist_empty` のまま）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_THINKING` → `medium` の順で決まる。解決の詳細は [model-effort.md](model-effort.md)。
 
 `versions` は実行中の SDK バージョンで、設定されている場合は `COMMIT_HASH` も含む。health 直下に置き、モデルの診断は返さない（ランタイム初期化に失敗したときも `runtimeVersionInfo()` の値だけを返す）。プロバイダー別の集計と認証ソース（`environment` / `stored` / `runtime` / `fallback` / `models_json_key` / `models_json_command` / 未知の値は `unknown`）は [ランタイムのモデルカタログ](#ランタイムのモデルカタログ) が返す。認証状態のラベル、環境変数値、認証ファイル内容、生の認証エラーは health にもカタログにも含めない。
+
+`buildId` は client と BFF が同じイメージから配られたかを見分ける版の識別子（[版の互換の範囲](architecture.md#版の互換の範囲)）。起動時の env `U7AGENT_BUILD_ID` を優先し、未設定は `package.json` の `version` と `COMMIT_HASH` から組み立てる。識別子を取れない環境（dev サーバー）は空文字で、client は互いに取れたときだけ食い違いを判定する（[版ずれの案内](frontend.md#版ずれの案内)）。SSE の `eventGeneration` とは別の値で、BFF の再起動では変わらない。
 
 ## ランタイムのモデルカタログ
 

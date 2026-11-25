@@ -19,6 +19,7 @@ import { SessionForkLinks } from "./components/SessionForkLinks";
 import { SessionHandoffDialog } from "./components/SessionHandoffDialog";
 import { SessionTitleDialog } from "./components/SessionTitleDialog";
 import { SessionTitleNotice } from "./components/SessionTitleNotice";
+import { VersionMismatchBanner } from "./components/VersionMismatchBanner";
 import { Topbar } from "./components/Topbar";
 import { FileRefProvider } from "./components/markdown/FileRefLink";
 import { MarkdownImageProvider } from "./components/markdown/MarkdownImageRefs";
@@ -724,6 +725,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                   />
                 </div>
               ) : null}
+              <VersionMismatchBanner visible={app.versionMismatch} onReload={() => window.location.reload()} />
             </div>
             <FileRefProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} onOpen={openFileRef}>
               <MarkdownImageProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} rawUrl={markdownImageRawUrl}>

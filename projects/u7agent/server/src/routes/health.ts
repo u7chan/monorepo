@@ -37,6 +37,7 @@ export function createHealthRoutes({
   appOrigin,
   filePreviewOrigin,
   serviceOrigin,
+  buildId,
 }: {
   pi: PiBff | null;
   initError: string | undefined;
@@ -51,6 +52,8 @@ export function createHealthRoutes({
   appOrigin?: string;
   filePreviewOrigin?: string;
   serviceOrigin?: string;
+  /** 版の識別子。空文字は識別子なしで、client は版ずれの案内を出さない */
+  buildId: string;
 }) {
   return {
     health: (c: Context) => {
@@ -95,6 +98,8 @@ export function createHealthRoutes({
         ...(serviceOrigin === undefined ? {} : { serviceOrigin }),
         // バージョン表示はモデル診断の撤去後も残す（接続状態カードが使う）
         versions: runtimeVersionInfo(),
+        // client は自分のビルド識別子とだけ比べる (SSE の eventGeneration は BFF の再起動でも変わる)
+        buildId,
         // クライアントは行にダウンロードを出すかの判定に使う。設定ストアの実効値が正で、download / check も同じ値を使う
         archive: { excludeNames: archiveSettings?.effectiveNames() ?? resolveArchiveExcludeNames() },
         ...(sessionStore ? { sessionStore } : {}),

@@ -67,6 +67,15 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 - 圧縮イベントの区切りは全履歴の entry 順で位置を決める。旧 payload（履歴 API 無し）のときだけ `beforeMessageIndex` から復元する
 - ターンの結末（`Done · 1m 20s`）は独立した行にせず、そのターン最後の応答のメタ行の末尾に足す（履歴はその応答 item の `turnEnd`、ライブは `run_end` の `durationMs` と `status` を、その実行を開始した送信のバブルへ写す。値の出どころを user item の `runDurationMs` / `runOutcome` だけにすると、ページの窓がターンより短いときに結末が出ない）。値が無いターン（再起動 / sweep の後）・未送信のターン・本文を持つ応答が無いターン（ツールだけ）には足さない（文言は `client/src/lib/turnEnd.ts`、付与は `client/src/lib/chatItems.ts` を正とする）
 
+## 版ずれの案内
+
+サポートするのは同じイメージから配られた組み合わせだけとする（[版の互換の範囲](architecture.md#版の互換の範囲)）ため、食い違いを検知したときだけ利用者へ再読み込みを案内する。判定と文言は `client/src/lib/versionMismatch.ts` を正とする。
+
+- 識別子はビルド時に埋める。client は Vite の define（既定は `package.json` の version + コミットの短縮 SHA。fixture はビルド / dev サーバーの起動時に `VITE_U7AGENT_BUILD_ID` で差し替える）、BFF は起動時の `U7AGENT_BUILD_ID`（未設定は同じ version + `COMMIT_HASH`）で、`GET /api/health` の `buildId` とだけ比べる。SSE の `eventGeneration` は BFF の再起動でも変わるので使わない
+- 比べるのは health を適用する 1 か所だけ。案内のために health を取り直さず、resync のたびには比べない。一度出したら再読み込みするまで消さず、`localStorage` にも保存しない（同じ画面で出し直さない）
+- 出さない: 識別子が空（dev サーバー・ビルド外）・`buildId` が無い（旧サーバー）・health を取得できていない（オフライン / 失敗）・一致している。誤検知で再読み込みを促すほうが害が大きい
+- 押したときは `location.reload()` だけを行い、自動では読み直さない。再読み込みで直らない場合（サーバー側が古い）もあるため、文言は「直る」と断定せず、サーバー側の更新も要ることを書く
+
 ## 開発フローと配信
 
 - 開発時は BFF と Vite を併用し、Vite が `/api` をプロキシする。**プレビュー オリジンは Vite を通さず、ブラウザがそのポートを直接開く**ため、LAN / 別端末から使うときはそのポートの到達が要る（環境変数は [README](../README.md)）

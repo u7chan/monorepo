@@ -1,15 +1,41 @@
+import { readFileSync } from "node:fs";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
 // 診断のスナップショットに載せるビルド識別子。同じタブがどのビルドを実行していたかを後から決められるように、
-// ビルドのたびに変わる値 (モード + ビルド時刻) を埋める。サーバー側の識別子とは独立。
-const buildId = `${process.env.NODE_ENV ?? "development"}@${new Date().toISOString()}`;
+// ビルドのたびに変わる値 (モード + ビルド時刻) を埋める。BFF の識別子 (下の版の識別子) とは独立。
+const buildStamp = `${process.env.NODE_ENV ?? "development"}@${new Date().toISOString()}`;
 
-export default defineConfig({
+/**
+ * BFF と突き合わせる版の識別子の既定値。ビルド時に決まる version + コミットの短縮 SHA で、
+ * `server/src/build-id.ts` と同じ値になる。dev サーバーは空にして案内を出さない
+ * (dev でも `VITE_U7AGENT_BUILD_ID` で差し替えられる。読み込みは `client/src/lib/versionMismatch.ts`)。
+ */
+function defaultVersionId(command: "build" | "serve"): string {
+  if (command !== "build") return "";
+  const version = packageVersion();
+  const commit = (process.env.COMMIT_HASH ?? "").trim();
+  if (version && commit) return `${version}+${commit}`;
+  return version || commit;
+}
+
+function packageVersion(): string {
+  try {
+    const json = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      version?: unknown;
+    };
+    return typeof json.version === "string" ? json.version.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+export default defineConfig(({ command }) => ({
   plugins: [react(), tailwindcss()],
   define: {
-    __U7AGENT_BUILD__: JSON.stringify(buildId),
+    __U7AGENT_BUILD__: JSON.stringify(buildStamp),
+    __U7AGENT_BUILD_ID__: JSON.stringify(defaultVersionId(command)),
   },
   server: {
     host: true,
@@ -24,4 +50,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
