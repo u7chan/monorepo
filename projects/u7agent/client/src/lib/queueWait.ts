@@ -1,7 +1,6 @@
 /**
- * 待機キュー (202 で受理し、まだ実行されていない送信) の表示。順位の権威はサーバーで、クライアントは
- * 受け取った順位を保持する。表示の直前に保持している待機集合を並べ直して 1..N を振り直すため、
- * 先頭が抜けたら残りが繰り上がる。件数はここで数えた配列の長さで、サーバーの `queueDepth` は使わない。
+ * 待機キュー (202 で受理し、まだ実行されていない送信) の表示。順位の権威はサーバーで、表示の直前に
+ * 並べ直して 1..N を振り直す (件数はこの配列の長さで、`queueDepth` は使わない)。
  */
 import type { Bubble } from "./chatTypes";
 
@@ -41,9 +40,8 @@ export function queuedSendsOf(bubbles: Bubble[]): QueuedSend[] {
 }
 
 /**
- * 回答待ち (ask_user) の run が終わるまで動かない送信の理由。footnote の「上の質問に回答して
- * ください（N件）」だけでは回答すれば実行されると読めるため、実行の起点が run の終了であることを
- * 1 文で示す。回答が要らない待ち (実行中 / 圧縮中) は undefined を返し、状態行の活動文言に任せる。
+ * 回答待ちの run が終わるまで動かない送信の理由。footnote だけでは回答すれば実行されると読めるため、
+ * 実行の起点が run の終了であることを 1 文で示す (回答が要らない待ちは undefined で状態行に任せる)。
  */
 export function answerWaitQueueReason(pendingQuestions: number, queueDepth: number): string | undefined {
   if (pendingQuestions <= 0 || queueDepth <= 0) return undefined;

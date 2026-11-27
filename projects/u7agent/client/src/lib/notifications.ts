@@ -37,11 +37,8 @@ export function draftIsDirty(draft: NotificationDraft, settings: NotificationsRe
 }
 
 /**
- * 取得した設定に合わせて下書きを追従させる。他タブの保存や定期取得で `settings` が変わったとき、
- * **未編集のフィールドだけ**新しい保存値へ揃え、編集中のフィールドは残す
- * (未編集の古い値を PUT して、他タブの変更を巻き戻さないため)。
- * 判定は「下書きが直前の保存値と一致していれば未編集」。URL は write-only で比較できないため、
- * 入力中 (`null` 以外) は常に残す。
+ * 取得した設定に合わせて下書きを追従させる。**未編集のフィールドだけ**新しい保存値へ揃え、編集中は残す
+ * (未編集の古い値を PUT して他タブの変更を巻き戻さない)。URL は入力中なら常に残す。
  */
 export function syncDraft(
   draft: NotificationDraft,
@@ -147,9 +144,8 @@ export const MISSING_LINK_NOTE = "リンク先の会話が見つかりません�
 export type SessionOpenResult = "opened" | "fallback" | "superseded";
 
 /**
- * 会話を指定した URL の会話を開けなかった理由を出すか。一覧に無い場合 (requested = false) だけでなく、
- * 一覧に載っていた会話が取得までに削除されていた場合 (GET が失敗して fallback した) にも出す。
- * 待機中にユーザーが別の会話を選んでいた (superseded) ときは、その選択を壊さず何も出さない。
+ * 会話を指定した URL を開けなかった理由を出すか。一覧に無い場合に加え、載っていた会話が取得までに
+ * 削除されていた場合も出す (待機中に別の会話を選んでいたら、その選択を壊さず何も出さない)。
  */
 export function missingLinkNote(requested: boolean, opened: SessionOpenResult): string | undefined {
   if (opened === "superseded") return undefined;

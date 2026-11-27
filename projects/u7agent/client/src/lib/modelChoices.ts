@@ -1,7 +1,6 @@
 /**
- * Model ピッカーの選択肢。表示名（`ModelOption.name`）を基本にし、候補全体で同名が衝突する
- * ときだけ provider を添える。provider ごとに `provider/id` の表記系が違うため、生 ID を
- * 常時出しても読み手は対応を取れない。衝突の解消に必要な最小の情報だけを足す。
+ * Model ピッカーの選択肢。表示名を基本にし、候補全体で同名が衝突するときだけ provider を添える
+ * (provider ごとに `provider/id` の表記系が違うため、生 ID を常時出しても対応が取れない)。
  */
 import type { ModelOption, ModelRef } from "../types";
 import { modelRefKey } from "./modelSettings";
@@ -15,10 +14,8 @@ export interface ModelChoice {
 }
 
 /**
- * 選択肢の表示名。同名の候補があるときだけ provider を添える:
- * 同じ `(provider, name)` が別 id で 2 件以上あるときは `name（provider/id）`、そうでなく
- * 同名が 2 つ以上の provider にあるときは `name（provider）`、それ以外は `name`。
- * 数えるのは distinct な id / provider で、同じ `(provider, id)` の重複では判定を変えない。
+ * 選択肢の表示名。同じ `(provider, name)` が別 id で複数あれば `name（provider/id）`、同名が複数の
+ * provider にあれば `name（provider）`、それ以外は `name` (distinct な id / provider で数える)。
  */
 export function modelChoices(options: ModelOption[]): ModelChoice[] {
   const providersByName = new Map<string, Set<string>>();
