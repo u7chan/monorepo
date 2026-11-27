@@ -1,9 +1,6 @@
 /**
- * 設定 → モデルの表示変換。認証バッジ・並び・保存後の文言を DOM なしで固定する。
- * 保存先 (managed = DB) と実効値 (auth.source) と未反映 (degraded) は混ぜず、別々に出す。
- * 案内文 (degradedNotice) は、そのカードで実際に押せる回復操作 (resyncAvailable) と一致させる。
- * モデル候補（選択）の編集は、選択の正を `GET /api/settings/models` の allowedModels に保ち、
- * 下書きの組み立て・集計・確認文だけをここで純関数的に扱う (DOM に依存させない)。
+ * 設定 → モデルの表示変換。保存先 (managed) と実効値 (auth.source) と未反映 (degraded) は
+ * 混ぜず、案内文はそのカードで押せる回復操作と一致させる (docs/model-settings.md)。
  */
 import type {
   Health,
@@ -95,9 +92,8 @@ export function resyncAvailable(provider: ProviderAuthSetting): boolean {
 }
 
 /**
- * degraded の回復案内。このカードで実際に押せる操作だけを案内する ([再同期] を書くなら
- * resyncAvailable() が true であること)。カタログ外の apply は resync API も 400 にするため、
- * 削除かカタログ復帰へ導く。
+ * degraded の回復案内。そのカードで押せる操作だけを案内する ([再同期] は resyncAvailable() が
+ * true のときだけ。カタログ外は resync も 400 になるため削除か復帰へ導く)。
  */
 export function degradedNotice(provider: ProviderAuthSetting): string | undefined {
   if (provider.degraded === "apply") {
@@ -112,9 +108,8 @@ export function degradedNotice(provider: ProviderAuthSetting): string | undefine
 }
 
 /**
- * この画面のキーが auth.json の OAuth を覆っているときの案内。サーバーが auth.json を読めない /
- * 壊れているときは hiddenStoredOAuth を false へ縮退させるため、ここでは何も出さない（推測で警告しない）。
- * 案内する操作は、そのカードで実際に押せるものに合わせる。
+ * この画面のキーが auth.json の OAuth を覆っているときの案内。auth.json を読めない / 壊れている
+ * ときは hiddenStoredOAuth が false へ縮退するので何も出さない (推測で警告しない)。
  */
 export function hiddenStoredOAuthNotice(provider: ProviderAuthSetting): string | undefined {
   if (!provider.hiddenStoredOAuth) return undefined;
@@ -190,10 +185,8 @@ export function providerDraftOf(drafts: Record<string, ProviderDraft>, provider:
 }
 
 /**
- * 下書きをフィールド単位で更新する。`base` は下書きがまだ無いときの初期値。
- * `patch` に含まれないフィールドは最新の下書きの値を保つため、保存の待機中に他方へ入力された値や、
- * 保存値の外部変化で同期したくないフィールドを古いスナップショットで上書きしない。
- * 内容が同じなら同じ参照を返し、不要な再レンダーを作らない。
+ * 下書きをフィールド単位で更新する (`base` は下書きが無いときの初期値)。`patch` に無いフィールドは
+ * 最新の値を保ち、保存待ちの入力や外部変化を古いスナップショットで上書きしない (同じ内容なら同じ参照)。
  */
 export function withProviderDraft(
   drafts: Record<string, ProviderDraft>,
@@ -216,9 +209,8 @@ function canSignInHere(provider: ProviderAuthSetting): boolean {
 }
 
 /**
- * 一覧から行ごと落とすか。OAuth はあるがこの画面でサインインできず、キーも登録できず、カタログ内でこの画面の
- * キー保存行を持たない provider だけを落とす。カタログ外 (orphan) のメモ行を巻き込むと、実効の認証を戻す
- * [削除] / [再同期] の導線が消えるため必ず残す (理由は docs/model-settings.md#oauth-サインイン)。
+ * 一覧から行ごと落とすか。OAuth はあるがサインインもキー登録もできず、キー保存行も持たない provider
+ * だけを落とす。カタログ外 (orphan) は認証を戻す導線を消さないため残す (docs/model-settings.md#oauth-サインイン)。
  */
 function hiddenFromProviderList(provider: ProviderAuthSetting): boolean {
   return (
@@ -294,9 +286,8 @@ export function providerLoginState(response: ModelsSettingsResponse, provider: s
 }
 
 /**
- * 認証が変わった後、health とカタログを取り直す。適用の可否 (`createRequestGate()` が返す判定) は
- * 呼び出し側が 1 つだけ作り、両方へ同じものを渡す。取り直しの途中で新しい世代を始めると、後続の取得は
- * 成功しても応答を捨て、クライアントの候補が未認証時のまま残る。
+ * 認証が変わった後に health とカタログを取り直す。適用の可否 (`createRequestGate()` の判定) は
+ * 呼び出し側が 1 つだけ作って両方へ渡す (途中で世代を始めると、成功した応答も捨てて候補が古いまま残る)。
  */
 export async function refreshModelsForAuthChange(input: {
   canApply: () => boolean;
@@ -416,10 +407,8 @@ export interface OAuthPanelView {
 }
 
 /**
- * OAuth セクションの表示条件。overlay (この画面のキー) が実効のときも `hiddenStoredOAuth` で
- * auth.json の OAuth を見てサインアウトを出す。auth.json の読取失敗は false (不明) なので、そのときは
- * 実効の種別 (`credentialKind`) だけで決める。サインインの操作は DTO のフラグだけで決め、
- * 未指定なら出さない (fail-closed)。
+ * OAuth セクションの表示条件。overlay が実効のときも `hiddenStoredOAuth` で auth.json の OAuth を見て
+ * サインアウトを出す。読取失敗は不明なので実効の種別だけで決め、未指定の操作は出さない (fail-closed)。
  */
 export function oauthPanelView(provider: ProviderAuthSetting, options: OAuthPanelOptions = {}): OAuthPanelView {
   const canSignIn = canSignInHere(provider);
@@ -476,8 +465,7 @@ export function oauthPanelView(provider: ProviderAuthSetting, options: OAuthPane
 
 /**
  * プロバイダー詳細の認証方法のタブ。2 経路を 1 行の中で分け、既定は実効側にする。
- * 「使用中」は実効が OAuth か、実効がこの画面のキーのときだけ付け、環境変数 / models.json /
- * 認証なしでは付けない (どちらを使っているかは認証バッジが示す)。
+ * 「使用中」は実効が OAuth かこの画面のキーのときだけ付ける (認証バッジが種別を示す)。
  */
 export type CredentialTab = "api_key" | "sign_in";
 
@@ -664,10 +652,8 @@ export interface AvailabilityDraft {
 }
 
 /**
- * 候補に出さないエントリを下書きから落とす。表示 (`candidateGroups()`) と同じ「認証済み provider か」
- * の判定を使い、画面に出ない選択が保存へ残らないようにする。カタログ外のエントリは保存が 400 に
- * なるため残し、行と警告を出して外せるようにする。カタログを取得できていないときは判定できないので
- * そのまま返す。
+ * 候補に出さないエントリを下書きから落とす。表示と同じ「認証済み provider か」で判定し、
+ * カタログ外は保存が 400 になるため残して警告から外せるようにする (カタログ無しでは判定しない)。
  */
 export function pruneAvailabilityDraft(
   draft: AvailabilityDraft,
@@ -686,10 +672,8 @@ export function pruneAvailabilityDraft(
 }
 
 /**
- * 下書きの初期値。`allowedModels === null`（旧・制限なし）は「利用可能な全モデルが選択済み」
- * として明示リストへ展開する。保存済みの既定モデルがその集合に無い場合は 1 件だけ足す
- * (足さないと、別の差分を保存した時点で既定モデルが選択外になり 400 になる)。最後に認証の無い
- * provider の選択 (`pruneAvailabilityDraft()`) を落とし、表示と保存の対象を認証済みへ揃える。
+ * 下書きの初期値。`allowedModels === null` は全モデル選択として明示リストへ展開し、保存済みの
+ * 既定モデルが集合に無ければ 1 件足して、認証の無い provider の選択を落とす。
  */
 export function availabilityDraftFromSettings(
   settings: Pick<ModelsSettingsResponse, "allowedModels" | "defaultModel">,
@@ -716,9 +700,8 @@ export interface AvailabilityDraftState {
 }
 
 /**
- * 保存値とカタログから下書きの比較基準を作る。保存値 (allowedModels / defaultModel) が変わったときと、
- * カタログ無しで作った初期値をまだカタログつきで作り直していないときだけ作り直し、それ以外は同じ
- * 参照を返す。カタログの更新 (キー操作での再取得・取得失敗) だけでは、編集中の下書きを置換しない。
+ * 保存値とカタログから下書きの比較基準を作る。作り直すのは保存値が変わったときと、カタログ無しで
+ * 作った初期値をまだ作り直していないときだけで、それ以外は同じ参照を返す (編集中の下書きを置換しない)。
  */
 export function availabilityDraftState(
   previous: AvailabilityDraftState | null,
@@ -820,9 +803,8 @@ export interface AvailabilityNotice {
 }
 
 /**
- * 保存前の警告と確認文。選択 0 件はコンポーネントが保存自体を止めるためここでは扱わない。
- * 確認の出し方 (画面内確認) は `availabilitySaveOnSubmit()` で決め、ここは DOM に依存せず
- * 文言だけを組み立てる。
+ * 保存前の警告と確認文。選択 0 件はコンポーネントが保存を止めるため扱わず、ここは DOM に依存せず
+ * 文言だけを組み立てる (確認の出し方は availabilitySaveOnSubmit())。
  */
 export function availabilityNotice(
   draft: AvailabilityDraft,
@@ -911,10 +893,8 @@ export interface CandidateGroup {
 }
 
 /**
- * モデル候補の表示集合。認証済み provider のカタログ全件と、カタログ外の残存エントリ（外すまで
- * 保存できないため必ず出す）の和集合にする。認証の無い provider は下書きに選択が残っていても
- * 出さない（`pruneAvailabilityDraft()` と同じ判定で、表示と保存の対象を揃える）。並びは
- * 「プロバイダー」タブと同じカタログ順にし、カタログに無い残存は下書きの順でうしろへ足す（表示順だけ）。
+ * モデル候補の表示集合。認証済み provider の全件とカタログ外の残存の和集合で、並びはカタログ順
+ * (残存は下書きの順で後ろ)。認証の無い provider は下書きに残っていても出さない。
  */
 export function candidateGroups(
   draft: AvailabilityDraft,
