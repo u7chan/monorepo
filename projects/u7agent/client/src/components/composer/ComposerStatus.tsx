@@ -28,9 +28,8 @@ import { CompactIcon, RunSpinnerIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
 
 /**
- * 状態行のツール文言を短い間隔で間引く。新規ツールは id を観測してから同じ間隔だけ待ち、
- * それより短い one-shot を出さない。同じツールの進捗だけを既存の間隔で更新する
- * (docs/frontend.md)。
+ * 状態行のツール文言を短い間隔で間引く。新規ツールは id を観測してから間隔を空け、
+ * 短い one-shot を出さない (docs/frontend.md)。
  */
 function useLiveToolView(view: LiveToolStatusView | undefined): LiveToolStatusView | undefined {
   const [display, setDisplay] = useState(view);
@@ -130,13 +129,8 @@ function useLiveToolView(view: LiveToolStatusView | undefined): LiveToolStatusVi
 }
 
 /**
- * 入力欄の上の状態行 (活動 / モデル - Effort の入口 / Context ゲージ)。thinking 末尾の固定領域は状態行の上に置く。
- * モデル / Effort の入口・ゲージ・圧縮ボタンは 1 つの組にして右端へ寄せ、幅が足りないときだけ組ごと 2 行目へ折り返す
- * (別々に置くと、狭い画面で活動テキストが 1 文字幅まで潰れる。docs/ui-layout.md)。
- * 状態行の中は状態 (活動 / 経過 / モデル / ゲージ) に限り、説明 (待機の理由 / 作用の結果 / 押せない理由) は
- * 下の 1 行へ出す (同じ行に置くと、幅が足りないときに両方が折り返してどちらも行をまたぐ)。
- * 圧縮の不可逆性と課金の注意は、押した時点の確認 (`App` の handleCompact) が担う。
- * 最終失敗の再実行カードは状態行の上に出し、文言は BFF が合成した 1 文をそのまま使う。
+ * 入力欄の上の状態行。入口・ゲージ・圧縮は 1 組で右端へ寄せ、幅が足りないときだけ組ごと折り返す
+ * (別々に置くと活動テキストが 1 文字幅まで潰れる。docs/ui-layout.md)。説明は下の行へ出す。
  */
 export function ComposerStatus({
   activity,
@@ -161,10 +155,8 @@ export function ComposerStatus({
 }: {
   activity: string;
   /**
-   * 活動表示の由来 (SSE `status` の state)。thinking のときだけ活動ラベルに光を流す
-   * (ツール実行中や待機の文言まで流すと、演出ではなく装飾になる。docs/frontend.md)。
-   * 由来が付くのは run 自身の短いラベルだけで、復帰の長い文言と再試行の文言には付かない
-   * (折り返すと帯が行ごとに切れる。保証するのは chatReducer と App 側)
+   * 活動表示の由来 (SSE `status` の state)。thinking のときだけラベルに光を流す
+   * (ツール実行中や待機の文言まで流すと装飾になる。docs/frontend.md)。
    */
   activityState?: string;
   /**
@@ -282,10 +274,7 @@ export function ComposerStatus({
           </ReloadButton>
         </div>
       ) : null}
-      {/* 実行中の thinking の末尾。状態行の上に 2 行分の固定領域を置き、テキスト量・改行・折り返しでは
-          高さを変えない。状態行の下に置かないのは、tail が空の間もモデル行と入力欄の間に空白が残るため。領域は thinking の有無・run の終端でも開閉せず、常に同じ高さを確保する
-          (開閉で会話の見える範囲が動くため。docs/ui-layout.md)。読み上げは状態行の phase ラベルだけにし、
-          tail は aria-hidden にする */}
+      {/* 実行中の thinking の末尾。状態行の上に 2 行を常時確保する (docs/ui-layout.md) */}
       <div
         className={cn(
           "live-thought mb-1.5 pl-2.5 text-1xs leading-relaxed break-words whitespace-pre-line text-ink-soft",
@@ -315,9 +304,7 @@ export function ComposerStatus({
             </span>
             {/* 毎秒変わる数字は aria-live の外に置く (読み上げの連発を避ける) */}
             {elapsed === null ? null : (
-              // 数字の幅は秒の桁で変わる。実行のラベルを外した分を左の余白に回した
-              // 固定幅のスロットへ入れ、表示領域の端が動かないようにする。拍の key は
-              // 内側の文字だけに付け、10 秒ごとの演出でスロットを揺らさない
+              // 秒の桁で幅が変わるので固定幅スロットへ入れる。拍の key は内側の文字だけに付ける (スロットを揺らさないため)
               <span
                 aria-hidden="true"
                 title="実行の経過時間"
@@ -369,9 +356,8 @@ export function ComposerStatus({
         </div>
       </div>
       {queueReason === undefined && blockedNotice === undefined && notice === undefined ? null : (
-        // 説明 (待機の理由 / 作用の結果 / 押せない理由) の 1 行。待機の理由を活動と同じ行に置くと、
-        // 幅が足りないときに両方が折り返すため、状態行の外へ出す。作用の結果だけは自分の live region で
-        // 読み上げる (活動行の aria-live は次の status で別の文言に変わる)
+        // 説明 (待機・結果・押せない理由) の 1 行。状態行と一緒に折り返さないよう外へ出し、
+        // 作用の結果だけは自分の live region で読み上げる (活動行は次の status で文言が変わる)
         <div className="flex flex-wrap items-baseline justify-end gap-x-2 px-1 pb-1 text-right text-2xs text-ink-ghost">
           {notice === undefined ? null : (
             <p role="status" className="m-0 min-w-0 break-words text-warn">
