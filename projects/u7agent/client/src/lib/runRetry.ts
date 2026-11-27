@@ -1,7 +1,6 @@
 /**
- * 最終失敗したランの再実行導線。BFF が合成した 1 文と分類コードだけを使い、送信は通常の
- * ユーザーメッセージ (固定文言) に載せる。直前のターンだけを再実行する SDK API は無いため、
- * BFF から `prompt()` を再発行せず、既存の送信経路をそのまま使う (docs/run-lifecycle.md)。
+ * 最終失敗したランの再実行導線。BFF が合成した 1 文と分類コードだけを使い、送信は通常の固定文言の
+ * メッセージに載せる (再実行の SDK API が無いため prompt() を再発行せず既存経路を使う)。
  */
 import type { RunErrorCode, RunStatus } from "../types";
 
@@ -34,9 +33,8 @@ export function retryableRunError(runStatus: RunStatus, runError: RunErrorInfo |
 }
 
 /**
- * `run_end` / resync から保持する失敗。`status === "error"` のときだけ載せる
- * (停止要求と例外が同時のときは停止を正とし、停止直後の再実行カードを出さない)。
- * `errorCode` 無しの縮退 (旧 payload) では載せず、状態行の既存文言を維持する。
+ * `run_end` / resync から保持する失敗。`status === "error"` のときだけ載せ (停止が同時なら停止を正)、
+ * `errorCode` 無しの旧 payload では載せず状態行の文言を維持する。
  */
 export function runErrorFrom(
   status: RunStatus,
@@ -68,9 +66,8 @@ export function runRetryBlockedReason(input: {
 }
 
 /**
- * 状態行の下へ出す押せない理由の 1 行。無効な操作の名前は実際に無効なボタンから組み
- * (再実行だけが無効なときに圧縮を押せないと誤案内しない)、理由は重複させない
- * (docs/ui-layout.md)。1 行にまとめるのは、狭い画面で説明が入力欄を押し出さないため。
+ * 状態行の下へ出す押せない理由の 1 行。無効な操作の名前は実際に無効なボタンから組み、理由は
+ * 重複させない (1 行にまとめるのは狭い画面で説明が入力欄を押し出さないため)。
  */
 export function blockedButtonsNotice(input: { compact?: string; retry?: string }): string | undefined {
   const { compact, retry } = input;
