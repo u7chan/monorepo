@@ -178,10 +178,8 @@ export function useSessions({
   );
 
   /**
-   * 一覧を取り直す。取得できなかったときは null を返し、前回のリスト (sessionsRef) は保つ。
-   * 空の成功と区別できないと、URL が指定した会話 (`/s/<id>`) を「会話なし」として解決してしまう。
-   * 取得中の要求は制御が共有するので、ポーリング / SSE / 画面を開いたとき / 再読み込みが重なっても
-   * GET は 1 本のままで、遅い応答でも初回成功が捨てられない。
+   * 一覧を取り直す。取得できなければ null を返して前回の一覧を保つ (空の成功と区別できないと
+   * `/s/<id>` を「会話なし」に解決する)。取得は共有の制御で 1 本のまま、遅い応答でも初回成功を捨てない。
    */
   const refreshSessions = useCallback(
     async (isCurrent = alwaysCurrent, supersede = false): Promise<SessionSummary[] | null> => {
@@ -258,9 +256,8 @@ export function useSessions({
    * 回復に使う。取得できなければ何もしない (次の resync に任せる)。
    */
   /**
-   * 権威ある payload を取り直して適用する。応答から状態を確定できない失敗 (再送の通信断など) の
-   * 回復に使う。取得中に新しい SSE が届いていたら古い snapshot を適用せず true を返す
-   * (すでに新しい状態がある)。世代が変わった / 取得できなかったときは false。
+   * 権威ある payload を取り直して適用する (再送の通信断など、応答から状態を確定できない失敗の回復)。
+   * 取得中に新しい SSE が届いていたら古い snapshot を適用せず true (世代が変わった / 失敗は false)。
    */
   const resyncSession = useCallback(async (): Promise<boolean> => {
     const id = sessionIdRef.current;
@@ -368,9 +365,10 @@ export function useSessions({
       const selection = (selectionSeqRef.current += 1);
       // 選択が変わったら旧セッションの要求を持ち越さない (同じ ID に戻っても復活させない)
       fileRefRequests.clear();
-      // 引き継ぎ後は同じ id でも履歴が入れ替わっている。payload の resync は同じ id を「履歴を保つ
-      // 会話」と見るため、先に旧バブルと履歴のカーソルを捨てて新しい世代を開く。取得中の旧ページも
-      // ここで失効させる (GET の成功を待つと、その間の旧ページが有効扱いになり履歴が戻る)
+      /**
+       * 引き継ぎ後は同じ id でも履歴が入れ替わる。resync は同じ id を「履歴を保つ会話」と見るため、先に
+       * 旧バブルとカーソルを捨てて新しい世代を開き、取得中の旧ページも失効させる。
+       */
       if (discardHistory) history.reset();
       // 破損した候補が互いを指して往復するため、フォールバックも一覧 1 周で止める
       const failed = new Set<string>();
