@@ -12,7 +12,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const scanTargets = ["client/src"];
 
 /** 現在の実測値の ratchet。減らすのは自由で、増やすときは diff に出してレビューで合意する。 */
-const LONG_COMMENT_BUDGET = 272;
+const LONG_COMMENT_BUDGET = 256;
 
 /** prose として数えない行。参照ディレクティブと lint / format の制御は長さの対象外。 */
 const directivePattern = /^\/\/\s*(?:oxlint|eslint|@ts-|prettier-|#region|#endregion)/;
@@ -275,7 +275,8 @@ function commentsOf(text) {
 
 /**
  * JSX の子要素に置いた `/**` はコメントではなく文字として描画される (実際に踏んだ不具合)。
- * 直前の行が開きタグの `>` で終わる 1 行コメント風の `/**` を行番号で返す (`=>` は除く)。
+ * 直前の行が `>` `}` `)` で終わり、次の行が子要素 (`<` / `{` / `(`) で始まる `/**` を行番号で返す。
+ * 属性の間 (`onClose={` など) と `=>` の後ろはコメントなので除く。
  */
 function jsxTextComments(text) {
   const lines = text.split("\n");
@@ -286,9 +287,17 @@ function jsxTextComments(text) {
     if (indent < 4 || !line.trimStart().startsWith("/**")) continue;
     let previous = index - 1;
     while (previous >= 0 && lines[previous].trim() === "") previous -= 1;
-    if (previous < 0) continue;
+    let end = index;
+    while (end < lines.length && !lines[end].includes("*/")) end += 1;
+    let next = end + 1;
+    while (next < lines.length && lines[next].trim() === "") next += 1;
+    if (previous < 0 || next >= lines.length) continue;
     const before = lines[previous].trimEnd();
-    if (before.endsWith(">") && !before.endsWith("=>")) found.push(index + 1);
+    const after = lines[next].trimStart();
+    const children = before.endsWith(">") || before.endsWith("}") || before.endsWith(")");
+    const attribute = /^[A-Za-z_$][\w$]*\s*=/.test(after) || after.startsWith("...");
+    const child = after.startsWith("<") || after.startsWith("{") || after.startsWith("(");
+    if (children && !before.endsWith("=>") && !attribute && child) found.push(index + 1);
   }
   return found;
 }

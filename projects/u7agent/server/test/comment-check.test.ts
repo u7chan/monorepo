@@ -84,3 +84,19 @@ test("属性の間や => の後の /** は JSX の子ではない", () => {
   assert.deepEqual(jsxTextComments("const el = <div\n    a={1}\n    /** a */\n    b={2}\n/>;"), []);
   assert.deepEqual(jsxTextComments("const f = (x: number) =>\n    /** a */\n    x;"), []);
 });
+
+test("閉じ括弧の後ろでも、次が子要素なら JSX の子とみなす", () => {
+  const jsx = [
+    "const el = (",
+    "  <div>",
+    "    {a ? (",
+    "      <span />",
+    "    ) : null}",
+    "    /** a",
+    "     b */",
+    "    <span />",
+    "  </div>",
+    ");",
+  ].join("\n");
+  assert.deepEqual(jsxTextComments(jsx), [6]);
+});

@@ -12,11 +12,8 @@ import {
 } from "./chatReducerShared";
 
 /**
- * 応答 (`echoSendId`) が結び付ける待機の順位。待機の順位は応答が配る (押し込んだ直後の queueDepth)。
- * run_start が先に届いた run は既に走っているので、遅れて届いた応答で待機中にはしない。payload が
- * 先に待機を配っていればそちらを採る。要求後に新しい状態 (resync / 終端 / 待機の変化) が届いていれば、
- * 古い待機スナップショットは捨てる。同じ送信IDの queued が応答より先に届いていれば、その位置を
- * 応答へ引き継ぐ (どの時点の配列を見るかを 1 箇所に閉じる)
+ * 応答 (`echoSendId`) が結び付ける待機の順位。応答が配る queueDepth を採り、run_start が先の run は
+ * 待機中にしない。要求後に新しい状態が届いていれば古いスナップショットは捨てる。
  */
 function echoedQueuePosition(
   state: ChatState,
@@ -82,9 +79,10 @@ export function applyQueueAction(state: ChatState, action: QueueChatAction): Cha
     }
 
     case "queueCleared": {
-      // 破棄された待機メッセージは実行されない。送信IDが分かる分を未送信へ切り替え、
-      // 「送信済み」の見た目のまま残さない。応答 (echoSendId) がまだ届いていないエコーは送信IDが
-      // 無いため特定できず、控えを残して対応付いた時点で切り替える
+      /**
+       * 破棄された待機メッセージは実行されない。送信IDが分かる分を未送信へ切り替え、「送信済み」の見た目の
+       * まま残さない (ID が無いエコーは控えを残し、対応付いた時点で切り替える)。
+       */
       const cleared = new Set(action.sendIds);
       const bubbles = state.bubbles.map((bubble) => {
         // 送信IDを持たないバブルは run id で突き合わせる

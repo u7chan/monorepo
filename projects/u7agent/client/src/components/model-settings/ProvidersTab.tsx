@@ -84,9 +84,8 @@ export type ProvidersTabProps = ProviderOperations & {
 };
 
 /**
- * 「プロバイダー」タブ。左の一覧（全 provider）と右の詳細（キー・メモ・削除・再同期）を
- * 分け、singleColumn では一覧と詳細を切り替える。キー暗号化（メモは平文）の注意は詳細ペインの上部に
- * 常時出し、provider を切り替えても消えない。
+ * 「プロバイダー」タブ。左の一覧と右の詳細に分け、singleColumn では切り替える。キー暗号化 (メモは
+ * 平文) の注意は詳細ペインの上部に常時出し、provider を切り替えても消えない。
  */
 export function ProvidersTab({
   settings,
@@ -409,10 +408,8 @@ function SecurityNotice() {
 }
 
 /**
- * カスタムプロバイダーの注意。専用セクション（一覧の見出し下）に常時出し、singleColumn で
- * 一覧を畳んだときだけ詳細側にも出す（同時には出さず、同じ文を二重に見せない）。
- * 左列は幅が狭く、全部開いたままだと一覧が押し下げられるため、要点の 1 行だけを出して既定で畳む。
- * 短い注意だけを画面に置き、理由は docs が持つ。
+ * カスタムプロバイダーの注意。専用セクションに常時出し、singleColumn で一覧を畳んだときだけ詳細側にも
+ * 出す (同じ文を二重に見せない)。短い注意だけを画面に置き、理由は docs が持つ。
  */
 function CustomProviderSectionNotes({ variant = "section" }: { variant?: "section" | "detail" }) {
   return (

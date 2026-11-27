@@ -20,10 +20,8 @@ type ResizeDrag = {
 };
 
 /**
- * 上下 2 段のツリーの下端に重ねる高さのハンドル。ドラッグ / ↑↓ / Home / End / ダブルクリックで高さを決める。
- * 幅 (FileTreeWidthResizeHandle) と逆向きで、下へ動かす = ツリーを高くする。プレビュー側へはみ出さないよう、
- * 当たり判定はツリーの中 (境界の上) に置く。0px はツリーを完全に隠す (このハンドルは残るので戻せる)。
- * 高さの state は FileBrowser 側が持つため、ここは表示の追従 (preview) と確定 (commit) を呼ぶだけ。
+ * 上下 2 段のツリーの下端に重ねる高さのハンドル (ドラッグ / ↑↓ / Home / End / ダブルクリック)。
+ * 0px はツリーを完全に隠す (ハンドルは残るので戻せる)。高さの state は FileBrowser が持つ。
  */
 export function FileTreeHeightResizeHandle({
   height,
@@ -53,9 +51,10 @@ export function FileTreeHeightResizeHandle({
     return () => observer.disconnect();
   }, []);
 
-  // 終了経路 (pointerup / pointercancel / lostpointercapture / unmount) をここへまとめる。
-  // どの経路でもカーソルの解除・選択抑止の解除・aria-valuenow の確定を同じ処理で行う。
-  // pointerId は「いま drag 中のポインター」だけを受け付ける (別の指の同時タッチで終わらせない)
+  /**
+   * 終了経路 (pointerup / pointercancel / lostpointercapture / unmount) をここへまとめ、カーソルの解除・
+   * 選択抑止の解除・aria-valuenow の確定を同じ処理で行う (drag 中の pointerId だけを受け付ける)。
+   */
   const finishDrag = (pointerId: number | null, commitHeight: boolean) => {
     const drag = dragRef.current;
     if (!drag || (pointerId !== null && drag.pointerId !== pointerId)) return;
