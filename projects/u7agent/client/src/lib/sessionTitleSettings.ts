@@ -1,7 +1,6 @@
 /**
- * 設定 → 会話タイトルの表示変換と文言。DOM に依存しない純関数だけを置く。
- * 保存できる値の検証はサーバー (`PUT /api/settings/session-title`) が正で、ここは保存前に
- * 明らかな誤りを伝えるための写しを持つ (定義の上限はサーバーと揃える)。
+ * 設定 → 会話タイトルの表示変換と文言。DOM に依存しない純関数だけを置く。保存できる値の検証は
+ * サーバーが正で、ここは保存前に明らかな誤りを伝えるための写しを持つ (上限はサーバーと揃える)。
  */
 import type { ProviderBadge } from "./modelSettings";
 import { effortLabel } from "./composerSettings";

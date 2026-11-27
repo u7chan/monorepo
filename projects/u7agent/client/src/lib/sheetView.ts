@@ -15,13 +15,8 @@ export function sameSheetView(a: SheetView, b: SheetView): boolean {
 }
 
 /**
- * シートに次に見せる面。null は「今のままにする」。
- * 追従させない描画が 2 つある。
- *
- * - 開いていない間: 閉じる導線はモードを既定 (作業フォルダ) へ戻すため、取り込むとスライド中に中身が
- *   入れ替わる。開き直すときは開いた描画で追いつく
- * - scope (root / 画面 / layout) の変更で閉じる描画: 開閉の state が古い `true` のままなので、開いていると
- *   誤認して新しい root を取り込む。key が動いて、退場させたい dialog が作り直されてしまう
+ * シートに次に見せる面。null は「今のままにする」。開いていない間 (閉じる導線がモードを既定へ戻す) と
+ * scope の変更で閉じる描画 (state が古い `true` のまま) は、取り込むと中身が入れ替わるので追従しない。
  */
 export function nextSheetView(
   current: SheetView,

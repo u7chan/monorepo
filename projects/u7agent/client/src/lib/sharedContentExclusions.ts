@@ -1,7 +1,6 @@
 /**
- * 共有（Cloudflare への公開）の除外名の検証。下書き・追加・削除はアーカイブの設定と同じ純関数
- * （lib/archiveSettings.ts）を使い、共有だけの規則（`index.html` は公開に必要なので除外できない）をここへ足す。
- * 名前は全階層一致なので、許可すると入れ子の `index.html` も落とせてしまう。
+ * 共有 (Cloudflare への公開) の除外名の検証。下書き・追加・削除はアーカイブの設定と同じ純関数を使い、
+ * 共有だけの規則 (`index.html` は公開に必要なので除外できない) をここへ足す (名前は全階層一致)。
  */
 import { validateExcludeNames, type ArchiveSettingsDraft } from "./archiveSettings";
 

@@ -1,7 +1,6 @@
 /**
- * サイドバーのプロジェクト開閉の保存 schema。保存するのは「開いているプロジェクト」の cwd
- * (ワークスペース root 相対) の集合で、閉じた (未操作の) プロジェクトはエントリを作らない。
- * 保存先の解決と状態の控えは deviceSettingsStore.ts。
+ * サイドバーのプロジェクト開閉の保存 schema。保存するのは「開いているプロジェクト」の cwd (root 相対) の
+ * 集合で、閉じた (未操作の) プロジェクトはエントリを作らない。保存先の解決は deviceSettingsStore.ts。
  */
 import type { ConfirmRequest } from "./confirmDialog";
 import { createDeviceSettingsStore, type DeviceSettingsStorage, type DeviceSettingsStore } from "./deviceSettingsStore";
