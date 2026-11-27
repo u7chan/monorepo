@@ -64,8 +64,7 @@ export function imageAuthBadge(auth: ContentImageAuth): ProviderBadge {
 }
 
 /**
- * Codex のサインイン案内。APIキーを画像利用の前提にしないため、登録先を名指しする。
- * 設定 → モデルの「Sign in with ChatGPT」は `openai` の資格情報で、Codex が読む `openai-codex` とは別物。
+ * Codex のサインイン案内。APIキーを前提にせず登録先を名指しする (`openai` の資格情報とは別)。
  * 同じ画面の「OpenAI Codex」行からサインインでき、`openai` の行とは併用できる。
  */
 export const CODEX_SIGN_IN_NOTICE =
@@ -79,9 +78,8 @@ export const OPENROUTER_IMAGE_KEY_UNUSABLE_NOTICE =
   "保存済みの OpenRouter のAPIキーを使えません。下の欄で登録し直すと generate_image を使えます。";
 
 /**
- * 認証が足りないときの案内。使えるときは null。
- * `image.auth` は値を持たないため、OpenRouter の「保存済みだが使えない」はキーの状態で書き分ける
- * （同じ画面のバッジ / 警告と同じ事実を、同じ語で伝える）。
+ * 認証が足りないときの案内 (使えるときは null)。`image.auth` は値を持たないため、OpenRouter の
+ * 「保存済みだが使えない」はキーの状態で書き分ける。
  */
 export function imageAuthNotice(
   settings: Pick<ContentSettingsResponse, "keyStored" | "keyAvailable" | "keyErrorMessage" | "image">,
@@ -182,9 +180,8 @@ export interface ImageModelOption {
 }
 
 /**
- * モデル選択の選択肢。表示名の昇順（`localeCompare` を使わない単純な文字列比較）に並べ、保存済みの
- * モデルがカタログに無ければ現在の id を「（カタログ外）」として先頭に足す (何が保存されているかを見失わせない)。
- * name は DTO 上は空を許すため、表示名に使えないときと、同じ name が複数あるときは id を添えて一意にする。
+ * モデル選択の選択肢。単純な文字列比較の表示名順に並べ、保存済みがカタログに無ければ「（カタログ外）」
+ * として先頭に足す。表示名が無い / 重複するときは id を添えて一意にする。
  */
 export function imageModelOptions(settings: Pick<ContentSettingsResponse, "provider" | "image">): ImageModelOption[] {
   const { provider, image } = settings;
@@ -325,9 +322,8 @@ export function imageModelPickerRows(
 }
 
 /**
- * 描画用の画像モデル選択肢。`imageModelOptions()` は全件のまま残し（PUT 本文の解決・既定の保存キー・
- * 試行の既定化が使う）、ここだけが `visible: false` を落とす。保存中の値が無効でも選択欄が空にならないよう、
- * 現在値だけは専用ラベルで残す。
+ * 描画用のモデル選択肢。`imageModelOptions()` は全件のまま残し (PUT 本文と既定の解決が使う)、
+ * ここだけが `visible: false` を落とす。保存中の値が無効でも選択欄を空にしない。
  */
 export function visibleImageModelOptions(
   settings: Pick<ContentSettingsResponse, "provider" | "image">,
@@ -388,9 +384,8 @@ export function imageModelVisibilityNotice(
 }
 
 /**
- * 画面に出ている画像モデル（`provider/id`）。下書きがあれば下書き、無ければ保存値。
- * 試行の開始と証拠の判定もこの 1 つを使う（保存前の試行が保存値のモデルで走ったり、
- * 別モデルの実績を現在の証拠として数えたりしないため）。未設定は空文字。
+ * 画面に出ている画像モデル (`provider/id`)。下書きがあれば下書き、無ければ保存値で、試行の開始と
+ * 証拠の判定もこの 1 つを使う (保存前の試行や別モデルの実績を混ぜない)。
  */
 export function imageScreenModel(input: { draft: string | null; savedModel: string }): string {
   return input.draft ?? input.savedModel;
@@ -455,9 +450,8 @@ export interface ImageDefaultBody {
 }
 
 /**
- * [保存] で送る `parameters`。PUT は部分更新ではない（値あり = そのモデルの既定を丸ごと置き換える）ため、
- * 編集が 1 つでもあれば**宣言にある全項目**を返し、編集が無ければ `unchanged` にして省略させる。
- * `{}`（解除）をここで作らないのは、切替先モデルの既定を意図せず消さないため。
+ * [保存] で送る `parameters`。PUT は部分更新ではないため、編集が 1 つでもあれば宣言にある全項目を
+ * 返し、無ければ `unchanged` にする (`{}` を作らないのは切替先の既定を消さないため)。
  */
 export function imageDefaultBody(
   fields: readonly ImageParameterField[],
