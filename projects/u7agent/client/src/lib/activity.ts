@@ -1,7 +1,6 @@
 /**
- * 全スペース横断の実行状況 ( `/activity` ) の導出。会話 1 件 = 1 行とし、進行中 (回答待ち / 処理中) と
- * 直近 120 分の終了を 1 画面に出す。区分は排他 (圧縮中 → 回答待ち → 実行中 → 終了) で、件数・並び・
- * 経過時間の文字列はすべてこの module を正とする (docs/frontend.md)。
+ * 全スペース横断の実行状況 (`/activity`) の導出。会話 1 件 = 1 行とし、進行中と直近 120 分の終了を
+ * 出す。区分は排他で、件数・並び・経過時間はこの module を正とする (docs/frontend.md)。
  */
 import type { Project, ServeCommand, SessionSummary } from "../types";
 import { messageTimeLabel } from "./messageTime";
@@ -64,10 +63,8 @@ export function activityProgressCount(sessions: readonly SessionSummary[]): numb
 }
 
 /**
- * 一覧から実行状況の行を作る。区分は排他で、圧縮中を最優先、次に回答待ち、次に実行中 (`queued` を含む)。
- * 終了は `finishedAt` から 120 分以内だけを残し、`idle` とそれより古い終了は出さない。
- * 並びは 回答待ち → 処理中 → 直近の終了。処理中と回答待ちは `lastUsedAt` の新しい順、終了は
- * `finishedAt` の新しい順で、同値は `sessionId` で安定させる。
+ * 一覧から実行状況の行を作る。区分は排他 (圧縮中 → 回答待ち → 実行中)。終了は `finishedAt` から
+ * 120 分以内だけを残し、回答待ち → 処理中 → 終了の順で同値は sessionId で安定させる。
  */
 export function activityRows(
   sessions: readonly SessionSummary[],
