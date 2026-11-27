@@ -387,9 +387,10 @@ export function SkillSettingsPage({
     : editingFileSkill && selectedFileSkill
       ? `${selectedFileSkill.name} を編集`
       : undefined;
-  // ピッカーは一覧が隠れているときだけ出す (並べて見えている間は行の選択で切り替えられる)。
-  // 選択が無い間も、切り替え先が無いので空のピッカー (名前も印も無い 1 つの chevron) を出さない。
-  // 中身が何も無いヘッダだけが残らないよう、見出しも選択も無いときは行ごと落とす
+  /**
+   * ピッカーは一覧が隠れているときだけ出す (並べて見えている間は行の選択で切り替えられる)。選択が無い
+   * 間も空のピッカーを出さず、見出しも選択も無いときは行ごと落とす。
+   */
   const showPicker = !split && heading === undefined && selectedFileSkill !== undefined;
   // 見出し移動と読み上げのための名前。ページのヘッダを畳む面では画面から h2 が消えるので、
   // 詳細のヘッダに sr-only の h2 として同じ文字列を残す

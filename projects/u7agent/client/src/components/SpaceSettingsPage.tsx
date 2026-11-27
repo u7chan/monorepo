@@ -73,9 +73,10 @@ export function SpaceSettingsPage({
       onChange: setOrder,
     }),
   );
-  // ドラッグ中は下書きの順で並べる。既定スペースは先頭固定で、並べ替えの対象にしない。
-  // ドラッグ中に一覧が変わっても下書きは id の並びなので壊れない: 下書きに無い行（作成中の行）は
-  // その場に残り、消えた行の id は並べる相手が無いだけで無視される (`reorderRows`)
+  /**
+   * ドラッグ中は下書きの順で並べる。既定スペースは先頭固定で並べ替えの対象にしない。下書きが id の
+   * 並びなので、ドラッグ中に一覧が変わっても壊れない (無い行は残り、消えた id は無視される)。
+   */
   const visibleSpaces = order.draft ? reorderRows(space.spaces, order.draft) : space.spaces;
   const reorderIds = visibleSpaces.filter((item) => item.id !== DEFAULT_SPACE_ID).map((item) => item.id);
   const containerRef = useRef<HTMLDivElement>(null);
