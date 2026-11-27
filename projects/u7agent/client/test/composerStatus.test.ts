@@ -638,7 +638,7 @@ test("描画: 操作の結果 (取り消しの失敗理由) を状態行の下�
   assert.ok(!render({ activity: "実行中…" }).includes('role="status"'), "結果が無ければ行ごと出さない");
 });
 
-test("描画: thinking の末尾は状態行の下の固定領域に出し、読み上げの対象から外す", () => {
+test("描画: thinking の末尾は状態行の上の固定領域に出し、読み上げの対象から外す", () => {
   const html = render({
     activity: "考え中…",
     activityState: "thinking",

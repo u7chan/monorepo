@@ -247,6 +247,7 @@ GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui
 GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の合成シナリオで、desktop と singleColumn を確認する。本文に「長い思考」を含めると長い thinking（1200 code point 超）・複数回の更新・2 秒の無音・ツール実行への遷移を流し、「思考の再開」で本文 → thinking → 本文の再開を、「質問して」で thinking → 質問カード → 回答後の本文を流す（質問の待機は BFF の `askQuestion` に登録するので、回答は通常の回答 API から行う）。
 
 - thinking の delta が増えても固定領域の高さとチャットのスクロール範囲が変わらず、末尾 2 行だけが差し替わる。**run の開始・終了でも composer の高さと会話の見える範囲が動かない**（送信の通信中に圧縮や再実行の理由行が一瞬出ることもない）。
+- 末尾が空の間も、モデル / Effort の入口と Context ゲージが入力欄の直上に付き（間に空白が残らない）、空白は状態行の上（会話側）に出る。初期画面でも同じ。
 - writing / tool / question に移っても領域の高さは変わらず text だけ消える。run の終端・次の run の開始でも開閉しない。
 - F5 と再接続（dev のプロキシを止めて戻す）で tail が消え、次の thinking の delta で戻る。resync（設定変更 / 圧縮）でも固定領域の高さは変わらない。
 - 低い窓（高さ 390px 程度）と 320px 幅で入力欄と主ボタンが viewport の外へ出ない。
