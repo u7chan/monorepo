@@ -1,11 +1,11 @@
-// チャットの自動追従 (最下部付近にいるときだけ最新へ付ける) の判定。
-// client のテストに DOM 基盤が無いため、DOM を触らない純関数だけをここに置く。
-// 配線 (Effect / scroll ハンドラ / ResizeObserver) は ChatArea が持つ。
+/**
+ * チャットの自動追従 (最下部付近にいるときだけ付ける) の判定。DOM を触らない純関数だけを置き、
+ * 配線 (Effect / scroll / ResizeObserver) は ChatArea が持つ。
+ */
 
 /**
- * 最下部からの距離がこれ以内なら追従を続ける (px)。本文の行高は 22.75px (styles/index.css の .md) なので、
- * 丸め誤差や遅延ロードの小さなズレでは外れず、意図的な上スクロールでは外れる 2 行ぶんを取る。
- * ホイール量は機器と設定に依存するため「1 ノッチで必ず外れる」は保証しない。
+ * 最下部からの距離がこれ以内なら追従を続ける (px)。行高 22.75px の 2 行ぶんを取り、丸め誤差や遅延
+ * ロードでは外れず意図的な上スクロールでは外れる (ホイール量は機器依存なので保証しない)。
  */
 export const CHAT_FOLLOW_THRESHOLD = 48;
 
@@ -38,17 +38,8 @@ export type ScrollFollowOutcome = {
 };
 
 /**
- * scroll イベントを受けたときの次の追従を決める。
- *
- * 追従を外せるのは、ユーザーが上へ戻した (位置が減る) ときだけ。位置が増える scroll は自分の snap の
- * 代入か、レイアウトの再折り返しでブラウザーが動かした位置で、どちらもユーザー操作ではない。右パネルを
- * 開くとチャット幅が変わって本文が折り返し直り、Chrome のスクロールアンカリングが scrollTop を増やして
- * 最下部から離れた位置の scroll を配る。この scroll は同じフレームの ResizeObserver callback より先に
- * 届くため、距離だけで判定すると追従が外れ、直後の callback も follow が false で書き戻さなくなる
- * (実測: 追従中に右パネルを開くと 70/71 で外れた)。
- *
- * 追従中に離れていたら書き戻す。アンカリングは追従中だけ止め、読み返し中 (follow が false) に
- * レイアウトが変わったときの読み位置を保つ役目はブラウザーに残す。
+ * scroll イベントを受けたときの次の追従を決める。追従を外せるのは位置が減るときだけで、増える
+ * scroll は自分の snap かアンカリング (同じフレームの ResizeObserver より先に届く) なので書き戻す。
  */
 export function resolveScrollFollow(input: ScrollFollowInput): ScrollFollowOutcome {
   const atBottom = isAtBottom(input);

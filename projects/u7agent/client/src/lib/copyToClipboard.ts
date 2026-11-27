@@ -1,10 +1,6 @@
 /**
- * navigator.clipboard は Secure Context (https / localhost) 専用のため、http では document.execCommand("copy")
- * へフォールバックする (https でも権限・フォーカス等で失敗した場合を含む)。
- *
- * WebKit の execCommand は「実 selection」と「viewport 内に描画された要素」を要求し、必要な条件が版ごとに違う
- * ため、1 経路ずつ順に試す (経路と順序の根拠は docs/sandbox.md)。どれも通らなければ試した内訳を message に
- * 入れて投げ、UI が失敗の通知に出す。
+ * navigator.clipboard は Secure Context 専用のため、http では document.execCommand("copy") へ
+ * フォールバックする。WebKit の要求が版ごとに違うので 1 経路ずつ順に試す (根拠は docs/sandbox.md)。
  */
 
 /** execCommand 経路で使う一時要素。本文の選択は経路ごと (textarea / contenteditable) に作る */
@@ -113,9 +109,8 @@ export async function copyToClipboard(text: string, deps: ClipboardDeps = browse
 }
 
 /**
- * コピーできなかったときの手動の導線。本文を選択状態にし、長押し / Ctrl+C などのブラウザーの標準操作へ渡す
- * (選択を解除するのは利用者に任せる)。畳まれた details の中身は選択できないため、対象を含む details は先に
- * 開く。対象が画面に出ていないコピー (診断情報など) では呼ばない
+ * コピーできなかったときの手動の導線。本文を選択してブラウザーの標準操作へ渡し、畳まれた details は
+ * 先に開く。画面に出ていないコピー (診断情報など) では呼ばない。
  */
 export function selectCopyTarget(element: Element | null): void {
   if (element === null) return;
@@ -153,9 +148,8 @@ function browserClipboardDeps(): ClipboardDeps {
 }
 
 /**
- * 一時要素を付ける先。modal dialog の外は inert で、focus() しても \`document.activeElement\` が動かず、
- * 実 selection の無いまま execCommand が true を返す (空をコピーしたのに成功になる)。開いている dialog が
- * あればその中へ入れる
+ * 一時要素を付ける先。modal dialog の外は inert で、focus() しても実 selection が無いまま
+ * execCommand が true を返す (空をコピーしたのに成功になる)。開いている dialog の中へ入れる。
  */
 function clipboardHost(): HTMLElement {
   const active = document.activeElement;
