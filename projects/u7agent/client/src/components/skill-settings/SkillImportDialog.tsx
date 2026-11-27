@@ -33,9 +33,8 @@ export type SkillImportDialogProps = {
 };
 
 /**
- * インポートの plan を見て、置き換えるスキルを選ぶ専用ダイアログ。共有の `DialogRequest` は confirm / prompt の
- * 2 種なので、選択を持つこの画面は `ProjectDialog` と同じ専用部品にする。モーダルの標準挙動 (背面の inert 化 /
- * Tab の拘束 / Escape での終了) と焦点の復帰に任せる。
+ * インポートの plan を見て置き換えるスキルを選ぶ専用ダイアログ。共有の `DialogRequest` は confirm /
+ * prompt の 2 種なので専用部品にし、標準挙動と焦点の復帰に任せる。
  */
 export function SkillImportDialog({
   flow,

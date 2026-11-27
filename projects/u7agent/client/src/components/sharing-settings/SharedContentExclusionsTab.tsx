@@ -13,9 +13,8 @@ export type SharedContentExclusionsTabProps = {
 };
 
 /**
- * 設定 → 共有「公開の除外」タブの中身。ダウンロードの除外と同じ一覧エディタを使い、
- * 公開だけの規則（対象ディレクトリ自身の名前は落とす / `index.html` は除外できない）と、
- * ダウンロードの除外との違いを文言で示す。
+ * 設定 → 共有「公開の除外」タブの中身。ダウンロードの除外と同じ一覧エディタを使い、公開だけの規則
+ * (対象ディレクトリ自身の名前は落とす / `index.html` は除外できない) を文言で示す。
  */
 export function SharedContentExclusionsTab({
   exclusions,

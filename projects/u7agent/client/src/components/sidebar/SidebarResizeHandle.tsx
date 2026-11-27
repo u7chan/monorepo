@@ -9,9 +9,8 @@ import {
 } from "../../lib/sidebarWidth";
 
 /**
- * 左バー右端に重ねる幅のハンドル。ドラッグ / →← / Home / End / ダブルクリックで幅を決める。
- * 幅の state は App 側が持つため、ここは表示の追従 (preview) と確定 (commit) を呼ぶだけ。
- * 右パネル (SessionFilesPanel の左端) とは向きが逆で、右へ動かす = 幅を増やす。
+ * 左バー右端に重ねる幅のハンドル (ドラッグ / →← / Home / End / ダブルクリック)。幅の state は App が
+ * 持ち、ここは preview と commit を呼ぶだけ。右パネルとは向きが逆で、右へ動かす = 幅を増やす。
  */
 export function SidebarResizeHandle({ width, min, max, preview, commit, reset }: SidebarResize) {
   const handleRef = useRef<HTMLDivElement>(null);
