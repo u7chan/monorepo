@@ -96,9 +96,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   // 会話の選択は app.sessionId が正で、`/s/<id>` はそれを映す鏡 (URL へ書く条件は lib/route.ts の sessionPath)
   const { route, navigate, syncSessionPath, lastSettingsSection } = useRoute(space.selected.id);
   const app = useU7Agent({ pendingSessionId: route.view === "chat" ? route.sessionId : undefined });
-  // 確定した選択を URL へ映す唯一の Effect。書く条件 (設定の表示中 / 未解決の入口が未選択のまま) は
-  // lib/route.ts の純関数が持ち、依存は primitive だけにする (route 全体を依存にすると新 object の
-  // set でループする)
+  // 確定した選択を URL へ映す唯一の Effect。書く条件は lib/route.ts の純関数が持ち、
+  // 依存は primitive だけにする (route 全体だと新しい object の set でループする)
   const urlSessionId = route.view === "chat" ? route.sessionId : undefined;
   useEffect(() => {
     syncSessionPath(sessionPath(route.view, app.sessionId, app.entryResolved));
@@ -268,9 +267,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     if (mainView !== "settings" || navOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      // モーダルが開いている間はその面が Escape を受ける (順序は 詳細 → ドロワー → チャット。
-      // 設定の一覧 ⇄ 詳細はページが capture で受けるので、ここまで届かない)
-      // 退場中は焦点が body へ外れて各面の stopPropagation を通らないため、ここでも見る
+      // モーダルが開いている間はその面が Escape を受ける (詳細 → 一覧 → チャット復帰の順)。
+      // 退場中は焦点が body へ外れて stopPropagation を通らないため、ここでも見る
       if (document.querySelector("dialog[open]")) return;
       backToChat();
     };
@@ -437,9 +435,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     onCancel: serve.cancel,
   };
 
-  // 利用者操作の新規会話の入口をここへ寄せる (サイドバー / ドロワー / エージェント切替 / プロジェクトの追加)。
-  // 作成先はプロジェクトを指定する導線 (プロジェクト行の ⋯「このプロジェクトに新しい会話」/ 追加の成功後) が渡したときだけプロジェクトになり、
-  // それ以外は未所属 (最後に開いたプロジェクトを引き継がない)。既定 (プロジェクト配下なら開) の適用はこの入口だけ
+  // 新規会話の入口をここへ寄せる (サイドバー / ドロワー / エージェント切替 / プロジェクトの追加)。
+  // 作成先はプロジェクトを指定する導線が渡したときだけで、既定 (プロジェクト配下なら開) の適用もここだけ
   const handleNewChat = useCallback(
     (agentId?: string, projectId?: string) => {
       const target = projectId ?? "";
@@ -545,9 +542,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     onOpenSettings: () => openSettingsSection("notifications"),
   };
 
-  // 移動先の App へ渡された引き継ぎの警告。入口 (`/s/<id>`) の解決が終わってから出す
-  // (先に出すと、payload を適用する `resync` の初期化で消える)。解決までに別の会話へ移っていたら
-  // 出さずに捨てる (関係ない会話の状態行に残さない)
+  // 移動先へ渡された引き継ぎの警告。入口 (`/s/<id>`) の解決が終わってから出す (先に出すと
+  // resync の初期化で消える)。解決までに別の会話へ移っていたら捨てる (関係ない会話に残さない)
   useEffect(() => {
     if (!handoffNote || !app.entryResolved) return;
     // 未選択 (= 開けずに新規チャットへ移った) か、対象の会話を開けていれば出す
@@ -668,10 +664,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
         className="session-files-columns grid min-h-0 min-w-0 grid-rows-1 overflow-hidden"
       >
         <div className="grid min-h-0 min-w-0 grid-cols-1 grid-rows-1 overflow-hidden">
-          {/* 設定ページを開いている間もチャットは mount したまま (実行中のラン・SSE・入力中の下書き・
-              スクロール位置を unmount で失わないため)。display は切らず、opacity と visibility だけを動かす。
-              両方を 1 マスへ明示的に重ねる: display を切らないので auto 配置だと後から出た方が暗黙の 2 行目に
-              落ち、隠れている側が場所を取り続ける (visibility はレイアウトを残す) */}
+          {/* 設定ページを開いている間もチャットは mount したまま (実行中のラン・SSE・下書きを失わない)。
+          display は切らず opacity と visibility だけを動かし、2 面を 1 マスへ明示的に重ねる (docs/ui-layout.md) */}
           <div
             data-visible={mainView === "chat"}
             // visibility: hidden は子の visibility: visible で上書きできるため、隠れている間は
